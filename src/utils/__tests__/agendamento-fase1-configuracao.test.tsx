@@ -10,9 +10,9 @@
  * passaria nessa asserção. Por isso cada caso de recusa afirma DUAS coisas:
  *
  *   (1) a mensagem está no DOM, e
- *   (2) `onSalvarFaixas` NÃO foi chamada.
+ *   (2) `onMontarGrade` NÃO foi chamada.
  *
- * E há o espelho obrigatório: um caso que GRAVA. Sem ele, "nunca chama `onSalvarFaixas`" ficaria
+ * E há o espelho obrigatório: um caso que GRAVA. Sem ele, "nunca chama `onMontarGrade`" ficaria
  * verde num componente que recusa tudo — o caso escolhido não discriminaria os dois estados
  * (variante 2 da mesma regra).
  *
@@ -32,9 +32,16 @@ import path from 'path'
 
 import {
   LIMITES,
+  DIAS_DA_SEMANA,
   avisoDaCopiaDaGrade,
+  avisoDoAdicionar,
+  avisoDoSubstituir,
   confirmacaoDaReplica,
+  confirmacaoDoSubstituir,
   listaEmPortugues,
+  mensagemDeNadaAGravar,
+  mensagemDoAdicionar,
+  mensagemDoSubstituir,
   estadoDoFuncionarioNoLink,
   exigeConfirmacaoDaCopia,
   faixaRecusada,
@@ -104,7 +111,12 @@ function fazerAcoes(): AcoesDoPainel & { [k: string]: jest.Mock } {
     onGerarLink: jest.fn(),
     onAlternarAtivo: jest.fn(),
     onSalvarConfiguracao: jest.fn(),
-    onSalvarFaixas: jest.fn(),
+    // >>> ELA DEVOLVE `true` POR PADRÃO, E ISSO IMPORTA <<<
+    // `onMontarGrade` é `Promise<boolean>`: o painel só emite a mensagem de sucesso quando o
+    // retorno é `true`. Um `jest.fn()` nu devolveria `undefined`, que é falso, e TODOS os casos
+    // que afirmam a mensagem final ficariam vermelhos por causa do dublê, não do componente.
+    // O caso que afirma o contrário passa `false` explicitamente.
+    onMontarGrade: jest.fn().mockResolvedValue(true),
     onRemoverFaixa: jest.fn(),
     onSalvarFolga: jest.fn(),
     onRemoverFolga: jest.fn(),
@@ -133,6 +145,20 @@ function renderizar(node: React.ReactElement) {
   document.body.appendChild(host)
   root = createRoot(host)
   act(() => { root!.render(node) })
+}
+
+/**
+ * Deixa as microtarefas rodarem DENTRO de `act`.
+ *
+ * >>> `await Promise.resolve()` SOZINHO NÃO BASTA, E ISSO FOI MEDIDO <<<
+ *
+ * O handler da montagem é `async`: ele espera `onMontarGrade` e só então emite a mensagem. A
+ * primeira versão dos dois casos da mensagem final usava `await Promise.resolve()` solto e
+ * ficou vermelha — o `setState` do toast acontecia fora de `act`, e a árvore não era
+ * recomposta antes da asserção. O `act` assíncrono é o que falta.
+ */
+async function deixarAssentar() {
+  await act(async () => { await Promise.resolve() })
 }
 
 function desmontar() {
@@ -213,243 +239,6 @@ describe('§6.1 — a configuração só existe para tenant de SERVIÇO', () => 
       />,
     )
     expect(textoDaTela()).toContain('Grade de atendimento')
-  })
-})
-
-// ═══════════════════════════════════════════════════════════════════════════════════════════
-/**
- * >>> ESTE BLOCO AFIRMAVA O CONTRÁRIO ATÉ 08/10/2026, E A INVERSÃO É DELIBERADA <<<
- *
- * Ele se chamava "faixas sobrepostas … são RECUSADAS". A Mudança 2 do dono do produto trocou a
- * regra: *"se tiver qualquer horário ali, vai ser sobrescrito em cima"*. Os casos não foram
- * apagados — foram INVERTIDOS, e cada um guarda em comentário o que afirmava antes. Apagá-los
- * deixaria a suíte sem registro de que a troca foi pedida, e a próxima pessoa a ler o código
- * acharia que o comportamento sempre foi este.
- *
- * O que NÃO mudou: `validarFaixa` continua existindo, continua sendo a fonte do critério de
- * sobreposição, e os casos dela mais abaixo seguem verdes — a função não foi tocada, só deixou
- * de ser consultada por este caminho.
- */
-describe('§6.2 — a faixa nova SOBRESCREVE o dia marcado (antes: era recusada)', () => {
-  const gradeComManha: DadosDoAgendamento = dadosBase({
-    grade: [
-      { id: 'f1', employee_id: 'e1', weekday: 1, start_time: '09:00:00', end_time: '12:00:00' },
-    ],
-  })
-
-  it('sobreposta: GRAVA, e manda o id da antiga para remoção', () => {
-    const acoes = fazerAcoes()
-    renderizar(
-      <PainelDeAgendamento
-        open onClose={() => {}} calcType="SERVICE"
-        dados={gradeComManha} acoes={acoes} baseUrl="https://app.exemplo.com"
-        faixaInicial={{ weekday: 1, start_time: '11:00', end_time: '15:00' }}
-      />,
-    )
-    // >>> O RÓTULO DO BOTÃO É A PRIMEIRA ASSERÇÃO, E ELE MUDOU <<<
-    // Com dia marcado que já tem faixa, o botão diz "Substituir faixa". Se ele ainda dissesse
-    // "+ Adicionar faixa", este `clicarBotaoExato` não acharia alvo nenhum — a guarda
-    // `toBe(1)` do helper derruba o caso. O rótulo é afirmado pelo próprio clique.
-    clicarBotaoExato('Substituir faixa')
-
-    // O EFEITO: grava as novas E entrega o id da antiga. Até 07/10 esta linha era
-    // `not.toHaveBeenCalled()`.
-    expect(acoes.onSalvarFaixas).toHaveBeenCalledTimes(1)
-    expect(acoes.onSalvarFaixas).toHaveBeenCalledWith(
-      'e1',
-      [{ weekday: 1, start_time: '11:00', end_time: '15:00' }],
-      ['f1'],
-    )
-    // E a mensagem de conflito NÃO existe mais: ela afirmava uma recusa que não acontece.
-    expect(textoDaTela()).not.toContain('Já existe faixa nesse horário')
-  })
-
-  it('o AVISO aparece ANTES do clique, nomeando o dia — e sem modal', () => {
-    // A Mudança 2 proíbe o modal: *"O aviso aparece ANTES do clique"*. O caso afirma o texto
-    // ANTES de clicar em coisa nenhuma — se ele só aparecesse depois, esta asserção cairia.
-    const acoes = fazerAcoes()
-    renderizar(
-      <PainelDeAgendamento
-        open onClose={() => {}} calcType="SERVICE"
-        dados={gradeComManha} acoes={acoes} baseUrl="https://app.exemplo.com"
-        faixaInicial={{ weekday: 1, start_time: '11:00', end_time: '15:00' }}
-      />,
-    )
-    expect(textoDaTela()).toContain('Segunda já tem faixas — será substituída.')
-    expect(acoes.onSalvarFaixas).not.toHaveBeenCalled()
-  })
-
-  it('dia marcado SEM faixa: o botão volta a ser "+ Adicionar faixa" e não há aviso', () => {
-    // O espelho obrigatório do caso acima. Sem ele, "mostra o aviso" ficaria verde num painel
-    // que mostrasse o aviso SEMPRE — e um aviso constante não avisa nada.
-    const acoes = fazerAcoes()
-    renderizar(
-      <PainelDeAgendamento
-        open onClose={() => {}} calcType="SERVICE"
-        dados={gradeComManha} acoes={acoes} baseUrl="https://app.exemplo.com"
-        faixaInicial={{ weekday: 3, start_time: '11:00', end_time: '15:00' }}
-      />,
-    )
-    expect(textoDaTela()).not.toContain('já tem faixas')
-    expect(textoDaTela()).not.toContain('já têm faixas')
-    clicarBotaoExato('+ Adicionar faixa')
-    expect(acoes.onSalvarFaixas).toHaveBeenCalledWith(
-      'e1', [{ weekday: 3, start_time: '11:00', end_time: '15:00' }], [],
-    )
-  })
-
-  it('ENCOSTAR também substitui: 12:00–18:00 depois de 09:00–12:00 APAGA a manhã', () => {
-    // >>> O CASO QUE PROVA QUE O CRITÉRIO É O DIA, E NÃO A INTERSEÇÃO <<<
-    //
-    // 09:00–12:00 e 12:00–18:00 não dividem um minuto. Até 07/10 este era o caso canônico do
-    // "encosta e NÃO é conflito", e `f1` FICAVA — a asserção era só
-    // `toHaveBeenCalledWith('e1', [...])`, sem terceiro argumento. Hoje `f1` sai, porque o dia
-    // marcado é limpo inteiro. É o único caso desta suíte que distingue "dia inteiro" de "só os
-    // sobrepostos": nos outros os dois conjuntos coincidem.
-    const acoes = fazerAcoes()
-    renderizar(
-      <PainelDeAgendamento
-        open onClose={() => {}} calcType="SERVICE"
-        dados={gradeComManha} acoes={acoes} baseUrl="https://app.exemplo.com"
-        faixaInicial={{ weekday: 1, start_time: '12:00', end_time: '18:00' }}
-      />,
-    )
-    clicarBotaoExato('Substituir faixa')
-
-    expect(acoes.onSalvarFaixas).toHaveBeenCalledTimes(1)
-    // O contrato virou PLURAL em 06/10/2026 (§2) e ganhou os ids em 08/10.
-    expect(acoes.onSalvarFaixas).toHaveBeenCalledWith(
-      'e1',
-      [{ weekday: 1, start_time: '12:00', end_time: '18:00' }],
-      ['f1'],
-    )
-  })
-
-  it('OUTRO DIA não é conflito: 11:00–15:00 na terça passa com a segunda ocupada', () => {
-    const acoes = fazerAcoes()
-    renderizar(
-      <PainelDeAgendamento
-        open onClose={() => {}} calcType="SERVICE"
-        dados={gradeComManha} acoes={acoes} baseUrl="https://app.exemplo.com"
-        faixaInicial={{ weekday: 2, start_time: '11:00', end_time: '15:00' }}
-      />,
-    )
-    // Terça não tem faixa, então o rótulo é o de acréscimo — e o `f1` da segunda NÃO entra na
-    // remoção. É a proteção do dia não marcado, afirmada na tela.
-    clicarBotaoExato('+ Adicionar faixa')
-    expect(acoes.onSalvarFaixas).toHaveBeenCalledWith(
-      'e1', [{ weekday: 2, start_time: '11:00', end_time: '15:00' }], [],
-    )
-  })
-
-  it('OUTRO FUNCIONÁRIO não é conflito — a grade do Zé não bloqueia a da Ana', () => {
-    const acoes = fazerAcoes()
-    renderizar(
-      <PainelDeAgendamento
-        open onClose={() => {}} calcType="SERVICE"
-        dados={dadosBase({
-          grade: [
-            { id: 'f9', employee_id: 'e2', weekday: 1, start_time: '09:00:00', end_time: '18:00:00' },
-          ],
-        })}
-        acoes={acoes} baseUrl="https://app.exemplo.com"
-        faixaInicial={{ weekday: 1, start_time: '10:00', end_time: '11:00' }}
-      />,
-    )
-    // A faixa de `e2` está na segunda, o mesmo dia — e mesmo assim nada é removido, porque a
-    // célula lê só `faixasPorEmp['e1']`. Com o id de `e2` em `idsParaRemover`, replicar a grade
-    // de um apagaria a do outro.
-    clicarBotaoExato('+ Adicionar faixa')
-    expect(acoes.onSalvarFaixas).toHaveBeenCalledWith(
-      'e1', [{ weekday: 1, start_time: '10:00', end_time: '11:00' }], [],
-    )
-  })
-
-  // ── o mesmo critério, na função pura, onde o EFEITO é o motivo ───────────────────────────
-  it('`validarFaixa` recusa a sobreposição com motivo SOBREPOSICAO e aponta o conflito', () => {
-    const r = validarFaixa(
-      { weekday: 1, start_time: '11:00', end_time: '15:00' },
-      [{ id: 'f1', weekday: 1, start_time: '09:00', end_time: '12:00' }],
-    )
-    expect(faixaRecusada(r)).toBe(true)
-    if (!faixaRecusada(r)) throw new Error('inalcançável')
-    expect(r.motivo).toBe('SOBREPOSICAO')
-    expect(r.conflito?.id).toBe('f1')
-  })
-
-  it('faixa INATIVA não bloqueia — desativada não ocupa horário', () => {
-    const r = validarFaixa(
-      { weekday: 1, start_time: '09:00', end_time: '12:00' },
-      [{ id: 'f1', weekday: 1, start_time: '09:00', end_time: '12:00', is_active: false }],
-    )
-    expect(r.ok).toBe(true)
-  })
-
-  it('editar a PRÓPRIA faixa não conflita com ela mesma', () => {
-    const r = validarFaixa(
-      { id: 'f1', weekday: 1, start_time: '09:00', end_time: '13:00' },
-      [{ id: 'f1', weekday: 1, start_time: '09:00', end_time: '12:00' }],
-    )
-    expect(r.ok).toBe(true)
-  })
-
-  it('a comparação é por MINUTOS, não por string: `9:00` sem zero à esquerda é recusado', () => {
-    // `'9:00' < '10:00'` é FALSE em string — a forma sem zero inverteria a comparação e a
-    // sobreposição passaria. `horaParaMinutos` é a travessia única, e é ela que impede isso.
-    const r = validarFaixa(
-      { weekday: 1, start_time: '9:30', end_time: '10:30' },
-      [{ id: 'f1', weekday: 1, start_time: '09:00', end_time: '12:00' }],
-    )
-    expect(faixaRecusada(r)).toBe(true)
-    if (!faixaRecusada(r)) throw new Error('inalcançável')
-    expect(r.motivo).toBe('SOBREPOSICAO')
-  })
-})
-
-// ═══════════════════════════════════════════════════════════════════════════════════════════
-describe('§6.3 — `end_time <= start_time` é recusado', () => {
-  it('no DOM: 18:00→09:00 mostra a mensagem E não grava', () => {
-    const acoes = fazerAcoes()
-    renderizar(
-      <PainelDeAgendamento
-        open onClose={() => {}} calcType="SERVICE"
-        dados={dadosBase()} acoes={acoes} baseUrl="https://app.exemplo.com"
-        faixaInicial={{ weekday: 1, start_time: '18:00', end_time: '09:00' }}
-      />,
-    )
-    // Recusa não tem aviso de substituição, então o rótulo é o de acréscimo — e é ele que o
-    // helper exato exige achar.
-    clicarBotaoExato('+ Adicionar faixa')
-    // O EFEITO primeiro, e o texto é o de `adicionarFaixaEmDias` desde 06/10/2026 (§2).
-    expect(acoes.onSalvarFaixas).not.toHaveBeenCalled()
-    expect(textoDaTela()).toContain('A hora final deve ser maior que a inicial.')
-  })
-
-  it('IGUAL também é recusado — 10:00→10:00 é faixa de duração zero', () => {
-    const acoes = fazerAcoes()
-    renderizar(
-      <PainelDeAgendamento
-        open onClose={() => {}} calcType="SERVICE"
-        dados={dadosBase()} acoes={acoes} baseUrl="https://app.exemplo.com"
-        faixaInicial={{ weekday: 1, start_time: '10:00', end_time: '10:00' }}
-      />,
-    )
-    clicarBotaoExato('+ Adicionar faixa')
-    expect(acoes.onSalvarFaixas).not.toHaveBeenCalled()
-    const r = validarFaixa({ weekday: 1, start_time: '10:00', end_time: '10:00' }, [])
-    expect(faixaRecusada(r)).toBe(true)
-    if (!faixaRecusada(r)) throw new Error('inalcançável')
-    expect(r.motivo).toBe('FIM_ANTES_DO_INICIO')
-  })
-
-  it('hora impossível é HORA_INVALIDA, não FIM_ANTES_DO_INICIO — motivos distintos', () => {
-    const a = validarFaixa({ weekday: 1, start_time: '25:00', end_time: '26:00' }, [])
-    const b = validarFaixa({ weekday: 1, start_time: '09:70', end_time: '10:00' }, [])
-    for (const r of [a, b]) {
-      expect(faixaRecusada(r)).toBe(true)
-      if (!faixaRecusada(r)) throw new Error('inalcançável')
-      expect(r.motivo).toBe('HORA_INVALIDA')
-    }
   })
 })
 
@@ -1053,113 +842,16 @@ describe('§4 — o link é GRAVADO e copiável sempre, nos dois estados com tok
 })
 
 // ───────────────────────────────────────────────────────────────────────────────────────────
-describe('§3 — aplicar a mesma grade a vários SUBSTITUI, e o aviso traz o NÚMERO', () => {
-  function abrirCopia(acoes = fazerAcoes()) {
-    renderCinco({}, acoes)
-    // >>> O BOTÃO MUDOU DE LUGAR E DE RÓTULO EM 08/10/2026 <<<
-    // Era um só, no topo da seção, e a origem saía de um `Select`. A Mudança 3 o pôs DENTRO de
-    // cada célula, com o nome do profissional no rótulo: a origem é a célula, não uma escolha.
-    // Por isso o rótulo nomeia "Barbeiro Um" — e é ele que fixa a origem `e1` que as asserções
-    // de `onAplicarGrade` abaixo afirmam. Com o botão de volta no topo, o rótulo exato não
-    // existe e a guarda `toBe(1)` do helper derruba os seis casos.
-    clicarBotaoExato('Replicar a grade de Barbeiro Um para outros profissionais')
-    return acoes
-  }
-
-  it('o plano diz quantas faixas cada destino PERDE e quantas GANHA', () => {
-    const porEmp = (id: string) => GRADE_CINCO.filter((f) => f.employee_id === id) as any
-    const planos = planejarCopiaDaGrade(
-      porEmp('e1'),                                   // origem: 2 faixas
-      [{ id: 'e2', name: 'Dois' }, { id: 'e4', name: 'Quatro' }],
-      porEmp,
-    )
-    expect(planos).toEqual([
-      { destino_id: 'e2', destino_nome: 'Dois', faixasAPerder: 1, faixasAGanhar: 2 },
-      { destino_id: 'e4', destino_nome: 'Quatro', faixasAPerder: 0, faixasAGanhar: 2 },
-    ])
-  })
-
-  it('exige confirmação SÓ quando algum destino tem faixa a perder', () => {
-    expect(exigeConfirmacaoDaCopia([
-      { destino_id: 'a', destino_nome: 'A', faixasAPerder: 0, faixasAGanhar: 2 },
-    ])).toBe(false)
-    expect(exigeConfirmacaoDaCopia([
-      { destino_id: 'a', destino_nome: 'A', faixasAPerder: 0, faixasAGanhar: 2 },
-      { destino_id: 'b', destino_nome: 'B', faixasAPerder: 3, faixasAGanhar: 2 },
-    ])).toBe(true)
-  })
-
-  it('o aviso traz o NÚMERO de faixas perdidas, com o nome do destino', () => {
-    const aviso = avisoDaCopiaDaGrade([
-      { destino_id: 'b', destino_nome: 'Barbeiro Dois', faixasAPerder: 3, faixasAGanhar: 2 },
-    ])
-    expect(aviso).toContain('Barbeiro Dois perde 3 faixa(s)')
-    expect(aviso).toContain('SUBSTITUI')
-    // O par: sem perda, o aviso diz que nada será apagado — não repete o alarme.
-    const semPerda = avisoDaCopiaDaGrade([
-      { destino_id: 'q', destino_nome: 'Quatro', faixasAPerder: 0, faixasAGanhar: 2 },
-    ])
-    expect(semPerda).toContain('Nenhum deles tem grade hoje')
-    expect(semPerda).not.toContain('SUBSTITUI')
-  })
-
-  it('DESTINO COM FAIXAS: pede confirmação, mostra o número, e NÃO grava no primeiro clique', () => {
-    const acoes = abrirCopia()
-    clicarPorAriaLabel('Copiar para Barbeiro Dois') // e2 tem 1 faixa
-    expect(textoDaTela()).toContain('Barbeiro Dois perde 1 faixa(s)')
-
-    clicarBotaoExato('Aplicar')
-    // >>> O EFEITO PRIMEIRO: o primeiro clique NÃO grava <<<
-    expect(acoes.onAplicarGrade).not.toHaveBeenCalled()
-    expect(textoDaTela()).toContain('Confirmar substituição')
-  })
-
-  it('CANCELAR a confirmação NÃO altera faixa nenhuma', () => {
-    const acoes = abrirCopia()
-    clicarPorAriaLabel('Copiar para Barbeiro Dois')
-    clicarBotaoExato('Aplicar')
-    clicarBotaoExato('Cancelar')
-
-    expect(acoes.onAplicarGrade).not.toHaveBeenCalled()
-    // e nenhuma outra ação de escrita foi disparada pelo caminho do cancelamento
-    expect(acoes.onSalvarFaixas).not.toHaveBeenCalled()
-    expect(acoes.onRemoverFaixa).not.toHaveBeenCalled()
-  })
-
-  it('CONFIRMAR grava, com a origem e os destinos escolhidos', () => {
-    const acoes = abrirCopia()
-    clicarPorAriaLabel('Copiar para Barbeiro Dois')
-    clicarBotaoExato('Aplicar')
-    clicarBotaoExato('Confirmar substituição')
-
-    expect(acoes.onAplicarGrade).toHaveBeenCalledTimes(1)
-    expect(acoes.onAplicarGrade).toHaveBeenCalledWith('e1', ['e2'])
-  })
-
-  it('DESTINO VAZIO: não pede confirmação, grava no primeiro clique', () => {
-    // O espelho. Sem ele, "pede confirmação" ficaria verde num componente que pede SEMPRE — e
-    // confirmação em todo caso ensina a clicar sem ler.
-    const acoes = abrirCopia()
-    clicarPorAriaLabel('Copiar para Barbeiro Quatro') // e4 tem 0 faixas
-    clicarBotaoExato('Aplicar')
-
-    expect(acoes.onAplicarGrade).toHaveBeenCalledTimes(1)
-    expect(acoes.onAplicarGrade).toHaveBeenCalledWith('e1', ['e4'])
-  })
-
-  it('sem destino escolhido, nada é gravado', () => {
-    const acoes = abrirCopia()
-    clicarBotaoExato('Aplicar')
-    expect(acoes.onAplicarGrade).not.toHaveBeenCalled()
-  })
-
-  it('a ORIGEM não aparece entre os destinos — copiar para si mesmo não é operação', () => {
-    abrirCopia()
-    expect(document.body.querySelector('[aria-label="Copiar para Barbeiro Um"]')).toBeNull()
-    expect(document.body.querySelector('[aria-label="Copiar para Barbeiro Dois"]')).toBeTruthy()
-  })
-})
-
+// >>> O BLOCO DE UI DA RÉPLICA SAIU DAQUI EM 08/10/2026, SEGUNDA RODADA <<<
+//
+// Eram nove casos que abriam o modal de "Replicar a grade de <Nome>" e afirmavam origem,
+// destinos, "Todos" e a confirmação. O botão e o modal não existem mais: o redesenho do dono
+// do produto deixou UM compositor no cabeçalho como única forma de montar grade.
+//
+// O que FICA, abaixo, é o que continua existindo: `aplicar-grade.ts` não foi tocado, a rota de
+// API dele continua lá, e os dois blocos seguintes afirmam os dois. Eles estão ÓRFÃOS do lado
+// da tela — nada no painel chama `onAplicarGrade` hoje —, e apagá-los é decisão do dono do
+// produto, não desta rodada.
 // ───────────────────────────────────────────────────────────────────────────────────────────
 describe('§3 — a SEQUÊNCIA roda de verdade, e o portão afirma o ESTADO FINAL das faixas', () => {
   // >>> ESTES CASOS EXECUTAM A LÓGICA, não leem o texto do arquivo <<<
@@ -1491,31 +1183,44 @@ describe('as 4 faixas reais de produção continuam legíveis depois do refactor
     expect((acoes.onRemoverFaixa as jest.Mock).mock.calls.map((c: any[]) => c[0])).toEqual([alvo])
   })
 
-  it('(4c) o estado novo `{ dias: [] }` não interfere na leitura do que veio do banco', () => {
+  it('(4c) o estado do COMPOSITOR não interfere na leitura do que veio do banco', () => {
     // >>> A PROVA DE QUE AS DUAS COISAS NÃO SE TOCAM <<<
-    // `faixaPorEmp` (o `{ dias: [] }`) é o estado do FORMULÁRIO, com chave por funcionário. As
-    // faixas gravadas chegam por `dados.grade` e são agrupadas em `faixasPorEmp`. Nenhuma linha
-    // do banco passa pelo estado do formulário, e é por isso que faixa sem o campo `dias`
-    // continua sendo exibida.
+    // O estado do compositor (`montProfs`, `montDias`, as faixas digitadas) é do FORMULÁRIO.
+    // As faixas gravadas chegam por `dados.grade` e são agrupadas em `faixasPorEmp`. Nenhuma
+    // linha do banco passa pelo estado do formulário, e é por isso que a grade continua sendo
+    // exibida com o compositor vazio.
+    //
+    // As caixas de dia mudaram de lugar em 08/10/2026, segunda rodada: eram sete POR CÉLULA,
+    // com `aria-label` "Segunda — Barbeiro A"; hoje são sete no CABEÇALHO, uma vez só, com
+    // `aria-label` "Dia Segunda". A asserção acompanhou.
     renderReais()
     // as quatro continuam na tela…
     expect(textoDaTela()).toContain('09:00–12:00')
-    // …e nenhuma caixa de dia nasce marcada por causa delas
-    for (const d of ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']) {
-      const cx = document.body.querySelector(`[aria-label="${
-        d === 'Dom' ? 'Domingo' : d === 'Seg' ? 'Segunda' : d === 'Ter' ? 'Terça'
-        : d === 'Qua' ? 'Quarta' : d === 'Qui' ? 'Quinta' : d === 'Sex' ? 'Sexta' : 'Sábado'
-      } — Barbeiro A"]`) as HTMLInputElement
+    // …e nenhuma caixa do compositor nasce marcada por causa delas
+    for (const d of DIAS_DA_SEMANA) {
+      const cx = document.body.querySelector(
+        `[aria-label="Dia ${d.label}"]`,
+      ) as HTMLInputElement
+      expect(cx).toBeTruthy()
+      expect(cx.checked).toBe(false)
+    }
+    // nem profissional nenhum
+    for (const f of DOIS) {
+      const cx = document.body.querySelector(
+        `[aria-label="Montar para ${f.name}"]`,
+      ) as HTMLInputElement
       expect(cx).toBeTruthy()
       expect(cx.checked).toBe(false)
     }
   })
 
-  it('(4c) com a grade REAL do banco, a faixa nova SUBSTITUI o dia (antes: recusava)', () => {
-    // UM funcionário só neste caso, de propósito: com dois, existem DOIS botões "Adicionar
-    // faixa" e o clique seria ambíguo. A primeira versão renderizava o painel duas vezes sem
-    // desmontar e o helper achou QUATRO botões — a guarda `expect(alvos.length).toBe(1)` pegou,
-    // que é exatamente para isso que ela existe.
+  it('(4c) com a grade REAL do banco, SUBSTITUIR limpa o dia inteiro', () => {
+    // UM funcionário só neste caso, de propósito: com dois, "Todos" e o individual dariam o
+    // mesmo resultado e o caso não distinguiria nada.
+    //
+    // A asserção mudou de forma em 08/10/2026, segunda rodada: o compositor saiu da célula e
+    // subiu para o cabeçalho, então a semente é `montagemInicial` e não `faixaInicial`, e a
+    // ação é `onMontarGrade` com as linhas JÁ carregando `employee_id`.
     const acoes = fazerAcoes()
     renderizar(
       <PainelDeAgendamento
@@ -1527,27 +1232,32 @@ describe('as 4 faixas reais de produção continuam legíveis depois do refactor
           funcionarios: [DOIS[0]],
         }}
         acoes={acoes} baseUrl="https://app.exemplo.com"
-        faixaInicial={{ weekday: 1, start_time: '10:00', end_time: '11:00' }}
+        montagemInicial={{
+          profissionais: [E1],
+          dias: [1],
+          faixa1: { inicio: '10:00', fim: '11:00' },
+        }}
       />,
     )
-    clicarBotaoExato('Substituir faixa')
-    // 10:00–11:00 cai na segunda, que tem as DUAS faixas reais (manhã e tarde). As duas saem —
-    // é o dia inteiro, não só a que se sobrepõe. Até 07/10 esta asserção era
-    // `not.toHaveBeenCalled()` com a mensagem de conflito na tela.
-    expect(acoes.onSalvarFaixas).toHaveBeenCalledTimes(1)
-    const [, novas, ids] = (acoes.onSalvarFaixas as jest.Mock).mock.calls[0]
-    expect(novas).toEqual([{ weekday: 1, start_time: '10:00', end_time: '11:00' }])
+    // A segunda já tem faixa, então o primeiro clique só abre a confirmação.
+    clicarPorAriaLabel('Substituir a grade')
+    expect(acoes.onMontarGrade).not.toHaveBeenCalled()
+    clicarPorAriaLabel('Confirmar a substituição')
+    expect(acoes.onMontarGrade).toHaveBeenCalledTimes(1)
+
+    const [novas, ids] = (acoes.onMontarGrade as jest.Mock).mock.calls[0]
+    expect(novas).toEqual([
+      { employee_id: E1, weekday: 1, start_time: '10:00', end_time: '11:00' },
+    ])
+    // As DUAS faixas reais da segunda saem — é o dia inteiro, não só a que se sobrepõe.
     expect([...ids].sort()).toEqual(
       QUATRO_REAIS.filter((f) => f.employee_id === E1 && f.weekday === 1).map((f) => f.id).sort(),
     )
-    expect(textoDaTela()).not.toContain('Já existe faixa nesse horário')
   })
 
-  it('(4c) o DIA SEM FAIXA da grade real não remove nada — a proteção, com dado de produção', () => {
-    // O espelho obrigatório, e ele mudou de eixo junto com a regra. Antes afirmava que o
-    // almoço 12:00–14:00 ENCOSTAVA e entrava sem apagar; hoje encostar apaga, então o espelho
-    // de "não apaga" tem de ser um dia que a grade real NÃO ocupa. Sem ele, "apaga o dia"
-    // ficaria verde num painel que apagasse a semana toda.
+  it('(4c) o DIA SEM FAIXA da grade real não remove nada, e não pede confirmação', () => {
+    // O espelho obrigatório. Sem ele, "apaga o dia" ficaria verde num painel que apagasse a
+    // semana toda — e "pede confirmação" ficaria verde num painel que pedisse sempre.
     const acoes = fazerAcoes()
     renderizar(
       <PainelDeAgendamento
@@ -1559,292 +1269,625 @@ describe('as 4 faixas reais de produção continuam legíveis depois do refactor
           funcionarios: [DOIS[0]],
         }}
         acoes={acoes} baseUrl="https://app.exemplo.com"
-        faixaInicial={{ weekday: 3, start_time: '12:00', end_time: '14:00' }}
+        montagemInicial={{
+          profissionais: [E1],
+          dias: [3],
+          faixa1: { inicio: '12:00', fim: '14:00' },
+        }}
       />,
     )
-    // As duas faixas reais de E1 estão na SEGUNDA (weekday 1). A quarta (weekday 3) está vazia,
-    // então nenhum id é entregue — e o rótulo do botão prova que a tela sabe disso antes do
-    // clique.
-    clicarBotaoExato('+ Adicionar faixa')
-    expect(acoes.onSalvarFaixas).toHaveBeenCalledTimes(1)
-    expect(acoes.onSalvarFaixas).toHaveBeenCalledWith(
-      E1, [{ weekday: 3, start_time: '12:00', end_time: '14:00' }], [],
+    // As duas faixas reais de E1 estão na SEGUNDA. A quarta está vazia: nada a apagar, então o
+    // clique grava direto, sem modal.
+    clicarPorAriaLabel('Substituir a grade')
+    expect(acoes.onMontarGrade).toHaveBeenCalledTimes(1)
+    expect(acoes.onMontarGrade).toHaveBeenCalledWith(
+      [{ employee_id: E1, weekday: 3, start_time: '12:00', end_time: '14:00' }], [],
     )
   })
 })
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════
-// MUDANÇA 1 DE 08/10/2026 — O COMPOSITOR ACIMA DA LISTA DE DIAS
+// O COMPOSITOR DO CABEÇALHO — redesenho do PO de 08/10/2026, segunda rodada
 //
-// >>> ASSERÇÃO DE ORDEM NO DOM, E ELA É LEGÍTIMA AQUI <<<
+// >>> O QUE SAIU, E POR QUE A AUSÊNCIA É AFIRMADA <<<
 //
-// `teste-que-nao-exercita.md` proíbe afirmar caminho QUANDO existe efeito mensurável deixado de
-// fora. Aqui não existe: o pedido É a posição, não há número que mude, e o caso-limite honesto
-// da própria regra ("o ternário está nos DOIS pontos") é exatamente desta forma. A posição é
-// medida pelo índice do nó no DOM, não pelo texto — texto repetido entre células confundiria.
+// O compositor por célula e o botão "Replicar a grade de <Nome>" foram removidos. Afirmar que
+// o bloco novo EXISTE não prova que os antigos saíram — e deixar os três na tela seria três
+// formas de montar grade, que é o oposto do pedido. A ausência é asserção própria.
 // ═══════════════════════════════════════════════════════════════════════════════════════════
-/**
- * Os cinco, com a SEGUNDA já marcada no compositor.
- *
- * >>> ELE EXISTE PORQUE `renderCinco` NÃO MARCA DIA NENHUM, E ISSO IMPORTA <<<
- *
- * Sem `faixaInicial` o estado inicial é `dias: []`, o utilitário recusa por falta de dia, e o
- * botão fica em "+ Adicionar faixa" — corretamente. Três casos desta rodada foram escritos
- * esperando "Substituir faixa" com `renderCinco()` puro e ficaram vermelhos na primeira
- * execução: a suposição era de quem escreveu o caso, não do componente
- * (`hipotese-derrubada-pela-propria-medicao.md`). O helper torna a semente explícita.
- */
-function renderCincoComSegundaMarcada(acoes = fazerAcoes()) {
-  renderizar(
-    <PainelDeAgendamento
-      open onClose={() => {}} calcType="SERVICE"
-      dados={dadosCinco()} acoes={acoes} baseUrl="https://app.exemplo.com"
-      faixaInicial={{ weekday: 1, start_time: '09:00', end_time: '18:00' }}
-    />,
-  )
-  return acoes
-}
-
-describe('Mudança 1 — o compositor vem ANTES da lista de dias, dentro da célula', () => {
-  /** A posição do primeiro nó que casa, na ordem em que o documento os traz. */
-  function posicaoNoDom(seletor: string): number {
-    const todos = Array.from(document.body.querySelectorAll('*'))
-    const i = todos.findIndex((el) => el.matches(seletor))
-    expect(i).toBeGreaterThanOrEqual(0) // seletor errado faria o caso passar sem medir nada
-    return i
-  }
-
-  it('a caixa de SEGUNDA de e1 aparece no DOM antes da linha "Segunda" da grade gravada', () => {
+describe('o compositor é ÚNICO: o do cabeçalho, e só ele', () => {
+  it('o bloco "Montar grade" está na tela, com as três linhas', () => {
     renderCinco()
-    const caixaDoCompositor = posicaoNoDom('[aria-label="Segunda — Barbeiro Um"]')
-    // A faixa gravada `f1` só existe na lista de dias — a lixeira dela é o marcador da lista.
-    const faixaGravada = posicaoNoDom('[aria-label="Remover faixa f1"]')
-    expect(caixaDoCompositor).toBeLessThan(faixaGravada)
-  })
-
-  it('o BOTÃO de compor também vem antes da grade gravada — ele fechava a célula', () => {
-    // Era ele o nó mais ao fim da célula: o único campo editável ficava depois de sete linhas.
-    // Com a segunda marcada, só a célula de e1 diz "Substituir faixa" (os outros quatro não
-    // têm faixa na segunda), então o rótulo identifica a célula sem ambiguidade.
-    renderCincoComSegundaMarcada()
-    const botoes = Array.from(document.body.querySelectorAll('button'))
-    const iBotao = Array.from(document.body.querySelectorAll('*'))
-      .indexOf(botoes.find((b) => (b.textContent || '').trim() === 'Substituir faixa')!)
-    expect(iBotao).toBeGreaterThanOrEqual(0)
-    expect(iBotao).toBeLessThan(posicaoNoDom('[aria-label="Remover faixa f1"]'))
-  })
-
-  it('o aviso de ACESSO continua acima do compositor — a ordem da Mudança 1, inteira', () => {
-    // `aviso de acesso → compositor → aviso de substituição → dias`. O de acesso é o primeiro
-    // porque sem `user_id` a grade inteira é inútil: configurar antes de resolver o acesso é
-    // trabalho perdido.
-    //
-    // >>> A COMPARAÇÃO É DENTRO DA MESMA CÉLULA <<<
-    // Quem está sem `user_id` nesta fixture é o Barbeiro TRÊS, não o Um. A primeira versão
-    // deste caso comparou o aviso do Três com a caixa do Um e ficou vermelha — índice 170
-    // contra 42. Dois nós de células diferentes sempre estão "em ordem" por acidente de
-    // posição, e o caso não mediria a ordem de nada.
-    renderCinco()
-    const alertas = Array.from(document.body.querySelectorAll('.ant-alert'))
-    const iAcesso = Array.from(document.body.querySelectorAll('*'))
-      .indexOf(alertas.find((a) => (a.textContent || '').includes('não tem acesso'))!)
-    expect(iAcesso).toBeGreaterThanOrEqual(0)
-    expect(iAcesso).toBeLessThan(posicaoNoDom('[aria-label="Segunda — Barbeiro Três"]'))
-  })
-})
-
-// ═══════════════════════════════════════════════════════════════════════════════════════════
-// MUDANÇA 3 — REPLICAR DE DENTRO DA CÉLULA
-// ═══════════════════════════════════════════════════════════════════════════════════════════
-describe('Mudança 3 — a origem é a CÉLULA, e o botão do topo não existe mais', () => {
-  it('NÃO existe botão "Aplicar grade a outros profissionais" — o do topo saiu', () => {
-    // O rótulo antigo, afirmado pela ausência. Sem este caso, mover o botão e ESQUECER de
-    // remover o do topo deixaria os dois na tela, com origens diferentes, e nada falharia.
-    renderCinco()
-    const botoes = Array.from(document.body.querySelectorAll('button'))
-      .map((b) => (b.textContent || '').trim())
-    expect(botoes).not.toContain('Aplicar grade a outros profissionais')
-  })
-
-  it('cada célula tem o SEU botão, com o nome do profissional dela', () => {
-    renderCinco()
-    const botoes = Array.from(document.body.querySelectorAll('button'))
-      .map((b) => (b.textContent || '').trim())
-    expect(botoes).toContain('Replicar a grade de Barbeiro Um para outros profissionais')
-    expect(botoes).toContain('Replicar a grade de Barbeiro Três para outros profissionais')
-    // >>> E O BARBEIRO DOIS NÃO TEM BOTÃO, PORQUE A CÉLULA DELE ESTÁ RECOLHIDA <<<
-    // Ele está DESLIGADO, e o §2 recolhe o bloco de quem está desligado. O botão mora DENTRO do
-    // recolhível — é o lugar certo: replicar sem ver a grade é clicar no escuro. A primeira
-    // versão deste caso esperava o botão dele e ficou vermelha; a leitura correta não era
-    // "falta o botão", era "a célula está fechada".
-    expect(botoes).not.toContain('Replicar a grade de Barbeiro Dois para outros profissionais')
-  })
-
-  it('NÃO existe mais o `Select` de origem — a origem deixou de ser escolha', () => {
-    const acoes = fazerAcoes()
-    renderCinco({}, acoes)
-    clicarBotaoExato('Replicar a grade de Barbeiro Três para outros profissionais')
-    expect(document.body.querySelector('[aria-label="Origem da grade"]')).toBeNull()
-    expect(textoDaTela()).toContain('Replicando a grade de Barbeiro Três')
-  })
-
-  it('abrir pela célula de e3 replica a grade de E3 — não a do primeiro da lista', () => {
-    // >>> O CASO QUE DISTINGUE A MUDANÇA 3 DO ESTADO ANTERIOR <<<
-    // Antes a origem era `copiaOrigem ?? funcionarios[0]?.id`, então o primeiro clique sempre
-    // partia de `e1`. Abrir pela célula do SEGUNDO e afirmar `e2` é o que mata aquele default:
-    // com ele de volta, a ação receberia `e1` e este caso fica vermelho.
-    const acoes = fazerAcoes()
-    renderCinco({}, acoes)
-    clicarBotaoExato('Replicar a grade de Barbeiro Três para outros profissionais')
-    clicarPorAriaLabel('Copiar para Barbeiro Quatro') // e4 não tem faixa: grava no 1º clique
-    clicarBotaoExato('Aplicar')
-    expect(acoes.onAplicarGrade).toHaveBeenCalledWith('e3', ['e4'])
-  })
-
-  it('a origem da célula não aparece entre os destinos dela', () => {
-    renderCinco()
-    clicarBotaoExato('Replicar a grade de Barbeiro Três para outros profissionais')
-    expect(document.body.querySelector('[aria-label="Copiar para Barbeiro Três"]')).toBeNull()
-    expect(document.body.querySelector('[aria-label="Copiar para Barbeiro Um"]')).toBeTruthy()
-  })
-
-  it('"Todos" marca os QUATRO destinos de uma vez, e desmarcar esvazia', () => {
-    const acoes = fazerAcoes()
-    renderCinco({}, acoes)
-    clicarBotaoExato('Replicar a grade de Barbeiro Um para outros profissionais')
-
-    clicarPorAriaLabel('Todos os profissionais')
-    clicarBotaoExato('Aplicar')
-    // e2 e e3 têm faixa, então há o que perder: o primeiro clique só pede confirmação.
-    expect(acoes.onAplicarGrade).not.toHaveBeenCalled()
-    clicarBotaoExato('Confirmar substituição')
-    expect(acoes.onAplicarGrade).toHaveBeenCalledWith('e1', ['e2', 'e3', 'e4', 'e5'])
-  })
-
-  it('desmarcar "Todos" devolve a seleção a ZERO — e aí nada é gravado', () => {
-    // O espelho: sem ele, um "Todos" que ignorasse o desmarcar ficaria verde no caso acima.
-    const acoes = fazerAcoes()
-    renderCinco({}, acoes)
-    clicarBotaoExato('Replicar a grade de Barbeiro Um para outros profissionais')
-    clicarPorAriaLabel('Todos os profissionais')
-    clicarPorAriaLabel('Todos os profissionais')
-    clicarBotaoExato('Aplicar')
-    expect(acoes.onAplicarGrade).not.toHaveBeenCalled()
-  })
-
-  it('a CONFIRMAÇÃO lista os NOMES — nunca "os selecionados"', () => {
-    renderCinco()
-    clicarBotaoExato('Replicar a grade de Barbeiro Um para outros profissionais')
-    clicarPorAriaLabel('Copiar para Barbeiro Dois')
-    clicarPorAriaLabel('Copiar para Barbeiro Quatro')
-    clicarBotaoExato('Aplicar')
-
     const txt = textoDaTela()
-    expect(txt).toContain('Replicar a grade de Barbeiro Um para Barbeiro Dois e Barbeiro Quatro.')
-    // e2 tem faixa, e4 não: só e2 perde, e a frase diz isso NOMEANDO.
-    expect(txt).toContain('A grade atual de Barbeiro Dois será apagada.')
-    expect(txt).not.toContain('os selecionados')
+    expect(txt).toContain('Montar grade')
+    expect(txt).toContain('Profissionais:')
+    expect(txt).toContain('Dias:')
+    expect(txt).toContain('Faixa 1:')
   })
 
-  it('a confirmação é MODAL, e isso é o oposto da Mudança 2 de propósito', () => {
-    // A faixa perdeu o modal; a réplica o manteve. As duas coisas afirmadas juntas, para que
-    // "tirei os modais" não passe aqui.
+  it('há UMA caixa por dia, não uma por dia POR funcionário', () => {
+    // Cinco profissionais × sete dias dariam 35 caixas no desenho antigo. Sete, no novo.
     renderCinco()
-    clicarBotaoExato('Replicar a grade de Barbeiro Um para outros profissionais')
-    expect(document.body.querySelector('.ant-modal')).toBeTruthy()
+    const caixasDeDia = document.body.querySelectorAll('[aria-label^="Dia "]')
+    expect(caixasDeDia).toHaveLength(7)
+    // E os rótulos antigos, por célula, não existem mais.
+    expect(document.body.querySelector('[aria-label="Segunda — Barbeiro Um"]')).toBeNull()
   })
 
-  it('a faixa NÃO abre modal nenhum — o aviso é linha, não diálogo', () => {
-    renderCincoComSegundaMarcada()
-    expect(document.body.querySelector('.ant-modal')).toBeNull()
-    expect(textoDaTela()).toContain('Segunda já tem faixas — será substituída.')
-  })
-
-  it('com UM profissional só, não há botão de replicar', () => {
-    // Replicar para ninguém não é operação. Um botão que abre um modal vazio é ruído.
-    renderizar(
-      <PainelDeAgendamento
-        open onClose={() => {}} calcType="SERVICE"
-        dados={dadosBase()} acoes={fazerAcoes()} baseUrl="https://app.exemplo.com"
-      />,
-    )
+  it('NÃO existe botão "Replicar a grade de ..." em célula nenhuma', () => {
+    renderCinco()
     const botoes = Array.from(document.body.querySelectorAll('button'))
       .map((b) => (b.textContent || '').trim())
     expect(botoes.some((t) => t.startsWith('Replicar a grade de'))).toBe(false)
   })
-})
 
-// ═══════════════════════════════════════════════════════════════════════════════════════════
-// MUDANÇA 2 — O TEXTO DA CONFIRMAÇÃO E DO AVISO, NA FUNÇÃO PURA
-// ═══════════════════════════════════════════════════════════════════════════════════════════
-describe('Mudança 3 — `confirmacaoDaReplica` nomeia quem recebe E quem perde', () => {
-  const plano = (id: string, nome: string, perde: number) => ({
-    destino_id: id, destino_nome: nome, faixasAPerder: perde, faixasAGanhar: 2,
+  it('NÃO existem mais os rótulos do compositor por célula', () => {
+    // "+ Adicionar faixa" e "Substituir faixa" eram os dois rótulos do botão da célula.
+    renderCinco()
+    const botoes = Array.from(document.body.querySelectorAll('button'))
+      .map((b) => (b.textContent || '').trim())
+    expect(botoes).not.toContain('+ Adicionar faixa')
+    expect(botoes).not.toContain('Substituir faixa')
+    expect(document.body.querySelector('[aria-label="Início da faixa — Barbeiro Um"]')).toBeNull()
   })
 
-  it('ninguém perde: diz quem recebe e que não há grade a apagar', () => {
-    expect(confirmacaoDaReplica('Ana', [plano('b', 'Bruno', 0), plano('c', 'Carla', 0)])).toBe(
-      'Replicar a grade de Ana para Bruno e Carla. Nenhum deles tem grade hoje.',
-    )
+  it('a célula CONTINUA com nome, switch, tabela, aviso e a lista com lixeira', () => {
+    // O que a célula perde é o compositor; o resto fica, e é o que permite manutenção
+    // individual: marcar só aquele profissional no cabeçalho, e remover faixa pela lixeira.
+    renderCinco()
+    const txt = textoDaTela()
+    expect(txt).toContain('Barbeiro Um')
+    expect(document.body.querySelector('[aria-label="Aceita agendamento pelo link — Barbeiro Um"]')).toBeTruthy()
+    expect(txt).toContain('Tabela de serviço:')
+    expect(document.body.querySelector('[aria-label="Remover faixa f1"]')).toBeTruthy()
+    // a lista de dias da célula continua lá
+    expect(txt).toContain('Domingo')
+    expect(txt).toContain('Sábado')
   })
 
-  it('um perde entre três: as DUAS listas são diferentes, e é esse o ponto', () => {
-    // Todos recebem; só um perde. Uma frase só, com a lista de quem recebe, esconderia o dano.
-    expect(confirmacaoDaReplica('Ana', [
-      plano('b', 'Bruno', 0), plano('c', 'Carla', 3), plano('d', 'Diego', 0),
-    ])).toBe(
-      'Replicar a grade de Ana para Bruno, Carla e Diego. A grade atual de Carla será apagada.',
-    )
-  })
-
-  it('dois perdem: plural em "serão apagadas"', () => {
-    expect(confirmacaoDaReplica('Ana', [plano('b', 'Bruno', 1), plano('c', 'Carla', 3)])).toBe(
-      'Replicar a grade de Ana para Bruno e Carla. A grade atual de Bruno e Carla serão apagadas.',
-    )
-  })
-
-  it('sem destino, string vazia — e não uma frase sobre ninguém', () => {
-    expect(confirmacaoDaReplica('Ana', [])).toBe('')
-  })
-
-  it('`listaEmPortugues` é UMA função para dias e para nomes', () => {
-    // Ela nasceu privada no módulo da faixa. Se alguém escrever a segunda cópia, este caso não
-    // quebra — mas a importação dos dois lados é o que impede a divergência de passar calada.
-    expect(listaEmPortugues(['Ana'])).toBe('Ana')
-    expect(listaEmPortugues(['Ana', 'Bruno'])).toBe('Ana e Bruno')
-    expect(listaEmPortugues(['Ana', 'Bruno', 'Carla'])).toBe('Ana, Bruno e Carla')
-    expect(listaEmPortugues([])).toBe('')
+  it('o compositor vem ANTES das células no DOM — ação antes do resultado', () => {
+    renderCinco()
+    const todos = Array.from(document.body.querySelectorAll('*'))
+    const iCompositor = todos.findIndex((el) => el.matches('[aria-label="Dia Segunda"]'))
+    const iCelula = todos.findIndex((el) => el.matches('[aria-label="Remover faixa f1"]'))
+    expect(iCompositor).toBeGreaterThanOrEqual(0)
+    expect(iCelula).toBeGreaterThan(0)
+    expect(iCompositor).toBeLessThan(iCelula)
   })
 })
 
+describe('"Todos" os profissionais — marca, desmarca e fica indeterminado', () => {
+  function caixaTodos() {
+    return document.body.querySelector('[aria-label="Todos os profissionais"]') as HTMLInputElement
+  }
+
+  it('marcar "Todos" grava para os CINCO', () => {
+    const acoes = fazerAcoes()
+    renderizar(
+      <PainelDeAgendamento
+        open onClose={() => {}} calcType="SERVICE"
+        dados={dadosCinco()} acoes={acoes} baseUrl="https://app.exemplo.com"
+        montagemInicial={{ dias: [6], faixa1: { inicio: '09:00', fim: '18:00' } }}
+      />,
+    )
+    clicarPorAriaLabel('Todos os profissionais')
+    // SÁBADO de propósito: nenhum dos cinco tem faixa nele na fixture, então não há modal e o
+    // clique grava direto — o caso mede o PRODUTO, não a confirmação.
+    clicarPorAriaLabel('Substituir a grade')
+
+    const [novas] = (acoes.onMontarGrade as jest.Mock).mock.calls[0]
+    expect(novas).toHaveLength(5)
+    expect(novas.map((n: any) => n.employee_id).sort()).toEqual(['e1', 'e2', 'e3', 'e4', 'e5'])
+  })
+
+  it('desmarcar "Todos" volta a zero, e aí a recusa é do PROFISSIONAL', () => {
+    // O espelho: sem ele, um "Todos" que ignorasse o desmarcar ficaria verde no caso acima.
+    const acoes = fazerAcoes()
+    renderCinco({}, acoes)
+    clicarPorAriaLabel('Todos os profissionais')
+    clicarPorAriaLabel('Todos os profissionais')
+    clicarPorAriaLabel('Substituir a grade')
+    expect(acoes.onMontarGrade).not.toHaveBeenCalled()
+    expect(textoDaTela()).toContain('Selecione ao menos um profissional.')
+  })
+
+  it('seleção PARCIAL deixa "Todos" indeterminado — não marcado, nem desmarcado', () => {
+    // Um "Todos" que ficasse marcado com dois de cinco afirmaria que os cinco estão dentro.
+    renderCinco()
+    clicarPorAriaLabel('Montar para Barbeiro Um')
+    expect(caixaTodos().checked).toBe(false)
+    expect(caixaTodos().indeterminate).toBe(true)
+  })
+
+  it('com os cinco marcados um a um, "Todos" fica MARCADO e não indeterminado', () => {
+    renderCinco()
+    for (const n of ['Um', 'Dois', 'Três', 'Quatro', 'Cinco']) {
+      clicarPorAriaLabel(`Montar para Barbeiro ${n}`)
+    }
+    expect(caixaTodos().checked).toBe(true)
+    expect(caixaTodos().indeterminate).toBe(false)
+  })
+
+  it('zero marcados: "Todos" desmarcado e NÃO indeterminado', () => {
+    renderCinco()
+    expect(caixaTodos().checked).toBe(false)
+    expect(caixaTodos().indeterminate).toBe(false)
+  })
+})
+
+describe('a SEGUNDA faixa — o intervalo de almoço num gesto só', () => {
+  it('nasce escondida: há Faixa 1 e o botão, não Faixa 2', () => {
+    renderCinco()
+    expect(textoDaTela()).toContain('Faixa 1:')
+    expect(textoDaTela()).not.toContain('Faixa 2:')
+    expect(document.body.querySelector('[aria-label="Início da faixa 2"]')).toBeNull()
+    expect(textoDaTela()).toContain('+ adicionar segunda faixa')
+  })
+
+  it('o botão REVELA a Faixa 2, e os dois campos aparecem', () => {
+    renderCinco()
+    clicarBotaoExato('+ adicionar segunda faixa')
+    expect(textoDaTela()).toContain('Faixa 2:')
+    expect(document.body.querySelector('[aria-label="Início da faixa 2"]')).toBeTruthy()
+    expect(document.body.querySelector('[aria-label="Fim da faixa 2"]')).toBeTruthy()
+  })
+
+  it('revelada, as DUAS faixas são gravadas no mesmo clique — 1 prof × 1 dia = 2 linhas', () => {
+    // >>> O CASO QUE A RODADA EXISTE PARA PERMITIR <<<
+    // Até 07/10 não havia como montar 09:00–12:00 e 14:00–18:00 na mesma segunda: gravar a
+    // tarde apagava a manhã, porque "substituir" era a única ação e o compositor tinha uma
+    // faixa só.
+    const acoes = fazerAcoes()
+    renderizar(
+      <PainelDeAgendamento
+        open onClose={() => {}} calcType="SERVICE"
+        dados={dadosCinco()} acoes={acoes} baseUrl="https://app.exemplo.com"
+        montagemInicial={{
+          profissionais: ['e4'], // e4 não tem grade: nada a apagar, nada de modal
+          dias: [1],
+          faixa1: { inicio: '09:00', fim: '12:00' },
+          faixa2: { inicio: '14:00', fim: '18:00' },
+          comSegundaFaixa: true,
+        }}
+      />,
+    )
+    clicarPorAriaLabel('Substituir a grade')
+    expect(acoes.onMontarGrade).toHaveBeenCalledWith([
+      { employee_id: 'e4', weekday: 1, start_time: '09:00', end_time: '12:00' },
+      { employee_id: 'e4', weekday: 1, start_time: '14:00', end_time: '18:00' },
+    ], [])
+  })
+
+  it('ESCONDIDA, só a Faixa 1 é gravada — o espelho que prova que a lista é a 3ª dimensão', () => {
+    const acoes = fazerAcoes()
+    renderizar(
+      <PainelDeAgendamento
+        open onClose={() => {}} calcType="SERVICE"
+        dados={dadosCinco()} acoes={acoes} baseUrl="https://app.exemplo.com"
+        montagemInicial={{
+          profissionais: ['e4'],
+          dias: [1],
+          faixa1: { inicio: '09:00', fim: '12:00' },
+          faixa2: { inicio: '14:00', fim: '18:00' },
+          comSegundaFaixa: false,
+        }}
+      />,
+    )
+    clicarPorAriaLabel('Substituir a grade')
+    const [novas] = (acoes.onMontarGrade as jest.Mock).mock.calls[0]
+    expect(novas).toHaveLength(1)
+    expect(novas[0].start_time).toBe('09:00')
+  })
+
+  it('"remover" esconde a Faixa 2 de volta, e ela deixa de ser gravada', () => {
+    const acoes = fazerAcoes()
+    renderizar(
+      <PainelDeAgendamento
+        open onClose={() => {}} calcType="SERVICE"
+        dados={dadosCinco()} acoes={acoes} baseUrl="https://app.exemplo.com"
+        montagemInicial={{
+          profissionais: ['e4'], dias: [1],
+          faixa1: { inicio: '09:00', fim: '12:00' },
+          faixa2: { inicio: '14:00', fim: '18:00' },
+          comSegundaFaixa: true,
+        }}
+      />,
+    )
+    clicarPorAriaLabel('Remover a segunda faixa')
+    expect(textoDaTela()).not.toContain('Faixa 2:')
+    clicarPorAriaLabel('Substituir a grade')
+    const [novas] = (acoes.onMontarGrade as jest.Mock).mock.calls[0]
+    expect(novas).toHaveLength(1)
+  })
+
+  it('as duas faixas SOBREPOSTAS entre si recusam, e nada é gravado', () => {
+    const acoes = fazerAcoes()
+    renderizar(
+      <PainelDeAgendamento
+        open onClose={() => {}} calcType="SERVICE"
+        dados={dadosCinco()} acoes={acoes} baseUrl="https://app.exemplo.com"
+        montagemInicial={{
+          profissionais: ['e4'], dias: [1],
+          faixa1: { inicio: '09:00', fim: '13:00' },
+          faixa2: { inicio: '12:00', fim: '18:00' },
+          comSegundaFaixa: true,
+        }}
+      />,
+    )
+    clicarPorAriaLabel('Substituir a grade')
+    // O EFEITO primeiro: a recusa impede a gravação, não só mostra texto.
+    expect(acoes.onMontarGrade).not.toHaveBeenCalled()
+    expect(textoDaTela()).toContain('As duas faixas se sobrepõem. Ajuste os horários.')
+  })
+})
+
+describe('SUBSTITUIR — a ação de montagem', () => {
+  function painel(acoes: ReturnType<typeof fazerAcoes>, mont: any) {
+    renderizar(
+      <PainelDeAgendamento
+        open onClose={() => {}} calcType="SERVICE"
+        dados={dadosCinco()} acoes={acoes} baseUrl="https://app.exemplo.com"
+        montagemInicial={mont}
+      />,
+    )
+    return acoes
+  }
+
+  it('com faixa a apagar: o primeiro clique NÃO grava, abre a confirmação', () => {
+    // >>> O EFEITO PRIMEIRO <<<
+    // Afirmar que o modal apareceu não afirma que a gravação não aconteceu. A ordem das duas
+    // linhas é a regra: desfazer a confirmação mata ESTA primeira.
+    const acoes = painel(fazerAcoes(), { profissionais: ['e1'], dias: [1] })
+    clicarPorAriaLabel('Substituir a grade')
+    expect(acoes.onMontarGrade).not.toHaveBeenCalled()
+    expect(document.body.querySelector('.ant-modal')).toBeTruthy()
+  })
+
+  it('a confirmação NOMEIA profissionais e dias — nunca "os selecionados"', () => {
+    painel(fazerAcoes(), { profissionais: ['e1', 'e3'], dias: [1, 3] })
+    clicarPorAriaLabel('Substituir a grade')
+    const txt = textoDaTela()
+    // e1 tem faixa na SEGUNDA; e3 tem na QUARTA. Os dois pares entram, e só eles.
+    expect(txt).toContain(
+      'As faixas atuais de Barbeiro Um e Barbeiro Três em Segunda e Quarta serão apagadas e substituídas.',
+    )
+    expect(txt).not.toContain('os selecionados')
+  })
+
+  it('CONFIRMAR grava, com as linhas e os ids', () => {
+    const acoes = painel(fazerAcoes(), {
+      profissionais: ['e1'], dias: [1], faixa1: { inicio: '10:00', fim: '16:00' },
+    })
+    clicarPorAriaLabel('Substituir a grade')
+    clicarPorAriaLabel('Confirmar a substituição')
+
+    expect(acoes.onMontarGrade).toHaveBeenCalledTimes(1)
+    const [novas, ids] = (acoes.onMontarGrade as jest.Mock).mock.calls[0]
+    expect(novas).toEqual([
+      { employee_id: 'e1', weekday: 1, start_time: '10:00', end_time: '16:00' },
+    ])
+    // e1 tem f1 e f2, as duas na segunda: as DUAS saem.
+    expect([...ids].sort()).toEqual(['f1', 'f2'])
+  })
+
+  it('CANCELAR a confirmação não grava nada', () => {
+    const acoes = painel(fazerAcoes(), { profissionais: ['e1'], dias: [1] })
+    clicarPorAriaLabel('Substituir a grade')
+    clicarPorAriaLabel('Cancelar a substituição')
+    expect(acoes.onMontarGrade).not.toHaveBeenCalled()
+  })
+
+  it('SEM faixa a apagar: grava no primeiro clique, e NÃO há modal', () => {
+    // O espelho. Sem ele, "pede confirmação" ficaria verde num painel que pedisse SEMPRE — e
+    // confirmação em todo caso ensina a clicar sem ler.
+    const acoes = painel(fazerAcoes(), { profissionais: ['e4'], dias: [1] })
+    clicarPorAriaLabel('Substituir a grade')
+    expect(acoes.onMontarGrade).toHaveBeenCalledTimes(1)
+    expect(document.body.querySelector('.ant-modal')).toBeNull()
+  })
+
+  it('profissional NÃO marcado não é tocado — e4 marcado não apaga a grade de e1', () => {
+    const acoes = painel(fazerAcoes(), { profissionais: ['e4'], dias: [1] })
+    clicarPorAriaLabel('Substituir a grade')
+    const [novas, ids] = (acoes.onMontarGrade as jest.Mock).mock.calls[0]
+    expect(ids).toEqual([])
+    expect(novas.map((n: any) => n.employee_id)).toEqual(['e4'])
+  })
+
+  it('dia NÃO marcado não é tocado — terça marcada não apaga a segunda de e1', () => {
+    // A outra proteção, e ela é independente: e1 ESTÁ marcado. Um filtro só por profissional
+    // passaria no caso acima e falharia aqui.
+    const acoes = painel(fazerAcoes(), { profissionais: ['e1'], dias: [2] })
+    clicarPorAriaLabel('Substituir a grade')
+    const [, ids] = (acoes.onMontarGrade as jest.Mock).mock.calls[0]
+    expect(ids).toEqual([])
+  })
+
+  it('a mensagem final conta profissionais e dias', async () => {
+    const acoes = painel(fazerAcoes(), { profissionais: ['e4', 'e5'], dias: [1, 2, 3, 4, 5] })
+    clicarPorAriaLabel('Substituir a grade')
+    await deixarAssentar()
+    expect(textoDaTela()).toContain('Grade aplicada em 2 profissionais, 5 dias.')
+  })
+
+  it('gravação que FALHA não mostra a mensagem de sucesso', async () => {
+    // >>> CORREÇÃO DE UM DEFEITO MEU DA RODADA ANTERIOR <<<
+    // `onSalvarFaixas` era `void` e o painel emitia sucesso logo depois de chamá-la: o toast
+    // saía mesmo com a gravação falhando. Com `Promise<boolean>`, não sai. Este caso é o que
+    // impede a volta — ele fica vermelho no instante em que alguém tirar o `await`.
+    const acoes = fazerAcoes()
+    ;(acoes.onMontarGrade as jest.Mock).mockResolvedValue(false)
+    painel(acoes, { profissionais: ['e4'], dias: [1] })
+    clicarPorAriaLabel('Substituir a grade')
+    await deixarAssentar()
+    expect(acoes.onMontarGrade).toHaveBeenCalledTimes(1)
+    expect(textoDaTela()).not.toContain('Grade aplicada')
+  })
+})
+
+describe('ADICIONAR — a ação de ajuste', () => {
+  function painel(acoes: ReturnType<typeof fazerAcoes>, mont: any) {
+    renderizar(
+      <PainelDeAgendamento
+        open onClose={() => {}} calcType="SERVICE"
+        dados={dadosCinco()} acoes={acoes} baseUrl="https://app.exemplo.com"
+        montagemInicial={mont}
+      />,
+    )
+    return acoes
+  }
+
+  it('NUNCA pede confirmação, mesmo com faixa existente no dia', () => {
+    // >>> A ASSIMETRIA É A REGRA, NÃO UM DESCUIDO <<<
+    // `adicionar` não destrói nada, então confirmar não protege de nada — e pedir sempre
+    // ensina a clicar sem ler. O par com o caso do substituir é o que afirma a assimetria:
+    // um painel que pedisse nos dois passaria lá e falharia aqui.
+    const acoes = painel(fazerAcoes(), {
+      profissionais: ['e1'], dias: [1], faixa1: { inicio: '19:00', fim: '20:00' },
+    })
+    clicarPorAriaLabel('Adicionar à grade')
+    expect(document.body.querySelector('.ant-modal')).toBeNull()
+    expect(acoes.onMontarGrade).toHaveBeenCalledTimes(1)
+  })
+
+  it('`idsParaRemover` sai VAZIO — nada é apagado', () => {
+    const acoes = painel(fazerAcoes(), {
+      profissionais: ['e1'], dias: [1], faixa1: { inicio: '19:00', fim: '20:00' },
+    })
+    clicarPorAriaLabel('Adicionar à grade')
+    const [novas, ids] = (acoes.onMontarGrade as jest.Mock).mock.calls[0]
+    expect(ids).toEqual([])
+    expect(novas).toEqual([
+      { employee_id: 'e1', weekday: 1, start_time: '19:00', end_time: '20:00' },
+    ])
+  })
+
+  it('o INTERVALO DE ALMOÇO pelo ajuste: acrescenta a tarde SEM perder a manhã', () => {
+    // e1 tem 09:00–12:00 e 13:00–18:00 na segunda (f1 e f2). Entra 12:00–13:00 — o furo entre
+    // as duas. Nada é apagado, e a faixa nova entra. É o caso de uso do botão.
+    const acoes = painel(fazerAcoes(), {
+      profissionais: ['e1'], dias: [1], faixa1: { inicio: '12:00', fim: '13:00' },
+    })
+    clicarPorAriaLabel('Adicionar à grade')
+    const [novas, ids] = (acoes.onMontarGrade as jest.Mock).mock.calls[0]
+    expect(ids).toEqual([])
+    expect(novas).toHaveLength(1)
+  })
+
+  it('COLISÃO: a combinação é pulada, as outras entram, e nada é apagado', () => {
+    // e1 tem 09:00–12:00 na segunda; e4 não tem nada. Entra 10:00–11:00 nos dois.
+    const acoes = painel(fazerAcoes(), {
+      profissionais: ['e1', 'e4'], dias: [1], faixa1: { inicio: '10:00', fim: '11:00' },
+    })
+    clicarPorAriaLabel('Adicionar à grade')
+    const [novas, ids] = (acoes.onMontarGrade as jest.Mock).mock.calls[0]
+    expect(ids).toEqual([])
+    expect(novas).toEqual([
+      { employee_id: 'e4', weekday: 1, start_time: '10:00', end_time: '11:00' },
+    ])
+  })
+
+  it('a mensagem final diz quantas foram puladas', async () => {
+    const acoes = painel(fazerAcoes(), {
+      profissionais: ['e1', 'e4'], dias: [1], faixa1: { inicio: '10:00', fim: '11:00' },
+    })
+    clicarPorAriaLabel('Adicionar à grade')
+    await deixarAssentar()
+    expect(textoDaTela()).toContain('Faixa adicionada. 1 combinação foi pulada por já existir.')
+  })
+
+  it('TODAS colidindo: não grava, e diz que já existe — não finge sucesso', () => {
+    // `ausente-vs-falso.md` na mensagem: gravar zero linhas e dizer "faixa adicionada"
+    // afirmaria o que não aconteceu. E um erro de validação diria que o usuário digitou algo
+    // inválido, e ele não digitou.
+    const acoes = painel(fazerAcoes(), {
+      profissionais: ['e1'], dias: [1], faixa1: { inicio: '10:00', fim: '11:00' },
+    })
+    clicarPorAriaLabel('Adicionar à grade')
+    expect(acoes.onMontarGrade).not.toHaveBeenCalled()
+    expect(textoDaTela()).toContain('Nada a adicionar: a combinação informada já existe.')
+  })
+})
+
+describe('os AVISOS antes do clique — os DOIS modos, em linhas separadas', () => {
+  it('a escolha foi exibir OS DOIS, cada um dizendo a que botão pertence', () => {
+    // >>> A ESCOLHA, E A RAZÃO DELA <<<
+    // O comando deixou entre "o do modo que o mouse/foco indica" e "os dois em linhas
+    // separadas". Os DOIS: `hover` não existe no toque e `focus` não existe antes de o usuário
+    // tabular, então um aviso que depende deles não aparece no celular — e um aviso que não
+    // aparece é `portao-que-nao-alcanca.md` em forma de interface.
+    renderizar(
+      <PainelDeAgendamento
+        open onClose={() => {}} calcType="SERVICE"
+        dados={dadosCinco()} acoes={fazerAcoes()} baseUrl="https://app.exemplo.com"
+        montagemInicial={{
+          profissionais: ['e1'], dias: [1], faixa1: { inicio: '10:00', fim: '11:00' },
+        }}
+      />,
+    )
+    const txt = textoDaTela()
+    expect(txt).toContain('Substituir: Segunda de Barbeiro Um já tem faixas — será substituída.')
+    expect(txt).toContain('Adicionar: Segunda de Barbeiro Um já tem faixa nesse horário — será pulada.')
+  })
+
+  it('o aviso do ADICIONAR desaparece quando não há colisão, e o do substituir FICA', () => {
+    // O par que prova que as duas linhas são independentes. 19:00–20:00 não colide com nada de
+    // e1, mas a segunda dele TEM faixa — então substituir ainda avisa, e adicionar não.
+    renderizar(
+      <PainelDeAgendamento
+        open onClose={() => {}} calcType="SERVICE"
+        dados={dadosCinco()} acoes={fazerAcoes()} baseUrl="https://app.exemplo.com"
+        montagemInicial={{
+          profissionais: ['e1'], dias: [1], faixa1: { inicio: '19:00', fim: '20:00' },
+        }}
+      />,
+    )
+    const txt = textoDaTela()
+    expect(txt).toContain('Substituir: Segunda de Barbeiro Um já tem faixas')
+    expect(txt).not.toContain('Adicionar: ')
+  })
+
+  it('sem nada a perder, NENHUM dos dois avisos aparece', () => {
+    // `ausente-vs-falso.md`: uma linha dizendo "0 dias serão substituídos" afirmaria algo onde
+    // o certo é não dizer nada.
+    renderizar(
+      <PainelDeAgendamento
+        open onClose={() => {}} calcType="SERVICE"
+        dados={dadosCinco()} acoes={fazerAcoes()} baseUrl="https://app.exemplo.com"
+        montagemInicial={{ profissionais: ['e4'], dias: [1] }}
+      />,
+    )
+    const txt = textoDaTela()
+    expect(txt).not.toContain('Substituir: ')
+    expect(txt).not.toContain('Adicionar: ')
+  })
+
+  it('o aviso NÃO é modal — ele é linha, e aparece sem nenhum clique', () => {
+    renderizar(
+      <PainelDeAgendamento
+        open onClose={() => {}} calcType="SERVICE"
+        dados={dadosCinco()} acoes={fazerAcoes()} baseUrl="https://app.exemplo.com"
+        montagemInicial={{ profissionais: ['e1'], dias: [1] }}
+      />,
+    )
+    expect(document.body.querySelector('.ant-modal')).toBeNull()
+    expect(textoDaTela()).toContain('Substituir: Segunda de Barbeiro Um já tem faixas')
+  })
+
+  it('dia marcado SEM faixa não entra no aviso, mesmo com vizinho marcado que tem', () => {
+    // Segunda e terça marcadas; e1 só tem faixa na segunda. Um aviso derivado de `montDias`
+    // em vez dos pares com faixa diria "Segunda e Terça".
+    renderizar(
+      <PainelDeAgendamento
+        open onClose={() => {}} calcType="SERVICE"
+        dados={dadosCinco()} acoes={fazerAcoes()} baseUrl="https://app.exemplo.com"
+        montagemInicial={{ profissionais: ['e1'], dias: [1, 2] }}
+      />,
+    )
+    expect(textoDaTela()).toContain('Substituir: Segunda de Barbeiro Um já tem faixas')
+    expect(textoDaTela()).not.toContain('Segunda e Terça de Barbeiro Um')
+  })
+})
+
 // ═══════════════════════════════════════════════════════════════════════════════════════════
-// MUDANÇA 2 — A ORDEM DA GRAVAÇÃO: insert ANTES de delete
+// OS TEXTOS, NA FUNÇÃO PURA — onde o EFEITO é o próprio retorno
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+describe('os textos do compositor, como funções', () => {
+  const nome = (id: string) => ({ e1: 'Ana', e2: 'Bruno', e3: 'Carla' } as any)[id] ?? id
+
+  it('`avisoDoSubstituir` com UM par: singular nos dois lugares', () => {
+    expect(avisoDoSubstituir([{ employee_id: 'e1', weekday: 1 }], nome))
+      .toBe('Segunda de Ana já tem faixas — será substituída.')
+  })
+
+  it('`avisoDoSubstituir` com dois dias: plural, e os dias em ORDEM DE SEMANA', () => {
+    // Informados fora de ordem de propósito: a frase sai Domingo→Sábado, como a coluna da
+    // célula. Uma ordem de chegada faria o aviso sair "Quarta e Segunda".
+    expect(avisoDoSubstituir(
+      [{ employee_id: 'e1', weekday: 3 }, { employee_id: 'e1', weekday: 1 }], nome,
+    )).toBe('Segunda e Quarta de Ana já têm faixas — serão substituídas.')
+  })
+
+  it('`avisoDoSubstituir` com dois profissionais: os dois são nomeados, sem repetir', () => {
+    expect(avisoDoSubstituir([
+      { employee_id: 'e1', weekday: 1 },
+      { employee_id: 'e2', weekday: 1 },
+    ], nome)).toBe('Segunda de Ana e Bruno já têm faixas — serão substituídas.')
+  })
+
+  it('`avisoDoSubstituir` sem par nenhum é `null` — ausência da linha, não texto vazio', () => {
+    expect(avisoDoSubstituir([], nome)).toBeNull()
+  })
+
+  it('`avisoDoAdicionar` fala de PULAR, não de substituir', () => {
+    expect(avisoDoAdicionar([{ employee_id: 'e1', weekday: 1 }], nome))
+      .toBe('Segunda de Ana já tem faixa nesse horário — será pulada.')
+  })
+
+  it('`avisoDoAdicionar` sem colisão é `null`', () => {
+    expect(avisoDoAdicionar([], nome)).toBeNull()
+  })
+
+  it('`confirmacaoDoSubstituir` nomeia profissionais E dias', () => {
+    expect(confirmacaoDoSubstituir([
+      { employee_id: 'e1', weekday: 1 },
+      { employee_id: 'e2', weekday: 2 },
+      { employee_id: 'e2', weekday: 3 },
+    ], nome)).toBe(
+      'As faixas atuais de Ana e Bruno em Segunda, Terça e Quarta serão apagadas e substituídas.',
+    )
+  })
+
+  it('`confirmacaoDoSubstituir` sem par é string vazia — e não uma frase sobre ninguém', () => {
+    expect(confirmacaoDoSubstituir([], nome)).toBe('')
+  })
+
+  it('`mensagemDoSubstituir` — plural e singular dos dois números', () => {
+    expect(mensagemDoSubstituir(2, 5)).toBe('Grade aplicada em 2 profissionais, 5 dias.')
+    expect(mensagemDoSubstituir(1, 1)).toBe('Grade aplicada em 1 profissional, 1 dia.')
+  })
+
+  it('`mensagemDoAdicionar` — com e sem puladas', () => {
+    expect(mensagemDoAdicionar(3, 0)).toBe('Faixas adicionadas.')
+    expect(mensagemDoAdicionar(1, 0)).toBe('Faixa adicionada.')
+    expect(mensagemDoAdicionar(3, 1)).toBe('Faixas adicionadas. 1 combinação foi pulada por já existir.')
+    expect(mensagemDoAdicionar(3, 2)).toBe('Faixas adicionadas. 2 combinações foram puladas por já existir.')
+  })
+
+  it('`mensagemDeNadaAGravar` não finge sucesso nem acusa erro de digitação', () => {
+    expect(mensagemDeNadaAGravar(1)).toBe('Nada a adicionar: a combinação informada já existe.')
+    expect(mensagemDeNadaAGravar(4)).toBe('Nada a adicionar: as 4 combinações informadas já existem.')
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+// A ORDEM DA GRAVAÇÃO: insert ANTES de delete
 //
 // >>> O QUE ESTE BLOCO PROVA, E O QUE ELE NÃO PROVA — LEIA ANTES DE CONFIAR NELE <<<
 //
-// Ele afirma a ORDEM NO TEXTO do handler, não o comportamento em runtime. É asserção estrutural,
-// e `teste-que-nao-exercita.md` só a admite quando não há efeito mensurável deixado de fora —
-// então é obrigatório dizer por que não há:
+// Ele afirma a ORDEM NO TEXTO do handler, não o comportamento em runtime. É asserção
+// estrutural, e `teste-que-nao-exercita.md` só a admite quando não há efeito mensurável
+// deixado de fora — então é obrigatório dizer por que não há:
 //
-// `onSalvarFaixas` é um closure dentro de `src/pages/agenda/index.tsx`, que tem 2.700 linhas e
-// fala com o Supabase direto. Para exercitá-lo em runtime seria preciso extraí-lo para um módulo
-// com repositório injetável — exatamente o que `aplicar-grade.ts` faz, e exatamente o que o dono
-// do produto RECUSOU em 07/10/2026, registrado como está: *"NAO extraia o handler para modulo
-// com repositorio injetado. Resposta a sua pergunta: nao agora. Fica como pendencia
-// registrada."* A pendência é essa, e este bloco é o que alcança enquanto ela durar.
+// `onMontarGrade` é um closure dentro de `src/pages/agenda/index.tsx`, que tem 2.700 linhas e
+// fala com o Supabase direto. Para exercitá-lo em runtime seria preciso extraí-lo para um
+// módulo com repositório injetável — exatamente o que `aplicar-grade.ts` faz, e exatamente o
+// que o dono do produto RECUSOU em 07/10/2026, registrado como está: *"NAO extraia o handler
+// para modulo com repositorio injetado. Resposta a sua pergunta: nao agora. Fica como
+// pendencia registrada."* A pendência é essa, e este bloco é o que alcança enquanto ela durar.
 //
-// O que ele PEGA: alguém trocar a ordem para delete-antes-de-insert, ou remover o `throw` que
-// separa os dois, ou trocar o `.in` por um laço. Os três são o jeito realista de o defeito
-// voltar, porque os três são edições naquele texto.
+// O que ele PEGA: alguém trocar a ordem para delete-antes-de-insert, remover o `throw` que
+// separa os dois, trocar o `.in` por um laço, descartar o erro do delete, perder o filtro de
+// tenant, ou voltar a devolver `void` em vez de `boolean`. Todos são edições naquele texto.
 // O que ele NÃO PEGA: o Supabase devolver erro sem `error` preenchido, ou o `.eq('tenant_id')`
 // filtrar o tenant errado. Isso só um caso com repositório falso alcança — ver a pendência.
 // ═══════════════════════════════════════════════════════════════════════════════════════════
-describe('Mudança 2 — a ordem da gravação em `agenda/index.tsx`', () => {
+describe('a ordem da gravação em `agenda/index.tsx`', () => {
   const fonte = fs.readFileSync(path.join(RAIZ, 'src/pages/agenda/index.tsx'), 'utf8')
 
-  /** O corpo de `onSalvarFaixas`, do nome dele até o handler seguinte. */
+  /** O corpo de `onMontarGrade`, do nome dele até o handler seguinte. */
   const corpo = (() => {
-    const i = fonte.indexOf('onSalvarFaixas: async (')
+    const i = fonte.indexOf('onMontarGrade: async (')
     expect(i).toBeGreaterThanOrEqual(0)
     const j = fonte.indexOf('onRemoverFaixa:', i)
     expect(j).toBeGreaterThan(i)
@@ -1863,7 +1906,7 @@ describe('Mudança 2 — a ordem da gravação em `agenda/index.tsx`', () => {
   })
 
   it('há um `throw` ENTRE os dois — o insert falho não deixa o delete rodar', () => {
-    // Esta é a asserção que importa das três. Sem o throw no meio, a ordem no texto continua
+    // Esta é a asserção que importa das sete. Sem o throw no meio, a ordem no texto continua
     // "insert antes de delete" e o dia fica VAZIO quando o insert falha: o delete roda em
     // seguida, contra um dia que não recebeu nada.
     const iInsert = programa.indexOf('.insert(')
@@ -1872,10 +1915,15 @@ describe('Mudança 2 — a ordem da gravação em `agenda/index.tsx`', () => {
     expect(entre).toMatch(/if\s*\(\s*error\s*\)\s*throw\s+error/)
   })
 
-  it('o delete é UM, com `.in(`, e NÃO um laço de `.eq(\'id\'`', () => {
+  it('o delete SÓ roda quando há id — em `adicionar` a lista vem vazia', () => {
+    // Sem a guarda, `adicionar` chamaria `.in('id', [])`, que é consulta válida e não apaga
+    // nada — mas gasta uma ida ao banco e, pior, torna o caminho dos dois modos idêntico no
+    // texto, escondendo que `adicionar` não deve apagar.
+    expect(programa).toMatch(/if\s*\(\s*idsParaRemover\s*&&\s*idsParaRemover\.length\s*>\s*0\s*\)/)
+  })
+
+  it('o delete é UM, com `.in(`, e NÃO um laço', () => {
     expect(programa).toMatch(/\.delete\(\)\s*\n?\s*\.in\('id',/)
-    // Um laço apagaria parte dos dias se a terceira chamada falhasse, e o usuário veria a
-    // semana metade nova, metade velha — sem nada acusando.
     const depoisDoDelete = programa.slice(programa.indexOf('.delete()'))
     expect(depoisDoDelete).not.toMatch(/for\s*\(|\.forEach\(|\.map\(.*delete/)
   })
@@ -1893,11 +1941,38 @@ describe('Mudança 2 — a ordem da gravação em `agenda/index.tsx`', () => {
     expect(depoisDoDelete).toMatch(/\.eq\('tenant_id',\s*tid\)/)
   })
 
+  it('devolve `true` no fim e `false` no catch — é o que a mensagem do painel lê', () => {
+    // Sem os dois retornos a função volta a ser `void` na prática, e o painel emitiria o toast
+    // de sucesso sobre uma gravação falha. O caso do painel ("gravação que FALHA não mostra a
+    // mensagem de sucesso") é a outra metade desta asserção.
+    expect(programa).toMatch(/return true/)
+    expect(programa).toMatch(/return false/)
+    const iCatch = programa.indexOf('catch')
+    expect(programa.slice(iCatch)).toMatch(/return false/)
+  })
+
   it('o `catch` NÃO afirma "nada foi salvo" — seria mentira no delete falho', () => {
-    // Se o insert passou e o delete falhou, as faixas novas ESTÃO no banco. "Nada foi salvo"
+    // Se o insert passou e o delete falhou, as linhas novas ESTÃO no banco. "Nada foi salvo"
     // mandaria o usuário tentar de novo e duplicar outra vez — `ausente-vs-falso.md` na
     // mensagem: afirmar um estado que não se apurou.
     expect(programa).not.toContain('Nada foi salvo')
     expect(programa).toContain('Confira a grade do profissional antes de tentar de novo.')
+  })
+
+  it('`onSalvarFaixas` não existe mais — a ação antiga saiu junto com o compositor da célula', () => {
+    // A ausência é asserção própria: deixar as duas ações no arquivo seria dois caminhos de
+    // gravação para o mesmo par de operações, e eles divergiriam (`copia-divergente.md`).
+    //
+    // >>> A ASSERÇÃO MEDE O PROGRAMA, NÃO A PROSA — E ISSO FOI MEDIDO AQUI <<<
+    // A primeira versão usava `fonte` cru e ficou vermelha: o nome antigo sobrevive em DOIS
+    // comentários, de propósito, porque é lá que está registrado o defeito do `void` que a
+    // ação nova corrige. Apagar o registro para o teste passar seria o pior dos dois mundos.
+    // É a mesma lição já registrada neste arquivo no caso do `Math.random`.
+    const semComentarios = fonte
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/\/\/[^\n]*/g, '')
+    expect(semComentarios).not.toContain('onSalvarFaixas')
+    // e o nome continua nos comentários, que é onde o registro mora
+    expect(fonte).toContain('onSalvarFaixas')
   })
 })

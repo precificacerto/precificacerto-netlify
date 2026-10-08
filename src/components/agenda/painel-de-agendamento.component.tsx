@@ -53,12 +53,16 @@ import { Alert, Button, Checkbox, DatePicker, Drawer, Empty, Form, Input, InputN
 import { CopyOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { tenantOffersServices } from '@/utils/segment-visibility'
+// >>> `adicionar-faixa-multiplos-dias.ts` DEIXOU DE SER IMPORTADO AQUI <<<
+// Redesenho do PO de 08/10/2026, segunda rodada: o compositor por célula saiu, e com ele o
+// único consumidor daquele módulo. O arquivo e os testes dele FICAM no repositório, por
+// instrução explícita — ele está órfão, e a decisão de apagá-lo é do dono do produto.
 import {
-  adicionarFaixaEmDias,
-  avisoDeSubstituicao,
-  faixaEmDiasRecusada,
-  mensagemDoResultado,
-} from '@/utils/adicionar-faixa-multiplos-dias'
+  montagemRecusada,
+  montarGrade,
+  type FaixaExistente,
+  type ModoDaMontagem,
+} from '@/utils/montar-grade'
 import {
   MENSAGEM_ALTERACAO_PADRAO,
   MENSAGEM_CANCELAMENTO_PADRAO,
@@ -70,16 +74,16 @@ import {
   DIAS_DA_SEMANA,
   LIMITES,
   SELO_DO_ESTADO,
-  avisoDaCopiaDaGrade,
   avisoDaTabelaDeServico,
   avisoDeFuncionarioSemAcesso,
-  confirmacaoDaReplica,
+  avisoDoAdicionar,
+  avisoDoSubstituir,
+  confirmacaoDoSubstituir,
   estadoDoFuncionarioNoLink,
-  exigeConfirmacaoDaCopia,
-  faixaRecusada,
-  planejarCopiaDaGrade,
+  mensagemDeNadaAGravar,
+  mensagemDoAdicionar,
+  mensagemDoSubstituir,
   resolverTabelaDeServico,
-  validarFaixa,
   type FaixaDeHorario,
   type TabelaDeComissao,
 } from '@/utils/agendamento-config'
@@ -136,27 +140,33 @@ export interface AcoesDoPainel {
   onAlternarAtivo: (ativo: boolean) => void | Promise<void>
   onSalvarConfiguracao: (patch: Partial<ConfiguracaoDoAgendamento>) => void | Promise<void>
   /**
-   * §2 — grava N faixas de UMA vez, num único `insert` com array.
+   * A gravação da montagem: grava `novas` e remove `idsParaRemover`, nessa ordem.
    *
-   * O contrato é PLURAL e não tem irmão singular de propósito: com `onSalvarFaixa` ao lado,
-   * um dos dois acabaria esquecido numa mudança futura e a tela gravaria um dia em vez de
-   * sete sem nada falhar — `copia-divergente.md`. Um dia só é uma lista de um elemento.
+   * >>> UMA AÇÃO PARA OS DOIS MODOS, E ISSO É DELIBERADO <<<
    *
-   * >>> `idsParaRemover` É OBRIGATÓRIO, E ISSO É A DECISÃO <<<
+   * `substituir` e `adicionar` diferem no que `montarGrade` DEVOLVE, não no que o banco faz:
+   * em `adicionar` a lista de remoção vem vazia e o passo 3 não roda. Duas ações aqui seriam
+   * dois caminhos de gravação para o mesmo par de operações, e eles divergiriam na primeira
+   * mudança de uma delas (`copia-divergente.md`).
    *
-   * Mudança 2 de 08/10/2026: a faixa nova SOBRESCREVE o dia, então gravar virou duas operações
-   * — insert das novas, delete das antigas daquele dia. O terceiro parâmetro não é opcional com
-   * default `[]` porque default neutro em contrato de gravação é `construtor-empobrecido.md`:
-   * um produtor que esquecesse de passá-lo gravaria DUPLICADO em silêncio. Obrigatório, o `tsc`
-   * enumera na hora quem não passou.
+   * `idsParaRemover` é OBRIGATÓRIO, não opcional com default `[]`: default neutro em contrato
+   * de gravação faz um produtor esquecido gravar duplicado em silêncio
+   * (`construtor-empobrecido.md`). Obrigatório, o `tsc` enumera quem não passou.
    *
-   * A ORDEM é de quem implementa esta ação, e é insert ANTES de delete — ver `agenda/index.tsx`.
+   * >>> E ELA DEVOLVE `boolean`, QUE É CORREÇÃO DE UM DEFEITO MEU DA RODADA ANTERIOR <<<
+   *
+   * `onSalvarFaixas` era `void`, e o painel chamava `msgApi.success(...)` logo depois do
+   * `void acoes.onSalvarFaixas(...)`. O toast de SUCESSO saía mesmo quando a gravação falhava —
+   * o usuário via os dois toasts, o de erro e o de sucesso, e nada dizia qual valia. É a mesma
+   * classe das escritas mudas, do lado da apresentação. Com `Promise<boolean>`, a mensagem da
+   * montagem só aparece quando a gravação voltou `true`.
+   *
+   * A ORDEM é de quem implementa a ação, e é insert ANTES de delete — ver `agenda/index.tsx`.
    */
-  onSalvarFaixas: (
-    employee_id: string,
-    faixas: { weekday: number; start_time: string; end_time: string }[],
+  onMontarGrade: (
+    novas: { employee_id: string; weekday: number; start_time: string; end_time: string }[],
     idsParaRemover: string[],
-  ) => void | Promise<void>
+  ) => Promise<boolean>
   onRemoverFaixa: (id: string) => void | Promise<void>
   onSalvarFolga: (folga: { employee_id: string; starts_at: string; ends_at: string; reason?: string }) => void | Promise<void>
   onRemoverFolga: (id: string) => void | Promise<void>
@@ -176,14 +186,26 @@ export interface PainelDeAgendamentoProps {
   /** A origem do link. Em teste e em SSR não há `window`. */
   baseUrl?: string
   /**
-   * Os valores com que o formulário de faixa ABRE.
+   * Os valores com que o compositor do CABEÇALHO abre.
    *
-   * É prop com default real, não costura de teste: o padrão é segunda 09:00–18:00, que é o que o
-   * dono do salão digita na maioria das vezes. O portão a usa para chegar à asserção de
-   * COMPORTAMENTO sem ter de operar `TimePicker` e `Select` do antd dentro do jsdom — operar o
-   * widget afirmaria que o antd funciona, não que a faixa foi recusada.
+   * >>> É PROP COM DEFAULT REAL, NÃO COSTURA DE TESTE <<<
+   *
+   * O default (nada marcado, 09:00–12:00 e 14:00–18:00) é o que o dono do salão encontra ao
+   * abrir a tela. O portão a usa para chegar à asserção de COMPORTAMENTO sem ter de operar
+   * `TimePicker` dentro do jsdom — operar o widget afirmaria que o antd funciona, não que a
+   * grade foi montada.
+   *
+   * Ela SUBSTITUIU `faixaInicial`, que semeava o compositor por célula. Aquele compositor não
+   * existe mais, e manter as duas props seria deixar uma semente sem campo para semear.
    */
-  faixaInicial?: { weekday: number; start_time: string; end_time: string }
+  montagemInicial?: {
+    profissionais?: string[]
+    dias?: number[]
+    faixa1?: { inicio: string; fim: string }
+    faixa2?: { inicio: string; fim: string }
+    /** Abre já com a segunda faixa revelada — o caso do intervalo de almoço. */
+    comSegundaFaixa?: boolean
+  }
   /**
    * Os valores com que os dois `DatePicker` de ausência ABREM.
    *
@@ -206,25 +228,36 @@ export function PainelDeAgendamento(props: PainelDeAgendamentoProps) {
   const { open, onClose, calcType, dados, acoes, baseUrl } = props
   const [msgApi, msgCtx] = message.useMessage()
 
-  // Um formulário de faixa por funcionário — a lista mostra todos ao mesmo tempo (§2), então o
-  // estado do formulário não pode ser global, ou digitar no bloco de um mexeria no do outro.
-  // §2 — `dias` é uma LISTA: uma faixa pode entrar em vários dias de uma vez. O `weekday`
-  // único saiu, e com ele o `Select` de um dia só.
-  const [faixaPorEmp, setFaixaPorEmp] = useState<Record<string, { dias: number[]; start_time: string; end_time: string }>>({})
-  const [erroPorEmp, setErroPorEmp] = useState<Record<string, string | null>>({})
+  // ══ O COMPOSITOR DO CABEÇALHO — UM, GLOBAL, NÃO UM POR FUNCIONÁRIO ══════════════════
+  //
+  // >>> DUAS FORMAS DE MONTAR GRADE DIVERGEM COM O TEMPO <<<
+  //
+  // Até 08/10/2026 havia um compositor dentro de CADA célula, mais um botão de replicar a grade
+  // de um para os outros. Eram dois caminhos para a mesma coisa, e o segundo nasceu justamente
+  // porque o primeiro era trabalhoso em cinco profissionais. O redesenho do dono do produto
+  // apagou os dois e pôs UM compositor no cabeçalho, que escolhe quem e quais dias.
+  //
+  // Manutenção individual se faz marcando SÓ aquele profissional aqui, e removendo faixa pela
+  // lixeira da célula dele. Não há terceiro caminho, e reintroduzir um recria a divergência.
+  const [montProfs, setMontProfs] = useState<string[]>(props.montagemInicial?.profissionais ?? [])
+  const [montDias, setMontDias] = useState<number[]>(props.montagemInicial?.dias ?? [])
+  const [montF1, setMontF1] = useState(props.montagemInicial?.faixa1 ?? { inicio: '09:00', fim: '12:00' })
+  const [montF2, setMontF2] = useState(props.montagemInicial?.faixa2 ?? { inicio: '14:00', fim: '18:00' })
+  const [comSegundaFaixa, setComSegundaFaixa] = useState(
+    props.montagemInicial?.comSegundaFaixa === true,
+  )
+  // Quem o usuário abriu ou fechou à mão. O default vem do estado do funcionário, abaixo.
   const [recolhidoManual, setRecolhidoManual] = useState<Record<string, boolean>>({})
+  const [montErro, setMontErro] = useState<string | null>(null)
+  // A confirmação do SUBSTITUIR. `adicionar` nunca passa por aqui — ele não destrói nada.
+  const [confirmandoSubstituir, setConfirmandoSubstituir] = useState(false)
+  const [gravando, setGravando] = useState(false)
 
   const [folgaEmp, setFolgaEmp] = useState<string | null>(null)
   const [folgaIni, setFolgaIni] = useState<string>(props.folgaInicial?.starts_at ?? '')
   const [folgaFim, setFolgaFim] = useState<string>(props.folgaInicial?.ends_at ?? '')
   const [folgaMotivo, setFolgaMotivo] = useState<string>('')
   const [erroDaFolga, setErroDaFolga] = useState<string | null>(null)
-
-  // §3 — o modal de copiar grade
-  const [copiaAberta, setCopiaAberta] = useState(false)
-  const [copiaOrigem, setCopiaOrigem] = useState<string | null>(null)
-  const [copiaDestinos, setCopiaDestinos] = useState<string[]>([])
-  const [copiaConfirmando, setCopiaConfirmando] = useState(false)
 
   const funcionarios = dados?.funcionarios ?? []
   const grade = dados?.grade ?? []
@@ -239,24 +272,22 @@ export function PainelDeAgendamento(props: PainelDeAgendamentoProps) {
   }, [grade])
 
   const cfg = dados?.configuracao ?? null
-  // >>> A ORIGEM NÃO TEM MAIS DEFAULT, E A MUDANÇA É DE SIGNIFICADO <<<
-  // Ela era `copiaOrigem ?? funcionarios[0]?.id`, porque o modal abria do topo sem saber de
-  // quem. Com a Mudança 3 o modal só abre de dentro de uma célula, e a célula SEMPRE diz quem é.
-  // Um `?? funcionarios[0]` agora seria `ausente-vs-falso.md`: na falta de origem ele afirmaria
-  // uma — o primeiro da lista — e replicaria a grade de quem ninguém escolheu.
-  const origem = copiaOrigem
-
   // >>> ESTE `useMemo` FICA ANTES DO `return null`, E NÃO É ARRUMAÇÃO <<<
   // A primeira versão o deixou depois do gate de segmentação: hook condicional, que o React
   // quebra com "Rendered more hooks than during the previous render" no instante em que o
   // `calcType` muda de SERVICO para outro. Todo hook deste componente mora acima do gate.
-  const planos = useMemo(
-    () => planejarCopiaDaGrade(
-      origem ? (faixasPorEmp[origem] ?? []) : [],
-      funcionarios.filter((f) => copiaDestinos.includes(f.id)),
-      (id) => faixasPorEmp[id] ?? [],
-    ),
-    [origem, funcionarios, copiaDestinos, faixasPorEmp],
+  //
+  // As faixas no formato que `montarGrade` lê. Uma conversão só, aqui, em vez de o utilitário
+  // conhecer `FaixaGravada` — ele é puro e não deve saber o nome das colunas do banco.
+  const existentesParaMontagem = useMemo<FaixaExistente[]>(
+    () => grade.map((f) => ({
+      id: f.id,
+      employee_id: f.employee_id,
+      weekday: f.weekday,
+      start_time: String(f.start_time).slice(0, 5),
+      end_time: String(f.end_time).slice(0, 5),
+    })),
+    [grade],
   )
 
   // >>> O GATE DA SEGMENTAÇÃO É `tenantOffersServices`, NÃO UMA COMPARAÇÃO LOCAL <<<
@@ -265,79 +296,6 @@ export function PainelDeAgendamento(props: PainelDeAgendamentoProps) {
   // que o banco gravasse `SERVICO` e a UI `SERVICE` — que é exatamente o caso que aquela função
   // trata (`copia-divergente.md`).
   if (!tenantOffersServices(calcType)) return null
-
-  function faixaEmEdicao(empId: string) {
-    const inicial = props.faixaInicial
-    return faixaPorEmp[empId] ?? {
-      dias: inicial ? [inicial.weekday] : [],
-      start_time: inicial?.start_time ?? '09:00',
-      end_time: inicial?.end_time ?? '18:00',
-    }
-  }
-
-  function mexerNaFaixa(empId: string, patch: Partial<{ dias: number[]; start_time: string; end_time: string }>) {
-    setFaixaPorEmp((p) => ({ ...p, [empId]: { ...faixaEmEdicao(empId), ...patch } }))
-    setErroPorEmp((p) => ({ ...p, [empId]: null }))
-  }
-
-  function alternarDia(empId: string, weekday: number, marcado: boolean) {
-    const atual = faixaEmEdicao(empId).dias
-    mexerNaFaixa(empId, {
-      dias: marcado ? [...atual, weekday] : atual.filter((d) => d !== weekday),
-    })
-  }
-
-  /** O nome do dia, da fonte única — `DIAS_DA_SEMANA`, não um array local. */
-  function nomeDoDia(weekday: number) {
-    return DIAS_DA_SEMANA.find((x) => x.weekday === weekday)?.label ?? String(weekday)
-  }
-
-  /**
-   * O que o clique vai fazer, calculado a CADA render — é ele que alimenta o aviso e o rótulo
-   * do botão ANTES do clique.
-   *
-   * Chamar `adicionarFaixaEmDias` aqui é de propósito: o aviso e a gravação passam a ler o MESMO
-   * `diasSubstituidos`, em vez de a tela recalcular "quais dias marcados têm faixa" por conta.
-   * Duas contas do mesmo critério divergem (`copia-divergente.md`), e a que divergiria é a que o
-   * usuário lê antes de apagar a semana de alguém.
-   */
-  function planoDaFaixa(empId: string) {
-    const nova = faixaEmEdicao(empId)
-    return adicionarFaixaEmDias({
-      diasSelecionados: nova.dias,
-      inicio: nova.start_time,
-      fim: nova.end_time,
-      faixasExistentes: faixasPorEmp[empId] ?? [],
-    })
-  }
-
-  function tentarAdicionarFaixa(empId: string) {
-    const r = planoDaFaixa(empId)
-
-    if (faixaEmDiasRecusada(r)) {
-      // A RECUSA: a mensagem aparece E a gravação não acontece. As duas coisas, não uma.
-      //
-      // >>> SÓ SOBRARAM DUAS RECUSAS, E NENHUMA DELAS É CONFLITO <<<
-      // Até 06/10/2026 havia uma terceira — "já existe faixa nesse horário em: Quarta" — e ela
-      // SAIU com a Mudança 2 de 08/10, porque sobrepor passou a ser o comportamento pedido.
-      // O que resta é dia não marcado e hora invertida, e as duas vêm prontas do utilitário.
-      setErroPorEmp((p) => ({ ...p, [empId]: r.erro }))
-      return
-    }
-
-    setErroPorEmp((p) => ({ ...p, [empId]: null }))
-
-    // >>> UM insert COM ARRAY E UM delete COM `.in`, NESTA ORDEM <<<
-    // A ordem é da ação que grava (`agenda/index.tsx`), e está declarada lá com a razão. Aqui o
-    // que importa é que as duas listas saem do MESMO retorno, no mesmo clique: separá-las em
-    // duas chamadas deixaria uma janela em que o dia estaria apagado e ainda não regravado.
-    void acoes.onSalvarFaixas(empId, r.novasFaixas, r.idsParaRemover)
-
-    msgApi.success(mensagemDoResultado(r.novasFaixas.length, r.diasSubstituidos, nomeDoDia))
-
-    // Limpa os DIAS e MANTÉM as horas — o usuário emenda a faixa seguinte sem redigitar.
-    mexerNaFaixa(empId, { dias: [] })
-  }
 
   function tentarAdicionarFolga() {
     setErroDaFolga(null)
@@ -353,31 +311,103 @@ export function PainelDeAgendamento(props: PainelDeAgendamentoProps) {
     setFolgaMotivo('')
   }
 
-  function fecharCopia() {
-    setCopiaAberta(false)
-    setCopiaConfirmando(false)
-    setCopiaDestinos([])
+  // ══ O PLANO DO CLIQUE, CALCULADO A CADA RENDER, PARA OS DOIS MODOS ══════════════════
+  //
+  // >>> O AVISO E A GRAVAÇÃO LEEM O MESMO RETORNO <<<
+  //
+  // Chamar `montarGrade` aqui, antes do clique, é de propósito: o aviso, a confirmação e a
+  // gravação passam a ler o MESMO resultado, em vez de a tela recalcular "quais dias já têm
+  // faixa" por conta. Duas contas do mesmo critério divergem (`copia-divergente.md`), e a que
+  // divergiria é a que o usuário lê antes de apagar a semana de alguém.
+  // Uma ou duas, conforme a segunda esteja revelada. A lista é o que `montarGrade` recebe, e
+  // é ela que torna o intervalo de almoço possível num gesto só.
+  const faixasInformadas = comSegundaFaixa ? [montF1, montF2] : [montF1]
+
+  function planoDe(modo: ModoDaMontagem) {
+    return montarGrade({
+      profissionais: montProfs,
+      dias: montDias,
+      faixas: faixasInformadas,
+      modo,
+      existentes: existentesParaMontagem,
+    })
   }
 
-  function tentarAplicarGrade() {
-    if (!origem) return
-    if (copiaDestinos.length === 0) {
-      msgApi.error('Escolha ao menos um profissional de destino.')
+  function nomeDoProfissional(id: string) {
+    return funcionarios.find((f) => f.id === id)?.name ?? id
+  }
+
+  // ══ OS PARES (profissional, dia) QUE DE FATO TÊM FAIXA ═════════════════════════════
+  //
+  // Alimenta o aviso do SUBSTITUIR e a confirmação. Sai do produto marcado cruzado com a grade
+  // vinda do banco — nunca de `idsParaRemover`, que é uma lista de ids e não diz de quem nem
+  // de que dia cada um é.
+  //
+  // Um dia marcado e VAZIO não entra: ele não "vai ser substituído", e dizer que vai ensina o
+  // usuário a ignorar o aviso (`ausente-vs-falso.md`).
+  const paresComFaixa = montProfs.flatMap((employee_id) => montDias
+    .filter((weekday) => existentesParaMontagem.some(
+      (f) => f.employee_id === employee_id && f.weekday === weekday,
+    ))
+    .map((weekday) => ({ employee_id, weekday })))
+
+  // As combinações que o ADICIONAR pularia, calculadas antes do clique para alimentar o aviso.
+  // Sai do próprio `montarGrade`, não de uma segunda conta de colisão na tela — o aviso e a
+  // gravação têm de ler o mesmo critério (`copia-divergente.md`).
+  const planoAdicionar = planoDe('adicionar')
+  const puladasDoAdicionar = montagemRecusada(planoAdicionar) ? [] : planoAdicionar.puladas
+
+  function limparDepoisDeGravar() {
+    setMontErro(null)
+    setConfirmandoSubstituir(false)
+  }
+
+  async function gravar(modo: ModoDaMontagem) {
+    const r = planoDe(modo)
+    if (montagemRecusada(r)) {
+      // A RECUSA: a mensagem aparece E a gravação não acontece. As duas coisas, não uma.
+      setMontErro(r.erro)
       return
     }
+    setMontErro(null)
+
+    if (r.novas.length === 0) {
+      // Só acontece em `adicionar`, quando TODAS as combinações colidiram. Não é erro, e não é
+      // sucesso: gravar zero linhas e dizer "faixa adicionada" afirmaria o que não aconteceu.
+      setMontErro(mensagemDeNadaAGravar(r.puladas.length))
+      return
+    }
+
+    setGravando(true)
+    try {
+      // >>> O `await` E O `boolean` SÃO O QUE IMPEDE O TOAST MENTIROSO <<<
+      // Na rodada anterior o painel chamava a ação com `void` e emitia sucesso em seguida; o
+      // toast saía mesmo com a gravação falhando. Aqui a mensagem depende do retorno.
+      const gravou = await acoes.onMontarGrade(r.novas, r.idsParaRemover)
+      if (!gravou) return
+      msgApi.success(
+        modo === 'substituir'
+          ? mensagemDoSubstituir(montProfs.length, montDias.length)
+          : mensagemDoAdicionar(r.novas.length, r.puladas.length),
+      )
+      limparDepoisDeGravar()
+    } finally {
+      setGravando(false)
+    }
+  }
+
+  function clicarSubstituir() {
+    const r = planoDe('substituir')
+    if (montagemRecusada(r)) { setMontErro(r.erro); return }
     // >>> A CONFIRMAÇÃO SÓ APARECE QUANDO HÁ O QUE PERDER <<<
     // Pedir confirmação sempre ensina a clicar sem ler, e aí ela não protege no caso em que
     // importa. Pedir nunca apaga grade montada à mão sem aviso.
-    if (exigeConfirmacaoDaCopia(planos) && !copiaConfirmando) {
-      setCopiaConfirmando(true)
+    if (r.idsParaRemover.length > 0 && !confirmandoSubstituir) {
+      setConfirmandoSubstituir(true)
       return
     }
-    void acoes.onAplicarGrade(origem, [...copiaDestinos])
-    fecharCopia()
+    void gravar('substituir')
   }
-
-  const origemNome = funcionarios.find((f) => f.id === origem)?.name ?? ''
-  const possiveisDestinos = funcionarios.filter((f) => f.id !== origem)
 
   const linkOrigem = baseUrl ?? (typeof window !== 'undefined' ? window.location.origin : '')
   const link = cfg ? montarLinkPublico(linkOrigem, cfg.public_token) : null
@@ -388,13 +418,216 @@ export function PainelDeAgendamento(props: PainelDeAgendamentoProps) {
 
       {/* ══ 1. GRADE DE ATENDIMENTO — TODOS os funcionários, ao mesmo tempo (§2) ══════════ */}
       <section style={{ marginBottom: 32 }}>
-        {/* >>> O BOTÃO DE REPLICAR SAIU DAQUI, E NÃO É ARRUMAÇÃO <<<
-            Mudança 3 de 08/10/2026. No topo ele pedia a ORIGEM num `Select` — e escolher a
-            origem num seletor é a pergunta errada: quem acabou de montar a grade da Ana já está
-            na célula dela. O botão desceu para dentro de cada célula, e a origem passou a ser o
-            profissional DAQUELA célula, sem escolha possível. Trazê-lo de volta para cá recria o
-            `Select` de origem (`razao-longe-da-restricao.md`). */}
         <h3 style={{ marginTop: 0 }}>Grade de atendimento</h3>
+
+        {/* ══════════════════════════════════════════════════════════════════════════════
+            MONTAR GRADE — o compositor ÚNICO, no cabeçalho, antes das células
+            ══════════════════════════════════════════════════════════════════════════════
+            >>> ELE FICA ANTES DAS CÉLULAS, E A ORDEM É A DO TRABALHO <<<
+            As células são o RESULTADO; este bloco é a AÇÃO que as produz. Com ele depois, o
+            dono do salão rolava cinco células para chegar ao único lugar em que se digita.
+
+            >>> E ELE É O ÚNICO LUGAR EM QUE SE MONTA GRADE <<<
+            Não há compositor dentro das células, nem botão de replicar de um para os outros.
+            Duas formas divergem com o tempo, e a segunda nasceu porque a primeira era
+            trabalhosa — o que esta resolve de outro jeito, deixando marcar vários de uma vez. */}
+        {funcionarios.length > 0 && (
+          <div
+            style={{
+              border: '1px solid rgba(255,255,255,0.18)',
+              borderRadius: 10,
+              padding: 12,
+              marginBottom: 16,
+            }}
+          >
+            <strong style={{ display: 'block', marginBottom: 8 }}>Montar grade</strong>
+
+            {/* ── Profissionais ────────────────────────────────────────────────────── */}
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ color: '#667085', marginBottom: 4 }}>Profissionais:</div>
+              <Space wrap>
+                {/* "Todos" é uma CAIXA, não um botão: com cinco profissionais marcar um por um
+                    é o caso comum, e um botão que "marca todos" não mostra que está marcado.
+                    Indeterminado na seleção parcial, para não afirmar nem um nem outro — igual
+                    ao que a réplica fazia para os destinos. */}
+                <Checkbox
+                  aria-label="Todos os profissionais"
+                  checked={funcionarios.length > 0 && montProfs.length === funcionarios.length}
+                  indeterminate={montProfs.length > 0 && montProfs.length < funcionarios.length}
+                  onChange={(e) => {
+                    setMontErro(null)
+                    setConfirmandoSubstituir(false)
+                    setMontProfs(e.target.checked ? funcionarios.map((f) => f.id) : [])
+                  }}
+                >
+                  <strong>Todos</strong>
+                </Checkbox>
+                {funcionarios.map((f) => (
+                  <Checkbox
+                    key={f.id}
+                    aria-label={`Montar para ${f.name}`}
+                    checked={montProfs.includes(f.id)}
+                    onChange={(e) => {
+                      setMontErro(null)
+                      setConfirmandoSubstituir(false)
+                      setMontProfs((p) => (e.target.checked ? [...p, f.id] : p.filter((x) => x !== f.id)))
+                    }}
+                  >
+                    {f.name}
+                  </Checkbox>
+                ))}
+              </Space>
+            </div>
+
+            {/* ── Dias ─────────────────────────────────────────────────────────────── */}
+            {/* `DIAS_DA_SEMANA` é a fonte única; `weekday` continua 0=Domingo..6=Sábado,
+                igual à coluna do banco. Nenhum array local de dias neste arquivo. */}
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ color: '#667085', marginBottom: 4 }}>Dias:</div>
+              <Space wrap>
+                {DIAS_DA_SEMANA.map((d) => (
+                  <Checkbox
+                    key={d.weekday}
+                    aria-label={`Dia ${d.label}`}
+                    checked={montDias.includes(d.weekday)}
+                    onChange={(e) => {
+                      setMontErro(null)
+                      setConfirmandoSubstituir(false)
+                      setMontDias((p) => (e.target.checked
+                        ? [...p, d.weekday]
+                        : p.filter((x) => x !== d.weekday)))
+                    }}
+                  >
+                    {d.curto}
+                  </Checkbox>
+                ))}
+              </Space>
+            </div>
+
+            {/* ── Faixa 1 ──────────────────────────────────────────────────────────── */}
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ color: '#667085', marginBottom: 4 }}>Faixa 1:</div>
+              <Space wrap>
+                <TimePicker
+                  format="HH:mm"
+                  aria-label="Início da faixa 1"
+                  value={montF1.inicio ? dayjs(montF1.inicio, 'HH:mm') : null}
+                  onChange={(v) => { setMontErro(null); setMontF1((f) => ({ ...f, inicio: v ? v.format('HH:mm') : '' })) }}
+                />
+                <TimePicker
+                  format="HH:mm"
+                  aria-label="Fim da faixa 1"
+                  value={montF1.fim ? dayjs(montF1.fim, 'HH:mm') : null}
+                  onChange={(v) => { setMontErro(null); setMontF1((f) => ({ ...f, fim: v ? v.format('HH:mm') : '' })) }}
+                />
+              </Space>
+            </div>
+
+            {/* ── Faixa 2 — revelada por botão ─────────────────────────────────────── */}
+            {/* >>> É A SEGUNDA FAIXA QUE RESOLVE O INTERVALO DE ALMOÇO <<<
+                Ela nasce escondida porque o caso comum é um turno só, e dois campos vazios na
+                tela convidam a preencher. Revelada, 09:00–12:00 e 14:00–18:00 entram no MESMO
+                gesto — que é o que não existia antes desta rodada. */}
+            {!comSegundaFaixa ? (
+              <Button
+                type="link"
+                style={{ paddingLeft: 0 }}
+                onClick={() => { setMontErro(null); setComSegundaFaixa(true) }}
+              >
+                + adicionar segunda faixa
+              </Button>
+            ) : (
+              <div style={{ marginBottom: 8 }}>
+                <div style={{ color: '#667085', marginBottom: 4 }}>Faixa 2:</div>
+                <Space wrap>
+                  <TimePicker
+                    format="HH:mm"
+                    aria-label="Início da faixa 2"
+                    value={montF2.inicio ? dayjs(montF2.inicio, 'HH:mm') : null}
+                    onChange={(v) => { setMontErro(null); setMontF2((f) => ({ ...f, inicio: v ? v.format('HH:mm') : '' })) }}
+                  />
+                  <TimePicker
+                    format="HH:mm"
+                    aria-label="Fim da faixa 2"
+                    value={montF2.fim ? dayjs(montF2.fim, 'HH:mm') : null}
+                    onChange={(v) => { setMontErro(null); setMontF2((f) => ({ ...f, fim: v ? v.format('HH:mm') : '' })) }}
+                  />
+                  <Button
+                    type="link"
+                    aria-label="Remover a segunda faixa"
+                    onClick={() => { setMontErro(null); setComSegundaFaixa(false) }}
+                  >
+                    remover
+                  </Button>
+                </Space>
+              </div>
+            )}
+
+            {/* ── As duas ações, lado a lado ───────────────────────────────────────── */}
+            {/* >>> ELAS NÃO SÃO VARIAÇÕES DE GRAU <<<
+                `Substituir` é MONTAGEM: limpa os dias marcados e grava. `Adicionar` é AJUSTE:
+                não apaga nada e pula a combinação que colidir. Ter só a primeira era o defeito
+                que originou a rodada — com ela sozinha, gravar a tarde apagava a manhã. */}
+            <div style={{ marginTop: 10 }}>
+              <Space wrap>
+                {/* >>> OS DOIS BOTÕES TÊM `aria-label` DISTINTO DO TEXTO, E A RAZÃO É MEDIDA <<<
+                    O modal da confirmação também traz um botão escrito "Substituir" — é o que
+                    o comando do PO pede, literalmente. Com os dois na tela, um seletor por
+                    texto acha DOIS e não sabe em qual clicar; o portão mediu isso e a guarda
+                    `toBe(1)` do helper derrubou o caso. O `aria-label` separa os dois sem
+                    mudar uma letra do que o usuário lê. */}
+                <Button
+                  type="primary"
+                  aria-label="Substituir a grade"
+                  loading={gravando}
+                  onClick={clicarSubstituir}
+                >
+                  Substituir
+                </Button>
+                <Button
+                  aria-label="Adicionar à grade"
+                  loading={gravando}
+                  onClick={() => void gravar('adicionar')}
+                >
+                  Adicionar
+                </Button>
+              </Space>
+            </div>
+
+            {/* ── O AVISO, ANTES DO CLIQUE, PARA OS DOIS MODOS EM LINHAS SEPARADAS ─── */}
+            {/* >>> ESCOLHA: OS DOIS AO MESMO TEMPO, EM LINHAS SEPARADAS <<<
+                O comando deixou a escolha entre "o do modo que o mouse/foco indica" e "os dois
+                em linhas separadas". Os DOIS, e a razão é que `hover` não existe no toque e
+                `focus` não existe antes de o usuário tabular: um aviso que depende deles não
+                aparece no celular, e um aviso que não aparece é `portao-que-nao-alcanca.md` em
+                forma de interface. Cada linha diz qual botão a produz, para que ninguém leia o
+                aviso do substituir e clique em adicionar. */}
+            {avisoDoSubstituir(paresComFaixa, nomeDoProfissional) && (
+              <div style={{ marginTop: 8 }}>
+                <Alert
+                  type="warning"
+                  showIcon
+                  message={`Substituir: ${avisoDoSubstituir(paresComFaixa, nomeDoProfissional)}`}
+                />
+              </div>
+            )}
+            {avisoDoAdicionar(puladasDoAdicionar, nomeDoProfissional) && (
+              <div style={{ marginTop: 8 }}>
+                <Alert
+                  type="info"
+                  showIcon
+                  message={`Adicionar: ${avisoDoAdicionar(puladasDoAdicionar, nomeDoProfissional)}`}
+                />
+              </div>
+            )}
+
+            {montErro && (
+              <div style={{ marginTop: 8 }}>
+                <Alert type="error" showIcon message={montErro} />
+              </div>
+            )}
+          </div>
+        )}
 
         {funcionarios.length === 0 ? (
           <Empty description="Nenhum profissional ativo." />
@@ -405,13 +638,6 @@ export function PainelDeAgendamento(props: PainelDeAgendamentoProps) {
             const resolucao = resolverTabelaDeServico(f.tabelas ?? [])
             const avisoTabela = avisoDaTabelaDeServico(resolucao)
             const avisoAcesso = avisoDeFuncionarioSemAcesso(f)
-            const emEdicao = faixaEmEdicao(f.id)
-            // O aviso e o rótulo do botão leem o MESMO retorno que a gravação vai usar. Numa
-            // recusa (sem dia, hora invertida) não há o que avisar: o botão volta a ser "+".
-            const planoAtual = planoDaFaixa(f.id)
-            const avisoDaSubstituicao = faixaEmDiasRecusada(planoAtual)
-              ? null
-              : avisoDeSubstituicao(planoAtual.diasSubstituidos, nomeDoDia)
             // Recolhido por padrão quando DESLIGADO — para a lista de cinco caber na tela. O
             // SEM_GRADE fica aberto de propósito: é nele que falta trabalho a fazer.
             const recolhido = recolhidoManual[f.id] ?? (estado === 'DESLIGADO')
@@ -454,80 +680,19 @@ export function PainelDeAgendamento(props: PainelDeAgendamentoProps) {
                     {avisoTabela && <Alert type="warning" showIcon message={avisoTabela} style={{ marginBottom: 6 }} />}
                     {avisoAcesso && <Alert type="warning" showIcon message={avisoAcesso} style={{ marginBottom: 6 }} />}
 
-                    {/* ══ O COMPOSITOR, ACIMA DA LISTA DE DIAS ══════════════════════════
-                        Mudança 1 de 08/10/2026. Ele ficava DEPOIS dos sete dias, e com cinco
-                        profissionais na tela isso punha o único campo editável da célula no fim
-                        de uma lista de sete linhas: para digitar a faixa do terceiro barbeiro, o
-                        dono do salão rolava a tela inteira. A lista de dias é RESULTADO; o
-                        compositor é a AÇÃO, e ação vem antes do resultado que ela produz.
-                        Devolvê-lo para baixo recria a rolagem. */}
+                    {/* >>> O COMPOSITOR SAIU DA CÉLULA EM 08/10/2026, E NÃO VOLTA <<<
+                        Redesenho do dono do produto depois de usar a tela. Havia aqui sete
+                        caixas de dia, dois `TimePicker` e um botão — e, abaixo, um botão de
+                        replicar a grade deste profissional para os outros. Eram DUAS formas de
+                        montar grade, e a segunda nasceu porque a primeira era trabalhosa em
+                        cinco profissionais.
 
-                    {/* §2 — SETE caixas em vez de um `Select`: a mesma faixa entra em vários
-                        dias de uma vez, que é como o barbeiro realmente trabalha. `weekday`
-                        continua 0=Domingo..6=Sábado, igual à coluna do banco. */}
-                    <div style={{ marginTop: 4, marginBottom: 6 }}>
-                      <Space wrap>
-                        {DIAS_DA_SEMANA.map((d) => (
-                          <Checkbox
-                            key={d.weekday}
-                            aria-label={`${d.label} — ${f.name}`}
-                            checked={emEdicao.dias.includes(d.weekday)}
-                            onChange={(e) => alternarDia(f.id, d.weekday, e.target.checked)}
-                          >
-                            {d.curto}
-                          </Checkbox>
-                        ))}
-                      </Space>
-                    </div>
-                    <Space wrap>
-                      <TimePicker
-                        format="HH:mm"
-                        aria-label={`Início da faixa — ${f.name}`}
-                        value={emEdicao.start_time ? dayjs(emEdicao.start_time, 'HH:mm') : null}
-                        onChange={(v) => mexerNaFaixa(f.id, { start_time: v ? v.format('HH:mm') : '' })}
-                      />
-                      <TimePicker
-                        format="HH:mm"
-                        aria-label={`Fim da faixa — ${f.name}`}
-                        value={emEdicao.end_time ? dayjs(emEdicao.end_time, 'HH:mm') : null}
-                        onChange={(v) => mexerNaFaixa(f.id, { end_time: v ? v.format('HH:mm') : '' })}
-                      />
-                      {/* >>> O RÓTULO DIZ O QUE O CLIQUE VAI FAZER <<<
-                          Mudança 2: o clique passou a APAGAR o dia marcado antes de gravar. Um
-                          botão escrito "+ Adicionar faixa" que apaga três dias mente sobre o
-                          próprio efeito — e mente no único lugar onde o usuário ainda podia
-                          desistir. O `+` sai junto com o rótulo: ele afirma acréscimo. */}
-                      <Button
-                        icon={avisoDaSubstituicao ? undefined : <PlusOutlined />}
-                        onClick={() => tentarAdicionarFaixa(f.id)}
-                      >
-                        {avisoDaSubstituicao ? 'Substituir faixa' : '+ Adicionar faixa'}
-                      </Button>
-                    </Space>
-
-                    {/* ══ O AVISO, ANTES DO CLIQUE E SEM MODAL ══════════════════════════
-                        Decisão do dono do produto, 08/10/2026, registrada como está:
-
-                          "NAO use modal. O aviso aparece ANTES do clique"
-
-                        A razão: o modal chega DEPOIS da decisão, quando o usuário já clicou e só
-                        quer sair dele — e um modal que aparece em toda troca de grade ensina a
-                        confirmar sem ler, que é o contrário de proteger. Aqui a linha aparece no
-                        instante em que a caixa é marcada, ao lado do botão que vai executar.
-
-                        Isto NÃO é o caso da réplica: lá o modal continua, porque lá o alvo são
-                        OUTRAS pessoas e o clique é raro. Ver a Mudança 3. */}
-                    {avisoDaSubstituicao && (
-                      <div style={{ marginTop: 8 }}>
-                        <Alert type="warning" showIcon message={avisoDaSubstituicao} />
-                      </div>
-                    )}
-
-                    {erroPorEmp[f.id] && (
-                      <div style={{ marginTop: 10 }}>
-                        <Alert type="error" showIcon message={erroPorEmp[f.id]} />
-                      </div>
-                    )}
+                        Duas formas divergem com o tempo. O compositor do cabeçalho passou a ser
+                        a única, e escolhe quem e quais dias. Manutenção individual se faz
+                        marcando SÓ este profissional lá em cima, e removendo faixa pela lixeira
+                        abaixo. Reintroduzir um compositor aqui recria a divergência
+                        (`razao-longe-da-restricao.md`: a razão vive no ponto onde a restrição é
+                        declarada, e este é o ponto). */}
 
                     {/* ══ A GRADE GRAVADA, DOMINGO A SÁBADO ═════════════════════════════ */}
                     <div style={{ marginTop: 12 }}>
@@ -555,25 +720,6 @@ export function PainelDeAgendamento(props: PainelDeAgendamentoProps) {
                       })}
                     </div>
 
-                    {/* ══ MUDANÇA 3 — REPLICAR, DE DENTRO DA CÉLULA ════════════════════
-                        A origem é ESTE profissional, e não há seletor: a célula já diz de quem é
-                        a grade. Só aparece com mais de um profissional — replicar para ninguém
-                        não é operação. */}
-                    {funcionarios.length > 1 && (
-                      <div style={{ marginTop: 12 }}>
-                        <Button
-                          size="small"
-                          onClick={() => {
-                            setCopiaOrigem(f.id)
-                            setCopiaDestinos([])
-                            setCopiaConfirmando(false)
-                            setCopiaAberta(true)
-                          }}
-                        >
-                          {`Replicar a grade de ${f.name} para outros profissionais`}
-                        </Button>
-                      </div>
-                    )}
                   </div>
                 )}
               </div>
@@ -773,87 +919,37 @@ export function PainelDeAgendamento(props: PainelDeAgendamentoProps) {
         )}
       </section>
 
-      {/* ══ MUDANÇA 3 — O MODAL DA RÉPLICA ═════════════════════════════════════════════
-          >>> AQUI O MODAL FICA, E A RAZÃO É O ALVO <<<
-          Decisão do dono do produto, 08/10/2026: a Mudança 2 tirou o modal da faixa e esta
-          mantém o da réplica. Não é inconsistência — na faixa o alvo é a grade de quem está
-          mexendo nela, e o clique é constante; aqui o alvo são OUTRAS pessoas, o clique é raro,
-          e desfazer custa remontar a semana de cada uma à mão. */}
+      {/* ══ A CONFIRMAÇÃO DO SUBSTITUIR ════════════════════════════════════════════════
+          >>> MODAL SÓ AQUI, E SÓ QUANDO HÁ FAIXA A APAGAR <<<
+          `adicionar` NUNCA passa por este modal: ele não destrói nada, e pedir confirmação
+          para uma operação que não destrói ensina a confirmar sem ler — e aí a confirmação
+          não protege no caso em que importa.
+
+          O modal que havia aqui era o da réplica, e saiu junto com o botão: duas formas de
+          montar grade divergem com o tempo, e o cabeçalho passou a ser a única. */}
       <Modal
-        title={origemNome ? `Replicar a grade de ${origemNome}` : 'Replicar a grade'}
-        open={copiaAberta}
-        onCancel={fecharCopia}
+        title="Substituir a grade"
+        open={confirmandoSubstituir}
+        onCancel={() => setConfirmandoSubstituir(false)}
         destroyOnClose
         footer={null}
       >
         <Space direction="vertical" style={{ width: '100%' }} size={12}>
-          {/* NÃO HÁ SELETOR DE ORIGEM: ela é o profissional da célula que abriu o modal. O
-              `Select` que havia aqui era a pergunta errada — ver o comentário do botão. */}
-          <div>
-            Replicando a grade de <strong>{origemNome}</strong>
-            {` — ${(origem ? (faixasPorEmp[origem] ?? []) : []).length} faixa(s).`}
-          </div>
-
-          <div>
-            <div style={{ marginBottom: 4 }}>Para:</div>
-            {/* "Todos" é uma caixa, não um botão: com cinco profissionais marcar um por um é o
-                caso comum, e um botão que "marca todos" não mostra que está marcado. Ela fica
-                indeterminada quando a seleção é parcial, para não afirmar nem um nem outro. */}
-            <Checkbox
-              aria-label="Todos os profissionais"
-              checked={possiveisDestinos.length > 0 && copiaDestinos.length === possiveisDestinos.length}
-              indeterminate={copiaDestinos.length > 0 && copiaDestinos.length < possiveisDestinos.length}
-              onChange={(e) => {
-                setCopiaConfirmando(false)
-                setCopiaDestinos(e.target.checked ? possiveisDestinos.map((f) => f.id) : [])
-              }}
+          <Alert type="warning" showIcon message={confirmacaoDoSubstituir(paresComFaixa, nomeDoProfissional)} />
+          <Space>
+            <Button
+              danger
+              type="primary"
+              aria-label="Confirmar a substituição"
+              loading={gravando}
+              onClick={clicarSubstituir}
             >
-              <strong>Todos</strong>
-            </Checkbox>
-            <Space direction="vertical" style={{ marginTop: 6 }}>
-              {possiveisDestinos.map((f) => (
-                <Checkbox
-                  key={f.id}
-                  aria-label={`Copiar para ${f.name}`}
-                  checked={copiaDestinos.includes(f.id)}
-                  onChange={(e) => {
-                    setCopiaConfirmando(false)
-                    setCopiaDestinos((p) => (e.target.checked ? [...p, f.id] : p.filter((x) => x !== f.id)))
-                  }}
-                >
-                  {f.name} — tem hoje {(faixasPorEmp[f.id] ?? []).length} faixa(s)
-                </Checkbox>
-              ))}
-            </Space>
-          </div>
-
-          {avisoDaCopiaDaGrade(planos) && (
-            <Alert
-              type={exigeConfirmacaoDaCopia(planos) ? 'warning' : 'info'}
-              showIcon
-              message={avisoDaCopiaDaGrade(planos)}
-            />
-          )}
-
-          {copiaConfirmando ? (
-            <>
-              {/* A confirmação NOMEIA quem recebe e quem perde — nunca "os selecionados". */}
-              <Alert
-                type="warning"
-                showIcon
-                message={confirmacaoDaReplica(origemNome, planos)}
-              />
-              <Space>
-                <Button danger type="primary" onClick={tentarAplicarGrade}>Confirmar substituição</Button>
-                <Button onClick={fecharCopia}>Cancelar</Button>
-              </Space>
-            </>
-          ) : (
-            <Space>
-              <Button type="primary" onClick={tentarAplicarGrade}>Aplicar</Button>
-              <Button onClick={fecharCopia}>Cancelar</Button>
-            </Space>
-          )}
+              Substituir
+            </Button>
+            <Button aria-label="Cancelar a substituição" onClick={() => setConfirmandoSubstituir(false)}>
+              Cancelar
+            </Button>
+          </Space>
         </Space>
       </Modal>
     </Drawer>
