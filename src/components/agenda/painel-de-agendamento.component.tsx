@@ -61,6 +61,7 @@ import {
   montagemRecusada,
   montarGrade,
   type FaixaExistente,
+  type FaixaInformada,
   type ModoDaMontagem,
 } from '@/utils/montar-grade'
 import {
@@ -201,10 +202,17 @@ export interface PainelDeAgendamentoProps {
   montagemInicial?: {
     profissionais?: string[]
     dias?: number[]
-    faixa1?: { inicio: string; fim: string }
-    faixa2?: { inicio: string; fim: string }
-    /** Abre já com a segunda faixa revelada — o caso do intervalo de almoço. */
-    comSegundaFaixa?: boolean
+    /**
+     * As faixas com que o compositor abre. Uma ou mais.
+     *
+     * >>> SUBSTITUIU `faixa1` + `faixa2` + `comSegundaFaixa` EM 08/10/2026, TERCEIRA RODADA <<<
+     *
+     * Aqueles três campos codificavam o limite de duas na própria assinatura: para semear três
+     * faixas não havia campo, e `comSegundaFaixa` era um booleano que só fazia sentido com
+     * exatamente duas. Uma lista não tem esse problema — e manter os três ao lado dela seriam
+     * duas formas de semear o mesmo estado (`copia-divergente.md`).
+     */
+    faixas?: { inicio: string; fim: string }[]
   }
   /**
    * Os valores com que os dois `DatePicker` de ausência ABREM.
@@ -241,10 +249,19 @@ export function PainelDeAgendamento(props: PainelDeAgendamentoProps) {
   // lixeira da célula dele. Não há terceiro caminho, e reintroduzir um recria a divergência.
   const [montProfs, setMontProfs] = useState<string[]>(props.montagemInicial?.profissionais ?? [])
   const [montDias, setMontDias] = useState<number[]>(props.montagemInicial?.dias ?? [])
-  const [montF1, setMontF1] = useState(props.montagemInicial?.faixa1 ?? { inicio: '09:00', fim: '12:00' })
-  const [montF2, setMontF2] = useState(props.montagemInicial?.faixa2 ?? { inicio: '14:00', fim: '18:00' })
-  const [comSegundaFaixa, setComSegundaFaixa] = useState(
-    props.montagemInicial?.comSegundaFaixa === true,
+  // ══ AS FAIXAS SÃO UMA LISTA, SEM LIMITE DE DUAS ════════════════════════════════════
+  //
+  // Terceira rodada do PO de 08/10/2026. Eram `montF1`, `montF2` e um booleano `comSegundaFaixa`
+  // — três pedaços de estado que codificavam o número DOIS na própria forma. Com a lista, somar
+  // uma faixa é `push` e tirar é `filter`, e o rótulo "Faixa N" é a posição, não um nome.
+  //
+  // A primeira NUNCA é removível: `montFaixas` nasce com uma e `removerFaixa` não é oferecida
+  // no índice 0. Uma lista vazia faria `montarGrade` recusar com "Informe ao menos uma faixa",
+  // o que está correto — mas a tela não deve permitir chegar nesse estado por clique.
+  const [montFaixas, setMontFaixas] = useState<FaixaInformada[]>(
+    props.montagemInicial?.faixas?.length
+      ? props.montagemInicial.faixas
+      : [{ inicio: '09:00', fim: '12:00' }],
   )
   // Quem o usuário abriu ou fechou à mão. O default vem do estado do funcionário, abaixo.
   const [recolhidoManual, setRecolhidoManual] = useState<Record<string, boolean>>({})
@@ -319,9 +336,55 @@ export function PainelDeAgendamento(props: PainelDeAgendamentoProps) {
   // gravação passam a ler o MESMO resultado, em vez de a tela recalcular "quais dias já têm
   // faixa" por conta. Duas contas do mesmo critério divergem (`copia-divergente.md`), e a que
   // divergiria é a que o usuário lê antes de apagar a semana de alguém.
-  // Uma ou duas, conforme a segunda esteja revelada. A lista é o que `montarGrade` recebe, e
-  // é ela que torna o intervalo de almoço possível num gesto só.
-  const faixasInformadas = comSegundaFaixa ? [montF1, montF2] : [montF1]
+  // >>> O ESTADO *É* O QUE `montarGrade` RECEBE — NÃO HÁ CONVERSÃO <<<
+  // Antes havia um ternário montando a lista a partir de dois campos e um booleano. A conversão
+  // era o lugar em que o limite de duas vivia; sem ela, o limite deixa de existir.
+  const faixasInformadas = montFaixas
+
+  /** O padrão da faixa NOVA: 14:00–18:00 na segunda, e depois uma hora de folga por faixa. */
+  function proximaFaixaPadrao(quantas: number): FaixaInformada {
+    if (quantas === 1) return { inicio: '14:00', fim: '18:00' }
+    const inicio = Math.min(19 + (quantas - 2) * 2, 22)
+    return { inicio: `${String(inicio).padStart(2, '0')}:00`, fim: `${String(Math.min(inicio + 2, 23)).padStart(2, '0')}:00` }
+  }
+
+  // >>> A TRAVA DE SANIDADE É 10, E ELA É DA TELA — NÃO DO UTILITÁRIO <<<
+  // O comando deixou a trava opcional e sugeriu 10; está em 10. `montarGrade` NÃO tem limite
+  // próprio, e há caso afirmando que ele aceita 10 — os dois fatos são independentes de
+  // propósito, para que ninguém "corrija" o lado errado ao mexer num deles.
+  //
+  // O botão NÃO desaparece no limite: o comando diz que ele nunca some. Ele fica desabilitado,
+  // com o motivo ao lado. Um botão que desaparece sem dizer por quê deixa o usuário procurando.
+  const LIMITE_DE_FAIXAS = 10
+
+  function acrescentarFaixa() {
+    setMontErro(null)
+    setConfirmandoSubstituir(false)
+    setMontFaixas((p) => (p.length >= LIMITE_DE_FAIXAS
+      ? p
+      : [...p, proximaFaixaPadrao(p.length)]))
+  }
+
+  /**
+   * Tira a faixa da posição `i`, e os rótulos RENUMERAM sozinhos.
+   *
+   * Remover a 2 de três faz a antiga 3 virar "Faixa 2" — porque o rótulo é `i + 1`, a posição
+   * na lista, e não um identificador guardado junto da faixa. Guardar o número tornaria a
+   * renumeração uma segunda operação, que alguém esqueceria de fazer.
+   */
+  function removerFaixa(i: number) {
+    setMontErro(null)
+    setConfirmandoSubstituir(false)
+    // A primeira não é removível, e a guarda está aqui também, não só na ausência do botão:
+    // a tela é uma das duas portas, e a outra é esta.
+    if (i === 0) return
+    setMontFaixas((p) => p.filter((_, k) => k !== i))
+  }
+
+  function mexerNaFaixa(i: number, patch: Partial<FaixaInformada>) {
+    setMontErro(null)
+    setMontFaixas((p) => p.map((f, k) => (k === i ? { ...f, ...patch } : f)))
+  }
 
   function planoDe(modo: ModoDaMontagem) {
     return montarGrade({
@@ -504,64 +567,68 @@ export function PainelDeAgendamento(props: PainelDeAgendamentoProps) {
               </Space>
             </div>
 
-            {/* ── Faixa 1 ──────────────────────────────────────────────────────────── */}
-            <div style={{ marginBottom: 8 }}>
-              <div style={{ color: '#667085', marginBottom: 4 }}>Faixa 1:</div>
-              <Space wrap>
-                <TimePicker
-                  format="HH:mm"
-                  aria-label="Início da faixa 1"
-                  value={montF1.inicio ? dayjs(montF1.inicio, 'HH:mm') : null}
-                  onChange={(v) => { setMontErro(null); setMontF1((f) => ({ ...f, inicio: v ? v.format('HH:mm') : '' })) }}
-                />
-                <TimePicker
-                  format="HH:mm"
-                  aria-label="Fim da faixa 1"
-                  value={montF1.fim ? dayjs(montF1.fim, 'HH:mm') : null}
-                  onChange={(v) => { setMontErro(null); setMontF1((f) => ({ ...f, fim: v ? v.format('HH:mm') : '' })) }}
-                />
-              </Space>
-            </div>
+            {/* ── AS FAIXAS, UMA LINHA CADA, ROTULADAS PELA POSIÇÃO ───────────────────
+                >>> O RÓTULO É `i + 1`, E É ISSO QUE FAZ A RENUMERAÇÃO ACONTECER <<<
+                Remover a 2 de três faz a antiga 3 virar "Faixa 2" sem nenhuma linha de código
+                para isso — porque o número não está guardado junto da faixa, é a posição na
+                lista. Guardá-lo tornaria a renumeração uma segunda operação, e segunda operação
+                é o que alguém esquece de fazer.
 
-            {/* ── Faixa 2 — revelada por botão ─────────────────────────────────────── */}
-            {/* >>> É A SEGUNDA FAIXA QUE RESOLVE O INTERVALO DE ALMOÇO <<<
-                Ela nasce escondida porque o caso comum é um turno só, e dois campos vazios na
-                tela convidam a preencher. Revelada, 09:00–12:00 e 14:00–18:00 entram no MESMO
-                gesto — que é o que não existia antes desta rodada. */}
-            {!comSegundaFaixa ? (
-              <Button
-                type="link"
-                style={{ paddingLeft: 0 }}
-                onClick={() => { setMontErro(null); setComSegundaFaixa(true) }}
-              >
-                + adicionar segunda faixa
-              </Button>
-            ) : (
-              <div style={{ marginBottom: 8 }}>
-                <div style={{ color: '#667085', marginBottom: 4 }}>Faixa 2:</div>
+                A PRIMEIRA não tem "remover": sempre há ao menos uma. A guarda está em dois
+                lugares, aqui e em `removerFaixa` — a tela é uma porta, a função é a outra. */}
+            {montFaixas.map((f, i) => (
+              <div key={i} style={{ marginBottom: 8 }}>
+                <div style={{ color: '#667085', marginBottom: 4 }}>{`Faixa ${i + 1}:`}</div>
                 <Space wrap>
                   <TimePicker
                     format="HH:mm"
-                    aria-label="Início da faixa 2"
-                    value={montF2.inicio ? dayjs(montF2.inicio, 'HH:mm') : null}
-                    onChange={(v) => { setMontErro(null); setMontF2((f) => ({ ...f, inicio: v ? v.format('HH:mm') : '' })) }}
+                    aria-label={`Início da faixa ${i + 1}`}
+                    value={f.inicio ? dayjs(f.inicio, 'HH:mm') : null}
+                    onChange={(v) => mexerNaFaixa(i, { inicio: v ? v.format('HH:mm') : '' })}
                   />
                   <TimePicker
                     format="HH:mm"
-                    aria-label="Fim da faixa 2"
-                    value={montF2.fim ? dayjs(montF2.fim, 'HH:mm') : null}
-                    onChange={(v) => { setMontErro(null); setMontF2((f) => ({ ...f, fim: v ? v.format('HH:mm') : '' })) }}
+                    aria-label={`Fim da faixa ${i + 1}`}
+                    value={f.fim ? dayjs(f.fim, 'HH:mm') : null}
+                    onChange={(v) => mexerNaFaixa(i, { fim: v ? v.format('HH:mm') : '' })}
                   />
-                  <Button
-                    type="link"
-                    aria-label="Remover a segunda faixa"
-                    onClick={() => { setMontErro(null); setComSegundaFaixa(false) }}
-                  >
-                    remover
-                  </Button>
+                  {i > 0 && (
+                    <Button
+                      type="link"
+                      aria-label={`Remover a faixa ${i + 1}`}
+                      onClick={() => removerFaixa(i)}
+                    >
+                      remover
+                    </Button>
+                  )}
                 </Space>
               </div>
-            )}
+            ))}
+
+            {/* ── O BOTÃO DE ACRESCENTAR, QUE NUNCA SOME ──────────────────────────────
+                Até a segunda rodada ele era "+ adicionar segunda faixa" e DESAPARECIA depois
+                de revelar a segunda — o que fechava a porta para a terceira. Agora ele fica,
+                sempre, e o rótulo perdeu o "segunda" porque ele não acrescenta uma faixa
+                específica: acrescenta a próxima.
+
+                No limite de sanidade ele NÃO desaparece, fica desabilitado com o motivo ao
+                lado. Botão que some sem dizer por quê deixa o usuário procurando. */}
+            <Space wrap>
+              <Button
+                type="link"
+                style={{ paddingLeft: 0 }}
+                aria-label="Acrescentar faixa"
+                disabled={montFaixas.length >= LIMITE_DE_FAIXAS}
+                onClick={acrescentarFaixa}
+              >
+                + adicionar faixa
+              </Button>
+              {montFaixas.length >= LIMITE_DE_FAIXAS && (
+                <span style={{ color: '#98A2B3', fontSize: 12 }}>
+                  {`Limite de ${LIMITE_DE_FAIXAS} faixas por montagem.`}
+                </span>
+              )}
+            </Space>
 
             {/* ── As duas ações, lado a lado ───────────────────────────────────────── */}
             {/* >>> ELAS NÃO SÃO VARIAÇÕES DE GRAU <<<
