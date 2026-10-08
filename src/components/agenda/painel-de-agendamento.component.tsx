@@ -10,7 +10,12 @@
  *
  * ── A ORDEM DAS SEÇÕES É A ORDEM DO TRABALHO, E ISSO É A CORREÇÃO ──────────────────────────
  *
- *   1. Grade de atendimento  →  2. Férias e folgas  →  3. Ajustes  →  4. Link
+ *   1. Grade de atendimento  →  2. Ajustes  →  3. Link
+ *
+ * >>> ERAM QUATRO ATÉ 08/10/2026, E A SEGUNDA DESCEU PARA DENTRO DA CÉLULA <<<
+ * "Férias, folgas e feriados" era uma seção solta, com um `Select` de profissional dentro.
+ * Decisão do dono do produto: a ausência pertence ao PROFISSIONAL, não a uma seção separada —
+ * ela mora na célula dele, e entra por modal. Não ficou versão reduzida nem link.
  *
  * A primeira versão punha o "Gerar link" no TOPO, antes de existir grade: a tela pedia para
  * PUBLICAR antes de haver o que publicar. Quem usou em produção tropeçou nisso, e a ordem nova
@@ -57,6 +62,8 @@ import { tenantOffersServices } from '@/utils/segment-visibility'
 // Redesenho do PO de 08/10/2026, segunda rodada: o compositor por célula saiu, e com ele o
 // único consumidor daquele módulo. O arquivo e os testes dele FICAM no repositório, por
 // instrução explícita — ele está órfão, e a decisão de apagá-lo é do dono do produto.
+import { ordenarAusencias } from '@/utils/ordenar-ausencias'
+import { ausenciaRecusada, validarAusencia } from '@/utils/validar-ausencia'
 import {
   montagemRecusada,
   montarGrade,
@@ -169,7 +176,26 @@ export interface AcoesDoPainel {
     idsParaRemover: string[],
   ) => Promise<boolean>
   onRemoverFaixa: (id: string) => void | Promise<void>
-  onSalvarFolga: (folga: { employee_id: string; starts_at: string; ends_at: string; reason?: string }) => void | Promise<void>
+  /**
+   * Grava a ausência. A ASSINATURA não mudou de forma — `employee_id` continua no corpo.
+   *
+   * >>> O QUE MUDOU É A ORIGEM DELE <<<
+   * Até 08/10/2026 vinha de um `Select` numa seção solta; agora vem da CÉLULA que abriu o
+   * modal, e o `Select` deixou de existir. Decisão do dono do produto: *"onSalvarFolga NAO muda
+   * de assinatura. O employee_id continua no corpo; o que muda e a origem dele."*
+   *
+   * >>> ELA PASSOU DE `void | Promise<void>` PARA `Promise<boolean>` <<<
+   * Pela mesma razão de `onMontarGrade`: com `void`, o painel emitia o toast de sucesso logo
+   * depois de chamar a ação, e o sucesso saía mesmo com a gravação falhando. O modal também
+   * não pode FECHAR sobre uma gravação falha — o usuário perderia o que digitou sem saber que
+   * perdeu. Com o `boolean`, fechar e avisar dependem do retorno.
+   */
+  onSalvarFolga: (folga: {
+    employee_id: string
+    starts_at: string
+    ends_at: string
+    reason?: string
+  }) => Promise<boolean>
   onRemoverFolga: (id: string) => void | Promise<void>
   /** §2 — liga ou desliga TODAS as faixas do funcionário de uma vez. */
   onAlternarFuncionario: (employee_id: string, ativo: boolean) => void | Promise<void>
@@ -215,16 +241,26 @@ export interface PainelDeAgendamentoProps {
     faixas?: { inicio: string; fim: string }[]
   }
   /**
-   * Os valores com que os dois `DatePicker` de ausência ABREM.
+   * Os valores com que o modal de ausência ABRE, e de qual profissional ele já está aberto.
    *
-   * Mesma natureza de `faixaInicial`: prop com default real (vazio), não costura de teste. Ela
-   * existe porque a §1 — datas em DD/MM/YYYY — não tinha portão nenhum, e sem semear uma data
-   * conhecida o único jeito de afirmar o formato seria operar o calendário do antd dentro do
-   * jsdom, que afirmaria que o antd funciona, não que o formato é brasileiro.
+   * >>> PROP COM DEFAULT REAL, NÃO COSTURA DE TESTE <<<
+   *
+   * O default é o modal fechado e os campos vazios — o que o dono do salão encontra. O portão a
+   * usa para chegar à asserção de COMPORTAMENTO sem operar o calendário do antd dentro do
+   * jsdom; operar o widget afirmaria que o antd funciona, não que a ausência foi gravada.
+   *
+   * Ela SUBSTITUIU `folgaInicial`, que semeava a seção solta. `abertoPara` é novo e necessário:
+   * com o modal por célula, semear as datas não basta — é preciso dizer de QUEM é o modal.
    *
    * Os valores são ISO, como o banco grava; o que o caso afirma é o que a TELA exibe.
    */
-  folgaInicial?: { starts_at: string; ends_at: string }
+  ausenciaInicial?: {
+    /** O `employee_id` da célula cujo modal já está aberto. Ausente = modal fechado. */
+    abertoPara?: string
+    starts_at?: string
+    ends_at?: string
+    reason?: string
+  }
 }
 
 /** O link que a fase 2 vai atender. Exibido aqui, e ainda sem página do outro lado. */
@@ -270,11 +306,26 @@ export function PainelDeAgendamento(props: PainelDeAgendamentoProps) {
   const [confirmandoSubstituir, setConfirmandoSubstituir] = useState(false)
   const [gravando, setGravando] = useState(false)
 
-  const [folgaEmp, setFolgaEmp] = useState<string | null>(null)
-  const [folgaIni, setFolgaIni] = useState<string>(props.folgaInicial?.starts_at ?? '')
-  const [folgaFim, setFolgaFim] = useState<string>(props.folgaInicial?.ends_at ?? '')
-  const [folgaMotivo, setFolgaMotivo] = useState<string>('')
-  const [erroDaFolga, setErroDaFolga] = useState<string | null>(null)
+  // ══ O MODAL DE AUSÊNCIA — UM POR VEZ, E O PROFISSIONAL É A CÉLULA QUE O ABRIU ════════
+  //
+  // >>> `ausenciaEmp` É O PROFISSIONAL *E* O ESTADO DE ABERTURA <<<
+  //
+  // `null` = fechado. Um `boolean` separado ao lado seria um segundo estado dizendo a mesma
+  // coisa, e os dois divergiriam no primeiro caminho que esquecesse de atualizar um deles
+  // (`copia-divergente.md` em forma de `useState`). Com um campo só, aberto sem profissional é
+  // um estado que não existe.
+  //
+  // Eram cinco pedaços GLOBAIS da seção solta — `folgaEmp` com um `Select`, mais as datas, o
+  // motivo e o erro. Renascem aqui, zerados a cada abertura, porque a ausência de um
+  // profissional não tem nada a ver com o rascunho aberto no outro.
+  const [ausenciaEmp, setAusenciaEmp] = useState<string | null>(
+    props.ausenciaInicial?.abertoPara ?? null,
+  )
+  const [ausenciaIni, setAusenciaIni] = useState<string>(props.ausenciaInicial?.starts_at ?? '')
+  const [ausenciaFim, setAusenciaFim] = useState<string>(props.ausenciaInicial?.ends_at ?? '')
+  const [ausenciaMotivo, setAusenciaMotivo] = useState<string>(props.ausenciaInicial?.reason ?? '')
+  const [erroDaAusencia, setErroDaAusencia] = useState<string | null>(null)
+  const [gravandoAusencia, setGravandoAusencia] = useState(false)
 
   const funcionarios = dados?.funcionarios ?? []
   const grade = dados?.grade ?? []
@@ -287,6 +338,35 @@ export function PainelDeAgendamento(props: PainelDeAgendamentoProps) {
     }
     return m
   }, [grade])
+
+  // ══ AS AUSÊNCIAS, AGRUPADAS POR PROFISSIONAL E JÁ ORDENADAS ═════════════════════════
+  //
+  // >>> ESTE `useMemo` FICA ACIMA DO GATE DE SEGMENTAÇÃO, COMO TODOS OS OUTROS <<<
+  // Hook condicional quebra o React com "Rendered more hooks than during the previous render"
+  // no instante em que o `calcType` muda de SERVICO para outro. Já aconteceu neste arquivo.
+  //
+  // `dados.folgas` chega como lista PLANA, com `employee_id` em cada item — a seção solta não
+  // filtrava por profissional porque era global. A célula precisa do grupo, e o agrupamento
+  // mora aqui pela mesma razão de `faixasPorEmp`: uma vez por mudança de dados, não uma por
+  // célula renderizada.
+  //
+  // `agora` é capturado UMA vez por mudança de `folgas`, e é passado para `ordenarAusencias` —
+  // a função não lê o relógio. Chamar `new Date()` dentro dela faria o mesmo dado produzir
+  // resultados diferentes conforme o minuto da renderização.
+  const ausenciasPorEmp = useMemo(() => {
+    const agora = new Date()
+    const m: Record<string, ReturnType<typeof ordenarAusencias>> = {}
+    const porEmp: Record<string, FolgaGravada[]> = {}
+    for (const fo of dados?.folgas ?? []) {
+      if (!fo) continue
+      if (!porEmp[fo.employee_id]) porEmp[fo.employee_id] = []
+      porEmp[fo.employee_id].push(fo)
+    }
+    for (const [empId, lista] of Object.entries(porEmp)) {
+      m[empId] = ordenarAusencias({ ausencias: lista, agora })
+    }
+    return m
+  }, [dados?.folgas])
 
   const cfg = dados?.configuracao ?? null
   // >>> ESTE `useMemo` FICA ANTES DO `return null`, E NÃO É ARRUMAÇÃO <<<
@@ -314,18 +394,62 @@ export function PainelDeAgendamento(props: PainelDeAgendamentoProps) {
   // trata (`copia-divergente.md`).
   if (!tenantOffersServices(calcType)) return null
 
-  function tentarAdicionarFolga() {
-    setErroDaFolga(null)
-    if (!folgaEmp) { setErroDaFolga('Escolha o profissional.'); return }
-    if (!folgaIni || !folgaFim) { setErroDaFolga('Informe o início e o fim da ausência.'); return }
-    if (!(new Date(folgaFim).getTime() > new Date(folgaIni).getTime())) {
-      setErroDaFolga('O fim da ausência tem de ser depois do início.')
+  function abrirAusencia(empId: string) {
+    // Zera o rascunho a cada abertura: o que o usuário digitou para um profissional não deve
+    // aparecer no modal do outro.
+    setAusenciaEmp(empId)
+    setAusenciaIni('')
+    setAusenciaFim('')
+    setAusenciaMotivo('')
+    setErroDaAusencia(null)
+  }
+
+  function fecharAusencia() {
+    setAusenciaEmp(null)
+    setErroDaAusencia(null)
+  }
+
+  async function salvarAusencia() {
+    if (!ausenciaEmp) return
+
+    // >>> A VALIDAÇÃO É O UTILITÁRIO PURO, E `existentes` VEM FILTRADA DAQUI <<<
+    // `validarAusencia` não conhece `employee_id` — há caso provando que ela não filtra. Quem
+    // filtra é esta linha, e é por isso que ela existe em vez de a função fazer o trabalho:
+    // uma função que filtrasse por profissional convidaria a tela a parar de filtrar.
+    const r = validarAusencia({
+      inicio: ausenciaIni || null,
+      fim: ausenciaFim || null,
+      existentes: (ausenciasPorEmp[ausenciaEmp] ?? []).map((a) => ({
+        id: a.id,
+        starts_at: a.starts_at,
+        ends_at: a.ends_at,
+      })),
+    })
+
+    if (ausenciaRecusada(r)) {
+      // O erro aparece DENTRO do modal, e o modal NÃO fecha nem grava. As três coisas.
+      setErroDaAusencia(r.erro)
       return
     }
-    void acoes.onSalvarFolga({
-      employee_id: folgaEmp, starts_at: folgaIni, ends_at: folgaFim, reason: folgaMotivo || undefined,
-    })
-    setFolgaMotivo('')
+    setErroDaAusencia(null)
+
+    setGravandoAusencia(true)
+    try {
+      // >>> O `await` E O `boolean` SÃO O QUE IMPEDE FECHAR SOBRE UMA FALHA <<<
+      // Com `void`, o modal fechava e o toast de sucesso saía mesmo quando a gravação falhava —
+      // e o usuário perdia o que digitou sem saber que perdeu.
+      const gravou = await acoes.onSalvarFolga({
+        employee_id: ausenciaEmp,
+        starts_at: r.inicio,
+        ends_at: r.fim,
+        reason: ausenciaMotivo || undefined,
+      })
+      if (!gravou) return
+      msgApi.success('Ausência registrada.')
+      fecharAusencia()
+    } finally {
+      setGravandoAusencia(false)
+    }
   }
 
   // ══ O PLANO DO CLIQUE, CALCULADO A CADA RENDER, PARA OS DOIS MODOS ══════════════════
@@ -712,6 +836,14 @@ export function PainelDeAgendamento(props: PainelDeAgendamentoProps) {
             return (
               <div
                 key={f.id}
+                // >>> `data-emp` EXISTE PARA QUE O PORTÃO POSSA RECORTAR A CÉLULA <<<
+                // Com a ausência dentro da célula, o caso do vazamento entre profissionais
+                // precisa afirmar "isto está NA célula de e1 e NÃO na de e3" — e recortar por
+                // TEXTO não funciona: o nome reaparece dentro da própria célula ("Ocultar grade
+                // de Barbeiro Um"), então a fatia acaba vazia. Medido: a primeira versão do
+                // caso ficou vermelha com a fatia valendo só "Barbeiro Um".
+                // É o atributo que torna a asserção possível, não enfeite.
+                data-emp={f.id}
                 style={{ border: '1px solid rgba(255,255,255,0.12)', borderRadius: 10, padding: 12, marginBottom: 12 }}
               >
                 {/* O NOME E O SWITCH FICAM FORA DO RECOLHÍVEL: a lista tem de mostrar os cinco
@@ -787,6 +919,63 @@ export function PainelDeAgendamento(props: PainelDeAgendamentoProps) {
                       })}
                     </div>
 
+                    {/* ══ AS AUSÊNCIAS DESTE PROFISSIONAL ══════════════════════════════
+                        >>> SÓ AS DELE, E O FILTRO É `ausenciasPorEmp[f.id]` <<<
+                        A seção solta listava as de todos, com o nome do dono em cada linha —
+                        e com cinco profissionais isso vira uma lista em que ninguém acha a
+                        própria. Aqui não há nome na linha, porque a célula já diz de quem é.
+
+                        A ordem e o esmaecimento vêm de `ordenarAusencias`, com `agora`
+                        injetado: futuras e em curso primeiro por data crescente, passadas no
+                        fim por data decrescente. As passadas NÃO somem — são histórico. */}
+                    <div style={{ marginTop: 14 }}>
+                      <strong style={{ display: 'block', marginBottom: 6 }}>Ausências</strong>
+                      {(ausenciasPorEmp[f.id] ?? []).length === 0 ? (
+                        <div style={{ color: '#98A2B3', marginBottom: 6 }}>
+                          Nenhuma ausência registrada.
+                        </div>
+                      ) : (
+                        <Space direction="vertical" style={{ width: '100%', marginBottom: 6 }}>
+                          {(ausenciasPorEmp[f.id] ?? []).map((a) => (
+                            <div
+                              key={a.id}
+                              data-passada={a.passada ? 'sim' : 'nao'}
+                              style={{
+                                display: 'flex',
+                                gap: 10,
+                                alignItems: 'center',
+                                // O esmaecimento é a única diferença visual, e ele vem do
+                                // `passada` que o utilitário devolveu — a tela não recalcula.
+                                opacity: a.passada ? 0.45 : 1,
+                              }}
+                            >
+                              <span>
+                                {/* DIA INTEIRO: exibir `HH:mm` aqui afirmaria uma hora que o
+                                    usuário não escolheu — o 00:00 e o 23:59 são derivados,
+                                    não dados. O formato é o mesmo de antes. */}
+                                {dayjs(a.starts_at).format('DD/MM/YYYY')} — {dayjs(a.ends_at).format('DD/MM/YYYY')}
+                              </span>
+                              {a.reason && <span style={{ color: '#667085' }}>{a.reason}</span>}
+                              <Popconfirm
+                                title="Remover esta ausência?"
+                                onConfirm={() => void acoes.onRemoverFolga(a.id)}
+                              >
+                                <DeleteOutlined aria-label={`Remover ausência ${a.id}`} />
+                              </Popconfirm>
+                            </div>
+                          ))}
+                        </Space>
+                      )}
+                      <Button
+                        size="small"
+                        icon={<PlusOutlined />}
+                        aria-label={`Adicionar ausência de ${f.name}`}
+                        onClick={() => abrirAusencia(f.id)}
+                      >
+                        Adicionar ausência
+                      </Button>
+                    </div>
+
                   </div>
                 )}
               </div>
@@ -795,76 +984,18 @@ export function PainelDeAgendamento(props: PainelDeAgendamentoProps) {
         )}
       </section>
 
-      {/* ══ 2. FÉRIAS, FOLGAS E FERIADOS ═════════════════════════════════════════════════ */}
-      <section style={{ marginBottom: 32 }}>
-        <h3>Férias, folgas e feriados</h3>
+      {/* >>> A SEÇÃO "FÉRIAS, FOLGAS E FERIADOS" SAIU DAQUI EM 08/10/2026 <<<
+          Ela era uma `<section>` solta, com um `Select` de profissional dentro — e a lista
+          mostrava as ausências de TODOS misturadas, com o nome do dono em cada linha.
 
-        {(dados?.folgas ?? []).length === 0 ? (
-          <Empty description="Nenhuma ausência cadastrada." />
-        ) : (
-          <Space direction="vertical" style={{ width: '100%' }}>
-            {(dados?.folgas ?? []).map((fo) => {
-              const nome = funcionarios.find((f) => f.id === fo.employee_id)?.name ?? fo.employee_id
-              return (
-                <div key={fo.id} style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                  <span style={{ minWidth: 160 }}>{nome}</span>
-                  <span>
-                    {/* DIA INTEIRO (§4): exibir `HH:mm` aqui afirmaria uma hora que o
-                        usuário não escolheu — o 00:00 e o 23:59 são derivados, não dados. */}
-                    {dayjs(fo.starts_at).format('DD/MM/YYYY')} — {dayjs(fo.ends_at).format('DD/MM/YYYY')}
-                  </span>
-                  {fo.reason && <span style={{ color: '#667085' }}>{fo.reason}</span>}
-                  <Popconfirm title="Remover esta ausência?" onConfirm={() => void acoes.onRemoverFolga(fo.id)}>
-                    <DeleteOutlined aria-label={`Remover ausência ${fo.id}`} />
-                  </Popconfirm>
-                </div>
-              )
-            })}
-          </Space>
-        )}
+          Decisão do dono do produto: a ausência pertence ao PROFISSIONAL, não a uma seção
+          separada. Ela desceu para dentro da célula dele, depois da lista Domingo..Sábado, e o
+          cadastro entra por modal com o nome no título. O `Select` deixou de existir porque a
+          pergunta "de quem é esta ausência?" deixou de ser feita: é da célula.
 
-        <Space wrap style={{ marginTop: 12 }}>
-          <Select
-            style={{ minWidth: 200 }}
-            aria-label="Profissional da ausência"
-            value={folgaEmp ?? undefined}
-            placeholder="Profissional"
-            onChange={(v) => { setFolgaEmp(v); setErroDaFolga(null) }}
-            options={funcionarios.map((f) => ({ value: f.id, label: f.name }))}
-          />
-          {/* §1 — DATA NO MODELO BRASILEIRO, e DIA INTEIRO (§4: sem campo de hora).
-              O que vai ao banco continua ISO em `timestamptz`; `startOf`/`endOf` do dia são o
-              que transforma duas datas em um período fechado. Sem o `endOf`, uma ausência de
-              um dia só terminaria à meia-noite do próprio dia e não cobriria nada. */}
-          <DatePicker
-            aria-label="Início da ausência"
-            placeholder="Início"
-            format="DD/MM/YYYY"
-            value={folgaIni ? dayjs(folgaIni) : null}
-            onChange={(d) => {
-              setFolgaIni(d ? d.startOf('day').toISOString() : '')
-              setErroDaFolga(null)
-            }}
-          />
-          <DatePicker
-            aria-label="Fim da ausência"
-            placeholder="Fim"
-            format="DD/MM/YYYY"
-            value={folgaFim ? dayjs(folgaFim) : null}
-            onChange={(d) => {
-              setFolgaFim(d ? d.endOf('day').toISOString() : '')
-              setErroDaFolga(null)
-            }}
-          />
-          <Input aria-label="Motivo da ausência" placeholder="Motivo (opcional)" value={folgaMotivo}
-            onChange={(e) => setFolgaMotivo(e.target.value)} />
-          <Button icon={<PlusOutlined />} onClick={tentarAdicionarFolga}>Adicionar ausência</Button>
-        </Space>
-
-        {erroDaFolga && (
-          <div style={{ marginTop: 10 }}><Alert type="error" showIcon message={erroDaFolga} /></div>
-        )}
-      </section>
+          NÃO ficou versão reduzida nem link. Recriar uma seção aqui traria de volta o `Select`
+          e a lista misturada (`razao-longe-da-restricao.md`: a razão vive no ponto onde a
+          ausência é declarada, e este é o ponto). */}
 
       {/* ══ 3. AJUSTES ═══════════════════════════════════════════════════════════════════ */}
       <section style={{ marginBottom: 32 }}>
@@ -985,6 +1116,79 @@ export function PainelDeAgendamento(props: PainelDeAgendamentoProps) {
           </Space>
         )}
       </section>
+
+      {/* ══ O MODAL DA AUSÊNCIA — UM POR CÉLULA, SEM SELECT DE PROFISSIONAL ════════════
+          >>> O PROFISSIONAL NÃO É ESCOLHIDO AQUI <<<
+          `ausenciaEmp` é quem abriu o modal, e o nome dele está no TÍTULO. O `Select` que
+          havia na seção solta não tem equivalente: a pergunta "de quem é esta ausência?"
+          deixou de ser feita, e um seletor aqui a faria de novo — permitindo cadastrar para
+          um profissional a partir da célula de outro.
+
+          O ERRO aparece DENTRO do modal, e o modal não fecha nem grava. As três coisas. */}
+      <Modal
+        title={ausenciaEmp ? `Nova ausência — ${nomeDoProfissional(ausenciaEmp)}` : 'Nova ausência'}
+        open={!!ausenciaEmp}
+        onCancel={fecharAusencia}
+        destroyOnClose
+        footer={null}
+      >
+        <Space direction="vertical" style={{ width: '100%' }} size={12}>
+          {/* DATA NO MODELO BRASILEIRO, e DIA INTEIRO (sem campo de hora).
+              O que vai ao banco continua ISO em `timestamptz`; o `startOf`/`endOf` do dia é
+              feito por `validarAusencia`, que é quem decide o período — a tela só informa as
+              datas. Antes o `endOf` estava aqui, no `onChange`, e isso punha metade da regra
+              na apresentação. */}
+          <div>
+            <div style={{ color: '#667085', marginBottom: 4 }}>Início:</div>
+            <DatePicker
+              aria-label="Início da ausência"
+              placeholder="Início"
+              format="DD/MM/YYYY"
+              value={ausenciaIni ? dayjs(ausenciaIni) : null}
+              onChange={(d) => {
+                setAusenciaIni(d ? d.startOf('day').toISOString() : '')
+                setErroDaAusencia(null)
+              }}
+            />
+          </div>
+          <div>
+            <div style={{ color: '#667085', marginBottom: 4 }}>Fim:</div>
+            <DatePicker
+              aria-label="Fim da ausência"
+              placeholder="Fim (opcional — mesmo dia)"
+              format="DD/MM/YYYY"
+              value={ausenciaFim ? dayjs(ausenciaFim) : null}
+              onChange={(d) => {
+                setAusenciaFim(d ? d.startOf('day').toISOString() : '')
+                setErroDaAusencia(null)
+              }}
+            />
+          </div>
+          <div>
+            <div style={{ color: '#667085', marginBottom: 4 }}>Motivo:</div>
+            <Input
+              aria-label="Motivo da ausência"
+              placeholder="Motivo (opcional)"
+              value={ausenciaMotivo}
+              onChange={(e) => setAusenciaMotivo(e.target.value)}
+            />
+          </div>
+
+          {erroDaAusencia && <Alert type="error" showIcon message={erroDaAusencia} />}
+
+          <Space>
+            <Button
+              type="primary"
+              aria-label="Salvar a ausência"
+              loading={gravandoAusencia}
+              onClick={() => void salvarAusencia()}
+            >
+              Salvar
+            </Button>
+            <Button aria-label="Cancelar a ausência" onClick={fecharAusencia}>Cancelar</Button>
+          </Space>
+        </Space>
+      </Modal>
 
       {/* ══ A CONFIRMAÇÃO DO SUBSTITUIR ════════════════════════════════════════════════
           >>> MODAL SÓ AQUI, E SÓ QUANDO HÁ FAIXA A APAGAR <<<

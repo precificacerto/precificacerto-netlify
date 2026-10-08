@@ -36,14 +36,53 @@ export const VARIAVEIS_DAS_MENSAGENS = [
  * não acharia onde, e ligaria para o salão. Promessa que o sistema não cumpre é pior que ausência
  * de promessa, e é a mesma razão de `ausente-vs-falso.md`: afirmar o que não existe.
  *
- * `{codigo}` CONTINUA em `VARIAVEIS_DAS_MENSAGENS` e nas outras duas mensagens, porque as de
- * cancelamento e alteração só são enviadas quando a ação já aconteceu — ali o código faz sentido.
+ * `{codigo}` CONTINUA em `VARIAVEIS_DAS_MENSAGENS` e na mensagem de ALTERAÇÃO, porque ela só é
+ * enviada quando a ação já aconteceu — ali o código faz sentido, para a alteração seguinte.
+ *
+ * >>> CORREÇÃO DE UM ERRO DE FATO DESTE COMENTÁRIO, 08/10/2026 <<<
+ * Até hoje esta nota dizia "nas outras DUAS mensagens". É falso, e foi medido: a de
+ * CANCELAMENTO não usa `{codigo}` — não faz sentido mandar um código de cancelamento para quem
+ * acabou de cancelar. A nota foi escrita por mim em 06/10 e descrevia a intenção, não o
+ * arquivo. Quem a lesse procuraria na constante errada.
+ *
+ * O erro apareceu porque um caso de teste foi escrito a partir DESTA FRASE em vez do código —
+ * `estado-relatado-vs-real.md` com o comentário no lugar da fonte primária. O caso ficou
+ * vermelho na primeira execução, e a correção é aqui, não lá.
+ *
+ * ══ O RODAPÉ, ACRESCENTADO EM 08/10/2026 — E A DÍVIDA QUE ELE CRIA ══════════════════════
+ *
+ * Registro exigido pelo dono do produto, com esta frase:
+ *
+ *   Este rodapé promete alteração e cancelamento pelo link, que a Fase 2B ainda não entregou.
+ *   Nenhuma tenant tem o link ligado — confirmar antes de ligar o primeiro.
+ *
+ * É a mesma tensão do `{codigo}` duas seções acima, e por isso as duas notas moram juntas: ali
+ * a promessa foi RETIRADA por não existir ação; aqui ela foi ACRESCENTADA de propósito, com a
+ * dívida anotada. A diferença é que `{codigo}` mandava o cliente usar um código que a tela não
+ * aceita — instrução concreta e falsa —, e o rodapé diz "acesse pelo mesmo link", que é
+ * verdadeiro quanto ao endereço e adiantado quanto à função.
+ *
+ * >>> AS 2 HORAS SÃO POLÍTICA COMERCIAL, NÃO REGRA DE CÓDIGO <<<
+ *
+ * Instrução do dono do produto, registrada como está: *"as 2 horas sao politica comercial, NAO
+ * regra de codigo. Nao implemente trava nenhuma por causa dessa frase."* Não há `lead_time` novo,
+ * não há janela de cancelamento, não há checagem em rota nenhuma por causa desta linha. Quem
+ * vier implementar o cancelamento vai encontrar esta frase na mensagem e pode concluir que a
+ * trava existe em algum lugar — ela não existe, e esta nota é o registro de que a ausência é
+ * escolha (`ausente-vs-falso.md`).
+ *
+ * >>> SÓ A CONSTANTE MUDA <<<
+ *
+ * Tenant com texto próprio gravado em `msg_confirmacao` continua com o dela — `textoOuPadrao`
+ * só cai no padrão quando a coluna está vazia. Nenhum UPDATE, nenhuma migração.
  */
 export const MENSAGEM_CONFIRMACAO_PADRAO = `Olá {cliente}, seu agendamento está confirmado.
 
 {servico} com {profissional}
 {data} às {hora}
-{empresa}`
+{empresa}
+
+Necessitando alteração/cancelamento acesse pelo mesmo link. Cancelamento próximo ao horário (menos de 2 horas antes) será mantido/cobrado.`
 
 export const MENSAGEM_CANCELAMENTO_PADRAO = `Olá {cliente}, seu agendamento foi cancelado.
 
