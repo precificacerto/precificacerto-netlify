@@ -337,35 +337,39 @@ function Schedule() {
                 setBookingCfg({ ...bookingCfg, ...patch })
             } catch (e: any) { msgApi.error(e?.message || 'Não foi possível salvar as configurações. Nada foi salvo — tente de novo.') }
         },
-        // §2 — UM insert com array. Atômico no Postgres: as sete linhas entram juntas ou
-        // nenhuma entra. Um laço de inserts deixaria metade gravada se o terceiro falhasse.
+        // ══ A GRAVAÇÃO DA MONTAGEM — insert ANTES DE delete, E NÃO É NEGOCIÁVEL ══════════
         //
-        // ══ MUDANÇA 2 DE 08/10/2026 — A ORDEM É insert ANTES DE delete, E NÃO É NEGOCIÁVEL ══
+        // Uma ação para os DOIS modos do compositor. `substituir` e `adicionar` diferem no que
+        // `montarGrade` devolve, não no que o banco faz: em `adicionar` a lista de remoção vem
+        // vazia e o passo 3 não roda. Dois handlers aqui seriam dois caminhos para o mesmo par
+        // de operações, e divergiriam na primeira mudança de um deles.
         //
-        // A faixa nova SOBRESCREVE o dia marcado, então gravar são duas operações. A ordem foi
-        // fixada pelo dono do produto e é a mesma escolha compensada de `aplicar-grade.ts`:
+        // A ordem foi fixada pelo dono do produto e é a mesma escolha compensada de
+        // `aplicar-grade.ts`:
         //
-        //   insert falha  →  nada foi apagado, o dia fica COMO ESTAVA. O delete NÃO roda.
+        //   insert falha  →  nada foi apagado, a grade fica COMO ESTAVA. O delete NÃO roda.
         //   delete falha  →  o dia fica DUPLICADO: visível na lista, removível pela lixeira.
         //
         // Na ordem inversa, um delete bem-sucedido seguido de insert falho deixaria o dia
         // VAZIO — e vazio é indistinguível de "nunca configurado" na tela, então ninguém
         // perceberia (`ausente-vs-falso.md`). Duplicado incomoda; vazio engana.
-        onSalvarFaixas: async (
-            employee_id: string,
-            faixas: { weekday: number; start_time: string; end_time: string }[],
+        //
+        // >>> E ELA DEVOLVE `boolean`, QUE É CORREÇÃO DE UM DEFEITO DA RODADA ANTERIOR <<<
+        // `onSalvarFaixas` era `void`, e o painel emitia o toast de sucesso logo depois de
+        // chamá-la. O sucesso saía mesmo com a gravação falhando. Agora a mensagem da montagem
+        // depende deste retorno.
+        onMontarGrade: async (
+            novas: { employee_id: string; weekday: number; start_time: string; end_time: string }[],
             idsParaRemover: string[],
-        ) => {
-            if (!faixas || faixas.length === 0) return
+        ): Promise<boolean> => {
+            if (!novas || novas.length === 0) return false
             try {
                 const tid = await getTenantId()
                 const { data, error } = await (supabase as any).from('employee_working_hours')
                     // NÃO troque por laço de inserts. Um INSERT com array é atômico no Postgres:
-                    // ou entram as N faixas, ou nenhuma. Um laço grava metade quando a terceira
+                    // ou entram as N linhas, ou nenhuma. Um laço grava metade quando a terceira
                     // falha, e o barbeiro fica com grade pela metade sem ninguém perceber.
-                    // O portão NÃO alcança esta linha — ele cobre a decisão em
-                    // adicionar-faixa-multiplos-dias.ts, não a gravação. Pendência conhecida.
-                    .insert(faixas.map(f => ({ tenant_id: tid, employee_id, ...f })))
+                    .insert(novas.map(n => ({ tenant_id: tid, ...n })))
                     .select('*')
                 // >>> O `throw` AQUI É O QUE IMPEDE O DELETE <<<
                 // Tirá-lo não "deixa passar um erro": faz o delete rodar depois de um insert
@@ -375,6 +379,7 @@ function Schedule() {
 
                 // UM delete com `.in`, não um por id: N chamadas apagariam parte dos dias se a
                 // terceira falhasse, e o usuário veria a semana metade nova, metade velha.
+                // Em `adicionar` a lista vem vazia e este bloco não roda.
                 if (idsParaRemover && idsParaRemover.length > 0) {
                     const { error: erroDoDelete } = await (supabase as any)
                         .from('employee_working_hours')
@@ -386,14 +391,16 @@ function Schedule() {
 
                 const removidos = new Set(idsParaRemover ?? [])
                 setBookingGrade(prev => [...prev.filter(f => !removidos.has(f.id)), ...gravadas])
+                return true
             } catch (e: any) {
                 // Erro sem `message` deixava o toast VAZIO: nada gravava e o usuário fechava o
                 // painel achando que salvou. Falha silenciosa é pior que falha barulhenta.
                 //
                 // E o texto NÃO diz "nada foi salvo", porque pode ser mentira: se o insert
-                // passou e o delete falhou, as faixas novas ESTÃO no banco. Dizer que nada foi
+                // passou e o delete falhou, as linhas novas ESTÃO no banco. Dizer que nada foi
                 // salvo mandaria o usuário tentar de novo e duplicar outra vez.
-                msgApi.error(e?.message || 'Não foi possível gravar a faixa. Confira a grade do profissional antes de tentar de novo.')
+                msgApi.error(e?.message || 'Não foi possível gravar a grade. Confira a grade do profissional antes de tentar de novo.')
+                return false
             }
         },
         onRemoverFaixa: async (id: string) => {

@@ -426,3 +426,131 @@ export function confirmacaoDaReplica(
   const perdem = listaEmPortugues(comPerda.map((p) => p.destino_nome))
   return `${base} A grade atual de ${perdem} ${comPerda.length === 1 ? 'será apagada' : 'serão apagadas'}.`
 }
+
+// ═════════════════════════════════════════════════════════════════════════════════════════
+// O COMPOSITOR DO CABEÇALHO — avisos, confirmação e mensagens finais
+//
+// >>> TUDO AQUI É FUNÇÃO PURA, E A RAZÃO É O PORTÃO <<<
+//
+// Afirmar uma frase lendo o DOM do painel obriga a renderizar o Drawer inteiro para chegar à
+// asserção. Como função, cada texto é afirmado pelo próprio efeito — e o caso que liga os dois
+// (a frase montada a partir do que `montarGrade` devolve) existe uma vez, não por frase.
+//
+// E a lista em português é `listaEmPortugues`, a MESMA que os dias e os nomes já usam. Nenhuma
+// segunda cópia de formatador de lista, e nenhuma segunda cópia de `DIAS_DA_SEMANA`.
+// ═════════════════════════════════════════════════════════════════════════════════════════
+
+/** O rótulo de um weekday, da fonte única. Nenhum array local de dias em lugar nenhum. */
+export function rotuloDoDia(weekday: number): string {
+  return DIAS_DA_SEMANA.find((d) => d.weekday === weekday)?.label ?? String(weekday)
+}
+
+/**
+ * Sem repetidos, preservando a primeira aparição.
+ *
+ * Escrito à mão em vez de `[...new Set(x)]` por uma razão medida: com o `target` deste
+ * repositório o spread de `Set` exige `--downlevelIteration` e o `tsc` recusa com `TS2802`.
+ */
+function semRepetir<T>(itens: readonly T[]): T[] {
+  const vistos: T[] = []
+  for (const i of itens ?? []) if (!vistos.includes(i)) vistos.push(i)
+  return vistos
+}
+
+/** Os weekdays em ordem de semana, com o rótulo de cada um. Domingo primeiro, como a coluna. */
+function diasEmOrdem(dias: readonly number[]): string[] {
+  return DIAS_DA_SEMANA.filter((d) => (dias ?? []).includes(d.weekday)).map((d) => d.label)
+}
+
+/**
+ * O aviso do modo SUBSTITUIR, antes do clique: quem perde faixa, e em que dias.
+ *
+ * `null` quando não há nada a apagar — e `null` é a ausência da linha, não um texto vazio
+ * dizendo "0 dias serão substituídos" (`ausente-vs-falso.md`).
+ *
+ * Nomeia PROFISSIONAIS e DIAS, e só os que de fato têm faixa: um dia marcado e vazio não "vai
+ * ser substituído", e dizer que vai ensina a ignorar o aviso.
+ */
+export function avisoDoSubstituir(
+  paresComFaixa: readonly { employee_id: string; weekday: number }[],
+  nomeDoProfissional: (id: string) => string,
+): string | null {
+  const pares = paresComFaixa ?? []
+  if (pares.length === 0) return null
+  const profs = listaEmPortugues(
+    semRepetir(pares.map((p) => p.employee_id)).map(nomeDoProfissional),
+  )
+  const dias = listaEmPortugues(diasEmOrdem(semRepetir(pares.map((p) => p.weekday))))
+  const plural = pares.length > 1 || dias.includes(' e ')
+  return `${dias} de ${profs} já ${plural ? 'têm' : 'tem'} faixas — `
+    + `${plural ? 'serão substituídas' : 'será substituída'}.`
+}
+
+/**
+ * O aviso do modo ADICIONAR, antes do clique: quais combinações vão ser PULADAS.
+ *
+ * Pular não é erro — as outras entram. O aviso existe para que o usuário não conclua que a
+ * faixa entrou em todo mundo quando uma parte ficou de fora.
+ */
+export function avisoDoAdicionar(
+  puladas: readonly { employee_id: string; weekday: number }[],
+  nomeDoProfissional: (id: string) => string,
+): string | null {
+  const lista = puladas ?? []
+  if (lista.length === 0) return null
+  const profs = listaEmPortugues(
+    semRepetir(lista.map((p) => p.employee_id)).map(nomeDoProfissional),
+  )
+  const dias = listaEmPortugues(diasEmOrdem(semRepetir(lista.map((p) => p.weekday))))
+  const plural = lista.length > 1
+  return `${dias} de ${profs} já ${plural ? 'têm' : 'tem'} faixa nesse horário — `
+    + `${plural ? 'serão puladas' : 'será pulada'}.`
+}
+
+/**
+ * A confirmação do SUBSTITUIR, em modal.
+ *
+ * >>> "OS SELECIONADOS" É O QUE ESTA FUNÇÃO EXISTE PARA NÃO ESCREVER <<<
+ *
+ * Instrução do dono do produto, registrada como está: *"Nomeie os profissionais e os dias. Nao
+ * escreva 'os selecionados'."* A confirmação é o último ponto em que dá para desistir, e o que
+ * o usuário precisa conferir ali é QUEM e QUANDO. "Os selecionados" o manda rolar a tela de
+ * volta para reler as caixas — e quem rola para reler acaba clicando sem reler.
+ */
+export function confirmacaoDoSubstituir(
+  paresComFaixa: readonly { employee_id: string; weekday: number }[],
+  nomeDoProfissional: (id: string) => string,
+): string {
+  const pares = paresComFaixa ?? []
+  if (pares.length === 0) return ''
+  const profs = listaEmPortugues(
+    semRepetir(pares.map((p) => p.employee_id)).map(nomeDoProfissional),
+  )
+  const dias = listaEmPortugues(diasEmOrdem(semRepetir(pares.map((p) => p.weekday))))
+  return `As faixas atuais de ${profs} em ${dias} serão apagadas e substituídas.`
+}
+
+/** "Grade aplicada em 2 profissionais, 5 dias." */
+export function mensagemDoSubstituir(quantosProfs: number, quantosDias: number): string {
+  const p = `${quantosProfs} ${quantosProfs === 1 ? 'profissional' : 'profissionais'}`
+  const d = `${quantosDias} ${quantosDias === 1 ? 'dia' : 'dias'}`
+  return `Grade aplicada em ${p}, ${d}.`
+}
+
+/** "Faixa adicionada. 1 combinação foi pulada por já existir." */
+export function mensagemDoAdicionar(quantasNovas: number, quantasPuladas: number): string {
+  const base = `${quantasNovas === 1 ? 'Faixa' : 'Faixas'} adicionada${quantasNovas === 1 ? '' : 's'}.`
+  if (quantasPuladas === 0) return base
+  return `${base} ${quantasPuladas} ${quantasPuladas === 1 ? 'combinação foi pulada' : 'combinações foram puladas'} por já existir.`
+}
+
+/**
+ * Quando TODAS as combinações colidiram e não há uma linha para gravar.
+ *
+ * Não é erro e não é sucesso. Gravar zero linhas e dizer "faixa adicionada" afirmaria o que não
+ * aconteceu; mostrar um erro de validação diria que o usuário digitou algo inválido, e ele não
+ * digitou. A frase diz o que é: nada a fazer, porque já está lá.
+ */
+export function mensagemDeNadaAGravar(quantasPuladas: number): string {
+  return `Nada a adicionar: ${quantasPuladas === 1 ? 'a combinação informada já existe' : `as ${quantasPuladas} combinações informadas já existem`}.`
+}
