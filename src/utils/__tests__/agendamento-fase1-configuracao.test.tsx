@@ -118,7 +118,10 @@ function fazerAcoes(): AcoesDoPainel & { [k: string]: jest.Mock } {
     // O caso que afirma o contrário passa `false` explicitamente.
     onMontarGrade: jest.fn().mockResolvedValue(true),
     onRemoverFaixa: jest.fn(),
-    onSalvarFolga: jest.fn(),
+    // Devolve `true` por padrão, pela mesma razão de `onMontarGrade`: ela é `Promise<boolean>`,
+    // e um `jest.fn()` nu devolveria `undefined`, fechando o modal nunca e derrubando todos os
+    // casos de sucesso por causa do dublê. O caso da falha passa `false` explicitamente.
+    onSalvarFolga: jest.fn().mockResolvedValue(true),
     onRemoverFolga: jest.fn(),
     onAlternarFuncionario: jest.fn(),
     onAplicarGrade: jest.fn(),
@@ -784,7 +787,11 @@ describe('§2 — o switch desliga TODAS as faixas do funcionário e NENHUMA de 
 
 // ───────────────────────────────────────────────────────────────────────────────────────────
 describe('§1 — a ordem das seções é a do trabalho: Grade antes de Link', () => {
-  it('Grade → Férias → Ajustes → Link, nesta ordem no DOM', () => {
+  it('Grade → Ajustes → Link, nesta ordem no DOM — TRÊS seções, não quatro', () => {
+    // >>> ERAM QUATRO ATÉ 08/10/2026 <<<
+    // A segunda era "Férias, folgas e feriados", e ela DESCEU para dentro da célula de cada
+    // profissional. A asserção da ordem acompanhou, e a da ausência dela é o caso seguinte —
+    // afirmar a ordem das três restantes não afirma que a quarta saiu.
     renderCinco()
     const txt = textoDaTela()
     const pos = (t: string) => {
@@ -793,15 +800,23 @@ describe('§1 — a ordem das seções é a do trabalho: Grade antes de Link', (
       return i
     }
     const grade = pos('Grade de atendimento')
-    const folgas = pos('Férias, folgas e feriados')
     const ajustes = pos('Ajustes')
     const link = pos('Link de agendamento')
 
-    expect(grade).toBeLessThan(folgas)
-    expect(folgas).toBeLessThan(ajustes)
+    expect(grade).toBeLessThan(ajustes)
     expect(ajustes).toBeLessThan(link)
     // O que a reorganização consertou, dito como asserção: o link deixou de vir primeiro.
     expect(grade).toBeLessThan(link)
+  })
+
+  it('a SEÇÃO SOLTA de férias não existe mais — nem o título, nem o Select', () => {
+    // >>> A AUSÊNCIA É ASSERÇÃO PRÓPRIA <<<
+    // Mover o bloco e ESQUECER de remover a seção deixaria as duas na tela, com a de cima
+    // mostrando as ausências de todos misturadas e um `Select` para escolher o dono — que é
+    // exatamente o que esta rodada desfaz. Nada falharia.
+    renderCinco()
+    expect(textoDaTela()).not.toContain('Férias, folgas e feriados')
+    expect(document.body.querySelector('[aria-label="Profissional da ausência"]')).toBeNull()
   })
 })
 
@@ -1057,12 +1072,20 @@ describe('§1 — os DatePicker de ausência exibem a data em DD/MM/YYYY', () =>
   const DIA_CONHECIDO = '2026-11-05T00:00:00.000Z'   // 5 de novembro de 2026
   const OUTRO_DIA = '2026-11-07T23:59:59.999Z'       // 7 de novembro de 2026
 
+  /**
+   * O painel com o MODAL de ausência já aberto na célula de `e1`.
+   *
+   * >>> A SEMENTE MUDOU DE NOME E GANHOU `abertoPara` EM 08/10/2026 <<<
+   * Era `folgaInicial`, que semeava os dois `DatePicker` da seção solta. Com o modal por
+   * célula, semear as datas não basta: é preciso dizer de QUEM é o modal, ou ele nasce
+   * fechado e não há campo nenhum no DOM para ler.
+   */
   function renderComDatas() {
     renderizar(
       <PainelDeAgendamento
         open onClose={() => {}} calcType="SERVICE"
         dados={dadosCinco()} acoes={fazerAcoes()} baseUrl="https://app.exemplo.com"
-        folgaInicial={{ starts_at: DIA_CONHECIDO, ends_at: OUTRO_DIA }}
+        ausenciaInicial={{ abertoPara: 'e1', starts_at: DIA_CONHECIDO, ends_at: OUTRO_DIA }}
       />,
     )
   }
@@ -1093,7 +1116,9 @@ describe('§1 — os DatePicker de ausência exibem a data em DD/MM/YYYY', () =>
     expect(valorDoCampo('Início da ausência')).not.toBe('11/05/2026')
   })
 
-  it('a LISTA de ausências também é DD/MM/YYYY, e sem hora (§4: dia inteiro)', () => {
+  it('a LISTA de ausências DA CÉLULA também é DD/MM/YYYY, e sem hora (dia inteiro)', () => {
+    // A lista mudou de lugar — era a da seção solta, agora é a da célula de `e1` — e o formato
+    // é o mesmo. O caso continua afirmando o formato, não o lugar: o lugar tem caso próprio.
     renderizar(
       <PainelDeAgendamento
         open onClose={() => {}} calcType="SERVICE"
@@ -2182,5 +2207,376 @@ describe('N faixas na tela — acrescentar, remover e renumerar', () => {
     expect(textoDaTela()).not.toContain('Limite de 10 faixas')
     clicarPorAriaLabel('Acrescentar faixa')
     expect(quantasLinhas()).toBe(10)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+// A AUSÊNCIA DENTRO DA CÉLULA — quarta rodada do PO de 08/10/2026
+//
+// >>> O CASO MAIS IMPORTANTE DESTE BLOCO É O DO VAZAMENTO ENTRE CÉLULAS <<<
+//
+// A seção solta listava as ausências de TODOS, com o nome do dono em cada linha. Movida para a
+// célula, o filtro passa a ser a única coisa que separa um profissional do outro — e um filtro
+// que não filtrasse mostraria as cinco ausências nas cinco células, sem nada falhar.
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+describe('as ausências vivem na célula, e só as daquele profissional', () => {
+  const AUS_E1 = {
+    id: 'a-e1',
+    employee_id: 'e1',
+    starts_at: new Date(2026, 9, 9, 0, 0, 0, 0).toISOString(),
+    ends_at: new Date(2026, 9, 14, 23, 59, 59, 999).toISOString(),
+    reason: 'Férias do Um',
+  }
+  const AUS_E3 = {
+    id: 'a-e3',
+    employee_id: 'e3',
+    starts_at: new Date(2026, 10, 2, 0, 0, 0, 0).toISOString(),
+    ends_at: new Date(2026, 10, 2, 23, 59, 59, 999).toISOString(),
+    reason: 'Feriado do Três',
+  }
+
+  /**
+   * O texto de UMA célula, recortado pelo DOM.
+   *
+   * >>> RECORTAR POR TEXTO NÃO FUNCIONA, E ISSO FOI MEDIDO <<<
+   *
+   * A primeira versão procurava o nome e cortava no nome do profissional SEGUINTE. Ficou
+   * vermelha com a fatia valendo só `"Barbeiro Um"`, porque o nome reaparece DENTRO da própria
+   * célula — "Ocultar grade de Barbeiro Um" — e o corte caía antes do conteúdo.
+   *
+   * É `instrumento-que-nao-enxerga.md`: o padrão foi escrito a partir da forma que eu imaginava
+   * do DOM, e a contagem que ele devolveu era plausível. O `data-emp` da célula é o que torna o
+   * recorte exato.
+   */
+  function textoDaCelula(empId: string): string {
+    const el = document.body.querySelector(`[data-emp="${empId}"]`)
+    expect(el).toBeTruthy() // id errado faria as comparações passarem sobre string vazia
+    return el!.textContent || ''
+  }
+
+  function renderComAusencias(acoes = fazerAcoes()) {
+    renderizar(
+      <PainelDeAgendamento
+        open onClose={() => {}} calcType="SERVICE"
+        dados={dadosCinco({ folgas: [AUS_E1, AUS_E3] as any })}
+        acoes={acoes} baseUrl="https://app.exemplo.com"
+      />,
+    )
+    return acoes
+  }
+
+  it('a de `e1` aparece na célula DELE e NÃO na de `e3`', () => {
+    // >>> O CASO DO VAZAMENTO <<<
+    // Dois profissionais, uma ausência cada, motivos distintos de propósito: com o filtro
+    // quebrado, os dois motivos aparecem nas duas células e as duas metades deste caso caem.
+    renderComAusencias()
+    expect(textoDaCelula('e1')).toContain('Férias do Um')
+    expect(textoDaCelula('e1')).not.toContain('Feriado do Três')
+  })
+
+  it('e a de `e3` aparece na dele e NÃO na de `e1`', () => {
+    renderComAusencias()
+    expect(textoDaCelula('e3')).toContain('Feriado do Três')
+    expect(textoDaCelula('e3')).not.toContain('Férias do Um')
+  })
+
+  it('o NOME do dono NÃO aparece na LINHA da ausência — a célula já diz de quem é', () => {
+    // A seção solta precisava do nome em cada linha porque misturava todos. Aqui ele seria
+    // ruído, e repetir o nome em cada linha é o sintoma de uma lista que não foi filtrada.
+    //
+    // >>> A ASSERÇÃO É NA LINHA, NÃO NA CÉLULA <<<
+    // A célula contém o nome, no cabeçalho dela — é o caso de uso. A primeira versão deste
+    // caso media a CÉLULA e ficou vermelha por isso; o alvo é a linha, e `data-passada` é o
+    // que a identifica.
+    renderComAusencias()
+    const linhas = Array.from(document.body.querySelectorAll('[data-passada]'))
+    expect(linhas.length).toBeGreaterThan(0)
+    for (const l of linhas) {
+      const t = l.textContent || ''
+      expect(t).not.toContain('Barbeiro Um')
+      expect(t).not.toContain('Barbeiro Três')
+    }
+    // e a linha TEM a data e o motivo — senão "não contém o nome" ficaria verde numa linha vazia
+    expect(linhas.map((l) => l.textContent || '').join(' ')).toContain('09/10/2026')
+    expect(linhas.map((l) => l.textContent || '').join(' ')).toContain('Férias do Um')
+  })
+
+  it('quem NÃO tem ausência mostra "Nenhuma ausência registrada."', () => {
+    renderComAusencias()
+    // `e2` não tem nenhuma na fixture. A célula dele está recolhida (DESLIGADO), então o caso
+    // usa `e4`, que está aberto e também não tem.
+    expect(textoDaCelula('e4')).toContain('Nenhuma ausência registrada.')
+    // e quem TEM não mostra essa frase — o espelho
+    expect(textoDaCelula('e1')).not.toContain('Nenhuma ausência registrada.')
+  })
+
+  it('a lixeira chama `onRemoverFolga` com o id DAQUELA ausência, e só com ele', () => {
+    const acoes = renderComAusencias()
+    clicarPorAriaLabel('Remover ausência a-e1')
+    // O `Popconfirm` pede confirmação; o clique no "OK" é o que dispara.
+    const ok = Array.from(document.body.querySelectorAll('button'))
+      .find((b) => (b.textContent || '').trim() === 'OK')
+    expect(ok).toBeTruthy()
+    act(() => { ok!.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+    expect(acoes.onRemoverFolga).toHaveBeenCalledWith('a-e1')
+    expect((acoes.onRemoverFolga as jest.Mock).mock.calls.map((c: any[]) => c[0])).toEqual(['a-e1'])
+  })
+
+  it('o bloco de ausências vem DEPOIS da lista Domingo..Sábado', () => {
+    renderComAusencias()
+    const todos = Array.from(document.body.querySelectorAll('*'))
+    // A faixa `f1` de `e1` só existe na lista de dias; o botão de ausência é o marcador do
+    // bloco novo. A posição no DOM é o que o pedido fixa, e não há número a medir.
+    const iDias = todos.findIndex((el) => el.matches('[aria-label="Remover faixa f1"]'))
+    const iAusencias = todos.findIndex((el) => el.matches('[aria-label="Adicionar ausência de Barbeiro Um"]'))
+    expect(iDias).toBeGreaterThan(-1)
+    expect(iAusencias).toBeGreaterThan(iDias)
+  })
+})
+
+describe('a ORDEM e o esmaecimento na célula', () => {
+  /** Uma ausência relativa a hoje, para o caso não depender da data em que roda. */
+  function aus(id: string, deDias: number, ateDias: number, reason: string) {
+    const hoje = new Date()
+    const d = (n: number) => new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate() + n, 12, 0, 0, 0)
+    return { id, employee_id: 'e1', starts_at: d(deDias).toISOString(), ends_at: d(ateDias).toISOString(), reason }
+  }
+
+  it('a PASSADA aparece depois das futuras, e marcada como passada', () => {
+    // >>> A ORDEM É MEDIDA NO DOM, E O ESMAECIMENTO POR ATRIBUTO <<<
+    // `opacity` em `style` inline não é legível de forma estável no jsdom, então a célula
+    // carrega `data-passada` — que é o MESMO `passada` que `ordenarAusencias` devolveu, não um
+    // segundo cálculo da tela.
+    renderizar(
+      <PainelDeAgendamento
+        open onClose={() => {}} calcType="SERVICE"
+        dados={dadosCinco({
+          folgas: [
+            aus('velha', -30, -25, 'Ja passou'),
+            aus('futura', 10, 12, 'Vai acontecer'),
+          ] as any,
+        })}
+        acoes={fazerAcoes()} baseUrl="https://app.exemplo.com"
+      />,
+    )
+    const linhas = Array.from(document.body.querySelectorAll('[data-passada]'))
+    expect(linhas).toHaveLength(2)
+    // a futura primeiro, a passada depois
+    expect(linhas[0].getAttribute('data-passada')).toBe('nao')
+    expect(linhas[1].getAttribute('data-passada')).toBe('sim')
+    expect(linhas[0].textContent).toContain('Vai acontecer')
+    expect(linhas[1].textContent).toContain('Ja passou')
+  })
+
+  it('a passada NÃO desaparece — ela continua na lista', () => {
+    // Instrução do PO: *"Nao suma com as passadas."* Um filtro em vez de uma ordenação passaria
+    // no caso acima sobre uma lista de um elemento, e apagaria o histórico.
+    renderizar(
+      <PainelDeAgendamento
+        open onClose={() => {}} calcType="SERVICE"
+        dados={dadosCinco({ folgas: [aus('velha', -30, -25, 'Ja passou')] as any })}
+        acoes={fazerAcoes()} baseUrl="https://app.exemplo.com"
+      />,
+    )
+    expect(textoDaTela()).toContain('Ja passou')
+    expect(document.body.querySelectorAll('[data-passada="sim"]')).toHaveLength(1)
+  })
+
+  it('a EM CURSO não é passada — ela é a primeira da lista', () => {
+    // O caso que distingue `ends_at` de `starts_at` na travessia inteira, da função à tela.
+    renderizar(
+      <PainelDeAgendamento
+        open onClose={() => {}} calcType="SERVICE"
+        dados={dadosCinco({
+          folgas: [aus('futura', 5, 6, 'Depois'), aus('agora', -2, 2, 'Fora hoje')] as any,
+        })}
+        acoes={fazerAcoes()} baseUrl="https://app.exemplo.com"
+      />,
+    )
+    const linhas = Array.from(document.body.querySelectorAll('[data-passada]'))
+    expect(linhas[0].getAttribute('data-passada')).toBe('nao')
+    expect(linhas[0].textContent).toContain('Fora hoje')
+  })
+})
+
+describe('o MODAL da ausência — o profissional vem da célula', () => {
+  function abrir(nome: string, acoes = fazerAcoes()) {
+    renderCinco({}, acoes)
+    clicarPorAriaLabel(`Adicionar ausência de ${nome}`)
+    return acoes
+  }
+
+  it('o botão abre o modal com o NOME do profissional no título', () => {
+    abrir('Barbeiro Três')
+    expect(document.body.querySelector('.ant-modal')).toBeTruthy()
+    expect(textoDaTela()).toContain('Nova ausência — Barbeiro Três')
+  })
+
+  it('o modal nasce FECHADO — sem clique, não há campo de ausência no DOM', () => {
+    // O espelho. Sem ele, "abre o modal" ficaria verde num painel que o deixasse sempre aberto.
+    renderCinco()
+    expect(document.body.querySelector('.ant-modal')).toBeNull()
+    expect(document.body.querySelector('[aria-label="Início da ausência"]')).toBeNull()
+  })
+
+  it('NÃO existe Select de profissional dentro do modal', () => {
+    // >>> A PERGUNTA DEIXOU DE SER FEITA <<<
+    // Um seletor aqui permitiria cadastrar para um profissional a partir da célula de outro —
+    // e aí o título diria um nome e a gravação usaria outro.
+    abrir('Barbeiro Três')
+    expect(document.body.querySelector('[aria-label="Profissional da ausência"]')).toBeNull()
+  })
+
+  it('salvar grava com o `employee_id` DA CÉLULA que abriu', () => {
+    // O efeito, não o título: abrir pela célula do TERCEIRO e afirmar `e3`. Um painel que
+    // usasse `funcionarios[0]` passaria no caso do título e falharia aqui.
+    const acoes = abrir('Barbeiro Três')
+    const campo = document.body.querySelector('input[aria-label="Início da ausência"]')
+    expect(campo).toBeTruthy()
+    // A data entra pela semente, não operando o calendário do antd — ver `ausenciaInicial`.
+    desmontar()
+    document.body.innerHTML = ''
+    const acoes2 = fazerAcoes()
+    renderizar(
+      <PainelDeAgendamento
+        open onClose={() => {}} calcType="SERVICE"
+        dados={dadosCinco()} acoes={acoes2} baseUrl="https://app.exemplo.com"
+        ausenciaInicial={{
+          abertoPara: 'e3',
+          starts_at: new Date(2026, 10, 2, 0, 0, 0, 0).toISOString(),
+        }}
+      />,
+    )
+    clicarPorAriaLabel('Salvar a ausência')
+    expect(acoes2.onSalvarFolga).toHaveBeenCalledTimes(1)
+    const [folga] = (acoes2.onSalvarFolga as jest.Mock).mock.calls[0]
+    expect(folga.employee_id).toBe('e3')
+    expect(acoes).toBeTruthy()
+  })
+
+  it('FIM vazio grava o mesmo dia do início — não é erro', () => {
+    const acoes = fazerAcoes()
+    renderizar(
+      <PainelDeAgendamento
+        open onClose={() => {}} calcType="SERVICE"
+        dados={dadosCinco()} acoes={acoes} baseUrl="https://app.exemplo.com"
+        ausenciaInicial={{
+          abertoPara: 'e4',
+          starts_at: new Date(2026, 10, 2, 0, 0, 0, 0).toISOString(),
+        }}
+      />,
+    )
+    clicarPorAriaLabel('Salvar a ausência')
+    const [folga] = (acoes.onSalvarFolga as jest.Mock).mock.calls[0]
+    expect(new Date(folga.starts_at).getDate()).toBe(2)
+    expect(new Date(folga.ends_at).getDate()).toBe(2)
+    // e o fim é o FIM do dia, senão a ausência de um dia não cobriria nada
+    expect(new Date(folga.ends_at).getHours()).toBe(23)
+  })
+
+  it('SEM início: o erro aparece DENTRO do modal, e NÃO grava nem fecha', () => {
+    // As três coisas, nesta ordem — o efeito primeiro.
+    const acoes = fazerAcoes()
+    renderizar(
+      <PainelDeAgendamento
+        open onClose={() => {}} calcType="SERVICE"
+        dados={dadosCinco()} acoes={acoes} baseUrl="https://app.exemplo.com"
+        ausenciaInicial={{ abertoPara: 'e4' }}
+      />,
+    )
+    clicarPorAriaLabel('Salvar a ausência')
+    expect(acoes.onSalvarFolga).not.toHaveBeenCalled()
+    expect(document.body.querySelector('.ant-modal')).toBeTruthy()
+    expect(textoDaTela()).toContain('Informe a data de início.')
+  })
+
+  it('período SOBREPOSTO ao já registrado: recusa, com a mensagem do período', () => {
+    const acoes = fazerAcoes()
+    renderizar(
+      <PainelDeAgendamento
+        open onClose={() => {}} calcType="SERVICE"
+        dados={dadosCinco({
+          folgas: [{
+            id: 'ja',
+            employee_id: 'e4',
+            starts_at: new Date(2026, 9, 9, 0, 0, 0, 0).toISOString(),
+            ends_at: new Date(2026, 9, 14, 23, 59, 59, 999).toISOString(),
+          }] as any,
+        })}
+        acoes={acoes} baseUrl="https://app.exemplo.com"
+        ausenciaInicial={{
+          abertoPara: 'e4',
+          // 14/10 — TOCA no último dia da existente, e dia tocado é sobreposição
+          starts_at: new Date(2026, 9, 14, 0, 0, 0, 0).toISOString(),
+          ends_at: new Date(2026, 9, 20, 0, 0, 0, 0).toISOString(),
+        }}
+      />,
+    )
+    clicarPorAriaLabel('Salvar a ausência')
+    expect(acoes.onSalvarFolga).not.toHaveBeenCalled()
+    expect(textoDaTela()).toContain('Já existe uma ausência nesse período.')
+  })
+
+  it('a sobreposição é por PROFISSIONAL: a ausência de outro não bloqueia', () => {
+    // >>> O ESPELHO DO CASO ACIMA, E É ELE QUE PROVA O FILTRO NA VALIDAÇÃO <<<
+    // Mesma data, mas a existente é de `e1` e o modal é de `e4`. Sem o filtro em
+    // `salvarAusencia`, `validarAusencia` receberia a de `e1` e recusaria — e o dono do salão
+    // não conseguiria marcar férias de dois barbeiros na mesma semana.
+    const acoes = fazerAcoes()
+    renderizar(
+      <PainelDeAgendamento
+        open onClose={() => {}} calcType="SERVICE"
+        dados={dadosCinco({
+          folgas: [{
+            id: 'de-outro',
+            employee_id: 'e1',
+            starts_at: new Date(2026, 9, 9, 0, 0, 0, 0).toISOString(),
+            ends_at: new Date(2026, 9, 14, 23, 59, 59, 999).toISOString(),
+          }] as any,
+        })}
+        acoes={acoes} baseUrl="https://app.exemplo.com"
+        ausenciaInicial={{
+          abertoPara: 'e4',
+          starts_at: new Date(2026, 9, 10, 0, 0, 0, 0).toISOString(),
+          ends_at: new Date(2026, 9, 12, 0, 0, 0, 0).toISOString(),
+        }}
+      />,
+    )
+    clicarPorAriaLabel('Salvar a ausência')
+    expect(acoes.onSalvarFolga).toHaveBeenCalledTimes(1)
+    expect(textoDaTela()).not.toContain('Já existe uma ausência nesse período.')
+  })
+
+  it('CANCELAR fecha e não grava', () => {
+    const acoes = abrir('Barbeiro Três')
+    clicarPorAriaLabel('Cancelar a ausência')
+    expect(acoes.onSalvarFolga).not.toHaveBeenCalled()
+    expect(document.body.querySelector('.ant-modal-wrap')?.getAttribute('style') ?? '')
+      .toMatch(/display: none|^$/)
+  })
+
+  it('gravação que FALHA não fecha o modal nem anuncia sucesso', () => {
+    // >>> É A RAZÃO DE `onSalvarFolga` TER VIRADO `Promise<boolean>` <<<
+    // Com `void`, o modal fechava e o toast saía mesmo na falha — e o usuário perdia o que
+    // digitou sem saber que perdeu. Este caso fica vermelho no instante em que alguém tirar o
+    // `await` ou ignorar o retorno.
+    const acoes = fazerAcoes()
+    ;(acoes.onSalvarFolga as jest.Mock).mockResolvedValue(false)
+    renderizar(
+      <PainelDeAgendamento
+        open onClose={() => {}} calcType="SERVICE"
+        dados={dadosCinco()} acoes={acoes} baseUrl="https://app.exemplo.com"
+        ausenciaInicial={{
+          abertoPara: 'e4',
+          starts_at: new Date(2026, 10, 2, 0, 0, 0, 0).toISOString(),
+        }}
+      />,
+    )
+    clicarPorAriaLabel('Salvar a ausência')
+    return deixarAssentar().then(() => {
+      expect(acoes.onSalvarFolga).toHaveBeenCalledTimes(1)
+      expect(textoDaTela()).not.toContain('Ausência registrada.')
+      expect(document.body.querySelector('.ant-modal')).toBeTruthy()
+    })
   })
 })

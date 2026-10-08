@@ -410,14 +410,30 @@ function Schedule() {
                 setBookingGrade(prev => prev.filter(f => f.id !== id))
             } catch (e: any) { msgApi.error(e?.message || 'Não foi possível remover a faixa. Nada foi alterado — tente de novo.') }
         },
-        onSalvarFolga: async (folga: { employee_id: string; starts_at: string; ends_at: string; reason?: string }) => {
+        // >>> ELA PASSOU A DEVOLVER `boolean` EM 08/10/2026, E A RAZÃO É A MESMA DE onMontarGrade <<<
+        // Era `void`, e o painel fechava o modal e emitia o toast de sucesso logo depois de
+        // chamá-la: os dois saíam mesmo com a gravação falhando, e o usuário perdia o que
+        // digitou sem saber que perdeu. Com o retorno, fechar e avisar dependem dele.
+        //
+        // A ASSINATURA de entrada NÃO mudou — `employee_id` continua no corpo. O que mudou é a
+        // origem dele: vem da célula que abriu o modal, não de um `Select`.
+        onSalvarFolga: async (folga: {
+            employee_id: string
+            starts_at: string
+            ends_at: string
+            reason?: string
+        }): Promise<boolean> => {
             try {
                 const tid = await getTenantId()
                 const { data, error } = await (supabase as any).from('employee_time_off')
                     .insert({ tenant_id: tid, ...folga }).select('*').single()
                 if (error) throw error
                 setBookingFolgas(prev => [...prev, data as FolgaGravada])
-            } catch (e: any) { msgApi.error(e?.message || 'Não foi possível gravar a ausência. Nada foi salvo — tente de novo.') }
+                return true
+            } catch (e: any) {
+                msgApi.error(e?.message || 'Não foi possível gravar a ausência. Nada foi salvo — tente de novo.')
+                return false
+            }
         },
         // §2 — o switch do funcionário: liga ou desliga TODAS as faixas dele de uma vez.
         //
