@@ -60,18 +60,24 @@ describe('o rodapé da CONFIRMAÇÃO', () => {
     expect(MENSAGEM_ALTERACAO_PADRAO).not.toContain(RODAPE)
   })
 
-  it('`{codigo}` CONTINUA na lista de variáveis e na mensagem de ALTERAÇÃO', () => {
-    // A decisão de 06/10 foi retirá-lo da CONFIRMAÇÃO, não do sistema. Afirmar só a ausência na
-    // confirmação não distinguiria isso de alguém ter apagado a variável inteira.
+  it('`{codigo}` continua na lista de VARIÁVEIS, e em nenhuma das três mensagens', () => {
+    // >>> ESTE CASO MUDOU DUAS VEZES, E AS DUAS ESTÃO REGISTRADAS <<<
     //
-    // >>> A PRIMEIRA VERSÃO DESTE CASO AFIRMAVA "NAS OUTRAS DUAS", E FICOU VERMELHA <<<
-    // Eu a escrevi a partir do COMENTÁRIO do arquivo, que dizia isso — e o comentário estava
-    // errado: a de CANCELAMENTO não usa `{codigo}`, porque mandar um código de cancelamento
-    // para quem acabou de cancelar não faz sentido. É `estado-relatado-vs-real.md` com o
-    // comentário no lugar da fonte primária. O comentário foi corrigido no arquivo.
+    // Primeira versão (08/10, manhã): afirmava `{codigo}` "nas outras DUAS mensagens". Ficou
+    // vermelha — eu a escrevi a partir do COMENTÁRIO do arquivo, que estava errado: a de
+    // CANCELAMENTO nunca o usou. `estado-relatado-vs-real.md` com o comentário no lugar da
+    // fonte primária; o comentário foi corrigido, não o caso.
+    //
+    // Segunda (08/10, Fase 2B): a de ALTERAÇÃO perdeu a linha do `{codigo}`, porque o código
+    // virou um segredo de acesso de 10 minutos e de uso único — e já queimado quando a
+    // mensagem sai. Agora NENHUMA das três o cita.
+    //
+    // A variável FICA na lista: a decisão foi sobre as mensagens padrão, e a tenant que
+    // escrever a própria pode querer usá-la.
     expect(VARIAVEIS_DAS_MENSAGENS).toContain('{codigo}')
-    expect(MENSAGEM_ALTERACAO_PADRAO).toContain('{codigo}')
+    expect(MENSAGEM_ALTERACAO_PADRAO).not.toContain('{codigo}')
     expect(MENSAGEM_CANCELAMENTO_PADRAO).not.toContain('{codigo}')
+    expect(MENSAGEM_CONFIRMACAO_PADRAO).not.toContain('{codigo}')
   })
 })
 
@@ -122,7 +128,13 @@ describe('a DÍVIDA do rodapé está registrada no arquivo, não só nesta suít
       /\b7200\b|7200000|7_200_000/,  // segundos ou ms
       /subtract\(\s*2\s*,\s*['"]hour/, // dayjs
       /hours?\s*:\s*2\b/,            // { hours: 2 }
-      /CANCELAMENTO|JANELA_DE_CANCEL/i,
+      // >>> ESTE PADRÃO FOI ESTREITADO DUAS VEZES, E A SEGUNDA FOI NESTA RODADA <<<
+      // Ele era `/CANCELAMENTO|JANELA_DE_CANCEL/i` e passou a casar com `msg_cancelamento` —
+      // NOME DE COLUNA — quando a Fase 2B acrescentou as duas mensagens ao contexto público.
+      // Falso positivo, `instrumento-que-nao-enxerga.md` pelo lado invertido, e a segunda vez
+      // que ESTE padrão precisou ser confrontado com o repositório. Agora ele nomeia só o que
+      // uma JANELA de cancelamento se chamaria.
+      /JANELA_DE_CANCEL|LIMITE_DE_CANCEL|HORAS_ANTES|MINUTOS_ANTES|prazoDeCancel/i,
     ]
     for (const a of alvos) {
       const txt = fs.readFileSync(a, 'utf8') as string
@@ -131,5 +143,59 @@ describe('a DÍVIDA do rodapé está registrada no arquivo, não só nesta suít
         expect(programa).not.toMatch(forma)
       }
     }
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+// FASE 2B — a linha do {codigo} saiu da ALTERAÇÃO, e o rodapé passou a ser verdade
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+describe('Fase 2B — o `{codigo}` fora da mensagem de ALTERAÇÃO', () => {
+  it('a de ALTERAÇÃO não cita mais `{codigo}`', () => {
+    // >>> ELA ERA A ÚNICA QUE CITAVA, E A MEDIÇÃO CONFIRMOU ISSO <<<
+    // O comentário do arquivo dizia "nas outras DUAS mensagens" e estava errado; a correção
+    // daquela rodada foi validada pelo dono do produto nesta.
+    //
+    // A razão da remoção: o código MUDOU DE NATUREZA. Antes seria uma referência estável do
+    // agendamento; com a Fase 2B é um código de ACESSO de 10 minutos, de uso único, e já
+    // QUEIMADO no instante em que esta mensagem é enviada — a remarcação acabou de consumi-lo.
+    // Publicá-lo não autoriza nada.
+    expect(MENSAGEM_ALTERACAO_PADRAO).not.toContain('{codigo}')
+    expect(MENSAGEM_ALTERACAO_PADRAO).not.toContain('use o código')
+  })
+
+  it('mas ela continua com o resto — a remoção não comeu a mensagem', () => {
+    for (const v of ['{cliente}', '{data}', '{hora}', '{servico}', '{profissional}', '{empresa}']) {
+      expect(MENSAGEM_ALTERACAO_PADRAO).toContain(v)
+    }
+    expect(MENSAGEM_ALTERACAO_PADRAO).toContain('Novo horário')
+  })
+
+  it('`{codigo}` CONTINUA na lista de variáveis — a decisão foi sobre a mensagem', () => {
+    // Tirá-lo de `VARIAVEIS_DAS_MENSAGENS` apagaria a variável do sistema, e a tenant que
+    // escrever a própria mensagem pode querer usá-lo.
+    expect(VARIAVEIS_DAS_MENSAGENS).toContain('{codigo}')
+  })
+
+  it('agora NENHUMA das três constantes cita `{codigo}`', () => {
+    // O estado final, dito de uma vez: a de confirmação perdeu em 06/10, a de alteração em
+    // 08/10, e a de cancelamento nunca teve.
+    for (const m of [MENSAGEM_CONFIRMACAO_PADRAO, MENSAGEM_CANCELAMENTO_PADRAO, MENSAGEM_ALTERACAO_PADRAO]) {
+      expect(m).not.toContain('{codigo}')
+    }
+  })
+
+  it('a dívida da Fase 2B foi PAGA, e a nota do arquivo diz isso', () => {
+    // >>> O RODAPÉ PASSOU A SER VERDADE NESTA RODADA <<<
+    // A nota de 08/10 dizia: "Este rodapé promete alteração e cancelamento pelo link, que a
+    // Fase 2B ainda não entregou." As quatro rotas existem agora. A nota continua no arquivo
+    // como REGISTRO do que aconteceu — apagá-la apagaria a história — e este caso afirma que o
+    // rodapé e as rotas existem juntos, que é o que torna a promessa cumprível.
+    const fs = require('fs')
+    const path = require('path')
+    const raiz = path.resolve(__dirname, '../..')
+    for (const r of ['codigo-solicitar', 'codigo-validar', 'cancelar', 'remarcar']) {
+      expect(fs.existsSync(path.join(raiz, 'pages/api/public/agenda/[token]', `${r}.ts`))).toBe(true)
+    }
+    expect(MENSAGEM_CONFIRMACAO_PADRAO).toContain('acesse pelo mesmo link')
   })
 })
