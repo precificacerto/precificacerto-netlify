@@ -19,11 +19,11 @@
  */
 
 import {
-  ERRO_FAIXAS_SOBREPOSTAS,
   ERRO_HORA_INVERTIDA,
   ERRO_SEM_DIA,
   ERRO_SEM_FAIXA,
   ERRO_SEM_PROFISSIONAL,
+  erroFaixasSobrepostas,
   montagemRecusada,
   montarGrade,
   type FaixaExistente,
@@ -331,7 +331,7 @@ describe('as duas faixas informadas se sobrepondo ENTRE SI', () => {
       existentes: [],
     })
     expect(r.ok).toBe(false)
-    expect(recusa(r).erro).toBe(ERRO_FAIXAS_SOBREPOSTAS)
+    expect(recusa(r).erro).toBe(erroFaixasSobrepostas(0, 1))
   })
 
   it('a recusa vale nos DOIS modos — não é regra só da montagem', () => {
@@ -342,7 +342,7 @@ describe('as duas faixas informadas se sobrepondo ENTRE SI', () => {
       modo: 'adicionar',
       existentes: [],
     })
-    expect(recusa(r).erro).toBe(ERRO_FAIXAS_SOBREPOSTAS)
+    expect(recusa(r).erro).toBe(erroFaixasSobrepostas(0, 1))
   })
 
   it('a ordem em que as duas são informadas não muda a recusa', () => {
@@ -354,7 +354,7 @@ describe('as duas faixas informadas se sobrepondo ENTRE SI', () => {
       modo: 'substituir',
       existentes: [],
     })
-    expect(recusa(r).erro).toBe(ERRO_FAIXAS_SOBREPOSTAS)
+    expect(recusa(r).erro).toBe(erroFaixasSobrepostas(0, 1))
   })
 
   it('ENCOSTAR entre as duas informadas é PERMITIDO: 09:00–12:00 e 12:00–18:00', () => {
@@ -504,5 +504,225 @@ describe('faixa existente SEM id não vira string vazia no delete', () => {
       ],
     }))
     expect(r.idsParaRemover).toEqual(['bom'])
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+// N FAIXAS — terceira rodada do PO de 08/10/2026
+//
+// >>> A BUSCA PEDIDA NÃO ENCONTROU PRESUNÇÃO DE 2 NO CÓDIGO <<<
+//
+// `[0]`, `[1]`, `.length === 2`, `slice(0, 2)`: nenhum deles existia. O laço da validação 5 já
+// era `i` × `j = i+1` (todos os pares) e o produto já percorria `faixas` inteiro. O que mudou
+// foi a MENSAGEM, que não dizia QUAIS faixas se sobrepõem.
+//
+// Estes casos existem porque "já funcionava" é uma afirmação sobre o código que ninguém havia
+// medido com três e quatro faixas. `hipotese-derrubada-pela-propria-medicao.md`: a razão para
+// não escrever o caso era a minha leitura do laço, e leitura não é medição.
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+describe('N faixas — o produto cartesiano na terceira dimensão', () => {
+  const NOITE = { inicio: '19:00', fim: '21:00' }
+
+  it('3 faixas × 2 profissionais × 5 dias = 30 itens', () => {
+    // >>> É O CASO QUE A MUTAÇÃO M11 MATA <<<
+    // Limitar o produto às duas primeiras faixas devolve 20, não 30.
+    const r = aceita(montarGrade({
+      profissionais: ['e1', 'e2'],
+      dias: [SEG, TER, QUA, QUI, SEX],
+      faixas: [MANHA, TARDE, NOITE],
+      modo: 'substituir',
+      existentes: [],
+    }))
+    expect(r.novas).toHaveLength(30)
+
+    // E as 30 são DISTINTAS: 30 cópias da mesma linha também têm comprimento 30.
+    const chaves = new Set(r.novas.map((n) => `${n.employee_id}|${n.weekday}|${n.start_time}`))
+    expect(chaves.size).toBe(30)
+
+    // Cada uma das TRÊS faixas aparece 10 vezes — 2 profissionais × 5 dias.
+    for (const f of [MANHA, TARDE, NOITE]) {
+      expect(r.novas.filter((n) => n.start_time === f.inicio && n.end_time === f.fim))
+        .toHaveLength(10)
+    }
+  })
+
+  it('4 faixas, nenhuma sobreposta → ok:true, e as quatro entram', () => {
+    const r = aceita(montarGrade({
+      profissionais: ['e1'],
+      dias: [SEG],
+      faixas: [
+        { inicio: '06:00', fim: '08:00' },
+        { inicio: '09:00', fim: '12:00' },
+        { inicio: '14:00', fim: '18:00' },
+        { inicio: '19:00', fim: '21:00' },
+      ],
+      modo: 'substituir',
+      existentes: [],
+    }))
+    expect(r.novas).toHaveLength(4)
+    expect(r.novas.map((n) => n.start_time)).toEqual(['06:00', '09:00', '14:00', '19:00'])
+  })
+
+  it('UMA faixa só continua funcionando — o espelho do outro extremo', () => {
+    // Sem ele, "N faixas" ficaria verde num módulo que exigisse pelo menos duas.
+    const r = aceita(montarGrade({
+      profissionais: ['e1'], dias: [SEG], faixas: [MANHA], modo: 'substituir', existentes: [],
+    }))
+    expect(r.novas).toHaveLength(1)
+  })
+
+  it('10 faixas: o utilitário não tem limite próprio', () => {
+    // A trava de sanidade é da TELA (10), não daqui. O utilitário aceitar 10 e a tela parar em
+    // 10 são fatos independentes, e confundi-los faria alguém "corrigir" o lado errado.
+    const dez = Array.from({ length: 10 }, (_, i) => ({
+      inicio: `${String(i).padStart(2, '0')}:00`,
+      fim: `${String(i).padStart(2, '0')}:30`,
+    }))
+    const r = aceita(montarGrade({
+      profissionais: ['e1'], dias: [SEG], faixas: dez, modo: 'substituir', existentes: [],
+    }))
+    expect(r.novas).toHaveLength(10)
+  })
+})
+
+describe('N faixas — a sobreposição vale para QUALQUER par, não só vizinhos', () => {
+  it('4 faixas com a 2 e a 4 sobrepostas → ok:false, e a mensagem cita 2 e 4', () => {
+    // >>> É O CASO QUE A MUTAÇÃO M10 MATA <<<
+    // Comparar só `faixas[0]` com `faixas[1]`, ou só vizinhos, deixa a 2 contra a 4 passar.
+    // A 2 (09:00–12:00) e a 4 (11:00–13:00) se sobrepõem; as vizinhas, não.
+    const r = montarGrade({
+      profissionais: ['e1'],
+      dias: [SEG],
+      faixas: [
+        { inicio: '06:00', fim: '08:00' }, // 1
+        { inicio: '09:00', fim: '12:00' }, // 2
+        { inicio: '14:00', fim: '18:00' }, // 3
+        { inicio: '11:00', fim: '13:00' }, // 4 — invade a 2
+      ],
+      modo: 'substituir',
+      existentes: [],
+    })
+    expect(r.ok).toBe(false)
+    expect(recusa(r).erro).toBe('As faixas 2 e 4 se sobrepõem. Ajuste os horários.')
+  })
+
+  it('a mensagem é 1-INDEXADA, como os rótulos da tela — não índice de array', () => {
+    // Publicar `faixas[1]` e `faixas[3]` mandaria o usuário procurar linhas que a tela não
+    // rotula. O par afirmado aqui é o mesmo do caso acima, dito pela função.
+    expect(erroFaixasSobrepostas(1, 3)).toBe('As faixas 2 e 4 se sobrepõem. Ajuste os horários.')
+    expect(erroFaixasSobrepostas(0, 1)).toBe('As faixas 1 e 2 se sobrepõem. Ajuste os horários.')
+  })
+
+  it('o MENOR vem primeiro, mesmo com os índices invertidos na chamada', () => {
+    // "as faixas 4 e 2" leria como se a ordem importasse.
+    expect(erroFaixasSobrepostas(3, 1)).toBe('As faixas 2 e 4 se sobrepõem. Ajuste os horários.')
+  })
+
+  it('a 1 contra a 3, com a 2 limpa no meio, também é pega', () => {
+    // O par não-vizinho do outro lado: um laço que comparasse `i` com `i+1` só passaria aqui.
+    const r = montarGrade({
+      profissionais: ['e1'],
+      dias: [SEG],
+      faixas: [
+        { inicio: '09:00', fim: '18:00' }, // 1
+        { inicio: '19:00', fim: '20:00' }, // 2 — limpa
+        { inicio: '10:00', fim: '11:00' }, // 3 — dentro da 1
+      ],
+      modo: 'substituir',
+      existentes: [],
+    })
+    expect(recusa(r).erro).toBe('As faixas 1 e 3 se sobrepõem. Ajuste os horários.')
+  })
+
+  it('3 faixas em CADEIA de encostar → ok:true: 09–12, 12–18, 18–22', () => {
+    // Encostar entre faixas informadas continua permitido, e em cadeia. Trocar qualquer um dos
+    // dois `<` de `sobrepoe` por `<=` recusaria este caso — que é o turno partido em três.
+    const r = aceita(montarGrade({
+      profissionais: ['e1'],
+      dias: [SEG],
+      faixas: [
+        { inicio: '09:00', fim: '12:00' },
+        { inicio: '12:00', fim: '18:00' },
+        { inicio: '18:00', fim: '22:00' },
+      ],
+      modo: 'substituir',
+      existentes: [],
+    }))
+    expect(r.novas).toHaveLength(3)
+  })
+
+  it('com DOIS pares ruins, a mensagem cita o de MENOR índice', () => {
+    // Decisão de desenho, registrada porque é escolha e não acidente: a 1 invade a 2 E a 3
+    // invade a 4. A mensagem fala da 1 e da 2 — o usuário conserta, clica, e a seguinte
+    // aparece. Listar os dois pares numa linha fica ilegível na terceira sobreposição.
+    const r = montarGrade({
+      profissionais: ['e1'],
+      dias: [SEG],
+      faixas: [
+        { inicio: '09:00', fim: '13:00' }, // 1
+        { inicio: '12:00', fim: '14:00' }, // 2 — invade a 1
+        { inicio: '19:00', fim: '21:00' }, // 3
+        { inicio: '20:00', fim: '22:00' }, // 4 — invade a 3
+      ],
+      modo: 'substituir',
+      existentes: [],
+    })
+    expect(recusa(r).erro).toBe('As faixas 1 e 2 se sobrepõem. Ajuste os horários.')
+  })
+})
+
+describe('N faixas no modo ADICIONAR', () => {
+  it('3 faixas, 1 colidindo com existente: ela vai para `puladas`, as outras 2 entram', () => {
+    // A existente é 10:00–11:00, dentro da MANHA (09:00–12:00). A TARDE e a NOITE passam.
+    const r = aceita(montarGrade({
+      profissionais: ['e1'],
+      dias: [SEG],
+      faixas: [MANHA, TARDE, { inicio: '19:00', fim: '21:00' }],
+      modo: 'adicionar',
+      existentes: [
+        { id: 'x', employee_id: 'e1', weekday: SEG, start_time: '10:00', end_time: '11:00' },
+      ],
+    }))
+    expect(r.novas).toEqual([
+      { employee_id: 'e1', weekday: SEG, start_time: '14:00', end_time: '18:00' },
+      { employee_id: 'e1', weekday: SEG, start_time: '19:00', end_time: '21:00' },
+    ])
+    expect(r.puladas).toEqual([
+      { employee_id: 'e1', weekday: SEG, inicio: '09:00', fim: '12:00' },
+    ])
+    // E nada é apagado — a invariante do modo não muda com N faixas.
+    expect(r.idsParaRemover).toEqual([])
+  })
+
+  it('3 faixas × 2 dias com colisão em 1 só: 5 entram, 1 pulada', () => {
+    // Prova que a colisão é por (profissional, dia, FAIXA), e não por dia nem por lote.
+    const r = aceita(montarGrade({
+      profissionais: ['e1'],
+      dias: [SEG, TER],
+      faixas: [MANHA, TARDE, { inicio: '19:00', fim: '21:00' }],
+      modo: 'adicionar',
+      existentes: [
+        { id: 'x', employee_id: 'e1', weekday: TER, start_time: '15:00', end_time: '16:00' },
+      ],
+    }))
+    expect(r.novas).toHaveLength(5)
+    expect(r.puladas).toEqual([
+      { employee_id: 'e1', weekday: TER, inicio: '14:00', fim: '18:00' },
+    ])
+  })
+
+  it('as 3 colidindo: `novas` vazio e `puladas` com as três', () => {
+    const r = aceita(montarGrade({
+      profissionais: ['e1'],
+      dias: [SEG],
+      faixas: [MANHA, TARDE, { inicio: '19:00', fim: '21:00' }],
+      modo: 'adicionar',
+      existentes: [
+        { id: 'x', employee_id: 'e1', weekday: SEG, start_time: '00:00', end_time: '23:59' },
+      ],
+    }))
+    expect(r.novas).toEqual([])
+    expect(r.puladas).toHaveLength(3)
+    expect(r.idsParaRemover).toEqual([])
   })
 })

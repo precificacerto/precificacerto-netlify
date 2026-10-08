@@ -1235,7 +1235,7 @@ describe('as 4 faixas reais de produção continuam legíveis depois do refactor
         montagemInicial={{
           profissionais: [E1],
           dias: [1],
-          faixa1: { inicio: '10:00', fim: '11:00' },
+          faixas: [{ inicio: '10:00', fim: '11:00' }],
         }}
       />,
     )
@@ -1272,7 +1272,7 @@ describe('as 4 faixas reais de produção continuam legíveis depois do refactor
         montagemInicial={{
           profissionais: [E1],
           dias: [3],
-          faixa1: { inicio: '12:00', fim: '14:00' },
+          faixas: [{ inicio: '12:00', fim: '14:00' }],
         }}
       />,
     )
@@ -1367,7 +1367,7 @@ describe('"Todos" os profissionais — marca, desmarca e fica indeterminado', ()
       <PainelDeAgendamento
         open onClose={() => {}} calcType="SERVICE"
         dados={dadosCinco()} acoes={acoes} baseUrl="https://app.exemplo.com"
-        montagemInicial={{ dias: [6], faixa1: { inicio: '09:00', fim: '18:00' } }}
+        montagemInicial={{ dias: [6], faixas: [{ inicio: '09:00', fim: '18:00' }] }}
       />,
     )
     clicarPorAriaLabel('Todos os profissionais')
@@ -1416,17 +1416,21 @@ describe('"Todos" os profissionais — marca, desmarca e fica indeterminado', ()
 })
 
 describe('a SEGUNDA faixa — o intervalo de almoço num gesto só', () => {
-  it('nasce escondida: há Faixa 1 e o botão, não Faixa 2', () => {
+  it('nasce com UMA faixa, e o botão perdeu o "segunda" do rótulo', () => {
+    // O rótulo mudou em 08/10/2026, terceira rodada: o botão não acrescenta uma faixa
+    // ESPECÍFICA, acrescenta a próxima. "segunda" no texto fecharia a porta da terceira na
+    // própria redação.
     renderCinco()
     expect(textoDaTela()).toContain('Faixa 1:')
     expect(textoDaTela()).not.toContain('Faixa 2:')
     expect(document.body.querySelector('[aria-label="Início da faixa 2"]')).toBeNull()
-    expect(textoDaTela()).toContain('+ adicionar segunda faixa')
+    expect(textoDaTela()).toContain('+ adicionar faixa')
+    expect(textoDaTela()).not.toContain('+ adicionar segunda faixa')
   })
 
   it('o botão REVELA a Faixa 2, e os dois campos aparecem', () => {
     renderCinco()
-    clicarBotaoExato('+ adicionar segunda faixa')
+    clicarPorAriaLabel('Acrescentar faixa')
     expect(textoDaTela()).toContain('Faixa 2:')
     expect(document.body.querySelector('[aria-label="Início da faixa 2"]')).toBeTruthy()
     expect(document.body.querySelector('[aria-label="Fim da faixa 2"]')).toBeTruthy()
@@ -1445,9 +1449,7 @@ describe('a SEGUNDA faixa — o intervalo de almoço num gesto só', () => {
         montagemInicial={{
           profissionais: ['e4'], // e4 não tem grade: nada a apagar, nada de modal
           dias: [1],
-          faixa1: { inicio: '09:00', fim: '12:00' },
-          faixa2: { inicio: '14:00', fim: '18:00' },
-          comSegundaFaixa: true,
+          faixas: [{ inicio: '09:00', fim: '12:00' }, { inicio: '14:00', fim: '18:00' }],
         }}
       />,
     )
@@ -1467,9 +1469,7 @@ describe('a SEGUNDA faixa — o intervalo de almoço num gesto só', () => {
         montagemInicial={{
           profissionais: ['e4'],
           dias: [1],
-          faixa1: { inicio: '09:00', fim: '12:00' },
-          faixa2: { inicio: '14:00', fim: '18:00' },
-          comSegundaFaixa: false,
+          faixas: [{ inicio: '09:00', fim: '12:00' }],
         }}
       />,
     )
@@ -1487,13 +1487,11 @@ describe('a SEGUNDA faixa — o intervalo de almoço num gesto só', () => {
         dados={dadosCinco()} acoes={acoes} baseUrl="https://app.exemplo.com"
         montagemInicial={{
           profissionais: ['e4'], dias: [1],
-          faixa1: { inicio: '09:00', fim: '12:00' },
-          faixa2: { inicio: '14:00', fim: '18:00' },
-          comSegundaFaixa: true,
+          faixas: [{ inicio: '09:00', fim: '12:00' }, { inicio: '14:00', fim: '18:00' }],
         }}
       />,
     )
-    clicarPorAriaLabel('Remover a segunda faixa')
+    clicarPorAriaLabel('Remover a faixa 2')
     expect(textoDaTela()).not.toContain('Faixa 2:')
     clicarPorAriaLabel('Substituir a grade')
     const [novas] = (acoes.onMontarGrade as jest.Mock).mock.calls[0]
@@ -1508,16 +1506,16 @@ describe('a SEGUNDA faixa — o intervalo de almoço num gesto só', () => {
         dados={dadosCinco()} acoes={acoes} baseUrl="https://app.exemplo.com"
         montagemInicial={{
           profissionais: ['e4'], dias: [1],
-          faixa1: { inicio: '09:00', fim: '13:00' },
-          faixa2: { inicio: '12:00', fim: '18:00' },
-          comSegundaFaixa: true,
+          faixas: [{ inicio: '09:00', fim: '13:00' }, { inicio: '12:00', fim: '18:00' }],
         }}
       />,
     )
     clicarPorAriaLabel('Substituir a grade')
     // O EFEITO primeiro: a recusa impede a gravação, não só mostra texto.
     expect(acoes.onMontarGrade).not.toHaveBeenCalled()
-    expect(textoDaTela()).toContain('As duas faixas se sobrepõem. Ajuste os horários.')
+    // A mensagem passou a NOMEAR o par em 08/10/2026, terceira rodada: com cinco faixas na
+    // tela, "as duas faixas" não diz quais e obriga a conferir dez pares à mão.
+    expect(textoDaTela()).toContain('As faixas 1 e 2 se sobrepõem. Ajuste os horários.')
   })
 })
 
@@ -1556,7 +1554,7 @@ describe('SUBSTITUIR — a ação de montagem', () => {
 
   it('CONFIRMAR grava, com as linhas e os ids', () => {
     const acoes = painel(fazerAcoes(), {
-      profissionais: ['e1'], dias: [1], faixa1: { inicio: '10:00', fim: '16:00' },
+      profissionais: ['e1'], dias: [1], faixas: [{ inicio: '10:00', fim: '16:00' }],
     })
     clicarPorAriaLabel('Substituir a grade')
     clicarPorAriaLabel('Confirmar a substituição')
@@ -1643,7 +1641,7 @@ describe('ADICIONAR — a ação de ajuste', () => {
     // ensina a clicar sem ler. O par com o caso do substituir é o que afirma a assimetria:
     // um painel que pedisse nos dois passaria lá e falharia aqui.
     const acoes = painel(fazerAcoes(), {
-      profissionais: ['e1'], dias: [1], faixa1: { inicio: '19:00', fim: '20:00' },
+      profissionais: ['e1'], dias: [1], faixas: [{ inicio: '19:00', fim: '20:00' }],
     })
     clicarPorAriaLabel('Adicionar à grade')
     expect(document.body.querySelector('.ant-modal')).toBeNull()
@@ -1652,7 +1650,7 @@ describe('ADICIONAR — a ação de ajuste', () => {
 
   it('`idsParaRemover` sai VAZIO — nada é apagado', () => {
     const acoes = painel(fazerAcoes(), {
-      profissionais: ['e1'], dias: [1], faixa1: { inicio: '19:00', fim: '20:00' },
+      profissionais: ['e1'], dias: [1], faixas: [{ inicio: '19:00', fim: '20:00' }],
     })
     clicarPorAriaLabel('Adicionar à grade')
     const [novas, ids] = (acoes.onMontarGrade as jest.Mock).mock.calls[0]
@@ -1666,7 +1664,7 @@ describe('ADICIONAR — a ação de ajuste', () => {
     // e1 tem 09:00–12:00 e 13:00–18:00 na segunda (f1 e f2). Entra 12:00–13:00 — o furo entre
     // as duas. Nada é apagado, e a faixa nova entra. É o caso de uso do botão.
     const acoes = painel(fazerAcoes(), {
-      profissionais: ['e1'], dias: [1], faixa1: { inicio: '12:00', fim: '13:00' },
+      profissionais: ['e1'], dias: [1], faixas: [{ inicio: '12:00', fim: '13:00' }],
     })
     clicarPorAriaLabel('Adicionar à grade')
     const [novas, ids] = (acoes.onMontarGrade as jest.Mock).mock.calls[0]
@@ -1677,7 +1675,7 @@ describe('ADICIONAR — a ação de ajuste', () => {
   it('COLISÃO: a combinação é pulada, as outras entram, e nada é apagado', () => {
     // e1 tem 09:00–12:00 na segunda; e4 não tem nada. Entra 10:00–11:00 nos dois.
     const acoes = painel(fazerAcoes(), {
-      profissionais: ['e1', 'e4'], dias: [1], faixa1: { inicio: '10:00', fim: '11:00' },
+      profissionais: ['e1', 'e4'], dias: [1], faixas: [{ inicio: '10:00', fim: '11:00' }],
     })
     clicarPorAriaLabel('Adicionar à grade')
     const [novas, ids] = (acoes.onMontarGrade as jest.Mock).mock.calls[0]
@@ -1689,7 +1687,7 @@ describe('ADICIONAR — a ação de ajuste', () => {
 
   it('a mensagem final diz quantas foram puladas', async () => {
     const acoes = painel(fazerAcoes(), {
-      profissionais: ['e1', 'e4'], dias: [1], faixa1: { inicio: '10:00', fim: '11:00' },
+      profissionais: ['e1', 'e4'], dias: [1], faixas: [{ inicio: '10:00', fim: '11:00' }],
     })
     clicarPorAriaLabel('Adicionar à grade')
     await deixarAssentar()
@@ -1701,7 +1699,7 @@ describe('ADICIONAR — a ação de ajuste', () => {
     // afirmaria o que não aconteceu. E um erro de validação diria que o usuário digitou algo
     // inválido, e ele não digitou.
     const acoes = painel(fazerAcoes(), {
-      profissionais: ['e1'], dias: [1], faixa1: { inicio: '10:00', fim: '11:00' },
+      profissionais: ['e1'], dias: [1], faixas: [{ inicio: '10:00', fim: '11:00' }],
     })
     clicarPorAriaLabel('Adicionar à grade')
     expect(acoes.onMontarGrade).not.toHaveBeenCalled()
@@ -1721,7 +1719,7 @@ describe('os AVISOS antes do clique — os DOIS modos, em linhas separadas', () 
         open onClose={() => {}} calcType="SERVICE"
         dados={dadosCinco()} acoes={fazerAcoes()} baseUrl="https://app.exemplo.com"
         montagemInicial={{
-          profissionais: ['e1'], dias: [1], faixa1: { inicio: '10:00', fim: '11:00' },
+          profissionais: ['e1'], dias: [1], faixas: [{ inicio: '10:00', fim: '11:00' }],
         }}
       />,
     )
@@ -1738,7 +1736,7 @@ describe('os AVISOS antes do clique — os DOIS modos, em linhas separadas', () 
         open onClose={() => {}} calcType="SERVICE"
         dados={dadosCinco()} acoes={fazerAcoes()} baseUrl="https://app.exemplo.com"
         montagemInicial={{
-          profissionais: ['e1'], dias: [1], faixa1: { inicio: '19:00', fim: '20:00' },
+          profissionais: ['e1'], dias: [1], faixas: [{ inicio: '19:00', fim: '20:00' }],
         }}
       />,
     )
@@ -1974,5 +1972,215 @@ describe('a ordem da gravação em `agenda/index.tsx`', () => {
     expect(semComentarios).not.toContain('onSalvarFaixas')
     // e o nome continua nos comentários, que é onde o registro mora
     expect(fonte).toContain('onSalvarFaixas')
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+// N FAIXAS NA TELA — terceira rodada do PO de 08/10/2026
+//
+// >>> O RÓTULO É A POSIÇÃO, E ESTE BLOCO É O QUE PROVA ISSO <<<
+//
+// A renumeração não tem código próprio: "Faixa N" é `i + 1`. Um painel que guardasse o número
+// junto da faixa passaria nos casos de acrescentar e falharia no de remover do meio — e é por
+// isso que o caso de remover do meio existe, e por isso ele afirma os RÓTULOS, não a contagem.
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+describe('N faixas na tela — acrescentar, remover e renumerar', () => {
+  /** Quantas linhas de faixa existem, lidas pelo campo de início de cada uma. */
+  function quantasLinhas(): number {
+    return document.body.querySelectorAll('[aria-label^="Início da faixa "]').length
+  }
+
+  /** Os rótulos visíveis, na ordem do DOM. */
+  function rotulos(): string[] {
+    return Array.from(document.body.querySelectorAll('[aria-label^="Início da faixa "]'))
+      .map((el) => el.getAttribute('aria-label') || '')
+  }
+
+  it('clicar "+ adicionar faixa" três vezes dá QUATRO linhas', () => {
+    renderCinco()
+    expect(quantasLinhas()).toBe(1)
+    clicarPorAriaLabel('Acrescentar faixa')
+    clicarPorAriaLabel('Acrescentar faixa')
+    clicarPorAriaLabel('Acrescentar faixa')
+    expect(quantasLinhas()).toBe(4)
+    expect(rotulos()).toEqual([
+      'Início da faixa 1', 'Início da faixa 2', 'Início da faixa 3', 'Início da faixa 4',
+    ])
+  })
+
+  it('o botão CONTINUA na tela depois do terceiro clique', () => {
+    // >>> É O QUE MUDOU DE COMPORTAMENTO <<<
+    // Até a segunda rodada ele desaparecia depois de revelar a segunda faixa, e isso fechava a
+    // porta da terceira. Afirmar que a quarta linha existe não afirma que o botão sobreviveu —
+    // um painel que acrescentasse e então escondesse o botão passaria no caso acima.
+    renderCinco()
+    clicarPorAriaLabel('Acrescentar faixa')
+    clicarPorAriaLabel('Acrescentar faixa')
+    clicarPorAriaLabel('Acrescentar faixa')
+    const botao = document.body.querySelector('[aria-label="Acrescentar faixa"]')
+    expect(botao).toBeTruthy()
+    expect(botao!.hasAttribute('disabled')).toBe(false)
+    expect(textoDaTela()).toContain('+ adicionar faixa')
+  })
+
+  it('remover a Faixa 2 de três deixa DUAS, rotuladas "Faixa 1" e "Faixa 2"', () => {
+    // A renumeração: a antiga 3 passa a ser a 2. Afirmar só `toBe(2)` não distinguiria isto de
+    // um painel que deixasse "Faixa 1" e "Faixa 3" na tela.
+    renderizar(
+      <PainelDeAgendamento
+        open onClose={() => {}} calcType="SERVICE"
+        dados={dadosCinco()} acoes={fazerAcoes()} baseUrl="https://app.exemplo.com"
+        montagemInicial={{
+          faixas: [
+            { inicio: '09:00', fim: '12:00' },
+            { inicio: '14:00', fim: '18:00' },
+            { inicio: '19:00', fim: '21:00' },
+          ],
+        }}
+      />,
+    )
+    expect(quantasLinhas()).toBe(3)
+    clicarPorAriaLabel('Remover a faixa 2')
+    expect(quantasLinhas()).toBe(2)
+    expect(rotulos()).toEqual(['Início da faixa 1', 'Início da faixa 2'])
+    expect(textoDaTela()).not.toContain('Faixa 3:')
+  })
+
+  it('e a que SOBROU na posição 2 é a antiga TERCEIRA — não a removida', () => {
+    // O efeito, não só os rótulos: a 19:00–21:00 passou a ocupar a linha 2. Um painel que
+    // renumerasse os rótulos e mantivesse o valor errado passaria no caso acima.
+    const acoes = fazerAcoes()
+    renderizar(
+      <PainelDeAgendamento
+        open onClose={() => {}} calcType="SERVICE"
+        dados={dadosCinco()} acoes={acoes} baseUrl="https://app.exemplo.com"
+        montagemInicial={{
+          profissionais: ['e4'], // sem grade: nada a apagar, nada de modal
+          dias: [1],
+          faixas: [
+            { inicio: '09:00', fim: '12:00' },
+            { inicio: '14:00', fim: '18:00' },
+            { inicio: '19:00', fim: '21:00' },
+          ],
+        }}
+      />,
+    )
+    clicarPorAriaLabel('Remover a faixa 2')
+    clicarPorAriaLabel('Substituir a grade')
+    const [novas] = (acoes.onMontarGrade as jest.Mock).mock.calls[0]
+    expect(novas).toEqual([
+      { employee_id: 'e4', weekday: 1, start_time: '09:00', end_time: '12:00' },
+      { employee_id: 'e4', weekday: 1, start_time: '19:00', end_time: '21:00' },
+    ])
+  })
+
+  it('a Faixa 1 NÃO tem "remover" — sempre há ao menos uma', () => {
+    renderCinco()
+    clicarPorAriaLabel('Acrescentar faixa')
+    clicarPorAriaLabel('Acrescentar faixa')
+    expect(document.body.querySelector('[aria-label="Remover a faixa 1"]')).toBeNull()
+    // e as outras DUAS têm — o espelho, que impede "nenhuma tem remover" de passar
+    expect(document.body.querySelector('[aria-label="Remover a faixa 2"]')).toBeTruthy()
+    expect(document.body.querySelector('[aria-label="Remover a faixa 3"]')).toBeTruthy()
+  })
+
+  it('removendo até sobrar uma, a última perde o "remover"', () => {
+    // O par do caso acima pelo outro lado: a regra é da POSIÇÃO, não de quem nasceu primeiro.
+    renderCinco()
+    clicarPorAriaLabel('Acrescentar faixa')
+    expect(document.body.querySelector('[aria-label="Remover a faixa 2"]')).toBeTruthy()
+    clicarPorAriaLabel('Remover a faixa 2')
+    expect(quantasLinhas()).toBe(1)
+    expect(document.body.querySelector('[aria-label="Remover a faixa 1"]')).toBeNull()
+  })
+
+  it('TRÊS faixas chegam inteiras na gravação — 1 prof × 1 dia = 3 linhas', () => {
+    const acoes = fazerAcoes()
+    renderizar(
+      <PainelDeAgendamento
+        open onClose={() => {}} calcType="SERVICE"
+        dados={dadosCinco()} acoes={acoes} baseUrl="https://app.exemplo.com"
+        montagemInicial={{
+          profissionais: ['e4'],
+          dias: [1],
+          faixas: [
+            { inicio: '09:00', fim: '12:00' },
+            { inicio: '14:00', fim: '18:00' },
+            { inicio: '19:00', fim: '21:00' },
+          ],
+        }}
+      />,
+    )
+    clicarPorAriaLabel('Substituir a grade')
+    expect(acoes.onMontarGrade).toHaveBeenCalledWith([
+      { employee_id: 'e4', weekday: 1, start_time: '09:00', end_time: '12:00' },
+      { employee_id: 'e4', weekday: 1, start_time: '14:00', end_time: '18:00' },
+      { employee_id: 'e4', weekday: 1, start_time: '19:00', end_time: '21:00' },
+    ], [])
+  })
+
+  it('a mensagem de sobreposição NOMEIA o par, com três faixas na tela', () => {
+    // A 1 e a 3 se sobrepõem; a 2 está limpa no meio. É o par não-vizinho, na tela.
+    const acoes = fazerAcoes()
+    renderizar(
+      <PainelDeAgendamento
+        open onClose={() => {}} calcType="SERVICE"
+        dados={dadosCinco()} acoes={acoes} baseUrl="https://app.exemplo.com"
+        montagemInicial={{
+          profissionais: ['e4'],
+          dias: [1],
+          faixas: [
+            { inicio: '09:00', fim: '18:00' },
+            { inicio: '19:00', fim: '20:00' },
+            { inicio: '10:00', fim: '11:00' },
+          ],
+        }}
+      />,
+    )
+    clicarPorAriaLabel('Substituir a grade')
+    expect(acoes.onMontarGrade).not.toHaveBeenCalled()
+    expect(textoDaTela()).toContain('As faixas 1 e 3 se sobrepõem. Ajuste os horários.')
+  })
+
+  it('no LIMITE de 10 o botão fica na tela, DESABILITADO, e diz o motivo', () => {
+    // >>> A TRAVA É 10, E É DA TELA <<<
+    // O comando deixou a trava opcional e sugeriu 10. O botão não desaparece — o comando diz
+    // que ele nunca some, e um botão que some sem dizer por quê deixa o usuário procurando.
+    const dez = Array.from({ length: 10 }, (_, i) => ({
+      inicio: `${String(i).padStart(2, '0')}:00`,
+      fim: `${String(i).padStart(2, '0')}:30`,
+    }))
+    renderizar(
+      <PainelDeAgendamento
+        open onClose={() => {}} calcType="SERVICE"
+        dados={dadosCinco()} acoes={fazerAcoes()} baseUrl="https://app.exemplo.com"
+        montagemInicial={{ faixas: dez }}
+      />,
+    )
+    expect(quantasLinhas()).toBe(10)
+    const botao = document.body.querySelector('[aria-label="Acrescentar faixa"]')
+    expect(botao).toBeTruthy()
+    expect(botao!.hasAttribute('disabled')).toBe(true)
+    expect(textoDaTela()).toContain('Limite de 10 faixas por montagem.')
+  })
+
+  it('com NOVE o botão está habilitado — o espelho do limite', () => {
+    // Sem ele, "desabilita no limite" ficaria verde num painel que desabilitasse sempre.
+    const nove = Array.from({ length: 9 }, (_, i) => ({
+      inicio: `${String(i).padStart(2, '0')}:00`,
+      fim: `${String(i).padStart(2, '0')}:30`,
+    }))
+    renderizar(
+      <PainelDeAgendamento
+        open onClose={() => {}} calcType="SERVICE"
+        dados={dadosCinco()} acoes={fazerAcoes()} baseUrl="https://app.exemplo.com"
+        montagemInicial={{ faixas: nove }}
+      />,
+    )
+    const botao = document.body.querySelector('[aria-label="Acrescentar faixa"]')
+    expect(botao!.hasAttribute('disabled')).toBe(false)
+    expect(textoDaTela()).not.toContain('Limite de 10 faixas')
+    clicarPorAriaLabel('Acrescentar faixa')
+    expect(quantasLinhas()).toBe(10)
   })
 })
