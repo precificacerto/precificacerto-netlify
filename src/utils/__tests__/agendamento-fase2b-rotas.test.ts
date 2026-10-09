@@ -96,10 +96,15 @@ function montarBanco() {
       { id: A.emp, tenant_id: A.tenant, name: 'Barbeiro do A', phone: null, status: 'ACTIVE' },
       { id: B.emp, tenant_id: B.tenant, name: 'Barbeiro do B', phone: '11955554444', status: 'ACTIVE' },
     ],
+    // >>> OS NOMES SÃO DISTINTOS E NÃO-VAZIOS DE PROPÓSITO <<<
+    // A rodada de 09/10/2026 faz as mensagens de cancelar e remarcar levarem o NOME do cliente.
+    // Com nome vazio na fixture, "o nome aparece no texto" ficaria verde sem medir nada, e
+    // "a resposta HTTP não tem o nome" também — `teste-que-nao-exercita.md`, variante 2: o caso
+    // escolhido não discriminaria. O caso do nome VAZIO zera o campo dentro dele mesmo.
     customers: [
-      { id: A.cli, tenant_id: A.tenant, whatsapp_phone: A.fone },
-      { id: B.cli, tenant_id: B.tenant, whatsapp_phone: B.fone },
-      { id: OUTRO.cli, tenant_id: A.tenant, whatsapp_phone: OUTRO.fone },
+      { id: A.cli, tenant_id: A.tenant, whatsapp_phone: A.fone, name: 'Ana Maria' },
+      { id: B.cli, tenant_id: B.tenant, whatsapp_phone: B.fone, name: 'Bruno Alves' },
+      { id: OUTRO.cli, tenant_id: A.tenant, whatsapp_phone: OUTRO.fone, name: 'Carla Souza' },
     ],
     calendar_events: [
       { id: A.evt, tenant_id: A.tenant, customer_id: A.cli, employee_id: A.emp, service_id: 'svcA', title: 'Corte', start_time: FUTURO.toISOString(), end_time: new Date(FUTURO.getTime() + 1800000).toISOString(), status: 'CONFIRMED', is_active: true },
@@ -951,5 +956,183 @@ describe('a migração nasce PENDENTE, e o arquivo diz o que precisa dizer', () 
     expect(sql).toContain('information_schema.columns')
     expect(sql).toContain('role_table_grants')
     expect(sql).toContain("NOTIFY pgrst, 'reload schema'")
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+// 09/10/2026 — O NOME DO CLIENTE NA MENSAGEM, E **FORA** DA RESPOSTA HTTP
+//
+// Exigência do dono do produto, registrada como está: *"O nome entra na mensagem enviada ao
+// proprio cliente. Ele NAO entra em nenhuma resposta HTTP antes do codigo validado - sao coisas
+// diferentes."*
+//
+// Os três casos que o comando pediu, mais o par e a mutação:
+//   1. cancelar com cliente que TEM nome  -> o nome aparece no texto ENVIADO
+//   2. cancelar com nome VAZIO no banco   -> texto sem vírgula solta e sem `{cliente}`
+//   3. a resposta HTTP das DUAS rotas     -> chaves exatas, sem nome, email nem id  << M24
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+describe('o NOME vai na mensagem do próprio cliente, e NUNCA na resposta HTTP', () => {
+  /** Quatro dias à frente, em `YYYY-MM-DD` local — como o resto da suíte. */
+  const Q = new Date(AGORA.getTime() + 4 * 86400_000)
+  const DIA = `${Q.getFullYear()}-${String(Q.getMonth() + 1).padStart(2, '0')}-${String(Q.getDate()).padStart(2, '0')}`
+
+  /** A mensagem que foi para o telefone DO CLIENTE (não a do barbeiro). */
+  function textoAoCliente(fone: string): string {
+    const m = enviadas.find((e) => e.telefone === fone)
+    return m ? m.texto : ''
+  }
+
+  it('cancelar: o cliente que TEM nome recebe o nome no texto', () => {
+    // O caso 1 do comando. O tenant B é o que tem barbeiro COM telefone, então aqui se usa o A
+    // de propósito: uma mensagem só, e ela é a do cliente.
+    semearCodigo(A.tenant, A.fone)
+    return chamar(cancelar, A.token, { telefone: A.fone, codigo: CODIGO, agendamento_id: A.evt })
+      .then((r) => {
+        expect(r.status).toBe(200)
+        const t = textoAoCliente(A.fone)
+        expect(t).toContain('Ana Maria')
+        expect(t.startsWith('Olá Ana Maria, seu agendamento foi cancelado.')).toBe(true)
+        // e nenhum placeholder sobrou
+        expect(t).not.toContain('{')
+      })
+  })
+
+  it('remarcar: idem — e o nome vem da MESMA consulta, não de uma segunda', () => {
+    // O par da rota irmã. `remarcar` importa `eventoAlcancavel` de `cancelar`, então um nome que
+    // só chegasse numa das duas seria `copia-divergente.md`.
+    semearCodigo(A.tenant, A.fone)
+    return chamar(remarcar, A.token, {
+      telefone: A.fone, codigo: CODIGO, agendamento_id: A.evt, dia: DIA, hora: '14:30',
+    }).then((r) => {
+      expect(r.status).toBe(200)
+      const t = textoAoCliente(A.fone)
+      expect(t).toContain('Ana Maria')
+      expect(t.startsWith('Olá Ana Maria, seu agendamento foi alterado.')).toBe(true)
+      expect(t).not.toContain('{')
+    })
+  })
+
+  it('>>> nome VAZIO no banco: `Olá, seu agendamento…` — SEM vírgula solta <<<', async () => {
+    // O caso 2 do comando, literal: *"Se o nome vier vazio ou nulo no banco, o placeholder some
+    // pela limpeza do item 1, e o texto fica 'Olá, seu agendamento foi cancelado.' Confirme que
+    // fica assim, sem virgula solta."*
+    //
+    // >>> E ELE MEDE O ESTADO QUE EXISTIA ATÉ HOJE EM PRODUÇÃO <<<
+    // Era exatamente este o texto que saía para TODOS os clientes, porque a rota passava
+    // `cliente: ''` sempre. Agora ele só sai para quem não tem nome cadastrado.
+    LINHAS.customers.find((c: any) => c.id === A.cli).name = null
+    semearCodigo(A.tenant, A.fone)
+    const r = await chamar(cancelar, A.token, {
+      telefone: A.fone, codigo: CODIGO, agendamento_id: A.evt,
+    })
+    expect(r).toEqual({ status: 200, corpo: { ok: true } })
+    const t = textoAoCliente(A.fone)
+    expect(t.startsWith('Olá, seu agendamento foi cancelado.')).toBe(true)
+    expect(t).not.toContain('Olá ,')
+    expect(t).not.toContain('{cliente}')
+    expect(t).not.toMatch(/ {2}/)
+    // e o cancelamento gravou — nome ausente não derruba nada
+    expect(evento(A.evt).status).toBe('CANCELLED')
+  })
+
+  it('string em BRANCO conta como vazia — `\'   \'` não vira um nome', async () => {
+    // `ausente-vs-falso.md`: branco não afirma nada. Sem este caso, um `.trim()` ausente no
+    // caminho deixaria `Olá    , seu…` passar.
+    LINHAS.customers.find((c: any) => c.id === A.cli).name = '   '
+    semearCodigo(A.tenant, A.fone)
+    await chamar(cancelar, A.token, { telefone: A.fone, codigo: CODIGO, agendamento_id: A.evt })
+    expect(textoAoCliente(A.fone).startsWith('Olá, seu agendamento foi cancelado.')).toBe(true)
+  })
+
+  it('>>> M24 — a resposta HTTP de cancelar NÃO carrega nome, email nem id de cliente <<<', async () => {
+    // >>> É O CASO QUE A MUTAÇÃO M24 MATA <<<
+    // Afirmado pelas CHAVES EXATAS, como já se faz em `codigo-validar`: "não contém o nome"
+    // ficaria verde num corpo que trouxesse `{ cliente: '' }`, e também num campo novo com
+    // outro nome. As chaves exatas impedem que qualquer coisa entre sem alguém olhar.
+    semearCodigo(A.tenant, A.fone)
+    const r = await chamar(cancelar, A.token, {
+      telefone: A.fone, codigo: CODIGO, agendamento_id: A.evt,
+    })
+    expect(Object.keys(r.corpo)).toEqual(['ok'])
+    expect(r.corpo).toEqual({ ok: true })
+
+    const txt = JSON.stringify(r.corpo)
+    // o nome que a rota ACABOU de usar na mensagem — e que a mensagem prova estar disponível
+    expect(textoAoCliente(A.fone)).toContain('Ana Maria')
+    expect(txt).not.toContain('Ana')
+    expect(txt).not.toContain('Maria')
+    expect(txt).not.toContain(A.cli)
+    expect(txt).not.toContain('cliente')
+    expect(txt).not.toContain('customer')
+    expect(txt).not.toContain('email')
+    expect(txt).not.toContain('whatsapp')
+    expect(txt).not.toContain(A.fone)
+  })
+
+  it('>>> M24 — idem para remarcar <<<', async () => {
+    semearCodigo(A.tenant, A.fone)
+    const r = await chamar(remarcar, A.token, {
+      telefone: A.fone, codigo: CODIGO, agendamento_id: A.evt, dia: DIA, hora: '14:30',
+    })
+    expect(Object.keys(r.corpo)).toEqual(['ok'])
+    expect(r.corpo).toEqual({ ok: true })
+
+    const txt = JSON.stringify(r.corpo)
+    expect(textoAoCliente(A.fone)).toContain('Ana Maria')
+    expect(txt).not.toContain('Ana')
+    expect(txt).not.toContain('Maria')
+    expect(txt).not.toContain(A.cli)
+    expect(txt).not.toContain('cliente')
+    expect(txt).not.toContain('customer')
+    expect(txt).not.toContain('email')
+    expect(txt).not.toContain('whatsapp')
+    expect(txt).not.toContain(A.fone)
+  })
+
+  it('e a RECUSA também não vaza o nome — nem no corpo, nem por diferença de resposta', async () => {
+    // O id de OUTRO cliente DO MESMO tenant. A rota lê o nome só depois de alcançar o evento,
+    // então aqui ela nem chega lá — e a resposta é a mesma de id inexistente.
+    semearCodigo(A.tenant, A.fone)
+    const alheio = await chamar(cancelar, A.token, {
+      telefone: A.fone, codigo: CODIGO, agendamento_id: OUTRO.evt,
+    })
+    montarBanco(); enviadas.length = 0; semearCodigo(A.tenant, A.fone)
+    const inexistente = await chamar(cancelar, A.token, {
+      telefone: A.fone, codigo: CODIGO, agendamento_id: 'nao-existe',
+    })
+    expect(alheio).toEqual(inexistente)
+    expect(JSON.stringify(alheio.corpo)).not.toContain('Carla')
+    // e nenhuma mensagem saiu em nenhum dos dois
+    expect(enviadas).toHaveLength(0)
+  })
+
+  it('o nome NÃO vira uma segunda consulta: `customers` é lida UMA vez por cancelamento', () => {
+    // >>> A FORMA DA CORREÇÃO, NÃO SÓ O EFEITO <<<
+    // O nome entrou no `select` que JÁ existia em `eventoAlcancavel`. Uma segunda consulta a
+    // `customers` seria uma ida a mais ao banco e um segundo ponto a filtrar por tenant — e é
+    // isso que esta asserção impede de aparecer depois.
+    const fs = require('fs')
+    const path = require('path')
+    const prog = (fs.readFileSync(
+      path.resolve(__dirname, '../../pages/api/public/agenda/[token]/cancelar.ts'), 'utf8',
+    ) as string).replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
+    expect((prog.match(/from\('customers'\)/g) ?? [])).toHaveLength(1)
+    expect(prog).toContain("select('id, name')")
+    // e `remarcar` não tem consulta própria a `customers` — ele importa `eventoAlcancavel`
+    const rem = (fs.readFileSync(
+      path.resolve(__dirname, '../../pages/api/public/agenda/[token]/remarcar.ts'), 'utf8',
+    ) as string).replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
+    expect(rem).not.toContain("from('customers')")
+    expect(rem).toContain('eventoAlcancavel')
+  })
+
+  it('e o isolamento por tenant continua inteiro depois de tudo isto', async () => {
+    // A guarda do fake, outra vez: o `select` ganhou uma coluna, e a coluna não pode ter vindo
+    // com a perda do filtro.
+    semearCodigo(A.tenant, A.fone)
+    await chamar(cancelar, A.token, { telefone: A.fone, codigo: CODIGO, agendamento_id: A.evt })
+    semearCodigo(B.tenant, B.fone)
+    await chamar(cancelar, B.token, { telefone: B.fone, codigo: CODIGO, agendamento_id: B.evt })
+    expect(semFiltroDeTenant).toEqual([])
   })
 })

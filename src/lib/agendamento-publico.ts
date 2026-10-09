@@ -207,7 +207,7 @@ export function textoCurto(raw: unknown, max: number): string {
 // que registrar, e voltamos à falha muda que três rodadas desta campanha fecharam.
 // ═════════════════════════════════════════════════════════════════════════════════════════
 
-import { textoOuPadrao } from '@/utils/mensagens-agendamento-padrao'
+import { aplicarVariaveis, textoOuPadrao } from '@/utils/mensagens-agendamento-padrao'
 import { sendWuzapiText } from '@/lib/wuzapi-send'
 
 export type ResultadoDoEnvio = {
@@ -260,8 +260,17 @@ export async function enviarMensagemDoAgendamento(params: {
   }
   if (!token) return { enviado: false, motivo: 'sem_token' }
 
-  let texto = textoOuPadrao(params.texto, params.padrao)
-  for (const [k, v] of Object.entries(params.vars ?? {})) texto = texto.split(`{${k}}`).join(v)
+  // >>> UMA FUNÇÃO SÓ FAZ A INTERPOLAÇÃO E A LIMPEZA, E ESTE É O ÚNICO PONTO QUE A CHAMA <<<
+  //
+  // As quatro mensagens da Fase 2B, mais a do código, passam por aqui — então `aplicarVariaveis`
+  // vale para as três editáveis sem que nenhuma rota precise lembrar de chamá-la. O comando de
+  // 09/10/2026 pede *"uma unica funcao faz isso, usada pelos tres"*: a função é dela, e o ponto
+  // de uso é este. Uma segunda chamada numa rota seria `copia-divergente.md` nascendo.
+  //
+  // O laço sequencial que havia aqui (`split(...).join(v)` por variável) saiu: ele deixava o
+  // literal `{algo}` no texto quando a variável não tinha valor, e reexaminava o resultado de
+  // cada substituição. A razão completa está no cabeçalho de `aplicarVariaveis`.
+  const texto = aplicarVariaveis(textoOuPadrao(params.texto, params.padrao), params.vars ?? {})
 
   const r = await sendWuzapiText(token, telefone, texto)
   // O cast existe porque o `tsconfig.json` deste repositório tem `strictNullChecks: false`, e

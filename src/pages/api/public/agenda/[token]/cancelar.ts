@@ -53,6 +53,16 @@ export type EventoAlcancavel = {
   employee_id: string | null
   service_id: string | null
   customer_id: string
+  /**
+   * O NOME do cliente, para a mensagem que vai ao WhatsApp dele. Vem da MESMA consulta que
+   * provou a identidade pelo telefone — ver `eventoAlcancavel`.
+   *
+   * >>> OBRIGATÓRIO NO TIPO DE PROPÓSITO <<<
+   * Opcional com default vazio é `construtor-empobrecido.md`: um segundo produtor do tipo
+   * esqueceria o campo e a mensagem voltaria a sair com a vírgula solta, sem nada falhar. Como
+   * obrigatório, o `tsc` enumera quem não o preenche.
+   */
+  cliente_nome: string
 }
 
 /**
@@ -67,9 +77,13 @@ export async function eventoAlcancavel(
 ): Promise<EventoAlcancavel | null> {
   if (!agendamento_id) return null
 
+  // >>> O `name` ENTRA NESTA CONSULTA, QUE JÁ EXISTIA — NÃO NUMA SEGUNDA <<<
+  // Ela já é a consulta que casa o telefone provado com o cliente daquele tenant, e o nome vem
+  // de carona. Um segundo `select` para buscar o nome seria uma ida a mais ao banco e um segundo
+  // ponto a filtrar por tenant — dois jeitos de errar, por nada.
   const { data: cli, error: eCli } = await supabaseAdmin
     .from('customers')
-    .select('id')
+    .select('id, name')
     .eq('tenant_id', tenant_id)
     .eq('whatsapp_phone', telefone)
     .limit(1)
@@ -77,6 +91,9 @@ export async function eventoAlcancavel(
   if (eCli) throw eCli
   const customer_id = (cli as any)?.id ?? null
   if (!customer_id) return null
+  // Nome vazio ou nulo no banco fica vazio aqui, e o `{cliente}` da mensagem DESAPARECE pela
+  // limpeza de `aplicarVariaveis`. Não se inventa "Cliente" nem "Olá!" — `ausente-vs-falso.md`.
+  const cliente_nome = String((cli as any)?.name ?? '').trim()
 
   const { data: ev, error: eEv } = await supabaseAdmin
     .from('calendar_events')
@@ -90,7 +107,8 @@ export async function eventoAlcancavel(
     .gte('start_time', agora.toISOString())   // o futuro
     .maybeSingle()
   if (eEv) throw eEv
-  return (ev as any) ?? null
+  if (!ev) return null
+  return { ...(ev as any), cliente_nome }
 }
 
 /** `2026-10-09T14:30:00` → `{ data: '09/10/2026', hora: '14:30' }`. */
@@ -145,8 +163,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const avisos: string[] = []
     const { data: dataBR, hora } = dataEHoraBR(ev.start_time)
     const profissional = ev.employee_id ? await nomeDoBarbeiro(ctx.tenant_id, ev.employee_id) : ''
+    // >>> O NOME DO CLIENTE NA MENSAGEM, E A DISTINÇÃO QUE A FASE 2B IMPÔS <<<
+    //
+    // Exigência do dono do produto em 09/10/2026, registrada como está: *"O nome entra na
+    // mensagem enviada ao proprio cliente. Ele NAO entra em nenhuma resposta HTTP antes do
+    // codigo validado - sao coisas diferentes."*
+    //
+    // Até hoje isto era `cliente: ''`, e o texto padrão saía `Olá , seu agendamento foi
+    // cancelado.` — com a vírgula solta. A Fase 2B escreveu o vazio por cautela e não distinguiu
+    // as duas coisas: proibido é devolver dado de cliente para a TELA; mandar o nome dele no
+    // WhatsApp DELE não revela nada a ninguém, porque o destinatário é o próprio dono do nome.
+    //
+    // A resposta HTTP continua `{ ok: true }` e nada mais, e há caso de portão afirmando as
+    // chaves exatas — é a mutação M24.
     const vars = {
-      cliente: '', servico: ev.title ?? '', profissional,
+      cliente: ev.cliente_nome, servico: ev.title ?? '', profissional,
       data: dataBR, hora, empresa: ctx.empresa,
     }
 
