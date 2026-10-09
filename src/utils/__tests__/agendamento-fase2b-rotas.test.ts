@@ -805,14 +805,30 @@ describe('§3 — a tela, lida do arquivo', () => {
   const fonte = fs.readFileSync(pagina, 'utf8') as string
   const programa = fonte.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
 
-  it('ZERO chamadas ao supabase do navegador', () => {
+  it('ZERO chamadas ao supabase do navegador — na página E no componente que saiu dela', () => {
     // >>> A REGRA INVIOLÁVEL, DO LADO DO CLIENTE <<<
     // A página não tem cliente de banco e não conhece `tenant_id`. Tudo passa pelas rotas, que
     // resolvem o tenant pelo TOKEN.
-    expect(programa).not.toMatch(/supabase/i)
-    expect(programa).not.toMatch(/createClient/)
-    expect(programa).not.toContain('tenant_id')
-    expect(programa).not.toMatch(/SERVICE_ROLE|service_role/)
+    //
+    // >>> O ALCANCE FOI ESTENDIDO EM 09/10/2026, E É O PONTO DESTE COMENTÁRIO <<<
+    // A asserção lia SÓ `pages/agendar/[token].tsx`. Naquele dia a escolha de dia e hora saiu
+    // da página para `components/agendar/escolha-de-dia-e-hora.component.tsx` — e um portão
+    // que continuasse lendo só a página ficaria verde com um `import { supabase }` no arquivo
+    // novo. É `portao-que-nao-alcanca.md`: mover código para fora do alcance do portão é o
+    // jeito mais silencioso de furá-lo.
+    const componente = fs.readFileSync(
+      path.resolve(__dirname, '../../components/agendar/escolha-de-dia-e-hora.component.tsx'),
+      'utf8',
+    ) as string
+    const programaDoComponente = componente
+      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
+
+    for (const prog of [programa, programaDoComponente]) {
+      expect(prog).not.toMatch(/supabase/i)
+      expect(prog).not.toMatch(/createClient/)
+      expect(prog).not.toContain('tenant_id')
+      expect(prog).not.toMatch(/SERVICE_ROLE|service_role/)
+    }
   })
 
   it('a tela inicial oferece os DOIS caminhos', () => {
@@ -844,15 +860,39 @@ describe('§3 — a tela, lida do arquivo', () => {
     }
   })
 
-  it('REMARCAR reusa `proximosDias` e o endpoint `/horarios` — não um segundo seletor', () => {
-    // Regra 7: *"Remarcar reusa o fluxo de dia -> horario que ja existe."* A função de dias é a
-    // mesma, e o endpoint é o da Fase 2 — que esta rodada NÃO alterou.
-    expect(programa).toContain('proximosDias(14)')
-    expect(programa).toContain('carregarHorariosDoAlvo')
+  it('>>> REMARCAR USA O MESMO COMPONENTE DO AGENDAR — não um segundo seletor <<<', () => {
+    // >>> ASSERÇÃO INVERTIDA EM 09/10/2026, NÃO APAGADA <<<
+    //
+    // Ela era:
+    //     expect(programa).toContain('proximosDias(14)')
+    //     expect(programa).toContain('carregarHorariosDoAlvo')
+    //     const quantosProximosDias = programa.split('function proximosDias').length - 1
+    //     expect(quantosProximosDias).toBe(1)
+    //
+    // E provava o reuso da FUNÇÃO de dias. O reuso agora é do COMPONENTE: `proximosDias` foi
+    // para `@/utils/faixa-de-dias` (com `hoje` injetado e portão próprio), e os números 14 e 30
+    // saíram do código — o horizonte vem da rota.
+    //
+    // >>> ESTE CASO É O QUE O COMANDO PEDIU EXPLICITAMENTE <<<
+    // *"Acrescente caso afirmando que o remarcar usa o mesmo componente - sem isso a terceira
+    // forma volta na proxima mudanca."* Eram TRÊS formas de mostrar dia/hora nesta página: 30
+    // botões no agendar, 14 no remarcar, e botões de largura cheia para os horários do
+    // remarcar. As três viraram UMA.
+    expect(programa).toContain('EscolhaDeDiaEHora')
+    expect(programa).toContain("from '@/components/agendar/escolha-de-dia-e-hora.component'")
+    // o componente é montado DUAS vezes: uma por fluxo, e nenhuma a mais
+    expect(programa.split('<EscolhaDeDiaEHora').length - 1).toBe(2)
+    // a busca é INJETADA, uma por fluxo, e as duas batem no endpoint da Fase 2
+    expect(programa).toContain('buscarHorariosDoAgendar')
+    expect(programa).toContain('buscarHorariosDoAlvo')
     expect(programa).toContain('/horarios?')
-    // e NÃO há segunda lista de dias escrita à mão
-    const quantosProximosDias = programa.split('function proximosDias').length - 1
-    expect(quantosProximosDias).toBe(1)
+
+    // >>> E AS TRÊS FORMAS ANTIGAS NÃO EXISTEM MAIS <<<
+    expect(programa).not.toContain('proximosDias(14)')
+    expect(programa).not.toContain('proximosDias(30)')
+    expect(programa).not.toContain('function proximosDias')
+    // nem lista de dias escrita à mão: o único `.map` de dia está dentro do componente
+    expect(programa).not.toMatch(/proximosDias\([^)]*\)\.map/)
   })
 
   it('a confirmação deixou de mandar o cliente ligar para o salão', () => {
@@ -861,7 +901,7 @@ describe('§3 — a tela, lida do arquivo', () => {
     expect(fonte).toContain('volte a este link')
   })
 
-  it('a rota `/horarios` da Fase 2 NÃO foi alterada nesta rodada', () => {
+  it('>>> `horarios.ts`, `servicos.ts` e `horarios-disponiveis.ts` SEGUEM INTOCADOS <<<', () => {
     // >>> O LIMITE DO COMANDO, AFIRMADO <<<
     // *"Esta e a UNICA alteracao autorizada em agendar.ts nesta rodada. O resto do arquivo e das
     // outras rotas publicas continua intocado."* A primeira versão do `carregarHorariosDoAlvo`
@@ -875,12 +915,49 @@ describe('§3 — a tela, lida do arquivo', () => {
     const diff = execSync(
       `git -C ${path.resolve(__dirname, '../../..')} diff origin/main --stat -- `
       + `'src/pages/api/public/agenda/[token]/horarios.ts' `
-      + `'src/pages/api/public/agenda/[token]/index.ts' `
       + `'src/pages/api/public/agenda/[token]/servicos.ts' `
       + `'src/utils/horarios-disponiveis.ts' || true`,
       { encoding: 'utf8' },
     ) as string
     expect(diff.trim()).toBe('')
+  })
+
+  it('>>> `index.ts` MUDOU, e a mudança é UM CAMPO A MAIS — nada saiu, nada renomeou <<<', () => {
+    // >>> ASSERÇÃO SEPARADA EM 09/10/2026 <<<
+    //
+    // O caso acima listava `index.ts` entre os arquivos de diff VAZIO. O dono do produto
+    // autorizou a alteração naquele dia, com estas palavras: *"A rota indice passa a devolver
+    // { empresa, barbeiros, horizonteDias }. E um campo A MAIS. Nenhum campo sai, nenhum muda
+    // de nome, nenhum consumidor quebra."*
+    //
+    // Então `index.ts` saiu daquela lista e ganhou caso PRÓPRIO — que afirma exatamente o
+    // limite da autorização, em vez de simplesmente deixar de olhar o arquivo. Tirá-lo da
+    // lista sem pôr nada no lugar seria furar o portão pelo lado de dentro.
+    const idx = fs.readFileSync(
+      path.resolve(__dirname, '../../pages/api/public/agenda/[token]/index.ts'), 'utf8',
+    ) as string
+    const prog = idx.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
+
+    // os dois campos antigos continuam, com o MESMO nome
+    expect(prog).toContain('empresa: ctx.empresa')
+    expect(prog).toContain('barbeiros,')
+    // e o terceiro entrou, vindo do contexto do TOKEN
+    expect(prog).toContain('horizonteDias: ctx.horizon_days')
+
+    // >>> E NADA MAIS ENTROU: as chaves do corpo são EXATAMENTE três <<<
+    // Afirmar as chaves (e não só a presença do campo novo) é o que impede um quarto campo de
+    // aparecer sem alguém olhar — o mesmo desenho do caso de `codigo-validar`.
+    const corpo = /res\.status\(200\)\.json\(\{([\s\S]*?)\}\)/.exec(prog)
+    expect(corpo).toBeTruthy()
+    const chaves = (corpo![1].match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*[,:]/gm) ?? [])
+      .map((x) => x.trim().replace(/[,:]$/, '')).sort()
+    expect(chaves).toEqual(['barbeiros', 'empresa', 'horizonteDias'])
+
+    // nenhum dado de cliente, e nenhum `tenant_id` lido do pedido
+    for (const proibido of ['name', 'email', 'phone', 'whatsapp', 'customer']) {
+      expect(prog).not.toContain(proibido)
+    }
+    expect(prog).not.toMatch(/req\.(body|query|headers)[^)]*tenant/)
   })
 
   it('a ÚNICA mudança em `agendar.ts` foi o envio que saiu para o lib', () => {

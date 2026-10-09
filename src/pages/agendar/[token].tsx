@@ -14,6 +14,7 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import Head from 'next/head'
 import { useRouter } from 'next/router'
+import EscolhaDeDiaEHora from '@/components/agendar/escolha-de-dia-e-hora.component'
 
 const MEMORIA = 'pc.agendar.v1'
 
@@ -57,19 +58,17 @@ function gravarMemoria(v: Record<string, string>): void {
   try { localStorage.setItem(MEMORIA, JSON.stringify(v)) } catch { /* sem memória, só não lembra */ }
 }
 
-function proximosDias(n: number): { valor: string; rotulo: string }[] {
-  const out: { valor: string; rotulo: string }[] = []
-  const hoje = new Date()
-  for (let i = 0; i < n; i += 1) {
-    const d = new Date(hoje.getTime() + i * 86400000)
-    const valor = new Intl.DateTimeFormat('sv-SE', { timeZone: 'America/Sao_Paulo', dateStyle: 'short' }).format(d)
-    const rotulo = new Intl.DateTimeFormat('pt-BR', {
-      timeZone: 'America/Sao_Paulo', weekday: 'short', day: '2-digit', month: '2-digit',
-    }).format(d)
-    out.push({ valor, rotulo })
-  }
-  return out
-}
+/**
+ * >>> `proximosDias` SAIU DAQUI EM 09/10/2026, PARA `@/utils/faixa-de-dias` <<<
+ *
+ * Ela devolvia `{ valor, rotulo }` com o rótulo numa string só — `"sex., 09/10"` — e a faixa
+ * horizontal tem TRÊS linhas (`SEX` / `09` / `out`). Fatiar texto formatado por `Intl` para
+ * tirar as três partes quebra quando a locale muda, então as partes passaram a sair da fonte.
+ *
+ * Ela foi para um módulo puro com `hoje` INJETADO, usado pelo componente único que serve os
+ * DOIS fluxos — e tem portão próprio. Esta página não tem mais lista de dias escrita à mão:
+ * nem a de 30 do agendar, nem a de 14 do remarcar.
+ */
 
 export default function PaginaDeAgendamento() {
   const router = useRouter()
@@ -79,13 +78,32 @@ export default function PaginaDeAgendamento() {
   const [indisponivel, setIndisponivel] = useState(false)
   const [empresa, setEmpresa] = useState('')
   const [barbeiros, setBarbeiros] = useState<Barbeiro[]>([])
+  /**
+   * O horizonte do link, lido de `GET /api/public/agenda/[token]` → `horizonteDias`.
+   *
+   * >>> O 30 É FALLBACK, NÃO VERDADE <<<
+   *
+   * Até 09/10/2026 esta página CHUTAVA 30 no agendar e 14 no remarcar. Medido naquele dia:
+   * existe uma linha em `tenant_booking_settings`, com `horizon_days = 30`, e o
+   * `column_default` da coluna também é 30 — o 30 batia por COINCIDÊNCIA com o default, não
+   * por leitura. A rota passou a devolver o campo, e os dois números saíram do código.
+   *
+   * O valor inicial 30 cobre a janela de um deploy intermediário, em que o navegador já tem o
+   * JavaScript novo e a função serverless antiga ainda responde sem o campo. Ele é FALLBACK:
+   * quando a resposta traz `horizonteDias`, é ele que vale.
+   */
+  const [horizonteDias, setHorizonteDias] = useState(30)
 
   const [passo, setPasso] = useState(1)
   const [barbeiro, setBarbeiro] = useState<Barbeiro | null>(null)
   const [servicos, setServicos] = useState<Servico[]>([])
   const [servico, setServico] = useState<Servico | null>(null)
   const [dia, setDia] = useState('')
-  const [horarios, setHorarios] = useState<string[]>([])
+  /**
+   * >>> O ESTADO `horarios` SAIU DA PÁGINA EM 09/10/2026 <<<
+   * A lista de horários do dia vive dentro de `EscolhaDeDiaEHora`, que a busca e a agrupa. A
+   * página guarda só a ESCOLHA — `dia` e `hora` —, que é o que o passo 5 e o POST precisam.
+   */
   const [hora, setHora] = useState('')
   const [nome, setNome] = useState('')
   const [telefone, setTelefone] = useState('')
@@ -133,6 +151,11 @@ export default function PaginaDeAgendamento() {
         if (!vivo) return
         setEmpresa(j.empresa || '')
         setBarbeiros(j.barbeiros || [])
+        // Campo novo de 09/10/2026. Resposta sem ele (deploy intermediário) mantém o 30 do
+        // estado inicial, que é FALLBACK e está documentado como tal na declaração.
+        if (Number.isFinite(j.horizonteDias) && j.horizonteDias > 0) {
+          setHorizonteDias(Math.floor(j.horizonteDias))
+        }
         // O último barbeiro escolhido no aparelho sobe pré-selecionado, se ainda existir.
         const m = lerMemoria()
         const ant = (j.barbeiros || []).find((b: Barbeiro) => b.id === m.barbeiro)
@@ -153,15 +176,24 @@ export default function PaginaDeAgendamento() {
     } catch { setErro('Não foi possível carregar os serviços deste profissional.') }
   }, [token])
 
-  const carregarHorarios = useCallback(async (d: string) => {
-    setErro(''); setHorarios([]); setHora('')
-    if (!barbeiro || !servico) return
-    try {
-      const qs = `barbeiro=${encodeURIComponent(barbeiro.id)}&servico=${encodeURIComponent(servico.id)}&dia=${encodeURIComponent(d)}`
-      const r = await fetch(`/api/public/agenda/${encodeURIComponent(token)}/horarios?${qs}`)
-      if (!r.ok) { setErro('Não foi possível carregar os horários.'); return }
-      setHorarios(await r.json())
-    } catch { setErro('Não foi possível carregar os horários.') }
+  /**
+   * Os horários livres de um dia, para o fluxo de AGENDAR.
+   *
+   * >>> ELA DEVOLVE A LISTA, E **LANÇA** QUANDO NÃO SABE — NÃO DEVOLVE `[]` <<<
+   *
+   * É a injeção de `buscarHorarios` do componente, e a distinção importa: `[]` AFIRMA que o dia
+   * está cheio, e o componente desabilita o cartão do dia. Um `[]` devolvido por falha de rede
+   * desabilitaria um dia que talvez tenha vaga — `ausente-vs-falso.md` na faixa.
+   *
+   * Lançando, o `Promise.allSettled` do pré-carregamento registra `rejected`, nada é gravado em
+   * `vagas`, e o dia nasce HABILITADO: a condição (a) do comando, *"falha ABRE, não fecha"*.
+   */
+  const buscarHorariosDoAgendar = useCallback(async (d: string): Promise<string[]> => {
+    if (!barbeiro || !servico) return []
+    const qs = `barbeiro=${encodeURIComponent(barbeiro.id)}&servico=${encodeURIComponent(servico.id)}&dia=${encodeURIComponent(d)}`
+    const r = await fetch(`/api/public/agenda/${encodeURIComponent(token)}/horarios?${qs}`)
+    if (!r.ok) throw new Error('horarios')
+    return await r.json()
   }, [token, barbeiro, servico])
 
   async function confirmar() {
@@ -269,16 +301,14 @@ export default function PaginaDeAgendamento() {
    * exigiria alterar uma rota da Fase 2, e a única alteração autorizada nesta rodada era a de
    * `agendar.ts`. A saída foi devolver os dois ids na validação — eles já são públicos.
    */
-  const carregarHorariosDoAlvo = useCallback(async (d: string) => {
-    setMeuErro(''); setHorarios([]); setHora('')
-    if (!alvo) return
-    try {
-      const qs = `barbeiro=${encodeURIComponent(alvo.barbeiro_id)}`
-        + `&servico=${encodeURIComponent(alvo.servico_id)}&dia=${encodeURIComponent(d)}`
-      const r = await fetch(`/api/public/agenda/${encodeURIComponent(token)}/horarios?${qs}`)
-      if (!r.ok) { setMeuErro('Não foi possível carregar os horários.'); return }
-      setHorarios(await r.json())
-    } catch { setMeuErro('Não foi possível carregar os horários.') }
+  const buscarHorariosDoAlvo = useCallback(async (d: string): Promise<string[]> => {
+    if (!alvo) return []
+    const qs = `barbeiro=${encodeURIComponent(alvo.barbeiro_id)}`
+      + `&servico=${encodeURIComponent(alvo.servico_id)}&dia=${encodeURIComponent(d)}`
+    const r = await fetch(`/api/public/agenda/${encodeURIComponent(token)}/horarios?${qs}`)
+    // Lança por não saber, igual à do agendar — ver o cabeçalho dela.
+    if (!r.ok) throw new Error('horarios')
+    return await r.json()
   }, [token, alvo])
 
   async function confirmarRemarcacao(d: string, h: string) {
@@ -452,13 +482,12 @@ export default function PaginaDeAgendamento() {
                         aria-label={`Remarcar ${a.id}`}
                         onClick={() => {
                           // >>> REMARCAR REUSA O FLUXO DE DIA → HORÁRIO QUE JÁ EXISTE <<<
-                          // O dia e o horário saem de `proximosDias` e `carregarHorarios`, as
-                          // mesmas do caminho de agendar. O barbeiro e o serviço do alvo são
-                          // resolvidos pela ROTA a partir do próprio evento — a tela não os
-                          // conhece, e não deve: devolvê-los aqui daria mais informação do que
-                          // o §2 permite.
+                          // Desde 09/10/2026 o reuso é o COMPONENTE `EscolhaDeDiaEHora`, o
+                          // mesmo do caminho de agendar, com a busca injetada. O barbeiro e o
+                          // serviço do alvo são resolvidos pela ROTA a partir do próprio
+                          // evento — a tela não os conhece, e não deve.
                           setAlvo(a)
-                          setDia(''); setHorarios([]); setHora('')
+                          setDia(''); setHora('')
                           setMeuPasso(4)
                         }}
                       >
@@ -477,39 +506,24 @@ export default function PaginaDeAgendamento() {
                 <p style={{ color: '#98A2B3', fontSize: 14 }}>
                   {alvo.servico} com {alvo.profissional}
                 </p>
-                {!dia && proximosDias(14).map((d) => (
-                  <button
-                    key={d.valor}
-                    style={botao}
-                    onClick={async () => { setDia(d.valor); await carregarHorariosDoAlvo(d.valor) }}
-                  >
-                    {d.rotulo}
-                  </button>
-                ))}
-                {dia && (
-                  <>
-                    <p style={{ color: '#98A2B3', fontSize: 14 }}>
-                      {dia.split('-').reverse().join('/')}
-                    </p>
-                    {horarios.length === 0 && (
-                      <p style={{ color: '#98A2B3' }}>Sem horário livre neste dia.</p>
-                    )}
-                    {horarios.map((h) => (
-                      <button
-                        key={h}
-                        style={botao}
-                        disabled={meuEnviando}
-                        aria-label={`Confirmar ${h}`}
-                        onClick={() => void confirmarRemarcacao(dia, h)}
-                      >
-                        {h}
-                      </button>
-                    ))}
-                    <button style={botao} onClick={() => { setDia(''); setHorarios([]) }}>
-                      Escolher outro dia
-                    </button>
-                  </>
-                )}
+                {/*
+                  >>> O MESMO COMPONENTE DO AGENDAR, COM A BUSCA DO ALVO INJETADA <<<
+
+                  Antes de 09/10/2026 este bloco tinha a SEGUNDA lista de dias da página (14 em
+                  vez de 30) e a TERCEIRA forma de mostrar horário (botões de largura cheia, um
+                  por linha). As duas saíram. O portão tem caso afirmando que o remarcar usa
+                  este componente — sem ele a terceira forma volta na próxima mudança.
+
+                  `buscarHorariosDoAlvo` lê os ids do AGENDAMENTO ALVO, que a rota de validação
+                  devolve, e chama o MESMO endpoint `/horarios` — cuja assinatura esta rodada
+                  não toca.
+                */}
+                <EscolhaDeDiaEHora
+                  horizonteDias={horizonteDias}
+                  buscarHorarios={buscarHorariosDoAlvo}
+                  ocupado={meuEnviando}
+                  onEscolher={(d, h) => void confirmarRemarcacao(d, h)}
+                />
               </>
             )}
 
@@ -577,32 +591,27 @@ export default function PaginaDeAgendamento() {
               </>
             )}
 
+            {/*
+              >>> DIA E HORÁRIO NUM PASSO SÓ, PELO COMPONENTE ÚNICO <<<
+
+              Eram DOIS passos — 30 botões de dia num, chips de horário noutro. A faixa
+              horizontal mostra os dois ao mesmo tempo, que é o padrão de mercado e o que o
+              comando de 09/10/2026 pediu. O passo 4 deixou de existir: a escolha do chip vai
+              direto para os dados do cliente.
+
+              O MESMO componente serve o remarcar, mais abaixo. As TRÊS formas de mostrar
+              horário que esta página tinha viraram UMA — a razão é a que tirou o botão de
+              replicar da grade: duas formas da mesma coisa divergem com o tempo.
+            */}
             {passo === 3 && (
               <>
-                <h2 style={{ fontSize: 17 }}>Escolha o dia</h2>
-                {proximosDias(30).map((d) => (
-                  <button key={d.valor} style={botao} onClick={async () => {
-                    setDia(d.valor); setPasso(4); await carregarHorarios(d.valor)
-                  }}>{d.rotulo}</button>
-                ))}
+                <EscolhaDeDiaEHora
+                  horizonteDias={horizonteDias}
+                  buscarHorarios={buscarHorariosDoAgendar}
+                  horaSelecionada={hora}
+                  onEscolher={(d, h) => { setDia(d); setHora(h); setPasso(5) }}
+                />
                 <button style={{ ...botao, textAlign: 'center' }} onClick={() => setPasso(2)}>Voltar</button>
-              </>
-            )}
-
-            {passo === 4 && (
-              <>
-                <h2 style={{ fontSize: 17 }}>Escolha o horário</h2>
-                {horarios.length === 0
-                  ? <p style={{ color: '#98A2B3' }}>Sem horário livre neste dia. Escolha outro.</p>
-                  : (
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
-                      {horarios.map((h) => (
-                        <button key={h} style={{ ...botao, width: 'auto', marginBottom: 0, textAlign: 'center', minWidth: 86 }}
-                          onClick={() => { setHora(h); setPasso(5) }}>{h}</button>
-                      ))}
-                    </div>
-                  )}
-                <button style={{ ...botao, textAlign: 'center' }} onClick={() => setPasso(3)}>Voltar</button>
               </>
             )}
 
@@ -622,7 +631,8 @@ export default function PaginaDeAgendamento() {
                   disabled={enviando || nome.trim().length < 2 || telefone.length < 10}
                   onClick={confirmar}
                 >{enviando ? 'Confirmando…' : 'Confirmar agendamento'}</button>
-                <button style={{ ...botao, textAlign: 'center' }} onClick={() => setPasso(4)}>Voltar</button>
+                {/* Volta para o 3: o passo 4 deixou de existir quando dia e horário se juntaram. */}
+                <button style={{ ...botao, textAlign: 'center' }} onClick={() => setPasso(3)}>Voltar</button>
               </>
             )}
           </>
