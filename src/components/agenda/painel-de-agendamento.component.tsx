@@ -596,11 +596,44 @@ export function PainelDeAgendamento(props: PainelDeAgendamentoProps) {
     void gravar('substituir')
   }
 
+  /**
+   * A linha de variáveis, UMA vez, reaproveitada nas TRÊS caixas.
+   *
+   * >>> É UM NÓ JSX NUM `const`, E ISSO É DELIBERADO <<<
+   *
+   * Escrever a frase três vezes na tela faria a quarta variável entrar em duas e ficar de fora
+   * da terceira — `copia-divergente.md`, e o sintoma seria a tela oferecendo listas diferentes
+   * em caixas vizinhas. Com um nó só, acrescentar variável vale para as três.
+   *
+   * A lista vem de `VARIAVEIS_DAS_MENSAGENS`, que é a MESMA constante que
+   * `mensagens-agendamento-padrao.ts` exporta e que o portão daquele arquivo já afirma.
+   *
+   * >>> ATENÇÃO AO `{codigo}`: ELE É OFERECIDO E NÃO É INTERPOLADO EM NENHUMA DAS TRÊS <<<
+   *
+   * Medido em 09/10/2026 nas rotas públicas. Nenhuma das três passa `codigo` em `vars`:
+   *
+   *   · `agendar.ts:189`   → cliente, servico, data, hora, empresa, profissional
+   *   · `cancelar.ts:148`  → cliente, servico, profissional, data, hora, empresa
+   *   · `remarcar.ts:159`  → cliente, servico, profissional, data, hora, empresa
+   *
+   * Só `codigo-solicitar.ts:198` o interpola, e essa mensagem NÃO é editável pela tenant.
+   *
+   * O comando desta rodada supôs o contrário ("a Fase 2B entregou cancelar e remarcar, então
+   * ele voltou a ter função") e mandou conferir e relatar. A conferência diz que ele NÃO está
+   * ligado, e a decisão de tirá-lo da lista — ou de ligá-lo nas rotas — é do dono do produto:
+   * as duas são mudança de comportamento, e esta rodada é de rótulo. Fica relatado.
+   */
+  const linhaDeVariaveis = (
+    <div style={{ color: '#98A2B3', fontSize: 12, marginBottom: 6 }}>
+      Variáveis disponíveis: {VARIAVEIS_DAS_MENSAGENS.join(' ')}
+    </div>
+  )
+
   const linkOrigem = baseUrl ?? (typeof window !== 'undefined' ? window.location.origin : '')
   const link = cfg ? montarLinkPublico(linkOrigem, cfg.public_token) : null
 
   return (
-    <Drawer title="Agendamento pelo link" placement="right" width={760} open={open} onClose={onClose} destroyOnClose>
+    <Drawer title="Criar link de agendamento" placement="right" width={760} open={open} onClose={onClose} destroyOnClose>
       {msgCtx}
 
       {/* ══ 1. GRADE DE ATENDIMENTO — TODOS os funcionários, ao mesmo tempo (§2) ══════════ */}
@@ -1007,11 +1040,18 @@ export function PainelDeAgendamento(props: PainelDeAgendamentoProps) {
         ) : (
           <Form layout="vertical">
             <Space wrap size={16}>
+              {/* >>> O RÓTULO MUDOU EM 09/10/2026; A COLUNA CONTINUA `grid_minutes` <<<
+                  Era "Passo da lista (min)". "Passo" é jargão de quem escreveu o cálculo, não
+                  de quem usa a tela — o dono do salão pensa em distância entre um horário e o
+                  seguinte. O tooltip foi reescrito para casar com o rótulo novo: ele dizia
+                  "O intervalo entre os horários oferecidos" e agora fala de "distância", a
+                  mesma palavra do rótulo. Um tooltip com o vocabulário antigo ao lado de um
+                  rótulo novo ensina que são duas coisas. */}
               <Form.Item
-                label="Passo da lista (min)"
-                tooltip="O intervalo entre os horários oferecidos (09:00, 09:30…). NÃO é a duração do atendimento — essa vem do serviço."
+                label="Distância entre horários (min)"
+                tooltip="A distância entre um horário oferecido e o seguinte (09:00, 09:30…). NÃO é a duração do atendimento — essa vem do serviço."
               >
-                <InputNumber aria-label="Passo da lista" min={LIMITES.grid_minutes.min} max={LIMITES.grid_minutes.max ?? undefined}
+                <InputNumber aria-label="Distância entre horários" min={LIMITES.grid_minutes.min} max={LIMITES.grid_minutes.max ?? undefined}
                   value={cfg.grid_minutes} onChange={(v) => void acoes.onSalvarConfiguracao({ grid_minutes: Number(v) })} />
               </Form.Item>
               <Form.Item label="Antecedência mínima (min)">
@@ -1029,7 +1069,21 @@ export function PainelDeAgendamento(props: PainelDeAgendamentoProps) {
                 apagaria a diferença entre "nunca mexeu" e "escolheu exatamente este texto"
                 (`ausente-vs-falso.md`). Nada é gravado por abrir o painel — ao sair do campo vai
                 o que estiver na tela, que é o padrão quando o usuário não mexeu. */}
+            {/* ══ A LINHA DE VARIÁVEIS SUBIU PARA DENTRO DE CADA CAIXA, EM 09/10/2026 ══
+                >>> ELA ERA UMA, EMBAIXO DAS TRÊS, E A ÚNICA SUMIU <<<
+                Quem está editando a terceira mensagem tinha de rolar até o fim para ver quais
+                variáveis existem — e quem edita a primeira não via a linha nenhuma antes de
+                digitar. Agora cada caixa traz a sua, logo abaixo do rótulo e ACIMA do campo:
+                a informação chega antes de ser necessária, não depois.
+
+                >>> E O TEXTO VEM DE UMA FUNÇÃO SÓ, NÃO DE TRÊS LITERAIS <<<
+                Três cópias da frase divergiriam na primeira variável acrescentada — uma delas
+                ficaria para trás e a tela ofereceria listas diferentes em caixas vizinhas
+                (`copia-divergente.md`, cujo remédio é apagar as cópias, não conferi-las). O
+                portão compara as três strings entre si para que a divergência não possa passar
+                calada. */}
             <Form.Item label="Mensagem de confirmação">
+              {linhaDeVariaveis}
               <Input.TextArea
                 aria-label="Mensagem de confirmação"
                 rows={8}
@@ -1038,6 +1092,7 @@ export function PainelDeAgendamento(props: PainelDeAgendamentoProps) {
               />
             </Form.Item>
             <Form.Item label="Mensagem de cancelamento">
+              {linhaDeVariaveis}
               <Input.TextArea
                 aria-label="Mensagem de cancelamento"
                 rows={7}
@@ -1046,6 +1101,7 @@ export function PainelDeAgendamento(props: PainelDeAgendamentoProps) {
               />
             </Form.Item>
             <Form.Item label="Mensagem de alteração">
+              {linhaDeVariaveis}
               <Input.TextArea
                 aria-label="Mensagem de alteração"
                 rows={7}
@@ -1053,10 +1109,6 @@ export function PainelDeAgendamento(props: PainelDeAgendamentoProps) {
                 onBlur={(e) => void acoes.onSalvarConfiguracao({ msg_alteracao: e.target.value })}
               />
             </Form.Item>
-
-            <div style={{ color: '#98A2B3', fontSize: 12 }}>
-              Variáveis disponíveis: {VARIAVEIS_DAS_MENSAGENS.join(' ')}
-            </div>
           </Form>
         )}
       </section>
@@ -1078,7 +1130,7 @@ export function PainelDeAgendamento(props: PainelDeAgendamentoProps) {
           <Space direction="vertical" style={{ width: '100%' }} size={12}>
             <Space>
               <Switch checked={cfg.is_enabled} onChange={(v) => void acoes.onAlternarAtivo(v)}
-                aria-label="Agendamento pelo link ativo" />
+                aria-label="Criar link de agendamento ativo" />
               {/* O `aria-label` existe para o portão poder ler o selo EXATO. Afirmar
                   `textoDaTela().not.toContain('LIGADO')` seria um caso que não discrimina:
                   'DESLIGADO' CONTÉM 'LIGADO' como substring, e a asserção passaria nos dois

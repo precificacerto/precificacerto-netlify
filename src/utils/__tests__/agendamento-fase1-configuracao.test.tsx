@@ -51,6 +51,9 @@ import {
   validarFaixa,
 } from '@/utils/agendamento-config'
 import { BYTES_DO_TOKEN, gerarTokenDeAgendamento } from '@/utils/agendamento-token'
+// A lista de variáveis que a tela exibe nas três caixas vem desta constante, e o caso que
+// compara as três strings a lê daqui — não de um literal repetido no teste.
+import { VARIAVEIS_DAS_MENSAGENS } from '@/utils/mensagens-agendamento-padrao'
 import {
   aplicarGradeEmDestinos,
   type FaixaPersistida,
@@ -2578,5 +2581,254 @@ describe('o MODAL da ausência — o profissional vem da célula', () => {
       expect(textoDaTela()).not.toContain('Ausência registrada.')
       expect(document.body.querySelector('.ant-modal')).toBeTruthy()
     })
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+// RÓTULOS E LAYOUT — comando do PO de 09/10/2026. Nada de lógica.
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+describe('os rótulos novos, e a AUSÊNCIA dos antigos', () => {
+  it('"Criar link de agendamento" está na tela, e "Agendamento pelo link" NÃO', () => {
+    // >>> A AUSÊNCIA É ASSERÇÃO PRÓPRIA <<<
+    // Trocar o título do Drawer e esquecer o botão da Agenda deixaria os dois textos na
+    // interface, cada um chamando a mesma coisa por um nome. Afirmar só o novo não distinguiria.
+    renderCinco()
+    expect(textoDaTela()).toContain('Criar link de agendamento')
+    expect(textoDaTela()).not.toContain('Agendamento pelo link')
+  })
+
+  it('o `aria-label` do switch acompanhou — ele repetia o texto antigo', () => {
+    renderCinco()
+    expect(document.body.querySelector('[aria-label="Criar link de agendamento ativo"]')).toBeTruthy()
+    expect(document.body.querySelector('[aria-label="Agendamento pelo link ativo"]')).toBeNull()
+  })
+
+  it('"Distância entre horários" está na tela, e "Passo da lista" NÃO', () => {
+    renderCinco()
+    expect(textoDaTela()).toContain('Distância entre horários (min)')
+    expect(textoDaTela()).not.toContain('Passo da lista')
+    expect(document.body.querySelector('[aria-label="Distância entre horários"]')).toBeTruthy()
+    expect(document.body.querySelector('[aria-label="Passo da lista"]')).toBeNull()
+  })
+
+  it('o TOOLTIP acompanhou o rótulo — ele falava de "intervalo", agora fala de "distância"', () => {
+    // Um tooltip com o vocabulário antigo ao lado de um rótulo novo ensina que são duas coisas.
+    // O tooltip do antd vive no `title` do ícone e só entra no DOM no hover, então a asserção
+    // lê o ARQUIVO — é propriedade estrutural, e o efeito (o texto) é o próprio alvo.
+    const fonte = require('fs').readFileSync(
+      require('path').resolve(__dirname, '../../components/agenda/painel-de-agendamento.component.tsx'),
+      'utf8',
+    ) as string
+    const programa = fonte.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
+    expect(programa).toContain('tooltip="A distância entre um horário oferecido e o seguinte')
+    expect(programa).not.toContain('tooltip="O intervalo entre os horários oferecidos')
+    // e a parte que NÃO muda: o tooltip continua negando que seja duração do atendimento
+    expect(programa).toContain('NÃO é a duração do atendimento')
+  })
+
+  it('a COLUNA do banco continua `grid_minutes` — o rótulo mudou, o dado não', () => {
+    // O rótulo é do usuário; a coluna é do schema. Renomear a coluna por causa de rótulo seria
+    // migração, e esta rodada não tem nenhuma.
+    const fonte = require('fs').readFileSync(
+      require('path').resolve(__dirname, '../../components/agenda/painel-de-agendamento.component.tsx'),
+      'utf8',
+    ) as string
+    expect(fonte).toContain('grid_minutes: Number(v)')
+    expect(fonte).toContain('LIMITES.grid_minutes.min')
+  })
+
+  it('o CÓDIGO não foi renomeado — componente, prop e estado seguem com o nome antigo', () => {
+    // >>> O LIMITE DO COMANDO, AFIRMADO <<<
+    // *"NAO renomeie arquivo, componente, variavel, prop, rota nem tabela. So o que o usuario
+    // le."* Renomear código por causa de rótulo espalha o diff e não entrega nada ao usuário.
+    const fs = require('fs')
+    const path = require('path')
+    const raiz = path.resolve(__dirname, '../..')
+    // o arquivo e o componente
+    expect(fs.existsSync(path.join(raiz, 'components/agenda/painel-de-agendamento.component.tsx'))).toBe(true)
+    expect(typeof PainelDeAgendamento).toBe('function')
+    // o estado na Agenda
+    const agenda = fs.readFileSync(path.join(raiz, 'pages/agenda/index.tsx'), 'utf8') as string
+    expect(agenda).toContain('setBookingPanelOpen')
+  })
+})
+
+describe('a linha de variáveis — TRÊS vezes, e ANTES de cada textarea', () => {
+  const LINHA = 'Variáveis disponíveis:'
+
+  /** As linhas de variáveis, na ordem do DOM. */
+  function linhasDeVariaveis(): Element[] {
+    return Array.from(document.body.querySelectorAll('div'))
+      .filter((d) => (d.textContent || '').startsWith(LINHA)
+        && !(d.querySelector('div')?.textContent || '').startsWith(LINHA))
+  }
+
+  it('aparece TRÊS vezes, uma por caixa', () => {
+    renderCinco()
+    expect(linhasDeVariaveis()).toHaveLength(3)
+  })
+
+  it('a linha ÚNICA que havia embaixo das três SUMIU — não ficaram as duas', () => {
+    // >>> SEM ESTE CASO, "aparece três vezes" FICARIA VERDE COM QUATRO NA TELA <<<
+    // A antiga ficava DEPOIS do terceiro textarea. Se ela tivesse sobrado, haveria quatro
+    // linhas, e a última não pertenceria a caixa nenhuma.
+    renderCinco()
+    const todos = Array.from(document.body.querySelectorAll('*'))
+    const iUltimoTextarea = todos.map((el, i) => ({ el, i }))
+      .filter(({ el }) => el.matches('[aria-label="Mensagem de alteração"]'))
+      .map(({ i }) => i)
+      .pop()
+    expect(iUltimoTextarea).toBeGreaterThan(0)
+    // nenhuma linha de variáveis existe DEPOIS do último textarea
+    const depois = todos.slice(iUltimoTextarea! + 1)
+      .filter((el) => (el.textContent || '').startsWith(LINHA))
+    expect(depois).toHaveLength(0)
+  })
+
+  it('>>> EM CADA UMA DAS TRÊS, A LINHA VEM ANTES DO TEXTAREA — DENTRO DA PRÓPRIA CAIXA <<<', () => {
+    // >>> É O CASO QUE A MUTAÇÃO M22 MATA, E A PRIMEIRA VERSÃO DELE NÃO MATAVA <<<
+    //
+    // Ela afirmava "existe ALGUMA linha de variáveis antes deste textarea", varrendo o
+    // documento inteiro. Com a linha da segunda caixa movida para DEPOIS do campo, a linha da
+    // PRIMEIRA caixa ainda satisfazia a condição — e a mutação ficou verde, 181 passed.
+    //
+    // É `teste-que-nao-exercita.md` na forma mais pura: o caso nomeava a ordem, chamava o DOM,
+    // e o que ele podia distinguir não era a ordem dentro da caixa. A correção é escopar a
+    // busca ao `Form.Item` daquela caixa — aí a linha da vizinha deixa de contar.
+    renderCinco()
+
+    for (const rotulo of ['Mensagem de confirmação', 'Mensagem de cancelamento', 'Mensagem de alteração']) {
+      const textarea = document.body.querySelector(`[aria-label="${rotulo}"]`)
+      expect(textarea).toBeTruthy()
+      const caixa = textarea!.closest('.ant-form-item')
+      expect(caixa).toBeTruthy()
+
+      // A ordem é medida pelos nós DENTRO desta caixa, e só deles.
+      const dentro = Array.from(caixa!.querySelectorAll('*'))
+      const iLinha = dentro.findIndex((el) => (el.textContent || '').trim().startsWith(LINHA)
+        && !el.querySelector('div'))
+      const iTextarea = dentro.indexOf(textarea!)
+
+      expect(iLinha).toBeGreaterThan(-1)   // a caixa TEM a sua linha
+      expect(iTextarea).toBeGreaterThan(-1)
+      expect(iLinha).toBeLessThan(iTextarea)
+    }
+  })
+
+  it('a LISTA é a mesma nas três — as três strings comparadas entre si', () => {
+    // >>> TRÊS LITERAIS NA TELA DEIXARIAM UMA PARA TRÁS NA PRÓXIMA MUDANÇA <<<
+    // `copia-divergente.md`: o remédio é apagar as cópias, não conferi-las. Aqui há um nó só,
+    // e este caso é o que impede a volta das três — ele fica vermelho no instante em que uma
+    // delas divergir.
+    renderCinco()
+    const textos = linhasDeVariaveis().map((d) => (d.textContent || '').trim())
+    expect(textos).toHaveLength(3)
+    expect(new Set(textos).size).toBe(1)
+    // e a lista é a da CONSTANTE, não uma cópia escrita à mão
+    expect(textos[0]).toBe(`Variáveis disponíveis: ${VARIAVEIS_DAS_MENSAGENS.join(' ')}`)
+  })
+
+  it('cada linha fica DENTRO do `Form.Item` da sua caixa, não solta entre elas', () => {
+    // Afirmar "vem antes do textarea" não distingue "dentro da caixa" de "solta acima dela".
+    // O `Form.Item` do antd é o contêiner, e o rótulo dele é o `label`.
+    renderCinco()
+    for (const l of linhasDeVariaveis()) {
+      const item = l.closest('.ant-form-item')
+      expect(item).toBeTruthy()
+      // e o mesmo `Form.Item` contém um textarea
+      expect(item!.querySelector('textarea')).toBeTruthy()
+    }
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+// >>> `{codigo}` É OFERECIDO NA TELA E NÃO É INTERPOLADO EM NENHUMA DAS TRÊS <<<
+//
+// O comando desta rodada supôs o contrário: *"a Fase 2B entregou cancelar e remarcar, entao ele
+// voltou a ter funcao"* — e mandou conferir no código da rota pública e relatar.
+//
+// A conferência diz que NÃO. Este bloco é a medição, versionada: ela é o que impede alguém de
+// "corrigir" a lista da tela achando que o envio já suporta a variável.
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+describe('a MEDIÇÃO do `{codigo}` nas três mensagens — relatada, não corrigida', () => {
+  const fs = require('fs')
+  const path = require('path')
+  const base = path.resolve(__dirname, '../../pages/api/public/agenda/[token]')
+
+  /** As chaves do objeto `vars` que a rota passa ao envio, sem comentários. */
+  function chavesDeVars(arquivo: string): string[] {
+    const bruto = fs.readFileSync(path.join(base, arquivo), 'utf8') as string
+    const prog = bruto.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
+    const chaves = new Set<string>()
+    const re = /(?:vars:\s*|const vars\s*=\s*)\{([^{}]*)\}/g
+    let m: RegExpExecArray | null
+    // eslint-disable-next-line no-cond-assign
+    while ((m = re.exec(prog)) !== null) {
+      for (const parte of m[1].split(',')) {
+        const t = parte.trim()
+        const comDoisPontos = /^(\w+)\s*:/.exec(t)
+        if (comDoisPontos) { chaves.add(comDoisPontos[1]); continue }
+        // >>> A FORMA ABREVIADA (`{ codigo, empresa }`) CONTA <<<
+        // A primeira versão deste extrator só olhava `chave:` e reportou `codigo-solicitar`
+        // como "não interpola" — ele usa a forma abreviada. Falso NEGATIVO, e ele teria
+        // escondido exatamente o caso em que a variável funciona.
+        const abreviada = /^(\w+)$/.exec(t)
+        if (abreviada) chaves.add(abreviada[1])
+      }
+    }
+    return [...chaves].sort()
+  }
+
+  it('a CONFIRMAÇÃO não interpola `codigo`', () => {
+    expect(chavesDeVars('agendar.ts')).not.toContain('codigo')
+  })
+
+  it('o CANCELAMENTO não interpola `codigo`', () => {
+    expect(chavesDeVars('cancelar.ts')).not.toContain('codigo')
+  })
+
+  it('a ALTERAÇÃO não interpola `codigo`', () => {
+    expect(chavesDeVars('remarcar.ts')).not.toContain('codigo')
+  })
+
+  it('mas a mensagem do PRÓPRIO código interpola — o espelho, que prova o extrator', () => {
+    // >>> SEM ESTE CASO, OS TRÊS ACIMA FICARIAM VERDES COM UM EXTRATOR QUEBRADO <<<
+    // Um extrator que não achasse nada diria "não interpola" para as quatro rotas, e os três
+    // casos passariam sem medir coisa alguma (`teste-que-nao-exercita.md`).
+    expect(chavesDeVars('codigo-solicitar.ts')).toContain('codigo')
+  })
+
+  it('e a tela OFERECE `{codigo}` — é esta a divergência que fica relatada', () => {
+    // A lista da tela vem de `VARIAVEIS_DAS_MENSAGENS`, que contém `{codigo}`. Com as três
+    // rotas não o interpolando, quem digitar `{codigo}` na mensagem recebe o literal
+    // `{codigo}` no WhatsApp do cliente.
+    //
+    // A decisão — tirar da lista ou ligar nas rotas — é do dono do produto: as duas são
+    // mudança de comportamento, e esta rodada é de rótulo. Este caso NÃO afirma que está
+    // certo; afirma qual é o estado, para que a próxima pessoa não precise medir de novo.
+    expect(VARIAVEIS_DAS_MENSAGENS).toContain('{codigo}')
+    for (const r of ['agendar.ts', 'cancelar.ts', 'remarcar.ts']) {
+      expect(chavesDeVars(r)).not.toContain('codigo')
+    }
+  })
+
+  it('e `{cliente}` chega VAZIO no cancelamento e na alteração — segundo achado', () => {
+    // >>> ISTO NÃO ESTAVA NO COMANDO, E APARECEU NA MESMA MEDIÇÃO <<<
+    // As duas rotas passam `cliente: ''`. A constante de cancelamento começa com
+    // `Olá {cliente}, seu agendamento foi cancelado.` — então o cliente recebe
+    // `Olá , seu agendamento foi cancelado.`, com a vírgula solta.
+    //
+    // A confirmação passa o nome de verdade (`cliente: nome`), então o defeito é só das duas.
+    // Também é mudança de comportamento, também fica relatado, também não corrigido aqui.
+    for (const r of ['cancelar.ts', 'remarcar.ts']) {
+      const prog = (fs.readFileSync(path.join(base, r), 'utf8') as string)
+        .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
+      expect(prog).toMatch(/cliente:\s*''/)
+    }
+    // e a de confirmação NÃO — o espelho
+    const conf = (fs.readFileSync(path.join(base, 'agendar.ts'), 'utf8') as string)
+      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
+    expect(conf).not.toMatch(/cliente:\s*''/)
+    expect(conf).toContain('cliente: nome')
   })
 })
