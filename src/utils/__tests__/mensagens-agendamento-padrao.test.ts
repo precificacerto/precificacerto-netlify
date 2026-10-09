@@ -20,6 +20,7 @@ import {
   MENSAGEM_CANCELAMENTO_PADRAO,
   MENSAGEM_CONFIRMACAO_PADRAO,
   VARIAVEIS_DAS_MENSAGENS,
+  aplicarVariaveis,
 } from '@/utils/mensagens-agendamento-padrao'
 
 const RODAPE = 'Necessitando alteração/cancelamento acesse pelo mesmo link. '
@@ -60,8 +61,8 @@ describe('o rodapé da CONFIRMAÇÃO', () => {
     expect(MENSAGEM_ALTERACAO_PADRAO).not.toContain(RODAPE)
   })
 
-  it('`{codigo}` continua na lista de VARIÁVEIS, e em nenhuma das três mensagens', () => {
-    // >>> ESTE CASO MUDOU DUAS VEZES, E AS DUAS ESTÃO REGISTRADAS <<<
+  it('`{codigo}` NÃO está na lista de VARIÁVEIS, nem em nenhuma das três mensagens', () => {
+    // >>> ESTE CASO MUDOU TRÊS VEZES, E AS TRÊS ESTÃO REGISTRADAS <<<
     //
     // Primeira versão (08/10, manhã): afirmava `{codigo}` "nas outras DUAS mensagens". Ficou
     // vermelha — eu a escrevi a partir do COMENTÁRIO do arquivo, que estava errado: a de
@@ -72,9 +73,14 @@ describe('o rodapé da CONFIRMAÇÃO', () => {
     // virou um segredo de acesso de 10 minutos e de uso único — e já queimado quando a
     // mensagem sai. Agora NENHUMA das três o cita.
     //
-    // A variável FICA na lista: a decisão foi sobre as mensagens padrão, e a tenant que
-    // escrever a própria pode querer usá-la.
-    expect(VARIAVEIS_DAS_MENSAGENS).toContain('{codigo}')
+    // Terceira (09/10): a variável SAIU DA LISTA. A asserção anterior era
+    // `expect(VARIAVEIS_DAS_MENSAGENS).toContain('{codigo}')`, com esta justificativa: *"A
+    // variável FICA na lista: a decisão foi sobre as mensagens padrão, e a tenant que escrever
+    // a própria pode querer usá-la."* Ela caiu porque a medição das três rotas mostrou que
+    // NENHUMA interpola `codigo` — a tenant que a usasse receberia o literal `{codigo}` no
+    // WhatsApp do cliente. A asserção está INVERTIDA, não apagada: a antiga fica aqui para que
+    // quem a reintroduzir saiba que ela já existiu e por que caiu.
+    expect(VARIAVEIS_DAS_MENSAGENS).not.toContain('{codigo}')
     expect(MENSAGEM_ALTERACAO_PADRAO).not.toContain('{codigo}')
     expect(MENSAGEM_CANCELAMENTO_PADRAO).not.toContain('{codigo}')
     expect(MENSAGEM_CONFIRMACAO_PADRAO).not.toContain('{codigo}')
@@ -170,10 +176,32 @@ describe('Fase 2B — o `{codigo}` fora da mensagem de ALTERAÇÃO', () => {
     expect(MENSAGEM_ALTERACAO_PADRAO).toContain('Novo horário')
   })
 
-  it('`{codigo}` CONTINUA na lista de variáveis — a decisão foi sobre a mensagem', () => {
-    // Tirá-lo de `VARIAVEIS_DAS_MENSAGENS` apagaria a variável do sistema, e a tenant que
-    // escrever a própria mensagem pode querer usá-lo.
-    expect(VARIAVEIS_DAS_MENSAGENS).toContain('{codigo}')
+  it('`{codigo}` SAIU da lista de variáveis — a tela não oferece o que o envio ignora', () => {
+    // >>> ASSERÇÃO INVERTIDA EM 09/10/2026 <<<
+    // Ela era `expect(VARIAVEIS_DAS_MENSAGENS).toContain('{codigo}')`, com a razão: *"tirá-lo
+    // apagaria a variável do sistema, e a tenant que escrever a própria mensagem pode querer
+    // usá-lo."* O raciocínio tratava a lista como catálogo do que o sistema conhece; ela é o
+    // que a TELA OFERECE. Medido nas três rotas: nenhuma interpola `codigo`.
+    expect(VARIAVEIS_DAS_MENSAGENS).not.toContain('{codigo}')
+    // e a lista é exatamente estas seis, na ordem — um campo novo não entra sem ninguém olhar
+    expect([...VARIAVEIS_DAS_MENSAGENS]).toEqual([
+      '{cliente}', '{servico}', '{profissional}', '{data}', '{hora}', '{empresa}',
+    ])
+  })
+
+  it('o `{codigo}` segue vivo e interpolado em `codigo-solicitar`, que não foi tocado', () => {
+    // >>> O ESPELHO OBRIGATÓRIO, E ELE É O QUE IMPEDE A LEITURA ERRADA DA REMOÇÃO <<<
+    // Sem este caso, "o {codigo} saiu" ficaria verde num estado em que o código tivesse sido
+    // removido do sistema inteiro — e aí ninguém receberia código nenhum. A remoção é da LISTA
+    // DA TELA; o envio do código continua existindo, com a variável interpolada.
+    const fs = require('fs')
+    const path = require('path')
+    const rota = fs.readFileSync(
+      path.resolve(__dirname, '../../pages/api/public/agenda/[token]/codigo-solicitar.ts'), 'utf8',
+    ) as string
+    const prog = rota.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
+    expect(prog).toContain('{codigo}')
+    expect(prog).toContain('vars: { codigo, empresa: ctx.empresa }')
   })
 
   it('agora NENHUMA das três constantes cita `{codigo}`', () => {
@@ -197,5 +225,151 @@ describe('Fase 2B — o `{codigo}` fora da mensagem de ALTERAÇÃO', () => {
       expect(fs.existsSync(path.join(raiz, 'pages/api/public/agenda/[token]', `${r}.ts`))).toBe(true)
     }
     expect(MENSAGEM_CONFIRMACAO_PADRAO).toContain('acesse pelo mesmo link')
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+// A SALVAGUARDA — `aplicarVariaveis`: o placeholder sem valor SOME, com o espaço que sobraria
+//
+// >>> É A MUTAÇÃO M23, E O CASO DELA É O PRIMEIRO DESTE BLOCO <<<
+//
+// Tirar `{codigo}` da lista impede a tenant de ESCOLHER a variável daqui para frente; não apaga
+// o texto que ela já salvou. As três colunas são texto livre. Sem esta limpeza, o cliente
+// receberia `use o código {codigo}` com as chaves — e isso parece defeito do salão.
+//
+// Cada caso abaixo mede EFEITO: o texto que sai. Nenhum deles afirma que a função foi chamada.
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+describe('`aplicarVariaveis` — o que não tem valor desaparece, e o resto fica intacto', () => {
+  it('>>> {codigo} e {inexistente} NÃO aparecem, o resto fica, e não há espaço duplo <<<', () => {
+    // >>> O CASO DA MUTAÇÃO M23 — desligar a limpeza tem de deixar ESTE vermelho <<<
+    // É o caso que o comando pediu, literal: *"texto com {codigo} e {inexistente} -> nenhum dos
+    // dois aparece no resultado, e o resto do texto fica intacto, sem espaco duplo."*
+    const texto = 'Olá {cliente}, use o {codigo} e o {inexistente} para alterar. {empresa}'
+    const r = aplicarVariaveis(texto, { cliente: 'Ana', empresa: 'Salão X' })
+
+    // os dois sumiram, chaves e tudo
+    expect(r).not.toContain('{codigo}')
+    expect(r).not.toContain('{inexistente}')
+    expect(r).not.toContain('codigo')
+    expect(r).not.toContain('inexistente')
+    expect(r).not.toContain('{')
+    expect(r).not.toContain('}')
+    // o resto ficou — e as duas variáveis COM valor foram interpoladas
+    expect(r).toContain('Olá Ana,')
+    expect(r).toContain('Salão X')
+    expect(r).toContain('para alterar')
+    // e NENHUM espaço duplo em lugar nenhum
+    expect(r).not.toMatch(/ {2}/)
+    // o texto exato, para que a asserção não seja só "não contém"
+    expect(r).toBe('Olá Ana, use o e o para alterar. Salão X')
+  })
+
+  it('a VÍRGULA SOLTA não acontece: `Olá {cliente},` com nome vazio vira `Olá,`', () => {
+    // >>> O DEFEITO MEDIDO EM PRODUÇÃO, E A FORMA EXATA DA CORREÇÃO <<<
+    // `cancelar.ts` passava `cliente: ''`, e o texto padrão saía `Olá , seu agendamento foi
+    // cancelado.` — com a vírgula solta. Esta é a asserção que o comando pediu: *"Confirme que
+    // fica assim, sem virgula solta."*
+    const r = aplicarVariaveis(MENSAGEM_CANCELAMENTO_PADRAO, {
+      cliente: '', servico: 'Corte', profissional: 'João',
+      data: '09/10/2026', hora: '14:30', empresa: 'Salão X',
+    })
+    expect(r.startsWith('Olá, seu agendamento foi cancelado.')).toBe(true)
+    expect(r).not.toContain('Olá ,')
+    expect(r).not.toContain('{cliente}')
+    expect(r).not.toMatch(/ {2}/)
+    // e o resto da mensagem continua inteiro
+    expect(r).toContain('Corte com João')
+    expect(r).toContain('09/10/2026 às 14:30')
+    expect(r).toContain('Salão X')
+  })
+
+  it('e o PAR: com nome, o nome aparece — sem ele a asserção acima não mediria nada', () => {
+    // Sem este caso, "não tem vírgula solta" ficaria verde numa função que apagasse o
+    // `{cliente}` sempre. `teste-que-nao-exercita.md`: o caso precisa DISTINGUIR os dois
+    // estados, e é por isso que os dois valores do par são diferentes.
+    const r = aplicarVariaveis(MENSAGEM_CANCELAMENTO_PADRAO, {
+      cliente: 'Ana Maria', servico: 'Corte', profissional: 'João',
+      data: '09/10/2026', hora: '14:30', empresa: 'Salão X',
+    })
+    expect(r.startsWith('Olá Ana Maria, seu agendamento foi cancelado.')).toBe(true)
+  })
+
+  it('`null`, `undefined`, `\'\'` e `\'   \'` são todos SEM VALOR — e `0` NÃO é', () => {
+    // A distinção de `ausente-vs-falso.md` na assinatura: branco não afirma nada. Já `'0'` é
+    // um valor que alguém escreveu, e apagá-lo seria apagar dado.
+    const semValor = [null, undefined, '', '   ', '\t']
+    for (const v of semValor) {
+      expect(aplicarVariaveis('a {x} b', { x: v as any })).toBe('a b')
+    }
+    expect(aplicarVariaveis('a {x} b', { x: '0' })).toBe('a 0 b')
+    expect(aplicarVariaveis('a {x} b', { x: 'Z' })).toBe('a Z b')
+  })
+
+  it('o ESPAÇO é tratado nos quatro arranjos, e nenhum deles deixa sobra', () => {
+    // A tabela do cabeçalho da função, uma asserção por linha.
+    expect(aplicarVariaveis('Olá {cliente}, seu', {})).toBe('Olá, seu')      // antes, pontuação
+    expect(aplicarVariaveis('use o {codigo} agora', {})).toBe('use o agora') // dos dois lados
+    expect(aplicarVariaveis('{servico} com', {})).toBe('com')                // nada antes
+    expect(aplicarVariaveis('com {profissional}', {})).toBe('com')           // nada depois
+  })
+
+  it('a QUEBRA DE LINHA nunca é comida — só espaço horizontal', () => {
+    // Comer `\n` juntaria linhas da mensagem, e o `{empresa}` da última apagaria a quebra antes
+    // dela. O caso usa a constante real, que termina em `{empresa}` numa linha própria.
+    expect(aplicarVariaveis('linha 1\n{x}\nlinha 3', {})).toBe('linha 1\n\nlinha 3')
+    const r = aplicarVariaveis(MENSAGEM_ALTERACAO_PADRAO, {
+      cliente: 'Ana', servico: 'Corte', profissional: 'João',
+      data: '09/10/2026', hora: '14:30', empresa: '',
+    })
+    // a empresa sumiu, mas a quebra antes dela ficou — a mensagem não virou um parágrafo só
+    expect(r).toContain('Corte com João\n')
+    expect(r).not.toContain('{empresa}')
+  })
+
+  it('UMA passagem só: valor que contém `{hora}` NÃO é reinterpolado', () => {
+    // O laço sequencial que havia no envio preenchia o `{hora}` que viesse DENTRO de um valor —
+    // e o nome do cliente é dado de fora. Injeção de template, estreita e real.
+    const r = aplicarVariaveis('Olá {cliente}, às {hora}', { cliente: 'Ana {hora}', hora: '14:30' })
+    expect(r).toBe('Olá Ana {hora}, às 14:30')
+  })
+
+  it('TODA variável que a tela oferece é interpolada — a lista e a função não divergem', () => {
+    // `copia-divergente.md`: a tela oferece seis, e nada garantia que a função as reconhecesse.
+    // Com nomes distintos por variável, um `{x}` que sobrasse apareceria na asserção final.
+    const vars: Record<string, string> = {}
+    for (const v of VARIAVEIS_DAS_MENSAGENS) vars[v.slice(1, -1)] = `VALOR_${v.slice(1, -1)}`
+    const texto = VARIAVEIS_DAS_MENSAGENS.join(' · ')
+    const r = aplicarVariaveis(texto, vars)
+    expect(r).toBe(VARIAVEIS_DAS_MENSAGENS.map((v) => `VALOR_${v.slice(1, -1)}`).join(' · '))
+    expect(r).not.toContain('{')
+  })
+
+  it('texto SEM placeholder nenhum volta idêntico', () => {
+    const t = 'Seu agendamento foi cancelado. Até logo!'
+    expect(aplicarVariaveis(t, { cliente: 'Ana' })).toBe(t)
+  })
+
+  it('o ENVIO chama esta função — e é o ÚNICO ponto que interpola', () => {
+    // >>> A EXIGÊNCIA DE "UMA FUNÇÃO SÓ, USADA PELOS TRÊS" <<<
+    // As três rotas não interpolam nada: elas passam `vars` para `enviarMensagemDoAgendamento`,
+    // e é ele que chama `aplicarVariaveis`. Esta asserção é sobre CAMINHO, não efeito, e vale
+    // porque o defeito a evitar é exatamente a existência de um SEGUNDO interpolador — não há
+    // número que mude (`teste-que-nao-exercita.md`, o caso-limite honesto).
+    const fs = require('fs')
+    const path = require('path')
+    const raiz = path.resolve(__dirname, '../..')
+    const semComentarios = (f: string) => fs.readFileSync(f, 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '') as string
+
+    const lib = semComentarios(path.join(raiz, 'lib/agendamento-publico.ts'))
+    expect(lib).toContain('aplicarVariaveis(textoOuPadrao(')
+    // e o laço sequencial que havia lá NÃO voltou
+    expect(lib).not.toContain('.split(`{${k}}`).join(')
+
+    for (const r of ['agendar', 'cancelar', 'remarcar', 'codigo-solicitar']) {
+      const rota = semComentarios(path.join(raiz, 'pages/api/public/agenda/[token]', `${r}.ts`))
+      expect(rota).not.toContain('aplicarVariaveis')
+      expect(rota).not.toContain('.split(`{')
+    }
   })
 })

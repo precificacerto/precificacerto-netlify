@@ -2750,7 +2750,7 @@ describe('a linha de variáveis — TRÊS vezes, e ANTES de cada textarea', () =
 // A conferência diz que NÃO. Este bloco é a medição, versionada: ela é o que impede alguém de
 // "corrigir" a lista da tela achando que o envio já suporta a variável.
 // ═══════════════════════════════════════════════════════════════════════════════════════════
-describe('a MEDIÇÃO do `{codigo}` nas três mensagens — relatada, não corrigida', () => {
+describe('a MEDIÇÃO do `{codigo}` nas três mensagens — relatada em 09/10, e CORRIGIDA no mesmo dia', () => {
   const fs = require('fs')
   const path = require('path')
   const base = path.resolve(__dirname, '../../pages/api/public/agenda/[token]')
@@ -2798,37 +2798,48 @@ describe('a MEDIÇÃO do `{codigo}` nas três mensagens — relatada, não corri
     expect(chavesDeVars('codigo-solicitar.ts')).toContain('codigo')
   })
 
-  it('e a tela OFERECE `{codigo}` — é esta a divergência que fica relatada', () => {
-    // A lista da tela vem de `VARIAVEIS_DAS_MENSAGENS`, que contém `{codigo}`. Com as três
-    // rotas não o interpolando, quem digitar `{codigo}` na mensagem recebe o literal
-    // `{codigo}` no WhatsApp do cliente.
+  it('e a tela NÃO oferece mais `{codigo}` — a divergência foi FECHADA em 09/10', () => {
+    // >>> ASSERÇÃO INVERTIDA, NÃO APAGADA <<<
     //
-    // A decisão — tirar da lista ou ligar nas rotas — é do dono do produto: as duas são
+    // Ela era `expect(VARIAVEIS_DAS_MENSAGENS).toContain('{codigo}')`, e o comentário dizia:
+    // *"A decisão — tirar da lista ou ligar nas rotas — é do dono do produto: as duas são
     // mudança de comportamento, e esta rodada é de rótulo. Este caso NÃO afirma que está
-    // certo; afirma qual é o estado, para que a próxima pessoa não precise medir de novo.
-    expect(VARIAVEIS_DAS_MENSAGENS).toContain('{codigo}')
+    // certo; afirma qual é o estado."*
+    //
+    // O dono do produto decidiu em 09/10/2026: TIRAR DA LISTA. A razão está no comentário de
+    // `VARIAVEIS_DAS_MENSAGENS`. A asserção antiga fica aqui para que quem reintroduzir a
+    // variável saiba que ela já esteve lá e por que saiu.
+    //
+    // >>> E AS TRÊS ROTAS CONTINUAM NÃO INTERPOLANDO — ISSO NÃO MUDOU <<<
+    // A correção foi na tela, não nas rotas: o código é de acesso, não de referência, e nos
+    // três instantes em que essas mensagens saem ele não existe ou já foi queimado.
+    expect(VARIAVEIS_DAS_MENSAGENS).not.toContain('{codigo}')
     for (const r of ['agendar.ts', 'cancelar.ts', 'remarcar.ts']) {
       expect(chavesDeVars(r)).not.toContain('codigo')
     }
   })
 
-  it('e `{cliente}` chega VAZIO no cancelamento e na alteração — segundo achado', () => {
-    // >>> ISTO NÃO ESTAVA NO COMANDO, E APARECEU NA MESMA MEDIÇÃO <<<
-    // As duas rotas passam `cliente: ''`. A constante de cancelamento começa com
-    // `Olá {cliente}, seu agendamento foi cancelado.` — então o cliente recebe
-    // `Olá , seu agendamento foi cancelado.`, com a vírgula solta.
+  it('e `{cliente}` NÃO chega mais vazio — as TRÊS passam um nome', () => {
+    // >>> ASSERÇÃO INVERTIDA EM 09/10/2026 <<<
     //
-    // A confirmação passa o nome de verdade (`cliente: nome`), então o defeito é só das duas.
-    // Também é mudança de comportamento, também fica relatado, também não corrigido aqui.
-    for (const r of ['cancelar.ts', 'remarcar.ts']) {
+    // Ela era `expect(prog).toMatch(/cliente:\s*''/)` para `cancelar.ts` e `remarcar.ts`, e
+    // registrava o segundo achado da medição de 09/10: as duas passavam `cliente: ''`, e o
+    // texto padrão saía `Olá , seu agendamento foi cancelado.` — com a vírgula solta.
+    //
+    // O dono do produto mandou corrigir: as duas leem o NOME no servidor, da mesma consulta de
+    // `eventoAlcancavel` que já casava o telefone provado com o cliente daquele tenant.
+    //
+    // >>> O LITERAL `cliente: ''` NÃO PODE VOLTAR A NENHUMA DAS TRÊS <<<
+    for (const r of ['agendar.ts', 'cancelar.ts', 'remarcar.ts']) {
       const prog = (fs.readFileSync(path.join(base, r), 'utf8') as string)
         .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
-      expect(prog).toMatch(/cliente:\s*''/)
+      expect(prog).not.toMatch(/cliente:\s*''/)
     }
-    // e a de confirmação NÃO — o espelho
-    const conf = (fs.readFileSync(path.join(base, 'agendar.ts'), 'utf8') as string)
+    // e cada uma passa a SUA fonte do nome — três literais distintos, não um só
+    const prog = (r: string) => (fs.readFileSync(path.join(base, r), 'utf8') as string)
       .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
-    expect(conf).not.toMatch(/cliente:\s*''/)
-    expect(conf).toContain('cliente: nome')
+    expect(prog('agendar.ts')).toContain('cliente: nome')
+    expect(prog('cancelar.ts')).toContain('cliente: ev.cliente_nome')
+    expect(prog('remarcar.ts')).toContain('cliente: ev.cliente_nome')
   })
 })

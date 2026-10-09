@@ -156,8 +156,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const avisos: string[] = []
     const novo = dataEHoraBR(inicio.toISOString())
     const profissional = await nomeDoBarbeiro(ctx.tenant_id, ev.employee_id)
+    // >>> O NOME DO CLIENTE NA MENSAGEM, E A DISTINÇÃO QUE A FASE 2B IMPÔS <<<
+    //
+    // Exigência do dono do produto em 09/10/2026, registrada como está: *"O nome entra na
+    // mensagem enviada ao proprio cliente. Ele NAO entra em nenhuma resposta HTTP antes do
+    // codigo validado - sao coisas diferentes."*
+    //
+    // O nome vem de `eventoAlcancavel`, da MESMA consulta que casou o telefone provado com o
+    // cliente daquele tenant — não há segunda busca aqui, e não há segunda cópia do critério.
+    // A resposta HTTP continua `{ ok: true }` e nada mais; é a mutação M24.
     const vars = {
-      cliente: '', servico: ev.title ?? '', profissional,
+      cliente: ev.cliente_nome, servico: ev.title ?? '', profissional,
       data: novo.data, hora: novo.hora, empresa: ctx.empresa,
     }
 
