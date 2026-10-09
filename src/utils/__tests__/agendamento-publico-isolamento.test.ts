@@ -170,3 +170,146 @@ describe('a resposta pública não carrega dado de cliente', () => {
     for (const s of svcs ?? []) expect(Object.keys(s).sort()).toEqual(['duracaoMin', 'id', 'nome'])
   })
 })
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+// 09/10/2026 — A ROTA ÍNDICE PASSOU A DEVOLVER `horizonteDias`
+//
+// >>> OS TRÊS ITENS DO CHECKLIST QUE O DONO DO PRODUTO MANDOU RODAR DE NOVO <<<
+//
+// Autorização dele, com estas palavras: *"E um campo A MAIS. Nenhum campo sai, nenhum muda de
+// nome, nenhum consumidor quebra."* E, junto: *"Rode de novo, por causa desta mudanca, os itens
+// do checklist da Fase 2 que tocam a rota indice."*
+//
+//   [1] token inválido e token desligado respondem IDÊNTICO
+//   [2] a resposta não traz nome/telefone/email/id de cliente
+//   [3] nenhum uso de `tenant_id` vindo do request
+//
+// Eles exercitam o HANDLER, não as funções do lib — que é onde o campo novo foi montado. Os
+// casos acima cobrem o lib; estes cobrem a resposta HTTP.
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+import indice from '@/pages/api/public/agenda/[token]'
+
+type Resposta = { status: number; corpo: any }
+
+async function chamarIndice(query: any, over: any = {}): Promise<Resposta> {
+  const out: Resposta = { status: 0, corpo: null }
+  const res: any = {
+    status: (s: number) => { out.status = s; return res },
+    json: (c: any) => { out.corpo = c; return res },
+  }
+  await indice({ method: 'GET', query, body: {}, headers: {}, ...over } as any, res)
+  return out
+}
+
+describe('a rota ÍNDICE depois do campo novo', () => {
+  it('devolve os TRÊS campos, e o horizonte é o do tenant', async () => {
+    const r = await chamarIndice({ token: A.token })
+    expect(r.status).toBe(200)
+    // as chaves EXATAS: afirmar só a presença do campo novo deixaria um quarto entrar sem
+    // ninguém olhar.
+    expect(Object.keys(r.corpo).sort()).toEqual(['barbeiros', 'empresa', 'horizonteDias'])
+    expect(r.corpo.empresa).toBe('Salão A')
+    expect(r.corpo.horizonteDias).toBe(30)
+  })
+
+  it('o horizonte é LIDO do tenant, não um 30 fixo — o par que discrimina', async () => {
+    // >>> SEM ESTE CASO, "devolve 30" FICARIA VERDE NUMA ROTA QUE DEVOLVESSE 30 SEMPRE <<<
+    // E era exatamente esse o defeito que a rodada corrige: a TELA chutava 30, que por
+    // coincidência é o `column_default`. Um portão que não variasse o valor não distinguiria
+    // "lê o parâmetro" de "repete o default" (`teste-que-nao-exercita.md`, variante 2).
+    const linha = LINHAS.tenant_booking_settings.find((x: any) => x.tenant_id === B.tenant)
+    const antes = linha.horizon_days
+    linha.horizon_days = 7
+    try {
+      const r = await chamarIndice({ token: B.token })
+      expect(r.corpo.horizonteDias).toBe(7)
+      // e o do A continua 30 — os dois tenants não se contaminam
+      const a = await chamarIndice({ token: A.token })
+      expect(a.corpo.horizonteDias).toBe(30)
+    } finally {
+      linha.horizon_days = antes
+    }
+  })
+
+  it('[1] >>> TOKEN INVÁLIDO E TOKEN DESLIGADO RESPONDEM IDÊNTICO <<<', async () => {
+    // O item 1 do checklist. Distinguir os dois diria que o link EXISTE e está desligado — ou
+    // seja, que aquele salão é cliente nosso.
+    const inexistente = await chamarIndice({ token: 'TOKEN_QUE_NAO_EXISTE_0' })
+    const desligado = await chamarIndice({ token: 'TOKEN_CCCCCCCCCCCCCCCCCC' })
+
+    expect(inexistente).toEqual(desligado)
+    expect(inexistente.status).toBe(404)
+    expect(desligado.status).toBe(404)
+    // o corpo é EXATAMENTE o genérico, sem campo por onde o motivo escape
+    expect(Object.keys(inexistente.corpo)).toEqual(Object.keys(desligado.corpo))
+    expect(JSON.stringify(inexistente.corpo)).toBe(JSON.stringify(desligado.corpo))
+    // e o campo novo NÃO vaza na recusa: nem o horizonte do tenant desligado
+    expect(JSON.stringify(desligado.corpo)).not.toContain('horizonteDias')
+    expect(JSON.stringify(desligado.corpo)).not.toContain('30')
+    expect(JSON.stringify(desligado.corpo)).not.toContain('Salão C')
+  })
+
+  it('[1b] e token malformado responde o MESMO que os dois', async () => {
+    const malformado = await chamarIndice({ token: 'tem espaço e #' })
+    const inexistente = await chamarIndice({ token: 'TOKEN_QUE_NAO_EXISTE_0' })
+    expect(malformado).toEqual(inexistente)
+  })
+
+  it('[2] a resposta NÃO traz nome, telefone, e-mail nem id de cliente', async () => {
+    // O item 2 do checklist. `barbeiros` traz só id e nome DO PROFISSIONAL — e isso já era
+    // afirmado; o que este caso acrescenta é a conferência depois do campo novo.
+    const r = await chamarIndice({ token: A.token })
+    const txt = JSON.stringify(r.corpo)
+    for (const proibido of ['customer', 'whatsapp', 'email', 'phone', 'telefone', 'cliente']) {
+      expect(txt.toLowerCase()).not.toContain(proibido)
+    }
+    // e cada barbeiro tem SÓ as duas chaves
+    for (const b of r.corpo.barbeiros) {
+      expect(Object.keys(b).sort()).toEqual(['id', 'nome'])
+    }
+    // o `tenant_id` também não sai — ele é interno e a tela não o conhece
+    expect(txt).not.toContain(A.tenant)
+    expect(txt).not.toContain('tenant_id')
+  })
+
+  it('[3] >>> `tenant_id` DO REQUEST É IGNORADO — o tenant sai do TOKEN <<<', async () => {
+    // O item 3 do checklist, medido pelo EFEITO: o token do A com o `tenant_id` do B em TODO
+    // lugar por onde um atacante tentaria — query, corpo e header — responde o salão do A.
+    const r = await chamarIndice(
+      { token: A.token, tenant_id: B.tenant, tenantId: B.tenant },
+      { body: { tenant_id: B.tenant }, headers: { 'x-tenant-id': B.tenant } },
+    )
+    expect(r.status).toBe(200)
+    expect(r.corpo.empresa).toBe('Salão A')
+    expect(r.corpo.barbeiros.map((b: any) => b.nome)).toEqual([A.nome])
+    expect(JSON.stringify(r.corpo)).not.toContain('Salão B')
+    expect(JSON.stringify(r.corpo)).not.toContain(B.nome)
+
+    // E o espelho ESTRUTURAL: o arquivo não lê tenant de pedido nenhum. O caso de efeito acima
+    // ficaria verde num handler que lesse `req.query.tenant_id` e o ignorasse por acidente.
+    const fs = require('fs')
+    const path = require('path')
+    const prog = (fs.readFileSync(
+      path.resolve(__dirname, '../../pages/api/public/agenda/[token]/index.ts'), 'utf8',
+    ) as string).replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
+    expect(prog).not.toMatch(/req\.(query|body|headers)\s*[.[]\s*['"]?tenant/i)
+    // o único uso de `req.query` é o token
+    const usos = prog.match(/req\.query\.[A-Za-z_]+/g) ?? []
+    expect(usos).toEqual(['req.query.token'])
+  })
+
+  it('e nenhuma consulta da rota índice rodou sem filtro de tenant', async () => {
+    await chamarIndice({ token: A.token })
+    expect(semFiltroDeTenant).toEqual([])
+  })
+
+  it('método que não é GET é recusado', async () => {
+    const out: Resposta = { status: 0, corpo: null }
+    const res: any = {
+      status: (s: number) => { out.status = s; return res },
+      json: (c: any) => { out.corpo = c; return res },
+    }
+    await indice({ method: 'POST', query: { token: A.token }, headers: {} } as any, res)
+    expect(out.status).toBe(405)
+  })
+})
