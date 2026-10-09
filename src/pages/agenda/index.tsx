@@ -1943,7 +1943,11 @@ function Schedule() {
                         a mesma do menu e das permissões (premissa a). */}
                     {tenantFazAgendamento && isAdminOrSuper && (
                         <Button size="small" icon={<ClockCircleOutlined />} onClick={() => setBookingPanelOpen(true)}>
-                            Agendamento pelo link
+                            {/* Rótulo trocado em 09/10/2026. O nome do componente, da prop e do
+                                estado (`bookingPanelOpen`) NÃO mudou de propósito: renomear
+                                código por causa de rótulo espalha o diff e não entrega nada ao
+                                usuário. */}
+                            Criar link de agendamento
                         </Button>
                     )}
                     {canEdit(MODULES.AGENDA) && (
