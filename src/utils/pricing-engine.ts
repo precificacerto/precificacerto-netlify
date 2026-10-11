@@ -83,7 +83,7 @@ export type TaxName = 'ICMS' | 'ISS' | 'PIS_COFINS' | 'IPI' | 'IS' | 'IBS' | 'CB
  * no schema da matriz — é o que deixa uma alíquota de ICMS vazar para um orçamento de
  * serviço sem que nada falhe.
  */
-export type Placement = 'POR_DENTRO' | 'POR_FORA' | 'INEXISTENTE'
+export type Placement = 'POR_DENTRO' | 'POR_FORA' | 'ACRESCIMO' | 'INEXISTENTE'
 
 /**
  * A matriz da Parte 0, transcrita célula a célula (Lucro Real, três segmentos).
