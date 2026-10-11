@@ -403,7 +403,19 @@ describe('correção 5 — a matriz e o contexto da venda', () => {
 
   describe('6. as portas que dizem "não se aplica" em vez de calcular por dedução', () => {
     it('regime sem matriz escrita: `applied` é falso e NENHUM número é produzido', () => {
-      for (const regime of ['LUCRO_PRESUMIDO', 'SIMPLES_NACIONAL', 'SIMPLES_HIBRIDO', 'MEI', null]) {
+      // >>> A LISTA ENCOLHEU NO PASSO XI-3 (11/10/2026), E O CRITÉRIO MUDOU DE NATUREZA <<<
+      //
+      // `LUCRO_PRESUMIDO` saiu daqui: `REGIMES_COM_MATRIZ` deixou de ser a lista literal
+      // `['LUCRO_REAL']` e passou a LER a matriz — quem tem célula `POR_FORA` é governado.
+      // A premissa da trava era condicional ("até que a regra deles exista") e a regra passou
+      // a existir: é a Parte XIV, em `matriz-fiscal.ts`.
+      //
+      // Quem sobra aqui sobra por DUAS razões diferentes, e isso é o ponto:
+      //   SIMPLES_NACIONAL · MEI · null → não têm operação por fora na matriz, `[]`
+      //   SIMPLES_HIBRIDO               → TEM por fora, e é exceção NOMEADA em
+      //                                   `REGIMES_COM_CAMINHO_PROPRIO`, com a razão citada
+      // O caso do Presumido governado está em `decomposicao-simples-hibrido-planilha.test.ts`.
+      for (const regime of ['SIMPLES_NACIONAL', 'SIMPLES_HIBRIDO', 'MEI', null]) {
         const r = buildProductConstruction({
           taxableRegime: regime,
           segment: 'INDUSTRIALIZACAO',

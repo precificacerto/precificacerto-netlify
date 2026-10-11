@@ -387,8 +387,34 @@ export const ProductPrice: FC<Props> = ({
     ? variableValDisplay + financialValDisplay + compromissosFinanceirosValDisplay
     : laborValDisplay + fixedValDisplay + compromissosFinanceirosValDisplay + variableValDisplay + financialValDisplay
 
-  // Preço base = valorPrecificado (com ICMS/PIS/COFINS embutidos para LR/LP) + terceirizadas
-  const baseForSalePrice = (isLucroReal || isLucroPresumed) ? valorPrecificado : pricePerUnit
+  /**
+   * A base que a tela EXIBE como operação interna — e ela segue a MESMA FONTE do preço final.
+   *
+   * >>> DEIXOU DE NOMEAR REGIME NO PASSO XI-3 (11/10/2026), E A RAZÃO É UM DEFEITO MEDIDO <<<
+   *
+   * Era `(isLucroReal || isLucroPresumed) ? valorPrecificado : pricePerUnit`. Enquanto só o
+   * Lucro Real tinha matriz, essa condição e a de `_ivaApplies` (abaixo) **concordavam por
+   * COINCIDÊNCIA** — os mesmos dois regimes respondiam sim às duas perguntas, que são
+   * diferentes.
+   *
+   * O XI-3 admitiu Presumido e RET em `REGIMES_COM_MATRIZ`, e a coincidência quebrou: o RET
+   * passou a ter `_matriz.applied === true`, logo `finalPriceWithTaxes = _matriz.totalGeral`,
+   * enquanto esta linha continuava devolvendo `pricePerUnit`. **Medido: a tela mostrava
+   * interna R$ 2.500,00 e final R$ 1.498,28** — o final 40% ABAIXO da interna, porque as duas
+   * linhas do resumo liam preços de origens diferentes.
+   *
+   * A correção não é acrescentar o RET à lista de nomes: é a base LER A MESMA FONTE que o
+   * final. Quando a matriz governou, a interna é a dela (`opInterna`, R7,
+   * `product-price-construction.ts:90`); quando não governou, segue o preço de antes.
+   * Medido no Lucro Real: `_matriz.opInterna === valorPrecificado`, 1405.28 = 1405.28 —
+   * **zero centavos de diferença no modelo de referência.**
+   *
+   * >>> NÃO UNIFIQUE COM `_ivaApplies` <<<
+   * Elas respondem perguntas diferentes, e reuni-las outra vez reabre o defeito dos
+   * R$ 1.498,28. Ver o comentário de `_ivaApplies`, que aponta para cá.
+   * A invariante `precoFinalAbaixoDaInterna` é a rede: ela fica vermelha se isto for desfeito.
+   */
+  const baseForSalePrice = _matriz.applied ? _matriz.opInterna : pricePerUnit
   const finalSalePrice = baseForSalePrice + terceirizadasTotal
 
   // Impostos "por fora" (IBS/CBS/IS/IPI) — bases individualizadas da Conferência Fiscal.
@@ -396,6 +422,24 @@ export const ProductPrice: FC<Props> = ({
   // despesas acessórias) entram como Desp. Acessórias: compõem a base de IBS/CBS e do IPI,
   // mas NÃO a base do IS nem sofrem dedução de ICMS/PIS. ICMS Complementar não se aplica no
   // cadastro (depende do destinatário — só em orçamento/pedido/venda).
+  /**
+   * Quais tributos POR DENTRO existem neste regime — e por isso ela É específica de regime.
+   *
+   * Zerar `icmsPct` e `pisCofinsPct` no RET está **CERTO**: o RET não tem esses dois em
+   * separado, tem alíquota única de 4% (XIV.6 da especificação). Decisão do dono do produto,
+   * e a proibição de mexer aqui continua valendo.
+   *
+   * >>> ELA COMPARTILHAVA A CONDIÇÃO COM `baseForSalePrice` POR COINCIDÊNCIA <<<
+   *
+   * Até 11/10/2026 as duas eram `isLucroReal || isLucroPresumed`, e pareciam a mesma regra.
+   * Não são: esta pergunta é *"quais tributos por dentro existem?"*, e a de lá é *"qual base
+   * a tela exibe como operação interna?"*. Elas coincidiam porque **só o Lucro Real tinha
+   * matriz** — e o XI-3, ao admitir Presumido e RET, quebrou a coincidência.
+   *
+   * `baseForSalePrice` passou a ler a matriz; esta **continua nomeando regime**, e isso é
+   * correto. Unificá-las outra vez reabre o defeito medido de R$ 1.498,28 na tela do RET.
+   * Ver o comentário de `baseForSalePrice`, que aponta para cá.
+   */
   const _ivaApplies = isLucroReal || isLucroPresumed
   // PC-BUG-FATOR-REDUCAO-002 Ponto 1: aplica a redução SOBRE a alíquota bruta de IBS/CBS
   // (efetiva = bruta × (1 − redução)). IPI e IS NÃO a sofrem. É o que faz o valor de

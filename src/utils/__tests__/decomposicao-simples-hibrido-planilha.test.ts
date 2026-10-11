@@ -580,7 +580,24 @@ describe('REGRESSÃO: fora do híbrido nada muda', () => {
     for (const k of ['por_fora_ibs', 'por_fora_cbs']) expect(chaves).not.toContain(k)
   })
 
-  it('>>> LUCRO_PRESUMIDO continua SEM matriz na construção — a regra dele segue sem ser escrita <<<', () => {
+  it('>>> LUCRO_PRESUMIDO GANHOU matriz no XI-3 — e o HÍBRIDO continua fora, pela razão DELE <<<', () => {
+    // >>> ESTE CASO MUDOU DE LADO EM 11/10/2026, E A PREMISSA DELE ERA CONDICIONAL <<<
+    //
+    // Ele afirmava `applied: false` com o nome *"a regra dele segue sem ser escrita"*. A
+    // premissa era condicional, e estava escrita na própria trava `REGIMES_COM_MATRIZ`:
+    // *"Ficam no contrato antigo… **até que a regra deles exista**."* A regra passou a
+    // existir — é a Parte XIV, em `matriz-fiscal.ts` —, e a trava caiu no passo XI-3.
+    //
+    // >>> E O QUE ELE PASSA A AFIRMAR VALE MAIS DO QUE O QUE AFIRMAVA <<<
+    //
+    // A segunda metade é a que importa para este arquivo: o HÍBRIDO continua recusado, mas
+    // com a razão PRÓPRIA dele — "sem anexo/faixa configurados" —, **não** com "regime sem
+    // matriz escrita". É isso que prova que a exceção do Híbrido em
+    // `REGIMES_COM_CAMINHO_PROPRIO` é deliberada e não esquecimento: ele tem IBS, CBS e IS
+    // POR FORA na matriz, logo o critério o traria, e quem o tira é a decisão nomeada.
+  })
+
+  it('o Presumido agora É governado pela matriz — applied e com número', () => {
     const m = buildProductConstruction({
       taxableRegime: 'LUCRO_PRESUMIDO', segment: 'INDUSTRIALIZACAO',
       buyerType: 'CONSUMIDOR_FINAL', saleScope: 'INTRAESTADUAL',
@@ -590,8 +607,27 @@ describe('REGRESSÃO: fora do híbrido nada muda', () => {
         isPct: null, ibsPct: IBS, cbsPct: CBS, ivaReductionIbs: null, ivaReductionCbs: null },
       baseCodes: { ibs: null, cbs: null, is: null, ipi: null }, despAcessorias: 0,
     } as never)
-    expect(m.applied).toBe(false)
-    expect(m.reason).toMatch(/regime sem matriz/i)
+    expect(m.applied).toBe(true)
+    expect(m.reason).toBe('')
+    expect(m.totalGeral).toBeGreaterThan(0)
+    expect(m.opInterna).toBeGreaterThan(0)
+  })
+
+  it('>>> e o HÍBRIDO recusa pela razão DELE, não por "regime sem matriz" <<<', () => {
+    // O caso que prova que a exceção é deliberada. Ver o cabeçalho de `REGIMES_COM_MATRIZ`.
+    const h = buildProductConstruction({
+      taxableRegime: 'SIMPLES_HIBRIDO', segment: 'INDUSTRIALIZACAO',
+      buyerType: 'CONSUMIDOR_FINAL', saleScope: 'INTRAESTADUAL',
+      costTotal: 100, structurePct: 0.20, rtReservePct: 0.01, commissionPct: 0.05,
+      profitPct: 0.15, profitTaxPct: 0,
+      rates: { icmsPct: 0.17, issPct: null, pisCofinsEffectivePct: 0.03, ipiPct: null,
+        isPct: null, ibsPct: IBS, cbsPct: CBS, ivaReductionIbs: null, ivaReductionCbs: null },
+      baseCodes: { ibs: null, cbs: null, is: null, ipi: null }, despAcessorias: 0,
+    } as never)
+    expect(h.applied).toBe(false)
+    // >>> A ASSERÇÃO É O `not` TANTO QUANTO O `toMatch` <<<
+    expect(h.reason).not.toMatch(/regime sem matriz/i)
+    expect(h.reason).toMatch(/anexo|faixa/i)
   })
 
   it('>>> LUCRO_REAL continua com ICMS, PIS/COFINS, IRPJ e CSLL, e SEM linha de DAS <<<', () => {

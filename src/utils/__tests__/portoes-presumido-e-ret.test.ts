@@ -139,9 +139,20 @@ describe('C1 · Lucro Presumido industrialização — preço e coeficiente', ()
     expect(r.priceUnit).toBeCloseTo(2582.18, 2)
   })
 
-  it('>>> o Presumido NÃO chega ao `taxBreakdown` — `sale-context.ts:445` o recusa <<<', () => {
-    // É a prova de que a separação da XIV.4 não existe em caminho nenhum hoje, e por isso o
-    // caso acima trava o agregado em vez de afirmar a separação.
+  it('>>> XIV.4 CUMPRIDA no XI-3: o Presumido CHEGA ao `taxBreakdown`, e o `c` é NÚMERO <<<', () => {
+    // >>> ESTE CASO MUDOU DE LADO EM 11/10/2026, E É O QUE O XI-3 FEZ <<<
+    //
+    // Ele afirmava `applied: false` e `reason: 'regime sem matriz escrita'` — o estado que a
+    // trava `REGIMES_COM_MATRIZ = ['LUCRO_REAL']` produzia. O passo XI-3 trocou a lista
+    // literal por leitura da matriz, e o Presumido passou a ser governado por ela.
+    //
+    // A razão de a trava cair agora e não antes está escrita nela própria: ela dizia que o
+    // Presumido ficava fora *"até que a regra deles exista"*. A regra passou a existir — é a
+    // Parte XIV da especificação, em `matriz-fiscal.ts`.
+    //
+    // O caso do agregado acima CONTINUA valendo e continua verde: a tela de produto chama
+    // `calculatePricing` sem `taxBreakdown` (`content.component.tsx:941`), e esse caminho não
+    // mudou. O que mudou é a PORTA da matriz, que é outra.
     const c = buildProductConstruction({
       taxableRegime: 'LUCRO_PRESUMIDO',
       segment: 'INDUSTRIALIZACAO',
@@ -158,8 +169,13 @@ describe('C1 · Lucro Presumido industrialização — preço e coeficiente', ()
       rates: { icmsPct: LP_ICMS, pisCofinsEffectivePct: LP_PIS_COFINS },
     })
 
-    expect(c.applied).toBe(false)
-    expect(c.reason).toBe('regime sem matriz escrita')
+    expect(c.applied).toBe(true)
+    expect(c.reason).toBe('')
+    // o `c` passou a ser APURADO — e com IBS/CBS zerados nesta entrada ele sai zero, que é
+    // "apurado e vale nada", não "não apurado". A distinção é o C8.
+    expect(externalOpsCoefficientToFreeze(c)).not.toBeNull()
+    expect(c.opInterna).toBeGreaterThan(0)
+    expect(c.totalGeral).toBeGreaterThanOrEqual(c.opInterna)
   })
 })
 
@@ -663,7 +679,7 @@ describe('C8 · RET: o coeficiente da operação por fora é NÃO APURADO', () =
     rates: { icmsPct: 0.18, pisCofinsEffectivePct: 0.02993, ibsPct: 0, cbsPct: 0 },
   }
 
-  it('>>> o `c` do RET é `null` e o do Lucro Real é `0` — não apurado ≠ apurado e vale nada <<<', () => {
+  it('>>> o `c` do MEI é `null` e o do Lucro Real é `0` — não apurado ≠ apurado e vale nada <<<', () => {
     // >>> O PAR É A ASSERÇÃO. Nenhum dos dois lados sozinho afirma a distinção <<<
     //
     // `ausente-vs-falso.md`, e a razão está escrita no próprio
@@ -674,24 +690,28 @@ describe('C8 · RET: o coeficiente da operação por fora é NÃO APURADO', () =
     // Com alíquotas de IBS e CBS em ZERO nos dois casos, um sistema que confundisse os dois
     // estados daria o MESMO número — e é exatamente por isso que o caso usa zero em ambos:
     // o que distingue não é a alíquota, é o regime ter ou não regra escrita.
+    // >>> O LADO `null` MUDOU DE REGIME NO XI-3, E O PAR TINHA DE CONTINUAR EXISTINDO <<<
+    // Era o RET. Ele passou a ter matriz, então o `c` dele é apurado. O MEI ocupa o lugar:
+    // `tributosPorForaNaMatriz('MEI')` é `[]`, logo não há operação por fora e não há `c`.
+    // Sem esta troca, a distinção de `ausente-vs-falso` ficaria sem portão nenhum.
     const real = buildProductConstruction({ ...ENTRADA, taxableRegime: 'LUCRO_REAL' })
-    const ret = buildProductConstruction({ ...ENTRADA, taxableRegime: 'LUCRO_PRESUMIDO_RET' })
+    const mei = buildProductConstruction({ ...ENTRADA, taxableRegime: 'MEI' })
 
     // LUCRO REAL: a matriz governou, as alíquotas por fora são zero → `c = 0`, APURADO
     expect(real.applied).toBe(true)
     expect(externalOpsCoefficientToFreeze(real)).toBe(0)
 
-    // RET: não há regra escrita → `c = null`, NÃO APURADO
-    expect(ret.applied).toBe(false)
-    expect(ret.reason).toBe('regime sem matriz escrita')
-    expect(externalOpsCoefficientToFreeze(ret)).toBeNull()
+    // MEI: não há regra escrita → `c = null`, NÃO APURADO
+    expect(mei.applied).toBe(false)
+    expect(mei.reason).toBe('regime sem matriz escrita')
+    expect(externalOpsCoefficientToFreeze(mei)).toBeNull()
 
     // >>> E A ASSERÇÃO QUE PROÍBE A CONFUSÃO <<<
     // `toBeNull` passaria sozinho se alguém trocasse o retorno por `0`? Não — mas `toBe(0)`
     // passaria se alguém trocasse `null` por `0`, porque `0 === 0`. O par abaixo é o que
     // impede isso: os dois estados são DIFERENTES entre si, e nenhum é falsy-equivalente ao
     // outro para esta asserção.
-    expect(externalOpsCoefficientToFreeze(ret)).not.toBe(0)
+    expect(externalOpsCoefficientToFreeze(mei)).not.toBe(0)
     expect(externalOpsCoefficientToFreeze(real)).not.toBeNull()
   })
 
@@ -708,10 +728,30 @@ describe('C8 · RET: o coeficiente da operação por fora é NÃO APURADO', () =
     expect([...tributosPorForaDoRegime('LUCRO_PRESUMIDO_RET')].sort()).toEqual(['CBS', 'IBS'])
   })
 
-  it('o Presumido tem o MESMO `null` — a recusa é por regime, não por ser RET', () => {
-    const presumido = buildProductConstruction({ ...ENTRADA, taxableRegime: 'LUCRO_PRESUMIDO' })
-    expect(presumido.applied).toBe(false)
-    expect(externalOpsCoefficientToFreeze(presumido)).toBeNull()
+  it('>>> XIV.6 CUMPRIDA no XI-3: o `c` do RET e do Presumido passou a ser NÚMERO <<<', () => {
+    // >>> A PROVA POSITIVA DA MUDANÇA, pedida pelo PO <<<
+    // O caso anterior afirma que o `null` ainda existe (no MEI); este afirma que ele DEIXOU
+    // de existir onde a matriz passou a governar. Os dois juntos dizem o que mudou e o que
+    // não — um só diria metade.
+    for (const regime of ['LUCRO_PRESUMIDO', 'LUCRO_PRESUMIDO_RET'] as const) {
+      const c = buildProductConstruction({ ...ENTRADA, taxableRegime: regime })
+      expect(c.applied).toBe(true)
+      expect(c.reason).toBe('')
+      const congelado = externalOpsCoefficientToFreeze(c)
+      expect(congelado).not.toBeNull()
+      expect(typeof congelado).toBe('number')
+      // cabe na CHECK do banco: `[0, 1)`
+      expect(congelado!).toBeGreaterThanOrEqual(0)
+      expect(congelado!).toBeLessThan(1)
+    }
+  })
+
+  it('e o Simples Nacional continua FORA — por não ter operação por fora, não por nome', () => {
+    // O par que mostra que a admissão é por CÉLULA e não por lista: Simples e MEI seguem
+    // recusados porque `tributosPorForaNaMatriz` devolve `[]` neles.
+    const sn = buildProductConstruction({ ...ENTRADA, taxableRegime: 'SIMPLES_NACIONAL' })
+    expect(sn.applied).toBe(false)
+    expect(externalOpsCoefficientToFreeze(sn)).toBeNull()
   })
 })
 
