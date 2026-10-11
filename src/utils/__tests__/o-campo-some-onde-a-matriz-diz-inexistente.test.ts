@@ -131,7 +131,13 @@ describe('3. A TELA lê o filtro — e não nomeia tributo na condição', () =>
   )
 
   it('o bloco IS/IPI passa pelo filtro e some inteiro quando nada sobra', () => {
-    expect(src).toContain('apenasTributosQueExistem(_segmento, [')
+    // 11/10/2026 — a expressão mudou e esta asserção acompanhou, SEM afrouxar.
+    // Era `apenasTributosQueExistem(_segmento, [`: um eixo, o do SEGMENTO. Passou a ser
+    // `apenasTributosPorFora(regime, _segmento, [`, que compõe REGIME e SEGMENTO — e que
+    // chama `tributoExisteNoSegmento` por dentro, então o eixo que esta asserção protege
+    // continua decidindo. O que ela exige segue sendo o mesmo: que `_segmento` esteja NA
+    // decisão do bloco. Tirá-lo de lá continua deixando este caso vermelho.
+    expect(src).toContain('apenasTributosPorFora(currentUser?.taxableRegime, _segmento, [')
     expect(src).toContain('if (isIpiRows.length === 0) return null')
   })
 

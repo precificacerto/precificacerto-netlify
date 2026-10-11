@@ -10,7 +10,14 @@ import { resolveIvaDualEffectiveRate } from '@/utils/item-tax-rates'
 import { buildProductConstruction, externalOpsCoefficientToFreeze } from '@/utils/product-price-construction'
 import { buildProductPriceRows, type PriceRowInput } from '@/utils/product-price-rows'
 import { toBaseCode } from '@/utils/sale-context'
-import { apenasTributosQueExistem, tributoExisteNoSegmento } from '@/utils/campos-do-segmento'
+// `apenasTributosQueExistem` SAIU deste import em 11/10/2026: os dois blocos por fora passaram
+// a usar `apenasTributosPorFora`, que já compõe os dois eixos. `tributoExisteNoSegmento` fica —
+// a linha do ICMS (`:337`) continua lendo só o eixo do segmento, porque o ICMS é POR DENTRO e
+// não participa desta rodada.
+import { tributoExisteNoSegmento } from '@/utils/campos-do-segmento'
+// O segundo eixo da matriz — REGIME × tributo. `apenasTributosPorFora` é a conjunção dos dois
+// eixos, e é ela que decide os dois blocos por fora. Ver `por-fora-por-regime.ts`.
+import { apenasTributosPorFora } from '@/utils/por-fora-por-regime'
 import { divisorDaEstruturaPct, resolveSegmentoDaConstrucao } from '@/utils/despesas-do-segmento'
 import { LABEL_DO_BLOCO } from '@/utils/compromissos-financeiros'
 import { computeAdvancedOutsideTaxes, type AdvancedOutsideParams } from '@/utils/icms-st-difal'
@@ -795,12 +802,20 @@ export const ProductPrice: FC<Props> = ({
           </div>
         )}
 
-        {/* IBS / CBS — LUCRO_REAL / LUCRO_PRESUMIDO */}
-        {(isLucroReal || isLucroPresumed || isSimplesHibrido) && (() => {
-          const ibsCbsRows = [
-            { label: 'IBS — Imposto sobre Bens e Serv. (%)', value: ibsPct, onChange: onIbsPctChange, taxValue: taxIbsValue, reductionPct: ivaReductionIbsPct },
-            { label: 'CBS — Contrib. sobre Bens e Serv. (%)', value: cbsPct, onChange: onCbsPctChange, taxValue: taxCbsValue, reductionPct: ivaReductionCbsPct },
-          ] as { label: string; value: number; onChange?: (v: number) => void; taxValue: number; reductionPct: number | null }[]
+        {/* IBS / CBS — QUEM DECIDE É A MATRIZ, NOS DOIS EIXOS.
+            Até 11/10/2026 a condição era `isLucroReal || isLucroPresumed || isSimplesHibrido`:
+            três regimes nomeados no JSX, e o RET de fora. Agora ela lê REGIME (tabela nova) E
+            SEGMENTO (a que já existia), igual ao bloco IS/IPI logo abaixo — a simetria é
+            decisão do dono do produto. Mudar a lei passa a mudar a TABELA, não este arquivo. */}
+        {(() => {
+          const ibsCbsRows = apenasTributosPorFora(currentUser?.taxableRegime, _segmento, [
+            { tributo: 'IBS' as const, label: 'IBS — Imposto sobre Bens e Serv. (%)', value: ibsPct, onChange: onIbsPctChange, taxValue: taxIbsValue, reductionPct: ivaReductionIbsPct },
+            { tributo: 'CBS' as const, label: 'CBS — Contrib. sobre Bens e Serv. (%)', value: cbsPct, onChange: onCbsPctChange, taxValue: taxCbsValue, reductionPct: ivaReductionCbsPct },
+          ] as { tributo: 'IBS' | 'CBS'; label: string; value: number; onChange?: (v: number) => void; taxValue: number; reductionPct: number | null }[])
+          // O bloco inteiro some quando sobra zero — a mesma guarda do IS/IPI. Um título
+          // "Impostos (IBS / CBS)" sem linha embaixo afirmaria que existe operação por fora
+          // naquele regime e que ela está zerada (`ausente-vs-falso.md`).
+          if (ibsCbsRows.length === 0) return null
           // PC-UI-IBSCBS-ALIQEFETIVA-005 (PO Cristiano, 2026-06-30): exibe a alíquota EFETIVA
           // (pós-fator de redução do IVA Dual) na própria linha do imposto, ao lado do R$ já
           // calculado com o fator — eliminando a ambiguidade de ver só a alíquota cheia.
@@ -812,8 +827,13 @@ export const ProductPrice: FC<Props> = ({
           // rótulo só, dizendo o do primeiro.
           return (
             <div style={{ marginTop: 14, background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '12px 14px', border: '1px solid rgba(255,255,255,0.07)' }}>
+              {/* O título sai da LISTA FILTRADA, como já fazia o bloco IS/IPI. Era o literal
+                  'Impostos (IBS / CBS)'; com o filtro por regime, um literal passaria a poder
+                  prometer uma linha que não está embaixo dele. Medido: nos seis regimes de
+                  hoje o texto renderizado é BYTE A BYTE o mesmo, porque IBS e CBS andam
+                  sempre juntos em todo regime que os tem. */}
               <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' as const, letterSpacing: 0.6, marginBottom: 10 }}>
-                Impostos (IBS / CBS)
+                {`Impostos (${ibsCbsRows.map((r) => r.tributo).join(' / ')})`}
               </div>
               {/* Relatório mobile #6: cada imposto em 2 LINHAS.
                   L1 = campo de % (esq.) + fator (centro) + alíquota efetiva (borda direita);
@@ -858,13 +878,16 @@ export const ProductPrice: FC<Props> = ({
           )
         })()}
 
-        {/* IS / IPI — LUCRO_REAL / LUCRO_PRESUMIDO, e SÓ os que a matriz diz existir.
+        {/* IS / IPI — SÓ os que a matriz diz existir, agora nos DOIS eixos.
             17/09/2026: o campo SOME onde a matriz diz INEXISTENTE (IPI em revenda é o
             caso que a originou). Nenhum tributo é nomeado na condição — quem decide é
             `placementOf`, para que mudar a matriz mude a tela. Ver
-            `.claude/rules/cascata-lucro-real.md`, Parte 0, e `campos-do-segmento.ts`. */}
-        {(isLucroReal || isLucroPresumed) && (() => {
-          const isIpiRows = apenasTributosQueExistem(_segmento, [
+            `.claude/rules/cascata-lucro-real.md`, Parte 0, e `campos-do-segmento.ts`.
+            11/10/2026: `(isLucroReal || isLucroPresumed)` saiu da frente. O eixo de REGIME
+            entrou na mesma função, e é ele que mantém o IS fora do RET (imóvel não está na
+            lista do Seletivo) e o IPI fora do Híbrido. Nenhum regime nomeado aqui. */}
+        {(() => {
+          const isIpiRows = apenasTributosPorFora(currentUser?.taxableRegime, _segmento, [
             { tributo: 'IS' as const, label: 'IS — Imposto Seletivo (%)', value: isPct, onChange: onIsPctChange, taxValue: taxIsValue },
             { tributo: 'IPI' as const, label: 'IPI (%)', value: ipiPct, onChange: onIpiPctChange, taxValue: taxIpiValue },
           ] as { tributo: 'IS' | 'IPI'; label: string; value: number; onChange?: (v: number) => void; taxValue: number }[])
