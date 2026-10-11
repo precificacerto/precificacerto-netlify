@@ -54,8 +54,46 @@ import { instanteDoRelogioLocal, horaParaMinutos } from '@/utils/horarios-dispon
  * com relógio fixo — lá o `agora` é injetado de propósito, e tem caso provando a injeção.
  */
 const AGORA = new Date()
-/** Dois dias à frente do relógio real: futuro em qualquer dia que a suíte rode. */
-const FUTURO = new Date(AGORA.getTime() + 2 * 86400_000)
+
+/**
+ * O DIA de D+2, no formato `YYYY-MM-DD`. Continua relativo ao relógio real — é o que mantém
+ * as fixtures no futuro em qualquer dia que a suíte rode.
+ */
+function diaRelativo(dias: number): string {
+  const d = new Date(AGORA.getTime() + dias * 86400_000)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+/**
+ * >>> O DIA É RELATIVO AO RELÓGIO. A HORA DO DIA É FIXA. E A DISTINÇÃO É A CORREÇÃO <<<
+ *
+ * `FUTURO` era `AGORA + 2 dias`, o que herdava a HORA ATUAL. Isso fazia a suíte mudar de cor
+ * conforme a hora em que rodasse, e aconteceu em 11/10/2026: o caso *"remarcar para um horário
+ * que se sobrepõe ao PRÓPRIO antigo é permitido"* passou às ~14:05 UTC e falhou com 409 às
+ * ~15:48 UTC, **com o código idêntico** — e falhava igual em `origin/main`.
+ *
+ * A causa, medida: o caso remarca para `14:30`, e `instanteDoRelogioLocal` resolve isso no
+ * fuso de NEGÓCIO — 14:30 BRT = **17:30 UTC**, destino 17:30–18:00. O `OUTRO.evt` é semeado em
+ * `FUTURO + 2h`; com `AGORA` às 15:56 UTC ele caía em **17:56–18:26 UTC** e sobrepunha. Às
+ * 14:05 não sobrepunha. Em `Asia/Tokyo` o caso passava, porque `getDate()` devolvia outro dia.
+ *
+ * Um caso que muda de cor sem o código mudar destrói a disciplina de baseline: depois dele,
+ * qualquer vermelho pode ser atribuído ao relógio. Por isso **a hora dos eventos semeados
+ * passa a ser fixa** — 09:00 no relógio de negócio, longe dos `14:00`/`14:30`/`15:00` que os
+ * casos usam como destino.
+ *
+ * >>> O QUE **NÃO** MUDA, E O CABEÇALHO ACIMA CONTINUA VALENDO <<<
+ *
+ * `expires_at`, `used_at` e `created_at` do código de acesso seguem relativos a `AGORA` em
+ * minutos — ali o relógio real é o certo, e a primeira versão desta suíte provou isso ao
+ * derrubar todos os casos de código válido com um `AGORA` fixo de 08/10. A rota também segue
+ * lendo `new Date()` internamente (`remarcar.ts:70`), e **nada foi injetado nela**: o conserto
+ * é só da FIXTURE. `instanteDoRelogioLocal` é o mesmo utilitário que os casos já usam para o
+ * destino, com portão próprio de 23 casos — usar o mesmo nas duas pontas é o que faz a
+ * âncora e o destino falarem do mesmo relógio.
+ */
+const HORA_ANCORA = '09:00'
+const FUTURO = instanteDoRelogioLocal(diaRelativo(2), horaParaMinutos(HORA_ANCORA))
 
 const A = {
   tenant: 'tenant-A', token: 'TOKEN_AAAAAAAAAAAAAAAAAA',
