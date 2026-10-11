@@ -552,8 +552,9 @@ export interface ReapurationInput {
    * consome direto do item"*. A intenção estava escrita; faltava o campo por onde entrar.
    *
    * Só se aplica quando o regime resolvido é SIMPLES_NACIONAL ou MEI. RET e Simples Híbrido
-   * reusam a MESMA coluna `custom_tax_percent` para outra finalidade e são mapeados para
-   * LUCRO_PRESUMIDO em `mapToMotorRegime`, portanto nunca entram neste ramo.
+   * reusam a MESMA coluna `custom_tax_percent` para outra finalidade e ficam fora do ramo —
+   * desde 11/10/2026 (XI-4) por DECISÃO ESCRITA em `GUIA_UNICA_POR_DENTRO`
+   * (`regime-decisoes.ts`), e não mais por serem mapeados para LUCRO_PRESUMIDO.
    *
    * Ausente ou 0 → comportamento anterior, byte a byte.
    */

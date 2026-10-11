@@ -201,10 +201,19 @@ describe('EPIC-DAS — segregação de regime (não vaza para fora do escopo)', 
     },
   )
 
-  it('RET e Simples Híbrido chegam como LUCRO_PRESUMIDO ⇒ ramo clássico, nunca DAS', () => {
-    // `mapToMotorRegime` converte ambos para LUCRO_PRESUMIDO. Mesmo que a coluna
-    // `custom_tax_percent` traga valor (ela é reusada por esses regimes), o item entra no
-    // ramo clássico e o DAS não é aplicado.
+  it('LUCRO_PRESUMIDO com a coluna `custom_tax_percent` preenchida ⇒ ramo clássico, nunca DAS', () => {
+    // NOME CORRIGIDO em 11/10/2026 (XI-4). Ele dizia "RET e Simples Híbrido chegam como
+    // LUCRO_PRESUMIDO", e isso deixou de ser verdade: os dois chegam como eles mesmos desde o
+    // XI-4 e o passo do Híbrido. O CORPO não cai, e a razão importa — ele passa
+    // `'LUCRO_PRESUMIDO'` DIRETO para `makeInput` e nunca chama `mapToMotorRegime`. O caso
+    // sempre exercitou o Lucro Presumido; o título é que afirmava algo que o corpo não media.
+    //
+    // Que RET e Híbrido ficam fora do ramo do DAS continua verdade, e agora é afirmado onde se
+    // pode medir: `exaustividade-do-regime.test.ts` (a célula) e
+    // `decomposicao-simples-hibrido-planilha.test.ts` (o mapeador mais a célula).
+    //
+    // Mesmo com a coluna `custom_tax_percent` trazendo valor — ela é reusada por esses
+    // regimes —, o item entra no ramo clássico e o DAS não é aplicado.
     const itemComColunaPreenchida: EngineItemV17 = {
       ...withClassic(baseItem),
       taxes_inside_amounts: { icms: baseItem.rb * 0.17, iss: 0, pis_cofins: baseItem.rb * 0.0925, das: baseItem.rb * 0.09 },

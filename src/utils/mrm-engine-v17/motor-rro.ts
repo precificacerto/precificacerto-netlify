@@ -37,8 +37,11 @@ interface ApplyMotorRROInput {
   rates: TaxRatePeriod[]
   /**
    * EPIC-DAS: regime resolvido do tenant. Só SIMPLES_NACIONAL e MEI ativam o ramo do DAS.
-   * RET e Simples Híbrido chegam aqui como LUCRO_PRESUMIDO (ver `mapToMotorRegime`), logo
-   * não entram no ramo. Ausente ⇒ comportamento clássico (bit-exact).
+   *
+   * RET e Simples Híbrido chegam aqui COMO ELES MESMOS desde 11/10/2026 (XI-4 e o passo do
+   * Híbrido de 19/09/2026) — não mais como `LUCRO_PRESUMIDO`. Continuam fora do ramo do DAS, e
+   * agora por DECISÃO ESCRITA em vez de por mapeamento: `GUIA_UNICA_POR_DENTRO` em
+   * `regime-decisoes.ts` tem a célula de cada um. Ausente ⇒ comportamento clássico (bit-exact).
    */
   regime?: TaxRegime
   tax_credits_recoverable_total: number

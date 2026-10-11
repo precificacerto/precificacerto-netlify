@@ -77,8 +77,10 @@ export interface ItemTaxRates {
    * tenant e não deve vazar para os arrays de `rates` via `mergeItemAndTenantRates` — o
    * motor o consome direto do item. Regimes RET e Simples Híbrido reusam a MESMA coluna
    * `custom_tax_percent` para outra finalidade; a segregação é feita no motor, que só
-   * aplica o DAS quando o regime resolvido é SIMPLES_NACIONAL ou MEI (RET e Híbrido são
-   * mapeados para LUCRO_PRESUMIDO em `mapToMotorRegime`, portanto nunca entram no ramo).
+   * aplica o DAS quando `temGuiaUnicaPorDentro(regime)` é verdadeiro — hoje SIMPLES_NACIONAL
+   * e MEI. Até 11/10/2026 isto se dava por RET e Híbrido serem MAPEADOS para
+   * LUCRO_PRESUMIDO; desde o XI-4 os dois chegam como eles mesmos, e a célula de cada um em
+   * `GUIA_UNICA_POR_DENTRO` (`regime-decisoes.ts`) é o que os mantém fora.
    */
   das_pct?: number | null
   // Rateio RR

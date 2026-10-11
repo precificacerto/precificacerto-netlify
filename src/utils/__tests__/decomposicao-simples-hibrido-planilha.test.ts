@@ -40,6 +40,7 @@ import {
 import { construirPrecoHibrido, isPctDoSegmento } from '@/utils/simples-hibrido'
 import type { BaldesDeDespesa } from '@/utils/despesas-do-segmento'
 import { mapToMotorRegime } from '@/hooks/use-tenant-tax-context'
+import { temGuiaUnicaPorDentro } from '@/utils/regime-decisoes'
 import { buildProductConstruction } from '@/utils/product-price-construction'
 
 /** As alíquotas de referência que o comando fixa PARA OS TESTES. Produção lê `tax_rates_periods`. */
@@ -488,8 +489,40 @@ describe('O híbrido chega às telas como SIMPLES_HIBRIDO, e não como Lucro Pre
     expect(chaves).not.toContain('das')
   })
 
-  it('LUCRO_PRESUMIDO_RET continua mapeado — ali muda a alíquota, não o formato', () => {
-    expect(mapToMotorRegime('LUCRO_PRESUMIDO_RET')).toBe('LUCRO_PRESUMIDO')
+  it('>>> e o RET TAMBÉM deixou de ser mapeado — XI-4, 11/10/2026 <<<', () => {
+    // Este caso afirmava o CONTRÁRIO até 11/10/2026: `toBe('LUCRO_PRESUMIDO')`, com o título
+    // "ali muda a alíquota, não o formato". Estava errado, e a ESPEC XIV.6 é a fonte.
+    // Formulação do dono do produto, registrada como está:
+    //
+    //   > RET e Presumido têm FORMATOS diferentes, não a mesma alíquota: por dentro 4% contra
+    //   > ICMS + 3,65% + presunção; etapa 13 com linha única contra 13A/13B/13C; IRPJ/CSLL
+    //   > dentro dos 4% contra etapa 13.
+    //
+    // Enquanto o formato não estivesse escrito, mapeá-lo era simplificação honesta —
+    // `decisao-sob-regra-da-epoca.md`. Com ele escrito, o mapeamento afirma um formato que a
+    // lei não dá ao optante do RET, que é a mesma frase que se usou para o Híbrido acima.
+    expect(mapToMotorRegime('LUCRO_PRESUMIDO_RET')).toBe('LUCRO_PRESUMIDO_RET')
+    expect(mapToMotorRegime('LUCRO_PRESUMIDO_RET')).not.toBe('LUCRO_PRESUMIDO')
+  })
+
+  it('e os outros quatro regimes continuam mapeando para eles mesmos, sem exceção', () => {
+    // O par que impede o caso acima de ser satisfeito por um `return regimeRaw` no topo: o
+    // mapeador tem fallback e normalização, e eles não mudaram.
+    for (const r of ['MEI', 'SIMPLES_NACIONAL', 'LUCRO_PRESUMIDO', 'LUCRO_REAL'] as const) {
+      expect(mapToMotorRegime(r)).toBe(r)
+    }
+    // e o fallback de entrada ausente/desconhecida segue sendo SIMPLES_NACIONAL
+    expect(mapToMotorRegime(null)).toBe('SIMPLES_NACIONAL')
+    expect(mapToMotorRegime('COISA_QUE_NAO_EXISTE')).toBe('SIMPLES_NACIONAL')
+  })
+
+  it('o RET NÃO entra no ramo do DAS, agora por decisão escrita e não por mapeamento', () => {
+    // O que o mapeamento garantia por acidente, a célula garante por decisão. Sem esta
+    // asserção, "o RET chega como ele mesmo" não diria nada sobre o que o motor faz com ele —
+    // seria afirmar passagem, não efeito (`teste-que-nao-exercita.md`).
+    expect(temGuiaUnicaPorDentro(mapToMotorRegime('LUCRO_PRESUMIDO_RET'))).toBe(false)
+    // e o contraste que prova que a função discrimina
+    expect(temGuiaUnicaPorDentro(mapToMotorRegime('SIMPLES_NACIONAL'))).toBe(true)
   })
 })
 

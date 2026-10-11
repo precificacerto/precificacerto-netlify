@@ -145,8 +145,28 @@ interface HookOptions {
  * O motor V17 só pergunta `isSimplesOuMei`, e para ele nada muda: o híbrido ficava fora
  * daquele ramo como `LUCRO_PRESUMIDO` e continua fora como ele mesmo.
  *
- * `LUCRO_PRESUMIDO_RET` segue mapeado, e não é a mesma omissão: ali o formato é o mesmo do
- * Lucro Presumido e o que muda é a alíquota.
+ * `LUCRO_PRESUMIDO_RET` DEIXOU DE SER MAPEADO em 11/10/2026 (passo XI-4).
+ *
+ * O comentário que estava aqui dizia que ali "o formato é o mesmo do Lucro Presumido e o que
+ * muda é a alíquota". Isso está ERRADO, e a ESPEC XIV.6 é a fonte. Formulação do dono do
+ * produto, registrada como está:
+ *
+ *   > RET e Presumido têm FORMATOS diferentes, não a mesma alíquota: por dentro 4% contra
+ *   > ICMS + 3,65% + presunção; etapa 13 com linha única contra 13A/13B/13C; IRPJ/CSLL dentro
+ *   > dos 4% contra etapa 13.
+ *
+ * Enquanto o formato do RET não estivesse escrito, mapeá-lo era simplificação honesta —
+ * `decisao-sob-regra-da-epoca.md`: a decisão antiga não foi descuido, a regra é que mudou. Com
+ * o formato escrito, o mapeamento afirma um formato que a lei não dá ao optante do RET, que é
+ * exatamente o que se dizia do Híbrido em 19/09/2026.
+ *
+ * ── E O COMPORTAMENTO NÃO MUDA NESTE PASSO, DE PROPÓSITO
+ *
+ * O motor passa a VER o RET sem passar a tratá-lo diferente: as dez tabelas de decisão por
+ * regime (`regime-decisoes.ts` e as locais) receberam a célula do RET no XI-3.5 FASE C com
+ * EXATAMENTE o valor do `LUCRO_PRESUMIDO`, justamente porque era isso que o mapeamento
+ * produzia. Uma mudança por vez. O formato da ESPEC XIV.6 entra depois, em rodada própria,
+ * alterando aquelas células uma a uma com os portões virando de lado.
  */
 export function mapToMotorRegime(regimeRaw: string | null | undefined): TaxRegime {
   if (!regimeRaw) return 'SIMPLES_NACIONAL'
@@ -154,7 +174,8 @@ export function mapToMotorRegime(regimeRaw: string | null | undefined): TaxRegim
   if (regimeRaw === 'SIMPLES_NACIONAL') return 'SIMPLES_NACIONAL'
   if (regimeRaw === 'SIMPLES_HIBRIDO') return 'SIMPLES_HIBRIDO'
   if (regimeRaw === 'LUCRO_PRESUMIDO') return 'LUCRO_PRESUMIDO'
-  if (regimeRaw === 'LUCRO_PRESUMIDO_RET') return 'LUCRO_PRESUMIDO'
+  // XI-4: era `return 'LUCRO_PRESUMIDO'`. Ver o cabeçalho.
+  if (regimeRaw === 'LUCRO_PRESUMIDO_RET') return 'LUCRO_PRESUMIDO_RET'
   if (regimeRaw === 'LUCRO_REAL') return 'LUCRO_REAL'
   return 'SIMPLES_NACIONAL'
 }
@@ -312,6 +333,9 @@ export function useTenantTaxContext(options: HookOptions = {}): TenantTaxContext
           : Promise.resolve<TaxRatePeriod[]>([]),
       ])
 
+      // XI-4: desde 11/10/2026 este ponto entrega `'LUCRO_PRESUMIDO_RET'` quando o tenant é
+      // RET, em vez de `'LUCRO_PRESUMIDO'`. É por aqui que o motor passou a ver o regime; o
+      // TRATAMENTO continua o do Presumido, pelas células do XI-3.5 FASE C.
       const regime = mapToMotorRegime(components?.regime)
 
       // V8.1 (2026-05-24): injeta PIS/COFINS do tenant em `rates` como fallback
