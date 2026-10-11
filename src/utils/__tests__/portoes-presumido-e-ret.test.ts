@@ -148,6 +148,11 @@ describe('C1 · Lucro Presumido industrialização — preço e coeficiente', ()
       buyerType: 'CONSUMIDOR_FINAL',
       saleScope: 'INTRAESTADUAL',
       costTotal: CUSTO,
+      // OBRIGATÓRIO no tipo, e o `tsc` enumerou as quatro chamadas de uma vez quando ele
+      // faltou — é `construtor-empobrecido.md` funcionando: *"campo de cálculo é
+      // obrigatório, e o custo de torná-lo obrigatório é exatamente o benefício"*. `0`
+      // afirma "esta construção não tem acréscimos", que é o cenário dos casos.
+      despAcessorias: 0,
       ...ESTRUTURA,
       profitTaxPct: LP_IRPJ + LP_CSLL,
       rates: { icmsPct: LP_ICMS, pisCofinsEffectivePct: LP_PIS_COFINS },
@@ -427,13 +432,29 @@ describe('C11 · Adicional de IRPJ com receita anual zero ou ausente', () => {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const { fetchTaxPreview } = require('@/utils/calc-tax-preview')
 
-  it('>>> `lp_estimated_annual_revenue = 0`: o adicional NÃO é apurado — `:263` exige `> 0` <<<', async () => {
+  it('>>> `lp_estimated_annual_revenue = 0`: o adicional não é apurado, e o resultado NÃO É NaN <<<', async () => {
     // O que acontece HOJE. Não é "o adicional é zero porque a empresa é pequena": é o
     // adicional NÃO APURADO, porque a receita estimada não foi informada. A distinção é
     // `ausente-vs-falso.md`, e o código trata as duas como zero — o que vale registrar.
+    //
+    // >>> A PROTEÇÃO É DUPLA E REDUNDANTE, E A PRIMEIRA REDAÇÃO DESTE CASO ERROU QUAL É <<<
+    //
+    // Ela dizia "`:263` exige `> 0`", como se a guarda externa fosse o que impede o
+    // adicional. Medido na Parte D: trocar `annualRevenue > 0` por `>= 0` (`:263`) **não
+    // deixa este caso vermelho**, e trocar `excedente > 0` por `>= 0` (`:266`) também não.
+    // Cada uma protege sozinha, então nenhuma é necessária — e um portão que afirma a linha
+    // errada é `portao-que-nao-alcanca.md` no próprio teste: a pergunta *"o que faz este
+    // caso ficar vermelho?"* tinha a resposta "nada que aconteça à linha que o comentário
+    // cita".
+    //
+    // O que o deixa vermelho é remover AS DUAS: aí `(0 × 0,10) ÷ 0` vira **NaN** e o
+    // agregado inteiro contamina. A asserção de `Number.isNaN` abaixo é o que torna este
+    // caso o guardião da divisão por zero, em vez de uma repetição do C4.
     prepara({ ...LP_IND, lucro_presumido_activity: 'COMERCIO', lp_estimated_annual_revenue: 0 })
     const r = await fetchTaxPreview('t1')
 
+    expect(Number.isNaN(r.effectiveTaxPct)).toBe(false)
+    expect(Number.isNaN(r.taxableRegimePercent)).toBe(false)
     expect(r.effectiveTaxPct).toBeCloseTo(0.2327, 4)
     expect(r.taxableRegimePercent).toBeCloseTo(2.28, 4)
   })
@@ -635,6 +656,8 @@ describe('C8 · RET: o coeficiente da operação por fora é NÃO APURADO', () =
     buyerType: 'CONSUMIDOR_FINAL' as const,
     saleScope: 'INTRAESTADUAL' as const,
     costTotal: CUSTO,
+    /** Obrigatório no tipo — ver a nota em C1. `0` = sem acréscimos nesta construção. */
+    despAcessorias: 0,
     ...ESTRUTURA,
     profitTaxPct: 0.0228,
     rates: { icmsPct: 0.18, pisCofinsEffectivePct: 0.02993, ibsPct: 0, cbsPct: 0 },
