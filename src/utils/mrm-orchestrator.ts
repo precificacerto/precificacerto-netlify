@@ -41,6 +41,49 @@ import {
 import type { DiscountMode, ReapurationInput, TaxBreakdown, TaxRatePeriod, TaxRegime, TaxType } from '@/types/mrm'
 
 /**
+ * XI-3.5 FASE B — as duas perguntas de crédito que este módulo faz, exaustivas sobre
+ * `TaxRegime`. O porquê de `Record` em vez de `===` está em `regime-decisoes.ts`.
+ *
+ * **Módulo sem nenhum importador de produção** (medido em 11/10/2026): `mrm-orchestrator.ts` é
+ * do MRM 2.6.0, aposentado — ver `cascata-lucro-real.md`, “Estado do motor”. As tabelas entram
+ * assim mesmo: um módulo morto que volte não pode voltar herdando regime por omissão.
+ */
+
+/**
+ * O regime AGREGA crédito de compra lançado em `item_tax_credits`?
+ *
+ * | regime | agrega? | razão |
+ * |---|---|---|
+ * | `MEI` · `SIMPLES_NACIONAL` | **não** | regime cumulativo absorvido pelo DAS |
+ * | `SIMPLES_HIBRIDO` | **não** | **LACUNA CONHECIDA, não regra** — o optante que apura IBS/CBS pelo regime regular TEM direito ao crédito; o que falta é o DADO. Ver o comentário extenso em `aggregateItemTaxCredits` |
+ * | `LUCRO_PRESUMIDO` · `LUCRO_REAL` | sim | — |
+ */
+const AGREGA_CREDITO_DE_COMPRA: Readonly<Record<TaxRegime, boolean>> = {
+  MEI: false,
+  SIMPLES_NACIONAL: false,
+  SIMPLES_HIBRIDO: false,
+  LUCRO_PRESUMIDO: true,
+  LUCRO_REAL: true,
+}
+
+/**
+ * Crédito de PIS, COFINS e ICMS é RECUPERÁVEL neste regime?
+ *
+ * | regime | recuperável? | razão |
+ * |---|---|---|
+ * | `LUCRO_REAL` | **sim** | não-cumulativo |
+ * | `LUCRO_PRESUMIDO` | não | cumulativo por padrão — o comentário do ponto de uso registra que o tenant poderia sobrepor por política, e que isso não existe |
+ * | os outros três | não | não chegam aqui: `AGREGA_CREDITO_DE_COMPRA` já devolveu zero |
+ */
+const CREDITO_DE_PIS_COFINS_ICMS_RECUPERAVEL: Readonly<Record<TaxRegime, boolean>> = {
+  MEI: false,
+  SIMPLES_NACIONAL: false,
+  SIMPLES_HIBRIDO: false,
+  LUCRO_PRESUMIDO: false,
+  LUCRO_REAL: true,
+}
+
+/**
  * Configuração de precificação original do produto/serviço — usada pelo orchestrator
  * para calcular `peso_op_interna` via markup divisor (Excel cenário canônico H21+H26).
  *
@@ -197,7 +240,7 @@ export function aggregateItemTaxCredits(
   // Devolver zero aqui é o mesmo que o regime faz hoje, e NÃO afirma que não há crédito —
   // afirma que esta função não tem de onde tirá-lo. Inventar um campo seria pior que a
   // lacuna. Registrado como pendência no PR que trouxe o híbrido.
-  if (regime === 'MEI' || regime === 'SIMPLES_NACIONAL' || regime === 'SIMPLES_HIBRIDO') {
+  if (AGREGA_CREDITO_DE_COMPRA[regime] !== true) {
     return { recoverable: 0, non_recoverable: 0 }
   }
 
@@ -210,7 +253,7 @@ export function aggregateItemTaxCredits(
     // LR + LP não-cumulativo: PIS/COFINS/ICMS recuperáveis
     // (assumindo LP=cumulativo por padrão; tenant pode override via política)
     const isRecoverable =
-      regime === 'LUCRO_REAL' &&
+      CREDITO_DE_PIS_COFINS_ICMS_RECUPERAVEL[regime] === true &&
       (credit.tax_type === 'PIS' || credit.tax_type === 'COFINS' || credit.tax_type === 'ICMS')
 
     if (isRecoverable) {

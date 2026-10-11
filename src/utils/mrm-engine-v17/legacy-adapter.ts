@@ -48,6 +48,7 @@ import {
   resolveItemLaborGrouping,
 } from '../destination-snapshot'
 import { resolveIndirectLaborPct } from '../indirect-labor-grouping'
+import { temGuiaUnicaPorDentro } from '../regime-decisoes'
 
 /**
  * Item esperado pelas páginas (subset do BudgetItemRow / OrderItemRow / SaleItemRow).
@@ -143,8 +144,7 @@ export interface PageItem {
  * global e mexer nele quebraria fixtures e oráculos de Lucro Real.
  */
 function resolveYieldUndoFactor(item: PageItem, regime: TaxRegime | null | undefined): number {
-  const isSimplesOuMei = regime === 'SIMPLES_NACIONAL' || regime === 'MEI'
-  if (!isSimplesOuMei) return 1
+  if (!temGuiaUnicaPorDentro(regime)) return 1
   if (item.product_type === 'PRODUZIDO') return 1  // rendimento real: fracionar é correto
   const y = Number(item.yield_quantity) || 0
   return y > 1 ? y : 1
@@ -179,7 +179,7 @@ export function resolveDopRates(
   tenantCalcType?: string | null,
   productiveLaborPct = 0,
 ): { admin: number; fixed: number; variable: number; financial: number; fromItemSnapshot: boolean } {
-  const isSimplesOuMei = regime === 'SIMPLES_NACIONAL' || regime === 'MEI'
+  const isSimplesOuMei = temGuiaUnicaPorDentro(regime)
   const ebU = item.expense_breakdown_unit
   // SNAPSHOT DE SERVIÇO (`services.expense_snapshot`): quando existe, ele É a construção
   // daquele preço, em qualquer regime — sem a condição `> 0` usada abaixo, porque a
@@ -1010,7 +1010,7 @@ export function calculateMotorV17ForPage(args: PageBuildArgs): (LegacyMotorResul
   // convivem. A linha do MEI tem amount e rate zerados e por isso NÃO pode passar pelo
   // filtro `amount > 0 || rate_pct > 0` (que a apagaria); o ramo do DAS é montado sem filtro,
   // garantindo "linha presente, valor zero". Fora de SN/MEI o array e o filtro são os de hoje.
-  const isSimplesOuMei = tenantCtx.regime === 'SIMPLES_NACIONAL' || tenantCtx.regime === 'MEI'
+  const isSimplesOuMei = temGuiaUnicaPorDentro(tenantCtx.regime)
   const dasAmount = Number(v17Result.motor.das) || 0
   const taxesInsideTotal: TaxLine[] = isSimplesOuMei
     ? [

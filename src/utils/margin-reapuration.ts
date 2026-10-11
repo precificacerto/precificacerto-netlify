@@ -65,6 +65,89 @@ import {
   type TaxType,
   type ValidationMap,
 } from '@/types/mrm'
+import { rateiaIrpjCsll, temGuiaUnicaPorDentro } from './regime-decisoes'
+
+
+// ─────────────────────────────────────────────────────────────────────────────────────────
+// EXAUSTIVIDADE SOBRE O REGIME — XI-3.5 FASE B, 11/10/2026
+//
+// As perguntas que SÓ este módulo faz. As compartilhadas vêm de `regime-decisoes.ts`, e o
+// porquê de uma tabela por PERGUNTA (e não por call site) está escrito lá.
+//
+// Os valores são os de hoje, chave por chave ⇒ bit-exact. Esta fase não muda comportamento.
+// ─────────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * O PIS/COFINS cadastrado precisa ser CONVERTIDO de construção para apuração, dividindo por
+ * `(1 − ICMS)`?
+ *
+ * É a heurística V12 D1, e ela não é só o regime: só converte com PIS **e** COFINS presentes e
+ * soma `< 8,5%`. A tabela responde apenas a metade do regime; as outras duas condições ficam no
+ * ponto de uso, onde sempre estiveram.
+ *
+ * | regime | converte? | razão |
+ * |---|---|---|
+ * | `LUCRO_REAL` | **sim** | 9,25% nominal sobre `P − ICMS − ISS`; a efetiva cadastrada é 7,678% |
+ * | `LUCRO_PRESUMIDO` | não | 3,65% cumulativo — sem conversão |
+ * | `SIMPLES_HIBRIDO` | não | PIS/COFINS dentro do DAS reduzido até 2026; de 2027 o optante apura CBS |
+ * | `SIMPLES_NACIONAL` | não | dentro da guia única |
+ * | `MEI` | não | idem |
+ */
+const CONVERTE_PIS_COFINS_PARA_APURACAO: Readonly<Record<TaxRegime, boolean>> = {
+  MEI: false,
+  SIMPLES_NACIONAL: false,
+  SIMPLES_HIBRIDO: false,
+  LUCRO_PRESUMIDO: false,
+  LUCRO_REAL: true,
+}
+
+/**
+ * O regime APLICA crédito tributário recuperável sobre o custo?
+ *
+ * **Não é a mesma pergunta de `aggregateItemTaxCredits` no orchestrator**, e as respostas
+ * divergem hoje: lá o Simples Híbrido é `false` (não agrega crédito de compra, por falta de
+ * DADO — `item_tax_credits` tem zero linhas), aqui é `true`. A divergência é de hoje, não desta
+ * fase, e está escrita para que ninguém a “harmonize” sem decidir qual lado está certo.
+ *
+ * | regime | aplica? | razão |
+ * |---|---|---|
+ * | `MEI` | **não** | regime cumulativo — o DAS absorve |
+ * | `SIMPLES_NACIONAL` | **não** | idem |
+ * | `SIMPLES_HIBRIDO` | sim | comportamento de hoje |
+ * | `LUCRO_PRESUMIDO` | sim | — |
+ * | `LUCRO_REAL` | sim | não-cumulativo |
+ */
+const APLICA_CREDITO_RECUPERAVEL: Readonly<Record<TaxRegime, boolean>> = {
+  MEI: false,
+  SIMPLES_NACIONAL: false,
+  SIMPLES_HIBRIDO: true,
+  LUCRO_PRESUMIDO: true,
+  LUCRO_REAL: true,
+}
+
+/**
+ * A validação V7 (faixa do PIS/COFINS de apuração) é DISPENSADA para este regime?
+ *
+ * Dispensada quer dizer *passa sem conferir faixa*. Quem não é dispensado tem de cair numa das
+ * duas faixas conhecidas — 9,25% (LR) ou 3,65% (LP), tolerância 0,5pp.
+ *
+ * **O Simples Híbrido NÃO é dispensado aqui, e É dispensado em `mrm-rates-loader.ts`.** As duas
+ * validam a mesma grandeza com critérios diferentes. É divergência de hoje; registrada em vez de
+ * resolvida, porque resolvê-la muda comportamento e esta fase não muda comportamento.
+ *
+ * | regime | dispensado? |
+ * |---|---|
+ * | `MEI` · `SIMPLES_NACIONAL` | **sim** — guia única absorve o PIS/COFINS |
+ * | `SIMPLES_HIBRIDO` | não (ver acima) |
+ * | `LUCRO_PRESUMIDO` · `LUCRO_REAL` | não — têm faixa conhecida |
+ */
+const V7_DISPENSADO_POR_REGIME: Readonly<Record<TaxRegime, boolean>> = {
+  MEI: true,
+  SIMPLES_NACIONAL: true,
+  SIMPLES_HIBRIDO: false,
+  LUCRO_PRESUMIDO: false,
+  LUCRO_REAL: false,
+}
 
 const EPSILON = 0.01
 
@@ -112,7 +195,7 @@ function computeTaxesInside(
   // grupo ICMS + ISS + PIS/COFINS — não soma. Sem este ramo a alíquota do item era resolvida
   // em `item-tax-rates.ts:630`, guardada em `ItemTaxRates.das_pct` e descartada antes do
   // motor: o snapshot saía com `imp_total: 0` mesmo com o item tendo percentual.
-  const isRegimeDoDas = regime === 'SIMPLES_NACIONAL' || regime === 'MEI'
+  const isRegimeDoDas = temGuiaUnicaPorDentro(regime)
   const das = Number(dasPct) || 0
   if (isRegimeDoDas && das > 0) {
     const dasAmount = ancora * das
@@ -160,7 +243,7 @@ function computeTaxesInside(
   const baseApuracao = ancora - icmsAmount
   // Heurística (V12 D1): só converte quando regime LR + PIS e COFINS presentes +
   // soma < 8,5% (faixa construção típica LR).
-  const isLR = regime === 'LUCRO_REAL'
+  const isLR = CONVERTE_PIS_COFINS_PARA_APURACAO[regime] === true
   const hasBothPisCofins = pisRate > 0 && cofinsRate > 0
   const isConstrucao = isLR && hasBothPisCofins && pisCofinsAggregate < 0.085
 
@@ -306,7 +389,7 @@ export function calculateMarginReapuration(input: ReapurationInput): TaxBreakdow
   // Mesmo se caller passar valor > 0, forçamos a zero e emitimos warn estruturado.
   const csll_pct_input = csll_pct ?? 0
   const irpj_pct_input = irpj_pct ?? 0
-  const regime_blocks_csll_irpj = regime === 'MEI' || regime === 'SIMPLES_NACIONAL'
+  const regime_blocks_csll_irpj = !rateiaIrpjCsll(regime)
   const csll_pct_effective = regime_blocks_csll_irpj ? 0 : csll_pct_input
   const irpj_pct_effective = regime_blocks_csll_irpj ? 0 : irpj_pct_input
 
@@ -341,7 +424,7 @@ export function calculateMarginReapuration(input: ReapurationInput): TaxBreakdow
   // Guard regime cumulativo: MEI/SN não aplicam créditos (regime cumulativo absorve via DAS).
   // Quando regime ∈ {MEI, SN} e recoverable > 0, força a 0 e adiciona mensagem.
   const tax_credits_input = tax_credits ?? { recoverable: 0, non_recoverable: 0 }
-  const isRegimeCumulativo = regime === 'MEI' || regime === 'SIMPLES_NACIONAL'
+  const isRegimeCumulativo = APLICA_CREDITO_RECUPERAVEL[regime] !== true
   const recoverable_effective = isRegimeCumulativo ? 0 : Math.max(0, tax_credits_input.recoverable)
   const non_recoverable_effective = Math.max(0, tax_credits_input.non_recoverable)
   const tax_credits_applied = {
@@ -480,7 +563,7 @@ export function calculateMarginReapuration(input: ReapurationInput): TaxBreakdow
   const pisRateInLines = inside.lines.find((l) => l.type === 'PIS')?.rate_pct ?? 0
   const cofinsRateInLines = inside.lines.find((l) => l.type === 'COFINS')?.rate_pct ?? 0
   const pisCofinsAggregate = pisRateInLines + cofinsRateInLines
-  const isSnMei = regime === 'MEI' || regime === 'SIMPLES_NACIONAL'
+  const isSnMei = V7_DISPENSADO_POR_REGIME[regime] === true
   const validApuracaoLR = Math.abs(pisCofinsAggregate - 0.0925) < 0.005
   const validApuracaoLP = Math.abs(pisCofinsAggregate - 0.0365) < 0.005
   const v7 = isSnMei || pisCofinsAggregate === 0 || validApuracaoLR || validApuracaoLP

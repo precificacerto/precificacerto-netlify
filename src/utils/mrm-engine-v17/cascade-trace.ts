@@ -11,6 +11,7 @@
  */
 
 import type { CascadeStep, ConsolidatedView, MotorOutput, TaxRegime } from '@/types/mrm'
+import { temGuiaUnicaPorDentro } from '../regime-decisoes'
 
 interface BuildCascadeInput {
   view: ConsolidatedView
@@ -49,7 +50,7 @@ interface BuildCascadeInput {
 export function buildCascadeTrace17(input: BuildCascadeInput): CascadeStep[] {
   const { view, motor } = input
   // EPIC-DAS: chave da renderização condicional das etapas 7 e 13.
-  const isSimplesOuMei = input.regime === 'SIMPLES_NACIONAL' || input.regime === 'MEI'
+  const isSimplesOuMei = temGuiaUnicaPorDentro(input.regime)
   const peso_externo = 1 - view.peso_op_interna_ponderado
   // Dossiê Julho 2026 (Correções 2 e 3): base da Operação Interna PRÉ-desconto — usada como
   // denominador das alíquotas efetivas exibidas na fase de construção (Etapas 5, 6 e 7).

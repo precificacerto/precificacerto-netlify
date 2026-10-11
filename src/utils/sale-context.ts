@@ -26,7 +26,7 @@
 import { placementOf as placementOfMatrix } from './pricing-engine'
 // A FONTE do escopo. `REGIMES_COM_MATRIZ` passou a LER dela no passo XI-3 — ver o cabeçalho
 // dela abaixo.
-import { tributosPorForaNaMatriz } from './matriz-fiscal'
+import { MATRIZ_FISCAL, tributosPorForaNaMatriz } from './matriz-fiscal'
 import type { TaxRegime } from '@/supabase/types'
 import type { BaseCode, CalcType, ExternalTax, TaxBreakdownInput, TaxName } from './pricing-engine'
 
@@ -441,10 +441,12 @@ export function buildTaxBreakdown(input: BuildTaxBreakdownInput): BuildTaxBreakd
 const REGIMES_COM_CAMINHO_PROPRIO: ReadonlySet<string> = new Set(['SIMPLES_HIBRIDO'])
 
 export const REGIMES_COM_MATRIZ: readonly string[] = (() => {
-  const TODOS: readonly TaxRegime[] = [
-    'MEI', 'SIMPLES_NACIONAL', 'SIMPLES_HIBRIDO',
-    'LUCRO_PRESUMIDO', 'LUCRO_REAL', 'LUCRO_PRESUMIDO_RET',
-  ]
+  // XI-3.5 FASE B: era uma lista literal dos seis regimes, escrita À MÃO. Lista positiva não
+  // tem a mina do `Exclude`, mas tem a própria: um valor novo no tipo não a quebra — ela fica
+  // INCOMPLETA EM SILÊNCIO, e o regime novo nunca seria considerado. Agora os regimes vêm das
+  // chaves da própria matriz, que é `Record<TaxRegime, …>` e portanto exaustiva por
+  // construção. Acrescentar um valor ao tipo o traz para cá sem ninguém editar nada.
+  const TODOS = Object.keys(MATRIZ_FISCAL) as readonly TaxRegime[]
   return TODOS.filter((r) =>
     tributosPorForaNaMatriz(r).length > 0 && !REGIMES_COM_CAMINHO_PROPRIO.has(r))
 })()

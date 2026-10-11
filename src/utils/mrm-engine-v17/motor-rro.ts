@@ -29,6 +29,7 @@ import {
 } from '@/types/mrm'
 
 import { buildCascadeTrace17 } from './cascade-trace'
+import { temGuiaUnicaPorDentro } from '../regime-decisoes'
 
 interface ApplyMotorRROInput {
   view: ConsolidatedView
@@ -102,7 +103,7 @@ export function applyMotorRRO(input: ApplyMotorRROInput): ApplyMotorRROResult {
   // sobre a Âncora. Fora de SN/MEI `das` é 0 e todo o cálculo abaixo é bit-exact ao anterior.
   // RET e Simples Híbrido são mapeados para LUCRO_PRESUMIDO antes de chegar aqui, logo
   // reusam a coluna `custom_tax_percent` sem nunca entrar neste ramo.
-  const isSimplesOuMei = input.regime === 'SIMPLES_NACIONAL' || input.regime === 'MEI'
+  const isSimplesOuMei = temGuiaUnicaPorDentro(input.regime)
   const das_rate = resolveRate(input.rates, 'DAS')
 
   let icms: number
