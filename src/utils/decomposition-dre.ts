@@ -25,6 +25,9 @@
  * encolhessem junto, a margem pareceria intacta.
  */
 
+import type { TaxRegime } from '@/supabase/types'
+import { SEGMENTOS, colocacaoVigente, type TributoFiscal } from './matriz-fiscal'
+
 /** A ficha tributária que a CONSTRUÇÃO daquele item produziu. Nada aqui é derivado. */
 export interface DecompositionItemTaxes {
   /**
@@ -847,7 +850,35 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
    * O IPI some nos dois formatos de guia única, e é o único por fora que o híbrido NÃO
    * ganha: no Simples ele está dentro do DAS do Anexo II (regra 6 do comando).
    */
-  const SOMEM_NA_GUIA_UNICA = new Set(['icms', 'iss', 'pis_cofins', 'irpj', 'csll'])
+  // >>> XI-5: O `Set` É DERIVADO DA MATRIZ, não mais um literal <<<
+  //
+  // Era `new Set(['icms', 'iss', 'pis_cofins', 'irpj', 'csll'])`, dado literal. Agora é o
+  // conjunto das chaves cuja célula a matriz marca INEXISTENTE **nos três regimes de guia
+  // única, em todos os três segmentos**. Mesmo valor, outra origem: a Fase 2A já havia medido
+  // a igualdade, e `concordancia-da-matriz.test.ts` (grupo d) é a rede — ele afirma IGUALDADE
+  // de conjuntos, não inclusão, então uma matriz que marcasse INEXISTENTE para mais tributos
+  // que os cinco fica vermelha ANTES de linha nenhuma desaparecer da tela.
+  //
+  // O mapa de chaves mora AQUI e não na matriz: traduzir `icms` → `'ICMS'` é apresentação, e
+  // dar isso à matriz fiscal seria carregá-la com responsabilidade de linha de tela.
+  //
+  // >>> POR QUE A LISTA DE REGIMES É NOMEADA, E NÃO DERIVADA <<<
+  //
+  // Derivá-la da matriz — "quem tem uma linha única POR_DENTRO" — traria o **RET**, cujos 4%
+  // são exatamente isso (ESPEC XIV.6). E aí ICMS, ISS, PIS/COFINS e as linhas por fora dele
+  // também desapareceriam: mudança de comportamento FORA do escopo do XI-5, em que só IRPJ e
+  // CSLL do RET mudam, por decisão do dono do produto. A lista é a mesma de
+  // `budget-decomposition-input.ts:216` (`guiaUnica`), e derivá-la é a rodada seguinte.
+  const CHAVE_DA_LINHA: Readonly<Record<string, TributoFiscal>> = {
+    icms: 'ICMS', iss: 'ISS', pis_cofins: 'PIS_COFINS', irpj: 'IRPJ', csll: 'CSLL',
+  }
+  const REGIMES_DE_GUIA_UNICA: readonly TaxRegime[] = ['SIMPLES_NACIONAL', 'MEI', 'SIMPLES_HIBRIDO']
+  const SOMEM_NA_GUIA_UNICA = new Set(
+    Object.keys(CHAVE_DA_LINHA).filter((chave) =>
+      REGIMES_DE_GUIA_UNICA.every((regime) =>
+        SEGMENTOS.every((seg) =>
+          colocacaoVigente(regime, seg, CHAVE_DA_LINHA[chave]) === 'INEXISTENTE'))),
+  )
   const POR_FORA = new Set(['por_fora', 'por_fora_ibs', 'por_fora_cbs', 'por_fora_is', 'por_fora_ipi'])
   const rows = todasAsLinhas.filter((r) => {
     if (!input.guiaUnica) return r.key !== 'das'

@@ -28,6 +28,7 @@ import { TAX_MATRIX, placementOf, type CalcType, type TaxName, type Placement } 
 import {
   MATRIZ_FISCAL, celulaDe, colocacaoVigente, tributosPorForaNaMatriz,
   type Colocacao, type TributoFiscal,
+  SEGMENTOS,
 } from '@/utils/matriz-fiscal'
 import { POR_FORA_POR_REGIME, tributosPorForaDoRegime } from '@/utils/por-fora-por-regime'
 import { tributoExisteNoSegmento } from '@/utils/campos-do-segmento'
@@ -38,7 +39,8 @@ const REGIMES: readonly TaxRegime[] = [
   'MEI', 'SIMPLES_NACIONAL', 'SIMPLES_HIBRIDO',
   'LUCRO_PRESUMIDO', 'LUCRO_REAL', 'LUCRO_PRESUMIDO_RET',
 ]
-const SEGMENTOS: readonly CalcType[] = ['INDUSTRIALIZACAO', 'REVENDA', 'SERVICO']
+// XI-5: a lista saiu daqui e passou a ser lida de `matriz-fiscal.ts`, onde ela já existia.
+// Eram TRÊS cópias de uma lista de três nomes — `copia-divergente.md`.
 const NOMES_DO_MOTOR: readonly TaxName[] = ['ICMS', 'ISS', 'PIS_COFINS', 'IPI', 'IS', 'IBS', 'CBS']
 
 /** Os 18 pares regime × segmento, montados e não digitados. */

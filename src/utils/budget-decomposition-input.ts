@@ -22,6 +22,8 @@ import {
   type DecompositionInput,
   type DecompositionItem,
 } from './decomposition-dre'
+import type { TaxRegime } from '@/supabase/types'
+import { MATRIZ_FISCAL, colocacaoVigente } from './matriz-fiscal'
 import { resolveItemFicha } from './budget-accessories'
 import { resolveFichaHibrida } from './simples-hibrido'
 import { pisCofinsNominalFromEffective } from './sale-context'
@@ -187,6 +189,34 @@ const num = (v: unknown): number => {
 
 
 /**
+ * O FORMATO QUANDO O REGIME NÃO CARREGOU — default DECLARADO, XI-5, 11/10/2026.
+ *
+ * `null` é a janela de carregamento do `useTenantTaxContext`: os quatro call sites de produção
+ * passam `regime: mrmConfig.loading ? null : mrmConfig.regime` —
+ * `orcamentos/index.tsx:1295`, `pedidos/index.tsx:366`, `vendas/index.tsx:397` e `:1542`.
+ *
+ * Até 11/10/2026 isso caía no ramo do Lucro Real por **OMISSÃO** — ausente lido como Lucro
+ * Real, sem ninguém ter decidido. Agora é default DECLARADO. Que a janela de carregamento
+ * mostre o formato de outro regime é **pendência própria, não defeito desta rodada**.
+ *
+ * E o alcance não é só a produção: **206 dos 211 casos de decomposição do repositório não
+ * passam `regime`** (medido no §0 desta rodada), e dependiam da omissão. Depois desta rodada
+ * dependem desta constante, pelo nome — `ausente-vs-falso.md`: a ausência deixa de afirmar
+ * sozinha.
+ */
+const FORMATO_QUANDO_O_REGIME_NAO_CARREGOU: TaxRegime = 'LUCRO_REAL'
+
+/**
+ * O regime, normalizado para uma CHAVE DA MATRIZ. Desconhecido ou ausente cai no default
+ * declarado acima — nunca num `undefined` que a matriz não sabe indexar.
+ */
+function regimeDaMatriz(regimeNorm: string): TaxRegime {
+  return Object.prototype.hasOwnProperty.call(MATRIZ_FISCAL, regimeNorm)
+    ? (regimeNorm as TaxRegime)
+    : FORMATO_QUANDO_O_REGIME_NAO_CARREGOU
+}
+
+/**
  * Monta a entrada da decomposição a partir dos itens do orçamento.
  *
  * As categorias vão POR ITEM: comissão, lucro e RT são cadastrados por produto, e o IRPJ e a
@@ -217,6 +247,9 @@ export function buildBudgetDecompositionInput(
   // MEI NUNCA é híbrido (regra 10 do comando): o DAS dele é fixo mensal e não há apuração
   // por fora a optar.
   const isMei = regimeNorm === 'MEI'
+  // XI-5: a chave da matriz para ESTE documento. Ausente ou desconhecido cai no default
+  // DECLARADO — ver `FORMATO_QUANDO_O_REGIME_NAO_CARREGOU`.
+  const regimeMatriz = regimeDaMatriz(regimeNorm)
   const deducaoBaseHibrido = hibrido ? num(params.deducaoBaseIbsCbsPct) : 0
 
   const items: DecompositionItem[] = produtos.map((item) => {
@@ -315,8 +348,44 @@ export function buildBudgetDecompositionInput(
       // `lrIrpj = profitPct * 0.15`). Multiplicá-lo pelo lucro do item aplica o lucro DUAS
       // vezes — foi o que exibiu IRPJ de 1,80% onde a construção mostra 15,00%.
       // R5 do Motor 2: na guia única IRPJ e CSLL já estão no DAS — peso ZERO, linha presente.
-      irpjPct: guiaUnica ? 0 : lucroPct * IRPJ_RATE_ON_PROFIT,
-      csllPct: guiaUnica ? 0 : lucroPct * CSLL_RATE_ON_PROFIT,
+      // >>> XI-5: A COLOCAÇÃO DE IRPJ E CSLL É LIDA DA MATRIZ, não deduzida de `guiaUnica` <<<
+      //
+      // Antes: `guiaUnica ? 0 : lucroPct × alíquota`. Eram DOIS ramos para SEIS regimes, e os
+      // que não estavam na lista da guia única caíam no ramo do Lucro Real **por não estarem
+      // lá** — não por nome. O RET caía ali, e os 4% dele já englobam IRPJ e CSLL (ESPEC
+      // XIV.6): a decomposição exibia os dois DE NOVO, fora da guia.
+      //
+      // | o que a matriz diz | o que acontece aqui |
+      // |---|---|
+      // | `INEXISTENTE` | ZERADOS — MEI, Simples Nacional, Híbrido e, desde o XI-5, o **RET** |
+      // | base `LUCRO` | etapa 16, como hoje — Lucro Real, e não muda um centavo |
+      // | base `PRESUNCAO` | etapa 16 sobre o lucro, **como hoje** — ver o gap abaixo |
+      //
+      // >>> O GAP DA 13C, NOMEADO AQUI E EM UM LUGAR SÓ <<<
+      //
+      // Para o LUCRO PRESUMIDO a matriz pede `base: 'PRESUNCAO'`, `etapa: '13C'`
+      // (`matriz-fiscal.ts:337-338`): presunção sobre a RECEITA, antes do resíduo. **A linha
+      // 13C NÃO EXISTE nesta decomposição** — medido no §0 do XI-5: não há conceito de etapa
+      // em `decomposition-dre.ts`, e IRPJ/CSLL estão "na etapa 16" por participarem de
+      // `somaRROde` (`:586`). Criá-la é estrutura nova, com base própria, e mexe no
+      // fechamento que a Esquadrias prega — **rodada própria**, por decisão do dono do
+      // produto.
+      //
+      // Então o Presumido mantém o comportamento de hoje, e isso é DIVERGÊNCIA CONHECIDA, não
+      // leitura da matriz: `portoes-presumido-e-ret.test.ts` C5-a e C5-b a documentam, com
+      // "até a rodada da 13C" no nome. Nomear o gap num ponto é o que impede que ele vire
+      // premissa — `razao-longe-da-restricao.md`.
+      //
+      // R6 — quando existem, a base é o VALOR DO LUCRO: `% Original = alíquota × % Lucro`, com
+      // o lucro DESTE item e a ALÍQUOTA LEGAL. NÃO usar `mrmConfig.irpj_pct`: ele já é
+      // `% Lucro do TENANT × 15%` (`tax-sync.ts`), e multiplicá-lo pelo lucro do item aplica o
+      // lucro DUAS vezes — foi o que exibiu IRPJ de 1,80% onde a construção mostra 15,00%.
+      irpjPct: colocacaoVigente(regimeMatriz, segmento, 'IRPJ') === 'INEXISTENTE'
+        ? 0
+        : lucroPct * IRPJ_RATE_ON_PROFIT,
+      csllPct: colocacaoVigente(regimeMatriz, segmento, 'CSLL') === 'INEXISTENTE'
+        ? 0
+        : lucroPct * CSLL_RATE_ON_PROFIT,
     }
 
     return {

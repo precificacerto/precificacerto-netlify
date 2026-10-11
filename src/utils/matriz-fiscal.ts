@@ -189,7 +189,14 @@ interface Linha {
   readonly vigenteHoje?: Colocacao
 }
 
-const SEGMENTOS: readonly CalcType[] = ['INDUSTRIALIZACAO', 'REVENDA', 'SERVICO']
+/**
+ * Os três segmentos da cadeia, na ordem das colunas da matriz.
+ *
+ * EXPORTADO em 11/10/2026 (XI-5): `decomposition-dre.ts` e `concordancia-da-matriz.test.ts`
+ * declaravam cada um a sua lista. Três cópias de uma lista de três nomes que o compilador não
+ * obriga a concordar — `copia-divergente.md`, e o remédio é apagar as cópias.
+ */
+export const SEGMENTOS: readonly CalcType[] = ['INDUSTRIALIZACAO', 'REVENDA', 'SERVICO']
 
 /**
  * XIV.7 — O EIXO DE VIGÊNCIA. **Nenhum percentual, por desenho.**

@@ -759,6 +759,47 @@ describe('C8 · RET: o coeficiente da operação por fora é NÃO APURADO', () =
 // C5 e C7 · A DECOMPOSIÇÃO — em que etapa IRPJ e CSLL aparecem
 // ═══════════════════════════════════════════════════════════════════════════════════════════
 
+describe('XI-5 · o DEFAULT quando o regime não carregou — DECLARADO, não por omissão', () => {
+  const ITEM_D = {
+    key: 'i1', label: 'P1', quantity: 1, unitPrice: 2_500,
+    costUnit: CUSTO, productiveLaborUnit: 0,
+    commissionPct: 5, profitPct: 10, rtPct: 0,
+  }
+  const DESPESAS_D = { fixaPct: 0.10, variavelPct: 0.03, financeiraPct: 0.02, moIndiretaPct: 0.07 }
+  const cats = (regime: string | null | undefined) => buildBudgetDecompositionInput({
+    items: [ITEM_D as never], discountPct: 0, despesas: DESPESAS_D as never,
+    tenantCalcType: 'INDUSTRIALIZACAO', regime,
+  }).input.items[0].categories
+
+  it('>>> `regime: null` dá o formato do LUCRO REAL, por `FORMATO_QUANDO_O_REGIME_NAO_CARREGOU` <<<', () => {
+    // A constante é nomeada em `budget-decomposition-input.ts` e citada aqui PELO NOME, para
+    // que quem mudar uma das duas pontas encontre a outra.
+    //
+    // `null` é a janela de carregamento do `useTenantTaxContext` — os quatro call sites de
+    // produção passam `mrmConfig.loading ? null : mrmConfig.regime`. Até 11/10/2026 isso caía
+    // no ramo do Lucro Real por OMISSÃO; agora é default DECLARADO, e este caso é o que
+    // impede que ele volte a ser omissão. `ausente-vs-falso.md`.
+    const real = cats('LUCRO_REAL')
+    for (const ausente of [null, undefined, '', '   ', 'REGIME_QUE_NAO_EXISTE']) {
+      const c = cats(ausente)
+      expect(c.irpjPct).toBe(real.irpjPct)
+      expect(c.csllPct).toBe(real.csllPct)
+    }
+  })
+
+  it('e o default NÃO é a guia única nem o RET — o par que prova que ele escolheu um formato', () => {
+    // Sem este par, "igual ao Lucro Real" passaria num mundo em que TODOS os regimes dessem o
+    // mesmo número. Os dois contrastes mostram que o default escolheu, entre formatos que de
+    // fato divergem.
+    const nulo = cats(null)
+    expect(nulo.irpjPct).not.toBe(cats('SIMPLES_NACIONAL').irpjPct)
+    expect(nulo.irpjPct).not.toBe(cats('LUCRO_PRESUMIDO_RET').irpjPct)
+    expect(cats('SIMPLES_NACIONAL').irpjPct).toBe(0)
+    expect(cats('LUCRO_PRESUMIDO_RET').irpjPct).toBe(0)
+    expect(nulo.irpjPct).toBeCloseTo(0.015, 6)
+  })
+})
+
 describe('C5 e C7 · IRPJ e CSLL na decomposição, por regime', () => {
   const ITEM = {
     key: 'i1', label: 'P1', quantity: 1, unitPrice: 2_500,
@@ -772,11 +813,18 @@ describe('C5 e C7 · IRPJ e CSLL na decomposição, por regime', () => {
     tenantCalcType: 'INDUSTRIALIZACAO', regime,
   }).input.items[0].categories
 
-  it('C5 · Presumido: IRPJ e CSLL caem na ETAPA 16, derivados do LUCRO — DIVERGE DA ESPEC XIV.4, esperado após correção: etapa 13C, presunção sobre a RECEITA', () => {
-    // A linha que decide é `budget-decomposition-input.ts:318-319`:
-    //   irpjPct: guiaUnica ? 0 : lucroPct * IRPJ_RATE_ON_PROFIT
-    // `guiaUnica` (`:216`) é SIMPLES_NACIONAL || MEI || hibrido — o Presumido não está lá,
-    // então cai no `else`, que é o ramo do Lucro Real.
+  it('C5 · Presumido: IRPJ e CSLL caem na ETAPA 16, derivados do LUCRO — DIVERGE DA ESPEC XIV.4 ATÉ A RODADA DA 13C, esperado então: etapa 13C, presunção sobre a RECEITA', () => {
+    // ATUALIZADO no XI-5 (11/10/2026): a RAZÃO da divergência mudou, o VALOR não.
+    //
+    // Antes, o Presumido caía no ramo do Lucro Real por NÃO ESTAR na lista da guia única —
+    // divergência por omissão. Agora a decomposição LÊ a matriz, e a célula do Presumido diz
+    // `base: 'PRESUNCAO'`, `etapa: '13C'` (`matriz-fiscal.ts:337-338`). O número continua o
+    // de hoje porque **a linha 13C NÃO EXISTE** nesta decomposição: não há conceito de etapa
+    // em `decomposition-dre.ts`, e IRPJ/CSLL estão "na 16" por participarem de `somaRROde`.
+    //
+    // Então o gap deixou de ser implícito e passou a ser NOMEADO, em um ponto só — ver o
+    // comentário de `budget-decomposition-input.ts` na leitura de `colocacaoVigente`. Criar a
+    // 13C é rodada própria, por decisão do dono do produto.
     const c = categoriasDe('LUCRO_PRESUMIDO')
 
     // MEDIDO: lucro 10% × 0,15 = 0,015 e × 0,09 = 0,009. Derivado do LUCRO, não da receita.
@@ -791,7 +839,7 @@ describe('C5 e C7 · IRPJ e CSLL na decomposição, por regime', () => {
     expect(c.csllPct).not.toBe(0)
   })
 
-  it('C5 · e é IDÊNTICO ao Lucro Real — é o que prova que o Presumido empresta a conta dele', () => {
+  it('C5 · e é IDÊNTICO ao Lucro Real — é o que prova que o Presumido empresta a conta dele, ATÉ A RODADA DA 13C', () => {
     // A frase da ESPEC: *"Presumido e RET 'funcionam' porque emprestam a conta do Lucro
     // Real."* Esta é a asserção dela: bit a bit o mesmo número.
     const presumido = categoriasDe('LUCRO_PRESUMIDO')
@@ -800,22 +848,42 @@ describe('C5 e C7 · IRPJ e CSLL na decomposição, por regime', () => {
     expect(presumido.csllPct).toBe(real.csllPct)
   })
 
-  it('C7 · RET: o MESMO — `regimeNorm` não está em `guiaUnica` e cai no ramo do Lucro Real — DIVERGE DA ESPEC XIV.6, esperado após correção: IRPJ e CSLL ZERADOS, dentro dos 4%', () => {
+  it('>>> C7 · RET: IRPJ e CSLL ZERADOS — a matriz diz INEXISTENTE, e os 4% os englobam <<<', () => {
+    // >>> ESTE CASO MUDOU DE LADO NO XI-5, 11/10/2026 <<<
+    //
+    // Ele afirmava o OPOSTO: `0,015` e `0,009`, e `toBe(real.irpjPct)` — com
+    // "DIVERGE DA ESPEC XIV.6" no nome. A razão era que `regimeNorm` não estava em
+    // `guiaUnica`, então o RET caía no ramo do Lucro Real e a decomposição exibia IRPJ e CSLL
+    // DE NOVO, fora da guia, quando os 4% do RET já os englobam.
+    //
+    // Agora a decomposição LÊ a matriz, e a célula do RET diz INEXISTENTE
+    // (`matriz-fiscal.ts`, bloco RET). O "DIVERGE" sai do nome porque a divergência acabou.
     const ret = categoriasDe('LUCRO_PRESUMIDO_RET')
     const real = categoriasDe('LUCRO_REAL')
 
-    // MEDIDO: 0,015 e 0,009, iguais ao Lucro Real.
-    expect(ret.irpjPct).toBeCloseTo(0.015, 6)
-    expect(ret.csllPct).toBeCloseTo(0.009, 6)
-    expect(ret.irpjPct).toBe(real.irpjPct)
-    expect(ret.csllPct).toBe(real.csllPct)
+    expect(ret.irpjPct).toBe(0)
+    expect(ret.csllPct).toBe(0)
+
+    // >>> E NÃO É MAIS IGUAL AO LUCRO REAL — a asserção que nomeia a correção <<<
+    // Sem o `not`, "zero" seria indistinguível de um Lucro Real que também desse zero (lucro
+    // zero, por exemplo). O par prova que o Real continua computando.
+    expect(ret.irpjPct).not.toBe(real.irpjPct)
+    expect(ret.csllPct).not.toBe(real.csllPct)
+    expect(real.irpjPct).toBeCloseTo(0.015, 6)
+    expect(real.csllPct).toBeCloseTo(0.009, 6)
+
+    // e a comissão e o lucro do RET NÃO foram tocados — a correção mexe em dois tributos
+    expect(ret.comissaoPct).toBeCloseTo(0.05, 6)
+    expect(ret.lucroPct).toBeCloseTo(0.10, 6)
   })
 
   it('>>> o par que mostra o estado CERTO: na guia única IRPJ e CSLL são ZERO <<<', () => {
     // Sem este caso, os dois acima afirmariam um número sem referência: `0,015` seria só um
     // número. Com ele, fica claro que o código JÁ SABE zerar IRPJ/CSLL quando eles estão
-    // dentro de outra guia — e que o RET, cujos 4% os englobam (XIV.6), deveria estar aqui.
-    for (const regime of ['SIMPLES_NACIONAL', 'MEI', 'SIMPLES_HIBRIDO']) {
+    // dentro de outra guia. O RET, cujos 4% os englobam (XIV.6), PASSOU a estar aqui no XI-5.
+    // XI-5: o RET ENTROU NESTA LISTA. Era o que o comentário abaixo dizia que "deveria
+    // estar aqui", e agora está — a matriz o marca INEXISTENTE e a decomposição a lê.
+    for (const regime of ['SIMPLES_NACIONAL', 'MEI', 'SIMPLES_HIBRIDO', 'LUCRO_PRESUMIDO_RET']) {
       const c = categoriasDe(regime)
       expect(c.irpjPct).toBe(0)
       expect(c.csllPct).toBe(0)
