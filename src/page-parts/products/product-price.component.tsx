@@ -438,8 +438,12 @@ export const ProductPrice: FC<Props> = ({
   // Real**, que é o modelo de referência e que o mesmo comando manda não alterar. Tirar o
   // `> 0` faria o resumo nascer para TODO tenant de Lucro Real de hoje (`ibs_active` e
   // `cbs_active` são `false` em 100% dos cálculos), e isso é mudança no modelo, não nesta
-  // correção. A decisão é do dono do produto — `razao-longe-da-restricao.md`: restrição sem
-  // razão citada no ponto de declaração autoriza pergunta, não remoção.
+  // correção.
+  //
+  // Decidido pelo PO em 11/10/2026: o resumo do por fora não aparece com
+  // `totalInlineTax = 0`. Razão: com alíquota zero nada entra na conta, logo nada precisa
+  // aparecer ("se entra na conta, aparece; se não aparece, não entra"). A estrutura exigida
+  // "desde já, com alíquota zero" é a do BLOCO DE INPUTS, não a do resumo.
   const hasInlineTaxes = tributosPorForaDoRegime(currentUser?.taxableRegime).length > 0
     && totalInlineTax > 0
 
