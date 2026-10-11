@@ -4,19 +4,28 @@
  * Comando do PO de 11/10/2026.
  *
  * ══════════════════════════════════════════════════════════════════════════════════════════
- * >>> ESTE ARQUIVO NUNCA FOI EXECUTADO — LEIA ANTES DE CONFIAR NELE <<<
+ * >>> AS TRÊS MUTAÇÕES FORAM MEDIDAS VERMELHAS — 11/10/2026 <<<
  *
- * A sessão que o escreveu tinha o Bash BLOQUEADO pelo classificador de permissões, do primeiro
- * ao último turno. Nenhum `npm test` rodou, e **as mutações M29, M30 e M31 não foram provadas
- * vermelhas** — o que está escrito abaixo sobre elas é o que elas DEVEM derrubar, não o que se
- * mediu que elas derrubam.
+ * A primeira versão deste cabeçalho dizia, em negrito, que o arquivo NUNCA tinha sido
+ * executado: a sessão que o escreveu tinha o Bash bloqueado pelo classificador de permissões,
+ * e era a aparição 5 de `portao-que-nao-alcanca.md` — *"o script existe e NUNCA é executado"*.
  *
- * É exatamente a aparição 5 de `portao-que-nao-alcanca.md`: *"o script existe e NUNCA é
- * executado… Portão declarado que nunca é acionado."* Este cabeçalho existe para que ninguém
- * leia o arquivo e conclua que a estrutura está provada.
+ * O Bash voltou na sessão seguinte e as mutações foram rodadas, uma por vez. **O aviso saiu
+ * porque passou a afirmar o contrário do que se mediu**, e um cabeçalho que mente sobre o
+ * alcance do próprio portão é pior que nenhum.
  *
- * Quem for rodar: `npx jest src/utils/__tests__/por-fora-por-regime.test.tsx`, e depois as
- * três mutações, uma por vez, conferindo QUAL caso fica vermelho em cada.
+ * | mutação | o que se faz | casos vermelhos |
+ * |---|---|---|
+ * | M29 | `SIMPLES_NACIONAL: ['IBS','CBS']` na tabela | **3** — a tabela, a conjunção, e o caso de TELA do SN |
+ * | M30 | acrescentar `IS` ao `LUCRO_PRESUMIDO_RET` | **4** — inclusive o caso de TELA do RET |
+ * | M31 | lista de regimes no JSX em vez da tabela | **6** — os quatro do Nível C **e dois de TELA** |
+ *
+ * A M31 é a que prova que o portão afirma ESTRUTURA e não rótulo: com
+ * `(isLucroReal || isLucroPresumed || isSimplesHibrido)` no lugar da tabela, o bloco IBS/CBS
+ * **desaparece do RET** — e os casos de tela veem isso, não só as asserções de caminho.
+ *
+ * Quem for mexer: `npx jest src/utils/__tests__/por-fora-por-regime.test.tsx`, e repita as três
+ * acima, uma por vez, conferindo QUAL caso fica vermelho em cada.
  * ══════════════════════════════════════════════════════════════════════════════════════════
  *
  * ── O QUE ELE ALCANÇA, E O QUE NÃO ───────────────────────────────────────────────────────
