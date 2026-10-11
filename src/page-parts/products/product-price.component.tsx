@@ -425,6 +425,32 @@ export const ProductPrice: FC<Props> = ({
   const totalInlineTax = _matriz.applied ? (_matriz.resolved?.externalValue ?? 0) : _iva.totalOutside
   // Preço de Venda por Unidade = Operação Interna + Operação Externa (IS+IBS+CBS+IPI)
   const finalPriceWithTaxes = _matriz.applied ? _matriz.totalGeral : _iva.finalPrice
+
+  /**
+   * >>> A INVARIANTE QUE FALTAVA: O PREÇO FINAL NUNCA FICA ABAIXO DA OPERAÇÃO INTERNA <<<
+   *
+   * Criada em 11/10/2026, ANTES do passo XI-3 e de propósito. Irmã da conferência de
+   * `Math.abs(linhas.residual) >= 0.01` logo abaixo da tabela, e com a mesma forma: quando
+   * quebra, a tela diz que os números não podem ser usados.
+   *
+   * O preço final é, por definição, a operação interna MAIS os tributos por fora
+   * (`P ÷ (1 − c)`, R8). Logo `final >= interna` é identidade, não preferência: um final
+   * menor significa que as duas linhas do resumo estão lendo PREÇOS DIFERENTES, e aí nenhuma
+   * das duas serve.
+   *
+   * >>> POR QUE ELA NASCE AGORA, E POR QUE ISSO É O PONTO <<<
+   *
+   * O defeito que ela barra foi encontrado MEDINDO A TELA à mão, no §0 do XI-3 — e isso não é
+   * rede: a próxima pessoa não mede. `portao-que-nao-alcanca.md` pergunta *"o que faz este
+   * portão ficar vermelho?"*, e para esta identidade a resposta era **nada**: nenhum caso e
+   * nenhum alerta a vigiavam, enquanto a invariante da soma das linhas (ao lado) tem as duas
+   * coisas.
+   *
+   * A tolerância é a MESMA de lá — um centavo —, porque as duas comparam reais formatados com
+   * duas casas e um centavo de arredondamento não é divergência.
+   */
+  const INVARIANTE_TOLERANCIA = 0.01
+  const precoFinalAbaixoDaInterna = finalPriceWithTaxes + INVARIANTE_TOLERANCIA < baseForSalePrice
   // 11/10/2026 — o resumo deixa de nomear regime e passa a ler a MESMA tabela da rodada do
   // bloco POR FORA (`por-fora-por-regime.ts`). Era
   // `(isLucroReal || isLucroPresumed || isSimplesHibrido)`, e o RET ficava de fora: o dono
@@ -986,9 +1012,25 @@ export const ProductPrice: FC<Props> = ({
               </div>
             )}
             <div style={{ borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: 6, marginTop: 4, display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
-              <span style={{ color: '#4ade80' }}>Preço Final com Impostos</span>
-              <span style={{ color: '#4ade80' }}>{fmt(finalPriceWithTaxes)}</span>
+              <span style={{ color: precoFinalAbaixoDaInterna ? '#fca5a5' : '#4ade80' }}>Preço Final com Impostos</span>
+              <span style={{ color: precoFinalAbaixoDaInterna ? '#fca5a5' : '#4ade80' }}>{fmt(finalPriceWithTaxes)}</span>
             </div>
+
+            {/* A INVARIANTE, visível. Mesma forma da conferência da soma das linhas: alerta
+                explícito, não um número discreto ao lado dos outros. Um final abaixo da
+                interna só acontece quando as duas linhas leem preços diferentes — e aí
+                nenhuma das duas serve. Ver o cabeçalho de `precoFinalAbaixoDaInterna`. */}
+            {precoFinalAbaixoDaInterna && (
+              <div style={{
+                marginTop: 8, padding: '8px 12px', borderRadius: 6, fontSize: 12,
+                background: 'rgba(239, 68, 68, 0.12)', border: '1px solid rgba(239, 68, 68, 0.3)', color: '#fca5a5',
+              }}>
+                ⚠ O preço final com impostos ({fmt(finalPriceWithTaxes)}) ficou ABAIXO da
+                operação interna ({fmt(baseForSalePrice)}). O final é a interna mais os
+                tributos por fora, então isto não pode acontecer: as duas linhas estão lendo
+                preços diferentes. Os números desta precificação não podem ser usados.
+              </div>
+            )}
           </div>
         )}
 
