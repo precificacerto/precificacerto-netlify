@@ -9,6 +9,22 @@ import type { TaxPreviewBreakdown } from '@/utils/calc-tax-preview'
 export interface CalcBaseType {
   /** Monthly labor cost in R$ (production_labor_cost). */
   laborCostMonthly: number
+  /**
+   * MO ADMINISTRATIVA em R$/mês — `admin_salary_total + admin_fgts_total + admin_other_costs`.
+   *
+   * OBRIGATÓRIO, e não opcional com default, porque participa do RESULTADO NUMÉRICO: no
+   * segmento SERVIÇO ele entra no custo por minuto. `construtor-empobrecido.md` — "campo
+   * opcional com default neutro num contrato de cálculo é um defeito à espera de produtor", e
+   * o custo de torná-lo obrigatório é exatamente o benefício: o compilador enumera quem não o
+   * preenche.
+   *
+   * Acrescentado em 11/10/2026: a tela de produto tirava a administrativa e a fixa do divisor
+   * (segmento SERVIÇO) e NÃO as somava ao custo, porque não tinha de onde ler os valores
+   * mensais — `calcBase` só carregava os PERCENTUAIS. As duas desapareciam do preço.
+   */
+  adminLaborCostMonthly: number
+  /** DESPESA FIXA em R$/mês — `fixed_expense_monthly`. Obrigatório pela mesma razão. */
+  fixedExpenseMonthly: number
   /** Labor as % of revenue — used by REVENDA (included in structurePct). */
   laborPercent: number
   /**

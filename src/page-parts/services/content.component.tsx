@@ -64,6 +64,41 @@ interface TempItem {
     has_item_taxes?: boolean
 }
 
+/**
+ * O CUSTO MENSAL DE MÃO DE OBRA, COMO ESTA TELA O MONTA — exportada em 11/10/2026.
+ *
+ * >>> ELA É A SEGUNDA CÓPIA, E ISSO É DELIBERADO POR ORA <<<
+ *
+ * A primeira é `compute-service-price.ts`, que desde hoje lê `custoMensalDeMaoDeObra`
+ * (`despesas-do-segmento.ts`), a mesma função que o caminho do PRODUTO passou a ler. Esta
+ * continua montando a soma por conta própria, e a unificação é decisão do dono do produto para
+ * outra rodada — aqui mora o preço de um tenant vivo, e trocar a origem do número exige medir
+ * o preço antes e depois.
+ *
+ * O que entra AGORA é o portão: `o-custo-de-mao-de-obra-do-servico.test.ts` afirma que esta
+ * função e a compartilhada devolvem o MESMO número para a mesma entrada. Enquanto o bloco era
+ * inline dentro do `useMemo`, nenhum caso podia chamá-lo, e a divergência entre as duas cópias
+ * seria silenciosa — `copia-divergente.md`, e `teste-que-nao-exercita.md` manda exportar.
+ *
+ * Extração sem mudança de valor: a expressão é a de antes, campo por campo.
+ */
+export function combinadoMensalDaTelaDeServico(cfg: {
+    production_labor_cost_hub?: number | string | null
+    production_labor_cost?: number | string | null
+    admin_salary_total?: number | string | null
+    admin_fgts_total?: number | string | null
+    admin_other_costs?: number | string | null
+    fixed_expense_monthly?: number | string | null
+} | null | undefined): number {
+    const c = cfg || {}
+    const laborCostMonthly = Number(c.production_labor_cost_hub) || Number(c.production_labor_cost) || 0
+    const adminMonthlyTotal = Number(c.admin_salary_total || 0) +
+        Number(c.admin_fgts_total || 0) +
+        Number(c.admin_other_costs || 0)
+    const fixedMonthlyTotal = Number(c.fixed_expense_monthly || 0)
+    return laborCostMonthly + adminMonthlyTotal + fixedMonthlyTotal
+}
+
 export interface ServiceContentProps {
     isEditing: boolean
     serviceData?: any
@@ -404,13 +439,8 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
         // Isso faz com que o custo por minuto (laborCostMonthly / monthlyWorkloadMinutes)
         // já contemple os 3 componentes quando multiplicado pelos minutos do serviço
         // MO Administrativa: média Hub (admin_salary_total) + FGTS + outros (já salvos pelo mergeExpenseConfig)
-        const adminMonthlyTotal = Number(cfg.admin_salary_total || 0) +
-            Number(cfg.admin_fgts_total || 0) +
-            Number(cfg.admin_other_costs || 0)
-        // Despesas Fixas: média Hub em R$/mês (novo campo)
-        const fixedMonthlyTotal = Number(cfg.fixed_expense_monthly || 0)
         // Fórmula: (MO Produtiva + MO Adm + Desp. Fixas) / horas_equipe_produtiva / 60 = R$/min
-        const combinedLaborCostMonthly = laborCostMonthly + adminMonthlyTotal + fixedMonthlyTotal
+        const combinedLaborCostMonthly = combinadoMensalDaTelaDeServico(cfg)
 
         const result = calculatePricing({
             calcType: 'SERVICO',

@@ -10,6 +10,7 @@ import {
 } from '@/utils/service-expense-snapshot'
 import type { TaxPreviewResult } from '@/utils/calc-tax-preview'
 import { resolveMonthlyWorkload } from '@/utils/resolve-monthly-workload'
+import { custoMensalDeMaoDeObra } from '@/utils/despesas-do-segmento'
 
 export interface ServicePriceInput {
   /** Custo total (materiais/insumos) do serviço em R$. */
@@ -98,7 +99,15 @@ export function computeServiceSellingPrice(input: ServicePriceInput): ServicePri
     (Number(cfg.admin_fgts_total) || 0) +
     (Number(cfg.admin_other_costs) || 0)
   const fixedMonthlyTotal = Number(cfg.fixed_expense_monthly) || 0
-  const combinedLaborCostMonthly = laborCostMonthly + adminMonthlyTotal + fixedMonthlyTotal
+  // 11/10/2026: a SOMA deixou de ser escrita aqui e passa a vir de `custoMensalDeMaoDeObra`,
+  // o par de `divisorDaEstruturaPct`. Bit-exact em SERVICO — é a mesma expressão —, e o que se
+  // compra é que o caminho do PRODUTO lê a MESMA função: os dois não podem mais divergir.
+  const combinedLaborCostMonthly = custoMensalDeMaoDeObra({
+    segmentoDaDespesa: 'SERVICO',
+    produtivaMensal: laborCostMonthly,
+    adminMensal: adminMonthlyTotal,
+    fixaMensal: fixedMonthlyTotal,
+  })
 
   // Carga horária resolvida pela fonte única (`resolve-monthly-workload`). Quando o
   // tenant não configurou, `monthlyWorkloadMinutes` é 0 — sem o antigo default de

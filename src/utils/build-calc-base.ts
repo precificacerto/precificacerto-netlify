@@ -26,6 +26,22 @@ export function buildCalcBase(expense: any, taxPreview?: TaxPreviewResult): Calc
   const variable = expense?.variable_expense_percent ? Number(expense.variable_expense_percent) : 0
   const financial = expense?.financial_expense_percent ? Number(expense.financial_expense_percent) : 0
   const laborCost = Number(expense?.production_labor_cost_hub) || Number(expense?.production_labor_cost) || 0
+  /*
+    OS VALORES MENSAIS EM R$ — 11/10/2026, rodada do serviço.
+
+    A mesma leitura de `compute-service-price.ts` e da tela de serviço: a MO administrativa é a
+    soma dos três campos do Hub, a fixa é o valor mensal. Ausente contribui ZERO, e aqui isso é
+    correto por uma razão diferente da do compromisso: zero administrativa é zero no custo por
+    minuto, e não há segunda coluna de onde o valor poderia estar vindo.
+
+    Eles são NUMERADOR, nunca denominador: quem decide isso é `custoMensalDeMaoDeObra`
+    (`despesas-do-segmento.ts`), par de `divisorDaEstruturaPct`. Somá-los também ao divisor
+    seria a dupla contagem que a regra do segmento existe para impedir.
+  */
+  const adminLaborMonthly = (Number(expense?.admin_salary_total) || 0) +
+    (Number(expense?.admin_fgts_total) || 0) +
+    (Number(expense?.admin_other_costs) || 0)
+  const fixedMonthly = Number(expense?.fixed_expense_monthly) || 0
   const laborPct = expense?.production_labor_percent ? Number(expense.production_labor_percent) : 0
   const profitBase = expense?.profit_margin_percent ? Number(expense.profit_margin_percent) : 0
 
@@ -41,6 +57,8 @@ export function buildCalcBase(expense: any, taxPreview?: TaxPreviewResult): Calc
   return {
     // --- V2 fields ---
     laborCostMonthly: laborCost,
+    adminLaborCostMonthly: adminLaborMonthly,
+    fixedExpenseMonthly: fixedMonthly,
     laborPercent: laborPct,
     /**
      * Estrutura = fixas + variáveis + financeiras + COMPROMISSOS FINANCEIROS (mão de obra é R$ via
