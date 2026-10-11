@@ -452,3 +452,313 @@ describe('C11 · Adicional de IRPJ com receita anual zero ou ausente', () => {
     expect(semCampo.taxableRegimePercent).toBe(comZero.taxableRegimePercent)
   })
 })
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+// C10 · O DEFAULT `'COMERCIO'` EM DUAS CÓPIAS
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+
+describe('C10 · o default da atividade está escrito duas vezes', () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { fetchTaxPreview } = require('@/utils/calc-tax-preview')
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { loadTenantTaxComponents } = require('@/utils/tax-sync')
+
+  it('default da atividade: as duas cópias concordam — pendência 22', async () => {
+    // >>> POR QUE ESTE CASO EXISTE ANTES DE A CÓPIA SER APAGADA <<<
+    //
+    // `ts.lucro_presumido_activity || 'COMERCIO'` está escrito em DOIS lugares:
+    //   `calc-tax-preview.ts:238`  — o preview que a tela usa
+    //   `tax-sync.ts:376`          — o que alimenta o motor
+    //
+    // `copia-divergente.md`: *"o mesmo mapeamento escrito duas vezes, uma delas esquecendo
+    // um campo — e nada falha."* O remédio dela é apagar uma, e isso é correção de outra
+    // rodada. Até lá, este caso é o que faz a divergência ACUSAR em vez de chegar como
+    // número plausível: mudar o default num dos dois arquivos o deixa vermelho.
+    //
+    // A asserção é sobre a CHAVE CONSULTADA, não sobre o percentual: os dois caminhos
+    // produzem resultados de formatos diferentes, e o que tem de coincidir é a chave.
+    const cenarios: [string, Record<string, unknown>][] = [
+      ['chave ausente', { tenant_id: 't1', tax_regime: 'LUCRO_PRESUMIDO', calc_type: 'SERVICO', state_code: 'SP' }],
+      ['chave gravada', { tenant_id: 't1', tax_regime: 'LUCRO_PRESUMIDO', calc_type: 'SERVICO', state_code: 'SP', lucro_presumido_activity: 'SERVICOS_32' }],
+      ['chave vazia ""', { tenant_id: 't1', tax_regime: 'LUCRO_PRESUMIDO', calc_type: 'SERVICO', state_code: 'SP', lucro_presumido_activity: '' }],
+    ]
+
+    for (const [nome, ts] of cenarios) {
+      prepara(ts)
+      await fetchTaxPreview('t1')
+      const doPreview = [...ACTIVITIES_PEDIDAS]
+
+      prepara(ts)
+      await loadTenantTaxComponents('t1')
+      const doTaxSync = [...ACTIVITIES_PEDIDAS]
+
+      // MEDIDO em 11/10/2026: as duas pedem a mesma chave nos três cenários.
+      expect(doPreview).toEqual(doTaxSync)
+      expect(doPreview).toHaveLength(1)
+      // e o cenário do default é o que importa — `|| 'COMERCIO'` nos dois
+      if (nome !== 'chave gravada') expect(doPreview).toEqual(['COMERCIO'])
+      else expect(doPreview).toEqual(['SERVICOS_32'])
+    }
+  })
+
+  it('a string VAZIA cai no default igual ao ausente — `||` não distingue os dois', async () => {
+    // O `||` trata `''` e `undefined` do mesmo jeito. Vale afirmar porque um `??` no lugar
+    // do `||` mudaria só o caso da string vazia, e nenhum outro caso do arquivo veria.
+    prepara({ tenant_id: 't1', tax_regime: 'LUCRO_PRESUMIDO', calc_type: 'SERVICO', state_code: 'SP', lucro_presumido_activity: '' })
+    await fetchTaxPreview('t1')
+    expect(ACTIVITIES_PEDIDAS).toEqual(['COMERCIO'])
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+// C6 · RET — o coeficiente pelo AGREGADO
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+
+describe('C6 · RET: preço e coeficiente pela alíquota única', () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { fetchTaxPreview } = require('@/utils/calc-tax-preview')
+
+  const RET = {
+    tenant_id: 't1', tax_regime: 'LUCRO_PRESUMIDO_RET', calc_type: 'INDUSTRIALIZACAO',
+    state_code: 'SP',
+  } as const
+
+  it('RET: coeficiente pelo agregado (retRate + issRate) — DIVERGE DA ESPEC XIV.6, esperado após correção: linha única RET, sem ICMS, ISS nem PIS/COFINS', async () => {
+    // O ramo próprio do RET (`calc-tax-preview.ts:172-188`) devolve UM número. Ele não abre
+    // ICMS, ISS nem PIS/COFINS — mas não por obedecer a XIV.6: é porque NADA abre nessa
+    // cadeia. A separação da XIV.6 e o agregado de hoje produzem o mesmo preço por
+    // coincidência de estrutura, não por acerto, e é por isso que a divergência vai no nome.
+    prepara({ ...RET })
+    const preview = await fetchTaxPreview('t1')
+
+    // MEDIDO: 0,04 — o default de `ret_rate` em `:175` (`Number(ts.ret_rate) || 0.04`)
+    expect(preview.effectiveTaxPct).toBeCloseTo(0.04, 4)
+    expect(preview.taxLabel).toBe('Lucro Presumido RET (4,00%)')
+
+    const r = calculatePricing({
+      calcType: 'INDUSTRIALIZACAO',
+      totalItemsCost: CUSTO,
+      yieldQuantity: 1,
+      laborCostMonthly: 0,
+      numProductiveEmployees: 1,
+      monthlyWorkloadMinutes: 10_000,
+      productWorkloadMinutes: 0,
+      taxPct: preview.effectiveTaxPct,
+      ...ESTRUTURA,
+    })
+
+    expect(r.isValid).toBe(true)
+    // 1 − (0,22 + 0,04 + 0,01 + 0,05 + 0,10) = 0,58 · 1.000 ÷ 0,58 = 1.724,14
+    expect(r.coefficient).toBeCloseTo(0.58, 6)
+    expect(r.priceUnit).toBeCloseTo(1724.14, 2)
+  })
+
+  it('`ret_rate` gravado vence o default — 1% do Minha Casa Minha Vida', async () => {
+    // O par que prova que o 0,04 do caso acima é DEFAULT e não constante: com `ret_rate`
+    // gravado o número muda, e muda o preço com ele.
+    prepara({ ...RET, ret_rate: 0.01 })
+    const preview = await fetchTaxPreview('t1')
+
+    expect(preview.effectiveTaxPct).toBeCloseTo(0.01, 4)
+    expect(preview.taxLabel).toBe('Lucro Presumido RET (1,00%)')
+
+    const r = calculatePricing({
+      calcType: 'INDUSTRIALIZACAO', totalItemsCost: CUSTO, yieldQuantity: 1,
+      laborCostMonthly: 0, numProductiveEmployees: 1, monthlyWorkloadMinutes: 10_000,
+      productWorkloadMinutes: 0, taxPct: preview.effectiveTaxPct, ...ESTRUTURA,
+    })
+    // 1 − (0,22 + 0,01 + 0,01 + 0,05 + 0,10) = 0,61 · 1.000 ÷ 0,61 = 1.639,34
+    expect(r.coefficient).toBeCloseTo(0.61, 6)
+    expect(r.priceUnit).toBeCloseTo(1639.34, 2)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+// C9 · `ret_iss_separate` — o DEFAULT soma o ISS aos 4%
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+
+describe('C9 · RET: o ISS e a flag que ninguém gravou', () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { fetchTaxPreview } = require('@/utils/calc-tax-preview')
+
+  const RET_ISS = {
+    tenant_id: 't1', tax_regime: 'LUCRO_PRESUMIDO_RET', calc_type: 'INDUSTRIALIZACAO',
+    state_code: 'SP', iss_municipality_rate: 0.05,
+  } as const
+
+  it('RET: ISS somado aos 4% por DEFAULT — lado herdado, não decidido. Pendência 23', async () => {
+    // `calc-tax-preview.ts:176` → `const retIssSeparate = ts.ret_iss_separate !== false`
+    // Ou seja: **ausente é TRUE**. A pergunta própria do VIII.6 — *"o ISS está embutido nos
+    // 4% ou é acréscimo municipal da obra? Não deduzir"* — já tem um lado implementado por
+    // default, e o default é "soma".
+    //
+    // O caso afirma o que acontece HOJE, e o nome diz que o lado foi herdado. Se a decisão
+    // for "embutido", este caso fica vermelho e é isso que se quer: a mudança passa por
+    // alguém em vez de ser silenciosa.
+    prepara({ ...RET_ISS })   // sem `ret_iss_separate`
+    const r = await fetchTaxPreview('t1')
+
+    // MEDIDO: 0,09 = 4% + 5%. Se o ISS estivesse embutido, seria 0,04.
+    expect(r.effectiveTaxPct).toBeCloseTo(0.09, 4)
+    expect(r.taxLabel).toBe('Lucro Presumido RET (4,00% + ISS 5,00%)')
+    expect(r.effectiveTaxPct).not.toBeCloseTo(0.04, 4)
+  })
+
+  it('com a flag em `false` o ISS NÃO entra — e é o par que prova que o default é `true`', async () => {
+    prepara({ ...RET_ISS, ret_iss_separate: false })
+    const r = await fetchTaxPreview('t1')
+
+    // MEDIDO: 0,04 — o ISS saiu, e o rótulo deixou de nomeá-lo.
+    expect(r.effectiveTaxPct).toBeCloseTo(0.04, 4)
+    expect(r.taxLabel).toBe('Lucro Presumido RET (4,00%)')
+  })
+
+  it('a flag em `true` explícito dá o mesmo que ausente — `!== false`', async () => {
+    // Fecha as três possibilidades do campo: `true`, `false` e ausente. É o que torna o
+    // caso acima uma afirmação sobre o DEFAULT e não sobre um valor gravado.
+    prepara({ ...RET_ISS, ret_iss_separate: true })
+    const explicito = await fetchTaxPreview('t1')
+    prepara({ ...RET_ISS })
+    const ausente = await fetchTaxPreview('t1')
+
+    expect(explicito.effectiveTaxPct).toBe(ausente.effectiveTaxPct)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+// C8 · O `c` DO RET É `null`, NÃO `0`
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+
+describe('C8 · RET: o coeficiente da operação por fora é NÃO APURADO', () => {
+  const ENTRADA = {
+    segment: 'INDUSTRIALIZACAO' as const,
+    buyerType: 'CONSUMIDOR_FINAL' as const,
+    saleScope: 'INTRAESTADUAL' as const,
+    costTotal: CUSTO,
+    ...ESTRUTURA,
+    profitTaxPct: 0.0228,
+    rates: { icmsPct: 0.18, pisCofinsEffectivePct: 0.02993, ibsPct: 0, cbsPct: 0 },
+  }
+
+  it('>>> o `c` do RET é `null` e o do Lucro Real é `0` — não apurado ≠ apurado e vale nada <<<', () => {
+    // >>> O PAR É A ASSERÇÃO. Nenhum dos dois lados sozinho afirma a distinção <<<
+    //
+    // `ausente-vs-falso.md`, e a razão está escrita no próprio
+    // `product-price-construction.ts:273-275`: *"`0` e `null` NÃO são a mesma coisa: `0` é
+    // 'a matriz governou e não há tributo por fora', apurado; `null` é 'não há regra escrita
+    // para este regime', não apurado."*
+    //
+    // Com alíquotas de IBS e CBS em ZERO nos dois casos, um sistema que confundisse os dois
+    // estados daria o MESMO número — e é exatamente por isso que o caso usa zero em ambos:
+    // o que distingue não é a alíquota, é o regime ter ou não regra escrita.
+    const real = buildProductConstruction({ ...ENTRADA, taxableRegime: 'LUCRO_REAL' })
+    const ret = buildProductConstruction({ ...ENTRADA, taxableRegime: 'LUCRO_PRESUMIDO_RET' })
+
+    // LUCRO REAL: a matriz governou, as alíquotas por fora são zero → `c = 0`, APURADO
+    expect(real.applied).toBe(true)
+    expect(externalOpsCoefficientToFreeze(real)).toBe(0)
+
+    // RET: não há regra escrita → `c = null`, NÃO APURADO
+    expect(ret.applied).toBe(false)
+    expect(ret.reason).toBe('regime sem matriz escrita')
+    expect(externalOpsCoefficientToFreeze(ret)).toBeNull()
+
+    // >>> E A ASSERÇÃO QUE PROÍBE A CONFUSÃO <<<
+    // `toBeNull` passaria sozinho se alguém trocasse o retorno por `0`? Não — mas `toBe(0)`
+    // passaria se alguém trocasse `null` por `0`, porque `0 === 0`. O par abaixo é o que
+    // impede isso: os dois estados são DIFERENTES entre si, e nenhum é falsy-equivalente ao
+    // outro para esta asserção.
+    expect(externalOpsCoefficientToFreeze(ret)).not.toBe(0)
+    expect(externalOpsCoefficientToFreeze(real)).not.toBeNull()
+  })
+
+  it('a estrutura por fora do RET EXISTE — é o que dá sentido ao `null`', () => {
+    // Sem esta metade, o `null` acima poderia ser lido como "o RET não tem operação por
+    // fora". Tem: a ESPEC III.5 manda a estrutura existir desde já, com alíquota zero, e a
+    // tabela de regime a tem. O `null` diz que o COEFICIENTE não foi apurado, não que o
+    // tributo não exista.
+    //
+    // Afirmado pela tabela, não pela tela — o caso de tela já existe em
+    // `por-fora-por-regime.test.tsx` e não se repete aqui.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { tributosPorForaDoRegime } = require('@/utils/por-fora-por-regime')
+    expect([...tributosPorForaDoRegime('LUCRO_PRESUMIDO_RET')].sort()).toEqual(['CBS', 'IBS'])
+  })
+
+  it('o Presumido tem o MESMO `null` — a recusa é por regime, não por ser RET', () => {
+    const presumido = buildProductConstruction({ ...ENTRADA, taxableRegime: 'LUCRO_PRESUMIDO' })
+    expect(presumido.applied).toBe(false)
+    expect(externalOpsCoefficientToFreeze(presumido)).toBeNull()
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+// C5 e C7 · A DECOMPOSIÇÃO — em que etapa IRPJ e CSLL aparecem
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+
+describe('C5 e C7 · IRPJ e CSLL na decomposição, por regime', () => {
+  const ITEM = {
+    key: 'i1', label: 'P1', quantity: 1, unitPrice: 2_500,
+    costUnit: CUSTO, productiveLaborUnit: 0,
+    commissionPct: 5, profitPct: 10, rtPct: 0,
+  }
+  const DESPESAS = { fixaPct: 0.10, variavelPct: 0.03, financeiraPct: 0.02, moIndiretaPct: 0.07 }
+
+  const categoriasDe = (regime: string) => buildBudgetDecompositionInput({
+    items: [ITEM as never], discountPct: 0, despesas: DESPESAS as never,
+    tenantCalcType: 'INDUSTRIALIZACAO', regime,
+  }).input.items[0].categories
+
+  it('C5 · Presumido: IRPJ e CSLL caem na ETAPA 16, derivados do LUCRO — DIVERGE DA ESPEC XIV.4, esperado após correção: etapa 13C, presunção sobre a RECEITA', () => {
+    // A linha que decide é `budget-decomposition-input.ts:318-319`:
+    //   irpjPct: guiaUnica ? 0 : lucroPct * IRPJ_RATE_ON_PROFIT
+    // `guiaUnica` (`:216`) é SIMPLES_NACIONAL || MEI || hibrido — o Presumido não está lá,
+    // então cai no `else`, que é o ramo do Lucro Real.
+    const c = categoriasDe('LUCRO_PRESUMIDO')
+
+    // MEDIDO: lucro 10% × 0,15 = 0,015 e × 0,09 = 0,009. Derivado do LUCRO, não da receita.
+    expect(c.irpjPct).toBeCloseTo(0.015, 6)
+    expect(c.csllPct).toBeCloseTo(0.009, 6)
+
+    // >>> A ASSERÇÃO QUE NOMEIA A DIVERGÊNCIA <<<
+    // Os pesos entram na soma do RRO (`decomposition-dre.ts:586`), ou seja na ETAPA 16. Se a
+    // correção os mover para a 13, eles passam a ser ZERO aqui — como no Simples, onde já
+    // estão no DAS. O caso abaixo é o par que mostra qual é o estado "na etapa 13".
+    expect(c.irpjPct).not.toBe(0)
+    expect(c.csllPct).not.toBe(0)
+  })
+
+  it('C5 · e é IDÊNTICO ao Lucro Real — é o que prova que o Presumido empresta a conta dele', () => {
+    // A frase da ESPEC: *"Presumido e RET 'funcionam' porque emprestam a conta do Lucro
+    // Real."* Esta é a asserção dela: bit a bit o mesmo número.
+    const presumido = categoriasDe('LUCRO_PRESUMIDO')
+    const real = categoriasDe('LUCRO_REAL')
+    expect(presumido.irpjPct).toBe(real.irpjPct)
+    expect(presumido.csllPct).toBe(real.csllPct)
+  })
+
+  it('C7 · RET: o MESMO — `regimeNorm` não está em `guiaUnica` e cai no ramo do Lucro Real — DIVERGE DA ESPEC XIV.6, esperado após correção: IRPJ e CSLL ZERADOS, dentro dos 4%', () => {
+    const ret = categoriasDe('LUCRO_PRESUMIDO_RET')
+    const real = categoriasDe('LUCRO_REAL')
+
+    // MEDIDO: 0,015 e 0,009, iguais ao Lucro Real.
+    expect(ret.irpjPct).toBeCloseTo(0.015, 6)
+    expect(ret.csllPct).toBeCloseTo(0.009, 6)
+    expect(ret.irpjPct).toBe(real.irpjPct)
+    expect(ret.csllPct).toBe(real.csllPct)
+  })
+
+  it('>>> o par que mostra o estado CERTO: na guia única IRPJ e CSLL são ZERO <<<', () => {
+    // Sem este caso, os dois acima afirmariam um número sem referência: `0,015` seria só um
+    // número. Com ele, fica claro que o código JÁ SABE zerar IRPJ/CSLL quando eles estão
+    // dentro de outra guia — e que o RET, cujos 4% os englobam (XIV.6), deveria estar aqui.
+    for (const regime of ['SIMPLES_NACIONAL', 'MEI', 'SIMPLES_HIBRIDO']) {
+      const c = categoriasDe(regime)
+      expect(c.irpjPct).toBe(0)
+      expect(c.csllPct).toBe(0)
+      // e a comissão e o lucro NÃO são zerados — a guia única mexe só nos dois tributos
+      expect(c.comissaoPct).toBeCloseTo(0.05, 6)
+      expect(c.lucroPct).toBeCloseTo(0.10, 6)
+    }
+  })
+})
