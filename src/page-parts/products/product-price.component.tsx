@@ -17,7 +17,7 @@ import { toBaseCode } from '@/utils/sale-context'
 import { tributoExisteNoSegmento } from '@/utils/campos-do-segmento'
 // O segundo eixo da matriz — REGIME × tributo. `apenasTributosPorFora` é a conjunção dos dois
 // eixos, e é ela que decide os dois blocos por fora. Ver `por-fora-por-regime.ts`.
-import { apenasTributosPorFora } from '@/utils/por-fora-por-regime'
+import { apenasTributosPorFora, tributosPorForaDoRegime } from '@/utils/por-fora-por-regime'
 import { divisorDaEstruturaPct, resolveSegmentoDaConstrucao } from '@/utils/despesas-do-segmento'
 import { LABEL_DO_BLOCO } from '@/utils/compromissos-financeiros'
 import { computeAdvancedOutsideTaxes, type AdvancedOutsideParams } from '@/utils/icms-st-difal'
@@ -425,7 +425,23 @@ export const ProductPrice: FC<Props> = ({
   const totalInlineTax = _matriz.applied ? (_matriz.resolved?.externalValue ?? 0) : _iva.totalOutside
   // Preço de Venda por Unidade = Operação Interna + Operação Externa (IS+IBS+CBS+IPI)
   const finalPriceWithTaxes = _matriz.applied ? _matriz.totalGeral : _iva.finalPrice
-  const hasInlineTaxes = (isLucroReal || isLucroPresumed || isSimplesHibrido) && totalInlineTax > 0
+  // 11/10/2026 — o resumo deixa de nomear regime e passa a ler a MESMA tabela da rodada do
+  // bloco POR FORA (`por-fora-por-regime.ts`). Era
+  // `(isLucroReal || isLucroPresumed || isSimplesHibrido)`, e o RET ficava de fora: o dono
+  // digitava IBS e CBS, `computeIvaDualOutside` calculava os valores — ele é cego a regime —
+  // e o resumo com o preço final não aparecia. Imposto que entra na conta e não aparece no
+  // preço final some sem dizer para onde foi.
+  //
+  // >>> O `totalInlineTax > 0` FICA, E ISSO É PENDÊNCIA REGISTRADA, NÃO DESCUIDO <<<
+  // O comando pedia que o resumo aparecesse no RET mesmo com alíquota ZERO. Medido em
+  // 11/10/2026: com alíquota zero o resumo NÃO aparece em regime nenhum — **nem no Lucro
+  // Real**, que é o modelo de referência e que o mesmo comando manda não alterar. Tirar o
+  // `> 0` faria o resumo nascer para TODO tenant de Lucro Real de hoje (`ibs_active` e
+  // `cbs_active` são `false` em 100% dos cálculos), e isso é mudança no modelo, não nesta
+  // correção. A decisão é do dono do produto — `razao-longe-da-restricao.md`: restrição sem
+  // razão citada no ponto de declaração autoriza pergunta, não remoção.
+  const hasInlineTaxes = tributosPorForaDoRegime(currentUser?.taxableRegime).length > 0
+    && totalInlineTax > 0
 
   // EPIC-POR-FORA-V3: ICMS-ST/DIFAL/FCP "por fora" — APENAS EXIBIÇÃO (preço final ao cliente).
   // Não altera finalPriceWithTaxes/sale_price (motor/RRO seguem sobre a base). FONTE ÚNICA
