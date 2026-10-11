@@ -578,7 +578,16 @@ const SN_EXPENSE_CATEGORY_OPTIONS = [
 /** Category options filtered by tax regime */
 export function getExpenseCategoryOptionsForRegime(regime: string | null | undefined) {
   if (regime === 'SIMPLES_NACIONAL') return SN_EXPENSE_CATEGORY_OPTIONS
-  const impostoBlock = (regime === 'LUCRO_PRESUMIDO_RET' || regime === 'PRESUMIDO_RET')
+  // Grafia única desde 11/10/2026 (XI-3.5 FASE C): era
+  // `regime === 'LUCRO_PRESUMIDO_RET' || regime === 'PRESUMIDO_RET'`, e a segunda metade não
+  // tem produtor. Medido por consulta à fonte primária: `tax_regime` é ENUM do Postgres nas
+  // quatro colunas que o usam, nenhuma `text`, e o enum tem 6 rótulos sem `'PRESUMIDO_RET'`.
+  // Enum não guarda valor fora da lista, logo nenhuma linha histórica a carrega.
+  //
+  // A metade morta sai porque aceitar DUAS grafias é o que impede a próxima pessoa de saber se
+  // uma delas é defesa ou valor real — e foi isso que produziu os três defeitos desta rodada,
+  // em `dfc/index.tsx:1050`, `dfc-regime-label.ts` e `expense-categories-by-regime.ts:410`.
+  const impostoBlock = regime === 'LUCRO_PRESUMIDO_RET'
     ? BLOCK_IMPOSTOS_PRESUMIDO_RET
     : BLOCK_IMPOSTOS_LUCRO
   const base = [...BASE_EXPENSE_CATEGORY_OPTIONS]
@@ -686,6 +695,8 @@ export const TAX_CATEGORIES_SIMPLES = [
 export function getTaxCategoriesForRegime(regime: string | null | undefined): string[] {
   if (!regime) return Object.keys(CASHIER_CATEGORY.EXPENSE)
   if (regime === 'SIMPLES_NACIONAL') return TAX_CATEGORIES_SIMPLES
-  if (regime === 'LUCRO_PRESUMIDO_RET' || regime === 'PRESUMIDO_RET') return TAX_CATEGORIES_PRESUMIDO_RET
+  // Ver a razão em `getExpenseCategoryOptionsForRegime`, acima: a grafia curta não tem
+  // produtor, e o enum do banco não a aceita.
+  if (regime === 'LUCRO_PRESUMIDO_RET') return TAX_CATEGORIES_PRESUMIDO_RET
   return TAX_CATEGORIES_LUCRO
 }

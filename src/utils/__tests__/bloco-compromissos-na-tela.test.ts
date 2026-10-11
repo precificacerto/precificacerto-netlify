@@ -358,7 +358,14 @@ describe('A categoria ANTIGA de investimento continua onde está', () => {
    * Fica registrado, não corrigido: mexer nisso é reclassificar o passado, que é decisão do
    * usuário e não desta rodada (`fato-vs-referencia.md`).
    */
-  it.each(['LUCRO_REAL', 'LUCRO_PRESUMIDO', 'SIMPLES_HIBRIDO', 'PRESUMIDO_RET'])(
+  // Grafia corrigida em 11/10/2026: `'PRESUMIDO_RET'` não tem produtor — o Select grava
+  // `'LUCRO_PRESUMIDO_RET'` (`configuracoes/index.tsx:194`) e o enum do banco só aceita esse
+  // valor. A propriedade afirmada é a mesma; o alvo passou a ser o regime que ocorre.
+  //
+  // E isto NÃO colide com o cabeçalho acima: trocar a grafia não reclassifica nada. O caso
+  // afirma uma PROPRIEDADE — "INVESTIMENTOS continua resolvendo `LUCRO`" — e a afirmava para
+  // um valor que o sistema nunca produz. A intenção fica intacta; o alvo deixa de ser fictício.
+  it.each(['LUCRO_REAL', 'LUCRO_PRESUMIDO', 'SIMPLES_HIBRIDO', 'LUCRO_PRESUMIDO_RET'])(
     'em %s ela continua resolvendo `LUCRO` — nada foi reclassificado', (regime) => {
       expect(getGroupForCategoryByRegime(regime, 'INVESTIMENTOS (Máquinas, Equipamentos, Expansão e Melhorias)')).toBe('LUCRO')
     })

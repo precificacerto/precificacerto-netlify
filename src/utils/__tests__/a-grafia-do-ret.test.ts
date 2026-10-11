@@ -28,6 +28,12 @@
 import { aggregateEntries, buildDre, getVariantLabel } from '@/pages/dfc'
 import { buildDfcExcelFileName, getRegimeLabel } from '@/utils/dfc-regime-label'
 import {
+  getExpenseCategoryOptionsForRegime as opcoesDoCaixaPorRegime,
+  getTaxCategoriesForRegime,
+  TAX_CATEGORIES_LUCRO,
+  TAX_CATEGORIES_PRESUMIDO_RET,
+} from '@/constants/cashier-category'
+import {
   LP_EXPENSE_CATEGORY_OPTIONS,
   EXPENSE_CATEGORY_OPTIONS,
   getExpenseCategoryOptionsForRegime,
@@ -120,5 +126,55 @@ describe('(4) A CÓPIA CERTA — `buildDre` já tratava a grafia do banco', () =
     const lrRows = buildDre(aggVazio(), 'LUCRO_REAL', 'INDUSTRIALIZATION')
     expect(retRows.length).toBeGreaterThan(0)
     expect(retRows.map((r) => r.key)).not.toEqual(lrRows.map((r) => r.key))
+  })
+})
+
+describe('(5) OS DOIS PONTOS QUE ACEITAVAM AS DUAS GRAFIAS — portão antes da remoção', () => {
+  /**
+   * ══ ESTES CASOS SÃO VERDES ANTES E DEPOIS, E ISSO ESTÁ DECLARADO ═══════════════════════
+   *
+   * `cashier-category.ts:581` e `:689` testavam `'LUCRO_PRESUMIDO_RET' || 'PRESUMIDO_RET'` —
+   * a grafia certa JÁ funcionava. Então um caso aqui não distingue o antes do depois, e
+   * dizê-lo é `teste-que-nao-exercita.md`: a variante 1 é justamente o caso que passa nos
+   * dois estados sem exercitar nada.
+   *
+   * O que eles protegem é a REMOÇÃO: se alguém tirar a metade CERTA em vez da morta, estes
+   * ficam vermelhos. Foi para isso que o dono do produto os pediu antes da remoção.
+   *
+   * ── A MEDIÇÃO QUE AUTORIZOU A REMOÇÃO, por consulta à fonte primária (11/10/2026)
+   *
+   * `tax_regime` é ENUM do Postgres nas QUATRO colunas que o usam — `tenant_settings`,
+   * `pricing_calculations`, `pricing_history` e `baseline.pricing_calc_20260914` —, todas
+   * `USER-DEFINED` / `udt_name = 'tax_regime'`, **nenhuma `text`**. O enum tem 6 rótulos, e
+   * `'PRESUMIDO_RET'` não está entre eles. Um enum não guarda valor fora da lista, logo
+   * nenhuma linha histórica carrega a grafia curta — `estado-relatado-vs-real.md`: consulta,
+   * não dedução.
+   */
+
+  it('>>> as categorias de IMPOSTO do RET saem pela lista do RET, não pela do Lucro <<<', () => {
+    expect(getTaxCategoriesForRegime(DO_BANCO)).toBe(TAX_CATEGORIES_PRESUMIDO_RET)
+    expect(getTaxCategoriesForRegime(DO_BANCO)).not.toBe(TAX_CATEGORIES_LUCRO)
+    // e o par que prova que a lista do RET é OUTRA: ela tem IMPOSTO_RET e não tem IRPJ/CSLL
+    expect(TAX_CATEGORIES_PRESUMIDO_RET).toContain('IMPOSTO_RET')
+    expect(TAX_CATEGORIES_PRESUMIDO_RET).not.toContain('IMPOSTO_IRPJ')
+    expect(TAX_CATEGORIES_LUCRO).toContain('IMPOSTO_IRPJ')
+    expect(TAX_CATEGORIES_LUCRO).not.toContain('IMPOSTO_RET')
+  })
+
+  it('>>> e o bloco de impostos do seletor de despesa do caixa é o do RET <<<', () => {
+    // Afirma EFEITO: o rótulo do bloco que só a lista do RET produz aparece nas opções, e o
+    // bloco do Lucro não. Sem o par, "as opções existem" não distinguiria os dois blocos.
+    const rotulos = (regime: string) =>
+      opcoesDoCaixaPorRegime(regime).flatMap((g) => g.options).map((o) => o.value)
+    const ret = rotulos(DO_BANCO)
+    const lp = rotulos('LUCRO_PRESUMIDO')
+    expect(ret).toContain('IMPOSTO_RET')
+    expect(lp).not.toContain('IMPOSTO_RET')
+  })
+
+  it('e nenhum dos cinco outros regimes passa a receber a lista do RET', () => {
+    for (const r of ['MEI', 'SIMPLES_NACIONAL', 'SIMPLES_HIBRIDO', 'LUCRO_PRESUMIDO', 'LUCRO_REAL'] as const) {
+      expect(getTaxCategoriesForRegime(r)).not.toBe(TAX_CATEGORIES_PRESUMIDO_RET)
+    }
   })
 })
