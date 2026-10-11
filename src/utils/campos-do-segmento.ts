@@ -40,19 +40,44 @@
  * ── O QUE ELE NÃO DECIDE ─────────────────────────────────────────────────────
  *
  * Não decide valor, não decide ordem, não decide rótulo. Responde uma pergunta só:
- * **este tributo tem linha neste segmento?**
+ * **este tributo tem LINHA NA TABELA DO PREÇO, neste segmento?**
+ *
+ * >>> A PERGUNTA MUDOU DE REDAÇÃO EM 11/10/2026, E A MUDANÇA É SUBSTANTIVA <<<
+ *
+ * Ela dizia *"este tributo tem linha neste segmento?"*, e isso bastava enquanto
+ * `Placement` tinha três valores. Com `ACRESCIMO` no tipo, as duas perguntas deixam de
+ * ser a mesma: **um acréscimo EXISTE no segmento e NÃO tem linha na tabela do preço.**
+ * ICMS-ST e DIFAL são custo puro sobre a nota e não formam preço.
  */
 
 import { placementOf, type CalcType, type TaxName } from './pricing-engine'
 
 /**
- * O tributo tem linha neste segmento?
+ * O tributo tem LINHA NA TABELA DO PREÇO, neste segmento?
  *
- * `false` só para INEXISTENTE. POR_DENTRO e POR_FORA têm linha — o lado muda a conta,
- * não a existência do campo.
+ * `true` para POR_DENTRO e POR_FORA — o lado muda a conta, não a existência do campo.
+ *
+ * >>> `ACRESCIMO` NÃO TEM LINHA, E A DECISÃO É DO DONO DO PRODUTO (11/10/2026) <<<
+ *
+ * A condição era `!== 'INEXISTENTE'`, o que dava linha a tudo que não fosse inexistente.
+ * Com `ACRESCIMO` no tipo isso passaria a dar linha ao ICMS-ST e ao DIFAL, e a razão de
+ * não dar é a mesma do travessão contra o zero:
+ *
+ *   > Um acréscimo com percentual e valor naquela tabela **afirmaria um cálculo que não
+ *   > existe**. ICMS-ST e DIFAL já têm bloco próprio — "Alíquotas tributárias adicionais
+ *   > (avançado)" —, que é o lugar certo.
+ *
+ * É `ausente-vs-falso.md` na célula: exibir base e percentual para um valor que não
+ * compõe o preço afirma uma participação que ele não tem. E a lista POSITIVA (`POR_DENTRO
+ * || POR_FORA`) é mais segura que a negativa: um quinto estado futuro nasce SEM linha, e
+ * quem o quiser na tabela precisa dizer isso aqui — em vez de ganhar linha por omissão.
+ *
+ * O bloco avançado NÃO é religado nesta rodada: quem trata ICMS-ST e DIFAL continua
+ * sendo `computeAdvancedOutsideTaxes`, e nenhuma célula deles mudou de lugar.
  */
 export function tributoExisteNoSegmento(segmento: CalcType, tributo: TaxName): boolean {
-  return placementOf(segmento, tributo) !== 'INEXISTENTE'
+  const place = placementOf(segmento, tributo)
+  return place === 'POR_DENTRO' || place === 'POR_FORA'
 }
 
 /**

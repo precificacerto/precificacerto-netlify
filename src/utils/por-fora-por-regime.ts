@@ -58,35 +58,49 @@
 import type { TaxRegime } from '@/supabase/types'
 import type { TaxName } from './pricing-engine'
 import { tributoExisteNoSegmento } from './campos-do-segmento'
+import { tributosPorForaNaMatriz } from './matriz-fiscal'
 import type { CalcType } from './pricing-engine'
 
 /**
- * Os tributos POR FORA de cada regime, pela lei.
- *
- * >>> A ORDEM DENTRO DE CADA LISTA NÃO DECIDE A ORDEM DA TELA <<<
- * Quem decide a ordem exibida é o array de linhas do componente, e o filtro a preserva — é o
- * mesmo contrato de `apenasTributosQueExistem`. A ordem aqui é só de leitura.
+ * Os tributos POR FORA de cada regime — **DERIVADO de `matriz-fiscal.ts`** desde 11/10/2026.
  *
  * | regime | por fora | por quê |
  * |---|---|---|
  * | `LUCRO_REAL` | IPI · IS · IBS · CBS | é o MODELO DE REFERÊNCIA, e não muda |
  * | `LUCRO_PRESUMIDO` | IPI · IS · IBS · CBS | mesmo formato do Real; o que muda é a alíquota |
- * | `LUCRO_PRESUMIDO_RET` | **IBS · CBS, e só** | imóvel não está na lista do Seletivo e não é industrialização — o RET **não** leva IS nem IPI |
- * | `SIMPLES_HIBRIDO` | IBS · CBS · IS | LC 214/2025 art. 41 §3º: IBS e CBS pelo regime regular, o resto no DAS. O IS acompanha por ser monofásico e por fora |
+ * | `LUCRO_PRESUMIDO_RET` | **IBS · CBS, e só** | imóvel não está na lista do Seletivo e não é industrialização |
+ * | `SIMPLES_HIBRIDO` | IBS · CBS · IS | LC 214/2025 art. 41 §3º: IBS e CBS pelo regime regular, o resto no DAS |
  * | `SIMPLES_NACIONAL` | **nenhum** | guia única: tudo está dentro do DAS |
  * | `MEI` | **nenhum** | o DAS é fixo e não incide por item |
  *
- * As duas listas vazias são AFIRMAÇÕES, não lacunas: dizem que naquele regime não existe
- * operação por fora. É a distinção que `ausente-vs-falso.md` pede — `[]` aqui significa
+ * ══ A DEPENDÊNCIA FOI INVERTIDA, E O DADO NÃO FOI TROCADO ════════════════════════════════
+ *
+ * Esta constante era a tabela literal. Agora ela é **construída** lendo as células cuja
+ * colocação vigente é `POR_FORA`, por `tributosPorForaNaMatriz`. Mesmo nome, mesmo tipo,
+ * mesmo conteúdo, e **nenhum call site mudou** — `copia-divergente.md`, e o remédio dela.
+ *
+ * A ordem passou a ser a da matriz (`IBS · CBS · IS · IPI`) em vez da literal
+ * (`IPI · IS · IBS · CBS`). **Nenhum caso depende dela**: os que afirmam o conteúdo usam
+ * `.sort()`, e o cabeçalho sempre disse que a ordem exibida é do array de linhas do
+ * componente, não desta tabela.
+ *
+ * As duas listas vazias continuam sendo AFIRMAÇÕES, não lacunas: dizem que naquele regime não
+ * existe operação por fora. É a distinção que `ausente-vs-falso.md` pede — `[]` aqui significa
  * *"não há o que apurar"*, e é por isso que o bloco não aparece em vez de aparecer zerado.
+ *
+ * >>> AS CÉLULAS NÃO DECIDIDAS NÃO VIRAM REGRA POR AQUI <<<
+ * `tributosPorForaNaMatriz` lê `colocacaoVigente`, que devolve o COMPORTAMENTO de hoje nas
+ * cinco células pendentes (IS em revenda, IS no Simples/MEI, IBS/CBS no MEI, ISS no RET). É o
+ * que mantém esta lista idêntica ao que ela era — e é por isso que a pendência não trava a
+ * inversão nem vira decisão por omissão.
  */
 export const POR_FORA_POR_REGIME: Readonly<Record<TaxRegime, readonly TaxName[]>> = {
-  LUCRO_REAL: ['IPI', 'IS', 'IBS', 'CBS'],
-  LUCRO_PRESUMIDO: ['IPI', 'IS', 'IBS', 'CBS'],
-  LUCRO_PRESUMIDO_RET: ['IBS', 'CBS'],
-  SIMPLES_HIBRIDO: ['IBS', 'CBS', 'IS'],
-  SIMPLES_NACIONAL: [],
-  MEI: [],
+  LUCRO_REAL: tributosPorForaNaMatriz('LUCRO_REAL'),
+  LUCRO_PRESUMIDO: tributosPorForaNaMatriz('LUCRO_PRESUMIDO'),
+  LUCRO_PRESUMIDO_RET: tributosPorForaNaMatriz('LUCRO_PRESUMIDO_RET'),
+  SIMPLES_HIBRIDO: tributosPorForaNaMatriz('SIMPLES_HIBRIDO'),
+  SIMPLES_NACIONAL: tributosPorForaNaMatriz('SIMPLES_NACIONAL'),
+  MEI: tributosPorForaNaMatriz('MEI'),
 }
 
 /**
