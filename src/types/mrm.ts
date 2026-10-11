@@ -90,18 +90,39 @@ export const TAXES_OUTSIDE: readonly TaxType[] = [
 ] as const
 
 /**
- * O regime, como o MOTOR o enxerga.
+ * O regime, como o motor o enxerga — e desde 11/10/2026 ele enxerga SEIS.
  *
- * `SIMPLES_HIBRIDO` entrou em 19/09/2026 e é regime PRÓPRIO, não um apelido: ele é guia
- * única (DAS reduzido por dentro, IRPJ/CSLL dentro dele) COM operação externa (IBS, CBS e
- * IS por fora, LC 214/2025 art. 41 §3º). Mapeá-lo para `LUCRO_PRESUMIDO`, como se fazia,
- * afirmava um formato que a LC 214 não dá ao optante do Simples — ICMS, ISS e PIS/COFINS
- * discriminados, IRPJ e CSLL sobre o lucro.
+ * Até então o RET era mapeado para `LUCRO_PRESUMIDO` de propósito, porque o formato dele não
+ * estava escrito. Está (ESPEC XIV.6): linha única de 4%, sem ICMS/ISS/PIS-COFINS, IRPJ e CSLL
+ * dentro da alíquota, etapa 16 com duas linhas. FORMATOS DIFERENTES, não a mesma alíquota —
+ * por isso o tipo tem de expressá-lo.
  *
- * `LUCRO_PRESUMIDO_RET` continua mapeado para `LUCRO_PRESUMIDO`, e isso NÃO é a mesma
- * omissão: ali o formato é o mesmo, muda a alíquota. Aqui muda o formato.
+ * ── POR QUE A DISTINÇÃO ANTERIOR ERA CERTA, E DEIXOU DE SER
+ *
+ * O comentário que estava aqui dizia que o RET segue mapeado e que isso não era omissão. Era
+ * verdade **sob a regra da época**: enquanto o formato do RET não estivesse escrito, "o motor
+ * vê cinco" era simplificação honesta. Com o formato escrito, um tipo que não consegue
+ * expressar o RET torna IMPOSSÍVEL o motor rodar aquele formato — deixou de ser simplificação
+ * e virou impedimento. `decisao-sob-regra-da-epoca.md`: a decisão antiga não foi descuido, a
+ * regra é que mudou.
+ *
+ * ── O TIPO É REEXPORTADO, NÃO REDECLARADO
+ *
+ * A fonte é `@/supabase/types`, que reproduz o enum `tax_regime` de `tenant_settings` valor por
+ * valor (ver `database.types.ts`). Havia TRÊS declarações divergentes de `TaxRegime` no
+ * repositório — esta com cinco valores, a de `pages/dfc/index.tsx` grafando `'PRESUMIDO_RET'` e
+ * com `| string`, e a canônica. `copia-divergente.md`, e o remédio dela é apagar as cópias, não
+ * conferi-las.
+ *
+ * ── `SIMPLES_HIBRIDO` CONTINUA SENDO REGIME PRÓPRIO, e a razão fica
+ *
+ * Entrou em 19/09/2026 e não é apelido: é guia única (DAS reduzido por dentro, IRPJ/CSLL dentro
+ * dele) COM operação externa (IBS, CBS e IS por fora, LC 214/2025 art. 41 §3º). Mapeá-lo para
+ * `LUCRO_PRESUMIDO`, como se fazia, afirmava um formato que a LC 214 não dá ao optante do
+ * Simples — ICMS, ISS e PIS/COFINS discriminados, IRPJ e CSLL sobre o lucro.
  */
-export type TaxRegime = 'MEI' | 'SIMPLES_NACIONAL' | 'SIMPLES_HIBRIDO' | 'LUCRO_PRESUMIDO' | 'LUCRO_REAL'
+import type { TaxRegime } from '@/supabase/types'
+export type { TaxRegime }
 
 export type ReapurationStatus =
   | 'PENDING'

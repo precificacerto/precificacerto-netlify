@@ -63,6 +63,9 @@ const AGREGA_CREDITO_DE_COMPRA: Readonly<Record<TaxRegime, boolean>> = {
   SIMPLES_NACIONAL: false,
   SIMPLES_HIBRIDO: false,
   LUCRO_PRESUMIDO: true,
+  // igual ao Presumido por HERANÇA histórica (mapeamento até XI-4), não por equivalência de
+  // formato — ESPEC XIV.6 diz que os formatos diferem. Alterar só na rodada do formato do RET.
+  LUCRO_PRESUMIDO_RET: true,
   LUCRO_REAL: true,
 }
 
@@ -80,6 +83,9 @@ const CREDITO_DE_PIS_COFINS_ICMS_RECUPERAVEL: Readonly<Record<TaxRegime, boolean
   SIMPLES_NACIONAL: false,
   SIMPLES_HIBRIDO: false,
   LUCRO_PRESUMIDO: false,
+  // igual ao Presumido por HERANÇA histórica (mapeamento até XI-4), não por equivalência de
+  // formato — ESPEC XIV.6 diz que os formatos diferem. Alterar só na rodada do formato do RET.
+  LUCRO_PRESUMIDO_RET: false,
   LUCRO_REAL: true,
 }
 

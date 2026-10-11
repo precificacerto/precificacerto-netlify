@@ -26,7 +26,18 @@ import {
 
 // ── Types ──
 
-type TaxRegime = 'LUCRO_REAL' | 'LUCRO_PRESUMIDO' | 'SIMPLES_NACIONAL' | 'SIMPLES_HIBRIDO' | 'PRESUMIDO_RET' | 'MEI' | string
+/**
+ * XI-3.5 FASE C — a TERCEIRA declaração de `TaxRegime` do repositório saiu daqui.
+ *
+ * Ela grafava `'PRESUMIDO_RET'` onde o banco diz `'LUCRO_PRESUMIDO_RET'`, e trazia `| string`,
+ * que é o que a fazia nunca avisar: com `| string` na união, comparação com qualquer literal
+ * compila, `switch` nunca é exaustivo e `''` cabe como estado inicial. Três defeitos medidos
+ * saíram dessa combinação — ver `a-grafia-do-ret.test.ts`.
+ *
+ * A fonte é `@/supabase/types`, que reproduz o enum `tax_regime` de `tenant_settings`.
+ * `copia-divergente.md`: o remédio é apagar a cópia, não conferir as duas.
+ */
+import type { TaxRegime } from '@/supabase/types'
 
 type CalcType = 'INDUSTRIALIZATION' | 'RESALE' | 'SERVICE' | string
 
@@ -1031,12 +1042,19 @@ export function buildDreSimplesNacional(agg: AggregatedData, _calcType: CalcType
 
 // ── Determine DRE variant ──
 
-function buildDre(
+/**
+ * EXPORTADA em 11/10/2026 (XI-3.5 FASE C) para que o portão da grafia afirme qual DRE sai,
+ * em vez de afirmar que a função existe. `teste-que-nao-exercita.md`.
+ */
+export function buildDre(
   agg: AggregatedData,
   taxRegime: TaxRegime,
   calcType: CalcType,
 ): DreRow[] {
-  if (taxRegime === 'PRESUMIDO_RET' || taxRegime === 'LUCRO_PRESUMIDO_RET') {
+  // D4: era `taxRegime === 'PRESUMIDO_RET' || taxRegime === 'LUCRO_PRESUMIDO_RET'`. Esta era a
+  // CÓPIA CERTA ao lado das erradas — funcionava por testar as duas grafias. Com o tipo
+  // unificado, a grafia errada é comparação com literal fora da união, isto é, erro de tipo.
+  if (taxRegime === 'LUCRO_PRESUMIDO_RET') {
     return buildDrePresumidoRET(agg)
   }
   if (taxRegime === 'SIMPLES_NACIONAL' || taxRegime === 'MEI') {
@@ -1047,15 +1065,27 @@ function buildDre(
   return buildDreLucroRealPresumido(agg, calcType, taxRegime)
 }
 
-function getVariantLabel(taxRegime: TaxRegime): string {
+/**
+ * EXPORTADA em 11/10/2026 (XI-3.5 FASE C) — ver a nota em `buildDre`.
+ *
+ * **Sem `default`, por decisão (D5).** O `default` que estava aqui dava APARÊNCIA de
+ * exaustividade sem tê-la: com `| string` na união ele absorvia tudo, e a grafia do banco caía
+ * nele — a tela exibia `Regime: LUCRO_PRESUMIDO_RET`. É `portao-que-nao-alcanca.md` num
+ * `switch`: o portão parecia cobrir os seis casos e cobria zero. Sem `default`, um valor novo
+ * no tipo quebra a compilação aqui.
+ *
+ * E `null` é tratado POR NOME, antes do `switch`: ele significa *regime não carregado*, e o
+ * texto "Não definido" passa a ser decisão em vez de consequência de `'' || …`.
+ */
+export function getVariantLabel(taxRegime: TaxRegime | null): string {
+  if (taxRegime === null) return 'Não definido'
   switch (taxRegime) {
     case 'LUCRO_REAL': return 'Lucro Real'
     case 'LUCRO_PRESUMIDO': return 'Lucro Presumido'
-    case 'PRESUMIDO_RET': return 'Presumido RET'
+    case 'LUCRO_PRESUMIDO_RET': return 'Presumido RET'
     case 'SIMPLES_NACIONAL': return 'Simples Nacional'
     case 'SIMPLES_HIBRIDO': return 'Simples Híbrido'
     case 'MEI': return 'MEI'
-    default: return taxRegime || 'Não definido'
   }
 }
 
@@ -1068,7 +1098,11 @@ export default function DfcPage() {
   const [year, setYear] = useState(currentYear)
   const [loading, setLoading] = useState(true)
   const [dreRows, setDreRows] = useState<DreRow[]>([])
-  const [taxRegime, setTaxRegime] = useState<TaxRegime>('')
+  // D2 do XI-3.5 FASE C: era `useState<TaxRegime>('')`, e o `''` só compilava por causa do
+  // `| string`. `''` é valor falso fingindo estado; `null` diz "não carregado"
+  // (`ausente-vs-falso.md`). Os três leitores tratam `null` POR NOME, nunca por falsidade —
+  // nenhum deles usa `taxRegime || '…'`.
+  const [taxRegime, setTaxRegime] = useState<TaxRegime | null>(null)
   const [calcType, setCalcType] = useState<CalcType>('')
   const [error, setError] = useState<string | null>(null)
   const [dfcExportModalOpen, setDfcExportModalOpen] = useState(false)

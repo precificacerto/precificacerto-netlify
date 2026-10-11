@@ -175,6 +175,12 @@ const PIS_COFINS_EXPECTED: Readonly<
     CONSTRUCAO: 0.030295, // 3,65% × 0,83 ≈ 3,0295%
     APURACAO: 0.0365,
   },
+  // igual ao Presumido por HERANÇA histórica (mapeamento até XI-4), não por equivalência de
+  // formato — ESPEC XIV.6 diz que os formatos diferem. Alterar só na rodada do formato do RET.
+  LUCRO_PRESUMIDO_RET: {
+    CONSTRUCAO: 0.030295,
+    APURACAO: 0.0365,
+  },
   LUCRO_REAL: {
     CONSTRUCAO: 0.076775,
     APURACAO: 0.0925,

@@ -75,6 +75,9 @@ const GUIA_UNICA_POR_DENTRO: Readonly<Record<TaxRegime, boolean>> = {
   SIMPLES_NACIONAL: true,
   SIMPLES_HIBRIDO: false,
   LUCRO_PRESUMIDO: false,
+  // igual ao Presumido por HERANÇA histórica (mapeamento até XI-4), não por equivalência de
+  // formato — ESPEC XIV.6 diz que os formatos diferem. Alterar só na rodada do formato do RET.
+  LUCRO_PRESUMIDO_RET: false,
   LUCRO_REAL: false,
 }
 
@@ -108,8 +111,15 @@ export function temGuiaUnicaPorDentro(regime: TaxRegime | null | undefined): boo
 const RATEIA_IRPJ_CSLL: Readonly<Record<TaxRegime, boolean>> = {
   MEI: false,
   SIMPLES_NACIONAL: false,
+  // >>> ESTA CÉLULA NÃO TEM REDE DE COMPORTAMENTO <<< Medido por mutação em 11/10/2026: invertê-la
+  // deixa vermelhos apenas os 2 casos de CARACTERIZAÇÃO de `exaustividade-do-regime.test.ts`.
+  // Nenhum caso de comportamento do repositório a exercita. Quem a mudar não tem rede nenhuma
+  // além daquela afirmação — e um verde lá não diz que o preço de ninguém ficou igual.
   SIMPLES_HIBRIDO: true,
   LUCRO_PRESUMIDO: true,
+  // igual ao Presumido por HERANÇA histórica (mapeamento até XI-4), não por equivalência de
+  // formato — ESPEC XIV.6 diz que os formatos diferem. Alterar só na rodada do formato do RET.
+  LUCRO_PRESUMIDO_RET: true,
   LUCRO_REAL: true,
 }
 
@@ -143,6 +153,9 @@ const EXIBE_REPARTICAO_DO_RESIDUO: Readonly<Record<TaxRegime, boolean>> = {
   SIMPLES_NACIONAL: false,
   SIMPLES_HIBRIDO: true,
   LUCRO_PRESUMIDO: true,
+  // igual ao Presumido por HERANÇA histórica (mapeamento até XI-4), não por equivalência de
+  // formato — ESPEC XIV.6 diz que os formatos diferem. Alterar só na rodada do formato do RET.
+  LUCRO_PRESUMIDO_RET: true,
   LUCRO_REAL: true,
 }
 
