@@ -287,6 +287,16 @@ export function buildTaxBreakdown(input: BuildTaxBreakdownInput): BuildTaxBreakd
     if (place === 'POR_DENTRO') return positive(valor)
     if (positive(valor) > 0) {
       errors.push(
+        // >>> O LITERAL `INEXISTENTE` FICA AQUI, E A DECISÃO É DO PO (11/10/2026) <<<
+        // O `${place}` JÁ está interpolado na primeira sentença, então esta mensagem não mente
+        // com `ACRESCIMO` no tipo `Placement` — ela fica CONFUSA, não FALSA. E a confusão é
+        // INALCANÇÁVEL hoje: nenhuma célula de `TaxName` é acréscimo na matriz, afirmado por
+        // caso próprio em `concordancia-da-matriz.test.ts`.
+        // A troca vai para a rodada que ATIVAR o acréscimo, e nessa rodada o caso que afirma o
+        // literal — `decomposicao-igual-a-construcao.test.ts:1113`,
+        // `toContain('INEXISTENTE não é zero')` — cai no MESMO commit. É a mesma regra do portão
+        // verde do RET: corrigir a linha e deixar o portão afirmando o antigo troca um defeito
+        // por dois.
         `${tax} veio com alíquota ${valor} em ${segment}, onde a matriz diz ${place}. ` +
           'INEXISTENTE não é zero: o tributo não tem linha nesse formato.',
       )
@@ -303,6 +313,16 @@ export function buildTaxBreakdown(input: BuildTaxBreakdownInput): BuildTaxBreakd
     if (place !== 'POR_FORA') {
       if (rate > 0) {
         errors.push(
+          // >>> O LITERAL `INEXISTENTE` FICA AQUI, E A DECISÃO É DO PO (11/10/2026) <<<
+          // O `${place}` JÁ está interpolado na primeira sentença, então esta mensagem não mente
+          // com `ACRESCIMO` no tipo `Placement` — ela fica CONFUSA, não FALSA. E a confusão é
+          // INALCANÇÁVEL hoje: nenhuma célula de `TaxName` é acréscimo na matriz, afirmado por
+          // caso próprio em `concordancia-da-matriz.test.ts`.
+          // A troca vai para a rodada que ATIVAR o acréscimo, e nessa rodada o caso que afirma o
+          // literal — `decomposicao-igual-a-construcao.test.ts:1113`,
+          // `toContain('INEXISTENTE não é zero')` — cai no MESMO commit. É a mesma regra do portão
+          // verde do RET: corrigir a linha e deixar o portão afirmando o antigo troca um defeito
+          // por dois.
           `${tax} veio com alíquota ${valor} em ${segment}, onde a matriz diz ${place}. ` +
             'INEXISTENTE não é zero: o tributo não tem linha nesse formato.',
         )

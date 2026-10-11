@@ -112,7 +112,28 @@ export type TributoFiscal =
  */
 export interface Celula {
   readonly colocacao: Colocacao | 'NAO_DECIDIDA'
-  /** `'NAO_DECIDIDO'` pela mesma razão de `colocacao` — ver a pendência 21. */
+  /**
+   * `'NAO_DECIDIDO'` pela mesma razão de `colocacao` — ver a pendência 21.
+   *
+   * >>> PENDÊNCIA ABERTA: O CRÉDITO PRECISA DO EIXO DE VIGÊNCIA, E AQUI ELE É UM BOOLEANO <<<
+   *
+   * Registrada pelo dono do produto em 11/10/2026, a partir da medição desta rodada, e
+   * **deliberadamente NÃO resolvida**: nenhum campo foi inventado agora.
+   *
+   * A XIV.6 diz que o IBS e a CBS do RET creditam *"não até 2028 · sim de 2029"* — crédito
+   * **com data**. A colocação tem `vigenciaInicio` e `vigenciaFim`; o crédito não tem nada
+   * equivalente, e por isso a célula do RET ficou `false`, que é o estado de hoje, com a nota
+   * em `RET_LINHAS`.
+   *
+   * **A estrutura da célula está incompleta neste ponto, e isso está escrito em vez de
+   * contornado.** Acrescentar `creditoVigenciaInicio` por conta própria seria decidir o
+   * desenho de um eixo inteiro para atender um caso — e a matriz nasceu nesta rodada
+   * justamente para que esse tipo de decisão passe por uma pessoa.
+   *
+   * Quem for fechá-la: são DUAS perguntas, não uma. (a) o crédito muda de valor por data, ou
+   * (b) a colocação muda e o crédito a acompanha? A XIV.6 sugere (a) — o tributo já é POR FORA
+   * desde já, e só o crédito muda em 2029 — mas isso não foi confirmado e não se deduz.
+   */
   readonly credito: boolean | 'NAO_DECIDIDO'
   /** `null` = desde sempre. Data ISO, nunca percentual. */
   readonly vigenciaInicio: string | null

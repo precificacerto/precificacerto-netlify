@@ -462,7 +462,14 @@ function validateTaxBreakdown(
   for (const [nome, campo, tax] of porFora) {
     const place = placementOf(calcType, nome)
     if (tax && place !== 'POR_FORA') {
-      errors.push(`${campo} declarado em ${calcType}, onde a matriz diz INEXISTENTE.`)
+      // `${place}` em vez do literal `INEXISTENTE`, desde 11/10/2026. Com `ACRESCIMO` no
+      // tipo `Placement` o literal passaria a MENTIR: ele está exatamente no lugar onde a
+      // colocação real devia aparecer, e diria "INEXISTENTE" sobre uma célula de acréscimo.
+      // Nenhum caso afirmava o literal — os dois que tocam esta mensagem
+      // (`pricing-engine-tributos-separados.test.ts:372` e
+      // `matriz-e-contexto-da-venda.test.ts:77`) afirmam só o prefixo `ipi declarado em
+      // REVENDA`, e seguem verdes.
+      errors.push(`${campo} declarado em ${calcType}, onde a matriz diz ${place}.`)
     }
   }
 
