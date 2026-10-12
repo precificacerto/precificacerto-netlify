@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
 import {
     App as AntdApp,
-    Alert, Button, Drawer, Dropdown, Form, Input, InputNumber, Space, Table, Tag, Tooltip,
+    Button, Drawer, Dropdown, Form, Input, InputNumber, Space, Table, Tag, Tooltip,
     message, Popconfirm, DatePicker, Empty, Divider, Modal, Upload, Checkbox, Radio, Segmented,
 } from 'antd'
 import { Select } from '@/components/ui/app-select.component'
@@ -79,12 +79,17 @@ import { hydrateDocumentSnapshots } from '@/lib/document-snapshot'
 import type { TenantSnapshotContext } from '@/lib/items-snapshot'
 import { calculateMotorV17ForPage, calculateMotorV17ForPageFull } from '@/utils/mrm-engine-v17/legacy-adapter'
 import {
-    ROTULO_DA_AUTORIZACAO,
+    AVISO_DE_SAVE_BLOQUEADO,
+    bloqueiaOSave,
     descontoMaximoFracao,
     estadoDoDesconto,
-    mensagemDoLimite,
     payloadDoRastroDaAutorizacao,
 } from '@/utils/limite-de-desconto'
+import {
+    AutorizacaoDoDesconto,
+    useAutorizacaoDoDesconto,
+    type ModoDeAbsorcao,
+} from '@/page-parts/shared/autorizacao-do-desconto.component'
 import { consolidateStDifalFromItems } from '@/utils/icms-st-difal'
 import { coerceLegacyDiscountMode, normalizeDiscountModeForDisplay } from '@/config/feature-flags'
 import { decideMrmAction } from '@/utils/mrm-policies'
@@ -253,7 +258,8 @@ function Sales() {
     const [tableSectionsV, setTableSectionsV] = useState<{key: string; tableId: string | null}[]>([{key: 'ts-0', tableId: null}])
     const [globalDiscountPercentV, setGlobalDiscountPercentV] = useState(0)
     /** ESPEC VII.2 — a autorização do desconto acima do limite. Ver `orcamentos/index.tsx`. */
-    const [descontoAutorizadoVVII, setDescontoAutorizadoVVII] = useState(false)
+    const { autorizado: descontoAutorizadoVVII, setAutorizado: setDescontoAutorizadoVVII } =
+        useAutorizacaoDoDesconto(globalDiscountPercentV)
     const [discountModeV, setDiscountModeV] = useState<DiscountMode>('PROPORTIONAL')
     const mrmConfig = useTenantTaxContext()
     // P0 — Loading guard (Aria §7 + Quinn §4): rates ausentes inflam comissão.
@@ -1756,10 +1762,8 @@ function Sales() {
             const avisos: string[] = []
             await form.validateFields()
             /* ESPEC VII.2 — o amarelo não avança sem o clique. Ver `orcamentos/index.tsx`. */
-            if (estadoDoDescontoVVII === 'AMARELO') {
-                messageApi.warning(
-                    'Este desconto ultrapassa o limite consolidado. Marque a autorização para continuar.',
-                )
+            if (bloqueiaOSave(estadoDoDescontoVVII)) {
+                messageApi.warning(AVISO_DE_SAVE_BLOQUEADO)
                 return
             }
             if (saleItems.length === 0) {
@@ -3286,7 +3290,6 @@ function Sales() {
                                             value={globalDiscountPercentV}
                                             onChange={(v) => {
                                                 const newDiscount = Math.max(0, Math.min(100, v ?? 0))
-                                                setDescontoAutorizadoVVII(false)
                                                 setGlobalDiscountPercentV(newDiscount)
                                                 if (installmentPreset !== 'customizado') {
                                                     const discountedTotal = saleTotal * (1 - newDiscount / 100)
@@ -3311,7 +3314,6 @@ function Sales() {
                                                 if (balcaoTotalACobrarFull <= 0) { setGlobalDiscountPercentV(0); return }
                                                 const pct = (amount / balcaoTotalACobrarFull) * 100
                                                 const finalPct = Number(Math.max(0, Math.min(100, pct)).toFixed(4))
-                                                setDescontoAutorizadoVVII(false)
                                                 setGlobalDiscountPercentV(finalPct)
                                                 if (installmentPreset !== 'customizado') {
                                                     const discountedTotal = saleTotal * (1 - finalPct / 100)
@@ -3331,50 +3333,22 @@ function Sales() {
                                 </span>
                             )}
                         </div>
-                        {/* ═══ ESPEC PARTE VII.2 — OS TRÊS ESTADOS. Ver `orcamentos/index.tsx`. ═══
-                            O aviso "Margem residual no limite" que morava aqui saiu: ele comparava
-                            com o pool do clamp, e dizia "no limite" onde o limite era outro. */}
-                        {limitePctVVII != null && estadoDoDescontoVVII !== 'VERDE' && (
-                            <Alert
-                                type={estadoDoDescontoVVII === 'AMARELO' ? 'warning' : 'error'}
-                                showIcon
-                                style={{ marginTop: 8 }}
-                                message={estadoDoDescontoVVII === 'AMARELO'
-                                    ? 'Desconto acima do limite consolidado'
-                                    : 'Desconto autorizado — operação em lucro zero'}
-                                description={
-                                    <div>
-                                        <p style={{ margin: '0 0 8px' }}>
-                                            {mensagemDoLimite({
-                                                descontoFracao: globalDiscountPercentV / 100,
-                                                limiteFracao: limitePctVVII / 100,
-                                            })}
-                                        </p>
-                                        {limiteIncompletoVVII.length > 0 && (
-                                            <p style={{ margin: '0 0 8px', color: '#facc15' }}>
-                                                Limite calculado SEM {limiteIncompletoVVII.join(', ')} —
-                                                a alíquota não chegou ao motor, então o limite acima está
-                                                mais frouxo que o real.
-                                            </p>
-                                        )}
-                                        {balcaoV17Full != null && balcaoV17Full.consolidated.distribution.descoberto_autorizado > 0.005 && (
-                                            <p style={{ margin: '0 0 8px' }}>
-                                                <strong>Descoberto: {formatCurrency(balcaoV17Full.consolidated.distribution.descoberto_autorizado)}</strong>
-                                                {' '}— o que esta venda deixa de cobrir. No modo
-                                                {' '}<strong>{discountModeV === 'SELLER_REDUCTION' ? 'Congela Comissão' : discountModeV === 'PROFIT_REDUCTION' ? 'Congela Lucro' : 'Proporcional'}</strong>.
-                                                {discountModeV !== 'PROPORTIONAL' && ' Congelar AUMENTA o descoberto: a empresa paga o que congelou com dinheiro que a venda não trouxe.'}
-                                            </p>
-                                        )}
-                                        <Checkbox
-                                            checked={descontoAutorizadoVVII}
-                                            onChange={(e) => setDescontoAutorizadoVVII(e.target.checked)}
-                                        >
-                                            {ROTULO_DA_AUTORIZACAO}
-                                        </Checkbox>
-                                    </div>
-                                }
-                            />
-                        )}
+                        {/* ═══ ESPEC PARTE VII.2 — OS TRÊS ESTADOS ═══════════════════════════
+                            O aviso "Margem residual no limite" que morava aqui saiu: ele
+                            comparava com o pool do clamp, e dizia "no limite" onde o limite era
+                            outro. O bloco é UM componente para as três telas — ver
+                            `autorizacao-do-desconto.component.tsx`. */}
+                        <AutorizacaoDoDesconto
+                            estado={estadoDoDescontoVVII}
+                            descontoFracao={globalDiscountPercentV / 100}
+                            limiteFracao={limitePctVVII == null ? null : limitePctVVII / 100}
+                            limiteIncompleto={limiteIncompletoVVII}
+                            descoberto={balcaoV17Full?.consolidated.distribution.descoberto_autorizado ?? 0}
+                            modo={discountModeV as ModoDeAbsorcao}
+                            nomeDoDocumento="esta venda"
+                            autorizado={descontoAutorizadoVVII}
+                            onAutorizadoChange={setDescontoAutorizadoVVII}
+                        />
                     </div>
                     {/* ABAIXO do campo de desconto: resultado com desconto. Se houver tributos por fora,
                         mostra o total a cobrar já com o desconto aplicado. Paridade com orçamentos. */}

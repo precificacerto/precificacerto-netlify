@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import {
     App as AntdApp,
     Button, DatePicker, Drawer, Dropdown, Form, Input, InputNumber, Space, Table, Tag,
-    message, Modal, Popconfirm, Empty, Checkbox, Divider, Typography, Alert,
+    message, Modal, Popconfirm, Empty, Checkbox, Divider, Typography,
 } from 'antd'
 import { Select } from '@/components/ui/app-select.component'
 import { CurrencyInput } from '@/components/currency-input.component'
@@ -40,12 +40,17 @@ import { ConsolidatedDREBlock } from '@/page-parts/shared/consolidated-dre-block
 import { enrichItemsForMotor } from '@/utils/motor-item-enrichment'
 import { calculateMotorV17ForPageFull } from '@/utils/mrm-engine-v17/legacy-adapter'
 import {
-    ROTULO_DA_AUTORIZACAO,
+    AVISO_DE_SAVE_BLOQUEADO,
+    bloqueiaOSave,
     descontoMaximoFracao,
     estadoDoDesconto,
-    mensagemDoLimite,
     payloadDoRastroDaAutorizacao,
 } from '@/utils/limite-de-desconto'
+import {
+    AutorizacaoDoDesconto,
+    useAutorizacaoDoDesconto,
+    type ModoDeAbsorcao,
+} from '@/page-parts/shared/autorizacao-do-desconto.component'
 import { buildItemTaxRatesFromProduct } from '@/utils/item-tax-rates'
 import { buildBudgetDecompositionInput } from '@/utils/budget-decomposition-input'
 import { buildDecomposition } from '@/utils/decomposition-dre'
@@ -315,6 +320,9 @@ function OrdersPage() {
     // Pedidos consomem snapshot persistido em `order_items.tax_breakdown` — caller
     // não recalcula motor em runtime (Q2: fonte de verdade é o snapshot).
     const editingDiscountPct = Form.useWatch('discount_percent', editForm) ?? 0
+    // Hoisted de propósito: `Form.useWatch` é HOOK e não pode morar numa prop de JSX
+    // condicional — ali ele passaria a ser chamado só em alguns renders.
+    const editingDiscountMode = Form.useWatch('discount_mode', editForm) ?? 'PROPORTIONAL'
     const orderResidualItems: ResidualItemInput[] = useMemo(
         () => orderItems.map((item) => ({
             unit_price: item.unit_price,
@@ -414,8 +422,8 @@ function OrdersPage() {
      * reseta quando o desconto muda, porque autorizar 40% não é autorizar 60% — a mensagem
      * nomeia o percentual, e a autorização vale para o que foi lido.
      */
-    const [descontoAutorizadoPVII, setDescontoAutorizadoPVII] = useState(false)
-    useEffect(() => { setDescontoAutorizadoPVII(false) }, [editingDiscountPct])
+    const { autorizado: descontoAutorizadoPVII, setAutorizado: setDescontoAutorizadoPVII } =
+        useAutorizacaoDoDesconto(Number(editingDiscountPct) || 0)
 
     const estadoDoDescontoPVII = estadoDoDesconto({
         descontoFracao: (Number(editingDiscountPct) || 0) / 100,
@@ -934,8 +942,8 @@ function OrdersPage() {
             }
             // ESPEC VII.2 — o AMARELO não avança. O vermelho autorizado avança, porque o
             // usuário clicou o checkbox e a autorização é dele. Não é trava: é autorização.
-            if (estadoDoDescontoPVII === 'AMARELO') {
-                messageApi.warning('Desconto acima do limite. Marque a autorização para prosseguir.')
+            if (bloqueiaOSave(estadoDoDescontoPVII)) {
+                messageApi.warning(AVISO_DE_SAVE_BLOQUEADO)
                 return
             }
 
@@ -2014,51 +2022,21 @@ function OrdersPage() {
                     </Form.Item>
 
                     {/* ═══ ESPEC PARTE VII.2 — OS TRÊS ESTADOS ═══════════════════════════════
-                        Verde não exibe nada. Amarelo exibe a mensagem e o checkbox, e o save
-                        não avança sem o clique (`handleSaveEdit`). Vermelho autorizado confirma,
-                        com o descoberto à vista — e a VII.5 manda dizer que congelar o AUMENTA. */}
-                    {limitePctPVII != null && estadoDoDescontoPVII !== 'VERDE' && (
-                        <Alert
-                            type={estadoDoDescontoPVII === 'AMARELO' ? 'warning' : 'error'}
-                            showIcon
-                            style={{ marginBottom: 16 }}
-                            message={estadoDoDescontoPVII === 'AMARELO'
-                                ? 'Desconto acima do limite consolidado'
-                                : 'Desconto autorizado — operação em lucro zero'}
-                            description={
-                                <div>
-                                    <p style={{ margin: '0 0 8px' }}>
-                                        {mensagemDoLimite({
-                                            descontoFracao: (Number(editingDiscountPct) || 0) / 100,
-                                            limiteFracao: limitePctPVII / 100,
-                                        })}
-                                    </p>
-                                    {limiteIncompletoPVII.length > 0 && (
-                                        /* `ausente-vs-falso.md`: o limite está INCOMPLETO, e dizer
-                                           isso é diferente de exibi-lo como apurado. Sem alíquota,
-                                           o tributo contribui zero e o limite sai mais FROUXO. */
-                                        <p style={{ margin: '0 0 8px', color: '#B54708' }}>
-                                            Limite calculado SEM {limiteIncompletoPVII.join(', ')} —
-                                            a alíquota não chegou ao motor, então o limite acima está
-                                            mais frouxo que o real.
-                                        </p>
-                                    )}
-                                    {pedV17Full != null && pedV17Full.consolidated.distribution.descoberto_autorizado > 0.005 && (
-                                        <p style={{ margin: '0 0 8px' }}>
-                                            <strong>Descoberto: {formatCurrency(pedV17Full.consolidated.distribution.descoberto_autorizado)}</strong>
-                                            {' '}— o que este pedido deixa de cobrir.
-                                        </p>
-                                    )}
-                                    <Checkbox
-                                        checked={descontoAutorizadoPVII}
-                                        onChange={(e) => setDescontoAutorizadoPVII(e.target.checked)}
-                                    >
-                                        {ROTULO_DA_AUTORIZACAO}
-                                    </Checkbox>
-                                </div>
-                            }
-                        />
-                    )}
+                        Esta cópia era a que tinha divergido: ela saiu SEM o parágrafo do modo
+                        de absorção da VII.5. Com o componente único o parágrafo chega aqui sem
+                        ninguém lembrar (`copia-divergente.md`). */}
+                    <AutorizacaoDoDesconto
+                        estado={estadoDoDescontoPVII}
+                        descontoFracao={(Number(editingDiscountPct) || 0) / 100}
+                        limiteFracao={limitePctPVII == null ? null : limitePctPVII / 100}
+                        limiteIncompleto={limiteIncompletoPVII}
+                        descoberto={pedV17Full?.consolidated.distribution.descoberto_autorizado ?? 0}
+                        modo={editingDiscountMode as ModoDeAbsorcao}
+                        nomeDoDocumento="este pedido"
+                        autorizado={descontoAutorizadoPVII}
+                        onAutorizadoChange={setDescontoAutorizadoPVII}
+                        style={{ marginBottom: 16 }}
+                    />
                     <OrderInstallmentsEditor
                         form={editForm}
                         rows={orderInstallmentRows}

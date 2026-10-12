@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
 import {
     App as AntdApp,
-    Alert, Button, Checkbox, Drawer, Dropdown, Form, Input, InputNumber, Space, Table, Tag,
+    Button, Checkbox, Drawer, Dropdown, Form, Input, InputNumber, Space, Table, Tag,
     message, DatePicker, Steps, Popconfirm, Divider, Empty, Modal, Upload, Radio, Segmented, Tooltip,
 } from 'antd'
 import { Select } from '@/components/ui/app-select.component'
@@ -52,12 +52,17 @@ import { PAGE_SIZE } from '@/constants/pagination'
 import type { TenantSnapshotContext } from '@/lib/items-snapshot'
 import { calculateMotorV17ForPage, calculateMotorV17ForPageFull } from '@/utils/mrm-engine-v17/legacy-adapter'
 import {
-    ROTULO_DA_AUTORIZACAO,
+    AVISO_DE_SAVE_BLOQUEADO,
+    bloqueiaOSave,
     descontoMaximoFracao,
     estadoDoDesconto,
-    mensagemDoLimite,
     payloadDoRastroDaAutorizacao,
 } from '@/utils/limite-de-desconto'
+import {
+    AutorizacaoDoDesconto,
+    useAutorizacaoDoDesconto,
+    type ModoDeAbsorcao,
+} from '@/page-parts/shared/autorizacao-do-desconto.component'
 import { consolidateStDifalFromItems, computeTotalACobrar } from '@/utils/icms-st-difal'
 import { useResidualDistribution } from '@/hooks/use-residual-distribution'
 import { type ResidualItemInput, validateResidualVsCascade } from '@/utils/residual-distribution'
@@ -275,7 +280,8 @@ function Budgets() {
      * reseta quando o desconto muda, porque autorizar 40% não é autorizar 60% — a mensagem
      * nomeia o percentual, e a autorização vale para o que foi lido.
      */
-    const [descontoAutorizadoVII, setDescontoAutorizadoVII] = useState(false)
+    const { autorizado: descontoAutorizadoVII, setAutorizado: setDescontoAutorizadoVII } =
+        useAutorizacaoDoDesconto(globalDiscountPercent)
 
     // ── R10 · R11 · R12 — ACRÉSCIMOS DO DOCUMENTO ──
     // "Um frete atende vários produtos" (R11). Os três valores são COTADOS AQUI, e a NF-e já
@@ -1413,10 +1419,8 @@ function Budgets() {
               aceita o desconto, e quem decide é o dono. O clamp que reduzia o número
               silenciosamente saiu.
             */
-            if (estadoDoDescontoVII === 'AMARELO') {
-                messageApi.warning(
-                    'Este desconto ultrapassa o limite consolidado. Marque a autorização para continuar.',
-                )
+            if (bloqueiaOSave(estadoDoDescontoVII)) {
+                messageApi.warning(AVISO_DE_SAVE_BLOQUEADO)
                 return
             }
             const validItems = budgetItems.filter(i => i.product_id || i.service_id || (i.isManual && i.product_name?.trim()))
@@ -3637,7 +3641,6 @@ function Budgets() {
                                         precision={5}
                                         value={globalDiscountPercent}
                                         onChange={(v) => {
-                                            setDescontoAutorizadoVII(false)
                                             setGlobalDiscountPercent(Math.max(0, Math.min(100, v ?? 0)))
                                         }}
                                         formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
@@ -3655,7 +3658,6 @@ function Budgets() {
                                             const amount = v || 0
                                             if (totalACobrarFull <= 0) { setGlobalDiscountPercent(0); return }
                                             const pct = (amount / totalACobrarFull) * 100
-                                            setDescontoAutorizadoVII(false)
                                             setGlobalDiscountPercent(Math.max(0, Math.min(100, pct)))
                                         }}
                                         style={{ flex: '1 1 55%', width: '100%', maxWidth: 180, minWidth: 0 }}
@@ -3667,53 +3669,20 @@ function Budgets() {
                     </div>
 
                     {/* ═══ ESPEC PARTE VII.2 — OS TRÊS ESTADOS ═══════════════════════════════
-                        Verde não exibe nada. Amarelo exibe a mensagem e o checkbox, e o save
-                        não avança sem o clique (`handleSave`). Vermelho autorizado confirma, com
-                        o descoberto à vista — e a VII.5 manda dizer que congelar o AUMENTA. */}
-                    {limitePctVII != null && estadoDoDescontoVII !== 'VERDE' && (
-                        <Alert
-                            type={estadoDoDescontoVII === 'AMARELO' ? 'warning' : 'error'}
-                            showIcon
-                            style={{ marginTop: 8 }}
-                            message={estadoDoDescontoVII === 'AMARELO'
-                                ? 'Desconto acima do limite consolidado'
-                                : 'Desconto autorizado — operação em lucro zero'}
-                            description={
-                                <div>
-                                    <p style={{ margin: '0 0 8px' }}>
-                                        {mensagemDoLimite({
-                                            descontoFracao: globalDiscountPercent / 100,
-                                            limiteFracao: limitePctVII / 100,
-                                        })}
-                                    </p>
-                                    {limiteIncompletoVII.length > 0 && (
-                                        /* `ausente-vs-falso.md`: o limite está INCOMPLETO, e dizer
-                                           isso é diferente de exibi-lo como apurado. Sem alíquota,
-                                           o tributo contribui zero e o limite sai mais FROUXO. */
-                                        <p style={{ margin: '0 0 8px', color: '#facc15' }}>
-                                            Limite calculado SEM {limiteIncompletoVII.join(', ')} —
-                                            a alíquota não chegou ao motor, então o limite acima está
-                                            mais frouxo que o real.
-                                        </p>
-                                    )}
-                                    {v17Full != null && v17Full.consolidated.distribution.descoberto_autorizado > 0.005 && (
-                                        <p style={{ margin: '0 0 8px' }}>
-                                            <strong>Descoberto: {formatCurrency(v17Full.consolidated.distribution.descoberto_autorizado)}</strong>
-                                            {' '}— o que esta venda deixa de cobrir. No modo
-                                            {' '}<strong>{discountMode === 'SELLER_REDUCTION' ? 'Congela Comissão' : discountMode === 'PROFIT_REDUCTION' ? 'Congela Lucro' : 'Proporcional'}</strong>.
-                                            {discountMode !== 'PROPORTIONAL' && ' Congelar AUMENTA o descoberto: a empresa paga o que congelou com dinheiro que a venda não trouxe.'}
-                                        </p>
-                                    )}
-                                    <Checkbox
-                                        checked={descontoAutorizadoVII}
-                                        onChange={(e) => setDescontoAutorizadoVII(e.target.checked)}
-                                    >
-                                        {ROTULO_DA_AUTORIZACAO}
-                                    </Checkbox>
-                                </div>
-                            }
-                        />
-                    )}
+                        O bloco é UM componente para as três telas: ele nasceu copiado três
+                        vezes e a terceira cópia já saiu sem o parágrafo do modo da VII.5
+                        (`copia-divergente.md`). Ver `autorizacao-do-desconto.component.tsx`. */}
+                    <AutorizacaoDoDesconto
+                        estado={estadoDoDescontoVII}
+                        descontoFracao={globalDiscountPercent / 100}
+                        limiteFracao={limitePctVII == null ? null : limitePctVII / 100}
+                        limiteIncompleto={limiteIncompletoVII}
+                        descoberto={v17Full?.consolidated.distribution.descoberto_autorizado ?? 0}
+                        modo={discountMode as ModoDeAbsorcao}
+                        nomeDoDocumento="esta venda"
+                        autorizado={descontoAutorizadoVII}
+                        onAutorizadoChange={setDescontoAutorizadoVII}
+                    />
 
                     {/* ABAIXO do campo de desconto: resultado com desconto. Se houver tributos por fora,
                         mostra o total a cobrar já com o desconto aplicado.

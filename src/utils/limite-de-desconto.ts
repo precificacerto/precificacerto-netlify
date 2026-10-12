@@ -272,3 +272,21 @@ export function payloadDoRastroDaAutorizacao(args: {
     },
   }
 }
+
+/**
+ * A GUARDA DO SAVE — a VII.2 em uma linha, e ela é UMA.
+ *
+ * O amarelo não avança: o checkbox tem de ser clicado. O vermelho autorizado AVANÇA, porque o
+ * usuário clicou e a autorização é dele — não é trava, é autorização, e é o ponto da rodada.
+ *
+ * Existe como função, e não como `=== 'AMARELO'` repetido em três handlers, pelo mesmo motivo
+ * do componente: três cópias de uma condição de bloqueio são três chances de uma delas ficar
+ * para trás quando a VII.6 acrescentar o segundo nível de aviso.
+ */
+export function bloqueiaOSave(estado: EstadoDoDesconto): boolean {
+  return estado === 'AMARELO'
+}
+
+/** A mensagem do bloqueio, única, para as três telas dizerem a mesma coisa. */
+export const AVISO_DE_SAVE_BLOQUEADO =
+  'Desconto acima do limite. Marque a autorização para prosseguir.'
