@@ -485,8 +485,21 @@ describe('O híbrido chega às telas como SIMPLES_HIBRIDO, e não como Lucro Pre
       deducaoBaseIbsCbsPct: A_DED,
     }).input)
     const chaves = comoAntes.rows.map((x) => x.key)
-    expect(chaves).toContain('irpj')
+    // >>> O MARCADOR MUDOU EM 12/10/2026, A AFIRMAÇÃO NÃO <<<
+    //
+    // Este caso afirmava `toContain('irpj')` como prova de "formato do Lucro Real". Com a
+    // rodada da 13C o Presumido perdeu a linha `irpj` da etapa 16 — ela virou `irpj_13c`,
+    // tributo sobre a receita (ESPEC VIII.4) —, então o marcador deixou de servir. O que o
+    // caso quer dizer continua igual: com o mapeamento antigo o híbrido sairia FORA da guia
+    // única, com as linhas de ICMS e PIS/COFINS e SEM a do DAS.
+    //
+    // O par `icms` + `não das` é o discriminante, e é mais forte que o anterior: ele não
+    // depende de onde IRPJ e CSLL moram.
+    expect(chaves).toContain('icms')
+    expect(chaves).toContain('pis_cofins')
     expect(chaves).not.toContain('das')
+    // e a marca de que aquele formato é o do PRESUMIDO, não o do Real: IRPJ fora da etapa 16
+    expect(chaves).not.toContain('irpj')
   })
 
   it('>>> e o RET TAMBÉM deixou de ser mapeado — XI-4, 11/10/2026 <<<', () => {

@@ -446,6 +446,16 @@ function Sales() {
             // Ausente fora do híbrido, e é o que a decomposição usa como fallback quando o
             // item não carrega a sua. Ver `budget-decomposition-input.ts`.
             deducaoBaseIbsCbsPct: mrmConfig.components?.deducaoBaseIbsCbsPct,
+            // ETAPA 13C — a presunção do Lucro Presumido, do MESMO lugar que a construção
+            // leu (`tax-sync.ts` → `presuncao-do-presumido.ts`). Ausente fora do Presumido, e
+            // ausência não é zero: sem ela a decomposição ACUSA em vez de deduzir menos.
+            presuncao: mrmConfig.components?.irpjPresuncao != null
+              ? {
+                irpjPct: mrmConfig.components.irpjPresuncao,
+                csllPct: Number(mrmConfig.components.csllPresuncao) || 0,
+                adicionalPct: Number(mrmConfig.components.irpjAdicional) || 0,
+              }
+              : undefined,
         })
         if (params.isEmpty) return { ...VAZIA, estado: 'SEM_PRODUTO' as const }
         return { result: buildDecomposition(params.input), labels: params.itemLabels, estado: 'CONGELADA' as const }
@@ -1615,6 +1625,16 @@ function Sales() {
             // Ausente fora do híbrido, e é o que a decomposição usa como fallback quando o
             // item não carrega a sua. Ver `budget-decomposition-input.ts`.
             deducaoBaseIbsCbsPct: mrmConfig.components?.deducaoBaseIbsCbsPct,
+            // ETAPA 13C — a presunção do Lucro Presumido, do MESMO lugar que a construção
+            // leu (`tax-sync.ts` → `presuncao-do-presumido.ts`). Ausente fora do Presumido, e
+            // ausência não é zero: sem ela a decomposição ACUSA em vez de deduzir menos.
+            presuncao: mrmConfig.components?.irpjPresuncao != null
+              ? {
+                irpjPct: mrmConfig.components.irpjPresuncao,
+                csllPct: Number(mrmConfig.components.csllPresuncao) || 0,
+                adicionalPct: Number(mrmConfig.components.irpjAdicional) || 0,
+              }
+              : undefined,
         })
         if (params.isEmpty) return null
         return { result: buildDecomposition(params.input), labels: params.itemLabels }

@@ -1,6 +1,7 @@
 import { supabase } from '@/supabase/client'
 import { formatPercentWithDigits } from '@/utils/formatters'
 import { resolveDasHibridoDoTenant } from '@/utils/simples-hibrido'
+import { presuncaoSobreReceita } from '@/utils/presuncao-do-presumido'
 
 /**
  * Os tributos POR DENTRO, DISCRIMINADOS (Parte 0 + R5).
@@ -242,31 +243,24 @@ export async function fetchTaxPreview(tenantId: string): Promise<TaxPreviewResul
       .eq('activity_type', activity)
       .maybeSingle()
 
-    // Valores manuais do tenant têm prioridade sobre a tabela lucro_presumido_rates.
-    const irpjRateAliq = lpRate ? Number(lpRate.irpj_rate) : 0.15
-    const csllRateAliq = lpRate ? Number(lpRate.csll_rate) : 0.09
-    const irpjPresumptionPct = ts.lp_irpj_presumption_percent != null
-      ? Number(ts.lp_irpj_presumption_percent)
-      : (lpRate ? Number(lpRate.irpj_presumption_percent) : 0.08)
-    const csllPresumptionPct = ts.lp_csll_presumption_percent != null
-      ? Number(ts.lp_csll_presumption_percent)
-      : (lpRate ? Number(lpRate.csll_presumption_percent) : 0.12)
-    const irpjEquiv = irpjPresumptionPct * irpjRateAliq
-    const csllEquiv = csllPresumptionPct * csllRateAliq
-
-    // Adicional IRPJ — calculado sobre a receita bruta anual estimada (lp_estimated_annual_revenue).
-    // Fórmula: adicional = max(0, (receita × presunção_irpj%) - 240.000) × 10% / receita
-    // R$ 240.000 = R$ 20.000/mês × 12 meses (limite de isenção anual do adicional de IRPJ).
-    const IRPJ_ADICIONAL_LIMITE_ANUAL = 240000
-    let lpIrpjAdditional = 0
-    const annualRevenue = Number(ts.lp_estimated_annual_revenue) || 0
-    if (annualRevenue > 0) {
-      const irpjBase = annualRevenue * irpjPresumptionPct
-      const excedente = Math.max(0, irpjBase - IRPJ_ADICIONAL_LIMITE_ANUAL)
-      if (excedente > 0) {
-        lpIrpjAdditional = (excedente * 0.10) / annualRevenue
-      }
-    }
+    // >>> MESMA FONTE QUE `tax-sync.ts` — ver `presuncao-do-presumido.ts` <<<
+    // Estas vinte linhas eram a segunda cópia literal da presunção. A precedência
+    // manual-sobre-tabela segue declarada aqui, porque é ela que decide QUAL dado entra; a
+    // CONTA mora na fonte única.
+    const pres = presuncaoSobreReceita({
+      irpjPresuncaoPct: ts.lp_irpj_presumption_percent != null
+        ? Number(ts.lp_irpj_presumption_percent)
+        : (lpRate ? Number(lpRate.irpj_presumption_percent) : null),
+      csllPresuncaoPct: ts.lp_csll_presumption_percent != null
+        ? Number(ts.lp_csll_presumption_percent)
+        : (lpRate ? Number(lpRate.csll_presumption_percent) : null),
+      irpjRate: lpRate ? Number(lpRate.irpj_rate) : null,
+      csllRate: lpRate ? Number(lpRate.csll_rate) : null,
+      receitaAnualEstimada: ts.lp_estimated_annual_revenue,
+    })
+    const irpjEquiv = pres.irpjPct
+    const csllEquiv = pres.csllPct
+    const lpIrpjAdditional = pres.adicionalPct
 
     const taxPct = round4(lpIcms + pisCofins + iss + irpjEquiv + csllEquiv + lpIrpjAdditional)
 

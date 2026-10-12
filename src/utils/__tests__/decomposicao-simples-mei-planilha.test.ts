@@ -177,12 +177,38 @@ describe('6. MEI — DAS zero por item, linha presente; IRPJ/CSLL ocultos', () =
 })
 
 describe('7. FORA DA GUIA ÚNICA nada muda — Lucro Real e regime ausente', () => {
-  it.each(['LUCRO_REAL', 'LUCRO_PRESUMIDO', null])('regime %p: sem linha de DAS, com ICMS/PIS e IRPJ/CSLL', (reg) => {
-    const itens = INDUSTRIA().map((i) => ({ ...i, rates: { ...(i.rates as object), icms_pct: 17, pis_pct: 7.6775 } as never }))
-    const r = decompor(itens, 'INDUSTRIALIZACAO', reg)
+  const comIcms = () => INDUSTRIA().map((i) => ({ ...i, rates: { ...(i.rates as object), icms_pct: 17, pis_pct: 7.6775 } as never }))
+
+  // O PRESUMIDO SAIU DESTA LISTA EM 12/10/2026 — ver o caso abaixo. A lista era
+  // `['LUCRO_REAL', 'LUCRO_PRESUMIDO', null]`, e ele passava por EMPRESTAR a conta do Lucro
+  // Real; a rodada da 13C acabou com o empréstimo.
+  it.each(['LUCRO_REAL', null])('regime %p: sem linha de DAS, com ICMS/PIS e IRPJ/CSLL', (reg) => {
+    const r = decompor(comIcms(), 'INDUSTRIALIZACAO', reg)
     expect(row(r, 'das')).toBeUndefined()
     expect(row(r, 'icms')).toBeDefined()
     expect(v(r, 'irpj')).toBeGreaterThan(0)
+  })
+
+  it('>>> o PRESUMIDO não tem linha de DAS NEM de IRPJ/CSLL na etapa 16 — eles estão na 13C <<<', () => {
+    // >>> CASO NOVO, NO LUGAR DO RAMO QUE SAIU DO `it.each` ACIMA <<<
+    //
+    // Ele não estava nomeado no comando, e entra porque a mudança dele É a que o comando
+    // manda: *"IRPJ, CSLL e adicional do Presumido SAEM da etapa 16 e ENTRAM na 13C"*. É a
+    // mesma classe de C5-a em `portoes-presumido-e-ret.test.ts`, noutro arquivo.
+    //
+    // E ele afirma a terceira coisa, que é a interessante: sem a presunção passada, a
+    // decomposição ACUSA em vez de deduzir menos em silêncio. `decompor` aqui não passa
+    // `presuncao` — é o estado "a tela não carregou" —, e o RRO sairia maior do que a
+    // construção reservou se nada dissesse nada.
+    const r = decompor(comIcms(), 'INDUSTRIALIZACAO', 'LUCRO_PRESUMIDO')
+    expect(row(r, 'das')).toBeUndefined()
+    expect(row(r, 'icms')).toBeDefined()
+    // as duas linhas da etapa 16 não existem mais aqui
+    expect(row(r, 'irpj')).toBeUndefined()
+    expect(row(r, 'csll')).toBeUndefined()
+    // e a 13C também não, porque a presunção não chegou — mas há ERRO dizendo isso
+    expect(row(r, 'irpj_13c')).toBeUndefined()
+    expect(r.errors.join(' ')).toContain('13C')
   })
 })
 

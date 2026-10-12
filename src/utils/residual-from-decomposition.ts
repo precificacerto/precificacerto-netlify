@@ -99,11 +99,21 @@ export function applyDecompositionToResidual(
   // Na GUIA ÚNICA (Simples/MEI) as linhas de IRPJ e CSLL não existem por regra — já estão no
   // DAS. A ausência é zero LEGÍTIMO, não rubrica faltando: sem isto o "tudo ou nada" abaixo
   // devolveria os cards do Simples à Etapa 16.
-  const zeroDaGuiaUnica: ResidualLine | null = decomposition.guiaUnica
+  //
+  // E no LUCRO PRESUMIDO, desde a rodada da 13C, pela MESMA razão com outro mecanismo: lá os
+  // dois EXISTEM, mas incidem sobre a receita (ESPEC VIII.4) e são deduzidos na etapa 13C, não
+  // repartidos a partir do RRO. Em nenhum dos dois casos eles são parcela da repartição, e nos
+  // dois a ausência da linha é zero LEGÍTIMO.
+  //
+  // São dois sinais e não um porque as duas causas são afirmações diferentes — "não existe
+  // tributo" e "existe, e não é resíduo". Colapsá-las num só faria a próxima base nova herdar
+  // o comportamento por omissão (`ausente-vs-falso.md`).
+  const foraDoResiduo = decomposition.guiaUnica || decomposition.presuncaoNa13C
+  const zeroForaDoResiduo: ResidualLine | null = foraDoResiduo
     ? { amount: 0, originalPct: 0, effectivePct: 0, baseLabel: BASE_DOS_PERCENTUAIS_DA_DECOMPOSICAO }
     : null
-  const irpj = linhaDe('irpj') ?? zeroDaGuiaUnica
-  const csll = linhaDe('csll') ?? zeroDaGuiaUnica
+  const irpj = linhaDe('irpj') ?? zeroForaDoResiduo
+  const csll = linhaDe('csll') ?? zeroForaDoResiduo
   // Tudo ou nada: com uma rubrica faltando, o bloco voltaria a ser duas fontes misturadas —
   // três cards da decomposição e um da Etapa 16, sem nada na tela dizendo qual é qual.
   if (!commission || !profit || !irpj || !csll) return distribution

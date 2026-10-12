@@ -813,39 +813,53 @@ describe('C5 e C7 · IRPJ e CSLL na decomposição, por regime', () => {
     tenantCalcType: 'INDUSTRIALIZACAO', regime,
   }).input.items[0].categories
 
-  it('C5 · Presumido: IRPJ e CSLL caem na ETAPA 16, derivados do LUCRO — DIVERGE DA ESPEC XIV.4 ATÉ A RODADA DA 13C, esperado então: etapa 13C, presunção sobre a RECEITA', () => {
-    // ATUALIZADO no XI-5 (11/10/2026): a RAZÃO da divergência mudou, o VALOR não.
+  it('>>> C5 · Presumido: IRPJ e CSLL SAEM da etapa 16 — a matriz manda a base PRESUNCAO para a 13C <<<', () => {
+    // >>> ESTE CASO MUDOU DE LADO EM 12/10/2026, NA RODADA DA 13C <<<
     //
-    // Antes, o Presumido caía no ramo do Lucro Real por NÃO ESTAR na lista da guia única —
-    // divergência por omissão. Agora a decomposição LÊ a matriz, e a célula do Presumido diz
-    // `base: 'PRESUNCAO'`, `etapa: '13C'` (`matriz-fiscal.ts:337-338`). O número continua o
-    // de hoje porque **a linha 13C NÃO EXISTE** nesta decomposição: não há conceito de etapa
-    // em `decomposition-dre.ts`, e IRPJ/CSLL estão "na 16" por participarem de `somaRROde`.
+    // Ele afirmava `0,015` e `0,009` — IRPJ e CSLL derivados do LUCRO, na etapa 16 — e tinha
+    // "DIVERGE DA ESPEC XIV.4 ATÉ A RODADA DA 13C" no nome. Esta é a rodada, e o "ATÉ" sai
+    // porque a divergência acabou.
     //
-    // Então o gap deixou de ser implícito e passou a ser NOMEADO, em um ponto só — ver o
-    // comentário de `budget-decomposition-input.ts` na leitura de `colocacaoVigente`. Criar a
-    // 13C é rodada própria, por decisão do dono do produto.
+    // O que mudou no código: a decomposição passou a ler a **BASE** da célula, não só a
+    // COLOCAÇÃO. A colocação diz SE o tributo existe e de que lado; a base diz SOBRE O QUE
+    // ele incide, e era ela que decidia a etapa desde que a matriz nasceu — `base:
+    // 'PRESUNCAO'`, `etapa: '13C'`. Com a base lida, os dois saem do resíduo e viram tributo
+    // sobre a receita, apurados na 13C (`a-13c-do-presumido.test.ts`).
+    //
+    // E a MEDIÇÃO que reenquadrou tudo: a CONSTRUÇÃO já fazia a presunção sobre a receita
+    // (`tax-sync.ts` devolve `irpj = presunção × 15%`, alíquota sobre RECEITA, somada no total
+    // que forma o preço). Quem apurava sobre o LUCRO era só a decomposição.
     const c = categoriasDe('LUCRO_PRESUMIDO')
 
-    // MEDIDO: lucro 10% × 0,15 = 0,015 e × 0,09 = 0,009. Derivado do LUCRO, não da receita.
-    expect(c.irpjPct).toBeCloseTo(0.015, 6)
-    expect(c.csllPct).toBeCloseTo(0.009, 6)
+    // ZERADOS nas categorias do RRO: eles não são parcela do resíduo.
+    expect(c.irpjPct).toBe(0)
+    expect(c.csllPct).toBe(0)
 
-    // >>> A ASSERÇÃO QUE NOMEIA A DIVERGÊNCIA <<<
-    // Os pesos entram na soma do RRO (`decomposition-dre.ts:586`), ou seja na ETAPA 16. Se a
-    // correção os mover para a 13, eles passam a ser ZERO aqui — como no Simples, onde já
-    // estão no DAS. O caso abaixo é o par que mostra qual é o estado "na etapa 13".
-    expect(c.irpjPct).not.toBe(0)
-    expect(c.csllPct).not.toBe(0)
+    // >>> E A COMISSÃO E O LUCRO NÃO FORAM TOCADOS — o par que prova que a mudança é de DOIS
+    // tributos, e não um zeramento geral das categorias <<<
+    expect(c.comissaoPct).toBeCloseTo(0.05, 6)
+    expect(c.lucroPct).toBeCloseTo(0.10, 6)
   })
 
-  it('C5 · e é IDÊNTICO ao Lucro Real — é o que prova que o Presumido empresta a conta dele, ATÉ A RODADA DA 13C', () => {
-    // A frase da ESPEC: *"Presumido e RET 'funcionam' porque emprestam a conta do Lucro
-    // Real."* Esta é a asserção dela: bit a bit o mesmo número.
+  it('>>> C5 · e NÃO é mais idêntico ao Lucro Real — o empréstimo da conta dele acabou <<<', () => {
+    // >>> MUDOU DE LADO NA MESMA RODADA <<<
+    //
+    // Ele afirmava `toBe(real.irpjPct)`, com a frase da ESPEC no comentário: *"Presumido e RET
+    // 'funcionam' porque emprestam a conta do Lucro Real."* Era verdade, e é o que a 13C
+    // corrigiu.
+    //
+    // O `not` é o que torna o caso discriminante: sem ele, "zero" passaria num mundo em que o
+    // Lucro Real também desse zero. O par abaixo prova que o Real continua computando sobre o
+    // lucro, intocado — é a asserção de regressão que o comando pediu.
     const presumido = categoriasDe('LUCRO_PRESUMIDO')
     const real = categoriasDe('LUCRO_REAL')
-    expect(presumido.irpjPct).toBe(real.irpjPct)
-    expect(presumido.csllPct).toBe(real.csllPct)
+
+    expect(presumido.irpjPct).not.toBe(real.irpjPct)
+    expect(presumido.csllPct).not.toBe(real.csllPct)
+
+    // O LUCRO REAL NÃO MUDOU UM CENTAVO: 10% de lucro × 15% e × 9%, base LUCRO, etapa 16.
+    expect(real.irpjPct).toBeCloseTo(0.015, 6)
+    expect(real.csllPct).toBeCloseTo(0.009, 6)
   })
 
   it('>>> C7 · RET: IRPJ e CSLL ZERADOS — a matriz diz INEXISTENTE, e os 4% os englobam <<<', () => {
