@@ -143,6 +143,87 @@ export function applyAbsorptionPolicy(input: ApplyAbsorptionInput): ApplyAbsorpt
     commission_floor_applied = true
   }
 
+
+  // ═══ ESPEC PARTE VII.4 e VII.5 — PISO ZERO DE EXIBIÇÃO E O DESCOBERTO AUTORIZADO ═══════
+  //
+  // Até 12/10/2026 a etapa 16 devolvia comissão e lucro NEGATIVOS quando o RRO era negativo:
+  // `distributeProportional` faz `rro × peso` sem piso nenhum. Medido na entrada de
+  // referência (rb 100.000 · cp 40.000 · dop 10% · com 5% · luc 10% · ICMS 17% · PIS/COFINS
+  // 9,25%), com 40% de desconto e RRO de −5.750,00:
+  //
+  // | modo | comissão | lucro |
+  // |---|---:|---:|
+  // | Proporcional | **−1.916,67** | **−3.833,33** |
+  // | Congela Comissão | −1.916,67 | −3.833,33 — degradava para proporcional |
+  // | Congela Lucro | 0,00 | **−5.750,00** — o piso existia só na comissão |
+  //
+  // O motor 2.6.0, aposentado, TINHA o piso (`margin-reapuration.ts:515`,
+  // `Math.max(0, rro)`). Ele se perdeu na migração para o V17.
+  //
+  // >>> ZERO É PISO DE EXIBIÇÃO, NUNCA PISO DA APURAÇÃO <<<
+  //
+  // A VII.4 é explícita: *"o número não pode mentir"*. As etapas 12 a 15 ficam INALTERADAS e
+  // o RRO continua saindo negativo, como a conta manda. O que ganha piso é a REPARTIÇÃO, e o
+  // que não cabe na âncora sai na linha NOVA de descoberto — sem ela, forçar os dois a zero
+  // faria a etapa 17 fechar ESCONDENDO o buraco, que é exatamente o que a arquitetura de dois
+  // blocos existe para impedir.
+  //
+  // >>> QUEM É SACRIFICADO JÁ ESTAVA DECIDIDO: É O MODO DE PROTEÇÃO (VII.5) <<<
+  //
+  // A autorização não cria uma quarta regra; ela só deixa o modo já escolhido continuar
+  // valendo abaixo do limite.
+  //
+  // | modo | comissão | lucro | descoberto |
+  // |---|---|---|---|
+  // | `RRO_PROPORTIONAL` | `max(0; rro × peso)` ⇒ 0 | `max(0; rro × peso)` ⇒ 0 | `\|RRO\|` |
+  // | `COMMISSION_PROTECTED` | **integral**, `com% × âncora` | 0 | `\|RRO\| + comissão` |
+  // | `PROFIT_PROTECTED` | 0 | **integral**, `luc% × âncora` | `\|RRO\| + lucro` |
+  //
+  // IRPJ e CSLL acompanham o lucro e vão a zero junto. A VII.4 não os nomeia, e a razão de
+  // zerá-los é de conta, não de omissão: eles são tributo SOBRE o lucro, e lucro zero não
+  // produz imposto sobre lucro. Deixá-los negativos seria manter o defeito em duas linhas.
+  const rro_negativo = motor.rro < 0
+  if (rro_negativo) {
+    if (policy === 'COMMISSION_PROTECTED') {
+      final_commission = com_pct * ancora_ger
+      final_profit = 0
+      final_csll = 0
+      final_irpj = 0
+    } else if (policy === 'PROFIT_PROTECTED') {
+      final_commission = 0
+      final_profit = luc_pct * ancora_ger
+      final_csll = 0
+      final_irpj = 0
+    } else {
+      // Proporcional: `max(0; rro × peso)` — com RRO negativo os quatro dão zero, e é isso
+      // que faz o descoberto do modo 1 ser SEMPRE o menor dos três.
+      final_commission = Math.max(0, proportional.new_commission)
+      final_profit = Math.max(0, proportional.new_profit)
+      final_csll = Math.max(0, proportional.new_csll)
+      final_irpj = Math.max(0, proportional.new_irpj)
+    }
+  }
+
+  /**
+   * O DESCOBERTO AUTORIZADO — a linha NOVA da etapa 16.
+   *
+   * A VII.5 dá a DEFINIÇÃO GERAL, e é ela que está implementada:
+   *
+   *     descoberto = (imposto + CP + MOD + DOP + RT + comissão + lucro) − âncora
+   *
+   * Como `rro = âncora − imposto − CP − MOD − DOP − RT`, a expressão é identicamente
+   * `(comissão + lucro + csll + irpj) − rro`. As duas formas dão o mesmo número; a de baixo
+   * é a que o motor tem em mãos, e escrever a de cima aqui exigiria recompor seis parcelas
+   * que já foram somadas — `regime-e-segmento-determinam-a-construcao.md`: ler, não refazer.
+   *
+   * Com RRO ≥ 0 o descoberto é ZERO, porque a repartição fecha o resíduo e não há o que não
+   * caiba. É isso que mantém a etapa 17 idêntica em todo documento que não estoura o limite.
+   */
+  const descoberto_autorizado = Math.max(
+    0,
+    (final_commission + final_profit + final_csll + final_irpj) - motor.rro,
+  )
+
   // ───── PDF Etapa 17: tributos por fora (Reforma Tributária / IVA Dual) ─────
   // Bases individualizadas (documento "Bases de Cálculo dos Tributos Por Fora",
   // Conferência Fiscal 2026-06-05). OpDentro = Âncora (operação interna, SEM despesas
@@ -281,13 +362,32 @@ export function applyAbsorptionPolicy(input: ApplyAbsorptionInput): ApplyAbsorpt
     ? final_commission - proportional.new_commission
     : 0
 
+  // >>> ESTAS `validations` SÃO UM PRÉ-CHECK, E SÃO SUBSTITUÍDAS <<<
+  //
+  // `calculateMotorV17` (`mrm-engine-v17.ts`) troca este objeto inteiro pelo resultado de
+  // `checkAllInvariantsV17`. Quem consome `distribution.validations` lê a versão de lá, não
+  // esta. Descobri isso editando o `V4` daqui e vendo a mutação NÃO ficar vermelha —
+  // `portao-que-nao-alcanca.md` dentro da própria correção: o instrumento não alcançava.
+  //
+  // As expressões aqui são mantidas EM ACORDO com `invariants.ts` de propósito: duas versões
+  // divergentes do mesmo invariante seriam `copia-divergente.md`, e a que vale é a de lá.
   const validations: ValidationMap = {
     V1: true, // pesos somam 1 — checado em invariants.ts
     V2: true, // ranges válidos
     V3: true, // cascata soma — checado em motor-rro
-    V4: Math.abs(motor.rro - (final_commission + final_profit + final_csll + final_irpj)) < 0.01,
+    // ESPEC VII.4 — a etapa 17 fecha COM a linha de descoberto. Sem ela, com piso zero, esta
+    // identidade quebraria em |RRO| e o sistema fecharia a conta escondendo o buraco.
+    V4: Math.abs(
+      motor.rro
+      - (final_commission + final_profit + final_csll + final_irpj - descoberto_autorizado),
+    ) < 0.01,
     V5: motor.cascade_trace.length === 17 || motor.cascade_trace.length === 19, // 17 sem RT, 19 com RT
-    V6: true, // distribuição = RRO (V4 acima)
+    // ESPEC VII.4 — a identidade fecha COM o descoberto. A que VALE é
+    // `checkI6DistribuicaoSoma` em `invariants.ts`; esta é o pré-check em acordo com ela.
+    V6: Math.abs(
+      (final_commission + final_profit + final_csll + final_irpj - descoberto_autorizado)
+      - motor.rro,
+    ) < 0.01,
     V7: Math.abs(valor_final - (motor.ancora + desp_acessorias + taxes_outside_total)) < 0.01,
   }
 
@@ -297,6 +397,8 @@ export function applyAbsorptionPolicy(input: ApplyAbsorptionInput): ApplyAbsorpt
     new_profit: final_profit,
     new_csll: final_csll,
     new_irpj: final_irpj,
+    /** ESPEC VII.4 — o que a venda deixou de cobrir. Zero quando o RRO não é negativo. */
+    descoberto_autorizado,
     taxes_outside,
     taxes_outside_base,
     taxes_outside_total,
@@ -536,6 +638,30 @@ export function applyAbsorptionPolicy(input: ApplyAbsorptionInput): ApplyAbsorpt
             peso: view.peso_csll_original,
             effective_rate_pct: effRateAncora(final_csll),
           },
+          // ═══ ESPEC VII.4 — A LINHA NOVA, E A ETAPA 17 SÓ FECHA COM ELA ══════════════════
+          //
+          // Ela aparece SÓ quando existe descoberto (RRO negativo). Com RRO ≥ 0 o valor é
+          // zero e a linha não é emitida — exibir "Descoberto R$ 0,00" num documento dentro
+          // do limite afirmaria que houve descoberto e deu nada, que é o que
+          // `ausente-vs-falso.md` proíbe, e é a mesma razão pela qual `INEXISTENTE` não é 0%.
+          //
+          // O `peso` é omitido de propósito: ela não é uma parcela da repartição do RRO, é o
+          // que NÃO caber nele. Dar-lhe peso a somaria aos quatro e a soma dos pesos
+          // deixaria de ser 1 (invariante V1).
+          ...(descoberto_autorizado > 0.005
+            ? [{
+                step: 16,
+                label: 'Descoberto autorizado',
+                base: motor.ancora,
+                rate: null,
+                amount: descoberto_autorizado,
+                formula:
+                  '(imposto + CP + MOD + DOP + RT + comissão + lucro) − âncora '
+                  + '≡ (comissão + lucro + IRPJ + CSLL) − RRO (ESPEC VII.4/VII.5)',
+                source: 'CAMADA_2' as const,
+                effective_rate_pct: effRateAncora(descoberto_autorizado),
+              }]
+            : []),
         ],
       }
     }

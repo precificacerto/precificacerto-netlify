@@ -898,6 +898,19 @@ export interface MotorOutput {
   /** Cascade trace 17 etapas (PDF — superseta as 13 etapas V16). */
   cascade_trace: CascadeStep[]
   limite_minimo: number | null
+  /**
+   * ESPEC VII.3 — os tributos que a MATRIZ manda somar no denominador do limite e para os
+   * quais o motor NÃO tem alíquota. Vazio é o estado normal.
+   *
+   * Eles contribuem ZERO na soma, porque não há outro número a usar, e por isso o
+   * `limite_minimo` sai MENOR do que deveria — ou seja, o limite fica mais FROUXO. A lista
+   * sai para que a tela possa dizer que o limite não está apurado em vez de exibi-lo como se
+   * estivesse: `ausente-vs-falso.md`, e aqui o custo de calar é deixar passar desconto.
+   *
+   * Hoje o caso conhecido é o RET, cuja alíquota chega pela coluna reusada
+   * `custom_tax_percent` e não como `TaxRatePeriod`.
+   */
+  limite_incompleto: readonly string[]
 }
 
 /**
@@ -909,6 +922,22 @@ export interface FinalDistribution {
   new_profit: number
   new_csll: number
   new_irpj: number
+  /**
+   * DESCOBERTO AUTORIZADO — ESPEC Parte VII.4, linha NOVA da etapa 16.
+   *
+   * `(comissão + lucro + csll + irpj) − RRO`, equivalente à definição geral da VII.5
+   * `(imposto + CP + MOD + DOP + RT + comissão + lucro) − âncora`. É o que a venda deixou de
+   * cobrir, e é o que faz a etapa 17 FECHAR com piso zero em comissão e lucro: sem esta
+   * linha, a identidade do RRO quebraria em `|RRO|` e a conta fecharia escondendo o buraco.
+   *
+   * **ZERO quando o RRO não é negativo** — todo documento dentro do limite tem zero aqui, e
+   * é isso que mantém a etapa 17 idêntica à de antes nesses casos.
+   *
+   * OBRIGATÓRIO, e não opcional com default: ele participa da identidade de fechamento
+   * (`validations.V4`). `construtor-empobrecido.md` — campo de cálculo com default neutro é
+   * defeito à espera de produtor.
+   */
+  descoberto_autorizado: number
   /** Tributos por fora sobre base canônica (Âncora − ICMS − PIS/COFINS). */
   taxes_outside: TaxLine[]
   taxes_outside_base: number
@@ -1010,6 +1039,16 @@ export interface IcmsComplMotorInput {
 /**
  * Resultado completo do motor V17 (pronto para persistir em
  * `budgets/orders/sales.consolidated_breakdown`).
+ *
+ * >>> A COLUNA NUNCA RECEBEU ISTO, e desde 12/10/2026 ela tem OUTRO morador <<<
+ *
+ * Medido em 12/10/2026: nada em `src/` escreve `consolidated_breakdown` — ela está vazia em
+ * produção nas três tabelas. A autorização de desconto da ESPEC VII.2 passou a ocupar a chave
+ * `autorizacao_do_desconto` ali, porque não existe coluna de autorização e a instrução era
+ * gravar o que couber sem criar migração. A ocupação está DECLARADA em
+ * `ConsolidatedBreakdownPersisted` (`src/utils/limite-de-desconto.ts`): quem for persistir o
+ * `MotorV17Result` inteiro aqui lê naquele tipo que a coluna já tem morador, em vez de
+ * descobrir sobrescrevendo-o.
  */
 export interface MotorV17Result {
   engine_version: typeof MRM_ENGINE_VERSION_V17

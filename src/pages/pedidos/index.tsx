@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import {
     App as AntdApp,
     Button, DatePicker, Drawer, Dropdown, Form, Input, InputNumber, Space, Table, Tag,
-    message, Modal, Popconfirm, Empty, Checkbox, Divider, Typography,
+    message, Modal, Popconfirm, Empty, Checkbox, Divider, Typography, Alert,
 } from 'antd'
 import { Select } from '@/components/ui/app-select.component'
 import { CurrencyInput } from '@/components/currency-input.component'
@@ -38,6 +38,14 @@ import { ResidualDistributionBlock } from '@/page-parts/shared/residual-distribu
 import { computeConsolidatedDRE, type DREItemInput } from '@/utils/consolidated-dre'
 import { ConsolidatedDREBlock } from '@/page-parts/shared/consolidated-dre-block.component'
 import { enrichItemsForMotor } from '@/utils/motor-item-enrichment'
+import { calculateMotorV17ForPageFull } from '@/utils/mrm-engine-v17/legacy-adapter'
+import {
+    ROTULO_DA_AUTORIZACAO,
+    descontoMaximoFracao,
+    estadoDoDesconto,
+    mensagemDoLimite,
+    payloadDoRastroDaAutorizacao,
+} from '@/utils/limite-de-desconto'
 import { buildItemTaxRatesFromProduct } from '@/utils/item-tax-rates'
 import { buildBudgetDecompositionInput } from '@/utils/budget-decomposition-input'
 import { buildDecomposition } from '@/utils/decomposition-dre'
@@ -361,6 +369,59 @@ function OrdersPage() {
             productive_value_per_minute: mrmConfig.productive_value_per_minute,
         },
     ), [orderItems, products, services, mrmConfig.production_labor_cost, mrmConfig.monthly_workload_minutes, mrmConfig.productive_value_per_minute])
+
+    /*
+      ESPEC PARTE VII — OS TRÊS ESTADOS NO PEDIDO.
+
+      O pedido NÃO tinha trava nenhuma: o `max={100}` do campo é o domínio do percentual, não
+      um limite de negócio. Por isso ele é o caso mais limpo — não há clamp a remover, só o
+      limite a acrescentar.
+
+      O limite vem do consolidado do motor (`limite_minimo`, fórmula da VII.3 com o
+      denominador lido da matriz e o RT% dentro), nunca de busca binária e nunca de nome de
+      regime. O pedido já tinha os itens enriquecidos para a decomposição; aqui eles
+      alimentam o MOTOR, que é quem produz a âncora e o limite.
+    */
+    const pedV17Full = useMemo(() => {
+        if (mrmConfig.enabled && !motorReady) return null
+        if (orderEnrichedItems.length === 0) return null
+        return calculateMotorV17ForPageFull({
+            items: orderEnrichedItems as any,
+            tenantCtx: orderMotorTenantCtx as any,
+            globalDiscountPercent: Number(editingDiscountPct) || 0,
+        })
+    }, [orderEnrichedItems, mrmConfig.regime, mrmConfig.rates, mrmConfig.mod_pct, mrmConfig.dop_pct, mrmConfig.csll_pct, mrmConfig.irpj_pct, mrmConfig.useSnapshotRates, mrmConfig.expense_breakdown, editingDiscountPct, motorReady, mrmConfig.enabled])
+
+    /** O `d_máximo` da VII.3, em PERCENTUAL para a tela. `null` quando não é calculável. */
+    const limitePctPVII = useMemo(() => {
+        const m = pedV17Full?.consolidated.motor
+        if (!m) return null
+        // A âncora SEM desconto é a base do `d_máximo`: com desconto aplicado a âncora já
+        // encolheu, e dividir por ela daria um limite que SOBE conforme o usuário desconta.
+        const pct = Number(editingDiscountPct) || 0
+        const opDentro = pct > 0 ? m.ancora / (1 - pct / 100) : m.ancora
+        const f = descontoMaximoFracao({ limiteMinimo: m.limite_minimo, opDentro })
+        return f == null ? null : f * 100
+    }, [pedV17Full, editingDiscountPct])
+
+    /** Os tributos que a matriz manda somar e o motor não tem alíquota. Vazio é o normal. */
+    const limiteIncompletoPVII: readonly string[] = pedV17Full?.consolidated.motor.limite_incompleto ?? []
+
+    /**
+     * ESPEC VII.2 — a AUTORIZAÇÃO do desconto acima do limite.
+     *
+     * `false` é o estado inicial e o correto: o checkbox tem de ser CLICADO a cada vez. Ele
+     * reseta quando o desconto muda, porque autorizar 40% não é autorizar 60% — a mensagem
+     * nomeia o percentual, e a autorização vale para o que foi lido.
+     */
+    const [descontoAutorizadoPVII, setDescontoAutorizadoPVII] = useState(false)
+    useEffect(() => { setDescontoAutorizadoPVII(false) }, [editingDiscountPct])
+
+    const estadoDoDescontoPVII = estadoDoDesconto({
+        descontoFracao: (Number(editingDiscountPct) || 0) / 100,
+        descontoMaximoFracao: limitePctPVII == null ? null : limitePctPVII / 100,
+        autorizado: descontoAutorizadoPVII,
+    })
 
     const orderDecomposition = useMemo(() => {
         const params = buildBudgetDecompositionInput({
@@ -871,6 +932,12 @@ function OrdersPage() {
                 messageApi.error('Carregando contexto fiscal. Aguarde alguns segundos e tente novamente.')
                 return
             }
+            // ESPEC VII.2 — o AMARELO não avança. O vermelho autorizado avança, porque o
+            // usuário clicou o checkbox e a autorização é dele. Não é trava: é autorização.
+            if (estadoDoDescontoPVII === 'AMARELO') {
+                messageApi.warning('Desconto acima do limite. Marque a autorização para prosseguir.')
+                return
+            }
 
             setSavingEdit(true)
 
@@ -1028,6 +1095,17 @@ function OrdersPage() {
                     updated_at: new Date().toISOString(),
                     // MRM S2.3: persistir flag para listing badge
                     requires_review: requiresReview,
+                    // ESPEC VII.2 — O RASTRO DA AUTORIZAÇÃO. Vai só quando houve autorização;
+                    // pedido verde não grava nada e não apaga rastro anterior. A coluna não
+                    // existe — ver `payloadDoRastroDaAutorizacao` para o que falta.
+                    ...payloadDoRastroDaAutorizacao({
+                        estado: estadoDoDescontoPVII,
+                        autorizadoPor: currentUser?.uid ?? (await getCurrentUserId()) ?? null,
+                        descontoPct: discountPct,
+                        limitePct: limitePctPVII,
+                        descoberto: pedV17Full?.consolidated.distribution.descoberto_autorizado ?? 0,
+                        limiteIncompleto: limiteIncompletoPVII,
+                    }),
                 })
                 .eq('id', editingOrder.id)
 
@@ -1934,6 +2012,53 @@ function OrdersPage() {
                             parser={(v) => Number(String(v).replace('%', '')) as 0}
                         />
                     </Form.Item>
+
+                    {/* ═══ ESPEC PARTE VII.2 — OS TRÊS ESTADOS ═══════════════════════════════
+                        Verde não exibe nada. Amarelo exibe a mensagem e o checkbox, e o save
+                        não avança sem o clique (`handleSaveEdit`). Vermelho autorizado confirma,
+                        com o descoberto à vista — e a VII.5 manda dizer que congelar o AUMENTA. */}
+                    {limitePctPVII != null && estadoDoDescontoPVII !== 'VERDE' && (
+                        <Alert
+                            type={estadoDoDescontoPVII === 'AMARELO' ? 'warning' : 'error'}
+                            showIcon
+                            style={{ marginBottom: 16 }}
+                            message={estadoDoDescontoPVII === 'AMARELO'
+                                ? 'Desconto acima do limite consolidado'
+                                : 'Desconto autorizado — operação em lucro zero'}
+                            description={
+                                <div>
+                                    <p style={{ margin: '0 0 8px' }}>
+                                        {mensagemDoLimite({
+                                            descontoFracao: (Number(editingDiscountPct) || 0) / 100,
+                                            limiteFracao: limitePctPVII / 100,
+                                        })}
+                                    </p>
+                                    {limiteIncompletoPVII.length > 0 && (
+                                        /* `ausente-vs-falso.md`: o limite está INCOMPLETO, e dizer
+                                           isso é diferente de exibi-lo como apurado. Sem alíquota,
+                                           o tributo contribui zero e o limite sai mais FROUXO. */
+                                        <p style={{ margin: '0 0 8px', color: '#B54708' }}>
+                                            Limite calculado SEM {limiteIncompletoPVII.join(', ')} —
+                                            a alíquota não chegou ao motor, então o limite acima está
+                                            mais frouxo que o real.
+                                        </p>
+                                    )}
+                                    {pedV17Full != null && pedV17Full.consolidated.distribution.descoberto_autorizado > 0.005 && (
+                                        <p style={{ margin: '0 0 8px' }}>
+                                            <strong>Descoberto: {formatCurrency(pedV17Full.consolidated.distribution.descoberto_autorizado)}</strong>
+                                            {' '}— o que este pedido deixa de cobrir.
+                                        </p>
+                                    )}
+                                    <Checkbox
+                                        checked={descontoAutorizadoPVII}
+                                        onChange={(e) => setDescontoAutorizadoPVII(e.target.checked)}
+                                    >
+                                        {ROTULO_DA_AUTORIZACAO}
+                                    </Checkbox>
+                                </div>
+                            }
+                        />
+                    )}
                     <OrderInstallmentsEditor
                         form={editForm}
                         rows={orderInstallmentRows}

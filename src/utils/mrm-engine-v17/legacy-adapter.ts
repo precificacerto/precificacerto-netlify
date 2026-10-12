@@ -1181,10 +1181,14 @@ export function calculateMotorV17ForPageFull(args: PageBuildArgs): {
         rro_status: 'PENDING',
         cascade_trace: [],
         limite_minimo: null,
+        limite_incompleto: [],
       },
       distribution: {
         policy_applied: args.tenantCtx.absorption_policy ?? 'RRO_PROPORTIONAL',
         new_commission: 0, new_profit: 0, new_csll: 0, new_irpj: 0,
+        // Resultado VAZIO: sem RRO não há o que não caiba na âncora. Zero aqui é o estado
+        // correto deste caminho, não um default de conveniência.
+        descoberto_autorizado: 0,
         taxes_outside: [], taxes_outside_base: 0, taxes_outside_total: 0,
         desp_acessorias: 0,
         valor_final: 0,

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react'
 import {
     App as AntdApp,
-    Button, Drawer, Dropdown, Form, Input, InputNumber, Space, Table, Tag, Tooltip,
+    Alert, Button, Drawer, Dropdown, Form, Input, InputNumber, Space, Table, Tag, Tooltip,
     message, Popconfirm, DatePicker, Empty, Divider, Modal, Upload, Checkbox, Radio, Segmented,
 } from 'antd'
 import { Select } from '@/components/ui/app-select.component'
@@ -77,7 +77,14 @@ import { buildDecomposition } from '@/utils/decomposition-dre'
 import { NOTA_DA_DECOMPOSICAO, applyDecompositionToResidual } from '@/utils/residual-from-decomposition'
 import { hydrateDocumentSnapshots } from '@/lib/document-snapshot'
 import type { TenantSnapshotContext } from '@/lib/items-snapshot'
-import { calculateMotorV17ForPage } from '@/utils/mrm-engine-v17/legacy-adapter'
+import { calculateMotorV17ForPage, calculateMotorV17ForPageFull } from '@/utils/mrm-engine-v17/legacy-adapter'
+import {
+    ROTULO_DA_AUTORIZACAO,
+    descontoMaximoFracao,
+    estadoDoDesconto,
+    mensagemDoLimite,
+    payloadDoRastroDaAutorizacao,
+} from '@/utils/limite-de-desconto'
 import { consolidateStDifalFromItems } from '@/utils/icms-st-difal'
 import { coerceLegacyDiscountMode, normalizeDiscountModeForDisplay } from '@/config/feature-flags'
 import { decideMrmAction } from '@/utils/mrm-policies'
@@ -245,6 +252,8 @@ function Sales() {
     const [empServiceTablesV, setEmpServiceTablesV] = useState<{id: string; name: string; type: string; commission_percent?: number}[]>([])
     const [tableSectionsV, setTableSectionsV] = useState<{key: string; tableId: string | null}[]>([{key: 'ts-0', tableId: null}])
     const [globalDiscountPercentV, setGlobalDiscountPercentV] = useState(0)
+    /** ESPEC VII.2 — a autorização do desconto acima do limite. Ver `orcamentos/index.tsx`. */
+    const [descontoAutorizadoVVII, setDescontoAutorizadoVVII] = useState(false)
     const [discountModeV, setDiscountModeV] = useState<DiscountMode>('PROPORTIONAL')
     const mrmConfig = useTenantTaxContext()
     // P0 — Loading guard (Aria §7 + Quinn §4): rates ausentes inflam comissão.
@@ -1402,21 +1411,9 @@ function Sales() {
     //   - PROPORTIONAL: pool = comissão + lucro
     //   - SELLER_REDUCTION: pool = apenas comissão
     //   - PROFIT_REDUCTION: pool = apenas lucro
-    const maxDiscountPercentV = (() => {
-        if (saleTotal <= 0) return 0
-        const sumWeighted = saleItems.reduce((s, i) => {
-            const comm = i.commission_percent || 0
-            const prof = i.profit_percent || 0
-            const contributing =
-                discountModeV === 'SELLER_REDUCTION'
-                    ? comm
-                    : discountModeV === 'PROFIT_REDUCTION'
-                        ? prof
-                        : comm + prof
-            return s + i.total * contributing / 100
-        }, 0)
-        return Math.min(100, sumWeighted / saleTotal * 100)
-    })()
+    // ESPEC PARTE VII — `maxDiscountPercentV` SAIU. Era o pool `comissão + lucro` ponderado,
+    // e alimentava o `max=`, o `disabled` e três `Math.min` do campo. O limite agora é
+    // `limitePctVVII`, do consolidado do motor. Ver `orcamentos/index.tsx`.
     const saleTotalWithDiscount = saleTotal * (1 - globalDiscountPercentV / 100)
 
     // ── Motor RR runtime para o drawer "Venda no Balcão" (espelha orçamentos) ──
@@ -1468,6 +1465,33 @@ function Sales() {
         icmsCompl: buildIcmsComplParams(selectedCustomerIdV),
     })
     const balcaoV17Results = runBalcaoMotorAtDiscount(globalDiscountPercentV)
+
+    /* ESPEC PARTE VII — o limite vem do consolidado. Ver `orcamentos/index.tsx`. */
+    const balcaoV17Full = balcaoEnrichedItems.length > 0
+        ? calculateMotorV17ForPageFull({
+            items: balcaoEnrichedItems,
+            tenantCtx: balcaoMotorTenantCtxV17,
+            globalDiscountPercent: globalDiscountPercentV,
+            effectiveDate: balcaoReapurationDate,
+            icmsComplApplies: icmsComplAppliesV,
+            icmsCompl: buildIcmsComplParams(selectedCustomerIdV),
+        })
+        : null
+    const limitePctVVII = (() => {
+        const m = balcaoV17Full?.consolidated.motor
+        if (!m) return null
+        const opDentro = globalDiscountPercentV > 0
+            ? m.ancora / (1 - globalDiscountPercentV / 100)
+            : m.ancora
+        const f = descontoMaximoFracao({ limiteMinimo: m.limite_minimo, opDentro })
+        return f == null ? null : f * 100
+    })()
+    const limiteIncompletoVVII: readonly string[] = balcaoV17Full?.consolidated.motor.limite_incompleto ?? []
+    const estadoDoDescontoVVII = estadoDoDesconto({
+        descontoFracao: globalDiscountPercentV / 100,
+        descontoMaximoFracao: limitePctVVII == null ? null : limitePctVVII / 100,
+        autorizado: descontoAutorizadoVVII,
+    })
     // Correção Card Percentual (Ago/2026): baseline pré-desconto (motor desconto=0) para o
     // "% original" do card no balcão (venda ao vivo). Invariante ao desconto digitado (I3).
     const balcaoBaselineResults = runBalcaoMotorAtDiscount(0)
@@ -1731,6 +1755,13 @@ function Sales() {
             // "com sucesso!".
             const avisos: string[] = []
             await form.validateFields()
+            /* ESPEC VII.2 — o amarelo não avança sem o clique. Ver `orcamentos/index.tsx`. */
+            if (estadoDoDescontoVVII === 'AMARELO') {
+                messageApi.warning(
+                    'Este desconto ultrapassa o limite consolidado. Marque a autorização para continuar.',
+                )
+                return
+            }
             if (saleItems.length === 0) {
                 messageApi.warning('Adicione pelo menos um produto ou item manual!')
                 return
@@ -1894,6 +1925,18 @@ function Sales() {
                 // Epic MRM-V6 (ADR-009): persistimos o modo escolhido pelo usuário sem coerção.
                 discount_mode: discountModeV,
                 engine_version: mrmConfig.enabled ? MRM_ENGINE_VERSION : 'legacy',
+                // ESPEC VII.2 — O RASTRO DA AUTORIZAÇÃO. Vai só quando houve autorização. A
+                // venda via ORÇAMENTO não grava aqui: lá o desconto foi autorizado no
+                // orçamento, e o rastro é do documento em que o clique aconteceu. A coluna não
+                // existe — ver `payloadDoRastroDaAutorizacao` para o que falta.
+                ...payloadDoRastroDaAutorizacao({
+                    estado: estadoDoDescontoVVII,
+                    autorizadoPor: createdBy ?? null,
+                    descontoPct: globalDiscountPercentV,
+                    limitePct: limitePctVVII,
+                    descoberto: balcaoV17Full?.consolidated.distribution.descoberto_autorizado ?? 0,
+                    limiteIncompleto: limiteIncompletoVVII,
+                }),
             }).select().single()
 
             if (saleErr) throw saleErr
@@ -3229,19 +3272,21 @@ function Sales() {
                                         { label: 'R$', value: 'AMOUNT' },
                                     ]}
                                 />
-                                <Tooltip title={maxDiscountPercentV <= 0 ? 'Sem margem disponível para desconto' : ''}>
+                                {/* ESPEC VII.2 — o `Tooltip` de "sem margem" e o `disabled` saíram com o
+                                    clamp: o campo aceita o valor, e quem avisa é a mensagem abaixo. */}
+                                <>
                                     {discountInputModeV === 'PERCENT' ? (
                                         <InputNumber
                                             // MRM S2.3: âncora pro scroll automático quando policy bloqueia save
                                             data-mrm-discount-field="true"
-                                            disabled={maxDiscountPercentV <= 0}
                                             min={0}
-                                            max={maxDiscountPercentV > 0 ? maxDiscountPercentV : 100}
+                                            max={100}
                                             step={0.5}
                                             precision={4}
                                             value={globalDiscountPercentV}
                                             onChange={(v) => {
-                                                const newDiscount = Math.min(v ?? 0, maxDiscountPercentV > 0 ? maxDiscountPercentV : 100)
+                                                const newDiscount = Math.max(0, Math.min(100, v ?? 0))
+                                                setDescontoAutorizadoVVII(false)
                                                 setGlobalDiscountPercentV(newDiscount)
                                                 if (installmentPreset !== 'customizado') {
                                                     const discountedTotal = saleTotal * (1 - newDiscount / 100)
@@ -3257,16 +3302,16 @@ function Sales() {
                                         />
                                     ) : (
                                         <CurrencyInput
-                                            disabled={maxDiscountPercentV <= 0 || balcaoTotalACobrarFull <= 0}
+                                            disabled={balcaoTotalACobrarFull <= 0}
                                             min={0}
-                                            max={balcaoTotalACobrarFull > 0 ? balcaoTotalACobrarFull * ((maxDiscountPercentV > 0 ? maxDiscountPercentV : 100) / 100) : 0}
+                                            max={balcaoTotalACobrarFull > 0 ? balcaoTotalACobrarFull : 0}
                                             value={Number((balcaoTotalACobrarFull * (globalDiscountPercentV / 100)).toFixed(2))}
                                             onChange={(v) => {
                                                 const amount = v || 0
                                                 if (balcaoTotalACobrarFull <= 0) { setGlobalDiscountPercentV(0); return }
                                                 const pct = (amount / balcaoTotalACobrarFull) * 100
-                                                const capped = Math.min(pct, maxDiscountPercentV > 0 ? maxDiscountPercentV : 100)
-                                                const finalPct = Number(capped.toFixed(4))
+                                                const finalPct = Number(Math.max(0, Math.min(100, pct)).toFixed(4))
+                                                setDescontoAutorizadoVVII(false)
                                                 setGlobalDiscountPercentV(finalPct)
                                                 if (installmentPreset !== 'customizado') {
                                                     const discountedTotal = saleTotal * (1 - finalPct / 100)
@@ -3278,16 +3323,57 @@ function Sales() {
                                             style={{ width: 180 }}
                                         />
                                     )}
-                                </Tooltip>
+                                </>
                             </div>
-                            {maxDiscountPercentV > 0 && (<span style={{ fontSize: 12, color: '#64748b' }}>Máx: {maxDiscountPercentV.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}% (comissão + lucro)</span>)}
+                            {limitePctVVII != null && (
+                                <span style={{ fontSize: 12, color: '#64748b' }}>
+                                    Limite: {limitePctVVII.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}% (ESPEC VII.3)
+                                </span>
+                            )}
                         </div>
-                        {/* MRM R5: orientação quando desconto excede margem (RRO ≤ 0) */}
-                        {mrmConfig.enabled && globalDiscountPercentV > 0 && globalDiscountPercentV >= maxDiscountPercentV && maxDiscountPercentV > 0 && (
-                            <div style={{ marginTop: 8, padding: '10px 12px', background: 'rgba(234, 179, 8, 0.10)', border: '1px solid rgba(234, 179, 8, 0.35)', borderRadius: 6 }}>
-                                <div style={{ color: '#facc15', fontSize: 12, fontWeight: 600, marginBottom: 2 }}>⚠ Margem residual no limite</div>
-                                <div style={{ color: '#fde68a', fontSize: 11 }}>{MRM_ERROR_RRO_NON_POSITIVE}</div>
-                            </div>
+                        {/* ═══ ESPEC PARTE VII.2 — OS TRÊS ESTADOS. Ver `orcamentos/index.tsx`. ═══
+                            O aviso "Margem residual no limite" que morava aqui saiu: ele comparava
+                            com o pool do clamp, e dizia "no limite" onde o limite era outro. */}
+                        {limitePctVVII != null && estadoDoDescontoVVII !== 'VERDE' && (
+                            <Alert
+                                type={estadoDoDescontoVVII === 'AMARELO' ? 'warning' : 'error'}
+                                showIcon
+                                style={{ marginTop: 8 }}
+                                message={estadoDoDescontoVVII === 'AMARELO'
+                                    ? 'Desconto acima do limite consolidado'
+                                    : 'Desconto autorizado — operação em lucro zero'}
+                                description={
+                                    <div>
+                                        <p style={{ margin: '0 0 8px' }}>
+                                            {mensagemDoLimite({
+                                                descontoFracao: globalDiscountPercentV / 100,
+                                                limiteFracao: limitePctVVII / 100,
+                                            })}
+                                        </p>
+                                        {limiteIncompletoVVII.length > 0 && (
+                                            <p style={{ margin: '0 0 8px', color: '#facc15' }}>
+                                                Limite calculado SEM {limiteIncompletoVVII.join(', ')} —
+                                                a alíquota não chegou ao motor, então o limite acima está
+                                                mais frouxo que o real.
+                                            </p>
+                                        )}
+                                        {balcaoV17Full != null && balcaoV17Full.consolidated.distribution.descoberto_autorizado > 0.005 && (
+                                            <p style={{ margin: '0 0 8px' }}>
+                                                <strong>Descoberto: {formatCurrency(balcaoV17Full.consolidated.distribution.descoberto_autorizado)}</strong>
+                                                {' '}— o que esta venda deixa de cobrir. No modo
+                                                {' '}<strong>{discountModeV === 'SELLER_REDUCTION' ? 'Congela Comissão' : discountModeV === 'PROFIT_REDUCTION' ? 'Congela Lucro' : 'Proporcional'}</strong>.
+                                                {discountModeV !== 'PROPORTIONAL' && ' Congelar AUMENTA o descoberto: a empresa paga o que congelou com dinheiro que a venda não trouxe.'}
+                                            </p>
+                                        )}
+                                        <Checkbox
+                                            checked={descontoAutorizadoVVII}
+                                            onChange={(e) => setDescontoAutorizadoVVII(e.target.checked)}
+                                        >
+                                            {ROTULO_DA_AUTORIZACAO}
+                                        </Checkbox>
+                                    </div>
+                                }
+                            />
                         )}
                     </div>
                     {/* ABAIXO do campo de desconto: resultado com desconto. Se houver tributos por fora,
