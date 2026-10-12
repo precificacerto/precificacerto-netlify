@@ -22,6 +22,8 @@ import {
   type DecompositionInput,
   type DecompositionItem,
 } from './decomposition-dre'
+import type { TaxRegime } from '@/supabase/types'
+import { MATRIZ_FISCAL, celulaDe, colocacaoVigente } from './matriz-fiscal'
 import { resolveItemFicha } from './budget-accessories'
 import { resolveFichaHibrida } from './simples-hibrido'
 import { pisCofinsNominalFromEffective } from './sale-context'
@@ -30,6 +32,7 @@ import {
   resolveSegmentoDaConstrucao,
   resolveSegmentoDaDespesa,
   type BaldesDeDespesa,
+  type SegmentoDaConstrucao,
 } from './despesas-do-segmento'
 import {
   CSLL_RATE_ON_PROFIT,
@@ -170,6 +173,20 @@ export interface BudgetDecompositionParams {
    */
   irpjAliquota?: number
   csllAliquota?: number
+  /**
+   * A PRESUNÇÃO DO LUCRO PRESUMIDO — as três alíquotas sobre a receita, da ESPEC VIII.4.
+   *
+   * Vem de `presuncao-do-presumido.ts`, a MESMA fonte que a construção lê, e a tela a passa
+   * do `mrmConfig.components`. **A decomposição não a infere do segmento**: os percentuais de
+   * presunção são DADO (`lucro_presumido_rates` pela `lucro_presumido_activity` do tenant,
+   * com os manuais do tenant à frente), então deduzir 32% de um `calc_type` de serviço
+   * produziria um número que a construção nunca usou — a violação que
+   * `regime-e-segmento-determinam-a-construcao.md` cataloga.
+   *
+   * Ausente = o documento não é do Presumido, ou a tela ainda não carregou. Ausente NÃO é
+   * zero: sem ela as três linhas da 13C não existem, em vez de existirem valendo nada.
+   */
+  presuncao?: { irpjPct: number; csllPct: number; adicionalPct: number } | null
 }
 
 export interface BudgetDecompositionResult {
@@ -185,6 +202,34 @@ const num = (v: unknown): number => {
   return Number.isFinite(n) ? n : 0
 }
 
+
+/**
+ * O FORMATO QUANDO O REGIME NÃO CARREGOU — default DECLARADO, XI-5, 11/10/2026.
+ *
+ * `null` é a janela de carregamento do `useTenantTaxContext`: os quatro call sites de produção
+ * passam `regime: mrmConfig.loading ? null : mrmConfig.regime` —
+ * `orcamentos/index.tsx:1295`, `pedidos/index.tsx:366`, `vendas/index.tsx:397` e `:1542`.
+ *
+ * Até 11/10/2026 isso caía no ramo do Lucro Real por **OMISSÃO** — ausente lido como Lucro
+ * Real, sem ninguém ter decidido. Agora é default DECLARADO. Que a janela de carregamento
+ * mostre o formato de outro regime é **pendência própria, não defeito desta rodada**.
+ *
+ * E o alcance não é só a produção: **206 dos 211 casos de decomposição do repositório não
+ * passam `regime`** (medido no §0 desta rodada), e dependiam da omissão. Depois desta rodada
+ * dependem desta constante, pelo nome — `ausente-vs-falso.md`: a ausência deixa de afirmar
+ * sozinha.
+ */
+const FORMATO_QUANDO_O_REGIME_NAO_CARREGOU: TaxRegime = 'LUCRO_REAL'
+
+/**
+ * O regime, normalizado para uma CHAVE DA MATRIZ. Desconhecido ou ausente cai no default
+ * declarado acima — nunca num `undefined` que a matriz não sabe indexar.
+ */
+function regimeDaMatriz(regimeNorm: string): TaxRegime {
+  return Object.prototype.hasOwnProperty.call(MATRIZ_FISCAL, regimeNorm)
+    ? (regimeNorm as TaxRegime)
+    : FORMATO_QUANDO_O_REGIME_NAO_CARREGOU
+}
 
 /**
  * Monta a entrada da decomposição a partir dos itens do orçamento.
@@ -217,6 +262,48 @@ export function buildBudgetDecompositionInput(
   // MEI NUNCA é híbrido (regra 10 do comando): o DAS dele é fixo mensal e não há apuração
   // por fora a optar.
   const isMei = regimeNorm === 'MEI'
+  // XI-5: a chave da matriz para ESTE documento. Ausente ou desconhecido cai no default
+  // DECLARADO — ver `FORMATO_QUANDO_O_REGIME_NAO_CARREGOU`.
+  const regimeMatriz = regimeDaMatriz(regimeNorm)
+
+  /**
+   * O tributo fica no RESÍDUO da etapa 16, ou sai antes?
+   *
+   * Três respostas possíveis, e cada uma é uma afirmação diferente:
+   *   - `INEXISTENTE` → não há tributo (guia única, RET). Não fica, e não tem linha.
+   *   - base `LUCRO`  → fica. É o resíduo do Lucro Real, repartido pela R20.
+   *   - base `PRESUNCAO` → NÃO fica: incide sobre a receita, e a 13C o apura.
+   *
+   * Qualquer outra base também NÃO fica no resíduo, e isso é escolha: a R20 reparte o que
+   * sobra, e só um tributo cuja base É o resultado pode ser repartido a partir dele. Uma base
+   * nova que devesse voltar ao resíduo tem de dizê-lo aqui, em vez de herdá-lo por omissão.
+   */
+  /**
+   * A matriz pediu a 13C em ALGUM item e a presunção não chegou?
+   *
+   * Coletado DURANTE o mapa, porque o segmento é por item: um documento com produto e
+   * serviço pode ter células diferentes, e um flag do documento inteiro leria o primeiro.
+   */
+  let presuncaoPendente = false
+
+  const ficaNoResiduo = (
+    regime: TaxRegime,
+    seg: SegmentoDaConstrucao,
+    tributo: 'IRPJ' | 'CSLL',
+  ): boolean => {
+    if (colocacaoVigente(regime, seg, tributo) === 'INEXISTENTE') return false
+    return celulaDe(regime, seg, tributo)?.base === 'LUCRO'
+  }
+
+  /**
+   * A célula manda IRPJ/CSLL para a ETAPA 13C — existe, e a base não é o lucro.
+   *
+   * `INEXISTENTE` responde não (guia única, RET: não há tributo). Base `LUCRO` responde não
+   * (Lucro Real: é resíduo). Base `PRESUNCAO` responde sim, e é o Presumido.
+   */
+  const pedeA13C = (regime: TaxRegime, seg: SegmentoDaConstrucao): boolean =>
+    colocacaoVigente(regime, seg, 'IRPJ') !== 'INEXISTENTE'
+    && !ficaNoResiduo(regime, seg, 'IRPJ')
   const deducaoBaseHibrido = hibrido ? num(params.deducaoBaseIbsCbsPct) : 0
 
   const items: DecompositionItem[] = produtos.map((item) => {
@@ -252,6 +339,7 @@ export function buildBudgetDecompositionInput(
       productType: item.productType,
       tenantCalcType: params.tenantCalcType,
     })
+    if (pedeA13C(regimeMatriz, segmento) && !params.presuncao) presuncaoPendente = true
     const segmentoDaDespesa = resolveSegmentoDaDespesa({
       isService: item.isService,
       tenantCalcType: params.tenantCalcType,
@@ -315,8 +403,51 @@ export function buildBudgetDecompositionInput(
       // `lrIrpj = profitPct * 0.15`). Multiplicá-lo pelo lucro do item aplica o lucro DUAS
       // vezes — foi o que exibiu IRPJ de 1,80% onde a construção mostra 15,00%.
       // R5 do Motor 2: na guia única IRPJ e CSLL já estão no DAS — peso ZERO, linha presente.
-      irpjPct: guiaUnica ? 0 : lucroPct * IRPJ_RATE_ON_PROFIT,
-      csllPct: guiaUnica ? 0 : lucroPct * CSLL_RATE_ON_PROFIT,
+      // >>> XI-5: A COLOCAÇÃO DE IRPJ E CSLL É LIDA DA MATRIZ, não deduzida de `guiaUnica` <<<
+      //
+      // Antes: `guiaUnica ? 0 : lucroPct × alíquota`. Eram DOIS ramos para SEIS regimes, e os
+      // que não estavam na lista da guia única caíam no ramo do Lucro Real **por não estarem
+      // lá** — não por nome. O RET caía ali, e os 4% dele já englobam IRPJ e CSLL (ESPEC
+      // XIV.6): a decomposição exibia os dois DE NOVO, fora da guia.
+      //
+      // | o que a matriz diz | o que acontece aqui |
+      // |---|---|
+      // | `INEXISTENTE` | ZERADOS — MEI, Simples Nacional, Híbrido e, desde o XI-5, o **RET** |
+      // | base `LUCRO` | etapa 16, como hoje — Lucro Real, e não muda um centavo |
+      // | base `PRESUNCAO` | **ZERADOS AQUI, e a 13C os apura sobre a receita** |
+      //
+      // >>> A 13C EXISTE DESDE 12/10/2026 — e o gap que morava aqui acabou <<<
+      //
+      // Até esta rodada havia um parágrafo neste ponto dizendo que *"a linha 13C NÃO EXISTE
+      // nesta decomposição"*, e o Presumido mantinha o comportamento do Lucro Real como
+      // DIVERGÊNCIA CONHECIDA. Ela existe: `decomposition-dre.ts` deduz IRPJ, CSLL e o
+      // adicional sobre a receita de produtos pós-desconto, antes do RRO, e a etapa 16 do
+      // Presumido fica com duas linhas.
+      //
+      // O que mudou aqui é que o código passou a ler a **BASE** da célula, e não só a
+      // COLOCAÇÃO. A colocação diz SE o tributo existe e de que lado; a base diz SOBRE O QUE
+      // ele incide — e era a base que decidia a etapa desde que a matriz nasceu
+      // (`matriz-fiscal.ts`: `base: 'PRESUNCAO'`, `etapa: '13C'`).
+      //
+      // >>> A MEDIÇÃO QUE REENQUADROU A RODADA <<<
+      //
+      // **A construção já fazia a presunção sobre a receita.** `tax-sync.ts` devolve, para o
+      // Presumido, `irpj = presunção × 15%` e `csll = presunção × 9%` — alíquotas sobre
+      // RECEITA — e as soma no total que forma o preço. Quem apurava sobre o LUCRO era só
+      // esta decomposição. Então a rodada não ensinou a conta ao sistema: fez a decomposição
+      // LER a conta que a construção usava, que é o que
+      // `regime-e-segmento-determinam-a-construcao.md` exige.
+      //
+      // R6 — no ramo `LUCRO` a base é o VALOR DO LUCRO: `% Original = alíquota × % Lucro`, com
+      // o lucro DESTE item e a ALÍQUOTA LEGAL. NÃO usar `mrmConfig.irpj_pct`: ele já é
+      // `% Lucro do TENANT × 15%` (`tax-sync.ts`), e multiplicá-lo pelo lucro do item aplica o
+      // lucro DUAS vezes — foi o que exibiu IRPJ de 1,80% onde a construção mostra 15,00%.
+      irpjPct: ficaNoResiduo(regimeMatriz, segmento, 'IRPJ')
+        ? lucroPct * IRPJ_RATE_ON_PROFIT
+        : 0,
+      csllPct: ficaNoResiduo(regimeMatriz, segmento, 'CSLL')
+        ? lucroPct * CSLL_RATE_ON_PROFIT
+        : 0,
     }
 
     return {
@@ -354,6 +485,13 @@ export function buildBudgetDecompositionInput(
         externalNominalByTax: guiaUnica ? undefined : ficha.ficha?.externalNominalByTax,
         externalReductionByTax: guiaUnica ? undefined : ficha.ficha?.externalReductionByTax,
         ...(guiaUnica ? { dasPct } : {}),
+        // ETAPA 13C — só onde a matriz manda E a tela passou a presunção. A condição tem as
+        // DUAS metades de propósito: sem a matriz, um documento de Lucro Real que recebesse a
+        // presunção por engano ganharia a 13C; sem a tela, o Presumido ganharia três linhas
+        // zeradas, que afirmariam presunção apurada valendo nada (`ausente-vs-falso.md`).
+        ...(pedeA13C(regimeMatriz, segmento) && params.presuncao
+          ? { presuncao: params.presuncao }
+          : {}),
       },
       categories,
     }
@@ -377,6 +515,9 @@ export function buildBudgetDecompositionInput(
       itensManuaisComAcrescimos,
       ...(guiaUnica ? { guiaUnica: true } : {}),
       ...(hibrido ? { operacaoExternaAtiva: true } : {}),
+      // A matriz pede a 13C e a presunção não veio: `decomposition-dre.ts` transforma isso em
+      // ERRO em vez de deduzir menos em silêncio. Ver `DecompositionInput.presuncaoPendente`.
+      ...(presuncaoPendente ? { presuncaoPendente: true } : {}),
     },
     itemLabels: items.map((i) => i.label),
     isEmpty: items.length === 0,

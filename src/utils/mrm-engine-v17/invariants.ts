@@ -85,8 +85,26 @@ export function checkI5CascadeTrace17(motor: MotorOutput): boolean {
   return Array.isArray(motor.cascade_trace) && (motor.cascade_trace.length === 17 || motor.cascade_trace.length === 19)
 }
 
+/**
+ * I6 — A DISTRIBUIÇÃO FECHA O RRO, **COM A LINHA DE DESCOBERTO** (ESPEC VII.4).
+ *
+ * >>> ESTE É O PONTO DA PARTE VII, E ELE FOI MEDIDO <<<
+ *
+ * Com o piso zero da VII.4 em comissão e lucro e **sem** o descoberto na identidade, este
+ * invariante fica FALSO em todo documento com RRO negativo. Medido em 12/10/2026, na entrada
+ * de referência com 40% de desconto e RRO de −5.750,00: `V6 = false` nos três modos.
+ *
+ * É literalmente o que a VII.4 diz — *"a etapa 17 fecha com a linha de descoberto. Sem ela
+ * não fecharia"* —, e o que ela adverte em seguida: sem a linha, forçar comissão e lucro a
+ * zero faria o sistema fechar a conta ESCONDENDO o buraco.
+ *
+ * `descoberto_autorizado` é ZERO quando o RRO não é negativo, então para todo documento
+ * dentro do limite esta expressão é a de antes, termo por termo.
+ */
 export function checkI6DistribuicaoSoma(motor: MotorOutput, dist: FinalDistribution): boolean {
-  const soma = dist.new_commission + dist.new_profit + dist.new_csll + dist.new_irpj
+  const soma =
+    dist.new_commission + dist.new_profit + dist.new_csll + dist.new_irpj
+    - (Number(dist.descoberto_autorizado) || 0)
   return Math.abs(soma - motor.rro) < EPS
 }
 

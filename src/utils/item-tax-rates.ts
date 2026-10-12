@@ -20,6 +20,36 @@ import { isValidReductionFactorPct } from '@/utils/iva-dual-reduction-factor'
 import { resolveReducoesDoItem } from '@/utils/classificacao-fiscal'
 
 /**
+ * IRPJ e CSLL derivam do LUCRO DO PRODUTO, ou do fallback do tenant? — XI-3.5 FASE B.
+ *
+ * Exaustiva sobre `TaxRegime` por `Record` em vez de `===`, pela razão escrita em
+ * `regime-decisoes.ts`: `===` enumera zero pontos quando o tipo cresce, e um regime novo herda
+ * o caminho do Lucro Real sem decisão.
+ *
+ * | regime | do lucro do produto? | razão |
+ * |---|---|---|
+ * | `LUCRO_REAL` | **sim** | IRPJ 15% e CSLL 9% sobre o lucro — R6 de `cascata-lucro-real.md` |
+ * | `LUCRO_PRESUMIDO` | não | presunção sobre a receita, não sobre o lucro do item |
+ * | `SIMPLES_HIBRIDO` | não | IRPJ e CSLL dentro do DAS reduzido |
+ * | `SIMPLES_NACIONAL` · `MEI` | não | dentro da guia única |
+ */
+const IRPJ_CSLL_DO_LUCRO_DO_PRODUTO: Readonly<Record<TaxRegime, boolean>> = {
+  MEI: false,
+  SIMPLES_NACIONAL: false,
+  SIMPLES_HIBRIDO: false,
+  LUCRO_PRESUMIDO: false,
+  // igual ao Presumido por HERANÇA histórica (mapeamento até XI-4), não por equivalência de
+  // formato — ESPEC XIV.6 diz que os formatos diferem. Alterar só na rodada do formato do RET.
+  LUCRO_PRESUMIDO_RET: false,
+  LUCRO_REAL: true,
+}
+
+/** `null`/`undefined` devolve `false` — o comportamento de hoje. */
+function irpjCsllDoLucroDoProduto(regime: TaxRegime | null | undefined): boolean {
+  return regime != null && IRPJ_CSLL_DO_LUCRO_DO_PRODUTO[regime] === true
+}
+
+/**
  * Alíquotas tributárias persistidas em `products`/`services` (todas em DECIMAL).
  * NULL/undefined = não cadastrado (fallback tenant).
  */
@@ -47,8 +77,10 @@ export interface ItemTaxRates {
    * tenant e não deve vazar para os arrays de `rates` via `mergeItemAndTenantRates` — o
    * motor o consome direto do item. Regimes RET e Simples Híbrido reusam a MESMA coluna
    * `custom_tax_percent` para outra finalidade; a segregação é feita no motor, que só
-   * aplica o DAS quando o regime resolvido é SIMPLES_NACIONAL ou MEI (RET e Híbrido são
-   * mapeados para LUCRO_PRESUMIDO em `mapToMotorRegime`, portanto nunca entram no ramo).
+   * aplica o DAS quando `temGuiaUnicaPorDentro(regime)` é verdadeiro — hoje SIMPLES_NACIONAL
+   * e MEI. Até 11/10/2026 isto se dava por RET e Híbrido serem MAPEADOS para
+   * LUCRO_PRESUMIDO; desde o XI-4 os dois chegam como eles mesmos, e a célula de cada um em
+   * `GUIA_UNICA_POR_DENTRO` (`regime-decisoes.ts`) é o que os mantém fora.
    */
   das_pct?: number | null
   // Rateio RR
@@ -751,7 +783,7 @@ export function resolveStructuralProfitTaxes(
   tenantCsllPct: number,
   tenantIrpjPct: number,
 ): { csll_pct: number; irpj_pct: number } {
-  if (regime === 'LUCRO_REAL') {
+  if (irpjCsllDoLucroDoProduto(regime)) {
     const profit = Number.isFinite(profitPctDecimal) && profitPctDecimal > 0 ? profitPctDecimal : 0
     const overrideIrpj = itemRates?.irpj_pct
     const overrideCsll = itemRates?.csll_pct

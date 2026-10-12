@@ -12,7 +12,7 @@ import { UNIT_TYPE } from '@/constants/item-unit-types'
 import { calculateItemPrice } from '@/utils/calculate-item-price'
 import { resolveProductTaxPercent, resolveProductTaxPercentToPersist } from '@/utils/product-tax-percent'
 import { resolveIndirectLaborPct } from '@/utils/indirect-labor-grouping'
-import { divisorDaEstruturaPct } from '@/utils/despesas-do-segmento'
+import { divisorDaEstruturaPct, custoMensalDeMaoDeObraDoProduto } from '@/utils/despesas-do-segmento'
 import { buildDestinationSnapshot } from '@/utils/destination-snapshot'
 import { MessageInstance } from 'antd/es/message/interface'
 import { useRouter } from 'next/router'
@@ -850,8 +850,14 @@ export const Content: FC<ContentProps> = ({
     // Carga horária resolvida pela fonte única (`resolve-monthly-workload`). Sem
     // configuração, `monthlyWorkloadMinutes` é 0 — sem o antigo default silencioso de
     // 176h. O motor trata divisor 0 (MO produtiva vira 0); o bloqueio de save e o
-    // alerta na UI ficam em `workloadBlock`, que só dispara quando o divisor de fato
-    // importa (produto com tempo de MO e calcType diferente de REVENDA).
+    // alerta na UI ficam em `isWorkloadBlocking` e `workloadAlert` (`:795-840`), que só
+    // disparam quando o divisor de fato importa (produto com tempo de MO e calcType
+    // diferente de REVENDA).
+    //
+    // NOME CORRIGIDO em 11/10/2026: esta linha citava `workloadBlock`, símbolo que NUNCA
+    // existiu. Um `grep` por ele devolvia só este comentário e sugeria portão ausente onde
+    // há portão — registrado por decisão do dono do produto, e nenhuma linha de código
+    // mudou junto.
     const workload = resolveMonthlyWorkload(
       currentUser.monthlyWorkloadInMinutes,
       currentUser.unitMeasure,
@@ -942,7 +948,16 @@ export const Content: FC<ContentProps> = ({
       calcType: effectiveCalcType,
       totalItemsCost: itemsPriceSum,
       yieldQuantity: 1,
-      laborCostMonthly: effectiveCalcType === 'REVENDA' ? 0 : calcBase.laborCostMonthly,
+      // 11/10/2026: era `effectiveCalcType === 'REVENDA' ? 0 : calcBase.laborCostMonthly`,
+      // inline. Extraído para `custoMensalDeMaoDeObraDoProduto` para que um caso possa
+      // afirmar o NÚMERO — ver o cabeçalho da função.
+      laborCostMonthly: custoMensalDeMaoDeObraDoProduto({
+        effectiveCalcType,
+        segmentoDaDespesa: isCalcService ? 'SERVICO' : 'INDUSTRIALIZACAO',
+        produtivaMensal: calcBase.laborCostMonthly,
+        adminMensal: calcBase.adminLaborCostMonthly,
+        fixaMensal: calcBase.fixedExpenseMonthly,
+      }),
       numProductiveEmployees: totalEmployees,
       monthlyWorkloadMinutes,
       productWorkloadMinutes: effectiveCalcType === 'REVENDA' ? 0 : (productPriceInfo.productWorkloadInMinutes || 0),

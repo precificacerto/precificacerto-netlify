@@ -387,8 +387,34 @@ export const ProductPrice: FC<Props> = ({
     ? variableValDisplay + financialValDisplay + compromissosFinanceirosValDisplay
     : laborValDisplay + fixedValDisplay + compromissosFinanceirosValDisplay + variableValDisplay + financialValDisplay
 
-  // Preço base = valorPrecificado (com ICMS/PIS/COFINS embutidos para LR/LP) + terceirizadas
-  const baseForSalePrice = (isLucroReal || isLucroPresumed) ? valorPrecificado : pricePerUnit
+  /**
+   * A base que a tela EXIBE como operação interna — e ela segue a MESMA FONTE do preço final.
+   *
+   * >>> DEIXOU DE NOMEAR REGIME NO PASSO XI-3 (11/10/2026), E A RAZÃO É UM DEFEITO MEDIDO <<<
+   *
+   * Era `(isLucroReal || isLucroPresumed) ? valorPrecificado : pricePerUnit`. Enquanto só o
+   * Lucro Real tinha matriz, essa condição e a de `_ivaApplies` (abaixo) **concordavam por
+   * COINCIDÊNCIA** — os mesmos dois regimes respondiam sim às duas perguntas, que são
+   * diferentes.
+   *
+   * O XI-3 admitiu Presumido e RET em `REGIMES_COM_MATRIZ`, e a coincidência quebrou: o RET
+   * passou a ter `_matriz.applied === true`, logo `finalPriceWithTaxes = _matriz.totalGeral`,
+   * enquanto esta linha continuava devolvendo `pricePerUnit`. **Medido: a tela mostrava
+   * interna R$ 2.500,00 e final R$ 1.498,28** — o final 40% ABAIXO da interna, porque as duas
+   * linhas do resumo liam preços de origens diferentes.
+   *
+   * A correção não é acrescentar o RET à lista de nomes: é a base LER A MESMA FONTE que o
+   * final. Quando a matriz governou, a interna é a dela (`opInterna`, R7,
+   * `product-price-construction.ts:90`); quando não governou, segue o preço de antes.
+   * Medido no Lucro Real: `_matriz.opInterna === valorPrecificado`, 1405.28 = 1405.28 —
+   * **zero centavos de diferença no modelo de referência.**
+   *
+   * >>> NÃO UNIFIQUE COM `_ivaApplies` <<<
+   * Elas respondem perguntas diferentes, e reuni-las outra vez reabre o defeito dos
+   * R$ 1.498,28. Ver o comentário de `_ivaApplies`, que aponta para cá.
+   * A invariante `precoFinalAbaixoDaInterna` é a rede: ela fica vermelha se isto for desfeito.
+   */
+  const baseForSalePrice = _matriz.applied ? _matriz.opInterna : pricePerUnit
   const finalSalePrice = baseForSalePrice + terceirizadasTotal
 
   // Impostos "por fora" (IBS/CBS/IS/IPI) — bases individualizadas da Conferência Fiscal.
@@ -396,6 +422,24 @@ export const ProductPrice: FC<Props> = ({
   // despesas acessórias) entram como Desp. Acessórias: compõem a base de IBS/CBS e do IPI,
   // mas NÃO a base do IS nem sofrem dedução de ICMS/PIS. ICMS Complementar não se aplica no
   // cadastro (depende do destinatário — só em orçamento/pedido/venda).
+  /**
+   * Quais tributos POR DENTRO existem neste regime — e por isso ela É específica de regime.
+   *
+   * Zerar `icmsPct` e `pisCofinsPct` no RET está **CERTO**: o RET não tem esses dois em
+   * separado, tem alíquota única de 4% (XIV.6 da especificação). Decisão do dono do produto,
+   * e a proibição de mexer aqui continua valendo.
+   *
+   * >>> ELA COMPARTILHAVA A CONDIÇÃO COM `baseForSalePrice` POR COINCIDÊNCIA <<<
+   *
+   * Até 11/10/2026 as duas eram `isLucroReal || isLucroPresumed`, e pareciam a mesma regra.
+   * Não são: esta pergunta é *"quais tributos por dentro existem?"*, e a de lá é *"qual base
+   * a tela exibe como operação interna?"*. Elas coincidiam porque **só o Lucro Real tinha
+   * matriz** — e o XI-3, ao admitir Presumido e RET, quebrou a coincidência.
+   *
+   * `baseForSalePrice` passou a ler a matriz; esta **continua nomeando regime**, e isso é
+   * correto. Unificá-las outra vez reabre o defeito medido de R$ 1.498,28 na tela do RET.
+   * Ver o comentário de `baseForSalePrice`, que aponta para cá.
+   */
   const _ivaApplies = isLucroReal || isLucroPresumed
   // PC-BUG-FATOR-REDUCAO-002 Ponto 1: aplica a redução SOBRE a alíquota bruta de IBS/CBS
   // (efetiva = bruta × (1 − redução)). IPI e IS NÃO a sofrem. É o que faz o valor de
@@ -425,6 +469,32 @@ export const ProductPrice: FC<Props> = ({
   const totalInlineTax = _matriz.applied ? (_matriz.resolved?.externalValue ?? 0) : _iva.totalOutside
   // Preço de Venda por Unidade = Operação Interna + Operação Externa (IS+IBS+CBS+IPI)
   const finalPriceWithTaxes = _matriz.applied ? _matriz.totalGeral : _iva.finalPrice
+
+  /**
+   * >>> A INVARIANTE QUE FALTAVA: O PREÇO FINAL NUNCA FICA ABAIXO DA OPERAÇÃO INTERNA <<<
+   *
+   * Criada em 11/10/2026, ANTES do passo XI-3 e de propósito. Irmã da conferência de
+   * `Math.abs(linhas.residual) >= 0.01` logo abaixo da tabela, e com a mesma forma: quando
+   * quebra, a tela diz que os números não podem ser usados.
+   *
+   * O preço final é, por definição, a operação interna MAIS os tributos por fora
+   * (`P ÷ (1 − c)`, R8). Logo `final >= interna` é identidade, não preferência: um final
+   * menor significa que as duas linhas do resumo estão lendo PREÇOS DIFERENTES, e aí nenhuma
+   * das duas serve.
+   *
+   * >>> POR QUE ELA NASCE AGORA, E POR QUE ISSO É O PONTO <<<
+   *
+   * O defeito que ela barra foi encontrado MEDINDO A TELA à mão, no §0 do XI-3 — e isso não é
+   * rede: a próxima pessoa não mede. `portao-que-nao-alcanca.md` pergunta *"o que faz este
+   * portão ficar vermelho?"*, e para esta identidade a resposta era **nada**: nenhum caso e
+   * nenhum alerta a vigiavam, enquanto a invariante da soma das linhas (ao lado) tem as duas
+   * coisas.
+   *
+   * A tolerância é a MESMA de lá — um centavo —, porque as duas comparam reais formatados com
+   * duas casas e um centavo de arredondamento não é divergência.
+   */
+  const INVARIANTE_TOLERANCIA = 0.01
+  const precoFinalAbaixoDaInterna = finalPriceWithTaxes + INVARIANTE_TOLERANCIA < baseForSalePrice
   // 11/10/2026 — o resumo deixa de nomear regime e passa a ler a MESMA tabela da rodada do
   // bloco POR FORA (`por-fora-por-regime.ts`). Era
   // `(isLucroReal || isLucroPresumed || isSimplesHibrido)`, e o RET ficava de fora: o dono
@@ -438,8 +508,12 @@ export const ProductPrice: FC<Props> = ({
   // Real**, que é o modelo de referência e que o mesmo comando manda não alterar. Tirar o
   // `> 0` faria o resumo nascer para TODO tenant de Lucro Real de hoje (`ibs_active` e
   // `cbs_active` são `false` em 100% dos cálculos), e isso é mudança no modelo, não nesta
-  // correção. A decisão é do dono do produto — `razao-longe-da-restricao.md`: restrição sem
-  // razão citada no ponto de declaração autoriza pergunta, não remoção.
+  // correção.
+  //
+  // Decidido pelo PO em 11/10/2026: o resumo do por fora não aparece com
+  // `totalInlineTax = 0`. Razão: com alíquota zero nada entra na conta, logo nada precisa
+  // aparecer ("se entra na conta, aparece; se não aparece, não entra"). A estrutura exigida
+  // "desde já, com alíquota zero" é a do BLOCO DE INPUTS, não a do resumo.
   const hasInlineTaxes = tributosPorForaDoRegime(currentUser?.taxableRegime).length > 0
     && totalInlineTax > 0
 
@@ -982,9 +1056,25 @@ export const ProductPrice: FC<Props> = ({
               </div>
             )}
             <div style={{ borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: 6, marginTop: 4, display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
-              <span style={{ color: '#4ade80' }}>Preço Final com Impostos</span>
-              <span style={{ color: '#4ade80' }}>{fmt(finalPriceWithTaxes)}</span>
+              <span style={{ color: precoFinalAbaixoDaInterna ? '#fca5a5' : '#4ade80' }}>Preço Final com Impostos</span>
+              <span style={{ color: precoFinalAbaixoDaInterna ? '#fca5a5' : '#4ade80' }}>{fmt(finalPriceWithTaxes)}</span>
             </div>
+
+            {/* A INVARIANTE, visível. Mesma forma da conferência da soma das linhas: alerta
+                explícito, não um número discreto ao lado dos outros. Um final abaixo da
+                interna só acontece quando as duas linhas leem preços diferentes — e aí
+                nenhuma das duas serve. Ver o cabeçalho de `precoFinalAbaixoDaInterna`. */}
+            {precoFinalAbaixoDaInterna && (
+              <div style={{
+                marginTop: 8, padding: '8px 12px', borderRadius: 6, fontSize: 12,
+                background: 'rgba(239, 68, 68, 0.12)', border: '1px solid rgba(239, 68, 68, 0.3)', color: '#fca5a5',
+              }}>
+                ⚠ O preço final com impostos ({fmt(finalPriceWithTaxes)}) ficou ABAIXO da
+                operação interna ({fmt(baseForSalePrice)}). O final é a interna mais os
+                tributos por fora, então isto não pode acontecer: as duas linhas estão lendo
+                preços diferentes. Os números desta precificação não podem ser usados.
+              </div>
+            )}
           </div>
         )}
 

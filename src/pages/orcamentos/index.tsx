@@ -50,7 +50,19 @@ import { useTenantTaxContext } from '@/hooks/use-tenant-tax-context'
 import { MRM_ERROR_RRO_NON_POSITIVE, MRM_ENGINE_VERSION } from '@/types/mrm'
 import { PAGE_SIZE } from '@/constants/pagination'
 import type { TenantSnapshotContext } from '@/lib/items-snapshot'
-import { calculateMotorV17ForPage } from '@/utils/mrm-engine-v17/legacy-adapter'
+import { calculateMotorV17ForPage, calculateMotorV17ForPageFull } from '@/utils/mrm-engine-v17/legacy-adapter'
+import {
+    AVISO_DE_SAVE_BLOQUEADO,
+    bloqueiaOSave,
+    descontoMaximoFracao,
+    estadoDoDesconto,
+    payloadDoRastroDaAutorizacao,
+} from '@/utils/limite-de-desconto'
+import {
+    AutorizacaoDoDesconto,
+    useAutorizacaoDoDesconto,
+    type ModoDeAbsorcao,
+} from '@/page-parts/shared/autorizacao-do-desconto.component'
 import { consolidateStDifalFromItems, computeTotalACobrar } from '@/utils/icms-st-difal'
 import { useResidualDistribution } from '@/hooks/use-residual-distribution'
 import { type ResidualItemInput, validateResidualVsCascade } from '@/utils/residual-distribution'
@@ -261,6 +273,15 @@ function Budgets() {
     const [empServiceTables, setEmpServiceTables] = useState<{id: string; name: string; type: string; commission_percent?: number}[]>([])
     const [tableSections, setTableSections] = useState<{key: string; tableId: string | null}[]>([{key: 'ts-0', tableId: null}])
     const [globalDiscountPercent, setGlobalDiscountPercent] = useState(0)
+    /**
+     * ESPEC VII.2 — a AUTORIZAÇÃO do desconto acima do limite.
+     *
+     * `false` é o estado inicial e o correto: o checkbox tem de ser CLICADO a cada vez. Ele
+     * reseta quando o desconto muda, porque autorizar 40% não é autorizar 60% — a mensagem
+     * nomeia o percentual, e a autorização vale para o que foi lido.
+     */
+    const { autorizado: descontoAutorizadoVII, setAutorizado: setDescontoAutorizadoVII } =
+        useAutorizacaoDoDesconto(globalDiscountPercent)
 
     // ── R10 · R11 · R12 — ACRÉSCIMOS DO DOCUMENTO ──
     // "Um frete atende vários produtos" (R11). Os três valores são COTADOS AQUI, e a NF-e já
@@ -724,21 +745,16 @@ function Budgets() {
     //   - PROPORTIONAL: pool = comissão + lucro (somam-se ambas)
     //   - SELLER_REDUCTION: pool = apenas comissão (vendedor absorve)
     //   - PROFIT_REDUCTION: pool = apenas lucro (empresa absorve)
-    const maxDiscountPercent = (() => {
-        if (budgetTotal <= 0) return 100
-        const pool = budgetItems.reduce((s, i) => {
-            const comm = i.commission_percent || 0
-            const prof = i.profit_percent || 0
-            const contributing =
-                discountMode === 'SELLER_REDUCTION'
-                    ? comm
-                    : discountMode === 'PROFIT_REDUCTION'
-                        ? prof
-                        : comm + prof
-            return s + i.unit_price * i.quantity * contributing / 100
-        }, 0)
-        return Math.min(100, (pool / budgetTotal) * 100)
-    })()
+    // ESPEC PARTE VII — `maxDiscountPercent` SAIU, com a busca binária que o refinava.
+    //
+    // Ele era o pool `comissão + lucro` ponderado, e alimentava o `max=` do campo: o valor
+    // digitado era reduzido por `Math.min` sem recusa visível. Formulação do dono do produto
+    // sobre por que o limite da VII.3 é MAIOR, e por que isso é o ponto:
+    //
+    //   > O clamp trata custo e despesa como percentual e eles são valor fixo. No MEI eram
+    //   > 23 pontos de desconto proibidos que ainda deixavam margem.
+    //
+    // O limite agora é `limitePctVII`, do consolidado do motor.
 
     const budgetTotalWithDiscount = budgetTotal * (1 - globalDiscountPercent / 100)
 
@@ -837,32 +853,48 @@ function Budgets() {
     })
     const v17Results = runMotorAtDiscount(globalDiscountPercent)
 
-    // Adendo Seção 31-A (item 5): teto REAL do desconto manual por Modo, medido na Etapa 16
-    // do motor (não no % nominal, que trava antes). Modo "Congela Comissão (Empresa absorve)"
-    // → teto onde o LUCRO chega a 0; "Congela Lucro (Vendedor absorve)" → onde a COMISSÃO
-    // chega a 0; Proporcional → onde Comissão+Lucro chegam a 0. Fallback ao nominal quando o
-    // motor não está pronto. Busca binária (protegida é monotônica decrescente no desconto).
-    const motorMaxDiscountPercent = (() => {
-        if (!motorReady || budgetTotal <= 0 || enrichedItems.length === 0) return maxDiscountPercent
-        const protectedAt = (pct: number): number => {
-            const res = runMotorAtDiscount(pct)
-            return budgetItems.reduce((s, _i, idx) => {
-                const r = res[idx]
-                if (!r) return s
-                if (discountMode === 'SELLER_REDUCTION') return s + (r.new_commission ?? 0)
-                if (discountMode === 'PROFIT_REDUCTION') return s + (r.new_profit ?? 0)
-                return s + (r.new_profit ?? 0) + (r.new_commission ?? 0)
-            }, 0)
-        }
-        if (protectedAt(0) <= 0) return 0
-        let lo = 0, hi = 100
-        for (let k = 0; k < 24; k++) {
-            const mid = (lo + hi) / 2
-            if (protectedAt(mid) > 0.005) lo = mid
-            else hi = mid
-        }
-        return Math.max(0, Math.min(100, hi))
+    /*
+      ═══ ESPEC PARTE VII — O LIMITE VEM DO MOTOR, E O CLAMP SAIU ═════════════════════════
+
+      O consolidado é a ÚNICA fonte do limite: `limite_minimo` é a fórmula da VII.3, com o
+      denominador lido da matriz e o RT% dentro (ver `motor-rro.ts`). A busca binária que
+      morava aqui — 24 execuções do motor para achar onde a parcela protegida zerava — saiu
+      junto com o clamp: ela existia só para alimentar o `max=` do campo.
+
+      `ForPageFull` recomputa o consolidado e por isso era caro demais dentro da busca. Sem a
+      busca, é UMA chamada.
+    */
+    const v17Full = motorReady && enrichedItems.length > 0
+        ? calculateMotorV17ForPageFull({
+            items: enrichedItems,
+            tenantCtx: motorTenantCtxV17,
+            globalDiscountPercent,
+            effectiveDate: reapurationEffectiveDate,
+            icmsComplApplies,
+            icmsCompl: icmsComplParams,
+        })
+        : null
+    /** O `d_máximo` da VII.3, em PERCENTUAL para a tela. `null` quando não é calculável. */
+    const limitePctVII = (() => {
+        const m = v17Full?.consolidated.motor
+        if (!m) return null
+        // A âncora do documento SEM desconto é a base do `d_máximo`: com desconto aplicado a
+        // âncora já encolheu, e dividir por ela daria um limite que sobe conforme o usuário
+        // desconta — exatamente o contrário do que o limite significa.
+        const opDentro = globalDiscountPercent > 0
+            ? m.ancora / (1 - globalDiscountPercent / 100)
+            : m.ancora
+        const f = descontoMaximoFracao({ limiteMinimo: m.limite_minimo, opDentro })
+        return f == null ? null : f * 100
     })()
+    /** Os tributos que a matriz manda somar e o motor não tem alíquota. Vazio é o normal. */
+    const limiteIncompletoVII: readonly string[] = v17Full?.consolidated.motor.limite_incompleto ?? []
+    const estadoDoDescontoVII = estadoDoDesconto({
+        descontoFracao: globalDiscountPercent / 100,
+        descontoMaximoFracao: limitePctVII == null ? null : limitePctVII / 100,
+        autorizado: descontoAutorizadoVII,
+    })
+
     // Preserva guard V16 — items sem componente distribuível retornam null
     const motorResultsByItem = budgetItems.map((i, idx) => {
         const itemBase = i.unit_price * i.quantity
@@ -1351,6 +1383,16 @@ function Budgets() {
             // Ausente fora do híbrido, e é o que a decomposição usa como fallback quando o
             // item não carrega a sua. Ver `budget-decomposition-input.ts`.
             deducaoBaseIbsCbsPct: mrmConfig.components?.deducaoBaseIbsCbsPct,
+            // ETAPA 13C — a presunção do Lucro Presumido, do MESMO lugar que a construção
+            // leu (`tax-sync.ts` → `presuncao-do-presumido.ts`). Ausente fora do Presumido, e
+            // ausência não é zero: sem ela a decomposição ACUSA em vez de deduzir menos.
+            presuncao: mrmConfig.components?.irpjPresuncao != null
+              ? {
+                irpjPct: mrmConfig.components.irpjPresuncao,
+                csllPct: Number(mrmConfig.components.csllPresuncao) || 0,
+                adicionalPct: Number(mrmConfig.components.irpjAdicional) || 0,
+              }
+              : undefined,
             irpjAliquota: Number(mrmConfig.irpj_pct) || 0,
             csllAliquota: Number(mrmConfig.csll_pct) || 0,
         })
@@ -1381,6 +1423,16 @@ function Budgets() {
     const handleSave = async () => {
         try {
             await form.validateFields()
+            /*
+              ESPEC VII.2 — O ESTADO AMARELO NÃO AVANÇA SEM O CLIQUE.
+              É o único bloqueio que sobrou, e ele é de AUTORIZAÇÃO, não de valor: o campo
+              aceita o desconto, e quem decide é o dono. O clamp que reduzia o número
+              silenciosamente saiu.
+            */
+            if (bloqueiaOSave(estadoDoDescontoVII)) {
+                messageApi.warning(AVISO_DE_SAVE_BLOQUEADO)
+                return
+            }
             const validItems = budgetItems.filter(i => i.product_id || i.service_id || (i.isManual && i.product_name?.trim()))
             if (validItems.length === 0) {
                 messageApi.warning('Adicione pelo menos um produto, serviço ou item manual com descrição.')
@@ -1540,6 +1592,17 @@ function Budgets() {
                 // cotei" (`.claude/rules/ausente-vs-falso.md`). A base é o que torna o rateio
                 // VERIFICÁVEL na travessia — sem ela o pedido nasce `INDETERMINADO`.
                 ...buildDocumentAccessoriesPayload(accessoriesSource, accessoriesAllocation),
+                // ESPEC VII.2 — O RASTRO DA AUTORIZAÇÃO. Vai só quando houve autorização;
+                // documento verde não grava nada e não apaga rastro anterior. A coluna não
+                // existe — ver `payloadDoRastroDaAutorizacao` para o que falta.
+                ...payloadDoRastroDaAutorizacao({
+                    estado: estadoDoDescontoVII,
+                    autorizadoPor: createdBy ?? null,
+                    descontoPct: globalDiscountPercent,
+                    limitePct: limitePctVII,
+                    descoberto: v17Full?.consolidated.distribution.descoberto_autorizado ?? 0,
+                    limiteIncompleto: limiteIncompletoVII,
+                }),
                 engine_version: mrmConfig.enabled ? MRM_ENGINE_VERSION : 'legacy',
                 expiration_date: values.expiration_date?.format('YYYY-MM-DD') || null,
                 notes: values.notes || null,
@@ -1748,6 +1811,17 @@ function Budgets() {
                 // cotei" (`.claude/rules/ausente-vs-falso.md`). A base é o que torna o rateio
                 // VERIFICÁVEL na travessia — sem ela o pedido nasce `INDETERMINADO`.
                 ...buildDocumentAccessoriesPayload(accessoriesSource, accessoriesAllocation),
+                // ESPEC VII.2 — O RASTRO DA AUTORIZAÇÃO. Vai só quando houve autorização;
+                // documento verde não grava nada e não apaga rastro anterior. A coluna não
+                // existe — ver `payloadDoRastroDaAutorizacao` para o que falta.
+                ...payloadDoRastroDaAutorizacao({
+                    estado: estadoDoDescontoVII,
+                    autorizadoPor: currentUser?.uid ?? (await getCurrentUserId()) ?? null,
+                    descontoPct: globalDiscountPercent,
+                    limitePct: limitePctVII,
+                    descoberto: v17Full?.consolidated.distribution.descoberto_autorizado ?? 0,
+                    limiteIncompleto: limiteIncompletoVII,
+                }),
                 engine_version: mrmConfig.enabled ? MRM_ENGINE_VERSION : 'legacy',
                 expiration_date: values.expiration_date?.format('YYYY-MM-DD') || null,
                 notes: values.notes || null,
@@ -3569,11 +3643,16 @@ function Budgets() {
                                 {discountInputMode === 'PERCENT' ? (
                                     <InputNumber
                                         min={0}
-                                        max={motorMaxDiscountPercent > 0 ? motorMaxDiscountPercent : 100}
+                                        /* ESPEC VII.2 — o campo ACEITA o valor digitado. O clamp
+                                           (`max` + `Math.min`) saiu: cruzar o limite dispara a
+                                           mensagem e o checkbox, não uma redução silenciosa. */
+                                        max={100}
                                         step={0.5}
                                         precision={5}
                                         value={globalDiscountPercent}
-                                        onChange={(v) => setGlobalDiscountPercent(Math.min(v ?? 0, motorMaxDiscountPercent > 0 ? motorMaxDiscountPercent : 100))}
+                                        onChange={(v) => {
+                                            setGlobalDiscountPercent(Math.max(0, Math.min(100, v ?? 0)))
+                                        }}
                                         formatter={(v) => v != null ? String(v).replace('.', ',') : ''}
                                         parser={(v) => Number((v || '0').replace(',', '.'))}
                                         addonAfter="%"
@@ -3582,14 +3661,14 @@ function Budgets() {
                                 ) : (
                                     <CurrencyInput
                                         min={0}
-                                        max={totalACobrarFull > 0 ? totalACobrarFull * ((motorMaxDiscountPercent > 0 ? motorMaxDiscountPercent : 100) / 100) : 0}
+                                        /* ESPEC VII.2 — aceita até o total; o limite não clampa. */
+                                        max={totalACobrarFull > 0 ? totalACobrarFull : 0}
                                         value={totalACobrarFull * (globalDiscountPercent / 100)}
                                         onChange={(v) => {
                                             const amount = v || 0
                                             if (totalACobrarFull <= 0) { setGlobalDiscountPercent(0); return }
                                             const pct = (amount / totalACobrarFull) * 100
-                                            const capped = Math.min(pct, motorMaxDiscountPercent > 0 ? motorMaxDiscountPercent : 100)
-                                            setGlobalDiscountPercent(capped)
+                                            setGlobalDiscountPercent(Math.max(0, Math.min(100, pct)))
                                         }}
                                         style={{ flex: '1 1 55%', width: '100%', maxWidth: 180, minWidth: 0 }}
                                     />
@@ -3598,6 +3677,22 @@ function Budgets() {
                             </div>
                         </div>
                     </div>
+
+                    {/* ═══ ESPEC PARTE VII.2 — OS TRÊS ESTADOS ═══════════════════════════════
+                        O bloco é UM componente para as três telas: ele nasceu copiado três
+                        vezes e a terceira cópia já saiu sem o parágrafo do modo da VII.5
+                        (`copia-divergente.md`). Ver `autorizacao-do-desconto.component.tsx`. */}
+                    <AutorizacaoDoDesconto
+                        estado={estadoDoDescontoVII}
+                        descontoFracao={globalDiscountPercent / 100}
+                        limiteFracao={limitePctVII == null ? null : limitePctVII / 100}
+                        limiteIncompleto={limiteIncompletoVII}
+                        descoberto={v17Full?.consolidated.distribution.descoberto_autorizado ?? 0}
+                        modo={discountMode as ModoDeAbsorcao}
+                        nomeDoDocumento="esta venda"
+                        autorizado={descontoAutorizadoVII}
+                        onAutorizadoChange={setDescontoAutorizadoVII}
+                    />
 
                     {/* ABAIXO do campo de desconto: resultado com desconto. Se houver tributos por fora,
                         mostra o total a cobrar já com o desconto aplicado.

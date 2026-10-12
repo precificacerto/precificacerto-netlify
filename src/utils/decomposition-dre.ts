@@ -25,6 +25,9 @@
  * encolhessem junto, a margem pareceria intacta.
  */
 
+import type { TaxRegime } from '@/supabase/types'
+import { SEGMENTOS, colocacaoVigente, type TributoFiscal } from './matriz-fiscal'
+
 /** A ficha tributária que a CONSTRUÇÃO daquele item produziu. Nada aqui é derivado. */
 export interface DecompositionItemTaxes {
   /**
@@ -66,6 +69,23 @@ export interface DecompositionItemTaxes {
   /** A nominal e o redutor viajam para quem monta a NOTA; a célula exibe base e efetiva. */
   externalNominalByTax?: { ibs: number; cbs: number; is: number; ipi: number }
   externalReductionByTax?: { ibs: number; cbs: number; is: number; ipi: number }
+  /**
+   * A ETAPA 13C — a presunção do Lucro Presumido, em FRAÇÃO sobre a receita do item.
+   *
+   * ESPEC VIII.4/XIV.4: no Presumido IRPJ e CSLL incidem sobre a RECEITA por presunção, logo
+   * NÃO são resíduo — comportam-se como o ICMS. A matriz diz isso por célula (`base:
+   * 'PRESUNCAO'`, `etapa: '13C'`); quem decide se o campo chega é
+   * `budget-decomposition-input.ts`, lendo a BASE e não só a colocação.
+   *
+   * **Ausente fora do Presumido, e ausência não é zero**: no Lucro Real a base é `LUCRO` e os
+   * dois continuam na etapa 16; na guia única eles são `INEXISTENTE` e não têm linha nenhuma.
+   * Um `{ irpjPct: 0 }` ali afirmaria que a presunção existe e vale nada.
+   *
+   * Os três percentuais vêm de `presuncao-do-presumido.ts`, a MESMA fonte que a construção lê
+   * — a decomposição não infere a presunção do segmento, porque ela é dado de cadastro
+   * (`lucro_presumido_rates` pela atividade do tenant).
+   */
+  presuncao?: { irpjPct: number; csllPct: number; adicionalPct: number }
 }
 
 /** Uma coluna de produto da decomposição. */
@@ -152,6 +172,22 @@ export interface DecompositionInput {
    * a linha do DAS aparece no lugar delas. Fora da guia única, a linha do DAS não existe.
    */
   guiaUnica?: boolean
+  /**
+   * A MATRIZ PEDE A 13C E A PRESUNÇÃO NÃO CHEGOU.
+   *
+   * Estado real, achado ao escrever o portão: a célula do Presumido diz `base: 'PRESUNCAO'`,
+   * então IRPJ e CSLL saem do resíduo da etapa 16 — mas se a tela não passou as alíquotas, as
+   * três linhas da 13C também não existem, e o documento fica sem os dois em lugar nenhum.
+   *
+   * O resultado é plausível e errado: deduz-se MENOS do que a construção cobrou, e o RRO sai
+   * maior. Nada falha, e os dois lados fecham entre si — a assinatura exata de
+   * `regime-e-segmento-determinam-a-construcao.md`.
+   *
+   * Por isso ele vira ERRO em vez de passar: `ausente-vs-falso.md` — ausência de alíquota não
+   * é alíquota zero, e uma decomposição que não pode apurar a 13C não deve exibir um RRO como
+   * se pudesse.
+   */
+  presuncaoPendente?: boolean
   /**
    * SIMPLES NACIONAL HÍBRIDO — guia única **com** operação externa (LC 214/2025 art. 41 §3º
    * e LC 123 art. 13 §10): o optante apura IBS e CBS pelo regime regular, e o IS sai do DAS
@@ -355,6 +391,15 @@ export interface DecompositionResult {
    * ausência é regra, e não falha.
    */
   guiaUnica?: boolean
+  /**
+   * A ETAPA 13C ESTÁ ATIVA — IRPJ e CSLL saíram do resíduo e viraram tributo sobre a receita.
+   *
+   * Ausente fora do Presumido. Ele existe porque a ausência das linhas `irpj`/`csll` tem DUAS
+   * causas possíveis — "não existe tributo" (guia única) e "existe, mas na 13C" — e quem lê a
+   * repartição precisa distinguir: sem isto, `residual-from-decomposition.ts` trata a ausência
+   * como rubrica faltando e devolve os cards à Etapa 16, calada.
+   */
+  presuncaoNa13C?: true
   /** Seção 6.2 — o objetivo final. Ausente só quando não há linhas. */
   lucroDaVenda: LucroDaVenda | null
   /** R20 — o residual, no total e por item. Deve ser zero. */
@@ -505,8 +550,57 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
   // DAS — guia única do Simples/MEI, sobre o TOTAL DA OPERAÇÃO do item (planilha, linha 82).
   // Recalcula com o desconto, como todo tributo: faturou menos, paga menos.
   const dasPorItem = items.map((i, k) => -pPorItem[k] * (i.taxes.dasPct ?? 0))
+
+  // ───────────────────────────────────────────────────────────────────────────────────────
+  // ETAPA 13C — A PRESUNÇÃO DO LUCRO PRESUMIDO
+  //
+  // ESPEC VIII.4/XIV.4: IRPJ e CSLL do Presumido incidem sobre a RECEITA, por presunção.
+  // Logo NÃO são resíduo: a base é a receita de produtos pós-desconto, a MESMA do ICMS, e
+  // eles saem ANTES do RRO em vez de serem repartidos a partir dele.
+  //
+  // >>> E É POR ISSO QUE O RRO DO PRESUMIDO MUDA DE VALOR <<<
+  // A conta passa a abatê-los antes. Quem fecha a etapa 17 é a repartição proporcional, que
+  // continua somando 1 — só que agora sobre DUAS categorias (comissão e lucro) em vez de
+  // quatro, porque `budget-decomposition-input.ts` zera os dois nas categorias quando a
+  // matriz manda a presunção para a 13C. As duas pontas são a mesma leitura da matriz, e é
+  // isso que impede uma de mudar sem a outra (`copia-divergente.md`).
+  //
+  // RECALCULA COM O DESCONTO, como todo tributo — faturou menos, paga menos (R18). A base é
+  // `receitaProdutosPorItem`, não `pPorItem`: a presunção incide sobre a receita, e usar P
+  // seria aplicá-la depois dos tributos por fora.
+  const irpjPresuncaoPorItem = items.map(
+    (i, k) => -receitaProdutosPorItem[k] * (i.taxes.presuncao?.irpjPct ?? 0))
+  const csllPresuncaoPorItem = items.map(
+    (i, k) => -receitaProdutosPorItem[k] * (i.taxes.presuncao?.csllPct ?? 0))
+  const adicionalIrpjPorItem = items.map(
+    (i, k) => -receitaProdutosPorItem[k] * (i.taxes.presuncao?.adicionalPct ?? 0))
+  /** As TRÊS LINHAS da 13C são exibíveis? Só com as alíquotas em mão. */
+  const temPresuncao13C = items.some((i) => i.taxes.presuncao != null)
+  /**
+   * IRPJ e CSLL deste documento estão FORA do resíduo da etapa 16?
+   *
+   * São duas perguntas diferentes, e confundi-las foi um defeito desta própria rodada: a
+   * primeira versão removia as linhas da etapa 16 só quando as alíquotas chegavam. No estado
+   * "a matriz pede a 13C e a presunção não veio", as linhas da 16 SOBREVIVIAM com total
+   * R$ 0,00 — e linha zerada afirma que a parcela existe e deu nada
+   * (`ausente-vs-falso.md`). Quem pegou foi um caso de outro arquivo.
+   *
+   * A pergunta certa é da MATRIZ, não do dado: se a célula manda para a 13C, os dois não são
+   * resíduo, com ou sem alíquota em mão. Sem alíquota não há linha em lugar nenhum — e há
+   * ERRO, que é o que diz "não apurado" em vez de "zero".
+   */
+  const foraDoResiduoDaEtapa16 = temPresuncao13C || !!input.presuncaoPendente
+  if (input.presuncaoPendente && !temPresuncao13C) {
+    errors.push(
+      'presunção do Lucro Presumido não apurada: a matriz pede a etapa 13C e as alíquotas '
+      + 'não chegaram. IRPJ e CSLL ficariam fora da 13C E fora do resíduo, e o RRO sairia '
+      + 'maior do que a construção reservou.',
+    )
+  }
+
   const receitaLiquidaPorItem = items.map(
-    (_, k) => pPorItem[k] + icmsPorItem[k] + issPorItem[k] + pisCofinsPorItem[k] + dasPorItem[k],
+    (_, k) => pPorItem[k] + icmsPorItem[k] + issPorItem[k] + pisCofinsPorItem[k] + dasPorItem[k]
+      + irpjPresuncaoPorItem[k] + csllPresuncaoPorItem[k] + adicionalIrpjPorItem[k],
   )
 
   // As categorias DESTE item: as próprias quando ele as tem, as do documento quando não.
@@ -774,6 +868,37 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
       pctPerItem: items.map((i) => i.taxes.pisCofinsPct),
       acrescimoPerItem: acrescimoDe('pisCofins'),
     }),
+    // ═══ ETAPA 13C — a presunção do Presumido, ANTES da receita líquida ═══════════════════
+    //
+    // As três linhas existem SÓ onde a matriz manda (`taxes.presuncao` presente), e o filtro
+    // adiante as remove nos outros formatos. A base exibida é a receita de produtos — a MESMA
+    // do ICMS —, e o percentual é a alíquota CONSOLIDADA da presunção (`presunção × legal`),
+    // que é o número que a construção de fato usou (R17: nunca a efetivada, nunca derivada).
+    linha('irpj_13c', '(−) IRPJ — presunção sobre a receita', irpjPresuncaoPorItem, {
+      base: soma(receitaProdutosPorItem),
+      pct: pctDe(soma(irpjPresuncaoPorItem), soma(receitaProdutosPorItem)),
+      derived: heterogeneo(items.map((i) => i.taxes.presuncao?.irpjPct ?? 0)),
+      basePerItem: receitaProdutosPorItem,
+      pctPerItem: items.map((i) => i.taxes.presuncao?.irpjPct ?? 0),
+    }),
+    linha('csll_13c', '(−) CSLL — presunção sobre a receita', csllPresuncaoPorItem, {
+      base: soma(receitaProdutosPorItem),
+      pct: pctDe(soma(csllPresuncaoPorItem), soma(receitaProdutosPorItem)),
+      derived: heterogeneo(items.map((i) => i.taxes.presuncao?.csllPct ?? 0)),
+      basePerItem: receitaProdutosPorItem,
+      pctPerItem: items.map((i) => i.taxes.presuncao?.csllPct ?? 0),
+    }),
+    // O ADICIONAL tem linha PRÓPRIA, e é a parte que não existia em lugar nenhum: a
+    // construção o somava dentro do IRPJ, com um `FUTURE WORK` dizendo exatamente isso.
+    // Ele é 10% do que excede R$ 240.000 ANUAIS de base presumida, convertido em alíquota
+    // sobre a receita — ver a ressalva do limite anual em `presuncao-do-presumido.ts`.
+    linha('adicional_irpj_13c', '(−) Adicional de IRPJ (10%)', adicionalIrpjPorItem, {
+      base: soma(receitaProdutosPorItem),
+      pct: pctDe(soma(adicionalIrpjPorItem), soma(receitaProdutosPorItem)),
+      derived: heterogeneo(items.map((i) => i.taxes.presuncao?.adicionalPct ?? 0)),
+      basePerItem: receitaProdutosPorItem,
+      pctPerItem: items.map((i) => i.taxes.presuncao?.adicionalPct ?? 0),
+    }),
     linha('receita_liquida', '► RECEITA LÍQUIDA', receitaLiquidaPorItem, { subtotal: true }),
     linha('custos', '(−) Custos — congelado', custoPorItem),
     // CONGELADA: sem base e sem percentual, como as outras três. Exibir `base × 22,92%` numa
@@ -847,9 +972,53 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
    * O IPI some nos dois formatos de guia única, e é o único por fora que o híbrido NÃO
    * ganha: no Simples ele está dentro do DAS do Anexo II (regra 6 do comando).
    */
-  const SOMEM_NA_GUIA_UNICA = new Set(['icms', 'iss', 'pis_cofins', 'irpj', 'csll'])
+  // >>> XI-5: O `Set` É DERIVADO DA MATRIZ, não mais um literal <<<
+  //
+  // Era `new Set(['icms', 'iss', 'pis_cofins', 'irpj', 'csll'])`, dado literal. Agora é o
+  // conjunto das chaves cuja célula a matriz marca INEXISTENTE **nos três regimes de guia
+  // única, em todos os três segmentos**. Mesmo valor, outra origem: a Fase 2A já havia medido
+  // a igualdade, e `concordancia-da-matriz.test.ts` (grupo d) é a rede — ele afirma IGUALDADE
+  // de conjuntos, não inclusão, então uma matriz que marcasse INEXISTENTE para mais tributos
+  // que os cinco fica vermelha ANTES de linha nenhuma desaparecer da tela.
+  //
+  // O mapa de chaves mora AQUI e não na matriz: traduzir `icms` → `'ICMS'` é apresentação, e
+  // dar isso à matriz fiscal seria carregá-la com responsabilidade de linha de tela.
+  //
+  // >>> POR QUE A LISTA DE REGIMES É NOMEADA, E NÃO DERIVADA <<<
+  //
+  // Derivá-la da matriz — "quem tem uma linha única POR_DENTRO" — traria o **RET**, cujos 4%
+  // são exatamente isso (ESPEC XIV.6). E aí ICMS, ISS, PIS/COFINS e as linhas por fora dele
+  // também desapareceriam: mudança de comportamento FORA do escopo do XI-5, em que só IRPJ e
+  // CSLL do RET mudam, por decisão do dono do produto. A lista é a mesma de
+  // `budget-decomposition-input.ts:216` (`guiaUnica`), e derivá-la é a rodada seguinte.
+  const CHAVE_DA_LINHA: Readonly<Record<string, TributoFiscal>> = {
+    icms: 'ICMS', iss: 'ISS', pis_cofins: 'PIS_COFINS', irpj: 'IRPJ', csll: 'CSLL',
+  }
+  const REGIMES_DE_GUIA_UNICA: readonly TaxRegime[] = ['SIMPLES_NACIONAL', 'MEI', 'SIMPLES_HIBRIDO']
+  const SOMEM_NA_GUIA_UNICA = new Set(
+    Object.keys(CHAVE_DA_LINHA).filter((chave) =>
+      REGIMES_DE_GUIA_UNICA.every((regime) =>
+        SEGMENTOS.every((seg) =>
+          colocacaoVigente(regime, seg, CHAVE_DA_LINHA[chave]) === 'INEXISTENTE'))),
+  )
   const POR_FORA = new Set(['por_fora', 'por_fora_ibs', 'por_fora_cbs', 'por_fora_is', 'por_fora_ipi'])
+  /**
+   * A ETAPA 13C E A 16 SÃO EXCLUDENTES — e é a matriz que escolhe, por documento.
+   *
+   * Onde a presunção chegou, IRPJ e CSLL são tributo sobre a receita e a etapa 16 fica com
+   * DUAS linhas (Comissão + Lucro), cujos pesos somam 1. Onde ela não chegou, os dois seguem
+   * na 16 como resíduo, com a alíquota legal sobre o lucro distribuído — Lucro Real, que não
+   * muda um centavo.
+   *
+   * Manter as duas pontas exibiria o MESMO tributo duas vezes, uma delas com valor zero: na
+   * 13C sem presunção, ou na 16 com peso zero. Linha zerada afirma que a parcela existe e deu
+   * nada (`ausente-vs-falso.md`), e aqui ela não existe.
+   */
+  const LINHAS_DA_13C = new Set(['irpj_13c', 'csll_13c', 'adicional_irpj_13c'])
+  const LINHAS_DA_16_DO_RESIDUO = new Set(['irpj', 'csll'])
   const rows = todasAsLinhas.filter((r) => {
+    if (LINHAS_DA_13C.has(r.key)) return temPresuncao13C
+    if (foraDoResiduoDaEtapa16 && LINHAS_DA_16_DO_RESIDUO.has(r.key)) return false
     if (!input.guiaUnica) return r.key !== 'das'
     if (SOMEM_NA_GUIA_UNICA.has(r.key)) return false
     if (!POR_FORA.has(r.key)) return true
@@ -929,6 +1098,10 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
     },
     errors,
     ...(input.guiaUnica ? { guiaUnica: true } : {}),
+    // A 13C está ativa — IRPJ e CSLL NÃO estão no resíduo deste documento. Quem consome a
+    // repartição (os cards) precisa saber, ou rejeita a decomposição inteira por "rubrica
+    // faltando" e volta à Etapa 16 em silêncio. Ver `residual-from-decomposition.ts`.
+    ...(foraDoResiduoDaEtapa16 ? { presuncaoNa13C: true as const } : {}),
   }
 }
 

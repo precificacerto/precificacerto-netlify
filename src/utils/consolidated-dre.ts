@@ -23,6 +23,7 @@
 
 import type { TaxBreakdown, TaxLine, TaxRegime, TaxType } from '@/types/mrm'
 import type { ResidualLine } from './residual-distribution'
+import { exibeReparticaoDoResiduo } from './regime-decisoes'
 
 /**
  * Item para alimentar a DRE. Aceita o mesmo shape do `ResidualItemInput`
@@ -193,8 +194,9 @@ export interface DRESection {
 
 const ZERO_LINE: ResidualLine = { amount: 0, originalPct: 0, effectivePct: 0 }
 
+/** Ver a nota em `residual-distribution.ts`: a pergunta positiva mora em `regime-decisoes.ts`. */
 function isHidden(regime: TaxRegime | null): boolean {
-  return regime === 'MEI' || regime === 'SIMPLES_NACIONAL'
+  return !exibeReparticaoDoResiduo(regime)
 }
 
 function weightedOriginalPct(

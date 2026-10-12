@@ -88,8 +88,78 @@ describe('2. ZERO e AUSENTE são gravados diferente', () => {
   })
 
   it('e os dois NÃO são o mesmo valor — é o ponto de `ausente-vs-falso`', () => {
+    // >>> O LADO `null` MUDOU DE REGIME NO PASSO XI-3 (11/10/2026) <<<
+    // Era `LUCRO_PRESUMIDO`, e ele passou a TER matriz — `REGIMES_COM_MATRIZ` deixou de ser
+    // `['LUCRO_REAL']` e virou leitura da célula. O par continua existindo, agora contra o
+    // MEI, que segue sem operação por fora e portanto sem `c` apurado.
+    // A distinção que o caso protege é a mesma: `0` é "a matriz governou e não há tributo por
+    // fora", apurado; `null` é "não há regra escrita para este regime", não apurado.
     expect(aCongelar(construir(0, 0))).not.toBeNull()
-    expect(aCongelar(construir(1, 8.8, 'LUCRO_PRESUMIDO'))).toBeNull()
+    expect(aCongelar(construir(1, 8.8, 'MEI'))).toBeNull()
+  })
+
+  // ═════════════════════════════════════════════════════════════════════════════════════════
+  // 7b — O QUE O XI-3 MUDOU NA GRAVAÇÃO. Medido, não suposto.
+  // ═════════════════════════════════════════════════════════════════════════════════════════
+
+  it('>>> PRESUMIDO e RET passam a gravar NÚMERO — a prova POSITIVA do XI-3 <<<', () => {
+    // Antes do XI-3 os dois gravavam `null` ("regime sem matriz escrita"). A matriz passou a
+    // governá-los, então o `c` deles é APURADO e vai para a coluna como número.
+    for (const regime of ['LUCRO_PRESUMIDO', 'LUCRO_PRESUMIDO_RET'] as const) {
+      const c = construir(1, 8.8, regime)
+      expect(c.applied).toBe(true)
+      const v = aCongelar(c)
+      expect(v).not.toBeNull()
+      // e cabe na CHECK do banco, igual ao Lucro Real
+      expect(v!).toBeGreaterThanOrEqual(0)
+      expect(v!).toBeLessThan(1)
+    }
+  })
+
+  it('o par `null` × `0` segue VIVO — contra Simples e MEI, que não têm por fora', () => {
+    // Sem este caso a distinção de `ausente-vs-falso` ficaria sem portão depois do XI-3: os
+    // dois regimes que a sustentavam (Presumido e RET) mudaram de lado.
+    for (const regime of ['SIMPLES_NACIONAL', 'MEI'] as const) {
+      const c = construir(1, 8.8, regime)
+      expect(c.applied).toBe(false)
+      expect(aCongelar(c)).toBeNull()
+      expect(aCongelar(c)).not.toBe(0)
+    }
+    // e o lado `0`: matriz governou, sem tributo por fora → apurado e vale nada
+    expect(aCongelar(construir(0, 0))).toBe(0)
+  })
+
+  it('>>> LINHA ANTIGA com `null` relida DEPOIS do XI-3: a guarda `!= null` continua de pé <<<', () => {
+    // >>> É O CASO QUE O PO PEDIU, E ELE TRAVA UMA PROPRIEDADE MEDIDA <<<
+    //
+    // Medição de 11/10/2026 (itens 7c e 7d): a coluna `external_ops_coefficient` tem
+    // exatamente TRÊS pontos de contato em `src`, e NENHUM faz conta com ela —
+    // `content.component.tsx:509-511` lê para inicializar o ref, `:525` atualiza quando o
+    // `ProductPrice` emite, `:1367` grava. Não há soma, média nem leitura agregada, em `src`
+    // nem em `supabase/functions/`.
+    //
+    // Logo não existe caminho em que uma linha antiga (`null`) entre numa conta junto com
+    // linhas novas (número). O que existe é a RELEITURA por produto, e ela depende da guarda
+    // `!= null` de `:509-511`, cuja razão está escrita lá: um save sem novo cálculo não pode
+    // APAGAR o coeficiente de uma construção anterior.
+    //
+    // Este caso afirma a guarda, para que a próxima pessoa não precise medir de novo.
+    const guardaDoRef = (gravado: unknown): number | null =>
+      gravado != null ? Number(gravado) : null
+
+    // a linha ANTIGA, gravada antes de a coluna existir ou antes do XI-3
+    expect(guardaDoRef(null)).toBeNull()
+    expect(guardaDoRef(undefined)).toBeNull()
+    // a linha NOVA, do Presumido depois do XI-3
+    const novo = aCongelar(construir(1, 8.8, 'LUCRO_PRESUMIDO'))
+    expect(guardaDoRef(novo)).toBe(novo)
+    // >>> E O ZERO NÃO É CONFUNDIDO COM AUSENTE — é o que `!= null` compra sobre `!gravado` <<<
+    // Um `gravado ? Number(gravado) : null` leria o zero legítimo como nunca apurado.
+    expect(guardaDoRef(0)).toBe(0)
+    expect(guardaDoRef(0)).not.toBeNull()
+    // a expressão afirmada é a do componente, não uma cópia da regra aqui
+    const src = ler('page-parts/products/content.component.tsx')
+    expect(src).toContain("(product as any)?.external_ops_coefficient != null ? Number((product as any).external_ops_coefficient) : null")
   })
 })
 

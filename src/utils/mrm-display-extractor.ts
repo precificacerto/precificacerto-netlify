@@ -19,6 +19,7 @@
  */
 
 import type { CascadeStep, TaxBreakdown, TaxRegime } from '@/types/mrm'
+import { rateiaIrpjCsll } from './regime-decisoes'
 
 export interface EpicV5DisplayData {
   cascadeTrace: CascadeStep[] | null
@@ -141,7 +142,7 @@ export function extractEpicV5DisplayData(
 
     // Regime guard (sempre calculado — depende apenas do tenant)
     const regime = tenantContext.regime
-    const isRegimeCumulativo = regime === 'MEI' || regime === 'SIMPLES_NACIONAL'
+    const isRegimeCumulativo = !rateiaIrpjCsll(regime)
     const attemptedCsll = Number(tenantContext.csll_pct) || 0
     const attemptedIrpj = Number(tenantContext.irpj_pct) || 0
     const hasAttemptedTaxes = attemptedCsll > 0 || attemptedIrpj > 0

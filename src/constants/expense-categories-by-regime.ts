@@ -406,8 +406,19 @@ function isSimplesRegime(regime: string | null | undefined): boolean {
 function isLucroRealRegime(regime: string | null | undefined): boolean {
   return regime === 'LUCRO_REAL' || regime === 'SIMPLES_HIBRIDO'
 }
+/**
+ * D4 do XI-3.5 FASE C: testava `'PRESUMIDO_RET'`, grafia que o banco não usa — o enum
+ * `tax_regime` diz `'LUCRO_PRESUMIDO_RET'`. Consequência MEDIDA, e esta é de COMPORTAMENTO,
+ * não de rótulo: o tenant RET não recebia `LP_EXPENSE_CATEGORY_OPTIONS` e caía no
+ * `EXPENSE_CATEGORY_OPTIONS` genérico, tanto na lista que a tela oferece quanto na resolução
+ * do `expense_group` por `getGroupForCategoryByRegime`.
+ *
+ * O parâmetro segue `string` porque `currentUser.taxableRegime` chega cru do banco; por isso
+ * nenhum portão de TIPO alcança esta linha, e a rede dela é de comportamento —
+ * `a-grafia-do-ret.test.ts`. A grafia antiga sai: não há fonte que a produza.
+ */
 function isLucroPresumidoRegime(regime: string | null | undefined): boolean {
-  return regime === 'LUCRO_PRESUMIDO' || regime === 'PRESUMIDO_RET'
+  return regime === 'LUCRO_PRESUMIDO' || regime === 'LUCRO_PRESUMIDO_RET'
 }
 
 /** Returns the grouped option list appropriate for the tenant's tax regime. */

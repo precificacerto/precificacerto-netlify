@@ -233,6 +233,94 @@ export function resolveDespesasOperacionaisPct(
 }
 
 /**
+ * O NUMERADOR DA MÃO DE OBRA, por segmento — o par de `divisorDaEstruturaPct`.
+ *
+ * Criado em 11/10/2026, na rodada do serviço, por decisão do dono do produto:
+ *
+ *   > No serviço, MO administrativa e despesa fixa entram no NUMERADOR, somadas à MO
+ *   > produtiva, e o conjunto é dividido pelo TEMPO. Não é percentual sobre receita.
+ *
+ * ── POR QUE AQUI, E NÃO NUM MÓDULO NOVO
+ *
+ * Porque é a MESMA decisão que `divisorDaEstruturaPct` toma do outro lado, e as duas têm de
+ * concordar: **o que sai do denominador entra no numerador.** Separá-las em módulos diferentes
+ * seria convidar a divergência que esta rodada veio corrigir — o caminho do produto tirava as
+ * duas do divisor e não as somava ao custo, e por isso elas desapareciam do preço.
+ *
+ * Lidas juntas, as duas funções dizem a regra inteira:
+ *
+ * | segmento | numerador (R$/mês, dividido pelo tempo) | denominador (% sobre receita) |
+ * |---|---|---|
+ * | `SERVICO` | **produtiva + administrativa + fixa** | variável + financeira + compromisso |
+ * | `REVENDA` | produtiva (e o chamador passa 0 quando não há tempo) | fixa + compromisso + variável + financeira + MOI + MO produtiva |
+ * | `INDUSTRIALIZACAO` | produtiva | fixa + compromisso + variável + financeira + MOI |
+ *
+ * ── O QUE ESTA FUNÇÃO NÃO RESOLVE, e está medido
+ *
+ * Um produto de REVENDA num tenant de SERVIÇO não tem tempo de mão de obra. O chamador passa
+ * `laborCostMonthly: 0` nesse caso, então a administrativa e a fixa **não têm por onde entrar**
+ * — e `resolveSegmentoDaDespesa` as tira do divisor porque o segmento da DESPESA é do tenant,
+ * não do produto. Medido em 11/10/2026: o único tenant de serviço com produtos (Salão Eliane)
+ * tem 6 produtos ativos, **todos REVENDA e todos com `sale_price_base = 0`** — nenhum preço
+ * formado, exposição zero. Registrado em vez de corrigido: o caso não estava no escopo desta
+ * rodada, e corrigi-lo exige decidir ONDE as duas entram quando não há minuto, que é decisão
+ * do dono do produto.
+ */
+export function custoMensalDeMaoDeObra(args: {
+  segmentoDaDespesa: SegmentoDaConstrucao
+  /** `production_labor_cost_hub` ou, na falta dele, `production_labor_cost`. */
+  produtivaMensal: number
+  /** `admin_salary_total` + `admin_fgts_total` + `admin_other_costs`. */
+  adminMensal: number
+  /** `fixed_expense_monthly`. */
+  fixaMensal: number
+}): number {
+  const produtiva = Number(args.produtivaMensal) || 0
+  // A condição é POSITIVA — nomeia o segmento que soma, em vez de negar os que não somam.
+  // Um segmento novo nasce SEM a propriedade em vez de herdá-la por omissão.
+  if (args.segmentoDaDespesa !== 'SERVICO') return produtiva
+  return produtiva + (Number(args.adminMensal) || 0) + (Number(args.fixaMensal) || 0)
+}
+
+/**
+ * O `laborCostMonthly` QUE A TELA DE PRODUTO ENTREGA AO MOTOR.
+ *
+ * Extraída de `products/content.component.tsx:945` em 11/10/2026, **com o corpo que estava
+ * lá**, antes de qualquer correção. A extração é o passo que torna o defeito afirmável: a
+ * expressão era inline dentro do objeto passado a `calculatePricing`, num `useCallback` de
+ * componente, e por isso nenhum caso podia chamá-la — `portao-que-nao-alcanca.md`, pergunta 2.
+ *
+ * `teste-que-nao-exercita.md` manda exportar quando é a única forma de afirmar EFEITO em vez
+ * de passagem. Sem isto, um caso que montasse a conta por fora estaria afirmando a conta do
+ * próprio caso, não a da tela — e passaria verde com o defeito presente.
+ */
+export function custoMensalDeMaoDeObraDoProduto(args: {
+  /** O `effectiveCalcType` da tela: produto REVENDA força REVENDA em qualquer tenant. */
+  effectiveCalcType: SegmentoDaConstrucao
+  /** O segmento da DESPESA, que é do TENANT — ver `resolveSegmentoDaDespesa`. */
+  segmentoDaDespesa: SegmentoDaConstrucao
+  produtivaMensal: number
+  adminMensal: number
+  fixaMensal: number
+}): number {
+  // REVENDA não consome tempo: sem minuto não há o que dividir, e o overhead de mão de obra
+  // entra pelo divisor. É o comportamento de hoje, e não muda nesta rodada.
+  if (args.effectiveCalcType === 'REVENDA') return 0
+  // 11/10/2026 — A CORREÇÃO: era `return Number(args.produtivaMensal) || 0`, e isso somado ao
+  // divisor de SERVIÇO (que tira a fixa e a MO administrativa) fazia as duas DESAPARECEREM do
+  // preço: fora do denominador e fora do numerador. Agora lê a MESMA função que o caminho do
+  // serviço lê, de modo que os dois não podem divergir — e o portão
+  // `o-custo-de-mao-de-obra-do-servico.test.ts` afirma essa igualdade com o preço, não com a
+  // passagem do campo.
+  return custoMensalDeMaoDeObra({
+    segmentoDaDespesa: args.segmentoDaDespesa,
+    produtivaMensal: args.produtivaMensal,
+    adminMensal: args.adminMensal,
+    fixaMensal: args.fixaMensal,
+  })
+}
+
+/**
  * O DIVISOR DA ESTRUTURA, por segmento — em base 100, como as telas o carregam.
  *
  * >>> POR QUE ESTA FUNÇÃO EXISTE, e é o remédio e não organização <<<

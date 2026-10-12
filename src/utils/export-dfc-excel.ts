@@ -1,4 +1,6 @@
 import ExcelJS from 'exceljs'
+import { buildDfcExcelFileName, getRegimeLabel } from '@/utils/dfc-regime-label'
+import type { TaxRegime } from '@/supabase/types'
 
 // ── Types (mirrored from dfc/index.tsx) ──
 
@@ -103,18 +105,6 @@ function setFill(cell: ExcelJS.Cell, argb: string): void {
   cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb } }
 }
 
-function getRegimeLabel(taxRegime: string): string {
-  switch (taxRegime) {
-    case 'LUCRO_REAL': return 'Lucro Real'
-    case 'LUCRO_PRESUMIDO': return 'Lucro Presumido'
-    case 'PRESUMIDO_RET': return 'Presumido RET'
-    case 'SIMPLES_NACIONAL': return 'Simples Nacional'
-    case 'SIMPLES_HIBRIDO': return 'Simples Hibrido'
-    case 'MEI': return 'MEI'
-    default: return taxRegime || 'Nao definido'
-  }
-}
-
 function getCalcTypeLabel(calcType: string): string {
   switch (calcType) {
     case 'INDUSTRIALIZATION': return 'Industrializacao'
@@ -194,7 +184,12 @@ function getRowColor(row: DreRow): { bg: string | null; fontColor: string; bold:
 export async function exportDfcToExcel(
   dreRows: DreRow[],
   year: number,
-  taxRegime: string,
+  /**
+   * ROTA (a) da D2 (XI-3.5 FASE C): aceita `null`, porque a tela pode exportar antes de o
+   * regime carregar. Era `string`, e a tela passava `''` — que `getRegimeLabel` convertia em
+   * "Nao definido" por FALSIDADE, inclusive no NOME DO ARQUIVO que o usuário recebe.
+   */
+  taxRegime: TaxRegime | null,
   calcType: string,
   periodType: PeriodType = 'trimestral',
   selectedMonth: number = 0,
@@ -351,7 +346,7 @@ export async function exportDfcToExcel(
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `DRE_${year}_${periodLabel.replace(/\s+/g, '_')}_${getRegimeLabel(taxRegime).replace(/\s+/g, '_')}.xlsx`
+  a.download = buildDfcExcelFileName(year, periodLabel, taxRegime)
   document.body.appendChild(a)
   a.click()
   document.body.removeChild(a)

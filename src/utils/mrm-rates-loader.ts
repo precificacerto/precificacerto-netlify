@@ -132,17 +132,58 @@ export function invalidateRatesCache(): void {
  *
  * Story MRM-V5-002 AC4 + ADR-008.
  */
-const PIS_COFINS_EXPECTED: Record<
-  Exclude<TaxRegime, 'MEI' | 'SIMPLES_NACIONAL' | 'SIMPLES_HIBRIDO'>,
-  Record<PisCofinsPerspective, number>
+/**
+ * ═══ CHAVES POSITIVAS — XI-3.5 FASE B, 11/10/2026 ═══════════════════════════════════
+ *
+ * Era `Record<Exclude<TaxRegime, 'MEI' | 'SIMPLES_NACIONAL' | 'SIMPLES_HIBRIDO'>, …>`, e a
+ * lista NEGATIVA era o único ponto do grupo (iii) do repositório. Trocada por decisão do dono
+ * do produto (D3), e a razão é uma MINA MEDIDA, não estética:
+ *
+ *   acrescentar um regime ao `Exclude` o retiraria do early-return de
+ *   `validatePisCofinsInvariant`, e ele cairia em `PIS_COFINS_EXPECTED[regime][perspective]`
+ *   com o mapa sem a chave ⇒ **`TypeError` em RUNTIME, não erro de tipo.**
+ *
+ * Com chaves positivas as duas pontas passam a sair do MESMO lugar: o mapa diz quem tem faixa,
+ * e o early-return lê o mapa. Acrescentar um valor a `TaxRegime` quebra a COMPILAÇÃO aqui, e
+ * não há como editar um dos lados sem o outro — `copia-divergente.md`, cujo remédio é apagar
+ * uma cópia, não conferir as duas.
+ *
+ * ── `null` NÃO É UMA FAIXA DE ZERO
+ *
+ * `null` afirma *não há invariante a conferir neste regime*; uma faixa `{ CONSTRUCAO: 0,
+ * APURACAO: 0 }` afirmaria *a faixa esperada é zero*, e faria todo tenant com PIS/COFINS
+ * cadastrado estourar o invariante. É a distinção de `ausente-vs-falso.md`, aqui no valor do
+ * mapa.
+ *
+ * | regime | faixa | razão |
+ * |---|---|---|
+ * | `MEI` | `null` | guia única absorve o PIS/COFINS — nada a conferir |
+ * | `SIMPLES_NACIONAL` | `null` | idem |
+ * | `SIMPLES_HIBRIDO` | `null` | até 2026 PIS e COFINS estão dentro do DAS; de 2027 o optante apura CBS. **Não há alíquota canônica a conferir em momento nenhum**, e inventar uma afirmaria um tributo que o regime não tem |
+ * | `LUCRO_PRESUMIDO` | 3,65% / 3,0295% | cumulativo |
+ * | `LUCRO_REAL` | 9,25% / 7,6775% | não-cumulativo, com a exclusão do ICMS (STF Tema 69) |
+ *
+ * Story MRM-V5-002 AC4 + ADR-008.
+ */
+const PIS_COFINS_EXPECTED: Readonly<
+  Record<TaxRegime, Readonly<Record<PisCofinsPerspective, number>> | null>
 > = {
-  LUCRO_REAL: {
-    CONSTRUCAO: 0.076775,
-    APURACAO: 0.0925,
-  },
+  MEI: null,
+  SIMPLES_NACIONAL: null,
+  SIMPLES_HIBRIDO: null,
   LUCRO_PRESUMIDO: {
     CONSTRUCAO: 0.030295, // 3,65% × 0,83 ≈ 3,0295%
     APURACAO: 0.0365,
+  },
+  // igual ao Presumido por HERANÇA histórica (mapeamento até XI-4), não por equivalência de
+  // formato — ESPEC XIV.6 diz que os formatos diferem. Alterar só na rodada do formato do RET.
+  LUCRO_PRESUMIDO_RET: {
+    CONSTRUCAO: 0.030295,
+    APURACAO: 0.0365,
+  },
+  LUCRO_REAL: {
+    CONSTRUCAO: 0.076775,
+    APURACAO: 0.0925,
   },
 }
 
@@ -167,12 +208,11 @@ export function validatePisCofinsInvariant(
   perspective: PisCofinsPerspective,
   regime: TaxRegime,
 ): void {
-  // SN/MEI: regime cumulativo absorvido pelo DAS — sem invariante.
-  // SIMPLES_HÍBRIDO pelo mesmo motivo e mais: a partir de 2027 o optante não tem PIS e
-  // COFINS, tem CBS. Ver `PIS_COFINS_EXPECTED`.
-  if (regime === 'SIMPLES_NACIONAL' || regime === 'MEI' || regime === 'SIMPLES_HIBRIDO') {
-    return
-  }
+  // Quem não tem faixa não tem invariante. A LISTA de quem não tem mora no MAPA, nunca aqui:
+  // enquanto fosse uma condição própria, acrescentar um regime ao mapa sem acrescentá-lo à
+  // condição (ou o contrário) produzia `TypeError` em runtime. Ver `PIS_COFINS_EXPECTED`.
+  const faixas = PIS_COFINS_EXPECTED[regime]
+  if (faixas == null) return
 
   const pisRate = rates.find((r) => r.tax_type === 'PIS')?.rate_pct ?? 0
   const cofinsRate = rates.find((r) => r.tax_type === 'COFINS')?.rate_pct ?? 0
@@ -181,7 +221,7 @@ export function validatePisCofinsInvariant(
   // Quando ambos são 0 (não-tributado) — não há invariante a validar
   if (aggregate === 0) return
 
-  const expected = PIS_COFINS_EXPECTED[regime][perspective]
+  const expected = faixas[perspective]
   const diff = Math.abs(aggregate - expected)
 
   if (diff > PIS_COFINS_TOLERANCE) {

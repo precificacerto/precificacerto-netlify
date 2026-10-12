@@ -28,8 +28,21 @@ jobs:
       - name: Testes (jest)
         run: npm run test:ci
 
-      - name: Checksum do pricing-engine
+      - name: Espelho da edge — igualdade do grafo
         run: npm run check-pricing-engine
+
+      # PORTÃO DE SANIDADE, ao lado do de IGUALDADE e por exigência dele.
+      #
+      # `portao-que-nao-alcanca.md`, aparição 2: o check da cópia prova IGUALDADE entre os
+      # arquivos, NUNCA que algum deles resolve seus imports. Dois arquivos igualmente
+      # quebrados são iguais, e foi assim que um import morto chegou ao espelho com o carimbo
+      # de conforme.
+      #
+      # Ele é BLOQUEANTE de propósito: nenhum outro portão do repositório alcança esta pasta.
+      # O jest não a importa, o `next build` não a compila, e o `tsc` completo — o único que a
+      # enxerga — roda no job de diagnóstico, com `continue-on-error`.
+      - name: Espelho da edge — cada import resolve na pasta
+        run: npm run check-edge-imports
 
       - name: Build (next build)
         run: npm run build

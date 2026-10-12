@@ -25,6 +25,7 @@
 import { supabase } from '@/supabase/client'
 import { resolveDasHibridoDoTenant } from '@/utils/simples-hibrido'
 import { formatPercentWithDigits } from '@/utils/formatters'
+import { presuncaoSobreReceita } from '@/utils/presuncao-do-presumido'
 
 /**
  * Componentes tributários separados, todos em decimal (0.05 = 5%).
@@ -44,6 +45,17 @@ export interface TaxComponents {
   irpj: number
   /** CSLL efetivo (decimal). Para RR rateio (Seção 3 do PDF). */
   csll: number
+  /**
+   * LUCRO PRESUMIDO — as três parcelas da presunção, SEPARADAS, todas sobre a receita.
+   *
+   * Presentes SÓ no Presumido, e `undefined` nos demais regimes: fora dele não há presunção, e
+   * um zero ali afirmaria que existe e vale nada (`ausente-vs-falso.md`). São elas que a
+   * ETAPA 13C da decomposição consome, com uma linha para cada — `irpj` acima continua sendo
+   * `irpjPresuncao + irpjAdicional`, para que nenhum consumidor existente mude.
+   */
+  irpjPresuncao?: number
+  csllPresuncao?: number
+  irpjAdicional?: number
   /** Soma de todos os componentes (decimal). Equivalente a `effectiveTaxPct`. */
   total: number
   /** Regime tributário origem do cálculo. */
@@ -233,35 +245,31 @@ export function extractEffectiveTaxComponents(input: TaxComponentsInput): TaxCom
       ? Number(ts.iss_municipality_rate) || 0.05
       : 0
 
-    const irpjRateAliq = lpRate ? Number(lpRate.irpj_rate) : 0.15
-    const csllRateAliq = lpRate ? Number(lpRate.csll_rate) : 0.09
-    const irpjPresumptionPct = ts.lp_irpj_presumption_percent != null
-      ? Number(ts.lp_irpj_presumption_percent)
-      : lpRate ? Number(lpRate.irpj_presumption_percent) : 0.08
-    const csllPresumptionPct = ts.lp_csll_presumption_percent != null
-      ? Number(ts.lp_csll_presumption_percent)
-      : lpRate ? Number(lpRate.csll_presumption_percent) : 0.12
+    // >>> A PRESUNÇÃO VEM DE UMA FONTE SÓ — `presuncao-do-presumido.ts` <<<
+    //
+    // Estas vinte linhas eram IDÊNTICAS às de `calc-tax-preview.ts:246-270`: mesma
+    // precedência manual-sobre-tabela, mesmos 0,15/0,09/0,08/0,12, mesmo 240.000, mesmo
+    // 0,10. Duas cópias de um mapeamento, e a decomposição da 13C seria a terceira
+    // (`copia-divergente.md`). O remédio daquela regra é apagar, não conferir.
+    //
+    // O ADICIONAL agora vem SEPARADO. O `FUTURE WORK` que morava aqui dizia exatamente isso:
+    // *"motor RR não consome esse adicional separadamente; somamos ao irpj"*. Ele continua
+    // somado em `irpj` abaixo — nenhum consumidor move um centavo —, e quem precisa dele à
+    // parte (a linha própria da 13C) lê `irpjAdicional`.
+    const pres = presuncaoSobreReceita({
+      irpjPresuncaoPct: ts.lp_irpj_presumption_percent != null
+        ? Number(ts.lp_irpj_presumption_percent)
+        : lpRate ? Number(lpRate.irpj_presumption_percent) : null,
+      csllPresuncaoPct: ts.lp_csll_presumption_percent != null
+        ? Number(ts.lp_csll_presumption_percent)
+        : lpRate ? Number(lpRate.csll_presumption_percent) : null,
+      irpjRate: lpRate ? Number(lpRate.irpj_rate) : null,
+      csllRate: lpRate ? Number(lpRate.csll_rate) : null,
+      receitaAnualEstimada: Number(ts.lp_estimated_annual_revenue) || 0,
+    })
 
-    const irpjEquiv = irpjPresumptionPct * irpjRateAliq
-    const csllEquiv = csllPresumptionPct * csllRateAliq
-
-    // Adicional IRPJ 10% sobre excedente de R$ 240k/ano de lucro presumido.
-    // FUTURE WORK: motor RR não consome esse adicional separadamente; somamos
-    // ao irpj para preservar paridade com calc-tax-preview, mas registramos
-    // que valor distribuído no rateio inclui o adicional.
-    const IRPJ_ADICIONAL_LIMITE_ANUAL = 240000
-    let lpIrpjAdditional = 0
-    const annualRevenue = Number(ts.lp_estimated_annual_revenue) || 0
-    if (annualRevenue > 0) {
-      const irpjBase = annualRevenue * irpjPresumptionPct
-      const excedente = Math.max(0, irpjBase - IRPJ_ADICIONAL_LIMITE_ANUAL)
-      if (excedente > 0) {
-        lpIrpjAdditional = (excedente * 0.10) / annualRevenue
-      }
-    }
-
-    const lpIrpj = round4(irpjEquiv + lpIrpjAdditional)
-    const lpCsll = round4(csllEquiv)
+    const lpIrpj = round4(pres.irpjPct + pres.adicionalPct)
+    const lpCsll = round4(pres.csllPct)
 
     const total = round4(lpIcms + lpPis + lpCofins + lpIss + lpIrpj + lpCsll)
     return {
@@ -271,6 +279,11 @@ export function extractEffectiveTaxComponents(input: TaxComponentsInput): TaxCom
       iss: round4(lpIss),
       irpj: lpIrpj,
       csll: lpCsll,
+      // As três parcelas SEPARADAS, para a etapa 13C ter uma linha para cada uma. `irpj`
+      // acima segue sendo `irpjPresuncao + irpjAdicional`, intocado.
+      irpjPresuncao: round4(pres.irpjPct),
+      csllPresuncao: round4(pres.csllPct),
+      irpjAdicional: round4(pres.adicionalPct),
       total,
       regime: 'LUCRO_PRESUMIDO',
       label: 'Lucro Presumido',

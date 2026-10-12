@@ -24,6 +24,10 @@
  */
 
 import { placementOf as placementOfMatrix } from './pricing-engine'
+// A FONTE do escopo. `REGIMES_COM_MATRIZ` passou a LER dela no passo XI-3 — ver o cabeçalho
+// dela abaixo.
+import { MATRIZ_FISCAL, tributosPorForaNaMatriz } from './matriz-fiscal'
+import type { TaxRegime } from '@/supabase/types'
 import type { BaseCode, CalcType, ExternalTax, TaxBreakdownInput, TaxName } from './pricing-engine'
 
 /** O segmento da cadeia. Mesmo eixo do `CalcType` do motor, por construção. */
@@ -287,6 +291,16 @@ export function buildTaxBreakdown(input: BuildTaxBreakdownInput): BuildTaxBreakd
     if (place === 'POR_DENTRO') return positive(valor)
     if (positive(valor) > 0) {
       errors.push(
+        // >>> O LITERAL `INEXISTENTE` FICA AQUI, E A DECISÃO É DO PO (11/10/2026) <<<
+        // O `${place}` JÁ está interpolado na primeira sentença, então esta mensagem não mente
+        // com `ACRESCIMO` no tipo `Placement` — ela fica CONFUSA, não FALSA. E a confusão é
+        // INALCANÇÁVEL hoje: nenhuma célula de `TaxName` é acréscimo na matriz, afirmado por
+        // caso próprio em `concordancia-da-matriz.test.ts`.
+        // A troca vai para a rodada que ATIVAR o acréscimo, e nessa rodada o caso que afirma o
+        // literal — `decomposicao-igual-a-construcao.test.ts:1113`,
+        // `toContain('INEXISTENTE não é zero')` — cai no MESMO commit. É a mesma regra do portão
+        // verde do RET: corrigir a linha e deixar o portão afirmando o antigo troca um defeito
+        // por dois.
         `${tax} veio com alíquota ${valor} em ${segment}, onde a matriz diz ${place}. ` +
           'INEXISTENTE não é zero: o tributo não tem linha nesse formato.',
       )
@@ -303,6 +317,16 @@ export function buildTaxBreakdown(input: BuildTaxBreakdownInput): BuildTaxBreakd
     if (place !== 'POR_FORA') {
       if (rate > 0) {
         errors.push(
+          // >>> O LITERAL `INEXISTENTE` FICA AQUI, E A DECISÃO É DO PO (11/10/2026) <<<
+          // O `${place}` JÁ está interpolado na primeira sentença, então esta mensagem não mente
+          // com `ACRESCIMO` no tipo `Placement` — ela fica CONFUSA, não FALSA. E a confusão é
+          // INALCANÇÁVEL hoje: nenhuma célula de `TaxName` é acréscimo na matriz, afirmado por
+          // caso próprio em `concordancia-da-matriz.test.ts`.
+          // A troca vai para a rodada que ATIVAR o acréscimo, e nessa rodada o caso que afirma o
+          // literal — `decomposicao-igual-a-construcao.test.ts:1113`,
+          // `toContain('INEXISTENTE não é zero')` — cai no MESMO commit. É a mesma regra do portão
+          // verde do RET: corrigir a linha e deixar o portão afirmando o antigo troca um defeito
+          // por dois.
           `${tax} veio com alíquota ${valor} em ${segment}, onde a matriz diz ${place}. ` +
             'INEXISTENTE não é zero: o tributo não tem linha nesse formato.',
         )
@@ -372,18 +396,60 @@ export function buildTaxBreakdown(input: BuildTaxBreakdownInput): BuildTaxBreakd
 // ---------------------------------------------------------------------------
 
 /**
- * ESCOPO da matriz, e a razão de a trava existir.
+ * ESCOPO da matriz — **DERIVADO de `matriz-fiscal.ts`** desde 11/10/2026 (passo XI-3).
  *
- * `.claude/rules/cascata-lucro-real.md`, Escopo: "Vale para tenants em Lucro Real, nos três
- * segmentos da cadeia. Fora do Lucro Real a cascata tributária muda e estas regras não se
- * aplicam — a regra do Simples Nacional e MEI é outra, e já está escrita."
+ * ══ O QUE ERA, E POR QUE DEIXOU DE SER ═══════════════════════════════════════════════════
  *
- * Lucro Presumido e Simples Híbrido habilitam os campos de IBS/CBS/IS/IPI na tela e NÃO têm
- * regra escrita. Estendê-los aqui seria a tela legislando sobre o motor a partir de um palpite
- * — o mesmo gesto que `razao-longe-da-restricao.md` registra. Ficam no contrato antigo, com o
- * preço que já tinham, até que a regra deles exista.
+ * Era `['LUCRO_REAL']`, uma lista de UM nome, e a razão escrita era:
+ *
+ *   > Lucro Presumido e Simples Híbrido habilitam os campos de IBS/CBS/IS/IPI na tela e NÃO
+ *   > têm regra escrita. Estendê-los aqui seria a tela legislando sobre o motor a partir de
+ *   > um palpite… Ficam no contrato antigo, com o preço que já tinham, **até que a regra
+ *   > deles exista.**
+ *
+ * **A regra deles passou a existir**: a Parte XIV da especificação do PO escreveu as 18
+ * células, e `matriz-fiscal.ts` as tem. A condição que a própria trava declarava está
+ * satisfeita, e é por isso que ela cai agora e não antes.
+ *
+ * ══ O CRITÉRIO É DA MATRIZ: TEM OPERAÇÃO POR FORA? ═══════════════════════════════════════
+ *
+ * Simples Nacional e MEI ficam fora porque `tributosPorForaNaMatriz` devolve `[]` neles — não
+ * há o que a matriz governe. **Isso não é uma lista de nomes: é a leitura da célula.**
+ * Acrescentar IBS por fora ao MEI na matriz o traria para cá sozinho, e é essa a propriedade
+ * que a lista literal não tinha.
+ *
+ * ══ >>> O SIMPLES HÍBRIDO É EXCEÇÃO NOMEADA, E A RAZÃO É OUTRA <<< ════════════════════════
+ *
+ * Ele TEM operação por fora na matriz (IBS · CBS · IS), então o critério acima o traria. Fica
+ * fora por decisão do dono do produto (11/10/2026), com três razões:
+ *
+ * 1. **Ele não passa por aqui.** `construirPrecoHibrido` (`simples-hibrido.ts:160`) é caminho
+ *    à parte: o `c` dele não sai de `buildTaxBreakdown` porque ICMS, ISS e PIS/COFINS não são
+ *    linha no regime — estão no DAS, e a base de IBS/CBS é `P × (1 − dedução)`.
+ * 2. **A falta dele é OUTRA — pendência 7**, uma condição ausente em `externalNominalByTax`
+ *    (`budget-decomposition-input.ts:354`), não "regime sem matriz escrita".
+ * 3. **É o único regime com tenant vivo** entre os três candidatos: Presumido e RET têm ZERO
+ *    tenants. Arrastá-lo seria duas mudanças no mesmo commit, no único lugar com exposição
+ *    real.
+ *
+ * A exceção é um `Set` com a razão citada, e não um nome na lista: `razao-longe-da-restricao.md`
+ * — *"restrição sem razão citada no ponto de declaração não autoriza remoção, autoriza
+ * pergunta"*. Quem for unificar os dois caminhos encontra aqui o que precisa decidir, e tem
+ * rede: o portão de CARACTERIZAÇÃO em `caracterizacao-do-hibrido.test.ts` fixa o preço e o
+ * coeficiente dele inalterados.
  */
-export const REGIMES_COM_MATRIZ: readonly string[] = ['LUCRO_REAL'] as const
+const REGIMES_COM_CAMINHO_PROPRIO: ReadonlySet<string> = new Set(['SIMPLES_HIBRIDO'])
+
+export const REGIMES_COM_MATRIZ: readonly string[] = (() => {
+  // XI-3.5 FASE B: era uma lista literal dos seis regimes, escrita À MÃO. Lista positiva não
+  // tem a mina do `Exclude`, mas tem a própria: um valor novo no tipo não a quebra — ela fica
+  // INCOMPLETA EM SILÊNCIO, e o regime novo nunca seria considerado. Agora os regimes vêm das
+  // chaves da própria matriz, que é `Record<TaxRegime, …>` e portanto exaustiva por
+  // construção. Acrescentar um valor ao tipo o traz para cá sem ninguém editar nada.
+  const TODOS = Object.keys(MATRIZ_FISCAL) as readonly TaxRegime[]
+  return TODOS.filter((r) =>
+    tributosPorForaNaMatriz(r).length > 0 && !REGIMES_COM_CAMINHO_PROPRIO.has(r))
+})()
 
 export interface ConstructionTaxRates {
   /** ICMS sobre o total geral, decimal. */

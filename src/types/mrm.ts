@@ -90,18 +90,39 @@ export const TAXES_OUTSIDE: readonly TaxType[] = [
 ] as const
 
 /**
- * O regime, como o MOTOR o enxerga.
+ * O regime, como o motor o enxerga — e desde 11/10/2026 ele enxerga SEIS.
  *
- * `SIMPLES_HIBRIDO` entrou em 19/09/2026 e é regime PRÓPRIO, não um apelido: ele é guia
- * única (DAS reduzido por dentro, IRPJ/CSLL dentro dele) COM operação externa (IBS, CBS e
- * IS por fora, LC 214/2025 art. 41 §3º). Mapeá-lo para `LUCRO_PRESUMIDO`, como se fazia,
- * afirmava um formato que a LC 214 não dá ao optante do Simples — ICMS, ISS e PIS/COFINS
- * discriminados, IRPJ e CSLL sobre o lucro.
+ * Até então o RET era mapeado para `LUCRO_PRESUMIDO` de propósito, porque o formato dele não
+ * estava escrito. Está (ESPEC XIV.6): linha única de 4%, sem ICMS/ISS/PIS-COFINS, IRPJ e CSLL
+ * dentro da alíquota, etapa 16 com duas linhas. FORMATOS DIFERENTES, não a mesma alíquota —
+ * por isso o tipo tem de expressá-lo.
  *
- * `LUCRO_PRESUMIDO_RET` continua mapeado para `LUCRO_PRESUMIDO`, e isso NÃO é a mesma
- * omissão: ali o formato é o mesmo, muda a alíquota. Aqui muda o formato.
+ * ── POR QUE A DISTINÇÃO ANTERIOR ERA CERTA, E DEIXOU DE SER
+ *
+ * O comentário que estava aqui dizia que o RET segue mapeado e que isso não era omissão. Era
+ * verdade **sob a regra da época**: enquanto o formato do RET não estivesse escrito, "o motor
+ * vê cinco" era simplificação honesta. Com o formato escrito, um tipo que não consegue
+ * expressar o RET torna IMPOSSÍVEL o motor rodar aquele formato — deixou de ser simplificação
+ * e virou impedimento. `decisao-sob-regra-da-epoca.md`: a decisão antiga não foi descuido, a
+ * regra é que mudou.
+ *
+ * ── O TIPO É REEXPORTADO, NÃO REDECLARADO
+ *
+ * A fonte é `@/supabase/types`, que reproduz o enum `tax_regime` de `tenant_settings` valor por
+ * valor (ver `database.types.ts`). Havia TRÊS declarações divergentes de `TaxRegime` no
+ * repositório — esta com cinco valores, a de `pages/dfc/index.tsx` grafando `'PRESUMIDO_RET'` e
+ * com `| string`, e a canônica. `copia-divergente.md`, e o remédio dela é apagar as cópias, não
+ * conferi-las.
+ *
+ * ── `SIMPLES_HIBRIDO` CONTINUA SENDO REGIME PRÓPRIO, e a razão fica
+ *
+ * Entrou em 19/09/2026 e não é apelido: é guia única (DAS reduzido por dentro, IRPJ/CSLL dentro
+ * dele) COM operação externa (IBS, CBS e IS por fora, LC 214/2025 art. 41 §3º). Mapeá-lo para
+ * `LUCRO_PRESUMIDO`, como se fazia, afirmava um formato que a LC 214 não dá ao optante do
+ * Simples — ICMS, ISS e PIS/COFINS discriminados, IRPJ e CSLL sobre o lucro.
  */
-export type TaxRegime = 'MEI' | 'SIMPLES_NACIONAL' | 'SIMPLES_HIBRIDO' | 'LUCRO_PRESUMIDO' | 'LUCRO_REAL'
+import type { TaxRegime } from '@/supabase/types'
+export type { TaxRegime }
 
 export type ReapurationStatus =
   | 'PENDING'
@@ -531,8 +552,9 @@ export interface ReapurationInput {
    * consome direto do item"*. A intenção estava escrita; faltava o campo por onde entrar.
    *
    * Só se aplica quando o regime resolvido é SIMPLES_NACIONAL ou MEI. RET e Simples Híbrido
-   * reusam a MESMA coluna `custom_tax_percent` para outra finalidade e são mapeados para
-   * LUCRO_PRESUMIDO em `mapToMotorRegime`, portanto nunca entram neste ramo.
+   * reusam a MESMA coluna `custom_tax_percent` para outra finalidade e ficam fora do ramo —
+   * desde 11/10/2026 (XI-4) por DECISÃO ESCRITA em `GUIA_UNICA_POR_DENTRO`
+   * (`regime-decisoes.ts`), e não mais por serem mapeados para LUCRO_PRESUMIDO.
    *
    * Ausente ou 0 → comportamento anterior, byte a byte.
    */
@@ -876,6 +898,19 @@ export interface MotorOutput {
   /** Cascade trace 17 etapas (PDF — superseta as 13 etapas V16). */
   cascade_trace: CascadeStep[]
   limite_minimo: number | null
+  /**
+   * ESPEC VII.3 — os tributos que a MATRIZ manda somar no denominador do limite e para os
+   * quais o motor NÃO tem alíquota. Vazio é o estado normal.
+   *
+   * Eles contribuem ZERO na soma, porque não há outro número a usar, e por isso o
+   * `limite_minimo` sai MENOR do que deveria — ou seja, o limite fica mais FROUXO. A lista
+   * sai para que a tela possa dizer que o limite não está apurado em vez de exibi-lo como se
+   * estivesse: `ausente-vs-falso.md`, e aqui o custo de calar é deixar passar desconto.
+   *
+   * Hoje o caso conhecido é o RET, cuja alíquota chega pela coluna reusada
+   * `custom_tax_percent` e não como `TaxRatePeriod`.
+   */
+  limite_incompleto: readonly string[]
 }
 
 /**
@@ -887,6 +922,22 @@ export interface FinalDistribution {
   new_profit: number
   new_csll: number
   new_irpj: number
+  /**
+   * DESCOBERTO AUTORIZADO — ESPEC Parte VII.4, linha NOVA da etapa 16.
+   *
+   * `(comissão + lucro + csll + irpj) − RRO`, equivalente à definição geral da VII.5
+   * `(imposto + CP + MOD + DOP + RT + comissão + lucro) − âncora`. É o que a venda deixou de
+   * cobrir, e é o que faz a etapa 17 FECHAR com piso zero em comissão e lucro: sem esta
+   * linha, a identidade do RRO quebraria em `|RRO|` e a conta fecharia escondendo o buraco.
+   *
+   * **ZERO quando o RRO não é negativo** — todo documento dentro do limite tem zero aqui, e
+   * é isso que mantém a etapa 17 idêntica à de antes nesses casos.
+   *
+   * OBRIGATÓRIO, e não opcional com default: ele participa da identidade de fechamento
+   * (`validations.V4`). `construtor-empobrecido.md` — campo de cálculo com default neutro é
+   * defeito à espera de produtor.
+   */
+  descoberto_autorizado: number
   /** Tributos por fora sobre base canônica (Âncora − ICMS − PIS/COFINS). */
   taxes_outside: TaxLine[]
   taxes_outside_base: number
@@ -988,6 +1039,16 @@ export interface IcmsComplMotorInput {
 /**
  * Resultado completo do motor V17 (pronto para persistir em
  * `budgets/orders/sales.consolidated_breakdown`).
+ *
+ * >>> A COLUNA NUNCA RECEBEU ISTO, e desde 12/10/2026 ela tem OUTRO morador <<<
+ *
+ * Medido em 12/10/2026: nada em `src/` escreve `consolidated_breakdown` — ela está vazia em
+ * produção nas três tabelas. A autorização de desconto da ESPEC VII.2 passou a ocupar a chave
+ * `autorizacao_do_desconto` ali, porque não existe coluna de autorização e a instrução era
+ * gravar o que couber sem criar migração. A ocupação está DECLARADA em
+ * `ConsolidatedBreakdownPersisted` (`src/utils/limite-de-desconto.ts`): quem for persistir o
+ * `MotorV17Result` inteiro aqui lê naquele tipo que a coluna já tem morador, em vez de
+ * descobrir sobrescrevendo-o.
  */
 export interface MotorV17Result {
   engine_version: typeof MRM_ENGINE_VERSION_V17

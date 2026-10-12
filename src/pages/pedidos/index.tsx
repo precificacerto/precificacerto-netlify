@@ -38,6 +38,19 @@ import { ResidualDistributionBlock } from '@/page-parts/shared/residual-distribu
 import { computeConsolidatedDRE, type DREItemInput } from '@/utils/consolidated-dre'
 import { ConsolidatedDREBlock } from '@/page-parts/shared/consolidated-dre-block.component'
 import { enrichItemsForMotor } from '@/utils/motor-item-enrichment'
+import { calculateMotorV17ForPageFull } from '@/utils/mrm-engine-v17/legacy-adapter'
+import {
+    AVISO_DE_SAVE_BLOQUEADO,
+    bloqueiaOSave,
+    descontoMaximoFracao,
+    estadoDoDesconto,
+    payloadDoRastroDaAutorizacao,
+} from '@/utils/limite-de-desconto'
+import {
+    AutorizacaoDoDesconto,
+    useAutorizacaoDoDesconto,
+    type ModoDeAbsorcao,
+} from '@/page-parts/shared/autorizacao-do-desconto.component'
 import { buildItemTaxRatesFromProduct } from '@/utils/item-tax-rates'
 import { buildBudgetDecompositionInput } from '@/utils/budget-decomposition-input'
 import { buildDecomposition } from '@/utils/decomposition-dre'
@@ -307,6 +320,9 @@ function OrdersPage() {
     // Pedidos consomem snapshot persistido em `order_items.tax_breakdown` — caller
     // não recalcula motor em runtime (Q2: fonte de verdade é o snapshot).
     const editingDiscountPct = Form.useWatch('discount_percent', editForm) ?? 0
+    // Hoisted de propósito: `Form.useWatch` é HOOK e não pode morar numa prop de JSX
+    // condicional — ali ele passaria a ser chamado só em alguns renders.
+    const editingDiscountMode = Form.useWatch('discount_mode', editForm) ?? 'PROPORTIONAL'
     const orderResidualItems: ResidualItemInput[] = useMemo(
         () => orderItems.map((item) => ({
             unit_price: item.unit_price,
@@ -362,6 +378,59 @@ function OrdersPage() {
         },
     ), [orderItems, products, services, mrmConfig.production_labor_cost, mrmConfig.monthly_workload_minutes, mrmConfig.productive_value_per_minute])
 
+    /*
+      ESPEC PARTE VII — OS TRÊS ESTADOS NO PEDIDO.
+
+      O pedido NÃO tinha trava nenhuma: o `max={100}` do campo é o domínio do percentual, não
+      um limite de negócio. Por isso ele é o caso mais limpo — não há clamp a remover, só o
+      limite a acrescentar.
+
+      O limite vem do consolidado do motor (`limite_minimo`, fórmula da VII.3 com o
+      denominador lido da matriz e o RT% dentro), nunca de busca binária e nunca de nome de
+      regime. O pedido já tinha os itens enriquecidos para a decomposição; aqui eles
+      alimentam o MOTOR, que é quem produz a âncora e o limite.
+    */
+    const pedV17Full = useMemo(() => {
+        if (mrmConfig.enabled && !motorReady) return null
+        if (orderEnrichedItems.length === 0) return null
+        return calculateMotorV17ForPageFull({
+            items: orderEnrichedItems as any,
+            tenantCtx: orderMotorTenantCtx as any,
+            globalDiscountPercent: Number(editingDiscountPct) || 0,
+        })
+    }, [orderEnrichedItems, mrmConfig.regime, mrmConfig.rates, mrmConfig.mod_pct, mrmConfig.dop_pct, mrmConfig.csll_pct, mrmConfig.irpj_pct, mrmConfig.useSnapshotRates, mrmConfig.expense_breakdown, editingDiscountPct, motorReady, mrmConfig.enabled])
+
+    /** O `d_máximo` da VII.3, em PERCENTUAL para a tela. `null` quando não é calculável. */
+    const limitePctPVII = useMemo(() => {
+        const m = pedV17Full?.consolidated.motor
+        if (!m) return null
+        // A âncora SEM desconto é a base do `d_máximo`: com desconto aplicado a âncora já
+        // encolheu, e dividir por ela daria um limite que SOBE conforme o usuário desconta.
+        const pct = Number(editingDiscountPct) || 0
+        const opDentro = pct > 0 ? m.ancora / (1 - pct / 100) : m.ancora
+        const f = descontoMaximoFracao({ limiteMinimo: m.limite_minimo, opDentro })
+        return f == null ? null : f * 100
+    }, [pedV17Full, editingDiscountPct])
+
+    /** Os tributos que a matriz manda somar e o motor não tem alíquota. Vazio é o normal. */
+    const limiteIncompletoPVII: readonly string[] = pedV17Full?.consolidated.motor.limite_incompleto ?? []
+
+    /**
+     * ESPEC VII.2 — a AUTORIZAÇÃO do desconto acima do limite.
+     *
+     * `false` é o estado inicial e o correto: o checkbox tem de ser CLICADO a cada vez. Ele
+     * reseta quando o desconto muda, porque autorizar 40% não é autorizar 60% — a mensagem
+     * nomeia o percentual, e a autorização vale para o que foi lido.
+     */
+    const { autorizado: descontoAutorizadoPVII, setAutorizado: setDescontoAutorizadoPVII } =
+        useAutorizacaoDoDesconto(Number(editingDiscountPct) || 0)
+
+    const estadoDoDescontoPVII = estadoDoDesconto({
+        descontoFracao: (Number(editingDiscountPct) || 0) / 100,
+        descontoMaximoFracao: limitePctPVII == null ? null : limitePctPVII / 100,
+        autorizado: descontoAutorizadoPVII,
+    })
+
     const orderDecomposition = useMemo(() => {
         const params = buildBudgetDecompositionInput({
             items: orderEnrichedItems.map((item) => {
@@ -414,6 +483,16 @@ function OrdersPage() {
             // Ausente fora do híbrido, e é o que a decomposição usa como fallback quando o
             // item não carrega a sua. Ver `budget-decomposition-input.ts`.
             deducaoBaseIbsCbsPct: mrmConfig.components?.deducaoBaseIbsCbsPct,
+            // ETAPA 13C — a presunção do Lucro Presumido, do MESMO lugar que a construção
+            // leu (`tax-sync.ts` → `presuncao-do-presumido.ts`). Ausente fora do Presumido, e
+            // ausência não é zero: sem ela a decomposição ACUSA em vez de deduzir menos.
+            presuncao: mrmConfig.components?.irpjPresuncao != null
+              ? {
+                irpjPct: mrmConfig.components.irpjPresuncao,
+                csllPct: Number(mrmConfig.components.csllPresuncao) || 0,
+                adicionalPct: Number(mrmConfig.components.irpjAdicional) || 0,
+              }
+              : undefined,
         })
         if (params.isEmpty) return null
         return { result: buildDecomposition(params.input), labels: params.itemLabels }
@@ -871,6 +950,12 @@ function OrdersPage() {
                 messageApi.error('Carregando contexto fiscal. Aguarde alguns segundos e tente novamente.')
                 return
             }
+            // ESPEC VII.2 — o AMARELO não avança. O vermelho autorizado avança, porque o
+            // usuário clicou o checkbox e a autorização é dele. Não é trava: é autorização.
+            if (bloqueiaOSave(estadoDoDescontoPVII)) {
+                messageApi.warning(AVISO_DE_SAVE_BLOQUEADO)
+                return
+            }
 
             setSavingEdit(true)
 
@@ -1028,6 +1113,17 @@ function OrdersPage() {
                     updated_at: new Date().toISOString(),
                     // MRM S2.3: persistir flag para listing badge
                     requires_review: requiresReview,
+                    // ESPEC VII.2 — O RASTRO DA AUTORIZAÇÃO. Vai só quando houve autorização;
+                    // pedido verde não grava nada e não apaga rastro anterior. A coluna não
+                    // existe — ver `payloadDoRastroDaAutorizacao` para o que falta.
+                    ...payloadDoRastroDaAutorizacao({
+                        estado: estadoDoDescontoPVII,
+                        autorizadoPor: currentUser?.uid ?? (await getCurrentUserId()) ?? null,
+                        descontoPct: discountPct,
+                        limitePct: limitePctPVII,
+                        descoberto: pedV17Full?.consolidated.distribution.descoberto_autorizado ?? 0,
+                        limiteIncompleto: limiteIncompletoPVII,
+                    }),
                 })
                 .eq('id', editingOrder.id)
 
@@ -1934,6 +2030,23 @@ function OrdersPage() {
                             parser={(v) => Number(String(v).replace('%', '')) as 0}
                         />
                     </Form.Item>
+
+                    {/* ═══ ESPEC PARTE VII.2 — OS TRÊS ESTADOS ═══════════════════════════════
+                        Esta cópia era a que tinha divergido: ela saiu SEM o parágrafo do modo
+                        de absorção da VII.5. Com o componente único o parágrafo chega aqui sem
+                        ninguém lembrar (`copia-divergente.md`). */}
+                    <AutorizacaoDoDesconto
+                        estado={estadoDoDescontoPVII}
+                        descontoFracao={(Number(editingDiscountPct) || 0) / 100}
+                        limiteFracao={limitePctPVII == null ? null : limitePctPVII / 100}
+                        limiteIncompleto={limiteIncompletoPVII}
+                        descoberto={pedV17Full?.consolidated.distribution.descoberto_autorizado ?? 0}
+                        modo={editingDiscountMode as ModoDeAbsorcao}
+                        nomeDoDocumento="este pedido"
+                        autorizado={descontoAutorizadoPVII}
+                        onAutorizadoChange={setDescontoAutorizadoPVII}
+                        style={{ marginBottom: 16 }}
+                    />
                     <OrderInstallmentsEditor
                         form={editForm}
                         rows={orderInstallmentRows}

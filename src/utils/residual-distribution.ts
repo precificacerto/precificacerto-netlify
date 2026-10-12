@@ -30,6 +30,7 @@
 
 import type { TaxBreakdown, TaxRegime, DiscountMode } from '@/types/mrm'
 import { calculateDiscountedPrice } from './calculate-discount'
+import { exibeReparticaoDoResiduo } from './regime-decisoes'
 
 /**
  * Linha de exibição de uma rubrica do RR.
@@ -120,8 +121,13 @@ export interface TenantOriginalTaxRates {
 
 const ZERO_LINE: ResidualLine = { amount: 0, originalPct: 0, effectivePct: 0 }
 
+/**
+ * A NEGATIVA no nome é o que a regra da condição positiva evita — e o nome fica, porque
+ * renomear 20 usos não é desta fase. A pergunta POSITIVA mora em `regime-decisoes.ts`, e é
+ * ela que o compilador obriga a responder para um regime novo.
+ */
 function isHiddenRegime(regime: TaxRegime | null): boolean {
-  return regime === 'MEI' || regime === 'SIMPLES_NACIONAL'
+  return !exibeReparticaoDoResiduo(regime)
 }
 
 /**

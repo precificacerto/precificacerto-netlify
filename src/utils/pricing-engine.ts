@@ -53,6 +53,13 @@ export function computeLaborPctCompany(
 
 export type CalcType = 'INDUSTRIALIZACAO' | 'REVENDA' | 'SERVICO'
 
+// A FONTE da matriz. `pricing-engine` passou a LER dela em 11/10/2026 — ver o cabeçalho de
+// `TAX_MATRIX` abaixo e `matriz-fiscal.ts`. O import é de VALOR e fica aqui, depois dos
+// tipos, porque `matriz-fiscal.ts` importa `CalcType` e `TaxName` deste arquivo: o ciclo é
+// só de TIPOS do lado dele (`import type`), que o TypeScript resolve sem dependência em
+// runtime.
+import { colocacaoVigente } from './matriz-fiscal'
+
 // ---------------------------------------------------------------------------
 // A MATRIZ da Parte 0 — FONTE ÚNICA
 // ---------------------------------------------------------------------------
@@ -83,10 +90,10 @@ export type TaxName = 'ICMS' | 'ISS' | 'PIS_COFINS' | 'IPI' | 'IS' | 'IBS' | 'CB
  * no schema da matriz — é o que deixa uma alíquota de ICMS vazar para um orçamento de
  * serviço sem que nada falhe.
  */
-export type Placement = 'POR_DENTRO' | 'POR_FORA' | 'INEXISTENTE'
+export type Placement = 'POR_DENTRO' | 'POR_FORA' | 'ACRESCIMO' | 'INEXISTENTE'
 
 /**
- * A matriz da Parte 0, transcrita célula a célula (Lucro Real, três segmentos).
+ * A matriz da Parte 0 — AGORA DERIVADA de `matriz-fiscal.ts`, não mais dado literal.
  *
  * | Imposto    | Industrialização | Revenda / Varejo | Prestação de serviço |
  * | ICMS       | POR DENTRO       | POR DENTRO       | INEXISTENTE          |
@@ -97,39 +104,39 @@ export type Placement = 'POR_DENTRO' | 'POR_FORA' | 'INEXISTENTE'
  * | IBS        | POR FORA         | POR FORA         | POR FORA             |
  * | CBS        | POR FORA         | POR FORA         | POR FORA             |
  *
+ * ══ A DEPENDÊNCIA FOI INVERTIDA EM 11/10/2026, E O DADO NÃO FOI TROCADO ══════════════════
+ *
+ * Esta constante guardava as 21 células literalmente. Agora ela é **construída** a partir de
+ * `MATRIZ_FISCAL.LUCRO_REAL` — mesma forma, mesmo tipo, mesmo conteúdo, e nenhum call site
+ * mudou. `copia-divergente.md`: *"o remédio não é conferir as duas: é apagar uma."* A que
+ * sobra é a matriz; esta virou projeção.
+ *
+ * >>> POR QUE A COLUNA DO LUCRO REAL, E POR QUE ISSO É FIEL <<<
+ * O cabeçalho anterior já dizia o que ela era: *"transcrita célula a célula (**Lucro Real**,
+ * três segmentos)"*. A projeção lê esse regime, e o resultado é bit-exact com o literal que
+ * substitui — afirmado par a par no portão de concordância, que compara as 21 células.
+ *
  * O QUE ELA NÃO DECIDE: valor. Alíquota, fator de redução e base reduzida continuam vindo
  * do cadastro do item e do tenant. A matriz responde "este tributo existe aqui, e de que
  * lado?" — e só.
+ *
+ * >>> `TAX_MATRIX` NÃO SAIU PORQUE AINDA É LIDA <<<
+ * `matriz-e-contexto-da-venda.test.ts:99-107` a compara com `toEqual` nos três segmentos, e
+ * `o-campo-some-onde-a-matriz-diz-inexistente.test.ts:77` itera as 21 células por ela. Apagá-la
+ * derrubaria esses casos, e o princípio desta rodada é que nenhum caso cai.
  */
-export const TAX_MATRIX: Readonly<Record<CalcType, Readonly<Record<TaxName, Placement>>>> = {
-  INDUSTRIALIZACAO: {
-    ICMS: 'POR_DENTRO',
-    ISS: 'INEXISTENTE',
-    PIS_COFINS: 'POR_DENTRO',
-    IPI: 'POR_FORA',
-    IS: 'POR_FORA',
-    IBS: 'POR_FORA',
-    CBS: 'POR_FORA',
-  },
-  REVENDA: {
-    ICMS: 'POR_DENTRO',
-    ISS: 'INEXISTENTE',
-    PIS_COFINS: 'POR_DENTRO',
-    IPI: 'INEXISTENTE',
-    IS: 'POR_FORA',
-    IBS: 'POR_FORA',
-    CBS: 'POR_FORA',
-  },
-  SERVICO: {
-    ICMS: 'INEXISTENTE',
-    ISS: 'POR_DENTRO',
-    PIS_COFINS: 'POR_DENTRO',
-    IPI: 'INEXISTENTE',
-    IS: 'INEXISTENTE',
-    IBS: 'POR_FORA',
-    CBS: 'POR_FORA',
-  },
-}
+export const TAX_MATRIX: Readonly<Record<CalcType, Readonly<Record<TaxName, Placement>>>> =
+  (() => {
+    const SEGS: readonly CalcType[] = ['INDUSTRIALIZACAO', 'REVENDA', 'SERVICO']
+    const NOMES: readonly TaxName[] = ['ICMS', 'ISS', 'PIS_COFINS', 'IPI', 'IS', 'IBS', 'CBS']
+    const out = {} as Record<CalcType, Record<TaxName, Placement>>
+    for (const seg of SEGS) {
+      const linha = {} as Record<TaxName, Placement>
+      for (const t of NOMES) linha[t] = colocacaoVigente('LUCRO_REAL', seg, t)
+      out[seg] = linha
+    }
+    return out
+  })()
 
 /** A célula. É por aqui que os dois lados leem — nunca por um `if` de segmento inline. */
 export function placementOf(segment: CalcType, tax: TaxName): Placement {
@@ -455,7 +462,14 @@ function validateTaxBreakdown(
   for (const [nome, campo, tax] of porFora) {
     const place = placementOf(calcType, nome)
     if (tax && place !== 'POR_FORA') {
-      errors.push(`${campo} declarado em ${calcType}, onde a matriz diz INEXISTENTE.`)
+      // `${place}` em vez do literal `INEXISTENTE`, desde 11/10/2026. Com `ACRESCIMO` no
+      // tipo `Placement` o literal passaria a MENTIR: ele está exatamente no lugar onde a
+      // colocação real devia aparecer, e diria "INEXISTENTE" sobre uma célula de acréscimo.
+      // Nenhum caso afirmava o literal — os dois que tocam esta mensagem
+      // (`pricing-engine-tributos-separados.test.ts:372` e
+      // `matriz-e-contexto-da-venda.test.ts:77`) afirmam só o prefixo `ipi declarado em
+      // REVENDA`, e seguem verdes.
+      errors.push(`${campo} declarado em ${calcType}, onde a matriz diz ${place}.`)
     }
   }
 

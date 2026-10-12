@@ -29,6 +29,10 @@ import {
 } from '@/types/mrm'
 
 import { buildCascadeTrace17 } from './cascade-trace'
+import { limiteMinimoDaOperacao, somaDoDenominador } from '../limite-de-desconto'
+import { MATRIZ_FISCAL } from '../matriz-fiscal'
+import type { TaxRegime as TaxRegimeDoBanco } from '@/supabase/types'
+import { temGuiaUnicaPorDentro } from '../regime-decisoes'
 
 interface ApplyMotorRROInput {
   view: ConsolidatedView
@@ -36,8 +40,11 @@ interface ApplyMotorRROInput {
   rates: TaxRatePeriod[]
   /**
    * EPIC-DAS: regime resolvido do tenant. Só SIMPLES_NACIONAL e MEI ativam o ramo do DAS.
-   * RET e Simples Híbrido chegam aqui como LUCRO_PRESUMIDO (ver `mapToMotorRegime`), logo
-   * não entram no ramo. Ausente ⇒ comportamento clássico (bit-exact).
+   *
+   * RET e Simples Híbrido chegam aqui COMO ELES MESMOS desde 11/10/2026 (XI-4 e o passo do
+   * Híbrido de 19/09/2026) — não mais como `LUCRO_PRESUMIDO`. Continuam fora do ramo do DAS, e
+   * agora por DECISÃO ESCRITA em vez de por mapeamento: `GUIA_UNICA_POR_DENTRO` em
+   * `regime-decisoes.ts` tem a célula de cada um. Ausente ⇒ comportamento clássico (bit-exact).
    */
   regime?: TaxRegime
   tax_credits_recoverable_total: number
@@ -52,6 +59,22 @@ interface ApplyMotorRROInput {
 interface ApplyMotorRROResult {
   motor: MotorOutput
   messages: string[]
+}
+
+/**
+ * O regime, como CHAVE DA MATRIZ, para o limite da VII.3.
+ *
+ * `input.regime` é opcional no contrato do motor (`regime?: TaxRegime`) e chega ausente em
+ * snapshots antigos. Ausente cai em `LUCRO_REAL`, que é o MESMO default declarado da
+ * decomposição (`FORMATO_QUANDO_O_REGIME_NAO_CARREGOU`, `budget-decomposition-input.ts`) — e
+ * é o denominador mais CONSERVADOR dos seis nesta entrada, logo o limite mais apertado. Um
+ * default que afrouxasse o limite deixaria passar desconto que a regra barra.
+ */
+function regimeDoLimite(regime: string | null | undefined): TaxRegimeDoBanco {
+  const r = String(regime ?? '').trim().toUpperCase()
+  return Object.prototype.hasOwnProperty.call(MATRIZ_FISCAL, r)
+    ? (r as TaxRegimeDoBanco)
+    : 'LUCRO_REAL'
 }
 
 /**
@@ -102,7 +125,7 @@ export function applyMotorRRO(input: ApplyMotorRROInput): ApplyMotorRROResult {
   // sobre a Âncora. Fora de SN/MEI `das` é 0 e todo o cálculo abaixo é bit-exact ao anterior.
   // RET e Simples Híbrido são mapeados para LUCRO_PRESUMIDO antes de chegar aqui, logo
   // reusam a coluna `custom_tax_percent` sem nunca entrar neste ramo.
-  const isSimplesOuMei = input.regime === 'SIMPLES_NACIONAL' || input.regime === 'MEI'
+  const isSimplesOuMei = temGuiaUnicaPorDentro(input.regime)
   const das_rate = resolveRate(input.rates, 'DAS')
 
   let icms: number
@@ -183,14 +206,56 @@ export function applyMotorRRO(input: ApplyMotorRROInput): ApplyMotorRROResult {
     messages.push(MRM_ERROR_RRO_NON_POSITIVE)
   }
 
-  // ───── Limite mínimo operacional (Seção 4.5 Relatório Consolidado) ─────
-  // EPIC-DAS: em SN/MEI o único tributo por dentro é o DAS — usar a alíquota EFETIVA
-  // (das/âncora) mantém o limite coerente com a substituição; `das_rate` cobre o fallback.
-  const soma_rates_internos = isSimplesOuMei
-    ? (ancora > 0 ? das / ancora : das_rate)
-    : icms_rate + iss_rate + pis_cofins_rate
-  const denom_lim = 1 - soma_rates_internos
-  const limite_minimo = denom_lim > 0 ? (cp_efetivo + mod + dop) / denom_lim : null
+  // ═══ LIMITE MÍNIMO OPERACIONAL — ESPEC PARTE VII.3 ══════════════════════════════════════
+  //
+  // >>> O DENOMINADOR É LIDO DA MATRIZ, E O RT% ENTRA NELE <<<
+  //
+  // Era `1 − (icms + iss + pis_cofins)` fora de SN/MEI, e `1 − DAS%` dentro — um `if` por
+  // NOME de regime, **sem o RT%** que a VII.3 pede. Agora os tributos vêm de
+  // `tributosDoLimite`: colocação POR_DENTRO e base ≠ LUCRO. A regra do `base ≠ LUCRO` é a
+  // que a própria VII.3 usa ao dizer, do Lucro Real, *"IRPJ/CSLL não entram: são resíduo"* —
+  // e ela reproduz a tabela VII.3 nos seis regimes sem nomear nenhum.
+  //
+  // O `isSimplesOuMei` continua decidindo a FONTE da alíquota do DAS, não se ele entra: a
+  // efetiva `das/âncora` é a coerente com a substituição, e `das_rate` é o fallback de
+  // snapshot. Quem decide se há DAS a somar é a matriz — e no MEI ela diz INEXISTENTE, o que
+  // reproduz o `1 − RT%` da VII.3 sem tratar o MEI por nome.
+  //
+  // ALÍQUOTA AUSENTE: `semAliquota` traz o que a matriz manda somar e o motor não tem. Hoje é
+  // o caso do RET, cuja alíquota não chega como `TaxRatePeriod` — ela vem pela coluna
+  // reusada `custom_tax_percent`. Ele contribui ZERO na soma, porque não há outro número, e a
+  // lista sai em `limite_incompleto` para que a tela possa dizer que o limite não está
+  // apurado em vez de exibi-lo como se estivesse (`ausente-vs-falso.md`).
+  const das_efetivo = ancora > 0 ? das / ancora : das_rate
+  const _den = somaDoDenominador({
+    regime: regimeDoLimite(input.regime),
+    // O limite é da OPERAÇÃO CONSOLIDADA, e o segmento dela não chega ao motor. A
+    // industrialização é a coluna mais completa da matriz — nenhum tributo que exista nos
+    // outros dois falta nela —, então usá-la nunca SUBESTIMA o denominador. Está escrito
+    // porque é escolha, não dedução: o segmento por item existe na decomposição, não aqui.
+    segmento: 'INDUSTRIALIZACAO',
+    aliquotas: {
+      ICMS: icms_rate,
+      ISS: iss_rate,
+      PIS_COFINS: pis_cofins_rate,
+      DAS: das_efetivo,
+      // O Híbrido reusa a MESMA coluna do DAS; o que mudou foi o número que a construção
+      // gravou lá — o DAS reduzido. Ver `simples-hibrido.ts`.
+      DAS_REDUZIDO: das_efetivo,
+      // IRPJ e CSLL só são pedidos pela matriz onde a base é PRESUNCAO (Lucro Presumido). A
+      // efetiva é `valor_original ÷ rb_total`, a mesma forma do `rt_efetiva` abaixo.
+      IRPJ: rb_total > 0 ? (Number(view.irpj_amount_original) || 0) / rb_total : 0,
+      CSLL: rb_total > 0 ? (Number(view.csll_amount_original) || 0) / rb_total : 0,
+    },
+  })
+  const limite_minimo = limiteMinimoDaOperacao({
+    cp: cp_efetivo,
+    mod,
+    dop,
+    somaInternos: _den.soma,
+    rtPct: rt_efetiva,
+  })
+  const limite_incompleto = _den.semAliquota
 
   // ───── Cascade trace 17 etapas ─────
   const motorPartial: Omit<MotorOutput, 'cascade_trace'> = {
@@ -212,6 +277,7 @@ export function applyMotorRRO(input: ApplyMotorRROInput): ApplyMotorRROResult {
     rt_efetiva,
     rro_status,
     limite_minimo,
+    limite_incompleto,
   }
 
   const cascade_trace = buildCascadeTrace17({
