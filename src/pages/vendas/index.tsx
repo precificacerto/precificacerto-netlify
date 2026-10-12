@@ -40,7 +40,7 @@ import {
 import { syncCustomerRecurrenceOnSale } from '@/lib/customer-recurrence'
 import { distributeDiscountToItems } from '@/utils/distribute-discount'
 import { useTenantTaxContext } from '@/hooks/use-tenant-tax-context'
-import { MRM_ERROR_RRO_NON_POSITIVE, MRM_ENGINE_VERSION, type TaxBreakdown } from '@/types/mrm'
+import { MRM_ENGINE_VERSION, type TaxBreakdown } from '@/types/mrm'
 import { useResidualDistribution } from '@/hooks/use-residual-distribution'
 import { buildBaselineFromSnapshots, detectConfigWarning, type ResidualItemInput } from '@/utils/residual-distribution'
 import { PAGE_SIZE } from '@/constants/pagination'

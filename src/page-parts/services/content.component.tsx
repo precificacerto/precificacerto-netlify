@@ -363,8 +363,10 @@ export function ServiceContent({ isEditing, serviceData, items, expenseConfig, t
 
     const pricing = useMemo(() => {
         const cfg = expenseConfig || {}
-        // Usa custo Hub (média de meses encerrados); fallback para valor manual se Hub ainda não tem dados
-        const laborCostMonthly = Number(cfg.production_labor_cost_hub) || Number(cfg.production_labor_cost) || 0
+        // A MO produtiva mensal não é mais lida aqui: ela entrou no NUMERADOR junto com a MO
+        // administrativa e a despesa fixa, e quem a resolve é `combinadoMensalDaTelaDeServico`
+        // (abaixo), que mantém a precedência Hub-sobre-manual. O binding local ficou órfão
+        // naquela rodada e sai agora.
         // Carga horária resolvida pela fonte única (`resolve-monthly-workload`).
         // Quando o tenant não configurou, `isWorkloadUnset` é true e
         // `monthlyWorkloadMinutes` é 0 — sem o antigo default silencioso de 176h.

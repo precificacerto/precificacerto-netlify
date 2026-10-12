@@ -14,6 +14,7 @@
     "typecheck": "tsc --noEmit",
     "sync-pricing-engine": "node scripts/sync-pricing-engine.js",
     "check-pricing-engine": "node scripts/sync-pricing-engine.js --check",
+    "check-edge-imports": "node scripts/sync-pricing-engine.js --check-imports",
     "seed:ncm": "node scripts/seed-ncm-from-csv.js",
     "set-super-admin-password": "node scripts/set-super-admin-password.js",
     "test:legacy-guard": "node scripts/check-no-legacy-discount-modes.js",
