@@ -189,6 +189,44 @@ export interface DecompositionInput {
    */
   presuncaoPendente?: boolean
   /**
+   * A AUTORIZAÇÃO DO DESCONTO ACIMA DO LIMITE — ESPEC Parte VII.2.
+   *
+   * >>> POR QUE O PISO MORA AQUI, E NÃO NO OVERLAY DO CARD <<<
+   *
+   * Decisão do dono do produto, 13/10/2026. A decomposição é a FONTE ÚNICA desde o `1934dbb`
+   * e é ela quem produz as linhas `comissao` e `lucro`; pôr o piso em
+   * `residual-from-decomposition.ts` faria o card e a decomposição discordarem de novo — as
+   * duas fontes que aquele commit apagou (`copia-divergente.md`: o remédio não é conferir as
+   * duas, é apagar uma).
+   *
+   * Então ela recebe o estado da autorização, como já recebe o regime e a base.
+   *
+   * A REGRA, e vale para orçamento, pedido e venda: autorizado acima do limite → **o RRO é
+   * ZERO**, e as quatro parcelas são ZERO. O que a venda deixou de cobrir aparece como
+   * DESCOBERTO, e só ali. Nenhuma tela exibe lucro positivo enquanto o aviso diz lucro zero.
+   *
+   * >>> ELE CARREGA O ESTADO, E NÃO O VALOR DO DESCOBERTO — e isso foi MEDIDO <<<
+   *
+   * A primeira versão recebia também o `descoberto` do motor
+   * (`distribution.descoberto_autorizado`), porque é o motor que conhece o modo de absorção.
+   * **O residual não fechava:** medido na fixture do portão, `rro_decomposição + descoberto_motor
+   * = R$ 475,04`, não zero.
+   *
+   * A razão é conhecida e está escrita no cabeçalho de `residual-from-decomposition.ts`: a
+   * decomposição **corrige três coisas que a etapa 16 não corrige** — a ordem das deduções da
+   * R19, o CMV do item e a escala do PIS/COFINS. Logo os dois RRO são números diferentes, e
+   * importar o descoberto de um para fechar a conta do outro é a SEGUNDA FONTE que o `1934dbb`
+   * apagou, reintroduzida (`copia-divergente.md`).
+   *
+   * Então a decomposição calcula o SEU descoberto a partir do SEU RRO, e o DRE dela fecha. A
+   * divergência contra o número do aviso (que vem do motor) está REPORTADA e é decisão do dono
+   * do produto — não escolhi qual das duas é a fonte do aviso.
+   *
+   * Ausente = não houve autorização. Ausente NÃO é `{ acimaDoLimite: false }`: um documento
+   * sem autorização não afirma nada sobre descoberto (`ausente-vs-falso.md`).
+   */
+  autorizacaoDoDesconto?: { acimaDoLimite: boolean }
+  /**
    * SIMPLES NACIONAL HÍBRIDO — guia única **com** operação externa (LC 214/2025 art. 41 §3º
    * e LC 123 art. 13 §10): o optante apura IBS e CBS pelo regime regular, e o IS sai do DAS
    * por força do art. 13 §1º XIV-A. O DAS segue por dentro, reduzido.
@@ -400,6 +438,16 @@ export interface DecompositionResult {
    * como rubrica faltando e devolve os cards à Etapa 16, calada.
    */
   presuncaoNa13C?: true
+  /**
+   * O DESCOBERTO AUTORIZADO (R$) — ESPEC VII.2/VII.4, presente só quando houve autorização.
+   *
+   * Com ele, as quatro parcelas do RRO são ZERO e este número é o que a operação deixou de
+   * cobrir. É o ÚNICO lugar em que o prejuízo aparece, por regra do dono do produto.
+   *
+   * Ausente = não houve autorização. Ausente não é zero: um documento verde não afirma nada
+   * sobre descoberto (`ausente-vs-falso.md`).
+   */
+  descobertoAutorizado?: number
   /** Seção 6.2 — o objetivo final. Ausente só quando não há linhas. */
   lucroDaVenda: LucroDaVenda | null
   /** R20 — o residual, no total e por item. Deve ser zero. */
@@ -684,14 +732,81 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
     return { rows: [], lucroDaVenda: null, residual: { perItem: [], total: 0 }, receitaAposDesconto, totalGeral: receitaBruta, rro: null, rroCadastrado: null, errors }
   }
   const pesoDe = (k: number, pct: number) => pct / somaRROde(k)
-  const comissaoPorItem = rroPorItem.map((r, k) => r * pesoDe(k, catDe(k).comissaoPct))
-  const lucroPorItem = rroPorItem.map((r, k) => r * pesoDe(k, catDe(k).lucroPct))
-  const irpjPorItem = rroPorItem.map((r, k) => r * pesoDe(k, catDe(k).irpjPct))
-  const csllPorItem = rroPorItem.map((r, k) => r * pesoDe(k, catDe(k).csllPct))
 
-  const residualPorItem = rroPorItem.map(
-    (r, k) => r - comissaoPorItem[k] - lucroPorItem[k] - irpjPorItem[k] - csllPorItem[k],
-  )
+  /**
+   * O PISO DA AUTORIZAÇÃO — ESPEC VII.2, e é o que fecha o defeito de 13/10/2026.
+   *
+   * Autorizado acima do limite, o RRO é ZERO por REGRA: as quatro parcelas são zero, e o que
+   * a operação deixou de cobrir é o DESCOBERTO, exibido só ali.
+   *
+   * Ele é aplicado NA REPARTIÇÃO e não no `rroPorItem`, de propósito: o RRO APURADO continua
+   * sendo o número que a conta produziu — negativo —, e é ele que o invariante confere contra
+   * o reservado pela construção. Zerar a montante apagaria a evidência do prejuízo da própria
+   * decomposição; o que a regra zera é a REPARTIÇÃO, que é o que a tela mostra.
+   */
+  const pisoDaAutorizacao = input.autorizacaoDoDesconto?.acimaDoLimite === true
+  const reparteOuZera = (f: (r: number, k: number) => number) =>
+    rroPorItem.map((r, k) => (pisoDaAutorizacao ? 0 : f(r, k)))
+
+  const comissaoPorItem = reparteOuZera((r, k) => r * pesoDe(k, catDe(k).comissaoPct))
+  const lucroPorItem = reparteOuZera((r, k) => r * pesoDe(k, catDe(k).lucroPct))
+  const irpjPorItem = reparteOuZera((r, k) => r * pesoDe(k, catDe(k).irpjPct))
+  const csllPorItem = reparteOuZera((r, k) => r * pesoDe(k, catDe(k).csllPct))
+
+  /**
+   * O RESIDUAL com o piso: ele fecha em ZERO porque o DESCOBERTO entra na conta.
+   *
+   * Sem o descoberto, `residual = rro − 0 = rro`, que é o próprio prejuízo aparecendo como
+   * residual fora de zero — e a R20 diz que o residual tem de ser zero. É a mesma identidade
+   * da etapa 17 do motor: `(com+luc+irpj+csll) − descoberto ≡ rro`.
+   */
+  /**
+   * O DESCOBERTO desta decomposição: o que o RRO dela não cobriu.
+   *
+   * Com as quatro parcelas em ZERO, a identidade da etapa 17 do motor
+   * (`(com+luc+irpj+csll) − descoberto ≡ rro`) devolve `descoberto = −rro`. É o mesmo
+   * princípio, apurado sobre o RRO desta conta — e é por isso que o residual fecha.
+   *
+   * MODE-INDEPENDENTE de propósito: a regra de 13/10/2026 zera comissão e lucro nos TRÊS
+   * modos, então não há mais parcela congelada a somar — e desde a mesma data o motor também
+   * deixou de congelar no estado autorizado (ver `absorption.ts`), então os dois concordam
+   * quanto a NÃO variar por modo.
+   *
+   * ══ A DIVERGÊNCIA QUE RESTA, E ELA FICA REGISTRADA — NÃO CORRIGIDA ═══════════════════════
+   *
+   * Os dois descobertos NÃO são o mesmo número, porque os dois RRO não são:
+   *
+   *     motor (etapa 16):   R$ 1.093,16
+   *     decomposição:       R$   618,13
+   *     divergência:        R$   475,04
+   *
+   * Medido na fixture de `o-card-nao-mente-sobre-o-lucro.test.ts`, que reproduz a tela do
+   * dono do produto (limite 21,32%, desconto 25%, autorizado).
+   *
+   * A RAZÃO é antiga e está no cabeçalho de `residual-from-decomposition.ts`: a decomposição
+   * **corrige três coisas que a etapa 16 não corrige** — a ordem das deduções da R19, o CMV
+   * do item e a escala do PIS/COFINS. Foi justamente por isso que o `1934dbb` fez o card
+   * trocar de fonte.
+   *
+   * Ela é ANTERIOR a esta rodada e existe TAMBÉM ABAIXO do limite, onde não há autorização
+   * nenhuma — há um caso no portão que o prova, para que ninguém a leia como efeito do piso.
+   * O que esta rodada fez foi tirá-la da tela: desde 13/10/2026 o aviso E o card leem ESTE
+   * número, então o usuário vê um só. O motor segue com o dele na Memória Cascata.
+   *
+   * Decisão do dono do produto: **registrar, não corrigir.** Unificar os dois RRO é rodada
+   * própria — mexeria na etapa 16 do motor, que é o que a base instalada gravou em
+   * `tax_breakdown` (`fato-vs-referencia.md`).
+   */
+  const descobertoDaAutorizacao = pisoDaAutorizacao
+    ? Math.max(0, -soma(rroPorItem))
+    : 0
+  const residualPorItem = rroPorItem.map((r, k) => {
+    const repartido = comissaoPorItem[k] + lucroPorItem[k] + irpjPorItem[k] + csllPorItem[k]
+    const descobertoDoItem = receitaProdutosTotal !== 0
+      ? descobertoDaAutorizacao * (receitaProdutosPorItem[k] / receitaProdutosTotal)
+      : 0
+    return r - repartido + descobertoDoItem
+  })
 
   const linha = (
     key: string,
@@ -716,8 +831,14 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
     pct: opts.pct ?? null,
     isDerivedAverage: opts.derived ?? false,
     isTaxDetail: LINHAS_DE_TRIBUTO.has(key),
+    // >>> O `Math.abs` SAIU EM 13/10/2026 — ele CONVERTIA SINAL <<<
+    //
+    // Com o desconto acima do limite da Parte VII o RRO fica NEGATIVO e as quatro parcelas
+    // saem negativas. O `abs` daqui fazia o percentual sair POSITIVO, e o card exibia lucro
+    // de 27,89% numa operação em prejuízo. Valor negativo chega negativo e é tratado por
+    // REGRA — o piso da autorização, abaixo —, nunca por módulo.
     pctSobreTotalGeral: receitaProdutosTotal !== 0
-      ? Math.abs(opts.total !== undefined ? opts.total : soma(perItem)) / receitaProdutosTotal
+      ? (opts.total !== undefined ? opts.total : soma(perItem)) / receitaProdutosTotal
       : null,
     perItem,
     // R16 — a coluna Total é SOMA das colunas de produto, salvo nas linhas que só existem no
@@ -1102,6 +1223,9 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
     // repartição (os cards) precisa saber, ou rejeita a decomposição inteira por "rubrica
     // faltando" e volta à Etapa 16 em silêncio. Ver `residual-from-decomposition.ts`.
     ...(foraDoResiduoDaEtapa16 ? { presuncaoNa13C: true as const } : {}),
+    // O descoberto viaja com o resultado para que o card o exiba SEM recalcular — ele vem do
+    // motor, que é quem conhece o modo de absorção (VII.5).
+    ...(pisoDaAutorizacao ? { descobertoAutorizado: descobertoDaAutorizacao } : {}),
   }
 }
 

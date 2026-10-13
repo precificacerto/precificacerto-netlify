@@ -187,6 +187,14 @@ export interface BudgetDecompositionParams {
    * zero: sem ela as três linhas da 13C não existem, em vez de existirem valendo nada.
    */
   presuncao?: { irpjPct: number; csllPct: number; adicionalPct: number } | null
+  /**
+   * A AUTORIZAÇÃO DO DESCONTO ACIMA DO LIMITE — ESPEC VII.2, repassada à decomposição.
+   *
+   * Ela não é DECIDIDA aqui: vem da tela, que tem o estado (`estadoDoDesconto`). Este módulo
+   * só a repassa — o piso e o descoberto são apurados em `decomposition-dre.ts`, por decisão de
+   * 13/10/2026. Ver lá por que o VALOR do descoberto não atravessa.
+   */
+  autorizacaoDoDesconto?: { acimaDoLimite: boolean } | null
 }
 
 export interface BudgetDecompositionResult {
@@ -518,6 +526,11 @@ export function buildBudgetDecompositionInput(
       // A matriz pede a 13C e a presunção não veio: `decomposition-dre.ts` transforma isso em
       // ERRO em vez de deduzir menos em silêncio. Ver `DecompositionInput.presuncaoPendente`.
       ...(presuncaoPendente ? { presuncaoPendente: true } : {}),
+      // O piso da autorização atravessa INTACTO para `buildDecomposition`, que o aplica.
+      // Ausente quando a tela não autorizou — e ausente não é `acimaDoLimite: false`.
+      ...(params.autorizacaoDoDesconto
+        ? { autorizacaoDoDesconto: params.autorizacaoDoDesconto }
+        : {}),
     },
     itemLabels: items.map((i) => i.label),
     isEmpty: items.length === 0,

@@ -1386,6 +1386,12 @@ function Budgets() {
             // ETAPA 13C — a presunção do Lucro Presumido, do MESMO lugar que a construção
             // leu (`tax-sync.ts` → `presuncao-do-presumido.ts`). Ausente fora do Presumido, e
             // ausência não é zero: sem ela a decomposição ACUSA em vez de deduzir menos.
+            // ESPEC VII.2 — O PISO DA AUTORIZAÇÃO. A decomposição é quem o aplica (decisão de
+            // 13/10/2026), então ela precisa do estado; o DESCOBERTO vem do motor, que é quem
+            // conhece o modo de absorção (VII.5). Ausente quando não houve autorização.
+            ...(estadoDoDescontoVII === 'VERMELHO_AUTORIZADO'
+              ? { autorizacaoDoDesconto: { acimaDoLimite: true as const } }
+              : {}),
             presuncao: mrmConfig.components?.irpjPresuncao != null
               ? {
                 irpjPct: mrmConfig.components.irpjPresuncao,
@@ -3687,7 +3693,21 @@ function Budgets() {
                         descontoFracao={globalDiscountPercent / 100}
                         limiteFracao={limitePctVII == null ? null : limitePctVII / 100}
                         limiteIncompleto={limiteIncompletoVII}
-                        descoberto={v17Full?.consolidated.distribution.descoberto_autorizado ?? 0}
+                        /*
+                          >>> O DESCOBERTO VEM DA DECOMPOSIÇÃO, NÃO DO MOTOR <<<
+                          Decisão do dono do produto, 13/10/2026: UM NÚMERO SÓ NA TELA.
+
+                          Antes, o aviso lia `descoberto_autorizado` do motor e o card lia a
+                          decomposição — R$ 1.093,16 contra R$ 618,13 no mesmo documento. A
+                          decomposição é a fonte única do card desde o `1934dbb`, é a única
+                          que FECHA o próprio DRE, e é ela que corrige o que a etapa 16 não
+                          corrige: a ordem das deduções da R19, o CMV do item e a escala do
+                          PIS/COFINS.
+
+                          Ausente a decomposição, cai em 0 — e aí o bloco do descoberto não
+                          aparece, porque a condição é `> 0,005`.
+                        */
+                        descoberto={decomposition?.result?.descobertoAutorizado ?? 0}
                         modo={discountMode as ModoDeAbsorcao}
                         nomeDoDocumento="esta venda"
                         autorizado={descontoAutorizadoVII}

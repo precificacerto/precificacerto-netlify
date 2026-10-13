@@ -168,40 +168,48 @@ export function applyAbsorptionPolicy(input: ApplyAbsorptionInput): ApplyAbsorpt
   // faria a etapa 17 fechar ESCONDENDO o buraco, que é exatamente o que a arquitetura de dois
   // blocos existe para impedir.
   //
-  // >>> QUEM É SACRIFICADO JÁ ESTAVA DECIDIDO: É O MODO DE PROTEÇÃO (VII.5) <<<
+  // ═══ A VII.5 MUDOU EM 13/10/2026 — REGRA NOVA DO DONO DO PRODUTO ═══════════════════════
   //
-  // A autorização não cria uma quarta regra; ela só deixa o modo já escolhido continuar
-  // valendo abaixo do limite.
+  // >>> A REGRA É VERSIONADA EM `.claude/rules/limite-do-desconto.md` <<<
   //
-  // | modo | comissão | lucro | descoberto |
+  // As duas redações datadas, a medição que derrubou a primeira e a divergência dos dois RRO
+  // estão lá. O que segue é a redação VIGENTE, no ponto em que ela é imposta.
+  //
+  // >>> ATÉ O LIMITE o modo governa. ULTRAPASSADO, zera nos TRÊS. <<<
+  //
+  // | estado | comissão | lucro | descoberto |
   // |---|---|---|---|
-  // | `RRO_PROPORTIONAL` | `max(0; rro × peso)` ⇒ 0 | `max(0; rro × peso)` ⇒ 0 | `\|RRO\|` |
-  // | `COMMISSION_PROTECTED` | **integral**, `com% × âncora` | 0 | `\|RRO\| + comissão` |
-  // | `PROFIT_PROTECTED` | 0 | **integral**, `luc% × âncora` | `\|RRO\| + lucro` |
+  // | **até o limite** | o modo governa, como sempre | idem | não existe |
+  // | **ultrapassado e autorizado** | **ZERO** | **ZERO** | `\|RRO\|`, IGUAL nos três modos |
   //
-  // IRPJ e CSLL acompanham o lucro e vão a zero junto. A VII.4 não os nomeia, e a razão de
-  // zerá-los é de conta, não de omissão: eles são tributo SOBRE o lucro, e lucro zero não
-  // produz imposto sobre lucro. Deixá-los negativos seria manter o defeito em duas linhas.
+  // A redação anterior desta tabela dizia que o modo continuava governando acima do limite,
+  // e congelava a parcela protegida: `COMMISSION_PROTECTED` pagava `com% × âncora` integral e
+  // `PROFIT_PROTECTED` pagava `luc% × âncora`. Medido no portão: isso dava descoberto de
+  // **R$ 4.114,07** no Congela Lucro contra **R$ 1.093,16** no Proporcional, no MESMO
+  // documento com o MESMO desconto.
+  //
+  // >>> POR QUE A REGRA ANTIGA CAIU, e a razão é de coerência de tela <<<
+  //
+  // A rodada do card (13/10/2026) estabeleceu que, autorizado acima do limite, **nenhuma tela
+  // exibe lucro positivo enquanto o aviso diz lucro zero**. Com o modo congelando aqui, a
+  // etapa 16 do motor continuaria exibindo uma parcela integral — e a Memória Cascata é uma
+  // tela que mostra repartição. A regra nova fecha isso na origem: se nada é congelado, não há
+  // parcela protegida a exibir, e o descoberto deixa de variar por modo.
+  //
+  // E é o que torna o descoberto COMPARÁVEL: antes, dois documentos idênticos com modos
+  // diferentes mostravam prejuízos diferentes, e a diferença era escolha de absorção, não
+  // fato econômico.
+  //
+  // IRPJ e CSLL vão a zero junto, por conta e não por omissão: são tributo SOBRE o lucro, e
+  // lucro zero não produz imposto sobre lucro.
   const rro_negativo = motor.rro < 0
   if (rro_negativo) {
-    if (policy === 'COMMISSION_PROTECTED') {
-      final_commission = com_pct * ancora_ger
-      final_profit = 0
-      final_csll = 0
-      final_irpj = 0
-    } else if (policy === 'PROFIT_PROTECTED') {
-      final_commission = 0
-      final_profit = luc_pct * ancora_ger
-      final_csll = 0
-      final_irpj = 0
-    } else {
-      // Proporcional: `max(0; rro × peso)` — com RRO negativo os quatro dão zero, e é isso
-      // que faz o descoberto do modo 1 ser SEMPRE o menor dos três.
-      final_commission = Math.max(0, proportional.new_commission)
-      final_profit = Math.max(0, proportional.new_profit)
-      final_csll = Math.max(0, proportional.new_csll)
-      final_irpj = Math.max(0, proportional.new_irpj)
-    }
+    // ZERO NOS TRÊS MODOS. O `policy` deixa de ser lido aqui de propósito — um ramo por modo
+    // reintroduziria a variação que a regra nova existe para eliminar.
+    final_commission = 0
+    final_profit = 0
+    final_csll = 0
+    final_irpj = 0
   }
 
   /**
