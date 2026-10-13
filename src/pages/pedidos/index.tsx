@@ -486,6 +486,12 @@ function OrdersPage() {
             // ETAPA 13C — a presunção do Lucro Presumido, do MESMO lugar que a construção
             // leu (`tax-sync.ts` → `presuncao-do-presumido.ts`). Ausente fora do Presumido, e
             // ausência não é zero: sem ela a decomposição ACUSA em vez de deduzir menos.
+            // ESPEC VII.2 — O PISO DA AUTORIZAÇÃO. A decomposição é quem o aplica (decisão de
+            // 13/10/2026), então ela precisa do estado; o DESCOBERTO vem do motor, que é quem
+            // conhece o modo de absorção (VII.5). Ausente quando não houve autorização.
+            ...(estadoDoDescontoPVII === 'VERMELHO_AUTORIZADO'
+              ? { autorizacaoDoDesconto: { acimaDoLimite: true as const } }
+              : {}),
             presuncao: mrmConfig.components?.irpjPresuncao != null
               ? {
                 irpjPct: mrmConfig.components.irpjPresuncao,

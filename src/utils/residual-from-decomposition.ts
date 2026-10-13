@@ -71,9 +71,15 @@ export function applyDecompositionToResidual(
     const row = decomposition.rows.find((r) => r.key === CHAVE_DA_LINHA[rubrica])
     if (!row || row.pctSobreTotalGeral == null) return null
     return {
-      // As linhas do RRO saem POSITIVAS do DRE (são repartição, não dedução); o `Math.abs`
-      // é defesa de contrato, não conversão de sinal.
-      amount: Math.abs(row.total),
+      // >>> O `Math.abs` SAIU EM 13/10/2026, E O COMENTÁRIO DELE FICA REGISTRADO <<<
+      //
+      // Ele dizia: *"as linhas do RRO saem POSITIVAS do DRE (são repartição, não dedução); o
+      // `Math.abs` é defesa de contrato, não conversão de sinal."* A premissa era VERDADEIRA
+      // quando foi escrita — o clamp do desconto impedia o RRO de ficar negativo
+      // (`decisao-sob-regra-da-epoca.md`). A Parte VII removeu o clamp, a premissa caiu, e o
+      // `abs` sobreviveu: ele passou a exibir lucro positivo em operação autorizada em
+      // prejuízo. Era conversão de sinal, e no único caso em que o sinal importava.
+      amount: row.total,
       // O % ORIGINAL é o CADASTRADO — o que o usuário digitou —, e é contra ele que o
       // apurado se compara. Base 100, como todo `ResidualLine`.
       originalPct: cadastradoDe(rubrica) * 100,
@@ -93,6 +99,15 @@ export function applyDecompositionToResidual(
         : rubrica === 'irpj' ? c.irpjPct
           : c.csllPct
   }
+
+  /**
+   * A AUTORIZAÇÃO ZEROU AS QUATRO RUBRICAS — e o card tem de DIZER isso, não só mostrar 0.
+   *
+   * O piso é aplicado na DECOMPOSIÇÃO (decisão de 13/10/2026), então aqui os valores já
+   * chegam zerados; o que este overlay acrescenta é a RAZÃO, para que zero por piso não seja
+   * indistinguível de zero por cadastro.
+   */
+  const zeradoPorAutorizacao = decomposition.descobertoAutorizado != null
 
   const commission = linhaDe('commission')
   const profit = linhaDe('profit')
@@ -119,17 +134,25 @@ export function applyDecompositionToResidual(
   if (!commission || !profit || !irpj || !csll) return distribution
 
   const totalRro = commission.amount + profit.amount + irpj.amount + csll.amount
+  const marcar = (l: ResidualLine): ResidualLine =>
+    (zeradoPorAutorizacao ? { ...l, zeradaPorAutorizacao: true as const } : l)
+
   return {
     ...distribution,
-    commission,
-    profit,
-    irpj,
-    csll,
-    total: {
+    commission: marcar(commission),
+    profit: marcar(profit),
+    irpj: marcar(irpj),
+    csll: marcar(csll),
+    total: marcar({
       amount: totalRro,
       originalPct: commission.originalPct + profit.originalPct + irpj.originalPct + csll.originalPct,
       effectivePct: commission.effectivePct + profit.effectivePct + irpj.effectivePct + csll.effectivePct,
       baseLabel: BASE_DOS_PERCENTUAIS_DA_DECOMPOSICAO,
-    },
+    }),
+    // O descoberto atravessa INTACTO: ele é do motor, e aqui só viaja. Ausente quando não
+    // houve autorização — e ausente não é zero.
+    ...(decomposition.descobertoAutorizado != null
+      ? { descobertoAutorizado: decomposition.descobertoAutorizado }
+      : {}),
   }
 }

@@ -59,6 +59,27 @@ export interface ResidualLine {
    * `residual-from-decomposition.ts`.
    */
   baseLabel?: string
+  /**
+   * A rubrica foi ZERADA PELA AUTORIZAÇÃO do desconto acima do limite (ESPEC VII.2).
+   *
+   * >>> ZERO POR CADASTRO E ZERO POR PISO SÃO AFIRMAÇÕES DIFERENTES <<<
+   *
+   * O defeito de 13/10/2026 tinha, ao lado do lucro positivo, uma segunda perda: a tela
+   * exibia `Comissão R$ 0,00 (0,000% original)` e aquele zero era CADASTRO em 0%. Um zero por
+   * PISO ficaria idêntico — mesmo R$, mesmo texto —, e as duas coisas não são a mesma: uma diz
+   * "não há comissão nesta venda", a outra diz "havia, e a autorização a consumiu".
+   *
+   * Ausente = o zero (quando houver) é o do cadastro ou da conta. `ausente-vs-falso.md`.
+   */
+  zeradaPorAutorizacao?: true
+  /**
+   * Texto que SUBSTITUI a linha de percentuais, para rubricas que não têm percentual.
+   *
+   * O DESCOBERTO é a única hoje: ele não é uma fração de base nenhuma — é o que faltou —, e
+   * exibir `0,000% original → 0,000%` nele afirmaria dois percentuais apurados que não
+   * existem. Ausente = a linha de percentuais de sempre.
+   */
+  descricao?: string
 }
 
 export interface ResidualDistribution {
@@ -79,6 +100,18 @@ export interface ResidualDistribution {
   regime: TaxRegime | null
   /** True quando regime suprime CSLL/IRPJ (MEI/SIMPLES_NACIONAL). */
   hidesProfitTaxes: boolean
+  /**
+   * O DESCOBERTO AUTORIZADO (R$) — ESPEC VII.2/VII.4.
+   *
+   * Presente só quando o desconto foi autorizado acima do limite. Nesse estado as quatro
+   * rubricas são ZERO e este é o único número que mostra o que a venda deixou de cobrir.
+   *
+   * Antes de 13/10/2026 este campo não existia, e era por isso que o card não podia exibir o
+   * descoberto: medido, `descoberto` tinha ZERO ocorrências neste arquivo, no overlay e no
+   * componente. Não era "o dado chega e não é exibido" — ele não chegava, e o contrato não o
+   * previa.
+   */
+  descobertoAutorizado?: number
 }
 
 /**
@@ -534,6 +567,15 @@ export function computeResidualDistribution(
 export function formatResidualLine(line: ResidualLine, hasDiscount: boolean): string {
   const fmt = (n: number): string =>
     n.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })
+  // >>> ZERO POR PISO NÃO É ZERO POR CADASTRO, e a linha tem de dizer qual é <<<
+  //
+  // Ver `ResidualLine.zeradaPorAutorizacao`. O percentual CADASTRADO continua à vista —
+  // apagá-lo esconderia que havia comissão e lucro a receber; o que a frase acrescenta é
+  // quem os consumiu.
+  if (line.descricao) return line.descricao
+  if (line.zeradaPorAutorizacao) {
+    return `${fmt(line.originalPct)}% original → ZERADO pela autorização do desconto`
+  }
   if (!hasDiscount) return `${fmt(line.originalPct)}%`
   return `${fmt(line.originalPct)}% original → ${fmt(line.effectivePct)}% sobre ${line.baseLabel ?? 'a operação interna'}`
 }

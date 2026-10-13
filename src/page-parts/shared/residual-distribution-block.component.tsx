@@ -141,6 +141,34 @@ export function ResidualDistributionBlock({
     { label: 'Lucro da Empresa', bgColor: 'rgba(16,185,129,0.12)', valueColor: '#34d399', line: profit },
   ]
 
+  /**
+   * O DESCOBERTO — ESPEC VII.2/VII.4, e a linha que faltava em 13/10/2026.
+   *
+   * O defeito era este: o aviso dizia "operação em lucro zero · Descoberto R$ 1.093,16" e o
+   * card, logo abaixo, exibia LUCRO R$ 1.956,86. Duas telas do mesmo documento, afirmando
+   * coisas incompatíveis.
+   *
+   * Com a autorização, comissão e lucro são ZERO por regra e **este é o único lugar em que o
+   * prejuízo aparece**. Ele é um card VERMELHO ao lado dos dois, e não uma nota de rodapé:
+   * nota de rodapé é o que `portao-que-nao-alcanca.md` chama de sinal que não interrompe.
+   *
+   * Ausente quando não houve autorização — e ausente não é `R$ 0,00`, que afirmaria que houve
+   * descoberto e deu nada (`ausente-vs-falso.md`).
+   */
+  if (distribution.descobertoAutorizado != null) {
+    cards.push({
+      label: 'Descoberto autorizado',
+      bgColor: 'rgba(239,68,68,0.12)',
+      valueColor: '#f87171',
+      line: {
+        amount: distribution.descobertoAutorizado,
+        originalPct: 0,
+        effectivePct: 0,
+        descricao: 'o que esta operação deixou de cobrir',
+      },
+    })
+  }
+
   return (
     <div
       style={{

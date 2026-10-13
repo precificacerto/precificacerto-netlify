@@ -456,6 +456,31 @@ function Sales() {
                 adicionalPct: Number(mrmConfig.components.irpjAdicional) || 0,
               }
               : undefined,
+            /*
+              ESPEC VII.2 — O PISO NA VENDA GRAVADA, LIDO DO RASTRO, NÃO DO MOTOR VIVO.
+              ───────────────────────────────────────────────────────────────────────────────
+              É a quarta montagem do card, e a única cuja fonte é outra: aqui não há motor
+              rodando — a venda está FECHADA, e a decomposição vem do `decomposition_input`
+              congelado. Recalcular a autorização do cadastro de hoje reescreveria o passado
+              (`fato-vs-referencia.md`): o desconto foi autorizado com o limite DAQUELE dia.
+
+              Então ela lê o RASTRO que a Parte VII gravou em
+              `sales.consolidated_breakdown.autorizacao_do_desconto` — fato histórico, com o
+              descoberto que o motor apurou no momento do clique.
+
+              >>> O LIMITE DESTE CAMINHO, E ELE É CONHECIDO <<<
+              O rastro só existe para vendas gravadas DEPOIS da Parte VII. Venda anterior tem
+              `consolidated_breakdown` nulo, e aí o campo fica AUSENTE — que é o certo: ausente
+              é "não se sabe se houve autorização", não "não houve" (`ausente-vs-falso.md`).
+              Para essas, o card segue exibindo a repartição como sempre.
+            */
+            ...(() => {
+              const rastro = (selectedSale as any)?.consolidated_breakdown?.autorizacao_do_desconto
+              if (!rastro) return {}
+              // O rastro diz QUE houve autorização; o descoberto é apurado pela própria
+              // decomposição congelada. Ver `decomposition-dre.ts`.
+              return { autorizacaoDoDesconto: { acimaDoLimite: true as const } }
+            })(),
         })
         if (params.isEmpty) return { ...VAZIA, estado: 'SEM_PRODUTO' as const }
         return { result: buildDecomposition(params.input), labels: params.itemLabels, estado: 'CONGELADA' as const }
@@ -1628,6 +1653,12 @@ function Sales() {
             // ETAPA 13C — a presunção do Lucro Presumido, do MESMO lugar que a construção
             // leu (`tax-sync.ts` → `presuncao-do-presumido.ts`). Ausente fora do Presumido, e
             // ausência não é zero: sem ela a decomposição ACUSA em vez de deduzir menos.
+            // ESPEC VII.2 — O PISO DA AUTORIZAÇÃO. A decomposição é quem o aplica (decisão de
+            // 13/10/2026), então ela precisa do estado; o DESCOBERTO vem do motor, que é quem
+            // conhece o modo de absorção (VII.5). Ausente quando não houve autorização.
+            ...(estadoDoDescontoVVII === 'VERMELHO_AUTORIZADO'
+              ? { autorizacaoDoDesconto: { acimaDoLimite: true as const } }
+              : {}),
             presuncao: mrmConfig.components?.irpjPresuncao != null
               ? {
                 irpjPct: mrmConfig.components.irpjPresuncao,
