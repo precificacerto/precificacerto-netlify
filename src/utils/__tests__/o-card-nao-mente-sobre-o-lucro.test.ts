@@ -43,6 +43,8 @@ import type { EngineItemV17, MotorV17Input } from '@/types/mrm'
 import { descontoMaximoFracao, estadoDoDesconto } from '@/utils/limite-de-desconto'
 import { buildDecomposition, type DecompositionInput } from '@/utils/decomposition-dre'
 import { formatResidualLine } from '@/utils/residual-distribution'
+import { readFileSync } from 'fs'
+import { join } from 'path'
 import { buildBudgetDecompositionInput } from '@/utils/budget-decomposition-input'
 import { applyDecompositionToResidual } from '@/utils/residual-from-decomposition'
 import type { ResidualDistribution } from '@/utils/residual-distribution'
@@ -250,8 +252,12 @@ describe('(b) o PISO, nos números da tela', () => {
     // O descoberto do CARD é mode-independente — com as parcelas em zero não há congelado a
     // somar, e é isso que a regra nova quer dizer.
     expect(new Set(doCard).size).toBe(1)
-    // >>> E O DO MOTOR AINDA VARIA POR MODO — a divergência está na seção (c) <<<
-    expect(new Set(doMotor).size).toBeGreaterThan(1)
+    // >>> ESTA ASSERÇÃO INVERTEU EM 13/10/2026, COM A VII.5 NOVA <<<
+    // Ela afirmava que o descoberto do MOTOR ainda variava por modo — e variava, porque a
+    // etapa 16 congelava a parcela protegida. A regra nova o fez parar de congelar, então os
+    // dois lados agora CONCORDAM quanto a não variar. O que eles não compartilham é o VALOR,
+    // e isso é a divergência dos dois RRO, registrada em `decomposition-dre.ts`.
+    expect(new Set(doMotor).size).toBe(1)
   })
 })
 
@@ -273,30 +279,112 @@ describe('(b) o PISO, nos números da tela', () => {
 // `copia-divergente.md` diz que a escolha errada aqui recria as duas fontes.
 //
 // Estes casos MEDEM a divergência, para que ela deixe de ser surpresa e fique com número.
-describe('(c) o descoberto do motor e o da decomposição divergem — MEDIDO, não decidido', () => {
-  it('>>> os dois números, lado a lado, no cenário da tela <<<', () => {
-    const { m, result, card } = tela(0.25)
-    const doMotor = m.distribution.descoberto_autorizado
+describe('(c) UM NÚMERO SÓ NA TELA — o aviso lê a decomposição', () => {
+  it('>>> o AVISO e o CARD exibem o MESMO número, e o caso falha se divergirem <<<', () => {
+    const { result, card } = tela(0.25)
+
+    // O que o AVISO recebe, exatamente como as três telas o passam ao
+    // `<AutorizacaoDoDesconto>`: `decomposition?.result?.descobertoAutorizado ?? 0`.
+    const doAviso = result.descobertoAutorizado ?? 0
+    // O que o CARD exibe.
     const doCard = card.descobertoAutorizado!
 
-    // Os dois existem, os dois são positivos, e NÃO são iguais.
-    expect(doMotor).toBeCloseTo(1093.16, 2)
-    expect(doCard).toBeCloseTo(-result.rro!.apurado, 6)
-    expect(Math.abs(doMotor - doCard)).toBeGreaterThan(1)
-
-    // O número exato da divergência, pregado para que uma mudança nela seja vista.
-    console.log(
-      `descoberto — motor: ${doMotor.toFixed(2)}  ·  decomposição: ${doCard.toFixed(2)}`
-      + `  ·  divergência: ${(doMotor - doCard).toFixed(2)}`,
-    )
+    expect(doAviso).toBeGreaterThan(0)
+    // >>> A ASSERÇÃO DO ITEM 1: um número só <<<
+    expect(doAviso).toBe(doCard)
   })
 
-  it('a divergência é dos DOIS RRO, e existe COM E SEM autorização', () => {
-    // O par que mostra que ela não é efeito do piso: sem autorização, com desconto abaixo do
-    // limite, os dois RRO já diferem. Sem este caso, alguém leria a divergência como defeito
-    // introduzido pela correção.
-    const abaixo = tela(0.10)
-    expect(abaixo.estado).toBe('VERDE')
-    expect(Math.abs(abaixo.m.motor.rro - abaixo.result.rro!.apurado)).toBeGreaterThan(1)
+  it('as três telas leem a DECOMPOSIÇÃO no `descoberto` do aviso — não o motor', () => {
+    // Caminho, e é o que pega uma tela voltando à fonte antiga. O efeito está medido acima.
+    for (const [pagina, expr] of [
+      ['pages/orcamentos/index.tsx', 'decomposition?.result?.descobertoAutorizado ?? 0'],
+      ['pages/pedidos/index.tsx', 'orderDecomposition?.result?.descobertoAutorizado ?? 0'],
+      ['pages/vendas/index.tsx', 'balcaoDecomposition?.result?.descobertoAutorizado ?? 0'],
+    ] as const) {
+      const src = readFileSync(join(__dirname, '..', '..', pagina), 'utf-8')
+      expect(src).toContain(`descoberto={${expr}}`)
+      // e NÃO a antiga
+      expect(src).not.toContain('descoberto={v17Full?.consolidated.distribution.descoberto_autorizado')
+      expect(src).not.toContain('descoberto={pedV17Full?.consolidated.distribution.descoberto_autorizado')
+      expect(src).not.toContain('descoberto={balcaoV17Full?.consolidated.distribution.descoberto_autorizado')
+    }
   })
 })
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+// (d) A VII.5 NOVA — até o limite o modo governa; ultrapassado, zera nos três
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+//
+// Regra do dono do produto, 13/10/2026. A anterior mandava o modo governar TAMBÉM acima do
+// limite, e congelava a parcela protegida: medido, dava descoberto de R$ 4.114,07 no Congela
+// Lucro contra R$ 1.093,16 no Proporcional, no MESMO documento com o MESMO desconto.
+describe('(d) a VII.5 nova, no MOTOR', () => {
+  const MODOS = ['RRO_PROPORTIONAL', 'COMMISSION_PROTECTED', 'PROFIT_PROTECTED'] as const
+
+  it('>>> ULTRAPASSADO: os três modos dão o MESMO descoberto, e é |RRO| <<<', () => {
+    const vistos = MODOS.map((pol) => {
+      const m = motor(0.25, pol)
+      const d = m.distribution
+      // comissão, lucro, IRPJ e CSLL ZERO nos três — nada é congelado
+      expect(`${pol} ${d.new_commission} ${d.new_profit} ${d.new_csll} ${d.new_irpj}`)
+        .toBe(`${pol} 0 0 0 0`)
+      // e o descoberto é |RRO|, exatamente
+      expect(d.descoberto_autorizado).toBeCloseTo(-m.motor.rro, 6)
+      return d.descoberto_autorizado.toFixed(2)
+    })
+    // >>> UM NÚMERO, não três <<<
+    expect(new Set(vistos).size).toBe(1)
+    expect(vistos[0]).toBe('1093.16')
+  })
+
+  it('>>> O PAR: ABAIXO do limite os três modos continuam DIFERENTES entre si <<<', () => {
+    // Sem este caso, "iguais acima do limite" passaria num mundo em que o modo nunca fez
+    // diferença — e aí a regra nova não teria removido nada.
+    //
+    // >>> E ELE EXIGE COMISSÃO > 0, o que a fixture da tela NÃO tem <<<
+    //
+    // O documento do dono do produto tem comissão CADASTRADA EM 0% — é por isso que o card
+    // dele mostrava R$ 0,00 ali. Com comissão zero, `COMMISSION_PROTECTED` congela
+    // `0% × âncora = 0` e fica indistinguível dos outros dois: a primeira redação deste caso
+    // mediu UM valor onde esperava três, e o errado era a fixture.
+    //
+    // `teste-que-nao-exercita.md`, variante 2: o caso escolhido não discriminava. Por isso
+    // aqui a comissão é 5% — e os dois cenários coexistem, cada um exercitando o seu.
+    const comComissao = (d: number, pol: typeof MODOS[number]) => {
+      const item = {
+        item_id: 'p1', rb: RB, cp: CP, mod_pct: 0, dop_pct: DOP,
+        commission_pct: 0.05, profit_pct: 0.10, csll_pct: 0, irpj_pct: 0, peso_op_interna: 1,
+        taxes_inside_amounts: { icms: RB * ICMS, iss: 0, pis_cofins: RB * PIS_COFINS },
+      } as unknown as EngineItemV17
+      return calculateMotorV17({
+        items: [item], discount: { pct: d }, policy: pol, regime: 'LUCRO_REAL',
+        rates: [{ tax_type: 'ICMS', rate_pct: ICMS }, { tax_type: 'PIS', rate_pct: PIS_COFINS }] as never,
+        effective_date: '2026-10-13', use_snapshot_rates: false,
+      } as never)
+    }
+
+    const vistos = MODOS.map((pol) => {
+      const d = comComissao(0.10, pol).distribution
+      return `${d.new_commission.toFixed(2)}/${d.new_profit.toFixed(2)}`
+    })
+    expect(new Set(vistos).size).toBe(MODOS.length)
+    // e abaixo do limite não há descoberto em modo nenhum
+    for (const pol of MODOS) expect(comComissao(0.10, pol).distribution.descoberto_autorizado).toBe(0)
+
+    // >>> O CONTRASTE que fecha a regra: o MESMO cenário, ACIMA do limite, dá um só <<<
+    const acima = MODOS.map((pol) => comComissao(0.40, pol).distribution.descoberto_autorizado.toFixed(2))
+    expect(new Set(acima).size).toBe(1)
+  })
+
+  it('a etapa 16 do trace também não exibe parcela congelada no estado autorizado', () => {
+    // A Memória Cascata é uma tela que mostra repartição, e a regra diz "nenhuma tela".
+    for (const pol of MODOS) {
+      const etapa16 = motor(0.25, pol).motor.cascade_trace.find((e) => e.step === 16)!
+      const filhos = (etapa16.children ?? []).filter((c) => c.label !== 'Descoberto autorizado')
+      for (const f of filhos) {
+        expect(`${pol} ${f.label}=${Math.abs(f.amount) < 0.005 ? 0 : f.amount}`).toBe(`${pol} ${f.label}=0`)
+      }
+    }
+  })
+})
+

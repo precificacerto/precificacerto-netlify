@@ -149,8 +149,11 @@ export function applyDecompositionToResidual(
       effectivePct: commission.effectivePct + profit.effectivePct + irpj.effectivePct + csll.effectivePct,
       baseLabel: BASE_DOS_PERCENTUAIS_DA_DECOMPOSICAO,
     }),
-    // O descoberto atravessa INTACTO: ele é do motor, e aqui só viaja. Ausente quando não
-    // houve autorização — e ausente não é zero.
+    // O descoberto atravessa INTACTO: ele é da DECOMPOSIÇÃO, apurado sobre o RRO dela, e
+    // aqui só viaja. Desde 13/10/2026 o AVISO da Parte VII lê o mesmo número — um só na
+    // tela. O motor tem o seu, que difere em R$ 475,04 no cenário do portão; a razão e a
+    // decisão de registrar em vez de corrigir estão em `decomposition-dre.ts`, no
+    // `descobertoDaAutorizacao`. Ausente quando não houve autorização — e ausente não é zero.
     ...(decomposition.descobertoAutorizado != null
       ? { descobertoAutorizado: decomposition.descobertoAutorizado }
       : {}),

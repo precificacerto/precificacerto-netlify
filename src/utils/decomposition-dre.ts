@@ -768,8 +768,34 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
    * princípio, apurado sobre o RRO desta conta — e é por isso que o residual fecha.
    *
    * MODE-INDEPENDENTE de propósito: a regra de 13/10/2026 zera comissão e lucro nos TRÊS
-   * modos, então não há mais parcela congelada a somar. O número do motor varia por modo
-   * porque a etapa 16 dele ainda congela; essa divergência está reportada.
+   * modos, então não há mais parcela congelada a somar — e desde a mesma data o motor também
+   * deixou de congelar no estado autorizado (ver `absorption.ts`), então os dois concordam
+   * quanto a NÃO variar por modo.
+   *
+   * ══ A DIVERGÊNCIA QUE RESTA, E ELA FICA REGISTRADA — NÃO CORRIGIDA ═══════════════════════
+   *
+   * Os dois descobertos NÃO são o mesmo número, porque os dois RRO não são:
+   *
+   *     motor (etapa 16):   R$ 1.093,16
+   *     decomposição:       R$   618,13
+   *     divergência:        R$   475,04
+   *
+   * Medido na fixture de `o-card-nao-mente-sobre-o-lucro.test.ts`, que reproduz a tela do
+   * dono do produto (limite 21,32%, desconto 25%, autorizado).
+   *
+   * A RAZÃO é antiga e está no cabeçalho de `residual-from-decomposition.ts`: a decomposição
+   * **corrige três coisas que a etapa 16 não corrige** — a ordem das deduções da R19, o CMV
+   * do item e a escala do PIS/COFINS. Foi justamente por isso que o `1934dbb` fez o card
+   * trocar de fonte.
+   *
+   * Ela é ANTERIOR a esta rodada e existe TAMBÉM ABAIXO do limite, onde não há autorização
+   * nenhuma — há um caso no portão que o prova, para que ninguém a leia como efeito do piso.
+   * O que esta rodada fez foi tirá-la da tela: desde 13/10/2026 o aviso E o card leem ESTE
+   * número, então o usuário vê um só. O motor segue com o dele na Memória Cascata.
+   *
+   * Decisão do dono do produto: **registrar, não corrigir.** Unificar os dois RRO é rodada
+   * própria — mexeria na etapa 16 do motor, que é o que a base instalada gravou em
+   * `tax_breakdown` (`fato-vs-referencia.md`).
    */
   const descobertoDaAutorizacao = pisoDaAutorizacao
     ? Math.max(0, -soma(rroPorItem))

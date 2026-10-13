@@ -218,31 +218,51 @@ describe('(c) ETAPA 16 — piso zero de EXIBIÇÃO, pelo modo de proteção (VII
     expect(d.descoberto_autorizado).toBeCloseTo(5_750, 2)
   })
 
-  it('>>> MODO 2 · Congela Comissão: comissão INTEGRAL, lucro zero, descoberto = |RRO| + comissão <<<', () => {
-    const d = motor(D, 'COMMISSION_PROTECTED').distribution
-    // comissão = com% × âncora = 5% × 60.000 = 3.000
-    expect(d.new_commission).toBeCloseTo(3_000, 2)
-    expect(d.new_profit).toBe(0)
-    expect(d.descoberto_autorizado).toBeCloseTo(5_750 + 3_000, 2)
+  /*
+    ═══ OS TRÊS CASOS QUE MORAVAM AQUI MUDARAM DE LADO EM 13/10/2026 ════════════════════════
+
+    Eles afirmavam a VII.5 da redação de 11/10: acima do limite o modo continuava governando e
+    CONGELAVA a parcela protegida —
+
+        MODO 2 · Congela Comissão → comissão 3.000 integral, descoberto 5.750 + 3.000
+        MODO 3 · Congela Lucro    → lucro 6.000 integral,    descoberto 5.750 + 6.000
+        e "congelar AUMENTA o descoberto, o modo 1 é sempre o menor dos três"
+
+    Os três estavam CERTOS para a regra da época (`decisao-sob-regra-da-epoca.md`) e são a
+    medição que derrubou a regra: 4.114,07 contra 1.093,16 no documento do dono do produto, no
+    mesmo desconto, por escolha de absorção.
+
+    A VII.5 nova, de 13/10/2026: **até o limite o modo governa; ULTRAPASSADO, zera nos três.**
+    A razão está no cabeçalho de `limite-de-desconto.ts` — nenhuma tela exibe lucro positivo
+    enquanto o aviso diz lucro zero, e a Memória Cascata é uma tela que mostra repartição.
+
+    O que fica no lugar deles é a afirmação nova, com o PAR que prova que o modo ainda importa
+    abaixo do limite — sem ele, "iguais acima" passaria num mundo em que o modo nunca fez
+    diferença, e aí a regra nova não teria removido nada.
+  */
+  it('>>> ULTRAPASSADO: os três modos dão o MESMO descoberto, e nada é congelado <<<', () => {
+    const vistos = (['RRO_PROPORTIONAL', 'COMMISSION_PROTECTED', 'PROFIT_PROTECTED'] as const)
+      .map((policy) => {
+        const d = motor(D, policy).distribution
+        // ZERO nos três: a parcela protegida deixou de ser congelada
+        expect(`${policy} com=${d.new_commission} luc=${d.new_profit}`).toBe(`${policy} com=0 luc=0`)
+        // e o descoberto é |RRO|, exatamente — nunca |RRO| + parcela congelada
+        expect(d.descoberto_autorizado).toBeCloseTo(5_750, 2)
+        return d.descoberto_autorizado.toFixed(2)
+      })
+    expect(new Set(vistos).size).toBe(1)
   })
 
-  it('>>> MODO 3 · Congela Lucro: lucro INTEGRAL, comissão zero, descoberto = |RRO| + lucro <<<', () => {
-    const d = motor(D, 'PROFIT_PROTECTED').distribution
-    // lucro = luc% × âncora = 10% × 60.000 = 6.000
-    expect(d.new_profit).toBeCloseTo(6_000, 2)
-    expect(d.new_commission).toBe(0)
-    expect(d.descoberto_autorizado).toBeCloseTo(5_750 + 6_000, 2)
-  })
-
-  it('>>> CONGELAR AUMENTA O DESCOBERTO, e o modo 1 é SEMPRE o menor dos três <<<', () => {
-    // A consequência aritmética que a VII.5 manda aparecer na tela: nos modos 2 e 3 a empresa
-    // não só deixa de ganhar — ela PAGA o que congelou com dinheiro que a venda não trouxe.
-    const prop = motor(D, 'RRO_PROPORTIONAL').distribution.descoberto_autorizado
-    const com = motor(D, 'COMMISSION_PROTECTED').distribution.descoberto_autorizado
-    const luc = motor(D, 'PROFIT_PROTECTED').distribution.descoberto_autorizado
-    expect(prop).toBeLessThan(com)
-    expect(prop).toBeLessThan(luc)
-    expect(com).toBeLessThan(luc)   // nesta entrada o lucro (10%) é maior que a comissão (5%)
+  it('>>> O PAR: ABAIXO do limite o modo AINDA governa, e os três diferem <<<', () => {
+    // 10% de desconto: dentro do limite, nenhum piso, nenhum descoberto. É aqui que o modo
+    // de proteção continua sendo o que sempre foi.
+    const vistos = (['RRO_PROPORTIONAL', 'COMMISSION_PROTECTED', 'PROFIT_PROTECTED'] as const)
+      .map((policy) => {
+        const d = motor(0.10, policy).distribution
+        expect(d.descoberto_autorizado).toBe(0)
+        return `${d.new_commission.toFixed(2)}/${d.new_profit.toFixed(2)}`
+      })
+    expect(new Set(vistos).size).toBe(3)
   })
 })
 

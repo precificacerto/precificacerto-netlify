@@ -3,6 +3,43 @@
  *
  * Decidido pelo dono do produto em 11/10/2026, implementado em 12/10/2026.
  *
+ * ══ A VII.5 MUDOU EM 13/10/2026 — E ESTA É A REDAÇÃO VIGENTE ════════════════════════════
+ *
+ * >>> ATÉ o limite o MODO DE PROTEÇÃO governa. ULTRAPASSADO, zera nos TRÊS modos. <<<
+ *
+ * | estado | comissão | lucro | descoberto |
+ * |---|---|---|---|
+ * | **até o limite** | o modo governa, como sempre | idem | não existe |
+ * | **ultrapassado e autorizado** | **ZERO** | **ZERO** | `\|RRO\|`, IGUAL nos três modos |
+ *
+ * A redação de 11/10 dizia que *"o sacrifício segue o modo de proteção"* — SEM a ressalva do
+ * limite. Acima dele o modo congelava a parcela protegida, e isso foi medido: descoberto de
+ * **R$ 4.114,07** no Congela Lucro contra **R$ 1.093,16** no Proporcional, no MESMO documento
+ * com o MESMO desconto.
+ *
+ * Caiu por coerência de tela. A rodada do card (13/10/2026) fixou que, autorizado acima do
+ * limite, **nenhuma tela exibe lucro positivo enquanto o aviso diz lucro zero** — e a Memória
+ * Cascata é uma tela que mostra repartição. Com o modo congelando, a etapa 16 do motor
+ * continuaria exibindo uma parcela integral. A regra nova fecha na origem: sem congelamento
+ * não há parcela a exibir, e o descoberto deixa de variar por modo.
+ *
+ * O ganho que não era o objetivo e vale registrar: o descoberto ficou **comparável**. Antes,
+ * dois documentos idênticos com modos diferentes mostravam prejuízos diferentes, e a diferença
+ * era escolha de absorção, não fato econômico.
+ *
+ * Implementada em `mrm-engine-v17/absorption.ts` (o motor) e em `decomposition-dre.ts` (o piso
+ * da decomposição, que é o que as telas leem). Portão: `o-card-nao-mente-sobre-o-lucro.test.ts`,
+ * seção (d) — os três modos acima do limite com o MESMO descoberto, e o par que mostra que
+ * abaixo dele eles seguem diferentes entre si.
+ *
+ * >>> E O DESCOBERTO EXIBIDO É O DA DECOMPOSIÇÃO, não o do motor <<<
+ *
+ * Decisão da mesma data: UM NÚMERO SÓ NA TELA. O aviso lia o motor e o card lia a
+ * decomposição — R$ 1.093,16 contra R$ 618,13 no mesmo documento. Os dois leem a decomposição
+ * agora, porque ela é a fonte única do card desde o `1934dbb` e é a única que fecha o próprio
+ * DRE. A divergência dos dois RRO **permanece** e está registrada em `decomposition-dre.ts`,
+ * no `descobertoDaAutorizacao`: registrar, não corrigir.
+ *
  * ══ O QUE SAIU, E POR QUE ERA PRECISO QUE SAÍSSE ════════════════════════════════════════
  *
  * O que travava o desconto até aqui NÃO era este limite: era um **clamp no campo**, em três
