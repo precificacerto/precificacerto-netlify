@@ -170,6 +170,11 @@ export function applyAbsorptionPolicy(input: ApplyAbsorptionInput): ApplyAbsorpt
   //
   // ═══ A VII.5 MUDOU EM 13/10/2026 — REGRA NOVA DO DONO DO PRODUTO ═══════════════════════
   //
+  // >>> A REGRA É VERSIONADA EM `.claude/rules/limite-do-desconto.md` <<<
+  //
+  // As duas redações datadas, a medição que derrubou a primeira e a divergência dos dois RRO
+  // estão lá. O que segue é a redação VIGENTE, no ponto em que ela é imposta.
+  //
   // >>> ATÉ O LIMITE o modo governa. ULTRAPASSADO, zera nos TRÊS. <<<
   //
   // | estado | comissão | lucro | descoberto |

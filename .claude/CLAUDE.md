@@ -326,6 +326,7 @@ O AIOS carrega regras contextuais de `.claude/rules/` automaticamente. Regras co
 | `hipotese-derrubada-pela-propria-medicao.md` | Quando a razão para NÃO testar um caso é uma suposição sua, teste o caso |
 | `ids-principles.md` | Incremental Development System principles |
 | `instrumento-que-nao-enxerga.md` | O indicador escolhido para medir não pode variar nos casos que se quer detectar |
+| `limite-do-desconto.md` | O limite do desconto, a autorização, e o que a repartição faz acima dele (ESPEC Parte VII) |
 | `mcp-usage.md` | MCP server usage rules and tool selection priority |
 | `migration-delivery.md` | PR com migração só está entregue com a migração aplicada e verificada |
 | `portao-que-nao-alcanca.md` | O portão fica verde e a proteção declarada não foi exercida |

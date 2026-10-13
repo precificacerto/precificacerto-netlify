@@ -3,6 +3,14 @@
  *
  * Decidido pelo dono do produto em 11/10/2026, implementado em 12/10/2026.
  *
+ * >>> A REGRA É VERSIONADA EM `.claude/rules/limite-do-desconto.md` <<<
+ *
+ * Ela mudou DUAS VEZES em três dias, e o que está aqui é a redação vigente. A página tem as
+ * duas redações DATADAS, a medição que derrubou a primeira e a divergência dos dois RRO.
+ * Este cabeçalho fica porque é o ponto de DECLARAÇÃO (`razao-longe-da-restricao.md`), mas
+ * quem for MUDAR a regra lê a página — comentário de módulo é o lugar em que não se lê a
+ * história de uma decisão (`registro-de-classe.md`).
+ *
  * ══ A VII.5 MUDOU EM 13/10/2026 — E ESTA É A REDAÇÃO VIGENTE ════════════════════════════
  *
  * >>> ATÉ o limite o MODO DE PROTEÇÃO governa. ULTRAPASSADO, zera nos TRÊS modos. <<<
