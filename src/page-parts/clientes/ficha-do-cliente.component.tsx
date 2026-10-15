@@ -37,6 +37,11 @@ import {
 } from '@/page-parts/clientes/historico-do-cliente.component'
 import { FormularioDoCliente } from '@/page-parts/clientes/formulario-do-cliente.component'
 import { PARAM_DE_VOLTA, lerEnderecoDeVolta } from '@/utils/endereco-de-volta'
+import { CabecalhoDaFicha } from '@/page-parts/clientes/cabecalho-da-ficha.component'
+import { useParcelasDeReceber } from '@/hooks/use-data.hooks'
+import { montarParcelasDoCliente } from '@/utils/parcelas-do-cliente'
+import { montarResumoDoCliente } from '@/utils/resumo-do-cliente'
+import { hojeNoFusoDoNegocio } from '@/utils/dia-de-hoje'
 
 export const ABAS_DA_FICHA = ['dados', 'orcamentos', 'pedidos', 'vendas'] as const
 export type AbaDaFicha = (typeof ABAS_DA_FICHA)[number]
@@ -72,6 +77,25 @@ export function FichaDoCliente({ customerId }: FichaDoClienteProps) {
     const [timeline, setTimeline] = useState<TimelineEntry[]>([])
     const [timelineCarregando, setTimelineCarregando] = useState(false)
     const [expandidoId, setExpandidoId] = useState<string | null>(null)
+
+    // `escopo: 'TODAS'` sobre a MESMA carga que a lista usa — o bloco 4 do detalhe precisa
+    // das pagas, e o cabeçalho soma só as abertas, que o agregado já separa.
+    const { data: dadosDeCobranca } = useParcelasDeReceber()
+    const hoje = useMemo(() => hojeNoFusoDoNegocio(), [])
+    const cobranca = useMemo(
+        () => montarParcelasDoCliente({
+            parcelas: dadosDeCobranca?.parcelas ?? [],
+            vendas: dadosDeCobranca?.vendas ?? [],
+            hoje,
+            escopo: 'TODAS',
+        }),
+        [dadosDeCobranca, hoje],
+    )
+    const agregado = customerId ? cobranca.porCliente[customerId] : undefined
+    const resumo = useMemo(
+        () => montarResumoDoCliente({ historico: timeline, agregado }),
+        [timeline, agregado],
+    )
 
     const aba = abaDaQuery(router.query.aba)
     /**
@@ -127,7 +151,7 @@ export function FichaDoCliente({ customerId }: FichaDoClienteProps) {
         if (!customerId || !tenantId) return
         const sinal = { cancelled: false }
         setTimelineCarregando(true)
-        carregarHistoricoDoCliente(customerId, employeeMap, sinal)
+        carregarHistoricoDoCliente(customerId, employeeMap, hoje, sinal)
             .then((entradas) => {
                 // `null` é CANCELAMENTO, não "nenhum registro". Sobrescrever com `[]` diria
                 // que o cliente não tem histórico, e é outra afirmação.
@@ -136,7 +160,7 @@ export function FichaDoCliente({ customerId }: FichaDoClienteProps) {
             .catch((e) => console.error('Erro ao carregar histórico:', e))
             .finally(() => { if (!sinal.cancelled) setTimelineCarregando(false) })
         return () => { sinal.cancelled = true }
-    }, [customerId, tenantId, employeeMap])
+    }, [customerId, tenantId, employeeMap, hoje])
 
     const irParaAba = (proxima: AbaDaFicha) => {
         const query: Record<string, string> = { ...(router.query as Record<string, string>), aba: proxima }
@@ -213,6 +237,19 @@ export function FichaDoCliente({ customerId }: FichaDoClienteProps) {
 
     return (
         <div>
+            {cliente && customerId !== null && (
+                <CabecalhoDaFicha
+                    nome={cliente.name}
+                    documento={(cliente as any).document}
+                    whatsapp={(cliente as any).whatsapp_phone}
+                    telefone={(cliente as any).phone}
+                    cidade={(cliente as any).city}
+                    uf={(cliente as any).state_code}
+                    situacao={(cliente as any).status}
+                    temCobranca={agregado !== undefined}
+                    resumo={resumo}
+                />
+            )}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                 <Button icon={<ArrowLeftOutlined />} onClick={voltarParaLista}>Voltar</Button>
                 {customerId !== null && cliente && podeEditar && !editando && (

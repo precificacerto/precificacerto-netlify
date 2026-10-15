@@ -19,6 +19,8 @@ import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Table } from 'antd'
 
+import { formatBRL } from '@/utils/formatters'
+
 import {
     FILTROS_DE_COBRANCA_VAZIOS,
     ROTULO_DA_FAIXA_DE_VENCIMENTO,
@@ -360,7 +362,10 @@ describe('11 e 12 — a coluna "Em aberto" se parte', () => {
         const celulas = Array.from(t.host.querySelectorAll('tbody td')).map((c) => c.textContent || '')
         expect(celulas[0]).toBe('—')
         expect(celulas[1]).toBe('—')
-        expect(t.texto()).not.toContain('R$ 0,00')
+        // `formatBRL(0)` traz ESPAÇO NÃO SEPARÁVEL (U+00A0) entre o "R$" e o número, então
+        // `not.toContain('R$ 0,00')` com espaço comum NUNCA casa — asserção que não pode
+        // falhar. Comparar contra a própria função é o que discrimina.
+        expect(t.texto()).not.toContain(formatBRL(0))
         t.desmontar()
     })
 

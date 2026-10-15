@@ -117,6 +117,8 @@ export interface TimelineEntry {
 export async function carregarHistoricoDoCliente(
     customerId: string,
     employeeMap: Map<string, string>,
+    /** PARÂMETRO, nunca o relógio: é contra ele que o bloco de parcelas decide "VENCIDA". */
+    hoje: string,
     sinal?: { cancelled: boolean },
 ): Promise<TimelineEntry[] | null> {
         const [histRes, attachRes, budgetRes, salesRes, ordersRes] = await Promise.all([
@@ -430,6 +432,7 @@ export async function carregarHistoricoDoCliente(
                     cashEntries: cashEntriesByOrigin[s.id] || [],
                     products: (saleItemsBySale[s.id] || []).map((si) => si.products).filter(naoNulo),
                     services: (saleItemsBySale[s.id] || []).map((si) => si.services).filter(naoNulo),
+                    hoje,
                 }),
             })
         }
@@ -488,6 +491,43 @@ export async function carregarHistoricoDoCliente(
 
         entries.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
         return entries
+}
+
+/**
+ * O SELO DA PARCELA — e ele passou a distinguir VENCIDA de "em aberto".
+ *
+ * Até aqui havia só `liquidada: boolean`, e os dois estados caíam no mesmo laranja "Em
+ * aberto". Uma parcela vencida há 120 dias e uma que vence amanhã são a mesma frase para
+ * quem lê, e é justamente a diferença que faz alguém agir.
+ *
+ * O estado vem do classificador de `parcelas-do-cliente.ts` — o MESMO da lista de Clientes.
+ */
+const SELO_DA_PARCELA: Record<string, { cor: string; rotulo: string }> = {
+    PAGA: { cor: 'green', rotulo: 'Paga' },
+    VENCIDA: { cor: 'red', rotulo: 'Vencida' },
+    A_VENCER: { cor: 'orange', rotulo: 'Em aberto' },
+    SEM_VENCIMENTO: { cor: 'default', rotulo: 'Sem vencimento' },
+}
+
+/** O dia em `dd/mm`, para o "PAGA em dd/mm". */
+function diaCurto(iso: string): string {
+    const [, m, d] = iso.split('-')
+    return `${d}/${m}`
+}
+
+/**
+ * O rótulo do selo.
+ *
+ * `paid_date` era LIDO e DESCARTADO: o detalhe sabia a data do pagamento e exibia só
+ * "Liquidada". Agora ela aparece — "Paga em 02/07" responde a pergunta que "Liquidada" só
+ * levanta.
+ */
+function rotuloDaParcela(p: { estado: string; pagaEm: string | null; diasDeAtraso: number | null }): string {
+    if (p.estado === 'PAGA' && p.pagaEm) return `Paga em ${diaCurto(p.pagaEm)}`
+    if (p.estado === 'VENCIDA' && p.diasDeAtraso !== null) {
+        return p.diasDeAtraso === 1 ? 'Vencida há 1 dia' : `Vencida há ${p.diasDeAtraso} dias`
+    }
+    return SELO_DA_PARCELA[p.estado]?.rotulo ?? p.estado
 }
 
 /** Os cinco grupos do histórico, na ordem em que o Drawer os exibia. */
@@ -696,8 +736,8 @@ export function HistoricoDoCliente({ entries, expandidoId, aoAlternar, maxHeight
                                                                             </span>
                                                                             <span>
                                                                                 {brl(p.valor)}{' '}
-                                                                                <Tag color={p.liquidada ? 'green' : 'orange'}>
-                                                                                    {p.liquidada ? 'Liquidada' : 'Em aberto'}
+                                                                                <Tag color={SELO_DA_PARCELA[p.estado].cor}>
+                                                                                    {rotuloDaParcela(p)}
                                                                                 </Tag>
                                                                             </span>
                                                                         </div>
