@@ -1,0 +1,296 @@
+/**
+ * PORTÃO 2 — CLIENTES SAI DE CADASTROS E VIRA SEÇÃO PRÓPRIA, NOS DOIS LADOS.
+ *
+ * E "nos dois lados" é a regra, não o acabamento: mover no MENU e esquecer o grupo de
+ * Permissões de Acesso deixa o usuário sem achar, na tela que concede o acesso, a seção que
+ * ele vê na barra lateral. `cascata-lucro-real.md`, Parte 4, chama essa paridade de
+ * inviolável, e é ela que este portão exerce.
+ *
+ * O ponto que a varredura do rótulo "Itens" NÃO achou, porque não contém a palavra "Itens":
+ * `funcionarios/index.tsx` agrupa `customers` dentro de `'Cadastros'`. Tirar Clientes de
+ * CADASTROS no menu obriga a tirar daquele grupo NO MESMO COMMIT.
+ *
+ * ══ TRÊS VOCABULÁRIOS DE SEÇÃO, E POR ISSO A TABELA É EXPLÍCITA ══════════════════════════
+ *
+ * As três estruturas nomeiam seção de formas diferentes, e exigir string idêntica seria
+ * afirmar uma uniformidade que não existe:
+ *
+ * | onde | como |
+ * |---|---|
+ * | `nav.component.tsx` | chave minúscula (`cadastros`) + rótulo à parte (`'Cadastros'`) |
+ * | `mobile-more-drawer.component.tsx` | a string direto no item (`section: 'Cadastros'`) |
+ * | `funcionarios/index.tsx` | `title` do grupo (`'Cadastros'`) |
+ *
+ * E elas já divergem de propósito num ponto: o nav tem `geral` com rótulo VAZIO, o drawer
+ * chama de `'Início'`, e as permissões de `'Geral'`. A tabela `SECAO_DO_NAV_PARA_GRUPO`
+ * registra a correspondência em vez de a inferir.
+ *
+ * ══ E O QUE O SUPER ADMIN VÊ, QUE ATÉ AGORA NÃO TINHA PORTÃO NENHUM ═════════════════════
+ *
+ * `sectionsToHideForSuperAdmin` esconde seções INTEIRAS de um perfil, e nada afirmava quais.
+ * Uma seção podia sumir para o super admin e ninguém notaria. O último bloco deste arquivo
+ * afirma, seção por seção, se ela é escondida ou não — e CLIENTES fica de fora da lista de
+ * propósito: ver o bloco.
+ */
+
+import fs from 'fs'
+import path from 'path'
+
+import { MODULES } from '@/hooks/use-permissions.hook'
+import { ROUTES } from '@/constants/routes'
+import { MODULE_LABELS } from '@/constants/module-labels'
+
+const RAIZ = path.resolve(__dirname, '../../..')
+const ler = (rel: string) => fs.readFileSync(path.join(RAIZ, rel), 'utf8')
+
+const NAV = 'src/components/layout/nav.component.tsx'
+const DRAWER = 'src/components/layout/mobile-more-drawer.component.tsx'
+const PERMISSOES = 'src/pages/funcionarios/index.tsx'
+
+/** A seção do nav → o `title` do grupo em Permissões. Correspondência DECLARADA. */
+const SECAO_DO_NAV_PARA_GRUPO: Record<string, string> = {
+  geral: 'Geral',
+  cadastros: 'Cadastros',
+  clientes: 'Clientes',
+  comercial: 'Comercial',
+  financeiro: 'Financeiro',
+  agendamentos: 'Agendamentos',
+  operacional: 'Operacional',
+}
+
+function corpo(texto: string, marcador: string, abre: '{' | '[') {
+  const fecha = abre === '{' ? '}' : ']'
+  const i = texto.indexOf(marcador)
+  if (i < 0) return ''
+  const igual = texto.indexOf('=', i)
+  const ini = texto.indexOf(abre, igual)
+  if (ini < 0) return ''
+  let d = 0
+  for (let j = ini; j < texto.length; j++) {
+    if (texto[j] === abre) d++
+    else if (texto[j] === fecha) { d--; if (d === 0) return texto.slice(ini, j + 1) }
+  }
+  return ''
+}
+
+/** `MODULES.X` → seção, lido do arquivo do menu. Um módulo mora em UMA seção só. */
+function secaoPorModuloDoNav(): Record<string, string> {
+  const texto = ler(NAV)
+  const bloco = texto.slice(texto.indexOf('const navigationItems'), texto.indexOf('const sections:'))
+  const fora: Record<string, string> = {}
+  for (const m of bloco.matchAll(/key:\s*'[^']+'/g)) {
+    const trecho = bloco.slice(m.index ?? 0, (m.index ?? 0) + 500)
+    const sec = /section:\s*'([^']+)'/.exec(trecho)
+    const mod = /module:\s*MODULES\.([A-Z_]+)/.exec(trecho)
+    if (!sec || !mod) continue
+    const chave = (MODULES as Record<string, string>)[mod[1]]
+    if (chave) fora[chave] = sec[1]
+  }
+  return fora
+}
+
+/** `MODULES.X` → seção, lido do drawer mobile, que usa a string direto. */
+function secaoPorModuloDoDrawer(): Record<string, string> {
+  const fora: Record<string, string> = {}
+  for (const m of ler(DRAWER).matchAll(/key:\s*'[^']+'[^\n]*/g)) {
+    const sec = /section:\s*'([^']+)'/.exec(m[0])
+    const mod = /module:\s*MODULES\.([A-Z_]+)/.exec(m[0])
+    if (!sec || !mod) continue
+    const chave = (MODULES as Record<string, string>)[mod[1]]
+    if (chave) fora[chave] = sec[1]
+  }
+  return fora
+}
+
+/** `title` do grupo → chaves, lido de `PERMISSION_SECTIONS`. */
+function gruposDasPermissoes(): Record<string, string[]> {
+  const bloco = corpo(ler(PERMISSOES), 'const PERMISSION_SECTIONS', '[')
+  const fora: Record<string, string[]> = {}
+  for (const m of bloco.matchAll(/title:\s*'([^']+)'\s*,\s*modules:\s*\[([^\]]*)\]/g)) {
+    fora[m[1]] = [...m[2].matchAll(/'([a-z_0-9]+)'/g)].map((x) => x[1])
+  }
+  return fora
+}
+
+function grupoPorModulo(): Record<string, string> {
+  const fora: Record<string, string> = {}
+  for (const [titulo, chaves] of Object.entries(gruposDasPermissoes())) {
+    for (const c of chaves) fora[c] = titulo
+  }
+  return fora
+}
+
+/** As seções escondidas do super admin, lidas da lista do nav. */
+function escondidasDoSuperAdmin(): string[] {
+  // `'const sectionsToHideForSuperAdmin'` por extenso: o marcador curto `'const sections'`
+  // casaria com ESTA mesma linha ao procurar a lista de seções, e já produziu leitura do
+  // array errado nesta campanha — `instrumento-que-nao-enxerga.md`.
+  const b = corpo(ler(NAV), 'const sectionsToHideForSuperAdmin', '[')
+  return [...b.matchAll(/'([a-z]+)'/g)].map((m) => m[1])
+}
+
+/** As seções declaradas, na ordem em que o menu as renderiza. */
+function secoesDoNav(): { key: string; label: string }[] {
+  const b = corpo(ler(NAV), 'const sections:', '[')
+  return [...b.matchAll(/key:\s*'([a-z]+)'\s*,\s*label:\s*'([^']*)'/g)].map((m) => ({ key: m[1], label: m[2] }))
+}
+
+describe('PORTÃO 2 (a) — a leitura alcança as três estruturas', () => {
+  // Sem esta guarda, um padrão que deixasse de casar devolveria mapas vazios e toda a
+  // paridade abaixo passaria VERDE sem ter comparado nada.
+  it('o menu desktop entrega mais de 15 módulos com seção', () => {
+    expect(Object.keys(secaoPorModuloDoNav()).length).toBeGreaterThan(15)
+  })
+  it('o drawer mobile entrega mais de 15 módulos com seção', () => {
+    expect(Object.keys(secaoPorModuloDoDrawer()).length).toBeGreaterThan(15)
+  })
+  it('as permissões entregam mais de 15 módulos com grupo', () => {
+    expect(Object.keys(grupoPorModulo()).length).toBeGreaterThan(15)
+  })
+})
+
+describe('PORTÃO 2 (b) — Clientes tem seção PRÓPRIA no menu', () => {
+  it('no desktop, customers saiu de cadastros', () => {
+    expect(secaoPorModuloDoNav()[MODULES.CUSTOMERS]).toBe('clientes')
+  })
+
+  it('a seção existe na lista de seções, com rótulo', () => {
+    expect(secoesDoNav()).toContainEqual({ key: 'clientes', label: 'Clientes' })
+  })
+
+  it('no drawer mobile, customers saiu de Cadastros', () => {
+    expect(secaoPorModuloDoDrawer()[MODULES.CUSTOMERS]).toBe('Clientes')
+  })
+
+  it('nenhum outro módulo foi arrastado para a seção nova', () => {
+    const doNav = Object.entries(secaoPorModuloDoNav()).filter(([, s]) => s === 'clientes')
+    expect(doNav.map(([m]) => m)).toEqual([MODULES.CUSTOMERS])
+  })
+})
+
+describe('PORTÃO 2 (c) — e o grupo de Permissões acompanhou, no MESMO commit', () => {
+  it('existe um grupo só de Clientes', () => {
+    expect(gruposDasPermissoes()['Clientes']).toEqual(['customers'])
+  })
+
+  it("'Cadastros' não tem mais customers", () => {
+    expect(gruposDasPermissoes()['Cadastros']).not.toContain('customers')
+  })
+
+  it('e Cadastros continua com os outros cinco, na ordem', () => {
+    // O que NÃO muda importa tanto quanto o que muda: mover um só é o defeito.
+    expect(gruposDasPermissoes()['Cadastros']).toEqual([
+      'items', 'products', 'services', 'stock', 'employees',
+    ])
+  })
+})
+
+describe('PORTÃO 2 (d) — PARIDADE: mover num lado e esquecer o outro fica VERMELHO', () => {
+  it('todo módulo do menu tem rótulo na fonte única', () => {
+    const semRotulo = Object.keys(secaoPorModuloDoNav()).filter((m) => !MODULE_LABELS[m])
+    expect(semRotulo).toEqual([])
+  })
+
+  it('todo módulo do menu está em algum grupo de Permissões', () => {
+    const grupos = grupoPorModulo()
+    expect(Object.keys(secaoPorModuloDoNav()).filter((m) => !grupos[m])).toEqual([])
+  })
+
+  it('nenhum grupo de Permissões tem módulo que o menu não tenha', () => {
+    const doNav = Object.keys(secaoPorModuloDoNav())
+    expect(Object.keys(grupoPorModulo()).filter((m) => !doNav.includes(m))).toEqual([])
+  })
+
+  it('>>> a SEÇÃO do menu corresponde ao GRUPO das permissões, módulo a módulo <<<', () => {
+    const doNav = secaoPorModuloDoNav()
+    const grupos = grupoPorModulo()
+    const divergentes: { modulo: string; secaoDoMenu: string; grupoEsperado: string; grupoReal: string }[] = []
+    for (const [modulo, secao] of Object.entries(doNav)) {
+      const esperado = SECAO_DO_NAV_PARA_GRUPO[secao]
+      if (!esperado) continue // seção sem correspondente declarado (superadmin) fica fora
+      if (grupos[modulo] !== esperado) {
+        divergentes.push({ modulo, secaoDoMenu: secao, grupoEsperado: esperado, grupoReal: grupos[modulo] })
+      }
+    }
+    expect(divergentes).toEqual([])
+  })
+
+  it('e o drawer mobile concorda com o desktop, seção por seção', () => {
+    const desk = secaoPorModuloDoNav()
+    const mob = secaoPorModuloDoDrawer()
+    const divergentes: { modulo: string; desktop: string; mobile: string }[] = []
+    for (const [modulo, secao] of Object.entries(desk)) {
+      if (!(modulo in mob)) continue
+      const esperado = SECAO_DO_NAV_PARA_GRUPO[secao]
+      if (!esperado) continue
+      // `Início` no drawer é a faixa de ATALHOS do topo (Home, Caixa, Fluxo de Caixa), não
+      // uma seção de módulo — por isso não entra na correspondência.
+      if (mob[modulo] === 'Início') continue
+      if (mob[modulo] !== esperado) divergentes.push({ modulo, desktop: esperado, mobile: mob[modulo] })
+    }
+    expect(divergentes).toEqual([])
+  })
+})
+
+describe('PORTÃO 2 (e) — o que o SUPER ADMIN vê, seção por seção', () => {
+  /*
+    ATÉ AQUI ESTE COMPORTAMENTO NÃO TINHA PORTÃO NENHUM. `sectionsToHideForSuperAdmin`
+    (`nav.component.tsx`) remove do menu, por SEÇÃO, todo item cujo `section` esteja na
+    lista — e nada afirmava quais estavam. Uma seção podia sumir para um perfil e ninguém
+    notaria, que é `ausente-vs-falso.md` na visibilidade: a ausência não reclama.
+
+    O comentário do próprio arquivo diz a razão da lista: são as "abas de usuário", as seções
+    de tenant. `superadmin` é a única seção fora dela, e é a dele.
+  */
+  const ESPERADO: Record<string, boolean> = {
+    geral: true,
+    cadastros: true,
+    // >>> CLIENTES NÃO É ESCONDIDA, E ISSO MUDA O COMPORTAMENTO ATUAL <<<
+    // Ela não "voltou" a aparecer: o super admin NUNCA viu Clientes, porque o item morava em
+    // `cadastros`, que está na lista. Ao virar seção própria, Clientes herdaria a ocultação —
+    // e herança não é decisão. Decidido em 15/10/2026: Clientes é a seção de CONSULTA, e o
+    // super admin é exatamente quem precisa dela. É mudança deliberada de produto, não
+    // restauração.
+    clientes: false,
+    comercial: true,
+    financeiro: true,
+    agendamentos: true,
+    operacional: true,
+    superadmin: false,
+  }
+
+  it('a lista é lida de verdade — senão todos os casos abaixo passariam vazios', () => {
+    expect(escondidasDoSuperAdmin().length).toBeGreaterThan(3)
+  })
+
+  it('toda seção declarada está classificada aqui, e vice-versa', () => {
+    // Impede que uma seção nova entre no menu sem que alguém decida se o super admin a vê.
+    expect(secoesDoNav().map((s) => s.key).sort()).toEqual(Object.keys(ESPERADO).sort())
+  })
+
+  it.each(Object.entries(ESPERADO))('a seção %s é escondida do super admin? %s', (secao, escondida) => {
+    expect(escondidasDoSuperAdmin().includes(secao)).toBe(escondida)
+  })
+
+  it('o filtro é por SEÇÃO, e é assim que ele esconde', () => {
+    // A linha que aplica a lista. Se alguém trocar por um filtro por ITEM, os casos acima
+    // continuariam verdes afirmando uma lista que não governa mais nada.
+    expect(ler(NAV)).toContain('isSuperAdmin && item.section && sectionsToHideForSuperAdmin.includes(item.section)')
+  })
+})
+
+describe('PORTÃO 2 (f) — o que NÃO muda', () => {
+  it('a rota de Clientes continua a mesma', () => {
+    expect(ROUTES.CLIENTS).toBe('/clientes')
+  })
+
+  it("MODULES.CUSTOMERS continua 'customers' — está gravado em user_module_permissions", () => {
+    // 3 linhas com module='customers' medidas em produção em 13/10/2026.
+    expect(MODULES.CUSTOMERS).toBe('customers')
+  })
+
+  it('o rótulo do item de menu continua "Clientes" — a SEÇÃO é que é nova', () => {
+    expect(ler(NAV)).toMatch(/key:\s*'clients',\s*label:\s*'Clientes'/)
+    expect(MODULE_LABELS.customers).toBe('Clientes')
+  })
+})

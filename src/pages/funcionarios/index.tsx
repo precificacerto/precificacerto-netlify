@@ -62,8 +62,12 @@ const PERMISSION_SECTIONS: { title: string; modules: ModuloRotulavel[] }[] = [
     { title: 'Geral', modules: ['home'] },
     {
         title: 'Cadastros',
-        modules: ['items', 'products', 'services', 'stock', 'customers', 'employees'],
+        modules: ['items', 'products', 'services', 'stock', 'employees'],
     },
+    // CLIENTES saiu de Cadastros no MESMO commit em que saiu no menu. Mover um lado só
+    // deixaria o usuário sem achar aqui a seção que ele vê na barra lateral — a paridade
+    // menu ↔ permissões que `cascata-lucro-real.md`, Parte 4, chama de inviolável.
+    { title: 'Clientes', modules: ['customers'] },
     {
         title: 'Comercial',
         modules: ['budgets', 'orders', 'sales', 'sales_report', 'commissions_report', 'recurrence'],

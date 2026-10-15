@@ -193,7 +193,23 @@ describe('1. MENU DESKTOP — a seção existe, POVOADA, e no lugar certo', () =
   })
 
   it('a ordem completa dos cabeçalhos é a do comando', () => {
-    expect(ordem).toEqual(['Cadastros', 'Comercial', 'Financeiro', 'Agendamentos', 'Operacional'])
+    /*
+      "CLIENTES" ENTROU EM 15/10/2026, entre Cadastros e Comercial.
+
+      Esta asserção NÃO cegou como as duas de extração da etapa anterior: ela afirmava a
+      ordem correta sob a regra da época, e a regra mudou — Clientes deixou de ser item de
+      Cadastros e virou seção própria, porque a ficha do cliente tem cabeçalho de indicadores
+      e abas. `decisao-sob-regra-da-epoca.md`: datar antes de nomear, e o valor antigo não
+      era defeito.
+
+      A ordem segue afirmada por extenso de propósito. Afirmar só a presença deixaria a seção
+      nova entrar no fim da lista sem vermelho, e a posição é o que faz o usuário achar
+      Clientes onde ele espera — a mesma razão de `>>> "Agendamentos" vem DEPOIS de
+      "Financeiro" <<<` acima.
+    */
+    expect(ordem).toEqual([
+      'Cadastros', 'Clientes', 'Comercial', 'Financeiro', 'Agendamentos', 'Operacional',
+    ])
   })
 
   it('NENHUMA rota mudou — os dois itens apontam para onde apontavam', () => {
