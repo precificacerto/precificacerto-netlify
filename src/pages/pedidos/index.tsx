@@ -70,30 +70,15 @@ import { aggregateMotorResults } from '@/utils/mrm-aggregate'
 import { RROWarningModal } from '@/components/mrm/RROWarningModal'
 import { RequiresReviewBadge } from '@/components/mrm/RequiresReviewBadge'
 import { PAGE_SIZE } from '@/constants/pagination'
+import { METODOS_DE_PAGAMENTO_PEDIDO as PAYMENT_METHODS } from '@/constants/metodos-de-pagamento'
+import { STATUS_DO_PEDIDO as STATUS_CONFIG } from '@/constants/status-do-pedido'
+import { ListaDePedidos, type Order } from '@/page-parts/shared/lista-de-pedidos.component'
 
 const { Text } = Typography
 
 const formatCurrency = formatBRL
 
-const STATUS_CONFIG: Record<string, { color: string; label: string }> = {
-    DRAFT: { color: 'default', label: 'Rascunho' },
-    AWAITING_PAYMENT: { color: 'processing', label: 'Aguardando pagamento' },
-    SENT_TO_SALE: { color: 'warning', label: 'Aguardando aprovação' },
-    PAID: { color: 'green', label: '✅ Pago' },
-    CANCELLED: { color: 'red', label: 'Cancelado' },
-}
 
-const PAYMENT_METHODS = [
-    { value: 'PIX', label: '⚡ PIX' },
-    { value: 'DINHEIRO', label: '💵 Dinheiro' },
-    { value: 'CARTAO_CREDITO', label: '💳 Cartão de Crédito' },
-    { value: 'CARTAO_DEBITO', label: '💳 Cartão de Débito' },
-    { value: 'BOLETO', label: '📄 Boleto' },
-    { value: 'TRANSFERENCIA', label: '🏦 Transferência' },
-    { value: 'CHEQUE', label: '🧾 Cheque' },
-    { value: 'CHEQUE_PRE_DATADO', label: '🗓️ Cheque Pré-datado' },
-    { value: 'LANCAMENTOS_A_RECEBER', label: '📋 Lançamentos a Receber' },
-]
 
 interface OrderItemRow {
     id?: string
@@ -126,38 +111,6 @@ interface OrderItemRow {
     accessories_allocated_value?: number | null
 }
 
-interface Order {
-    id: string
-    tenant_id: string
-    order_code: string
-    customer_id: string
-    employee_id?: string | null
-    budget_id?: string | null
-    sale_id?: string | null
-    status: string
-    total_value: number
-    // D5: consolidados do pedido (espelham budgets/sales). `rt_amount` é a alíquota
-    // efetiva de RT congelada em R$ sobre o total pós-desconto (EPIC-RT v8).
-    commission_amount?: number | null
-    profit_amount?: number | null
-    rt_amount?: number | null
-    discount_mode?: string | null
-    discount_value?: number | null
-    discount_percent?: number | null
-    payment_method?: string | null
-    installments?: number | null
-    entry_value?: number | null
-    notes?: string | null
-    created_at: string
-    updated_at: string
-    customer_name?: string
-    employee_name?: string
-    budget_code?: string
-    budget_status?: string | null
-    items_count?: number
-    // MRM S2.3: flag setada pela camada mrm-policies quando RRO ≤ 0 em orders.
-    requires_review?: boolean
-}
 
 // Editor de parcelas customizadas (datas + valores) — usado quando o método de pagamento
 // é BOLETO ou CHEQUE_PRE_DATADO. Permite adicionar, editar e remover parcelas.
@@ -1624,129 +1577,6 @@ function OrdersPage() {
     const draftCount = useMemo(() => filteredOrders.filter((o) => o.status === 'DRAFT').length, [filteredOrders])
     const awaitingCount = useMemo(() => filteredOrders.filter((o) => o.status === 'AWAITING_PAYMENT').length, [filteredOrders])
 
-    const columns: ColumnsType<Order> = [
-        {
-            title: 'Código',
-            dataIndex: 'order_code',
-            key: 'order_code',
-            width: 120,
-            ellipsis: true,
-            render: (v: string) => <Tag color="blue">{v}</Tag>,
-        },
-        {
-            title: 'Cliente',
-            dataIndex: 'customer_name',
-            key: 'customer_name',
-            ellipsis: true,
-            sorter: (a, b) => (a.customer_name || '').localeCompare(b.customer_name || ''),
-        },
-        {
-            title: 'Vendedor',
-            dataIndex: 'employee_name',
-            key: 'employee_name',
-            ellipsis: true,
-            responsive: ['md'],
-            sorter: (a, b) => (a.employee_name || '').localeCompare(b.employee_name || ''),
-        },
-        {
-            title: 'Status',
-            dataIndex: 'status',
-            key: 'status',
-            width: 200,
-            ellipsis: true,
-            render: (s: string, record: Order) => {
-                const cfg = STATUS_CONFIG[s] || { color: 'default', label: s }
-                return (
-                    <span>
-                        <Tag color={cfg.color}>{cfg.label}</Tag>
-                        {/* MRM S2.3 — badge "Requer revisão" quando policy marcou RRO ≤ 0 */}
-                        {record.requires_review === true && <RequiresReviewBadge />}
-                    </span>
-                )
-            },
-        },
-        {
-            title: 'Valor total',
-            dataIndex: 'total_value',
-            key: 'total_value',
-            width: 130,
-            align: 'right',
-            render: (v: number) => <strong>{formatCurrency(v)}</strong>,
-            sorter: (a, b) => (a.total_value || 0) - (b.total_value || 0),
-        },
-        {
-            title: 'Pagamento',
-            dataIndex: 'payment_method',
-            key: 'payment_method',
-            width: 150,
-            ellipsis: true,
-            responsive: ['lg'],
-            render: (v: string) => {
-                const pm = PAYMENT_METHODS.find((p) => p.value === v)
-                return pm ? <Tag>{pm.label}</Tag> : '—'
-            },
-        },
-        {
-            title: 'Ações',
-            key: 'actions',
-            width: 170,
-            align: 'center',
-            render: (_, record) => {
-                // Pedido é "editável/reenviável" quando ainda não foi para venda OU
-                // quando o orçamento espelho foi rejeitado/expirado/cancelado.
-                const budgetBlocked = record.budget_status && ['REJECTED', 'EXPIRED', 'CANCELLED'].includes(record.budget_status)
-                const canModify = record.status !== 'SENT_TO_SALE' || budgetBlocked
-                // Doc 29/07 (item 2.1.2): registro já evoluído (aguardando aprovação sem bloqueio, ou pago) → só "Ver".
-                const isEvolved = (record.status === 'SENT_TO_SALE' && !budgetBlocked) || record.status === 'PAID'
-                if (isEvolved) {
-                    return (
-                        <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => handleViewOrder(record)}>
-                            Ver
-                        </Button>
-                    )
-                }
-                return (
-                <Space direction="vertical" size={2}>
-                    <Button
-                        type="link"
-                        size="small"
-                        icon={<EditOutlined />}
-                        onClick={() => handleEdit(record)}
-                        disabled={!canEditOrders || !canModify}
-                    >
-                        Editar
-                    </Button>
-                    {(record.status === 'DRAFT' || record.status === 'AWAITING_PAYMENT' || (record.status === 'SENT_TO_SALE' && budgetBlocked)) && (
-                        <Button
-                            type="link"
-                            size="small"
-                            icon={<ShoppingCartOutlined />}
-                            style={{ color: '#12B76A' }}
-                            onClick={() => handleOpenSendToSale(record)}
-                            disabled={!canEditOrders}
-                        >
-                            Enviar para Aprovação
-                        </Button>
-                    )}
-                    {record.status !== 'CANCELLED' && (
-                        // Doc 29/07 (item 1.2.1): "Excluir" → "Cancelar pedido" (volta a Orçamento).
-                        <Button
-                            type="link"
-                            size="small"
-                            danger
-                            icon={<DeleteOutlined />}
-                            disabled={!canEditOrders}
-                            onClick={() => confirmDeleteOrder(record)}
-                        >
-                            Cancelar pedido
-                        </Button>
-                    )}
-                </Space>
-                )
-            },
-        },
-    ]
-
     if (!canViewOrders) {
         return (
             <Layout title={PAGE_TITLES.ORDERS || 'Pedidos'}>
@@ -1874,77 +1704,20 @@ function OrdersPage() {
             </Space>
 
             <div className="orders-table-wrap">
-                {isMobile ? (
-                    <div className="pc-row-compact-list">
-                        {filteredOrders.length === 0 ? (
-                            <Empty description="Nenhum pedido em aberto" />
-                        ) : (
-                            filteredOrders.map((r: Order) => {
-                                const cfg = STATUS_CONFIG[r.status] || { color: 'default', label: r.status }
-                                const dataFmt = new Date(r.created_at).toLocaleDateString('pt-BR')
-                                const budgetBlocked = r.budget_status && ['REJECTED', 'EXPIRED', 'CANCELLED'].includes(r.budget_status)
-                                const canModify = r.status !== 'SENT_TO_SALE' || !!budgetBlocked
-                                const canSendApproval = r.status === 'DRAFT' || r.status === 'AWAITING_PAYMENT' || (r.status === 'SENT_TO_SALE' && !!budgetBlocked)
-                                const canDelete = r.status !== 'CANCELLED'
-                                // Doc 29/07 (itens 1.2.4 / 1.2.7): pedido já evoluído (aguardando aprovação sem bloqueio, ou pago) só permite "Ver".
-                                const isEvolved = (r.status === 'SENT_TO_SALE' && !budgetBlocked) || r.status === 'PAID'
-                                const canCancel = canDelete && !isEvolved
-                                const showActions = !isEvolved && (canSendApproval || canModify)
-                                // ⋮: "Ver" sempre; "Cancelar pedido" (excluir renomeado, volta a Orçamento) só quando não evoluído. Item 1.2.1.
-                                const kebabItems: any[] = [
-                                    { key: 'view', label: 'Ver', onClick: (info: any) => { info?.domEvent?.stopPropagation?.(); handleViewOrder(r) } },
-                                ]
-                                if (canCancel) {
-                                    // Item 1.3 (Relatório 03/08): "Cancelar pedido" abre o popup de confirmação
-                                    // DIRETO sobre a lista. stopPropagation evita que o clique borbulhe para
-                                    // `openRow` e abra o drawer de edição por trás do modal.
-                                    kebabItems.push({ key: 'cancel', label: 'Cancelar pedido', danger: true, disabled: !canEditOrders, onClick: (info: any) => { info?.domEvent?.stopPropagation?.(); if (canEditOrders) confirmDeleteOrder(r) } })
-                                }
-                                const openRow = () => { if (isEvolved) { handleViewOrder(r) } else if (canEditOrders && canModify) { handleEdit(r) } }
-                                return (
-                                    <React.Fragment key={r.id}>
-                                        <div
-                                            className={showActions ? 'pc-row-compact pc-row-compact--has-actions' : 'pc-row-compact'}
-                                            onClick={openRow}
-                                        >
-                                            <div className="pc-row-compact__main">
-                                                <span className="pc-row-compact__title">{r.customer_name || 'Sem cliente'}</span>
-                                                <span className="pc-row-compact__sub">{r.order_code} · {dataFmt} · {cfg.label}</span>
-                                            </div>
-                                            <span className="pc-row-compact__value">{formatCurrency(Number(r.total_value || 0))}</span>
-                                            <Dropdown menu={{ items: kebabItems }} trigger={['click']} placement="bottomRight" open={openKebabId === r.id} onOpenChange={(o) => setOpenKebabId(o ? r.id : null)}>
-                                                <span className="pc-row-compact__kebab" onClick={(e) => e.stopPropagation()}><MoreOutlined /></span>
-                                            </Dropdown>
-                                        </div>
-                                        {showActions && (
-                                            <div className="pc-row-compact__actions" onClick={(e) => e.stopPropagation()}>
-                                                {/* Doc 29/07 (item 1.2.1): card mostra "Editar"; excluir foi p/ o ⋮ como "Cancelar pedido". */}
-                                                {canModify && (
-                                                    <Button size="small" disabled={!canEditOrders} onClick={(e) => { e.stopPropagation(); handleEdit(r) }}>Editar</Button>
-                                                )}
-                                                {canSendApproval && (
-                                                    <Button size="small" type="primary" disabled={!canEditOrders} onClick={(e) => { e.stopPropagation(); handleOpenSendToSale(r) }}>Enviar para Aprovação</Button>
-                                                )}
-                                            </div>
-                                        )}
-                                    </React.Fragment>
-                                )
-                            })
-                        )}
-                    </div>
-                ) : (
-                    <Table
-                        rowKey="id"
-                        columns={columns}
-                        dataSource={filteredOrders}
-                        loading={loading}
-                        size="small"
-                        tableLayout="fixed"
-                        scroll={{ x: 'max-content' }}
-                        pagination={{ pageSize: PAGE_SIZE, showSizeChanger: true }}
-                        locale={{ emptyText: <Empty description="Nenhum pedido em aberto" /> }}
-                    />
-                )}
+                {/* A lista — os DOIS ramos, desktop e mobile, vivem no componente. A página
+                    segue dona do pipeline de filtros: `filteredOrders` entra pronto, e os
+                    contadores (`totalValue`, `draftCount`, `awaitingCount`, o CardKPI)
+                    continuam lendo o mesmo array aqui. */}
+                <ListaDePedidos
+                    rows={filteredOrders}
+                    estado={{ carregando: loading }}
+                    actions={{
+                        onVer: handleViewOrder,
+                        onEditar: handleEdit,
+                        onEnviarParaAprovacao: handleOpenSendToSale,
+                        onCancelar: confirmDeleteOrder,
+                    }}
+                />
             </div>
 
             {/* Edit drawer */}

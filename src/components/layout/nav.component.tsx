@@ -104,12 +104,12 @@ const Nav = () => {
 
   const navigationItems: NavItemConfig[] = [
     { key: 'home', label: 'Home', icon: 'dashboard', href: ROUTES.DASHBOARD, section: 'geral', module: MODULES.HOME },
-    { key: 'items', label: 'Itens', icon: 'unordered-list', href: ROUTES.ITEMS, section: 'cadastros', module: MODULES.ITEMS },
+    { key: 'items', label: 'Custos Itens', icon: 'unordered-list', href: ROUTES.ITEMS, section: 'cadastros', module: MODULES.ITEMS },
     { key: 'products', label: 'Produtos', icon: 'appstore', href: ROUTES.PRODUCTS, section: 'cadastros', module: MODULES.PRODUCTS },
     { key: 'services', label: 'Serviços', icon: 'tool', href: ROUTES.SERVICES, section: 'cadastros', module: MODULES.SERVICES },
     { key: 'stock', label: 'Estoque', icon: 'database', href: ROUTES.STOCK, section: 'cadastros', module: MODULES.STOCK },
     { key: 'production', label: 'Produção', icon: 'tool', href: ROUTES.PRODUCTION, section: 'cadastros', module: MODULES.STOCK, hidden: true },
-    { key: 'clients', label: 'Clientes', icon: 'team', href: ROUTES.CLIENTS, section: 'cadastros', module: MODULES.CUSTOMERS },
+    { key: 'clients', label: 'Clientes', icon: 'team', href: ROUTES.CLIENTS, section: 'clientes', module: MODULES.CUSTOMERS },
     { key: 'employees', label: 'Funcionários', icon: 'idcard', href: ROUTES.EMPLOYEES, section: 'cadastros', adminOnly: true, module: MODULES.EMPLOYEES },
 
     { key: 'budgets', label: 'Orçamentos', icon: 'file-text', href: ROUTES.BUDGETS, section: 'comercial', module: MODULES.BUDGETS },
@@ -160,6 +160,17 @@ const Nav = () => {
   // `agendamentos` entra aqui JUNTO com a criação da seção: esta lista é por SEÇÃO, não por
   // item, e sem ela o super admin passaria a ver Agendamentos — uma aba de usuário que ele
   // nunca viu, porque os dois itens dela estavam em `operacional`, que já está na lista.
+  //
+  // >>> `clientes` NÃO ENTRA, e é o CONTRÁRIO do caso do `agendamentos` acima <<<
+  //
+  // O item de Clientes morava em `cadastros`, que está na lista, então o super admin NUNCA
+  // viu Clientes. Ao virar seção própria em 15/10/2026 ele herdaria a ocultação — e herança
+  // não é decisão. Decidido pelo dono do produto: Clientes é a seção de CONSULTA, e o super
+  // admin é exatamente quem precisa dela.
+  //
+  // Isto MUDA o comportamento atual, não o restaura: a partir daqui o super admin passa a
+  // ver uma seção que ele não via. `clientes-vira-secao-propria.test.ts`, bloco (e), afirma
+  // seção por seção quem é escondido — comportamento que até então não tinha portão nenhum.
   const sectionsToHideForSuperAdmin = ['geral', 'cadastros', 'comercial', 'financeiro', 'agendamentos', 'operacional']
 
   const visibleItems = navigationItems.filter((item) => {
@@ -180,6 +191,11 @@ const Nav = () => {
   const sections: SectionConfig[] = [
     { key: 'geral', label: '', collapsible: false },
     { key: 'cadastros', label: 'Cadastros', collapsible: true },
+    // CLIENTES é seção, não item de Cadastros: a ficha do cliente tem cabeçalho de
+    // indicadores e abas próprias, e um cadastro ao lado de Produtos e Estoque não
+    // comporta isso. A paridade com o grupo 'Clientes' de `funcionarios/index.tsx` é
+    // afirmada por `clientes-vira-secao-propria.test.ts`.
+    { key: 'clientes', label: 'Clientes', collapsible: true },
     { key: 'comercial', label: 'Comercial', collapsible: true },
     { key: 'financeiro', label: 'Financeiro', collapsible: true },
     { key: 'agendamentos', label: 'Agendamentos', collapsible: true },

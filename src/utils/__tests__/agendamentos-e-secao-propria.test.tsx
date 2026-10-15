@@ -193,7 +193,23 @@ describe('1. MENU DESKTOP — a seção existe, POVOADA, e no lugar certo', () =
   })
 
   it('a ordem completa dos cabeçalhos é a do comando', () => {
-    expect(ordem).toEqual(['Cadastros', 'Comercial', 'Financeiro', 'Agendamentos', 'Operacional'])
+    /*
+      "CLIENTES" ENTROU EM 15/10/2026, entre Cadastros e Comercial.
+
+      Esta asserção NÃO cegou como as duas de extração da etapa anterior: ela afirmava a
+      ordem correta sob a regra da época, e a regra mudou — Clientes deixou de ser item de
+      Cadastros e virou seção própria, porque a ficha do cliente tem cabeçalho de indicadores
+      e abas. `decisao-sob-regra-da-epoca.md`: datar antes de nomear, e o valor antigo não
+      era defeito.
+
+      A ordem segue afirmada por extenso de propósito. Afirmar só a presença deixaria a seção
+      nova entrar no fim da lista sem vermelho, e a posição é o que faz o usuário achar
+      Clientes onde ele espera — a mesma razão de `>>> "Agendamentos" vem DEPOIS de
+      "Financeiro" <<<` acima.
+    */
+    expect(ordem).toEqual([
+      'Cadastros', 'Clientes', 'Comercial', 'Financeiro', 'Agendamentos', 'Operacional',
+    ])
   })
 
   it('NENHUMA rota mudou — os dois itens apontam para onde apontavam', () => {
@@ -341,7 +357,16 @@ describe('4. PERMISSÕES — Agenda e Relatório Agenda sob "Agendamentos", ante
       require('path').join(process.cwd(), 'src/pages/funcionarios/index.tsx'), 'utf8')
     const i = src.indexOf('const PERMISSION_SECTIONS')
     const j = src.indexOf('const ALL_PERM_KEYS')
-    const chaves = [...src.slice(i, j).matchAll(/key: '([^']+)'/g)].map((m: string[]) => m[1])
+    /*
+      A EXTRAÇÃO mudou em 14/10/2026; a ASSERÇÃO abaixo não mudou um caractere.
+      `PERMISSION_SECTIONS` deixou de carregar `{ key, label }` e passou a carregar só as
+      CHAVES (`modules: ['items', …]`), porque o rótulo saiu para `constants/module-labels.ts`
+      — havia três cópias dele e elas divergiam. O padrão `key: '…'` parou de enxergar as 21
+      chaves que continuam ali, e o vermelho que ele deu era do INSTRUMENTO, não do conjunto:
+      `instrumento-que-nao-enxerga.md`. A guarda `toBeGreaterThan` do portão vizinho é o que
+      impediu que a cegueira passasse por verde.
+    */
+    const chaves = [...src.slice(i, j).matchAll(/'([a-z_0-9]+)'/g)].map((m: string[]) => m[1])
     expect([...chaves].sort()).toEqual([
       'agenda', 'budgets', 'cash_flow', 'cashier', 'commission', 'commissions_report',
       'connectivity', 'customers', 'dfc', 'employees', 'home', 'items', 'orders', 'products',

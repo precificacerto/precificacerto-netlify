@@ -43,7 +43,9 @@ import { useTenantTaxContext } from '@/hooks/use-tenant-tax-context'
 import { MRM_ENGINE_VERSION, type TaxBreakdown } from '@/types/mrm'
 import { useResidualDistribution } from '@/hooks/use-residual-distribution'
 import { buildBaselineFromSnapshots, detectConfigWarning, type ResidualItemInput } from '@/utils/residual-distribution'
+import { METODOS_DE_PAGAMENTO_VENDA as PAYMENT_METHODS } from '@/constants/metodos-de-pagamento'
 import { PAGE_SIZE } from '@/constants/pagination'
+import { ListaDeVendas, type SaleRow } from '@/page-parts/shared/lista-de-vendas.component'
 import { ResidualDistributionBlock } from '@/page-parts/shared/residual-distribution-block.component'
 import {
     inheritDocumentAccessories,
@@ -98,17 +100,6 @@ import { ACTIVE_OR_NULL_FILTER } from '@/utils/active-record-filter'
 import { RequiresReviewBadge } from '@/components/mrm/RequiresReviewBadge'
 import { SERVICE_TAX_SELECT } from '@/utils/item-tax-columns'
 
-const PAYMENT_METHODS = [
-    { value: 'PIX', label: '⚡ PIX' },
-    { value: 'DINHEIRO', label: '💵 Dinheiro' },
-    { value: 'CARTAO_CREDITO', label: '💳 Cartão de Crédito' },
-    { value: 'CARTAO_DEBITO', label: '💳 Cartão de Débito' },
-    { value: 'BOLETO', label: '📄 Boleto' },
-    { value: 'TRANSFERENCIA', label: '🏦 Transferência' },
-    { value: 'CHEQUE', label: '🧾 Cheque' },
-    { value: 'CHEQUE_PRE_DATADO', label: 'Cheque pré-datado' },
-    { value: 'LANCAMENTOS_A_RECEBER', label: '📋 Lançamentos a Receber' },
-]
 
 const CHEQUE_PRE_DATADO_CONDITIONS = [
     { value: '30', label: '30 dias' },
@@ -117,29 +108,6 @@ const CHEQUE_PRE_DATADO_CONDITIONS = [
     { value: '30_60_90_120', label: '30/60/90/120 dias' },
     { value: '30_60_90_120_150', label: '30/60/90/120/150 dias' },
 ]
-
-interface SaleRow {
-    id: string
-    sale_code: string | null
-    budget_id: string | null
-    productName: string
-    quantity: number
-    unitPrice: number
-    finalValue: number
-    commissionAmount: number
-    customerName: string
-    sellerName: string
-    description: string
-    saleDate: string
-    status: string
-    paymentMethod: string
-    installments: number
-    saleType: string
-    receiptUrl: string | null
-    // MRM S2.3: TRUE quando a venda foi salva com RRO ≤ 0 (caso edge —
-    // venda legada migrada ou tenant override permissive).
-    requiresReview: boolean
-}
 
 interface SaleItemRow {
     key: string
@@ -2760,125 +2728,6 @@ function Sales() {
         }
     }
 
-    const columns: ColumnsType<SaleRow> = [
-        {
-            title: 'Código',
-            key: 'sale_code',
-            width: 120,
-            render: (_, record) => (
-                <span style={{ fontFamily: 'monospace', fontSize: 12, color: '#7A5AF8', fontWeight: 600 }}>
-                    {record.sale_code || '—'}
-                </span>
-            ),
-        },
-        {
-            title: 'Cliente',
-            dataIndex: 'customerName',
-            key: 'customerName',
-        },
-        {
-            title: 'Vendedor',
-            dataIndex: 'sellerName',
-            key: 'sellerName',
-            render: (text: string) => text && text !== '-' ? text : <span style={{ color: '#94a3b8' }}>Sem vendedor</span>,
-        },
-        {
-            title: 'Valor',
-            dataIndex: 'finalValue',
-            key: 'finalValue',
-            align: 'right',
-            sorter: (a, b) => a.finalValue - b.finalValue,
-            render: (v) => <strong style={{ color: '#12B76A' }}>{formatCurrency(v)}</strong>,
-        },
-        {
-            title: 'Pagamento',
-            key: 'payment',
-            render: (_, r) => {
-                const pm = PAYMENT_METHODS.find(p => p.value === r.paymentMethod)
-                return (
-                    <div>
-                        <Tag>{pm?.label || r.paymentMethod}</Tag>
-                        {r.installments > 1 && <Tag color="blue">{r.installments}x</Tag>}
-                    </div>
-                )
-            },
-        },
-        {
-            title: 'Status',
-            key: 'status',
-            width: 200,
-            render: (_, r) => {
-                const statusTag = (r.status === 'AWAITING_PAYMENT' && r.saleType === 'FROM_ORDER')
-                    ? <Tag color="orange">⏳ Aguardando pagamento</Tag>
-                    // Doc 29/07 (item 1.4.2): "Concluído" → "Lançado".
-                    : <Tag color="green">✅ Lançado</Tag>
-                return (
-                    <span>
-                        {statusTag}
-                        {/* MRM S2.3 — badge "Requer revisão" (caso edge: tenant permissive ou venda legada) */}
-                        {r.requiresReview && <RequiresReviewBadge />}
-                    </span>
-                )
-            },
-        },
-        {
-            title: 'Data',
-            dataIndex: 'saleDate',
-            key: 'saleDate',
-            width: 100,
-            sorter: (a, b) => new Date(a.saleDate).getTime() - new Date(b.saleDate).getTime(),
-            defaultSortOrder: 'descend',
-            render: (d) => d ? new Date(d).toLocaleDateString('pt-BR') : '-',
-        },
-        {
-            title: 'Ações',
-            key: 'action',
-            width: 160,
-            render: (_, record) => (
-                <Space direction="vertical" size={2}>
-                    <Button type="link" size="small" onClick={() => handleViewDetail(record)}>Ver</Button>
-                    {record.status === 'AWAITING_PAYMENT' && record.saleType === 'FROM_ORDER' && (
-                        <Button
-                            type="link"
-                            size="small"
-                            style={{ color: '#12B76A' }}
-                            onClick={() => handleOpenOrderPaymentModal(record)}
-                        >
-                            Lançar pagamento
-                        </Button>
-                    )}
-                    <Tooltip title={TOOLTIP_CANCELAR}>
-                        <Button type="link" size="small" danger onClick={() => confirmCancelSale(record)}>
-                            Cancelar
-                        </Button>
-                    </Tooltip>
-                    {(() => {
-                        // O botão só fica desabilitado quando a venda JÁ foi excluída. A
-                        // pré-condição de pagamento saiu — o tooltip agora AVISA o que vai
-                        // acontecer em vez de anunciar um bloqueio que não existe mais.
-                        const { allowed, reason } = canDeleteSale({ status: record.status })
-                        return (
-                            <Tooltip title={allowed ? TOOLTIP_EXCLUIR : reason}>
-                                {/* `span` porque o Tooltip do antd não dispara sobre botão desabilitado. */}
-                                <span>
-                                    <Button
-                                        type="link"
-                                        size="small"
-                                        danger
-                                        disabled={!allowed}
-                                        onClick={() => confirmDeleteSale(record)}
-                                    >
-                                        Excluir
-                                    </Button>
-                                </span>
-                            </Tooltip>
-                        )
-                    })()}
-                </Space>
-            ),
-        },
-    ]
-
     const itemColumns: ColumnsType<SaleItemRow> = [
         {
             title: 'Produto / Serviço',
@@ -3077,63 +2926,18 @@ function Sales() {
                     </Button>
                 </div>
 
-                {isMobile ? (
-                    <div className="pc-row-compact-list">
-                        {loading && (
-                            <div style={{ padding: 24, textAlign: 'center', color: '#94a3b8' }}>Carregando vendas…</div>
-                        )}
-                        {!loading && filteredSales.length === 0 && (
-                            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Nenhuma venda registrada." style={{ padding: '24px 0' }} />
-                        )}
-                        {!loading && filteredSales.map((r: SaleRow) => {
-                            const dateLabel = r.saleDate ? new Date(r.saleDate).toLocaleDateString('pt-BR') : '—'
-                            const isAwaitingOrder = r.status === 'AWAITING_PAYMENT' && r.saleType === 'FROM_ORDER'
-                            const statusLabel = isAwaitingOrder ? 'Aguardando pagamento' : 'Lançado'
-                            const codigo = r.sale_code || '—'
-                            // Doc 28/07: o menu ⋮ contém apenas "Ver" e "Cancelar venda". O botão
-                            // "Cancelar" solto no card foi removido — a ação vive só no kebab.
-                            const kebabItems: any[] = [
-                                { key: 'view', label: 'Ver', onClick: () => handleViewDetail(r) },
-                                { key: 'cancel', label: 'Cancelar venda', danger: true, onClick: () => confirmCancelSale(r) },
-                            ]
-                            const podeExcluir = canDeleteSale({ status: r.status })
-                            kebabItems.push({
-                                key: 'delete',
-                                label: podeExcluir.allowed ? 'Excluir permanentemente' : 'Excluir (já excluída)',
-                                danger: true,
-                                disabled: !podeExcluir.allowed,
-                                onClick: () => confirmDeleteSale(r),
-                            })
-                            // A faixa inferior de ações só aparece p/ vendas aguardando pagamento
-                            // (botão "Lançar pagamento"). Vendas concluídas não exibem ações no card.
-                            return (
-                                <React.Fragment key={r.id}>
-                                    <div className={isAwaitingOrder ? 'pc-row-compact pc-row-compact--has-actions' : 'pc-row-compact'} onClick={() => handleViewDetail(r)}>
-                                        <div className="pc-row-compact__main">
-                                            <span className="pc-row-compact__title">{r.customerName || 'Sem cliente'}</span>
-                                            <span className="pc-row-compact__sub">{codigo} · {dateLabel} · {statusLabel}</span>
-                                        </div>
-                                        <span className="pc-row-compact__value pc-row-compact__value--in">{formatCurrency(r.finalValue)}</span>
-                                        <Dropdown menu={{ items: kebabItems }} trigger={['click']} placement="bottomRight" open={openKebabId === r.id} onOpenChange={(o) => setOpenKebabId(o ? r.id : null)}>
-                                            <span className="pc-row-compact__kebab" onClick={(e) => e.stopPropagation()}><MoreOutlined /></span>
-                                        </Dropdown>
-                                    </div>
-                                    {isAwaitingOrder && (
-                                        <div className="pc-row-compact__actions" onClick={(e) => e.stopPropagation()}>
-                                            <Button size="small" type="primary" onClick={(e) => { e.stopPropagation(); handleOpenOrderPaymentModal(r) }}>Lançar pagamento</Button>
-                                        </div>
-                                    )}
-                                </React.Fragment>
-                            )
-                        })}
-                    </div>
-                ) : (
-                <Table columns={columns} dataSource={filteredSales} rowKey="id"
-                    pagination={{ pageSize: PAGE_SIZE, showTotal: (t) => `${t} vendas` }}
-                    size="middle" loading={loading}
-                    locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Nenhuma venda registrada. Vendas de orçamentos finalizados e vendas no balcão aparecem aqui." /> }}
+                {/* A lista — os DOIS ramos, desktop e mobile, vivem no componente. A página
+                    segue dona do pipeline de filtros: `filteredSales` entra pronto. */}
+                <ListaDeVendas
+                    rows={filteredSales}
+                    estado={{ carregando: loading }}
+                    actions={{
+                        onVer: handleViewDetail,
+                        onLancarPagamento: handleOpenOrderPaymentModal,
+                        onCancelar: confirmCancelSale,
+                        onExcluir: confirmDeleteSale,
+                    }}
                 />
-                )}
             </div>
 
             {/* ── Drawer: Venda no Balcão ── */}

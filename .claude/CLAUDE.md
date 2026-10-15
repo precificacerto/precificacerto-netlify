@@ -337,6 +337,7 @@ O AIOS carrega regras contextuais de `.claude/rules/` automaticamente. Regras co
 | `teste-que-nao-exercita.md` | Cada asserção precisa FALHAR sem a sua correção |
 | `tool-examples.md` | Tool input examples for selection guidance |
 | `tool-response-filtering.md` | Tool response filtering rules |
+| `trabalho-que-vive-no-container.md` | Trabalho não empurrado não está entregue — está num disco que se reconstrói |
 | `workflow-execution.md` | 4 primary workflows (SDC, QA Loop, Spec Pipeline, Brownfield) |
 
 > **Diretório:** `.claude/rules/` — rules são carregadas automaticamente pelo Claude Code quando relevantes.

@@ -9,27 +9,13 @@ import { MobileCollapse } from '@/components/ui/mobile-collapse.component'
 import { useRouter } from 'next/router'
 import { ROUTES } from '@/constants/routes'
 import { MODULES, type ModuleKey } from '@/hooks/use-permissions.hook'
+// Fonte única dos rótulos. Este arquivo tinha mapa próprio com 15 das 21 chaves, e os seis
+// módulos que faltavam caíam no `|| m` e exibiam a CHAVE CRUA. Ver `constants/module-labels.ts`.
+import { MODULE_LABELS } from '@/constants/module-labels'
 import { PAGE_SIZE } from '@/constants/pagination'
 import { moduleVisibleForSegment } from '@/utils/segment-visibility'
 import { SettingOutlined, UserAddOutlined, RightOutlined } from '@ant-design/icons'
 
-const MODULE_LABELS: Record<string, string> = {
-  home: 'Home',
-  customers: 'Clientes',
-  items: 'Itens',
-  products: 'Produtos',
-  budgets: 'Orçamentos',
-  sales: 'Vendas',
-  stock: 'Estoque',
-  cashier: 'Caixa',
-  cash_flow: 'Fluxo de Caixa',
-  dfc: 'DFC',
-  employees: 'Funcionários',
-  reports: 'Relatórios',
-  agenda: 'Agenda',
-  services: 'Serviços',
-  connectivity: 'Conectividade',
-}
 
 const GRANTABLE_MODULES = (Object.values(MODULES) as string[]).filter(m => m !== MODULES.USERS_MANAGEMENT)
 

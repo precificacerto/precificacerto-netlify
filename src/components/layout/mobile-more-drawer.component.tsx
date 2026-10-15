@@ -79,11 +79,11 @@ const MobileMoreDrawer = ({ open, onClose }: Props) => {
     { key: 'cash-flow', label: 'Fluxo de Caixa', href: ROUTES.CASH_FLOW, icon: <FundOutlined />, section: 'Início', module: MODULES.CASH_FLOW },
 
     // Cadastros
-    { key: 'items', label: 'Itens', href: ROUTES.ITEMS, icon: <UnorderedListOutlined />, section: 'Cadastros', module: MODULES.ITEMS },
+    { key: 'items', label: 'Custos Itens', href: ROUTES.ITEMS, icon: <UnorderedListOutlined />, section: 'Cadastros', module: MODULES.ITEMS },
     { key: 'products', label: 'Produtos', href: ROUTES.PRODUCTS, icon: <AppstoreOutlined />, section: 'Cadastros', module: MODULES.PRODUCTS },
     { key: 'services', label: 'Serviços', href: ROUTES.SERVICES, icon: <ToolOutlined />, section: 'Cadastros', module: MODULES.SERVICES },
     { key: 'stock', label: 'Estoque', href: ROUTES.STOCK, icon: <DatabaseOutlined />, section: 'Cadastros', module: MODULES.STOCK },
-    { key: 'clients', label: 'Clientes', href: ROUTES.CLIENTS, icon: <TeamOutlined />, section: 'Cadastros', module: MODULES.CUSTOMERS },
+    { key: 'clients', label: 'Clientes', href: ROUTES.CLIENTS, icon: <TeamOutlined />, section: 'Clientes', module: MODULES.CUSTOMERS },
     { key: 'employees', label: 'Funcionários', href: ROUTES.EMPLOYEES, icon: <IdcardOutlined />, section: 'Cadastros', adminOnly: true, module: MODULES.EMPLOYEES },
 
     // Comercial
@@ -146,7 +146,9 @@ const MobileMoreDrawer = ({ open, onClose }: Props) => {
     return true
   })
 
-  const sectionOrder = ['Início', 'Cadastros', 'Comercial', 'Financeiro', 'Agendamentos', 'Operacional', 'Super Admin', 'Conta']
+  // 'Clientes' entra entre Cadastros e Comercial — a MESMA posição da seção no menu
+  // desktop. A ordem é o que faz o usuário achar no celular o que ele vê no desktop.
+  const sectionOrder = ['Início', 'Cadastros', 'Clientes', 'Comercial', 'Financeiro', 'Agendamentos', 'Operacional', 'Super Admin', 'Conta']
   const grouped = sectionOrder
     .map((section) => ({ section, list: visibleItems.filter((i) => i.section === section) }))
     .filter((g) => g.list.length > 0)

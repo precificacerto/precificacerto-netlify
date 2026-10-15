@@ -8,6 +8,7 @@ import { supabase } from '@/supabase/client'
 import type { Employee, EmployeeRole, EmployeeStatus } from '@/supabase/types'
 import { useAuth } from '@/hooks/use-auth.hook'
 import { usePermissions, MODULES } from '@/hooks/use-permissions.hook'
+import { rotuloDoModulo, type ModuloRotulavel } from '@/constants/module-labels'
 import { useEmployees, useItems } from '@/hooks/use-data.hooks'
 import { PERMISSIONS } from '@/shared/enums/permissions'
 import Link from 'next/link'
@@ -48,68 +49,40 @@ const statusLabels: Record<EmployeeStatus, { label: string; color: string }> = {
 const capitalizeFirst = (value: string) =>
     value.charAt(0).toUpperCase() + value.slice(1)
 
-const PERMISSION_SECTIONS: { title: string; modules: { key: string; label: string }[] }[] = [
-    {
-        title: 'Geral',
-        modules: [
-            { key: 'home', label: 'Home' },
-        ],
-    },
+// AS SEÇÕES, e só elas. O RÓTULO de cada módulo vem de `constants/module-labels.ts` — este
+// arquivo guarda o AGRUPAMENTO, que é o que ele tem de próprio, e nada mais. Até 14/10/2026
+// ele carregava `label:` inline, e era a terceira cópia dos rótulos: `home` divergia de
+// `funcionarios/[id]/permissoes.tsx` ('Home' contra 'Início'), e `admin/usuarios.tsx` não
+// tinha seis das chaves. `copia-divergente.md` — o remédio é apagar as cópias, não conferi-las.
+//
+// A ORDEM é a MESMA do menu, e a paridade menu ↔ permissões é o que faz o usuário achar aqui
+// o que ele vê lá. NENHUMA CHAVE MUDA: `ALL_PERM_KEYS` as deriva daqui e elas estão gravadas
+// em `user_module_permissions.module`.
+const PERMISSION_SECTIONS: { title: string; modules: ModuloRotulavel[] }[] = [
+    { title: 'Geral', modules: ['home'] },
     {
         title: 'Cadastros',
-        modules: [
-            { key: 'items', label: 'Itens' },
-            { key: 'products', label: 'Produtos' },
-            { key: 'services', label: 'Serviços' },
-            { key: 'stock', label: 'Estoque' },
-            { key: 'customers', label: 'Clientes' },
-            { key: 'employees', label: 'Funcionários' },
-        ],
+        modules: ['items', 'products', 'services', 'stock', 'employees'],
     },
+    // CLIENTES saiu de Cadastros no MESMO commit em que saiu no menu. Mover um lado só
+    // deixaria o usuário sem achar aqui a seção que ele vê na barra lateral — a paridade
+    // menu ↔ permissões que `cascata-lucro-real.md`, Parte 4, chama de inviolável.
+    { title: 'Clientes', modules: ['customers'] },
     {
         title: 'Comercial',
-        modules: [
-            { key: 'budgets', label: 'Orçamentos' },
-            { key: 'orders', label: 'Pedidos' },
-            { key: 'sales', label: 'Vendas' },
-            { key: 'sales_report', label: 'Relatório de Vendas' },
-            { key: 'commissions_report', label: 'Relatório de Comissões' },
-            { key: 'recurrence', label: 'Recorrência' },
-        ],
+        modules: ['budgets', 'orders', 'sales', 'sales_report', 'commissions_report', 'recurrence'],
     },
     {
         title: 'Financeiro',
-        modules: [
-            { key: 'cash_flow', label: 'Fluxo de Caixa / Controle Financeiro' },
-            { key: 'cashier', label: 'Caixa' },
-            { key: 'dfc', label: 'Análise Financeira' },
-            { key: 'commission', label: 'Comissão de Vendedor' },
-            { key: 'rt_commission', label: 'RT Comissões' },
-        ],
+        modules: ['cash_flow', 'cashier', 'dfc', 'commission', 'rt_commission'],
     },
-    // AGENDAMENTOS antes de OPERACIONAL — a MESMA ordem do menu. A paridade menu ↔ permissões
-    // é o que faz o usuário achar aqui o que ele vê lá; invertê-las seria pior que não separar.
-    //
-    // NENHUMA CHAVE MUDA: `agenda`, `reports` e `connectivity` são as mesmas três de antes, e
-    // `ALL_PERM_KEYS` as deriva daqui. O que muda é só o AGRUPAMENTO.
-    {
-        title: 'Agendamentos',
-        modules: [
-            { key: 'agenda', label: 'Agenda' },
-            { key: 'reports', label: 'Relatório Agenda' },
-        ],
-    },
+    { title: 'Agendamentos', modules: ['agenda', 'reports'] },
     // Fica com UM módulo só, e está certo: "Usuários" é `adminOnly` no menu e nunca foi módulo
     // de permissão — não há chave `users` em `use-permissions.hook.ts`.
-    {
-        title: 'Operacional',
-        modules: [
-            { key: 'connectivity', label: 'Conectividade' },
-        ],
-    },
+    { title: 'Operacional', modules: ['connectivity'] },
 ]
 
-const ALL_PERM_KEYS = PERMISSION_SECTIONS.flatMap(s => s.modules.map(m => m.key))
+const ALL_PERM_KEYS = PERMISSION_SECTIONS.flatMap(s => s.modules)
 
 function buildEmptyPerms(): Record<string, { can_view: boolean; can_edit: boolean }> {
     const perms: Record<string, { can_view: boolean; can_edit: boolean }> = {}
@@ -818,7 +791,7 @@ function Employees() {
                             <div style={{ border: '1px solid rgba(255,255,255,0.06)', borderRadius: 8, overflow: 'hidden', marginBottom: 16 }}>
                                 {PERMISSION_SECTIONS
                                     // Paridade com o menu: módulo oculto pela segmentação não aparece aqui.
-                                    .map(section => ({ ...section, modules: section.modules.filter(m => moduleVisibleForSegment(m.key, currentUser?.calcType)) }))
+                                    .map(section => ({ ...section, modules: section.modules.filter(m => moduleVisibleForSegment(m, currentUser?.calcType)) }))
                                     .filter(section => section.modules.length > 0)
                                     .map((section, sIdx) => {
                                     const permState = (mod: string): 'none' | 'view' | 'edit' => {
@@ -850,7 +823,7 @@ function Employees() {
                                             </div>
                                             {section.modules.map(mod => (
                                                 <div
-                                                    key={mod.key}
+                                                    key={mod}
                                                     style={{
                                                         display: 'flex',
                                                         alignItems: 'center',
@@ -860,11 +833,11 @@ function Employees() {
                                                         fontSize: 13,
                                                     }}
                                                 >
-                                                    <span>{mod.label}</span>
+                                                    <span>{rotuloDoModulo(mod)}</span>
                                                     <Radio.Group
                                                         size="small"
-                                                        value={permState(mod.key)}
-                                                        onChange={(e) => setPermState(mod.key, e.target.value)}
+                                                        value={permState(mod)}
+                                                        onChange={(e) => setPermState(mod, e.target.value)}
                                                         optionType="button"
                                                         buttonStyle="solid"
                                                     >
