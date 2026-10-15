@@ -51,7 +51,13 @@ import {
 } from '@/utils/customer-history-status'
 import { buildSaleHistoryDetail } from '@/utils/sale-history-detail'
 
-const PAGINA = path.join(process.cwd(), 'src', 'pages', 'clientes', 'index.tsx')
+// O SUJEITO MUDOU DE ARQUIVO, A ASSERÇÃO NÃO. O formulário de cliente saiu do `<Drawer>` de
+// `pages/clientes/index.tsx` e virou `page-parts/clientes/formulario-do-cliente.component.tsx`
+// na etapa 4b; o histórico virou `historico-do-cliente.component.tsx`. Cada constante aponta
+// para o arquivo que HOJE contém o que ela afirma — nenhuma asserção foi afrouxada, e um
+// `toContain` que passasse a ler o arquivo errado seria vermelho por acaso, que é pior que
+// verde falso.
+const PAGINA = path.join(process.cwd(), 'src', 'page-parts', 'clientes', 'historico-do-cliente.component.tsx')
 const fonte = fs.readFileSync(PAGINA, 'utf-8')
 
 describe('o filtro que escondia — removido das DUAS consultas de venda', () => {

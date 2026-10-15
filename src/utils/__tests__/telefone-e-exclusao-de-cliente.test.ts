@@ -66,7 +66,14 @@ const semComentarios = (fonte: string) =>
             return !c.startsWith('//') && !c.startsWith('*') && !c.startsWith('/*') && !c.startsWith('{/*')
         })
         .join('\n')
-const CLIENTES = leia('pages', 'clientes', 'index.tsx')
+// O SUJEITO MUDOU DE ARQUIVO, A ASSERÇÃO NÃO. O formulário de cliente saiu do `<Drawer>` de
+// `pages/clientes/index.tsx` e virou `page-parts/clientes/formulario-do-cliente.component.tsx`
+// na etapa 4b; o histórico virou `historico-do-cliente.component.tsx`. Cada constante aponta
+// para o arquivo que HOJE contém o que ela afirma — nenhuma asserção foi afrouxada, e um
+// `toContain` que passasse a ler o arquivo errado seria vermelho por acaso, que é pior que
+// verde falso.
+const CLIENTES_LISTA = leia('pages', 'clientes', 'index.tsx')
+const CLIENTES = leia('page-parts', 'clientes', 'formulario-do-cliente.component.tsx')
 const ORCAMENTOS = leia('pages', 'orcamentos', 'index.tsx')
 const AGENDA = leia('pages', 'agenda', 'index.tsx')
 
@@ -187,26 +194,26 @@ describe('a coluna canônica é `whatsapp_phone` nas QUATRO rotas', () => {
 
 describe('"Excluir" no lugar de "Desativar" — o rótulo passa a descrever o que acontece', () => {
     it('os DOIS pontos da tela dizem Excluir', () => {
-        expect(CLIENTES).toContain('<Button type="link" size="small" danger>Excluir</Button>')
-        expect(CLIENTES).toContain("label: 'Excluir',")
-        expect(CLIENTES).not.toContain('>Desativar<')
-        expect(CLIENTES).not.toContain("label: 'Desativar',")
+        expect(CLIENTES_LISTA).toContain('<Button type="link" size="small" danger>Excluir</Button>')
+        expect(CLIENTES_LISTA).toContain("label: 'Excluir',")
+        expect(CLIENTES_LISTA).not.toContain('>Desativar<')
+        expect(CLIENTES_LISTA).not.toContain("label: 'Desativar',")
     })
 
     it('o cartão mobile CONFIRMA antes de excluir — ele não tem Popconfirm', () => {
         // Sem o `Modal.confirm` a exclusão aconteceria sem barreira nenhuma no mobile, enquanto
         // o desktop pergunta. Dois pontos montando a mesma ação, um sem a proteção do outro.
-        expect(CLIENTES).toContain("title: 'Excluir cliente?'")
-        expect(CLIENTES).toContain('title="Excluir cliente?"')
+        expect(CLIENTES_LISTA).toContain("title: 'Excluir cliente?'")
+        expect(CLIENTES_LISTA).toContain('title="Excluir cliente?"')
     })
 
     it('a confirmação diz que NÃO HÁ REATIVAÇÃO — é a informação que faltava', () => {
-        expect(CLIENTES).toContain('não há como reativá-lo')
+        expect(CLIENTES_LISTA).toContain('não há como reativá-lo')
     })
 
     it('a razão do renome está escrita, não é troca silenciosa de texto', () => {
-        expect(CLIENTES).toContain('REVERSIBILIDADE QUE NÃO EXISTE')
-        expect(CLIENTES).toContain('NÃO HÁ TELA DE')
+        expect(CLIENTES_LISTA).toContain('REVERSIBILIDADE QUE NÃO EXISTE')
+        expect(CLIENTES_LISTA).toContain('NÃO HÁ TELA DE')
     })
 
     it('continua sendo SOFT DELETE — nenhum DELETE físico em `customers`', () => {
