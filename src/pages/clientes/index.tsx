@@ -17,10 +17,18 @@ import { Select } from '@/components/ui/app-select.component'
 import type { ColumnsType } from 'antd/es/table'
 import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
+import { ROUTES } from '@/constants/routes'
 import { CardKPI } from '@/components/ui/card-kpi.component'
 import { supabase } from '@/supabase/client'
 import type { Customer, CustomerType, CustomerStatus } from '@/supabase/types'
 import { useCustomers } from '@/hooks/use-data.hooks'
+import { useParcelasDeReceber } from '@/hooks/use-data.hooks'
+import { useFiltrosDeCobrancaNaUrl } from '@/hooks/use-filtros-de-cobranca.hook'
+import { montarParcelasDoCliente } from '@/utils/parcelas-do-cliente'
+import { aplicarFiltrosDeCobranca, type FiltrosDeCobranca } from '@/utils/filtros-de-cobranca'
+import { hojeNoFusoDoNegocio } from '@/utils/dia-de-hoje'
+import { FiltrosDeCobrancaBar } from '@/page-parts/shared/filtros-de-cobranca.component'
+import { colunasDeCobranca } from '@/page-parts/shared/colunas-de-cobranca.component'
 import {
     TeamOutlined,
     UserAddOutlined,
@@ -131,10 +139,22 @@ interface TimelineEntry {
 
 function Clients() {
     const { data: customers = [], isLoading, mutate: reloadCustomers } = useCustomers()
+    const { data: dadosDeCobranca } = useParcelasDeReceber()
     const [saving, setSaving] = useState(false)
     const [drawerOpen, setDrawerOpen] = useState(false)
     const [editingId, setEditingId] = useState<string | null>(null)
-    const [searchText, setSearchText] = useState('')
+    // Os filtros moram na URL — ver `use-filtros-de-cobranca.hook.ts`. `searchText` deixou de
+    // ser `useState` porque estado de componente morre na desmontagem, e "voltar da ficha com
+    // os filtros como estavam" exige que eles já estejam no endereço ANTES de sair da lista.
+    const { filtros, definirFiltros } = useFiltrosDeCobrancaNaUrl(ROUTES.CLIENTS)
+    const searchText = filtros.busca
+    // `hoje` é lido UMA vez por montagem, no fuso do negócio, e injetado nos dois módulos
+    // puros. Nenhum deles chama `new Date()`.
+    const hoje = useMemo(() => hojeNoFusoDoNegocio(), [])
+    // A ordem do nome é controlada para que o `sorter` do antd NÃO brigue com a ordenação
+    // por maior atraso: com EM ATRASO ligado, `sortOrder` vira `null` e quem manda é a
+    // ordem do `dataSource`.
+    const [ordemDoNome, setOrdemDoNome] = useState<'ascend' | 'descend' | null>('ascend')
     const [form] = Form.useForm()
     const [messageApi, contextHolder] = message.useMessage()
     const [employees, setEmployees] = useState<{ id: string; name: string }[]>([])
@@ -580,16 +600,46 @@ function Clients() {
         return map
     }, [employees])
 
+    // As parcelas em ABERTO: é delas que saem os três filtros e as colunas partidas. O
+    // bloco 4 do detalhe da compra usa `'TODAS'` sobre a MESMA carga — uma consulta, quatro
+    // consumidores.
+    const cobranca = useMemo(
+        () =>
+            montarParcelasDoCliente({
+                parcelas: dadosDeCobranca?.parcelas ?? [],
+                vendas: dadosDeCobranca?.vendas ?? [],
+                hoje,
+                escopo: 'ABERTAS',
+            }),
+        [dadosDeCobranca, hoje],
+    )
+
     const filteredData = useMemo(() => {
-        if (!searchText) return customers
-        const lower = searchText.toLowerCase()
-        return customers.filter(c =>
-            c.name.toLowerCase().includes(lower) ||
-            (c.document || '').includes(searchText) ||
-            (c.email || '').toLowerCase().includes(lower) ||
-            (c.phone || '').includes(searchText)
-        )
-    }, [customers, searchText])
+        let base = customers as Customer[]
+
+        if (searchText) {
+            const lower = searchText.toLowerCase()
+            base = base.filter(c =>
+                c.name.toLowerCase().includes(lower) ||
+                (c.document || '').includes(searchText) ||
+                (c.email || '').toLowerCase().includes(lower) ||
+                (c.phone || '').includes(searchText)
+            )
+        }
+
+        // Situação e segmento são aplicados AQUI, no nível da página, e não só pelo `onFilter`
+        // da coluna: o ramo MOBILE não usa `<Table>`, e um filtro que vivesse só na coluna
+        // sairia na URL e seria ignorado no celular.
+        if (filtros.situacao.length > 0) base = base.filter(c => filtros.situacao.includes(String(c.status)))
+        if (filtros.segmento.length > 0) base = base.filter(c => filtros.segmento.includes(String(c.segment ?? '')))
+
+        return aplicarFiltrosDeCobranca({
+            clientes: base,
+            porCliente: cobranca.porCliente,
+            parcelas: cobranca.parcelas,
+            filtros,
+        })
+    }, [customers, searchText, filtros, cobranca])
 
     // ── KPIs ──
     const totalClients = customers.length
@@ -602,7 +652,9 @@ function Clients() {
             title: 'Cliente',
             key: 'name',
             sorter: (a, b) => a.name.localeCompare(b.name),
-            defaultSortOrder: 'ascend',
+            // Controlado: com EM ATRASO ligado vira `null`, e a ordem por MAIOR ATRASO que
+            // `aplicarFiltrosDeCobranca` deu ao `dataSource` é a que vale.
+            sortOrder: filtros.emAtraso ? null : ordemDoNome,
             render: (_, record) => (
                 <div>
                     <div style={{ fontWeight: 600 }}>{record.name}</div>
@@ -637,11 +689,17 @@ function Clients() {
                 </div>
             ),
         },
+        // As colunas de cobrança ficam ao lado do WhatsApp de propósito: a coluna partida
+        // existe para fazer alguém pegar o telefone, e o telefone está logo à esquerda.
+        ...colunasDeCobranca<Customer>(cobranca.porCliente),
         {
             title: 'Segmento',
             dataIndex: 'segment',
             key: 'segment',
             filters: segments.map(s => ({ text: s, value: s })),
+            // CONTROLADO pela URL. Antes vivia dentro do `<Table>` e morria na desmontagem:
+            // não existia como estado, então não havia o que pôr no endereço.
+            filteredValue: filtros.segmento.length > 0 ? filtros.segmento : null,
             onFilter: (value, record) => record.segment === value,
         },
         {
@@ -658,6 +716,7 @@ function Clients() {
             dataIndex: 'status',
             key: 'status',
             filters: Object.entries(statusLabels).map(([k, v]) => ({ text: v.label, value: k })),
+            filteredValue: filtros.situacao.length > 0 ? filtros.situacao : null,
             onFilter: (value, record) => record.status === value,
             render: (status: CustomerStatus) => {
                 const cfg = statusLabels[status]
@@ -728,7 +787,7 @@ function Clients() {
     ]
 
     function handleSearch(value: string) {
-        setSearchText(value)
+        definirFiltros({ ...filtros, busca: value })
     }
 
     function handleEdit(record: Customer) {
@@ -1177,6 +1236,9 @@ function Clients() {
                         </Button>
                     )}
                 </div>
+                <div className="filter-bar" style={{ paddingTop: 0 }}>
+                    <FiltrosDeCobrancaBar filtros={filtros} onChange={definirFiltros} hoje={hoje} />
+                </div>
                 {isMobile ? (
                     <div className="clientes-mobile-list">
                         {isLoading ? (
@@ -1261,6 +1323,27 @@ function Clients() {
                         pagination={{ pageSize: PAGE_SIZE, showSizeChanger: true, showTotal: (t) => `${t} clientes` }}
                         size="middle"
                         loading={isLoading}
+                        onChange={(_paginacao, filtrosDaTabela, ordenacao) => {
+                            // Os dois filtros de coluna sobem para a URL. Sem isto eles
+                            // continuariam existindo só dentro do `<Table>`.
+                            const comoLista = (v: unknown): string[] =>
+                                Array.isArray(v) ? v.map(String) : []
+                            const proximos: FiltrosDeCobranca = {
+                                ...filtros,
+                                segmento: comoLista(filtrosDaTabela.segment),
+                                situacao: comoLista(filtrosDaTabela.status),
+                            }
+                            if (
+                                proximos.segmento.join(',') !== filtros.segmento.join(',') ||
+                                proximos.situacao.join(',') !== filtros.situacao.join(',')
+                            ) {
+                                definirFiltros(proximos)
+                            }
+                            const ordem = Array.isArray(ordenacao) ? ordenacao[0] : ordenacao
+                            if (ordem && ordem.columnKey === 'name') {
+                                setOrdemDoNome((ordem.order as 'ascend' | 'descend' | undefined) ?? null)
+                            }
+                        }}
                     />
                 )}
             </div>
