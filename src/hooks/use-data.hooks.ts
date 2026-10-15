@@ -156,3 +156,43 @@ export function useStock() {
     SWR_CONFIG
   )
 }
+
+/**
+ * As DUAS consultas das parcelas a receber — a entrada de `montarParcelasDoCliente`.
+ *
+ * SÃO DUAS, E ISSO É DECISÃO TOMADA. `cash_entries` não tem `customer_id` e `origin_id` não
+ * tem FK, então o PostgREST não tem relação para embutir e `select('*, sales(...)')` não
+ * existe. Uma ida só exigiria view ou RPC — migração, e ela não entra nesta rodada; é a
+ * mesma rodada que resolveria a FK, que hoje rejeitaria 50 linhas órfãs. Ver o cabeçalho de
+ * `src/utils/parcelas-do-cliente.ts`.
+ *
+ * NÃO É N+1: as duas são em lote, uma vez por tenant, e a junção acontece no módulo puro.
+ *
+ * O hook devolve as linhas CRUAS de propósito. Se ele já aplicasse `hoje` e `escopo`, a
+ * chave do SWR teria de variar com os dois e a mesma tela faria duas buscas — e os quatro
+ * consumidores precisam de escopos diferentes sobre a MESMA carga.
+ */
+export function useParcelasDeReceber() {
+  const { tenantId } = useAuth()
+  return useSWR(
+    tenantId ? `parcelas-a-receber-${tenantId}` : null,
+    async () => {
+      // `is_active` NÃO é filtrado aqui: quem decide o que é estorno é o módulo, e um filtro
+      // a mais na consulta esconderia a linha de quem precisasse auditá-la. O volume é
+      // pequeno (186 linhas INCOME na base inteira em 15/10/2026).
+      const { data: parcelas, error: erroParcelas } = await supabase
+        .from('cash_entries')
+        .select('id, amount, due_date, paid_date, is_active, origin_type, origin_id, contact_id')
+        .eq('type', 'INCOME')
+      if (erroParcelas) throw erroParcelas
+
+      const { data: vendas, error: erroVendas } = await supabase
+        .from('sales')
+        .select('id, customer_id')
+      if (erroVendas) throw erroVendas
+
+      return { parcelas: parcelas ?? [], vendas: vendas ?? [] }
+    },
+    SWR_CONFIG
+  )
+}
