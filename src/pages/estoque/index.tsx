@@ -149,7 +149,7 @@ function StockMobileList({
                 image={Empty.PRESENTED_IMAGE_SIMPLE}
                 description={
                     type === 'ITEM'
-                        ? 'Nenhum item no estoque. Cadastre itens na aba "Itens" para popular automaticamente.'
+                        ? 'Nenhum item no estoque. Cadastre itens na aba "Custos Itens" para popular automaticamente.'
                         : 'Nenhum produto acabado no estoque. Registre uma produção para criar estoque de produtos.'
                 }
             />
@@ -1356,7 +1356,7 @@ function Stock() {
                                     image={Empty.PRESENTED_IMAGE_SIMPLE}
                                     description={
                                         activeTab === 'ITEM'
-                                            ? 'Nenhum item no estoque. Cadastre itens na aba "Itens" para popular automaticamente.'
+                                            ? 'Nenhum item no estoque. Cadastre itens na aba "Custos Itens" para popular automaticamente.'
                                             : 'Nenhum produto acabado no estoque. Registre uma produção para criar estoque de produtos.'
                                     }
                                 />

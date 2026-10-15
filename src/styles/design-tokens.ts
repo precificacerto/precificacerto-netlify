@@ -313,31 +313,3 @@ export const breakpoints = {
     '2xl': '1536px',
 } as const
 
-// ============================================================
-// 🎛️ NAVIGATION ITEMS
-// ============================================================
-
-export interface NavItem {
-    key: string
-    label: string
-    icon: string
-    href: string
-    adminOnly?: boolean
-    hideForRepresentative?: boolean
-}
-
-export const navigationItems: NavItem[] = [
-    { key: 'home', label: 'Home', icon: 'home', href: '/' },
-    { key: 'dashboard', label: 'Dashboard', icon: 'dashboard', href: '/dashboard' },
-    { key: 'cashier', label: 'Caixa', icon: 'wallet', href: '/caixa' },
-    { key: 'items', label: 'Itens', icon: 'unordered-list', href: '/itens' },
-    { key: 'products', label: 'Produtos', icon: 'appstore', href: '/produtos' },
-    { key: 'stock', label: 'Estoque', icon: 'database', href: '/estoque' },
-    { key: 'budgets', label: 'Orçamentos', icon: 'file-text', href: '/orcamentos-vendas' },
-    { key: 'cashflow', label: 'Fluxo de Caixa', icon: 'fund', href: '/fluxo-caixa' },
-    { key: 'calendar', label: 'Agenda', icon: 'calendar', href: '/agenda' },
-    { key: 'reports', label: 'Relatórios', icon: 'bar-chart', href: '/relatorios' },
-    { key: 'support', label: 'Suporte', icon: 'customer-service', href: '/suporte' },
-    { key: 'settings', label: 'Configurações', icon: 'setting', href: '/configuracoes' },
-    { key: 'users', label: 'Usuários', icon: 'team', href: '/admin/usuarios', adminOnly: true },
-]

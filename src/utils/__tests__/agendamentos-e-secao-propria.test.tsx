@@ -341,7 +341,16 @@ describe('4. PERMISSÕES — Agenda e Relatório Agenda sob "Agendamentos", ante
       require('path').join(process.cwd(), 'src/pages/funcionarios/index.tsx'), 'utf8')
     const i = src.indexOf('const PERMISSION_SECTIONS')
     const j = src.indexOf('const ALL_PERM_KEYS')
-    const chaves = [...src.slice(i, j).matchAll(/key: '([^']+)'/g)].map((m: string[]) => m[1])
+    /*
+      A EXTRAÇÃO mudou em 14/10/2026; a ASSERÇÃO abaixo não mudou um caractere.
+      `PERMISSION_SECTIONS` deixou de carregar `{ key, label }` e passou a carregar só as
+      CHAVES (`modules: ['items', …]`), porque o rótulo saiu para `constants/module-labels.ts`
+      — havia três cópias dele e elas divergiam. O padrão `key: '…'` parou de enxergar as 21
+      chaves que continuam ali, e o vermelho que ele deu era do INSTRUMENTO, não do conjunto:
+      `instrumento-que-nao-enxerga.md`. A guarda `toBeGreaterThan` do portão vizinho é o que
+      impediu que a cegueira passasse por verde.
+    */
+    const chaves = [...src.slice(i, j).matchAll(/'([a-z_0-9]+)'/g)].map((m: string[]) => m[1])
     expect([...chaves].sort()).toEqual([
       'agenda', 'budgets', 'cash_flow', 'cashier', 'commission', 'commissions_report',
       'connectivity', 'customers', 'dfc', 'employees', 'home', 'items', 'orders', 'products',

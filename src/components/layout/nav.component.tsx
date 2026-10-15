@@ -104,7 +104,7 @@ const Nav = () => {
 
   const navigationItems: NavItemConfig[] = [
     { key: 'home', label: 'Home', icon: 'dashboard', href: ROUTES.DASHBOARD, section: 'geral', module: MODULES.HOME },
-    { key: 'items', label: 'Itens', icon: 'unordered-list', href: ROUTES.ITEMS, section: 'cadastros', module: MODULES.ITEMS },
+    { key: 'items', label: 'Custos Itens', icon: 'unordered-list', href: ROUTES.ITEMS, section: 'cadastros', module: MODULES.ITEMS },
     { key: 'products', label: 'Produtos', icon: 'appstore', href: ROUTES.PRODUCTS, section: 'cadastros', module: MODULES.PRODUCTS },
     { key: 'services', label: 'Serviços', icon: 'tool', href: ROUTES.SERVICES, section: 'cadastros', module: MODULES.SERVICES },
     { key: 'stock', label: 'Estoque', icon: 'database', href: ROUTES.STOCK, section: 'cadastros', module: MODULES.STOCK },

@@ -22,6 +22,7 @@ import {
 } from '@/lib/create-cascade-pdf'
 import { DECOMPOSITION_LABEL } from '@/constants/decomposition-label'
 import { MODULES } from '@/hooks/use-permissions.hook'
+import { MODULE_LABEL_KEYS } from '@/constants/module-labels'
 
 const raiz = join(__dirname, '..', '..', '..')
 const ler = (p: string) => readFileSync(join(raiz, p), 'utf-8')
@@ -39,11 +40,28 @@ function modulosDoMenu(): string[] {
   return [...new Set(valores)]
 }
 
-/** As chaves rotuladas na tela de Permissões de Acesso indicada. */
+/**
+ * As chaves rotuladas na tela de Permissões de Acesso indicada.
+ *
+ * A EXTRAÇÃO mudou em 14/10/2026; a PARIDADE afirmada abaixo não mudou. As duas telas tinham
+ * `MODULE_LABELS` literal e divergente — `admin/usuarios.tsx` com 15 das 21 chaves, e `home`,
+ * `dfc` e `reports` com rótulos diferentes entre si. O mapa saiu para
+ * `constants/module-labels.ts`, e ler o literal passou a devolver lista VAZIA: o padrão
+ * exigia uma forma sintática que o arquivo não tem mais (`instrumento-que-nao-enxerga.md`).
+ *
+ * Quando a tela não declara mapa próprio, a chave vem da FONTE ÚNICA que ela importa — e um
+ * literal reintroduzido continua vencendo, para que a divergência não volte sem vermelho.
+ */
 function modulosRotulados(arquivo: string): string[] {
   const src = ler(arquivo)
-  const bloco = src.slice(src.indexOf('MODULE_LABELS'), src.indexOf('}', src.indexOf('MODULE_LABELS')))
-  return [...new Set([...bloco.matchAll(/^\s{2}([a-z_]+):\s*'/gm)].map((m) => m[1]))]
+  const i = src.indexOf('const MODULE_LABELS')
+  if (i >= 0) {
+    const bloco = src.slice(i, src.indexOf('}', i))
+    const literais = [...new Set([...bloco.matchAll(/^\s{2}([a-z_]+):\s*'/gm)].map((m) => m[1]))]
+    if (literais.length > 0) return literais
+  }
+  expect(src).toContain("from '@/constants/module-labels'")
+  return [...MODULE_LABEL_KEYS]
 }
 
 describe('correção 8 — renomeação e paridade menu-permissões', () => {

@@ -7,33 +7,13 @@ import { Layout } from '@/components/layout/layout.component'
 import { supabase } from '@/supabase/client'
 import { useAuth } from '@/hooks/use-auth.hook'
 import { MODULES, type ModuleKey } from '@/hooks/use-permissions.hook'
+// Fonte única dos rótulos — ver `constants/module-labels.ts`. O mapa que morava aqui
+// divergia de `admin/usuarios.tsx` em `home`, `dfc` e `reports`.
+import { MODULE_LABELS } from '@/constants/module-labels'
 import { ROUTES } from '@/constants/routes'
 import { PERMISSIONS } from '@/shared/enums/permissions'
 import { moduleVisibleForSegment } from '@/utils/segment-visibility'
 
-const MODULE_LABELS: Record<string, string> = {
-  home: 'Início',
-  customers: 'Clientes',
-  items: 'Itens',
-  products: 'Produtos',
-  budgets: 'Orçamentos',
-  orders: 'Pedidos',
-  sales: 'Vendas',
-  sales_report: 'Relatório de Vendas',
-  commissions_report: 'Relatório de Comissões',
-  stock: 'Estoque',
-  cashier: 'Caixa',
-  cash_flow: 'Controle Financeiro',
-  dfc: 'Análise Financeira',
-  commission: 'Comissão de Vendedor',
-  rt_commission: 'RT Comissões',
-  employees: 'Funcionários',
-  reports: 'Relatório Agenda',
-  agenda: 'Agenda',
-  services: 'Serviços',
-  connectivity: 'Conectividade',
-  recurrence: 'Recorrência',
-}
 
 type PermissionRow = {
   module: string

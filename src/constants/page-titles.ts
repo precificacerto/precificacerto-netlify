@@ -7,7 +7,7 @@ export enum PAGE_TITLES {
   EDIT_PRODUCT = 'Editar produto',
   CATEGORIES = 'Categorias',
   CASHIER = 'Caixa',
-  ITEMS = 'Itens',
+  ITEMS = 'Custos Itens',
   HUB = 'HUB',
   NOT_FOUND = 'Oops! 404',
   USERS = 'Usuários',

@@ -79,7 +79,7 @@ const MobileMoreDrawer = ({ open, onClose }: Props) => {
     { key: 'cash-flow', label: 'Fluxo de Caixa', href: ROUTES.CASH_FLOW, icon: <FundOutlined />, section: 'Início', module: MODULES.CASH_FLOW },
 
     // Cadastros
-    { key: 'items', label: 'Itens', href: ROUTES.ITEMS, icon: <UnorderedListOutlined />, section: 'Cadastros', module: MODULES.ITEMS },
+    { key: 'items', label: 'Custos Itens', href: ROUTES.ITEMS, icon: <UnorderedListOutlined />, section: 'Cadastros', module: MODULES.ITEMS },
     { key: 'products', label: 'Produtos', href: ROUTES.PRODUCTS, icon: <AppstoreOutlined />, section: 'Cadastros', module: MODULES.PRODUCTS },
     { key: 'services', label: 'Serviços', href: ROUTES.SERVICES, icon: <ToolOutlined />, section: 'Cadastros', module: MODULES.SERVICES },
     { key: 'stock', label: 'Estoque', href: ROUTES.STOCK, icon: <DatabaseOutlined />, section: 'Cadastros', module: MODULES.STOCK },
