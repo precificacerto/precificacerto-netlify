@@ -49,6 +49,8 @@ import {
 import { useTenantTaxContext } from '@/hooks/use-tenant-tax-context'
 import { MRM_ERROR_RRO_NON_POSITIVE, MRM_ENGINE_VERSION } from '@/types/mrm'
 import { PAGE_SIZE } from '@/constants/pagination'
+import { STATUS_DO_ORCAMENTO as statusConfig } from '@/constants/status-do-orcamento'
+import { ListaDeOrcamentos } from '@/page-parts/shared/lista-de-orcamentos.component'
 import type { TenantSnapshotContext } from '@/lib/items-snapshot'
 import { calculateMotorV17ForPage, calculateMotorV17ForPageFull } from '@/utils/mrm-engine-v17/legacy-adapter'
 import {
@@ -129,28 +131,7 @@ function getBudgetTotalACobrar(budget: any): number {
     })
 }
 
-/** Célula de cabeçalho que mantém título + ícone de ordenação + ícone de filtro agrupados à esquerda */
-function TableHeaderCell(props: React.HTMLAttributes<HTMLTableCellElement> & { children?: React.ReactNode }) {
-    const { children, ...rest } = props
-    return (
-        <th {...rest}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 4, flexWrap: 'nowrap' }}>
-                {children}
-            </div>
-        </th>
-    )
-}
 
-const statusConfig: Record<string, { color: string; label: string; stage: number }> = {
-    DRAFT: { color: 'default', label: 'Rascunho', stage: 0 },
-    AWAITING_PAYMENT: { color: 'processing', label: 'Aguardando pagamento', stage: 1 },
-    SENT: { color: 'processing', label: 'Enviado', stage: 1 },
-    APPROVED: { color: 'success', label: 'Aprovado', stage: 1 },
-    PAID: { color: 'green', label: '✅ Pago', stage: 2 },
-    EXPIRED: { color: 'warning', label: 'Expirado', stage: -1 },
-    REJECTED: { color: 'error', label: 'Recusado', stage: -1 },
-    SENT_TO_ORDER: { color: 'cyan', label: '📦 Enviado para Pedido', stage: 2 },
-}
 
 const PAYMENT_METHODS = [
     { value: 'PIX', label: '⚡ PIX' },
@@ -2704,187 +2685,6 @@ function Budgets() {
         setSearchText(value)
     }
 
-    const uniqueClients = useMemo(() => {
-        const names = new Map<string, string>()
-        budgets.forEach(b => {
-            const n = b.customer?.name || 'Sem cliente'
-            if (n) names.set(n, n)
-        })
-        return Array.from(names.entries()).map(([value, text]) => ({ text, value }))
-    }, [budgets])
-
-    const dateFilterOptions = useMemo(() => {
-        const set = new Set<string>()
-        budgets.forEach(b => {
-            const d = new Date(b.created_at).toLocaleDateString('pt-BR')
-            set.add(d)
-        })
-        return Array.from(set).sort().map(d => ({ text: d, value: d }))
-    }, [budgets])
-
-    const columns: ColumnsType<any> = [
-        {
-            title: 'Número orçamento',
-            key: 'number',
-            width: 130,
-            filters: budgets.slice(0, 30).map(r => ({ text: `ORC-${r.id.substring(0, 4).toUpperCase()}`, value: r.id })),
-            onFilter: (value, record) => record.id === value,
-            render: (_, r) => <span style={{ fontWeight: 600, color: 'var(--color-primary-700)' }}>ORC-{r.id.substring(0, 4).toUpperCase()}</span>,
-        },
-        {
-            title: 'Cliente',
-            key: 'client',
-            sorter: (a, b) => (a.customer?.name || '').localeCompare(b.customer?.name || ''),
-            filters: uniqueClients,
-            onFilter: (value, record) => (record.customer?.name || 'Sem cliente') === value,
-            render: (_, r) => r.customer?.name || 'Sem cliente',
-        },
-        {
-            title: 'Data',
-            key: 'date',
-            render: (_, r) => new Date(r.created_at).toLocaleDateString('pt-BR'),
-            sorter: (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
-            defaultSortOrder: 'descend',
-            filters: dateFilterOptions,
-            onFilter: (value, record) => new Date(record.created_at).toLocaleDateString('pt-BR') === value,
-        },
-        {
-            title: 'Valor Total',
-            key: 'total',
-            render: (_, r) => <span style={{ fontWeight: 600 }}>{formatCurrency(Number(r.total_value || 0))}</span>,
-            sorter: (a, b) => Number(a.total_value) - Number(b.total_value),
-            filters: [
-                { text: 'Até R$ 100', value: '0-100' },
-                { text: 'R$ 100 - R$ 500', value: '100-500' },
-                { text: 'R$ 500 - R$ 1.000', value: '500-1000' },
-                { text: 'Acima de R$ 1.000', value: '1000+' },
-            ],
-            onFilter: (value, record) => {
-                const v = Number(record.total_value || 0)
-                if (value === '0-100') return v <= 100
-                if (value === '100-500') return v > 100 && v <= 500
-                if (value === '500-1000') return v > 500 && v <= 1000
-                if (value === '1000+') return v > 1000
-                return false
-            },
-        },
-        {
-            title: 'Status',
-            dataIndex: 'status',
-            key: 'status',
-            filters: Object.entries(statusConfig).map(([k, v]) => ({ text: v.label, value: k })),
-            onFilter: (value, record) => record.status === value,
-            render: (status: string, record: any) => {
-                const cfg = statusConfig[status] || { color: 'default', label: status }
-                return (
-                    <span>
-                        <Tag color={cfg.color}>{cfg.label}</Tag>
-                        {/* MRM S2.3 — badge "Requer revisão" quando policy marcou RRO ≤ 0 */}
-                        {record?.requires_review === true && <RequiresReviewBadge />}
-                    </span>
-                )
-            },
-        },
-        {
-            title: 'Ações',
-            key: 'actions',
-            width: 320,
-            filters: [
-                { text: 'Com Editar', value: 'edit' },
-                { text: 'Com Enviar WhatsApp', value: 'send' },
-                { text: 'Com Excluir', value: 'delete' },
-            ],
-            onFilter: (value, record) => {
-                if (value === 'edit') return true
-                if (value === 'send') return !!(record.customer?.whatsapp_phone || record.customer?.phone)
-                if (value === 'delete') return record.status !== 'CANCELLED'
-                return false
-            },
-            render: (_, record) => {
-                // Doc 29/07 (itens 1.2.7 / 2.1.2 — caso ORC-617A): registro já evoluído de etapa
-                // (enviado para vendas/pedido ou pago) só permite "Ver" — abre o detalhe completo.
-                const isEvolved = ['AWAITING_PAYMENT', 'SENT', 'APPROVED', 'SENT_TO_ORDER', 'PAID'].includes(record.status)
-                if (isEvolved) {
-                    return (
-                        <Space wrap>
-                            <Button type="link" size="small" onClick={() => handleViewDetail(record)}>Ver</Button>
-                        </Space>
-                    )
-                }
-                return (
-                <Space wrap>
-                    <Button type="link" size="small" icon={<EditOutlined />} onClick={() => handleEdit(record)}>Editar</Button>
-                    <Button type="link" size="small" onClick={() => handleViewDetail(record)}>Ver</Button>
-                    <Button
-                        type="link"
-                        size="small"
-                        icon={<SendOutlined />}
-                        onClick={() => handleSendWhatsApp(record)}
-                        loading={sendingWaId === record.id}
-                        disabled={waThrottleSecondsLeft > 0}
-                        title={waThrottleSecondsLeft > 0 ? `Aguarde ${waThrottleSecondsLeft}s entre envios` : undefined}
-                    >
-                        {waThrottleSecondsLeft > 0 ? `Enviar via WhatsApp (${waThrottleSecondsLeft}s)` : 'Enviar via WhatsApp'}
-                    </Button>
-                    {record.status === 'DRAFT' && (
-                        <Popconfirm
-                            title="Enviar para vendas?"
-                            description="O orçamento irá para o status 'Aguardando pagamento' sem notificar o cliente."
-                            okText="Enviar"
-                            cancelText="Cancelar"
-                            onConfirm={() => handleSendToSales(record)}
-                        >
-                            <Button
-                                type="link"
-                                size="small"
-                                icon={<ShoppingCartOutlined />}
-                                style={{ color: '#12B76A' }}
-                                title="Enviar para vendas (aguardando pagamento), sem enviar ao cliente"
-                            >
-                                Enviar para vendas
-                            </Button>
-                        </Popconfirm>
-                    )}
-                    {record.status === 'DRAFT' && (
-                        <Popconfirm
-                            title="Enviar para pedido?"
-                            description="Um pedido será criado a partir deste orçamento, com todos os itens e dados."
-                            okText="Sim, enviar"
-                            cancelText="Não"
-                            onConfirm={() => handleSendToOrder(record)}
-                        >
-                            <Button
-                                type="link"
-                                size="small"
-                                icon={<ShoppingCartOutlined />}
-                                style={{ color: '#2563eb' }}
-                                title="Enviar para pedido"
-                            >
-                                Enviar para Pedido
-                            </Button>
-                        </Popconfirm>
-                    )}
-                    {(record.status === 'APPROVED' || record.status === 'AWAITING_PAYMENT') && (
-                        <Button type="link" size="small" style={{ color: '#12B76A' }} onClick={() => handleOpenPayment(record)}>
-                            Finalizar
-                        </Button>
-                    )}
-                    {record.status !== 'CANCELLED' && (
-                        <Button
-                            type="link"
-                            size="small"
-                            danger
-                            onClick={() => confirmDeleteBudget(record)}
-                        >
-                            Excluir
-                        </Button>
-                    )}
-                </Space>
-                )
-            },
-        },
-    ]
-
     // ── Colunas dos itens no orçamento ──
     const itemColumns: ColumnsType<BudgetItemRow> = [
         {
@@ -3202,88 +3002,25 @@ function Budgets() {
                         </Button>
                     )}
                 </div>
-                {isMobile ? (
-                    <div className="pc-row-compact-list">
-                        {filteredData.length === 0 ? (
-                            <Empty description="Nenhum orçamento encontrado" />
-                        ) : (
-                            filteredData.map((r: any) => {
-                                const cfg = statusConfig[r.status] || { color: 'default', label: r.status }
-                                const dataFmt = new Date(r.created_at).toLocaleDateString('pt-BR')
-                                const orcCode = `ORC-${r.id.substring(0, 4).toUpperCase()}`
-                                const hasPhone = !!(r.customer?.whatsapp_phone || r.customer?.phone)
-                                const isDraft = r.status === 'DRAFT'
-                                const canDelete = r.status !== 'CANCELLED'
-                                // Doc 29/07 (itens 1.2.7 / 2.1.2 — ORC-617A): registro já evoluído de etapa
-                                // (enviado para vendas/pedido ou pago) só permite "Ver" no ⋮.
-                                const isEvolved = ['AWAITING_PAYMENT', 'SENT', 'APPROVED', 'SENT_TO_ORDER', 'PAID'].includes(r.status)
-                                // Doc 28/07: uma vez enviado para Pedido, o card NÃO exibe mais nenhuma ação.
-                                // Só o rascunho mostra a linha de ações (Enviar para Pedido + Editar).
-                                const showActions = isDraft
-                                // Doc 29/07: ⋮ = apenas "Ver" quando evoluído; no rascunho/estados finais mantém WhatsApp/Enviar/Excluir.
-                                const kebabItems: any[] = [
-                                    { key: 'view', label: 'Ver', onClick: () => handleViewDetail(r) },
-                                ]
-                                if (hasPhone && !isEvolved) {
-                                    kebabItems.push({ key: 'wa', label: 'Enviar via WhatsApp', disabled: waThrottleSecondsLeft > 0, onClick: () => { if (waThrottleSecondsLeft <= 0) handleSendWhatsApp(r) } })
-                                }
-                                if (isDraft) {
-                                    // ORC-002 (Relatório 24/07): a ação de avançar para o fluxo de venda
-                                    // (aguardando pagamento) é "Enviar para Venda" (handleSendToSales).
-                                    // "Enviar para Pedido" (handleSendToOrder) vira o botão visível azul.
-                                    kebabItems.push({ key: 'sale', label: 'Enviar para Venda', onClick: () => handleSendToSales(r) })
-                                }
-                                if (canDelete && !isEvolved) {
-                                    kebabItems.push({ key: 'del', label: 'Excluir', danger: true, onClick: () => confirmDeleteBudget(r) })
-                                }
-                                return (
-                                    <React.Fragment key={r.id}>
-                                        <div
-                                            className={showActions ? 'pc-row-compact pc-row-compact--has-actions' : 'pc-row-compact'}
-                                            onClick={() => handleViewDetail(r)}
-                                        >
-                                            <div className="pc-row-compact__main">
-                                                <span className="pc-row-compact__title">{r.customer?.name || 'Sem cliente'}</span>
-                                                <span className="pc-row-compact__sub">{orcCode} · {dataFmt} · {cfg.label}</span>
-                                            </div>
-                                            <span className="pc-row-compact__value">{formatCurrency(Number(r.total_value || 0))}</span>
-                                            <Dropdown menu={{ items: kebabItems }} trigger={['click']} placement="bottomRight" open={openKebabId === r.id} onOpenChange={(o) => setOpenKebabId(o ? r.id : null)}>
-                                                <span className="pc-row-compact__kebab" onClick={(e) => e.stopPropagation()}><MoreOutlined /></span>
-                                            </Dropdown>
-                                        </div>
-                                        {showActions && (
-                                            <div className="pc-row-compact__actions" onClick={(e) => e.stopPropagation()}>
-                                                {/* ORC-003 (Relatório 24/07): botão visível primário = "Enviar para
-                                                    Pedido" AZUL (handleSendToOrder); "Excluir" vira "Editar" (neutro).
-                                                    Verde fica reservado ao "Enviar para vendas" (agora no kebab como
-                                                    "Enviar para Venda"). Excluir permanece disponível no kebab. */}
-                                                {/* Doc 28/07: o botão "Finalizar" NÃO pode existir na tela de
-                                                    Orçamentos (confirmação de recebimento é responsabilidade de
-                                                    Vendas). Rascunho exibe apenas Enviar para Pedido + Editar. */}
-                                                {isDraft && (
-                                                    <Button size="small" type="primary" style={{ background: '#2563eb', borderColor: '#2563eb' }} onClick={(e) => { e.stopPropagation(); handleSendToOrder(r) }}>Enviar para Pedido</Button>
-                                                )}
-                                                {isDraft && (
-                                                    <Button size="small" onClick={(e) => { e.stopPropagation(); handleEdit(r) }}>Editar</Button>
-                                                )}
-                                            </div>
-                                        )}
-                                    </React.Fragment>
-                                )
-                            })
-                        )}
-                    </div>
-                ) : (
-                    <Table
-                        columns={columns}
-                        dataSource={filteredData}
-                        rowKey="id"
-                        pagination={{ pageSize: PAGE_SIZE, showTotal: (t) => `${t} orçamentos` }}
-                        size="middle"
-                        loading={isLoading}
-                        components={{ header: { cell: TableHeaderCell } }}
-                    />
-                )}
+                {/* A lista — os DOIS ramos, desktop e mobile, vivem no componente. A página
+                    segue dona do pipeline de filtros: `filteredData` entra pronto. */}
+                <ListaDeOrcamentos
+                    rows={filteredData}
+                    estado={{
+                        carregando: isLoading,
+                        enviandoWhatsAppId: sendingWaId,
+                        segundosDeEsperaWhatsApp: waThrottleSecondsLeft,
+                    }}
+                    actions={{
+                        onVer: handleViewDetail,
+                        onEditar: handleEdit,
+                        onEnviarWhatsApp: handleSendWhatsApp,
+                        onEnviarParaVenda: handleSendToSales,
+                        onEnviarParaPedido: handleSendToOrder,
+                        onFinalizar: handleOpenPayment,
+                        onExcluir: confirmDeleteBudget,
+                    }}
+                />
             </div>
 
             {/* ── Drawer: Criar / Editar Orçamento ── */}

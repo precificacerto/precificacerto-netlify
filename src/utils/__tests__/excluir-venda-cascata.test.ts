@@ -161,16 +161,28 @@ describe('Os tooltips distinguem as duas ações', () => {
 
 describe('A tela de Vendas: botão ao lado do Cancelar, desabilitado quando bloqueado', () => {
     const vendas = () => read('pages/vendas/index.tsx')
+    /*
+      A LISTA saiu da página em 15/10/2026 — os dois ramos, desktop e cartões mobile, foram
+      para `page-parts/shared/lista-de-vendas.component.tsx` para poderem ser renderizados
+      também na ficha do cliente. Só os DOIS casos abaixo mudam de fonte, porque só o que eles
+      afirmam mudou de arquivo; os outros cinco seguem lendo a PÁGINA, onde o
+      `confirmDeleteSale`, as duas consultas e o modal de confirmação continuam.
+
+      Nenhuma asserção foi afrouxada. E o portão NOVO da extração
+      (`as-seis-renderizacoes-das-listas.test.tsx`) afirma o mesmo efeito renderizando o
+      componente, com `disabled` consultado no DOM em vez de no texto.
+    */
+    const listaDeVendas = () => read('page-parts/shared/lista-de-vendas.component.tsx')
 
     it('o botão Excluir existe na coluna Ações, com os DOIS tooltips', () => {
-        const conteudo = vendas()
-        expect(conteudo).toContain('TOOLTIP_CANCELAR')
-        expect(conteudo).toContain('TOOLTIP_EXCLUIR')
-        expect(conteudo).toContain('confirmDeleteSale')
+        expect(listaDeVendas()).toContain('TOOLTIP_CANCELAR')
+        expect(listaDeVendas()).toContain('TOOLTIP_EXCLUIR')
+        // O handler continua na página, e é ela que o liga ao componente.
+        expect(vendas()).toContain('confirmDeleteSale')
     })
 
     it('o `disabled` continua ligado ao veredito, não a um literal', () => {
-        const conteudo = vendas()
+        const conteudo = listaDeVendas()
         expect(conteudo).toContain('canDeleteSale({ status: record.status })')
         expect(conteudo).toContain('disabled={!allowed}')
         expect(conteudo).not.toContain('disabled={false}')
