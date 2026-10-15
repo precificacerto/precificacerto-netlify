@@ -102,6 +102,17 @@ export interface Parcela {
 export interface AgregadoDoCliente {
     vencido: number
     aVencer: number
+    /**
+     * O que está em aberto e NÃO tem vencimento.
+     *
+     * Existe como campo próprio porque, sem ele, o valor não apareceria em total nenhum:
+     * `SEM_VENCIMENTO` é classe própria e fica fora de `vencido` e de `aVencer` por regra.
+     * Hoje são 0 linhas — e é exatamente por isso que ninguém notaria a primeira. A tela
+     * exibe a coluna SÓ quando este valor é maior que zero (`ausente-vs-falso.md`: zero
+     * exibido afirmaria que não há nada sem vencimento, e é verdade; coluna sempre presente
+     * com R$ 0,00 treinaria o olho a ignorá-la).
+     */
+    semVencimento: number
     /** `null` quando o cliente não tem nenhuma vencida. */
     maiorAtrasoDias: number | null
     temVencida: boolean
@@ -158,6 +169,7 @@ function ordenarPorVencimento(a: LinhaDeParcela, b: LinhaDeParcela): number {
  *    perderia o sentido.
  * 3. **O `escopo` filtra depois** — ele decide o que se EXIBE, não o que a série É.
  * 4. **A parcela sem cliente não entra em `porCliente`.** São 2 em aberto, de 50 órfãs.
+ * 5. **`SEM_VENCIMENTO` soma em campo PRÓPRIO**, nunca em `vencido` nem em `aVencer`.
  */
 export function montarParcelasDoCliente(entrada: {
     parcelas: readonly LinhaDeParcela[]
@@ -234,6 +246,7 @@ export function montarParcelasDoCliente(entrada: {
     interface Acumulador {
         vencido: number
         aVencer: number
+        semVencimento: number
         maiorAtrasoDias: number | null
         temVencida: boolean
         temAVencer: boolean
@@ -241,11 +254,13 @@ export function montarParcelasDoCliente(entrada: {
     const acumulado = new Map<string, Acumulador>()
     for (const p of parcelas) {
         if (p.customerId === null) continue
-        if (p.estado !== 'VENCIDA' && p.estado !== 'A_VENCER') continue
+        if (p.estado !== 'VENCIDA' && p.estado !== 'A_VENCER' && p.estado !== 'SEM_VENCIMENTO') continue
         const atual: Acumulador = acumulado.get(p.customerId) ?? {
-            vencido: 0, aVencer: 0, maiorAtrasoDias: null, temVencida: false, temAVencer: false,
+            vencido: 0, aVencer: 0, semVencimento: 0, maiorAtrasoDias: null, temVencida: false, temAVencer: false,
         }
-        if (p.estado === 'VENCIDA') {
+        if (p.estado === 'SEM_VENCIMENTO') {
+            atual.semVencimento += emCentavos(p.valor)
+        } else if (p.estado === 'VENCIDA') {
             atual.vencido += emCentavos(p.valor)
             // Presenca, nao valor: parcela vencida de R$ 0,00 continua sendo uma vencida, e
             // derivar o booleano do total diria que o cliente nao deve nada
@@ -266,6 +281,7 @@ export function montarParcelasDoCliente(entrada: {
         porCliente[customerId] = {
             vencido: deCentavos(a.vencido),
             aVencer: deCentavos(a.aVencer),
+            semVencimento: deCentavos(a.semVencimento),
             maiorAtrasoDias: a.maiorAtrasoDias,
             temVencida: a.temVencida,
             temAVencer: a.temAVencer,

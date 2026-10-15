@@ -31,6 +31,7 @@ const VENDAS: VendaParaResolucao[] = [
     { id: 'venda-1', customer_id: 'cli-A' },
     { id: 'venda-2', customer_id: 'cli-B' },
     { id: 'venda-3', customer_id: null },
+    { id: 'venda-4', customer_id: 'cli-C' },
 ]
 
 function linha(p: Partial<LinhaDeParcela> & { id: string }): LinhaDeParcela {
@@ -61,6 +62,9 @@ const PARCELAS: LinhaDeParcela[] = [
     linha({ id: 'p-c1-sem-cliente', origin_id: 'venda-3', due_date: '2026-09-01', amount: 77.0 }),
     // `due_date` nulo — a coluna é `date NULL` sem default.
     linha({ id: 'p-d1-sem-venc', origin_id: 'venda-2', due_date: null, amount: 123.45 }),
+    // cli-C só tem SEM_VENCIMENTO. Sem o sexto campo, ele não apareceria em `porCliente`
+    // com valor nenhum — e R$ 88,00 em aberto sumiriam da tela sem deixar rastro.
+    linha({ id: 'p-e1-so-sem-venc', origin_id: 'venda-4', due_date: null, amount: 88.0 }),
 ]
 
 const abertas = () => montarParcelasDoCliente({ parcelas: PARCELAS, vendas: VENDAS, hoje: HOJE, escopo: 'ABERTAS' })
@@ -137,6 +141,23 @@ describe('SEM_VENCIMENTO é classe própria, não um balde', () => {
         expect(b.temAVencer).toBe(true)
     })
 
+    // MUTAÇÃO: somar SEM_VENCIMENTO em `aVencer`.
+    it('ela soma em `semVencimento`, campo PRÓPRIO — o valor não some da tela', () => {
+        expect(abertas().porCliente['cli-B'].semVencimento).toBe(123.45)
+    })
+
+    it('cliente com SÓ sem-vencimento tem vencido 0, aVencer 0 e semVencimento > 0', () => {
+        const c = abertas().porCliente['cli-C']
+        expect(c).toEqual({
+            vencido: 0,
+            aVencer: 0,
+            semVencimento: 88,
+            maiorAtrasoDias: null,
+            temVencida: false,
+            temAVencer: false,
+        })
+    })
+
     it('mas a parcela CONTINUA na lista, com o cliente resolvido — omitir do total não é sumir', () => {
         expect(acharParcela(abertas(), 'p-d1-sem-venc')!.customerId).toBe('cli-B')
     })
@@ -155,7 +176,7 @@ describe('a parcela sem cliente não entra em `porCliente`', () => {
     it('a de venda sem cliente fica na lista e fora do agregado', () => {
         const r = abertas()
         expect(acharParcela(r, 'p-c1-sem-cliente')!.customerId).toBeNull()
-        expect(Object.keys(r.porCliente).sort()).toEqual(['cli-A', 'cli-B'])
+        expect(Object.keys(r.porCliente).sort()).toEqual(['cli-A', 'cli-B', 'cli-C'])
     })
 
     it('os 77,00 dela não aparecem em vencido nenhum', () => {
@@ -223,6 +244,8 @@ describe('`diasDeAtraso` é derivado, e só existe na vencida', () => {
 describe('a ordenação é por vencimento, e o sem data vai para o fim', () => {
     it('a lista sai ordenada e a sem vencimento é a última', () => {
         const ids = abertas().parcelas.map((p) => p.id)
-        expect(ids).toEqual(['p-a1', 'p-c1-sem-cliente', 'p-a2', 'p-b1-contato', 'p-a3', 'p-d1-sem-venc'])
+        expect(ids).toEqual([
+            'p-a1', 'p-c1-sem-cliente', 'p-a2', 'p-b1-contato', 'p-a3', 'p-d1-sem-venc', 'p-e1-so-sem-venc',
+        ])
     })
 })

@@ -2,6 +2,7 @@ import useSWR from 'swr'
 import { supabase } from '@/supabase/client'
 import { ACTIVE_OR_NULL_FILTER, filterActiveStockRows } from '@/utils/active-record-filter'
 import { useAuth } from './use-auth.hook'
+import type { LinhaDeParcela, VendaParaResolucao } from '@/utils/parcelas-do-cliente'
 
 const SWR_CONFIG = {
   revalidateOnFocus: false,
@@ -180,7 +181,15 @@ export function useParcelasDeReceber() {
       // `is_active` NÃO é filtrado aqui: quem decide o que é estorno é o módulo, e um filtro
       // a mais na consulta esconderia a linha de quem precisasse auditá-la. O volume é
       // pequeno (186 linhas INCOME na base inteira em 15/10/2026).
-      const { data: parcelas, error: erroParcelas } = await supabase
+      //
+      // O `as any` NÃO é preguiça, e a razão fica aqui para não precisar ser procurada:
+      // `src/supabase/database.types.ts` está DESATUALIZADO. Ele declara 15 colunas em
+      // `cash_entries`; a tabela real tem 41, e `is_active` é uma das 26 que faltam —
+      // medido em `information_schema.columns` em 15/10/2026 (`boolean`, default `true`).
+      // Sem o cast o `tsc` responde `column 'is_active' does not exist on 'cash_entries'`,
+      // que é afirmação FALSA sobre o banco. Regenerar os tipos é rodada própria: ela mexe
+      // no contrato de todas as telas de uma vez.
+      const { data: parcelas, error: erroParcelas } = await (supabase as any)
         .from('cash_entries')
         .select('id, amount, due_date, paid_date, is_active, origin_type, origin_id, contact_id')
         .eq('type', 'INCOME')
@@ -191,7 +200,10 @@ export function useParcelasDeReceber() {
         .select('id, customer_id')
       if (erroVendas) throw erroVendas
 
-      return { parcelas: parcelas ?? [], vendas: vendas ?? [] }
+      return {
+        parcelas: (parcelas ?? []) as LinhaDeParcela[],
+        vendas: (vendas ?? []) as VendaParaResolucao[],
+      }
     },
     SWR_CONFIG
   )
