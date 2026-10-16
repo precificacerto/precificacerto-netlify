@@ -44,6 +44,11 @@ lido — e isso só importa no dia em que não for.
 
 ### A aparição 1 já estava escrita, e não virou regra
 
+> **Ponteiro de volta:** o trecho está em `migration-delivery.md`, seção *"Ressalva de método:
+> o `raw` NÃO fecha a cadeia byte a byte"*, e desde 16/10/2026 ele aponta para cá. Os dois
+> sentidos existem de propósito: quem chega pelo protocolo de aplicação encontra a questão de
+> autorização, e quem chega pela autorização encontra o protocolo.
+
 É o diagnóstico de `registro-de-classe.md` acontecendo de novo: o conhecimento existia, estava
 correto, e estava **no lugar em que não se lê no momento em que importa**. `migration-delivery.md`
 registrou que a transformação quebra a reprodutibilidade do `md5` — e tratou isso como uma
