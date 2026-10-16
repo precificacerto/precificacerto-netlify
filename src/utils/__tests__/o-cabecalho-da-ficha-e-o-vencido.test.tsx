@@ -103,9 +103,19 @@ describe('4b.3 — o resumo, e o que ele NÃO conta', () => {
 })
 
 describe('4b.3 — o cabeçalho na tela', () => {
+    /**
+     * A ASSINATURA MUDOU NA 5a.1, a asserção não: o cabeçalho ficou com nome, telefone e
+     * situação, e documento/cidade/UF foram para "Mais informações". As props novas
+     * (`cliente`, `resolverResponsavel`, `maisAberto`, `aoAlternarMais`, `emEdicao`) entram
+     * com o bloco FECHADO, que é o estado em que estes casos sempre rodaram.
+     */
     const base = {
-        nome: 'Alfa Ltda', documento: '12.345.678/0001-90',
-        cidade: 'Porto Alegre', uf: 'RS', situacao: 'ACTIVE',
+        nome: 'Alfa Ltda', situacao: 'ACTIVE',
+        cliente: { document: '12.345.678/0001-90', city: 'Porto Alegre', state_code: 'RS' },
+        resolverResponsavel: (): string | null => null,
+        maisAberto: false,
+        aoAlternarMais: () => {},
+        emEdicao: false,
     }
 
     // MUTAÇÃO: somar vencido e a receber num indicador só.

@@ -16,7 +16,7 @@
 
 import React from 'react'
 import { Button, Tag, Tooltip } from 'antd'
-import { PlusOutlined } from '@ant-design/icons'
+import { DownOutlined, PlusOutlined, UpOutlined } from '@ant-design/icons'
 
 import { formatBRL } from '@/utils/formatters'
 import { telefoneExibivel } from '@/utils/phone-br'
@@ -25,6 +25,12 @@ import {
     ROTULO_TOTAL_COMPRADO,
     type ResumoDoCliente,
 } from '@/utils/resumo-do-cliente'
+import {
+    ROTULO_MAIS_INFORMACOES,
+    informacoesExtras,
+    temAlgumaInformacaoExtra,
+    type ClienteComInformacoesExtras,
+} from '@/utils/informacoes-extras-do-cliente'
 
 export const ROTULO_A_RECEBER = 'A receber'
 export const ROTULO_VENCIDO = 'Vencido'
@@ -33,12 +39,18 @@ export const ROTULO_SEM_VENCIMENTO_FICHA = 'Sem vencimento'
 
 export interface CabecalhoDaFichaProps {
     nome: string
-    documento?: string | null
     whatsapp?: string | null
     telefone?: string | null
-    cidade?: string | null
-    uf?: string | null
     situacao?: string | null
+    /** O cliente inteiro, para o bloco "Mais informações". */
+    cliente: ClienteComInformacoesExtras
+    /** Resolve o nome do vendedor responsável a partir do `owner_id`. */
+    resolverResponsavel: (ownerId: string) => string | null
+    /** `?mais=1` na URL. O bloco abre NA PRÓPRIA PÁGINA, nunca em modal ou drawer. */
+    maisAberto: boolean
+    aoAlternarMais: (aberto: boolean) => void
+    /** `true` na aba DADOS em edição: ali o bloco aparece SEMPRE, porque é onde se preenche. */
+    emEdicao: boolean
     /** `true` quando o cliente tem parcela lançada. Decide travessão × R$ 0,00. */
     temCobranca: boolean
     resumo: ResumoDoCliente
@@ -87,20 +99,33 @@ function Indicador({ rotulo, valor, destaque, ressalva }: {
 export function CabecalhoDaFicha(props: CabecalhoDaFichaProps) {
     const { resumo, temCobranca } = props
     const telefone = telefoneExibivel({ whatsapp: props.whatsapp, fixo: props.telefone })
-    const local = [props.cidade, props.uf].filter(Boolean).join(' - ')
     const dinheiro = (v: number) => (temCobranca ? formatBRL(v) : TRAVESSAO)
+    const extras = informacoesExtras(props.cliente, props.resolverResponsavel)
+    // Em EDIÇÃO o bloco aparece sempre — é onde se preenche. Em consulta, só com conteúdo.
+    const mostrarBotaoDeMais = props.emEdicao || temAlgumaInformacaoExtra(props.cliente)
+    const blocoAberto = props.emEdicao ? props.maisAberto : props.maisAberto && mostrarBotaoDeMais
 
     return (
         <div style={{ border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10, padding: 16, marginBottom: 16 }}>
             <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+                {/* CABEÇALHO ENXUTO: nome, telefone e situação. Documento, cidade/UF e
+                    e-mail saem para "Mais informações" — não é o que se olha ao abrir. */}
                 <span style={{ fontSize: 20, fontWeight: 800 }}>{props.nome}</span>
-                {props.documento ? <span style={{ color: 'var(--color-neutral-400)' }}>{props.documento}</span> : null}
                 {/* Telefone inválido NÃO é exibido nem truncado — `telefoneExibivel` devolve
                     `null`, e a linha simplesmente não aparece. 65 dos 79 `phone` da base
                     estão fora da faixa de um telefone brasileiro. */}
                 {telefone ? <span style={{ color: 'var(--color-neutral-400)' }}>{telefone}</span> : null}
-                {local ? <span style={{ color: 'var(--color-neutral-400)' }}>{local}</span> : null}
                 {props.situacao ? <Tag>{props.situacao}</Tag> : null}
+                {mostrarBotaoDeMais && (
+                    <Button
+                        size="small"
+                        type="link"
+                        icon={props.maisAberto ? <UpOutlined /> : <DownOutlined />}
+                        onClick={() => props.aoAlternarMais(!props.maisAberto)}
+                    >
+                        {ROTULO_MAIS_INFORMACOES}
+                    </Button>
+                )}
                 <div style={{ flex: 1 }} />
                 {props.aoNovoOrcamento && (
                     <Button type="primary" icon={<PlusOutlined />} onClick={props.aoNovoOrcamento}>
@@ -108,6 +133,21 @@ export function CabecalhoDaFicha(props: CabecalhoDaFichaProps) {
                     </Button>
                 )}
             </div>
+
+            {blocoAberto && (
+                <div
+                    data-testid="bloco-mais-informacoes"
+                    style={{ marginBottom: 14, padding: 12, border: '1px solid rgba(255,255,255,0.06)', borderRadius: 8 }}
+                >
+                    {extras.map((info) => (
+                        <div key={info.rotulo} style={{ display: 'flex', gap: 8, padding: '4px 0' }}>
+                            <span style={{ minWidth: 190, color: 'var(--color-neutral-400)', fontSize: 12 }}>{info.rotulo}</span>
+                            {/* Travessão, nunca string vazia (`ausente-vs-falso.md`). */}
+                            <span style={{ fontSize: 13 }}>{info.valor ?? TRAVESSAO}</span>
+                        </div>
+                    ))}
+                </div>
+            )}
 
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 24, marginBottom: 14 }}>
                 <Indicador
