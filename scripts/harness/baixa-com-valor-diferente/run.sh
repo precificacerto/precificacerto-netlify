@@ -5,6 +5,12 @@
 # produção em 16/10/2026 — não do histórico de migrações, que não reproduz o schema real
 # (ver `migration-delivery.md`). Cada bloco do schema diz se é EXTRAÍDO ou RECONSTRUÍDO.
 #
+# PENDÊNCIA NOMEADA — DIVERGÊNCIA DE VERSÃO: produção é PostgreSQL 17.6; este harness roda
+# 16.15. A RPC não usa nada específico de versão, mas isso é RACIOCÍNIO, NÃO MEDIÇÃO. Os 14
+# casos verdes provam o comportamento no 16.15; no 17.6 ele é premissa. A diferença entre as
+# duas versões é o tamanho dessa incerteza, como a fronteira EXTRAÍDO/RECONSTRUÍDO é a do
+# schema. Fecha-se rodando este mesmo harness num 17.x — não por leitura de changelog.
+#
 # Subir o Postgres local (uma vez por container):
 #   B=/usr/lib/postgresql/16/bin; D=/tmp/harness-pg; mkdir -p $D && chown postgres:postgres $D
 #   su postgres -c "$B/initdb -D $D/data -U postgres --auth=trust -E UTF8 --locale=C.UTF-8"
