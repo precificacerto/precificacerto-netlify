@@ -2,10 +2,28 @@
 -- POLÍTICAS DE VISIBILIDADE — o aperto do `orders` e a quarta parcela do `sales`
 --
 -- ╔══════════════════════════════════════════════════════════════════════════════════════╗
--- ║ ESTA MIGRAÇÃO NÃO FOI APLICADA. O default é PENDENTE até a consulta da VERIFICAÇÃO    ║
--- ║ devolver o esperado — `migration-delivery.md`. Arquivo commitado não é migração       ║
--- ║ aplicada, e build verde não prova política nenhuma.                                   ║
+-- ║ APLICADA E VERIFICADA em 16/10/2026, 19:51:31 UTC, pelo SQL Editor (PO).               ║
+-- ║ `schema_migrations`: version `20261016195131`, name com o nome deste arquivo.          ║
 -- ╚══════════════════════════════════════════════════════════════════════════════════════╝
+--
+-- O QUE FOI APLICADO NÃO É ESTE ARQUIVO BYTE A BYTE — registrado como foi:
+--   arquivo revisado          md5 8ad8ae422e14589af513513b909fb41b (331 linhas)
+--   transformação             versão enxuta: comentários longos do cabeçalho e a seção
+--                             VERIFICAÇÃO retirados; os MESMOS quatro statements
+--   versão entregue ao PO     md5 611af7fe9bb33460ab77d52c013eb965 (68 linhas) — NÃO passou
+--                             por este repositório; o hash é o relatado
+--   texto que o Postgres      lido do `postgres_logs` (source: dashboard), 69 linhas, CRLF,
+--   recebeu                   md5 do corpo logado 76d716cfb1cb492cc5915d4a47af1f4f
+--
+-- O transporte por chat e pelo Editor não preserva bytes, então nenhum dos hashes fecha com
+-- outro. A PROVA É O ESTADO QUE FICOU (`transformacao-quebra-a-cadeia-de-hash.md`, prova 3):
+--   - árvore sintática do texto LOGADO == a deste arquivo: 4 statements, idêntica nó por nó;
+--   - árvore do `qual` VIVO de `sales_select_owner_or_admin` == a do ALTER deste arquivo, e
+--     os três primeiros ramos e o termo de tenant == os da linha de base;
+--   - `orders` com CINCO políticas, nenhuma `orders_tenant_*` além da de INSERT;
+--   - personificação real: os dois `user` 12 -> 0 e 9 -> 0; os três admins 12, 9, 9, e
+--     `sales` dos admins igual ao total do tenant (21, 28, 28);
+--   - `relrowsecurity` true em `orders` e `sales`; `NOTIFY pgrst` rodado.
 --
 -- SEPARADA DA RPC DA BAIXA de propósito (`20261016000001`): autorizações diferentes, riscos
 -- diferentes. Misturar obrigaria a autorizar as duas juntas.
