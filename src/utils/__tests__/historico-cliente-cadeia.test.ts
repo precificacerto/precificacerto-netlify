@@ -285,7 +285,13 @@ describe('bordas do critério', () => {
 })
 
 describe('a página consome o índice', () => {
-    const fonte = fs.readFileSync(path.join(process.cwd(), 'src', 'pages', 'clientes', 'index.tsx'), 'utf-8')
+    // O SUJEITO MUDOU DE ARQUIVO, A ASSERÇÃO NÃO. O formulário de cliente saiu do `<Drawer>` de
+    // `pages/clientes/index.tsx` e virou `page-parts/clientes/formulario-do-cliente.component.tsx`
+    // na etapa 4b; o histórico virou `historico-do-cliente.component.tsx`. Cada constante aponta
+    // para o arquivo que HOJE contém o que ela afirma — nenhuma asserção foi afrouxada, e um
+    // `toContain` que passasse a ler o arquivo errado seria vermelho por acaso, que é pior que
+    // verde falso.
+    const fonte = fs.readFileSync(path.join(process.cwd(), 'src', 'page-parts', 'clientes', 'historico-do-cliente.component.tsx'), 'utf-8')
 
     it('os TRÊS laços consultam o índice antes de montar a entrada', () => {
         expect(fonte).toContain("apareceNoHistorico('ORCAMENTO'")

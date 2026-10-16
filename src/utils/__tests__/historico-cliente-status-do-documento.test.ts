@@ -51,7 +51,17 @@ import {
 } from '@/utils/customer-history-status'
 import { buildSaleHistoryDetail } from '@/utils/sale-history-detail'
 
-const PAGINA = path.join(process.cwd(), 'src', 'pages', 'clientes', 'index.tsx')
+// `hoje` entrou na assinatura na etapa 4b.4 (o bloco de parcelas distingue VENCIDA de "em
+// aberto"). FIXO: um `hoje` do relógio deixaria este arquivo vermelho sozinho amanhã.
+const HOJE = '2026-10-15'
+
+// O SUJEITO MUDOU DE ARQUIVO, A ASSERÇÃO NÃO. O formulário de cliente saiu do `<Drawer>` de
+// `pages/clientes/index.tsx` e virou `page-parts/clientes/formulario-do-cliente.component.tsx`
+// na etapa 4b; o histórico virou `historico-do-cliente.component.tsx`. Cada constante aponta
+// para o arquivo que HOJE contém o que ela afirma — nenhuma asserção foi afrouxada, e um
+// `toContain` que passasse a ler o arquivo errado seria vermelho por acaso, que é pior que
+// verde falso.
+const PAGINA = path.join(process.cwd(), 'src', 'page-parts', 'clientes', 'historico-do-cliente.component.tsx')
 const fonte = fs.readFileSync(PAGINA, 'utf-8')
 
 describe('o filtro que escondia — removido das DUAS consultas de venda', () => {
@@ -260,6 +270,7 @@ describe('o rastro da venda excluída chega à tela — PRODUTO e SERVIÇO', () 
             items: [{ product_id: PRODUTO.id, quantity: 1, unit_price: 2.58, description: null }],
             cashEntries: [],
             products: [PRODUTO],
+            hoje: HOJE,
         })
         expect(detalhe.itens).toHaveLength(1)
         expect(detalhe.itens[0]).toMatchObject({ nome: 'Agua mineral', tipo: 'PRODUTO', quantidade: 1 })
@@ -272,6 +283,7 @@ describe('o rastro da venda excluída chega à tela — PRODUTO e SERVIÇO', () 
             items: [{ service_id: SERVICO.id, quantity: 2, unit_price: 40, description: null }],
             cashEntries: [],
             services: [SERVICO],
+            hoje: HOJE,
         })
         expect(detalhe.itens[0]).toMatchObject({ nome: 'Corte masculino', tipo: 'SERVICO', total: 80 })
         expect(detalhe.total).toBe(80)
@@ -287,6 +299,7 @@ describe('o rastro da venda excluída chega à tela — PRODUTO e SERVIÇO', () 
             items: [{ product_id: PRODUTO.id, quantity: 1, unit_price: 2.58 }],
             cashEntries: [],
             products: [PRODUTO],
+            hoje: HOJE,
         })
         expect(detalhe.parcelamento).toBeNull()
     })

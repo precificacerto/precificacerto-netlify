@@ -88,3 +88,72 @@ export function phoneRules(requiredMessage: string) {
         },
     ]
 }
+
+/**
+ * `true` quando o valor GRAVADO pode ser exibido como telefone, sem truncar nada.
+ *
+ * POR QUE NÃO SERVE O `isValidPhoneBR` ACIMA, e a diferença é medida
+ * -------------------------------------------------------------------
+ * `isValidPhoneBR` conta os dígitos DEPOIS de `onlyPhoneDigits`, que corta em 11. Isso é o
+ * certo para o campo do formulário, onde a máscara já limitou a entrada — e é o ERRADO para
+ * um valor que veio do banco, gravado antes de a máscara existir. Medido em 15/10/2026:
+ *
+ *   isValidPhoneBR('51999999999999999999999')  →  true    (23 dígitos, o caso GERONIMO)
+ *   isValidPhoneBR('5551999990000')            →  true    (13 dígitos, com DDI)
+ *
+ * Nos dois a função mede os 11 primeiros e aprova o resto por não olhar. Exibir qualquer um
+ * deles seria pior que omitir: `(51) 99999-9999` montado a partir de 23 dígitos é um número
+ * PLAUSÍVEL que não é o do cliente, e quem ligar liga para outra pessoa.
+ *
+ * Na base: `customers.phone` tem 65 de 79 valores fora da faixa (o maior com 23 dígitos) e
+ * `customers.whatsapp_phone` tem 13 de 51. Não é caso raro.
+ *
+ * ESTA FUNÇÃO NÃO SUBSTITUI A OUTRA. `isValidPhoneBR` continua no `phoneRules` do
+ * formulário, onde o comportamento dela está correto — mudá-lo ali recusaria uma digitação
+ * em andamento.
+ */
+export function isPhoneBRExibivel(value?: string | null): boolean {
+    const digitos = (value || '').replace(/\D/g, '')
+    return digitos.length >= MIN_PHONE_DIGITS && digitos.length <= MAX_PHONE_DIGITS
+}
+
+/**
+ * Formata um telefone JÁ VALIDADO para exibição, respeitando o comprimento.
+ *
+ * POR QUE NÃO SERVE O `phoneMask` ACIMA, e isto é defeito medido, não preferência
+ * ------------------------------------------------------------------------------
+ * `phoneMask` sempre quebra no sétimo dígito, porque foi escrita para formatar ENQUANTO SE
+ * DIGITA: no caminho até o celular de 11 dígitos, `(51) 33334-444` é um estado intermediário
+ * legítimo. Para um valor COMPLETO de 10 dígitos, ele é o formato errado — o fixo é
+ * DDD + 4 + 4, e sai `(51) 33334-444` em vez de `(51) 3333-4444`.
+ *
+ * Medido em 15/10/2026: **5 clientes** têm telefone de 10 dígitos (3 em `phone`, 2 em
+ * `whatsapp_phone`) e seriam exibidos assim.
+ *
+ * **O `phoneMask` NÃO foi alterado**, de propósito: ele está no `onChange` do formulário, e
+ * mudar o agrupamento ali mexeria na digitação em andamento — o mesmo motivo pelo qual
+ * `isValidPhoneBR` também fica como está. As duas funções moram no MESMO arquivo, uma ao
+ * lado da outra, para que a diferença entre "formatar digitando" e "formatar para exibir"
+ * fique escrita e não vire uma segunda máscara solta noutro módulo (`copia-divergente.md`).
+ */
+export function formatarTelefoneExibicao(value: string): string {
+    const d = (value || '').replace(/\D/g, '')
+    if (d.length === 11) return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`
+    if (d.length === 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`
+    return d
+}
+
+/**
+ * O telefone a EXIBIR: o WhatsApp, caindo para o fixo só quando o fixo for exibível.
+ *
+ * O predicado vale para os DOIS, não só para o fallback — os 13 `whatsapp_phone` fora da
+ * faixa seriam exibidos crus se ele valesse só do lado do `phone`, e "valor inválido não é
+ * exibido nem truncado" é afirmação sobre o que aparece na tela, não sobre qual coluna veio.
+ *
+ * `null` quando nenhum dos dois serve. Travessão é decisão de quem exibe.
+ */
+export function telefoneExibivel(args: { whatsapp?: string | null; fixo?: string | null }): string | null {
+    if (isPhoneBRExibivel(args.whatsapp)) return formatarTelefoneExibicao(args.whatsapp as string)
+    if (isPhoneBRExibivel(args.fixo)) return formatarTelefoneExibicao(args.fixo as string)
+    return null
+}

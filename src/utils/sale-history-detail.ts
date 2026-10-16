@@ -63,6 +63,16 @@ export interface SaleHistoryInstallment {
     valor: number
     vencimento: string | null
     liquidada: boolean
+    /**
+     * O estado da parcela, pelo MESMO classificador da lista de Clientes
+     * (`parcelas-do-cliente.ts`). `liquidada` fica como estava, porque já é lido — mas ele
+     * não distingue "em aberto" de "VENCIDA", e era essa a informação que faltava.
+     */
+    estado: EstadoDaParcela
+    /** Só em `VENCIDA`. */
+    diasDeAtraso: number | null
+    /** `paid_date`, para o "PAGA em dd/mm". Era LIDO e DESCARTADO até aqui. */
+    pagaEm: string | null
 }
 
 export interface SaleHistoryInstallmentPlan {
@@ -82,6 +92,8 @@ export interface SaleHistoryDetail {
     /** `null` quando a venda não tem NENHUM lançamento: o bloco é omitido, não zerado. */
     parcelamento: SaleHistoryInstallmentPlan | null
 }
+
+import { classificarParcela, type EstadoDaParcela } from '@/utils/parcelas-do-cliente'
 
 const num = (v: unknown): number => {
     const n = Number(v)
@@ -126,6 +138,7 @@ function resolveTipo(item: SaleHistoryItemRow): SaleHistoryItem['tipo'] {
  */
 export function buildInstallmentPlan(
     entries: readonly SaleHistoryCashEntryRow[],
+    hoje: string,
 ): SaleHistoryInstallmentPlan | null {
     if (!entries || entries.length === 0) return null
     // Vencimento ordena; entrada sem data vai para o fim, sem quebrar a numeração das outras.
@@ -134,13 +147,23 @@ export function buildInstallmentPlan(
         const db = b.due_date || '9999-12-31'
         return da.localeCompare(db)
     })
-    const parcelas = ordenadas.map((e, i) => ({
-        numero: i + 1,
-        de: ordenadas.length,
-        valor: num(e.amount),
-        vencimento: e.due_date || null,
-        liquidada: !!e.paid_date,
-    }))
+    const parcelas = ordenadas.map((e, i) => {
+        const { estado, diasDeAtraso } = classificarParcela({
+            vencimento: e.due_date || null,
+            pagaEm: e.paid_date || null,
+            hoje,
+        })
+        return {
+            numero: i + 1,
+            de: ordenadas.length,
+            valor: num(e.amount),
+            vencimento: e.due_date || null,
+            liquidada: !!e.paid_date,
+            estado,
+            diasDeAtraso,
+            pagaEm: e.paid_date || null,
+        }
+    })
     const liquidadas = parcelas.filter((p) => p.liquidada).length
     return {
         total: parcelas.length,
@@ -161,6 +184,8 @@ export function buildSaleHistoryDetail(args: {
     cashEntries: readonly SaleHistoryCashEntryRow[]
     products?: readonly NamedCatalogEntry[]
     services?: readonly NamedCatalogEntry[]
+    /** PARÂMETRO, nunca o relógio — é contra ele que "VENCIDA" é decidida. */
+    hoje: string
 }): SaleHistoryDetail {
     const products = args.products ?? []
     const services = args.services ?? []
@@ -182,6 +207,6 @@ export function buildSaleHistoryDetail(args: {
         // ele que precisa aparecer. Quando os dois divergem, quem manda é o gravado.
         total: num(args.sale?.final_value),
         formaPagamento: args.sale?.payment_method || null,
-        parcelamento: buildInstallmentPlan(args.cashEntries ?? []),
+        parcelamento: buildInstallmentPlan(args.cashEntries ?? [], args.hoje),
     }
 }

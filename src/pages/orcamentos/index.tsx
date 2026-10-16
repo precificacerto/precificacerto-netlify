@@ -6,6 +6,7 @@ import {
 } from 'antd'
 import { Select } from '@/components/ui/app-select.component'
 import type { ColumnsType } from 'antd/es/table'
+import { usePreSelecaoDeCliente, type ClientePreSelecionado } from '@/hooks/use-pre-selecao-de-cliente.hook'
 import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
 import { CardKPI } from '@/components/ui/card-kpi.component'
@@ -662,6 +663,48 @@ function Budgets() {
     // ICMS Complementar — hierarquia de ativação (documento oficial 2026-06-10): destinatário
     // (contribuinte?) + frete (CIF/FOB) + bloqueio ST/DIFAL + override. A decisão roda no motor
     // (Etapa 17); aqui só consolidamos os parâmetros da operação.
+    /**
+     * Abre o formulário de orçamento NOVO.
+     *
+     * Era um `onClick` inline de uma linha só no botão "Novo Orçamento". Virou função
+     * nomeada porque passou a ter DOIS chamadores — o botão e o pré-preenchimento por
+     * `?cliente=`. Duplicar as onze chamadas de reset seria `copia-divergente.md`, e a
+     * décima-segunda entraria só numa das cópias.
+     */
+    function abrirNovoOrcamento() {
+        form.resetFields()
+        form.setFieldsValue({ employee_id: currentUser?.employee_id ?? undefined })
+        setBudgetItems([])
+        setGlobalDiscountPercent(0)
+        setDiscountMode('PROPORTIONAL')
+        setEditingBudgetId(null)
+        setBudgetFormInstallmentPreset('customizado')
+        setBudgetFormCustomInstallments([{ date: null, amount: 0 }])
+        setBudgetFormWithEntry(false)
+        setBudgetFormBaseDate(undefined)
+        setDrawerOpen(true)
+    }
+
+    /**
+     * `?cliente=<id>` — ver `use-pre-selecao-de-cliente.hook.ts`, que guarda a regra inteira:
+     * a guarda de `router.isReady`, a limpeza do parâmetro e o id que não resolve.
+     *
+     * Esta é a ÚNICA leitura de query desta tela.
+     */
+    const [clienteForaDaLista, setClienteForaDaLista] = useState<ClientePreSelecionado | null>(null)
+    usePreSelecaoDeCliente({
+        aoAbrir: abrirNovoOrcamento,
+        aoResolverCliente: (cliente) => {
+            setCustomerMode('existing')
+            form.setFieldsValue({ customer_id: cliente.id })
+            // O inativo não vem em `useCustomers`. Sem opção no `<Select>`, o campo ficaria
+            // VAZIO com um valor dentro — pior que não preencher.
+            if (!(customers as { id: string }[]).some((c) => c.id === cliente.id)) {
+                setClienteForaDaLista(cliente)
+            }
+        },
+    })
+
     const selectedCustomerId = Form.useWatch('customer_id', form)
     const selectedCustomer = (customers as any[]).find((c) => c.id === selectedCustomerId)
     // Padrão nativo FOB (item 5.1a): sem valor explícito, frete fica fora da base.
@@ -2997,7 +3040,7 @@ function Budgets() {
                         Ver produtos em orçamentos
                     </Button>
                     {canEdit(MODULES.BUDGETS) && (
-                        <Button type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); form.setFieldsValue({ employee_id: currentUser?.employee_id ?? undefined }); setBudgetItems([]); setGlobalDiscountPercent(0); setDiscountMode('PROPORTIONAL'); setEditingBudgetId(null); setBudgetFormInstallmentPreset('customizado'); setBudgetFormCustomInstallments([{ date: null, amount: 0 }]); setBudgetFormWithEntry(false); setBudgetFormBaseDate(undefined); setDrawerOpen(true) }}>
+                        <Button type="primary" icon={<PlusOutlined />} onClick={() => abrirNovoOrcamento()}>
                             Novo Orçamento
                         </Button>
                     )}
@@ -3088,6 +3131,13 @@ function Budgets() {
                         >
                             <Select placeholder="Selecione o cliente" showSearch optionFilterProp="children" allowClear>
                                 {customers.map(c => (<Select.Option key={c.id} value={c.id}>{c.name}</Select.Option>))}
+                                {/* O cliente vindo por `?cliente=` que não está na lista ativa.
+                                    Sem esta opção o campo ficaria VAZIO com um valor dentro. */}
+                                {clienteForaDaLista && (
+                                    <Select.Option key={clienteForaDaLista.id} value={clienteForaDaLista.id}>
+                                        {clienteForaDaLista.name}
+                                    </Select.Option>
+                                )}
                             </Select>
                         </Form.Item>
                     )}

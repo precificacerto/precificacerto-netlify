@@ -313,6 +313,7 @@ O AIOS carrega regras contextuais de `.claude/rules/` automaticamente. Regras co
 | `agent-authority.md` | Agent delegation matrix and exclusive operations |
 | `agent-handoff.md` | Agent switch compaction protocol for context optimization |
 | `agent-memory-imports.md` | Agent memory lifecycle and CLAUDE.md ownership |
+| `assercao-negativa-que-nunca-falha.md` | Negativa com literal escrito à mão é verde por construção — compare com o produto da função |
 | `ausente-vs-falso.md` | Dado ausente ou dado falso — omitir não afirma nada; default afirma |
 | `baseline-measurement.md` | Baseline measurement procedure for validating a PR against main |
 | `cascata-lucro-real.md` | A cascata do Lucro Real — construção, orçamento e decomposição (R1 a R20) |

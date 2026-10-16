@@ -149,6 +149,26 @@ function diasEntre(deISO: string, ateISO: string): number {
     return Math.round((b - a) / 86_400_000)
 }
 
+/**
+ * O ESTADO DE UMA PARCELA, num lugar só.
+ *
+ * Exportado porque o bloco 4 do detalhe da compra (`sale-history-detail.ts`) precisa da
+ * MESMA classificação. Com dois classificadores, "VENCIDA" na ficha e "VENCIDA" na lista
+ * poderiam divergir por um dia e ninguém veria — `copia-divergente.md`.
+ */
+export function classificarParcela(args: {
+    vencimento: string | null
+    pagaEm: string | null
+    hoje: DiaISO
+}): { estado: EstadoDaParcela; diasDeAtraso: number | null } {
+    if (args.pagaEm !== null) return { estado: 'PAGA', diasDeAtraso: null }
+    if (args.vencimento === null) return { estado: 'SEM_VENCIMENTO', diasDeAtraso: null }
+    if (args.vencimento < args.hoje) {
+        return { estado: 'VENCIDA', diasDeAtraso: diasEntre(args.vencimento, args.hoje) }
+    }
+    return { estado: 'A_VENCER', diasDeAtraso: null }
+}
+
 /** `YYYY-MM-DD` ordena lexicograficamente, então a comparação de texto basta e é exata. */
 function ordenarPorVencimento(a: LinhaDeParcela, b: LinhaDeParcela): number {
     // Sem vencimento vai para o fim, sem quebrar a numeração das outras.
@@ -214,18 +234,11 @@ export function montarParcelasDoCliente(entrada: {
         // em vez de um link que leva a lugar nenhum.
         const saleId = l.origin_type === 'SALE' && l.origin_id && clientePorVenda.has(l.origin_id) ? l.origin_id : null
 
-        let estado: EstadoDaParcela
-        let diasDeAtraso: number | null = null
-        if (l.paid_date !== null) {
-            estado = 'PAGA'
-        } else if (l.due_date === null) {
-            estado = 'SEM_VENCIMENTO'
-        } else if (l.due_date < hoje) {
-            estado = 'VENCIDA'
-            diasDeAtraso = diasEntre(l.due_date, hoje)
-        } else {
-            estado = 'A_VENCER'
-        }
+        const { estado, diasDeAtraso } = classificarParcela({
+            vencimento: l.due_date,
+            pagaEm: l.paid_date,
+            hoje,
+        })
 
         const posicao = numeradas.get(l.id)
         return {

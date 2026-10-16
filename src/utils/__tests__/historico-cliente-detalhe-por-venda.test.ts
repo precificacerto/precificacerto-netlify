@@ -37,9 +37,18 @@ const CATALOGO = {
     services: [{ id: 'svc-1', name: 'Corte e Barba' }],
 }
 
+/**
+ * `hoje` ENTROU NA ASSINATURA de `buildSaleHistoryDetail` e `buildInstallmentPlan` porque o
+ * bloco de parcelas passou a distinguir VENCIDA de "em aberto" (etapa 4b.4). O valor é FIXO
+ * e escolhido para que a fixture de parcelamento exercite os TRÊS estados: a de 10/09 paga,
+ * a de 10/10 vencida há 5 dias, a de 10/11 a vencer. Um `hoje` lido do relógio deixaria este
+ * arquivo vermelho sozinho no dia seguinte.
+ */
+const HOJE = '2026-10-15'
+
 describe('Itens discriminados — PRODUTO e SERVIÇO', () => {
     it('cada item com nome, quantidade e valor unitário', () => {
-        const d = buildSaleHistoryDetail({ sale: VENDA, items: [SERVICO, PRODUTO], cashEntries: [], ...CATALOGO })
+        const d = buildSaleHistoryDetail({ sale: VENDA, items: [SERVICO, PRODUTO], cashEntries: [], hoje: HOJE, ...CATALOGO })
         expect(d.itens).toEqual([
             { nome: 'Corte e Barba', tipo: 'SERVICO', quantidade: 1, valorUnitario: 85, total: 85 },
             { nome: 'Água mineral 500ml', tipo: 'PRODUTO', quantidade: 1, valorUnitario: 4.62, total: 4.62 },
@@ -47,7 +56,7 @@ describe('Itens discriminados — PRODUTO e SERVIÇO', () => {
     })
 
     it('serviço e produto são distinguíveis, e o item manual também', () => {
-        const d = buildSaleHistoryDetail({ sale: VENDA, items: [SERVICO, PRODUTO, MANUAL], cashEntries: [], ...CATALOGO })
+        const d = buildSaleHistoryDetail({ sale: VENDA, items: [SERVICO, PRODUTO, MANUAL], cashEntries: [], hoje: HOJE, ...CATALOGO })
         expect(d.itens.map((i) => i.tipo)).toEqual(['SERVICO', 'PRODUTO', 'MANUAL'])
         expect(d.itens[2]).toEqual({ nome: 'Frete', tipo: 'MANUAL', quantidade: 2, valorUnitario: 10, total: 20 })
     })
@@ -55,19 +64,19 @@ describe('Itens discriminados — PRODUTO e SERVIÇO', () => {
     it('o nome vem do cadastro vivo; a descrição gravada cobre o que não tem cadastro', () => {
         // Cadastro apagado ou item manual: cai na descrição gravada com a venda.
         const d = buildSaleHistoryDetail({
-            sale: VENDA, items: [{ ...PRODUTO, product_id: 'sumiu' }], cashEntries: [], ...CATALOGO,
+            sale: VENDA, items: [{ ...PRODUTO, product_id: 'sumiu' }], cashEntries: [], hoje: HOJE, ...CATALOGO,
         })
         expect(d.itens[0].nome).toBe('Agua mineral')
     })
 
     it('sem nome em lugar nenhum, não inventa: rótulo explícito', () => {
-        const d = buildSaleHistoryDetail({ sale: VENDA, items: [{ quantity: 1, unit_price: 5 }], cashEntries: [] })
+        const d = buildSaleHistoryDetail({ sale: VENDA, items: [{ quantity: 1, unit_price: 5 }], cashEntries: [], hoje: HOJE })
         expect(d.itens[0].nome).toBe('Item sem descrição')
     })
 
     it('quantidade > 1 multiplica no total da linha', () => {
         const d = buildSaleHistoryDetail({
-            sale: VENDA, items: [{ ...PRODUTO, quantity: 3 }], cashEntries: [], ...CATALOGO,
+            sale: VENDA, items: [{ ...PRODUTO, quantity: 3 }], cashEntries: [], hoje: HOJE, ...CATALOGO,
         })
         expect(d.itens[0].total).toBeCloseTo(13.86, 6)
     })
@@ -75,7 +84,7 @@ describe('Itens discriminados — PRODUTO e SERVIÇO', () => {
 
 describe('Subtotal e total', () => {
     it('subtotal é a soma das linhas; total vem da VENDA', () => {
-        const d = buildSaleHistoryDetail({ sale: VENDA, items: [SERVICO, PRODUTO], cashEntries: [], ...CATALOGO })
+        const d = buildSaleHistoryDetail({ sale: VENDA, items: [SERVICO, PRODUTO], cashEntries: [], hoje: HOJE, ...CATALOGO })
         expect(d.subtotal).toBeCloseTo(89.62, 6)
         expect(d.total).toBeCloseTo(89.62, 6)
     })
@@ -84,15 +93,15 @@ describe('Subtotal e total', () => {
         // O subtotal descreve os itens; o total descreve o que a venda registrou. Substituir
         // um pelo outro esconderia a divergência em vez de mostrá-la.
         const d = buildSaleHistoryDetail({
-            sale: { final_value: 80, payment_method: 'PIX' }, items: [SERVICO, PRODUTO], cashEntries: [], ...CATALOGO,
+            sale: { final_value: 80, payment_method: 'PIX' }, items: [SERVICO, PRODUTO], cashEntries: [], hoje: HOJE, ...CATALOGO,
         })
         expect(d.subtotal).toBeCloseTo(89.62, 6)
         expect(d.total).toBe(80)
     })
 
     it('forma de pagamento atravessa; ausente vira null e não string vazia', () => {
-        expect(buildSaleHistoryDetail({ sale: VENDA, items: [], cashEntries: [] }).formaPagamento).toBe('PIX')
-        expect(buildSaleHistoryDetail({ sale: { final_value: 1 }, items: [], cashEntries: [] }).formaPagamento).toBeNull()
+        expect(buildSaleHistoryDetail({ sale: VENDA, items: [], cashEntries: [], hoje: HOJE }).formaPagamento).toBe('PIX')
+        expect(buildSaleHistoryDetail({ sale: { final_value: 1 }, items: [], cashEntries: [], hoje: HOJE }).formaPagamento).toBeNull()
     })
 })
 
@@ -104,30 +113,32 @@ describe('Parcelamento — total, valor, vencimento e quais liquidadas', () => {
     ]
 
     it('numera na ordem de vencimento e marca as liquidadas', () => {
-        const p = buildInstallmentPlan(PARCELAS)!
+        const p = buildInstallmentPlan(PARCELAS, HOJE)!
         expect(p.total).toBe(3)
         expect(p.liquidadas).toBe(1)
         expect(p.emAberto).toBe(2)
         expect(p.valorTotal).toBe(300)
-        expect(p.parcelas[0]).toEqual({ numero: 1, de: 3, valor: 100, vencimento: '2026-09-10', liquidada: true })
-        expect(p.parcelas[2]).toEqual({ numero: 3, de: 3, valor: 100, vencimento: '2026-11-10', liquidada: false })
+        expect(p.parcelas[0]).toEqual({ numero: 1, de: 3, valor: 100, vencimento: '2026-09-10', liquidada: true, estado: 'PAGA', diasDeAtraso: null, pagaEm: '2026-09-10' })
+        expect(p.parcelas[2]).toEqual({ numero: 3, de: 3, valor: 100, vencimento: '2026-11-10', liquidada: false, estado: 'A_VENCER', diasDeAtraso: null, pagaEm: null })
+        // A DO MEIO é a que `liquidada: boolean` não distinguia: vencida, não "em aberto".
+        expect(p.parcelas[1]).toEqual({ numero: 2, de: 3, valor: 100, vencimento: '2026-10-10', liquidada: false, estado: 'VENCIDA', diasDeAtraso: 5, pagaEm: null })
     })
 
     it('a ordem de chegada não importa — o vencimento ordena', () => {
         const embaralhadas = [PARCELAS[2], PARCELAS[0], PARCELAS[1]]
-        expect(buildInstallmentPlan(embaralhadas)!.parcelas.map((p) => p.vencimento))
+        expect(buildInstallmentPlan(embaralhadas, HOJE)!.parcelas.map((p) => p.vencimento))
             .toEqual(['2026-09-10', '2026-10-10', '2026-11-10'])
     })
 
     it('parcela sem vencimento vai para o fim sem quebrar a numeração das outras', () => {
-        const p = buildInstallmentPlan([{ amount: 50, due_date: null }, ...PARCELAS])!
+        const p = buildInstallmentPlan([{ amount: 50, due_date: null }, ...PARCELAS], HOJE)!
         expect(p.total).toBe(4)
         expect(p.parcelas.map((x) => x.numero)).toEqual([1, 2, 3, 4])
         expect(p.parcelas[3].vencimento).toBeNull()
     })
 
     it('à vista é UMA parcela, e liquidada quando paga', () => {
-        const p = buildInstallmentPlan([{ amount: 89.62, due_date: '2026-09-02', paid_date: '2026-09-02' }])!
+        const p = buildInstallmentPlan([{ amount: 89.62, due_date: '2026-09-02', paid_date: '2026-09-02' }], HOJE)!
         expect(p.total).toBe(1)
         expect(p.liquidadas).toBe(1)
         expect(p.emAberto).toBe(0)
@@ -142,19 +153,19 @@ describe('AUSÊNCIA DE LANÇAMENTO É null — o bloco é OMITIDO, não zerado',
      * de `sales.installments`, não inferir do total: omitir.
      */
     it('sem lançamento nenhum: parcelamento null, para PRODUTO e SERVIÇO', () => {
-        expect(buildSaleHistoryDetail({ sale: VENDA, items: [PRODUTO], cashEntries: [], ...CATALOGO }).parcelamento).toBeNull()
-        expect(buildSaleHistoryDetail({ sale: VENDA, items: [SERVICO], cashEntries: [], ...CATALOGO }).parcelamento).toBeNull()
-        expect(buildInstallmentPlan([])).toBeNull()
+        expect(buildSaleHistoryDetail({ sale: VENDA, items: [PRODUTO], cashEntries: [], hoje: HOJE, ...CATALOGO }).parcelamento).toBeNull()
+        expect(buildSaleHistoryDetail({ sale: VENDA, items: [SERVICO], cashEntries: [], hoje: HOJE, ...CATALOGO }).parcelamento).toBeNull()
+        expect(buildInstallmentPlan([], HOJE)).toBeNull()
     })
 
     it('com UM lançamento já há bloco — a distinção é ter ou não ter, não a quantidade', () => {
         expect(buildSaleHistoryDetail({
-            sale: VENDA, items: [PRODUTO], cashEntries: [{ amount: 89.62, due_date: '2026-09-02' }], ...CATALOGO,
+            sale: VENDA, items: [PRODUTO], cashEntries: [{ amount: 89.62, due_date: '2026-09-02' }], hoje: HOJE, ...CATALOGO,
         }).parcelamento).not.toBeNull()
     })
 
     it('o resto do detalhe continua completo mesmo sem parcelamento', () => {
-        const d = buildSaleHistoryDetail({ sale: VENDA, items: [SERVICO, PRODUTO], cashEntries: [], ...CATALOGO })
+        const d = buildSaleHistoryDetail({ sale: VENDA, items: [SERVICO, PRODUTO], cashEntries: [], hoje: HOJE, ...CATALOGO })
         expect(d.itens).toHaveLength(2)
         expect(d.total).toBeCloseTo(89.62, 6)
         expect(d.formaPagamento).toBe('PIX')
@@ -168,7 +179,7 @@ describe('DESCONTO NÃO ENTRA — ausência de gravação, não de exibição', 
      * omitir, porque AFIRMARIA QUE NÃO HOUVE DESCONTO. Registrado como item próprio.
      */
     it('o detalhe não tem campo de desconto', () => {
-        const d = buildSaleHistoryDetail({ sale: VENDA, items: [SERVICO, PRODUTO], cashEntries: [], ...CATALOGO })
+        const d = buildSaleHistoryDetail({ sale: VENDA, items: [SERVICO, PRODUTO], cashEntries: [], hoje: HOJE, ...CATALOGO })
         expect(Object.keys(d).sort()).toEqual(['formaPagamento', 'itens', 'parcelamento', 'subtotal', 'total'])
         expect(d.itens.every((i) => !('desconto' in i))).toBe(true)
     })
@@ -180,7 +191,7 @@ describe('SEGMENTADO POR VENDA — o histórico não consolida', () => {
         // só produz um número que não corresponde a venda nenhuma.
         const a = buildSaleHistoryDetail({
             sale: { final_value: 89.62, payment_method: 'PIX' },
-            items: [SERVICO, PRODUTO], cashEntries: [], ...CATALOGO,
+            items: [SERVICO, PRODUTO], cashEntries: [], hoje: HOJE, ...CATALOGO,
         })
         const b = buildSaleHistoryDetail({
             sale: { final_value: 300, payment_method: 'BOLETO' },
@@ -190,6 +201,7 @@ describe('SEGMENTADO POR VENDA — o histórico não consolida', () => {
                 { amount: 150, due_date: '2026-10-10' },
             ],
             ...CATALOGO,
+            hoje: HOJE,
         })
         expect(a.total).toBeCloseTo(89.62, 6)
         expect(b.total).toBe(300)
