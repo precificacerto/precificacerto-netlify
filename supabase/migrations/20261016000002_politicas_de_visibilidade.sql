@@ -224,7 +224,7 @@ COMMIT;
 --    where schemaname='public' and tablename='orders'
 --    order by cmd, policyname;
 --
---   -- esperado: QUATRO linhas, e nenhuma com nome `orders_tenant_*` exceto a de INSERT:
+--   -- esperado: CINCO linhas, e nenhuma com nome `orders_tenant_*` exceto a de INSERT:
 --   --   orders_delete        DELETE   tenant AND (is_admin_or_manager() OR created_by=uid)
 --   --   orders_insert        INSERT   (qual null; with_check exige tenant E created_by)
 --   --   orders_tenant_insert INSERT   <- FICA, de propósito. Ver a seção acima.
