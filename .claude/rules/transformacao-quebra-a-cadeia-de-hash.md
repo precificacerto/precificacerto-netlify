@@ -105,15 +105,16 @@ olhada.
 DESDE O COMEÇO** — o do arquivo e o do payload —, **com a transformação NOMEADA entre eles**, e
 a prova **POR DIFF E POR CONTAGEM DE BYTES**, antes de a tela de aprovação aparecer.
 
-A forma, e as três partes são obrigatórias:
+A forma, e as partes são obrigatórias:
 
 ```
 arquivo       <caminho>                                md5 <hash-do-arquivo>
 transformação <descrição literal do que foi removido/alterado, em uma frase>
 payload       <o que de fato vai ser enviado>          md5 <hash-do-payload>
 
-prova 1 — diff cru arquivo -> payload, sem resumo
+prova 1 — diff cru arquivo -> payload, sem resumo (ou a classificação de cada linha removida)
 prova 2 — contagem de bytes, com a aritmética fechando
+prova 3 — IGUALDADE DE ÁRVORE SINTÁTICA do executável, nó por nó
 ```
 
 **A prova por bytes não é redundante com o diff, e é ela que fecha.** O diff por linha mostra
@@ -127,6 +128,41 @@ len("BEGIN;") + len("COMMIT;") + 2 quebras = 6 + 7 + 2 = 15
 
 Fechando a conta, **não há terceira diferença a procurar**. Não fechando, há — e o número diz
 de quantos bytes ela é antes de alguém saber onde.
+
+### A terceira prova: a árvore sintática
+
+Formulação do dono do produto, registrada como está:
+
+> **Diff e bytes provam que o TEXTO mudou pouco; a árvore prova que o QUE EXECUTA não mudou
+> nada.** Quando a transformação mexer em mais que comentário, a árvore é a única das três que
+> afirma o que importa.
+
+O parser do PostgreSQL descarta comentário e espaço ao montar a árvore. Comparar a árvore do
+executável do arquivo com a do payload — sem as posições de texto, que mudam por construção —
+responde à pergunta que diff e bytes não alcançam: **o SQL que roda é o mesmo?** Duas árvores
+iguais nó por nó significam que nenhum statement, nenhum predicado e nenhum literal mudou, por
+mais que o texto em volta tenha encolhido.
+
+Nas duas primeiras provas a transformação é descrita; na terceira ela é **irrelevante**: o que
+se compara já é o que vai executar. Por isso ela é a única que continua valendo quando a
+transformação mexe em mais que comentário — uma reindentação, uma troca de aspas, um
+`IF EXISTS` acrescentado (este último ela **acusa**, e é para isso que serve).
+
+**E ela foi o que tornou SEGURA a aplicação da aparição 2.** O payload que coube na tela de
+aprovação foi o executável sem comentário nenhum — 652 bytes, 18 linhas, de um arquivo de 295
+linhas. Classificação e bytes mostravam o que saiu; a árvore mostrou que o que fica executa
+igual: 4 statements, 10 + 10 + 10 + 103 nós, idênticos.
+
+### Por que o payload enxuto, e não o arquivo inteiro — a razão é de segurança
+
+A tela de aprovação do conector **só habilita o botão depois de o humano rolar o conteúdo
+inteiro**. Com 19 KB de comentário, o botão não acendia dentro dos 60 segundos do conector, e
+cada tentativa morreu por timeout. Do outro lado, o assistente diagnosticou errado três vezes
+(lock, tamanho, palavra-chave) antes de chegar à tela.
+
+O que isso ensina é de segurança, não de conveniência: **um payload que o humano não consegue
+rolar é um payload que ele aprova sem ver, ou não aprova.** O enxuto não é atalho — é o que
+torna a aprovação um ato de leitura. E é a prova 3 que o torna autorizável sem perda.
 
 ## O corolário
 
@@ -159,6 +195,9 @@ o aprovador terá de escolher entre negar sem saber por quê e aprovar sem saber
 
 - **Não diz que a transformação é errada.** Remover `BEGIN`/`COMMIT` para o conector é o
   certo, e está prescrito no próprio arquivo de migração. O que falta é dizer o efeito.
+- **Não proíbe transformação.** Ela exige que seja nomeada e provada. A recusa de um payload
+  enxuto "pela regra" foi feita e RETIRADA na mesma rodada pelo dono do produto: a regra
+  nunca disse isso, e a razão prática apontava para o lado oposto.
 - **Não diz que comentário é inofensivo.** Nesta aparição as 210 linhas perdidas eram todas
   comentário, e foi acaso: o recorte foi por delimitador de transação, não por natureza do
   conteúdo. O mesmo recorte sobre um arquivo com DDL fora do `BEGIN`/`COMMIT` teria aplicado

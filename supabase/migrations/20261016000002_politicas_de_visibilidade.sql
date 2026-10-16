@@ -215,7 +215,7 @@ COMMIT;
 -- ════════════════════════════════════════════════════════════════════════════════════════
 
 -- ════════════════════════════════════════════════════════════════════════════════════════
--- VERIFICAÇÃO — rodar DEPOIS de aplicar. QUATRO consultas, não uma.
+-- VERIFICAÇÃO — rodar DEPOIS de aplicar. SEIS consultas, não uma.
 --
 -- (1) AS POLÍTICAS VIVAS DE `orders`. É a que prova que os três DROP pegaram:
 --
@@ -244,8 +244,46 @@ COMMIT;
 --   -- `get_my_employee_id()`. Sem essa chamada no texto, o ALTER não pegou — e a ficha
 --   -- voltaria a mostrar o orçamento e esconder a venda do mesmo cliente.
 --
--- (3) O ENSAIO, CONFERIDO CONTRA O PREVISTO. Roda sem tocar em dado nenhum, e é o que
---     distingue "aplicou" de "aplicou e deu o que se esperava":
+-- (3) O ENSAIO — PELA PERSONIFICAÇÃO REAL, que é o único instrumento que lê a política.
+--
+--     ESTA CONSULTA SUBSTITUIU OUTRA, e a razão fica escrita. A primeira versão deste
+--     arquivo trazia aqui uma SIMULAÇÃO: ela recalculava o predicado à mão, a partir de
+--     `users.role`, `created_by` e `owner_id`, e NÃO LIA POLÍTICA NENHUMA. Ela dá 0 para os
+--     dois `user` ANTES e DEPOIS de aplicar — logo não pode confirmar que o DROP pegou.
+--     Era `teste-que-nao-exercita.md` dentro da VERIFICAÇÃO de uma migração de produção.
+--     Achado em 16/10/2026, antes da aplicação, ao medir a linha de base.
+--
+--     A forma que enxerga é rodar a contagem COMO o usuário, com a RLS de verdade. Só
+--     leitura, e o `set local` se desfaz no fim da transação. Uma chamada por usuário:
+--
+--   set local role authenticated;
+--   select set_config('request.jwt.claims',
+--                     '{"sub":"<uuid do usuário>","role":"authenticated"}', true);
+--   select auth.uid() as uid_efetivo, current_user as papel_efetivo,
+--          (select count(*) from public.orders) as orders_visiveis,
+--          (select count(*) from public.sales)  as sales_visiveis;
+--
+--   -- `uid_efetivo` e `papel_efetivo` são parte da prova, não enfeite: sem eles não há como
+--   -- saber se a contagem rodou como o usuário ou como o dono da conexão, que ignora RLS.
+--   --
+--   -- LINHA DE BASE, medida por esta mesma consulta ANTES de aplicar (16/10/2026):
+--   --   `user`  contato@esquadrias…   1800d85c…   orders 12   sales 0
+--   --   `user`  dudaklein.03@         126454dd…   orders  9   sales 0
+--   --
+--   -- esperado DEPOIS:
+--   --   `user`  contato@esquadrias…   -> orders 0   (era 12)
+--   --   `user`  dudaklein.03@         -> orders 0   (era 9)
+--   --   `admin` fernandescof@         -> orders 12  (não muda)
+--   --   `admin` esteticaelianer@      -> orders 9   (não muda)
+--   --   `admin` felipegklein@         -> orders 9   (não muda)
+--   --
+--   -- Qualquer `user` com número > 0 significa que uma política permissiva sobrou. Qualquer
+--   -- `admin` que tenha DIMINUÍDO significa que o aperto pegou quem não devia — e aí a
+--   -- reversão é recriar as três políticas, não "ajustar" as restritivas.
+--
+-- (3b) A SIMULAÇÃO — **ROTULADA COMO SIMULAÇÃO**. Fica porque responde outra pergunta: o que
+--      o MODELO prevê para todos os 20 usuários de uma vez. Ela NÃO confirma a aplicação, e
+--      quem a ler como confirmação está lendo o instrumento errado:
 --
 --   with eu as (
 --     select u.id, u.email, u.role, u.tenant_id,
@@ -253,29 +291,27 @@ COMMIT;
 --              where e.user_id = u.id and e.tenant_id = u.tenant_id limit 1) as meu_employee
 --       from public.users u
 --   )
---   select eu.role, eu.email,
+--   select 'SIMULAÇÃO — não lê política' as natureza, eu.role, eu.email,
 --          (select count(*) from public.orders o
 --            where o.tenant_id = eu.tenant_id
 --              and (eu.role in ('admin','super_admin')
 --                   or o.created_by = eu.id
 --                   or o.customer_id in (select c.id from public.customers c
 --                                         where c.tenant_id = eu.tenant_id
---                                           and c.owner_id = eu.meu_employee))) as orders_visiveis
+--                                           and c.owner_id = eu.meu_employee))) as orders_previstos
 --     from eu
 --    order by eu.role, eu.email;
 --
---   -- esperado, e são os números do ensaio de 16/10/2026:
---   --   `super_admin`                       -> 0   (tenant NULL, por desenho)
---   --   `admin` fernandescof@               -> 12
---   --   `admin` esteticaelianer@            -> 9
---   --   `admin` felipegklein@               -> 9
---   --   `admin` os outros 14                -> 0
---   --   `user`  contato@esquadrias…         -> 0   (era 12)
---   --   `user`  dudaklein.03@               -> 0   (era 9)
---   --
---   -- Qualquer `user` com número > 0 significa que uma política permissiva sobrou. Qualquer
---   -- `admin` que tenha DIMINUÍDO significa que o aperto pegou quem não devia — e aí a
---   -- reversão é recriar as três políticas, não "ajustar" as restritivas.
+--   -- previsto: `super_admin` 0 · `admin` fernandescof@ 12, esteticaelianer@ 9,
+--   -- felipegklein@ 9, os outros 14 0 · os dois `user` 0. Igual antes e depois, por
+--   -- construção — é exatamente por isso que ela não serve de confirmação.
+--
+-- (3c) A RLS CONTINUA LIGADA. Para uma migração de política, é este o privilégio que
+--      importa — política sem RLS ligada não restringe nada:
+--
+--   select relname, relrowsecurity from pg_class
+--    where oid in ('public.orders'::regclass, 'public.sales'::regclass);
+--   -- esperado: as duas `true`.
 --
 -- (4) E O `NOTIFY`, que NÃO vem junto com o COMMIT. Política é metadado que o PostgREST
 --     consulta; sem o reload, ele continua decidindo pelo cache antigo:
