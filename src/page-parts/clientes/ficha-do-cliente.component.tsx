@@ -37,6 +37,18 @@ import {
 } from '@/page-parts/clientes/historico-do-cliente.component'
 import { FormularioDoCliente } from '@/page-parts/clientes/formulario-do-cliente.component'
 import { PARAM_DE_VOLTA, lerEnderecoDeVolta } from '@/utils/endereco-de-volta'
+import { PARAM_MAIS } from '@/utils/informacoes-extras-do-cliente'
+import {
+    acharLinha,
+    irmasDaMesmaSerie,
+    montarVencimentosDaFicha,
+    type VendaComCodigo,
+} from '@/utils/vencimentos-da-ficha'
+import { ListaDeVencimentos } from '@/page-parts/clientes/lista-de-vencimentos.component'
+import { TelaDaParcela } from '@/page-parts/clientes/tela-da-parcela.component'
+
+/** `?parcela=<id>` — a tela da parcela, em largura inteira, na própria ficha. */
+export const PARAM_PARCELA = 'parcela'
 import { CabecalhoDaFicha } from '@/page-parts/clientes/cabecalho-da-ficha.component'
 import { useParcelasDeReceber } from '@/hooks/use-data.hooks'
 import { montarParcelasDoCliente } from '@/utils/parcelas-do-cliente'
@@ -96,6 +108,36 @@ export function FichaDoCliente({ customerId }: FichaDoClienteProps) {
         () => montarResumoDoCliente({ historico: timeline, agregado }),
         [timeline, agregado],
     )
+
+    // Os VENCIMENTOS: a mesma carga do cabeçalho, filtrada por este cliente. Sem consulta
+    // nova — `escopo: 'TODAS'` já traz as pagas, que a lista exibe como pagas.
+    const vencimentos = useMemo(
+        () => montarVencimentosDaFicha({
+            parcelas: cobranca.parcelas.filter((p) => p.customerId === customerId),
+            vendas: (dadosDeCobranca?.vendas ?? []) as VendaComCodigo[],
+        }),
+        [cobranca, dadosDeCobranca, customerId],
+    )
+    const [selecionadas, setSelecionadas] = useState<string[]>([])
+
+    const parcelaNaUrl = (() => {
+        const bruto = router.query[PARAM_PARCELA]
+        const id = (Array.isArray(bruto) ? bruto[0] : bruto) ?? ''
+        return id === '' ? null : id
+    })()
+
+    const abrirParcela = (id: string) => {
+        void router.push(
+            { pathname: router.pathname, query: { ...(router.query as Record<string, string>), [PARAM_PARCELA]: id } },
+            undefined,
+            { shallow: true },
+        )
+    }
+    const fecharParcela = () => {
+        const query = { ...(router.query as Record<string, string>) }
+        delete query[PARAM_PARCELA]
+        void router.push({ pathname: router.pathname, query }, undefined, { shallow: true })
+    }
 
     const aba = abaDaQuery(router.query.aba)
     /**
@@ -168,6 +210,20 @@ export function FichaDoCliente({ customerId }: FichaDoClienteProps) {
         void router.replace({ pathname: router.pathname, query }, undefined, { shallow: true })
     }
 
+    /**
+     * `?mais=1` — o bloco "Mais informações" abre NA PRÓPRIA PÁGINA.
+     *
+     * Na URL e não em estado local pela mesma razão das abas: o endereço tem de reabrir a
+     * ficha no estado em que ela foi deixada, e um bloco aberto é parte desse estado.
+     */
+    const maisAberto = String(router.query[PARAM_MAIS] ?? '') === '1'
+    const alternarMais = (aberto: boolean) => {
+        const query = { ...(router.query as Record<string, string>) }
+        if (aberto) query[PARAM_MAIS] = '1'
+        else delete query[PARAM_MAIS]
+        void router.replace({ pathname: router.pathname, query }, undefined, { shallow: true })
+    }
+
     const abrirEdicao = () => {
         void router.replace(
             { pathname: router.pathname, query: { ...(router.query as Record<string, string>), aba: 'dados', editar: '1' } },
@@ -208,6 +264,33 @@ export function FichaDoCliente({ customerId }: FichaDoClienteProps) {
 
     const podeEditar = canEdit(MODULES.CUSTOMERS)
 
+    // A TELA DA PARCELA OCUPA A FICHA, em largura inteira. Id que não resolve mostra o
+    // estado e NÃO derruba a ficha — `acharLinha` devolve `null` e a tela diz isso.
+    if (parcelaNaUrl !== null && customerId !== null) {
+        const linha = acharLinha(vencimentos, parcelaNaUrl)
+        const vendaDaLinha = linha?.saleId
+            ? (dadosDeCobranca?.vendas ?? []).find((v) => v.id === linha.saleId)
+            : undefined
+        const parcelaBruta = linha
+            ? (dadosDeCobranca?.parcelas ?? []).find((p) => p.id === linha.id)
+            : undefined
+        return (
+            <TelaDaParcela
+                linha={linha}
+                venda={{
+                    codigo: (vendaDaLinha as { sale_code?: string | null } | undefined)?.sale_code ?? null,
+                    efetivadaEm: (vendaDaLinha as { sale_date?: string | null } | undefined)?.sale_date ?? null,
+                    vendedor: (vendaDaLinha as { employee_id?: string | null } | undefined)?.employee_id
+                        ? employeeMap.get((vendaDaLinha as { employee_id: string }).employee_id) ?? null
+                        : null,
+                    formaCombinada: (parcelaBruta as { payment_method?: string | null } | undefined)?.payment_method ?? null,
+                }}
+                irmas={linha ? irmasDaMesmaSerie(vencimentos, linha) : []}
+                aoFechar={fecharParcela}
+            />
+        )
+    }
+
     const abaDados = editando && podeEditar ? (
         <FormularioDoCliente
             cliente={cliente}
@@ -240,12 +323,14 @@ export function FichaDoCliente({ customerId }: FichaDoClienteProps) {
             {cliente && customerId !== null && (
                 <CabecalhoDaFicha
                     nome={cliente.name}
-                    documento={(cliente as any).document}
                     whatsapp={(cliente as any).whatsapp_phone}
                     telefone={(cliente as any).phone}
-                    cidade={(cliente as any).city}
-                    uf={(cliente as any).state_code}
                     situacao={(cliente as any).status}
+                    cliente={cliente as any}
+                    resolverResponsavel={(ownerId) => employeeMap.get(ownerId) ?? null}
+                    maisAberto={maisAberto}
+                    aoAlternarMais={alternarMais}
+                    emEdicao={editando}
                     temCobranca={agregado !== undefined}
                     resumo={resumo}
                     aoNovoOrcamento={() => { void router.push(`${ROUTES.BUDGETS}?cliente=${customerId}`) }}
@@ -257,6 +342,15 @@ export function FichaDoCliente({ customerId }: FichaDoClienteProps) {
                     <Button icon={<EditOutlined />} onClick={abrirEdicao}>Editar</Button>
                 )}
             </div>
+            {/* OS VENCIMENTOS SÃO O PRIMEIRO CONTEÚDO, antes das abas. */}
+            {customerId !== null && (
+                <ListaDeVencimentos
+                    vencimentos={vencimentos}
+                    selecionados={selecionadas}
+                    aoSelecionar={setSelecionadas}
+                    aoAbrirParcela={abrirParcela}
+                />
+            )}
             {customerId === null ? (
                 abaDados
             ) : (

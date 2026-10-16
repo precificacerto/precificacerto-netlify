@@ -195,14 +195,31 @@ export function useParcelasDeReceber() {
         .eq('type', 'INCOME')
       if (erroParcelas) throw erroParcelas
 
-      const { data: vendas, error: erroVendas } = await supabase
+      // `sale_code` entrou na 5a.2: é o rótulo que a lista de vencimentos exibe, e o que a
+      // pessoa fala ao telefone. 101 de 101 preenchido e distinto.
+      //
+      // `sale_date` e `employee_id` entraram na 5a.4, para a tela da parcela. São COLUNAS A
+      // MAIS na consulta que já existia, não uma consulta nova — a distinção importa porque
+      // a etapa é de leitura e o custo de uma ida a mais é o que se evita.
+      //
+      // O `as any` é a MESMA pendência do `cash_entries` logo acima, agora em `sales`:
+      // `database.types.ts` declara **18 colunas** para `sales` e a tabela real tem **46**.
+      // `sale_code` e `employee_id` são duas das 28 que faltam — medido em
+      // `information_schema.columns`, e `sale_code` está preenchido em 101 de 101 linhas.
+      // Sem o cast o `tsc` responde `column 'sale_code' does not exist on 'sales'`, que é
+      // FALSO sobre o banco. Regenerar os tipos segue sendo rodada própria.
+      const { data: vendas, error: erroVendas } = await (supabase as any)
         .from('sales')
-        .select('id, customer_id')
+        .select('id, customer_id, sale_code, sale_date, employee_id')
       if (erroVendas) throw erroVendas
 
       return {
         parcelas: (parcelas ?? []) as LinhaDeParcela[],
-        vendas: (vendas ?? []) as VendaParaResolucao[],
+        vendas: (vendas ?? []) as (VendaParaResolucao & {
+          sale_code: string | null
+          sale_date: string | null
+          employee_id: string | null
+        })[],
       }
     },
     SWR_CONFIG

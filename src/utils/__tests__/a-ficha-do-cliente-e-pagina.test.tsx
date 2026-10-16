@@ -149,6 +149,36 @@ describe('4b.1 — a ficha é página, com as abas na URL', () => {
     })
 })
 
+describe('5a.4 — `?parcela=` ocupa a ficha, e a ficha não cai', () => {
+    it('SEM o parâmetro, a ficha é a de sempre: as abas estão lá', async () => {
+        const t = montar(<FichaDoCliente customerId="c1" />)
+        await act(async () => { await Promise.resolve() })
+        expect(t.host.querySelectorAll('[role="tab"]').length).toBe(4)
+        expect(t.host.querySelector('[data-testid="tela-da-parcela"]')).toBeNull()
+        t.desmontar()
+    })
+
+    // MUTAÇÃO: renderizar a tela da parcela AO LADO das abas, em vez de no lugar delas.
+    it('COM o parâmetro, a tela da parcela ocupa a ficha — as abas saem', async () => {
+        routerQuery = { id: 'c1', aba: 'dados', parcela: 'qualquer' }
+        const t = montar(<FichaDoCliente customerId="c1" />)
+        await act(async () => { await Promise.resolve() })
+        expect(t.host.querySelector('[data-testid="tela-da-parcela"]')).not.toBeNull()
+        expect(t.host.querySelectorAll('[role="tab"]').length).toBe(0)
+        t.desmontar()
+    })
+
+    it('id que NÃO resolve mostra "parcela não encontrada" e NÃO derruba a ficha', async () => {
+        routerQuery = { id: 'c1', parcela: 'nao-existe' }
+        const t = montar(<FichaDoCliente customerId="c1" />)
+        await act(async () => { await Promise.resolve() })
+        expect(t.texto()).toContain('Parcela não encontrada')
+        // A ficha continua viva: o botão de volta está lá.
+        expect(Array.from(t.host.querySelectorAll('button')).some(b => (b.textContent || '').includes('Voltar'))).toBe(true)
+        t.desmontar()
+    })
+})
+
 describe('4b.2 — voltar devolve a lista COM os filtros', () => {
     it('o endereço de volta serializa a query da lista', () => {
         expect(enderecoDeVolta({ atraso: '1', vence_de: '2026-10-01', segmento: 'Varejo' }))

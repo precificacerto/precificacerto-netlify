@@ -11,6 +11,7 @@ import { PAGE_TITLES } from '@/constants/page-titles'
 import { CardKPI } from '@/components/ui/card-kpi.component'
 import { supabase } from '@/supabase/client'
 import { getTenantId } from '@/utils/get-tenant-id'
+import { montarPayloadDaEdicao, textoDaFalhaDaEdicao, traduzirFalhaDaEdicao } from '@/utils/edicao-de-lancamento'
 import { getEffectiveIncomeAmount } from '@/utils/cash-entry-amount'
 import { mergeExpenseConfig } from '@/utils/recalc-expense-config'
 import { calculateBreakeven, buildBreakevenInputFromConfig } from '@/utils/breakeven-calculator'
@@ -675,19 +676,28 @@ export default function ControleFinanceiro() {
             const values = editForm.getFieldsValue()
             const amount = parseCurrencyFn(editAmount)
             if (amount <= 0) { messageApi.warning('Informe um valor válido.'); return }
-            const { error } = await supabase.from('cash_entries').update({
-                description: values.description,
-                amount,
-                due_date: values.due_date ? values.due_date.format('YYYY-MM-DD') : editingEntry?.due_date,
-                paid_date: values.paid_date ? values.paid_date.format('YYYY-MM-DD') : null,
-                updated_at: new Date().toISOString(),
-            }).eq('id', editingEntry.id)
+            // O payload sai de `montarPayloadDaEdicao`, e ele NÃO tem `updated_at`:
+            // `cash_entries` não tem essa coluna, e o PostgREST rejeitava o UPDATE INTEIRO
+            // com PGRST204 — a edição não salvava NADA. Ver o cabeçalho daquele módulo.
+            const payload = montarPayloadDaEdicao({
+                descricao: values.description,
+                valor: amount,
+                vencimento: values.due_date ? values.due_date.format('YYYY-MM-DD') : null,
+                vencimentoAtual: editingEntry?.due_date ?? null,
+                pagamento: values.paid_date ? values.paid_date.format('YYYY-MM-DD') : null,
+            })
+            const { error } = await supabase.from('cash_entries').update(payload).eq('id', editingEntry.id)
             if (error) throw error
             messageApi.success('Lançamento atualizado!')
             setEditDrawerOpen(false)
             await fetchData()
-        } catch {
-            messageApi.error('Erro ao salvar edição.')
+        } catch (erro) {
+            // O `catch` vazio dizia sempre a MESMA frase, e foi ele que escondeu o PGRST204
+            // por semanas: "Erro ao salvar edição." vale igual para coluna inexistente,
+            // falta de permissão e wi-fi caído. Agora a natureza e o código aparecem.
+            const falha = traduzirFalhaDaEdicao(erro)
+            console.error('Erro ao salvar edição do lançamento:', falha)
+            messageApi.error(textoDaFalhaDaEdicao(falha))
         }
     }
 
