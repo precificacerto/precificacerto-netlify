@@ -33,6 +33,8 @@ import {
     TITULO_SEM_VENCIMENTO_LISTA,
 } from '@/page-parts/clientes/lista-de-vencimentos.component'
 import { TelaDaParcela, TEXTO_PARCELA_NAO_ENCONTRADA } from '@/page-parts/clientes/tela-da-parcela.component'
+import { ROTULO_DAR_BAIXA } from '@/utils/baixa-de-parcela'
+import { diaBR } from '@/utils/dia-de-hoje'
 import { montarResumoDoCliente } from '@/utils/resumo-do-cliente'
 
 Object.defineProperty(window, 'matchMedia', {
@@ -310,6 +312,8 @@ describe('6 — a tela da parcela, por endereço', () => {
                 venda={{ codigo: 'VD-121365', efetivadaEm: '2026-09-01', vendedor: 'Fulano', formaCombinada: 'BOLETO' }}
                 irmas={irmasDaMesmaSerie(VENCIMENTOS, l)}
                 aoFechar={() => {}}
+                hoje={HOJE}
+                podeDarBaixa={false}
             />,
         )
         expect(t.texto()).toContain('VD-121365')
@@ -324,7 +328,9 @@ describe('6 — a tela da parcela, por endereço', () => {
         const l = acharLinha(VENCIMENTOS, 'pa1')!
         const irmas = irmasDaMesmaSerie(VENCIMENTOS, l)
         expect(irmas.map((i) => i.id)).toEqual(['pa1', 'pa2'])
-        const t = montar(<TelaDaParcela linha={l} venda={{}} irmas={irmas} aoFechar={() => {}} />)
+        const t = montar(
+            <TelaDaParcela linha={l} venda={{}} irmas={irmas} aoFechar={() => {}} hoje={HOJE} podeDarBaixa={false} />,
+        )
         expect(t.texto()).toContain(formatBRL(30.3))
         // A parcela da OUTRA venda não entra.
         expect(t.texto()).not.toContain(formatBRL(20.2))
@@ -333,7 +339,9 @@ describe('6 — a tela da parcela, por endereço', () => {
 
     it('id que NÃO resolve mostra o estado, sem derrubar nada', () => {
         expect(acharLinha(VENCIMENTOS, 'nao-existe')).toBeNull()
-        const t = montar(<TelaDaParcela linha={null} venda={{}} irmas={[]} aoFechar={() => {}} />)
+        const t = montar(
+            <TelaDaParcela linha={null} venda={{}} irmas={[]} aoFechar={() => {}} hoje={HOJE} podeDarBaixa={false} />,
+        )
         expect(t.texto()).toContain(TEXTO_PARCELA_NAO_ENCONTRADA)
         t.desmontar()
     })
@@ -344,9 +352,17 @@ describe('6 — a tela da parcela, por endereço', () => {
     })
 })
 
-describe('7 — a tela da parcela é LEITURA, e este caso impede a 5b entrar sem comando', () => {
-    // MUTAÇÃO: acrescentar um campo editável ou um botão de gravar.
-    it('nenhum campo editável, em nenhum estado', () => {
+describe('7 — a tela da parcela escreve UMA coisa só, e é a baixa de UMA parcela', () => {
+    // Este describe afirmava AUSÊNCIA de botão na 5a. Com a 5b ele afirma a PRESENÇA DESTE
+    // e só dele — é o mesmo papel: impedir que a 5c (seleção múltipla e valor diferente)
+    // entre sem comando.
+    const comBaixa = {
+        hoje: HOJE,
+        podeDarBaixa: true,
+        aoDarBaixa: async () => {},
+    }
+
+    it('com permissão e parcela em aberto, os botões são Voltar e a baixa — nada mais', () => {
         const l = acharLinha(VENCIMENTOS, 'pa1')!
         const t = montar(
             <TelaDaParcela
@@ -354,25 +370,38 @@ describe('7 — a tela da parcela é LEITURA, e este caso impede a 5b entrar sem
                 venda={{ codigo: 'VD-121365', efetivadaEm: '2026-09-01', vendedor: 'Fulano', formaCombinada: 'BOLETO' }}
                 irmas={irmasDaMesmaSerie(VENCIMENTOS, l)}
                 aoFechar={() => {}}
+                {...comBaixa}
             />,
         )
-        const painel = t.host.querySelector('[data-testid="tela-da-parcela"]')!
-        expect(painel.querySelectorAll('input')).toHaveLength(0)
-        expect(painel.querySelectorAll('textarea')).toHaveLength(0)
-        expect(painel.querySelectorAll('select')).toHaveLength(0)
-        t.desmontar()
-    })
-
-    it('nenhum botão de gravar — o único é Voltar', () => {
-        const l = acharLinha(VENCIMENTOS, 'pa1')!
-        const t = montar(<TelaDaParcela linha={l} venda={{}} irmas={[]} aoFechar={() => {}} />)
         const rotulos = Array.from(t.host.querySelectorAll('button')).map((b) => (b.textContent || '').trim())
-        expect(rotulos).toEqual(['Voltar'])
-        expect(rotulos.some((r) => /salvar|gravar|baixa|confirmar|receber/i.test(r))).toBe(false)
+        expect(rotulos).toEqual(['Voltar', ROTULO_DAR_BAIXA])
         t.desmontar()
     })
 
-    it('a LISTA também não tem botão de baixa — só "Abrir"', () => {
+    // MUTAÇÃO: acrescentar campo de valor, ou seleção múltipla, na tela da parcela.
+    it('NÃO existe campo de valor — valor diferente é a 5c, pela RPC', () => {
+        const l = acharLinha(VENCIMENTOS, 'pa1')!
+        const t = montar(
+            <TelaDaParcela linha={l} venda={{ codigo: 'VD-121365' }} irmas={[]} aoFechar={() => {}} {...comBaixa} />,
+        )
+        const painel = t.host.querySelector('[data-testid="tela-da-parcela"]')!
+        expect(painel.querySelector('[data-testid="valor-da-baixa"]')).toBeNull()
+        // Nenhum checkbox: seleção múltipla não mora aqui.
+        expect(painel.querySelectorAll('input[type="checkbox"]')).toHaveLength(0)
+        expect(painel.querySelectorAll('textarea')).toHaveLength(0)
+        t.desmontar()
+    })
+
+    it('a data da baixa é VISÍVEL antes de confirmar, e é o `hoje` injetado', () => {
+        const l = acharLinha(VENCIMENTOS, 'pa1')!
+        const t = montar(
+            <TelaDaParcela linha={l} venda={{ codigo: 'VD-121365' }} irmas={[]} aoFechar={() => {}} {...comBaixa} />,
+        )
+        expect(t.host.querySelector('[data-testid="data-da-baixa"]')!.textContent).toBe(diaBR(HOJE))
+        t.desmontar()
+    })
+
+    it('a LISTA segue sem botão de baixa — só "Abrir". Seleção múltipla é a 5c', () => {
         const t = montar(
             <ListaDeVencimentos vencimentos={VENCIMENTOS} selecionados={['pa1']} aoSelecionar={() => {}} aoAbrirParcela={() => {}} />,
         )

@@ -22,7 +22,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/router'
-import { Button, Spin, Tabs, Tag } from 'antd'
+import { App, Button, Spin, Tabs, Tag } from 'antd'
 import { ArrowLeftOutlined, EditOutlined } from '@ant-design/icons'
 
 import { supabase } from '@/supabase/client'
@@ -54,6 +54,10 @@ import { useParcelasDeReceber } from '@/hooks/use-data.hooks'
 import { montarParcelasDoCliente } from '@/utils/parcelas-do-cliente'
 import { montarResumoDoCliente } from '@/utils/resumo-do-cliente'
 import { hojeNoFusoDoNegocio } from '@/utils/dia-de-hoje'
+import {
+    darBaixaNaParcela,
+    type ClienteDeEscrita,
+} from '@/utils/baixa-de-parcela'
 
 export const ABAS_DA_FICHA = ['dados', 'orcamentos', 'pedidos', 'vendas'] as const
 export type AbaDaFicha = (typeof ABAS_DA_FICHA)[number]
@@ -81,6 +85,7 @@ export function FichaDoCliente({ customerId }: FichaDoClienteProps) {
     const router = useRouter()
     const { tenantId, currentUser } = useAuth()
     const { canView, canEdit } = usePermissions()
+    const { message: messageApi } = App.useApp()
 
     const [cliente, setCliente] = useState<Customer | null>(null)
     const [carregando, setCarregando] = useState(customerId !== null)
@@ -92,7 +97,10 @@ export function FichaDoCliente({ customerId }: FichaDoClienteProps) {
 
     // `escopo: 'TODAS'` sobre a MESMA carga que a lista usa — o bloco 4 do detalhe precisa
     // das pagas, e o cabeçalho soma só as abertas, que o agregado já separa.
-    const { data: dadosDeCobranca } = useParcelasDeReceber()
+    // `mutate` é o que faz a ficha RECALCULAR depois da baixa: a lista, a autossoma e o
+    // VENCIDO do cabeçalho saem todos desta mesma carga, então revalidar uma vez move os
+    // três. Sem ele a tela continuaria exibindo a parcela como vencida depois de paga.
+    const { data: dadosDeCobranca, mutate: recarregarCobranca } = useParcelasDeReceber()
     const hoje = useMemo(() => hojeNoFusoDoNegocio(), [])
     const cobranca = useMemo(
         () => montarParcelasDoCliente({
@@ -287,6 +295,38 @@ export function FichaDoCliente({ customerId }: FichaDoClienteProps) {
                 }}
                 irmas={linha ? irmasDaMesmaSerie(vencimentos, linha) : []}
                 aoFechar={fecharParcela}
+                hoje={hoje}
+                podeDarBaixa={canEdit(MODULES.CASH_FLOW)}
+                aoDarBaixa={linha === null || tenantId === null || tenantId === undefined
+                    ? undefined
+                    : async ({ pagoEm, forma }) => {
+                        // NENHUMA das duas colunas opcionais é ligada: a ficha não
+                        // reagenda vencimento e não corrige valor. Ver o cabeçalho de
+                        // `baixa-de-parcela.ts` para a razão de cada uma.
+                        const r = await darBaixaNaParcela({
+                            cliente: supabase as unknown as ClienteDeEscrita,
+                            parcelaId: linha.id,
+                            tenantId,
+                            entrada: { pagoEm, forma },
+                        })
+                        if (r.error) {
+                            const e = (r.error ?? {}) as { code?: string; message?: string }
+                            messageApi.error(
+                                `O banco recusou a baixa${e.code ? ` [${e.code}]` : ''}: ${e.message ?? 'sem detalhe'}`,
+                            )
+                            return
+                        }
+                        if (r.jaEstavaPaga) {
+                            // Zero linhas afetadas NÃO é "gravou" — o `.is('paid_date', null)`
+                            // barrou porque alguém já deu a baixa. Dizer "registrada" aqui
+                            // seria afirmar o que não aconteceu.
+                            messageApi.warning('Esta parcela já estava paga — nada foi gravado.')
+                        } else {
+                            messageApi.success('Baixa registrada.')
+                        }
+                        // RECALCULA: a lista, a autossoma e o VENCIDO saem desta carga.
+                        await recarregarCobranca()
+                    }}
             />
         )
     }

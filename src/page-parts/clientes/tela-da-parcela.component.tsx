@@ -6,16 +6,36 @@
  * uma rota aninhada (`/clientes/[id]/parcela/[parcelaId]`) obrigaria a recarregar o cliente
  * inteiro para mostrar uma parcela dele.
  *
- * ESTA ETAPA É LEITURA. Nenhum campo editável, nenhum botão de gravar — a baixa é a 5b, e
- * há caso no portão afirmando a ausência. É ele que impede a 5b entrar sem comando.
+ * A BAIXA DE UMA PARCELA ENTRA AQUI (5b), E SÓ ELA
+ * -------------------------------------------------
+ * Um botão, uma linha, um `UPDATE`. NÃO há seleção múltipla e NÃO há campo de valor — as
+ * duas são a 5c, pela RPC, porque valor diferente exige redistribuir a série. Há caso no
+ * portão afirmando a ausência das duas, e é ele que impede a 5c entrar sem comando.
+ *
+ * `paid_date` É HOJE, PRÉ-PREENCHIDA E VISÍVEL ANTES DE CONFIRMAR. Vem de `hoje`, que a
+ * ficha resolve por `dia-de-hoje.ts` no fuso do negócio — nunca do relógio do navegador,
+ * que daria um dia a mais ou a menos conforme onde a pessoa estiver. Ela NÃO é editável
+ * nesta etapa: baixa retroativa não foi pedida, e um campo de data aberto criaria um
+ * caminho sem regra escrita.
+ *
+ * QUEM DEU A BAIXA NÃO É RASTREÁVEL. `cash_entries` não tem `paid_by` nem `updated_at` —
+ * a coluna exige migração, e migração é rodada própria. A tela não finge o contrário.
  */
 
-import React from 'react'
-import { Button, Tag } from 'antd'
-import { ArrowLeftOutlined } from '@ant-design/icons'
+import React, { useState } from 'react'
+import { Alert, Button, Modal, Select, Tag } from 'antd'
+import { ArrowLeftOutlined, CheckOutlined } from '@ant-design/icons'
 
 import { formatBRL } from '@/utils/formatters'
+import { diaBR } from '@/utils/dia-de-hoje'
 import type { LinhaDeVencimento } from '@/utils/vencimentos-da-ficha'
+import {
+    FORMAS_DA_BAIXA,
+    ROTULO_CONFIRMAR_BAIXA,
+    ROTULO_DAR_BAIXA,
+    TITULO_DA_CONFIRMACAO,
+    textoDaConfirmacaoDaBaixa,
+} from '@/utils/baixa-de-parcela'
 
 export const TEXTO_PARCELA_NAO_ENCONTRADA = 'Parcela não encontrada.'
 export const TITULO_DA_TELA_DA_PARCELA = 'Parcela'
@@ -28,12 +48,6 @@ const SELO: Record<LinhaDeVencimento['estado'], { cor: string; rotulo: string }>
     VENCIDA: { cor: 'red', rotulo: 'Vencida' },
     A_VENCER: { cor: 'orange', rotulo: 'Em aberto' },
     SEM_VENCIMENTO: { cor: 'default', rotulo: 'Sem vencimento' },
-}
-
-function diaBR(iso: string | null | undefined): string {
-    if (iso === null || iso === undefined || iso === '') return TRAVESSAO
-    const [a, m, d] = iso.slice(0, 10).split('-')
-    return `${d}/${m}/${a}`
 }
 
 /** O que a tela mostra da VENDA. Tudo opcional: a parcela órfã não tem venda nenhuma. */
@@ -52,6 +66,27 @@ export interface TelaDaParcelaProps {
     venda: VendaDaParcela
     irmas: LinhaDeVencimento[]
     aoFechar: () => void
+    /**
+     * `YYYY-MM-DD` no fuso do negócio, resolvido pela ficha com `hojeNoFusoDoNegocio`.
+     * É o `paid_date` que vai ser gravado, e é exibido antes de confirmar.
+     */
+    hoje: string
+    /**
+     * `canEdit(MODULES.CASH_FLOW)`. Sem ela o botão NÃO renderiza.
+     *
+     * Botão novo atrás de permissão não tira capacidade de ninguém. Os 13 pontos do fluxo
+     * de caixa que hoje gravam sem checar `canEdit` ficam como estão — é decisão do dono
+     * do produto, e está registrada.
+     */
+    podeDarBaixa: boolean
+    /**
+     * Executa a baixa e devolve o que aconteceu. Ausente = tela em leitura pura.
+     *
+     * A ficha é quem conhece o cliente de escrita e o tenant; o componente só sabe que
+     * confirmou. Depois que isto resolve, a ficha RECARREGA — é o que faz a parcela virar
+     * PAGA, a autossoma cair e o VENCIDO do cabeçalho diminuir.
+     */
+    aoDarBaixa?: (entrada: { pagoEm: string; forma: string | null }) => Promise<void>
 }
 
 function Campo({ rotulo, valor }: { rotulo: string; valor: React.ReactNode }) {
@@ -63,7 +98,15 @@ function Campo({ rotulo, valor }: { rotulo: string; valor: React.ReactNode }) {
     )
 }
 
-export function TelaDaParcela({ linha, venda, irmas, aoFechar }: TelaDaParcelaProps) {
+export function TelaDaParcela({
+    linha, venda, irmas, aoFechar, hoje, podeDarBaixa, aoDarBaixa,
+}: TelaDaParcelaProps) {
+    const [confirmando, setConfirmando] = useState(false)
+    const [gravando, setGravando] = useState(false)
+    // A forma começa na COMBINADA, que é o que está gravado na parcela. Trocar aqui muda
+    // a forma DESTA parcela, nunca a da venda.
+    const [forma, setForma] = useState<string | null>(venda.formaCombinada ?? null)
+
     if (linha === null) {
         return (
             <div data-testid="tela-da-parcela" style={{ padding: 40, textAlign: 'center' }}>
@@ -72,6 +115,10 @@ export function TelaDaParcela({ linha, venda, irmas, aoFechar }: TelaDaParcelaPr
             </div>
         )
     }
+
+    // As TRÊS condições, e todas as três precisam valer. Parcela PAGA não tem o que
+    // baixar: ela já mostra "Paga em dd/mm" e a forma no selo do topo.
+    const podeBaixar = podeDarBaixa && aoDarBaixa !== undefined && linha.estado !== 'PAGA'
 
     const selo = SELO[linha.estado]
     const textoDoSelo = linha.estado === 'VENCIDA' && linha.diasDeAtraso !== null
@@ -102,6 +149,77 @@ export function TelaDaParcela({ linha, venda, irmas, aoFechar }: TelaDaParcelaPr
                     ela é só exibida; alterá-la é a 5b. */}
                 <Campo rotulo="Forma combinada" valor={venda.formaCombinada ?? TRAVESSAO} />
             </div>
+
+            {/* A BAIXA. Só aparece com permissão, com callback, e com a parcela EM ABERTO:
+                parcela paga mostra o selo "Paga em dd/mm" no topo e nada mais. */}
+            {podeBaixar && (
+                <div
+                    data-testid="bloco-da-baixa"
+                    style={{ marginTop: 20, padding: 14, border: '1px solid rgba(255,255,255,0.10)', borderRadius: 8, maxWidth: 720 }}
+                >
+                    <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>{ROTULO_DAR_BAIXA}</div>
+                    {/* A data É VISÍVEL ANTES DE CONFIRMAR, e não é campo: ver o cabeçalho. */}
+                    <Campo rotulo="Data da baixa (hoje)" valor={<span data-testid="data-da-baixa">{diaBR(hoje)}</span>} />
+                    <div style={{ display: 'flex', gap: 8, padding: '6px 0', alignItems: 'center' }}>
+                        <span style={{ minWidth: 190, color: 'var(--color-neutral-400)', fontSize: 13 }}>Forma de pagamento</span>
+                        <Select
+                            data-testid="forma-da-baixa"
+                            style={{ minWidth: 240 }}
+                            value={forma ?? undefined}
+                            placeholder="Selecione a forma"
+                            onChange={(v) => setForma(v ?? null)}
+                            options={FORMAS_DA_BAIXA.map((f) => ({ value: f, label: f }))}
+                        />
+                    </div>
+                    <Button
+                        type="primary"
+                        icon={<CheckOutlined />}
+                        style={{ marginTop: 10 }}
+                        onClick={() => setConfirmando(true)}
+                    >
+                        {ROTULO_DAR_BAIXA}
+                    </Button>
+                </div>
+            )}
+
+            {/* CONFIRMAÇÃO QUE NOMEIA O QUE VAI SER GRAVADO. Escrita em dinheiro não
+                acontece por um clique só. */}
+            <Modal
+                open={confirmando}
+                title={TITULO_DA_CONFIRMACAO}
+                okText={ROTULO_CONFIRMAR_BAIXA}
+                cancelText="Cancelar"
+                confirmLoading={gravando}
+                onCancel={() => setConfirmando(false)}
+                onOk={async () => {
+                    if (!aoDarBaixa) return
+                    setGravando(true)
+                    try {
+                        await aoDarBaixa({ pagoEm: hoje, forma })
+                        setConfirmando(false)
+                    } finally {
+                        setGravando(false)
+                    }
+                }}
+            >
+                <div data-testid="texto-da-confirmacao">
+                    {textoDaConfirmacaoDaBaixa({
+                        valor: formatBRL(linha.valor),
+                        codigoDaVenda: venda.codigo ?? null,
+                        vencimento: linha.vencimento === null ? null : diaBR(linha.vencimento),
+                        forma,
+                        pagoEm: diaBR(hoje),
+                    })}
+                </div>
+                {forma === null && (
+                    <Alert
+                        type="warning"
+                        showIcon
+                        style={{ marginTop: 12 }}
+                        message="Sem forma de pagamento escolhida — a parcela vai ficar sem forma registrada."
+                    />
+                )}
+            </Modal>
 
             {irmas.length > 1 && (
                 <div style={{ marginTop: 20 }}>
