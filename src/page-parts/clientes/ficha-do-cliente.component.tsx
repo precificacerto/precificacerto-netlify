@@ -248,6 +248,7 @@ export function FichaDoCliente({ customerId }: FichaDoClienteProps) {
                     situacao={(cliente as any).status}
                     temCobranca={agregado !== undefined}
                     resumo={resumo}
+                    aoNovoOrcamento={() => { void router.push(`${ROUTES.BUDGETS}?cliente=${customerId}`) }}
                 />
             )}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>

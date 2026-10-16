@@ -15,7 +15,8 @@
  */
 
 import React from 'react'
-import { Tag, Tooltip } from 'antd'
+import { Button, Tag, Tooltip } from 'antd'
+import { PlusOutlined } from '@ant-design/icons'
 
 import { formatBRL } from '@/utils/formatters'
 import { telefoneExibivel } from '@/utils/phone-br'
@@ -41,7 +42,17 @@ export interface CabecalhoDaFichaProps {
     /** `true` quando o cliente tem parcela lançada. Decide travessão × R$ 0,00. */
     temCobranca: boolean
     resumo: ResumoDoCliente
+    /**
+     * Abre um orçamento NOVO com este cliente já selecionado.
+     *
+     * Só é renderizado quando existe — o botão nasceu junto com a leitura de `?cliente=`
+     * em `orcamentos/index.tsx`. Enquanto aquela tela não lia o parâmetro, o botão abriria
+     * o formulário EM BRANCO, prometendo o que não cumpre.
+     */
+    aoNovoOrcamento?: () => void
 }
+
+export const ROTULO_NOVO_ORCAMENTO = 'Novo orçamento'
 
 const TRAVESSAO = '—'
 
@@ -90,6 +101,12 @@ export function CabecalhoDaFicha(props: CabecalhoDaFichaProps) {
                 {telefone ? <span style={{ color: 'var(--color-neutral-400)' }}>{telefone}</span> : null}
                 {local ? <span style={{ color: 'var(--color-neutral-400)' }}>{local}</span> : null}
                 {props.situacao ? <Tag>{props.situacao}</Tag> : null}
+                <div style={{ flex: 1 }} />
+                {props.aoNovoOrcamento && (
+                    <Button type="primary" icon={<PlusOutlined />} onClick={props.aoNovoOrcamento}>
+                        {ROTULO_NOVO_ORCAMENTO}
+                    </Button>
+                )}
             </div>
 
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 24, marginBottom: 14 }}>
