@@ -2127,6 +2127,12 @@ function Budgets() {
     // ── Enviar para Pedido (cria order com todo histórico) ──
     const handleSendToOrder = async (budget: any) => {
         if (!tenantId) return
+        // MESMO PADRÃO de `handleSave` (linha ~1497), literal: `currentUser` pode ainda não
+        // estar hidratado, e `getCurrentUserId()` lê a sessão. Sem o fallback, `created_by`
+        // chegava `null` — e o `with_check` de `orders_insert` exige `created_by = auth.uid()`
+        // assim que `orders_tenant_insert` sair, o que faria o INSERT ser RECUSADO.
+        const createdBy = currentUser?.uid ?? (await getCurrentUserId())
+        if (!createdBy) { messageApi.error('Sessão inválida. Faça login novamente.'); return }
         try {
             // Busca fresca do orçamento para garantir dados atualizados (evita cache SWR desatualizado)
             const { data: freshBudget, error: freshErr } = await (supabase as any)
@@ -2185,7 +2191,7 @@ function Budgets() {
                 payment_method: b.payment_method || null,
                 installments: installmentsCount,
                 notes: b.notes || null,
-                created_by: currentUser?.uid || null,
+                created_by: createdBy,
             }).select('id').single()
 
             if (orderErr) throw orderErr
