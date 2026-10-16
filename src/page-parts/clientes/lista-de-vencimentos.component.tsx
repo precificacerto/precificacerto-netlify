@@ -22,6 +22,7 @@ import { Button, Table, Tag } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 
 import { formatBRL } from '@/utils/formatters'
+import { diaBR } from '@/utils/dia-de-hoje'
 import {
     contarSelecionadas,
     somarSelecionadas,
@@ -42,12 +43,6 @@ const SELO: Record<LinhaDeVencimento['estado'], { cor: string; rotulo: string }>
     VENCIDA: { cor: 'red', rotulo: 'Vencida' },
     A_VENCER: { cor: 'orange', rotulo: 'Em aberto' },
     SEM_VENCIMENTO: { cor: 'default', rotulo: 'Sem vencimento' },
-}
-
-function diaBR(iso: string | null): string {
-    if (iso === null) return TRAVESSAO
-    const [a, m, d] = iso.split('-')
-    return `${d}/${m}/${a}`
 }
 
 function textoDoSelo(l: LinhaDeVencimento): string {

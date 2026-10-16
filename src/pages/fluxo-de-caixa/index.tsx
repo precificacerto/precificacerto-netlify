@@ -11,6 +11,7 @@ import { PAGE_TITLES } from '@/constants/page-titles'
 import { supabase } from '@/supabase/client'
 import { getTenantId } from '@/utils/get-tenant-id'
 import { getEffectiveIncomeAmount } from '@/utils/cash-entry-amount'
+import { montarPayloadDaBaixa } from '@/utils/baixa-de-parcela'
 import {
     ehRecebimentoPrevisto, entraNaProjecao, efeitoNoSaldo, rotuloDaFaixaDePrevisto,
     saldoAcumuladoPorDia,
@@ -996,12 +997,16 @@ export default function CashFlow() {
             const originalDueDate = paymentEntry.due_date
             const newDueDate = paymentDueDate ? paymentDueDate.format('YYYY-MM-DD') : originalDueDate
             const dueDateChanged = newDueDate !== originalDueDate
-            const updatePayload: any = {
-                paid_date: paymentDate ? paymentDate.format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'),
-                payment_method: paymentMethodModal || null,
-                amount: paymentAmount > 0 ? paymentAmount : paymentEntry.amount,
-            }
-            if (dueDateChanged) updatePayload.due_date = newDueDate
+            // O PAYLOAD MORA EM `baixa-de-parcela.ts`. As duas colunas opcionais vêm
+            // LIGADAS aqui, e só aqui: reagendar e corrigir valor é a função desta tela.
+            // A ficha do cliente usa o mesmo módulo sem ligar nenhuma das duas — ver o
+            // cabeçalho do módulo para a razão de cada uma estar desligada por padrão.
+            const updatePayload: any = montarPayloadDaBaixa({
+                pagoEm: paymentDate ? paymentDate.format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'),
+                forma: paymentMethodModal || null,
+                corrigirValor: { para: paymentAmount > 0 ? paymentAmount : paymentEntry.amount },
+                reagendar: dueDateChanged ? { para: newDueDate } : undefined,
+            })
             const { error } = await (supabase as any).from('cash_entries').update(updatePayload)
                 .eq('id', paymentEntry.id).eq('tenant_id', tenant_id)
             if (error) throw error

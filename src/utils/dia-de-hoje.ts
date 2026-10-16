@@ -24,3 +24,22 @@ export function hojeNoFusoDoNegocio(agora: Date = new Date()): string {
         day: '2-digit',
     }).format(agora)
 }
+
+/**
+ * `YYYY-MM-DD` → `DD/MM/YYYY`. Ausente devolve TRAVESSÃO, nunca data vazia nem `01/01/1970`.
+ *
+ * ESTAVA ESCRITO DUAS VEZES — em `lista-de-vencimentos.component.tsx` e em
+ * `tela-da-parcela.component.tsx` — e as duas cópias JÁ DIVERGIAM: a da lista aceitava só
+ * `string | null` (não tratava `undefined` nem `''`) e não cortava a string em 10, então
+ * um `timestamptz` vindo por engano sairia partido. `copia-divergente.md` em miniatura, e
+ * o remédio dela: não conferir as duas, apagar uma. Vive aqui porque é a mesma matéria do
+ * resto do arquivo — dia de calendário sem hora, que é o que `due_date` e `paid_date` são.
+ *
+ * NÃO usa `new Date(iso)`: a string `'2026-10-16'` é interpretada como UTC e vira 15/10 em
+ * qualquer fuso a oeste de Greenwich. O corte da string não tem fuso nenhum.
+ */
+export function diaBR(iso: string | null | undefined): string {
+    if (iso === null || iso === undefined || iso === '') return '—'
+    const [a, m, d] = iso.slice(0, 10).split('-')
+    return `${d}/${m}/${a}`
+}
