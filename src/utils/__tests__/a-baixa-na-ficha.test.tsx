@@ -1,9 +1,11 @@
 /**
  * PORTÃO 5b.2 — a baixa de UMA parcela na ficha do cliente.
  *
- * O CLIENTE DE ESCRITA É UM FALSO QUE REGISTRA A CADEIA INTEIRA. É assim que se afirma
- * "um `from`, um `update`, uma linha": contando as chamadas, não lendo o arquivo. O caso
- * que conta os `update` é o que impede a 5c — baixa em lote — de entrar sem a RPC.
+ * A ESCRITA SAIU DESTE LADO na …000003 (17/10/2026): a ficha chama a rota, a rota chama
+ * `dar_baixa_simples`, e a idempotência é a da FUNÇÃO — `FOR UPDATE` e `PC010`, provados nos
+ * casos 3 e 8 do harness (`scripts/harness/baixa-com-valor-diferente/run3.sh`). O que este
+ * portão afirma é o que a TELA faz: o corpo que ela monta, o dia que ela mostra, a confirmação,
+ * e que um clique duplo não vira duas chamadas.
  *
  * As asserções sobre texto formatado comparam contra o PRODUTO de `formatBRL` e `diaBR`,
  * nunca contra literal digitado — `assercao-negativa-que-nunca-falha.md`. `formatBRL` usa
@@ -24,11 +26,10 @@ import {
     FORMAS_DA_BAIXA,
     ROTULO_CONFIRMAR_BAIXA,
     ROTULO_DAR_BAIXA,
-    darBaixaNaParcela,
     montarPayloadDaBaixa,
     textoDaConfirmacaoDaBaixa,
-    type ClienteDeEscrita,
 } from '@/utils/baixa-de-parcela'
+import { DESTINO_DO_CODIGO, avisoDaBaixa, montarCorpoDaBaixa } from '@/utils/baixa-pela-rota'
 import { TelaDaParcela } from '@/page-parts/clientes/tela-da-parcela.component'
 import { CabecalhoDaFicha } from '@/page-parts/clientes/cabecalho-da-ficha.component'
 
@@ -53,7 +54,6 @@ Object.defineProperty(window, 'matchMedia', {
  * nunca volta a ser hoje, então a distinção vale para sempre.
  */
 const HOJE = '2026-06-15'
-const TENANT = 'tenant-1'
 
 function montar(no: React.ReactElement) {
     const host = document.createElement('div')
@@ -73,46 +73,6 @@ function montar(no: React.ReactElement) {
         },
         desmontar: () => { act(() => { root.unmount() }); host.remove() },
     }
-}
-
-// ── O cliente de escrita falso: registra TUDO o que a cadeia recebeu ────────────────────
-interface Chamada {
-    tabela: string
-    payload: Record<string, unknown>
-    filtros: { metodo: string; coluna: string; valor: unknown }[]
-    selecionou: string | null
-}
-
-function clienteFalso(opcoes?: { linhasAfetadas?: number; erro?: unknown }) {
-    const chamadas: Chamada[] = []
-    const cliente: ClienteDeEscrita = {
-        from(tabela: string) {
-            return {
-                update(payload: object) {
-                    const c: Chamada = {
-                        tabela, payload: payload as Record<string, unknown>, filtros: [], selecionou: null,
-                    }
-                    chamadas.push(c)
-                    const encadeada: any = {
-                        eq(coluna: string, valor: unknown) { c.filtros.push({ metodo: 'eq', coluna, valor }); return encadeada },
-                        is(coluna: string, valor: unknown) { c.filtros.push({ metodo: 'is', coluna, valor }); return encadeada },
-                        in(coluna: string, valor: unknown) { c.filtros.push({ metodo: 'in', coluna, valor }); return encadeada },
-                        select(colunas: string) { c.selecionou = colunas; return encadeada },
-                        then(resolve: (v: { data: unknown; error: unknown }) => unknown) {
-                            const n = opcoes?.linhasAfetadas ?? 1
-                            return Promise.resolve(
-                                opcoes?.erro
-                                    ? { data: null, error: opcoes.erro }
-                                    : { data: Array.from({ length: n }, (_, i) => ({ id: `linha-${i}` })), error: null },
-                            ).then(resolve)
-                        },
-                    }
-                    return encadeada
-                },
-            }
-        },
-    }
-    return { cliente, chamadas }
 }
 
 // ── A fixture ───────────────────────────────────────────────────────────────────────────
@@ -146,11 +106,9 @@ describe('1 — o payload da ficha: as duas colunas da baixa, e NENHUMA das opci
         expect(p.payment_method).toBe('PIX')
     })
 
-    // MUTAÇÃO: incluir `due_date` no caminho da ficha.
-    it('NÃO contém `due_date` nem `amount` — reescrever vencimento apagaria o atraso', async () => {
-        const { cliente, chamadas } = clienteFalso()
-        await darBaixaNaParcela({ cliente, parcelaId: 'p1', tenantId: TENANT, entrada: { pagoEm: HOJE, forma: 'PIX' } })
-        expect(Object.keys(chamadas[0].payload)).toEqual(['paid_date', 'payment_method'])
+    // MUTAÇÃO: incluir `due_date` (ou `amount`) no corpo que a ficha manda.
+    it('o corpo da ficha NÃO tem `due_date` nem `amount` — reescrever vencimento apagaria o atraso', () => {
+        expect(Object.keys(montarCorpoDaBaixa('p1', { forma: 'PIX' }))).toEqual(['parcela_id', 'forma'])
     })
 })
 
@@ -181,49 +139,19 @@ describe('2 — `paid_date` vem do fuso do negócio, nunca do relógio do navega
         expect(hojeNoFusoDoNegocio(new Date('2026-10-17T03:00:00Z'))).toBe('2026-10-17')
     })
 
-    it('o que vai no payload é o mesmo dia que a tela mostrou', async () => {
-        const { cliente, chamadas } = clienteFalso()
-        await darBaixaNaParcela({ cliente, parcelaId: 'p1', tenantId: TENANT, entrada: { pagoEm: HOJE, forma: null } })
-        expect(chamadas[0].payload.paid_date).toBe(HOJE)
-        expect(diaBR(chamadas[0].payload.paid_date as string)).toBe(diaBR(HOJE))
+    // A data NÃO vai: o servidor a deriva com a MESMA `hojeNoFusoDoNegocio` (XI.1).
+    it('o corpo não leva data — a tela exibe o dia, quem decide é o servidor', () => {
+        const corpo = montarCorpoDaBaixa('p1', { forma: null })
+        expect(Object.keys(corpo)).toEqual(['parcela_id'])
     })
 })
 
-describe('3 — idempotência: o UPDATE leva `.is(paid_date, null)`', () => {
-    // MUTAÇÃO: tirar o `.is('paid_date', null)`.
-    it('o filtro está na cadeia, com a coluna e o valor certos', async () => {
-        const { cliente, chamadas } = clienteFalso()
-        await darBaixaNaParcela({ cliente, parcelaId: 'p1', tenantId: TENANT, entrada: { pagoEm: HOJE, forma: 'PIX' } })
-        expect(chamadas[0].filtros).toContainEqual({ metodo: 'is', coluna: 'paid_date', valor: null })
-    })
-
-    it('a baixa é por ID e por TENANT, e só', async () => {
-        const { cliente, chamadas } = clienteFalso()
-        await darBaixaNaParcela({ cliente, parcelaId: 'p1', tenantId: TENANT, entrada: { pagoEm: HOJE, forma: 'PIX' } })
-        expect(chamadas[0].filtros.filter((f) => f.metodo === 'eq')).toEqual([
-            { metodo: 'eq', coluna: 'id', valor: 'p1' },
-            { metodo: 'eq', coluna: 'tenant_id', valor: TENANT },
-        ])
-    })
-
-    it('zero linhas afetadas é JÁ ESTAVA PAGA, e não "gravou"', async () => {
-        const { cliente } = clienteFalso({ linhasAfetadas: 0 })
-        const r = await darBaixaNaParcela({ cliente, parcelaId: 'p1', tenantId: TENANT, entrada: { pagoEm: HOJE, forma: 'PIX' } })
-        expect(r).toEqual({ gravou: false, jaEstavaPaga: true, error: null })
-    })
-
-    it('uma linha afetada é gravou', async () => {
-        const { cliente } = clienteFalso({ linhasAfetadas: 1 })
-        const r = await darBaixaNaParcela({ cliente, parcelaId: 'p1', tenantId: TENANT, entrada: { pagoEm: HOJE, forma: 'PIX' } })
-        expect(r).toEqual({ gravou: true, jaEstavaPaga: false, error: null })
-    })
-
-    it('erro do banco não vira "gravou"', async () => {
-        const { cliente } = clienteFalso({ erro: { code: '42501', message: 'permission denied' } })
-        const r = await darBaixaNaParcela({ cliente, parcelaId: 'p1', tenantId: TENANT, entrada: { pagoEm: HOJE, forma: 'PIX' } })
-        expect(r.gravou).toBe(false)
-        expect(r.jaEstavaPaga).toBe(false)
-        expect((r.error as { code: string }).code).toBe('42501')
+describe('3 — idempotência: é da FUNÇÃO, e a tela trata o PC010 como aviso', () => {
+    // O `FOR UPDATE` e o `PC010` de `dar_baixa_simples` estão provados no harness (casos 3 e 8).
+    // Do lado da tela, o que importa é que "já estava paga" NÃO vira "baixa registrada".
+    it('PC010 é AVISO, com a frase do destino — e não sucesso', () => {
+        const d = DESTINO_DO_CODIGO.PC010
+        expect(avisoDaBaixa({ ok: false, motivo: d.motivo, error: d.mensagem, codigo: 'PC010' })).toEqual({ tipo: 'warning', texto: d.mensagem })
     })
 
     it('parcela PAGA não renderiza o botão de baixa', () => {
@@ -415,35 +343,22 @@ describe('6 — o botão exige `canEdit(MODULES.CASH_FLOW)`', () => {
     })
 })
 
-describe('7 — NENHUM caminho da ficha escreve em mais de uma linha', () => {
-    // MUTAÇÃO: acrescentar um segundo UPDATE. Este é o portão que impede a 5c entrar sem
-    // a RPC: baixa em lote precisa redistribuir a série, e N updates soltos deixam a série
-    // inconsistente se o terceiro falhar.
-    it('a baixa faz UM `from`, UM `update`, e nenhum `in`', async () => {
-        const { cliente, chamadas } = clienteFalso()
-        await darBaixaNaParcela({ cliente, parcelaId: 'p1', tenantId: TENANT, entrada: { pagoEm: HOJE, forma: 'PIX' } })
-        expect(chamadas).toHaveLength(1)
-        expect(chamadas[0].tabela).toBe('cash_entries')
-        expect(chamadas[0].filtros.some((f) => f.metodo === 'in')).toBe(false)
-    })
-
-    it('confirmar DUAS vezes na tela não produz dois `update` além do esperado', async () => {
+describe('7 — a ficha não escreve: chama, uma vez', () => {
+    // MUTAÇÃO: a tela chamar `aoDarBaixa` também no clique de "Dar baixa", antes da confirmação.
+    it('a baixa só sai na CONFIRMAÇÃO, e sai UMA vez', async () => {
         const { vencimentos } = derivar(PARCELAS)
-        const { cliente, chamadas } = clienteFalso()
+        const chamadas: { pagoEm: string; forma: string | null }[] = []
         const t = montar(
             <TelaDaParcela
                 linha={acharLinha(vencimentos, 'p1')!} venda={{ codigo: 'VD-121365' }} irmas={[]} aoFechar={() => {}}
                 hoje={HOJE} podeDarBaixa
-                aoDarBaixa={async ({ pagoEm, forma }) => {
-                    await darBaixaNaParcela({ cliente, parcelaId: 'p1', tenantId: TENANT, entrada: { pagoEm, forma } })
-                }}
+                aoDarBaixa={async ({ pagoEm, forma }) => { chamadas.push({ pagoEm, forma }) }}
             />,
         )
         t.clicar(ROTULO_DAR_BAIXA)
+        expect(chamadas).toHaveLength(0)
         await act(async () => { t.clicar(ROTULO_CONFIRMAR_BAIXA) })
-        expect(chamadas).toHaveLength(1)
-        // Cada um dos updates é de UMA linha: o `.is` barra a segunda tentativa no banco.
-        expect(chamadas.every((c) => c.filtros.some((f) => f.metodo === 'is' && f.coluna === 'paid_date'))).toBe(true)
+        expect(chamadas).toEqual([{ pagoEm: HOJE, forma: null }])
         t.desmontar()
     })
 

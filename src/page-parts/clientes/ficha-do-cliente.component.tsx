@@ -54,7 +54,9 @@ import { useParcelasDeReceber } from '@/hooks/use-data.hooks'
 import { montarParcelasDoCliente } from '@/utils/parcelas-do-cliente'
 import { montarResumoDoCliente } from '@/utils/resumo-do-cliente'
 import { hojeNoFusoDoNegocio } from '@/utils/dia-de-hoje'
-import { avisoDaBaixa, chamarBaixaPelaRota, montarCorpoDaBaixa, type BuscarRota } from '@/utils/baixa-pela-rota'
+import {
+    avisoDaBaixa, avisoDoLote, chamarBaixaPelaRota, chamarLotePelaRota, loteRecusado, montarCorpoDaBaixa, type BuscarRota,
+} from '@/utils/baixa-pela-rota'
 
 /**
  * A baixa vai pela ROTA (`/api/cash-entries/baixa`), nunca por escrita direta nem por `.rpc()`
@@ -379,6 +381,24 @@ export function FichaDoCliente({ customerId }: FichaDoClienteProps) {
                     selecionados={selecionadas}
                     aoSelecionar={setSelecionadas}
                     aoAbrirParcela={abrirParcela}
+                    hoje={hoje}
+                    podeDarBaixaEmLote={canEdit(MODULES.CASH_FLOW)}
+                    aoDarBaixaEmLote={async ({ ids, forma }) => {
+                        // PELA ROTA, tudo ou nada. A forma `null` é "manter a combinada de cada
+                        // uma": a rota monta `p_formas` com um NULL por id.
+                        const r = await chamarLotePelaRota(buscarRota, { parcela_ids: ids, forma })
+                        const rotular = (id: string) => {
+                            const l = acharLinha(vencimentos, id)
+                            return l === null ? 'parcela fora desta ficha' : `${l.numero} de ${l.de} · ${l.codigoDaVenda ?? 'venda não identificada'}`
+                        }
+                        const aviso = avisoDoLote(r, rotular)
+                        messageApi[aviso.tipo](aviso.texto)
+                        // A seleção só limpa no ACEITE: na recusa nada foi gravado, e a pessoa
+                        // vê de novo o que tinha escolhido.
+                        if (!loteRecusado(r)) setSelecionadas([])
+                        // RELÊ SEMPRE: o que a tela mostra é o que ficou no banco.
+                        await recarregarCobranca()
+                    }}
                 />
             )}
             {customerId === null ? (

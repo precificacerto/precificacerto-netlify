@@ -2,23 +2,19 @@
  * baixa-pela-rota.ts — o contrato entre a ficha e `/api/cash-entries/baixa`.
  *
  * ╔══════════════════════════════════════════════════════════════════════════════════════╗
- * ║ A 5c.1 ESTÁ INCOMPLETA: A BAIXA SIMPLES NÃO GRAVA AUTOR.                              ║
+ * ║ TODA BAIXA DA FICHA GRAVA AUTOR NO LOG — simples, com valor diferente e em lote.      ║
  * ║                                                                                      ║
- * ║ A baixa pelo valor combinado vai por UPDATE, e `cash_entries` não tem `paid_by`: quem ║
- * ║ deu a baixa só fica registrado na baixa com valor diferente, no log da RPC. A        ║
- * ║ XIII.2 decide que o log registra TODA baixa da ficha — e isto não cumpre.            ║
+ * ║ As três vão por função do banco, e as três escrevem a linha 'PAGA' em                 ║
+ * ║ `parcela_reajuste_log` com `criado_por` = o usuário da SESSÃO (XIII.2). Não há        ║
+ * ║ segunda via: a rota não tem UPDATE em `cash_entries` — há portão afirmando isso.      ║
+ * ║   simples ............ `dar_baixa_simples`              (…000003, 17/10/2026)         ║
+ * ║   valor diferente .... `dar_baixa_com_valor_diferente`  (…000001, 17/10/2026)         ║
+ * ║   lote ............... `dar_baixa_em_lote`              (…000003, 17/10/2026)         ║
  * ║                                                                                      ║
- * ║ Por que não vai tudo pela RPC, MEDIDO em 17/10/2026 no harness contra o `prosrc` de  ║
- * ║ produção (md5 a0f5ddc1…), com delta ZERO:                                            ║
- * ║   parcela única em aberto na série ........ PC005 — recusada                         ║
- * ║   origin_id que não resolve venda ......... PC005 — é série; recusada por ser única  ║
- * ║   origin_id nulo .......................... PC002 — recusada                         ║
- * ║   parcela com irmãs em aberto ............. ACEITA, log 'PAGA' com o autor           ║
- * ║ O `IF v_n = 0` (PC005) vem ANTES do cálculo do delta no corpo da função.             ║
- * ║                                                                                      ║
- * ║ O CONSERTO É NA FUNÇÃO (migração …000003), NÃO NUMA SEGUNDA VIA. Até lá existem DUAS ║
- * ║ vias de escrita de dinheiro na ficha, e cada baixa simples é INATRIBUÍVEL PARA       ║
- * ║ SEMPRE — aditivo depois não recupera o passado (XIII.6.b).                           ║
+ * ║ Até a …000003 a simples ia por UPDATE, SEM autor: a aplicada recusa a última em      ║
+ * ║ aberto (PC005) e a parcela sem série (PC002) mesmo com delta zero — medido no        ║
+ * ║ harness. As baixas simples feitas pela ficha nesse intervalo não têm autor, e não    ║
+ * ║ terão: aditivo não recupera o passado (XIII.6.b).                                    ║
  * ╚══════════════════════════════════════════════════════════════════════════════════════╝
  *
  * PURO, e importável do browser: não toca no cliente admin. A rota o importa para responder;
@@ -33,9 +29,9 @@
  * da requisição é um autor que qualquer um forja. A rota tira `p_usuario_id` e `p_tenant_id`
  * da SESSÃO, nunca do corpo.
  *
- * OS NOVE CÓDIGOS VIRAM DESTINO PELO CÓDIGO, NUNCA PELA MENSAGEM
- * ----------------------------------------------------------------
- * A RPC levanta `PC001`..`PC009` com `ERRCODE`, e o PostgREST os devolve em `error.code`. O
+ * OS DEZESSEIS CÓDIGOS VIRAM DESTINO PELO CÓDIGO, NUNCA PELA MENSAGEM
+ * ---------------------------------------------------------------------
+ * As funções levantam `PC001`..`PC016` com `ERRCODE`, e o PostgREST os devolve em `error.code`. O
  * texto da mensagem é para gente: mudar uma vírgula nele não pode mudar o que a tela faz.
  * Cada código tem um `motivo` próprio, um status HTTP e a frase que a tela mostra.
  *
@@ -53,6 +49,14 @@ import { FORMAS_DA_BAIXA } from '@/utils/baixa-de-parcela'
 import type { LinhaDeVencimento } from '@/utils/vencimentos-da-ficha'
 
 export const ROTA_DA_BAIXA = '/api/cash-entries/baixa'
+export const ROTA_DO_LOTE = '/api/cash-entries/baixa-em-lote'
+
+/**
+ * O teto do lote. É o MESMO número do `IF v_n > 50` de `dar_baixa_em_lote` (…000003), e a tela
+ * o usa para desabilitar o botão: não se deixa a função recusar o que a tela sabe impedir. Há
+ * portão comparando este número com o do arquivo da migração.
+ */
+export const LIMITE_DO_LOTE = 50
 
 // ════════════════════════════════════════════════════════════════════════════════════════
 // O VALOR DIFERENTE NA TELA (5c.3)
@@ -167,8 +171,18 @@ export interface ResultadoDaRpc {
     criado_por: string
 }
 
+/** O retorno de `dar_baixa_simples` — o jsonb da …000003. */
+export interface ResultadoDaBaixaSimples {
+    success: boolean
+    parcela_id: string
+    valor: number
+    pago_em: string
+    operacao_id: string
+    criado_por: string
+}
+
 export type BaixaAceita =
-    | { ok: true; modo: 'SIMPLES' }
+    | { ok: true; modo: 'SIMPLES'; resultado: ResultadoDaBaixaSimples }
     | { ok: true; modo: 'VALOR_DIFERENTE'; resultado: ResultadoDaRpc }
 
 export interface BaixaRecusada { ok: false; motivo: MotivoDaRecusa; error: string; codigo?: string }
@@ -199,6 +213,12 @@ export const MOTIVOS = [
     'VALOR_NULO_NO_BANCO',
     'INVARIANTE_VIOLADA',
     'FORMA_INEXISTENTE',
+    'PARCELA_NAO_ENCONTRADA',
+    'LOTE_VAZIO',
+    'LOTE_COM_REPETIDA',
+    'LOTE_ACIMA_DO_LIMITE',
+    'LOTE_FORMAS_DESALINHADAS',
+    'LOTE_NAO_FECHOU',
     'SEM_PERMISSAO',
     'ERRO_DESCONHECIDO',
 ] as const
@@ -213,7 +233,7 @@ export interface Destino {
 }
 
 /**
- * Os nove códigos da RPC. A chave é o `ERRCODE` declarado no corpo da função, e o destino é
+ * Os dezesseis códigos das três funções. A chave é o `ERRCODE` declarado no corpo da função, e o destino é
  * escolhido pelo que a pessoa PODE FAZER diante dele:
  *
  * - **400/404/422** — a pessoa corrige ou desiste: o pedido não cabe na regra.
@@ -230,6 +250,18 @@ export const DESTINO_DO_CODIGO: Readonly<Record<string, Destino>> = {
     PC007: { motivo: 'SERIE_MUDOU', status: 409, mensagem: 'Uma parcela da venda mudou durante a operação. Nada foi gravado — recarregue e tente de novo.' },
     PC008: { motivo: 'VALOR_NULO_NO_BANCO', status: 500, mensagem: 'Há parcela com valor nulo no banco. Nada foi gravado — avise o suporte.' },
     PC009: { motivo: 'INVARIANTE_VIOLADA', status: 500, mensagem: 'A soma da venda não fecharia. A operação foi revertida e nada foi gravado — avise o suporte.' },
+    // ── os da …000003: `dar_baixa_simples` e `dar_baixa_em_lote` ──────────────────────────
+    // PC010 é o MESMO FATO do PC004 — a parcela já estava paga —, e por isso o MESMO motivo:
+    // a tela o trata igual. A frase é própria porque na …000003 ele também sai de dentro de um
+    // lote, e aí "nada foi gravado" vale para o lote inteiro.
+    PC010: { motivo: 'JA_PAGA', status: 409, mensagem: 'A parcela já estava paga. Nada foi gravado.' },
+    PC011: { motivo: 'PARCELA_NAO_ENCONTRADA', status: 404, mensagem: 'Parcela não encontrada, estornada, ou de outra conta. Nada foi gravado.' },
+    PC012: { motivo: 'LOTE_VAZIO', status: 400, mensagem: 'Nenhuma parcela selecionada. Nada foi gravado.' },
+    PC013: { motivo: 'LOTE_COM_REPETIDA', status: 400, mensagem: 'Uma parcela aparece duas vezes no lote. Nada foi gravado.' },
+    PC014: { motivo: 'LOTE_ACIMA_DO_LIMITE', status: 400, mensagem: `O lote passa de ${LIMITE_DO_LOTE} parcelas. Nada foi gravado.` },
+    PC015: { motivo: 'LOTE_FORMAS_DESALINHADAS', status: 400, mensagem: 'A lista de formas não tem o tamanho da lista de parcelas. Nada foi gravado.' },
+    // INVARIANTE: o banco está num estado que a regra diz impossível. Não é a pessoa que corrige.
+    PC016: { motivo: 'LOTE_NAO_FECHOU', status: 500, mensagem: 'O lote não fechou: o registro não tem uma linha por parcela. A operação inteira foi revertida e NADA foi gravado — avise o suporte.' },
 }
 
 export const DESTINO_SEM_PERMISSAO: Destino = {
@@ -259,7 +291,7 @@ export function destinoDaFormaInexistente(forma: string): Destino {
 }
 
 /** O destino de um erro, pelo código, com o corpo à mão para nomear a forma no `22P02`. */
-export function destinoDoErro(erro: { code?: unknown } | null | undefined, corpo: CorpoDaBaixa): Destino {
+export function destinoDoErro(erro: { code?: unknown } | null | undefined, corpo: { forma?: string | null }): Destino {
     if (erro?.code === CODIGO_DE_FORMA_INEXISTENTE && typeof corpo.forma === 'string') return destinoDaFormaInexistente(corpo.forma)
     return destinoDoErroDaRpc(erro)
 }
@@ -269,7 +301,7 @@ export const DESTINO_DESCONHECIDO: Destino = {
 }
 
 /**
- * O destino de um erro da RPC, PELO CÓDIGO. Código fora dos nove cai no desconhecido — e a
+ * O destino de um erro da RPC, PELO CÓDIGO. Código fora dos dezesseis cai no desconhecido — e a
  * mensagem do erro não é lida aqui, nem para desempate.
  */
 export function destinoDoErroDaRpc(erro: { code?: unknown } | null | undefined): Destino {
@@ -375,7 +407,157 @@ export async function chamarBaixaPelaRota(buscar: BuscarRota, corpo: CorpoDaBaix
         return { ok: false, motivo: DESTINO_DESCONHECIDO.motivo, error: DESTINO_DESCONHECIDO.mensagem }
     }
     const j = (json ?? {}) as Record<string, unknown>
-    if (r.ok && j.ok === true && (j.modo === 'SIMPLES' || j.modo === 'VALOR_DIFERENTE')) return j as RespostaDaBaixa
+    if (r.ok && j.ok === true && (j.modo === 'SIMPLES' || j.modo === 'VALOR_DIFERENTE') && typeof j.resultado === 'object' && j.resultado !== null) return j as RespostaDaBaixa
     const motivo = (MOTIVOS as readonly string[]).includes(String(j.motivo)) ? (j.motivo as MotivoDaRecusa) : DESTINO_DESCONHECIDO.motivo
     return { ok: false, motivo, error: typeof j.error === 'string' ? j.error : DESTINO_DESCONHECIDO.mensagem, codigo: typeof j.codigo === 'string' ? j.codigo : undefined }
+}
+
+// ════════════════════════════════════════════════════════════════════════════════════════
+// O LOTE (5c.2) — `dar_baixa_em_lote`, tudo ou nada
+// ════════════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * O que a tela manda para o lote. Como na baixa de uma, NÃO TEM usuário, tenant nem data.
+ *
+ * A FORMA É UMA SÓ PARA O LOTE, ou nenhuma — decisão do dono do produto. Ausente (ou `null`) é
+ * "manter a forma combinada de cada parcela", que é o PADRÃO. A função recebe um ARRAY paralelo
+ * aos ids, e é a ROTA que o monta (`formasDoLote`), sempre com a cardinalidade dos ids. Uma
+ * forma por linha cabe no mesmo contrato da função e não pede migração quando vier.
+ */
+export interface CorpoDoLote {
+    parcela_ids: string[]
+    forma?: string | null
+}
+
+/** O retorno de `dar_baixa_em_lote` — o jsonb da …000003. */
+export interface ResultadoDoLote {
+    success: boolean
+    operacao_id: string
+    gravadas: number
+    ids: string[]
+    soma: number
+    criado_por: string
+}
+
+export type RespostaDoLote =
+    | { ok: true; modo: 'LOTE'; resultado: ResultadoDoLote }
+    | (BaixaRecusada & { parcela_id?: string })
+
+export function loteRecusado(r: RespostaDoLote): r is BaixaRecusada & { parcela_id?: string } {
+    return r.ok === false
+}
+
+/**
+ * Lê o corpo do lote SÓ pelas duas chaves do contrato. Confere o FORMATO — cada id em formato
+ * de uuid, que é também o que mantém o `22P02` identificando a forma. Vazio, repetido e acima de
+ * 50 são REGRA, e a regra é da função (PC012, PC013, PC014): duas validações divergiriam.
+ */
+export function lerCorpoDoLote(bruto: unknown): CorpoDoLote | null {
+    if (bruto === null || typeof bruto !== 'object') return null
+    const b = bruto as Record<string, unknown>
+    if (!Array.isArray(b.parcela_ids)) return null
+    if (!b.parcela_ids.every((x) => typeof x === 'string' && UUID.test(x))) return null
+    if (b.forma !== undefined && b.forma !== null && typeof b.forma !== 'string') return null
+    const corpo: CorpoDoLote = { parcela_ids: b.parcela_ids as string[] }
+    if (typeof b.forma === 'string') corpo.forma = b.forma
+    return corpo
+}
+
+/**
+ * O `p_formas` da função: SEMPRE um elemento por id. Forma escolhida → repetida; ausente →
+ * `NULL` em cada posição, que o `coalesce` da escrita lê como "manter a combinada".
+ */
+export function formasDoLote(ids: readonly string[], forma: string | null | undefined): (string | null)[] {
+    return ids.map(() => (typeof forma === 'string' ? forma : null))
+}
+
+/** Valor do seletor de forma da tela que significa "manter a combinada de cada parcela". */
+export const MANTER_FORMA_COMBINADA = '__MANTER__'
+export const ROTULO_MANTER_FORMA = 'Manter a forma combinada de cada parcela'
+
+/** O rótulo do botão. Com 0 e acima do limite ele existe e fica DESABILITADO. */
+export function rotuloDoBotaoDoLote(quantas: number): string {
+    return quantas === 1 ? 'Dar baixa na 1' : `Dar baixa nas ${quantas}`
+}
+
+/** Por que o botão está desabilitado — `null` quando está habilitado. */
+export function motivoDoLoteDesabilitado(quantas: number): string | null {
+    if (quantas === 0) return 'Selecione parcelas em aberto para dar baixa em lote.'
+    if (quantas > LIMITE_DO_LOTE) return `O lote tem no máximo ${LIMITE_DO_LOTE} parcelas — ${quantas} estão selecionadas.`
+    return null
+}
+
+export interface FatosDoLote {
+    quantas: number
+    /** `formatBRL` da autossoma da 5a — a MESMA soma que o rodapé mostra. */
+    soma: string
+    /** Os códigos das vendas envolvidas, sem repetição. */
+    vendas: readonly string[]
+    /** A forma escolhida, ou `null` = manter a combinada de cada uma. */
+    forma: string | null
+    pagoEm: string
+}
+
+/**
+ * A confirmação do lote. Nomeia quantas parcelas, a SOMA e as vendas envolvidas. E diz que é
+ * TUDO OU NADA, porque é o que a função faz e o que a pessoa precisa saber antes de confirmar.
+ */
+export function textoDaConfirmacaoDoLote(f: FatosDoLote): string {
+    const parcelas = f.quantas === 1 ? '1 parcela' : `${f.quantas} parcelas`
+    const vendas = f.vendas.length === 0 ? 'venda não identificada' : f.vendas.join(', ')
+    const forma = f.forma === null ? 'mantendo a forma combinada de cada parcela' : `forma ${f.forma} para todas`
+    return `Vai ser gravado: ${parcelas}, somando ${f.soma} · vendas ${vendas} · ${forma}. `
+        + `Todas passam a constar como PAGAS em ${f.pagoEm}. Se uma for recusada, nenhuma é gravada.`
+}
+
+/** Os códigos das vendas das linhas, sem repetição, na ordem em que aparecem. */
+export function vendasDoLote(linhas: readonly LinhaDeVencimento[]): string[] {
+    const vistas: string[] = []
+    for (const l of linhas) {
+        const c = l.codigoDaVenda ?? 'venda não identificada'
+        if (!vistas.includes(c)) vistas.push(c)
+    }
+    return vistas
+}
+
+/**
+ * O que a tela diz depois do lote. Os números vêm da RESPOSTA DA FUNÇÃO — quantas gravou e a
+ * soma —, nunca da conta da tela. Na recusa, a frase é a do destino do código e nomeia a parcela
+ * que travou, quando a função a nomeou (DETAIL = id); `rotular` a traduz para "2 de 5 · VD-…".
+ */
+export function avisoDoLote(r: RespostaDoLote, rotular: (id: string) => string): { tipo: 'success' | 'error'; texto: string } {
+    if (!loteRecusado(r)) {
+        const n = r.resultado.gravadas
+        return {
+            tipo: 'success',
+            texto: `Baixa registrada em ${n === 1 ? '1 parcela' : `${n} parcelas`}, somando ${formatBRL(r.resultado.soma)}.`,
+        }
+    }
+    const qual = r.parcela_id ? ` Parcela que travou o lote: ${rotular(r.parcela_id)}.` : ''
+    return { tipo: 'error', texto: `${r.error}${qual}${r.codigo ? ` [${r.codigo}]` : ''}` }
+}
+
+/** Chama a rota do lote e devolve a resposta TIPADA — o mesmo cuidado de `chamarBaixaPelaRota`. */
+export async function chamarLotePelaRota(buscar: BuscarRota, corpo: CorpoDoLote): Promise<RespostaDoLote> {
+    const r = await buscar(ROTA_DO_LOTE, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(corpo),
+    })
+    let json: unknown
+    try {
+        json = await r.json()
+    } catch {
+        return { ok: false, motivo: DESTINO_DESCONHECIDO.motivo, error: DESTINO_DESCONHECIDO.mensagem }
+    }
+    const j = (json ?? {}) as Record<string, unknown>
+    if (r.ok && j.ok === true && j.modo === 'LOTE' && typeof j.resultado === 'object' && j.resultado !== null) return j as RespostaDoLote
+    const motivo = (MOTIVOS as readonly string[]).includes(String(j.motivo)) ? (j.motivo as MotivoDaRecusa) : DESTINO_DESCONHECIDO.motivo
+    return {
+        ok: false,
+        motivo,
+        error: typeof j.error === 'string' ? j.error : DESTINO_DESCONHECIDO.mensagem,
+        codigo: typeof j.codigo === 'string' ? j.codigo : undefined,
+        parcela_id: typeof j.parcela_id === 'string' ? j.parcela_id : undefined,
+    }
 }

@@ -401,7 +401,9 @@ describe('7 — a tela da parcela escreve UMA coisa só, e é a baixa de UMA par
         t.desmontar()
     })
 
-    it('a LISTA segue sem botão de baixa — só "Abrir". Seleção múltipla é a 5c', () => {
+    // O lote (5c.2) mora FORA da tabela, num bloco próprio — `o-lote-na-ficha.test.tsx`. Cada
+    // LINHA continua só com "Abrir": a baixa de uma é na tela da parcela.
+    it('cada LINHA da lista segue só com "Abrir" — o lote é bloco à parte', () => {
         const t = montar(
             <ListaDeVencimentos vencimentos={VENCIMENTOS} selecionados={['pa1']} aoSelecionar={() => {}} aoAbrirParcela={() => {}} />,
         )
