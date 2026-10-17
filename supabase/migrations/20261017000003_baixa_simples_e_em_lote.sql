@@ -2,10 +2,30 @@
 -- Etapa 5c — A BAIXA SIMPLES COM AUTOR, A BAIXA EM LOTE, E O QUARTO DROP
 --
 -- ╔══════════════════════════════════════════════════════════════════════════════════════╗
--- ║ ESTA MIGRAÇÃO NÃO FOI APLICADA. O default é PENDENTE até a VERIFICAÇÃO devolver o     ║
--- ║ esperado — `migration-delivery.md`. É FUNÇÃO: aplicar ANTES do merge do código que a  ║
--- ║ chama, ou a rota chama o que o banco não tem.                                         ║
+-- ║ APLICADA E VERIFICADA em 17/10/2026, 18:52:37 UTC, pelo SQL Editor (PO).               ║
+-- ║ `schema_migrations`: version `20261017185237`, name com o nome deste arquivo.          ║
 -- ╚══════════════════════════════════════════════════════════════════════════════════════╝
+--
+-- O QUE RODOU É ESTE ARQUIVO, BYTE A BYTE, a menos do transporte — registrado como foi:
+--   arquivo                 md5 8b648291847277f673959087f5e456be (392 linhas, 23.190 bytes)
+--   texto que o Postgres    `postgres_logs`, source dashboard: mensagem de 23.701 bytes,
+--   recebeu                 md5 c07de3913c5fdf0efa0923a68accf1f7
+--   transporte              391 LF viraram CRLF, e a quebra de linha final saiu. Revertidas
+--                           as duas, o md5 do corpo É 8b648291… — calculado no próprio
+--                           servidor de logs, sem transcrição.
+--
+-- AQUI, AO CONTRÁRIO DA …000001, O `prosrc` QUE ESTÁ NO CATÁLOGO **É** O DESTE ARQUIVO.
+-- A ÚNICA DIFERENÇA SÃO OS `\r` DO CRLF. Um diff entre o texto das funções no banco e este
+-- arquivo mostra `\r` no fim das linhas, e NADA MAIS — não é diferença de lógica nem de
+-- comentário. Medido: md5 do corpo deste arquivo em CRLF = md5(prosrc), nas três:
+--   _baixa_simples_na_operacao   48f686a815b09ae8fd6aef5cd769c8f5   2.966 caracteres
+--   dar_baixa_em_lote            9d50a3f849680206e3b3bcf5fe197e26   3.842 caracteres
+--   dar_baixa_simples            3ecdcdb96ef45b740b576431298ab65f     245 caracteres
+--
+-- PROVA PELO ESTADO, 17/10/2026: as três com a assinatura do arquivo e `prosecdef` true;
+-- EXECUTE false/false/false/true nas duas públicas e false nos quatro na interna; `orders`
+-- com quatro políticas (delete, insert, select, update) e RLS ligada; `cash_entries.amount`
+-- NOT NULL; `prosrc` da aplicada intacto (a0f5ddc1…); `NOTIFY pgrst` rodado.
 --
 -- ADITIVA, de propósito. `dar_baixa_com_valor_diferente` NÃO é substituída: um CREATE OR
 -- REPLACE obrigaria a transportar o corpo dela outra vez, e o corpo É o artefato — foi ele que
