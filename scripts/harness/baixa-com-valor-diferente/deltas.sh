@@ -12,7 +12,7 @@ S=$(cd "$(dirname "$0")" && pwd); P="psql -h /tmp/harness-pg -p 54329 -U postgre
 $P -c 'drop database if exists harness_deltas' >/dev/null 2>&1; $P -c 'create database harness_deltas' >/dev/null
 $P -d harness_deltas -v ON_ERROR_STOP=1 -f $S/00_schema.sql >/dev/null 2>&1 || { echo "SCHEMA FALHOU"; exit 2; }
 $P -d harness_deltas -v ON_ERROR_STOP=1 -f "$1" >/dev/null 2>&1 || { echo "MIGRACAO FALHOU"; exit 2; }
-SAIDA=$(python3 - "$S/deltas.json" <<'PY' | $P -d harness_deltas -At 2>&1 | grep -oE '(ok|FALHOU)[^"]*'
+SAIDA=$(python3 - "$S/deltas.json" <<'PY' | $P -d harness_deltas -At 2>&1 | sed -nE '/^(ok: |FALHOU: )/p; s/^.*ERROR:  (.*)$/ERRO NAO PREVISTO: \1/p'
 import json, sys
 t = json.load(open(sys.argv[1]))
 print("""
@@ -36,6 +36,6 @@ PY
 )
 echo "$SAIDA"
 ESPERADO=$(python3 -c "import json,sys; t=json.load(open(sys.argv[1])); print(len(t['duas_casas'])+len(t['tres_casas_divergem']))" "$S/deltas.json")
-OKS=$(echo "$SAIDA" | grep -c '^ok')
+OKS=$(echo "$SAIDA" | grep -c '^ok: ')
 echo "$OKS de $ESPERADO pares ok"
 [ "$OKS" = "$ESPERADO" ] || exit 1

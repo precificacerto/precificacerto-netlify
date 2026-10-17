@@ -22,4 +22,8 @@ S=$(cd "$(dirname "$0")" && pwd); P="psql -h /tmp/harness-pg -p 54329 -U postgre
 $P -c 'drop database if exists harness_run' >/dev/null 2>&1; $P -c 'create database harness_run' >/dev/null
 $P -d harness_run -v ON_ERROR_STOP=1 -f $S/00_schema.sql >/dev/null 2>&1 || { echo "SCHEMA FALHOU"; exit 2; }
 $P -d harness_run -v ON_ERROR_STOP=1 -f "$1" >/dev/null 2>&1 || { echo "MIGRACAO FALHOU"; exit 2; }
-$P -d harness_run -f $S/10_casos.sql 2>&1 | grep -oE '(ok|FALHOU)[^"]*' | sed -E 's/ *$//'
+# O FILTRO LÊ A LINHA INTEIRA, NUNCA UM PEDAÇO DELA. A versão anterior extraía `(ok|FALHOU)` de
+# qualquer lugar do texto, e o "ok" de "Token" — na mensagem de erro do cast para json — era
+# contado como caso verde. Um caso que MORRE sem `ok` nem `FALHOU` agora aparece como
+# `ERRO NAO PREVISTO`, e não conta (`instrumento-que-nao-enxerga.md`).
+$P -d harness_run -f $S/10_casos.sql 2>&1 | sed -nE 's/^.*NOTICE:  (ok: .*)$/\1/p; s/^.*ERROR:  (FALHOU.*)$/\1/p; s/^.*ERROR:  (.*)$/ERRO NAO PREVISTO: \1/p'
