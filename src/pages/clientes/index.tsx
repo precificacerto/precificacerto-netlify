@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useMemo } from 'react'
 import {
     LIFECYCLE_STYLE,
     buildCarimboUltimaAlteracao,
@@ -17,16 +17,16 @@ import { ROUTES } from '@/constants/routes'
 import { useRouter } from 'next/router'
 import { PARAM_DE_VOLTA, enderecoDeVolta } from '@/utils/endereco-de-volta'
 import { CardKPI } from '@/components/ui/card-kpi.component'
-import { supabase } from '@/supabase/client'
 import type { Customer, CustomerType, CustomerStatus } from '@/supabase/types'
 import { useCustomers } from '@/hooks/use-data.hooks'
 import { useParcelasDeReceber } from '@/hooks/use-data.hooks'
 import { useFiltrosDeCobrancaNaUrl } from '@/hooks/use-filtros-de-cobranca.hook'
 import { montarParcelasDoCliente } from '@/utils/parcelas-do-cliente'
-import { aplicarFiltrosDeCobranca, type FiltrosDeCobranca } from '@/utils/filtros-de-cobranca'
+import { aplicarFiltrosDeCobranca } from '@/utils/filtros-de-cobranca'
 import { hojeNoFusoDoNegocio } from '@/utils/dia-de-hoje'
 import { FiltrosDeCobrancaBar } from '@/page-parts/shared/filtros-de-cobranca.component'
-import { colunasDeCobranca } from '@/page-parts/shared/colunas-de-cobranca.component'
+import { LinhasDeCobrancaNoCartao, colunasDeCobranca } from '@/page-parts/shared/colunas-de-cobranca.component'
+import { TITULO_SEGMENTO, colunasCondicionais } from '@/utils/colunas-da-lista-de-clientes'
 import {
     TeamOutlined,
     UserAddOutlined,
@@ -87,7 +87,6 @@ function Clients() {
     // ordem do `dataSource`.
     const [ordemDoNome, setOrdemDoNome] = useState<'ascend' | 'descend' | null>('ascend')
     const [messageApi, contextHolder] = message.useMessage()
-    const [employees, setEmployees] = useState<{ id: string; name: string }[]>([])
 
     const router = useRouter()
 
@@ -124,25 +123,6 @@ function Clients() {
         return <Layout title={PAGE_TITLES.CLIENTS}><div style={{ padding: 40, textAlign: 'center' }}>Você não tem acesso a este módulo.</div></Layout>
     }
 
-    const fetchEmployees = async () => {
-        const { data } = await supabase
-            .from('employees')
-            .select('id, name, status')
-            .eq('status', 'ACTIVE')
-            .eq('is_active', true)
-            .order('name')
-        setEmployees((data || []).map((e: any) => ({ id: e.id, name: e.name })))
-    }
-
-    useEffect(() => {
-        fetchEmployees()
-    }, [])
-
-    const employeeMap = useMemo(() => {
-        const map = new Map<string, string>()
-        employees.forEach(e => map.set(e.id, e.name))
-        return map
-    }, [employees])
 
     // As parcelas em ABERTO: é delas que saem os três filtros e as colunas partidas. O
     // bloco 4 do detalhe da compra usa `'TODAS'` sobre a MESMA carga — uma consulta, quatro
@@ -190,6 +170,10 @@ function Clients() {
     const activeClients = customers.filter(c => c.status === 'ACTIVE').length
     const pjClients = customers.filter(c => c.customer_type === 'PJ').length
     const withWhatsapp = customers.filter(c => c.whatsapp_phone).length
+
+    // VENCIDO, A VENCER, SEGMENTO e RESPONSÁVEL só são renderizadas com o filtro ligado — ver
+    // `colunas-da-lista-de-clientes.ts`. Derivadas dos FILTROS, que vêm da URL.
+    const mostrar = colunasCondicionais(filtros)
 
     const columns: ColumnsType<Customer> = [
         {
@@ -243,33 +227,24 @@ function Clients() {
         },
         // As colunas de cobrança ficam ao lado do WhatsApp de propósito: a coluna partida
         // existe para fazer alguém pegar o telefone, e o telefone está logo à esquerda.
-        ...colunasDeCobranca<Customer>(cobranca.porCliente),
-        {
-            title: 'Segmento',
+        ...colunasDeCobranca<Customer>(cobranca.porCliente, mostrar),
+        // O FILTRO DE SEGMENTO SAIU DESTA COLUNA e foi para o cabeçalho da lista: com a coluna
+        // existindo só quando o filtro está ligado, um filtro que morasse nela seria
+        // inalcançável — não haveria como ligá-lo. Decisão do dono do produto: "filtros devem
+        // estar no cabeçalho". A coluna só EXIBE.
+        ...(mostrar.segmento ? [{
+            title: TITULO_SEGMENTO,
             dataIndex: 'segment',
             key: 'segment',
-            filters: segments.map(s => ({ text: s, value: s })),
-            // CONTROLADO pela URL. Antes vivia dentro do `<Table>` e morria na desmontagem:
-            // não existia como estado, então não havia o que pôr no endereço.
-            filteredValue: filtros.segmento.length > 0 ? filtros.segmento : null,
-            onFilter: (value, record) => record.segment === value,
-        },
-        {
-            title: 'Responsável',
-            key: 'owner',
-            render: (_, record) => {
-                if (!record.owner_id) return '—'
-                const fromMap = employeeMap.get(record.owner_id)
-                return fromMap || '—'
-            },
-        },
+        }] : []),
+        // RESPONSÁVEL: sem filtro hoje, não é renderizada, e a consulta a `employees` que
+        // alimentava os nomes SAIU — ver `colunas-da-lista-de-clientes.ts`. A coluna volta junto
+        // com o filtro dela, que é pendência nomeada.
         {
             title: 'Status',
             dataIndex: 'status',
             key: 'status',
-            filters: Object.entries(statusLabels).map(([k, v]) => ({ text: v.label, value: k })),
-            filteredValue: filtros.situacao.length > 0 ? filtros.situacao : null,
-            onFilter: (value, record) => record.status === value,
+            // O filtro de situação mora no CABEÇALHO DA LISTA, como o de segmento: um lugar só.
             render: (status: CustomerStatus) => {
                 const cfg = statusLabels[status]
                 return <Tag color={cfg?.color || 'default'}>{cfg?.label || status}</Tag>
@@ -397,6 +372,31 @@ function Clients() {
                 </div>
                 <div className="filter-bar" style={{ paddingTop: 0 }}>
                     <FiltrosDeCobrancaBar filtros={filtros} onChange={definirFiltros} hoje={hoje} />
+                    {/* O SEGMENTO NO CABEÇALHO, e não no da coluna: é o mesmo `filtros.segmento`, a
+                        mesma chave de URL — controle novo para filtro existente. Vale também no
+                        ramo mobile, que não tem `<Table>` nem filtro de coluna. */}
+                    <Select
+                        data-testid="filtro-de-segmento"
+                        mode="multiple"
+                        allowClear
+                        placeholder="Segmento"
+                        style={{ minWidth: 200 }}
+                        value={filtros.segmento}
+                        onChange={(v: string[]) => definirFiltros({ ...filtros, segmento: v ?? [] })}
+                        options={segments.map(s => ({ label: s, value: s }))}
+                    />
+                    {/* SITUAÇÃO no cabeçalho também: mesmo `filtros.situacao`, mesma chave de URL. A
+                        coluna Status fica; o filtro sai dela para que só exista UM lugar de filtro. */}
+                    <Select
+                        data-testid="filtro-de-situacao"
+                        mode="multiple"
+                        allowClear
+                        placeholder="Situação"
+                        style={{ minWidth: 160 }}
+                        value={filtros.situacao}
+                        onChange={(v: string[]) => definirFiltros({ ...filtros, situacao: v ?? [] })}
+                        options={Object.entries(statusLabels).map(([k, v]) => ({ label: v.label, value: k }))}
+                    />
                 </div>
                 {isMobile ? (
                     <div className="clientes-mobile-list">
@@ -457,6 +457,8 @@ function Clients() {
                                         <div className="pc-row-compact__main">
                                             <span className="pc-row-compact__title">{record.name}</span>
                                             <span className="pc-row-compact__sub">{subParts.join(' · ')}</span>
+                                            {/* VENCIDO e A VENCER no cartão, só com o filtro ligado. */}
+                                            <LinhasDeCobrancaNoCartao agregado={cobranca.porCliente[record.id]} mostrar={mostrar} />
                                         </div>
                                         <Dropdown
                                             menu={{ items: menuItems }}
@@ -480,22 +482,9 @@ function Clients() {
                         pagination={{ pageSize: PAGE_SIZE, showSizeChanger: true, showTotal: (t) => `${t} clientes` }}
                         size="middle"
                         loading={isLoading}
-                        onChange={(_paginacao, filtrosDaTabela, ordenacao) => {
-                            // Os dois filtros de coluna sobem para a URL. Sem isto eles
-                            // continuariam existindo só dentro do `<Table>`.
-                            const comoLista = (v: unknown): string[] =>
-                                Array.isArray(v) ? v.map(String) : []
-                            const proximos: FiltrosDeCobranca = {
-                                ...filtros,
-                                segmento: comoLista(filtrosDaTabela.segment),
-                                situacao: comoLista(filtrosDaTabela.status),
-                            }
-                            if (
-                                proximos.segmento.join(',') !== filtros.segmento.join(',') ||
-                                proximos.situacao.join(',') !== filtros.situacao.join(',')
-                            ) {
-                                definirFiltros(proximos)
-                            }
+                        onChange={(_paginacao, _filtrosDaTabela, ordenacao) => {
+                            // NENHUM filtro é lido da tabela: os dois moram no cabeçalho da lista.
+                            // Ler `filtrosDaTabela` aqui os APAGARIA, porque as colunas não têm filtro.
                             const ordem = Array.isArray(ordenacao) ? ordenacao[0] : ordenacao
                             if (ordem && ordem.columnKey === 'name') {
                                 setOrdemDoNome((ordem.order as 'ascend' | 'descend' | undefined) ?? null)
