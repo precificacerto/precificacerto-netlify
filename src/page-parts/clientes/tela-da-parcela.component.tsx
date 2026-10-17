@@ -6,11 +6,17 @@
  * uma rota aninhada (`/clientes/[id]/parcela/[parcelaId]`) obrigaria a recarregar o cliente
  * inteiro para mostrar uma parcela dele.
  *
- * A BAIXA DE UMA PARCELA ENTRA AQUI (5b), E SÓ ELA
- * -------------------------------------------------
- * Um botão, uma linha, um `UPDATE`. NÃO há seleção múltipla e NÃO há campo de valor — as
- * duas são a 5c, pela RPC, porque valor diferente exige redistribuir a série. Há caso no
- * portão afirmando a ausência das duas, e é ele que impede a 5c entrar sem comando.
+ * A BAIXA DE UMA PARCELA ENTRA AQUI (5b) — E O VALOR DIFERENTE (5c.3)
+ * --------------------------------------------------------------------
+ * Um botão, UMA parcela. NÃO há seleção múltipla: baixa de várias é a 5c.2, que exige uma
+ * segunda RPC (N chamadas seriam N transações), e há caso no portão afirmando a ausência.
+ *
+ * O VALOR DIFERENTE SÓ EXISTE QUANDO HÁ OUTRA PARCELA EM ABERTO NA MESMA VENDA. Na última em
+ * aberto o checkbox não renderiza — e a RPC recusa com `PC005` de todo modo: são duas
+ * camadas, e a de cima não substitui a de baixo. NÃO HÁ PRÉVIA dos novos valores: refazer a
+ * conta proporcional aqui seria uma segunda aritmética sobre dinheiro. A confirmação nomeia o
+ * valor pago, a parcela, a venda, a diferença e quais parcelas absorvem; os valores que
+ * ficaram aparecem DEPOIS, na lista das irmãs, relida do banco pela ficha.
  *
  * `paid_date` É HOJE, PRÉ-PREENCHIDA E VISÍVEL ANTES DE CONFIRMAR. Vem de `hoje`, que a
  * ficha resolve por `dia-de-hoje.ts` no fuso do negócio — nunca do relógio do navegador,
@@ -23,7 +29,7 @@
  */
 
 import React, { useState } from 'react'
-import { Alert, Button, Modal, Select, Tag } from 'antd'
+import { Alert, Button, Checkbox, InputNumber, Modal, Select, Tag } from 'antd'
 import { ArrowLeftOutlined, CheckOutlined } from '@ant-design/icons'
 
 import { formatBRL } from '@/utils/formatters'
@@ -36,6 +42,13 @@ import {
     TITULO_DA_CONFIRMACAO,
     textoDaConfirmacaoDaBaixa,
 } from '@/utils/baixa-de-parcela'
+import {
+    diferencaEmCentavos,
+    outrasEmAbertoDaSerie,
+    textoDaConfirmacaoComValorDiferente,
+} from '@/utils/baixa-pela-rota'
+
+export const ROTULO_VALOR_DIFERENTE = 'Pagar valor diferente do combinado'
 
 export const TEXTO_PARCELA_NAO_ENCONTRADA = 'Parcela não encontrada.'
 export const TITULO_DA_TELA_DA_PARCELA = 'Parcela'
@@ -86,7 +99,7 @@ export interface TelaDaParcelaProps {
      * confirmou. Depois que isto resolve, a ficha RECARREGA — é o que faz a parcela virar
      * PAGA, a autossoma cair e o VENCIDO do cabeçalho diminuir.
      */
-    aoDarBaixa?: (entrada: { pagoEm: string; forma: string | null }) => Promise<void>
+    aoDarBaixa?: (entrada: { pagoEm: string; forma: string | null; valorPago?: number }) => Promise<void>
 }
 
 function Campo({ rotulo, valor }: { rotulo: string; valor: React.ReactNode }) {
@@ -106,6 +119,8 @@ export function TelaDaParcela({
     // A forma começa na COMBINADA, que é o que está gravado na parcela. Trocar aqui muda
     // a forma DESTA parcela, nunca a da venda.
     const [forma, setForma] = useState<string | null>(venda.formaCombinada ?? null)
+    const [valorDiferente, setValorDiferente] = useState(false)
+    const [valorPago, setValorPago] = useState<number | null>(null)
 
     if (linha === null) {
         return (
@@ -119,6 +134,13 @@ export function TelaDaParcela({
     // As TRÊS condições, e todas as três precisam valer. Parcela PAGA não tem o que
     // baixar: ela já mostra "Paga em dd/mm" e a forma no selo do topo.
     const podeBaixar = podeDarBaixa && aoDarBaixa !== undefined && linha.estado !== 'PAGA'
+
+    // A CAMADA DE CIMA da regra 5: sem outra em aberto, o campo de valor diferente não existe.
+    const outras = outrasEmAbertoDaSerie(irmas, linha)
+    const ofereceValorDiferente = outras.length > 0
+    const comValorDiferente = ofereceValorDiferente && valorDiferente
+    const valorValido = valorPago !== null && Number.isFinite(valorPago) && valorPago > 0
+    const delta = comValorDiferente && valorValido ? diferencaEmCentavos(linha.valor, valorPago) : 0
 
     const selo = SELO[linha.estado]
     const textoDoSelo = linha.estado === 'VENCIDA' && linha.diasDeAtraso !== null
@@ -171,10 +193,35 @@ export function TelaDaParcela({
                             options={FORMAS_DA_BAIXA.map((f) => ({ value: f, label: f }))}
                         />
                     </div>
+                    {ofereceValorDiferente && (
+                        <div data-testid="opcao-valor-diferente" style={{ padding: '6px 0' }}>
+                            <Checkbox
+                                checked={valorDiferente}
+                                onChange={(e) => { setValorDiferente(e.target.checked); if (!e.target.checked) setValorPago(null) }}
+                            >
+                                {ROTULO_VALOR_DIFERENTE}
+                            </Checkbox>
+                        </div>
+                    )}
+                    {comValorDiferente && (
+                        <div style={{ display: 'flex', gap: 8, padding: '6px 0', alignItems: 'center' }}>
+                            <span style={{ minWidth: 190, color: 'var(--color-neutral-400)', fontSize: 13 }}>Valor pago</span>
+                            <InputNumber
+                                data-testid="valor-da-baixa"
+                                style={{ minWidth: 240 }}
+                                min={0.01}
+                                precision={2}
+                                decimalSeparator=","
+                                value={valorPago ?? undefined}
+                                onChange={(v) => setValorPago(typeof v === 'number' ? v : null)}
+                            />
+                        </div>
+                    )}
                     <Button
                         type="primary"
                         icon={<CheckOutlined />}
                         style={{ marginTop: 10 }}
+                        disabled={comValorDiferente && !valorValido}
                         onClick={() => setConfirmando(true)}
                     >
                         {ROTULO_DAR_BAIXA}
@@ -195,21 +242,37 @@ export function TelaDaParcela({
                     if (!aoDarBaixa) return
                     setGravando(true)
                     try {
-                        await aoDarBaixa({ pagoEm: hoje, forma })
+                        await aoDarBaixa(comValorDiferente && valorValido
+                            ? { pagoEm: hoje, forma, valorPago }
+                            : { pagoEm: hoje, forma })
                         setConfirmando(false)
+                        setValorDiferente(false)
+                        setValorPago(null)
                     } finally {
                         setGravando(false)
                     }
                 }}
             >
                 <div data-testid="texto-da-confirmacao">
-                    {textoDaConfirmacaoDaBaixa({
-                        valor: formatBRL(linha.valor),
-                        codigoDaVenda: venda.codigo ?? null,
-                        vencimento: linha.vencimento === null ? null : diaBR(linha.vencimento),
-                        forma,
-                        pagoEm: diaBR(hoje),
-                    })}
+                    {comValorDiferente && valorValido
+                        ? textoDaConfirmacaoComValorDiferente({
+                            valorPago: formatBRL(valorPago),
+                            valorCombinado: formatBRL(linha.valor),
+                            parcela: `${linha.numero} de ${linha.de}`,
+                            codigoDaVenda: venda.codigo ?? null,
+                            forma,
+                            pagoEm: diaBR(hoje),
+                            diferenca: formatBRL(Math.abs(delta) / 100),
+                            sentido: delta > 0 ? 'A_MENOS' : delta < 0 ? 'A_MAIS' : 'SEM_DIFERENCA',
+                            reajustaveis: outras.map((o) => `${o.numero} de ${o.de} (vence ${o.vencimento === null ? 'sem vencimento' : diaBR(o.vencimento)})`),
+                        })
+                        : textoDaConfirmacaoDaBaixa({
+                            valor: formatBRL(linha.valor),
+                            codigoDaVenda: venda.codigo ?? null,
+                            vencimento: linha.vencimento === null ? null : diaBR(linha.vencimento),
+                            forma,
+                            pagoEm: diaBR(hoje),
+                        })}
                 </div>
                 {forma === null && (
                     <Alert

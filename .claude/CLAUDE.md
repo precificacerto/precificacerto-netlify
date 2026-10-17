@@ -336,6 +336,7 @@ O AIOS carrega regras contextuais de `.claude/rules/` automaticamente. Regras co
 | `registro-de-classe.md` | Onde o registro vive e como se escreve — uma ocorrência é anedota, quatro é critério |
 | `story-lifecycle.md` | Story status transitions and quality gates |
 | `teste-que-nao-exercita.md` | Cada asserção precisa FALHAR sem a sua correção |
+| `transformacao-quebra-a-cadeia-de-hash.md` | Um hash autoriza UM CONTEÚDO — transformação no meio exige os dois hashes e a prova por bytes |
 | `tool-examples.md` | Tool input examples for selection guidance |
 | `tool-response-filtering.md` | Tool response filtering rules |
 | `trabalho-que-vive-no-container.md` | Trabalho não empurrado não está entregue — está num disco que se reconstrói |

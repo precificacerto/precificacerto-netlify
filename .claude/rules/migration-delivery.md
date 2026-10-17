@@ -257,6 +257,16 @@ que o #26 ensinou, e continua valendo. Mas há um limite que precisa estar dito 
 byte a byte, e por isso **o `md5` do arquivo NÃO é reproduzível por esse caminho**. Conferir o
 `md5` depois de aplicar assim vai divergir, e a divergência não significa corrupção.
 
+> **ESTA RESSALVA É TAMBÉM UMA QUESTÃO DE AUTORIZAÇÃO, não só de medição — ver
+> `transformacao-quebra-a-cadeia-de-hash.md`.** Ela foi escrita aqui como limite do que o
+> `md5` prova *depois* de aplicar. O que ela não dizia é o efeito *antes*: se o conteúdo
+> executado não é o arquivo inteiro, o hash que o dono do produto autorizou **não cobre o
+> que vai rodar**. Em 16/10/2026 isso deixou de ser teoria — a tela de aprovação mostrou um
+> número que ninguém tinha explicado, e por trás dele havia 210 linhas removidas onde duas
+> foram prescritas. A regra nova exige os DOIS hashes, a transformação nomeada entre eles e
+> a prova por diff e por bytes, antes de a tela aparecer. Esta página guardou o conhecimento
+> certo no lugar onde ele não é lido no momento de autorizar; o ponteiro é o que o alcança.
+
 O que o `md5` prova e o que não prova:
 
 | | |

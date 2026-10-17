@@ -379,7 +379,7 @@ describe('7 — a tela da parcela escreve UMA coisa só, e é a baixa de UMA par
     })
 
     // MUTAÇÃO: acrescentar campo de valor, ou seleção múltipla, na tela da parcela.
-    it('NÃO existe campo de valor — valor diferente é a 5c, pela RPC', () => {
+    it('SEM OUTRA PARCELA EM ABERTO, NÃO existe campo de valor — a camada de cima da regra 5', () => {
         const l = acharLinha(VENCIMENTOS, 'pa1')!
         const t = montar(
             <TelaDaParcela linha={l} venda={{ codigo: 'VD-121365' }} irmas={[]} aoFechar={() => {}} {...comBaixa} />,
@@ -401,7 +401,9 @@ describe('7 — a tela da parcela escreve UMA coisa só, e é a baixa de UMA par
         t.desmontar()
     })
 
-    it('a LISTA segue sem botão de baixa — só "Abrir". Seleção múltipla é a 5c', () => {
+    // O lote (5c.2) mora FORA da tabela, num bloco próprio — `o-lote-na-ficha.test.tsx`. Cada
+    // LINHA continua só com "Abrir": a baixa de uma é na tela da parcela.
+    it('cada LINHA da lista segue só com "Abrir" — o lote é bloco à parte', () => {
         const t = montar(
             <ListaDeVencimentos vencimentos={VENCIMENTOS} selecionados={['pa1']} aoSelecionar={() => {}} aoAbrirParcela={() => {}} />,
         )

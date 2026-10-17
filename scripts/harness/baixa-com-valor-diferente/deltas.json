@@ -1,0 +1,17 @@
+{
+  "_origem": "Medido no harness em 17/10/2026, contra o prosrc de produção (md5 a0f5ddc1…). O `delta` de cada par É O QUE A RPC DEVOLVEU, não uma conta escrita à mão. deltas.sh confere a RPC contra esta tabela; o-valor-diferente-na-tela.test.tsx confere o cliente contra a MESMA tabela. Mudar um lado sem o outro fica vermelho.",
+  "duas_casas": [
+    { "combinado": 300.30, "pago": 250.00, "delta": 50.30 },
+    { "combinado": 100.00, "pago": 120.01, "delta": -20.01 },
+    { "combinado": 0.30, "pago": 0.30, "delta": 0.00 },
+    { "combinado": 33749.96, "pago": 30000.00, "delta": 3749.96 },
+    { "combinado": 1.15, "pago": 1.00, "delta": 0.15 },
+    { "combinado": 10.00, "pago": 1.01, "delta": 8.99 },
+    { "combinado": 2.675, "pago": 2.67, "delta": 0.01, "_nota": "combinado com 3 casas não existe no cadastro; está aqui porque o arredondamento do LADO DA PARCELA também é das duas contas" }
+  ],
+  "tres_casas_divergem": [
+    { "combinado": 10.00, "pago": 1.005, "delta_rpc": 8.99, "delta_cliente": 9.00 },
+    { "combinado": 10.00, "pago": 1.015, "delta_rpc": 8.98, "delta_cliente": 8.99 },
+    { "combinado": 10.00, "pago": 9.995, "delta_rpc": 0.00, "delta_cliente": 0.01 }
+  ]
+}

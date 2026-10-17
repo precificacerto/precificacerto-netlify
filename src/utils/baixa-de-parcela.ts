@@ -1,13 +1,21 @@
 /**
- * baixa-de-parcela.ts — o payload do UPDATE que dá baixa numa parcela.
+ * baixa-de-parcela.ts — o payload do UPDATE que dá baixa numa parcela PELO FLUXO DE CAIXA.
+ *
+ * ╔══════════════════════════════════════════════════════════════════════════════════════╗
+ * ║ A FICHA DO CLIENTE NÃO PASSA MAIS POR AQUI PARA ESCREVER.                              ║
+ * ║ Desde a …000003 (17/10/2026), toda baixa da ficha — simples, com valor diferente e em ║
+ * ║ lote — vai por função do banco, pela rota, e grava autor no log. `darBaixaNaParcela`  ║
+ * ║ e o cliente de escrita SAÍRAM deste módulo: deixá-los seria manter a segunda via de   ║
+ * ║ escrita de dinheiro que a rodada existiu para fechar. Ver `baixa-pela-rota.ts`.        ║
+ * ║ O que fica aqui serve ao FLUXO DE CAIXA (o payload) e à TELA (formas e textos).       ║
+ * ╚══════════════════════════════════════════════════════════════════════════════════════╝
  *
  * POR QUE ISTO EXISTE COMO MÓDULO, e não inline na tela
  * ------------------------------------------------------
  * O payload estava inline em `handleRegisterPayment` (`fluxo-de-caixa/index.tsx`), e
  * nenhum portão afirmava nada sobre ele — a mesma condição que deixou um `updated_at`
  * inexistente viver semanas no payload da edição (`edicao-de-lancamento.ts`). Separado, o
- * payload é um objeto que se compara campo a campo, e a baixa da ficha do cliente passa a
- * reusar o caminho em vez de escrever o segundo.
+ * payload é um objeto que se compara campo a campo.
  *
  * AS DUAS COLUNAS QUE SÃO OPÇÃO EXPLÍCITA, DESLIGADAS POR PADRÃO
  * ---------------------------------------------------------------
@@ -23,14 +31,11 @@
  *   diferença sumiria: a soma das parcelas deixaria de bater com o total da venda e nada
  *   acusaria. Pagar com outro valor é a 5c, pela RPC, com a redistribuição junto.
  *
- * O fluxo de caixa LIGA as duas, porque reagendar e corrigir valor é a função dele. A ficha
- * do cliente não liga nenhuma.
+ * O fluxo de caixa LIGA as duas, porque reagendar e corrigir valor é a função dele.
  *
- * `paid_by` NÃO EXISTE. "Quem deu a baixa" NÃO É RASTREÁVEL hoje, em caminho nenhum:
- * `cash_entries` tem 41 colunas e nenhuma delas é `paid_by` nem `updated_at` — medido em
- * `information_schema.columns` em 16/10/2026. A única tabela com `paid_by` é
- * `pending_receivables`, que é fonte paralela e não participa da baixa. Acrescentar a
- * coluna é migração, e migração é rodada própria.
+ * QUEM DEU A BAIXA: pela ficha, o log (`parcela_reajuste_log.criado_por`). Pelo fluxo de
+ * caixa, NINGUÉM — `cash_entries` não tem `paid_by`, e este payload continua sem autor. É o
+ * limite conhecido desta rodada: ela fechou a ficha, não o fluxo de caixa.
  */
 
 /** Opção explícita: o objeto é o "ligado". Ausente, a coluna fica FORA do payload. */
@@ -47,8 +52,13 @@ export interface CorrigirValor {
 export interface EntradaDaBaixa {
     /** `YYYY-MM-DD` — o dia em que o dinheiro entrou. Obrigatório, SEM default. */
     pagoEm: string
-    /** A forma. `null` grava `NULL`, que é o que o fluxo de caixa faz com o campo vazio. */
-    forma: string | null
+    /**
+     * A forma. `null` grava `NULL`, que é o que o fluxo de caixa faz com o campo vazio.
+     * AUSENTE (`undefined`) não escreve a coluna — não escrever o que ninguém mandou
+     * escrever. São três estados, e os três são distintos: valor, `NULL` gravado, coluna
+     * intocada.
+     */
+    forma?: string | null
     /** DESLIGADO por padrão. Ver o cabeçalho: reescrever o vencimento apaga o atraso. */
     reagendar?: ReagendarVencimento
     /** DESLIGADO por padrão. Ver o cabeçalho: valor diferente é a 5c, pela RPC. */
@@ -57,7 +67,7 @@ export interface EntradaDaBaixa {
 
 export interface PayloadDaBaixa {
     paid_date: string
-    payment_method: string | null
+    payment_method?: string | null
     amount?: number
     due_date?: string
 }
@@ -70,10 +80,9 @@ export interface PayloadDaBaixa {
  * caixa seja vazio até na serialização.
  */
 export function montarPayloadDaBaixa(entrada: EntradaDaBaixa): PayloadDaBaixa {
-    const payload: PayloadDaBaixa = {
-        paid_date: entrada.pagoEm,
-        payment_method: entrada.forma,
-    }
+    const payload: PayloadDaBaixa = { paid_date: entrada.pagoEm }
+    // `!== undefined`: `null` é escolha (grava NULL), ausente é não tocar na coluna.
+    if (entrada.forma !== undefined) payload.payment_method = entrada.forma
     // `!== undefined`, e não um booleano separado: a opção É o objeto, então não existe
     // estado em que alguém ligue a coluna e esqueça o valor.
     if (entrada.corrigirValor !== undefined) payload.amount = entrada.corrigirValor.para
@@ -82,7 +91,7 @@ export function montarPayloadDaBaixa(entrada: EntradaDaBaixa): PayloadDaBaixa {
 }
 
 // ════════════════════════════════════════════════════════════════════════════════════════
-// A ESCRITA
+// AS FORMAS
 // ════════════════════════════════════════════════════════════════════════════════════════
 
 /**
@@ -104,68 +113,6 @@ export const FORMAS_DA_BAIXA = [
 ] as const
 
 export type FormaDaBaixa = (typeof FORMAS_DA_BAIXA)[number]
-
-/**
- * O cliente de escrita, no mínimo que a baixa usa.
- *
- * É interface, e não o `SupabaseClient`, por duas razões: o portão consegue contar as
- * chamadas (é assim que se afirma "UMA linha, UM update"), e o módulo não arrasta o
- * `database.types.ts` desatualizado para dentro da asserção.
- */
-export interface ConsultaDeEscrita extends PromiseLike<{ data: unknown; error: unknown }> {
-    eq(coluna: string, valor: unknown): ConsultaDeEscrita
-    is(coluna: string, valor: unknown): ConsultaDeEscrita
-    select(colunas: string): ConsultaDeEscrita
-}
-
-export interface ClienteDeEscrita {
-    from(tabela: string): { update(payload: object): ConsultaDeEscrita }
-}
-
-export interface ResultadoDaBaixa {
-    /** `true` quando uma linha foi gravada. */
-    gravou: boolean
-    /** `true` quando o UPDATE não pegou linha nenhuma — a parcela JÁ ESTAVA PAGA. */
-    jaEstavaPaga: boolean
-    error: unknown
-}
-
-/**
- * Dá baixa em UMA parcela. Um `from`, um `update`, uma linha.
- *
- * IDEMPOTENTE POR `.is('paid_date', null)`, e esta é a primeira proteção contra dupla baixa
- * do repositório: os quatro caminhos que gravam `paid_date` hoje não têm nenhuma. Sem o
- * filtro, dois cliques (ou duas abas) gravam duas vezes — a segunda sobrescreve a data da
- * primeira em silêncio, e a parcela passa a dizer que foi paga num dia em que não foi.
- *
- * O `.select('id')` existe para DISTINGUIR "gravou" de "não pegou linha". Sem ele o
- * PostgREST devolve sucesso nos dois casos, e a tela diria "baixa registrada" para uma
- * parcela que outra pessoa acabou de baixar — `ausente-vs-falso.md`: zero linhas afetadas
- * não é a mesma afirmação que uma linha gravada.
- *
- * NÃO existe caminho em lote aqui, de propósito. Dar baixa em N parcelas é a 5c, e é pela
- * RPC — porque valor diferente exige redistribuir a série, e redistribuir em N `UPDATE`
- * soltos deixa a série inconsistente se o terceiro falhar.
- */
-export async function darBaixaNaParcela(args: {
-    cliente: ClienteDeEscrita
-    parcelaId: string
-    tenantId: string
-    entrada: EntradaDaBaixa
-}): Promise<ResultadoDaBaixa> {
-    const payload = montarPayloadDaBaixa(args.entrada)
-    const { data, error } = await args.cliente
-        .from('cash_entries')
-        .update(payload)
-        .eq('id', args.parcelaId)
-        .eq('tenant_id', args.tenantId)
-        .is('paid_date', null)
-        .select('id')
-
-    if (error) return { gravou: false, jaEstavaPaga: false, error }
-    const linhas = Array.isArray(data) ? data.length : 0
-    return { gravou: linhas > 0, jaEstavaPaga: linhas === 0, error: null }
-}
 
 // ════════════════════════════════════════════════════════════════════════════════════════
 // A CONFIRMAÇÃO
