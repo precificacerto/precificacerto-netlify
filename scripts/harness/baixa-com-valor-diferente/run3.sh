@@ -9,7 +9,17 @@
 #                                 de logs. O `prosrc` que ele produz é a0f5ddc1…, o de produção.
 #                                 Os bytes são os recebidos, CRLF inclusive — não editar.
 #
+# >>> O QUE ESTE HARNESS **NÃO** EXERCE: A ORDEM DAS TRAVAS. <<<
+# `dar_baixa_em_lote` trava as parcelas em ordem de `id` (`ORDER BY id FOR UPDATE`) para que dois
+# lotes com interseção — ou um lote e uma baixa com valor diferente na mesma série — não se
+# esperem em ciclo. NENHUM caso daqui prova isso: cada caso roda numa sessão só, e deadlock exige
+# DUAS sessões concorrentes, cada uma segurando uma trava que a outra pede. MEDIDO em 17/10/2026:
+# a mutação `ORDER BY id DESC` no `FOR UPDATE` do lote passa VERDE, 20 de 20. A ordem está
+# garantida por LEITURA do corpo, não por medição — e é isso que este cabeçalho registra.
+# Fechar exige um segundo `psql` em paralelo com `pg_sleep` entre as travas; não foi feito.
+#
 # Uso:   run3.sh <arquivo da …000003>     Saída: `ok:` / `FALHOU:` por caso, e a contagem.
+# Para a …000004 (não aplicada): passe a …000003 seguida dela, concatenadas, num arquivo só.
 # Sai com 1 se algum caso não imprimir `ok` — um caso que nem roda NÃO conta como verde.
 S=$(cd "$(dirname "$0")" && pwd); P="psql -h /tmp/harness-pg -p 54329 -U postgres -q -X"
 $P -c 'drop database if exists harness_000003' >/dev/null 2>&1; $P -c 'create database harness_000003' >/dev/null

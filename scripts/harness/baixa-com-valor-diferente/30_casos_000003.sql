@@ -270,3 +270,27 @@ do $$ declare r text; begin
   reset role;
   raise notice 'ok: 18 — service_role chama o lote; a interna direto: 42501';
 end $$;
+
+-- CASO 19 — O LOTE QUE NÃO FECHA: PC016, e NADA do lote fica.
+--           Sem este caso, a mutação "tirar o `IF v_no_log <> v_n`" SOBREVIVIA a todos os
+--           outros — medido: nenhum deles viola a invariante, porque ela só se viola por
+--           sabotagem. Um trigger de teste engole a linha de log de UMA parcela; o UPDATE dela
+--           acontece, o log fica com uma linha a menos, e a função tem de desfazer tudo.
+create or replace function fx_engole_log() returns trigger language plpgsql as $$
+begin
+  if new.parcela_id = pid(2) then return null; end if;
+  return new;
+end $$;
+do $$ declare r text; antes text; begin
+  perform fx_reset();
+  perform fx(1,1,10.00,'2026-10-10'); perform fx(2,1,20.00,'2026-11-10'); perform fx(3,1,30.00,'2026-12-10');
+  antes := retrato();
+  create trigger fx_engole_log before insert on public.parcela_reajuste_log
+    for each row execute function fx_engole_log();
+  r := tentar(format('select public.dar_baixa_em_lote(array[%L,%L,%L]::uuid[], %L, %L, %L, array[null,null,null]::public.payment_method[])',
+                     pid(1), pid(2), pid(3), ta(), autor(), '2026-10-17'));
+  drop trigger fx_engole_log on public.parcela_reajuste_log;
+  if split_part(r,'|',1) is distinct from 'PC016' then raise exception 'FALHOU 19: esperava PC016, veio %', r; end if;
+  if retrato() is distinct from antes then raise exception 'FALHOU 19: sobrou gravação: % (antes %)', retrato(), antes; end if;
+  raise notice 'ok: 19 — log com uma linha a menos → PC016, e as três parcelas seguem em aberto, log vazio';
+end $$;
