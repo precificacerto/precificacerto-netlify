@@ -27,6 +27,7 @@ import { aplicarFiltrosDeCobranca, type FiltrosDeCobranca } from '@/utils/filtro
 import { hojeNoFusoDoNegocio } from '@/utils/dia-de-hoje'
 import { FiltrosDeCobrancaBar } from '@/page-parts/shared/filtros-de-cobranca.component'
 import { colunasDeCobranca } from '@/page-parts/shared/colunas-de-cobranca.component'
+import { TITULO_RESPONSAVEL, TITULO_SEGMENTO, colunasCondicionais } from '@/utils/colunas-da-lista-de-clientes'
 import {
     TeamOutlined,
     UserAddOutlined,
@@ -191,6 +192,10 @@ function Clients() {
     const pjClients = customers.filter(c => c.customer_type === 'PJ').length
     const withWhatsapp = customers.filter(c => c.whatsapp_phone).length
 
+    // VENCIDO, A VENCER, SEGMENTO e RESPONSÁVEL só são renderizadas com o filtro ligado — ver
+    // `colunas-da-lista-de-clientes.ts`. Derivadas dos FILTROS, que vêm da URL.
+    const mostrar = colunasCondicionais(filtros)
+
     const columns: ColumnsType<Customer> = [
         {
             title: 'Cliente',
@@ -243,26 +248,26 @@ function Clients() {
         },
         // As colunas de cobrança ficam ao lado do WhatsApp de propósito: a coluna partida
         // existe para fazer alguém pegar o telefone, e o telefone está logo à esquerda.
-        ...colunasDeCobranca<Customer>(cobranca.porCliente),
-        {
-            title: 'Segmento',
+        ...colunasDeCobranca<Customer>(cobranca.porCliente, mostrar),
+        // O FILTRO DE SEGMENTO SAIU DESTA COLUNA e foi para o cabeçalho da lista: com a coluna
+        // existindo só quando o filtro está ligado, um filtro que morasse nela seria
+        // inalcançável — não haveria como ligá-lo. Decisão do dono do produto: "filtros devem
+        // estar no cabeçalho". A coluna só EXIBE.
+        ...(mostrar.segmento ? [{
+            title: TITULO_SEGMENTO,
             dataIndex: 'segment',
             key: 'segment',
-            filters: segments.map(s => ({ text: s, value: s })),
-            // CONTROLADO pela URL. Antes vivia dentro do `<Table>` e morria na desmontagem:
-            // não existia como estado, então não havia o que pôr no endereço.
-            filteredValue: filtros.segmento.length > 0 ? filtros.segmento : null,
-            onFilter: (value, record) => record.segment === value,
-        },
-        {
-            title: 'Responsável',
+        }] : []),
+        // RESPONSÁVEL: sem filtro hoje, `mostrar.responsavel` é sempre `false`. Pendência nomeada.
+        ...(mostrar.responsavel ? [{
+            title: TITULO_RESPONSAVEL,
             key: 'owner',
-            render: (_, record) => {
+            render: (_: unknown, record: Customer) => {
                 if (!record.owner_id) return '—'
                 const fromMap = employeeMap.get(record.owner_id)
                 return fromMap || '—'
             },
-        },
+        }] : []),
         {
             title: 'Status',
             dataIndex: 'status',
@@ -397,6 +402,19 @@ function Clients() {
                 </div>
                 <div className="filter-bar" style={{ paddingTop: 0 }}>
                     <FiltrosDeCobrancaBar filtros={filtros} onChange={definirFiltros} hoje={hoje} />
+                    {/* O SEGMENTO NO CABEÇALHO, e não no da coluna: é o mesmo `filtros.segmento`, a
+                        mesma chave de URL — controle novo para filtro existente. Vale também no
+                        ramo mobile, que não tem `<Table>` nem filtro de coluna. */}
+                    <Select
+                        data-testid="filtro-de-segmento"
+                        mode="multiple"
+                        allowClear
+                        placeholder="Segmento"
+                        style={{ minWidth: 200 }}
+                        value={filtros.segmento}
+                        onChange={(v: string[]) => definirFiltros({ ...filtros, segmento: v ?? [] })}
+                        options={segments.map(s => ({ label: s, value: s }))}
+                    />
                 </div>
                 {isMobile ? (
                     <div className="clientes-mobile-list">
@@ -481,19 +499,16 @@ function Clients() {
                         size="middle"
                         loading={isLoading}
                         onChange={(_paginacao, filtrosDaTabela, ordenacao) => {
-                            // Os dois filtros de coluna sobem para a URL. Sem isto eles
-                            // continuariam existindo só dentro do `<Table>`.
+                            // O filtro de coluna que resta (situação) sobe para a URL. O de segmento
+                            // saiu da coluna e mora no cabeçalho — ler `filtrosDaTabela.segment`
+                            // aqui o APAGARIA, porque a coluna não tem mais filtro.
                             const comoLista = (v: unknown): string[] =>
                                 Array.isArray(v) ? v.map(String) : []
                             const proximos: FiltrosDeCobranca = {
                                 ...filtros,
-                                segmento: comoLista(filtrosDaTabela.segment),
                                 situacao: comoLista(filtrosDaTabela.status),
                             }
-                            if (
-                                proximos.segmento.join(',') !== filtros.segmento.join(',') ||
-                                proximos.situacao.join(',') !== filtros.situacao.join(',')
-                            ) {
+                            if (proximos.situacao.join(',') !== filtros.situacao.join(',')) {
                                 definirFiltros(proximos)
                             }
                             const ordem = Array.isArray(ordenacao) ? ordenacao[0] : ordenacao

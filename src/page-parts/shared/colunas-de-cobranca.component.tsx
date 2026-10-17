@@ -12,6 +12,13 @@
  * Hoje são 0 linhas na base inteira — uma coluna permanentemente em branco treina o olho a
  * ignorá-la, e aí a primeira linha sem vencimento que aparecer não vai ser vista.
  *
+ * VENCIDO E A VENCER SÓ EXISTEM COM O FILTRO LIGADO (17/10/2026)
+ * ----------------------------------------------------------------
+ * Pedido do dono do produto: a lista vai ao celular, e as duas saem da visão padrão. Cada uma
+ * é RENDERIZADA só quando o seu interruptor está ligado — `mostrar`, derivado da URL por
+ * `colunasCondicionais`. Não é coluna vazia nem CSS: com o filtro desligado ela não está no
+ * array. `SEM VENCIMENTO` NÃO entrou na lista do pedido e segue a regra própria, acima.
+ *
  * TRAVESSÃO, NUNCA R$ 0,00
  * -------------------------
  * Cliente sem parcela nenhuma não tem agregado, e a célula exibe travessão. `formatBRL(0)`
@@ -48,10 +55,14 @@ function celula(valor: number | undefined, cor?: string): React.ReactNode {
  */
 export function colunasDeCobranca<T extends LinhaComCobranca>(
     porCliente: Record<string, AgregadoDoCliente>,
+    /** Obrigatório, SEM default: quem chama decide, pelo filtro — ver o cabeçalho. */
+    mostrar: { vencido: boolean; aVencer: boolean },
 ): ColumnsType<T> {
     const alguemSemVencimento = Object.values(porCliente).some((a) => a.semVencimento > 0)
 
-    const colunas: ColumnsType<T> = [
+    const colunas: ColumnsType<T> = []
+
+    if (mostrar.vencido) colunas.push(
         {
             title: TITULO_VENCIDO,
             key: 'vencido',
@@ -74,6 +85,9 @@ export function colunasDeCobranca<T extends LinhaComCobranca>(
                 )
             },
         },
+    )
+
+    if (mostrar.aVencer) colunas.push(
         {
             title: TITULO_A_VENCER,
             key: 'a_vencer',
@@ -82,7 +96,7 @@ export function colunasDeCobranca<T extends LinhaComCobranca>(
             sorter: (a, b) => (porCliente[a.id]?.aVencer ?? 0) - (porCliente[b.id]?.aVencer ?? 0),
             render: (_, record) => celula(porCliente[record.id]?.aVencer),
         },
-    ]
+    )
 
     if (alguemSemVencimento) {
         colunas.push({

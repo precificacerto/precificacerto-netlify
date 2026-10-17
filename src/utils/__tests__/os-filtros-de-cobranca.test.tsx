@@ -317,12 +317,14 @@ describe('10 — os filtros moram na URL, e a guarda de `router.isReady` é obri
 })
 
 describe('11 e 12 — a coluna "Em aberto" se parte', () => {
+    // Os dois interruptores LIGADOS: estes casos medem o CONTEÚDO das colunas partidas. Quando
+    // cada uma aparece é `a-lista-de-clientes-mostra-pelo-filtro.test.tsx`.
     function tabela(porCliente: Parameters<typeof colunasDeCobranca>[0], linhas: Array<{ id: string }>) {
         return montar(
             <Table
                 rowKey="id"
                 pagination={false}
-                columns={colunasDeCobranca(porCliente) as any}
+                columns={colunasDeCobranca(porCliente, { vencido: true, aVencer: true }) as any}
                 dataSource={linhas as any}
             />,
         )
