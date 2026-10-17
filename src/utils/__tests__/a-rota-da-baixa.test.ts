@@ -62,9 +62,10 @@ jest.mock('@/supabase/admin', () => ({
                         eq: (col: string, v: unknown) => { c.filtros.push(['eq', col, v]); return q },
                         is: (col: string, v: unknown) => { c.filtros.push(['is', col, v]); return q },
                         select: () => q,
-                        then: (ok: (v: unknown) => unknown) => Promise.resolve({
-                            data: Array.from({ length: estado.linhasAfetadas }, (_, i) => ({ id: `l${i}` })), error: null,
-                        }).then(ok),
+                        then: (ok: (v: unknown) => unknown) => Promise.resolve(estado.linhasAfetadas < 0
+                            ? { data: null, error: { code: '22P02', message: 'invalid input value for enum payment_method: "CARTAO_FIADO"' } }
+                            : { data: Array.from({ length: estado.linhasAfetadas }, (_, i) => ({ id: `l${i}` })), error: null },
+                        ).then(ok),
                     }
                     return q
                 },
@@ -77,11 +78,23 @@ jest.mock('@/supabase/admin', () => ({
 const handler = require('@/pages/api/cash-entries/baixa').default as (req: NextApiRequest, res: NextApiResponse) => Promise<unknown>
 import {
     DESTINO_DO_CODIGO, MOTIVOS, ROTA_DA_BAIXA, TEXTO_BAIXA_REGISTRADA,
-    avisoDaBaixa, chamarBaixaPelaRota, destinoDoErroDaRpc, type BuscarRota,
+    avisoDaBaixa, chamarBaixaPelaRota, destinoDaFormaInexistente, destinoDoErroDaRpc, lerCorpoDaBaixa, type BuscarRota,
 } from '@/utils/baixa-pela-rota'
+import { hojeNoFusoDoNegocio } from '@/utils/dia-de-hoje'
 
 const SESSAO = { user_id: 'usuario-da-sessao', tenant_id: 'tenant-da-sessao', role: 'user', is_super_admin: false }
-const CORPO = { parcela_id: 'p1', pago_em: '2026-06-15', forma: 'PIX', valor_pago: 80 }
+const P1 = '00000000-0000-0000-0000-0000000000c1'
+const CORPO = { parcela_id: P1, forma: 'PIX', valor_pago: 80 }
+
+/**
+ * O RELÓGIO DO SERVIDOR É FIXADO num instante em que o dia UTC e o dia do negócio DIFEREM:
+ * 02:00Z de 17/10 é 23:00 de 16/10 em São Paulo. Um `toISOString()` na rota daria 17; o
+ * certo é 16. E o corpo manda uma TERCEIRA data, 2020-01-01 — as três são distintas, então o
+ * caso diz de onde a data veio.
+ */
+const INSTANTE_DO_SERVIDOR = new Date('2026-10-17T02:00:00Z')
+const DIA_DO_SERVIDOR = hojeNoFusoDoNegocio(INSTANTE_DO_SERVIDOR)
+const DATA_FORJADA = '2020-01-01'
 
 async function chamar(body: unknown, metodo = 'POST'): Promise<{ status: number; json: Record<string, unknown> }> {
     let status = 0
@@ -93,6 +106,12 @@ async function chamar(body: unknown, metodo = 'POST'): Promise<{ status: number;
     await handler({ method: metodo, body, cookies: { token: 't' } } as unknown as NextApiRequest, res as unknown as NextApiResponse)
     return { status, json }
 }
+
+beforeAll(() => {
+    // Só o relógio. Promessas, `nextTick` e microtarefas seguem reais — a rota é assíncrona.
+    jest.useFakeTimers({ now: INSTANTE_DO_SERVIDOR, doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask', 'setTimeout', 'setInterval', 'clearTimeout', 'clearInterval'] })
+})
+afterAll(() => { jest.useRealTimers() })
 
 beforeEach(() => {
     estado.caller = { ...SESSAO }
@@ -164,8 +183,8 @@ describe('PORTÃO 2 — autor e tenant vêm da SESSÃO; os do corpo são IGNORAD
         expect(estado.rpc[0]).toEqual({
             nome: 'dar_baixa_com_valor_diferente',
             args: {
-                p_parcela_id: 'p1', p_tenant_id: SESSAO.tenant_id, p_usuario_id: SESSAO.user_id,
-                p_valor_pago: 80, p_pago_em: '2026-06-15', p_forma: 'PIX',
+                p_parcela_id: P1, p_tenant_id: SESSAO.tenant_id, p_usuario_id: SESSAO.user_id,
+                p_valor_pago: 80, p_pago_em: DIA_DO_SERVIDOR, p_forma: 'PIX',
             },
         })
     })
@@ -209,12 +228,116 @@ describe('os dois caminhos', () => {
     })
 
     it('corpo malformado não chega a nada: 400 ENTRADA_INVALIDA', async () => {
-        for (const ruim of [null, {}, { ...CORPO, pago_em: '15/06/2026' }, { ...CORPO, valor_pago: '80' }, { ...CORPO, parcela_id: '' }]) {
+        for (const ruim of [null, {}, { ...CORPO, valor_pago: '80' }, { ...CORPO, parcela_id: '' }, { ...CORPO, parcela_id: 'p1' }, { ...CORPO, forma: 7 }]) {
             estado.rpc = []
             const r = await chamar(ruim)
             expect(r.status).toBe(400)
             expect(r.json.motivo).toBe('ENTRADA_INVALIDA')
             expect(estado.rpc).toEqual([])
+        }
+    })
+})
+
+describe('BLOQUEANTE 2 — forma AUSENTE não é escrita', () => {
+    const { valor_pago: _v, forma: _f, ...semForma } = CORPO
+
+    // MUTAÇÃO: a rota passar `forma: corpo.forma ?? null` para o UPDATE.
+    it('baixa simples SEM forma: o UPDATE leva só `paid_date` — a coluna da forma fica fora', async () => {
+        await chamar(semForma)
+        expect(estado.updates).toHaveLength(1)
+        expect(Object.keys(estado.updates[0].payload)).toEqual(['paid_date'])
+        expect('payment_method' in estado.updates[0].payload).toBe(false)
+    })
+
+    it('forma `null` explícita é o MESMO pedido: não mexer', async () => {
+        await chamar({ ...semForma, forma: null })
+        expect('payment_method' in estado.updates[0].payload).toBe(false)
+    })
+
+    it('o par: COM forma, ela vai — o caso acima discrimina', async () => {
+        await chamar({ ...semForma, forma: 'BOLETO' })
+        expect(estado.updates[0].payload.payment_method).toBe('BOLETO')
+    })
+
+    it('na RPC, forma ausente chega como NULL — que o `coalesce` dela preserva', async () => {
+        await chamar({ ...semForma, valor_pago: 80 })
+        expect(estado.rpc[0].args.p_forma).toBeNull()
+    })
+})
+
+describe('BLOQUEANTE 3 — a data é do SERVIDOR, no fuso do negócio', () => {
+    it('as três datas do caso são distintas — senão ele não discrimina nada', () => {
+        expect(DIA_DO_SERVIDOR).toBe('2026-10-16')
+        expect(new Set([DIA_DO_SERVIDOR, INSTANTE_DO_SERVIDOR.toISOString().slice(0, 10), DATA_FORJADA]).size).toBe(3)
+    })
+
+    // MUTAÇÃO: `p_pago_em: req.body.pago_em ?? hojeNoFusoDoNegocio()` na rota.
+    it('RPC: outra data no corpo, e o que chega é a do servidor', async () => {
+        await chamar({ ...CORPO, pago_em: DATA_FORJADA })
+        expect(estado.rpc[0].args.p_pago_em).toBe(DIA_DO_SERVIDOR)
+    })
+
+    // MUTAÇÃO: `toISOString().slice(0, 10)` no lugar de `hojeNoFusoDoNegocio()`.
+    it('baixa simples: outra data no corpo, e o UPDATE grava a do servidor', async () => {
+        const { valor_pago: _v, ...simples } = CORPO
+        await chamar({ ...simples, pago_em: DATA_FORJADA })
+        expect(estado.updates[0].payload.paid_date).toBe(DIA_DO_SERVIDOR)
+    })
+})
+
+describe('ITEM 5 — forma fora do enum tem destino PRÓPRIO, e "desconhecido" segue sendo NÃO SEI', () => {
+    // MEDIDO no harness: `22P02 invalid input value for enum payment_method: "CARTAO_FIADO"`,
+    // igual na RPC e no UPDATE.
+    const ERRO_DO_ENUM = { code: '22P02', message: 'invalid input value for enum payment_method: "CARTAO_FIADO"' }
+
+    // MUTAÇÃO: tirar o `22P02` de `destinoDoErro` — cai no desconhecido.
+    it('RPC: 400 FORMA_INEXISTENTE, nomeando a forma que veio NO CORPO', async () => {
+        estado.respostaRpc = { data: null, error: ERRO_DO_ENUM }
+        const r = await chamar({ ...CORPO, forma: 'CARTAO_FIADO' })
+        expect(r.status).toBe(400)
+        expect(r.json.motivo).toBe('FORMA_INEXISTENTE')
+        expect(r.json.error).toBe(destinoDaFormaInexistente('CARTAO_FIADO').mensagem)
+        expect(r.json.error).toContain('"CARTAO_FIADO"')
+    })
+
+    it('baixa simples: o mesmo destino', async () => {
+        estado.linhasAfetadas = -1 // o UPDATE falso devolve o erro do enum
+        const { valor_pago: _v, ...simples } = CORPO
+        const r = await chamar({ ...simples, forma: 'CARTAO_FIADO' })
+        expect(r.status).toBe(400)
+        expect(r.json.motivo).toBe('FORMA_INEXISTENTE')
+    })
+
+    // MUTAÇÃO: aceitar `parcela_id` sem formato de uuid — o 22P02 do uuid viraria "forma".
+    it('o 22P02 só identifica a forma porque o uuid é conferido ANTES', () => {
+        expect(lerCorpoDaBaixa({ ...CORPO, parcela_id: 'nao-e-uuid' })).toBeNull()
+        expect(lerCorpoDaBaixa(CORPO)).not.toBeNull()
+    })
+
+    it('outro código continua no desconhecido', async () => {
+        estado.respostaRpc = { data: null, error: { code: '42501', message: 'permission denied' } }
+        const r = await chamar(CORPO)
+        expect(r.json.motivo).toBe('ERRO_DESCONHECIDO')
+    })
+})
+
+describe('ITEM 4 — valor com mais de duas casas é RECUSADO pela rota', () => {
+    // MEDIDO: com três casas a RPC e o cliente divergem no delta (`deltas.json`).
+    // MUTAÇÃO: tirar `emCentavosExatos` de `lerCorpoDaBaixa`.
+    it('1,005 · 1,015 · 9,995 → 400, e a RPC não é chamada', async () => {
+        for (const valor of [1.005, 1.015, 9.995]) {
+            estado.rpc = []
+            const r = await chamar({ ...CORPO, valor_pago: valor })
+            expect(r.status).toBe(400)
+            expect(estado.rpc).toEqual([])
+        }
+    })
+
+    it('o par: 1,01 e 0,1 + 0,2 passam — duas casas, mesmo com o ruído do float', async () => {
+        for (const valor of [1.01, 0.1 + 0.2]) {
+            estado.rpc = []
+            await chamar({ ...CORPO, valor_pago: valor })
+            expect(estado.rpc).toHaveLength(1)
         }
     })
 })
@@ -282,31 +405,31 @@ describe('a tela: a chamada e o aviso', () => {
         return { buscar, chamadas }
     }
 
-    it('a tela manda as QUATRO chaves do contrato, e nenhum autor nem tenant', async () => {
+    it('a tela manda as chaves do contrato, e nenhum autor, tenant ou data', async () => {
         const { buscar, chamadas } = buscarFalso(200, { ok: true, modo: 'SIMPLES' })
-        await chamarBaixaPelaRota(buscar, { parcela_id: 'p1', pago_em: '2026-06-15', forma: 'PIX' })
+        await chamarBaixaPelaRota(buscar, { parcela_id: P1, forma: 'PIX' })
         expect(chamadas[0].url).toBe(ROTA_DA_BAIXA)
-        expect(Object.keys(chamadas[0].corpo as object).sort()).toEqual(['forma', 'pago_em', 'parcela_id'])
+        expect(Object.keys(chamadas[0].corpo as object).sort()).toEqual(['forma', 'parcela_id'])
     })
 
     it('JA_PAGA é AVISO, recusa é ERRO com o código, aceite é sucesso', async () => {
         const ja = await chamarBaixaPelaRota(buscarFalso(409, { ok: false, motivo: 'JA_PAGA', error: DESTINO_DO_CODIGO.PC004.mensagem, codigo: 'PC004' }).buscar,
-            { parcela_id: 'p1', pago_em: '2026-06-15', forma: null })
+            { parcela_id: P1 })
         expect(avisoDaBaixa(ja)).toEqual({ tipo: 'warning', texto: DESTINO_DO_CODIGO.PC004.mensagem })
 
         const ultima = await chamarBaixaPelaRota(buscarFalso(422, { ok: false, motivo: 'ULTIMA_EM_ABERTO', error: DESTINO_DO_CODIGO.PC005.mensagem, codigo: 'PC005' }).buscar,
-            { parcela_id: 'p1', pago_em: '2026-06-15', forma: null, valor_pago: 10 })
+            { parcela_id: P1, valor_pago: 10 })
         expect(avisoDaBaixa(ultima)).toEqual({ tipo: 'error', texto: `${DESTINO_DO_CODIGO.PC005.mensagem} [PC005]` })
 
         const aceita = await chamarBaixaPelaRota(buscarFalso(200, { ok: true, modo: 'SIMPLES' }).buscar,
-            { parcela_id: 'p1', pago_em: '2026-06-15', forma: null })
+            { parcela_id: P1 })
         expect(avisoDaBaixa(aceita)).toEqual({ tipo: 'success', texto: TEXTO_BAIXA_REGISTRADA })
     })
 
     it('resposta que não é JSON, ou 200 sem `ok`, NÃO vira "gravou"', async () => {
         const quebrado: BuscarRota = async () => ({ ok: true, status: 200, json: async () => { throw new Error('html') } })
-        expect((await chamarBaixaPelaRota(quebrado, { parcela_id: 'p1', pago_em: '2026-06-15', forma: null })).ok).toBe(false)
-        const semOk = await chamarBaixaPelaRota(buscarFalso(200, { success: true }).buscar, { parcela_id: 'p1', pago_em: '2026-06-15', forma: null })
+        expect((await chamarBaixaPelaRota(quebrado, { parcela_id: P1 })).ok).toBe(false)
+        const semOk = await chamarBaixaPelaRota(buscarFalso(200, { success: true }).buscar, { parcela_id: P1 })
         expect(semOk.ok).toBe(false)
         expect(avisoDaBaixa(semOk).tipo).toBe('error')
     })

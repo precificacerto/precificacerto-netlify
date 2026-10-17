@@ -1,6 +1,15 @@
 /**
  * POST /api/cash-entries/baixa — a baixa de UMA parcela, simples ou com valor diferente.
  *
+ * ╔══════════════════════════════════════════════════════════════════════════════════════╗
+ * ║ A 5c.1 ESTÁ INCOMPLETA: A BAIXA SIMPLES NÃO GRAVA AUTOR.                              ║
+ * ║ Ela vai por UPDATE porque a RPC recusa a última em aberto (PC005) e a parcela fora    ║
+ * ║ de série (PC002) MESMO COM DELTA ZERO — medido no harness em 17/10/2026 contra o      ║
+ * ║ `prosrc` de produção. São DUAS vias de escrita de dinheiro, e cada baixa simples é    ║
+ * ║ inatribuível para sempre. O conserto é na FUNÇÃO (…000003). Detalhe e números no      ║
+ * ║ cabeçalho de `src/utils/baixa-pela-rota.ts`.                                          ║
+ * ╚══════════════════════════════════════════════════════════════════════════════════════╝
+ *
  * O MOLDE É O DE `/api/delete/sales` e `/api/cash-entries/update`: `supabaseAdmin` no servidor,
  * o chamador resolvido por `getCallerContext` a partir do cookie `token`, e a permissão de
  * `cash_flow.can_edit` — aqui pela checagem que `permissao-do-modulo.ts` extraiu daquelas rotas,
@@ -15,21 +24,23 @@
  * - **com `valor_pago`** — `dar_baixa_com_valor_diferente`, que dá a baixa e redistribui a
  *   diferença numa transação, e grava o autor no log.
  *
- * `p_usuario_id` e `p_tenant_id` VÊM DA SESSÃO, NUNCA DO CORPO. `lerCorpoDaBaixa` só lê as
- * quatro chaves do contrato; o que mais vier é ignorado.
+ * `p_usuario_id` e `p_tenant_id` VÊM DA SESSÃO, NUNCA DO CORPO. A DATA VEM DO SERVIDOR,
+ * por `hojeNoFusoDoNegocio` — a rota não é seletor de data (XI.1). `lerCorpoDaBaixa` só lê as
+ * três chaves do contrato; o que mais vier é ignorado.
  *
- * LIMITE CONHECIDO: a baixa SIMPLES continua sem autor gravado — `cash_entries` não tem
- * `paid_by`, e o log de reajuste só nasce na baixa com valor diferente.
+ * FORMA AUSENTE NÃO É ESCRITA: sem forma no corpo, `payment_method` não entra no UPDATE e a
+ * RPC recebe `NULL`, que o `coalesce` dela preserva. As duas vias com a mesma semântica.
  */
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { supabaseAdmin } from '@/supabase/admin'
 import { exigirPermissaoDeEdicao } from '@/lib/permissao-do-modulo'
 import { darBaixaNaParcela, type ClienteDeEscrita } from '@/utils/baixa-de-parcela'
+import { hojeNoFusoDoNegocio } from '@/utils/dia-de-hoje'
 import {
     DESTINO_DESCONHECIDO,
     DESTINO_DO_CODIGO,
     DESTINO_SEM_PERMISSAO,
-    destinoDoErroDaRpc,
+    destinoDoErro,
     lerCorpoDaBaixa,
     type Destino,
     type ResultadoDaRpc,
@@ -49,17 +60,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const corpo = lerCorpoDaBaixa(req.body)
     if (!corpo) return recusar(res, DESTINO_DO_CODIGO.PC001)
 
+    // O DIA É DO SERVIDOR, no fuso do negócio. Um `pago_em` no corpo é ignorado.
+    const pagoEm = hojeNoFusoDoNegocio()
+
     try {
         if (corpo.valor_pago === undefined) {
             const r = await darBaixaNaParcela({
                 cliente: supabaseAdmin as unknown as ClienteDeEscrita,
                 parcelaId: corpo.parcela_id,
                 tenantId: caller.tenant_id,
-                entrada: { pagoEm: corpo.pago_em, forma: corpo.forma },
+                // `forma` ausente fica `undefined` e a coluna não vai no UPDATE.
+                entrada: { pagoEm, forma: corpo.forma },
             })
             if (r.error) {
                 console.error('Baixa simples recusada:', (r.error as { code?: string })?.code ?? 'sem código')
-                return recusar(res, DESTINO_DESCONHECIDO)
+                return recusar(res, destinoDoErro(r.error as { code?: unknown }, corpo))
             }
             if (r.jaEstavaPaga) return recusar(res, DESTINO_DO_CODIGO.PC004)
             return res.status(200).json({ ok: true, modo: 'SIMPLES' })
@@ -70,12 +85,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             p_tenant_id: caller.tenant_id,
             p_usuario_id: caller.user_id,
             p_valor_pago: corpo.valor_pago,
-            p_pago_em: corpo.pago_em,
-            p_forma: corpo.forma,
+            p_pago_em: pagoEm,
+            // `NULL` = não mexer: o `coalesce` da RPC preserva a forma combinada.
+            p_forma: corpo.forma ?? null,
         })
         if (error) {
             const codigo = typeof (error as { code?: unknown }).code === 'string' ? (error as { code: string }).code : undefined
-            return recusar(res, destinoDoErroDaRpc(error), codigo)
+            return recusar(res, destinoDoErro(error, corpo), codigo)
         }
         return res.status(200).json({ ok: true, modo: 'VALOR_DIFERENTE', resultado: data as ResultadoDaRpc })
     } catch (e: unknown) {

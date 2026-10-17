@@ -47,8 +47,13 @@ export interface CorrigirValor {
 export interface EntradaDaBaixa {
     /** `YYYY-MM-DD` — o dia em que o dinheiro entrou. Obrigatório, SEM default. */
     pagoEm: string
-    /** A forma. `null` grava `NULL`, que é o que o fluxo de caixa faz com o campo vazio. */
-    forma: string | null
+    /**
+     * A forma. `null` grava `NULL`, que é o que o fluxo de caixa faz com o campo vazio.
+     * AUSENTE (`undefined`) não escreve a coluna: é o que a rota da ficha usa quando ninguém
+     * mandou forma — não escrever o que ninguém mandou escrever. São três estados, e os três
+     * são distintos: valor, `NULL` gravado, coluna intocada.
+     */
+    forma?: string | null
     /** DESLIGADO por padrão. Ver o cabeçalho: reescrever o vencimento apaga o atraso. */
     reagendar?: ReagendarVencimento
     /** DESLIGADO por padrão. Ver o cabeçalho: valor diferente é a 5c, pela RPC. */
@@ -57,7 +62,7 @@ export interface EntradaDaBaixa {
 
 export interface PayloadDaBaixa {
     paid_date: string
-    payment_method: string | null
+    payment_method?: string | null
     amount?: number
     due_date?: string
 }
@@ -70,10 +75,9 @@ export interface PayloadDaBaixa {
  * caixa seja vazio até na serialização.
  */
 export function montarPayloadDaBaixa(entrada: EntradaDaBaixa): PayloadDaBaixa {
-    const payload: PayloadDaBaixa = {
-        paid_date: entrada.pagoEm,
-        payment_method: entrada.forma,
-    }
+    const payload: PayloadDaBaixa = { paid_date: entrada.pagoEm }
+    // `!== undefined`: `null` é escolha (grava NULL), ausente é não tocar na coluna.
+    if (entrada.forma !== undefined) payload.payment_method = entrada.forma
     // `!== undefined`, e não um booleano separado: a opção É o objeto, então não existe
     // estado em que alguém ligue a coluna e esqueça o valor.
     if (entrada.corrigirValor !== undefined) payload.amount = entrada.corrigirValor.para

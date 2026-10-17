@@ -40,6 +40,14 @@ describe('1 — sem pedir, as duas colunas NÃO entram no payload', () => {
         expect(Object.keys(montarPayloadDaBaixa(minimo))).toEqual(['paid_date', 'payment_method'])
     })
 
+    // A ROTA DA FICHA usa este terceiro estado (BLOQUEANTE 2): sem forma, a coluna não vai.
+    // MUTAÇÃO: `payment_method: entrada.forma ?? null` sempre no payload.
+    it('forma AUSENTE (`undefined`) não escreve a coluna — o terceiro estado', () => {
+        const p = montarPayloadDaBaixa({ pagoEm: '2026-10-16' })
+        expect(p).toEqual({ paid_date: '2026-10-16' })
+        expect('payment_method' in p).toBe(false)
+    })
+
     it('forma ausente grava NULL, e isso é diferente de não mandar a coluna', () => {
         const p = montarPayloadDaBaixa({ pagoEm: '2026-10-16', forma: null })
         expect(p.payment_method).toBeNull()

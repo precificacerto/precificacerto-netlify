@@ -1,6 +1,26 @@
 /**
  * baixa-pela-rota.ts — o contrato entre a ficha e `/api/cash-entries/baixa`.
  *
+ * ╔══════════════════════════════════════════════════════════════════════════════════════╗
+ * ║ A 5c.1 ESTÁ INCOMPLETA: A BAIXA SIMPLES NÃO GRAVA AUTOR.                              ║
+ * ║                                                                                      ║
+ * ║ A baixa pelo valor combinado vai por UPDATE, e `cash_entries` não tem `paid_by`: quem ║
+ * ║ deu a baixa só fica registrado na baixa com valor diferente, no log da RPC. A        ║
+ * ║ XIII.2 decide que o log registra TODA baixa da ficha — e isto não cumpre.            ║
+ * ║                                                                                      ║
+ * ║ Por que não vai tudo pela RPC, MEDIDO em 17/10/2026 no harness contra o `prosrc` de  ║
+ * ║ produção (md5 a0f5ddc1…), com delta ZERO:                                            ║
+ * ║   parcela única em aberto na série ........ PC005 — recusada                         ║
+ * ║   origin_id que não resolve venda ......... PC005 — é série; recusada por ser única  ║
+ * ║   origin_id nulo .......................... PC002 — recusada                         ║
+ * ║   parcela com irmãs em aberto ............. ACEITA, log 'PAGA' com o autor           ║
+ * ║ O `IF v_n = 0` (PC005) vem ANTES do cálculo do delta no corpo da função.             ║
+ * ║                                                                                      ║
+ * ║ O CONSERTO É NA FUNÇÃO (migração …000003), NÃO NUMA SEGUNDA VIA. Até lá existem DUAS ║
+ * ║ vias de escrita de dinheiro na ficha, e cada baixa simples é INATRIBUÍVEL PARA       ║
+ * ║ SEMPRE — aditivo depois não recupera o passado (XIII.6.b).                           ║
+ * ╚══════════════════════════════════════════════════════════════════════════════════════╝
+ *
  * PURO, e importável do browser: não toca no cliente admin. A rota o importa para responder;
  * a tela o importa para chamar e para dizer o que aconteceu. Um módulo só para os dois lados,
  * porque o mapa código → destino escrito duas vezes seria `copia-divergente.md` nascendo.
@@ -29,6 +49,7 @@
  */
 
 import { formatBRL } from '@/utils/formatters'
+import { FORMAS_DA_BAIXA } from '@/utils/baixa-de-parcela'
 import type { LinhaDeVencimento } from '@/utils/vencimentos-da-ficha'
 
 export const ROTA_DA_BAIXA = '/api/cash-entries/baixa'
@@ -94,9 +115,13 @@ export function textoDaConfirmacaoComValorDiferente(f: FatosDoValorDiferente): s
         + `${diferenca} A parcela passa a constar como PAGA em ${f.pagoEm}.`
 }
 
-/** O corpo da requisição. `valor_pago` só existe quando o valor diferente foi pedido. */
-export function montarCorpoDaBaixa(parcelaId: string, e: { pagoEm: string; forma: string | null; valorPago?: number }): CorpoDaBaixa {
-    const corpo: CorpoDaBaixa = { parcela_id: parcelaId, pago_em: e.pagoEm, forma: e.forma }
+/**
+ * O corpo da requisição. `valor_pago` só existe quando o valor diferente foi pedido; `forma`
+ * só existe quando há forma. A DATA NÃO VAI: o servidor a deriva (ver `CorpoDaBaixa`).
+ */
+export function montarCorpoDaBaixa(parcelaId: string, e: { forma?: string | null; valorPago?: number }): CorpoDaBaixa {
+    const corpo: CorpoDaBaixa = { parcela_id: parcelaId }
+    if (e.forma !== undefined && e.forma !== null) corpo.forma = e.forma
     if (e.valorPago !== undefined) corpo.valor_pago = e.valorPago
     return corpo
 }
@@ -106,14 +131,23 @@ export function montarCorpoDaBaixa(parcelaId: string, e: { pagoEm: string; forma
 // ════════════════════════════════════════════════════════════════════════════════════════
 
 /**
- * O que a tela manda. NÃO TEM usuário NEM tenant, de propósito: a rota os tira da sessão.
- * Se um dia alguém mandar um dos dois no corpo, a rota os IGNORA — há portão afirmando isso.
+ * O que a tela manda. NÃO TEM usuário, tenant NEM DATA, de propósito: a rota tira os dois
+ * primeiros da sessão e deriva a data por `dia-de-hoje.ts`, no fuso do negócio. Se um dia
+ * alguém mandar qualquer dos três no corpo, a rota os IGNORA — há portão afirmando isso.
+ *
+ * A DATA SAIU DO CONTRATO (XI.1): "data escolhida à vontade lança dinheiro em mês fechado".
+ * Uma rota que aceitasse qualquer data bem-formada SERIA o seletor livre, com a trava
+ * morando na tela — o mesmo erro de camada do autor vindo do corpo. A tela continua
+ * EXIBINDO o dia; exibir é informar, não autorizar.
  */
 export interface CorpoDaBaixa {
     parcela_id: string
-    /** `YYYY-MM-DD`, o `hoje` no fuso do negócio que a tela exibiu antes de confirmar. */
-    pago_em: string
-    forma: string | null
+    /**
+     * AUSENTE (ou `null`) = NÃO MEXER NA FORMA: a coluna não vai no UPDATE e a RPC recebe
+     * `NULL`, que o `coalesce` dela preserva. Não é validar — é não escrever o que ninguém
+     * mandou escrever. Achado 3 da XIII.7, que reapareceu uma camada acima.
+     */
+    forma?: string | null
     /**
      * Ausente = BAIXA SIMPLES, pelo valor combinado — o caminho da 5b, agora no servidor.
      * Presente = valor diferente, pela RPC, com a redistribuição na mesma transação.
@@ -164,6 +198,7 @@ export const MOTIVOS = [
     'SERIE_MUDOU',
     'VALOR_NULO_NO_BANCO',
     'INVARIANTE_VIOLADA',
+    'FORMA_INEXISTENTE',
     'SEM_PERMISSAO',
     'ERRO_DESCONHECIDO',
 ] as const
@@ -201,6 +236,34 @@ export const DESTINO_SEM_PERMISSAO: Destino = {
     motivo: 'SEM_PERMISSAO', status: 403, mensagem: 'Sem permissão para dar baixa em parcelas.',
 }
 
+/**
+ * `22P02` — o Postgres recusou converter a forma para `payment_method`. MEDIDO no harness em
+ * 17/10/2026: `invalid input value for enum payment_method: "CARTAO_FIADO"`, IGUAL na RPC e
+ * no UPDATE. É previsto e determinístico, e por isso NÃO é "desconhecido".
+ *
+ * O `22P02` é genérico — `invalid_text_representation` — e o MESMO código sai para um uuid
+ * malformado (medido também). Ele só identifica a forma porque `lerCorpoDaBaixa` exige
+ * `parcela_id` em formato de uuid e todo o resto chega tipado: autor e tenant da sessão,
+ * data do servidor, valor como número. Afrouxar aquela validação desfaz este destino.
+ *
+ * A frase nomeia a forma A PARTIR DO CORPO, que a rota tem — nunca da mensagem do banco.
+ */
+export const CODIGO_DE_FORMA_INEXISTENTE = '22P02'
+
+export function destinoDaFormaInexistente(forma: string): Destino {
+    return {
+        motivo: 'FORMA_INEXISTENTE',
+        status: 400,
+        mensagem: `A forma de pagamento "${forma}" não existe. Formas aceitas: ${FORMAS_DA_BAIXA.join(', ')}.`,
+    }
+}
+
+/** O destino de um erro, pelo código, com o corpo à mão para nomear a forma no `22P02`. */
+export function destinoDoErro(erro: { code?: unknown } | null | undefined, corpo: CorpoDaBaixa): Destino {
+    if (erro?.code === CODIGO_DE_FORMA_INEXISTENTE && typeof corpo.forma === 'string') return destinoDaFormaInexistente(corpo.forma)
+    return destinoDoErroDaRpc(erro)
+}
+
 export const DESTINO_DESCONHECIDO: Destino = {
     motivo: 'ERRO_DESCONHECIDO', status: 500, mensagem: 'O banco recusou a baixa por um motivo não previsto. Nada foi confirmado.',
 }
@@ -218,24 +281,41 @@ export function destinoDoErroDaRpc(erro: { code?: unknown } | null | undefined):
 // A VALIDAÇÃO DO CORPO — o formato, e só. A REGRA é da RPC.
 // ════════════════════════════════════════════════════════════════════════════════════════
 
-const DIA_ISO = /^\d{4}-\d{2}-\d{2}$/
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 /**
- * Lê o corpo SÓ pelas quatro chaves do contrato. Qualquer outra — `p_usuario_id`,
- * `usuario_id`, `tenant_id` — não é lida, e é isso que impede o autor forjado.
+ * Valor em centavos INTEIROS, ou `null` se tiver mais de duas casas.
  *
- * O formato é conferido aqui; o VALOR (positivo, data presente) é conferido pela RPC, que é
- * a autoridade e devolve `PC001`. Duas validações da mesma regra divergiriam.
+ * MEDIDO no harness em 17/10/2026: com três casas, a RPC (numeric, arredonda metade para
+ * cima) e o cliente (float) DIVERGEM no delta — 10,00 pago 1,005 dá 8,99 na RPC e 9,00 no
+ * cliente; 9,995 dá 0,00 e 0,01. A confirmação mentiria por um centavo. Com duas casas as
+ * duas contas coincidem (`deltas.json` do harness). Então a rota RECUSA a terceira casa.
+ */
+export function emCentavosExatos(valor: number): number | null {
+    const x = valor * 100
+    const c = Math.round(x)
+    return Math.abs(x - c) < 1e-6 ? c : null
+}
+
+/**
+ * Lê o corpo SÓ pelas três chaves do contrato. Qualquer outra — `p_usuario_id`,
+ * `usuario_id`, `tenant_id`, `pago_em` — não é lida, e é isso que impede autor, tenant e
+ * data forjados.
+ *
+ * O FORMATO é conferido aqui; o VALOR (positivo) é conferido pela RPC, que é a autoridade e
+ * devolve `PC001`. Duas validações da mesma regra divergiriam.
  */
 export function lerCorpoDaBaixa(bruto: unknown): CorpoDaBaixa | null {
     if (bruto === null || typeof bruto !== 'object') return null
     const b = bruto as Record<string, unknown>
-    if (typeof b.parcela_id !== 'string' || b.parcela_id === '') return null
-    if (typeof b.pago_em !== 'string' || !DIA_ISO.test(b.pago_em)) return null
-    if (b.forma !== null && typeof b.forma !== 'string') return null
-    const corpo: CorpoDaBaixa = { parcela_id: b.parcela_id, pago_em: b.pago_em, forma: b.forma as string | null }
+    if (typeof b.parcela_id !== 'string' || !UUID.test(b.parcela_id)) return null
+    if (b.forma !== undefined && b.forma !== null && typeof b.forma !== 'string') return null
+    const corpo: CorpoDaBaixa = { parcela_id: b.parcela_id }
+    // `null` e ausente são o MESMO pedido: não mexer na forma. Só a string chega adiante.
+    if (typeof b.forma === 'string') corpo.forma = b.forma
     if (b.valor_pago !== undefined) {
         if (typeof b.valor_pago !== 'number' || !Number.isFinite(b.valor_pago)) return null
+        if (emCentavosExatos(b.valor_pago) === null) return null
         corpo.valor_pago = b.valor_pago
     }
     return corpo

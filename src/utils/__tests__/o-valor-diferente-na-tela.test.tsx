@@ -24,6 +24,7 @@ import { ROTULO_CONFIRMAR_BAIXA, ROTULO_DAR_BAIXA, textoDaConfirmacaoDaBaixa } f
 import {
     avisoDaBaixa,
     diferencaEmCentavos,
+    emCentavosExatos,
     montarCorpoDaBaixa,
     outrasEmAbertoDaSerie,
     textoDaConfirmacaoComValorDiferente,
@@ -248,10 +249,42 @@ describe('o que a tela MANDA', () => {
         t.desmontar()
     })
 
-    it('`montarCorpoDaBaixa` só põe `valor_pago` quando ele veio', () => {
-        expect(montarCorpoDaBaixa('p1', { pagoEm: HOJE, forma: 'PIX' })).toEqual({ parcela_id: 'p1', pago_em: HOJE, forma: 'PIX' })
-        expect(montarCorpoDaBaixa('p1', { pagoEm: HOJE, forma: null, valorPago: 250 }))
-            .toEqual({ parcela_id: 'p1', pago_em: HOJE, forma: null, valor_pago: 250 })
+    // A DATA NÃO VAI NO CORPO: o servidor a deriva (BLOQUEANTE 3). A tela a EXIBE.
+    it('`montarCorpoDaBaixa`: sem data; `valor_pago` e `forma` só quando vieram', () => {
+        expect(montarCorpoDaBaixa('p1', { pagoEm: HOJE, forma: 'PIX' } as Entrada)).toEqual({ parcela_id: 'p1', forma: 'PIX' })
+        expect(montarCorpoDaBaixa('p1', { pagoEm: HOJE, forma: null, valorPago: 250 } as Entrada))
+            .toEqual({ parcela_id: 'p1', valor_pago: 250 })
+    })
+})
+
+describe('ITEM 4 — o delta do cliente É o delta da RPC, sobre as mesmas entradas', () => {
+    /**
+     * `deltas.json` é UMA tabela, lida pelos DOIS lados: `deltas.sh` confere a RPC contra ela
+     * no Postgres do harness, e este caso confere o cliente contra ela. O `delta` de cada par
+     * foi MEDIDO na RPC, não escrito à mão. Se a confirmação dissesse uma diferença e a RPC
+     * gravasse outra, ela teria mentido sobre a única coisa que existe para dizer.
+     */
+    const tabela = require('../../../scripts/harness/baixa-com-valor-diferente/deltas.json') as {
+        duas_casas: { combinado: number; pago: number; delta: number }[]
+        tres_casas_divergem: { combinado: number; pago: number; delta_rpc: number; delta_cliente: number }[]
+    }
+
+    it('a tabela tem pares nos DOIS sinais e o zero — senão o sinal não seria exercido', () => {
+        const sinais = new Set(tabela.duas_casas.map((x) => Math.sign(x.delta)))
+        expect(sinais).toEqual(new Set([1, -1, 0]))
+    })
+
+    // MUTAÇÃO: errar o sinal no cliente (`pago - combinado`).
+    it.each(tabela.duas_casas)('$combinado pago $pago → delta $delta, igual à RPC', ({ combinado, pago, delta }) => {
+        expect(diferencaEmCentavos(combinado, pago)).toBe(Math.round(delta * 100))
+    })
+
+    it('com TRÊS casas as duas contas divergem — e é por isso que a rota as recusa', () => {
+        for (const x of tabela.tres_casas_divergem) {
+            expect(diferencaEmCentavos(x.combinado, x.pago)).toBe(Math.round(x.delta_cliente * 100))
+            expect(Math.round(x.delta_cliente * 100)).not.toBe(Math.round(x.delta_rpc * 100))
+            expect(emCentavosExatos(x.pago)).toBeNull()
+        }
     })
 })
 

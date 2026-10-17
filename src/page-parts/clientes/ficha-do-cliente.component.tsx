@@ -307,6 +307,8 @@ export function FichaDoCliente({ customerId }: FichaDoClienteProps) {
                         // PELA ROTA. A ficha não reagenda vencimento nem corrige valor por
                         // escrita direta; o valor diferente vai à RPC, que redistribui a série
                         // na mesma transação. Ver `baixa-pela-rota.ts`.
+                        // A DATA NÃO VAI: o servidor a deriva. `entrada.pagoEm` é o que a tela
+                        // EXIBIU — informar, não autorizar.
                         const r = await chamarBaixaPelaRota(buscarRota, montarCorpoDaBaixa(linha.id, entrada))
                         // `JA_PAGA` é aviso, não sucesso: zero linhas afetadas não é "gravou".
                         const aviso = avisoDaBaixa(r)
