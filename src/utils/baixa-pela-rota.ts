@@ -28,7 +28,78 @@
  * conta aqui é a diferença, em centavos inteiros — e ela não reparte nada.
  */
 
+import { formatBRL } from '@/utils/formatters'
+import type { LinhaDeVencimento } from '@/utils/vencimentos-da-ficha'
+
 export const ROTA_DA_BAIXA = '/api/cash-entries/baixa'
+
+// ════════════════════════════════════════════════════════════════════════════════════════
+// O VALOR DIFERENTE NA TELA (5c.3)
+// ════════════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * As OUTRAS parcelas em aberto da mesma série — as que absorvem a diferença.
+ *
+ * É a camada DE CIMA da trava da regra 5: sem nenhuma, o campo de valor diferente não existe
+ * na tela. A de baixo é a RPC, que recusa com `PC005` de todo modo — uma tela que não oferece
+ * não substitui um banco que não aceita.
+ *
+ * "Em aberto" é o que a RPC lê: viva (`is_active`, já filtrado na montagem das parcelas) e sem
+ * `paid_date`. A série da tela é a da venda (`saleId`) dentro do cliente; a da RPC é
+ * `origin_type` + `origin_id` no tenant. Medido em 17/10/2026 nas seis séries com duas ou
+ * mais em aberto: um cliente por série e venda existente em todas — as duas coincidem.
+ */
+export function outrasEmAbertoDaSerie(irmas: readonly LinhaDeVencimento[], linha: LinhaDeVencimento): LinhaDeVencimento[] {
+    return irmas.filter((i) => i.id !== linha.id && i.estado !== 'PAGA')
+}
+
+/**
+ * Combinado menos pago, EM CENTAVOS INTEIROS. Positivo: pagou a menos, as outras sobem.
+ * É a única conta sobre dinheiro deste lado, e ela não reparte nada — ver o cabeçalho.
+ */
+export function diferencaEmCentavos(combinado: number, pago: number): number {
+    return Math.round(combinado * 100) - Math.round(pago * 100)
+}
+
+export interface FatosDoValorDiferente {
+    /** Todos JÁ FORMATADOS pelo chamador, com `formatBRL` e `diaBR`. */
+    valorPago: string
+    valorCombinado: string
+    /** `2 de 5`. */
+    parcela: string
+    codigoDaVenda: string | null
+    forma: string | null
+    pagoEm: string
+    /** `formatBRL` do módulo da diferença. */
+    diferenca: string
+    sentido: 'A_MENOS' | 'A_MAIS' | 'SEM_DIFERENCA'
+    /** As outras em aberto, como a tela as nomeia: `3 de 5 (vence 10/11/2026)`. */
+    reajustaveis: readonly string[]
+}
+
+/**
+ * A confirmação do valor diferente. Nomeia o valor pago, a parcela, a venda, a diferença e
+ * QUAIS parcelas em aberto absorvem — e NÃO diz com que valor elas ficam: isso é a RPC que
+ * decide, e a tela mostra depois, relendo o banco.
+ */
+export function textoDaConfirmacaoComValorDiferente(f: FatosDoValorDiferente): string {
+    const venda = f.codigoDaVenda ?? 'venda não identificada'
+    const forma = f.forma ?? 'Sem forma de pagamento'
+    const n = f.reajustaveis.length
+    const quem = n === 1 ? 'a outra parcela em aberto desta venda' : `as ${n} outras parcelas em aberto desta venda`
+    const diferenca = f.sentido === 'SEM_DIFERENCA'
+        ? 'Sem diferença: nenhuma outra parcela é reajustada.'
+        : `Pago ${f.sentido === 'A_MENOS' ? 'a menos' : 'a mais'}: ${f.diferenca}, redistribuído proporcionalmente entre ${quem}: ${f.reajustaveis.join(', ')}.`
+    return `Vai ser gravado: ${f.valorPago} na parcela ${f.parcela} (combinado ${f.valorCombinado}) · venda ${venda} · ${forma}. `
+        + `${diferenca} A parcela passa a constar como PAGA em ${f.pagoEm}.`
+}
+
+/** O corpo da requisição. `valor_pago` só existe quando o valor diferente foi pedido. */
+export function montarCorpoDaBaixa(parcelaId: string, e: { pagoEm: string; forma: string | null; valorPago?: number }): CorpoDaBaixa {
+    const corpo: CorpoDaBaixa = { parcela_id: parcelaId, pago_em: e.pagoEm, forma: e.forma }
+    if (e.valorPago !== undefined) corpo.valor_pago = e.valorPago
+    return corpo
+}
 
 // ════════════════════════════════════════════════════════════════════════════════════════
 // O CORPO DA REQUISIÇÃO
@@ -177,11 +248,28 @@ export function lerCorpoDaBaixa(bruto: unknown): CorpoDaBaixa | null {
 export const TEXTO_BAIXA_REGISTRADA = 'Baixa registrada.'
 
 /**
+ * O que a tela diz depois do valor diferente. Os números vêm da RESPOSTA DA RPC — quantas
+ * foram reajustadas e com que valor a paga ficou —, nunca de uma conta feita aqui.
+ */
+export function textoDoValorDiferenteRegistrado(r: ResultadoDaRpc): string {
+    const n = r.reajustadas
+    const reajuste = n === 0
+        ? 'Nenhuma outra parcela foi reajustada.'
+        : n === 1 ? '1 parcela em aberto foi reajustada.' : `${n} parcelas em aberto foram reajustadas.`
+    return `Baixa registrada com ${formatBRL(r.parcela_paga.valor_depois)}. ${reajuste} `
+        + 'Os valores abaixo são os que ficaram no banco.'
+}
+
+/**
  * O que a tela diz depois da resposta. A frase de recusa VEM DO DESTINO do código, nunca da
  * mensagem do banco. `JA_PAGA` é AVISO, não sucesso: zero linhas afetadas não é "gravou".
  */
 export function avisoDaBaixa(r: RespostaDaBaixa): { tipo: 'success' | 'warning' | 'error'; texto: string } {
-    if (!foiRecusada(r)) return { tipo: 'success', texto: TEXTO_BAIXA_REGISTRADA }
+    if (!foiRecusada(r)) {
+        return r.modo === 'VALOR_DIFERENTE'
+            ? { tipo: 'success', texto: textoDoValorDiferenteRegistrado(r.resultado) }
+            : { tipo: 'success', texto: TEXTO_BAIXA_REGISTRADA }
+    }
     if (r.motivo === 'JA_PAGA') return { tipo: 'warning', texto: r.error }
     return { tipo: 'error', texto: r.codigo ? `${r.error} [${r.codigo}]` : r.error }
 }

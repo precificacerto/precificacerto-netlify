@@ -379,7 +379,7 @@ describe('7 — a tela da parcela escreve UMA coisa só, e é a baixa de UMA par
     })
 
     // MUTAÇÃO: acrescentar campo de valor, ou seleção múltipla, na tela da parcela.
-    it('NÃO existe campo de valor — valor diferente é a 5c, pela RPC', () => {
+    it('SEM OUTRA PARCELA EM ABERTO, NÃO existe campo de valor — a camada de cima da regra 5', () => {
         const l = acharLinha(VENCIMENTOS, 'pa1')!
         const t = montar(
             <TelaDaParcela linha={l} venda={{ codigo: 'VD-121365' }} irmas={[]} aoFechar={() => {}} {...comBaixa} />,

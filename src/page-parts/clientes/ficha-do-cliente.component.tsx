@@ -54,7 +54,7 @@ import { useParcelasDeReceber } from '@/hooks/use-data.hooks'
 import { montarParcelasDoCliente } from '@/utils/parcelas-do-cliente'
 import { montarResumoDoCliente } from '@/utils/resumo-do-cliente'
 import { hojeNoFusoDoNegocio } from '@/utils/dia-de-hoje'
-import { avisoDaBaixa, chamarBaixaPelaRota, type BuscarRota } from '@/utils/baixa-pela-rota'
+import { avisoDaBaixa, chamarBaixaPelaRota, montarCorpoDaBaixa, type BuscarRota } from '@/utils/baixa-pela-rota'
 
 /**
  * A baixa vai pela ROTA (`/api/cash-entries/baixa`), nunca por escrita direta nem por `.rpc()`
@@ -303,14 +303,11 @@ export function FichaDoCliente({ customerId }: FichaDoClienteProps) {
                 podeDarBaixa={canEdit(MODULES.CASH_FLOW)}
                 aoDarBaixa={linha === null || tenantId === null || tenantId === undefined
                     ? undefined
-                    : async ({ pagoEm, forma }) => {
-                        // PELA ROTA. A ficha não reagenda vencimento e não corrige valor por
-                        // escrita direta; ver o cabeçalho de `baixa-de-parcela.ts`.
-                        const r = await chamarBaixaPelaRota(buscarRota, {
-                            parcela_id: linha.id,
-                            pago_em: pagoEm,
-                            forma,
-                        })
+                    : async (entrada) => {
+                        // PELA ROTA. A ficha não reagenda vencimento nem corrige valor por
+                        // escrita direta; o valor diferente vai à RPC, que redistribui a série
+                        // na mesma transação. Ver `baixa-pela-rota.ts`.
+                        const r = await chamarBaixaPelaRota(buscarRota, montarCorpoDaBaixa(linha.id, entrada))
                         // `JA_PAGA` é aviso, não sucesso: zero linhas afetadas não é "gravou".
                         const aviso = avisoDaBaixa(r)
                         messageApi[aviso.tipo](aviso.texto)
