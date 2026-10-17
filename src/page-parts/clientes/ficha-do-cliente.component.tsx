@@ -54,10 +54,14 @@ import { useParcelasDeReceber } from '@/hooks/use-data.hooks'
 import { montarParcelasDoCliente } from '@/utils/parcelas-do-cliente'
 import { montarResumoDoCliente } from '@/utils/resumo-do-cliente'
 import { hojeNoFusoDoNegocio } from '@/utils/dia-de-hoje'
-import {
-    darBaixaNaParcela,
-    type ClienteDeEscrita,
-} from '@/utils/baixa-de-parcela'
+import { avisoDaBaixa, chamarBaixaPelaRota, type BuscarRota } from '@/utils/baixa-pela-rota'
+
+/**
+ * A baixa vai pela ROTA (`/api/cash-entries/baixa`), nunca por escrita direta nem por `.rpc()`
+ * do browser: autor e tenant saem da sessão no servidor. `fetch` embrulhado para não perder o
+ * `this` do `window` ao ser passado adiante.
+ */
+const buscarRota: BuscarRota = (url, init) => fetch(url, init)
 
 export const ABAS_DA_FICHA = ['dados', 'orcamentos', 'pedidos', 'vendas'] as const
 export type AbaDaFicha = (typeof ABAS_DA_FICHA)[number]
@@ -300,31 +304,18 @@ export function FichaDoCliente({ customerId }: FichaDoClienteProps) {
                 aoDarBaixa={linha === null || tenantId === null || tenantId === undefined
                     ? undefined
                     : async ({ pagoEm, forma }) => {
-                        // NENHUMA das duas colunas opcionais é ligada: a ficha não
-                        // reagenda vencimento e não corrige valor. Ver o cabeçalho de
-                        // `baixa-de-parcela.ts` para a razão de cada uma.
-                        const r = await darBaixaNaParcela({
-                            cliente: supabase as unknown as ClienteDeEscrita,
-                            parcelaId: linha.id,
-                            tenantId,
-                            entrada: { pagoEm, forma },
+                        // PELA ROTA. A ficha não reagenda vencimento e não corrige valor por
+                        // escrita direta; ver o cabeçalho de `baixa-de-parcela.ts`.
+                        const r = await chamarBaixaPelaRota(buscarRota, {
+                            parcela_id: linha.id,
+                            pago_em: pagoEm,
+                            forma,
                         })
-                        if (r.error) {
-                            const e = (r.error ?? {}) as { code?: string; message?: string }
-                            messageApi.error(
-                                `O banco recusou a baixa${e.code ? ` [${e.code}]` : ''}: ${e.message ?? 'sem detalhe'}`,
-                            )
-                            return
-                        }
-                        if (r.jaEstavaPaga) {
-                            // Zero linhas afetadas NÃO é "gravou" — o `.is('paid_date', null)`
-                            // barrou porque alguém já deu a baixa. Dizer "registrada" aqui
-                            // seria afirmar o que não aconteceu.
-                            messageApi.warning('Esta parcela já estava paga — nada foi gravado.')
-                        } else {
-                            messageApi.success('Baixa registrada.')
-                        }
-                        // RECALCULA: a lista, a autossoma e o VENCIDO saem desta carga.
+                        // `JA_PAGA` é aviso, não sucesso: zero linhas afetadas não é "gravou".
+                        const aviso = avisoDaBaixa(r)
+                        messageApi[aviso.tipo](aviso.texto)
+                        // RELÊ SEMPRE, inclusive na recusa: o que a tela mostra depois é o que
+                        // está no banco, e não uma atualização local de uma linha.
                         await recarregarCobranca()
                     }}
             />
