@@ -12,10 +12,37 @@
 --      diferença, ATOMICAMENTE.
 --
 -- ╔══════════════════════════════════════════════════════════════════════════════════════╗
--- ║ ESTA MIGRAÇÃO NÃO FOI APLICADA. Enquanto a consulta da seção VERIFICAÇÃO não devolver ║
--- ║ o esperado, o default é PENDENTE — `migration-delivery.md`. Arquivo commitado não é   ║
--- ║ migração aplicada, e build verde não prova schema.                                    ║
+-- ║ APLICADA E VERIFICADA em 17/10/2026, 16:13:39 UTC (13:13 BRT), pelo SQL Editor (PO).   ║
+-- ║ `schema_migrations`: version `20261017161339`, name com o nome deste arquivo.          ║
 -- ╚══════════════════════════════════════════════════════════════════════════════════════╝
+--
+-- ATENÇÃO — O `prosrc` QUE ESTÁ NO CATÁLOGO NÃO É O DESTE ARQUIVO.
+-- Os comentários internos da função (dentro de `$function$`) foram ENXUGADOS na
+-- transcrição, e o COMMENT ON FUNCTION perdeu o acento de "Resíduo" ("Residuo").
+-- A LÓGICA É IDÊNTICA, provada pela árvore PL/pgSQL do corpo: 2.252 nós idênticos, com
+-- cada query interna comparada pela sua árvore SQL, e 188 linhas de código iguais.
+-- QUEM COMPARAR O TEXTO DA FUNÇÃO NO BANCO COM ESTE ARQUIVO VAI VER DIFERENÇA, E ELA É DE
+-- COMENTÁRIO, NÃO DE COMPORTAMENTO. Não é defeito a caçar — foi medida e aceita em
+-- 17/10/2026 (`transformacao-quebra-a-cadeia-de-hash.md`, seção do texto guardado).
+--
+--   arquivo revisado              md5 aa5edcc9124497e128212aadd4bf72b5 (584 linhas)
+--   versão colada pelo PO         md5 3bef0c62bffd24281bff08dc340c8f2f (300 linhas) — o hash
+--                                 é o relatado; o arquivo não passou por este repositório
+--   texto que o Postgres recebeu  `postgres_logs`, source dashboard, 300 linhas com CRLF:
+--                                 mensagem 13.380 bytes, md5 5b7059e3a533820acfeac711475c78a6
+--                                 (conferido contra o MD5 do próprio servidor de logs);
+--                                 corpo sem o rodapé, md5 7d6d5814aff6fe110a7d6a8212fb4f8b
+--   `prosrc` no catálogo          md5 a0f5ddc18383e033817332a10ac558b6, 8.474 caracteres
+--                                 (230 deles são `\r` do transporte) — igual ao corpo do log
+--   `prosrc` deste arquivo        md5 960261c63c77a76bf742a138ca44fc69, 12.353 caracteres
+--   COMMENT ON FUNCTION           catálogo ee212c12… ("Residuo") · arquivo c5fc756a… ("Resíduo")
+--
+-- PROVA PELO ESTADO, 17/10/2026: as outras 15 árvores do texto logado idênticas às deste
+-- arquivo (fora posições); 14 colunas e `relrowsecurity` true; uma política `SELECT` com
+-- `(tenant_id = get_my_tenant_id())`; seis parâmetros, `prosecdef` true, `search_path=public`;
+-- EXECUTE false/false/true para anon/authenticated/service_role; nulo em último na
+-- ordenação; `criado_por` NOT NULL; `cash_entries.amount` NOT NULL; `NOTIFY pgrst` rodado.
+-- A RPC NÃO FOI CHAMADA contra dado real.
 --
 -- É FUNÇÃO, e para função a ordem é APLICAR ANTES DO MERGE: mergear sem aplicar deixa a
 -- rota de API chamando algo que o banco não tem. E `plpgsql` NÃO VALIDA referências na

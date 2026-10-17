@@ -164,6 +164,88 @@ O que isso ensina é de segurança, não de conveniência: **um payload que o hu
 rolar é um payload que ele aprova sem ver, ou não aprova.** O enxuto não é atalho — é o que
 torna a aprovação um ato de leitura. E é a prova 3 que o torna autorizável sem perda.
 
+## Quando o statement GUARDA O PRÓPRIO TEXTO, a transformação é sobre o ARTEFATO
+
+Formulação do dono do produto, registrada como está, e a autoria é dele:
+
+> Para `DROP POLICY` ou `CREATE TABLE`, enxugar comentário é **COSMÉTICO** — o catálogo não
+> guarda o texto. Para `CREATE FUNCTION`, **O CORPO É O ARTEFATO**: o que eu cortei virou o
+> conteúdo permanente de `prosrc`. Eu tratei os dois casos como iguais, e não são.
+
+Tudo o que esta página dizia até aqui trata a transformação como questão de **transporte**:
+o texto muda no caminho, o que executa não, e a árvore prova isso. Isso vale enquanto o banco
+guarda a ÁRVORE do statement e joga o texto fora. Quando o banco guarda o TEXTO, o que o
+transporte cortou passa a ser o objeto que fica — e a pergunta deixa de ser "o que rodou é o
+que foi revisado?" e passa a ser "**o que ficou é o que foi revisado?**".
+
+### O caso, 17/10/2026 — a `20261016000001`
+
+O PO aplicou pelo SQL Editor uma versão enxuta, com os comentários de dentro de `$function$`
+reescritos e encurtados, e o COMMENT ON FUNCTION sem o acento de "Resíduo". A árvore do texto
+recebido pelo servidor, tirada do `postgres_logs`, contra a do arquivo:
+
+| | resultado |
+|---|---|
+| 15 dos 17 statements | idênticos, fora posições |
+| `COMMENT ON FUNCTION` | **diferente** — "Resíduo" virou "Residuo", posição 484 de 586 |
+| `CREATE FUNCTION`, fora do corpo | idêntico — assinatura, seis parâmetros, `SECURITY DEFINER`, `search_path` |
+| `CREATE FUNCTION`, o corpo | **diferente** — 12.353 caracteres no arquivo, **8.474** no `prosrc` |
+| **árvore PL/pgSQL do corpo** | **idêntica — 2.252 nós**, cada query interna comparada pela sua árvore SQL |
+| linhas de código do corpo, sem comentário nem branco | **188 e 188, iguais** |
+
+Dos 8.474 caracteres do `prosrc`, **230 são `\r`** que o Editor transportou como CRLF. Isso
+também é artefato: nem o arquivo inteiro, colado pelo Editor, deixaria o `prosrc` igual ao
+arquivo byte a byte.
+
+O que ficou no catálogo foi aceito pelo dono do produto, registrado no cabeçalho da migração
+com os hashes dos textos, e **não foi reaplicado**: a lógica é a mesma, e quem comparar o texto
+da função no banco com o arquivo vai ver uma diferença que é de comentário.
+
+### A prova muda de instrumento
+
+**A árvore do statement vê o corpo como LITERAL OPACO.** Para o parser SQL, tudo entre
+`$function$` e `$function$` é uma string. Ela acusa que a string mudou — e acusou —, mas acusa
+igual quando muda um comentário e quando muda um `<=` para `<`. Ela não distingue os dois.
+
+Nesses casos a prova é a **ÁRVORE PL/pgSQL do corpo** (`pglast.parser.parse_plpgsql_json`),
+com as posições (`lineno`, `location`) excluídas e **cada `query` interna trocada pela sua
+árvore SQL** — porque o PL/pgSQL guarda o texto das expressões embutidas, e um comentário no
+meio de um `jsonb_build_object(...)` muda esse texto sem mudar nada que execute. Foi
+exatamente o que aconteceu: uma única query interna diferia em texto, e era o `RETURN`, que
+perdeu três linhas de comentário.
+
+### Quais statements guardam o texto — MEDIDO, não suposto
+
+A primeira formulação incluía view e expressão de política. Medido em 17/10/2026 num
+PostgreSQL 16 local, um objeto de cada com um comentário dentro:
+
+| objeto | o catálogo guarda o comentário? |
+|---|---|
+| corpo `LANGUAGE plpgsql` (`prosrc`) | **SIM** |
+| corpo `LANGUAGE sql` entre `$$` (`prosrc`) | **SIM** |
+| função SQL com `BEGIN ATOMIC` | não — é guardada como árvore |
+| `CREATE VIEW` (`pg_get_viewdef`) | não — `pg_rewrite` guarda a árvore |
+| expressão de `CREATE POLICY` (`polqual`) | não — guarda a árvore |
+| `COMMENT ON ...` | **SIM** — é o próprio texto, e a árvore do statement já o compara |
+
+Para view e política, então, a regra antiga basta: a árvore do statement É o que o catálogo
+guarda. O cuidado novo vale para **corpos de função entre `$$`** e para **literais de texto
+guardados como texto**. Nos literais, a árvore do statement já é suficiente, porque o literal é
+a folha e a comparação o vê inteiro — foi o que pegou o acento.
+
+### O corolário, para quem prescreve e para quem aplica
+
+1. **Antes de enxugar, pergunte se o catálogo guarda aquele texto.** Se guarda, o enxugado vira
+   o artefato. Enxugar comentário de `CREATE TABLE` é transporte; enxugar comentário de
+   `$function$` é editar a função.
+2. **Para corpo de função, a prova é a árvore PL/pgSQL, não a do statement.** A do statement
+   acusa e não classifica.
+3. **Acento, cedilha e qualquer caractere em literal guardado contam.** Quem transcreve para
+   reduzir superfície tende a normalizar para ASCII. Num `COMMENT`, isso fica gravado.
+4. **Se o enxugado ficar, o arquivo precisa dizer.** Sem isso, a próxima pessoa compara o
+   `prosrc` com o arquivo, vê a diferença e a lê como defeito — é `estado-relatado-vs-real.md`
+   esperando acontecer, com o arquivo no papel de relato.
+
 ## O corolário
 
 **A autorização do dono do produto nomeia o hash do PAYLOAD**, que é o que a tela mostra e o
