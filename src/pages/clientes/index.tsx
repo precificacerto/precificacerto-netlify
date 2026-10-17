@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useMemo } from 'react'
 import {
     LIFECYCLE_STYLE,
     buildCarimboUltimaAlteracao,
@@ -17,17 +17,16 @@ import { ROUTES } from '@/constants/routes'
 import { useRouter } from 'next/router'
 import { PARAM_DE_VOLTA, enderecoDeVolta } from '@/utils/endereco-de-volta'
 import { CardKPI } from '@/components/ui/card-kpi.component'
-import { supabase } from '@/supabase/client'
 import type { Customer, CustomerType, CustomerStatus } from '@/supabase/types'
 import { useCustomers } from '@/hooks/use-data.hooks'
 import { useParcelasDeReceber } from '@/hooks/use-data.hooks'
 import { useFiltrosDeCobrancaNaUrl } from '@/hooks/use-filtros-de-cobranca.hook'
 import { montarParcelasDoCliente } from '@/utils/parcelas-do-cliente'
-import { aplicarFiltrosDeCobranca, type FiltrosDeCobranca } from '@/utils/filtros-de-cobranca'
+import { aplicarFiltrosDeCobranca } from '@/utils/filtros-de-cobranca'
 import { hojeNoFusoDoNegocio } from '@/utils/dia-de-hoje'
 import { FiltrosDeCobrancaBar } from '@/page-parts/shared/filtros-de-cobranca.component'
-import { colunasDeCobranca } from '@/page-parts/shared/colunas-de-cobranca.component'
-import { TITULO_RESPONSAVEL, TITULO_SEGMENTO, colunasCondicionais } from '@/utils/colunas-da-lista-de-clientes'
+import { LinhasDeCobrancaNoCartao, colunasDeCobranca } from '@/page-parts/shared/colunas-de-cobranca.component'
+import { TITULO_SEGMENTO, colunasCondicionais } from '@/utils/colunas-da-lista-de-clientes'
 import {
     TeamOutlined,
     UserAddOutlined,
@@ -88,7 +87,6 @@ function Clients() {
     // ordem do `dataSource`.
     const [ordemDoNome, setOrdemDoNome] = useState<'ascend' | 'descend' | null>('ascend')
     const [messageApi, contextHolder] = message.useMessage()
-    const [employees, setEmployees] = useState<{ id: string; name: string }[]>([])
 
     const router = useRouter()
 
@@ -125,25 +123,6 @@ function Clients() {
         return <Layout title={PAGE_TITLES.CLIENTS}><div style={{ padding: 40, textAlign: 'center' }}>Você não tem acesso a este módulo.</div></Layout>
     }
 
-    const fetchEmployees = async () => {
-        const { data } = await supabase
-            .from('employees')
-            .select('id, name, status')
-            .eq('status', 'ACTIVE')
-            .eq('is_active', true)
-            .order('name')
-        setEmployees((data || []).map((e: any) => ({ id: e.id, name: e.name })))
-    }
-
-    useEffect(() => {
-        fetchEmployees()
-    }, [])
-
-    const employeeMap = useMemo(() => {
-        const map = new Map<string, string>()
-        employees.forEach(e => map.set(e.id, e.name))
-        return map
-    }, [employees])
 
     // As parcelas em ABERTO: é delas que saem os três filtros e as colunas partidas. O
     // bloco 4 do detalhe da compra usa `'TODAS'` sobre a MESMA carga — uma consulta, quatro
@@ -258,23 +237,14 @@ function Clients() {
             dataIndex: 'segment',
             key: 'segment',
         }] : []),
-        // RESPONSÁVEL: sem filtro hoje, `mostrar.responsavel` é sempre `false`. Pendência nomeada.
-        ...(mostrar.responsavel ? [{
-            title: TITULO_RESPONSAVEL,
-            key: 'owner',
-            render: (_: unknown, record: Customer) => {
-                if (!record.owner_id) return '—'
-                const fromMap = employeeMap.get(record.owner_id)
-                return fromMap || '—'
-            },
-        }] : []),
+        // RESPONSÁVEL: sem filtro hoje, não é renderizada, e a consulta a `employees` que
+        // alimentava os nomes SAIU — ver `colunas-da-lista-de-clientes.ts`. A coluna volta junto
+        // com o filtro dela, que é pendência nomeada.
         {
             title: 'Status',
             dataIndex: 'status',
             key: 'status',
-            filters: Object.entries(statusLabels).map(([k, v]) => ({ text: v.label, value: k })),
-            filteredValue: filtros.situacao.length > 0 ? filtros.situacao : null,
-            onFilter: (value, record) => record.status === value,
+            // O filtro de situação mora no CABEÇALHO DA LISTA, como o de segmento: um lugar só.
             render: (status: CustomerStatus) => {
                 const cfg = statusLabels[status]
                 return <Tag color={cfg?.color || 'default'}>{cfg?.label || status}</Tag>
@@ -415,6 +385,18 @@ function Clients() {
                         onChange={(v: string[]) => definirFiltros({ ...filtros, segmento: v ?? [] })}
                         options={segments.map(s => ({ label: s, value: s }))}
                     />
+                    {/* SITUAÇÃO no cabeçalho também: mesmo `filtros.situacao`, mesma chave de URL. A
+                        coluna Status fica; o filtro sai dela para que só exista UM lugar de filtro. */}
+                    <Select
+                        data-testid="filtro-de-situacao"
+                        mode="multiple"
+                        allowClear
+                        placeholder="Situação"
+                        style={{ minWidth: 160 }}
+                        value={filtros.situacao}
+                        onChange={(v: string[]) => definirFiltros({ ...filtros, situacao: v ?? [] })}
+                        options={Object.entries(statusLabels).map(([k, v]) => ({ label: v.label, value: k }))}
+                    />
                 </div>
                 {isMobile ? (
                     <div className="clientes-mobile-list">
@@ -475,6 +457,8 @@ function Clients() {
                                         <div className="pc-row-compact__main">
                                             <span className="pc-row-compact__title">{record.name}</span>
                                             <span className="pc-row-compact__sub">{subParts.join(' · ')}</span>
+                                            {/* VENCIDO e A VENCER no cartão, só com o filtro ligado. */}
+                                            <LinhasDeCobrancaNoCartao agregado={cobranca.porCliente[record.id]} mostrar={mostrar} />
                                         </div>
                                         <Dropdown
                                             menu={{ items: menuItems }}
@@ -498,19 +482,9 @@ function Clients() {
                         pagination={{ pageSize: PAGE_SIZE, showSizeChanger: true, showTotal: (t) => `${t} clientes` }}
                         size="middle"
                         loading={isLoading}
-                        onChange={(_paginacao, filtrosDaTabela, ordenacao) => {
-                            // O filtro de coluna que resta (situação) sobe para a URL. O de segmento
-                            // saiu da coluna e mora no cabeçalho — ler `filtrosDaTabela.segment`
-                            // aqui o APAGARIA, porque a coluna não tem mais filtro.
-                            const comoLista = (v: unknown): string[] =>
-                                Array.isArray(v) ? v.map(String) : []
-                            const proximos: FiltrosDeCobranca = {
-                                ...filtros,
-                                situacao: comoLista(filtrosDaTabela.status),
-                            }
-                            if (proximos.situacao.join(',') !== filtros.situacao.join(',')) {
-                                definirFiltros(proximos)
-                            }
+                        onChange={(_paginacao, _filtrosDaTabela, ordenacao) => {
+                            // NENHUM filtro é lido da tabela: os dois moram no cabeçalho da lista.
+                            // Ler `filtrosDaTabela` aqui os APAGARIA, porque as colunas não têm filtro.
                             const ordem = Array.isArray(ordenacao) ? ordenacao[0] : ordenacao
                             if (ordem && ordem.columnKey === 'name') {
                                 setOrdemDoNome((ordem.order as 'ascend' | 'descend' | undefined) ?? null)

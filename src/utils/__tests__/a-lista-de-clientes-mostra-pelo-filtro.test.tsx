@@ -23,7 +23,8 @@ import { formatBRL } from '@/utils/formatters'
 import { FILTROS_DE_COBRANCA_VAZIOS, escreverFiltrosNaQuery, type FiltrosDeCobranca } from '@/utils/filtros-de-cobranca'
 import { TITULO_A_VENCER, TITULO_VENCIDO } from '@/page-parts/shared/colunas-de-cobranca.component'
 import { TITULO_RESPONSAVEL, TITULO_SEGMENTO } from '@/utils/colunas-da-lista-de-clientes'
-import type { LinhaDeParcela, VendaParaResolucao } from '@/utils/parcelas-do-cliente'
+import { montarParcelasDoCliente, type LinhaDeParcela, type VendaParaResolucao } from '@/utils/parcelas-do-cliente'
+import { hojeNoFusoDoNegocio } from '@/utils/dia-de-hoje'
 
 Object.defineProperty(window, 'matchMedia', {
     writable: true,
@@ -41,6 +42,8 @@ let routerPronto = true
 let routerQuery: Record<string, string | string[] | undefined> = {}
 const replaces: Array<{ url: any }> = []
 let modoMobile = false
+/** Toda tabela que a página abre pelo cliente do browser. `employees` não pode estar aqui. */
+const tabelasConsultadas: string[] = []
 
 jest.mock('next/router', () => ({
     useRouter: () => ({
@@ -66,7 +69,8 @@ jest.mock('@/components/layout/layout.component', () => ({
 }))
 jest.mock('@/supabase/client', () => ({
     supabase: {
-        from: () => {
+        from: (tabela: string) => {
+            tabelasConsultadas.push(tabela)
             const q: any = {
                 select: () => q, eq: () => q,
                 order: () => Promise.resolve({ data: [{ id: 'e1', name: 'Fulano Responsável Da Silva' }], error: null }),
@@ -123,6 +127,7 @@ beforeEach(() => {
     routerQuery = {}
     replaces.length = 0
     modoMobile = false
+    tabelasConsultadas.length = 0
 })
 
 function comFiltros(parcial: Partial<FiltrosDeCobranca>) {
@@ -143,6 +148,9 @@ async function montar() {
         /** O texto da LISTA: corpo da tabela, ou a lista de cartões no mobile. */
         lista: () => (host.querySelector('.ant-table-tbody') ?? host.querySelector('.clientes-mobile-list'))?.textContent ?? '',
         cartoes: () => Array.from(host.querySelectorAll('.clientes-mobile-list .pc-row-compact')),
+        /** O texto do cartão de UM cliente, achado pelo nome. */
+        cartao: (nome: string) => Array.from(host.querySelectorAll('.clientes-mobile-list .pc-row-compact'))
+            .find((c) => c.querySelector('.pc-row-compact__title')?.textContent === nome)?.textContent ?? '',
         nomesNaOrdem: () => modoMobile
             ? Array.from(host.querySelectorAll('.pc-row-compact__title')).map((n) => n.textContent)
             : Array.from(host.querySelectorAll('.ant-table-tbody tr[data-row-key]')).map((r) => r.querySelector('a')?.textContent ?? null),
@@ -189,6 +197,7 @@ describe('PORTÃO 1 — sem nenhum filtro, as QUATRO não estão no DOM, nos DOI
         modoMobile = true
         const t = await montar()
         expect(t.cartoes()).toHaveLength(3)
+        expect(t.host.querySelector('[data-testid="cobranca-no-cartao"]')).toBeNull()
         for (const r of Object.values(RASTROS).flat()) expect(t.lista()).not.toContain(r)
         for (const titulo of Object.values(TITULOS)) expect(t.lista()).not.toContain(titulo)
     })
@@ -304,4 +313,110 @@ describe('o filtro de SEGMENTO mora no CABEÇALHO da lista, nos dois ramos', () 
         expect(th).toBeDefined()
         expect(th!.querySelector('.ant-table-filter-trigger')).toBeNull()
     })
+})
+
+// ════════════════════════════════════════════════════════════════════════════════════════
+describe('O CARTÃO DO MOBILE ganha o valor com o filtro ligado (VII.3)', () => {
+    /** O agregado que a página calcula, pela mesma função e o mesmo `hoje` — nunca literal. */
+    const AGREGADOS = montarParcelasDoCliente({ parcelas: PARCELAS, vendas: VENDAS, hoje: hojeNoFusoDoNegocio(), escopo: 'ABERTAS' }).porCliente
+    const atraso = (dias: number) => (dias === 1 ? 'há 1 dia' : `há ${dias} dias`)
+
+    it('a fixture tem atraso apurado nos dois em atraso — senão "os dias" não seriam exercidos', () => {
+        expect(AGREGADOS['c-velho'].maiorAtrasoDias).toBeGreaterThan(AGREGADOS['c-novo'].maiorAtrasoDias!)
+    })
+
+    // MUTAÇÃO: mexer só no desktop (o cartão não ganha a linha).
+    it('EM ATRASO: o cartão mostra VENCIDO, com o valor e os dias — e A VENCER não', async () => {
+        comFiltros({ emAtraso: true })
+        modoMobile = true
+        const t = await montar()
+        const c = t.cartao('Bbb Velho')
+        expect(c).toContain(TITULO_VENCIDO)
+        expect(c).toContain(formatBRL(AGREGADOS['c-velho'].vencido))
+        expect(c).toContain(atraso(AGREGADOS['c-velho'].maiorAtrasoDias!))
+        expect(c).not.toContain(TITULO_A_VENCER)
+        expect(t.host.querySelector('[data-testid="cartao-a-vencer"]')).toBeNull()
+    })
+
+    it('o espelho, A VENCER: o cartão mostra A VENCER — e VENCIDO não', async () => {
+        comFiltros({ aVencer: true })
+        modoMobile = true
+        const t = await montar()
+        const c = t.cartao('Ccc Futuro')
+        expect(c).toContain(TITULO_A_VENCER)
+        expect(c).toContain(formatBRL(AGREGADOS['c-futuro'].aVencer))
+        expect(t.host.querySelector('[data-testid="cartao-vencido"]')).toBeNull()
+        for (const r of RASTROS.vencido) expect(t.lista()).not.toContain(r)
+    })
+
+    it('os dois ligados: as duas linhas no cartão', async () => {
+        comFiltros({ emAtraso: true, aVencer: true })
+        modoMobile = true
+        const t = await montar()
+        expect(t.host.querySelectorAll('[data-testid="cartao-vencido"]').length).toBeGreaterThan(0)
+        expect(t.host.querySelectorAll('[data-testid="cartao-a-vencer"]').length).toBeGreaterThan(0)
+        expect(t.cartao('Ccc Futuro')).toContain(formatBRL(AGREGADOS['c-futuro'].aVencer))
+    })
+
+    it('é LINHA no cartão, não coluna: o ramo mobile segue sem `<table>`', async () => {
+        comFiltros({ emAtraso: true, aVencer: true })
+        modoMobile = true
+        const t = await montar()
+        expect(t.host.querySelector('table')).toBeNull()
+    })
+})
+
+describe('SITUAÇÃO também no cabeçalho — um lugar só para filtro', () => {
+    for (const mobile of [false, true]) {
+        it(`${mobile ? 'mobile' : 'desktop'}: o seletor de situação existe, e escolhê-lo escreve a URL`, async () => {
+            modoMobile = mobile
+            const t = await montar()
+            const seletor = t.host.querySelector('[data-testid="filtro-de-situacao"]')
+            expect(seletor).not.toBeNull()
+            const alvo = (seletor!.querySelector('.ant-select-selector') ?? seletor!) as HTMLElement
+            await act(async () => { alvo.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })) })
+            const opcao = Array.from(document.body.querySelectorAll('.ant-select-item-option'))
+                .find((o) => (o.textContent || '').trim() === 'Ativo')
+            expect(opcao).toBeDefined()
+            await act(async () => { opcao!.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+            expect(replaces[replaces.length - 1]?.url?.query).toEqual(escreverFiltrosNaQuery({ ...FILTROS_DE_COBRANCA_VAZIOS, situacao: ['ACTIVE'] }))
+        })
+    }
+
+    // A irmã do caso do segmento.
+    it('a coluna STATUS NÃO tem filtro próprio', async () => {
+        const t = await montar()
+        const th = Array.from(t.host.querySelectorAll('thead th')).find((x) => (x.textContent || '').trim() === 'Status')
+        expect(th).toBeDefined()
+        expect(th!.querySelector('.ant-table-filter-trigger')).toBeNull()
+    })
+
+    // MUTAÇÃO: a tabela voltar a ler `filtrosDaTabela.status` — sem filtro na coluna, ela lê
+    // vazio e APAGA o filtro do cabeçalho ao primeiro clique de ordenação.
+    it('ordenar pelo nome NÃO apaga a situação que veio da URL', async () => {
+        comFiltros({ situacao: ['ACTIVE'] })
+        const t = await montar()
+        const th = Array.from(t.host.querySelectorAll('thead th')).find((x) => (x.textContent || '').trim() === 'Cliente')!
+        await act(async () => { th.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+        for (const r of replaces) expect(r.url?.query?.situacao).toBe('ACTIVE')
+    })
+})
+
+describe('a consulta a `employees` SAIU — nenhuma tela mostrava o que ela carregava', () => {
+    // O instrumento: o falso de fato registra as consultas.
+    it('o falso do supabase registra a tabela consultada', () => {
+        const { supabase } = require('@/supabase/client') as { supabase: { from(t: string): unknown } }
+        supabase.from('qualquer')
+        expect(tabelasConsultadas).toEqual(['qualquer'])
+    })
+
+    // MUTAÇÃO: reintroduzir o `fetchEmployees`.
+    for (const mobile of [false, true]) {
+        it(`${mobile ? 'mobile' : 'desktop'}: a página monta sem consultar \`employees\``, async () => {
+            modoMobile = mobile
+            comFiltros({ emAtraso: true, aVencer: true, segmento: [SEGMENTO_DA_FIXTURE], situacao: ['ACTIVE'] })
+            await montar()
+            expect(tabelasConsultadas).not.toContain('employees')
+        })
+    }
 })
