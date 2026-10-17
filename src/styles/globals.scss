@@ -3606,3 +3606,16 @@ body {
 .modal-50 .ant-modal-body {
   overflow-x: auto;
 }
+
+/* A parcela liquidada na ficha do cliente — `CLASSE_LINHA_LIQUIDADA` em
+   `lista-de-vencimentos.component.tsx`, onde está a razão da cor. A linha INTEIRA, selo e
+   "Abrir" incluídos; o `!important` vence as cores inline das células e a do `<Tag>`.
+   NÃO troque por `--color-text-disabled`: ilegível no tema escuro (contraste 1,75). */
+.ant-table-tbody > tr.linha-liquidada > td,
+.ant-table-tbody > tr.linha-liquidada > td * {
+  color: var(--color-text-secondary) !important;
+}
+.ant-table-tbody > tr.linha-liquidada .ant-tag {
+  background: transparent !important;
+  border-color: var(--color-neutral-300) !important;
+}

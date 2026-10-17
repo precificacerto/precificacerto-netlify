@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { Button, Card, Input, Tag, message, Divider, Space, Alert, Spin, Tooltip, Radio, Checkbox, Progress } from 'antd'
+import { Button, Card, Input, Tag, message, Divider, Space, Alert, Spin, Tooltip, Radio, Progress } from 'antd'
 import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
 import { supabase } from '@/supabase/client'
@@ -8,6 +8,7 @@ import { useAuth } from '@/hooks/use-auth.hook'
 import { useDevice } from '@/contexts/device.context'
 import { MobileCollapse } from '@/components/ui/mobile-collapse.component'
 import { useCustomers } from '@/hooks/use-data.hooks'
+import { SelecaoDeClientes } from '@/page-parts/conectividade/selecao-de-clientes.component'
 import type { TenantSettings } from '@/supabase/types'
 import type { Customer } from '@/supabase/types'
 import {
@@ -607,71 +608,36 @@ function Conectividade() {
                                 style={{ borderRadius: 8, resize: 'vertical', fontSize: 13, marginBottom: 16 }}
                                 disabled={!waConnected || !!dispatchProgress?.sending}
                             />
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
-                                <span style={{ fontSize: 13, fontWeight: 600 }}>Selecione os clientes (com telefone/WhatsApp cadastrado):</span>
-                                {clientsWithPhone.length > 0 && (
-                                    <Space>
-                                        <Button size="small" onClick={() => setManualDispatchSelectedIds(clientsWithPhone.map(c => c.id))} disabled={!!dispatchProgress?.sending}>
-                                            Marcar todos
-                                        </Button>
-                                        <Button size="small" onClick={() => setManualDispatchSelectedIds([])} disabled={!!dispatchProgress?.sending}>
-                                            Desmarcar todos
-                                        </Button>
-                                    </Space>
-                                )}
-                            </div>
-                            <div style={{ maxHeight: 220, overflow: 'auto', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: 12, marginBottom: 16, background: 'rgba(255,255,255,0.04)' }}>
-                                {clientsWithPhone.length === 0 ? (
-                                    <div style={{ fontSize: 13, color: 'var(--color-neutral-500)' }}>Nenhum cliente com telefone ou WhatsApp cadastrado.</div>
-                                ) : (
-                                    <Checkbox.Group
-                                        value={manualDispatchSelectedIds}
-                                        onChange={vals => setManualDispatchSelectedIds(vals as string[])}
-                                        style={{ display: 'flex', flexDirection: 'column', gap: 6 }}
-                                    >
-                                        {clientsWithPhone.map(c => (
-                                            <Checkbox key={c.id} value={c.id} disabled={!!dispatchProgress?.sending}>
-                                                <span style={{ fontSize: 13 }}>{c.name}</span>
-                                                <span style={{ fontSize: 12, color: 'var(--color-neutral-400)', marginLeft: 6 }}>
-                                                    ({(c.whatsapp_phone || c.phone || '').trim()})
-                                                </span>
-                                            </Checkbox>
-                                        ))}
-                                    </Checkbox.Group>
-                                )}
-                            </div>
-                            {dispatchProgress?.sending && (
-                                <div style={{ marginBottom: 16 }}>
-                                    <Progress
-                                        percent={dispatchProgress.total ? Math.round((dispatchProgress.current / dispatchProgress.total) * 100) : 0}
-                                        status="active"
-                                    />
-                                    <div style={{ fontSize: 13, color: 'var(--color-neutral-600)', marginTop: 8 }}>
-                                        Enviando {dispatchProgress.current} de {dispatchProgress.total}
-                                        {dispatchProgress.lastClientName && ` — ${dispatchProgress.lastClientName}`}
-                                        {typeof dispatchProgress.countdown === 'number' && (
-                                            <span style={{ marginLeft: 8, fontWeight: 600 }}>Próximo em {dispatchProgress.countdown}s</span>
-                                        )}
+                            {/* A caixa de seleção: paginada, sem rolagem interna, seleção por id através
+                                das páginas — ver `selecao-de-clientes.component.tsx`. */}
+                            <SelecaoDeClientes
+                                clientes={clientsWithPhone.map(c => ({ id: c.id, name: c.name, telefone: (c.whatsapp_phone || c.phone || '').trim() }))}
+                                selecionados={manualDispatchSelectedIds}
+                                aoMudarSelecao={setManualDispatchSelectedIds}
+                                enviando={!!dispatchProgress?.sending}
+                                envioBloqueado={!waConnected}
+                                aoEnviar={handleManualDispatch}
+                                progresso={dispatchProgress?.sending ? (
+                                    <div>
+                                        <Progress
+                                            percent={dispatchProgress.total ? Math.round((dispatchProgress.current / dispatchProgress.total) * 100) : 0}
+                                            status="active"
+                                        />
+                                        <div style={{ fontSize: 13, color: 'var(--color-neutral-600)', marginTop: 8 }}>
+                                            Enviando {dispatchProgress.current} de {dispatchProgress.total}
+                                            {dispatchProgress.lastClientName && ` — ${dispatchProgress.lastClientName}`}
+                                            {typeof dispatchProgress.countdown === 'number' && (
+                                                <span style={{ marginLeft: 8, fontWeight: 600 }}>Próximo em {dispatchProgress.countdown}s</span>
+                                            )}
+                                        </div>
                                     </div>
-                                </div>
-                            )}
-                            <Space>
-                                <Button
-                                    type="primary"
-                                    icon={<SendOutlined />}
-                                    onClick={handleManualDispatch}
-                                    loading={dispatchProgress?.sending}
-                                    disabled={!waConnected || clientsWithPhone.length === 0 || manualDispatchSelectedIds.length === 0}
-                                    style={{ background: '#25D366', borderColor: '#25D366' }}
-                                >
-                                    Enviar para sequência
-                                </Button>
-                                {dispatchProgress?.sending && (
+                                ) : undefined}
+                                acoesExtras={dispatchProgress?.sending ? (
                                     <Button icon={<StopOutlined />} onClick={cancelManualDispatch}>
                                         Cancelar
                                     </Button>
-                                )}
-                            </Space>
+                                ) : undefined}
+                            />
                         </Card>
                     </div>
                 )}
