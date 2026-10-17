@@ -53,6 +53,21 @@ export const TITULO_DOS_VENCIMENTOS = 'Vencimentos'
 export const TITULO_SEM_VENCIMENTO_LISTA = 'Sem vencimento'
 export const VAZIO_DOS_VENCIMENTOS = 'Nenhuma parcela lançada para este cliente.'
 export const ROTULO_DO_TOTAL_SELECIONADO = 'Selecionado'
+/**
+ * A PARCELA LIQUIDADA FICA APAGADA — a linha inteira: data, venda, parcela, valor, selo e o
+ * "Abrir". Maquete aprovada pelo dono do produto, 17/10/2026. Apagar diz "resolvido", não
+ * esconde: o "Abrir" CONTINUA funcionando, e o checkbox segue desligado como já era.
+ *
+ * A COR É `--color-text-secondary`, e não a de desabilitado. Medido no tema escuro, contra o
+ * fundo `--color-neutral-0`: secondary #94a3b8 dá contraste 7,07; `text.disabled` #334155 dá
+ * 1,75 — ilegível; `text-tertiary` #64748b dá 3,81, abaixo de 4,5. A regra mora em
+ * `globals.scss`, na classe abaixo, e não em `style` inline: o selo é `<Tag>`, que traz cor
+ * própria, e só a folha de estilo alcança a linha inteira.
+ *
+ * UM RAMO SÓ: esta lista é `<Table>` em toda largura — medido, não há cartão de celular aqui.
+ */
+export const CLASSE_LINHA_LIQUIDADA = 'linha-liquidada'
+
 export const TITULO_DA_CONFIRMACAO_DO_LOTE = 'Confirmar a baixa em lote'
 export const ROTULO_CONFIRMAR_LOTE = 'Confirmar baixa em lote'
 
@@ -161,6 +176,7 @@ export function ListaDeVencimentos({
             size="small"
             pagination={false}
             columns={colunas}
+            rowClassName={(l) => (l.estado === 'PAGA' ? CLASSE_LINHA_LIQUIDADA : '')}
             dataSource={dados}
             locale={{ emptyText: VAZIO_DOS_VENCIMENTOS }}
             rowSelection={{
