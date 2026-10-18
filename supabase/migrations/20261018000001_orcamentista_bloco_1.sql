@@ -8,14 +8,15 @@
 -- ║ depende do que a migração CRIA": tabela que o código novo grava → antes ou junto).    ║
 -- ╚══════════════════════════════════════════════════════════════════════════════════════╝
 --
--- ADITIVA. Uma tabela nova, as políticas dela e UM REVOKE — sobre ela, e só sobre ela. Nenhum
--- DROP, nenhum UPDATE, nenhum GRANT ou REVOKE em objeto que já existe, nenhuma coluna em tabela
--- que já existe. `tenants.segment` e `tenant_settings` NÃO SÃO TOCADOS.
+-- ADITIVA. Uma tabela nova, as políticas dela, e um REVOKE ALL mais um GRANT SELECT — sobre ela, e
+-- só sobre ela. Nenhum DROP, nenhum UPDATE, nenhum GRANT ou REVOKE em objeto que já existe,
+-- nenhuma coluna em tabela que já existe. `tenants.segment` e `tenant_settings` NÃO SÃO TOCADOS.
 --
 -- REVISÃO DO DONO DO PRODUTO, 18/10/2026 — três mudanças sobre a versão de md5
 -- 71fac18a5976a70ed90f7654419d88c2:
 --   1. SEM FK em `ativado_por` e `atualizado_por` — a razão está na coluna.
---   2. REVOKE INSERT, UPDATE, DELETE de `authenticated` — a razão está antes do COMMIT.
+--   2. `authenticated` com SELECT e NADA MAIS (REVOKE ALL + GRANT SELECT) — a razão está antes
+--      do COMMIT. Substituiu, na mesma revisão, um REVOKE só de INSERT, UPDATE e DELETE.
 --   3. `atualizado_em` num UPDATE: quem grava é a ROTA, sempre, e não há trigger — a razão está
 --      na coluna.
 --
@@ -114,7 +115,7 @@ CREATE TABLE public.orcamentista_config (
 );
 
 COMMENT ON TABLE public.orcamentista_config IS
-  'Configuracao do Orcamentista por tenant. Leitura: o proprio tenant e o super admin. Escrita: SO a rota do super admin (service_role); authenticated sem INSERT/UPDATE/DELETE, e as politicas de escrita exigem is_super_admin(). Sem linha = desligado. ativado_por e atualizado_por sem FK de proposito - o autor e fato historico e precisa sobreviver a exclusao do usuario.';
+  'Configuracao do Orcamentista por tenant. Leitura: o proprio tenant e o super admin. Escrita: SO a rota do super admin (service_role); authenticated so com SELECT, e as politicas de escrita exigem is_super_admin(). Sem linha = desligado. ativado_por e atualizado_por sem FK de proposito - o autor e fato historico e precisa sobreviver a exclusao do usuario.';
 COMMENT ON COLUMN public.orcamentista_config.acao_ao_atingir_teto IS
   'BLOQUEAR | AVISAR. Default AVISAR. So tem efeito quando teto_de_consumo_brl nao e nulo.';
 
@@ -145,11 +146,17 @@ CREATE POLICY orcamentista_config_delete_super_admin ON public.orcamentista_conf
 -- de 18/10/2026: as três falhas achadas eram todas PRIVILÉGIO CONCEDIDO onde se supunha que a
 -- política protegia. O default ACL dá `arwdDxtm` a `authenticated` em toda tabela nova (medido).
 --
+-- A FORMA POSITIVA, e não uma lista de comandos — decisão do dono do produto, 18/10/2026. Listar
+-- comandos deixa de fora o que ninguém lembrou: TRUNCATE passa por cima da RLS, e REFERENCES e
+-- TRIGGER são superfície sem uso nenhum aqui. `REVOKE ALL` + `GRANT SELECT` diz o que vale:
+-- `authenticated` tem SELECT, e nada mais. É a mesma lição da varredura, levada até o fim.
+--
 -- Consequência, e ela é de propósito: nem o super admin escreve aqui pelo PostgREST. A única
 -- escrita é a da rota, com `service_role` — que tem privilégio próprio (não é tocado aqui) e é
 -- BYPASSRLS (medido). As políticas de escrita ficam como SEGUNDA camada: se o privilégio voltar
 -- a ser concedido por engano, elas continuam negando ao tenant.
-REVOKE INSERT, UPDATE, DELETE ON public.orcamentista_config FROM authenticated;
+REVOKE ALL ON public.orcamentista_config FROM authenticated;
+GRANT SELECT ON public.orcamentista_config TO authenticated;
 
 COMMIT;
 
@@ -176,16 +183,17 @@ COMMIT;
 --   --   orcamentista_config_update_super_admin  UPDATE  is_super_admin()   is_super_admin()
 --   -- NENHUMA política com `get_auth_tenant_id()` em INSERT, UPDATE ou DELETE.
 --
--- (4) Os privilégios POR COMANDO, e não só a lista de papéis:
---   select r.papel, c.cmd, has_table_privilege(r.papel, 'public.orcamentista_config', c.cmd) as tem
+-- (4) Os privilégios POR COMANDO — os SETE que uma tabela tem, e não só a lista de papéis:
+--   select r.papel, string_agg(c.cmd, ',' order by c.cmd) as privilegios
 --     from (values ('anon'), ('authenticated'), ('service_role')) r(papel)
---     cross join (values ('SELECT'), ('INSERT'), ('UPDATE'), ('DELETE')) c(cmd)
---    order by r.papel, c.cmd;
---   -- esperado:
---   --   anon           DELETE f · INSERT f · SELECT f · UPDATE f
---   --   authenticated  DELETE f · INSERT f · SELECT t · UPDATE f   ← SELECT, e SEM escrita
---   --   service_role   DELETE t · INSERT t · SELECT t · UPDATE t   ← a rota, intocada
---   -- (ANTES: a tabela não existia; `tenant_settings` hoje tem os quatro em authenticated.)
+--     cross join (values ('SELECT'), ('INSERT'), ('UPDATE'), ('DELETE'), ('TRUNCATE'), ('REFERENCES'), ('TRIGGER')) c(cmd)
+--    where has_table_privilege(r.papel, 'public.orcamentista_config', c.cmd)
+--    group by r.papel order by r.papel;
+--   -- esperado, DUAS linhas:
+--   --   authenticated  SELECT                                                  ← e NENHUM outro
+--   --   service_role   DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE  ← a rota, intocada
+--   -- anon NÃO aparece: nenhum privilégio.
+--   -- (ANTES: a tabela não existia; `tenant_settings` hoje tem os sete em authenticated.)
 --
 -- (5) As constraints — e NENHUMA FK para `users`:
 --   select conname from pg_constraint where conrelid='public.orcamentista_config'::regclass order by 1;

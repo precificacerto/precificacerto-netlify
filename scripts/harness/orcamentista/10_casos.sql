@@ -180,13 +180,16 @@ do $$ begin
   raise notice 'ok: 10 — tenant_settings com as 3 colunas do harness, 1 política e os privilégios de antes; tenants.segment intacto';
 end $$;
 
--- CASO 11 — OS PRIVILÉGIOS POR COMANDO, como a VERIFICAÇÃO (4) os afirma
+-- CASO 11 — OS PRIVILÉGIOS, OS SETE, como a VERIFICAÇÃO (4) os afirma: authenticated SELECT e
+-- nenhum outro; service_role os sete; anon nenhum
 do $$ declare linha text; begin
-  select string_agg(r.papel || ':' || c.cmd || '=' || has_table_privilege(r.papel, 'public.orcamentista_config', c.cmd)::text, ',' order by r.papel, c.cmd) into linha
-    from (values ('anon'), ('authenticated'), ('service_role')) r(papel) cross join (values ('SELECT'), ('INSERT'), ('UPDATE'), ('DELETE')) c(cmd);
-  if linha is distinct from 'anon:DELETE=false,anon:INSERT=false,anon:SELECT=false,anon:UPDATE=false,authenticated:DELETE=false,authenticated:INSERT=false,authenticated:SELECT=true,authenticated:UPDATE=false,service_role:DELETE=true,service_role:INSERT=true,service_role:SELECT=true,service_role:UPDATE=true' then
+  select string_agg(r.papel || '=' || coalesce((select string_agg(c.cmd, ',' order by c.cmd)
+           from (values ('SELECT'), ('INSERT'), ('UPDATE'), ('DELETE'), ('TRUNCATE'), ('REFERENCES'), ('TRIGGER')) c(cmd)
+          where has_table_privilege(r.papel, 'public.orcamentista_config', c.cmd)), '-'), ' ' order by r.papel) into linha
+    from (values ('anon'), ('authenticated'), ('service_role')) r(papel);
+  if linha is distinct from 'anon=- authenticated=SELECT service_role=DELETE,INSERT,REFERENCES,SELECT,TRIGGER,TRUNCATE,UPDATE' then
     raise exception 'FALHOU 11: privilégios diferentes da VERIFICAÇÃO (4): %', linha; end if;
-  raise notice 'ok: 11 — authenticated só SELECT; service_role os quatro; anon nenhum';
+  raise notice 'ok: 11 — authenticated só SELECT, nenhum outro dos sete; service_role os sete; anon nenhum';
 end $$;
 
 -- CASO 12 — A CAMADA DA POLÍTICA, SOZINHA: com o privilégio devolvido a authenticated (o engano que
