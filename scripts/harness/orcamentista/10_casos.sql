@@ -48,7 +48,7 @@ grant execute on function como(uuid, text), conta(uuid, text) to anon, authentic
 -- CASO 1 — o SUPER ADMIN cria a configuração das duas contas
 do $$ declare r text; begin
   r := como(sa(), format($q$insert into public.orcamentista_config (tenant_id, ativo, valor_adicional_brl, teto_de_consumo_brl, acao_ao_atingir_teto, ativado_por, ativado_em, atualizado_por)
-                          values (%L, true, 99.90, 500, 'BLOQUEAR', %L, now(), %L), (%L, true, 49.90, null, null, %L, now(), %L)$q$, ta(), sa(), sa(), tb(), sa(), sa()));
+                          values (%L, true, 99.90, 500, 'BLOQUEAR', %L, now(), %L), (%L, true, 49.90, null, default, %L, now(), %L)$q$, ta(), sa(), sa(), tb(), sa(), sa()));
   if r is distinct from 'OK|2' then raise exception 'FALHOU 1: super admin não inseriu: %', r; end if;
   raise notice 'ok: 1 — super admin insere a configuração das duas contas';
 end $$;
@@ -99,46 +99,43 @@ do $$ declare r text; begin
   raise notice 'ok: 6 — ligado sem ativado_por: 23514 (orcamentista_config_ativacao_rastreada)';
 end $$;
 
--- CASO 7 — TETO E AÇÃO andam juntos
+-- CASO 7 — A AÇÃO: default AVISAR quando omitida; só BLOQUEAR/AVISAR; nunca nula
 do $$ declare r text; begin
-  r := como(sa(), format('update public.orcamentista_config set teto_de_consumo_brl = 100, acao_ao_atingir_teto = null where tenant_id = %L', tb()));
-  if split_part(r, '|', 1) is distinct from '23514' then raise exception 'FALHOU 7: teto sem ação passou: %', r; end if;
-  r := como(sa(), format($q$update public.orcamentista_config set teto_de_consumo_brl = null, acao_ao_atingir_teto = 'AVISAR' where tenant_id = %L$q$, tb()));
-  if split_part(r, '|', 1) is distinct from '23514' then raise exception 'FALHOU 7: ação sem teto passou: %', r; end if;
-  r := como(sa(), format($q$update public.orcamentista_config set acao_ao_atingir_teto = 'DESLIGAR' where tenant_id = %L$q$, ta()));
+  delete from public.orcamentista_config where tenant_id = tb()::uuid;
+  r := como(sa(), format('insert into public.orcamentista_config (tenant_id) values (%L)', tb()));
+  if r is distinct from 'OK|1' then raise exception 'FALHOU 7: insert mínimo recusado: %', r; end if;
+  if (select acao_ao_atingir_teto from public.orcamentista_config where tenant_id = tb()::uuid) is distinct from 'AVISAR' then
+    raise exception 'FALHOU 7: a ação omitida não virou AVISAR: %', (select acao_ao_atingir_teto from public.orcamentista_config where tenant_id = tb()::uuid); end if;
+  if (select ativo from public.orcamentista_config where tenant_id = tb()::uuid) is distinct from false then raise exception 'FALHOU 7: nasceu ligado'; end if;
+  r := como(sa(), format($q$update public.orcamentista_config set acao_ao_atingir_teto = 'DESLIGAR' where tenant_id = %L$q$, tb()));
   if split_part(r, '|', 1) is distinct from '23514' then raise exception 'FALHOU 7: ação fora do domínio passou: %', r; end if;
-  raise notice 'ok: 7 — teto sem ação, ação sem teto e ação fora de BLOQUEAR/AVISAR: 23514';
+  r := como(sa(), format('update public.orcamentista_config set acao_ao_atingir_teto = null where tenant_id = %L', tb()));
+  if split_part(r, '|', 1) is distinct from '23502' then raise exception 'FALHOU 7: ação nula passou: %', r; end if;
+  raise notice 'ok: 7 — ação omitida = AVISAR, desligado por padrão; DESLIGAR 23514; nula 23502';
 end $$;
 
--- CASO 8 — SEGMENTO: lista fechada, e "Indústria " (com espaço) é recusado
+-- CASO 8 — VALORES: adicional negativo e teto zero recusados
 do $$ declare r text; begin
-  r := como(ua(), format($q$update public.tenant_settings set segmento_de_mercado = 'Indústria ' where tenant_id = %L$q$, ta()));
-  if split_part(r, '|', 1) is distinct from '23514' then raise exception 'FALHOU 8: "Indústria " passou: %', r; end if;
-  r := como(ua(), format($q$update public.tenant_settings set segmento_de_mercado = 'Outro' where tenant_id = %L$q$, ta()));
-  if split_part(r, '|', 1) is distinct from '23514' then raise exception 'FALHOU 8: "Outro" passou: %', r; end if;
-  r := como(ua(), format($q$update public.tenant_settings set segmento_de_mercado = 'Indústria', nicho = 'Esquadrias de alumínio' where tenant_id = %L$q$, ta()));
-  if r is distinct from 'OK|1' then raise exception 'FALHOU 8: o tenant não gravou o próprio segmento: %', r; end if;
-  raise notice 'ok: 8 — "Indústria " e "Outro" recusados; "Indústria" + nicho gravados PELO PRÓPRIO tenant';
+  r := como(sa(), format('update public.orcamentista_config set valor_adicional_brl = -1 where tenant_id = %L', tb()));
+  if split_part(r, '|', 1) is distinct from '23514' then raise exception 'FALHOU 8: adicional negativo passou: %', r; end if;
+  r := como(sa(), format('update public.orcamentista_config set teto_de_consumo_brl = 0 where tenant_id = %L', tb()));
+  if split_part(r, '|', 1) is distinct from '23514' then raise exception 'FALHOU 8: teto zero passou: %', r; end if;
+  raise notice 'ok: 8 — adicional negativo e teto zero: 23514';
 end $$;
 
--- CASO 9 — NICHO: sem espaço nas pontas, sem vazio
-do $$ declare r text; begin
-  r := como(ua(), format($q$update public.tenant_settings set nicho = ' Esquadrias' where tenant_id = %L$q$, ta()));
-  if split_part(r, '|', 1) is distinct from '23514' then raise exception 'FALHOU 9: nicho com espaço passou: %', r; end if;
-  r := como(ua(), format($q$update public.tenant_settings set nicho = '' where tenant_id = %L$q$, ta()));
-  if split_part(r, '|', 1) is distinct from '23514' then raise exception 'FALHOU 9: nicho vazio passou: %', r; end if;
-  raise notice 'ok: 9 — nicho com espaço na ponta e nicho vazio: 23514';
+-- CASO 9 — AS CONSTRAINTS TÊM OS NOMES QUE A VERIFICAÇÃO DA MIGRAÇÃO ESPERA
+do $$ declare nomes text; begin
+  select string_agg(conname, ',' order by conname) into nomes from pg_constraint where conrelid = 'public.orcamentista_config'::regclass;
+  if nomes is distinct from 'orcamentista_config_acao_ao_atingir_teto_check,orcamentista_config_ativacao_rastreada,orcamentista_config_ativado_por_fkey,orcamentista_config_atualizado_por_fkey,orcamentista_config_pkey,orcamentista_config_tenant_id_fkey,orcamentista_config_teto_de_consumo_brl_check,orcamentista_config_valor_adicional_brl_check' then
+    raise exception 'FALHOU 9: constraints diferentes da VERIFICAÇÃO: %', nomes; end if;
+  raise notice 'ok: 9 — as 8 constraints com os nomes da VERIFICAÇÃO (5)';
 end $$;
 
--- CASO 10 — o tenant B não grava o segmento de A (a política de tenant_settings segue valendo)
-do $$ declare r text; begin
-  r := como(ub(), format($q$update public.tenant_settings set segmento_de_mercado = 'Saúde' where tenant_id = %L$q$, ta()));
-  if r is distinct from 'OK|0' then raise exception 'FALHOU 10: B gravou em A: %', r; end if;
-  raise notice 'ok: 10 — B não grava o segmento de A (0 linhas)';
-end $$;
-
--- CASO 11 — tenants.segment NÃO foi tocado
+-- CASO 10 — NADA MAIS FOI TOCADO: tenant_settings (colunas e política) e tenants.segment
 do $$ begin
-  if (select segment from public.tenants where id = ta()::uuid) is distinct from 'Indústria ' then raise exception 'FALHOU 11: tenants.segment mudou'; end if;
-  raise notice 'ok: 11 — tenants.segment intacto, com o espaço no fim que a regra manda NÃO normalizar agora';
+  if (select count(*) from information_schema.columns where table_schema='public' and table_name='tenant_settings') is distinct from 3 then
+    raise exception 'FALHOU 10: tenant_settings ganhou coluna'; end if;
+  if (select count(*) from pg_policies where tablename='tenant_settings') is distinct from 1 then raise exception 'FALHOU 10: política de tenant_settings mudou'; end if;
+  if (select segment from public.tenants where id = ta()::uuid) is distinct from 'Indústria ' then raise exception 'FALHOU 10: tenants.segment mudou'; end if;
+  raise notice 'ok: 10 — tenant_settings com as 3 colunas do harness e 1 política; tenants.segment intacto, espaço no fim incluído';
 end $$;

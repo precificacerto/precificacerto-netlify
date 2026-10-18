@@ -13,10 +13,11 @@
  */
 
 import React, { useEffect, useState } from 'react'
-import { Button, InputNumber, Modal, Select, Space, Switch, Tag, Tooltip } from 'antd'
+import { Button, InputNumber, Modal, Select, Space, Switch, Tooltip } from 'antd'
 
 import { formatBRL } from '@/utils/formatters'
 import {
+    ACAO_PADRAO,
     ACOES_AO_ATINGIR_TETO,
     ROTULO_DA_ACAO,
     type AcaoAoAtingirTeto,
@@ -86,7 +87,7 @@ export function FichaDoOrcamentista({ aberta, nomeDaConta, config, salvando, aoS
     const [ativo, setAtivo] = useState(false)
     const [valor, setValor] = useState<number | null>(null)
     const [teto, setTeto] = useState<number | null>(null)
-    const [acao, setAcao] = useState<AcaoAoAtingirTeto | null>(null)
+    const [acao, setAcao] = useState<AcaoAoAtingirTeto>(ACAO_PADRAO)
 
     // Ao abrir, a ficha parte do que está GRAVADO — nunca de um estado de outra conta.
     useEffect(() => {
@@ -94,11 +95,8 @@ export function FichaDoOrcamentista({ aberta, nomeDaConta, config, salvando, aoS
         setAtivo(config?.ativo === true)
         setValor(config?.valor_adicional_brl ?? null)
         setTeto(config?.teto_de_consumo_brl ?? null)
-        setAcao(config?.acao_ao_atingir_teto ?? null)
+        setAcao(config?.acao_ao_atingir_teto ?? ACAO_PADRAO)
     }, [aberta, config])
-
-    // Teto e ação andam juntos (a mesma regra da CHECK do banco).
-    const incoerente = (teto === null) !== (acao === null)
 
     return (
         <Modal
@@ -107,7 +105,6 @@ export function FichaDoOrcamentista({ aberta, nomeDaConta, config, salvando, aoS
             okText={ROTULO_SALVAR_FICHA}
             cancelText="Cancelar"
             confirmLoading={salvando}
-            okButtonProps={{ disabled: incoerente }}
             onCancel={aoFechar}
             onOk={() => aoSalvar({ ativo, valor_adicional_brl: valor, teto_de_consumo_brl: teto, acao_ao_atingir_teto: acao })}
         >
@@ -124,16 +121,15 @@ export function FichaDoOrcamentista({ aberta, nomeDaConta, config, salvando, aoS
                     <div>Teto de consumo (R$ por mês) — vazio = sem teto</div>
                     <InputNumber data-testid="ficha-teto" min={0.01} precision={2} decimalSeparator="," style={{ width: 200 }}
                         value={teto ?? undefined}
-                        onChange={(v) => { const n = typeof v === 'number' ? v : null; setTeto(n); if (n === null) setAcao(null) }} />
+                        onChange={(v) => setTeto(typeof v === 'number' ? v : null)} />
                 </label>
                 <label>
-                    <div>Ao atingir o teto</div>
-                    <Select data-testid="ficha-acao" style={{ width: 260 }} allowClear disabled={teto === null}
-                        value={acao ?? undefined} placeholder={teto === null ? 'Defina o teto primeiro' : 'Escolha'}
-                        onChange={(v) => setAcao((v ?? null) as AcaoAoAtingirTeto | null)}
+                    <div>Ao atingir o teto {teto === null && <span style={{ color: 'var(--color-text-secondary)' }}>(sem teto, não dispara)</span>}</div>
+                    <Select data-testid="ficha-acao" style={{ width: 260 }}
+                        value={acao}
+                        onChange={(v) => setAcao(v as AcaoAoAtingirTeto)}
                         options={ACOES_AO_ATINGIR_TETO.map((a) => ({ value: a, label: ROTULO_DA_ACAO[a] }))} />
                 </label>
-                {incoerente && <Tag color="orange">Com teto, escolha a ação ao atingi-lo.</Tag>}
                 {config?.ativado_em && (
                     <span style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>
                         Ativado em {new Date(config.ativado_em).toLocaleString('pt-BR')}

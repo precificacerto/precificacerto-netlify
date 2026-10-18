@@ -10,12 +10,18 @@
  * da rota em vez do código de erro do banco — mas a AUTORIDADE é o banco: um corpo que passe
  * aqui e viole uma CHECK é recusado lá, e a rota devolve o erro.
  *
- * AS UNIDADES (R$ e R$/mês) e o DOMÍNIO da ação (BLOQUEAR | AVISAR) são escolha registrada na
- * migração para revisão do dono do produto — mudar lá muda aqui, no mesmo commit.
+ * AS UNIDADES (R$ e R$/mês), o DOMÍNIO da ação (BLOQUEAR | AVISAR) e o DEFAULT AVISAR foram
+ * aprovados pelo dono do produto em 18/10/2026 — mudar na migração muda aqui, no mesmo commit.
  */
 
 export const ACOES_AO_ATINGIR_TETO = ['BLOQUEAR', 'AVISAR'] as const
 export type AcaoAoAtingirTeto = (typeof ACOES_AO_ATINGIR_TETO)[number]
+
+/**
+ * O MESMO default da coluna (`acao_ao_atingir_teto ... DEFAULT 'AVISAR'`, migração
+ * `20261018000001`). A tela o usa para conta nunca configurada — nunca um terceiro valor.
+ */
+export const ACAO_PADRAO: AcaoAoAtingirTeto = 'AVISAR'
 
 export const ROTULO_DA_ACAO: Record<AcaoAoAtingirTeto, string> = {
     BLOQUEAR: 'Bloquear ao atingir o teto',
@@ -28,7 +34,7 @@ export interface ConfigDoOrcamentista {
     ativo: boolean
     valor_adicional_brl: number | null
     teto_de_consumo_brl: number | null
-    acao_ao_atingir_teto: AcaoAoAtingirTeto | null
+    acao_ao_atingir_teto: AcaoAoAtingirTeto
     ativado_por: string | null
     ativado_em: string | null
     atualizado_por: string | null
@@ -40,7 +46,7 @@ export interface CorpoDaConfig {
     ativo: boolean
     valor_adicional_brl: number | null
     teto_de_consumo_brl: number | null
-    acao_ao_atingir_teto: AcaoAoAtingirTeto | null
+    acao_ao_atingir_teto: AcaoAoAtingirTeto
 }
 
 export type LeituraDoCorpo = { ok: true; corpo: CorpoDaConfig } | { ok: false; erro: string }
@@ -83,13 +89,10 @@ export function lerCorpoDaConfig(bruto: unknown): LeituraDoCorpo {
     if (teto !== null && (typeof teto !== 'number' || !emCentavos(teto) || teto <= 0)) {
         return { ok: false, erro: 'O teto de consumo tem de ser um valor em reais maior que zero, com até duas casas.' }
     }
+    // A ação é SEMPRE uma das duas (a coluna é NOT NULL) — e só tem efeito quando há teto.
     const acao = b.acao_ao_atingir_teto
-    if (acao !== null && !(ACOES_AO_ATINGIR_TETO as readonly unknown[]).includes(acao)) {
+    if (!(ACOES_AO_ATINGIR_TETO as readonly unknown[]).includes(acao)) {
         return { ok: false, erro: `Ação ao atingir o teto inválida. Aceitas: ${ACOES_AO_ATINGIR_TETO.join(', ')}.` }
-    }
-    // A mesma regra de `orcamentista_config_teto_e_acao`: os dois juntos, ou nenhum.
-    if ((teto === null) !== (acao === null)) {
-        return { ok: false, erro: 'Teto e ação andam juntos: defina os dois, ou nenhum.' }
     }
     return {
         ok: true,
@@ -97,7 +100,7 @@ export function lerCorpoDaConfig(bruto: unknown): LeituraDoCorpo {
             ativo: b.ativo,
             valor_adicional_brl: valor as number | null,
             teto_de_consumo_brl: teto as number | null,
-            acao_ao_atingir_teto: acao as AcaoAoAtingirTeto | null,
+            acao_ao_atingir_teto: acao as AcaoAoAtingirTeto,
         },
     }
 }
@@ -135,7 +138,7 @@ export function corpoParaAlternar(config: ConfigDoOrcamentista | undefined, ativ
         ativo,
         valor_adicional_brl: config?.valor_adicional_brl ?? null,
         teto_de_consumo_brl: config?.teto_de_consumo_brl ?? null,
-        acao_ao_atingir_teto: config?.acao_ao_atingir_teto ?? null,
+        acao_ao_atingir_teto: config?.acao_ao_atingir_teto ?? ACAO_PADRAO,
     }
 }
 

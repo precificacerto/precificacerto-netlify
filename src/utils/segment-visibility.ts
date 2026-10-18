@@ -33,7 +33,20 @@ export function tenantOffersServices(calcType: unknown): boolean {
 }
 
 
-/** Módulos (chave de `MODULES` / permissão) que dependem da segmentação. */
+/**
+ * Módulos (chave de `MODULES` / permissão) que dependem da segmentação.
+ *
+ * O ORÇAMENTISTA entra AQUI quando o `calc_type` passar a decidir o que ele faz (bloco 2 em
+ * diante) — esta é a fonte única, e não nasce outra. Decisão do dono do produto, 18/10/2026.
+ *
+ * PENDÊNCIA NOMEADA (a), medida em 18/10/2026: `tenant_settings.calc_type` tem
+ * `DEFAULT 'INDUSTRIALIZACAO'` e é nullable. Dos 21 tenants em INDUSTRIALIZACAO, 16 não
+ * terminaram o onboarding — o valor deles é o DEFAULT, não uma escolha. Hoje isso só decide
+ * Serviços (que exige SERVICO, e o default não é SERVICO). Quando um módulo passar a ser
+ * LIGADO por INDUSTRIALIZACAO, ou a regra exige onboarding completo, ou o default é tratado como
+ * "não escolhido" — senão o default afirma uma segmentação que ninguém escolheu
+ * (`ausente-vs-falso.md`).
+ */
 const SEGMENT_GATED_MODULES: Record<string, (calcType: unknown) => boolean> = {
     services: tenantOffersServices,
 }

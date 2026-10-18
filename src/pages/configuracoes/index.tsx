@@ -811,6 +811,8 @@ function Settings() {
         const reg = (s.tax_regime === 'MEI' ? 'MEI' : 'NATIONAL_SIMPLE') as REGIME_TAXABLE_TYPES
         setTaxableRegimeInput(reg)
         calcForm.setFieldsValue({
+            // PENDÊNCIA NOMEADA (b), 18/10/2026 — ver `contexts/auth.context.tsx`: lá o fallback
+            // de `calc_type` nulo é INDUSTRIALIZACAO, aqui é SERVICE. Defeito, não estética.
             calcType: s.calc_type || CALC_TYPE_ENUM.SERVICE,
             unitMeasure: s.workload_unit || 'MINUTES',
             monthlyWorkloadInMinutes: Number(s.monthly_workload) || 0,
