@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { Layout } from '@/components/layout/layout.component'
 import { supabase } from '@/supabase/client'
 import { useAuth } from '@/hooks/use-auth.hook'
-import { MODULES, type ModuleKey } from '@/hooks/use-permissions.hook'
+import { MODULOS_CONCEDIVEIS } from '@/hooks/use-permissions.hook'
 // Fonte única dos rótulos — ver `constants/module-labels.ts`. O mapa que morava aqui
 // divergia de `admin/usuarios.tsx` em `home`, `dfc` e `reports`.
 import { MODULE_LABELS } from '@/constants/module-labels'
@@ -83,7 +83,7 @@ export default function EmployeePermissions() {
       setAllItems(itemsRes.data || [])
 
       if (!empRes.data.user_id) {
-        const grantableModules = (Object.values(MODULES) as string[]).filter(m => m !== MODULES.USERS_MANAGEMENT)
+        const grantableModules = MODULOS_CONCEDIVEIS
         const allModules = grantableModules.map(m => ({
           module: m,
           label: MODULE_LABELS[m] || m,
@@ -110,7 +110,7 @@ export default function EmployeePermissions() {
         permsMap[p.module] = { can_view: p.can_view ?? false, can_edit: p.can_edit ?? false }
       })
 
-      const grantableModules = (Object.values(MODULES) as string[]).filter(m => m !== MODULES.USERS_MANAGEMENT)
+      const grantableModules = MODULOS_CONCEDIVEIS
       const allModules = grantableModules.map(m => ({
         module: m,
         label: MODULE_LABELS[m] || m,

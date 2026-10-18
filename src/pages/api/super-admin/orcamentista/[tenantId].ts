@@ -18,7 +18,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { requireSuperAdmin } from '@/lib/get-caller-tenant'
 import { supabaseAdmin } from '@/supabase/admin'
-import { leituraAceita, lerCorpoDaConfig, montarGravacao } from '@/utils/orcamentista-config'
+import { leituraAceita, leituraRecusada, lerCorpoDaConfig, montarGravacao } from '@/utils/orcamentista-config'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -35,7 +35,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   const leitura = lerCorpoDaConfig(req.body)
-  if (!leituraAceita(leitura)) return res.status(400).json({ error: (leitura as { erro: string }).erro })
+  // DOIS guardas explícitos: com `strictNullChecks` desligado, `if (!leitura.ok)` não estreita a
+  // união — e o `tsc` acusa `leitura.erro` enquanto o jest passa verde.
+  if (leituraRecusada(leitura)) return res.status(400).json({ error: leitura.erro })
+  if (!leituraAceita(leitura)) return res.status(400).json({ error: 'Corpo inválido.' })
 
   try {
     const { data: anterior, error: erroDeLeitura } = await supabaseAdmin
