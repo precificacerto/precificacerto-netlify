@@ -1,9 +1,10 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { requireTenantAdmin } from '@/lib/get-caller-tenant'
 import { supabaseAdmin } from '@/supabase/admin'
-import { MODULES } from '@/hooks/use-permissions.hook'
+import { MODULOS_CONCEDIVEIS } from '@/hooks/use-permissions.hook'
 
-const GRANTABLE_MODULES = (Object.values(MODULES) as string[]).filter(m => m !== MODULES.USERS_MANAGEMENT)
+// Os não concedíveis (users_management, e orcamentista até o bloco 2) vêm de UMA lista no hook.
+const GRANTABLE_MODULES = MODULOS_CONCEDIVEIS
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const caller = await requireTenantAdmin(req, res)

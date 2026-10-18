@@ -45,7 +45,7 @@
 import fs from 'fs'
 import path from 'path'
 
-import { MODULES } from '@/hooks/use-permissions.hook'
+import { MODULES, MODULOS_CONCEDIVEIS } from '@/hooks/use-permissions.hook'
 import { ROUTES } from '@/constants/routes'
 import { PAGE_TITLES } from '@/constants/page-titles'
 
@@ -139,10 +139,24 @@ function mapaEfetivo(rel: 'A' | 'B' | 'C'): Record<string, string> {
   return fonte
 }
 
-/** As 21 chaves rotuláveis: todo módulo MENOS `users_management`, que nunca foi concedível. */
+/** As 22 chaves rotuláveis: todo módulo MENOS `users_management`, que nunca foi concedível. */
 const CHAVES_ROTULAVEIS = (Object.values(MODULES) as string[])
   .filter((m) => m !== MODULES.USERS_MANAGEMENT)
   .sort()
+
+/**
+ * 18/10/2026 — O PORTÃO DAS 21 CHAVES VIROU 22, e o que as TELAS mostram deixou de ser o mesmo
+ * conjunto que a FONTE rotula. Entrou `orcamentista` (Orçamentista, bloco 1). Decisão do dono do
+ * produto: a chave fica NA FONTE ÚNICA, com rótulo, e FORA das telas de permissão até o bloco 2,
+ * pelo mesmo mecanismo de `users_management` (`MODULOS_NAO_CONCEDIVEIS`). O bloco 2 traz a aba
+ * e a permissão juntas, e a paridade menu ↔ permissões se cumpre por construção.
+ *
+ * Então são DOIS conjuntos, e cada caso afirma o seu: a FONTE rotula os 22; as TRÊS TELAS
+ * mostram os CONCEDÍVEIS (21) e os mostram com a MESMA string. Quando o bloco 2 tirar
+ * `orcamentista` da lista de não concedíveis, os dois conjuntos voltam a coincidir sem que este
+ * arquivo mude.
+ */
+const CHAVES_CONCEDIVEIS = [...MODULOS_CONCEDIVEIS].sort()
 
 function listarArquivos(dir: string): string[] {
   const fora: string[] = []
@@ -171,13 +185,25 @@ describe('PORTÃO 1 (a) — as CHAVES não mudam', () => {
   })
 })
 
-describe('PORTÃO 1 (b) — o CONJUNTO de chaves é idêntico nos três, e tem 21', () => {
-  it('a fonte única cobre exatamente os 21 módulos rotuláveis', () => {
+describe('PORTÃO 1 (b) — a fonte rotula 22; as três telas mostram as MESMAS concedíveis', () => {
+  it('a fonte única cobre exatamente os 22 módulos rotuláveis', () => {
     expect(Object.keys(rotulosDaFonte()).sort()).toEqual(CHAVES_ROTULAVEIS)
+    expect(CHAVES_ROTULAVEIS).toHaveLength(22)
   })
 
-  it.each(['A', 'B', 'C'] as const)('o mapa efetivo de %s tem as mesmas 21 chaves', (qual) => {
-    expect(Object.keys(mapaEfetivo(qual)).sort()).toEqual(CHAVES_ROTULAVEIS)
+  it.each(['A', 'B', 'C'] as const)('o mapa efetivo de %s cobre todas as concedíveis', (qual) => {
+    const chaves = Object.keys(mapaEfetivo(qual))
+    expect(CHAVES_CONCEDIVEIS.filter((k) => !chaves.includes(k))).toEqual([])
+  })
+
+  it('C — a única que guarda o AGRUPAMENTO — mostra exatamente as concedíveis, e nada além', () => {
+    expect(Object.keys(mapaEfetivo('C')).sort()).toEqual(CHAVES_CONCEDIVEIS)
+  })
+
+  it('orcamentista está na fonte, com rótulo, e FORA das concedíveis até o bloco 2', () => {
+    expect(rotulosDaFonte()[MODULES.ORCAMENTISTA]).toBe('Orçamentista')
+    expect(CHAVES_CONCEDIVEIS).not.toContain(MODULES.ORCAMENTISTA)
+    expect(CHAVES_ROTULAVEIS).toContain(MODULES.ORCAMENTISTA)
   })
 
   it('A deixou de ser subconjunto — as seis que faltavam estão lá', () => {
@@ -208,9 +234,9 @@ describe('PORTÃO 1 (b2) — nenhuma das três declara rótulo PRÓPRIO, e as du
   })
 })
 
-describe('PORTÃO 1 (c) — para cada uma das 21, os três devolvem a MESMA string', () => {
+describe('PORTÃO 1 (c) — para cada concedível, os três devolvem a MESMA string', () => {
   // É ESTE o caso que impede a divergência voltar, e é ele que falha hoje.
-  it.each(CHAVES_ROTULAVEIS)('%s tem um rótulo só', (chave) => {
+  it.each(CHAVES_CONCEDIVEIS)('%s tem um rótulo só', (chave) => {
     const a = mapaEfetivo('A')[chave]
     const b = mapaEfetivo('B')[chave]
     const c = mapaEfetivo('C')[chave]

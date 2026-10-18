@@ -180,6 +180,10 @@ async function computeTaxableRegimeValue(settings: any): Promise<number> {
   }
 
   if (regime === 'LUCRO_PRESUMIDO' || regime === 'LUCRO_REAL') {
+    // PENDÊNCIA NOMEADA (b), 18/10/2026 — NÃO consertar sem rodada própria: o fallback de
+    // `calc_type` nulo aqui é INDUSTRIALIZACAO; em `pages/configuracoes/index.tsx` (no
+    // `calcForm.setFieldsValue`) é SERVICE. `copia-divergente.md` sobre um valor que decide
+    // PRECIFICAÇÃO: a mesma conta calcularia diferente conforme a tela que leu primeiro.
     const calcType = settings.calc_type || 'INDUSTRIALIZACAO'
     const originState = settings.state_code || 'SP'
 

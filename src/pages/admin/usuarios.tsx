@@ -8,7 +8,7 @@ import { useDevice } from '@/contexts/device.context'
 import { MobileCollapse } from '@/components/ui/mobile-collapse.component'
 import { useRouter } from 'next/router'
 import { ROUTES } from '@/constants/routes'
-import { MODULES, type ModuleKey } from '@/hooks/use-permissions.hook'
+import { MODULOS_CONCEDIVEIS } from '@/hooks/use-permissions.hook'
 // Fonte única dos rótulos. Este arquivo tinha mapa próprio com 15 das 21 chaves, e os seis
 // módulos que faltavam caíam no `|| m` e exibiam a CHAVE CRUA. Ver `constants/module-labels.ts`.
 import { MODULE_LABELS } from '@/constants/module-labels'
@@ -17,7 +17,8 @@ import { moduleVisibleForSegment } from '@/utils/segment-visibility'
 import { SettingOutlined, UserAddOutlined, RightOutlined } from '@ant-design/icons'
 
 
-const GRANTABLE_MODULES = (Object.values(MODULES) as string[]).filter(m => m !== MODULES.USERS_MANAGEMENT)
+// Os não concedíveis (users_management, e orcamentista até o bloco 2) vêm de UMA lista no hook.
+const GRANTABLE_MODULES = MODULOS_CONCEDIVEIS
 
 type UserRow = {
   id: string

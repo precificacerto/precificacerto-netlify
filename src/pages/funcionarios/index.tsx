@@ -78,7 +78,8 @@ const PERMISSION_SECTIONS: { title: string; modules: ModuloRotulavel[] }[] = [
     },
     { title: 'Agendamentos', modules: ['agenda', 'reports'] },
     // Fica com UM módulo só, e está certo: "Usuários" é `adminOnly` no menu e nunca foi módulo
-    // de permissão — não há chave `users` em `use-permissions.hook.ts`.
+    // de permissão — não há chave `users` em `use-permissions.hook.ts`. O ORÇAMENTISTA NÃO entra
+    // aqui até o bloco 2: ver `MODULOS_NAO_CONCEDIVEIS`.
     { title: 'Operacional', modules: ['connectivity'] },
 ]
 
