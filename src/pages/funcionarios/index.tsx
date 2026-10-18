@@ -77,9 +77,12 @@ const PERMISSION_SECTIONS: { title: string; modules: ModuloRotulavel[] }[] = [
         modules: ['cash_flow', 'cashier', 'dfc', 'commission', 'rt_commission'],
     },
     { title: 'Agendamentos', modules: ['agenda', 'reports'] },
-    // Fica com UM módulo só, e está certo: "Usuários" é `adminOnly` no menu e nunca foi módulo
-    // de permissão — não há chave `users` em `use-permissions.hook.ts`.
-    { title: 'Operacional', modules: ['connectivity'] },
+    // "Usuários" é `adminOnly` no menu e nunca foi módulo de permissão — não há chave `users` em
+    // `use-permissions.hook.ts`. O ORÇAMENTISTA entrou aqui em 18/10/2026 (bloco 1): o módulo já
+    // é concedível, e a seção é a do menu onde a tela dele vai morar no bloco 2. ATÉ LÁ a
+    // paridade menu ↔ permissões tem UMA exceção conhecida — a permissão existe, o item de menu
+    // ainda não. Está no corpo do PR, e é do bloco 2 fechá-la.
+    { title: 'Operacional', modules: ['connectivity', 'orcamentista'] },
 ]
 
 const ALL_PERM_KEYS = PERMISSION_SECTIONS.flatMap(s => s.modules)

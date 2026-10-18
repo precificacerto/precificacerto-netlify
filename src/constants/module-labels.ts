@@ -55,7 +55,9 @@ import { MODULES, type ModuleKey } from '@/hooks/use-permissions.hook'
  * Todo módulo MENOS `users_management`.
  *
  * Ele nunca foi concedível por funcionário — `admin/usuarios.tsx` já o filtrava de
- * `GRANTABLE_MODULES`, e nem B nem C jamais tiveram rótulo para ele. São 21.
+ * `GRANTABLE_MODULES`, e nem B nem C jamais tiveram rótulo para ele. São 22 desde 18/10/2026,
+ * quando entrou `orcamentista` — e entrou AQUI, pela fonte, sem tocar nas três telas: o
+ * `satisfies` abaixo é o que obriga o rótulo a existir antes do `tsc` aceitar a chave.
  */
 export type ModuloRotulavel = Exclude<ModuleKey, typeof MODULES.USERS_MANAGEMENT>
 
@@ -81,12 +83,13 @@ const ROTULOS = {
   agenda: 'Agenda',
   reports: 'Relatório Agenda',
   connectivity: 'Conectividade',
+  orcamentista: 'Orçamentista',
 } satisfies Record<ModuloRotulavel, string>
 
 /** O mapa que os três pontos de exibição leem. */
 export const MODULE_LABELS: Record<string, string> = ROTULOS
 
-/** As 21 chaves rotuláveis, na ordem em que foram escritas acima. */
+/** As 22 chaves rotuláveis, na ordem em que foram escritas acima. */
 export const MODULE_LABEL_KEYS = Object.keys(ROTULOS) as ModuloRotulavel[]
 
 /** O rótulo de um módulo, com a chave crua como último recurso. */

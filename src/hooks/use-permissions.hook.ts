@@ -27,6 +27,9 @@ export const MODULES = {
   // reaproveitar sales_report/commission para poderem ser bloqueados por funcionário.
   COMMISSIONS_REPORT: 'commissions_report',
   RT_COMMISSION:      'rt_commission',
+  // Orçamentista, bloco 1 (18/10/2026): o módulo existe para ser CONCEDÍVEL desde já; a tela do
+  // tenant é o bloco 2. Ligado por conta pelo super admin em `orcamentista_config`.
+  ORCAMENTISTA:       'orcamentista',
 } as const
 
 export type ModuleKey = typeof MODULES[keyof typeof MODULES]

@@ -9,6 +9,19 @@ import { useAuth } from '@/hooks/use-auth.hook'
 import { useCachedFetch } from '@/hooks/use-cached-fetch.hook'
 import { SearchOutlined, PlusOutlined, CheckCircleOutlined, StopOutlined } from '@ant-design/icons'
 import { maskPhoneBR } from '@/utils/contact-validation'
+import {
+  CelulaDoOrcamentista,
+  FichaDoOrcamentista,
+  TITULO_DA_COLUNA_ORCAMENTISTA,
+  type EstadoDaLeitura,
+} from '@/page-parts/super-admin/orcamentista-na-lista.component'
+import {
+  ROTA_DO_ORCAMENTISTA,
+  corpoParaAlternar,
+  rotaDaConfig,
+  type ConfigDoOrcamentista,
+  type CorpoDaConfig,
+} from '@/utils/orcamentista-config'
 
 type TenantRow = {
   id: string
@@ -43,6 +56,43 @@ function SuperAdminTenants() {
     isSA ? '/api/super-admin/tenants' : null
   )
   const data = Array.isArray(rawData) ? rawData : []
+
+  // O ORÇAMENTISTA POR CONTA (bloco 1). A chave do fetch é `null` para quem não é super admin:
+  // a lista nem é pedida. A rota também recusa — as duas travas, e nenhuma substitui a outra.
+  const {
+    data: configsBrutas,
+    error: erroDasConfigs,
+    isLoading: carregandoConfigs,
+    mutate: recarregarConfigs,
+  } = useCachedFetch<ConfigDoOrcamentista[]>(isSA ? ROTA_DO_ORCAMENTISTA : null)
+  const estadoDasConfigs: EstadoDaLeitura = erroDasConfigs || (configsBrutas !== undefined && !Array.isArray(configsBrutas))
+    ? 'INDISPONIVEL'
+    : carregandoConfigs || configsBrutas === undefined ? 'CARREGANDO' : 'OK'
+  const configPorConta = new Map((Array.isArray(configsBrutas) ? configsBrutas : []).map((c) => [c.tenant_id, c]))
+  const [fichaAberta, setFichaAberta] = useState<string | null>(null)
+  const [salvandoOrcamentista, setSalvandoOrcamentista] = useState<string | null>(null)
+
+  /** Grava a configuração de UMA conta. A conta vem do argumento, e só ela vai na URL. */
+  const gravarOrcamentista = async (tenantId: string, corpo: CorpoDaConfig) => {
+    setSalvandoOrcamentista(tenantId)
+    try {
+      const res = await fetch(rotaDaConfig(tenantId), {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(corpo),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(json?.error || 'Erro ao gravar o Orçamentista')
+      messageApi.success(corpo.ativo ? 'Orçamentista ligado nesta conta' : 'Orçamentista desligado nesta conta')
+      setFichaAberta(null)
+    } catch (e: unknown) {
+      messageApi.error(e instanceof Error ? e.message : 'Erro ao gravar o Orçamentista')
+    } finally {
+      setSalvandoOrcamentista(null)
+      // RELÊ SEMPRE: a célula mostra o que ficou no banco, não uma atualização local.
+      await recarregarConfigs()
+    }
+  }
 
   const handleCreateTenant = async (values: { tenantName: string; email: string; name?: string; isFree?: boolean }) => {
     setCreateLoading(true)
@@ -222,6 +272,21 @@ function SuperAdminTenants() {
       ),
     },
     {
+      title: TITULO_DA_COLUNA_ORCAMENTISTA,
+      key: 'orcamentista',
+      width: 220,
+      render: (_, record) => (
+        <CelulaDoOrcamentista
+          tenantId={record.id}
+          estado={estadoDasConfigs}
+          config={configPorConta.get(record.id)}
+          salvando={salvandoOrcamentista === record.id}
+          aoAlternar={(tenantId, ativo) => { void gravarOrcamentista(tenantId, corpoParaAlternar(configPorConta.get(tenantId), ativo)) }}
+          aoAbrirFicha={setFichaAberta}
+        />
+      ),
+    },
+    {
       title: 'Aprovado',
       dataIndex: 'approved_by_super_admin',
       key: 'approved',
@@ -320,6 +385,16 @@ function SuperAdminTenants() {
           </Form.Item>
         </Form>
       </Modal>
+
+      {/* A FICHA do Orçamentista — uma conta por vez, a da linha que a abriu. */}
+      <FichaDoOrcamentista
+        aberta={fichaAberta !== null}
+        nomeDaConta={data.find((t) => t.id === fichaAberta)?.name ?? ''}
+        config={fichaAberta ? configPorConta.get(fichaAberta) : undefined}
+        salvando={salvandoOrcamentista !== null}
+        aoSalvar={(corpo) => { if (fichaAberta) void gravarOrcamentista(fichaAberta, corpo) }}
+        aoFechar={() => setFichaAberta(null)}
+      />
     </Layout>
   )
 }
