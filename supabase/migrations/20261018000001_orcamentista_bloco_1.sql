@@ -8,9 +8,16 @@
 -- ║ depende do que a migração CRIA": tabela que o código novo grava → antes ou junto).    ║
 -- ╚══════════════════════════════════════════════════════════════════════════════════════╝
 --
--- ADITIVA. Uma tabela nova e as políticas dela. Nenhum DROP, nenhum UPDATE, nenhum REVOKE, nenhum
--- GRANT em função existente, nenhuma coluna em tabela que já existe. `tenants.segment` e
--- `tenant_settings` NÃO SÃO TOCADOS.
+-- ADITIVA. Uma tabela nova, as políticas dela e UM REVOKE — sobre ela, e só sobre ela. Nenhum
+-- DROP, nenhum UPDATE, nenhum GRANT ou REVOKE em objeto que já existe, nenhuma coluna em tabela
+-- que já existe. `tenants.segment` e `tenant_settings` NÃO SÃO TOCADOS.
+--
+-- REVISÃO DO DONO DO PRODUTO, 18/10/2026 — três mudanças sobre a versão de md5
+-- 71fac18a5976a70ed90f7654419d88c2:
+--   1. SEM FK em `ativado_por` e `atualizado_por` — a razão está na coluna.
+--   2. REVOKE INSERT, UPDATE, DELETE de `authenticated` — a razão está antes do COMMIT.
+--   3. `atualizado_em` num UPDATE: quem grava é a ROTA, sempre, e não há trigger — a razão está
+--      na coluna.
 --
 -- O QUE SAIU DA PRIMEIRA VERSÃO, e por quê — decisões do dono do produto, 18/10/2026:
 --   segmento_de_mercado ... SAIU. `tenant_settings.calc_type` (INDUSTRIALIZACAO/REVENDA/SERVICO)
@@ -45,7 +52,10 @@
 --   is_super_admin() ............... `EXISTS (users WHERE id = auth.uid() AND role = 'super_admin')`
 --   get_auth_tenant_id() ........... `select tenant_id from users where id = auth.uid()`
 --   default ACL de tabela criada por `postgres` em public: postgres, authenticated, service_role
---                                    (anon NÃO) — o mesmo que `tenant_settings` tem hoje.
+--                                    (anon NÃO) — o mesmo que `tenant_settings` tem hoje. Os três
+--                                    com `arwdDxtm`: SELECT, INSERT, UPDATE, DELETE, TRUNCATE,
+--                                    REFERENCES e TRIGGER.
+--   papéis ......................... service_role BYPASSRLS = true; authenticated e anon = false.
 --
 -- ── POR QUE TABELA PRÓPRIA, e não colunas em `tenant_settings` ───────────────────────────
 -- `tenant_settings` tem UMA política, FOR ALL, que deixa o próprio tenant ESCREVER na linha
@@ -77,16 +87,34 @@ CREATE TABLE public.orcamentista_config (
   acao_ao_atingir_teto  text          NOT NULL DEFAULT 'AVISAR' CHECK (acao_ao_atingir_teto IN ('BLOQUEAR', 'AVISAR')),
   -- "Quem ativou, quando": gravados NA ATIVAÇÃO e preservados depois. Desligar não os apaga —
   -- quem desligou e quando ficam em `atualizado_por` / `atualizado_em`.
-  ativado_por           uuid          NULL REFERENCES public.users(id),
+  --
+  -- SEM FK, E A RAZÃO É DE CLASSE — a mesma do log de reajuste (`20261016000001`, ratificada na
+  -- XIII.7). O autor aqui é FATO HISTÓRICO, não referência viva (`fato-vs-referencia.md`):
+  -- `ON DELETE CASCADE` apagaria a configuração da conta junto com o usuário, `SET NULL`
+  -- violaria a CHECK `orcamentista_config_ativacao_rastreada` enquanto a conta estiver ligada —
+  -- a exclusão falharia igual, com mensagem pior —, e `RESTRICT` faria a exclusão de usuário
+  -- passar a falhar — mudança de comportamento numa tela que esta rodada não toca. O id fica
+  -- gravado mesmo que a linha de `public.users` deixe de existir.
+  ativado_por           uuid          NULL,
   ativado_em            timestamptz   NULL,
-  atualizado_por        uuid          NULL REFERENCES public.users(id),
+  atualizado_por        uuid          NULL,
+  -- QUEM GRAVA ISTO NUM UPDATE É A ROTA, SEMPRE, e não há trigger. O DEFAULT só vale no INSERT.
+  -- `montarGravacao` (`src/utils/orcamentista-config.ts`) põe `atualizado_por` e `atualizado_em`
+  -- em TODA gravação, e o caso "toda gravação leva `atualizado_por` e `atualizado_em`" de
+  -- `o-orcamentista-do-super-admin.test.tsx` fica vermelho sem eles.
+  -- POR QUE NÃO TRIGGER: o trigger carimbaria a HORA e não teria como carimbar o AUTOR — sob
+  -- `service_role`, que é o único papel que escreve aqui, `auth.uid()` é nulo. Um UPDATE feito à
+  -- mão sairia com o horário novo e o autor da gravação anterior: um par que afirma quem mudou
+  -- quando, e mente (`ausente-vs-falso.md`). Sem trigger, o par fica inteiro — os dois do mesmo
+  -- escritor. Consequência, e ela é conhecida: um UPDATE feito à mão que não mande os dois NÃO
+  -- os move.
   atualizado_em         timestamptz   NOT NULL DEFAULT now(),
   -- Ligado sem quem ligou e quando é ligação sem rastro.
   CONSTRAINT orcamentista_config_ativacao_rastreada CHECK (NOT ativo OR (ativado_por IS NOT NULL AND ativado_em IS NOT NULL))
 );
 
 COMMENT ON TABLE public.orcamentista_config IS
-  'Configuracao do Orcamentista por tenant. Leitura: o proprio tenant e o super admin. Escrita: SO o super admin (is_super_admin()). Sem linha = desligado.';
+  'Configuracao do Orcamentista por tenant. Leitura: o proprio tenant e o super admin. Escrita: SO a rota do super admin (service_role); authenticated sem INSERT/UPDATE/DELETE, e as politicas de escrita exigem is_super_admin(). Sem linha = desligado. ativado_por e atualizado_por sem FK de proposito - o autor e fato historico e precisa sobreviver a exclusao do usuario.';
 COMMENT ON COLUMN public.orcamentista_config.acao_ao_atingir_teto IS
   'BLOQUEAR | AVISAR. Default AVISAR. So tem efeito quando teto_de_consumo_brl nao e nulo.';
 
@@ -111,6 +139,17 @@ CREATE POLICY orcamentista_config_update_super_admin ON public.orcamentista_conf
 CREATE POLICY orcamentista_config_delete_super_admin ON public.orcamentista_config
   FOR DELETE
   USING (public.is_super_admin());
+
+-- A NEGATIVA EM DUAS CAMADAS INDEPENDENTES. As políticas acima já negam a escrita a quem não é
+-- super admin; o privilégio passa a negá-la também, por outro mecanismo. É a lição da varredura
+-- de 18/10/2026: as três falhas achadas eram todas PRIVILÉGIO CONCEDIDO onde se supunha que a
+-- política protegia. O default ACL dá `arwdDxtm` a `authenticated` em toda tabela nova (medido).
+--
+-- Consequência, e ela é de propósito: nem o super admin escreve aqui pelo PostgREST. A única
+-- escrita é a da rota, com `service_role` — que tem privilégio próprio (não é tocado aqui) e é
+-- BYPASSRLS (medido). As políticas de escrita ficam como SEGUNDA camada: se o privilégio voltar
+-- a ser concedido por engano, elas continuam negando ao tenant.
+REVOKE INSERT, UPDATE, DELETE ON public.orcamentista_config FROM authenticated;
 
 COMMIT;
 
@@ -137,17 +176,23 @@ COMMIT;
 --   --   orcamentista_config_update_super_admin  UPDATE  is_super_admin()   is_super_admin()
 --   -- NENHUMA política com `get_auth_tenant_id()` em INSERT, UPDATE ou DELETE.
 --
--- (4) As permissões de tabela seguem o padrão de `tenant_settings` (anon de fora):
---   select string_agg(distinct grantee, ',' order by grantee) from information_schema.role_table_grants
---    where table_schema='public' and table_name='orcamentista_config';
---   -- esperado: authenticated,postgres,service_role
+-- (4) Os privilégios POR COMANDO, e não só a lista de papéis:
+--   select r.papel, c.cmd, has_table_privilege(r.papel, 'public.orcamentista_config', c.cmd) as tem
+--     from (values ('anon'), ('authenticated'), ('service_role')) r(papel)
+--     cross join (values ('SELECT'), ('INSERT'), ('UPDATE'), ('DELETE')) c(cmd)
+--    order by r.papel, c.cmd;
+--   -- esperado:
+--   --   anon           DELETE f · INSERT f · SELECT f · UPDATE f
+--   --   authenticated  DELETE f · INSERT f · SELECT t · UPDATE f   ← SELECT, e SEM escrita
+--   --   service_role   DELETE t · INSERT t · SELECT t · UPDATE t   ← a rota, intocada
+--   -- (ANTES: a tabela não existia; `tenant_settings` hoje tem os quatro em authenticated.)
 --
--- (5) As constraints:
+-- (5) As constraints — e NENHUMA FK para `users`:
 --   select conname from pg_constraint where conrelid='public.orcamentista_config'::regclass order by 1;
 --   -- esperado: orcamentista_config_acao_ao_atingir_teto_check, orcamentista_config_ativacao_rastreada,
---   --   orcamentista_config_ativado_por_fkey, orcamentista_config_atualizado_por_fkey,
 --   --   orcamentista_config_pkey, orcamentista_config_tenant_id_fkey,
 --   --   orcamentista_config_teto_de_consumo_brl_check, orcamentista_config_valor_adicional_brl_check
+--   -- (6 constraints; a única FK é `tenant_id` → `tenants`.)
 --
 -- (6) NADA MAIS FOI TOCADO:
 --   select (select count(*) from information_schema.columns where table_schema='public' and table_name='tenant_settings'),

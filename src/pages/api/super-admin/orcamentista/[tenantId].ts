@@ -13,7 +13,8 @@
  *
  * DUAS TRAVAS, e nenhuma substitui a outra: a rota usa `service_role` (que passa por cima da
  * RLS), então quem barra o não-super-admin AQUI é `requireSuperAdmin`; quem barra um tenant que
- * fale direto com o PostgREST é a política `is_super_admin()` da tabela.
+ * fale direto com o PostgREST são o PRIVILÉGIO (`authenticated` sem INSERT/UPDATE/DELETE) e, por
+ * baixo dele, a política `is_super_admin()` da tabela — duas camadas independentes.
  */
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { requireSuperAdmin } from '@/lib/get-caller-tenant'

@@ -111,6 +111,10 @@ export function lerCorpoDaConfig(bruto: unknown): LeituraDoCorpo {
  * "QUEM ATIVOU, QUANDO" é gravado SÓ na transição desligado → ligado, e PRESERVADO depois:
  * desligar não apaga quem ligou. Quem mudou por último vai em `atualizado_por`/`atualizado_em`.
  * Sem a transição, `ativado_*` não entra no payload — e o upsert não toca a coluna.
+ *
+ * `atualizado_por` e `atualizado_em` vão em TODA gravação, e isto é a regra, não detalhe: a tabela
+ * NÃO tem trigger (migração `20261018000001`, escolha b do dono do produto, 18/10/2026). O DEFAULT
+ * de `atualizado_em` só vale no INSERT; num UPDATE, quem o move é este payload, e mais nada.
  */
 export function montarGravacao(args: {
     tenantId: string

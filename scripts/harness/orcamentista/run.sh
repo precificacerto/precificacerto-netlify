@@ -2,9 +2,9 @@
 # HARNESS da migração do Orçamentista (bloco 1). NÃO TOCA PRODUÇÃO.
 # Mesmo Postgres local de `../baixa-com-valor-diferente/run.sh` (ver o cabeçalho de lá para subir).
 #
-# O QUE ELE NÃO PROVA: que o PostgREST aplica as políticas como o Postgres local — é o mesmo
-# motor de RLS, mas `service_role` (que a rota usa) é BYPASSRLS em produção e aqui não é
-# exercido. A escrita SÓ-super-admin pela ROTA é do portão do jest; aqui é a do BANCO.
+# O QUE ELE NÃO PROVA: que o PostgREST faz o upsert exatamente como o `pela_rota` dos casos — o
+# `INSERT ... ON CONFLICT DO UPDATE SET <colunas do payload>` é reconstruído. `service_role` aqui
+# é BYPASSRLS, como em produção. QUEM a rota deixa passar é do portão do jest; aqui é o BANCO.
 #
 # Uso: run.sh <arquivo da migração>   Saída: `ok:` / `FALHOU:` por caso, e a contagem.
 S=$(cd "$(dirname "$0")" && pwd); P="psql -h /tmp/harness-pg -p 54329 -U postgres -q -X"

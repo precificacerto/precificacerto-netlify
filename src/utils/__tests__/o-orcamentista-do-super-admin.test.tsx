@@ -206,6 +206,21 @@ describe('PORTÃO 3 — desligar numa conta NÃO afeta a outra (a ROTA)', () => 
         expect(typeof linha.ativado_em).toBe('string')
     })
 
+    // MUTAÇÃO: tirar `atualizado_em` (ou `atualizado_por`) de `montarGravacao`. Não há trigger na
+    // tabela (migração `20261018000001`, escolha b): se a rota não mandar, NADA move o campo.
+    it('toda gravação leva `atualizado_por` e `atualizado_em` — ligar, desligar e mudar ligado', async () => {
+        for (const [anterior, ativo] of [[false, true], [true, false], [true, true]] as const) {
+            estado.chamadas = []
+            estado.anterior = { ativo: anterior }
+            const antes = Date.now()
+            await chamar(rotaDaConta, { method: 'PATCH', query: { tenantId: CONTA_A }, body: { ...CORPO, ativo, atualizado_em: '1999-01-01T00:00:00Z' } })
+            const linha = tocouATabela().find((c) => c.op === 'upsert')!.args[0] as Record<string, unknown>
+            expect(linha.atualizado_por).toBe(SUPER.id)
+            expect(typeof linha.atualizado_em).toBe('string')
+            expect(Date.parse(linha.atualizado_em as string)).toBeGreaterThanOrEqual(antes - 1000)
+        }
+    })
+
     it('corpo malformado e conta malformada: 400, e nada é gravado', async () => {
         for (const body of [null, {}, { ...CORPO, ativo: 'sim' }, { ...CORPO, acao_ao_atingir_teto: null }, { ...CORPO, teto_de_consumo_brl: 0 }]) {
             estado.chamadas = []
