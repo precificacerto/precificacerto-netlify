@@ -36,11 +36,7 @@ import {
 } from '@/utils/orcamentista-config'
 import { MODULES, MODULOS_CONCEDIVEIS } from '@/hooks/use-permissions.hook'
 import { MODULE_LABELS } from '@/constants/module-labels'
-import {
-    ROTULO_ABRIR_FICHA,
-    TITULO_DA_COLUNA_ORCAMENTISTA,
-    resumoDaConfig,
-} from '@/page-parts/super-admin/orcamentista-na-lista.component'
+import { TITULO_DA_COLUNA_ORCAMENTISTA } from '@/page-parts/super-admin/orcamentista-na-lista.component'
 
 Object.defineProperty(window, 'matchMedia', {
     writable: true,
@@ -362,11 +358,13 @@ describe('PORTÃO 3 — desligar numa conta NÃO afeta a outra (a TELA)', () => 
         ]
     })
 
-    it('cada linha mostra a configuração DA SUA conta', async () => {
+    // BLOCO 2A (18/10/2026): a célula é só o interruptor — o resumo saiu. O que discrimina "a
+    // configuração DA SUA conta" passa a ser o estado do interruptor, com A e B DIFERENTES.
+    it('cada linha mostra o estado DA SUA conta', async () => {
+        configsDaTela = [configsDaTela![0], { ...configsDaTela![1], ativo: false }]
         const t = await montarTela()
-        expect(t.celula(CONTA_A)!.textContent).toContain(resumoDaConfig(configsDaTela![0]))
-        expect(t.celula(CONTA_B)!.textContent).toContain(resumoDaConfig(configsDaTela![1]))
-        expect(resumoDaConfig(configsDaTela![0])).not.toBe(resumoDaConfig(configsDaTela![1]))
+        expect(t.celula(CONTA_A)!.querySelector('button[role="switch"]')!.getAttribute('aria-checked')).toBe('true')
+        expect(t.celula(CONTA_B)!.querySelector('button[role="switch"]')!.getAttribute('aria-checked')).toBe('false')
     })
 
     // MUTAÇÃO: o switch de uma linha gravar em outra conta.
@@ -380,14 +378,13 @@ describe('PORTÃO 3 — desligar numa conta NÃO afeta a outra (a TELA)', () => 
         expect(fetchs.map((f) => f.url)).not.toContain(rotaDaConfig(CONTA_B))
     })
 
-    it('a ficha abre com os valores da conta que a abriu', async () => {
+    // BLOCO 2A: a ficha saiu desta tela. A célula tem UM botão, o interruptor, e nada mais.
+    it('a célula é só o interruptor: nenhum outro botão, e nenhuma ficha na tela', async () => {
         const t = await montarTela()
-        const botao = Array.from(t.celula(CONTA_B)!.querySelectorAll('button')).find((b) => (b.textContent || '').trim() === ROTULO_ABRIR_FICHA)!
-        await act(async () => { botao.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
-        const ficha = document.body.querySelector('[data-testid="ficha-do-orcamentista"]')!
-        const valor = ficha.querySelector('[data-testid="ficha-valor"] input, input[data-testid="ficha-valor"]') as HTMLInputElement
-        expect(valor.value).toBe('49,90')
-        expect(document.body.textContent).toContain('Conta Beta')
+        const botoes = Array.from(t.celula(CONTA_B)!.querySelectorAll('button'))
+        expect(botoes).toHaveLength(1)
+        expect(botoes[0].getAttribute('role')).toBe('switch')
+        expect(document.body.querySelector('[data-testid="ficha-do-orcamentista"]')).toBeNull()
     })
 
     // `ausente-vs-falso.md`: configuração que não foi lida não é "desligada".
@@ -399,12 +396,11 @@ describe('PORTÃO 3 — desligar numa conta NÃO afeta a outra (a TELA)', () => 
         expect(t.celula(CONTA_A)!.querySelector('button[role="switch"]')).toBeNull()
     })
 
-    it('conta SEM linha, com a lista lida: desligada, e dizendo que nunca foi configurada', async () => {
+    it('conta SEM linha, com a lista lida: desligada — aí sim é fato', async () => {
         configsDaTela = [configsDaTela![0]]
         const t = await montarTela()
         const sw = t.celula(CONTA_B)!.querySelector('button[role="switch"]')!
         expect(sw.getAttribute('aria-checked')).toBe('false')
-        expect(t.celula(CONTA_B)!.textContent).toContain(resumoDaConfig(undefined))
     })
 })
 
@@ -447,13 +443,14 @@ describe('PORTÃO 4 — nenhuma tela existente muda', () => {
         expect(fs.readdirSync(path.join(process.cwd(), 'src/pages')).filter((n) => /orcamentista/i.test(n))).toEqual([])
     })
 
-    it('a lista do super admin mantém as colunas de antes, na ordem, e acrescenta a do Orçamentista antes de "Aprovado"', async () => {
+    // BLOCO 2A (18/10/2026): as 10 colunas viraram 7, por decisão do dono do produto. O portão
+    // das 7 é `o-painel-de-contas-cabe-na-tela.test.tsx`; aqui fica só a posição desta coluna.
+    it('a coluna do Atendimentos I.A. fica antes de "Aprovado"', async () => {
         usuarioDaTela = { is_super_admin: true }
         configsDaTela = []
         erroDasConfigs = undefined
         const t = await montarTela()
-        expect(t.titulos().filter((x) => x !== '')).toEqual(
-            ['Tenant', 'Telefone', 'Status', 'Ativo', 'Trial até', 'Plano até', 'Free', TITULO_DA_COLUNA_ORCAMENTISTA, 'Aprovado', 'Ações'],
-        )
+        const titulos = t.titulos().filter((x) => x !== '')
+        expect(titulos.indexOf(TITULO_DA_COLUNA_ORCAMENTISTA)).toBe(titulos.indexOf('Aprovado') - 1)
     })
 })
