@@ -3,8 +3,10 @@
 **Status:** em especificação. Bloco 1 entregue (PR #95). Bloco 2A neste branch. 2B e 2C a definir.
 **Criado:** 18/10/2026 · **Revisto com o mockup:** 19/10/2026
 **Fonte:** as instruções do dono do produto nas rodadas do bloco 1 e do bloco 2A, e o mockup
-aprovado `docs/prd/atendimentos-ia-mockup.html`, **versão 21** (commit `2d666d9`, md5
-`73a813d8bcf363cce9de73a0135afe78`, 745 linhas).
+aprovado `docs/prd/atendimentos-ia-mockup.html`, **versão 21** — subida pelo dono do produto no
+commit `2d666d9` (md5 `73a813d8bcf363cce9de73a0135afe78`) e corrigida em 19/10/2026 em duas notas
+obsoletas, por autorização dele (md5 `8ebb77c83243889fed72f1598f00b64d`, 50.462 bytes, 745
+linhas).
 
 > **Como ler este documento.** O que está aqui foi LIDO do mockup ou declarado pelo dono do
 > produto — cada seção diz qual das duas. Onde o mockup não decide, a seção diz **"a definir"** e
@@ -35,7 +37,7 @@ modelo de atendimento → nicho → fornecedor → tabela → motor
 | **nicho** | pertence a UM modelo; a lista de nichos depende do modelo escolhido. Exemplos do mockup — Fabricação: Esquadrias, Móveis planejados, Metalurgia; Revenda: "Geral — produtos do próprio sistema", Loja de roupas, Materiais de construção; Serviço: Mecânica, Manutenção predial |
 | **fornecedor** | **da plataforma**, não de uma conta: tem nome e **um** nicho. Credenciado uma vez, em "Fornecedores e tabelas", antes das contas, e reaproveitado por todas. Pode ser movido de nicho ("Fornecedor alterado e movido de nicho") |
 | **tabela** | pertence a um fornecedor, que pode ter várias. Tem **arquivo da tabela**, **arquivo do motor**, **vigência** (texto, ex.: "desde 01/10/2026", "01/07 a 30/09/2026") e **data de subida** |
-| **motor** | é o **arquivo do motor** subido junto com a tabela, no mesmo modal. Obrigatório: *"Suba o arquivo do motor — sem ele a tabela não calcula"*. Texto da tela: *"O motor é quem faz as reduções de tipologia em cima dos perfis desta tabela. O conteúdo dos dois arquivos — código, dimensão, peso, referência, valor — é importado e fica por trás, sem aparecer aqui."* |
+| **motor** | é o **arquivo do motor** subido junto com a tabela, no mesmo modal. **Obrigatório em toda tabela** — regra 3.8. O mockup: *"Suba o arquivo do motor — sem ele a tabela não calcula"*. Texto da tela: *"O motor é quem faz as reduções de tipologia em cima dos perfis desta tabela. O conteúdo dos dois arquivos — código, dimensão, peso, referência, valor — é importado e fica por trás, sem aparecer aqui."* |
 
 E, por conta, a **configuração**: modelo, nicho, as **linhas de tabela em uso** (cada linha é um
 par fornecedor + tabela; o mesmo fornecedor pode aparecer em várias linhas, uma por tabela) e a
@@ -54,8 +56,11 @@ Declaração do dono do produto:
 
 O motor NUNCA é escolhido em separado: ele é um atributo da tabela e entra junto com ela. O
 mockup confirma na forma: o motor é um campo do modal da tabela, e na configuração da conta a
-linha só o **exibe** ("motor: …"), sem seletor. Registro:
-`docs/registros/o-motor-vem-preso-a-tabela.md`. **Há uma frase do mockup que diverge — ver 9.1.**
+linha só o **exibe** ("motor: …"), sem seletor. A nota 3 do mockup, que dizia que modelo e nicho
+determinavam o motor, era texto obsoleto — anterior a esta decisão — e foi corrigida no mockup em
+19/10/2026: *"Modelo e nicho dizem qual catálogo a conta enxerga; o motor vem preso à tabela e
+entra junto com ela, nunca escolhido à parte."* Registro:
+`docs/registros/o-motor-vem-preso-a-tabela.md`.
 
 ### 3.2 Revenda não usa fornecedor
 
@@ -65,7 +70,7 @@ seção "Base de cálculo do motor" diz: *"A I.A. monta o orçamento a partir do
 no sistema do próprio cliente. Não usa fornecedor nem tabela externa."* E o nicho: *"Na revenda o
 nicho não muda o motor: a base é o próprio cadastro de produtos do cliente."*
 
-**Prestação de serviço não é decidida pela nota** — ver 9.2.
+**Prestação de serviço não foi declarada** — ver 9.1.
 
 ### 3.3 Nada que pertença a um cliente é subido no Atendimentos I.A.
 
@@ -101,6 +106,16 @@ Mockup: *"Excluir só é possível enquanto nenhuma conta estiver usando a tabel
 a tela diz quais — tire a tabela da conta primeiro."* O mesmo vale para excluir fornecedor: em uso,
 a tela recusa com *"Em uso por: <contas>"*.
 
+### 3.8 O motor é obrigatório em toda tabela
+
+Declaração do dono do produto:
+
+> "quando for inserida uma nova tabela, tem que inserir o motor de aplicação"
+
+Não existe tabela sem motor. O modal "Credenciar fornecedor" do mockup, que cria tabela só com
+arquivo e vigência, é atalho do protótipo e não regra; o que vale é o modal da tabela, que recusa
+salvar sem o arquivo do motor.
+
 ## 4. O menu
 
 Mockup, menu lateral do super admin:
@@ -125,7 +140,7 @@ aparecer em "Contas ligadas".
 
 Aberta pelo "Ver". O mockup mostra: Email · **Telefone** (marcado *"VEIO DA LISTA"*) · Situação
 (selo) · Free · Vigência · Aprovado, e o botão "← Voltar para a lista". **O 2A acrescentou só o
-Telefone**; a ficha de hoje ainda mostra Status cru, Trial até e Plano até separados — ver 9.6.
+Telefone.** O resto da ficha de hoje não muda por causa do mockup — decisão 10.4.
 
 ### 5.3 Atendimentos I.A. — contas ligadas *(a fazer)*
 
@@ -160,7 +175,8 @@ Quatro grupos, e "Salvar configuração" / "Cancelar":
 Título: *"Fornecedores e tabelas de preço"*. Colunas: **Fornecedor** · **Nicho** · **Contas
 usando** · "Tabelas". Botão **"+ Credenciar fornecedor"**, que abre o modal: **nome**, **nicho**
 (agrupado por modelo) e a lista **"Tabelas deste fornecedor"** (*"Pode salvar sem nenhuma e subir
-depois"*), e "Salvar credenciamento".
+depois"*), e "Salvar credenciamento". Esse modal cria tabela sem motor — **é atalho do protótipo,
+não regra**: o motor é obrigatório em toda tabela (3.8).
 
 ### 5.6 As tabelas de um fornecedor *(a fazer)*
 
@@ -206,48 +222,54 @@ As telas 5.3, 5.5 e 5.6 e a seção nova do menu ainda não estão atribuídas a
   `auth.context.tsx`, `configuracoes/index.tsx`.
 - **O teto que virou projeção** — `docs/registros/o-teto-que-virou-projecao.md`.
 
-## 9. O que o mockup NÃO decide — a definir
+## 9. O que segue aberto — a definir
 
 Cada item abaixo é uma pergunta para o dono do produto, não uma escolha feita aqui.
 
-1. **O motor vem do modelo e nicho, ou da tabela?** A nota 3 do mockup diz *"Modelo e nicho
-   dizem qual motor; fornecedor e tabela dizem com que números ele calcula."* O resto do mockup e
-   a declaração de 18/10/2026 põem o motor como arquivo DA TABELA. As duas leituras não são a
-   mesma; a regra 3.1 segue a declaração e o modal.
-2. **Prestação de serviço usa fornecedor?** A nota 4 decide Revenda (não) e Fabricação (sim). No
-   comportamento do mockup, Serviço cai no caminho de fornecedor — mas nenhum fornecedor de
-   exemplo é de nicho de serviço, e nenhuma nota diz.
-3. **Nicho sem fornecedor.** Quando o nicho da conta não tem fornecedor, o mockup oferece TODOS os
+1. **Prestação de serviço usa fornecedor?** Não foi declarado pelo dono do produto. A nota 4 do
+   mockup decide Revenda (não usa) e Fabricação (usa). Hoje Serviço segue o caminho de fornecedor
+   **por consequência do código do mockup** — a tela só esconde o fornecedor quando o modelo é
+   Revenda —, **não por decisão**. Nenhum fornecedor de exemplo é de nicho de serviço.
+2. **Nicho sem fornecedor.** Quando o nicho da conta não tem fornecedor, o mockup oferece TODOS os
    fornecedores da plataforma em vez de nenhum. Não está dito se é a regra ou um atalho do
    protótipo.
-4. **Fornecedor em nicho de revenda.** O modal de credenciamento oferece os nichos de Revenda,
+3. **Fornecedor em nicho de revenda.** O modal de credenciamento oferece os nichos de Revenda,
    embora Revenda não use fornecedor (3.2).
-5. **Tabela sem motor no credenciamento.** O modal "Credenciar fornecedor" cria tabelas com só
-   arquivo e vigência, sem motor; o modal de tabela recusa salvar sem motor. Qual vale.
-6. **A ficha da conta.** O mockup mostra Situação (selo) e Vigência (uma linha); a de hoje mostra
-   Status cru, Trial até e Plano até. Fora do escopo do 2A, que só pediu o Telefone.
-7. **Vigência: o critério.** O mockup escolhe "Trial até" quando HÁ data de trial; o 2A
-   implementou por `plan_status === 'TRIAL'`, como instruído. Só diferem numa conta não-TRIAL com
-   data de trial preenchida.
-8. **Rótulos da lista.** O mockup diz "Contas" e "+ Criar conta"; a tela de hoje diz "Criar
-   tenant", e o 2A não mudou isso.
-9. **"Piso".** A nota 2 diz que na seção ficam *"segmentação, fornecedores, piso e teto"*. Nenhuma
-   tela do mockup tem piso, e a nota 7 diz que ficou "um número só". O que é o piso, se existe.
-10. **De onde vem o "Gasto no mês" / "Consumido no mês".** Nenhuma fonte de consumo existe hoje.
-11. **O resumo da base da revenda.** O que conta como "itens de custo", e de onde vem a data de
-    atualização.
-12. **O que é importado dos arquivos.** O mockup diz que o conteúdo (*"código, dimensão, peso,
-    referência, valor"*) é importado e fica por trás. Formato, validação e o que acontece com uma
-    tabela que não importa — não decididos. O script do mockup ainda traz restos de uma versão
-    com perfis editáveis (código, descrição, kg/m, R$/m) que nenhuma tela exibe.
-13. **Vigência da tabela.** É texto livre no mockup. Se o sistema escolhe sozinho a tabela vigente
-    de um fornecedor, ou se a linha da conta fica presa à tabela escolhida mesmo depois de vencer.
-14. **Conta ligada e suspensa.** Se uma conta suspensa ou cancelada com o Atendimentos I.A. ligado
-    aparece em "Contas ligadas".
-15. **A seção Super Admin do menu.** O mockup lista quatro itens (Painel, Tenants, Usuários,
-    Pagamentos); o menu de hoje tem oito (também Notificações, Convites, Cadastros e Planos
-    Expirando). Não está dito se o mockup só abreviou ou se propõe tirar os outros quatro.
-    E a seção nova "Atendimentos I.A." é uma seção à parte da "Super Admin": entrar no menu exige
-    classificá-la em `clientes-vira-secao-propria.test.ts` (o que o super admin vê, seção por
-    seção), e o mockup não diz se ela é só do super admin — os itens de hoje do Super Admin são
-    `superAdminOnly`, sem módulo de permissão.
+4. **De onde vem o "Gasto no mês" / "Consumido no mês".** Nenhuma fonte de consumo existe hoje.
+5. **O resumo da base da revenda.** O que conta como "itens de custo", e de onde vem a data de
+   atualização.
+6. **O que é importado dos arquivos.** O mockup diz que o conteúdo (*"código, dimensão, peso,
+   referência, valor"*) é importado e fica por trás. Formato, validação e o que acontece com uma
+   tabela que não importa — não decididos. O script do mockup ainda traz restos de uma versão
+   com perfis editáveis (código, descrição, kg/m, R$/m) que nenhuma tela exibe.
+7. **Vigência da tabela.** É texto livre no mockup. Se o sistema escolhe sozinho a tabela vigente
+   de um fornecedor, ou se a linha da conta fica presa à tabela escolhida mesmo depois de vencer.
+8. **Conta ligada e suspensa.** Se uma conta suspensa ou cancelada com o Atendimentos I.A. ligado
+   aparece em "Contas ligadas".
+9. **A seção Super Admin do menu.** O mockup lista quatro itens (Painel, Tenants, Usuários,
+   Pagamentos); o menu de hoje tem oito (também Notificações, Convites, Cadastros e Planos
+   Expirando). Não está dito se o mockup só abreviou ou se propõe tirar os outros quatro.
+   E a seção nova "Atendimentos I.A." é uma seção à parte da "Super Admin": entrar no menu exige
+   classificá-la em `clientes-vira-secao-propria.test.ts` (o que o super admin vê, seção por
+   seção), e o mockup não diz se ela é só do super admin — os itens de hoje do Super Admin são
+   `superAdminOnly`, sem módulo de permissão.
+
+## 10. O que foi decidido em 19/10/2026
+
+Pontos que a primeira revisão contra o mockup listava como abertos, e que o dono do produto
+resolveu. Ficam aqui, com a razão, para que ninguém os reabra lendo só o mockup.
+
+1. **O motor é atributo da tabela** — entra junto com ela e nunca é escolhido em separado (3.1).
+   A nota 3 do mockup que dizia o contrário era texto obsoleto e foi corrigida no mockup.
+2. **O motor é obrigatório em toda tabela** (3.8). O modal de credenciar fornecedor do mockup é
+   atalho do protótipo, não regra.
+3. **Não existe piso.** A nota 2 do mockup que o citava ("segmentação, fornecedores, piso e teto")
+   era texto obsoleto e foi corrigida no mockup. O único número é a projeção (3.5).
+4. **O mockup não governa rótulos de telas que o 2A não tocou.** A ficha da conta continua com o
+   que tem, mais o Telefone; a lista de contas continua com "Criar tenant". Mudar esses rótulos é
+   pedido próprio, não consequência do mockup.
+5. **Vigência por `plan_status === 'TRIAL'`, como está no 2A.** O mockup escolhe "Trial até" pela
+   PRESENÇA da data de trial, e esse critério é mais frágil: uma conta fora do trial com
+   `trial_ends_at` preenchida apareceria como em trial. O `plan_status` diz em que estado a conta
+   ESTÁ; a data diz só que ela teve um trial. Portão: `o-painel-de-contas-cabe-na-tela.test.tsx`,
+   caso da Vigência, em que as contas têm as duas datas e só o `plan_status` decide.
