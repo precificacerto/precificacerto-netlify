@@ -5,8 +5,9 @@
  * (`docs/registros/o-menu-oferecia-o-que-o-guarda-proibia.md`): o menu oferecia `/clientes` ao
  * super admin e o guarda o devolvia ao painel. Este portão afirma as duas pontas para a seção
  * nova, com o MESMO usuário e o MESMO destino:
- *   (a) o menu desktop do super admin traz a seção e o item "Fornecedores e tabelas";
- *   (b) o drawer mobile traz o mesmo item, na mesma seção;
+ *   (a) o menu desktop do super admin traz a seção, com "Contas ligadas" e "Fornecedores e
+ *       tabelas" — o primeiro entrou no bloco 2C.1, em 19/10/2026;
+ *   (b) o drawer mobile traz os mesmos itens, na mesma seção e na mesma ordem;
  *   (c) TODO destino da seção mora sob `/super-admin/` — a lista que o guarda já permite;
  *   (d) o GUARDA, com o super admin no destino, NÃO o redireciona — e o mesmo caminho sem o
  *       prefixo, sim: é o caso que fica vermelho se a rota sair de `/super-admin/`. (O guarda
@@ -96,19 +97,19 @@ const destinosDaSecao = (raiz: ParentNode) =>
     Array.from(raiz.querySelectorAll(`[data-section-key="${SECAO}"] a[href]`)).map((a) => a.getAttribute('href') as string)
 
 describe('a seção Atendimentos I.A. — menu e guarda', () => {
-    it('(a) o menu desktop do super admin traz a seção, com "Fornecedores e tabelas"', () => {
+    it('(a) o menu desktop do super admin traz a seção, com "Contas ligadas" e "Fornecedores e tabelas"', () => {
         caminhoAtual = ROUTES.SUPER_ADMIN_PANEL
         const host = montar(<Nav />)
-        expect(destinosDaSecao(host)).toEqual([ROUTES.SUPER_ADMIN_IA_FORNECEDORES])
+        expect(destinosDaSecao(host)).toEqual([ROUTES.SUPER_ADMIN_IA_CONTAS, ROUTES.SUPER_ADMIN_IA_FORNECEDORES])
         const rotulos = Array.from(host.querySelectorAll('.nav-section-label')).map((e) => (e.textContent || '').trim())
         expect(rotulos).toContain('Atendimentos I.A.')
     })
 
-    it('(b) o drawer mobile do super admin traz o mesmo item, na mesma seção', () => {
+    it('(b) o drawer mobile do super admin traz os mesmos itens, na mesma seção', () => {
         caminhoAtual = ROUTES.SUPER_ADMIN_PANEL
         montar(<MobileMoreDrawer open onClose={() => {}} />)
         const drawer = document.querySelector('.pc-mobile-more-drawer-content') as ParentNode
-        expect(destinosDaSecao(drawer)).toEqual([ROUTES.SUPER_ADMIN_IA_FORNECEDORES])
+        expect(destinosDaSecao(drawer)).toEqual([ROUTES.SUPER_ADMIN_IA_CONTAS, ROUTES.SUPER_ADMIN_IA_FORNECEDORES])
     })
 
     it('(c) todo destino da seção mora sob /super-admin/ — desktop e drawer', () => {
@@ -125,6 +126,8 @@ describe('a seção Atendimentos I.A. — menu e guarda', () => {
     it.each([
         [ROUTES.SUPER_ADMIN_IA_FORNECEDORES],
         [`${ROUTES.SUPER_ADMIN_IA_FORNECEDORES}/[id]`],
+        [ROUTES.SUPER_ADMIN_IA_CONTAS],
+        [`${ROUTES.SUPER_ADMIN_IA_CONTAS}/[tenantId]`],
     ])('(d) o GUARDA deixa o super admin em %s — e o mesmo destino FORA de /super-admin/ seria recusado', (rota) => {
         caminhoAtual = rota
         replaces.length = 0
@@ -147,6 +150,19 @@ describe('a seção Atendimentos I.A. — menu e guarda', () => {
         const host = montar(<Nav />)
         expect(host.querySelector(`[data-section-key="${SECAO}"]`)).toBeNull()
         expect(host.querySelector(`a[href="${ROUTES.SUPER_ADMIN_IA_FORNECEDORES}"]`)).toBeNull()
+        expect(host.querySelector(`a[href="${ROUTES.SUPER_ADMIN_IA_CONTAS}"]`)).toBeNull()
+        // O contraste no MESMO menu: o usuário de conta vê os itens dele — sem isto, um menu que
+        // não renderizasse nada passaria as negativas acima.
+        expect(host.querySelectorAll('a[href]').length).toBeGreaterThan(0)
+    })
+
+    it('(e) o drawer mobile do usuário de conta também não traz as contas ligadas', () => {
+        usuario = ADMIN_DE_CONTA as typeof SUPER_ADMIN
+        caminhoAtual = '/'
+        montar(<MobileMoreDrawer open onClose={() => {}} />)
+        const drawer = document.querySelector('.pc-mobile-more-drawer-content') as ParentNode
+        expect(drawer.querySelectorAll('a[href]').length).toBeGreaterThan(0)
+        expect(drawer.querySelector(`a[href="${ROUTES.SUPER_ADMIN_IA_CONTAS}"]`)).toBeNull()
     })
 
     it('(f) a seção não entra em MODULES nem na tela de Permissões', () => {

@@ -15,6 +15,7 @@
 import { supabaseAdmin } from '@/supabase/admin'
 import {
     BUCKET_DO_CATALOGO,
+    type ContaLigada,
     type CorpoDaTabela,
     type FornecedorComTabelas,
     type FornecedorDaLista,
@@ -75,12 +76,48 @@ export async function excluirNicho(id: string): Promise<number> {
     return linhas.length
 }
 
+/** Um nicho pelo id — para a rota dizer o que segura quando o banco recusa o par (modelo, nicho). */
+export async function obterNicho(id: string): Promise<{ id: string; modelo: Modelo; nome: string } | null> {
+    const ns = await q(db().from('orcamentista_nicho').select('id, modelo, nome').eq('id', id))
+    return (ns[0] as { id: string; modelo: Modelo; nome: string } | undefined) ?? null
+}
+
 /** Quem SEGURA um nicho: fornecedores dele e contas configuradas com ele. */
 export async function quemSeguraONicho(id: string): Promise<{ fornecedores: string[]; contas: string[] }> {
     const fs = await q(db().from('orcamentista_fornecedor').select('nome').eq('nicho_id', id))
     const cfg = await q(db().from('orcamentista_config').select('tenant_id').eq('nicho_id', id))
     const nomes = await nomesDasContas(cfg.map((c: Linha) => c.tenant_id))
     return { fornecedores: fs.map((f: Linha) => f.nome), contas: cfg.map((c: Linha) => nomes[c.tenant_id] ?? c.tenant_id) }
+}
+
+// ── Contas ligadas (bloco 2C.1) ────────────────────────────────────────────────────────────
+/**
+ * As contas com o Atendimentos I.A. LIGADO, com o nome e a segmentação.
+ *
+ * REGRA INVIOLÁVEL: a lista de contas e a tela de configuração mostram APENAS o
+ * nome/identificação da conta e a configuração do Atendimentos I.A. NADA do conteúdo da conta —
+ * nem clientes, nem orçamentos, nem funcionários, nem valores. O super admin não tem tenant e não
+ * pode enxergar dado de cliente por construção.
+ *
+ * Por isso a linha é MONTADA campo a campo, e não espalhada de uma consulta: de `tenants` só se
+ * lê `id, name` (`nomesDasContas`), de `orcamentista_config` só a segmentação. Valor do adicional,
+ * teto e quem ligou ficam de fora — não são desta tela.
+ */
+export async function listarContasLigadas(): Promise<ContaLigada[]> {
+    const cfg = await q(db().from('orcamentista_config').select('tenant_id, modelo, nicho_id').eq('ativo', true))
+    const nomes = await nomesDasContas(cfg.map((c: Linha) => c.tenant_id))
+    const nichoIds = [...new Set(cfg.map((c: Linha) => c.nicho_id).filter((id: string | null) => id != null))]
+    const nichos = nichoIds.length ? await q(db().from('orcamentista_nicho').select('id, nome').in('id', nichoIds)) : []
+    const nomeDoNicho = Object.fromEntries(nichos.map((n: Linha) => [n.id, n.nome as string]))
+    return cfg
+        .map((c: Linha): ContaLigada => ({
+            tenant_id: c.tenant_id,
+            nome: nomes[c.tenant_id] ?? c.tenant_id,
+            modelo: c.modelo ?? null,
+            nicho_id: c.nicho_id ?? null,
+            nicho_nome: c.nicho_id ? (nomeDoNicho[c.nicho_id] ?? null) : null,
+        }))
+        .sort((a: ContaLigada, b: ContaLigada) => a.nome.localeCompare(b.nome, 'pt-BR'))
 }
 
 // ── Fornecedores ───────────────────────────────────────────────────────────────────────────

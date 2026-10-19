@@ -44,10 +44,12 @@ que não estava nele.
 | 4 | `npm run typecheck` (`diagnostics`) | é o único que alcança `supabase/functions/` — o `tsconfig.json` inclui `**/*.ts` e exclui só `node_modules` | roda com `continue-on-error: true` e não bloqueia. Ficou vermelho, corretamente, e não impediu nada |
 | 5 | `npm run test:legacy-guard` | a story `mrm-v2-s2.1` marca `[x]` em *"Regra CI (ESLint custom ou teste de regressão) bloqueando reintrodução"* | o script existe e **nunca é executado**: não está no `ci.yml`, não há `.husky/`, não há hook ativo em `.git/hooks/`, e o `jest.config.js` não o chama. Portão declarado que nunca é acionado |
 | 6 | a linha **`Tests: N passed`** do jest, usada como portão de "a suíte está verde" | que nenhum teste falhou | uma suíte que **não carrega** não contribui caso nenhum, então não pode mudar esse número. O run dizia `Test Suites: 1 failed, 107 passed` e `Tests: 1939 passed` ao mesmo tempo; a segunda linha foi conferida, a primeira não, e o commit foi empurrado vermelho |
+| 7 | o portão **P3 do bloco 2C.1** — *"o tipo `ConfigDoOrcamentista` declara `modelo` e `nicho_id`"* (`atendimentos-ia-contas-ligadas.test.ts`) | que a regressão do TIPO é barrada | só fica vermelho no `tsc` **rodado à mão**, comparado por arquivo+código contra a `main`. Na CI: o `gates` é bloqueante e **não checa tipo** — o jest apaga tipos, o `next build` tem `ignoreBuildErrors: true` —; o `typecheck` está em `diagnostics`, com `continue-on-error`, e com **363 erros herdados** ele fica vermelho em todo PR, com ou sem a regressão |
 
-As seis têm a mesma assinatura: **o indicador fica verde e a proteção declarada não foi
+As sete têm a mesma assinatura: **o indicador fica verde e a proteção declarada não foi
 exercida.** A #5 é variante — lá nada fica vermelho porque nada roda, nas outras nada fica
-vermelho porque o instrumento não alcança. A distinção está registrada em vez de dissolvida,
+vermelho porque o instrumento não alcança. A #7 é a variante espelhada da #4 — ver a seção
+dela. A distinção está registrada em vez de dissolvida,
 conforme o limite de `registro-de-classe.md`.
 
 ### A #6 é de outra natureza, e é por isso que ela entra
@@ -69,6 +71,46 @@ não há revisão depois.
 A autoria é do assistente, e o registro é dele também — ele voltou sem ser mandado. Está
 escrito assim porque suavizar apagaria o que a linha ensina: o erro não foi de atenção, foi de
 **escolha de indicador**, e mais atenção não o teria evitado.
+
+### A #7: o instrumento que alcança, e fica vermelho SEMPRE
+
+Medido em 19/10/2026, na branch `claude/atendimentos-ia-2c`.
+
+O P3 foi escrito como portão do `tsc`, e isso foi dito no próprio arquivo de teste: o jest
+compila com babel e apaga tipos, então a asserção sobre o TIPO só existe para o `tsc`. A
+pergunta 3 do corolário — *o portão roda, e bloqueia?* — não foi feita antes de chamá-lo de
+portão. A resposta, lida no `.github/workflows/ci.yml`:
+
+| o que | o que faz com o P3 |
+|---|---|
+| gatilho do `ci.yml` | `push` só na `main`, e `pull_request`. Push em branch de trabalho não dispara nada — conferido: **zero execuções** na branch depois do push |
+| job `gates` — `test:ci`, `check-pricing-engine`, `check-edge-imports`, `build` | bloqueante, e **nenhum dos quatro checa tipo** |
+| job `diagnostics` — `typecheck`, `lint` | `continue-on-error: true`: roda e não bloqueia |
+| `typecheck` = `tsc --noEmit` | **363 erros herdados na `main`**. Fica vermelho em todo PR, com ou sem a regressão — não distingue o erro novo dos 363 |
+| hook local | não existe: nem `.husky/`, nem hook ativo em `.git/hooks/` |
+
+A mutação que o prova, com `modelo` retirado de `ConfigDoOrcamentista`:
+
+| instrumento | resultado |
+|---|---|
+| jest | **verde** — o caso P3 passa, porque o babel apagou o tipo |
+| `tsc --noEmit` | **372** contra 363 da baseline, `TS2353` no literal tipado do teste |
+| `next build` | não checa tipo — `ignoreBuildErrors: true` (aparição 1) |
+
+**Por que é o espelho da #4.** Lá o `typecheck` alcançava o arquivo, ficou vermelho, e não
+bloqueou. Aqui ele também alcança e também não bloqueia — mas há um segundo furo, que a #4 não
+tinha: **mesmo que bloqueasse, ele não discriminaria.** Um instrumento vermelho em todo PR tem
+o mesmo valor informativo de um verde em todo PR: o indicador não muda no caso que se quer
+detectar, que é a pergunta 4. O que tornou o P3 vermelho foi a comparação por arquivo+código
+de `baseline-measurement.md`, feita à mão — e essa comparação não existe em lugar nenhum da CI.
+
+A autoria é do assistente: o P3 foi escrito, nomeado portão e relatado como tal sem que a
+pergunta 3 fosse feita. Quem perguntou foi o dono do produto, ao pedir o relato da CI.
+
+**As correções possíveis, NÃO aplicadas**, e são as duas da rota (a) abaixo: congelar a
+contagem do `tsc` e falhar quando ela aumentar; ou tornar o `tsc` bloqueante para um conjunto
+de caminhos. Até uma delas existir, um portão de tipo neste repositório é medição manual, e
+tem de ser relatado assim.
 
 ### A medição de hoje, que é a evidência
 
@@ -97,6 +139,11 @@ A #6 é meses posterior e não foi procurada: aconteceu. Ela foi incluída depoi
 produto pedir que se avaliasse **se cabia em alguma classe, e que não se forçasse se não
 coubesse**. Coube pelo mecanismo; a diferença de natureza está registrada acima em vez de
 dissolvida na tabela. Nenhuma sétima foi forçada.
+
+A #7 também não foi procurada: apareceu quando o dono do produto pediu, depois do push, o
+relato de quais checks a CI rodava e se a comparação do `tsc` estava entre eles. Entrou pela
+pergunta 3 (roda, e bloqueia?) e pela 4 (o número muda no caso?) — as duas com resposta
+negativa, medidas. Nenhuma oitava foi forçada.
 
 ### Uma correção de registro, que é minha
 

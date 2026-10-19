@@ -12,7 +12,16 @@
  *
  * AS UNIDADES (R$ e R$/mês), o DOMÍNIO da ação (BLOQUEAR | AVISAR) e o DEFAULT AVISAR foram
  * aprovados pelo dono do produto em 18/10/2026 — mudar na migração muda aqui, no mesmo commit.
+ *
+ * BLOCO 2C.1 (19/10/2026): a SEGMENTAÇÃO da conta — `modelo` e `nicho_id`, colunas da migração
+ * `20261019000001` — entra no contrato como uma SEGUNDA gravação, separada do liga/desliga:
+ *   - o corpo do liga/desliga continua sendo as quatro chaves, e NÃO leva modelo nem nicho — por
+ *     isso ligar ou desligar não os apaga (portão P1 de `atendimentos-ia-contas-ligadas.test.ts`);
+ *   - o corpo da segmentação é SÓ `modelo` e `nicho_id`, e NÃO leva `ativo` — por isso gravar a
+ *     segmentação não toca `ativo`, `ativado_por` nem `ativado_em`;
+ *   - os dois no mesmo corpo são recusados: misturar faria a segmentação gravar `ativo`.
  */
+import { MODELOS, ROTULO_DO_MODELO, ehUuid, type Modelo } from '@/utils/atendimentos-ia-catalogo'
 
 export const ACOES_AO_ATINGIR_TETO = ['BLOQUEAR', 'AVISAR'] as const
 export type AcaoAoAtingirTeto = (typeof ACOES_AO_ATINGIR_TETO)[number]
@@ -39,6 +48,10 @@ export interface ConfigDoOrcamentista {
     ativado_em: string | null
     atualizado_por: string | null
     atualizado_em: string
+    /** A segmentação da conta no Atendimentos I.A. — NÃO é a segmentação fiscal do tenant. */
+    modelo: Modelo | null
+    /** Nicho do `modelo` — FK composta `(modelo, nicho_id)`; nulo sempre que `modelo` é nulo. */
+    nicho_id: string | null
 }
 
 /** O que a tela manda. NÃO tem tenant, autor nem data: a rota tira da URL, da sessão e do relógio. */
@@ -49,7 +62,16 @@ export interface CorpoDaConfig {
     acao_ao_atingir_teto: AcaoAoAtingirTeto
 }
 
-export type LeituraDoCorpo = { ok: true; corpo: CorpoDaConfig } | { ok: false; erro: string }
+/**
+ * A segmentação da conta (bloco 2C.1). As DUAS chaves são obrigatórias juntas: `null` diz "não
+ * definido", e uma chave ausente que virasse `null` apagaria o que está gravado.
+ */
+export interface CorpoDaSegmentacao {
+    modelo: Modelo | null
+    nicho_id: string | null
+}
+
+export type LeituraDoCorpo = { ok: true; corpo: CorpoDaConfig | CorpoDaSegmentacao } | { ok: false; erro: string }
 
 /**
  * O estreitamento EXPLÍCITO: com `strictNullChecks` desligado no `tsconfig`, `if (!r.ok)` não
@@ -59,8 +81,39 @@ export function leituraRecusada(r: LeituraDoCorpo): r is { ok: false; erro: stri
     return r.ok === false
 }
 
-export function leituraAceita(r: LeituraDoCorpo): r is { ok: true; corpo: CorpoDaConfig } {
+export function leituraAceita(r: LeituraDoCorpo): r is { ok: true; corpo: CorpoDaConfig | CorpoDaSegmentacao } {
     return r.ok === true
+}
+
+/** Qual das duas gravações o corpo é. A segmentação é a que NÃO tem `ativo`. */
+export function ehSegmentacao(c: CorpoDaConfig | CorpoDaSegmentacao): c is CorpoDaSegmentacao {
+    return !('ativo' in c)
+}
+
+const CHAVES_DA_CONFIG = ['ativo', 'valor_adicional_brl', 'teto_de_consumo_brl', 'acao_ao_atingir_teto'] as const
+const CHAVES_DA_SEGMENTACAO = ['modelo', 'nicho_id'] as const
+
+/**
+ * Lê a segmentação ESPELHANDO o banco, para a recusa sair com frase em vez de código:
+ *   - `modelo` é um de `MODELOS` ou nulo — a CHECK de domínio da coluna;
+ *   - `nicho_id` sem `modelo` é recusado — a CHECK `orcamentista_config_nicho_exige_modelo`;
+ *   - `nicho_id` que não é uuid é recusado — o Postgres o recusaria com 22P02.
+ * O que NÃO dá para conferir aqui é se o PAR existe: isso é a FK composta, e só o banco sabe.
+ */
+function lerSegmentacao(b: Record<string, unknown>): LeituraDoCorpo {
+    for (const k of CHAVES_DA_SEGMENTACAO) {
+        if (!(k in b)) return { ok: false, erro: `Campo obrigatório ausente: ${k}. A segmentação vai com modelo e nicho_id juntos.` }
+    }
+    const modelo = b.modelo
+    if (modelo !== null && !(MODELOS as readonly unknown[]).includes(modelo)) {
+        return { ok: false, erro: `Modelo inválido. Aceitos: ${MODELOS.join(', ')}, ou nenhum.` }
+    }
+    const nicho = b.nicho_id
+    if (nicho !== null && !ehUuid(nicho)) return { ok: false, erro: 'Nicho inválido.' }
+    if (nicho !== null && modelo === null) {
+        return { ok: false, erro: 'Não há nicho sem modelo: escolha o modelo antes do nicho.' }
+    }
+    return { ok: true, corpo: { modelo: modelo as Modelo | null, nicho_id: nicho as string | null } }
 }
 
 /** `true` para um número finito com no máximo duas casas — `numeric(12,2)` arredondaria o resto. */
@@ -69,14 +122,23 @@ function emCentavos(v: number): boolean {
 }
 
 /**
- * Lê o corpo SÓ pelas quatro chaves do contrato. As quatro são OBRIGATÓRIAS — `null` é um valor
- * dizendo "não definido", e ausente seria a tela esquecendo de mandar: os dois não são a mesma
- * coisa (`ausente-vs-falso.md`), e uma chave ausente que virasse `null` apagaria um teto gravado.
+ * Lê o corpo SÓ pelas chaves do contrato — e o contrato tem DUAS formas, nunca misturadas:
+ *   - o liga/desliga: as quatro chaves, todas OBRIGATÓRIAS — `null` é um valor dizendo "não
+ *     definido", e ausente seria a tela esquecendo de mandar: os dois não são a mesma coisa
+ *     (`ausente-vs-falso.md`), e uma chave ausente que virasse `null` apagaria um teto gravado;
+ *   - a segmentação (bloco 2C.1): `modelo` e `nicho_id`, as duas obrigatórias, pela mesma razão.
+ * Um corpo sem nenhuma das seis é lido como o liga/desliga, e recusado pela chave que falta.
  */
 export function lerCorpoDaConfig(bruto: unknown): LeituraDoCorpo {
     if (bruto === null || typeof bruto !== 'object') return { ok: false, erro: 'Corpo inválido.' }
     const b = bruto as Record<string, unknown>
-    for (const k of ['ativo', 'valor_adicional_brl', 'teto_de_consumo_brl', 'acao_ao_atingir_teto']) {
+    const temConfig = CHAVES_DA_CONFIG.some((k) => k in b)
+    const temSegmentacao = CHAVES_DA_SEGMENTACAO.some((k) => k in b)
+    if (temConfig && temSegmentacao) {
+        return { ok: false, erro: 'A segmentação (modelo, nicho) é gravada sozinha, sem o liga/desliga.' }
+    }
+    if (temSegmentacao) return lerSegmentacao(b)
+    for (const k of CHAVES_DA_CONFIG) {
         if (!(k in b)) return { ok: false, erro: `Campo obrigatório ausente: ${k}.` }
     }
     if (typeof b.ativo !== 'boolean') return { ok: false, erro: 'O campo "ativo" tem de ser verdadeiro ou falso.' }
@@ -134,6 +196,29 @@ export function montarGravacao(args: {
         linha.ativado_em = args.agora
     }
     return linha
+}
+
+/**
+ * A gravação da segmentação: SÓ `modelo` e `nicho_id`, mais quem mudou e quando — a tabela não
+ * tem trigger, e `atualizado_*` vai em toda gravação. NÃO leva `tenant_id` (a rota filtra a conta
+ * pela URL num UPDATE) nem `ativo`/`ativado_*`: a segmentação não liga nem desliga nada.
+ */
+export function montarGravacaoDaSegmentacao(args: { corpo: CorpoDaSegmentacao; usuarioId: string; agora: string }): Record<string, unknown> {
+    return {
+        modelo: args.corpo.modelo,
+        nicho_id: args.corpo.nicho_id,
+        atualizado_por: args.usuarioId,
+        atualizado_em: args.agora,
+    }
+}
+
+/**
+ * A frase do 409 quando o BANCO recusa o par (FK composta `(modelo, nicho_id)`, 23503): diz o que
+ * segura — o nicho é de outro modelo, ou não existe no catálogo.
+ */
+export function fraseDoParRecusado(modeloPedido: Modelo, nicho: { nome: string; modelo: Modelo } | null): string {
+    if (!nicho) return 'O nicho escolhido não existe no catálogo — pode ter sido excluído. Recarregue e escolha de novo.'
+    return `O nicho “${nicho.nome}” é do modelo ${ROTULO_DO_MODELO[nicho.modelo]}, não de ${ROTULO_DO_MODELO[modeloPedido]}.`
 }
 
 /** O corpo que a tela manda para alternar SÓ o liga/desliga, preservando o resto. */

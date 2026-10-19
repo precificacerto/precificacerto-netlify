@@ -60,10 +60,14 @@ const rel = (p: string) => path.relative(RAIZ, p)
 describe('PORTÃO 1 — a tela do Atendimentos I.A. não fala com o banco', () => {
     const daTela = AREAS_DA_TELA.flatMap(arquivos)
 
-    it('(c) o leitor alcança a área: ela existe, e tem a página de fornecedores', () => {
+    // Bloco 2C.1 (19/10/2026): as duas telas de "Contas ligadas" entram na lista. Sem elas aqui,
+    // (a) e (b) continuariam verdes sobre uma área que não as lê.
+    it('(c) o leitor alcança a área: ela existe, e tem as páginas de fornecedores e de contas ligadas', () => {
         expect(daTela.map(rel)).toEqual(expect.arrayContaining([
             'src/pages/super-admin/atendimentos-ia/fornecedores/index.tsx',
             'src/pages/super-admin/atendimentos-ia/fornecedores/[id].tsx',
+            'src/pages/super-admin/atendimentos-ia/contas/index.tsx',
+            'src/pages/super-admin/atendimentos-ia/contas/[tenantId].tsx',
         ]))
     })
 
