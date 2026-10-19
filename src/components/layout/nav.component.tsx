@@ -37,6 +37,7 @@ import { usePermissions, MODULES, type ModuleKey } from '@/hooks/use-permissions
 import { PERMISSIONS } from '@/shared/enums/permissions'
 import { monthObjects } from '@/constants/month'
 import { moduleVisibleForSegment } from '@/utils/segment-visibility'
+import { SECOES_ESCONDIDAS_DO_SUPER_ADMIN } from '@/constants/secoes-escondidas-do-super-admin'
 
 const iconMap: Record<string, React.ReactNode> = {
   home: <HomeOutlined />,
@@ -163,23 +164,16 @@ const Nav = () => {
   //
   // >>> `clientes` ENTRA — revertido em 19/10/2026, por decisão do dono do produto <<<
   //
-  // A HISTÓRIA, que não se apaga: o item de Clientes morava em `cadastros`, que está na
-  // lista, então o super admin nunca viu Clientes. Em 15/10/2026, ao virar seção própria,
-  // decidiu-se o CONTRÁRIO de hoje — que Clientes ficava de fora desta lista, por ser a seção
-  // de consulta e o super admin "exatamente quem precisa dela".
+  // Em 15/10/2026 decidiu-se o CONTRÁRIO: Clientes, ao virar seção própria, ficava fora desta
+  // lista. Medido em 19/10: o `AuthGuard` (`_app.tsx`) devolve o super admin ao painel em toda
+  // rota fora de `/super-admin/*` e `/minha-conta`, e o menu oferecia `/clientes` — o clique ia
+  // e voltava. O super admin não tem tenant; cliente pertence a uma conta.
   //
-  // POR QUE MUDOU — medido em 19/10/2026: o `AuthGuard` (`src/pages/_app.tsx`) devolve o super
-  // admin para `ROUTES.SUPER_ADMIN_PANEL` em QUALQUER rota fora de `/super-admin/*` e
-  // `/minha-conta`, e ninguém o mexeu em 15/10. O menu oferecia Clientes e o guarda proibia: o
-  // clique ia e voltava no mesmo instante. A decisão de 15/10 foi aplicada no menu e não no
-  // guarda; o defeito ficou invisível porque a seção nascia fechada, e o bloco 2A a abriu.
-  //
-  // A DECISÃO DE AGORA: o super admin NÃO vê Clientes. Ele não tem tenant — cliente pertence
-  // a uma conta, e ele não é dono de nenhuma. Liberar a rota só trocaria "não vai" por "vai e
-  // mostra vazio". Portão das duas pontas, menu e guarda juntos:
-  // `o-super-admin-nao-ve-clientes.test.tsx`. Registro:
-  // `docs/registros/o-menu-oferecia-o-que-o-guarda-proibia.md`.
-  const sectionsToHideForSuperAdmin = ['geral', 'cadastros', 'clientes', 'comercial', 'financeiro', 'agendamentos', 'operacional']
+  // A LISTA MORA EM `@/constants/secoes-escondidas-do-super-admin` desde 19/10/2026, com a
+  // história inteira no cabeçalho dela: o drawer mobile lê a MESMA constante, para que desktop e
+  // mobile respondam "quem vê o quê" pela mesma fonte. O nome local fica: é ele que a linha do
+  // filtro abaixo usa.
+  const sectionsToHideForSuperAdmin = SECOES_ESCONDIDAS_DO_SUPER_ADMIN
 
   const visibleItems = navigationItems.filter((item) => {
     if (item.hidden) return false
@@ -341,7 +335,7 @@ const Nav = () => {
           const isExpanded = !isCollapsible || expandedSections[section.key]
 
           return (
-            <div key={section.key} className="nav-section">
+            <div key={section.key} className="nav-section" data-section-key={section.key}>
               {section.label && (
                 <button
                   className="nav-section-header"

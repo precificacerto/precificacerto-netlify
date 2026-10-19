@@ -71,6 +71,10 @@ jest.mock('@/supabase/client', () => {
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { Nav } = require('@/components/layout/nav.component') as { Nav: React.ComponentType }
 // eslint-disable-next-line @typescript-eslint/no-var-requires
+const { MobileMoreDrawer } = require('@/components/layout/mobile-more-drawer.component') as {
+    MobileMoreDrawer: React.ComponentType<{ open: boolean; onClose: () => void }>
+}
+// eslint-disable-next-line @typescript-eslint/no-var-requires
 const { AuthGuard } = require('@/pages/_app') as { AuthGuard: (p: { children: ReactNode }) => React.ReactElement }
 
 const montadas: { root: ReturnType<typeof createRoot>; host: HTMLElement }[] = []
@@ -104,3 +108,38 @@ describe('o super admin não vê Clientes — as duas pontas', () => {
         expect(replaces).toEqual([ROUTES.SUPER_ADMIN_PANEL])
     })
 })
+
+/**
+ * O MOBILE — 19/10/2026. O drawer ("Mais") filtrava o super admin item a item, sem a lista de
+ * seções do desktop, e `canView` devolve `true` para todo módulo quando o usuário é super admin.
+ * Resultado medido: 18 itens de tenant oferecidos, Clientes entre eles, e todos caindo no mesmo
+ * `router.replace` do guarda. Desde esta data os dois menus leem a MESMA constante
+ * (`SECOES_ESCONDIDAS_DO_SUPER_ADMIN`), e cada item do drawer declara a `sectionKey` do desktop.
+ */
+describe('o mobile segue a mesma regra do desktop', () => {
+    /** As chaves de seção que um menu renderizou, pelo `data-section-key` de cada grupo. */
+    const chavesNoDom = (raiz: ParentNode) =>
+        Array.from(raiz.querySelectorAll('[data-section-key]')).map((e) => e.getAttribute('data-section-key') as string).sort()
+
+    it('(c) o DRAWER mobile do super admin não traz o item Clientes', () => {
+        caminhoAtual = ROUTES.SUPER_ADMIN_PANEL
+        montar(<MobileMoreDrawer open onClose={() => {}} />)
+        // O drawer do antd renderiza num portal, fora do `host`: a busca é no `document`.
+        expect(document.querySelector(`.pc-mobile-more-drawer-content a[href="${ROUTES.SUPER_ADMIN_TENANTS}"]`)).not.toBeNull()
+        expect(document.querySelector(`.pc-mobile-more-drawer-content a[href="${ROUTES.CLIENTS}"]`)).toBeNull()
+    })
+
+    // O CASO QUE IMPEDE A DIVERGÊNCIA DE VOLTAR: as seções que cada menu MOSTRA ao super admin,
+    // lidas do que cada um renderizou. `conta` só existe no drawer — no desktop, Minha Conta,
+    // Configurações, Planos, Suporte e Sair moram no rodapé, não numa seção.
+    it('(d) o desktop e o drawer mostram ao super admin as MESMAS seções', () => {
+        caminhoAtual = ROUTES.SUPER_ADMIN_PANEL
+        const desktop = chavesNoDom(montar(<Nav />))
+        montar(<MobileMoreDrawer open onClose={() => {}} />)
+        const drawer = chavesNoDom(document.querySelector('.pc-mobile-more-drawer-content') as ParentNode).filter((k) => k !== 'conta')
+        // O leitor alcança os dois menus: sem isto, dois conjuntos vazios seriam iguais.
+        expect(desktop).toContain('superadmin')
+        expect(drawer).toEqual(desktop)
+    })
+})
+

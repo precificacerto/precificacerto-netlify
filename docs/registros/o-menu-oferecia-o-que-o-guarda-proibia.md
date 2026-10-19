@@ -68,7 +68,9 @@ rever o menu derruba o (b); devolver Clientes ao menu sem liberar a rota derruba
 
 | # | Onde | O que o menu oferecia | O que o guarda faz | Estado |
 |---|---|---|---|---|
-| 1 | menu desktop, seção Clientes, super admin | `/clientes` | devolve ao painel | **corrigido nesta rodada** |
+| 1 | menu desktop, seção Clientes, super admin | `/clientes` | devolve ao painel | **corrigido em 19/10/2026** (`d9bee58`) |
+| 2 | drawer mobile ("Mais"), super admin | 18 itens de tenant, Clientes entre eles | devolve ao painel | **corrigido em 19/10/2026** — ver "O mobile", abaixo |
+| 3 | barra inferior mobile, super admin | Orçamentos, Vendas, Agenda | devolve ao painel | **ABERTO** — pendência nomeada, abaixo |
 
 ### Nota da busca por precedentes — a varredura
 
@@ -98,12 +100,53 @@ Os 22 do super admin:
 quando o usuário é super admin (`use-permissions.hook.ts`). No desktop é a lista de seções que
 esconde as abas de tenant; no mobile nada as esconde.
 
-**Elas NÃO entram na tabela de aparições.** Têm o mesmo sintoma — o menu oferece o que o guarda
-proíbe —, mas não se mediu se são a mesma classe: o arquivo do drawer, o da barra e a lista do
-desktop chegam juntos ao histórico do repositório (`c4a006f`, 29/08/2026), e não há como datar
-qual decisão veio antes. "Decisão aplicada em metade do caminho" é uma afirmação sobre a origem,
-e a origem destas não foi estabelecida. Ficam aqui como achado da varredura, **não corrigidas**
-nesta rodada, por instrução do dono do produto.
+Na primeira redação deste registro elas ficaram FORA da tabela: o arquivo do drawer, o da barra e
+a lista do desktop chegam juntos ao histórico (`c4a006f`, 29/08/2026), e não havia como datar qual
+decisão veio antes. **O dono do produto as classificou como o MESMO defeito** — a regra "o super
+admin não vê abas de tenant" aplicada no desktop e não no mobile — e elas entraram na tabela como
+aparições 2 e 3. A origem continua não datada; o mecanismo é o mesmo.
+
+O logo do desktop (link para `/`) também cai no guarda. Não entrou na tabela nem foi tratado: é o
+logo, não um item de menu, e ninguém decidiu sobre ele.
+
+## O mobile — a fonte única (19/10/2026, mesma data, segunda rodada)
+
+O drawer passou a filtrar o super admin **por seção, com a MESMA lista do desktop**. A lista saiu
+de `nav.component.tsx` para `src/constants/secoes-escondidas-do-super-admin.ts`, que os dois
+menus importam; cada item do drawer declara a `sectionKey` do desktop ao lado do rótulo de
+exibição, e é a chave que se compara com a lista.
+
+Medido depois da correção, para o super admin:
+
+| | seções que aparecem |
+|---|---|
+| desktop | `superadmin` (8 itens) |
+| drawer | `superadmin` (os mesmos 8) e `conta` (só "Sair") |
+
+**O que a extração ensinou sobre o próprio portão.** O leitor de `clientes-vira-secao-propria.test.ts`
+varria o código-fonte atrás do `[` depois de `const sectionsToHideForSuperAdmin =`. Com a lista
+movida, ele devolveu **lista vazia em vez de falhar** — ele afirmava a grafia e o endereço da
+constante, não o valor. Desde então ele importa a constante.
+
+Portões novos, no mesmo arquivo das duas pontas (`o-super-admin-nao-ve-clientes.test.tsx`):
+
+| caso | o que afirma | antes da correção |
+|---|---|---|
+| (c) | o drawer do super admin não traz Clientes | **vermelho** — `expect(received).toBeNull()`, recebendo `<a class="pc-mobile-more-item" href="/clientes">…` |
+| (d) | desktop e drawer mostram ao super admin as MESMAS seções, lidas do que cada um renderizou | vermelho — nenhum dos dois declarava a chave da seção no DOM |
+
+O (d) é o que impede a divergência de voltar: uma lista própria no desktop, um filtro removido no
+drawer ou uma chave trocada num item derrubam o caso.
+
+## PENDÊNCIA NOMEADA — a barra inferior, o mesmo defeito num terceiro lugar
+
+A barra inferior do mobile (`mobile-bottom-nav.component.tsx`) — **Orçamentos, Vendas, Agenda** —
+não passa por filtro nenhum, de papel nenhum. Ela continua oferecendo ao super admin três
+destinos que o `AuthGuard` recusa, com o mesmo sintoma: o toque vai e volta.
+
+**É o mesmo defeito, num terceiro lugar.** Ficou para outra rodada **por decisão do dono do
+produto**, em 19/10/2026. Quem a corrigir encontra aqui a medição e o caminho: a barra não tem
+seção nem módulo nos itens; o remédio coerente com o resto é fazê-la ler a mesma fonte.
 
 ## O corolário aplicável ANTES do defeito existir
 
@@ -124,9 +167,8 @@ um caso por ponta, no mesmo arquivo, com o mesmo usuário e o mesmo destino.
 
 - **Não diz que o guarda está errado.** A regra do super admin no `AuthGuard` é a decisão que
   vale; foi o menu que divergiu dela.
-- **Não corrige o mobile.** Os 18 itens do drawer e os 3 da barra inferior seguem oferecidos ao
-  super admin, Clientes entre eles. A instrução desta rodada condicionava mexer no drawer a ele
-  usar lista de seções, e ele não usa.
+- **Não corrige a barra inferior.** Os 3 itens dela seguem oferecidos ao super admin — pendência
+  nomeada, acima. O drawer foi corrigido na segunda rodada do mesmo dia.
 - **Não mede página.** A varredura mede o `AuthGuard`. Uma página que recuse por conta própria
   (por módulo, por exemplo) não entra nela.
 
