@@ -11,6 +11,7 @@ import { PlusOutlined } from '@ant-design/icons'
 import type { Nicho } from '@/utils/atendimentos-ia-catalogo'
 import { NichoSelect } from './nicho-select.component'
 import { TabelaModal } from './tabela-modal.component'
+import { LinhaDaTabela } from './linha-da-tabela.component'
 import type { TabelaPendente } from './api'
 
 export interface DadosDoFornecedor { nome: string; nicho_id: string; tabelas: TabelaPendente[] }
@@ -70,7 +71,7 @@ export function FornecedorModal({ aberto, modo, nichos, inicial, salvando, onCan
                         locale={{ emptyText: 'Nenhuma tabela ainda.' }}
                         renderItem={(t, i) => (
                             <List.Item actions={[<Button key="x" size="small" type="link" onClick={() => setTabelas(tabelas.filter((_, j) => j !== i))}>remover</Button>]}>
-                                {t.arquivo?.name} · motor: {t.motor?.name}{t.vigencia ? ` · ${t.vigencia}` : ''}
+                                <LinhaDaTabela arquivo={t.arquivo?.name ?? ''} motor={t.motor?.name ?? ''} data={t.vigencia} />
                             </List.Item>
                         )}
                     />

@@ -18,6 +18,7 @@ import { ROTAS_DO_CATALOGO, ROTULO_DO_MODELO, type FornecedorComTabelas, type Ni
 import { chamarRota, enviarArquivo, gravarTabelaNova, type TabelaPendente } from '@/page-parts/atendimentos-ia/api'
 import { FornecedorModal, type DadosDoFornecedor } from '@/page-parts/atendimentos-ia/fornecedor-modal.component'
 import { TabelaModal } from '@/page-parts/atendimentos-ia/tabela-modal.component'
+import { ESTILO_DA_DATA } from '@/page-parts/atendimentos-ia/linha-da-tabela.component'
 
 const dataBR = (iso: string) => new Date(iso).toLocaleDateString('pt-BR')
 
@@ -164,7 +165,8 @@ export default function TabelasDoFornecedor() {
                                 { title: 'Arquivo', dataIndex: 'arquivo_nome' },
                                 { title: 'Motor', dataIndex: 'motor_nome' },
                                 { title: 'Vigência', render: (_, t) => t.vigencia ?? <Typography.Text type="secondary">—</Typography.Text> },
-                                { title: 'Subido em', render: (_, t) => dataBR(t.criado_em) },
+                                // A data na borda direita, em `tabular-nums` — o mesmo estilo da lista do credenciamento.
+                                { title: 'Subido em', align: 'right', render: (_, t) => <span style={ESTILO_DA_DATA} data-coluna="subido-em">{dataBR(t.criado_em)}</span> },
                                 { title: 'Contas usando', render: (_, t) => (t.contas_usando.length ? t.contas_usando.join(', ') : <Typography.Text type="secondary">—</Typography.Text>) },
                                 {
                                     title: '',

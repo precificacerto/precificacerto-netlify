@@ -312,6 +312,9 @@ as rotas importam. Portão: `atendimentos-ia-a-tela-nao-fala-com-o-banco.test.ts
 2. **Os NICHOS ganharam onde ser criados**, num quadro dentro de "Fornecedores e tabelas". O
    mockup os traz prontos; o banco nasce sem nenhum (a `20261019000001` não semeia), e sem nicho
    não se credencia fornecedor. Onde o cadastro de nicho mora em definitivo é decisão aberta.
+   **A semente** `20261019000003_nichos_iniciais.sql` (escrita, NÃO aplicada) traz doze nichos,
+   quatro por modelo: o dono do produto nomeou Esquadrias, Móveis personalizados, Mecânicas e Salões
+   de beleza; os outros oito são PROPOSTA do assistente, marcados assim no arquivo.
 3. **O ARQUIVO não atravessa a rota.** A rota decide o caminho e assina UM envio para ele, com
    `service_role` (`tabelas/url-de-envio.ts`); o navegador manda os bytes para essa URL com
    `fetch`, sem o cliente do Supabase. A razão é o limite de corpo de requisição das funções da
@@ -328,4 +331,7 @@ as rotas importam. Portão: `atendimentos-ia-a-tela-nao-fala-com-o-banco.test.ts
    só Fabricação usa fornecedor (3.2) NÃO é imposta nem pelo banco (decisão de 19/10) nem por esta
    tela — ela segue o mockup. O ponto 9.2 continua aberto, e é ele que decide se a tela passa a
    oferecer só os nichos de Fabricação.
+7. **A data fica na borda direita**, nunca emendada no texto do arquivo — na lista do
+   credenciamento e na coluna "Subido em" —, em `tabular-nums` (pedido do dono do produto,
+   19/10/2026).
 
