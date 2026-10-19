@@ -1,0 +1,745 @@
+<title>Painel Super Admin</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: barra lateral fixa + área de conteúdo em coluna única; três telas que se alternam no mesmo lugar. */
+:root{
+  --bg:#0f1419; --surface:#161c24; --surface-2:#1d242e; --line:#2a333f;
+  --fg:#e3e8ee; --fg-dim:#97a3b2; --fg-faint:#6b7786;
+  --accent:#4da3ff; --ok:#3ec98a; --warn:#f0b24a; --bad:#f3736b;
+  --font-ui:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --font-num:"IBM Plex Mono",ui-monospace,SFMono-Regular,monospace;
+  color-scheme:dark;
+}
+@media (prefers-color-scheme:light){
+  :root:not([data-theme="dark"]){
+    --bg:#f2f4f7; --surface:#fff; --surface-2:#f7f9fb; --line:#dfe4ea;
+    --fg:#1b2430; --fg-dim:#5b6676; --fg-faint:#8a94a2;
+    --accent:#1c6fd0; --ok:#1f9d63; --warn:#b47a10; --bad:#cf4a41; color-scheme:light;
+  }
+}
+:root[data-theme="light"]{
+  --bg:#f2f4f7; --surface:#fff; --surface-2:#f7f9fb; --line:#dfe4ea;
+  --fg:#1b2430; --fg-dim:#5b6676; --fg-faint:#8a94a2;
+  --accent:#1c6fd0; --ok:#1f9d63; --warn:#b47a10; --bad:#cf4a41; color-scheme:light;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--font-ui);line-height:1.5}
+.wrap{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:20px;max-width:1240px;margin:0 auto}
+h1{font-size:1.3rem;margin:0 0 4px;font-weight:600;text-wrap:balance}
+.lead{color:var(--fg-dim);font-size:.86rem;margin:0 0 18px;max-width:64ch}
+.tag-ex{display:inline-block;font-size:.66rem;letter-spacing:.07em;text-transform:uppercase;color:var(--warn);border:1px solid var(--warn);border-radius:3px;padding:1px 6px;margin-left:8px;vertical-align:2px}
+.shell{display:grid;grid-template-columns:210px minmax(0,1fr);gap:16px;align-items:start}
+@media (max-width:760px){.shell{grid-template-columns:1fr}}
+
+.nav{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:10px;min-width:0}
+.nav-logo{font-weight:600;font-size:.82rem;letter-spacing:.04em;color:var(--fg-dim);padding:4px 8px 12px;border-bottom:1px solid var(--line);margin-bottom:8px}
+.nav-sec{margin-bottom:6px}
+.nav-sec-head{width:100%;display:flex;justify-content:space-between;align-items:center;background:none;border:0;color:var(--fg-faint);font:500 .68rem/1.4 var(--font-ui);letter-spacing:.09em;text-transform:uppercase;padding:6px 8px;cursor:pointer;text-align:left}
+.nav-sec-head[aria-disabled="true"]{cursor:default}
+.nav-item{display:flex;justify-content:space-between;gap:6px;padding:6px 8px;border-radius:5px;color:var(--fg-dim);font-size:.82rem;text-decoration:none;cursor:pointer;border:0;background:none;width:100%;font-family:var(--font-ui);text-align:left}
+.nav-item:hover{background:var(--surface-2);color:var(--fg)}
+.nav-item.on{background:color-mix(in srgb,var(--accent) 18%,transparent);color:var(--fg)}
+.nav-count{font-family:var(--font-num);font-size:.7rem;color:var(--fg-faint)}
+.flag{font-size:.58rem;color:var(--ok);border:1px solid var(--ok);border-radius:3px;padding:0 4px;letter-spacing:.04em}
+
+.card{background:var(--surface);border:1px solid var(--line);border-radius:8px;min-width:0;margin-bottom:16px}
+.card[hidden]{display:none!important}
+.card-head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 14px;border-bottom:1px solid var(--line)}
+.card-title{font-weight:600;font-size:.92rem}
+.card-body{padding:14px}
+.search{background:var(--surface-2);border:1px solid var(--line);color:var(--fg);border-radius:5px;padding:5px 9px;font:400 .8rem var(--font-ui);width:210px;max-width:100%}
+.btn{background:var(--surface-2);border:1px solid var(--line);color:var(--fg);border-radius:5px;padding:5px 10px;font:500 .78rem var(--font-ui);cursor:pointer}
+.btn:hover{border-color:var(--accent)}
+.btn-primary{background:var(--accent);border-color:var(--accent);color:#06131f}
+.btn-link{background:none;border:0;color:var(--accent);padding:2px 4px;font:500 .78rem var(--font-ui);cursor:pointer}
+.btn:focus-visible,.btn-link:focus-visible,.nav-sec-head:focus-visible,.sw:focus-visible,.seg:focus-visible,.nav-item:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+.tbl-scroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:.8rem}
+th{text-align:left;font-weight:500;font-size:.68rem;letter-spacing:.07em;text-transform:uppercase;color:var(--fg-faint);padding:9px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
+tr:last-child td{border-bottom:0}
+.conta-nome{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:240px}
+.conta-mail{font-size:.72rem;color:var(--fg-faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:240px}
+.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;font-size:.76rem}
+.dim{color:var(--fg-dim)}
+
+.pill{display:inline-block;font-size:.68rem;font-weight:500;padding:1px 7px;border-radius:10px;border:1px solid;white-space:nowrap}
+.p-ok{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 55%,transparent);background:color-mix(in srgb,var(--ok) 12%,transparent)}
+.p-trial{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 55%,transparent);background:color-mix(in srgb,var(--accent) 12%,transparent)}
+.p-bad{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 55%,transparent);background:color-mix(in srgb,var(--bad) 12%,transparent)}
+.p-off{color:var(--fg-faint);border-color:var(--line);background:var(--surface-2)}
+.p-warn{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 55%,transparent);background:color-mix(in srgb,var(--warn) 12%,transparent)}
+
+.sw{position:relative;width:34px;height:18px;border-radius:9px;border:1px solid var(--line);background:var(--surface-2);cursor:pointer;flex:0 0 auto;padding:0;transition:background .14s,border-color .14s}
+.sw::after{content:"";position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;background:var(--fg-faint);transition:transform .14s,background .14s}
+.sw[aria-checked="true"]{background:color-mix(in srgb,var(--ok) 70%,transparent);border-color:transparent}
+.sw[aria-checked="true"]::after{transform:translateX(16px);background:#071a12}
+.cel{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+
+/* ---- ficha da conta ---- */
+dl.dados{display:grid;grid-template-columns:auto 1fr;gap:8px 18px;margin:0;font-size:.82rem}
+dl.dados dt{color:var(--fg-faint);font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;align-self:center}
+dl.dados dd{margin:0}
+.novo{color:var(--ok);font-size:.62rem;border:1px solid var(--ok);border-radius:3px;padding:0 4px;margin-left:8px;vertical-align:1px;letter-spacing:.05em}
+
+/* ---- atendimentos ---- */
+.grp{border-top:1px solid var(--line);padding-top:14px;margin-top:14px}
+.grp:first-child{border-top:0;padding-top:0;margin-top:0}
+.grp h3{font-size:.7rem;text-transform:uppercase;letter-spacing:.08em;color:var(--fg-faint);margin:0 0 10px;font-weight:600}
+.segs{display:flex;gap:8px;flex-wrap:wrap}
+.seg{flex:1 1 150px;min-width:0;text-align:left;background:var(--surface-2);border:1px solid var(--line);border-radius:7px;padding:9px 11px;cursor:pointer;color:var(--fg);font-family:var(--font-ui)}
+.seg[aria-pressed="true"]{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 14%,transparent)}
+.seg b{display:block;font-size:.84rem;font-weight:500}
+.seg span{display:block;font-size:.7rem;color:var(--fg-faint);margin-top:2px}
+.origem{display:inline-flex;align-items:center;gap:6px;font-size:.72rem;margin-bottom:10px}
+
+.gasto{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:14px}
+.box{background:var(--surface-2);border:1px solid var(--line);border-radius:7px;padding:10px 12px}
+.box label{display:block;font-size:.68rem;text-transform:uppercase;letter-spacing:.07em;color:var(--fg-faint);margin-bottom:5px}
+.box input,.box select{width:100%;background:var(--surface);border:1px solid var(--line);color:var(--fg);border-radius:5px;padding:5px 8px;font:500 .9rem var(--font-num);font-variant-numeric:tabular-nums}
+.box select{font-family:var(--font-ui);font-size:.82rem}
+.barra{height:12px;border-radius:6px;background:var(--surface-2);border:1px solid var(--line);position:relative;overflow:hidden}
+.barra i{position:absolute;inset:0 auto 0 0;background:color-mix(in srgb,var(--ok) 70%,transparent)}
+.barra i.estourando{background:color-mix(in srgb,var(--warn) 75%,transparent)}
+.marca{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--fg-dim)}
+.escala{display:flex;justify-content:space-between;font-family:var(--font-num);font-size:.68rem;color:var(--fg-faint);margin-top:5px}
+.consumo-linha{font-size:.8rem;margin-bottom:7px}
+.consumo-linha b{font-family:var(--font-num);font-variant-numeric:tabular-nums}
+.vazio{color:var(--fg-faint);font-size:.82rem;padding:18px 0;text-align:center}
+.aberto{cursor:pointer}
+.aberto:hover td{background:var(--surface-2)}
+
+.notas{background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:6px;padding:12px 14px}
+.notas h3{font-size:.74rem;text-transform:uppercase;letter-spacing:.08em;color:var(--fg-faint);margin:0 0 8px;font-weight:600}
+.notas ol{margin:0;padding-left:18px;font-size:.81rem;color:var(--fg-dim)}
+.notas li{margin-bottom:6px}
+.notas b{color:var(--fg);font-weight:500}
+.aberta{color:var(--warn)}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(18px + env(safe-area-inset-bottom,0px));background:var(--surface-2);border:1px solid var(--ok);color:var(--fg);border-radius:6px;padding:7px 14px;font-size:.8rem;z-index:50}
+.toast[hidden]{display:none!important}
+.upload{width:100%;border:1px dashed var(--line);border-radius:7px;padding:16px;text-align:center;font:400 .82rem var(--font-ui);color:var(--fg-dim);cursor:pointer;background:var(--surface-2)}
+.upload:hover{border-color:var(--accent)}
+.chk{flex:1 1 190px;display:flex;align-items:center;gap:8px;background:var(--surface-2);border:1px solid var(--line);border-radius:7px;padding:8px 10px;cursor:pointer;color:var(--fg);font:400 .82rem var(--font-ui);text-align:left}
+.chk[aria-pressed="true"]{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 14%,transparent)}
+.chk i{width:14px;height:14px;border:1px solid var(--fg-faint);border-radius:3px;flex:0 0 auto}
+.chk[aria-pressed="true"] i{background:var(--accent);border-color:var(--accent)}
+.upload:focus-visible,.chk:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.linha{display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
+.linha select{flex:1 1 190px;min-width:0;background:var(--surface-2);border:1px solid var(--line);color:var(--fg);border-radius:5px;padding:6px 8px;font:400 .82rem var(--font-ui)}
+.linha .rm{background:none;border:0;color:var(--bad);cursor:pointer;font:500 .78rem var(--font-ui);padding:4px 6px}
+.linha select:focus-visible,.linha .rm:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.ov{position:fixed;inset:0;background:rgba(5,9,13,.68);display:grid;place-items:center;padding:16px;z-index:40;overflow:auto}
+.ov[hidden]{display:none!important}
+.modal{background:var(--surface);border:1px solid var(--line);border-radius:10px;width:min(470px,100%);padding:16px}
+.modal h2{font-size:.98rem;margin:0 0 12px}
+.modal-foot{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
+.linha input{flex:1 1 170px;min-width:0;background:var(--surface-2);border:1px solid var(--line);color:var(--fg);border-radius:5px;padding:6px 8px;font:400 .82rem var(--font-ui)}
+.linha.item{background:var(--surface-2);border:1px solid var(--line);border-radius:7px;padding:8px 10px;font-size:.82rem;gap:10px}
+.linha.item .it-f{font-weight:500;flex:0 0 auto}
+.linha.item .it-t{flex:1 1 200px;min-width:0;color:var(--fg-dim);font-family:var(--font-num);font-size:.76rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.linha.item .it-m{flex:0 1 auto;min-width:0;color:var(--fg-faint);font-family:var(--font-num);font-size:.7rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.linha.nova{border:1px dashed var(--accent);border-radius:7px;padding:8px 10px}
+.box input[type=file]{padding:5px;font:400 .76rem var(--font-ui);cursor:pointer}
+.sug{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.sug-i{background:var(--surface);border:1px solid var(--line);color:var(--fg);border-radius:999px;padding:4px 11px;font:400 .78rem var(--font-ui);cursor:pointer}
+.sug-i:hover{border-color:var(--accent)}
+.sug-i:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="wrap">
+  <h1>Painel Super Admin<span class="tag-ex">dados de exemplo</span></h1>
+  <p class="lead">Em <b>Tenants</b> você só liga ou desliga Atendimentos I.A. Tudo que configura — modelo de atendimento, fornecedores e teto de gasto — fica na seção <b>Atendimentos I.A.</b>, que lista só as contas ligadas.</p>
+
+  <div class="shell">
+    <nav class="nav" aria-label="Menu lateral">
+      <div class="nav-logo">PRECIFICA CERTO</div>
+      <div class="nav-sec">
+        <button class="nav-sec-head" aria-disabled="true" type="button">Clientes <span class="flag">sempre aberta</span></button>
+        <div><button class="nav-item" type="button">Clientes</button></div>
+      </div>
+      <div class="nav-sec">
+        <button class="nav-sec-head" aria-disabled="true" type="button">Atendimentos I.A. <span class="flag">nova</span></button>
+        <div>
+          <button class="nav-item" type="button" data-ir="atend">Contas ligadas <span class="nav-count" id="nav-qtd">0</span></button>
+          <button class="nav-item" type="button" data-ir="forn">Fornecedores e tabelas <span class="nav-count" id="nav-forn-qtd">0</span></button>
+        </div>
+      </div>
+      <div class="nav-sec">
+        <button class="nav-sec-head" aria-disabled="true" type="button">Super Admin</button>
+        <div>
+          <button class="nav-item" type="button">Painel Super Admin</button>
+          <button class="nav-item on" type="button" data-ir="lista">Tenants</button>
+          <button class="nav-item" type="button">Usuários</button>
+          <button class="nav-item" type="button">Pagamentos</button>
+        </div>
+      </div>
+    </nav>
+
+    <div style="min-width:0">
+      <!-- 1. LISTA DE CONTAS -->
+      <section class="card" id="view-lista">
+        <div class="card-head">
+          <span class="card-title">Contas</span>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <input class="search" id="busca" placeholder="Buscar por nome ou email" aria-label="Buscar conta">
+            <button class="btn btn-primary" type="button">+ Criar conta</button>
+          </div>
+        </div>
+        <div class="tbl-scroll">
+          <table>
+            <thead><tr>
+              <th>Conta</th><th>Situação</th><th>Vigência</th><th>Free</th>
+              <th>Atendimentos I.A.</th><th>Aprovado</th><th>Ações</th>
+            </tr></thead>
+            <tbody id="linhas"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- 2. FICHA DA CONTA -->
+      <section class="card" id="view-conta" hidden>
+        <div class="card-head">
+          <span class="card-title" id="conta-titulo">—</span>
+          <button class="btn" type="button" data-ir="lista">← Voltar para a lista</button>
+        </div>
+        <div class="card-body">
+          <dl class="dados">
+            <dt>Email</dt><dd id="d-mail">—</dd>
+            <dt>Telefone</dt><dd><span class="num" id="d-fone">—</span><span class="novo">VEIO DA LISTA</span></dd>
+            <dt>Situação</dt><dd id="d-sit">—</dd>
+            <dt>Free</dt><dd id="d-free">—</dd>
+            <dt>Vigência</dt><dd class="num" id="d-vig">—</dd>
+            <dt>Aprovado</dt><dd id="d-apr">—</dd>
+          </dl>
+        </div>
+      </section>
+
+      <!-- 3. ATENDIMENTOS — LISTA -->
+      <section class="card" id="view-atend" hidden>
+        <div class="card-head">
+          <span class="card-title">Atendimentos I.A. — contas ligadas</span>
+          <button class="btn" type="button" data-ir="lista">Ir para Tenants</button>
+        </div>
+        <div class="tbl-scroll">
+          <table>
+            <thead><tr><th>Conta</th><th>Modelo · nicho</th><th>Tabelas em uso</th><th>Gasto no mês</th><th>Projeção</th><th></th></tr></thead>
+            <tbody id="linhas-atend"></tbody>
+          </table>
+        </div>
+        <div class="vazio" id="atend-vazio" hidden>Nenhuma conta ligada. Ligue em <b>Tenants → Atendimentos I.A.</b></div>
+      </section>
+
+      <!-- 4. ATENDIMENTOS — CONFIGURAÇÃO DE UMA CONTA -->
+      <section class="card" id="view-cfg" hidden>
+        <div class="card-head">
+          <span class="card-title" id="cfg-titulo">—</span>
+          <button class="btn" type="button" data-ir="atend">← Voltar</button>
+        </div>
+        <div class="card-body">
+          <div class="grp">
+            <h3>Modelo de atendimento</h3>
+            <p class="dim" style="font-size:.78rem;margin:0 0 10px">Como o motor da I.A. atende esta conta. É campo do Atendimentos I.A. — <b>não</b> encosta na segmentação fiscal que o cliente escolheu no primeiro acesso dele.</p>
+            <div class="box" style="max-width:340px"><label for="cfg-modelo">Modelo</label><select id="cfg-modelo">
+              <option value="">— não definido —</option>
+              <option value="FABRICACAO">Fabricação</option>
+              <option value="REVENDA">Revenda</option>
+              <option value="SERVICO">Prestação de serviço</option>
+            </select></div>
+          </div>
+
+          <div class="grp">
+            <h3>Nicho</h3>
+            <div class="box" style="max-width:340px"><label for="cfg-nicho">Nicho desta conta</label><select id="cfg-nicho"></select></div>
+            <p class="dim" style="font-size:.78rem;margin:8px 0 0" id="cfg-nicho-nota"></p>
+          </div>
+
+          <div class="grp">
+            <h3 id="base-titulo">Base de cálculo do motor</h3>
+            <div id="base-revenda">
+              <p style="font-size:.82rem;margin:0 0 6px">A I.A. monta o orçamento a partir dos <b>produtos cadastrados no sistema do próprio cliente</b>. Não usa fornecedor nem tabela externa.</p>
+              <p class="dim num" style="font-size:.76rem;margin:0">1.284 produtos · 37 itens de custo · atualizado em 17/10/2026</p>
+            </div>
+            <div id="base-fornecedor" hidden>
+              <div id="cfg-linhas"></div>
+              <button class="btn" type="button" id="add-linha" style="margin-top:10px">+ Adicionar</button>
+              <p class="dim" style="font-size:.76rem;margin:10px 0 0">O mesmo fornecedor pode aparecer em várias linhas, uma por tabela. Para subir ou trocar arquivo, vá em <b>Fornecedores e tabelas</b>.</p>
+            </div>
+          </div>
+
+          <div class="grp">
+            <h3>Projeção de gasto</h3>
+            <p class="dim" style="font-size:.78rem;margin:0 0 10px">É a projeção acordada na contratação, não um limite. Nada é bloqueado e ninguém é avisado — serve para você ver quanto a conta está consumindo do que foi previsto.</p>
+            <div class="gasto">
+              <div class="box"><label for="cfg-teto">Projeção (R$/mês)</label><input id="cfg-teto" inputmode="decimal" placeholder="não definida"></div>
+              <div class="box"><label>Consumido no mês</label><p class="num" style="margin:0;font-size:.95rem;font-weight:500" id="cfg-consumo">R$ 0,00</p></div>
+              <div class="box"><label>Sobre a projeção</label><p class="num" style="margin:0;font-size:.95rem;font-weight:500" id="cfg-pct">—</p></div>
+            </div>
+            <div class="barra" id="cfg-barra"><i id="cfg-fill" style="width:0%"></i><span class="marca" id="cfg-marca" hidden></span></div>
+            <div class="escala"><span>R$ 0,00</span><span id="cfg-escala-fim">—</span></div>
+          </div>
+
+          <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">
+            <button class="btn" type="button" data-ir="atend">Cancelar</button>
+            <button class="btn btn-primary" type="button" id="cfg-salvar">Salvar configuração</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- 5. FORNECEDORES E TABELAS -->
+      <section class="card" id="view-forn" hidden>
+        <div class="card-head">
+          <span class="card-title">Fornecedores e tabelas de preço</span>
+          <button class="btn btn-primary" type="button" id="novo-forn">+ Credenciar fornecedor</button>
+        </div>
+        <div class="card-body" style="padding-bottom:0">
+          <p class="dim" style="font-size:.8rem;margin:0 0 12px">Cadastrados aqui uma vez, antes de qualquer conta, e reaproveitados em todas. <b>Nada aqui pertence a um cliente</b> — são tabelas do fornecedor.</p>
+        </div>
+        <div class="tbl-scroll">
+          <table><thead><tr><th>Fornecedor</th><th>Nicho</th><th>Contas usando</th><th></th></tr></thead><tbody id="linhas-forn"></tbody></table>
+        </div>
+      </section>
+
+      <!-- 6. TABELAS DE UM FORNECEDOR -->
+      <section class="card" id="view-forndet" hidden>
+        <div class="card-head">
+          <span class="card-title" id="fd-titulo">—</span>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn" type="button" id="fd-editar">Editar fornecedor</button>
+            <button class="btn" type="button" data-ir="forn">← Voltar</button>
+          </div>
+        </div>
+        <div class="card-body">
+          <button class="btn btn-primary" type="button" id="fd-nova">+ Nova tabela</button>
+          <div class="tbl-scroll"><table style="margin-top:12px"><thead><tr><th>Arquivo</th><th>Motor</th><th>Vigência</th><th>Subido em</th><th>Contas usando</th><th></th></tr></thead><tbody id="fd-tabelas"></tbody></table></div>
+          <p class="dim" style="font-size:.76rem;margin:12px 0 0">Excluir só é possível enquanto nenhuma conta estiver usando a tabela. Se alguma estiver, a tela diz quais — tire a tabela da conta primeiro.</p>
+        </div>
+      </section>
+
+      <div class="notas">
+        <h3>O que muda</h3>
+        <ol>
+          <li><b>Tenants</b> — 7 colunas no lugar de 10. Situação é uma coluna só, Vigência também, Telefone foi para a ficha (botão <b>Ver</b>), e Atendimentos I.A. virou só o botão de ligar.</li>
+          <li><b>Atendimentos I.A.</b> — seção nova no menu do Super Admin, com as contas ligadas. É lá que ficam segmentação, fornecedores, piso e teto.</li>
+          <li><b>Modelo → nicho → fornecedores → tabelas</b> — quatro níveis. Modelo e nicho dizem qual motor; fornecedor e tabela dizem com que números ele calcula. Nada disso é a segmentação fiscal do cliente.</li>
+          <li><b>Revenda não usa fornecedor</b> — a base é o cadastro de produtos do próprio cliente. Fabricação usa, e é aí que entram as tabelas.</li>
+          <li><b>Fornecedor é da plataforma</b> — cadastrado em <b>Fornecedores e tabelas</b>, antes das contas, e reaproveitado por todas. Nenhum arquivo de cliente entra aí.</li>
+          <li><b>Uma linha por tabela</b> — dentro da conta você monta linhas de fornecedor + tabela. O mesmo fornecedor pode entrar em várias linhas, com tabelas diferentes.</li>
+          <li><b>Projeção, não teto</b> — saíram o valor adicional por mês e a ação ao atingir o teto. Ficou um número só, de acompanhamento: nada bloqueia e nada avisa.</li>
+          <li><b>Clientes no menu</b> — a seção deixa de ser recolhível: tem um item só e hoje nasce fechada, parecendo vazia.</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="ov" id="mod-forn" hidden role="dialog" aria-modal="true" aria-labelledby="mf-tit">
+  <div class="modal">
+    <h2 id="mf-tit">Credenciar fornecedor</h2>
+    <div class="box" style="margin-bottom:10px"><label for="nf-nome">Nome do fornecedor</label><input id="nf-nome" placeholder="Ex.: Alumínio Sul"></div>
+    <div class="box" style="margin-bottom:14px"><label for="nf-nicho">Nicho</label><select id="nf-nicho"></select></div>
+    <h3 style="font-size:.7rem;text-transform:uppercase;letter-spacing:.08em;color:var(--fg-faint);margin:0 0 8px;font-weight:600">Tabelas deste fornecedor</h3>
+    <div id="nf-tabs"></div>
+    <button class="btn" type="button" id="nf-addtab" style="margin-top:8px">+ Adicionar tabela</button>
+    <div class="modal-foot">
+      <button class="btn" type="button" data-fechar="mod-forn">Cancelar</button>
+      <button class="btn btn-primary" type="button" id="nf-salvar">Salvar credenciamento</button>
+    </div>
+  </div>
+</div>
+
+<div class="ov" id="mod-fed" hidden role="dialog" aria-modal="true" aria-labelledby="fe-tit">
+  <div class="modal">
+    <h2 id="fe-tit">Editar fornecedor</h2>
+    <div class="box" style="margin-bottom:10px"><label for="fe-nome">Nome do fornecedor</label><input id="fe-nome"></div>
+    <div class="box"><label for="fe-nicho">Nicho</label><select id="fe-nicho"></select></div>
+    <div class="modal-foot" style="justify-content:space-between">
+      <button class="btn" type="button" id="fe-excluir" style="color:var(--bad);border-color:var(--bad)">Excluir fornecedor</button>
+      <span style="display:flex;gap:8px">
+        <button class="btn" type="button" data-fechar="mod-fed">Cancelar</button>
+        <button class="btn btn-primary" type="button" id="fe-salvar">Salvar</button>
+      </span>
+    </div>
+  </div>
+</div>
+
+<div class="ov" id="mod-tab" hidden role="dialog" aria-modal="true" aria-labelledby="mt-tit">
+  <div class="modal">
+    <h2 id="mt-tit">Tabela</h2>
+    <div class="box" style="margin-bottom:10px"><label for="mt-arq-file">Arquivo da tabela</label>
+      <input type="file" id="mt-arq-file" accept=".xlsx,.xls,.csv,.pdf">
+      <p class="num" id="mt-arq-nome" style="margin:6px 0 0;font-size:.76rem;color:var(--fg-dim)">nenhum arquivo</p>
+    </div>
+    <div class="box" style="margin-bottom:10px"><label for="mt-motor-file">Arquivo do motor</label>
+      <input type="file" id="mt-motor-file" accept=".xlsx,.xls,.csv,.pdf">
+      <p class="num" id="mt-motor-nome" style="margin:6px 0 0;font-size:.76rem;color:var(--fg-dim)">nenhum arquivo</p>
+    </div>
+    <p class="dim" style="font-size:.74rem;margin:0 0 12px">O motor é quem faz as reduções de tipologia em cima dos perfis desta tabela. O conteúdo dos dois arquivos — código, dimensão, peso, referência, valor — é importado e fica por trás, sem aparecer aqui.</p>
+    <div class="box"><label for="mt-vig">Vigência</label><input id="mt-vig" placeholder="desde 01/10/2026"></div>
+    <div class="modal-foot">
+      <button class="btn" type="button" data-fechar="mod-tab">Cancelar</button>
+      <button class="btn btn-primary" type="button" id="mt-salvar">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script>
+const contas = [
+  {id:'a1',nome:'ESQUADRIAS DE PAULA LTDA',mail:'icms@msvplanejamentos.com.br',fone:'(51) 99911-4290',st:'ACTIVE',free:false,trial:null,plano:'10/12/2026',apr:true,
+   ia:true,modelo:'FABRICACAO',nicho:'esq',linhas:[{f:'f1',t:0},{f:'f1',t:1},{f:'f2',t:0}],teto:500,consumo:318.4},
+  {id:'a2',nome:'MSV PLANEJAMENTOS',mail:'contato@msvplanejamentos.com.br',fone:'(51) 98112-7744',st:'TRIAL',free:false,trial:'25/10/2026',plano:null,apr:false,
+   ia:true,modelo:'REVENDA',nicho:'geral',linhas:[],teto:null,consumo:42.9},
+  {id:'a3',nome:'ADABTECH SOLUCOES',mail:'fernandescof@gmail.com',fone:'(51) 99114-2900',st:'ACTIVE',free:true,trial:null,plano:'01/03/2027',apr:true,
+   ia:false,modelo:null,nicho:null,linhas:[],teto:null,consumo:0},
+  {id:'a4',nome:'MARCENARIA HORIZONTE LTDA',mail:'financeiro@horizontemoveis.com.br',fone:'(48) 99640-2211',st:'SUSPENDED',free:false,trial:null,plano:'30/09/2026',apr:true,
+   ia:false,modelo:null,nicho:null,linhas:[],teto:null,consumo:0},
+  {id:'a5',nome:'VIDRACARIA SAO JORGE ME',mail:'orcamento@saojorgevidros.com.br',fone:'(11) 97722-3300',st:'CANCELLED',free:false,trial:null,plano:'12/08/2026',apr:true,
+   ia:false,modelo:null,nicho:null,linhas:[],teto:null,consumo:0},
+];
+const rot={ACTIVE:['Ativo','p-ok'],TRIAL:['Trial','p-trial'],SUSPENDED:['Suspenso','p-bad'],CANCELLED:['Cancelado','p-off']};
+const segNome={FABRICACAO:'Fabricação',REVENDA:'Revenda',SERVICO:'Prestação de serviço'};
+const nichos={
+  FABRICACAO:[{id:'esq',nome:'Esquadrias'},{id:'mov',nome:'Móveis planejados'},{id:'met',nome:'Metalurgia'}],
+  REVENDA:[{id:'geral',nome:'Geral — produtos do próprio sistema'},{id:'rou',nome:'Loja de roupas'},{id:'mat',nome:'Materiais de construção'}],
+  SERVICO:[{id:'mec',nome:'Mecânica'},{id:'man',nome:'Manutenção predial'}],
+};
+const fornecedores={
+  esq:[{id:'f1',nome:'Alumínio — Linha 25'},{id:'f2',nome:'Vidros temperados'},{id:'f3',nome:'Ferragens e acessórios'}],
+  mov:[{id:'f4',nome:'Chapas MDF'}],
+};
+const tabelas={
+  f1:[{arq:'aluminio-linha-25-out2026.xlsx',vig:'desde 01/10/2026',em:'12/10/2026',
+       motor:'motor-esquadrias-linha25.xlsx'},
+      {arq:'aluminio-linha-25-jul2026.xlsx',vig:'01/07 a 30/09/2026',em:'03/07/2026',motor:'motor-esquadrias-linha25.xlsx'}],
+  f2:[{arq:'vidros-temperados-2026.xlsx',vig:'desde 15/09/2026',em:'15/09/2026',motor:'motor-vidros.pdf'}],
+  f3:[],
+  f4:[{arq:'mdf-chapas-out2026.csv',vig:'desde 05/10/2026',em:'05/10/2026',motor:'motor-moveis-corte.xlsx'}],
+};
+function pintarNomes(){
+  const a=document.getElementById('mt-arq-nome'), m=document.getElementById('mt-motor-nome');
+  if(a) a.textContent=mtArq||'nenhum arquivo';
+  if(m) m.textContent=mtMotor||'nenhum arquivo';
+}
+document.addEventListener('change',e=>{
+  const s=e.target;
+  if(s.id==='mt-arq-file'){mtArq=(s.files&&s.files[0])?s.files[0].name:'';pintarNomes()}
+  if(s.id==='mt-motor-file'){mtMotor=(s.files&&s.files[0])?s.files[0].name:'';pintarNomes()}
+});
+function listaForn(){const out=[];Object.entries(fornecedores).forEach(([nid,fs])=>fs.forEach(f=>out.push({id:f.id,nome:f.nome,nicho:nid})));return out}
+function nomeNichoId(id){for(const k in nichos){const n=nichos[k].find(x=>x.id===id);if(n)return n.nome}return '—'}
+const brl=n=>n==null?null:n.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+const rs=n=>n==null?'—':'R$ '+brl(n);
+const vig=c=>c.trial?'Trial até '+c.trial:(c.plano?'Plano até '+c.plano:'—');
+const acha=id=>contas.find(c=>c.id===id);
+let cfgAtual=null, fdAtual=null, seqForn=100, nfTabs=[], mtIdx=null, addLinha=null, mtRegras=[], mtArq='', mtMotor='';
+
+function ir(tela){
+  ['lista','conta','atend','cfg','forn','forndet'].forEach(t=>{document.getElementById('view-'+t).hidden = t!==tela});
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.toggle('on', n.dataset.ir===tela));
+  if(tela==='atend') renderAtend();
+  if(tela==='forn') renderForn();
+}
+function toast(m){const t=document.getElementById('toast');t.textContent=m;t.hidden=false;clearTimeout(t._h);t._h=setTimeout(()=>t.hidden=true,2200)}
+
+function renderLista(){
+  const q=(document.getElementById('busca').value||'').toLowerCase();
+  const tb=document.getElementById('linhas');tb.innerHTML='';
+  contas.filter(c=>!q||c.nome.toLowerCase().includes(q)||c.mail.toLowerCase().includes(q)).forEach(c=>{
+    const lig=c.st==='ACTIVE'||c.st==='TRIAL';const[l,k]=rot[c.st];
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td><div class="conta-nome">${c.nome}</div><div class="conta-mail">${c.mail}</div></td>
+      <td><div class="cel"><button class="sw" role="switch" aria-checked="${lig}" data-sit="${c.id}" aria-label="Situação de ${c.nome}"></button><span class="pill ${k}">${l}</span></div></td>
+      <td class="num dim">${vig(c)}</td>
+      <td><button class="sw" role="switch" aria-checked="${c.free}" data-free="${c.id}" aria-label="Free de ${c.nome}"></button></td>
+      <td><button class="sw" role="switch" aria-checked="${c.ia}" data-ia="${c.id}" aria-label="Atendimentos I.A. de ${c.nome}"></button></td>
+      <td>${c.apr?'<span class="pill p-ok">Sim</span>':'<span class="pill p-warn">Pendente</span>'}</td>
+      <td><button class="btn-link" data-ver="${c.id}">Ver</button></td>`;
+    tb.appendChild(tr);
+  });
+  document.getElementById('nav-qtd').textContent=contas.filter(c=>c.ia).length;
+  document.getElementById('nav-forn-qtd').textContent=listaForn().length;
+}
+function renderAtend(){
+  const tb=document.getElementById('linhas-atend');tb.innerHTML='';
+  const ligadas=contas.filter(c=>c.ia);
+  document.getElementById('atend-vazio').hidden=ligadas.length>0;
+  ligadas.forEach(c=>{
+    const tr=document.createElement('tr');tr.className='aberto';tr.dataset.cfg=c.id;
+    const selo=c.modelo?'':'<span class="pill p-warn">não definido</span>';
+    const limite=c.teto;
+    const pct=limite?Math.min(100,Math.round(c.consumo/limite*100)):null;
+    tr.innerHTML=`<td><div class="conta-nome">${c.nome}</div></td>
+      <td><div class="cel">${c.modelo?segNome[c.modelo]:'—'}${c.nicho?' · '+nomeNicho(c):''} ${selo}</div></td>
+      <td class="dim" style="font-size:.78rem">${c.linhas&&c.linhas.length?c.linhas.length+' tabela(s)':(c.modelo==='REVENDA'?'não se aplica':'—')}</td>
+      <td class="num">${rs(c.consumo)}${pct!=null?' <span class="dim">('+pct+'%)</span>':''}</td>
+      <td class="num dim">${rs(c.teto)}</td>
+      <td><button class="btn-link" data-cfg="${c.id}">Configurar</button></td>`;
+    tb.appendChild(tr);
+  });
+}
+function abrirCfg(id){
+  const c=acha(id);cfgAtual=c;addLinha=null;
+  document.getElementById('cfg-titulo').textContent=c.nome;
+  pintarModelo(c);
+  document.getElementById('cfg-teto').value=c.teto==null?'':brl(c.teto);
+  pintarBarra(c);
+  ir('cfg');
+}
+function pintarBarra(c){
+  const limite=c.teto??0;
+  const pct=limite?Math.min(100,c.consumo/limite*100):0;
+  const fill=document.getElementById('cfg-fill');
+  fill.style.width=pct+'%';
+  fill.classList.toggle('estourando', limite>0 && c.consumo>=limite*0.8);
+  document.getElementById('cfg-consumo').textContent=rs(c.consumo);
+  document.getElementById('cfg-pct').textContent=limite?Math.round(pct)+'%':'—';
+  document.getElementById('cfg-marca').hidden=true;
+  document.getElementById('cfg-escala-fim').textContent=c.teto!=null?rs(c.teto):'sem projeção';
+}
+function renderMtRegras(){
+  const box=document.getElementById('mt-regras');
+  if(!box) return;
+  box.innerHTML = mtRegras.length
+    ? '<div class="linha" style="font-size:.64rem;text-transform:uppercase;letter-spacing:.07em;color:var(--fg-faint);margin-bottom:2px"><span style="flex:0 0 66px">Código</span><span style="flex:1 1 120px">Descrição</span><span style="flex:0 0 72px;text-align:right">kg/m</span><span style="flex:0 0 78px;text-align:right">R$/m</span><span style="flex:0 0 64px"></span></div>'+
+      mtRegras.map((r,i)=>'<div class="linha"><input data-rc="'+i+'" value="'+String(r.cod||'').replace(/"/g,'&quot;')+'" aria-label="Código do perfil '+(i+1)+'" style="flex:0 0 66px;font-family:var(--font-num)">'+
+        '<input data-rd="'+i+'" value="'+String(r.desc||'').replace(/"/g,'&quot;')+'" aria-label="Descrição do perfil '+(i+1)+'" style="flex:1 1 120px">'+
+        '<input data-rp="'+i+'" value="'+r.peso+'" inputmode="decimal" aria-label="Peso linear do perfil '+(i+1)+'" style="flex:0 0 72px;font-family:var(--font-num);text-align:right">'+
+        '<input data-rv="'+i+'" value="'+r.preco+'" inputmode="decimal" aria-label="Preço por metro do perfil '+(i+1)+'" style="flex:0 0 78px;font-family:var(--font-num);text-align:right">'+
+        '<button class="rm" type="button" data-rrm="'+i+'" style="flex:0 0 64px">remover</button></div>').join('')
+    : '<p class="dim" style="font-size:.8rem;margin:0">Nenhum perfil importado nesta tabela.</p>';
+}
+function renderNfTabs(){
+  const box=document.getElementById('nf-tabs');
+  box.innerHTML = nfTabs.length
+    ? nfTabs.map((t,i)=>'<div class="linha"><input data-nt="'+i+'" value="'+t.arq+'" aria-label="Arquivo da tabela '+(i+1)+'">'+
+        '<input data-nvg="'+i+'" value="'+t.vig+'" aria-label="Vigência da tabela '+(i+1)+'">'+
+        '<button class="rm" type="button" data-ntrm="'+i+'">remover</button></div>').join('')
+    : '<p class="dim" style="font-size:.8rem;margin:0">Nenhuma tabela. Pode salvar sem nenhuma e subir depois.</p>';
+}
+document.addEventListener('input',e=>{
+  const s=e.target; if(!s.dataset) return;
+  if(s.dataset.nt!=null) nfTabs[+s.dataset.nt].arq=s.value;
+  if(s.dataset.nvg!=null) nfTabs[+s.dataset.nvg].vig=s.value;
+  if(s.dataset.rc!=null) mtRegras[+s.dataset.rc].cod=s.value;
+  if(s.dataset.rd!=null) mtRegras[+s.dataset.rd].desc=s.value;
+  if(s.dataset.rp!=null) mtRegras[+s.dataset.rp].peso=s.value;
+  if(s.dataset.rv!=null) mtRegras[+s.dataset.rv].preco=s.value;
+  if(s.id==='al-busca'&&cfgAtual&&addLinha){
+    addLinha.q=s.value;
+    addLinha.focus=true; renderLinhas(cfgAtual);
+  }
+});
+function renderForn(){
+  document.getElementById('linhas-forn').innerHTML = listaForn().map(f=>{
+    const usos=contas.filter(c=>(c.linhas||[]).some(l=>l.f===f.id)).length;
+    return '<tr class="aberto" data-fd="'+f.id+'"><td><div class="conta-nome">'+f.nome+'</div></td>'+
+      '<td class="dim" style="font-size:.8rem">'+nomeNichoId(f.nicho)+'</td>'+
+      '<td class="num">'+usos+'</td>'+
+      '<td><button class="btn-link" data-fd="'+f.id+'">Tabelas</button></td></tr>';
+  }).join('');
+}
+function abrirFd(id){
+  fdAtual=id;
+  const f=listaForn().find(x=>x.id===id);
+  document.getElementById('fd-titulo').textContent=f?f.nome:'—';
+  const ts=tabelas[id]||[];
+  document.getElementById('fd-tabelas').innerHTML = ts.length
+    ? ts.map((t,j)=>{
+        const usos=contas.filter(c=>(c.linhas||[]).some(l=>l.f===id&&l.t===j)).length;
+        return '<tr>'+
+          '<td class="num" style="font-size:.74rem">'+t.arq+'</td>'+
+          '<td class="num dim" style="font-size:.74rem">'+(t.motor||'—')+'</td>'+
+          '<td class="num dim">'+t.vig+'</td>'+
+          '<td class="num dim">'+t.em+'</td>'+
+          '<td class="num">'+usos+'</td>'+
+          '<td style="white-space:nowrap"><button class="btn-link" data-ed="'+j+'">Editar</button>'+
+          '<button class="btn-link" data-del="'+j+'" style="color:var(--bad)">Excluir</button></td></tr>';
+      }).join('')
+    : '<tr><td colspan="6" class="dim" style="font-size:.8rem">Nenhuma tabela ainda. Clique em <b>Nova tabela</b>.</td></tr>';
+  ir('forndet');
+}
+function nomeNicho(c){const n=(nichos[c.modelo]||[]).find(x=>x.id===c.nicho);return n?n.nome:'—'}
+function pintarModelo(c){
+  document.getElementById('cfg-modelo').value=c.modelo||'';
+  const sel=document.getElementById('cfg-nicho');
+  const lista=nichos[c.modelo]||[];
+  sel.innerHTML=lista.length?lista.map(n=>'<option value="'+n.id+'">'+n.nome+'</option>').join(''):'<option value="">— escolha o modelo primeiro —</option>';
+  if(c.nicho&&lista.some(n=>n.id===c.nicho))sel.value=c.nicho;
+  const revenda=c.modelo==='REVENDA';
+  document.getElementById('cfg-nicho-nota').textContent = revenda
+    ? 'Na revenda o nicho não muda o motor: a base é o próprio cadastro de produtos do cliente.'
+    : 'O nicho decide quais fornecedores e quais tabelas o motor usa.';
+  document.getElementById('base-revenda').hidden=!revenda;
+  document.getElementById('base-fornecedor').hidden=revenda;
+  document.getElementById('base-titulo').textContent = revenda ? 'Base de cálculo do motor' : 'Tabelas em uso';
+  renderLinhas(c);
+}
+function fornDoNicho(c){const f=listaForn().filter(x=>x.nicho===c.nicho);return f.length?f:listaForn()}
+function fonteFiltrada(c){
+  const q=((addLinha&&addLinha.q)||'').toLowerCase();
+  return fornDoNicho(c).filter(f=>!q||f.nome.toLowerCase().includes(q));
+}
+function renderLinhas(c){
+  const box=document.getElementById('cfg-linhas');
+  let html='';
+  if(c.linhas&&c.linhas.length){
+    html+=c.linhas.map((l,i)=>{
+      const f=listaForn().find(x=>x.id===l.f);
+      const t=(tabelas[l.f]||[])[l.t];
+      return '<div class="linha item"><span class="it-f">'+(f?f.nome:'—')+'</span>'+
+        '<span class="it-t">'+(t?t.arq+' · '+t.vig:'tabela removida')+'</span>'+
+        '<span class="it-m">motor: '+(t&&t.motor?t.motor:'—')+'</span>'+
+        '<button class="rm" type="button" data-rm="'+i+'">remover</button></div>';
+    }).join('');
+  } else if(!addLinha){
+    html+='<p class="dim" style="font-size:.8rem;margin:0">Nenhuma tabela em uso.</p>';
+  }
+  if(addLinha){
+    const todos=fornDoNicho(c);
+    const fs='<option value="">— selecione o fornecedor —</option>'+
+      todos.map(f=>'<option value="'+f.id+'"'+(f.id===addLinha.f?' selected':'')+'>'+f.nome+'</option>').join('');
+    const tl=tabelas[addLinha.f]||[];
+    const ts=tl.length
+      ? tl.map((t,j)=>'<option value="'+j+'"'+(j===addLinha.t?' selected':'')+'>'+t.arq+' · '+t.vig+'</option>').join('')
+      : '<option value="">'+(addLinha.f?'este fornecedor ainda não tem tabela':'escolha o fornecedor primeiro')+'</option>';
+    html+='<div style="padding:10px;border:1px dashed var(--accent);border-radius:7px">'+
+      '<div class="linha"><select id="al-forn" aria-label="Fornecedor" style="flex:1 1 100%">'+fs+'</select></div>'+
+      '<div class="linha" style="margin-bottom:0">'+
+        '<select id="al-tab" aria-label="Tabela do fornecedor" style="flex:1 1 240px"'+(tl.length?'':' disabled')+'>'+ts+'</select>'+
+        '<button class="btn btn-primary" type="button" id="al-add">Adicionar</button>'+
+        '<button class="rm" type="button" id="al-cancel">cancelar</button>'+
+      '</div>'+
+    '</div>';
+  }
+  box.innerHTML=html;
+  if(addLinha&&addLinha.focus){const i=document.getElementById('al-busca');if(i){i.focus();i.setSelectionRange(i.value.length,i.value.length)}}
+}
+document.addEventListener('change',e=>{
+  const s=e.target; if(!cfgAtual||!addLinha) return;
+  if(s.id==='al-forn'){addLinha.f=s.value;addLinha.t=0;addLinha.focus=false;renderLinhas(cfgAtual)}
+  if(s.id==='al-tab'){addLinha.t=+s.value}
+});
+document.getElementById('cfg-modelo').addEventListener('change',()=>{
+  if(!cfgAtual)return; cfgAtual.modelo=document.getElementById('cfg-modelo').value||null; cfgAtual.nicho=null; cfgAtual.linhas=[]; pintarModelo(cfgAtual);
+});
+document.getElementById('cfg-nicho').addEventListener('change',()=>{
+  if(!cfgAtual)return; cfgAtual.nicho=document.getElementById('cfg-nicho').value||null; cfgAtual.linhas=[]; pintarModelo(cfgAtual);
+});
+document.getElementById('busca').addEventListener('input',renderLista);
+document.addEventListener('click',e=>{
+  const b=e.target.closest('button, tr.aberto'); if(!b) return;
+  if(b.dataset.sit){const c=acha(b.dataset.sit);c.st=(c.st==='ACTIVE'||c.st==='TRIAL')?'SUSPENDED':'ACTIVE';renderLista();toast(c.st==='ACTIVE'?'Conta ativada':'Conta suspensa');return}
+  if(b.dataset.free){const c=acha(b.dataset.free);c.free=!c.free;renderLista();return}
+  if(b.dataset.ia){const c=acha(b.dataset.ia);c.ia=!c.ia;renderLista();toast(c.ia?'Atendimentos I.A. ligados — a conta aparece na seção':'Atendimentos I.A. desligados');return}
+  if(b.dataset.ver){const c=acha(b.dataset.ver);const[l,k]=rot[c.st];
+    document.getElementById('conta-titulo').textContent=c.nome;
+    document.getElementById('d-mail').textContent=c.mail;
+    document.getElementById('d-fone').textContent=c.fone;
+    document.getElementById('d-sit').innerHTML='<span class="pill '+k+'">'+l+'</span>';
+    document.getElementById('d-free').innerHTML=c.free?'<span class="pill p-ok">Sim</span>':'<span class="pill p-off">Não</span>';
+    document.getElementById('d-vig').textContent=vig(c);
+    document.getElementById('d-apr').innerHTML=c.apr?'<span class="pill p-ok">Sim</span>':'<span class="pill p-warn">Pendente</span>';
+    ir('conta');return}
+  if(b.dataset.cfg){abrirCfg(b.dataset.cfg);return}
+  if(b.dataset.ir){ir(b.dataset.ir);return}
+  if(b.dataset.rm!=null&&cfgAtual){cfgAtual.linhas.splice(+b.dataset.rm,1);renderLinhas(cfgAtual);return}
+  if(b.id==='add-linha'&&cfgAtual){
+    const primeiro=fornDoNicho(cfgAtual)[0];
+    if(!primeiro){toast('Nenhum fornecedor credenciado neste nicho');return}
+    addLinha={f:null,t:0,q:'',focus:true}; renderLinhas(cfgAtual); return}
+  if(b.id==='al-cancel'&&cfgAtual){addLinha=null;renderLinhas(cfgAtual);return}
+  if(b.dataset.pick&&cfgAtual&&addLinha){addLinha.f=b.dataset.pick;addLinha.t=0;addLinha.focus=false;renderLinhas(cfgAtual);return}
+  if(b.id==='al-trocar'&&cfgAtual&&addLinha){addLinha.f=null;addLinha.t=0;addLinha.q='';addLinha.focus=true;renderLinhas(cfgAtual);return}
+  if(b.id==='al-add'&&cfgAtual){
+    if(!addLinha.f){toast('Escolha o fornecedor');return}
+    if(!(tabelas[addLinha.f]||[]).length){toast('Este fornecedor ainda não tem tabela');return}
+    cfgAtual.linhas=cfgAtual.linhas||[]; cfgAtual.linhas.push({f:addLinha.f,t:addLinha.t||0});
+    addLinha=null; renderLinhas(cfgAtual); toast('Tabela adicionada à conta'); return}
+  if(b.dataset.fd){abrirFd(b.dataset.fd);return}
+  if(b.dataset.fechar){document.getElementById(b.dataset.fechar).hidden=true;return}
+  if(b.id==='fd-editar'&&fdAtual){
+    const f=listaForn().find(x=>x.id===fdAtual);
+    document.getElementById('fe-nome').value=f?f.nome:'';
+    document.getElementById('fe-nicho').innerHTML=Object.entries(nichos).map(([m,ns])=>
+      '<optgroup label="'+segNome[m]+'">'+ns.map(n=>'<option value="'+n.id+'"'+(f&&n.id===f.nicho?' selected':'')+'>'+n.nome+'</option>').join('')+'</optgroup>').join('');
+    document.getElementById('mod-fed').hidden=false;
+    document.getElementById('fe-nome').focus(); return}
+  if(b.id==='fe-salvar'&&fdAtual){
+    const nome=(document.getElementById('fe-nome').value||'').trim();
+    const nicho=document.getElementById('fe-nicho').value;
+    if(!nome){toast('Informe o nome do fornecedor');return}
+    const antes=listaForn().find(x=>x.id===fdAtual);
+    Object.keys(fornecedores).forEach(k=>{fornecedores[k]=fornecedores[k].filter(x=>x.id!==fdAtual)});
+    (fornecedores[nicho]=fornecedores[nicho]||[]).push({id:fdAtual,nome});
+    document.getElementById('mod-fed').hidden=true;
+    abrirFd(fdAtual);
+    toast(antes&&antes.nicho!==nicho?'Fornecedor alterado e movido de nicho':'Fornecedor alterado'); return}
+  if(b.id==='fe-excluir'&&fdAtual){
+    const usando=contas.filter(c=>(c.linhas||[]).some(l=>l.f===fdAtual));
+    if(usando.length){toast('Em uso por: '+usando.map(c=>c.nome).join(', '));return}
+    Object.keys(fornecedores).forEach(k=>{fornecedores[k]=fornecedores[k].filter(x=>x.id!==fdAtual)});
+    delete tabelas[fdAtual];
+    document.getElementById('mod-fed').hidden=true;
+    fdAtual=null; ir('forn'); renderLista(); toast('Fornecedor excluído'); return}
+  if(b.dataset.ed!=null&&fdAtual){
+    mtIdx=+b.dataset.ed; const t=tabelas[fdAtual][mtIdx];
+    document.getElementById('mt-tit').textContent='Editar tabela';
+    mtArq=t.arq||''; mtMotor=t.motor||''; pintarNomes();
+    document.getElementById('mt-arq-file').value=''; document.getElementById('mt-motor-file').value='';
+    document.getElementById('mt-vig').value=t.vig;
+    document.getElementById('mod-tab').hidden=false; return}
+  if(b.id==='fd-nova'&&fdAtual){
+    mtIdx=null;
+    document.getElementById('mt-tit').textContent='Nova tabela';
+    mtArq=''; mtMotor=''; pintarNomes();
+    document.getElementById('mt-arq-file').value=''; document.getElementById('mt-motor-file').value='';
+    document.getElementById('mt-vig').value='desde 18/10/2026';
+    document.getElementById('mod-tab').hidden=false; return}
+  if(b.id==='mt-salvar'&&fdAtual){
+    const arq=mtArq, motor=mtMotor;
+    const vig=(document.getElementById('mt-vig').value||'').trim();
+    if(!arq){toast('Suba o arquivo da tabela');return}
+    if(!motor){toast('Suba o arquivo do motor — sem ele a tabela não calcula');return}
+    if(mtIdx==null){(tabelas[fdAtual]=tabelas[fdAtual]||[]).push({arq,vig,em:'18/10/2026',motor})}
+    else{tabelas[fdAtual][mtIdx].arq=arq;tabelas[fdAtual][mtIdx].vig=vig;tabelas[fdAtual][mtIdx].motor=motor}
+    document.getElementById('mod-tab').hidden=true;
+    abrirFd(fdAtual); toast(mtIdx==null?'Tabela adicionada':'Tabela alterada'); return}
+  if(b.dataset.del!=null&&fdAtual){
+    const j=+b.dataset.del;
+    const usando=contas.filter(c=>(c.linhas||[]).some(l=>l.f===fdAtual&&l.t===j));
+    if(usando.length){toast('Em uso por: '+usando.map(c=>c.nome).join(', '));return}
+    tabelas[fdAtual].splice(j,1);
+    contas.forEach(c=>(c.linhas||[]).forEach(l=>{if(l.f===fdAtual&&l.t>j)l.t--}));
+    abrirFd(fdAtual); toast('Tabela excluída'); return}
+  if(b.id==='novo-forn'){
+    nfTabs=[];
+    document.getElementById('nf-nome').value='';
+    document.getElementById('nf-nicho').innerHTML=Object.entries(nichos).map(([m,ns])=>
+      '<optgroup label="'+segNome[m]+'">'+ns.map(n=>'<option value="'+n.id+'">'+n.nome+'</option>').join('')+'</optgroup>').join('');
+    renderNfTabs();
+    document.getElementById('mod-forn').hidden=false;
+    document.getElementById('nf-nome').focus(); return}
+  if(b.id==='nf-addtab'){nfTabs.push({arq:'tabela-'+(nfTabs.length+1)+'.xlsx',vig:'desde 18/10/2026'});renderNfTabs();return}
+  if(b.dataset.ntrm!=null){nfTabs.splice(+b.dataset.ntrm,1);renderNfTabs();return}
+  if(b.id==='nf-salvar'){
+    const nome=(document.getElementById('nf-nome').value||'').trim();
+    const nicho=document.getElementById('nf-nicho').value;
+    if(!nome){toast('Informe o nome do fornecedor');return}
+    const id='f'+(++seqForn);
+    (fornecedores[nicho]=fornecedores[nicho]||[]).push({id,nome});
+    tabelas[id]=nfTabs.map(t=>({arq:t.arq,vig:t.vig,em:'18/10/2026'}));
+    document.getElementById('mod-forn').hidden=true;
+    ir('forn'); renderLista(); toast('Fornecedor credenciado'); return}
+  if(b.id==='cfg-salvar'&&cfgAtual){
+    const num=v=>{v=(v||'').trim().replace(/\./g,'').replace(',','.');return v===''?null:Number(v)};
+    cfgAtual.modelo=document.getElementById('cfg-modelo').value||null;
+    cfgAtual.nicho=document.getElementById('cfg-nicho').value||null;
+    cfgAtual.teto=num(document.getElementById('cfg-teto').value);
+    toast('Configuração gravada');ir('atend');return}
+});
+renderLista();
+</script>
