@@ -50,14 +50,23 @@
 --                           no projeto): 1 GB de Storage no total e 50 MB por arquivo.
 --
 -- ── O QUE ESTA MIGRAÇÃO NÃO AMARRA, e fica para o dono do produto decidir ──────────────────
--- Três coerências entre as tabelas NÃO são impostas pelo banco aqui. Nenhuma foi pedida, e cada
--- uma tem mais de uma forma possível:
---   (i)   `orcamentista_config.nicho_id` pertencer ao `orcamentista_config.modelo` da mesma linha
---         (seria uma FK composta (modelo, nicho_id) → orcamentista_nicho (modelo, id));
---   (ii)  fornecedor só em nicho de FABRICACAO (EPIC §3.2: revenda e serviço não usam fornecedor);
---   (iii) `orcamentista_conta_tabela` só em conta de modelo FABRICACAO e com tabela de fornecedor
---         do nicho da conta (EPIC §3.6: trocar modelo ou nicho limpa as tabelas em uso).
--- Hoje a única guarda delas seria a tela.
+-- Das três coerências entre as tabelas levantadas na primeira versão, UMA entrou no banco e DUAS
+-- ficaram fora — decisão do dono do produto, 19/10/2026:
+--   (i)   ENTROU: `orcamentista_config.nicho_id` pertence ao `orcamentista_config.modelo` da mesma
+--         linha, por FK COMPOSTA (modelo, nicho_id) → orcamentista_nicho (modelo, id). Ver passo 5.
+--   (ii)  FORA: fornecedor só em nicho de FABRICACAO (EPIC §3.2: revenda e serviço não usam
+--         fornecedor).
+--   (iii) FORA: `orcamentista_conta_tabela` só em conta de modelo FABRICACAO e com tabela de
+--         fornecedor do nicho da conta (EPIC §3.6: trocar modelo ou nicho limpa as tabelas em uso).
+-- (ii) e (iii) são REGRA DE PRODUTO, guardada pela TELA e registrada no EPIC. O banco não as
+-- impõe, e quem escrever por fora da tela (rota nova, SQL à mão) não encontra recusa nenhuma.
+--
+-- E UM LIMITE DA (i), que é da semântica da FK e não foi decidido: a FK composta é MATCH SIMPLE —
+-- basta UMA das duas colunas nula para ela não ser exercida. Com `modelo` preenchido e
+-- `nicho_id` nulo, é o "escolheu o modelo, falta o nicho" que a tela oferece. Com `modelo` NULO
+-- e `nicho_id` preenchido, a FK também não é exercida — e esse `nicho_id` pode apontar para
+-- qualquer nicho, ou para nenhum. Fechar isso é uma CHECK (nicho_id IS NULL OR modelo IS NOT
+-- NULL), que NÃO está aqui: fica para o dono do produto.
 -- ════════════════════════════════════════════════════════════════════════════════════════
 
 BEGIN;
@@ -77,7 +86,11 @@ CREATE TABLE public.orcamentista_nicho (
   nome        text        NOT NULL,
   ativo       boolean     NOT NULL DEFAULT true,
   criado_em   timestamptz NOT NULL DEFAULT now(),
-  criado_por  uuid        NULL
+  criado_por  uuid        NULL,
+  -- O par (modelo, id) é único porque `id` já é — esta constraint não restringe nada a mais.
+  -- Ela existe para ser o ALVO da FK composta de `orcamentista_config` (passo 5): uma FK só
+  -- referencia colunas com UNIQUE ou PRIMARY KEY declarada sobre exatamente elas.
+  CONSTRAINT orcamentista_nicho_modelo_id_key UNIQUE (modelo, id)
 );
 
 -- O mesmo nome não se repete DENTRO de um modelo, sem distinguir maiúscula de minúscula:
@@ -160,18 +173,28 @@ COMMENT ON TABLE public.orcamentista_conta_tabela IS
 -- diz isso com todas as letras: "não encosta na segmentação fiscal que o cliente escolheu no
 -- primeiro acesso dele" (EPIC §2).
 --
--- `nicho_id` com RESTRICT: um nicho em uso por uma conta não pode ser excluído.
+-- `nicho_id` NÃO tem FK simples: a FK é COMPOSTA, (modelo, nicho_id) → orcamentista_nicho
+-- (modelo, id), com RESTRICT. Decisão do dono do produto, 19/10/2026. A RAZÃO: sem ela, uma conta
+-- REVENDA pode apontar para um nicho de FABRICACAO. O estado é impossível no produto e era
+-- possível no banco; a FK composta o torna impossível nos dois. E o RESTRICT segue valendo: um
+-- nicho em uso por uma conta não pode ser excluído.
+--
+-- Com `modelo` e `nicho_id` ambos NULL a FK não é exercida — "não definido" continua possível,
+-- que é a opção que a tela oferece. O limite da MATCH SIMPLE está no cabeçalho, em "o que esta
+-- migração não amarra".
 --
 -- As políticas e os privilégios de `orcamentista_config` NÃO mudam: o tenant continua lendo a
 -- própria linha — agora com estas duas colunas — e só a rota escreve.
 ALTER TABLE public.orcamentista_config
   ADD COLUMN modelo   text NULL CHECK (modelo IS NULL OR modelo IN ('FABRICACAO', 'REVENDA', 'SERVICO')),
-  ADD COLUMN nicho_id uuid NULL REFERENCES public.orcamentista_nicho(id) ON DELETE RESTRICT;
+  ADD COLUMN nicho_id uuid NULL,
+  ADD CONSTRAINT orcamentista_config_modelo_nicho_id_fkey FOREIGN KEY (modelo, nicho_id)
+    REFERENCES public.orcamentista_nicho (modelo, id) ON DELETE RESTRICT;
 
 COMMENT ON COLUMN public.orcamentista_config.modelo IS
   'Modelo de atendimento da conta: FABRICACAO | REVENDA | SERVICO. NULL = nao definido. Nao e tenant_settings.calc_type.';
 COMMENT ON COLUMN public.orcamentista_config.nicho_id IS
-  'Nicho da conta. NULL = nao definido. Excluir nicho em uso e recusado (RESTRICT).';
+  'Nicho da conta. NULL = nao definido. FK composta (modelo, nicho_id) -> orcamentista_nicho (modelo, id): o nicho tem de ser do modelo da conta. Excluir nicho em uso e recusado (RESTRICT).';
 
 -- ── 6. SEGURANÇA DAS QUATRO TABELAS NOVAS ──────────────────────────────────────────────────
 -- Catálogo da plataforma: NINGUÉM além do super admin lê ou escreve — nem a própria conta lê as
@@ -319,12 +342,14 @@ COMMIT;
 --                       'public.orcamentista_config'::regclass)
 --    order by 1, 2;
 --   -- esperado:
---   --   nicho ........ pkey (p) · modelo_check (c)
+--   --   nicho ........ pkey (p) · modelo_check (c) · modelo_id_key (u) UNIQUE (modelo, id)
 --   --   fornecedor ... pkey (p) · nicho_id_fkey (f) RESTRICT
 --   --   tabela ....... pkey (p) · fornecedor_id_fkey (f) RESTRICT
 --   --   conta_tabela . pkey (p) PRIMARY KEY (tenant_id, tabela_id) · tenant_id_fkey (f) CASCADE ·
 --   --                  tabela_id_fkey (f) RESTRICT
---   --   config ....... as 6 de antes, INALTERADAS, mais modelo_check (c) e nicho_id_fkey (f) RESTRICT
+--   --   config ....... as 6 de antes, INALTERADAS, mais modelo_check (c) e
+--   --                  modelo_nicho_id_fkey (f) RESTRICT — FOREIGN KEY (modelo, nicho_id)
+--   --                  REFERENCES orcamentista_nicho(modelo, id). NENHUMA FK simples em nicho_id.
 --   --   NENHUMA FK para `users` em tabela nenhuma.
 --   select indexdef from pg_indexes where schemaname='public' and indexname='orcamentista_nicho_modelo_nome_key';
 --   -- esperado: CREATE UNIQUE INDEX ... ON public.orcamentista_nicho USING btree (modelo, lower(nome))

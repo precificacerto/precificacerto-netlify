@@ -176,7 +176,7 @@ do $$ declare r text; begin
   if split_part(r, '|', 1) is distinct from '23503' then raise exception 'FALHOU 7: fornecedor com tabela (sem uso) foi excluído: %', r; end if;
   r := pela_rota('delete from public.orcamentista_nicho where id = ''10000000-0000-0000-0000-000000000003''');
   if split_part(r, '|', 1) is distinct from '23503' then raise exception 'FALHOU 7: nicho com fornecedor (sem tabela) foi excluído: %', r; end if;
-  r := pela_rota(format('update public.orcamentista_config set nicho_id = %L where tenant_id = %L', n_rev(), ta()));
+  r := pela_rota(format($q$update public.orcamentista_config set modelo = 'REVENDA', nicho_id = %L where tenant_id = %L$q$, n_rev(), ta()));
   if r is distinct from 'OK|1' then raise exception 'FALHOU 7: config não aceitou o nicho: %', r; end if;
   r := pela_rota(format('delete from public.orcamentista_nicho where id = %L', n_rev()));
   if split_part(r, '|', 1) is distinct from '23503' then raise exception 'FALHOU 7: nicho em uso por conta foi excluído: %', r; end if;
@@ -235,4 +235,15 @@ do $$ declare r text; begin
   r := como(sa(), $q$delete from storage.objects where bucket_id = 'atendimentos-ia'$q$);
   if r is distinct from 'OK|1' then raise exception 'FALHOU 10: o super admin não apagou: %', r; end if;
   raise notice 'ok: 10 — bucket privado; super admin grava, lê e apaga; tenant e anon: gravação 42501, leitura 0, update/delete 0 linhas; comprovantes intacto';
+end $$;
+
+-- CASO 11 — MODELO × NICHO (decisão do dono do produto, 19/10/2026): uma conta REVENDA não aponta
+-- para um nicho de FABRICACAO — a FK composta (modelo, nicho_id) recusa, mesmo para a rota. E o
+-- par coerente passa, para o caso não ficar verde por recusar tudo.
+do $$ declare r text; begin
+  r := pela_rota(format($q$update public.orcamentista_config set modelo = 'REVENDA', nicho_id = %L where tenant_id = %L$q$, n_fab(), ta()));
+  if split_part(r, '|', 1) is distinct from '23503' then raise exception 'FALHOU 11: conta REVENDA com nicho de FABRICACAO foi aceita: %', r; end if;
+  raise notice 'ok: 11 — conta REVENDA com nicho de FABRICACAO recusada: %', r;
+  r := pela_rota(format($q$update public.orcamentista_config set modelo = 'FABRICACAO', nicho_id = %L where tenant_id = %L$q$, n_fab(), ta()));
+  if r is distinct from 'OK|1' then raise exception 'FALHOU 11: o par coerente FABRICACAO + nicho de FABRICACAO foi recusado: %', r; end if;
 end $$;
