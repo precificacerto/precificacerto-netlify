@@ -57,6 +57,7 @@ export enum PAGE_TITLES {
   SUPER_ADMIN_CADASTROS = 'Cadastros Pendentes',
   SUPER_ADMIN_PLANS_EXPIRING = 'Planos Expirando',
   SUPER_ADMIN_NOTIFICATIONS = 'Notificações',
+  SUPER_ADMIN_IA_FORNECEDORES = 'Fornecedores e tabelas de preço',
 }
 
 export const APP_TITLE = process.env.NEXT_PUBLIC_APPLICATION_TITLE ?? 'Precifica Certo'

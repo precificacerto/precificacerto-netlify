@@ -1,0 +1,39 @@
+/**
+ * POST /api/super-admin/atendimentos-ia/tabelas — grava uma tabela NOVA de um fornecedor:
+ * { fornecedor_id, arquivo_path, arquivo_nome, motor_path, motor_nome, vigencia }.
+ *
+ * O MOTOR É OBRIGATÓRIO, e quem recusa é a ROTA — não só a tela (`lerCorpoDaTabela`, com a frase
+ * de `MENSAGEM_MOTOR_OBRIGATORIO`). "Quando for inserida uma nova tabela, tem que inserir o motor
+ * de aplicação" (dono do produto, EPIC §3.8). O banco é a terceira trava: `motor_path` e
+ * `motor_nome` são NOT NULL.
+ *
+ * E os dois arquivos têm de ESTAR no bucket: a linha não é gravada apontando para um objeto que
+ * não chegou (o envio é feito pelo navegador com a URL assinada de `url-de-envio`).
+ */
+import type { NextApiRequest, NextApiResponse } from 'next'
+import { requireSuperAdmin } from '@/lib/get-caller-tenant'
+import { codigoDoErro, criarTabela, falhaInterna, objetoExiste } from '@/lib/atendimentos-ia/repositorio'
+import { lerCorpoDaTabela, MENSAGEM_MOTOR_OBRIGATORIO, recusada } from '@/utils/atendimentos-ia-catalogo'
+
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
+
+  const caller = await requireSuperAdmin(req, res)
+  if (!caller) return
+
+  const leitura = lerCorpoDaTabela(req.body)
+  if (recusada(leitura)) return res.status(400).json({ error: leitura.erro })
+  const t = leitura.corpo
+
+  try {
+    if (!(await objetoExiste(t.arquivo_path))) return res.status(400).json({ error: 'O arquivo da tabela não chegou ao armazenamento. Envie de novo.' })
+    if (!(await objetoExiste(t.motor_path))) return res.status(400).json({ error: 'O arquivo do motor não chegou ao armazenamento. Envie de novo.' })
+    const criada = await criarTabela({ ...t, criado_por: caller.user_id })
+    return res.status(201).json(criada)
+  } catch (e) {
+    const codigo = codigoDoErro(e)
+    if (codigo === '23503') return res.status(404).json({ error: 'Fornecedor não encontrado.' })
+    if (codigo === '23502') return res.status(400).json({ error: MENSAGEM_MOTOR_OBRIGATORIO })
+    return falhaInterna(res, 'tabela POST', e, 'Não foi possível gravar a tabela.')
+  }
+}

@@ -161,7 +161,10 @@ function chavePorModuloDoDrawer(): Record<string, string> {
 /** As seções declaradas, na ordem em que o menu as renderiza. */
 function secoesDoNav(): { key: string; label: string }[] {
   const b = corpo(ler(NAV), 'const sections:', '[')
-  return [...b.matchAll(/key:\s*'([a-z]+)'\s*,\s*label:\s*'([^']*)'/g)].map((m) => ({ key: m[1], label: m[2] }))
+  // `[a-z-]+`, com o HÍFEN, desde 19/10/2026 (bloco 2B.2): com `[a-z]+` a seção `atendimentos-ia`
+  // não era lida, e o caso "toda seção declarada está classificada" passava VERDE sem tê-la
+  // classificado — o leitor não enxergava justamente a seção nova (`instrumento-que-nao-enxerga.md`).
+  return [...b.matchAll(/key:\s*'([a-z-]+)'\s*,\s*label:\s*'([^']*)'/g)].map((m) => ({ key: m[1], label: m[2] }))
 }
 
 describe('PORTÃO 2 (a) — a leitura alcança as três estruturas', () => {
@@ -302,6 +305,9 @@ describe('PORTÃO 2 (e) — o que o SUPER ADMIN vê, seção por seção', () =>
     financeiro: true,
     agendamentos: true,
     operacional: true,
+    // Atendimentos I.A. (bloco 2B.2, 19/10/2026): é DO super admin — os itens são `superAdminOnly`
+    // e moram sob `/super-admin/`, que o `AuthGuard` deixa ele abrir.
+    'atendimentos-ia': false,
     superadmin: false,
   }
 

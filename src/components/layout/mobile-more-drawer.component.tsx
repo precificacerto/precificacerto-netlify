@@ -122,6 +122,8 @@ const MobileMoreDrawer = ({ open, onClose }: Props) => {
     { key: 'users', label: 'Usuários', href: ROUTES.USUARIOS, icon: <TeamOutlined />, section: 'Operacional', sectionKey: 'operacional', adminOnly: true, hideForSuperAdmin: true },
 
     // Super Admin
+    // Atendimentos I.A. — a mesma seção do menu desktop (`nav.component.tsx`), com a mesma chave.
+    { key: 'super-ia-fornecedores', label: 'Fornecedores e tabelas', href: ROUTES.SUPER_ADMIN_IA_FORNECEDORES, icon: <DatabaseOutlined />, section: 'Atendimentos I.A.', sectionKey: 'atendimentos-ia', superAdminOnly: true },
     { key: 'super-admin', label: 'Painel Super Admin', href: ROUTES.SUPER_ADMIN_PANEL, icon: <SafetyCertificateOutlined />, section: 'Super Admin', sectionKey: 'superadmin', superAdminOnly: true },
     { key: 'super-notifications', label: 'Notificações', href: ROUTES.SUPER_ADMIN_NOTIFICATIONS, icon: <BellOutlined />, section: 'Super Admin', sectionKey: 'superadmin', superAdminOnly: true },
     { key: 'super-tenants', label: 'Tenants', href: ROUTES.SUPER_ADMIN_TENANTS, icon: <TeamOutlined />, section: 'Super Admin', sectionKey: 'superadmin', superAdminOnly: true },
@@ -161,7 +163,7 @@ const MobileMoreDrawer = ({ open, onClose }: Props) => {
 
   // 'Clientes' entra entre Cadastros e Comercial — a MESMA posição da seção no menu
   // desktop. A ordem é o que faz o usuário achar no celular o que ele vê no desktop.
-  const sectionOrder = ['Início', 'Cadastros', 'Clientes', 'Comercial', 'Financeiro', 'Agendamentos', 'Operacional', 'Super Admin', 'Conta']
+  const sectionOrder = ['Início', 'Cadastros', 'Clientes', 'Comercial', 'Financeiro', 'Agendamentos', 'Operacional', 'Atendimentos I.A.', 'Super Admin', 'Conta']
   const grouped = sectionOrder
     .map((section) => ({ section, list: visibleItems.filter((i) => i.section === section) }))
     .filter((g) => g.list.length > 0)
