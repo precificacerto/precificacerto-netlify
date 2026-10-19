@@ -62,12 +62,14 @@ describe('PORTÃO 1 — a tela do Atendimentos I.A. não fala com o banco', () =
 
     // Bloco 2C.1 (19/10/2026): as duas telas de "Contas ligadas" entram na lista. Sem elas aqui,
     // (a) e (b) continuariam verdes sobre uma área que não as lê.
-    it('(c) o leitor alcança a área: ela existe, e tem as páginas de fornecedores e de contas ligadas', () => {
+    it('(c) o leitor alcança a área: as páginas de fornecedores e de contas ligadas, e o componente das tabelas em uso', () => {
         expect(daTela.map(rel)).toEqual(expect.arrayContaining([
             'src/pages/super-admin/atendimentos-ia/fornecedores/index.tsx',
             'src/pages/super-admin/atendimentos-ia/fornecedores/[id].tsx',
             'src/pages/super-admin/atendimentos-ia/contas/index.tsx',
             'src/pages/super-admin/atendimentos-ia/contas/[tenantId].tsx',
+            // "Tabelas em uso" (depois do 2C.1): o componente que escolhe fornecedor e tabela.
+            'src/page-parts/atendimentos-ia/tabelas-em-uso.component.tsx',
         ]))
     })
 
