@@ -45,8 +45,13 @@ entre eles **estão a definir pelo mockup**.
 
 ### 3.1 O motor vem preso à tabela, e nunca é escolhido à parte
 
-Não existe um seletor de motor. Quem escolhe a tabela escolheu o motor. Registro:
-`docs/registros/o-motor-vem-preso-a-tabela.md`.
+> "eu vou buscar o fornecedor e selecionar a tabela daquele fornecedor. Só isso. E aí clicar em
+> adicionar, confirmar. E automaticamente o motor já está atrelado, integrado àquela tabela."
+>
+> — PO, 18/10/2026
+
+O motor NUNCA é escolhido em separado: ele é um atributo da tabela e entra junto com ela.
+Registro: `docs/registros/o-motor-vem-preso-a-tabela.md`.
 
 ### 3.2 Revenda não usa fornecedor
 
