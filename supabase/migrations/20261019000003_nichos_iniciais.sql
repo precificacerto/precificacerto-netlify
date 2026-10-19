@@ -27,8 +27,13 @@
 -- supabase_migrations.schema_migrations não contém nenhuma das três migrations de 19/10: a
 -- aplicação foi pelo SQL Editor, que não grava no ledger. Em 19/10/2026 o ledger vai até
 -- 20261017185237. Consequência: um `supabase db push` tentaria aplicar as três de novo.
--- Esta sobrevive (ON CONFLICT DO NOTHING); as irmãs não — a 20261019000001 tem CREATE TABLE
--- sem IF NOT EXISTS, e a 20261019000002 tem DROP POLICY sem IF EXISTS.
+-- Esta sobrevive (ON CONFLICT DO NOTHING). A 20261019000001 não: tem CREATE
+-- TABLE sem IF NOT EXISTS, e falharia. A 20261019000002 TAMBÉM sobrevive: o
+-- DROP POLICY não tem IF EXISTS, mas ela mesma recria as três políticas com
+-- os mesmos nomes, então numa segunda execução o DROP encontra o que apagar.
+-- A afirmação anterior, de que ela falharia, estava ERRADA. Foi escrita pela
+-- sessão de verificação em 19/10/2026 e corrigida no mesmo dia, depois de
+-- conferida nos próprios arquivos — não medida contra o banco.
 --
 -- POR QUE EXISTE: o catálogo nasceu vazio, e sem nicho não se credencia fornecedor — o seletor
 -- do credenciamento dizia "Nenhum nicho cadastrado". Medido em 19/10/2026, 18:38 UTC: 0 nichos,

@@ -59,19 +59,24 @@ continua aberto depois deste acerto.
 placeholder do `supabase init` (`migration-delivery.md`). Qualquer comando do CLI exige antes
 `supabase link --project-ref` para o projeto certo — um passo a mais em que se pode errar o alvo.
 
-### Uma correção de registro — o cabeçalho da `…000003` erra a razão
+### Uma correção de registro — o cabeçalho da `…000003` errava a razão
 
-O cabeçalho de `20261019000003_nichos_iniciais.sql` diz que, num `db push`, *"as irmãs não
-[sobrevivem] — a 20261019000001 tem CREATE TABLE sem IF NOT EXISTS, e a 20261019000002 tem DROP
-POLICY sem IF EXISTS"*. A primeira metade está certa. **A segunda não:** `DROP POLICY` sem
+O cabeçalho de `20261019000003_nichos_iniciais.sql` **dizia, até 19/10/2026**, que num
+`db push` *"as irmãs não [sobrevivem] — a 20261019000001 tem CREATE TABLE sem IF NOT EXISTS, e a
+20261019000002 tem DROP POLICY sem IF EXISTS"*. A citação é do texto como ele estava antes do
+commit `docs(db): corrige afirmacao errada sobre a migracao dos comprovantes`, que o substituiu.
+A primeira metade estava certa. **A segunda não estava:** `DROP POLICY` sem
 `IF EXISTS` só falha quando a política **não existe** — e as três políticas existem, porque a
 própria `…000002` as recriou com os mesmos nomes (`comprovantes_select_policy`,
 `_insert_policy`, `_update_policy`). Rodada de novo, ela as derruba e recria iguais, numa
 transação só, e termina sem erro.
 
-O cabeçalho foi escrito pelo assistente e não é alterado aqui: o pedido desta rodada foi
-registrar, e editar uma migração aplicada é outro ato. Fica registrado onde ele erra, para que
-ninguém conte com uma falha que não acontece.
+O cabeçalho foi escrito pelo assistente, e a primeira versão deste registro não o alterou: o
+pedido daquela rodada era só registrar. **Ele foi corrigido em 19/10/2026**, por instrução do
+dono do produto, no mesmo commit que datou esta citação — só as linhas de comentário. O md5
+das linhas que não são comentário nem vazias continuou `d3dcc4829f8777177892cdba51baf155`, antes
+e depois: o SQL executável não mudou. O erro fica registrado aqui para que ninguém conte com uma
+falha que não acontece.
 
 ## O procedimento — NÃO executado
 
