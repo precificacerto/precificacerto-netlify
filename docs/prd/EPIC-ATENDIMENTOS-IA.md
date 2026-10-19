@@ -4,9 +4,11 @@
 **Criado:** 18/10/2026 · **Revisto com o mockup:** 19/10/2026
 **Fonte:** as instruções do dono do produto nas rodadas do bloco 1 e do bloco 2A, e o mockup
 aprovado `docs/prd/atendimentos-ia-mockup.html`, **versão 21** — subida pelo dono do produto no
-commit `2d666d9` (md5 `73a813d8bcf363cce9de73a0135afe78`) e corrigida em 19/10/2026 em duas notas
-obsoletas, por autorização dele (md5 `8ebb77c83243889fed72f1598f00b64d`, 50.462 bytes, 745
-linhas).
+commit `2d666d9` (md5 `73a813d8bcf363cce9de73a0135afe78`), corrigida em 19/10/2026 em duas notas
+obsoletas, por autorização dele (md5 `8ebb77c83243889fed72f1598f00b64d`), e atualizada no mesmo
+dia com a decisão sobre Prestação de serviço (regra 3.2). **Versão vigente: md5
+`c456f37d4d9bd969077d8141ebca071a`, 51.222 bytes, 752 linhas.** Ela chegou à `main` embrulhada num
+envelope HTML; a branch guarda o arquivo cru — `docs/registros/o-envelope-do-mockup.md`.
 
 > **Como ler este documento.** O que está aqui foi LIDO do mockup ou declarado pelo dono do
 > produto — cada seção diz qual das duas. Onde o mockup não decide, a seção diz **"a definir"** e
@@ -62,15 +64,27 @@ determinavam o motor, era texto obsoleto — anterior a esta decisão — e foi 
 entra junto com ela, nunca escolhido à parte."* Registro:
 `docs/registros/o-motor-vem-preso-a-tabela.md`.
 
-### 3.2 Revenda não usa fornecedor
+### 3.2 Revenda e Prestação de serviço não usam fornecedor — só Fabricação usa
 
-Mockup, nota 4: *"Revenda não usa fornecedor — a base é o cadastro de produtos do próprio
-cliente. Fabricação usa, e é aí que entram as tabelas."* Na configuração, com modelo Revenda, a
-seção "Base de cálculo do motor" diz: *"A I.A. monta o orçamento a partir dos produtos cadastrados
-no sistema do próprio cliente. Não usa fornecedor nem tabela externa."* E o nicho: *"Na revenda o
-nicho não muda o motor: a base é o próprio cadastro de produtos do cliente."*
+Declaração do dono do produto sobre Prestação de serviço:
 
-**Prestação de serviço não foi declarada** — ver 9.1.
+> "Prestação de serviço vai considerar os produtos e os serviços salvos dentro do sistema."
+>
+> — PO, 19/10/2026
+
+| modelo | base do motor | fornecedor → tabela → motor |
+|---|---|---|
+| **Fabricação** | as tabelas em uso da conta | **SIM — é o único modelo que usa** |
+| **Revenda** | o cadastro do próprio cliente: **produtos** | não |
+| **Prestação de serviço** | o cadastro do próprio cliente: **produtos E serviços** | não |
+
+Mockup, nota 4: *"Revenda e Prestação de serviço não usam fornecedor — a base é o cadastro do
+próprio cliente: produtos na revenda, produtos e serviços na prestação. Só Fabricação usa
+fornecedor e tabela."* Na configuração, a seção "Base de cálculo do motor" diz, na revenda, *"A
+I.A. monta o orçamento a partir dos produtos cadastrados no sistema do próprio cliente. Não usa
+fornecedor nem tabela externa."*; na prestação, *"… a partir dos produtos e serviços cadastrados no
+sistema do próprio cliente. Não usa fornecedor nem tabela externa."* E o nicho, nos dois: *"Aqui o
+nicho não muda a base: ela é o próprio cadastro do cliente."*
 
 ### 3.3 Nada que pertença a um cliente é subido no Atendimentos I.A.
 
@@ -146,7 +160,7 @@ Telefone.** O resto da ficha de hoje não muda por causa do mockup — decisão 
 
 Lista SÓ as contas com o Atendimentos I.A. ligado. Colunas: **Conta** · **Modelo · nicho** (com
 o selo *"não definido"* quando falta o modelo) · **Tabelas em uso** (*"N tabela(s)"*; *"não se
-aplica"* na revenda; travessão quando nenhuma) · **Gasto no mês** (R$, e a porcentagem sobre a
+aplica"* na revenda e na prestação de serviço; travessão quando nenhuma) · **Gasto no mês** (R$, e a porcentagem sobre a
 projeção quando há projeção) · **Projeção** · **Configurar**. Lista vazia: *"Nenhuma conta ligada.
 Ligue em Tenants → Atendimentos I.A."* Botão "Ir para Tenants".
 
@@ -157,11 +171,13 @@ Quatro grupos, e "Salvar configuração" / "Cancelar":
 1. **Modelo de atendimento** — o seletor da seção 2, com o texto de que não é a segmentação
    fiscal.
 2. **Nicho** — seletor dos nichos do modelo escolhido; sem modelo, *"— escolha o modelo
-   primeiro —"*. Nota da tela: na revenda, *"o nicho não muda o motor"*; nos outros, *"O nicho
-   decide quais fornecedores e quais tabelas o motor usa."*
-3. **Base de cálculo** — na **revenda**, o texto da regra 3.2 e um resumo do cadastro do cliente
-   (no exemplo: *"1.284 produtos · 37 itens de custo · atualizado em 17/10/2026"*). Fora da
-   revenda, o grupo se chama **"Tabelas em uso"**: cada linha mostra fornecedor · arquivo e
+   primeiro —"*. Nota da tela: na revenda e na prestação de serviço, *"Aqui o nicho não muda a
+   base: ela é o próprio cadastro do cliente."*; na fabricação, *"O nicho decide quais
+   fornecedores e quais tabelas o motor usa."*
+3. **Base de cálculo** — na **revenda** e na **prestação de serviço**, o texto da regra 3.2 e um
+   resumo do cadastro do cliente (no exemplo: *"1.284 produtos · 37 itens de custo · atualizado
+   em 17/10/2026"* na revenda; *"1.284 produtos · 96 serviços · 37 itens de custo · atualizado em
+   17/10/2026"* na prestação). Na **fabricação**, o grupo se chama **"Tabelas em uso"**: cada linha mostra fornecedor · arquivo e
    vigência da tabela · *"motor: <arquivo>"* · remover. **"+ Adicionar"** abre dois seletores — o
    fornecedor (do nicho da conta) e depois a tabela daquele fornecedor — e o botão "Adicionar".
    Texto: *"O mesmo fornecedor pode aparecer em várias linhas, uma por tabela. Para subir ou trocar
@@ -226,27 +242,23 @@ As telas 5.3, 5.5 e 5.6 e a seção nova do menu ainda não estão atribuídas a
 
 Cada item abaixo é uma pergunta para o dono do produto, não uma escolha feita aqui.
 
-1. **Prestação de serviço usa fornecedor?** Não foi declarado pelo dono do produto. A nota 4 do
-   mockup decide Revenda (não usa) e Fabricação (usa). Hoje Serviço segue o caminho de fornecedor
-   **por consequência do código do mockup** — a tela só esconde o fornecedor quando o modelo é
-   Revenda —, **não por decisão**. Nenhum fornecedor de exemplo é de nicho de serviço.
-2. **Nicho sem fornecedor.** Quando o nicho da conta não tem fornecedor, o mockup oferece TODOS os
+1. **Nicho sem fornecedor.** Quando o nicho da conta não tem fornecedor, o mockup oferece TODOS os
    fornecedores da plataforma em vez de nenhum. Não está dito se é a regra ou um atalho do
    protótipo.
-3. **Fornecedor em nicho de revenda.** O modal de credenciamento oferece os nichos de Revenda,
-   embora Revenda não use fornecedor (3.2).
-4. **De onde vem o "Gasto no mês" / "Consumido no mês".** Nenhuma fonte de consumo existe hoje.
-5. **O resumo da base da revenda.** O que conta como "itens de custo", e de onde vem a data de
-   atualização.
-6. **O que é importado dos arquivos.** O mockup diz que o conteúdo (*"código, dimensão, peso,
+2. **Fornecedor em nicho de revenda ou de serviço.** O modal de credenciamento oferece os nichos
+   de Revenda e de Prestação de serviço, embora nenhum dos dois use fornecedor (3.2).
+3. **De onde vem o "Gasto no mês" / "Consumido no mês".** Nenhuma fonte de consumo existe hoje.
+4. **O resumo da base da revenda e da prestação de serviço.** O que conta como "itens de custo",
+   e de onde vem a data de atualização.
+5. **O que é importado dos arquivos.** O mockup diz que o conteúdo (*"código, dimensão, peso,
    referência, valor"*) é importado e fica por trás. Formato, validação e o que acontece com uma
    tabela que não importa — não decididos. O script do mockup ainda traz restos de uma versão
    com perfis editáveis (código, descrição, kg/m, R$/m) que nenhuma tela exibe.
-7. **Vigência da tabela.** É texto livre no mockup. Se o sistema escolhe sozinho a tabela vigente
+6. **Vigência da tabela.** É texto livre no mockup. Se o sistema escolhe sozinho a tabela vigente
    de um fornecedor, ou se a linha da conta fica presa à tabela escolhida mesmo depois de vencer.
-8. **Conta ligada e suspensa.** Se uma conta suspensa ou cancelada com o Atendimentos I.A. ligado
+7. **Conta ligada e suspensa.** Se uma conta suspensa ou cancelada com o Atendimentos I.A. ligado
    aparece em "Contas ligadas".
-9. **A seção Super Admin do menu.** O mockup lista quatro itens (Painel, Tenants, Usuários,
+8. **A seção Super Admin do menu.** O mockup lista quatro itens (Painel, Tenants, Usuários,
    Pagamentos); o menu de hoje tem oito (também Notificações, Convites, Cadastros e Planos
    Expirando). Não está dito se o mockup só abreviou ou se propõe tirar os outros quatro.
    E a seção nova "Atendimentos I.A." é uma seção à parte da "Super Admin": entrar no menu exige
@@ -273,3 +285,9 @@ resolveu. Ficam aqui, com a razão, para que ninguém os reabra lendo só o mock
    `trial_ends_at` preenchida apareceria como em trial. O `plan_status` diz em que estado a conta
    ESTÁ; a data diz só que ela teve um trial. Portão: `o-painel-de-contas-cabe-na-tela.test.tsx`,
    caso da Vigência, em que as contas têm as duas datas e só o `plan_status` decide.
+6. **Prestação de serviço usa o cadastro do próprio cliente — produtos e serviços — e NÃO usa
+   fornecedor nem tabela** (3.2). Declaração do dono do produto: *"Prestação de serviço vai
+   considerar os produtos e os serviços salvos dentro do sistema."* Até esta decisão, o código do
+   mockup levava Serviço ao caminho de fornecedor só porque escondia o fornecedor apenas na
+   Revenda — consequência, não decisão. Revenda é o mesmo caminho, só com produtos. **Fabricação é
+   o único modelo que usa fornecedor → tabela → motor.**
