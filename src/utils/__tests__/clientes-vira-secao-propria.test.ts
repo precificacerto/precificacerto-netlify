@@ -39,6 +39,7 @@ import path from 'path'
 import { MODULES } from '@/hooks/use-permissions.hook'
 import { ROUTES } from '@/constants/routes'
 import { MODULE_LABELS } from '@/constants/module-labels'
+import { SECOES_ESCONDIDAS_DO_SUPER_ADMIN } from '@/constants/secoes-escondidas-do-super-admin'
 
 const RAIZ = path.resolve(__dirname, '../../..')
 const ler = (rel: string) => fs.readFileSync(path.join(RAIZ, rel), 'utf8')
@@ -47,7 +48,14 @@ const NAV = 'src/components/layout/nav.component.tsx'
 const DRAWER = 'src/components/layout/mobile-more-drawer.component.tsx'
 const PERMISSOES = 'src/pages/funcionarios/index.tsx'
 
-/** A seção do nav → o `title` do grupo em Permissões. Correspondência DECLARADA. */
+/**
+ * A seção do nav → o `title` do grupo em Permissões. Correspondência DECLARADA.
+ *
+ * Desde 19/10/2026 ela serve SÓ à paridade com as Permissões. O drawer mobile passou a declarar
+ * a chave do desktop em cada item (`sectionKey`), e a paridade desktop × drawer compara chave
+ * com chave — o código declara o que este teste antes adivinhava pelo rótulo. Para as
+ * Permissões a tabela continua: `funcionarios/index.tsx` agrupa por `title`, e não há chave lá.
+ */
 const SECAO_DO_NAV_PARA_GRUPO: Record<string, string> = {
   geral: 'Geral',
   cadastros: 'Cadastros',
@@ -120,13 +128,34 @@ function grupoPorModulo(): Record<string, string> {
   return fora
 }
 
-/** As seções escondidas do super admin, lidas da lista do nav. */
+/**
+ * As seções escondidas do super admin — o VALOR da constante, importado.
+ *
+ * Até 19/10/2026 este leitor varria o código-fonte de `nav.component.tsx` atrás do `[` depois de
+ * `const sectionsToHideForSuperAdmin =`. Ele afirmava a GRAFIA e o ENDEREÇO da constante, não o
+ * valor dela: medido, com a lista movida para um módulo próprio ele devolveu LISTA VAZIA em vez de
+ * falhar — `ausente-vs-falso.md` dentro do instrumento, e `instrumento-que-nao-enxerga.md` na
+ * forma. A partir daqui ele lê o que o menu e o drawer leem.
+ */
 function escondidasDoSuperAdmin(): string[] {
-  // `'const sectionsToHideForSuperAdmin'` por extenso: o marcador curto `'const sections'`
-  // casaria com ESTA mesma linha ao procurar a lista de seções, e já produziu leitura do
-  // array errado nesta campanha — `instrumento-que-nao-enxerga.md`.
-  const b = corpo(ler(NAV), 'const sectionsToHideForSuperAdmin', '[')
-  return [...b.matchAll(/'([a-z]+)'/g)].map((m) => m[1])
+  return [...SECOES_ESCONDIDAS_DO_SUPER_ADMIN]
+}
+
+/**
+ * `MODULES.X` → a `sectionKey` declarada no drawer mobile (a CHAVE do desktop, desde 19/10/2026).
+ * Lida do arquivo, com guarda de alcance no caso que a usa: o número de `sectionKey` lidas tem
+ * de ser o número de itens.
+ */
+function chavePorModuloDoDrawer(): Record<string, string> {
+  const fora: Record<string, string> = {}
+  for (const m of ler(DRAWER).matchAll(/key:\s*'[^']+'[^\n]*/g)) {
+    const sec = /sectionKey:\s*'([^']+)'/.exec(m[0])
+    const mod = /module:\s*MODULES\.([A-Z_]+)/.exec(m[0])
+    if (!sec || !mod) continue
+    const chave = (MODULES as Record<string, string>)[mod[1]]
+    if (chave) fora[chave] = sec[1]
+  }
+  return fora
 }
 
 /** As seções declaradas, na ordem em que o menu as renderiza. */
@@ -215,20 +244,34 @@ describe('PORTÃO 2 (d) — PARIDADE: mover num lado e esquecer o outro fica VER
     expect(divergentes).toEqual([])
   })
 
+  // Desde 19/10/2026 a comparação é CHAVE com CHAVE: o drawer declara a `sectionKey` do desktop,
+  // e a tabela `SECAO_DO_NAV_PARA_GRUPO` saiu deste caso.
   it('e o drawer mobile concorda com o desktop, seção por seção', () => {
     const desk = secaoPorModuloDoNav()
-    const mob = secaoPorModuloDoDrawer()
+    const mob = chavePorModuloDoDrawer()
+    expect(Object.keys(mob).length).toBeGreaterThan(15)
     const divergentes: { modulo: string; desktop: string; mobile: string }[] = []
     for (const [modulo, secao] of Object.entries(desk)) {
       if (!(modulo in mob)) continue
-      const esperado = SECAO_DO_NAV_PARA_GRUPO[secao]
-      if (!esperado) continue
-      // `Início` no drawer é a faixa de ATALHOS do topo (Home, Caixa, Fluxo de Caixa), não
-      // uma seção de módulo — por isso não entra na correspondência.
-      if (mob[modulo] === 'Início') continue
-      if (mob[modulo] !== esperado) divergentes.push({ modulo, desktop: esperado, mobile: mob[modulo] })
+      // `Início` (`geral`) no drawer é a faixa de ATALHOS do topo (Home, Caixa, Fluxo de Caixa),
+      // não uma seção de módulo: Caixa e Fluxo de Caixa moram em `financeiro` no desktop. Por
+      // isso os atalhos não entram na correspondência.
+      if (mob[modulo] === 'geral') continue
+      if (mob[modulo] !== secao) divergentes.push({ modulo, desktop: secao, mobile: mob[modulo] })
     }
     expect(divergentes).toEqual([])
+  })
+
+  // O que substitui a tabela, para o drawer: toda chave que ele declara existe no desktop. A
+  // única exceção é `conta` — no desktop, Minha Conta, Configurações, Planos, Suporte e Sair
+  // moram no RODAPÉ, não numa seção; por isso ela é declarada aqui, e não inferida.
+  it('toda `sectionKey` do drawer existe entre as chaves de seção do desktop (exceto `conta`)', () => {
+    const texto = ler(DRAWER)
+    const declaradas = [...texto.matchAll(/sectionKey:\s*'([^']+)'/g)].map((m) => m[1])
+    // Alcance: uma `sectionKey` por item. Se o leitor deixar de casar, a contagem acusa.
+    expect(declaradas.length).toBe([...texto.matchAll(/\{ key:\s*'[^']+'/g)].length)
+    const doDesktop = secoesDoNav().map((s) => s.key)
+    expect([...new Set(declaradas)].filter((k) => k !== 'conta' && !doDesktop.includes(k))).toEqual([])
   })
 })
 
@@ -245,13 +288,16 @@ describe('PORTÃO 2 (e) — o que o SUPER ADMIN vê, seção por seção', () =>
   const ESPERADO: Record<string, boolean> = {
     geral: true,
     cadastros: true,
-    // >>> CLIENTES NÃO É ESCONDIDA, E ISSO MUDA O COMPORTAMENTO ATUAL <<<
-    // Ela não "voltou" a aparecer: o super admin NUNCA viu Clientes, porque o item morava em
-    // `cadastros`, que está na lista. Ao virar seção própria, Clientes herdaria a ocultação —
-    // e herança não é decisão. Decidido em 15/10/2026: Clientes é a seção de CONSULTA, e o
-    // super admin é exatamente quem precisa dela. É mudança deliberada de produto, não
-    // restauração.
-    clientes: false,
+    // >>> CLIENTES É ESCONDIDA — AFIRMAÇÃO INVERTIDA EM 19/10/2026, por decisão do dono do
+    // produto <<<
+    // Em 15/10/2026 este caso afirmava o CONTRÁRIO (`clientes: false`): Clientes era a seção
+    // de consulta, e o super admin, "exatamente quem precisa dela". Mudou porque o `AuthGuard`
+    // (`_app.tsx`) devolve o super admin ao painel em toda rota fora de `/super-admin/*` e
+    // `/minha-conta` — o menu oferecia um destino que o guarda proibia, e o clique ia e
+    // voltava. O super admin não tem tenant: cliente pertence a uma conta, e ele não é dono de
+    // nenhuma. As duas pontas, menu e guarda, são afirmadas juntas em
+    // `o-super-admin-nao-ve-clientes.test.tsx`.
+    clientes: true,
     comercial: true,
     financeiro: true,
     agendamentos: true,
@@ -259,8 +305,11 @@ describe('PORTÃO 2 (e) — o que o SUPER ADMIN vê, seção por seção', () =>
     superadmin: false,
   }
 
-  it('a lista é lida de verdade — senão todos os casos abaixo passariam vazios', () => {
+  // A GUARDA, agora com sentido: ela não mede se o leitor alcança o arquivo — ele lê o valor —,
+  // mede se a lista existe. Se alguém esvaziar a lista, ou tirar Clientes dela, o caso cai.
+  it('a lista importada tem mais de 3 seções e contém clientes', () => {
     expect(escondidasDoSuperAdmin().length).toBeGreaterThan(3)
+    expect(escondidasDoSuperAdmin()).toContain('clientes')
   })
 
   it('toda seção declarada está classificada aqui, e vice-versa', () => {

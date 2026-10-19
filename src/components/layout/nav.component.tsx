@@ -37,6 +37,7 @@ import { usePermissions, MODULES, type ModuleKey } from '@/hooks/use-permissions
 import { PERMISSIONS } from '@/shared/enums/permissions'
 import { monthObjects } from '@/constants/month'
 import { moduleVisibleForSegment } from '@/utils/segment-visibility'
+import { SECOES_ESCONDIDAS_DO_SUPER_ADMIN } from '@/constants/secoes-escondidas-do-super-admin'
 
 const iconMap: Record<string, React.ReactNode> = {
   home: <HomeOutlined />,
@@ -161,17 +162,18 @@ const Nav = () => {
   // item, e sem ela o super admin passaria a ver Agendamentos — uma aba de usuário que ele
   // nunca viu, porque os dois itens dela estavam em `operacional`, que já está na lista.
   //
-  // >>> `clientes` NÃO ENTRA, e é o CONTRÁRIO do caso do `agendamentos` acima <<<
+  // >>> `clientes` ENTRA — revertido em 19/10/2026, por decisão do dono do produto <<<
   //
-  // O item de Clientes morava em `cadastros`, que está na lista, então o super admin NUNCA
-  // viu Clientes. Ao virar seção própria em 15/10/2026 ele herdaria a ocultação — e herança
-  // não é decisão. Decidido pelo dono do produto: Clientes é a seção de CONSULTA, e o super
-  // admin é exatamente quem precisa dela.
+  // Em 15/10/2026 decidiu-se o CONTRÁRIO: Clientes, ao virar seção própria, ficava fora desta
+  // lista. Medido em 19/10: o `AuthGuard` (`_app.tsx`) devolve o super admin ao painel em toda
+  // rota fora de `/super-admin/*` e `/minha-conta`, e o menu oferecia `/clientes` — o clique ia
+  // e voltava. O super admin não tem tenant; cliente pertence a uma conta.
   //
-  // Isto MUDA o comportamento atual, não o restaura: a partir daqui o super admin passa a
-  // ver uma seção que ele não via. `clientes-vira-secao-propria.test.ts`, bloco (e), afirma
-  // seção por seção quem é escondido — comportamento que até então não tinha portão nenhum.
-  const sectionsToHideForSuperAdmin = ['geral', 'cadastros', 'comercial', 'financeiro', 'agendamentos', 'operacional']
+  // A LISTA MORA EM `@/constants/secoes-escondidas-do-super-admin` desde 19/10/2026, com a
+  // história inteira no cabeçalho dela: o drawer mobile lê a MESMA constante, para que desktop e
+  // mobile respondam "quem vê o quê" pela mesma fonte. O nome local fica: é ele que a linha do
+  // filtro abaixo usa.
+  const sectionsToHideForSuperAdmin = SECOES_ESCONDIDAS_DO_SUPER_ADMIN
 
   const visibleItems = navigationItems.filter((item) => {
     if (item.hidden) return false
@@ -333,7 +335,7 @@ const Nav = () => {
           const isExpanded = !isCollapsible || expandedSections[section.key]
 
           return (
-            <div key={section.key} className="nav-section">
+            <div key={section.key} className="nav-section" data-section-key={section.key}>
               {section.label && (
                 <button
                   className="nav-section-header"

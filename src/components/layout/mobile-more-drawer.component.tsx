@@ -33,6 +33,7 @@ import { useAuth } from '@/hooks/use-auth.hook'
 import { usePermissions, MODULES, type ModuleKey } from '@/hooks/use-permissions.hook'
 import { PERMISSIONS } from '@/shared/enums/permissions'
 import { moduleVisibleForSegment } from '@/utils/segment-visibility'
+import { SECOES_ESCONDIDAS_DO_SUPER_ADMIN } from '@/constants/secoes-escondidas-do-super-admin'
 
 type Props = {
   open: boolean
@@ -44,7 +45,14 @@ type Item = {
   label: string
   href?: string
   icon: React.ReactNode
+  /** O RÓTULO do grupo, como aparece na tela. */
   section: string
+  /**
+   * A CHAVE da seção no menu desktop (`nav.component.tsx`) — obrigatória. É ela, e não o
+   * rótulo, que se compara com `SECOES_ESCONDIDAS_DO_SUPER_ADMIN`. `'conta'` só existe aqui:
+   * no desktop, esses itens moram no rodapé, não numa seção.
+   */
+  sectionKey: string
   adminOnly?: boolean
   superAdminOnly?: boolean
   hideForRepresentative?: boolean
@@ -74,62 +82,62 @@ const MobileMoreDrawer = ({ open, onClose }: Props) => {
 
     return ([
     // Início
-    { key: 'home', label: 'Home', href: ROUTES.DASHBOARD, icon: <HomeOutlined />, section: 'Início' },
-    { key: 'cashier', label: 'Caixa', href: cashierHref, icon: <WalletOutlined />, section: 'Início', module: MODULES.CASH_FLOW },
-    { key: 'cash-flow', label: 'Fluxo de Caixa', href: ROUTES.CASH_FLOW, icon: <FundOutlined />, section: 'Início', module: MODULES.CASH_FLOW },
+    { key: 'home', label: 'Home', href: ROUTES.DASHBOARD, icon: <HomeOutlined />, section: 'Início', sectionKey: 'geral' },
+    { key: 'cashier', label: 'Caixa', href: cashierHref, icon: <WalletOutlined />, section: 'Início', sectionKey: 'geral', module: MODULES.CASH_FLOW },
+    { key: 'cash-flow', label: 'Fluxo de Caixa', href: ROUTES.CASH_FLOW, icon: <FundOutlined />, section: 'Início', sectionKey: 'geral', module: MODULES.CASH_FLOW },
 
     // Cadastros
-    { key: 'items', label: 'Custos Itens', href: ROUTES.ITEMS, icon: <UnorderedListOutlined />, section: 'Cadastros', module: MODULES.ITEMS },
-    { key: 'products', label: 'Produtos', href: ROUTES.PRODUCTS, icon: <AppstoreOutlined />, section: 'Cadastros', module: MODULES.PRODUCTS },
-    { key: 'services', label: 'Serviços', href: ROUTES.SERVICES, icon: <ToolOutlined />, section: 'Cadastros', module: MODULES.SERVICES },
-    { key: 'stock', label: 'Estoque', href: ROUTES.STOCK, icon: <DatabaseOutlined />, section: 'Cadastros', module: MODULES.STOCK },
-    { key: 'clients', label: 'Clientes', href: ROUTES.CLIENTS, icon: <TeamOutlined />, section: 'Clientes', module: MODULES.CUSTOMERS },
-    { key: 'employees', label: 'Funcionários', href: ROUTES.EMPLOYEES, icon: <IdcardOutlined />, section: 'Cadastros', adminOnly: true, module: MODULES.EMPLOYEES },
+    { key: 'items', label: 'Custos Itens', href: ROUTES.ITEMS, icon: <UnorderedListOutlined />, section: 'Cadastros', sectionKey: 'cadastros', module: MODULES.ITEMS },
+    { key: 'products', label: 'Produtos', href: ROUTES.PRODUCTS, icon: <AppstoreOutlined />, section: 'Cadastros', sectionKey: 'cadastros', module: MODULES.PRODUCTS },
+    { key: 'services', label: 'Serviços', href: ROUTES.SERVICES, icon: <ToolOutlined />, section: 'Cadastros', sectionKey: 'cadastros', module: MODULES.SERVICES },
+    { key: 'stock', label: 'Estoque', href: ROUTES.STOCK, icon: <DatabaseOutlined />, section: 'Cadastros', sectionKey: 'cadastros', module: MODULES.STOCK },
+    { key: 'clients', label: 'Clientes', href: ROUTES.CLIENTS, icon: <TeamOutlined />, section: 'Clientes', sectionKey: 'clientes', module: MODULES.CUSTOMERS },
+    { key: 'employees', label: 'Funcionários', href: ROUTES.EMPLOYEES, icon: <IdcardOutlined />, section: 'Cadastros', sectionKey: 'cadastros', adminOnly: true, module: MODULES.EMPLOYEES },
 
     // Comercial
     // Doc 29/07 (item 1.2.11): "Orçamentos" ocultado do menu Mais — já acessível na barra de navegação inferior (redundante).
-    { key: 'orders', label: 'Pedidos', href: ROUTES.ORDERS, icon: <ShoppingOutlined />, section: 'Comercial', module: MODULES.ORDERS },
-    { key: 'sales-report', label: 'Relatório de Vendas', href: ROUTES.SALES_REPORT, icon: <BarChartOutlined />, section: 'Comercial', module: MODULES.SALES_REPORT },
+    { key: 'orders', label: 'Pedidos', href: ROUTES.ORDERS, icon: <ShoppingOutlined />, section: 'Comercial', sectionKey: 'comercial', module: MODULES.ORDERS },
+    { key: 'sales-report', label: 'Relatório de Vendas', href: ROUTES.SALES_REPORT, icon: <BarChartOutlined />, section: 'Comercial', sectionKey: 'comercial', module: MODULES.SALES_REPORT },
     // Correções de Menu V9 (item 2): "Relatório de Comissões" usa módulo próprio (restringível).
-    { key: 'commissions-report', label: 'Relatório de Comissões', href: '/relatorio-vendas?tab=COMMISSIONS', icon: <IdcardOutlined />, section: 'Comercial', module: MODULES.COMMISSIONS_REPORT },
-    { key: 'recurrence', label: 'Recorrência', href: ROUTES.RECURRENCE, icon: <CalendarOutlined />, section: 'Comercial', module: MODULES.RECURRENCE },
+    { key: 'commissions-report', label: 'Relatório de Comissões', href: '/relatorio-vendas?tab=COMMISSIONS', icon: <IdcardOutlined />, section: 'Comercial', sectionKey: 'comercial', module: MODULES.COMMISSIONS_REPORT },
+    { key: 'recurrence', label: 'Recorrência', href: ROUTES.RECURRENCE, icon: <CalendarOutlined />, section: 'Comercial', sectionKey: 'comercial', module: MODULES.RECURRENCE },
 
     // Financeiro
-    { key: 'financial', label: 'Controle Financeiro', href: ROUTES.FINANCIAL_CONTROL, icon: <ShoppingOutlined />, section: 'Financeiro', module: MODULES.CASH_FLOW },
-    { key: 'dfc', label: 'Análise Financeira', href: ROUTES.DFC, icon: <FundOutlined />, section: 'Financeiro', module: MODULES.DFC },
-    { key: 'commission', label: 'Comissão de Vendedor', href: ROUTES.COMMISSION, icon: <IdcardOutlined />, section: 'Financeiro', module: MODULES.COMMISSION },
+    { key: 'financial', label: 'Controle Financeiro', href: ROUTES.FINANCIAL_CONTROL, icon: <ShoppingOutlined />, section: 'Financeiro', sectionKey: 'financeiro', module: MODULES.CASH_FLOW },
+    { key: 'dfc', label: 'Análise Financeira', href: ROUTES.DFC, icon: <FundOutlined />, section: 'Financeiro', sectionKey: 'financeiro', module: MODULES.DFC },
+    { key: 'commission', label: 'Comissão de Vendedor', href: ROUTES.COMMISSION, icon: <IdcardOutlined />, section: 'Financeiro', sectionKey: 'financeiro', module: MODULES.COMMISSION },
     // Correções de Menu V9 (item 6): "RT Comissões" pertence ao FINANCEIRO (alinhado ao desktop),
     // com módulo próprio (item 2).
-    { key: 'rt-commission', label: 'RT Comissões', href: ROUTES.RT_COMMISSION, icon: <IdcardOutlined />, section: 'Financeiro', module: MODULES.RT_COMMISSION },
+    { key: 'rt-commission', label: 'RT Comissões', href: ROUTES.RT_COMMISSION, icon: <IdcardOutlined />, section: 'Financeiro', sectionKey: 'financeiro', module: MODULES.RT_COMMISSION },
 
     // Agendamentos — seção própria, PO 05/10/2026. Aqui o agrupamento é por RÓTULO, não por
     // chave como no desktop: são dois vocabulários para a mesma seção.
     // Correções de Menu V9 (item 7): "Agenda" removida daqui — já fica na barra inferior (sem
     // duplicar). Por isso Agendamentos nasce no mobile com UM item só, e isso é o esperado:
     // acrescentar "Agenda" aqui a duplicaria na tela.
-    { key: 'reports', label: 'Relatório Agenda', href: ROUTES.REPORTS, icon: <BarChartOutlined />, section: 'Agendamentos', module: MODULES.REPORTS },
+    { key: 'reports', label: 'Relatório Agenda', href: ROUTES.REPORTS, icon: <BarChartOutlined />, section: 'Agendamentos', sectionKey: 'agendamentos', module: MODULES.REPORTS },
 
     // Operacional
-    { key: 'connectivity', label: 'Conectividade', href: ROUTES.CONNECTIVITY, icon: <SettingOutlined />, section: 'Operacional', module: MODULES.CONNECTIVITY },
-    { key: 'users', label: 'Usuários', href: ROUTES.USUARIOS, icon: <TeamOutlined />, section: 'Operacional', adminOnly: true, hideForSuperAdmin: true },
+    { key: 'connectivity', label: 'Conectividade', href: ROUTES.CONNECTIVITY, icon: <SettingOutlined />, section: 'Operacional', sectionKey: 'operacional', module: MODULES.CONNECTIVITY },
+    { key: 'users', label: 'Usuários', href: ROUTES.USUARIOS, icon: <TeamOutlined />, section: 'Operacional', sectionKey: 'operacional', adminOnly: true, hideForSuperAdmin: true },
 
     // Super Admin
-    { key: 'super-admin', label: 'Painel Super Admin', href: ROUTES.SUPER_ADMIN_PANEL, icon: <SafetyCertificateOutlined />, section: 'Super Admin', superAdminOnly: true },
-    { key: 'super-notifications', label: 'Notificações', href: ROUTES.SUPER_ADMIN_NOTIFICATIONS, icon: <BellOutlined />, section: 'Super Admin', superAdminOnly: true },
-    { key: 'super-tenants', label: 'Tenants', href: ROUTES.SUPER_ADMIN_TENANTS, icon: <TeamOutlined />, section: 'Super Admin', superAdminOnly: true },
-    { key: 'super-users', label: 'Usuários', href: ROUTES.SUPER_ADMIN_USERS, icon: <UserOutlined />, section: 'Super Admin', superAdminOnly: true },
-    { key: 'super-billing', label: 'Pagamentos', href: ROUTES.SUPER_ADMIN_BILLING, icon: <BankOutlined />, section: 'Super Admin', superAdminOnly: true },
-    { key: 'super-invites', label: 'Convites', href: ROUTES.SUPER_ADMIN_INVITES, icon: <MailOutlined />, section: 'Super Admin', superAdminOnly: true },
-    { key: 'super-cadastros', label: 'Cadastros', href: ROUTES.SUPER_ADMIN_CADASTROS, icon: <ClockCircleOutlined />, section: 'Super Admin', superAdminOnly: true },
-    { key: 'super-plans', label: 'Planos Expirando', href: ROUTES.SUPER_ADMIN_PLANS_EXPIRING, icon: <ClockCircleOutlined />, section: 'Super Admin', superAdminOnly: true },
+    { key: 'super-admin', label: 'Painel Super Admin', href: ROUTES.SUPER_ADMIN_PANEL, icon: <SafetyCertificateOutlined />, section: 'Super Admin', sectionKey: 'superadmin', superAdminOnly: true },
+    { key: 'super-notifications', label: 'Notificações', href: ROUTES.SUPER_ADMIN_NOTIFICATIONS, icon: <BellOutlined />, section: 'Super Admin', sectionKey: 'superadmin', superAdminOnly: true },
+    { key: 'super-tenants', label: 'Tenants', href: ROUTES.SUPER_ADMIN_TENANTS, icon: <TeamOutlined />, section: 'Super Admin', sectionKey: 'superadmin', superAdminOnly: true },
+    { key: 'super-users', label: 'Usuários', href: ROUTES.SUPER_ADMIN_USERS, icon: <UserOutlined />, section: 'Super Admin', sectionKey: 'superadmin', superAdminOnly: true },
+    { key: 'super-billing', label: 'Pagamentos', href: ROUTES.SUPER_ADMIN_BILLING, icon: <BankOutlined />, section: 'Super Admin', sectionKey: 'superadmin', superAdminOnly: true },
+    { key: 'super-invites', label: 'Convites', href: ROUTES.SUPER_ADMIN_INVITES, icon: <MailOutlined />, section: 'Super Admin', sectionKey: 'superadmin', superAdminOnly: true },
+    { key: 'super-cadastros', label: 'Cadastros', href: ROUTES.SUPER_ADMIN_CADASTROS, icon: <ClockCircleOutlined />, section: 'Super Admin', sectionKey: 'superadmin', superAdminOnly: true },
+    { key: 'super-plans', label: 'Planos Expirando', href: ROUTES.SUPER_ADMIN_PLANS_EXPIRING, icon: <ClockCircleOutlined />, section: 'Super Admin', sectionKey: 'superadmin', superAdminOnly: true },
 
     // Conta
     // Correções de Menu V9 (item 3): "Minha Conta" (definições da conta) é acesso de admin/dono.
-    { key: 'my-account', label: 'Minha Conta', href: ROUTES.MY_ACCOUNT, icon: <UserOutlined />, section: 'Conta', adminOnly: true, hideForSuperAdmin: true },
-    { key: 'settings', label: 'Configurações', href: ROUTES.SETTINGS, icon: <SettingOutlined />, section: 'Conta', adminOnly: true, hideForSuperAdmin: true },
-    { key: 'plans', label: 'Planos', href: ROUTES.PLANS, icon: <CrownOutlined />, section: 'Conta', adminOnly: true, hideForSuperAdmin: true },
-    { key: 'support', label: 'Suporte', icon: <CustomerServiceOutlined />, section: 'Conta', hideForSuperAdmin: true, onClick: handleSupport },
-    { key: 'logout', label: 'Sair', icon: <LogoutOutlined />, section: 'Conta', onClick: logout },
+    { key: 'my-account', label: 'Minha Conta', href: ROUTES.MY_ACCOUNT, icon: <UserOutlined />, section: 'Conta', sectionKey: 'conta', adminOnly: true, hideForSuperAdmin: true },
+    { key: 'settings', label: 'Configurações', href: ROUTES.SETTINGS, icon: <SettingOutlined />, section: 'Conta', sectionKey: 'conta', adminOnly: true, hideForSuperAdmin: true },
+    { key: 'plans', label: 'Planos', href: ROUTES.PLANS, icon: <CrownOutlined />, section: 'Conta', sectionKey: 'conta', adminOnly: true, hideForSuperAdmin: true },
+    { key: 'support', label: 'Suporte', icon: <CustomerServiceOutlined />, section: 'Conta', sectionKey: 'conta', hideForSuperAdmin: true, onClick: handleSupport },
+    { key: 'logout', label: 'Sair', icon: <LogoutOutlined />, section: 'Conta', sectionKey: 'conta', onClick: logout },
     ])
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser])
@@ -139,6 +147,11 @@ const MobileMoreDrawer = ({ open, onClose }: Props) => {
     if (item.superAdminOnly && !isSuperAdmin) return false
     if (item.hideForRepresentative && isRepresentative) return false
     if (item.hideForSuperAdmin && isSuperAdmin) return false
+    // POR SEÇÃO, com a MESMA lista do desktop (19/10/2026). Antes o drawer filtrava o super admin
+    // só item a item, e `canView` devolve `true` para ele em todo módulo: os 18 itens de tenant
+    // que ele via caíam todos no mesmo `router.replace` do `AuthGuard`. Não eram acesso, eram
+    // porta que não abre. Fonte e história: `@/constants/secoes-escondidas-do-super-admin`.
+    if (isSuperAdmin && SECOES_ESCONDIDAS_DO_SUPER_ADMIN.includes(item.sectionKey)) return false
     // Segmentação: Serviços só existe em Prestação de Serviços. Mesma função da tela de
     // Permissões de Acesso — paridade menu ↔ permissões por construção.
     if (!moduleVisibleForSegment(item.module, currentUser?.calcType)) return false
@@ -171,7 +184,7 @@ const MobileMoreDrawer = ({ open, onClose }: Props) => {
     >
       <div className="pc-mobile-more-drawer-content">
         {grouped.map((group) => (
-          <div key={group.section} className="pc-mobile-more-section">
+          <div key={group.section} className="pc-mobile-more-section" data-section-key={group.list[0].sectionKey}>
             <h3 className="pc-mobile-more-section-title">{group.section}</h3>
             <div className="pc-mobile-more-grid">
               {group.list.map((item) => {
