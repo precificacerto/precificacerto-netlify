@@ -40,9 +40,22 @@ jobs:
       #
       # Ele é BLOQUEANTE de propósito: nenhum outro portão do repositório alcança esta pasta.
       # O jest não a importa, o `next build` não a compila, e o `tsc` completo — o único que a
-      # enxerga — roda no job de diagnóstico, com `continue-on-error`.
+      # enxerga — roda no job de diagnóstico, com `continue-on-error`. (Desde 19/10/2026 ele roda
+      # também no passo de tipos abaixo, mas lá só falha com erro NOVO; este passo continua sendo
+      # o que barra import morto no espelho, herdado ou não.)
       - name: Espelho da edge — cada import resolve na pasta
         run: npm run check-edge-imports
+
+      # PORTÃO DE TIPO — bloqueante, contra a LINHA DE BASE (`scripts/tsc-linha-de-base.json`).
+      #
+      # `portao-que-nao-alcanca.md`, aparição 7: nenhum gate checava tipo (o jest apaga tipos, o
+      # `next build` tem `ignoreBuildErrors: true`), e o `typecheck` do `diagnostics` fica vermelho
+      # em TODO PR pelos erros herdados — vermelho sempre não distingue regressão. Este passo
+      # compara por ARQUIVO + CÓDIGO (`baseline-measurement.md`, regra (c)) e só falha com erro
+      # NOVO. Os herdados ficam congelados na linha de base, não corrigidos. O `typecheck` do
+      # `diagnostics` continua como está.
+      - name: Tipos — nenhum erro novo contra a linha de base
+        run: npm run check-tsc
 
       - name: Build (next build)
         run: npm run build
