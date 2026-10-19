@@ -245,13 +245,16 @@ describe('PORTÃO 2 (e) — o que o SUPER ADMIN vê, seção por seção', () =>
   const ESPERADO: Record<string, boolean> = {
     geral: true,
     cadastros: true,
-    // >>> CLIENTES NÃO É ESCONDIDA, E ISSO MUDA O COMPORTAMENTO ATUAL <<<
-    // Ela não "voltou" a aparecer: o super admin NUNCA viu Clientes, porque o item morava em
-    // `cadastros`, que está na lista. Ao virar seção própria, Clientes herdaria a ocultação —
-    // e herança não é decisão. Decidido em 15/10/2026: Clientes é a seção de CONSULTA, e o
-    // super admin é exatamente quem precisa dela. É mudança deliberada de produto, não
-    // restauração.
-    clientes: false,
+    // >>> CLIENTES É ESCONDIDA — AFIRMAÇÃO INVERTIDA EM 19/10/2026, por decisão do dono do
+    // produto <<<
+    // Em 15/10/2026 este caso afirmava o CONTRÁRIO (`clientes: false`): Clientes era a seção
+    // de consulta, e o super admin, "exatamente quem precisa dela". Mudou porque o `AuthGuard`
+    // (`_app.tsx`) devolve o super admin ao painel em toda rota fora de `/super-admin/*` e
+    // `/minha-conta` — o menu oferecia um destino que o guarda proibia, e o clique ia e
+    // voltava. O super admin não tem tenant: cliente pertence a uma conta, e ele não é dono de
+    // nenhuma. As duas pontas, menu e guarda, são afirmadas juntas em
+    // `o-super-admin-nao-ve-clientes.test.tsx`.
+    clientes: true,
     comercial: true,
     financeiro: true,
     agendamentos: true,

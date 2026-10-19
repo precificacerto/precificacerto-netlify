@@ -161,17 +161,25 @@ const Nav = () => {
   // item, e sem ela o super admin passaria a ver Agendamentos — uma aba de usuário que ele
   // nunca viu, porque os dois itens dela estavam em `operacional`, que já está na lista.
   //
-  // >>> `clientes` NÃO ENTRA, e é o CONTRÁRIO do caso do `agendamentos` acima <<<
+  // >>> `clientes` ENTRA — revertido em 19/10/2026, por decisão do dono do produto <<<
   //
-  // O item de Clientes morava em `cadastros`, que está na lista, então o super admin NUNCA
-  // viu Clientes. Ao virar seção própria em 15/10/2026 ele herdaria a ocultação — e herança
-  // não é decisão. Decidido pelo dono do produto: Clientes é a seção de CONSULTA, e o super
-  // admin é exatamente quem precisa dela.
+  // A HISTÓRIA, que não se apaga: o item de Clientes morava em `cadastros`, que está na
+  // lista, então o super admin nunca viu Clientes. Em 15/10/2026, ao virar seção própria,
+  // decidiu-se o CONTRÁRIO de hoje — que Clientes ficava de fora desta lista, por ser a seção
+  // de consulta e o super admin "exatamente quem precisa dela".
   //
-  // Isto MUDA o comportamento atual, não o restaura: a partir daqui o super admin passa a
-  // ver uma seção que ele não via. `clientes-vira-secao-propria.test.ts`, bloco (e), afirma
-  // seção por seção quem é escondido — comportamento que até então não tinha portão nenhum.
-  const sectionsToHideForSuperAdmin = ['geral', 'cadastros', 'comercial', 'financeiro', 'agendamentos', 'operacional']
+  // POR QUE MUDOU — medido em 19/10/2026: o `AuthGuard` (`src/pages/_app.tsx`) devolve o super
+  // admin para `ROUTES.SUPER_ADMIN_PANEL` em QUALQUER rota fora de `/super-admin/*` e
+  // `/minha-conta`, e ninguém o mexeu em 15/10. O menu oferecia Clientes e o guarda proibia: o
+  // clique ia e voltava no mesmo instante. A decisão de 15/10 foi aplicada no menu e não no
+  // guarda; o defeito ficou invisível porque a seção nascia fechada, e o bloco 2A a abriu.
+  //
+  // A DECISÃO DE AGORA: o super admin NÃO vê Clientes. Ele não tem tenant — cliente pertence
+  // a uma conta, e ele não é dono de nenhuma. Liberar a rota só trocaria "não vai" por "vai e
+  // mostra vazio". Portão das duas pontas, menu e guarda juntos:
+  // `o-super-admin-nao-ve-clientes.test.tsx`. Registro:
+  // `docs/registros/o-menu-oferecia-o-que-o-guarda-proibia.md`.
+  const sectionsToHideForSuperAdmin = ['geral', 'cadastros', 'clientes', 'comercial', 'financeiro', 'agendamentos', 'operacional']
 
   const visibleItems = navigationItems.filter((item) => {
     if (item.hidden) return false
