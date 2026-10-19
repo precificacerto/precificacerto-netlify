@@ -1,11 +1,27 @@
 -- ════════════════════════════════════════════════════════════════════════════════════════
 -- Bucket `comprovantes` — as três políticas passam a prender o arquivo ao TENANT
 --
--- ╔══════════════════════════════════════════════════════════════════════════════════════╗
--- ║ NÃO APLICADA. Escrita em 19/10/2026, autorizada pelo dono do produto depois da        ║
--- ║ medição, para revisão dele, que publica o md5 e decide. Independe da `20261019000001` ║
--- ║ — pode ser aplicada antes, depois ou sem ela. O código NÃO muda junto (ver §1).       ║
--- ╚══════════════════════════════════════════════════════════════════════════════════════╝
+-- ╔══════════════════════════════════════════════════════════════════════════════════════
+-- ║ APLICADA EM PRODUÇÃO em 19/10/2026, pelo PO, no SQL Editor.
+-- ║
+-- ║ md5 conferido na máquina dele ANTES de colar:
+-- ║   20261019000002 -> ae2edaf3ed1ba59a939689bedcffa1ce
+-- ║
+-- ║ Verificada depois por consulta ao catálogo: 4 tabelas com RLS, 4 policies cada, anon e
+-- ║ authenticated sem privilégio nenhum nas quatro novas, a FK composta e a CHECK em
+-- ║ orcamentista_config, 2 buckets privados, e as 3 policies de comprovantes com o tenant no
+-- ║ caminho.
+-- ║ A expressão medida das três (qual; e também with_check onde há), literal:
+-- ║   ((bucket_id = 'comprovantes'::text) AND ((storage.foldername(name))[1] = (get_auth_tenant_id())::text))
+-- ║
+-- ║ A verificação foi feita na conversa de decisões, NÃO pela sessão que escreveu este arquivo.
+-- ║
+-- ║ O md5 acima é o do arquivo NA FORMA APLICADA — o do commit a495af3. Este bloco foi trocado
+-- ║ depois, e só ele: o md5 do arquivo de hoje NÃO é mais aquele, e o que executa é idêntico
+-- ║ (`transformacao-quebra-a-cadeia-de-hash.md` — a transformação é a troca deste cabeçalho).
+-- ║ As mensagens dos commits anteriores dizem "NÃO APLICADA" e não mudam: são história; é este
+-- ║ cabeçalho que descreve o estado de hoje.
+-- ╚══════════════════════════════════════════════════════════════════════════════════════
 --
 -- O DEFEITO. As três políticas de `comprovantes` em `storage.objects` filtram SÓ por `bucket_id`,
 -- sem tenant: qualquer usuário logado lê, grava e altera comprovante de QUALQUER conta. Viola a
