@@ -1,3 +1,4 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
 <title>Painel Super Admin</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
@@ -259,8 +260,8 @@ dl.dados dd{margin:0}
           <div class="grp">
             <h3 id="base-titulo">Base de cálculo do motor</h3>
             <div id="base-revenda">
-              <p style="font-size:.82rem;margin:0 0 6px">A I.A. monta o orçamento a partir dos <b>produtos cadastrados no sistema do próprio cliente</b>. Não usa fornecedor nem tabela externa.</p>
-              <p class="dim num" style="font-size:.76rem;margin:0">1.284 produtos · 37 itens de custo · atualizado em 17/10/2026</p>
+              <p style="font-size:.82rem;margin:0 0 6px" id="base-interno-txt">A I.A. monta o orçamento a partir dos <b>produtos cadastrados no sistema do próprio cliente</b>. Não usa fornecedor nem tabela externa.</p>
+              <p class="dim num" style="font-size:.76rem;margin:0" id="base-interno-num">1.284 produtos · 37 itens de custo · atualizado em 17/10/2026</p>
             </div>
             <div id="base-fornecedor" hidden>
               <div id="cfg-linhas"></div>
@@ -322,9 +323,9 @@ dl.dados dd{margin:0}
         <h3>O que muda</h3>
         <ol>
           <li><b>Tenants</b> — 7 colunas no lugar de 10. Situação é uma coluna só, Vigência também, Telefone foi para a ficha (botão <b>Ver</b>), e Atendimentos I.A. virou só o botão de ligar.</li>
-          <li><b>Atendimentos I.A.</b> — seção nova no menu do Super Admin, com as contas ligadas. É lá que ficam segmentação, fornecedores, piso e teto.</li>
-          <li><b>Modelo → nicho → fornecedores → tabelas</b> — quatro níveis. Modelo e nicho dizem qual motor; fornecedor e tabela dizem com que números ele calcula. Nada disso é a segmentação fiscal do cliente.</li>
-          <li><b>Revenda não usa fornecedor</b> — a base é o cadastro de produtos do próprio cliente. Fabricação usa, e é aí que entram as tabelas.</li>
+          <li><b>Atendimentos I.A.</b> — seção nova no menu do Super Admin, com as contas ligadas e os fornecedores. É lá que ficam modelo, nicho, tabelas em uso e a projeção de gasto.</li>
+          <li><b>Modelo → nicho → fornecedor → tabela</b> — quatro níveis. Modelo e nicho dizem qual catálogo a conta enxerga; o <b>motor vem preso à tabela</b> e entra junto com ela, nunca escolhido à parte. Nada disso é a segmentação fiscal do cliente.</li>
+          <li><b>Revenda e Prestação de serviço não usam fornecedor</b> — a base é o cadastro do próprio cliente: produtos na revenda, produtos e serviços na prestação. Só Fabricação usa fornecedor e tabela.</li>
           <li><b>Fornecedor é da plataforma</b> — cadastrado em <b>Fornecedores e tabelas</b>, antes das contas, e reaproveitado por todas. Nenhum arquivo de cliente entra aí.</li>
           <li><b>Uma linha por tabela</b> — dentro da conta você monta linhas de fornecedor + tabela. O mesmo fornecedor pode entrar em várias linhas, com tabelas diferentes.</li>
           <li><b>Projeção, não teto</b> — saíram o valor adicional por mês e a ação ao atingir o teto. Ficou um número só, de acompanhamento: nada bloqueia e nada avisa.</li>
@@ -474,7 +475,7 @@ function renderAtend(){
     const pct=limite?Math.min(100,Math.round(c.consumo/limite*100)):null;
     tr.innerHTML=`<td><div class="conta-nome">${c.nome}</div></td>
       <td><div class="cel">${c.modelo?segNome[c.modelo]:'—'}${c.nicho?' · '+nomeNicho(c):''} ${selo}</div></td>
-      <td class="dim" style="font-size:.78rem">${c.linhas&&c.linhas.length?c.linhas.length+' tabela(s)':(c.modelo==='REVENDA'?'não se aplica':'—')}</td>
+      <td class="dim" style="font-size:.78rem">${c.linhas&&c.linhas.length?c.linhas.length+' tabela(s)':((c.modelo==='REVENDA'||c.modelo==='SERVICO')?'não se aplica':'—')}</td>
       <td class="num">${rs(c.consumo)}${pct!=null?' <span class="dim">('+pct+'%)</span>':''}</td>
       <td class="num dim">${rs(c.teto)}</td>
       <td><button class="btn-link" data-cfg="${c.id}">Configurar</button></td>`;
@@ -569,13 +570,20 @@ function pintarModelo(c){
   const lista=nichos[c.modelo]||[];
   sel.innerHTML=lista.length?lista.map(n=>'<option value="'+n.id+'">'+n.nome+'</option>').join(''):'<option value="">— escolha o modelo primeiro —</option>';
   if(c.nicho&&lista.some(n=>n.id===c.nicho))sel.value=c.nicho;
-  const revenda=c.modelo==='REVENDA';
-  document.getElementById('cfg-nicho-nota').textContent = revenda
-    ? 'Na revenda o nicho não muda o motor: a base é o próprio cadastro de produtos do cliente.'
+  const servico=c.modelo==='SERVICO';
+  const interno=c.modelo==='REVENDA'||servico;
+  document.getElementById('cfg-nicho-nota').textContent = interno
+    ? 'Aqui o nicho não muda a base: ela é o próprio cadastro do cliente.'
     : 'O nicho decide quais fornecedores e quais tabelas o motor usa.';
-  document.getElementById('base-revenda').hidden=!revenda;
-  document.getElementById('base-fornecedor').hidden=revenda;
-  document.getElementById('base-titulo').textContent = revenda ? 'Base de cálculo do motor' : 'Tabelas em uso';
+  document.getElementById('base-revenda').hidden=!interno;
+  document.getElementById('base-fornecedor').hidden=interno;
+  document.getElementById('base-titulo').textContent = interno ? 'Base de cálculo do motor' : 'Tabelas em uso';
+  document.getElementById('base-interno-txt').innerHTML = servico
+    ? 'A I.A. monta o orçamento a partir dos <b>produtos e serviços cadastrados no sistema do próprio cliente</b>. Não usa fornecedor nem tabela externa.'
+    : 'A I.A. monta o orçamento a partir dos <b>produtos cadastrados no sistema do próprio cliente</b>. Não usa fornecedor nem tabela externa.';
+  document.getElementById('base-interno-num').textContent = servico
+    ? '1.284 produtos · 96 serviços · 37 itens de custo · atualizado em 17/10/2026'
+    : '1.284 produtos · 37 itens de custo · atualizado em 17/10/2026';
   renderLinhas(c);
 }
 function fornDoNicho(c){const f=listaForn().filter(x=>x.nicho===c.nicho);return f.length?f:listaForn()}
@@ -743,3 +751,5 @@ document.addEventListener('click',e=>{
 });
 renderLista();
 </script>
+
+</body></html>
