@@ -8,10 +8,8 @@ import { ROUTES } from '@/constants/routes'
 import { useAuth } from '@/hooks/use-auth.hook'
 import { useCachedFetch } from '@/hooks/use-cached-fetch.hook'
 import { SearchOutlined, PlusOutlined, CheckCircleOutlined, StopOutlined } from '@ant-design/icons'
-import { maskPhoneBR } from '@/utils/contact-validation'
 import {
   CelulaDoOrcamentista,
-  FichaDoOrcamentista,
   TITULO_DA_COLUNA_ORCAMENTISTA,
   type EstadoDaLeitura,
 } from '@/page-parts/super-admin/orcamentista-na-lista.component'
@@ -69,7 +67,6 @@ function SuperAdminTenants() {
     ? 'INDISPONIVEL'
     : carregandoConfigs || configsBrutas === undefined ? 'CARREGANDO' : 'OK'
   const configPorConta = new Map((Array.isArray(configsBrutas) ? configsBrutas : []).map((c) => [c.tenant_id, c]))
-  const [fichaAberta, setFichaAberta] = useState<string | null>(null)
   const [salvandoOrcamentista, setSalvandoOrcamentista] = useState<string | null>(null)
 
   /** Grava a configuração de UMA conta. A conta vem do argumento, e só ela vai na URL. */
@@ -82,11 +79,10 @@ function SuperAdminTenants() {
         body: JSON.stringify(corpo),
       })
       const json = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(json?.error || 'Erro ao gravar o Orçamentista')
-      messageApi.success(corpo.ativo ? 'Orçamentista ligado nesta conta' : 'Orçamentista desligado nesta conta')
-      setFichaAberta(null)
+      if (!res.ok) throw new Error(json?.error || 'Erro ao gravar o Atendimentos I.A.')
+      messageApi.success(corpo.ativo ? 'Atendimentos I.A. ligado nesta conta' : 'Atendimentos I.A. desligado nesta conta')
     } catch (e: unknown) {
-      messageApi.error(e instanceof Error ? e.message : 'Erro ao gravar o Orçamentista')
+      messageApi.error(e instanceof Error ? e.message : 'Erro ao gravar o Atendimentos I.A.')
     } finally {
       setSalvandoOrcamentista(null)
       // RELÊ SEMPRE: a célula mostra o que ficou no banco, não uma atualização local.
@@ -166,9 +162,12 @@ function SuperAdminTenants() {
       (t.email || '').toLowerCase().includes(search.toLowerCase())
   )
 
+  // SETE COLUNAS, desde o bloco 2A (18/10/2026) — eram dez. 'Status' e 'Ativo' viraram 'Situação'
+  // (eram a mesma informação: `docs/registros/a-situacao-e-o-ativo-eram-a-mesma-coluna.md`);
+  // 'Trial até' e 'Plano até' viraram 'Vigência'; 'Telefone' foi para a ficha da conta.
   const columns: ColumnsType<TenantRow> = [
     {
-      title: 'Tenant',
+      title: 'Conta',
       dataIndex: 'name',
       key: 'name',
       sorter: (a, b) => (a.name || '').localeCompare(b.name || ''),
@@ -214,50 +213,40 @@ function SuperAdminTenants() {
       ),
     },
     {
-      title: 'Telefone',
-      key: 'phone',
-      render: (_, record) => {
-        const p = (record as { phone?: string | null }).phone
-        return p ? maskPhoneBR(p) : '—'
-      },
-    },
-    {
-      title: 'Status',
+      // O Switch de antes, seguido da Tag de antes, NA MESMA CÉLULA. O comportamento do Switch
+      // não muda: ligado para ACTIVE e TRIAL; ligar grava ACTIVE, desligar grava SUSPENDED.
+      // CANCELLED aparece desligado, com a Tag 'Cancelado' — sem controle novo para cancelar.
+      title: 'Situação',
       dataIndex: 'plan_status',
-      key: 'plan_status',
-      render: (status: string) => {
+      key: 'situacao',
+      render: (status: string, record) => {
+        const isActive = status === 'ACTIVE' || status === 'TRIAL'
         const cfg = planStatusLabels[status] || { label: status, color: 'default' }
-        return <Tag color={cfg.color}>{cfg.label}</Tag>
-      },
-    },
-    {
-      title: 'Ativo',
-      key: 'active_toggle',
-      width: 90,
-      render: (_, record) => {
-        const isActive = record.plan_status === 'ACTIVE' || record.plan_status === 'TRIAL'
         return (
-          <Switch
-            size="small"
-            checked={isActive}
-            onChange={(checked) =>
-              handlePatchTenant(record.id, checked ? 'ACTIVE' : 'SUSPENDED')
-            }
-          />
+          <Space size={8}>
+            <Switch
+              size="small"
+              checked={isActive}
+              onChange={(checked) =>
+                handlePatchTenant(record.id, checked ? 'ACTIVE' : 'SUSPENDED')
+              }
+            />
+            <Tag color={cfg.color}>{cfg.label}</Tag>
+          </Space>
         )
       },
     },
     {
-      title: 'Trial até',
-      dataIndex: 'trial_ends_at',
-      key: 'trial_ends_at',
-      render: (v: string | null) => (v ? new Date(v).toLocaleDateString('pt-BR') : '—'),
-    },
-    {
-      title: 'Plano até',
-      dataIndex: 'plan_ends_at',
-      key: 'plan_ends_at',
-      render: (v: string | null) => (v ? new Date(v).toLocaleDateString('pt-BR') : '—'),
+      // Em TRIAL a data que vale é a do fim do trial; fora dele, a do fim do plano. Data nula
+      // não vira "Plano até —": não há vigência a afirmar, e a célula diz só o travessão.
+      title: 'Vigência',
+      key: 'vigencia',
+      render: (_, record) => {
+        const emTrial = record.plan_status === 'TRIAL'
+        const v = emTrial ? record.trial_ends_at : record.plan_ends_at
+        if (!v) return '—'
+        return `${emTrial ? 'Trial até' : 'Plano até'} ${new Date(v).toLocaleDateString('pt-BR')}`
+      },
     },
     {
       title: 'Free',
@@ -274,7 +263,7 @@ function SuperAdminTenants() {
     {
       title: TITULO_DA_COLUNA_ORCAMENTISTA,
       key: 'orcamentista',
-      width: 220,
+      width: 150,
       render: (_, record) => (
         <CelulaDoOrcamentista
           tenantId={record.id}
@@ -282,7 +271,6 @@ function SuperAdminTenants() {
           config={configPorConta.get(record.id)}
           salvando={salvandoOrcamentista === record.id}
           aoAlternar={(tenantId, ativo) => { void gravarOrcamentista(tenantId, corpoParaAlternar(configPorConta.get(tenantId), ativo)) }}
-          aoAbrirFicha={setFichaAberta}
         />
       ),
     },
@@ -386,15 +374,6 @@ function SuperAdminTenants() {
         </Form>
       </Modal>
 
-      {/* A FICHA do Orçamentista — uma conta por vez, a da linha que a abriu. */}
-      <FichaDoOrcamentista
-        aberta={fichaAberta !== null}
-        nomeDaConta={data.find((t) => t.id === fichaAberta)?.name ?? ''}
-        config={fichaAberta ? configPorConta.get(fichaAberta) : undefined}
-        salvando={salvandoOrcamentista !== null}
-        aoSalvar={(corpo) => { if (fichaAberta) void gravarOrcamentista(fichaAberta, corpo) }}
-        aoFechar={() => setFichaAberta(null)}
-      />
     </Layout>
   )
 }

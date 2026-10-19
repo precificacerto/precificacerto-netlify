@@ -195,7 +195,11 @@ const Nav = () => {
     // indicadores e abas próprias, e um cadastro ao lado de Produtos e Estoque não
     // comporta isso. A paridade com o grupo 'Clientes' de `funcionarios/index.tsx` é
     // afirmada por `clientes-vira-secao-propria.test.ts`.
-    { key: 'clientes', label: 'Clientes', collapsible: true },
+    //
+    // NÃO RECOLHE, desde o bloco 2A (18/10/2026): a seção tem UM item só e nascia fechada
+    // (`initialExpanded` = `sectionHasActiveItem`), então fora da própria rota aparecia como um
+    // título sem nada embaixo. Portão: `clientes-nao-recolhe.test.ts`.
+    { key: 'clientes', label: 'Clientes', collapsible: false },
     { key: 'comercial', label: 'Comercial', collapsible: true },
     { key: 'financeiro', label: 'Financeiro', collapsible: true },
     { key: 'agendamentos', label: 'Agendamentos', collapsible: true },

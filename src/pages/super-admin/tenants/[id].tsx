@@ -8,6 +8,7 @@ import { ROUTES } from '@/constants/routes'
 import { useAuth } from '@/hooks/use-auth.hook'
 import { useCachedFetch } from '@/hooks/use-cached-fetch.hook'
 import { KeyOutlined, UserAddOutlined } from '@ant-design/icons'
+import { maskPhoneBR } from '@/utils/contact-validation'
 
 type UserRow = {
   id: string
@@ -22,6 +23,8 @@ type TenantDetail = {
   id: string
   name: string
   email: string | null
+  /** `tenants.phone`, que a rota devolve por `select('*')`. Vazio é tratado como ausente. */
+  phone: string | null
   plan_status: string
   is_free: boolean
   trial_ends_at: string | null
@@ -158,6 +161,7 @@ function SuperAdminTenantDetailPage() {
     >
       {contextHolder}
       <Card title="Dados da tenant" className="pc-card" style={{ marginBottom: 16 }}>
+        <p><strong>Telefone:</strong> {tenant.phone ? maskPhoneBR(tenant.phone) : '—'}</p>
         <p><strong>Status:</strong> {tenant.plan_status}</p>
         <p><strong>Free:</strong> {tenant.is_free ? <Tag color="green">Sim</Tag> : <Tag color="default">Não</Tag>}</p>
         <p><strong>Trial até:</strong> {tenant.trial_ends_at ? new Date(tenant.trial_ends_at).toLocaleDateString('pt-BR') : '—'}</p>
