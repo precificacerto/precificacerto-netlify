@@ -2,10 +2,33 @@
 -- Atendimentos I.A., bloco 2B.2 — os NICHOS INICIAIS de cada modelo
 --
 -- ╔══════════════════════════════════════════════════════════════════════════════════════
--- ║ NÃO APLICADA. Escrita em 19/10/2026 para revisão do dono do produto, que publica o md5 e
--- ║ decide. Depende da `20261019000001` (a tabela `orcamentista_nicho` e o índice único
--- ║ `orcamentista_nicho_modelo_nome_key`) — que está APLICADA em produção desde 19/10/2026.
+-- ║ APLICADA EM PRODUÇÃO em 19/10/2026, pelo SQL Editor do Supabase, projeto
+-- ║ jvthwpkwzpangnwhuyvj. Depende da `20261019000001` (a tabela `orcamentista_nicho` e o
+-- ║ índice único `orcamentista_nicho_modelo_nome_key`), também APLICADA em 19/10/2026.
 -- ╚══════════════════════════════════════════════════════════════════════════════════════
+--
+-- >>> O QUE FOI MEDIDO DEPOIS DA APLICAÇÃO <<<
+-- Medição em produção em 19/10/2026, pela sessão de verificação:
+--   public.orcamentista_nicho: 12 linhas — FABRICACAO=4, REVENDA=4, SERVICO=4
+--   pg_stat_user_tables.n_tup_ins em orcamentista_nicho: 12
+--
+-- md5 do arquivo COMO APLICADO: 27243af99c468b8e2e31ab11e8ee84c4
+-- Este cabeçalho foi corrigido DEPOIS da aplicação, então o md5 atual do arquivo difere do
+-- md5 como aplicado. O SQL não foi tocado: conferido pelo md5 das linhas não-comentário,
+-- idêntico antes e depois (d3dcc4829f8777177892cdba51baf155). O md5 atual do arquivo está
+-- publicado no commit que fez esta correção.
+--
+-- >>> A PRIMEIRA APLICAÇÃO FOI RELATADA COMO "Sucesso" E NÃO INSERIU NADA <<<
+-- Na medição seguinte: 0 linhas, n_tup_ins = 0. O verde da tela pertencia a outro statement
+-- da mesma aba. Foi reaplicada, e aí inseriu. "Sucesso" na tela não é prova de aplicação —
+-- a prova está no banco.
+--
+-- >>> NÃO REGISTRADA NO LEDGER DE MIGRATIONS <<<
+-- supabase_migrations.schema_migrations não contém nenhuma das três migrations de 19/10: a
+-- aplicação foi pelo SQL Editor, que não grava no ledger. Em 19/10/2026 o ledger vai até
+-- 20261017185237. Consequência: um `supabase db push` tentaria aplicar as três de novo.
+-- Esta sobrevive (ON CONFLICT DO NOTHING); as irmãs não — a 20261019000001 tem CREATE TABLE
+-- sem IF NOT EXISTS, e a 20261019000002 tem DROP POLICY sem IF EXISTS.
 --
 -- POR QUE EXISTE: o catálogo nasceu vazio, e sem nicho não se credencia fornecedor — o seletor
 -- do credenciamento dizia "Nenhum nicho cadastrado". Medido em 19/10/2026, 18:38 UTC: 0 nichos,
