@@ -61,12 +61,10 @@
 -- (ii) e (iii) são REGRA DE PRODUTO, guardada pela TELA e registrada no EPIC. O banco não as
 -- impõe, e quem escrever por fora da tela (rota nova, SQL à mão) não encontra recusa nenhuma.
 --
--- E UM LIMITE DA (i), que é da semântica da FK e não foi decidido: a FK composta é MATCH SIMPLE —
--- basta UMA das duas colunas nula para ela não ser exercida. Com `modelo` preenchido e
--- `nicho_id` nulo, é o "escolheu o modelo, falta o nicho" que a tela oferece. Com `modelo` NULO
--- e `nicho_id` preenchido, a FK também não é exercida — e esse `nicho_id` pode apontar para
--- qualquer nicho, ou para nenhum. Fechar isso é uma CHECK (nicho_id IS NULL OR modelo IS NOT
--- NULL), que NÃO está aqui: fica para o dono do produto.
+-- E O LIMITE DA (i), FECHADO: a FK composta é MATCH SIMPLE — basta UMA das duas colunas nula
+-- para ela não ser exercida. "Nicho sem modelo" passava por ali; a CHECK
+-- `orcamentista_config_nicho_exige_modelo` o fecha (passo 5) — decisão do dono do produto,
+-- 19/10/2026.
 -- ════════════════════════════════════════════════════════════════════════════════════════
 
 BEGIN;
@@ -180,8 +178,18 @@ COMMENT ON TABLE public.orcamentista_conta_tabela IS
 -- nicho em uso por uma conta não pode ser excluído.
 --
 -- Com `modelo` e `nicho_id` ambos NULL a FK não é exercida — "não definido" continua possível,
--- que é a opção que a tela oferece. O limite da MATCH SIMPLE está no cabeçalho, em "o que esta
--- migração não amarra".
+-- que é a opção que a tela oferece.
+--
+-- A CHECK `orcamentista_config_nicho_exige_modelo` — decisão do dono do produto, 19/10/2026. A
+-- RAZÃO: a FK composta é MATCH SIMPLE e NÃO é exercida quando `modelo` é NULL. Medido no harness
+-- antes desta CHECK: `modelo = null, nicho_id = <inexistente>` foi aceito com UPDATE 1. "Nicho
+-- sem modelo" é impossível no produto — a tela só oferece o nicho depois do modelo —, e a CHECK
+-- faz valer no banco a mesma ordem. Os quatro estados:
+--   modelo NULL     + nicho_id NULL                → aceito  — "não definido", a opção da tela
+--   modelo definido + nicho_id NULL                → aceito  — escolheu o modelo, falta o nicho
+--   modelo definido + nicho_id do MESMO modelo     → aceito  — completo
+--   modelo NULL     + nicho_id qualquer            → RECUSADO por esta CHECK
+-- (E modelo definido + nicho_id de OUTRO modelo, ou inexistente, é recusado pela FK composta.)
 --
 -- As políticas e os privilégios de `orcamentista_config` NÃO mudam: o tenant continua lendo a
 -- própria linha — agora com estas duas colunas — e só a rota escreve.
@@ -189,7 +197,9 @@ ALTER TABLE public.orcamentista_config
   ADD COLUMN modelo   text NULL CHECK (modelo IS NULL OR modelo IN ('FABRICACAO', 'REVENDA', 'SERVICO')),
   ADD COLUMN nicho_id uuid NULL,
   ADD CONSTRAINT orcamentista_config_modelo_nicho_id_fkey FOREIGN KEY (modelo, nicho_id)
-    REFERENCES public.orcamentista_nicho (modelo, id) ON DELETE RESTRICT;
+    REFERENCES public.orcamentista_nicho (modelo, id) ON DELETE RESTRICT,
+  ADD CONSTRAINT orcamentista_config_nicho_exige_modelo
+    CHECK (nicho_id IS NULL OR modelo IS NOT NULL);
 
 COMMENT ON COLUMN public.orcamentista_config.modelo IS
   'Modelo de atendimento da conta: FABRICACAO | REVENDA | SERVICO. NULL = nao definido. Nao e tenant_settings.calc_type.';
@@ -347,7 +357,8 @@ COMMIT;
 --   --   tabela ....... pkey (p) · fornecedor_id_fkey (f) RESTRICT
 --   --   conta_tabela . pkey (p) PRIMARY KEY (tenant_id, tabela_id) · tenant_id_fkey (f) CASCADE ·
 --   --                  tabela_id_fkey (f) RESTRICT
---   --   config ....... as 6 de antes, INALTERADAS, mais modelo_check (c) e
+--   --   config ....... as 6 de antes, INALTERADAS, mais modelo_check (c),
+--   --                  nicho_exige_modelo (c) CHECK ((nicho_id IS NULL) OR (modelo IS NOT NULL)) e
 --   --                  modelo_nicho_id_fkey (f) RESTRICT — FOREIGN KEY (modelo, nicho_id)
 --   --                  REFERENCES orcamentista_nicho(modelo, id). NENHUMA FK simples em nicho_id.
 --   --   NENHUMA FK para `users` em tabela nenhuma.

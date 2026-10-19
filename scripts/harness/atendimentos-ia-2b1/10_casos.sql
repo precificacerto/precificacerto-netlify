@@ -247,3 +247,20 @@ do $$ declare r text; begin
   r := pela_rota(format($q$update public.orcamentista_config set modelo = 'FABRICACAO', nicho_id = %L where tenant_id = %L$q$, n_fab(), ta()));
   if r is distinct from 'OK|1' then raise exception 'FALHOU 11: o par coerente FABRICACAO + nicho de FABRICACAO foi recusado: %', r; end if;
 end $$;
+
+-- CASO 12 — NICHO EXIGE MODELO (decisão do dono do produto, 19/10/2026). Os quatro estados: três
+-- aceitos e um recusado. O quarto com um nicho que EXISTE e com um que NÃO existe — a FK composta
+-- (MATCH SIMPLE) não é exercida com `modelo` nulo, e quem recusa os dois é a CHECK.
+do $$ declare r text; begin
+  r := pela_rota(format('update public.orcamentista_config set modelo = null, nicho_id = null where tenant_id = %L', ta()));
+  if r is distinct from 'OK|1' then raise exception 'FALHOU 12: "não definido" recusado: %', r; end if;
+  r := pela_rota(format($q$update public.orcamentista_config set modelo = 'FABRICACAO', nicho_id = null where tenant_id = %L$q$, ta()));
+  if r is distinct from 'OK|1' then raise exception 'FALHOU 12: modelo sem nicho recusado: %', r; end if;
+  r := pela_rota(format($q$update public.orcamentista_config set modelo = 'FABRICACAO', nicho_id = %L where tenant_id = %L$q$, n_fab(), ta()));
+  if r is distinct from 'OK|1' then raise exception 'FALHOU 12: modelo + nicho do mesmo modelo recusado: %', r; end if;
+  r := pela_rota(format('update public.orcamentista_config set modelo = null, nicho_id = %L where tenant_id = %L', '99999999-0000-0000-0000-000000000000', ta()));
+  if split_part(r, '|', 1) is distinct from '23514' then raise exception 'FALHOU 12: nicho INEXISTENTE sem modelo foi aceito: %', r; end if;
+  raise notice 'ok: 12 — não definido, modelo sem nicho e completo: aceitos; nicho inexistente sem modelo: %', r;
+  r := pela_rota(format('update public.orcamentista_config set modelo = null, nicho_id = %L where tenant_id = %L', n_fab(), ta()));
+  if split_part(r, '|', 1) is distinct from '23514' then raise exception 'FALHOU 12: nicho EXISTENTE sem modelo foi aceito: %', r; end if;
+end $$;
