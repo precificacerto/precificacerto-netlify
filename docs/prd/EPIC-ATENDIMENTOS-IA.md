@@ -186,7 +186,7 @@ Quatro grupos, e "Salvar configuração" / "Cancelar":
    **Consumido no mês**, **Sobre a projeção** (%); e uma barra de 0 até a projeção. A barra muda
    de cor a partir de 80% — mudança visual, sem aviso nem bloqueio (regra 3.5).
 
-### 5.5 Fornecedores e tabelas *(a fazer)*
+### 5.5 Fornecedores e tabelas *(bloco 2B.2 — ver seção 11)*
 
 Título: *"Fornecedores e tabelas de preço"*. Colunas: **Fornecedor** · **Nicho** · **Contas
 usando** · "Tabelas". Botão **"+ Credenciar fornecedor"**, que abre o modal: **nome**, **nicho**
@@ -194,7 +194,7 @@ usando** · "Tabelas". Botão **"+ Credenciar fornecedor"**, que abre o modal: *
 depois"*), e "Salvar credenciamento". Esse modal cria tabela sem motor — **é atalho do protótipo,
 não regra**: o motor é obrigatório em toda tabela (3.8).
 
-### 5.6 As tabelas de um fornecedor *(a fazer)*
+### 5.6 As tabelas de um fornecedor *(bloco 2B.2 — ver seção 11)*
 
 Colunas: **Arquivo** · **Motor** · **Vigência** · **Subido em** · **Contas usando** · Editar /
 Excluir. Botões **"+ Nova tabela"** e **"Editar fornecedor"** (modal: nome, nicho e **"Excluir
@@ -225,7 +225,8 @@ motor, linhas em uso e consumo.
 |---|---|---|
 | 1 | `orcamentista_config`, rotas, liga/desliga na lista de contas | entregue, PR #95 |
 | 2A | Tenants em 7 colunas, telefone na ficha, Clientes não recolhe, rótulo "Atendimentos I.A." | este branch |
-| 2B | a definir | — |
+| 2B.1 | o catálogo no banco (nicho, fornecedor, tabela, tabela em uso) e o bucket `comprovantes` preso ao tenant | entregue, PR #98 |
+| 2B.2 | a tela de Fornecedores e tabelas (5.5 e 5.6) e a seção Atendimentos I.A. no menu | este branch |
 | 2C | a configuração por conta (5.4) | a definir |
 
 As telas 5.3, 5.5 e 5.6 e a seção nova do menu ainda não estão atribuídas a um bloco.
@@ -291,3 +292,40 @@ resolveu. Ficam aqui, com a razão, para que ninguém os reabra lendo só o mock
    mockup levava Serviço ao caminho de fornecedor só porque escondia o fornecedor apenas na
    Revenda — consequência, não decisão. Revenda é o mesmo caminho, só com produtos. **Fabricação é
    o único modelo que usa fornecedor → tabela → motor.**
+
+## 11. O bloco 2B.2 — Fornecedores e tabelas (19/10/2026)
+
+**A trava que decide o desenho.** As quatro tabelas do catálogo têm `REVOKE ALL` de `anon` e
+`authenticated`, sem GRANT. Pelo cliente do navegador elas não dão erro que se note: a lista chega
+vazia e parece "nenhum fornecedor". Por isso NENHUMA tela lê ou escreve pelo cliente do Supabase —
+tudo passa por rotas em `src/pages/api/super-admin/atendimentos-ia/`, com `service_role`, e o
+único outro lugar que toca as quatro tabelas é `src/lib/atendimentos-ia/repositorio.ts`, que só
+as rotas importam. Portão: `atendimentos-ia-a-tela-nao-fala-com-o-banco.test.ts`.
+
+**Escolhas desta rodada, com a razão — cada uma é revisável pelo dono do produto:**
+
+1. **"Contas ligadas" ficou FORA do menu.** A tela é de outro bloco; uma entrada que leva a um
+   "em construção" é o menu oferecendo o que não existe — a mesma família de
+   `docs/registros/o-menu-oferecia-o-que-o-guarda-proibia.md`. A seção tem um item só,
+   "Fornecedores e tabelas", e por isso não recolhe (a mesma razão de Clientes). A contagem de
+   fornecedores ao lado do item (seção 4) também não entrou.
+2. **Os NICHOS ganharam onde ser criados**, num quadro dentro de "Fornecedores e tabelas". O
+   mockup os traz prontos; o banco nasce sem nenhum (a `20261019000001` não semeia), e sem nicho
+   não se credencia fornecedor. Onde o cadastro de nicho mora em definitivo é decisão aberta.
+3. **O ARQUIVO não atravessa a rota.** A rota decide o caminho e assina UM envio para ele, com
+   `service_role` (`tabelas/url-de-envio.ts`); o navegador manda os bytes para essa URL com
+   `fetch`, sem o cliente do Supabase. A razão é o limite de corpo de requisição das funções da
+   Vercel (4,5 MB pela documentação da plataforma, NÃO medido aqui): uma tabela de preço em
+   `.xlsx` pode passar disso, e a rota recusaria um arquivo legítimo. Antes de gravar a linha, a
+   rota confere que os dois objetos chegaram ao bucket.
+4. **Excluir tabela: a LINHA primeiro, depois os objetos.** Se o Storage falhar, o arquivo fica
+   órfão no bucket — desperdício, não erro de cálculo. A ordem contrária deixaria, numa falha do
+   banco, uma tabela que a conta vê e que não calcula. A resposta avisa quando sobrou órfão.
+5. **Excluir o que está em uso** — tabela, fornecedor com tabela, nicho com fornecedor ou
+   escolhido por conta — o banco recusa (23503) e a rota responde com QUEM segura: as contas, as
+   tabelas, os fornecedores. Nunca um "não foi possível" genérico.
+6. **O nicho do credenciamento continua oferecendo os três modelos**, como o mockup. A regra de que
+   só Fabricação usa fornecedor (3.2) NÃO é imposta nem pelo banco (decisão de 19/10) nem por esta
+   tela — ela segue o mockup. O ponto 9.2 continua aberto, e é ele que decide se a tela passa a
+   oferecer só os nichos de Fabricação.
+

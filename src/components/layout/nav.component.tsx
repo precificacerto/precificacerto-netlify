@@ -148,6 +148,14 @@ const Nav = () => {
     { key: 'connectivity', label: 'Conectividade', icon: 'setting', href: ROUTES.CONNECTIVITY, section: 'operacional', module: MODULES.CONNECTIVITY },
     { key: 'users', label: 'Usuários', icon: 'team', href: ROUTES.USUARIOS, adminOnly: true, section: 'operacional', hideForSuperAdmin: true },
 
+    // ATENDIMENTOS I.A. — seção do super admin (bloco 2B.2, 19/10/2026). Fica FORA de `MODULES` e
+    // da tela de Permissões: o módulo do Atendimentos I.A. segue em `MODULOS_NAO_CONCEDIVEIS`, e o item não tem
+    // `module` — a paridade menu ↔ permissões continua por construção. A rota é sob
+    // `/super-admin/`, que o `AuthGuard` já deixa o super admin abrir (`atendimentos-ia-no-menu.test.tsx`).
+    // "Contas ligadas" (EPIC §5.3) NÃO entra ainda: a tela é de outro bloco, e uma entrada que leva
+    // a um "em construção" é o menu oferecendo o que não existe.
+    { key: 'super-ia-fornecedores', label: 'Fornecedores e tabelas', icon: 'database', href: ROUTES.SUPER_ADMIN_IA_FORNECEDORES, section: 'atendimentos-ia', superAdminOnly: true },
+
     { key: 'super-admin', label: 'Painel Super Admin', icon: 'super-admin', href: ROUTES.SUPER_ADMIN_PANEL, section: 'superadmin', superAdminOnly: true },
     { key: 'super-notifications', label: 'Notificações', icon: 'super-notifications', href: ROUTES.SUPER_ADMIN_NOTIFICATIONS, section: 'superadmin', superAdminOnly: true },
     { key: 'super-tenants', label: 'Tenants', icon: 'super-tenants', href: ROUTES.SUPER_ADMIN_TENANTS, section: 'superadmin', superAdminOnly: true },
@@ -206,6 +214,8 @@ const Nav = () => {
     { key: 'financeiro', label: 'Financeiro', collapsible: true },
     { key: 'agendamentos', label: 'Agendamentos', collapsible: true },
     { key: 'operacional', label: 'Operacional', collapsible: true },
+    // NÃO RECOLHE, pela mesma razão de Clientes: um item só, e recolhida ela nasceria fechada.
+    { key: 'atendimentos-ia', label: 'Atendimentos I.A.', collapsible: false },
     { key: 'superadmin', label: 'Super Admin', collapsible: true },
   ]
 

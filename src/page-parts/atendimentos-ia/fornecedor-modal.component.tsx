@@ -1,0 +1,94 @@
+/**
+ * O modal do FORNECEDOR, em dois usos (EPIC §5.5 e §5.6):
+ *   - CREDENCIAR: nome, nicho (agrupado por modelo) e "Tabelas deste fornecedor" — pode salvar
+ *     sem nenhuma e subir depois. Cada tabela entra pelo MESMO modal da tabela, com o motor
+ *     obrigatório: o atalho do protótipo, que criava tabela sem motor, NÃO é regra (EPIC §3.8).
+ *   - EDITAR: nome e nicho, e "Excluir fornecedor".
+ */
+import React, { useEffect, useState } from 'react'
+import { Button, Input, List, Modal, Popconfirm, Typography } from 'antd'
+import { PlusOutlined } from '@ant-design/icons'
+import type { Nicho } from '@/utils/atendimentos-ia-catalogo'
+import { NichoSelect } from './nicho-select.component'
+import { TabelaModal } from './tabela-modal.component'
+import type { TabelaPendente } from './api'
+
+export interface DadosDoFornecedor { nome: string; nicho_id: string; tabelas: TabelaPendente[] }
+
+interface Props {
+    aberto: boolean
+    modo: 'credenciar' | 'editar'
+    nichos: Nicho[]
+    inicial?: { nome: string; nicho_id: string }
+    salvando?: boolean
+    onCancelar: () => void
+    onSalvar: (d: DadosDoFornecedor) => void
+    onExcluir?: () => void
+}
+
+export function FornecedorModal({ aberto, modo, nichos, inicial, salvando, onCancelar, onSalvar, onExcluir }: Props) {
+    const [nome, setNome] = useState('')
+    const [nichoId, setNichoId] = useState<string | undefined>(undefined)
+    const [tabelas, setTabelas] = useState<TabelaPendente[]>([])
+    const [tabelaAberta, setTabelaAberta] = useState(false)
+
+    useEffect(() => {
+        if (!aberto) return
+        setNome(inicial?.nome ?? '')
+        setNichoId(inicial?.nicho_id)
+        setTabelas([])
+    // Só ao ABRIR: `inicial` é montado a cada render da página, e reler a cada render apagaria o
+    // que o usuário está digitando.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [aberto])
+
+    const pronto = nome.trim() !== '' && !!nichoId
+
+    return (
+        <Modal
+            open={aberto}
+            title={modo === 'credenciar' ? 'Credenciar fornecedor' : 'Editar fornecedor'}
+            onCancel={onCancelar}
+            okText={modo === 'credenciar' ? 'Salvar credenciamento' : 'Salvar'}
+            cancelText="Cancelar"
+            okButtonProps={{ disabled: !pronto, loading: salvando }}
+            onOk={() => onSalvar({ nome, nicho_id: nichoId as string, tabelas })}
+            destroyOnClose
+        >
+            <Typography.Text strong>Nome</Typography.Text>
+            <Input style={{ margin: '6px 0 14px' }} value={nome} onChange={(e) => setNome(e.target.value)} aria-label="Nome do fornecedor" />
+            <Typography.Text strong>Nicho</Typography.Text>
+            <div style={{ margin: '6px 0 14px' }}><NichoSelect nichos={nichos} value={nichoId} onChange={setNichoId} /></div>
+
+            {modo === 'credenciar' && (
+                <>
+                    <Typography.Text strong>Tabelas deste fornecedor</Typography.Text>
+                    <Typography.Paragraph type="secondary" style={{ fontSize: 12, margin: '2px 0 6px' }}>Pode salvar sem nenhuma e subir depois.</Typography.Paragraph>
+                    <List
+                        size="small"
+                        dataSource={tabelas}
+                        locale={{ emptyText: 'Nenhuma tabela ainda.' }}
+                        renderItem={(t, i) => (
+                            <List.Item actions={[<Button key="x" size="small" type="link" onClick={() => setTabelas(tabelas.filter((_, j) => j !== i))}>remover</Button>]}>
+                                {t.arquivo?.name} · motor: {t.motor?.name}{t.vigencia ? ` · ${t.vigencia}` : ''}
+                            </List.Item>
+                        )}
+                    />
+                    <Button style={{ marginTop: 8 }} icon={<PlusOutlined />} onClick={() => setTabelaAberta(true)}>Adicionar tabela</Button>
+                    <TabelaModal
+                        aberto={tabelaAberta}
+                        titulo="Nova tabela"
+                        onCancelar={() => setTabelaAberta(false)}
+                        onSalvar={(t) => { setTabelas([...tabelas, t]); setTabelaAberta(false) }}
+                    />
+                </>
+            )}
+
+            {modo === 'editar' && onExcluir && (
+                <Popconfirm title="Excluir este fornecedor?" okText="Excluir" cancelText="Cancelar" onConfirm={onExcluir}>
+                    <Button danger>Excluir fornecedor</Button>
+                </Popconfirm>
+            )}
+        </Modal>
+    )
+}

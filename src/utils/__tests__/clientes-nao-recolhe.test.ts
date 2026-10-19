@@ -70,9 +70,9 @@ const navModulo = require('@/components/layout/nav.component') as { Nav: React.C
 describe('a seção Clientes não recolhe', () => {
     it('a configuração: `clientes` tem collapsible === false', () => {
         const secoes = secoesDoNav()
-        // O leitor acha as 8 seções — sem isto, um leitor cego devolveria [] e o `find` abaixo
+        // O leitor acha as 9 seções (Atendimentos I.A. entrou no bloco 2B.2) — sem isto, um leitor cego devolveria [] e o `find` abaixo
         // falharia por AUSÊNCIA, não pela configuração.
-        expect(secoes.map((s) => s.key)).toEqual(['geral', 'cadastros', 'clientes', 'comercial', 'financeiro', 'agendamentos', 'operacional', 'superadmin'])
+        expect(secoes.map((s) => s.key)).toEqual(['geral', 'cadastros', 'clientes', 'comercial', 'financeiro', 'agendamentos', 'operacional', 'atendimentos-ia', 'superadmin'])
         expect(secoes.find((s) => s.key === 'clientes')!.collapsible).toBe(false)
     })
 
