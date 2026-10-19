@@ -276,7 +276,8 @@ const TENANTS: LinhaDeTenant[] = [
 ]
 const config = (tenant_id: string, p: Partial<ConfigDoOrcamentista>): ConfigDoOrcamentista => ({
     tenant_id, ativo: false, valor_adicional_brl: null, teto_de_consumo_brl: null, acao_ao_atingir_teto: 'AVISAR',
-    ativado_por: null, ativado_em: null, atualizado_por: null, atualizado_em: '2026-10-18T00:00:00Z', ...p,
+    ativado_por: null, ativado_em: null, atualizado_por: null, atualizado_em: '2026-10-18T00:00:00Z',
+    modelo: null, nicho_id: null, ...p,
 })
 
 jest.mock('next/router', () => ({ useRouter: () => ({ replace: () => Promise.resolve(true), push: () => Promise.resolve(true), query: {} }) }))

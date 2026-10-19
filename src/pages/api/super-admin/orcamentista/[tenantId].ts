@@ -15,11 +15,34 @@
  * RLS), então quem barra o não-super-admin AQUI é `requireSuperAdmin`; quem barra um tenant que
  * fale direto com o PostgREST são o PRIVILÉGIO (`authenticated` sem INSERT/UPDATE/DELETE) e, por
  * baixo dele, a política `is_super_admin()` da tabela — duas camadas independentes.
+ *
+ * DUAS GRAVAÇÕES, e uma não toca a outra (bloco 2C.1, 19/10/2026 — `lerCorpoDaConfig`):
+ *   - o LIGA/DESLIGA (as quatro chaves) grava por UPSERT na PK, e o payload NÃO lista `modelo`
+ *     nem `nicho_id` — o `ON CONFLICT DO UPDATE` só mexe nas colunas mandadas, e é isso que faz
+ *     ligar ou desligar não apagar a segmentação;
+ *   - a SEGMENTAÇÃO (`modelo`, `nicho_id`) grava por UPDATE filtrado pela conta, e o payload NÃO
+ *     lista `ativo` nem `ativado_*`. É UPDATE, e não upsert, para não criar linha: conta sem
+ *     configuração não foi ligada, e a segmentação não liga ninguém — 404.
+ *
+ * O 23503 tem DOIS donos, e a gravação diz qual é: no upsert do liga/desliga é a FK para
+ * `tenants` (a conta não existe, 404); no UPDATE da segmentação a linha já existe, e o 23503 só
+ * pode ser a FK composta `(modelo, nicho_id)` → `orcamentista_nicho(modelo, id)` — 409, dizendo
+ * o que segura (`fraseDoParRecusado`), a convenção das rotas do catálogo.
  */
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { requireSuperAdmin } from '@/lib/get-caller-tenant'
 import { supabaseAdmin } from '@/supabase/admin'
-import { leituraAceita, leituraRecusada, lerCorpoDaConfig, montarGravacao } from '@/utils/orcamentista-config'
+import { obterNicho } from '@/lib/atendimentos-ia/repositorio'
+import {
+  ehSegmentacao,
+  fraseDoParRecusado,
+  leituraAceita,
+  leituraRecusada,
+  lerCorpoDaConfig,
+  montarGravacao,
+  montarGravacaoDaSegmentacao,
+  type CorpoDaSegmentacao,
+} from '@/utils/orcamentista-config'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -41,6 +64,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (leituraRecusada(leitura)) return res.status(400).json({ error: leitura.erro })
   if (!leituraAceita(leitura)) return res.status(400).json({ error: 'Corpo inválido.' })
 
+  if (ehSegmentacao(leitura.corpo)) return gravarSegmentacao(res, tenantId, leitura.corpo, caller.user_id)
+  const corpo = leitura.corpo
+
   try {
     const { data: anterior, error: erroDeLeitura } = await supabaseAdmin
       .from('orcamentista_config')
@@ -51,7 +77,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const linha = montarGravacao({
       tenantId,
-      corpo: leitura.corpo,
+      corpo,
       estavaAtivo: (anterior as { ativo?: boolean } | null)?.ativo === true,
       usuarioId: caller.user_id,
       agora: new Date().toISOString(),
@@ -73,5 +99,33 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   } catch (err: unknown) {
     console.error('super-admin orcamentista PATCH:', (err as { message?: string })?.message ?? 'erro')
     return res.status(500).json({ error: 'Não foi possível gravar a configuração do Orçamentista.' })
+  }
+}
+
+/** A segmentação: UPDATE de `modelo` e `nicho_id` na linha DA conta, e nada mais. */
+async function gravarSegmentacao(res: NextApiResponse, tenantId: string, corpo: CorpoDaSegmentacao, usuarioId: string) {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('orcamentista_config')
+      .update(montarGravacaoDaSegmentacao({ corpo, usuarioId, agora: new Date().toISOString() }))
+      .eq('tenant_id', tenantId)
+      .select('*')
+    if (error) {
+      const codigo = (error as { code?: string }).code
+      if (codigo === '23503' && corpo.modelo) {
+        const nicho = corpo.nicho_id ? await obterNicho(corpo.nicho_id) : null
+        return res.status(409).json({ error: fraseDoParRecusado(corpo.modelo, nicho) })
+      }
+      if (codigo === '23514') return res.status(400).json({ error: 'O banco recusou a segmentação: não há nicho sem modelo.' })
+      throw error
+    }
+    const linhas = (data ?? []) as unknown[]
+    if (linhas.length === 0) {
+      return res.status(404).json({ error: 'Esta conta não tem o Atendimentos I.A. configurado. Ligue em Tenants primeiro.' })
+    }
+    return res.status(200).json({ ok: true, config: linhas[0] })
+  } catch (err: unknown) {
+    console.error('super-admin orcamentista PATCH segmentação:', (err as { message?: string })?.message ?? 'erro')
+    return res.status(500).json({ error: 'Não foi possível gravar a segmentação da conta.' })
   }
 }

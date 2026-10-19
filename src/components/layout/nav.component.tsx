@@ -152,8 +152,11 @@ const Nav = () => {
     // da tela de Permissões: o módulo do Atendimentos I.A. segue em `MODULOS_NAO_CONCEDIVEIS`, e o item não tem
     // `module` — a paridade menu ↔ permissões continua por construção. A rota é sob
     // `/super-admin/`, que o `AuthGuard` já deixa o super admin abrir (`atendimentos-ia-no-menu.test.tsx`).
-    // "Contas ligadas" (EPIC §5.3) NÃO entra ainda: a tela é de outro bloco, e uma entrada que leva
-    // a um "em construção" é o menu oferecendo o que não existe.
+    // "Contas ligadas" (EPIC §5.3) ficou de fora no 2B.2 porque a tela era de outro bloco, e uma
+    // entrada que leva a um "em construção" é o menu oferecendo o que não existe. ENTROU em
+    // 19/10/2026, no bloco 2C.1, junto com a tela — antes de "Fornecedores e tabelas", a ordem do
+    // mockup. A tela mostra só o nome da conta e a configuração do Atendimentos I.A.
+    { key: 'super-ia-contas', label: 'Contas ligadas', icon: 'team', href: ROUTES.SUPER_ADMIN_IA_CONTAS, section: 'atendimentos-ia', superAdminOnly: true },
     { key: 'super-ia-fornecedores', label: 'Fornecedores e tabelas', icon: 'database', href: ROUTES.SUPER_ADMIN_IA_FORNECEDORES, section: 'atendimentos-ia', superAdminOnly: true },
 
     { key: 'super-admin', label: 'Painel Super Admin', icon: 'super-admin', href: ROUTES.SUPER_ADMIN_PANEL, section: 'superadmin', superAdminOnly: true },

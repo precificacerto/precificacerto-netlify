@@ -65,6 +65,7 @@ export enum ROUTES {
   SUPER_ADMIN_NOTIFICATIONS = '/super-admin/notificacoes',
   // Atendimentos I.A. — sob /super-admin/, que o AuthGuard já permite ao super admin.
   SUPER_ADMIN_IA_FORNECEDORES = '/super-admin/atendimentos-ia/fornecedores',
+  SUPER_ADMIN_IA_CONTAS = '/super-admin/atendimentos-ia/contas',
 
   // Cadastro pago (Stripe) — sucesso após pagamento
   CADASTRO_SUCESSO = '/cadastro/sucesso',

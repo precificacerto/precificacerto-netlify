@@ -34,6 +34,8 @@ export const ROTAS_DO_CATALOGO = {
     tabelas: '/api/super-admin/atendimentos-ia/tabelas',
     tabela: (id: string) => `/api/super-admin/atendimentos-ia/tabelas/${id}`,
     urlDeEnvio: '/api/super-admin/atendimentos-ia/tabelas/url-de-envio',
+    /** Bloco 2C.1 — as contas com o Atendimentos I.A. ligado (só nome e segmentação). */
+    contas: '/api/super-admin/atendimentos-ia/contas',
 } as const
 
 /** A frase do mockup na tela de fornecedores (EPIC §3.3). */
@@ -66,6 +68,19 @@ export interface TabelaDoFornecedor {
     /** "Subido em". */
     criado_em: string
     contas_usando: string[]
+}
+
+/**
+ * Uma conta da lista "Contas ligadas" (bloco 2C.1). SÓ isto, e é a REGRA INVIOLÁVEL: a
+ * identificação da conta e a configuração do Atendimentos I.A. — nada do conteúdo da conta.
+ * `nicho_nome` é o nome do NICHO (catálogo da plataforma), não dado do cliente.
+ */
+export interface ContaLigada {
+    tenant_id: string
+    nome: string
+    modelo: Modelo | null
+    nicho_id: string | null
+    nicho_nome: string | null
 }
 
 export interface FornecedorComTabelas extends FornecedorDaLista { tabelas_da_lista: TabelaDoFornecedor[] }

@@ -123,6 +123,7 @@ const MobileMoreDrawer = ({ open, onClose }: Props) => {
 
     // Super Admin
     // Atendimentos I.A. — a mesma seção do menu desktop (`nav.component.tsx`), com a mesma chave.
+    { key: 'super-ia-contas', label: 'Contas ligadas', href: ROUTES.SUPER_ADMIN_IA_CONTAS, icon: <TeamOutlined />, section: 'Atendimentos I.A.', sectionKey: 'atendimentos-ia', superAdminOnly: true },
     { key: 'super-ia-fornecedores', label: 'Fornecedores e tabelas', href: ROUTES.SUPER_ADMIN_IA_FORNECEDORES, icon: <DatabaseOutlined />, section: 'Atendimentos I.A.', sectionKey: 'atendimentos-ia', superAdminOnly: true },
     { key: 'super-admin', label: 'Painel Super Admin', href: ROUTES.SUPER_ADMIN_PANEL, icon: <SafetyCertificateOutlined />, section: 'Super Admin', sectionKey: 'superadmin', superAdminOnly: true },
     { key: 'super-notifications', label: 'Notificações', href: ROUTES.SUPER_ADMIN_NOTIFICATIONS, icon: <BellOutlined />, section: 'Super Admin', sectionKey: 'superadmin', superAdminOnly: true },

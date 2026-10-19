@@ -16,13 +16,28 @@ export function gruposDoSeletor(nichos: Nicho[]): GrupoDeNichos[] {
     })).filter((g) => g.options.length > 0)
 }
 
-export function NichoSelect({ nichos, value, onChange }: { nichos: Nicho[]; value?: string; onChange: (id: string) => void }) {
+/**
+ * `disabled`, `placeholder` e `allowClear` entraram no bloco 2C.1 (configuração da conta), todos
+ * opcionais: sem eles o seletor é o mesmo do credenciamento. `placeholder` só substitui o padrão
+ * quando quem chama sabe dizer mais — p.ex. "escolha o modelo primeiro", em vez de "nenhum nicho
+ * cadastrado" sobre uma lista que está vazia só porque o modelo não foi escolhido.
+ */
+export function NichoSelect({ nichos, value, onChange, disabled, placeholder, allowClear }: {
+    nichos: Nicho[]
+    value?: string
+    onChange: (id: string | undefined) => void
+    disabled?: boolean
+    placeholder?: string
+    allowClear?: boolean
+}) {
     return (
         <Select
             style={{ width: '100%' }}
-            placeholder={nichos.length ? PLACEHOLDER_COM_NICHO : PLACEHOLDER_SEM_NICHO}
+            placeholder={placeholder ?? (nichos.length ? PLACEHOLDER_COM_NICHO : PLACEHOLDER_SEM_NICHO)}
             value={value}
             onChange={onChange}
+            disabled={disabled}
+            allowClear={allowClear}
             options={gruposDoSeletor(nichos)}
             aria-label="Nicho"
         />
