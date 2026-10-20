@@ -418,7 +418,7 @@ describe('(10) código sem preço, e os totais', () => {
         expect(porCategoria['Acessórios'].pesoConsumidoKg).toBeNull()
         expect(r.total.valorBruto).toBe(614)
         expect(r.total.pesoConsumidoKg).toBeNull()
-        expect(r.avisos).toEqual([expect.objectContaining({ tipo: 'peso_ausente', codigo: 'A-PR' })])
+        expect(r.avisos.filter((a) => a.tipo === 'peso_ausente')).toEqual([expect.objectContaining({ codigo: 'A-PR' })])
     })
 
     it('regra de outra linha não entra, mesmo com a tipologia certa', () => {

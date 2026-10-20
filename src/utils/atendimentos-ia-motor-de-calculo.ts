@@ -80,10 +80,23 @@
  * nos itens reais: 0,065 · 0,0325 · 0, ou seja, 6,5% vem como 0,065. Item sem `ipi` não vira zero:
  * a linha fica sem IPI, o total também, e há aviso. Zero gravado é zero.
  *
- * ══ O LÍQUIDO NÃO É CALCULADO NESTA VERSÃO ══
- * O bruto tem ICMS, PIS e COFINS por dentro. A BASE do crédito de PIS/COFINS — o bruto inteiro, ou o bruto menos o ICMS — está
- * EM ABERTO, e sem ela o líquido não sai: líquido chutado é pior que líquido ausente. A entrada já
- * recebe as alíquotas e a base (`EntradaFiscal`); a saída devolve o líquido NULO e diz por quê.
+ * ══ O LÍQUIDO: BRUTO MENOS ICMS, PIS E COFINS — TODOS SOBRE O BRUTO ══
+ * Dono do produto, 20/10/2026: "O ICMS e o PIS e COFINS estão dentro do valor bruto. E esse valor
+ * bruto já é o valor pós-desconto. Ou seja, o valor bruto menos ICMS menos PIS e COFINS, nós
+ * encontramos o valor líquido da barra. Se tiver incidência de IPI, ele é calculado sobre o valor
+ * bruto."
+ *   ICMS = bruto × alíquota da operação · PIS = bruto × alíquota do PIS · COFINS = bruto × a do COFINS
+ *   LÍQUIDO = bruto − ICMS − PIS − COFINS · IPI = bruto × `ipi`, POR FORA, em linha própria
+ * DE ONDE VEM CADA ALÍQUOTA — e o motor não decide nenhuma:
+ *   - ICMS: na coluna INTERNA de preço, de `aliquota_interna_pct` do item; na de 12%, da ENTRADA
+ *     (`icmsInterestadualPct`). O motor não decide a operação: ela vem com a coluna de preço;
+ *   - PIS e COFINS: SÓ DA ENTRADA, e NÃO HÁ VALOR PADRÃO no código — dependem do regime da conta, e
+ *     o motor não conhece regime. Um portão proíbe as alíquotas usuais escritas nestes dois arquivos;
+ *   - IPI: a fração do próprio item.
+ * FALTANDO QUALQUER ALÍQUOTA, O LÍQUIDO NÃO SAI: a linha mostra o bruto e diz qual faltou, e o total
+ * fica nulo se uma linha ficou. Líquido chutado é pior que líquido ausente.
+ * O QUE SE FAZ COM O IPI vem da entrada (`tratamentoDoIpi`): somado ao custo, ou creditado. Faltando
+ * essa informação, o IPI é EXIBIDO e NÃO é aplicado em nenhum dos dois lados — o `custo` fica nulo.
  *
  * ══ A FAMÍLIA DÁ O VALOR DA VARIÁVEL; O USUÁRIO VENCE ══
  * As fórmulas da família definem variáveis por LINHA (NF=4, NP=3, QMA=(NF-1) em PVC EUROPA 42). O
@@ -106,7 +119,7 @@ export type RegraDoMotor = Pick<RegraLida,
 
 /** Um item de preço, como vem de `orcamentista_tabela_item`. */
 export type ItemDoPreco = Pick<ItemLido,
-    'codigo' | 'descricao' | 'medida_barra_m' | 'peso' | 'ipi' | 'vendido_por'
+    'codigo' | 'descricao' | 'medida_barra_m' | 'peso' | 'ipi' | 'aliquota_interna_pct' | 'vendido_por'
     | 'valor_metro_interno' | 'valor_barra_interno' | 'valor_metro_12' | 'valor_barra_12'>
 
 /** Uma fórmula da família, como vem de `orcamentista_motor_formula_familia`. `pct_padrao` não entra. */
@@ -118,15 +131,16 @@ export type ModoDeCobranca = 'barra-inteira' | 'consumo'
 export type ColunaDePreco = 'interna' | 'doze'
 
 /**
- * Os tributos que creditam — PREPARADA, NÃO USADA nesta versão (ver o cabeçalho). O motor não
- * decide regime fiscal: o que credita, e quanto, vem daqui.
+ * As alíquotas que o motor NÃO decide — ver o cabeçalho. Percentuais (17, não 0,17), como a
+ * `aliquota_interna_pct` do item. NULL = não informado, e o líquido não sai.
  */
 export interface EntradaFiscal {
-    icmsPct: number | null
-    creditaIcms: boolean
-    pisCofinsPct: number | null
-    creditaPisCofins: boolean
-    basePisCofins: 'bruto' | 'bruto-menos-icms' | null
+    /** Só na coluna de 12%. Na interna o ICMS sai do item. */
+    icmsInterestadualPct: number | null
+    pisPct: number | null
+    cofinsPct: number | null
+    /** O que se faz com o IPI por fora. NULL = não informado: exibido, não aplicado. */
+    tratamentoDoIpi: 'soma-ao-custo' | 'credita' | null
 }
 
 export interface EntradaDoMotor {
@@ -150,9 +164,6 @@ export interface EntradaDoMotor {
 }
 
 // ── A saída ────────────────────────────────────────────────────────────────────────────────
-export const MOTIVO_SEM_LIQUIDO =
-    'o líquido não é calculado: a base do crédito de PIS/COFINS (o bruto inteiro, ou o bruto menos o ICMS) está em aberto com o dono do produto (20/10/2026)'
-
 export const PESO_E_APROXIMADO =
     'peso aproximado: kg por metro no item de barra e kg por unidade no de unidade é INFERÊNCIA, não medição — falta conferir um perfil real com a Wolff'
 
@@ -192,7 +203,15 @@ export interface LinhaDoCalculo {
     valorBruto: number
     /** bruto × `ipi` do item (fração). NULL quando o item não traz `ipi`. */
     ipiPorFora: number | null
-    valorLiquido: null
+    /** bruto × alíquota. NULL quando a alíquota não veio. */
+    icms: number | null
+    pis: number | null
+    cofins: number | null
+    /** bruto − ICMS − PIS − COFINS. NULL quando falta QUALQUER alíquota — e `motivoSemLiquido` diz qual. */
+    valorLiquido: number | null
+    motivoSemLiquido: string | null
+    /** O líquido com o IPI aplicado como a entrada mandou. NULL sem líquido, ou sem o tratamento do IPI. */
+    custo: number | null
 }
 
 export interface Pendente {
@@ -206,12 +225,15 @@ export interface Pendente {
     variavel?: string
 }
 
-export interface Aviso { tipo: 'peso_ausente' | 'ipi_ausente' | 'categoria_divergente' | 'tipologia_sem_regras'; codigo?: string; mensagem: string }
+export interface Aviso { tipo: 'peso_ausente' | 'ipi_ausente' | 'aliquota_ausente' | 'ipi_sem_tratamento' | 'categoria_divergente' | 'tipologia_sem_regras'; codigo?: string; mensagem: string }
 
 export interface TotalDoCalculo {
     valorBruto: number
     /** NULL quando alguma linha somada não tem IPI — pela mesma razão do peso. */
     ipiPorFora: number | null
+    /** NULL quando alguma linha somada não tem líquido: a regra das linhas vale para o total. */
+    valorLiquido: number | null
+    custo: number | null
     /** NULL quando alguma linha somada não tem peso: somar o resto diria menos do que há. */
     pesoConsumidoKg: number | null
     pesoCompradoKg: number | null
@@ -227,8 +249,6 @@ export interface ResultadoDoMotor {
     /** As regras DESTE cálculo cuja coluna 12 tinha mais de uma alternativa. */
     regrasComQuantidadeAmbigua: number
     pesoAproximado: typeof PESO_E_APROXIMADO
-    valorLiquido: null
-    motivoSemLiquido: typeof MOTIVO_SEM_LIQUIDO
 }
 
 // ── O cálculo ──────────────────────────────────────────────────────────────────────────────
@@ -286,6 +306,17 @@ export function calcularTipologia(e: EntradaDoMotor): ResultadoDoMotor {
 
     const pendenteDaRegra = (r: RegraDoMotor, motivo: string, formula: string | null, variavel?: string) =>
         pendentes.push({ nivel: 'regra', codigo: r.codigo, descricao: r.descricao, motivo, formula, ...(variavel ? { variavel } : {}) })
+
+    // As faltas da ENTRADA valem para o cálculo inteiro: um aviso só, nomeando a alíquota.
+    for (const [nome, pct] of [['PIS', e.fiscal?.pisPct], ['COFINS', e.fiscal?.cofinsPct]] as const) {
+        if (pct === null || pct === undefined) avisos.push({ tipo: 'aliquota_ausente', mensagem: `a alíquota de ${nome} não veio na entrada — o líquido não é calculado` })
+    }
+    if (e.colunaDePreco === 'doze' && (e.fiscal?.icmsInterestadualPct ?? null) === null) {
+        avisos.push({ tipo: 'aliquota_ausente', mensagem: 'a alíquota de ICMS interestadual não veio na entrada — o líquido não é calculado' })
+    }
+    if ((e.fiscal?.tratamentoDoIpi ?? null) === null) {
+        avisos.push({ tipo: 'ipi_sem_tratamento', mensagem: 'a entrada não diz se o IPI soma ao custo ou credita — ele é exibido e não é aplicado' })
+    }
 
     const daTipologia = e.regras.filter((r) => r.tipologias.includes(e.tipologia) && (r.linha === null || normalizarLinha(r.linha) === linha))
     if (daTipologia.length === 0) avisos.push({ tipo: 'tipologia_sem_regras', mensagem: `nenhuma regra da tipologia ${e.tipologia} na linha ${e.linha}` })
@@ -356,12 +387,30 @@ export function calcularTipologia(e: EntradaDoMotor): ResultadoDoMotor {
 
         const cortes = grupo.map((a) => a.corte)
         const pecas = cortes.reduce((s, c) => s + c.pecas, 0)
-        // IPI POR FORA: bruto × `ipi`, que é FRAÇÃO. Sem `ipi` no item, sem IPI — nunca zero.
-        const brutoEIpi = (valorBruto: number) => {
+        // O bruto e o que sai dele: o IPI POR FORA (bruto × `ipi`, FRAÇÃO; sem `ipi`, sem IPI — nunca
+        // zero), e o LÍQUIDO (bruto − ICMS − PIS − COFINS), que só sai com as três alíquotas.
+        const valores = (valorBruto: number) => {
             if (item.ipi === null) avisos.push({ tipo: 'ipi_ausente', codigo, mensagem: `o item ${codigo} não tem IPI` })
-            return { valorBruto, ipiPorFora: item.ipi === null ? null : valorBruto * item.ipi }
+            const ipiPorFora = item.ipi === null ? null : valorBruto * item.ipi
+            const icmsPct = e.colunaDePreco === 'interna' ? item.aliquota_interna_pct : e.fiscal?.icmsInterestadualPct ?? null
+            if (e.colunaDePreco === 'interna' && icmsPct === null) avisos.push({ tipo: 'aliquota_ausente', codigo, mensagem: `o item ${codigo} não tem a alíquota interna de ICMS` })
+            const sobreOBruto = (pct: number | null) => (pct === null ? null : valorBruto * (pct / 100))
+            const icms = sobreOBruto(icmsPct)
+            const pis = sobreOBruto(e.fiscal?.pisPct ?? null)
+            const cofins = sobreOBruto(e.fiscal?.cofinsPct ?? null)
+            const faltam = [icms === null ? 'ICMS' : null, pis === null ? 'PIS' : null, cofins === null ? 'COFINS' : null].filter((x): x is string => x !== null)
+            const valorLiquido = faltam.length > 0 ? null : valorBruto - (icms as number) - (pis as number) - (cofins as number)
+            const tratamento = e.fiscal?.tratamentoDoIpi ?? null
+            const custo = valorLiquido === null || tratamento === null ? null
+                : tratamento === 'credita' ? valorLiquido
+                    : ipiPorFora === null ? null : valorLiquido + ipiPorFora
+            return {
+                valorBruto, ipiPorFora, icms, pis, cofins, valorLiquido,
+                motivoSemLiquido: faltam.length > 0 ? `faltou a alíquota de ${faltam.join(', ')} — o líquido não é calculado` : null,
+                custo,
+            }
         }
-        const base = { codigo, descricao: item.descricao ?? descricaoDaRegra, categoria: categorias[0], tipo: primeira.tipo, cortes, pecas, valorLiquido: null as null }
+        const base = { codigo, descricao: item.descricao ?? descricaoDaRegra, categoria: categorias[0], tipo: primeira.tipo, cortes, pecas }
 
         if (primeira.tipo === 'Insumo') {
             if (item.vendido_por === 'barra') { pendenteDoCodigo(MOTIVO_INSUMO_VENDIDO_POR_BARRA); continue }
@@ -372,7 +421,7 @@ export function calcularTipologia(e: EntradaDoMotor): ResultadoDoMotor {
             if (unitario === null) { pendenteDoCodigo('o item não tem o valor unitário ("VALOR UNIT")'); continue }
             const peso = item.peso === null ? null : pecas * item.peso
             if (peso === null) avisos.push({ tipo: 'peso_ausente', codigo, mensagem: `o item ${codigo} não tem peso` })
-            linhas.push({ ...base, mmTotais: null, barras: null, aproveitamento: null, pesoConsumidoKg: peso, pesoCompradoKg: peso, ...brutoEIpi(pecas * unitario) })
+            linhas.push({ ...base, mmTotais: null, barras: null, aproveitamento: null, pesoConsumidoKg: peso, pesoCompradoKg: peso, ...valores(pecas * unitario) })
             continue
         }
 
@@ -397,12 +446,17 @@ export function calcularTipologia(e: EntradaDoMotor): ResultadoDoMotor {
         const pesoConsumidoKg = item.peso === null ? null : (mmTotais / 1000) * item.peso
         const pesoCompradoKg = item.peso === null ? null : e.modo === 'consumo' ? pesoConsumidoKg : barras * item.medida_barra_m * item.peso
         if (item.peso === null) avisos.push({ tipo: 'peso_ausente', codigo, mensagem: `o item ${codigo} não tem peso` })
-        linhas.push({ ...base, mmTotais, barras, aproveitamento, pesoConsumidoKg, pesoCompradoKg, ...brutoEIpi(valorBruto) })
+        linhas.push({ ...base, mmTotais, barras, aproveitamento, pesoConsumidoKg, pesoCompradoKg, ...valores(valorBruto) })
     }
 
+    // A soma de um campo que pode faltar: NULL se faltar em UMA linha — somar o resto diria menos do que há.
+    const somaOuNada = (ls: LinhaDoCalculo[], campo: (l: LinhaDoCalculo) => number | null) =>
+        ls.some((l) => campo(l) === null) ? null : ls.reduce((s, l) => s + (campo(l) as number), 0)
     const somar = (ls: LinhaDoCalculo[]): TotalDoCalculo => ({
         valorBruto: ls.reduce((s, l) => s + l.valorBruto, 0),
-        ipiPorFora: ls.some((l) => l.ipiPorFora === null) ? null : ls.reduce((s, l) => s + (l.ipiPorFora as number), 0),
+        ipiPorFora: somaOuNada(ls, (l) => l.ipiPorFora),
+        valorLiquido: somaOuNada(ls, (l) => l.valorLiquido),
+        custo: somaOuNada(ls, (l) => l.custo),
         pesoConsumidoKg: ls.some((l) => l.pesoConsumidoKg === null) ? null : ls.reduce((s, l) => s + (l.pesoConsumidoKg as number), 0),
         pesoCompradoKg: ls.some((l) => l.pesoCompradoKg === null) ? null : ls.reduce((s, l) => s + (l.pesoCompradoKg as number), 0),
         linhas: ls.length,
@@ -416,7 +470,5 @@ export function calcularTipologia(e: EntradaDoMotor): ResultadoDoMotor {
         avisos,
         regrasComQuantidadeAmbigua,
         pesoAproximado: PESO_E_APROXIMADO,
-        valorLiquido: null,
-        motivoSemLiquido: MOTIVO_SEM_LIQUIDO,
     }
 }
