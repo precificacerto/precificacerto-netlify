@@ -2,8 +2,17 @@
 -- Atendimentos I.A. — a IMPORTAÇÃO do conteúdo da tabela e do motor de um fornecedor
 --
 -- ╔══════════════════════════════════════════════════════════════════════════════════════
--- ║ NÃO APLICADA. Escrita em 20/10/2026. Nenhum ambiente tem estas tabelas até alguém aplicar
--- ║ e conferir pelo catálogo (`migration-delivery.md`: o default é PENDENTE).
+-- ║ APLICADA EM PRODUÇÃO em 20/10/2026, pelo SQL Editor do Supabase, projeto
+-- ║ jvthwpkwzpangnwhuyvj, a partir do arquivo cru do GitHub (md5 f20ff92becc2a6017b3136b6e814be4e).
+-- ║
+-- ║ Medição da sessão de verificação, logo depois: 5 tabelas com RLS ligada, 20 políticas
+-- ║ (4 por tabela, todas com is_super_admin()), nenhum grant a anon ou authenticated, 5 FK
+-- ║ para orcamentista_tabela todas em CASCADE, 11 índices, e 0 linhas em todas as cinco.
+-- ║
+-- ║ NÃO REGISTRADA em supabase_migrations.schema_migrations: a aplicação foi pelo SQL Editor,
+-- ║ que não grava no ledger. É a quarta migration nessa situação — ver
+-- ║ docs/registros/as-migracoes-de-19-10-fora-do-ledger.md, que precisa ser atualizado para
+-- ║ incluir esta.
 -- ║
 -- ║ Ao aplicar fora do CLI, o `name` da migração é o nome completo deste arquivo, sem a
 -- ║ extensão: 20261020000001_atendimentos_ia_importacao.
