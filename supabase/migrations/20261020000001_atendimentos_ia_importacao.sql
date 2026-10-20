@@ -36,9 +36,21 @@
 --     cada uma com o seu cabeçalho, e o cabeçalho repete a palavra "CÓDIGO" na coluna do
 --     código. A importação tem de PULAR a linha de cabeçalho — ela não é item, e não há o que
 --     escolher entre ela e uma linha de verdade.
---   - Duplicados medidos: 3 — IL4237, KT4237 e a palavra "CÓDIGO" (o cabeçalho). IL4237 e
---     KT4237 aparecem duas vezes; o item é ÚNICO por (tabela_id, codigo), então o banco RECUSA
---     a segunda linha de cada um. O que a importação faz com esses dois NÃO está decidido aqui.
+--   - Duplicados medidos: 3 — IL4237, KT4237 e a palavra "CÓDIGO" (o cabeçalho).
+--     IL4237 e KT4237 aparecem duas vezes, em SEÇÕES DIFERENTES — "LAMINADOS TOTAL —
+--     AMADEIRADO NOGUEIRA" (linhas 556/557) e "LAMINADOS PARTE EXTERNA — AMADEIRADO NOGUEIRA"
+--     (linhas 674/675) —, com alíquota 18% nas duas e valores IDÊNTICOS: interno 83,52, 12%
+--     73,38, barra de 6 m (medição da sessão de verificação, 20/10/2026).
+--
+--     DECISÃO DO DONO DO PRODUTO, 20/10/2026:
+--       (1) a chave única FICA (tabela_id, codigo) — a seção NÃO entra nela. O motor busca só
+--           pelo código, e dois registros com o mesmo preço lhe dariam duas respostas para uma
+--           pergunta;
+--       (2) a importação GUARDA A PRIMEIRA ocorrência, conta a segunda em `normalizados`, e grava
+--           em `avisos` o código, as duas seções e se os valores batiam;
+--       (3) se um dia os valores NÃO baterem, o aviso tem de dizer isso EM VOZ ALTA — aí a decisão
+--           volta para o dono do produto. Guardar a primeira só é seguro enquanto as duas forem
+--           o mesmo preço.
 --   - CORREÇÃO DE PREMISSA: a versão anterior deste cabeçalho dizia que havia código repetido
 --     em quantidade e que a importação escolheria uma linha por código. Estava ERRADA. Segundo
 --     o dono do produto, a indução veio da sessão de verificação; quem a escreveu aqui como
@@ -111,9 +123,9 @@ COMMENT ON TABLE public.orcamentista_tabela_item IS
 COMMENT ON COLUMN public.orcamentista_tabela_item.segmento IS
   'Coluna do ARQUIVO do fornecedor, gravada como veio. Nao e a segmentacao fiscal da conta.';
 COMMENT ON COLUMN public.orcamentista_tabela_item.secao IS
-  'O rotulo do cabecalho da SECAO de onde a linha veio, como esta no arquivo. NULL = linha sem secao identificada.';
+  'O TITULO da secao de onde a linha veio - o texto ACIMA do cabecalho de colunas, ex.: TABELA PERFIS LAMINADOS TOTAL - AMADEIRADO NOGUEIRA. E ele que diz o que a secao e; nao e o rotulo das colunas. Como esta no arquivo. NULL = linha sem secao identificada.';
 COMMENT ON COLUMN public.orcamentista_tabela_item.aliquota_interna_pct IS
-  'A aliquota interna (17 ou 18) lida do cabecalho da SECAO acima da linha, NAO de um valor global: o arquivo da Wolff tem secoes de 17% e de 18%. Linha sem secao identificada fica com NULL.';
+  'A aliquota interna (17 ou 18) lida dos ROTULOS DAS COLUNAS do cabecalho da secao acima da linha, NAO de um valor global: o arquivo da Wolff tem secoes de 17% e de 18%. Linha sem secao identificada fica com NULL.';
 COMMENT ON COLUMN public.orcamentista_tabela_item.vendido_por IS
   'barra ou unidade, lido da SECAO (a secao VALOR UNIT / VALOR TOTAL e por unidade). NULL quando a secao nao disser - nunca inventado.';
 COMMENT ON COLUMN public.orcamentista_tabela_item.valor_metro_interno IS
@@ -213,7 +225,7 @@ COMMENT ON COLUMN public.orcamentista_importacao.nao_cruzam IS
 COMMENT ON COLUMN public.orcamentista_importacao.normalizados IS
   'Linhas que a importacao ajustou para caber (ex.: codigo repetido no arquivo de preco). O detalhe vai em avisos.';
 COMMENT ON COLUMN public.orcamentista_importacao.avisos IS
-  'Os avisos da importacao, em jsonb. NOT NULL e sem default: sem aviso, a importacao grava uma lista vazia.';
+  'Os avisos da importacao, em jsonb. NOT NULL e sem default: sem aviso, a importacao grava uma lista vazia. Codigo repetido no preco: o codigo, as duas secoes e se os valores batiam - e, se NAO batiam, o aviso diz isso em voz alta.';
 
 -- ── 6. ÍNDICES — pelo que vai ser consultado ───────────────────────────────────────────────
 -- (tabela_id, codigo) do PREÇO e (tabela_id, tipologia) do RESUMO já são as UNIQUE acima.
