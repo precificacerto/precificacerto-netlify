@@ -40,7 +40,7 @@ export function textoDoAviso(a: Aviso): { titulo: string; texto: string } {
         case 'celula_nao_numerica':
             return { titulo: 'Valor que não é número', texto: `${ondeNaPlanilha(a, a.coluna)}: ${a.mensagem}. O valor foi gravado em branco.` }
         case 'codigo_normalizado':
-            return { titulo: 'Código ajustado', texto: `${ondeNaPlanilha(a)}: o código "${a.antes}" foi lido como "${a.depois}" — a planilha o tratou como número.` }
+            return { titulo: 'Código ajustado', texto: `${ondeNaPlanilha(a)}: o código "${a.antes}" foi lido como "${a.depois}" — a vírgula virou ponto, para casar com a tabela de preço. O separador fica: ele distingue um produto do outro.` }
         case 'codigo_repetido':
             return {
                 titulo: 'Código repetido na tabela de preço',
