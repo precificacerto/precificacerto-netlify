@@ -54,6 +54,26 @@ export const BUCKET_DO_CATALOGO = 'atendimentos-ia'
  */
 export const EXTENSOES_ACEITAS = ['.xlsx', '.xlsm', '.xls', '.csv', '.pdf'] as const
 
+/**
+ * O que a IMPORTAÇÃO lê — o conteúdo da tabela e do motor (20/10/2026). Só planilha no formato
+ * do Excel moderno, que o `exceljs` abre. `.csv` e `.pdf` continuam ACEITOS NO ENVIO (a lista
+ * acima), mas NÃO são importáveis — decisão do dono do produto; `.xls`, o formato binário antigo,
+ * também não, porque o `exceljs` não o lê. A tela diz isso com o nome e a extensão
+ * (`fraseDoArquivoNaoImportavel`) — nunca falha calada.
+ */
+export const EXTENSOES_IMPORTAVEIS = ['.xlsx', '.xlsm'] as const
+
+/** A extensão do nome, em minúsculas e com o ponto — `''` quando não há. */
+export function extensaoDoArquivo(nome: string): string {
+    const m = /\.[^./\\]+$/.exec(nome.trim())
+    return m ? m[0].toLowerCase() : ''
+}
+
+export const arquivoImportavel = (nome: string) => (EXTENSOES_IMPORTAVEIS as readonly string[]).includes(extensaoDoArquivo(nome))
+
+export const fraseDoArquivoNaoImportavel = (nome: string) =>
+    fraseDoArquivo(nome, `a extensão ${extensaoDoArquivo(nome) || '(sem extensão)'} é aceita no envio, mas não é importável. A importação lê ${EXTENSOES_IMPORTAVEIS.join(' e ')}.`)
+
 /** O motivo da recusa de formato — o mesmo na tela e na rota. */
 export const MOTIVO_DO_FORMATO_RECUSADO = `Formato não aceito. Use ${EXTENSOES_ACEITAS.join(', ')}.`
 
