@@ -5,6 +5,11 @@
  * "+ Nova tabela", "Editar fornecedor" (nome e nicho) e "Excluir fornecedor". Tudo pelas rotas.
  * Excluir o que está em uso a ROTA recusa e diz quais contas usam — a mensagem é mostrada
  * inteira, não trocada por um "não foi possível".
+ *
+ * O erro de salvar uma TABELA (nova ou edição) aparece DENTRO do modal (`erroDaTabela` → prop
+ * `erro`), com o arquivo e o motivo — nunca num `message` passageiro fora dele: o modal fica
+ * aberto quando a gravação falha, e aberto sem explicação manda o usuário adivinhar (20/10/2026,
+ * `atendimentos-ia-formato-do-arquivo.test.tsx`).
  */
 import React, { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/router'
@@ -35,6 +40,7 @@ export default function TabelasDoFornecedor() {
     const [tabelaNova, setTabelaNova] = useState(false)
     const [tabelaEmEdicao, setTabelaEmEdicao] = useState<TabelaDoFornecedor | null>(null)
     const [salvando, setSalvando] = useState(false)
+    const [erroDaTabela, setErroDaTabela] = useState<string | null>(null)
 
     const carregar = useCallback(async () => {
         if (!id) return
@@ -88,16 +94,21 @@ export default function TabelasDoFornecedor() {
         }
     }
 
+    /** Abre ou fecha um modal de tabela sempre SEM o erro da tentativa anterior. */
+    const abrirTabelaNova = (aberto: boolean) => { setErroDaTabela(null); setTabelaNova(aberto) }
+    const editarTabela = (t: TabelaDoFornecedor | null) => { setErroDaTabela(null); setTabelaEmEdicao(t) }
+
     async function salvarTabelaNova(t: TabelaPendente) {
         if (!id) return
         setSalvando(true)
+        setErroDaTabela(null)
         try {
             await gravarTabelaNova(id, t)
             message.success('Tabela adicionada')
-            setTabelaNova(false)
+            abrirTabelaNova(false)
             await carregar()
         } catch (e) {
-            message.error((e as Error).message, 8)
+            setErroDaTabela((e as Error).message)
         } finally {
             setSalvando(false)
         }
@@ -106,6 +117,7 @@ export default function TabelasDoFornecedor() {
     async function salvarEdicao(t: TabelaPendente) {
         if (!id || !tabelaEmEdicao) return
         setSalvando(true)
+        setErroDaTabela(null)
         try {
             const corpo: Record<string, string> = { vigencia: t.vigencia }
             if (t.arquivo) { const a = await enviarArquivo(id, 'arquivo', t.arquivo); corpo.arquivo_path = a.path; corpo.arquivo_nome = a.nome }
@@ -113,10 +125,10 @@ export default function TabelasDoFornecedor() {
             const r = await chamarRota<{ ok: true; aviso?: string }>(ROTAS_DO_CATALOGO.tabela(tabelaEmEdicao.id), 'PATCH', corpo)
             if (r.aviso) message.warning(r.aviso, 8)
             else message.success('Tabela alterada')
-            setTabelaEmEdicao(null)
+            editarTabela(null)
             await carregar()
         } catch (e) {
-            message.error((e as Error).message, 8)
+            setErroDaTabela((e as Error).message)
         } finally {
             setSalvando(false)
         }
@@ -140,7 +152,7 @@ export default function TabelasDoFornecedor() {
                 {fornecedor && (
                     <Space>
                         <Button onClick={() => setEditandoFornecedor(true)}>Editar fornecedor</Button>
-                        <Button type="primary" icon={<PlusOutlined />} onClick={() => setTabelaNova(true)}>Nova tabela</Button>
+                        <Button type="primary" icon={<PlusOutlined />} onClick={() => abrirTabelaNova(true)}>Nova tabela</Button>
                     </Space>
                 )}
             </Space>
@@ -173,7 +185,7 @@ export default function TabelasDoFornecedor() {
                                     align: 'right',
                                     render: (_, t) => (
                                         <Space>
-                                            <Button size="small" onClick={() => setTabelaEmEdicao(t)}>Editar</Button>
+                                            <Button size="small" onClick={() => editarTabela(t)}>Editar</Button>
                                             <Popconfirm title="Excluir esta tabela?" okText="Excluir" cancelText="Cancelar" onConfirm={() => excluirTabela(t)}>
                                                 <Button size="small" danger>Excluir</Button>
                                             </Popconfirm>
@@ -186,13 +198,14 @@ export default function TabelasDoFornecedor() {
                 </>
             )}
 
-            <TabelaModal aberto={tabelaNova} titulo="Nova tabela" salvando={salvando} onCancelar={() => setTabelaNova(false)} onSalvar={salvarTabelaNova} />
+            <TabelaModal aberto={tabelaNova} titulo="Nova tabela" salvando={salvando} erro={tabelaNova ? erroDaTabela : null} onCancelar={() => abrirTabelaNova(false)} onSalvar={salvarTabelaNova} />
             <TabelaModal
                 aberto={!!tabelaEmEdicao}
                 titulo="Editar tabela"
                 atual={tabelaEmEdicao ?? undefined}
                 salvando={salvando}
-                onCancelar={() => setTabelaEmEdicao(null)}
+                erro={tabelaEmEdicao ? erroDaTabela : null}
+                onCancelar={() => editarTabela(null)}
                 onSalvar={salvarEdicao}
             />
             <FornecedorModal

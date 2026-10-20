@@ -7,7 +7,7 @@
  * escolhe, e o navegador manda os bytes para essa URL. Ver o cabeçalho de
  * `src/pages/api/super-admin/atendimentos-ia/tabelas/url-de-envio.ts`.
  */
-import { ROTAS_DO_CATALOGO, type TipoDeArquivo } from '@/utils/atendimentos-ia-catalogo'
+import { ROTAS_DO_CATALOGO, fraseDoArquivo, type TipoDeArquivo } from '@/utils/atendimentos-ia-catalogo'
 
 export class ErroDaRota extends Error {
     status: number
@@ -29,17 +29,27 @@ export async function chamarRota<T>(url: string, metodo = 'GET', corpo?: unknown
 
 export interface ArquivoEnviado { path: string; nome: string }
 
-/** Pede à rota a URL assinada e manda o arquivo para ela. Devolve o caminho no bucket e o nome original. */
+/**
+ * Pede à rota a URL assinada e manda o arquivo para ela. Devolve o caminho no bucket e o nome original.
+ * Toda falha sai com o NOME do arquivo (`fraseDoArquivo`): com dois arquivos no modal, um motivo
+ * sem nome não diz qual dos dois foi recusado.
+ */
 export async function enviarArquivo(fornecedorId: string, tipo: TipoDeArquivo, arquivo: File): Promise<ArquivoEnviado> {
-    const { path, signedUrl } = await chamarRota<{ path: string; signedUrl: string }>(ROTAS_DO_CATALOGO.urlDeEnvio, 'POST', {
-        fornecedor_id: fornecedorId, tipo, nome: arquivo.name,
-    })
+    let assinado: { path: string; signedUrl: string }
+    try {
+        assinado = await chamarRota<{ path: string; signedUrl: string }>(ROTAS_DO_CATALOGO.urlDeEnvio, 'POST', {
+            fornecedor_id: fornecedorId, tipo, nome: arquivo.name,
+        })
+    } catch (e) {
+        throw new ErroDaRota(e instanceof ErroDaRota ? e.status : 0, fraseDoArquivo(arquivo.name, (e as Error).message))
+    }
+    const { path, signedUrl } = assinado
     // O mesmo formato que `uploadToSignedUrl` do storage-js manda — sem o cliente.
     const corpo = new FormData()
     corpo.append('cacheControl', '3600')
     corpo.append('', arquivo)
     const res = await fetch(signedUrl, { method: 'PUT', headers: { 'x-upsert': 'false' }, body: corpo })
-    if (!res.ok) throw new ErroDaRota(res.status, `O envio de "${arquivo.name}" falhou (${res.status}).`)
+    if (!res.ok) throw new ErroDaRota(res.status, fraseDoArquivo(arquivo.name, `o envio falhou (${res.status}).`))
     return { path, nome: arquivo.name }
 }
 
