@@ -278,6 +278,13 @@ Cada item abaixo é uma pergunta para o dono do produto, não uma escolha feita 
    barra", "Fórmulas da família") e só elas. Outro fornecedor com abas de outro nome é recusado
    com o nome esperado e os encontrados, e vai precisar de um **mapa por fornecedor** — que NÃO
    foi construído, por decisão do dono do produto.
+   **A CONTAGEM DO MOTOR QUE CONFUNDE** (sessão de verificação, 20/10/2026, nos arquivos da
+   Wolff): o motor tem **549** códigos no arquivo cru e **547** depois de normalizar os que vieram
+   com vírgula decimal; desses, **533 cruzam** com a tabela de preço e **14 não**. Quem somar
+   533 + 14 e comparar com 549 vai achar que faltam dois — a conta certa é contra os 547. Os 14
+   que não cruzam (947181, 947191, 950181 e outros) são códigos que o motor usa e a tabela de
+   preço não traz: **não é defeito do sistema, é assunto para o fornecedor**. A importação os
+   lista no aviso "Códigos do motor sem preço".
 6. **Vigência da tabela.** É texto livre no mockup. Se o sistema escolhe sozinho a tabela vigente
    de um fornecedor, ou se a linha da conta fica presa à tabela escolhida mesmo depois de vencer.
 7. **Conta ligada e suspensa.** Se uma conta suspensa ou cancelada com o Atendimentos I.A. ligado
