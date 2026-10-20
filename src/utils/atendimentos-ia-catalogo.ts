@@ -51,6 +51,15 @@ export const ROTAS_DO_CATALOGO = {
  * Aplicada em 20/10/2026 ao USO POR CONTA: a tela da conta só mostra "Tabelas em uso" neste
  * modelo, e a rota recusa (409) tabela para conta de outro modelo. O CATÁLOGO não é restrito —
  * nicho, fornecedor e tabela podem existir nos três modelos.
+ *
+ * >>> O CASO DE BORDA: conta fora de Fabricação COM tabela em uso <<<
+ * Nela a tela esconderia a tabela junto com o grupo, e com ela o "Remover". Medido em produção
+ * em 20/10/2026 pela sessão de verificação: 0 contas fora de FABRICACAO com tabela em uso (1
+ * tabela em uso ao todo, numa conta FABRICACAO). O estado é INALCANÇÁVEL pela tela: a troca de
+ * modelo é recusada enquanto houver tabela em uso (`gravarModeloENicho`, na rota PATCH da conta),
+ * então nenhuma conta sai de Fabricação carregando tabela. Só nasceria por escrita direta no
+ * banco. Se um dia aparecer, a saída é MOSTRAR a lista com "Remover" nesses casos — e NÃO apagar
+ * nada automaticamente.
  */
 export const MODELO_COM_FORNECEDOR: Modelo = 'FABRICACAO'
 export const usaTabelaDeFornecedor = (m: Modelo | null) => m === MODELO_COM_FORNECEDOR
