@@ -23,6 +23,8 @@
  *       não sai e a linha diz qual faltou — e o total segue a regra. O IPI é linha própria, fora do
  *       líquido; o que se faz com ele vem da entrada. Nenhuma alíquota padrão no código;
  *  (10) código sem preço, e os totais por categoria;
+ * (4b) o símbolo com "&" (&ARI, &MAI…) é pendente nomeando o símbolo — não há tabela com os valores;
+ * (6b) a regra cuja condição usa CA não passa pelo filtro de cor: a condição já escolhe a cor;
  * (1b) A VÍRGULA PELA ARIDADE CONHECIDA (medição de 20/10/2026 nas 4.055 regras): IIF tem
  *       SEMPRE 3 argumentos e as vírgulas de topo dele são separadores; ROUND e ARREDMAIOR têm
  *       SEMPRE 1, e a vírgula de topo dentro deles é decimal. Os casos são os exemplos reais;
@@ -134,12 +136,13 @@ describe('(2) o que está fora dos medidos vai para pendentes, com a fórmula CO
         ['L >= 1000', /operador ">="/],
         ['L <> 1000', /operador "<>"/],
         ['1.000 + L', /ponto/],
-        ['IIF(L > 1000, 3)', /IIF com 2 argumento/],
-        ['IIF(L > 1000,0,5,1)', /IIF com 4 argumento/],
-        ['ROUND(L,2)', /ROUND com 2 argumento/],
+        ['IIF(L > 1000, 3)', /vírgula ambígua/],
+        ['IIF(L > 1000,0,5,1)', /vírgula ambígua/],
+        ['ROUND(L,2)', /vírgula ambígua/],
         // Decimal é dígito,dígito COLADO; com espaço a vírgula não é decimal, e sobra argumento.
-        ['ROUND(3, 7)', /ROUND com 2 argumento/],
-        ['ARREDMAIOR(NF, L)', /ARREDMAIOR com 2 argumento/],
+        ['ROUND(3, 7)', /vírgula ambígua/],
+        ['ARREDMAIOR(NF, L)', /vírgula ambígua/],
+        ['ARREDMAIOR(1,2,3)', /vírgula ambígua/],
         ['IIF(L > 1000; 3; 2)', /caractere ";"/],
         ['L × 2', /caractere "×"/],
     ])('%s', (formula, motivo) => {
@@ -152,6 +155,21 @@ describe('(2) o que está fora dos medidos vai para pendentes, com a fórmula CO
         const r = calcularTipologia(entrada([regra('9681', { formula_em_lh: 'SQRT(L) − 4,2' })], [perfil('9681')]))
         expect(r.linhas).toEqual([])
         expect(r.pendentes).toEqual([expect.objectContaining({ nivel: 'regra', codigo: '9681', formula: 'SQRT(L) − 4,2', motivo: expect.stringMatching(/SQRT/) })])
+    })
+})
+
+describe('(4b) o símbolo com "&" é pendente NOMEANDO o símbolo — não há tabela com esses valores', () => {
+    // Medido em 20/10/2026: 40 das 137 fórmulas da família usam "&"; 0 das 4.055 regras.
+    it.each(['&ARI', '&MAI', '&MAE', '&FV', '&FF', '&J', '&PF', '&MD'])('%s', (simbolo) => {
+        const r = avaliarNumero(`L - ${simbolo}·2`, com({ L: 1500 }))
+        expect(r).toEqual(expect.objectContaining({ ok: false, variavel: simbolo, motivo: expect.stringContaining(`"${simbolo}"`) }))
+    })
+
+    it('no motor: a variável da família cuja fórmula usa "&" deixa a regra pendente, com o símbolo', () => {
+        const formulas = [{ linha: 'EUROPA 42', variavel: 'QMA', formula: '(NF-1)+&MAI' }, { linha: 'EUROPA 42', variavel: 'NF', formula: '4' }]
+        const r = calcularTipologia(entrada([regra('9681', { formula_qtde: '(QMA*2)' })], [perfil('9681')], { formulas }))
+        expect(r.linhas).toEqual([])
+        expect(r.pendentes).toEqual([expect.objectContaining({ codigo: '9681', variavel: '&MAI', motivo: expect.stringContaining('&MAI') })])
     })
 })
 
@@ -273,6 +291,34 @@ describe('(6) a cor filtra o perfil, e não filtra tudo', () => {
     it('trocando a cor do perfil para PRETO, o reforço continua — ele não tem cor a filtrar', () => {
         const r = calcularTipologia(entrada(regras, itens, { corPerfil: 'PRETO', corAcessorio: 'BRANCO' }))
         expect(r.linhas.map((l) => l.codigo).sort()).toEqual(['9682', 'A-BR', 'R100'])
+    })
+})
+
+describe('(6b) a condição com CA já escolhe a cor — o filtro de cor não age em cima dela', () => {
+    // Medido em 20/10/2026, três trios: corta vento 9411 / 9419 / 94114, tapa furo 3571 / 3579 /
+    // 35714, flip de drenagem 87341 / 87349 / 873414 — CA = 1, 2, 3. O 87341 é o flip BRANCO (o obs
+    // diz), mas a célula de cor dele traz "(DESAGUE)", e o filtro o jogava fora.
+    const flip = (codigo: string, ca: number, cor: string) =>
+        regra(codigo, { [COLUNA_DA_CATEGORIA_DO_FORNECEDOR]: 'Acessórios', tipo: 'Insumo', formula_em_lh: null, formula_qtde: '2', cor, condicao: `CA=${ca}` })
+    const regras = [flip('87341', 1, '(DESAGUE)'), flip('87349', 2, 'PRETO'), flip('873414', 3, 'BRONZE')]
+    const itens = [unitario('87341'), unitario('87349'), unitario('873414')]
+
+    it('pedido BRANCO na DP-02 com CA=1 mantém o 87341, e só ele', () => {
+        const r = calcularTipologia(entrada(regras, itens, { corPerfil: 'BRANCO', corAcessorio: 'BRANCO', variaveis: { CA: 1 } }))
+        expect(r.linhas.map((l) => l.codigo)).toEqual(['87341'])
+    })
+
+    it('CA=2 escolhe o 87349, mesmo com a cor dele diferente da do pedido', () => {
+        const r = calcularTipologia(entrada(regras, itens, { corPerfil: 'BRANCO', corAcessorio: 'BRANCO', variaveis: { CA: 2 } }))
+        expect(r.linhas.map((l) => l.codigo)).toEqual(['87349'])
+    })
+
+    it('condição SEM CA não isenta do filtro: o acessório PRETO num pedido branco continua de fora', () => {
+        const r = calcularTipologia(entrada(
+            [regra('A-PR', { [COLUNA_DA_CATEGORIA_DO_FORNECEDOR]: 'Acessórios', tipo: 'Insumo', formula_em_lh: null, cor: 'PRETO', condicao: 'L > 1000' })],
+            [unitario('A-PR')], { corPerfil: 'BRANCO', corAcessorio: 'BRANCO' },
+        ))
+        expect(r.linhas).toEqual([])
     })
 })
 
