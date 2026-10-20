@@ -503,3 +503,43 @@ export async function lerArquivosDaImportacao(arquivos: { tabela: ArquivoDaImpor
         avisos,
     }
 }
+
+// ── A gravação: o payload da função, e a conferência do que ela gravou ─────────────────────
+type Lida = Extract<ResultadoDaLeitura, { ok: true }>
+
+/**
+ * O payload de `importar_conteudo_da_tabela` (`20261020000002`): as linhas do leitor COMO ESTÃO
+ * — as chaves já são os nomes das colunas —, as contagens, os avisos e quem importou.
+ */
+export function montarPayloadDaImportacao(lida: Lida, importadoPor: string | null) {
+    return {
+        importado_por: importadoPor,
+        itens: lida.itens,
+        regras: lida.regras,
+        tipologias: lida.tipologias,
+        formulas: lida.formulas,
+        contagens: lida.contagens,
+        avisos: lida.avisos,
+    }
+}
+
+export interface ContagensDaGravacao { itens: number; regras: number; tipologias: number; formulas: number }
+
+/**
+ * Confere o que a função GRAVOU contra o que a rota MANDOU, linha por linha das quatro listas.
+ * Devolve os dois lados quando algum difere, ou `null` quando batem. Diferença nunca é sucesso.
+ *
+ * LIMITE: a função faz COMMIT ao terminar; esta conferência acontece DEPOIS. Ela transforma a
+ * divergência em erro visível, mas não a desfaz.
+ */
+export function conferirGravacao(
+    enviado: ReturnType<typeof montarPayloadDaImportacao>,
+    gravado: ContagensDaGravacao,
+): { enviado: ContagensDaGravacao; gravado: ContagensDaGravacao } | null {
+    const mandou: ContagensDaGravacao = {
+        itens: enviado.itens.length, regras: enviado.regras.length, tipologias: enviado.tipologias.length, formulas: enviado.formulas.length,
+    }
+    const voltou: ContagensDaGravacao = { itens: gravado.itens, regras: gravado.regras, tipologias: gravado.tipologias, formulas: gravado.formulas }
+    const bate = (Object.keys(mandou) as Array<keyof ContagensDaGravacao>).every((k) => mandou[k] === voltou[k])
+    return bate ? null : { enviado: mandou, gravado: voltou }
+}
