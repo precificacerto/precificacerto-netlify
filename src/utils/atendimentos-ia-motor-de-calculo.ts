@@ -88,8 +88,9 @@
  *
  * Portão: `src/utils/__tests__/atendimentos-ia-motor-de-calculo.test.ts`.
  */
+import { avaliarCondicao, avaliarNumero, falhaDe, type Avaliacao, type Resolver } from '@/utils/atendimentos-ia-motor-formula'
 import {
-    COLUNA_DA_CATEGORIA_DO_FORNECEDOR, type FormulaLida, type ItemLido, type RegraLida,
+    COLUNA_DA_CATEGORIA_DO_FORNECEDOR, normalizarLinha, type FormulaLida, type ItemLido, type RegraLida,
 } from '@/utils/atendimentos-ia-importacao'
 
 // ── A entrada ──────────────────────────────────────────────────────────────────────────────
@@ -221,4 +222,186 @@ export interface ResultadoDoMotor {
     motivoSemLiquido: typeof MOTIVO_SEM_LIQUIDO
 }
 
-export function calcularTipologia(_e: EntradaDoMotor): ResultadoDoMotor { throw new Error('não implementado') }
+// ── O cálculo ──────────────────────────────────────────────────────────────────────────────
+type Classe = 'perfil' | 'reforco' | 'acessorio'
+
+/** A classe da categoria do MOTOR. Fora das três medidas → NULL, e a regra fica pendente. */
+function classeDaCategoria(categoria: string | null): Classe | null {
+    const c = (categoria ?? '').trim().toLowerCase()
+    if (c.startsWith('perfil')) return 'perfil'
+    if (c.startsWith('reforço') || c.startsWith('reforco')) return 'reforco'
+    if (c.startsWith('acessório') || c.startsWith('acessorio')) return 'acessorio'
+    return null
+}
+
+const mesmaCor = (a: string, b: string) => a.trim().toUpperCase() === b.trim().toUpperCase()
+const semRuido = (x: number) => Number(x.toFixed(9))
+
+/** As variáveis: L e H da entrada; o usuário; a família da linha. Faltando, a falta sobe com o nome. */
+function resolverDasVariaveis(e: EntradaDoMotor, linha: string | null): Resolver {
+    const daFamilia = new Map<string, string[]>()
+    for (const f of e.formulas) {
+        if (f.linha !== linha || !f.variavel || f.formula === null) continue
+        daFamilia.set(f.variavel, [...(daFamilia.get(f.variavel) ?? []), f.formula])
+    }
+    const cache = new Map<string, Avaliacao<number>>()
+    const emCurso = new Set<string>()
+    const resolver: Resolver = (nome) => {
+        if (nome === 'L') return { ok: true, valor: e.L }
+        if (nome === 'H') return { ok: true, valor: e.H }
+        if (Object.prototype.hasOwnProperty.call(e.variaveis, nome) && Number.isFinite(e.variaveis[nome])) return { ok: true, valor: e.variaveis[nome] }
+        const cacheado = cache.get(nome)
+        if (cacheado) return cacheado
+        const defs = [...new Set(daFamilia.get(nome) ?? [])]
+        if (defs.length === 0) return { ok: false, motivo: `a variável ${nome} não foi informada, e a família da linha não a define`, variavel: nome }
+        if (defs.length > 1) return { ok: false, motivo: `a variável ${nome} tem ${defs.length} fórmulas diferentes na família da linha: ${defs.join(' · ')}`, variavel: nome }
+        if (emCurso.has(nome)) return { ok: false, motivo: `a variável ${nome} depende dela mesma na família`, variavel: nome }
+        emCurso.add(nome)
+        const r = avaliarNumero(defs[0], resolver)
+        emCurso.delete(nome)
+        const final: Avaliacao<number> = r.ok ? r : { ...falhaDe(r), motivo: `a variável ${nome} da família (${defs[0]}): ${falhaDe(r).motivo}` }
+        cache.set(nome, final)
+        return final
+    }
+    return resolver
+}
+
+interface Aplicada { regra: RegraDoMotor; classe: Classe; tipo: 'Perfil' | 'Insumo'; corte: Corte }
+
+export function calcularTipologia(e: EntradaDoMotor): ResultadoDoMotor {
+    const linha = normalizarLinha(e.linha)
+    const resolver = resolverDasVariaveis(e, linha)
+    const pendentes: Pendente[] = []
+    const avisos: Aviso[] = []
+    let regrasComQuantidadeAmbigua = 0
+
+    const pendenteDaRegra = (r: RegraDoMotor, motivo: string, formula: string | null, variavel?: string) =>
+        pendentes.push({ nivel: 'regra', codigo: r.codigo, descricao: r.descricao, motivo, formula, ...(variavel ? { variavel } : {}) })
+
+    const daTipologia = e.regras.filter((r) => r.tipologias.includes(e.tipologia) && (r.linha === null || normalizarLinha(r.linha) === linha))
+    if (daTipologia.length === 0) avisos.push({ tipo: 'tipologia_sem_regras', mensagem: `nenhuma regra da tipologia ${e.tipologia} na linha ${e.linha}` })
+
+    const aplicadas: Aplicada[] = []
+    for (const r of daTipologia) {
+        const categoria = r[COLUNA_DA_CATEGORIA_DO_FORNECEDOR]
+        const classe = classeDaCategoria(categoria)
+        if (!classe) { pendenteDaRegra(r, `categoria do motor fora das medidas: "${categoria ?? ''}"`, null); continue }
+
+        // A cor filtra o perfil pela cor do perfil, o acessório pela do acessório; o reforço não.
+        if (r.cor !== null && classe === 'perfil' && !mesmaCor(r.cor, e.corPerfil)) continue
+        if (r.cor !== null && classe === 'acessorio' && !mesmaCor(r.cor, e.corAcessorio)) continue
+
+        if (r.condicao !== null) {
+            const c = avaliarCondicao(r.condicao, resolver)
+            if (!c.ok) { pendenteDaRegra(r, `condição: ${falhaDe(c).motivo}`, r.condicao, falhaDe(c).variavel); continue }
+            if (!c.valor) continue
+        }
+
+        const tipo = (r.tipo ?? '').trim().toLowerCase() === 'perfil' ? 'Perfil' : (r.tipo ?? '').trim().toLowerCase() === 'insumo' ? 'Insumo' : null
+        if (!tipo) { pendenteDaRegra(r, `tipo fora dos medidos ("Perfil", "Insumo"): "${r.tipo ?? ''}"`, null); continue }
+
+        if (r.formula_qtde === null) { pendenteDaRegra(r, 'a regra não tem fórmula de quantidade', null); continue }
+        const alternativas = r.formula_qtde.split('|').map((x) => x.trim()).filter((x) => x !== '')
+        if (alternativas.length === 0) { pendenteDaRegra(r, 'a fórmula de quantidade está vazia', r.formula_qtde); continue }
+        const q = avaliarNumero(alternativas[0], resolver)
+        if (!q.ok) { pendenteDaRegra(r, `quantidade: ${falhaDe(q).motivo}`, r.formula_qtde, falhaDe(q).variavel); continue }
+        if (q.valor < 0) { pendenteDaRegra(r, `quantidade negativa (${q.valor})`, r.formula_qtde); continue }
+
+        let medidaMm: number | null = null
+        if (tipo === 'Perfil') {
+            if (r.formula_em_lh === null) { pendenteDaRegra(r, 'perfil sem fórmula de medida em L/H (col. 11)', null); continue }
+            const m = avaliarNumero(r.formula_em_lh, resolver)
+            if (!m.ok) { pendenteDaRegra(r, `medida: ${falhaDe(m).motivo}`, r.formula_em_lh, falhaDe(m).variavel); continue }
+            if (m.valor <= 0) { pendenteDaRegra(r, `medida não positiva (${m.valor} mm)`, r.formula_em_lh); continue }
+            medidaMm = m.valor
+        }
+
+        if (alternativas.length > 1) regrasComQuantidadeAmbigua++
+        aplicadas.push({
+            regra: r, classe, tipo,
+            corte: {
+                medidaMm, pecas: q.valor * e.quantidade, eixo: r.eixo, corte: r.corte, formulaEmLh: r.formula_em_lh,
+                formulaQtde: r.formula_qtde, alternativasDaQuantidade: alternativas.length, quantidadeUsada: alternativas[0],
+            },
+        })
+    }
+
+    // Por código.
+    const porCodigo = new Map<string, Aplicada[]>()
+    for (const a of aplicadas) porCodigo.set(a.regra.codigo, [...(porCodigo.get(a.regra.codigo) ?? []), a])
+    const itemPorCodigo = new Map(e.itens.map((i) => [i.codigo, i]))
+
+    const linhas: LinhaDoCalculo[] = []
+    for (const [codigo, grupo] of porCodigo) {
+        const primeira = grupo[0]
+        const descricaoDaRegra = primeira.regra.descricao
+        const pendenteDoCodigo = (motivo: string) =>
+            pendentes.push({ nivel: 'codigo', codigo, descricao: descricaoDaRegra, motivo: `${motivo} (${grupo.length} regra(s))`, formula: null })
+
+        const categorias = [...new Set(grupo.map((a) => a.regra[COLUNA_DA_CATEGORIA_DO_FORNECEDOR] ?? ''))]
+        if (categorias.length > 1) avisos.push({ tipo: 'categoria_divergente', codigo, mensagem: `o código ${codigo} tem regras de categorias diferentes (${categorias.join(', ')}) — vale a da primeira` })
+        if (new Set(grupo.map((a) => a.tipo)).size > 1) { pendenteDoCodigo('o código tem regras de Perfil e de Insumo ao mesmo tempo'); continue }
+
+        const item = itemPorCodigo.get(codigo)
+        if (!item) { pendenteDoCodigo('o código não está na tabela de preço'); continue }
+
+        const cortes = grupo.map((a) => a.corte)
+        const pecas = cortes.reduce((s, c) => s + c.pecas, 0)
+        const base = { codigo, descricao: item.descricao ?? descricaoDaRegra, categoria: categorias[0], tipo: primeira.tipo, cortes, pecas, valorLiquido: null as null }
+
+        if (primeira.tipo === 'Insumo') {
+            if (item.vendido_por === 'barra') { pendenteDoCodigo(MOTIVO_INSUMO_VENDIDO_POR_BARRA); continue }
+            if (item.vendido_por !== 'unidade') { pendenteDoCodigo('o item do insumo não diz como é vendido'); continue }
+            // ARMADILHA: na seção por unidade o UNITÁRIO está em `valor_metro_interno` ("VALOR UNIT").
+            if (e.colunaDePreco === 'doze') { pendenteDoCodigo('item por unidade com a coluna de 12%: não se mediu onde está o unitário a 12%'); continue }
+            const unitario = item.valor_metro_interno
+            if (unitario === null) { pendenteDoCodigo('o item não tem o valor unitário ("VALOR UNIT")'); continue }
+            const peso = item.peso === null ? null : pecas * item.peso
+            if (peso === null) avisos.push({ tipo: 'peso_ausente', codigo, mensagem: `o item ${codigo} não tem peso` })
+            linhas.push({ ...base, mmTotais: null, barras: null, aproveitamento: null, pesoConsumidoKg: peso, pesoCompradoKg: peso, valorBruto: pecas * unitario })
+            continue
+        }
+
+        if (item.vendido_por !== 'barra') { pendenteDoCodigo(`perfil cujo item não é vendido por barra ("${item.vendido_por ?? 'não diz'}")`); continue }
+        if (item.medida_barra_m === null || item.medida_barra_m <= 0) { pendenteDoCodigo('o item não tem a medida da barra'); continue }
+        const mmTotais = cortes.reduce((s, c) => s + (c.medidaMm as number) * c.pecas, 0)
+        const barraMm = item.medida_barra_m * 1000
+        const barras = Math.ceil(semRuido(mmTotais / barraMm))
+        const aproveitamento = barras > 0 ? mmTotais / (barras * barraMm) : null
+
+        let valorBruto: number
+        if (e.modo === 'barra-inteira') {
+            const valorDaBarra = e.colunaDePreco === 'interna' ? item.valor_barra_interno : item.valor_barra_12
+            if (valorDaBarra === null) { pendenteDoCodigo(`o item não tem o valor da barra (${e.colunaDePreco})`); continue }
+            valorBruto = barras * valorDaBarra
+        } else {
+            const valorDoMetro = e.colunaDePreco === 'interna' ? item.valor_metro_interno : item.valor_metro_12
+            if (valorDoMetro === null) { pendenteDoCodigo(`o item não tem o valor do metro (${e.colunaDePreco})`); continue }
+            valorBruto = (mmTotais / 1000) * valorDoMetro
+        }
+
+        const pesoConsumidoKg = item.peso === null ? null : (mmTotais / 1000) * item.peso
+        const pesoCompradoKg = item.peso === null ? null : e.modo === 'consumo' ? pesoConsumidoKg : barras * item.medida_barra_m * item.peso
+        if (item.peso === null) avisos.push({ tipo: 'peso_ausente', codigo, mensagem: `o item ${codigo} não tem peso` })
+        linhas.push({ ...base, mmTotais, barras, aproveitamento, pesoConsumidoKg, pesoCompradoKg, valorBruto })
+    }
+
+    const somar = (ls: LinhaDoCalculo[]): TotalDoCalculo => ({
+        valorBruto: ls.reduce((s, l) => s + l.valorBruto, 0),
+        pesoConsumidoKg: ls.some((l) => l.pesoConsumidoKg === null) ? null : ls.reduce((s, l) => s + (l.pesoConsumidoKg as number), 0),
+        pesoCompradoKg: ls.some((l) => l.pesoCompradoKg === null) ? null : ls.reduce((s, l) => s + (l.pesoCompradoKg as number), 0),
+        linhas: ls.length,
+    })
+    const categorias = [...new Set(linhas.map((l) => l.categoria))]
+    return {
+        linhas,
+        totaisPorCategoria: categorias.map((categoria) => ({ categoria, ...somar(linhas.filter((l) => l.categoria === categoria)) })),
+        total: somar(linhas),
+        pendentes,
+        avisos,
+        regrasComQuantidadeAmbigua,
+        pesoAproximado: PESO_E_APROXIMADO,
+        valorLiquido: null,
+        motivoSemLiquido: MOTIVO_SEM_LIQUIDO,
+    }
+}

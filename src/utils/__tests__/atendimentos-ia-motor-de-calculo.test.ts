@@ -19,8 +19,14 @@
  *   (7) a quantidade ambígua: uma alternativa sem marca, duas ou três marcadas, e o total soma;
  *   (8) o insumo: o unitário está em `valor_metro_interno`; vendido por barra é pendente;
  *   (9) o líquido NÃO é calculado — nem com a entrada fiscal preenchida — e a saída diz por quê;
- *  (10) código sem preço, e os totais por categoria.
+ *  (10) código sem preço, e os totais por categoria;
+ *  (11) NADA DE `eval` nem `Function` nos dois módulos. Este afirma o CAMINHO, não o efeito — e é
+ *       o caso limite que `teste-que-nao-exercita.md` admite: o defeito seria a presença, e não há
+ *       número que mude com ela.
  */
+import * as fs from 'fs'
+import * as path from 'path'
+
 import { avaliarCondicao, avaliarNumero, type Resolver } from '@/utils/atendimentos-ia-motor-formula'
 import {
     calcularTipologia, MOTIVO_INSUMO_VENDIDO_POR_BARRA, MOTIVO_SEM_LIQUIDO, PESO_E_APROXIMADO,
@@ -56,7 +62,8 @@ describe('(1) a fórmula em pt-BR resolve certo', () => {
         ['(NF*2)', { NF: 4 }, 8],
         ['-2 + 3·(1,5 − 0,5)', {}, 1],
         ['ARREDMAIOR(NF/3)', { NF: 4 }, 2],
-        ['ARREDMAIOR(X·30)', { X: 0.1 }, 3],
+        // 0,1 · 3 · 10 dá 3,0000000000000004 em ponto flutuante: sem tirar o ruído, ARREDMAIOR daria 4.
+        ['ARREDMAIOR(X·3·10)', { X: 0.1 }, 3],
         ['ROUND(L/7; 2)', { L: 1500 }, 214.29],
         ['IIF(L > 1000; 3; 2)', { L: 1500 }, 3],
         ['IIF(L < 1000, 3, 2)', { L: 1500 }, 2],
@@ -273,5 +280,12 @@ describe('(10) código sem preço, e os totais', () => {
     it('regra de outra linha não entra, mesmo com a tipologia certa', () => {
         const r = calcularTipologia(entrada([regra('9681'), regra('9699', { linha: 'GOLD 60' })], [perfil('9681'), perfil('9699')]))
         expect(r.linhas.map((l) => l.codigo)).toEqual(['9681'])
+    })
+})
+
+describe('(11) nada de eval nem Function', () => {
+    it.each(['atendimentos-ia-motor-formula.ts', 'atendimentos-ia-motor-de-calculo.ts'])('%s', (arquivo) => {
+        const texto = fs.readFileSync(path.resolve(__dirname, '..', arquivo), 'utf8')
+        expect(texto).not.toMatch(/\beval\s*\(|\bFunction\s*\(/)
     })
 })
