@@ -149,6 +149,7 @@ export type Aviso =
     | { tipo: 'aliquota_divergente_no_cabecalho'; aba: string; linha: number; mensagem: string }
     | { tipo: 'codigo_do_motor_sem_preco'; codigos: string[]; mensagem: string }
     | { tipo: 'tipologia_em_mais_de_uma_linha'; tipologia: string; linhas: string[]; mensagem: string }
+    | { tipo: 'tipologia_condicional_sem_variavel'; tipologia: string; n_condicionais: number; exemplo: string; mensagem: string }
 
 export interface Contagens {
     itens: number
@@ -420,12 +421,23 @@ function resumirTipologias(regras: RegraLida[]): { tipologias: TipologiaLida[]; 
     const tipologias = [...por.entries()].map(([tipologia, x]): TipologiaLida => {
         const linhas = [...x.linhas]
         if (linhas.length > 1) avisos.push({ tipo: 'tipologia_em_mais_de_uma_linha', tipologia, linhas, mensagem: `a tipologia ${tipologia} aparece em ${linhas.join(', ')} — linha fica NULL` })
+        const variaveis = variaveisDasCondicoes(x.condicoes)
+        // CONDIÇÃO QUE NÃO RENDE IDENTIFICADOR: a lista fica vazia, como a da tipologia sem condição,
+        // mas aqui o vazio NÃO é medição — é condição que o leitor não soube ler. Por isso o aviso.
+        // Na Wolff isso não acontece: 2.868 regras com condição, ZERO sem identificador (sessão de
+        // verificação, 20/10/2026). O aviso existe para o arquivo do PRÓXIMO fornecedor, não para este.
+        if (x.condicoes.length > 0 && variaveis.length === 0) {
+            avisos.push({
+                tipo: 'tipologia_condicional_sem_variavel', tipologia, n_condicionais: x.condicoes.length, exemplo: x.condicoes[0],
+                mensagem: `a tipologia ${tipologia} tem ${x.condicoes.length} regra(s) com condição e nenhum identificador foi extraído (ex.: "${x.condicoes[0]}") — variáveis ficam vazias`,
+            })
+        }
         return {
             tipologia,
             linha: linhas.length === 1 ? linhas[0] : null,
             n_regras: x.n,
             n_condicionais: x.condicoes.length,
-            variaveis: variaveisDasCondicoes(x.condicoes),
+            variaveis,
         }
     })
     return { tipologias, avisos }
