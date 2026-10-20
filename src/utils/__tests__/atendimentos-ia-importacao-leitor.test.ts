@@ -68,15 +68,20 @@ const CAB_FAMILIA: Celulas = { 1: 'LINHA', 2: 'VARIÁVEL' }
 async function motorPadrao(regras: Celulas[] = [regra('A1', 'JC2F, JC4F')], familia: Celulas[] = []) {
     return bytes({ [MOTOR]: [CAB_MOTOR, ...regras], [FAMILIA]: [CAB_FAMILIA, ...familia] })
 }
+// Com `strictNullChecks` desligado, `r.ok` não estreita a união — as guardas são explícitas.
+type Recusa = Extract<ResultadoDaLeitura, { ok: false }>
+const erroDe = (r: ResultadoDaLeitura) => (r.ok ? '' : (r as Recusa).erro)
+
 async function ler(preco: Array<Celulas | null>, motor?: Uint8Array): Promise<Extract<ResultadoDaLeitura, { ok: true }>> {
     const r = await lerArquivosDaImportacao({
         tabela: { nome: 'Tabela Wolff.xlsm', bytes: await bytes({ [PRECO]: preco }) },
         motor: { nome: 'Motor.xlsx', bytes: motor ?? await motorPadrao() },
     })
-    if (!r.ok) throw new Error(`recusada: ${r.erro}`)
-    return r
+    if (!r.ok) throw new Error(`recusada: ${erroDe(r)}`)
+    return r as Extract<ResultadoDaLeitura, { ok: true }>
 }
-const avisosDo = (r: { avisos: Aviso[] }, tipo: Aviso['tipo']) => r.avisos.filter((a) => a.tipo === tipo)
+const avisosDo = <T extends Aviso['tipo']>(r: { avisos: Aviso[] }, tipo: T) =>
+    r.avisos.filter((a): a is Extract<Aviso, { tipo: T }> => a.tipo === tipo)
 
 describe('(1) CÉLULA COM FÓRMULA VIRA NÚMERO', () => {
     it('no conversor: `{formula, result}` devolve o result, e o result é número', () => {
@@ -316,7 +321,7 @@ describe('(9) .csv, .pdf e .xls não são importáveis — e a recusa diz o arqu
             motor: { nome: nome.startsWith('motor') ? nome : 'Motor.xlsx', bytes: await motorPadrao() },
         })
         expect(r.ok).toBe(false)
-        const erro = r.ok ? '' : r.erro
+        const erro = erroDe(r)
         expect(erro).toBe(fraseDoArquivoNaoImportavel(nome))
         expect(erro).toContain(nome)
         expect(erro).toContain(ext)
@@ -339,7 +344,7 @@ describe('(10) aba que falta', () => {
             motor: { nome: 'Motor.xlsx', bytes: await motorPadrao() },
         })
         expect(r.ok).toBe(false)
-        const erro = r.ok ? '' : r.erro
+        const erro = erroDe(r)
         expect(erro).toContain(PRECO)
         expect(erro).toContain('Planilha1')
         expect(erro).toContain('Tabela.xlsm')
