@@ -259,6 +259,53 @@ export async function obterTabela(id: string): Promise<{ id: string; fornecedor_
     return (ts[0] as { id: string; fornecedor_id: string; arquivo_path: string; motor_path: string } | undefined) ?? null
 }
 
+/** Os dois arquivos da tabela — caminho no bucket e nome original —, para a importação. */
+export async function obterArquivosDaTabela(id: string): Promise<{ id: string; arquivo_path: string; arquivo_nome: string; motor_path: string; motor_nome: string } | null> {
+    const ts = await q(db().from('orcamentista_tabela').select('id, arquivo_path, arquivo_nome, motor_path, motor_nome').eq('id', id))
+    return (ts[0] as { id: string; arquivo_path: string; arquivo_nome: string; motor_path: string; motor_nome: string } | undefined) ?? null
+}
+
+/**
+ * A gravação da importação: UMA chamada à função `importar_conteudo_da_tabela`
+ * (`20261020000002`), que apaga e insere as quatro tabelas de conteúdo e grava o registro numa
+ * transação só. Devolve as contagens que a função gravou.
+ */
+export async function importarConteudo(tabelaId: string, payload: unknown): Promise<{ importacao_id: string; itens: number; regras: number; tipologias: number; formulas: number }> {
+    return q(db().rpc('importar_conteudo_da_tabela', { p_tabela_id: tabelaId, p_payload: payload }))
+}
+
+/** A tabela, para a tela da importação: os nomes dos arquivos e o fornecedor. Sem os caminhos do bucket. */
+export async function obterDadosDaTabela(id: string): Promise<{ id: string; fornecedor_id: string; fornecedor_nome: string | null; arquivo_nome: string; motor_nome: string; vigencia: string | null } | null> {
+    const ts = await q(db().from('orcamentista_tabela').select('id, fornecedor_id, arquivo_nome, motor_nome, vigencia').eq('id', id))
+    if (ts.length === 0) return null
+    const fs = await q(db().from('orcamentista_fornecedor').select('id, nome').eq('id', ts[0].fornecedor_id))
+    return { id: ts[0].id, fornecedor_id: ts[0].fornecedor_id, fornecedor_nome: fs[0]?.nome ?? null, arquivo_nome: ts[0].arquivo_nome, motor_nome: ts[0].motor_nome, vigencia: ts[0].vigencia ?? null }
+}
+
+/** O resumo por tipologia gravado para a tabela, SEM ordem — quem ordena é a rota. */
+export async function listarTipologias(tabelaId: string): Promise<Array<{ tipologia: string; linha: string | null; n_regras: number; n_condicionais: number; variaveis: string[] }>> {
+    return q(db().from('orcamentista_motor_tipologia').select('tipologia, linha, n_regras, n_condicionais, variaveis').eq('tabela_id', tabelaId))
+}
+
+/** Quantas fórmulas da família estão gravadas para a tabela — contadas no banco. */
+export async function contarFormulas(tabelaId: string): Promise<number> {
+    const { count, error } = await db().from('orcamentista_motor_formula_familia').select('id', { count: 'exact', head: true }).eq('tabela_id', tabelaId)
+    if (error) throw new ErroDoBanco(error)
+    return count ?? 0
+}
+
+/** O nome de quem importou — o super admin, nunca dado de cliente. NULL quando o usuário não existe mais. */
+export async function nomeDoUsuario(id: string): Promise<string | null> {
+    const us = await q(db().from('users').select('id, name').eq('id', id))
+    return us[0]?.name ?? null
+}
+
+/** A última importação da tabela, ou null quando nunca houve. */
+export async function ultimaImportacao(tabelaId: string): Promise<Linha | null> {
+    const ls = await q(db().from('orcamentista_importacao').select('*').eq('tabela_id', tabelaId).order('importado_em', { ascending: false }).limit(1))
+    return ls[0] ?? null
+}
+
 export async function criarTabela(t: CorpoDaTabela & { criado_por: string }): Promise<{ id: string }> {
     return q(db().from('orcamentista_tabela').insert(t).select('id').single())
 }
@@ -285,6 +332,13 @@ export async function assinarEnvio(caminho: string): Promise<{ signedUrl: string
     const { data, error } = await bucket().createSignedUploadUrl(caminho)
     if (error || !data) throw new ErroDoBanco({ message: error?.message ?? 'sem url de envio' })
     return { signedUrl: data.signedUrl, path: data.path }
+}
+
+/** Baixa UM objeto do bucket, com `service_role`. Falha do Storage LANÇA — quem confere se existe é `objetoExiste`. */
+export async function baixarObjeto(caminho: string): Promise<Uint8Array> {
+    const { data, error } = await bucket().download(caminho)
+    if (error || !data) throw new ErroDoBanco({ message: error?.message ?? 'objeto sem conteúdo' })
+    return new Uint8Array(await data.arrayBuffer())
 }
 
 export async function objetoExiste(caminho: string): Promise<boolean> {

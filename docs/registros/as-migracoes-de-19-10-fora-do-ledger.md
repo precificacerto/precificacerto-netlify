@@ -1,6 +1,12 @@
-# As três migrações de 19/10 estão no banco e fora do ledger
+# As cinco migrações de 19 e 20/10 estão no banco e fora do ledger
 
-Data: 19/10/2026 · Atendimentos I.A., blocos 2B.1 e 2B.2
+Data: 19/10/2026 · Atendimentos I.A., blocos 2B.1 e 2B.2 · **atualizado em 20/10/2026**: entraram a
+quarta, `20261020000001_atendimentos_ia_importacao`, e a quinta,
+`20261020000002_importar_conteudo_da_tabela`
+
+> **O nome do arquivo ficou como estava** (`as-migracoes-de-19-10-…`), embora a quarta e a quinta
+> sejam de 20/10: o cabeçalho da `20261020000001` aponta para este caminho, e renomear quebraria a
+> referência. O título acima é que diz o conteúdo de hoje.
 
 > **REGISTRO, NADA APLICADO.** Este arquivo descreve um estado e o procedimento para acertá-lo.
 > Nenhuma linha do ledger foi escrita, nenhuma migração foi criada, e o banco não foi consultado
@@ -14,10 +20,25 @@ Data: 19/10/2026 · Atendimentos I.A., blocos 2B.1 e 2B.2
 | `20261019000001_atendimentos_ia_bloco_2b1` | as quatro tabelas do catálogo, `modelo`/`nicho_id` em `orcamentista_config`, o bucket `atendimentos-ia` e as políticas | aplicada | **ausente** |
 | `20261019000002_comprovantes_presos_ao_tenant` | as três políticas do bucket `comprovantes` presas ao tenant | aplicada | **ausente** |
 | `20261019000003_nichos_iniciais` | os 12 nichos da semente | aplicada | **ausente** |
+| `20261020000001_atendimentos_ia_importacao` | as cinco tabelas da importação (item do preço, regra do motor, resumo por tipologia, fórmulas da família, registro de importação) | aplicada em 20/10/2026 | **ausente** |
+| `20261020000002_importar_conteudo_da_tabela` | a função `importar_conteudo_da_tabela`, que grava a importação numa transação | aplicada em 20/10/2026 | **ausente** |
 
-As três foram aplicadas pelo **SQL Editor**, que não grava no ledger. Medido em 19/10/2026, por
+As cinco foram aplicadas pelo **SQL Editor**, que não grava no ledger. Medido em 19/10/2026, por
 consulta de leitura: o ledger termina em **`20261017185237`**. A aplicação e os objetos estão
 registrados nos cabeçalhos das próprias migrações, com o md5 de cada uma como aplicada.
+
+**A quarta, `20261020000001`:** aplicada em 20/10/2026 a partir do arquivo cru do GitHub (md5
+`f20ff92becc2a6017b3136b6e814be4e`). Os objetos foram medidos pela sessão de verificação logo
+depois — 5 tabelas com RLS, 20 políticas, nenhum grant a `anon`/`authenticated`, 5 FK em CASCADE,
+11 índices, 0 linhas — e a ausência no ledger foi relatada junto. **Não foi medida por quem
+escreveu esta atualização.**
+
+**A quinta, `20261020000002`:** aplicada em 20/10/2026 a partir do arquivo cru do GitHub (md5
+`2c0d8d9b16d3e5318064348de6cd5961`). Medida pela sessão de verificação logo depois: a função
+existe, `prosecdef = true`, `search_path = public`, assinatura `(p_tabela_id uuid, p_payload
+jsonb)`, e o EXECUTE negado para `anon`, `authenticated` e `PUBLIC` e concedido só a
+`service_role`. A ausência no ledger foi relatada junto. **Também não foi medida por quem escreveu
+esta atualização.**
 
 **O ledger NÃO foi reconsultado para escrever este registro.** Por `estado-relatado-vs-real.md`,
 o estado acima é fonte secundária até alguém o medir de novo — e é por isso que o passo 0 do
@@ -32,7 +53,7 @@ procedimento é medir.
   o ledger é o histórico de quem os criou, não a condição para existirem.
 - **Não é a primeira vez, e a pasta nunca foi a fonte.** `migration-delivery.md` mediu em
   15/09/2026: 142 arquivos locais sem versão remota, 133 versões remotas sem arquivo, 4 em comum.
-  As três de 19/10 são três a mais no mesmo quadro, não uma exceção a ele.
+  As cinco de 19 e 20/10 são cinco a mais no mesmo quadro, não uma exceção a ele.
 
 ## O que quebraria num `supabase db push`
 
@@ -41,19 +62,34 @@ Pela documentação oficial do CLI (`supabase db push`, e o guia "Database Migra
 ledger e **roda, em ordem, as que não estão lá**. Para registrar sem rodar, o caminho previsto é
 `supabase migration repair`.
 
-**1. O problema é maior que as três — e acertar as três não torna o `db push` seguro.** Com 142
+**1. O problema é maior que as cinco — e acertar as cinco não torna o `db push` seguro.** Com 142
 arquivos sem versão remota, o `db push` os trataria como pendentes, e com 133 versões remotas sem
 arquivo o histórico está fora de sincronia — o caso em que a própria documentação diz que o push
 falha pedindo `migration repair`. É o item de INFRAESTRUTURA de `migration-delivery.md`, e ele
 continua aberto depois deste acerto.
 
-**2. Se o push chegasse às três**, na ordem da versão:
+**2. Se o push chegasse às cinco**, na ordem da versão:
 
 | migração | o que aconteceria | por quê |
 |---|---|---|
 | `…000001` | **falha no primeiro statement** e desfaz o arquivo inteiro; o push para | `CREATE TABLE public.orcamentista_nicho` sem `IF NOT EXISTS`, e a tabela existe. O `BEGIN`/`COMMIT` do arquivo desfaz o que veio antes no mesmo arquivo |
 | `…000002` | **não chegaria a rodar**, porque a `…000001` para o push antes. Rodada sozinha, **passaria** | ver a correção abaixo |
 | `…000003` | rodaria sem efeito: 0 linhas | `ON CONFLICT (modelo, lower(nome)) DO NOTHING` |
+| `20261020000001` | **não chegaria a rodar**, pelo mesmo motivo da `…000002`. Rodada sozinha, **falharia no primeiro statement** | `CREATE TABLE public.orcamentista_tabela_item` sem `IF NOT EXISTS`, e a tabela existe; o `BEGIN`/`COMMIT` desfaz o arquivo inteiro |
+| `20261020000002` | **não chegaria a rodar**, pelo mesmo motivo. Rodada sozinha, **passaria** | `CREATE OR REPLACE FUNCTION`, e o `REVOKE`/`GRANT` repetido não muda nada |
+
+**A CONTAGEM, rodando cada uma duas vezes: TRÊS SOBREVIVEM, DUAS NÃO.**
+
+| sobrevivem | por quê |
+|---|---|
+| `20261019000002` | recria as políticas que apaga |
+| `20261019000003` | `ON CONFLICT DO NOTHING` |
+| `20261020000002` | `CREATE OR REPLACE` |
+
+| não sobrevivem | por quê |
+|---|---|
+| `20261019000001` | `CREATE TABLE` sem `IF NOT EXISTS` |
+| `20261020000001` | `CREATE TABLE` sem `IF NOT EXISTS` |
 
 **3. O `supabase/config.toml` não aponta para a produção.** `project_id = "web-app"` é o
 placeholder do `supabase init` (`migration-delivery.md`). Qualquer comando do CLI exige antes
@@ -84,7 +120,7 @@ falha que não acontece.
 
 ```sql
 select version, name from supabase_migrations.schema_migrations order by version desc limit 5;
--- esperado: o mais recente é 20261017185237, e nenhuma linha com 20261019 no version ou no name
+-- esperado: o mais recente é 20261017185237, e nenhuma linha com 20261019 ou 20261020 no version ou no name
 
 select column_name, data_type, is_nullable, column_default
 from information_schema.columns
@@ -95,23 +131,25 @@ order by ordinal_position;
 
 E os objetos, para não registrar como aplicado o que não está: as quatro tabelas `orcamentista_*`
 novas, `orcamentista_config.modelo` e `.nicho_id`, as políticas `atendimentos_ia_*` e
-`comprovantes_*_policy` em `storage.objects`, e os 12 nichos.
+`comprovantes_*_policy` em `storage.objects`, os 12 nichos, as cinco tabelas da importação
+(`orcamentista_tabela_item`, `_motor_regra`, `_motor_tipologia`, `_motor_formula_familia`,
+`orcamentista_importacao`), e a função `importar_conteudo_da_tabela(uuid, jsonb)`.
 
 **1. Decidir QUAL versão gravar — decisão do dono do produto.**
 
 | opção | `version` | `name` | efeito |
 |---|---|---|---|
-| (a) | o prefixo do arquivo — `20261019000001`, `…02`, `…03` | o nome do arquivo sem `.sql` | o CLI passa a reconhecer as três como aplicadas: entram nas "em comum", como as quatro de fevereiro |
+| (a) | o prefixo do arquivo — `20261019000001`, `…02`, `…03`, `20261020000001` e `…02` | o nome do arquivo sem `.sql` | o CLI passa a reconhecer as cinco como aplicadas: entram nas "em comum", como as quatro de fevereiro |
 | (b) | o instante da aplicação | o nome do arquivo sem `.sql` | segue o formato das aplicadas pelo conector (versão gerada, nome do arquivo). Mas o SQL Editor não gerou versão, e o instante teria de vir dos logs — um número reconstruído, não gravado |
 
 A convenção de `migration-delivery.md` (o `name` é o nome completo do arquivo) vale nas duas. A
-(a) é a única em que o `db push` deixaria de ver as três como pendentes. **Recomendação: (a).** A
+(a) é a única em que o `db push` deixaria de ver as cinco como pendentes. **Recomendação: (a).** A
 escolha é do dono do produto.
 
 **2. Gravar, sem rodar o SQL das migrações.** Dois caminhos:
 
 - **pelo CLI:** `supabase link --project-ref jvthwpkwzpangnwhuyvj` e depois
-  `supabase migration repair --status applied 20261019000001 20261019000002 20261019000003`.
+  `supabase migration repair --status applied 20261019000001 20261019000002 20261019000003 20261020000001 20261020000002`.
   É o caminho que a documentação prevê para "inserir sem rodar". Só serve para a opção (a).
   Antes de rodar, confirmar que o `link` apontou para a produção.
 - **por SQL:** um `INSERT` nas colunas que o passo 0 mediu, com `ON CONFLICT DO NOTHING` se a
@@ -119,12 +157,12 @@ escolha é do dono do produto.
   da tela de aprovação (`transformacao-quebra-a-cadeia-de-hash.md`).
 
 **3. Verificar depois** — por consulta, não pelo retorno do comando (`migration-delivery.md`):
-o ledger tem exatamente três linhas a mais, com as versões e os nomes decididos no passo 1, e
+o ledger tem exatamente cinco linhas a mais, com as versões e os nomes decididos no passo 1, e
 nenhuma outra linha mudou.
 
 **4. O que o acerto NÃO resolve.** Os 142 arquivos sem versão remota e as 133 versões sem arquivo
 continuam fora de sincronia. Depois do acerto o `db push` **continua inseguro**. Este procedimento
-fecha as três de 19/10, e só elas.
+fecha as cinco de 19 e 20/10, e só elas.
 
 ## Relação com as outras regras
 

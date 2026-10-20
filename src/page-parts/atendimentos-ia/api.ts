@@ -11,7 +11,9 @@ import { ROTAS_DO_CATALOGO, fraseDaTabela, fraseDoArquivo, type TipoDeArquivo } 
 
 export class ErroDaRota extends Error {
     status: number
-    constructor(status: number, mensagem: string) { super(mensagem); this.status = status }
+    /** O corpo inteiro da resposta de erro — ex.: os dois números de uma contagem divergente. */
+    corpo: unknown
+    constructor(status: number, mensagem: string, corpo: unknown = null) { super(mensagem); this.status = status; this.corpo = corpo }
 }
 
 /** Chama a rota e devolve o JSON; resposta não-OK vira `ErroDaRota` com a frase da rota. */
@@ -23,7 +25,7 @@ export async function chamarRota<T>(url: string, metodo = 'GET', corpo?: unknown
     })
     let json: unknown = null
     try { json = await res.json() } catch { json = null }
-    if (!res.ok) throw new ErroDaRota(res.status, (json as { error?: string } | null)?.error ?? `Erro ${res.status}`)
+    if (!res.ok) throw new ErroDaRota(res.status, (json as { error?: string } | null)?.error ?? `Erro ${res.status}`, json)
     return json as T
 }
 

@@ -54,6 +54,36 @@ export const BUCKET_DO_CATALOGO = 'atendimentos-ia'
  */
 export const EXTENSOES_ACEITAS = ['.xlsx', '.xlsm', '.xls', '.csv', '.pdf'] as const
 
+/**
+ * O que a IMPORTAÇÃO lê — o conteúdo da tabela e do motor (20/10/2026). Só planilha no formato
+ * do Excel moderno, que o `exceljs` abre. `.csv` e `.pdf` continuam ACEITOS NO ENVIO (a lista
+ * acima), mas NÃO são importáveis — decisão do dono do produto; `.xls`, o formato binário antigo,
+ * também não, porque o `exceljs` não o lê. A tela diz isso com o nome e a extensão
+ * (`fraseDoArquivoNaoImportavel`) — nunca falha calada.
+ */
+export const EXTENSOES_IMPORTAVEIS = ['.xlsx', '.xlsm'] as const
+
+/** A extensão do nome, em minúsculas e com o ponto — `''` quando não há. */
+export function extensaoDoArquivo(nome: string): string {
+    const m = /\.[^./\\]+$/.exec(nome.trim())
+    return m ? m[0].toLowerCase() : ''
+}
+
+export const arquivoImportavel = (nome: string) => (EXTENSOES_IMPORTAVEIS as readonly string[]).includes(extensaoDoArquivo(nome))
+
+/** O PORQUÊ de cada extensão aceita no envio e não importável — a tela diz a extensão e o motivo dela. */
+export const MOTIVO_DA_EXTENSAO_NAO_IMPORTAVEL: Record<string, string> = {
+    '.xls': 'é o formato antigo do Excel, que o leitor não abre — salve a planilha como .xlsx ou .xlsm',
+    '.csv': 'não é uma planilha do Excel, e a importação só lê planilha',
+    '.pdf': 'não é uma planilha do Excel, e a importação só lê planilha',
+}
+
+export function fraseDoArquivoNaoImportavel(nome: string): string {
+    const ext = extensaoDoArquivo(nome)
+    const porque = MOTIVO_DA_EXTENSAO_NAO_IMPORTAVEL[ext] ?? 'não é uma planilha que a importação leia'
+    return fraseDoArquivo(nome, `a extensão ${ext || '(sem extensão)'} é aceita no envio, mas não é importável: ${porque}. A importação lê ${EXTENSOES_IMPORTAVEIS.join(' e ')}.`)
+}
+
 /** O motivo da recusa de formato — o mesmo na tela e na rota. */
 export const MOTIVO_DO_FORMATO_RECUSADO = `Formato não aceito. Use ${EXTENSOES_ACEITAS.join(', ')}.`
 
@@ -74,6 +104,10 @@ export const ROTAS_DO_CATALOGO = {
     tabelas: '/api/super-admin/atendimentos-ia/tabelas',
     tabela: (id: string) => `/api/super-admin/atendimentos-ia/tabelas/${id}`,
     urlDeEnvio: '/api/super-admin/atendimentos-ia/tabelas/url-de-envio',
+    /** A importação da tabela: POST importa os dois arquivos; GET a última importação, ou null. */
+    importacao: (tabelaId: string) => `/api/super-admin/atendimentos-ia/tabelas/${tabelaId}/importar`,
+    /** O que está no banco da tabela importada: as tipologias, já ordenadas pela rota, e o total de fórmulas. */
+    conteudoDaTabela: (tabelaId: string) => `/api/super-admin/atendimentos-ia/tabelas/${tabelaId}/conteudo`,
     /** Bloco 2C.1 — as contas com o Atendimentos I.A. ligado (só nome, modelo e nicho). */
     contas: '/api/super-admin/atendimentos-ia/contas',
     /** "Tabelas em uso" da conta: GET lista e opções do nicho; POST adiciona `{ tabela_id }`. */

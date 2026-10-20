@@ -24,6 +24,18 @@
  *   - `segment-visibility.ts`: nome de arquivo do sistema do cliente, citado pelo EPIC.
  *   - `tenants.segment`: a coluna real do sistema do cliente — o EPIC a nomeia para dizer por que
  *     o harness fica fora deste portão (exceção autorizada pelo dono do produto, 20/10/2026).
+ *   - `orcamentista_tabela_item.segmento` e `orcamentista_motor_regra.segmento`: COLUNA DO ARQUIVO
+ *     DO FORNECEDOR, gravada como veio (migração `20261020000001`). Renomear faria o código mentir
+ *     sobre o arquivo (decisão do dono do produto, 20/10/2026). A exceção é o nome QUALIFICADO
+ *     pela tabela, como em `tenants.segment`: a palavra solta continua acusada — "o segmento do
+ *     tenant" segue vermelho. NO CÓDIGO (rota, tipos), a propriedade que lê essa coluna usa um
+ *     nome SEM a raiz `segment`, com comentário dizendo que corresponde à coluna `segmento` do
+ *     arquivo do fornecedor — e esta lista NÃO é alargada para ela (dono do produto, 20/10/2026).
+ *   - `COLUNA_DA_CATEGORIA_DO_FORNECEDOR = 'segmento'`: a ÚNICA declaração, no código, do nome da
+ *     coluna do arquivo do fornecedor — a chave que a gravação precisa (dono do produto,
+ *     20/10/2026). Todo o resto usa a constante. A exceção é a DECLARAÇÃO inteira: outra
+ *     constante com o mesmo valor, ou a chave solta num objeto, segue vermelha — e um caso abaixo
+ *     exige que ela apareça UMA vez só na área.
  *
  * O QUE FICA FORA, e por quê — para ninguém "consertar" depois (resposta 3):
  *   - `scripts/harness/`: o harness do bloco 1 cria e confere a coluna REAL `tenants.segment`, do
@@ -56,6 +68,9 @@ export const EXCECOES = [
     'segmentação, fornecedores, piso e teto',
     'segment-visibility.ts',
     'tenants.segment',
+    'orcamentista_tabela_item.segmento',
+    'orcamentista_motor_regra.segmento',
+    "COLUNA_DA_CATEGORIA_DO_FORNECEDOR = 'segmento'",
 ]
 
 /** Junta as linhas de comentário: `\n` seguido de `*`, `//`, `--` ou `#` vira um espaço. */
@@ -106,6 +121,12 @@ describe('o vocabulário do Atendimentos I.A. — a palavra é MODELO', () => {
         expect(DA_AREA).not.toContain(ESTE_ARQUIVO)
     })
 
+    it('a constante da coluna do arquivo do fornecedor é declarada UMA vez só na área', () => {
+        const declaracao = EXCECOES[EXCECOES.length - 1]
+        const vezes = DA_AREA.flatMap((f) => fs.readFileSync(path.join(RAIZ, f), 'utf8').split(declaracao).length - 1)
+        expect(vezes.reduce((a, b) => a + b, 0)).toBe(1)
+    })
+
     it('nenhum arquivo da área usa a família de "segmentação", fora das exceções nominais', () => {
         const culpados = DA_AREA
             .map((f) => ({ f, achados: ocorrenciasProibidas(fs.readFileSync(path.join(RAIZ, f), 'utf8')) }))
@@ -122,6 +143,8 @@ describe('o vocabulário do Atendimentos I.A. — a palavra é MODELO', () => {
             ['export async function obterSegmentacaoDaConta() {}'],
             ['type CorpoDaSegmentacao = {}'],
             ['segmentação fiscal, e também a segmentação da conta'],
+            ["const COLUNA = 'segmento'"],
+            ['{ segmento: item.categoria }'],
         ])('acusa: %s', (fixture) => {
             expect(ocorrenciasProibidas(fixture).length).toBeGreaterThan(0)
         })
@@ -133,6 +156,9 @@ describe('o vocabulário do Atendimentos I.A. — a palavra é MODELO', () => {
             ['"escolho a segmentação, e aí eu tenho todos os fornecedores\n * daquela segmentação; escolho a tabela daquele fornecedor"'],
             ['`calc_type` com fallbacks — `segment-visibility.ts`'],
             ['o harness usa a coluna real `tenants.segment`'],
+            ['`orcamentista_tabela_item.segmento` é coluna do arquivo do fornecedor'],
+            ['e `orcamentista_motor_regra.segmento` também'],
+            ["export const COLUNA_DA_CATEGORIA_DO_FORNECEDOR = 'segmento' as const"],
             ['o modelo e o nicho da conta'],
         ])('NÃO acusa a exceção nominal: %s', (fixture) => {
             expect(ocorrenciasProibidas(fixture)).toEqual([])
