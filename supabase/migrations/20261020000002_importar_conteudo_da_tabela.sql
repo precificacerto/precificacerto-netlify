@@ -2,9 +2,16 @@
 -- Atendimentos I.A. — a GRAVAÇÃO ATÔMICA da importação: public.importar_conteudo_da_tabela
 --
 -- ╔══════════════════════════════════════════════════════════════════════════════════════
--- ║ NÃO APLICADA. Escrita em 20/10/2026. Nenhum ambiente tem esta função até alguém aplicar
--- ║ e conferir pelo catálogo (`migration-delivery.md`: o default é PENDENTE). É FUNÇÃO que o
--- ║ código novo vai CHAMAR: aplicar ANTES do merge da rota que a usa.
+-- ║ APLICADA EM PRODUÇÃO em 20/10/2026, pelo SQL Editor do Supabase, projeto
+-- ║ jvthwpkwzpangnwhuyvj, a partir do arquivo cru do GitHub (md5 2c0d8d9b16d3e5318064348de6cd5961).
+-- ║
+-- ║ Medição da sessão de verificação, logo depois: a função existe, prosecdef = true,
+-- ║ search_path = public, assinatura (p_tabela_id uuid, p_payload jsonb), e o EXECUTE está
+-- ║ negado para anon, authenticated e PUBLIC, e concedido só a service_role.
+-- ║
+-- ║ NÃO REGISTRADA no ledger — é a QUINTA nessa situação. Ela é uma das TRÊS da série que
+-- ║ sobrevivem a rodar duas vezes — esta por ser CREATE OR REPLACE, a 20261019000002 porque
+-- ║ recria as políticas que apaga, e a 20261019000003 pelo ON CONFLICT DO NOTHING.
 -- ║
 -- ║ Ao aplicar fora do CLI, o `name` da migração é o nome completo deste arquivo, sem a
 -- ║ extensão: 20261020000002_importar_conteudo_da_tabela.
