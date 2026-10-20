@@ -17,7 +17,11 @@
  *       rótulos das colunas 13 e 15, `vendido_por` sai da seção;
  *   (4) código repetido: fica a primeira, a segunda conta em `normalizados`, e o aviso diz as duas
  *       seções e se os valores batiam — EM VOZ ALTA quando não batem;
- *   (5) código com vírgula decimal: "1027,1" vira "10271", contado e avisado com antes e depois;
+ *   (5) O SEPARADOR DO CÓDIGO DISTINGUE PRODUTO, e não sai. Regra do dono do produto, 20/10/2026,
+ *       que DERRUBA a dele mesmo ("1027,1 vira 10271"): na Wolff, 10271 é o trilho de ALUMÍNIO
+ *       (R$ 1.055,25) e 1027,1 o de PVC (R$ 209,86); 13181 e 1318,1 são duas persianas. A forma
+ *       canônica guarda a parte decimal com PONTO: o "1027,1" do motor vira "1027.1" e casa com o
+ *       1027.1 do preço, e continua distinto de "10271". O aviso registra a TROCA da vírgula;
  *   (6) o motor: tipologias da coluna 14, a coluna 13 NÃO é lida, e o cruzamento com o preço;
  *  (6b) as VARIÁVEIS da tipologia saem da coluna 15 (condição) das regras dela: identificadores em
  *       maiúsculas de 1 a 4 letras, sem AND/OR/IIF, ordenados. Os casos são os três medidos pela
@@ -235,22 +239,61 @@ describe('(4) código repetido: fica a primeira, e o aviso diz se os valores bat
     })
 })
 
-describe('(5) código com vírgula decimal', () => {
-    it('"1027,1" (texto) e 1027.1 (número) viram "10271", contados e avisados com antes e depois', async () => {
-        const r = await ler([cabecalho('VALOR METRO 17%', 'VALOR BARRA 17%'), item('1027,1'), item(3001.5), item(4237)])
-        expect(r.itens.map((i) => i.codigo)).toEqual(['10271', '30015', '4237'])
-        expect(r.contagens.normalizados).toBe(2)
-        expect(avisosDo(r, 'codigo_normalizado').map((a) => [a.antes, a.depois])).toEqual([['1027,1', '10271'], ['3001.5', '30015']])
-    })
+describe('(5) o separador do código distingue produto — os dados reais da Wolff', () => {
+    // Linhas 37, 38, 41 e 42 da aba de preço, como o dono do produto mediu (20/10/2026). O valor
+    // vai na coluna 13; o que importa é que os quatro são DIFERENTES entre si.
+    const WOLFF = (): Celulas[] => [
+        cabecalho('VALOR METRO 17%', 'VALOR BARRA 17%'),
+        item(10271, 1055.25, { 4: 'BZ4556 TRILHO CENTRAL DE PERSIANA — ALUMÍNIO' }),
+        item(1027.1, 209.86, { 4: 'BZ4556 TRILHO CENTRAL DE PERSIANA — PVC' }),
+        item(1318.1, 37.34, { 4: 'PERSIANA PVC 37MM — SEM VENTILAÇÃO' }),
+        item(13181, 39.83, { 4: 'PERSIANA PVC 37MM' }),
+    ]
 
-    it('o código do MOTOR passa pela mesma normalização — e é ela que faz os dois cruzarem', async () => {
-        const r = await ler(
-            [cabecalho('VALOR METRO 17%', 'VALOR BARRA 17%'), item('1027,1')],
-            await motorPadrao([regra('1027,1', 'JC2F')]),
-        )
-        expect(r.regras[0].codigo).toBe('10271')
+    it('o "1027,1" do MOTOR casa com o 1027.1 do PREÇO', async () => {
+        const r = await ler(WOLFF(), await motorPadrao([regra('1027,1', 'JC2F')]))
+        const item1027 = r.itens.find((i) => i.descricao === 'BZ4556 TRILHO CENTRAL DE PERSIANA — PVC')!
+        expect(r.regras[0].codigo).toBe(item1027.codigo)
         expect(r.contagens.cruzam).toBe(1)
         expect(r.contagens.nao_cruzam).toBe(0)
+    })
+
+    it('o "1027,1" do motor NÃO casa com o 10271 — com só o alumínio no preço, ele fica sem preço', async () => {
+        const r = await ler(
+            [cabecalho('VALOR METRO 17%', 'VALOR BARRA 17%'), item(10271, 1055.25, { 4: 'BZ4556 TRILHO CENTRAL DE PERSIANA — ALUMÍNIO' })],
+            await motorPadrao([regra('1027,1', 'JC2F')]),
+        )
+        expect(r.regras[0].codigo).not.toBe(r.itens[0].codigo)
+        expect(r.contagens.cruzam).toBe(0)
+        expect(avisosDo(r, 'codigo_do_motor_sem_preco')).toEqual([expect.objectContaining({ codigos: [r.regras[0].codigo] })])
+    })
+
+    it('os quatro convivem como itens DISTINTOS, cada um com o seu valor, e nenhum vira repetido', async () => {
+        const r = await ler(WOLFF())
+        expect(r.itens.map((i) => [i.codigo, i.valor_metro_interno])).toEqual([
+            ['10271', 1055.25], ['1027.1', 209.86], ['1318.1', 37.34], ['13181', 39.83],
+        ])
+        expect(new Set(r.itens.map((i) => i.codigo)).size).toBe(4)
+        expect(avisosDo(r, 'codigo_repetido')).toEqual([])
+    })
+
+    it('o aviso registra a TROCA da vírgula por ponto, com antes e depois — o número 1027.1 não muda e não avisa', async () => {
+        const r = await ler([cabecalho('VALOR METRO 17%', 'VALOR BARRA 17%'), item('1318,1', 37.34), item(1027.1, 209.86), item(4237)])
+        expect(r.itens.map((i) => i.codigo)).toEqual(['1318.1', '1027.1', '4237'])
+        expect(r.contagens.normalizados).toBe(1)
+        const avisos = avisosDo(r, 'codigo_normalizado')
+        expect(avisos.map((a) => [a.antes, a.depois])).toEqual([['1318,1', '1318.1']])
+        expect(avisos[0].mensagem).toMatch(/vírgula/)
+    })
+
+    it('uma COLISÃO de verdade — "1027,1" em texto e 1027.1 em número, com valores diferentes — continua virando aviso', async () => {
+        const r = await ler([cabecalho('VALOR METRO 17%', 'VALOR BARRA 17%'), item(1027.1, 209.86), item('1027,1', 199.9)])
+        expect(r.itens).toHaveLength(1)
+        expect(r.itens[0].valor_metro_interno).toBe(209.86)
+        const [a] = avisosDo(r, 'codigo_repetido')
+        expect(a.codigo).toBe('1027.1')
+        expect(a.valores_batem).toBe(false)
+        expect(a.mensagem).toMatch(/VALORES DIFERENTES/)
     })
 })
 
