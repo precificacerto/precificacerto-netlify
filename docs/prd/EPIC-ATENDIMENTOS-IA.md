@@ -271,6 +271,13 @@ Cada item abaixo é uma pergunta para o dono do produto, não uma escolha feita 
    referência, valor"*) é importado e fica por trás. Formato, validação e o que acontece com uma
    tabela que não importa — não decididos. O script do mockup ainda traz restos de uma versão
    com perfis editáveis (código, descrição, kg/m, R$/m) que nenhuma tela exibe.
+   **Em parte decidido em 20/10/2026** — o leitor (`src/utils/atendimentos-ia-importacao.ts`) lê
+   `.xlsx` e `.xlsm` pelo `exceljs`, com o mapa de colunas medido nos arquivos da Wolff; `.csv`,
+   `.pdf` e `.xls` são aceitos no envio e NÃO são importáveis, e a recusa diz a extensão e o
+   porquê. **LIMITE CONHECIDO:** o leitor conhece as abas da Wolff ("Tabela Wolff", "Motor por
+   barra", "Fórmulas da família") e só elas. Outro fornecedor com abas de outro nome é recusado
+   com o nome esperado e os encontrados, e vai precisar de um **mapa por fornecedor** — que NÃO
+   foi construído, por decisão do dono do produto.
 6. **Vigência da tabela.** É texto livre no mockup. Se o sistema escolhe sozinho a tabela vigente
    de um fornecedor, ou se a linha da conta fica presa à tabela escolhida mesmo depois de vencer.
 7. **Conta ligada e suspensa.** Se uma conta suspensa ou cancelada com o Atendimentos I.A. ligado
