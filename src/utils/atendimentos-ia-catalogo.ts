@@ -42,6 +42,50 @@ export const ROTAS_DO_CATALOGO = {
     tabelaDaConta: (tenantId: string, tabelaId: string) => `/api/super-admin/atendimentos-ia/contas/${tenantId}/tabelas/${tabelaId}`,
 } as const
 
+/**
+ * O ÚNICO modelo que usa fornecedor → tabela → motor. Decisão do dono do produto, 19/10/2026
+ * (EPIC §3.2). Nas palavras dele: "Prestação de serviço vai considerar os produtos e os serviços
+ * salvos dentro do sistema"; e, sobre Revenda, "o motor dele vai considerar a base de
+ * conhecimento, que são os produtos salvos no próprio sistema".
+ *
+ * Aplicada em 20/10/2026 ao USO POR CONTA: a tela da conta só mostra "Tabelas em uso" neste
+ * modelo, e a rota recusa (409) tabela para conta de outro modelo. O CATÁLOGO não é restrito —
+ * nicho, fornecedor e tabela podem existir nos três modelos.
+ *
+ * >>> O CASO DE BORDA: conta fora de Fabricação COM tabela em uso <<<
+ * Nela a tela esconderia a tabela junto com o grupo, e com ela o "Remover". Medido em produção
+ * em 20/10/2026 pela sessão de verificação: 0 contas fora de FABRICACAO com tabela em uso (1
+ * tabela em uso ao todo, numa conta FABRICACAO). O estado é INALCANÇÁVEL pela tela: a troca de
+ * modelo é recusada enquanto houver tabela em uso (`gravarModeloENicho`, na rota PATCH da conta),
+ * então nenhuma conta sai de Fabricação carregando tabela. Só nasceria por escrita direta no
+ * banco. Se um dia aparecer, a saída é MOSTRAR a lista com "Remover" nesses casos — e NÃO apagar
+ * nada automaticamente.
+ */
+export const MODELO_COM_FORNECEDOR: Modelo = 'FABRICACAO'
+export const usaTabelaDeFornecedor = (m: Modelo | null) => m === MODELO_COM_FORNECEDOR
+
+/** Os modelos que montam o orçamento a partir do cadastro do próprio cliente. */
+export type ModeloSemFornecedor = Exclude<Modelo, 'FABRICACAO'>
+
+export const TITULO_DA_BASE_DO_CADASTRO = 'Base de cálculo do motor'
+
+/**
+ * O texto do mockup (`docs/prd/atendimentos-ia-mockup.html`, "Base de cálculo do motor") para
+ * cada modelo que NÃO usa fornecedor. A linha de números do mockup ("1.284 produtos · …") NÃO
+ * entra: ela mostraria o tamanho do cadastro do cliente, que é conteúdo da conta — a regra
+ * inviolável da área.
+ */
+export const BASE_DO_CADASTRO: Record<ModeloSemFornecedor, string> = {
+    REVENDA: 'A I.A. monta o orçamento a partir dos produtos cadastrados no sistema do próprio cliente. Não usa fornecedor nem tabela externa.',
+    SERVICO: 'A I.A. monta o orçamento a partir dos produtos e serviços cadastrados no sistema do próprio cliente. Não usa fornecedor nem tabela externa.',
+}
+
+/** A recusa da rota a tabela para conta de modelo que não usa fornecedor — diz por quê. */
+export function fraseDoModeloSemFornecedor(m: ModeloSemFornecedor): string {
+    const base = m === 'SERVICO' ? 'os produtos e os serviços' : 'os produtos'
+    return `Só contas do modelo ${ROTULO_DO_MODELO[MODELO_COM_FORNECEDOR]} usam tabela de fornecedor. No modelo ${ROTULO_DO_MODELO[m]}, o motor considera ${base} cadastrados no sistema do próprio cliente.`
+}
+
 /** A frase do mockup na tela de fornecedores (EPIC §3.3). */
 export const AVISO_DO_CATALOGO = 'Nada aqui pertence a um cliente — são tabelas do fornecedor.'
 

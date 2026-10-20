@@ -27,7 +27,7 @@ import React from 'react'
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 
-import { ROTAS_DO_CATALOGO, type ContaLigada, type Nicho, type TabelasDaConta } from '@/utils/atendimentos-ia-catalogo'
+import { ROTAS_DO_CATALOGO, type ContaLigada, type Modelo, type Nicho, type TabelasDaConta } from '@/utils/atendimentos-ia-catalogo'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 Object.defineProperty(window, 'matchMedia', {
@@ -54,8 +54,8 @@ jest.mock('next/router', () => ({
 jest.mock('@/hooks/use-auth.hook', () => ({ useAuth: () => ({ currentUser: { id: 'u-super', is_super_admin: true, role: 'super_admin' } }) }))
 jest.mock('@/components/layout/layout.component', () => ({ Layout: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }))
 
-const conta = (nicho_id: string | null): ContaLigada => ({
-    tenant_id: CONTA_A, nome: 'Conta Alfa', modelo: 'FABRICACAO', nicho_id, nicho_nome: nicho_id === N_ESQ ? 'Esquadrias' : nicho_id ? 'Serralheria' : null,
+const conta = (nicho_id: string | null, modelo: Modelo = 'FABRICACAO'): ContaLigada => ({
+    tenant_id: CONTA_A, nome: 'Conta Alfa', modelo, nicho_id, nicho_nome: nicho_id === N_ESQ ? 'Esquadrias' : nicho_id ? 'Serralheria' : null,
 })
 const NICHOS: Nicho[] = [
     { id: N_ESQ, modelo: 'FABRICACAO', nome: 'Esquadrias', ativo: true },
@@ -208,5 +208,42 @@ describe('Tabelas em uso — a cascata na tela', () => {
         await act(async () => { botao(grupo(host), 'Adicionar')!.click() })
         await assentar()
         expect(grupo(host).textContent).toContain('Esta tabela já está em uso nesta conta.')
+    })
+})
+
+// ════════════════════════════════════════════════════════════════════════════════════════
+// SÓ FABRICAÇÃO USA FORNECEDOR → TABELA → MOTOR — decisão do dono do produto, 19/10/2026,
+// aplicada em 20/10/2026. Revenda e Prestação de serviço: o grupo some, e no lugar entra a base
+// do cadastro do próprio cliente, com o texto do mockup.
+// ════════════════════════════════════════════════════════════════════════════════════════
+describe('a base do motor por modelo', () => {
+    const N_AUTO = '33333333-3333-3333-3333-333333333334'
+    const base = (host: HTMLElement) => host.querySelector('[data-grupo="base-do-cadastro"]') as HTMLElement | null
+
+    it('conta de Revenda: sem "Tabelas em uso", e a base é o cadastro de PRODUTOS do cliente', async () => {
+        responder(conta(N_AUTO, 'REVENDA'), { nicho_id: N_AUTO, em_uso: [], fornecedores: [] })
+        const host = await montar()
+        expect(grupo(host)).toBeNull()
+        expect(seletor('Fornecedor')).toBeNull()
+        expect(base(host)?.textContent).toContain('Base de cálculo do motor')
+        expect(base(host)?.textContent).toContain('produtos cadastrados no sistema do próprio cliente')
+        expect(base(host)?.textContent).not.toContain('produtos e serviços')
+        expect(pedidos.map((p) => p.url)).not.toContain(ROTAS_DO_CATALOGO.tabelasDaConta(CONTA_A))
+    })
+
+    it('conta de Prestação de serviço: sem "Tabelas em uso", e a base é o cadastro de PRODUTOS E SERVIÇOS', async () => {
+        responder(conta(N_AUTO, 'SERVICO'), { nicho_id: N_AUTO, em_uso: [], fornecedores: [] })
+        const host = await montar()
+        expect(grupo(host)).toBeNull()
+        expect(base(host)?.textContent).toContain('produtos e serviços cadastrados no sistema do próprio cliente')
+        expect(pedidos.map((p) => p.url)).not.toContain(ROTAS_DO_CATALOGO.tabelasDaConta(CONTA_A))
+    })
+
+    // O CONTRASTE: em Fabricação o grupo existe e a base do cadastro não aparece. Sem isto, uma tela
+    // que nunca mostrasse o grupo passaria os dois casos acima.
+    it('o contraste: conta de Fabricação mostra "Tabelas em uso", e não a base do cadastro', async () => {
+        const host = await montar()
+        expect(grupo(host)).not.toBeNull()
+        expect(base(host)).toBeNull()
     })
 })
