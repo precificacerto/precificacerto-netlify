@@ -19,18 +19,24 @@
  *       seções e se os valores batiam — EM VOZ ALTA quando não batem;
  *   (5) código com vírgula decimal: "1027,1" vira "10271", contado e avisado com antes e depois;
  *   (6) o motor: tipologias da coluna 14, a coluna 13 NÃO é lida, e o cruzamento com o preço;
+ *  (6b) as VARIÁVEIS da tipologia saem da coluna 15 (condição) das regras dela: identificadores em
+ *       maiúsculas de 1 a 4 letras, sem AND/OR/IIF, ordenados. Os casos são os três medidos pela
+ *       sessão de verificação (DP-148, DP-02, DP-01). Lista vazia SÓ quando nenhuma regra da
+ *       tipologia é condicional — e aí ela é medição, não suposição;
+ * (6c) a coluna do banco `orcamentista_tabela_item.segmento`: a chave sai de UMA constante, e o
+ *       item já sai com ela;
  *   (7) a família: o "PVC " sai do nome da linha, e `linha_original` guarda o que veio;
  *   (8) a aba "Sem uso no motor" é ignorada;
- *   (9) .csv, .pdf e .xls NÃO são importáveis — recusa com o nome e a extensão, nunca calada;
+ *   (9) .csv, .pdf e .xls NÃO são importáveis — recusa com o nome, a extensão e o PORQUÊ dela;
  *  (10) aba que falta é recusa com o nome dela e as que existem.
  */
 import ExcelJS from 'exceljs'
 
 import {
-    ABAS_DA_IMPORTACAO, lerArquivosDaImportacao, valorDaCelula,
+    ABAS_DA_IMPORTACAO, COLUNA_DA_CATEGORIA_DO_FORNECEDOR, lerArquivosDaImportacao, valorDaCelula, variaveisDasCondicoes,
     type Aviso, type ResultadoDaLeitura,
 } from '@/utils/atendimentos-ia-importacao'
-import { EXTENSOES_IMPORTAVEIS, fraseDoArquivoNaoImportavel } from '@/utils/atendimentos-ia-catalogo'
+import { EXTENSOES_IMPORTAVEIS, MOTIVO_DA_EXTENSAO_NAO_IMPORTAVEL, fraseDoArquivoNaoImportavel } from '@/utils/atendimentos-ia-catalogo'
 
 type Celulas = Record<number, ExcelJS.CellValue>
 
@@ -191,11 +197,11 @@ describe('(3) a aba de preço: cabeçalho pulado, seção, alíquota e vendido_p
         expect(vp).toEqual({ SOLTO: null, A17: 'barra', B18: 'barra', 'C-UN': 'unidade', 'D-NADA': null })
     })
 
-    it('as colunas do mapa caem nos campos certos — e a coluna 11 do arquivo vai para `categoria_do_arquivo`', async () => {
+    it('as colunas do mapa caem nos campos certos — e a coluna 11 do arquivo vai para a chave da constante', async () => {
         const r = await ler([cabecalho('VALOR METRO 17%', 'VALOR BARRA 17%'), item('Z9', 11, { 11: 'ALUMÍNIO', 12: 77, 14: 8, 16: 48, 5: 6.5 })])
         expect(r.itens[0]).toEqual(expect.objectContaining({
             codigo: 'Z9', descricao: 'perfil Z9', medida_barra_m: 6.5, unidade: 'BR', ncm: '7604.21.00', peso: 1.2, ipi: 0,
-            pacote: '10', categoria_do_arquivo: 'ALUMÍNIO', custo: 77, valor_metro_interno: 11, valor_metro_12: 8,
+            pacote: '10', [COLUNA_DA_CATEGORIA_DO_FORNECEDOR]: 'ALUMÍNIO', custo: 77, valor_metro_interno: 11, valor_metro_12: 8,
             valor_barra_interno: 60, valor_barra_12: 48,
         }))
     })
@@ -258,7 +264,7 @@ describe('(6) o motor', () => {
         expect(r.regras[0]).not.toHaveProperty('n_tipologias')
         expect(Object.values(r.regras[0])).not.toContain(999)
         expect(r.regras[0]).toEqual(expect.objectContaining({
-            codigo: 'A1', descricao: 'corte', categoria_do_arquivo: 'PVC', cor: 'BRANCO', codigo_wvetro: 'W1', linha: 'EUROPA 42',
+            codigo: 'A1', descricao: 'corte', [COLUNA_DA_CATEGORIA_DO_FORNECEDOR]: 'PVC', cor: 'BRANCO', codigo_wvetro: 'W1', linha: 'EUROPA 42',
             tipo: 'MARCO', eixo: 'H', corte: '90', formula_medida: 'L-10', formula_em_lh: 'L', formula_qtde: '2',
             condicao: 'L > 1000', obs: 'obs 1',
         }))
@@ -274,14 +280,67 @@ describe('(6) o motor', () => {
         expect(avisosDo(r, 'codigo_do_motor_sem_preco')).toEqual([expect.objectContaining({ codigos: ['Z9'] })])
     })
 
-    it('o resumo por tipologia: regras e condicionais contados; as variáveis ficam PENDENTES, não inventadas', async () => {
+    it('o resumo por tipologia: regras e condicionais contados', async () => {
         const r = await ler([cabecalho('VALOR METRO 17%', 'VALOR BARRA 17%'), item('A1')], await motorPadrao([
             regra('A1', 'JC2F, JC4F', { 15: 'L > 1000' }), regra('A1', 'JC2F'),
         ]))
         const t = Object.fromEntries(r.tipologias.map((x) => [x.tipologia, x]))
         expect(r.contagens.tipologias).toBe(2)
-        expect(t.JC2F).toEqual(expect.objectContaining({ n_regras: 2, n_condicionais: 1, linha: 'EUROPA 42', variaveis: null }))
+        expect(t.JC2F).toEqual(expect.objectContaining({ n_regras: 2, n_condicionais: 1, linha: 'EUROPA 42' }))
         expect(t.JC4F).toEqual(expect.objectContaining({ n_regras: 1, n_condicionais: 1 }))
+    })
+})
+
+describe('(6b) as variáveis da tipologia saem da condição das regras dela', () => {
+    // Condições montadas para dar EXATAMENTE as listas medidas, e com o que tem de ficar de fora
+    // misturado: AND, OR, IIF, palavra de 5 letras (LARGO), minúscula (x) e número.
+    const MOTOR_DAS_TRES = () => motorPadrao([
+        regra('A1', 'DP-148', { 15: 'IIF(AQ > 0 AND CA < 10, FV, M) OR N = 1' }),
+        regra('A1', 'DP-148', { 15: 'PM >= 2 AND PT <> x OR FV > LARGO' }),
+        regra('A1', 'DP-148, DP-01', { 15: 'CA AND FV' }),
+        regra('A1', 'DP-148'),
+        regra('A1', 'DP-02', { 15: 'IIF(ARE > ARI, CA, FV) AND HFOL > 0' }),
+        regra('A1', 'DP-02', { 15: 'INT = 1 OR MFI < MTE' }),
+        regra('A1', 'DP-02, DP-01', { 15: 'MAE > MAI' }),
+        regra('A1', 'DP-01', { 15: 'IIF(ARE > 0, ARI, CA) OR MTE = 2' }),
+        regra('A1', 'SEM-COND'), regra('A1', 'SEM-COND, DP-148'),
+    ])
+
+    it('DP-148, DP-02 e DP-01 dão as listas medidas pela sessão de verificação', async () => {
+        const r = await ler([cabecalho('VALOR METRO 17%', 'VALOR BARRA 17%'), item('A1')], await MOTOR_DAS_TRES())
+        const v = Object.fromEntries(r.tipologias.map((x) => [x.tipologia, x.variaveis]))
+        expect(v['DP-148']).toEqual(['AQ', 'CA', 'FV', 'M', 'N', 'PM', 'PT'])
+        expect(v['DP-02']).toEqual(['ARE', 'ARI', 'CA', 'FV', 'HFOL', 'INT', 'MAE', 'MAI', 'MFI', 'MTE'])
+        // A DP-01 só fecha a lista medida com as regras que ela DIVIDE com DP-148 (CA, FV) e com
+        // DP-02 (MAE, MAI): é a UNIÃO das condições de todas as regras da tipologia.
+        expect(v['DP-01']).toEqual(['ARE', 'ARI', 'CA', 'FV', 'MAE', 'MAI', 'MTE'])
+    })
+
+    it('tipologia SEM nenhuma regra condicional grava o vetor VAZIO — e ele é medição, não ausência', async () => {
+        const r = await ler([cabecalho('VALOR METRO 17%', 'VALOR BARRA 17%'), item('A1')], await MOTOR_DAS_TRES())
+        const t = r.tipologias.find((x) => x.tipologia === 'SEM-COND')!
+        expect(t.n_condicionais).toBe(0)
+        expect(t.variaveis).toEqual([])
+    })
+
+    it('AND, OR e IIF nunca entram; nem palavra de 5 letras, nem minúscula, nem número', () => {
+        expect(variaveisDasCondicoes(['IIF(A AND B, C OR D, LARGO) and x > 10 OR IIF'])).toEqual(['A', 'B', 'C', 'D'])
+        // O contraste: sem as exclusões, as mesmas condições dariam AND, OR e IIF.
+        expect(variaveisDasCondicoes(['AND OR IIF'])).toEqual([])
+    })
+
+    it('a lista é ordenada e sem repetição', () => {
+        expect(variaveisDasCondicoes(['PT > M', 'M < AQ', 'PT = CA'])).toEqual(['AQ', 'CA', 'M', 'PT'])
+    })
+})
+
+describe('(6c) a coluna do arquivo do fornecedor sai de UMA constante', () => {
+    it('o item e a regra saem com a chave da constante — e sem o nome interno `categoria_do_arquivo`', async () => {
+        const r = await ler([cabecalho('VALOR METRO 17%', 'VALOR BARRA 17%'), item('A1', 10, { 11: 'ALUMÍNIO' })])
+        expect(r.itens[0][COLUNA_DA_CATEGORIA_DO_FORNECEDOR]).toBe('ALUMÍNIO')
+        expect(r.regras[0][COLUNA_DA_CATEGORIA_DO_FORNECEDOR]).toBe('PVC')
+        expect(Object.keys(r.itens[0])).not.toContain('categoria_do_arquivo')
+        expect(Object.keys(r.regras[0])).not.toContain('categoria_do_arquivo')
     })
 })
 
@@ -325,6 +384,12 @@ describe('(9) .csv, .pdf e .xls não são importáveis — e a recusa diz o arqu
         expect(erro).toBe(fraseDoArquivoNaoImportavel(nome))
         expect(erro).toContain(nome)
         expect(erro).toContain(ext)
+        expect(erro).toContain(MOTIVO_DA_EXTENSAO_NAO_IMPORTAVEL[ext])
+    })
+
+    it('o PORQUÊ do .xls é outro: é o formato antigo do Excel, que o leitor não abre', () => {
+        expect(MOTIVO_DA_EXTENSAO_NAO_IMPORTAVEL['.xls']).not.toBe(MOTIVO_DA_EXTENSAO_NAO_IMPORTAVEL['.csv'])
+        expect(MOTIVO_DA_EXTENSAO_NAO_IMPORTAVEL['.xls']).toMatch(/formato antigo/)
     })
 
     it('o contraste: .xlsm e .xlsx são importáveis', async () => {
