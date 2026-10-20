@@ -115,6 +115,13 @@ describe('(1b) a vírgula pela ARIDADE conhecida — os exemplos reais', () => {
     it('ponto entre dígitos: pendente — ZERO ocorrências HOJE, neste arquivo, e não é garantia', () => {
         const r = avaliarNumero('L - 4.2', com({ L: 1500 }))
         expect(r.ok).toBe(false)
+        expect(r.ok ? '' : (r as { motivo: string }).motivo).toMatch(/ponto entre dígitos/)
+    })
+
+    it('ROUND no meio exato vai para pendentes — o lado do WVetro não foi medido; fora do meio, arredonda', () => {
+        expect(avaliarNumero('ROUND(X)', com({ X: 2.5 }))).toEqual(expect.objectContaining({ ok: false, motivo: expect.stringMatching(/meio exato/) }))
+        expect(avaliarNumero('ROUND(X)', com({ X: 2.51 }))).toEqual({ ok: true, valor: 3 })
+        expect(avaliarNumero('ROUND(X)', com({ X: 2.49 }))).toEqual({ ok: true, valor: 2 })
     })
 })
 
@@ -127,6 +134,8 @@ describe('(2) o que está fora dos medidos vai para pendentes, com a fórmula CO
         ['IIF(L > 1000, 3)', /IIF com 2 argumento/],
         ['IIF(L > 1000,0,5,1)', /IIF com 4 argumento/],
         ['ROUND(L,2)', /ROUND com 2 argumento/],
+        // Decimal é dígito,dígito COLADO; com espaço a vírgula não é decimal, e sobra argumento.
+        ['ROUND(3, 7)', /ROUND com 2 argumento/],
         ['ARREDMAIOR(NF, L)', /ARREDMAIOR com 2 argumento/],
         ['IIF(L > 1000; 3; 2)', /caractere ";"/],
         ['L × 2', /caractere "×"/],

@@ -10,24 +10,39 @@
  * NADA DE `eval`, `Function` ou string avaliada como código (dono do produto, 20/10/2026). A
  * fórmula é lida por um analisador próprio, que conhece SÓ o que foi medido nas 4.055 regras da
  * Wolff (sessão de verificação, 20/10/2026):
- *   - números, com VÍRGULA decimal ("4,2"); o ponto NÃO é decimal — em pt-BR ele seria milhar,
- *     e adivinhar qual dos dois é afirmar um número que ninguém escreveu;
+ *   - números, com VÍRGULA decimal ("4,2"): 2.142 ocorrências de dígito,dígito, todas decimais;
  *   - variáveis conhecidas (o chamador as resolve — `resolver`);
  *   - `+`, `-` e `−` (o sinal de menos tipográfico); `*` e `·` (o ponto médio); `/`; parênteses;
  *   - na CONDIÇÃO: `=`, `>`, `<`, `and`, `or`. NÃO existem `<>`, `>=` nem `<=` no arquivo; se um
  *     dia aparecerem, a regra vai para pendentes — não são lidos "do jeito óbvio";
- *   - na QUANTIDADE: `IIF(condição; a; b)`, `ARREDMAIOR(x)` (arredonda para cima) e
- *     `ROUND(x; casas)`. A aridade de cada uma é a declarada aqui; outra aridade é pendente.
+ *   - na QUANTIDADE, três funções, com a aridade MEDIDA: `IIF(condição, a, b)` — 314 ocorrências,
+ *     SEMPRE 3 argumentos; `ARREDMAIOR(x)`, arredonda para cima — 166, SEMPRE 1; `ROUND(x)` — 36,
+ *     SEMPRE 1. O ROUND NÃO TEM o argumento de casas: "ROUND(QTPAL*0,8)" é ROUND(QTPAL × 0,8), e
+ *     lê-lo com dois argumentos calcularia errado em silêncio.
  *
  * QUALQUER COISA FORA DISSO NÃO É ADIVINHADA: devolve `ok: false` com o motivo, e quem chamou põe a
  * fórmula, COMO ESTÁ ESCRITA, em pendentes.
  *
- * ══ A VÍRGULA DENTRO DE FUNÇÃO É AMBÍGUA, e por isso é pendente ══
- * A vírgula é decimal em "4,2" e pode ser separador de argumento em "IIF(N=1,2,1)". Fora de
- * função, vírgula entre dígitos é decimal. DENTRO dos argumentos de uma função, vírgula colada
- * entre dígitos pode ser as duas coisas — "ARREDMAIOR(NF/2,5)" é 2,5 ou dois argumentos? —, e a
- * fórmula vai para pendentes em vez de escolher. Separador sem ambiguidade: `;`, ou a vírgula
- * seguida de espaço ("IIF(N = 1, 2, 1)").
+ * ══ A VÍRGULA É DECIDIDA PELA ARIDADE CONHECIDA, NÃO PELO TEXTO (dono do produto, 20/10/2026) ══
+ * A mesma vírgula é decimal em "4,2" e separador em "IIF(UT=1,8,4)". Quem decide é a função em que
+ * ela está:
+ *   - no topo da fórmula e dentro de parênteses comuns: vírgula colada entre dígitos é DECIMAL;
+ *   - nos argumentos do IIF, que espera 3: a vírgula de topo é SEPARADOR — "IIF(UT=1,8,4)" tem 3;
+ *   - nos de ROUND e ARREDMAIOR, que esperam 1: a vírgula de topo colada entre dígitos é DECIMAL,
+ *     nunca separador — "ROUND(QTPAL*0,8)" tem 1;
+ *   - função desconhecida, ou contagem que não bate com a aridade: pendente, com a fórmula literal.
+ * Medido: os 314 IIF dão exatamente 3, os 166 ARREDMAIOR e os 36 ROUND dão 1. Nenhum caso real fica
+ * ambíguo com esta regra. Um decimal escrito solto num argumento do IIF ("IIF(L>1000,0,5,1)") dá
+ * 4 argumentos e vai para pendentes; dentro de parênteses ("IIF(UT=1,(NF*0,5),2)") ele é decimal.
+ *
+ * ══ O PONTO ENTRE DÍGITOS VAI PARA PENDENTES ══
+ * Em pt-BR o ponto seria milhar, e adivinhar entre milhar e decimal é afirmar um número que ninguém
+ * escreveu. Medido: ZERO ocorrências de dígito.dígito — HOJE, NESTE ARQUIVO. Não é garantia para o
+ * próximo arquivo nem para a próxima versão deste.
+ *
+ * ══ O MEIO EXATO DO ROUND VAI PARA PENDENTES ══
+ * Não se mediu como o WVetro arredonda o meio (2,5 vira 2 ou 3?). Fora do meio exato não há
+ * dúvida; no meio exato, a quantidade vai para pendentes em vez de escolher um lado.
  *
  * ══ VARIÁVEL QUE FALTA NÃO VIRA ZERO (`ausente-vs-falso.md`) ══
  * O resolver devolve a falta, e ela sobe com o NOME da variável. A avaliação é PREGUIÇOSA: o ramo
@@ -47,7 +62,7 @@ export const falhaDe = (r: Avaliacao<unknown>): Falha => r as Falha
 export type Resolver = (nome: string) => Avaliacao<number>
 
 /** As funções medidas, com a aridade aceita. */
-export const FUNCOES_ACEITAS = { IIF: 3, ARREDMAIOR: 1, ROUND: 2 } as const
+export const FUNCOES_ACEITAS = { IIF: 3, ARREDMAIOR: 1, ROUND: 1 } as const
 
 /** Os operadores de comparação medidos na condição. */
 export const COMPARACOES_ACEITAS = ['=', '>', '<'] as const
@@ -57,11 +72,14 @@ class Pendente extends Error {
 }
 
 // ── Tokens ─────────────────────────────────────────────────────────────────────────────────
+// A vírgula NÃO é decidida aqui: sai como token próprio, com a posição, e o analisador decide pela
+// função em que ela está.
 type Token =
-    | { t: 'num'; v: number; comVirgula: boolean; texto: string }
+    | { t: 'int'; texto: string; ini: number; fim: number }
     | { t: 'id'; v: string }
     | { t: 'op'; v: '+' | '-' | '*' | '/' | '=' | '>' | '<' }
-    | { t: '(' } | { t: ')' } | { t: 'sep' }
+    | { t: '(' } | { t: ')' }
+    | { t: ','; ini: number }
 
 function tokenizar(texto: string): Token[] {
     const tokens: Token[] = []
@@ -70,10 +88,11 @@ function tokenizar(texto: string): Token[] {
         const c = texto[i]
         if (/\s/.test(c)) { i++; continue }
         if (/\d/.test(c)) {
-            const m = /^\d+(?:,\d+)?/.exec(texto.slice(i))!
-            const t = m[0]
-            if (texto[i + t.length] === '.') throw new Pendente(`ponto em número ("${t}.") — o ponto não é decimal em pt-BR, e milhar não se adivinha`)
-            tokens.push({ t: 'num', v: Number(t.replace(',', '.')), comVirgula: t.includes(','), texto: t })
+            const t = /^\d+/.exec(texto.slice(i))![0]
+            if (texto[i + t.length] === '.' && /\d/.test(texto[i + t.length + 1] ?? '')) {
+                throw new Pendente(`ponto entre dígitos ("${t}.${texto[i + t.length + 1]}") — em pt-BR o ponto seria milhar, e não se adivinha`)
+            }
+            tokens.push({ t: 'int', texto: t, ini: i, fim: i + t.length })
             i += t.length
             continue
         }
@@ -91,7 +110,7 @@ function tokenizar(texto: string): Token[] {
         if (c === '*' || c === '·') { tokens.push({ t: 'op', v: '*' }); i++; continue }
         if (c === '(') { tokens.push({ t: '(' }); i++; continue }
         if (c === ')') { tokens.push({ t: ')' }); i++; continue }
-        if (c === ';' || c === ',') { tokens.push({ t: 'sep' }); i++; continue }
+        if (c === ',') { tokens.push({ t: ',', ini: i }); i++; continue }
         throw new Pendente(`caractere "${c}" fora do que o avaliador conhece`)
     }
     return tokens
@@ -109,13 +128,20 @@ type No =
 
 class Analisador {
     private p = 0
-    private dentroDeFuncao = 0
+    /** A vírgula colada entre dígitos é decimal AQUI? Não, só nos argumentos do IIF. */
+    private virgulaDecimal = true
     constructor(private tokens: Token[]) {}
 
-    private olhar(): Token | undefined { return this.tokens[this.p] }
+    private olhar(k = 0): Token | undefined { return this.tokens[this.p + k] }
     private ehPalavra(palavra: 'and' | 'or'): boolean {
         const t = this.olhar()
         return t?.t === 'id' && t.v.toLowerCase() === palavra
+    }
+    /** Lê um trecho com a vírgula num modo, e devolve o modo de antes. */
+    private com<T>(decimal: boolean, f: () => T): T {
+        const antes = this.virgulaDecimal
+        this.virgulaDecimal = decimal
+        try { return f() } finally { this.virgulaDecimal = antes }
     }
 
     tudo(): No {
@@ -171,17 +197,21 @@ class Analisador {
     private primario(): No {
         const t = this.olhar()
         if (!t) throw new Pendente('a expressão termina no meio')
-        if (t.t === 'num') {
-            if (t.comVirgula && this.dentroDeFuncao > 0) {
-                throw new Pendente(`vírgula ambígua dentro de função ("${t.texto}"): decimal ou separador de argumento — não se adivinha`)
-            }
+        if (t.t === 'int') {
             this.p++
-            return { k: 'num', v: t.v }
+            const v = this.olhar()
+            const d = this.olhar(1)
+            // Decimal: inteiro, vírgula e inteiro COLADOS, onde a vírgula é decimal.
+            if (this.virgulaDecimal && v?.t === ',' && v.ini === t.fim && d?.t === 'int' && d.ini === v.ini + 1) {
+                this.p += 2
+                return { k: 'num', v: Number(`${t.texto}.${d.texto}`) }
+            }
+            return { k: 'num', v: Number(t.texto) }
         }
         if (t.t === '(') {
             this.p++
-            const no = this.ou()
-            if (this.olhar()?.t !== ')') throw new Pendente('parêntese aberto e não fechado')
+            const no = this.com(true, () => this.ou())
+            if (this.olhar()?.t !== ')') throw new Pendente('parêntese aberto e não fechado, ou vírgula fora de função')
             this.p++
             return no
         }
@@ -191,16 +221,18 @@ class Analisador {
             if (!(t.v in FUNCOES_ACEITAS)) throw new Pendente(`função "${t.v}" fora das medidas (${Object.keys(FUNCOES_ACEITAS).join(', ')})`)
             const nome = t.v as keyof typeof FUNCOES_ACEITAS
             this.p++
-            this.dentroDeFuncao++
-            const args: No[] = []
-            if (this.olhar()?.t !== ')') {
-                args.push(this.ou())
-                while (this.olhar()?.t === 'sep') { this.p++; args.push(this.ou()) }
-            }
-            this.dentroDeFuncao--
+            // Pela aridade conhecida: no IIF (3) a vírgula de topo separa; no ROUND e no ARREDMAIOR (1)
+            // a vírgula de topo colada entre dígitos é decimal, e o que sobrar conta como argumento a mais.
+            const args = this.com(nome !== 'IIF', () => {
+                const lidos: No[] = []
+                if (this.olhar()?.t === ')') return lidos
+                lidos.push(this.ou())
+                while (this.olhar()?.t === ',') { this.p++; lidos.push(this.ou()) }
+                return lidos
+            })
             if (this.olhar()?.t !== ')') throw new Pendente(`a chamada de ${nome} não fecha o parêntese`)
             this.p++
-            if (args.length !== FUNCOES_ACEITAS[nome]) throw new Pendente(`${nome} com ${args.length} argumento(s); a forma aceita tem ${FUNCOES_ACEITAS[nome]}`)
+            if (args.length !== FUNCOES_ACEITAS[nome]) throw new Pendente(`${nome} com ${args.length} argumento(s); a forma medida tem ${FUNCOES_ACEITAS[nome]}`)
             return { k: 'fn', nome, args }
         }
         throw new Pendente('símbolo fora do lugar')
@@ -257,11 +289,9 @@ function valor(no: No, resolver: Resolver): Valor {
         case 'fn': {
             if (no.nome === 'IIF') return condicao(no.args[0], resolver) ? valor(no.args[1], resolver) : valor(no.args[2], resolver)
             if (no.nome === 'ARREDMAIOR') return Math.ceil(semRuido(numero(no.args[0], resolver)))
-            const casas = numero(no.args[1], resolver)
-            if (!Number.isInteger(casas) || casas < 0) throw new Pendente(`ROUND com ${casas} casas`)
-            const f = 10 ** casas
-            const x = semRuido(numero(no.args[0], resolver) * f)
-            return (Math.sign(x) * Math.round(Math.abs(x))) / f
+            const x = semRuido(numero(no.args[0], resolver))
+            if (Math.abs(x % 1) === 0.5) throw new Pendente(`ROUND no meio exato (${x}): o arredondamento do WVetro no meio não foi medido`)
+            return Math.round(x)
         }
     }
 }

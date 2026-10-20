@@ -74,9 +74,14 @@
  * medida da barra × peso — o do frete). No modo 'consumo' são iguais; na barra inteira a diferença
  * é a sucata.
  *
- * ══ O LÍQUIDO NÃO É CALCULADO NESTA VERSÃO ══
+ * ══ O IPI É POR FORA, E A COLUNA `ipi` É FRAÇÃO ══
  * Dono do produto, 20/10/2026: o bruto é o valor da tabela, com ICMS, PIS e COFINS POR DENTRO; o
- * IPI é por fora. A BASE do crédito de PIS/COFINS — o bruto inteiro, ou o bruto menos o ICMS — está
+ * IPI é calculado POR FORA: IPI = bruto × `ipi`. A coluna vem como FRAÇÃO, não percentual — medido
+ * nos itens reais: 0,065 · 0,0325 · 0, ou seja, 6,5% vem como 0,065. Item sem `ipi` não vira zero:
+ * a linha fica sem IPI, o total também, e há aviso. Zero gravado é zero.
+ *
+ * ══ O LÍQUIDO NÃO É CALCULADO NESTA VERSÃO ══
+ * O bruto tem ICMS, PIS e COFINS por dentro. A BASE do crédito de PIS/COFINS — o bruto inteiro, ou o bruto menos o ICMS — está
  * EM ABERTO, e sem ela o líquido não sai: líquido chutado é pior que líquido ausente. A entrada já
  * recebe as alíquotas e a base (`EntradaFiscal`); a saída devolve o líquido NULO e diz por quê.
  *
@@ -101,7 +106,7 @@ export type RegraDoMotor = Pick<RegraLida,
 
 /** Um item de preço, como vem de `orcamentista_tabela_item`. */
 export type ItemDoPreco = Pick<ItemLido,
-    'codigo' | 'descricao' | 'medida_barra_m' | 'peso' | 'vendido_por'
+    'codigo' | 'descricao' | 'medida_barra_m' | 'peso' | 'ipi' | 'vendido_por'
     | 'valor_metro_interno' | 'valor_barra_interno' | 'valor_metro_12' | 'valor_barra_12'>
 
 /** Uma fórmula da família, como vem de `orcamentista_motor_formula_familia`. `pct_padrao` não entra. */
@@ -185,6 +190,8 @@ export interface LinhaDoCalculo {
     pesoConsumidoKg: number | null
     pesoCompradoKg: number | null
     valorBruto: number
+    /** bruto × `ipi` do item (fração). NULL quando o item não traz `ipi`. */
+    ipiPorFora: number | null
     valorLiquido: null
 }
 
@@ -199,10 +206,12 @@ export interface Pendente {
     variavel?: string
 }
 
-export interface Aviso { tipo: 'peso_ausente' | 'categoria_divergente' | 'tipologia_sem_regras'; codigo?: string; mensagem: string }
+export interface Aviso { tipo: 'peso_ausente' | 'ipi_ausente' | 'categoria_divergente' | 'tipologia_sem_regras'; codigo?: string; mensagem: string }
 
 export interface TotalDoCalculo {
     valorBruto: number
+    /** NULL quando alguma linha somada não tem IPI — pela mesma razão do peso. */
+    ipiPorFora: number | null
     /** NULL quando alguma linha somada não tem peso: somar o resto diria menos do que há. */
     pesoConsumidoKg: number | null
     pesoCompradoKg: number | null
@@ -347,6 +356,11 @@ export function calcularTipologia(e: EntradaDoMotor): ResultadoDoMotor {
 
         const cortes = grupo.map((a) => a.corte)
         const pecas = cortes.reduce((s, c) => s + c.pecas, 0)
+        // IPI POR FORA: bruto × `ipi`, que é FRAÇÃO. Sem `ipi` no item, sem IPI — nunca zero.
+        const brutoEIpi = (valorBruto: number) => {
+            if (item.ipi === null) avisos.push({ tipo: 'ipi_ausente', codigo, mensagem: `o item ${codigo} não tem IPI` })
+            return { valorBruto, ipiPorFora: item.ipi === null ? null : valorBruto * item.ipi }
+        }
         const base = { codigo, descricao: item.descricao ?? descricaoDaRegra, categoria: categorias[0], tipo: primeira.tipo, cortes, pecas, valorLiquido: null as null }
 
         if (primeira.tipo === 'Insumo') {
@@ -358,7 +372,7 @@ export function calcularTipologia(e: EntradaDoMotor): ResultadoDoMotor {
             if (unitario === null) { pendenteDoCodigo('o item não tem o valor unitário ("VALOR UNIT")'); continue }
             const peso = item.peso === null ? null : pecas * item.peso
             if (peso === null) avisos.push({ tipo: 'peso_ausente', codigo, mensagem: `o item ${codigo} não tem peso` })
-            linhas.push({ ...base, mmTotais: null, barras: null, aproveitamento: null, pesoConsumidoKg: peso, pesoCompradoKg: peso, valorBruto: pecas * unitario })
+            linhas.push({ ...base, mmTotais: null, barras: null, aproveitamento: null, pesoConsumidoKg: peso, pesoCompradoKg: peso, ...brutoEIpi(pecas * unitario) })
             continue
         }
 
@@ -383,11 +397,12 @@ export function calcularTipologia(e: EntradaDoMotor): ResultadoDoMotor {
         const pesoConsumidoKg = item.peso === null ? null : (mmTotais / 1000) * item.peso
         const pesoCompradoKg = item.peso === null ? null : e.modo === 'consumo' ? pesoConsumidoKg : barras * item.medida_barra_m * item.peso
         if (item.peso === null) avisos.push({ tipo: 'peso_ausente', codigo, mensagem: `o item ${codigo} não tem peso` })
-        linhas.push({ ...base, mmTotais, barras, aproveitamento, pesoConsumidoKg, pesoCompradoKg, valorBruto })
+        linhas.push({ ...base, mmTotais, barras, aproveitamento, pesoConsumidoKg, pesoCompradoKg, ...brutoEIpi(valorBruto) })
     }
 
     const somar = (ls: LinhaDoCalculo[]): TotalDoCalculo => ({
         valorBruto: ls.reduce((s, l) => s + l.valorBruto, 0),
+        ipiPorFora: ls.some((l) => l.ipiPorFora === null) ? null : ls.reduce((s, l) => s + (l.ipiPorFora as number), 0),
         pesoConsumidoKg: ls.some((l) => l.pesoConsumidoKg === null) ? null : ls.reduce((s, l) => s + (l.pesoConsumidoKg as number), 0),
         pesoCompradoKg: ls.some((l) => l.pesoCompradoKg === null) ? null : ls.reduce((s, l) => s + (l.pesoCompradoKg as number), 0),
         linhas: ls.length,
