@@ -66,7 +66,7 @@ const com = (v: Record<string, number>): Resolver => (nome) => (nome in v ? { ok
 describe('(1) a fórmula em pt-BR resolve certo', () => {
     it.each([
         ['1/2·L − 4,2', { L: 1500 }, 745.8],
-        ['H − 87,8', { H: 1200 }, 1112.2],
+        ['H − 11,1', { H: 1200 }, 1188.9],
         ['L + 6', { L: 1500 }, 1506],
         ['(NF*2)', { NF: 4 }, 8],
         ['-2 + 3·(1,5 − 0,5)', {}, 1],
@@ -185,16 +185,19 @@ describe('(3) variável ausente NÃO vira zero', () => {
         expect(r.pendentes).toEqual([expect.objectContaining({ variavel: 'NF', formula: '(NF*2)' })])
     })
 
-    it('a família dá o valor pela linha (QMA = NF − 1, NF = 4), e o usuário VENCE a família', () => {
+    // MECANISMO, não medida: tipologia e NF fictícios. O 7, o 9 e o 11 não pertencem a nenhuma linha
+    // real — o NF da DP-02 é 2, e o 4 que este caso usava veio da família da extração antiga.
+    it('a família dá o valor pela linha (QMA = NF − 1, NF = 7), e o usuário VENCE a família', () => {
         const formulas = [
-            { linha: 'EUROPA 42', variavel: 'NF', formula: '4' },
+            { linha: 'EUROPA 42', variavel: 'NF', formula: '7' },
             { linha: 'EUROPA 42', variavel: 'QMA', formula: '(NF-1)' },
-            { linha: 'OUTRA', variavel: 'NF', formula: '9' },
+            { linha: 'OUTRA', variavel: 'NF', formula: '11' },
         ]
-        const sem = calcularTipologia(entrada([regra('9681', { formula_qtde: '(QMA*2)' })], [perfil('9681')], { formulas }))
-        expect(sem.linhas[0].pecas).toBe(6)
-        const comUsuario = calcularTipologia(entrada([regra('9681', { formula_qtde: '(QMA*2)' })], [perfil('9681')], { formulas, variaveis: { NF: 5 } }))
-        expect(comUsuario.linhas[0].pecas).toBe(8)
+        const regras = [regra('9681', { formula_qtde: '(QMA*2)', tipologias: ['TST-FAM-01'] })]
+        const sem = calcularTipologia(entrada(regras, [perfil('9681')], { formulas, tipologia: 'TST-FAM-01' }))
+        expect(sem.linhas[0].pecas).toBe(12)
+        const comUsuario = calcularTipologia(entrada(regras, [perfil('9681')], { formulas, tipologia: 'TST-FAM-01', variaveis: { NF: 9 } }))
+        expect(comUsuario.linhas[0].pecas).toBe(16)
     })
 
     it('o ramo do IIF que não é escolhido não exige a variável dele', () => {
