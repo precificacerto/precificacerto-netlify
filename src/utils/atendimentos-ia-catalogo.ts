@@ -71,8 +71,18 @@ export function extensaoDoArquivo(nome: string): string {
 
 export const arquivoImportavel = (nome: string) => (EXTENSOES_IMPORTAVEIS as readonly string[]).includes(extensaoDoArquivo(nome))
 
-export const fraseDoArquivoNaoImportavel = (nome: string) =>
-    fraseDoArquivo(nome, `a extensão ${extensaoDoArquivo(nome) || '(sem extensão)'} é aceita no envio, mas não é importável. A importação lê ${EXTENSOES_IMPORTAVEIS.join(' e ')}.`)
+/** O PORQUÊ de cada extensão aceita no envio e não importável — a tela diz a extensão e o motivo dela. */
+export const MOTIVO_DA_EXTENSAO_NAO_IMPORTAVEL: Record<string, string> = {
+    '.xls': 'é o formato antigo do Excel, que o leitor não abre — salve a planilha como .xlsx ou .xlsm',
+    '.csv': 'não é uma planilha do Excel, e a importação só lê planilha',
+    '.pdf': 'não é uma planilha do Excel, e a importação só lê planilha',
+}
+
+export function fraseDoArquivoNaoImportavel(nome: string): string {
+    const ext = extensaoDoArquivo(nome)
+    const porque = MOTIVO_DA_EXTENSAO_NAO_IMPORTAVEL[ext] ?? 'não é uma planilha que a importação leia'
+    return fraseDoArquivo(nome, `a extensão ${ext || '(sem extensão)'} é aceita no envio, mas não é importável: ${porque}. A importação lê ${EXTENSOES_IMPORTAVEIS.join(' e ')}.`)
+}
 
 /** O motivo da recusa de formato — o mesmo na tela e na rota. */
 export const MOTIVO_DO_FORMATO_RECUSADO = `Formato não aceito. Use ${EXTENSOES_ACEITAS.join(', ')}.`

@@ -14,21 +14,40 @@
  * alerta alto sem correção e é só de desenvolvimento (decisão do dono do produto, 20/10/2026).
  *
  * O MAPA DAS COLUNAS é o medido pela sessão de verificação nos arquivos reais da Wolff
- * (20/10/2026), em `ABAS_DA_IMPORTACAO` e nos `COL_*` abaixo. Os nomes das abas são os da Wolff:
- * um fornecedor com outros nomes é RECUSADO com o nome esperado e os encontrados, nunca lido
- * pela aba errada.
+ * (20/10/2026), em `ABAS_DA_IMPORTACAO` e nos `COL_*` abaixo.
  *
- * A COLUNA 11 DO PREÇO E A 3 DO MOTOR chegam aqui como `categoria_do_arquivo`, um nome sem a raiz
- * que o vocabulário da área reserva ao sistema do cliente (EPIC §11; decisão do dono do produto,
- * 20/10/2026 — o portão de vocabulário NÃO é alargado para a propriedade). No banco elas são
- * `orcamentista_tabela_item.segmento` e `orcamentista_motor_regra.segmento`, que guardam o valor
- * como veio do arquivo do fornecedor.
+ * ══ LIMITE CONHECIDO: O LEITOR CONHECE AS ABAS DA WOLFF, E SÓ ELAS (dono do produto, 20/10/2026) ══
+ * Os nomes das abas e as posições das colunas são os da Wolff. Um fornecedor com abas de outro
+ * nome é RECUSADO com o nome esperado e os encontrados — nunca lido pela aba errada. Atender
+ * outro fornecedor vai precisar de um MAPA POR FORNECEDOR, que NÃO foi construído: decisão de
+ * não construí-lo agora.
+ *
+ * O CABEÇALHO: no motor e na família é a PRIMEIRA linha da aba (medido pelo dono do produto). Na
+ * aba de preço NÃO vale essa regra: lá o cabeçalho se repete, uma vez por seção, e se reconhece
+ * pela palavra "CÓDIGO" na coluna 2.
+ *
+ * A COLUNA 11 DO PREÇO E A 3 DO MOTOR vão para a coluna do banco que guarda o valor como veio do
+ * arquivo do fornecedor (`orcamentista_tabela_item.segmento` e
+ * `orcamentista_motor_regra.segmento`). O nome dessa chave é declarado UMA vez, em
+ * `COLUNA_DA_CATEGORIA_DO_FORNECEDOR`, e todo o resto usa a constante — a declaração é a exceção
+ * nominal do portão de vocabulário, e a palavra solta continua proibida na área (EPIC §11).
  *
  * Portão: `src/utils/__tests__/atendimentos-ia-importacao-leitor.test.ts`.
  */
 import ExcelJS from 'exceljs'
 
 import { arquivoImportavel, fraseDoArquivo, fraseDoArquivoNaoImportavel } from '@/utils/atendimentos-ia-catalogo'
+
+/**
+ * O nome da coluna do banco que guarda a categoria COMO VEIO DO ARQUIVO DO FORNECEDOR, nas duas
+ * tabelas (o item do preço e a regra do motor). DECLARADO AQUI E SÓ AQUI — decisão do dono do
+ * produto, 20/10/2026: é o nome da coluna do arquivo, e renomeá-la faria o código mentir sobre o
+ * arquivo. Esta linha é a exceção nominal do portão de vocabulário.
+ */
+export const COLUNA_DA_CATEGORIA_DO_FORNECEDOR = 'segmento' as const
+
+/** A chave da categoria do fornecedor, pela constante. */
+type CategoriaDoFornecedor = { [K in typeof COLUNA_DA_CATEGORIA_DO_FORNECEDOR]: string | null }
 
 // ── O mapa medido ──────────────────────────────────────────────────────────────────────────
 export const ABAS_DA_IMPORTACAO = {
@@ -61,8 +80,8 @@ const COL_MOTOR = {
 const COL_FAMILIA = { linha_original: 1, variavel: 2, descricao: 3, formula: 4, formula_em_lh: 5, pct_padrao: 7 } as const
 
 // ── O que sai ──────────────────────────────────────────────────────────────────────────────
-/** Uma linha de `orcamentista_tabela_item`, sem `id` e `tabela_id`. */
-export interface ItemLido {
+/** Uma linha de `orcamentista_tabela_item`, sem `id` e `tabela_id`. A categoria vem em `CategoriaDoFornecedor`. */
+export type ItemLido = CategoriaDoFornecedor & {
     codigo: string
     descricao: string | null
     medida_barra_m: number | null
@@ -71,8 +90,6 @@ export interface ItemLido {
     peso: number | null
     ipi: number | null
     pacote: string | null
-    /** Corresponde à coluna `orcamentista_tabela_item.segmento` — ver o cabeçalho. */
-    categoria_do_arquivo: string | null
     custo: number | null
     /** O TÍTULO acima do cabeçalho da seção. NULL = linha antes de qualquer seção. */
     secao: string | null
@@ -85,12 +102,10 @@ export interface ItemLido {
     valor_barra_12: number | null
 }
 
-/** Uma linha de `orcamentista_motor_regra`, sem `id` e `tabela_id`. */
-export interface RegraLida {
+/** Uma linha de `orcamentista_motor_regra`, sem `id` e `tabela_id`. A categoria vem em `CategoriaDoFornecedor`. */
+export type RegraLida = CategoriaDoFornecedor & {
     codigo: string
     descricao: string | null
-    /** Corresponde à coluna `orcamentista_motor_regra.segmento` — ver o cabeçalho. */
-    categoria_do_arquivo: string | null
     cor: string | null
     codigo_wvetro: string | null
     linha: string | null
@@ -111,12 +126,8 @@ export interface TipologiaLida {
     linha: string | null
     n_regras: number
     n_condicionais: number
-    /**
-     * PENDENTE — `null` é "não derivado", e a coluna é NOT NULL: a gravação desta linha não pode
-     * acontecer até o dono do produto dizer de onde as variáveis saem. Lista vazia afirmaria
-     * "não há variáveis" (`ausente-vs-falso.md`), e por isso não é usada aqui.
-     */
-    variaveis: string[] | null
+    /** As variáveis das condições das regras desta tipologia — ver `variaveisDasCondicoes`. */
+    variaveis: string[]
 }
 
 /** Uma linha de `orcamentista_motor_formula_familia`, sem `id` e `tabela_id`. */
@@ -299,7 +310,7 @@ function lerPreco(ws: ExcelJS.Worksheet): { itens: ItemLido[]; avisos: Aviso[]; 
             peso: l.numero(r, COL_PRECO.peso),
             ipi: l.numero(r, COL_PRECO.ipi),
             pacote: l.texto(r, COL_PRECO.pacote),
-            categoria_do_arquivo: l.texto(r, COL_PRECO.categoria_do_arquivo),
+            [COLUNA_DA_CATEGORIA_DO_FORNECEDOR]: l.texto(r, COL_PRECO.categoria_do_arquivo),
             custo: l.numero(r, COL_PRECO.custo),
             secao: secao.titulo,
             aliquota_interna_pct: secao.aliquota,
@@ -337,7 +348,7 @@ function lerMotor(ws: ExcelJS.Worksheet): { regras: RegraLida[]; avisos: Aviso[]
         regras.push({
             codigo,
             descricao: l.texto(r, COL_MOTOR.descricao),
-            categoria_do_arquivo: l.texto(r, COL_MOTOR.categoria_do_arquivo),
+            [COLUNA_DA_CATEGORIA_DO_FORNECEDOR]: l.texto(r, COL_MOTOR.categoria_do_arquivo),
             cor: l.texto(r, COL_MOTOR.cor),
             codigo_wvetro: l.texto(r, COL_MOTOR.codigo_wvetro),
             linha: l.texto(r, COL_MOTOR.linha),
@@ -374,14 +385,33 @@ function lerFamilia(ws: ExcelJS.Worksheet): { formulas: FormulaLida[]; avisos: A
     return { formulas, avisos: l.avisos }
 }
 
-/** O resumo por tipologia, derivado das regras. As variáveis ficam PENDENTES — ver `TipologiaLida`. */
+/**
+ * As VARIÁVEIS de uma tipologia: junta a `condicao` (coluna 15) de todas as regras da tipologia,
+ * extrai os identificadores em MAIÚSCULAS de 1 a 4 letras (`\b[A-Z]{1,4}\b`), joga fora AND, OR e
+ * IIF, e devolve o conjunto ordenado. Regra medida pela sessão de verificação, 20/10/2026, nos
+ * arquivos da Wolff — DP-148 dá AQ, CA, FV, M, N, PM, PT.
+ *
+ * ══ A LISTA VAZIA É RESPOSTA LEGÍTIMA — A EXCEÇÃO QUE PARECE ERRO ══
+ * Uma tipologia cujas regras NÃO têm condição nenhuma não tem variável nenhuma, e o vetor vazio
+ * gravado para ela é MEDIÇÃO, não suposição nem dado faltando: 5 das 157 tipologias da Wolff são
+ * assim (sessão de verificação, 20/10/2026). Não é o `[]` de "não sei" que `ausente-vs-falso.md`
+ * proíbe — e quem o "corrigir" para NULL quebra a coluna, que é NOT NULL, e apaga a medição.
+ */
+const NAO_SAO_VARIAVEIS = new Set(['AND', 'OR', 'IIF'])
+export function variaveisDasCondicoes(condicoes: string[]): string[] {
+    const achadas = new Set<string>()
+    for (const c of condicoes) for (const m of c.match(/\b[A-Z]{1,4}\b/g) ?? []) if (!NAO_SAO_VARIAVEIS.has(m)) achadas.add(m)
+    return [...achadas].sort()
+}
+
+/** O resumo por tipologia, derivado das regras. */
 function resumirTipologias(regras: RegraLida[]): { tipologias: TipologiaLida[]; avisos: Aviso[] } {
-    const por = new Map<string, { n: number; cond: number; linhas: Set<string> }>()
+    const por = new Map<string, { n: number; condicoes: string[]; linhas: Set<string> }>()
     for (const r of regras) {
         for (const t of r.tipologias) {
-            const x = por.get(t) ?? { n: 0, cond: 0, linhas: new Set<string>() }
+            const x = por.get(t) ?? { n: 0, condicoes: [], linhas: new Set<string>() }
             x.n += 1
-            if (r.condicao !== null) x.cond += 1
+            if (r.condicao !== null) x.condicoes.push(r.condicao)
             if (r.linha !== null) x.linhas.add(r.linha)
             por.set(t, x)
         }
@@ -390,7 +420,13 @@ function resumirTipologias(regras: RegraLida[]): { tipologias: TipologiaLida[]; 
     const tipologias = [...por.entries()].map(([tipologia, x]): TipologiaLida => {
         const linhas = [...x.linhas]
         if (linhas.length > 1) avisos.push({ tipo: 'tipologia_em_mais_de_uma_linha', tipologia, linhas, mensagem: `a tipologia ${tipologia} aparece em ${linhas.join(', ')} — linha fica NULL` })
-        return { tipologia, linha: linhas.length === 1 ? linhas[0] : null, n_regras: x.n, n_condicionais: x.cond, variaveis: null }
+        return {
+            tipologia,
+            linha: linhas.length === 1 ? linhas[0] : null,
+            n_regras: x.n,
+            n_condicionais: x.condicoes.length,
+            variaveis: variaveisDasCondicoes(x.condicoes),
+        }
     })
     return { tipologias, avisos }
 }
