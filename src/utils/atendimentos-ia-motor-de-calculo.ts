@@ -53,6 +53,11 @@
  * em `valor_metro_interno` e `valor_barra_interno`. O PREÇO UNITÁRIO ESTÁ EM `valor_metro_interno`,
  * apesar do nome dizer metro. E não se mediu onde estaria o unitário a 12%: com a coluna de 12%, o
  * item por unidade vai para pendentes em vez de ler uma coluna que ninguém conferiu.
+ * HOJE A ARMADILHA NÃO MUDA RESULTADO — medido no banco de produção, 20/10/2026: nos 48 itens por
+ * unidade da Wolff os dois valores são IGUAIS (unit = total; 8595: 1,26 e 1,26 · 9411: 2,04 e
+ * 2,04). A regra continua valendo, porque o próximo arquivo pode não ser assim. E a seção TEM
+ * percentual no cabeçalho ("VALOR UNIT 17%", "VALOR TOTAL 17%"): os 48 têm `aliquota_interna_pct`
+ * 17, e o líquido dos acessórios sai.
  *
  * ══ 26 INSUMOS CUJO ITEM É VENDIDO POR BARRA — PENDENTES, E NÃO SÃO RAROS ══
  * Medido em 20/10/2026: 26 códigos de Insumo têm o item vendido por barra (e zero Perfil por
@@ -93,6 +98,12 @@
  *   - PIS e COFINS: SÓ DA ENTRADA, e NÃO HÁ VALOR PADRÃO no código — dependem do regime da conta, e
  *     o motor não conhece regime. Um portão proíbe as alíquotas usuais escritas nestes dois arquivos;
  *   - IPI: a fração do próprio item.
+ * ══ DUAS UNIDADES NA MESMA CONTA, E É DE PROPÓSITO — NÃO UNIFORMIZE ══
+ * ICMS, PIS e COFINS são PERCENTUAIS — 17 é 17%, e a conta divide por 100 —, porque é assim que
+ * `aliquota_interna_pct` vem do item e é assim que a entrada os recebe. O `ipi` é FRAÇÃO — 0,065 é
+ * 6,5%, e a conta multiplica direto —, porque é assim que a coluna vem do arquivo. CADA UM VEM COMO
+ * VEM. "Uniformizar" um deles sem mudar a origem faz o IPI sair cem vezes maior, ou o ICMS cem vezes
+ * menor — e os portões (5b) e (9) ficam vermelhos.
  * FALTANDO QUALQUER ALÍQUOTA, O LÍQUIDO NÃO SAI: a linha mostra o bruto e diz qual faltou, e o total
  * fica nulo se uma linha ficou. Líquido chutado é pior que líquido ausente.
  * O QUE SE FAZ COM O IPI vem da entrada (`tratamentoDoIpi`): somado ao custo, ou creditado. Faltando
@@ -394,6 +405,7 @@ export function calcularTipologia(e: EntradaDoMotor): ResultadoDoMotor {
             const ipiPorFora = item.ipi === null ? null : valorBruto * item.ipi
             const icmsPct = e.colunaDePreco === 'interna' ? item.aliquota_interna_pct : e.fiscal?.icmsInterestadualPct ?? null
             if (e.colunaDePreco === 'interna' && icmsPct === null) avisos.push({ tipo: 'aliquota_ausente', codigo, mensagem: `o item ${codigo} não tem a alíquota interna de ICMS` })
+            // PERCENTUAL ÷ 100 aqui; o `ipi`, acima, é FRAÇÃO e multiplica direto. Ver o cabeçalho.
             const sobreOBruto = (pct: number | null) => (pct === null ? null : valorBruto * (pct / 100))
             const icms = sobreOBruto(icmsPct)
             const pis = sobreOBruto(e.fiscal?.pisPct ?? null)
