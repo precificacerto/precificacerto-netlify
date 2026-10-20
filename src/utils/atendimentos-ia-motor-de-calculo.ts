@@ -41,6 +41,10 @@
  * branco, R$ 893. A cor filtra a REGRA; o item de preço é achado só pelo código, que já carrega a
  * cor. Perfil filtra pela cor do perfil; REFORÇO não tem cor e não é filtrado; acessório filtra
  * pela cor do ACESSÓRIO. Regra sem cor escrita não é filtrada — não há com o que comparar.
+ * A REGRA CUJA CONDIÇÃO USA CA TAMBÉM NÃO É FILTRADA: a condição já escolhe a cor. Medido em
+ * 20/10/2026, três trios — corta vento 9411 / 9419 / 94114, tapa furo 3571 / 3579 / 35714, flip de
+ * drenagem 87341 / 87349 / 873414, com CA = 1, 2, 3. O 87341 é o flip BRANCO (o obs diz), mas a
+ * célula de cor dele traz "(DESAGUE)", e o filtro o jogava fora de um pedido branco.
  * A categoria que decide isso é a do MOTOR (col. 3: "Perfil PVC", "Reforço", "Acessórios"), porque
  * é a regra que está sendo aplicada; a do preço fica como informação do item.
  *
@@ -119,7 +123,7 @@
  */
 import { avaliarCondicao, avaliarNumero, falhaDe, type Avaliacao, type Resolver } from '@/utils/atendimentos-ia-motor-formula'
 import {
-    COLUNA_DA_CATEGORIA_DO_FORNECEDOR, normalizarLinha, type FormulaLida, type ItemLido, type RegraLida,
+    COLUNA_DA_CATEGORIA_DO_FORNECEDOR, normalizarLinha, variaveisDasCondicoes, type FormulaLida, type ItemLido, type RegraLida,
 } from '@/utils/atendimentos-ia-importacao'
 
 // ── A entrada ──────────────────────────────────────────────────────────────────────────────
@@ -338,9 +342,11 @@ export function calcularTipologia(e: EntradaDoMotor): ResultadoDoMotor {
         const classe = classeDaCategoria(categoria)
         if (!classe) { pendenteDaRegra(r, `categoria do motor fora das medidas: "${categoria ?? ''}"`, null); continue }
 
-        // A cor filtra o perfil pela cor do perfil, o acessório pela do acessório; o reforço não.
-        if (r.cor !== null && classe === 'perfil' && !mesmaCor(r.cor, e.corPerfil)) continue
-        if (r.cor !== null && classe === 'acessorio' && !mesmaCor(r.cor, e.corAcessorio)) continue
+        // A cor filtra o perfil pela cor do perfil, o acessório pela do acessório; o reforço não. A
+        // regra cuja condição usa CA não passa pelo filtro: a condição já escolhe a cor.
+        const corPelaCondicao = r.condicao !== null && variaveisDasCondicoes([r.condicao]).includes('CA')
+        if (!corPelaCondicao && r.cor !== null && classe === 'perfil' && !mesmaCor(r.cor, e.corPerfil)) continue
+        if (!corPelaCondicao && r.cor !== null && classe === 'acessorio' && !mesmaCor(r.cor, e.corAcessorio)) continue
 
         if (r.condicao !== null) {
             const c = avaliarCondicao(r.condicao, resolver)

@@ -20,6 +20,11 @@
  *     SEMPRE 1. O ROUND NÃO TEM o argumento de casas: "ROUND(QTPAL*0,8)" é ROUND(QTPAL × 0,8), e
  *     lê-lo com dois argumentos calcularia errado em silêncio.
  *
+ * ══ O SÍMBOLO COM "&" É PENDENTE, NOMEANDO O SÍMBOLO ══
+ * "&ARI", "&MAI", "&MAE", "&FV", "&FF", "&J", "&PF", "&MD": medido em 20/10/2026, 40 das 137
+ * fórmulas da família os usam, e 0 das 4.055 regras. NÃO HÁ TABELA com esses valores, e nunca se
+ * chuta: a fórmula vai para pendentes com o símbolo nomeado como a variável que faltou.
+ *
  * QUALQUER COISA FORA DISSO NÃO É ADIVINHADA: devolve `ok: false` com o motivo, e quem chamou põe a
  * fórmula, COMO ESTÁ ESCRITA, em pendentes.
  *
@@ -30,7 +35,9 @@
  *   - nos argumentos do IIF, que espera 3: a vírgula de topo é SEPARADOR — "IIF(UT=1,8,4)" tem 3;
  *   - nos de ROUND e ARREDMAIOR, que esperam 1: a vírgula de topo colada entre dígitos é DECIMAL,
  *     nunca separador — "ROUND(QTPAL*0,8)" tem 1;
- *   - função desconhecida, ou contagem que não bate com a aridade: pendente, com a fórmula literal.
+ *   - função desconhecida: pendente, com a fórmula literal;
+ *   - contagem que não fecha com a aridade: pendente com o motivo "VÍRGULA AMBÍGUA" — não se tenta
+ *     desambiguar. Na família, 13 fórmulas caem aqui (20/10/2026).
  * Medido: os 314 IIF dão exatamente 3, os 166 ARREDMAIOR e os 36 ROUND dão 1. Nenhum caso real fica
  * ambíguo com esta regra. Um decimal escrito solto num argumento do IIF ("IIF(L>1000,0,5,1)") dá
  * 4 argumentos e vai para pendentes; dentro de parênteses ("IIF(UT=1,(NF*0,5),2)") ele é decimal.
@@ -111,6 +118,10 @@ function tokenizar(texto: string): Token[] {
         if (c === '(') { tokens.push({ t: '(' }); i++; continue }
         if (c === ')') { tokens.push({ t: ')' }); i++; continue }
         if (c === ',') { tokens.push({ t: ',', ini: i }); i++; continue }
+        if (c === '&') {
+            const simbolo = `&${/^[A-Za-z0-9_]*/.exec(texto.slice(i + 1))![0]}`
+            throw new Pendente(`símbolo "${simbolo}" sem tabela de valores — não se chuta`, simbolo)
+        }
         throw new Pendente(`caractere "${c}" fora do que o avaliador conhece`)
     }
     return tokens
@@ -232,7 +243,9 @@ class Analisador {
             })
             if (this.olhar()?.t !== ')') throw new Pendente(`a chamada de ${nome} não fecha o parêntese`)
             this.p++
-            if (args.length !== FUNCOES_ACEITAS[nome]) throw new Pendente(`${nome} com ${args.length} argumento(s); a forma medida tem ${FUNCOES_ACEITAS[nome]}`)
+            // VÍRGULA AMBÍGUA: a contagem não fecha com a aridade medida, e a gramática não decide
+            // entre as leituras ("80.64/8" ou "80/64.8"?). Medido: 13 fórmulas da família caem aqui.
+            if (args.length !== FUNCOES_ACEITAS[nome]) throw new Pendente(`vírgula ambígua: ${nome} com ${args.length} item(ns) separados por vírgula, e a aridade é ${FUNCOES_ACEITAS[nome]}`)
             return { k: 'fn', nome, args }
         }
         throw new Pendente('símbolo fora do lugar')
