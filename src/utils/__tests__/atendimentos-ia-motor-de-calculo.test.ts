@@ -18,7 +18,10 @@
  *       acessório;
  *   (7) a quantidade ambígua: uma alternativa sem marca, duas ou três marcadas, e o total soma;
  *   (8) o insumo: o unitário está em `valor_metro_interno`; vendido por barra é pendente;
- *   (9) o líquido NÃO é calculado — nem com a entrada fiscal preenchida — e a saída diz por quê;
+ *   (9) O LÍQUIDO (dono do produto, 20/10/2026): bruto − ICMS − PIS − COFINS, todos sobre o bruto, com
+ *       as alíquotas da ENTRADA (o ICMS interno sai do item). Faltando QUALQUER alíquota, o líquido
+ *       não sai e a linha diz qual faltou — e o total segue a regra. O IPI é linha própria, fora do
+ *       líquido; o que se faz com ele vem da entrada. Nenhuma alíquota padrão no código;
  *  (10) código sem preço, e os totais por categoria;
  * (1b) A VÍRGULA PELA ARIDADE CONHECIDA (medição de 20/10/2026 nas 4.055 regras): IIF tem
  *       SEMPRE 3 argumentos e as vírgulas de topo dele são separadores; ROUND e ARREDMAIOR têm
@@ -33,8 +36,8 @@ import * as path from 'path'
 
 import { avaliarCondicao, avaliarNumero, type Resolver } from '@/utils/atendimentos-ia-motor-formula'
 import {
-    calcularTipologia, MOTIVO_INSUMO_VENDIDO_POR_BARRA, MOTIVO_SEM_LIQUIDO, PESO_E_APROXIMADO,
-    type EntradaDoMotor, type ItemDoPreco, type RegraDoMotor,
+    calcularTipologia, MOTIVO_INSUMO_VENDIDO_POR_BARRA, PESO_E_APROXIMADO,
+    type EntradaDoMotor, type EntradaFiscal, type ItemDoPreco, type RegraDoMotor,
 } from '@/utils/atendimentos-ia-motor-de-calculo'
 import { COLUNA_DA_CATEGORIA_DO_FORNECEDOR } from '@/utils/atendimentos-ia-importacao'
 
@@ -44,11 +47,11 @@ const regra = (codigo: string, extra: Partial<RegraDoMotor> = {}): RegraDoMotor 
     ...extra,
 })
 const perfil = (codigo: string, extra: Partial<ItemDoPreco> = {}): ItemDoPreco => ({
-    codigo, descricao: `item ${codigo}`, medida_barra_m: 6, peso: 2, ipi: 0, vendido_por: 'barra',
+    codigo, descricao: `item ${codigo}`, medida_barra_m: 6, peso: 2, ipi: 0, aliquota_interna_pct: 17, vendido_por: 'barra',
     valor_metro_interno: 100, valor_barra_interno: 600, valor_metro_12: 90, valor_barra_12: 540, ...extra,
 })
 const unitario = (codigo: string, extra: Partial<ItemDoPreco> = {}): ItemDoPreco => ({
-    codigo, descricao: `item ${codigo}`, medida_barra_m: null, peso: 0.05, ipi: 0, vendido_por: 'unidade',
+    codigo, descricao: `item ${codigo}`, medida_barra_m: null, peso: 0.05, ipi: 0, aliquota_interna_pct: null, vendido_por: 'unidade',
     valor_metro_interno: 3.5, valor_barra_interno: 35, valor_metro_12: null, valor_barra_12: null, ...extra,
 })
 const entrada = (regras: RegraDoMotor[], itens: ItemDoPreco[], extra: Partial<EntradaDoMotor> = {}): EntradaDoMotor => ({
@@ -313,15 +316,86 @@ describe('(8) o insumo', () => {
     })
 })
 
-describe('(9) o líquido não é calculado nesta versão', () => {
-    it('nem com a entrada fiscal preenchida: o bruto não muda, o líquido sai NULO e a saída diz por quê', () => {
-        const regras = [regra('9681', { formula_em_lh: '3500', formula_qtde: '2' })]
-        const fiscal = { icmsPct: 18, creditaIcms: true, pisCofinsPct: 9.25, creditaPisCofins: true, basePisCofins: 'bruto' as const }
-        const r = calcularTipologia(entrada(regras, [perfil('9681')], { fiscal }))
-        expect(r.linhas[0].valorBruto).toBe(1200)
-        expect(r.linhas[0].valorLiquido).toBeNull()
-        expect(r.valorLiquido).toBeNull()
-        expect(r.motivoSemLiquido).toBe(MOTIVO_SEM_LIQUIDO)
+describe('(9) o líquido', () => {
+    // Uma barra de R$ 1.000: 3.000 mm numa barra de 6 m.
+    const regras = [regra('9681', { formula_em_lh: '3000', formula_qtde: '1' })]
+    const item = (extra: Partial<ItemDoPreco> = {}) => perfil('9681', { valor_barra_interno: 1000, valor_barra_12: 1000, aliquota_interna_pct: 17, ipi: 0.065, ...extra })
+    const fiscal = (extra: Partial<EntradaFiscal> = {}): EntradaFiscal => ({ icmsInterestadualPct: null, pisPct: 1.65, cofinsPct: 7.6, tratamentoDoIpi: null, ...extra })
+
+    it('bruto 1.000, ICMS 17%, PIS 1,65%, COFINS 7,6% → líquido 737,50', () => {
+        const [l] = calcularTipologia(entrada(regras, [item()], { fiscal: fiscal() })).linhas
+        expect(l.valorBruto).toBe(1000)
+        expect([l.icms, l.pis, l.cofins]).toEqual([170, 16.5, 76])
+        expect(l.valorLiquido).toBeCloseTo(737.5, 9)
+        expect(l.motivoSemLiquido).toBeNull()
+    })
+
+    it('alíquota de PIS ausente: líquido NULO, a linha e o aviso nomeiam o PIS, o bruto fica intacto', () => {
+        const r = calcularTipologia(entrada(regras, [item()], { fiscal: fiscal({ pisPct: null }) }))
+        const [l] = r.linhas
+        expect(l.valorBruto).toBe(1000)
+        expect(l.valorLiquido).toBeNull()
+        expect(l.motivoSemLiquido).toMatch(/PIS/)
+        expect(l.motivoSemLiquido).not.toMatch(/COFINS|ICMS/)
+        expect(r.avisos).toEqual(expect.arrayContaining([expect.objectContaining({ tipo: 'aliquota_ausente', mensagem: expect.stringMatching(/PIS/) })]))
+        expect(r.total.valorLiquido).toBeNull()
+    })
+
+    it('sem entrada fiscal nenhuma: líquido NULO, e as três faltas nomeadas', () => {
+        const [l] = calcularTipologia(entrada(regras, [item()])).linhas
+        expect(l.valorLiquido).toBeNull()
+        expect(l.motivoSemLiquido).toMatch(/PIS/)
+        expect(l.motivoSemLiquido).toMatch(/COFINS/)
+    })
+
+    it('ICMS interno sai do ITEM: sem `aliquota_interna_pct`, líquido nulo nomeando o ICMS', () => {
+        const [l] = calcularTipologia(entrada(regras, [item({ aliquota_interna_pct: null })], { fiscal: fiscal() })).linhas
+        expect(l.valorLiquido).toBeNull()
+        expect(l.motivoSemLiquido).toMatch(/ICMS/)
+    })
+
+    it('interestadual: o ICMS vem da ENTRADA — 12% dá 787,50; sem ela, nulo nomeando o ICMS', () => {
+        const com12 = calcularTipologia(entrada(regras, [item()], { colunaDePreco: 'doze', fiscal: fiscal({ icmsInterestadualPct: 12 }) })).linhas[0]
+        expect(com12.icms).toBeCloseTo(120, 9)
+        expect(com12.valorLiquido).toBeCloseTo(787.5, 9)
+        const sem = calcularTipologia(entrada(regras, [item()], { colunaDePreco: 'doze', fiscal: fiscal() })).linhas[0]
+        expect(sem.valorLiquido).toBeNull()
+        expect(sem.motivoSemLiquido).toMatch(/ICMS/)
+    })
+
+    it('ipi 0,065 sobre 1.000 → IPI 65, FORA do líquido', () => {
+        const [l] = calcularTipologia(entrada(regras, [item()], { fiscal: fiscal() })).linhas
+        expect(l.ipiPorFora).toBeCloseTo(65, 9)
+        expect(l.valorLiquido).toBeCloseTo(737.5, 9)
+    })
+
+    it('o que se faz com o IPI vem da entrada: soma ao custo, credita — ou, sem a informação, NÃO é aplicado', () => {
+        const custo = (tratamentoDoIpi: EntradaFiscal['tratamentoDoIpi']) =>
+            calcularTipologia(entrada(regras, [item()], { fiscal: fiscal({ tratamentoDoIpi }) }))
+        expect(custo('soma-ao-custo').linhas[0].custo).toBeCloseTo(802.5, 9)
+        expect(custo('credita').linhas[0].custo).toBeCloseTo(737.5, 9)
+        const sem = custo(null)
+        expect(sem.linhas[0].custo).toBeNull()
+        expect(sem.linhas[0].ipiPorFora).toBeCloseTo(65, 9)
+        expect(sem.avisos).toEqual(expect.arrayContaining([expect.objectContaining({ tipo: 'ipi_sem_tratamento' })]))
+    })
+
+    it('o total segue a regra das linhas: soma quando todas têm líquido, NULO quando uma não tem', () => {
+        const duas = [regra('9681', { formula_em_lh: '3000', formula_qtde: '1' }), regra('9682', { formula_em_lh: '3000', formula_qtde: '1' })]
+        const ok = calcularTipologia(entrada(duas, [item(), perfil('9682', { valor_barra_interno: 500, aliquota_interna_pct: 18, ipi: 0 })], { fiscal: fiscal() }))
+        // 9682: 500 − 90 − 8,25 − 38 = 363,75
+        expect(ok.total.valorLiquido).toBeCloseTo(737.5 + 363.75, 9)
+        const furo = calcularTipologia(entrada(duas, [item(), perfil('9682', { valor_barra_interno: 500, aliquota_interna_pct: null, ipi: 0 })], { fiscal: fiscal() }))
+        expect(furo.linhas.find((l) => l.codigo === '9681')!.valorLiquido).toBeCloseTo(737.5, 9)
+        expect(furo.total.valorLiquido).toBeNull()
+        expect(furo.total.valorBruto).toBe(1500)
+    })
+
+    it('nenhuma alíquota padrão nos dois módulos — PIS e COFINS dependem do regime da conta, que o motor não conhece', () => {
+        for (const arquivo of ['atendimentos-ia-motor-formula.ts', 'atendimentos-ia-motor-de-calculo.ts']) {
+            const texto = fs.readFileSync(path.resolve(__dirname, '..', arquivo), 'utf8')
+            expect(texto).not.toMatch(/\b1[.,]65\b|\b7[.,]6\b|\b9[.,]25\b|0[.,]0165|0[.,]076\b|0[.,]0925/)
+        }
     })
 })
 
