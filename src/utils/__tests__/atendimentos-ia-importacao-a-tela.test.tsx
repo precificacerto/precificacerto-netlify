@@ -23,10 +23,8 @@ import { createRoot } from 'react-dom/client'
 
 import { ROUTES } from '@/constants/routes'
 import { ROTAS_DO_CATALOGO, fraseDoArquivoNaoImportavel, type FornecedorComTabelas } from '@/utils/atendimentos-ia-catalogo'
-import {
-    ordenarPorProporcaoDeCondicionais, quandoFoiImportado, textoDoAviso,
-    type Aviso, type TipologiaLida,
-} from '@/utils/atendimentos-ia-importacao'
+import type { Aviso, TipologiaLida } from '@/utils/atendimentos-ia-importacao'
+import { ordenarPorProporcaoDeCondicionais, quandoFoiImportado, textoDoAviso } from '@/utils/atendimentos-ia-importacao-apresentacao'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 Object.defineProperty(window, 'matchMedia', {
@@ -47,7 +45,7 @@ jest.mock('next/router', () => ({
 jest.mock('@/hooks/use-auth.hook', () => ({ useAuth: () => ({ currentUser: { id: 'u-super', is_super_admin: true, role: 'super_admin' } }) }))
 jest.mock('@/components/layout/layout.component', () => ({ Layout: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }))
 
-const TABELA = { id: T, fornecedor_id: 'f1', fornecedor_nome: 'Wolf Perfis', arquivo_nome: 'Tabela Wolff.xlsm', motor_nome: 'Motor.xlsx', vigencia: null }
+const TABELA = { id: T, fornecedor_id: 'f1', fornecedor_nome: 'Wolf Perfis', arquivo_nome: 'Tabela Wolff.xlsm', motor_nome: 'Motor.xlsx', vigencia: null as string | null }
 const AVISOS: Aviso[] = [
     { tipo: 'codigo_repetido', aba: 'Tabela Wolff', codigo: 'IL4237', linhas: [556, 674], secoes: ['LAMINADOS TOTAL', 'LAMINADOS PARTE EXTERNA'], valores_batem: true, mensagem: 'm1' },
     { tipo: 'codigo_do_motor_sem_preco', codigos: ['Z9', 'Z10'], mensagem: 'm2' },
@@ -274,6 +272,38 @@ describe('(5) a ordem das tipologias é a proporção de condicionais', () => {
         const embaralhadas = [TIPOLOGIAS[3], TIPOLOGIAS[2], TIPOLOGIAS[0], TIPOLOGIAS[1],
             { tipologia: 'AB-SEM', linha: null, n_regras: 9, n_condicionais: 0, variaveis: [] }]
         expect(ordenarPorProporcaoDeCondicionais(embaralhadas).map((t) => t.tipologia)).toEqual(['DP-148', 'DP-02', 'DP-01', 'AA-SEM', 'AB-SEM'])
+    })
+})
+
+describe('(5b) a tela NÃO leva o exceljs para o navegador', () => {
+    // O leitor importa o `exceljs`. Um `import` de VALOR dele na tela, ou no módulo de apresentação,
+    // embarcaria a biblioteca inteira no navegador — e foi isso que aconteceu na primeira versão
+    // desta tela, achado porque o jsdom não carregou o módulo. Só `import type` passa.
+    /* eslint-disable @typescript-eslint/no-require-imports */
+    const fs = require('fs') as typeof import('fs')
+    const path = require('path') as typeof import('path')
+    /* eslint-enable @typescript-eslint/no-require-imports */
+    const raiz = path.resolve(__dirname, '..', '..', '..')
+    // UM import por vez: `[^;]*` atravessaria vários `import`, num arquivo sem ponto e vírgula.
+    const importaOLeitorPorValor = (t: string) => /^import\s+(?!type\b)(?:[\w*\s,]*\{[^}]*\}|[^\n{]*?)\s*from\s+['"]@\/utils\/atendimentos-ia-importacao['"]/m.test(t)
+    const importaOExceljs = (t: string) => /from\s+['"]exceljs['"]|require\(['"]exceljs['"]\)/.test(t)
+
+    it.each([
+        ['src/pages/super-admin/atendimentos-ia/tabelas/[id]/importacao.tsx'],
+        ['src/utils/atendimentos-ia-importacao-apresentacao.ts'],
+    ])('%s importa do leitor só tipo, e nada do exceljs', (arquivo) => {
+        const t = fs.readFileSync(path.join(raiz, arquivo), 'utf8')
+        expect(importaOLeitorPorValor(t)).toBe(false)
+        expect(importaOExceljs(t)).toBe(false)
+    })
+
+    it('o detector enxerga o que procura', () => {
+        expect(importaOLeitorPorValor("import { textoDoAviso } from '@/utils/atendimentos-ia-importacao'")).toBe(true)
+        expect(importaOLeitorPorValor("import type { Aviso } from '@/utils/atendimentos-ia-importacao'")).toBe(false)
+        expect(importaOLeitorPorValor("import { x } from '@/utils/atendimentos-ia-importacao-apresentacao'")).toBe(false)
+        expect(importaOLeitorPorValor("import {\n    textoDoAviso,\n} from '@/utils/atendimentos-ia-importacao'")).toBe(true)
+        expect(importaOLeitorPorValor("import React from 'react'\nimport type { Aviso } from '@/utils/atendimentos-ia-importacao'")).toBe(false)
+        expect(importaOExceljs("import ExcelJS from 'exceljs'")).toBe(true)
     })
 })
 

@@ -62,7 +62,7 @@ jest.mock('@/lib/atendimentos-ia/repositorio', () => {
         contarFormulas: fn('contarFormulas', () => 137),
     }
 })
-const DADOS = { id: T, fornecedor_id: 'f1', fornecedor_nome: 'Wolf Perfis', arquivo_nome: 'Tabela Wolff.xlsm', motor_nome: 'Motor.xlsx', vigencia: null }
+const DADOS = { id: T, fornecedor_id: 'f1', fornecedor_nome: 'Wolf Perfis', arquivo_nome: 'Tabela Wolff.xlsm', motor_nome: 'Motor.xlsx', vigencia: null as string | null }
 /** Fora de ordem de propósito: quem ordena é a ROTA. */
 const TIPOLOGIAS_DO_BANCO = [
     { tipologia: 'DP-01', linha: 'EUROPA 42', n_regras: 136, n_condicionais: 36, variaveis: ['ARE'] },
