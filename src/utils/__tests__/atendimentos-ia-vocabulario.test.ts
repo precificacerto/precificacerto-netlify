@@ -28,7 +28,9 @@
  *     DO FORNECEDOR, gravada como veio (migração `20261020000001`). Renomear faria o código mentir
  *     sobre o arquivo (decisão do dono do produto, 20/10/2026). A exceção é o nome QUALIFICADO
  *     pela tabela, como em `tenants.segment`: a palavra solta continua acusada — "o segmento do
- *     tenant" segue vermelho.
+ *     tenant" segue vermelho. NO CÓDIGO (rota, tipos), a propriedade que lê essa coluna usa um
+ *     nome SEM a raiz `segment`, com comentário dizendo que corresponde à coluna `segmento` do
+ *     arquivo do fornecedor — e esta lista NÃO é alargada para ela (dono do produto, 20/10/2026).
  *
  * O QUE FICA FORA, e por quê — para ninguém "consertar" depois (resposta 3):
  *   - `scripts/harness/`: o harness do bloco 1 cria e confere a coluna REAL `tenants.segment`, do
