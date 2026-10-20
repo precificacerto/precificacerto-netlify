@@ -88,6 +88,8 @@ describe('PORTÃO 1 — a tela do Atendimentos I.A. não fala com o banco', () =
             'src/pages/super-admin/atendimentos-ia/contas/[tenantId].tsx',
             // "Tabelas em uso" (depois do 2C.1): o componente que escolhe fornecedor e tabela.
             'src/page-parts/atendimentos-ia/tabelas-em-uso.component.tsx',
+            // A importação (20/10/2026): a tela da tabela.
+            'src/pages/super-admin/atendimentos-ia/tabelas/[id]/importacao.tsx',
         ]))
     })
 

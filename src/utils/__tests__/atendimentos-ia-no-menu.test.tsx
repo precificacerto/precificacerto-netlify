@@ -128,6 +128,7 @@ describe('a seção Atendimentos I.A. — menu e guarda', () => {
         [`${ROUTES.SUPER_ADMIN_IA_FORNECEDORES}/[id]`],
         [ROUTES.SUPER_ADMIN_IA_CONTAS],
         [`${ROUTES.SUPER_ADMIN_IA_CONTAS}/[tenantId]`],
+        [`${ROUTES.SUPER_ADMIN_IA_TABELAS}/[id]/importacao`],
     ])('(d) o GUARDA deixa o super admin em %s — e o mesmo destino FORA de /super-admin/ seria recusado', (rota) => {
         caminhoAtual = rota
         replaces.length = 0

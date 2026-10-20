@@ -56,18 +56,34 @@ jest.mock('@/lib/atendimentos-ia/repositorio', () => {
             importacao_id: 'imp-1', itens: p.itens.length, regras: p.regras.length, tipologias: p.tipologias.length, formulas: p.formulas.length,
         })),
         ultimaImportacao: fn('ultimaImportacao', () => null),
+        nomeDoUsuario: fn('nomeDoUsuario', () => 'Cristiano'),
+        obterDadosDaTabela: fn('obterDadosDaTabela', () => DADOS),
+        listarTipologias: fn('listarTipologias', () => TIPOLOGIAS_DO_BANCO),
+        contarFormulas: fn('contarFormulas', () => 137),
     }
 })
+const DADOS = { id: T, fornecedor_id: 'f1', fornecedor_nome: 'Wolf Perfis', arquivo_nome: 'Tabela Wolff.xlsm', motor_nome: 'Motor.xlsx', vigencia: null }
+/** Fora de ordem de propósito: quem ordena é a ROTA. */
+const TIPOLOGIAS_DO_BANCO = [
+    { tipologia: 'DP-01', linha: 'EUROPA 42', n_regras: 136, n_condicionais: 36, variaveis: ['ARE'] },
+    { tipologia: 'SEM', linha: null, n_regras: 5, n_condicionais: 0, variaveis: [] },
+    { tipologia: 'DP-148', linha: 'EUROPA 42', n_regras: 837, n_condicionais: 835, variaveis: ['AQ'] },
+]
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const repo = require('@/lib/atendimentos-ia/repositorio') as Record<string, jest.Mock>
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const rota = require('@/pages/api/super-admin/atendimentos-ia/tabelas/[id]/importar') as { default: (q: NextApiRequest, s: NextApiResponse) => Promise<unknown>; config: { maxDuration: number } }
+type Handler = (q: NextApiRequest, s: NextApiResponse) => Promise<unknown>
+/* eslint-disable @typescript-eslint/no-require-imports */
+const ROTA_DA_TABELA = require('@/pages/api/super-admin/atendimentos-ia/tabelas/[id]').default as Handler
+const ROTA_DO_CONTEUDO = require('@/pages/api/super-admin/atendimentos-ia/tabelas/[id]/conteudo').default as Handler
+/* eslint-enable @typescript-eslint/no-require-imports */
 
-async function chamar(method: string, id: string = T) {
+async function chamar(method: string, id: string = T, handler: Handler = rota.default) {
     let status = 0
     let json: any = null
     const res = { status(n: number) { status = n; return res }, json(b: unknown) { json = b; return res } }
-    await rota.default({ cookies: { token: 't' }, method, query: { id }, body: undefined } as unknown as NextApiRequest, res as unknown as NextApiResponse)
+    await handler({ cookies: { token: 't' }, method, query: { id }, body: undefined } as unknown as NextApiRequest, res as unknown as NextApiResponse)
     return { status, json }
 }
 
@@ -208,12 +224,60 @@ describe('GET — a última importação', () => {
         expect(r.json).toBeNull()
     })
 
-    it('com importação → a linha que o repositório devolve', async () => {
-        const linha = { id: 'imp-9', tabela_id: T, itens: 755, regras: 4055, tipologias: 157, cruzam: 549, nao_cruzam: 0, normalizados: 2, avisos: [] as unknown[] }
+    it('com importação → a linha que o repositório devolve, com o NOME de quem importou', async () => {
+        const linha = { id: 'imp-9', tabela_id: T, importado_por: 'u-super', itens: 755, regras: 4055, tipologias: 157, cruzam: 549, nao_cruzam: 0, normalizados: 2, avisos: [] as unknown[] }
         repo.ultimaImportacao.mockImplementationOnce(async () => linha)
         const r = await chamar('GET')
         expect(r.status).toBe(200)
-        expect(r.json).toEqual(linha)
+        expect(r.json).toEqual({ ...linha, importado_por_nome: 'Cristiano' })
         expect(repo.ultimaImportacao).toHaveBeenCalledWith(T)
+        expect(repo.nomeDoUsuario).toHaveBeenCalledWith('u-super')
+    })
+
+    it('sem quem importou → importado_por_nome null, e o nome não é procurado', async () => {
+        repo.ultimaImportacao.mockImplementationOnce(async () => ({ id: 'imp-9', importado_por: null }))
+        const r = await chamar('GET')
+        expect(r.json.importado_por_nome).toBeNull()
+        expect(repo.nomeDoUsuario).not.toHaveBeenCalled()
+    })
+})
+
+describe('GET /tabelas/[id] — a tabela, para a tela da importação', () => {
+    it('devolve os nomes dos arquivos e o fornecedor', async () => {
+        const r = await chamar('GET', T, ROTA_DA_TABELA)
+        expect(r.status).toBe(200)
+        expect(r.json).toEqual(DADOS)
+    })
+    it('401 sem sessão, 403 sem ser super admin', async () => {
+        perfil = null
+        expect((await chamar('GET', T, ROTA_DA_TABELA)).status).toBe(401)
+        perfil = ADMIN
+        expect((await chamar('GET', T, ROTA_DA_TABELA)).status).toBe(403)
+        expect(ordem).toEqual([])
+    })
+    it('404 em tabela inexistente', async () => {
+        repo.obterDadosDaTabela.mockImplementationOnce(async () => null)
+        expect((await chamar('GET', T, ROTA_DA_TABELA)).status).toBe(404)
+    })
+})
+
+describe('GET /tabelas/[id]/conteudo — o que está no banco', () => {
+    it('as tipologias ORDENADAS pela proporção de condicionais, e o total de fórmulas', async () => {
+        const r = await chamar('GET', T, ROTA_DO_CONTEUDO)
+        expect(r.status).toBe(200)
+        expect(r.json.tipologias.map((t: any) => t.tipologia)).toEqual(['DP-148', 'DP-01', 'SEM'])
+        expect(r.json.formulas).toBe(137)
+    })
+    it('401 sem sessão, 403 sem ser super admin', async () => {
+        perfil = null
+        expect((await chamar('GET', T, ROTA_DO_CONTEUDO)).status).toBe(401)
+        perfil = ADMIN
+        expect((await chamar('GET', T, ROTA_DO_CONTEUDO)).status).toBe(403)
+        expect(ordem).toEqual([])
+    })
+    it('404 em tabela inexistente', async () => {
+        repo.obterArquivosDaTabela.mockImplementation(async () => null)
+        expect((await chamar('GET', T, ROTA_DO_CONTEUDO)).status).toBe(404)
+        expect(repo.listarTipologias).not.toHaveBeenCalled()
     })
 })
