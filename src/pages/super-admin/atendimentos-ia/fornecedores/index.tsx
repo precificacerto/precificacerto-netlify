@@ -5,6 +5,14 @@
  * dão privilégio ao navegador, e uma lista lida por ele chegaria VAZIA, dizendo "nenhum
  * fornecedor" sobre um dado que ninguém leu. Pelo mesmo motivo, falha de leitura aqui aparece
  * como ERRO, nunca como lista vazia (`ausente-vs-falso.md`).
+ *
+ * CREDENCIAR — a recusa aparece onde a ação aconteceu (cabeçalho de `EXTENSOES_ACEITAS`):
+ *   - o fornecedor recusado: o erro aparece DENTRO do modal de credenciamento;
+ *   - o fornecedor gravado e alguma tabela recusada: o modal FECHA — o fornecedor já existe, e um
+ *     novo "Salvar credenciamento" criaria um SEGUNDO (não há índice único no nome) — e as falhas
+ *     ficam num Alert FIXO na página, acima da lista, até o usuário fechar. Cada falha já vem
+ *     com o arquivo nomeado uma vez (`gravarTabelaNova`); aqui não se acrescenta nome.
+ * Portão: `atendimentos-ia-recusa-onde-a-acao-aconteceu.test.tsx`.
  */
 import React, { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/router'
@@ -16,7 +24,7 @@ import { ROUTES } from '@/constants/routes'
 import { useAuth } from '@/hooks/use-auth.hook'
 import { AVISO_DO_CATALOGO, ROTAS_DO_CATALOGO, ROTULO_DO_MODELO, type FornecedorDaLista, type Modelo, type Nicho } from '@/utils/atendimentos-ia-catalogo'
 import { chamarRota, gravarTabelaNova } from '@/page-parts/atendimentos-ia/api'
-import { FornecedorModal, type DadosDoFornecedor } from '@/page-parts/atendimentos-ia/fornecedor-modal.component'
+import { FornecedorModal, TITULO_FORNECEDOR_NAO_CREDENCIADO, type DadosDoFornecedor, type ErroDoFornecedor } from '@/page-parts/atendimentos-ia/fornecedor-modal.component'
 import { NichosCard } from '@/page-parts/atendimentos-ia/nichos.component'
 
 export default function FornecedoresETabelas() {
@@ -29,6 +37,8 @@ export default function FornecedoresETabelas() {
     const [erro, setErro] = useState<string | null>(null)
     const [credenciando, setCredenciando] = useState(false)
     const [salvando, setSalvando] = useState(false)
+    const [erroAoCredenciar, setErroAoCredenciar] = useState<ErroDoFornecedor | null>(null)
+    const [credenciadoComFalhas, setCredenciadoComFalhas] = useState<{ nome: string; falhas: string[] } | null>(null)
 
     const carregar = useCallback(async () => {
         try {
@@ -52,20 +62,29 @@ export default function FornecedoresETabelas() {
     }
     if (!ehSuperAdmin) return null
 
+    /** Abre ou fecha o credenciamento sempre SEM o erro da tentativa anterior. */
+    const abrirCredenciamento = (aberto: boolean) => { setErroAoCredenciar(null); setCredenciando(aberto) }
+
     async function credenciar(d: DadosDoFornecedor) {
         setSalvando(true)
+        setErroAoCredenciar(null)
+        let id: string
         try {
-            const { id } = await chamarRota<{ id: string }>(ROTAS_DO_CATALOGO.fornecedores, 'POST', { nome: d.nome, nicho_id: d.nicho_id })
+            id = (await chamarRota<{ id: string }>(ROTAS_DO_CATALOGO.fornecedores, 'POST', { nome: d.nome, nicho_id: d.nicho_id })).id
+        } catch (e) {
+            setErroAoCredenciar({ titulo: TITULO_FORNECEDOR_NAO_CREDENCIADO, motivo: (e as Error).message })
+            setSalvando(false)
+            return
+        }
+        try {
             const falhas: string[] = []
             for (const t of d.tabelas) {
-                try { await gravarTabelaNova(id, t) } catch (e) { falhas.push(`${t.arquivo?.name}: ${(e as Error).message}`) }
+                try { await gravarTabelaNova(id, t) } catch (e) { falhas.push((e as Error).message) }
             }
-            if (falhas.length) message.warning(`Fornecedor credenciado, mas ${falhas.length} tabela(s) não entraram — ${falhas.join('; ')}`, 8)
-            else message.success('Fornecedor credenciado')
-            setCredenciando(false)
+            setCredenciadoComFalhas(falhas.length ? { nome: d.nome.trim(), falhas } : null)
+            if (!falhas.length) message.success('Fornecedor credenciado')
+            abrirCredenciamento(false)
             await carregar()
-        } catch (e) {
-            message.error((e as Error).message)
         } finally {
             setSalvando(false)
         }
@@ -96,10 +115,23 @@ export default function FornecedoresETabelas() {
     return (
         <Layout title={PAGE_TITLES.SUPER_ADMIN_IA_FORNECEDORES} subtitle={AVISO_DO_CATALOGO}>
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
-                <Button type="primary" icon={<PlusOutlined />} onClick={() => setCredenciando(true)} disabled={!!erro}>
+                <Button type="primary" icon={<PlusOutlined />} onClick={() => abrirCredenciamento(true)} disabled={!!erro}>
                     Credenciar fornecedor
                 </Button>
             </div>
+
+            {credenciadoComFalhas && (
+                <Alert
+                    type="warning"
+                    showIcon
+                    closable
+                    onClose={() => setCredenciadoComFalhas(null)}
+                    style={{ marginBottom: 12 }}
+                    message={`Fornecedor "${credenciadoComFalhas.nome}" credenciado, mas ${credenciadoComFalhas.falhas.length} tabela(s) não entraram.`}
+                    description={<ul style={{ margin: 0, paddingLeft: 18 }}>{credenciadoComFalhas.falhas.map((f, i) => <li key={i}>{f}</li>)}</ul>}
+                    data-credenciado-com-falhas
+                />
+            )}
 
             {erro ? (
                 <Alert type="error" showIcon message="Não foi possível ler o catálogo." description={erro} action={<Button onClick={carregar}>Tentar de novo</Button>} />
@@ -136,7 +168,8 @@ export default function FornecedoresETabelas() {
                 modo="credenciar"
                 nichos={nichos}
                 salvando={salvando}
-                onCancelar={() => setCredenciando(false)}
+                erro={credenciando ? erroAoCredenciar : null}
+                onCancelar={() => abrirCredenciamento(false)}
                 onSalvar={credenciar}
             />
         </Layout>

@@ -7,7 +7,7 @@
  * escolhe, e o navegador manda os bytes para essa URL. Ver o cabeçalho de
  * `src/pages/api/super-admin/atendimentos-ia/tabelas/url-de-envio.ts`.
  */
-import { ROTAS_DO_CATALOGO, fraseDoArquivo, type TipoDeArquivo } from '@/utils/atendimentos-ia-catalogo'
+import { ROTAS_DO_CATALOGO, fraseDaTabela, fraseDoArquivo, type TipoDeArquivo } from '@/utils/atendimentos-ia-catalogo'
 
 export class ErroDaRota extends Error {
     status: number
@@ -56,14 +56,22 @@ export async function enviarArquivo(fornecedorId: string, tipo: TipoDeArquivo, a
 /** Uma tabela ainda no navegador: os dois arquivos e a vigência, antes de qualquer envio. */
 export interface TabelaPendente { arquivo: File | null; motor: File | null; vigencia: string }
 
-/** Envia os dois arquivos e grava a tabela. Arquivo primeiro, motor depois — a ordem do modal. */
+/**
+ * Envia os dois arquivos e grava a tabela. Arquivo primeiro, motor depois — a ordem do modal.
+ * Toda falha nomeia UM arquivo, uma vez: o envio, pelo arquivo enviado (`enviarArquivo`); a
+ * gravação, pela tabela (`fraseDaTabela`). Quem chama não acrescenta nome.
+ */
 export async function gravarTabelaNova(fornecedorId: string, t: TabelaPendente): Promise<void> {
     const arquivo = await enviarArquivo(fornecedorId, 'arquivo', t.arquivo as File)
     const motor = await enviarArquivo(fornecedorId, 'motor', t.motor as File)
-    await chamarRota(ROTAS_DO_CATALOGO.tabelas, 'POST', {
-        fornecedor_id: fornecedorId,
-        arquivo_path: arquivo.path, arquivo_nome: arquivo.nome,
-        motor_path: motor.path, motor_nome: motor.nome,
-        vigencia: t.vigencia,
-    })
+    try {
+        await chamarRota(ROTAS_DO_CATALOGO.tabelas, 'POST', {
+            fornecedor_id: fornecedorId,
+            arquivo_path: arquivo.path, arquivo_nome: arquivo.nome,
+            motor_path: motor.path, motor_nome: motor.nome,
+            vigencia: t.vigencia,
+        })
+    } catch (e) {
+        throw new ErroDaRota(e instanceof ErroDaRota ? e.status : 0, fraseDaTabela(arquivo.nome, (e as Error).message))
+    }
 }

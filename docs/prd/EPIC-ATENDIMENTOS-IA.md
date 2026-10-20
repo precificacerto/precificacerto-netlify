@@ -210,6 +210,13 @@ modal, com o arquivo e o motivo**: em 20/10/2026 a recusa da rota já existia e 
 defeito era ela ser invisível — o modal não fechava e não explicava. Portão:
 `atendimentos-ia-formato-do-arquivo.test.tsx`.
 
+O princípio que amarra os dois (dono do produto, 20/10/2026): **a recusa aparece ONDE A AÇÃO
+ACONTECEU.** Mensagem passageira no topo da página não é aviso — é sorte. Erro de editar ou
+excluir fornecedor e de credenciar aparece dentro do modal; erro de excluir tabela, num Alert na
+página, acima da lista; no credenciamento, tabela que falha depois de o fornecedor gravado fica
+num Alert fixo na página, com cada arquivo nomeado uma vez. Portão:
+`atendimentos-ia-recusa-onde-a-acao-aconteceu.test.tsx`.
+
 ### 5.7 Tela do tenant
 
 Nenhuma no mockup. O tenant só LÊ a própria linha de `orcamentista_config`; não há item de menu

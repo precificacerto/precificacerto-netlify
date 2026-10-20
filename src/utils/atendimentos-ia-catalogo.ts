@@ -40,6 +40,17 @@ export const BUCKET_DO_CATALOGO = 'atendimentos-ia'
  * Tirar qualquer uma das duas achando que é repetição fica vermelho em
  * `atendimentos-ia-formato-do-arquivo.test.tsx`. E a recusa precisa ser VISÍVEL: a da rota já
  * existia e funcionava em 20/10/2026, e o defeito era ninguém vê-la.
+ *
+ * ══ A RECUSA APARECE ONDE A AÇÃO ACONTECEU (dono do produto, 20/10/2026) ══
+ * Mensagem passageira no topo da página não é aviso — é sorte. Na área inteira:
+ *   - o clique foi num MODAL (tabela nova, editar tabela, editar ou excluir fornecedor,
+ *     credenciar) → o erro aparece num Alert DENTRO dele;
+ *   - o clique foi na PÁGINA (excluir tabela, num balão de confirmação) → Alert na página, acima
+ *     da lista;
+ *   - o credenciamento gravou o fornecedor e alguma tabela falhou → o modal fecha (outro clique
+ *     criaria um segundo fornecedor) e as falhas ficam num Alert FIXO na página, cada arquivo
+ *     nomeado UMA vez (`fraseDoArquivo` / `fraseDaTabela`).
+ * Portão: `atendimentos-ia-recusa-onde-a-acao-aconteceu.test.tsx`.
  */
 export const EXTENSOES_ACEITAS = ['.xlsx', '.xlsm', '.xls', '.csv', '.pdf'] as const
 
@@ -48,6 +59,12 @@ export const MOTIVO_DO_FORMATO_RECUSADO = `Formato não aceito. Use ${EXTENSOES_
 
 /** Uma recusa que diz QUAL arquivo: `Arquivo "x.docx": Formato não aceito…`. */
 export const fraseDoArquivo = (nome: string, motivo: string) => `Arquivo "${nome}": ${motivo}`
+
+/** A gravação da tabela recusada DEPOIS dos envios: `Tabela "x.xlsm": …` — nomeada pelo arquivo da tabela. */
+export const fraseDaTabela = (nome: string, motivo: string) => `Tabela "${nome}": ${motivo}`
+
+/** O título do Alert, na página, quando excluir uma tabela é recusado. */
+export const TITULO_DA_TABELA_NAO_EXCLUIDA = 'A tabela não foi excluída.'
 
 export const ROTAS_DO_CATALOGO = {
     nichos: '/api/super-admin/atendimentos-ia/nichos',
