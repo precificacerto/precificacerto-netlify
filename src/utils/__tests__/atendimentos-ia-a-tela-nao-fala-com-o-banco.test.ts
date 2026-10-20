@@ -16,6 +16,11 @@
  *       arquivos (`teste-que-nao-exercita.md`);
  *   (d) o detector ENXERGA o que procura: cada forma conhecida de violação, escrita como
  *       fixture, é acusada; e o que é permitido não é (`instrumento-que-nao-enxerga.md`).
+ *
+ * A IMPORTAÇÃO (20/10/2026) entra na mesma trava: as cinco tabelas da `20261020000001` também têm
+ * `REVOKE ALL` de `anon` e `authenticated`, e a função `importar_conteudo_da_tabela`
+ * (`20261020000002`) só é executável por `service_role`. Pelo navegador, as tabelas chegariam
+ * vazias e a função daria `permission denied` — por isso nenhuma das duas sai da rota.
  */
 import * as fs from 'fs'
 import * as path from 'path'
@@ -35,6 +40,13 @@ const PODE_LER_AS_TABELAS = [
 ]
 
 const AS_QUATRO = ['orcamentista_nicho', 'orcamentista_fornecedor', 'orcamentista_tabela', 'orcamentista_conta_tabela']
+/** As cinco tabelas da importação (`20261020000001`) — a mesma trava das quatro. */
+const AS_DA_IMPORTACAO = [
+    'orcamentista_tabela_item', 'orcamentista_motor_regra', 'orcamentista_motor_tipologia',
+    'orcamentista_motor_formula_familia', 'orcamentista_importacao',
+]
+/** As funções que só `service_role` executa. */
+const AS_FUNCOES = ['importar_conteudo_da_tabela']
 
 /** Importa o cliente do Supabase — por alias, por caminho relativo, ou o pacote direto. */
 export function importaOClienteDoSupabase(texto: string): boolean {
@@ -43,7 +55,13 @@ export function importaOClienteDoSupabase(texto: string): boolean {
 
 /** Chama `.from('<uma das quatro>')`, com espaço ou quebra de linha entre o `(` e o nome. */
 export function chamaUmaDasQuatro(texto: string): string | null {
-    const m = texto.match(new RegExp(`\\.from\\(\\s*['"\`](${AS_QUATRO.join('|')})['"\`]`))
+    const m = texto.match(new RegExp(`\\.from\\(\\s*['"\`](${[...AS_QUATRO, ...AS_DA_IMPORTACAO].join('|')})['"\`]`))
+    return m ? m[1] : null
+}
+
+/** Chama `.rpc('<uma das funções do servidor>')`. */
+export function chamaUmaFuncaoDoServidor(texto: string): string | null {
+    const m = texto.match(new RegExp(`\\.rpc\\(\\s*['"\`](${AS_FUNCOES.join('|')})['"\`]`))
     return m ? m[1] : null
 }
 
@@ -86,6 +104,19 @@ describe('PORTÃO 1 — a tela do Atendimentos I.A. não fala com o banco', () =
         expect(culpados).toEqual([])
     })
 
+    it('(b2) nenhum arquivo fora das rotas e do repositório chama a função da importação por .rpc()', () => {
+        const culpados = arquivos(SRC)
+            .filter((f) => !PODE_LER_AS_TABELAS.some((p) => f.startsWith(p)))
+            .map((f) => ({ f: rel(f), t: chamaUmaFuncaoDoServidor(fs.readFileSync(f, 'utf8')) }))
+            .filter((x) => x.t !== null)
+        expect(culpados).toEqual([])
+    })
+
+    it('(c2) o leitor alcança a importação: o repositório chama a função, e a rota existe', () => {
+        expect(chamaUmaFuncaoDoServidor(fs.readFileSync(path.join(SRC, 'lib', 'atendimentos-ia', 'repositorio.ts'), 'utf8'))).toBe('importar_conteudo_da_tabela')
+        expect(fs.existsSync(path.join(SRC, 'pages', 'api', 'super-admin', 'atendimentos-ia', 'tabelas', '[id]', 'importar.ts'))).toBe(true)
+    })
+
     describe('(d) o detector enxerga o que procura', () => {
         it.each([
             [`import { supabase } from '@/supabase/client'`],
@@ -101,8 +132,18 @@ describe('PORTÃO 1 — a tela do Atendimentos I.A. não fala com o banco', () =
             [`await (supabase as any).from("orcamentista_nicho").select('*')`, 'orcamentista_nicho'],
             ['await supabase\n  .from(\n    `orcamentista_conta_tabela`\n  ).select()', 'orcamentista_conta_tabela'],
             [`const { data } = await sb.from( 'orcamentista_tabela' ).delete()`, 'orcamentista_tabela'],
+            [`await supabase.from('orcamentista_tabela_item').select('*')`, 'orcamentista_tabela_item'],
+            [`await supabase.from('orcamentista_importacao').select('*')`, 'orcamentista_importacao'],
+            [`await supabase.from("orcamentista_motor_regra").select('*')`, 'orcamentista_motor_regra'],
         ])('acusa a chamada: %s', (fixture, tabela) => {
             expect(chamaUmaDasQuatro(fixture)).toBe(tabela)
+        })
+
+        it.each([
+            [`await supabase.rpc('importar_conteudo_da_tabela', { p_tabela_id: id })`],
+            ['await supabase\n  .rpc(\n    "importar_conteudo_da_tabela", {})'],
+        ])('acusa a chamada da função: %s', (fixture) => {
+            expect(chamaUmaFuncaoDoServidor(fixture)).toBe('importar_conteudo_da_tabela')
         })
 
         it.each([
