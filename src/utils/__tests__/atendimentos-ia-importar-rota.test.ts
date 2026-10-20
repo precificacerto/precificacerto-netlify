@@ -29,8 +29,11 @@ let perfil: Perfil | null = SUPER
 
 jest.mock('@/supabase/admin', () => ({
     supabaseAdmin: {
-        auth: { getUser: async () => (perfil ? { data: { user: { id: perfil.id } }, error: null } : { data: { user: null }, error: { message: 'sem sessão' } }) },
-        from: () => { const q: any = { select: () => q, eq: () => q, single: async () => ({ data: perfil, error: null }) }; return q },
+        auth: {
+            getUser: async (): Promise<{ data: { user: { id: string } | null }; error: { message: string } | null }> =>
+                (perfil ? { data: { user: { id: perfil.id } }, error: null } : { data: { user: null }, error: { message: 'sem sessão' } }),
+        },
+        from: () => { const q: any = { select: () => q, eq: () => q, single: async (): Promise<{ data: Perfil | null; error: null }> => ({ data: perfil, error: null }) }; return q },
     },
 }))
 
@@ -206,7 +209,7 @@ describe('GET — a última importação', () => {
     })
 
     it('com importação → a linha que o repositório devolve', async () => {
-        const linha = { id: 'imp-9', tabela_id: T, itens: 755, regras: 4055, tipologias: 157, cruzam: 549, nao_cruzam: 0, normalizados: 2, avisos: [] }
+        const linha = { id: 'imp-9', tabela_id: T, itens: 755, regras: 4055, tipologias: 157, cruzam: 549, nao_cruzam: 0, normalizados: 2, avisos: [] as unknown[] }
         repo.ultimaImportacao.mockImplementationOnce(async () => linha)
         const r = await chamar('GET')
         expect(r.status).toBe(200)
