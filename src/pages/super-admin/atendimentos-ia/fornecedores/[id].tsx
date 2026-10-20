@@ -208,6 +208,7 @@ export default function TabelasDoFornecedor() {
                                     align: 'right',
                                     render: (_, t) => (
                                         <Space>
+                                            <Button size="small" onClick={() => router.push(`${ROUTES.SUPER_ADMIN_IA_TABELAS}/${t.id}/importacao`)}>Importação</Button>
                                             <Button size="small" onClick={() => editarTabela(t)}>Editar</Button>
                                             <Popconfirm title="Excluir esta tabela?" okText="Excluir" cancelText="Cancelar" onConfirm={() => excluirTabela(t)}>
                                                 <Button size="small" danger>Excluir</Button>

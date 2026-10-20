@@ -1,6 +1,7 @@
 /**
  * POST /api/super-admin/atendimentos-ia/tabelas/[id]/importar — importa os dois arquivos da tabela.
- * GET  /api/super-admin/atendimentos-ia/tabelas/[id]/importar — a última importação, ou null.
+ * GET  /api/super-admin/atendimentos-ia/tabelas/[id]/importar — a última importação, ou null; com
+ *      `importado_por_nome`, o nome do super admin que importou.
  *
  * ══════════════════════════════════════════════════════════════════════════════════════════
  * REGRA INVIOLÁVEL: a tela mostra apenas o nome da conta e a configuração do Atendimentos I.A.
@@ -34,6 +35,7 @@ import {
   baixarObjeto,
   falhaInterna,
   importarConteudo,
+  nomeDoUsuario,
   objetoExiste,
   obterArquivosDaTabela,
   ultimaImportacao,
@@ -65,7 +67,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   if (req.method === 'GET') {
     try {
-      return res.status(200).json(await ultimaImportacao(id))
+      const ultima = await ultimaImportacao(id)
+      if (!ultima) return res.status(200).json(null)
+      // Quem importou é o super admin: o NOME dele, nunca dado de cliente.
+      const importado_por_nome = ultima.importado_por ? await nomeDoUsuario(ultima.importado_por) : null
+      return res.status(200).json({ ...ultima, importado_por_nome })
     } catch (e) {
       return falhaInterna(res, 'importação (última)', e, 'Não foi possível ler a última importação.')
     }

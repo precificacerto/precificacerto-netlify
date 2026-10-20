@@ -1,4 +1,6 @@
 /**
+ * GET    /api/super-admin/atendimentos-ia/tabelas/[id] — a tabela, para a tela da importação: os
+ *        nomes dos arquivos e o fornecedor (sem os caminhos do bucket).
  * PATCH  /api/super-admin/atendimentos-ia/tabelas/[id] — troca o arquivo, o motor ou a vigência.
  * DELETE /api/super-admin/atendimentos-ia/tabelas/[id] — exclui uma tabela que nenhuma conta usa.
  *
@@ -23,6 +25,7 @@ import {
   excluirTabela,
   falhaInterna,
   objetoExiste,
+  obterDadosDaTabela,
   obterTabela,
   removerObjetos,
 } from '@/lib/atendimentos-ia/repositorio'
@@ -32,13 +35,22 @@ const avisoDeOrfaos = (caminhos: string[]) =>
   `Os arquivos não puderam ser apagados do armazenamento e ficaram sem uso: ${caminhos.join(', ')}.`
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method !== 'PATCH' && req.method !== 'DELETE') return res.status(405).json({ error: 'Method not allowed' })
+  if (req.method !== 'GET' && req.method !== 'PATCH' && req.method !== 'DELETE') return res.status(405).json({ error: 'Method not allowed' })
 
   const caller = await requireSuperAdmin(req, res)
   if (!caller) return
 
   const { id } = req.query as { id?: string }
   if (!ehUuid(id)) return res.status(400).json({ error: 'Tabela inválida.' })
+
+  if (req.method === 'GET') {
+    try {
+      const dados = await obterDadosDaTabela(id)
+      return dados ? res.status(200).json(dados) : res.status(404).json({ error: 'Tabela não encontrada.' })
+    } catch (e) {
+      return falhaInterna(res, 'tabela (dados)', e, 'Não foi possível ler a tabela.')
+    }
+  }
 
   let atual: Awaited<ReturnType<typeof obterTabela>>
   try {

@@ -106,6 +106,8 @@ export const ROTAS_DO_CATALOGO = {
     urlDeEnvio: '/api/super-admin/atendimentos-ia/tabelas/url-de-envio',
     /** A importação da tabela: POST importa os dois arquivos; GET a última importação, ou null. */
     importacao: (tabelaId: string) => `/api/super-admin/atendimentos-ia/tabelas/${tabelaId}/importar`,
+    /** O que está no banco da tabela importada: as tipologias, já ordenadas pela rota, e o total de fórmulas. */
+    conteudoDaTabela: (tabelaId: string) => `/api/super-admin/atendimentos-ia/tabelas/${tabelaId}/conteudo`,
     /** Bloco 2C.1 — as contas com o Atendimentos I.A. ligado (só nome, modelo e nicho). */
     contas: '/api/super-admin/atendimentos-ia/contas',
     /** "Tabelas em uso" da conta: GET lista e opções do nicho; POST adiciona `{ tabela_id }`. */
