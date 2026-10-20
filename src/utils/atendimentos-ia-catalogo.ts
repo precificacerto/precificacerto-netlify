@@ -36,6 +36,10 @@ export const ROTAS_DO_CATALOGO = {
     urlDeEnvio: '/api/super-admin/atendimentos-ia/tabelas/url-de-envio',
     /** Bloco 2C.1 — as contas com o Atendimentos I.A. ligado (só nome e segmentação). */
     contas: '/api/super-admin/atendimentos-ia/contas',
+    /** "Tabelas em uso" da conta: GET lista e opções do nicho; POST adiciona `{ tabela_id }`. */
+    tabelasDaConta: (tenantId: string) => `/api/super-admin/atendimentos-ia/contas/${tenantId}/tabelas`,
+    /** DELETE tira UMA tabela de uso DAQUELA conta. */
+    tabelaDaConta: (tenantId: string, tabelaId: string) => `/api/super-admin/atendimentos-ia/contas/${tenantId}/tabelas/${tabelaId}`,
 } as const
 
 /** A frase do mockup na tela de fornecedores (EPIC §3.3). */
@@ -81,6 +85,40 @@ export interface ContaLigada {
     modelo: Modelo | null
     nicho_id: string | null
     nicho_nome: string | null
+}
+
+// ── "Tabelas em uso" da conta ──────────────────────────────────────────────────────────────
+/**
+ * Uma tabela em uso por uma conta. SÓ catálogo — fornecedor, arquivo, motor, vigência — e é a
+ * REGRA INVIOLÁVEL: nada do conteúdo da conta.
+ *
+ * `vigencia` é o TEXTO COMO FOI DIGITADO. Se ela é data de upload ou prazo é decisão em aberto
+ * (EPIC §9), e por isso não há regra de vencimento em lugar nenhum: nada a interpreta.
+ */
+export interface TabelaEmUso {
+    tabela_id: string
+    fornecedor_id: string
+    fornecedor_nome: string
+    arquivo_nome: string
+    motor_nome: string
+    vigencia: string | null
+}
+
+/** Uma tabela que a conta pode escolher — do fornecedor, que é do nicho da conta. */
+export interface TabelaParaEscolher { id: string; arquivo_nome: string; motor_nome: string; vigencia: string | null }
+
+/** Um fornecedor do NICHO DA CONTA, com as tabelas dele. */
+export interface FornecedorDoNicho { id: string; nome: string; tabelas: TabelaParaEscolher[] }
+
+/**
+ * O que a rota das tabelas da conta devolve. `fornecedores` são SÓ os do nicho salvo da conta —
+ * e vazio quando o nicho não tem fornecedor ou a conta não tem nicho: NUNCA a lista da
+ * plataforma (instrução do dono do produto; o mockup caía para a lista inteira).
+ */
+export interface TabelasDaConta {
+    nicho_id: string | null
+    em_uso: TabelaEmUso[]
+    fornecedores: FornecedorDoNicho[]
 }
 
 export interface FornecedorComTabelas extends FornecedorDaLista { tabelas_da_lista: TabelaDoFornecedor[] }
@@ -209,6 +247,26 @@ export function nomeSeguroParaOBucket(nome: string): string {
 /** `<fornecedor>/<arquivo|motor>/<id único>-<nome seguro>` — a pasta do fornecedor é a primeira. */
 export function caminhoNoBucket(fornecedorId: string, tipo: TipoDeArquivo, nome: string, idUnico: string): string {
     return `${fornecedorId}/${tipo}/${idUnico}-${nomeSeguroParaOBucket(nome)}`
+}
+
+/** O corpo de "adicionar tabela à conta": só `tabela_id`. A conta vem da URL, o autor da sessão. */
+export function lerPedidoDeTabelaDaConta(body: unknown): Leitura<{ tabela_id: string }> {
+    if (!body || typeof body !== 'object') return { ok: false, erro: 'Corpo inválido.' }
+    const b = body as Record<string, unknown>
+    if (!ehUuid(b.tabela_id)) return { ok: false, erro: 'Escolha a tabela.' }
+    return { ok: true, corpo: { tabela_id: b.tabela_id } }
+}
+
+/** "Alumínio Sul · sul-outubro.xlsx" — como uma tabela em uso é nomeada nas recusas. */
+export const nomeDaTabelaEmUso = (t: Pick<TabelaEmUso, 'fornecedor_nome' | 'arquivo_nome'>) => `${t.fornecedor_nome} · ${t.arquivo_nome}`
+
+/**
+ * A recusa da troca de modelo ou nicho com tabela em uso — nomeia QUEM SEGURA, como as recusas
+ * por RESTRICT desta área (EPIC §3.7).
+ */
+export function fraseDasTabelasQueSeguram(emUso: Pick<TabelaEmUso, 'fornecedor_nome' | 'arquivo_nome'>[]): string {
+    const nomes = emUso.map(nomeDaTabelaEmUso).sort((a, b) => a.localeCompare(b, 'pt-BR'))
+    return `O modelo e o nicho não podem ser trocados enquanto houver tabela em uso. Remova antes: ${nomes.join('; ')}.`
 }
 
 /** "Em uso por: A, B" — a frase do mockup (EPIC §3.7). Sem nomes, não há frase. */

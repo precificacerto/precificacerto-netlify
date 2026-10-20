@@ -32,7 +32,8 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { requireSuperAdmin } from '@/lib/get-caller-tenant'
 import { supabaseAdmin } from '@/supabase/admin'
-import { obterNicho } from '@/lib/atendimentos-ia/repositorio'
+import { listarTabelasDaConta, obterNicho, obterSegmentacaoDaConta } from '@/lib/atendimentos-ia/repositorio'
+import { fraseDasTabelasQueSeguram, nomeDaTabelaEmUso } from '@/utils/atendimentos-ia-catalogo'
 import {
   ehSegmentacao,
   fraseDoParRecusado,
@@ -102,9 +103,30 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 }
 
-/** A segmentação: UPDATE de `modelo` e `nicho_id` na linha DA conta, e nada mais. */
+/**
+ * A segmentação: UPDATE de `modelo` e `nicho_id` na linha DA conta, e nada mais.
+ *
+ * >>> TROCAR MODELO OU NICHO COM TABELA EM USO É RECUSADO (409), nomeando as tabelas <<<
+ * É a ESCOLHA CONSERVADORA, a mesma postura do RESTRICT que o banco usa em toda esta área: nada
+ * some por efeito colateral de um seletor. As tabelas em uso são de um fornecedor do nicho antigo,
+ * e trocar o nicho por baixo delas deixaria a conta usando tabela de outro nicho. A alternativa —
+ * apagar as tabelas na troca — NÃO foi feita. A decisão definitiva sobre o que a troca faz com as
+ * tabelas da conta é do DONO DO PRODUTO, e está PENDENTE (EPIC §3.6). Até ela, a troca exige
+ * remover as tabelas antes, uma a uma, pela tela.
+ *
+ * Regravar a MESMA segmentação não é troca, e passa. A conferência é da rota: o banco não tem
+ * restrição entre `orcamentista_conta_tabela` e o nicho da conta.
+ */
 async function gravarSegmentacao(res: NextApiResponse, tenantId: string, corpo: CorpoDaSegmentacao, usuarioId: string) {
   try {
+    const atual = await obterSegmentacaoDaConta(tenantId)
+    const troca = !!atual && (atual.modelo !== corpo.modelo || atual.nicho_id !== corpo.nicho_id)
+    if (troca) {
+      const emUso = await listarTabelasDaConta(tenantId)
+      if (emUso.length > 0) {
+        return res.status(409).json({ error: fraseDasTabelasQueSeguram(emUso), tabelas: emUso.map(nomeDaTabelaEmUso) })
+      }
+    }
     const { data, error } = await supabaseAdmin
       .from('orcamentista_config')
       .update(montarGravacaoDaSegmentacao({ corpo, usuarioId, agora: new Date().toISOString() }))

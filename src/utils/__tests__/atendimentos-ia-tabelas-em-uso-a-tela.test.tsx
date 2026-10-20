@@ -115,7 +115,8 @@ async function montar(): Promise<HTMLElement> {
     return host
 }
 const grupo = (host: HTMLElement) => host.querySelector('[data-grupo="tabelas-em-uso"]') as HTMLElement
-const seletor = (rotulo: string) => document.querySelector(`input[aria-label="${rotulo}"]`)?.closest('.ant-select') as HTMLElement | null
+// `?? null`: sem o seletor, `?.` devolve `undefined`, e o `toBeNull()` dos casos (a) e (e) não o aceitaria.
+const seletor = (rotulo: string) => (document.querySelector(`input[aria-label="${rotulo}"]`)?.closest('.ant-select') ?? null) as HTMLElement | null
 async function abrir(rotulo: string): Promise<string[]> {
     const s = seletor(rotulo) as HTMLElement
     await act(async () => { (s.querySelector('.ant-select-selector') as HTMLElement).dispatchEvent(new MouseEvent('mousedown', { bubbles: true })) })
