@@ -26,6 +26,17 @@
  * aba de preço NÃO vale essa regra: lá o cabeçalho se repete, uma vez por seção, e se reconhece
  * pela palavra "CÓDIGO" na coluna 2.
  *
+ * O TÍTULO DA SEÇÃO é a linha logo ACIMA de cada cabeçalho da aba de preço: ela vira `secao` dos
+ * itens seguintes e NÃO vira item. A regra é DELIBERADA e foi CONFIRMADA contra o arquivo real
+ * pela sessão de verificação (20/10/2026): a aba tem 25 cabeçalhos, e em 20 deles a linha de cima
+ * traz o título escrito NA COLUNA DO CÓDIGO ("PERFIS DE ALUMINIO", "ITENS MARRONS", "TABELA PERFIS
+ * LAMINADOS - PRETO JET BLACK"…), sem valor nenhum. Por isso a aba tem 755 linhas com algo na
+ * coluna do código e 735 produtos: 755 = 735 + 20 títulos. O número esperado de itens é 735 — o
+ * "755" que circulou como esperado estava errado. Os 733 da primeira importação são 735 − 2, os
+ * dois pares que a regra antiga do separador juntava (ver `normalizarCodigo`). Na mesma medição,
+ * uma única linha tinha conteúdo com a coluna do código vazia (linha 57), e linha sem código não
+ * vira item.
+ *
  * A COLUNA 11 DO PREÇO E A 3 DO MOTOR vão para a coluna do banco que guarda o valor como veio do
  * arquivo do fornecedor (`orcamentista_tabela_item.segmento` e
  * `orcamentista_motor_regra.segmento`). O nome dessa chave é declarado UMA vez, em
