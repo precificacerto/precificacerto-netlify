@@ -42,7 +42,9 @@
 --     (linhas 674/675) —, com alíquota 18% nas duas e valores IDÊNTICOS: interno 83,52, 12%
 --     73,38, barra de 6 m (medição da sessão de verificação, 20/10/2026).
 --
---     DECISÃO DO DONO DO PRODUTO, 20/10/2026:
+--     DECISÃO DA SESSÃO DE VERIFICAÇÃO, 20/10/2026, tomada sobre a medição acima — o dono do
+--     produto NÃO foi consultado sobre este ponto, e pode derrubá-la. (A autoria saiu errada na
+--     versão anterior: a instrução dizia "DECISÃO SOBRE OS DUPLICADOS" sem dizer de quem.)
 --       (1) a chave única FICA (tabela_id, codigo) — a seção NÃO entra nela. O motor busca só
 --           pelo código, e dois registros com o mesmo preço lhe dariam duas respostas para uma
 --           pergunta;
