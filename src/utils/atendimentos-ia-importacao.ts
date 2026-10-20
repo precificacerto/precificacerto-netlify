@@ -26,6 +26,17 @@
  * aba de preço NÃO vale essa regra: lá o cabeçalho se repete, uma vez por seção, e se reconhece
  * pela palavra "CÓDIGO" na coluna 2.
  *
+ * O TÍTULO DA SEÇÃO é a linha logo ACIMA de cada cabeçalho da aba de preço: ela vira `secao` dos
+ * itens seguintes e NÃO vira item. A regra é DELIBERADA e foi CONFIRMADA contra o arquivo real
+ * pela sessão de verificação (20/10/2026): a aba tem 25 cabeçalhos, e em 20 deles a linha de cima
+ * traz o título escrito NA COLUNA DO CÓDIGO ("PERFIS DE ALUMINIO", "ITENS MARRONS", "TABELA PERFIS
+ * LAMINADOS - PRETO JET BLACK"…), sem valor nenhum. Por isso a aba tem 755 linhas com algo na
+ * coluna do código e 735 produtos: 755 = 735 + 20 títulos. O número esperado de itens é 735 — o
+ * "755" que circulou como esperado estava errado. Os 733 da primeira importação são 735 − 2, os
+ * dois pares que a regra antiga do separador juntava (ver `normalizarCodigo`). Na mesma medição,
+ * uma única linha tinha conteúdo com a coluna do código vazia (linha 57), e linha sem código não
+ * vira item.
+ *
  * A COLUNA 11 DO PREÇO E A 3 DO MOTOR vão para a coluna do banco que guarda o valor como veio do
  * arquivo do fornecedor (`orcamentista_tabela_item.segmento` e
  * `orcamentista_motor_regra.segmento`). O nome dessa chave é declarado UMA vez, em
@@ -197,11 +208,21 @@ export function valorDaCelula(celula: ExcelJS.CellValue | undefined): { valor: V
 
 // ── Normalizações ──────────────────────────────────────────────────────────────────────────
 /**
- * O código com VÍRGULA (ou ponto) decimal — "1027,1", ou o número 1027.1 — vira "10271": é um
- * código que a planilha tratou como número. Devolve se mudou, para a contagem e o aviso.
+ * O SEPARADOR DO CÓDIGO DISTINGUE PRODUTO, e NÃO sai. Regra do dono do produto, 20/10/2026, que
+ * derruba a dele mesmo do mesmo dia ("1027,1 vira 10271"), medida na primeira importação real:
+ * na Wolff, 10271 é o trilho de ALUMÍNIO (R$ 1.055,25) e 1027,1 o de PVC (R$ 209,86); 13181 e
+ * 1318,1 são duas persianas. Tirar o separador juntava os dois num código só, e o sistema ficava
+ * com um deles — 755 códigos viravam 753.
+ *
+ * A forma canônica guarda a parte decimal com PONTO:
+ *   - no PREÇO o código chega como número (1027.1, que o texto da célula já dá como "1027.1") ou
+ *     como texto;
+ *   - no MOTOR chega como texto com vírgula ("1027,1"): troca-se SÓ a vírgula por ponto.
+ * Os dois lados se encontram em "1027.1" e continuam distintos de "10271". `mudou` diz que houve
+ * a troca da vírgula, para a contagem e o aviso.
  */
 export function normalizarCodigo(bruto: string): { codigo: string; mudou: boolean } {
-    if (/^\d+[.,]\d+$/.test(bruto)) return { codigo: bruto.replace(/[.,]/, ''), mudou: true }
+    if (/^\d+,\d+$/.test(bruto)) return { codigo: bruto.replace(',', '.'), mudou: true }
     return { codigo: bruto, mudou: false }
 }
 
@@ -248,7 +269,7 @@ class Leitor {
         const { codigo, mudou } = normalizarCodigo(t)
         if (mudou) {
             this.normalizados += 1
-            this.avisos.push({ tipo: 'codigo_normalizado', aba: this.aba, linha, antes: t, depois: codigo, mensagem: `código "${t}" lido como "${codigo}"` })
+            this.avisos.push({ tipo: 'codigo_normalizado', aba: this.aba, linha, antes: t, depois: codigo, mensagem: `código "${t}" lido como "${codigo}" — a vírgula virou ponto` })
         }
         return codigo
     }
