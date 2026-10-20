@@ -20,6 +20,10 @@
  *   (8) o insumo: o unitário está em `valor_metro_interno`; vendido por barra é pendente;
  *   (9) o líquido NÃO é calculado — nem com a entrada fiscal preenchida — e a saída diz por quê;
  *  (10) código sem preço, e os totais por categoria;
+ * (1b) A VÍRGULA PELA ARIDADE CONHECIDA (medição de 20/10/2026 nas 4.055 regras): IIF tem
+ *       SEMPRE 3 argumentos e as vírgulas de topo dele são separadores; ROUND e ARREDMAIOR têm
+ *       SEMPRE 1, e a vírgula de topo dentro deles é decimal. Os casos são os exemplos reais;
+ * (5b) o IPI por fora: bruto × `ipi`, que vem como FRAÇÃO (6,5% é 0,065);
  *  (11) NADA DE `eval` nem `Function` nos dois módulos. Este afirma o CAMINHO, não o efeito — e é
  *       o caso limite que `teste-que-nao-exercita.md` admite: o defeito seria a presença, e não há
  *       número que mude com ela.
@@ -40,11 +44,11 @@ const regra = (codigo: string, extra: Partial<RegraDoMotor> = {}): RegraDoMotor 
     ...extra,
 })
 const perfil = (codigo: string, extra: Partial<ItemDoPreco> = {}): ItemDoPreco => ({
-    codigo, descricao: `item ${codigo}`, medida_barra_m: 6, peso: 2, vendido_por: 'barra',
+    codigo, descricao: `item ${codigo}`, medida_barra_m: 6, peso: 2, ipi: 0, vendido_por: 'barra',
     valor_metro_interno: 100, valor_barra_interno: 600, valor_metro_12: 90, valor_barra_12: 540, ...extra,
 })
 const unitario = (codigo: string, extra: Partial<ItemDoPreco> = {}): ItemDoPreco => ({
-    codigo, descricao: `item ${codigo}`, medida_barra_m: null, peso: 0.05, vendido_por: 'unidade',
+    codigo, descricao: `item ${codigo}`, medida_barra_m: null, peso: 0.05, ipi: 0, vendido_por: 'unidade',
     valor_metro_interno: 3.5, valor_barra_interno: 35, valor_metro_12: null, valor_barra_12: null, ...extra,
 })
 const entrada = (regras: RegraDoMotor[], itens: ItemDoPreco[], extra: Partial<EntradaDoMotor> = {}): EntradaDoMotor => ({
@@ -64,8 +68,8 @@ describe('(1) a fórmula em pt-BR resolve certo', () => {
         ['ARREDMAIOR(NF/3)', { NF: 4 }, 2],
         // 0,1 · 3 · 10 dá 3,0000000000000004 em ponto flutuante: sem tirar o ruído, ARREDMAIOR daria 4.
         ['ARREDMAIOR(X·3·10)', { X: 0.1 }, 3],
-        ['ROUND(L/7; 2)', { L: 1500 }, 214.29],
-        ['IIF(L > 1000; 3; 2)', { L: 1500 }, 3],
+        ['ROUND(L/7)', { L: 1500 }, 214],
+        ['IIF(L > 1000, 3, 2)', { L: 1500 }, 3],
         ['IIF(L < 1000, 3, 2)', { L: 1500 }, 2],
     ])('%s', (formula, vars, esperado) => {
         const r = avaliarNumero(formula, com(vars))
@@ -84,14 +88,47 @@ describe('(1) a fórmula em pt-BR resolve certo', () => {
     })
 })
 
+describe('(1b) a vírgula pela ARIDADE conhecida — os exemplos reais', () => {
+    it('"IIF(UT=1,8,4)": 3 argumentos, as vírgulas são separadores', () => {
+        expect(avaliarNumero('IIF(UT=1,8,4)', com({ UT: 1 }))).toEqual({ ok: true, valor: 8 })
+        expect(avaliarNumero('IIF(UT=1,8,4)', com({ UT: 2 }))).toEqual({ ok: true, valor: 4 })
+    })
+
+    it('"ROUND(QTPAL*0,8)": 1 argumento, a vírgula é DECIMAL — ROUND(QTPAL × 0,8)', () => {
+        expect(avaliarNumero('ROUND(QTPAL*0,8)', com({ QTPAL: 7 }))).toEqual({ ok: true, valor: 6 })
+        expect(avaliarNumero('ROUND(QTPAL*0,8)', com({ QTPAL: 3 }))).toEqual({ ok: true, valor: 2 })
+    })
+
+    it('"IIF(UT=1,(NF*4),(NF*2))": 3 argumentos', () => {
+        expect(avaliarNumero('IIF(UT=1,(NF*4),(NF*2))', com({ UT: 1, NF: 3 }))).toEqual({ ok: true, valor: 12 })
+        expect(avaliarNumero('IIF(UT=1,(NF*4),(NF*2))', com({ UT: 0, NF: 3 }))).toEqual({ ok: true, valor: 6 })
+    })
+
+    it('ARREDMAIOR com vírgula de topo: decimal — ARREDMAIOR(NF/2,5) é ARREDMAIOR(NF ÷ 2,5)', () => {
+        expect(avaliarNumero('ARREDMAIOR(NF/2,5)', com({ NF: 4 }))).toEqual({ ok: true, valor: 2 })
+    })
+
+    it('decimal dentro de parêntese, dentro do IIF: "IIF(UT=1,(NF*0,5),2)"', () => {
+        expect(avaliarNumero('IIF(UT=1,(NF*0,5),2)', com({ UT: 1, NF: 4 }))).toEqual({ ok: true, valor: 2 })
+    })
+
+    it('ponto entre dígitos: pendente — ZERO ocorrências HOJE, neste arquivo, e não é garantia', () => {
+        const r = avaliarNumero('L - 4.2', com({ L: 1500 }))
+        expect(r.ok).toBe(false)
+    })
+})
+
 describe('(2) o que está fora dos medidos vai para pendentes, com a fórmula COMO ESTÁ ESCRITA', () => {
     it.each([
         ['SQRT(L)', /função "SQRT"/],
         ['L >= 1000', /operador ">="/],
         ['L <> 1000', /operador "<>"/],
         ['1.000 + L', /ponto/],
-        ['ARREDMAIOR(NF/2,5)', /vírgula ambígua/],
-        ['IIF(L > 1000; 3)', /IIF com 2 argumento/],
+        ['IIF(L > 1000, 3)', /IIF com 2 argumento/],
+        ['IIF(L > 1000,0,5,1)', /IIF com 4 argumento/],
+        ['ROUND(L,2)', /ROUND com 2 argumento/],
+        ['ARREDMAIOR(NF, L)', /ARREDMAIOR com 2 argumento/],
+        ['IIF(L > 1000; 3; 2)', /caractere ";"/],
         ['L × 2', /caractere "×"/],
     ])('%s', (formula, motivo) => {
         const r = avaliarNumero(formula, com({ L: 1500, NF: 4 }))
@@ -131,8 +168,8 @@ describe('(3) variável ausente NÃO vira zero', () => {
     })
 
     it('o ramo do IIF que não é escolhido não exige a variável dele', () => {
-        expect(avaliarNumero('IIF(L > 1000; 2; AQ)', com({ L: 1500 }))).toEqual({ ok: true, valor: 2 })
-        expect(avaliarNumero('IIF(L < 1000; 2; AQ)', com({ L: 1500 }))).toEqual(expect.objectContaining({ ok: false, variavel: 'AQ' }))
+        expect(avaliarNumero('IIF(L > 1000, 2, AQ)', com({ L: 1500 }))).toEqual({ ok: true, valor: 2 })
+        expect(avaliarNumero('IIF(L < 1000, 2, AQ)', com({ L: 1500 }))).toEqual(expect.objectContaining({ ok: false, variavel: 'AQ' }))
     })
 })
 
@@ -179,6 +216,30 @@ describe('(5) barra inteira e consumo, e os dois pesos', () => {
 
     it('o peso sai marcado como aproximado', () => {
         expect(calcularTipologia(entrada(regras, [perfil('9681')])).pesoAproximado).toBe(PESO_E_APROXIMADO)
+    })
+})
+
+describe('(5b) o IPI por fora', () => {
+    const regras = [regra('9681', { formula_em_lh: '3500', formula_qtde: '2' })]
+
+    it('IPI = bruto × ipi, e a coluna vem como FRAÇÃO: 0,065 é 6,5%', () => {
+        const r = calcularTipologia(entrada(regras, [perfil('9681', { ipi: 0.065 })]))
+        expect(r.linhas[0].valorBruto).toBe(1200)
+        expect(r.linhas[0].ipiPorFora).toBeCloseTo(78, 9)
+        expect(r.total.ipiPorFora).toBeCloseTo(78, 9)
+    })
+
+    it('ipi zero é zero — o item diz que não tem', () => {
+        const r = calcularTipologia(entrada(regras, [perfil('9681', { ipi: 0 })]))
+        expect(r.linhas[0].ipiPorFora).toBe(0)
+    })
+
+    it('ipi ausente NÃO vira zero: a linha e o total ficam sem IPI, e há aviso', () => {
+        const r = calcularTipologia(entrada([...regras, regra('9682', { formula_em_lh: '1000', formula_qtde: '1' })], [perfil('9681', { ipi: null }), perfil('9682', { ipi: 0.0325 })]))
+        expect(r.linhas.find((l) => l.codigo === '9681')!.ipiPorFora).toBeNull()
+        expect(r.linhas.find((l) => l.codigo === '9682')!.ipiPorFora).toBeCloseTo(19.5, 9)
+        expect(r.total.ipiPorFora).toBeNull()
+        expect(r.avisos).toEqual(expect.arrayContaining([expect.objectContaining({ tipo: 'ipi_ausente', codigo: '9681' })]))
     })
 })
 
