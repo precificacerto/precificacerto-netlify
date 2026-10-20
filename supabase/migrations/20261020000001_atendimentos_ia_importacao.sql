@@ -11,8 +11,7 @@
 -- ║
 -- ║ NÃO REGISTRADA em supabase_migrations.schema_migrations: a aplicação foi pelo SQL Editor,
 -- ║ que não grava no ledger. É a quarta migration nessa situação — ver
--- ║ docs/registros/as-migracoes-de-19-10-fora-do-ledger.md, que precisa ser atualizado para
--- ║ incluir esta.
+-- ║ docs/registros/as-migracoes-de-19-10-fora-do-ledger.md, atualizado no mesmo commit.
 -- ║
 -- ║ Ao aplicar fora do CLI, o `name` da migração é o nome completo deste arquivo, sem a
 -- ║ extensão: 20261020000001_atendimentos_ia_importacao.
