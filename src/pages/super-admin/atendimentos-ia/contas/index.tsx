@@ -26,7 +26,7 @@ import { ROTAS_DO_CATALOGO, ROTULO_DO_MODELO, type ContaLigada } from '@/utils/a
 import { chamarRota } from '@/page-parts/atendimentos-ia/api'
 
 /** "Fabricação · Esquadrias", ou só o modelo quando o nicho não foi escolhido. */
-function rotuloDaSegmentacao(c: Pick<ContaLigada, 'modelo' | 'nicho_nome'>): string | null {
+function rotuloDoModeloENicho(c: Pick<ContaLigada, 'modelo' | 'nicho_nome'>): string | null {
     if (!c.modelo) return null
     return c.nicho_nome ? `${ROTULO_DO_MODELO[c.modelo]} · ${c.nicho_nome}` : ROTULO_DO_MODELO[c.modelo]
 }
@@ -72,7 +72,7 @@ export default function ContasLigadas() {
                             { title: 'Conta', dataIndex: 'nome' },
                             {
                                 title: 'Modelo · nicho',
-                                render: (_, c) => rotuloDaSegmentacao(c) ?? <Tag color="warning">não definido</Tag>,
+                                render: (_, c) => rotuloDoModeloENicho(c) ?? <Tag color="warning">não definido</Tag>,
                             },
                             {
                                 title: '',

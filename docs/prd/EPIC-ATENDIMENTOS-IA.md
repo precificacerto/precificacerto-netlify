@@ -335,3 +335,25 @@ as rotas importam. Portão: `atendimentos-ia-a-tela-nao-fala-com-o-banco.test.ts
    credenciamento e na coluna "Subido em" —, em `tabular-nums` (pedido do dono do produto,
    19/10/2026).
 
+**O vocabulário da área: a palavra é MODELO — decisão do dono do produto, 20/10/2026.**
+
+Dentro do Atendimentos I.A. a palavra é **modelo** (e **nicho**), em tela, em mensagem, em nome de
+código e em documentação. A palavra do onboarding do cliente — a da segmentação fiscal que ele
+escolhe no primeiro acesso — é vocabulário do sistema DELE, e não aparece aqui.
+
+**A razão: separar o vocabulário é separar os dois mundos.** O modelo do Atendimentos I.A. não é a
+escolha fiscal do cliente (3.4), e um texto que usasse a mesma palavra para os dois convidaria a
+confundi-los.
+
+- **A única forma permitida é "segmentação fiscal"**, e ela fica: existe exatamente para dizer que
+  o modelo NÃO é o mundo do cliente — é o texto da tela da conta e da nota 3 do mockup. Apagá-la
+  apagaria a separação.
+- **A citação do dono do produto de 19/10/2026** — a cascata, dita antes desta decisão — fica como
+  foi dita, com a data e a nota de que o vocabulário veio depois: citação é fato, não texto a
+  manter.
+- **Ficam fora**, porque falam do mundo do cliente: o harness do bloco 1, que usa a coluna real
+  `tenants.segment`, e os comentários das migrações já aplicadas, que só se editam com o protocolo
+  de hash.
+- **Portão:** `src/utils/__tests__/atendimentos-ia-vocabulario.test.ts` — vermelho se a família da
+  palavra aparecer em `src/` da área ou neste EPIC e no mockup, fora das exceções nominais, cada
+  uma com a razão no cabeçalho do teste.

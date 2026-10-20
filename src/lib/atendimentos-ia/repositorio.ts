@@ -18,10 +18,12 @@ import {
     type ContaLigada,
     type CorpoDaTabela,
     type FornecedorComTabelas,
+    type FornecedorDoNicho,
     type FornecedorDaLista,
     type Modelo,
     type Nicho,
     type TabelaDoFornecedor,
+    type TabelaEmUso,
 } from '@/utils/atendimentos-ia-catalogo'
 
 export class ErroDoBanco extends Error {
@@ -92,7 +94,7 @@ export async function quemSeguraONicho(id: string): Promise<{ fornecedores: stri
 
 // ── Contas ligadas (bloco 2C.1) ────────────────────────────────────────────────────────────
 /**
- * As contas com o Atendimentos I.A. LIGADO, com o nome e a segmentação.
+ * As contas com o Atendimentos I.A. LIGADO, com o nome, o modelo e o nicho.
  *
  * REGRA INVIOLÁVEL: a lista de contas e a tela de configuração mostram APENAS o
  * nome/identificação da conta e a configuração do Atendimentos I.A. NADA do conteúdo da conta —
@@ -100,7 +102,7 @@ export async function quemSeguraONicho(id: string): Promise<{ fornecedores: stri
  * pode enxergar dado de cliente por construção.
  *
  * Por isso a linha é MONTADA campo a campo, e não espalhada de uma consulta: de `tenants` só se
- * lê `id, name` (`nomesDasContas`), de `orcamentista_config` só a segmentação. Valor do adicional,
+ * lê `id, name` (`nomesDasContas`), de `orcamentista_config` só o modelo e o nicho. Valor do adicional,
  * teto e quem ligou ficam de fora — não são desta tela.
  */
 export async function listarContasLigadas(): Promise<ContaLigada[]> {
@@ -118,6 +120,78 @@ export async function listarContasLigadas(): Promise<ContaLigada[]> {
             nicho_nome: c.nicho_id ? (nomeDoNicho[c.nicho_id] ?? null) : null,
         }))
         .sort((a: ContaLigada, b: ContaLigada) => a.nome.localeCompare(b.nome, 'pt-BR'))
+}
+
+// ── Tabelas em uso da conta ────────────────────────────────────────────────────────────────
+/*
+ * REGRA INVIOLÁVEL: a tela mostra apenas o nome da conta e a configuração do Atendimentos I.A.
+ * Nada do conteúdo da conta. Estas leituras não tocam `tenants` — o nome da conta a tela já tem,
+ * da lista de contas ligadas — e devolvem só o catálogo.
+ */
+
+/** O modelo e o nicho SALVOS da conta, ou `null` se a conta não tem configuração do Atendimentos I.A. */
+export async function obterModeloENichoDaConta(tenantId: string): Promise<{ modelo: Modelo | null; nicho_id: string | null } | null> {
+    const cfg = await q(db().from('orcamentista_config').select('tenant_id, modelo, nicho_id').eq('tenant_id', tenantId))
+    if (cfg.length === 0) return null
+    return { modelo: cfg[0].modelo ?? null, nicho_id: cfg[0].nicho_id ?? null }
+}
+
+/** As tabelas em uso pela conta, com fornecedor, arquivo, motor e a vigência como foi digitada. */
+export async function listarTabelasDaConta(tenantId: string): Promise<TabelaEmUso[]> {
+    const usos = await q(db().from('orcamentista_conta_tabela').select('tabela_id').eq('tenant_id', tenantId))
+    const ids = usos.map((u: Linha) => u.tabela_id)
+    if (ids.length === 0) return []
+    const tabelas = await q(db().from('orcamentista_tabela').select('id, fornecedor_id, arquivo_nome, motor_nome, vigencia').in('id', ids))
+    const fIds = [...new Set(tabelas.map((t: Linha) => t.fornecedor_id))]
+    const fornecedores = fIds.length ? await q(db().from('orcamentista_fornecedor').select('id, nome').in('id', fIds)) : []
+    const nomeDo = Object.fromEntries(fornecedores.map((f: Linha) => [f.id, f.nome as string]))
+    return tabelas
+        .map((t: Linha): TabelaEmUso => ({
+            tabela_id: t.id,
+            fornecedor_id: t.fornecedor_id,
+            fornecedor_nome: nomeDo[t.fornecedor_id] ?? '—',
+            arquivo_nome: t.arquivo_nome,
+            motor_nome: t.motor_nome,
+            vigencia: t.vigencia ?? null,
+        }))
+        .sort((a: TabelaEmUso, b: TabelaEmUso) => a.fornecedor_nome.localeCompare(b.fornecedor_nome, 'pt-BR') || a.arquivo_nome.localeCompare(b.arquivo_nome, 'pt-BR'))
+}
+
+/**
+ * Os fornecedores de UM nicho, com as tabelas de cada um. O filtro é no banco, pelo nicho: a
+ * lista da plataforma nunca sai daqui, nem quando o nicho não tem fornecedor — aí sai vazia.
+ */
+export async function listarFornecedoresDoNicho(nichoId: string): Promise<FornecedorDoNicho[]> {
+    const fs = await q(db().from('orcamentista_fornecedor').select('id, nome').eq('nicho_id', nichoId).order('nome'))
+    if (fs.length === 0) return []
+    const tabelas = await q(db().from('orcamentista_tabela').select('id, fornecedor_id, arquivo_nome, motor_nome, vigencia').in('fornecedor_id', fs.map((f: Linha) => f.id)).order('criado_em', { ascending: false }))
+    return fs
+        .map((f: Linha): FornecedorDoNicho => ({
+            id: f.id,
+            nome: f.nome,
+            tabelas: tabelas.filter((t: Linha) => t.fornecedor_id === f.id).map((t: Linha) => ({
+                id: t.id, arquivo_nome: t.arquivo_nome, motor_nome: t.motor_nome, vigencia: t.vigencia ?? null,
+            })),
+        }))
+        .sort((a: FornecedorDoNicho, b: FornecedorDoNicho) => a.nome.localeCompare(b.nome, 'pt-BR'))
+}
+
+/** Uma tabela com o nicho do fornecedor dela — para a rota recusar tabela de outro nicho. */
+export async function obterTabelaComNicho(tabelaId: string): Promise<{ arquivo_nome: string; fornecedor_nome: string; nicho_id: string } | null> {
+    const ts = await q(db().from('orcamentista_tabela').select('id, fornecedor_id, arquivo_nome').eq('id', tabelaId))
+    if (ts.length === 0) return null
+    const fs = await q(db().from('orcamentista_fornecedor').select('id, nome, nicho_id').eq('id', ts[0].fornecedor_id))
+    if (fs.length === 0) return null
+    return { arquivo_nome: ts[0].arquivo_nome, fornecedor_nome: fs[0].nome, nicho_id: fs[0].nicho_id }
+}
+
+export async function adicionarTabelaNaConta(u: { tenant_id: string; tabela_id: string; criado_por: string }): Promise<void> {
+    await q(db().from('orcamentista_conta_tabela').insert(u).select('tenant_id, tabela_id'))
+}
+
+export async function removerTabelaDaConta(tenantId: string, tabelaId: string): Promise<number> {
+    const linhas = await q(db().from('orcamentista_conta_tabela').delete().eq('tenant_id', tenantId).eq('tabela_id', tabelaId).select('tabela_id'))
+    return linhas.length
 }
 
 // ── Fornecedores ───────────────────────────────────────────────────────────────────────────
