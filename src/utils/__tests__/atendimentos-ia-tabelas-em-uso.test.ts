@@ -10,6 +10,8 @@
  *
  * A CASCATA, nas palavras do dono do produto: "escolho a segmentação, e aí eu tenho todos os
  * fornecedores daquela segmentação; escolho a tabela daquele fornecedor".
+ * (dito em 19/10/2026; citação, mantida como foi dita. O vocabulário da área foi decidido
+ * depois, em 20/10/2026: na área, a palavra é MODELO — EPIC §11.)
  *
  *   (1) a rota só oferece fornecedores do NICHO DA CONTA. O banco falso tem dois nichos do MESMO
  *       modelo (Esquadrias e Marcenaria, os dois Fabricação): filtrar por modelo passaria verde
@@ -208,7 +210,7 @@ async function chamar(rota: Rota, req: { method: string; query?: object; body?: 
 const listar = (tenantId: string) => chamar(rotaDasTabelas(), { method: 'GET', query: { tenantId } })
 const adicionar = (tenantId: string, body: unknown) => chamar(rotaDasTabelas(), { method: 'POST', query: { tenantId }, body })
 const remover = (tenantId: string, tabelaId: string) => chamar(rotaDaTabela(), { method: 'DELETE', query: { tenantId, tabelaId } })
-const segmentar = (tenantId: string, body: unknown) => chamar(rotaDaConfig(), { method: 'PATCH', query: { tenantId }, body })
+const gravarModeloENicho = (tenantId: string, body: unknown) => chamar(rotaDaConfig(), { method: 'PATCH', query: { tenantId }, body })
 const usos = () => banco.tabelas.orcamentista_conta_tabela
 const escritasEm = (t: string) => banco.escritas.filter((e) => e.tabela === t)
 
@@ -301,7 +303,7 @@ describe('(3) e (4) — adicionar e remover tabela da conta', () => {
         expect(usos()).toEqual([])
     })
 
-    it('conta sem nicho: 400 — escolher a tabela vem DEPOIS da segmentação', async () => {
+    it('conta sem nicho: 400 — escolher a tabela vem DEPOIS do modelo e do nicho', async () => {
         const r = await adicionar(CONTA_SEM_NICHO, { tabela_id: T_SUL_1 })
         expect(r.status).toBe(400)
         expect(escritasEm('orcamentista_conta_tabela')).toEqual([])
@@ -374,10 +376,10 @@ describe('(5) — trocar modelo ou nicho com tabela em uso é RECUSADO, e nomeia
     it.each([
         ['outro nicho do mesmo modelo', { modelo: 'FABRICACAO', nicho_id: N_MARC }],
         ['outro modelo', { modelo: 'REVENDA', nicho_id: null }],
-        ['sem segmentação', { modelo: null, nicho_id: null }],
+        ['sem modelo nem nicho', { modelo: null, nicho_id: null }],
         ['o mesmo modelo, sem nicho', { modelo: 'FABRICACAO', nicho_id: null }],
     ])('%s → 409 com as tabelas que seguram, e a configuração fica como estava', async (_caso, body) => {
-        const r = await segmentar(CONTA_A, body)
+        const r = await gravarModeloENicho(CONTA_A, body)
         expect(r.status).toBe(409)
         for (const nome of ['Alumínio Sul', 'sul-outubro.xlsx', 'Alumínio Norte', 'norte.pdf']) expect(r.json.error).toContain(nome)
         expect(escritasEm('orcamentista_config')).toEqual([])
@@ -385,8 +387,8 @@ describe('(5) — trocar modelo ou nicho com tabela em uso é RECUSADO, e nomeia
         expect(usos()).toHaveLength(2)
     })
 
-    it('regravar a MESMA segmentação não é troca: 200, e as tabelas ficam', async () => {
-        const r = await segmentar(CONTA_A, { modelo: 'FABRICACAO', nicho_id: N_ESQ })
+    it('regravar o MESMO modelo e o MESMO nicho não é troca: 200, e as tabelas ficam', async () => {
+        const r = await gravarModeloENicho(CONTA_A, { modelo: 'FABRICACAO', nicho_id: N_ESQ })
         expect(r.status).toBe(200)
         expect(usos()).toHaveLength(2)
     })
@@ -395,13 +397,13 @@ describe('(5) — trocar modelo ou nicho com tabela em uso é RECUSADO, e nomeia
     // troca passaria o caso acima.
     it('o contraste: sem tabela em uso, a mesma troca passa', async () => {
         banco.tabelas.orcamentista_conta_tabela = []
-        const r = await segmentar(CONTA_A, { modelo: 'FABRICACAO', nicho_id: N_MARC })
+        const r = await gravarModeloENicho(CONTA_A, { modelo: 'FABRICACAO', nicho_id: N_MARC })
         expect(r.status).toBe(200)
         expect(banco.tabelas.orcamentista_config[0].nicho_id).toBe(N_MARC)
     })
 
     it('a recusa não apaga tabela nenhuma por efeito colateral', async () => {
-        await segmentar(CONTA_A, { modelo: 'REVENDA', nicho_id: null })
+        await gravarModeloENicho(CONTA_A, { modelo: 'REVENDA', nicho_id: null })
         expect(escritasEm('orcamentista_conta_tabela')).toEqual([])
     })
 })
@@ -414,7 +416,7 @@ describe('(6) — a REGRA INVIOLÁVEL nas respostas', () => {
             await listar(CONTA_A),
             await adicionar(CONTA_A, { tabela_id: T_SUL_2 }),
             await adicionar(CONTA_A, { tabela_id: T_MADEIRA_1 }),
-            await segmentar(CONTA_A, { modelo: 'REVENDA', nicho_id: null }),
+            await gravarModeloENicho(CONTA_A, { modelo: 'REVENDA', nicho_id: null }),
         ]
         const texto = JSON.stringify(respostas.map((r) => r.json))
         for (const t of TENANTS) {

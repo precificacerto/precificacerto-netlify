@@ -1,6 +1,6 @@
 /**
  * GET /api/super-admin/atendimentos-ia/contas — as contas com o Atendimentos I.A. LIGADO, com o
- * nome e a segmentação (modelo · nicho). Bloco 2C.1, 19/10/2026.
+ * nome, o modelo e o nicho (modelo · nicho). Bloco 2C.1, 19/10/2026.
  *
  * ══════════════════════════════════════════════════════════════════════════════════════════
  * REGRA INVIOLÁVEL: a lista de contas e a tela de configuração mostram APENAS o

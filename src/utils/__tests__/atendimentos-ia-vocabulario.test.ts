@@ -22,6 +22,8 @@
  *   - a citação da nota antiga do mockup no EPIC ("segmentação, fornecedores, piso e teto"): é o
  *     texto obsoleto que o EPIC registra como corrigido — a mesma razão da citação acima.
  *   - `segment-visibility.ts`: nome de arquivo do sistema do cliente, citado pelo EPIC.
+ *   - `tenants.segment`: a coluna real do sistema do cliente — o EPIC a nomeia para dizer por que
+ *     o harness fica fora deste portão (exceção autorizada pelo dono do produto, 20/10/2026).
  *
  * O QUE FICA FORA, e por quê — para ninguém "consertar" depois (resposta 3):
  *   - `scripts/harness/`: o harness do bloco 1 cria e confere a coluna REAL `tenants.segment`, do
@@ -53,6 +55,7 @@ export const EXCECOES = [
     'escolho a segmentação, e aí eu tenho todos os fornecedores daquela segmentação; escolho a tabela daquele fornecedor',
     'segmentação, fornecedores, piso e teto',
     'segment-visibility.ts',
+    'tenants.segment',
 ]
 
 /** Junta as linhas de comentário: `\n` seguido de `*`, `//`, `--` ou `#` vira um espaço. */
@@ -129,6 +132,7 @@ describe('o vocabulário do Atendimentos I.A. — a palavra é MODELO', () => {
             [' * o texto de que não é a segmentação\n *   fiscal.'],
             ['"escolho a segmentação, e aí eu tenho todos os fornecedores\n * daquela segmentação; escolho a tabela daquele fornecedor"'],
             ['`calc_type` com fallbacks — `segment-visibility.ts`'],
+            ['o harness usa a coluna real `tenants.segment`'],
             ['o modelo e o nicho da conta'],
         ])('NÃO acusa a exceção nominal: %s', (fixture) => {
             expect(ocorrenciasProibidas(fixture)).toEqual([])

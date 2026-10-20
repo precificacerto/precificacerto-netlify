@@ -10,6 +10,8 @@
  *
  * A CASCATA (dono do produto): "escolho a segmentação, e aí eu tenho todos os fornecedores
  * daquela segmentação; escolho a tabela daquele fornecedor".
+ * (dito em 19/10/2026; citação, mantida como foi dita. O vocabulário da área foi decidido
+ * depois, em 20/10/2026: na área, a palavra é MODELO — EPIC §11.)
  *   - os fornecedores vêm da rota DA CONTA, já filtrados pelo nicho SALVO dela. A tela nunca pede
  *     a lista da plataforma — nem quando o nicho não tem fornecedor: aí ela diz que não há. (O
  *     mockup, em `fornDoNicho`, caía para a lista inteira; a instrução é o contrário.)

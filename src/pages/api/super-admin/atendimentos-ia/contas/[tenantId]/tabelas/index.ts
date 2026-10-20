@@ -12,7 +12,10 @@
  * ══════════════════════════════════════════════════════════════════════════════════════════
  *
  * A CASCATA (dono do produto): "escolho a segmentação, e aí eu tenho todos os fornecedores
- * daquela segmentação; escolho a tabela daquele fornecedor". O nicho é o SALVO da conta, lido
+ * daquela segmentação; escolho a tabela daquele fornecedor".
+ * (dito em 19/10/2026; citação, mantida como foi dita. O vocabulário da área foi decidido
+ * depois, em 20/10/2026: na área, a palavra é MODELO — EPIC §11.)
+ * O nicho é o SALVO da conta, lido
  * aqui — não o que a tela diz. Nicho sem fornecedor, ou conta sem nicho: lista VAZIA, nunca a da
  * plataforma.
  *
@@ -31,7 +34,7 @@ import {
   falhaInterna,
   listarFornecedoresDoNicho,
   listarTabelasDaConta,
-  obterSegmentacaoDaConta,
+  obterModeloENichoDaConta,
   obterTabelaComNicho,
 } from '@/lib/atendimentos-ia/repositorio'
 import { ehUuid, lerPedidoDeTabelaDaConta, recusada, type TabelasDaConta } from '@/utils/atendimentos-ia-catalogo'
@@ -49,7 +52,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   if (req.method === 'GET') {
     try {
-      const seg = await obterSegmentacaoDaConta(tenantId)
+      const seg = await obterModeloENichoDaConta(tenantId)
       if (!seg) return res.status(404).json({ error: SEM_CONFIGURACAO })
       const corpo: TabelasDaConta = {
         nicho_id: seg.nicho_id,
@@ -67,7 +70,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const { tabela_id } = leitura.corpo
 
   try {
-    const seg = await obterSegmentacaoDaConta(tenantId)
+    const seg = await obterModeloENichoDaConta(tenantId)
     if (!seg) return res.status(404).json({ error: SEM_CONFIGURACAO })
     if (!seg.nicho_id) return res.status(400).json({ error: 'Escolha e salve o modelo e o nicho da conta antes de escolher as tabelas.' })
     const t = await obterTabelaComNicho(tabela_id)

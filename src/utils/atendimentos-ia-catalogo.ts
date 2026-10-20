@@ -34,7 +34,7 @@ export const ROTAS_DO_CATALOGO = {
     tabelas: '/api/super-admin/atendimentos-ia/tabelas',
     tabela: (id: string) => `/api/super-admin/atendimentos-ia/tabelas/${id}`,
     urlDeEnvio: '/api/super-admin/atendimentos-ia/tabelas/url-de-envio',
-    /** Bloco 2C.1 — as contas com o Atendimentos I.A. ligado (só nome e segmentação). */
+    /** Bloco 2C.1 — as contas com o Atendimentos I.A. ligado (só nome, modelo e nicho). */
     contas: '/api/super-admin/atendimentos-ia/contas',
     /** "Tabelas em uso" da conta: GET lista e opções do nicho; POST adiciona `{ tabela_id }`. */
     tabelasDaConta: (tenantId: string) => `/api/super-admin/atendimentos-ia/contas/${tenantId}/tabelas`,

@@ -15,10 +15,10 @@
  * TROCAR MODELO OU NICHO COM TABELA EM USO: a ROTA recusa (409) e nomeia as tabelas que seguram,
  * e esta tela mostra a recusa. É a escolha conservadora — nada é apagado por efeito colateral de
  * um seletor —; a decisão definitiva sobre o que a troca faz com as tabelas é do dono do produto,
- * PENDENTE (EPIC §3.6). Ver `gravarSegmentacao` em `pages/api/super-admin/orcamentista/[tenantId].ts`.
+ * PENDENTE (EPIC §3.6). Ver `gravarModeloENicho` em `pages/api/super-admin/orcamentista/[tenantId].ts`.
  *
- * A gravação manda SÓ `modelo` e `nicho_id` (`CorpoDaSegmentacao`), pela rota da conta: o
- * liga/desliga é de Tenants, e a segmentação não leva `ativo` (`orcamentista-config.ts`).
+ * A gravação manda SÓ `modelo` e `nicho_id` (`CorpoDoModeloENicho`), pela rota da conta: o
+ * liga/desliga é de Tenants, e a gravação do modelo e do nicho não leva `ativo` (`orcamentista-config.ts`).
  *
  * O NICHO É DO MODELO: o seletor oferece só os nichos do modelo escolhido, e trocar o modelo
  * esvazia o nicho NO FORMULÁRIO. Não é regra inventada pela tela — é a FK composta
@@ -35,7 +35,7 @@ import { PAGE_TITLES } from '@/constants/page-titles'
 import { ROUTES } from '@/constants/routes'
 import { useAuth } from '@/hooks/use-auth.hook'
 import { MODELOS, ROTAS_DO_CATALOGO, ROTULO_DO_MODELO, type ContaLigada, type Modelo, type Nicho } from '@/utils/atendimentos-ia-catalogo'
-import { rotaDaConfig, type CorpoDaSegmentacao } from '@/utils/orcamentista-config'
+import { rotaDaConfig, type CorpoDoModeloENicho } from '@/utils/orcamentista-config'
 import { chamarRota } from '@/page-parts/atendimentos-ia/api'
 import { NichoSelect } from '@/page-parts/atendimentos-ia/nicho-select.component'
 import { TabelasEmUso } from '@/page-parts/atendimentos-ia/tabelas-em-uso.component'
@@ -56,7 +56,7 @@ export default function ConfiguracaoDaConta() {
     const [salvando, setSalvando] = useState(false)
     /** A recusa da rota fica NA TELA até a próxima tentativa — a frase do 409 diz o que segura. */
     const [erroAoSalvar, setErroAoSalvar] = useState<string | null>(null)
-    /** Sobe a cada segmentação salva: o grupo das tabelas relê com o nicho novo. */
+    /** Sobe a cada modelo e nicho salvos: o grupo das tabelas relê com o nicho novo. */
     const [versaoSalva, setVersaoSalva] = useState(0)
 
     const carregar = useCallback(async () => {
@@ -92,7 +92,7 @@ export default function ConfiguracaoDaConta() {
         setSalvando(true)
         setErroAoSalvar(null)
         try {
-            const corpo: CorpoDaSegmentacao = { modelo, nicho_id: modelo ? nichoId : null }
+            const corpo: CorpoDoModeloENicho = { modelo, nicho_id: modelo ? nichoId : null }
             await chamarRota(rotaDaConfig(tenantId), 'PATCH', corpo)
             message.success('Configuração salva')
             await carregar()

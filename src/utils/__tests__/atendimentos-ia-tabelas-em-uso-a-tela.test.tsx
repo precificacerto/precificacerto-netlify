@@ -16,7 +16,7 @@
  *       de mais ninguém; "Adicionar" manda só `tabela_id`, na rota da conta;
  *   (d) a lista mostra as tabelas em uso com a vigência COMO FOI DIGITADA, sem regra de
  *       vencimento; "Remover" chama a rota da tabela daquela conta;
- *   (e) conta sem nicho salvo: a tela pede a segmentação antes, e não mostra seletor;
+ *   (e) conta sem nicho salvo: a tela pede o modelo e o nicho antes, e não mostra seletor;
  *   (f) a recusa da rota aparece com a frase dela.
  *
  * O mockup (`docs/prd/atendimentos-ia-mockup.html`, `fornDoNicho`) caía para a lista inteira
@@ -191,7 +191,7 @@ describe('Tabelas em uso — a cascata na tela', () => {
         expect(pedidos.filter((p) => p.metodo !== 'GET')).toEqual([{ url: ROTAS_DO_CATALOGO.tabelaDaConta(CONTA_A, T_SUL_2), metodo: 'DELETE', corpo: undefined }])
     })
 
-    it('(e) conta sem nicho salvo: pede a segmentação antes, e não mostra seletor', async () => {
+    it('(e) conta sem nicho salvo: pede o modelo e o nicho antes, e não mostra seletor', async () => {
         responder(conta(null), { nicho_id: null, em_uso: [], fornecedores: [] })
         const host = await montar()
         expect(grupo(host).textContent).toMatch(/modelo e o nicho/)

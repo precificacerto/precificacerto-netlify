@@ -1,5 +1,5 @@
 /**
- * PORTÕES do bloco 2C.1 — "Contas ligadas" e a SEGMENTAÇÃO da conta (modelo + nicho).
+ * PORTÕES do bloco 2C.1 — "Contas ligadas" e o MODELO E O NICHO da conta.
  *
  * ══════════════════════════════════════════════════════════════════════════════════════════
  * >>> REGRA INVIOLÁVEL <<<
@@ -216,14 +216,14 @@ describe('P1 — ligar/desligar NÃO apaga modelo nem nicho; gravar modelo/nicho
 
     // O CONTRASTE: o banco falso PODE mudar o modelo — sem isto, um banco que nunca o mudasse
     // passaria os dois casos acima sem distinguir nada.
-    it('o contraste: gravar a segmentação MUDA o modelo e o nicho', async () => {
+    it('o contraste: gravar o modelo e o nicho MUDA o modelo e o nicho', async () => {
         const r = await patch(CONTA_A, { modelo: 'REVENDA', nicho_id: N_AUTO })
         expect(r.status).toBe(200)
         expect(banco.linhas[CONTA_A].modelo).toBe('REVENDA')
         expect(banco.linhas[CONTA_A].nicho_id).toBe(N_AUTO)
     })
 
-    // MUTAÇÃO: a gravação da segmentação levar `ativo` (ou passar por `montarGravacao`).
+    // MUTAÇÃO: a gravação do modelo e do nicho levar `ativo` (ou passar por `montarGravacao`).
     it('gravar modelo/nicho NÃO leva `ativo`, `ativado_por` nem `ativado_em` — e a linha os mantém', async () => {
         banco.linhas[CONTA_A] = { ...linhaDaA(), ativo: false }
         await patch(CONTA_A, { modelo: 'REVENDA', nicho_id: N_AUTO })
@@ -241,14 +241,14 @@ describe('P1 — ligar/desligar NÃO apaga modelo nem nicho; gravar modelo/nicho
         expect(banco.linhas[CONTA_A].atualizado_em).not.toBe('2026-10-18T12:00:00Z')
     })
 
-    // MUTAÇÃO: a segmentação gravar por upsert — criaria uma linha para uma conta nunca ligada.
+    // MUTAÇÃO: o modelo e o nicho gravarem por upsert — criaria uma linha para uma conta nunca ligada.
     it('conta SEM linha de configuração: 404, e nenhuma linha é criada', async () => {
         const r = await patch(CONTA_SEM_LINHA, { modelo: 'FABRICACAO', nicho_id: N_ESQ })
         expect(r.status).toBe(404)
         expect(banco.linhas[CONTA_SEM_LINHA]).toBeUndefined()
     })
 
-    it('uma conta por chamada: gravar a segmentação de A não toca B', async () => {
+    it('uma conta por chamada: gravar o modelo e o nicho de A não toca B', async () => {
         await patch(CONTA_A, { modelo: 'REVENDA', nicho_id: N_AUTO })
         expect(banco.linhas[CONTA_B]).toEqual(linhaDaB())
     })
@@ -263,14 +263,14 @@ describe('P2 — o contrato aceita modelo e nicho, e recusa antes do banco o que
         expect(banco.linhas[CONTA_A].nicho_id).toBeNull()
     })
 
-    it('modelo E nicho nulos → 200: a segmentação pode voltar a "não definida"', async () => {
+    it('modelo E nicho nulos → 200: o modelo e o nicho podem voltar a "não definido"', async () => {
         const r = await patch(CONTA_A, { modelo: null, nicho_id: null })
         expect(r.status).toBe(200)
         expect(banco.linhas[CONTA_A].modelo).toBeNull()
     })
 
-    // `INDUSTRIALIZACAO` é o SEGMENTO FISCAL do tenant (`calcType`): a confusão mais provável, e o
-    // modelo do Atendimentos I.A. não é a segmentação fiscal (mockup, "não encosta").
+    // `INDUSTRIALIZACAO` é um valor da segmentação fiscal do tenant (`calcType`): a confusão mais
+    // provável, e o modelo do Atendimentos I.A. não é a segmentação fiscal (mockup, "não encosta").
     it.each([['INDUSTRIALIZACAO'], ['fabricacao'], [''], [7]])('modelo %p fora de MODELOS → 400, e nada é escrito', async (modelo) => {
         const r = await patch(CONTA_A, { modelo, nicho_id: null })
         expect(r.status).toBe(400)
@@ -302,14 +302,14 @@ describe('P2 — o contrato aceita modelo e nicho, e recusa antes do banco o que
         expect(escritasNaConfig()).toEqual([])
     })
 
-    // Misturar as duas gravações faria a da segmentação levar `ativo` — o que P1 proíbe.
-    it('liga/desliga e segmentação no MESMO corpo → 400, e nada é escrito', async () => {
+    // Misturar as duas gravações faria a do modelo e do nicho levar `ativo` — o que P1 proíbe.
+    it('liga/desliga e modelo e nicho no MESMO corpo → 400, e nada é escrito', async () => {
         const r = await patch(CONTA_A, { ...corpoParaAlternar(linhaDaA(), true), modelo: 'REVENDA', nicho_id: N_AUTO })
         expect(r.status).toBe(400)
         expect(escritasNaConfig()).toEqual([])
     })
 
-    // MUTAÇÃO: mapear o 23503 da segmentação para 404 "Conta não encontrada" (o mapeamento antigo).
+    // MUTAÇÃO: mapear o 23503 do modelo e do nicho para 404 "Conta não encontrada" (o mapeamento antigo).
     it('par (modelo, nicho) de modelos diferentes → o BANCO recusa (23503), e a rota responde 409 dizendo o que segura', async () => {
         const r = await patch(CONTA_A, { modelo: 'REVENDA', nicho_id: N_ESQ })
         expect(r.status).toBe(409)
@@ -333,12 +333,12 @@ describe('P2 — o contrato aceita modelo e nicho, e recusa antes do banco o que
         expect(r.status).toBe(404)
     })
 
-    it('a leitura pura: a segmentação sozinha é aceita; as quatro chaves sozinhas também', () => {
+    it('a leitura pura: o modelo e o nicho sozinhos são aceitos; as quatro chaves sozinhas também', () => {
         expect(leituraRecusada(lerCorpoDaConfig({ modelo: 'SERVICO', nicho_id: null }))).toBe(false)
         expect(leituraRecusada(lerCorpoDaConfig(corpoParaAlternar(undefined, true)))).toBe(false)
     })
 
-    it('só o super admin grava a segmentação: admin de conta → 403, e nada é escrito', async () => {
+    it('só o super admin grava o modelo e o nicho: admin de conta → 403, e nada é escrito', async () => {
         banco.perfil = ADMIN_DA_A
         const r = await patch(CONTA_A, { modelo: 'REVENDA', nicho_id: N_AUTO })
         expect(r.status).toBe(403)

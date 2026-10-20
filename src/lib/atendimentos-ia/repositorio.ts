@@ -94,7 +94,7 @@ export async function quemSeguraONicho(id: string): Promise<{ fornecedores: stri
 
 // ── Contas ligadas (bloco 2C.1) ────────────────────────────────────────────────────────────
 /**
- * As contas com o Atendimentos I.A. LIGADO, com o nome e a segmentação.
+ * As contas com o Atendimentos I.A. LIGADO, com o nome, o modelo e o nicho.
  *
  * REGRA INVIOLÁVEL: a lista de contas e a tela de configuração mostram APENAS o
  * nome/identificação da conta e a configuração do Atendimentos I.A. NADA do conteúdo da conta —
@@ -102,7 +102,7 @@ export async function quemSeguraONicho(id: string): Promise<{ fornecedores: stri
  * pode enxergar dado de cliente por construção.
  *
  * Por isso a linha é MONTADA campo a campo, e não espalhada de uma consulta: de `tenants` só se
- * lê `id, name` (`nomesDasContas`), de `orcamentista_config` só a segmentação. Valor do adicional,
+ * lê `id, name` (`nomesDasContas`), de `orcamentista_config` só o modelo e o nicho. Valor do adicional,
  * teto e quem ligou ficam de fora — não são desta tela.
  */
 export async function listarContasLigadas(): Promise<ContaLigada[]> {
@@ -129,8 +129,8 @@ export async function listarContasLigadas(): Promise<ContaLigada[]> {
  * da lista de contas ligadas — e devolvem só o catálogo.
  */
 
-/** A segmentação SALVA da conta, ou `null` se a conta não tem configuração do Atendimentos I.A. */
-export async function obterSegmentacaoDaConta(tenantId: string): Promise<{ modelo: Modelo | null; nicho_id: string | null } | null> {
+/** O modelo e o nicho SALVOS da conta, ou `null` se a conta não tem configuração do Atendimentos I.A. */
+export async function obterModeloENichoDaConta(tenantId: string): Promise<{ modelo: Modelo | null; nicho_id: string | null } | null> {
     const cfg = await q(db().from('orcamentista_config').select('tenant_id, modelo, nicho_id').eq('tenant_id', tenantId))
     if (cfg.length === 0) return null
     return { modelo: cfg[0].modelo ?? null, nicho_id: cfg[0].nicho_id ?? null }
