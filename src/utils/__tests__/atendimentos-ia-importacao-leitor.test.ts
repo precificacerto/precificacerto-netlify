@@ -323,6 +323,22 @@ describe('(6b) as variáveis da tipologia saem da condição das regras dela', (
         expect(t.variaveis).toEqual([])
     })
 
+    it('lado a lado: SEM condição é vazio SEM aviso; condição ILEGÍVEL é vazio COM aviso', async () => {
+        const r = await ler([cabecalho('VALOR METRO 17%', 'VALOR BARRA 17%'), item('A1')], await motorPadrao([
+            regra('A1', 'SEM-COND'),
+            regra('A1', 'ILEGIVEL', { 15: 'x > 1000 and largo' }),
+            regra('A1', 'ILEGIVEL', { 15: '(10 + 20) / 2' }),
+            regra('A1', 'LEGIVEL', { 15: 'L > 1000' }),
+        ]))
+        const t = Object.fromEntries(r.tipologias.map((x) => [x.tipologia, x]))
+        expect(t['SEM-COND'].variaveis).toEqual([])
+        expect(t.ILEGIVEL.variaveis).toEqual([])
+        expect(t.LEGIVEL.variaveis).toEqual(['L'])
+        expect(avisosDo(r, 'tipologia_condicional_sem_variavel')).toEqual([expect.objectContaining({
+            tipologia: 'ILEGIVEL', n_condicionais: 2, exemplo: 'x > 1000 and largo',
+        })])
+    })
+
     it('AND, OR e IIF nunca entram; nem palavra de 5 letras, nem minúscula, nem número', () => {
         expect(variaveisDasCondicoes(['IIF(A AND B, C OR D, LARGO) and x > 10 OR IIF'])).toEqual(['A', 'B', 'C', 'D'])
         // O contraste: sem as exclusões, as mesmas condições dariam AND, OR e IIF.
