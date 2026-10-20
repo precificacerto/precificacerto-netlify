@@ -55,6 +55,16 @@ const T_SUL_2 = '55555555-5555-5555-5555-555555555512'
 const T_NORTE_1 = '55555555-5555-5555-5555-555555555521'
 const T_MADEIRA_1 = '55555555-5555-5555-5555-555555555531'
 const T_INEXISTENTE = '55555555-5555-5555-5555-555555555599'
+// Revenda e Prestação de serviço: o CATÁLOGO pode ter nicho, fornecedor e tabela nelas (a
+// decisão de 19/10/2026 restringe o USO por conta, não o credenciamento).
+const CONTA_REVENDA = '00000000-0000-0000-0000-00000000000e'
+const CONTA_SERVICO = '00000000-0000-0000-0000-00000000000f'
+const N_AUTO = '33333333-3333-3333-3333-333333333334'
+const N_MEC = '33333333-3333-3333-3333-333333333335'
+const F_PECAS = '44444444-4444-4444-4444-444444444444'
+const F_OFICINA = '44444444-4444-4444-4444-444444444445'
+const T_PECAS_1 = '55555555-5555-5555-5555-555555555541'
+const T_OFICINA_1 = '55555555-5555-5555-5555-555555555551'
 
 const SUPER: Perfil = { id: 'u-super', tenant_id: null, role: 'super_admin', is_super_admin: true }
 const ADMIN_DA_A: Perfil = { id: 'u-admin-a', tenant_id: CONTA_A, role: 'admin', is_super_admin: false }
@@ -65,16 +75,22 @@ const TENANTS: Linha[] = [
     { id: CONTA_SEM_NICHO, name: 'Conta Beta', email: 'beta@cliente.com', phone: '11 98888-0000' },
     { id: CONTA_NICHO_VAZIO, name: 'Conta Gama', email: 'gama@cliente.com', phone: '11 97777-0000' },
     { id: CONTA_SEM_CONFIG, name: 'Conta Delta', email: 'delta@cliente.com', phone: '11 96666-0000' },
+    { id: CONTA_REVENDA, name: 'Conta Épsilon', email: 'epsilon@cliente.com', phone: '11 95555-0000' },
+    { id: CONTA_SERVICO, name: 'Conta Zeta', email: 'zeta@cliente.com', phone: '11 94444-0000' },
 ]
 const NICHOS: { id: string; modelo: Modelo; nome: string }[] = [
     { id: N_ESQ, modelo: 'FABRICACAO', nome: 'Esquadrias' },
     { id: N_MARC, modelo: 'FABRICACAO', nome: 'Marcenaria' },
     { id: N_SERR, modelo: 'FABRICACAO', nome: 'Serralheria' },
+    { id: N_AUTO, modelo: 'REVENDA', nome: 'Autopeças' },
+    { id: N_MEC, modelo: 'SERVICO', nome: 'Mecânicas' },
 ]
 const FORNECEDORES: Linha[] = [
     { id: F_SUL, nicho_id: N_ESQ, nome: 'Alumínio Sul' },
     { id: F_NORTE, nicho_id: N_ESQ, nome: 'Alumínio Norte' },
     { id: F_MADEIRA, nicho_id: N_MARC, nome: 'Madeireira Centro' },
+    { id: F_PECAS, nicho_id: N_AUTO, nome: 'Distribuidora de Peças' },
+    { id: F_OFICINA, nicho_id: N_MEC, nome: 'Oficina Parceira' },
 ]
 const tabela = (id: string, fornecedor_id: string, arquivo_nome: string, vigencia: string | null): Linha => ({
     id, fornecedor_id, arquivo_nome, arquivo_path: `${fornecedor_id}/arquivo/${arquivo_nome}`,
@@ -85,6 +101,8 @@ const TABELAS: Linha[] = [
     tabela(T_SUL_2, F_SUL, 'sul-novembro.xlsx', 'vale até sair a nova lista'),
     tabela(T_NORTE_1, F_NORTE, 'norte.pdf', null),
     tabela(T_MADEIRA_1, F_MADEIRA, 'madeira.xlsx', 'desde 01/09/2026'),
+    tabela(T_PECAS_1, F_PECAS, 'pecas.xlsx', null),
+    tabela(T_OFICINA_1, F_OFICINA, 'oficina.xlsx', null),
 ]
 const config = (tenant_id: string, modelo: Modelo | null, nicho_id: string | null): Linha => ({
     tenant_id, ativo: true, valor_adicional_brl: null, teto_de_consumo_brl: null, acao_ao_atingir_teto: 'AVISAR',
@@ -231,6 +249,8 @@ beforeEach(() => {
             config(CONTA_A, 'FABRICACAO', N_ESQ),
             config(CONTA_SEM_NICHO, 'FABRICACAO', null),
             config(CONTA_NICHO_VAZIO, 'FABRICACAO', N_SERR),
+            config(CONTA_REVENDA, 'REVENDA', N_AUTO),
+            config(CONTA_SERVICO, 'SERVICO', N_MEC),
         ],
     }
 })
@@ -442,5 +462,53 @@ describe('(6) — a REGRA INVIOLÁVEL nas respostas', () => {
         await listar(CONTA_A)
         expect(banco.leituras.length).toBeGreaterThan(0)
         expect(banco.leituras.filter((x) => x.tabela === 'tenants')).toEqual([])
+    })
+})
+
+// ════════════════════════════════════════════════════════════════════════════════════════
+// (7) SÓ FABRICAÇÃO USA FORNECEDOR → TABELA → MOTOR — decisão do dono do produto, 19/10/2026,
+//     aplicada em 20/10/2026 (EPIC §3.2 e §11). Revenda e Prestação de serviço usam o cadastro
+//     do próprio cliente. A tela some, e a porta dos fundos fecha junto: a ROTA recusa.
+// ════════════════════════════════════════════════════════════════════════════════════════
+describe('(7) — só contas de Fabricação usam tabela de fornecedor', () => {
+    it.each([
+        ['Revenda', CONTA_REVENDA, T_PECAS_1, 'Revenda'],
+        ['Prestação de serviço', CONTA_SERVICO, T_OFICINA_1, 'Prestação de serviço'],
+    ])('conta de %s: adicionar tabela, MESMO do nicho dela, é 409 dizendo por quê, e nada é escrito', async (_m, conta, tabelaId, rotulo) => {
+        const r = await adicionar(conta, { tabela_id: tabelaId })
+        expect(r.status).toBe(409)
+        expect(r.json.error).toContain('Fabricação')
+        expect(r.json.error).toContain(rotulo)
+        expect(escritasEm('orcamentista_conta_tabela')).toEqual([])
+        expect(usos()).toEqual([])
+    })
+
+    it('conta de Revenda SEM nicho: 409 pelo modelo — e não o 400 de "escolha o nicho", que mandaria escolher algo inútil', async () => {
+        banco.tabelas.orcamentista_config.push(config(CONTA_SEM_CONFIG, 'REVENDA', null))
+        const r = await adicionar(CONTA_SEM_CONFIG, { tabela_id: T_PECAS_1 })
+        expect(r.status).toBe(409)
+        expect(r.json.error).toContain('Fabricação')
+    })
+
+    // O CONTRASTE: a mesma rota, numa conta de Fabricação, aceita. Sem isto, uma rota que
+    // recusasse toda inclusão passaria os casos acima.
+    it('o contraste: conta de Fabricação adiciona a tabela do nicho dela (201)', async () => {
+        const r = await adicionar(CONTA_A, { tabela_id: T_SUL_1 })
+        expect(r.status).toBe(201)
+        expect(usos()).toHaveLength(1)
+    })
+
+    it.each([
+        ['Revenda', CONTA_REVENDA],
+        ['Prestação de serviço', CONTA_SERVICO],
+    ])('conta de %s: a lista não oferece fornecedor nenhum, mesmo com fornecedor no nicho dela', async (_m, conta) => {
+        const r = await listar(conta)
+        expect(r.status).toBe(200)
+        expect(r.json.fornecedores).toEqual([])
+    })
+
+    it('o contraste da lista: o catálogo TEM fornecedor naquele nicho — numa conta de Fabricação a mesma rota oferece', async () => {
+        expect(banco.tabelas.orcamentista_fornecedor.some((f) => f.nicho_id === N_AUTO)).toBe(true)
+        expect((await listar(CONTA_A)).json.fornecedores.length).toBeGreaterThan(0)
     })
 })
