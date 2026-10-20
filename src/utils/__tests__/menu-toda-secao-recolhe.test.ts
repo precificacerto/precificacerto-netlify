@@ -63,7 +63,7 @@ jest.mock('@/hooks/use-auth.hook', () => ({
 }))
 jest.mock('@/hooks/use-permissions.hook', () => {
     const real = jest.requireActual('@/hooks/use-permissions.hook')
-    return { ...real, usePermissions: () => ({ canView: () => true, canEdit: () => true, isAdmin: true, isSuperAdmin: false }) }
+    return { ...real, usePermissions: () => ({ canView: () => true, canEdit: () => true, isAdmin: !superAdmin, isSuperAdmin: superAdmin }) }
 })
 jest.mock('@/contexts/device.context', () => ({ useDevice: () => ({ isMobile: false }) }))
 jest.mock('@/supabase/client', () => {
