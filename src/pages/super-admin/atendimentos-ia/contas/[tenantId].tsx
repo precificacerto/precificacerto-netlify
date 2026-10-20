@@ -34,7 +34,18 @@ import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
 import { ROUTES } from '@/constants/routes'
 import { useAuth } from '@/hooks/use-auth.hook'
-import { MODELOS, ROTAS_DO_CATALOGO, ROTULO_DO_MODELO, type ContaLigada, type Modelo, type Nicho } from '@/utils/atendimentos-ia-catalogo'
+import {
+    BASE_DO_CADASTRO,
+    MODELOS,
+    ROTAS_DO_CATALOGO,
+    ROTULO_DO_MODELO,
+    TITULO_DA_BASE_DO_CADASTRO,
+    usaTabelaDeFornecedor,
+    type ContaLigada,
+    type Modelo,
+    type ModeloSemFornecedor,
+    type Nicho,
+} from '@/utils/atendimentos-ia-catalogo'
 import { rotaDaConfig, type CorpoDoModeloENicho } from '@/utils/orcamentista-config'
 import { chamarRota } from '@/page-parts/atendimentos-ia/api'
 import { NichoSelect } from '@/page-parts/atendimentos-ia/nicho-select.component'
@@ -163,7 +174,19 @@ export default function ConfiguracaoDaConta() {
                 </Space>
             </Card>
             <Card style={{ marginTop: 16 }}>
-                <TabelasEmUso key={versaoSalva} tenantId={conta.tenant_id} />
+                {/* Só Fabricação usa fornecedor → tabela → motor (`MODELO_COM_FORNECEDOR`, decisão do
+                    dono do produto de 19/10/2026). Revenda e Prestação de serviço montam o orçamento
+                    a partir do cadastro do próprio cliente. Lê o modelo SALVO da conta, não o do
+                    formulário: a configuração vale depois de salva. Sem modelo, o grupo pede o
+                    modelo e o nicho. */}
+                {conta.modelo && !usaTabelaDeFornecedor(conta.modelo) ? (
+                    <div data-grupo="base-do-cadastro">
+                        <Typography.Title level={5} style={{ marginTop: 0 }}>{TITULO_DA_BASE_DO_CADASTRO}</Typography.Title>
+                        <Typography.Paragraph style={{ marginBottom: 0 }}>{BASE_DO_CADASTRO[conta.modelo as ModeloSemFornecedor]}</Typography.Paragraph>
+                    </div>
+                ) : (
+                    <TabelasEmUso key={versaoSalva} tenantId={conta.tenant_id} />
+                )}
             </Card>
         </Layout>
     )

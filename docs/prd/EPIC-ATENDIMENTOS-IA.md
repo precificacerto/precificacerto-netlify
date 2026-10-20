@@ -357,3 +357,26 @@ confundi-los.
 - **Portão:** `src/utils/__tests__/atendimentos-ia-vocabulario.test.ts` — vermelho se a família da
   palavra aparecer em `src/` da área ou neste EPIC e no mockup, fora das exceções nominais, cada
   uma com a razão no cabeçalho do teste.
+
+**Só Fabricação usa fornecedor → tabela → motor, no USO POR CONTA — decisão do dono do produto de
+19/10/2026 (3.2), aplicada em 20/10/2026.**
+
+Nas palavras dele: *"Prestação de serviço vai considerar os produtos e os serviços salvos dentro do
+sistema"*; e, sobre Revenda, *"o motor dele vai considerar a base de conhecimento, que são os
+produtos salvos no próprio sistema"*.
+
+- **A tela da conta** só mostra "Tabelas em uso" quando o modelo SALVO da conta é Fabricação. Em
+  Revenda e em Prestação de serviço o grupo some, e no lugar entra "Base de cálculo do motor", com
+  o texto do mockup: produtos, na Revenda; produtos e serviços, na Prestação. A linha de números
+  do mockup ("1.284 produtos · …") NÃO entrou: mostraria o tamanho do cadastro do cliente, que é
+  conteúdo da conta.
+- **A rota fecha a porta dos fundos**: incluir tabela em conta de Revenda ou de Prestação é 409,
+  dizendo por quê — antes da conferência do nicho, para não mandar escolher um nicho que não
+  adiantaria. A lista da conta também não oferece fornecedor nesses modelos.
+- **O catálogo NÃO muda**: nicho, fornecedor e tabela continuam podendo existir nos três modelos
+  (o item 6 acima continua valendo para o credenciamento). Só o uso por conta é restringido.
+- **A regra mora num lugar só**: `MODELO_COM_FORNECEDOR` e `usaTabelaDeFornecedor`, em
+  `src/utils/atendimentos-ia-catalogo.ts`, com a citação da decisão no ponto em que é declarada.
+- **Portões**: a seção (7) de `atendimentos-ia-tabelas-em-uso.test.ts` e "a base do motor por
+  modelo", em `atendimentos-ia-tabelas-em-uso-a-tela.test.tsx`, cada um com o contraste de
+  Fabricação.

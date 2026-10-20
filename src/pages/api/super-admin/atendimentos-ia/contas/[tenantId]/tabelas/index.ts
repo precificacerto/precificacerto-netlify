@@ -19,6 +19,11 @@
  * aqui — não o que a tela diz. Nicho sem fornecedor, ou conta sem nicho: lista VAZIA, nunca a da
  * plataforma.
  *
+ * SÓ FABRICAÇÃO USA TABELA (decisão do dono do produto, 19/10/2026; aplicada em 20/10/2026 —
+ * `MODELO_COM_FORNECEDOR`): conta de Revenda ou de Prestação de serviço não recebe fornecedor na
+ * lista e tem a inclusão recusada (409), dizendo por quê. A tela esconde o grupo; a rota fecha a
+ * porta dos fundos.
+ *
  * A TRAVA DO NICHO É DA ROTA, não só da tela: tabela de fornecedor de outro nicho é recusada
  * (409) antes de qualquer escrita. O banco não tem essa trava — `orcamentista_conta_tabela` não
  * referencia o nicho —, e um POST feito fora da tela passaria sem ela.
@@ -37,7 +42,15 @@ import {
   obterModeloENichoDaConta,
   obterTabelaComNicho,
 } from '@/lib/atendimentos-ia/repositorio'
-import { ehUuid, lerPedidoDeTabelaDaConta, recusada, type TabelasDaConta } from '@/utils/atendimentos-ia-catalogo'
+import {
+  ehUuid,
+  fraseDoModeloSemFornecedor,
+  lerPedidoDeTabelaDaConta,
+  recusada,
+  usaTabelaDeFornecedor,
+  type ModeloSemFornecedor,
+  type TabelasDaConta,
+} from '@/utils/atendimentos-ia-catalogo'
 
 const SEM_CONFIGURACAO = 'Esta conta não tem o Atendimentos I.A. configurado. Ligue em Tenants primeiro.'
 
@@ -57,7 +70,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const corpo: TabelasDaConta = {
         nicho_id: seg.nicho_id,
         em_uso: await listarTabelasDaConta(tenantId),
-        fornecedores: seg.nicho_id ? await listarFornecedoresDoNicho(seg.nicho_id) : [],
+        fornecedores: seg.nicho_id && usaTabelaDeFornecedor(seg.modelo) ? await listarFornecedoresDoNicho(seg.nicho_id) : [],
       }
       return res.status(200).json(corpo)
     } catch (e) {
@@ -72,6 +85,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     const seg = await obterModeloENichoDaConta(tenantId)
     if (!seg) return res.status(404).json({ error: SEM_CONFIGURACAO })
+    // O modelo vem ANTES do nicho: a uma conta de Revenda sem nicho, pedir o nicho mandaria
+    // escolher algo que não a deixaria usar tabela de qualquer jeito.
+    if (seg.modelo && !usaTabelaDeFornecedor(seg.modelo)) {
+      return res.status(409).json({ error: fraseDoModeloSemFornecedor(seg.modelo as ModeloSemFornecedor) })
+    }
     if (!seg.nicho_id) return res.status(400).json({ error: 'Escolha e salve o modelo e o nicho da conta antes de escolher as tabelas.' })
     const t = await obterTabelaComNicho(tabela_id)
     if (!t) return res.status(404).json({ error: 'Tabela não encontrada.' })
