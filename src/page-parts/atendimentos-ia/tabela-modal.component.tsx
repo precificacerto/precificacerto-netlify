@@ -6,14 +6,23 @@
  *
  * Serve dois usos: a tabela NOVA (os dois arquivos são exigidos) e a EDIÇÃO (cada arquivo é
  * trocado só se outro for escolhido; o atual aparece pelo nome).
+ *
+ * TODA RECUSA APARECE AQUI DENTRO, com o arquivo e o motivo (dono do produto, 20/10/2026: "pop-up
+ * que não fecha e não explica é pior que erro"):
+ *   - o FORMATO é conferido AO ESCOLHER — o `accept` é sugestão, não trava; ver o cabeçalho de
+ *     `EXTENSOES_ACEITAS`. O arquivo recusado não entra;
+ *   - o erro de SALVAR vem da página pela prop `erro` e aparece num Alert dentro do modal — não
+ *     num `message` passageiro fora dele.
+ * Portão: `atendimentos-ia-formato-do-arquivo.test.tsx`.
  */
 import React, { useEffect, useState } from 'react'
 import { Alert, Button, Input, Modal, Typography, Upload } from 'antd'
 import { UploadOutlined } from '@ant-design/icons'
-import { AVISO_DO_CATALOGO, EXTENSOES_ACEITAS, MENSAGEM_MOTOR_OBRIGATORIO } from '@/utils/atendimentos-ia-catalogo'
+import { AVISO_DO_CATALOGO, EXTENSOES_ACEITAS, MENSAGEM_MOTOR_OBRIGATORIO, MOTIVO_DO_FORMATO_RECUSADO, extensaoAceita, fraseDoArquivo } from '@/utils/atendimentos-ia-catalogo'
 import type { TabelaPendente } from './api'
 
 export const TEXTO_DO_MOTOR = 'O motor é quem faz as reduções de tipologia em cima dos perfis desta tabela. Sem ele a tabela não calcula.'
+export const TITULO_DO_ERRO_AO_SALVAR = 'A tabela não foi salva.'
 
 export interface AtualDaTabela { arquivo_nome: string; motor_nome: string; vigencia: string | null }
 
@@ -23,11 +32,14 @@ interface Props {
     /** Presente na edição: os arquivos atuais. Ausente na tabela nova. */
     atual?: AtualDaTabela
     salvando?: boolean
+    /** O motivo da última tentativa de salvar que falhou — a frase da rota, com o arquivo. */
+    erro?: string | null
     onCancelar: () => void
     onSalvar: (t: TabelaPendente) => void
 }
 
 function Escolha({ rotulo, arquivo, atual, onEscolher }: { rotulo: string; arquivo: File | null; atual?: string; onEscolher: (f: File) => void }) {
+    const [recusa, setRecusa] = useState<string | null>(null)
     return (
         <div style={{ marginBottom: 14 }}>
             <Typography.Text strong>{rotulo}</Typography.Text>
@@ -36,7 +48,12 @@ function Escolha({ rotulo, arquivo, atual, onEscolher }: { rotulo: string; arqui
                     accept={EXTENSOES_ACEITAS.join(',')}
                     maxCount={1}
                     showUploadList={false}
-                    beforeUpload={(f) => { onEscolher(f as File); return false }}
+                    beforeUpload={(f) => {
+                        if (!extensaoAceita(f.name)) { setRecusa(fraseDoArquivo(f.name, MOTIVO_DO_FORMATO_RECUSADO)); return false }
+                        setRecusa(null)
+                        onEscolher(f as File)
+                        return false
+                    }}
                 >
                     <Button icon={<UploadOutlined />}>{arquivo || atual ? 'Trocar arquivo' : 'Escolher arquivo'}</Button>
                 </Upload>
@@ -44,11 +61,12 @@ function Escolha({ rotulo, arquivo, atual, onEscolher }: { rotulo: string; arqui
                     {arquivo ? arquivo.name : atual ? <>{atual} <Typography.Text type="secondary">(atual)</Typography.Text></> : <Typography.Text type="secondary">nenhum</Typography.Text>}
                 </span>
             </div>
+            {recusa && <Alert type="error" showIcon message={recusa} style={{ marginTop: 8 }} data-recusa={rotulo} />}
         </div>
     )
 }
 
-export function TabelaModal({ aberto, titulo, atual, salvando, onCancelar, onSalvar }: Props) {
+export function TabelaModal({ aberto, titulo, atual, salvando, erro, onCancelar, onSalvar }: Props) {
     const [arquivo, setArquivo] = useState<File | null>(null)
     const [motor, setMotor] = useState<File | null>(null)
     const [vigencia, setVigencia] = useState('')
@@ -91,6 +109,7 @@ export function TabelaModal({ aberto, titulo, atual, salvando, onCancelar, onSal
             <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginTop: 8 }}>
                 Aceita {EXTENSOES_ACEITAS.join(', ')}. {AVISO_DO_CATALOGO}
             </Typography.Paragraph>
+            {erro && <Alert type="error" showIcon message={TITULO_DO_ERRO_AO_SALVAR} description={erro} data-erro-ao-salvar />}
         </Modal>
     )
 }

@@ -369,11 +369,13 @@ dl.dados dd{margin:0}
   <div class="modal">
     <h2 id="mt-tit">Tabela</h2>
     <div class="box" style="margin-bottom:10px"><label for="mt-arq-file">Arquivo da tabela</label>
-      <input type="file" id="mt-arq-file" accept=".xlsx,.xls,.csv,.pdf">
+      <!-- Formatos aceitos: a lista única é EXTENSOES_ACEITAS, em src/utils/atendimentos-ia-catalogo.ts. Não repetir aqui. -->
+      <input type="file" id="mt-arq-file">
       <p class="num" id="mt-arq-nome" style="margin:6px 0 0;font-size:.76rem;color:var(--fg-dim)">nenhum arquivo</p>
     </div>
     <div class="box" style="margin-bottom:10px"><label for="mt-motor-file">Arquivo do motor</label>
-      <input type="file" id="mt-motor-file" accept=".xlsx,.xls,.csv,.pdf">
+      <!-- Formatos aceitos: a lista única é EXTENSOES_ACEITAS, em src/utils/atendimentos-ia-catalogo.ts. Não repetir aqui. -->
+      <input type="file" id="mt-motor-file">
       <p class="num" id="mt-motor-nome" style="margin:6px 0 0;font-size:.76rem;color:var(--fg-dim)">nenhum arquivo</p>
     </div>
     <p class="dim" style="font-size:.74rem;margin:0 0 12px">O motor é quem faz as reduções de tipologia em cima dos perfis desta tabela. O conteúdo dos dois arquivos — código, dimensão, peso, referência, valor — é importado e fica por trás, sem aparecer aqui.</p>

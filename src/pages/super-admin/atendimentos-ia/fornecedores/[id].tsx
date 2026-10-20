@@ -5,6 +5,14 @@
  * "+ Nova tabela", "Editar fornecedor" (nome e nicho) e "Excluir fornecedor". Tudo pelas rotas.
  * Excluir o que está em uso a ROTA recusa e diz quais contas usam — a mensagem é mostrada
  * inteira, não trocada por um "não foi possível".
+ *
+ * O erro de salvar uma TABELA (nova ou edição) aparece DENTRO do modal (`erroDaTabela` → prop
+ * `erro`), com o arquivo e o motivo — nunca num `message` passageiro fora dele: o modal fica
+ * aberto quando a gravação falha, e aberto sem explicação manda o usuário adivinhar (20/10/2026,
+ * `atendimentos-ia-formato-do-arquivo.test.tsx`). Pelo mesmo princípio — a recusa aparece ONDE A
+ * AÇÃO ACONTECEU —, editar e excluir fornecedor mostram o erro dentro do modal "Editar
+ * fornecedor", e excluir tabela (que não tem modal) mostra num Alert na página, acima da lista
+ * (`atendimentos-ia-recusa-onde-a-acao-aconteceu.test.tsx`).
  */
 import React, { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/router'
@@ -14,9 +22,9 @@ import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
 import { ROUTES } from '@/constants/routes'
 import { useAuth } from '@/hooks/use-auth.hook'
-import { ROTAS_DO_CATALOGO, ROTULO_DO_MODELO, type FornecedorComTabelas, type Nicho, type TabelaDoFornecedor } from '@/utils/atendimentos-ia-catalogo'
+import { ROTAS_DO_CATALOGO, ROTULO_DO_MODELO, TITULO_DA_TABELA_NAO_EXCLUIDA, fraseDoArquivo, type FornecedorComTabelas, type Nicho, type TabelaDoFornecedor } from '@/utils/atendimentos-ia-catalogo'
 import { chamarRota, enviarArquivo, gravarTabelaNova, type TabelaPendente } from '@/page-parts/atendimentos-ia/api'
-import { FornecedorModal, type DadosDoFornecedor } from '@/page-parts/atendimentos-ia/fornecedor-modal.component'
+import { FornecedorModal, TITULO_FORNECEDOR_NAO_EXCLUIDO, TITULO_FORNECEDOR_NAO_SALVO, type DadosDoFornecedor, type ErroDoFornecedor } from '@/page-parts/atendimentos-ia/fornecedor-modal.component'
 import { TabelaModal } from '@/page-parts/atendimentos-ia/tabela-modal.component'
 import { ESTILO_DA_DATA } from '@/page-parts/atendimentos-ia/linha-da-tabela.component'
 
@@ -35,6 +43,9 @@ export default function TabelasDoFornecedor() {
     const [tabelaNova, setTabelaNova] = useState(false)
     const [tabelaEmEdicao, setTabelaEmEdicao] = useState<TabelaDoFornecedor | null>(null)
     const [salvando, setSalvando] = useState(false)
+    const [erroDaTabela, setErroDaTabela] = useState<string | null>(null)
+    const [erroDoFornecedor, setErroDoFornecedor] = useState<ErroDoFornecedor | null>(null)
+    const [erroAoExcluirTabela, setErroAoExcluirTabela] = useState<string | null>(null)
 
     const carregar = useCallback(async () => {
         if (!id) return
@@ -61,17 +72,21 @@ export default function TabelasDoFornecedor() {
 
     const voltar = () => router.push(ROUTES.SUPER_ADMIN_IA_FORNECEDORES)
 
+    /** Abre ou fecha "Editar fornecedor" sempre SEM o erro da tentativa anterior. */
+    const editarFornecedor = (aberto: boolean) => { setErroDoFornecedor(null); setEditandoFornecedor(aberto) }
+
     async function salvarFornecedor(d: DadosDoFornecedor) {
         if (!id) return
         setSalvando(true)
+        setErroDoFornecedor(null)
         try {
             const antes = fornecedor?.nicho_id
             await chamarRota(ROTAS_DO_CATALOGO.fornecedor(id), 'PATCH', { nome: d.nome, nicho_id: d.nicho_id })
             message.success(antes && antes !== d.nicho_id ? 'Fornecedor alterado e movido de nicho' : 'Fornecedor alterado')
-            setEditandoFornecedor(false)
+            editarFornecedor(false)
             await carregar()
         } catch (e) {
-            message.error((e as Error).message, 8)
+            setErroDoFornecedor({ titulo: TITULO_FORNECEDOR_NAO_SALVO, motivo: (e as Error).message })
         } finally {
             setSalvando(false)
         }
@@ -79,25 +94,31 @@ export default function TabelasDoFornecedor() {
 
     async function excluirFornecedor() {
         if (!id) return
+        setErroDoFornecedor(null)
         try {
             await chamarRota(ROTAS_DO_CATALOGO.fornecedor(id), 'DELETE')
             message.success('Fornecedor excluído')
             voltar()
         } catch (e) {
-            message.error((e as Error).message, 8)
+            setErroDoFornecedor({ titulo: TITULO_FORNECEDOR_NAO_EXCLUIDO, motivo: (e as Error).message })
         }
     }
+
+    /** Abre ou fecha um modal de tabela sempre SEM o erro da tentativa anterior. */
+    const abrirTabelaNova = (aberto: boolean) => { setErroDaTabela(null); setTabelaNova(aberto) }
+    const editarTabela = (t: TabelaDoFornecedor | null) => { setErroDaTabela(null); setTabelaEmEdicao(t) }
 
     async function salvarTabelaNova(t: TabelaPendente) {
         if (!id) return
         setSalvando(true)
+        setErroDaTabela(null)
         try {
             await gravarTabelaNova(id, t)
             message.success('Tabela adicionada')
-            setTabelaNova(false)
+            abrirTabelaNova(false)
             await carregar()
         } catch (e) {
-            message.error((e as Error).message, 8)
+            setErroDaTabela((e as Error).message)
         } finally {
             setSalvando(false)
         }
@@ -106,6 +127,7 @@ export default function TabelasDoFornecedor() {
     async function salvarEdicao(t: TabelaPendente) {
         if (!id || !tabelaEmEdicao) return
         setSalvando(true)
+        setErroDaTabela(null)
         try {
             const corpo: Record<string, string> = { vigencia: t.vigencia }
             if (t.arquivo) { const a = await enviarArquivo(id, 'arquivo', t.arquivo); corpo.arquivo_path = a.path; corpo.arquivo_nome = a.nome }
@@ -113,23 +135,24 @@ export default function TabelasDoFornecedor() {
             const r = await chamarRota<{ ok: true; aviso?: string }>(ROTAS_DO_CATALOGO.tabela(tabelaEmEdicao.id), 'PATCH', corpo)
             if (r.aviso) message.warning(r.aviso, 8)
             else message.success('Tabela alterada')
-            setTabelaEmEdicao(null)
+            editarTabela(null)
             await carregar()
         } catch (e) {
-            message.error((e as Error).message, 8)
+            setErroDaTabela((e as Error).message)
         } finally {
             setSalvando(false)
         }
     }
 
     async function excluirTabela(t: TabelaDoFornecedor) {
+        setErroAoExcluirTabela(null)
         try {
             const r = await chamarRota<{ ok: true; aviso?: string }>(ROTAS_DO_CATALOGO.tabela(t.id), 'DELETE')
             if (r.aviso) message.warning(r.aviso, 8)
             else message.success('Tabela excluída')
             await carregar()
         } catch (e) {
-            message.error((e as Error).message, 8)
+            setErroAoExcluirTabela(fraseDoArquivo(t.arquivo_nome, (e as Error).message))
         }
     }
 
@@ -139,8 +162,8 @@ export default function TabelasDoFornecedor() {
                 <Button icon={<ArrowLeftOutlined />} onClick={voltar}>Voltar para fornecedores</Button>
                 {fornecedor && (
                     <Space>
-                        <Button onClick={() => setEditandoFornecedor(true)}>Editar fornecedor</Button>
-                        <Button type="primary" icon={<PlusOutlined />} onClick={() => setTabelaNova(true)}>Nova tabela</Button>
+                        <Button onClick={() => editarFornecedor(true)}>Editar fornecedor</Button>
+                        <Button type="primary" icon={<PlusOutlined />} onClick={() => abrirTabelaNova(true)}>Nova tabela</Button>
                     </Space>
                 )}
             </Space>
@@ -153,6 +176,18 @@ export default function TabelasDoFornecedor() {
                         <Typography.Paragraph>
                             Nicho: <b>{fornecedor.nicho_nome}</b> {fornecedor.modelo && <Tag>{ROTULO_DO_MODELO[fornecedor.modelo]}</Tag>}
                         </Typography.Paragraph>
+                    )}
+                    {erroAoExcluirTabela && (
+                        <Alert
+                            type="error"
+                            showIcon
+                            closable
+                            onClose={() => setErroAoExcluirTabela(null)}
+                            style={{ marginBottom: 12 }}
+                            message={TITULO_DA_TABELA_NAO_EXCLUIDA}
+                            description={erroAoExcluirTabela}
+                            data-erro-da-tabela
+                        />
                     )}
                     <div className="pc-card--table">
                         <Table<TabelaDoFornecedor>
@@ -173,7 +208,7 @@ export default function TabelasDoFornecedor() {
                                     align: 'right',
                                     render: (_, t) => (
                                         <Space>
-                                            <Button size="small" onClick={() => setTabelaEmEdicao(t)}>Editar</Button>
+                                            <Button size="small" onClick={() => editarTabela(t)}>Editar</Button>
                                             <Popconfirm title="Excluir esta tabela?" okText="Excluir" cancelText="Cancelar" onConfirm={() => excluirTabela(t)}>
                                                 <Button size="small" danger>Excluir</Button>
                                             </Popconfirm>
@@ -186,13 +221,14 @@ export default function TabelasDoFornecedor() {
                 </>
             )}
 
-            <TabelaModal aberto={tabelaNova} titulo="Nova tabela" salvando={salvando} onCancelar={() => setTabelaNova(false)} onSalvar={salvarTabelaNova} />
+            <TabelaModal aberto={tabelaNova} titulo="Nova tabela" salvando={salvando} erro={tabelaNova ? erroDaTabela : null} onCancelar={() => abrirTabelaNova(false)} onSalvar={salvarTabelaNova} />
             <TabelaModal
                 aberto={!!tabelaEmEdicao}
                 titulo="Editar tabela"
                 atual={tabelaEmEdicao ?? undefined}
                 salvando={salvando}
-                onCancelar={() => setTabelaEmEdicao(null)}
+                erro={tabelaEmEdicao ? erroDaTabela : null}
+                onCancelar={() => editarTabela(null)}
                 onSalvar={salvarEdicao}
             />
             <FornecedorModal
@@ -201,7 +237,8 @@ export default function TabelasDoFornecedor() {
                 nichos={nichos}
                 inicial={fornecedor ? { nome: fornecedor.nome, nicho_id: fornecedor.nicho_id } : undefined}
                 salvando={salvando}
-                onCancelar={() => setEditandoFornecedor(false)}
+                erro={editandoFornecedor ? erroDoFornecedor : null}
+                onCancelar={() => editarFornecedor(false)}
                 onSalvar={salvarFornecedor}
                 onExcluir={excluirFornecedor}
             />

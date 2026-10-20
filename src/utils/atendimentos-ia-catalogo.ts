@@ -23,8 +23,48 @@ export const ROTULO_DO_MODELO: Record<Modelo, string> = {
 /** O bucket privado criado pela `20261019000001`. */
 export const BUCKET_DO_CATALOGO = 'atendimentos-ia'
 
-/** O que o modal da tabela aceita, nos DOIS arquivos (EPIC §5.6). */
-export const EXTENSOES_ACEITAS = ['.xlsx', '.xls', '.csv', '.pdf'] as const
+/**
+ * O que o modal da tabela aceita, nos DOIS arquivos — tabela e motor (EPIC §5.6). É a LISTA ÚNICA:
+ * o modal (o `accept` e o rodapé), a recusa da tela e a recusa da rota leem daqui. O EPIC e o
+ * mockup citam esta constante em vez de repetir a lista.
+ *
+ * `.xlsm` entrou em 20/10/2026: a tabela de pedidos da Wolff Perfis é uma planilha com macro.
+ *
+ * ══ A VALIDAÇÃO DE FORMATO EXISTE DUAS VEZES, E NÃO É REPETIÇÃO (dono do produto, 20/10/2026) ══
+ * O `accept` do input é SUGESTÃO, não trava: o usuário escolhe "Todos os arquivos" no diálogo do
+ * sistema e passa. Por isso a checagem existe em dois pontos, cada um com o seu papel:
+ *   - na TELA (`TabelaModal`, ao escolher): para AVISAR CEDO, dentro do modal, com o nome do
+ *     arquivo e o motivo — antes de qualquer envio;
+ *   - na ROTA (`lerPedidoDeEnvio`, em `tabelas/url-de-envio.ts`): para VALER — a tela é do
+ *     navegador, e o que vale é o que o servidor recusa.
+ * Tirar qualquer uma das duas achando que é repetição fica vermelho em
+ * `atendimentos-ia-formato-do-arquivo.test.tsx`. E a recusa precisa ser VISÍVEL: a da rota já
+ * existia e funcionava em 20/10/2026, e o defeito era ninguém vê-la.
+ *
+ * ══ A RECUSA APARECE ONDE A AÇÃO ACONTECEU (dono do produto, 20/10/2026) ══
+ * Mensagem passageira no topo da página não é aviso — é sorte. Na área inteira:
+ *   - o clique foi num MODAL (tabela nova, editar tabela, editar ou excluir fornecedor,
+ *     credenciar) → o erro aparece num Alert DENTRO dele;
+ *   - o clique foi na PÁGINA (excluir tabela, num balão de confirmação) → Alert na página, acima
+ *     da lista;
+ *   - o credenciamento gravou o fornecedor e alguma tabela falhou → o modal fecha (outro clique
+ *     criaria um segundo fornecedor) e as falhas ficam num Alert FIXO na página, cada arquivo
+ *     nomeado UMA vez (`fraseDoArquivo` / `fraseDaTabela`).
+ * Portão: `atendimentos-ia-recusa-onde-a-acao-aconteceu.test.tsx`.
+ */
+export const EXTENSOES_ACEITAS = ['.xlsx', '.xlsm', '.xls', '.csv', '.pdf'] as const
+
+/** O motivo da recusa de formato — o mesmo na tela e na rota. */
+export const MOTIVO_DO_FORMATO_RECUSADO = `Formato não aceito. Use ${EXTENSOES_ACEITAS.join(', ')}.`
+
+/** Uma recusa que diz QUAL arquivo: `Arquivo "x.docx": Formato não aceito…`. */
+export const fraseDoArquivo = (nome: string, motivo: string) => `Arquivo "${nome}": ${motivo}`
+
+/** A gravação da tabela recusada DEPOIS dos envios: `Tabela "x.xlsm": …` — nomeada pelo arquivo da tabela. */
+export const fraseDaTabela = (nome: string, motivo: string) => `Tabela "${nome}": ${motivo}`
+
+/** O título do Alert, na página, quando excluir uma tabela é recusado. */
+export const TITULO_DA_TABELA_NAO_EXCLUIDA = 'A tabela não foi excluída.'
 
 export const ROTAS_DO_CATALOGO = {
     nichos: '/api/super-admin/atendimentos-ia/nichos',
@@ -275,7 +315,7 @@ export function lerPedidoDeEnvio(body: unknown): Leitura<{ fornecedor_id: string
     if (b.tipo !== 'arquivo' && b.tipo !== 'motor') return { ok: false, erro: 'Tipo de arquivo inválido.' }
     const nome = textoAparado(b.nome)
     if (!nome) return { ok: false, erro: 'Arquivo sem nome.' }
-    if (!extensaoAceita(nome)) return { ok: false, erro: `Formato não aceito. Use ${EXTENSOES_ACEITAS.join(', ')}.` }
+    if (!extensaoAceita(nome)) return { ok: false, erro: MOTIVO_DO_FORMATO_RECUSADO }
     return { ok: true, corpo: { fornecedor_id: b.fornecedor_id, tipo: b.tipo, nome } }
 }
 

@@ -198,8 +198,24 @@ não regra**: o motor é obrigatório em toda tabela (3.8).
 
 Colunas: **Arquivo** · **Motor** · **Vigência** · **Subido em** · **Contas usando** · Editar /
 Excluir. Botões **"+ Nova tabela"** e **"Editar fornecedor"** (modal: nome, nicho e **"Excluir
-fornecedor"**). O modal da tabela tem **arquivo da tabela** e **arquivo do motor** (os dois
-aceitam `.xlsx`, `.xls`, `.csv`, `.pdf`) e **vigência**; salvar exige os dois arquivos.
+fornecedor"**). O modal da tabela tem **arquivo da tabela** e **arquivo do motor** e **vigência**;
+salvar exige os dois arquivos. Os formatos aceitos nos dois arquivos são a lista única
+`EXTENSOES_ACEITAS`, em `src/utils/atendimentos-ia-catalogo.ts` — este EPIC a cita e não a repete.
+O `.xlsm` entrou nela em 20/10/2026.
+
+A validação de formato existe **duas vezes, e não é repetição** (dono do produto, 20/10/2026): o
+`accept` do input é sugestão, não trava — quem escolhe "Todos os arquivos" passa. A **tela** recusa
+ao escolher, para avisar cedo; a **rota** recusa para valer. E **toda recusa aparece dentro do
+modal, com o arquivo e o motivo**: em 20/10/2026 a recusa da rota já existia e funcionava, e o
+defeito era ela ser invisível — o modal não fechava e não explicava. Portão:
+`atendimentos-ia-formato-do-arquivo.test.tsx`.
+
+O princípio que amarra os dois (dono do produto, 20/10/2026): **a recusa aparece ONDE A AÇÃO
+ACONTECEU.** Mensagem passageira no topo da página não é aviso — é sorte. Erro de editar ou
+excluir fornecedor e de credenciar aparece dentro do modal; erro de excluir tabela, num Alert na
+página, acima da lista; no credenciamento, tabela que falha depois de o fornecedor gravado fica
+num Alert fixo na página, com cada arquivo nomeado uma vez. Portão:
+`atendimentos-ia-recusa-onde-a-acao-aconteceu.test.tsx`.
 
 ### 5.7 Tela do tenant
 

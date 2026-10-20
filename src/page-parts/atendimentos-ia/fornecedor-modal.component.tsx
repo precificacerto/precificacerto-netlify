@@ -4,9 +4,12 @@
  *     sem nenhuma e subir depois. Cada tabela entra pelo MESMO modal da tabela, com o motor
  *     obrigatório: o atalho do protótipo, que criava tabela sem motor, NÃO é regra (EPIC §3.8).
  *   - EDITAR: nome e nicho, e "Excluir fornecedor".
+ *
+ * O erro de credenciar, salvar ou excluir vem da página pela prop `erro` e aparece DENTRO deste
+ * modal — onde a ação aconteceu (ver o cabeçalho de `EXTENSOES_ACEITAS`).
  */
 import React, { useEffect, useState } from 'react'
-import { Button, Input, List, Modal, Popconfirm, Typography } from 'antd'
+import { Alert, Button, Input, List, Modal, Popconfirm, Typography } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
 import type { Nicho } from '@/utils/atendimentos-ia-catalogo'
 import { NichoSelect } from './nicho-select.component'
@@ -16,18 +19,26 @@ import type { TabelaPendente } from './api'
 
 export interface DadosDoFornecedor { nome: string; nicho_id: string; tabelas: TabelaPendente[] }
 
+export const TITULO_FORNECEDOR_NAO_CREDENCIADO = 'O fornecedor não foi credenciado.'
+export const TITULO_FORNECEDOR_NAO_SALVO = 'O fornecedor não foi salvo.'
+export const TITULO_FORNECEDOR_NAO_EXCLUIDO = 'O fornecedor não foi excluído.'
+
+/** A última tentativa que falhou: o título diz QUAL ação, o motivo é a frase da rota. */
+export interface ErroDoFornecedor { titulo: string; motivo: string }
+
 interface Props {
     aberto: boolean
     modo: 'credenciar' | 'editar'
     nichos: Nicho[]
     inicial?: { nome: string; nicho_id: string }
     salvando?: boolean
+    erro?: ErroDoFornecedor | null
     onCancelar: () => void
     onSalvar: (d: DadosDoFornecedor) => void
     onExcluir?: () => void
 }
 
-export function FornecedorModal({ aberto, modo, nichos, inicial, salvando, onCancelar, onSalvar, onExcluir }: Props) {
+export function FornecedorModal({ aberto, modo, nichos, inicial, salvando, erro, onCancelar, onSalvar, onExcluir }: Props) {
     const [nome, setNome] = useState('')
     const [nichoId, setNichoId] = useState<string | undefined>(undefined)
     const [tabelas, setTabelas] = useState<TabelaPendente[]>([])
@@ -90,6 +101,8 @@ export function FornecedorModal({ aberto, modo, nichos, inicial, salvando, onCan
                     <Button danger>Excluir fornecedor</Button>
                 </Popconfirm>
             )}
+
+            {erro && <Alert type="error" showIcon style={{ marginTop: 14 }} message={erro.titulo} description={erro.motivo} data-erro-do-fornecedor />}
         </Modal>
     )
 }
