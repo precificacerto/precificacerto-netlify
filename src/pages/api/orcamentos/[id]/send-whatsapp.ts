@@ -292,21 +292,33 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       .eq('tenant_id', tenant_id)
     if (errMudo43) throw errMudo43
 
-    // 8) Registrar disparo
+    // 8) Registrar disparo — nas colunas REAIS da tabela de produção (`message_body`, e `sent_by`
+    // uuid NOT NULL). Este insert mandava `message` e nenhum `sent_by`, contra a DDL de
+    // `20260213100000_whatsapp_employees_customers.sql`, que NUNCA foi aplicada (o ledger de
+    // produção tem `20260218125410_create_whatsapp_dispatches_table`); falhava sempre, e um catch
+    // vazio respondia sucesso — zero linhas em produção (medido em 20/10/2026). O `supabaseAdmin` é
+    // criado sem o tipo `Database`, e por isso o tsc não via a coluna errada.
+    //
+    // A MENSAGEM JÁ SAIU quando o registro é tentado: a falha dele NÃO desfaz o envio e NÃO vira
+    // sucesso silencioso. A rota responde sucesso COM `avisoDoRegistro`, dizendo que o envio foi
+    // feito e o registro falhou, e por quê. Portão: `o-registro-do-envio-do-orcamento.test.ts`.
     const fullMessage = msgConectividade ? `${msgConectividade}\n\n${msgPadrao}` : msgPadrao
+    let avisoDoRegistro: string | undefined
     try {
-      const { error: errMudo42 } = await supabaseAdmin.from('whatsapp_dispatches').insert({
+      const { error: erroDoRegistro } = await supabaseAdmin.from('whatsapp_dispatches').insert({
         tenant_id,
         customer_id: budget.customer_id,
         type: 'BUDGET',
-        message: fullMessage.substring(0, 500),
+        message_body: fullMessage.substring(0, 500),
         phone: docResult.usedPhone,
         status: 'SENT',
+        sent_by: user_id,
       })
-      if (errMudo42) console.error('whatsapp_dispatches: falha ao gravar —', errMudo42.message)
-    } catch {
-      /* ignore */
+      if (erroDoRegistro) avisoDoRegistro = `O orçamento foi enviado, mas o registro do envio falhou: ${erroDoRegistro.message}`
+    } catch (e) {
+      avisoDoRegistro = `O orçamento foi enviado, mas o registro do envio falhou: ${e instanceof Error ? e.message : 'erro desconhecido'}`
     }
+    if (avisoDoRegistro) console.error('whatsapp_dispatches:', avisoDoRegistro)
 
     // 9) Se orçamento estava DRAFT, atualizar para SENT
     if (budget.status === 'DRAFT') {
@@ -317,7 +329,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (errMudo41) throw errMudo41
     }
 
-    return res.status(200).json({ success: true, message: 'Orçamento enviado (PDF + mensagem).' })
+    return res.status(200).json({ success: true, message: 'Orçamento enviado (PDF + mensagem).', ...(avisoDoRegistro ? { avisoDoRegistro } : {}) })
   } catch (error: any) {
     console.error('Orçamento send WhatsApp error:', error?.message || 'Unknown error')
     return res.status(500).json({ error: error.message || 'Erro ao enviar orçamento.' })

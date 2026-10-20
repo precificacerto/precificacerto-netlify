@@ -81,8 +81,8 @@ const DADOS: Record<string, unknown> = {
 const LISTAS: Record<string, unknown[]> = { budget_items: [{ quantity: 1, unit_price: 100, discount: 0, products: { id: 'p', name: 'Janela', code: 'J1' } }] }
 
 jest.mock('@/supabase/admin', () => {
-    const consulta = (tabela: string): any => {
-        const q: any = {}
+    const consulta = (tabela: string): Record<string, unknown> => {
+        const q: Record<string, unknown> = {}
         for (const m of ['select', 'eq', 'in', 'order', 'limit', 'not', 'is']) q[m] = () => q
         q.single = () => Promise.resolve({ data: DADOS[tabela] ?? null, error: null })
         q.maybeSingle = q.single
@@ -99,7 +99,7 @@ jest.mock('@/supabase/admin', () => {
     return { supabaseAdmin: { from: (tabela: string) => consulta(tabela) } }
 })
 
-// eslint-disable-next-line @typescript-eslint/no-var-requires
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const rota = require('@/pages/api/orcamentos/[id]/send-whatsapp').default as (req: NextApiRequest, res: NextApiResponse) => Promise<unknown>
 
 async function enviar(): Promise<{ status: number; corpo: Record<string, unknown> }> {

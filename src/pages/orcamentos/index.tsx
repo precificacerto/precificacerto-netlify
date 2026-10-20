@@ -2609,6 +2609,9 @@ function Budgets() {
 
             if (res.ok) {
                 messageApi.success('📲 Orçamento enviado (PDF + mensagem)!')
+                // O envio saiu e o REGISTRO dele falhou: a rota diz, e a tela não cala.
+                const corpo: { avisoDoRegistro?: string } = await res.json().catch(() => ({}))
+                if (corpo.avisoDoRegistro) messageApi.warning(corpo.avisoDoRegistro, 10)
                 await reloadBudgets()
                 setSendingWaId(null)
                 return

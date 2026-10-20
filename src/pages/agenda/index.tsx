@@ -731,13 +731,18 @@ function Schedule() {
                             .eq('calendar_event_id', editingEvt.id)
                             .in('status', ['SENT', 'DELIVERED', 'READ'])
 
-                        if (sentDispatches && sentDispatches.length > 0) {
+                        // `sent_by` é uuid NOT NULL na tabela real: sem o uuid do usuário NÃO se grava —
+                        // o texto 'system' que ia no lugar seria recusado pelo banco (ou, pior, aceito
+                        // num schema mais frouxo como autor falso). A falta aparece no aviso.
+                        if (!uid) {
+                            avisos.push('O aviso por WhatsApp não foi registrado: o usuário não foi identificado.')
+                        } else if (sentDispatches && sentDispatches.length > 0) {
                             // Já foi enviado → criar novo PENDING para notificar do novo horário
                             const { error: err1 } = await sb2.from('whatsapp_dispatches').insert({
                                 tenant_id: tid, calendar_event_id: editingEvt.id,
                                 customer_id: resolvedCustomerId, status: 'PENDING',
                                 type: 'REMINDER', phone, message_body: msgBody,
-                                sent_by: uid || 'system',
+                                sent_by: uid,
                             })
                             if (err1) avisos.push('O aviso por WhatsApp não foi enviado.')
                         } else {
@@ -753,7 +758,7 @@ function Schedule() {
                                     tenant_id: tid, calendar_event_id: editingEvt.id,
                                     customer_id: resolvedCustomerId, status: 'PENDING',
                                     type: 'REMINDER', phone, message_body: msgBody,
-                                    sent_by: uid || 'system',
+                                    sent_by: uid,
                                 })
                                 if (err3) avisos.push('O aviso por WhatsApp não foi enviado.')
                             }
