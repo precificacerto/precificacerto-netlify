@@ -24,6 +24,11 @@
  *   - `segment-visibility.ts`: nome de arquivo do sistema do cliente, citado pelo EPIC.
  *   - `tenants.segment`: a coluna real do sistema do cliente — o EPIC a nomeia para dizer por que
  *     o harness fica fora deste portão (exceção autorizada pelo dono do produto, 20/10/2026).
+ *   - `orcamentista_tabela_item.segmento` e `orcamentista_motor_regra.segmento`: COLUNA DO ARQUIVO
+ *     DO FORNECEDOR, gravada como veio (migração `20261020000001`). Renomear faria o código mentir
+ *     sobre o arquivo (decisão do dono do produto, 20/10/2026). A exceção é o nome QUALIFICADO
+ *     pela tabela, como em `tenants.segment`: a palavra solta continua acusada — "o segmento do
+ *     tenant" segue vermelho.
  *
  * O QUE FICA FORA, e por quê — para ninguém "consertar" depois (resposta 3):
  *   - `scripts/harness/`: o harness do bloco 1 cria e confere a coluna REAL `tenants.segment`, do
@@ -56,6 +61,8 @@ export const EXCECOES = [
     'segmentação, fornecedores, piso e teto',
     'segment-visibility.ts',
     'tenants.segment',
+    'orcamentista_tabela_item.segmento',
+    'orcamentista_motor_regra.segmento',
 ]
 
 /** Junta as linhas de comentário: `\n` seguido de `*`, `//`, `--` ou `#` vira um espaço. */
@@ -133,6 +140,8 @@ describe('o vocabulário do Atendimentos I.A. — a palavra é MODELO', () => {
             ['"escolho a segmentação, e aí eu tenho todos os fornecedores\n * daquela segmentação; escolho a tabela daquele fornecedor"'],
             ['`calc_type` com fallbacks — `segment-visibility.ts`'],
             ['o harness usa a coluna real `tenants.segment`'],
+            ['`orcamentista_tabela_item.segmento` é coluna do arquivo do fornecedor'],
+            ['e `orcamentista_motor_regra.segmento` também'],
             ['o modelo e o nicho da conta'],
         ])('NÃO acusa a exceção nominal: %s', (fixture) => {
             expect(ocorrenciasProibidas(fixture)).toEqual([])
