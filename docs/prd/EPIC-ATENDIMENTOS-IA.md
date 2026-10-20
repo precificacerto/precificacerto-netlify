@@ -136,7 +136,7 @@ Mockup, menu lateral do super admin:
 
 | seção | itens |
 |---|---|
-| **Clientes** | Clientes — a seção é marcada *"sempre aberta"* (feito no 2A) |
+| **Clientes** | Clientes — a seção é marcada *"sempre aberta"* (feito no 2A, 18/10/2026; **revertido em 20/10/2026**: recolhe como todas — seção 7) |
 | **Atendimentos I.A.** *(nova)* | **Contas ligadas** (com a contagem das contas ligadas) · **Fornecedores e tabelas** (com a contagem de fornecedores) |
 | **Super Admin** | Painel Super Admin · Tenants · Usuários · Pagamentos |
 
@@ -240,12 +240,21 @@ motor, linhas em uso e consumo.
 | bloco | conteúdo | estado |
 |---|---|---|
 | 1 | `orcamentista_config`, rotas, liga/desliga na lista de contas | entregue, PR #95 |
-| 2A | Tenants em 7 colunas, telefone na ficha, Clientes não recolhe, rótulo "Atendimentos I.A." | este branch |
+| 2A | Tenants em 7 colunas, telefone na ficha, Clientes ~~não recolhe~~ (18/10/2026; **revertido em 20/10/2026** pelo dono do produto — Clientes recolhe como todas as seções, ver abaixo), rótulo "Atendimentos I.A." | este branch |
 | 2B.1 | o catálogo no banco (nicho, fornecedor, tabela, tabela em uso) e o bucket `comprovantes` preso ao tenant | entregue, PR #98 |
 | 2B.2 | a tela de Fornecedores e tabelas (5.5 e 5.6) e a seção Atendimentos I.A. no menu | este branch |
 | 2C | a configuração por conta (5.4) | a definir |
 
 As telas 5.3, 5.5 e 5.6 e a seção nova do menu ainda não estão atribuídas a um bloco.
+
+**Clientes não recolhe — a decisão de 18/10/2026 e a reversão de 20/10/2026.** No 2A (18/10/2026)
+a seção Clientes ganhou `collapsible: false`: com um item só, ela nascia fechada fora da própria
+rota e parecia um título vazio. Em 20/10/2026 o dono do produto DERRUBOU a decisão — *"ele é um
+menu igual aos outros, então deve manter o mesmo padrão, ter a setinha, e apertando a setinha abre
+as opções"* —, sabendo do efeito: fora da rota de Clientes a seção nasce fechada. A reversão vale
+para o menu inteiro, e Atendimentos I.A., que não recolhia pela mesma razão, também passou a
+recolher. Portão, por propriedade: `menu-toda-secao-recolhe.test.ts` (era `clientes-nao-recolhe`).
+As seções continuam sem lembrar o estado entre páginas — essa é outra decisão, não tomada.
 
 ## 8. Pendências nomeadas de antes
 
@@ -330,7 +339,8 @@ as rotas importam. Portão: `atendimentos-ia-a-tela-nao-fala-com-o-banco.test.ts
 1. **"Contas ligadas" ficou FORA do menu.** A tela é de outro bloco; uma entrada que leva a um
    "em construção" é o menu oferecendo o que não existe — a mesma família de
    `docs/registros/o-menu-oferecia-o-que-o-guarda-proibia.md`. A seção tem um item só,
-   "Fornecedores e tabelas", e por isso não recolhe (a mesma razão de Clientes). A contagem de
+   "Fornecedores e tabelas", e por isso não recolhe (a mesma razão de Clientes) — **revertido em
+   20/10/2026**: recolhe como todas, ver a seção 7. A contagem de
    fornecedores ao lado do item (seção 4) também não entrou.
 2. **Os NICHOS ganharam onde ser criados**, num quadro dentro de "Fornecedores e tabelas". O
    mockup os traz prontos; o banco nasce sem nenhum (a `20261019000001` não semeia), e sem nicho

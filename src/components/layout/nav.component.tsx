@@ -209,16 +209,24 @@ const Nav = () => {
     // comporta isso. A paridade com o grupo 'Clientes' de `funcionarios/index.tsx` é
     // afirmada por `clientes-vira-secao-propria.test.ts`.
     //
-    // NÃO RECOLHE, desde o bloco 2A (18/10/2026): a seção tem UM item só e nascia fechada
-    // (`initialExpanded` = `sectionHasActiveItem`), então fora da própria rota aparecia como um
-    // título sem nada embaixo. Portão: `clientes-nao-recolhe.test.ts`.
-    { key: 'clientes', label: 'Clientes', collapsible: false },
+    // RECOLHE, COMO TODAS. A história, porque a decisão já mudou uma vez:
+    //   - 18/10/2026 (bloco 2A): a seção deixou de recolher. Com um item só, ela nascia fechada
+    //     (`initialExpanded` = `sectionHasActiveItem`) e, fora da própria rota, parecia um
+    //     título vazio.
+    //   - 20/10/2026: o dono do produto DERRUBOU essa decisão — "ele é um menu igual aos outros,
+    //     então deve manter o mesmo padrão, ter a setinha, e apertando a setinha abre as
+    //     opções". Padrão do menu acima do caso particular. Ele sabia do efeito: fora da rota
+    //     de Clientes, a seção aparece fechada, com um item só embaixo.
+    // Nenhuma seção com título é exceção. Portão, por propriedade: `menu-toda-secao-recolhe.test.ts`.
+    { key: 'clientes', label: 'Clientes', collapsible: true },
     { key: 'comercial', label: 'Comercial', collapsible: true },
     { key: 'financeiro', label: 'Financeiro', collapsible: true },
     { key: 'agendamentos', label: 'Agendamentos', collapsible: true },
     { key: 'operacional', label: 'Operacional', collapsible: true },
-    // NÃO RECOLHE, pela mesma razão de Clientes: um item só, e recolhida ela nasceria fechada.
-    { key: 'atendimentos-ia', label: 'Atendimentos I.A.', collapsible: false },
+    // RECOLHE, COMO TODAS. Até 20/10/2026 não recolhia, pela razão de Clientes do bloco 2A (um
+    // item só); a decisão do dono do produto de 20/10/2026 vale para todo o menu, e a seção já
+    // tem dois itens — o motivo original nem se aplicava mais.
+    { key: 'atendimentos-ia', label: 'Atendimentos I.A.', collapsible: true },
     { key: 'superadmin', label: 'Super Admin', collapsible: true },
   ]
 
