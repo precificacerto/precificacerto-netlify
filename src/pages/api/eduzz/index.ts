@@ -1,97 +1,34 @@
-import { METHODS } from '@/constants/http-methods'
-import { NextApiRequest, NextApiResponse } from 'next'
-import crypto from 'crypto'
-import { supabaseAdmin } from '@/supabase/admin'
+/**
+ * /api/eduzz — INTEGRAÇÃO COM A EDUZZ DESCONTINUADA em 21/10/2026 (dono do produto, PR #113).
+ *
+ * Responde 410 Gone SEMPRE, em todo método e com qualquer corpo, e não emite NENHUMA operação:
+ * nem leitura de banco, nem escrita, nem criação de usuário.
+ *
+ * ══ POR QUE FOI DESCONTINUADA ══
+ * Era o CRÍT-2 de `SECURITY_AUDIT.md`. A rota comparava `api_key !== process.env.NEXT_PUBLIC_EDUZZ_API_KEY`,
+ * e essa variável NÃO existia na Vercel (medido em 21/10/2026). Sem ela, uma requisição SEM
+ * `api_key` virava `undefined !== undefined` → falso → ACEITA, e a rota criava conta e usuário com
+ * `is_super_admin: true`: qualquer pessoa na internet se fazia super admin da plataforma com um POST.
+ *
+ * ══ A MEDIÇÃO QUE MOSTROU O DESUSO (21/10/2026) ══
+ *   - nenhuma tela, rota ou plano do repositório dependia dela; a cobrança que roda é a da Stripe;
+ *   - logs de produção dos últimos 3 dias, agrupados por caminho: ZERO requisições a `/api/eduzz`;
+ *   - e ela não podia estar funcionando: sem a variável, a requisição LEGÍTIMA, com `api_key`
+ *     preenchida, era recusada com 401 — só passava a requisição sem credencial.
+ *
+ * ══ SE UM DIA VOLTAR ══
+ * Volta COM AUTENTICAÇÃO — segredo de servidor (sem o prefixo `NEXT_PUBLIC_`, que o navegador lê),
+ * 503 quando ele não estiver configurado, comparação em tempo constante — e SEM CRIAR SUPER ADMIN:
+ * o comprador é admin da própria conta, não da plataforma. A versão assim corrigida está no
+ * histórico deste arquivo (commit `8e6fdd2`). Nenhuma variável `EDUZZ_API_KEY` ou
+ * `NEXT_PUBLIC_EDUZZ_API_KEY` deve ser criada para a rota fechada: ela não precisa de nenhuma.
+ *
+ * Portão: `src/utils/__tests__/eduzz-sem-porta-aberta.test.ts`.
+ */
+import type { NextApiRequest, NextApiResponse } from 'next'
 
-const EXPECTED_API_KEY = process.env.NEXT_PUBLIC_EDUZZ_API_KEY
+export const MENSAGEM_DE_DESCONTINUADA = 'A integração com a Eduzz foi descontinuada.'
 
-export default async function webhook(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method === METHODS.POST) {
-    try {
-      const { api_key, event_name, student_email } = req.body
-      if (api_key !== EXPECTED_API_KEY) {
-        return res.status(401).json({
-          result: null,
-          error: 'Acesso negado! API Key inválida',
-        })
-      }
-
-      if (event_name !== 'invoice_paid') {
-        return res.status(200).json({
-          result: null,
-          error: null,
-          message: `Sem suporte a eventos do tipo '${event_name}'`,
-        })
-      }
-
-      const { data: existingUser } = await supabaseAdmin
-        .from('users')
-        .select('id')
-        .eq('email', student_email)
-        .maybeSingle()
-
-      if (existingUser) {
-        return res.status(200).json({
-          result: null,
-          error: 'Endereço de email já cadastrado!',
-        })
-      }
-
-      const randomPassword = crypto.randomBytes(8).toString('hex')
-
-      const { data: tenant, error: tenantError } = await supabaseAdmin
-        .from('tenants')
-        .insert({ name: student_email.split('@')[0], email: student_email })
-        .select('id')
-        .single()
-
-      if (tenantError) throw tenantError
-
-      const { data: authUser, error: authError } = await supabaseAdmin.auth.admin.createUser({
-        email: student_email,
-        password: randomPassword,
-        email_confirm: true,
-        user_metadata: { tenant_id: tenant.id, role: 'admin' },
-      })
-
-      if (authError) throw authError
-
-      const { data: newUser, error: userError } = await supabaseAdmin
-        .from('users')
-        .insert({
-          id: authUser.user.id,
-          tenant_id: tenant.id,
-          email: student_email,
-          role: 'admin',
-          is_active: true,
-          is_super_admin: true,
-        })
-        .select()
-        .single()
-
-      if (userError) throw userError
-
-      const { error: errMudo22 } = await supabaseAdmin.from('tenant_settings').insert({ tenant_id: tenant.id })
-      if (errMudo22) throw errMudo22
-      const { error: errMudo21 } = await supabaseAdmin.from('tenant_expense_config').insert({ tenant_id: tenant.id })
-      if (errMudo21) throw errMudo21
-
-      res.json({
-        result: { createdUser: newUser },
-        error: null,
-      })
-    } catch (error) {
-      console.error('Eduzz error:', error?.message || 'Unknown error')
-
-      res.status(500).json({
-        result: null,
-        error: 'Erro inesperado!',
-      })
-    }
-  } else {
-    res.status(405).json({
-      result: null,
-      error: 'Método não autorizado!',
-    })
-  }
+export default async function eduzzDescontinuada(_req: NextApiRequest, res: NextApiResponse) {
+  return res.status(410).json({ result: null, error: MENSAGEM_DE_DESCONTINUADA })
 }
