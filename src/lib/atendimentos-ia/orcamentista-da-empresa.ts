@@ -146,7 +146,7 @@ export async function nomeDoUsuario(userId: string, tenantId: string): Promise<s
 export const tokenNovo = () => `orc_${randomUUID().replace(/-/g, '')}`
 
 export const PREFIXO_DO_LOG_DO_QR = '[QR-ORCAMENTISTA]'
-export type PassoDoQr = 'instancia' | 'criar-instancia' | 'session-connect' | 'session-qr'
+export type PassoDoQr = 'instancia' | 'session-status' | 'criar-instancia' | 'session-connect' | 'session-qr'
 const LIMITE_DO_CORPO_NO_LOG = 2048
 
 /** Uma linha do rastro do QR — já sem os segredos que o chamador conhece, e mascarada. */
@@ -197,15 +197,40 @@ export async function criarInstancia(token: string, tenantId: string): Promise<C
 
 /** `GET /session/status` → logado ou não; null quando o WUZAPI não respondeu. */
 export async function sessaoLogada(token: string): Promise<boolean | null> {
+    return (await estadoDaSessao(token)).logada
+}
+
+/**
+ * `GET /session/status`, com o STATUS HTTP: `logada` é true/false, ou null quando o WUZAPI não
+ * respondeu; `status` é o código HTTP (null em exceção de rede). **401 = o WUZAPI não conhece este
+ * token** — é assim que o token fantasma aparece (medido em produção pelo dono do produto em
+ * 21/10/2026: `/session/connect` e `/session/qr` davam 401 para o token gravado).
+ */
+export async function estadoDaSessao(token: string): Promise<{ logada: boolean | null; status: number | null }> {
     try {
         const r = await fetch(`${wuzapi()}/session/status`, { method: 'GET', headers: { token } })
-        if (!r.ok) return null
+        if (!r.ok) return { logada: null, status: r.status }
         const corpo = (await r.json().catch((): null => null)) as { data?: Record<string, unknown> } | null
         const d = corpo?.data ?? {}
-        return d.LoggedIn === true || d.loggedIn === true || d.IsLoggedIn === true
+        return { logada: d.LoggedIn === true || d.loggedIn === true || d.IsLoggedIn === true, status: r.status }
     } catch {
-        return null
+        return { logada: null, status: null }
     }
+}
+
+/** O 401 do WUZAPI: o servidor não conhece o token. */
+export const NAO_AUTORIZADO = 401
+
+/**
+ * Descarta a conexão gravada com um token que o WUZAPI não reconhece. Credencial que o servidor não
+ * conhece não fica guardada. Só apaga a linha COM AQUELE TOKEN — uma reconexão no meio não é levada
+ * junto. Não toca na lista de autorizados.
+ */
+export async function descartarConexao(tenantId: string, token: string) {
+    const { error } = await supabaseAdmin
+        .from('whatsapp_conexao').delete()
+        .eq('tenant_id', tenantId).eq('canal', CANAL_DO_ORCAMENTISTA).eq('wuzapi_token', token)
+    if (error) throw new Error(`whatsapp_conexao: ${error.message}`)
 }
 
 /**
@@ -218,9 +243,11 @@ export async function sessaoLogada(token: string): Promise<boolean | null> {
  * a leitura de um clique anterior, e aí o QR vem. `connectOk` diz à rota qual passo culpar quando
  * o QR não vem.
  */
-export async function qrDaInstancia(token: string): Promise<{ qr: string | null; numero: string | null; connectOk: boolean }> {
+export async function qrDaInstancia(token: string): Promise<{ qr: string | null; numero: string | null; connectOk: boolean; naoAutorizado: boolean }> {
     let connectOk = false
     let numero: string | null = null
+    // O WUZAPI respondeu 401 a alguma das duas chamadas: não conhece este token.
+    let naoAutorizado = false
     try {
         const conn = await fetch(`${wuzapi()}/session/connect`, {
             method: 'POST',
@@ -230,6 +257,7 @@ export async function qrDaInstancia(token: string): Promise<{ qr: string | null;
         const { texto, json } = await lerCorpo(conn)
         anotarPassoDoQr('session-connect', `POST /session/connect status=${conn.status} corpo=${corte(texto)}`, [token])
         connectOk = conn.ok
+        if (conn.status === NAO_AUTORIZADO) naoAutorizado = true
         const d = conn.ok ? (json as { data?: { jid?: unknown; Jid?: unknown } } | null)?.data : undefined
         numero = numeroDoJid(d?.jid ?? d?.Jid)
     } catch (e) {
@@ -245,10 +273,11 @@ export async function qrDaInstancia(token: string): Promise<{ qr: string | null;
         // O QR NÃO vai para o log — só se veio. Quem o lê liga o WhatsApp da empresa.
         const chaves = d && typeof d === 'object' ? Object.keys(d).join(',') : '-'
         anotarPassoDoQr('session-qr', `GET /session/qr status=${r.status} veio_corpo=${json ? 'sim' : 'nao'} veio_qr=${qr ? 'sim' : 'nao'} campos_de_data=${chaves}`, [token])
-        return { qr, numero, connectOk }
+        if (r.status === NAO_AUTORIZADO) naoAutorizado = true
+        return { qr, numero, connectOk, naoAutorizado }
     } catch (e) {
         anotarPassoDoQr('session-qr', `GET /session/qr excecao=${motivoDe(e)}`, [token])
-        return { qr: null, numero, connectOk }
+        return { qr: null, numero, connectOk, naoAutorizado }
     }
 }
 

@@ -880,6 +880,8 @@ describe('(15) o TOKEN FANTASMA — credencial que o WUZAPI não reconhece não 
             const novo = String(estado.db.whatsapp_conexao[0].wuzapi_token)
             expect(novo).not.toBe(FANTASMA)
             expect((criacoes()[0].corpo as { token: string }).token).toBe(novo)
+            // detectado no status, o fantasma não é usado em mais NADA — nem connect, nem qr
+            expect(estado.fetches.filter((f) => f.headers?.token === FANTASMA).map((f) => new URL(f.url).pathname)).toEqual(['/session/status'])
         })
 
         it('dois 401 seguidos (o fantasma E o recém-criado) não viram laço: UMA criação, 502, e nenhum dos dois fica gravado', async () => {
@@ -896,6 +898,14 @@ describe('(15) o TOKEN FANTASMA — credencial que o WUZAPI não reconhece não 
             const r = await chamar(rotaQr, 'POST')
             expect(r.status).toBe(502)
             expect(criacoes()).toHaveLength(1)
+        })
+
+        it('token RECÉM-CRIADO que passa na confirmação e dá 401 só no connect: não recria — UMA criação, e a linha dele fica', async () => {
+            estado.respostas['/session/connect'] = { status: 401, corpo: { code: 401, error: 'unauthorized' } }
+            await chamar(rotaQr, 'POST')
+            expect(criacoes()).toHaveLength(1)
+            expect(estado.db.whatsapp_conexao).toHaveLength(1)
+            expect(estado.db.whatsapp_conexao[0].wuzapi_token).toBe((criacoes()[0].corpo as { token: string }).token)
         })
 
         it('o fantasma que passa no status e dá 401 só no connect: também é descartado, e cria UMA nova', async () => {

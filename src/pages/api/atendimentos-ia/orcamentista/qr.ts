@@ -16,13 +16,26 @@
  * Já existindo conexão gravada para o tenant, o token dela é REUSADO: a instância só é criada
  * quando não há nenhuma.
  *
+ * ══ O TOKEN FANTASMA (21/10/2026) ══
+ * Medido em produção pelo dono do produto: o token gravado em `whatsapp_conexao` recebia 401 do
+ * WUZAPI em `/session/connect` e em `/session/qr` — o servidor não o conhecia. O código só gravava
+ * a conexão depois de `POST /admin/users` responder 2xx; então o fantasma nasceu de uma criação que
+ * respondeu OK sem a instância passar a existir, ou de uma instância que sumiu depois. Dois
+ * consertos:
+ *   (1) a conexão só é gravada com a criação CONFIRMADA: depois do 2xx, `GET /session/status` com o
+ *       token novo; 401 ali é criação que não pegou — 502 no passo da criação, e NADA é gravado.
+ *       Credencial que o servidor não reconhece não fica guardada;
+ *   (2) o reuso tem saída: se o WUZAPI responder 401 ao token reusado (no status, no connect ou no
+ *       qr), a conexão gravada é DESCARTADA e uma instância nova é criada — UMA vez por clique, sem
+ *       laço. Um token RECÉM-CRIADO que dê 401 não recria: vira 502, e o próximo clique tenta de novo.
+ *
  * Só quem pode EDITAR Conectividade conecta. Arquitetura:
  * `src/lib/atendimentos-ia/orcamentista-da-empresa.ts`.
  */
 import type { NextApiRequest, NextApiResponse } from 'next'
 import {
-  anotarPassoDoQr, chamadorDoOrcamentista, criarInstancia, gravarConexao, lerConexao, marcarConexao, qrDaInstancia,
-  sessaoLogada, tokenNovo, type PassoDoQr,
+  anotarPassoDoQr, chamadorDoOrcamentista, criarInstancia, descartarConexao, estadoDaSessao, gravarConexao, lerConexao,
+  marcarConexao, NAO_AUTORIZADO, qrDaInstancia, tokenNovo, type PassoDoQr,
 } from '@/lib/atendimentos-ia/orcamentista-da-empresa'
 
 /**
@@ -30,7 +43,7 @@ import {
  * passo. "Tente de novo" sozinho não ajuda ninguém (dono do produto, 21/10/2026).
  */
 const PERSISTINDO = 'Tente de novo em instantes; se continuar, avise o suporte.'
-export const MENSAGEM_DO_PASSO: Record<Exclude<PassoDoQr, 'instancia'>, string> = {
+export const MENSAGEM_DO_PASSO: Record<Exclude<PassoDoQr, 'instancia' | 'session-status'>, string> = {
   'criar-instancia': `Não consegui criar a conexão no servidor de WhatsApp. ${PERSISTINDO}`,
   'session-connect': `A sessão de WhatsApp não abriu no servidor. ${PERSISTINDO}`,
   'session-qr': `O servidor de WhatsApp não devolveu o código para ler. ${PERSISTINDO}`,
@@ -44,27 +57,70 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const tenantId = caller.tenant_id
 
   try {
+    const erroNaCriacao = (semAdmin: boolean) =>
+      res.status(502).json({ error: semAdmin ? MENSAGEM_SEM_ADMIN : MENSAGEM_DO_PASSO['criar-instancia'], passo: 'criar-instancia' })
+
+    /**
+     * Cria a instância e só GRAVA a conexão quando o WUZAPI reconhece o token novo. Devolve o token
+     * gravado, ou null — e nesse caso a resposta de erro já foi enviada.
+     */
+    const criarEGravar = async (): Promise<string | null> => {
+      const novo = tokenNovo()
+      anotarPassoDoQr('instancia', 'cria uma instância nova', [novo])
+      const criada = await criarInstancia(novo, tenantId)
+      if (!criada.ok) { erroNaCriacao((criada as { semAdmin: boolean }).semAdmin); return null }
+      const confirmacao = await estadoDaSessao(novo)
+      anotarPassoDoQr('session-status', `confirmação da criação: GET /session/status status=${confirmacao.status ?? 'sem resposta'}`, [novo])
+      if (confirmacao.status === NAO_AUTORIZADO) {
+        anotarPassoDoQr('criar-instancia', 'o WUZAPI respondeu OK à criação, mas NÃO reconhece o token novo (401): nada foi gravado', [novo])
+        erroNaCriacao(false)
+        return null
+      }
+      await gravarConexao(tenantId, { wuzapi_token: novo, conectado_por: caller.user_id, ativo: false })
+      return novo
+    }
+
+    const descartarFantasma = async (fantasma: string, onde: string) => {
+      anotarPassoDoQr('instancia', `fantasma: o WUZAPI respondeu 401 ao token gravado (${onde}); a conexão gravada foi descartada e uma instância nova será criada`, [fantasma])
+      await descartarConexao(tenantId, fantasma)
+    }
+
     const conexao = await lerConexao(tenantId)
     let token = conexao?.wuzapi_token ?? null
-
-    if (token && (await sessaoLogada(token)) === true) return res.status(200).json({ conectado: true })
+    let reusado = false
 
     if (token) {
-      anotarPassoDoQr('instancia', 'reaproveitada: já há conexão gravada para este tenant, e o token dela é reusado', [token])
-    } else {
-      token = tokenNovo()
-      anotarPassoDoQr('instancia', 'nenhuma conexão gravada: cria uma instância nova', [token])
-      const criada = await criarInstancia(token, tenantId)
-      if (!criada.ok) {
-        const semAdmin = (criada as { semAdmin: boolean }).semAdmin
-        return res.status(502).json({ error: semAdmin ? MENSAGEM_SEM_ADMIN : MENSAGEM_DO_PASSO['criar-instancia'], passo: 'criar-instancia' })
+      const estado = await estadoDaSessao(token)
+      anotarPassoDoQr('session-status', `GET /session/status status=${estado.status ?? 'sem resposta'} logada=${estado.logada}`, [token])
+      if (estado.logada === true) return res.status(200).json({ conectado: true })
+      if (estado.status === NAO_AUTORIZADO) {
+        await descartarFantasma(token, 'session-status')
+        token = null
+      } else {
+        anotarPassoDoQr('instancia', 'reaproveitada: já há conexão gravada para este tenant, e o token dela é reusado', [token])
+        reusado = true
+        await gravarConexao(tenantId, { wuzapi_token: token, conectado_por: caller.user_id, ativo: false })
       }
     }
-    await gravarConexao(tenantId, { wuzapi_token: token, conectado_por: caller.user_id, ativo: false })
+
+    if (!token) {
+      token = await criarEGravar()
+      if (!token) return
+    }
+
+    let resultado = await qrDaInstancia(token)
+    // O reuso tem saída, UMA vez: o token reusado deu 401 no connect ou no qr. Um token recém-criado
+    // (reusado = false) nunca entra aqui — não há laço.
+    if (reusado && resultado.naoAutorizado) {
+      await descartarFantasma(token, 'session-connect/session-qr')
+      token = await criarEGravar()
+      if (!token) return
+      resultado = await qrDaInstancia(token)
+    }
 
     // O número vem do jid do /session/connect — ou NULL, que também apaga o de uma conexão
     // anterior: o QR novo pode ser lido por outro aparelho. A coluna nasce na `20261021000002`.
-    const { qr, numero, connectOk } = await qrDaInstancia(token)
+    const { qr, numero, connectOk } = resultado
     await marcarConexao(tenantId, { numero })
     if (!qr) {
       const passo = connectOk ? 'session-qr' : 'session-connect'
