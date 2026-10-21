@@ -26,9 +26,9 @@ const TOKEN_DA_INSTANCIA = 'a1b2c3d4e5f6tokendainstancia_lzq8'
 
 type Saida = { status: number; corpo: unknown; fim: boolean }
 
-async function chamar(opcoes: { metodo?: string; s?: string | undefined; corpo?: string; contentType?: string }): Promise<Saida> {
-    const corpo = Buffer.from(opcoes.corpo ?? '')
-    const req = Readable.from([corpo]) as unknown as NextApiRequest
+async function chamar(opcoes: { metodo?: string; s?: string | undefined; corpo?: string; contentType?: string; pedacos?: string[] }): Promise<Saida> {
+    const pedacos = (opcoes.pedacos ?? [opcoes.corpo ?? '']).map((p) => Buffer.from(p))
+    const req = Readable.from(pedacos) as unknown as NextApiRequest
     Object.assign(req, {
         method: opcoes.metodo ?? 'POST',
         query: opcoes.s === undefined ? {} : { s: opcoes.s },
@@ -153,5 +153,15 @@ describe('(6) o corpo maior que 8 KB', () => {
         expect(linha).toContain(`${Buffer.byteLength(corpo)} bytes`)
         expect(linha).toContain('A'.repeat(8192))
         expect(linha).not.toContain('FIM-QUE-NAO-CABE')
+    })
+
+    it('em VÁRIOS pedaços, como o stream real chega: o corte continua nos 8 KB, e o tamanho é a soma', async () => {
+        const pedacos = ['B'.repeat(5000), 'C'.repeat(5000), 'D'.repeat(100)]
+        await chamar({ s: SEGREDO, pedacos })
+        const [linha] = anotado()
+        expect(linha).toContain('10100 bytes')
+        expect(linha).toContain('B'.repeat(5000) + 'C'.repeat(3192))
+        expect(linha).not.toContain('C'.repeat(3193))
+        expect(linha).not.toContain('D')
     })
 })
