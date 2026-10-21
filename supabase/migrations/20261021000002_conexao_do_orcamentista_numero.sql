@@ -14,7 +14,8 @@
 -- ║ consulta ao schema relatada pelo dono do produto em 21/10/2026.
 -- ╚══════════════════════════════════════════════════════════════════════════════════════
 --
--- DUAS COISAS, e só elas (pedido do dono do produto, 21/10/2026):
+-- TRÊS COISAS, e só elas (pedido do dono do produto, 21/10/2026 — a terceira acrescentada no
+-- mesmo dia, depois da primeira revisão deste arquivo):
 --
 -- ══ 1. A COLUNA `whatsapp_conexao.numero` ══
 -- O número de WhatsApp da instância conectada. Preenchido com o `jid` que o `POST
@@ -38,7 +39,18 @@
 -- Os outros comentários das cinco tabelas foram conferidos um a um, e NENHUM outro repete a
 -- informação velha — `users.wuzapi_token` só aparece neste.
 --
--- ADITIVA: uma coluna nova, sem dado; um COMMENT substituído. Nenhum DROP, nenhum UPDATE.
+-- ══ 3. O COMENTÁRIO DE `orcamentista_remetente_autorizado.telefone` ══
+-- O `COMMENT ON COLUMN` gravado pela `20261020000003` diz "So digitos (DDI + DDD + numero)". É
+-- FALSO desde que a lista passou a ser gravada pela célula de Conectividade (21/10/2026): ela
+-- grava DDD + número, 10 ou 11 dígitos, SEM o DDI (`telefoneDoAutorizado`, o padrão de
+-- `src/utils/phone-br.ts`). O CHECK da coluna NÃO muda: continua aceitando 10 a 13 dígitos, e
+-- o comentário novo diz isso, em vez de afirmar que nenhuma linha tem DDI.
+-- A conferência das SEIS tabelas (as cinco da conversa e `whatsapp_conexao`): nenhum outro
+-- comentário gravado afirma formato de telefone com DDI. `orcamentista_conversa.telefone` diz
+-- "como chegou no webhook", sem formato; `orcamentista_tentativa_desconhecida.telefone` não tem
+-- comentário; `whatsapp_conexao.numero`, criado aqui, é o número da INSTÂNCIA e tem DDI de fato.
+--
+-- ADITIVA: uma coluna nova, sem dado; dois COMMENT substituídos. Nenhum DROP, nenhum UPDATE.
 -- ════════════════════════════════════════════════════════════════════════════════════════
 
 BEGIN;
@@ -54,6 +66,10 @@ COMMENT ON COLUMN public.whatsapp_conexao.numero IS
 -- ── 2. O COMENTÁRIO DA CONVERSA, corrigido por cima ────────────────────────────────────────
 COMMENT ON TABLE public.orcamentista_conversa IS
   'Uma conversa do Atendimentos I.A. com um REMETENTE AUTORIZADO de um tenant. O tenant vem da conexao do canal ORCAMENTISTA em whatsapp_conexao, pela chave (tenant_id, canal = ORCAMENTISTA), achada pelo token da instancia; o remetente, do telefone, na lista ativa daquele tenant. O telefone nunca escolhe tenant. So pela rota, com service_role. (Corrigido em 21/10/2026: ate entao este comentario dizia que o tenant vinha de users.wuzapi_token, o que deixou de ser verdade quando a conexao do orcamentista passou a morar em whatsapp_conexao.)';
+
+-- ── 3. O COMENTÁRIO DO TELEFONE DA LISTA, corrigido por cima ──────────────────────────────
+COMMENT ON COLUMN public.orcamentista_remetente_autorizado.telefone IS
+  'So digitos: DDD + numero, 10 ou 11 digitos, SEM o DDI - e a forma que a celula de Conectividade grava. O webhook entrega o remetente COM o DDI, e a comparacao normaliza os dois lados antes da igualdade. O CHECK aceita 10 a 13 digitos, entao uma linha com DDI gravada por outro caminho continua possivel. Unico por tenant, comparado como texto. (Corrigido em 21/10/2026: ate entao este comentario dizia DDI + DDD + numero.)';
 
 COMMIT;
 
@@ -78,6 +94,11 @@ COMMIT;
 --   select obj_description('public.orcamentista_conversa'::regclass, 'pg_class');
 --   → o segundo NÃO contém mais 'vem do token da instancia (users.wuzapi_token)'
 --
+-- (3b) o comentário do telefone da lista:
+--   select col_description('public.orcamentista_remetente_autorizado'::regclass,
+--            (select attnum from pg_attribute where attrelid = 'public.orcamentista_remetente_autorizado'::regclass and attname = 'telefone'));
+--   → começa por 'So digitos: DDD + numero, 10 ou 11 digitos, SEM o DDI'
+--
 -- (4) nenhum comentário das cinco tabelas, nem das colunas delas, cita users.wuzapi_token como
 --     origem do tenant — só a nota de correção da conversa o menciona, no passado:
 --   select c.relname, coalesce(a.attname, '(tabela)') as alvo, d.description
@@ -90,3 +111,17 @@ COMMIT;
 --                       'orcamentista_tentativa_desconhecida')
 --     and d.description ilike '%wuzapi_token%';
 --   → 1 linha: orcamentista_conversa | (tabela) | ... (Corrigido em 21/10/2026: ...)
+--
+-- (5) nas SEIS tabelas, nenhum comentário afirma telefone com DDI — só a nota de correção do
+--     telefone da lista o menciona, no passado, e o número da instância, que o tem de fato:
+--   select c.relname, coalesce(a.attname, '(tabela)') as alvo, d.description
+--   from pg_description d
+--   join pg_class c on c.oid = d.objoid
+--   left join pg_attribute a on a.attrelid = c.oid and a.attnum = d.objsubid and d.objsubid > 0
+--   where c.relnamespace = 'public'::regnamespace
+--     and c.relname in ('orcamentista_remetente_autorizado', 'orcamentista_conversa',
+--                       'orcamentista_mensagem', 'orcamentista_pre_definicao',
+--                       'orcamentista_tentativa_desconhecida', 'whatsapp_conexao')
+--     and (d.description ilike '%DDI%' or d.description ilike '%codigo do pais%');
+--   → 2 linhas: orcamentista_remetente_autorizado | telefone (SEM o DDI ... ate entao ... DDI)
+--               whatsapp_conexao | numero (com o codigo do pais)
