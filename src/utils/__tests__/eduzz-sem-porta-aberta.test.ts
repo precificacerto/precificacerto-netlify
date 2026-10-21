@@ -1,64 +1,64 @@
 /**
  * @jest-environment node
  *
- * PORTÃO DE SEGURANÇA — `POST /api/eduzz` não é porta aberta (dono do produto, 21/10/2026).
+ * PORTÃO DE SEGURANÇA — `/api/eduzz` está DESCONTINUADA: responde 410 Gone SEMPRE, e não emite
+ * operação nenhuma (dono do produto, 21/10/2026).
  *
- * MEDIDO pelo dono do produto: as variáveis de ambiente da Vercel NÃO incluem
- * `NEXT_PUBLIC_EDUZZ_API_KEY`. Com a comparação `api_key !== process.env.NEXT_PUBLIC_EDUZZ_API_KEY`,
- * uma requisição SEM `api_key` virava `undefined !== undefined` → falso → ACEITA, e a rota criava
- * conta e usuário com `is_super_admin: true`. Nada no banco indica que alguém tenha explorado.
+ * A HISTÓRIA, porque o portão mudou de forma no mesmo PR (#113):
+ *   - a rota comparava `api_key !== process.env.NEXT_PUBLIC_EDUZZ_API_KEY`, e a variável NÃO existe
+ *     na Vercel (medido). Sem ela, uma requisição SEM `api_key` virava `undefined !== undefined` →
+ *     ACEITA, e a rota criava conta e usuário com `is_super_admin: true` — o CRÍT-2 de
+ *     `SECURITY_AUDIT.md`. Os dois vermelhos desse defeito estão no commit `6f03ad9`;
+ *   - a primeira correção (`8e6fdd2`) fechou a porta e manteve a integração: 503 sem a variável,
+ *     segredo de servidor em tempo constante, nunca super admin;
+ *   - MEDIDO EM SEGUIDA, pelo dono do produto: a integração não está em uso — nenhuma tela, rota ou
+ *     plano depende dela, e os logs de produção dos últimos 3 dias têm ZERO requisições a
+ *     `/api/eduzz`. Decisão: a rota responde 410 sempre.
  *
- *   (1) variável de servidor AUSENTE → 503, e NADA é processado: nem leitura, nem escrita, nem
- *       usuário no Auth. Falta de configuração nunca vira porta aberta;
- *   (2) o segredo é de SERVIDOR (`EDUZZ_API_KEY`). O `NEXT_PUBLIC_EDUZZ_API_KEY` — que o
- *       navegador lê por definição — NÃO é mais aceito, nem como reserva;
- *   (3) segredo errado ou ausente na requisição → 401, e nada é processado;
- *   (4) a comparação é em TEMPO CONSTANTE (`timingSafeEqual`);
- *   (5) a rota NUNCA cria usuário com `is_super_admin: true` — o caso legítimo cria conta comum.
- *
- * O módulo é recarregado a cada caso (`jest.isolateModules`): a versão antiga lia a variável no
- * carregamento, e um caso que a mudasse depois não exercitaria nada.
+ *   (1) 410 em todo caminho: sem credencial, com credencial, com a variável definida, sem ela, com a
+ *       antiga `NEXT_PUBLIC_`, e em qualquer método;
+ *   (2) NENHUMA operação de banco nem de Auth é emitida, em nenhum dos casos — o cliente falso
+ *       registra até a CRIAÇÃO de uma consulta (`from`), não só a execução;
+ *   (3) o corpo diz, curto, que a integração foi descontinuada.
  */
 import type { NextApiRequest, NextApiResponse } from 'next'
 
-type Linha = Record<string, unknown>
 const estado = {
-    ops: [] as { tabela: string; op: string; carga?: unknown }[],
-    criadosNoAuth: [] as Linha[],
-    usuariosExistentes: [] as Linha[],
+    /** Toda chamada ao cliente do banco: `from(tabela)` e `auth.admin.*`. */
+    chamadas: [] as string[],
 }
 
-function cliente() {
-    return {
-        from: (tabela: string) => {
-            let op = 'select'
-            let carga: unknown
-            const q: Record<string, unknown> = {}
-            const resposta = (): { data: Linha | null; error: null } => {
-                estado.ops.push({ tabela, op, carga })
-                if (op === 'select' && tabela === 'users') return { data: estado.usuariosExistentes[0] ?? null, error: null }
-                if (op === 'insert') return { data: { id: `${tabela}-novo`, ...(carga as Linha) }, error: null }
-                return { data: null, error: null }
+jest.mock('@/supabase/admin', () => ({
+    supabaseAdmin: new Proxy({}, {
+        get: (_alvo, prop: string) => {
+            if (prop === 'from') {
+                return (tabela: string) => {
+                    estado.chamadas.push(`from(${tabela})`)
+                    const q: Record<string, unknown> = {}
+                    for (const m of ['select', 'eq', 'insert', 'update', 'delete', 'upsert', 'maybeSingle', 'single']) {
+                        q[m] = () => q
+                    }
+                    q.then = (ok: (v: unknown) => unknown) => Promise.resolve({ data: null, error: null }).then(ok)
+                    return q
+                }
             }
-            q.select = () => q
-            q.eq = () => q
-            q.insert = (c: unknown) => { op = 'insert'; carga = c; return q }
-            q.maybeSingle = () => Promise.resolve(resposta())
-            q.single = () => Promise.resolve(resposta())
-            q.then = (ok: (v: unknown) => unknown, erro?: (e: unknown) => unknown) => Promise.resolve(resposta()).then(ok, erro)
-            return q
+            if (prop === 'auth') {
+                return {
+                    admin: new Proxy({}, {
+                        get: (_a, metodo: string) => async () => {
+                            estado.chamadas.push(`auth.admin.${metodo}`)
+                            return { data: { user: { id: 'x' } }, error: null }
+                        },
+                    }),
+                }
+            }
+            if (prop === 'rpc') {
+                return (nome: string) => { estado.chamadas.push(`rpc(${nome})`); return Promise.resolve({ data: null, error: null }) }
+            }
+            return undefined
         },
-        auth: {
-            admin: {
-                createUser: async (dados: Linha): Promise<{ data: { user: { id: string } }; error: null }> => {
-                    estado.criadosNoAuth.push(dados)
-                    return { data: { user: { id: 'auth-novo' } }, error: null }
-                },
-            },
-        },
-    }
-}
-jest.mock('@/supabase/admin', () => ({ supabaseAdmin: cliente() }))
+    }),
+}))
 
 type Rota = (req: NextApiRequest, res: NextApiResponse) => Promise<unknown>
 function carregar(env: { EDUZZ_API_KEY?: string; NEXT_PUBLIC_EDUZZ_API_KEY?: string }): Rota {
@@ -75,103 +75,61 @@ function carregar(env: { EDUZZ_API_KEY?: string; NEXT_PUBLIC_EDUZZ_API_KEY?: str
 }
 
 async function chamar(rota: Rota, body: unknown, method = 'POST') {
-    const saida = { status: 200, corpo: {} as Record<string, unknown> }
+    const saida = { status: 0, corpo: undefined as Record<string, unknown> | undefined }
     const res = {
         status(n: number) { saida.status = n; return res },
         json(b: Record<string, unknown>) { saida.corpo = b; return res },
         end() { return res },
+        setHeader() { return res },
     } as unknown as NextApiResponse
     await rota({ method, body, query: {}, headers: {}, cookies: {} } as unknown as NextApiRequest, res)
     return saida
 }
 
 const PAGAMENTO = { event_name: 'invoice_paid', student_email: 'aluno@exemplo.com' }
-const nadaProcessado = () => {
-    expect(estado.ops).toEqual([])
-    expect(estado.criadosNoAuth).toEqual([])
-}
-const usuariosInseridos = () => estado.ops.filter((o) => o.tabela === 'users' && o.op === 'insert').map((o) => o.carga as Linha)
+const SEGREDO = 'segredo-do-servidor'
 
-beforeEach(() => {
-    estado.ops = []
-    estado.criadosNoAuth = []
-    estado.usuariosExistentes = []
-})
+beforeEach(() => { estado.chamadas = [] })
 afterAll(() => {
     delete process.env.EDUZZ_API_KEY
     delete process.env.NEXT_PUBLIC_EDUZZ_API_KEY
 })
 
-describe('(1) variável AUSENTE: 503, e nada é processado', () => {
-    it('requisição SEM credencial nenhuma, sem a variável definida: 503 — e nem lê o banco', async () => {
-        const r = await chamar(carregar({}), PAGAMENTO)
-        expect(r.status).toBe(503)
-        nadaProcessado()
+type Caso = [string, { EDUZZ_API_KEY?: string; NEXT_PUBLIC_EDUZZ_API_KEY?: string }, unknown, string]
+const CASOS: Caso[] = [
+    ['sem a variável, SEM credencial — o ataque do CRÍT-2', {}, PAGAMENTO, 'POST'],
+    ['sem a variável, com uma credencial qualquer', {}, { ...PAGAMENTO, api_key: 'qualquer' }, 'POST'],
+    ['com a variável definida, SEM credencial', { EDUZZ_API_KEY: SEGREDO }, PAGAMENTO, 'POST'],
+    ['com a variável definida e a credencial CERTA — o pagamento legítimo', { EDUZZ_API_KEY: SEGREDO }, { ...PAGAMENTO, api_key: SEGREDO }, 'POST'],
+    ['só a antiga NEXT_PUBLIC_, com a credencial dela', { NEXT_PUBLIC_EDUZZ_API_KEY: 'publica' }, { ...PAGAMENTO, api_key: 'publica' }, 'POST'],
+    ['outro evento, com a credencial certa', { EDUZZ_API_KEY: SEGREDO }, { event_name: 'invoice_refunded', api_key: SEGREDO }, 'POST'],
+    ['corpo vazio', {}, undefined, 'POST'],
+    ['GET', {}, undefined, 'GET'],
+    ['PUT, com a credencial certa', { EDUZZ_API_KEY: SEGREDO }, { ...PAGAMENTO, api_key: SEGREDO }, 'PUT'],
+]
+
+describe('(1)(2) 410 em todo caminho — e NENHUMA operação de banco ou de Auth', () => {
+    it.each(CASOS)('%s', async (_nome, env, body, metodo) => {
+        const r = await chamar(carregar(env), body, metodo)
+        expect(r.status).toBe(410)
+        expect(estado.chamadas).toEqual([])
     })
 
-    it('nem com uma api_key qualquer no corpo', async () => {
-        const r = await chamar(carregar({}), { ...PAGAMENTO, api_key: 'qualquer' })
-        expect(r.status).toBe(503)
-        nadaProcessado()
-    })
-
-    it('variável definida VAZIA também é ausente', async () => {
-        const r = await chamar(carregar({ EDUZZ_API_KEY: '' }), { ...PAGAMENTO, api_key: '' })
-        expect(r.status).toBe(503)
-        nadaProcessado()
-    })
-})
-
-describe('(2) o segredo é de SERVIDOR — o NEXT_PUBLIC_ não vale mais', () => {
-    it('só NEXT_PUBLIC_EDUZZ_API_KEY definida: 503, mesmo com a chave certa no corpo', async () => {
-        const r = await chamar(carregar({ NEXT_PUBLIC_EDUZZ_API_KEY: 'publica' }), { ...PAGAMENTO, api_key: 'publica' })
-        expect(r.status).toBe(503)
-        nadaProcessado()
-    })
-})
-
-describe('(3) segredo errado ou ausente na requisição: 401, e nada é processado', () => {
-    it.each([
-        ['sem api_key', undefined],
-        ['api_key errada', 'errada'],
-        ['api_key vazia', ''],
-        ['api_key com prefixo do segredo', 'segredo-do-servidor-'],
-        ['api_key que não é texto', 12345],
-    ])('%s', async (_nome, api_key) => {
-        const r = await chamar(carregar({ EDUZZ_API_KEY: 'segredo-do-servidor' }), { ...PAGAMENTO, api_key })
-        expect(r.status).toBe(401)
-        nadaProcessado()
-    })
-})
-
-describe('(4) a comparação é em tempo constante', () => {
-    it('usa timingSafeEqual — sobre resumos de mesmo tamanho, sem revelar o tamanho do segredo', async () => {
+    it('o cliente falso ENXERGA uma operação — sem isto, a lista vazia acima não provaria nada', async () => {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const crypto = require('crypto') as typeof import('crypto')
-        const espiao = jest.spyOn(crypto, 'timingSafeEqual')
-        try {
-            await chamar(carregar({ EDUZZ_API_KEY: 'segredo-do-servidor' }), { ...PAGAMENTO, api_key: 'curta' })
-            expect(espiao).toHaveBeenCalled()
-            const [a, b] = espiao.mock.calls[0] as [Buffer, Buffer]
-            expect(a.length).toBe(b.length)
-        } finally {
-            espiao.mockRestore()
-        }
+        const { supabaseAdmin } = require('@/supabase/admin')
+        supabaseAdmin.from('users').select('id')
+        await supabaseAdmin.auth.admin.createUser({ email: 'x' })
+        expect(estado.chamadas).toEqual(['from(users)', 'auth.admin.createUser'])
     })
 })
 
-describe('(5) NUNCA cria super admin', () => {
-    it('sem a variável e sem credencial: nenhum usuário com is_super_admin true é inserido', async () => {
-        await chamar(carregar({}), PAGAMENTO)
-        expect(usuariosInseridos().filter((u) => u.is_super_admin === true)).toEqual([])
-    })
-
-    it('o caso legítimo (segredo certo, pagamento): cria a conta, com usuário COMUM — is_super_admin false', async () => {
-        const r = await chamar(carregar({ EDUZZ_API_KEY: 'segredo-do-servidor' }), { ...PAGAMENTO, api_key: 'segredo-do-servidor' })
-        expect(r.status).toBe(200)
-        const usuarios = usuariosInseridos()
-        expect(usuarios).toHaveLength(1)
-        expect(usuarios[0]).toEqual(expect.objectContaining({ email: 'aluno@exemplo.com', is_super_admin: false }))
-        expect(estado.criadosNoAuth).toHaveLength(1)
+describe('(3) o corpo diz que a integração foi descontinuada', () => {
+    it('curto, e o mesmo em todo caminho', async () => {
+        const corpos = []
+        for (const [, env, body, metodo] of CASOS) corpos.push((await chamar(carregar(env), body, metodo)).corpo)
+        expect(String(corpos[0]?.error)).toMatch(/descontinuada/)
+        expect(String(corpos[0]?.error).length).toBeLessThan(120)
+        for (const c of corpos) expect(c).toEqual(corpos[0])
     })
 })
