@@ -400,13 +400,15 @@ describe('(10) o 55: a lista grava sem o DDI, e o webhook entrega com ele', () =
             ['5555', GRAVADO],
             ['5554999887766', null],
             ['5554999887766', ''],
+            [null, null],
+            ['5555', '5555'],
         ])('o que não é telefone não casa com nada: (%p, %p)', (remetente, gravado) => {
             expect(telefonesCasam(remetente, gravado)).toBe(false)
         })
     })
 
     describe('a GRAVAÇÃO — do employees.phone com 55 sai sem 55, e uma linha por pessoa', () => {
-        const comDDI = { id: 'f-ddi', tenant_id: T, name: 'Fabi', position: null, phone: '+55 (54) 99988-7766', is_active: true, status: 'ACTIVE' }
+        const comDDI = { id: 'f-ddi', tenant_id: T, name: 'Fabi', position: null as string | null, phone: '+55 (54) 99988-7766', is_active: true, status: 'ACTIVE' }
         const empregados = () => [comDDI]
 
         it('ligar grava "54999887766", sem o 55', async () => {

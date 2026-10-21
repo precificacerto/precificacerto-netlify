@@ -24,7 +24,8 @@
  * do funcionário — não há número avulso nesta tela. Ligar grava o telefone NORMALIZADO
  * (`telefoneDoAutorizado`); desligar é UPDATE `ativo = false`, NUNCA DELETE — o banco recusa
  * excluir quem tem conversa, e o histórico fica. Telefone do cadastro diferente do autorizado é
- * DIVERGÊNCIA: a tela avisa e oferece atualizar, e nada se sincroniza sozinho.
+ * DIVERGÊNCIA: a tela avisa e oferece atualizar, e nada se sincroniza sozinho. A divergência
+ * compara por `telefonesCasam`: o mesmo número com e sem o 55 não é divergência.
  *
  * Portão: `src/utils/__tests__/atendimentos-ia-celula-do-orcamentista.test.ts`.
  */
@@ -34,7 +35,7 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 import { supabaseAdmin } from '@/supabase/admin'
 import { getCallerContext } from '@/lib/get-caller-tenant'
 import { podeEditarModulo, podeVerModulo, type ChamadorAutorizado } from '@/lib/permissao-do-modulo'
-import { telefoneDoAutorizado } from '@/utils/atendimentos-ia-telefone-do-autorizado'
+import { telefoneDoAutorizado, telefonesCasam } from '@/utils/atendimentos-ia-telefone-do-autorizado'
 
 /** O módulo da tela de Conectividade — o mesmo que esconde o item do menu. */
 export const MODULO_DA_TELA = 'connectivity'
@@ -199,7 +200,7 @@ export async function listarQuemPodeFalar(tenantId: string): Promise<LinhaDaList
             telefone: tel.ok ? tel.telefone : null,
             motivoSemTelefone: tel.ok ? null : (tel as { motivo: string }).motivo,
             autorizacao: a ? { id: a.id, telefone: a.telefone, ativo: a.ativo } : null,
-            divergente: !!a && tel.ok && a.telefone !== (tel as { telefone: string }).telefone,
+            divergente: !!a && tel.ok && !telefonesCasam(f.phone, a.telefone),
             podeLigar: tel.ok && !(a?.ativo),
             podeDesligar: a?.ativo === true,
         }
