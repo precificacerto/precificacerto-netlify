@@ -31,7 +31,7 @@ const estado = {
     caller: { user_id: 'u-admin-a', tenant_id: A, role: 'admin', is_super_admin: false },
 }
 
-function executar(tabela: string, op: string, carga: unknown, filtros: [string, unknown][]) {
+function executar(tabela: string, op: string, carga: unknown, filtros: [string, unknown][]): { data: Linha[] | null; error: null } {
     estado.ops.push({ tabela, op, carga, filtros })
     const linhas = (estado.db[tabela] ??= [])
     const casa = (l: Linha) => filtros.every(([c, v]) => l[c] === v)
