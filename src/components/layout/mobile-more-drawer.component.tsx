@@ -26,6 +26,7 @@ import {
   BankOutlined,
   MailOutlined,
   ClockCircleOutlined,
+  RobotOutlined,
 } from '@ant-design/icons'
 import { ROUTES } from '@/constants/routes'
 import { monthObjects } from '@/constants/month'
@@ -34,6 +35,7 @@ import { usePermissions, MODULES, type ModuleKey } from '@/hooks/use-permissions
 import { PERMISSIONS } from '@/shared/enums/permissions'
 import { moduleVisibleForSegment } from '@/utils/segment-visibility'
 import { SECOES_ESCONDIDAS_DO_SUPER_ADMIN } from '@/constants/secoes-escondidas-do-super-admin'
+import { useSecaoDoOrcamentista } from '@/hooks/use-secao-do-orcamentista.hook'
 
 type Props = {
   open: boolean
@@ -58,6 +60,8 @@ type Item = {
   hideForRepresentative?: boolean
   hideForSuperAdmin?: boolean
   module?: ModuleKey
+  /** Só se desenha com a seção Atendimentos I.A. confirmada LIGADA pelo servidor. */
+  exigeSecaoDoOrcamentista?: boolean
   onClick?: () => void
 }
 
@@ -68,6 +72,8 @@ const MobileMoreDrawer = ({ open, onClose }: Props) => {
 
   const isAdmin = !!currentUser?.permissions?.find((p) => p === PERMISSIONS.ADMIN)
   const isRepresentative = !!currentUser?.permissions?.find((p) => p === PERMISSIONS.REPRESENTATIVE)
+  // A MESMA pergunta do menu desktop, e a mesma resposta guardada (`use-secao-do-orcamentista.hook.ts`).
+  const secaoDoOrcamentista = useSecaoDoOrcamentista(!isSuperAdmin && canView(MODULES.ORCAMENTISTA), currentUser?.uid)
 
   const handleSupport = () => {
     const url = `https://api.whatsapp.com/send?phone=555199114290&text=Ol%C3%A1%2C%20estou%20precisando%20de%20suporte%2C%20meu%20email%20%C3%A9%3A%20${currentUser?.email}`
@@ -123,6 +129,8 @@ const MobileMoreDrawer = ({ open, onClose }: Props) => {
 
     // Super Admin
     // Atendimentos I.A. — a mesma seção do menu desktop (`nav.component.tsx`), com a mesma chave.
+    // O Orçamentista é do TENANT e só com a seção ligada no servidor; os outros dois, do super admin.
+    { key: 'orcamentista', label: 'Orçamentista', href: ROUTES.ATENDIMENTOS_IA_ORCAMENTISTA, icon: <RobotOutlined />, section: 'Atendimentos I.A.', sectionKey: 'atendimentos-ia', module: MODULES.ORCAMENTISTA, hideForSuperAdmin: true, exigeSecaoDoOrcamentista: true },
     { key: 'super-ia-contas', label: 'Contas ligadas', href: ROUTES.SUPER_ADMIN_IA_CONTAS, icon: <TeamOutlined />, section: 'Atendimentos I.A.', sectionKey: 'atendimentos-ia', superAdminOnly: true },
     { key: 'super-ia-fornecedores', label: 'Fornecedores e tabelas', href: ROUTES.SUPER_ADMIN_IA_FORNECEDORES, icon: <DatabaseOutlined />, section: 'Atendimentos I.A.', sectionKey: 'atendimentos-ia', superAdminOnly: true },
     { key: 'super-admin', label: 'Painel Super Admin', href: ROUTES.SUPER_ADMIN_PANEL, icon: <SafetyCertificateOutlined />, section: 'Super Admin', sectionKey: 'superadmin', superAdminOnly: true },
@@ -150,6 +158,7 @@ const MobileMoreDrawer = ({ open, onClose }: Props) => {
     if (item.superAdminOnly && !isSuperAdmin) return false
     if (item.hideForRepresentative && isRepresentative) return false
     if (item.hideForSuperAdmin && isSuperAdmin) return false
+    if (item.exigeSecaoDoOrcamentista && !secaoDoOrcamentista) return false
     // POR SEÇÃO, com a MESMA lista do desktop (19/10/2026). Antes o drawer filtrava o super admin
     // só item a item, e `canView` devolve `true` para ele em todo módulo: os 18 itens de tenant
     // que ele via caíam todos no mesmo `router.replace` do `AuthGuard`. Não eram acesso, eram
@@ -164,7 +173,8 @@ const MobileMoreDrawer = ({ open, onClose }: Props) => {
 
   // 'Clientes' entra entre Cadastros e Comercial — a MESMA posição da seção no menu
   // desktop. A ordem é o que faz o usuário achar no celular o que ele vê no desktop.
-  const sectionOrder = ['Início', 'Cadastros', 'Clientes', 'Comercial', 'Financeiro', 'Agendamentos', 'Operacional', 'Atendimentos I.A.', 'Super Admin', 'Conta']
+  // 'Atendimentos I.A.' logo depois de 'Clientes' desde 21/10/2026, como no desktop.
+  const sectionOrder = ['Início', 'Cadastros', 'Clientes', 'Atendimentos I.A.', 'Comercial', 'Financeiro', 'Agendamentos', 'Operacional', 'Super Admin', 'Conta']
   const grouped = sectionOrder
     .map((section) => ({ section, list: visibleItems.filter((i) => i.section === section) }))
     .filter((g) => g.list.length > 0)

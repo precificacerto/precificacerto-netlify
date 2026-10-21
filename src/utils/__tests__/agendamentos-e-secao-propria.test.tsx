@@ -367,9 +367,14 @@ describe('4. PERMISSÕES — Agenda e Relatório Agenda sob "Agendamentos", ante
       impediu que a cegueira passasse por verde.
     */
     const chaves = [...src.slice(i, j).matchAll(/'([a-z_0-9]+)'/g)].map((m: string[]) => m[1])
+    /*
+      21/10/2026: o conjunto MUDOU, e de propósito — entrou `orcamentista`, no mesmo commit em
+      que o item "Orçamentista" entrou no menu (decisão do dono do produto de 18/10/2026,
+      confirmada em 21/10/2026). As 21 de antes continuam, uma a uma; a 22ª é só esta.
+    */
     expect([...chaves].sort()).toEqual([
       'agenda', 'budgets', 'cash_flow', 'cashier', 'commission', 'commissions_report',
-      'connectivity', 'customers', 'dfc', 'employees', 'home', 'items', 'orders', 'products',
+      'connectivity', 'customers', 'dfc', 'employees', 'home', 'items', 'orcamentista', 'orders', 'products',
       'recurrence', 'reports', 'rt_commission', 'sales', 'sales_report', 'services', 'stock',
     ])
     // E todas elas são módulos declarados no hook — nenhuma inventada por esta rodada.

@@ -30,6 +30,7 @@ import {
   ClockCircleOutlined,
   CrownOutlined,
   BellOutlined,
+  RobotOutlined,
 } from '@ant-design/icons'
 import { ROUTES } from '@/constants/routes'
 import { useAuth } from '@/hooks/use-auth.hook'
@@ -38,6 +39,7 @@ import { PERMISSIONS } from '@/shared/enums/permissions'
 import { monthObjects } from '@/constants/month'
 import { moduleVisibleForSegment } from '@/utils/segment-visibility'
 import { SECOES_ESCONDIDAS_DO_SUPER_ADMIN } from '@/constants/secoes-escondidas-do-super-admin'
+import { useSecaoDoOrcamentista } from '@/hooks/use-secao-do-orcamentista.hook'
 
 const iconMap: Record<string, React.ReactNode> = {
   home: <HomeOutlined />,
@@ -64,6 +66,7 @@ const iconMap: Record<string, React.ReactNode> = {
   'super-cadastros': <ClockCircleOutlined />,
   'super-plans': <ClockCircleOutlined />,
   'super-notifications': <BellOutlined />,
+  robot: <RobotOutlined />,
 }
 
 interface NavItemConfig {
@@ -79,6 +82,8 @@ interface NavItemConfig {
   hidden?: boolean
   external?: boolean
   module?: ModuleKey
+  /** Só se desenha com a seção Atendimentos I.A. confirmada LIGADA pelo servidor. */
+  exigeSecaoDoOrcamentista?: boolean
 }
 
 interface SectionConfig {
@@ -102,6 +107,9 @@ const Nav = () => {
   const isRepresentative = currentUser?.permissions?.find(
     (value) => value === PERMISSIONS.REPRESENTATIVE
   )
+  // O SERVIDOR decide se a seção Atendimentos I.A. está ligada para a conta; o menu só pergunta
+  // quando o item poderia aparecer (não é super admin, e tem a permissão do módulo).
+  const secaoDoOrcamentista = useSecaoDoOrcamentista(!isSuperAdmin && canView(MODULES.ORCAMENTISTA), currentUser?.uid)
 
   const navigationItems: NavItemConfig[] = [
     { key: 'home', label: 'Home', icon: 'dashboard', href: ROUTES.DASHBOARD, section: 'geral', module: MODULES.HOME },
@@ -156,6 +164,11 @@ const Nav = () => {
     // entrada que leva a um "em construção" é o menu oferecendo o que não existe. ENTROU em
     // 19/10/2026, no bloco 2C.1, junto com a tela — antes de "Fornecedores e tabelas", a ordem do
     // mockup. A tela mostra só o nome da conta e a configuração do Atendimentos I.A.
+    // O ORÇAMENTISTA — o item do TENANT na mesma seção (21/10/2026, dono do produto: "uma seção
+    // só"). Só se desenha com a seção ligada no servidor (`exigeSecaoDoOrcamentista`), e nunca para
+    // o super admin, que não tem conta: o `AuthGuard` o devolveria ao painel. Os dois itens abaixo
+    // são o contrário — só do super admin.
+    { key: 'orcamentista', label: 'Orçamentista', icon: 'robot', href: ROUTES.ATENDIMENTOS_IA_ORCAMENTISTA, section: 'atendimentos-ia', module: MODULES.ORCAMENTISTA, hideForSuperAdmin: true, exigeSecaoDoOrcamentista: true },
     { key: 'super-ia-contas', label: 'Contas ligadas', icon: 'team', href: ROUTES.SUPER_ADMIN_IA_CONTAS, section: 'atendimentos-ia', superAdminOnly: true },
     { key: 'super-ia-fornecedores', label: 'Fornecedores e tabelas', icon: 'database', href: ROUTES.SUPER_ADMIN_IA_FORNECEDORES, section: 'atendimentos-ia', superAdminOnly: true },
 
@@ -192,6 +205,7 @@ const Nav = () => {
     if (item.superAdminOnly && !isSuperAdmin) return false
     if (item.hideForRepresentative && isRepresentative) return false
     if (item.hideForSuperAdmin && isSuperAdmin) return false
+    if (item.exigeSecaoDoOrcamentista && !secaoDoOrcamentista) return false
     // Segmentação: Serviços só existe em Prestação de Serviços. Mesma função da tela de
     // Permissões de Acesso — paridade menu ↔ permissões por construção.
     if (!moduleVisibleForSegment(item.module, currentUser?.calcType)) return false
@@ -219,14 +233,16 @@ const Nav = () => {
     //     de Clientes, a seção aparece fechada, com um item só embaixo.
     // Nenhuma seção com título é exceção. Portão, por propriedade: `menu-toda-secao-recolhe.test.ts`.
     { key: 'clientes', label: 'Clientes', collapsible: true },
+    // ATENDIMENTOS I.A. logo abaixo de CLIENTES desde 21/10/2026 — era a seção só do super admin,
+    // depois de Operacional, e passou a ter também o item do tenant, "Orçamentista". UMA seção,
+    // não duas com o mesmo título (dono do produto). Cada perfil vê os itens dele; o super admin
+    // não vê as seções de tenant, então para ele a ordem entre as suas não muda.
+    // RECOLHE, COMO TODAS (decisão de 20/10/2026, `menu-toda-secao-recolhe.test.ts`).
+    { key: 'atendimentos-ia', label: 'Atendimentos I.A.', collapsible: true },
     { key: 'comercial', label: 'Comercial', collapsible: true },
     { key: 'financeiro', label: 'Financeiro', collapsible: true },
     { key: 'agendamentos', label: 'Agendamentos', collapsible: true },
     { key: 'operacional', label: 'Operacional', collapsible: true },
-    // RECOLHE, COMO TODAS. Até 20/10/2026 não recolhia, pela razão de Clientes do bloco 2A (um
-    // item só); a decisão do dono do produto de 20/10/2026 vale para todo o menu, e a seção já
-    // tem dois itens — o motivo original nem se aplicava mais.
-    { key: 'atendimentos-ia', label: 'Atendimentos I.A.', collapsible: true },
     { key: 'superadmin', label: 'Super Admin', collapsible: true },
   ]
 

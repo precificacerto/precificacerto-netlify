@@ -48,11 +48,17 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 import { supabaseAdmin } from '@/supabase/admin'
 import { getCallerContext } from '@/lib/get-caller-tenant'
 import { podeEditarModulo, podeVerModulo, type ChamadorAutorizado } from '@/lib/permissao-do-modulo'
-import { numeroDoJid, telefoneDoAutorizado, telefonesCasam } from '@/utils/atendimentos-ia-telefone-do-autorizado'
+import { numeroDoJid, telefoneDoAutorizado, telefoneMascarado, telefonesCasam } from '@/utils/atendimentos-ia-telefone-do-autorizado'
 import { paraOLog } from '@/utils/atendimentos-ia-mascara-do-log'
 
-/** O módulo da tela de Conectividade — o mesmo que esconde o item do menu. */
+/** O módulo da tela de Conectividade — o mesmo que esconde o item do menu. A célula usa este. */
 export const MODULO_DA_TELA = 'connectivity'
+/**
+ * O módulo da seção Atendimentos I.A. do tenant — o item "Orçamentista" do menu e a página
+ * `/atendimentos-ia/orcamentista` (21/10/2026). É `MODULES.ORCAMENTISTA`, escrito aqui porque o
+ * hook de permissões é código de navegador; um portão afirma que as duas são a mesma chave.
+ */
+export const MODULO_DO_ORCAMENTISTA = 'orcamentista'
 export const CANAL_DO_ORCAMENTISTA = 'ORCAMENTISTA' as const
 
 export const MOTIVO_SECAO_DESLIGADA = 'O Atendimentos I.A. não está ligado nesta conta.'
@@ -64,11 +70,15 @@ const wuzapi = () => (process.env.WUZAPI_BASE_URL || 'https://usapi.adabtech.sho
  * O chamador, se a seção estiver ligada para o tenant DELE e ele puder ver (ou editar) a tela.
  * Responde sozinho e devolve null nos outros casos: 401/403 de `getCallerContext`, 404 com a
  * seção desligada, 403 sem permissão.
+ *
+ * `modulo` é o da tela que chama: a célula de Conectividade fica no padrão (`connectivity`), e a
+ * página da seção Atendimentos I.A. passa `MODULO_DO_ORCAMENTISTA`.
  */
 export async function chamadorDoOrcamentista(
     req: NextApiRequest,
     res: NextApiResponse,
     acesso: 'ver' | 'editar',
+    modulo: string = MODULO_DA_TELA,
 ): Promise<ChamadorAutorizado | null> {
     const caller = await getCallerContext(req, res)
     if (!caller) return null
@@ -77,9 +87,13 @@ export async function chamadorDoOrcamentista(
     if (error) { res.status(500).json({ error: 'Não foi possível ler a configuração do Atendimentos I.A.' }); return null }
     if (!cfg || cfg.ativo !== true) { res.status(404).json({ error: MOTIVO_SECAO_DESLIGADA }); return null }
     const permitido = acesso === 'ver'
-        ? await podeVerModulo(caller as ChamadorAutorizado, MODULO_DA_TELA)
-        : await podeEditarModulo(caller as ChamadorAutorizado, MODULO_DA_TELA)
-    if (!permitido) { res.status(403).json({ error: 'Sem permissão para esta ação em Conectividade.' }); return null }
+        ? await podeVerModulo(caller as ChamadorAutorizado, modulo)
+        : await podeEditarModulo(caller as ChamadorAutorizado, modulo)
+    if (!permitido) {
+        const tela = modulo === MODULO_DA_TELA ? 'em Conectividade' : 'no Orçamentista'
+        res.status(403).json({ error: `Sem permissão para esta ação ${tela}.` })
+        return null
+    }
     return caller as ChamadorAutorizado
 }
 
@@ -348,4 +362,93 @@ export async function aplicarAcao(tenantId: string, employeeId: string, acao: Ac
     if (conflitoDeTelefone(error)) return { status: 409, corpo: { error: 'Este telefone já está autorizado para outra pessoa nesta conta.' } }
     if (error) return { status: 500, corpo: { error: `Não foi possível ligar: ${error.message}` } }
     return { status: 200, corpo: { ok: true } }
+}
+
+// ── O PAINEL da página da seção — LEITURA APENAS ───────────────────────────────────────────
+/**
+ * O que a página `/atendimentos-ia/orcamentista` mostra (dono do produto, 21/10/2026):
+ *   - o estado da conexão, lido de `whatsapp_conexao` (canal ORCAMENTISTA) — `ativo` é o ÚLTIMO
+ *     ESTADO REGISTRADO, sem consultar o WUZAPI, e o token NÃO é selecionado;
+ *   - quantas pessoas estão liberadas: autorizados com `ativo = true`;
+ *   - os levantamentos de `orcamentista_pre_definicao`, do mais novo ao mais antigo, nos padrões
+ *     aprovados: o CÓDIGO é o começo do id da conversa (não há coluna de código); QUEM PEDIU é o
+ *     nome do remetente autorizado, ou o telefone mascarado sem nome; o ESTADO é o texto gravado,
+ *     ou NULL — os valores ainda não foram definidos, e a tela mostra travessão.
+ * TODA consulta filtra pelo tenant do chamador. Nenhuma escreve: a pré-definição não cria
+ * orçamento no sistema maior.
+ */
+export interface Levantamento {
+    id: string
+    codigo: string
+    quemPediu: string | null
+    quando: string
+    estado: string | null
+}
+export interface PainelDoOrcamentista {
+    conexao: { existe: boolean; conectado: boolean; conectadoEm: string | null }
+    liberadas: number
+    levantamentos: Levantamento[]
+}
+
+export const codigoDaConversa = (conversaId: string) => conversaId.replace(/-/g, '').slice(0, 8).toUpperCase()
+
+/** O telefone mascarado, já sem o 55 quando ele vier com o DDI (o da conversa vem). */
+function mascarado(telefone: string): string {
+    const t = telefoneDoAutorizado(telefone)
+    return telefoneMascarado(t.ok ? (t as { telefone: string }).telefone : telefone)
+}
+
+export async function lerPainel(tenantId: string): Promise<PainelDoOrcamentista> {
+    const { data: con, error: e1 } = await supabaseAdmin
+        .from('whatsapp_conexao').select('ativo, conectado_em')
+        .eq('tenant_id', tenantId).eq('canal', CANAL_DO_ORCAMENTISTA).maybeSingle()
+    if (e1) throw new Error(`whatsapp_conexao: ${e1.message}`)
+    const conexao = con as { ativo: boolean; conectado_em: string | null } | null
+
+    const { data: auts, error: e2 } = await supabaseAdmin
+        .from('orcamentista_remetente_autorizado').select('id').eq('tenant_id', tenantId).eq('ativo', true)
+    if (e2) throw new Error(`orcamentista_remetente_autorizado: ${e2.message}`)
+
+    const { data: pre, error: e3 } = await supabaseAdmin
+        .from('orcamentista_pre_definicao').select('id, conversa_id, estado, criado_em')
+        .eq('tenant_id', tenantId).order('criado_em', { ascending: false })
+    if (e3) throw new Error(`orcamentista_pre_definicao: ${e3.message}`)
+    // A ordem é a do banco; o sort repete-a para não depender de quem respondeu.
+    const pres = ((pre ?? []) as { id: string; conversa_id: string; estado: string | null; criado_em: string }[])
+        .slice().sort((a, b) => b.criado_em.localeCompare(a.criado_em))
+
+    const resultado: PainelDoOrcamentista = {
+        conexao: { existe: !!conexao, conectado: conexao?.ativo === true, conectadoEm: conexao?.conectado_em ?? null },
+        liberadas: (auts ?? []).length,
+        levantamentos: [],
+    }
+    if (pres.length === 0) return resultado
+
+    const { data: convs, error: e4 } = await supabaseAdmin
+        .from('orcamentista_conversa').select('id, remetente_id, telefone')
+        .eq('tenant_id', tenantId).in('id', [...new Set(pres.map((p) => p.conversa_id))])
+    if (e4) throw new Error(`orcamentista_conversa: ${e4.message}`)
+    const conversas = new Map(((convs ?? []) as { id: string; remetente_id: string; telefone: string }[]).map((c) => [c.id, c]))
+
+    const idsDosRemetentes = [...new Set([...conversas.values()].map((c) => c.remetente_id))]
+    const { data: rems, error: e5 } = idsDosRemetentes.length
+        ? await supabaseAdmin.from('orcamentista_remetente_autorizado').select('id, nome, telefone').eq('tenant_id', tenantId).in('id', idsDosRemetentes)
+        : { data: [] as unknown[], error: null }
+    if (e5) throw new Error(`orcamentista_remetente_autorizado: ${e5.message}`)
+    const remetentes = new Map(((rems ?? []) as { id: string; nome: string | null; telefone: string }[]).map((r) => [r.id, r]))
+
+    resultado.levantamentos = pres.map((p) => {
+        const conversa = conversas.get(p.conversa_id)
+        const rem = conversa ? remetentes.get(conversa.remetente_id) : undefined
+        const nome = rem?.nome?.trim()
+        const telefone = rem?.telefone ?? conversa?.telefone ?? null
+        return {
+            id: p.id,
+            codigo: codigoDaConversa(p.conversa_id),
+            quemPediu: nome || (telefone ? mascarado(telefone) : null),
+            quando: p.criado_em,
+            estado: p.estado?.trim() || null,
+        }
+    })
+    return resultado
 }

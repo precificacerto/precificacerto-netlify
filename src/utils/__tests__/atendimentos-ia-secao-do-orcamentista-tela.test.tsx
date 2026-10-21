@@ -60,9 +60,11 @@ jest.mock('@/supabase/client', () => {
     return { supabase: { from: () => chain, auth: { getUser: () => Promise.resolve(vazio) } } }
 })
 jest.mock('@/contexts/device.context', () => ({ useDevice: () => ({ isMobile: false }) }))
+type HookVazio = { data: unknown[]; isLoading: boolean; mutate: () => void }
+const hookVazio = (): HookVazio => ({ data: [], isLoading: false, mutate: jest.fn() })
 jest.mock('@/hooks/use-data.hooks', () => ({
-    useEmployees: () => ({ data: [], isLoading: false, mutate: jest.fn() }),
-    useItems: () => ({ data: [], isLoading: false, mutate: jest.fn() }),
+    useEmployees: () => hookVazio(),
+    useItems: () => hookVazio(),
 }))
 jest.mock('@/components/layout/layout.component', () => ({
     Layout: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,

@@ -27,8 +27,9 @@ export const MODULES = {
   // reaproveitar sales_report/commission para poderem ser bloqueados por funcionário.
   COMMISSIONS_REPORT: 'commissions_report',
   RT_COMMISSION:      'rt_commission',
-  // Orçamentista, bloco 1 (18/10/2026): a chave existe na fonte, mas NÃO é concedível ainda —
-  // ver `MODULOS_NAO_CONCEDIVEIS`. Ligado por conta pelo super admin em `orcamentista_config`.
+  // Orçamentista: a chave nasceu no bloco 1 (18/10/2026) fora das concedíveis, e ENTROU nelas em
+  // 21/10/2026, no mesmo commit em que o item entrou no menu (seção Atendimentos I.A.). Ligado
+  // por conta pelo super admin em `orcamentista_config`; a permissão diz QUEM da conta o vê.
   ORCAMENTISTA:       'orcamentista',
 } as const
 
@@ -38,17 +39,19 @@ export type ModuleKey = typeof MODULES[keyof typeof MODULES]
  * Os módulos que NÃO aparecem nas telas de permissão nem são aceitos pela rota que as grava.
  *
  * `users_management` nunca foi concedível por funcionário. `orcamentista` entrou em 18/10/2026
- * (bloco 1) e fica FORA até o bloco 2, que traz JUNTOS a aba no menu e a entrada nas
+ * (bloco 1) e ficou FORA até o bloco 2, que traz JUNTOS a aba no menu e a entrada nas
  * permissões — decisão do dono do produto, para que a paridade menu ↔ permissões
- * (`cascata-lucro-real.md`, Parte 4, "inviolável") se cumpra por construção, sem exceção.
- * QUANDO O BLOCO 2 CHEGAR, `orcamentista` sai desta lista no mesmo commit em que entra no menu.
+ * (`cascata-lucro-real.md`, Parte 4, "inviolável") se cumprisse por construção, sem exceção.
+ * SAIU DESTA LISTA em 21/10/2026, no mesmo commit em que entrou no menu, como a decisão mandava.
+ * `user_module_permissions.module` é text sem CHECK (consulta do dono do produto, 21/10/2026):
+ * a chave grava sem migração.
  *
  * UMA lista para as quatro leituras (`admin/usuarios.tsx`, `funcionarios/[id]/permissoes.tsx`
  * duas vezes e `api/admin/users/[id]/permissions.ts`). Antes cada uma escrevia o próprio
  * `!== MODULES.USERS_MANAGEMENT` — acrescentar o segundo módulo em quatro lugares seria
  * `copia-divergente.md` nascendo.
  */
-export const MODULOS_NAO_CONCEDIVEIS: readonly ModuleKey[] = [MODULES.USERS_MANAGEMENT, MODULES.ORCAMENTISTA]
+export const MODULOS_NAO_CONCEDIVEIS: readonly ModuleKey[] = [MODULES.USERS_MANAGEMENT]
 
 /** Os módulos que as telas de permissão listam e a rota aceita. */
 export const MODULOS_CONCEDIVEIS: string[] = (Object.values(MODULES) as ModuleKey[]).filter((m) => !MODULOS_NAO_CONCEDIVEIS.includes(m))

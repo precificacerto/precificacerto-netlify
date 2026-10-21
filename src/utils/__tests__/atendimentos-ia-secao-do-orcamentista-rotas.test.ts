@@ -136,6 +136,8 @@ function montar(extra: Partial<Record<string, Linha[]>> = {}) {
         orcamentista_pre_definicao: [
             { id: 'p1', tenant_id: T, conversa_id: CONVERSA_1, estado: 'EM_LEVANTAMENTO', criado_em: '2026-10-21T09:00:00Z' },
             { id: 'p2', tenant_id: T, conversa_id: CONVERSA_2, estado: null, criado_em: '2026-10-21T11:00:00Z' },
+            // estado EM BRANCO: é tão "não dito" quanto NULL, e sai NULL — o caso que discrimina o `trim`
+            { id: 'p0', tenant_id: T, conversa_id: CONVERSA_1, estado: '   ', criado_em: '2026-10-21T08:00:00Z' },
             { id: 'p-outra', tenant_id: OUTRO, conversa_id: 'ffffffff-0000-4000-8000-000000000009', estado: 'X', criado_em: '2026-10-21T12:00:00Z' },
         ],
         ...extra,
@@ -190,13 +192,13 @@ describe('(3) o tenant é o do usuário logado', () => {
         const r = await chamar(rotaDoPainel, 'GET', { body: { tenant_id: OUTRO }, query: { tenant_id: OUTRO } })
         expect(r.status).toBe(200)
         const lev = r.corpo.levantamentos as Array<Record<string, unknown>>
-        expect(lev.map((l) => l.id).sort()).toEqual(['p1', 'p2'])
+        expect(lev.map((l) => l.id).sort()).toEqual(['p0', 'p1', 'p2'])
     })
 
     it('a lista só traz o tenant do chamador — e cada consulta filtrou por ele', async () => {
         const r = await chamar(rotaDoPainel, 'GET')
         expect(JSON.stringify(r.corpo)).not.toContain('Da Outra')
-        expect((r.corpo.levantamentos as unknown[])).toHaveLength(2)
+        expect((r.corpo.levantamentos as unknown[])).toHaveLength(3)
         const consultas = estado.ops.filter((o) => o.tabela.startsWith('orcamentista_') && o.tabela !== 'orcamentista_config' || o.tabela === 'whatsapp_conexao')
         expect(consultas.length).toBeGreaterThan(3)
         for (const c of consultas) expect(c.filtros).toContainEqual(['eq', 'tenant_id', T])
@@ -224,6 +226,7 @@ describe('(4) o painel', () => {
             // sem nome: o telefone MASCARADO; estado vazio: null (a tela mostra travessão)
             { id: 'p2', codigo: 'E5F6A7B8', quemPediu: '(54) •••••-6655', quando: '2026-10-21T11:00:00Z', estado: null },
             { id: 'p1', codigo: 'A1B2C3D4', quemPediu: 'Ana', quando: '2026-10-21T09:00:00Z', estado: 'EM_LEVANTAMENTO' },
+            { id: 'p0', codigo: 'A1B2C3D4', quemPediu: 'Ana', quando: '2026-10-21T08:00:00Z', estado: null },
         ])
     })
 

@@ -20,6 +20,7 @@ export enum PAGE_TITLES {
   EMPLOYEES = 'Funcionários',
   SETTINGS = 'Configurações',
   CONNECTIVITY = 'Conectividade',
+  ORCAMENTISTA = 'Orçamentista',
 
   // ── Phase 2: Produtos + Estoque ──
   SERVICES = 'Serviços',
