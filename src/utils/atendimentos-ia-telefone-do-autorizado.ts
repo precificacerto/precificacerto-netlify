@@ -23,6 +23,11 @@ export function telefoneDoAutorizado(bruto: string | null | undefined): Telefone
     return { ok: false, motivo: `o telefone do cadastro ("${texto}") não é um número de 10 ou 11 dígitos com DDD` }
 }
 
+/** O remetente que o webhook entregou casa com o telefone gravado na lista? */
+export function telefonesCasam(_remetente: string | null | undefined, _gravado: string | null | undefined): boolean {
+    throw new Error('telefonesCasam: ainda não implementada')
+}
+
 /** Para mostrar: `(51) 9••••-7766` — o DDD e os 4 últimos. */
 export function telefoneMascarado(telefone: string): string {
     const d = telefone.replace(/\D/g, '')

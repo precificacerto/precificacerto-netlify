@@ -24,11 +24,14 @@
  *   (7) o tenant_id do corpo da requisição é ignorado;
  *   (8) a divergência entre o cadastro e a autorização aparece, e só se atualiza quando pedido;
  *   (9) a permissão: quem só VÊ Conectividade lê e desconecta (desconectar é livre para quem
- *       enxerga a tela — dono do produto, 21/10/2026); conectar e mexer na lista exigem EDITAR.
+ *       enxerga a tela — dono do produto, 21/10/2026); conectar e mexer na lista exigem EDITAR;
+ *  (10) o 55: a lista grava DDD + número, sem o DDI, e o webhook entrega o remetente COM ele.
+ *       A COMPARAÇÃO (`telefonesCasam`) é testada de verdade — não só a gravação —, e a
+ *       divergência da lista passa a usá-la (dono do produto, 21/10/2026).
  */
 import type { NextApiRequest, NextApiResponse } from 'next'
 
-import { telefoneDoAutorizado } from '@/utils/atendimentos-ia-telefone-do-autorizado'
+import { telefoneDoAutorizado, telefonesCasam } from '@/utils/atendimentos-ia-telefone-do-autorizado'
 
 // ── O banco falso ────────────────────────────────────────────────────────────────────────
 type Linha = Record<string, unknown>
@@ -357,5 +360,84 @@ describe('(9) a permissão: ver lê e desconecta; editar conecta e mexe na lista
         estado.db.user_module_permissions[0].can_view = false
         expect((await chamar(rotaConexao, 'GET')).status).toBe(403)
         expect((await chamar(rotaAutorizados, 'GET')).status).toBe(403)
+    })
+})
+
+describe('(10) o 55: a lista grava sem o DDI, e o webhook entrega com ele', () => {
+    const GRAVADO = '54999887766'
+
+    describe('a COMPARAÇÃO — telefonesCasam(remetente, gravado)', () => {
+        it.each([
+            '5554999887766',
+            '54999887766',
+            '+55 (54) 99988-7766',
+            '55 54 9 9988 7766',
+        ])('"%s" casa com o autorizado gravado como "54999887766"', (remetente) => {
+            expect(telefonesCasam(remetente, GRAVADO)).toBe(true)
+        })
+
+        it.each([
+            '5551999887766',
+            '51999887766',
+            '+55 (11) 99988-7766',
+        ])('"%s" — OUTRO DDD — NÃO casa', (remetente) => {
+            expect(telefonesCasam(remetente, GRAVADO)).toBe(false)
+        })
+
+        it('o gravado COM o 55 também casa — a comparação é dos dois lados', () => {
+            expect(telefonesCasam('54999887766', '5554999887766')).toBe(true)
+        })
+
+        it('DDD 55 (Santa Maria): o 55 do DDD NÃO é tirado como se fosse DDI', () => {
+            expect(telefonesCasam('5555999887766', '55999887766')).toBe(true)
+            expect(telefonesCasam('55999887766', '55999887766')).toBe(true)
+            expect(telefonesCasam('55999887766', '999887766')).toBe(false)
+        })
+
+        it.each([
+            [null, GRAVADO],
+            ['', GRAVADO],
+            ['5555', GRAVADO],
+            ['5554999887766', null],
+            ['5554999887766', ''],
+        ])('o que não é telefone não casa com nada: (%p, %p)', (remetente, gravado) => {
+            expect(telefonesCasam(remetente, gravado)).toBe(false)
+        })
+    })
+
+    describe('a GRAVAÇÃO — do employees.phone com 55 sai sem 55, e uma linha por pessoa', () => {
+        const comDDI = { id: 'f-ddi', tenant_id: T, name: 'Fabi', position: null, phone: '+55 (54) 99988-7766', is_active: true, status: 'ACTIVE' }
+        const empregados = () => [comDDI]
+
+        it('ligar grava "54999887766", sem o 55', async () => {
+            montar({ employees: empregados() })
+            expect((await chamar(rotaAutorizados, 'POST', { employee_id: 'f-ddi', acao: 'ligar' })).status).toBe(200)
+            expect(estado.db.orcamentista_remetente_autorizado).toEqual([expect.objectContaining({ telefone: GRAVADO, employee_id: 'f-ddi' })])
+        })
+
+        it('ligar, desligar e ligar de novo: UMA linha só, reativada — nenhum segundo INSERT', async () => {
+            montar({ employees: empregados() })
+            await chamar(rotaAutorizados, 'POST', { employee_id: 'f-ddi', acao: 'ligar' })
+            await chamar(rotaAutorizados, 'POST', { employee_id: 'f-ddi', acao: 'desligar' })
+            await chamar(rotaAutorizados, 'POST', { employee_id: 'f-ddi', acao: 'ligar' })
+            expect(estado.db.orcamentista_remetente_autorizado).toEqual([expect.objectContaining({ telefone: GRAVADO, ativo: true })])
+            expect(escritas('orcamentista_remetente_autorizado').filter((o) => o.op === 'insert')).toHaveLength(1)
+        })
+
+        it('o mesmo número já autorizado SEM o 55, para outra linha: o banco recusa, e não há duas', async () => {
+            montar({
+                employees: empregados(),
+                orcamentista_remetente_autorizado: [{ id: 'a-avulso', tenant_id: T, telefone: GRAVADO, nome: 'Fabi', employee_id: null, ativo: true }],
+            })
+            expect((await chamar(rotaAutorizados, 'POST', { employee_id: 'f-ddi', acao: 'ligar' })).status).toBe(409)
+            expect(estado.db.orcamentista_remetente_autorizado).toHaveLength(1)
+        })
+
+        it('autorizado gravado COM o 55 e o cadastro sem: NÃO é divergência — é o mesmo número', async () => {
+            montar({ orcamentista_remetente_autorizado: [{ id: 'a1', tenant_id: T, telefone: '5551999887766', nome: 'Ana', employee_id: 'f-com', ativo: true }] })
+            const r = await chamar(rotaAutorizados, 'GET')
+            const ana = (r.corpo.linhas as Array<Record<string, unknown>>).find((l) => l.employee_id === 'f-com')!
+            expect(ana.divergente).toBe(false)
+        })
     })
 })
