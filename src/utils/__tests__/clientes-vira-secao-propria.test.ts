@@ -64,6 +64,9 @@ const SECAO_DO_NAV_PARA_GRUPO: Record<string, string> = {
   financeiro: 'Financeiro',
   agendamentos: 'Agendamentos',
   operacional: 'Operacional',
+  // 21/10/2026: a seção ganhou o item do tenant, "Orçamentista", e o grupo nas permissões entrou
+  // no MESMO commit. Os itens do super admin não têm `module`, e o leitor do menu os ignora.
+  'atendimentos-ia': 'Atendimentos I.A.',
 }
 
 function corpo(texto: string, marcador: string, abre: '{' | '[') {

@@ -15,7 +15,10 @@
  *       Quem barra é a PÁGINA, que o devolve ao início, e a ROTA, que responde 403 —
  *       `atendimentos-ia-rotas.test.ts`.)
  *   (e) um usuário de conta não vê a seção;
- *   (f) a seção não entrou em MODULES nem na tela de Permissões.
+ *   (f) os itens DO SUPER ADMIN não entraram em MODULES nem na tela de Permissões. (Até
+ *       21/10/2026 este caso afirmava também que `orcamentista` ficava fora das concedíveis; a
+ *       seção recebeu o item do tenant e o módulo entrou nas permissões no mesmo commit, como a
+ *       decisão de 18/10/2026 mandava. O portão disso: `atendimentos-ia-secao-do-orcamentista-*`.)
  */
 import React, { type ReactNode } from 'react'
 import { act } from 'react'
@@ -166,9 +169,9 @@ describe('a seção Atendimentos I.A. — menu e guarda', () => {
         expect(drawer.querySelector(`a[href="${ROUTES.SUPER_ADMIN_IA_CONTAS}"]`)).toBeNull()
     })
 
-    it('(f) a seção não entra em MODULES nem na tela de Permissões', () => {
-        expect(MODULOS_NAO_CONCEDIVEIS).toContain(MODULES.ORCAMENTISTA)
-        expect(MODULOS_CONCEDIVEIS).not.toContain(MODULES.ORCAMENTISTA)
-        expect(Object.values(MODULES).filter((m) => /atendimento|fornecedor/i.test(String(m)))).toEqual([])
+    it('(f) os itens do super admin não entram em MODULES nem na tela de Permissões — o Orçamentista, sim', () => {
+        expect(MODULOS_NAO_CONCEDIVEIS).not.toContain(MODULES.ORCAMENTISTA)
+        expect(MODULOS_CONCEDIVEIS).toContain(MODULES.ORCAMENTISTA)
+        expect(Object.values(MODULES).filter((m) => /atendimento|fornecedor|contas/i.test(String(m)))).toEqual([])
     })
 })

@@ -3,7 +3,7 @@ import { requireTenantAdmin } from '@/lib/get-caller-tenant'
 import { supabaseAdmin } from '@/supabase/admin'
 import { MODULOS_CONCEDIVEIS } from '@/hooks/use-permissions.hook'
 
-// Os não concedíveis (users_management, e orcamentista até o bloco 2) vêm de UMA lista no hook.
+// Os não concedíveis (users_management) vêm de UMA lista no hook. `orcamentista` entrou em 21/10/2026.
 const GRANTABLE_MODULES = MODULOS_CONCEDIVEIS
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {

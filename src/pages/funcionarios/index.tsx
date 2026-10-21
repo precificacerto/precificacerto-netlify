@@ -68,6 +68,9 @@ const PERMISSION_SECTIONS: { title: string; modules: ModuloRotulavel[] }[] = [
     // deixaria o usuário sem achar aqui a seção que ele vê na barra lateral — a paridade
     // menu ↔ permissões que `cascata-lucro-real.md`, Parte 4, chama de inviolável.
     { title: 'Clientes', modules: ['customers'] },
+    // ATENDIMENTOS I.A. entrou em 21/10/2026, no MESMO commit em que a seção subiu no menu para
+    // logo abaixo de Clientes e recebeu o item "Orçamentista". Mesma posição, mesmo título.
+    { title: 'Atendimentos I.A.', modules: ['orcamentista'] },
     {
         title: 'Comercial',
         modules: ['budgets', 'orders', 'sales', 'sales_report', 'commissions_report', 'recurrence'],
@@ -78,8 +81,7 @@ const PERMISSION_SECTIONS: { title: string; modules: ModuloRotulavel[] }[] = [
     },
     { title: 'Agendamentos', modules: ['agenda', 'reports'] },
     // Fica com UM módulo só, e está certo: "Usuários" é `adminOnly` no menu e nunca foi módulo
-    // de permissão — não há chave `users` em `use-permissions.hook.ts`. O ORÇAMENTISTA NÃO entra
-    // aqui até o bloco 2: ver `MODULOS_NAO_CONCEDIVEIS`.
+    // de permissão — não há chave `users` em `use-permissions.hook.ts`.
     { title: 'Operacional', modules: ['connectivity'] },
 ]
 

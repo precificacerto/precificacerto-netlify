@@ -13,8 +13,9 @@
  * é falso é o cliente admin por baixo dela — `auth.getUser` e a linha de `users`.
  *
  * O portão 2 do pedido (a tela de permissões mostra o rótulo) foi RETIRADO pelo dono do produto
- * em 18/10/2026: o Orçamentista fica fora das telas de permissão até o bloco 2. O que se afirma
- * aqui é o contrário — que elas NÃO mudaram (portão 4).
+ * em 18/10/2026: o Orçamentista fica fora das telas de permissão até o bloco 2. O que se afirmava
+ * aqui era o contrário — que elas NÃO mudavam (portão 4). Em 21/10/2026 o bloco 2 chegou: o item
+ * entrou no menu e o módulo nas permissões, no mesmo commit, e o portão 4 passou a afirmar isso.
  * ══════════════════════════════════════════════════════════════════════════════════════════
  */
 
@@ -406,16 +407,18 @@ describe('PORTÃO 3 — desligar numa conta NÃO afeta a outra (a TELA)', () => 
 })
 
 describe('PORTÃO 4 — nenhuma tela existente muda', () => {
-    /** As 21 concedíveis de ANTES desta rodada, escritas por extenso: o conjunto, não a contagem. */
+    /** As 21 concedíveis do bloco 1, escritas por extenso: o conjunto, não a contagem. */
     const AS_21_DE_ANTES = [
         'agenda', 'budgets', 'cash_flow', 'cashier', 'commission', 'commissions_report', 'connectivity',
         'customers', 'dfc', 'employees', 'home', 'items', 'orders', 'products', 'recurrence', 'reports',
         'rt_commission', 'sales', 'sales_report', 'services', 'stock',
     ]
 
-    // MUTAÇÃO: tirar `orcamentista` de `MODULOS_NAO_CONCEDIVEIS`.
-    it('as telas de permissão listam EXATAMENTE as mesmas 21 de antes', () => {
-        expect([...MODULOS_CONCEDIVEIS].sort()).toEqual(AS_21_DE_ANTES)
+    // 21/10/2026 — O BLOCO 2 CHEGOU: o Orçamentista entrou no menu e, no MESMO commit, nas
+    // permissões (decisão de 18/10/2026, confirmada pelo dono do produto em 21/10/2026). São as 21
+    // de antes MAIS `orcamentista`, e nada além: uma 23ª, ou uma das 21 a menos, fica vermelho.
+    it('as telas de permissão listam as 21 de antes MAIS orcamentista — e só isso', () => {
+        expect([...MODULOS_CONCEDIVEIS].sort()).toEqual([...AS_21_DE_ANTES, 'orcamentista'].sort())
     })
 
     it('mas a chave existe na FONTE, com rótulo — o bloco 2 só tira da lista de não concedíveis', () => {
@@ -434,14 +437,20 @@ describe('PORTÃO 4 — nenhuma tela existente muda', () => {
         }
     })
 
-    // MUTAÇÃO: um item de menu do Orçamentista.
-    it('nenhuma tela do tenant: o menu não tem Orçamentista, e não existe página dele', () => {
+    // 21/10/2026: este caso afirmava que o menu NÃO tinha o Orçamentista e que não existia página
+    // dele — era o estado do bloco 1. O bloco 2 os trouxe, e o que fica afirmado aqui é que eles
+    // moram na seção Atendimentos I.A. e na rota dela, nos dois menus. O portão do efeito (o item
+    // só se desenha com a seção ligada no servidor) é `atendimentos-ia-secao-do-orcamentista-tela`.
+    it('o menu tem o Orçamentista na seção atendimentos-ia, e a página existe sob /atendimentos-ia/', () => {
         const fs = require('fs') as typeof import('fs')
         const path = require('path') as typeof import('path')
         for (const menu of ['src/components/layout/nav.component.tsx', 'src/components/layout/mobile-more-drawer.component.tsx']) {
-            expect(fs.readFileSync(path.join(process.cwd(), menu), 'utf-8')).not.toMatch(/orcamentista|ORCAMENTISTA/i)
+            const linha = fs.readFileSync(path.join(process.cwd(), menu), 'utf-8').split('\n').find((l) => /module:\s*MODULES\.ORCAMENTISTA/.test(l))
+            expect(linha).toBeDefined()
+            expect(linha).toMatch(/'atendimentos-ia'/)
+            expect(linha).toMatch(/ROUTES\.ATENDIMENTOS_IA_ORCAMENTISTA/)
         }
-        expect(fs.readdirSync(path.join(process.cwd(), 'src/pages')).filter((n) => /orcamentista/i.test(n))).toEqual([])
+        expect(fs.existsSync(path.join(process.cwd(), 'src/pages/atendimentos-ia/orcamentista.tsx'))).toBe(true)
     })
 
     // BLOCO 2A (18/10/2026): as 10 colunas viraram 7, por decisão do dono do produto. O portão
