@@ -200,10 +200,13 @@ describe('PORTÃO 1 (b) — a fonte rotula 22; as três telas mostram as MESMAS 
     expect(Object.keys(mapaEfetivo('C')).sort()).toEqual(CHAVES_CONCEDIVEIS)
   })
 
-  it('orcamentista está na fonte, com rótulo, e FORA das concedíveis até o bloco 2', () => {
+  // 21/10/2026: o bloco 2 chegou — o Orçamentista entrou no menu e, no MESMO commit, nas
+  // concedíveis. Os dois conjuntos voltaram a coincidir, como o cabeçalho acima previa.
+  it('orcamentista está na fonte, com rótulo, e DENTRO das concedíveis desde que entrou no menu', () => {
     expect(rotulosDaFonte()[MODULES.ORCAMENTISTA]).toBe('Orçamentista')
-    expect(CHAVES_CONCEDIVEIS).not.toContain(MODULES.ORCAMENTISTA)
+    expect(CHAVES_CONCEDIVEIS).toContain(MODULES.ORCAMENTISTA)
     expect(CHAVES_ROTULAVEIS).toContain(MODULES.ORCAMENTISTA)
+    expect(CHAVES_CONCEDIVEIS).toEqual(CHAVES_ROTULAVEIS)
   })
 
   it('A deixou de ser subconjunto — as seis que faltavam estão lá', () => {

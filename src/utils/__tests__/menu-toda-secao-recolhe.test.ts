@@ -103,7 +103,9 @@ const titulo = (s: Element) => (s.querySelector('.nav-section-label')?.textConte
 
 describe('(1) a configuração: toda seção com título recolhe', () => {
     it('o leitor acha as nove seções — sem isto, um leitor cego devolveria [] e o `every` passaria', () => {
-        expect(secoesDoNav().map((s) => s.key)).toEqual(['geral', 'cadastros', 'clientes', 'comercial', 'financeiro', 'agendamentos', 'operacional', 'atendimentos-ia', 'superadmin'])
+        // `atendimentos-ia` logo abaixo de `clientes` desde 21/10/2026: a seção do super admin
+        // passou a ser também a do tenant, com o Orçamentista (dono do produto).
+        expect(secoesDoNav().map((s) => s.key)).toEqual(['geral', 'cadastros', 'clientes', 'atendimentos-ia', 'comercial', 'financeiro', 'agendamentos', 'operacional', 'superadmin'])
     })
 
     it('NENHUMA seção com título tem `collapsible: false`', () => {
