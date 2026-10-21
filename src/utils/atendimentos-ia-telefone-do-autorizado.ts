@@ -8,6 +8,7 @@
  * qualquer outra coisa NÃO é telefone, e não se grava — a tela diz "sem telefone" e o motivo.
  *
  * `telefonesCasam` é a COMPARAÇÃO — o remetente do webhook (com o DDI) contra o gravado (sem ele).
+ * `numeroDoJid` é o número da INSTÂNCIA, lido do jid do WUZAPI — esse COM o DDI.
  *
  * Funções puras: não leem banco nem tela.
  * Portão: `src/utils/__tests__/atendimentos-ia-celula-do-orcamentista.test.ts`.
@@ -43,9 +44,25 @@ export function telefonesCasam(remetente: string | null | undefined, gravado: st
     return (a as { telefone: string }).telefone === (b as { telefone: string }).telefone
 }
 
-/** O número da instância a partir do `jid` do WUZAPI — só dígitos, ou NULL. */
-export function numeroDoJid(_jid: unknown): string | null {
-    throw new Error('numeroDoJid: ainda não implementada')
+/**
+ * O número da instância a partir do `jid` que o `POST /session/connect` do WUZAPI devolve — só os
+ * dígitos da parte do USUÁRIO, ou NULL.
+ *
+ * O jid do WhatsApp é `usuário[.agente][:aparelho]@servidor`, e o exemplo da documentação do WUZAPI
+ * traz o agente: `5491155554444.0:52@s.whatsapp.net`. Por isso a parte do usuário termina no
+ * primeiro `.`, `:` ou `@` — "ficar só com os dígitos" de `5491155554444.0` daria `54911555544440`,
+ * um número que não existe.
+ *
+ * Só o servidor `s.whatsapp.net` é telefone: `@lid` é identificador oculto, `@g.us` é grupo. E a
+ * parte do usuário tem de ser SÓ dígitos, de 8 a 15 (o máximo do E.164). Qualquer outra coisa é
+ * formato estranho e devolve NULL — não se limpa um texto até ele parecer número.
+ * O número sai como o WUZAPI o informa: COM o código do país.
+ */
+export function numeroDoJid(jid: unknown): string | null {
+    if (typeof jid !== 'string') return null
+    const m = /^([^.:@]*)(?:\.[^:@]*)?(?::[^@]*)?@s\.whatsapp\.net$/.exec(jid.trim())
+    if (!m || !/^\d{8,15}$/.test(m[1])) return null
+    return m[1]
 }
 
 /** Para mostrar: `(51) 9••••-7766` — o DDD e os 4 últimos. */

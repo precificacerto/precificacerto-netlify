@@ -25,7 +25,12 @@
  * (`telefoneDoAutorizado`); desligar é UPDATE `ativo = false`, NUNCA DELETE — o banco recusa
  * excluir quem tem conversa, e o histórico fica. Telefone do cadastro diferente do autorizado é
  * DIVERGÊNCIA: a tela avisa e oferece atualizar, e nada se sincroniza sozinho. A divergência
- * compara por `telefonesCasam`: o mesmo número com e sem o 55 não é divergência.
+ * compara por `telefonesCasam`: o mesmo número com e sem o 55 não é divergência. LIGAR com
+ * divergência RECUSA (409) — religar autorizaria o número antigo.
+ *
+ * ══ O TOKEN NÃO SAI DO SERVIDOR ══
+ * `lerConexao` devolve `wuzapi_token`, que fala pelo WhatsApp da empresa. Nenhuma rota devolve o
+ * objeto da conexão: as respostas são montadas campo a campo, e um portão varre o JSON inteiro.
  *
  * Portão: `src/utils/__tests__/atendimentos-ia-celula-do-orcamentista.test.ts`.
  */
@@ -35,7 +40,7 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 import { supabaseAdmin } from '@/supabase/admin'
 import { getCallerContext } from '@/lib/get-caller-tenant'
 import { podeEditarModulo, podeVerModulo, type ChamadorAutorizado } from '@/lib/permissao-do-modulo'
-import { telefoneDoAutorizado, telefonesCasam } from '@/utils/atendimentos-ia-telefone-do-autorizado'
+import { numeroDoJid, telefoneDoAutorizado, telefonesCasam } from '@/utils/atendimentos-ia-telefone-do-autorizado'
 
 /** O módulo da tela de Conectividade — o mesmo que esconde o item do menu. */
 export const MODULO_DA_TELA = 'connectivity'
@@ -96,7 +101,12 @@ export async function gravarConexao(tenantId: string, campos: Omit<ConexaoDoOrca
     if (error) throw new Error(`whatsapp_conexao: ${error.message}`)
 }
 
-export async function marcarConexao(tenantId: string, campos: Partial<Pick<ConexaoDoOrcamentista, 'ativo' | 'conectado_em'>>) {
+/**
+ * `numero` NÃO está em `ConexaoDoOrcamentista` de propósito: a coluna nasce na migração
+ * `20261021000002`, e `lerConexao` não a seleciona — ler uma coluna que não existe derrubaria a
+ * leitura da conexão inteira. Aqui ela só é ESCRITA, pelo QR.
+ */
+export async function marcarConexao(tenantId: string, campos: Partial<Pick<ConexaoDoOrcamentista, 'ativo' | 'conectado_em'>> & { numero?: string | null }) {
     const { error } = await supabaseAdmin
         .from('whatsapp_conexao').update(campos).eq('tenant_id', tenantId).eq('canal', CANAL_DO_ORCAMENTISTA)
     if (error) throw new Error(`whatsapp_conexao: ${error.message}`)
@@ -137,18 +147,28 @@ export async function sessaoLogada(token: string): Promise<boolean | null> {
     }
 }
 
-/** Liga a sessão assinando `Message` e devolve o QR, se houver. */
-export async function qrDaInstancia(token: string): Promise<string | null> {
-    await fetch(`${wuzapi()}/session/connect`, {
+/**
+ * Liga a sessão assinando `Message` e devolve o QR, se houver, e o NÚMERO da instância, lido do
+ * `jid` da resposta do `/session/connect` (`numeroDoJid`). Sem jid legível, `numero` é NULL —
+ * não se inventa. (Antes do QR ser lido a sessão ainda não tem usuário, e é de esperar que o jid
+ * venha vazio.)
+ */
+export async function qrDaInstancia(token: string): Promise<{ qr: string | null; numero: string | null }> {
+    const conn = await fetch(`${wuzapi()}/session/connect`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', token },
         body: JSON.stringify({ Subscribe: ['Message'], Immediate: true }),
     })
+    const corpoDoConnect = conn.ok ? ((await conn.json().catch((): null => null)) as { data?: { jid?: unknown; Jid?: unknown } } | null) : null
+    const numero = numeroDoJid(corpoDoConnect?.data?.jid ?? corpoDoConnect?.data?.Jid)
     const r = await fetch(`${wuzapi()}/session/qr`, { method: 'GET', headers: { token } })
-    if (!r.ok) return null
+    if (!r.ok) return { qr: null, numero }
     const corpo = (await r.json().catch((): null => null)) as { data?: { QRCode?: unknown; qrcode?: unknown } } | null
     const qr = corpo?.data?.QRCode ?? corpo?.data?.qrcode ?? null
-    return typeof qr === 'string' && qr.trim() ? (qr.startsWith('data:') ? qr : `data:image/png;base64,${qr.trim()}`) : null
+    return {
+        qr: typeof qr === 'string' && qr.trim() ? (qr.startsWith('data:') ? qr : `data:image/png;base64,${qr.trim()}`) : null,
+        numero,
+    }
 }
 
 /** `POST /session/logout` — termina a sessão; o próximo connect pede QR de novo. */
@@ -210,6 +230,8 @@ export async function listarQuemPodeFalar(tenantId: string): Promise<LinhaDaList
 export type AcaoNaLista = 'ligar' | 'desligar' | 'atualizar-telefone'
 export type Resposta = { status: number; corpo: Record<string, unknown> }
 
+export const MOTIVO_RELIGAR_DIVERGENTE = 'O telefone do cadastro mudou; atualize antes de liberar. A autorização ainda está com o número antigo.'
+
 const conflitoDeTelefone = (e: { code?: string } | null) => e?.code === '23505'
 
 /**
@@ -249,7 +271,10 @@ export async function aplicarAcao(tenantId: string, employeeId: string, acao: Ac
         return { status: 200, corpo: { ok: true } }
     }
 
-    // ligar
+    // ligar — com autorização existente e o telefone do cadastro DIFERENTE do autorizado, recusa:
+    // religar autorizaria o NÚMERO ANTIGO, que pode já ser de outra pessoa. Nada sincroniza
+    // sozinho; quem opera atualiza o telefone e liga de novo (dono do produto, 21/10/2026).
+    if (aut && !telefonesCasam(func.phone, aut.telefone)) return { status: 409, corpo: { error: MOTIVO_RELIGAR_DIVERGENTE } }
     const { error } = aut
         ? await supabaseAdmin.from('orcamentista_remetente_autorizado').update({ ativo: true }).eq('id', aut.id).eq('tenant_id', tenantId)
         : await supabaseAdmin.from('orcamentista_remetente_autorizado').insert({ tenant_id: tenantId, telefone, nome: func.name, employee_id: employeeId, ativo: true })

@@ -7,12 +7,16 @@
  * Reconectar SUBSTITUI a linha do tenant e canal, com quem pediu o QR em `conectado_por`, e NÃO
  * toca na lista de autorizados.
  *
+ * O NÚMERO da instância sai do `jid` da resposta do `/session/connect`, só dígitos, ou NULL —
+ * e vai para `whatsapp_conexao.numero`, coluna da migração `20261021000002`: esta rota só funciona
+ * depois dela aplicada. O token NUNCA vai na resposta.
+ *
  * Só quem pode EDITAR Conectividade conecta. Arquitetura:
  * `src/lib/atendimentos-ia/orcamentista-da-empresa.ts`.
  */
 import type { NextApiRequest, NextApiResponse } from 'next'
 import {
-  chamadorDoOrcamentista, criarInstancia, gravarConexao, lerConexao, qrDaInstancia, sessaoLogada, tokenNovo,
+  chamadorDoOrcamentista, criarInstancia, gravarConexao, lerConexao, marcarConexao, qrDaInstancia, sessaoLogada, tokenNovo,
 } from '@/lib/atendimentos-ia/orcamentista-da-empresa'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -35,7 +39,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
     await gravarConexao(tenantId, { wuzapi_token: token, conectado_por: caller.user_id, ativo: false })
 
-    const qr = await qrDaInstancia(token)
+    // O número vem do jid do /session/connect — ou NULL, que também apaga o de uma conexão
+    // anterior: o QR novo pode ser lido por outro aparelho. A coluna nasce na `20261021000002`.
+    const { qr, numero } = await qrDaInstancia(token)
+    await marcarConexao(tenantId, { numero })
     if (!qr) return res.status(502).json({ error: 'O WUZAPI não devolveu o QR Code. Tente de novo.' })
     return res.status(200).json({ qr })
   } catch (e) {
