@@ -36,19 +36,16 @@
 import { createHash, timingSafeEqual } from 'crypto'
 import type { NextApiRequest, NextApiResponse } from 'next'
 
+import { mascarar } from '@/utils/atendimentos-ia-mascara-do-log'
+
+/** A máscara mora em `src/utils/atendimentos-ia-mascara-do-log.ts`, uma só para os dois logs. */
+export { mascarar }
+
 /** O corpo é lido CRU: o parser do Next não pode transformá-lo antes da captura. */
 export const config = { api: { bodyParser: false } }
 
 export const PREFIXO_DO_LOG = '[CAPTURA-WUZAPI]'
 const LIMITE_DO_CORPO = 8 * 1024
-
-/** 8+ dígitos → 4 primeiros + 'x' + 2 últimos, mesmo comprimento. */
-export function mascarar(texto: string): string {
-  return texto
-    .replace(/\d{8,}/g, (m) => m.slice(0, 4) + 'x'.repeat(m.length - 6) + m.slice(-2))
-    .replace(/(token=)[^&\s]*/gi, '$1<mascarado>')
-    .replace(/("token"\s*:\s*")[^"]*(")/gi, '$1<mascarado>$2')
-}
 
 /** O segredo da query contra a variável, em tempo constante. Variável ausente: nada passa. */
 function segredoConfere(recebido: unknown): boolean {

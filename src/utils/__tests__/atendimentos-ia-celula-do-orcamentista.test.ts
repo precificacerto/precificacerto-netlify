@@ -698,29 +698,37 @@ describe('(14) o caminho do QR deixa rastro, sem segredo, e a tela diz qual pass
 
     describe('NENHUM segredo no log: nem o token da instância, nem o de admin, nem o QR', () => {
         it.each([
-            ['criação ecoando o token', () => {
-                estado.respostas['/admin/users'] = { status: 200, corpo: { data: { id: 'x', token: 'ECOADO', Token: 'ECOADO2' } } }
+            // A criação só é chamada SEM conexão gravada — com ela, o token é reusado e o eco nunca
+            // aconteceria: por isso os dois primeiros casos não montam a conexão.
+            ['criação ecoando o token, em "token" e "Token"', false, 'criar-instancia', () => {
+                estado.respostas['/admin/users'] = { status: 201, corpo: { code: 201, data: { id: 'x', token: 'ECOADO', Token: 'ECOADO2' }, success: true } }
             }],
-            ['criação recusada, com o token no erro', () => {
-                estado.respostas['/admin/users'] = { status: 409, corpo: { error: `user orcamentista-${T} already exists, token ${TOKEN_DA_CONEXAO}, admin admin-de-teste` } }
+            ['criação recusada, com o token no erro', false, 'criar-instancia', () => {
+                estado.respostas['/admin/users'] = { status: 409, corpo: { error: `user orcamentista-${T} already exists, admin admin-de-teste` } }
             }],
-            ['connect e qr fora, com o token no corpo', () => { estado.wuzapiFora.add('/session/connect'); estado.wuzapiFora.add('/session/qr') }],
-            ['connect lançando com o token na mensagem', () => { estado.lancar.add('/session/connect') }],
-            ['connect ecoando o token num campo de outro nome', () => {
+            ['connect e qr fora, com o token no corpo', true, 'session-connect', () => { estado.wuzapiFora.add('/session/connect'); estado.wuzapiFora.add('/session/qr') }],
+            ['connect lançando com o token na mensagem', true, 'session-connect', () => { estado.lancar.add('/session/connect') }],
+            ['connect ecoando o token num campo de outro nome', true, 'session-connect', () => {
                 estado.respostas['/session/connect'] = { status: 200, corpo: { data: { instancia: TOKEN_DA_CONEXAO, Authorization: 'admin-de-teste' } } }
             }],
-        ])('%s', async (_nome, preparar) => {
-            conexaoExistente()
+        ])('%s', async (_nome, comConexao, passoExercitado, preparar) => {
+            if (comConexao) conexaoExistente()
             preparar()
             await chamar(rotaQr, 'POST')
             const tudo = linhas.join('\n')
-            expect(doQr().length).toBeGreaterThan(0)
+            // o caso exercita: a linha do passo em que o segredo foi plantado EXISTE
+            expect(linhaDo(passoExercitado as string)).toBeDefined()
             expect(tudo).not.toContain(TOKEN_DA_CONEXAO)
             expect(tudo).not.toContain('admin-de-teste')
             expect(tudo).not.toContain('QRFALSO')
+            expect(tudo).not.toContain('ECOADO')
         })
 
         it('na instância NOVA, o token gerado também não sai — nem ecoado pelo WUZAPI', async () => {
+            // O UUID é FIXO e sem dígitos: com o aleatório, um hex com 8+ dígitos seguidos era
+            // cortado pela máscara de telefone POR ACASO, e o caso passava sem a correção.
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const espiaoDoUuid = jest.spyOn(require('crypto'), 'randomUUID').mockReturnValue('abcdefab-cdef-abcd-efab-cdefabcdefab')
             estado.respostas['/admin/users'] = { status: 500, corpo: { error: 'x' } }
             const fetchOriginal = globalThis.fetch as jest.Mock
             const eco = jest.fn(async (url: string, init?: { body?: string }) => {
@@ -735,10 +743,11 @@ describe('(14) o caminho do QR deixa rastro, sem segredo, e a tela diz qual pass
                 await chamar(rotaQr, 'POST')
             } finally {
                 ;(globalThis as { fetch: unknown }).fetch = fetchOriginal
+                espiaoDoUuid.mockRestore()
             }
             const enviado = (eco.mock.calls[0][1] as { body: string }).body
             const gerado = JSON.parse(enviado).token as string
-            expect(gerado).toMatch(/^orc_/)
+            expect(gerado).toBe('orc_abcdefabcdefabcdefabcdefabcdefab')
             expect(linhas.join('\n')).not.toContain(gerado)
             expect(linhaDo('criar-instancia')).toEqual(expect.stringContaining('status=500'))
         })
