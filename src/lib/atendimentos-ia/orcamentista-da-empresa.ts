@@ -32,6 +32,14 @@
  * `lerConexao` devolve `wuzapi_token`, que fala pelo WhatsApp da empresa. Nenhuma rota devolve o
  * objeto da conexão: as respostas são montadas campo a campo, e um portão varre o JSON inteiro.
  *
+ * ══ O CAMINHO DO QR DEIXA RASTRO ══
+ * Cada chamada ao WUZAPI do QR — `POST /admin/users`, `POST /session/connect`, `GET /session/qr` —
+ * anota UMA linha `[QR-ORCAMENTISTA] passo=<passo>` com o status e o que voltou, ou o motivo da
+ * exceção de rede. Antes (até 21/10/2026) as três devolviam null/false em silêncio, e a falha em
+ * produção não deixou linha nenhuma. NUNCA vai para o log: o token da instância, o de admin, nem
+ * o QR — que também é credencial: quem o lê liga o WhatsApp da empresa. Máscara:
+ * `src/utils/atendimentos-ia-mascara-do-log.ts`.
+ *
  * Portão: `src/utils/__tests__/atendimentos-ia-celula-do-orcamentista.test.ts`.
  */
 import { randomUUID } from 'crypto'
@@ -41,6 +49,7 @@ import { supabaseAdmin } from '@/supabase/admin'
 import { getCallerContext } from '@/lib/get-caller-tenant'
 import { podeEditarModulo, podeVerModulo, type ChamadorAutorizado } from '@/lib/permissao-do-modulo'
 import { numeroDoJid, telefoneDoAutorizado, telefonesCasam } from '@/utils/atendimentos-ia-telefone-do-autorizado'
+import { paraOLog } from '@/utils/atendimentos-ia-mascara-do-log'
 
 /** O módulo da tela de Conectividade — o mesmo que esconde o item do menu. */
 export const MODULO_DA_TELA = 'connectivity'
@@ -122,16 +131,54 @@ export async function nomeDoUsuario(userId: string, tenantId: string): Promise<s
 /** Um token novo para a instância do orçamentista — nunca o de um usuário. */
 export const tokenNovo = () => `orc_${randomUUID().replace(/-/g, '')}`
 
+export const PREFIXO_DO_LOG_DO_QR = '[QR-ORCAMENTISTA]'
+export type PassoDoQr = 'instancia' | 'criar-instancia' | 'session-connect' | 'session-qr'
+const LIMITE_DO_CORPO_NO_LOG = 2048
+
+/** Uma linha do rastro do QR — já sem os segredos que o chamador conhece, e mascarada. */
+export function anotarPassoDoQr(passo: PassoDoQr, texto: string, segredos: Array<string | null | undefined>) {
+    console.log(`${PREFIXO_DO_LOG_DO_QR} passo=${passo} ${paraOLog(texto, [...segredos, process.env.WUZAPI_ADMIN_TOKEN])}`)
+}
+
+/** O corpo da resposta, para o log: o texto cru quando der, senão o JSON; `null` sem corpo. */
+async function lerCorpo(r: Response): Promise<{ texto: string | null; json: unknown }> {
+    try {
+        if (typeof r.text === 'function') {
+            const texto = await r.text()
+            if (!texto) return { texto: null, json: null }
+            try { return { texto, json: JSON.parse(texto) } } catch { return { texto, json: null } }
+        }
+        const json = await r.json()
+        return json === undefined || json === null ? { texto: null, json: null } : { texto: JSON.stringify(json), json }
+    } catch {
+        return { texto: null, json: null }
+    }
+}
+const corte = (t: string | null) => (t === null ? '(sem corpo)' : t.length > LIMITE_DO_CORPO_NO_LOG ? `${t.slice(0, LIMITE_DO_CORPO_NO_LOG)}…` : t)
+const motivoDe = (e: unknown) => (e instanceof Error ? e.message : String(e))
+
+export type CriacaoDaInstancia = { ok: true } | { ok: false; semAdmin: boolean }
+
 /** Cria a instância SEPARADA do orçamentista (`POST /admin/users`, com o token de admin). */
-export async function criarInstancia(token: string, tenantId: string): Promise<boolean> {
+export async function criarInstancia(token: string, tenantId: string): Promise<CriacaoDaInstancia> {
     const admin = process.env.WUZAPI_ADMIN_TOKEN
-    if (!admin) return false
-    const r = await fetch(`${wuzapi()}/admin/users`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: admin },
-        body: JSON.stringify({ name: `orcamentista-${tenantId}`, token, events: 'Message' }),
-    })
-    return r.ok
+    if (!admin) {
+        anotarPassoDoQr('criar-instancia', 'não chamado: WUZAPI_ADMIN_TOKEN ausente no ambiente', [token])
+        return { ok: false, semAdmin: true }
+    }
+    try {
+        const r = await fetch(`${wuzapi()}/admin/users`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: admin },
+            body: JSON.stringify({ name: `orcamentista-${tenantId}`, token, events: 'Message' }),
+        })
+        const { texto } = await lerCorpo(r)
+        anotarPassoDoQr('criar-instancia', `POST /admin/users status=${r.status} corpo=${corte(texto)}`, [token, admin])
+        return r.ok ? { ok: true } : { ok: false, semAdmin: false }
+    } catch (e) {
+        anotarPassoDoQr('criar-instancia', `POST /admin/users excecao=${motivoDe(e)}`, [token, admin])
+        return { ok: false, semAdmin: false }
+    }
 }
 
 /** `GET /session/status` → logado ou não; null quando o WUZAPI não respondeu. */
@@ -152,22 +199,42 @@ export async function sessaoLogada(token: string): Promise<boolean | null> {
  * `jid` da resposta do `/session/connect` (`numeroDoJid`). Sem jid legível, `numero` é NULL —
  * não se inventa. (Antes do QR ser lido a sessão ainda não tem usuário, e é de esperar que o jid
  * venha vazio.)
+ *
+ * O `/session/qr` é pedido MESMO com o connect falhando: a sessão pode já estar aberta, esperando
+ * a leitura de um clique anterior, e aí o QR vem. `connectOk` diz à rota qual passo culpar quando
+ * o QR não vem.
  */
-export async function qrDaInstancia(token: string): Promise<{ qr: string | null; numero: string | null }> {
-    const conn = await fetch(`${wuzapi()}/session/connect`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', token },
-        body: JSON.stringify({ Subscribe: ['Message'], Immediate: true }),
-    })
-    const corpoDoConnect = conn.ok ? ((await conn.json().catch((): null => null)) as { data?: { jid?: unknown; Jid?: unknown } } | null) : null
-    const numero = numeroDoJid(corpoDoConnect?.data?.jid ?? corpoDoConnect?.data?.Jid)
-    const r = await fetch(`${wuzapi()}/session/qr`, { method: 'GET', headers: { token } })
-    if (!r.ok) return { qr: null, numero }
-    const corpo = (await r.json().catch((): null => null)) as { data?: { QRCode?: unknown; qrcode?: unknown } } | null
-    const qr = corpo?.data?.QRCode ?? corpo?.data?.qrcode ?? null
-    return {
-        qr: typeof qr === 'string' && qr.trim() ? (qr.startsWith('data:') ? qr : `data:image/png;base64,${qr.trim()}`) : null,
-        numero,
+export async function qrDaInstancia(token: string): Promise<{ qr: string | null; numero: string | null; connectOk: boolean }> {
+    let connectOk = false
+    let numero: string | null = null
+    try {
+        const conn = await fetch(`${wuzapi()}/session/connect`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', token },
+            body: JSON.stringify({ Subscribe: ['Message'], Immediate: true }),
+        })
+        const { texto, json } = await lerCorpo(conn)
+        anotarPassoDoQr('session-connect', `POST /session/connect status=${conn.status} corpo=${corte(texto)}`, [token])
+        connectOk = conn.ok
+        const d = conn.ok ? (json as { data?: { jid?: unknown; Jid?: unknown } } | null)?.data : undefined
+        numero = numeroDoJid(d?.jid ?? d?.Jid)
+    } catch (e) {
+        anotarPassoDoQr('session-connect', `POST /session/connect excecao=${motivoDe(e)}`, [token])
+    }
+
+    try {
+        const r = await fetch(`${wuzapi()}/session/qr`, { method: 'GET', headers: { token } })
+        const { json } = await lerCorpo(r)
+        const d = (json as { data?: { QRCode?: unknown; qrcode?: unknown } } | null)?.data
+        const bruto = d?.QRCode ?? d?.qrcode ?? null
+        const qr = r.ok && typeof bruto === 'string' && bruto.trim() ? (bruto.startsWith('data:') ? bruto : `data:image/png;base64,${bruto.trim()}`) : null
+        // O QR NÃO vai para o log — só se veio. Quem o lê liga o WhatsApp da empresa.
+        const chaves = d && typeof d === 'object' ? Object.keys(d).join(',') : '-'
+        anotarPassoDoQr('session-qr', `GET /session/qr status=${r.status} veio_corpo=${json ? 'sim' : 'nao'} veio_qr=${qr ? 'sim' : 'nao'} campos_de_data=${chaves}`, [token])
+        return { qr, numero, connectOk }
+    } catch (e) {
+        anotarPassoDoQr('session-qr', `GET /session/qr excecao=${motivoDe(e)}`, [token])
+        return { qr: null, numero, connectOk }
     }
 }
 

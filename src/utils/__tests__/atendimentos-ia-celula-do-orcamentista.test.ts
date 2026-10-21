@@ -32,7 +32,9 @@
  *       em erro, contém a string dele, em nível nenhum do JSON;
  *  (12) religar com o telefone do cadastro divergente do autorizado RECUSA — 409, nada gravado;
  *  (13) o número da conexão sai do `jid` do `/session/connect`: só os dígitos da parte do
- *       usuário, ou NULL. Depende da migração `20261021000002`, que cria a coluna.
+ *       usuário, ou NULL. Depende da migração `20261021000002`, que cria a coluna;
+ *  (14) o caminho do QR DEIXA RASTRO: cada chamada ao WUZAPI anota uma linha `[QR-ORCAMENTISTA]`
+ *       com o passo e o que voltou — sem token nenhum, nem o QR —, e a tela diz QUAL passo falhou.
  */
 import type { NextApiRequest, NextApiResponse } from 'next'
 
@@ -51,7 +53,7 @@ const TOKEN_DA_CONEXAO = 'orc_SEGREDO_DA_INSTANCIA_9f8e7d'
 const estado = {
     db: {} as Record<string, Linha[]>,
     ops: [] as Operacao[],
-    fetches: [] as { url: string; corpo: unknown }[],
+    fetches: [] as { url: string; corpo: unknown; headers?: Record<string, string> }[],
     logada: false,
     papel: 'admin',
     /** O corpo que o WUZAPI devolve no `POST /session/connect`. */
@@ -60,6 +62,10 @@ const estado = {
     wuzapiFora: new Set<string>(),
     /** Tabela cujas operações o banco falso recusa — com o TOKEN na mensagem, de propósito. */
     falha: null as string | null,
+    /** Respostas forçadas por caminho do WUZAPI: status e corpo. */
+    respostas: {} as Record<string, { status: number; corpo: unknown }>,
+    /** Caminhos do WUZAPI em que o `fetch` LANÇA — a exceção de rede. */
+    lancar: new Set<string>(),
 }
 
 function executar(tabela: string, op: string, carga: unknown, filtros: [string, unknown][], opcoes?: { onConflict?: string }): { data: Linha[] | null; error: { code: string; message: string } | null } {
@@ -125,9 +131,12 @@ jest.mock('@/lib/get-caller-tenant', () => ({
 // ── O WUZAPI falso ───────────────────────────────────────────────────────────────────────
 beforeAll(() => {
     process.env.WUZAPI_ADMIN_TOKEN = 'admin-de-teste'
-    ;(globalThis as { fetch: unknown }).fetch = jest.fn(async (url: string, init?: { body?: string }) => {
-        estado.fetches.push({ url, corpo: init?.body ? JSON.parse(init.body) : undefined })
+    ;(globalThis as { fetch: unknown }).fetch = jest.fn(async (url: string, init?: { body?: string; headers?: Record<string, string> }) => {
+        estado.fetches.push({ url, corpo: init?.body ? JSON.parse(init.body) : undefined, headers: init?.headers })
         const caminho = new URL(url).pathname
+        if (estado.lancar.has(caminho)) throw new Error(`getaddrinfo ENOTFOUND usapi, token ${TOKEN_DA_CONEXAO}`)
+        const forcada = estado.respostas[caminho]
+        if (forcada) return { ok: forcada.status >= 200 && forcada.status < 300, status: forcada.status, json: async () => forcada.corpo }
         const json = (b: unknown) => ({ ok: true, status: 200, json: async () => b })
         if (estado.wuzapiFora.has(caminho)) return { ok: false, status: 500, json: async () => ({ error: `fora, token ${TOKEN_DA_CONEXAO}` }) }
         if (caminho === '/session/connect') return json(estado.connect)
@@ -180,6 +189,9 @@ function montar(extra: Partial<Record<string, Linha[]>> = {}) {
     estado.connect = { success: true, data: {} }
     estado.wuzapiFora = new Set()
     estado.falha = null
+    estado.respostas = {}
+    estado.lancar = new Set()
+    process.env.WUZAPI_ADMIN_TOKEN = 'admin-de-teste'
 }
 beforeEach(() => montar())
 
@@ -613,5 +625,197 @@ describe('(13) o número da conexão sai do jid do /session/connect — ou fica 
         estado.wuzapiFora.add('/session/connect')
         await chamar(rotaQr, 'POST')
         expect(estado.db.whatsapp_conexao[0].numero).toBeNull()
+    })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+describe('(14) o caminho do QR deixa rastro, sem segredo, e a tela diz qual passo falhou', () => {
+    let linhas: string[] = []
+    let espioes: jest.SpyInstance[] = []
+    beforeEach(() => {
+        linhas = []
+        const anotar = (...a: unknown[]) => { linhas.push(a.map(String).join(' ')) }
+        espioes = (['log', 'warn', 'error', 'info'] as const).map((m) => jest.spyOn(console, m).mockImplementation(anotar))
+    })
+    afterEach(() => espioes.forEach((e) => e.mockRestore()))
+
+    const doQr = () => linhas.filter((l) => l.startsWith('[QR-ORCAMENTISTA]'))
+    const linhaDo = (passo: string) => doQr().find((l) => l.includes(`passo=${passo}`))
+    const tokenGerado = () => String(estado.db.whatsapp_conexao[0]?.wuzapi_token ?? '')
+    const conexaoExistente = () => montar({
+        whatsapp_conexao: [{ tenant_id: T, canal: 'ORCAMENTISTA', wuzapi_token: TOKEN_DA_CONEXAO, conectado_por: USUARIO, conectado_em: '2026-10-21T00:00:00Z', ativo: false }],
+    })
+
+    describe('o rastro: uma linha por chamada, com o status e o que voltou', () => {
+        it('instância nova: criar, connect e qr — cada um com o status', async () => {
+            estado.respostas['/admin/users'] = { status: 200, corpo: { code: 200, success: true, data: { id: 'abc123' } } }
+            estado.respostas['/session/connect'] = { status: 200, corpo: { code: 200, success: true, data: { details: 'Connected!' } } }
+            expect((await chamar(rotaQr, 'POST')).status).toBe(200)
+            expect(linhaDo('criar-instancia')).toEqual(expect.stringContaining('status=200'))
+            expect(linhaDo('criar-instancia')).toEqual(expect.stringContaining('abc123'))
+            expect(linhaDo('session-connect')).toEqual(expect.stringContaining('status=200'))
+            expect(linhaDo('session-connect')).toEqual(expect.stringContaining('Connected!'))
+            expect(linhaDo('session-qr')).toEqual(expect.stringMatching(/status=200.*veio_corpo=sim.*veio_qr=sim/))
+        })
+
+        it('instância EXISTENTE: não chama /admin/users, reusa o token, e diz que reusou', async () => {
+            conexaoExistente()
+            expect((await chamar(rotaQr, 'POST')).status).toBe(200)
+            expect(estado.fetches.some((f) => f.url.endsWith('/admin/users'))).toBe(false)
+            expect(estado.fetches.find((f) => f.url.endsWith('/session/connect'))?.headers?.token).toBe(TOKEN_DA_CONEXAO)
+            expect(estado.db.whatsapp_conexao).toEqual([expect.objectContaining({ wuzapi_token: TOKEN_DA_CONEXAO })])
+            expect(linhaDo('instancia')).toEqual(expect.stringContaining('reaproveitada'))
+            expect(linhaDo('criar-instancia')).toBeUndefined()
+        })
+
+        it('qr sem o campo: status 200, veio corpo, NÃO veio qr', async () => {
+            conexaoExistente()
+            estado.respostas['/session/qr'] = { status: 200, corpo: { code: 200, success: true, data: { QRCode: '' } } }
+            await chamar(rotaQr, 'POST')
+            expect(linhaDo('session-qr')).toEqual(expect.stringMatching(/status=200.*veio_corpo=sim.*veio_qr=nao/))
+        })
+
+        it('qr com corpo que não é JSON: veio_corpo=nao', async () => {
+            conexaoExistente()
+            estado.respostas['/session/qr'] = { status: 200, corpo: undefined }
+            await chamar(rotaQr, 'POST')
+            expect(linhaDo('session-qr')).toEqual(expect.stringMatching(/veio_corpo=nao.*veio_qr=nao/))
+        })
+
+        it('exceção de rede: a linha diz qual chamada e o motivo', async () => {
+            conexaoExistente()
+            estado.lancar.add('/session/connect')
+            await chamar(rotaQr, 'POST')
+            expect(linhaDo('session-connect')).toEqual(expect.stringMatching(/excecao=.*ENOTFOUND/))
+        })
+
+        it('sem WUZAPI_ADMIN_TOKEN: a linha diz que falta a variável — e o nome, não o valor', async () => {
+            delete process.env.WUZAPI_ADMIN_TOKEN
+            await chamar(rotaQr, 'POST')
+            expect(linhaDo('criar-instancia')).toEqual(expect.stringContaining('WUZAPI_ADMIN_TOKEN ausente'))
+        })
+    })
+
+    describe('NENHUM segredo no log: nem o token da instância, nem o de admin, nem o QR', () => {
+        it.each([
+            // A criação só é chamada SEM conexão gravada — com ela, o token é reusado e o eco nunca
+            // aconteceria: por isso os dois primeiros casos não montam a conexão.
+            ['criação ecoando o token, em "token" e "Token"', false, 'criar-instancia', () => {
+                estado.respostas['/admin/users'] = { status: 201, corpo: { code: 201, data: { id: 'x', token: 'ECOADO', Token: 'ECOADO2' }, success: true } }
+            }],
+            ['criação recusada, com o token no erro', false, 'criar-instancia', () => {
+                estado.respostas['/admin/users'] = { status: 409, corpo: { error: `user orcamentista-${T} already exists, admin admin-de-teste` } }
+            }],
+            ['connect e qr fora, com o token no corpo', true, 'session-connect', () => { estado.wuzapiFora.add('/session/connect'); estado.wuzapiFora.add('/session/qr') }],
+            ['connect lançando com o token na mensagem', true, 'session-connect', () => { estado.lancar.add('/session/connect') }],
+            ['connect ecoando o token num campo de outro nome', true, 'session-connect', () => {
+                estado.respostas['/session/connect'] = { status: 200, corpo: { data: { instancia: TOKEN_DA_CONEXAO, Authorization: 'admin-de-teste' } } }
+            }],
+        ])('%s', async (_nome, comConexao, passoExercitado, preparar) => {
+            if (comConexao) conexaoExistente()
+            preparar()
+            await chamar(rotaQr, 'POST')
+            const tudo = linhas.join('\n')
+            // o caso exercita: a linha do passo em que o segredo foi plantado EXISTE
+            expect(linhaDo(passoExercitado as string)).toBeDefined()
+            expect(tudo).not.toContain(TOKEN_DA_CONEXAO)
+            expect(tudo).not.toContain('admin-de-teste')
+            expect(tudo).not.toContain('QRFALSO')
+            expect(tudo).not.toContain('ECOADO')
+        })
+
+        it('na instância NOVA, o token gerado também não sai — nem ecoado pelo WUZAPI', async () => {
+            // O UUID é FIXO e sem dígitos: com o aleatório, um hex com 8+ dígitos seguidos era
+            // cortado pela máscara de telefone POR ACASO, e o caso passava sem a correção.
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const espiaoDoUuid = jest.spyOn(require('crypto'), 'randomUUID').mockReturnValue('abcdefab-cdef-abcd-efab-cdefabcdefab')
+            estado.respostas['/admin/users'] = { status: 500, corpo: { error: 'x' } }
+            const fetchOriginal = globalThis.fetch as jest.Mock
+            const eco = jest.fn(async (url: string, init?: { body?: string }) => {
+                if (new URL(url).pathname === '/admin/users') {
+                    const enviado = JSON.parse(String(init?.body))
+                    return { ok: false, status: 500, json: async () => ({ error: `duplicate token ${enviado.token}` }) }
+                }
+                return fetchOriginal(url, init)
+            })
+            ;(globalThis as { fetch: unknown }).fetch = eco
+            try {
+                await chamar(rotaQr, 'POST')
+            } finally {
+                ;(globalThis as { fetch: unknown }).fetch = fetchOriginal
+                espiaoDoUuid.mockRestore()
+            }
+            const enviado = (eco.mock.calls[0][1] as { body: string }).body
+            const gerado = JSON.parse(enviado).token as string
+            expect(gerado).toBe('orc_abcdefabcdefabcdefabcdefabcdefab')
+            expect(linhas.join('\n')).not.toContain(gerado)
+            expect(linhaDo('criar-instancia')).toEqual(expect.stringContaining('status=500'))
+        })
+    })
+
+    describe('a tela diz QUAL passo falhou', () => {
+        it('criar falhou: "não consegui criar a conexão no servidor de WhatsApp"', async () => {
+            estado.respostas['/admin/users'] = { status: 409, corpo: { error: 'already exists' } }
+            const r = await chamar(rotaQr, 'POST')
+            expect(r.status).toBe(502)
+            expect(r.corpo.passo).toBe('criar-instancia')
+            expect(String(r.corpo.error)).toMatch(/Não consegui criar a conexão no servidor de WhatsApp/)
+            expect(estado.db.whatsapp_conexao).toEqual([])
+            expect(tokenGerado()).toBe('')
+        })
+
+        it('sem a variável de admin: o mesmo passo, e a tela diz que a configuração está incompleta', async () => {
+            delete process.env.WUZAPI_ADMIN_TOKEN
+            const r = await chamar(rotaQr, 'POST')
+            expect(r.corpo.passo).toBe('criar-instancia')
+            expect(String(r.corpo.error)).toMatch(/Não consegui criar a conexão no servidor de WhatsApp.*configuração/)
+        })
+
+        it('connect falhou e não houve QR: "a sessão não abriu"', async () => {
+            conexaoExistente()
+            estado.wuzapiFora.add('/session/connect')
+            estado.wuzapiFora.add('/session/qr')
+            const r = await chamar(rotaQr, 'POST')
+            expect(r.status).toBe(502)
+            expect(r.corpo.passo).toBe('session-connect')
+            expect(String(r.corpo.error)).toMatch(/A sessão de WhatsApp não abriu/)
+        })
+
+        it('connect lançou e não houve QR: também "a sessão não abriu"', async () => {
+            conexaoExistente()
+            estado.lancar.add('/session/connect')
+            estado.wuzapiFora.add('/session/qr')
+            const r = await chamar(rotaQr, 'POST')
+            expect(r.corpo.passo).toBe('session-connect')
+        })
+
+        it.each([
+            ['o qr respondeu erro', () => { estado.wuzapiFora.add('/session/qr') }],
+            ['o qr veio sem o código', () => { estado.respostas['/session/qr'] = { status: 200, corpo: { data: { QRCode: '' } } } }],
+            ['o qr lançou', () => { estado.lancar.add('/session/qr') }],
+        ])('connect abriu, mas %s: "o servidor não devolveu o código"', async (_nome, preparar) => {
+            conexaoExistente()
+            preparar()
+            const r = await chamar(rotaQr, 'POST')
+            expect(r.status).toBe(502)
+            expect(r.corpo.passo).toBe('session-qr')
+            expect(String(r.corpo.error)).toMatch(/O servidor de WhatsApp não devolveu o código/)
+        })
+
+        it('connect falhou MAS o QR veio: conecta — a sessão já estava aberta esperando a leitura', async () => {
+            conexaoExistente()
+            estado.wuzapiFora.add('/session/connect')
+            const r = await chamar(rotaQr, 'POST')
+            expect(r.status).toBe(200)
+            expect(r.corpo.qr).toBe('data:image/png;base64,QRFALSO')
+        })
+
+        it('nenhuma mensagem é só "tente de novo"', async () => {
+            conexaoExistente()
+            estado.wuzapiFora.add('/session/qr')
+            const r = await chamar(rotaQr, 'POST')
+            expect(String(r.corpo.error)).not.toBe('O WUZAPI não devolveu o QR Code. Tente de novo.')
+            expect(String(r.corpo.error)).not.toMatch(/WUZAPI/)
+        })
     })
 })
