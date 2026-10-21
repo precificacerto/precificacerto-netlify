@@ -165,3 +165,30 @@ describe('(6) o corpo maior que 8 KB', () => {
         expect(linha).not.toContain('D')
     })
 })
+
+describe('(7) a linha CHEGA AO LOG: sai em console.error (stderr), e em nenhum outro canal', () => {
+    // Medido em produção em 21/10/2026: o log da Vercel deste projeto só exibe stderr — as linhas
+    // `[QR-ORCAMENTISTA]` em `console.log` não apareceram. As seções acima contam TODOS os canais
+    // juntos, e por isso não distinguiam: uma captura em `console.log` passaria nelas e rodaria cega.
+    const doCanal = (c: (typeof canais)[number]) =>
+        espioes[canais.indexOf(c)].mock.calls.map((a) => a.map(String).join(' ')).filter((l) => l.startsWith(PREFIXO_DO_LOG))
+    const dosOutros = () => canais.filter((c) => c !== 'error').flatMap((c) => doCanal(c))
+
+    it('a captura: UMA linha em console.error, nenhuma nos outros', async () => {
+        await chamar({ s: SEGREDO, corpo: 'jsonData=%7B%7D' })
+        expect(doCanal('error')).toHaveLength(1)
+        expect(dosOutros()).toEqual([])
+    })
+
+    it('a falha ao ler o corpo: também em console.error, nenhuma nos outros — e ainda 200', async () => {
+        async function* quebrado(): AsyncGenerator<Buffer> { yield Buffer.from('a'); throw new Error('conexao caiu') }
+        const req = Readable.from(quebrado()) as unknown as NextApiRequest
+        Object.assign(req, { method: 'POST', query: { s: SEGREDO }, headers: {} })
+        const saida = { status: 0 }
+        const res = { status(n: number) { saida.status = n; return res }, end() { return res }, json() { return res } } as unknown as NextApiResponse
+        await rota(req, res)
+        expect(saida.status).toBe(200)
+        expect(doCanal('error')).toEqual([expect.stringContaining('falha ao ler o corpo: conexao caiu')])
+        expect(dosOutros()).toEqual([])
+    })
+})
