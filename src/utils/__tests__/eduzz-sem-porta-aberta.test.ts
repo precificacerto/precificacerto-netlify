@@ -34,7 +34,7 @@ function cliente() {
             let op = 'select'
             let carga: unknown
             const q: Record<string, unknown> = {}
-            const resposta = () => {
+            const resposta = (): { data: Linha | null; error: null } => {
                 estado.ops.push({ tabela, op, carga })
                 if (op === 'select' && tabela === 'users') return { data: estado.usuariosExistentes[0] ?? null, error: null }
                 if (op === 'insert') return { data: { id: `${tabela}-novo`, ...(carga as Linha) }, error: null }
@@ -50,7 +50,7 @@ function cliente() {
         },
         auth: {
             admin: {
-                createUser: async (dados: Linha) => {
+                createUser: async (dados: Linha): Promise<{ data: { user: { id: string } }; error: null }> => {
                     estado.criadosNoAuth.push(dados)
                     return { data: { user: { id: 'auth-novo' } }, error: null }
                 },
