@@ -43,6 +43,11 @@ export function telefonesCasam(remetente: string | null | undefined, gravado: st
     return (a as { telefone: string }).telefone === (b as { telefone: string }).telefone
 }
 
+/** O número da instância a partir do `jid` do WUZAPI — só dígitos, ou NULL. */
+export function numeroDoJid(_jid: unknown): string | null {
+    throw new Error('numeroDoJid: ainda não implementada')
+}
+
 /** Para mostrar: `(51) 9••••-7766` — o DDD e os 4 últimos. */
 export function telefoneMascarado(telefone: string): string {
     const d = telefone.replace(/\D/g, '')

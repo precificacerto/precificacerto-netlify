@@ -27,11 +27,16 @@
  *       enxerga a tela — dono do produto, 21/10/2026); conectar e mexer na lista exigem EDITAR;
  *  (10) o 55: a lista grava DDD + número, sem o DDI, e o webhook entrega o remetente COM ele.
  *       A COMPARAÇÃO (`telefonesCasam`) é testada de verdade — não só a gravação —, e a
- *       divergência da lista passa a usá-la (dono do produto, 21/10/2026).
+ *       divergência da lista passa a usá-la (dono do produto, 21/10/2026);
+ *  (11) o TOKEN da conexão não chega ao navegador: nenhuma resposta das três rotas, em sucesso ou
+ *       em erro, contém a string dele, em nível nenhum do JSON;
+ *  (12) religar com o telefone do cadastro divergente do autorizado RECUSA — 409, nada gravado;
+ *  (13) o número da conexão sai do `jid` do `/session/connect`: só os dígitos da parte do
+ *       usuário, ou NULL. Depende da migração `20261021000002`, que cria a coluna.
  */
 import type { NextApiRequest, NextApiResponse } from 'next'
 
-import { telefoneDoAutorizado, telefonesCasam } from '@/utils/atendimentos-ia-telefone-do-autorizado'
+import { numeroDoJid, telefoneDoAutorizado, telefonesCasam } from '@/utils/atendimentos-ia-telefone-do-autorizado'
 
 // ── O banco falso ────────────────────────────────────────────────────────────────────────
 type Linha = Record<string, unknown>
@@ -40,6 +45,8 @@ interface Operacao { tabela: string; op: string; carga?: unknown; filtros: [stri
 const T = 'tenant-da-conta'
 const OUTRO = 'tenant-de-outra-conta'
 const USUARIO = 'usuario-logado'
+/** O token da instância do orçamentista — credencial: fala pelo WhatsApp da empresa. */
+const TOKEN_DA_CONEXAO = 'orc_SEGREDO_DA_INSTANCIA_9f8e7d'
 
 const estado = {
     db: {} as Record<string, Linha[]>,
@@ -47,10 +54,17 @@ const estado = {
     fetches: [] as { url: string; corpo: unknown }[],
     logada: false,
     papel: 'admin',
+    /** O corpo que o WUZAPI devolve no `POST /session/connect`. */
+    connect: { success: true, data: {} } as unknown,
+    /** Caminhos do WUZAPI que respondem com erro. */
+    wuzapiFora: new Set<string>(),
+    /** Tabela cujas operações o banco falso recusa — com o TOKEN na mensagem, de propósito. */
+    falha: null as string | null,
 }
 
 function executar(tabela: string, op: string, carga: unknown, filtros: [string, unknown][], opcoes?: { onConflict?: string }): { data: Linha[] | null; error: { code: string; message: string } | null } {
     estado.ops.push({ tabela, op, carga, filtros })
+    if (estado.falha === tabela) return { data: null, error: { code: 'XX000', message: `falha simulada em ${tabela}, token ${TOKEN_DA_CONEXAO}` } }
     const linhas = (estado.db[tabela] ??= [])
     const casa = (l: Linha) => filtros.every(([c, v]) => l[c] === v)
     if (op === 'select') return { data: linhas.filter(casa), error: null }
@@ -115,6 +129,8 @@ beforeAll(() => {
         estado.fetches.push({ url, corpo: init?.body ? JSON.parse(init.body) : undefined })
         const caminho = new URL(url).pathname
         const json = (b: unknown) => ({ ok: true, status: 200, json: async () => b })
+        if (estado.wuzapiFora.has(caminho)) return { ok: false, status: 500, json: async () => ({ error: `fora, token ${TOKEN_DA_CONEXAO}` }) }
+        if (caminho === '/session/connect') return json(estado.connect)
         if (caminho === '/session/status') return json({ data: { Connected: true, LoggedIn: estado.logada } })
         if (caminho === '/session/qr') return json({ data: { QRCode: 'data:image/png;base64,QRFALSO' } })
         return json({ success: true, data: {} })
@@ -161,6 +177,9 @@ function montar(extra: Partial<Record<string, Linha[]>> = {}) {
     estado.fetches = []
     estado.logada = false
     estado.papel = 'admin'
+    estado.connect = { success: true, data: {} }
+    estado.wuzapiFora = new Set()
+    estado.falha = null
 }
 beforeEach(() => montar())
 
@@ -441,5 +460,158 @@ describe('(10) o 55: a lista grava sem o DDI, e o webhook entrega com ele', () =
             const ana = (r.corpo.linhas as Array<Record<string, unknown>>).find((l) => l.employee_id === 'f-com')!
             expect(ana.divergente).toBe(false)
         })
+    })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+describe('(11) o TOKEN da conexão não chega ao navegador — em nenhuma resposta, em nenhum nível', () => {
+    /** Varre o JSON INTEIRO: toda string, em todo nível, chaves incluídas. */
+    function strings(v: unknown, saida: string[] = []): string[] {
+        if (typeof v === 'string') saida.push(v)
+        else if (Array.isArray(v)) v.forEach((x) => strings(x, saida))
+        else if (v && typeof v === 'object') for (const [k, x] of Object.entries(v)) { saida.push(k); strings(x, saida) }
+        return saida
+    }
+    const vazou = (corpo: unknown) => strings(corpo).filter((x) => x.includes(TOKEN_DA_CONEXAO))
+
+    const conectada = (ativo: boolean) => ({
+        whatsapp_conexao: [{ tenant_id: T, canal: 'ORCAMENTISTA', wuzapi_token: TOKEN_DA_CONEXAO, conectado_por: USUARIO, conectado_em: '2026-10-21T00:00:00Z', ativo }],
+        orcamentista_remetente_autorizado: [{ id: 'a1', tenant_id: T, telefone: '51999887766', nome: 'Ana', employee_id: 'f-com', ativo: true }],
+    })
+
+    type Cenario = [string, () => void, Rota, string, unknown]
+    const cenarios: Cenario[] = [
+        ['conexao GET, logada', () => { estado.logada = true }, rotaConexao, 'GET', undefined],
+        ['conexao GET, deslogada', () => { estado.logada = false }, rotaConexao, 'GET', undefined],
+        ['conexao GET, WUZAPI fora', () => { estado.wuzapiFora.add('/session/status') }, rotaConexao, 'GET', undefined],
+        ['conexao GET, banco falhando', () => { estado.falha = 'whatsapp_conexao' }, rotaConexao, 'GET', undefined],
+        ['conexao DELETE, sucesso', () => {}, rotaConexao, 'DELETE', undefined],
+        ['conexao DELETE, logout recusado', () => { estado.wuzapiFora.add('/session/logout') }, rotaConexao, 'DELETE', undefined],
+        ['qr POST, já logada', () => { estado.logada = true }, rotaQr, 'POST', undefined],
+        ['qr POST, devolve o QR', () => {}, rotaQr, 'POST', undefined],
+        ['qr POST, sem QR', () => { estado.wuzapiFora.add('/session/qr') }, rotaQr, 'POST', undefined],
+        ['qr POST, banco falhando', () => { estado.falha = 'whatsapp_conexao' }, rotaQr, 'POST', undefined],
+        ['autorizados GET', () => {}, rotaAutorizados, 'GET', undefined],
+        ['autorizados POST', () => {}, rotaAutorizados, 'POST', { employee_id: 'f-com', acao: 'desligar' }],
+        ['autorizados GET, banco falhando', () => { estado.falha = 'employees' }, rotaAutorizados, 'GET', undefined],
+        ['seção desligada', () => { estado.db.orcamentista_config[0].ativo = false }, rotaConexao, 'GET', undefined],
+        ['sem permissão', () => { estado.papel = 'seller'; estado.db.user_module_permissions = [] }, rotaConexao, 'GET', undefined],
+    ]
+
+    it.each(cenarios)('%s: a resposta não contém o token', async (_nome, preparar, rota, metodo, corpo) => {
+        montar(conectada(true))
+        preparar()
+        const r = await chamar(rota, metodo, corpo)
+        expect(r.status).toBeGreaterThan(0)
+        expect(vazou(r.corpo)).toEqual([])
+    })
+
+    it('o caso discrimina: o token ESTÁ na conexão lida e nas mensagens de erro simuladas', async () => {
+        montar(conectada(true))
+        expect(JSON.stringify(estado.db.whatsapp_conexao)).toContain(TOKEN_DA_CONEXAO)
+        estado.falha = 'whatsapp_conexao'
+        await chamar(rotaConexao, 'GET')
+        expect(vazou({ detalhe: 'x', de: [{ fundo: TOKEN_DA_CONEXAO }] })).toHaveLength(1)
+    })
+
+    it('o token do QR NOVO também não sai', async () => {
+        const r = await chamar(rotaQr, 'POST')
+        const novo = String(estado.db.whatsapp_conexao[0].wuzapi_token)
+        expect(novo).toMatch(/^orc_/)
+        expect(JSON.stringify(r.corpo)).not.toContain(novo)
+    })
+})
+
+describe('(12) religar com divergência RECUSA — o número antigo pode ser de outra pessoa', () => {
+    // Ana trocou de telefone no cadastro enquanto a autorização estava desligada.
+    const desligadaComNumeroAntigo = () => montar({
+        orcamentista_remetente_autorizado: [{ id: 'a1', tenant_id: T, telefone: '51900001111', nome: 'Ana', employee_id: 'f-com', ativo: false }],
+    })
+
+    it('religar divergente: 409 com o motivo, e NENHUMA escrita', async () => {
+        desligadaComNumeroAntigo()
+        const r = await chamar(rotaAutorizados, 'POST', { employee_id: 'f-com', acao: 'ligar' })
+        expect(r.status).toBe(409)
+        expect(String(r.corpo.error)).toMatch(/telefone do cadastro mudou; atualize antes de liberar/)
+        expect(escritas()).toEqual([])
+        expect(estado.db.orcamentista_remetente_autorizado[0]).toEqual(expect.objectContaining({ telefone: '51900001111', ativo: false }))
+    })
+
+    it('ligada e divergente: ligar de novo também recusa, e nada muda', async () => {
+        montar({ orcamentista_remetente_autorizado: [{ id: 'a1', tenant_id: T, telefone: '51900001111', nome: 'Ana', employee_id: 'f-com', ativo: true }] })
+        expect((await chamar(rotaAutorizados, 'POST', { employee_id: 'f-com', acao: 'ligar' })).status).toBe(409)
+        expect(escritas()).toEqual([])
+    })
+
+    it('atualizar-telefone e DEPOIS religar: funciona, com o número do cadastro', async () => {
+        desligadaComNumeroAntigo()
+        expect((await chamar(rotaAutorizados, 'POST', { employee_id: 'f-com', acao: 'atualizar-telefone' })).status).toBe(200)
+        expect((await chamar(rotaAutorizados, 'POST', { employee_id: 'f-com', acao: 'ligar' })).status).toBe(200)
+        expect(estado.db.orcamentista_remetente_autorizado).toEqual([expect.objectContaining({ id: 'a1', telefone: '51999887766', ativo: true })])
+    })
+
+    it('religar SEM divergência funciona como antes — inclusive com o 55 só de um lado', async () => {
+        montar({ orcamentista_remetente_autorizado: [{ id: 'a1', tenant_id: T, telefone: '5551999887766', nome: 'Ana', employee_id: 'f-com', ativo: false }] })
+        const r = await chamar(rotaAutorizados, 'POST', { employee_id: 'f-com', acao: 'ligar' })
+        expect(r.status).toBe(200)
+        expect(escritas('orcamentista_remetente_autorizado')).toEqual([expect.objectContaining({ op: 'update', carga: { ativo: true } })])
+    })
+})
+
+describe('(13) o número da conexão sai do jid do /session/connect — ou fica NULL', () => {
+    describe('numeroDoJid', () => {
+        it.each([
+            ['5554999887766.0:52@s.whatsapp.net', '5554999887766'],
+            ['5554999887766:12@s.whatsapp.net', '5554999887766'],
+            ['5554999887766@s.whatsapp.net', '5554999887766'],
+        ])('"%s" → "%s"', (jid, numero) => {
+            expect(numeroDoJid(jid)).toBe(numero)
+        })
+
+        it.each([
+            [undefined], [null], [''], [5554999887766], [{ user: '5554999887766' }],
+            ['5554999887766'],
+            ['@s.whatsapp.net'],
+            ['abc@s.whatsapp.net'],
+            ['+5554999887766@s.whatsapp.net'],
+            ['55 54 99988@s.whatsapp.net'],
+            ['123456789012345@lid'],
+            ['120363025246125486@g.us'],
+            ['12345@s.whatsapp.net'],
+        ])('formato estranho %p → NULL, sem lixo', (jid) => {
+            expect(numeroDoJid(jid)).toBeNull()
+        })
+    })
+
+    const conexaoExistente = () => montar({
+        whatsapp_conexao: [{ tenant_id: T, canal: 'ORCAMENTISTA', wuzapi_token: 'orc_x', conectado_por: USUARIO, conectado_em: '2026-10-01T00:00:00Z', ativo: false, numero: '5551900000000' }],
+    })
+
+    it('resposta COM jid: grava só os dígitos', async () => {
+        conexaoExistente()
+        estado.connect = { code: 200, success: true, data: { details: 'Connected!', jid: '5554999887766.0:52@s.whatsapp.net' } }
+        expect((await chamar(rotaQr, 'POST')).status).toBe(200)
+        expect(estado.db.whatsapp_conexao[0].numero).toBe('5554999887766')
+    })
+
+    it('resposta SEM jid: NULL — e o número de uma conexão anterior não sobrevive ao QR novo', async () => {
+        conexaoExistente()
+        estado.connect = { code: 200, success: true, data: { details: 'Connected!' } }
+        expect((await chamar(rotaQr, 'POST')).status).toBe(200)
+        expect(estado.db.whatsapp_conexao[0].numero).toBeNull()
+    })
+
+    it('jid estranho: NULL, nada de lixo na coluna', async () => {
+        conexaoExistente()
+        estado.connect = { success: true, data: { jid: '123456789012345@lid' } }
+        await chamar(rotaQr, 'POST')
+        expect(estado.db.whatsapp_conexao[0].numero).toBeNull()
+    })
+
+    it('connect sem corpo legível: NULL', async () => {
+        conexaoExistente()
+        estado.wuzapiFora.add('/session/connect')
+        await chamar(rotaQr, 'POST')
+        expect(estado.db.whatsapp_conexao[0].numero).toBeNull()
     })
 })
