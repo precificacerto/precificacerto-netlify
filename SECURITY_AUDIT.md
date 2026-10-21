@@ -12,7 +12,7 @@
 | # | Severidade | Achado | Onde |
 |---|-----------|--------|------|
 | 1 | 🔴 CRÍTICO | `.env` commitado no Git com chaves de PRODUÇÃO: STRIPE `sk_live_*`, ANTHROPIC `sk-ant-*`, CRON_SECRET, SUPABASE_SERVICE_ROLE_KEY | `.env:23,103,128` (não colar valor) |
-| 2 | 🔴 CRÍTICO | Webhook Eduzz aceita `api_key` no BODY (controlado pelo cliente) — qualquer um pode criar super_admin + tenant | `src/pages/api/eduzz/index.ts:6,11-12` |
+| 2 | ✅ CORRIGIDO em 21/10/2026 (PR #113) — era 🔴 CRÍTICO | Webhook Eduzz aceita `api_key` no BODY (controlado pelo cliente) — qualquer um pode criar super_admin + tenant | `src/pages/api/eduzz/index.ts` — rota descontinuada, 410 sempre |
 | 3 | 🔴 CRÍTICO | 3 funções `SECURITY DEFINER` (`cancel_sale_cascade`, `delete_order_cascade`, `delete_budget_cascade`) recebem `p_tenant_id` como parâmetro — usuário pode deletar de qualquer tenant | `supabase/migrations/20260514000001_cascade_delete_pipeline.sql:112-300+` |
 | 4 | 🔴 CRÍTICO | Cron endpoints **fail-OPEN** quando `CRON_SECRET` ausente (`if (!secret) return true`) — bypass em dev/staging | `src/lib/cron-helpers.ts:6-17` |
 | 5 | 🔴 CRÍTICO | `/api/stripe/create-checkout-session` aceita `tenantId` do client (sem `getCallerContext`) — pode criar checkout para qualquer tenant | `src/pages/api/stripe/create-checkout-session.ts:54,112-115` |
@@ -78,7 +78,18 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_sales_tenant_created_partial
 - **Fix:** (1) ROTACIONAR HOJE todas as 4 chaves nos respectivos providers (2) `git filter-repo --path .env --invert-paths` ou BFG para remover do histórico (3) garantir `.env` no `.gitignore` (4) usar Vercel env vars UI (5) auditar logs Stripe/Anthropic últimos 30 dias por uso anômalo
 - **Esforço:** 30min rotação + 1h cleanup git history
 
-#### CRÍT-2. Eduzz webhook autentica pelo BODY
+#### CRÍT-2. Eduzz webhook autentica pelo BODY — ✅ CORRIGIDO em 21/10/2026, PR #113
+
+> **Estado em 21/10/2026.** O defeito era pior do que o descrito abaixo: `NEXT_PUBLIC_EDUZZ_API_KEY`
+> **não existia** na Vercel (medido), e sem ela uma requisição **sem** `api_key` passava
+> (`undefined !== undefined` é falso) e criava usuário com `is_super_admin: true`. Nenhum sinal de
+> exploração no banco (1 super admin, de 13/03/2026; 0 usuários e 0 contas nos últimos 30 dias).
+> Medido também o **desuso**: nada no código dependia da integração, e os logs de produção de 3
+> dias tinham **zero** requisições a `/api/eduzz`. Decisão do dono do produto: a rota foi
+> **descontinuada** — responde **410 Gone** sempre e não emite operação nenhuma. Portão:
+> `src/utils/__tests__/eduzz-sem-porta-aberta.test.ts`. Se a integração voltar, volta com
+> autenticação de servidor e sem criar super admin (cabeçalho da rota). O texto abaixo é o
+> diagnóstico original de 27/05/2026, mantido como estava.
 
 - **Arquivo:** `src/pages/api/eduzz/index.ts:6,11-12`
 - **Código:** `if (api_key !== process.env.NEXT_PUBLIC_EDUZZ_API_KEY)` onde `api_key` vem de `req.body`
@@ -202,7 +213,7 @@ Baixo  │ CRÍT-1 (rotar .env)          │ ALTO-5 (signOut global)      │
 Esforço│ CRÍT-4 (cron fail-closed)    │ MED-3 (login enum)           │
        │ CRÍT-3 (cascade tenant guard)│ MED-6 (cookie TTL)           │
        ├──────────────────────────────┼──────────────────────────────┤
-Médio  │ CRÍT-2 (Eduzz HMAC)          │ ALTO-7 (USING(true))         │
+Médio  │ CRÍT-2 ✅ (#113, 21/10/2026) │ ALTO-7 (USING(true))         │
 Esforço│ CRÍT-5 (stripe checkout)     │ MED-1 (sessionStorage)       │
        │ ALTO-4 (stripe metadata)     │ MED-7 (sanitize errors)      │
        ├──────────────────────────────┼──────────────────────────────┤
@@ -228,7 +239,7 @@ Esforço│ ALTO-2 (logger wrapper)      │ MED-9 (audit log)            │
    - `vercel.json` Cache-Control
 
 3. **Sprint 1 — Segurança Alta** (semana, 12-16h):
-   - CRÍT-2 Eduzz HMAC
+   - ~~CRÍT-2 Eduzz HMAC~~ — corrigido em 21/10/2026 (PR #113): rota descontinuada, 410 sempre
    - ALTO-1 Zod schemas críticos
    - ALTO-2 logger wrapper
    - ALTO-3 Upstash rate-limit

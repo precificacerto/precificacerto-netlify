@@ -45,7 +45,7 @@ jest.mock('@/supabase/admin', () => ({
             if (prop === 'auth') {
                 return {
                     admin: new Proxy({}, {
-                        get: (_a, metodo: string) => async () => {
+                        get: (_a, metodo: string) => async (): Promise<{ data: { user: { id: string } }; error: null }> => {
                             estado.chamadas.push(`auth.admin.${metodo}`)
                             return { data: { user: { id: 'x' } }, error: null }
                         },
