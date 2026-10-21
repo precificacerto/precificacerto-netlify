@@ -149,9 +149,20 @@ export const PREFIXO_DO_LOG_DO_QR = '[QR-ORCAMENTISTA]'
 export type PassoDoQr = 'instancia' | 'session-status' | 'criar-instancia' | 'session-connect' | 'session-qr'
 const LIMITE_DO_CORPO_NO_LOG = 2048
 
-/** Uma linha do rastro do QR — já sem os segredos que o chamador conhece, e mascarada. */
+/**
+ * Uma linha do rastro do QR — já sem os segredos que o chamador conhece, e mascarada.
+ *
+ * Sai em `console.error` (stderr) DE PROPÓSITO, não por ser erro: medido em produção em 21/10/2026,
+ * o log da Vercel deste projeto só exibe stderr — as linhas em `console.log` não apareceram, e
+ * instrumentação que não chega ao log não é instrumentação. Não troque de volta para `console.log`.
+ * O `host=` diz a QUAL servidor de WhatsApp a chamada foi; o host não é segredo, o token é.
+ */
 export function anotarPassoDoQr(passo: PassoDoQr, texto: string, segredos: Array<string | null | undefined>) {
-    console.log(`${PREFIXO_DO_LOG_DO_QR} passo=${passo} ${paraOLog(texto, [...segredos, process.env.WUZAPI_ADMIN_TOKEN])}`)
+    console.error(`${PREFIXO_DO_LOG_DO_QR} passo=${passo} host=${hostDoWuzapi()} ${paraOLog(texto, [...segredos, process.env.WUZAPI_ADMIN_TOKEN])}`)
+}
+
+function hostDoWuzapi(): string {
+    try { return new URL(wuzapi()).host } catch { return 'invalido' }
 }
 
 /** O corpo da resposta, para o log: o texto cru quando der, senão o JSON; `null` sem corpo. */
