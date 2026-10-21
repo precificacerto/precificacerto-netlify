@@ -21,13 +21,13 @@ import { ROUTES } from '@/constants/routes'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 Object.defineProperty(window, 'matchMedia', {
     writable: true,
-    value: (q: string) => ({ matches: false, media: q, onchange: null, addListener: () => {}, removeListener: () => {}, addEventListener: () => {}, removeEventListener: () => {}, dispatchEvent: () => false }),
+    value: (q: string) => ({ matches: false, media: q, onchange: null as unknown, addListener: () => {}, removeListener: () => {}, addEventListener: () => {}, removeEventListener: () => {}, dispatchEvent: () => false }),
 })
 ;(globalThis as { ResizeObserver?: unknown }).ResizeObserver = class { observe() {} unobserve() {} disconnect() {} }
 
 jest.mock('next/link', () => ({ __esModule: true, default: ({ href, children }: { href: string; children: React.ReactNode }) => React.createElement('a', { href }, children) }))
 
-const LINHAS = [
+const LINHAS: Array<Record<string, unknown>> = [
     { employee_id: 'f-com', nome: 'Ana', cargo: 'Vendedora', telefone: '51999887766', motivoSemTelefone: null, autorizacao: { id: 'a1', telefone: '51900001111', ativo: true }, divergente: true, podeLigar: false, podeDesligar: true },
     { employee_id: 'f-sem', nome: 'Bruno', cargo: 'Vendedor', telefone: null, motivoSemTelefone: 'sem telefone no cadastro', autorizacao: null, divergente: false, podeLigar: false, podeDesligar: false },
 ]
@@ -51,7 +51,8 @@ async function montar(): Promise<HTMLElement> {
     document.body.appendChild(host)
     const root = createRoot(host)
     montados.push({ root, host })
-    await act(async () => { root.render(React.createElement(CelulaDoOrcamentista)) })
+    const desenhar = () => root.render(React.createElement(CelulaDoOrcamentista))
+    await act(async () => { desenhar() })
     await act(async () => { await new Promise((r) => setTimeout(r, 0)) })
     return host
 }

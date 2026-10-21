@@ -22,7 +22,9 @@
  *       grava nada;
  *   (6) o telefone com máscara (ou com o DDI) vira só dígitos antes de gravar;
  *   (7) o tenant_id do corpo da requisição é ignorado;
- *   (8) a divergência entre o cadastro e a autorização aparece, e só se atualiza quando pedido.
+ *   (8) a divergência entre o cadastro e a autorização aparece, e só se atualiza quando pedido;
+ *   (9) a permissão: quem só VÊ Conectividade lê e desconecta (desconectar é livre para quem
+ *       enxerga a tela — dono do produto, 21/10/2026); conectar e mexer na lista exigem EDITAR.
  */
 import type { NextApiRequest, NextApiResponse } from 'next'
 
@@ -41,6 +43,7 @@ const estado = {
     ops: [] as Operacao[],
     fetches: [] as { url: string; corpo: unknown }[],
     logada: false,
+    papel: 'admin',
 }
 
 function executar(tabela: string, op: string, carga: unknown, filtros: [string, unknown][], opcoes?: { onConflict?: string }): { data: Linha[] | null; error: { code: string; message: string } | null } {
@@ -59,7 +62,7 @@ function executar(tabela: string, op: string, carga: unknown, filtros: [string, 
         }
         return { data: null, error: null }
     }
-    const nova = { id: `id-${linhas.length + 1}-${tabela}`, ...(carga as Linha) }
+    const nova: Linha = { id: `id-${linhas.length + 1}-${tabela}`, ...(carga as Linha) }
     if (op === 'insert') {
         if (tabela === 'orcamentista_remetente_autorizado' && linhas.some((o) => o.tenant_id === nova.tenant_id && o.telefone === nova.telefone)) {
             return { data: null, error: { code: '23505', message: 'duplicate key orcamentista_remetente_autorizado_telefone_key' } }
@@ -99,7 +102,7 @@ jest.mock('@/supabase/admin', () => ({
 }))
 
 jest.mock('@/lib/get-caller-tenant', () => ({
-    getCallerContext: async () => ({ user_id: 'usuario-logado', tenant_id: 'tenant-da-conta', role: 'admin', is_super_admin: false }),
+    getCallerContext: async () => ({ user_id: 'usuario-logado', tenant_id: 'tenant-da-conta', role: estado.papel, is_super_admin: false }),
 }))
 
 // ── O WUZAPI falso ───────────────────────────────────────────────────────────────────────
@@ -154,6 +157,7 @@ function montar(extra: Partial<Record<string, Linha[]>> = {}) {
     estado.ops = []
     estado.fetches = []
     estado.logada = false
+    estado.papel = 'admin'
 }
 beforeEach(() => montar())
 
@@ -325,5 +329,33 @@ describe('(8) a divergência entre o cadastro e a autorização', () => {
         const r = await chamar(rotaAutorizados, 'POST', { employee_id: 'f-com', acao: 'atualizar-telefone' })
         expect(r.status).toBe(200)
         expect(estado.db.orcamentista_remetente_autorizado[0].telefone).toBe('51999887766')
+    })
+})
+
+describe('(9) a permissão: ver lê e desconecta; editar conecta e mexe na lista', () => {
+    beforeEach(() => {
+        montar({
+            user_module_permissions: [{ user_id: USUARIO, tenant_id: T, module: 'connectivity', can_view: true, can_edit: false }],
+            whatsapp_conexao: [{ tenant_id: T, canal: 'ORCAMENTISTA', wuzapi_token: 'orc_x', conectado_por: USUARIO, conectado_em: '2026-10-21T00:00:00Z', ativo: true }],
+        })
+        estado.papel = 'seller'
+    })
+
+    it('quem só vê: lê a conexão e a lista, e DESCONECTA', async () => {
+        expect((await chamar(rotaConexao, 'GET')).status).toBe(200)
+        expect((await chamar(rotaAutorizados, 'GET')).status).toBe(200)
+        expect((await chamar(rotaConexao, 'DELETE')).status).toBe(200)
+    })
+
+    it('quem só vê: NÃO conecta e NÃO mexe na lista — 403, e nada gravado', async () => {
+        expect((await chamar(rotaQr, 'POST')).status).toBe(403)
+        expect((await chamar(rotaAutorizados, 'POST', { employee_id: 'f-com', acao: 'ligar' })).status).toBe(403)
+        expect(escritas()).toEqual([])
+    })
+
+    it('quem não vê: 403 até para ler', async () => {
+        estado.db.user_module_permissions[0].can_view = false
+        expect((await chamar(rotaConexao, 'GET')).status).toBe(403)
+        expect((await chamar(rotaAutorizados, 'GET')).status).toBe(403)
     })
 })
