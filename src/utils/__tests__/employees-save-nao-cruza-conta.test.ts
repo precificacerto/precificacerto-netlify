@@ -61,7 +61,7 @@ jest.mock('@/supabase/admin', () => ({
             q.delete = () => { op = 'delete'; return q }
             q.insert = (c: unknown) => { op = 'insert'; carga = c; return q }
             q.single = () => rodar().then((r) => ({ data: r.data?.[0] ?? null, error: r.data?.[0] ? null : { message: 'no rows' } }))
-            q.maybeSingle = () => rodar().then((r) => ({ data: r.data?.[0] ?? null, error: null }))
+            q.maybeSingle = () => rodar().then((r) => ({ data: r.data?.[0] ?? null, error: null as null }))
             q.then = (ok: (v: unknown) => unknown, erro?: (e: unknown) => unknown) => rodar().then(ok, erro)
             return q
         },
@@ -149,6 +149,15 @@ describe('(1) a conta A NÃO alcança o funcionário da conta B', () => {
         expect(inexistente).toEqual(deB)
     })
 
+    it('funcionário de A ligado, por dado inconsistente, a um USUÁRIO de B: o usuário de B não muda', async () => {
+        estado.db.employees.push({ id: 'e-a-ligado-a-b', tenant_id: A, user_id: 'u-b', name: 'Ligado errado', email: 'x@a', phone: null, salary: 1, pending_permissions: null })
+        const antes = daContaB()
+        const r = await salvar({ editing_id: 'e-a-ligado-a-b', employee: { name: 'Renomeado', email: 'x@a', phone: '0' } })
+        expect(r.status).toBe(200)
+        expect(estado.db.employees.find((e) => e.id === 'e-a-ligado-a-b')?.name).toBe('Renomeado')
+        expect(daContaB().users).toEqual(antes.users)
+    })
+
     it('tenant_id no corpo não muda nada: a conta é a do chamador', async () => {
         const antes = daContaB()
         const r = await salvar({ editing_id: 'e-b', tenant_id: B, employee: { name: 'x', tenant_id: B } })
@@ -181,6 +190,14 @@ describe('(3) usuário comum NÃO altera permissão de acesso — nem as própri
         expect(r.status).toBe(403)
         expect(permsDe('u-vend-a')).toEqual(antes)
         expect(estado.db.users.find((u) => u.id === 'u-vend-a')?.role).toBe('user')
+    })
+
+    it('mandar SÓ `user_role: admin`, sem permissões, também é mexer em permissão: 403, e o papel não muda', async () => {
+        estado.caller = VENDEDOR_A
+        const r = await salvar({ editing_id: 'e-vend-a', employee: { name: 'Vendedor A', email: 'vend@a', user_role: 'admin' } })
+        expect(r.status).toBe(403)
+        expect(estado.db.users.find((u) => u.id === 'u-vend-a')?.role).toBe('user')
+        expect(estado.ops.filter((o) => o.op !== 'select')).toEqual([])
     })
 
     it('nem as de um colega da mesma conta', async () => {

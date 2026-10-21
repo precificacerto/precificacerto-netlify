@@ -480,6 +480,8 @@ function Employees() {
             }
 
             messageApi.success(editingId ? 'Funcionário atualizado!' : 'Funcionário adicionado!')
+            // O admin que salva o PRÓPRIO cadastro: o cadastro grava, as permissões dele não — a rota diz.
+            if (result.aviso) messageApi.warning(String(result.aviso))
             await reloadEmployees()
             setDrawerOpen(false)
             form.resetFields()
