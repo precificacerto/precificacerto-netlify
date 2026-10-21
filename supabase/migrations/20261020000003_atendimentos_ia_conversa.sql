@@ -192,6 +192,7 @@ CREATE TABLE public.orcamentista_pre_definicao (
   distribuicao_por_pavimento  jsonb       NULL,
   estado                      text        NULL,
   criado_em                   timestamptz NOT NULL DEFAULT now(),
+  atualizado_em               timestamptz NULL,
   CONSTRAINT orcamentista_pre_definicao_conversa_fkey
     FOREIGN KEY (conversa_id, tenant_id) REFERENCES public.orcamentista_conversa (id, tenant_id) ON DELETE CASCADE
 );
@@ -202,6 +203,8 @@ COMMENT ON COLUMN public.orcamentista_pre_definicao.estado IS
   'Texto sem CHECK: os valores ainda nao foram definidos pelo dono do produto. O CHECK entra quando forem.';
 COMMENT ON COLUMN public.orcamentista_pre_definicao.distribuicao_por_pavimento IS
   'A distribuicao das esquadrias por pavimento, em jsonb. O formato interno nao foi definido.';
+COMMENT ON COLUMN public.orcamentista_pre_definicao.atualizado_em IS
+  'Nulavel e sem default: NULL = nunca foi alterada depois de criada. Quem atualiza grava.';
 
 -- ── 5. A TENTATIVA DE NÚMERO DESCONHECIDO — SEM o texto ────────────────────────────────────
 CREATE TABLE public.orcamentista_tentativa_desconhecida (
@@ -359,4 +362,23 @@ COMMIT;
 --    where table_schema = 'public' and table_name = 'orcamentista_tentativa_desconhecida'
 --    order by ordinal_position;
 --   esperado: id, tenant_id, telefone, wuzapi_mensagem_id, chegou_em — e nada mais.
+--
+-- (6) COMPORTAMENTO — excluir a empresa com conversa leva tudo, numa instrução só.
+--   Roteiro, num tenant de teste (NUNCA num tenant real):
+--     a. um remetente autorizado nele, ativo;
+--     b. uma conversa desse remetente;
+--     c. uma mensagem e uma pré-definição dessa conversa;
+--     d. DELETE FROM public.tenants WHERE id = '<o tenant de teste>';   -- uma única instrução
+--     e. contar, para aquele tenant_id, as linhas das cinco tabelas:
+--        select (select count(*) from public.orcamentista_remetente_autorizado   where tenant_id = '<t>'),
+--               (select count(*) from public.orcamentista_conversa               where tenant_id = '<t>'),
+--               (select count(*) from public.orcamentista_mensagem               where tenant_id = '<t>'),
+--               (select count(*) from public.orcamentista_pre_definicao          where tenant_id = '<t>'),
+--               (select count(*) from public.orcamentista_tentativa_desconhecida where tenant_id = '<t>');
+--   esperado: o DELETE com sucesso, e 0, 0, 0, 0, 0.
+--   POR QUE ESTE CASO EXISTE: a conversa referencia o remetente com ON DELETE RESTRICT, e a
+--   checagem do RESTRICT não é adiável. Se o gatilho do remetente disparar antes do da conversa,
+--   a exclusão da empresa falha. Passou no Postgres descartável em 21/10/2026; a documentação do
+--   PostgreSQL 16 não garante a ordem de disparo entre gatilhos de tabelas diferentes. Este caso
+--   existe para quebrar alto se isso mudar.
 -- ════════════════════════════════════════════════════════════════════════════════════════
