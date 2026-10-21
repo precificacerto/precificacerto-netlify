@@ -35,6 +35,9 @@
  *       usuário, ou NULL. Depende da migração `20261021000002`, que cria a coluna;
  *  (14) o caminho do QR DEIXA RASTRO: cada chamada ao WUZAPI anota uma linha `[QR-ORCAMENTISTA]`
  *       com o passo e o que voltou — sem token nenhum, nem o QR —, e a tela diz QUAL passo falhou.
+ *  (15) o TOKEN FANTASMA (21/10/2026): a conexão só é gravada depois de o WUZAPI RECONHECER o token
+ *       novo; e, ao reusar, um 401 descarta a conexão gravada e cria UMA instância nova — uma vez por
+ *       clique, sem laço, e nunca para um token recém-criado.
  */
 import type { NextApiRequest, NextApiResponse } from 'next'
 
@@ -66,6 +69,10 @@ const estado = {
     respostas: {} as Record<string, { status: number; corpo: unknown }>,
     /** Caminhos do WUZAPI em que o `fetch` LANÇA — a exceção de rede. */
     lancar: new Set<string>(),
+    /** Tokens que o WUZAPI NÃO conhece — toda chamada com eles dá 401 (o "token fantasma"). */
+    tokensDesconhecidos: new Set<string>(),
+    /** O WUZAPI não conhece token NENHUM — nem o recém-criado. */
+    todoTokenDesconhecido: false,
 }
 
 function executar(tabela: string, op: string, carga: unknown, filtros: [string, unknown][], opcoes?: { onConflict?: string }): { data: Linha[] | null; error: { code: string; message: string } | null } {
@@ -135,6 +142,10 @@ beforeAll(() => {
         estado.fetches.push({ url, corpo: init?.body ? JSON.parse(init.body) : undefined, headers: init?.headers })
         const caminho = new URL(url).pathname
         if (estado.lancar.has(caminho)) throw new Error(`getaddrinfo ENOTFOUND usapi, token ${TOKEN_DA_CONEXAO}`)
+        const tokenDaChamada = init?.headers?.token
+        if (tokenDaChamada && (estado.todoTokenDesconhecido || estado.tokensDesconhecidos.has(tokenDaChamada))) {
+            return { ok: false, status: 401, json: async () => ({ code: 401, error: 'unauthorized', success: false }) }
+        }
         const forcada = estado.respostas[caminho]
         if (forcada) return { ok: forcada.status >= 200 && forcada.status < 300, status: forcada.status, json: async () => forcada.corpo }
         const json = (b: unknown) => ({ ok: true, status: 200, json: async () => b })
@@ -191,6 +202,8 @@ function montar(extra: Partial<Record<string, Linha[]>> = {}) {
     estado.falha = null
     estado.respostas = {}
     estado.lancar = new Set()
+    estado.tokensDesconhecidos = new Set()
+    estado.todoTokenDesconhecido = false
     process.env.WUZAPI_ADMIN_TOKEN = 'admin-de-teste'
 }
 beforeEach(() => montar())
@@ -816,6 +829,108 @@ describe('(14) o caminho do QR deixa rastro, sem segredo, e a tela diz qual pass
             const r = await chamar(rotaQr, 'POST')
             expect(String(r.corpo.error)).not.toBe('O WUZAPI não devolveu o QR Code. Tente de novo.')
             expect(String(r.corpo.error)).not.toMatch(/WUZAPI/)
+        })
+    })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+describe('(15) o TOKEN FANTASMA — credencial que o WUZAPI não reconhece não fica gravada, e o reuso tem saída', () => {
+    const FANTASMA = 'orc_FANTASMA_que_o_wuzapi_nao_conhece'
+    let linhas: string[] = []
+    let espioes: jest.SpyInstance[] = []
+    beforeEach(() => {
+        linhas = []
+        const anotar = (...a: unknown[]) => { linhas.push(a.map(String).join(' ')) }
+        espioes = (['log', 'warn', 'error', 'info'] as const).map((m) => jest.spyOn(console, m).mockImplementation(anotar))
+    })
+    afterEach(() => espioes.forEach((e) => e.mockRestore()))
+
+    const criacoes = () => estado.fetches.filter((f) => f.url.endsWith('/admin/users'))
+    const conexaoFantasma = () => {
+        montar({ whatsapp_conexao: [{ tenant_id: T, canal: 'ORCAMENTISTA', wuzapi_token: FANTASMA, conectado_por: USUARIO, conectado_em: '2026-10-21T00:00:00Z', ativo: false, numero: null }] })
+        estado.tokensDesconhecidos.add(FANTASMA)
+    }
+
+    describe('(1) a conexão só é gravada com a criação CONFIRMADA', () => {
+        it('a criação falhando (500): nenhuma linha em whatsapp_conexao', async () => {
+            estado.respostas['/admin/users'] = { status: 500, corpo: { error: 'falhou' } }
+            const r = await chamar(rotaQr, 'POST')
+            expect(r.status).toBe(502)
+            expect(estado.db.whatsapp_conexao).toEqual([])
+        })
+
+        it('o WUZAPI responde OK à criação, mas NÃO reconhece o token novo: 502 no passo da criação, e nenhuma linha', async () => {
+            estado.respostas['/admin/users'] = { status: 201, corpo: { code: 201, success: true, data: { id: 'x' } } }
+            estado.todoTokenDesconhecido = true
+            const r = await chamar(rotaQr, 'POST')
+            expect(r.status).toBe(502)
+            expect(r.corpo.passo).toBe('criar-instancia')
+            expect(estado.db.whatsapp_conexao).toEqual([])
+        })
+    })
+
+    describe('(2) o reuso tem saída', () => {
+        it('token reusado que dá 401: UMA criação nova, a linha passa a ter o token NOVO, e o QR sai', async () => {
+            conexaoFantasma()
+            const r = await chamar(rotaQr, 'POST')
+            expect(r.status).toBe(200)
+            expect(r.corpo.qr).toBe('data:image/png;base64,QRFALSO')
+            expect(criacoes()).toHaveLength(1)
+            expect(estado.db.whatsapp_conexao).toHaveLength(1)
+            const novo = String(estado.db.whatsapp_conexao[0].wuzapi_token)
+            expect(novo).not.toBe(FANTASMA)
+            expect((criacoes()[0].corpo as { token: string }).token).toBe(novo)
+        })
+
+        it('dois 401 seguidos (o fantasma E o recém-criado) não viram laço: UMA criação, 502, e nenhum dos dois fica gravado', async () => {
+            conexaoFantasma()
+            estado.todoTokenDesconhecido = true
+            const r = await chamar(rotaQr, 'POST')
+            expect(r.status).toBe(502)
+            expect(criacoes()).toHaveLength(1)
+            expect(estado.db.whatsapp_conexao).toEqual([])
+        })
+
+        it('401 num token RECÉM-CRIADO não recria: sem conexão gravada e o WUZAPI não reconhecendo nada, UMA criação só', async () => {
+            estado.todoTokenDesconhecido = true
+            const r = await chamar(rotaQr, 'POST')
+            expect(r.status).toBe(502)
+            expect(criacoes()).toHaveLength(1)
+        })
+
+        it('o fantasma que passa no status e dá 401 só no connect: também é descartado, e cria UMA nova', async () => {
+            conexaoFantasma()
+            estado.tokensDesconhecidos.delete(FANTASMA)
+            estado.respostas['/session/connect'] = { status: 401, corpo: { code: 401, error: 'unauthorized' } }
+            // o connect falso responde 401 a TODO token; o caso mede que o reuso não insiste e cria uma só
+            const r = await chamar(rotaQr, 'POST')
+            expect(criacoes()).toHaveLength(1)
+            expect(estado.db.whatsapp_conexao.every((c) => c.wuzapi_token !== FANTASMA)).toBe(true)
+            expect(r.status).toBe(200)
+        })
+
+        it('o contraste: token reusado que o WUZAPI CONHECE não é descartado, e nada é criado', async () => {
+            montar({ whatsapp_conexao: [{ tenant_id: T, canal: 'ORCAMENTISTA', wuzapi_token: 'orc_valido', conectado_por: USUARIO, conectado_em: '2026-10-21T00:00:00Z', ativo: false }] })
+            const r = await chamar(rotaQr, 'POST')
+            expect(r.status).toBe(200)
+            expect(criacoes()).toHaveLength(0)
+            expect(estado.db.whatsapp_conexao[0].wuzapi_token).toBe('orc_valido')
+        })
+    })
+
+    describe('(3) o rastro da criação, sem segredo', () => {
+        it('a linha da criação registra o status e o corpo — e nem o fantasma, nem o token novo, nem o de admin aparecem', async () => {
+            conexaoFantasma()
+            estado.respostas['/admin/users'] = { status: 500, corpo: { error: 'falha do servidor de teste' } }
+            await chamar(rotaQr, 'POST')
+            const doQr = linhas.filter((l) => l.startsWith('[QR-ORCAMENTISTA]'))
+            const criacao = doQr.find((l) => l.includes('passo=criar-instancia'))
+            expect(criacao).toEqual(expect.stringContaining('status=500'))
+            expect(criacao).toEqual(expect.stringContaining('falha do servidor de teste'))
+            expect(doQr.some((l) => l.includes('fantasma'))).toBe(true)
+            const tudo = linhas.join('\n')
+            const novo = (criacoes()[0].corpo as { token: string }).token
+            for (const segredo of [FANTASMA, novo, 'admin-de-teste']) expect(tudo).not.toContain(segredo)
         })
     })
 })
