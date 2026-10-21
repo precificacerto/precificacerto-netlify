@@ -1,5 +1,5 @@
 -- ════════════════════════════════════════════════════════════════════════════════════════
--- SEGURANÇA — FECHAR AS FUNÇÕES SECURITY DEFINER ABERTAS A anon E authenticated
+-- SEGURANÇA — FECHAR AS NOVE ASSINATURAS SECURITY DEFINER ABERTAS A anon E authenticated
 --
 -- ╔══════════════════════════════════════════════════════════════════════════════════════
 -- ║ NÃO APLICADA. Escrita em 21/10/2026, para ser lida antes de o dono do produto autorizar.
@@ -22,6 +22,9 @@
 --     delete_budget_cascade(p_budget_id uuid, p_tenant_id uuid)
 --     delete_order_cascade(p_order_id uuid, p_tenant_id uuid)
 -- As quatro "cascade" recebem p_tenant_id POR ARGUMENTO: quem chama escolhe a conta que sofre.
+--   e uma NONA, medida em seguida (21/10/2026):
+--     calc_item_net_cost(p_item_id uuid) ... anon e authenticated. Lê o item SÓ PELO ID, sem
+--     conferir a conta: com a chave do navegador, devolve o custo de item de qualquer empresa.
 --
 -- ══ POR QUE AS TRÊS CASCATAS ESTAVAM ABERTAS, SE TINHAM REVOKE ══
 -- `20260514000001_cascade_delete_pipeline.sql:431-433` revoga só de PUBLIC. No Supabase, `anon` e
@@ -38,28 +41,35 @@
 --   delete_budget_cascade ....... src/pages/api/delete/budgets.ts:38
 --   delete_order_cascade ........ src/pages/api/delete/orders.ts:44
 --   invite_user_to_tenant ....... NENHUMA chamada; só em `src/supabase/database.types.ts`
+--   calc_item_net_cost .......... NENHUMA chamada; só em `src/supabase/database.types.ts`, e
+--                                 nenhuma outra função das migrações a chama por dentro
 -- Nenhuma chamada a `/rest/v1/rpc/` destas no código. Fechá-las não quebra tela; o
 -- `GRANT ... TO service_role` mantém as rotas funcionando.
 --
--- ══ AS ASSINATURAS QUE O REPOSITÓRIO NÃO CONHECE — e por que há um bloco dinâmico ══
--- `create_tenant_from_stripe`: o repositório só tem UMA definição, de NOVE argumentos
--- (`20260305000000`); a produção tem duas, de DEZ e de SETE. `create_tenant_with_admin`: o
--- repositório tem duas versões, com e sem `p_caller_user_id`, e não diz qual está em produção.
--- Escrever essas assinaturas à mão seria inventar o estado do banco. Então:
---   - as CINCO de assinatura conhecida são fechadas por nome e assinatura LITERAIS;
---   - as TRÊS de assinatura desconhecida são fechadas por um bloco que lê `pg_proc` e EXIGE o
---     que foi medido — `create_tenant_from_stripe` com exatamente duas assinaturas, de 10 e de 7
---     argumentos; `create_tenant_with_admin` com exatamente uma. Se o banco tiver outra coisa, o
---     bloco ABORTA a migração inteira, sem fechar nada pela metade. Cada assinatura fechada sai
---     num NOTICE, por extenso;
---   - no fim, uma VERIFICAÇÃO que aborta se QUALQUER assinatura destes sete nomes continuar
---     executável por PUBLIC, anon ou authenticated, ou deixar de ser executável por service_role.
+-- ══ AS NOVE ASSINATURAS SÃO LITERAIS ══
+-- O repositório NÃO tem as assinaturas de produção de três delas: `create_tenant_from_stripe`
+-- aparece só com NOVE argumentos (`20260305000000`), e `create_tenant_with_admin` em duas versões.
+-- As três foram MEDIDAS no banco de produção pelo dono do produto em 21/10/2026 e estão escritas
+-- abaixo como ele as mediu. Uma assinatura que não existir faz o REVOKE falhar, e a migração
+-- inteira volta.
+--
+-- ══ A ÚNICA TRAVA É A VERIFICAÇÃO FINAL ══
+-- Depois dos REVOKE, um bloco lê `pg_proc` e ABORTA A MIGRAÇÃO INTEIRA se QUALQUER assinatura
+-- destes oito nomes — as nove listadas e qualquer outra que exista com o mesmo nome — continuar
+-- executável por PUBLIC, anon ou authenticated, ou deixar de ser executável por service_role; e
+-- aborta se o número de assinaturas desses nomes não for exatamente nove.
 --
 -- ══ O QUE ESTA MIGRAÇÃO NÃO FAZ ══
--- Não muda o corpo de função nenhuma; não toca em tabela; não fecha as outras SECURITY DEFINER
--- sem REVOKE do repositório (estão listadas no relatório do PR — algumas são helpers de RLS que
--- `authenticated` PRECISA executar). Não conserta `calc-tax-engine`, `send-reminder`,
--- `send-recurrence`, `eduzz` nem `set-super-admin-password` — cada uma tem o seu PR.
+-- Não muda o corpo de função nenhuma; não toca em tabela.
+-- FICAM ABERTAS, de propósito (decisão do dono do produto, 21/10/2026):
+--   - as quatro de RLS — `get_auth_tenant_id`, `is_super_admin`, `is_tenant_admin`,
+--     `is_admin_or_manager`: as políticas rodam como o usuário, e `authenticated` PRECISA
+--     executá-las; fechá-las quebraria a RLS;
+--   - as de equipe — `invite_team_member`, `update_user_permissions`, `update_team_member_role`,
+--     `deactivate_team_member`: conferem o chamador por dentro (`auth.uid()`, dono ou admin da
+--     mesma conta).
+-- Não conserta `calc-tax-engine`, `send-reminder`, `send-recurrence`, `eduzz` nem
+-- `set-super-admin-password` — cada uma tem o seu PR.
 --
 -- ══ CUIDADO PARA O FUTURO ══
 -- `CREATE OR REPLACE FUNCTION` preserva estes privilégios. `DROP FUNCTION` + `CREATE` NÃO: a função
@@ -85,43 +95,51 @@ GRANT EXECUTE ON FUNCTION public.delete_budget_cascade(uuid, uuid) TO service_ro
 REVOKE ALL ON FUNCTION public.delete_order_cascade(uuid, uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.delete_order_cascade(uuid, uuid) TO service_role;
 
--- ── 2. As TRÊS de assinatura que o repositório não conhece — lidas do banco, com o medido exigido ──
-DO $fecha$
-DECLARE
-  f record;
-  n_stripe int;
-  aridades int[];
-  n_admin int;
-BEGIN
-  SELECT count(*), array_agg(p.pronargs::int ORDER BY p.pronargs DESC)
-    INTO n_stripe, aridades
-    FROM pg_proc p JOIN pg_namespace ns ON ns.oid = p.pronamespace
-   WHERE ns.nspname = 'public' AND p.proname = 'create_tenant_from_stripe';
-  IF n_stripe <> 2 OR aridades <> ARRAY[10, 7] THEN
-    RAISE EXCEPTION 'create_tenant_from_stripe: o medido em 21/10/2026 eram 2 assinaturas, de 10 e de 7 argumentos; o banco tem % assinatura(s), com % argumentos. Nada foi alterado — confira antes de aplicar.', n_stripe, aridades;
-  END IF;
+-- ── 2. As TRÊS que o repositório não tem — literais, como medidas em produção em 21/10/2026 ──
+REVOKE ALL ON FUNCTION public.create_tenant_from_stripe(
+  p_name text, p_admin_email text, p_admin_name text,
+  p_stripe_customer_id text, p_stripe_subscription_id text,
+  p_revenue_tier text, p_plan_slug text
+) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.create_tenant_from_stripe(
+  p_name text, p_admin_email text, p_admin_name text,
+  p_stripe_customer_id text, p_stripe_subscription_id text,
+  p_revenue_tier text, p_plan_slug text
+) TO service_role;
 
-  SELECT count(*) INTO n_admin
-    FROM pg_proc p JOIN pg_namespace ns ON ns.oid = p.pronamespace
-   WHERE ns.nspname = 'public' AND p.proname = 'create_tenant_with_admin';
-  IF n_admin <> 1 THEN
-    RAISE EXCEPTION 'create_tenant_with_admin: o medido em 21/10/2026 era 1 assinatura; o banco tem %. Nada foi alterado — confira antes de aplicar.', n_admin;
-  END IF;
+REVOKE ALL ON FUNCTION public.create_tenant_from_stripe(
+  p_name text, p_admin_email text, p_admin_name text,
+  p_admin_phone text, p_stripe_customer_id text, p_stripe_subscription_id text,
+  p_revenue_tier text, p_plan_slug text, p_plan_status text,
+  p_trial_ends_at timestamp with time zone
+) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.create_tenant_from_stripe(
+  p_name text, p_admin_email text, p_admin_name text,
+  p_admin_phone text, p_stripe_customer_id text, p_stripe_subscription_id text,
+  p_revenue_tier text, p_plan_slug text, p_plan_status text,
+  p_trial_ends_at timestamp with time zone
+) TO service_role;
 
-  FOR f IN
-    SELECT format('public.%I(%s)', p.proname, pg_get_function_identity_arguments(p.oid)) AS assinatura
-      FROM pg_proc p JOIN pg_namespace ns ON ns.oid = p.pronamespace
-     WHERE ns.nspname = 'public' AND p.proname IN ('create_tenant_from_stripe', 'create_tenant_with_admin')
-     ORDER BY p.proname, p.pronargs DESC
-  LOOP
-    EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC, anon, authenticated', f.assinatura);
-    EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO service_role', f.assinatura);
-    RAISE NOTICE 'fechada: %', f.assinatura;
-  END LOOP;
-END
-$fecha$;
+REVOKE ALL ON FUNCTION public.create_tenant_with_admin(
+  p_name text, p_admin_email text, p_admin_name text,
+  p_caller_user_id uuid, p_cnpj_cpf text, p_segment text,
+  p_company_email text, p_company_phone text, p_cep text, p_street text,
+  p_number text, p_complement text, p_neighborhood text, p_city text,
+  p_state_code character
+) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.create_tenant_with_admin(
+  p_name text, p_admin_email text, p_admin_name text,
+  p_caller_user_id uuid, p_cnpj_cpf text, p_segment text,
+  p_company_email text, p_company_phone text, p_cep text, p_street text,
+  p_number text, p_complement text, p_neighborhood text, p_city text,
+  p_state_code character
+) TO service_role;
 
--- ── 3. VERIFICAÇÃO — aborta se alguma assinatura destes sete nomes ficou aberta ─────────────
+-- ── 2b. A NONA — o custo de item de qualquer empresa pela chave do navegador ──────────────
+REVOKE ALL ON FUNCTION public.calc_item_net_cost(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.calc_item_net_cost(uuid) TO service_role;
+
+-- ── 3. VERIFICAÇÃO — a ÚNICA trava: aborta a migração inteira se algo ficou aberto ──────────
 DO $verifica$
 DECLARE
   aberta text;
@@ -132,23 +150,25 @@ BEGIN
     FROM pg_proc p JOIN pg_namespace ns ON ns.oid = p.pronamespace
    WHERE ns.nspname = 'public'
      AND p.proname IN ('create_tenant_from_stripe', 'create_tenant_with_admin', 'delete_sale_cascade',
-                       'invite_user_to_tenant', 'cancel_sale_cascade', 'delete_budget_cascade', 'delete_order_cascade')
+                       'invite_user_to_tenant', 'cancel_sale_cascade', 'delete_budget_cascade', 'delete_order_cascade',
+                       'calc_item_net_cost')
      AND (   has_function_privilege('anon', p.oid, 'EXECUTE')
           OR has_function_privilege('authenticated', p.oid, 'EXECUTE')
           OR NOT has_function_privilege('service_role', p.oid, 'EXECUTE'));
   IF aberta IS NOT NULL THEN
-    RAISE EXCEPTION 'ainda aberta (ou service_role sem EXECUTE): %', aberta;
+    RAISE EXCEPTION 'ainda aberta (ou service_role sem EXECUTE): %. Nada foi alterado.', aberta;
   END IF;
 
   SELECT count(*) INTO fechadas
     FROM pg_proc p JOIN pg_namespace ns ON ns.oid = p.pronamespace
    WHERE ns.nspname = 'public'
      AND p.proname IN ('create_tenant_from_stripe', 'create_tenant_with_admin', 'delete_sale_cascade',
-                       'invite_user_to_tenant', 'cancel_sale_cascade', 'delete_budget_cascade', 'delete_order_cascade');
-  IF fechadas <> 8 THEN
-    RAISE EXCEPTION 'esperadas 8 assinaturas (as 2 de create_tenant_from_stripe contam separado); o banco tem %', fechadas;
+                       'invite_user_to_tenant', 'cancel_sale_cascade', 'delete_budget_cascade', 'delete_order_cascade',
+                       'calc_item_net_cost');
+  IF fechadas <> 9 THEN
+    RAISE EXCEPTION 'esperadas 9 assinaturas (as 2 de create_tenant_from_stripe contam separado); o banco tem %. Nada foi alterado.', fechadas;
   END IF;
-  RAISE NOTICE 'as 8 assinaturas fechadas para PUBLIC, anon e authenticated; service_role executa.';
+  RAISE NOTICE 'as 9 assinaturas fechadas para PUBLIC, anon e authenticated; service_role executa.';
 END
 $verifica$;
 
@@ -164,9 +184,10 @@ COMMIT;
 --   from pg_proc p join pg_namespace n on n.oid = p.pronamespace
 --   where n.nspname = 'public'
 --     and p.proname in ('create_tenant_from_stripe', 'create_tenant_with_admin', 'delete_sale_cascade',
---                       'invite_user_to_tenant', 'cancel_sale_cascade', 'delete_budget_cascade', 'delete_order_cascade')
+--                       'invite_user_to_tenant', 'cancel_sale_cascade', 'delete_budget_cascade', 'delete_order_cascade',
+--                       'calc_item_net_cost')
 --   order by 1;
---   → 8 linhas; anon = false e authenticated = false em todas; service_role = true em todas.
+--   → 9 linhas; anon = false e authenticated = false em todas; service_role = true em todas.
 --
 -- (2) as rotas que as chamam continuam funcionando — elas usam service_role. Conferir com uma
 --     exclusão de orçamento de teste, por exemplo, e o log da rota.
