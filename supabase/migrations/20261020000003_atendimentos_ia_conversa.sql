@@ -71,7 +71,18 @@
 --     `service_role`. As políticas ficam como segunda camada;
 --   - FK com ON DELETE CASCADE: excluir o tenant leva as conversas, as mensagens, as
 --     pré-definições e as tentativas; excluir a conversa leva as mensagens e a pré-definição
---     dela; excluir o funcionário (exclusão física — a lógica é `is_active`) leva as conversas.
+--     dela.
+--
+-- ══ EXCLUIR O FUNCIONÁRIO NÃO APAGA A CONVERSA (dono do produto, 21/10/2026) ══
+-- `orcamentista_conversa.employee_id` é NULÁVEL, com ON DELETE SET NULL — e é a ÚNICA FK desta
+-- migration que não é CASCADE. Excluir o funcionário (exclusão física; a lógica é `is_active`)
+-- deixa a conversa, as mensagens e a pré-definição VIVAS, com `employee_id` nulo; a conversa
+-- continua identificável pelo `telefone`, que está gravado nela.
+-- Por que não RESTRICT: travaria a exclusão do funcionário — o RH batendo numa parede por causa
+-- de um histórico de conversa. Por que não CASCADE (a versão anterior deste arquivo, de
+-- 20/10/2026): apagava o histórico junto.
+-- `employee_id` NULO quer dizer "o funcionário foi excluído", não "conversa sem funcionário": a
+-- rota só ABRE conversa com funcionário ativo, e o nulo só nasce pelo SET NULL.
 --
 -- ADITIVA. Quatro tabelas novas, as políticas e os índices. Nenhum DROP, nenhum UPDATE, nenhum
 -- ALTER em tabela existente, nenhum GRANT.
@@ -83,7 +94,7 @@ BEGIN;
 CREATE TABLE public.orcamentista_conversa (
   id           uuid        NOT NULL PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id    uuid        NOT NULL REFERENCES public.tenants(id) ON DELETE CASCADE,
-  employee_id  uuid        NOT NULL REFERENCES public.employees(id) ON DELETE CASCADE,
+  employee_id  uuid        NULL REFERENCES public.employees(id) ON DELETE SET NULL,
   telefone     text        NOT NULL,
   criado_em    timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT orcamentista_conversa_id_tenant_key UNIQUE (id, tenant_id)
@@ -91,6 +102,8 @@ CREATE TABLE public.orcamentista_conversa (
 
 COMMENT ON TABLE public.orcamentista_conversa IS
   'Uma conversa do Atendimentos I.A. com um FUNCIONARIO (employees) de um tenant. O tenant vem do token da instancia (users.wuzapi_token); o funcionario, do telefone, dentro daquele tenant. O telefone nunca escolhe tenant. So pela rota, com service_role.';
+COMMENT ON COLUMN public.orcamentista_conversa.employee_id IS
+  'O funcionario da conversa. NULL = o funcionario foi EXCLUIDO depois (ON DELETE SET NULL, decisao do dono do produto, 21/10/2026): a conversa e as mensagens ficam, identificaveis pelo telefone. A rota so abre conversa com funcionario ativo.';
 COMMENT ON COLUMN public.orcamentista_conversa.telefone IS
   'O telefone do remetente como chegou no webhook, para a resposta voltar a ele.';
 COMMENT ON CONSTRAINT orcamentista_conversa_id_tenant_key ON public.orcamentista_conversa IS
@@ -266,9 +279,9 @@ COMMIT;
 --                                       'orcamentista_pre_definicao',
 --                                       'orcamentista_tentativa_desconhecida')
 --    order by 1, 2;
---   esperado: 7 linhas, confdeltype = 'c' em todas — conversa → tenants e → employees;
---   mensagem → tenants e → orcamentista_conversa; pré-definição → tenants e →
---   orcamentista_conversa; tentativa → tenants.
+--   esperado: 7 linhas. confdeltype = 'n' (SET NULL) em conversa → employees, e SÓ nela;
+--   'c' (CASCADE) nas outras seis — conversa → tenants; mensagem → tenants e →
+--   orcamentista_conversa; pré-definição → tenants e → orcamentista_conversa; tentativa → tenants.
 --
 -- (5) A tentativa NÃO tem coluna de texto:
 --   select column_name from information_schema.columns
