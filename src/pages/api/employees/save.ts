@@ -1,6 +1,39 @@
+/**
+ * POST /api/employees/save — cria ou edita um funcionário da conta do chamador, e (só para o admin
+ * da conta) as permissões de acesso dele.
+ *
+ * ══ CORREÇÃO DE SEGURANÇA, 21/10/2026 ══
+ * Regra do dono do produto, literal: nenhuma informação atravessa entre contas, nunca. Até esta
+ * data a rota, com `supabaseAdmin` (service_role, que IGNORA a RLS):
+ *   - editava pelo `editing_id` do corpo SEM filtrar a conta — o admin da conta A alterava o
+ *     funcionário da conta B, o USUÁRIO dele (até promovê-lo a `admin` na conta B) e gravava
+ *     permissões para ele;
+ *   - aceitava qualquer usuário logado, sem conferir a permissão do módulo `employees`;
+ *   - deixava qualquer um gravar permissões de acesso e `user_role` — inclusive as PRÓPRIAS: um
+ *     vendedor se dava todos os módulos e virava `admin`.
+ * Agora:
+ *   - TODA leitura e escrita filtra pelo `tenant_id` do chamador (`getCallerContext`), nunca do
+ *     corpo. Id de outra conta responde 404 — o MESMO de um id que não existe: não se confirma
+ *     que o registro existe;
+ *   - a rota exige poder EDITAR o módulo `employees` (`podeEditarModulo`);
+ *   - mexer em permissão de acesso (`modulePermissions`, `itemAccessMode`, `selectedItemIds`,
+ *     `employee.user_role`) exige ser ADMIN DA CONTA; senão, 403 e nada é gravado;
+ *   - ninguém altera as PRÓPRIAS permissões: o admin que salva o próprio cadastro tem o cadastro
+ *     gravado, e as permissões e o papel dele ficam como estavam — a resposta traz `aviso`.
+ * Portão: `src/utils/__tests__/employees-save-nao-cruza-conta.test.ts`.
+ */
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { supabaseAdmin } from '@/supabase/admin'
-import { getCallerContext } from '@/lib/get-caller-tenant'
+import { getCallerContext, type CallerContext } from '@/lib/get-caller-tenant'
+import { podeEditarModulo } from '@/lib/permissao-do-modulo'
+
+/** `MODULES.EMPLOYEES` — escrito aqui porque o hook de permissões é código de navegador. */
+const MODULO_DE_FUNCIONARIOS = 'employees'
+const NAO_ENCONTRADO = 'Funcionário não encontrado.'
+export const AVISO_PROPRIAS_PERMISSOES =
+    'As suas próprias permissões de acesso não foram alteradas: ninguém altera as próprias permissões.'
+
+const ehAdminDaConta = (caller: CallerContext) => !caller.is_super_admin && (caller.role ?? '').toLowerCase() === 'admin'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (req.method !== 'POST') {
@@ -10,24 +43,36 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const caller = await getCallerContext(req, res)
     if (!caller) return
 
-    const { employee, editing_id, modulePermissions, itemAccessMode, selectedItemIds } = req.body
+    const { employee, editing_id, modulePermissions, itemAccessMode, selectedItemIds } = req.body ?? {}
+    // A conta é SEMPRE a do chamador. Um `tenant_id` no corpo, ou dentro de `employee`, é ignorado.
     const tenant_id = caller.tenant_id
 
     if (!employee?.name) {
         return res.status(400).json({ error: 'employee.name is required' })
     }
 
-    const pendingPerms = {
+    if (!(await podeEditarModulo(caller, MODULO_DE_FUNCIONARIOS))) {
+        return res.status(403).json({ error: 'Sem permissão para editar funcionários.' })
+    }
+
+    const mexeEmPermissao = modulePermissions !== undefined || itemAccessMode !== undefined
+        || selectedItemIds !== undefined || employee?.user_role !== undefined
+    if (mexeEmPermissao && !ehAdminDaConta(caller)) {
+        return res.status(403).json({ error: 'Só o administrador da conta altera permissões de acesso.' })
+    }
+
+    // Só existe quando um ADMIN DA CONTA mandou permissões; sem isso, nada de permissão é gravado.
+    const pendingPerms = mexeEmPermissao ? {
         modules: modulePermissions || null,
         item_access_mode: itemAccessMode || 'all',
         item_ids: selectedItemIds || [],
         granted_by: caller.user_id,
         user_role: (employee?.user_role === 'admin' ? 'admin' : 'user'),
-    }
+    } : null
 
     try {
         if (editing_id) {
-            return await handleUpdate(res, editing_id, employee, tenant_id, pendingPerms)
+            return await handleUpdate(res, editing_id, employee, tenant_id, pendingPerms, caller.user_id)
         } else {
             return await handleCreate(res, employee, tenant_id, pendingPerms)
         }
@@ -109,23 +154,30 @@ async function applyPermissions(supabase: typeof supabaseAdmin, tenant_id: strin
     }
 }
 
-async function handleUpdate(res: NextApiResponse, editing_id: string, employee: any, tenant_id: string, pendingPerms: any) {
+async function handleUpdate(res: NextApiResponse, editing_id: string, employee: any, tenant_id: string, pendingPerms: any, callerUserId: string) {
     const { data: current } = await supabaseAdmin
         .from('employees')
         .select('user_id, email')
         .eq('id', editing_id)
-        .single()
+        .eq('tenant_id', tenant_id)
+        .maybeSingle()
 
-    const user_id = current?.user_id || null
+    // De outra conta, ou inexistente: a MESMA resposta — não se confirma que o registro existe.
+    if (!current) return res.status(404).json({ error: NAO_ENCONTRADO })
+
+    const user_id = current.user_id || null
+    // Ninguém altera as PRÓPRIAS permissões: o cadastro grava, as permissões e o papel não.
+    const proprio = !!user_id && user_id === callerUserId
+    const aplicarPermissoes = !!pendingPerms && !proprio
 
     // Ao editar, NUNCA criamos usuário no Auth. O usuário só é criado quando o funcionário aceita o convite.
     // Se já tem user_id (aceitou convite): aplicamos permissões em user_module_permissions.
     // Se não tem user_id: gravamos as permissões em pending_permissions para aplicar quando aceitar.
 
     if (user_id && employee.email) {
-        const { data: u } = await supabaseAdmin.from('users').select('is_super_admin').eq('id', user_id).single()
-        if (!u?.is_super_admin) {
-            const nextRole = employee.user_role === 'admin' ? 'admin' : undefined
+        const { data: u } = await supabaseAdmin.from('users').select('is_super_admin').eq('id', user_id).eq('tenant_id', tenant_id).maybeSingle()
+        if (u && !u.is_super_admin) {
+            const nextRole = aplicarPermissoes && employee.user_role === 'admin' ? 'admin' : undefined
             const { error: errMudo27 } = await supabaseAdmin
                 .from('users')
                 .update({
@@ -136,6 +188,7 @@ async function handleUpdate(res: NextApiResponse, editing_id: string, employee: 
                     updated_at: new Date().toISOString(),
                 })
                 .eq('id', user_id)
+                .eq('tenant_id', tenant_id)
             if (errMudo27) throw errMudo27
         }
     }
@@ -171,16 +224,21 @@ async function handleUpdate(res: NextApiResponse, editing_id: string, employee: 
         .from('employees')
         .update(updatePayload)
         .eq('id', editing_id)
+        .eq('tenant_id', tenant_id)
         .select()
         .single()
 
     if (empError) throw empError
 
-    if (pendingPerms && user_id) {
+    if (aplicarPermissoes && user_id) {
         await applyPermissions(supabaseAdmin, tenant_id, user_id, pendingPerms)
-        const { error: errMudo26 } = await supabaseAdmin.from('employees').update({ pending_permissions: null }).eq('id', editing_id)
+        const { error: errMudo26 } = await supabaseAdmin.from('employees').update({ pending_permissions: null }).eq('id', editing_id).eq('tenant_id', tenant_id)
         if (errMudo26) throw errMudo26
     }
 
-    return res.status(200).json({ success: true, employee: updated })
+    return res.status(200).json({
+        success: true,
+        employee: updated,
+        ...(proprio && pendingPerms ? { aviso: AVISO_PROPRIAS_PERMISSOES } : {}),
+    })
 }
