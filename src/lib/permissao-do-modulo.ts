@@ -64,6 +64,26 @@ export async function podeEditarModulo(
 }
 
 /**
+ * O chamador pode VER aquele módulo? Admin e super admin passam direto; os demais dependem de
+ * `can_view` em `user_module_permissions` — o mesmo dado que esconde o item do menu
+ * (`use-permissions.hook.ts`), lido agora no servidor, onde ele é trava.
+ */
+export async function podeVerModulo(
+  caller: ChamadorAutorizado,
+  modulo: string,
+): Promise<boolean> {
+  if (caller.is_super_admin || caller.role === 'admin') return true
+  const { data: perms } = await supabaseAdmin
+    .from('user_module_permissions')
+    .select('can_view')
+    .eq('user_id', caller.user_id)
+    .eq('tenant_id', caller.tenant_id)
+    .eq('module', modulo)
+    .single()
+  return !!perms?.can_view
+}
+
+/**
  * O atalho para quem quer o caminho completo: resolve o chamador, confere e responde 403.
  *
  * Devolve `null` quando JÁ respondeu ao cliente — `getCallerContext` responde sozinho no

@@ -9,6 +9,7 @@ import { useDevice } from '@/contexts/device.context'
 import { MobileCollapse } from '@/components/ui/mobile-collapse.component'
 import { useCustomers } from '@/hooks/use-data.hooks'
 import { SelecaoDeClientes } from '@/page-parts/conectividade/selecao-de-clientes.component'
+import { CelulaDoOrcamentista } from '@/page-parts/conectividade/celula-do-orcamentista.component'
 import type { TenantSettings } from '@/supabase/types'
 import type { Customer } from '@/supabase/types'
 import {
@@ -331,6 +332,10 @@ function Conectividade() {
                     <div style={{ textAlign: 'center', padding: 80 }}><Spin size="large" /></div>
                 ) : (
                     <div style={{ width: '100%', maxWidth: 1200, margin: '0 auto', padding: '0 4px' }}>
+
+                        {/* A PRIMEIRA célula: o orçamentista da empresa. Só aparece com a seção ligada —
+                            quem decide é a rota dela (404), não esta página. */}
+                        <CelulaDoOrcamentista />
 
                         {isSuperAdmin && (
                             <Card size="small" style={{ marginBottom: 24, borderRadius: 12 }}>
