@@ -100,6 +100,11 @@ export async function chamadorDoOrcamentista(
 // ── A conexão do canal ORCAMENTISTA ────────────────────────────────────────────────────────
 export interface ConexaoDoOrcamentista {
     wuzapi_token: string
+    /**
+     * O segredo da URL de entrada (`/api/atendimentos-ia/inbound?c=`). NULL só em linha gravada
+     * antes da migração `20261022000001` — a rota do QR dá um a ela no próximo clique.
+     */
+    webhook_segredo: string | null
     conectado_por: string | null
     conectado_em: string
     ativo: boolean
@@ -108,7 +113,7 @@ export interface ConexaoDoOrcamentista {
 export async function lerConexao(tenantId: string): Promise<ConexaoDoOrcamentista | null> {
     const { data, error } = await supabaseAdmin
         .from('whatsapp_conexao')
-        .select('wuzapi_token, conectado_por, conectado_em, ativo')
+        .select('wuzapi_token, webhook_segredo, conectado_por, conectado_em, ativo')
         .eq('tenant_id', tenantId)
         .eq('canal', CANAL_DO_ORCAMENTISTA)
         .maybeSingle()
@@ -116,8 +121,17 @@ export async function lerConexao(tenantId: string): Promise<ConexaoDoOrcamentist
     return (data as ConexaoDoOrcamentista | null) ?? null
 }
 
-/** Grava a conexão do canal — SUBSTITUI a do tenant, pela UNIQUE (tenant_id, canal). */
-export async function gravarConexao(tenantId: string, campos: Omit<ConexaoDoOrcamentista, 'conectado_em'> & { conectado_em?: string }) {
+/**
+ * Grava a conexão do canal — SUBSTITUI a do tenant, pela UNIQUE (tenant_id, canal).
+ *
+ * O `webhook_segredo` é OBRIGATÓRIO e não nulo aqui, de propósito: toda linha que o sistema grava
+ * sai com segredo, e o compilador recusa quem esquecer (`construtor-empobrecido.md`). Quem cria a
+ * linha gera um com `segredoNovo()`; quem a reusa passa o que ela já tem.
+ */
+export async function gravarConexao(
+    tenantId: string,
+    campos: Omit<ConexaoDoOrcamentista, 'conectado_em' | 'webhook_segredo'> & { webhook_segredo: string; conectado_em?: string },
+) {
     const { error } = await supabaseAdmin
         .from('whatsapp_conexao')
         .upsert({ tenant_id: tenantId, canal: CANAL_DO_ORCAMENTISTA, ...campos }, { onConflict: 'tenant_id,canal' })
@@ -145,8 +159,16 @@ export async function nomeDoUsuario(userId: string, tenantId: string): Promise<s
 /** Um token novo para a instância do orçamentista — nunca o de um usuário. */
 export const tokenNovo = () => `orc_${randomUUID().replace(/-/g, '')}`
 
+/**
+ * O segredo da URL de entrada de uma conexão: 32 hexadecimais, de um `randomUUID` PRÓPRIO — a mesma
+ * forma do token, e um valor INDEPENDENTE dele. Nunca se deriva um do outro: o token é a credencial
+ * do WUZAPI (vai no header `token:`); o segredo vai na URL, que cai em log de acesso, e só abre a
+ * rota de entrada. Quem lê um não pode chegar ao outro.
+ */
+export const segredoNovo = () => randomUUID().replace(/-/g, '')
+
 export const PREFIXO_DO_LOG_DO_QR = '[QR-ORCAMENTISTA]'
-export type PassoDoQr = 'instancia' | 'session-status' | 'criar-instancia' | 'session-connect' | 'session-qr'
+export type PassoDoQr = 'instancia' | 'session-status' | 'criar-instancia' | 'webhook' | 'session-connect' | 'session-qr'
 const LIMITE_DO_CORPO_NO_LOG = 2048
 
 /**
@@ -226,6 +248,46 @@ export async function estadoDaSessao(token: string): Promise<{ logada: boolean |
         return { logada: d.LoggedIn === true || d.loggedIn === true || d.IsLoggedIn === true, status: r.status }
     } catch {
         return { logada: null, status: null }
+    }
+}
+
+// ── O WEBHOOK DA INSTÂNCIA ──────────────────────────────────────────────────────────────────
+/**
+ * Os eventos que a instância entrega ao webhook. OBRIGATÓRIO no `POST /webhook`: medido em produção
+ * em 22/10/2026, o POST SEM o campo "events" ZERA a lista de eventos da instância, e o WUZAPI passa
+ * a descartar toda mensagem com "Skipping webhook. Not subscribed for this type".
+ */
+export const EVENTOS_DO_WEBHOOK = ['Message'] as const
+
+/**
+ * A origem do sistema para a URL de entrada — da configuração, NUNCA do cabeçalho da requisição:
+ * quem chama a rota não escolhe para onde o WUZAPI vai entregar as mensagens. O padrão é o de
+ * `src/pages/api/super-admin/create-admin.ts`.
+ */
+const origemDoSistema = () => (process.env.NEXT_PUBLIC_APP_URL || 'https://app.precificacerto.com').replace(/\/+$/, '')
+
+/** A URL que o WUZAPI chama a cada mensagem: a rota de entrada, com o segredo da conexão. */
+export const urlDeEntrada = (segredo: string) => `${origemDoSistema()}/api/atendimentos-ia/inbound?c=${segredo}`
+
+/**
+ * Aponta o webhook da instância para a rota de entrada: `POST /webhook` com o token da instância no
+ * header e `{ webhookURL, events }` no corpo. Devolve se o WUZAPI respondeu 2xx — sem isso a conexão
+ * não está pronta: as mensagens não chegariam a lugar nenhum.
+ *
+ * O log leva o host e o status — NUNCA o token, o segredo ou a URL (que contém o segredo).
+ */
+export async function apontarWebhook(token: string, segredo: string): Promise<boolean> {
+    try {
+        const r = await fetch(`${wuzapi()}/webhook`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', token },
+            body: JSON.stringify({ webhookURL: urlDeEntrada(segredo), events: [...EVENTOS_DO_WEBHOOK] }),
+        })
+        anotarPassoDoQr('webhook', `POST /webhook status=${r.status}`, [token, segredo])
+        return r.ok
+    } catch (e) {
+        anotarPassoDoQr('webhook', `POST /webhook excecao=${motivoDe(e)}`, [token, segredo])
+        return false
     }
 }
 

@@ -282,11 +282,21 @@ describe('(2) conectar grava em whatsapp_conexao, e NÃO toca users.wuzapi_token
     })
 
     it('já conectado: não pede QR, não cria instância, não grava', async () => {
-        montar({ whatsapp_conexao: [{ tenant_id: T, canal: 'ORCAMENTISTA', wuzapi_token: 'orc_existente', conectado_por: 'x', conectado_em: '2026-10-20T00:00:00Z', ativo: true }] })
+        montar({ whatsapp_conexao: [{ tenant_id: T, canal: 'ORCAMENTISTA', wuzapi_token: 'orc_existente', webhook_segredo: 'abababababababababababababababab', conectado_por: 'x', conectado_em: '2026-10-20T00:00:00Z', ativo: true }] })
         estado.logada = true
         const r = await chamar(rotaQr, 'POST')
         expect(r.corpo.conectado).toBe(true)
         expect(escritas()).toEqual([])
+        expect(estado.fetches.some((f) => f.url.endsWith('/admin/users'))).toBe(false)
+    })
+
+    it('já conectado e SEM segredo (linha anterior à 20261022000001): grava só o segredo, e mantém ativo e conectado_por', async () => {
+        montar({ whatsapp_conexao: [{ tenant_id: T, canal: 'ORCAMENTISTA', wuzapi_token: 'orc_existente', conectado_por: 'x', conectado_em: '2026-10-20T00:00:00Z', ativo: true }] })
+        estado.logada = true
+        const r = await chamar(rotaQr, 'POST')
+        expect(r.corpo.conectado).toBe(true)
+        expect(estado.db.whatsapp_conexao).toEqual([expect.objectContaining({ wuzapi_token: 'orc_existente', conectado_por: 'x', ativo: true })])
+        expect(String(estado.db.whatsapp_conexao[0].webhook_segredo)).toMatch(/^[0-9a-f]{32}$/)
         expect(estado.fetches.some((f) => f.url.endsWith('/admin/users'))).toBe(false)
     })
 })
@@ -995,11 +1005,11 @@ describe('(16) o rastro do QR CHEGA AO LOG: sai em console.error (stderr), não 
     afterEach(() => espioes.forEach((e) => e.mockRestore()))
     const doQr = (l: string[]) => l.filter((x) => x.startsWith(PREFIXO_DO_LOG_DO_QR))
 
-    it('instância nova: as cinco chamadas deixam linha em console.error, e NENHUMA vai para os outros métodos', async () => {
+    it('instância nova: as seis chamadas deixam linha em console.error, e NENHUMA vai para os outros métodos', async () => {
         estado.respostas['/admin/users'] = { status: 201, corpo: { code: 201, success: true, data: { id: 'abc123' } } }
         expect((await chamar(rotaQr, 'POST')).status).toBe(200)
         const passos = doQr(deErro).map((l) => /passo=([a-z-]+)/.exec(l)?.[1])
-        expect(passos).toEqual(['instancia', 'criar-instancia', 'session-status', 'session-connect', 'session-qr'])
+        expect(passos).toEqual(['instancia', 'criar-instancia', 'session-status', 'webhook', 'session-connect', 'session-qr'])
         expect(doQr(deLog)).toEqual([])
     })
 
@@ -1351,6 +1361,16 @@ describe('(19) o segredo do webhook é do SISTEMA, e o próprio sistema aponta o
             expect(doWebhook()[0].corpo).toEqual({ webhookURL: urlEsperada(linhaDaConexao().webhook_segredo), events: ['Message'] })
         })
 
+        it('o fantasma descoberto só no CONNECT (o status passou): a instância recriada também aponta, com o token e o segredo novos', async () => {
+            conexaoGravada({ webhook_segredo: '88888888888888888888888888888888' })
+            estado.respostas['/session/connect'] = { status: 401, corpo: { code: 401, error: 'unauthorized' } }
+            await chamar(rotaQr, 'POST')
+            const novo = linhaDaConexao()
+            expect(novo.wuzapi_token).not.toBe(TOKEN_DA_CONEXAO)
+            expect(doWebhook().map((f) => f.headers?.token)).toEqual([TOKEN_DA_CONEXAO, novo.wuzapi_token])
+            expect(doWebhook()[1].corpo).toEqual({ webhookURL: urlEsperada(novo.webhook_segredo), events: ['Message'] })
+        })
+
         it('a origem vem de NEXT_PUBLIC_APP_URL, sem barra dobrada', async () => {
             process.env.NEXT_PUBLIC_APP_URL = 'https://outra.exemplo.test/'
             await chamar(rotaQr, 'POST')
@@ -1396,7 +1416,9 @@ describe('(19) o segredo do webhook é do SISTEMA, e o próprio sistema aponta o
         })
 
         it('nem o token, nem o segredo, nem a URL de entrada aparecem em linha nenhuma', async () => {
-            const SEGREDO = '77777777777777777777777777777777'
+            // com LETRAS: um segredo só de dígitos seria escondido pela máscara de 8+ dígitos por
+            // acaso, e o caso passaria sem provar que o segredo é passado à máscara
+            const SEGREDO = 'ab12cd34ef56ab78cd90ef12ab34cd56'
             conexaoGravada({ webhook_segredo: SEGREDO })
             await chamar(rotaQr, 'POST')
             estado.wuzapiFora.add('/webhook')
