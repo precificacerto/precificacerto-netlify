@@ -168,7 +168,7 @@ export const tokenNovo = () => `orc_${randomUUID().replace(/-/g, '')}`
 export const segredoNovo = () => randomUUID().replace(/-/g, '')
 
 export const PREFIXO_DO_LOG_DO_QR = '[QR-ORCAMENTISTA]'
-export type PassoDoQr = 'instancia' | 'session-status' | 'criar-instancia' | 'webhook' | 'session-connect' | 'session-qr'
+export type PassoDoQr = 'ambiente' | 'instancia' | 'session-status' | 'criar-instancia' | 'webhook' | 'session-connect' | 'session-qr'
 const LIMITE_DO_CORPO_NO_LOG = 2048
 
 /**
@@ -266,6 +266,20 @@ export const EVENTOS_DO_WEBHOOK = ['Message'] as const
  */
 const origemDoSistema = () => (process.env.NEXT_PUBLIC_APP_URL || 'https://app.precificacerto.com').replace(/\/+$/, '')
 
+/**
+ * O ambiente pode apontar o webhook — e, por isso, conectar o orçamentista? Só em PRODUÇÃO
+ * (`VERCEL_ENV === 'production'`) ou SEM `VERCEL_ENV` (desenvolvimento local).
+ *
+ * Medido em 22/10/2026: preview e produção usam o MESMO Supabase e o MESMO servidor WUZAPI. Um
+ * clique em "Conectar" num preview reapontava o webhook da instância de PRODUÇÃO para a URL do
+ * preview, e as mensagens reais paravam de chegar sem erro nenhum na tela. `development` (vercel
+ * dev) e qualquer outro valor também não apontam: só os dois casos acima.
+ */
+export function ambientePermiteApontarWebhook(): boolean {
+    const ambiente = process.env.VERCEL_ENV
+    return !ambiente || ambiente === 'production'
+}
+
 /** A URL que o WUZAPI chama a cada mensagem: a rota de entrada, com o segredo da conexão. */
 export const urlDeEntrada = (segredo: string) => `${origemDoSistema()}/api/atendimentos-ia/inbound?c=${segredo}`
 
@@ -277,6 +291,12 @@ export const urlDeEntrada = (segredo: string) => `${origemDoSistema()}/api/atend
  * O log leva o host e o status — NUNCA o token, o segredo ou a URL (que contém o segredo).
  */
 export async function apontarWebhook(token: string, segredo: string): Promise<boolean> {
+    // A trava mora TAMBÉM aqui, e não só na rota: quem chamar o apontamento por outro caminho não
+    // reaponta a instância de produção a partir de um preview.
+    if (!ambientePermiteApontarWebhook()) {
+        anotarPassoDoQr('webhook', `recusado: VERCEL_ENV=${process.env.VERCEL_ENV} — o webhook só é apontado em produção`, [token, segredo])
+        return false
+    }
     try {
         const r = await fetch(`${wuzapi()}/webhook`, {
             method: 'POST',
