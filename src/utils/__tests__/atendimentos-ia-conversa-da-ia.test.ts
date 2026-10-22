@@ -28,6 +28,13 @@ const TEXTO = 'São 4 janelas de correr, 1500 por 1200'
 const CHAVE = 'sk-ant-CHAVE-DE-TESTE-nao-pode-ir-ao-log'
 const ANTHROPIC = 'https://api.anthropic.com/v1/messages'
 
+/**
+ * O fechamento esperado para SETE_DE_PRODUTO_E_LOCAL, ESCRITO À MÃO a partir do texto aprovado pelo
+ * dono do produto (22/10/2026) — não derivado do módulo, para que um erro no molde fique vermelho.
+ */
+const FECHAMENTO_DOS_SETE = 'Fechado. Anotei tudo: Janela de correr, 1500x1200 mm, 4 peça(s), perfil Branco, vidro Temperado 6mm. Entrega em Porto Alegre. Já passo para o levantamento.'
+/** Os campos que o fechamento cita — a distribuição NÃO está aqui (dono do produto, 22/10/2026). */
+const CAMPOS_NO_FECHAMENTO = ['tipologia', 'largura_mm', 'altura_mm', 'quantidade', 'cor_perfil', 'vidro', 'local']
 const VAZIA: Linha = {
     tipologia: null, largura_mm: null, altura_mm: null, quantidade: null, cor_perfil: null, vidro: null,
     local: null, tipo_edificacao: null, distribuicao_por_pavimento: null,
@@ -391,12 +398,16 @@ describe('(6) a distribuição por pavimento: SÓ com mais de um pavimento', () 
         expect(JSON.stringify(estado.envios)).not.toMatch(/pavimento/i)
     })
 
-    it('CASA: a distribuição proposta pela LLM é descartada e fica NULA; com os outros 8 preenchidos, fecha', async () => {
+    it('CASA: a distribuição proposta pela LLM é descartada e fica NULA; com os outros 8 preenchidos, fecha — e o fechamento NÃO cita distribuição', async () => {
         montar({ ...SETE_DE_PRODUTO_E_LOCAL })
         llmResponde({ campos: { tipo_edificacao: 'CASA', distribuicao_por_pavimento: 'térreo: 4' } })
         await chamar()
         expect(preDefinicao()).toEqual(expect.objectContaining({ tipo_edificacao: 'CASA', distribuicao_por_pavimento: null, estado: 'COMPLETA' }))
-        expect(estado.envios).toEqual([])
+        expect(estado.envios).toHaveLength(1)
+        expect(estado.envios[0].corpo.Body).toBe(FECHAMENTO_DOS_SETE)
+        expect(estado.envios[0].corpo.Body).not.toMatch(/pavimento|térreo/i)
+        expect(saidas()).toEqual([expect.objectContaining({ direcao: 'saida', texto: FECHAMENTO_DOS_SETE })])
+        expect(linhaIa()[0]).toEqual(expect.stringMatching(/enviou=sim.*desfecho=fechou/))
     })
 
     it('PREDIO: a distribuição É perguntada, e a pré-definição segue em coleta', async () => {
@@ -423,14 +434,15 @@ describe('(6) a distribuição por pavimento: SÓ com mais de um pavimento', () 
 })
 
 describe('(7) os 9 campos preenchidos: a IA não pergunta mais nada, e a pré-definição FECHA', () => {
-    it('PREDIO com a distribuição desta mensagem → COMPLETA, nenhuma pergunta enviada', async () => {
+    it('PREDIO, os 9 com a distribuição desta mensagem → COMPLETA e UMA mensagem: o fechamento fixo, não a pergunta da LLM', async () => {
         montar({ ...SETE_DE_PRODUTO_E_LOCAL, tipo_edificacao: 'PREDIO' })
         llmResponde({ campos: { distribuicao_por_pavimento: 'térreo 4, primeiro andar 6' }, pergunta: { campo: null, texto: 'Mais alguma coisa?' } })
         await chamar()
         expect(preDefinicao()?.estado).toBe('COMPLETA')
-        expect(estado.envios).toEqual([])
-        expect(saidas()).toEqual([])
-        expect(linhaIa()[0]).toEqual(expect.stringContaining('desfecho=completa'))
+        expect(estado.envios).toHaveLength(1)
+        expect(estado.envios[0].corpo).toEqual({ Phone: TELEFONE_DO_WEBHOOK, Body: FECHAMENTO_DOS_SETE })
+        expect(saidas()).toEqual([expect.objectContaining({ tenant_id: TENANT, conversa_id: CONVERSA, direcao: 'saida', texto: FECHAMENTO_DOS_SETE, wuzapi_mensagem_id: 'WAMID_SAIDA_1' })])
+        expect(linhaIa()[0]).toEqual(expect.stringMatching(/enviou=sim.*desfecho=fechou/))
     })
 
     it('enquanto falta campo, o estado é EM_COLETA; a pré-definição nasce na primeira mensagem, UMA por conversa', async () => {
@@ -552,5 +564,72 @@ describe('(10) o log [IA]: em console.error, com a contagem — nunca a chave, o
         await chamar()
         const tudo = erros.join('\n')
         for (const s of [CHAVE, TELEFONE_DO_WEBHOOK, TELEFONE_GRAVADO, TEXTO, 'Qual a tipologia das esquadrias?', TOKEN]) expect(tudo).not.toContain(s)
+    })
+})
+
+describe('(11) o FECHAMENTO: ao completar, o vendedor recebe UMA mensagem fixa, com os valores GRAVADOS', () => {
+    const numeros = (t: string) => new Set(t.match(/\d+/g) ?? [])
+
+    it('os valores vêm da pré-definição GRAVADA — não do que a LLM propôs e foi descartado, nem do texto dela', async () => {
+        montar({ ...SETE_DE_PRODUTO_E_LOCAL, tipo_edificacao: 'SOBRADO' })
+        // `tipologia` em `campos` sem correção é DESCARTADA; a pergunta traz prazo e preço inventados
+        llmResponde({
+            campos: { tipologia: 'Porta de giro 2 folhas', distribuicao_por_pavimento: 'térreo 1, superior 3' },
+            pergunta: { campo: null, texto: 'Prazo de 15 dias, total R$ 9.870,00, perfil 25 com 3 kg' },
+        })
+        await chamar()
+        const gravada = preDefinicao() as Linha
+        expect(gravada.tipologia).toBe('Janela de correr')
+        expect(estado.envios).toHaveLength(1)
+        const enviado = String(estado.envios[0].corpo.Body)
+        expect(enviado).toBe(FECHAMENTO_DOS_SETE)
+        // nenhum número fora dos valores gravados que o molde usa — nem o da distribuição
+        const permitidos = numeros(CAMPOS_NO_FECHAMENTO.map((c) => String(gravada[c])).join(' '))
+        expect([...numeros(enviado)].filter((n) => !permitidos.has(n))).toEqual([])
+        expect(enviado).not.toContain((gravada.distribuicao_por_pavimento as { texto: string }).texto)
+    })
+
+    it('o contraste do número: com OUTROS valores gravados, a mensagem muda junto — o molde lê o gravado', async () => {
+        montar({ tipologia: 'Basculante', largura_mm: 600, altura_mm: 400, quantidade: 12, cor_perfil: 'Preto fosco', vidro: 'Mini boreal', local: 'Canoas', tipo_edificacao: 'CASA' })
+        llmResponde({})
+        await chamar()
+        expect(estado.envios.map((e) => e.corpo.Body)).toEqual([
+            'Fechado. Anotei tudo: Basculante, 600x400 mm, 12 peça(s), perfil Preto fosco, vidro Mini boreal. Entrega em Canoas. Já passo para o levantamento.',
+        ])
+    })
+
+    it('FALHA NO ENVIO do fechamento → 200, o estado FICA COMPLETA, nenhuma saída gravada, e o log diz', async () => {
+        montar({ ...SETE_DE_PRODUTO_E_LOCAL })
+        estado.envioStatus = 500
+        llmResponde({ campos: { tipo_edificacao: 'CASA' } })
+        const r = await chamar()
+        expect(r.status).toBe(200)
+        expect(estado.envios).toHaveLength(1)
+        expect(preDefinicao()?.estado).toBe('COMPLETA')
+        expect(saidas()).toEqual([])
+        expect(entradas()).toHaveLength(1)
+        expect(linhaIa()[0]).toEqual(expect.stringMatching(/enviou=nao.*desfecho=fechamento-falhou/))
+    })
+
+    it('REENVIO DO WUZAPI da mensagem que fechou → desfecho "repetida", a LLM não roda, NENHUM segundo fechamento', async () => {
+        montar({ ...SETE_DE_PRODUTO_E_LOCAL })
+        llmResponde({ campos: { tipo_edificacao: 'CASA' } })
+        await chamar({ id: 'MSG_QUE_FECHOU' })
+        await chamar({ id: 'MSG_QUE_FECHOU' })
+        expect(estado.chamadasDaLlm).toHaveLength(1)
+        expect(estado.envios).toHaveLength(1)
+        expect(saidas()).toHaveLength(1)
+        expect(erros.filter((l) => l.startsWith('[INBOUND]'))[1]).toEqual(expect.stringContaining('desfecho=repetida'))
+    })
+
+    it('mensagem NOVA depois de fechada → nenhum segundo fechamento: o fechamento sai só na PASSAGEM a COMPLETA', async () => {
+        montar({ ...SETE_DE_PRODUTO_E_LOCAL })
+        llmResponde({ campos: { tipo_edificacao: 'CASA' } })
+        await chamar({ id: 'MSG_QUE_FECHOU' })
+        llmResponde({})
+        await chamar({ id: 'MSG_DEPOIS', texto: 'Obrigado!' })
+        expect(estado.envios).toHaveLength(1)
+        expect(saidas()).toHaveLength(1)
+        expect(linhaIa()[1]).toEqual(expect.stringMatching(/enviou=nao.*desfecho=ja-completa/))
     })
 })

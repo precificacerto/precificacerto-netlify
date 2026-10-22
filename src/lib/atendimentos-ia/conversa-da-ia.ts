@@ -17,7 +17,15 @@
  *      quando é sobre o campo certo; senão vai a pergunta fixa daquele campo. É isso que garante a
  *      ordem e que uma CASA nunca receba a pergunta da distribuição;
  *   5. envia pelo WUZAPI e, SÓ COM O ENVIO CONFIRMADO, grava a resposta como mensagem de saída —
- *      uma saída gravada sem ter saído faria o histórico afirmar uma pergunta que ninguém recebeu.
+ *      uma saída gravada sem ter saído faria o histórico afirmar uma pergunta que ninguém recebeu;
+ *   6. ao COMPLETAR, envia o FECHAMENTO fixo (`mensagemDeFechamento`), com os valores RELIDOS da
+ *      pré-definição gravada — nunca da LLM. UMA vez: só na PASSAGEM para COMPLETA. O reenvio do
+ *      WUZAPI nem chega aqui (a entrada responde 'repetida'), e uma mensagem nova depois de fechada
+ *      encontra o estado já COMPLETA e não fecha de novo. Se o envio do fechamento falhar, o estado
+ *      fica COMPLETA e ele não é reenviado depois.
+ *
+ * LIMITE CONHECIDO (não resolvido): se o envio der certo e a gravação da saída falhar, a mensagem
+ * chegou ao vendedor e o histórico não a tem — no turno seguinte a IA pode repetir a pergunta.
  *
  * ══ NUNCA LANÇA ══
  * Quem chama responde 200 ao WUZAPI aconteça o que acontecer aqui: um erro da LLM não pode virar
@@ -35,7 +43,7 @@ import { supabaseAdmin } from '@/supabase/admin'
 import { MODELO_PADRAO_DA_IA, URL_DA_API_ANTHROPIC, VERSAO_DA_API_ANTHROPIC } from '@/lib/atendimentos-ia/modelo-da-ia'
 import {
     CAMPOS_DA_PRE_DEFINICAO, COMPLETA, EM_COLETA, PERGUNTA_DO_CAMPO, TIPOS_COM_MAIS_DE_UM_PAVIMENTO, TIPOS_DE_EDIFICACAO,
-    proximoCampo, quantosVazios, validarProposta,
+    mensagemDeFechamento, proximoCampo, quantosVazios, validarProposta,
     type CampoDaPreDefinicao, type EstadoDosCampos,
 } from '@/lib/atendimentos-ia/pre-definicao'
 
@@ -48,7 +56,7 @@ const wuzapi = () => (process.env.WUZAPI_BASE_URL || 'https://usapi.adabtech.sho
 
 export type DesfechoDaIa =
     | 'sem-chave' | 'sem-saldo' | 'erro-da-llm' | 'recusa' | 'sem-proposta'
-    | 'completa' | 'perguntou' | 'envio-falhou' | 'erro'
+    | 'fechou' | 'fechamento-falhou' | 'ja-completa' | 'perguntou' | 'envio-falhou' | 'erro'
 
 type Rastro = { conversa: string; vaziosAntes: number | null; propostos: number; descartados: number; enviou: boolean }
 
@@ -250,6 +258,14 @@ function perguntaPara(campo: CampoDaPreDefinicao, proposta: Record<string, unkno
 // ── A CONVERSA ──────────────────────────────────────────────────────────────────────────────
 export type Interlocutor = { tenantId: string; conversaId: string; telefone: string; wuzapiToken: string }
 
+/** Grava a mensagem de SAÍDA — chamada só depois do envio confirmado. */
+async function gravarSaida(c: Interlocutor, texto: string, wuzapiMensagemId: string | null) {
+    const { error } = await supabaseAdmin.from('orcamentista_mensagem').insert({
+        tenant_id: c.tenantId, conversa_id: c.conversaId, direcao: 'saida', texto, wuzapi_mensagem_id: wuzapiMensagemId,
+    })
+    if (error) throw new Error(`orcamentista_mensagem: ${error.message}`)
+}
+
 /** Conduz um turno da conversa. NUNCA lança: toda falha vira uma linha `[IA]`. */
 export async function conduzirConversa(c: Interlocutor): Promise<DesfechoDaIa> {
     const rastro: Rastro = { conversa: c.conversaId, vaziosAntes: null, propostos: 0, descartados: 0, enviou: false }
@@ -263,6 +279,8 @@ export async function conduzirConversa(c: Interlocutor): Promise<DesfechoDaIa> {
         // NÃO implementado nesta etapa (dono do produto, 22/10/2026).
 
         const pre = await lerOuCriarPreDefinicao(c.tenantId, c.conversaId)
+        // o estado de ANTES deste turno, guardado já: é ele que diz se este turno FECHA
+        const estadoAntes = pre.estado
         const estadoAtual = Object.fromEntries(CAMPOS_DA_PRE_DEFINICAO.map((k) => [k, pre[k] ?? null])) as EstadoDosCampos
         rastro.vaziosAntes = quantosVazios(estadoAtual)
 
@@ -277,7 +295,7 @@ export async function conduzirConversa(c: Interlocutor): Promise<DesfechoDaIa> {
         const proximo = proximoCampo(novoEstado)
         const estadoTexto = proximo === null ? COMPLETA : EM_COLETA
 
-        if (Object.keys(validacao.gravar).length > 0 || pre.estado !== estadoTexto) {
+        if (Object.keys(validacao.gravar).length > 0 || estadoAntes !== estadoTexto) {
             const { error } = await supabaseAdmin
                 .from('orcamentista_pre_definicao')
                 .update({ ...validacao.gravar, estado: estadoTexto, atualizado_em: new Date().toISOString() })
@@ -285,18 +303,25 @@ export async function conduzirConversa(c: Interlocutor): Promise<DesfechoDaIa> {
             if (error) throw new Error(`orcamentista_pre_definicao: ${error.message}`)
         }
 
-        // Completa: não pergunta mais nada.
-        if (proximo === null) return fim('completa')
+        if (proximo === null) {
+            // Já estava fechada antes deste turno: não fecha de novo.
+            if (estadoAntes === COMPLETA) return fim('ja-completa')
+            // Os valores do fechamento são os GRAVADOS, relidos — não os da proposta.
+            const gravada = await lerPreDefinicao(c.tenantId, c.conversaId)
+            const fechamento = gravada ? mensagemDeFechamento(gravada) : null
+            if (fechamento === null) throw new Error('orcamentista_pre_definicao: fechamento sem os campos gravados')
+            const envioDoFechamento = await enviarTexto(c.wuzapiToken, c.telefone, fechamento)
+            if (!envioDoFechamento.ok) return fim('fechamento-falhou', `status_envio=${envioDoFechamento.status ?? 'sem resposta'}`)
+            rastro.enviou = true
+            await gravarSaida(c, fechamento, envioDoFechamento.id)
+            return fim('fechou')
+        }
 
         const texto = perguntaPara(proximo, resposta.proposta)
         const envio = await enviarTexto(c.wuzapiToken, c.telefone, texto)
         if (!envio.ok) return fim('envio-falhou', `status_envio=${envio.status ?? 'sem resposta'}`)
         rastro.enviou = true
-
-        const { error } = await supabaseAdmin.from('orcamentista_mensagem').insert({
-            tenant_id: c.tenantId, conversa_id: c.conversaId, direcao: 'saida', texto, wuzapi_mensagem_id: envio.id,
-        })
-        if (error) throw new Error(`orcamentista_mensagem: ${error.message}`)
+        await gravarSaida(c, texto, envio.id)
         return fim('perguntou')
     } catch (e) {
         // Só o nome da tabela e o erro do banco — nunca a chave, o telefone ou o texto.

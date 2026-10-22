@@ -58,6 +58,28 @@ export const PERGUNTA_DO_CAMPO: Record<CampoDaPreDefinicao, string> = {
     distribuicao_por_pavimento: 'Como as esquadrias se distribuem pelos pavimentos?',
 }
 
+/**
+ * A mensagem FIXA de FECHAMENTO — enviada uma vez, quando a pré-definição passa a COMPLETA (dono do
+ * produto, 22/10/2026). NÃO é escrita pela LLM: os valores vêm da pré-definição GRAVADA.
+ *   - NÃO cita a distribuição por pavimento;
+ *   - NÃO traz número que não esteja gravado — nada de perfil, insumo, peso, prazo ou preço.
+ * Cada `{marcador}` é um campo; `mensagemDeFechamento` é a única que o preenche.
+ */
+export const MENSAGEM_DE_FECHAMENTO =
+    'Fechado. Anotei tudo: {tipologia}, {largura_mm}x{altura_mm} mm, {quantidade} peça(s), perfil {cor_perfil}, vidro {vidro}. Entrega em {local}. Já passo para o levantamento.'
+
+/** O fechamento com os valores dados, ou null se faltar algum campo que o molde usa. */
+export function mensagemDeFechamento(estado: Partial<EstadoDosCampos>): string | null {
+    let faltou = false
+    // uma passada só: um valor que contenha `{local}` não é substituído de novo
+    const texto = MENSAGEM_DE_FECHAMENTO.replace(/\{(\w+)\}/g, (_m, campo: string) => {
+        const v = estado[campo as CampoDaPreDefinicao]
+        if (typeof v !== 'string' && typeof v !== 'number') { faltou = true; return '' }
+        return String(v)
+    })
+    return faltou ? null : texto
+}
+
 // ── AS FAIXAS SÃS ───────────────────────────────────────────────────────────────────────────
 /** Medidas em milímetros, inteiras: de 10 cm a 20 m. Fora disso é engano de unidade, não esquadria. */
 export const MEDIDA_MINIMA_MM = 100
