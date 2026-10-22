@@ -42,8 +42,25 @@ describe('(2) o nono dígito: inserido no celular de 8, NUNCA no fixo', () => {
         expect(telefoneNormalizado('5133334444')).toBe('5133334444')
     })
 
-    it('assinante de 9 dígitos fica como está', () => {
+    it('assinante de 9 dígitos COMEÇANDO COM 9 fica como está', () => {
         expect(telefoneNormalizado('51999114290')).toBe('51999114290')
+        expect(telefoneNormalizado('51925550123')).toBe('51925550123')
+        expect(telefoneNormalizado('5551925550123')).toBe('51925550123')
+    })
+
+    // O assinante de 9 é o celular COM o nono: começa com 9. Aceitar "025550123" enquanto o de 8
+    // começando com 0 é recusado seria a mesma frouxidão com critérios diferentes.
+    it.each([
+        ['começando com 0', '51025550123'],
+        ['começando com 1', '51125550123'],
+        ['começando com 8', '51825550123'],
+        ['começando com 0, com DDI', '5551025550123'],
+    ])('assinante de 9 %s → null', (_n, bruto) => {
+        expect(telefoneNormalizado(bruto)).toBeNull()
+    })
+
+    it('o americano "12025550123" (+1 202 555 0123) → null — não vira DDD "12"', () => {
+        expect(telefoneNormalizado('12025550123')).toBeNull()
     })
 })
 

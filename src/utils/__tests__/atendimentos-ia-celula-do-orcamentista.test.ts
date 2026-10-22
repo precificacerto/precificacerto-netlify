@@ -1555,9 +1555,6 @@ describe('(21) a TELA e a ROTA de entrada comparam pela MESMA forma normalizada'
     // entrada passou a comparar por `telefoneNormalizado`. Se a tela continuasse na forma antiga, um
     // cadastro "(51) 9911-4290" contra a autorização "51999114290" apareceria DIVERGENTE e travaria o
     // religar, enquanto a rota os trata como o mesmo número.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { telefoneNormalizado } = require('@/lib/atendimentos-ia/telefone-normalizado') as { telefoneNormalizado: (b: unknown) => string | null }
-
     describe('a forma GRAVADA (telefoneDoAutorizado) é a forma normalizada', () => {
         it.each([
             ['(51) 9911-4290', '51999114290'],
@@ -1590,12 +1587,21 @@ describe('(21) a TELA e a ROTA de entrada comparam pela MESMA forma normalizada'
             expect(telefonesCasam('5133334444', '51933334444')).toBe(false)
         })
 
+        // O resultado ESPERADO é escrito à mão: comparar telefonesCasam com a própria normalização
+        // reafirmaria a implementação, e passaria com qualquer uma — inclusive errada.
         it.each([
-            ['51999114290', '555199114290'], ['5133334444', '555133334444'], ['54999887766', '5554999887766'],
-            ['51999114290', '51999887766'], ['5491155554444', '5491155554444'], ['5101234567', '5101234567'],
-        ])('telefonesCasam(%p, %p) === (as duas formas normalizadas existem e são iguais)', (a, b) => {
-            const na = telefoneNormalizado(a)
-            expect(telefonesCasam(a, b)).toBe(na !== null && na === telefoneNormalizado(b))
+            ['51999114290', '555199114290', true],
+            ['5133334444', '555133334444', true],
+            ['54999887766', '5554999887766', true],
+            ['5199114290', '51999114290', true],
+            ['51999114290', '51999887766', false],
+            ['51999114290', '54999114290', false],
+            ['5491155554444', '5491155554444', false],
+            ['5101234567', '5101234567', false],
+            ['12025550123', '12025550123', false],
+            ['51025550123', '51025550123', false],
+        ])('telefonesCasam(%p, %p) → %p', (a, b, esperado) => {
+            expect(telefonesCasam(a, b)).toBe(esperado)
         })
     })
 
