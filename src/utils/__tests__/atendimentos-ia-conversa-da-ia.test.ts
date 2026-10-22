@@ -654,8 +654,10 @@ describe('(12) a JANELA do 4xx: a mensagem de erro da Anthropic vai ao log, masc
     })
 
     it('a chave atravessando o corte dos 300 não deixa PEDAÇO dela: mascara antes de cortar', async () => {
-        estado.respostasDaLlm.push(erro400(`${'a'.repeat(290)} ${CHAVE} fim`))
+        // a chave começa no caractere 282: um corte ANTES da máscara deixaria os 19 primeiros dela
+        estado.respostasDaLlm.push(erro400(`${'a'.repeat(280)} ${CHAVE} fim`))
         await chamar()
+        expect(mensagemDoLog()).toContain('<segredo>')
         expect(erros.join('\n')).not.toContain(CHAVE.slice(0, 12))
     })
 
@@ -723,7 +725,8 @@ describe('(13) o esquema da ferramenta cabe nos limites de complexidade do stric
 
     it('e continua RESTRINGINDO: cada campo com o seu tipo, o tipo de edificação fechado, sem chave extra', async () => {
         await chamar()
-        const esquema = (estado.chamadasDaLlm[0].corpo.tools as Array<{ input_schema: Record<string, any> }>)[0].input_schema
+        type Esquema = { type?: string; enum?: string[]; additionalProperties?: boolean; properties: Record<string, Esquema> }
+        const esquema = (estado.chamadasDaLlm[0].corpo.tools as Array<{ input_schema: Esquema }>)[0].input_schema
         for (const bloco of ['campos', 'correcoes']) {
             const p = esquema.properties[bloco]
             expect(p.additionalProperties).toBe(false)
@@ -731,7 +734,7 @@ describe('(13) o esquema da ferramenta cabe nos limites de complexidade do stric
             expect(p.properties.largura_mm.type).toBe('integer')
             expect(p.properties.quantidade.type).toBe('integer')
             expect(p.properties.tipologia.type).toBe('string')
-            expect([...p.properties.tipo_edificacao.enum].sort()).toEqual([...preDef.TIPOS_DE_EDIFICACAO].sort())
+            expect([...(p.properties.tipo_edificacao.enum ?? [])].sort()).toEqual([...preDef.TIPOS_DE_EDIFICACAO].sort())
         }
         expect(esquema.additionalProperties).toBe(false)
     })
