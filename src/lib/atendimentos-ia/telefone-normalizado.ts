@@ -16,7 +16,9 @@
  *   3. sobra DDD (os 2 primeiros) + assinante (o resto);
  *   4. assinante de 8 começando por 6, 7, 8 ou 9 — celular sem o nono — ganha o 9 na frente;
  *      assinante de 8 começando por 2, 3, 4 ou 5 — fixo — fica como está: o 9 NÃO é inventado;
- *      assinante de 9 fica como está;
+ *      assinante de 9 COMEÇANDO COM 9 — o celular com o nono — fica como está; de 9 começando com
+ *      qualquer outro dígito é NULL: aceitá-lo enquanto o de 8 começando com 0 é recusado seria a
+ *      mesma frouxidão com critérios diferentes — e o americano "12025550123" viraria DDD "12";
  *   5. qualquer outra coisa — inclusive número que não é brasileiro — é NULL, e NULL não casa com
  *      nada: não se compara o que não se sabe ler.
  *
@@ -25,7 +27,7 @@
 
 const CELULAR_SEM_O_NONO = /^[6-9]\d{7}$/
 const FIXO = /^[2-5]\d{7}$/
-const ASSINANTE_DE_NOVE = /^\d{9}$/
+const CELULAR_COM_O_NONO = /^9\d{8}$/
 
 export function telefoneNormalizado(bruto: unknown): string | null {
     if (typeof bruto !== 'string') return null
@@ -36,6 +38,6 @@ export function telefoneNormalizado(bruto: unknown): string | null {
     const ddd = digitos.slice(0, 2)
     const assinante = digitos.slice(2)
     if (CELULAR_SEM_O_NONO.test(assinante)) return `${ddd}9${assinante}`
-    if (FIXO.test(assinante) || ASSINANTE_DE_NOVE.test(assinante)) return `${ddd}${assinante}`
+    if (FIXO.test(assinante) || CELULAR_COM_O_NONO.test(assinante)) return `${ddd}${assinante}`
     return null
 }
