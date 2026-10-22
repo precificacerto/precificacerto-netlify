@@ -46,6 +46,12 @@
 --     `orcamentista_esquadrias_base` para empresa de outro nicho: um CHECK não lê outra tabela.
 --   - a herança em si: o COALESCE é de quem lê. O banco só garante que NULL e false continuem
 --     distinguíveis.
+-- Os dois foram ACEITOS pelo dono do produto como limite conhecido (22/10/2026).
+--
+-- ══ A VERIFICAÇÃO (2) depende do search_path de quem aplica ══
+-- Ela compara a expressão RENDERIZADA da política (`is_super_admin()`, sem prefixo — conferido em
+-- produção). Com outro search_path a renderização muda e ela aborta com "0 de 24 politicas". O modo
+-- de falha é seguro: aborta em vez de passar errado.
 --
 -- ══ ACESSO ══
 -- RLS ligada com as quatro políticas de `public.is_super_admin()` por tabela, no formato das que
@@ -233,18 +239,20 @@ CREATE TABLE IF NOT EXISTS public.orcamentista_base_conhecimento (
   CONSTRAINT orcamentista_base_conhecimento_instalacao_pct_nao_negativo CHECK (instalacao_percentual IS NULL OR instalacao_percentual >= 0),
   CONSTRAINT orcamentista_base_conhecimento_instalacao_base_valida      CHECK (instalacao_base IS NULL OR instalacao_base IN ('VALOR_DE_VENDA', 'CUSTO_DA_INSTALACAO')),
   -- A COERÊNCIA de cada adicional: o modo decide quais campos existem. PERCENTUAL exige a base,
-  -- porque percentual sem base não se refaz depois. Sem modo (NULL = não configurado), os três
-  -- ficam nulos: um percentual solto, sem modo e sem base, seria o mesmo dado irrecuperável.
+  -- porque percentual sem base não se refaz depois. VALOR exige a base NULA: base gravada ao lado
+  -- de um valor fixo é armadilha — alguém a lê depois e calcula percentual sobre ela (dono do
+  -- produto, 22/10/2026). Sem modo (NULL = não configurado), os três ficam nulos: um percentual
+  -- solto, sem modo e sem base, seria o mesmo dado irrecuperável.
   CONSTRAINT orcamentista_base_conhecimento_frete_coerente CHECK (
     CASE frete_modo
-      WHEN 'VALOR'      THEN frete_valor IS NOT NULL AND frete_percentual IS NULL
+      WHEN 'VALOR'      THEN frete_valor IS NOT NULL AND frete_percentual IS NULL AND frete_base IS NULL
       WHEN 'PERCENTUAL' THEN frete_percentual IS NOT NULL AND frete_base IS NOT NULL AND frete_valor IS NULL
       ELSE                   frete_valor IS NULL AND frete_percentual IS NULL AND frete_base IS NULL
     END
   ),
   CONSTRAINT orcamentista_base_conhecimento_instalacao_coerente CHECK (
     CASE instalacao_modo
-      WHEN 'VALOR'      THEN instalacao_valor IS NOT NULL AND instalacao_percentual IS NULL
+      WHEN 'VALOR'      THEN instalacao_valor IS NOT NULL AND instalacao_percentual IS NULL AND instalacao_base IS NULL
       WHEN 'PERCENTUAL' THEN instalacao_percentual IS NOT NULL AND instalacao_base IS NOT NULL AND instalacao_valor IS NULL
       ELSE                   instalacao_valor IS NULL AND instalacao_percentual IS NULL AND instalacao_base IS NULL
     END
@@ -264,6 +272,8 @@ CREATE TABLE IF NOT EXISTS public.orcamentista_padrao_ambiente (
   ambiente        text NOT NULL,
   vidro_padrao    text NULL,
   tipologia_usual text NULL,
+  atualizado_por uuid NULL REFERENCES public.users(id) ON DELETE SET NULL,
+  atualizado_em  timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (tenant_id, ambiente)
 );
 
@@ -380,6 +390,7 @@ DECLARE
     'orcamentista_base_conhecimento>tenants:c',
     'orcamentista_base_conhecimento>users:n',
     'orcamentista_padrao_ambiente>tenants:c',
+    'orcamentista_padrao_ambiente>users:n',
     'orcamentista_vendedor_perfil>tenants:c',
     'orcamentista_vendedor_perfil>employees:c',
     'orcamentista_vendedor_perfil>users:n',
