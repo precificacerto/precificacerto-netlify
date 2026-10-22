@@ -37,13 +37,25 @@
  * E 500 DEPOIS de 200 é a sessão caindo (medido em 22/10/2026 00:39 UTC): a espera para ali, e a
  * tela diz que a sessão caiu em vez de gastar o teto.
  *
+ * ══ O WEBHOOK É APONTADO PELO SISTEMA (22/10/2026) ══
+ * Toda linha que esta rota grava nasce com `webhook_segredo` (`segredoNovo`, independente do
+ * token); a reusada mantém o que tem, e a gravada antes da migração `20261022000001` ganha um. Com
+ * a conexão confirmada — criada e reconhecida, ou reusada e reconhecida, inclusive já logada — o
+ * sistema faz `POST /webhook` na instância, com `events: ["Message"]` (sem ele o WUZAPI ZERA a
+ * assinatura, medido em produção). Sem 2xx, 502 no passo "webhook": nem QR nem "conectado" saem.
+ *
+ * ══ SÓ EM PRODUÇÃO (22/10/2026) ══
+ * Preview, `vercel dev` e o local usam o MESMO Supabase e o MESMO WUZAPI da produção: fora de
+ * `VERCEL_ENV === 'production'` — inclusive com ele INDEFINIDO — a rota recusa com 403 no passo
+ * "ambiente", antes de tocar em qualquer coisa (`ambientePermiteApontarWebhook`).
+ *
  * Só quem pode EDITAR Conectividade conecta. Arquitetura:
  * `src/lib/atendimentos-ia/orcamentista-da-empresa.ts`.
  */
 import type { NextApiRequest, NextApiResponse } from 'next'
 import {
-  anotarPassoDoQr, chamadorDoOrcamentista, criarInstancia, descartarConexao, estadoDaSessao, gravarConexao, lerConexao,
-  marcarConexao, NAO_AUTORIZADO, qrDaInstancia, tokenNovo, type PassoDoQr,
+  ambientePermiteApontarWebhook, anotarPassoDoQr, apontarWebhook, chamadorDoOrcamentista, criarInstancia, descartarConexao, estadoDaSessao, gravarConexao,
+  lerConexao, marcarConexao, NAO_AUTORIZADO, qrDaInstancia, segredoNovo, tokenNovo, type PassoDoQr,
 } from '@/lib/atendimentos-ia/orcamentista-da-empresa'
 
 /**
@@ -52,7 +64,9 @@ import {
  */
 const PERSISTINDO = 'Tente de novo em instantes; se continuar, avise o suporte.'
 export const MENSAGEM_DO_PASSO: Record<Exclude<PassoDoQr, 'instancia' | 'session-status'>, string> = {
+  'ambiente': 'Conectar o orçamentista só é permitido em produção. A instância do servidor de WhatsApp é compartilhada entre os ambientes: apontá-la daqui desviaria para cá as mensagens reais da empresa.',
   'criar-instancia': `Não consegui criar a conexão no servidor de WhatsApp. ${PERSISTINDO}`,
+  'webhook': `A conexão NÃO está pronta: o webhook não foi apontado no servidor de WhatsApp, e as mensagens não chegariam ao orçamentista. ${PERSISTINDO}`,
   'session-connect': `A sessão de WhatsApp não abriu no servidor. ${PERSISTINDO}`,
   'session-qr': `O servidor de WhatsApp não devolveu o código para ler. ${PERSISTINDO}`,
 }
@@ -89,15 +103,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!caller) return
   const tenantId = caller.tenant_id
 
+  // Fora de produção (preview, vercel dev, npm run dev), NADA: nem webhook, nem instância criada,
+  // nem conexão gravada ou descartada — todos dividem o banco e o servidor de WhatsApp com a
+  // produção, e "conectado sem webhook apontado" é o estado meio-conectado que esta rota não admite.
+  if (!ambientePermiteApontarWebhook()) {
+    anotarPassoDoQr('ambiente', `recusado: VERCEL_ENV=${process.env.VERCEL_ENV} — conectar o orçamentista só em produção`, [])
+    return res.status(403).json({ error: MENSAGEM_DO_PASSO.ambiente, passo: 'ambiente' })
+  }
+
   try {
     const erroNaCriacao = (semAdmin: boolean) =>
       res.status(502).json({ error: semAdmin ? MENSAGEM_SEM_ADMIN : MENSAGEM_DO_PASSO['criar-instancia'], passo: 'criar-instancia' })
 
     /**
-     * Cria a instância e só GRAVA a conexão quando o WUZAPI reconhece o token novo. Devolve o token
-     * gravado, ou null — e nesse caso a resposta de erro já foi enviada.
+     * Cria a instância e só GRAVA a conexão quando o WUZAPI reconhece o token novo. A linha nasce
+     * com um `webhook_segredo` NOVO, independente do token. Devolve o token e o segredo gravados,
+     * ou null — e nesse caso a resposta de erro já foi enviada.
      */
-    const criarEGravar = async (): Promise<string | null> => {
+    const criarEGravar = async (): Promise<{ token: string; segredo: string } | null> => {
       const novo = tokenNovo()
       anotarPassoDoQr('instancia', 'cria uma instância nova', [novo])
       const criada = await criarInstancia(novo, tenantId)
@@ -109,8 +132,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         erroNaCriacao(false)
         return null
       }
-      await gravarConexao(tenantId, { wuzapi_token: novo, conectado_por: caller.user_id, ativo: false })
-      return novo
+      const segredo = segredoNovo()
+      await gravarConexao(tenantId, { wuzapi_token: novo, webhook_segredo: segredo, conectado_por: caller.user_id, ativo: false })
+      return { token: novo, segredo }
+    }
+
+    /**
+     * Aponta o webhook da instância para a rota de entrada. Sem 2xx, a conexão NÃO é dada como
+     * pronta: 502 no passo "webhook", e nem QR nem "conectado" saem. Devolve se apontou.
+     */
+    const webhookApontado = async (tokenDaInstancia: string, segredo: string): Promise<boolean> => {
+      if (await apontarWebhook(tokenDaInstancia, segredo)) return true
+      res.status(502).json({ error: MENSAGEM_DO_PASSO.webhook, passo: 'webhook' })
+      return false
     }
 
     const descartarFantasma = async (fantasma: string, onde: string) => {
@@ -120,34 +154,53 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const conexao = await lerConexao(tenantId)
     let token = conexao?.wuzapi_token ?? null
+    // A conexão reusada MANTÉM o segredo que tem — girá-lo a cada clique invalidaria a URL já
+    // apontada. Só a linha gravada antes da migração `20261022000001`, sem segredo, ganha um aqui.
+    let segredo = conexao?.webhook_segredo ?? segredoNovo()
     let reusado = false
 
     if (token) {
       const estado = await estadoDaSessao(token)
       anotarPassoDoQr('session-status', `GET /session/status status=${estado.status ?? 'sem resposta'} logada=${estado.logada}`, [token])
-      if (estado.logada === true) return res.status(200).json({ conectado: true })
+      if (estado.logada === true) {
+        if (conexao?.webhook_segredo == null) {
+          await gravarConexao(tenantId, { wuzapi_token: token, webhook_segredo: segredo, conectado_por: conexao?.conectado_por ?? caller.user_id, ativo: conexao?.ativo ?? false })
+        }
+        // "conectado" só sai com o webhook apontado: sem ele as mensagens não chegam.
+        if (!(await webhookApontado(token, segredo))) return
+        return res.status(200).json({ conectado: true })
+      }
       if (estado.status === NAO_AUTORIZADO) {
         await descartarFantasma(token, 'session-status')
         token = null
       } else {
         anotarPassoDoQr('instancia', 'reaproveitada: já há conexão gravada para este tenant, e o token dela é reusado', [token])
         reusado = true
-        await gravarConexao(tenantId, { wuzapi_token: token, conectado_por: caller.user_id, ativo: false })
+        await gravarConexao(tenantId, { wuzapi_token: token, webhook_segredo: segredo, conectado_por: caller.user_id, ativo: false })
       }
     }
 
     if (!token) {
-      token = await criarEGravar()
-      if (!token) return
+      const criada = await criarEGravar()
+      if (!criada) return
+      token = criada.token
+      segredo = criada.segredo
     }
+
+    // O ponto em que a conexão está confirmada — criada e reconhecida, ou reusada e reconhecida: o
+    // sistema aponta o webhook da instância, ANTES de abrir a sessão.
+    if (!(await webhookApontado(token, segredo))) return
 
     let resultado = await qrDaInstancia(token)
     // O reuso tem saída, UMA vez: o token reusado deu 401 no connect ou no qr. Um token recém-criado
     // (reusado = false) nunca entra aqui — não há laço.
     if (reusado && resultado.naoAutorizado) {
       await descartarFantasma(token, 'session-connect/session-qr')
-      token = await criarEGravar()
-      if (!token) return
+      const recriada = await criarEGravar()
+      if (!recriada) return
+      token = recriada.token
+      segredo = recriada.segredo
+      if (!(await webhookApontado(token, segredo))) return
       resultado = await qrDaInstancia(token)
     }
 
