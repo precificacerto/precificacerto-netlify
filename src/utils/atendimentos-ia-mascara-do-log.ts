@@ -1,6 +1,7 @@
 /**
- * Atendimentos I.A. — a MÁSCARA do que vai para o log da Vercel. Uma só, para a rota de captura do
- * webhook e para o caminho do QR do orçamentista (`[QR-ORCAMENTISTA]`).
+ * Atendimentos I.A. — a MÁSCARA do que vai para o log da Vercel, usada pelo caminho do QR do
+ * orçamentista (`[QR-ORCAMENTISTA]`). Nasceu para a rota TEMPORÁRIA de captura do webhook, que foi
+ * removida em 22/10/2026, com o formato do webhook já medido.
  *
  *   - toda sequência de 8 ou mais dígitos vira os 4 primeiros + 'x' + os 2 últimos, com o mesmo
  *     comprimento: a estrutura fica visível, o telefone não;
@@ -10,7 +11,7 @@
  *     instância e o de admin —, para que um eco do WUZAPI num campo de outro nome, ou numa
  *     mensagem de erro, não escape da máscara por não se chamar `token`.
  *
- * Funções puras. Portões: `atendimentos-ia-captura-do-webhook.test.ts` e
+ * Funções puras. Portões: `atendimentos-ia-mascara-do-log.test.ts` e
  * `atendimentos-ia-celula-do-orcamentista.test.ts` (14).
  */
 
