@@ -1228,3 +1228,182 @@ describe('(18) a sessão que CAI: o texto do erro vai para o log, e 500 depois d
         })
     })
 })
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+describe('(19) o segredo do webhook é do SISTEMA, e o próprio sistema aponta o webhook da instância', () => {
+    // Medido em produção em 22/10/2026: `webhook_segredo` preenchido à mão em 1 de 1 linha; o
+    // descarte do #114 apagava a linha e o QR a recriava SEM segredo; e o `POST /webhook` do WUZAPI
+    // SEM o campo "events" ZERA a lista de eventos da instância ("Skipping webhook. Not subscribed
+    // for this type"). O "events" é obrigatório.
+    const ORIGEM_PADRAO = 'https://app.precificacerto.com'
+    let linhas: string[] = []
+    let espioes: jest.SpyInstance[] = []
+    let origemAntes: string | undefined
+    beforeEach(() => {
+        linhas = []
+        origemAntes = process.env.NEXT_PUBLIC_APP_URL
+        delete process.env.NEXT_PUBLIC_APP_URL
+        const anotar = (...a: unknown[]) => { linhas.push(a.map(String).join(' ')) }
+        espioes = (['log', 'warn', 'error', 'info'] as const).map((m) => jest.spyOn(console, m).mockImplementation(anotar))
+    })
+    afterEach(() => {
+        espioes.forEach((e) => e.mockRestore())
+        if (origemAntes === undefined) delete process.env.NEXT_PUBLIC_APP_URL
+        else process.env.NEXT_PUBLIC_APP_URL = origemAntes
+    })
+    const doWebhook = () => estado.fetches.filter((f) => new URL(f.url).pathname === '/webhook')
+    const caminhos = () => estado.fetches.map((f) => new URL(f.url).pathname)
+    const linhaDaConexao = () => estado.db.whatsapp_conexao[0] as Linha
+    const urlEsperada = (segredo: unknown) => `${ORIGEM_PADRAO}/api/atendimentos-ia/inbound?c=${String(segredo)}`
+    const conexaoGravada = (extra: Linha = {}) => montar({
+        whatsapp_conexao: [{ tenant_id: T, canal: 'ORCAMENTISTA', wuzapi_token: TOKEN_DA_CONEXAO, conectado_por: USUARIO, conectado_em: '2026-10-21T00:00:00Z', ativo: false, ...extra }],
+    })
+
+    describe('(1) toda linha criada pelo sistema nasce com webhook_segredo', () => {
+        it('instância nova: 32 hexadecimais minúsculos, na mesma linha do token', async () => {
+            await chamar(rotaQr, 'POST')
+            expect(estado.db.whatsapp_conexao).toHaveLength(1)
+            expect(String(linhaDaConexao().webhook_segredo)).toMatch(/^[0-9a-f]{32}$/)
+        })
+
+        it('o segredo NÃO é o wuzapi_token da mesma linha — nem ele sem o prefixo, nem contido nele', async () => {
+            await chamar(rotaQr, 'POST')
+            const { wuzapi_token: token, webhook_segredo: segredo } = linhaDaConexao()
+            // sem isto, um segredo AUSENTE passaria em todas as negativas abaixo
+            expect(String(segredo)).toMatch(/^[0-9a-f]{32}$/)
+            expect(String(token)).toMatch(/^orc_[0-9a-f]{32}$/)
+            expect(segredo).not.toBe(token)
+            expect(segredo).not.toBe(String(token).replace(/^orc_/, ''))
+            expect(String(token)).not.toContain(String(segredo))
+            expect(String(segredo)).not.toContain(String(token).replace(/^orc_/, '').slice(0, 8))
+        })
+
+        it('o fantasma descartado: a linha RECRIADA tem segredo novo — diferente do que havia', async () => {
+            const ANTIGO = '11111111111111111111111111111111'
+            conexaoGravada({ webhook_segredo: ANTIGO })
+            estado.tokensDesconhecidos.add(TOKEN_DA_CONEXAO)
+            await chamar(rotaQr, 'POST')
+            expect(estado.db.whatsapp_conexao).toHaveLength(1)
+            expect(linhaDaConexao().wuzapi_token).not.toBe(TOKEN_DA_CONEXAO)
+            expect(String(linhaDaConexao().webhook_segredo)).toMatch(/^[0-9a-f]{32}$/)
+            expect(linhaDaConexao().webhook_segredo).not.toBe(ANTIGO)
+        })
+
+        it('a conexão reusada que já tem segredo o MANTÉM — não gira a cada clique', async () => {
+            const ATUAL = '22222222222222222222222222222222'
+            conexaoGravada({ webhook_segredo: ATUAL })
+            await chamar(rotaQr, 'POST')
+            expect(linhaDaConexao().webhook_segredo).toBe(ATUAL)
+        })
+
+        it('a conexão reusada SEM segredo (gravada antes desta regra) ganha um', async () => {
+            conexaoGravada({ webhook_segredo: null })
+            await chamar(rotaQr, 'POST')
+            expect(String(linhaDaConexao().webhook_segredo)).toMatch(/^[0-9a-f]{32}$/)
+        })
+    })
+
+    describe('(2) o sistema aponta o webhook da instância no WUZAPI', () => {
+        it('instância nova: POST /webhook com o token da linha no header, a URL de entrada com o segredo da linha, e events ["Message"]', async () => {
+            const r = await chamar(rotaQr, 'POST')
+            expect(r.status).toBe(200)
+            expect(doWebhook()).toHaveLength(1)
+            const [w] = doWebhook()
+            expect(w.headers?.token).toBe(linhaDaConexao().wuzapi_token)
+            expect(w.corpo).toEqual({ webhookURL: urlEsperada(linhaDaConexao().webhook_segredo), events: ['Message'] })
+        })
+
+        it('o CONTRASTE do "events": o corpo tem as DUAS chaves, e events é exatamente ["Message"] — sem ele o WUZAPI zera a assinatura', async () => {
+            await chamar(rotaQr, 'POST')
+            const corpo = doWebhook()[0].corpo as Record<string, unknown>
+            expect(Object.keys(corpo).sort()).toEqual(['events', 'webhookURL'])
+            expect(corpo.events).toEqual(['Message'])
+        })
+
+        it('o webhook é apontado ANTES de a sessão abrir', async () => {
+            await chamar(rotaQr, 'POST')
+            expect(caminhos().indexOf('/webhook')).toBeGreaterThan(-1)
+            expect(caminhos().indexOf('/webhook')).toBeLessThan(caminhos().indexOf('/session/connect'))
+        })
+
+        it('conexão reusada: aponta com o token e o segredo QUE JÁ ESTÃO na linha', async () => {
+            const ATUAL = '33333333333333333333333333333333'
+            conexaoGravada({ webhook_segredo: ATUAL })
+            await chamar(rotaQr, 'POST')
+            expect(doWebhook()).toHaveLength(1)
+            expect(doWebhook()[0].headers?.token).toBe(TOKEN_DA_CONEXAO)
+            expect(doWebhook()[0].corpo).toEqual({ webhookURL: urlEsperada(ATUAL), events: ['Message'] })
+        })
+
+        it('sessão JÁ logada: também aponta — "conectado" só sai com o webhook apontado', async () => {
+            conexaoGravada({ webhook_segredo: '44444444444444444444444444444444' })
+            estado.logada = true
+            const r = await chamar(rotaQr, 'POST')
+            expect(r.corpo.conectado).toBe(true)
+            expect(doWebhook()).toHaveLength(1)
+        })
+
+        it('o fantasma descartado: o token antigo NUNCA aponta webhook; o novo aponta com o segredo novo', async () => {
+            conexaoGravada({ webhook_segredo: '55555555555555555555555555555555' })
+            estado.tokensDesconhecidos.add(TOKEN_DA_CONEXAO)
+            await chamar(rotaQr, 'POST')
+            expect(doWebhook().map((f) => f.headers?.token)).toEqual([linhaDaConexao().wuzapi_token])
+            expect(doWebhook()[0].corpo).toEqual({ webhookURL: urlEsperada(linhaDaConexao().webhook_segredo), events: ['Message'] })
+        })
+
+        it('a origem vem de NEXT_PUBLIC_APP_URL, sem barra dobrada', async () => {
+            process.env.NEXT_PUBLIC_APP_URL = 'https://outra.exemplo.test/'
+            await chamar(rotaQr, 'POST')
+            expect((doWebhook()[0].corpo as { webhookURL: string }).webhookURL)
+                .toBe(`https://outra.exemplo.test/api/atendimentos-ia/inbound?c=${String(linhaDaConexao().webhook_segredo)}`)
+        })
+    })
+
+    describe('(3) o webhook que NÃO foi apontado: a conexão não é dada como pronta', () => {
+        it.each([
+            ['respondeu 500', () => { estado.wuzapiFora.add('/webhook') }],
+            ['respondeu 400', () => { estado.respostas['/webhook'] = { status: 400, corpo: { error: 'bad request' } } }],
+            ['lançou', () => { estado.lancar.add('/webhook') }],
+        ])('%s: 502 no passo "webhook", a tela diz que o webhook não foi apontado, e NÃO sai QR nem sessão', async (_n, preparar) => {
+            preparar()
+            const r = await chamar(rotaQr, 'POST')
+            expect(r.status).toBe(502)
+            expect(r.corpo.passo).toBe('webhook')
+            expect(String(r.corpo.error)).toMatch(/webhook não foi apontado/)
+            expect(r.corpo.qr).toBeUndefined()
+            expect(caminhos()).not.toContain('/session/connect')
+            expect(caminhos()).not.toContain('/session/qr')
+        })
+
+        it('sessão já logada e o webhook falhando: NÃO responde "conectado"', async () => {
+            conexaoGravada({ webhook_segredo: '66666666666666666666666666666666' })
+            estado.logada = true
+            estado.wuzapiFora.add('/webhook')
+            const r = await chamar(rotaQr, 'POST')
+            expect(r.status).toBe(502)
+            expect(r.corpo.conectado).toBeUndefined()
+            expect(r.corpo.passo).toBe('webhook')
+        })
+    })
+
+    describe('(4) o log: console.error com o host e o status — NUNCA o token, o segredo ou a URL', () => {
+        it('a linha do passo webhook traz o host e o status', async () => {
+            estado.respostas['/webhook'] = { status: 503, corpo: { error: 'indisponível' } }
+            await chamar(rotaQr, 'POST')
+            const linha = linhas.find((l) => l.startsWith('[QR-ORCAMENTISTA]') && l.includes('passo=webhook'))
+            expect(linha).toEqual(expect.stringContaining('status=503'))
+            expect(linha).toEqual(expect.stringMatching(/host=\S+/))
+        })
+
+        it('nem o token, nem o segredo, nem a URL de entrada aparecem em linha nenhuma', async () => {
+            const SEGREDO = '77777777777777777777777777777777'
+            conexaoGravada({ webhook_segredo: SEGREDO })
+            await chamar(rotaQr, 'POST')
+            estado.wuzapiFora.add('/webhook')
+            await chamar(rotaQr, 'POST')
+            const tudo = linhas.join('\n')
+            expect(linhas.some((l) => l.includes('passo=webhook'))).toBe(true)
+            for (const s of [TOKEN_DA_CONEXAO, SEGREDO, urlEsperada(SEGREDO), 'inbound?c=']) expect(tudo).not.toContain(s)
+        })
+    })
+})
