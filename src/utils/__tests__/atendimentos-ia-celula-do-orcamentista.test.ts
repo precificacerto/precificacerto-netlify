@@ -1046,9 +1046,11 @@ describe('(17) o QR que ainda não existe: depois do connect com 2xx, o /session
         whatsapp_conexao: [{ tenant_id: T, canal: 'ORCAMENTISTA', wuzapi_token: TOKEN_DA_CONEXAO, conectado_por: USUARIO, conectado_em: '2026-10-21T00:00:00Z', ativo: false }],
     })
 
-    it('o caso de produção: vazio, "not connected", e o código na TERCEIRA — 200 com ele, e para ali', async () => {
+    // A ordem é "not connected" ANTES de "vazio": o socket ainda subindo. A ordem inversa — 200 e
+    // depois 500 — é a sessão CAINDO, e para na hora: seção (18).
+    it('o socket subindo: "not connected", vazio, e o código na TERCEIRA — 200 com ele, e para ali', async () => {
         conexaoExistente()
-        estado.sequenciaDoQr = [VAZIO, NAO_CONECTADO, COM_CODIGO]
+        estado.sequenciaDoQr = [NAO_CONECTADO, VAZIO, COM_CODIGO]
         const r = await chamar(rotaQr, 'POST')
         expect(r.status).toBe(200)
         expect(r.corpo.qr).toBe('data:image/png;base64,QRDATERCEIRA')
@@ -1066,12 +1068,12 @@ describe('(17) o QR que ainda não existe: depois do connect com 2xx, o /session
 
     it('cada tentativa deixa uma linha no log: o número, o status e se veio', async () => {
         conexaoExistente()
-        estado.sequenciaDoQr = [VAZIO, NAO_CONECTADO, COM_CODIGO]
+        estado.sequenciaDoQr = [NAO_CONECTADO, VAZIO, COM_CODIGO]
         await chamar(rotaQr, 'POST')
         const doQr = linhasDoQr()
         expect(doQr).toHaveLength(3)
-        expect(doQr[0]).toEqual(expect.stringMatching(/tentativa=1 .*status=200.*veio_qr=nao/))
-        expect(doQr[1]).toEqual(expect.stringMatching(/tentativa=2 .*status=500.*veio_qr=nao/))
+        expect(doQr[0]).toEqual(expect.stringMatching(/tentativa=1 .*status=500.*veio_qr=nao/))
+        expect(doQr[1]).toEqual(expect.stringMatching(/tentativa=2 .*status=200.*veio_qr=nao/))
         expect(doQr[2]).toEqual(expect.stringMatching(/tentativa=3 .*status=200.*veio_qr=sim/))
     })
 
@@ -1131,5 +1133,98 @@ describe('(17) o QR que ainda não existe: depois do connect com 2xx, o /session
         expect(config?.maxDuration).toBeGreaterThan(0)
         expect(espera?.tetoMs).toBeGreaterThan(0)
         expect(espera!.tetoMs).toBeLessThanOrEqual((config!.maxDuration! * 1000) / 2)
+    })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+describe('(18) a sessão que CAI: o texto do erro vai para o log, e 500 depois de 200 encerra a espera', () => {
+    // Medido em produção em 22/10/2026 00:39 UTC: tentativas 1 a 3 com 200 e QRCode vazio, 4 a 8 com
+    // 500, sem que o log dissesse QUAL 500. No fonte do WUZAPI, o /session/qr responde 500 "no
+    // session" (sessão desmontada) ou "not connected" (cliente vivo, socket caído) — e em nenhum dos
+    // dois a sessão volta sozinha. Esperar depois disso só gasta os 12 segundos.
+    const VAZIO = { status: 200, corpo: { code: 200, success: true, data: { QRCode: '' } } }
+    const NAO_CONECTADO = { status: 500, corpo: { code: 500, error: 'not connected', success: false } }
+    const SEM_SESSAO = { status: 500, corpo: { code: 500, error: 'no session', success: false } }
+    const COM_CODIGO = { status: 200, corpo: { code: 200, success: true, data: { QRCode: 'data:image/png;base64,QRTARDIO' } } }
+    let linhas: string[] = []
+    let espioes: jest.SpyInstance[] = []
+    beforeEach(() => {
+        linhas = []
+        const anotar = (...a: unknown[]) => { linhas.push(a.map(String).join(' ')) }
+        espioes = (['log', 'warn', 'error', 'info'] as const).map((m) => jest.spyOn(console, m).mockImplementation(anotar))
+    })
+    afterEach(() => espioes.forEach((e) => e.mockRestore()))
+    const consultasDoQr = () => estado.fetches.filter((f) => f.url.endsWith('/session/qr'))
+    const linhasDoQr = () => linhas.filter((l) => l.startsWith('[QR-ORCAMENTISTA]') && l.includes('passo=session-qr'))
+    const conexaoExistente = () => montar({
+        whatsapp_conexao: [{ tenant_id: T, canal: 'ORCAMENTISTA', wuzapi_token: TOKEN_DA_CONEXAO, conectado_por: USUARIO, conectado_em: '2026-10-21T00:00:00Z', ativo: false }],
+    })
+
+    describe('(1) o TEXTO do erro de cada tentativa sem 2xx vai para o log', () => {
+        it.each([
+            ['not connected', NAO_CONECTADO],
+            ['no session', SEM_SESSAO],
+        ])('500 "%s": a linha da tentativa diz qual foi', async (texto, resposta) => {
+            conexaoExistente()
+            estado.sequenciaDoQr = [resposta, COM_CODIGO]
+            await chamar(rotaQr, 'POST')
+            expect(linhasDoQr()[0]).toEqual(expect.stringMatching(/tentativa=1 .*status=500/))
+            expect(linhasDoQr()[0]).toContain(texto)
+        })
+
+        it('o texto do erro passa pela máscara: o token que o servidor devolveu no corpo NÃO vai para o log', async () => {
+            conexaoExistente()
+            estado.wuzapiFora.add('/session/connect')
+            estado.wuzapiFora.add('/session/qr')
+            await chamar(rotaQr, 'POST')
+            expect(linhasDoQr()[0]).toEqual(expect.stringMatching(/status=500.*fora/))
+            expect(linhas.join('\n')).not.toContain(TOKEN_DA_CONEXAO)
+        })
+
+        it('com 2xx, nenhum texto de erro na linha', async () => {
+            conexaoExistente()
+            await chamar(rotaQr, 'POST')
+            expect(linhasDoQr()[0]).not.toContain('erro=')
+        })
+    })
+
+    describe('(2) 500 depois de 200 é a sessão caindo: para na hora, e a tela diz isso', () => {
+        it('o caso de produção: 200, 200, 200 e 500 — para na QUARTA, sem gastar o resto do teto', async () => {
+            conexaoExistente()
+            estado.sequenciaDoQr = [VAZIO, VAZIO, VAZIO, NAO_CONECTADO, COM_CODIGO]
+            const r = await chamar(rotaQr, 'POST')
+            expect(consultasDoQr()).toHaveLength(4)
+            expect(estado.esperas).toHaveLength(3)
+            expect(r.status).toBe(502)
+            expect(r.corpo.passo).toBe('session-qr')
+            expect(String(r.corpo.error)).toMatch(/caiu/)
+            expect(String(r.corpo.error)).toContain('4 vezes')
+            expect(String(r.corpo.error)).not.toMatch(/WUZAPI/)
+        })
+
+        it('"no session" depois de 200 também encerra', async () => {
+            conexaoExistente()
+            estado.sequenciaDoQr = [VAZIO, SEM_SESSAO, COM_CODIGO]
+            const r = await chamar(rotaQr, 'POST')
+            expect(consultasDoQr()).toHaveLength(2)
+            expect(String(r.corpo.error)).toMatch(/caiu/)
+        })
+
+        it('o contraste: 500 ANTES de qualquer 200 é o socket subindo — continua esperando, e o código vem', async () => {
+            conexaoExistente()
+            estado.sequenciaDoQr = [NAO_CONECTADO, NAO_CONECTADO, VAZIO, COM_CODIGO]
+            const r = await chamar(rotaQr, 'POST')
+            expect(r.status).toBe(200)
+            expect(r.corpo.qr).toBe('data:image/png;base64,QRTARDIO')
+            expect(consultasDoQr()).toHaveLength(4)
+        })
+
+        it('o contraste: só vazios até o teto — a mensagem é a de "não devolveu o código", não a de queda', async () => {
+            conexaoExistente()
+            estado.respostas['/session/qr'] = VAZIO
+            const r = await chamar(rotaQr, 'POST')
+            expect(String(r.corpo.error)).toMatch(/não devolveu o código para ler/)
+            expect(String(r.corpo.error)).not.toMatch(/caiu/)
+        })
     })
 })
