@@ -37,10 +37,16 @@
  * campos vazios antes, propostos, descartados, se enviou, e o desfecho. NUNCA a chave, o telefone,
  * o texto da conversa ou a pergunta.
  *
+ * A JANELA DO 4xx (dono do produto, 22/10/2026): num 4xx da Anthropic a linha leva também a
+ * `mensagem=` do erro — ela nomeia o CAMPO malformado do corpo, e sem ela um 400 é cego. Passa por
+ * `paraOLog` com a chave entre os segredos, ANTES de cortar em 300 caracteres (cortar antes deixaria
+ * um pedaço da chave que a máscara não reconhece). 5xx e exceção de rede seguem sem a mensagem.
+ *
  * Portão: `src/utils/__tests__/atendimentos-ia-conversa-da-ia.test.ts`.
  */
 import { supabaseAdmin } from '@/supabase/admin'
 import { MODELO_PADRAO_DA_IA, URL_DA_API_ANTHROPIC, VERSAO_DA_API_ANTHROPIC } from '@/lib/atendimentos-ia/modelo-da-ia'
+import { paraOLog } from '@/utils/atendimentos-ia-mascara-do-log'
 import {
     CAMPOS_DA_PRE_DEFINICAO, COMPLETA, EM_COLETA, PERGUNTA_DO_CAMPO, TIPOS_COM_MAIS_DE_UM_PAVIMENTO, TIPOS_DE_EDIFICACAO,
     mensagemDeFechamento, proximoCampo, quantosVazios, validarProposta,
@@ -65,22 +71,31 @@ function anotar(r: Rastro, desfecho: DesfechoDaIa, detalhe = '') {
 }
 
 // ── A FERRAMENTA — a saída estruturada ──────────────────────────────────────────────────────
-const textoOuNulo = { anyOf: [{ type: 'string' }, { type: 'null' }] }
-const inteiroOuNulo = { anyOf: [{ type: 'integer' }, { type: 'null' }] }
+/**
+ * O que NÃO foi dito é OMITIDO, não `null`: cada campo é OPCIONAL e de tipo simples.
+ *
+ * A razão é um limite da API, não estilo. "Schema complexity limits", em
+ * https://platform.claude.com/docs/en/build-with-claude/structured-outputs: somando todos os esquemas
+ * `strict` da requisição, no máximo 16 parâmetros com união (`anyOf` ou `type` em lista), 24
+ * opcionais e 20 ferramentas strict; acima disso, 400 "Schema is too complex for compilation.". A
+ * versão com `anyOf [tipo, null]` em cada campo tinha 20 uniões (9 + 9 + 2). Esta tem 0 uniões e 20
+ * opcionais. Acrescentar um campo aqui soma 2 opcionais (`campos` e `correcoes`): o portão (13) conta.
+ */
+const texto = { type: 'string' }
+const inteiro = { type: 'integer' }
 const esquemaDosCampos = {
     type: 'object',
     additionalProperties: false,
-    required: [...CAMPOS_DA_PRE_DEFINICAO],
     properties: {
-        tipologia: textoOuNulo,
-        largura_mm: inteiroOuNulo,
-        altura_mm: inteiroOuNulo,
-        quantidade: inteiroOuNulo,
-        cor_perfil: textoOuNulo,
-        vidro: textoOuNulo,
-        local: textoOuNulo,
-        tipo_edificacao: { anyOf: [{ type: 'string', enum: [...TIPOS_DE_EDIFICACAO] }, { type: 'null' }] },
-        distribuicao_por_pavimento: textoOuNulo,
+        tipologia: texto,
+        largura_mm: inteiro,
+        altura_mm: inteiro,
+        quantidade: inteiro,
+        cor_perfil: texto,
+        vidro: texto,
+        local: texto,
+        tipo_edificacao: { type: 'string', enum: [...TIPOS_DE_EDIFICACAO] },
+        distribuicao_por_pavimento: texto,
     },
 }
 export const FERRAMENTA = {
@@ -92,15 +107,14 @@ export const FERRAMENTA = {
         additionalProperties: false,
         required: ['campos', 'correcoes', 'pergunta'],
         properties: {
-            campos: { ...esquemaDosCampos, description: 'Valores ditos NESTA mensagem para campos que ainda estão vazios. null no que não foi dito.' },
-            correcoes: { ...esquemaDosCampos, description: 'Só quando o vendedor corrigiu EXPLICITAMENTE um campo já preenchido. null no resto.' },
+            campos: { ...esquemaDosCampos, description: 'Valores ditos NESTA mensagem para campos que ainda estão vazios. Omita o que não foi dito.' },
+            correcoes: { ...esquemaDosCampos, description: 'Só quando o vendedor corrigiu EXPLICITAMENTE um campo já preenchido. Omita o resto.' },
             pergunta: {
                 type: 'object',
                 additionalProperties: false,
-                required: ['campo', 'texto'],
                 properties: {
-                    campo: { anyOf: [{ type: 'string', enum: [...CAMPOS_DA_PRE_DEFINICAO] }, { type: 'null' }] },
-                    texto: textoOuNulo,
+                    campo: { type: 'string', enum: [...CAMPOS_DA_PRE_DEFINICAO] },
+                    texto,
                 },
             },
         },
@@ -122,7 +136,7 @@ function sistema(estado: Partial<EstadoDosCampos>): string {
         '- UMA pergunta por vez: a do próximo campo vazio, na ordem.',
         '- Em `campos`, só o que o vendedor disse NESTA mensagem, para campos vazios. Não invente, não deduza.',
         '- Em `correcoes`, só quando o vendedor corrigiu EXPLICITAMENTE um campo já preenchido.',
-        '- Em `pergunta`, o campo e o texto da próxima pergunta, curta e em português. Com tudo preenchido, campo e texto null.',
+        '- Em `pergunta`, o campo e o texto da próxima pergunta, curta e em português. Com tudo preenchido, omita campo e texto.',
         `- Responda SEMPRE chamando a ferramenta ${NOME_DA_FERRAMENTA}, uma vez.`,
         '',
         `Estado atual da pré-definição (null = ainda não dito): ${JSON.stringify(estado)}`,
@@ -138,6 +152,13 @@ type ResultadoDaLlm =
 function ehSemSaldo(status: number, erro: { type?: unknown; message?: unknown } | undefined): boolean {
     if (status === 402 || erro?.type === 'billing_error') return true
     return status === 400 && typeof erro?.message === 'string' && /credit balance/i.test(erro.message)
+}
+
+/** A mensagem de um 4xx: mascarada (a chave entre os segredos), sem aspas nem quebras, e SÓ DEPOIS cortada. */
+const MAXIMO_DA_MENSAGEM_NO_LOG = 300
+function mensagemParaOLog(mensagem: unknown, chave: string): string {
+    if (typeof mensagem !== 'string') return '-'
+    return paraOLog(mensagem, [chave]).replace(/["\r\n]+/g, ' ').slice(0, MAXIMO_DA_MENSAGEM_NO_LOG)
 }
 
 async function chamarLlm(chave: string, mensagens: Array<{ role: 'user' | 'assistant'; content: string }>, estado: Partial<EstadoDosCampos>): Promise<ResultadoDaLlm> {
@@ -165,8 +186,9 @@ async function chamarLlm(chave: string, mensagens: Array<{ role: 'user' | 'assis
     const corpo = (await r.json().catch((): null => null)) as Record<string, unknown> | null
     if (!r.ok) {
         const erro = (corpo?.error ?? undefined) as { type?: unknown; message?: unknown } | undefined
-        if (ehSemSaldo(r.status, erro)) return { tipo: 'sem-saldo', detalhe: `status=${r.status} motivo="a conta da Anthropic está sem saldo de créditos"` }
-        return { tipo: 'erro-da-llm', detalhe: `status=${r.status} tipo=${typeof erro?.type === 'string' ? erro.type : '-'}` }
+        const janela = r.status >= 400 && r.status < 500 ? ` mensagem="${mensagemParaOLog(erro?.message, chave)}"` : ''
+        if (ehSemSaldo(r.status, erro)) return { tipo: 'sem-saldo', detalhe: `status=${r.status} motivo="a conta da Anthropic está sem saldo de créditos"${janela}` }
+        return { tipo: 'erro-da-llm', detalhe: `status=${r.status} tipo=${typeof erro?.type === 'string' ? erro.type : '-'}${janela}` }
     }
     if (corpo?.stop_reason === 'refusal') return { tipo: 'recusa', detalhe: '' }
     const blocos = Array.isArray(corpo?.content) ? (corpo?.content as Array<Record<string, unknown>>) : []
