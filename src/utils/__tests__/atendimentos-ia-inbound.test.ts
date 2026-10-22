@@ -108,6 +108,8 @@ jest.mock('@/supabase/admin', () => ({
             q.order = (c: string, o?: { ascending?: boolean }) => { ordem = { coluna: c, asc: o?.ascending !== false }; return q }
             q.limit = (n: number) => { limite = n; return q }
             q.maybeSingle = async (): Promise<{ data: Linha | null; error: null }> => ({ data: ler()[0] ?? null, error: null })
+            // a consulta de LISTA, aguardada sem maybeSingle — devolve todas as linhas que casam
+            q.then = (ok: (v: unknown) => unknown, erro?: (e: unknown) => unknown) => Promise.resolve({ data: ler(), error: null }).then(ok, erro)
             q.insert = (carga: Linha) => {
                 const r = inserir(tabela, carga)
                 const resposta = {
@@ -524,5 +526,95 @@ describe('(10) a tentativa desconhecida leva o Info.ID, e o reenvio não vira 50
         estado.codigoDaFalha = '23503'
         const r = await chamar({ c: SEGREDO, corpo: DESCONHECIDO })
         expect(r.status).toBe(500)
+    })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+describe('(11) o celular sem o nono dígito: a comparação é pela forma NORMALIZADA, dos dois lados', () => {
+    // MEDIDO EM PRODUÇÃO (22/10/2026), nas duas pontas da mesma mensagem: o cadastro tem 11 dígitos
+    // (DDD + 9 + 8); o webhook entregou 12 (55 + DDD + 8). O WhatsApp entrega o celular brasileiro
+    // SEM o nono dígito — e a mensagem de um funcionário cadastrado caía em tentativa_desconhecida.
+    const comCadastro = (...telefones: string[]) => {
+        estado.db.orcamentista_remetente_autorizado = telefones.map((telefone, i) => ({ id: `aut-${i}`, tenant_id: TENANT, telefone, ativo: true }))
+    }
+    const doWebhook = (numero: string) => ({ type: 'Message', event: evento({ info: { SenderAlt: `${numero}:33@s.whatsapp.net` } }) })
+    const autorizou = () => linhasDe('orcamentista_mensagem').length === 1 && linhasDe('orcamentista_tentativa_desconhecida').length === 0
+    const recusou = () => linhasDe('orcamentista_mensagem').length === 0 && linhasDe('orcamentista_tentativa_desconhecida').length === 1
+
+    describe('AUTORIZADO, com os valores medidos', () => {
+        it('cadastro "51999114290" (11) e webhook "555199114290" (12, SEM o nono)', async () => {
+            comCadastro('51999114290')
+            const r = await chamar({ c: SEGREDO, corpo: doWebhook('555199114290') })
+            expect(r.status).toBe(200)
+            expect(autorizou()).toBe(true)
+        })
+
+        it('cadastro "5551999114290" (13, alguém cadastrou com DDI) e o mesmo webhook', async () => {
+            comCadastro('5551999114290')
+            await chamar({ c: SEGREDO, corpo: doWebhook('555199114290') })
+            expect(autorizou()).toBe(true)
+        })
+
+        it('cadastro "51999114290" e webhook "5551999114290" (13, com o nono)', async () => {
+            comCadastro('51999114290')
+            await chamar({ c: SEGREDO, corpo: doWebhook('5551999114290') })
+            expect(autorizou()).toBe(true)
+        })
+
+        it('fixo: cadastro "5133334444" e webhook "555133334444"', async () => {
+            comCadastro('5133334444')
+            await chamar({ c: SEGREDO, corpo: doWebhook('555133334444') })
+            expect(autorizou()).toBe(true)
+        })
+
+        it('fixo: o 9 NÃO foi inserido — um cadastro "51933334444" (com o 9 inventado) NÃO casa com o webhook "555133334444"', async () => {
+            comCadastro('51933334444')
+            await chamar({ c: SEGREDO, corpo: doWebhook('555133334444') })
+            expect(recusou()).toBe(true)
+        })
+    })
+
+    describe('NÃO autorizado: a tentativa é gravada', () => {
+        it('número estrangeiro: não é comparado — nem com um cadastro de dígitos IGUAIS', async () => {
+            comCadastro('5491155554444')
+            const r = await chamar({ c: SEGREDO, corpo: doWebhook('5491155554444') })
+            expect(r.status).toBe(200)
+            expect(recusou()).toBe(true)
+            expect(linhasDe('orcamentista_tentativa_desconhecida')[0]).toEqual(expect.objectContaining({ telefone: '5491155554444' }))
+        })
+
+        it('DOIS autorizados ativos que normalizam igual: NÃO escolhe um — recusa, grava a tentativa e loga a ambiguidade sem o telefone', async () => {
+            comCadastro('51999114290', '5199114290')
+            const r = await chamar({ c: SEGREDO, corpo: doWebhook('555199114290') })
+            expect(r.status).toBe(200)
+            expect(recusou()).toBe(true)
+            expect(linhasDe('orcamentista_conversa')).toEqual([])
+            const linha = erros.find((l) => l.startsWith('[INBOUND]') && /ambiguidade/.test(l))
+            expect(linha).toEqual(expect.stringContaining('autorizado=nao'))
+            for (const t of ['555199114290', '51999114290', '5199114290']) expect(erros.join('\n')).not.toContain(t)
+        })
+
+        it('o contraste da ambiguidade: a segunda linha INATIVA não conta — um só ativo, autorizado', async () => {
+            comCadastro('51999114290', '5199114290')
+            estado.db.orcamentista_remetente_autorizado[1].ativo = false
+            await chamar({ c: SEGREDO, corpo: doWebhook('555199114290') })
+            expect(autorizou()).toBe(true)
+            expect(linhasDe('orcamentista_mensagem')).toHaveLength(1)
+            expect(linhasDe('orcamentista_conversa')).toEqual([expect.objectContaining({ remetente_id: 'aut-0' })])
+        })
+    })
+
+    describe('o número é guardado COMO CHEGOU, não o normalizado', () => {
+        it('a conversa guarda "555199114290", não "51999114290"', async () => {
+            comCadastro('51999114290')
+            await chamar({ c: SEGREDO, corpo: doWebhook('555199114290') })
+            expect(linhasDe('orcamentista_conversa')).toEqual([expect.objectContaining({ telefone: '555199114290' })])
+        })
+
+        it('a tentativa guarda "555199114290", não "51999114290"', async () => {
+            comCadastro('51900000000')
+            await chamar({ c: SEGREDO, corpo: doWebhook('555199114290') })
+            expect(linhasDe('orcamentista_tentativa_desconhecida')).toEqual([expect.objectContaining({ telefone: '555199114290' })])
+        })
     })
 })

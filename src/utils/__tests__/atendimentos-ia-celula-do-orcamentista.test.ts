@@ -1548,3 +1548,79 @@ describe('(20) conectar o orçamentista — e apontar o webhook — SÓ com VERC
         })
     })
 })
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+describe('(21) a TELA e a ROTA de entrada comparam pela MESMA forma normalizada', () => {
+    // O WhatsApp entrega o celular brasileiro SEM o nono dígito (medido em 22/10/2026), e a rota de
+    // entrada passou a comparar por `telefoneNormalizado`. Se a tela continuasse na forma antiga, um
+    // cadastro "(51) 9911-4290" contra a autorização "51999114290" apareceria DIVERGENTE e travaria o
+    // religar, enquanto a rota os trata como o mesmo número.
+    describe('a forma GRAVADA (telefoneDoAutorizado) é a forma normalizada', () => {
+        it.each([
+            ['(51) 9911-4290', '51999114290'],
+            ['555199114290', '51999114290'],
+            ['5551999114290', '51999114290'],
+            ['5133334444', '5133334444'],
+        ])('"%s" grava "%s"', (bruto, esperado) => {
+            expect(telefoneDoAutorizado(bruto)).toEqual({ ok: true, telefone: esperado })
+        })
+
+        it.each([
+            ['estrangeiro', '5491155554444'],
+            ['assinante de 8 começando com 0', '5101234567'],
+            ['assinante de 8 começando com 1', '5111234567'],
+        ])('%s ("%s") não é telefone — a rota também nunca o reconheceria', (_n, bruto) => {
+            expect(telefoneDoAutorizado(bruto).ok).toBe(false)
+        })
+    })
+
+    describe('a COMPARAÇÃO (telefonesCasam) é a da rota', () => {
+        it.each([
+            ['(51) 9911-4290', '51999114290'],
+            ['555199114290', '51999114290'],
+            ['555199114290', '5551999114290'],
+        ])('"%s" casa com "%s"', (a, b) => {
+            expect(telefonesCasam(a, b)).toBe(true)
+        })
+
+        it('o fixo não ganha o 9: "5133334444" NÃO casa com "51933334444"', () => {
+            expect(telefonesCasam('5133334444', '51933334444')).toBe(false)
+        })
+
+        // O resultado ESPERADO é escrito à mão: comparar telefonesCasam com a própria normalização
+        // reafirmaria a implementação, e passaria com qualquer uma — inclusive errada.
+        it.each([
+            ['51999114290', '555199114290', true],
+            ['5133334444', '555133334444', true],
+            ['54999887766', '5554999887766', true],
+            ['5199114290', '51999114290', true],
+            ['51999114290', '51999887766', false],
+            ['51999114290', '54999114290', false],
+            ['5491155554444', '5491155554444', false],
+            ['5101234567', '5101234567', false],
+            ['12025550123', '12025550123', false],
+            ['51025550123', '51025550123', false],
+        ])('telefonesCasam(%p, %p) → %p', (a, b, esperado) => {
+            expect(telefonesCasam(a, b)).toBe(esperado)
+        })
+    })
+
+    describe('na tela: o cadastro sem o nono e a autorização com ele NÃO divergem', () => {
+        beforeEach(() => montar({
+            employees: [{ id: 'f-com', tenant_id: T, name: 'Ana', position: 'Vendedora', phone: '(51) 9998-7766', is_active: true, status: 'ACTIVE' }],
+            orcamentista_remetente_autorizado: [{ id: 'a1', tenant_id: T, telefone: '51999987766', nome: 'Ana', employee_id: 'f-com', ativo: false }],
+        }))
+
+        it('a linha NÃO aparece divergente', async () => {
+            const r = await chamar(rotaAutorizados, 'GET')
+            const ana = (r.corpo.linhas as Array<Record<string, unknown>>).find((l) => l.employee_id === 'f-com')!
+            expect(ana.divergente).toBe(false)
+        })
+
+        it('religar NÃO é recusado com 409', async () => {
+            const r = await chamar(rotaAutorizados, 'POST', { employee_id: 'f-com', acao: 'ligar' })
+            expect(r.status).toBe(200)
+            expect(estado.db.orcamentista_remetente_autorizado[0].ativo).toBe(true)
+        })
+    })
+})
