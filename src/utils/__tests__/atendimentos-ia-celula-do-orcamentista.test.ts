@@ -1429,3 +1429,82 @@ describe('(19) o segredo do webhook é do SISTEMA, e o próprio sistema aponta o
         })
     })
 })
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+describe('(20) conectar o orçamentista — e apontar o webhook — só em PRODUÇÃO (ou sem VERCEL_ENV, local)', () => {
+    // Medido em 22/10/2026: preview e produção usam o MESMO Supabase e o MESMO servidor WUZAPI.
+    // Clicar "Conectar" num preview reapontava o webhook da instância de PRODUÇÃO para a URL do
+    // preview, e as mensagens reais paravam de chegar sem nenhum erro na tela.
+    let ambienteAntes: string | undefined
+    let espioes: jest.SpyInstance[] = []
+    beforeEach(() => {
+        ambienteAntes = process.env.VERCEL_ENV
+        espioes = (['log', 'warn', 'error', 'info'] as const).map((m) => jest.spyOn(console, m).mockImplementation(() => undefined))
+    })
+    afterEach(() => {
+        espioes.forEach((e) => e.mockRestore())
+        if (ambienteAntes === undefined) delete process.env.VERCEL_ENV
+        else process.env.VERCEL_ENV = ambienteAntes
+    })
+    const caminhos = () => estado.fetches.map((f) => new URL(f.url).pathname)
+    const conexaoGravada = () => montar({
+        whatsapp_conexao: [{ tenant_id: T, canal: 'ORCAMENTISTA', wuzapi_token: TOKEN_DA_CONEXAO, webhook_segredo: 'cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd', conectado_por: USUARIO, conectado_em: '2026-10-21T00:00:00Z', ativo: false }],
+    })
+
+    describe('VERCEL_ENV = "preview"', () => {
+        beforeEach(() => { process.env.VERCEL_ENV = 'preview' })
+
+        it.each([
+            ['instância nova', () => montar()],
+            ['conexão reusada', conexaoGravada],
+            ['sessão já logada', () => { conexaoGravada(); estado.logada = true }],
+        ])('%s: NENHUM POST /webhook, e a conexão NÃO é dada como pronta — nem QR, nem "conectado"', async (_n, preparar) => {
+            preparar()
+            const r = await chamar(rotaQr, 'POST')
+            expect(caminhos()).not.toContain('/webhook')
+            expect(r.status).not.toBe(200)
+            expect(r.corpo.qr).toBeUndefined()
+            expect(r.corpo.conectado).toBeUndefined()
+            expect(String(r.corpo.error)).toMatch(/só é permitido em produção/)
+        })
+
+        it('não toca o estado compartilhado com a produção: nenhuma chamada ao WUZAPI e nenhuma escrita no banco', async () => {
+            conexaoGravada()
+            await chamar(rotaQr, 'POST')
+            expect(estado.fetches).toEqual([])
+            expect(escritas()).toEqual([])
+        })
+
+        it('a trava está também no próprio apontamento: apontarWebhook não chama o WUZAPI fora de produção', async () => {
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const { apontarWebhook } = require('@/lib/atendimentos-ia/orcamentista-da-empresa') as { apontarWebhook: (t: string, s: string) => Promise<boolean> }
+            expect(await apontarWebhook(TOKEN_DA_CONEXAO, 'cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd')).toBe(false)
+            expect(caminhos()).not.toContain('/webhook')
+        })
+    })
+
+    it.each([
+        ['"development" (vercel dev)', 'development'],
+        ['um valor qualquer', 'staging'],
+    ])('VERCEL_ENV = %s também NÃO aponta', async (_n, valor) => {
+        process.env.VERCEL_ENV = valor
+        const r = await chamar(rotaQr, 'POST')
+        expect(caminhos()).not.toContain('/webhook')
+        expect(r.status).not.toBe(200)
+    })
+
+    it('VERCEL_ENV = "production": aponta, como já faz, e o QR sai', async () => {
+        process.env.VERCEL_ENV = 'production'
+        const r = await chamar(rotaQr, 'POST')
+        expect(caminhos().filter((c) => c === '/webhook')).toHaveLength(1)
+        expect(r.status).toBe(200)
+        expect(r.corpo.qr).toBe('data:image/png;base64,QRFALSO')
+    })
+
+    it('VERCEL_ENV indefinido (desenvolvimento local): aponta, e o QR sai', async () => {
+        delete process.env.VERCEL_ENV
+        const r = await chamar(rotaQr, 'POST')
+        expect(caminhos().filter((c) => c === '/webhook')).toHaveLength(1)
+        expect(r.status).toBe(200)
+    })
+})
