@@ -87,7 +87,7 @@ jest.mock('@/supabase/admin', () => ({
             q.eq = (c: string, v: unknown) => { filtros.push([c, v]); return q }
             q.order = (c: string, o?: { ascending?: boolean }) => { ordem = { coluna: c, asc: o?.ascending !== false }; return q }
             q.limit = (n: number) => { limite = n; return q }
-            q.maybeSingle = async () => ({ data: ler()[0] ?? null, error: null })
+            q.maybeSingle = async (): Promise<{ data: Linha | null; error: null }> => ({ data: ler()[0] ?? null, error: null })
             q.insert = (carga: Linha) => {
                 const r = inserir(tabela, carga)
                 const resposta = {
