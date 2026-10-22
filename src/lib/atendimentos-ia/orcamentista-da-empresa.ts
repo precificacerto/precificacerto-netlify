@@ -245,6 +245,47 @@ export async function descartarConexao(tenantId: string, token: string) {
 }
 
 /**
+ * A espera pelo QR depois do `/session/connect` com 2xx. Medido em produção em 22/10/2026 00:14
+ * UTC: connect 200 "Connected!", e o `/session/qr` 200 com `QRCode` VAZIO logo em seguida.
+ *
+ * O que o fonte do WUZAPI (asternic/wuzapi, `handlers.go` e `wmiau.go`) mostra, e por que a espera:
+ *   - o connect com `Immediate: true` — o que esta rota manda — dispara `startClient` numa goroutine
+ *     e responde NA HORA, sem esperar o cliente subir nem o QR existir;
+ *   - o QR só é gravado (`UPDATE users SET qrcode=...`) quando o canal do whatsmeow emite o evento
+ *     "code", depois de o socket conectar. Até lá, `GET /session/qr` responde 200 com `QRCode: ""`
+ *     (não há checagem de vazio) ou 500 "not connected", se o socket ainda não subiu;
+ *   - o fonte NÃO DIZ em quanto tempo o primeiro "code" chega. O único atraso fixo do fluxo é o do
+ *     connect SEM `Immediate`: o próprio WUZAPI espera 10 segundos para considerar o cliente
+ *     conectado. Daí o teto de 12 s — acima dessa espera do próprio servidor, com margem — e a
+ *     consulta a cada 1,5 s: no máximo 9 consultas, leves, por clique.
+ * O teto fica em no máximo metade do `maxDuration` declarado na rota (`qr.ts`), e há portão disso.
+ */
+export const ESPERA_DO_QR = { intervaloMs: 1500, tetoMs: 12000 }
+
+/** O relógio da espera — trocado por um virtual nos testes, para não esperarem de verdade. */
+export const relogioDoQr = {
+    agora: (): number => Date.now(),
+    dormir: (ms: number): Promise<void> => new Promise<void>((ok) => setTimeout(ok, ms)),
+}
+
+/** Uma consulta ao `/session/qr`, com a sua linha no log. O QR em si NUNCA vai para o log. */
+async function consultarQr(token: string, tentativa: number): Promise<{ qr: string | null; naoAutorizado: boolean }> {
+    try {
+        const r = await fetch(`${wuzapi()}/session/qr`, { method: 'GET', headers: { token } })
+        const { json } = await lerCorpo(r)
+        const d = (json as { data?: { QRCode?: unknown; qrcode?: unknown } } | null)?.data
+        const bruto = d?.QRCode ?? d?.qrcode ?? null
+        const qr = r.ok && typeof bruto === 'string' && bruto.trim() ? (bruto.startsWith('data:') ? bruto : `data:image/png;base64,${bruto.trim()}`) : null
+        const chaves = d && typeof d === 'object' ? Object.keys(d).join(',') : '-'
+        anotarPassoDoQr('session-qr', `GET /session/qr tentativa=${tentativa} status=${r.status} veio_corpo=${json ? 'sim' : 'nao'} veio_qr=${qr ? 'sim' : 'nao'} campos_de_data=${chaves}`, [token])
+        return { qr, naoAutorizado: r.status === NAO_AUTORIZADO }
+    } catch (e) {
+        anotarPassoDoQr('session-qr', `GET /session/qr tentativa=${tentativa} excecao=${motivoDe(e)}`, [token])
+        return { qr: null, naoAutorizado: false }
+    }
+}
+
+/**
  * Liga a sessão assinando `Message` e devolve o QR, se houver, e o NÚMERO da instância, lido do
  * `jid` da resposta do `/session/connect` (`numeroDoJid`). Sem jid legível, `numero` é NULL —
  * não se inventa. (Antes do QR ser lido a sessão ainda não tem usuário, e é de esperar que o jid
@@ -253,11 +294,18 @@ export async function descartarConexao(tenantId: string, token: string) {
  * O `/session/qr` é pedido MESMO com o connect falhando: a sessão pode já estar aberta, esperando
  * a leitura de um clique anterior, e aí o QR vem. `connectOk` diz à rota qual passo culpar quando
  * o QR não vem.
+ *
+ * Com o connect em 2xx, o QR vazio é ESPERADO (ver `ESPERA_DO_QR`): a primeira consulta é imediata
+ * e, vindo sem código, consulta-se de novo a cada intervalo até o teto — parando na primeira que
+ * trouxer o código, ou num 401, que nenhuma espera resolve. Com o connect falhando, uma consulta
+ * só, como sempre. `tentativas` e `esperaMs` dizem à rota quanto se tentou.
  */
-export async function qrDaInstancia(token: string): Promise<{ qr: string | null; numero: string | null; connectOk: boolean; naoAutorizado: boolean }> {
+export async function qrDaInstancia(token: string): Promise<{
+    qr: string | null; numero: string | null; connectOk: boolean; naoAutorizado: boolean; tentativas: number; esperaMs: number
+}> {
     let connectOk = false
     let numero: string | null = null
-    // O WUZAPI respondeu 401 a alguma das duas chamadas: não conhece este token.
+    // O WUZAPI respondeu 401 a alguma das chamadas: não conhece este token.
     let naoAutorizado = false
     try {
         const conn = await fetch(`${wuzapi()}/session/connect`, {
@@ -275,20 +323,16 @@ export async function qrDaInstancia(token: string): Promise<{ qr: string | null;
         anotarPassoDoQr('session-connect', `POST /session/connect excecao=${motivoDe(e)}`, [token])
     }
 
-    try {
-        const r = await fetch(`${wuzapi()}/session/qr`, { method: 'GET', headers: { token } })
-        const { json } = await lerCorpo(r)
-        const d = (json as { data?: { QRCode?: unknown; qrcode?: unknown } } | null)?.data
-        const bruto = d?.QRCode ?? d?.qrcode ?? null
-        const qr = r.ok && typeof bruto === 'string' && bruto.trim() ? (bruto.startsWith('data:') ? bruto : `data:image/png;base64,${bruto.trim()}`) : null
-        // O QR NÃO vai para o log — só se veio. Quem o lê liga o WhatsApp da empresa.
-        const chaves = d && typeof d === 'object' ? Object.keys(d).join(',') : '-'
-        anotarPassoDoQr('session-qr', `GET /session/qr status=${r.status} veio_corpo=${json ? 'sim' : 'nao'} veio_qr=${qr ? 'sim' : 'nao'} campos_de_data=${chaves}`, [token])
-        if (r.status === NAO_AUTORIZADO) naoAutorizado = true
-        return { qr, numero, connectOk, naoAutorizado }
-    } catch (e) {
-        anotarPassoDoQr('session-qr', `GET /session/qr excecao=${motivoDe(e)}`, [token])
-        return { qr: null, numero, connectOk, naoAutorizado }
+    const inicio = relogioDoQr.agora()
+    let tentativas = 0
+    for (;;) {
+        tentativas += 1
+        const consulta = await consultarQr(token, tentativas)
+        if (consulta.naoAutorizado) naoAutorizado = true
+        const fim = consulta.qr !== null || naoAutorizado || !connectOk
+            || relogioDoQr.agora() - inicio + ESPERA_DO_QR.intervaloMs > ESPERA_DO_QR.tetoMs
+        if (fim) return { qr: consulta.qr, numero, connectOk, naoAutorizado, tentativas, esperaMs: relogioDoQr.agora() - inicio }
+        await relogioDoQr.dormir(ESPERA_DO_QR.intervaloMs)
     }
 }
 

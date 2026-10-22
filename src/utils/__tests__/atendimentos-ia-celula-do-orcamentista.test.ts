@@ -73,6 +73,12 @@ const estado = {
     tokensDesconhecidos: new Set<string>(),
     /** O WUZAPI não conhece token NENHUM — nem o recém-criado. */
     todoTokenDesconhecido: false,
+    /** Respostas do `GET /session/qr` em ORDEM, uma por consulta; esgotadas, vale o comportamento normal. */
+    sequenciaDoQr: [] as Array<{ status: number; corpo: unknown } | 'lanca'>,
+    /** As esperas pedidas ao relógio do QR, em ms — o relógio é VIRTUAL nos testes. */
+    esperas: [] as number[],
+    /** O tempo virtual, em ms. */
+    agora: 0,
 }
 
 function executar(tabela: string, op: string, carga: unknown, filtros: [string, unknown][], opcoes?: { onConflict?: string }): { data: Linha[] | null; error: { code: string; message: string } | null } {
@@ -146,6 +152,11 @@ beforeAll(() => {
         if (tokenDaChamada && (estado.todoTokenDesconhecido || estado.tokensDesconhecidos.has(tokenDaChamada))) {
             return { ok: false, status: 401, json: async () => ({ code: 401, error: 'unauthorized', success: false }) }
         }
+        if (caminho === '/session/qr' && estado.sequenciaDoQr.length) {
+            const proxima = estado.sequenciaDoQr.shift()!
+            if (proxima === 'lanca') throw new Error('socket hang up')
+            return { ok: proxima.status >= 200 && proxima.status < 300, status: proxima.status, json: async () => proxima.corpo }
+        }
         const forcada = estado.respostas[caminho]
         if (forcada) return { ok: forcada.status >= 200 && forcada.status < 300, status: forcada.status, json: async () => forcada.corpo }
         const json = (b: unknown) => ({ ok: true, status: 200, json: async () => b })
@@ -206,9 +217,28 @@ function montar(extra: Partial<Record<string, Linha[]>> = {}) {
     estado.lancar = new Set()
     estado.tokensDesconhecidos = new Set()
     estado.todoTokenDesconhecido = false
+    estado.sequenciaDoQr = []
+    estado.esperas = []
+    estado.agora = 0
     process.env.WUZAPI_ADMIN_TOKEN = 'admin-de-teste'
 }
 beforeEach(() => montar())
+
+// O relógio do QR é VIRTUAL: esperar não custa tempo de teste, e cada espera fica registrada.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const moduloDoOrcamentista = require('@/lib/atendimentos-ia/orcamentista-da-empresa') as {
+    relogioDoQr?: { agora: () => number; dormir: (ms: number) => Promise<void> }
+    ESPERA_DO_QR?: { intervaloMs: number; tetoMs: number }
+}
+let relogioReal: { agora: () => number; dormir: (ms: number) => Promise<void> } | undefined
+beforeEach(() => {
+    const r = moduloDoOrcamentista.relogioDoQr
+    if (!r) return
+    relogioReal = { ...r }
+    r.agora = () => estado.agora
+    r.dormir = async (ms: number) => { estado.esperas.push(ms); estado.agora += ms }
+})
+afterEach(() => { if (relogioReal && moduloDoOrcamentista.relogioDoQr) Object.assign(moduloDoOrcamentista.relogioDoQr, relogioReal) })
 
 // ═══════════════════════════════════════════════════════════════════════════════════════
 describe('(1) a seção desligada: a rota não devolve nada, e nada é gravado', () => {
@@ -990,5 +1020,116 @@ describe('(16) o rastro do QR CHEGA AO LOG: sai em console.error (stderr), não 
         for (const l of doQr(deErro)) expect(l).toContain(`host=${host}`)
         const tudo = deErro.join('\n')
         for (const segredo of [String(estado.db.whatsapp_conexao[0].wuzapi_token), 'admin-de-teste']) expect(tudo).not.toContain(segredo)
+    })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+describe('(17) o QR que ainda não existe: depois do connect com 2xx, o /session/qr é consultado de novo até o código vir', () => {
+    // Medido em produção em 22/10/2026 00:14 UTC: connect 200 "Connected!", e o /session/qr 200 com
+    // `QRCode` VAZIO logo em seguida. No fonte do WUZAPI o connect com `Immediate: true` volta antes
+    // de o cliente subir, e o QR só é gravado quando o evento "code" chega — até lá, o /session/qr
+    // responde 200 com `QRCode: ""` ou 500 "not connected".
+    const VAZIO = { status: 200, corpo: { code: 200, success: true, data: { QRCode: '' } } }
+    const NAO_CONECTADO = { status: 500, corpo: { code: 500, error: 'not connected', success: false } }
+    const COM_CODIGO = { status: 200, corpo: { code: 200, success: true, data: { QRCode: 'data:image/png;base64,QRDATERCEIRA' } } }
+    let linhas: string[] = []
+    let espioes: jest.SpyInstance[] = []
+    beforeEach(() => {
+        linhas = []
+        const anotar = (...a: unknown[]) => { linhas.push(a.map(String).join(' ')) }
+        espioes = (['log', 'warn', 'error', 'info'] as const).map((m) => jest.spyOn(console, m).mockImplementation(anotar))
+    })
+    afterEach(() => espioes.forEach((e) => e.mockRestore()))
+    const consultasDoQr = () => estado.fetches.filter((f) => f.url.endsWith('/session/qr'))
+    const linhasDoQr = () => linhas.filter((l) => l.startsWith('[QR-ORCAMENTISTA]') && l.includes('passo=session-qr'))
+    const conexaoExistente = () => montar({
+        whatsapp_conexao: [{ tenant_id: T, canal: 'ORCAMENTISTA', wuzapi_token: TOKEN_DA_CONEXAO, conectado_por: USUARIO, conectado_em: '2026-10-21T00:00:00Z', ativo: false }],
+    })
+
+    it('o caso de produção: vazio, "not connected", e o código na TERCEIRA — 200 com ele, e para ali', async () => {
+        conexaoExistente()
+        estado.sequenciaDoQr = [VAZIO, NAO_CONECTADO, COM_CODIGO]
+        const r = await chamar(rotaQr, 'POST')
+        expect(r.status).toBe(200)
+        expect(r.corpo.qr).toBe('data:image/png;base64,QRDATERCEIRA')
+        expect(consultasDoQr()).toHaveLength(3)
+        expect(estado.esperas).toHaveLength(2)
+    })
+
+    it('a primeira consulta é IMEDIATA: o código vindo de primeira, nenhuma espera', async () => {
+        conexaoExistente()
+        const r = await chamar(rotaQr, 'POST')
+        expect(r.status).toBe(200)
+        expect(consultasDoQr()).toHaveLength(1)
+        expect(estado.esperas).toEqual([])
+    })
+
+    it('cada tentativa deixa uma linha no log: o número, o status e se veio', async () => {
+        conexaoExistente()
+        estado.sequenciaDoQr = [VAZIO, NAO_CONECTADO, COM_CODIGO]
+        await chamar(rotaQr, 'POST')
+        const doQr = linhasDoQr()
+        expect(doQr).toHaveLength(3)
+        expect(doQr[0]).toEqual(expect.stringMatching(/tentativa=1 .*status=200.*veio_qr=nao/))
+        expect(doQr[1]).toEqual(expect.stringMatching(/tentativa=2 .*status=500.*veio_qr=nao/))
+        expect(doQr[2]).toEqual(expect.stringMatching(/tentativa=3 .*status=200.*veio_qr=sim/))
+    })
+
+    it('a exceção de rede numa tentativa não encerra a espera: a seguinte ainda pode trazer o código', async () => {
+        conexaoExistente()
+        estado.sequenciaDoQr = ['lanca', COM_CODIGO]
+        const r = await chamar(rotaQr, 'POST')
+        expect(r.status).toBe(200)
+        expect(consultasDoQr()).toHaveLength(2)
+        expect(linhasDoQr()[0]).toEqual(expect.stringMatching(/tentativa=1 .*excecao=/))
+    })
+
+    describe('esgotando: a mensagem de hoje, com quantas vezes e por quanto tempo', () => {
+        it('nunca veio: 502 no passo session-qr, e a espera não passa do teto', async () => {
+            conexaoExistente()
+            estado.respostas['/session/qr'] = VAZIO
+            const r = await chamar(rotaQr, 'POST')
+            const espera = moduloDoOrcamentista.ESPERA_DO_QR!
+            const tentativas = Math.floor(espera.tetoMs / espera.intervaloMs) + 1
+            expect(r.status).toBe(502)
+            expect(r.corpo.passo).toBe('session-qr')
+            expect(consultasDoQr()).toHaveLength(tentativas)
+            expect(estado.esperas.reduce((a, b) => a + b, 0)).toBeLessThanOrEqual(espera.tetoMs)
+            expect(String(r.corpo.error)).toMatch(/O servidor de WhatsApp não devolveu o código para ler/)
+            expect(String(r.corpo.error)).toContain(`${tentativas} vezes`)
+            expect(String(r.corpo.error)).toContain(`${Math.round(estado.agora / 1000)} segundos`)
+            expect(linhasDoQr()).toHaveLength(tentativas)
+            expect(linhasDoQr()[tentativas - 1]).toEqual(expect.stringContaining(`tentativa=${tentativas} `))
+        })
+    })
+
+    describe('quando NÃO se espera', () => {
+        it('connect sem 2xx: UMA consulta só, como hoje, e a culpa é do connect', async () => {
+            conexaoExistente()
+            estado.wuzapiFora.add('/session/connect')
+            estado.respostas['/session/qr'] = VAZIO
+            const r = await chamar(rotaQr, 'POST')
+            expect(consultasDoQr()).toHaveLength(1)
+            expect(estado.esperas).toEqual([])
+            expect(r.corpo.passo).toBe('session-connect')
+        })
+
+        it('401 no /session/qr: para na hora — é o token que o servidor não conhece, e esperar não o faz conhecer', async () => {
+            estado.respostas['/admin/users'] = { status: 201, corpo: { code: 201, success: true, data: { id: 'x' } } }
+            estado.sequenciaDoQr = [{ status: 401, corpo: { code: 401, error: 'unauthorized' } }, COM_CODIGO]
+            const r = await chamar(rotaQr, 'POST')
+            expect(consultasDoQr()).toHaveLength(1)
+            expect(estado.esperas).toEqual([])
+            expect(r.status).toBe(502)
+        })
+    })
+
+    it('o teto cabe com folga no limite DECLARADO da função: no máximo METADE do maxDuration da rota', () => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { config } = require('@/pages/api/atendimentos-ia/orcamentista/qr') as { config?: { maxDuration?: number } }
+        const espera = moduloDoOrcamentista.ESPERA_DO_QR
+        expect(config?.maxDuration).toBeGreaterThan(0)
+        expect(espera?.tetoMs).toBeGreaterThan(0)
+        expect(espera!.tetoMs).toBeLessThanOrEqual((config!.maxDuration! * 1000) / 2)
     })
 })
