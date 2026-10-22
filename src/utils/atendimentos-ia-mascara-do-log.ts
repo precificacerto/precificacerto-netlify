@@ -1,7 +1,8 @@
 /**
  * Atendimentos I.A. — a MÁSCARA do que vai para o log da Vercel, usada pelo caminho do QR do
- * orçamentista (`[QR-ORCAMENTISTA]`). Nasceu para a rota TEMPORÁRIA de captura do webhook, que foi
- * removida em 22/10/2026, com o formato do webhook já medido.
+ * orçamentista (`[QR-ORCAMENTISTA]`) e pela mensagem de erro 4xx da Anthropic na linha `[IA]`
+ * (`conversa-da-ia.ts`, com a ANTHROPIC_API_KEY entre os segredos). Nasceu para a rota TEMPORÁRIA de
+ * captura do webhook, que foi removida em 22/10/2026, com o formato do webhook já medido.
  *
  *   - toda sequência de 8 ou mais dígitos vira os 4 primeiros + 'x' + os 2 últimos, com o mesmo
  *     comprimento: a estrutura fica visível, o telefone não;

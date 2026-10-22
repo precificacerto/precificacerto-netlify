@@ -471,7 +471,7 @@ describe('(8) erro da LLM ou do envio: 200 ao WUZAPI, sempre — e nenhuma mensa
         expect(erros.join('\n')).not.toContain(CHAVE)
     })
 
-    it('o contraste: OUTRO erro 400 não é saldo — e nem a chave nem o texto do erro vão ao log', async () => {
+    it('o contraste: OUTRO erro 400 não é saldo — e a chave não vai ao log', async () => {
         estado.respostasDaLlm.push({ status: 400, corpo: { type: 'error', error: { type: 'invalid_request_error', message: 'max_tokens: invalid' } } })
         const r = await chamar()
         expect(r.status).toBe(200)
@@ -631,5 +631,111 @@ describe('(11) o FECHAMENTO: ao completar, o vendedor recebe UMA mensagem fixa, 
         expect(estado.envios).toHaveLength(1)
         expect(saidas()).toHaveLength(1)
         expect(linhaIa()[1]).toEqual(expect.stringMatching(/enviou=nao.*desfecho=ja-completa/))
+    })
+})
+
+describe('(12) a JANELA do 4xx: a mensagem de erro da Anthropic vai ao log, mascarada e cortada — só no 4xx', () => {
+    const erro400 = (message: string) => ({ status: 400, corpo: { type: 'error', error: { type: 'invalid_request_error', message } } })
+    const mensagemDoLog = () => { const m = /mensagem="([^"]*)"/.exec(linhaIa()[0] ?? ''); return m ? m[1] : null }
+
+    it('400 → a linha [IA] leva a mensagem, que nomeia o CAMPO malformado', async () => {
+        estado.respostasDaLlm.push(erro400('tools.0.custom: Schema is too complex for compilation.'))
+        await chamar()
+        expect(linhaIa()[0]).toEqual(expect.stringContaining('desfecho=erro-da-llm'))
+        expect(mensagemDoLog()).toBe('tools.0.custom: Schema is too complex for compilation.')
+    })
+
+    it('a chave NUNCA aparece — nem quando a mensagem de erro a contém literalmente', async () => {
+        estado.respostasDaLlm.push(erro400(`x-api-key header is invalid: ${CHAVE}`))
+        await chamar()
+        expect(mensagemDoLog()).not.toBeNull()
+        expect(erros.join('\n')).not.toContain(CHAVE)
+        expect(mensagemDoLog()).toContain('<segredo>')
+    })
+
+    it('a chave atravessando o corte dos 300 não deixa PEDAÇO dela: mascara antes de cortar', async () => {
+        // a chave começa no caractere 282: um corte ANTES da máscara deixaria os 19 primeiros dela
+        estado.respostasDaLlm.push(erro400(`${'a'.repeat(280)} ${CHAVE} fim`))
+        await chamar()
+        expect(mensagemDoLog()).toContain('<segredo>')
+        expect(erros.join('\n')).not.toContain(CHAVE.slice(0, 12))
+    })
+
+    it('cortada em 300 caracteres', async () => {
+        estado.respostasDaLlm.push(erro400('campo invalido. '.repeat(100)))
+        await chamar()
+        expect(mensagemDoLog()).toHaveLength(300)
+    })
+
+    it('402 sem saldo também é 4xx: leva a mensagem', async () => {
+        estado.respostasDaLlm.push({ status: 402, corpo: { type: 'error', error: { type: 'billing_error', message: 'Your credit balance is too low.' } } })
+        await chamar()
+        expect(linhaIa()[0]).toEqual(expect.stringContaining('desfecho=sem-saldo'))
+        expect(mensagemDoLog()).toBe('Your credit balance is too low.')
+    })
+
+    it('o contraste: 5xx → NADA muda, a mensagem não vai ao log', async () => {
+        estado.respostasDaLlm.push({ status: 500, corpo: { type: 'error', error: { type: 'api_error', message: 'detalhe interno do servidor' } } })
+        await chamar()
+        expect(linhaIa()[0]).toEqual(expect.stringContaining('desfecho=erro-da-llm'))
+        expect(erros.join('\n')).not.toContain('detalhe interno do servidor')
+        expect(linhaIa()[0]).not.toContain('mensagem=')
+    })
+
+    it('o contraste: exceção de rede → NADA muda', async () => {
+        estado.respostasDaLlm.push('lanca')
+        await chamar()
+        expect(linhaIa()[0]).not.toContain('mensagem=')
+    })
+})
+
+describe('(13) o esquema da ferramenta cabe nos limites de complexidade do strict', () => {
+    // Limites "Explicit limits" de https://platform.claude.com/docs/en/build-with-claude/structured-outputs
+    // (seção "Schema complexity limits"): acima deles a API responde 400 "Schema is too complex for compilation."
+    const LIMITE_DE_FERRAMENTAS_STRICT = 20
+    const LIMITE_DE_OPCIONAIS = 24
+    const LIMITE_DE_UNIOES = 16
+
+    function contar(esquema: unknown) {
+        let unioes = 0
+        let opcionais = 0
+        const andar = (s: Record<string, unknown>) => {
+            const props = s.properties as Record<string, Record<string, unknown>> | undefined
+            if (!props) return
+            const obrigatorios = new Set((s.required as string[] | undefined) ?? [])
+            for (const [k, v] of Object.entries(props)) {
+                if (!obrigatorios.has(k)) opcionais += 1
+                if (v.anyOf || Array.isArray(v.type)) unioes += 1
+                andar(v)
+            }
+        }
+        andar(esquema as Record<string, unknown>)
+        return { unioes, opcionais }
+    }
+
+    it('o esquema ENVIADO à Anthropic: até 16 parâmetros com união, até 24 opcionais, até 20 ferramentas strict', async () => {
+        await chamar()
+        const tools = estado.chamadasDaLlm[0].corpo.tools as Array<Record<string, unknown>>
+        expect(tools.filter((t) => t.strict === true).length).toBeLessThanOrEqual(LIMITE_DE_FERRAMENTAS_STRICT)
+        const total = tools.filter((t) => t.strict === true).map((t) => contar(t.input_schema))
+            .reduce((a, b) => ({ unioes: a.unioes + b.unioes, opcionais: a.opcionais + b.opcionais }), { unioes: 0, opcionais: 0 })
+        expect(total.unioes).toBeLessThanOrEqual(LIMITE_DE_UNIOES)
+        expect(total.opcionais).toBeLessThanOrEqual(LIMITE_DE_OPCIONAIS)
+    })
+
+    it('e continua RESTRINGINDO: cada campo com o seu tipo, o tipo de edificação fechado, sem chave extra', async () => {
+        await chamar()
+        type Esquema = { type?: string; enum?: string[]; additionalProperties?: boolean; properties: Record<string, Esquema> }
+        const esquema = (estado.chamadasDaLlm[0].corpo.tools as Array<{ input_schema: Esquema }>)[0].input_schema
+        for (const bloco of ['campos', 'correcoes']) {
+            const p = esquema.properties[bloco]
+            expect(p.additionalProperties).toBe(false)
+            expect(Object.keys(p.properties).sort()).toEqual([...CAMPOS_NO_FECHAMENTO, 'tipo_edificacao', 'distribuicao_por_pavimento'].sort())
+            expect(p.properties.largura_mm.type).toBe('integer')
+            expect(p.properties.quantidade.type).toBe('integer')
+            expect(p.properties.tipologia.type).toBe('string')
+            expect([...(p.properties.tipo_edificacao.enum ?? [])].sort()).toEqual([...preDef.TIPOS_DE_EDIFICACAO].sort())
+        }
+        expect(esquema.additionalProperties).toBe(false)
     })
 })
