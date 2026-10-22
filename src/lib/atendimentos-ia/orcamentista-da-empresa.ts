@@ -267,17 +267,17 @@ export const EVENTOS_DO_WEBHOOK = ['Message'] as const
 const origemDoSistema = () => (process.env.NEXT_PUBLIC_APP_URL || 'https://app.precificacerto.com').replace(/\/+$/, '')
 
 /**
- * O ambiente pode apontar o webhook — e, por isso, conectar o orçamentista? Só em PRODUÇÃO
- * (`VERCEL_ENV === 'production'`) ou SEM `VERCEL_ENV` (desenvolvimento local).
+ * O ambiente pode apontar o webhook — e, por isso, conectar o orçamentista? SÓ com
+ * `VERCEL_ENV === 'production'`, e nada mais.
  *
- * Medido em 22/10/2026: preview e produção usam o MESMO Supabase e o MESMO servidor WUZAPI. Um
- * clique em "Conectar" num preview reapontava o webhook da instância de PRODUÇÃO para a URL do
- * preview, e as mensagens reais paravam de chegar sem erro nenhum na tela. `development` (vercel
- * dev) e qualquer outro valor também não apontam: só os dois casos acima.
+ * Medido em 22/10/2026: preview, `vercel dev` e o desenvolvimento local (`npm run dev`, sem
+ * `VERCEL_ENV`) usam o MESMO Supabase e o MESMO servidor WUZAPI da produção. Um clique em
+ * "Conectar" em qualquer um deles reapontava o webhook da instância de PRODUÇÃO para a URL daquele
+ * ambiente, e as mensagens reais paravam de chegar sem erro nenhum na tela. A primeira versão desta
+ * trava deixava passar o VERCEL_ENV indefinido, e isso reabria a falha pelo `npm run dev`.
  */
 export function ambientePermiteApontarWebhook(): boolean {
-    const ambiente = process.env.VERCEL_ENV
-    return !ambiente || ambiente === 'production'
+    return process.env.VERCEL_ENV === 'production'
 }
 
 /** A URL que o WUZAPI chama a cada mensagem: a rota de entrada, com o segredo da conexão. */

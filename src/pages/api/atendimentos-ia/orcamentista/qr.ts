@@ -45,9 +45,9 @@
  * assinatura, medido em produção). Sem 2xx, 502 no passo "webhook": nem QR nem "conectado" saem.
  *
  * ══ SÓ EM PRODUÇÃO (22/10/2026) ══
- * Preview e produção usam o MESMO Supabase e o MESMO WUZAPI: fora de `VERCEL_ENV === 'production'`
- * (ou sem `VERCEL_ENV`, local) a rota recusa com 403 no passo "ambiente", antes de tocar em
- * qualquer coisa (`ambientePermiteApontarWebhook`).
+ * Preview, `vercel dev` e o local usam o MESMO Supabase e o MESMO WUZAPI da produção: fora de
+ * `VERCEL_ENV === 'production'` — inclusive com ele INDEFINIDO — a rota recusa com 403 no passo
+ * "ambiente", antes de tocar em qualquer coisa (`ambientePermiteApontarWebhook`).
  *
  * Só quem pode EDITAR Conectividade conecta. Arquitetura:
  * `src/lib/atendimentos-ia/orcamentista-da-empresa.ts`.
@@ -64,7 +64,7 @@ import {
  */
 const PERSISTINDO = 'Tente de novo em instantes; se continuar, avise o suporte.'
 export const MENSAGEM_DO_PASSO: Record<Exclude<PassoDoQr, 'instancia' | 'session-status'>, string> = {
-  'ambiente': 'Conectar o orçamentista só é permitido em produção: este ambiente usa o mesmo servidor de WhatsApp e apontaria a conexão real para cá.',
+  'ambiente': 'Conectar o orçamentista só é permitido em produção. A instância do servidor de WhatsApp é compartilhada entre os ambientes: apontá-la daqui desviaria para cá as mensagens reais da empresa.',
   'criar-instancia': `Não consegui criar a conexão no servidor de WhatsApp. ${PERSISTINDO}`,
   'webhook': `A conexão NÃO está pronta: o webhook não foi apontado no servidor de WhatsApp, e as mensagens não chegariam ao orçamentista. ${PERSISTINDO}`,
   'session-connect': `A sessão de WhatsApp não abriu no servidor. ${PERSISTINDO}`,
@@ -103,9 +103,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!caller) return
   const tenantId = caller.tenant_id
 
-  // Fora de produção (preview, vercel dev), NADA: nem webhook, nem instância criada, nem conexão
-  // gravada ou descartada — preview e produção dividem o banco e o servidor de WhatsApp, e
-  // "conectado sem webhook apontado" é o estado meio-conectado que esta rota não admite.
+  // Fora de produção (preview, vercel dev, npm run dev), NADA: nem webhook, nem instância criada,
+  // nem conexão gravada ou descartada — todos dividem o banco e o servidor de WhatsApp com a
+  // produção, e "conectado sem webhook apontado" é o estado meio-conectado que esta rota não admite.
   if (!ambientePermiteApontarWebhook()) {
     anotarPassoDoQr('ambiente', `recusado: VERCEL_ENV=${process.env.VERCEL_ENV} — conectar o orçamentista só em produção`, [])
     return res.status(403).json({ error: MENSAGEM_DO_PASSO.ambiente, passo: 'ambiente' })
