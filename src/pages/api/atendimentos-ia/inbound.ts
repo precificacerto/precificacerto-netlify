@@ -2,8 +2,12 @@
  * POST /api/atendimentos-ia/inbound?c=<whatsapp_conexao.webhook_segredo>
  *
  * A ENTRADA do Atendimentos I.A.: o WUZAPI entrega aqui as mensagens que chegam ao número do
- * orçamentista. Servidor para servidor — sem usuário logado, com service_role. Nesta versão a rota
- * só GRAVA a mensagem: não chama LLM nenhuma e não responde nada ao WhatsApp.
+ * orçamentista. Servidor para servidor — sem usuário logado, com service_role. A rota GRAVA a
+ * mensagem e, SÓ no desfecho 'gravada', conduz a conversa (`conduzirConversa`, em
+ * `src/lib/atendimentos-ia/conversa-da-ia.ts`): a IA propõe, a conversa valida, grava a
+ * pré-definição e responde no WhatsApp. Nunca em 'repetida' — o reenvio responderia duas vezes —,
+ * nem em 'ignorada-*' ou 'tentativa-*'. O 200 ao WUZAPI sai MESMO SE a LLM ou o envio falharem:
+ * um erro da LLM não pode virar reenvio em laço.
  *
  * ══ O PORTÃO, nesta ordem, sem exceção ══
  *   a) `c` da URL → `whatsapp_conexao` por `webhook_segredo`. Fora do formato da coluna
@@ -54,6 +58,10 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 import { supabaseAdmin } from '@/supabase/admin'
 import { telefoneDoRemetente, textoDaMensagem } from '@/lib/atendimentos-ia/payload-wuzapi'
 import { telefoneNormalizado } from '@/lib/atendimentos-ia/telefone-normalizado'
+import { conduzirConversa } from '@/lib/atendimentos-ia/conversa-da-ia'
+
+/** A conversa chama a LLM e o WUZAPI dentro da requisição: o limite é declarado, não herdado. */
+export const config = { maxDuration: 60 }
 
 export const PREFIXO_DO_LOG_DE_ENTRADA = '[INBOUND]'
 /** O formato de `whatsapp_conexao.webhook_segredo` — o mesmo do CHECK da coluna. */
@@ -105,7 +113,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         if (typeof c !== 'string' || c === '') return fim(404, 'sem-c')
         if (!FORMATO_DO_SEGREDO.test(c)) return fim(404, 'c-fora-do-formato')
         const { data: conexao, error: erroConexao } = await supabaseAdmin
-            .from('whatsapp_conexao').select('tenant_id, canal').eq('webhook_segredo', c).maybeSingle()
+            .from('whatsapp_conexao').select('tenant_id, canal, wuzapi_token').eq('webhook_segredo', c).maybeSingle()
         if (erroConexao) throw new Error(`whatsapp_conexao: ${erroConexao.message}`)
         if (!conexao) return fim(404, 'conexao-nao-achada')
         rastro.conexao = true
@@ -183,6 +191,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         // dois reenvios ao mesmo tempo: o segundo bate na UNIQUE parcial — já está gravada
         if (erroMensagem && erroMensagem.code === VIOLACAO_DE_UNICIDADE) return fim(200, 'repetida-na-corrida')
         if (erroMensagem) throw new Error(`orcamentista_mensagem: ${erroMensagem.message}`)
+
+        // A CONVERSA — só aqui, com a entrada gravada. Ela nunca lança: o 200 sai de qualquer jeito.
+        // O token da conexão é o do envio; não vai para log nenhum.
+        await conduzirConversa({ tenantId, conversaId, telefone, wuzapiToken: (conexao as { wuzapi_token: string }).wuzapi_token })
         return fim(200, 'gravada')
     } catch (e) {
         // Sem o token nem o texto: as mensagens acima só levam o nome da tabela e o erro do banco.

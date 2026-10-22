@@ -28,7 +28,7 @@ const TEXTO = 'São 4 janelas de correr, 1500 por 1200'
 const CHAVE = 'sk-ant-CHAVE-DE-TESTE-nao-pode-ir-ao-log'
 const ANTHROPIC = 'https://api.anthropic.com/v1/messages'
 
-const VAZIA = {
+const VAZIA: Linha = {
     tipologia: null, largura_mm: null, altura_mm: null, quantidade: null, cor_perfil: null, vidro: null,
     local: null, tipo_edificacao: null, distribuicao_por_pavimento: null,
 }
@@ -267,6 +267,12 @@ describe('(2) o contrato da chamada à Anthropic', () => {
         expect(String(corpo.system)).toContain('Janela de correr')
     })
 
+    it('a rota de entrada DECLARA o limite da função (a LLM roda dentro da requisição)', () => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { config } = require('@/pages/api/atendimentos-ia/inbound') as { config?: { maxDuration?: number } }
+        expect(config?.maxDuration).toBe(60)
+    })
+
     it('a chave NUNCA vai para o log', async () => {
         await chamar()
         expect(erros.join('\n')).not.toContain(CHAVE)
@@ -450,21 +456,22 @@ describe('(8) erro da LLM ou do envio: 200 ao WUZAPI, sempre — e nenhuma mensa
         expect(entradas()).toHaveLength(1)
         expect(linhaIa()[0]).toEqual(expect.stringContaining('desfecho=sem-saldo'))
         expect(erros.join('\n')).toMatch(/saldo/i)
+        expect(erros.join('\n')).not.toContain(CHAVE)
     })
 
-    it('o contraste: OUTRO erro 400 não é saldo', async () => {
+    it('o contraste: OUTRO erro 400 não é saldo — e nem a chave nem o texto do erro vão ao log', async () => {
         estado.respostasDaLlm.push({ status: 400, corpo: { type: 'error', error: { type: 'invalid_request_error', message: 'max_tokens: invalid' } } })
         const r = await chamar()
         expect(r.status).toBe(200)
         expect(estado.envios).toEqual([])
         expect(linhaIa()[0]).toEqual(expect.stringContaining('desfecho=erro-da-llm'))
         expect(linhaIa()[0]).not.toContain('sem-saldo')
+        expect(erros.join('\n')).not.toContain(CHAVE)
     })
 
     it.each([
         ['500', () => { estado.respostasDaLlm.push({ status: 500, corpo: { type: 'error', error: { type: 'api_error', message: 'x' } } }) }],
         ['exceção de rede', () => { estado.respostasDaLlm.push('lanca') }],
-        ['recusa (stop_reason refusal)', () => { estado.respostasDaLlm.push({ status: 200, corpo: { type: 'message', stop_reason: 'refusal', content: [] } }) }],
         ['resposta sem chamar a ferramenta', () => { estado.respostasDaLlm.push({ status: 200, corpo: { type: 'message', stop_reason: 'end_turn', content: [{ type: 'text', text: 'Olá!' }] } }) }],
     ])('LLM: %s → 200, nada enviado', async (_n, preparar) => {
         preparar()
@@ -473,6 +480,17 @@ describe('(8) erro da LLM ou do envio: 200 ao WUZAPI, sempre — e nenhuma mensa
         expect(estado.envios).toEqual([])
         expect(saidas()).toEqual([])
         expect(entradas()).toHaveLength(1)
+    })
+
+    it('RECUSA (stop_reason refusal) MESMO trazendo uma chamada parcial da ferramenta → nada gravado, nada enviado', async () => {
+        montar(VAZIA)
+        const parcial = respostaComFerramenta({ campos: { tipologia: 'Janela' }, pergunta: { campo: 'largura_mm', texto: 'E a largura?' } })
+        estado.respostasDaLlm.push({ status: 200, corpo: { ...parcial, stop_reason: 'refusal' } })
+        const r = await chamar()
+        expect(r.status).toBe(200)
+        expect(estado.envios).toEqual([])
+        expect(preDefinicao()?.tipologia).toBeNull()
+        expect(linhaIa()[0]).toEqual(expect.stringContaining('desfecho=recusa'))
     })
 
     it('FALHA NO ENVIO do WUZAPI → 200, a entrada continua gravada, nenhuma saída gravada, e o campo validado fica', async () => {
@@ -521,7 +539,8 @@ describe('(10) o log [IA]: em console.error, com a contagem — nunca a chave, o
         await chamar()
         const linha = linhaIa()[0]
         expect(linha).toEqual(expect.stringContaining(`conversa=${CONVERSA}`))
-        expect(linha).toEqual(expect.stringContaining('vazios_antes=8'))
+        // dos campos APLICÁVEIS: sem tipo de edificação, a distribuição não conta — 8, um preenchido
+        expect(linha).toEqual(expect.stringContaining('vazios_antes=7'))
         expect(linha).toEqual(expect.stringContaining('propostos=2'))
         expect(linha).toEqual(expect.stringContaining('descartados=1'))
         expect(linha).toEqual(expect.stringContaining('enviou=sim'))
