@@ -27,10 +27,15 @@
  * Antes do (c), 200 sem gravar nada: mensagem nossa (`IsFromMe`), de grupo (`IsGroup`), sem texto,
  * ou sem telefone legível.
  *
- * ══ O TELEFONE TEM DUAS FORMAS ══
- * O webhook entrega o número COM o DDI (`5551999887766`); a lista grava SEM ele (`51999887766`,
- * ver `telefoneDoAutorizado`). A busca na lista usa a forma GRAVADA; a conversa e a tentativa
- * guardam o número como ele CHEGOU — é para ele que uma resposta voltaria.
+ * ══ O TELEFONE: A COMPARAÇÃO É PELA FORMA NORMALIZADA, DOS DOIS LADOS ══
+ * O webhook entrega o celular COM o DDI e SEM o nono dígito (`555199114290`, medido em 22/10/2026);
+ * o cadastro pode estar com ou sem DDI, com ou sem o nono. Os dois lados passam por
+ * `telefoneNormalizado` (`src/lib/atendimentos-ia/telefone-normalizado.ts`), a MESMA forma que a
+ * tela usa. Isso não cabe num `.eq()` do PostgREST: a rota lê os autorizados ATIVOS do tenant e
+ * compara em memória. Número que a normalização não lê (estrangeiro, formato estranho) não é
+ * comparado — vira tentativa. DUAS linhas ativas na mesma forma: NÃO se escolhe uma — é recusa, e
+ * o log registra a ambiguidade (sem o telefone). A conversa e a tentativa guardam o número como
+ * ele CHEGOU — é para ele que uma resposta voltaria.
  *
  * ══ AUTORIZADO ══
  * Reusa a conversa mais recente do (tenant, remetente), ou cria uma. A mensagem entra com
@@ -48,7 +53,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { supabaseAdmin } from '@/supabase/admin'
 import { telefoneDoRemetente, textoDaMensagem } from '@/lib/atendimentos-ia/payload-wuzapi'
-import { telefoneDoAutorizado } from '@/utils/atendimentos-ia-telefone-do-autorizado'
+import { telefoneNormalizado } from '@/lib/atendimentos-ia/telefone-normalizado'
 
 export const PREFIXO_DO_LOG_DE_ENTRADA = '[INBOUND]'
 /** O formato de `whatsapp_conexao.webhook_segredo` — o mesmo do CHECK da coluna. */
@@ -56,11 +61,13 @@ const FORMATO_DO_SEGREDO = /^[0-9a-f]{32,64}$/
 const CANAL_DO_ORCAMENTISTA = 'ORCAMENTISTA'
 const VIOLACAO_DE_UNICIDADE = '23505'
 
-type Rastro = { chaves: string; canal: string; conexao: boolean; autorizado: boolean | null; id: string; desfecho: string }
+type Rastro = { chaves: string; canal: string; conexao: boolean; autorizado: boolean | null; ambiguidade: number; id: string; desfecho: string }
 
 function anotar(r: Rastro) {
     const autorizado = r.autorizado === null ? '-' : r.autorizado ? 'sim' : 'nao'
-    console.error(`${PREFIXO_DO_LOG_DE_ENTRADA} chaves=${r.chaves} canal=${r.canal} conexao=${r.conexao ? 'sim' : 'nao'} autorizado=${autorizado} id=${r.id} desfecho=${r.desfecho}`)
+    // a ambiguidade sai como CONTAGEM — nunca o telefone
+    const ambiguidade = r.ambiguidade > 0 ? ` ambiguidade=${r.ambiguidade}` : ''
+    console.error(`${PREFIXO_DO_LOG_DE_ENTRADA} chaves=${r.chaves} canal=${r.canal} conexao=${r.conexao ? 'sim' : 'nao'} autorizado=${autorizado}${ambiguidade} id=${r.id} desfecho=${r.desfecho}`)
 }
 
 /** O corpo como objeto — o parser do Next entrega JSON já lido; texto cru é lido aqui. */
@@ -84,7 +91,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const corpo = corpoDe(req)
     const event = (corpo.event && typeof corpo.event === 'object' ? corpo.event : {}) as Record<string, unknown>
     const info = (event.Info && typeof event.Info === 'object' ? event.Info : {}) as Record<string, unknown>
-    const rastro: Rastro = { chaves: Object.keys(corpo).sort().join(',') || '-', canal: '-', conexao: false, autorizado: null, id: idSeguro(info.ID), desfecho: '' }
+    const rastro: Rastro = { chaves: Object.keys(corpo).sort().join(',') || '-', canal: '-', conexao: false, autorizado: null, ambiguidade: 0, id: idSeguro(info.ID), desfecho: '' }
     const fim = (status: number, desfecho: string) => {
         rastro.desfecho = desfecho
         anotar(rastro)
@@ -122,16 +129,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
         const mensagemId = typeof info.ID === 'string' && info.ID !== '' ? info.ID : null
 
-        // (c) o remetente na lista ATIVA do tenant — pela forma gravada (sem o DDI)
-        const forma = telefoneDoAutorizado(telefone)
+        // (c) o remetente na lista ATIVA do tenant — pela forma NORMALIZADA, dos dois lados, em memória
+        const forma = telefoneNormalizado(telefone)
         let remetenteId: string | null = null
-        if (forma.ok) {
-            const { data: autorizado, error: erroAutorizado } = await supabaseAdmin
-                .from('orcamentista_remetente_autorizado').select('id')
-                .eq('tenant_id', tenantId).eq('telefone', (forma as { telefone: string }).telefone).eq('ativo', true)
-                .maybeSingle()
+        if (forma !== null) {
+            const { data: ativos, error: erroAutorizado } = await supabaseAdmin
+                .from('orcamentista_remetente_autorizado').select('id, telefone')
+                .eq('tenant_id', tenantId).eq('ativo', true)
             if (erroAutorizado) throw new Error(`orcamentista_remetente_autorizado: ${erroAutorizado.message}`)
-            remetenteId = (autorizado as { id: string } | null)?.id ?? null
+            const casam = ((ativos ?? []) as Array<{ id: string; telefone: string }>).filter((a) => telefoneNormalizado(a.telefone) === forma)
+            // Duas linhas ativas na mesma forma: recusar é melhor que acertar no chute.
+            if (casam.length === 1) remetenteId = casam[0].id
+            else if (casam.length > 1) rastro.ambiguidade = casam.length
         }
         rastro.autorizado = remetenteId !== null
         if (remetenteId === null) {
@@ -140,7 +149,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             // o reenvio do WUZAPI bate na UNIQUE parcial — a tentativa já está gravada
             if (error && error.code === VIOLACAO_DE_UNICIDADE) return fim(200, 'tentativa-repetida')
             if (error) throw new Error(`orcamentista_tentativa_desconhecida: ${error.message}`)
-            return fim(200, 'tentativa-desconhecida')
+            return fim(200, rastro.ambiguidade > 0 ? 'tentativa-por-ambiguidade' : 'tentativa-desconhecida')
         }
 
         // idempotência: o mesmo Info.ID já gravado neste tenant
