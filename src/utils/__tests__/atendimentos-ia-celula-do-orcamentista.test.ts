@@ -224,6 +224,15 @@ function montar(extra: Partial<Record<string, Linha[]>> = {}) {
 }
 beforeEach(() => montar())
 
+// A rota do QR só conecta com VERCEL_ENV === 'production' (seção 20): os casos desta suíte simulam
+// produção por padrão, e a seção 20 troca o ambiente caso a caso.
+const AMBIENTE_ANTES_DA_SUITE = process.env.VERCEL_ENV
+beforeEach(() => { process.env.VERCEL_ENV = 'production' })
+afterAll(() => {
+    if (AMBIENTE_ANTES_DA_SUITE === undefined) delete process.env.VERCEL_ENV
+    else process.env.VERCEL_ENV = AMBIENTE_ANTES_DA_SUITE
+})
+
 // O relógio do QR é VIRTUAL: esperar não custa tempo de teste, e cada espera fica registrada.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const moduloDoOrcamentista = require('@/lib/atendimentos-ia/orcamentista-da-empresa') as {
@@ -1431,10 +1440,12 @@ describe('(19) o segredo do webhook é do SISTEMA, e o próprio sistema aponta o
 })
 
 // ═══════════════════════════════════════════════════════════════════════════════════════
-describe('(20) conectar o orçamentista — e apontar o webhook — só em PRODUÇÃO (ou sem VERCEL_ENV, local)', () => {
-    // Medido em 22/10/2026: preview e produção usam o MESMO Supabase e o MESMO servidor WUZAPI.
-    // Clicar "Conectar" num preview reapontava o webhook da instância de PRODUÇÃO para a URL do
-    // preview, e as mensagens reais paravam de chegar sem nenhum erro na tela.
+describe('(20) conectar o orçamentista — e apontar o webhook — SÓ com VERCEL_ENV === "production"', () => {
+    // Medido em 22/10/2026: preview, `vercel dev` E o desenvolvimento local usam o MESMO Supabase e o
+    // MESMO servidor WUZAPI. Clicar "Conectar" fora da produção reapontava o webhook da instância de
+    // PRODUÇÃO para a URL daquele ambiente, e as mensagens reais paravam de chegar sem nenhum erro
+    // na tela. A primeira versão desta trava deixava passar VERCEL_ENV indefinido (local), e isso
+    // reabria a falha: indefinido entra na MESMA recusa.
     let ambienteAntes: string | undefined
     let espioes: jest.SpyInstance[] = []
     beforeEach(() => {
@@ -1466,6 +1477,7 @@ describe('(20) conectar o orçamentista — e apontar o webhook — só em PRODU
             expect(r.corpo.qr).toBeUndefined()
             expect(r.corpo.conectado).toBeUndefined()
             expect(String(r.corpo.error)).toMatch(/só é permitido em produção/)
+            expect(String(r.corpo.error)).toMatch(/compartilhad/)
         })
 
         it('não toca o estado compartilhado com a produção: nenhuma chamada ao WUZAPI e nenhuma escrita no banco', async () => {
@@ -1501,10 +1513,38 @@ describe('(20) conectar o orçamentista — e apontar o webhook — só em PRODU
         expect(r.corpo.qr).toBe('data:image/png;base64,QRFALSO')
     })
 
-    it('VERCEL_ENV indefinido (desenvolvimento local): aponta, e o QR sai', async () => {
-        delete process.env.VERCEL_ENV
-        const r = await chamar(rotaQr, 'POST')
-        expect(caminhos().filter((c) => c === '/webhook')).toHaveLength(1)
-        expect(r.status).toBe(200)
+    describe('VERCEL_ENV INDEFINIDO (npm run dev) — a mesma recusa do preview', () => {
+        beforeEach(() => { delete process.env.VERCEL_ENV })
+
+        it.each([
+            ['instância nova', () => montar()],
+            ['conexão reusada', conexaoGravada],
+            ['sessão já logada', () => { conexaoGravada(); estado.logada = true }],
+        ])('%s: NENHUM POST /webhook, nenhuma chamada ao WUZAPI, nenhuma escrita no banco, e a conexão NÃO é dada como pronta', async (_n, preparar) => {
+            preparar()
+            const r = await chamar(rotaQr, 'POST')
+            expect(caminhos()).not.toContain('/webhook')
+            expect(estado.fetches).toEqual([])
+            expect(escritas()).toEqual([])
+            expect(r.status).toBe(403)
+            expect(r.corpo.qr).toBeUndefined()
+            expect(r.corpo.conectado).toBeUndefined()
+            expect(r.corpo.passo).toBe('ambiente')
+            expect(String(r.corpo.error)).toMatch(/só é permitido em produção/)
+        })
+
+        it('e o próprio apontamento recusa: apontarWebhook não chama o WUZAPI', async () => {
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const { apontarWebhook } = require('@/lib/atendimentos-ia/orcamentista-da-empresa') as { apontarWebhook: (t: string, s: string) => Promise<boolean> }
+            expect(await apontarWebhook(TOKEN_DA_CONEXAO, 'cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd')).toBe(false)
+            expect(estado.fetches).toEqual([])
+        })
+
+        it('VERCEL_ENV vazio ("") também recusa', async () => {
+            process.env.VERCEL_ENV = ''
+            const r = await chamar(rotaQr, 'POST')
+            expect(r.status).toBe(403)
+            expect(estado.fetches).toEqual([])
+        })
     })
 })
