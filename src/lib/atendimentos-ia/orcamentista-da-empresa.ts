@@ -269,19 +269,22 @@ export const relogioDoQr = {
 }
 
 /** Uma consulta ao `/session/qr`, com a sua linha no log. O QR em si NUNCA vai para o log. */
-async function consultarQr(token: string, tentativa: number): Promise<{ qr: string | null; naoAutorizado: boolean }> {
+async function consultarQr(token: string, tentativa: number): Promise<{ qr: string | null; naoAutorizado: boolean; status: number | null }> {
     try {
         const r = await fetch(`${wuzapi()}/session/qr`, { method: 'GET', headers: { token } })
-        const { json } = await lerCorpo(r)
+        const { texto, json } = await lerCorpo(r)
         const d = (json as { data?: { QRCode?: unknown; qrcode?: unknown } } | null)?.data
         const bruto = d?.QRCode ?? d?.qrcode ?? null
         const qr = r.ok && typeof bruto === 'string' && bruto.trim() ? (bruto.startsWith('data:') ? bruto : `data:image/png;base64,${bruto.trim()}`) : null
         const chaves = d && typeof d === 'object' ? Object.keys(d).join(',') : '-'
-        anotarPassoDoQr('session-qr', `GET /session/qr tentativa=${tentativa} status=${r.status} veio_corpo=${json ? 'sim' : 'nao'} veio_qr=${qr ? 'sim' : 'nao'} campos_de_data=${chaves}`, [token])
-        return { qr, naoAutorizado: r.status === NAO_AUTORIZADO }
+        // Sem 2xx, o TEXTO do erro vai junto: é ele que separa "no session" (sessão desmontada) de
+        // "not connected" (cliente vivo, socket caído). Passa pela máscara como o resto da linha.
+        const erro = r.ok ? '' : ` erro=${corte(texto)}`
+        anotarPassoDoQr('session-qr', `GET /session/qr tentativa=${tentativa} status=${r.status} veio_corpo=${json ? 'sim' : 'nao'} veio_qr=${qr ? 'sim' : 'nao'} campos_de_data=${chaves}${erro}`, [token])
+        return { qr, naoAutorizado: r.status === NAO_AUTORIZADO, status: r.status }
     } catch (e) {
         anotarPassoDoQr('session-qr', `GET /session/qr tentativa=${tentativa} excecao=${motivoDe(e)}`, [token])
-        return { qr: null, naoAutorizado: false }
+        return { qr: null, naoAutorizado: false, status: null }
     }
 }
 
@@ -299,9 +302,15 @@ async function consultarQr(token: string, tentativa: number): Promise<{ qr: stri
  * e, vindo sem código, consulta-se de novo a cada intervalo até o teto — parando na primeira que
  * trouxer o código, ou num 401, que nenhuma espera resolve. Com o connect falhando, uma consulta
  * só, como sempre. `tentativas` e `esperaMs` dizem à rota quanto se tentou.
+ *
+ * 5xx DEPOIS de um 2xx é a sessão CAINDO (`sessaoCaiu`), e encerra a espera na hora. Medido em
+ * produção em 22/10/2026 00:39 UTC: tentativas 1 a 3 com 200 e QRCode vazio, 4 a 8 com 500. No
+ * fonte do WUZAPI esse 500 é "no session" (sessão desmontada) ou "not connected" (socket caído), e
+ * em nenhum dos dois a sessão volta sozinha. O 5xx ANTES de qualquer 2xx é o socket ainda subindo,
+ * e continua esperando.
  */
 export async function qrDaInstancia(token: string): Promise<{
-    qr: string | null; numero: string | null; connectOk: boolean; naoAutorizado: boolean; tentativas: number; esperaMs: number
+    qr: string | null; numero: string | null; connectOk: boolean; naoAutorizado: boolean; tentativas: number; esperaMs: number; sessaoCaiu: boolean
 }> {
     let connectOk = false
     let numero: string | null = null
@@ -325,13 +334,16 @@ export async function qrDaInstancia(token: string): Promise<{
 
     const inicio = relogioDoQr.agora()
     let tentativas = 0
+    let jaRespondeuOk = false
     for (;;) {
         tentativas += 1
         const consulta = await consultarQr(token, tentativas)
         if (consulta.naoAutorizado) naoAutorizado = true
-        const fim = consulta.qr !== null || naoAutorizado || !connectOk
+        const sessaoCaiu = jaRespondeuOk && consulta.status !== null && consulta.status >= 500
+        if (consulta.status !== null && consulta.status >= 200 && consulta.status < 300) jaRespondeuOk = true
+        const fim = consulta.qr !== null || naoAutorizado || !connectOk || sessaoCaiu
             || relogioDoQr.agora() - inicio + ESPERA_DO_QR.intervaloMs > ESPERA_DO_QR.tetoMs
-        if (fim) return { qr: consulta.qr, numero, connectOk, naoAutorizado, tentativas, esperaMs: relogioDoQr.agora() - inicio }
+        if (fim) return { qr: consulta.qr, numero, connectOk, naoAutorizado, tentativas, esperaMs: relogioDoQr.agora() - inicio, sessaoCaiu }
         await relogioDoQr.dormir(ESPERA_DO_QR.intervaloMs)
     }
 }

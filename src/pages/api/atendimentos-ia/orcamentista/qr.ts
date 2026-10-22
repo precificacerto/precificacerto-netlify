@@ -34,6 +34,8 @@
  * falhava era o `/session/qr` consultado logo depois do connect, com `QRCode` vazio: o QR ainda não
  * tinha sido gerado. Com o connect em 2xx, o `/session/qr` é consultado de novo até o código vir
  * (`ESPERA_DO_QR` na lib, com o que o fonte do WUZAPI diz). As defesas do #114 FICAM.
+ * E 500 DEPOIS de 200 é a sessão caindo (medido em 22/10/2026 00:39 UTC): a espera para ali, e a
+ * tela diz que a sessão caiu em vez de gastar o teto.
  *
  * Só quem pode EDITAR Conectividade conecta. Arquitetura:
  * `src/lib/atendimentos-ia/orcamentista-da-empresa.ts`.
@@ -61,6 +63,15 @@ export const MENSAGEM_DO_PASSO: Record<Exclude<PassoDoQr, 'instancia' | 'session
 export function mensagemDoQrQueNaoVeio(tentativas: number, esperaMs: number): string {
   const segundos = Math.round(esperaMs / 1000)
   return `O servidor de WhatsApp não devolveu o código para ler — tentei ${tentativas} ${tentativas === 1 ? 'vez' : 'vezes'} em ${segundos} ${segundos === 1 ? 'segundo' : 'segundos'}. ${PERSISTINDO}`
+}
+
+/**
+ * A sessão que abriu e CAIU antes de mostrar o código: o /session/qr respondeu 200 e depois 500.
+ * Esperar mais não a traz de volta (ver `qrDaInstancia`), então a tela diz o que aconteceu.
+ */
+export function mensagemDaSessaoQueCaiu(tentativas: number, esperaMs: number): string {
+  const segundos = Math.round(esperaMs / 1000)
+  return `A sessão de WhatsApp abriu no servidor, mas caiu antes de mostrar o código para ler — tentei ${tentativas} ${tentativas === 1 ? 'vez' : 'vezes'} em ${segundos} ${segundos === 1 ? 'segundo' : 'segundos'}. ${PERSISTINDO}`
 }
 
 /**
@@ -142,11 +153,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     // O número vem do jid do /session/connect — ou NULL, que também apaga o de uma conexão
     // anterior: o QR novo pode ser lido por outro aparelho. A coluna nasce na `20261021000002`.
-    const { qr, numero, connectOk, tentativas, esperaMs } = resultado
+    const { qr, numero, connectOk, tentativas, esperaMs, sessaoCaiu } = resultado
     await marcarConexao(tenantId, { numero })
     if (!qr) {
       if (!connectOk) return res.status(502).json({ error: MENSAGEM_DO_PASSO['session-connect'], passo: 'session-connect' })
-      return res.status(502).json({ error: mensagemDoQrQueNaoVeio(tentativas, esperaMs), passo: 'session-qr' })
+      const error = sessaoCaiu ? mensagemDaSessaoQueCaiu(tentativas, esperaMs) : mensagemDoQrQueNaoVeio(tentativas, esperaMs)
+      return res.status(502).json({ error, passo: 'session-qr' })
     }
     return res.status(200).json({ qr })
   } catch (e) {
