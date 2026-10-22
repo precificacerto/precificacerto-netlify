@@ -1,18 +1,29 @@
 /**
- * POST /api/atendimentos-ia/inbound?c=<whatsapp_conexao.wuzapi_token>
+ * POST /api/atendimentos-ia/inbound?c=<whatsapp_conexao.webhook_segredo>
  *
  * A ENTRADA do Atendimentos I.A.: o WUZAPI entrega aqui as mensagens que chegam ao número do
  * orçamentista. Servidor para servidor — sem usuário logado, com service_role. Nesta versão a rota
  * só GRAVA a mensagem: não chama LLM nenhuma e não responde nada ao WhatsApp.
  *
  * ══ O PORTÃO, nesta ordem, sem exceção ══
- *   a) `c` da URL → `whatsapp_conexao` por `wuzapi_token`. Não achou, ou o canal não é
- *      ORCAMENTISTA: 404, e nada é gravado. DAÍ sai o tenant — o tenant NUNCA vem do corpo;
- *   b) `orcamentista_config` do tenant com `ativo = true`, senão 404;
+ *   a) `c` da URL → `whatsapp_conexao` por `webhook_segredo`. Fora do formato da coluna
+ *      (hexadecimal minúsculo, 32 a 64 — o CHECK dela), 404 ANTES de consultar o banco. Não achou,
+ *      ou o canal não é ORCAMENTISTA: 404, e nada é gravado. DAÍ sai o tenant — o tenant NUNCA
+ *      vem do corpo;
+ *   b) `orcamentista_config` do tenant com `ativo = true`, senão 404. É ESTE o interruptor;
+ *      `whatsapp_conexao.ativo` NÃO é conferido — ele é o retrato da última checagem feita pela
+ *      tela, não um interruptor do admin;
  *   c) o telefone do remetente (`telefoneDoRemetente`, do `Info.SenderAlt`) na lista ATIVA de
  *      `orcamentista_remetente_autorizado` do tenant. Fora da lista: uma linha em
- *      `orcamentista_tentativa_desconhecida` — SEM o texto, a tabela não tem coluna para ele — e 200
- *      sem responder nada.
+ *      `orcamentista_tentativa_desconhecida` — SEM o texto, a tabela não tem coluna para ele, e com
+ *      o `Info.ID` — e 200 sem responder nada. O reenvio do mesmo `Info.ID` bate na UNIQUE parcial
+ *      `orcamentista_tentativa_desconhecida_unica` e vira 200: um 500 ali faria o WUZAPI reenviar
+ *      sem parar.
+ *
+ * ══ POR QUE O c NÃO É O wuzapi_token ══
+ * O `wuzapi_token` é a CREDENCIAL do WUZAPI — vai no header `token:`. Numa URL ele cai no log de
+ * acesso do WUZAPI e da Vercel, e quem o ler passa a poder enviar mensagens como a empresa e
+ * reapontar o webhook dela. O `webhook_segredo` só abre esta rota.
  * Antes do (c), 200 sem gravar nada: mensagem nossa (`IsFromMe`), de grupo (`IsGroup`), sem texto,
  * ou sem telefone legível.
  *
@@ -40,6 +51,8 @@ import { telefoneDoRemetente, textoDaMensagem } from '@/lib/atendimentos-ia/payl
 import { telefoneDoAutorizado } from '@/utils/atendimentos-ia-telefone-do-autorizado'
 
 export const PREFIXO_DO_LOG_DE_ENTRADA = '[INBOUND]'
+/** O formato de `whatsapp_conexao.webhook_segredo` — o mesmo do CHECK da coluna. */
+const FORMATO_DO_SEGREDO = /^[0-9a-f]{32,64}$/
 const CANAL_DO_ORCAMENTISTA = 'ORCAMENTISTA'
 const VIOLACAO_DE_UNICIDADE = '23505'
 
@@ -79,11 +92,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     try {
-        // (a) a conexão, pelo token da URL — e o tenant, só daqui
+        // (a) a conexão, pelo segredo do webhook na URL — e o tenant, só daqui. O formato é
+        // conferido ANTES do banco: o que não pode existir na coluna não vira consulta.
         const c = req.query.c
         if (typeof c !== 'string' || c === '') return fim(404, 'sem-c')
+        if (!FORMATO_DO_SEGREDO.test(c)) return fim(404, 'c-fora-do-formato')
         const { data: conexao, error: erroConexao } = await supabaseAdmin
-            .from('whatsapp_conexao').select('tenant_id, canal').eq('wuzapi_token', c).maybeSingle()
+            .from('whatsapp_conexao').select('tenant_id, canal').eq('webhook_segredo', c).maybeSingle()
         if (erroConexao) throw new Error(`whatsapp_conexao: ${erroConexao.message}`)
         if (!conexao) return fim(404, 'conexao-nao-achada')
         rastro.conexao = true
@@ -105,6 +120,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const telefone = telefoneDoRemetente(info)
         if (telefone === null) return fim(200, 'ignorada-sem-telefone')
 
+        const mensagemId = typeof info.ID === 'string' && info.ID !== '' ? info.ID : null
+
         // (c) o remetente na lista ATIVA do tenant — pela forma gravada (sem o DDI)
         const forma = telefoneDoAutorizado(telefone)
         let remetenteId: string | null = null
@@ -118,13 +135,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         }
         rastro.autorizado = remetenteId !== null
         if (remetenteId === null) {
-            const { error } = await supabaseAdmin.from('orcamentista_tentativa_desconhecida').insert({ tenant_id: tenantId, telefone })
+            const { error } = await supabaseAdmin.from('orcamentista_tentativa_desconhecida')
+                .insert({ tenant_id: tenantId, telefone, wuzapi_mensagem_id: mensagemId })
+            // o reenvio do WUZAPI bate na UNIQUE parcial — a tentativa já está gravada
+            if (error && error.code === VIOLACAO_DE_UNICIDADE) return fim(200, 'tentativa-repetida')
             if (error) throw new Error(`orcamentista_tentativa_desconhecida: ${error.message}`)
             return fim(200, 'tentativa-desconhecida')
         }
 
         // idempotência: o mesmo Info.ID já gravado neste tenant
-        const mensagemId = typeof info.ID === 'string' && info.ID !== '' ? info.ID : null
         if (mensagemId !== null) {
             const { data: repetida, error: erroRepetida } = await supabaseAdmin
                 .from('orcamentista_mensagem').select('id')
