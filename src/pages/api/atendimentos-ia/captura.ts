@@ -7,8 +7,8 @@
  *
  * POST /api/atendimentos-ia/captura?s=<segredo>
  *
- * O que ela faz: recebe o webhook, e anota UMA linha no log da Vercel, com o prefixo
- * `[CAPTURA-WUZAPI]`: o content-type, o tamanho real do corpo em bytes, e o corpo (os primeiros
+ * O que ela faz: recebe o webhook, e anota UMA linha no log da Vercel — em `console.error`, porque
+ * o log deste projeto só exibe stderr —, com o prefixo `[CAPTURA-WUZAPI]`: o content-type, o tamanho real do corpo em bytes, e o corpo (os primeiros
  * 8 KB), MASCARADO. E só. NÃO grava no banco, NÃO responde ao WhatsApp, NÃO escreve em lugar
  * nenhum além do log.
  *
@@ -79,9 +79,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
     const corpo = Buffer.concat(pedacos).toString('utf8')
     const contentType = req.headers['content-type'] ?? '(sem content-type)'
-    console.log(`${PREFIXO_DO_LOG} content-type=${contentType} | ${total} bytes | corpo=${mascarar(corpo)}`)
+    // console.error DE PROPÓSITO, não por ser erro: o log da Vercel deste projeto só exibe stderr
+    // (medido em 21/10/2026 com o [QR-ORCAMENTISTA]). Em console.log a captura rodaria cega.
+    console.error(`${PREFIXO_DO_LOG} content-type=${contentType} | ${total} bytes | corpo=${mascarar(corpo)}`)
   } catch (e) {
-    console.log(`${PREFIXO_DO_LOG} falha ao ler o corpo: ${e instanceof Error ? e.message : 'erro desconhecido'}`)
+    console.error(`${PREFIXO_DO_LOG} falha ao ler o corpo: ${e instanceof Error ? e.message : 'erro desconhecido'}`)
   }
 
   return res.status(200).end()

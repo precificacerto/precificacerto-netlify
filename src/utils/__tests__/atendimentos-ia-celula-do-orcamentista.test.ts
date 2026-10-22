@@ -163,6 +163,8 @@ const rotaConexao = require('@/pages/api/atendimentos-ia/orcamentista/conexao').
 const rotaQr = require('@/pages/api/atendimentos-ia/orcamentista/qr').default
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const rotaAutorizados = require('@/pages/api/atendimentos-ia/orcamentista/autorizados').default
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { PREFIXO_DO_LOG_DO_QR } = require('@/lib/atendimentos-ia/orcamentista-da-empresa') as { PREFIXO_DO_LOG_DO_QR: string }
 
 type Rota = (req: NextApiRequest, res: NextApiResponse) => Promise<unknown>
 async function chamar(rota: Rota, method: string, body?: unknown): Promise<{ status: number; corpo: Record<string, unknown> }> {
@@ -942,5 +944,51 @@ describe('(15) o TOKEN FANTASMA — credencial que o WUZAPI não reconhece não 
             const novo = (criacoes()[0].corpo as { token: string }).token
             for (const segredo of [FANTASMA, novo, 'admin-de-teste']) expect(tudo).not.toContain(segredo)
         })
+    })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+describe('(16) o rastro do QR CHEGA AO LOG: sai em console.error (stderr), não em console.log', () => {
+    // Medido em produção em 21/10/2026: ZERO linhas `[QR-ORCAMENTISTA]` no log da Vercel daquele
+    // projeto, que só exibe o que sai em stderr (`console.error`, como o do cron do MRM). As
+    // seções (14) e (15) capturam os quatro métodos juntos, e por isso não distinguiam.
+    let deErro: string[] = []
+    let deLog: string[] = []
+    let espioes: jest.SpyInstance[] = []
+    beforeEach(() => {
+        deErro = []; deLog = []
+        espioes = [
+            jest.spyOn(console, 'error').mockImplementation((...a: unknown[]) => { deErro.push(a.map(String).join(' ')) }),
+            ...(['log', 'info', 'warn', 'debug'] as const).map((m) => jest.spyOn(console, m).mockImplementation((...a: unknown[]) => { deLog.push(a.map(String).join(' ')) })),
+        ]
+    })
+    afterEach(() => espioes.forEach((e) => e.mockRestore()))
+    const doQr = (l: string[]) => l.filter((x) => x.startsWith(PREFIXO_DO_LOG_DO_QR))
+
+    it('instância nova: as cinco chamadas deixam linha em console.error, e NENHUMA vai para os outros métodos', async () => {
+        estado.respostas['/admin/users'] = { status: 201, corpo: { code: 201, success: true, data: { id: 'abc123' } } }
+        expect((await chamar(rotaQr, 'POST')).status).toBe(200)
+        const passos = doQr(deErro).map((l) => /passo=([a-z-]+)/.exec(l)?.[1])
+        expect(passos).toEqual(['instancia', 'criar-instancia', 'session-status', 'session-connect', 'session-qr'])
+        expect(doQr(deLog)).toEqual([])
+    })
+
+    it('o fantasma: a linha que diz que ele foi descartado também sai em console.error', async () => {
+        montar({ whatsapp_conexao: [{ tenant_id: T, canal: 'ORCAMENTISTA', wuzapi_token: TOKEN_DA_CONEXAO, conectado_por: USUARIO, conectado_em: '2026-10-21T00:00:00Z', ativo: false }] })
+        estado.tokensDesconhecidos.add(TOKEN_DA_CONEXAO)
+        await chamar(rotaQr, 'POST')
+        expect(doQr(deErro).find((l) => l.includes('passo=session-status'))).toEqual(expect.stringContaining('status=401'))
+        expect(doQr(deErro).some((l) => l.includes('fantasma'))).toBe(true)
+        expect(doQr(deLog)).toEqual([])
+    })
+
+    it('cada linha diz A QUAL servidor falou — o host, que não é segredo; nem o token, nem o de admin', async () => {
+        estado.respostas['/admin/users'] = { status: 201, corpo: { code: 201, success: true, data: { id: 'abc123' } } }
+        await chamar(rotaQr, 'POST')
+        const host = new URL(process.env.WUZAPI_BASE_URL || 'https://usapi.adabtech.shop').host
+        expect(doQr(deErro).length).toBeGreaterThan(0)
+        for (const l of doQr(deErro)) expect(l).toContain(`host=${host}`)
+        const tudo = deErro.join('\n')
+        for (const segredo of [String(estado.db.whatsapp_conexao[0].wuzapi_token), 'admin-de-teste']) expect(tudo).not.toContain(segredo)
     })
 })
