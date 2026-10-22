@@ -29,6 +29,12 @@
  *       qr), a conexão gravada é DESCARTADA e uma instância nova é criada — UMA vez por clique, sem
  *       laço. Um token RECÉM-CRIADO que dê 401 não recria: vira 502, e o próximo clique tenta de novo.
  *
+ * ══ O QR QUE AINDA NÃO EXISTE (22/10/2026) ══
+ * Medido em produção: o "fantasma" não existia — o servidor de produção conhecia o token. O que
+ * falhava era o `/session/qr` consultado logo depois do connect, com `QRCode` vazio: o QR ainda não
+ * tinha sido gerado. Com o connect em 2xx, o `/session/qr` é consultado de novo até o código vir
+ * (`ESPERA_DO_QR` na lib, com o que o fonte do WUZAPI diz). As defesas do #114 FICAM.
+ *
  * Só quem pode EDITAR Conectividade conecta. Arquitetura:
  * `src/lib/atendimentos-ia/orcamentista-da-empresa.ts`.
  */
@@ -48,6 +54,22 @@ export const MENSAGEM_DO_PASSO: Record<Exclude<PassoDoQr, 'instancia' | 'session
   'session-connect': `A sessão de WhatsApp não abriu no servidor. ${PERSISTINDO}`,
   'session-qr': `O servidor de WhatsApp não devolveu o código para ler. ${PERSISTINDO}`,
 }
+/**
+ * O QR que não veio depois da espera: a mensagem de sempre, mais quantas vezes e por quanto tempo
+ * se tentou — "tentei 9 vezes em 12 segundos" diz que não foi falta de paciência.
+ */
+export function mensagemDoQrQueNaoVeio(tentativas: number, esperaMs: number): string {
+  const segundos = Math.round(esperaMs / 1000)
+  return `O servidor de WhatsApp não devolveu o código para ler — tentei ${tentativas} ${tentativas === 1 ? 'vez' : 'vezes'} em ${segundos} ${segundos === 1 ? 'segundo' : 'segundos'}. ${PERSISTINDO}`
+}
+
+/**
+ * O limite da função na Vercel, DECLARADO aqui em vez de herdado: a espera pelo QR
+ * (`ESPERA_DO_QR`, 12 s) precisa caber nele com folga, e o padrão do projeto não está escrito em
+ * lugar nenhum do repositório. Portão: o teto da espera é no máximo metade disto.
+ */
+export const config = { maxDuration: 30 }
+
 export const MENSAGEM_SEM_ADMIN = 'Não consegui criar a conexão no servidor de WhatsApp: a configuração do sistema está incompleta. Avise o suporte.'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -120,11 +142,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     // O número vem do jid do /session/connect — ou NULL, que também apaga o de uma conexão
     // anterior: o QR novo pode ser lido por outro aparelho. A coluna nasce na `20261021000002`.
-    const { qr, numero, connectOk } = resultado
+    const { qr, numero, connectOk, tentativas, esperaMs } = resultado
     await marcarConexao(tenantId, { numero })
     if (!qr) {
-      const passo = connectOk ? 'session-qr' : 'session-connect'
-      return res.status(502).json({ error: MENSAGEM_DO_PASSO[passo], passo })
+      if (!connectOk) return res.status(502).json({ error: MENSAGEM_DO_PASSO['session-connect'], passo: 'session-connect' })
+      return res.status(502).json({ error: mensagemDoQrQueNaoVeio(tentativas, esperaMs), passo: 'session-qr' })
     }
     return res.status(200).json({ qr })
   } catch (e) {
