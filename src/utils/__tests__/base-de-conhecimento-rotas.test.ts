@@ -369,6 +369,7 @@ describe('(5) validação ANTES do banco: erro nomeado, e NENHUMA chamada à fun
     it('esquadrias numa empresa de OUTRO nicho → 409 legível, nenhuma chamada', async () => {
         const r = await chamar('base', 'PUT', { tenant: T_MARC }, { esquadrias: { linha_perfil: 'X' } })
         expect(r.status).toBe(409)
+        expect(r.json.codigo).toBe('FORA_DO_NICHO_ESQUADRIAS')
         expect(r.json.error).toMatch(/Esquadrias/)
         nenhumaEscrita()
     })
@@ -382,6 +383,7 @@ describe('(5) validação ANTES do banco: erro nomeado, e NENHUMA chamada à fun
     it('padrão de esquadrias num nicho que NÃO é Esquadrias → 409, nenhuma chamada', async () => {
         const r = await chamar('padraoNicho', 'PUT', { nicho: N_MARC }, { esquadrias: { linha_perfil: 'X' } })
         expect(r.status).toBe(409)
+        expect(r.json.codigo).toBe('FORA_DO_NICHO_ESQUADRIAS')
         nenhumaEscrita()
     })
 
@@ -486,5 +488,63 @@ describe('(9) os campos do código são as colunas da migração — nem uma a m
     it('o leitor da migração enxerga o que procura: 27 colunas de esquadrias, 8 de adicionais', () => {
         expect(colunasDe('orcamentista_esquadrias_base')).toHaveLength(27)
         expect(colunasDe('orcamentista_base_conhecimento')).toHaveLength(8)
+    })
+})
+
+describe('(10) o nicho Esquadrias é reconhecido pelo NOME — e quando o catálogo não casa, a falha é NOMEADA', () => {
+    // Renomear o nicho no catálogo ("Esquadrias e Vidros") faria TODA gravação de esquadrias cair
+    // no 409 de "empresa de outro nicho", calado, na tela do super admin. A rota tem de dizer que o
+    // problema é o CATÁLOGO (dono do produto, 23/10/2026).
+    /* eslint-disable @typescript-eslint/no-require-imports */
+    const { recusaForaDoNicho } = require('@/lib/atendimentos-ia/base-de-conhecimento-servidor') as { recusaForaDoNicho: (o: string) => string }
+    /* eslint-enable @typescript-eslint/no-require-imports */
+    const renomear = (nome: string) => { estado.db.orcamentista_nicho.find((n) => n.id === N_ESQ)!.nome = nome }
+    const duplicar = () => { estado.db.orcamentista_nicho.push({ id: '00000000-0000-4000-8000-0000000000e8', modelo: 'FABRICACAO', nome: 'esquadrias ' }) }
+
+    it.each([
+        ['empresa', 'base', { tenant: T_ESQ }],
+        ['padrão do nicho', 'padraoNicho', { nicho: N_ESQ }],
+    ] as const)('NENHUM nicho casa (renomeado) → %s: erro próprio dizendo que não foi encontrado e pode ter sido renomeado', async (_n, rota, query) => {
+        renomear('Esquadrias e Vidros')
+        const r = await chamar(rota, 'PUT', query, { esquadrias: { linha_perfil: 'X' } })
+        expect(r.status).toBe(409)
+        expect(r.json.codigo).toBe('NICHO_ESQUADRIAS_AUSENTE')
+        expect(r.json.error).toMatch(/não foi encontrado no catálogo/)
+        expect(r.json.error).toMatch(/renomeado/)
+        expect(r.json.error).not.toBe(recusaForaDoNicho('Esta empresa'))
+        expect(r.json.error).not.toBe(recusaForaDoNicho('O nicho Esquadrias e Vidros'))
+        nenhumaEscrita()
+    })
+
+    it.each([
+        ['empresa', 'base', { tenant: T_ESQ }],
+        ['padrão do nicho', 'padraoNicho', { nicho: N_ESQ }],
+    ] as const)('MAIS DE UM nicho casa → %s: erro próprio dizendo que o nicho está duplicado, com quantos', async (_n, rota, query) => {
+        duplicar()
+        const r = await chamar(rota, 'PUT', query, { esquadrias: { linha_perfil: 'X' } })
+        expect(r.status).toBe(409)
+        expect(r.json.codigo).toBe('NICHO_ESQUADRIAS_DUPLICADO')
+        expect(r.json.error).toMatch(/duplicado/)
+        expect(r.json.error).toMatch(/2 nichos/)
+        nenhumaEscrita()
+    })
+
+    it('a falha do catálogo vai ao log, nomeada — para quem olhar a Vercel saber que é o catálogo', async () => {
+        renomear('Esquadrias e Vidros')
+        await chamar('base', 'PUT', { tenant: T_ESQ }, { esquadrias: { linha_perfil: 'X' } })
+        expect(silencio.mock.calls.map((c) => c.join(' ')).join('\n')).toMatch(/\[BASE-DE-CONHECIMENTO\].*NICHO_ESQUADRIAS_AUSENTE/)
+    })
+
+    it('o contraste: com o catálogo quebrado, os adicionais continuam gravando — frete não depende do nicho', async () => {
+        renomear('Esquadrias e Vidros')
+        const r = await chamar('base', 'PUT', { tenant: T_ESQ }, { adicionais: { frete_modo: 'NAO_COBRA' } })
+        expect(r.status).toBe(200)
+        expect(estado.rpcs).toHaveLength(1)
+    })
+
+    it('o contraste: com o catálogo certo, a mesma gravação de esquadrias passa', async () => {
+        const r = await chamar('base', 'PUT', { tenant: T_ESQ }, { esquadrias: { linha_perfil: 'X' } })
+        expect(r.status).toBe(200)
+        expect(estado.rpcs).toHaveLength(1)
     })
 })
