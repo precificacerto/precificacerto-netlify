@@ -29,13 +29,14 @@ O defeito também não tem sintoma. Uma asserção positiva que erra o literal f
 hora** e se conserta em trinta segundos. A negativa que erra o literal fica **verde para
 sempre**, e continua verde no dia em que o defeito chegar.
 
-## A aparição
+## As aparições — DOIS mecanismos, a mesma classe
 
 | # | Quando | A asserção | Por que não podia falhar |
 |---|---|---|---|
 | 1 | 15/10/2026, portão do cabeçalho da ficha | `expect(t.texto()).not.toContain('R$ 0,00')`, no caso *"cliente SEM parcela mostra travessão, nunca R$ 0,00"* | `formatBRL` usa **espaço não separável** (U+00A0) entre o `R$` e o número. O literal tinha espaço comum (U+0020). Medido: `[...formatBRL(0)].map(c => c.charCodeAt(0))` → `82 36 **160** 48 44 48 48` |
+| 2 | 23/10/2026, portão das rotas dos três níveis (#133) | `expect(JSON.stringify(r.json)).not.toContain(texto)`, no caso *"23514 → frase fixa — o texto do banco NÃO vai"* | o `texto` injetado tinha **aspas** (`relation "orcamentista_mp_instalacao"`). O `JSON.stringify` as escapa para `\"`, então a SERIALIZAÇÃO nunca contém o texto cru — **nem quando a resposta o carrega inteiro**. Medido: a mutação que passava o texto do 23514 adiante ficou **verde** (M14) |
 
-**De quem é.** Do assistente. A mesma linha tinha sido escrita **duas vezes** — no portão da
+**De quem é a 1.** Do assistente. A mesma linha tinha sido escrita **duas vezes** — no portão da
 coluna partida (etapa 4a) e no do cabeçalho (4b.3) — e as duas estavam mortas.
 
 **Como apareceu:** pela **mutação**, não pela leitura. A mutação que trocava o travessão por
@@ -46,10 +47,35 @@ encontrado: o literal está certo aos olhos, e o caractere que o invalida não t
 havia ao lado um `expect(celulas[0]).toBe('—')` que discriminava. Isso é sorte, não método —
 e é a razão de esta página existir em vez de uma correção pontual.
 
+### A aparição 2 — o mesmo verde, por outro mecanismo
+
+**O mecanismo mudou e a classe não.** Na 1 o literal era inalcançável porque a FUNÇÃO formata
+(um caractere invisível no meio); na 2 o literal era inalcançável porque o TESTE serializou o
+lugar onde procurava. Nas duas, a string procurada e a string examinada nunca podiam ser iguais,
+com ou sem o defeito — e a asserção ficou verde por construção.
+
+**De quem é a 2.** Do assistente, que já tinha esta página escrita. Ela não foi evitada por
+estar registrada: o remédio dizia "compare com o produto da função", e o `texto` ERA o produto
+do mock. O que faltava na regra era a outra ponta — **o lugar onde se procura também pode
+transformar**.
+
+**Como apareceu:** pela mutação, de novo. Das 29 mutações daquele portão, foi a única real que
+não derrubou nada.
+
 ### Nota da busca por precedentes
 
-Feita conforme `registro-de-classe.md`, sobre os portões escritos nesta campanha. **Uma
-aparição, em dois lugares, e nenhuma segunda foi forçada.** A busca procurou outras negativas
+Feita conforme `registro-de-classe.md`, sobre os portões escritos nesta campanha. **Na
+primeira escrita, uma aparição, em dois lugares, e nenhuma segunda foi forçada.** A 2 não foi
+procurada: apareceu oito dias depois, numa rodada de mutações, e entrou por instrução do dono do
+produto, como segundo mecanismo da mesma classe.
+
+**A busca da 2, em 23/10/2026:** `not.toContain`/`not.toMatch` sobre `JSON.stringify`,
+`innerHTML` ou `outerHTML` em `src/` — **30 ocorrências**, a do M14 incluída. As outras 29
+procuram literais e constantes sem aspas, sem `\` e sem caractere de controle (nomes, ids,
+tokens `orc_…`, seis dígitos, `'Oi beleza, quero um orçamento'`); acento não é escapado pelo
+`JSON.stringify`. **Estão fora do risco, e nenhuma terceira foi forçada.**
+
+A primeira busca procurou outras negativas
 com literal transcrito e encontrou-as comparando contra **constantes exportadas** ou contra
 **chamadas registradas** — que é justamente o remédio abaixo, já praticado sem estar escrito.
 
@@ -69,6 +95,23 @@ Quando não houver função — um rótulo fixo, um título —, **exporte a con
 ela. O mesmo gesto que `instrumento-que-nao-enxerga.md` pede para o `grep`: não escreva o
 padrão de memória, derive-o da fonte.
 
+### E compare contra o VALOR, nunca contra uma SERIALIZAÇÃO dele
+
+A lição que a aparição 2 generaliza, formulação do dono do produto: **a serialização pode
+alterar o que você está procurando.** `JSON.stringify` escapa aspas, barras e caracteres de
+controle; `innerHTML` escapa `<` e `&`; um objeto em template vira `[object Object]`. Procurar a
+string crua dentro de qualquer um deles é procurar algo que a transformação já desfez.
+
+```ts
+expect(JSON.stringify(r.json)).not.toContain(texto)  // morta: \" no lugar de "
+expect(r.json.error).not.toBe(texto)                 // viva: o valor, como saiu
+expect(Object.values(r.json)).not.toContain(texto)   // viva: os valores, sem serializar
+```
+
+Os dois remédios são a mesma regra vista de cada ponta: **a string procurada vem da fonte (a
+função ou a constante), e o lugar onde se procura é o valor como ele sai — nunca uma
+representação dele.**
+
 ## O corolário aplicável ANTES do defeito existir
 
 **Toda asserção negativa precisa de uma mutação que a faça ficar VERMELHA. Se nenhuma mutação
@@ -83,6 +126,8 @@ Sinais de que a negativa pode estar morta, em ordem de força:
 1. O literal foi escrito **olhando a tela** ou a saída do terminal, não a função.
 2. A string passa por `Intl.NumberFormat`, `toLocaleString`, `Date`, ou qualquer formatação
    com separador — todos introduzem caracteres que o olho lê como espaço e o `===` não.
+   **Ou o lugar onde se procura é uma serialização** — `JSON.stringify`, `innerHTML`, uma linha
+   de log —, e o literal tem um caractere que ela escapa (aspas, `<`, `&`, `\`).
 3. A asserção é a **única** do caso. Se a mutação não a derruba, nada mais sobra.
 4. Nenhuma mutação foi rodada contra aquele caso.
 
@@ -125,4 +170,4 @@ imagem do primeiro exemplo, aqui o literal da asserção é escrito à imagem da
 o instrumento é feito de memória em vez de derivado da fonte.
 `portao-que-nao-alcanca.md` é o que a nota do `tsc` × jest acrescenta, e a pergunta 4 dela é
 exatamente a desta página aplicada a um número de relatório. `registro-de-classe.md` decidiu a
-forma e o limite que manteve a tabela em uma linha, com a nota da busca.
+forma e o limite que manteve a tabela em uma linha até a segunda aparecer sem ser procurada.
