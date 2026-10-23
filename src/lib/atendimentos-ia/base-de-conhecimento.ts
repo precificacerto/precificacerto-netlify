@@ -75,11 +75,11 @@ export const CAMPOS_DOS_ADICIONAIS: Readonly<Record<string, Dominio>> = {
     frete_modo: { tipo: 'opcao', opcoes: MODOS_DO_ADICIONAL },
     frete_valor: NAO_NEGATIVO,
     frete_percentual: NAO_NEGATIVO,
-    frete_base: { tipo: 'opcao', opcoes: ['VALOR_DE_VENDA', 'CUSTO_DO_FRETE'] },
+    frete_base: { tipo: 'opcao', opcoes: ['VALOR_POS_DESCONTO', 'CUSTO_DO_FRETE'] },
     instalacao_modo: { tipo: 'opcao', opcoes: MODOS_DO_ADICIONAL },
     instalacao_valor: NAO_NEGATIVO,
     instalacao_percentual: NAO_NEGATIVO,
-    instalacao_base: { tipo: 'opcao', opcoes: ['VALOR_DE_VENDA', 'CUSTO_DA_INSTALACAO'] },
+    instalacao_base: { tipo: 'opcao', opcoes: ['VALOR_POS_DESCONTO', 'CUSTO_DA_INSTALACAO'] },
 }
 
 const CAMPOS_DO_AMBIENTE: Readonly<Record<string, Dominio>> = { ambiente: TEXTO, vidro_padrao: TEXTO, tipologia_usual: TEXTO }
