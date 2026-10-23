@@ -118,7 +118,9 @@ async function montar(): Promise<HTMLElement> {
 }
 const grupo = (host: HTMLElement) => host.querySelector('[data-grupo="tabelas-em-uso"]') as HTMLElement
 // `?? null`: sem o seletor, `?.` devolve `undefined`, e o `toBeNull()` dos casos (a) e (e) não o aceitaria.
-const seletor = (rotulo: string) => (document.querySelector(`input[aria-label="${rotulo}"]`)?.closest('.ant-select') ?? null) as HTMLElement | null
+// Busca por COMPARAÇÃO, não por seletor CSS: o jsdom (nwsapi) não casa `[aria-label="…"]` quando o
+// valor tem "+" — e o rótulo da tabela tem ("arquivo de perfis + motor").
+const seletor = (rotulo: string) => (Array.from(document.querySelectorAll('input[aria-label]')).find((i) => i.getAttribute('aria-label') === rotulo)?.closest('.ant-select') ?? null) as HTMLElement | null
 async function abrir(rotulo: string): Promise<string[]> {
     const s = seletor(rotulo) as HTMLElement
     await act(async () => { (s.querySelector('.ant-select-selector') as HTMLElement).dispatchEvent(new MouseEvent('mousedown', { bubbles: true })) })
