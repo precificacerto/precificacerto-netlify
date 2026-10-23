@@ -5,8 +5,9 @@
  * a empresa está no CAMINHO da URL, escolhida navegando da lista de contas ligadas, e não num seletor
  * dentro do formulário: é por um seletor assim que uma escrita cairia na empresa errada, e foi essa a
  * porta que as rotas cercaram com portão, log e verificação no banco (decisão do dono do produto,
- * 23/10/2026). O nome da empresa fica na barra do topo, presa ao rolar (`Affix` — o `sticky` não
- * prende aqui, porque `.app-main` tem `overflow-x: hidden` e vira o contêiner de rolagem).
+ * 23/10/2026). O nome da empresa — e o ÚNICO botão "Salvar alterações" da tela — ficam na barra do
+ * topo, presa ao rolar (`Affix` — o `sticky` não prende aqui, porque `.app-main` tem
+ * `overflow-x: hidden` e vira o contêiner de rolagem).
  *
  * A conta é LIDA da lista de contas ligadas, como na tela de configuração da conta: conta que não
  * está lá não está ligada, e não ganha formulário. Os blocos e a gravação estão em
@@ -76,20 +77,26 @@ export default function BaseDeConhecimentoDaConta() {
 
     return (
         <Layout title={conta.nome} subtitle={PAGE_TITLES.SUPER_ADMIN_IA_BASE_DE_CONHECIMENTO}>
-            <Affix offsetTop={0}>
-                <div data-empresa-no-topo style={{
-                    display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 8,
-                    padding: '10px 14px', marginBottom: 16, borderRadius: 8, background: '#fffbe6', border: '1px solid #ffe58f',
-                }}>
-                    <Space size={6} wrap>
-                        <Typography.Text type="secondary">Editando a empresa</Typography.Text>
-                        <Typography.Text strong style={{ fontSize: 16 }}>{conta.nome}</Typography.Text>
-                        <Typography.Text type="secondary">· nicho {conta.nicho_nome ?? 'não definido'}</Typography.Text>
-                    </Space>
-                    {voltar}
-                </div>
-            </Affix>
-            <BaseDeConhecimento tenantId={conta.tenant_id} />
+            {/* A barra é da página (o nome da empresa vem daqui); o botão de salvar e a contagem de
+                pendências vêm do componente, que tem o estado do formulário. */}
+            <BaseDeConhecimento tenantId={conta.tenant_id} topo={(acao) => (
+                <Affix offsetTop={0}>
+                    <div data-empresa-no-topo style={{
+                        display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+                        padding: '10px 14px', marginBottom: 16, borderRadius: 8, background: '#fffbe6', border: '1px solid #ffe58f',
+                    }}>
+                        <Space size={6} wrap>
+                            <Typography.Text type="secondary">Editando a empresa</Typography.Text>
+                            <Typography.Text strong style={{ fontSize: 16 }}>{conta.nome}</Typography.Text>
+                            <Typography.Text type="secondary">· nicho {conta.nicho_nome ?? 'não definido'}</Typography.Text>
+                        </Space>
+                        <Space size={8} wrap>
+                            {acao}
+                            {voltar}
+                        </Space>
+                    </div>
+                </Affix>
+            )} />
         </Layout>
     )
 }

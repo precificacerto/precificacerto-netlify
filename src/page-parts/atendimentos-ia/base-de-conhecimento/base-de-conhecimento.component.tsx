@@ -10,8 +10,13 @@
  * aparece como herdado, com a ORIGEM que a rota devolveu ('empresa' | 'nicho' | 'sem valor'), e o
  * input do campo herdado fica vazio — preenchê-lo é a empresa passar a decidir.
  *
- * Cada bloco salva sozinho, e o corpo leva SÓ o que mudou (`formulario.ts`). A recusa da rota fica no
- * bloco que salvou, com a frase, o código e os erros nomeados como vieram.
+ * UM BOTÃO SÓ para a tela inteira, "Salvar alterações", na barra do topo junto do nome da empresa
+ * (dono do produto, 23/10/2026 — ver `planoDoSalvar`). Desabilitado sem alteração; com alteração,
+ * diz quantas estão pendentes. Salvar chama TODAS as rotas necessárias (base+adicionais, ambiente,
+ * vendedor), cada corpo com SÓ o que mudou. Se uma falhar e outra passar, a tela diz o que foi salvo
+ * e o que não foi, nomeando o bloco; a recusa da rota fica também NO bloco, com a frase, o código e
+ * os erros nomeados como vieram; e o que não passou CONTINUA pendente, para tentar de novo. Sair da
+ * página com pendência avisa antes.
  *
  * FORNECEDOR E LINHA são seleção, alimentada pelas TABELAS EM USO da conta (`opcoesDasTabelas`):
  * sem tabela em uso o campo fica desabilitado e aponta de volta para a seção de tabelas; valor
@@ -20,7 +25,8 @@
  * Booleanos têm TRÊS estados — sim, não, não informado — e não há caixa de marcar: uma caixa só
  * tem dois, e o terceiro ("não informado", que herda) sumiria.
  */
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
+import { useRouter } from 'next/router'
 import { Alert, Button, Card, Input, InputNumber, Radio, Select, Space, Tag, Typography, message } from 'antd'
 import { ErroDaRota, chamarRota } from '@/page-parts/atendimentos-ia/api'
 import { ROTAS_DO_CATALOGO, type TabelasDaConta } from '@/utils/atendimentos-ia-catalogo'
@@ -29,8 +35,9 @@ import type { Dominio, ErroNomeado, Origem } from '@/lib/atendimentos-ia/base-de
 import {
     ADICIONAIS, BASES, BLOCOS_DE_ESQUADRIAS, CAMPOS_DO_AMBIENTE, CAMPOS_DO_VENDEDOR, MODOS, MODOS_DA_COMISSAO, ORDEM_DOS_BLOCOS,
     ROTAS_DA_BASE, ROTULO_DA_ORIGEM, ROTULO_DO_CAMPO, ROTULO_DO_MODO, ROTULO_DOS_TRES_ESTADOS,
-    corpoDaLista, corpoDosAdicionais, deTresEstados, dominioDe, formularioDoValor, mesmoValor, mudancas, paraTresEstados,
+    deTresEstados, dominioDe, formularioDoValor, mesmoValor, paraTresEstados,
     trocarOModo, usaNoModo, valorDoFormulario,
+    TITULO_DO_BLOCO, fraseDasPendencias, planoDoSalvar, type Chamada,
     FORA_DA_LISTA, IR_PARA_AS_TABELAS, SEM_LINHA_NAS_TABELAS, SEM_TABELA_EM_USO, ehCampoDaTabela, opcoesDasTabelas, rotaDasTabelasDaConta,
     type CampoDaTabela, type OpcoesDasTabelas,
     type ChaveDoBloco, type LinhaDaLista, type Modo, type Par, type TresEstados,
@@ -210,7 +217,16 @@ function CampoDaEsquadria({ c, efetivo, gravado, valor, mudar, fontes, tenantId 
 }
 
 // ── O componente ───────────────────────────────────────────────────────────────────────────
-export function BaseDeConhecimento({ tenantId }: { tenantId: string }) {
+/** O que o último "Salvar alterações" conseguiu: os blocos salvos e, de cada falha, os blocos e o porquê. */
+type Resultado = { salvos: ChaveDoBloco[]; naoSalvos: Array<{ blocos: ChaveDoBloco[]; motivo: string }> }
+export const AVISO_AO_SAIR = 'Há alterações não salvas na base de conhecimento. Sair mesmo assim?'
+
+/**
+ * `topo` desenha a barra do topo da página com o botão de salvar dentro — a barra é da página (o nome
+ * da empresa vem de lá), o botão é daqui (o estado do formulário mora aqui).
+ */
+export function BaseDeConhecimento({ tenantId, topo }: { tenantId: string; topo: (acao: React.ReactNode) => React.ReactNode }) {
+    const router = useRouter()
     const [base, setBase] = useState<BaseDaEmpresa | null>(null)
     const [erroAoLer, setErroAoLer] = useState<string | null>(null)
     const [funcionarios, setFuncionarios] = useState<Funcionario[] | null>(null)
@@ -221,7 +237,8 @@ export function BaseDeConhecimento({ tenantId }: { tenantId: string }) {
     const [vendedores, setVendedores] = useState<Linhas>([])
     const [vendedorNovo, setVendedorNovo] = useState<string | undefined>(undefined)
     const [avisos, setAvisos] = useState<Partial<Record<ChaveDoBloco, Aviso | null>>>({})
-    const [salvando, setSalvando] = useState<ChaveDoBloco | null>(null)
+    const [salvando, setSalvando] = useState(false)
+    const [resultado, setResultado] = useState<Resultado | null>(null)
     const [fontes, setFontes] = useState<Fontes>({ estado: 'lendo' })
 
     const ler = useCallback(async () => chamarRota<BaseDaEmpresa>(ROTAS_DA_BASE.base(tenantId)), [tenantId])
@@ -250,71 +267,112 @@ export function BaseDeConhecimento({ tenantId }: { tenantId: string }) {
         return () => { vivo = false }
     }, [tenantId, ler])
 
-    if (erroAoLer) return <Alert type="error" showIcon message="Não foi possível ler a base de conhecimento." description={erroAoLer} />
-    if (!base) return null
+    const plano = base
+        ? planoDoSalvar(
+            { empresa: base.esquadrias.empresa, adicionais: base.adicionais, ambientes: base.ambientes, vendedores: base.vendedores },
+            { esquadrias, adicionais, ambientes, vendedores })
+        : null
+    const pendentes = plano?.total ?? 0
+
+    // Sair com pendência avisa antes: a navegação do Next pergunta; fechar ou recarregar a aba, o navegador.
+    const pendentesAgora = useRef(0)
+    pendentesAgora.current = pendentes
+    useEffect(() => {
+        const aoTrocarDeRota = () => {
+            if (pendentesAgora.current > 0 && !window.confirm(AVISO_AO_SAIR)) {
+                router.events?.emit?.('routeChangeError')
+                // o Next só cancela a troca de rota se o ouvinte lançar
+                throw new Error('Navegação cancelada: há alterações não salvas.')
+            }
+        }
+        const aoFecharAAba = (e: BeforeUnloadEvent) => {
+            if (pendentesAgora.current === 0) return
+            e.preventDefault()
+            e.returnValue = AVISO_AO_SAIR
+        }
+        router.events?.on?.('routeChangeStart', aoTrocarDeRota)
+        window.addEventListener('beforeunload', aoFecharAAba)
+        return () => {
+            router.events?.off?.('routeChangeStart', aoTrocarDeRota)
+            window.removeEventListener('beforeunload', aoFecharAAba)
+        }
+    }, [router])
 
     const avisar = (b: ChaveDoBloco, a: Aviso | null) => setAvisos((x) => ({ ...x, [b]: a }))
 
-    /** Envia; no sucesso, relê e devolve a base nova para o bloco recompor SÓ o que é dele. */
-    async function enviar(b: ChaveDoBloco, url: string, corpo: unknown): Promise<BaseDaEmpresa | null> {
-        setSalvando(b)
-        avisar(b, null)
+    async function salvarTudo() {
+        if (!base || !plano || plano.total === 0) return
+        setSalvando(true)
+        setResultado(null)
+        const blocosDoPlano = [...plano.chamadas.flatMap((c) => c.blocos), ...plano.naoEnviados.map((n) => n.bloco)]
+        setAvisos((x) => ({ ...x, ...Object.fromEntries(blocosDoPlano.map((b): [ChaveDoBloco, null] => [b, null])) }))
+        for (const n of plano.naoEnviados) avisar(n.bloco, { locais: n.erros })
+        const url = (c: Chamada) => (c.rota === 'base' ? ROTAS_DA_BASE.base(tenantId) : c.rota === 'ambiente' ? ROTAS_DA_BASE.ambiente(tenantId) : ROTAS_DA_BASE.vendedor(tenantId))
         try {
-            await chamarRota(url, 'PUT', corpo)
-            const nova = await ler()
-            setBase(nova)
-            message.success('Salvo')
-            return nova
-        } catch (e) {
-            avisar(b, { rota: e as Error })
-            return null
+            const respostas = await Promise.allSettled(plano.chamadas.map((c) => chamarRota(url(c), 'PUT', c.corpo)))
+            const passaram = plano.chamadas.filter((_, i) => respostas[i].status === 'fulfilled')
+            const falharam = plano.chamadas
+                .map((c, i) => ({ c, r: respostas[i] }))
+                .filter((x): x is { c: Chamada; r: PromiseRejectedResult } => x.r.status === 'rejected')
+            for (const f of falharam) for (const b of f.c.blocos) avisar(b, { rota: f.r.reason as Error })
+
+            const naoSalvos: Resultado['naoSalvos'] = [
+                ...falharam.map((f) => ({ blocos: f.c.blocos, motivo: (f.r.reason as Error).message })),
+                ...plano.naoEnviados.map((n) => ({ blocos: [n.bloco], motivo: 'não enviado — corrija os campos marcados no bloco.' })),
+            ]
+            if (passaram.length) {
+                // relê UMA vez e recompõe SÓ o que foi salvo; o que falhou fica como está na tela
+                try {
+                    const nova = await ler()
+                    setBase(nova)
+                    const salvos = new Set(passaram.flatMap((c) => c.blocos))
+                    const recomposto = formularioDasEsquadrias(nova.esquadrias.empresa)
+                    const camposSalvos = BLOCOS_DE_ESQUADRIAS.filter((b) => salvos.has(b.chave)).flatMap((b) => b.campos)
+                    if (camposSalvos.length) setEsquadrias((f) => ({ ...f, ...Object.fromEntries(camposSalvos.map((c) => [c, recomposto[c]])) }))
+                    if (salvos.has('adicionais')) setAdicionais({ ...(nova.adicionais ?? {}) })
+                    if (salvos.has('ambientes')) setAmbientes(linhasDosAmbientes(nova.ambientes))
+                    if (salvos.has('vendedores')) setVendedores(linhasDosVendedores(nova.vendedores))
+                } catch (e) {
+                    naoSalvos.push({ blocos: [], motivo: `as alterações foram gravadas, mas a base não pôde ser relida: ${(e as Error).message}` })
+                }
+            }
+            setResultado({ salvos: passaram.flatMap((c) => c.blocos), naoSalvos })
+            if (naoSalvos.length === 0) message.success('Alterações salvas')
         } finally {
-            setSalvando(null)
+            setSalvando(false)
         }
     }
 
-    async function salvarEsquadrias(b: ChaveDoBloco, campos: readonly string[]) {
-        if (!base) return
-        const { corpo, erros } = mudancas(campos, dominioDe, base.esquadrias.empresa, esquadrias)
-        if (erros.length) return avisar(b, { locais: erros })
-        if (Object.keys(corpo).length === 0) { avisar(b, null); message.info('Nada mudou neste bloco.'); return }
-        const nova = await enviar(b, ROTAS_DA_BASE.base(tenantId), { esquadrias: corpo })
-        if (nova) {
-            const recomposto = formularioDasEsquadrias(nova.esquadrias.empresa)
-            setEsquadrias((f) => ({ ...f, ...Object.fromEntries(campos.map((c) => [c, recomposto[c]])) }))
-        }
-    }
-
-    async function salvarAdicionais() {
-        if (!base) return
-        const { corpo, erros } = corpoDosAdicionais(base.adicionais, adicionais)
-        if (erros.length) return avisar('adicionais', { locais: erros })
-        if (Object.keys(corpo).length === 0) { avisar('adicionais', null); message.info('Nada mudou neste bloco.'); return }
-        const nova = await enviar('adicionais', ROTAS_DA_BASE.base(tenantId), { adicionais: corpo })
-        if (nova) setAdicionais({ ...(nova.adicionais ?? {}) })
-    }
-
-    async function salvarLista(b: 'ambientes' | 'vendedores') {
-        if (!base) return
-        const ehAmbiente = b === 'ambientes'
-        const r = ehAmbiente
-            ? corpoDaLista('ambiente', CAMPOS_DO_AMBIENTE, base.ambientes, ambientes)
-            : corpoDaLista('employee_id', CAMPOS_DO_VENDEDOR, base.vendedores, vendedores)
-        if (r.erros.length) return avisar(b, { locais: r.erros })
-        if (!r.mudou) { avisar(b, null); message.info('Nada mudou neste bloco.'); return }
-        const nova = await enviar(b, ehAmbiente ? ROTAS_DA_BASE.ambiente(tenantId) : ROTAS_DA_BASE.vendedor(tenantId), ehAmbiente ? { ambientes: r.itens } : { vendedores: r.itens })
-        if (nova) {
-            if (ehAmbiente) setAmbientes(linhasDosAmbientes(nova.ambientes))
-            else setVendedores(linhasDosVendedores(nova.vendedores))
-        }
-    }
-
-    const rodape = (b: ChaveDoBloco, salvar: () => void) => (
-        <>
-            <AvisoDoBloco aviso={avisos[b] ?? null} />
-            <div style={{ marginTop: 12 }}><Button type="primary" loading={salvando === b} onClick={salvar}>Salvar</Button></div>
-        </>
+    const acao = (
+        <Space size={8} wrap>
+            <Typography.Text data-pendencias type={pendentes ? 'warning' : 'secondary'}>{fraseDasPendencias(pendentes)}</Typography.Text>
+            <Button data-salvar-alteracoes type="primary" disabled={pendentes === 0 || salvando} loading={salvando} onClick={salvarTudo}>Salvar alterações</Button>
+        </Space>
     )
+    const nomes = (bs: ChaveDoBloco[]) => bs.map((b) => TITULO_DO_BLOCO[b]).join(', ')
+    const painelDoResultado = resultado && (
+        <Alert data-resultado-do-salvar showIcon style={{ marginBottom: 16 }}
+            type={resultado.naoSalvos.length === 0 ? 'success' : resultado.salvos.length ? 'warning' : 'error'}
+            message={resultado.naoSalvos.length === 0 ? 'Todas as alterações foram salvas.' : 'Nem todas as alterações foram salvas.'}
+            description={(
+                <div>
+                    {resultado.salvos.length > 0 && <div data-salvos>Salvo: {nomes(resultado.salvos)}.</div>}
+                    {resultado.naoSalvos.length > 0 && (
+                        <div data-nao-salvos>
+                            {resultado.naoSalvos.map((n, i) => (
+                                <div key={i}>Não salvo{n.blocos.length ? ` — ${nomes(n.blocos)}` : ''}: {n.motivo}</div>
+                            ))}
+                            <div>As alterações que não passaram continuam na tela, pendentes.</div>
+                        </div>
+                    )}
+                </div>
+            )} />
+    )
+
+    if (erroAoLer) return <>{topo(acao)}<Alert type="error" showIcon message="Não foi possível ler a base de conhecimento." description={erroAoLer} /></>
+    if (!base) return <>{topo(acao)}</>
+
+    const rodape = (b: ChaveDoBloco) => <AvisoDoBloco aviso={avisos[b] ?? null} />
 
     const blocoDeEsquadrias = (chave: ChaveDoBloco) => {
         const b = BLOCOS_DE_ESQUADRIAS.find((x) => x.chave === chave)!
@@ -326,7 +384,7 @@ export function BaseDeConhecimento({ tenantId }: { tenantId: string }) {
                             mudar={(v) => setEsquadrias((f) => ({ ...f, [c]: v }))} fontes={fontes} tenantId={tenantId} />
                     ))}
                 </Space>
-                {rodape(chave, () => salvarEsquadrias(chave, b.campos))}
+                {rodape(chave)}
             </Card>
         )
     }
@@ -363,7 +421,7 @@ export function BaseDeConhecimento({ tenantId }: { tenantId: string }) {
                 })}
                 <Button onClick={() => setAmbientes((ls) => [...ls, { id: `novo${novoId()}`, chave: '', valores: { vidro_padrao: null, tipologia_usual: null } }])}>Acrescentar</Button>
             </Space>
-            {rodape('ambientes', () => salvarLista('ambientes'))}
+            {rodape('ambientes')}
         </Card>
     )
 
@@ -413,7 +471,7 @@ export function BaseDeConhecimento({ tenantId }: { tenantId: string }) {
                         </Space>
                     )}
             </Space>
-            {rodape('vendedores', () => salvarLista('vendedores'))}
+            {rodape('vendedores')}
         </Card>
     )
 
@@ -459,12 +517,14 @@ export function BaseDeConhecimento({ tenantId }: { tenantId: string }) {
                     )
                 })}
             </Space>
-            {rodape('adicionais', salvarAdicionais)}
+            {rodape('adicionais')}
         </Card>
     )
 
     return (
         <div>
+            {topo(acao)}
+            {painelDoResultado}
             {ORDEM_DOS_BLOCOS.map((b) => (b === 'ambientes' ? blocoDosAmbientes
                 : b === 'vendedores' ? blocoDosVendedores
                     : b === 'adicionais' ? blocoDosAdicionais
