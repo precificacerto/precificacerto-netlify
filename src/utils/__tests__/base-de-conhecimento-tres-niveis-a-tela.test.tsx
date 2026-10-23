@@ -425,6 +425,20 @@ describe('(4) sem matéria-prima, o corpo NÃO tem materias_primas; remoção va
         expect(arvoreEnviada()).toEqual({ materias_primas: [{ nome: 'Alumínio' }], remover: [PVC] })
     })
 
+    it('"Desfazer" devolve a matéria-prima NA POSIÇÃO GRAVADA — no fim, a lista iria reordenada para a função 1', async () => {
+        const arv = arvoreGravada()
+        const mps = arv.materias_primas as Linha[]
+        mps.push({ id: '00000000-0000-4000-8000-00000000d002', tenant_id: CONTA, nome: 'Alumínio', ordem: 2, atualizado_por: null, atualizado_em: null, categorias: [] })
+        respostas[`GET ${F().ROTAS_DA_BASE.arvore(CONTA)}`] = { status: 200, body: arv }
+        const host = await montar()
+        await clicar(botao(mp(host, 0).querySelector('[data-cabecalho-da-materia-prima]') as HTMLElement, 'Remover'))
+        expect(mp(host, 0).querySelector('[data-cabecalho-da-materia-prima]')!.textContent).toContain('Alumínio')
+        await clicar(botao(cartao(host).querySelector('[data-removidas]') as HTMLElement, 'Desfazer'))
+        const nomes = [0, 1].map((i) => mp(host, i).querySelector('[data-cabecalho-da-materia-prima] h5')!.textContent)
+        expect(nomes).toEqual(['PVC', 'Alumínio'])
+        expect(pendencias(host)).toBe(F().fraseDasPendencias(0))
+    })
+
     it('a removida fica listada, e "Desfazer" a devolve sem nada a salvar', async () => {
         const host = await montar()
         await clicar(botao(mp(host, 0).querySelector('[data-cabecalho-da-materia-prima]') as HTMLElement, 'Remover'))
