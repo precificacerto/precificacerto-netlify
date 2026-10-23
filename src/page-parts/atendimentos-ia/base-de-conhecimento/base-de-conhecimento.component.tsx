@@ -350,7 +350,7 @@ export function BaseDeConhecimento({ tenantId }: { tenantId: string }) {
                             <Button disabled={!vendedorNovo} onClick={() => {
                                 if (!vendedorNovo) return
                                 const f = funcionarios?.find((x) => x.id === vendedorNovo)
-                                setVendedores((ls) => [...ls, { id: novoId(), chave: vendedorNovo, nome: f?.nome, valores: Object.fromEntries(CAMPOS_DO_VENDEDOR.map((c) => [c, null])) }])
+                                setVendedores((ls) => [...ls, { id: novoId(), chave: vendedorNovo, nome: f?.nome, valores: Object.fromEntries(CAMPOS_DO_VENDEDOR.map((c): [string, null] => [c, null])) }])
                                 setVendedorNovo(undefined)
                             }}>Acrescentar</Button>
                         </Space>

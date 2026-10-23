@@ -65,7 +65,7 @@ const CONTAS: ContaLigada[] = [{ tenant_id: CONTA, nome: 'Vidraçaria Alfa', mod
 
 type Corpo = Record<string, unknown>
 function baseGravada(): Corpo {
-    const empresa = { tenant_id: CONTA, linha_perfil: 'Suprema', usa_contramarco: true, usa_arremate_interno: null, regiao_litoranea: false, cores_perfil: ['Branco', 'Preto'] }
+    const empresa: Corpo = { tenant_id: CONTA, linha_perfil: 'Suprema', usa_contramarco: true, usa_arremate_interno: null, regiao_litoranea: false, cores_perfil: ['Branco', 'Preto'] }
     const nicho = { nicho_id: N_ESQ, vidro_predominante: 'Incolor 4mm', linha_perfil: 'Gold' }
     // O efetivo vem PRONTO da rota (`efetivoDasEsquadrias`); a tela não o recalcula.
     const efetivo: Record<string, { valor: unknown; origem: string }> = {}
