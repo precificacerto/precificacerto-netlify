@@ -17,8 +17,10 @@
  *   (7) a mensagem da função chega INTEIRA, no cartão da categoria que ela nomeia;
  *   (8) remover e gravar a mesma matéria-prima no mesmo salvar é barrado NA TELA;
  *   (9) depois do salvar, a tela se redesenha pelo `depois` que a rota devolveu;
- *  (10) PERFIL.linha é COMBOBOX: oferece as linhas da tabela em uso do fornecedor PRINCIPAL, aceita
- *       outra, e AVISA quando a linha não está lá; sem principal ou sem tabela, diz isso;
+ *  (10) PERFIL.linha é COMBOBOX: oferece as linhas da tabela em uso do fornecedor PRINCIPAL (fórmula
+ *       ∪ regra), aceita outra, e tem TRÊS estados com avisos DIFERENTES — com fórmula de família (sem
+ *       aviso), só com regra (DESIGN: a tabela não dimensiona) e fora das duas (digitada); sem
+ *       principal ou sem tabela, diz isso;
  *  (11) as colunas `par_inox_referencia` (ferragem) e `referencia` (vidro): ausente, null e
  *       preenchido distinguíveis, e o round-trip pelo `depois`.
  *
@@ -105,8 +107,8 @@ function arvoreGravada(): Linha {
         nicho: { id: N_ESQ, modelo: 'FABRICACAO', nome: 'Esquadrias' },
         catalogo: catalogo(),
         fornecedores_do_nicho: [{ id: F_ALCOA, nome: 'Alcoa' }, { id: F_HYDRO, nome: 'Hydro' }, { id: F_WOLFF, nome: 'Wolff' }],
-        // medido em produção, 23/10/2026: as linhas da tabela em uso (fórmula ∪ regra) — e o Wolff é o principal do PERFIL
-        linhas_por_fornecedor: { [F_WOLFF]: ['DESIGN', 'EUROPA 42', 'EUROPA 60'] },
+        // medido em produção, 23/10/2026, POR FONTE: DESIGN tem 139 regras e nenhuma fórmula de família — e o Wolff é o principal do PERFIL
+        linhas_por_fornecedor: { [F_WOLFF]: { formula: ['EUROPA 42', 'EUROPA 60'], regra: ['DESIGN', 'EUROPA 42', 'EUROPA 60'] } },
         materias_primas: [{
             id: PVC, tenant_id: CONTA, nome: 'PVC', ordem: 1, atualizado_por: null, atualizado_em: null,
             categorias: [
@@ -630,6 +632,7 @@ describe('(9) depois do salvar, a tela é o que o BANCO gravou', () => {
 describe('(10) PERFIL.linha: COMBOBOX com as linhas da tabela em uso do fornecedor PRINCIPAL', () => {
     const linha = (host: ParentNode) => campo(cat(host, 0, 'PERFIL'), 'PERFIL.linha') as HTMLElement
     const aviso = (host: ParentNode) => linha(host).querySelector('[data-linha-fora-da-tabela]')
+    const semFormula = (host: ParentNode) => linha(host).querySelector('[data-linha-sem-formula]')
     const frase = (host: ParentNode) => linha(host).querySelector('[data-origem-da-linha]')
 
     it('o catálogo continua dizendo `texto` — quem sabe a origem é a tela', () => {
@@ -637,23 +640,50 @@ describe('(10) PERFIL.linha: COMBOBOX com as linhas da tabela em uso do forneced
         expect(A().CAMPO_DA_LINHA).toEqual({ categoria: 'PERFIL', campo: 'linha' })
     })
 
-    it('VALOR DA LISTA: oferece as linhas da tabela do principal, e escolher uma não leva aviso', async () => {
+    it('a lista é fórmula ∪ regra: DESIGN aparece, entre as duas da fórmula', async () => {
         const host = await montar()
         expect(await opcoesDoSeletor(linha(host))).toEqual(['DESIGN', 'EUROPA 42', 'EUROPA 60'])
+    })
+
+    it('ESTADO 1 — linha COM fórmula de família (EUROPA 42): nenhum dos dois avisos', async () => {
+        const host = await montar()
         await escolherNoSeletor(linha(host), 'EUROPA 42')
         expect(aviso(host)).toBeNull()
+        expect(semFormula(host)).toBeNull()
         await salvar(host)
         expect((arvoreEnviada().materias_primas as Array<{ categorias: Linha[] }>)[0].categorias).toEqual([{ categoria_chave: 'PERFIL', config: { linha: 'EUROPA 42' } }])
     })
 
-    it('VALOR FORA DA LISTA: o aviso aparece, visível, com a linha e o fornecedor — e NÃO bloqueia o salvar', async () => {
+    it('ESTADO 2 — linha que o motor conhece SEM fórmula de família (DESIGN): o aviso PRÓPRIO, e não o de digitação — e não bloqueia', async () => {
         const host = await montar()
-        // o gravado "Suprema" não está na tabela em uso do Wolff
+        await escolherNoSeletor(linha(host), 'DESIGN')
+        expect(semFormula(host)!.textContent).toBe(A().fraseLinhaSemFormula('DESIGN', 'Wolff'))
+        expect(aviso(host)).toBeNull()
+        // os dois textos são diferentes: o conserto de um é na tabela importada, o do outro na digitação
+        expect(A().fraseLinhaSemFormula('DESIGN', 'Wolff')).not.toBe(A().fraseLinhaForaDaTabela('DESIGN', 'Wolff'))
+        await salvar(host)
+        expect((arvoreEnviada().materias_primas as Array<{ categorias: Linha[] }>)[0].categorias).toEqual([{ categoria_chave: 'PERFIL', config: { linha: 'DESIGN' } }])
+    })
+
+    it('ESTADO 3 — linha fora das duas fontes ("Suprema", digitada): o aviso de fora da tabela, e NÃO o de sem fórmula — e não bloqueia', async () => {
+        const host = await montar()
+        // o gravado "Suprema" não está em nenhuma das duas fontes da tabela em uso do Wolff
         expect(aviso(host)!.textContent).toBe(A().fraseLinhaForaDaTabela('Suprema', 'Wolff'))
+        expect(semFormula(host)).toBeNull()
         await digitar(entrada(linha(host)), 'ZETA 70')
         expect(aviso(host)!.textContent).toBe(A().fraseLinhaForaDaTabela('ZETA 70', 'Wolff'))
         await salvar(host)
         expect((arvoreEnviada().materias_primas as Array<{ categorias: Linha[] }>)[0].categorias).toEqual([{ categoria_chave: 'PERFIL', config: { linha: 'ZETA 70' } }])
+    })
+
+    it('tabela em uso SEM linha nenhuma nas duas fontes: a frase dela, e nenhum aviso de linha', async () => {
+        const arv = arvoreGravada()
+        arv.linhas_por_fornecedor = { [F_WOLFF]: { formula: [], regra: [] } }
+        respostas[`GET ${F().ROTAS_DA_BASE.arvore(CONTA)}`] = { status: 200, body: arv }
+        const host = await montar()
+        expect(frase(host)!.textContent).toBe(A().fraseTabelaSemLinha('Wolff'))
+        expect(aviso(host)).toBeNull()
+        expect(semFormula(host)).toBeNull()
     })
 
     it('SEM TABELA EM USO: a tela diz isso — não oferece lista vazia em silêncio, e o campo continua aceitando digitação', async () => {

@@ -470,14 +470,15 @@ describe('(6) GET — a árvore inteira da empresa, numa resposta só', () => {
         expect(r.json.materias_primas).toEqual([])
     })
 
-    it('as LINHAS de cada fornecedor com tabela em uso NESTA conta: fórmula ∪ regra, distintas, em ordem — e o corte do PostgREST não esconde nenhuma', async () => {
+    it('as LINHAS de cada fornecedor com tabela em uso NESTA conta, POR FONTE — fórmula e regra separadas, distintas, em ordem — e o corte do PostgREST não esconde nenhuma', async () => {
         const r = await chamar('arvore', 'GET', { tenant: T_A })
-        expect(r.json.linhas_por_fornecedor).toEqual({ [F_WOLFF]: ['EUROPA 42', 'EUROPA 60', 'SUPREMA'] })
+        // EUROPA 60 só na fórmula; SUPREMA só na regra (é o caso DESIGN de produção: regra sem fórmula de família)
+        expect(r.json.linhas_por_fornecedor).toEqual({ [F_WOLFF]: { formula: ['EUROPA 42', 'EUROPA 60'], regra: ['EUROPA 42', 'SUPREMA'] } })
     })
 
     it('o contraste: a outra empresa vê as linhas da tabela DELA; a tabela que ninguém usa não entra', async () => {
         const r = await chamar('arvore', 'GET', { tenant: T_B })
-        expect(r.json.linhas_por_fornecedor).toEqual({ [F_MADEIRA]: ['MDF Y'] })
+        expect(r.json.linhas_por_fornecedor).toEqual({ [F_MADEIRA]: { formula: ['MDF Y'], regra: [] } })
         expect(F_ALCOA in r.json.linhas_por_fornecedor).toBe(false)
     })
 
