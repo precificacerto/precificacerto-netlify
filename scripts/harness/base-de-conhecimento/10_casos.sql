@@ -182,9 +182,12 @@ DO $$ DECLARE n0 bigint := pg_temp.logs(); l record; BEGIN
 END $$;
 
 -- CASO 14 — ambiente: a lista É o estado; item ausente sai, campo ausente fica
+-- (a primeira gravação vai num bloco à parte: cada bloco é uma transação, e o `em` do log é o
+-- now() dela — duas chamadas no mesmo bloco teriam o mesmo `em`, e "o log mais recente" ficaria
+-- indefinido)
+SELECT public.superadmin_gravar_padrao_ambiente('aaaaaaaa-0000-4000-8000-000000000001', 'bbbbbbbb-0000-4000-8000-000000000001',
+  '[{"ambiente": "Sala", "vidro_padrao": "Temperado 8mm", "tipologia_usual": "Correr"}, {"ambiente": "Quarto"}]') IS NOT NULL AS gravou \gset
 DO $$ DECLARE n0 bigint; l record; BEGIN
-  PERFORM public.superadmin_gravar_padrao_ambiente('aaaaaaaa-0000-4000-8000-000000000001', 'bbbbbbbb-0000-4000-8000-000000000001',
-    '[{"ambiente": "Sala", "vidro_padrao": "Temperado 8mm", "tipologia_usual": "Correr"}, {"ambiente": "Quarto"}]');
   n0 := pg_temp.logs();
   PERFORM public.superadmin_gravar_padrao_ambiente('aaaaaaaa-0000-4000-8000-000000000001', 'bbbbbbbb-0000-4000-8000-000000000001',
     '[{"ambiente": "Sala", "vidro_padrao": "Laminado"}, {"ambiente": "Cozinha"}]');

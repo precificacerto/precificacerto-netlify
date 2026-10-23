@@ -5,7 +5,8 @@
 #
 # Monta o banco mínimo (`00_base.sql`), aplica as migrações das tabelas (20261022000003 e
 # 20261022000004), aplica DUAS VEZES a migração de funções dada, confere que a segunda aplicação
-# deixou o schema idêntico, e roda os casos (`10_casos.sql`).
+# deixou o schema idêntico, roda os casos (`10_casos.sql`) e o de concorrência, com duas sessões
+# (`20_concorrencia.sh`).
 #
 # Uso: run.sh <arquivo da migração de funções>   Saída: `ok:` / `FALHOU:` por caso, e a contagem.
 S=$(cd "$(dirname "$0")" && pwd); R=$(cd "$S/../../.." && pwd)
@@ -27,8 +28,10 @@ else
   echo "FALHOU: a segunda aplicação mudou o schema"; exit 1
 fi
 SAIDA=$($P -d harness_base_de_conhecimento -f $S/10_casos.sql 2>&1 | sed -nE 's/^.*NOTICE:  (ok: .*)$/\1/p; s/^.*ERROR:  (FALHOU.*)$/\1/p; s/^.*ERROR:  (.*)$/ERRO NAO PREVISTO: \1/p')
+SAIDA="$SAIDA
+$(bash $S/20_concorrencia.sh "$P")"
 echo "$SAIDA"
-ESPERADO=$(grep -c "^-- CASO " $S/10_casos.sql)
+ESPERADO=$(( $(grep -c "^-- CASO " $S/10_casos.sql) + 1 ))
 OKS=$(echo "$SAIDA" | grep -c '^ok: ')
 echo "$OKS de $ESPERADO casos ok"
 [ "$OKS" = "$ESPERADO" ] || exit 1

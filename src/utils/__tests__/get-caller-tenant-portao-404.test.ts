@@ -20,7 +20,7 @@ const sessao: { usuario: string | null; perfil: Perfil | null } = { usuario: nul
 jest.mock('@/supabase/admin', () => ({
     supabaseAdmin: {
         auth: {
-            getUser: async () => (sessao.usuario
+            getUser: async (): Promise<{ data: { user: { id: string } | null }; error: { message: string } | null }> => (sessao.usuario
                 ? { data: { user: { id: sessao.usuario } }, error: null }
                 : { data: { user: null }, error: { message: 'sem sessão' } }),
         },
@@ -28,7 +28,7 @@ jest.mock('@/supabase/admin', () => ({
             const q: Record<string, unknown> = {}
             q.select = () => q
             q.eq = () => q
-            q.single = async () => ({ data: sessao.perfil, error: null })
+            q.single = async (): Promise<{ data: Perfil | null; error: { message: string } | null }> => ({ data: sessao.perfil, error: null })
             return q
         },
     },
@@ -93,7 +93,7 @@ describe('o contraste: requireSuperAdmin responde o que sempre respondeu', () =>
     })
 })
 
-describe('superAdminOu404: todo mundo que não é super admin recebe 404 — o mesmo 404', () => {
+describe('superAdminOu404: todo mundo que não é super admin recebe 404 — o mesmo 404 entre si', () => {
     it.each(CASOS)('%s → 404', async (_n, preparar) => {
         const { comToken } = preparar()
         const { r, res } = resposta()

@@ -31,9 +31,11 @@ const N_INEXISTENTE = '00000000-0000-4000-8000-0000000000e7'
 const EMP_ESQ = '00000000-0000-4000-8000-00000000f0a1'
 const EMP_OUTRA = '00000000-0000-4000-8000-00000000f0b2'
 
-const SUPER = { id: 'u-super', tenant_id: null, role: 'super_admin', is_super_admin: true }
-const ADMIN_DE_TENANT = { id: 'u-admin', tenant_id: T_ESQ, role: 'admin', is_super_admin: false }
-const COMUM = { id: 'u-comum', tenant_id: T_ESQ, role: 'user', is_super_admin: false }
+type Perfil = { id: string; tenant_id: string | null; role: string; is_super_admin: boolean }
+type RespostaDoBanco = { data: unknown; error: { code?: string; message: string } | null }
+const SUPER: Perfil = { id: 'u-super', tenant_id: null, role: 'super_admin', is_super_admin: true }
+const ADMIN_DE_TENANT: Perfil = { id: 'u-admin', tenant_id: T_ESQ, role: 'admin', is_super_admin: false }
+const COMUM: Perfil = { id: 'u-comum', tenant_id: T_ESQ, role: 'user', is_super_admin: false }
 
 const estado = {
     usuario: SUPER as Linha | null,
@@ -75,11 +77,11 @@ function montar() {
 jest.mock('@/supabase/admin', () => ({
     supabaseAdmin: {
         auth: {
-            getUser: async () => (estado.usuario
-                ? { data: { user: { id: estado.usuario.id } }, error: null }
+            getUser: async (): Promise<{ data: { user: { id: string } | null }; error: { message: string } | null }> => (estado.usuario
+                ? { data: { user: { id: String(estado.usuario.id) } }, error: null }
                 : { data: { user: null }, error: { message: 'sem sessão' } }),
         },
-        rpc: async (nome: string, args: Linha) => {
+        rpc: async (nome: string, args: Linha): Promise<RespostaDoBanco> => {
             estado.rpcs.push({ nome, args: JSON.parse(JSON.stringify(args)) })
             return estado.respostaDoRpc ?? { data: { depois: 'da função' }, error: null }
         },
@@ -91,12 +93,12 @@ jest.mock('@/supabase/admin', () => ({
             q.eq = (c: string, v: unknown) => { filtros.push((l) => l[c] === v); return q }
             q.in = (c: string, vs: unknown[]) => { filtros.push((l) => vs.includes(l[c])); return q }
             q.order = () => q
-            q.maybeSingle = async () => ({ data: linhas()[0] ?? null, error: null })
-            q.single = async () => {
+            q.maybeSingle = async (): Promise<RespostaDoBanco> => ({ data: linhas()[0] ?? null, error: null })
+            q.single = async (): Promise<RespostaDoBanco> => {
                 const l = linhas()
                 return l.length === 1 ? { data: l[0], error: null } : { data: null, error: { code: 'PGRST116', message: 'linhas' } }
             }
-            q.then = (ok: (v: unknown) => unknown, erro?: (e: unknown) => unknown) => Promise.resolve({ data: linhas(), error: null }).then(ok, erro)
+            q.then = (ok: (v: unknown) => unknown, erro?: (e: unknown) => unknown) => Promise.resolve<RespostaDoBanco>({ data: linhas(), error: null }).then(ok, erro)
             for (const escrita of ['insert', 'update', 'upsert', 'delete']) {
                 q[escrita] = () => { estado.escritasDiretas.push(`${escrita} ${tabela}`); return q }
             }
@@ -168,10 +170,13 @@ describe('(1) o portão: quem não é super admin recebe 404 — e ZERO escrita'
         nenhumaEscrita()
     })
 
-    it('o 404 de quem não é super admin é o MESMO de uma rota que não existe', async () => {
-        estado.usuario = COMUM
-        const r = await chamar('base', 'GET', { tenant: T_ESQ })
-        expect(r.json).toEqual({ error: 'Not found' })
+    it('o 404 é o MESMO para todos os recusados, e genérico: não diz quem é recusado nem por quê', async () => {
+        const corpos: unknown[] = []
+        for (const u of [COMUM, ADMIN_DE_TENANT, null]) {
+            estado.usuario = u
+            corpos.push((await chamar('base', 'GET', { tenant: T_ESQ })).json)
+        }
+        expect(corpos).toEqual([{ error: 'Not found' }, { error: 'Not found' }, { error: 'Not found' }])
     })
 })
 
@@ -451,5 +456,35 @@ describe('(8) métodos', () => {
         estado.usuario = COMUM
         const r = await chamar('base', 'DELETE', { tenant: T_ESQ })
         expect(r.status).toBe(404)
+    })
+})
+
+describe('(9) os campos do código são as colunas da migração — nem uma a mais, nem uma a menos', () => {
+    // A fonte das tabelas é a migração aplicada; o código lê dela por cópia. Uma coluna nova lá sem
+    // o campo aqui sumiria do efetivo e da validação em silêncio (`copia-divergente.md`).
+    /* eslint-disable @typescript-eslint/no-require-imports */
+    const fs = require('fs') as typeof import('fs')
+    const path = require('path') as typeof import('path')
+    const { CAMPOS_DE_ESQUADRIAS, CAMPOS_DOS_ADICIONAIS } = require('@/lib/atendimentos-ia/base-de-conhecimento')
+    /* eslint-enable @typescript-eslint/no-require-imports */
+    const sql = fs.readFileSync(path.resolve(__dirname, '../../../supabase/migrations/20261022000004_atendimentos_ia_base_de_conhecimento.sql'), 'utf8')
+    const colunasDe = (tabela: string) => {
+        const bloco = sql.split(`CREATE TABLE IF NOT EXISTS public.${tabela} (`)[1].split('\n);')[0]
+        return [...bloco.matchAll(/^\s{2}([a-z_]+)\s+(?:text\[\]|text|boolean|integer|jsonb|numeric|uuid|timestamptz)\b/gm)]
+            .map((m) => m[1])
+            .filter((c) => !['tenant_id', 'nicho_id', 'atualizado_por', 'atualizado_em'].includes(c))
+    }
+
+    it.each([['orcamentista_esquadrias_base'], ['orcamentista_esquadrias_padrao']])('%s', (tabela) => {
+        expect(Object.keys(CAMPOS_DE_ESQUADRIAS)).toEqual(colunasDe(tabela))
+    })
+
+    it('orcamentista_base_conhecimento', () => {
+        expect(Object.keys(CAMPOS_DOS_ADICIONAIS)).toEqual(colunasDe('orcamentista_base_conhecimento'))
+    })
+
+    it('o leitor da migração enxerga o que procura: 27 colunas de esquadrias, 8 de adicionais', () => {
+        expect(colunasDe('orcamentista_esquadrias_base')).toHaveLength(27)
+        expect(colunasDe('orcamentista_base_conhecimento')).toHaveLength(8)
     })
 })
