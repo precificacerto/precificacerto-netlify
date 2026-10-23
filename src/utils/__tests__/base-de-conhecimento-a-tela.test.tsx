@@ -15,7 +15,10 @@
  *   (e) a ORIGEM de cada campo aparece, e o herdado do nicho é visivelmente outro;
  *   (f) a mensagem da rota aparece como veio — 400 nomeado, os 409 do catálogo, 404;
  *   (g) os vendedores: o funcionário é escolhido da lista da rota de funcionários;
- *   (h) o nome da empresa no topo; quem não é super admin volta ao início sem chamar rota.
+ *   (h) o nome da empresa no topo; quem não é super admin volta ao início sem chamar rota;
+ *   (j) UM botão só, "Salvar alterações", junto do nome da empresa: desabilitado sem alteração,
+ *       com a contagem do que está pendente; salvar chama TODAS as rotas necessárias, e a falha de
+ *       uma nomeia o bloco e deixa as pendências dele na tela; sair com pendência avisa antes.
  *
  * O que ele NÃO alcança: que a barra do topo fique de fato visível ao rolar — jsdom não tem
  * layout. Isso é conferência visual.
@@ -46,8 +49,10 @@ const TAB_WOLFF_2 = '00000000-0000-4000-8000-0000000000c2'
 
 const replaces: string[] = []
 const pushes: string[] = []
+const ouvintesDoRoteador: Record<string, (url: string) => void> = {}
 jest.mock('next/router', () => ({
-    useRouter: () => ({ pathname: '/super-admin/atendimentos-ia/contas/[tenantId]/base-de-conhecimento', asPath: '/', query: { tenantId: CONTA }, replace: (u: string) => { replaces.push(u) }, push: (u: string) => { pushes.push(u) } }),
+    useRouter: () => ({ pathname: '/super-admin/atendimentos-ia/contas/[tenantId]/base-de-conhecimento', asPath: '/', query: { tenantId: CONTA }, replace: (u: string) => { replaces.push(u) }, push: (u: string) => { pushes.push(u) },
+        events: { on: (e: string, h: (url: string) => void) => { ouvintesDoRoteador[e] = h }, off: (e: string) => { delete ouvintesDoRoteador[e] }, emit: () => {} } }),
 }))
 let usuario: Record<string, unknown> = { id: 'u-super', is_super_admin: true, role: 'super_admin' }
 jest.mock('@/hooks/use-auth.hook', () => ({ useAuth: () => ({ currentUser: usuario }) }))
@@ -180,6 +185,12 @@ async function escolherNoSeletor(el: HTMLElement | null, texto: string) {
 const tresEstados = (host: ParentNode, c: string, estado: 'sim' | 'nao' | 'nao_informado') =>
     campo(host, c)?.querySelector(`input[type="radio"][value="${estado}"]`) as HTMLInputElement | null
 const gravacoes = () => pedidos.filter((p) => p.metodo !== 'GET')
+const botaoDeSalvar = (host: ParentNode) => host.querySelector('[data-empresa-no-topo] [data-salvar-alteracoes]') as HTMLButtonElement | null
+async function salvar(host: ParentNode) {
+    await clicar(botaoDeSalvar(host))
+    await assentar()
+}
+const pendencias = (host: ParentNode) => host.querySelector('[data-empresa-no-topo] [data-pendencias]')?.textContent ?? null
 
 // ═══════════════════════════════════════════════════════════════════════════════════════
 describe('(h) a empresa no topo, e o portão da tela', () => {
@@ -268,20 +279,21 @@ describe('(a) e (b) só o que foi TOCADO vai no corpo; limpar manda null', () =>
     it('(a) mudar UM campo do perfil manda só ele — os outros, gravados ou não, ficam fora do corpo', async () => {
         const host = await montar()
         await digitar(entrada(host, 'cor_perfil_predominante'), 'Preto fosco')
-        await clicar(botao(bloco(host, 'perfil'), 'Salvar'))
+        await salvar(host)
         expect(gravacoes()).toEqual([{ url: F().ROTAS_DA_BASE.base(CONTA), metodo: 'PUT', corpo: { esquadrias: { cor_perfil_predominante: 'Preto fosco' } } }])
     })
 
-    it('(a) sem nada tocado no bloco, salvar não chama a rota', async () => {
+    it('(a) sem nada tocado, o botão está desabilitado e nenhuma rota é chamada', async () => {
         const host = await montar()
-        await clicar(botao(bloco(host, 'perfil'), 'Salvar'))
+        expect(botaoDeSalvar(host)!.disabled).toBe(true)
+        await salvar(host)
         expect(gravacoes()).toEqual([])
     })
 
     it('(b) limpar um campo da empresa manda null — é o "volte a herdar"', async () => {
         const host = await montar()
         await digitar(entrada(host, 'cor_perfil_predominante'), '')
-        await clicar(botao(bloco(host, 'perfil'), 'Salvar'))
+        await salvar(host)
         expect(gravacoes().map((g) => g.corpo)).toEqual([{ esquadrias: { cor_perfil_predominante: null } }])
     })
 
@@ -292,14 +304,14 @@ describe('(a) e (b) só o que foi TOCADO vai no corpo; limpar manda null', () =>
         const host = await montar()
         expect(entrada(host, 'barra_mm')!.value).toBe('6000')
         await digitar(entrada(host, 'barra_mm'), '')
-        await clicar(botao(bloco(host, 'producao'), 'Salvar'))
+        await salvar(host)
         expect(gravacoes().map((g) => g.corpo)).toEqual([{ esquadrias: { barra_mm: null } }])
     })
 
     it('número digitado vai como NÚMERO, não texto', async () => {
         const host = await montar()
         await digitar(entrada(host, 'serra_mm'), '4')
-        await clicar(botao(bloco(host, 'producao'), 'Salvar'))
+        await salvar(host)
         expect(gravacoes().map((g) => g.corpo)).toEqual([{ esquadrias: { serra_mm: 4 } }])
     })
 })
@@ -321,28 +333,28 @@ describe('(c) booleano em TRÊS estados — e "não informado" não vira false',
     it('booleano em "não informado" e não tocado: não vai no corpo de outro campo do bloco', async () => {
         const host = await montar()
         await digitar(entrada(host, 'guarnicao_interna'), 'Alumínio 25')
-        await clicar(botao(bloco(host, 'guarnicao'), 'Salvar'))
+        await salvar(host)
         expect(gravacoes().map((g) => g.corpo)).toEqual([{ esquadrias: { guarnicao_interna: 'Alumínio 25' } }])
     })
 
     it('clicar "não informado" num booleano que já era não informado: nada vai', async () => {
         const host = await montar()
         await clicar(tresEstados(host, 'usa_arremate_interno', 'nao_informado'))
-        await clicar(botao(bloco(host, 'guarnicao'), 'Salvar'))
+        await salvar(host)
         expect(gravacoes()).toEqual([])
     })
 
     it('o contraste: sim → não informado manda null (volta a herdar)', async () => {
         const host = await montar()
         await clicar(tresEstados(host, 'usa_contramarco', 'nao_informado'))
-        await clicar(botao(bloco(host, 'guarnicao'), 'Salvar'))
+        await salvar(host)
         expect(gravacoes().map((g) => g.corpo)).toEqual([{ esquadrias: { usa_contramarco: null } }])
     })
 
     it('o contraste: sim → não manda false, nem null nem omitido', async () => {
         const host = await montar()
         await clicar(tresEstados(host, 'usa_contramarco', 'nao'))
-        await clicar(botao(bloco(host, 'guarnicao'), 'Salvar'))
+        await salvar(host)
         expect(gravacoes().map((g) => g.corpo)).toEqual([{ esquadrias: { usa_contramarco: false } }])
     })
 })
@@ -353,7 +365,7 @@ describe('(d) adicionais: PERCENTUAL exige base; VALOR esconde e limpa a base', 
         const host = await montar()
         await escolherNoSeletor(campo(host, 'instalacao_modo'), 'Percentual')
         await digitar(entrada(host, 'instalacao_percentual'), '8')
-        await clicar(botao(bloco(host, 'adicionais'), 'Salvar'))
+        await salvar(host)
         expect(gravacoes()).toEqual([])
         // O rótulo da base também está no próprio campo, visível; a frase tem de estar no AVISO.
         const aviso = bloco(host, 'adicionais').querySelector('[data-nao-enviado]')
@@ -367,7 +379,7 @@ describe('(d) adicionais: PERCENTUAL exige base; VALOR esconde e limpa a base', 
         await escolherNoSeletor(campo(host, 'instalacao_modo'), 'Percentual')
         await digitar(entrada(host, 'instalacao_percentual'), '8')
         await escolherNoSeletor(campo(host, 'instalacao_base'), 'Custo da instalação')
-        await clicar(botao(bloco(host, 'adicionais'), 'Salvar'))
+        await salvar(host)
         expect(gravacoes().map((g) => g.corpo)).toEqual([{ adicionais: { instalacao_modo: 'PERCENTUAL', instalacao_percentual: 8, instalacao_base: 'CUSTO_DA_INSTALACAO' } }])
     })
 
@@ -378,7 +390,7 @@ describe('(d) adicionais: PERCENTUAL exige base; VALOR esconde e limpa a base', 
         expect(campo(host, 'frete_base')).toBeNull()
         expect(campo(host, 'frete_percentual')).toBeNull()
         await digitar(entrada(host, 'frete_valor'), '150')
-        await clicar(botao(bloco(host, 'adicionais'), 'Salvar'))
+        await salvar(host)
         expect(gravacoes().map((g) => g.corpo)).toEqual([{ adicionais: { frete_modo: 'VALOR', frete_valor: 150, frete_percentual: null, frete_base: null } }])
     })
 })
@@ -392,7 +404,7 @@ describe('(f) a mensagem da ROTA aparece como veio', () => {
         respostas[`PUT ${F().ROTAS_DA_BASE.base(CONTA)}`] = { status: 409, body: { error: frase, codigo } }
         const host = await montar()
         await digitar(entrada(host, 'cor_perfil_predominante'), 'Preto fosco')
-        await clicar(botao(bloco(host, 'perfil'), 'Salvar'))
+        await salvar(host)
         expect(bloco(host, 'perfil').textContent).toContain(frase)
         expect(bloco(host, 'perfil').textContent).toContain(codigo)
     })
@@ -401,7 +413,7 @@ describe('(f) a mensagem da ROTA aparece como veio', () => {
         respostas[`PUT ${F().ROTAS_DA_BASE.vendedor(CONTA)}`] = { status: 400, body: { error: 'Pedido inválido.', erros: [{ campo: 'vendedores[0].employee_id', mensagem: `${EMP_ANA} não é funcionário desta empresa.` }] } }
         const host = await montar()
         await digitar(entrada(host, `vendedor:${EMP_ANA}:comissao_percentual`), '7')
-        await clicar(botao(bloco(host, 'vendedores'), 'Salvar'))
+        await salvar(host)
         const texto = bloco(host, 'vendedores').textContent
         expect(texto).toContain('Pedido inválido.')
         expect(texto).toContain('vendedores[0].employee_id')
@@ -412,7 +424,7 @@ describe('(f) a mensagem da ROTA aparece como veio', () => {
         respostas[`PUT ${F().ROTAS_DA_BASE.ambiente(CONTA)}`] = { status: 404, body: { error: 'Empresa não encontrada.' } }
         const host = await montar()
         await digitar(entrada(host, 'ambiente:Sala:tipologia_usual'), 'Correr 2 folhas')
-        await clicar(botao(bloco(host, 'ambientes'), 'Salvar'))
+        await salvar(host)
         expect(bloco(host, 'ambientes').textContent).toContain('Empresa não encontrada.')
     })
 
@@ -440,7 +452,7 @@ describe('(g) vendedores e ambientes: a lista é o estado, e dentro do item só 
         await escolherNoSeletor(campo(host, 'vendedor-novo'), 'Carla Dias')
         await clicar(botao(bloco(host, 'vendedores'), 'Acrescentar'))
         await digitar(entrada(host, `vendedor:${EMP_CARLA}:comissao_percentual`), '3')
-        await clicar(botao(bloco(host, 'vendedores'), 'Salvar'))
+        await salvar(host)
         expect(gravacoes()).toEqual([{
             url: F().ROTAS_DA_BASE.vendedor(CONTA), metodo: 'PUT',
             corpo: { vendedores: [{ employee_id: EMP_ANA }, { employee_id: EMP_CARLA, comissao_percentual: 3 }] },
@@ -455,14 +467,14 @@ describe('(g) vendedores e ambientes: a lista é o estado, e dentro do item só 
     it('ambiente: mudar um campo de um gravado manda o ambiente com só esse campo', async () => {
         const host = await montar()
         await digitar(entrada(host, 'ambiente:Sala:tipologia_usual'), 'Correr 2 folhas')
-        await clicar(botao(bloco(host, 'ambientes'), 'Salvar'))
+        await salvar(host)
         expect(gravacoes().map((g) => g.corpo)).toEqual([{ ambientes: [{ ambiente: 'Sala', tipologia_usual: 'Correr 2 folhas' }] }])
     })
 
     it('ambiente removido sai da lista: a lista vai vazia', async () => {
         const host = await montar()
         await clicar(botao(campo(host, 'ambiente:Sala')!, 'Remover'))
-        await clicar(botao(bloco(host, 'ambientes'), 'Salvar'))
+        await salvar(host)
         expect(gravacoes().map((g) => g.corpo)).toEqual([{ ambientes: [] }])
     })
 })
@@ -506,7 +518,7 @@ describe('(i) fornecedor e linha são SELEÇÃO, alimentada pelas tabelas em uso
     it('escolher o fornecedor da lista manda o nome EXATO da tabela', async () => {
         const host = await montar()
         await escolherNoSeletor(campo(host, 'fornecedor_perfil'), 'Wolff Perfis')
-        await clicar(botao(bloco(host, 'perfil'), 'Salvar'))
+        await salvar(host)
         expect(gravacoes().map((g) => g.corpo)).toEqual([{ esquadrias: { fornecedor_perfil: 'Wolff Perfis' } }])
     })
 
@@ -538,7 +550,7 @@ describe('(i) fornecedor e linha são SELEÇÃO, alimentada pelas tabelas em uso
         expect(campo(host, 'fornecedor_perfil')!.querySelector('[data-fora-da-lista]')?.textContent).toBe(F().FORA_DA_LISTA)
         // salvar OUTRO campo do mesmo bloco não leva o fornecedor junto — nem null, nem trocado
         await digitar(entrada(host, 'cor_perfil_predominante'), 'Preto fosco')
-        await clicar(botao(bloco(host, 'perfil'), 'Salvar'))
+        await salvar(host)
         expect(gravacoes().map((g) => g.corpo)).toEqual([{ esquadrias: { cor_perfil_predominante: 'Preto fosco' } }])
     })
 
@@ -554,7 +566,7 @@ describe('(i) fornecedor e linha são SELEÇÃO, alimentada pelas tabelas em uso
         const host = await montar()
         expect(exibido(host, 'fornecedor_perfil')).toContain('Wolf')
         expect(campo(host, 'fornecedor_perfil')!.querySelector('[data-fora-da-lista]')).not.toBeNull()
-        await clicar(botao(bloco(host, 'perfil'), 'Salvar'))
+        await salvar(host)
         expect(gravacoes()).toEqual([])
     })
 
@@ -563,5 +575,151 @@ describe('(i) fornecedor e linha são SELEÇÃO, alimentada pelas tabelas em uso
         const host = await montar()
         expect(campo(host, 'fornecedor_perfil')!.textContent).toContain('Não foi possível ler as tabelas da conta.')
         expect(campo(host, 'fornecedor_perfil')!.textContent).not.toContain(F().SEM_TABELA_EM_USO)
+    })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// UM BOTÃO SÓ (dono do produto, 23/10/2026). Medido: na primeira configuração real saíram duas
+// gravações separadas em dois minutos — e com um botão por bloco dá para salvar o bloco 1, esquecer
+// o 4 e sair com a casa meio configurada sem perceber.
+// ═══════════════════════════════════════════════════════════════════════════════════════
+describe('(j) um botão só, para a tela inteira', () => {
+    const porUrl = () => [...gravacoes()].sort((a, b) => a.url.localeCompare(b.url))
+
+    it('o botão está na barra do topo, junto do nome da empresa — e nenhum bloco tem botão de salvar', async () => {
+        const host = await montar()
+        expect(botaoDeSalvar(host)).not.toBeNull()
+        expect(botaoDeSalvar(host)!.textContent).toContain('Salvar alterações')
+        for (const b of F().ORDEM_DOS_BLOCOS) expect(botao(bloco(host, b), 'Salvar')).toBeUndefined()
+    })
+
+    it('sem alteração: desabilitado, e a contagem diz que não há pendência', async () => {
+        const host = await montar()
+        expect(botaoDeSalvar(host)!.disabled).toBe(true)
+        expect(pendencias(host)).toBe(F().fraseDasPendencias(0))
+    })
+
+    it('a contagem acompanha os campos mudados — e desfazer a mudança tira da conta', async () => {
+        const host = await montar()
+        await digitar(entrada(host, 'cor_perfil_predominante'), 'Preto fosco')
+        expect(pendencias(host)).toBe(F().fraseDasPendencias(1))
+        expect(botaoDeSalvar(host)!.disabled).toBe(false)
+        // DOIS campos no mesmo bloco contam dois — a contagem é por campo, não por bloco
+        await clicar(tresEstados(host, 'usa_contramarco', 'nao'))
+        await digitar(entrada(host, 'guarnicao_interna'), 'Alumínio 25')
+        await digitar(entrada(host, `vendedor:${EMP_ANA}:comissao_percentual`), '7')
+        expect(pendencias(host)).toBe(F().fraseDasPendencias(4))
+        await digitar(entrada(host, 'cor_perfil_predominante'), 'Branco')
+        expect(pendencias(host)).toBe(F().fraseDasPendencias(3))
+    })
+
+    it('a frase: "1 alteração não salva", "3 alterações não salvas"', () => {
+        expect(F().fraseDasPendencias(1)).toBe('1 alteração não salva')
+        expect(F().fraseDasPendencias(3)).toBe('3 alterações não salvas')
+    })
+
+    it('alteração em dois blocos de rotas diferentes: as DUAS chamadas, cada uma com só o que mudou', async () => {
+        const host = await montar()
+        await digitar(entrada(host, 'cor_perfil_predominante'), 'Preto fosco')
+        await digitar(entrada(host, `vendedor:${EMP_ANA}:comissao_percentual`), '7')
+        await salvar(host)
+        expect(porUrl()).toEqual([
+            { url: F().ROTAS_DA_BASE.base(CONTA), metodo: 'PUT', corpo: { esquadrias: { cor_perfil_predominante: 'Preto fosco' } } },
+            { url: F().ROTAS_DA_BASE.vendedor(CONTA), metodo: 'PUT', corpo: { vendedores: [{ employee_id: EMP_ANA, comissao_percentual: 7 }] } },
+        ].sort((a, b) => a.url.localeCompare(b.url)))
+    })
+
+    it('dois blocos da MESMA rota (perfil e acessórios, mais os adicionais): UMA chamada só, com os três', async () => {
+        const host = await montar()
+        await digitar(entrada(host, 'cor_perfil_predominante'), 'Preto fosco')
+        await digitar(entrada(host, 'solda'), 'MIG')
+        await escolherNoSeletor(campo(host, 'instalacao_modo'), 'Não cobra')
+        await salvar(host)
+        expect(gravacoes()).toEqual([{
+            url: F().ROTAS_DA_BASE.base(CONTA), metodo: 'PUT',
+            corpo: { esquadrias: { cor_perfil_predominante: 'Preto fosco', solda: 'MIG' }, adicionais: { instalacao_modo: 'NAO_COBRA' } },
+        }])
+    })
+
+    it('nada de campo não tocado em corpo NENHUM: um campo em cada rota, e cada corpo com só o seu', async () => {
+        const host = await montar()
+        await digitar(entrada(host, 'cor_perfil_predominante'), 'Preto fosco')
+        await digitar(entrada(host, 'ambiente:Sala:tipologia_usual'), 'Correr 2 folhas')
+        await digitar(entrada(host, `vendedor:${EMP_ANA}:lucro_projetado_percentual`), '12')
+        await salvar(host)
+        expect(porUrl()).toEqual([
+            { url: F().ROTAS_DA_BASE.base(CONTA), metodo: 'PUT', corpo: { esquadrias: { cor_perfil_predominante: 'Preto fosco' } } },
+            { url: F().ROTAS_DA_BASE.ambiente(CONTA), metodo: 'PUT', corpo: { ambientes: [{ ambiente: 'Sala', tipologia_usual: 'Correr 2 folhas' }] } },
+            { url: F().ROTAS_DA_BASE.vendedor(CONTA), metodo: 'PUT', corpo: { vendedores: [{ employee_id: EMP_ANA, lucro_projetado_percentual: 12 }] } },
+        ].sort((a, b) => a.url.localeCompare(b.url)))
+    })
+
+    it('uma chamada falha e a outra passa: diz o que foi salvo e o que não foi, NOMEANDO o bloco, e a pendência fica', async () => {
+        respostas[`PUT ${F().ROTAS_DA_BASE.vendedor(CONTA)}`] = { status: 400, body: { error: 'Pedido inválido.', erros: [{ campo: 'vendedores[0].comissao_percentual', mensagem: 'não pode ser maior que 100' }] } }
+        const host = await montar()
+        await digitar(entrada(host, 'cor_perfil_predominante'), 'Preto fosco')
+        await digitar(entrada(host, `vendedor:${EMP_ANA}:comissao_percentual`), '7')
+        await salvar(host)
+        const T = F().TITULO_DO_BLOCO
+        const resultado = host.querySelector('[data-resultado-do-salvar]') as HTMLElement
+        expect(resultado.querySelector('[data-salvos]')!.textContent).toContain(T.perfil)
+        expect(resultado.querySelector('[data-salvos]')!.textContent).not.toContain(T.vendedores)
+        expect(resultado.querySelector('[data-nao-salvos]')!.textContent).toContain(T.vendedores)
+        expect(resultado.querySelector('[data-nao-salvos]')!.textContent).toContain('Pedido inválido.')
+        expect(resultado.querySelector('[data-nao-salvos]')!.textContent).not.toContain(T.perfil)
+        // a recusa nomeada também fica NO bloco
+        expect(bloco(host, 'vendedores').textContent).toContain('não pode ser maior que 100')
+        // a alteração que não passou continua na tela, pendente
+        expect(entrada(host, `vendedor:${EMP_ANA}:comissao_percentual`)!.value).toBe('7')
+        expect(pendencias(host)).toBe(F().fraseDasPendencias(1))
+        // e tentar de novo manda SÓ o que ficou pendente
+        pedidos.length = 0
+        respostas[`PUT ${F().ROTAS_DA_BASE.vendedor(CONTA)}`] = { status: 200, body: { depois: {} } }
+        await salvar(host)
+        expect(gravacoes()).toEqual([{ url: F().ROTAS_DA_BASE.vendedor(CONTA), metodo: 'PUT', corpo: { vendedores: [{ employee_id: EMP_ANA, comissao_percentual: 7 }] } }])
+    })
+
+    it('o contraste: tudo passou, nada pendente e o resultado não tem "não salvo"', async () => {
+        const host = await montar()
+        await digitar(entrada(host, 'cor_perfil_predominante'), 'Preto fosco')
+        await digitar(entrada(host, `vendedor:${EMP_ANA}:comissao_percentual`), '7')
+        await salvar(host)
+        expect(host.querySelector('[data-resultado-do-salvar] [data-nao-salvos]')).toBeNull()
+        expect(pendencias(host)).toBe(F().fraseDasPendencias(0))
+    })
+
+    it('sair pela navegação do Next com pendência: pergunta antes, e "não" cancela a saída', async () => {
+        const confirmar = jest.spyOn(window, 'confirm').mockReturnValue(false)
+        try {
+            const host = await montar()
+            await digitar(entrada(host, 'cor_perfil_predominante'), 'Preto fosco')
+            expect(() => ouvintesDoRoteador.routeChangeStart('/outra')).toThrow()
+            expect(confirmar).toHaveBeenCalledTimes(1)
+        } finally {
+            confirmar.mockRestore()
+        }
+    })
+
+    it('o contraste: sem pendência, sair não pergunta nada', async () => {
+        const confirmar = jest.spyOn(window, 'confirm').mockReturnValue(false)
+        try {
+            await montar()
+            const ouvinte = ouvintesDoRoteador.routeChangeStart
+            if (ouvinte) expect(() => ouvinte('/outra')).not.toThrow()
+            expect(confirmar).not.toHaveBeenCalled()
+        } finally {
+            confirmar.mockRestore()
+        }
+    })
+
+    it('fechar ou recarregar a aba com pendência: o navegador avisa (beforeunload)', async () => {
+        const host = await montar()
+        const semPendencia = new Event('beforeunload', { cancelable: true })
+        window.dispatchEvent(semPendencia)
+        expect(semPendencia.defaultPrevented).toBe(false)
+        await digitar(entrada(host, 'cor_perfil_predominante'), 'Preto fosco')
+        const comPendencia = new Event('beforeunload', { cancelable: true })
+        window.dispatchEvent(comPendencia)
+        expect(comPendencia.defaultPrevented).toBe(true)
     })
 })

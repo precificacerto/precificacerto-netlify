@@ -311,3 +311,107 @@ export function opcoesDasTabelas(
         linha_perfil: distintos(conteudos.flatMap((c) => c.tipologias.map((t) => t.linha))),
     }
 }
+
+// ── UM BOTÃO SÓ: o plano do salvar da tela inteira ─────────────────────────────────────────
+/**
+ * Decisão do dono do produto, 23/10/2026: um único "Salvar alterações" para a tela inteira. Medido:
+ * na primeira configuração real saíram duas gravações separadas em dois minutos, e com um botão por
+ * bloco dava para salvar o bloco 1, esquecer o 4 e sair com a casa meio configurada.
+ *
+ * O plano agrupa as mudanças pelas ROTAS: esquadrias e adicionais vão juntos na rota da base; os
+ * ambientes e os vendedores, cada um na sua. A regra de "só vai o que mudou" não muda — cada corpo
+ * sai de `mudancas` e `corpoDaLista`. Bloco com erro de preenchimento fica FORA da chamada e é
+ * relatado como não enviado; os outros blocos da mesma rota seguem.
+ *
+ * A CONTAGEM é por campo: cada campo que difere do gravado conta um; na lista, o item acrescentado
+ * conta um, o removido conta um, e cada campo mudado num item gravado conta um.
+ */
+export const TITULO_DO_BLOCO: Record<ChaveDoBloco, string> = {
+    perfil: 'Perfil',
+    vidro: 'Vidro',
+    guarnicao: 'Guarnição e contramarco',
+    acessorios: 'Acessórios',
+    ambientes: 'Padrão por ambiente',
+    producao: 'Produção',
+    vendedores: 'Vendedores',
+    adicionais: 'Adicionais da empresa',
+}
+
+export const fraseDasPendencias = (n: number) =>
+    (n === 0 ? 'Nenhuma alteração pendente' : n === 1 ? '1 alteração não salva' : `${n} alterações não salvas`)
+
+export type RotaDaChamada = 'base' | 'ambiente' | 'vendedor'
+export type Chamada = { rota: RotaDaChamada; corpo: Record<string, unknown>; blocos: ChaveDoBloco[] }
+export type Plano = {
+    chamadas: Chamada[]
+    naoEnviados: Array<{ bloco: ChaveDoBloco; erros: ErroNomeado[] }>
+    porBloco: Record<ChaveDoBloco, number>
+    total: number
+}
+export type EstadoDaTela = {
+    esquadrias: Record<string, unknown>
+    adicionais: Record<string, unknown>
+    ambientes: ReadonlyArray<LinhaDaLista>
+    vendedores: ReadonlyArray<LinhaDaLista>
+}
+export type Gravado = {
+    empresa: Record<string, unknown> | null
+    adicionais: Record<string, unknown> | null
+    ambientes: ReadonlyArray<Record<string, unknown>>
+    vendedores: ReadonlyArray<Record<string, unknown>>
+}
+
+function contarLista(chaveDoItem: string, campos: readonly string[], gravados: ReadonlyArray<Record<string, unknown>>, linhas: ReadonlyArray<LinhaDaLista>): number {
+    const porChave = new Map(gravados.map((g) => [String(g[chaveDoItem]), g]))
+    const presentes = new Set(linhas.map((l) => l.chave))
+    let n = gravados.filter((g) => !presentes.has(String(g[chaveDoItem]))).length
+    for (const l of linhas) {
+        const g = porChave.get(l.chave)
+        if (!g) { n += 1; continue }
+        const r = mudancas(campos, DOMINIO_DO_ITEM, g, l.valores)
+        n += Object.keys(r.corpo).length + r.erros.length
+    }
+    return n
+}
+
+export function planoDoSalvar(gravado: Gravado, tela: EstadoDaTela): Plano {
+    const porBloco = Object.fromEntries(ORDEM_DOS_BLOCOS.map((b) => [b, 0])) as Record<ChaveDoBloco, number>
+    const naoEnviados: Plano['naoEnviados'] = []
+    const chamadas: Chamada[] = []
+
+    // a rota da base: esquadrias (bloco a bloco) e adicionais
+    const esquadrias: Record<string, unknown> = {}
+    const blocosDaBase: ChaveDoBloco[] = []
+    for (const b of BLOCOS_DE_ESQUADRIAS) {
+        const r = mudancas(b.campos, dominioDe, gravado.empresa, tela.esquadrias)
+        porBloco[b.chave] = Object.keys(r.corpo).length + r.erros.length
+        if (r.erros.length) naoEnviados.push({ bloco: b.chave, erros: r.erros })
+        else if (Object.keys(r.corpo).length) { Object.assign(esquadrias, r.corpo); blocosDaBase.push(b.chave) }
+    }
+    const ad = corpoDosAdicionais(gravado.adicionais, tela.adicionais)
+    const mudadosDosAdicionais = ADICIONAIS.flatMap(CAMPOS_DO_ADICIONAL)
+        .filter((c) => !mesmoValor(valorDoFormulario(DOMINIO_DO_ADICIONAL(c), tela.adicionais[c]).valor, gravado.adicionais ? gravado.adicionais[c] : null)).length
+    porBloco.adicionais = mudadosDosAdicionais
+    if (ad.erros.length) naoEnviados.push({ bloco: 'adicionais', erros: ad.erros })
+    else if (Object.keys(ad.corpo).length) blocosDaBase.push('adicionais')
+    if (blocosDaBase.length) {
+        const corpo: Record<string, unknown> = {}
+        if (Object.keys(esquadrias).length) corpo.esquadrias = esquadrias
+        if (blocosDaBase.includes('adicionais')) corpo.adicionais = ad.corpo
+        chamadas.push({ rota: 'base', corpo, blocos: blocosDaBase })
+    }
+
+    // as listas: a lista inteira, quando alguma coisa nela mudou
+    const listas = [
+        { bloco: 'ambientes' as const, rota: 'ambiente' as const, chave: 'ambiente' as const, campos: CAMPOS_DO_AMBIENTE, g: gravado.ambientes, l: tela.ambientes },
+        { bloco: 'vendedores' as const, rota: 'vendedor' as const, chave: 'employee_id' as const, campos: CAMPOS_DO_VENDEDOR, g: gravado.vendedores, l: tela.vendedores },
+    ]
+    for (const x of listas) {
+        porBloco[x.bloco] = contarLista(x.chave, x.campos, x.g, x.l)
+        const r = corpoDaLista(x.chave, x.campos, x.g, x.l)
+        if (r.erros.length) naoEnviados.push({ bloco: x.bloco, erros: r.erros })
+        else if (r.mudou) chamadas.push({ rota: x.rota, corpo: x.bloco === 'ambientes' ? { ambientes: r.itens } : { vendedores: r.itens }, blocos: [x.bloco] })
+    }
+
+    return { chamadas, naoEnviados, porBloco, total: Object.values(porBloco).reduce((a, b) => a + b, 0) }
+}
