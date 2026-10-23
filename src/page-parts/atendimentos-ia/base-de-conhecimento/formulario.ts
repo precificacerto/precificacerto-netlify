@@ -206,8 +206,8 @@ export const MODOS = ['NAO_COBRA', 'VALOR', 'PERCENTUAL'] as const
 export type Modo = typeof MODOS[number]
 export const ROTULO_DO_MODO: Record<Modo, string> = { NAO_COBRA: 'Não cobra', VALOR: 'Valor', PERCENTUAL: 'Percentual' }
 export const BASES: Record<'frete' | 'instalacao', ReadonlyArray<{ valor: string; rotulo: string }>> = {
-    frete: [{ valor: 'VALOR_DE_VENDA', rotulo: 'Valor de venda' }, { valor: 'CUSTO_DO_FRETE', rotulo: 'Custo do frete' }],
-    instalacao: [{ valor: 'VALOR_DE_VENDA', rotulo: 'Valor de venda' }, { valor: 'CUSTO_DA_INSTALACAO', rotulo: 'Custo da instalação' }],
+    frete: [{ valor: 'VALOR_POS_DESCONTO', rotulo: 'Valor recalculado pós-desconto' }, { valor: 'CUSTO_DO_FRETE', rotulo: 'Custo do frete' }],
+    instalacao: [{ valor: 'VALOR_POS_DESCONTO', rotulo: 'Valor recalculado pós-desconto' }, { valor: 'CUSTO_DA_INSTALACAO', rotulo: 'Custo da instalação' }],
 }
 export const ADICIONAIS = ['frete', 'instalacao'] as const
 export const CAMPOS_DO_ADICIONAL = (x: 'frete' | 'instalacao') => [`${x}_modo`, `${x}_valor`, `${x}_percentual`, `${x}_base`]
