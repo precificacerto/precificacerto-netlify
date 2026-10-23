@@ -446,7 +446,7 @@ describe('(6b) PUT /arvore — 1:1 com superadmin_gravar_arvore (migração 2026
             {
                 nome: 'PVC',
                 categorias: [
-                    { categoria_chave: 'PERFIL', config: { linha: 'Suprema', solda: null, reforco: false }, fornecedores: [] as Linha[] },
+                    { categoria_chave: 'PERFIL', config: { linha: 'Suprema', solda: null as string | null, reforco: false }, fornecedores: [] as Linha[] },
                     { categoria_chave: 'VIDRO', vidros: [{ descricao: 'Fumê', onde_predomina: [] as string[] }, { descricao: 'Bronze' }] },
                     { categoria_chave: 'INSTALACAO', instalacao: [{ produto: 'CONTRAMARCO', usa: null }, { produto: 'ARREMATE_INTERNO', usa: false }] },
                 ],
