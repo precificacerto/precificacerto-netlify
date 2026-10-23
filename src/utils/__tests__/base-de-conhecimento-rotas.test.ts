@@ -68,8 +68,8 @@ function montar() {
         orcamentista_padrao_ambiente: [],
         orcamentista_vendedor_perfil: [],
         employees: [
-            { id: EMP_ESQ, tenant_id: T_ESQ, name: 'Ana Souza' },
-            { id: EMP_OUTRA, tenant_id: T_OUTRA, name: 'Bruno Lima' },
+            { id: EMP_ESQ, tenant_id: T_ESQ, name: 'Ana Souza', is_active: true },
+            { id: EMP_OUTRA, tenant_id: T_OUTRA, name: 'Bruno Lima', is_active: true },
         ],
     }
 }
@@ -114,6 +114,8 @@ const ROTAS: Record<string, Rota> = {
     ambiente: require('@/pages/api/super-admin/base-de-conhecimento/ambiente').default,
     vendedor: require('@/pages/api/super-admin/base-de-conhecimento/vendedor').default,
     padraoNicho: require('@/pages/api/super-admin/base-de-conhecimento/padrao-nicho').default,
+    // lida na CHAMADA: no commit do portão a rota ainda não existe, e um `require` aqui derrubaria o arquivo inteiro
+    funcionarios: (q, s) => require('@/pages/api/super-admin/base-de-conhecimento/funcionarios').default(q, s),
 }
 /* eslint-enable @typescript-eslint/no-require-imports */
 
@@ -138,6 +140,7 @@ const CADA_ROTA: Array<[keyof typeof ROTAS, string, Linha, unknown]> = [
     ['ambiente', 'PUT', { tenant: T_ESQ }, { ambientes: [{ ambiente: 'Sala' }] }],
     ['vendedor', 'PUT', { tenant: T_ESQ }, { vendedores: [{ employee_id: EMP_ESQ, comissao_percentual: 5 }] }],
     ['padraoNicho', 'PUT', { nicho: N_ESQ }, { esquadrias: { linha_perfil: 'Gold' } }],
+    ['funcionarios', 'GET', { tenant: T_ESQ }, undefined],
 ]
 
 // ═══════════════════════════════════════════════════════════════════════════════════════
@@ -448,7 +451,7 @@ describe('(7) o que a função recusa vira resposta legível — e o texto do ba
 })
 
 describe('(8) métodos', () => {
-    it.each([['base', 'DELETE'], ['ambiente', 'GET'], ['vendedor', 'POST'], ['padraoNicho', 'GET']] as const)('%s %s → 405, depois do portão', async (rota, metodo) => {
+    it.each([['base', 'DELETE'], ['ambiente', 'GET'], ['vendedor', 'POST'], ['padraoNicho', 'GET'], ['funcionarios', 'PUT']] as const)('%s %s → 405, depois do portão', async (rota, metodo) => {
         const r = await chamar(rota, metodo, { tenant: T_ESQ, nicho: N_ESQ })
         expect(r.status).toBe(405)
         nenhumaEscrita()
@@ -546,5 +549,57 @@ describe('(10) o nicho Esquadrias é reconhecido pelo NOME — e quando o catál
         const r = await chamar('base', 'PUT', { tenant: T_ESQ }, { esquadrias: { linha_perfil: 'X' } })
         expect(r.status).toBe(200)
         expect(estado.rpcs).toHaveLength(1)
+    })
+})
+
+describe('(11) GET funcionarios — id e nome dos funcionários DESTA empresa, e nada mais', () => {
+    // A exceção NOMINAL à REGRA INVIOLÁVEL das telas de contas (decisão do dono do produto, 23/10/2026):
+    // id e nome de funcionário, só para atribuir perfil de vendedor. Nem telefone, nem e-mail, nem
+    // cargo, nem salário, nem status. O banco falso devolve a LINHA INTEIRA em qualquer `select` —
+    // então só passa a rota que monta a resposta campo a campo.
+    beforeEach(() => {
+        estado.db.employees = [
+            {
+                id: EMP_ESQ, tenant_id: T_ESQ, name: 'Ana Souza', is_active: true, status: 'ACTIVE',
+                phone: '5511999990000', email: 'ana@empresa.com', position: 'Vendedora', salary: 4200, commission_percent: 5, user_id: 'u-ana',
+            },
+            { id: '00000000-0000-4000-8000-00000000f0a2', tenant_id: T_ESQ, name: 'Carla Dias', is_active: true, status: 'ACTIVE', phone: '5511988887777', salary: 3100 },
+            { id: '00000000-0000-4000-8000-00000000f0a3', tenant_id: T_ESQ, name: 'Antônio Reis', is_active: true, status: 'INACTIVE', email: 'antonio@empresa.com' },
+            { id: '00000000-0000-4000-8000-00000000f0a4', tenant_id: T_ESQ, name: 'Demitido', is_active: false, status: 'ACTIVE' },
+            { id: EMP_OUTRA, tenant_id: T_OUTRA, name: 'Bruno Lima', is_active: true, status: 'ACTIVE' },
+        ]
+    })
+
+    it('cada item tem EXATAMENTE as chaves id e nome — com as outras colunas da linha preenchidas', async () => {
+        const r = await chamar('funcionarios', 'GET', { tenant: T_ESQ })
+        expect(r.status).toBe(200)
+        expect(r.json.funcionarios.length).toBeGreaterThan(0)
+        for (const f of r.json.funcionarios) expect(Object.keys(f).sort()).toEqual(['id', 'nome'])
+        const texto = JSON.stringify(r.json)
+        for (const v of ['5511999990000', 'ana@empresa.com', 'Vendedora', '4200', 'ACTIVE', 'u-ana', T_ESQ]) expect(texto).not.toContain(v)
+    })
+
+    it('a resposta inteira tem só a lista: nada de tenant, contagem ou outro campo', async () => {
+        const r = await chamar('funcionarios', 'GET', { tenant: T_ESQ })
+        expect(Object.keys(r.json)).toEqual(['funcionarios'])
+    })
+
+    it('só os desta empresa, ativos, em ordem de nome — o de outra empresa e o excluído (is_active false) ficam fora', async () => {
+        const r = await chamar('funcionarios', 'GET', { tenant: T_ESQ })
+        expect(r.json.funcionarios).toEqual([
+            { id: EMP_ESQ, nome: 'Ana Souza' },
+            { id: '00000000-0000-4000-8000-00000000f0a3', nome: 'Antônio Reis' },
+            { id: '00000000-0000-4000-8000-00000000f0a2', nome: 'Carla Dias' },
+        ])
+    })
+
+    it('o contraste: a outra empresa vê só o dela', async () => {
+        const r = await chamar('funcionarios', 'GET', { tenant: T_OUTRA })
+        expect(r.json.funcionarios).toEqual([{ id: EMP_OUTRA, nome: 'Bruno Lima' }])
+    })
+
+    it('o GET não escreve nada', async () => {
+        await chamar('funcionarios', 'GET', { tenant: T_ESQ })
+        nenhumaEscrita()
     })
 })
