@@ -1,6 +1,8 @@
 /**
  * /api/super-admin/base-de-conhecimento/materia-prima?tenant=<uuid>
- *   PUT    → `superadmin_gravar_materia_prima`.   corpo: { materias_primas: [{ id?, nome }] }
+ *   PUT    → `superadmin_gravar_materia_prima`.   corpo: { materias_primas: [{ nome }] }
+ *            A chave é `lower(nome)`: a função recusa `id` no item, e por isso NÃO HÁ RENOMEAR — um
+ *            nome novo é uma matéria-prima nova (com as 6 categorias vazias), e a antiga fica.
  *   DELETE → `superadmin_remover_materia_prima`.  query: &materia_prima=<uuid>; sem corpo.
  *
  * 1:1, sem lógica própria: o valor vai à função como veio. A ORDEM é a posição na lista — a função
