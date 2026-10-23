@@ -75,7 +75,7 @@ detector não é verde por construção: uma mutação que não muda nada sai `N
 | B18 | sem conferir o super admin | "autor que não é super admin" aceito |
 | B19 | sem o advisory lock na função 1 | concorrência: o antes da segunda gravação sai `[]` |
 
-### Duas que merecem a nota
+### Três que merecem a nota
 
 - **B9 ficou VERDE na primeira rodada.** O caso 24 mandava o fornecedor que deixa de ser principal
   ANTES do novo, e por isso nunca passava pelo estado intermediário com dois principais. O caso
