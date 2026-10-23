@@ -106,6 +106,7 @@ const arvoreVazia = (): Corpo => ({
         campos: [{ categoria_chave: 'PERFIL', chave: 'linha', tipo: 'texto', rotulo: 'Linha', ordem: 1 }],
     },
     fornecedores_do_nicho: [],
+    linhas_por_fornecedor: {},
     materias_primas: [],
 })
 

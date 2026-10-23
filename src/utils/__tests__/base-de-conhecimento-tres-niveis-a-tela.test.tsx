@@ -16,7 +16,11 @@
  *   (6) ferragem interna e externa são DUAS LINHAS, cada uma com o seu código;
  *   (7) a mensagem da função chega INTEIRA, no cartão da categoria que ela nomeia;
  *   (8) remover e gravar a mesma matéria-prima no mesmo salvar é barrado NA TELA;
- *   (9) depois do salvar, a tela se redesenha pelo `depois` que a rota devolveu.
+ *   (9) depois do salvar, a tela se redesenha pelo `depois` que a rota devolveu;
+ *  (10) PERFIL.linha é COMBOBOX: oferece as linhas da tabela em uso do fornecedor PRINCIPAL, aceita
+ *       outra, e AVISA quando a linha não está lá; sem principal ou sem tabela, diz isso;
+ *  (11) as colunas `par_inox_referencia` (ferragem) e `referencia` (vidro): ausente, null e
+ *       preenchido distinguíveis, e o round-trip pelo `depois`.
  *
  * O que ele NÃO alcança: a função. O banco é falso — o `fetch` só registra o pedido e devolve o
  * que o caso manda. O que a função faz com a árvore está provado em `scripts/harness/arvore/`.
@@ -101,6 +105,8 @@ function arvoreGravada(): Linha {
         nicho: { id: N_ESQ, modelo: 'FABRICACAO', nome: 'Esquadrias' },
         catalogo: catalogo(),
         fornecedores_do_nicho: [{ id: F_ALCOA, nome: 'Alcoa' }, { id: F_HYDRO, nome: 'Hydro' }, { id: F_WOLFF, nome: 'Wolff' }],
+        // medido em produção, 23/10/2026: as linhas da tabela em uso (fórmula ∪ regra) — e o Wolff é o principal do PERFIL
+        linhas_por_fornecedor: { [F_WOLFF]: ['DESIGN', 'EUROPA 42', 'EUROPA 60'] },
         materias_primas: [{
             id: PVC, tenant_id: CONTA, nome: 'PVC', ordem: 1, atualizado_por: null, atualizado_em: null,
             categorias: [
@@ -122,7 +128,7 @@ function arvoreGravada(): Linha {
                 categoria('VIDRO', {
                     vidros: [
                         { id: 'v1', tenant_id: CONTA, mp_categoria_id: 'cat-pvc-VIDRO', categoria_chave: 'VIDRO', descricao: 'Fumê', referencia: null, onde_predomina: [], ordem: 1 },
-                        { id: 'v2', tenant_id: CONTA, mp_categoria_id: 'cat-pvc-VIDRO', categoria_chave: 'VIDRO', descricao: 'Bronze', referencia: null, onde_predomina: null, ordem: 2 },
+                        { id: 'v2', tenant_id: CONTA, mp_categoria_id: 'cat-pvc-VIDRO', categoria_chave: 'VIDRO', descricao: 'Bronze', referencia: 'VB-1', onde_predomina: null, ordem: 2 },
                     ],
                 }),
                 categoria('INSTALACAO', {
@@ -490,7 +496,7 @@ describe('(6) ferragens: interna e externa são DUAS linhas, cada uma com o seu 
     it('as colunas da tabela, e as duas linhas gravadas com referências e posições diferentes', async () => {
         const host = await montar()
         const tabela = cat(host, 0, 'FERRAGENS')
-        expect(Array.from(tabela.querySelectorAll('thead th')).map((t) => (t.textContent || '').trim())).toEqual(['Tipologia', 'Posição', 'Referência', 'Descrição', 'Cor', ''])
+        expect(Array.from(tabela.querySelectorAll('thead th')).map((t) => (t.textContent || '').trim())).toEqual(['Tipologia', 'Posição', 'Referência', 'Descrição', 'Cor', 'Par em inox', ''])
         const linhas = Array.from(tabela.querySelectorAll('[data-ferragem]'))
         expect(linhas.map((l) => (l.querySelector('[data-coluna="referencia"]')!.textContent || '').trim())).toEqual(['F-INT', 'F-EXT'])
         expect(linhas.map((l) => (l.querySelector('[data-coluna="posicao"] .ant-select-selection-item')?.textContent || '').trim()))
@@ -618,5 +624,128 @@ describe('(9) depois do salvar, a tela é o que o BANCO gravou', () => {
         await salvar(host)
         const chips = Array.from(cat(host, 0, 'PERFIL').querySelectorAll('[data-fornecedor]'))
         expect(chips.map((c) => (c.querySelector('[data-nome-do-fornecedor]')!.textContent || '').trim())).toEqual(['Wolff', 'Madeireira'])
+    })
+})
+
+describe('(10) PERFIL.linha: COMBOBOX com as linhas da tabela em uso do fornecedor PRINCIPAL', () => {
+    const linha = (host: ParentNode) => campo(cat(host, 0, 'PERFIL'), 'PERFIL.linha') as HTMLElement
+    const aviso = (host: ParentNode) => linha(host).querySelector('[data-linha-fora-da-tabela]')
+    const frase = (host: ParentNode) => linha(host).querySelector('[data-origem-da-linha]')
+
+    it('o catálogo continua dizendo `texto` — quem sabe a origem é a tela', () => {
+        expect(catalogo().campos.find((c) => c.categoria_chave === 'PERFIL' && c.chave === 'linha')!.tipo).toBe('texto')
+        expect(A().CAMPO_DA_LINHA).toEqual({ categoria: 'PERFIL', campo: 'linha' })
+    })
+
+    it('VALOR DA LISTA: oferece as linhas da tabela do principal, e escolher uma não leva aviso', async () => {
+        const host = await montar()
+        expect(await opcoesDoSeletor(linha(host))).toEqual(['DESIGN', 'EUROPA 42', 'EUROPA 60'])
+        await escolherNoSeletor(linha(host), 'EUROPA 42')
+        expect(aviso(host)).toBeNull()
+        await salvar(host)
+        expect((arvoreEnviada().materias_primas as Array<{ categorias: Linha[] }>)[0].categorias).toEqual([{ categoria_chave: 'PERFIL', config: { linha: 'EUROPA 42' } }])
+    })
+
+    it('VALOR FORA DA LISTA: o aviso aparece, visível, com a linha e o fornecedor — e NÃO bloqueia o salvar', async () => {
+        const host = await montar()
+        // o gravado "Suprema" não está na tabela em uso do Wolff
+        expect(aviso(host)!.textContent).toBe(A().fraseLinhaForaDaTabela('Suprema', 'Wolff'))
+        await digitar(entrada(linha(host)), 'ZETA 70')
+        expect(aviso(host)!.textContent).toBe(A().fraseLinhaForaDaTabela('ZETA 70', 'Wolff'))
+        await salvar(host)
+        expect((arvoreEnviada().materias_primas as Array<{ categorias: Linha[] }>)[0].categorias).toEqual([{ categoria_chave: 'PERFIL', config: { linha: 'ZETA 70' } }])
+    })
+
+    it('SEM TABELA EM USO: a tela diz isso — não oferece lista vazia em silêncio, e o campo continua aceitando digitação', async () => {
+        const arv = arvoreGravada()
+        arv.linhas_por_fornecedor = {}
+        respostas[`GET ${F().ROTAS_DA_BASE.arvore(CONTA)}`] = { status: 200, body: arv }
+        const host = await montar()
+        expect(frase(host)!.textContent).toBe(A().fraseSemTabelaEmUso('Wolff'))
+        expect(aviso(host)).toBeNull()
+        await digitar(entrada(linha(host)), 'EUROPA 42')
+        await salvar(host)
+        expect((arvoreEnviada().materias_primas as Array<{ categorias: Linha[] }>)[0].categorias).toEqual([{ categoria_chave: 'PERFIL', config: { linha: 'EUROPA 42' } }])
+    })
+
+    it('SEM FORNECEDOR PRINCIPAL: a tela diz que falta o principal', async () => {
+        const host = await montar()
+        await clicar(botao(cartao(host), A().ADICIONAR_MATERIA_PRIMA))
+        const daNova = campo(cat(host, 1, 'PERFIL'), 'PERFIL.linha') as HTMLElement
+        expect(daNova.querySelector('[data-origem-da-linha]')!.textContent).toBe(A().SEM_PRINCIPAL_DO_PERFIL)
+    })
+
+    it('trocar o principal troca a origem: com o Hydro (sem tabela em uso), a frase é a dele', async () => {
+        const host = await montar()
+        await escolherNoSeletor(cat(host, 0, 'PERFIL').querySelector('[data-novo-fornecedor]'), 'Hydro')
+        await clicar(cat(host, 0, 'PERFIL').querySelector(`[data-fornecedor="${F_HYDRO}"] [data-tornar-principal]`) as HTMLElement)
+        expect(frase(host)!.textContent).toBe(A().fraseSemTabelaEmUso('Hydro'))
+    })
+})
+
+describe('(11) as colunas Par em inox (ferragem) e Referência (vidro): ausente, null e preenchido', () => {
+    const celula = (host: ParentNode, chave: string, linha: string, coluna: string) =>
+        entrada(cat(host, 0, chave).querySelector(`${linha} [data-coluna="${coluna}"]`))
+
+    it('as colunas existem, com o que está gravado — e o vazio é o null gravado', async () => {
+        const host = await montar()
+        expect(Array.from(cat(host, 0, 'VIDRO').querySelectorAll('thead th')).map((t) => (t.textContent || '').trim())).toEqual(['Vidro', 'Referência', 'Onde predomina', ''])
+        expect(celula(host, 'FERRAGENS', '[data-ferragem="0"]', 'par_inox_referencia')!.value).toBe('F-INOX')
+        expect(celula(host, 'FERRAGENS', '[data-ferragem="1"]', 'par_inox_referencia')!.value).toBe('')
+        expect(celula(host, 'VIDRO', '[data-vidro="0"]', 'referencia')!.value).toBe('')
+        expect(celula(host, 'VIDRO', '[data-vidro="1"]', 'referencia')!.value).toBe('VB-1')
+    })
+
+    it('par em inox: preencher o null manda o valor; limpar o gravado manda null; o NÃO tocado fica AUSENTE', async () => {
+        const host = await montar()
+        await digitar(celula(host, 'FERRAGENS', '[data-ferragem="1"]', 'par_inox_referencia'), 'F-EXT-INOX')
+        await salvar(host)
+        const ferragens = (arvoreEnviada().materias_primas as Array<{ categorias: Linha[] }>)[0].categorias[0].ferragens as Linha[]
+        expect(ferragens).toEqual([{ referencia: 'F-INT' }, { referencia: 'F-EXT', par_inox_referencia: 'F-EXT-INOX' }])
+        expect('par_inox_referencia' in ferragens[0]).toBe(false)
+    })
+
+    it('par em inox: limpar o gravado manda null — não ausente, não vazio', async () => {
+        const host = await montar()
+        await digitar(celula(host, 'FERRAGENS', '[data-ferragem="0"]', 'par_inox_referencia'), '')
+        await salvar(host)
+        const ferragens = (arvoreEnviada().materias_primas as Array<{ categorias: Linha[] }>)[0].categorias[0].ferragens as Linha[]
+        expect(ferragens).toEqual([{ referencia: 'F-INT', par_inox_referencia: null }, { referencia: 'F-EXT' }])
+    })
+
+    it('referência do vidro: preencher o null manda o valor, limpar o gravado manda null, e o não tocado fica ausente', async () => {
+        const host = await montar()
+        await digitar(celula(host, 'VIDRO', '[data-vidro="0"]', 'referencia'), 'VF-4')
+        await digitar(celula(host, 'VIDRO', '[data-vidro="1"]', 'referencia'), '')
+        await salvar(host)
+        const vidros = (arvoreEnviada().materias_primas as Array<{ categorias: Linha[] }>)[0].categorias[0].vidros as Linha[]
+        expect(vidros).toEqual([{ descricao: 'Fumê', referencia: 'VF-4' }, { descricao: 'Bronze', referencia: null }])
+        expect('onde_predomina' in vidros[0]).toBe(false)
+    })
+
+    it('o vidro e a ferragem NOVOS sem as colunas preenchidas: a chave não vai', async () => {
+        const host = await montar()
+        await clicar(botao(cat(host, 0, 'VIDRO'), A().ADICIONAR_VIDRO))
+        await digitar(entrada(cat(host, 0, 'VIDRO').querySelector('[data-vidro="2"] [data-coluna="descricao"]')), 'Incolor 4 mm')
+        await salvar(host)
+        const vidros = (arvoreEnviada().materias_primas as Array<{ categorias: Linha[] }>)[0].categorias[0].vidros as Linha[]
+        expect(vidros[2]).toEqual({ descricao: 'Incolor 4 mm' })
+    })
+
+    it('ROUND-TRIP: depois do salvar, as duas colunas mostram o que o banco gravou', async () => {
+        const doBanco = arvoreGravada()
+        const cats = (doBanco.materias_primas as Array<{ categorias: Array<Linha & { ferragens?: Linha[]; vidros?: Linha[] }> }>)[0].categorias
+        cats.find((c) => c.categoria_chave === 'FERRAGENS')!.ferragens![1].par_inox_referencia = 'F-EXT-INOX'
+        cats.find((c) => c.categoria_chave === 'VIDRO')!.vidros![0].referencia = 'VF-4'
+        respostas[`PUT ${F().ROTAS_DA_BASE.arvore(CONTA)}`] = { status: 200, body: { depois: depoisDe(doBanco) } }
+        const host = await montar()
+        await digitar(celula(host, 'FERRAGENS', '[data-ferragem="1"]', 'par_inox_referencia'), 'F-EXT-INOX')
+        await digitar(celula(host, 'VIDRO', '[data-vidro="0"]', 'referencia'), 'VF-4')
+        await salvar(host)
+        expect(celula(host, 'FERRAGENS', '[data-ferragem="1"]', 'par_inox_referencia')!.value).toBe('F-EXT-INOX')
+        expect(celula(host, 'FERRAGENS', '[data-ferragem="0"]', 'par_inox_referencia')!.value).toBe('F-INOX')
+        expect(celula(host, 'VIDRO', '[data-vidro="0"]', 'referencia')!.value).toBe('VF-4')
+        expect(celula(host, 'VIDRO', '[data-vidro="1"]', 'referencia')!.value).toBe('VB-1')
+        expect(pendencias(host)).toBe(F().fraseDasPendencias(0))
     })
 })

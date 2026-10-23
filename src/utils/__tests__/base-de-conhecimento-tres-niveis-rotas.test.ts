@@ -33,6 +33,16 @@ const F_MADEIRA = '00000000-0000-4000-8000-0000000000f3'
 const MP_PVC = '00000000-0000-4000-8000-00000000d001'
 const MP_ALU = '00000000-0000-4000-8000-00000000d002'
 const MP_DE_B = '00000000-0000-4000-8000-00000000d003'
+const TAB_DE_A = '00000000-0000-4000-8000-00000000ab01'
+const TAB_DE_B = '00000000-0000-4000-8000-00000000ab02'
+const TAB_SEM_USO = '00000000-0000-4000-8000-00000000ab03'
+/**
+ * O PostgREST CORTA a resposta (max_rows, 1000 em produção). Aqui o corte é 3, nas tabelas do motor:
+ * `orcamentista_motor_regra` tem 12.116 linhas na tabela em uso, medido em 23/10/2026, e ler tudo
+ * para tirar os distintos no JS perderia linha em silêncio.
+ */
+const CORTE_DO_POSTGREST = 3
+const CORTADAS = new Set(['orcamentista_motor_formula_familia', 'orcamentista_motor_regra'])
 const CATEGORIAS = ['PERFIL', 'REFORCO', 'FERRAGENS', 'ACESSORIOS_VEDACAO', 'VIDRO', 'INSTALACAO']
 // id da categoria: os 32 primeiros caracteres da matéria-prima + 'c' + os 2 últimos dela + a posição — um uuid válido
 const cat = (mp: string, chave: string) => `${mp.slice(0, 32)}c${mp.slice(-2)}${CATEGORIAS.indexOf(chave) + 1}`
@@ -101,8 +111,22 @@ function montar() {
         orcamentista_mp_vidro: [],
         orcamentista_mp_ferragem: [],
         orcamentista_mp_instalacao: [],
+        orcamentista_conta_tabela: [{ tenant_id: T_A, tabela_id: TAB_DE_A }, { tenant_id: T_B, tabela_id: TAB_DE_B }],
+        orcamentista_tabela: [{ id: TAB_DE_A, fornecedor_id: F_WOLFF }, { id: TAB_DE_B, fornecedor_id: F_MADEIRA }, { id: TAB_SEM_USO, fornecedor_id: F_ALCOA }],
+        // EUROPA 60 só na fórmula; SUPREMA só na regra, e DEPOIS do corte — quem lê tudo e tira os distintos no JS não a vê
+        orcamentista_motor_formula_familia: [
+            { tabela_id: TAB_DE_A, linha: 'EUROPA 60' }, { tabela_id: TAB_DE_A, linha: 'EUROPA 42' }, { tabela_id: TAB_DE_A, linha: 'EUROPA 42' },
+            { tabela_id: TAB_DE_A, linha: null }, { tabela_id: TAB_DE_B, linha: 'MDF Y' }, { tabela_id: TAB_SEM_USO, linha: 'ALCOA X' },
+        ],
+        orcamentista_motor_regra: [
+            ...Array.from({ length: 5 }, () => ({ tabela_id: TAB_DE_A, linha: 'EUROPA 42' })),
+            { tabela_id: TAB_DE_A, linha: null }, { tabela_id: TAB_DE_A, linha: 'SUPREMA' }, { tabela_id: TAB_SEM_USO, linha: 'ALCOA Z' },
+        ],
     }
 }
+
+/** A lista do `in` do PostgREST — `("a","b \"c\"")` — de volta para os valores. */
+const valoresDoIn = (lista: string) => Array.from(lista.matchAll(/"((?:[^"\\]|\\.)*)"/g)).map((m) => m[1].replace(/\\(.)/g, '$1'))
 
 jest.mock('@/supabase/admin', () => ({
     supabaseAdmin: {
@@ -117,12 +141,25 @@ jest.mock('@/supabase/admin', () => ({
         },
         from: (tabela: string) => {
             const filtros: Array<(l: Linha) => boolean> = []
-            const linhas = () => (estado.db[tabela] ?? []).filter((l) => filtros.every((f) => f(l)))
+            let ordem: string | null = null
+            let limite = Infinity
+            const linhas = () => {
+                const l = (estado.db[tabela] ?? []).filter((x) => filtros.every((f) => f(x)))
+                if (ordem) { const c = ordem; l.sort((a, b) => String(a[c] ?? '').localeCompare(String(b[c] ?? ''))) }
+                return l.slice(0, Math.min(limite, CORTADAS.has(tabela) ? CORTE_DO_POSTGREST : Infinity))
+            }
             const q: any = {}
             q.select = () => q
             q.eq = (c: string, v: unknown) => { filtros.push((l) => l[c] === v); return q }
             q.in = (c: string, vs: unknown[]) => { filtros.push((l) => vs.includes(l[c])); return q }
-            q.order = () => q
+            q.not = (c: string, op: string, v: unknown) => {
+                if (op === 'is' && v === null) filtros.push((l) => l[c] !== null && l[c] !== undefined)
+                else if (op === 'in') { const fora = valoresDoIn(String(v)); filtros.push((l) => !fora.includes(String(l[c]))) }
+                else throw new Error(`not(${op}) sem suporte no banco falso`)
+                return q
+            }
+            q.order = (c: string) => { ordem = c; return q }
+            q.limit = (n: number) => { limite = n; return q }
             q.maybeSingle = async (): Promise<RespostaDoBanco> => ({ data: linhas()[0] ?? null, error: null })
             q.single = async (): Promise<RespostaDoBanco> => {
                 const l = linhas()
@@ -431,6 +468,22 @@ describe('(6) GET — a árvore inteira da empresa, numa resposta só', () => {
         expect(r.json.nicho).toBeNull()
         expect(r.json.fornecedores_do_nicho).toEqual([])
         expect(r.json.materias_primas).toEqual([])
+    })
+
+    it('as LINHAS de cada fornecedor com tabela em uso NESTA conta: fórmula ∪ regra, distintas, em ordem — e o corte do PostgREST não esconde nenhuma', async () => {
+        const r = await chamar('arvore', 'GET', { tenant: T_A })
+        expect(r.json.linhas_por_fornecedor).toEqual({ [F_WOLFF]: ['EUROPA 42', 'EUROPA 60', 'SUPREMA'] })
+    })
+
+    it('o contraste: a outra empresa vê as linhas da tabela DELA; a tabela que ninguém usa não entra', async () => {
+        const r = await chamar('arvore', 'GET', { tenant: T_B })
+        expect(r.json.linhas_por_fornecedor).toEqual({ [F_MADEIRA]: ['MDF Y'] })
+        expect(F_ALCOA in r.json.linhas_por_fornecedor).toBe(false)
+    })
+
+    it('empresa sem tabela em uso: nenhum fornecedor — o objeto vazio, não a lista de outra empresa', async () => {
+        const r = await chamar('arvore', 'GET', { tenant: T_SEM_NICHO })
+        expect(r.json.linhas_por_fornecedor).toEqual({})
     })
 
     it('o GET não escreve nada', async () => {
