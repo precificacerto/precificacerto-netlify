@@ -89,7 +89,7 @@ function baseGravada(): Corpo {
         tenant_id: CONTA,
         nicho: { id: N_ESQ, modelo: 'FABRICACAO', nome: 'Esquadrias' },
         esquadrias: { empresa, nicho, efetivo },
-        adicionais: { tenant_id: CONTA, frete_modo: 'PERCENTUAL', frete_valor: null, frete_percentual: 5, frete_base: 'VALOR_DE_VENDA', instalacao_modo: null, instalacao_valor: null, instalacao_percentual: null, instalacao_base: null },
+        adicionais: { tenant_id: CONTA, frete_modo: 'PERCENTUAL', frete_valor: null, frete_percentual: 5, frete_base: 'VALOR_POS_DESCONTO', instalacao_modo: null, instalacao_valor: null, instalacao_percentual: null, instalacao_base: null },
         ambientes: [{ tenant_id: CONTA, ambiente: 'Sala', vidro_padrao: 'Temperado 8mm', tipologia_usual: null }],
         vendedores: [{ tenant_id: CONTA, employee_id: EMP_ANA, comissao_percentual: 5, comissao_modo: 'PROPORCIONAL', reserva_tecnica_percentual: null, lucro_projetado_percentual: null, nome_do_funcionario: 'Ana Souza' }],
     }

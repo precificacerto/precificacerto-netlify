@@ -348,12 +348,12 @@ describe('(5) validação ANTES do banco: erro nomeado, e NENHUMA chamada à fun
 
     it('a coerência é do ESTADO RESULTANTE: VALOR gravado + mudar para PERCENTUAL sem limpar o valor → recusa', async () => {
         estado.db.orcamentista_base_conhecimento.push({ tenant_id: T_ESQ, frete_modo: 'VALOR', frete_valor: 100, frete_percentual: null, frete_base: null })
-        await recusa('base', { tenant: T_ESQ }, { adicionais: { frete_modo: 'PERCENTUAL', frete_percentual: 5, frete_base: 'VALOR_DE_VENDA' } }, 'adicionais.frete_valor')
+        await recusa('base', { tenant: T_ESQ }, { adicionais: { frete_modo: 'PERCENTUAL', frete_percentual: 5, frete_base: 'VALOR_POS_DESCONTO' } }, 'adicionais.frete_valor')
     })
 
     it('o contraste: o mesmo pedido limpando o valor com null → aceito', async () => {
         estado.db.orcamentista_base_conhecimento.push({ tenant_id: T_ESQ, frete_modo: 'VALOR', frete_valor: 100, frete_percentual: null, frete_base: null })
-        const r = await chamar('base', 'PUT', { tenant: T_ESQ }, { adicionais: { frete_modo: 'PERCENTUAL', frete_percentual: 5, frete_base: 'VALOR_DE_VENDA', frete_valor: null } })
+        const r = await chamar('base', 'PUT', { tenant: T_ESQ }, { adicionais: { frete_modo: 'PERCENTUAL', frete_percentual: 5, frete_base: 'VALOR_POS_DESCONTO', frete_valor: null } })
         expect(r.status).toBe(200)
         expect(estado.rpcs).toHaveLength(1)
     })
