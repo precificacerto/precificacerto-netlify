@@ -5,15 +5,16 @@
  *   corpo: { esquadrias: {...} } — chave ausente não mexe, null limpa, false grava false.
  *
  * SÓ o nicho Esquadrias: o schema não impede padrão de esquadrias noutro nicho (um CHECK não lê
- * outra tabela) — limite aceito pelo dono do produto, 22/10/2026, que fica com a rota.
+ * outra tabela) — limite aceito pelo dono do produto, 22/10/2026, que fica com a rota. O nicho é
+ * reconhecido pelo NOME no catálogo; ausente ou duplicado tem erro próprio (`exigirNichoDasEsquadrias`).
  *
  * O portão está em `src/lib/atendimentos-ia/base-de-conhecimento-servidor.ts`.
  */
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { superAdminOu404 } from '@/lib/get-caller-tenant'
-import { ehNichoDasEsquadrias, lerCorpoDoPadrao } from '@/lib/atendimentos-ia/base-de-conhecimento'
+import { lerCorpoDoPadrao } from '@/lib/atendimentos-ia/base-de-conhecimento'
 import {
-    falhaDeLeitura, gravarPelaFuncao, metodoNaoPermitido, nichoDoPedido, recusaForaDoNicho, recusaNomeada,
+    exigirNichoDasEsquadrias, falhaDeLeitura, gravarPelaFuncao, metodoNaoPermitido, nichoDoPedido, recusaNomeada,
 } from '@/lib/atendimentos-ia/base-de-conhecimento-servidor'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -24,7 +25,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     try {
         const nicho = await nichoDoPedido(req, res)
         if (!nicho) return
-        if (!ehNichoDasEsquadrias(nicho)) return res.status(409).json({ error: recusaForaDoNicho(`O nicho ${nicho.nome}`) })
+        if (!(await exigirNichoDasEsquadrias(res, nicho.id, `O nicho ${nicho.nome}`))) return
 
         const corpo = lerCorpoDoPadrao(req.body)
         if (corpo.erros.length > 0) return recusaNomeada(res, corpo.erros)

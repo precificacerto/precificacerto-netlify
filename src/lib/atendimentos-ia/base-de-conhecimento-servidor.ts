@@ -17,7 +17,7 @@
  */
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { supabaseAdmin } from '@/supabase/admin'
-import { UUID, type ErroNomeado } from '@/lib/atendimentos-ia/base-de-conhecimento'
+import { NICHO_DAS_ESQUADRIAS, UUID, ehNichoDasEsquadrias, type ErroNomeado } from '@/lib/atendimentos-ia/base-de-conhecimento'
 
 export const PREFIXO_DO_LOG = '[BASE-DE-CONHECIMENTO]'
 
@@ -76,6 +76,54 @@ export async function nichoDaEmpresa(tenantId: string): Promise<Nicho | null> {
 
 export const recusaForaDoNicho = (onde: string) =>
     `${onde} não está no nicho Esquadrias: guarnição, contramarco e perfil são configuração de esquadrias. Frete e instalação podem ser gravados em qualquer nicho.`
+
+/**
+ * O nicho Esquadrias NO CATÁLOGO — reconhecido pelo NOME (`ehNichoDasEsquadrias`), e é por isso que
+ * esta função existe. Um rótulo editável por humano virou chave de comportamento: renomear o nicho
+ * no catálogo ("Esquadrias e Vidros") faria TODA gravação de esquadrias cair no 409 de "empresa de
+ * outro nicho", calada, na tela do super admin, onde ninguém suspeitaria do catálogo. Então a rota
+ * procura no catálogo INTEIRO antes de decidir, e só segue com EXATAMENTE UM nicho casando:
+ *   - nenhum → `NICHO_ESQUADRIAS_AUSENTE`, dizendo que não foi encontrado e pode ter sido renomeado;
+ *   - mais de um → `NICHO_ESQUADRIAS_DUPLICADO`, dizendo quantos.
+ * O mecanismo (nome) não mudou — decisão do dono do produto, 23/10/2026; o que mudou é que a falha
+ * dele tem NOME. Limite conhecido, registrado no PR #126.
+ */
+export async function nichoDasEsquadriasNoCatalogo(): Promise<{ nicho: Nicho | null; codigo: string | null; erro: string | null }> {
+    const doModelo = await ler<Nicho[]>('orcamentista_nicho', db().from('orcamentista_nicho').select('id, modelo, nome').eq('modelo', NICHO_DAS_ESQUADRIAS.modelo))
+    const casam = doModelo.filter((n) => ehNichoDasEsquadrias(n))
+    const quem = `O nicho '${NICHO_DAS_ESQUADRIAS.nome}' (modelo ${NICHO_DAS_ESQUADRIAS.modelo})`
+    if (casam.length === 1) return { nicho: casam[0], codigo: null, erro: null }
+    if (casam.length === 0) {
+        return {
+            nicho: null,
+            codigo: 'NICHO_ESQUADRIAS_AUSENTE',
+            erro: `${quem} não foi encontrado no catálogo de nichos — ele pode ter sido renomeado. A base de conhecimento reconhece o nicho de esquadrias pelo NOME, e sem ele não grava esquadrias. Confira o nome no catálogo.`,
+        }
+    }
+    return {
+        nicho: null,
+        codigo: 'NICHO_ESQUADRIAS_DUPLICADO',
+        erro: `${quem} está duplicado no catálogo: há ${casam.length} nichos com esse nome. A base de conhecimento reconhece o nicho de esquadrias pelo NOME e não sabe qual usar. Deixe só um no catálogo.`,
+    }
+}
+
+/**
+ * Segue (true) só quando `nichoId` é O nicho Esquadrias do catálogo. Senão responde o 409 certo e
+ * devolve false: o do CATÁLOGO (ausente ou duplicado), que vai também ao log, ou o de outro nicho.
+ */
+export async function exigirNichoDasEsquadrias(res: NextApiResponse, nichoId: string | null, onde: string): Promise<boolean> {
+    const catalogo = await nichoDasEsquadriasNoCatalogo()
+    if (!catalogo.nicho) {
+        console.error(`${PREFIXO_DO_LOG} catalogo=${catalogo.codigo} — o nicho de esquadrias é reconhecido pelo nome`)
+        res.status(409).json({ error: catalogo.erro, codigo: catalogo.codigo })
+        return false
+    }
+    if (nichoId !== catalogo.nicho.id) {
+        res.status(409).json({ error: recusaForaDoNicho(onde), codigo: 'FORA_DO_NICHO_ESQUADRIAS' })
+        return false
+    }
+    return true
+}
 
 
 /** Tudo o que o GET devolve, numa resposta só. */

@@ -14,11 +14,11 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { superAdminOu404 } from '@/lib/get-caller-tenant'
 import {
-    efetivoDasEsquadrias, ehNichoDasEsquadrias, errosDeCoerenciaDosAdicionais, lerCorpoDaBase,
+    efetivoDasEsquadrias, errosDeCoerenciaDosAdicionais, lerCorpoDaBase,
 } from '@/lib/atendimentos-ia/base-de-conhecimento'
 import {
-    empresaDoPedido, falhaDeLeitura, gravarPelaFuncao, lerAdicionais, lerBaseDaEmpresa, metodoNaoPermitido,
-    nichoDaEmpresa, recusaForaDoNicho, recusaNomeada,
+    empresaDoPedido, exigirNichoDasEsquadrias, falhaDeLeitura, gravarPelaFuncao, lerAdicionais, lerBaseDaEmpresa,
+    metodoNaoPermitido, nichoDaEmpresa, recusaNomeada,
 } from '@/lib/atendimentos-ia/base-de-conhecimento-servidor'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -47,8 +47,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const corpo = lerCorpoDaBase(req.body)
         if (corpo.erros.length > 0) return recusaNomeada(res, corpo.erros)
 
-        if (corpo.esquadrias && !ehNichoDasEsquadrias(await nichoDaEmpresa(tenantId))) {
-            return res.status(409).json({ error: recusaForaDoNicho('Esta empresa') })
+        if (corpo.esquadrias) {
+            // o nicho Esquadrias é reconhecido pelo NOME: catálogo sem ele, ou com dois, tem erro próprio
+            const nicho = await nichoDaEmpresa(tenantId)
+            if (!(await exigirNichoDasEsquadrias(res, nicho?.id ?? null, 'Esta empresa'))) return
         }
         if (corpo.adicionais) {
             // a coerência é do estado RESULTANTE: o que não veio no corpo continua valendo

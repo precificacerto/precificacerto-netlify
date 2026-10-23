@@ -100,7 +100,8 @@ const INT4_MAX = 2147483647
  * O nicho que tem esquadrias. O schema não impede padrão de esquadrias num nicho de outra natureza
  * (um CHECK não lê outra tabela) — limite aceito pelo dono do produto, 22/10/2026, que fica COM A
  * ROTA. A identificação é pelo par (modelo, nome) de `orcamentista_nicho`: renomear o nicho
- * Esquadrias no catálogo muda o que esta função reconhece.
+ * Esquadrias no catálogo muda o que esta função reconhece. Por isso a rota procura no catálogo
+ * inteiro e NOMEIA a falha quando nenhum ou mais de um casa (`exigirNichoDasEsquadrias`).
  */
 export const NICHO_DAS_ESQUADRIAS = { modelo: 'FABRICACAO', nome: 'Esquadrias' } as const
 export function ehNichoDasEsquadrias(nicho: { modelo?: unknown; nome?: unknown } | null | undefined): boolean {
