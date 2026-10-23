@@ -519,7 +519,10 @@ describe('(i) fornecedor e linha são SELEÇÃO, alimentada pelas tabelas em uso
             const volta = campo(host, c)!.querySelector('a[data-volta-para-tabelas]') as HTMLAnchorElement
             expect(volta.getAttribute('href')).toBe(F().rotaDasTabelasDaConta(CONTA))
         }
-        expect(F().rotaDasTabelasDaConta(CONTA)).toBe(`${ROUTES.SUPER_ADMIN_IA_CONTAS}/${CONTA}#tabelas-em-uso`)
+        // a âncora é a MESMA que a seção de tabelas declara como `id` — duas cópias, um teste que as liga
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { ANCORA_DAS_TABELAS_EM_USO } = require('@/page-parts/atendimentos-ia/tabelas-em-uso.component')
+        expect(F().rotaDasTabelasDaConta(CONTA)).toBe(`${ROUTES.SUPER_ADMIN_IA_CONTAS}/${CONTA}#${ANCORA_DAS_TABELAS_EM_USO}`)
     })
 
     it('o contraste: com tabela em uso, o campo está habilitado e sem o aviso', async () => {
