@@ -31,7 +31,15 @@ for f in $R/scripts/harness/base-de-conhecimento/00_base.sql \
   $P -d $D -v ON_ERROR_STOP=1 -f $f >/dev/null 2>&1 || { echo "BASE FALHOU: $f"; $P -d $D -v ON_ERROR_STOP=1 -f $f 2>&1 | grep ERROR | head -3; exit 2; }
 done
 for vez in 1 2; do
-  OUT=$($P -d $D -v ON_ERROR_STOP=1 -f "$MIG" 2>&1) || { echo "MIGRACAO ABORTOU na aplicação $vez: $(echo "$OUT" | grep -E 'ERROR' | head -2)"; exit 3; }
+  OUT=$($P -d $D -v ON_ERROR_STOP=1 -f "$MIG" 2>&1) || {
+    echo "MIGRACAO ABORTOU na aplicação $vez: $(echo "$OUT" | grep -E 'ERROR' | head -2)"
+    # sem as sete, o aborto TEM de vir da guarda do começo, antes de criar qualquer coisa — o
+    # bloco de verificação do fim também abortaria, e é por isso que a mensagem é o que distingue
+    if [ "$SEM_AS_SETE" = 1 ]; then
+      if echo "$OUT" | grep -q 'dependencia(s) ausente(s)'; then echo "ok: sem as sete, a migração aborta NA GUARDA das dependências"; exit 0
+      else echo "FALHOU: sem as sete, a migração abortou FORA da guarda das dependências"; exit 1; fi
+    fi
+    exit 3; }
   $DUMP $D | grep -vE '^\\(un)?restrict ' > $TMP/dump-$vez.sql
 done
 if diff -q $TMP/dump-1.sql $TMP/dump-2.sql >/dev/null; then
