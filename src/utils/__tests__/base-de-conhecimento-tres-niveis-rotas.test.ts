@@ -181,6 +181,7 @@ const CADA_ESCRITA: Caso[] = [
     ['instalacao', 'PUT', { tenant: T_A, mp_categoria: C_PVC_INSTALACAO }, { instalacao: [{ produto: 'CONTRAMARCO' }] }, 'superadmin_gravar_mp_instalacao',
         { p_tenant: T_A, p_mp_categoria: C_PVC_INSTALACAO, p_lista: [{ produto: 'CONTRAMARCO' }] }],
     ['materiaPrima', 'DELETE', { tenant: T_A, materia_prima: MP_PVC }, undefined, 'superadmin_remover_materia_prima', { p_tenant: T_A, p_materia_prima: MP_PVC }],
+    ['arvore', 'PUT', { tenant: T_A }, { arvore: { materias_primas: [{ nome: 'PVC' }] } }, 'superadmin_gravar_arvore', { p_tenant: T_A, p_arvore: { materias_primas: [{ nome: 'PVC' }] } }],
 ]
 const CADA_ROTA: Array<[keyof typeof ROTAS, string, Linha, unknown]> = [
     ['arvore', 'GET', { tenant: T_A }, undefined],
@@ -438,9 +439,77 @@ describe('(6) GET — a árvore inteira da empresa, numa resposta só', () => {
     })
 })
 
+describe('(6b) PUT /arvore — 1:1 com superadmin_gravar_arvore (migração 20261023000004)', () => {
+    const ARVORE = {
+        remover: [MP_ALU],
+        materias_primas: [
+            {
+                nome: 'PVC',
+                categorias: [
+                    { categoria_chave: 'PERFIL', config: { linha: 'Suprema', solda: null as string | null, reforco: false }, fornecedores: [] as Linha[] },
+                    { categoria_chave: 'VIDRO', vidros: [{ descricao: 'Fumê', onde_predomina: [] as string[] }, { descricao: 'Bronze' }] },
+                    { categoria_chave: 'INSTALACAO', instalacao: [{ produto: 'CONTRAMARCO', usa: null }, { produto: 'ARREMATE_INTERNO', usa: false }] },
+                ],
+            },
+            { nome: 'Aço' },
+        ],
+    }
+
+    it('a árvore chega à função COMO VEIO: null, false, [] e ausente intactos, e remover junto', async () => {
+        const r = await chamar('arvore', 'PUT', { tenant: T_A }, { arvore: ARVORE })
+        expect(r.status).toBe(200)
+        expect(estado.rpcs).toEqual([{ nome: 'superadmin_gravar_arvore', args: { p_tenant: T_A, p_por: SUPER.id, p_arvore: ARVORE } }])
+        const enviada = estado.rpcs[0].args.p_arvore
+        const [perfil, vidro, instalacao] = enviada.materias_primas[0].categorias
+        expect(perfil.config).toHaveProperty('solda', null)
+        expect(perfil.config).toHaveProperty('reforco', false)
+        expect(perfil.fornecedores).toEqual([])
+        expect(vidro.vidros[0].onde_predomina).toEqual([])
+        expect('onde_predomina' in vidro.vidros[1]).toBe(false)
+        expect(instalacao.instalacao.map((i: Linha) => i.usa)).toEqual([null, false])
+        expect('categorias' in enviada.materias_primas[1]).toBe(false)
+    })
+
+    it.each([
+        ['42501', 403, 'o autor da alteracao nao e super admin'],
+        ['P0002', 404, 'remover 00000000-0000-4000-8000-00000000d002: materia-prima inexistente nesta empresa'],
+        ['22023', 400, 'materia-prima PVC, categoria PERFIL, vidros: a categoria PERFIL nao e VIDRO: vidro so pendura na categoria VIDRO'],
+        ['23503', 400, 'materia-prima Aço, categoria PERFIL, fornecedores: fornecedor(es) que nao sao do nicho da empresa: 00000000-0000-4000-8000-0000000000f3'],
+    ])('erro %s → %i, com a mensagem da função — o CAMINHO incluído', async (code, status, message) => {
+        estado.respostaDoRpc = { data: null, error: { code, message } }
+        const r = await chamar('arvore', 'PUT', { tenant: T_A }, { arvore: ARVORE })
+        expect(r.status).toBe(status)
+        expect(r.json).toEqual({ error: message })
+    })
+
+    it('erro fora dos quatro (40P01, deadlock) → 500 com frase fixa: o texto do banco NÃO vai', async () => {
+        const texto = 'remover 00000000-0000-4000-8000-00000000d002: deadlock detected'
+        estado.respostaDoRpc = { data: null, error: { code: '40P01', message: texto } }
+        const r = await chamar('arvore', 'PUT', { tenant: T_A }, { arvore: ARVORE })
+        expect(r.status).toBe(500)
+        expect(r.json.error).not.toBe(texto)
+        expect(Object.values(r.json)).not.toContain(texto)
+    })
+
+    it('o corpo É a árvore embrulhada: a árvore solta (sem a chave `arvore`) → 400 nomeado, sem chamada', async () => {
+        const r = await chamar('arvore', 'PUT', { tenant: T_A }, ARVORE)
+        expect(r.status).toBe(400)
+        expect(r.json.erros).toEqual(expect.arrayContaining([
+            expect.objectContaining({ campo: 'materias_primas' }), expect.objectContaining({ campo: 'arvore', mensagem: 'obrigatório' })]))
+        nenhumaEscrita()
+    })
+
+    it('o GET continua lendo — o PUT não mudou a leitura', async () => {
+        const r = await chamar('arvore', 'GET', { tenant: T_A })
+        expect(r.status).toBe(200)
+        expect(r.json.materias_primas.map((m: Linha) => m.nome)).toEqual(['PVC', 'Alumínio'])
+        nenhumaEscrita()
+    })
+})
+
 describe('(7) métodos', () => {
     it.each([
-        ['arvore', 'PUT', { tenant: T_A }],
+        ['arvore', 'DELETE', { tenant: T_A }],
         ['materiaPrima', 'GET', { tenant: T_A }],
         ['categoria', 'DELETE', { tenant: T_A, materia_prima: MP_PVC, categoria: 'PERFIL' }],
         ['fornecedores', 'POST', { tenant: T_A, mp_categoria: C_PVC_PERFIL }],
