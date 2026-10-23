@@ -97,7 +97,7 @@ function baseGravada(): Corpo {
 }
 
 /** A árvore dos três níveis de uma empresa SEM matéria-prima: o catálogo, o nicho, e nada gravado. */
-const arvoreVazia = () => ({
+const arvoreVazia = (): Corpo => ({
     tenant_id: CONTA,
     nicho: { id: N_ESQ, modelo: 'FABRICACAO', nome: 'Esquadrias' },
     catalogo: {
@@ -446,7 +446,7 @@ describe('(j) um botão só, para a tela inteira', () => {
 
     it('a ÁRVORE e as rotas da empresa no mesmo botão: cada uma na sua rota, num salvar só', async () => {
         const host = await montar()
-        await clicar(botao(bloco(host, 'materias'), 'Adicionar matéria-prima'))
+        await clicar(botao(bloco(host, 'materias'), '+ Adicionar matéria-prima'))
         await digitar(bloco(host, 'materias').querySelector('[data-cabecalho-da-materia-prima] input') as HTMLInputElement, 'PVC')
         await digitar(entrada(host, `vendedor:${EMP_ANA}:comissao_percentual`), '7')
         await salvar(host)
@@ -460,7 +460,7 @@ describe('(j) um botão só, para a tela inteira', () => {
         const MENSAGEM = 'materias_primas: materia-prima repetida na lista'
         respostas[`PUT ${F().ROTAS_DA_BASE.arvore(CONTA)}`] = { status: 400, body: { error: MENSAGEM } }
         const host = await montar()
-        await clicar(botao(bloco(host, 'materias'), 'Adicionar matéria-prima'))
+        await clicar(botao(bloco(host, 'materias'), '+ Adicionar matéria-prima'))
         await digitar(bloco(host, 'materias').querySelector('[data-cabecalho-da-materia-prima] input') as HTMLInputElement, 'PVC')
         await digitar(entrada(host, `vendedor:${EMP_ANA}:comissao_percentual`), '7')
         await salvar(host)

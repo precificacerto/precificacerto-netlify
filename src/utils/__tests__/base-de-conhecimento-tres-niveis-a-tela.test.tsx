@@ -136,7 +136,7 @@ function arvoreGravada(): Linha {
     }
 }
 // A base da empresa (adicionais, ambientes, vendedores): o que o cartão novo NÃO toca.
-const baseGravada = () => ({
+const baseGravada = (): Linha => ({
     tenant_id: CONTA, nicho: { id: N_ESQ, modelo: 'FABRICACAO', nome: 'Esquadrias' },
     esquadrias: { empresa: null, nicho: null, efetivo: {} },
     adicionais: null, ambientes: [], vendedores: [],
