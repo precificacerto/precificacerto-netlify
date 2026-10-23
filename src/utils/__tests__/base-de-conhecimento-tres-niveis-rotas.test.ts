@@ -318,13 +318,16 @@ describe('(5) o erro da FUNÇÃO vira status com a mensagem dela — só nos qua
         ['índice único (23505) — 500, como no mapa de hoje', '23505', 500],
         ['formato (22P02)', '22P02', 400],
         ['qualquer outro (XX000)', 'XX000', 500],
-    ])('%s → %i, com frase fixa — o texto do banco NÃO vai', async (_n, code, status) => {
+    ])('%s, código %s → %i, com frase fixa — o texto do banco NÃO vai', async (_n, code, status) => {
         const texto = 'new row for relation "orcamentista_mp_instalacao" violates check constraint "x_y_z"'
         estado.respostaDoRpc = { data: null, error: { code, message: texto } }
         const r = await chamar('instalacao', 'PUT', { tenant: T_A, mp_categoria: C_PVC_INSTALACAO }, { instalacao: [{ produto: 'ARREMATE_EXTERNO', usa: true }] })
         expect(r.status).toBe(status)
-        expect(JSON.stringify(r.json)).not.toContain(texto)
+        // contra o VALOR, não contra o JSON serializado: as aspas do texto viram \" no stringify, e um
+        // `not.toContain(texto)` sobre ele seria verde por construção (medido: a mutação passava)
         expect(r.json.error).toEqual(expect.any(String))
+        expect(r.json.error).not.toBe(texto)
+        expect(Object.values(r.json)).not.toContain(texto)
     })
 
     it('o log da Vercel leva a função e o código — e não a mensagem nem o corpo', async () => {
