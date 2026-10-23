@@ -337,13 +337,27 @@ describe('(5) validação ANTES do banco: erro nomeado, e NENHUMA chamada à fun
 
     it.each([
         ['VALOR sem valor', { frete_modo: 'VALOR' }, 'adicionais.frete_valor'],
-        ['VALOR com base preenchida', { frete_modo: 'VALOR', frete_valor: 100, frete_base: 'VALOR_DE_VENDA' }, 'adicionais.frete_base'],
+        ['VALOR com base preenchida', { frete_modo: 'VALOR', frete_valor: 100, frete_base: 'VALOR_POS_DESCONTO' }, 'adicionais.frete_base'],
         ['PERCENTUAL sem base', { frete_modo: 'PERCENTUAL', frete_percentual: 5 }, 'adicionais.frete_base'],
         ['modo fora da lista', { instalacao_modo: 'GRATIS' }, 'adicionais.instalacao_modo'],
         ['base de instalação no frete', { frete_modo: 'PERCENTUAL', frete_percentual: 5, frete_base: 'CUSTO_DA_INSTALACAO' }, 'adicionais.frete_base'],
         ['valor negativo', { instalacao_modo: 'VALOR', instalacao_valor: -1 }, 'adicionais.instalacao_valor'],
     ])('adicionais: %s → 400 nomeado', async (_n, adicionais, campo) => {
         await recusa('base', { tenant: T_ESQ }, { adicionais }, campo)
+    })
+
+    // Em modo PERCENTUAL a coerência ACEITA uma base válida: aqui só o DOMÍNIO pode recusar. O caso
+    // 'VALOR com base preenchida' não prova a recusa — em modo VALOR a coerência recusa qualquer base,
+    // no mesmo campo; medido por mutação em 23/10/2026, ao trocar o domínio na 20261023000002.
+    it('recusa base fora do domínio (VALOR_DE_VENDA saiu em 20261023000002) — e a recusa é de DOMÍNIO, não de coerência', async () => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { CAMPOS_DOS_ADICIONAIS } = require('@/lib/atendimentos-ia/base-de-conhecimento')
+        const r = await recusa('base', { tenant: T_ESQ }, { adicionais: { frete_modo: 'PERCENTUAL', frete_percentual: 5, frete_base: 'VALOR_DE_VENDA' } }, 'adicionais.frete_base')
+        // a mensagem vem do próprio domínio, não transcrita à mão
+        expect(r.json.erros).toEqual(expect.arrayContaining([{
+            campo: 'adicionais.frete_base',
+            mensagem: `tem de ser um destes: ${CAMPOS_DOS_ADICIONAIS.frete_base.opcoes.join(', ')}`,
+        }]))
     })
 
     it('a coerência é do ESTADO RESULTANTE: VALOR gravado + mudar para PERCENTUAL sem limpar o valor → recusa', async () => {
