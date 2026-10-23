@@ -16,13 +16,14 @@
  * para o cartão da categoria; sem, para o topo do cartão.
  */
 import React from 'react'
-import { Alert, Button, Card, Input, InputNumber, Radio, Select, Space, Tag, Typography } from 'antd'
+import { Alert, AutoComplete, Button, Card, Input, InputNumber, Radio, Select, Space, Tag, Typography } from 'antd'
 import type { ErroNomeado } from '@/lib/atendimentos-ia/base-de-conhecimento'
 import { ROTULO_DOS_TRES_ESTADOS, deTresEstados, paraTresEstados, type Par, type TresEstados } from '@/page-parts/atendimentos-ia/base-de-conhecimento/formulario'
 import {
-    ADICIONAR_FERRAGEM, ADICIONAR_MATERIA_PRIMA, ADICIONAR_VIDRO, LISTA_DA_CATEGORIA, NOVO_FORNECEDOR, POSICOES_DA_FERRAGEM, PRODUTOS_DA_INSTALACAO,
-    ROTULO_DA_POSICAO, ROTULO_DO_PRODUTO, TITULO_DO_CARTAO,
-    camposDa, categoriasConfiguradas, desfazerRemocao, fraseDasCategorias, novaMateriaPrima, novoLocal, ondeEstaOErro,
+    ADICIONAR_FERRAGEM, ADICIONAR_MATERIA_PRIMA, ADICIONAR_VIDRO, CAMPO_DA_LINHA, LISTA_DA_CATEGORIA, NOVO_FORNECEDOR, POSICOES_DA_FERRAGEM, PRODUTOS_DA_INSTALACAO,
+    ROTULO_DA_POSICAO, ROTULO_DO_PRODUTO, SEM_PRINCIPAL_DO_PERFIL, TITULO_DO_CARTAO,
+    camposDa, categoriasConfiguradas, desfazerRemocao, fraseDasCategorias, fraseLinhaForaDaTabela, fraseSemTabelaEmUso, fraseTabelaSemLinha,
+    nomeDoFornecedor, novaMateriaPrima, novoLocal, ondeEstaOErro, origemDaLinha,
     type ArvoreLida, type CategoriaDoFormulario, type EstadoDaArvore, type ItemDaLista, type MateriaPrimaDoFormulario, type TipoDoCampo,
 } from '@/page-parts/atendimentos-ia/base-de-conhecimento/arvore'
 
@@ -79,11 +80,35 @@ function ControleDoTipo({ tipo, valor, mudar, rotulo, nome }: { tipo: TipoDoCamp
     }
 }
 
+/**
+ * PERFIL.linha — COMBOBOX: a lista é a da tabela em uso do fornecedor principal, e o super admin pode
+ * digitar outra. Fora da lista, AVISA (não bloqueia). Sem principal ou sem tabela, diz por quê.
+ */
+function LinhaDaTabela({ c, arvore, valor, mudar, rotulo }: { c: CategoriaDoFormulario; arvore: ArvoreLida; valor: unknown; mudar: (v: unknown) => void; rotulo: string }) {
+    const origem = origemDaLinha(arvore, c)
+    const atual = typeof valor === 'string' ? valor : ''
+    const digitada = atual.trim()
+    const frase = origem.estado === 'sem_principal' ? SEM_PRINCIPAL_DO_PERFIL
+        : origem.estado === 'sem_tabela' ? fraseSemTabelaEmUso(origem.fornecedor)
+            : origem.estado === 'tabela_sem_linha' ? fraseTabelaSemLinha(origem.fornecedor) : null
+    const fora = origem.estado === 'lista' && digitada !== '' && !origem.linhas.includes(digitada)
+    return (
+        <>
+            <AutoComplete aria-label={rotulo} style={{ width: '100%' }} allowClear value={atual} filterOption={false}
+                onChange={(v: string | undefined) => mudar(v ?? '')}
+                options={origem.estado === 'lista' ? origem.linhas.map((l) => ({ value: l, label: l })) : []} />
+            {frase && <Typography.Text data-origem-da-linha type="secondary" style={{ display: 'block', fontSize: 12, marginTop: 4 }}>{frase}</Typography.Text>}
+            {fora && origem.estado === 'lista' && (
+                <div data-linha-fora-da-tabela style={{ marginTop: 6 }}><Alert type="warning" showIcon message={fraseLinhaForaDaTabela(digitada, origem.fornecedor)} /></div>
+            )}
+        </>
+    )
+}
+
 // ── Os pedaços de uma categoria ──────────────────────────────────────────────────────────────
 function Fornecedores({ c, arvore, mudar }: { c: CategoriaDoFormulario; arvore: ArvoreLida; mudar: (f: (c: CategoriaDoFormulario) => CategoriaDoFormulario) => void }) {
-    const doNicho = new Map(arvore.fornecedores_do_nicho.map((f) => [f.id, f.nome]))
-    const gravados = new Map((c.gravada?.fornecedores ?? []).map((f) => [f.fornecedor_id, f.nome_do_fornecedor ?? null]))
-    const nome = (id: string) => doNicho.get(id) ?? gravados.get(id) ?? id
+    const doNicho = new Set(arvore.fornecedores_do_nicho.map((f) => f.id))
+    const nome = (id: string) => nomeDoFornecedor(arvore, c, id)
     const { ids, principal } = c.fornecedores
     const tirar = (id: string) => mudar((x) => {
         const resto = x.fornecedores.ids.filter((y) => y !== id)
@@ -122,13 +147,16 @@ function TabelaDeVidros({ c, mudar, prefixo }: { c: CategoriaDoFormulario; prefi
     return (
         <>
             <table data-tabela="vidros" style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead><tr><th style={celula}>Vidro</th><th style={celula}>Onde predomina</th><th style={celula}></th></tr></thead>
+                <thead><tr><th style={celula}>Vidro</th><th style={celula}>Referência</th><th style={celula}>Onde predomina</th><th style={celula}></th></tr></thead>
                 <tbody>
                     {c.vidros.map((it, i) => (
                         <tr key={it.local} data-vidro={i}>
                             <td style={celula} data-coluna="descricao">
                                 {it.gravado ? <Typography.Text>{String(it.gravado.descricao)}</Typography.Text>
                                     : <Input aria-label="Vidro" value={typeof it.valores.descricao === 'string' ? it.valores.descricao : ''} onChange={(e) => trocar(it.local, 'descricao', e.target.value)} />}
+                            </td>
+                            <td style={celula} data-coluna="referencia">
+                                <Input allowClear aria-label="Referência do vidro" value={typeof it.valores.referencia === 'string' ? it.valores.referencia : ''} onChange={(e) => trocar(it.local, 'referencia', e.target.value)} />
                             </td>
                             <td style={celula} data-coluna="onde_predomina">
                                 <ControleDoTipo tipo="lista_texto" nome={`${prefixo}.${it.local}.onde_predomina`} rotulo="Onde predomina" valor={it.valores.onde_predomina} mudar={(v) => trocar(it.local, 'onde_predomina', v)} />
@@ -138,7 +166,7 @@ function TabelaDeVidros({ c, mudar, prefixo }: { c: CategoriaDoFormulario; prefi
                     ))}
                 </tbody>
             </table>
-            <Button style={{ marginTop: 8 }} onClick={() => mudar((x) => ({ ...x, vidros: [...x.vidros, { local: novoLocal(), gravado: null, valores: { descricao: '', onde_predomina: null } }] }))}>{ADICIONAR_VIDRO}</Button>
+            <Button style={{ marginTop: 8 }} onClick={() => mudar((x) => ({ ...x, vidros: [...x.vidros, { local: novoLocal(), gravado: null, valores: { descricao: '', referencia: null, onde_predomina: null } }] }))}>{ADICIONAR_VIDRO}</Button>
         </>
     )
 }
@@ -151,7 +179,7 @@ function TabelaDeFerragens({ c, mudar }: { c: CategoriaDoFormulario; mudar: (f: 
     return (
         <>
             <table data-tabela="ferragens" style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead><tr><th style={celula}>Tipologia</th><th style={celula}>Posição</th><th style={celula}>Referência</th><th style={celula}>Descrição</th><th style={celula}>Cor</th><th style={celula}></th></tr></thead>
+                <thead><tr><th style={celula}>Tipologia</th><th style={celula}>Posição</th><th style={celula}>Referência</th><th style={celula}>Descrição</th><th style={celula}>Cor</th><th style={celula}>Par em inox</th><th style={celula}></th></tr></thead>
                 <tbody>
                     {c.ferragens.map((it, i) => (
                         <tr key={it.local} data-ferragem={i}>
@@ -166,13 +194,14 @@ function TabelaDeFerragens({ c, mudar }: { c: CategoriaDoFormulario; mudar: (f: 
                             </td>
                             <td style={celula} data-coluna="descricao">{texto(it, 'descricao', 'Descrição')}</td>
                             <td style={celula} data-coluna="cor">{texto(it, 'cor', 'Cor')}</td>
+                            <td style={celula} data-coluna="par_inox_referencia">{texto(it, 'par_inox_referencia', 'Par em inox')}</td>
                             <td style={celula}><Button onClick={() => mudar((x) => ({ ...x, ferragens: x.ferragens.filter((y) => y.local !== it.local) }))}>Remover</Button></td>
                         </tr>
                     ))}
                 </tbody>
             </table>
             <Button style={{ marginTop: 8 }} onClick={() => mudar((x) => ({
-                ...x, ferragens: [...x.ferragens, { local: novoLocal(), gravado: null, valores: { referencia: '', tipologia: '', posicao: null, descricao: '', cor: '' } }],
+                ...x, ferragens: [...x.ferragens, { local: novoLocal(), gravado: null, valores: { referencia: '', tipologia: '', posicao: null, descricao: '', cor: '', par_inox_referencia: null } }],
             }))}>{ADICIONAR_FERRAGEM}</Button>
         </>
     )
@@ -230,7 +259,9 @@ function CartaoDaCategoria({ c, arvore, mudar, erro, prefixo }: {
                     {campos.map((x) => (
                         <div key={x.chave} data-campo={`${c.chave}.${x.chave}`}>
                             <Typography.Text strong data-rotulo-do-campo style={{ display: 'block', marginBottom: 4 }}>{x.rotulo}</Typography.Text>
-                            <ControleDoTipo tipo={x.tipo} nome={`${prefixo}.${c.chave}.${x.chave}`} rotulo={x.rotulo} valor={c.config[x.chave]} mudar={(v) => mudar((y) => ({ ...y, config: { ...y.config, [x.chave]: v } }))} />
+                            {c.chave === CAMPO_DA_LINHA.categoria && x.chave === CAMPO_DA_LINHA.campo
+                                ? <LinhaDaTabela c={c} arvore={arvore} rotulo={x.rotulo} valor={c.config[x.chave]} mudar={(v) => mudar((y) => ({ ...y, config: { ...y.config, [x.chave]: v } }))} />
+                                : <ControleDoTipo tipo={x.tipo} nome={`${prefixo}.${c.chave}.${x.chave}`} rotulo={x.rotulo} valor={c.config[x.chave]} mudar={(v) => mudar((y) => ({ ...y, config: { ...y.config, [x.chave]: v } }))} />}
                         </div>
                     ))}
                 </div>

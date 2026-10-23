@@ -42,6 +42,8 @@ export type ArvoreLida = {
     nicho: { id: string; modelo: string; nome: string } | null
     catalogo: { categorias: CategoriaDoCatalogo[]; campos: CampoDoCatalogo[] }
     fornecedores_do_nicho: Array<{ id: string; nome: string }>
+    /** fornecedor → as linhas da tabela em uso dele NESTA conta. Sem chave: o fornecedor não tem tabela em uso. */
+    linhas_por_fornecedor: Record<string, string[]>
     materias_primas: MateriaPrimaLida[]
 }
 
@@ -55,6 +57,21 @@ export const fraseDasCategorias = (configuradas: number, total: number) => `${co
 export const fraseRemoverEGravar = (nome: string) =>
     `"${nome}" está marcada para remoção neste salvar: desfaça a remoção ou use outro nome — remover e gravar a mesma matéria-prima no mesmo salvar é recusado.`
 export const USA_SEM_REFERENCIA = 'com "Usa?" em Sim, a referência é obrigatória'
+
+// ── PERFIL.linha: a origem é a TELA, não o catálogo ────────────────────────────────────────
+/**
+ * No catálogo a linha do perfil é `texto`, e continua sendo: o catálogo diz o tipo do valor, não de
+ * onde vêm as opções. Quem sabe a origem é a tela (dono do produto, 23/10/2026): a linha é COMBOBOX —
+ * oferece as linhas da tabela em uso do fornecedor PRINCIPAL do PERFIL (`linhas_por_fornecedor`,
+ * fórmula ∪ regra do motor), aceita outra digitada, e AVISA quando a digitada não está na tabela, sem
+ * bloquear. Sem principal, ou com principal sem tabela em uso, a tela diz isso em vez de oferecer uma
+ * lista vazia em silêncio.
+ */
+export const CAMPO_DA_LINHA = { categoria: 'PERFIL', campo: 'linha' } as const
+export const SEM_PRINCIPAL_DO_PERFIL = 'Escolha o fornecedor principal do perfil: as linhas vêm da tabela em uso dele.'
+export const fraseSemTabelaEmUso = (fornecedor: string) => `${fornecedor} não tem tabela em uso nesta conta: não há linhas para oferecer.`
+export const fraseTabelaSemLinha = (fornecedor: string) => `A tabela em uso de ${fornecedor} não traz linha nenhuma.`
+export const fraseLinhaForaDaTabela = (linha: string, fornecedor: string) => `A linha "${linha}" não tem fórmula na tabela em uso de ${fornecedor}.`
 
 // ── Os domínios que o banco ENUMERA por CHECK, e que não têm catálogo ─────────────────────────
 /** A lista de cada categoria — a mesma de `LISTA_DA_CATEGORIA` no servidor e da `superadmin_gravar_arvore`. */
@@ -70,8 +87,9 @@ export const ROTULO_DA_POSICAO: Record<typeof POSICOES_DA_FERRAGEM[number], stri
 
 /** Os campos de cada lista que a tela edita, e o tipo deles (as colunas de 20261023000002). A CHAVE vem primeiro. */
 const CAMPOS_DA_LISTA = {
-    vidros: { chave: 'descricao', campos: { descricao: 'texto', onde_predomina: 'lista_texto' } },
-    ferragens: { chave: 'referencia', campos: { referencia: 'texto', tipologia: 'texto', posicao: 'texto', descricao: 'texto', cor: 'texto' } },
+    vidros: { chave: 'descricao', campos: { descricao: 'texto', referencia: 'texto', onde_predomina: 'lista_texto' } },
+    // o par em inox é de onde depende a regra de obra litorânea: sem ele o sistema recusa orçar
+    ferragens: { chave: 'referencia', campos: { referencia: 'texto', tipologia: 'texto', posicao: 'texto', descricao: 'texto', cor: 'texto', par_inox_referencia: 'texto' } },
 } as const satisfies Record<string, { chave: string; campos: Record<string, TipoDoCampo> }>
 const CAMPOS_DA_INSTALACAO: Record<string, TipoDoCampo> = {
     usa: 'booleano', referencia: 'texto', descricao: 'texto', medida: 'texto', folga_x: 'inteiro', folga_y: 'inteiro',
@@ -187,6 +205,29 @@ export function desfazerRemocao(estado: EstadoDaArvore, lida: ArvoreLida, id: st
     const materias = [...estado.materias]
     materias.splice(antes === -1 ? materias.length : antes, 0, volta)
     return { materias, removidas: estado.removidas.filter((r) => r.id !== id) }
+}
+
+/** O nome do fornecedor: o do nicho, ou o que veio gravado (o fornecedor pode ter saído do nicho), ou o id. */
+export function nomeDoFornecedor(arvore: ArvoreLida, c: CategoriaDoFormulario, id: string): string {
+    return arvore.fornecedores_do_nicho.find((f) => f.id === id)?.nome
+        ?? (c.gravada?.fornecedores ?? []).find((f) => f.fornecedor_id === id)?.nome_do_fornecedor
+        ?? id
+}
+
+export type OrigemDaLinha =
+    | { estado: 'sem_principal' }
+    | { estado: 'sem_tabela'; fornecedor: string }
+    | { estado: 'tabela_sem_linha'; fornecedor: string }
+    | { estado: 'lista'; fornecedor: string; linhas: string[] }
+
+/** De onde vêm as linhas do PERFIL desta matéria-prima — do principal COMO ESTÁ NA TELA, não do gravado. */
+export function origemDaLinha(arvore: ArvoreLida, c: CategoriaDoFormulario): OrigemDaLinha {
+    const principal = c.fornecedores.principal
+    if (!principal) return { estado: 'sem_principal' }
+    const fornecedor = nomeDoFornecedor(arvore, c, principal)
+    const linhas = arvore.linhas_por_fornecedor[principal]
+    if (!linhas) return { estado: 'sem_tabela', fornecedor }
+    return linhas.length ? { estado: 'lista', fornecedor, linhas } : { estado: 'tabela_sem_linha', fornecedor }
 }
 
 /** Quantas categorias da matéria-prima têm alguma coisa — no formulário, como está agora. */

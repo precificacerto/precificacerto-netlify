@@ -241,6 +241,51 @@ export async function gravarPelaFuncaoComAMensagemDela(res: NextApiResponse, fun
 const porOrdem = (a: Linha, b: Linha) => Number(a.ordem) - Number(b.ordem)
 const porTexto = (campo: string) => (a: Linha, b: Linha) => String(a[campo] ?? '').localeCompare(String(b[campo] ?? ''), 'pt-BR')
 
+/**
+ * As LINHAS que a tabela em uso de cada fornecedor conhece: as distintas de
+ * `orcamentista_motor_formula_familia.linha` e de `orcamentista_motor_regra.linha`, juntas — medido em
+ * 23/10/2026, as duas divergem (DESIGN tem 139 regras e nenhuma fórmula de família).
+ *
+ * O PostgREST CORTA a resposta (max_rows), e a regra tem 12.116 linhas na tabela em uso: ler tudo e
+ * tirar os distintos aqui perderia linha em silêncio. Por isso a leitura pede a PRÓXIMA linha ainda
+ * não vista, uma por vez — uma consulta por linha distinta, mais uma para saber que acabou.
+ */
+const TABELAS_COM_LINHA = ['orcamentista_motor_formula_familia', 'orcamentista_motor_regra'] as const
+const MAXIMO_DE_LINHAS = 500
+const aspasDoPostgrest = (v: string) => `"${v.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
+
+async function linhasDasTabelas(tabelaIds: string[]): Promise<string[]> {
+    const vistas = new Set<string>()
+    for (const tabela of TABELAS_COM_LINHA) {
+        for (let i = 0; ; i++) {
+            if (i > MAXIMO_DE_LINHAS) throw new FalhaDeLeitura(`${tabela}.linha`, 'LINHAS_DEMAIS')
+            let q = db().from(tabela).select('linha').in('tabela_id', tabelaIds).not('linha', 'is', null)
+            if (vistas.size) q = q.not('linha', 'in', `(${[...vistas].map(aspasDoPostgrest).join(',')})`)
+            const proxima = await ler<Array<{ linha: string }>>(`${tabela}.linha`, q.order('linha', { ascending: true }).limit(1))
+            if (proxima.length === 0) break
+            // a mesma de novo seria o filtro não pegando — parar com erro, não girar
+            if (vistas.has(proxima[0].linha)) throw new FalhaDeLeitura(`${tabela}.linha`, 'NAO_CONVERGIU')
+            vistas.add(proxima[0].linha)
+        }
+    }
+    return [...vistas].filter((l) => l.trim() !== '').sort((a, b) => a.localeCompare(b, 'pt-BR'))
+}
+
+/**
+ * fornecedor → as linhas das tabelas que ESTA conta usa dele. Fornecedor sem tabela em uso na conta
+ * NÃO tem chave: a tela distingue "sem tabela em uso" de "tabela sem linha" (a lista vazia).
+ */
+async function linhasPorFornecedor(tenantId: string): Promise<Record<string, string[]>> {
+    const emUso = await ler<Linha[]>('orcamentista_conta_tabela', db().from('orcamentista_conta_tabela').select('tabela_id').eq('tenant_id', tenantId))
+    if (emUso.length === 0) return {}
+    const tabelas = await ler<Linha[]>('orcamentista_tabela', db().from('orcamentista_tabela').select('id, fornecedor_id').in('id', emUso.map((t) => t.tabela_id)))
+    const porFornecedor: Record<string, string[]> = {}
+    for (const fornecedor of new Set(tabelas.map((t) => String(t.fornecedor_id)))) {
+        porFornecedor[fornecedor] = await linhasDasTabelas(tabelas.filter((t) => String(t.fornecedor_id) === fornecedor).map((t) => String(t.id)))
+    }
+    return porFornecedor
+}
+
 /** A lista que pendura em cada categoria, além dos fornecedores — e só nela. */
 const LISTA_DA_CATEGORIA: Record<string, string> = { VIDRO: 'vidros', FERRAGENS: 'ferragens', INSTALACAO: 'instalacao' }
 
@@ -282,6 +327,7 @@ export async function lerArvoreDaEmpresa(tenantId: string) {
         nicho,
         catalogo: { categorias: categoriasDoCatalogo, campos },
         fornecedores_do_nicho: fornecedoresDoNicho,
+        linhas_por_fornecedor: await linhasPorFornecedor(tenantId),
         materias_primas: materiasPrimas.map((mp) => ({
             ...mp,
             categorias: categorias
