@@ -42,8 +42,8 @@ export type ArvoreLida = {
     nicho: { id: string; modelo: string; nome: string } | null
     catalogo: { categorias: CategoriaDoCatalogo[]; campos: CampoDoCatalogo[] }
     fornecedores_do_nicho: Array<{ id: string; nome: string }>
-    /** fornecedor → as linhas da tabela em uso dele NESTA conta. Sem chave: o fornecedor não tem tabela em uso. */
-    linhas_por_fornecedor: Record<string, string[]>
+    /** fornecedor → as linhas da tabela em uso dele NESTA conta, POR FONTE. Sem chave: o fornecedor não tem tabela em uso. */
+    linhas_por_fornecedor: Record<string, { formula: string[]; regra: string[] }>
     materias_primas: MateriaPrimaLida[]
 }
 
@@ -63,15 +63,23 @@ export const USA_SEM_REFERENCIA = 'com "Usa?" em Sim, a referência é obrigató
  * No catálogo a linha do perfil é `texto`, e continua sendo: o catálogo diz o tipo do valor, não de
  * onde vêm as opções. Quem sabe a origem é a tela (dono do produto, 23/10/2026): a linha é COMBOBOX —
  * oferece as linhas da tabela em uso do fornecedor PRINCIPAL do PERFIL (`linhas_por_fornecedor`,
- * fórmula ∪ regra do motor), aceita outra digitada, e AVISA quando a digitada não está na tabela, sem
- * bloquear. Sem principal, ou com principal sem tabela em uso, a tela diz isso em vez de oferecer uma
- * lista vazia em silêncio.
+ * fórmula ∪ regra do motor) e aceita outra digitada. Sem principal, ou com principal sem tabela em
+ * uso, a tela diz isso em vez de oferecer uma lista vazia em silêncio.
+ *
+ * A linha escolhida tem TRÊS estados, e cada um tem o seu aviso — nenhum bloqueia o salvar:
+ *   1. com fórmula de família — sem aviso;
+ *   2. só com regra, sem fórmula de família (DESIGN, medido em 23/10/2026) — a tabela não dimensiona
+ *      essa linha: defeito da TABELA IMPORTADA, e o conserto é lá;
+ *   3. fora das duas fontes — linha que a tabela não conhece: o conserto é na DIGITAÇÃO.
+ * Juntar o 2 e o 3 no mesmo aviso esconderia que o 2 é da tabela e o 3 é de quem digitou.
  */
 export const CAMPO_DA_LINHA = { categoria: 'PERFIL', campo: 'linha' } as const
 export const SEM_PRINCIPAL_DO_PERFIL = 'Escolha o fornecedor principal do perfil: as linhas vêm da tabela em uso dele.'
 export const fraseSemTabelaEmUso = (fornecedor: string) => `${fornecedor} não tem tabela em uso nesta conta: não há linhas para oferecer.`
 export const fraseTabelaSemLinha = (fornecedor: string) => `A tabela em uso de ${fornecedor} não traz linha nenhuma.`
 export const fraseLinhaForaDaTabela = (linha: string, fornecedor: string) => `A linha "${linha}" não tem fórmula na tabela em uso de ${fornecedor}.`
+export const fraseLinhaSemFormula = (linha: string, fornecedor: string) =>
+    `A tabela em uso de ${fornecedor} tem regras para a linha "${linha}" e nenhuma fórmula dimensional: essa linha não dimensiona. O conserto é na tabela importada.`
 
 // ── Os domínios que o banco ENUMERA por CHECK, e que não têm catálogo ─────────────────────────
 /** A lista de cada categoria — a mesma de `LISTA_DA_CATEGORIA` no servidor e da `superadmin_gravar_arvore`. */
@@ -218,16 +226,25 @@ export type OrigemDaLinha =
     | { estado: 'sem_principal' }
     | { estado: 'sem_tabela'; fornecedor: string }
     | { estado: 'tabela_sem_linha'; fornecedor: string }
-    | { estado: 'lista'; fornecedor: string; linhas: string[] }
+    | { estado: 'lista'; fornecedor: string; linhas: string[]; comFormula: string[] }
 
 /** De onde vêm as linhas do PERFIL desta matéria-prima — do principal COMO ESTÁ NA TELA, não do gravado. */
 export function origemDaLinha(arvore: ArvoreLida, c: CategoriaDoFormulario): OrigemDaLinha {
     const principal = c.fornecedores.principal
     if (!principal) return { estado: 'sem_principal' }
     const fornecedor = nomeDoFornecedor(arvore, c, principal)
-    const linhas = arvore.linhas_por_fornecedor[principal]
-    if (!linhas) return { estado: 'sem_tabela', fornecedor }
-    return linhas.length ? { estado: 'lista', fornecedor, linhas } : { estado: 'tabela_sem_linha', fornecedor }
+    const fontes = arvore.linhas_por_fornecedor[principal]
+    if (!fontes) return { estado: 'sem_tabela', fornecedor }
+    // a LISTA é fórmula ∪ regra; quem tem fórmula de família é guardado à parte, para o estado 2
+    const linhas = [...new Set([...fontes.formula, ...fontes.regra])].sort((a, b) => a.localeCompare(b, 'pt-BR'))
+    return linhas.length ? { estado: 'lista', fornecedor, linhas, comFormula: fontes.formula } : { estado: 'tabela_sem_linha', fornecedor }
+}
+
+/** Os três estados da linha digitada contra a lista: 1 com fórmula, 2 só com regra, 3 fora das duas. */
+export type EstadoDaLinha = 'com_formula' | 'sem_formula' | 'fora_da_tabela'
+export function estadoDaLinha(origem: Extract<OrigemDaLinha, { estado: 'lista' }>, linha: string): EstadoDaLinha {
+    if (origem.comFormula.includes(linha)) return 'com_formula'
+    return origem.linhas.includes(linha) ? 'sem_formula' : 'fora_da_tabela'
 }
 
 /** Quantas categorias da matéria-prima têm alguma coisa — no formulário, como está agora. */

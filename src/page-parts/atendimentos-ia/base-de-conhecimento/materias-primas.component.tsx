@@ -22,8 +22,8 @@ import { ROTULO_DOS_TRES_ESTADOS, deTresEstados, paraTresEstados, type Par, type
 import {
     ADICIONAR_FERRAGEM, ADICIONAR_MATERIA_PRIMA, ADICIONAR_VIDRO, CAMPO_DA_LINHA, LISTA_DA_CATEGORIA, NOVO_FORNECEDOR, POSICOES_DA_FERRAGEM, PRODUTOS_DA_INSTALACAO,
     ROTULO_DA_POSICAO, ROTULO_DO_PRODUTO, SEM_PRINCIPAL_DO_PERFIL, TITULO_DO_CARTAO,
-    camposDa, categoriasConfiguradas, desfazerRemocao, fraseDasCategorias, fraseLinhaForaDaTabela, fraseSemTabelaEmUso, fraseTabelaSemLinha,
-    nomeDoFornecedor, novaMateriaPrima, novoLocal, ondeEstaOErro, origemDaLinha,
+    camposDa, categoriasConfiguradas, desfazerRemocao, estadoDaLinha, fraseDasCategorias, fraseLinhaForaDaTabela, fraseLinhaSemFormula, fraseSemTabelaEmUso,
+    fraseTabelaSemLinha, nomeDoFornecedor, novaMateriaPrima, novoLocal, ondeEstaOErro, origemDaLinha,
     type ArvoreLida, type CategoriaDoFormulario, type EstadoDaArvore, type ItemDaLista, type MateriaPrimaDoFormulario, type TipoDoCampo,
 } from '@/page-parts/atendimentos-ia/base-de-conhecimento/arvore'
 
@@ -82,7 +82,9 @@ function ControleDoTipo({ tipo, valor, mudar, rotulo, nome }: { tipo: TipoDoCamp
 
 /**
  * PERFIL.linha — COMBOBOX: a lista é a da tabela em uso do fornecedor principal, e o super admin pode
- * digitar outra. Fora da lista, AVISA (não bloqueia). Sem principal ou sem tabela, diz por quê.
+ * digitar outra. Três estados, dois avisos DIFERENTES (ver `CAMPO_DA_LINHA` em `arvore.ts`): só com
+ * regra (a tabela não dimensiona) e fora da tabela (digitada). Nenhum bloqueia. Sem principal ou sem
+ * tabela, diz por quê.
  */
 function LinhaDaTabela({ c, arvore, valor, mudar, rotulo }: { c: CategoriaDoFormulario; arvore: ArvoreLida; valor: unknown; mudar: (v: unknown) => void; rotulo: string }) {
     const origem = origemDaLinha(arvore, c)
@@ -91,14 +93,17 @@ function LinhaDaTabela({ c, arvore, valor, mudar, rotulo }: { c: CategoriaDoForm
     const frase = origem.estado === 'sem_principal' ? SEM_PRINCIPAL_DO_PERFIL
         : origem.estado === 'sem_tabela' ? fraseSemTabelaEmUso(origem.fornecedor)
             : origem.estado === 'tabela_sem_linha' ? fraseTabelaSemLinha(origem.fornecedor) : null
-    const fora = origem.estado === 'lista' && digitada !== '' && !origem.linhas.includes(digitada)
+    const estado = origem.estado === 'lista' && digitada !== '' ? estadoDaLinha(origem, digitada) : null
     return (
         <>
             <AutoComplete aria-label={rotulo} style={{ width: '100%' }} allowClear value={atual} filterOption={false}
                 onChange={(v: string | undefined) => mudar(v ?? '')}
                 options={origem.estado === 'lista' ? origem.linhas.map((l) => ({ value: l, label: l })) : []} />
             {frase && <Typography.Text data-origem-da-linha type="secondary" style={{ display: 'block', fontSize: 12, marginTop: 4 }}>{frase}</Typography.Text>}
-            {fora && origem.estado === 'lista' && (
+            {estado === 'sem_formula' && origem.estado === 'lista' && (
+                <div data-linha-sem-formula style={{ marginTop: 6 }}><Alert type="warning" showIcon message={fraseLinhaSemFormula(digitada, origem.fornecedor)} /></div>
+            )}
+            {estado === 'fora_da_tabela' && origem.estado === 'lista' && (
                 <div data-linha-fora-da-tabela style={{ marginTop: 6 }}><Alert type="warning" showIcon message={fraseLinhaForaDaTabela(digitada, origem.fornecedor)} /></div>
             )}
         </>
