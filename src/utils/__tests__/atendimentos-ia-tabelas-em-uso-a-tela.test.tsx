@@ -98,6 +98,8 @@ beforeEach(() => {
 // A página é lida DENTRO de cada caso: o `require` no topo derrubaria o arquivo inteiro.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const AConta = () => require('@/pages/super-admin/atendimentos-ia/contas/[tenantId]').default as React.ComponentType
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const T = () => require('@/page-parts/atendimentos-ia/tabelas-em-uso.component') as typeof import('@/page-parts/atendimentos-ia/tabelas-em-uso.component')
 
 const montadas: { root: ReturnType<typeof createRoot>; host: HTMLElement }[] = []
 afterEach(() => { while (montadas.length) { const m = montadas.pop()!; act(() => { m.root.unmount() }); m.host.remove() } })
@@ -151,11 +153,11 @@ describe('Tabelas em uso — a cascata na tela', () => {
 
     it('(c) dois seletores: a tabela só aparece depois do fornecedor, e mostra só as DELE', async () => {
         await montar()
-        expect(seletor('Tabela do fornecedor')?.classList.contains('ant-select-disabled')).toBe(true)
+        expect(seletor(T().ROTULO_DA_TABELA)?.classList.contains('ant-select-disabled')).toBe(true)
         await abrir('Fornecedor')
         await escolher('Alumínio Sul')
-        expect(seletor('Tabela do fornecedor')?.classList.contains('ant-select-disabled')).toBe(false)
-        const opcoes = await abrir('Tabela do fornecedor')
+        expect(seletor(T().ROTULO_DA_TABELA)?.classList.contains('ant-select-disabled')).toBe(false)
+        const opcoes = await abrir(T().ROTULO_DA_TABELA)
         expect(opcoes).toHaveLength(2)
         expect(opcoes.some((o) => o.includes('sul-outubro.xlsx'))).toBe(true)
         expect(opcoes.some((o) => o.includes('sul-novembro.xlsx'))).toBe(true)
@@ -166,7 +168,7 @@ describe('Tabelas em uso — a cascata na tela', () => {
         const host = await montar()
         await abrir('Fornecedor')
         await escolher('Alumínio Sul')
-        await abrir('Tabela do fornecedor')
+        await abrir(T().ROTULO_DA_TABELA)
         await escolher('sul-outubro.xlsx')
         await act(async () => { botao(grupo(host), 'Adicionar')!.click() })
         await assentar()
@@ -203,7 +205,7 @@ describe('Tabelas em uso — a cascata na tela', () => {
         const host = await montar()
         await abrir('Fornecedor')
         await escolher('Alumínio Sul')
-        await abrir('Tabela do fornecedor')
+        await abrir(T().ROTULO_DA_TABELA)
         await escolher('sul-outubro.xlsx')
         await act(async () => { botao(grupo(host), 'Adicionar')!.click() })
         await assentar()
@@ -245,5 +247,74 @@ describe('a base do motor por modelo', () => {
         const host = await montar()
         expect(grupo(host)).not.toBeNull()
         expect(base(host)).toBeNull()
+    })
+})
+
+// ════════════════════════════════════════════════════════════════════════════════════════
+// OS DOIS SELETORES, LIDOS PELO CÓDIGO (dono do produto, 23/10/2026): o primeiro escolhe o
+// FORNECEDOR do nicho da conta; o segundo escolhe UMA TABELA desse fornecedor — e uma tabela é UM
+// registro que carrega OS DOIS arquivos, o de perfis e o motor. Não há seletor de "tabela de
+// perfis" e outro de "motor". O rótulo diz o que o seletor É; o estado vai no texto de dentro.
+// ════════════════════════════════════════════════════════════════════════════════════════
+describe('os rótulos dos dois seletores, a ordem da seção e a ordem da tela', () => {
+    const rotuloVisivel = (host: HTMLElement, qual: string) => grupo(host).querySelector(`[data-rotulo-do-seletor="${qual}"]`)?.textContent ?? null
+    const textoDeDentro = (rotulo: string) => seletor(rotulo)?.querySelector('.ant-select-selection-placeholder')?.textContent ?? null
+    const antes = (a: Element | null, b: Element | null) => {
+        if (!a || !b) throw new Error('elemento não encontrado')
+        return !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING)
+    }
+
+    it('cada seletor tem um rótulo VISÍVEL que diz o que ele escolhe — o mesmo do aria-label', async () => {
+        const host = await montar()
+        expect(rotuloVisivel(host, 'fornecedor')).toBe(T().ROTULO_DO_FORNECEDOR)
+        expect(rotuloVisivel(host, 'tabela')).toBe(T().ROTULO_DA_TABELA)
+        expect(seletor(T().ROTULO_DO_FORNECEDOR)).not.toBeNull()
+        expect(seletor(T().ROTULO_DA_TABELA)).not.toBeNull()
+    })
+
+    it('o rótulo da tabela diz que ela carrega o arquivo de perfis E o motor', () => {
+        expect(T().ROTULO_DA_TABELA).toMatch(/perfis/)
+        expect(T().ROTULO_DA_TABELA).toMatch(/motor/)
+    })
+
+    it('desabilitado, o segundo explica o porquê DENTRO do campo — e o rótulo continua o nome dele', async () => {
+        const host = await montar()
+        expect(seletor(T().ROTULO_DA_TABELA)?.classList.contains('ant-select-disabled')).toBe(true)
+        expect(textoDeDentro(T().ROTULO_DA_TABELA)).toBe(T().MOTIVO_SEM_FORNECEDOR_ESCOLHIDO)
+        expect(rotuloVisivel(host, 'tabela')).toBe(T().ROTULO_DA_TABELA)
+        await abrir(T().ROTULO_DO_FORNECEDOR)
+        await escolher('Alumínio Sul')
+        // escolhido o fornecedor, o estado muda e o NOME não
+        expect(rotuloVisivel(host, 'tabela')).toBe(T().ROTULO_DA_TABELA)
+        expect(textoDeDentro(T().ROTULO_DA_TABELA)).not.toBe(T().MOTIVO_SEM_FORNECEDOR_ESCOLHIDO)
+    })
+
+    it('cada opção de tabela mostra os DOIS arquivos dela: o de perfis e o motor', async () => {
+        await montar()
+        await abrir(T().ROTULO_DO_FORNECEDOR)
+        await escolher('Alumínio Norte')
+        const opcoes = await abrir(T().ROTULO_DA_TABELA)
+        expect(opcoes).toHaveLength(1)
+        expect(opcoes[0]).toContain('norte.pdf')
+        expect(opcoes[0]).toContain('motor-norte.pdf')
+    })
+
+    it('os seletores vêm ANTES da lista do que já está em uso', async () => {
+        const host = await montar()
+        expect(antes(seletor(T().ROTULO_DO_FORNECEDOR), grupo(host).querySelector('[data-tabela-em-uso]'))).toBe(true)
+        expect(antes(seletor(T().ROTULO_DA_TABELA), grupo(host).querySelector('[data-tabela-em-uso]'))).toBe(true)
+    })
+
+    it('a seção tem a âncora para a qual a base de conhecimento aponta', async () => {
+        const host = await montar()
+        expect(grupo(host).id).toBe(T().ANCORA_DAS_TABELAS_EM_USO)
+    })
+
+    it('a ordem da tela da conta: modelo e nicho › tabelas em uso › base de conhecimento', async () => {
+        const host = await montar()
+        const modelo = document.querySelector('input[aria-label="Modelo"]')
+        const acessoABase = Array.from(host.querySelectorAll('button')).find((b) => (b.textContent || '').trim() === 'Base de conhecimento') ?? null
+        expect(antes(modelo, grupo(host))).toBe(true)
+        expect(antes(grupo(host), acessoABase)).toBe(true)
     })
 })
