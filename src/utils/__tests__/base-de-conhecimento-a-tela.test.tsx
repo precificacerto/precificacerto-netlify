@@ -604,11 +604,13 @@ describe('(j) um botão só, para a tela inteira', () => {
         await digitar(entrada(host, 'cor_perfil_predominante'), 'Preto fosco')
         expect(pendencias(host)).toBe(F().fraseDasPendencias(1))
         expect(botaoDeSalvar(host)!.disabled).toBe(false)
+        // DOIS campos no mesmo bloco contam dois — a contagem é por campo, não por bloco
         await clicar(tresEstados(host, 'usa_contramarco', 'nao'))
+        await digitar(entrada(host, 'guarnicao_interna'), 'Alumínio 25')
         await digitar(entrada(host, `vendedor:${EMP_ANA}:comissao_percentual`), '7')
-        expect(pendencias(host)).toBe(F().fraseDasPendencias(3))
+        expect(pendencias(host)).toBe(F().fraseDasPendencias(4))
         await digitar(entrada(host, 'cor_perfil_predominante'), 'Branco')
-        expect(pendencias(host)).toBe(F().fraseDasPendencias(2))
+        expect(pendencias(host)).toBe(F().fraseDasPendencias(3))
     })
 
     it('a frase: "1 alteração não salva", "3 alterações não salvas"', () => {
