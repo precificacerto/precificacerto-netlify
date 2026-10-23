@@ -432,12 +432,12 @@ describe('(6) vendedor de OUTRA empresa: recusado com erro legível, antes da co
 
 describe('(7) o que a função recusa vira resposta legível — e o texto do banco não vaza', () => {
     it.each([
-        ['23503 (a FK composta do vendedor)', '23503', 400],
-        ['23514 (um CHECK)', '23514', 400],
-        ['22023 (parâmetro que a função recusou)', '22023', 400],
-        ['P0002 (tenant sumiu entre a checagem e a escrita)', 'P0002', 404],
-        ['qualquer outro', 'XX000', 500],
-    ])('%s → %s', async (_n, code, status) => {
+        ['23503 (a FK composta do vendedor) → 400', '23503', 400],
+        ['23514 (um CHECK) → 400', '23514', 400],
+        ['22023 (parâmetro que a função recusou) → 400', '22023', 400],
+        ['P0002 (tenant sumiu entre a checagem e a escrita) → 404', 'P0002', 404],
+        ['qualquer outro → 500', 'XX000', 500],
+    ])('%s', async (_n, code, status) => {
         estado.respostaDoRpc = { data: null, error: { code, message: 'detalhe interno do banco' } }
         const r = await chamar('base', 'PUT', { tenant: T_ESQ }, { esquadrias: { linha_perfil: 'X' } })
         expect(r.status).toBe(status)
