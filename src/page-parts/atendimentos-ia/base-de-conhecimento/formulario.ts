@@ -273,3 +273,41 @@ export function corpoDaLista(
     })
     return { itens, erros, mudou }
 }
+
+// ── Fornecedor e linha: SELEÇÃO das tabelas em uso da conta ────────────────────────────────
+/**
+ * Decisão do dono do produto, 23/10/2026: fornecedor e linha deixam de ser texto livre. A conta já
+ * declarou qual tabela usa; digitar "Wolf" onde a tabela diz "Wolff" cria uma divergência que ninguém
+ * vê até o orçamento não cruzar.
+ *   - FORNECEDOR: o `fornecedor_nome` de cada tabela em uso (`ROTAS_DO_CATALOGO.tabelasDaConta`);
+ *   - LINHA: a `linha` das tipologias que a importação gravou para cada tabela em uso
+ *     (`ROTAS_DO_CATALOGO.conteudoDaTabela`) — é o único lugar em que uma tabela diz linha. Tabela
+ *     ainda não importada não traz linha nenhuma, e a tela diz isso em vez de oferecer lista vazia.
+ * O valor GRAVADO que não está mais na lista é mostrado e marcado, NUNCA apagado pela tela: só o que
+ * o usuário mudar vai no corpo (`mudancas`), e carregar as opções não muda o formulário.
+ */
+export const CAMPOS_DA_TABELA = ['fornecedor_perfil', 'linha_perfil'] as const
+export type CampoDaTabela = typeof CAMPOS_DA_TABELA[number]
+export const ehCampoDaTabela = (c: string): c is CampoDaTabela => (CAMPOS_DA_TABELA as readonly string[]).includes(c)
+export const SEM_TABELA_EM_USO = 'Esta conta não tem tabela em uso. Vincule uma tabela à conta primeiro.'
+export const SEM_LINHA_NAS_TABELAS = 'As tabelas em uso não trazem linha — a linha vem das tipologias da tabela importada.'
+export const FORA_DA_LISTA = 'fora das tabelas em uso'
+export const IR_PARA_AS_TABELAS = 'Ir para Tabelas em uso'
+/** A seção "Tabelas em uso" da tela da conta — a âncora é o `id` da seção (`ANCORA_DAS_TABELAS_EM_USO`). */
+export const rotaDasTabelasDaConta = (tenantId: string) => `${ROUTES.SUPER_ADMIN_IA_CONTAS}/${tenantId}#tabelas-em-uso`
+
+const distintos = (xs: Array<string | null | undefined>) =>
+    [...new Set(xs.map((x) => (typeof x === 'string' ? x.trim() : '')).filter((x) => x !== ''))].sort((a, b) => a.localeCompare(b, 'pt-BR'))
+
+export type OpcoesDasTabelas = { temTabela: boolean; fornecedor_perfil: string[]; linha_perfil: string[] }
+
+/** As opções de cada campo, das tabelas em uso e do conteúdo importado de cada uma. */
+export function opcoesDasTabelas(
+    emUso: ReadonlyArray<{ fornecedor_nome: string }>, conteudos: ReadonlyArray<{ tipologias: ReadonlyArray<{ linha: string | null }> }>,
+): OpcoesDasTabelas {
+    return {
+        temTabela: emUso.length > 0,
+        fornecedor_perfil: distintos(emUso.map((t) => t.fornecedor_nome)),
+        linha_perfil: distintos(conteudos.flatMap((c) => c.tipologias.map((t) => t.linha))),
+    }
+}

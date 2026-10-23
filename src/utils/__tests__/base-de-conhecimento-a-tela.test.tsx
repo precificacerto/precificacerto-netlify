@@ -25,7 +25,7 @@ import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 
 import { ROUTES } from '@/constants/routes'
-import { ROTAS_DO_CATALOGO, type ContaLigada } from '@/utils/atendimentos-ia-catalogo'
+import { ROTAS_DO_CATALOGO, type ContaLigada, type TabelasDaConta } from '@/utils/atendimentos-ia-catalogo'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 Object.defineProperty(window, 'matchMedia', {
@@ -41,6 +41,8 @@ const CONTA = '00000000-0000-4000-8000-0000000000a1'
 const N_ESQ = '00000000-0000-4000-8000-0000000000e5'
 const EMP_ANA = '00000000-0000-4000-8000-00000000f0a1'
 const EMP_CARLA = '00000000-0000-4000-8000-00000000f0a2'
+const TAB_WOLFF = '00000000-0000-4000-8000-0000000000c1'
+const TAB_WOLFF_2 = '00000000-0000-4000-8000-0000000000c2'
 
 const replaces: string[] = []
 const pushes: string[] = []
@@ -65,13 +67,14 @@ const CONTAS: ContaLigada[] = [{ tenant_id: CONTA, nome: 'Vidraçaria Alfa', mod
 
 type Corpo = Record<string, unknown>
 function baseGravada(): Corpo {
-    const empresa: Corpo = { tenant_id: CONTA, linha_perfil: 'Suprema', usa_contramarco: true, usa_arremate_interno: null, regiao_litoranea: false, cores_perfil: ['Branco', 'Preto'] }
+    const empresa: Corpo = { tenant_id: CONTA, linha_perfil: 'Suprema', cor_perfil_predominante: 'Branco', usa_contramarco: true, usa_arremate_interno: null, regiao_litoranea: false, cores_perfil: ['Branco', 'Preto'] }
     const nicho = { nicho_id: N_ESQ, vidro_predominante: 'Incolor 4mm', linha_perfil: 'Gold' }
     // O efetivo vem PRONTO da rota (`efetivoDasEsquadrias`); a tela não o recalcula.
     const efetivo: Record<string, { valor: unknown; origem: string }> = {}
     for (const c of Object.keys(F().ROTULO_DO_CAMPO)) efetivo[c] = { valor: null, origem: 'sem valor' }
     Object.assign(efetivo, {
         linha_perfil: { valor: 'Suprema', origem: 'empresa' },
+        cor_perfil_predominante: { valor: 'Branco', origem: 'empresa' },
         usa_contramarco: { valor: true, origem: 'empresa' },
         regiao_litoranea: { valor: false, origem: 'empresa' },
         cores_perfil: { valor: ['Branco', 'Preto'], origem: 'empresa' },
@@ -85,6 +88,15 @@ function baseGravada(): Corpo {
         ambientes: [{ tenant_id: CONTA, ambiente: 'Sala', vidro_padrao: 'Temperado 8mm', tipologia_usual: null }],
         vendedores: [{ tenant_id: CONTA, employee_id: EMP_ANA, comissao_percentual: 5, comissao_modo: 'PROPORCIONAL', reserva_tecnica_percentual: null, lucro_projetado_percentual: null, nome_do_funcionario: 'Ana Souza' }],
     }
+}
+
+const TABELAS_DA_CONTA: TabelasDaConta = {
+    nicho_id: N_ESQ,
+    em_uso: [
+        { tabela_id: TAB_WOLFF, fornecedor_id: 'f-wolff', fornecedor_nome: 'Wolff Perfis', arquivo_nome: 'wolff-out.xlsm', motor_nome: 'motor-wolff.xlsm', vigencia: null },
+        { tabela_id: TAB_WOLFF_2, fornecedor_id: 'f-wolff', fornecedor_nome: 'Wolff Perfis', arquivo_nome: 'wolff-nov.xlsm', motor_nome: 'motor-wolff.xlsm', vigencia: null },
+    ],
+    fornecedores: [],
 }
 
 let respostas: Record<string, { status: number; body: unknown }> = {}
@@ -102,6 +114,16 @@ beforeEach(() => {
         [`PUT ${R.base(CONTA)}`]: { status: 200, body: { depois: {} } },
         [`PUT ${R.ambiente(CONTA)}`]: { status: 200, body: { depois: {} } },
         [`PUT ${R.vendedor(CONTA)}`]: { status: 200, body: { depois: {} } },
+        // As tabelas em uso da conta: duas, do mesmo fornecedor; a linha vem das tipologias importadas.
+        [`GET ${ROTAS_DO_CATALOGO.tabelasDaConta(CONTA)}`]: { status: 200, body: TABELAS_DA_CONTA },
+        [`GET ${ROTAS_DO_CATALOGO.conteudoDaTabela(TAB_WOLFF)}`]: { status: 200, body: { formulas: 3, tipologias: [
+            { tipologia: 'J1', linha: 'Suprema', n_regras: 1, n_condicionais: 0, variaveis: [] },
+            { tipologia: 'J2', linha: null, n_regras: 1, n_condicionais: 0, variaveis: [] },
+        ] } },
+        [`GET ${ROTAS_DO_CATALOGO.conteudoDaTabela(TAB_WOLFF_2)}`]: { status: 200, body: { formulas: 1, tipologias: [
+            { tipologia: 'K1', linha: 'Gold', n_regras: 1, n_condicionais: 0, variaveis: [] },
+            { tipologia: 'K2', linha: 'Suprema', n_regras: 1, n_condicionais: 0, variaveis: [] },
+        ] } },
     }
     ;(globalThis as { fetch: unknown }).fetch = jest.fn(async (url: string, init?: { method?: string; body?: string }) => {
         const metodo = init?.method ?? 'GET'
@@ -227,9 +249,9 @@ describe('(e) a ORIGEM de cada campo aparece', () => {
     it('o herdado do nicho é VISIVELMENTE outro: atributo de origem diferente e o input vazio, não preenchido com o valor herdado', async () => {
         const host = await montar()
         expect(campo(host, 'vidro_predominante')!.getAttribute('data-origem-do-campo')).toBe('nicho')
-        expect(campo(host, 'linha_perfil')!.getAttribute('data-origem-do-campo')).toBe('empresa')
+        expect(campo(host, 'cor_perfil_predominante')!.getAttribute('data-origem-do-campo')).toBe('empresa')
         expect(entrada(host, 'vidro_predominante')!.value).toBe('')
-        expect(entrada(host, 'linha_perfil')!.value).toBe('Suprema')
+        expect(entrada(host, 'cor_perfil_predominante')!.value).toBe('Branco')
     })
 
     it('a origem é a que a ROTA devolveu — a tela não supõe padrão vazio', async () => {
@@ -245,9 +267,9 @@ describe('(e) a ORIGEM de cada campo aparece', () => {
 describe('(a) e (b) só o que foi TOCADO vai no corpo; limpar manda null', () => {
     it('(a) mudar UM campo do perfil manda só ele — os outros, gravados ou não, ficam fora do corpo', async () => {
         const host = await montar()
-        await digitar(entrada(host, 'fornecedor_perfil'), 'Wolf Perfis')
+        await digitar(entrada(host, 'cor_perfil_predominante'), 'Preto fosco')
         await clicar(botao(bloco(host, 'perfil'), 'Salvar'))
-        expect(gravacoes()).toEqual([{ url: F().ROTAS_DA_BASE.base(CONTA), metodo: 'PUT', corpo: { esquadrias: { fornecedor_perfil: 'Wolf Perfis' } } }])
+        expect(gravacoes()).toEqual([{ url: F().ROTAS_DA_BASE.base(CONTA), metodo: 'PUT', corpo: { esquadrias: { cor_perfil_predominante: 'Preto fosco' } } }])
     })
 
     it('(a) sem nada tocado no bloco, salvar não chama a rota', async () => {
@@ -258,9 +280,9 @@ describe('(a) e (b) só o que foi TOCADO vai no corpo; limpar manda null', () =>
 
     it('(b) limpar um campo da empresa manda null — é o "volte a herdar"', async () => {
         const host = await montar()
-        await digitar(entrada(host, 'linha_perfil'), '')
+        await digitar(entrada(host, 'cor_perfil_predominante'), '')
         await clicar(botao(bloco(host, 'perfil'), 'Salvar'))
-        expect(gravacoes().map((g) => g.corpo)).toEqual([{ esquadrias: { linha_perfil: null } }])
+        expect(gravacoes().map((g) => g.corpo)).toEqual([{ esquadrias: { cor_perfil_predominante: null } }])
     })
 
     it('(b) número limpo também vai null', async () => {
@@ -369,7 +391,7 @@ describe('(f) a mensagem da ROTA aparece como veio', () => {
     ])('409 %s: a frase da rota na tela, no bloco que salvou', async (codigo, frase) => {
         respostas[`PUT ${F().ROTAS_DA_BASE.base(CONTA)}`] = { status: 409, body: { error: frase, codigo } }
         const host = await montar()
-        await digitar(entrada(host, 'fornecedor_perfil'), 'Wolf Perfis')
+        await digitar(entrada(host, 'cor_perfil_predominante'), 'Preto fosco')
         await clicar(botao(bloco(host, 'perfil'), 'Salvar'))
         expect(bloco(host, 'perfil').textContent).toContain(frase)
         expect(bloco(host, 'perfil').textContent).toContain(codigo)
@@ -442,5 +464,104 @@ describe('(g) vendedores e ambientes: a lista é o estado, e dentro do item só 
         await clicar(botao(campo(host, 'ambiente:Sala')!, 'Remover'))
         await clicar(botao(bloco(host, 'ambientes'), 'Salvar'))
         expect(gravacoes().map((g) => g.corpo)).toEqual([{ ambientes: [] }])
+    })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// FORNECEDOR E LINHA vêm das TABELAS EM USO da conta (dono do produto, 23/10/2026). Digitar "Wolf"
+// onde a tabela diz "Wolff" cria uma divergência que ninguém vê até o orçamento não cruzar.
+// ═══════════════════════════════════════════════════════════════════════════════════════
+describe('(i) fornecedor e linha são SELEÇÃO, alimentada pelas tabelas em uso da conta', () => {
+    const opcoesDe = async (c: string) => {
+        await act(async () => { (campo(document, c)!.querySelector('.ant-select-selector') as HTMLElement).dispatchEvent(new MouseEvent('mousedown', { bubbles: true })) })
+        const listas = Array.from(document.querySelectorAll('.ant-select-dropdown:not(.ant-select-dropdown-hidden)'))
+        return Array.from(listas[listas.length - 1].querySelectorAll('.ant-select-item-option')).map((o) => (o.textContent || '').trim())
+    }
+    const exibido = (host: ParentNode, c: string) => campo(host, c)!.querySelector('.ant-select-selection-item')?.textContent ?? null
+    const semTabela = () => { respostas[`GET ${ROTAS_DO_CATALOGO.tabelasDaConta(CONTA)}`] = { status: 200, body: { ...TABELAS_DA_CONTA, em_uso: [] } } }
+    const comGravado = (campos: Corpo) => {
+        const corpo = baseGravada()
+        Object.assign((corpo.esquadrias as { empresa: Corpo }).empresa, campos)
+        respostas[`GET ${F().ROTAS_DA_BASE.base(CONTA)}`] = { status: 200, body: corpo }
+    }
+
+    it('não são mais texto livre: nem fornecedor nem linha têm caixa de digitação', async () => {
+        const host = await montar()
+        for (const c of ['fornecedor_perfil', 'linha_perfil']) {
+            expect(campo(host, c)!.querySelector('.ant-select')).not.toBeNull()
+            expect(campo(host, c)!.querySelector('input.ant-input')).toBeNull()
+        }
+    })
+
+    it('o fornecedor oferece os das tabelas em uso, sem repetir', async () => {
+        await montar()
+        expect(await opcoesDe('fornecedor_perfil')).toEqual(['Wolff Perfis'])
+    })
+
+    it('a linha oferece as linhas das tipologias das tabelas em uso — sem repetir e sem a tipologia sem linha', async () => {
+        await montar()
+        expect(await opcoesDe('linha_perfil')).toEqual(['Gold', 'Suprema'])
+    })
+
+    it('escolher o fornecedor da lista manda o nome EXATO da tabela', async () => {
+        const host = await montar()
+        await escolherNoSeletor(campo(host, 'fornecedor_perfil'), 'Wolff Perfis')
+        await clicar(botao(bloco(host, 'perfil'), 'Salvar'))
+        expect(gravacoes().map((g) => g.corpo)).toEqual([{ esquadrias: { fornecedor_perfil: 'Wolff Perfis' } }])
+    })
+
+    it('sem tabela em uso: o campo fica desabilitado, diz por quê, e leva de volta à seção de tabelas da conta', async () => {
+        semTabela()
+        const host = await montar()
+        for (const c of ['fornecedor_perfil', 'linha_perfil']) {
+            expect(campo(host, c)!.querySelector('.ant-select')!.classList.contains('ant-select-disabled')).toBe(true)
+            expect(campo(host, c)!.textContent).toContain(F().SEM_TABELA_EM_USO)
+            const volta = campo(host, c)!.querySelector('a[data-volta-para-tabelas]') as HTMLAnchorElement
+            expect(volta.getAttribute('href')).toBe(F().rotaDasTabelasDaConta(CONTA))
+        }
+        // a âncora é a MESMA que a seção de tabelas declara como `id` — duas cópias, um teste que as liga
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { ANCORA_DAS_TABELAS_EM_USO } = require('@/page-parts/atendimentos-ia/tabelas-em-uso.component')
+        expect(F().rotaDasTabelasDaConta(CONTA)).toBe(`${ROUTES.SUPER_ADMIN_IA_CONTAS}/${CONTA}#${ANCORA_DAS_TABELAS_EM_USO}`)
+    })
+
+    it('o contraste: com tabela em uso, o campo está habilitado e sem o aviso', async () => {
+        const host = await montar()
+        expect(campo(host, 'fornecedor_perfil')!.querySelector('.ant-select')!.classList.contains('ant-select-disabled')).toBe(false)
+        expect(campo(host, 'fornecedor_perfil')!.textContent).not.toContain(F().SEM_TABELA_EM_USO)
+    })
+
+    it('valor GRAVADO que não está nas tabelas em uso: aparece, marcado como fora da lista, e NÃO é apagado', async () => {
+        comGravado({ fornecedor_perfil: 'Wolf' })
+        const host = await montar()
+        expect(exibido(host, 'fornecedor_perfil')).toContain('Wolf')
+        expect(campo(host, 'fornecedor_perfil')!.querySelector('[data-fora-da-lista]')?.textContent).toBe(F().FORA_DA_LISTA)
+        // salvar OUTRO campo do mesmo bloco não leva o fornecedor junto — nem null, nem trocado
+        await digitar(entrada(host, 'cor_perfil_predominante'), 'Preto fosco')
+        await clicar(botao(bloco(host, 'perfil'), 'Salvar'))
+        expect(gravacoes().map((g) => g.corpo)).toEqual([{ esquadrias: { cor_perfil_predominante: 'Preto fosco' } }])
+    })
+
+    it('o contraste: valor gravado QUE ESTÁ na lista não leva a marca', async () => {
+        const host = await montar()
+        expect(exibido(host, 'linha_perfil')).toBe('Suprema')
+        expect(campo(host, 'linha_perfil')!.querySelector('[data-fora-da-lista]')).toBeNull()
+    })
+
+    it('sem tabela em uso e com valor gravado: o valor continua à vista, marcado, e nada é enviado', async () => {
+        semTabela()
+        comGravado({ fornecedor_perfil: 'Wolf' })
+        const host = await montar()
+        expect(exibido(host, 'fornecedor_perfil')).toContain('Wolf')
+        expect(campo(host, 'fornecedor_perfil')!.querySelector('[data-fora-da-lista]')).not.toBeNull()
+        await clicar(botao(bloco(host, 'perfil'), 'Salvar'))
+        expect(gravacoes()).toEqual([])
+    })
+
+    it('falha ao ler as tabelas é ERRO no campo — não "sem tabela em uso"', async () => {
+        respostas[`GET ${ROTAS_DO_CATALOGO.tabelasDaConta(CONTA)}`] = { status: 500, body: { error: 'Não foi possível ler as tabelas da conta.' } }
+        const host = await montar()
+        expect(campo(host, 'fornecedor_perfil')!.textContent).toContain('Não foi possível ler as tabelas da conta.')
+        expect(campo(host, 'fornecedor_perfil')!.textContent).not.toContain(F().SEM_TABELA_EM_USO)
     })
 })

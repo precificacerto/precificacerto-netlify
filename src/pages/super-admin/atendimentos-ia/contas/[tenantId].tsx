@@ -147,10 +147,7 @@ export default function ConfiguracaoDaConta() {
 
     return (
         <Layout title={conta.nome} subtitle={PAGE_TITLES.SUPER_ADMIN_IA_CONTA}>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginBottom: 12 }}>
-                <Button onClick={() => router.push(rotaDaTelaDaBase(conta.tenant_id))}>Base de conhecimento</Button>
-                {voltar}
-            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>{voltar}</div>
             <Card>
                 <Space direction="vertical" size="large" style={{ width: '100%', maxWidth: 380 }}>
                     <div>
@@ -202,6 +199,16 @@ export default function ConfiguracaoDaConta() {
                 ) : (
                     <TabelasEmUso key={versaoSalva} tenantId={conta.tenant_id} />
                 )}
+            </Card>
+            {/* A ordem de leitura da tela é modelo e nicho › tabelas em uso › base de conhecimento
+                (dono do produto, 23/10/2026): a base vem por último porque fornecedor e linha dela são
+                escolhidos das tabelas em uso. */}
+            <Card style={{ marginTop: 16 }} data-grupo="acesso-a-base-de-conhecimento">
+                <Typography.Title level={5} style={{ marginTop: 0 }}>Base de conhecimento</Typography.Title>
+                <Typography.Paragraph type="secondary" style={{ fontSize: 13 }}>
+                    Perfil, vidro, acessórios, produção, vendedores e adicionais desta conta.
+                </Typography.Paragraph>
+                <Button onClick={() => router.push(rotaDaTelaDaBase(conta.tenant_id))}>Base de conhecimento</Button>
             </Card>
         </Layout>
     )

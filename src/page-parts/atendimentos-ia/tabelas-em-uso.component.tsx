@@ -17,6 +17,13 @@
  *     mockup, em `fornDoNicho`, caía para a lista inteira; a instrução é o contrário.)
  *   - DOIS seletores, em linhas separadas: o fornecedor, e depois a tabela DELE. Pode haver 50 ou
  *     100 tabelas, e um seletor só misturaria todas.
+ *   - O QUE CADA SELETOR É (registrado em 23/10/2026, porque o rótulo antigo deixava ler "um é a
+ *     tabela de perfis e o outro é a do motor"): o primeiro escolhe o FORNECEDOR do nicho da conta;
+ *     o segundo escolhe UMA TABELA desse fornecedor, e uma tabela é UM registro de
+ *     `orcamentista_tabela` que carrega OS DOIS arquivos — o de perfis/preços (`arquivo_nome`) e o
+ *     motor (`motor_nome`). Por isso o rótulo de cada um diz o que ele escolhe, sem depender do outro,
+ *     e o estado ("escolha um fornecedor acima…") vai no texto de dentro do campo, não no nome.
+ *   - Os seletores vêm ANTES da lista do que já está em uso: a seção é para escolher.
  *   - a VIGÊNCIA é mostrada como foi digitada. Se ela é data de upload ou prazo é decisão em
  *     aberto, e por isso não há regra de vencimento aqui.
  *
@@ -29,9 +36,20 @@ import { chamarRota } from '@/page-parts/atendimentos-ia/api'
 
 export const SEM_FORNECEDOR_NO_NICHO = 'Nenhum fornecedor neste nicho ainda.'
 export const SEM_NICHO_SALVO = 'Escolha e salve o modelo e o nicho da conta para escolher as tabelas.'
+export const ROTULO_DO_FORNECEDOR = 'Fornecedor'
+export const ROTULO_DA_TABELA = 'Tabela do fornecedor (arquivo de perfis + motor)'
+/** O ESTADO do segundo seletor enquanto desabilitado — vai dentro do campo, nunca no rótulo. */
+export const MOTIVO_SEM_FORNECEDOR_ESCOLHIDO = 'Escolha um fornecedor acima para ver as tabelas dele'
+export const MOTIVO_FORNECEDOR_SEM_TABELA = 'Este fornecedor ainda não tem tabela'
+/** O `id` da seção, para a base de conhecimento apontar de volta para cá. */
+export const ANCORA_DAS_TABELAS_EM_USO = 'tabelas-em-uso'
 
-/** O rótulo de uma tabela no seletor: o arquivo, e a vigência como foi digitada, quando há. */
-const rotuloDaTabela = (t: { arquivo_nome: string; vigencia: string | null }) => (t.vigencia ? `${t.arquivo_nome} · ${t.vigencia}` : t.arquivo_nome)
+/** O rótulo de uma tabela no seletor: os DOIS arquivos dela, e a vigência como foi digitada, quando há. */
+const rotuloDaTabela = (t: { arquivo_nome: string; motor_nome: string; vigencia: string | null }) => {
+    const arquivos = `${t.arquivo_nome} + motor ${t.motor_nome}`
+    return t.vigencia ? `${arquivos} · ${t.vigencia}` : arquivos
+}
+const ROTULO_ACIMA: React.CSSProperties = { display: 'block', marginBottom: 4, fontWeight: 500 }
 
 export function TabelasEmUso({ tenantId }: { tenantId: string }) {
     const [dados, setDados] = useState<TabelasDaConta | null>(null)
@@ -79,13 +97,48 @@ export function TabelasEmUso({ tenantId }: { tenantId: string }) {
     const remover = (id: string) => gravar(() => chamarRota(ROTAS_DO_CATALOGO.tabelaDaConta(tenantId, id), 'DELETE'))
 
     return (
-        <div data-grupo="tabelas-em-uso">
+        <div data-grupo="tabelas-em-uso" id={ANCORA_DAS_TABELAS_EM_USO}>
             <Typography.Title level={5} style={{ marginTop: 0 }}>Tabelas em uso</Typography.Title>
 
             {erroAoLer ? (
                 <Alert type="error" showIcon message="Não foi possível ler as tabelas da conta." description={erroAoLer} action={<Button onClick={carregar}>Tentar de novo</Button>} />
             ) : dados === null ? null : (
                 <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                    {!dados.nicho_id ? (
+                        <Typography.Text type="secondary">{SEM_NICHO_SALVO}</Typography.Text>
+                    ) : dados.fornecedores.length === 0 ? (
+                        <Typography.Text type="secondary">{SEM_FORNECEDOR_NO_NICHO}</Typography.Text>
+                    ) : (
+                        <Space direction="vertical" style={{ width: '100%', maxWidth: 520 }}>
+                            <Typography.Text data-rotulo-do-seletor="fornecedor" style={ROTULO_ACIMA}>{ROTULO_DO_FORNECEDOR}</Typography.Text>
+                            <Select<string>
+                                style={{ width: '100%' }}
+                                aria-label={ROTULO_DO_FORNECEDOR}
+                                placeholder="Selecione"
+                                virtual={false}
+                                value={fornecedorId ?? undefined}
+                                onChange={(v) => { setFornecedorId(v); setTabelaId(null) }}
+                                options={dados.fornecedores.map((f) => ({ value: f.id, label: f.nome }))}
+                            />
+                            <Typography.Text data-rotulo-do-seletor="tabela" style={{ ...ROTULO_ACIMA, marginTop: 8 }}>{ROTULO_DA_TABELA}</Typography.Text>
+                            <Select<string>
+                                style={{ width: '100%' }}
+                                aria-label={ROTULO_DA_TABELA}
+                                placeholder={fornecedor ? (fornecedor.tabelas.length ? 'Selecione' : MOTIVO_FORNECEDOR_SEM_TABELA) : MOTIVO_SEM_FORNECEDOR_ESCOLHIDO}
+                                virtual={false}
+                                disabled={!fornecedor || fornecedor.tabelas.length === 0}
+                                value={tabelaId ?? undefined}
+                                onChange={(v) => setTabelaId(v)}
+                                options={(fornecedor?.tabelas ?? []).map((t) => ({
+                                    value: t.id,
+                                    label: emUso.has(t.id) ? `${rotuloDaTabela(t)} (já em uso)` : rotuloDaTabela(t),
+                                    disabled: emUso.has(t.id),
+                                }))}
+                            />
+                            <Button type="primary" onClick={adicionar} disabled={!tabelaId} loading={gravando}>Adicionar</Button>
+                        </Space>
+                    )}
+
                     {dados.em_uso.length === 0 ? (
                         <Typography.Text type="secondary">Nenhuma tabela em uso.</Typography.Text>
                     ) : (
@@ -103,39 +156,6 @@ export function TabelasEmUso({ tenantId }: { tenantId: string }) {
                                 Enquanto houver tabela em uso, o modelo e o nicho da conta não podem ser trocados.
                             </Typography.Paragraph>
                         </div>
-                    )}
-
-                    {!dados.nicho_id ? (
-                        <Typography.Text type="secondary">{SEM_NICHO_SALVO}</Typography.Text>
-                    ) : dados.fornecedores.length === 0 ? (
-                        <Typography.Text type="secondary">{SEM_FORNECEDOR_NO_NICHO}</Typography.Text>
-                    ) : (
-                        <Space direction="vertical" style={{ width: '100%', maxWidth: 520 }}>
-                            <Select<string>
-                                style={{ width: '100%' }}
-                                aria-label="Fornecedor"
-                                placeholder="Escolha o fornecedor"
-                                virtual={false}
-                                value={fornecedorId ?? undefined}
-                                onChange={(v) => { setFornecedorId(v); setTabelaId(null) }}
-                                options={dados.fornecedores.map((f) => ({ value: f.id, label: f.nome }))}
-                            />
-                            <Select<string>
-                                style={{ width: '100%' }}
-                                aria-label="Tabela do fornecedor"
-                                placeholder={fornecedor ? (fornecedor.tabelas.length ? 'Escolha a tabela' : 'Este fornecedor ainda não tem tabela') : 'Escolha o fornecedor primeiro'}
-                                virtual={false}
-                                disabled={!fornecedor || fornecedor.tabelas.length === 0}
-                                value={tabelaId ?? undefined}
-                                onChange={(v) => setTabelaId(v)}
-                                options={(fornecedor?.tabelas ?? []).map((t) => ({
-                                    value: t.id,
-                                    label: emUso.has(t.id) ? `${rotuloDaTabela(t)} (já em uso)` : rotuloDaTabela(t),
-                                    disabled: emUso.has(t.id),
-                                }))}
-                            />
-                            <Button type="primary" onClick={adicionar} disabled={!tabelaId} loading={gravando}>Adicionar</Button>
-                        </Space>
                     )}
 
                     {erroAoGravar && <Alert type="error" showIcon message="A alteração não foi salva." description={erroAoGravar} />}

@@ -13,18 +13,26 @@
  * Cada bloco salva sozinho, e o corpo leva SÓ o que mudou (`formulario.ts`). A recusa da rota fica no
  * bloco que salvou, com a frase, o código e os erros nomeados como vieram.
  *
+ * FORNECEDOR E LINHA são seleção, alimentada pelas TABELAS EM USO da conta (`opcoesDasTabelas`):
+ * sem tabela em uso o campo fica desabilitado e aponta de volta para a seção de tabelas; valor
+ * gravado fora da lista aparece marcado, e não é apagado.
+ *
  * Booleanos têm TRÊS estados — sim, não, não informado — e não há caixa de marcar: uma caixa só
  * tem dois, e o terceiro ("não informado", que herda) sumiria.
  */
 import React, { useCallback, useEffect, useState } from 'react'
 import { Alert, Button, Card, Input, InputNumber, Radio, Select, Space, Tag, Typography, message } from 'antd'
 import { ErroDaRota, chamarRota } from '@/page-parts/atendimentos-ia/api'
+import { ROTAS_DO_CATALOGO, type TabelasDaConta } from '@/utils/atendimentos-ia-catalogo'
+import type { TipologiaLida } from '@/utils/atendimentos-ia-importacao'
 import type { Dominio, ErroNomeado, Origem } from '@/lib/atendimentos-ia/base-de-conhecimento'
 import {
     ADICIONAIS, BASES, BLOCOS_DE_ESQUADRIAS, CAMPOS_DO_AMBIENTE, CAMPOS_DO_VENDEDOR, MODOS, MODOS_DA_COMISSAO, ORDEM_DOS_BLOCOS,
     ROTAS_DA_BASE, ROTULO_DA_ORIGEM, ROTULO_DO_CAMPO, ROTULO_DO_MODO, ROTULO_DOS_TRES_ESTADOS,
     corpoDaLista, corpoDosAdicionais, deTresEstados, dominioDe, formularioDoValor, mesmoValor, mudancas, paraTresEstados,
     trocarOModo, usaNoModo, valorDoFormulario,
+    FORA_DA_LISTA, IR_PARA_AS_TABELAS, SEM_LINHA_NAS_TABELAS, SEM_TABELA_EM_USO, ehCampoDaTabela, opcoesDasTabelas, rotaDasTabelasDaConta,
+    type CampoDaTabela, type OpcoesDasTabelas,
     type ChaveDoBloco, type LinhaDaLista, type Modo, type Par, type TresEstados,
 } from '@/page-parts/atendimentos-ia/base-de-conhecimento/formulario'
 
@@ -138,7 +146,46 @@ function Editor({ c, d, valor, mudar, placeholder }: { c: string; d: Dominio; va
     }
 }
 
-function CampoDaEsquadria({ c, efetivo, gravado, valor, mudar }: { c: string; efetivo: Efetivo; gravado: Linha | null; valor: unknown; mudar: (v: unknown) => void }) {
+/** As fontes do fornecedor e da linha: lendo, falhou, ou as opções das tabelas em uso. */
+type Fontes = { estado: 'lendo' } | { estado: 'erro'; mensagem: string } | ({ estado: 'lidas' } & OpcoesDasTabelas)
+
+function SeletorDaTabela({ c, valor, mudar, fontes, tenantId, placeholder }: {
+    c: CampoDaTabela; valor: unknown; mudar: (v: unknown) => void; fontes: Fontes; tenantId: string; placeholder?: string
+}) {
+    const atual = typeof valor === 'string' && valor.trim() !== '' ? valor : null
+    const lista = fontes.estado === 'lidas' ? fontes[c] : []
+    const fora = atual !== null && !lista.includes(atual)
+    const motivo = fontes.estado !== 'lidas' ? null
+        : !fontes.temTabela ? SEM_TABELA_EM_USO
+            : lista.length === 0 ? SEM_LINHA_NAS_TABELAS : null
+    const opcoes = [
+        ...lista.map((x) => ({ value: x, label: x })),
+        ...(fora ? [{ value: atual as string, label: `${atual} (${FORA_DA_LISTA})` }] : []),
+    ]
+    return (
+        <>
+            <Space size={6} style={{ width: '100%' }} wrap>
+                <Select allowClear aria-label={rotulo(c)} style={{ minWidth: 260 }} placeholder={motivo ? undefined : placeholder ?? 'Selecione'}
+                    loading={fontes.estado === 'lendo'} disabled={fontes.estado !== 'lidas' || motivo !== null}
+                    value={atual ?? undefined} onChange={(v) => mudar(v ?? null)} options={opcoes} />
+                {fora && <Tag data-fora-da-lista color="red">{FORA_DA_LISTA}</Tag>}
+            </Space>
+            {fontes.estado === 'erro' && (
+                <Alert type="error" showIcon style={{ marginTop: 6 }} message="Não foi possível ler as tabelas em uso da conta." description={fontes.mensagem} />
+            )}
+            {motivo && (
+                <Typography.Text type="secondary" style={{ display: 'block', fontSize: 12, marginTop: 4 }}>
+                    {motivo}{' '}
+                    {motivo === SEM_TABELA_EM_USO && <a data-volta-para-tabelas href={rotaDasTabelasDaConta(tenantId)}>{IR_PARA_AS_TABELAS}</a>}
+                </Typography.Text>
+            )}
+        </>
+    )
+}
+
+function CampoDaEsquadria({ c, efetivo, gravado, valor, mudar, fontes, tenantId }: {
+    c: string; efetivo: Efetivo; gravado: Linha | null; valor: unknown; mudar: (v: unknown) => void; fontes: Fontes; tenantId: string
+}) {
     const d = dominioDe(c)
     const { valor: herdado, origem } = efetivo[c] ?? { valor: null, origem: 'sem valor' as Origem }
     const normalizado = valorDoFormulario(d, valor)
@@ -150,7 +197,9 @@ function CampoDaEsquadria({ c, efetivo, gravado, valor, mudar }: { c: string; ef
                 <Tag data-origem color={COR_DA_ORIGEM[origem]}>{ROTULO_DA_ORIGEM[origem]}</Tag>
                 {alterado && <Tag color="purple">alterado — não salvo</Tag>}
             </Space>
-            <Editor c={c} d={d} valor={valor} mudar={mudar} placeholder={origem === 'nicho' ? `herdado: ${textoDoValor(herdado)}` : undefined} />
+            {ehCampoDaTabela(c)
+                ? <SeletorDaTabela c={c} valor={valor} mudar={mudar} fontes={fontes} tenantId={tenantId} placeholder={origem === 'nicho' ? `herdado: ${textoDoValor(herdado)}` : undefined} />
+                : <Editor c={c} d={d} valor={valor} mudar={mudar} placeholder={origem === 'nicho' ? `herdado: ${textoDoValor(herdado)}` : undefined} />}
             {origem === 'nicho' && (
                 <Typography.Text type="secondary" italic style={{ display: 'block', fontSize: 12 }}>
                     Valor do nicho: {textoDoValor(herdado)}. Preencher aqui grava na empresa; deixar vazio continua herdando.
@@ -173,6 +222,7 @@ export function BaseDeConhecimento({ tenantId }: { tenantId: string }) {
     const [vendedorNovo, setVendedorNovo] = useState<string | undefined>(undefined)
     const [avisos, setAvisos] = useState<Partial<Record<ChaveDoBloco, Aviso | null>>>({})
     const [salvando, setSalvando] = useState<ChaveDoBloco | null>(null)
+    const [fontes, setFontes] = useState<Fontes>({ estado: 'lendo' })
 
     const ler = useCallback(async () => chamarRota<BaseDaEmpresa>(ROTAS_DA_BASE.base(tenantId)), [tenantId])
 
@@ -187,6 +237,13 @@ export function BaseDeConhecimento({ tenantId }: { tenantId: string }) {
             setVendedores(linhasDosVendedores(b.vendedores))
             setErroAoLer(null)
         }).catch((e) => { if (vivo) setErroAoLer((e as Error).message) })
+        // Fornecedor e linha: as tabelas em uso da conta e, de cada uma, o conteúdo importado.
+        chamarRota<TabelasDaConta>(ROTAS_DO_CATALOGO.tabelasDaConta(tenantId))
+            .then(async (t) => {
+                const conteudos = await Promise.all(t.em_uso.map((u) => chamarRota<{ tipologias: TipologiaLida[] }>(ROTAS_DO_CATALOGO.conteudoDaTabela(u.tabela_id))))
+                if (vivo) setFontes({ estado: 'lidas', ...opcoesDasTabelas(t.em_uso, conteudos) })
+            })
+            .catch((e) => { if (vivo) setFontes({ estado: 'erro', mensagem: (e as Error).message }) })
         chamarRota<{ funcionarios: Funcionario[] }>(ROTAS_DA_BASE.funcionarios(tenantId))
             .then((r) => { if (vivo) setFuncionarios(r.funcionarios) })
             .catch((e) => { if (vivo) setErroDosFuncionarios((e as Error).message) })
@@ -266,7 +323,7 @@ export function BaseDeConhecimento({ tenantId }: { tenantId: string }) {
                 <Space direction="vertical" size="middle" style={{ width: '100%', maxWidth: 560 }}>
                     {b.campos.map((c) => (
                         <CampoDaEsquadria key={c} c={c} efetivo={base.esquadrias.efetivo} gravado={base.esquadrias.empresa} valor={esquadrias[c]}
-                            mudar={(v) => setEsquadrias((f) => ({ ...f, [c]: v }))} />
+                            mudar={(v) => setEsquadrias((f) => ({ ...f, [c]: v }))} fontes={fontes} tenantId={tenantId} />
                     ))}
                 </Space>
                 {rodape(chave, () => salvarEsquadrias(chave, b.campos))}
