@@ -161,6 +161,21 @@ const gravacoes = () => pedidos.filter((p) => p.metodo !== 'GET')
 
 // ═══════════════════════════════════════════════════════════════════════════════════════
 describe('(h) a empresa no topo, e o portão da tela', () => {
+    it('a tela da conta leva à base de conhecimento DAQUELA conta, pelo caminho', async () => {
+        respostas[`GET ${ROTAS_DO_CATALOGO.nichos}`] = { status: 200, body: [{ id: N_ESQ, modelo: 'FABRICACAO', nome: 'Esquadrias', ativo: true }] }
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const AConta = require('@/pages/super-admin/atendimentos-ia/contas/[tenantId]').default as React.ComponentType
+        const host = document.createElement('div')
+        document.body.appendChild(host)
+        const root = createRoot(host)
+        montadas.push({ root, host })
+        // eslint-disable-next-line testing-library/no-unnecessary-act -- é createRoot do React, não util da Testing Library
+        await act(async () => { root.render(<AConta />) })
+        await assentar()
+        await clicar(botao(host, 'Base de conhecimento'))
+        expect(pushes).toEqual([`${ROUTES.SUPER_ADMIN_IA_CONTAS}/${CONTA}/base-de-conhecimento`])
+    })
+
     it('o nome da empresa está na barra do topo, com o nicho', async () => {
         const host = await montar()
         const barra = host.querySelector('[data-empresa-no-topo]') as HTMLElement
@@ -318,7 +333,10 @@ describe('(d) adicionais: PERCENTUAL exige base; VALOR esconde e limpa a base', 
         await digitar(entrada(host, 'instalacao_percentual'), '8')
         await clicar(botao(bloco(host, 'adicionais'), 'Salvar'))
         expect(gravacoes()).toEqual([])
-        expect(bloco(host, 'adicionais').textContent).toContain(F().ROTULO_DO_CAMPO.instalacao_base)
+        // O rótulo da base também está no próprio campo, visível; a frase tem de estar no AVISO.
+        const aviso = bloco(host, 'adicionais').querySelector('[data-nao-enviado]')
+        expect(aviso?.textContent).toContain(F().ROTULO_DO_CAMPO.instalacao_base)
+        expect(aviso?.textContent).toContain('é obrigatório com modo PERCENTUAL')
     })
 
     it('o contraste: com a base escolhida, vai — e só os campos tocados', async () => {

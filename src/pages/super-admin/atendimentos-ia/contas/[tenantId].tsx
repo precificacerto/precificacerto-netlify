@@ -7,6 +7,17 @@
  * nome/identificação da conta e a configuração do Atendimentos I.A. NADA do conteúdo da conta —
  * nem clientes, nem orçamentos, nem funcionários, nem valores. O super admin não tem tenant e não
  * pode enxergar dado de cliente por construção.
+ *
+ * EXCEÇÃO NOMINAL E MÍNIMA (decisão do dono do produto, 23/10/2026): ID E NOME DE FUNCIONÁRIO,
+ * só para atribuir perfil de vendedor na Base de conhecimento (`contas/[tenantId]/base-de-conhecimento`).
+ *   - O QUE PERMITE: a rota `GET /api/super-admin/base-de-conhecimento/funcionarios` devolve
+ *     `{ id, nome }` dos funcionários ativos da empresa, e o GET da base devolve o nome dos vendedores
+ *     já gravados (este desde o #126).
+ *   - O QUE NÃO PERMITE: telefone, e-mail, cargo, salário, status ou qualquer outra coluna de
+ *     funcionário; e nada de clientes, orçamentos ou valores de venda. Outro campo é outra decisão.
+ *   - POR QUÊ: o perfil de vendedor é configuração do Atendimentos I.A. e precisa dizer A QUEM se
+ *     aplica; sem o nome, o super admin escolheria um uuid às cegas.
+ * A regra continua valendo para o que protege — o conteúdo do negócio do cliente.
  * ══════════════════════════════════════════════════════════════════════════════════════════
  *
  * O bloco 2C.1 trouxe o grupo MODELO + NICHO; "Tabelas em uso" entrou depois, no componente
@@ -50,6 +61,7 @@ import { rotaDaConfig, type CorpoDoModeloENicho } from '@/utils/orcamentista-con
 import { chamarRota } from '@/page-parts/atendimentos-ia/api'
 import { NichoSelect } from '@/page-parts/atendimentos-ia/nicho-select.component'
 import { TabelasEmUso } from '@/page-parts/atendimentos-ia/tabelas-em-uso.component'
+import { rotaDaTelaDaBase } from '@/page-parts/atendimentos-ia/base-de-conhecimento/formulario'
 
 const SEM_MODELO = '__sem_modelo__'
 
@@ -135,7 +147,10 @@ export default function ConfiguracaoDaConta() {
 
     return (
         <Layout title={conta.nome} subtitle={PAGE_TITLES.SUPER_ADMIN_IA_CONTA}>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>{voltar}</div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginBottom: 12 }}>
+                <Button onClick={() => router.push(rotaDaTelaDaBase(conta.tenant_id))}>Base de conhecimento</Button>
+                {voltar}
+            </div>
             <Card>
                 <Space direction="vertical" size="large" style={{ width: '100%', maxWidth: 380 }}>
                     <div>
