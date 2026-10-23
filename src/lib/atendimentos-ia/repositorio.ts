@@ -99,7 +99,8 @@ export async function quemSeguraONicho(id: string): Promise<{ fornecedores: stri
  * REGRA INVIOLÁVEL: a lista de contas e a tela de configuração mostram APENAS o
  * nome/identificação da conta e a configuração do Atendimentos I.A. NADA do conteúdo da conta —
  * nem clientes, nem orçamentos, nem funcionários, nem valores. O super admin não tem tenant e não
- * pode enxergar dado de cliente por construção.
+ * pode enxergar dado de cliente por construção. Exceção nominal: id e nome de funcionário, só para
+ * atribuir perfil de vendedor — ver o cabeçalho de `pages/super-admin/atendimentos-ia/contas/[tenantId].tsx`.
  *
  * Por isso a linha é MONTADA campo a campo, e não espalhada de uma consulta: de `tenants` só se
  * lê `id, name` (`nomesDasContas`), de `orcamentista_config` só o modelo e o nicho. Valor do adicional,

@@ -149,6 +149,23 @@ async function nomesDosFuncionarios(tenantId: string, ids: string[]): Promise<Re
     return Object.fromEntries(linhas.filter((l) => l.tenant_id === tenantId).map((l) => [l.id, l.name]))
 }
 
+/**
+ * Os funcionários ATIVOS desta empresa, para atribuir perfil de vendedor: `{ id, nome }`, e NADA mais.
+ *
+ * EXCEÇÃO NOMINAL à REGRA INVIOLÁVEL das telas de contas (decisão do dono do produto, 23/10/2026):
+ * id e nome de funcionário, só para atribuir perfil de vendedor. Nem telefone, nem e-mail, nem cargo,
+ * nem salário, nem status. Outro campo é outra decisão. Por isso o item é MONTADO campo a campo, e
+ * não espalhado da linha. Só os ativos (`is_active`, a exclusão lógica — o mesmo critério da tela de
+ * Vendas ao escolher vendedor); o perfil gravado de quem foi excluído continua vindo no GET da base.
+ */
+export async function funcionariosDaEmpresa(tenantId: string): Promise<Array<{ id: string; nome: string }>> {
+    const linhas = await ler<Linha[]>('employees',
+        db().from('employees').select('id, name').eq('tenant_id', tenantId).eq('is_active', true).order('name', { ascending: true }))
+    return linhas
+        .map((l) => ({ id: String(l.id), nome: String(l.name ?? '') }))
+        .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+}
+
 /** Os adicionais gravados — o "antes" sobre o qual a coerência do corpo é conferida. */
 export async function lerAdicionais(tenantId: string): Promise<Linha | null> {
     return ler<Linha | null>('orcamentista_base_conhecimento', db().from('orcamentista_base_conhecimento').select('*').eq('tenant_id', tenantId).maybeSingle())
