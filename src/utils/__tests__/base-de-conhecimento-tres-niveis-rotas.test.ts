@@ -55,7 +55,7 @@ const estado = {
 }
 
 function categoriasDe(tenant: string, mp: string): Linha[] {
-    return CATEGORIAS.map((chave) => ({ id: cat(mp, chave), tenant_id: tenant, materia_prima_id: mp, categoria_chave: chave, config: null, atualizado_por: null, atualizado_em: '2026-10-23T12:00:00Z' }))
+    return CATEGORIAS.map((chave) => ({ id: cat(mp, chave), tenant_id: tenant, materia_prima_id: mp, categoria_chave: chave, config: null as Linha | null, atualizado_por: null as string | null, atualizado_em: '2026-10-23T12:00:00Z' }))
 }
 
 function montar() {
@@ -288,7 +288,7 @@ describe('(4) 1:1 — cada rota chama UMA função, com o corpo como veio', () =
     })
 
     it('vidros: onde_predomina vazio vai vazio, ausente fica ausente', async () => {
-        const lista = [{ descricao: 'Fumê', onde_predomina: [] }, { descricao: 'Bronze' }]
+        const lista = [{ descricao: 'Fumê', onde_predomina: [] as string[] }, { descricao: 'Bronze' }]
         await chamar('vidros', 'PUT', { tenant: T_A, mp_categoria: C_PVC_VIDRO }, { vidros: lista })
         expect(estado.rpcs[0].args.p_lista).toEqual(lista)
         expect('onde_predomina' in estado.rpcs[0].args.p_lista[1]).toBe(false)
