@@ -268,3 +268,30 @@ export function efetivoDasEsquadrias(empresa: Record<string, unknown> | null, ni
     }
     return efetivo
 }
+
+// ── OS TRÊS NÍVEIS — o corpo é um ENVELOPE, e o conteúdo é da função ─────────────────────────
+/**
+ * O corpo das rotas dos três níveis: um objeto com UMA chave, e só ela. O VALOR vai à função como
+ * veio — a rota não revalida o que a função valida (tipo, catálogo, ordem, principal, nicho), e não
+ * tira nem acrescenta nada: null, false e ausente chegam à função intactos.
+ *
+ * O que a rota recusa é só o ENVELOPE: chave a mais, chave a menos, e `por` — o autor é o usuário
+ * da SESSÃO, e um `por` no corpo é erro, não dado.
+ */
+export function lerEnvelope(corpo: unknown, chave: string): { valor: unknown; erros: ErroNomeado[] } {
+    if (!ehObjeto(corpo)) return { valor: null, erros: [{ campo: 'corpo', mensagem: 'tem de ser um objeto' }] }
+    const erros: ErroNomeado[] = Object.keys(corpo).filter((k) => k !== chave).map((k) => (k === 'por'
+        ? { campo: 'por', mensagem: 'o autor é o usuário da sessão: `por` no corpo não é aceito' }
+        : { campo: k, mensagem: 'campo desconhecido' }))
+    if (!(chave in corpo)) erros.push({ campo: chave, mensagem: 'obrigatório' })
+    return { valor: erros.length === 0 ? corpo[chave] : null, erros }
+}
+
+/** O corpo de um DELETE: vazio. Qualquer chave é erro nomeado — `por` com a mensagem dele. */
+export function errosDoCorpoVazio(corpo: unknown): ErroNomeado[] {
+    if (corpo === undefined || corpo === null || corpo === '') return []
+    if (!ehObjeto(corpo)) return [{ campo: 'corpo', mensagem: 'tem de ser vazio' }]
+    return Object.keys(corpo).map((k) => (k === 'por'
+        ? { campo: 'por', mensagem: 'o autor é o usuário da sessão: `por` no corpo não é aceito' }
+        : { campo: k, mensagem: 'campo desconhecido: este pedido não tem corpo' }))
+}

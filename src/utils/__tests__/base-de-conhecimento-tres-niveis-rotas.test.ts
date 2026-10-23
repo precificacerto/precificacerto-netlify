@@ -34,7 +34,8 @@ const MP_PVC = '00000000-0000-4000-8000-00000000d001'
 const MP_ALU = '00000000-0000-4000-8000-00000000d002'
 const MP_DE_B = '00000000-0000-4000-8000-00000000d003'
 const CATEGORIAS = ['PERFIL', 'REFORCO', 'FERRAGENS', 'ACESSORIOS_VEDACAO', 'VIDRO', 'INSTALACAO']
-const cat = (mp: string, chave: string) => `${mp.slice(0, 31)}${CATEGORIAS.indexOf(chave) + 1}`
+// id da categoria: os 32 primeiros caracteres da matéria-prima + 'c' + os 2 últimos dela + a posição — um uuid válido
+const cat = (mp: string, chave: string) => `${mp.slice(0, 32)}c${mp.slice(-2)}${CATEGORIAS.indexOf(chave) + 1}`
 const C_PVC_PERFIL = cat(MP_PVC, 'PERFIL')
 const C_PVC_VIDRO = cat(MP_PVC, 'VIDRO')
 const C_PVC_INSTALACAO = cat(MP_PVC, 'INSTALACAO')
@@ -314,7 +315,7 @@ describe('(5) o erro da FUNÇÃO vira status com a mensagem dela — só nos qua
 
     it.each([
         ['CHECK (23514)', '23514', 400],
-        ['índice único (23505)', '23505', 409],
+        ['índice único (23505) — 500, como no mapa de hoje', '23505', 500],
         ['formato (22P02)', '22P02', 400],
         ['qualquer outro (XX000)', 'XX000', 500],
     ])('%s → %i, com frase fixa — o texto do banco NÃO vai', async (_n, code, status) => {

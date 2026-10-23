@@ -9,8 +9,9 @@
  *      `getCallerContext`) — nunca por papel vindo do corpo, e-mail ou lista. Quem não é recebe
  *      404, não 403: a rota não confirma que existe;
  *   b) lê o tenant do QUERY STRING, confere que é uuid e que a empresa EXISTE — senão 404;
- *   c) grava SÓ pelas funções da migração `20261023000001`, que gravam e logam em
- *      `superadmin_alteracao_log` NA MESMA TRANSAÇÃO. A rota nunca escreve em tabela diretamente.
+ *   c) grava SÓ pelas funções da migração `20261023000001` (e, nos três níveis, da `20261023000003`),
+ *      que gravam e logam em `superadmin_alteracao_log` NA MESMA TRANSAÇÃO. A rota nunca escreve em
+ *      tabela diretamente.
  *
  * O LOG: uma linha `[BASE-DE-CONHECIMENTO]` em `console.error` (o log da Vercel deste projeto só
  * exibe stderr), com a função e o código do erro — nunca o corpo do pedido.
@@ -191,18 +192,111 @@ const RECUSA_DA_FUNCAO: Record<string, { status: number; error: string }> = {
 }
 
 /**
- * Chama a função e responde. O texto do erro do banco NÃO vai para a resposta: o código decide o
- * status e a frase; o log leva a função e o código.
+ * Os códigos em que a MENSAGEM DA FUNÇÃO vai para a resposta — só nas rotas dos três níveis, e só
+ * nestes quatro (decisão do dono do produto, 23/10/2026). São os que as sete funções da
+ * `20261023000003` levantam com `RAISE ... USING ERRCODE`, com texto escrito para quem lê.
+ * Os outros (23514, 23505, 22P02, XX000...) vêm do PRÓPRIO BANCO — nome de constraint, de tabela —
+ * e continuam com a frase fixa de `RECUSA_DA_FUNCAO`.
+ * LIMITE CONHECIDO: um 23503 levantado pela FK do banco (só numa corrida, depois de a função conferir
+ * o nicho) também passaria o texto dele.
  */
-export async function gravarPelaFuncao(res: NextApiResponse, funcao: string, args: Record<string, unknown>) {
+const STATUS_COM_A_MENSAGEM_DA_FUNCAO: Record<string, number> = {
+    '42501': 403, // insufficient_privilege
+    P0002: 404, // no_data_found
+    '22023': 400, // invalid_parameter_value
+    '23503': 400, // foreign_key_violation — fornecedor fora do nicho da empresa
+}
+
+async function chamarFuncao(res: NextApiResponse, funcao: string, args: Record<string, unknown>, comAMensagemDaFuncao: boolean) {
     const { data, error } = await db().rpc(funcao, args)
     if (error) {
-        const code = (error as { code?: string }).code ?? null
+        const { code = null, message } = error as { code?: string | null; message?: string }
         console.error(`${PREFIXO_DO_LOG} funcao=${funcao} codigo=${code ?? '-'}`)
+        const status = comAMensagemDaFuncao && code ? STATUS_COM_A_MENSAGEM_DA_FUNCAO[code] : undefined
+        if (status && typeof message === 'string' && message.trim() !== '') return res.status(status).json({ error: message })
         const recusa = (code && RECUSA_DA_FUNCAO[code]) || { status: 500, error: 'Falha ao gravar.' }
         return res.status(recusa.status).json({ error: recusa.error })
     }
     return res.status(200).json({ depois: data })
+}
+
+/**
+ * Chama a função e responde. O texto do erro do banco NÃO vai para a resposta: o código decide o
+ * status e a frase; o log leva a função e o código.
+ */
+export async function gravarPelaFuncao(res: NextApiResponse, funcao: string, args: Record<string, unknown>) {
+    return chamarFuncao(res, funcao, args, false)
+}
+
+/**
+ * As rotas dos TRÊS NÍVEIS: a rota não revalida o que a função valida, então a função é quem
+ * explica a recusa — nos quatro códigos de `STATUS_COM_A_MENSAGEM_DA_FUNCAO`, a mensagem dela vai
+ * na resposta. O log continua levando só a função e o código: nunca a mensagem, que pode citar o corpo.
+ */
+export async function gravarPelaFuncaoComAMensagemDela(res: NextApiResponse, funcao: string, args: Record<string, unknown>) {
+    return chamarFuncao(res, funcao, args, true)
+}
+
+// ── A ÁRVORE DOS TRÊS NÍVEIS — leitura, com service_role, filtrada pelo tenant em cada tabela ──
+const porOrdem = (a: Linha, b: Linha) => Number(a.ordem) - Number(b.ordem)
+const porTexto = (campo: string) => (a: Linha, b: Linha) => String(a[campo] ?? '').localeCompare(String(b[campo] ?? ''), 'pt-BR')
+
+/** A lista que pendura em cada categoria, além dos fornecedores — e só nela. */
+const LISTA_DA_CATEGORIA: Record<string, string> = { VIDRO: 'vidros', FERRAGENS: 'ferragens', INSTALACAO: 'instalacao' }
+
+/**
+ * A árvore inteira de uma empresa, numa resposta só. As linhas saem ESPALHADAS como o banco as
+ * devolve: nenhum null vira false, vazio ou default — `config` null é "não configurado", `usa` null
+ * é "não informado", e `onde_predomina` vazio não é o mesmo que null. A ordem é feita aqui.
+ */
+export async function lerArvoreDaEmpresa(tenantId: string) {
+    const nicho = await nichoDaEmpresa(tenantId)
+    const categoriasDoCatalogo = (await ler<Linha[]>('orcamentista_categoria_catalogo', db().from('orcamentista_categoria_catalogo').select('*'))).sort(porOrdem)
+    const campos = (await ler<Linha[]>('orcamentista_categoria_campo', db().from('orcamentista_categoria_campo').select('*')))
+        .sort((a, b) => porTexto('categoria_chave')(a, b) || porOrdem(a, b))
+    const fornecedoresDoNicho = nicho
+        ? (await ler<Linha[]>('orcamentista_fornecedor', db().from('orcamentista_fornecedor').select('id, nome').eq('nicho_id', nicho.id)))
+            .map((f) => ({ id: f.id, nome: f.nome })).sort(porTexto('nome'))
+        : []
+
+    const doTenant = (tabela: string) => ler<Linha[]>(tabela, db().from(tabela).select('*').eq('tenant_id', tenantId))
+    const materiasPrimas = (await doTenant('orcamentista_materia_prima')).sort(porOrdem)
+    const categorias = await doTenant('orcamentista_mp_categoria')
+    const fornecedores = (await doTenant('orcamentista_mp_categoria_fornecedor')).sort(porOrdem)
+    const listas: Record<string, Linha[]> = {
+        vidros: (await doTenant('orcamentista_mp_vidro')).sort(porOrdem),
+        ferragens: (await doTenant('orcamentista_mp_ferragem')).sort(porOrdem),
+        instalacao: (await doTenant('orcamentista_mp_instalacao')).sort(porTexto('produto')),
+    }
+
+    // o nome de quem está gravado, MESMO fora do nicho atual: a linha existe e precisa ser lida
+    const idsCitados = [...new Set(fornecedores.map((f) => String(f.fornecedor_id)))]
+    const nomes = idsCitados.length === 0 ? {} : Object.fromEntries(
+        (await ler<Linha[]>('orcamentista_fornecedor', db().from('orcamentista_fornecedor').select('id, nome').in('id', idsCitados)))
+            .map((f) => [String(f.id), f.nome]))
+
+    const posicaoNoCatalogo = new Map(categoriasDoCatalogo.map((c, i) => [String(c.chave), i]))
+    const daCategoria = (linhas: Linha[], id: unknown) => linhas.filter((l) => l.mp_categoria_id === id)
+    return {
+        tenant_id: tenantId,
+        nicho,
+        catalogo: { categorias: categoriasDoCatalogo, campos },
+        fornecedores_do_nicho: fornecedoresDoNicho,
+        materias_primas: materiasPrimas.map((mp) => ({
+            ...mp,
+            categorias: categorias
+                .filter((c) => c.materia_prima_id === mp.id)
+                .sort((a, b) => (posicaoNoCatalogo.get(String(a.categoria_chave)) ?? 0) - (posicaoNoCatalogo.get(String(b.categoria_chave)) ?? 0))
+                .map((c) => {
+                    const lista = LISTA_DA_CATEGORIA[String(c.categoria_chave)]
+                    return {
+                        ...c,
+                        fornecedores: daCategoria(fornecedores, c.id).map((f) => ({ ...f, nome_do_fornecedor: nomes[String(f.fornecedor_id)] ?? null })),
+                        ...(lista ? { [lista]: daCategoria(listas[lista], c.id) } : {}),
+                    }
+                }),
+        })),
+    }
 }
 
 export function falhaDeLeitura(res: NextApiResponse, e: unknown) {
