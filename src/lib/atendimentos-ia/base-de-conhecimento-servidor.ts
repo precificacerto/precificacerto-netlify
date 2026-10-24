@@ -250,8 +250,9 @@ const porTexto = (campo: string) => (a: Linha, b: Linha) => String(a[campo] ?? '
  *
  * REGISTRADO, NÃO RESOLVIDO: há uma TERCEIRA fonte de "linha" — `orcamentista_motor_tipologia.linha`,
  * que a rota `/tabelas/[id]/conteudo` lê. Medido em 23/10/2026: regra e tipologia trazem as mesmas 3
- * linhas (DESIGN, EUROPA 42, EUROPA 60); a fórmula de família, só 2 (sem DESIGN). Três fontes para o
- * mesmo nome são uma divergência esperando acontecer. Ver o corpo do PR #137.
+ * linhas (DESIGN, EUROPA 42, EUROPA 60); a fórmula de família, só 2 (sem DESIGN). A divergência entre
+ * as três JÁ EXISTE hoje, não é futura — e é ela que o aviso do estado 2 (DESIGN) expõe na tela.
+ * Registrada, não consertada: ver o corpo do PR #137.
  *
  * O PostgREST CORTA a resposta (max_rows), e a regra tem 12.116 linhas na tabela em uso: ler tudo e
  * tirar os distintos aqui perderia linha em silêncio. Por isso a leitura pede a PRÓXIMA linha ainda
