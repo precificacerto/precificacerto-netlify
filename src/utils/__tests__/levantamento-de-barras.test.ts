@@ -175,7 +175,7 @@ describe('(3) o agrupamento é do LEVANTAMENTO', () => {
 describe('(4) o código do item: um valor por código', () => {
     it('DOIS CÓDIGOS para o mesmo perfil e cor: recusa com os dois códigos e os dois valores', () => {
         // BZ4556/WOLFF em BRANCO, como está no banco: 1027.1 (PVC) e 10271 (alumínio)
-        const r = recusado([esquadria({ tipologia: 'T-BZ4556' })], { tipologias: { 'T-BZ4556': tipologiaDeUmPerfil('T-BZ4556', 'BZ4556/WOLFF') } })
+        const r = recusado([esquadria({ tipologia: 'T-BZ4556', escolhas: {} })], { tipologias: { 'T-BZ4556': tipologiaDeUmPerfil('T-BZ4556', 'BZ4556/WOLFF') } })
         expect(r.recusas).toHaveLength(1)
         const x = r.recusas[0]
         expect(x.motivo).toBe('DOIS_CODIGOS')
@@ -225,7 +225,7 @@ describe('(4) o código do item: um valor por código', () => {
     })
 
     it('PERFIL SEM REGRA: recusa nomeando o perfil', () => {
-        const r = recusado([esquadria({ tipologia: 'T-X' })], { tipologias: { 'T-X': tipologiaDeUmPerfil('T-X', 'XX99/WOLFF') } })
+        const r = recusado([esquadria({ tipologia: 'T-X', escolhas: {} })], { tipologias: { 'T-X': tipologiaDeUmPerfil('T-X', 'XX99/WOLFF') } })
         expect(r.recusas.map((x) => [x.motivo, x.perfil])).toEqual([['PERFIL_SEM_REGRA', 'XX99/WOLFF']])
         expect(r.recusas[0].mensagem).toContain('XX99/WOLFF')
     })
@@ -316,7 +316,7 @@ describe('(6) as recusas', () => {
         expect(ok([b, a]).total).toEqual(ok([a, b]).total)
         // duas recusas da MESMA origem, em esquadrias diferentes: a ordem delas não pode seguir a da entrada
         const tipologias = { 'DP-02': dp02(), 'T-X': tipologiaDeUmPerfil('T-X', 'XX99/WOLFF') }
-        const x = esquadria({ tipologia: 'T-X' })               // PERFIL_SEM_REGRA, XX99/WOLFF
+        const x = esquadria({ tipologia: 'T-X', escolhas: {} })               // PERFIL_SEM_REGRA, XX99/WOLFF
         const y = esquadria({ escolhas: { MAE: 2 } })           // COR_SEM_CODIGO, BZ0012/WOLFF
         const chave = (r: ReturnType<typeof recusado>) => r.recusas.map((z) => `${z.origem}/${z.motivo}/${z.perfil ?? z.tipologia}`)
         expect(chave(recusado([y, x], { tipologias }))).toEqual(['CODIGO/COR_SEM_CODIGO/BZ0012/WOLFF', 'CODIGO/PERFIL_SEM_REGRA/XX99/WOLFF'])
