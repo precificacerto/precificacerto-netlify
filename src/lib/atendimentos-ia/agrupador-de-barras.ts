@@ -25,6 +25,13 @@
  * que cortes × serra, e é o material de fato consumido. Com isto, uma peça só é recusada quando é
  * maior que a barra.
  *
+ * O REFILO NÃO ENTRA, E NÃO É ESQUECIMENTO — decisão do dono do produto, 24/10/2026. A fábrica
+ * desbasta a ponta da barra, mas é para ALINHAMENTO, não para tirar material da conta: a barra entra
+ * INTEIRA, com o `medida_barra_m` do item. Por isso não há `refilo_mm` na base de conhecimento (medido
+ * em 24/10/2026: nenhuma coluna, campo de catálogo ou configuração fala em refilo ou desbaste) e não
+ * há corte a mais na ponta da barra na contagem de `cortes`. Quem quiser mudar isso muda uma regra,
+ * não conserta um defeito — e pergunta antes (`razao-longe-da-restricao.md`).
+ *
  * O ALGORITMO: first fit decrescente, por código. As peças são AGRUPADAS por (código, comprimento)
  * antes de tudo — a mesma peça em duas linhas da entrada, ou a quantidade quebrada em várias, dá o
  * mesmo resultado —, ordenadas da maior para a menor, e cada uma vai para a PRIMEIRA barra aberta
