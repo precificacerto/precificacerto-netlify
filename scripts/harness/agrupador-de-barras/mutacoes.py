@@ -56,7 +56,11 @@ M = [
  ('M21', 'preço ausente vira ZERO', A, [("const vb = valido(barra.valor_barra_interno) ? barra.valor_barra_interno : null", "const vb = valido(barra.valor_barra_interno) ? barra.valor_barra_interno : 0")]),
  ('M22', 'só a primeira recusa sai', A, [("return { ok: false, recusas: unicas }", "return { ok: false, recusas: unicas.slice(0, 1) }")]),
  ('M23', 'quantidade fracionária é aceita', A, [("if (!Number.isInteger(p.quantidade) || p.quantidade <= 0) {", "if (p.quantidade <= 0) {")]),
- ('M24', 'sem o micrômetro inteiro: comprimentos em ponto flutuante', A, [("const paraUm = (mm: number) => Math.round(mm * UM)", "const paraUm = (mm: number) => mm * UM")]),
+ ('M24', 'contas em MILÍMETROS com ponto flutuante, sem o micrômetro inteiro', A, [
+     ("const paraUm = (mm: number) => Math.round(mm * UM)", "const paraUm = (mm: number) => mm"),
+     ("const paraMm = (um: number) => um / UM", "const paraMm = (um: number) => um"),
+     ("const paraMetros = (um: number) => um / 1_000_000", "const paraMetros = (um: number) => um / 1000"),
+     ("(utilUm * vm) / 1_000_000", "(utilUm * vm) / 1000")]),
  ('M0', 'controle: nada muda', A, [("export", "export")]),
 ]
 

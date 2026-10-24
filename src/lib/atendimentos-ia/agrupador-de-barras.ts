@@ -29,10 +29,11 @@
  * por unidade de código (`<`), não por `localeCompare`, cujo resultado depende do ICU do ambiente.
  * Nenhum Map/Set tem a ordem de inserção usada como ordem de saída.
  *
- * AS CONTAS SÃO EM MICRÔMETROS INTEIROS. Medido em 24/10/2026: peças de 2.994,3 + 1.896,8 + 1.093,9
- * mm com serra de 5 mm somam EXATAMENTE 6.000 em decimal e 6000.000000000001 em ponto flutuante — a
- * barra recusaria o que cabe. Com inteiros não há o problema; as medidas das fórmulas da família têm
- * decimais. Arredondar para o µm não perde nada que uma serra enxergue.
+ * AS CONTAS SÃO EM MICRÔMETROS INTEIROS. Medido em 24/10/2026: peças de 2.046,3 + 2.042,9 + 1.895,8
+ * mm com serra de 5 mm somam EXATAMENTE 6.000 em decimal e, em mm com ponto flutuante, na ordem
+ * decrescente em que entram na barra, 6000.000000000001 — a barra recusaria o que cabe. Com inteiros
+ * não há o problema; as medidas das fórmulas da família têm decimais. Arredondar para o µm não perde
+ * nada que uma serra enxergue.
  *
  * A SOBRA é TUDO o que se compra e não vira peça: comprado − útil, com o consumo da serra dentro
  * (que também sai à parte, em `serra_consumida_mm`). É por isso que a diferença entre os dois totais

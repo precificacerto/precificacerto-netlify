@@ -71,11 +71,13 @@ describe('a serra entra na conta — cada peça consome um corte', () => {
         expect(doCodigo(r, 'P1').n_barras).toBe(2)
     })
 
-    it('peças com decimais que encostam EXATAMENTE no fim da barra cabem: 2.994,3 + 1.896,8 + 1.093,9 + 3 × 5 = 6.000', () => {
-        // em ponto flutuante a mesma soma dá 6000.000000000001 e a barra recusaria o que cabe
-        const r = ok([{ codigo: 'P1', comprimento_mm: 1093.9, quantidade: 1 }, { codigo: 'P1', comprimento_mm: 2994.3, quantidade: 1 },
-            { codigo: 'P1', comprimento_mm: 1896.8, quantidade: 1 }], { P1: B6 }, 5)
-        expect(composicao(r, 'P1')).toEqual([[2994.3, 1896.8, 1093.9]])
+    it('peças com decimais que encostam EXATAMENTE no fim da barra cabem: 2.046,3 + 2.042,9 + 1.895,8 + 3 × 5 = 6.000', () => {
+        // somada em mm com ponto flutuante, NA ORDEM EM QUE O AGRUPADOR AS COLOCA (decrescente), a mesma
+        // conta dá 6000.000000000001 e a barra recusaria o que cabe. Medido em 24/10/2026; a 1ª versão
+        // deste caso (2.994,3 + 1.896,8 + 1.093,9) só estourava em OUTRA ordem e não discriminava (M24).
+        const r = ok([{ codigo: 'P1', comprimento_mm: 1895.8, quantidade: 1 }, { codigo: 'P1', comprimento_mm: 2046.3, quantidade: 1 },
+            { codigo: 'P1', comprimento_mm: 2042.9, quantidade: 1 }], { P1: B6 }, 5)
+        expect(composicao(r, 'P1')).toEqual([[2046.3, 2042.9, 1895.8]])
         expect(doCodigo(r, 'P1').barras[0].sobra_mm).toBe(0)
     })
 
