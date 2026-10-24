@@ -14,6 +14,10 @@ A mutação é escrita NO ARQUIVO DO REPOSITÓRIO, com cópia `.bak`, e restaura
 Critério de VERMELHO: a linha `Tests:` do jest traz `N failed`, N > 0. Suíte que não carrega NÃO
 conta — sai `NAO CARREGOU` (`portao-que-nao-alcanca.md`, aparição 6).
 
+Uma mutação pode EXIGIR a queda de um caso nomeado (o 5º elemento, um trecho do nome do caso): é para
+quando a mutação existe POR CAUSA daquele caso, e derrubar outro qualquer não bastaria. Se o caso
+exigido não cai, o veredito é `NAO DERRUBOU O EXIGIDO`, e conta como sobrevivente.
+
 Uso:   python3 -B scripts/harness/agrupador-de-barras/mutacoes.py          (todas)
        python3 -B scripts/harness/agrupador-de-barras/mutacoes.py M3 M9   (só estas)
 Sai com 1 se alguma mutação real não derrubar, ou se o controle M0 não sair verde.
@@ -57,7 +61,7 @@ M = [
      ("            if (p.um > barraUm) {", "            if (p.um + serraUm > barraUm) {"),
      ("b.ocupadoUm + serraUm + p.um <= barraUm", "b.ocupadoUm + serraUm + p.um + serraUm <= barraUm"),
      ("const ultimoCorteUm = Math.min(serraUm, restoUm)", "const ultimoCorteUm = serraUm"),
-     ("b.pecasUm.length - 1 + (restoUm > 0 ? 1 : 0)", "b.pecasUm.length")]),
+     ("b.pecasUm.length - 1 + (restoUm > 0 ? 1 : 0)", "b.pecasUm.length")], 'peça do tamanho EXATO da barra CABE'),
  ('M20', 'o total soma o que tem (soma parcial)', A, [("porCodigo.every((c) => c[k] !== null) ?", "true ?")]),
  ('M21', 'preço ausente vira ZERO', A, [("const vb = valido(barra.valor_barra_interno) ? barra.valor_barra_interno : null", "const vb = valido(barra.valor_barra_interno) ? barra.valor_barra_interno : 0")]),
  ('M22', 'só a primeira recusa sai', A, [("return { ok: false, recusas: unicas }", "return { ok: false, recusas: unicas.slice(0, 1) }")]),
@@ -70,7 +74,7 @@ M = [
  ('M25', 'o último corte cobra a serra INTEIRA mesmo quando sobra menos que ela', A, [("const ultimoCorteUm = Math.min(serraUm, restoUm)", "const ultimoCorteUm = restoUm > 0 ? serraUm : 0")]),
  ('M26', 'sobra menor que a serra NÃO cabe (a leitura literal, que o dono do produto recusou)', A, [
      ("            if (p.um > barraUm) {", "            if (p.um > barraUm || (p.um < barraUm && p.um + serraUm > barraUm)) {"),
-     ("b.ocupadoUm + serraUm + p.um <= barraUm", "(b.ocupadoUm + serraUm + p.um === barraUm || b.ocupadoUm + serraUm + p.um + serraUm <= barraUm)")]),
+     ("b.ocupadoUm + serraUm + p.um <= barraUm", "(b.ocupadoUm + serraUm + p.um === barraUm || b.ocupadoUm + serraUm + p.um + serraUm <= barraUm)")], 'MONOTONICIDADE'),
  ('M27', 'o corte da sobra é contado mesmo quando a soma fecha exata', A, [("b.pecasUm.length - 1 + (restoUm > 0 ? 1 : 0)", "b.pecasUm.length")]),
  ('M0', 'controle: nada muda', A, [("export", "export")]),
 ]
@@ -88,7 +92,8 @@ def principal():
     antes = {a: hash_de(a) for a in alvos}
     pedidas = set(sys.argv[1:])
     sobreviveu = []
-    for ident, desc, arq, trocas in M:
+    for ident, desc, arq, trocas, *exige in M:
+        exige = exige[0] if exige else None
         if pedidas and ident not in pedidas:
             continue
         orig = open(arq, encoding='utf-8').read()
@@ -114,13 +119,17 @@ def principal():
         testes = next((l for l in linhas if l.startswith('Tests:')), '')
         falhos = re.search(r'(\d+) failed', testes)
         caidos = sorted(set(l.strip() for l in out.split('\n') if l.strip().startswith('●') and '›' in l))
-        if falhos and int(falhos.group(1)) > 0:
+        if falhos and int(falhos.group(1)) > 0 and exige and not any(exige in f for f in caidos):
+            veredito = 'NAO DERRUBOU O EXIGIDO'
+        elif falhos and int(falhos.group(1)) > 0:
             veredito = 'VERMELHO'
         elif p.returncode:
             veredito = 'NAO CARREGOU'
         else:
             veredito = 'NAO DERRUBOU'
         print(f'{veredito:12} {ident:4} {desc} | ' + ' | '.join(linhas))
+        if exige:
+            print(f'       exige a queda de: {exige!r} — ' + ('caiu' if any(exige in f for f in caidos) else 'NÃO caiu'))
         for f in caidos[:4]:
             print('      ', f[:170])
         if ident == CONTROLE:
