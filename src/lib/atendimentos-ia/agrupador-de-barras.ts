@@ -15,12 +15,15 @@
  *   - DETERMINÍSTICO: mesma entrada, mesmas barras, sempre. Se variasse, o preço variaria sem
  *     ninguém ter mexido em nada.
  *
- * O MODELO DO CORTE — decisão do dono do produto, 24/10/2026: cada peça consome UM corte de
- * `serra_mm`, inclusive a última, que a separa da sobra. Uma barra comporta as peças cuja soma de
- * (comprimento + serra) não passa do comprimento da barra; encostar no fim é permitido (≤).
- * Consequência, escrita porque surpreende: uma peça do tamanho EXATO da barra não cabe (6.000 + 5 >
- * 6.000) — ela é recusada com motivo próprio, `PECA_NAO_CABE_COM_O_CORTE`, e não como "maior que a
- * barra", que seria uma afirmação falsa.
+ * O MODELO DO CORTE — regra do dono do produto, 24/10/2026, que substitui o "um corte por peça,
+ * sempre" do #143 (com ele uma peça de 6.000 mm não cabia numa barra de 6.000 mm, onde não há corte):
+ *     cortes = (n − 1) + (1 se sobrar material, 0 se a soma fechar exata)
+ * Um corte entre cada par de peças, mais o que separa a última peça da sobra — e esse só existe
+ * quando há sobra. As peças cabem numa barra se Σ peças + (n − 1) × serra ≤ barra; encostar no fim
+ * é permitido. Quando o que sobra é MENOR que a largura da serra, as peças cabem e o último corte
+ * come só o que sobra (decisão do dono do produto, mesma data): `serra_consumida_mm` pode ser menor
+ * que cortes × serra, e é o material de fato consumido. Com isto, uma peça só é recusada quando é
+ * maior que a barra.
  *
  * O ALGORITMO: first fit decrescente, por código. As peças são AGRUPADAS por (código, comprimento)
  * antes de tudo — a mesma peça em duas linhas da entrada, ou a quantidade quebrada em várias, dá o
@@ -30,8 +33,9 @@
  * Nenhum Map/Set tem a ordem de inserção usada como ordem de saída.
  *
  * AS CONTAS SÃO EM MICRÔMETROS INTEIROS. Medido em 24/10/2026: peças de 2.046,3 + 2.042,9 + 1.895,8
- * mm com serra de 5 mm somam EXATAMENTE 6.000 em decimal e, em mm com ponto flutuante, na ordem
- * decrescente em que entram na barra, 6000.000000000001 — a barra recusaria o que cabe. Com inteiros
+ * mm (peças do #143, com um corte por peça) e de 2.043,4 + 2.043,3 + 1.903,3 mm (com os dois cortes
+ * entre elas), com serra de 5 mm, somam EXATAMENTE 6.000 em decimal e, em mm com ponto flutuante, na
+ * ordem decrescente em que entram na barra, 6000.000000000001 — a barra recusaria o que cabe. Com inteiros
  * não há o problema; as medidas das fórmulas da família têm decimais. Arredondar para o µm não perde
  * nada que uma serra enxergue.
  *
@@ -54,7 +58,8 @@ export type BarraDoCodigo = { comprimento_mm: number | null; valor_barra_interno
 export type EntradaDoAgrupador = { pecas: readonly PecaDoLevantamento[]; barras: Readonly<Record<string, BarraDoCodigo>>; serra_mm: number }
 
 // ── A saída ───────────────────────────────────────────────────────────────────────────────
-export type BarraCortada = { pecas_mm: number[]; usado_mm: number; sobra_mm: number }
+/** `cortes`: os entre as peças, mais o da sobra quando há sobra. `usado_mm`: peças + serra consumida. */
+export type BarraCortada = { pecas_mm: number[]; cortes: number; usado_mm: number; sobra_mm: number }
 export type ResultadoDoCodigo = {
     codigo: string
     comprimento_barra_mm: number
@@ -62,8 +67,10 @@ export type ResultadoDoCodigo = {
     n_pecas: number
     barras: BarraCortada[]
     n_barras: number
+    n_cortes: number
     metros_uteis: number
     metros_comprados: number
+    /** O material que a serra de fato consome — o último corte come só o resto, quando ele é menor. */
     serra_consumida_mm: number
     /** comprado − útil: o retalho e a serra. */
     sobra_mm: number
@@ -88,7 +95,6 @@ export type RecusaDoAgrupador =
     | { motivo: 'COMPRIMENTO_INVALIDO'; codigo: string; comprimento_peca_mm: number; mensagem: string }
     | { motivo: 'BARRA_SEM_COMPRIMENTO'; codigo: string; mensagem: string }
     | { motivo: 'PECA_MAIOR_QUE_A_BARRA'; codigo: string; comprimento_peca_mm: number; comprimento_barra_mm: number; mensagem: string }
-    | { motivo: 'PECA_NAO_CABE_COM_O_CORTE'; codigo: string; comprimento_peca_mm: number; comprimento_barra_mm: number; serra_mm: number; mensagem: string }
 /**
  * Para separar as duas formas, use `'recusas' in r`: com `strictNullChecks: false` (o tsconfig deste
  * repositório), o tsc não estreita a união pelo booleano `ok`.
@@ -100,8 +106,6 @@ export type ResultadoDoAgrupador =
 // ── As frases ─────────────────────────────────────────────────────────────────────────────
 export const fraseDaPecaMaiorQueABarra = (codigo: string, peca_mm: number, barra_mm: number) =>
     `A peça de ${peca_mm} mm do código ${codigo} é maior que a barra desse código (${barra_mm} mm). A peça não se emenda.`
-export const fraseDaPecaQueNaoCabeComOCorte = (codigo: string, peca_mm: number, barra_mm: number, serra_mm: number) =>
-    `A peça de ${peca_mm} mm do código ${codigo} só caberia na barra de ${barra_mm} mm sem o corte: com a serra de ${serra_mm} mm ela ocupa ${peca_mm + serra_mm} mm.`
 export const fraseDaBarraSemComprimento = (codigo: string) =>
     `O código ${codigo} não tem o comprimento da barra no item da tabela: sem ele não há como agrupar, e nenhum comprimento é suposto.`
 const fraseDaSerraInvalida = (serra_mm: number) => `A serra de ${serra_mm} mm não é válida: tem de ser um número de zero para cima.`
@@ -128,7 +132,7 @@ const paraMetros = (um: number) => um / 1_000_000
 /** Comparação por unidade de código: a mesma em qualquer ambiente. */
 const porTexto = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 const ORDEM_DO_MOTIVO: Record<RecusaDoAgrupador['motivo'], number> = {
-    SERRA_INVALIDA: 0, QUANTIDADE_INVALIDA: 1, COMPRIMENTO_INVALIDO: 2, BARRA_SEM_COMPRIMENTO: 3, PECA_MAIOR_QUE_A_BARRA: 4, PECA_NAO_CABE_COM_O_CORTE: 5,
+    SERRA_INVALIDA: 0, QUANTIDADE_INVALIDA: 1, COMPRIMENTO_INVALIDO: 2, BARRA_SEM_COMPRIMENTO: 3, PECA_MAIOR_QUE_A_BARRA: 4,
 }
 const valido = (v: number | null | undefined): v is number => typeof v === 'number' && Number.isFinite(v)
 
@@ -176,23 +180,27 @@ export function agruparEmBarras(entrada: EntradaDoAgrupador): ResultadoDoAgrupad
             if (p.um > barraUm) {
                 recusas.push({ motivo: 'PECA_MAIOR_QUE_A_BARRA', codigo, comprimento_peca_mm: paraMm(p.um), comprimento_barra_mm: barraMm, mensagem: fraseDaPecaMaiorQueABarra(codigo, paraMm(p.um), barraMm) })
                 recusou = true
-            } else if (p.um + serraUm > barraUm) {
-                recusas.push({ motivo: 'PECA_NAO_CABE_COM_O_CORTE', codigo, comprimento_peca_mm: paraMm(p.um), comprimento_barra_mm: barraMm, serra_mm: serra, mensagem: fraseDaPecaQueNaoCabeComOCorte(codigo, paraMm(p.um), barraMm, serra) })
-                recusou = true
             }
         }
         if (recusou) continue
 
-        // first fit decrescente: a primeira barra aberta em que a peça cabe, ou uma nova
-        const barras: Array<{ usadoUm: number; pecasUm: number[] }> = []
+        // first fit decrescente: a primeira barra aberta em que a peça cabe, ou uma nova. `ocupadoUm` é
+        // o material até o fim da última peça: as peças e os cortes ENTRE elas — o da sobra vem no fim
+        const abertas: Array<{ ocupadoUm: number; pecasUm: number[] }> = []
         for (const p of pecas) {
             for (let i = 0; i < p.quantidade; i++) {
-                const ocupa = p.um + serraUm
-                const destino = barras.find((b) => b.usadoUm + ocupa <= barraUm)
-                if (destino) { destino.usadoUm += ocupa; destino.pecasUm.push(p.um) }
-                else barras.push({ usadoUm: ocupa, pecasUm: [p.um] })
+                const destino = abertas.find((b) => b.ocupadoUm + serraUm + p.um <= barraUm)
+                if (destino) { destino.ocupadoUm += serraUm + p.um; destino.pecasUm.push(p.um) }
+                else abertas.push({ ocupadoUm: p.um, pecasUm: [p.um] })
             }
         }
+        // o corte que separa a última peça da sobra: só existe se sobra, e come só o que sobra
+        const barras = abertas.map((b) => {
+            const restoUm = barraUm - b.ocupadoUm
+            const ultimoCorteUm = Math.min(serraUm, restoUm)
+            const cortes = b.pecasUm.length - 1 + (restoUm > 0 ? 1 : 0)
+            return { pecasUm: b.pecasUm, cortes, serraUm: (b.pecasUm.length - 1) * serraUm + ultimoCorteUm, usadoUm: b.ocupadoUm + ultimoCorteUm }
+        })
         const nPecas = pecas.reduce((s, p) => s + p.quantidade, 0)
         const utilUm = pecas.reduce((s, p) => s + p.um * p.quantidade, 0)
         const compradoUm = barras.length * barraUm
@@ -205,11 +213,12 @@ export function agruparEmBarras(entrada: EntradaDoAgrupador): ResultadoDoAgrupad
             comprimento_barra_mm: barraMm,
             pecas: pecas.map((p) => ({ comprimento_mm: paraMm(p.um), quantidade: p.quantidade })),
             n_pecas: nPecas,
-            barras: barras.map((b) => ({ pecas_mm: b.pecasUm.map(paraMm), usado_mm: paraMm(b.usadoUm), sobra_mm: paraMm(barraUm - b.usadoUm) })),
+            barras: barras.map((b) => ({ pecas_mm: b.pecasUm.map(paraMm), cortes: b.cortes, usado_mm: paraMm(b.usadoUm), sobra_mm: paraMm(barraUm - b.usadoUm) })),
             n_barras: barras.length,
+            n_cortes: barras.reduce((s, b) => s + b.cortes, 0),
             metros_uteis: paraMetros(utilUm),
             metros_comprados: paraMetros(compradoUm),
-            serra_consumida_mm: paraMm(nPecas * serraUm),
+            serra_consumida_mm: paraMm(barras.reduce((s, b) => s + b.serraUm, 0)),
             sobra_mm: paraMm(compradoUm - utilUm),
             aproveitamento_pct: (utilUm / compradoUm) * 100,
             total_por_barra_inteira: vb === null ? null : barras.length * vb,

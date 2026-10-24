@@ -30,14 +30,16 @@ CONTROLE = 'M0'
 
 # (id, o que estraga, arquivo, [(trecho, troca), ...]) — o trecho tem de aparecer UMA vez
 M = [
- ('M1', 'a serra não entra na conta', A, [("const ocupa = p.um + serraUm", "const ocupa = p.um")]),
- ('M2', 'n − 1 cortes: a primeira peça da barra não consome serra', A, [("else barras.push({ usadoUm: ocupa, pecasUm: [p.um] })", "else barras.push({ usadoUm: p.um, pecasUm: [p.um] })")]),
- ('M3', 'encostar no fim da barra NÃO é permitido (< em vez de ≤)', A, [("b.usadoUm + ocupa <= barraUm", "b.usadoUm + ocupa < barraUm")]),
+ ('M1', 'a serra não entra na conta', A, [("const serraUm = valido(serra) && serra >= 0 ? paraUm(serra) : 0", "const serraUm = 0")]),
+ ('M2', 'só os n − 1 cortes entre as peças: o corte da sobra nunca entra', A, [
+     ("const ultimoCorteUm = Math.min(serraUm, restoUm)", "const ultimoCorteUm = 0"),
+     ("b.pecasUm.length - 1 + (restoUm > 0 ? 1 : 0)", "b.pecasUm.length - 1")]),
+ ('M3', 'encostar no fim da barra NÃO é permitido (< em vez de ≤)', A, [("b.ocupadoUm + serraUm + p.um <= barraUm", "b.ocupadoUm + serraUm + p.um < barraUm")]),
  ('M4', 'códigos diferentes com a mesma barra se misturam', A, [("const pecas = agrupadas.filter((x) => x.codigo === codigo)", "const pecas = agrupadas.filter((x) => entrada.barras[x.codigo]?.comprimento_mm === barraMm)")]),
  ('M5', 'empacota por LINHA DA ENTRADA (esquadria), não pelo levantamento', A, [
      ("const ja = agrupadas.find((x) => x.codigo === p.codigo && x.um === um)", "const ja = undefined as { quantidade: number } | undefined"),
-     ("const destino = barras.find((b) => b.usadoUm + ocupa <= barraUm)", "const destino = barras.find((b) => (b as { dono?: unknown }).dono === p && b.usadoUm + ocupa <= barraUm)"),
-     ("else barras.push({ usadoUm: ocupa, pecasUm: [p.um] })", "else barras.push({ usadoUm: ocupa, pecasUm: [p.um], dono: p } as { usadoUm: number; pecasUm: number[] })")]),
+     ("const destino = abertas.find((b) => b.ocupadoUm + serraUm + p.um <= barraUm)", "const destino = abertas.find((b) => (b as { dono?: unknown }).dono === p && b.ocupadoUm + serraUm + p.um <= barraUm)"),
+     ("else abertas.push({ ocupadoUm: p.um, pecasUm: [p.um] })", "else abertas.push({ ocupadoUm: p.um, pecasUm: [p.um], dono: p } as { ocupadoUm: number; pecasUm: number[] })")]),
  ('M6', 'a barra é uma constante de 6000, não a do item', A, [("const barraUm = paraUm(barraMm)", "const barraUm = paraUm(6000)")]),
  ('M7', 'peça maior que a barra não é recusada como tal', A, [("            if (p.um > barraUm) {", "            if (false) {")]),
  ('M8', 'sem ordenar por tamanho (fica a ordem da entrada)', A, [("agrupadas.sort((a, b) => b.um - a.um || porTexto(a.codigo, b.codigo))", "agrupadas.sort(() => 0)")]),
@@ -47,11 +49,15 @@ M = [
  ('M12', 'barra inteira valorada pelos metros úteis', A, [("total_por_barra_inteira: vb === null ? null : barras.length * vb", "total_por_barra_inteira: vb === null ? null : (utilUm / 1_000_000) * vb")]),
  ('M13', 'só um dos totais (consumo real sempre null)', A, [("total_por_consumo_real: vm === null ? null : (utilUm * vm) / 1_000_000", "total_por_consumo_real: null")]),
  ('M14', 'aproveitamento do levantamento = MÉDIA dos códigos', A, [("aproveitamento_pct: compradoTotalUm === 0 ? null : (utilTotalUm / compradoTotalUm) * 100", "aproveitamento_pct: porCodigo.reduce((s, c) => s + c.aproveitamento_pct, 0) / porCodigo.length")]),
- ('M15', 'a sobra não inclui a serra', A, [("sobra_mm: paraMm(compradoUm - utilUm)", "sobra_mm: paraMm(compradoUm - utilUm - nPecas * serraUm)")]),
+ ('M15', 'a sobra não inclui a serra', A, [("sobra_mm: paraMm(compradoUm - utilUm)", "sobra_mm: paraMm(compradoUm - utilUm - barras.reduce((s, b) => s + b.serraUm, 0))")]),
  ('M16', 'milimetrosDaBarra ingênuo (m × 1000 em ponto flutuante)', A, [("return Math.round(medida_barra_m * 1_000_000) / 1000", "return medida_barra_m * 1000")]),
  ('M17', 'a recusa da peça maior não nomeia o código', A, [("`A peça de ${peca_mm} mm do código ${codigo} é maior", "`A peça de ${peca_mm} mm é maior")]),
  ('M18', 'código sem barra supõe 6 m', A, [("const barraMm = barra?.comprimento_mm", "const barraMm = barra?.comprimento_mm ?? 6000")]),
- ('M19', 'peça + serra maior que a barra é aceita', A, [("} else if (p.um + serraUm > barraUm) {", "} else if (false) {")]),
+ ('M19', 'n cortes SEMPRE, um por peça — o modelo do #143', A, [
+     ("            if (p.um > barraUm) {", "            if (p.um + serraUm > barraUm) {"),
+     ("b.ocupadoUm + serraUm + p.um <= barraUm", "b.ocupadoUm + serraUm + p.um + serraUm <= barraUm"),
+     ("const ultimoCorteUm = Math.min(serraUm, restoUm)", "const ultimoCorteUm = serraUm"),
+     ("b.pecasUm.length - 1 + (restoUm > 0 ? 1 : 0)", "b.pecasUm.length")]),
  ('M20', 'o total soma o que tem (soma parcial)', A, [("porCodigo.every((c) => c[k] !== null) ?", "true ?")]),
  ('M21', 'preço ausente vira ZERO', A, [("const vb = valido(barra.valor_barra_interno) ? barra.valor_barra_interno : null", "const vb = valido(barra.valor_barra_interno) ? barra.valor_barra_interno : 0")]),
  ('M22', 'só a primeira recusa sai', A, [("return { ok: false, recusas: unicas }", "return { ok: false, recusas: unicas.slice(0, 1) }")]),
@@ -61,6 +67,11 @@ M = [
      ("const paraMm = (um: number) => um / UM", "const paraMm = (um: number) => um"),
      ("const paraMetros = (um: number) => um / 1_000_000", "const paraMetros = (um: number) => um / 1000"),
      ("(utilUm * vm) / 1_000_000", "(utilUm * vm) / 1000")]),
+ ('M25', 'o último corte cobra a serra INTEIRA mesmo quando sobra menos que ela', A, [("const ultimoCorteUm = Math.min(serraUm, restoUm)", "const ultimoCorteUm = restoUm > 0 ? serraUm : 0")]),
+ ('M26', 'sobra menor que a serra NÃO cabe (a leitura literal, que o dono do produto recusou)', A, [
+     ("            if (p.um > barraUm) {", "            if (p.um > barraUm || (p.um < barraUm && p.um + serraUm > barraUm)) {"),
+     ("b.ocupadoUm + serraUm + p.um <= barraUm", "(b.ocupadoUm + serraUm + p.um === barraUm || b.ocupadoUm + serraUm + p.um + serraUm <= barraUm)")]),
+ ('M27', 'o corte da sobra é contado mesmo quando a soma fecha exata', A, [("b.pecasUm.length - 1 + (restoUm > 0 ? 1 : 0)", "b.pecasUm.length")]),
  ('M0', 'controle: nada muda', A, [("export", "export")]),
 ]
 
