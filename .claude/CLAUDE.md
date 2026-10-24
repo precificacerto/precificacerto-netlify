@@ -310,6 +310,7 @@ O AIOS carrega regras contextuais de `.claude/rules/` automaticamente. Regras co
 
 | Rule File | Description |
 |-----------|-------------|
+| `a-coluna-que-parece-enumeracao.md` | Coluna com nome de atributo pode ser discriminador de variante — liste os valores distintos antes de filtrar por igualdade |
 | `agent-authority.md` | Agent delegation matrix and exclusive operations |
 | `agent-handoff.md` | Agent switch compaction protocol for context optimization |
 | `agent-memory-imports.md` | Agent memory lifecycle and CLAUDE.md ownership |
