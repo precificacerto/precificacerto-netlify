@@ -70,7 +70,7 @@ function dp02() {
     return r.tipologia
 }
 /** Uma tipologia mínima, escrita à mão, para os casos que precisam de um perfil que a DP-02 não tem. */
-function tipologiaDeUmPerfil(codigo: string, perfil: string) {
+function tipologiaDeUmPerfil(codigo: string, perfil: string): import('@/lib/atendimentos-ia/avaliador-de-formulas').Tipologia {
     return {
         codigo,
         detalhe: { larg_min_mm: null, larg_max_mm: null, alt_min_mm: null, alt_max_mm: null },
@@ -211,7 +211,7 @@ describe('(4) o código do item: um valor por código', () => {
     it('cor vazia AO LADO de outras cores não é coringa: recusa', () => {
         const regras = [{ codigo: 'P1', codigo_wvetro: 'P/WOLFF', cor: null }, { codigo: 'P2', codigo_wvetro: 'P/WOLFF', cor: 'PRETO' }]
         const c = L().codigoDaPeca('P/WOLFF', 'BRANCO', regras)
-        if (c.ok) throw new Error('era para recusar, e saiu ' + c.codigo)
+        if (!('recusa' in c)) throw new Error('era para recusar, e saiu ' + c.codigo)
         expect(c.recusa.motivo).toBe('COR_SEM_CODIGO')
         expect(c.recusa.variantes).toEqual(['(vazia)', 'PRETO'])
     })
@@ -219,7 +219,7 @@ describe('(4) o código do item: um valor por código', () => {
     it('a cor é comparada EXATA: "Branco" não casa com BRANCO', () => {
         const regras = [{ codigo: 'Q1', codigo_wvetro: 'Q/WOLFF', cor: 'Branco' }]
         const c = L().codigoDaPeca('Q/WOLFF', 'BRANCO', regras)
-        if (c.ok) throw new Error('era para recusar, e saiu ' + c.codigo)
+        if (!('recusa' in c)) throw new Error('era para recusar, e saiu ' + c.codigo)
         expect(c.recusa.motivo).toBe('COR_SEM_CODIGO')
         expect(c.recusa.variantes).toEqual(['Branco'])
     })

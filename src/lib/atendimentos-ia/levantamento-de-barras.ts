@@ -45,8 +45,8 @@
  * esta ligação NOMEIA a falta em `falta_para_o_total`: o código, o perfil, o campo e o total que não
  * sai. Preço ausente nunca vira zero (`ausente-vs-falso.md`).
  *
- * Para separar as duas formas do resultado, use `'recusas' in r`: com `strictNullChecks: false`, o
- * tsc não estreita a união pelo booleano `ok`.
+ * Para separar as duas formas do resultado, use `'recusas' in r` (e `'recusa' in r` em `codigoDaPeca`):
+ * com `strictNullChecks: false`, o tsc não estreita a união pelo booleano `ok`.
  *
  * Portão: `src/utils/__tests__/levantamento-de-barras.test.ts`. Mutações:
  * `scripts/harness/levantamento-de-barras/`.
@@ -153,6 +153,8 @@ export function formatarReais(v: number | null | undefined): string {
 const porTexto = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 const distintos = (xs: string[]) => [...new Set(xs)].sort(porTexto)
 const VAZIA = '(vazia)'
+/** O candidato antes de a tabela de preço ser lida: a descrição e os valores entram em `completarDoisCodigos`. */
+const soOCodigo = (codigo: string): CandidatoDoCodigo => ({ codigo, descricao: null, valor_barra_interno: null, valor_metro_interno: null })
 
 type RecusaDaPonte = Omit<RecusaDoLevantamento, 'esquadrias' | 'mensagem'> & { texto: string }
 export type ResultadoDaPonte =
@@ -167,11 +169,11 @@ function ponte(perfil: string, cor: string, regras: readonly RegraDoDePara[]): {
     }
     const daCor = distintos(linhas.filter((r) => r.cor === cor).map((r) => r.codigo))
     if (daCor.length === 1) return { ok: true, codigo: daCor[0], origem: 'COR' }
-    if (daCor.length > 1) return { ok: false, recusa: { origem: 'CODIGO', motivo: 'DOIS_CODIGOS', perfil, cor, texto: '', candidatos: daCor.map((codigo) => ({ codigo, descricao: null, valor_barra_interno: null, valor_metro_interno: null })) } }
+    if (daCor.length > 1) return { ok: false, recusa: { origem: 'CODIGO', motivo: 'DOIS_CODIGOS', perfil, cor, texto: '', candidatos: daCor.map(soOCodigo) } }
     if (linhas.every((r) => r.cor === null)) {
         const unicos = distintos(linhas.map((r) => r.codigo))
         if (unicos.length === 1) return { ok: true, codigo: unicos[0], origem: 'SEM_VARIANTE' }
-        return { ok: false, recusa: { origem: 'CODIGO', motivo: 'DOIS_CODIGOS', perfil, cor, texto: '', candidatos: unicos.map((codigo) => ({ codigo, descricao: null, valor_barra_interno: null, valor_metro_interno: null })) } }
+        return { ok: false, recusa: { origem: 'CODIGO', motivo: 'DOIS_CODIGOS', perfil, cor, texto: '', candidatos: unicos.map(soOCodigo) } }
     }
     const variantes = distintos(linhas.map((r) => r.cor ?? VAZIA))
     return { ok: false, recusa: { origem: 'CODIGO', motivo: 'COR_SEM_CODIGO', perfil, cor, variantes,
@@ -193,7 +195,7 @@ function completarDoisCodigos(r: RecusaDaPonte, itens: readonly ItemDaTabela[]):
 /** A ponte, para quem quer só o código de uma peça. A recusa sai sem esquadria. */
 export function codigoDaPeca(perfil: string, cor: string, regras: readonly RegraDoDePara[], itens: readonly ItemDaTabela[] = []): ResultadoDaPonte {
     const p = ponte(perfil, cor, regras)
-    if (p.ok) return p
+    if (!('recusa' in p)) return p
     const r = p.recusa.motivo === 'DOIS_CODIGOS' ? completarDoisCodigos(p.recusa, itens) : p.recusa
     const { texto, ...resto } = r
     return { ok: false, recusa: { ...resto, esquadrias: [], mensagem: maiuscula(texto) } }
@@ -256,7 +258,7 @@ export function levantarBarras(entrada: EntradaDoLevantamento): ResultadoDoLevan
     for (const perfil of perfis) {
         const p = ponte(perfil, cor, entrada.regras)
         const esquadrias = [...new Set(brutas.filter((b) => b.perfil === perfil).map((b) => b.esquadria))]
-        if (p.ok) { codigoDoPerfil[perfil] = p.codigo; continue }
+        if (!('recusa' in p)) { codigoDoPerfil[perfil] = p.codigo; continue }
         const r = p.recusa.motivo === 'DOIS_CODIGOS' ? completarDoisCodigos(p.recusa, entrada.itens) : p.recusa
         for (const esquadria of esquadrias) parciais.push({ ...r, esquadria })
     }
