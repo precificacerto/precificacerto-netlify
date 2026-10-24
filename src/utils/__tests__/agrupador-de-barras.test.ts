@@ -261,7 +261,10 @@ describe('MONOTONICIDADE: serra maior nunca dá MENOS barras', () => {
         { codigo: 'P1', comprimento_mm: 4000, quantidade: 1 }, { codigo: 'P1', comprimento_mm: 2000, quantidade: 2 },
         { codigo: 'P1', comprimento_mm: 1900, quantidade: 1 }, { codigo: 'P1', comprimento_mm: 3100, quantidade: 3 },
         { codigo: 'P2', comprimento_mm: 2950, quantidade: 4 }, { codigo: 'P2', comprimento_mm: 800.5, quantidade: 3 },
-        { codigo: 'P10', comprimento_mm: 5400, quantidade: 1 }, { codigo: 'P10', comprimento_mm: 500, quantidade: 5 },
+        // 5.200, e não os 5.400 do caso de determinismo: nenhuma peça pode ficar a menos de 200 mm do fim
+        // da sua barra, ou a mutação M26 a RECUSA e derruba o caso por recusa, não por queda — medido:
+        // com 5.400 em barra de 5.500 foi exatamente o que aconteceu, e o caso caía pelo motivo errado
+        { codigo: 'P10', comprimento_mm: 5200, quantidade: 1 }, { codigo: 'P10', comprimento_mm: 500, quantidade: 5 },
         { codigo: 'A9', comprimento_mm: 1200, quantidade: 2 },
         { codigo: 'T3', comprimento_mm: 1900, quantidade: 3 },                                   // fecha exato com serra 150
         { codigo: 'D2', comprimento_mm: 3000, quantidade: 1 }, { codigo: 'D2', comprimento_mm: 2995, quantidade: 1 }, // fecha exato com serra 5
