@@ -78,6 +78,33 @@ verde.**
 | M27 | o corte da sobra é contado mesmo quando a soma fecha exata | 4 | peça do tamanho EXATO da barra CABE: 1 peça, 0 cortes, sobra 0, aproveitamento 100% — não há o … |
 | **M0** | **controle: nada muda** | **0** | **verde — o detector não é vermelho por construção** |
 
+## O refilo NÃO entra — decisão, não esquecimento
+
+Decisão do dono do produto, 24/10/2026: **a fábrica desbasta a ponta da barra, mas é para ALINHAMENTO,
+e NÃO entra no cálculo. A barra entra inteira.**
+
+O que isso fixa, para ninguém "consertar" depois:
+
+- **nenhum `refilo_mm` na base de conhecimento.** Medido em 24/10/2026: nenhuma coluna, nenhum campo do
+  catálogo e nenhuma configuração de matéria-prima falam em refilo ou desbaste. Os campos de PERFIL
+  são `linha`, `cor_predominante`, `cores`, `barra_mm`, `serra_mm`, `solda` e `criterio_custo_barra`;
+- **nenhum corte a mais na contagem de `cortes`.** A ponta da barra não consome serra;
+- **o comprimento da barra é o `medida_barra_m` do item, sem desconto nenhum.**
+
+Não há caso novo no portão nem mutação na bateria para isso, e é de propósito: a regra é uma
+AUSÊNCIA, e os casos que já existem a fixam. Medido em 24/10/2026, aplicando à mão as duas formas
+que um refilo tomaria:
+
+| refilo como | casos que caem |
+|---|---:|
+| barra encurtada em 5 mm (`paraUm(barraMm) − paraUm(5)`) | 11 de 26 |
+| um corte de serra na ponta, antes da 1ª peça | 8 de 26 |
+
+Entre os que caem nas duas formas: o 6.000 em 6.000, o 3.000 + 2.995 e a fronteira da serra 150.
+
+Quem quiser o refilo muda uma regra, não conserta um defeito, e pergunta antes
+(`razao-longe-da-restricao.md`).
+
 ## A monotonicidade, e por que a M26 EXIGE a razão
 
 A serra maior nunca pode dar MENOS barras. Foi isso que derrubou a leitura em que o último corte cobra
