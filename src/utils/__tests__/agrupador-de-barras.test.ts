@@ -71,6 +71,14 @@ describe('a serra entra na conta — cada peça consome um corte', () => {
         expect(doCodigo(r, 'P1').n_barras).toBe(2)
     })
 
+    it('peças com decimais que encostam EXATAMENTE no fim da barra cabem: 2.994,3 + 1.896,8 + 1.093,9 + 3 × 5 = 6.000', () => {
+        // em ponto flutuante a mesma soma dá 6000.000000000001 e a barra recusaria o que cabe
+        const r = ok([{ codigo: 'P1', comprimento_mm: 1093.9, quantidade: 1 }, { codigo: 'P1', comprimento_mm: 2994.3, quantidade: 1 },
+            { codigo: 'P1', comprimento_mm: 1896.8, quantidade: 1 }], { P1: B6 }, 5)
+        expect(composicao(r, 'P1')).toEqual([[2994.3, 1896.8, 1093.9]])
+        expect(doCodigo(r, 'P1').barras[0].sobra_mm).toBe(0)
+    })
+
     it('o consumo da serra sai à parte, e a sobra é TUDO o que se compra e não vira peça (retalho + serra)', () => {
         const c = doCodigo(ok([{ codigo: 'P1', comprimento_mm: 1900, quantidade: 3 }], { P1: B6 }, 5), 'P1')
         expect(c.metros_uteis).toBe(5.7)
@@ -107,7 +115,11 @@ describe('o comprimento da barra vem DO ITEM', () => {
         expect(doCodigo(r, 'P55').metros_comprados).toBe(11)
     })
 
-    it('milimetrosDaBarra: 5,8 m são 5.800 mm EXATOS (5,8 × 1000 dá 5800.000000000001 em ponto flutuante)', () => {
+    it('milimetrosDaBarra: 2,01 m são 2.010 mm EXATOS (2,01 × 1000 dá 2009.9999999999998 em ponto flutuante)', () => {
+        // MEDIDO em 24/10/2026: nenhuma medida que existe hoje em produção (6; 5,8; 5,5; 1; 100; 300)
+        // falha em `m × 1000` — 175 das 12.000 medidas de até 3 casas, até 12 m, falham. O caso usa uma
+        // delas, porque com as de produção ele passaria verde sem a conversão (`teste-que-nao-exercita.md`).
+        expect(G().milimetrosDaBarra(2.01)).toBe(2010)
         expect(G().milimetrosDaBarra(5.8)).toBe(5800)
         expect(G().milimetrosDaBarra(5.5)).toBe(5500)
         expect(G().milimetrosDaBarra(6)).toBe(6000)
@@ -228,13 +240,16 @@ describe('os DOIS valores — sempre os dois; quem escolhe é o orçamentista', 
 
 describe('o total do levantamento', () => {
     it('barras por código, metros úteis e comprados, e o aproveitamento = úteis ÷ comprados (não a média dos códigos)', () => {
-        // P1: 5,7 úteis em 6 comprados (95%); P2: 1,0 útil em 6 comprados (16,7%). A média daria 55,8%.
-        const r = ok([{ codigo: 'P1', comprimento_mm: 1900, quantidade: 3 }, { codigo: 'P2', comprimento_mm: 1000, quantidade: 1 }], { P1: B6, P2: B6 }, 5)
-        expect(r.total.barras_por_codigo).toEqual({ P1: 1, P2: 1 })
-        expect(r.total.n_barras).toBe(2)
-        expect(r.total.metros_uteis).toBe(6.7)
-        expect(r.total.metros_comprados).toBe(12)
-        expect(r.total.aproveitamento_pct).toBeCloseTo((6.7 / 12) * 100, 10)
+        // P1: 5,7 úteis em 6 comprados (95%); P2: 10 úteis em 12 comprados (83,3%). Úteis ÷ comprados:
+        // 15,7 ÷ 18 = 87,22%; a MÉDIA dos códigos daria 89,17%. Com códigos de mesmo peso as duas
+        // contas coincidem e o caso não discriminaria — foi o que a mutação M14 mostrou na 1ª versão.
+        const r = ok([{ codigo: 'P1', comprimento_mm: 1900, quantidade: 3 }, { codigo: 'P2', comprimento_mm: 5000, quantidade: 2 }], { P1: B6, P2: B6 }, 5)
+        expect(r.total.barras_por_codigo).toEqual({ P1: 1, P2: 2 })
+        expect(r.total.n_barras).toBe(3)
+        expect(r.total.metros_uteis).toBe(15.7)
+        expect(r.total.metros_comprados).toBe(18)
+        expect(r.total.aproveitamento_pct).toBeCloseTo((15.7 / 18) * 100, 10)
+        expect(r.total.aproveitamento_pct).not.toBeCloseTo((95 + (10 / 12) * 100) / 2, 2)
         expect(doCodigo(r, 'P1').aproveitamento_pct).toBeCloseTo(95, 10)
     })
 })

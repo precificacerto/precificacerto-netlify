@@ -29,9 +29,10 @@
  * por unidade de código (`<`), não por `localeCompare`, cujo resultado depende do ICU do ambiente.
  * Nenhum Map/Set tem a ordem de inserção usada como ordem de saída.
  *
- * AS CONTAS SÃO EM MICRÔMETROS INTEIROS. Em ponto flutuante, três peças de 1.900 mais três cortes
- * de 100 podem dar 6000.000000000001 e recusar o que cabe. Arredondar para o µm não perde nada que
- * uma serra enxergue, e a comparação com o fim da barra fica exata.
+ * AS CONTAS SÃO EM MICRÔMETROS INTEIROS. Medido em 24/10/2026: peças de 2.994,3 + 1.896,8 + 1.093,9
+ * mm com serra de 5 mm somam EXATAMENTE 6.000 em decimal e 6000.000000000001 em ponto flutuante — a
+ * barra recusaria o que cabe. Com inteiros não há o problema; as medidas das fórmulas da família têm
+ * decimais. Arredondar para o µm não perde nada que uma serra enxergue.
  *
  * A SOBRA é TUDO o que se compra e não vira peça: comprado − útil, com o consumo da serra dentro
  * (que também sai à parte, em `serra_consumida_mm`). É por isso que a diferença entre os dois totais
@@ -108,8 +109,10 @@ const fraseDoComprimentoInvalido = (codigo: string, c: number) => `O comprimento
 
 // ── A barra do item ───────────────────────────────────────────────────────────────────────
 /**
- * `medida_barra_m` do item em milímetros, ou null quando o item não traz a medida. `5,8 × 1000` dá
- * 5800.000000000001 em ponto flutuante: a conversão passa pelo micrômetro inteiro.
+ * `medida_barra_m` do item em milímetros, ou null quando o item não traz a medida. A conversão passa
+ * pelo micrômetro inteiro: `2,01 × 1000` dá 2009.9999999999998 em ponto flutuante. Medido em
+ * 24/10/2026: nenhuma medida que existe hoje em produção falha (6; 5,8; 5,5; 1; 100; 300); 175 das
+ * 12.000 medidas de até 3 casas até 12 m falham. A proteção é para a próxima tabela, não para esta.
  */
 export function milimetrosDaBarra(medida_barra_m: number | null | undefined): number | null {
     if (medida_barra_m === null || medida_barra_m === undefined || !Number.isFinite(medida_barra_m)) return null
