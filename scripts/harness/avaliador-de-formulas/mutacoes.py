@@ -42,7 +42,7 @@ M = [
  ('M7', 'sem detecção de ciclo', A, [("            if (pilha.includes(nome)) {", "            if (false) {")], 'CICLO'),
  ('M8', 'WOLSPVC = 0, e não 6', A, [("WOLFIH: 0, WOLSPVC: 6 }", "WOLFIH: 0, WOLSPVC: 0 }")], 'as constantes do Leia-me'),
  ('M9', 'o Padrão é ignorado', A, [("const padrao = variavel.padrao?.trim() ?? ''", "const padrao = ''")], 'X e Y saem do Padrão'),
- ('M10', 'a escolha é ignorada (vale sempre o Padrão)', A, [("if (escolha !== undefined) return deNumero(escolha) as Q", "if (false) return deNumero(escolha as number) as Q")], 'A ESCOLHA vale sobre o Padrão'),
+ ('M10', 'a escolha é ignorada (vale sempre o Padrão)', A, [("if (escolha !== undefined) return deNumero(escolha) as Q", "if (false) return deNumero(escolha as number) as Q")], 'a ESCOLHA vale sobre o Padrão'),
  ('M11', 'a espessura do vidro não filtra o baguete', A, [("if (!lista.map(Number).includes(esp)) {", "if (false) {")], 'vidro de 20 mm'),
  ('M12', 'sem a espessura, o baguete sai sem recusa', A, [("            if (esp === null) {", "            if (false) {")], 'sem a espessura'),
  ('M13', 'espessura que nenhum baguete atende passa calada', A, [("if (esp !== null && baguetesComCondicao > 0 && baguetesAtendidos === 0) {", "if (false) {")], 'nenhum baguete atende'),
