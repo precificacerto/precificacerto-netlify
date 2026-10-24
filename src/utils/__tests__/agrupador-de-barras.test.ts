@@ -6,12 +6,14 @@
  * As regras são as da mensagem do dono do produto de 24/10/2026. A seção XL de
  * `claude/Regra_Secao_Clientes.md`, citada como fonte, NÃO está no repositório e não foi lida.
  *
- * O MODELO DO CORTE, decidido pelo dono do produto em 24/10/2026: cada peça consome UM corte de
- * `serra_mm`, inclusive a última (que a separa da sobra). Uma barra comporta as peças cuja soma de
- * (comprimento + serra) não passa do comprimento da barra — encostar no fim é permitido (≤).
- * O enunciado original pedia "com serra de 100 mm, cabem só 2", o que nenhum modelo de corte fazia
- * concordar com a conta escrita ("5,7 + 2 cortes"): o caso que discrimina a serra usa 101 mm, e o
- * de 100 mm fica como FRONTEIRA.
+ * O MODELO DO CORTE — corrigido pelo dono do produto em 24/10/2026, substituindo o "um corte por
+ * peça, sempre" do #143, que não deixava uma peça de 6.000 mm caber numa barra de 6.000 mm:
+ *     cortes = (n − 1) + (1 se sobrar material, 0 se a soma fechar exata)
+ * Um corte entre cada par de peças, mais o que separa a última peça da sobra — e esse só existe
+ * quando há sobra. Uma barra comporta as peças se Σ peças + (n − 1) × serra ≤ barra (encostar no
+ * fim é permitido). Quando sobra MENOS que a largura da serra, as peças cabem e o último corte come
+ * só o que sobra — decisão do dono do produto, na mesma data. A serra que discrimina 3 × 1.900 é
+ * 151 mm; 150 é a FRONTEIRA, em que a soma fecha exata com 2 cortes.
  *
  * Cada caso fica VERMELHO sem a sua regra: a tabela das mutações está em
  * `scripts/harness/agrupador-de-barras/README.md`.
@@ -48,36 +50,62 @@ const composicao = (r: ReturnType<typeof ok>, codigo: string) => doCodigo(r, cod
 const B6 = { comprimento_mm: 6000 }
 
 // ═══════════════════════════════════════════════════════════════════════════════════════
-describe('a serra entra na conta — cada peça consome um corte', () => {
-    it('3 peças de 1,9 m numa barra de 6 m, serra 5 mm: cabem as 3 numa barra (3 × 1.905 = 5.715)', () => {
+describe('a serra entra na conta — um corte ENTRE as peças, e o da sobra só quando há sobra', () => {
+    it('3 peças de 1,9 m numa barra de 6 m, serra 5 mm: 5.700 + 2 × 5 = 5.710 ≤ 6.000 — cabem as 3, com 3 cortes', () => {
         const r = ok([{ codigo: 'P1', comprimento_mm: 1900, quantidade: 3 }], { P1: B6 }, 5)
         expect(composicao(r, 'P1')).toEqual([[1900, 1900, 1900]])
+        expect(doCodigo(r, 'P1').barras[0].cortes).toBe(3) // sobram 290: o 3º corte separa a última peça da sobra
+        expect(doCodigo(r, 'P1').n_cortes).toBe(3)
     })
 
-    it('a mesma entrada com serra de 101 mm: cabem só 2 (3 × 2.001 = 6.003 > 6.000) — 2 barras', () => {
-        const r = ok([{ codigo: 'P1', comprimento_mm: 1900, quantidade: 3 }], { P1: B6 }, 101)
+    it('a mesma entrada com serra de 151 mm: 5.700 + 2 × 151 = 6.002 > 6.000 — cabem só 2, 2 barras', () => {
+        const r = ok([{ codigo: 'P1', comprimento_mm: 1900, quantidade: 3 }], { P1: B6 }, 151)
         expect(composicao(r, 'P1')).toEqual([[1900, 1900], [1900]])
     })
 
-    it('FRONTEIRA: serra de 100 mm dá exatamente 6.000 — encostar no fim da barra é permitido, cabem 3', () => {
-        const r = ok([{ codigo: 'P1', comprimento_mm: 1900, quantidade: 3 }], { P1: B6 }, 100)
+    it('FRONTEIRA: serra de 150 mm fecha EXATO (5.700 + 2 × 150 = 6.000) — cabem 3, 2 cortes, sobra 0', () => {
+        const r = ok([{ codigo: 'P1', comprimento_mm: 1900, quantidade: 3 }], { P1: B6 }, 150)
         expect(composicao(r, 'P1')).toEqual([[1900, 1900, 1900]])
-        expect(doCodigo(r, 'P1').barras[0].sobra_mm).toBe(0)
+        const b = doCodigo(r, 'P1').barras[0]
+        expect(b.cortes).toBe(2)
+        expect(b.sobra_mm).toBe(0)
+        expect(doCodigo(r, 'P1').serra_consumida_mm).toBe(300)
     })
 
-    it('4,5 m e 1,5 m numa barra de 6 m NÃO cabem juntas (4.505 + 1.505 = 6.010 > 6.000): 2 barras', () => {
+    it('sobra MENOR que a serra: as peças cabem e o último corte come só o resto — serra 120, sobram 60 de 6.000', () => {
+        // 5.700 + 2 × 120 = 5.940; o resto, 60 mm, é menor que a serra: o corte que separa a última
+        // peça come os 60, e não os 120. Decisão do dono do produto, 24/10/2026.
+        const c = doCodigo(ok([{ codigo: 'P1', comprimento_mm: 1900, quantidade: 3 }], { P1: B6 }, 120), 'P1')
+        expect(c.barras.map((b) => b.pecas_mm)).toEqual([[1900, 1900, 1900]])
+        expect(c.barras[0].cortes).toBe(3)
+        expect(c.serra_consumida_mm).toBe(300) // 2 × 120 + 60
+        expect(c.barras[0].usado_mm).toBe(6000)
+        expect(c.barras[0].sobra_mm).toBe(0)
+    })
+
+    it('duas peças que fecham a barra EXATO com o corte entre elas: 3.000 + 5 + 2.995 = 6.000 — 1 barra, 1 corte, sobra 0', () => {
+        const c = doCodigo(ok([{ codigo: 'P1', comprimento_mm: 3000, quantidade: 1 }, { codigo: 'P1', comprimento_mm: 2995, quantidade: 1 }], { P1: B6 }, 5), 'P1')
+        expect(c.barras.map((b) => b.pecas_mm)).toEqual([[3000, 2995]])
+        expect(c.barras[0].cortes).toBe(1)
+        expect(c.barras[0].sobra_mm).toBe(0)
+        expect(c.sobra_mm).toBe(5) // comprado − útil: o corte entre as duas
+    })
+
+    it('4,5 m e 1,5 m numa barra de 6 m NÃO cabem juntas (4.500 + 5 + 1.500 = 6.005 > 6.000): 2 barras', () => {
         const r = ok([{ codigo: 'P1', comprimento_mm: 4500, quantidade: 1 }, { codigo: 'P1', comprimento_mm: 1500, quantidade: 1 }], { P1: B6 }, 5)
         expect(composicao(r, 'P1')).toEqual([[4500], [1500]])
         expect(doCodigo(r, 'P1').n_barras).toBe(2)
     })
 
-    it('peças com decimais que encostam EXATAMENTE no fim da barra cabem: 2.046,3 + 2.042,9 + 1.895,8 + 3 × 5 = 6.000', () => {
-        // somada em mm com ponto flutuante, NA ORDEM EM QUE O AGRUPADOR AS COLOCA (decrescente), a mesma
-        // conta dá 6000.000000000001 e a barra recusaria o que cabe. Medido em 24/10/2026; a 1ª versão
-        // deste caso (2.994,3 + 1.896,8 + 1.093,9) só estourava em OUTRA ordem e não discriminava (M24).
-        const r = ok([{ codigo: 'P1', comprimento_mm: 1895.8, quantidade: 1 }, { codigo: 'P1', comprimento_mm: 2046.3, quantidade: 1 },
-            { codigo: 'P1', comprimento_mm: 2042.9, quantidade: 1 }], { P1: B6 }, 5)
-        expect(composicao(r, 'P1')).toEqual([[2046.3, 2042.9, 1895.8]])
+    it('peças com decimais que fecham EXATO a barra cabem: 2.043,4 + 2.043,3 + 1.903,3 + 2 × 5 = 6.000', () => {
+        // somada em mm com ponto flutuante, NA ORDEM E NAS OPERAÇÕES DO AGRUPADOR (decrescente; ocupado
+        // + serra + peça), a mesma conta dá 6000.000000000001 e a barra recusaria o que cabe. Medido em
+        // 24/10/2026. O caso do #143 (2.046,3 + 2.042,9 + 1.895,8) fechava com 3 cortes; com 2 sobram
+        // 5 mm, ele saiu da fronteira e deixou de discriminar o M24.
+        const r = ok([{ codigo: 'P1', comprimento_mm: 1903.3, quantidade: 1 }, { codigo: 'P1', comprimento_mm: 2043.4, quantidade: 1 },
+            { codigo: 'P1', comprimento_mm: 2043.3, quantidade: 1 }], { P1: B6 }, 5)
+        expect(composicao(r, 'P1')).toEqual([[2043.4, 2043.3, 1903.3]])
+        expect(doCodigo(r, 'P1').barras[0].cortes).toBe(2)
         expect(doCodigo(r, 'P1').barras[0].sobra_mm).toBe(0)
     })
 
@@ -86,12 +114,14 @@ describe('a serra entra na conta — cada peça consome um corte', () => {
         expect(c.metros_uteis).toBe(5.7)
         expect(c.serra_consumida_mm).toBe(15)
         expect(c.sobra_mm).toBe(300)          // 6.000 − 5.700: os 15 da serra estão dentro
-        expect(c.barras[0].sobra_mm).toBe(285) // na barra, o retalho de verdade: 6.000 − 5.715
+        // na barra, o retalho de verdade: depois dos 2 cortes entre as peças restam 290 mm, e o corte
+        // que separa a última peça da sobra consome 5 deles — 6.000 − 5.715 = 285
+        expect(c.barras[0].sobra_mm).toBe(285)
     })
 })
 
 describe('o agrupamento é do LEVANTAMENTO, e por CÓDIGO', () => {
-    it('duas esquadrias diferentes, mesmo código: as peças COMPARTILHAM barra (2 × 2.905 = 5.810)', () => {
+    it('duas esquadrias diferentes, mesmo código: as peças COMPARTILHAM barra (2.900 + 5 + 2.900 = 5.805)', () => {
         const r = ok([
             { codigo: 'P1', comprimento_mm: 2900, quantidade: 1 }, // da esquadria A
             { codigo: 'P1', comprimento_mm: 2900, quantidade: 1 }, // da esquadria B
@@ -111,7 +141,7 @@ describe('o agrupamento é do LEVANTAMENTO, e por CÓDIGO', () => {
 })
 
 describe('o comprimento da barra vem DO ITEM', () => {
-    it('barra de 5,5 m: 2 peças de 2,8 m não cabem (2 × 2.805 = 5.610 > 5.500) — numa de 6 m caberiam', () => {
+    it('barra de 5,5 m: 2 peças de 2,8 m não cabem (2.800 + 5 + 2.800 = 5.605 > 5.500) — numa de 6 m caberiam', () => {
         const r = ok([{ codigo: 'P55', comprimento_mm: 2800, quantidade: 2 }], { P55: { comprimento_mm: 5500 } }, 5)
         expect(composicao(r, 'P55')).toEqual([[2800], [2800]])
         expect(doCodigo(r, 'P55').metros_comprados).toBe(11)
@@ -150,14 +180,24 @@ describe('a peça é INDIVISÍVEL', () => {
         expect(r.recusas[0].mensagem).toContain('6000')
     })
 
-    it('peça do tamanho EXATO da barra: não cabe com o corte (6.000 + 5 > 6.000) — recusa com motivo próprio, não "maior"', () => {
-        const r = agrupar([{ codigo: 'P1', comprimento_mm: 6000, quantidade: 1 }], { P1: B6 }, 5)
-        expect(r.ok).toBe(false)
-        if (!('recusas' in r)) return
-        expect(r.recusas).toEqual([{
-            motivo: 'PECA_NAO_CABE_COM_O_CORTE', codigo: 'P1', comprimento_peca_mm: 6000, comprimento_barra_mm: 6000, serra_mm: 5,
-            mensagem: G().fraseDaPecaQueNaoCabeComOCorte('P1', 6000, 6000, 5),
-        }])
+    it('peça do tamanho EXATO da barra CABE: 1 peça, 0 cortes, sobra 0, aproveitamento 100% — não há o que separar', () => {
+        const c = doCodigo(ok([{ codigo: 'P1', comprimento_mm: 6000, quantidade: 1 }], { P1: B6 }, 5), 'P1')
+        expect(c.barras.map((b) => b.pecas_mm)).toEqual([[6000]])
+        expect(c.n_pecas).toBe(1)
+        expect(c.barras[0].cortes).toBe(0)
+        expect(c.n_cortes).toBe(0)
+        expect(c.serra_consumida_mm).toBe(0)
+        expect(c.barras[0].sobra_mm).toBe(0)
+        expect(c.sobra_mm).toBe(0)
+        expect(c.aproveitamento_pct).toBe(100)
+    })
+
+    it('peça a menos de uma serra do fim da barra CABE: 5.998 em 6.000 com serra 5 — o corte come os 2 mm', () => {
+        const c = doCodigo(ok([{ codigo: 'P1', comprimento_mm: 5998, quantidade: 1 }], { P1: B6 }, 5), 'P1')
+        expect(c.barras.map((b) => b.pecas_mm)).toEqual([[5998]])
+        expect(c.barras[0].cortes).toBe(1)
+        expect(c.serra_consumida_mm).toBe(2)
+        expect(c.barras[0].sobra_mm).toBe(0)
     })
 
     it('uma recusa não esconde as outras: todas saem, na ordem do código', () => {
