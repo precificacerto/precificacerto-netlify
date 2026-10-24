@@ -50,6 +50,9 @@ const FIXTURE = require('./fixtures/fixture_DP-02.json')
 // O estreitamento é por `'recusas' in r` / `'recusa' in r`: com `strictNullChecks: false`, o tsc não
 // estreita a união pelo booleano `ok`.
 
+// Este arquivo é MÓDULO (o `export {}` no fim): sem import nem export, o tsc o trataria como script
+// de escopo GLOBAL, e `Agrupador`, `ok` e `avaliar` colidiriam com os de agrupador-de-barras.test.ts —
+// medido: 40 erros novos de tsc, com o jest verde.
 type Linha = Record<string, unknown>
 
 function dp02() {
@@ -87,11 +90,11 @@ const p = (codigo: string, descricao: string, comprimento_mm: number, quantidade
 function sintetica(o: { formulas?: Array<[string, string]>; perfis?: Linha[]; variaveis?: Linha[] }) {
     return {
         codigo: 'SINT',
-        detalhe: { larg_min_mm: null, larg_max_mm: null, alt_min_mm: null, alt_max_mm: null },
+        detalhe: { larg_min_mm: null as number | null, larg_max_mm: null as number | null, alt_min_mm: null as number | null, alt_max_mm: null as number | null },
         variaveis: (o.variaveis ?? []) as never,
         formulas: (o.formulas ?? []).map(([variavel, formula]) => ({ variavel, formula })),
-        perfis: (o.perfis ?? []).map((x) => ({ perfil: 'P/SINT', descricao: 'PEÇA', corte: '90/90', qtd: '1', medida: '100', posicao: 'Largura', esp_vidro: null, condicao: 'sempre', ...x })) as never,
-        validacoes: [],
+        perfis: (o.perfis ?? []).map((x) => ({ perfil: 'P/SINT', descricao: 'PEÇA', corte: '90/90', qtd: '1', medida: '100', posicao: 'Largura', esp_vidro: null as string | null, condicao: 'sempre', ...x })) as never,
+        validacoes: [] as Array<{ condicao: string; mensagem: string }>,
     }
 }
 
@@ -420,3 +423,5 @@ describe('(10) RECUSAS NOMEADAS da avaliação — ciclo, nome solto, quantidade
         expect('recusas' in r && r.recusas.map((x) => [x.linha, x.variavel])).toEqual([[1, 'AAA'], [2, 'BBB']])
     })
 })
+
+export {}
