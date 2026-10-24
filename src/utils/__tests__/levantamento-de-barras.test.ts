@@ -314,13 +314,15 @@ describe('(6) as recusas', () => {
         const b = esquadria({ L_mm: 600, H_mm: 500 })
         expect(ok([b, a]).por_codigo).toEqual(ok([a, b]).por_codigo)
         expect(ok([b, a]).total).toEqual(ok([a, b]).total)
-        // duas recusas da MESMA origem, em esquadrias diferentes: a ordem delas não pode seguir a da entrada
-        const tipologias = { 'DP-02': dp02(), 'T-X': tipologiaDeUmPerfil('T-X', 'XX99/WOLFF') }
-        const x = esquadria({ tipologia: 'T-X', escolhas: {} })               // PERFIL_SEM_REGRA, XX99/WOLFF
-        const y = esquadria({ escolhas: { MAE: 2 } })           // COR_SEM_CODIGO, BZ0012/WOLFF
-        const chave = (r: ReturnType<typeof recusado>) => r.recusas.map((z) => `${z.origem}/${z.motivo}/${z.perfil ?? z.tipologia}`)
-        expect(chave(recusado([y, x], { tipologias }))).toEqual(['CODIGO/COR_SEM_CODIGO/BZ0012/WOLFF', 'CODIGO/PERFIL_SEM_REGRA/XX99/WOLFF'])
-        expect(chave(recusado([x, y], { tipologias }))).toEqual(chave(recusado([y, x], { tipologias })))
+        // Uma recusa de ESQUADRIA e uma do AVALIADOR: as duas nascem no mesmo passo, esquadria a
+        // esquadria, na ordem da entrada — é a ordenação final que as põe no lugar. A primeira versão
+        // deste caso usava duas recusas da ponte, que já saem na ordem do perfil; a mutação que tira a
+        // ordenação (M15) passou verde por ela. Medido, e trocado.
+        const x = esquadria({ tipologia: 'DP-99' })             // TIPOLOGIA_SEM_DEFINICAO
+        const y = esquadria({ escolhas: {} })                   // MEDIDA_DA_OPCAO_AUSENTE, do avaliador
+        const chave = (r: ReturnType<typeof recusado>) => r.recusas.map((z) => `${z.origem}/${z.motivo}`)
+        expect(chave(recusado([y, x]))[0]).toBe('ESQUADRIA/TIPOLOGIA_SEM_DEFINICAO')
+        expect(chave(recusado([x, y]))).toEqual(chave(recusado([y, x])))
     })
 })
 
