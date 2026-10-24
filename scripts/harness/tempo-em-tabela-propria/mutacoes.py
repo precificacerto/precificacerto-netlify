@@ -27,6 +27,8 @@ COPIA_WHERE = " WHERE tempo_origem IS NOT NULL\nON CONFLICT (tabela_id, tipologi
 MUTACOES = [
     ('V1', 'sem o REVOKE de anon e authenticated',
      [(f"REVOKE ALL ON {T} FROM anon, authenticated;\n", "")], 'verificacao 4', False),
+    ('V8', 'o REVOKE esquece o anon',
+     [(f"REVOKE ALL ON {T} FROM anon, authenticated;\n", f"REVOKE ALL ON {T} FROM authenticated;\n")], 'verificacao 4', False),
     ('V2', 'sem a RLS ligada',
      [(f"ALTER TABLE {T} ENABLE ROW LEVEL SECURITY;\n", "")], 'verificacao 4', False),
     ('V3', 'a política de SELECT sem is_super_admin() — aberta a todos',

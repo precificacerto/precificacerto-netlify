@@ -175,6 +175,7 @@ COMMIT;
 -- ── VERIFICAÇÃO DEPOIS DE APLICAR, por consulta ao schema (não pelo retorno do comando) ─────
 -- select tempo_origem, count(*), sum(tempo_fabricacao_min)
 --   from public.orcamentista_motor_tipologia_tempo group by 1;
--- -- esperado em 24/10/2026: ESTIMADO | 164 | <a mesma soma de orcamentista_motor_tipologia>
+-- -- esperado (medido em produção em 24/10/2026, antes de aplicar): ESTIMADO | 164 | 87300
 -- select (select count(*) from public.orcamentista_motor_tipologia where tempo_origem is not null) as antiga,
 --        (select count(*) from public.orcamentista_motor_tipologia_tempo) as nova;
+-- -- esperado: 164 | 164
