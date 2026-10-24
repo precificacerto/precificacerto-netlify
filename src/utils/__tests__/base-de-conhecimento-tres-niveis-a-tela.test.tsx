@@ -5,9 +5,9 @@
  *
  * O que este portão prova, e cada asserção fica VERMELHA sem a sua correção (a tabela das mutações
  * está no corpo do PR):
- *   (1) as 6 categorias, na ORDEM do catálogo, com o número e o rótulo DELE — o catálogo chega
+ *   (1) as categorias, na ORDEM do catálogo, com o número e o rótulo DELE — o catálogo chega
  *       embaralhado de propósito, para a tela não poder confiar na ordem da resposta;
- *   (2) matéria-prima nova: as 6 categorias, os campos vindos de `catalogo.campos` (um campo novo no
+ *   (2) matéria-prima nova: as categorias do catálogo, os campos vindos de `catalogo.campos` (um campo novo no
  *       catálogo aparece sem mudar a tela) e NENHUM valor inventado;
  *   (3) a árvore do PUT é exatamente a esperada: só o que mudou, null para o que foi limpo, false
  *       para "não", e a chave AUSENTE para o que não foi tocado — e `ordem` em lugar nenhum;
@@ -96,6 +96,8 @@ const catalogo = () => ({
     ],
 })
 const ORDEM_DO_CATALOGO = ['PERFIL', 'REFORCO', 'FERRAGENS', 'ACESSORIOS_VEDACAO', 'VIDRO', 'INSTALACAO']
+/** O "M" de "N de M categorias" é o tamanho do catálogo DO TESTE — nunca um 6 escrito à mão. */
+const TOTAL_DO_CATALOGO = catalogo().categorias.length
 
 const categoria = (chave: string, resto: Linha = {}): Linha => ({
     id: `cat-pvc-${chave}`, tenant_id: CONTA, materia_prima_id: PVC, categoria_chave: chave, config: null, atualizado_por: null, atualizado_em: '2026-10-23T12:00:00Z',
@@ -252,7 +254,7 @@ function chaves(v: unknown): string[] {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════════════
-describe('(1) o cartão, os blocos e as 6 categorias na ordem do CATÁLOGO', () => {
+describe('(1) o cartão, os blocos e as categorias na ordem do CATÁLOGO', () => {
     it('um cartão "Matérias-primas e seus fornecedores", um bloco por matéria-prima, e o miolo antigo não existe mais', async () => {
         const host = await montar()
         expect(cartao(host).textContent).toContain(A().TITULO_DO_CARTAO)
@@ -260,16 +262,16 @@ describe('(1) o cartão, os blocos e as 6 categorias na ordem do CATÁLOGO', () 
         expect(Array.from(host.querySelectorAll('[data-bloco]')).map((b) => b.getAttribute('data-bloco'))).toEqual(['materias', 'ambientes', 'vendedores', 'adicionais'])
     })
 
-    it('o cabeçalho: o nome, "N de 6 categorias" e Remover', async () => {
+    it('o cabeçalho: o nome, "N de M categorias" e Remover', async () => {
         const host = await montar()
         const cabeca = mp(host, 0).querySelector('[data-cabecalho-da-materia-prima]') as HTMLElement
         expect(cabeca.textContent).toContain('PVC')
         // PERFIL, REFORCO, FERRAGENS, VIDRO e INSTALACAO têm algo; ACESSORIOS_VEDACAO está vazia
-        expect(cabeca.querySelector('[data-categorias-configuradas]')!.textContent).toBe(A().fraseDasCategorias(5, 6))
+        expect(cabeca.querySelector('[data-categorias-configuradas]')!.textContent).toBe(A().fraseDasCategorias(5, TOTAL_DO_CATALOGO))
         expect(botao(cabeca, 'Remover')).toBeDefined()
     })
 
-    it('as SEIS categorias na ordem do catálogo, com "número · rótulo" vindos dele — e o catálogo veio embaralhado', async () => {
+    it('as categorias na ordem do catálogo, com "número · rótulo" vindos dele — e o catálogo veio embaralhado', async () => {
         const host = await montar()
         const cats = Array.from(mp(host, 0).querySelectorAll('[data-categoria]'))
         expect(cats.map((c) => c.getAttribute('data-categoria'))).toEqual(ORDEM_DO_CATALOGO)
@@ -283,12 +285,12 @@ describe('(1) o cartão, os blocos e as 6 categorias na ordem do CATÁLOGO', () 
     })
 })
 
-describe('(2) matéria-prima NOVA: as 6 categorias, os campos do catálogo, e nada inventado', () => {
-    it('"+ Adicionar matéria-prima" abre um bloco com as 6 categorias na ordem, "0 de 6", e o nome a digitar', async () => {
+describe('(2) matéria-prima NOVA: as categorias do catálogo, os campos dele, e nada inventado', () => {
+    it('"+ Adicionar matéria-prima" abre um bloco com as categorias na ordem, "0 de M", e o nome a digitar', async () => {
         const host = await montar()
         await clicar(botao(cartao(host), A().ADICIONAR_MATERIA_PRIMA))
         expect(Array.from(mp(host, 1).querySelectorAll('[data-categoria]')).map((c) => c.getAttribute('data-categoria'))).toEqual(ORDEM_DO_CATALOGO)
-        expect(mp(host, 1).querySelector('[data-categorias-configuradas]')!.textContent).toBe(A().fraseDasCategorias(0, 6))
+        expect(mp(host, 1).querySelector('[data-categorias-configuradas]')!.textContent).toBe(A().fraseDasCategorias(0, TOTAL_DO_CATALOGO))
         expect(mp(host, 1).querySelector('[data-cabecalho-da-materia-prima] input')).not.toBeNull()
     })
 
@@ -809,13 +811,13 @@ describe("(12) o tipo 'opcao' — e o tipo desconhecido, que não pode quebrar a
         expect(campo(cat(host, 0, 'PERFIL'), 'PERFIL.criterio_custo_barra')).toBeNull()
     })
 
-    it('O CASO MEDIDO: com o campo no catálogo, "+ Adicionar matéria-prima" não estoura — o cabeçalho diz "0 de 6 categorias"', async () => {
+    it('O CASO MEDIDO: com o campo no catálogo, "+ Adicionar matéria-prima" não estoura — o cabeçalho diz "0 de M categorias"', async () => {
         servir(comCatalogo([CRITERIO]))
         const host = await montar()
         await clicar(botao(cartao(host), A().ADICIONAR_MATERIA_PRIMA))
-        expect(mp(host, 1).querySelector('[data-categorias-configuradas]')!.textContent).toBe(A().fraseDasCategorias(0, 6))
+        expect(mp(host, 1).querySelector('[data-categorias-configuradas]')!.textContent).toBe(A().fraseDasCategorias(0, TOTAL_DO_CATALOGO))
         // e a gravada continua contada como antes
-        expect(mp(host, 0).querySelector('[data-categorias-configuradas]')!.textContent).toBe(A().fraseDasCategorias(5, 6))
+        expect(mp(host, 0).querySelector('[data-categorias-configuradas]')!.textContent).toBe(A().fraseDasCategorias(5, TOTAL_DO_CATALOGO))
     })
 
     it('o campo é SELEÇÃO: as opções do catálogo, na ordem dele, mais a de deixar em branco — e nada inventado', async () => {
@@ -856,10 +858,10 @@ describe("(12) o tipo 'opcao' — e o tipo desconhecido, que não pode quebrar a
     it('TIPO DESCONHECIDO no catálogo: a tela não quebra, o campo não aparece, e o cabeçalho conta — na gravada e na recém-criada', async () => {
         servir(comCatalogo([DO_FUTURO], { campo_do_futuro: 'GRAVADO' }))
         const host = await montar()
-        expect(mp(host, 0).querySelector('[data-categorias-configuradas]')!.textContent).toBe(A().fraseDasCategorias(5, 6))
+        expect(mp(host, 0).querySelector('[data-categorias-configuradas]')!.textContent).toBe(A().fraseDasCategorias(5, TOTAL_DO_CATALOGO))
         expect(campo(cat(host, 0, 'PERFIL'), 'PERFIL.campo_do_futuro')).toBeNull()
         await clicar(botao(cartao(host), A().ADICIONAR_MATERIA_PRIMA))
-        expect(mp(host, 1).querySelector('[data-categorias-configuradas]')!.textContent).toBe(A().fraseDasCategorias(0, 6))
+        expect(mp(host, 1).querySelector('[data-categorias-configuradas]')!.textContent).toBe(A().fraseDasCategorias(0, TOTAL_DO_CATALOGO))
     })
 
     it('TIPO DESCONHECIDO: salvar outra mudança do PERFIL NÃO MEXE no valor gravado dele — a chave fica AUSENTE (null a apagaria)', async () => {
@@ -874,5 +876,64 @@ describe("(12) o tipo 'opcao' — e o tipo desconhecido, que não pode quebrar a
         expect(A().normalizar('tipo_que_a_tela_nao_conhece' as never, 'qualquer')).toEqual({ valor: null, erro: null })
         expect(A().normalizar('opcao', '  BARRA_INTEIRA ')).toEqual({ valor: 'BARRA_INTEIRA', erro: null })
         expect(A().normalizar('opcao', '')).toEqual({ valor: null, erro: null })
+    })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// O TOTAL VEM DO CATÁLOGO — a 20261024000004 põe PERSIANAS e o catálogo passa a ter 7.
+// Os casos acima usam um catálogo de 6, e com ele "N de 6" passa igual numa tela que lesse o
+// catálogo e numa que tivesse o 6 escrito à mão (`teste-que-nao-exercita.md`, variante 2). Este é
+// o caso que distingue as duas: com 7 categorias, só a tela que lê o catálogo diz "de 7".
+// ═══════════════════════════════════════════════════════════════════════════════════════
+/** O catálogo da 20261024000004, EMBARALHADO de propósito: a ordem é `ordem`. */
+const CATALOGO_COM_PERSIANAS = [
+    { chave: 'VIDRO', ordem: 6, rotulo: 'Vidro' }, { chave: 'PERSIANAS', ordem: 2, rotulo: 'Persianas' },
+    { chave: 'INSTALACAO', ordem: 7, rotulo: 'Instalação' }, { chave: 'PERFIL', ordem: 1, rotulo: 'Perfil' },
+    { chave: 'ACESSORIOS_VEDACAO', ordem: 5, rotulo: 'Acessórios e vedação' }, { chave: 'REFORCO', ordem: 3, rotulo: 'Reforço metálico' },
+    { chave: 'FERRAGENS', ordem: 4, rotulo: 'Ferragens' },
+]
+const ORDEM_COM_PERSIANAS = ['PERFIL', 'PERSIANAS', 'REFORCO', 'FERRAGENS', 'ACESSORIOS_VEDACAO', 'VIDRO', 'INSTALACAO']
+/** A árvore gravada depois da migração: o catálogo de 7, e a linha de PERSIANAS do backfill, sem config. */
+function comPersianas(): Linha {
+    const a = arvoreGravada() as Linha & { catalogo: { categorias: Linha[] }; materias_primas: Array<{ categorias: Linha[] }> }
+    a.catalogo.categorias = CATALOGO_COM_PERSIANAS
+    a.materias_primas[0].categorias.push(categoria('PERSIANAS'))
+    return a
+}
+
+describe('(7) com PERSIANAS no catálogo: o total é o do catálogo, a ordem é a dele, e a categoria sem campo aparece vazia', () => {
+    it('o catálogo deste caso tem 7 — senão ele não distinguiria de um 6 escrito à mão', () => {
+        expect(CATALOGO_COM_PERSIANAS).toHaveLength(7)
+        expect(TOTAL_DO_CATALOGO).not.toBe(CATALOGO_COM_PERSIANAS.length)
+    })
+
+    it('a gravada diz "5 de 7": PERSIANAS conta no total e, sem nada, não conta como configurada', async () => {
+        servir(comPersianas())
+        const host = await montar()
+        expect(mp(host, 0).querySelector('[data-categorias-configuradas]')!.textContent).toBe(A().fraseDasCategorias(5, CATALOGO_COM_PERSIANAS.length))
+    })
+
+    it('as 7 na ordem nova, com "número · rótulo" do catálogo — "2 · Persianas" e "3 · Reforço metálico"', async () => {
+        servir(comPersianas())
+        const host = await montar()
+        const cats = Array.from(mp(host, 0).querySelectorAll('[data-categoria]'))
+        expect(cats.map((c) => c.getAttribute('data-categoria'))).toEqual(ORDEM_COM_PERSIANAS)
+        const titulos = cats.map((c) => c.querySelector('[data-titulo-da-categoria]')!.textContent)
+        expect(titulos[1]).toBe('2 · Persianas')
+        expect(titulos[2]).toBe('3 · Reforço metálico')
+    })
+
+    it('PERSIANAS não tem campo: o bloco aparece sem nenhum campo digitado', async () => {
+        servir(comPersianas())
+        const host = await montar()
+        expect(cat(host, 0, 'PERSIANAS').querySelectorAll('[data-campo]')).toHaveLength(0)
+    })
+
+    it('"+ Adicionar matéria-prima" com o catálogo de 7: as 7 na ordem, e "0 de 7"', async () => {
+        servir(comPersianas())
+        const host = await montar()
+        await clicar(botao(cartao(host), A().ADICIONAR_MATERIA_PRIMA))
+        expect(Array.from(mp(host, 1).querySelectorAll('[data-categoria]')).map((c) => c.getAttribute('data-categoria'))).toEqual(ORDEM_COM_PERSIANAS)
+        expect(mp(host, 1).querySelector('[data-categorias-configuradas]')!.textContent).toBe(A().fraseDasCategorias(0, CATALOGO_COM_PERSIANAS.length))
     })
 })

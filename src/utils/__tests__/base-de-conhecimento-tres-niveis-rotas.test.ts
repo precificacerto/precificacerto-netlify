@@ -402,7 +402,7 @@ describe('(6) GET — a árvore inteira da empresa, numa resposta só', () => {
         expect(JSON.stringify(r.json)).not.toContain(MP_DE_B)
     })
 
-    it('uma matéria-prima recém-criada traz as SEIS categorias, na ordem do catálogo, com config null — a chave presente e o valor null', async () => {
+    it('uma matéria-prima recém-criada traz todas as categorias do catálogo, na ordem dele, com config null — a chave presente e o valor null', async () => {
         const r = await chamar('arvore', 'GET', { tenant: T_A })
         const cats = mp(r.json, 'Alumínio').categorias
         expect(cats.map((c: Linha) => c.categoria_chave)).toEqual(CATEGORIAS)
@@ -446,7 +446,7 @@ describe('(6) GET — a árvore inteira da empresa, numa resposta só', () => {
         }
     })
 
-    it('o catálogo: as 6 categorias na ordem, e os campos', async () => {
+    it('o catálogo: as categorias na ordem, e os campos', async () => {
         const r = await chamar('arvore', 'GET', { tenant: T_A })
         expect(r.json.catalogo.categorias.map((c: Linha) => c.chave)).toEqual(CATEGORIAS)
         expect(r.json.catalogo.campos).toEqual(expect.arrayContaining([expect.objectContaining({ categoria_chave: 'REFORCO', chave: 'usa', tipo: 'booleano' })]))

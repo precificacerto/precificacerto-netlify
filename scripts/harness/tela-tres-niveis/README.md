@@ -4,13 +4,13 @@
 seus fornecedores" (e do `GET /arvore` que a alimenta) tem um caso que **fica vermelho** quando a
 regra é retirada: 58 mutações reais e um controle.
 
-Uma bateria que prova 59 coisas e não pode ser repetida por outra pessoa prova 59 coisas uma vez
+Uma bateria que prova 60 coisas e não pode ser repetida por outra pessoa prova 60 coisas uma vez
 só. Ela vivia no scratchpad de uma sessão; está aqui para ser rodada de novo.
 
 ## Como rodar
 
 ```bash
-python3 -B scripts/harness/tela-tres-niveis/mutacoes.py            # as 59 (~45 s cada)
+python3 -B scripts/harness/tela-tres-niveis/mutacoes.py            # as 60 (~45 s cada)
 python3 -B scripts/harness/tela-tres-niveis/mutacoes.py M45 M47    # só estas
 ```
 
@@ -56,11 +56,17 @@ Arquivos-alvo: `arvore.ts`, `materias-primas.component.tsx` e `base-de-conhecime
 `src/utils/__tests__/`: `base-de-conhecimento-tres-niveis-a-tela.test.tsx`,
 `base-de-conhecimento-a-tela.test.tsx` e `base-de-conhecimento-tres-niveis-rotas.test.ts`.
 
-## As 59 mutações — o que cada uma derruba
+## As 60 mutações — o que cada uma derruba
 
 Medido em 23/10/2026 sobre o `e868c2b`: 219 casos nos três portões, **49 de 49 vermelhas**. Medido de novo em
 24/10/2026, com o tipo `opcao` (M51 a M59): **228 casos, 58 de 58 vermelhas, e o controle verde.**
 "Casos" é quantos ficaram vermelhos; a última coluna é um deles.
+
+E a M60, em 24/10/2026, sobre o catálogo com PERSIANAS (a 20261024000004): **233 casos, a M60
+vermelha em exatamente os 2 casos novos, e o controle verde** — rodadas só a M60 e o M0. Que ela
+NÃO derrube nenhum caso antigo é o achado: os casos de antes comparavam contra
+`fraseDasCategorias(N, 6)` sobre um catálogo de 6, e passariam igual numa tela com o 6 escrito à
+mão (`teste-que-nao-exercita.md`, variante 2).
 
 | # | mutação | casos | um dos que caem |
 |---|---|---:|---|
@@ -122,6 +128,7 @@ Medido em 23/10/2026 sobre o `e868c2b`: 219 casos nos três portões, **49 de 49
 | M57 | as opções fora da ordem do catálogo | 1 | o campo é SELEÇÃO: as opções do catálogo, na ordem dele, mais a de deixar em branco — e na… |
 | M58 | NULL aparece com a PRIMEIRA opção escolhida (valor por omissão) | 2 | NULL gravado aparece como "em branco"; o valor gravado aparece escolhido |
 | M59 | 'opcao' fora dos tipos conhecidos (some da tela e do salvar) | 4 | NULL gravado aparece como "em branco"; o valor gravado aparece escolhido |
+| M60 | o total de "N de M categorias" escrito à mão (6), e não a contagem do catálogo | 2 | a gravada diz "5 de 7": PERSIANAS conta no total e, sem nada, não conta como configurada |
 | **M34** | **controle: nada muda** | **0** | **verde — o detector não é vermelho por construção** |
 
 ### O grupo da linha do perfil
