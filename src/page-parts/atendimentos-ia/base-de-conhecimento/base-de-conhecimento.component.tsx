@@ -1,54 +1,43 @@
 /**
- * Os OITO blocos da base de conhecimento de UMA empresa, na ordem: Perfil, Vidro, Guarnição e
- * contramarco, Acessórios, Padrão por ambiente, Produção, Vendedores, Adicionais da empresa.
+ * Os QUATRO blocos da base de conhecimento de UMA empresa, na ordem: o cartão "Matérias-primas e seus
+ * fornecedores" (os TRÊS NÍVEIS, em `materias-primas.component.tsx`), Padrão por ambiente, Vendedores
+ * e Adicionais da empresa. Os cinco blocos de esquadrias de um nível saíram — ver `formulario.ts`.
  *
  * Só CONSOME as rotas de `src/pages/api/super-admin/base-de-conhecimento/`. A empresa chega pela
  * prop — ela vem do CAMINHO da URL (`contas/[tenantId]/base-de-conhecimento`), nunca de um seletor
  * dentro do formulário: é por um seletor assim que uma escrita cairia na empresa errada.
  *
- * Nada abre preenchido de fábrica: o formulário mostra o que a empresa GRAVOU; o que vem do nicho
- * aparece como herdado, com a ORIGEM que a rota devolveu ('empresa' | 'nicho' | 'sem valor'), e o
- * input do campo herdado fica vazio — preenchê-lo é a empresa passar a decidir.
- *
  * UM BOTÃO SÓ para a tela inteira, "Salvar alterações", na barra do topo junto do nome da empresa
  * (dono do produto, 23/10/2026 — ver `planoDoSalvar`). Desabilitado sem alteração; com alteração,
- * diz quantas estão pendentes. Salvar chama TODAS as rotas necessárias (base+adicionais, ambiente,
- * vendedor), cada corpo com SÓ o que mudou. Se uma falhar e outra passar, a tela diz o que foi salvo
+ * diz quantas estão pendentes. Salvar chama TODAS as rotas necessárias (a árvore, os adicionais,
+ * ambiente, vendedor), cada corpo com SÓ o que mudou; a árvore vai num PUT só, numa transação só. Se uma falhar e outra passar, a tela diz o que foi salvo
  * e o que não foi, nomeando o bloco; a recusa da rota fica também NO bloco, com a frase, o código e
  * os erros nomeados como vieram; e o que não passou CONTINUA pendente, para tentar de novo. Sair da
  * página com pendência avisa antes.
  *
- * FORNECEDOR E LINHA são seleção, alimentada pelas TABELAS EM USO da conta (`opcoesDasTabelas`):
- * sem tabela em uso o campo fica desabilitado e aponta de volta para a seção de tabelas; valor
- * gravado fora da lista aparece marcado, e não é apagado.
- *
- * Booleanos têm TRÊS estados — sim, não, não informado — e não há caixa de marcar: uma caixa só
- * tem dois, e o terceiro ("não informado", que herda) sumiria.
+ * A ÁRVORE, depois de salva, é redesenhada pelo `depois` que a função devolveu — o que vale é o que o
+ * banco gravou, não o que estava digitado.
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/router'
-import { Alert, Button, Card, Input, InputNumber, Radio, Select, Space, Tag, Typography, message } from 'antd'
+import { Alert, Button, Card, Input, InputNumber, Select, Space, Tag, Typography, message } from 'antd'
 import { ErroDaRota, chamarRota } from '@/page-parts/atendimentos-ia/api'
-import { ROTAS_DO_CATALOGO, type TabelasDaConta } from '@/utils/atendimentos-ia-catalogo'
-import type { TipologiaLida } from '@/utils/atendimentos-ia-importacao'
-import type { Dominio, ErroNomeado, Origem } from '@/lib/atendimentos-ia/base-de-conhecimento'
+import type { ErroNomeado } from '@/lib/atendimentos-ia/base-de-conhecimento'
 import {
-    ADICIONAIS, BASES, BLOCOS_DE_ESQUADRIAS, CAMPOS_DO_AMBIENTE, CAMPOS_DO_VENDEDOR, MODOS, MODOS_DA_COMISSAO, ORDEM_DOS_BLOCOS,
-    ROTAS_DA_BASE, ROTULO_DA_ORIGEM, ROTULO_DO_CAMPO, ROTULO_DO_MODO, ROTULO_DOS_TRES_ESTADOS,
-    deTresEstados, dominioDe, formularioDoValor, mesmoValor, paraTresEstados,
-    trocarOModo, usaNoModo, valorDoFormulario,
+    ADICIONAIS, BASES, CAMPOS_DO_AMBIENTE, CAMPOS_DO_VENDEDOR, MODOS, MODOS_DA_COMISSAO, ORDEM_DOS_BLOCOS,
+    ROTAS_DA_BASE, ROTULO_DO_CAMPO, ROTULO_DO_MODO, mesmoValor, trocarOModo, usaNoModo,
     TITULO_DO_BLOCO, fraseDasPendencias, planoDoSalvar, type Chamada,
-    FORA_DA_LISTA, IR_PARA_AS_TABELAS, SEM_LINHA_NAS_TABELAS, SEM_TABELA_EM_USO, ehCampoDaTabela, opcoesDasTabelas, rotaDasTabelasDaConta,
-    type CampoDaTabela, type OpcoesDasTabelas,
-    type ChaveDoBloco, type LinhaDaLista, type Modo, type Par, type TresEstados,
+    type ChaveDoBloco, type LinhaDaLista, type Modo,
 } from '@/page-parts/atendimentos-ia/base-de-conhecimento/formulario'
+import {
+    arvoreDoDepois, formularioDaArvore, planoDaArvore, type ArvoreLida, type EstadoDaArvore,
+} from '@/page-parts/atendimentos-ia/base-de-conhecimento/arvore'
+import { MateriasPrimas } from '@/page-parts/atendimentos-ia/base-de-conhecimento/materias-primas.component'
 
 type Linha = Record<string, unknown>
-type Efetivo = Record<string, { valor: unknown; origem: Origem }>
 export interface BaseDaEmpresa {
     tenant_id: string
     nicho: { id: string; modelo: string; nome: string } | null
-    esquadrias: { empresa: Linha | null; nicho: Linha | null; efetivo: Efetivo }
     adicionais: Linha | null
     ambientes: Linha[]
     vendedores: Linha[]
@@ -58,26 +47,11 @@ type Linhas = Array<LinhaDaLista & { id: string; nome?: string }>
 /** O que um bloco tem a dizer depois de tentar salvar: a recusa da rota, ou o que segurou na tela. */
 type Aviso = { rota: ErroDaRota | Error } | { locais: ErroNomeado[] }
 
-const COR_DA_ORIGEM: Record<Origem, string> = { empresa: 'blue', nicho: 'gold', 'sem valor': 'default' }
-const BORDA_DA_ORIGEM: Record<Origem, string> = { empresa: '3px solid #1677ff', nicho: '3px dashed #d4a017', 'sem valor': '3px solid transparent' }
-
 const rotulo = (c: string) => ROTULO_DO_CAMPO[c] ?? c
-function textoDoValor(v: unknown): string {
-    if (v === null || v === undefined) return '—'
-    if (typeof v === 'boolean') return v ? 'Sim' : 'Não'
-    if (Array.isArray(v)) return v.join(', ')
-    if (typeof v === 'object') return Object.entries(v as Linha).map(([k, x]) => `${k} → ${x}`).join('; ')
-    return String(v)
-}
 
 let proximoId = 0
 const novoId = () => `n${++proximoId}`
 
-function formularioDasEsquadrias(empresa: Linha | null): Linha {
-    const f: Linha = {}
-    for (const b of BLOCOS_DE_ESQUADRIAS) for (const c of b.campos) f[c] = formularioDoValor(dominioDe(c), empresa ? empresa[c] : null)
-    return f
-}
 const linhasDosAmbientes = (ambientes: Linha[]): Linhas => ambientes.map((a) => ({
     id: novoId(), chave: String(a.ambiente), valores: Object.fromEntries(CAMPOS_DO_AMBIENTE.map((c) => [c, a[c] ?? null])),
 }))
@@ -109,113 +83,6 @@ function AvisoDoBloco({ aviso }: { aviso: Aviso | null }) {
     )
 }
 
-// ── Um campo das esquadrias ────────────────────────────────────────────────────────────────
-function Editor({ c, d, valor, mudar, placeholder }: { c: string; d: Dominio; valor: unknown; mudar: (v: unknown) => void; placeholder?: string }) {
-    switch (d.tipo) {
-        case 'texto':
-            return <Input allowClear aria-label={rotulo(c)} placeholder={placeholder} value={typeof valor === 'string' ? valor : ''} onChange={(e) => mudar(e.target.value)} />
-        case 'textos':
-            return (
-                <Select mode="tags" allowClear aria-label={rotulo(c)} placeholder={placeholder ?? 'Digite e tecle Enter'} style={{ width: '100%' }}
-                    value={Array.isArray(valor) ? (valor as string[]) : []} onChange={(v) => mudar(v)} tokenSeparators={[',']} />
-            )
-        case 'booleano':
-            return (
-                <Radio.Group optionType="button" value={paraTresEstados(valor)} onChange={(e) => mudar(deTresEstados(e.target.value as TresEstados))}
-                    options={(['sim', 'nao', 'nao_informado'] as const).map((e) => ({ value: e, label: ROTULO_DOS_TRES_ESTADOS[e] }))} />
-            )
-        case 'inteiro':
-        case 'numero':
-            return (
-                <InputNumber aria-label={rotulo(c)} placeholder={placeholder} style={{ width: '100%' }} precision={d.tipo === 'inteiro' ? 0 : undefined}
-                    min={d.tipo === 'inteiro' ? (d.positivo ? 1 : undefined) : d.minimo} max={d.tipo === 'numero' && d.maximo !== null ? d.maximo : undefined}
-                    value={typeof valor === 'number' ? valor : null} onChange={(n) => mudar(typeof n === 'number' ? n : null)} />
-            )
-        case 'mapaDeTexto': {
-            const pares = Array.isArray(valor) ? (valor as Par[]) : []
-            const trocar = (i: number, p: Partial<Par>) => mudar(pares.map((x, j) => (j === i ? { ...x, ...p } : x)))
-            return (
-                <Space direction="vertical" style={{ width: '100%' }}>
-                    {pares.map((p, i) => (
-                        <Space key={i} wrap>
-                            <Input aria-label={`Cor do perfil ${i + 1}`} placeholder="Cor do perfil" value={p.perfil} onChange={(e) => trocar(i, { perfil: e.target.value })} />
-                            <span>→</span>
-                            <Input aria-label={`Cor do acessório ${i + 1}`} placeholder="Cor do acessório" value={p.acessorio} onChange={(e) => trocar(i, { acessorio: e.target.value })} />
-                            <Button onClick={() => mudar(pares.filter((_, j) => j !== i))}>Remover</Button>
-                        </Space>
-                    ))}
-                    <Button onClick={() => mudar([...pares, { perfil: '', acessorio: '' }])}>Acrescentar par</Button>
-                </Space>
-            )
-        }
-        case 'opcao':
-            return null
-    }
-}
-
-/** As fontes do fornecedor e da linha: lendo, falhou, ou as opções das tabelas em uso. */
-type Fontes = { estado: 'lendo' } | { estado: 'erro'; mensagem: string } | ({ estado: 'lidas' } & OpcoesDasTabelas)
-
-function SeletorDaTabela({ c, valor, mudar, fontes, tenantId, placeholder }: {
-    c: CampoDaTabela; valor: unknown; mudar: (v: unknown) => void; fontes: Fontes; tenantId: string; placeholder?: string
-}) {
-    const atual = typeof valor === 'string' && valor.trim() !== '' ? valor : null
-    const lista = fontes.estado === 'lidas' ? fontes[c] : []
-    const fora = atual !== null && !lista.includes(atual)
-    const motivo = fontes.estado !== 'lidas' ? null
-        : !fontes.temTabela ? SEM_TABELA_EM_USO
-            : lista.length === 0 ? SEM_LINHA_NAS_TABELAS : null
-    const opcoes = [
-        ...lista.map((x) => ({ value: x, label: x })),
-        ...(fora ? [{ value: atual as string, label: `${atual} (${FORA_DA_LISTA})` }] : []),
-    ]
-    return (
-        <>
-            <Space size={6} style={{ width: '100%' }} wrap>
-                <Select allowClear aria-label={rotulo(c)} style={{ minWidth: 260 }} placeholder={motivo ? undefined : placeholder ?? 'Selecione'}
-                    loading={fontes.estado === 'lendo'} disabled={fontes.estado !== 'lidas' || motivo !== null}
-                    value={atual ?? undefined} onChange={(v) => mudar(v ?? null)} options={opcoes} />
-                {fora && <Tag data-fora-da-lista color="red">{FORA_DA_LISTA}</Tag>}
-            </Space>
-            {fontes.estado === 'erro' && (
-                <Alert type="error" showIcon style={{ marginTop: 6 }} message="Não foi possível ler as tabelas em uso da conta." description={fontes.mensagem} />
-            )}
-            {motivo && (
-                <Typography.Text type="secondary" style={{ display: 'block', fontSize: 12, marginTop: 4 }}>
-                    {motivo}{' '}
-                    {motivo === SEM_TABELA_EM_USO && <a data-volta-para-tabelas href={rotaDasTabelasDaConta(tenantId)}>{IR_PARA_AS_TABELAS}</a>}
-                </Typography.Text>
-            )}
-        </>
-    )
-}
-
-function CampoDaEsquadria({ c, efetivo, gravado, valor, mudar, fontes, tenantId }: {
-    c: string; efetivo: Efetivo; gravado: Linha | null; valor: unknown; mudar: (v: unknown) => void; fontes: Fontes; tenantId: string
-}) {
-    const d = dominioDe(c)
-    const { valor: herdado, origem } = efetivo[c] ?? { valor: null, origem: 'sem valor' as Origem }
-    const normalizado = valorDoFormulario(d, valor)
-    const alterado = normalizado.erro !== null || !mesmoValor(normalizado.valor, gravado ? gravado[c] : null)
-    return (
-        <div data-campo={c} data-origem-do-campo={origem} style={{ borderLeft: BORDA_DA_ORIGEM[origem], paddingLeft: 10 }}>
-            <Space size={6} wrap style={{ marginBottom: 4 }}>
-                <Typography.Text strong>{rotulo(c)}</Typography.Text>
-                <Tag data-origem color={COR_DA_ORIGEM[origem]}>{ROTULO_DA_ORIGEM[origem]}</Tag>
-                {alterado && <Tag color="purple">alterado — não salvo</Tag>}
-            </Space>
-            {ehCampoDaTabela(c)
-                ? <SeletorDaTabela c={c} valor={valor} mudar={mudar} fontes={fontes} tenantId={tenantId} placeholder={origem === 'nicho' ? `herdado: ${textoDoValor(herdado)}` : undefined} />
-                : <Editor c={c} d={d} valor={valor} mudar={mudar} placeholder={origem === 'nicho' ? `herdado: ${textoDoValor(herdado)}` : undefined} />}
-            {origem === 'nicho' && (
-                <Typography.Text type="secondary" italic style={{ display: 'block', fontSize: 12 }}>
-                    Valor do nicho: {textoDoValor(herdado)}. Preencher aqui grava na empresa; deixar vazio continua herdando.
-                </Typography.Text>
-            )}
-        </div>
-    )
-}
-
 // ── O componente ───────────────────────────────────────────────────────────────────────────
 /** O que o último "Salvar alterações" conseguiu: os blocos salvos e, de cada falha, os blocos e o porquê. */
 type Resultado = { salvos: ChaveDoBloco[]; naoSalvos: Array<{ blocos: ChaveDoBloco[]; motivo: string }> }
@@ -231,7 +98,9 @@ export function BaseDeConhecimento({ tenantId, topo }: { tenantId: string; topo:
     const [erroAoLer, setErroAoLer] = useState<string | null>(null)
     const [funcionarios, setFuncionarios] = useState<Funcionario[] | null>(null)
     const [erroDosFuncionarios, setErroDosFuncionarios] = useState<string | null>(null)
-    const [esquadrias, setEsquadrias] = useState<Linha>({})
+    const [arvore, setArvore] = useState<ArvoreLida | null>(null)
+    const [erroDaArvore, setErroDaArvore] = useState<string | null>(null)
+    const [formArvore, setFormArvore] = useState<EstadoDaArvore>({ materias: [], removidas: [] })
     const [adicionais, setAdicionais] = useState<Linha>({})
     const [ambientes, setAmbientes] = useState<Linhas>([])
     const [vendedores, setVendedores] = useState<Linhas>([])
@@ -239,7 +108,6 @@ export function BaseDeConhecimento({ tenantId, topo }: { tenantId: string; topo:
     const [avisos, setAvisos] = useState<Partial<Record<ChaveDoBloco, Aviso | null>>>({})
     const [salvando, setSalvando] = useState(false)
     const [resultado, setResultado] = useState<Resultado | null>(null)
-    const [fontes, setFontes] = useState<Fontes>({ estado: 'lendo' })
 
     const ler = useCallback(async () => chamarRota<BaseDaEmpresa>(ROTAS_DA_BASE.base(tenantId)), [tenantId])
 
@@ -248,19 +116,15 @@ export function BaseDeConhecimento({ tenantId, topo }: { tenantId: string; topo:
         ler().then((b) => {
             if (!vivo) return
             setBase(b)
-            setEsquadrias(formularioDasEsquadrias(b.esquadrias.empresa))
             setAdicionais({ ...(b.adicionais ?? {}) })
             setAmbientes(linhasDosAmbientes(b.ambientes))
             setVendedores(linhasDosVendedores(b.vendedores))
             setErroAoLer(null)
         }).catch((e) => { if (vivo) setErroAoLer((e as Error).message) })
-        // Fornecedor e linha: as tabelas em uso da conta e, de cada uma, o conteúdo importado.
-        chamarRota<TabelasDaConta>(ROTAS_DO_CATALOGO.tabelasDaConta(tenantId))
-            .then(async (t) => {
-                const conteudos = await Promise.all(t.em_uso.map((u) => chamarRota<{ tipologias: TipologiaLida[] }>(ROTAS_DO_CATALOGO.conteudoDaTabela(u.tabela_id))))
-                if (vivo) setFontes({ estado: 'lidas', ...opcoesDasTabelas(t.em_uso, conteudos) })
-            })
-            .catch((e) => { if (vivo) setFontes({ estado: 'erro', mensagem: (e as Error).message }) })
+        // a árvore dos três níveis: leitura própria — falhar aqui é erro NO CARTÃO, não na tela inteira
+        chamarRota<ArvoreLida>(ROTAS_DA_BASE.arvore(tenantId))
+            .then((a) => { if (vivo) { setArvore(a); setFormArvore(formularioDaArvore(a)); setErroDaArvore(null) } })
+            .catch((e) => { if (vivo) setErroDaArvore((e as Error).message) })
         chamarRota<{ funcionarios: Funcionario[] }>(ROTAS_DA_BASE.funcionarios(tenantId))
             .then((r) => { if (vivo) setFuncionarios(r.funcionarios) })
             .catch((e) => { if (vivo) setErroDosFuncionarios((e as Error).message) })
@@ -268,11 +132,10 @@ export function BaseDeConhecimento({ tenantId, topo }: { tenantId: string; topo:
     }, [tenantId, ler])
 
     const plano = base
-        ? planoDoSalvar(
-            { empresa: base.esquadrias.empresa, adicionais: base.adicionais, ambientes: base.ambientes, vendedores: base.vendedores },
-            { esquadrias, adicionais, ambientes, vendedores })
+        ? planoDoSalvar({ adicionais: base.adicionais, ambientes: base.ambientes, vendedores: base.vendedores }, { adicionais, ambientes, vendedores })
         : null
-    const pendentes = plano?.total ?? 0
+    const planoArvore = arvore ? planoDaArvore(arvore, formArvore) : null
+    const pendentes = (plano?.total ?? 0) + (planoArvore?.pendencias ?? 0)
 
     // Sair com pendência avisa antes: a navegação do Next pergunta; fechar ou recarregar a aba, o navegador.
     const pendentesAgora = useRef(0)
@@ -301,34 +164,43 @@ export function BaseDeConhecimento({ tenantId, topo }: { tenantId: string; topo:
     const avisar = (b: ChaveDoBloco, a: Aviso | null) => setAvisos((x) => ({ ...x, [b]: a }))
 
     async function salvarTudo() {
-        if (!base || !plano || plano.total === 0) return
+        if (!base || !plano || pendentes === 0) return
         setSalvando(true)
         setResultado(null)
-        const blocosDoPlano = [...plano.chamadas.flatMap((c) => c.blocos), ...plano.naoEnviados.map((n) => n.bloco)]
+        // a árvore entra no MESMO botão: um PUT /arvore, quando ela mudou e nada a segura na tela
+        const chamadas: Chamada[] = [...plano.chamadas, ...(planoArvore?.corpo ? [{ rota: 'arvore' as const, corpo: { arvore: planoArvore.corpo }, blocos: ['materias' as const] }] : [])]
+        const naoEnviados = [...plano.naoEnviados, ...(planoArvore?.erros.length ? [{ bloco: 'materias' as const, erros: planoArvore.erros }] : [])]
+        const blocosDoPlano = [...chamadas.flatMap((c) => c.blocos), ...naoEnviados.map((n) => n.bloco)]
         setAvisos((x) => ({ ...x, ...Object.fromEntries(blocosDoPlano.map((b): [ChaveDoBloco, null] => [b, null])) }))
-        for (const n of plano.naoEnviados) avisar(n.bloco, { locais: n.erros })
-        const url = (c: Chamada) => (c.rota === 'base' ? ROTAS_DA_BASE.base(tenantId) : c.rota === 'ambiente' ? ROTAS_DA_BASE.ambiente(tenantId) : ROTAS_DA_BASE.vendedor(tenantId))
+        for (const n of naoEnviados) avisar(n.bloco, { locais: n.erros })
+        const url = (c: Chamada) => ROTAS_DA_BASE[c.rota](tenantId)
         try {
-            const respostas = await Promise.allSettled(plano.chamadas.map((c) => chamarRota(url(c), 'PUT', c.corpo)))
-            const passaram = plano.chamadas.filter((_, i) => respostas[i].status === 'fulfilled')
-            const falharam = plano.chamadas
+            const respostas = await Promise.allSettled(chamadas.map((c) => chamarRota(url(c), 'PUT', c.corpo)))
+            const passaram = chamadas.filter((_, i) => respostas[i].status === 'fulfilled')
+            const falharam = chamadas
                 .map((c, i) => ({ c, r: respostas[i] }))
                 .filter((x): x is { c: Chamada; r: PromiseRejectedResult } => x.r.status === 'rejected')
             for (const f of falharam) for (const b of f.c.blocos) avisar(b, { rota: f.r.reason as Error })
 
             const naoSalvos: Resultado['naoSalvos'] = [
                 ...falharam.map((f) => ({ blocos: f.c.blocos, motivo: (f.r.reason as Error).message })),
-                ...plano.naoEnviados.map((n) => ({ blocos: [n.bloco], motivo: 'não enviado — corrija os campos marcados no bloco.' })),
+                ...naoEnviados.map((n) => ({ blocos: [n.bloco], motivo: 'não enviado — corrija os campos marcados no bloco.' })),
             ]
-            if (passaram.length) {
+            // a árvore salva é redesenhada pelo `depois` da RESPOSTA — o que o banco gravou, sem reler
+            const daArvore = chamadas.findIndex((c) => c.rota === 'arvore')
+            if (daArvore !== -1 && respostas[daArvore].status === 'fulfilled' && arvore) {
+                const { depois } = (respostas[daArvore] as PromiseFulfilledResult<{ depois: Record<string, Linha[]> }>).value
+                const nova = arvoreDoDepois(depois, arvore)
+                setArvore(nova)
+                setFormArvore(formularioDaArvore(nova))
+            }
+            const daEmpresa = passaram.filter((c) => c.rota !== 'arvore')
+            if (daEmpresa.length) {
                 // relê UMA vez e recompõe SÓ o que foi salvo; o que falhou fica como está na tela
                 try {
                     const nova = await ler()
                     setBase(nova)
-                    const salvos = new Set(passaram.flatMap((c) => c.blocos))
-                    const recomposto = formularioDasEsquadrias(nova.esquadrias.empresa)
-                    const camposSalvos = BLOCOS_DE_ESQUADRIAS.filter((b) => salvos.has(b.chave)).flatMap((b) => b.campos)
-                    if (camposSalvos.length) setEsquadrias((f) => ({ ...f, ...Object.fromEntries(camposSalvos.map((c) => [c, recomposto[c]])) }))
+                    const salvos = new Set(daEmpresa.flatMap((c) => c.blocos))
                     if (salvos.has('adicionais')) setAdicionais({ ...(nova.adicionais ?? {}) })
                     if (salvos.has('ambientes')) setAmbientes(linhasDosAmbientes(nova.ambientes))
                     if (salvos.has('vendedores')) setVendedores(linhasDosVendedores(nova.vendedores))
@@ -374,20 +246,13 @@ export function BaseDeConhecimento({ tenantId, topo }: { tenantId: string; topo:
 
     const rodape = (b: ChaveDoBloco) => <AvisoDoBloco aviso={avisos[b] ?? null} />
 
-    const blocoDeEsquadrias = (chave: ChaveDoBloco) => {
-        const b = BLOCOS_DE_ESQUADRIAS.find((x) => x.chave === chave)!
-        return (
-            <Card key={chave} data-bloco={chave} title={b.titulo} style={{ marginBottom: 16 }}>
-                <Space direction="vertical" size="middle" style={{ width: '100%', maxWidth: 560 }}>
-                    {b.campos.map((c) => (
-                        <CampoDaEsquadria key={c} c={c} efetivo={base.esquadrias.efetivo} gravado={base.esquadrias.empresa} valor={esquadrias[c]}
-                            mudar={(v) => setEsquadrias((f) => ({ ...f, [c]: v }))} fontes={fontes} tenantId={tenantId} />
-                    ))}
-                </Space>
-                {rodape(chave)}
-            </Card>
-        )
-    }
+    const avisoDaArvore = avisos.materias ?? null
+    const blocoDasMaterias = (
+        <MateriasPrimas key="materias" arvore={arvore} erroAoLer={erroDaArvore} estado={formArvore} mudar={setFormArvore}
+            erros={planoArvore?.erros ?? []}
+            erroDaRota={avisoDaArvore && 'rota' in avisoDaArvore ? avisoDaArvore.rota : null}
+            naoEnviado={avisoDaArvore && 'locais' in avisoDaArvore ? avisoDaArvore.locais : null} />
+    )
 
     const mudarLinha = (set: React.Dispatch<React.SetStateAction<Linhas>>, id: string, p: Partial<LinhaDaLista> | { valor: [string, unknown] }) =>
         set((ls) => ls.map((l) => (l.id !== id ? l : 'valor' in p ? { ...l, valores: { ...l.valores, [p.valor[0]]: p.valor[1] } } : { ...l, ...p })))
@@ -528,7 +393,7 @@ export function BaseDeConhecimento({ tenantId, topo }: { tenantId: string; topo:
             {ORDEM_DOS_BLOCOS.map((b) => (b === 'ambientes' ? blocoDosAmbientes
                 : b === 'vendedores' ? blocoDosVendedores
                     : b === 'adicionais' ? blocoDosAdicionais
-                        : blocoDeEsquadrias(b)))}
+                        : blocoDasMaterias))}
         </div>
     )
 }

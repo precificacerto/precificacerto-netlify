@@ -1,18 +1,21 @@
 /**
  * A TELA da base de conhecimento — o que é puro: as rotas que ela chama, os blocos, os rótulos, e a
- * montagem do CORPO. Nada aqui lê rede nem React.
+ * montagem do CORPO das rotas da EMPRESA (adicionais, ambientes, vendedores). Nada aqui lê rede nem
+ * React. O miolo dos três níveis — o cartão "Matérias-primas e seus fornecedores" — monta a árvore em
+ * `arvore.ts`.
+ *
+ * ══ OS CINCO BLOCOS DE ESQUADRIAS SAÍRAM ══
+ * Perfil, Vidro, Guarnição e contramarco, Acessórios e Produção (o modelo de UM nível, em
+ * `orcamentista_esquadrias_base`) saíram da tela por decisão do dono do produto, 23/10/2026, quando o
+ * cartão dos três níveis entrou no lugar deles. A rota PUT /base continua aceitando `esquadrias`; a
+ * tela é que não manda mais. Medido no mesmo dia: 1 linha gravada em `orcamentista_esquadrias_base`, e
+ * nenhum leitor dela fora desta tela e das rotas dela — a linha fica no banco, sem tela.
  *
  * ══ SÓ O QUE MUDOU VAI NO CORPO ══
- * As rotas tratam a chave AUSENTE como "não mexer", NULL como "limpar" (nas esquadrias: voltar a
- * herdar o nicho) e FALSE como false (`src/lib/atendimentos-ia/base-de-conhecimento.ts`). Por isso a
- * tela NUNCA serializa o formulário inteiro: o corpo leva só o campo cujo valor no formulário é
- * DIFERENTE do gravado pela empresa. Consequências, cada uma com caso no portão
- * `base-de-conhecimento-a-tela.test.tsx`:
- *   - campo não tocado não vai;
- *   - campo esvaziado vai null — texto em branco, lista vazia, número apagado;
- *   - booleano em "não informado" que já era null não vai — nem como false;
- *   - a comparação é contra a camada da EMPRESA, não contra o efetivo: digitar o mesmo valor que o
- *     nicho dá grava esse valor na empresa, porque a empresa passou a decidir.
+ * As rotas tratam a chave AUSENTE como "não mexer", NULL como "limpar" e FALSE como false
+ * (`src/lib/atendimentos-ia/base-de-conhecimento.ts`). Por isso a tela NUNCA serializa o formulário
+ * inteiro: o corpo leva só o campo cujo valor no formulário é DIFERENTE do gravado. Campo não tocado
+ * não vai; campo esvaziado vai null.
  *
  * ══ OS ADICIONAIS ══
  * Trocar o modo limpa o que o modo novo não usa (VALOR limpa percentual e base; PERCENTUAL limpa o
@@ -21,9 +24,7 @@
  * PERCENTUAL sem base não sai da tela.
  */
 import { ROUTES } from '@/constants/routes'
-import {
-    CAMPOS_DE_ESQUADRIAS, errosDeCoerenciaDosAdicionais, type Dominio, type ErroNomeado, type Origem,
-} from '@/lib/atendimentos-ia/base-de-conhecimento'
+import { errosDeCoerenciaDosAdicionais, type Dominio, type ErroNomeado } from '@/lib/atendimentos-ia/base-de-conhecimento'
 
 const RAIZ = '/api/super-admin/base-de-conhecimento'
 const daEmpresa = (sufixo: string, tenantId: string) => `${RAIZ}${sufixo}?tenant=${encodeURIComponent(tenantId)}`
@@ -33,45 +34,14 @@ export const ROTAS_DA_BASE = {
     ambiente: (tenantId: string) => daEmpresa('/ambiente', tenantId),
     vendedor: (tenantId: string) => daEmpresa('/vendedor', tenantId),
     funcionarios: (tenantId: string) => daEmpresa('/funcionarios', tenantId),
+    /** GET e PUT da árvore dos três níveis — `superadmin_gravar_arvore`, numa transação só. */
+    arvore: (tenantId: string) => daEmpresa('/arvore', tenantId),
 }
 
 /** A tela: dentro da conta, para a empresa estar no CAMINHO e não num seletor do formulário. */
 export const rotaDaTelaDaBase = (tenantId: string) => `${ROUTES.SUPER_ADMIN_IA_CONTAS}/${tenantId}/base-de-conhecimento`
 
-export const ROTULO_DA_ORIGEM: Record<Origem, string> = {
-    empresa: 'Da empresa',
-    nicho: 'Herdado do nicho',
-    'sem valor': 'Sem valor',
-}
-
 export const ROTULO_DO_CAMPO: Record<string, string> = {
-    fornecedor_perfil: 'Fornecedor do perfil',
-    linha_perfil: 'Linha do perfil',
-    cor_perfil_predominante: 'Cor predominante do perfil',
-    cores_perfil: 'Cores de perfil que trabalha',
-    vidro_predominante: 'Tipo de vidro predominante',
-    vidros: 'Tipos de vidro que trabalha',
-    usa_arremate_interno: 'Usa arremate interno',
-    guarnicao_interna: 'Guarnição interna',
-    guarnicao_interna_mm: 'Guarnição interna (mm)',
-    usa_arremate_externo: 'Usa arremate externo',
-    guarnicao_externa: 'Guarnição externa',
-    guarnicao_externa_mm: 'Guarnição externa (mm)',
-    montagem_arremate_externo: 'Montagem do arremate externo',
-    medida_arremate_externo: 'Medida do arremate externo',
-    usa_contramarco: 'Trabalha com contramarco',
-    cor_acessorio_por_perfil: 'Cor do acessório por cor de perfil',
-    regiao_litoranea: 'Região litorânea',
-    modelo_interlock: 'Modelo do interlock',
-    fechamento_folha_interna: 'Fechamento da folha interna',
-    fechamento_folha_externa: 'Fechamento da folha externa',
-    macaneta_sem_chave: 'Maçaneta sem chave',
-    solda: 'Solda',
-    vedacao: 'Vedação',
-    folga_instalacao_x: 'Folga de instalação X (mm)',
-    folga_instalacao_y: 'Folga de instalação Y (mm)',
-    barra_mm: 'Barra (mm)',
-    serra_mm: 'Serra (mm)',
     frete_modo: 'Frete — modo',
     frete_valor: 'Frete — valor (R$)',
     frete_percentual: 'Frete — percentual (%)',
@@ -89,29 +59,10 @@ export const ROTULO_DO_CAMPO: Record<string, string> = {
     lucro_projetado_percentual: 'Lucro projetado (%)',
 }
 
-export type ChaveDoBloco = 'perfil' | 'vidro' | 'guarnicao' | 'acessorios' | 'ambientes' | 'producao' | 'vendedores' | 'adicionais'
+export type ChaveDoBloco = 'materias' | 'ambientes' | 'vendedores' | 'adicionais'
 
-/** Os blocos que gravam ESQUADRIAS. Ambientes, vendedores e adicionais têm forma própria. */
-export const BLOCOS_DE_ESQUADRIAS: ReadonlyArray<{ chave: ChaveDoBloco; titulo: string; campos: readonly string[] }> = [
-    { chave: 'perfil', titulo: 'Perfil', campos: ['fornecedor_perfil', 'linha_perfil', 'cor_perfil_predominante', 'cores_perfil'] },
-    { chave: 'vidro', titulo: 'Vidro', campos: ['vidro_predominante', 'vidros'] },
-    {
-        chave: 'guarnicao', titulo: 'Guarnição e contramarco',
-        campos: ['usa_arremate_interno', 'guarnicao_interna', 'guarnicao_interna_mm', 'usa_arremate_externo', 'guarnicao_externa',
-            'guarnicao_externa_mm', 'montagem_arremate_externo', 'medida_arremate_externo', 'usa_contramarco'],
-    },
-    {
-        chave: 'acessorios', titulo: 'Acessórios',
-        campos: ['cor_acessorio_por_perfil', 'regiao_litoranea', 'modelo_interlock', 'fechamento_folha_interna', 'fechamento_folha_externa',
-            'macaneta_sem_chave', 'solda', 'vedacao'],
-    },
-    { chave: 'producao', titulo: 'Produção', campos: ['folga_instalacao_x', 'folga_instalacao_y', 'barra_mm', 'serra_mm'] },
-]
-
-/** A ordem dos oito blocos na tela. */
-export const ORDEM_DOS_BLOCOS: readonly ChaveDoBloco[] = ['perfil', 'vidro', 'guarnicao', 'acessorios', 'ambientes', 'producao', 'vendedores', 'adicionais']
-
-export const dominioDe = (campo: string): Dominio => CAMPOS_DE_ESQUADRIAS[campo]
+/** A ordem dos quatro blocos na tela: o miolo dos três níveis, e os três da empresa. */
+export const ORDEM_DOS_BLOCOS: readonly ChaveDoBloco[] = ['materias', 'ambientes', 'vendedores', 'adicionais']
 
 // ── O booleano em três estados ─────────────────────────────────────────────────────────────
 export type TresEstados = 'sim' | 'nao' | 'nao_informado'
@@ -163,13 +114,6 @@ export function valorDoFormulario(d: Dominio, v: unknown): { valor: unknown; err
         case 'mapaDeTexto':
             return mapaDosPares(Array.isArray(v) ? (v as Par[]) : [])
     }
-}
-
-/** O valor gravado na forma que o formulário edita. */
-export function formularioDoValor(d: Dominio, v: unknown): unknown {
-    if (d.tipo === 'mapaDeTexto') return paresDoMapa(v)
-    if (d.tipo === 'textos') return Array.isArray(v) ? v : []
-    return v ?? null
 }
 
 /** Igualdade de valores normalizados: listas na ordem, mapas sem ordem de chave. */
@@ -274,44 +218,6 @@ export function corpoDaLista(
     return { itens, erros, mudou }
 }
 
-// ── Fornecedor e linha: SELEÇÃO das tabelas em uso da conta ────────────────────────────────
-/**
- * Decisão do dono do produto, 23/10/2026: fornecedor e linha deixam de ser texto livre. A conta já
- * declarou qual tabela usa; digitar "Wolf" onde a tabela diz "Wolff" cria uma divergência que ninguém
- * vê até o orçamento não cruzar.
- *   - FORNECEDOR: o `fornecedor_nome` de cada tabela em uso (`ROTAS_DO_CATALOGO.tabelasDaConta`);
- *   - LINHA: a `linha` das tipologias que a importação gravou para cada tabela em uso
- *     (`ROTAS_DO_CATALOGO.conteudoDaTabela`) — é o único lugar em que uma tabela diz linha. Tabela
- *     ainda não importada não traz linha nenhuma, e a tela diz isso em vez de oferecer lista vazia.
- * O valor GRAVADO que não está mais na lista é mostrado e marcado, NUNCA apagado pela tela: só o que
- * o usuário mudar vai no corpo (`mudancas`), e carregar as opções não muda o formulário.
- */
-export const CAMPOS_DA_TABELA = ['fornecedor_perfil', 'linha_perfil'] as const
-export type CampoDaTabela = typeof CAMPOS_DA_TABELA[number]
-export const ehCampoDaTabela = (c: string): c is CampoDaTabela => (CAMPOS_DA_TABELA as readonly string[]).includes(c)
-export const SEM_TABELA_EM_USO = 'Esta conta não tem tabela em uso. Vincule uma tabela à conta primeiro.'
-export const SEM_LINHA_NAS_TABELAS = 'As tabelas em uso não trazem linha — a linha vem das tipologias da tabela importada.'
-export const FORA_DA_LISTA = 'fora das tabelas em uso'
-export const IR_PARA_AS_TABELAS = 'Ir para Tabelas em uso'
-/** A seção "Tabelas em uso" da tela da conta — a âncora é o `id` da seção (`ANCORA_DAS_TABELAS_EM_USO`). */
-export const rotaDasTabelasDaConta = (tenantId: string) => `${ROUTES.SUPER_ADMIN_IA_CONTAS}/${tenantId}#tabelas-em-uso`
-
-const distintos = (xs: Array<string | null | undefined>) =>
-    [...new Set(xs.map((x) => (typeof x === 'string' ? x.trim() : '')).filter((x) => x !== ''))].sort((a, b) => a.localeCompare(b, 'pt-BR'))
-
-export type OpcoesDasTabelas = { temTabela: boolean; fornecedor_perfil: string[]; linha_perfil: string[] }
-
-/** As opções de cada campo, das tabelas em uso e do conteúdo importado de cada uma. */
-export function opcoesDasTabelas(
-    emUso: ReadonlyArray<{ fornecedor_nome: string }>, conteudos: ReadonlyArray<{ tipologias: ReadonlyArray<{ linha: string | null }> }>,
-): OpcoesDasTabelas {
-    return {
-        temTabela: emUso.length > 0,
-        fornecedor_perfil: distintos(emUso.map((t) => t.fornecedor_nome)),
-        linha_perfil: distintos(conteudos.flatMap((c) => c.tipologias.map((t) => t.linha))),
-    }
-}
-
 // ── UM BOTÃO SÓ: o plano do salvar da tela inteira ─────────────────────────────────────────
 /**
  * Decisão do dono do produto, 23/10/2026: um único "Salvar alterações" para a tela inteira. Medido:
@@ -327,12 +233,8 @@ export function opcoesDasTabelas(
  * conta um, o removido conta um, e cada campo mudado num item gravado conta um.
  */
 export const TITULO_DO_BLOCO: Record<ChaveDoBloco, string> = {
-    perfil: 'Perfil',
-    vidro: 'Vidro',
-    guarnicao: 'Guarnição e contramarco',
-    acessorios: 'Acessórios',
+    materias: 'Matérias-primas e seus fornecedores',
     ambientes: 'Padrão por ambiente',
-    producao: 'Produção',
     vendedores: 'Vendedores',
     adicionais: 'Adicionais da empresa',
 }
@@ -340,7 +242,7 @@ export const TITULO_DO_BLOCO: Record<ChaveDoBloco, string> = {
 export const fraseDasPendencias = (n: number) =>
     (n === 0 ? 'Nenhuma alteração pendente' : n === 1 ? '1 alteração não salva' : `${n} alterações não salvas`)
 
-export type RotaDaChamada = 'base' | 'ambiente' | 'vendedor'
+export type RotaDaChamada = 'base' | 'ambiente' | 'vendedor' | 'arvore'
 export type Chamada = { rota: RotaDaChamada; corpo: Record<string, unknown>; blocos: ChaveDoBloco[] }
 export type Plano = {
     chamadas: Chamada[]
@@ -349,13 +251,11 @@ export type Plano = {
     total: number
 }
 export type EstadoDaTela = {
-    esquadrias: Record<string, unknown>
     adicionais: Record<string, unknown>
     ambientes: ReadonlyArray<LinhaDaLista>
     vendedores: ReadonlyArray<LinhaDaLista>
 }
 export type Gravado = {
-    empresa: Record<string, unknown> | null
     adicionais: Record<string, unknown> | null
     ambientes: ReadonlyArray<Record<string, unknown>>
     vendedores: ReadonlyArray<Record<string, unknown>>
@@ -379,27 +279,13 @@ export function planoDoSalvar(gravado: Gravado, tela: EstadoDaTela): Plano {
     const naoEnviados: Plano['naoEnviados'] = []
     const chamadas: Chamada[] = []
 
-    // a rota da base: esquadrias (bloco a bloco) e adicionais
-    const esquadrias: Record<string, unknown> = {}
-    const blocosDaBase: ChaveDoBloco[] = []
-    for (const b of BLOCOS_DE_ESQUADRIAS) {
-        const r = mudancas(b.campos, dominioDe, gravado.empresa, tela.esquadrias)
-        porBloco[b.chave] = Object.keys(r.corpo).length + r.erros.length
-        if (r.erros.length) naoEnviados.push({ bloco: b.chave, erros: r.erros })
-        else if (Object.keys(r.corpo).length) { Object.assign(esquadrias, r.corpo); blocosDaBase.push(b.chave) }
-    }
+    // a rota da base: SÓ os adicionais — as esquadrias de um nível saíram da tela (ver o cabeçalho)
     const ad = corpoDosAdicionais(gravado.adicionais, tela.adicionais)
     const mudadosDosAdicionais = ADICIONAIS.flatMap(CAMPOS_DO_ADICIONAL)
         .filter((c) => !mesmoValor(valorDoFormulario(DOMINIO_DO_ADICIONAL(c), tela.adicionais[c]).valor, gravado.adicionais ? gravado.adicionais[c] : null)).length
     porBloco.adicionais = mudadosDosAdicionais
     if (ad.erros.length) naoEnviados.push({ bloco: 'adicionais', erros: ad.erros })
-    else if (Object.keys(ad.corpo).length) blocosDaBase.push('adicionais')
-    if (blocosDaBase.length) {
-        const corpo: Record<string, unknown> = {}
-        if (Object.keys(esquadrias).length) corpo.esquadrias = esquadrias
-        if (blocosDaBase.includes('adicionais')) corpo.adicionais = ad.corpo
-        chamadas.push({ rota: 'base', corpo, blocos: blocosDaBase })
-    }
+    else if (Object.keys(ad.corpo).length) chamadas.push({ rota: 'base', corpo: { adicionais: ad.corpo }, blocos: ['adicionais'] })
 
     // as listas: a lista inteira, quando alguma coisa nela mudou
     const listas = [
