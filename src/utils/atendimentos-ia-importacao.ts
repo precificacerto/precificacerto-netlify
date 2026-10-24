@@ -564,3 +564,21 @@ export function conferirGravacao(
     const bate = (Object.keys(mandou) as Array<keyof ContagensDaGravacao>).every((k) => mandou[k] === voltou[k])
     return bate ? null : { enviado: mandou, gravado: voltou }
 }
+
+// ── A trava do tempo ───────────────────────────────────────────────────────────────────────
+/** Quantas tipologias da tabela têm tempo de fabricação gravado: o total e por origem. */
+export interface TemposGravados { total: number; ESTIMADO: number; IMPORTADO: number }
+
+/**
+ * A recusa da importação em tabela com tempo de fabricação gravado (decisão do dono do produto,
+ * 24/10/2026). A função `importar_conteudo_da_tabela` apaga e regrava `orcamentista_motor_tipologia`
+ * SEM as colunas de tempo: importar apagaria os tempos mesmo com o arquivo idêntico. A trava sai
+ * quando o tempo tiver tabela própria, que a importação não apaga.
+ */
+export function fraseDaImportacaoTravadaPeloTempo(t: TemposGravados): string {
+    const outras = t.total - t.ESTIMADO - t.IMPORTADO
+    const partes = [`${t.ESTIMADO} ESTIMADO`, `${t.IMPORTADO} IMPORTADO`, ...(outras > 0 ? [`${outras} de outra origem`] : [])]
+    return `A importação está travada para esta tabela: ${t.total} tipologias têm tempo de fabricação gravado `
+        + `(${partes.join(', ')}). A importação apaga e regrava as tipologias sem o tempo, e esses tempos se `
+        + `perderiam. Nada foi alterado. A trava sai quando o tempo tiver tabela própria.`
+}

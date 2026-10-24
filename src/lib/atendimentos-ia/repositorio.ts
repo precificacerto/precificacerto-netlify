@@ -283,6 +283,23 @@ export async function obterDadosDaTabela(id: string): Promise<{ id: string; forn
     return { id: ts[0].id, fornecedor_id: ts[0].fornecedor_id, fornecedor_nome: fs[0]?.nome ?? null, arquivo_nome: ts[0].arquivo_nome, motor_nome: ts[0].motor_nome, vigencia: ts[0].vigencia ?? null }
 }
 
+/**
+ * Quantas tipologias da tabela têm tempo de fabricação gravado, no total e por origem — para a
+ * trava da importação. Por CONTAGEM no banco (`count: 'exact'`, sem trazer linhas): o limite de
+ * linhas do PostgREST não a alcança. O total é contado à parte, para que uma origem nova também trave.
+ */
+export async function contarTemposGravados(tabelaId: string): Promise<{ total: number; ESTIMADO: number; IMPORTADO: number }> {
+    const contar = async (origem: 'ESTIMADO' | 'IMPORTADO' | null) => {
+        let c = db().from('orcamentista_motor_tipologia').select('id', { count: 'exact', head: true }).eq('tabela_id', tabelaId)
+        c = origem === null ? c.not('tempo_origem', 'is', null) : c.eq('tempo_origem', origem)
+        const { count, error } = await c
+        if (error) throw new ErroDoBanco(error)
+        return count ?? 0
+    }
+    const [total, ESTIMADO, IMPORTADO] = await Promise.all([contar(null), contar('ESTIMADO'), contar('IMPORTADO')])
+    return { total, ESTIMADO, IMPORTADO }
+}
+
 /** O resumo por tipologia gravado para a tabela, SEM ordem — quem ordena é a rota. */
 export async function listarTipologias(tabelaId: string): Promise<Array<{ tipologia: string; linha: string | null; n_regras: number; n_condicionais: number; variaveis: string[] }>> {
     return q(db().from('orcamentista_motor_tipologia').select('tipologia, linha, n_regras, n_condicionais, variaveis').eq('tabela_id', tabelaId))
