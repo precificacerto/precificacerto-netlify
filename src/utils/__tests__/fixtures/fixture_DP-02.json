@@ -1,0 +1,955 @@
+{
+ "Detalhe Tipologias": {
+  "cabecalho": [
+   "Linha",
+   "Código",
+   "Descrição",
+   "Tipo",
+   "Larg. mín (mm)",
+   "Larg. máx (mm)",
+   "Alt. mín (mm)",
+   "Alt. máx (mm)",
+   "Fonte limite",
+   "Nº perfis",
+   "Nº vidros",
+   "Nº insumos"
+  ],
+  "linhas": [
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Descrição": "JANELA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 42",
+    "Tipo": "Correr",
+    "Larg. mín (mm)": null,
+    "Larg. máx (mm)": null,
+    "Alt. mín (mm)": 388,
+    "Alt. máx (mm)": 2439,
+    "Fonte limite": "validação WVetro",
+    "Nº perfis": 39,
+    "Nº vidros": 1,
+    "Nº insumos": 253
+   }
+  ]
+ },
+ "Variáveis": {
+  "cabecalho": [
+   "Linha",
+   "Código",
+   "Var.",
+   "Descrição",
+   "Padrão",
+   "Mín–Máx",
+   "Condição",
+   "Opções"
+  ],
+  "linhas": [
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Var.": "X",
+    "Descrição": "FOLGA NA LARGURA PARA INSTALAÇÃO DA ESQUADRIA",
+    "Padrão": "WOLFIL",
+    "Mín–Máx": "—",
+    "Condição": "sempre",
+    "Opções": null
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Var.": "Y",
+    "Descrição": "FOLGA NA ALTURA PARA INSTALAÇÃO DA ESQUADRIA",
+    "Padrão": "WOLFIH",
+    "Mín–Máx": "—",
+    "Condição": "sempre",
+    "Opções": null
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Var.": "TI",
+    "Descrição": "TIPO DE INSTALAÇÃO",
+    "Padrão": "1",
+    "Mín–Máx": "—",
+    "Condição": "(ARR=1)",
+    "Opções": "1 = FACEAMENTO INTERNO; 2 = CENTRO DE VÃO"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Var.": "ARI",
+    "Descrição": "ARREMATE INTERNO",
+    "Padrão": "1",
+    "Mín–Máx": "—",
+    "Condição": "(ARR=1)",
+    "Opções": "1 = BZ0006 - ARREMATE 65MM [33,00]; 2 = BZ1770 - ARREMATE 70MM [33,00]; 3 = BZ0010 - ARREMATE 20MM; 4 = SEM ARREMATE INTERNO"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Var.": "MAI",
+    "Descrição": "MEDIDA ARREMATE INTERNO",
+    "Padrão": "1",
+    "Mín–Máx": "—",
+    "Condição": "(ARI=3)",
+    "Opções": "1 = MEDIDA DO VÃO (CORTE 45/45); 2 = VÃO+100MM (CORTE 90/90) - PARA AJUSTE EM OBRA [100,00]"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Var.": "ARE",
+    "Descrição": "ARREMATE EXTERNO",
+    "Padrão": "1",
+    "Mín–Máx": "—",
+    "Condição": "(ARR=1)",
+    "Opções": "1 = BZ0010 - ARREMATE 20MM; 2 = SEM ARREMATE EXTERNO"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Var.": "MTE",
+    "Descrição": "MONTAGEM ARREMATE EXTERNO",
+    "Padrão": "1",
+    "Mín–Máx": "—",
+    "Condição": "(ARE=1)",
+    "Opções": "1 = PERIMETRAL; 2 = TRAVE"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Var.": "MAE",
+    "Descrição": "MEDIDA ARREMATE EXTERNO",
+    "Padrão": "1",
+    "Mín–Máx": "—",
+    "Condição": "(ARE=1)",
+    "Opções": "1 = MEDIDA DO VÃO (CORTE 45/45); 2 = VÃO+50MM (CORTE 90/90) - PARA AJUSTE EM OBRA [50,00]; 3 = VÃO+100MM (CORTE 90/90) - PARA AJUSTE EM OBRA [100,00]"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Var.": "INT",
+    "Descrição": "MODELO DO INTERLOCK",
+    "Padrão": "1",
+    "Mín–Máx": "—",
+    "Condição": "sempre",
+    "Opções": "1 = IL36 - ÚNICO; 2 = IL42 - INTERLOCK + CAPA"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Var.": "CA",
+    "Descrição": "COR DOS ACESSÓRIOS",
+    "Padrão": "1",
+    "Mín–Máx": "—",
+    "Condição": "sempre",
+    "Opções": "1 = BRANCO; 2 = PRETO; 3 = MARROM"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Var.": "RL",
+    "Descrição": "ACESSÓRIOS PARA REGIÃO LITORÂNEA?",
+    "Padrão": "1",
+    "Mín–Máx": "—",
+    "Condição": "sempre",
+    "Opções": "1 = SIM; 2 = NÃO"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Var.": "MFI",
+    "Descrição": "MODO DE FECHAMENTO DA FOLHA INTERNA",
+    "Padrão": "1",
+    "Mín–Máx": "—",
+    "Condição": "sempre",
+    "Opções": "1 = CREMONA COM MAÇANETA; 2 = CREMONA COM FECHO ALAVANCA; 3 = CREMONA OCULTA; 4 = CREMONA COM CONCHA PRÁTIKA"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Var.": "MFE",
+    "Descrição": "MODO DE FECHAMENTO DA FOLHA EXTERNA",
+    "Padrão": "1",
+    "Mín–Máx": "—",
+    "Condição": "sempre",
+    "Opções": "1 = CREMONA COM MAÇANETA; 2 = CREMONA COM FECHO ALAVANCA; 3 = CREMONA OCULTA; 4 = CREMONA COM CONCHA PRÁTIKA"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Var.": "CMFI",
+    "Descrição": "CREMONA DA FOLHA INTERNA",
+    "Padrão": "1",
+    "Mín–Máx": "—",
+    "Condição": "((MFI=1) or (MFI=2)) and (((H-Y)>=398.4) and ((H-Y)<=788.4))",
+    "Opções": "1 = 1737 - CREMONA 135MM - 01 PONTO; 2 = 18176 - CREMONA 300MM - 01 PONTO; 3 = 21488 - CREMONA 300MM - 01 PONTO"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Var.": "CMFE",
+    "Descrição": "CREMONA DA FOLHA EXTERNA",
+    "Padrão": "1",
+    "Mín–Máx": "—",
+    "Condição": "((MFE=1) or (MFE=2)) and (((H-Y)>=398.4) and ((H-Y)<=788.4))",
+    "Opções": "1 = 1737 - CREMONA 135MM - 01 PONTO; 2 = 18176 - CREMONA 300MM - 01 PONTO; 3 = 21488 - CREMONA 300MM - 01 PONTO"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Var.": "MODM",
+    "Descrição": "MODELO DA MAÇANETA",
+    "Padrão": "1",
+    "Mín–Máx": "—",
+    "Condição": "(MFI=1) or (MFE=1)",
+    "Opções": "1 = MAÇANETA QUADRI P.25; 2 = MAÇANETA QUADRI P.35"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Var.": "MODC",
+    "Descrição": "MODELO DO CONCHA PRÁTIKA",
+    "Padrão": "1",
+    "Mín–Máx": "—",
+    "Condição": "(MFI=4) or (MFE=4)",
+    "Opções": "1 = CONCHA PRÁTIKA 26X152; 2 = CONCHA PRÁTIKA 33X168"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Var.": "RD",
+    "Descrição": "TIPO DE ROLDANA",
+    "Padrão": "1",
+    "Mín–Máx": "—",
+    "Condição": "sempre",
+    "Opções": "1 = 14518 - 25KG/ PAR; 2 = 14517 - 50KG/ PAR; 3 = 14544 - 30KG/ PAR; 4 = 14545 - 60KG/ PAR; 5 = 18109 - 35KG/ PAR; 6 = 18108 - 70KG/ PAR; 7 = 14928 - 60KG/ PAR; 8 = 14929 - 100KG/ PAR"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Var.": "FV",
+    "Descrição": "CALÇO E FOLGA DE VIDRO UTILIZADO",
+    "Padrão": "1",
+    "Mín–Máx": "—",
+    "Condição": "sempre",
+    "Opções": "1 = CALÇO 3MM - FOLGA DE 3MM CADA LADO [6,00]; 2 = CALÇO 3MM - FOLGA DE 4MM CADA LADO [8,00]; 3 = CALÇO 5MM - FOLGA DE 5MM CADA LADO [10,00]; 4 = CALÇO 5MM - FOLGA DE 6MM CADA LADO [12,00]; 5 = CALÇO 5MM + CALÇO 1MM - FOLGA DE 6MM CADA LADO [12,00]; 6 = CALÇO 5MM + CALÇO 1MM - FOLGA DE 7MM CADA LADO [14,00]"
+   }
+  ]
+ },
+ "Fórmulas": {
+  "cabecalho": [
+   "Linha",
+   "Código",
+   "Variável",
+   "Descrição",
+   "Fórmula"
+  ],
+  "linhas": [
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Variável": "HARE",
+    "Descrição": "ALTURA ARREMATE EXTERNO",
+    "Fórmula": "(H+&MAE)"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Variável": "HARI",
+    "Descrição": "ALTURA ARREMATE INTERNO",
+    "Fórmula": "IIF(ARI<3,((H-Y)+(&ARI*2)),(H+&MAI))"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Variável": "HBAG",
+    "Descrição": "ALTURA DO BAGUETE",
+    "Fórmula": "(HFOL-100)"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Variável": "HFOL",
+    "Descrição": "ALTURA DA FOLHA (SEM INCREMENTO SOLDA)",
+    "Fórmula": "(HMC-88.4)"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Variável": "HMC",
+    "Descrição": "ALTURA DO MARCO (SEM INCREMENTO SOLDA)",
+    "Fórmula": "(H-Y)"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Variável": "HREFF",
+    "Descrição": "ALTURA REFORÇO DA FOLHA",
+    "Fórmula": "(HFOL-80-80)"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Variável": "HREFM",
+    "Descrição": "ALTURA REFORÇO DO MARCO",
+    "Fórmula": "(HMC-82-82)"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Variável": "HVID",
+    "Descrição": "ALTURA DO VIDRO",
+    "Fórmula": "(HFOL-95-&FV)"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Variável": "LARE",
+    "Descrição": "LARGURA ARREMATE EXTERNO",
+    "Fórmula": "(L+&MAE)"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Variável": "LARI",
+    "Descrição": "LARGURA ARREMATE INTERNO",
+    "Fórmula": "IIF(ARI<3,((L-X)+(&ARI*2)),(L+&MAI))"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Variável": "LBAG",
+    "Descrição": "LARGURA DO BAGUETE",
+    "Fórmula": "(LFOL-100)"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Variável": "LFOL",
+    "Descrição": "LARGURA DA FOLHA (SEM INCREMENTO SOLDA)",
+    "Fórmula": "(LMC-86.4+(66*QMA))/NF"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Variável": "LMC",
+    "Descrição": "LARGURA DO MARCO (SEM INCREMENTO SOLDA)",
+    "Fórmula": "(L-X)"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Variável": "LREFF",
+    "Descrição": "LARGURA REFORÇO DA FOLHA",
+    "Fórmula": "(LFOL-80-80)"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Variável": "LREFM",
+    "Descrição": "LARGURA REFORÇO DO MARCO",
+    "Fórmula": "(LMC-82-82)"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Variável": "LTRI",
+    "Descrição": "LARGURA DO TRILHO",
+    "Fórmula": "(LMC-104.2)"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Variável": "LVID",
+    "Descrição": "LARGURA DO VIDRO",
+    "Fórmula": "(LFOL-95-&FV)"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Variável": "NF",
+    "Descrição": "NÚMERO DE FOLHAS",
+    "Fórmula": "2"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Variável": "NP",
+    "Descrição": "NÚMERO DE PLANOS",
+    "Fórmula": "2"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Variável": "QMA",
+    "Descrição": "QUANTIDADE DE MÃO AMIGO",
+    "Fórmula": "(NF-1)"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Variável": "SPVCAL",
+    "Descrição": "INCREMENTO PARA SOLDA PERFIL 45/45",
+    "Fórmula": "(WOLSPVC)"
+   }
+  ]
+ },
+ "Perfis": {
+  "cabecalho": [
+   "Linha",
+   "Código",
+   "Perfil",
+   "Descrição",
+   "Corte",
+   "Qtd",
+   "Medida",
+   "Posição",
+   "Esp. vidro",
+   "Condição",
+   "Obs."
+  ],
+  "linhas": [
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Perfil": "BZ0006/WOLFF",
+    "Descrição": "GUARNIÇÃO",
+    "Corte": "45/45",
+    "Qtd": "2",
+    "Medida": "LARI",
+    "Posição": "Largura",
+    "Esp. vidro": null,
+    "Condição": "(ARI=1)",
+    "Obs.": "ARREMATE - ARREMATE INTERNO 65MM"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Perfil": "BZ0006/WOLFF",
+    "Descrição": "GUARNIÇÃO",
+    "Corte": "45/45",
+    "Qtd": "2",
+    "Medida": "HARI",
+    "Posição": "Altura",
+    "Esp. vidro": null,
+    "Condição": "(ARI=1)",
+    "Obs.": "ARREMATE - ARREMATE INTERNO 65MM"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Perfil": "BZ0012/WOLFF",
+    "Descrição": "BASE DE GUARNIÇAO",
+    "Corte": "90/90",
+    "Qtd": "(ARREDMAIOR(((LMC/450)+1)*2))+(ARREDMAIOR(((HMC/450)+1)*2))",
+    "Medida": "10",
+    "Posição": "Largura",
+    "Esp. vidro": null,
+    "Condição": "(ARI=1)",
+    "Obs.": "ARREMATE - BASE DO ARREMATE INTERNO"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Perfil": "BZ1770/WOLFF",
+    "Descrição": "GUARNIÇAO ARREMATE INTERNO 17X70MM",
+    "Corte": "45/45",
+    "Qtd": "2",
+    "Medida": "LARI",
+    "Posição": "Largura",
+    "Esp. vidro": null,
+    "Condição": "(ARI=2)",
+    "Obs.": "ARREMATE - ARREMATE INTERNO 70MM"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Perfil": "BZ1770/WOLFF",
+    "Descrição": "GUARNIÇAO ARREMATE INTERNO 17X70MM",
+    "Corte": "45/45",
+    "Qtd": "2",
+    "Medida": "HARI",
+    "Posição": "Altura",
+    "Esp. vidro": null,
+    "Condição": "(ARI=2)",
+    "Obs.": "ARREMATE - ARREMATE INTERNO 70MM"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Perfil": "BZ0010/WOLFF",
+    "Descrição": "APLIQUE - ARREMATE",
+    "Corte": "45/45",
+    "Qtd": "2",
+    "Medida": "LARI",
+    "Posição": "Largura",
+    "Esp. vidro": null,
+    "Condição": "(ARI=3) and (MAI=1)",
+    "Obs.": "ARREMATE - ARREMATE INTERNO 20MM"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Perfil": "BZ0010/WOLFF",
+    "Descrição": "APLIQUE - ARREMATE",
+    "Corte": "45/45",
+    "Qtd": "2",
+    "Medida": "HARI",
+    "Posição": "Altura",
+    "Esp. vidro": null,
+    "Condição": "(ARI=3) and (MAI=1)",
+    "Obs.": "ARREMATE - ARREMATE INTERNO 20MM"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Perfil": "BZ0010/WOLFF",
+    "Descrição": "APLIQUE - ARREMATE",
+    "Corte": "90/90",
+    "Qtd": "2",
+    "Medida": "LARI",
+    "Posição": "Largura",
+    "Esp. vidro": null,
+    "Condição": "(ARI=3) and (MAI=2)",
+    "Obs.": "ARREMATE - ARREMATE INTERNO 20MM"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Perfil": "BZ0010/WOLFF",
+    "Descrição": "APLIQUE - ARREMATE",
+    "Corte": "90/90",
+    "Qtd": "2",
+    "Medida": "HARI",
+    "Posição": "Altura",
+    "Esp. vidro": null,
+    "Condição": "(ARI=3) and (MAI=2)",
+    "Obs.": "ARREMATE - ARREMATE INTERNO 20MM"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Perfil": "BZ0010/WOLFF",
+    "Descrição": "APLIQUE - ARREMATE",
+    "Corte": "45/45",
+    "Qtd": "2",
+    "Medida": "LARE",
+    "Posição": "Largura",
+    "Esp. vidro": null,
+    "Condição": "(ARE=1) and (MAE=1) and (MTE=1)",
+    "Obs.": "ARREMATE - ARREMATE EXTERNO 20MM"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Perfil": "BZ0010/WOLFF",
+    "Descrição": "APLIQUE - ARREMATE",
+    "Corte": "45/45",
+    "Qtd": "2",
+    "Medida": "HARE",
+    "Posição": "Altura",
+    "Esp. vidro": null,
+    "Condição": "(ARE=1) and (MAE=1) and (MTE=1)",
+    "Obs.": "ARREMATE - ARREMATE EXTERNO 20MM"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Perfil": "BZ0010/WOLFF",
+    "Descrição": "APLIQUE - ARREMATE",
+    "Corte": "90/90",
+    "Qtd": "2",
+    "Medida": "LARE",
+    "Posição": "Largura",
+    "Esp. vidro": null,
+    "Condição": "(ARE=1) and (MAE=2) and (MTE=1)",
+    "Obs.": "ARREMATE - ARREMATE EXTERNO 20MM"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Perfil": "BZ0010/WOLFF",
+    "Descrição": "APLIQUE - ARREMATE",
+    "Corte": "90/90",
+    "Qtd": "2",
+    "Medida": "HARE",
+    "Posição": "Altura",
+    "Esp. vidro": null,
+    "Condição": "(ARE=1) and (MAE=2) and (MTE=1)",
+    "Obs.": "ARREMATE - ARREMATE EXTERNO 20MM"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Perfil": "BZ0010/WOLFF",
+    "Descrição": "APLIQUE - ARREMATE",
+    "Corte": "45/45",
+    "Qtd": "1",
+    "Medida": "LARE",
+    "Posição": "Largura",
+    "Esp. vidro": null,
+    "Condição": "(ARE=1) and (MAE=1) and (MTE=2)",
+    "Obs.": "ARREMATE - ARREMATE EXTERNO 20MM"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Perfil": "BZ0010/WOLFF",
+    "Descrição": "APLIQUE - ARREMATE",
+    "Corte": "45/90",
+    "Qtd": "1",
+    "Medida": "HARE",
+    "Posição": "Altura",
+    "Esp. vidro": null,
+    "Condição": "(ARE=1) and (MAE=1) and (MTE=2)",
+    "Obs.": "ARREMATE - ARREMATE EXTERNO 20MM"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Perfil": "BZ0010/WOLFF",
+    "Descrição": "APLIQUE - ARREMATE",
+    "Corte": "90/45",
+    "Qtd": "1",
+    "Medida": "HARE",
+    "Posição": "Altura",
+    "Esp. vidro": null,
+    "Condição": "(ARE=1) and (MAE=1) and (MTE=2)",
+    "Obs.": "ARREMATE - ARREMATE EXTERNO 20MM"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Perfil": "BZ0010/WOLFF",
+    "Descrição": "APLIQUE - ARREMATE",
+    "Corte": "90/90",
+    "Qtd": "1",
+    "Medida": "LARE",
+    "Posição": "Largura",
+    "Esp. vidro": null,
+    "Condição": "(ARE=1) and (MAE=2) and (MTE=2)",
+    "Obs.": "ARREMATE - ARREMATE EXTERNO 20MM"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Perfil": "BZ0010/WOLFF",
+    "Descrição": "APLIQUE - ARREMATE",
+    "Corte": "90/90",
+    "Qtd": "2",
+    "Medida": "HARE",
+    "Posição": "Altura",
+    "Esp. vidro": null,
+    "Condição": "(ARE=1) and (MAE=2) and (MTE=2)",
+    "Obs.": "ARREMATE - ARREMATE EXTERNO 20MM"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Perfil": "HF88/WOLFF",
+    "Descrição": "MARCO DE CORRER - 2 TRILHOS",
+    "Corte": "45S/45S",
+    "Qtd": "2",
+    "Medida": "LMC+SPVCAL",
+    "Posição": "Largura",
+    "Esp. vidro": null,
+    "Condição": "sempre",
+    "Obs.": "MARCO - LARGURA"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Perfil": "HF88/WOLFF",
+    "Descrição": "MARCO DE CORRER - 2 TRILHOS",
+    "Corte": "45S/45S",
+    "Qtd": "2",
+    "Medida": "HMC+SPVCAL",
+    "Posição": "Altura",
+    "Esp. vidro": null,
+    "Condição": "sempre",
+    "Obs.": "MARCO - ALTURA"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Perfil": "1023/WOLFF",
+    "Descrição": "CLICK GUIA DE ALUMÍNIO PARA TRILHO DE PVC",
+    "Corte": "90/90",
+    "Qtd": "NP",
+    "Medida": "LTRI",
+    "Posição": "Largura",
+    "Esp. vidro": null,
+    "Condição": "sempre",
+    "Obs.": "MARCO - TRILHO CLICK"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Perfil": "8432/WOLFF",
+    "Descrição": "REFORÇO EM AÇO GALVANIZADO  PARA HF112 OU HF 88S (17 X 29 X 17)",
+    "Corte": "90/90",
+    "Qtd": "2",
+    "Medida": "LREFM",
+    "Posição": "Largura",
+    "Esp. vidro": null,
+    "Condição": "sempre",
+    "Obs.": "MARCO - REFORÇO DE AÇO LARGURA"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Perfil": "8432/WOLFF",
+    "Descrição": "REFORÇO EM AÇO GALVANIZADO  PARA HF112 OU HF 88S (17 X 29 X 17)",
+    "Corte": "90/90",
+    "Qtd": "2",
+    "Medida": "HREFM",
+    "Posição": "Altura",
+    "Esp. vidro": null,
+    "Condição": "sempre",
+    "Obs.": "MARCO - REFORÇO DE AÇO ALTURA"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Perfil": "SF66/WOLFF",
+    "Descrição": "FOLHA PARA JANELA",
+    "Corte": "45S/45S",
+    "Qtd": "(NF*2)",
+    "Medida": "LFOL+SPVCAL",
+    "Posição": "Largura",
+    "Esp. vidro": null,
+    "Condição": "sempre",
+    "Obs.": "FOLHA - LARGURA"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Perfil": "SF66/WOLFF",
+    "Descrição": "FOLHA PARA JANELA",
+    "Corte": "45S/45S",
+    "Qtd": "(NF*2)",
+    "Medida": "HFOL+SPVCAL",
+    "Posição": "Altura",
+    "Esp. vidro": null,
+    "Condição": "sempre",
+    "Obs.": "FOLHA - ALTURA"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Perfil": "8433/WOLFF",
+    "Descrição": "REFORÇO EM AÇO GALVANIZADO PARA SF66  (42 X 66)",
+    "Corte": "90/90",
+    "Qtd": "(NF*2)",
+    "Medida": "LREFF",
+    "Posição": "Largura",
+    "Esp. vidro": null,
+    "Condição": "sempre",
+    "Obs.": "FOLHA - REFORÇO DE AÇO LARGURA"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Perfil": "8433/WOLFF",
+    "Descrição": "REFORÇO EM AÇO GALVANIZADO PARA SF66  (42 X 66)",
+    "Corte": "90/90",
+    "Qtd": "(NF*2)",
+    "Medida": "HREFF",
+    "Posição": "Altura",
+    "Esp. vidro": null,
+    "Condição": "sempre",
+    "Obs.": "FOLHA - REFORÇO DE AÇO ALTURA"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Perfil": "IL36/WOLFF",
+    "Descrição": "INTERLOCK / MÃO DE AMIGO",
+    "Corte": "90/90",
+    "Qtd": "(QMA*2)",
+    "Medida": "HFOL",
+    "Posição": "Altura",
+    "Esp. vidro": null,
+    "Condição": "(INT=1)",
+    "Obs.": "FOLHA - INTERLOCK"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Perfil": "IL42/WOLFF",
+    "Descrição": "INTERLOCK LINHA 42MM - (MÃO DE AMIGO)",
+    "Corte": "90/90",
+    "Qtd": "(QMA*2)",
+    "Medida": "HFOL",
+    "Posição": "Altura",
+    "Esp. vidro": null,
+    "Condição": "(INT=2)",
+    "Obs.": "FOLHA - INTERLOCK"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Perfil": "KT42/WOLFF",
+    "Descrição": "CAPA PARA IL42 MM - (MÃO AMIGO)",
+    "Corte": "90/90",
+    "Qtd": "(QMA*2)",
+    "Medida": "HFOL",
+    "Posição": "Altura",
+    "Esp. vidro": null,
+    "Condição": "(INT=2)",
+    "Obs.": "FOLHA - CAPA INTERLOCK"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Perfil": "GB25/WOLFF",
+    "Descrição": "BAGUETE DE 25MM",
+    "Corte": "45/45",
+    "Qtd": "(NF*2)",
+    "Medida": "LBAG",
+    "Posição": "Largura",
+    "Esp. vidro": "5,6,8",
+    "Condição": "sempre",
+    "Obs.": "VIDRO - BAGUETE 25MM LARGURA"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Perfil": "GB25/WOLFF",
+    "Descrição": "BAGUETE DE 25MM",
+    "Corte": "45/45",
+    "Qtd": "(NF*2)",
+    "Medida": "HBAG",
+    "Posição": "Altura",
+    "Esp. vidro": "5,6,8",
+    "Condição": "sempre",
+    "Obs.": "VIDRO - BAGUETE 25MM ALTURA"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Perfil": "GB8/WOLFF",
+    "Descrição": "BAGUETE DE 8MM",
+    "Corte": "45/45",
+    "Qtd": "(NF*2)",
+    "Medida": "LBAG",
+    "Posição": "Largura",
+    "Esp. vidro": "18,20,21,24",
+    "Condição": "sempre",
+    "Obs.": "VIDRO - BAGUETE 8MM LARGURA"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Perfil": "GB8/WOLFF",
+    "Descrição": "BAGUETE DE 8MM",
+    "Corte": "45/45",
+    "Qtd": "(NF*2)",
+    "Medida": "HBAG",
+    "Posição": "Altura",
+    "Esp. vidro": "18,20,21,24",
+    "Condição": "sempre",
+    "Obs.": "VIDRO - BAGUETE 8MM ALTURA"
+   }
+  ]
+ },
+ "Vidros": {
+  "cabecalho": [
+   "Linha",
+   "Código",
+   "Vidro",
+   "Largura",
+   "Altura",
+   "Qtd",
+   "Fixação",
+   "Condição"
+  ],
+  "linhas": [
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Vidro": "VIDRO",
+    "Largura": "LVID",
+    "Altura": "HVID",
+    "Qtd": "NF",
+    "Fixação": "Fixo",
+    "Condição": "sempre"
+   }
+  ]
+ },
+ "Baguete x Vidro": {
+  "cabecalho": [
+   "Linha",
+   "Código",
+   "Baguete",
+   "Descrição",
+   "Espessuras de vidro (mm)",
+   "Qtd × medida (condição)"
+  ],
+  "linhas": [
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Baguete": "GB25/WOLFF",
+    "Descrição": "BAGUETE DE 25MM",
+    "Espessuras de vidro (mm)": "5,6,8",
+    "Qtd × medida (condição)": "(NF*2) × LBAG (sempre); (NF*2) × HBAG (sempre)"
+   },
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Baguete": "GB8/WOLFF",
+    "Descrição": "BAGUETE DE 8MM",
+    "Espessuras de vidro (mm)": "18,20,21,24",
+    "Qtd × medida (condição)": "(NF*2) × LBAG (sempre); (NF*2) × HBAG (sempre)"
+   }
+  ]
+ },
+ "Validações": {
+  "cabecalho": [
+   "Linha",
+   "Código",
+   "Condição válida",
+   "Mensagem"
+  ],
+  "linhas": [
+   {
+    "Linha": "PVC WOLFF EUROPA 42",
+    "Código": "DP-02",
+    "Condição válida": "(HFOL>299) and (HFOL<2351)",
+    "Mensagem": "ATENÇÃO! AS OPÇÕES DE ACIONAMENTO PRESENTES NESSE PROJETO NÃO ATENDEM A MEDIDA SOLICITADA. A ALTURA DA ESQUADRIA DEVE SER MAIOR QUE 390MM E MENOR QUE 2438MM."
+   }
+  ]
+ },
+ "Otimização de barras": {
+  "linhas": [
+   {
+    "parametro": "algoritmo",
+    "valor": "FFD (maior primeiro, melhor encaixe)"
+   },
+   {
+    "parametro": "barra_mm",
+    "valor": 6000
+   },
+   {
+    "parametro": "excecoes",
+    "valor": "IL50/WOLFF 5.500 mm; KT16 5.800 mm (conforme tabela Wolff)"
+   },
+   {
+    "parametro": "serra_mm",
+    "valor": 5
+   },
+   {
+    "parametro": "refilo",
+    "valor": "45 mm por ponta só em PINTURA MADEIRA; demais 0"
+   },
+   {
+    "parametro": "solda 45/45 (PVC)",
+    "valor": "SPVCAL = WOLSPVC = 6 mm somado ao corte"
+   },
+   {
+    "parametro": "sobra_minima_mm",
+    "valor": 0
+   }
+  ]
+ }
+}
