@@ -23,6 +23,8 @@
 type Agrupador = typeof import('@/lib/atendimentos-ia/agrupador-de-barras')
 const G = () => require('@/lib/atendimentos-ia/agrupador-de-barras') as Agrupador
 /* eslint-enable @typescript-eslint/no-require-imports */
+// O estreitamento é por `'recusas' in r`, não por `r.ok`: com `strictNullChecks: false` (tsconfig),
+// o tsc não estreita a união pelo booleano — o jest rodaria verde e o tsc acusaria.
 
 type Peca = { codigo: string; comprimento_mm: number; quantidade: number }
 type Barra = { comprimento_mm: number | null; valor_barra_interno?: number | null; valor_metro_interno?: number | null }
@@ -32,7 +34,7 @@ function agrupar(pecas: Peca[], barras: Record<string, Barra>, serra_mm: number)
 }
 function ok(pecas: Peca[], barras: Record<string, Barra>, serra_mm: number) {
     const r = agrupar(pecas, barras, serra_mm)
-    if (!r.ok) throw new Error('recusado: ' + r.recusas.map((x) => x.mensagem).join(' | '))
+    if ('recusas' in r) throw new Error('recusado: ' + r.recusas.map((x) => x.mensagem).join(' | '))
     return r
 }
 const doCodigo = (r: ReturnType<typeof ok>, codigo: string) => {
@@ -115,7 +117,7 @@ describe('o comprimento da barra vem DO ITEM', () => {
     it('código SEM comprimento de barra: recusa nomeando o código — nunca supõe 6 m', () => {
         const r = agrupar([{ codigo: 'SEM', comprimento_mm: 1000, quantidade: 1 }], { SEM: { comprimento_mm: null } }, 5)
         expect(r.ok).toBe(false)
-        if (r.ok) return
+        if (!('recusas' in r)) return
         expect(r.recusas).toEqual([{ motivo: 'BARRA_SEM_COMPRIMENTO', codigo: 'SEM', mensagem: G().fraseDaBarraSemComprimento('SEM') }])
     })
 })
@@ -124,7 +126,7 @@ describe('a peça é INDIVISÍVEL', () => {
     it('peça de 6,2 m num código de barra 6 m: RECUSA nomeando a peça, o código e os dois comprimentos', () => {
         const r = agrupar([{ codigo: 'P1', comprimento_mm: 6200, quantidade: 1 }], { P1: B6 }, 5)
         expect(r.ok).toBe(false)
-        if (r.ok) return
+        if (!('recusas' in r)) return
         expect(r.recusas).toEqual([{
             motivo: 'PECA_MAIOR_QUE_A_BARRA', codigo: 'P1', comprimento_peca_mm: 6200, comprimento_barra_mm: 6000,
             mensagem: G().fraseDaPecaMaiorQueABarra('P1', 6200, 6000),
@@ -137,7 +139,7 @@ describe('a peça é INDIVISÍVEL', () => {
     it('peça do tamanho EXATO da barra: não cabe com o corte (6.000 + 5 > 6.000) — recusa com motivo próprio, não "maior"', () => {
         const r = agrupar([{ codigo: 'P1', comprimento_mm: 6000, quantidade: 1 }], { P1: B6 }, 5)
         expect(r.ok).toBe(false)
-        if (r.ok) return
+        if (!('recusas' in r)) return
         expect(r.recusas).toEqual([{
             motivo: 'PECA_NAO_CABE_COM_O_CORTE', codigo: 'P1', comprimento_peca_mm: 6000, comprimento_barra_mm: 6000, serra_mm: 5,
             mensagem: G().fraseDaPecaQueNaoCabeComOCorte('P1', 6000, 6000, 5),
@@ -151,7 +153,7 @@ describe('a peça é INDIVISÍVEL', () => {
             { codigo: 'P3', comprimento_mm: 1000, quantidade: 1 },
         ], { P1: B6, P2: B6, P3: B6 }, 5)
         expect(r.ok).toBe(false)
-        if (r.ok) return
+        if (!('recusas' in r)) return
         expect(r.recusas.map((x) => x.codigo)).toEqual(['P1', 'P2'])
     })
 })
@@ -244,7 +246,7 @@ describe('entrada inválida é recusada, nunca corrigida', () => {
             { codigo: 'P2', comprimento_mm: 0, quantidade: 1 },
         ], { P1: B6, P2: B6 }, -1)
         expect(r.ok).toBe(false)
-        if (r.ok) return
+        if (!('recusas' in r)) return
         expect(r.recusas.map((x) => x.motivo)).toEqual(['SERRA_INVALIDA', 'QUANTIDADE_INVALIDA', 'COMPRIMENTO_INVALIDO'])
     })
 })

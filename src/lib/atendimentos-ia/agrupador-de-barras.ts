@@ -87,6 +87,10 @@ export type RecusaDoAgrupador =
     | { motivo: 'BARRA_SEM_COMPRIMENTO'; codigo: string; mensagem: string }
     | { motivo: 'PECA_MAIOR_QUE_A_BARRA'; codigo: string; comprimento_peca_mm: number; comprimento_barra_mm: number; mensagem: string }
     | { motivo: 'PECA_NAO_CABE_COM_O_CORTE'; codigo: string; comprimento_peca_mm: number; comprimento_barra_mm: number; serra_mm: number; mensagem: string }
+/**
+ * Para separar as duas formas, use `'recusas' in r`: com `strictNullChecks: false` (o tsconfig deste
+ * repositório), o tsc não estreita a união pelo booleano `ok`.
+ */
 export type ResultadoDoAgrupador =
     | { ok: true; por_codigo: ResultadoDoCodigo[]; total: TotalDoLevantamento }
     | { ok: false; recusas: RecusaDoAgrupador[] }
