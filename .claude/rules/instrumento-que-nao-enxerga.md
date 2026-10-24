@@ -105,3 +105,8 @@ a formulou, porque o instrumento foi feito à imagem dela. `baseline-measurement
 medição feita na árvore errada — mesmo erro, outro eixo: lá o número está certo e a premissa
 errada, aqui a premissa está certa e o número é que não mede. `registro-de-classe.md` decidiu a
 forma desta página e o limite que manteve a tabela em quatro linhas.
+
+`instrumento-que-se-enxerga.md` é o espelho desta, com o erro no sentido oposto: lá o conjunto
+examinado contém o próprio instrumento (o `pgrep` que acha a linha de comando de quem pergunta),
+e a resposta sai sempre positiva. A fixture desta página ("o caso que deveria aparecer, aparece?")
+passa verde lá. A de lá é a do alvo **ausente**.
