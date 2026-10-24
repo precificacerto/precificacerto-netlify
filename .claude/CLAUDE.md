@@ -324,6 +324,7 @@ O AIOS carrega regras contextuais de `.claude/rules/` automaticamente. Regras co
 | `decisao-sob-regra-da-epoca.md` | Decisão correta sob a regra da época não é falha — datar antes de nomear |
 | `decomposicao-na-tela.md` | Os requisitos de tela da decomposição — colunas, "% médio", truncamento, residual |
 | `estado-relatado-vs-real.md` | Estado de sistema externo exige consulta à fonte primária antes de virar premissa |
+| `faltou-dado-recusa-nomeada.md` | Faltou dado num cálculo que vira preço: recusa dizendo o que falta, com nome e número — nunca aproxima, nunca escolhe o parecido |
 | `fato-vs-referencia.md` | Valor gravado é fato histórico ou referência viva — classe com 5 aparições |
 | `hipotese-derrubada-pela-propria-medicao.md` | Quando a razão para NÃO testar um caso é uma suposição sua, teste o caso |
 | `ids-principles.md` | Incremental Development System principles |
