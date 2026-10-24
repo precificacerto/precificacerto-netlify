@@ -2,15 +2,15 @@
 
 **NÃO TOCA PRODUÇÃO nem banco nenhum.** Só jest. Prova que cada regra da tela "Matérias-primas e
 seus fornecedores" (e do `GET /arvore` que a alimenta) tem um caso que **fica vermelho** quando a
-regra é retirada: 49 mutações reais e um controle.
+regra é retirada: 58 mutações reais e um controle.
 
-Uma bateria que prova 50 coisas e não pode ser repetida por outra pessoa prova 50 coisas uma vez
+Uma bateria que prova 59 coisas e não pode ser repetida por outra pessoa prova 59 coisas uma vez
 só. Ela vivia no scratchpad de uma sessão; está aqui para ser rodada de novo.
 
 ## Como rodar
 
 ```bash
-python3 -B scripts/harness/tela-tres-niveis/mutacoes.py            # as 50 (~30 s cada)
+python3 -B scripts/harness/tela-tres-niveis/mutacoes.py            # as 59 (~45 s cada)
 python3 -B scripts/harness/tela-tres-niveis/mutacoes.py M45 M47    # só estas
 ```
 
@@ -56,10 +56,11 @@ Arquivos-alvo: `arvore.ts`, `materias-primas.component.tsx` e `base-de-conhecime
 `src/utils/__tests__/`: `base-de-conhecimento-tres-niveis-a-tela.test.tsx`,
 `base-de-conhecimento-a-tela.test.tsx` e `base-de-conhecimento-tres-niveis-rotas.test.ts`.
 
-## As 50 mutações — o que cada uma derruba
+## As 59 mutações — o que cada uma derruba
 
-Medido em 23/10/2026 sobre o `e868c2b`: 219 casos nos três portões; **49 de 49 vermelhas, e o
-controle verde.** "Casos" é quantos ficaram vermelhos; a última coluna é um deles.
+Medido em 23/10/2026 sobre o `e868c2b`: 219 casos nos três portões, **49 de 49 vermelhas**. Medido de novo em
+24/10/2026, com o tipo `opcao` (M51 a M59): **228 casos, 58 de 58 vermelhas, e o controle verde.**
+"Casos" é quantos ficaram vermelhos; a última coluna é um deles.
 
 | # | mutação | casos | um dos que caem |
 |---|---|---:|---|
@@ -112,6 +113,15 @@ controle verde.** "Casos" é quantos ficaram vermelhos; a última coluna é um d
 | M48 | servidor: as duas fontes misturadas (regra vira fórmula) | 2 | as LINHAS de cada fornecedor com tabela em uso NESTA conta, POR FONTE — fórmula e regra se… |
 | M49 | a lista só com a fórmula (DESIGN some do combobox) | 2 | ESTADO 2 — linha que o motor conhece SEM fórmula de família (DESIGN): o aviso PRÓPR… |
 | M50 | aviso 2 com o texto do aviso 3 | 1 | ESTADO 2 — linha que o motor conhece SEM fórmula de família (DESIGN): o aviso PRÓPR… |
+| M51 | normalizar devolve UNDEFINED no tipo desconhecido (o que estourava a tela) | 3 | TIPO DESCONHECIDO no catálogo: a tela não quebra, o campo não aparece, e o cabeçalho conta… |
+| M52 | normalizar sem o ramo 'opcao' (cai no desconhecido) | 2 | escolher BARRA_INTEIRA manda SÓ { criterio_custo_barra: "BARRA_INTEIRA" } — o resto do PER… |
+| M53 | o em branco vira '' em vez de null | 3 | O CASO MEDIDO: com o campo no catálogo, "+ Adicionar matéria-prima" não estoura — o cabeça… |
+| M54 | o salvar não pula o tipo desconhecido (null apagaria o gravado) | 1 | TIPO DESCONHECIDO: salvar outra mudança do PERFIL NÃO MEXE no valor gravado dele — a chave… |
+| M55 | a grade mostra o campo de tipo desconhecido | 1 | TIPO DESCONHECIDO no catálogo: a tela não quebra, o campo não aparece, e o cabeçalho conta… |
+| M56 | a seleção sem a opção em branco | 3 | NULL gravado aparece como "em branco"; o valor gravado aparece escolhido |
+| M57 | as opções fora da ordem do catálogo | 1 | o campo é SELEÇÃO: as opções do catálogo, na ordem dele, mais a de deixar em branco — e na… |
+| M58 | NULL aparece com a PRIMEIRA opção escolhida (valor por omissão) | 2 | NULL gravado aparece como "em branco"; o valor gravado aparece escolhido |
+| M59 | 'opcao' fora dos tipos conhecidos (some da tela e do salvar) | 4 | NULL gravado aparece como "em branco"; o valor gravado aparece escolhido |
 | **M34** | **controle: nada muda** | **0** | **verde — o detector não é vermelho por construção** |
 
 ### O grupo da linha do perfil

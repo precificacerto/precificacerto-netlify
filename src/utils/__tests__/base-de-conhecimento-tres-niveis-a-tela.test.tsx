@@ -779,3 +779,100 @@ describe('(11) as colunas Par em inox (ferragem) e Referência (vidro): ausente,
         expect(pendencias(host)).toBe(F().fraseDasPendencias(0))
     })
 })
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// (12) O TIPO 'opcao' — e o tipo que a tela NÃO conhece.
+// A migração 20261024000002 põe no catálogo um campo de tipo 'opcao' (`criterio_custo_barra`, com
+// `opcoes`). Medido em 24/10/2026, antes desta correção: com esse campo no catálogo, o cabeçalho
+// "N de 6 categorias" de uma matéria-prima RECÉM-CRIADA estourava (`normalizar` devolvia undefined
+// e `.valor` quebrava a tela inteira). O caso do "+ Adicionar matéria-prima" é esse estado.
+// ═══════════════════════════════════════════════════════════════════════════════════════
+const CRITERIO = { categoria_chave: 'PERFIL', chave: 'criterio_custo_barra', tipo: 'opcao', rotulo: 'Custo das barras', ordem: 7, opcoes: ['BARRA_INTEIRA', 'CONSUMO_REAL'] }
+/** A árvore com campos a mais no catálogo e chaves a mais no config gravado do PERFIL do PVC. */
+function comCatalogo(camposAMais: Linha[], configAMais: Linha = {}): Linha {
+    const a = arvoreGravada() as Linha & { catalogo: { campos: Linha[] }; materias_primas: Array<{ categorias: Linha[] }> }
+    a.catalogo.campos.push(...camposAMais)
+    const perfil = a.materias_primas[0].categorias.find((c) => c.categoria_chave === 'PERFIL')!
+    perfil.config = { ...(perfil.config as Linha), ...configAMais }
+    return a
+}
+function servir(arvore: Linha) {
+    respostas[`GET ${F().ROTAS_DA_BASE.arvore(CONTA)}`] = { status: 200, body: arvore }
+    respostas[`PUT ${F().ROTAS_DA_BASE.arvore(CONTA)}`] = { status: 200, body: { depois: depoisDe(arvore) } }
+}
+const configDoPerfilEnviado = () =>
+    ((arvoreEnviada().materias_primas as Array<{ categorias: Linha[] }>)[0].categorias.find((c) => c.categoria_chave === 'PERFIL') ?? {}).config as Linha | undefined
+
+describe("(12) o tipo 'opcao' — e o tipo desconhecido, que não pode quebrar a tela", () => {
+    it('SEM o campo no catálogo (produção hoje, antes da 20261024000002): ele não aparece — a tela vai para a main antes da migração', async () => {
+        const host = await montar()
+        expect(campo(cat(host, 0, 'PERFIL'), 'PERFIL.criterio_custo_barra')).toBeNull()
+    })
+
+    it('O CASO MEDIDO: com o campo no catálogo, "+ Adicionar matéria-prima" não estoura — o cabeçalho diz "0 de 6 categorias"', async () => {
+        servir(comCatalogo([CRITERIO]))
+        const host = await montar()
+        await clicar(botao(cartao(host), A().ADICIONAR_MATERIA_PRIMA))
+        expect(mp(host, 1).querySelector('[data-categorias-configuradas]')!.textContent).toBe(A().fraseDasCategorias(0, 6))
+        // e a gravada continua contada como antes
+        expect(mp(host, 0).querySelector('[data-categorias-configuradas]')!.textContent).toBe(A().fraseDasCategorias(5, 6))
+    })
+
+    it('o campo é SELEÇÃO: as opções do catálogo, na ordem dele, mais a de deixar em branco — e nada inventado', async () => {
+        servir(comCatalogo([CRITERIO]))
+        const host = await montar()
+        expect(await opcoesDoSeletor(campo(cat(host, 0, 'PERFIL'), 'PERFIL.criterio_custo_barra'))).toEqual([A().EM_BRANCO_DA_OPCAO, 'BARRA_INTEIRA', 'CONSUMO_REAL'])
+    })
+
+    it('NULL gravado aparece como "em branco"; o valor gravado aparece escolhido', async () => {
+        servir(comCatalogo([CRITERIO]))
+        let host = await montar()
+        expect(campo(cat(host, 0, 'PERFIL'), 'PERFIL.criterio_custo_barra')!.querySelector('.ant-select-selection-item')?.textContent).toBe(A().EM_BRANCO_DA_OPCAO)
+        while (montadas.length) { const m = montadas.pop()!; act(() => { m.root.unmount() }); m.host.remove() }
+        servir(comCatalogo([CRITERIO], { criterio_custo_barra: 'CONSUMO_REAL' }))
+        host = await montar()
+        expect(campo(cat(host, 0, 'PERFIL'), 'PERFIL.criterio_custo_barra')!.querySelector('.ant-select-selection-item')?.textContent).toBe('CONSUMO_REAL')
+    })
+
+    it('escolher BARRA_INTEIRA manda SÓ { criterio_custo_barra: "BARRA_INTEIRA" } — o resto do PERFIL fica ausente', async () => {
+        servir(comCatalogo([CRITERIO]))
+        const host = await montar()
+        await escolherNoSeletor(campo(cat(host, 0, 'PERFIL'), 'PERFIL.criterio_custo_barra'), 'BARRA_INTEIRA')
+        await salvar(host)
+        expect(configDoPerfilEnviado()).toEqual({ criterio_custo_barra: 'BARRA_INTEIRA' })
+    })
+
+    it('deixar EM BRANCO o que estava gravado manda null (limpa) — não ausente, não string vazia', async () => {
+        servir(comCatalogo([CRITERIO], { criterio_custo_barra: 'CONSUMO_REAL' }))
+        const host = await montar()
+        await escolherNoSeletor(campo(cat(host, 0, 'PERFIL'), 'PERFIL.criterio_custo_barra'), A().EM_BRANCO_DA_OPCAO)
+        await salvar(host)
+        expect(configDoPerfilEnviado()).toEqual({ criterio_custo_barra: null })
+    })
+
+    // ordem 0: o campo desconhecido é lido ANTES dos outros do PERFIL — é o primeiro que o cabeçalho avalia
+    const DO_FUTURO = { categoria_chave: 'PERFIL', chave: 'campo_do_futuro', tipo: 'tipo_que_a_tela_nao_conhece', rotulo: 'Do futuro', ordem: 0 }
+
+    it('TIPO DESCONHECIDO no catálogo: a tela não quebra, o campo não aparece, e o cabeçalho conta — na gravada e na recém-criada', async () => {
+        servir(comCatalogo([DO_FUTURO], { campo_do_futuro: 'GRAVADO' }))
+        const host = await montar()
+        expect(mp(host, 0).querySelector('[data-categorias-configuradas]')!.textContent).toBe(A().fraseDasCategorias(5, 6))
+        expect(campo(cat(host, 0, 'PERFIL'), 'PERFIL.campo_do_futuro')).toBeNull()
+        await clicar(botao(cartao(host), A().ADICIONAR_MATERIA_PRIMA))
+        expect(mp(host, 1).querySelector('[data-categorias-configuradas]')!.textContent).toBe(A().fraseDasCategorias(0, 6))
+    })
+
+    it('TIPO DESCONHECIDO: salvar outra mudança do PERFIL NÃO MEXE no valor gravado dele — a chave fica AUSENTE (null a apagaria)', async () => {
+        servir(comCatalogo([DO_FUTURO], { campo_do_futuro: 'GRAVADO' }))
+        const host = await montar()
+        await digitar(entrada(campo(cat(host, 0, 'PERFIL'), 'PERFIL.solda')), 'MIG')
+        await salvar(host)
+        expect(configDoPerfilEnviado()).toEqual({ solda: 'MIG' })
+    })
+
+    it('normalizar NUNCA devolve undefined: o tipo desconhecido é ausente — { valor: null, erro: null }', () => {
+        expect(A().normalizar('tipo_que_a_tela_nao_conhece' as never, 'qualquer')).toEqual({ valor: null, erro: null })
+        expect(A().normalizar('opcao', '  BARRA_INTEIRA ')).toEqual({ valor: 'BARRA_INTEIRA', erro: null })
+        expect(A().normalizar('opcao', '')).toEqual({ valor: null, erro: null })
+    })
+})

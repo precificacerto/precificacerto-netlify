@@ -20,10 +20,10 @@ import { Alert, AutoComplete, Button, Card, Input, InputNumber, Radio, Select, S
 import type { ErroNomeado } from '@/lib/atendimentos-ia/base-de-conhecimento'
 import { ROTULO_DOS_TRES_ESTADOS, deTresEstados, paraTresEstados, type Par, type TresEstados } from '@/page-parts/atendimentos-ia/base-de-conhecimento/formulario'
 import {
-    ADICIONAR_FERRAGEM, ADICIONAR_MATERIA_PRIMA, ADICIONAR_VIDRO, CAMPO_DA_LINHA, LISTA_DA_CATEGORIA, NOVO_FORNECEDOR, POSICOES_DA_FERRAGEM, PRODUTOS_DA_INSTALACAO,
+    ADICIONAR_FERRAGEM, ADICIONAR_MATERIA_PRIMA, ADICIONAR_VIDRO, CAMPO_DA_LINHA, EM_BRANCO_DA_OPCAO, LISTA_DA_CATEGORIA, NOVO_FORNECEDOR, POSICOES_DA_FERRAGEM, PRODUTOS_DA_INSTALACAO,
     ROTULO_DA_POSICAO, ROTULO_DO_PRODUTO, SEM_PRINCIPAL_DO_PERFIL, TITULO_DO_CARTAO,
     camposDa, categoriasConfiguradas, desfazerRemocao, estadoDaLinha, fraseDasCategorias, fraseLinhaForaDaTabela, fraseLinhaSemFormula, fraseSemTabelaEmUso,
-    fraseTabelaSemLinha, nomeDoFornecedor, novaMateriaPrima, novoLocal, ondeEstaOErro, origemDaLinha,
+    fraseTabelaSemLinha, nomeDoFornecedor, novaMateriaPrima, novoLocal, ondeEstaOErro, origemDaLinha, tipoConhecido,
     type ArvoreLida, type CategoriaDoFormulario, type EstadoDaArvore, type ItemDaLista, type MateriaPrimaDoFormulario, type TipoDoCampo,
 } from '@/page-parts/atendimentos-ia/base-de-conhecimento/arvore'
 
@@ -42,7 +42,7 @@ function TresEstadosDoCampo({ valor, mudar, rotulo, nome }: { valor: unknown; mu
     )
 }
 
-function ControleDoTipo({ tipo, valor, mudar, rotulo, nome }: { tipo: TipoDoCampo; valor: unknown; mudar: (v: unknown) => void; rotulo: string; nome: string }) {
+function ControleDoTipo({ tipo, valor, mudar, rotulo, nome, opcoes }: { tipo: TipoDoCampo; valor: unknown; mudar: (v: unknown) => void; rotulo: string; nome: string; opcoes?: string[] | null }) {
     switch (tipo) {
         case 'texto':
             return <Input allowClear aria-label={rotulo} value={typeof valor === 'string' ? valor : ''} onChange={(e) => mudar(e.target.value)} />
@@ -77,6 +77,14 @@ function ControleDoTipo({ tipo, valor, mudar, rotulo, nome }: { tipo: TipoDoCamp
                 </Space>
             )
         }
+        case 'opcao':
+            // os valores do catálogo, na ordem dele, e a de deixar em branco (null): nenhum vem escolhido por omissão
+            return (
+                <Select aria-label={rotulo} style={{ width: '100%' }} value={typeof valor === 'string' ? valor : ''} onChange={(v: string) => mudar(v)}
+                    options={[{ value: '', label: EM_BRANCO_DA_OPCAO }, ...(opcoes ?? []).map((o) => ({ value: o, label: o }))]} />
+            )
+        default:
+            return null
     }
 }
 
@@ -253,7 +261,8 @@ function CartaoDaCategoria({ c, arvore, mudar, erro, prefixo }: {
 }) {
     const doCatalogo = arvore.catalogo.categorias.find((k) => k.chave === c.chave)
     const lista = LISTA_DA_CATEGORIA[c.chave]
-    const campos = camposDa(arvore.catalogo, c.chave)
+    // o campo de tipo que esta tela não conhece não aparece (`tipoConhecido`, em arvore.ts)
+    const campos = camposDa(arvore.catalogo, c.chave).filter((x) => tipoConhecido(x.tipo))
     return (
         <Card size="small" data-categoria={c.chave} style={{ marginBottom: 12 }}
             title={<span data-titulo-da-categoria>{`${doCatalogo?.ordem ?? '?'} · ${doCatalogo?.rotulo ?? c.chave}`}</span>}>
@@ -266,7 +275,7 @@ function CartaoDaCategoria({ c, arvore, mudar, erro, prefixo }: {
                             <Typography.Text strong data-rotulo-do-campo style={{ display: 'block', marginBottom: 4 }}>{x.rotulo}</Typography.Text>
                             {c.chave === CAMPO_DA_LINHA.categoria && x.chave === CAMPO_DA_LINHA.campo
                                 ? <LinhaDaTabela c={c} arvore={arvore} rotulo={x.rotulo} valor={c.config[x.chave]} mudar={(v) => mudar((y) => ({ ...y, config: { ...y.config, [x.chave]: v } }))} />
-                                : <ControleDoTipo tipo={x.tipo} nome={`${prefixo}.${c.chave}.${x.chave}`} rotulo={x.rotulo} valor={c.config[x.chave]} mudar={(v) => mudar((y) => ({ ...y, config: { ...y.config, [x.chave]: v } }))} />}
+                                : <ControleDoTipo tipo={x.tipo} opcoes={x.opcoes} nome={`${prefixo}.${c.chave}.${x.chave}`} rotulo={x.rotulo} valor={c.config[x.chave]} mudar={(v) => mudar((y) => ({ ...y, config: { ...y.config, [x.chave]: v } }))} />}
                         </div>
                     ))}
                 </div>

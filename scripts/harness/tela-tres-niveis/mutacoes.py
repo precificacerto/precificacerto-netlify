@@ -88,6 +88,16 @@ M = [
  ('M48', 'servidor: as duas fontes misturadas (regra vira fórmula)', S, [("    return { formula: await linhasDaFonte(TABELAS_COM_LINHA.formula, tabelaIds),", "    return { formula: await linhasDaFonte(TABELAS_COM_LINHA.regra, tabelaIds),")]),
  ('M49', 'a lista só com a fórmula (DESIGN some do combobox)', A, [("    const linhas = [...new Set([...fontes.formula, ...fontes.regra])]", "    const linhas = [...new Set([...fontes.formula])]")]),
  ('M50', 'aviso 2 com o texto do aviso 3', C, [("message={fraseLinhaSemFormula(digitada, origem.fornecedor)}", "message={fraseLinhaForaDaTabela(digitada, origem.fornecedor)}")]),
+ # ── o tipo 'opcao' e o tipo desconhecido (24/10/2026) ──
+ ('M51', 'normalizar devolve UNDEFINED no tipo desconhecido (o que estourava a tela)', A, [("            return { valor: null, erro: null }\n    }\n}", "            return undefined as never\n    }\n}")]),
+ ('M52', "normalizar sem o ramo 'opcao' (cai no desconhecido)", A, [("        case 'opcao': {\n            // a opção \"em branco\" chega como '' e é null", "        case 'opcao_que_nao_existe': {\n            // a opção \"em branco\" chega como '' e é null")]),
+ ('M53', "o em branco vira '' em vez de null", A, [("            return { valor: t === '' ? null : t, erro: null }\n        }\n        default:", "            return { valor: t, erro: null }\n        }\n        default:")]),
+ ('M54', 'o salvar não pula o tipo desconhecido (null apagaria o gravado)', A, [("        if (!tipoConhecido(tipo)) continue   // ausente não mexe: null apagaria o que está gravado\n", "")]),
+ ('M55', 'a grade mostra o campo de tipo desconhecido', C, [("    const campos = camposDa(arvore.catalogo, c.chave).filter((x) => tipoConhecido(x.tipo))", "    const campos = camposDa(arvore.catalogo, c.chave)")]),
+ ('M56', 'a seleção sem a opção em branco', C, [("options={[{ value: '', label: EM_BRANCO_DA_OPCAO }, ...(opcoes ?? []).map((o) => ({ value: o, label: o }))]}", "options={(opcoes ?? []).map((o) => ({ value: o, label: o }))}")]),
+ ('M57', 'as opções fora da ordem do catálogo', C, [("...(opcoes ?? []).map((o) => ({ value: o, label: o }))]}", "...[...(opcoes ?? [])].reverse().map((o) => ({ value: o, label: o }))]}")]),
+ ('M58', 'NULL aparece com a PRIMEIRA opção escolhida (valor por omissão)', C, [("value={typeof valor === 'string' ? valor : ''} onChange={(v: string) => mudar(v)}", "value={typeof valor === 'string' ? valor : (opcoes?.[0] ?? '')} onChange={(v: string) => mudar(v)}")]),
+ ('M59', "'opcao' fora dos tipos conhecidos (some da tela e do salvar)", A, [("const TIPOS_CONHECIDOS: readonly string[] = ['texto', 'inteiro', 'numero', 'booleano', 'lista_texto', 'mapa', 'opcao']", "const TIPOS_CONHECIDOS: readonly string[] = ['texto', 'inteiro', 'numero', 'booleano', 'lista_texto', 'mapa']")]),
  ('M34', 'controle: nada muda', C, [("import", "import")]),
 ]
 
