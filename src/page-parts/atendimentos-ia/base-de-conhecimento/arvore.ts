@@ -28,9 +28,18 @@ import { TITULO_DO_BLOCO, mapaDosPares, mesmoValor, paresDoMapa, type Par } from
 type Linha = Record<string, unknown>
 
 // ── A árvore lida: o que GET /arvore devolve (`lerArvoreDaEmpresa`) ───────────────────────────
-export type TipoDoCampo = 'texto' | 'inteiro' | 'numero' | 'booleano' | 'lista_texto' | 'mapa'
+export type TipoDoCampo = 'texto' | 'inteiro' | 'numero' | 'booleano' | 'lista_texto' | 'mapa' | 'opcao'
+/**
+ * Os tipos que a tela sabe desenhar e normalizar. O catálogo é dado do banco e pode trazer um tipo
+ * que esta versão da tela ainda não conhece: esse campo é tratado como AUSENTE — não aparece, não
+ * conta no "N de 6 categorias" e NÃO entra no corpo do salvar (null o apagaria; ausente não mexe).
+ * Quebrar a tela inteira por um campo novo no catálogo foi o que a 20261024000002 teria causado.
+ */
+const TIPOS_CONHECIDOS: readonly string[] = ['texto', 'inteiro', 'numero', 'booleano', 'lista_texto', 'mapa', 'opcao'] satisfies readonly TipoDoCampo[]
+export const tipoConhecido = (tipo: string): tipo is TipoDoCampo => TIPOS_CONHECIDOS.includes(tipo)
 export type CategoriaDoCatalogo = { chave: string; ordem: number; rotulo: string }
-export type CampoDoCatalogo = { categoria_chave: string; chave: string; tipo: TipoDoCampo; rotulo: string; ordem: number }
+/** `opcoes` só vem no tipo 'opcao' (20261024000002); antes da migração a coluna nem existe. */
+export type CampoDoCatalogo = { categoria_chave: string; chave: string; tipo: TipoDoCampo; rotulo: string; ordem: number; opcoes?: string[] | null }
 export type FornecedorGravado = Linha & { fornecedor_id: string; principal: boolean; ordem: number; nome_do_fornecedor?: string | null }
 export type CategoriaLida = Linha & {
     id: string; categoria_chave: string; config: Linha | null; fornecedores: FornecedorGravado[]
@@ -57,6 +66,8 @@ export const fraseDasCategorias = (configuradas: number, total: number) => `${co
 export const fraseRemoverEGravar = (nome: string) =>
     `"${nome}" está marcada para remoção neste salvar: desfaça a remoção ou use outro nome — remover e gravar a mesma matéria-prima no mesmo salvar é recusado.`
 export const USA_SEM_REFERENCIA = 'com "Usa?" em Sim, a referência é obrigatória'
+/** A opção de deixar o campo 'opcao' em branco: NULL = ainda não configurado, nunca uma escolha por omissão. */
+export const EM_BRANCO_DA_OPCAO = 'Em branco — ainda não configurado'
 
 // ── PERFIL.linha: a origem é a TELA, não o catálogo ────────────────────────────────────────
 /**
@@ -133,6 +144,14 @@ export function normalizar(tipo: TipoDoCampo, v: unknown): { valor: unknown; err
             return { valor: Array.isArray(v) ? v.map((x) => String(x).trim()).filter((x) => x !== '') : null, erro: null }
         case 'mapa':
             return mapaDosPares(Array.isArray(v) ? (v as Par[]) : [])
+        case 'opcao': {
+            // a opção "em branco" chega como '' e é null: ainda não configurado
+            const t = typeof v === 'string' ? v.trim() : ''
+            return { valor: t === '' ? null : t, erro: null }
+        }
+        default:
+            // tipo que a tela não conhece: AUSENTE, nunca undefined — undefined quebrava a tela inteira
+            return { valor: null, erro: null }
     }
 }
 
@@ -263,6 +282,7 @@ type DaCategoria = { item: Linha | null; contagem: number; erros: string[] }
 function mudados(campos: Record<string, TipoDoCampo>, gravado: Linha | null, valores: Linha, erros: string[], prefixo: string): Linha {
     const corpo: Linha = {}
     for (const [c, tipo] of Object.entries(campos)) {
+        if (!tipoConhecido(tipo)) continue   // ausente não mexe: null apagaria o que está gravado
         const n = normalizar(tipo, valores[c])
         if (n.erro) { erros.push(`${prefixo}${c}: ${n.erro}`); continue }
         if (!igual(tipo, n.valor, gravado ? gravado[c] : null)) corpo[c] = n.valor
