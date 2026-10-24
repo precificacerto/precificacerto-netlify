@@ -133,6 +133,13 @@ describe('(1) o PARSER — aritmética exata, precedência, funções, e nada de
         expect(valor('IIF(1<3,5,1/0)')).toBe(5)
     })
 
+    it('and e or também só avaliam o lado que decide: (1=2) and (1/0=1) é falso, (1=1) or (1/0=1) é verdadeiro', () => {
+        // DECISÃO, não medição: nenhuma condição da DP-02 depende disto. É a mesma regra do IIF — o lado
+        // que não decide não é avaliado —, escrita aqui para que a afirmação do cabeçalho tenha portão.
+        expect(valor('(1=2) and (1/0=1)')).toBe(false)
+        expect(valor('(1=1) or (1/0=1)')).toBe(true)
+    })
+
     it('nomes vêm dos valores dados', () => {
         expect(valor('(L-X)+(33*2)', { L: 1200, X: 0 })).toBe(1266)
     })
