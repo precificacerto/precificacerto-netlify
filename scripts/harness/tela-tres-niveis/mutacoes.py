@@ -98,6 +98,7 @@ M = [
  ('M57', 'as opções fora da ordem do catálogo', C, [("...(opcoes ?? []).map((o) => ({ value: o, label: o }))]}", "...[...(opcoes ?? [])].reverse().map((o) => ({ value: o, label: o }))]}")]),
  ('M58', 'NULL aparece com a PRIMEIRA opção escolhida (valor por omissão)', C, [("value={typeof valor === 'string' ? valor : ''} onChange={(v: string) => mudar(v)}", "value={typeof valor === 'string' ? valor : (opcoes?.[0] ?? '')} onChange={(v: string) => mudar(v)}")]),
  ('M59', "'opcao' fora dos tipos conhecidos (some da tela e do salvar)", A, [("const TIPOS_CONHECIDOS: readonly string[] = ['texto', 'inteiro', 'numero', 'booleano', 'lista_texto', 'mapa', 'opcao']", "const TIPOS_CONHECIDOS: readonly string[] = ['texto', 'inteiro', 'numero', 'booleano', 'lista_texto', 'mapa']")]),
+ ('M60', 'o total de "N de M categorias" escrito à mão (6), e não a contagem do catálogo', C, [("fraseDasCategorias(categoriasConfiguradas(m, arvore.catalogo), arvore.catalogo.categorias.length)", "fraseDasCategorias(categoriasConfiguradas(m, arvore.catalogo), 6)")]),
  ('M34', 'controle: nada muda', C, [("import", "import")]),
 ]
 
