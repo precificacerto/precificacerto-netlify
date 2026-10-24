@@ -26,15 +26,22 @@
 -- (`prosrc`): um transporte que corrompa o arquivo corromperia o corpo da função. É mais uma
 -- razão para a regra acima, e a verificação (3b) é o que impede que isso passe calado.
 --
--- ══ ORDEM — APLICAR SÓ JUNTO COM A TELA QUE CONHECE O TIPO 'opcao', OU DEPOIS DELA ════════
--- Medido em 24/10/2026: a tela "Matérias-primas e seus fornecedores" (#137) conhece seis tipos
--- (`TipoDoCampo` em `src/page-parts/atendimentos-ia/base-de-conhecimento/arvore.ts`), e
--- `normalizar` não tem ramo para 'opcao'. Com esta migração aplicada e a tela como está,
--- `categoriasConfiguradas` — o "N de 6 categorias" do cabeçalho de cada matéria-prima — ESTOURA
--- (`Cannot read properties of undefined (reading 'valor')`) em toda matéria-prima cujos seis
--- primeiros campos do PERFIL estejam vazios. Isso inclui TODA matéria-prima recém-adicionada.
--- Hoje há 1 categoria PERFIL em produção, com campo preenchido: abrir a tela não estoura;
--- "+ Adicionar matéria-prima" estouraria na hora. A mudança da tela NÃO está nesta migração.
+-- ══ ORDEM — APLICAR SÓ DEPOIS DA TELA QUE CONHECE O TIPO 'opcao' (#140) ESTAR NO AR ════════
+-- A tela "Matérias-primas e seus fornecedores" do #137 conhece seis tipos (`TipoDoCampo` em
+-- `src/page-parts/atendimentos-ia/base-de-conhecimento/arvore.ts`), e o `normalizar` dela não
+-- tem ramo para 'opcao': devolve undefined. Com esta migração aplicada e aquela tela no ar, a
+-- tela ESTOURA AO ABRIR, para TODA empresa com matéria-prima — não só ao clicar em
+-- "+ Adicionar matéria-prima". O estouro é no cálculo das pendências (`mudados`), que roda a
+-- cada desenho: `Cannot read properties of undefined (reading 'erro')`. O "N de 6 categorias"
+-- (`categoriasConfiguradas`) estoura também, em `.valor`, mas é o segundo, não o primeiro.
+-- A mudança da tela NÃO está nesta migração: é o #140.
+--
+-- CORRIGIDO em 24/10/2026. A versão anterior deste cabeçalho (md5 do arquivo
+-- 186060f86a0d186912c20da32e1e20b6, no #139) dizia "abrir a tela não estoura; '+ Adicionar
+-- matéria-prima' estouraria na hora". Estava ERRADA, e para o lado perigoso: a medição de então
+-- exercitou só `categoriasConfiguradas`, nunca o cálculo das pendências. A correção NÃO veio de
+-- releitura: veio do TESTE VERMELHO da tela, no #140 (commit 62750a6), que estourou ao abrir,
+-- sem clique nenhum.
 --
 -- ══ MEDIDO EM PRODUÇÃO ANTES DE ESCREVER (24/10/2026, só leitura) ═════════════════════════
 --   - `orcamentista_categoria_campo.tipo`: CHECK `orcamentista_categoria_campo_tipo_valido`
