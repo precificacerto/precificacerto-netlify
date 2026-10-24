@@ -112,7 +112,9 @@ AS $fn$
      AND array_ndims(p_opcoes) = 1
      AND cardinality(p_opcoes) >= 2
      AND NOT EXISTS (SELECT 1 FROM unnest(p_opcoes) v WHERE v IS NULL OR btrim(v) = '')
-     AND cardinality(p_opcoes) = (SELECT count(DISTINCT v) FROM unnest(p_opcoes) v)
+     -- DISTINCT conta o NULL como um valor (count(DISTINCT v) o ignoraria): assim cada regra acima
+     -- é barrada por UMA checagem só, e tirar qualquer uma delas fica vermelho no harness
+     AND cardinality(p_opcoes) = (SELECT count(*) FROM (SELECT DISTINCT v FROM unnest(p_opcoes) v) d)
 $fn$;
 
 ALTER TABLE public.orcamentista_categoria_campo DROP CONSTRAINT IF EXISTS orcamentista_categoria_campo_tipo_valido;
