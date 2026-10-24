@@ -336,6 +336,7 @@ O AIOS carrega regras contextuais de `.claude/rules/` automaticamente. Regras co
 | `regime-e-segmento-determinam-a-construcao.md` | Regime e segmento determinam o formato; a decomposição lê, não infere |
 | `registro-de-classe.md` | Onde o registro vive e como se escreve — uma ocorrência é anedota, quatro é critério |
 | `story-lifecycle.md` | Story status transitions and quality gates |
+| `tabela-que-a-importacao-apaga.md` | Tabela que algum processo apaga e regrava só pode ter colunas que ele saiba reescrever — trava antes do DELETE e portão de colunas |
 | `teste-que-nao-exercita.md` | Cada asserção precisa FALHAR sem a sua correção |
 | `transformacao-quebra-a-cadeia-de-hash.md` | Um hash autoriza UM CONTEÚDO — transformação no meio exige os dois hashes e a prova por bytes |
 | `tool-examples.md` | Tool input examples for selection guidance |
