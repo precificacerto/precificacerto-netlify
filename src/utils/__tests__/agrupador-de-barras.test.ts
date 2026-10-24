@@ -246,6 +246,52 @@ describe('DETERMINÍSTICO: mesma entrada, mesmas barras, sempre', () => {
     })
 })
 
+describe('MONOTONICIDADE: serra maior nunca dá MENOS barras', () => {
+    // É a razão de o outro modelo de corte ter caído, em 24/10/2026: na leitura em que o último corte
+    // cobra a serra inteira mesmo quando sobra menos que ela, 3 × 1.900 numa barra de 6.000 dava 1
+    // barra com serra 100, 2 com serra 101 a 149, 1 com serra 150 (fecha exato) e 2 de 151 em
+    // diante. Uma serra MAIS LARGA comprando MENOS barras é uma conta que nenhum serralheiro aceita.
+    // Até este caso a razão só estava na conversa; a mutação M26 (aquela leitura) o derruba.
+    //
+    // O que este caso NÃO afirma: que o first fit decrescente é monótono para QUALQUER conjunto. O
+    // critério de encaixe de uma barra é monótono na serra, mas o FFD tem anomalias conhecidas
+    // quando as peças crescem. Medido em 24/10/2026: em 27.000 conjuntos aleatórios de 3 a 23 peças,
+    // serra de 0 a 200 mm, nenhuma. É medição, não teorema — o caso fixa o conjunto abaixo.
+    const CONJUNTO: Peca[] = [
+        { codigo: 'P1', comprimento_mm: 4000, quantidade: 1 }, { codigo: 'P1', comprimento_mm: 2000, quantidade: 2 },
+        { codigo: 'P1', comprimento_mm: 1900, quantidade: 1 }, { codigo: 'P1', comprimento_mm: 3100, quantidade: 3 },
+        { codigo: 'P2', comprimento_mm: 2950, quantidade: 4 }, { codigo: 'P2', comprimento_mm: 800.5, quantidade: 3 },
+        // 5.200, e não os 5.400 do caso de determinismo: nenhuma peça pode ficar a menos de 200 mm do fim
+        // da sua barra, ou a mutação M26 a RECUSA e derruba o caso por recusa, não por queda — medido:
+        // com 5.400 em barra de 5.500 foi exatamente o que aconteceu, e o caso caía pelo motivo errado
+        { codigo: 'P10', comprimento_mm: 5200, quantidade: 1 }, { codigo: 'P10', comprimento_mm: 500, quantidade: 5 },
+        { codigo: 'A9', comprimento_mm: 1200, quantidade: 2 },
+        { codigo: 'T3', comprimento_mm: 1900, quantidade: 3 },                                   // fecha exato com serra 150
+        { codigo: 'D2', comprimento_mm: 3000, quantidade: 1 }, { codigo: 'D2', comprimento_mm: 2995, quantidade: 1 }, // fecha exato com serra 5
+    ]
+    const BARRAS = { P1: B6, P2: { comprimento_mm: 5800 }, P10: { comprimento_mm: 5500 }, A9: B6, T3: B6, D2: B6 }
+
+    it('serra de 0 a 200 mm, de 1 em 1: o número de barras de cada código e do levantamento nunca diminui', () => {
+        const varredura = Array.from({ length: 201 }, (_, serra) => ({ serra, r: ok(CONJUNTO, BARRAS, serra) }))
+        const quedas: string[] = []
+        for (let i = 1; i < varredura.length; i++) {
+            const antes = varredura[i - 1], agora = varredura[i]
+            if (agora.r.total.n_barras < antes.r.total.n_barras) quedas.push(`levantamento: serra ${antes.serra} → ${agora.serra}, ${antes.r.total.n_barras} → ${agora.r.total.n_barras} barras`)
+            for (const codigo of Object.keys(BARRAS)) {
+                const a = doCodigo(antes.r, codigo).n_barras, b = doCodigo(agora.r, codigo).n_barras
+                if (b < a) quedas.push(`${codigo}: serra ${antes.serra} → ${agora.serra}, ${a} → ${b} barras`)
+            }
+        }
+        expect(quedas).toEqual([])
+        // e a varredura de fato atravessa mudanças — senão o caso não exercitaria nada
+        expect(varredura[0].r.total.n_barras).toBeLessThan(varredura[200].r.total.n_barras)
+        expect(doCodigo(varredura[150].r, 'T3').n_barras).toBe(1)
+        expect(doCodigo(varredura[151].r, 'T3').n_barras).toBe(2)
+        expect(doCodigo(varredura[5].r, 'D2').n_barras).toBe(1)
+        expect(doCodigo(varredura[6].r, 'D2').n_barras).toBe(2)
+    })
+})
+
 describe('os DOIS valores — sempre os dois; quem escolhe é o orçamentista', () => {
     const PRECO = { comprimento_mm: 6000, valor_barra_interno: 75, valor_metro_interno: 12.5 }
 
