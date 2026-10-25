@@ -66,6 +66,7 @@ jest.mock('@/lib/atendimentos-ia/repositorio', () => {
         listarTipologias: fn('listarTipologias', () => TIPOLOGIAS_DO_BANCO),
         contarFormulas: fn('contarFormulas', () => 137),
         contarTemposGravados: fn('contarTemposGravados', () => ({ total: 0, ESTIMADO: 0, IMPORTADO: 0 })),
+        codigosDosItensGravados: fn('codigosDosItensGravados', () => []),
     }
 })
 const DADOS = { id: T, fornecedor_id: 'f1', fornecedor_nome: 'Wolf Perfis', arquivo_nome: 'Tabela Wolff.xlsm', motor_nome: 'Motor.xlsx', vigencia: null as string | null }
@@ -129,6 +130,7 @@ beforeEach(async () => {
     Object.values(repo).forEach((f) => { if (typeof f?.mockClear === 'function') f.mockClear() })
     repo.obterArquivosDaTabela.mockImplementation(async () => { ordem.push('obterArquivosDaTabela'); return TABELA })
     repo.contarTemposGravados.mockImplementation(async () => { ordem.push('contarTemposGravados'); return SEM_TEMPO })
+    repo.codigosDosItensGravados?.mockImplementation(async () => { ordem.push('codigosDosItensGravados'); return [] })
 })
 
 describe('quem passa', () => {
@@ -290,6 +292,58 @@ describe('A TRAVA DO TEMPO — a importação de hoje apagaria os tempos de fabr
         const r = await chamar('GET')
         expect(r.status).toBe(200)
         expect(repo.contarTemposGravados).not.toHaveBeenCalled()
+    })
+})
+
+describe('A TRAVA DOS ITENS QUE O ARQUIVO NÃO TRAZ — a importação apagaria linhas que não sabe pôr de volta', () => {
+    // O caso que a originou (dono do produto, 25/10/2026): 24 vidros inseridos à mão na tabela
+    // 5f7acebf, que nenhum arquivo traz. A importação apaga TODOS os itens da tabela e regrava só os
+    // do arquivo: sem a trava, os 24 sumiriam.
+    /** A frase lida DENTRO dos casos: no commit do portão ela ainda não existe. */
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const fraseDosItens = (c: string[]) => require('@/utils/atendimentos-ia-importacao').fraseDaImportacaoTravadaPorItensForaDoArquivo(c) as string
+    const gravados = (c: string[]) => repo.codigosDosItensGravados.mockImplementation(async () => { ordem.push('codigosDosItensGravados'); return c })
+
+    it('item gravado que o arquivo não traz → 409 com a frase, ANTES de gravar — e diz quantos e quais', async () => {
+        gravados(['IL4237', 'VIDRO 4MM', 'VIDRO 6MM'])
+        const r = await chamar('POST')
+        expect(r.status).toBe(409)
+        expect(r.json.error).toBe(fraseDosItens(['VIDRO 4MM', 'VIDRO 6MM']))
+        expect(r.json.error).toContain('2 itens')
+        expect(r.json.error).toContain('VIDRO 4MM')
+        expect(repo.importarConteudo).not.toHaveBeenCalled()
+    })
+
+    it('todos os itens gravados estão no arquivo → a importação segue (a substituição é o desenho certo aí)', async () => {
+        gravados(['IL4237', 'KT4237'])
+        const r = await chamar('POST')
+        expect(r.status).toBe(200)
+        expect(repo.importarConteudo).toHaveBeenCalledTimes(1)
+        expect(ordem.indexOf('codigosDosItensGravados')).toBeLessThan(ordem.indexOf('importarConteudo'))
+    })
+
+    it('a comparação é EXATA: "il4237" gravado não é o "IL4237" do arquivo — nada é casado pelo parecido', async () => {
+        gravados(['il4237'])
+        const r = await chamar('POST')
+        expect(r.status).toBe(409)
+        expect(r.json.error).toBe(fraseDosItens(['il4237']))
+    })
+
+    it('erro do banco ao ler os itens gravados → 500, e a importação NÃO segue (falha fechada)', async () => {
+        repo.codigosDosItensGravados.mockImplementation(async () => { throw new Error('falhou') })
+        const r = await chamar('POST')
+        expect(r.status).toBe(500)
+        expect(repo.importarConteudo).not.toHaveBeenCalled()
+    })
+
+    it('a frase nomeia até 10 códigos e conta o resto, e diz que nada foi alterado', () => {
+        const muitos = Array.from({ length: 24 }, (_, i) => `V${String(i + 1).padStart(2, '0')}`)
+        const f = fraseDosItens(muitos)
+        expect(f).toContain('24 itens')
+        expect(f).toContain('V10')
+        expect(f).not.toContain('V11')
+        expect(f).toContain('e mais 14')
+        expect(f).toContain('Nada foi alterado')
     })
 })
 
