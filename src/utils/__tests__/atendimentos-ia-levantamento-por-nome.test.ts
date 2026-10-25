@@ -96,6 +96,12 @@ const estado = {
     envioStatus: 200,
     envios: [] as Array<{ corpo: Record<string, unknown> }>,
     ausentes: new Set<string>(),
+    /**
+     * Quando preenchida, a LLM falsa responde a partir do PROMPT, como a de verdade: o código da variável
+     * só se o prompt o der ("ARI = ARREMATE INTERNO" ou "ARI: ARREMATE INTERNO"), senão a descrição que
+     * ela vê; o número da opção só se o prompt o der. E responde no formato da ferramenta enviada.
+     */
+    respostaPeloPrompt: null as null | { variavelDescrita: string; opcaoDescrita: string; nome: string },
 }
 
 function montar() {
@@ -135,6 +141,7 @@ function montar() {
     estado.envioStatus = 200
     estado.envios = []
     estado.ausentes = new Set()
+    estado.respostaPeloPrompt = null
 }
 
 /** As UNIQUE da migração 20261025000003 que importam aqui, para o banco falso recusar como o real. */
@@ -283,6 +290,16 @@ beforeEach(() => {
         const headers = init?.headers ?? {}
         if (url === ANTHROPIC) {
             estado.chamadasDaLlm.push({ headers, corpo })
+            const pelo = estado.respostaPeloPrompt
+            if (pelo) {
+                const sistema = String(corpo.system)
+                const props = (corpo.tools as Array<{ input_schema: { properties: Record<string, unknown> } }>)[0].input_schema.properties
+                const codigo = new RegExp(`\\b([A-Z]{2,5})\\s*[=:]\\s*${pelo.variavelDescrita}\\b`).exec(sistema)?.[1] ?? pelo.variavelDescrita
+                const opcao = Number(new RegExp(`(\\d+)\\s*=\\s*${pelo.opcaoDescrita}`).exec(sistema)?.[1] ?? NaN)
+                const escolha = { variavel: codigo, opcao: Number.isFinite(opcao) ? opcao : 0 }
+                const input = { nome: pelo.nome, itens: [], ...('escolhas' in props ? { escolhas: [escolha] } : { escolha }) }
+                return { ok: true, status: 200, json: async () => ({ ...respostaComFerramenta({}), content: [{ type: 'tool_use', id: 't', name: conversa.NOME_DA_FERRAMENTA, input }] }) }
+            }
             const proxima = estado.respostasDaLlm.shift() ?? { status: 200, corpo: respostaComFerramenta({}) }
             if (proxima === 'lanca') throw new Error('fetch failed')
             return { ok: proxima.status >= 200 && proxima.status < 300, status: proxima.status, json: async () => proxima.corpo }
@@ -871,5 +888,24 @@ describe('(12) decisão 2, revista: quem altera — o criador, ou o admin da emp
         await chamar('Levantamento Casa do João: DP-02 1200 x 1500 branco temperado 5mm', doOutro)
         expect(levantamentos().map((l) => l.remetente_id)).toEqual([VENDEDOR, OUTRO_VENDEDOR])
         expect(alturaDe(VENDEDOR)).toBe(1000)
+    })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+describe('(13) DEFEITO 1, medido em produção (b0465e57, 25/10/2026): a escolha respondida nunca chegava ao item', () => {
+    // O log de produção das três respostas ("1", "4", "2"): `rota=MONTAGEM propostos=1 descartados=1`. A
+    // escolha chegava à validação e era DESCARTADA: o prompt não trazia o código da variável, e a LLM
+    // propunha o que via — a descrição. Os casos acima não pegavam porque a LLM falsa SABIA o código.
+    // Esta LLM falsa só sabe o que o prompt diz, e responde no formato da ferramenta que recebeu.
+
+    it('respondida a escolha do arremate interno em palavras, ela é GRAVADA no item e a mesma pergunta NÃO volta', async () => {
+        llmResponde({ nome: 'Casa Teste', itens: [{ ...DP02 }] })
+        await chamar('Levantamento Casa Teste: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm')
+        const antes = ultimoEnviado()
+        estado.respostaPeloPrompt = { variavelDescrita: 'ARREMATE INTERNO', opcaoDescrita: 'SEM ARREMATE INTERNO', nome: 'Casa Teste' }
+        await chamar('Casa Teste: sem arremate interno')
+        const item = itensDe(levantamentos()[0].id)[0]
+        expect(item.escolhas).toEqual(expect.objectContaining({ ARI: 4 }))
+        expect(ultimoEnviado()).not.toBe(antes)
     })
 })
