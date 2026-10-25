@@ -23,3 +23,14 @@ passaria verde sem ter o que revogar).
 
 As V são barradas pela verificação de dentro da migração; as B desligam a verificação junto e provam
 que o caso, sozinho, também pega. Medido em 25/10/2026: 12 de 12 vermelhas, M0 verde.
+
+## As mutações do CÓDIGO
+
+```bash
+python3 -B scripts/harness/levantamento-por-nome/mutacoes-do-codigo.py   # N1–N17 e o controle N0
+```
+
+Só jest, sem banco. Cada mutação estraga uma das quatro decisões do dono do produto no roteamento
+(`nome-do-levantamento.ts`, `levantamento-em-montagem.ts`, `conversa-da-ia.ts`, `inbound.ts`) e
+exige que um caso nomeado caia. As baterias vizinhas `../levantamento-na-conversa/` e
+`../escolhas-na-conversa/` foram reapontadas aos portões novos no mesmo PR.
