@@ -16,7 +16,7 @@
  *     delas não foi enviada; nenhum de-para de cor é inventado;
  *   - barra → referência → código → valor, UM valor por código. Dois códigos para o mesmo perfil e
  *     cor é dado incompleto: RECUSA, com os dois códigos e os dois valores — mesmo com preço igual;
- *   - faltou dado, recusa nomeada (`.claude/rules/faltou-dado-recusa-nomeada.md`): nunca aproxima,
+ *   - faltou dado, recusa nomeada (`docs/regras/faltou-dado-recusa-nomeada.md`): nunca aproxima,
  *     nunca escolhe o parecido, nunca calcula com o que sobrou.
  *
  * ═════ A CONTA À MÃO DO CASO (1) ═════
