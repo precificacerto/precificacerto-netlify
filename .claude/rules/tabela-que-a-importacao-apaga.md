@@ -48,7 +48,7 @@ procura. Conferir LINHAS não alcança COLUNAS (`portao-que-nao-alcanca.md`).
 
 | # | Quando | O processo | O que ele não sabia reescrever | Estado |
 |---|---|---|---|---|
-| 1 | 24/10/2026 | `importar_conteudo_da_tabela` (`20261020000002`) apaga e regrava `orcamentista_motor_tipologia` | `tempo_fabricacao_min` e `tempo_origem`, acrescentadas pela `20261024000001` — a regravação não as preenche. Importar a tabela da Wolff apagaria **164 tempos ESTIMADO**, mesmo com o arquivo idêntico | **TRAVADO** pelo #147 (409 antes do DELETE). O remédio estrutural — o tempo em tabela própria — é a etapa seguinte |
+| 1 | 24/10/2026 | `importar_conteudo_da_tabela` (`20261020000002`) apaga e regrava `orcamentista_motor_tipologia` | `tempo_fabricacao_min` e `tempo_origem`, acrescentadas pela `20261024000001` — a regravação não as preenche. Importar a tabela da Wolff apagaria **164 tempos ESTIMADO**, mesmo com o arquivo idêntico | **RESOLVIDO pela camada 3** (25/10/2026): o tempo foi para `orcamentista_motor_tipologia_tempo` (`20261024000003`), o leitor passou a lê-la, e a trava do #147 foi **removida**. Provado num Postgres real (`scripts/harness/reimportacao-com-os-tempos/`): com os 164 tempos na tabela própria, uma reimportação completa roda até o fim e os 164 continuam lá. As colunas antigas ficam, obsoletas e esvaziadas pela reimportação, até a migração que as apaga |
 | 2 | 02/09/2026, #34 | a edição do orçamento apaga e regrava `budget_items` (`orcamentos/index.tsx:1867`) | `commission_pct` e `profit_pct` — a regravação os PREENCHE, com o que a reabertura leu do **cadastro vivo** (`it.products?.commission_percent`, `orcamentos/index.tsx:1992`). É a segunda metade do critério: reabrir e salvar um orçamento antigo troca os percentuais congelados pelos de hoje | **ABERTO** — registrado no #34 como "armado, não materializado"; **re-medido em 24/10/2026: a leitura do cadastro vivo continua lá** |
 
 **De quem são.** A 1 é do desenho: a importação foi escrita certa em 20/10, e a coluna chegou em
@@ -94,7 +94,7 @@ Nenhuma das três tem dano medido hoje. As três são o mecanismo armado: no dia
 ## O remédio — três camadas, da mais barata à definitiva
 
 **1. A trava antes do DELETE.** Enquanto o processo não souber reescrever uma coluna, ele recusa
-quando ela tem dado — e recusa ANTES de apagar, dizendo quanto se perderia. É o #147: a importação
+quando ela tem dado — e recusa ANTES de apagar, dizendo quanto se perderia. Foi o #147 (removido em 25/10/2026, quando a camada 3 entrou): a importação
 conta os tempos gravados e responde 409 antes de baixar os arquivos. A trava é barata e fecha o
 risco no dia, mas não o remove: ela troca "perde em silêncio" por "não deixa fazer".
 
