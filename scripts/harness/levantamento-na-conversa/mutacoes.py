@@ -76,6 +76,10 @@ M = [
  ('L43', 'a tipologia sem abas cai na família', LC, [("        if (!tem('Variáveis') && !tem('Fórmulas') && !tem('Perfis')) { faltas.push(fraseDaTipologiaSemAbas(t)); continue }\n", "")], 'OUTRO DP'),
  ('L44', 'sem linha, a família de outra tipologia', LC, [("    if (linhas.length === 0) return { falta: fraseDaFamiliaSemLinha(tipologia) }\n", "    if (linhas.length === 0) return { falta: fraseDaFamiliaSemFormulas(tipologia, '?') }\n")], 'SEM a linha da tipologia'),
  ('L45', 'a conversa não carrega as variáveis do banco', CV, [("const definicao: DefinicaoDaTipologia = (t) => (t === null ? null : variaveisDaTabela[t] ?? null)", "const definicao: DefinicaoDaTipologia = () => null")]),
+ # o tempo de fabricação vem da tabela própria (20261024000003), não das colunas antigas
+ ('L46', 'o tempo volta a ser lido das colunas antigas', LC, [(".from('orcamentista_motor_tipologia_tempo').select('tempo_fabricacao_min, tempo_origem')", ".from('orcamentista_motor_tipologia').select('tempo_fabricacao_min, tempo_origem')")], 'NÃO das colunas antigas'),
+ ('L47', 'a tabela dos tempos ausente vira erro', LC, [("        if (tabelaAusente(error)) return { ausente: true }\n        throw new Error(`orcamentista_motor_tipologia_tempo", "        throw new Error(`orcamentista_motor_tipologia_tempo")], 'AINDA NÃO EXISTE no banco: ausência declarada'),
+ ('L48', 'a tabela dos tempos ausente vira "sem tempo cadastrado"', LC, [("    if ('ausente' in tempo) return { ok: false, falta: FALTA_TABELA_DOS_TEMPOS }", "    if ('ausente' in tempo) return { ok: false, falta: `o tempo de fabricação de ${tipologia} não está cadastrado` }")], 'a tabela dos tempos ainda não existe'),
  ('L0', 'controle: nada muda', LC, [("export", "export")]),
 ]
 

@@ -15,12 +15,10 @@
  * A ORDEM DO POST, e cada recusa sai ANTES do passo seguinte:
  *   1. só super admin (401 sem sessão, 403 sem ser);
  *   2. a tabela existe (404);
- *   2a. A TRAVA DO TEMPO (24/10/2026, decisão do dono do produto): se alguma tipologia da tabela
- *      tem tempo de fabricação gravado, 409 com `fraseDaImportacaoTravadaPeloTempo` — ANTES de
- *      baixar e de gravar. A função do passo 6 apaga e regrava `orcamentista_motor_tipologia` sem
- *      as colunas de tempo, e importar apagaria os tempos mesmo com o arquivo idêntico. Trava pelo
- *      TOTAL, e erro do banco ao contar é 500: a trava falha FECHADA. Sai quando o tempo tiver
- *      tabela própria. O GET não passa por ela;
+ *   (A TRAVA DO TEMPO, que vivia aqui desde 24/10/2026, foi REMOVIDA em 25/10/2026 por decisão do
+ *   dono do produto: o tempo mora em `orcamentista_motor_tipologia_tempo` (20261024000003), que a
+ *   função do passo 6 não alcança. A prova, num Postgres real, é `scripts/harness/reimportacao-com-os-tempos/`:
+ *   uma reimportação completa com os 164 tempos gravados roda até o fim e os 164 continuam lá.)
  *   3. os dois arquivos são de extensão importável — senão 409 com o arquivo, a extensão e o
  *      porquê (`fraseDoArquivoNaoImportavel`). `.xls`, `.csv` e `.pdf` são aceitos no ENVIO e
  *      não são importáveis;
@@ -46,7 +44,6 @@ import {
   baixarObjeto,
   falhaInterna,
   importarConteudo,
-  contarTemposGravados,
   codigosDosItensGravados,
   nomeDoUsuario,
   objetoExiste,
@@ -56,7 +53,6 @@ import {
 import { arquivoImportavel, ehUuid, fraseDoArquivo, fraseDoArquivoNaoImportavel } from '@/utils/atendimentos-ia-catalogo'
 import {
   conferirGravacao,
-  fraseDaImportacaoTravadaPeloTempo,
   fraseDaImportacaoTravadaPorItensForaDoArquivo,
   itensQueOArquivoNaoTraz,
   lerArquivosDaImportacao,
@@ -97,14 +93,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return falhaInterna(res, 'importação (última)', e, 'Não foi possível ler a última importação.')
     }
   }
-
-  let tempos: Awaited<ReturnType<typeof contarTemposGravados>>
-  try {
-    tempos = await contarTemposGravados(id)
-  } catch (e) {
-    return falhaInterna(res, 'importação (tempos)', e, 'Não foi possível conferir os tempos de fabricação gravados. Nada foi alterado.')
-  }
-  if (tempos.total > 0) return res.status(409).json({ error: fraseDaImportacaoTravadaPeloTempo(tempos) })
 
   const arquivos = [
     { nome: tabela.arquivo_nome, caminho: tabela.arquivo_path },

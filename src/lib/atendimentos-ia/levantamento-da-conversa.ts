@@ -37,10 +37,11 @@
  * linhas, acima das 1.000 que o PostgREST devolve por vez: a leitura pagina e confere a contagem
  * exata, em vez de calcular com uma lista cortada em silêncio (`instrumento-que-nao-enxerga.md`).
  *
- * ══ O TEMPO DE FABRICAÇÃO — LEITURA TEMPORÁRIA ══
- * `tempoDeFabricacao` lê `orcamentista_motor_tipologia.tempo_fabricacao_min`, a coluna antiga, porque a
- * migração 20261024000003 (`orcamentista_motor_tipologia_tempo`) ainda não foi aplicada. Quando for, a
- * troca é a tabela e as duas colunas DESTA função, e só dela.
+ * ══ O TEMPO DE FABRICAÇÃO — DA TABELA PRÓPRIA ══
+ * `tempoDeFabricacao` lê `orcamentista_motor_tipologia_tempo` (20261024000003), que a importação não
+ * apaga (`tabela-que-a-importacao-apaga.md`). As colunas antigas de `orcamentista_motor_tipologia`
+ * (`tempo_fabricacao_min`, `tempo_origem`) são OBSOLETAS e não são lidas por ninguém: a reimportação as
+ * esvazia, e elas saem numa migração posterior. Sem a tabela no banco, a falta é nomeada.
  *
  * ══ A MÃO DE OBRA — O CAMINHO DA TELA DE PRODUTO ══
  * `lerMaoDeObra`: o tempo de fabricação da tipologia × o valor do minuto, pelo MESMO caminho que
@@ -112,16 +113,24 @@ export async function lerTabelaDaEmpresa(tenantId: string): Promise<TabelaDaEmpr
 export const linhaDoCandidato = (c: CandidatoDeTipologia) =>
     `${c.tipologia} | ${c.descricao ?? '(sem descrição no arquivo)'} | ${c.tipo ?? '(sem tipo no arquivo)'}`
 
-// ── O tempo de fabricação — TEMPORÁRIO ──────────────────────────────────────────────────────
+/** A tabela ainda não existe no banco (migração não aplicada): é falta nomeada, não erro. */
+const tabelaAusente = (e: { code?: string }) => e.code === 'PGRST205' || e.code === '42P01'
+
+// ── O tempo de fabricação ────────────────────────────────────────────────────────────────
+export const FALTA_TABELA_DOS_TEMPOS = 'a tabela dos tempos de fabricação ainda não foi carregada no banco'
 /**
- * TEMPORÁRIO: lê a coluna antiga de `orcamentista_motor_tipologia` enquanto a 20261024000003 não é
- * aplicada. Depois, a tabela passa a ser `orcamentista_motor_tipologia_tempo` — a troca é aqui, e só aqui.
+ * O tempo da tipologia, de `orcamentista_motor_tipologia_tempo`. Sem linha é null — "não informado",
+ * nunca zero (a linha só existe quando há tempo). Com a tabela ainda ausente no banco, `{ ausente: true }`:
+ * é outra falta, e quem a exibe diz qual.
  */
-export async function tempoDeFabricacao(tabelaId: string, tipologia: string): Promise<{ minutos: number; origem: string | null } | null> {
+export async function tempoDeFabricacao(tabelaId: string, tipologia: string): Promise<{ minutos: number; origem: string | null } | { ausente: true } | null> {
     const { data, error } = await supabaseAdmin
-        .from('orcamentista_motor_tipologia').select('tempo_fabricacao_min, tempo_origem')
+        .from('orcamentista_motor_tipologia_tempo').select('tempo_fabricacao_min, tempo_origem')
         .eq('tabela_id', tabelaId).eq('tipologia', tipologia).maybeSingle()
-    if (error) throw new Error(`orcamentista_motor_tipologia: ${error.message}`)
+    if (error) {
+        if (tabelaAusente(error)) return { ausente: true }
+        throw new Error(`orcamentista_motor_tipologia_tempo: ${error.message}`)
+    }
     const linha = data as { tempo_fabricacao_min: number | null; tempo_origem: string | null } | null
     if (!linha || typeof linha.tempo_fabricacao_min !== 'number') return null
     return { minutos: linha.tempo_fabricacao_min, origem: linha.tempo_origem }
@@ -171,6 +180,7 @@ const centavos = (v: number) => Math.round(v * 100) / 100
 export async function lerMaoDeObra(tenantId: string, tabelaId: string, tipologia: string, quantidade: number): Promise<MaoDeObra> {
     const tempo = await tempoDeFabricacao(tabelaId, tipologia)
     if (tempo === null) return { ok: false, falta: `o tempo de fabricação de ${tipologia} não está cadastrado` }
+    if ('ausente' in tempo) return { ok: false, falta: FALTA_TABELA_DOS_TEMPOS }
 
     const [{ data: settings, error: erroSettings }, { data: despesas, error: erroDespesas }] = await Promise.all([
         supabaseAdmin.from('tenant_settings').select('calc_type, monthly_workload, workload_unit, num_productive_employees').eq('tenant_id', tenantId).maybeSingle(),
@@ -215,8 +225,6 @@ export async function lerRegras(tabelaId: string, tipologia: string): Promise<Re
 }
 
 // ── As abas do motor por tipologia, do banco ────────────────────────────────────────────────
-/** A tabela de uma aba ainda não existe no banco (migração não aplicada): é falta nomeada, não erro. */
-const tabelaAusente = (e: { code?: string }) => e.code === 'PGRST205' || e.code === '42P01'
 type Leitura = { linhas: Array<Record<string, unknown>> } | { ausente: true }
 
 /** TODAS as linhas da tabela_id (e, se pedido, só dos valores de uma coluna), página a página, com a contagem conferida. */
