@@ -76,7 +76,7 @@ import { supabaseAdmin } from '@/supabase/admin'
 import { MODELO_PADRAO_DA_IA, URL_DA_API_ANTHROPIC, VERSAO_DA_API_ANTHROPIC } from '@/lib/atendimentos-ia/modelo-da-ia'
 import { paraOLog } from '@/utils/atendimentos-ia-mascara-do-log'
 import {
-    FRASE_SEM_CORES, lerCoresDaEmpresa, lerTabelaDaEmpresa, linhaDoCandidato, mensagemDoLevantamento, tipologiaDaTabela, type CandidatoDeTipologia,
+    FRASE_SEM_CORES, lerCoresDaEmpresa, lerTabelaDaEmpresa, linhaDoCandidato, lerVariaveisDasTipologias, mensagemDoLevantamento, type CandidatoDeTipologia,
 } from '@/lib/atendimentos-ia/levantamento-da-conversa'
 import {
     CAMPOS_DA_ESQUADRIA, aplicarProposta, itemVazio, perguntaDaPendencia, proximaPendencia,
@@ -469,7 +469,9 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         // diz o que falta, sem chamar a LLM.
         const tabela = await lerTabelaDaEmpresa(c.tenantId)
         if ('frase' in tabela) return await responder(tabela.frase, 'sem-tipologias', `motivo=${tabela.motivo}${tabela.detalhe ? ` ${tabela.detalhe}` : ''}`)
-        const definicao: DefinicaoDaTipologia = (t) => tipologiaDaTabela(tabela, t)
+        // as Variáveis de cada tipologia, do banco: é o que a conversa precisa para perguntar as escolhas
+        const variaveisDaTabela = await lerVariaveisDasTipologias(tabela.tabelaId)
+        const definicao: DefinicaoDaTipologia = (t) => (t === null ? null : variaveisDaTabela[t] ?? null)
         const cores = await lerCoresDaEmpresa(c.tenantId)
 
         const [emMontagem] = await lerLevantamentos(c.tenantId, c.remetenteId, true)

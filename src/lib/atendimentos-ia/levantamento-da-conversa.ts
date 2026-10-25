@@ -14,11 +14,14 @@
  *     Padrão de MAE ("MEDIDA DO VÃO") não traz a medida;
  *   - UMA esquadria por conversa (é o que `orcamentista_pre_definicao` guarda);
  *   - NÃO persiste o levantamento: a mensagem é a saída;
- *   - SÓ A DP-02 DA TABELA WOLFF tem as abas do motor (Variáveis, Fórmulas, Perfis, Validações) no
- *     repositório (`abas-do-motor-wolff-DP-02.json`). O banco guarda só "Motor por barra" e
- *     "Fórmulas da família", e as fórmulas da família divergem das da DP-02 em 9 de 16 variáveis
- *     (medido, `avaliador-de-formulas.test.ts`): calcular com elas seria calcular com o que a
- *     tipologia não usa. Qualquer outro DP, ou outra tabela, é RECUSA NOMEADA.
+ *   - AS ABAS DO MOTOR VÊM DO BANCO (desde a migração 20261025000004): Detalhe, Variáveis, Fórmulas,
+ *     Perfis e Validações da tabela da empresa, gravadas pela importação pelo mesmo mapa
+ *     (`atendimentos-ia-abas-do-motor.ts`). O JSON da DP-02 virou fixture de teste. A aba 'Fórmulas'
+ *     DA TIPOLOGIA é a fonte de cálculo; a 'Fórmulas da família' só entra quando a tipologia não tem
+ *     fórmula própria, e então a resposta DIZ isso (`fraseDasFormulasDaFamilia`) — nunca em silêncio,
+ *     porque as da família divergem das da DP-02 em 9 de 16 variáveis (medido,
+ *     `avaliador-de-formulas.test.ts`). Tabela ainda ausente, tipologia sem abas, sem perfis, sem
+ *     linha, ou família sem fórmula: RECUSA NOMEADA.
  *
  * ══ A LISTA DE TIPOLOGIAS ══
  * Vem de `orcamentista_motor_tipologia_detalhe` (tabela_id, tipologia, descricao, tipo, …) da tabela
@@ -67,22 +70,14 @@
  * Portão: `src/utils/__tests__/levantamento-da-conversa.test.ts`.
  */
 import { supabaseAdmin } from '@/supabase/admin'
-import { lerTipologia, type AbasDoMotor, type AvisoDoAvaliador, type Tipologia } from '@/lib/atendimentos-ia/avaliador-de-formulas'
-import { descreverArremate, escolhasComPadrao, lerEscolhasGravadas, traduzirVocabulario } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
+import { COLUNAS_LIDAS, lerTipologia, variaveisDaAba, type AbasDoMotor, type AvisoDoAvaliador, type Tipologia } from '@/lib/atendimentos-ia/avaliador-de-formulas'
+import { descreverArremate, escolhasComPadrao, lerEscolhasGravadas, traduzirVocabulario, type VariaveisDaTipologia } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import {
     formatarReais, levantarBarras,
     type ItemDaTabela, type RegraDoDePara, type ResultadoDoLevantamento,
 } from '@/lib/atendimentos-ia/levantamento-de-barras'
 import { maoDeObraPeloCaminhoDaTela, type DadosDaEmpresaParaMaoDeObra } from '@/utils/mao-de-obra-pelo-caminho-da-tela'
-import ABAS_WOLFF_DP02 from '@/lib/atendimentos-ia/abas-do-motor-wolff-DP-02.json'
-
-// ── As abas do motor que existem no repositório ─────────────────────────────────────────────
-/** A tabela Wolff de 20/10/2026 — a única cujas abas por tipologia estão no repositório. */
-export const TABELA_WOLFF = '72366020-57c9-489f-9385-397b7fa3dedb'
-/** tabela → tipologia → abas. Uma tipologia fora daqui é recusada pelo nome. */
-export const ABAS_IMPORTADAS: Readonly<Record<string, Readonly<Record<string, AbasDoMotor>>>> = {
-    [TABELA_WOLFF]: { 'DP-02': ABAS_WOLFF_DP02 as unknown as AbasDoMotor },
-}
+import { abaDeclarada, abaDoBanco } from '@/utils/atendimentos-ia-abas-do-motor'
 
 // ── A tabela da empresa e as tipologias candidatas ──────────────────────────────────────────
 export type CandidatoDeTipologia = { tipologia: string; descricao: string | null; tipo: string | null }
@@ -114,15 +109,6 @@ export async function lerTabelaDaEmpresa(tenantId: string): Promise<TabelaDaEmpr
 }
 
 /** A linha do candidato no prompt: código, descrição inteira e tipo. Ausente não vira texto inventado. */
-/** A tipologia com as abas do motor, para a tabela da empresa — ou null, quando as abas não existem. */
-export function tipologiaDaTabela(tabela: TabelaDaEmpresa, codigo: unknown): Tipologia | null {
-    if (!('tabelaId' in tabela) || typeof codigo !== 'string') return null
-    const abas = ABAS_IMPORTADAS[tabela.tabelaId]?.[codigo]
-    if (!abas) return null
-    const lida = lerTipologia(abas, codigo)
-    return 'tipologia' in lida ? lida.tipologia : null
-}
-
 export const linhaDoCandidato = (c: CandidatoDeTipologia) =>
     `${c.tipologia} | ${c.descricao ?? '(sem descrição no arquivo)'} | ${c.tipo ?? '(sem tipo no arquivo)'}`
 
@@ -226,6 +212,127 @@ export async function lerRegras(tabelaId: string, tipologia: string): Promise<Re
     }
     if (regras.length !== total) throw new Error(`orcamentista_motor_regra: ${regras.length} linhas lidas de ${total}`)
     return regras
+}
+
+// ── As abas do motor por tipologia, do banco ────────────────────────────────────────────────
+/** A tabela de uma aba ainda não existe no banco (migração não aplicada): é falta nomeada, não erro. */
+const tabelaAusente = (e: { code?: string }) => e.code === 'PGRST205' || e.code === '42P01'
+type Leitura = { linhas: Array<Record<string, unknown>> } | { ausente: true }
+
+/** TODAS as linhas da tabela_id (e, se pedido, só dos valores de uma coluna), página a página, com a contagem conferida. */
+async function lerTudo(tabela: string, tabelaId: string, recorte?: { coluna: string; valores: readonly string[] }): Promise<Leitura> {
+    const linhas: Array<Record<string, unknown>> = []
+    let total: number | null = null
+    for (let de = 0; total === null || de < total; de += PAGINA) {
+        let q = supabaseAdmin.from(tabela).select('*', { count: 'exact' }).eq('tabela_id', tabelaId)
+        if (recorte) q = q.in(recorte.coluna, [...recorte.valores])
+        const { data, error, count } = await q.order('id', { ascending: true }).range(de, de + PAGINA - 1)
+        if (error) {
+            if (tabelaAusente(error)) return { ausente: true }
+            throw new Error(`${tabela}: ${error.message}`)
+        }
+        if (typeof count !== 'number') throw new Error(`${tabela}: a contagem exata não veio`)
+        total = count
+        const pagina = (data ?? []) as Array<Record<string, unknown>>
+        linhas.push(...pagina)
+        if (pagina.length === 0) break
+    }
+    if (linhas.length !== total) throw new Error(`${tabela}: ${linhas.length} linhas lidas de ${total}`)
+    return { linhas }
+}
+
+export const fraseDaAbaNaoCarregada = (aba: string) =>
+    `A aba "${aba}" do motor ainda não foi carregada no banco: ainda não consigo calcular as barras.`
+export const fraseDaTipologiaSemPerfis = (tipologia: string) =>
+    `A tipologia ${tipologia} não tem linhas na aba "Perfis" do motor importado: sem perfil não há barra a calcular.`
+/** O RÓTULO do fallback: vai na resposta toda vez que a família calculou no lugar da tipologia. */
+export const fraseDasFormulasDaFamilia = (tipologia: string, linha: string) =>
+    `Atenção: as fórmulas da ${tipologia} são as da FAMÍLIA ${linha} (fallback) — a tipologia não tem fórmulas próprias na aba "Fórmulas" do arquivo do fornecedor.`
+export const fraseDaFamiliaSemLinha = (tipologia: string) =>
+    `A tipologia ${tipologia} não tem fórmulas próprias na aba "Fórmulas", e não tem a linha cadastrada no motor para achar as da família: não calculo sem elas.`
+export const fraseDaFamiliaComDuasLinhas = (tipologia: string, linhas: readonly string[]) =>
+    `A tipologia ${tipologia} não tem fórmulas próprias na aba "Fórmulas", e tem ${linhas.length} linhas no motor (${linhas.join(', ')}): não escolho a família.`
+export const fraseDaFamiliaSemFormulas = (tipologia: string, linha: string) =>
+    `A tipologia ${tipologia} não tem fórmulas próprias na aba "Fórmulas", e a família ${linha} também não tem fórmulas no motor importado: não calculo sem elas.`
+export const fraseDaFamiliaComVariavelRepetida = (linha: string, variavel: string) =>
+    `A família ${linha} tem a variável ${variavel} mais de uma vez nas "Fórmulas da família": não escolho uma.`
+
+/**
+ * As fórmulas da FAMÍLIA da tipologia, como linhas da aba 'Fórmulas' — o fallback. A família é a da
+ * `linha` da tipologia em `orcamentista_motor_tipologia`, comparada EXATA com a da família (as duas já
+ * normalizadas pela importação). Sem linha, com duas, sem fórmula, ou com variável repetida: recusa.
+ */
+async function formulasDaFamilia(tabelaId: string, tipologia: string): Promise<{ linhas: Array<Record<string, unknown>>; linha: string } | { falta: string }> {
+    const { data, error } = await supabaseAdmin.from('orcamentista_motor_tipologia').select('linha').eq('tabela_id', tabelaId).eq('tipologia', tipologia)
+    if (error) throw new Error(`orcamentista_motor_tipologia: ${error.message}`)
+    const linhas = [...new Set(((data ?? []) as Array<{ linha: unknown }>).map((l) => l.linha).filter((l): l is string => typeof l === 'string' && l !== ''))]
+    if (linhas.length === 0) return { falta: fraseDaFamiliaSemLinha(tipologia) }
+    if (linhas.length > 1) return { falta: fraseDaFamiliaComDuasLinhas(tipologia, linhas) }
+    const linha = linhas[0]
+    const lida = await lerTudo('orcamentista_motor_formula_familia', tabelaId, { coluna: 'linha', valores: [linha] })
+    if ('ausente' in lida) return { falta: fraseDaAbaNaoCarregada('Fórmulas da família') }
+    if (lida.linhas.length === 0) return { falta: fraseDaFamiliaSemFormulas(tipologia, linha) }
+    const vistas = new Set<unknown>()
+    for (const f of lida.linhas) {
+        if (vistas.has(f.variavel)) return { falta: fraseDaFamiliaComVariavelRepetida(linha, String(f.variavel)) }
+        vistas.add(f.variavel)
+    }
+    return { linha, linhas: lida.linhas.map((f) => ({ tipologia, variavel: f.variavel, descricao: f.descricao, formula: f.formula })) }
+}
+
+export type TipologiasDoBanco = { lidas: Record<string, Tipologia>; faltas: string[]; rotulos: string[] }
+
+/**
+ * As tipologias pedidas, com as abas que o avaliador lê (Detalhe, Variáveis, Fórmulas, Perfis,
+ * Validações) vindas do BANCO, da tabela da empresa — gravadas pela importação, pelo mesmo mapa
+ * (`ABAS_DO_MOTOR`). A aba 'Fórmulas' da tipologia é a fonte; sem ela, a da família entra e o RÓTULO
+ * sai em `rotulos`, que quem monta a resposta acrescenta ao texto — nunca em silêncio.
+ */
+export async function lerTipologiasDoBanco(tabelaId: string, codigos: readonly string[]): Promise<TipologiasDoBanco> {
+    const faltas: string[] = []
+    const rotulos: string[] = []
+    const porAba: Record<string, Array<Record<string, unknown>>> = {}
+    for (const nome of Object.keys(COLUNAS_LIDAS)) {
+        const aba = abaDeclarada(nome)
+        const lida = await lerTudo(aba.tabela, tabelaId, { coluna: 'tipologia', valores: codigos })
+        if ('ausente' in lida) faltas.push(fraseDaAbaNaoCarregada(nome))
+        else porAba[nome] = lida.linhas
+    }
+    if (faltas.length) return { lidas: {}, faltas, rotulos }
+
+    const lidas: Record<string, Tipologia> = {}
+    for (const t of codigos) {
+        const tem = (nome: string) => porAba[nome].some((l) => l.tipologia === t)
+        if (!tem('Variáveis') && !tem('Fórmulas') && !tem('Perfis')) { faltas.push(fraseDaTipologiaSemAbas(t)); continue }
+        let formulas = porAba['Fórmulas']
+        if (!tem('Fórmulas')) {
+            const familia = await formulasDaFamilia(tabelaId, t)
+            if ('falta' in familia) { faltas.push(familia.falta); continue }
+            formulas = familia.linhas
+            rotulos.push(fraseDasFormulasDaFamilia(t, familia.linha))
+        }
+        if (!tem('Perfis')) { faltas.push(fraseDaTipologiaSemPerfis(t)); continue }
+        const abas: AbasDoMotor = Object.fromEntries(Object.keys(COLUNAS_LIDAS).map((nome) =>
+            [nome, abaDoBanco(abaDeclarada(nome), nome === 'Fórmulas' ? formulas : porAba[nome])]))
+        const lida = lerTipologia(abas, t)
+        if ('recusas' in lida) faltas.push(...lida.recusas.map((x) => x.mensagem))
+        else lidas[t] = lida.tipologia
+    }
+    return { lidas, faltas, rotulos }
+}
+
+/**
+ * As Variáveis de TODAS as tipologias da tabela, para a conversa perguntar as escolhas. Com a tabela
+ * ainda ausente no banco, nenhuma definição: a conversa segue sem escolhas, e o levantamento recusa
+ * nomeando a aba que falta.
+ */
+export async function lerVariaveisDasTipologias(tabelaId: string): Promise<Record<string, VariaveisDaTipologia>> {
+    const aba = abaDeclarada('Variáveis')
+    const lida = await lerTudo(aba.tabela, tabelaId)
+    if ('ausente' in lida) return {}
+    const planilha = abaDoBanco(aba, lida.linhas)
+    const codigos = [...new Set(lida.linhas.map((l) => l.tipologia).filter((t): t is string => typeof t === 'string'))]
+    return Object.fromEntries(codigos.map((t) => [t, { variaveis: variaveisDaAba(planilha, t) }]))
 }
 
 async function lerItens(tabelaId: string, codigos: string[]): Promise<ItemDaTabela[]> {
@@ -429,20 +536,18 @@ export async function mensagemDoLevantamento(
     }
 
     // as abas de cada tipologia, uma vez por tipologia; as escolhas descritas, uma vez por esquadria
-    const lidas: Record<string, Tipologia> = {}
-    for (const t of [...new Set(d.esquadrias.map((e) => e.tipologia))]) {
-        const abas = ABAS_IMPORTADAS[tabela.tabelaId]?.[t]
-        if (!abas) { faltas.push(fraseDaTipologiaSemAbas(t)); continue }
-        const lida = lerTipologia(abas, t)
-        if ('recusas' in lida) faltas.push(...lida.recusas.map((x) => x.mensagem))
-        else lidas[t] = lida.tipologia
-    }
+    const doBanco = await lerTipologiasDoBanco(tabela.tabelaId, [...new Set(d.esquadrias.map((e) => e.tipologia))])
+    const lidas = doBanco.lidas
+    faltas.push(...doBanco.faltas)
+    // o rótulo do fallback vai em TODA resposta, a que fecha e a que recusa
+    const rotulado = (r: LevantamentoDaConversa): LevantamentoDaConversa =>
+        (doBanco.rotulos.length ? { ...r, texto: `${r.texto}\n\n${doBanco.rotulos.join('\n')}` } : r)
     const escolhas = lev.itens.map((e) => lerEscolhasGravadas(e.escolhas))
     d.esquadrias.forEach((e, i) => { if (lidas[e.tipologia]) e.escolhas = descreverArremate(lidas[e.tipologia], escolhas[i]) })
-    if (faltas.length) return recusa(faltas)
+    if (faltas.length) return rotulado(recusa(faltas))
 
     const serra = await lerSerra(tenantId)
-    if ('frase' in serra) return recusa([maiuscula(serra.frase)])
+    if ('frase' in serra) return rotulado(recusa([maiuscula(serra.frase)]))
     // a mesma linha do motor pode servir a duas tipologias: o de-para entra uma vez só
     const porTrio = new Map<string, RegraDoDePara>()
     for (const t of Object.keys(lidas)) {
@@ -470,9 +575,9 @@ export async function mensagemDoLevantamento(
         const uma = d.esquadrias.length === 1
         // R4: a recusa nomeia o que falta, em português — sem o código interno da variável
         const traduzir = (m: string) => Object.values(lidas).reduce((t, tip) => traduzirVocabulario(t, tip), m)
-        return recusa(r.recusas.map((x) => maiuscula(traduzir(uma ? semPrefixoDaEsquadria(x.mensagem) : x.mensagem))))
+        return rotulado(recusa(r.recusas.map((x) => maiuscula(traduzir(uma ? semPrefixoDaEsquadria(x.mensagem) : x.mensagem)))))
     }
     const maos: MaoDeObra[] = []
     for (const e of d.esquadrias) maos.push(await lerMaoDeObra(tenantId, tabela.tabelaId, e.tipologia, e.quantidade))
-    return { texto: fraseDoLevantamento(d, r, maos), desfecho: 'levantou' }
+    return rotulado({ texto: fraseDoLevantamento(d, r, maos), desfecho: 'levantou' })
 }

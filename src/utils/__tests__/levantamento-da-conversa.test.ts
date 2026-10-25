@@ -566,6 +566,24 @@ describe('(10) as abas vêm do BANCO: a Fórmulas da tipologia é a fonte, a da 
         expect(r.texto).toContain(M().fraseDaFamiliaSemFormulas('DP-02', 'EUROPA 42'))
     })
 
+    it('a tipologia com DUAS linhas no motor: recusa nomeando as duas — a família não é escolhida', async () => {
+        banco.db.orcamentista_motor_formula_familia = comoFamilia('EUROPA 42')
+        banco.db.orcamentista_motor_tipologia.push({ tabela_id: TABELA, tipologia: 'DP-02', linha: 'EUROPA 60', tempo_fabricacao_min: 150, tempo_origem: 'IMPORTADO' })
+        semDaDP02('orcamentista_motor_formula')
+        const r = await levantar()
+        expect(r.desfecho).toBe('recusou')
+        expect(r.texto).toContain(M().fraseDaFamiliaComDuasLinhas('DP-02', ['EUROPA 42', 'EUROPA 60']))
+    })
+
+    it('a família com a MESMA variável duas vezes: recusa nomeando a variável — não escolhe uma', async () => {
+        const familia = comoFamilia('EUROPA 42')
+        banco.db.orcamentista_motor_formula_familia = [...familia, comId({ ...familia[0], formula: '(L+9)' })]
+        semDaDP02('orcamentista_motor_formula')
+        const r = await levantar()
+        expect(r.desfecho).toBe('recusou')
+        expect(r.texto).toContain(M().fraseDaFamiliaComVariavelRepetida('EUROPA 42', String(familia[0].variavel)))
+    })
+
     it('sem PERFIS: recusa nomeada — sem perfil não há barra a calcular', async () => {
         semDaDP02('orcamentista_motor_perfil')
         const r = await levantar()

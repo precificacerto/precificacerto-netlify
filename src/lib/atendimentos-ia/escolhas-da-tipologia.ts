@@ -35,6 +35,9 @@
  */
 import { avaliarTexto, opcoesDaVariavel, type Tipologia } from '@/lib/atendimentos-ia/avaliador-de-formulas'
 
+/** O que as escolhas leem da tipologia: só a aba 'Variáveis'. A conversa as carrega sem as outras abas. */
+export type VariaveisDaTipologia = Pick<Tipologia, 'variaveis'>
+
 /** Decisão do dono do produto, 25/10/2026: as três que impediam a DP-02 de fechar. A ordem é a da aba. */
 export const ESCOLHAS_CAPTURADAS = ['ARI', 'ARE', 'MAE'] as const
 
@@ -54,7 +57,7 @@ function condicaoPede(condicao: string | null, escolhas: Escolhas): boolean {
 }
 
 /** As escolhas capturadas que faltam e se aplicam, na ordem da aba Variáveis. */
-export function escolhasPendentes(tipologia: Tipologia, escolhas: Escolhas): EscolhaPendente[] {
+export function escolhasPendentes(tipologia: VariaveisDaTipologia, escolhas: Escolhas): EscolhaPendente[] {
     const pendentes: EscolhaPendente[] = []
     for (const v of tipologia.variaveis) {
         if (!capturada(v.variavel) || escolhas[v.variavel] !== undefined) continue
@@ -75,7 +78,7 @@ export function perguntaDaEscolha(p: EscolhaPendente): string {
 }
 
 /** A variável capturada da tipologia, como escolha a mostrar ao vendedor; null se não existe ou não tem opções. */
-export function escolhaPedida(tipologia: Tipologia, variavel: string): EscolhaPendente | null {
+export function escolhaPedida(tipologia: VariaveisDaTipologia, variavel: string): EscolhaPendente | null {
     if (!capturada(variavel)) return null
     const v = tipologia.variaveis.find((x) => x.variavel === variavel)
     const opcoes = v ? opcoesDaVariavel(v.opcoes) : null
@@ -87,7 +90,7 @@ export function escolhaPedida(tipologia: Tipologia, variavel: string): EscolhaPe
  * As escolhas que o vendedor pode pedir, para o PROMPT — com o código e o número das opções, que a LLM
  * precisa para responder na ferramenta. Vocabulário interno: nunca vai ao vendedor.
  */
-export function escolhasParaOPrompt(tipologia: Tipologia): string[] {
+export function escolhasParaOPrompt(tipologia: VariaveisDaTipologia): string[] {
     return ESCOLHAS_CAPTURADAS.map((v) => escolhaPedida(tipologia, v)).filter((p): p is EscolhaPendente => p !== null)
         .map((p) => `${p.variavel} = ${p.descricao}: ${p.opcoes.map((o) => `${o.valor} = ${o.rotulo}`).join('; ')}`)
 }
@@ -95,7 +98,7 @@ export function escolhasParaOPrompt(tipologia: Tipologia): string[] {
 export type ResultadoDaEscolha = { gravar: Record<string, number> | null; propostos: number; descartados: number }
 
 /** Valida `{ variavel, opcao }` proposto pela LLM contra as opções da variável na tipologia. Sobrescreve. */
-export function validarEscolha(tipologia: Tipologia, escolhas: Escolhas, proposta: unknown): ResultadoDaEscolha {
+export function validarEscolha(tipologia: VariaveisDaTipologia, escolhas: Escolhas, proposta: unknown): ResultadoDaEscolha {
     if (proposta === null || proposta === undefined || typeof proposta !== 'object') return { gravar: null, propostos: 0, descartados: 0 }
     const { variavel, opcao } = proposta as { variavel?: unknown; opcao?: unknown }
     const pedida = typeof variavel === 'string' ? escolhaPedida(tipologia, variavel) : null
@@ -141,13 +144,13 @@ export function lerEscolhasDoItem(valor: unknown): Record<string, number | null>
  *
  * Null quando o Padrão da aba não é um número.
  */
-export function padraoDoArremate(tipologia: Tipologia, variavel: string): number | null {
+export function padraoDoArremate(tipologia: VariaveisDaTipologia, variavel: string): number | null {
     const p = tipologia.variaveis.find((v) => v.variavel === variavel)?.padrao?.trim() ?? ''
     return /^\d+$/.test(p) ? Number(p) : null
 }
 
 /** As escolhas que a CONTA usa: as do vendedor e, nas capturadas que ele não disse, o padrão. */
-export function escolhasComPadrao(tipologia: Tipologia, explicitas: Escolhas): Record<string, number> {
+export function escolhasComPadrao(tipologia: VariaveisDaTipologia, explicitas: Escolhas): Record<string, number> {
     const efetivas: Record<string, number> = { ...explicitas }
     for (const v of ESCOLHAS_CAPTURADAS) {
         if (efetivas[v] !== undefined) continue
@@ -163,7 +166,7 @@ export function escolhasComPadrao(tipologia: Tipologia, explicitas: Escolhas): R
  * com as escolhas efetivas (as do vendedor, e o Padrão nas outras); a que não dá para avaliar entra.
  * Null quando a tipologia não tem variável capturada.
  */
-export function descreverArremate(tipologia: Tipologia, explicitas: Escolhas): string | null {
+export function descreverArremate(tipologia: VariaveisDaTipologia, explicitas: Escolhas): string | null {
     const efetivas = escolhasComPadrao(tipologia, explicitas)
     const partes: string[] = []
     for (const v of tipologia.variaveis) {
@@ -183,7 +186,7 @@ export const temEscolhaDoVendedor = (explicitas: Escolhas) => ESCOLHAS_CAPTURADA
  * Tira o vocabulário interno de um texto que vai ao vendedor: `&MAE` e `MAE` viram a descrição da
  * variável, entre aspas ("MEDIDA ARREMATE EXTERNO"). Só códigos de variáveis DESTA tipologia.
  */
-export function traduzirVocabulario(texto: string, tipologia: Tipologia): string {
+export function traduzirVocabulario(texto: string, tipologia: VariaveisDaTipologia): string {
     let saida = texto
     for (const v of tipologia.variaveis) {
         if (!/^[A-Z]{2,5}$/.test(v.variavel) || !v.descricao) continue

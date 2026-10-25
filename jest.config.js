@@ -15,6 +15,8 @@ const customJestConfig = {
     '<rootDir>/.aios-core/',
     '<rootDir>/.cursor/',
     '<rootDir>/web-app/',
+    // módulos de dados que os testes importam — não são suítes
+    '/__tests__/fixtures/',
   ],
   testEnvironment: 'jest-environment-jsdom',
   moduleNameMapper: {
