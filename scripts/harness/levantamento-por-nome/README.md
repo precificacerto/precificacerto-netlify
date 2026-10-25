@@ -1,0 +1,25 @@
+# Harness do levantamento por nome (migração 20261025000003)
+
+Postgres local, o mesmo dos outros harness (ver `../tres-niveis/`). NÃO TOCA PRODUÇÃO.
+
+```bash
+bash scripts/harness/levantamento-por-nome/run.sh                 # aplica 2x e roda os 12 casos
+python3 -B scripts/harness/levantamento-por-nome/mutacoes.py       # as 12 mutações e o controle
+```
+
+`00_como_em_producao.sql` monta `tenants` e `orcamentista_remetente_autorizado` com as colunas e as
+constraints medidas em produção em 25/10/2026, e os DEFAULT PRIVILEGES do Supabase (sem eles o REVOKE
+passaria verde sem ter o que revogar).
+
+| caso | o que prova |
+|---|---|
+| 1–3 | no máximo UM `EM_MONTAGEM` por vendedor; COMPLETO e outro vendedor não contam |
+| 4–5 | o nome é único por VENDEDOR (decisão 2): o mesmo vendedor não repete; outro vendedor pode |
+| 6 | o estado é `EM_MONTAGEM` ou `COMPLETO` — `COMPLETA` (o da pre_definicao) é recusado |
+| 7–8 | as FKs são compostas: remetente e levantamento de outro tenant são recusados |
+| 9–10 | a ordem é única por levantamento; `escolhas` só objeto |
+| 11 | apagar o levantamento leva os itens |
+| 12 | anon e authenticated sem acesso, perguntado agindo como o papel |
+
+As V são barradas pela verificação de dentro da migração; as B desligam a verificação junto e provam
+que o caso, sozinho, também pega. Medido em 25/10/2026: 12 de 12 vermelhas, M0 verde.
