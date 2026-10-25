@@ -40,6 +40,7 @@ Todas a mesma classe: **a mesma pergunta, instrumentos sucessivos, números dife
 | 3 | o mesmo, mais a linha sem ponto | `await supabase   // comentário` — a forma sem ponto **com comentário depois** | **234** | 244 |
 | 4 | `^(\s*)await …` — só `await` NU | `const { data: x } = await supabase…` — o await **atribuído** | **0 em `agenda/index.tsx`** | 3 |
 | 5 | `IL50` e `KT16` procurados como código **só na coluna `codigo`** do motor e da tabela de preço | o código que mora na **outra coluna**, `codigo_wvetro` | **"não existem no banco"** | `IL50/WOLFF` em **180** regras, `KT16/WOLFF` em **132** |
+| 6 | **o outro lado:** `chr(195)` ("Ã") como sinal de mojibake no texto de uma migração | que "Ã" também é letra do português — **MODULAÇÃO, INSTALAÇÃO, NÃO** | **"texto corrompido"**, duas vezes, num arquivo certo | **0** corrompidos; **20** das 164 descrições corretas têm "Ã" |
 
 A quarta é a que dói. Com ela eu havia declarado um arquivo **fechado**, e o relatório dizia
 "zero escritas mudas". O número estava errado porque o padrão só via `await` no começo da linha,
@@ -83,9 +84,51 @@ banco.
 regra e as duas do item), refiz a medição que tinha dado zero. `CL-006` e `CL-011`, citados no
 mesmo levantamento, continuam com **zero** em todas — agora como fato, não como hipótese.
 
+### A sexta: o instrumento que enxerga DEMAIS
+
+Formulação do dono do produto, registrada como está:
+
+> Procurar chr(195) dá FALSO POSITIVO em texto correto — MODULAÇÃO, INSTALAÇÃO, NÃO. Eu escrevi um
+> detector assim e ele rejeitou duas vezes um arquivo que estava certo. O md5 do texto esperado é o
+> instrumento confiável; o chr(195) sozinho, não.
+
+As cinco primeiras não viam o que existia. A sexta vê o que **não existe**. O mecanismo é o mesmo
+espelhado: o padrão foi escrito à imagem do primeiro caso — o "Ã" que aparece quando "ç" ou "ã" em
+UTF-8 é lido como Latin-1 ("Ã§", "Ã£") — e ficou largo demais, porque o "Ã" sozinho também é letra
+de palavra certa. Na aparição 1 o padrão exigia o cast que o alvo não tinha; aqui o padrão aceita a
+letra que o não-alvo tem.
+
+Não é `instrumento-que-se-enxerga.md`, embora o sintoma seja o mesmo (o falso positivo): lá o
+instrumento se acha porque está **dentro** do conjunto examinado; aqui ele acha o que não procura
+porque o **padrão é largo**. Os dois remédios são diferentes, e é por isso que esta fica aqui.
+
+**A medição, em 25/10/2026, sobre as 164 descrições de `orcamentista_motor_tipologia_detalhe`,
+corretas, e sobre o mesmo texto corrompido de propósito** (UTF-8 relido como Latin-1, no banco):
+
+| detector | no texto CERTO | no texto CORROMPIDO |
+|---|---:|---:|
+| `chr(195)` sozinho | **20** — todas "MODULAÇÃO" | 130 |
+| o PAR: "Ã" seguido de um caractere de U+0080 a U+00BF | **0** | **130** — as 130 que têm acento |
+| md5 do texto esperado (o da migração) | igual | diferente |
+
+As duas fixtures foram rodadas, a do alvo presente e a do alvo ausente — que é a de
+`instrumento-que-se-enxerga.md`, e é a que faltou ao detector: rodado só sobre texto corrompido, ele
+acusava sempre, e acusar sempre parecia funcionar.
+
+**O md5 do texto esperado continua sendo o instrumento** — ele afirma a identidade, não a ausência de
+um sintoma. O par é a forma certa quando se quer só detectar corrupção sem ter o texto esperado.
+
+**De quem é.** O padrão nasceu com o assistente, na `20261024000002` (verificação 2: `strpos(rotulo,
+chr(195))`), e foi repetido por ele na `20261024000004` (#150, pendente). Nas duas ele passou porque
+os textos verificados **não tinham "Ã" maiúsculo** — verde por coincidência, a mesma forma das
+aparições 1 e 2 de `instrumento-que-se-enxerga.md`. Medido hoje: a consulta da verificação 2 da
+`000004`, rodada contra produção, volta vazia. **Está armada, não disparada**: um rótulo ou um
+COMMENT correto com "Ã" maiúsculo a faria abortar. O detector do dono do produto, para a migração da
+tabela de detalhe, é a aparição que disparou — e é ele que a nomeia.
+
 ### De quem são
 
-**As cinco são do assistente.** Está escrito assim porque suavizar apagaria o mecanismo: quem
+**As cinco primeiras são do assistente. A sexta é de um padrão que o assistente escreveu primeiro e que o detector do dono do produto também tem** — se um veio do outro, não foi medido. Está escrito assim porque suavizar apagaria o mecanismo: quem
 escreve o padrão é quem acabou de ver o exemplo, e o exemplo vira o critério sem passar por
 verificação. O dono do produto apontou a primeira ao ler o relatório; as outras três apareceram
 porque a próxima versão do instrumento foi **testada** antes de ser usada. A quinta apareceu
@@ -109,7 +152,11 @@ que estava errado. São de outra classe, e o `tsc` os pegou em segundos.
 
 A quinta não foi procurada: apareceu em 24/10/2026, noutra campanha, e entrou por instrução do
 dono do produto. Ela alarga o sinal 2 do corolário abaixo — a forma que o instrumento exige não
-é só sintática; pode ser **a coluna**. Nenhuma sexta foi forçada.
+é só sintática; pode ser **a coluna**.
+
+A sexta também não foi procurada: o dono do produto a trouxe em 25/10/2026, depois de o detector dele
+rejeitar duas vezes um arquivo certo, e mandou registrar aqui, "do outro lado". Nenhuma sétima foi
+forçada.
 
 ## O corolário aplicável ANTES do defeito existir
 
@@ -130,7 +177,9 @@ Sinais de que o número não vale ainda, em ordem de força:
    a aba em que se procura, quando o mesmo dado pode morar em mais de uma (aparição 5).
 3. A contagem vai virar **premissa de decisão** — escopo de rodada, "está fechado", ordem de
    prioridade.
-4. Nenhuma fixture foi rodada contra ele.
+4. Nenhuma fixture foi rodada contra ele — e as fixtures são DUAS: o caso que deveria aparecer, e o
+   caso certo que NÃO deveria (aparição 6). Um detector de defeito rodado só sobre o defeito acusa
+   sempre, e acusar sempre parece funcionar.
 
 Quando o 3 e o 4 coincidem, o número não vale. Construa o caso.
 
@@ -150,7 +199,7 @@ a medição derruba a hipótese de quem a formulou; aqui a medição **confirma*
 a formulou, porque o instrumento foi feito à imagem dela. `baseline-measurement.md` trata da
 medição feita na árvore errada — mesmo erro, outro eixo: lá o número está certo e a premissa
 errada, aqui a premissa está certa e o número é que não mede. `registro-de-classe.md` decidiu a
-forma desta página e o limite que manteve a tabela em cinco linhas.
+forma desta página e o limite que manteve a tabela em seis linhas.
 `a-coluna-que-parece-enumeracao.md` é onde mora o terceiro papel do `IL50` — o valor da coluna
 `cor` —, e o remédio dela é o desta página aplicado a uma coluna: liste o que existe antes de
 concluir o que não existe.
