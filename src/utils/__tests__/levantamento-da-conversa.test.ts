@@ -20,7 +20,7 @@
  *     que NÃO podem entrar em INDUSTRIALIZACAO: é o que discrimina o segmento;
  *   - os dois totais de material, a DIFERENÇA entre eles, e os dois totais com a mão de obra.
  */
-export {}
+import { abasDaDP02NoBanco } from './fixtures/abas-da-DP-02-no-banco'
 
 type Linha = Record<string, unknown>
 
@@ -79,19 +79,22 @@ const ABAS = require('@/lib/atendimentos-ia/abas-do-motor-wolff-DP-02.json')
 
 let sequencia = 0
 const comId = (l: Linha) => ({ id: `r-${String(++sequencia).padStart(6, '0')}`, ...l })
+/** As abas da DP-02 como a importação as grava — o levantamento as lê do banco, não do JSON. */
+const ABAS_NO_BANCO = () => abasDaDP02NoBanco(TABELA) as Record<string, Linha[]>
 
 function montar() {
     banco.ausentes = new Set()
     banco.db = {
         orcamentista_conta_tabela: [{ tenant_id: TENANT, tabela_id: TABELA }],
+        ...ABAS_NO_BANCO(),
         orcamentista_motor_tipologia_detalhe: [
-            { tabela_id: TABELA, tipologia: 'DP-02', descricao: 'JANELA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 42', tipo: 'Correr' },
+            ...ABAS_NO_BANCO().orcamentista_motor_tipologia_detalhe,
             { tabela_id: TABELA, tipologia: 'DP-01', descricao: 'MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL | DESIGN', tipo: 'Maxim-ar' },
         ],
         orcamentista_motor_regra: DE_PARA.regras.map((r) => comId({ ...r, tabela_id: TABELA, tipologias: ['DP-02'] })),
         orcamentista_tabela_item: DE_PARA.itens.map((i) => ({ ...i, tabela_id: TABELA })),
         orcamentista_mp_categoria: [{ tenant_id: TENANT, categoria_chave: 'PERFIL', config: { serra_mm: 5, cores: ['BRANCO'], cor_predominante: 'BRANCO' } }],
-        orcamentista_motor_tipologia: [{ tabela_id: TABELA, tipologia: 'DP-02', tempo_fabricacao_min: 150, tempo_origem: 'IMPORTADO' }],
+        orcamentista_motor_tipologia: [{ tabela_id: TABELA, tipologia: 'DP-02', linha: 'EUROPA 42', tempo_fabricacao_min: 150, tempo_origem: 'IMPORTADO' }],
         // os números do tenant ativo em produção, medidos em 25/10/2026
         tenant_settings: [{ tenant_id: TENANT, calc_type: 'INDUSTRIALIZACAO', monthly_workload: 528, workload_unit: 'HOURS', num_productive_employees: 5 }],
         tenant_expense_config: [{
@@ -488,5 +491,106 @@ describe('(9) o levantamento com N esquadrias', () => {
         // o consumo real de duas é o dobro do de uma, ao centavo: 829,79 × 2
         expect(material(uma.texto)).toBe('Perfis por consumo real: R$ 829,79.')
         expect(material(duas.texto)).toBe('Perfis por consumo real: R$ 1.659,59.')
+    })
+})
+
+describe('(10) as abas vêm do BANCO: a Fórmulas da tipologia é a fonte, a da família é fallback ROTULADO', () => {
+    const ESCOLHAS = { ARI: 4, ARE: 1, MAE: 2 }
+    const semDaDP02 = (tabela: string) => { banco.db[tabela] = banco.db[tabela].filter((l) => l.tipologia !== 'DP-02') }
+    /** As fórmulas próprias da DP-02 como linhas da família — o cálculo com elas tem de dar o mesmo número. */
+    const comoFamilia = (linha: string, tabelaId = TABELA) => banco.db.orcamentista_motor_formula
+        .filter((l) => l.tipologia === 'DP-02')
+        .map((l) => comId({ tabela_id: tabelaId, linha, linha_original: `PVC ${linha}`, variavel: l.variavel, descricao: l.descricao, formula: l.formula, formula_em_lh: null, pct_padrao: null }))
+    const levantar = async () => M().mensagemDoLevantamento(TENANT, await M().lerTabelaDaEmpresa(TENANT), lev({ escolhas: ESCOLHAS }))
+
+    it('o JSON do repositório NÃO é mais fonte: sem as abas da DP-02 no banco, a DP-02 é recusada pelo nome', async () => {
+        for (const t of ['orcamentista_motor_variavel', 'orcamentista_motor_formula', 'orcamentista_motor_perfil']) semDaDP02(t)
+        const r = await levantar()
+        expect(r.desfecho).toBe('recusou')
+        expect(r.texto).toContain(M().fraseDaTipologiaSemAbas('DP-02'))
+    })
+
+    it('a Fórmulas DO BANCO é a que calcula: HFOL alterada no banco muda o consumo real', async () => {
+        const antes = await levantar()
+        const hfol = banco.db.orcamentista_motor_formula.find((l) => l.tipologia === 'DP-02' && l.variavel === 'HFOL')
+        if (!hfol) throw new Error('o fixture não tem HFOL')
+        hfol.formula = `${String(hfol.formula)}-100`
+        const depois = await levantar()
+        const consumo = (x: string) => x.split('\n').find((l) => l.startsWith('Perfis por consumo real:'))
+        expect(antes).toEqual({ desfecho: 'levantou', texto: TEXTO_QUE_FECHA })
+        expect(depois.desfecho).toBe('levantou')
+        expect(consumo(depois.texto)).not.toBe(consumo(antes.texto))
+    })
+
+    it('SEM fórmulas próprias: as da FAMÍLIA da linha calculam, e a resposta DIZ que é a família — o número é o mesmo, o rótulo não', async () => {
+        // a família certa, e duas que NÃO podem entrar: outra linha e a mesma linha de outra tabela
+        const outraLinha = comoFamilia('EUROPA 60').map((l) => ({ ...l, formula: '(L+5000)' }))
+        const outraTabela = comoFamilia('EUROPA 42', 'tabela-de-outro-fornecedor').map((l) => ({ ...l, formula: '(L+7000)' }))
+        banco.db.orcamentista_motor_formula_familia = [...outraLinha, ...outraTabela, ...comoFamilia('EUROPA 42')]
+        semDaDP02('orcamentista_motor_formula')
+        const r = await levantar()
+        expect(r).toEqual({ desfecho: 'levantou', texto: `${TEXTO_QUE_FECHA}\n\n${M().fraseDasFormulasDaFamilia('DP-02', 'EUROPA 42')}` })
+        expect(M().fraseDasFormulasDaFamilia('DP-02', 'EUROPA 42')).toBe(
+            'Atenção: as fórmulas da DP-02 são as da FAMÍLIA EUROPA 42 (fallback) — a tipologia não tem fórmulas próprias na aba "Fórmulas" do arquivo do fornecedor.')
+    })
+
+    it('COM fórmulas próprias, a família NÃO é lida nem citada — mesmo que exista', async () => {
+        banco.db.orcamentista_motor_formula_familia = comoFamilia('EUROPA 42').map((l) => ({ ...l, formula: '(L+5000)' }))
+        const r = await levantar()
+        expect(r).toEqual({ desfecho: 'levantou', texto: TEXTO_QUE_FECHA })
+    })
+
+    it('a recusa também carrega o rótulo: o vendedor sabe que a conta recusada foi a da família', async () => {
+        banco.db.orcamentista_motor_formula_familia = comoFamilia('EUROPA 42')
+        semDaDP02('orcamentista_motor_formula')
+        banco.db.orcamentista_mp_categoria = []
+        const r = await levantar()
+        expect(r.desfecho).toBe('recusou')
+        expect(r.texto.endsWith(`\n\n${M().fraseDasFormulasDaFamilia('DP-02', 'EUROPA 42')}`)).toBe(true)
+    })
+
+    it('sem fórmulas próprias e SEM a linha da tipologia: recusa nomeada — a família não é adivinhada', async () => {
+        banco.db.orcamentista_motor_formula_familia = comoFamilia('EUROPA 42')
+        banco.db.orcamentista_motor_tipologia[0].linha = null
+        semDaDP02('orcamentista_motor_formula')
+        const r = await levantar()
+        expect(r.desfecho).toBe('recusou')
+        expect(r.texto).toContain(M().fraseDaFamiliaSemLinha('DP-02'))
+    })
+
+    it('sem fórmulas próprias e a FAMÍLIA sem fórmulas: recusa nomeando a linha', async () => {
+        banco.db.orcamentista_motor_formula_familia = comoFamilia('EUROPA 60')
+        semDaDP02('orcamentista_motor_formula')
+        const r = await levantar()
+        expect(r.desfecho).toBe('recusou')
+        expect(r.texto).toContain(M().fraseDaFamiliaSemFormulas('DP-02', 'EUROPA 42'))
+    })
+
+    it('sem PERFIS: recusa nomeada — sem perfil não há barra a calcular', async () => {
+        semDaDP02('orcamentista_motor_perfil')
+        const r = await levantar()
+        expect(r.desfecho).toBe('recusou')
+        expect(r.texto).toContain(M().fraseDaTipologiaSemPerfis('DP-02'))
+    })
+
+    it('a tabela de uma aba AINDA NÃO EXISTE no banco (a migração não foi aplicada): recusa nomeando a aba', async () => {
+        banco.ausentes.add('orcamentista_motor_perfil')
+        const r = await levantar()
+        expect(r.desfecho).toBe('recusou')
+        expect(r.texto).toContain(M().fraseDaAbaNaoCarregada('Perfis'))
+    })
+
+    it('as Variáveis da conversa vêm do banco, TODAS, página a página — e só as da tabela', async () => {
+        const muitas = Array.from({ length: 2500 }, (_, k) => comId({ tabela_id: TABELA, tipologia: `DP-${1000 + Math.floor(k / 10)}`, ordem: (k % 10) + 2, variavel: `V${k % 10}`, descricao: null, padrao: null, min_max: null, condicao: null, opcoes: null }))
+        banco.db.orcamentista_motor_variavel.push(...muitas, comId({ tabela_id: 'outra', tipologia: 'DP-02', ordem: 99, variavel: 'INTRUSA' }))
+        const v = await M().lerVariaveisDasTipologias(TABELA)
+        expect(Object.keys(v)).toHaveLength(251)
+        expect(v['DP-1249'].variaveis.map((x) => x.variavel)).toEqual(['V0', 'V1', 'V2', 'V3', 'V4', 'V5', 'V6', 'V7', 'V8', 'V9'])
+        expect(v['DP-02'].variaveis.map((x) => x.variavel)).toEqual((ABAS['Variáveis'].linhas as Linha[]).map((l) => l['Var.']))
+    })
+
+    it('as Variáveis com a tabela AUSENTE no banco: nenhuma definição, sem lançar — a conversa segue sem escolhas', async () => {
+        banco.ausentes.add('orcamentista_motor_variavel')
+        expect(await M().lerVariaveisDasTipologias(TABELA)).toEqual({})
     })
 })
