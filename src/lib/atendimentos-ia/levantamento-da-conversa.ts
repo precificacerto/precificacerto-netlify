@@ -292,30 +292,40 @@ function fraseDoAviso(a: AvisoDoAvaliador): string {
  *   - ''   — as abas existem e nenhuma escolha foi capturada: "nenhuma — todas no Padrão";
  *   - texto — as escolhas descritas (`descreverEscolhas`).
  */
-export type DadosDaEsquadria = { tipologia: string; largura_mm: number; altura_mm: number; quantidade: number; cor: string; escolhas: string | null }
-const cabecalho = (e: DadosDaEsquadria) =>
-    `${e.tipologia}, ${numeroBR(e.largura_mm, 0)} x ${numeroBR(e.altura_mm, 0)} mm, ${e.quantidade} unidade(s), perfil ${e.cor}`
-const linhaDasEscolhas = (e: DadosDaEsquadria): string[] =>
-    e.escolhas === null ? []
+export type DadosDaEsquadria = { tipologia: string; largura_mm: number; altura_mm: number; quantidade: number; escolhas: string | null }
+/** O levantamento como a mensagem o recebe: o nome que o vendedor deu, a cor, e as esquadrias na ordem. */
+export type DadosDoLevantamento = { nome: string; cor: string; esquadrias: DadosDaEsquadria[] }
+const cabecalho = (d: DadosDoLevantamento) => `levantamento “${d.nome}”, perfil ${d.cor}`
+const linhasDaEsquadria = (e: DadosDaEsquadria, k: number): string[] => [
+    `Esquadria ${k}: ${e.tipologia}, ${numeroBR(e.largura_mm, 0)} x ${numeroBR(e.altura_mm, 0)} mm, ${e.quantidade} unidade(s).`,
+    ...(e.escolhas === null ? []
         : e.escolhas === '' ? ['Escolhas: nenhuma — todas as variáveis ficaram no Padrão da tipologia.']
-            : [`Escolhas: ${e.escolhas}. As outras variáveis ficaram no Padrão da tipologia.`]
+            : [`Escolhas: ${e.escolhas}. As outras variáveis ficaram no Padrão da tipologia.`]),
+]
+const linhasDasEsquadrias = (d: DadosDoLevantamento) => d.esquadrias.flatMap((e, i) => linhasDaEsquadria(e, i + 1))
 
 /** No máximo tantas faltas listadas; o resto é contado, nunca calado. */
 const MAXIMO_DE_FALTAS = 8
 
-/** A frase da recusa: inteira, nomeada, em português. */
-export function fraseDaRecusa(e: DadosDaEsquadria, faltas: string[]): string {
+/** A frase da recusa: inteira, nomeada, em português — todas as faltas de todas as esquadrias. */
+export function fraseDaRecusa(d: DadosDoLevantamento, faltas: string[]): string {
     const listadas = faltas.slice(0, MAXIMO_DE_FALTAS).map((f) => `• ${f}`)
     const resto = faltas.length > MAXIMO_DE_FALTAS ? [`• e mais ${faltas.length - MAXIMO_DE_FALTAS} falta(s) do mesmo levantamento.`] : []
-    return [`Não consegui fechar o levantamento de ${cabecalho(e)}.`, ...linhaDasEscolhas(e), 'Falta:', ...listadas, ...resto].join('\n')
+    return [`Não consegui fechar o ${cabecalho(d)}.`, ...linhasDasEsquadrias(d), 'Falta:', ...listadas, ...resto].join('\n')
 }
+
+const linhaDaMaoDeObra = (rotulo: string, mo: MaoDeObra) => ('falta' in mo
+    ? `${rotulo}: não sai — ${mo.falta}.`
+    : `${rotulo}: ${numeroBR(mo.minutosPorUnidade, 0)} min por unidade${mo.origem ? ` (${mo.origem})` : ''} × ${mo.quantidade} unidade(s), `
+        + `a R$ ${numeroBR(mo.custoMensal / mo.minutosDaEmpresa, 6)} o minuto (${formatarReais(mo.custoMensal)} ÷ ${numeroBR(mo.minutosDaEmpresa, 0)} min): ${formatarReais(mo.total)}.`)
 
 /**
  * A frase do levantamento que fechou: barras por código, aproveitamento, os dois totais de material, a
- * diferença entre eles, a mão de obra, e os dois totais com a mão de obra. O que não sai diz o que falta.
+ * diferença entre eles, a mão de obra — uma linha por esquadria e a total, quando há mais de uma —, e
+ * os dois totais com a mão de obra. O que não sai diz o que falta. `maos` vem na ordem das esquadrias.
  */
-export function fraseDoLevantamento(e: DadosDaEsquadria, r: Extract<ResultadoDoLevantamento, { ok: true }>, mo: MaoDeObra): string {
-    const linhas = [`Levantamento de ${cabecalho(e)}.`, ...linhaDasEscolhas(e), '', 'Barras por código:']
+export function fraseDoLevantamento(d: DadosDoLevantamento, r: Extract<ResultadoDoLevantamento, { ok: true }>, maos: MaoDeObra[]): string {
+    const linhas = [`${maiuscula(cabecalho(d))}.`, ...linhasDasEsquadrias(d), '', 'Barras por código:']
     for (const c of r.por_codigo) {
         linhas.push(`• ${c.codigo} (${c.perfil}): ${c.n_barras} barra(s) de ${metros(c.comprimento_barra_mm)}`)
     }
@@ -340,73 +350,112 @@ export function fraseDoLevantamento(e: DadosDaEsquadria, r: Extract<ResultadoDoL
     linhas.push(barra === null || consumo === null
         ? `Diferença entre os dois: não sai — falta o ${barra === null ? 'total por barra inteira' : 'total por consumo real'}.`
         : `Diferença entre os dois: ${formatarReais(centavos(barra - consumo))}.`)
-    // `'falta' in mo` estreita a união: com strictNullChecks desligado, o booleano `ok` não estreita
-    const calculada = 'falta' in mo ? null : mo
-    linhas.push(calculada
-        ? `Mão de obra: ${numeroBR(calculada.minutosPorUnidade, 0)} min por unidade${calculada.origem ? ` (${calculada.origem})` : ''} × ${calculada.quantidade} unidade(s), `
-            + `a R$ ${numeroBR(calculada.custoMensal / calculada.minutosDaEmpresa, 6)} o minuto (${formatarReais(calculada.custoMensal)} ÷ ${numeroBR(calculada.minutosDaEmpresa, 0)} min): ${formatarReais(calculada.total)}.`
-        : `Mão de obra: não sai — ${'falta' in mo ? mo.falta : ''}.`)
+    // uma mão de obra ausente derruba a total: somar as que existem seria calcular com o que sobrou
+    const todasCalculadas = maos.length > 0 && maos.every((m) => !('falta' in m))
+    const maoDeObraTotal = todasCalculadas ? centavos(maos.reduce((s, m) => s + ('falta' in m ? 0 : m.total), 0)) : null
+    if (maos.length === 1) linhas.push(linhaDaMaoDeObra('Mão de obra', maos[0]))
+    else {
+        maos.forEach((m, i) => linhas.push(linhaDaMaoDeObra(`Mão de obra da esquadria ${i + 1}`, m)))
+        linhas.push(maoDeObraTotal === null ? 'Mão de obra total: não sai — falta a mão de obra de uma esquadria.' : `Mão de obra total: ${formatarReais(maoDeObraTotal)}.`)
+    }
     const comMaoDeObra = (rotulo: string, material: number | null, nomeDoMaterial: string) => {
-        if (!calculada) return `${rotulo} (material + mão de obra): não sai — falta a mão de obra.`
+        if (maoDeObraTotal === null) return `${rotulo} (material + mão de obra): não sai — falta a mão de obra.`
         if (material === null) return `${rotulo} (material + mão de obra): não sai — falta o ${nomeDoMaterial}.`
-        return `${rotulo} (material + mão de obra): ${formatarReais(centavos(material + calculada.total))}.`
+        return `${rotulo} (material + mão de obra): ${formatarReais(centavos(material + maoDeObraTotal))}.`
     }
     linhas.push('')
     linhas.push(comMaoDeObra('Total por barra inteira', barra, 'material por barra inteira'))
     linhas.push(comMaoDeObra('Total por consumo real', consumo, 'material por consumo real'))
     if (r.avisos.length) {
         linhas.push('', 'Atenção:')
-        for (const a of r.avisos) linhas.push(`• ${fraseDoAviso(a)}`)
+        for (const a of r.avisos) {
+            const k = (a as { esquadria?: unknown }).esquadria
+            linhas.push(`• ${d.esquadrias.length > 1 && typeof k === 'number' ? `Esquadria ${k}: ` : ''}${fraseDoAviso(a)}`)
+        }
     }
     return linhas.join('\n')
 }
 
-/** "Esquadria 1 (DP-02): " — numa conversa há uma esquadria só, e o vendedor sabe qual é. */
+/** "Esquadria 1 (DP-02): " — com uma esquadria só, o vendedor sabe qual é, e o prefixo sai. */
 const semPrefixoDaEsquadria = (m: string) => m.replace(/^Esquadrias? [\d, e]+(?: \([^)]*\))?: /, '')
 const maiuscula = (t: string) => t.charAt(0).toUpperCase() + t.slice(1)
 
 // ── O levantamento ──────────────────────────────────────────────────────────────────────────
 export type LevantamentoDaConversa = { texto: string; desfecho: 'levantou' | 'recusou' }
 
+/** Uma esquadria como o levantamento a guarda (`orcamentista_levantamento_item`). */
+export type EsquadriaGravada = { ordem?: unknown; tipologia: unknown; largura_mm: unknown; altura_mm: unknown; quantidade: unknown; cor_perfil: unknown; vidro: unknown; escolhas: unknown }
+
 /**
- * A mensagem do levantamento de UMA esquadria. Lança só em erro de banco — quem chama loga e não
- * manda nada técnico ao vendedor. Toda falta de DADO volta como texto de recusa, nomeada.
+ * A mensagem do levantamento, com TODAS as esquadrias dele. Lança só em erro de banco — quem chama
+ * loga e não manda nada técnico ao vendedor. Toda falta de DADO volta como texto de recusa, nomeada,
+ * e as faltas de todas as esquadrias saem de uma vez.
+ *
+ * As esquadrias de um levantamento são calculadas com UMA cor — `levantarBarras` recebe uma —; cores
+ * diferentes no mesmo levantamento são recusa nomeada, com a cor de cada uma. Nunca se escolhe uma.
  */
 export async function mensagemDoLevantamento(
     tenantId: string,
     tabela: TabelaDaEmpresa,
-    pre: { tipologia: unknown; largura_mm: unknown; altura_mm: unknown; quantidade: unknown; cor_perfil: unknown; vidro: unknown; escolhas: unknown },
+    lev: { nome: string; itens: EsquadriaGravada[] },
 ): Promise<LevantamentoDaConversa> {
-    const cor = typeof pre.cor_perfil === 'string' && pre.cor_perfil !== '' ? pre.cor_perfil : null
-    const e: DadosDaEsquadria = {
-        tipologia: String(pre.tipologia), largura_mm: Number(pre.largura_mm), altura_mm: Number(pre.altura_mm), quantidade: Number(pre.quantidade),
-        cor: cor ?? '(sem cor)', escolhas: null,
+    const corDe = (e: EsquadriaGravada) => (typeof e.cor_perfil === 'string' && e.cor_perfil !== '' ? e.cor_perfil : null)
+    const cores = [...new Set(lev.itens.map(corDe).filter((c): c is string => c !== null))]
+    const d: DadosDoLevantamento = {
+        nome: lev.nome,
+        cor: cores.length === 1 ? cores[0] : cores.length === 0 ? '(sem cor)' : '(cores diferentes)',
+        esquadrias: lev.itens.map((e) => ({
+            tipologia: String(e.tipologia), largura_mm: Number(e.largura_mm), altura_mm: Number(e.altura_mm), quantidade: Number(e.quantidade), escolhas: null as string | null,
+        })),
     }
-    const escolhas = lerEscolhasGravadas(pre.escolhas)
-    const recusa = (faltas: string[]): LevantamentoDaConversa => ({ texto: fraseDaRecusa(e, faltas), desfecho: 'recusou' })
+    const recusa = (faltas: string[]): LevantamentoDaConversa => ({ texto: fraseDaRecusa(d, faltas), desfecho: 'recusou' })
     if ('frase' in tabela) return recusa([maiuscula(tabela.frase.replace(/^Ainda não consigo escolher a tipologia: /, ''))])
-    if (cor === null) return recusa(['Falta: a cor do perfil.'])
 
-    const abas = ABAS_IMPORTADAS[tabela.tabelaId]?.[e.tipologia]
-    if (!abas) return recusa([fraseDaTipologiaSemAbas(e.tipologia)])
-    const lida = lerTipologia(abas, e.tipologia)
-    if ('recusas' in lida) return recusa(lida.recusas.map((x) => x.mensagem))
-    e.escolhas = descreverEscolhas(lida.tipologia, escolhas) ?? ''
+    const faltas: string[] = []
+    lev.itens.forEach((e, i) => { if (corDe(e) === null) faltas.push(`A esquadria ${i + 1} está sem a cor do perfil.`) })
+    if (cores.length > 1) {
+        const porEsquadria = lev.itens.map((e, i) => (corDe(e) === null ? null : `esquadria ${i + 1}: ${corDe(e)}`)).filter(Boolean).join('; ')
+        faltas.push(`As esquadrias têm cores diferentes (${porEsquadria}): ainda não calculo um levantamento com cores misturadas.`)
+    }
+
+    // as abas de cada tipologia, uma vez por tipologia; as escolhas descritas, uma vez por esquadria
+    const lidas: Record<string, Tipologia> = {}
+    for (const t of [...new Set(d.esquadrias.map((e) => e.tipologia))]) {
+        const abas = ABAS_IMPORTADAS[tabela.tabelaId]?.[t]
+        if (!abas) { faltas.push(fraseDaTipologiaSemAbas(t)); continue }
+        const lida = lerTipologia(abas, t)
+        if ('recusas' in lida) faltas.push(...lida.recusas.map((x) => x.mensagem))
+        else lidas[t] = lida.tipologia
+    }
+    const escolhas = lev.itens.map((e) => lerEscolhasGravadas(e.escolhas))
+    d.esquadrias.forEach((e, i) => { if (lidas[e.tipologia]) e.escolhas = descreverEscolhas(lidas[e.tipologia], escolhas[i]) ?? '' })
+    if (faltas.length) return recusa(faltas)
 
     const serra = await lerSerra(tenantId)
     if ('frase' in serra) return recusa([maiuscula(serra.frase)])
-    const regras = await lerRegras(tabela.tabelaId, e.tipologia)
+    // a mesma linha do motor pode servir a duas tipologias: o de-para entra uma vez só
+    const porTrio = new Map<string, RegraDoDePara>()
+    for (const t of Object.keys(lidas)) {
+        for (const g of await lerRegras(tabela.tabelaId, t)) porTrio.set(JSON.stringify([g.codigo, g.codigo_wvetro, g.cor]), g)
+    }
+    const regras = [...porTrio.values()]
     const itens = await lerItens(tabela.tabelaId, [...new Set(regras.map((r) => r.codigo))].sort())
 
     const r = levantarBarras({
-        cor,
-        esquadrias: [{ tipologia: e.tipologia, L_mm: e.largura_mm, H_mm: e.altura_mm, quantidade: e.quantidade, escolhas, espessura_vidro_mm: espessuraDoVidro(pre.vidro) }],
-        tipologias: { [e.tipologia]: lida.tipologia },
+        cor: cores[0],
+        esquadrias: d.esquadrias.map((e, i) => ({
+            tipologia: e.tipologia, L_mm: e.largura_mm, H_mm: e.altura_mm, quantidade: e.quantidade, escolhas: escolhas[i], espessura_vidro_mm: espessuraDoVidro(lev.itens[i].vidro),
+        })),
+        tipologias: lidas,
         regras,
         itens,
         serra_mm: serra.serra_mm,
     })
-    if ('recusas' in r) return recusa(r.recusas.map((x) => maiuscula(semPrefixoDaEsquadria(x.mensagem))))
-    const mo = await lerMaoDeObra(tenantId, tabela.tabelaId, e.tipologia, e.quantidade)
-    return { texto: fraseDoLevantamento(e, r, mo), desfecho: 'levantou' }
+    if ('recusas' in r) {
+        const uma = d.esquadrias.length === 1
+        return recusa(r.recusas.map((x) => maiuscula(uma ? semPrefixoDaEsquadria(x.mensagem) : x.mensagem)))
+    }
+    const maos: MaoDeObra[] = []
+    for (const e of d.esquadrias) maos.push(await lerMaoDeObra(tenantId, tabela.tabelaId, e.tipologia, e.quantidade))
+    return { texto: fraseDoLevantamento(d, r, maos), desfecho: 'levantou' }
 }

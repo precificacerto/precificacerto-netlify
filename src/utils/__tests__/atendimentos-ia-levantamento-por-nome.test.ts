@@ -151,7 +151,7 @@ jest.mock('@/supabase/admin', () => ({
                 if (faixa) linhas = linhas.slice(faixa[0], faixa[1] + 1)
                 return linhas
             }
-            const ausente = () => ({ data: null, error: { code: 'PGRST205', message: `Could not find the table 'public.${tabela}'` } })
+            const ausente = () => ({ data: null as Linha | null, error: { code: 'PGRST205', message: `Could not find the table 'public.${tabela}'` } })
             const q: Record<string, unknown> = {}
             q.select = (c?: string, o?: { count?: string }) => {
                 contar = o?.count === 'exact'
@@ -211,7 +211,7 @@ type Proposta = { nome?: string; novo?: boolean; itens?: Linha[]; escolha?: Linh
 function respostaComFerramenta(p: Proposta) {
     return {
         id: 'msg_teste', type: 'message', role: 'assistant', model: 'claude-sonnet-5-5', stop_reason: 'tool_use',
-        content: [{ type: 'tool_use', id: 'toolu_teste', name: conversa.NOME_DA_FERRAMENTA, input: { itens: [], ...p } }],
+        content: [{ type: 'tool_use', id: 'toolu_teste', name: conversa.NOME_DA_FERRAMENTA, input: { itens: [] as Linha[], ...p } }],
         usage: { input_tokens: 100, output_tokens: 50 },
     }
 }

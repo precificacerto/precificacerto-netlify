@@ -291,7 +291,8 @@ describe('(6) a RECUSA chega como texto, inteira e nomeada', () => {
             + 'Escolhas: nenhuma — todas as variáveis ficaram no Padrão da tipologia.\nFalta:\n• ')).toBe(true)
         expect(r.texto).toContain('MAE')
         expect(r.texto).toContain('MEDIDA DO VÃO')
-        expect(r.texto).not.toMatch(/Esquadrias? \d/)
+        // o cabeçalho numera a esquadria; a FALTA, com uma esquadria só, vem sem o prefixo do avaliador
+        expect(r.texto.split('Falta:\n')[1]).not.toMatch(/Esquadrias? \d/)
     })
 
     it('OUTRO DP: "a tipologia DP-01 não tem as abas do motor importadas"', async () => {
