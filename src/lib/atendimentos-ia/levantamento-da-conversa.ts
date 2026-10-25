@@ -221,7 +221,7 @@ export async function lerMaoDeObra(tenantId: string, tabelaId: string, tipologia
         monthlyWorkloadMinutes: carga.monthlyWorkloadMinutes, productWorkloadMinutes: tempo.minutos,
         structurePct: 0, taxPct: 0, commissionPct: 0, profitPct: 0,
     })
-    if (!motor.isValid) throw new Error(`calculatePricing: ${motor.errors.join('; ')}`)
+    if (!motor.isValid) throw new Error(`calculatePricing: ${motor.validationErrors.join('; ')}`)
     return {
         ok: true, minutosPorUnidade: tempo.minutos, origem: tempo.origem, quantidade,
         custoMensal, minutosDaEmpresa: carga.monthlyWorkloadMinutes,
