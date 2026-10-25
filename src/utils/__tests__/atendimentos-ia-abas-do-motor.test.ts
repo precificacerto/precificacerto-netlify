@@ -150,6 +150,12 @@ describe('(2) a leitura da planilha', () => {
         expect(erros(lerAbasDoMotor(await planilha(abas)))).toEqual(['Aba "Detalhe Tipologias", linha 2: "Alt. mín (mm)" não é número inteiro: "388,5".'])
     })
 
+    it('NÚMERO FRACIONÁRIO no Detalhe também é recusa — a coluna é integer, e o banco arredondaria ou recusaria sem dizer a linha', async () => {
+        const abas = abasDoSpec()
+        abas['Detalhe Tipologias'][1] = { ...abas['Detalhe Tipologias'][1], 7: 388.5 }
+        expect(erros(lerAbasDoMotor(await planilha(abas)))).toEqual(['Aba "Detalhe Tipologias", linha 2: "Alt. mín (mm)" não é número inteiro: 388.5.'])
+    })
+
     it('a chave natural REPETIDA é recusa nomeando o par e as duas linhas — Fórmulas, Variáveis e Otimização', async () => {
         const abas = abasDoSpec()
         abas['Fórmulas'].push({ ...abas['Fórmulas'][1] })
