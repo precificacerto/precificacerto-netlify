@@ -6,9 +6,17 @@
  *
  * O banco é FALSO e em memória, e REGISTRA cada operação — até a CRIAÇÃO de uma consulta
  * (`from`): os portões afirmam pelo que foi LIDO e GRAVADO, não pelo que a rota respondeu. Ele
- * imita as UNIQUE parciais que importam aqui: `orcamentista_mensagem (tenant_id,
- * wuzapi_mensagem_id) WHERE direcao = 'entrada'` e `orcamentista_tentativa_desconhecida
- * (tenant_id, wuzapi_mensagem_id) WHERE wuzapi_mensagem_id IS NOT NULL`.
+ * imita a UNIQUE parcial que importa aqui: `orcamentista_tentativa_desconhecida (tenant_id,
+ * wuzapi_mensagem_id) WHERE wuzapi_mensagem_id IS NOT NULL`.
+ *
+ * A CONVERSA é FALSA (`conduzirMensagem`, de `conversa-da-ia.ts`): este portão afirma QUEM a rota
+ * entrega a ela e COM O QUÊ. O que a conversa faz com a mensagem é de
+ * `atendimentos-ia-levantamento-por-nome.test.ts`.
+ *
+ * DECISÃO 4 DO DONO DO PRODUTO (25/10/2026): a entrada para de gravar o texto. Nenhuma linha nova
+ * em `orcamentista_conversa` nem em `orcamentista_mensagem` — o estado mora no levantamento. A
+ * consequência, afirmada no bloco (7): sem a linha da mensagem não há como reconhecer o reenvio do
+ * WUZAPI, e o mesmo `Info.ID` é conduzido de novo.
  *
  * O `c` da URL é `whatsapp_conexao.webhook_segredo` (hexadecimal, 32 a 64), NUNCA o
  * `wuzapi_token`: o token é a credencial do WUZAPI, e URL cai em log de acesso.
@@ -72,10 +80,6 @@ function inserir(tabela: string, carga: Linha): { data: Linha | null; error: { c
     estado.escritas.push({ tabela, op: 'insert', carga })
     if (estado.falhaNoInsert === tabela) return { data: null, error: { code: estado.codigoDaFalha, message: `falha simulada (${estado.codigoDaFalha})` } }
     const linhas = (estado.db[tabela] ??= [])
-    if (tabela === 'orcamentista_mensagem' && carga.direcao === 'entrada' && carga.wuzapi_mensagem_id != null
-        && linhas.some((l) => l.direcao === 'entrada' && l.tenant_id === carga.tenant_id && l.wuzapi_mensagem_id === carga.wuzapi_mensagem_id)) {
-        return { data: null, error: { code: '23505', message: 'duplicate key value violates unique constraint "orcamentista_mensagem_entrada_unica"' } }
-    }
     if (tabela === 'orcamentista_tentativa_desconhecida' && carga.wuzapi_mensagem_id != null
         && linhas.some((l) => l.tenant_id === carga.tenant_id && l.wuzapi_mensagem_id === carga.wuzapi_mensagem_id)) {
         return { data: null, error: { code: '23505', message: 'duplicate key value violates unique constraint "orcamentista_tentativa_desconhecida_unica"' } }
@@ -124,6 +128,12 @@ jest.mock('@/supabase/admin', () => ({
             return q
         },
     },
+}))
+
+/** Cada entrega da rota à conversa, com os argumentos como chegaram. */
+const mockConducoes: Array<Record<string, unknown>> = []
+jest.mock('@/lib/atendimentos-ia/conversa-da-ia', () => ({
+    conduzirMensagem: async (a: Record<string, unknown>) => { mockConducoes.push(a) },
 }))
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -179,6 +189,7 @@ let deLog: string[] = []
 
 beforeEach(() => {
     montar()
+    mockConducoes.length = 0
     fetchEspiao = jest.fn(async () => ({ ok: true, status: 200, json: async () => ({}) }))
     ;(globalThis as { fetch: unknown }).fetch = fetchEspiao
     erros = []
@@ -272,10 +283,15 @@ describe('(3) o portão de três fatores — a conexão decide o tenant, nunca o
         expect(estado.escritas).toEqual([])
     })
 
-    it('o tenant do CORPO é ignorado: toda escrita leva o tenant da conexão', async () => {
+    it('o tenant do CORPO é ignorado: a conversa recebe o tenant da conexão', async () => {
         const r = await chamar({ c: SEGREDO, corpo: { type: 'Message', tenant_id: OUTRO_TENANT, event: { ...evento(), tenant_id: OUTRO_TENANT } } })
         expect(r.status).toBe(200)
-        expect(estado.escritas.length).toBeGreaterThan(0)
+        expect(mockConducoes).toEqual([expect.objectContaining({ tenantId: TENANT })])
+    })
+
+    it('o tenant do CORPO é ignorado também na tentativa: ela leva o tenant da conexão', async () => {
+        await chamar({ c: SEGREDO, corpo: { type: 'Message', tenant_id: OUTRO_TENANT, event: { ...evento({ info: { SenderAlt: '5554988776655:2@s.whatsapp.net' } }), tenant_id: OUTRO_TENANT } } })
+        expect(estado.escritas.length).toBe(1)
         for (const e of estado.escritas) expect((e.carga as Linha).tenant_id).toBe(TENANT)
     })
 
@@ -296,6 +312,7 @@ describe('(4) o que se ignora: 200 e nada gravado', () => {
         const r = await chamar({ c: SEGREDO, corpo: { type: 'Message', event: ev } })
         expect(r.status).toBe(200)
         expect(estado.escritas).toEqual([])
+        expect(mockConducoes).toEqual([])
     })
 })
 
@@ -308,6 +325,7 @@ describe('(5) remetente NÃO autorizado: grava a tentativa, sem texto, e não re
         ])
         expect(linhasDe('orcamentista_mensagem')).toEqual([])
         expect(linhasDe('orcamentista_conversa')).toEqual([])
+        expect(mockConducoes).toEqual([])
         expect(fetchEspiao).not.toHaveBeenCalled()
     })
 
@@ -333,69 +351,58 @@ describe('(5) remetente NÃO autorizado: grava a tentativa, sem texto, e não re
     })
 })
 
-describe('(6) remetente autorizado: conversa e mensagem', () => {
-    it('o telefone do webhook (COM DDI) casa com o gravado na lista (SEM DDI)', async () => {
+describe('(6) remetente autorizado: a conversa é conduzida — e a entrada não grava nada', () => {
+    it('o telefone do webhook (COM DDI) casa com o gravado na lista (SEM DDI): a conversa é conduzida UMA vez', async () => {
         const r = await chamar({ c: SEGREDO })
         expect(r.status).toBe(200)
         expect(linhasDe('orcamentista_tentativa_desconhecida')).toEqual([])
+        expect(mockConducoes).toHaveLength(1)
+    })
+
+    it('a conversa recebe o tenant da conexão, o remetente autorizado, o telefone como chegou, o texto e o token da conexão', async () => {
+        await chamar({ c: SEGREDO })
+        expect(mockConducoes).toEqual([{ tenantId: TENANT, remetenteId: AUTORIZADO_ID, telefone: TELEFONE_DO_WEBHOOK, texto: TEXTO, wuzapiToken: TOKEN }])
+    })
+
+    it('decisão 4: NENHUMA escrita — nem orcamentista_conversa, nem orcamentista_mensagem', async () => {
+        await chamar({ c: SEGREDO })
+        expect(estado.escritas).toEqual([])
+        expect(linhasDe('orcamentista_conversa')).toEqual([])
+        expect(linhasDe('orcamentista_mensagem')).toEqual([])
+    })
+
+    it('decisão 4: a rota nem CONSULTA a conversa ou a mensagem — a identidade é o remetente', async () => {
+        await chamar({ c: SEGREDO })
+        expect(estado.consultas).not.toContain('orcamentista_conversa')
+        expect(estado.consultas).not.toContain('orcamentista_mensagem')
+    })
+
+    it('decisão 4: o histórico antigo (conversa e mensagens de antes) fica como estava, e não impede a resposta', async () => {
+        estado.db.orcamentista_conversa = [{ id: 'antiga', tenant_id: TENANT, remetente_id: AUTORIZADO_ID, telefone: TELEFONE_DO_WEBHOOK, criado_em: '2026-10-01T00:00:00Z' }]
+        estado.db.orcamentista_mensagem = [{ id: 'm0', tenant_id: TENANT, conversa_id: 'antiga', direcao: 'entrada', texto: 'antes', wuzapi_mensagem_id: 'X' }]
+        await chamar({ c: SEGREDO })
+        expect(mockConducoes).toHaveLength(1)
+        expect(linhasDe('orcamentista_conversa')).toHaveLength(1)
         expect(linhasDe('orcamentista_mensagem')).toHaveLength(1)
     })
 
-    it('sem conversa: cria UMA, com o telefone medido, e a mensagem de ENTRADA com o texto e o id do WhatsApp', async () => {
-        await chamar({ c: SEGREDO })
-        expect(linhasDe('orcamentista_conversa')).toEqual([
-            expect.objectContaining({ tenant_id: TENANT, remetente_id: AUTORIZADO_ID, telefone: TELEFONE_DO_WEBHOOK }),
-        ])
-        const conversa = linhasDe('orcamentista_conversa')[0]
-        expect(linhasDe('orcamentista_mensagem')).toEqual([
-            expect.objectContaining({ tenant_id: TENANT, conversa_id: conversa.id, direcao: 'entrada', texto: TEXTO, wuzapi_mensagem_id: '3EB0FC924E6F69C6AA4CBB' }),
-        ])
-        expect(fetchEspiao).not.toHaveBeenCalled()
-    })
-
-    it('reutiliza a conversa MAIS RECENTE do remetente', async () => {
-        estado.db.orcamentista_conversa = [
-            { id: 'antiga', tenant_id: TENANT, remetente_id: AUTORIZADO_ID, telefone: TELEFONE_DO_WEBHOOK, criado_em: '2026-10-01T00:00:00Z' },
-            { id: 'recente', tenant_id: TENANT, remetente_id: AUTORIZADO_ID, telefone: TELEFONE_DO_WEBHOOK, criado_em: '2026-10-20T00:00:00Z' },
-            { id: 'de-outro-tenant', tenant_id: OUTRO_TENANT, remetente_id: AUTORIZADO_ID, telefone: TELEFONE_DO_WEBHOOK, criado_em: '2026-10-21T00:00:00Z' },
-        ]
-        await chamar({ c: SEGREDO })
-        expect(linhasDe('orcamentista_conversa')).toHaveLength(3)
-        expect(linhasDe('orcamentista_mensagem')).toEqual([expect.objectContaining({ conversa_id: 'recente' })])
-    })
-
-    it('extendedTextMessage também é gravado', async () => {
+    it('extendedTextMessage também é entregue à conversa', async () => {
         await chamar({ c: SEGREDO, corpo: { type: 'Message', event: evento({ message: { extendedTextMessage: { text: 'Com link' } } }) } })
-        expect(linhasDe('orcamentista_mensagem')).toEqual([expect.objectContaining({ texto: 'Com link' })])
+        expect(mockConducoes).toEqual([expect.objectContaining({ texto: 'Com link' })])
+    })
+
+    it('a rota de entrada DECLARA o limite da função (a LLM roda dentro da requisição)', () => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        expect((require('@/pages/api/atendimentos-ia/inbound') as { config: { maxDuration: number } }).config.maxDuration).toBe(60)
     })
 })
 
-describe('(7) idempotência: o reenvio do WUZAPI não duplica', () => {
-    it('mesmo Info.ID duas vezes → UMA única linha em orcamentista_mensagem, e as duas respostas 200', async () => {
+describe('(7) a consequência da decisão 4: o reenvio do WUZAPI não é mais reconhecido', () => {
+    it('o mesmo Info.ID duas vezes: as duas respostas 200, e a conversa é conduzida DUAS vezes', async () => {
         const a = await chamar({ c: SEGREDO })
         const b = await chamar({ c: SEGREDO })
         expect([a.status, b.status]).toEqual([200, 200])
-        expect(linhasDe('orcamentista_mensagem')).toHaveLength(1)
-        expect(linhasDe('orcamentista_conversa')).toHaveLength(1)
-    })
-
-    it('Info.ID diferente → duas mensagens na MESMA conversa', async () => {
-        await chamar({ c: SEGREDO })
-        await chamar({ c: SEGREDO, corpo: { type: 'Message', event: evento({ info: { ID: 'OUTRO_ID' } }) } })
-        expect(linhasDe('orcamentista_mensagem')).toHaveLength(2)
-        expect(new Set(linhasDe('orcamentista_mensagem').map((m) => m.conversa_id)).size).toBe(1)
-    })
-
-    it('a corrida: o insert da mensagem bate na UNIQUE (23505) → 200, sem erro', async () => {
-        estado.falhaNoInsert = 'orcamentista_mensagem'
-        const r = await chamar({ c: SEGREDO })
-        expect(r.status).toBe(200)
-    })
-
-    it('o mesmo Info.ID em OUTRO tenant não conta como repetido', async () => {
-        estado.db.orcamentista_mensagem = [{ id: 'm0', tenant_id: OUTRO_TENANT, conversa_id: 'x', direcao: 'entrada', texto: 'y', wuzapi_mensagem_id: '3EB0FC924E6F69C6AA4CBB' }]
-        await chamar({ c: SEGREDO })
-        expect(linhasDe('orcamentista_mensagem').filter((m) => m.tenant_id === TENANT)).toHaveLength(1)
+        expect(mockConducoes).toHaveLength(2)
     })
 })
 
@@ -452,10 +459,10 @@ describe('(9) o c é o webhook_segredo — o wuzapi_token NUNCA abre a porta', (
         expect(estado.escritas).toEqual([])
     })
 
-    it('o segredo certo abre: a mensagem é gravada com o tenant da conexão', async () => {
+    it('o segredo certo abre: a conversa é conduzida com o tenant da conexão', async () => {
         const r = await chamar({ c: SEGREDO })
         expect(r.status).toBe(200)
-        expect(linhasDe('orcamentista_mensagem')).toEqual([expect.objectContaining({ tenant_id: TENANT })])
+        expect(mockConducoes).toEqual([expect.objectContaining({ tenantId: TENANT })])
     })
 
     it.each([
@@ -489,7 +496,7 @@ describe('(9) o c é o webhook_segredo — o wuzapi_token NUNCA abre a porta', (
         expect(estado.db.whatsapp_conexao[0].ativo).toBe(false)
         const r = await chamar({ c: SEGREDO })
         expect(r.status).toBe(200)
-        expect(linhasDe('orcamentista_mensagem')).toHaveLength(1)
+        expect(mockConducoes).toHaveLength(1)
     })
 })
 
@@ -538,8 +545,8 @@ describe('(11) o celular sem o nono dígito: a comparação é pela forma NORMAL
         estado.db.orcamentista_remetente_autorizado = telefones.map((telefone, i) => ({ id: `aut-${i}`, tenant_id: TENANT, telefone, ativo: true }))
     }
     const doWebhook = (numero: string) => ({ type: 'Message', event: evento({ info: { SenderAlt: `${numero}:33@s.whatsapp.net` } }) })
-    const autorizou = () => linhasDe('orcamentista_mensagem').length === 1 && linhasDe('orcamentista_tentativa_desconhecida').length === 0
-    const recusou = () => linhasDe('orcamentista_mensagem').length === 0 && linhasDe('orcamentista_tentativa_desconhecida').length === 1
+    const autorizou = () => mockConducoes.length === 1 && linhasDe('orcamentista_tentativa_desconhecida').length === 0
+    const recusou = () => mockConducoes.length === 0 && linhasDe('orcamentista_tentativa_desconhecida').length === 1
 
     describe('AUTORIZADO, com os valores medidos', () => {
         it('cadastro "51999114290" (11) e webhook "555199114290" (12, SEM o nono)', async () => {
@@ -588,7 +595,6 @@ describe('(11) o celular sem o nono dígito: a comparação é pela forma NORMAL
             const r = await chamar({ c: SEGREDO, corpo: doWebhook('555199114290') })
             expect(r.status).toBe(200)
             expect(recusou()).toBe(true)
-            expect(linhasDe('orcamentista_conversa')).toEqual([])
             const linha = erros.find((l) => l.startsWith('[INBOUND]') && /ambiguidade/.test(l))
             expect(linha).toEqual(expect.stringContaining('autorizado=nao'))
             for (const t of ['555199114290', '51999114290', '5199114290']) expect(erros.join('\n')).not.toContain(t)
@@ -599,16 +605,15 @@ describe('(11) o celular sem o nono dígito: a comparação é pela forma NORMAL
             estado.db.orcamentista_remetente_autorizado[1].ativo = false
             await chamar({ c: SEGREDO, corpo: doWebhook('555199114290') })
             expect(autorizou()).toBe(true)
-            expect(linhasDe('orcamentista_mensagem')).toHaveLength(1)
-            expect(linhasDe('orcamentista_conversa')).toEqual([expect.objectContaining({ remetente_id: 'aut-0' })])
+            expect(mockConducoes).toEqual([expect.objectContaining({ remetenteId: 'aut-0' })])
         })
     })
 
     describe('o número é guardado COMO CHEGOU, não o normalizado', () => {
-        it('a conversa guarda "555199114290", não "51999114290"', async () => {
+        it('a conversa recebe "555199114290", não "51999114290" — é para ele que a resposta volta', async () => {
             comCadastro('51999114290')
             await chamar({ c: SEGREDO, corpo: doWebhook('555199114290') })
-            expect(linhasDe('orcamentista_conversa')).toEqual([expect.objectContaining({ telefone: '555199114290' })])
+            expect(mockConducoes).toEqual([expect.objectContaining({ telefone: '555199114290' })])
         })
 
         it('a tentativa guarda "555199114290", não "51999114290"', async () => {

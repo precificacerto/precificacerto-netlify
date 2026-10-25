@@ -4,7 +4,8 @@ HARNESS das ESCOLHAS NA CONVERSA — as MUTAÇÕES. NÃO TOCA PRODUÇÃO nem ban
 
 Cada mutação estraga UMA regra em `escolhas-da-tipologia.ts`, `conversa-da-ia.ts` ou
 `levantamento-da-conversa.ts` e roda os três portões — `escolhas-da-tipologia.test.ts`,
-`levantamento-da-conversa.test.ts` e `atendimentos-ia-conversa-da-ia.test.ts`. A mutação tem de
+`levantamento-da-conversa.test.ts`, `levantamento-em-montagem.test.ts` e
+`atendimentos-ia-levantamento-por-nome.test.ts` (desde o levantamento por nome, 25/10/2026). A mutação tem de
 DERRUBAR pelo menos um caso, e o caso exigido (5º elemento) tem de aparecer na saída da falha
 (`teste-que-nao-exercita.md`).
 
@@ -23,7 +24,8 @@ os.chdir(RAIZ)
 ES = 'src/lib/atendimentos-ia/escolhas-da-tipologia.ts'
 CV = 'src/lib/atendimentos-ia/conversa-da-ia.ts'
 LC = 'src/lib/atendimentos-ia/levantamento-da-conversa.ts'
-T = ['src/utils/__tests__/escolhas-da-tipologia.test.ts', 'src/utils/__tests__/levantamento-da-conversa.test.ts', 'src/utils/__tests__/atendimentos-ia-conversa-da-ia.test.ts']
+LM = 'src/lib/atendimentos-ia/levantamento-em-montagem.ts'
+T = ['src/utils/__tests__/escolhas-da-tipologia.test.ts', 'src/utils/__tests__/levantamento-da-conversa.test.ts', 'src/utils/__tests__/levantamento-em-montagem.test.ts', 'src/utils/__tests__/atendimentos-ia-levantamento-por-nome.test.ts']
 CONTROLE = 'E0'
 
 M = [
@@ -35,14 +37,15 @@ M = [
  ('E6', 'a escolha feita é sobrescrita', ES, [("const pendente = escolhasPendentes(tipologia, escolhas).find", "const pendente = escolhasPendentes(tipologia, {}).find")], 'não sobrescreve'),
  ('E7', 'o jsonb vira escolha com qualquer chave', ES, [("if (capturada(k) && typeof v === 'number'", "if (typeof v === 'number'")], 'não vira escolha'),
  ('E8', 'a pergunta sai sem as opções', ES, [("return `${p.descricao} — qual opção? ${p.opcoes.map((o) => `${o.valor} = ${o.rotulo}`).join('; ')}.`", "return `${p.descricao} — qual opção?`")], 'a pergunta da ARI, inteira'),
- ('E9', 'fecha com escolha pendente', CV, [("const fecha = proximo === null && pendentes.length === 0", "const fecha = proximo === null")], 'NÃO fecha'),
- ('E10', 'as pendentes não vão ao prompt', CV, [("...(pendentes.length ? pendentes.map((p) => `${p.variavel}: ${perguntaDaEscolha(p)}`) : ['(nenhuma)']),", "'(nenhuma)',")], 'vão ao prompt'),
+ ('E9', 'completa com escolha pendente', LM, [("        if (pendente) return { tipo: 'ESCOLHA', ordem: item.ordem, pendente }\n", "")], 'escolhas uma a uma'),
+ ('E10', 'a pergunta em aberto não vai ao prompt', CV, [("...(c.perguntaEmAberto ? [`Pergunta em aberto: ${c.perguntaEmAberto}`] : []),", "...([] as string[]),")], 'a pergunta em aberto no prompt'),
  ('E11', 'o prompt não proíbe escolher sozinho', CV, [("NUNCA escolha sozinho, nem pelo Padrão", "Escolha a mais comum")], 'vão ao prompt'),
- ('E12', 'a escolha válida não é gravada', CV, [("...(escolha.gravar ? { escolhas: escolha.gravar } : {}), ", "")], 'GRAVADA em escolhas'),
- ('E13', 'a coluna escolhas não é lida', CV, [("${CAMPOS_DA_PRE_DEFINICAO.join(', ')}, escolhas`", "${CAMPOS_DA_PRE_DEFINICAO.join(', ')}`")], 'CHEGAM AO AVALIADOR'),
- ('E14', 'as escolhas não seguem para o levantamento', CV, [("vidro: gravada.vidro, escolhas: gravada.escolhas,", "vidro: gravada.vidro, escolhas: null,")], 'CHEGAM AO AVALIADOR'),
- ('E15', 'o levantamento ignora as escolhas gravadas', LC, [("    const escolhas = lerEscolhasGravadas(pre.escolhas)\n", "    const escolhas = lerEscolhasGravadas(null)\n")], 'a DP-02 FECHA'),
- ('E16', 'a linha das escolhas some do texto', LC, [("            : [`Escolhas: ${e.escolhas}. As outras variáveis ficaram no Padrão da tipologia.`]", "            : []")], 'com as escolhas'),
+ ('E12', 'a escolha válida não é gravada', LM, [("            if (r.gravar) alvo.escolhas = r.gravar\n", "")], '"4" para a ARI'),
+ ('E13', 'a coluna escolhas não é lida', CV, [("const COLUNAS_DO_ITEM = `id, ordem, ${CAMPOS_DA_ESQUADRIA.join(', ')}, escolhas`", "const COLUNAS_DO_ITEM = `id, ordem, ${CAMPOS_DA_ESQUADRIA.join(', ')}`")], 'escolhas uma a uma'),
+ ('E14', 'as escolhas não seguem para o avaliador', LC, [("escolhas: escolhas[i], espessura_vidro_mm:", "escolhas: {}, espessura_vidro_mm:")], 'a DP-02 FECHA'),
+ ('E15', 'o levantamento ignora as escolhas gravadas', LC, [("    const escolhas = lev.itens.map((e) => lerEscolhasGravadas(e.escolhas))\n", "    const escolhas = lev.itens.map(() => lerEscolhasGravadas(null))\n")], 'a DP-02 FECHA'),
+ ('E16', 'a linha das escolhas some do texto', LC, [("            : [`Escolhas: ${e.escolhas}. As outras variáveis ficaram no Padrão da tipologia.`]),", "            : []),")], 'com as escolhas'),
+ ('E17', 'trocar a tipologia não apaga as escolhas', LM, [("        if (validos.tipologia !== undefined && validos.tipologia !== alvo.tipologia) alvo.escolhas = null\n", "")], 'trocar a TIPOLOGIA'),
  ('E0', 'controle: nada muda', ES, [("export", "export")]),
 ]
 
