@@ -42,7 +42,7 @@
  *     sistema do cliente; o caso 10 dele prova justamente que ela não foi tocada. Renomear ali é
  *     mexer no mundo do cliente.
  *   - `supabase/migrations/`: as migrações já aplicadas só se editam com o protocolo de hash
- *     (`transformacao-quebra-a-cadeia-de-hash.md`), e o que elas dizem com a palavra é sobre o
+ *     (`migracao.md` (Parte III)), e o que elas dizem com a palavra é sobre o
  *     banco do cliente (`tenants.segment`, `calc_type`). Não vale o risco.
  *   - este próprio arquivo: ele cita a palavra para proibi-la.
  *

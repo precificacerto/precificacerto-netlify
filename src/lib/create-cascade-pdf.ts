@@ -148,7 +148,7 @@ function drawHeader(doc: jsPDF, meta: CascadePdfMeta): number {
  *
  * É o PDF do botão da decomposição. A Memória Cascata de 17 etapas NÃO entra: ela saiu da
  * tela, e mantê-la no papel devolveria as duas apresentações da mesma conta por outro
- * caminho — `.claude/rules/copia-divergente.md`.
+ * caminho — `docs/regras/copia-divergente.md`.
  */
 export function buildDecompositionDoc(meta: CascadePdfMeta): jsPDF {
   const doc = new jsPDF()

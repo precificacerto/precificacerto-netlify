@@ -470,10 +470,10 @@ export function computeResidualDistribution(
   // E é exatamente a classe que os cards existem para não ter: o card é a representação do
   // RRO da decomposição logo abaixo, e a Etapa 16 é a fonte dos dois. Quando o card vem da
   // proporção e a cascata vem da Etapa 16, são DUAS CONTAS do mesmo número — um dia
-  // divergem e ninguém sabe qual está certa (`.claude/rules/copia-divergente.md`).
+  // divergem e ninguém sabe qual está certa (`docs/regras/copia-divergente.md`).
   //
   // O fallback CONTINUA existindo: sem ele o item legado exibiria zero, e zero afirma que
-  // não há comissão (`.claude/rules/ausente-vs-falso.md`). O que muda é que ele deixa de ser
+  // não há comissão (`docs/regras/ausente-vs-falso.md`). O que muda é que ele deixa de ser
   // SILENCIOSO.
   const requiresReview =
     (itemsWithoutSource > 0 && itemsWithoutSource === items.length) ||

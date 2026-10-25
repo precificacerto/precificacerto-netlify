@@ -238,7 +238,7 @@ describe('TODOS os gravadores passam pelo construtor único', () => {
 
     it('o enriquecimento vem do módulo único, não remontado na tela', () => {
         // Eram QUATRO cópias — 1 em orçamentos, 3 em vendas — e as de venda eram as
-        // empobrecidas. Ver `.claude/rules/copia-divergente.md`.
+        // empobrecidas. Ver `docs/regras/copia-divergente.md`.
         for (const arquivo of ['pages/orcamentos/index.tsx', 'pages/vendas/index.tsx']) {
             const conteudo = read(arquivo)
             expect(conteudo).toContain('enrichItemsForMotor(')

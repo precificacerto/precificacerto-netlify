@@ -178,7 +178,7 @@ const CATEGORY_ORDER_MAP: Record<string, number> = Object.fromEntries(
 
 // Ordem e labels dos grupos exibidos no Hub — DERIVADOS de `expense-groups.ts`, a fonte única.
 // Esta lista era uma das CINCO cópias divergentes, e era a única que tinha `DEDUCAO_RECEITA` e
-// `OUTROS`. `.claude/rules/copia-divergente.md`.
+// `OUTROS`. `docs/regras/copia-divergente.md`.
 const HUB_GROUPS = HUB_GROUPS_FONTE
 
 /**

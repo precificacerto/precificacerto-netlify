@@ -2,7 +2,7 @@
 
 Três achados do levantamento de 09/09/2026 que **não foram corrigidos** na rodada que criou
 `Devoluções` e `Amortização`. Ficam aqui porque corpo de PR mergeado fica soterrado
-(`.claude/rules/registro-de-classe.md`).
+(`docs/regras/registro-de-classe.md`).
 
 ## (a) O `case 'LUCRO'` descarta R$ 125.318,22 da Análise Financeira
 
@@ -36,7 +36,7 @@ O botão criado agora chama **`/api/delete/sales-permanent`** → `delete_sale_c
 
 Chamar isso de "reversão do #52" mandaria a próxima pessoa procurar o
 `handleDeleteFromPaymentModal`, que **não voltou** e não vai voltar. A decisão da época — a
-exclusão de venda existir só em Vendas — mudou, e é `.claude/rules/decisao-sob-regra-da-epoca.md`:
+exclusão de venda existir só em Vendas — mudou, e é `docs/regras/decisao-sob-regra-da-epoca.md`:
 não houve erro no #52, houve **mudança de critério**.
 
 O botão aparece **só quando `origin_type = 'SALE'`**: em lançamento manual não há venda a

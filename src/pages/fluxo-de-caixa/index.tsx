@@ -824,7 +824,7 @@ export default function CashFlow() {
      * NÃO É ROTA NOVA: é a MESMA `/api/delete/sales-permanent` da tela de Vendas, com a mesma
      * `delete_sale_cascade`, a mesma pré-condição de parcela paga e o mesmo efeito em cadeia.
      * A ação é uma só, acessível de dois pontos — e é por isso que ela chama a rota existente
-     * em vez de ganhar uma cópia. `.claude/rules/copia-divergente.md`.
+     * em vez de ganhar uma cópia. `docs/regras/copia-divergente.md`.
      *
      * ISTO NÃO É "REVERTER O #52". O botão que aquele PR removeu daqui chamava
      * `/api/delete/cash-entries` e apagava O LANÇAMENTO; este chama `delete_sale_cascade` e
@@ -3280,7 +3280,7 @@ export default function CashFlow() {
                             {/* EXCLUIR A VENDA — só quando o lançamento VEIO de uma venda.
                                 Em lançamento MANUAL não há venda a excluir, e um botão que não
                                 tem o que fazer é pior que botão ausente: ele afirma que a ação
-                                existe ali. `.claude/rules/ausente-vs-falso.md`.
+                                existe ali. `docs/regras/ausente-vs-falso.md`.
                                 O Popconfirm é o mesmo nos dois tamanhos de tela — esta página
                                 não tem cartão mobile, então a assimetria que o #56 achou em
                                 Clientes não se aplica aqui; há um ponto só, e ele pergunta. */}

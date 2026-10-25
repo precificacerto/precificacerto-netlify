@@ -33,7 +33,7 @@ com **2** se um arquivo-alvo não voltar byte a byte ao que era.
 
 Uma mutação que quebra a sintaxe faz o jest sair com erro, e `Tests:` não registra falha nenhuma —
 a suíte que não carrega tem zero casos. Contá-la como vermelha seria dizer que um caso derrubou a
-regra quando nenhum caso rodou. É a aparição 6 de `.claude/rules/portao-que-nao-alcanca.md`: o
+regra quando nenhum caso rodou. É a aparição 6 de `docs/regras/portao-que-nao-alcanca.md`: o
 indicador (`exit ≠ 0`) não distingue os dois estados. A primeira versão desta bateria, no
 scratchpad, tinha esse furo; foi corrigido ao versionar. Nenhuma das 49 dependia dele: as 49
 derrubaram caso.

@@ -182,7 +182,7 @@ describe('4. A TELA consome a view, e o orçamento passa a decomposição', () =
     // A busca é NO CORPO DO EXPANDER, e não no arquivo: `applyTotalACobrarToStep11` também
     // faz `trace.map((step)` e é outra função, legítima. Uma asserção sobre o arquivo
     // inteiro passaria verde com a iteração antiga de volta — variante 2 de
-    // `.claude/rules/teste-que-nao-exercita.md`, e a terceira vez que ela me pega.
+    // `docs/regras/teste-que-nao-exercita.md`, e a terceira vez que ela me pega.
     const expander = bloco.slice(bloco.indexOf('function CascadeExpander('))
     expect(expander).not.toContain('trace.map((step)')
     expect(expander).not.toContain('step.children?.map(')

@@ -41,7 +41,7 @@ interface CardConfig {
  * Ela nomeia a BASE dos percentuais efetivos, e é por isso que ela é substituível: quando o
  * caller passa a distribuição já lida da DECOMPOSIÇÃO, a base deixa de ser a Âncora Gerencial
  * e passa a ser a receita de produtos. Um texto fixo afirmaria uma base que o número não usou
- * — `.claude/rules/ausente-vs-falso.md` na legenda.
+ * — `docs/regras/ausente-vs-falso.md` na legenda.
  */
 export const NOTA_DA_ETAPA_16 =
   'Percentuais efetivos calculados sobre a Operação Interna pós-desconto (Âncora Gerencial) — a base própria de comissão e lucro; a Operação Externa (tributos por fora) não entra no denominador. Custos, despesas e impostos por dentro são preservados; comissão e lucro são proporcionalmente redistribuídos sobre o Resultado Residual Operacional.'

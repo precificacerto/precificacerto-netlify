@@ -681,7 +681,7 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
   // A base congelada é a receita de produtos SEM DESCONTO, que é o `totalProduto` de cada
   // item: com `discountPct = 0`, `receitaProdutosPorItem[k]` É `items[k].totalProduto`, e é
   // por isso que os dois caminhos coincidem ali — e por isso um teste sem desconto NÃO
-  // DISTINGUE congelar de recalcular (`.claude/rules/teste-que-nao-exercita.md`, variante 2).
+  // DISTINGUE congelar de recalcular (`docs/regras/teste-que-nao-exercita.md`, variante 2).
   // ───────────────────────────────────────────────────────────────────────────────────────
   /**
    * A BASE DAS CATEGORIAS DA OPERAÇÃO INTERNA — e ela depende de como a construção cadastrou
@@ -860,7 +860,7 @@ export function buildDecomposition(input: DecompositionInput): DecompositionResu
    *
    * `perItem` VAZIO, e não um array de zeros: zero afirmaria que aquele produto recebeu R$
    * 0,00 de desconto, quando o desconto é do documento e não tem repartição por item. A tela
-   * exibe travessão — `.claude/rules/ausente-vs-falso.md`.
+   * exibe travessão — `docs/regras/ausente-vs-falso.md`.
    *
    * E é o que faz o invariante "total = soma das colunas" valer para TODA linha que tem
    * coluna: com zeros, essas três quebravam a igualdade e obrigariam o teste a abrir exceção

@@ -368,7 +368,7 @@ export const Content: FC<ContentProps> = ({
 
   // R3 — CÓDIGO DE BASE por tributo por fora (7.5, item 6: derivado do contexto da venda,
   // COM OVERRIDE MANUAL). `null` é NÃO CLASSIFICADO e cai no padrão (IPI e IS no 1, IBS e
-  // CBS no 4); jamais o código 1 por omissão — `.claude/rules/ausente-vs-falso.md`.
+  // CBS no 4); jamais o código 1 por omissão — `docs/regras/ausente-vs-falso.md`.
   //
   // O produto legado não tem as colunas, então chega `undefined` e vira `null`. Enquanto a
   // migração `20260915000003` não estiver aplicada, TODO produto está neste estado, e o
@@ -504,7 +504,7 @@ export const Content: FC<ContentProps> = ({
    * Começa com o que já está gravado no produto, e não com `null`: o `ProductPrice` só emite
    * quando o preço sai positivo, e um save feito sem novo cálculo não pode APAGAR o
    * coeficiente de uma construção anterior. `null` aqui significa "nunca apurado", que é o
-   * estado de todo produto anterior a esta coluna — `.claude/rules/ausente-vs-falso.md`.
+   * estado de todo produto anterior a esta coluna — `docs/regras/ausente-vs-falso.md`.
    */
   const externalOpsCoefficientRef = useRef<number | null>(
     (product as any)?.external_ops_coefficient != null ? Number((product as any).external_ops_coefficient) : null
@@ -515,7 +515,7 @@ export const Content: FC<ContentProps> = ({
    *
    * Os três `<Content*>` recebiam o MESMO literal escrito à mão, e o campo que precisava
    * entrar agora é exatamente o tipo de campo que entra em duas cópias e esquece a terceira
-   * — `.claude/rules/copia-divergente.md`. O teste `congelar-o-coeficiente-por-fora` afirma
+   * — `docs/regras/copia-divergente.md`. O teste `congelar-o-coeficiente-por-fora` afirma
    * que existe um só.
    */
   const handleFinalPriceWithTaxes = useCallback(
@@ -1371,7 +1371,7 @@ export const Content: FC<ContentProps> = ({
         extraFields.is_base_code = isBaseCode
         extraFields.ipi_base_code = ipiBaseCode
         // R3 — o `c` desta construção, CONGELADO com o preço. É FATO HISTÓRICO, não
-        // referência viva (`.claude/rules/fato-vs-referencia.md`): decompor um preço antigo
+        // referência viva (`docs/regras/fato-vs-referencia.md`): decompor um preço antigo
         // com o `c` de hoje reescreve o passado, e o `c` muda toda vez que alguém edita
         // IBS, CBS, IS, IPI ou o fator de redução. A coluna existia desde a migração
         // `20260915000003` e NADA a gravava — inclusive em produtos cujo preço já tinha sido

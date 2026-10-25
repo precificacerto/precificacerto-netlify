@@ -135,11 +135,11 @@ lado da entrada continuaria inteiro de qualquer jeito.
 
 ## Relação com as regras
 
-`.claude/rules/portao-que-nao-alcanca.md` é o que (iii) arrisca e o que o `default` do
-`switch` já é. `.claude/rules/ausente-vs-falso.md` decide por que a sugestão não aparece
+`docs/regras/portao-que-nao-alcanca.md` é o que (iii) arrisca e o que o `default` do
+`switch` já é. `docs/regras/ausente-vs-falso.md` decide por que a sugestão não aparece
 quando a consulta falha, em vez de aparecer dizendo que não há repasse.
 `.claude/rules/cascata-lucro-real.md` R13 é o que define repasse do lado do documento — esta
-página é o mesmo conceito do lado do caixa. `.claude/rules/registro-de-classe.md` diz onde
+página é o mesmo conceito do lado do caixa. `docs/regras/registro-de-classe.md` diz onde
 isto mora e por que não é uma página de `.claude/rules/`: não há classe, há uma decisão com
 custo.
 

@@ -295,7 +295,7 @@ function Schedule() {
             // Antes de a migração ser aplicada as três tabelas não existem, e o PostgREST
             // devolve erro. Silenciar AQUI é deliberado: a Agenda não pode parar de abrir por
             // causa de uma configuração opcional que ainda não tem schema.
-            // `migration-delivery.md`: migração mergeada NÃO está aplicada.
+            // `migracao.md` (Parte II): migração mergeada NÃO está aplicada.
         }
     }, [tenantFazAgendamento])
 

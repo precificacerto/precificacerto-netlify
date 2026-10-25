@@ -2,7 +2,7 @@
  * snapshot-cobertura-por-item.test.ts — o gravador cobria MENOS campos que a rota de runtime.
  *
  * A VERIFICAÇÃO que originou este arquivo é o "como reconhecer" de
- * `.claude/rules/construtor-empobrecido.md`: enumerar quem produz o mesmo tipo e comparar a
+ * `docs/regras/construtor-empobrecido.md`: enumerar quem produz o mesmo tipo e comparar a
  * cobertura de campos. Comparados `buildMotorInput` (runtime) e `hydrateItemSnapshot`
  * (gravador) campo a campo de `ReapurationInput`, faltavam QUATRO:
  *

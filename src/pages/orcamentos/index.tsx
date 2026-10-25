@@ -811,7 +811,7 @@ function Budgets() {
     // QUATRO cópias deste bloco — uma aqui e três em `vendas/index.tsx` — e elas já tinham
     // divergido: as de venda não recompunham custo/MO/despesa, não marcavam `is_manual_cost`
     // e duas nem resolviam o RT. Com um construtor só, acrescentar um campo vale para as
-    // quatro rotas. Ver `.claude/rules/copia-divergente.md`.
+    // quatro rotas. Ver `docs/regras/copia-divergente.md`.
     //
     // >>> E ELE É A ENTRADA DOS DOIS CONSUMIDORES, NÃO SÓ DO MOTOR <<<
     // A decomposição lia `budgetItems` CRU. O custo de um item não está gravado — não existe
@@ -1619,7 +1619,7 @@ function Budgets() {
                 // R11/R21 — acréscimos COTADOS NO DOCUMENTO, mais o MONTANTE A CARREGAR que o
                 // rateio usou. Só vão quando o usuário de fato cotou: sem isso, todo orçamento
                 // gravaria `0`, e `0` afirma "cotei e não há frete", que é diferente de "não
-                // cotei" (`.claude/rules/ausente-vs-falso.md`). A base é o que torna o rateio
+                // cotei" (`docs/regras/ausente-vs-falso.md`). A base é o que torna o rateio
                 // VERIFICÁVEL na travessia — sem ela o pedido nasce `INDETERMINADO`.
                 ...buildDocumentAccessoriesPayload(accessoriesSource, accessoriesAllocation),
                 // ESPEC VII.2 — O RASTRO DA AUTORIZAÇÃO. Vai só quando houve autorização;
@@ -1838,7 +1838,7 @@ function Budgets() {
                 // R11/R21 — acréscimos COTADOS NO DOCUMENTO, mais o MONTANTE A CARREGAR que o
                 // rateio usou. Só vão quando o usuário de fato cotou: sem isso, todo orçamento
                 // gravaria `0`, e `0` afirma "cotei e não há frete", que é diferente de "não
-                // cotei" (`.claude/rules/ausente-vs-falso.md`). A base é o que torna o rateio
+                // cotei" (`docs/regras/ausente-vs-falso.md`). A base é o que torna o rateio
                 // VERIFICÁVEL na travessia — sem ela o pedido nasce `INDETERMINADO`.
                 ...buildDocumentAccessoriesPayload(accessoriesSource, accessoriesAllocation),
                 // ESPEC VII.2 — O RASTRO DA AUTORIZAÇÃO. Vai só quando houve autorização;

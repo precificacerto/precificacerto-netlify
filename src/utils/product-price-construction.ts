@@ -16,7 +16,7 @@
  *
  * O módulo é PURO e vive fora do componente de propósito: é aqui que o teste consegue
  * afirmar EFEITO (o número que muda) em vez de passagem
- * (`.claude/rules/teste-que-nao-exercita.md`).
+ * (`docs/regras/teste-que-nao-exercita.md`).
  */
 
 import { calculatePricing, type CalcType, type ResolvedTaxBreakdown } from './pricing-engine'
@@ -271,7 +271,7 @@ export function buildProductConstruction(
  *
  * `0` e `null` NÃO são a mesma coisa: `0` é "a matriz governou e não há tributo por fora",
  * apurado; `null` é "não há regra escrita para este regime", não apurado
- * (`.claude/rules/ausente-vs-falso.md`). A coluna é nulável e sem default exatamente para
+ * (`docs/regras/ausente-vs-falso.md`). A coluna é nulável e sem default exatamente para
  * que a distinção sobreviva à gravação.
  */
 export function externalOpsCoefficientToFreeze(

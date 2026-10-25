@@ -13,7 +13,7 @@
  *
  * Por que um arquivo e não um conjunto de números esperados: números copiados para dentro do
  * teste são escritos POR QUEM ACABOU DE FAZER A MUDANÇA, e é a pessoa com menos condições de
- * notar que copiou o valor novo (`.claude/rules/teste-que-nao-exercita.md`). O motor antigo
+ * notar que copiou o valor novo (`docs/regras/teste-que-nao-exercita.md`). O motor antigo
  * inteiro não tem esse problema — ele foi escrito antes de a mudança existir.
  *
  * >>> POR QUE ESTA PASTA FICA FORA DE `__tests__/` <<<

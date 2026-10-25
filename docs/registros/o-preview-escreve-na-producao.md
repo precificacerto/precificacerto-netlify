@@ -54,7 +54,7 @@ deixar na produção**, e meça o banco antes e depois.
 ## Relação com as outras regras
 
 `estado-relatado-vs-real.md` é a razão de a medição ter sido feita na API em vez de suposta, e o
-limite dela (vale na data). `migration-delivery.md` é a vizinha do outro lado: lá o repositório e
+limite dela (vale na data). `migracao.md` (Parte II) é a vizinha do outro lado: lá o repositório e
 o banco não estão ligados; aqui o preview e a produção estão ligados demais.
 `o-caminho-de-exclusao-nao-foi-exercitado.md` é a primeira consequência registrada desta
 configuração.

@@ -354,7 +354,7 @@ function CascadeViewLine({ row, colunas }: { row: CascadeViewRow; colunas: numbe
       </div>
       {/* Uma coluna POR PRODUTO. A etapa da construção não tem abertura por item — o
           `cascade_trace` é consolidado —, e ali sai TRAVESSÃO, nunca R$ 0,00: zero afirmaria
-          que aquele produto não tem custo (`.claude/rules/ausente-vs-falso.md`). */}
+          que aquele produto não tem custo (`docs/regras/ausente-vs-falso.md`). */}
       {Array.from({ length: colunas }, (_, k) => (
         <div key={`c-${k}`} style={{
           textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontSize,

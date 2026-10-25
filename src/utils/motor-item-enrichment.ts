@@ -23,7 +23,7 @@
  * vez de virar custo puro; sem `rt_reserve_percent` o RT saía zero; sem os campos de custo o
  * motor caía no snapshot V14 legado. Três defeitos silenciosos numa única omissão de cópia.
  *
- * É a 4ª aparição da CÓPIA DIVERGENTE (#27, #28, #45) — ver `.claude/rules/copia-divergente.md`.
+ * É a 4ª aparição da CÓPIA DIVERGENTE (#27, #28, #45) — ver `docs/regras/copia-divergente.md`.
  * O discriminante que a separa do CONSTRUTOR EMPOBRECIDO é a detectabilidade: aqui os quatro
  * blocos SE PARECEM (são cópias literais, achadas pondo-as lado a lado), enquanto no
  * construtor empobrecido os produtores não se parecem e só a cobertura de campos os denuncia.
@@ -35,7 +35,7 @@
  * ────────────────────────────────────────────
  * O enriquecimento lê o cadastro VIVO — é o que deve fazer, porque ele roda no momento em
  * que o documento é GRAVADO, que é quando o fato nasce. Ler o cadastro vivo para EXIBIR um
- * documento já gravado é que seria a releitura proibida por `.claude/rules/fato-vs-referencia.md`.
+ * documento já gravado é que seria a releitura proibida por `docs/regras/fato-vs-referencia.md`.
  * Este módulo não é chamado em nenhum caminho de leitura de documento gravado.
  */
 

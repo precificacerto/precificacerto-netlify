@@ -7,7 +7,7 @@
  * Os números esperados dos casos 1 a 3 vêm da PLANILHA, não do código. São a única asserção
  * deste arquivo cuja origem é externa ao repositório, e por isso a única capaz de pegar um
  * erro sistemático que módulo e teste cometessem juntos
- * (`.claude/rules/teste-que-nao-exercita.md`).
+ * (`docs/regras/teste-que-nao-exercita.md`).
  */
 
 import {

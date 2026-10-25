@@ -33,7 +33,7 @@ describe('a venda excluída carrega o orçamento de origem', () => {
 
     it('a linha do PEDIDO é OMITIDA no Caso B — sem traço e sem travessão', () => {
         // Campo vazio afirmaria que não houve pedido; no Caso B a etapa NÃO EXISTIU. São coisas
-        // diferentes. `.claude/rules/ausente-vs-falso.md`.
+        // diferentes. `docs/regras/ausente-vs-falso.md`.
         const linhas = buildOriginLines({ budgetId: ORCAMENTO_FELIPE, orderId: null })
         const rotulos = linhas.map((l) => l.rotulo)
         expect(rotulos).not.toContain('Pedido')
@@ -88,7 +88,7 @@ describe('a página consome o vínculo', () => {
 
     it('`order_id` está nos DOIS selects de venda — senão o vínculo chega `undefined`', () => {
         // Cópia divergente: são duas consultas montando o mesmo objeto. Uma delas esquecer o
-        // campo o faria chegar vazio, sem erro. `.claude/rules/copia-divergente.md`.
+        // campo o faria chegar vazio, sem erro. `docs/regras/copia-divergente.md`.
         const ocorrencias = fonte.split('budget_id, order_id').length - 1
         expect(ocorrencias).toBe(2)
     })

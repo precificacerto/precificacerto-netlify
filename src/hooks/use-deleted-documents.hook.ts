@@ -12,7 +12,7 @@
  *
  * E É POR ISSO QUE ESTE MÓDULO EXISTE EM VEZ DE TRÊS CÓPIAS: o mesmo bloco em Orçamentos,
  * Pedidos e Vendas seria a quinta aparição da CÓPIA DIVERGENTE
- * (`.claude/rules/copia-divergente.md`), na mesma rodada em que a quarta foi corrigida.
+ * (`docs/regras/copia-divergente.md`), na mesma rodada em que a quarta foi corrigida.
  */
 import { useEffect, useState } from 'react'
 import { supabase } from '@/supabase/client'

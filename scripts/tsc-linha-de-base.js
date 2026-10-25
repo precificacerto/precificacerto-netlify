@@ -9,7 +9,7 @@
  * ════════════════════════════════════════════════════════════════════════════════════════════
  * >>> POR QUE ELE EXISTE <<<
  *
- * `.claude/rules/portao-que-nao-alcanca.md`, aparição 7: o `typecheck` da CI roda em
+ * `docs/regras/portao-que-nao-alcanca.md`, aparição 7: o `typecheck` da CI roda em
  * `diagnostics`, com `continue-on-error`, e com 363 erros herdados na `main` ele fica vermelho em
  * TODO PR — com ou sem regressão. Um instrumento vermelho sempre informa tanto quanto um verde
  * sempre. O que de fato pegava regressão de tipo era a comparação por ARQUIVO + CÓDIGO de

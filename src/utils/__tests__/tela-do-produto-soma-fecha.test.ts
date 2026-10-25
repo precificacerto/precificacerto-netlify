@@ -149,7 +149,7 @@ describe('2. A % EFETIVA é LIDA do que a construção usou — não recalculada
   it('NESTE cenário o ICMS coincide com `÷ (1 − c)` — e por isso ele NÃO prova nada aqui', () => {
     // Registrado de propósito: sem IPI, `icmsPctOverTotalGeral === icmsPct` e as duas contas
     // dão o mesmo número. Um teste feito só com este cenário passaria com a tela
-    // recalculando — é o caso que NÃO DISCRIMINA (`.claude/rules/teste-que-nao-exercita.md`),
+    // recalculando — é o caso que NÃO DISCRIMINA (`docs/regras/teste-que-nao-exercita.md`),
     // nomeado em vez de omitido. O caso que discrimina é o seguinte.
     expect(linha('icms').effectivePct).toBeCloseTo(resolved.icmsPctEffective * 100, 9)
     expect(linha('icms').effectivePct).toBeCloseTo(ICMS * 100 / k, 6)
@@ -227,7 +227,7 @@ describe('4. Fora da matriz, o `c` não é ZERO — é AUSENTE', () => {
   it('sem `resolved`, a tela não tem `c` a exibir', () => {
     const r = buildProductPriceRows({ rows: LINHAS, costTotal: CUSTO, opInterna: null, resolved: null })
     // `null`, e não `0`: um "0,0000%" na tela afirmaria que o coeficiente foi apurado e deu
-    // zero, quando ninguém o apurou — `.claude/rules/ausente-vs-falso.md`.
+    // zero, quando ninguém o apurou — `docs/regras/ausente-vs-falso.md`.
     expect(r.externalOpsCoefficientPct).toBeNull()
   })
 
@@ -260,7 +260,7 @@ describe('5. O regime SEM matriz escrita continua no caminho antigo', () => {
 describe('6. A TELA consome o módulo — e não tem mais a conta própria', () => {
   // Asserção estrutural, e assumida como tal: a suíte não tem teste de componente, então o
   // que sobra sem cobertura é a renderização do JSX. A lógica inteira saiu do componente
-  // justamente para reduzir essa superfície — `.claude/rules/teste-que-nao-exercita.md`, o
+  // justamente para reduzir essa superfície — `docs/regras/teste-que-nao-exercita.md`, o
   // caso-limite honesto: aqui o defeito É a ausência, e não há efeito numérico a medir.
   const src = readFileSync(
     join(__dirname, '..', '..', 'page-parts', 'products', 'product-price.component.tsx'),

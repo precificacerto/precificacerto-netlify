@@ -3,7 +3,7 @@
  *
  * O módulo `decomposition-dre.ts` é puro e não sabe o que é um `budgetItem`. Este aqui faz a
  * travessia, e existe separado do componente pelo mesmo motivo de sempre: é onde o teste
- * consegue afirmar EFEITO em vez de passagem (`.claude/rules/teste-que-nao-exercita.md`).
+ * consegue afirmar EFEITO em vez de passagem (`docs/regras/teste-que-nao-exercita.md`).
  *
  * >>> A FICHA SAI DA MESMA FUNÇÃO QUE O RATEIO USA <<<
  * `resolveItemFicha` e `pisCofinsNominalFromEffective` são as mesmas que `orcamentos/index.tsx`

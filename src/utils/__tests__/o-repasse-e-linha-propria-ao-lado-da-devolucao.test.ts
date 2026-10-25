@@ -8,7 +8,7 @@
  * ═══════════════════════════════════════════════════════════════════════════════════════════
  * O QUE CADA CASO PRECISA DISTINGUIR — e por que os valores são os que são
  * ═══════════════════════════════════════════════════════════════════════════════════════════
- * `.claude/rules/teste-que-nao-exercita.md`: **cada asserção precisa FALHAR sem a sua
+ * `docs/regras/teste-que-nao-exercita.md`: **cada asserção precisa FALHAR sem a sua
  * correção.** Três armadilhas foram evitadas POR CONSTRUÇÃO neste arquivo:
  *
  * 1. **`repasse` e `deducaoReceita` têm valores DIFERENTES** (4.300 e 7.000). Com valores
@@ -35,7 +35,7 @@
  * alcança.
  *
  * E a CHECK do banco recusava os três. Sem a migração `20260917000001`, escolher qualquer um
- * falha no INSERT — é o caso do `expense_snapshot` de 01/09/2026 que `migration-delivery.md`
+ * falha no INSERT — é o caso do `expense_snapshot` de 01/09/2026 que `migracao.md` (Parte II)
  * registra.
  *
  * ═══════════════════════════════════════════════════════════════════════════════════════════

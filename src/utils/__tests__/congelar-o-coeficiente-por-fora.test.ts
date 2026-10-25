@@ -5,7 +5,7 @@
  * comentário no catálogo:
  *
  *   "R3 — o `c` que ESTA construção usou, congelado junto com o preço. FATO HISTÓRICO, não
- *    referência viva (.claude/rules/fato-vs-referencia.md): decompor um preço antigo com o
+ *    referência viva (docs/regras/fato-vs-referencia.md): decompor um preço antigo com o
  *    `c` de hoje reescreve o passado. NULL = preço formado antes desta coluna existir."
  *
  * Consultado o banco: a coluna está `NULL` em TODOS os produtos — inclusive nos que têm
@@ -21,7 +21,7 @@
  * O save vive no componente, e a suíte não tem teste de componente. O que se pode afirmar por
  * EFEITO é o VALOR a congelar — que sai de `buildProductConstruction` —, e é o que os blocos
  * 1 e 2 fazem. O bloco 3 afirma o caminho, que é o caso-limite honesto de
- * `.claude/rules/teste-que-nao-exercita.md`: o defeito É a ausência da gravação, e não há
+ * `docs/regras/teste-que-nao-exercita.md`: o defeito É a ausência da gravação, e não há
  * efeito numérico a medir nela.
  */
 
@@ -179,7 +179,7 @@ describe('3. A GRAVAÇÃO existe, e sai de um handler só', () => {
 
   it('há UM handler, não três literais iguais', () => {
     // Eram três cópias do mesmo literal, uma por `<Content*>`. O campo novo é justamente o
-    // tipo que entra em duas e esquece a terceira — `.claude/rules/copia-divergente.md`.
+    // tipo que entra em duas e esquece a terceira — `docs/regras/copia-divergente.md`.
     expect((content.match(/onFinalPriceWithTaxesChange=\{handleFinalPriceWithTaxes\}/g) || []).length).toBe(3)
     expect(content).not.toMatch(/onFinalPriceWithTaxesChange=\{\(d\) =>/)
   })

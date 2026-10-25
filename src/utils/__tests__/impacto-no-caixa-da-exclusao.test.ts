@@ -15,7 +15,7 @@
  * Na VD-9171FE, dizer "R$ 0,00 saem do caixa" é VERDADE e SOA FALSO para quem sabe dos
  * R$ 50.000 registrados. Informar só um **AFIRMARIA IMPLICITAMENTE que não há mais nada**.
  *
- * É `.claude/rules/ausente-vs-falso.md` APLICADO A UM DIÁLOGO DE CONFIRMAÇÃO, e é a primeira
+ * É `docs/regras/ausente-vs-falso.md` APLICADO A UM DIÁLOGO DE CONFIRMAÇÃO, e é a primeira
  * vez que a classe aparece numa MENSAGEM em vez de num DADO: a omissão do segundo número não
  * seria neutra — seria uma afirmação sobre o que não foi dito.
  *

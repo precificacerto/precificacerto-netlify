@@ -16,7 +16,7 @@
  *
  * O caso `'todo grupo da fonte única SOMA em alguma linha do DFC'` fica VERMELHO quando um
  * grupo é acrescentado e esquecido no `switch`. É a diferença entre afirmar EFEITO e afirmar
- * passagem — `.claude/rules/teste-que-nao-exercita.md`, variante 3.
+ * passagem — `docs/regras/teste-que-nao-exercita.md`, variante 3.
  *
  * `LUCRO` e `OUTROS` estão fora de `DFC_GROUPS_QUE_SOMAM` **de propósito e por decisão**, não
  * por esquecimento — é essa distinção que impede o caso de virar tautologia.
@@ -279,7 +279,7 @@ describe('Excluir venda a partir do Fluxo de Caixa', () => {
 
     it('o botão só aparece quando o lançamento VEIO de uma venda', () => {
         // Em lançamento manual não há venda a excluir, e um botão sem o que fazer AFIRMA que a
-        // ação existe ali. `.claude/rules/ausente-vs-falso.md`.
+        // ação existe ali. `docs/regras/ausente-vs-falso.md`.
         expect(FLUXO).toContain("paymentEntry.origin_type === 'SALE' && paymentEntry.origin_id")
     })
 

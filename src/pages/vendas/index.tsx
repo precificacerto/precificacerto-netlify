@@ -361,7 +361,7 @@ function Sales() {
      *
      * A venda é FATO HISTÓRICO. Resolver custo, MO e alíquotas do cadastro de hoje —
      * como o PEDIDO faz, por ser documento em edição — reescreveria o passado a cada
-     * edição do produto: é a 6ª aparição de `.claude/rules/fato-vs-referencia.md`.
+     * edição do produto: é a 6ª aparição de `docs/regras/fato-vs-referencia.md`.
      *
      * >>> TUDO OU NADA, e é deliberado <<<
      * Basta UM item sem `decomposition_input` para a decomposição inteira ficar de fora.
@@ -1436,7 +1436,7 @@ function Sales() {
     // marcavam `is_manual_cost`, e duas não resolviam o RT. Nada falhava, porque os campos são
     // opcionais no `PageItem`: o motor só caía no fallback de cada um.
     // Agora é UMA instância, lida pelo drawer, pela validação e pelo save.
-    // Ver `.claude/rules/copia-divergente.md`.
+    // Ver `docs/regras/copia-divergente.md`.
     //
     // >>> E ELE É A ENTRADA DA DECOMPOSIÇÃO TAMBÉM, NÃO SÓ DO MOTOR <<<
     // `sale_items` não tem coluna de custo — medido no schema, igual a `budget_items` e

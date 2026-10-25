@@ -52,7 +52,7 @@ const SEGMENTOS: ReadonlyArray<{ nome: string; base: PricingInput }> = [
   {
     // A MO produtiva vem PREENCHIDA de propósito. Com ela zerada, "REVENDA não soma MO no
     // CMV" e "REVENDA soma MO no CMV" dão o MESMO número, e o caso não distingue os dois
-    // estados — variante 2 de `.claude/rules/teste-que-nao-exercita.md`. Uma mutação que
+    // estados — variante 2 de `docs/regras/teste-que-nao-exercita.md`. Uma mutação que
     // fazia a revenda somar a MO SOBREVIVEU à primeira versão deste arquivo por isso.
     // O tenant de revenda com MO produtiva configurada é o caso real, não o artificial.
     nome: 'REVENDA — MO produtiva configurada e IGNORADA no CMV',

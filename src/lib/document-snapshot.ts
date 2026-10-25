@@ -50,7 +50,7 @@
  * ──────────────────────────────────────────────
  * NÃO é possível projetar quanto os itens já gravados mudariam. Fazer isso exigiria rodar o
  * V17 sobre documento histórico com o cadastro de HOJE — exatamente a referência viva que
- * esta correção elimina (`.claude/rules/fato-vs-referencia.md`). O único par medido é o
+ * esta correção elimina (`docs/regras/fato-vs-referencia.md`). O único par medido é o
  * PED-18A461 (134,21 → 150,94, +12,5%), num documento MEI SEM IMPOSTO: **amostra de um, não
  * base para extrapolar**. Nada aqui afirma alcance.
  */
@@ -123,7 +123,7 @@ function toPersistedBreakdown(
         use_snapshot_rates: true,
         // O V17 não expõe `limite_minimo` por item — o piso é avaliado no consolidado.
         // `null` diz "não apurado", que é diferente de "apurado e igual a zero"
-        // (`.claude/rules/ausente-vs-falso.md`).
+        // (`docs/regras/ausente-vs-falso.md`).
         limite_minimo: null,
         discount_mode_requested: discountMode,
         discount_mode_applied: discountMode,

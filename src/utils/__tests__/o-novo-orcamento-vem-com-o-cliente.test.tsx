@@ -14,7 +14,7 @@
  *
  * ASSERÇÃO NEGATIVA NUNCA É LITERAL TRANSCRITO. Nesta campanha uma
  * `not.toContain('R$ 0,00')` ficou verde para sempre porque `formatBRL` usa espaço não
- * separável — `.claude/rules/assercao-negativa-que-nunca-falha.md`. As negativas abaixo
+ * separável — `docs/regras/assercao-negativa-que-nunca-falha.md`. As negativas abaixo
  * comparam contra chamadas REGISTRADAS e contra constantes exportadas.
  */
 

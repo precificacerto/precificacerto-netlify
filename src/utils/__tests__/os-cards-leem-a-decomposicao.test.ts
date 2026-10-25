@@ -14,7 +14,7 @@
  * >>> O QUE MUDA, E O QUE NÃO MUDA <<<
  *
  * O BUG-CARDS-RRO-001 dizia "a Etapa 16 é a FONTE DE VERDADE ABSOLUTA de Comissão e Lucro", e
- * ele estava CERTO PARA A ÉPOCA (`.claude/rules/decisao-sob-regra-da-epoca.md`): o que ele
+ * ele estava CERTO PARA A ÉPOCA (`docs/regras/decisao-sob-regra-da-epoca.md`): o que ele
  * proibia era o card RECALCULAR, e a Etapa 16 era a única apuração do RRO que existia. Hoje a
  * decomposição existe e corrige três coisas que a Etapa 16 não corrige — a ordem das deduções
  * da R19, o CMV do item e a escala do PIS/COFINS. O princípio não mudou: o card continua NÃO

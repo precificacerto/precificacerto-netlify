@@ -353,7 +353,7 @@ export type AggregatedData = {
 }
 
 // EXPORTADA para que o teste afirme EFEITO (o lançamento cai no balde certo) em vez de
-// passagem (o `case` existe no arquivo). `.claude/rules/teste-que-nao-exercita.md`: "quando a
+// passagem (o `case` existe no arquivo). `docs/regras/teste-que-nao-exercita.md`: "quando a
 // pergunta 3 não tem resposta boa porque a função não é exportada, exporte a função".
 export function aggregateEntries(entries: CashEntry[]): AggregatedData {
   const data: AggregatedData = {

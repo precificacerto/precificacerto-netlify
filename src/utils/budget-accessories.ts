@@ -537,7 +537,7 @@ const TOLERANCIA = 0.01
  * `INDETERMINADO` existe porque `freight_allocation_base` é coluna nova: documento anterior a
  * ela tem rateio e não tem base. Chamá-lo de `VALIDO` afirmaria uma conferência que não
  * aconteceu, e de `CONJUNTO_MUDOU` acusaria uma mudança que ninguém viu
- * (`.claude/rules/ausente-vs-falso.md`).
+ * (`docs/regras/ausente-vs-falso.md`).
  */
 export function checkInheritedAllocation(
   inherited: InheritedAllocation,
@@ -682,7 +682,7 @@ export interface InheritedItemRow {
  * Uma primeira versão vivia dentro do componente, e o teste afirmava que o nome
  * `checkInheritedAllocation` aparecia no arquivo. Uma mutação que pusesse `return null`
  * ANTES da chamada manteve o nome lá e passou verde: a asserção afirmava PASSAGEM, não
- * EFEITO — a variante 3 de `.claude/rules/teste-que-nao-exercita.md`.
+ * EFEITO — a variante 3 de `docs/regras/teste-que-nao-exercita.md`.
  *
  * Com a lógica aqui, o efeito é testável: os quatro vereditos saem de dados, e o que sobra
  * no componente é uma chamada e um `div`.

@@ -2,7 +2,7 @@
  * O PORTÃO DE TIPO — o leitor e o comparador de `scripts/tsc-linha-de-base.js`.
  *
  * O portão roda o `tsc` na CI e fica vermelho só com erro NOVO contra a linha de base
- * (`.claude/rules/portao-que-nao-alcanca.md`, aparição 7). O que este arquivo prova é o
+ * (`docs/regras/portao-que-nao-alcanca.md`, aparição 7). O que este arquivo prova é o
  * INSTRUMENTO, não o `tsc`: `instrumento-que-nao-enxerga.md` manda construir de propósito o caso
  * que deveria aparecer e ver se o leitor o enxerga — porque um leitor cego conta zero, e zero
  * erro novo é exatamente o verde que o portão daria.

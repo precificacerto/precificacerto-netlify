@@ -4,7 +4,7 @@
  * Regra: `.claude/rules/cascata-lucro-real.md` — Parte 0 (matriz), R3, R5, R8, R9.
  *
  * >>> CADA ASSERÇÃO PRECISA FALHAR SEM A CORREÇÃO <<<
- * `.claude/rules/teste-que-nao-exercita.md`. Por isso os casos abaixo evitam três armadilhas
+ * `docs/regras/teste-que-nao-exercita.md`. Por isso os casos abaixo evitam três armadilhas
  * nomeadas lá:
  *   - nenhum caso afirma que "a prop chegou": afirmam o NÚMERO que muda;
  *   - os valores DISTINGUEM os dois estados — nunca uma alíquota que dá o mesmo resultado

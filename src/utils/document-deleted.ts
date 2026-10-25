@@ -31,7 +31,7 @@ export const STATUS_EXCLUIDO = 'EXCLUIDO'
  * Filtro PostgREST para `.not(...)`: traz tudo MENOS os excluídos.
  *
  * Usado como `.neq('status', STATUS_EXCLUIDO)`. Documento sem status (`null`) NÃO é excluído —
- * ausência é "nunca classificado", nunca "excluído" (`.claude/rules/ausente-vs-falso.md`), e
+ * ausência é "nunca classificado", nunca "excluído" (`docs/regras/ausente-vs-falso.md`), e
  * `neq` em SQL descarta `null`, então quem tiver status nulo precisa do filtro `or` abaixo.
  */
 export const NOT_DELETED_FILTER = `status.is.null,status.neq.${STATUS_EXCLUIDO}`
@@ -67,7 +67,7 @@ export function filterDeletedDocuments<T extends DocumentWithStatus>(
  * -------------------------------------------------------------------
  * Até 09/09/2026 havia uma pré-condição: venda com parcela paga não era excluível, e o botão
  * ficava desabilitado com o motivo no tooltip. **Aquilo estava CERTO sob a regra da época** —
- * `.claude/rules/decisao-sob-regra-da-epoca.md`. A regra mudou: venda com pagamento registrado
+ * `docs/regras/decisao-sob-regra-da-epoca.md`. A regra mudou: venda com pagamento registrado
  * PODE ser excluída, e o dinheiro sai do caixa junto.
  *
  * É coerente com o conceito que o #52 fixou: excluir é como se a evolução NUNCA TIVESSE
@@ -100,7 +100,7 @@ export function canDeleteSale(input: {
  * `cash_entries` ativas. Dizer "R$ 0,00 saem do caixa" é VERDADE e SOA FALSO para quem sabe do
  * pagamento — informar só isso **afirmaria implicitamente que não há mais nada**.
  *
- * É `.claude/rules/ausente-vs-falso.md` aplicado a um DIÁLOGO DE CONFIRMAÇÃO, e é a primeira
+ * É `docs/regras/ausente-vs-falso.md` aplicado a um DIÁLOGO DE CONFIRMAÇÃO, e é a primeira
  * vez que a classe aparece numa mensagem em vez de num dado: a omissão do segundo número não
  * seria neutra, seria uma afirmação sobre o que não foi dito.
  */

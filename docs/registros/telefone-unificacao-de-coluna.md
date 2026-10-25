@@ -5,7 +5,7 @@ com telefone espalhado nas duas colunas **ficam como estão** — daqui pra fren
 histórico continua torto.
 
 Este arquivo existe porque corpo de PR mergeado fica soterrado
-(`.claude/rules/registro-de-classe.md`), e porque quem for fazer a migração precisa dos números
+(`docs/regras/registro-de-classe.md`), e porque quem for fazer a migração precisa dos números
 que decidiram a escolha, não de refazê-los.
 
 ## A decisão
@@ -48,7 +48,7 @@ com `phone` de 4 a 9 dígitos (`54194`, `5555`, `35465`). É lixo dos dois lados
 valores plausíveis, e num deles (Mayder) o `phone` é `5555`.
 
 Comparou-se a propriedade **fácil** (diferem?) em vez da propriedade que **decide** (são
-válidos?). É a mesma armadilha de `.claude/rules/teste-que-nao-exercita.md`, aplicada a uma
+válidos?). É a mesma armadilha de `docs/regras/teste-que-nao-exercita.md`, aplicada a uma
 medição em vez de a um teste.
 
 ## O que a migração tem de fazer
@@ -64,7 +64,7 @@ medição em vez de a um teste.
 
 ## O protocolo, quando for feita
 
-`.claude/rules/migration-delivery.md`, sem atalho:
+`.claude/rules/migracao.md (Parte II)`, sem atalho:
 
 - SQL entregue em **raw** e em **base64**, com **`md5`**, ANTES de aplicar;
 - migração é **PENDENTE POR PADRÃO** — merge não é entrega;
@@ -104,7 +104,7 @@ Os plausíveis: `Daniel Gehln 51995730813`, `Felipe Klein 51999114290`,
 **É mais um caso de DADO FALSO OCUPANDO O LUGAR DE DADO AUSENTE**, e o mais literal deles:
 `999999999` **afirma um telefone que não existe**, enquanto `NULL` não afirmaria nada. O campo
 era obrigatório e sem validação — a saída mais barata para o usuário era inventar um número, e
-foi o que aconteceu em 14 de 24 casos. `.claude/rules/ausente-vs-falso.md`.
+foi o que aconteceu em 14 de 24 casos. `docs/regras/ausente-vs-falso.md`.
 
 Isso reforça as duas decisões da rodada: a máscara (que agora recusa nove dígitos) e a coluna
 canônica.

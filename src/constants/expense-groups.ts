@@ -13,7 +13,7 @@
  *   HUB_GROUPS                     SIM           SIM
  *   o switch do DFC                SIM           não
  *
- * É `.claude/rules/copia-divergente.md` com cinco cópias. Acrescentar um grupo exigia tocar as
+ * É `docs/regras/copia-divergente.md` com cinco cópias. Acrescentar um grupo exigia tocar as
  * cinco, e esquecer qualquer uma **falha em silêncio** — o valor some da tela, do rótulo ou da
  * demonstração, conforme a esquecida. Com uma fonte só, acrescentar vale para todas.
  *

@@ -25,7 +25,7 @@
  * -------------------------------------------------------------------------
  * Campo vazio AFIRMARIA que não houve pedido. No Caso B (venda direta de orçamento, que é o do
  * VD-96AF84, com `order_id` NULL) a etapa NÃO EXISTIU — são coisas diferentes, e a distinção é
- * a de `.claude/rules/ausente-vs-falso.md`: a omissão não afirma nada, o traço afirma.
+ * a de `docs/regras/ausente-vs-falso.md`: a omissão não afirma nada, o traço afirma.
  */
 
 /** Uma linha de origem, pronta para a tela. */

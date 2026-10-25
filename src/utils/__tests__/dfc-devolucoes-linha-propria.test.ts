@@ -7,7 +7,7 @@
  * **ZERO lançamentos da base usam `expense_group = 'DEDUCAO_RECEITA'`.** A categoria existe
  * desde o #58 (09/09/2026) e NUNCA FOI LANÇADA. Um teste rodado contra os dados reais somaria
  * `0` em todas as linhas e **passaria verde sem exercitar nada** — a mesma armadilha do caso
- * MEI com alíquota zero, registrada em `.claude/rules/teste-que-nao-exercita.md`, variante 2:
+ * MEI com alíquota zero, registrada em `docs/regras/teste-que-nao-exercita.md`, variante 2:
  * *"o caso escolhido não discrimina"*.
  *
  * Por isso todo caso abaixo constrói `deducaoReceita` DIFERENTE DE ZERO e afirma o **ÍNDICE**
@@ -226,7 +226,7 @@ describe('a correção é de POSIÇÃO, não de conta — o valor não muda', ()
     //
     // O `repasse` da fixture é diferente de zero DE PROPÓSITO: com ele em zero, estes três
     // casos passariam idênticos aos de ontem e não distinguiriam "o repasse deduz" de "o
-    // repasse é ignorado" — `.claude/rules/teste-que-nao-exercita.md`, variante 2. O efeito
+    // repasse é ignorado" — `docs/regras/teste-que-nao-exercita.md`, variante 2. O efeito
     // do repasse é afirmado em `o-repasse-e-linha-propria-ao-lado-da-devolucao.test.ts`;
     // aqui ele entra na conta para que a invariância continue sendo medida no mundo real.
     const REPASSE_DA_FIXTURE = 4_300
@@ -304,7 +304,7 @@ describe('AMORTIZAÇÃO — a mesma armadilha, e ela JÁ ESTAVA NO `main`', () =
      *     expect(DFC).toContain('subtractMonths(resultadoFinanceiro, agg.amortizacao)')
      *
      * Isso afirma que o TEXTO existe no arquivo, não que a linha tem EFEITO. É a **variante 3**
-     * de `.claude/rules/teste-que-nao-exercita.md` — *"a asserção afirma PASSAGEM, não EFEITO"*
+     * de `docs/regras/teste-que-nao-exercita.md` — *"a asserção afirma PASSAGEM, não EFEITO"*
      * — e o comentário daquele caso CITA a variante 3 enquanto a comete.
      *
      * Medido em 10/09/2026: `AMORTIZACAO` tem **ZERO lançamentos** na base, entre 16 grupos e

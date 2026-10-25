@@ -43,7 +43,7 @@ idêntico byte a byte ao esperado. A conta dos bytes fecha:
 
 **A branch manteve o arquivo cru.** O assistente parou no portão do md5 e relatou, sem tirar o
 envelope por conta própria — tirar seria uma transformação sobre conteúdo autorizado por hash, que
-é a classe de `transformacao-quebra-a-cadeia-de-hash.md`. O dono do produto decidiu:
+é a classe de `migracao.md` (Parte III). O dono do produto decidiu:
 
 1. resolver o conflito do merge com a versão da branch (`git checkout --ours`), que estava em
    `8ebb77c8…`, sem envelope;
@@ -75,7 +75,7 @@ se está vendo.
 
 Feita conforme `registro-de-classe.md`. **Uma aparição, e nenhuma segunda foi forçada.**
 
-A vizinha mais próxima é `transformacao-quebra-a-cadeia-de-hash.md`, e **não é a mesma**: lá a
+A vizinha mais próxima é `migracao.md` (Parte III), e **não é a mesma**: lá a
 transformação é PRESCRITA (remover `BEGIN`/`COMMIT`, enxugar comentário) e o problema é ninguém
 dizer o que ela faz com o hash; aqui a transformação **não foi prescrita por ninguém** — veio do
 caminho de transporte, sem que nenhuma das partes soubesse. Lá a cura é publicar os dois hashes
@@ -111,7 +111,7 @@ Quando o 1 e o 3 coincidem, o hash publicado é a única coisa que denuncia — 
 
 ## Relação com as outras regras
 
-`transformacao-quebra-a-cadeia-de-hash.md` é a vizinha — ver a nota da busca acima.
+`migracao.md` (Parte III) é a vizinha — ver a nota da busca acima.
 `estado-relatado-vs-real.md` é a forma geral: o relato ("subi o mockup") era verdadeiro, e o hash
 foi a fonte primária que mostrou que o arquivo não era o relatado. `registro-de-classe.md` decidiu
 a forma desta página e o limite que a manteve numa aparição.
