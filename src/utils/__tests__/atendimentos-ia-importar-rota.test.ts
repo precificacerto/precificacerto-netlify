@@ -42,6 +42,9 @@ jest.mock('@/supabase/admin', () => ({
     },
 }))
 
+import { abasDoSpec } from './fixtures/abas-do-motor-do-spec'
+import { ABAS_DO_MOTOR } from '@/utils/atendimentos-ia-abas-do-motor'
+
 const T = '22222222-2222-4222-8222-222222222222'
 const TABELA = { id: T, arquivo_path: 'f/arquivo/x-Tabela Wolff.xlsm', arquivo_nome: 'Tabela Wolff.xlsm', motor_path: 'f/motor/x-Motor.xlsx', motor_nome: 'Motor.xlsx' }
 
@@ -57,8 +60,10 @@ jest.mock('@/lib/atendimentos-ia/repositorio', () => {
         obterArquivosDaTabela: fn('obterArquivosDaTabela', () => TABELA),
         objetoExiste: fn('objetoExiste', (p: string) => p in objetos),
         baixarObjeto: fn('baixarObjeto', (p: string) => objetos[p]),
+        // a função devolve a contagem de CADA lista que gravou: as quatro de sempre e as nove abas
         importarConteudo: fn('importarConteudo', (_id: string, p: any) => ({
-            importacao_id: 'imp-1', itens: p.itens.length, regras: p.regras.length, tipologias: p.tipologias.length, formulas: p.formulas.length,
+            importacao_id: 'imp-1',
+            ...Object.fromEntries(Object.entries(p).filter(([k, v]) => Array.isArray(v) && k !== 'avisos').map(([k, v]) => [k, (v as unknown[]).length])),
         })),
         ultimaImportacao: fn('ultimaImportacao', () => null),
         nomeDoUsuario: fn('nomeDoUsuario', () => 'Cristiano'),
@@ -110,8 +115,12 @@ const ARQUIVOS_BONS = async () => ({
     [TABELA.motor_path]: await planilha({
         'Motor por barra': [{ 1: 'CÓDIGO' }, { 1: 'IL4237', 14: 'DP-01', 15: 'ARE > 0' }, { 1: 'Z9', 14: 'DP-02' }],
         'Fórmulas da família': [{ 1: 'LINHA' }, { 1: 'PVC EUROPA 42', 2: 'L' }],
+        ...abasDoSpec(),
     }),
 })
+
+/** A contagem de cada lista do payload, como a função devolve. */
+const contagensDe = (p: any) => Object.fromEntries(Object.entries(p).filter(([k, v]) => Array.isArray(v) && k !== 'avisos').map(([k, v]) => [k, (v as unknown[]).length]))
 
 const SEM_TEMPO = { total: 0, ESTIMADO: 0, IMPORTADO: 0 }
 /** A frase da trava, lida DENTRO dos casos: no commit do portão ela ainda não existe. */
@@ -220,9 +229,10 @@ describe('a importação', () => {
         expect(repo.importarConteudo).not.toHaveBeenCalled()
     })
 
-    it.each([['itens'], ['regras'], ['tipologias'], ['formulas']])('contagem divergente em %s → 500 com os dois números lado a lado, nunca sucesso', async (campo) => {
+    // as nove abas entram na conferência como as quatro de sempre: a lista vem do mapa, não de cópia
+    it.each([['itens'], ['regras'], ['tipologias'], ['formulas'], ...ABAS_DO_MOTOR.map((a) => [a.payload])])('contagem divergente em %s → 500 com os dois números lado a lado, nunca sucesso', async (campo) => {
         repo.importarConteudo.mockImplementationOnce(async (_id: string, p: any) => ({
-            importacao_id: 'imp-2', itens: p.itens.length, regras: p.regras.length, tipologias: p.tipologias.length, formulas: p.formulas.length,
+            importacao_id: 'imp-2', ...contagensDe(p),
             [campo]: p[campo].length + 1,
         }))
         const r = await chamar('POST')
@@ -230,6 +240,35 @@ describe('a importação', () => {
         expect(r.json.enviado[campo]).not.toBe(r.json.gravado[campo])
         expect(r.json.gravado[campo]).toBe(r.json.enviado[campo] + 1)
         expect(r.json.error).toMatch(/não conferiu/)
+    })
+})
+
+describe('as nove abas na gravação', () => {
+    it('o payload leva as nove abas pela chave do mapa, e a função que não devolve a contagem de uma delas é divergência', async () => {
+        repo.importarConteudo.mockImplementationOnce(async (_id: string, p: any) => {
+            const c = contagensDe(p)
+            delete c.insumos
+            return { importacao_id: 'imp-3', ...c }
+        })
+        const r = await chamar('POST')
+        const enviado = repo.importarConteudo.mock.calls[0][1]
+        for (const a of ABAS_DO_MOTOR) expect(Array.isArray(enviado[a.payload])).toBe(true)
+        expect(enviado.perfis.length).toBeGreaterThan(0)
+        expect(r.status).toBe(500)
+        expect(r.json).toEqual(expect.objectContaining({ gravado: expect.objectContaining({ insumos: null }) }))
+    })
+
+    it('aba do motor que falta no arquivo → 422 nomeando a aba, e nada é gravado', async () => {
+        const motor = await planilha({
+            'Motor por barra': [{ 1: 'CÓDIGO' }, { 1: 'IL4237', 14: 'DP-01' }],
+            'Fórmulas da família': [{ 1: 'LINHA' }],
+            ...Object.fromEntries(Object.entries(abasDoSpec()).filter(([n]) => n !== 'Vidros')),
+        })
+        objetos[TABELA.motor_path] = motor
+        const r = await chamar('POST')
+        expect(r.status).toBe(422)
+        expect(r.json.error).toContain('não tem a aba "Vidros"')
+        expect(repo.importarConteudo).not.toHaveBeenCalled()
     })
 })
 

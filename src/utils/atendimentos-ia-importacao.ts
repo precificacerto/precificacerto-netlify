@@ -48,6 +48,7 @@
 import ExcelJS from 'exceljs'
 
 import { arquivoImportavel, fraseDoArquivo, fraseDoArquivoNaoImportavel } from '@/utils/atendimentos-ia-catalogo'
+import { ABAS_DO_MOTOR, lerAbasDoMotor, type LinhaDoBanco } from '@/utils/atendimentos-ia-abas-do-motor'
 
 /**
  * O nome da coluna do banco que guarda a categoria COMO VEIO DO ARQUIVO DO FORNECEDOR, nas duas
@@ -172,39 +173,18 @@ export interface Contagens {
 }
 
 export type ResultadoDaLeitura =
-    | { ok: true; itens: ItemLido[]; regras: RegraLida[]; tipologias: TipologiaLida[]; formulas: FormulaLida[]; contagens: Contagens; avisos: Aviso[] }
+    | {
+        ok: true; itens: ItemLido[]; regras: RegraLida[]; tipologias: TipologiaLida[]; formulas: FormulaLida[]; contagens: Contagens; avisos: Aviso[]
+        /** As nove abas por tipologia (`ABAS_DO_MOTOR`), pela chave do payload. */
+        abas: Record<string, LinhaDoBanco[]>
+    }
     | { ok: false; erro: string }
 
 export interface ArquivoDaImportacao { nome: string; bytes: Uint8Array }
 
-// ── O conversor ÚNICO de célula ────────────────────────────────────────────────────────────
-export type ValorLido = string | number | Date | null
-
-/**
- * O valor de UMA célula do exceljs, em todas as formas que ela chega:
- *   - fórmula (`{formula, result}` ou `{sharedFormula, result}`) → o `result`, convertido de novo.
- *     As colunas de valor da tabela da Wolff SÃO fórmulas; gravar o objeto, ou NULL, seria
- *     perder o preço. Fórmula sem resultado gravado → NULL + erro, nunca o texto da fórmula;
- *   - `richText` → o texto juntado; hyperlink → o texto;
- *   - `error` (`#N/A`, `#REF!`…) → NULL + erro, que vira aviso;
- *   - Date, número → como vieram; texto → aparado, e vazio vira NULL; booleano → texto.
- */
-export function valorDaCelula(celula: ExcelJS.CellValue | undefined): { valor: ValorLido; erro?: string } {
-    if (celula === null || celula === undefined) return { valor: null }
-    if (typeof celula === 'number') return Number.isFinite(celula) ? { valor: celula } : { valor: null, erro: `número inválido (${celula})` }
-    if (typeof celula === 'string') { const t = celula.trim(); return { valor: t === '' ? null : t } }
-    if (typeof celula === 'boolean') return { valor: celula ? 'VERDADEIRO' : 'FALSO' }
-    if (celula instanceof Date) return { valor: celula }
-    const o = celula as unknown as Record<string, unknown>
-    if ('error' in o) return { valor: null, erro: `erro na planilha: ${String(o.error)}` }
-    if ('formula' in o || 'sharedFormula' in o) {
-        if (!('result' in o) || o.result === undefined) return { valor: null, erro: 'fórmula sem resultado gravado no arquivo' }
-        return valorDaCelula(o.result as ExcelJS.CellValue)
-    }
-    if (Array.isArray(o.richText)) return valorDaCelula((o.richText as Array<{ text?: string }>).map((p) => p.text ?? '').join(''))
-    if ('text' in o) return valorDaCelula(o.text as ExcelJS.CellValue)
-    return { valor: null, erro: 'célula de tipo desconhecido' }
-}
+// ── O conversor ÚNICO de célula: mora em `atendimentos-ia-importacao-celula.ts` ─────────────────
+import { valorDaCelula, type ValorLido } from '@/utils/atendimentos-ia-importacao-celula'
+export { valorDaCelula, type ValorLido }
 
 // ── Normalizações ──────────────────────────────────────────────────────────────────────────
 /**
@@ -494,6 +474,11 @@ export async function lerArquivosDaImportacao(arquivos: { tabela: ArquivoDaImpor
     const wsFamilia = aba(wbMotor, arquivos.motor.nome, ABAS_DA_IMPORTACAO.familia)
     if (typeof wsFamilia === 'string') return { ok: false, erro: wsFamilia }
 
+    // as nove abas por tipologia: uma aba ou coluna que falte, um valor inválido ou uma chave repetida
+    // RECUSAM a importação inteira, com todas as frases de uma vez — nada é gravado pela metade
+    const abasDoMotor = lerAbasDoMotor(wbMotor)
+    if ('erros' in abasDoMotor) return { ok: false, erro: fraseDoArquivo(arquivos.motor.nome, abasDoMotor.erros.join(' ')) }
+
     const preco = lerPreco(wsPreco)
     const motor = lerMotor(wsMotor)
     const familia = lerFamilia(wsFamilia)
@@ -513,6 +498,7 @@ export async function lerArquivosDaImportacao(arquivos: { tabela: ArquivoDaImpor
         regras: motor.regras,
         tipologias: resumo.tipologias,
         formulas: familia.formulas,
+        abas: abasDoMotor.linhas,
         contagens: {
             itens: preco.itens.length,
             regras: motor.regras.length,
@@ -539,15 +525,19 @@ export function montarPayloadDaImportacao(lida: Lida, importadoPor: string | nul
         regras: lida.regras,
         tipologias: lida.tipologias,
         formulas: lida.formulas,
+        ...lida.abas,
         contagens: lida.contagens,
         avisos: lida.avisos,
     }
 }
 
-export interface ContagensDaGravacao { itens: number; regras: number; tipologias: number; formulas: number }
+/** As contagens das quatro tabelas de sempre e das nove abas por tipologia, pela chave do payload. */
+export type ContagensDaGravacao = { itens: number; regras: number; tipologias: number; formulas: number } & Record<string, number>
+/** As chaves que a conferência compara: as quatro de sempre e as das nove abas. */
+export const LISTAS_DA_GRAVACAO: readonly string[] = ['itens', 'regras', 'tipologias', 'formulas', ...ABAS_DO_MOTOR.map((a) => a.payload)]
 
 /**
- * Confere o que a função GRAVOU contra o que a rota MANDOU, linha por linha das quatro listas.
+ * Confere o que a função GRAVOU contra o que a rota MANDOU, lista por lista: as quatro de sempre e as nove abas.
  * Devolve os dois lados quando algum difere, ou `null` quando batem. Diferença nunca é sucesso.
  *
  * LIMITE: a função faz COMMIT ao terminar; esta conferência acontece DEPOIS. Ela transforma a
@@ -555,13 +545,13 @@ export interface ContagensDaGravacao { itens: number; regras: number; tipologias
  */
 export function conferirGravacao(
     enviado: ReturnType<typeof montarPayloadDaImportacao>,
-    gravado: ContagensDaGravacao,
+    gravado: Readonly<Record<string, unknown>>,
 ): { enviado: ContagensDaGravacao; gravado: ContagensDaGravacao } | null {
-    const mandou: ContagensDaGravacao = {
-        itens: enviado.itens.length, regras: enviado.regras.length, tipologias: enviado.tipologias.length, formulas: enviado.formulas.length,
-    }
-    const voltou: ContagensDaGravacao = { itens: gravado.itens, regras: gravado.regras, tipologias: gravado.tipologias, formulas: gravado.formulas }
-    const bate = (Object.keys(mandou) as Array<keyof ContagensDaGravacao>).every((k) => mandou[k] === voltou[k])
+    const listas = enviado as unknown as Record<string, unknown[] | undefined>
+    const mandou = Object.fromEntries(LISTAS_DA_GRAVACAO.map((k) => [k, listas[k]?.length ?? 0])) as ContagensDaGravacao
+    const voltou = Object.fromEntries(LISTAS_DA_GRAVACAO.map((k) => [k, typeof gravado[k] === 'number' ? gravado[k] : null])) as ContagensDaGravacao
+    // contagem que a função não devolveu é divergência, nunca acerto: undefined !== n
+    const bate = LISTAS_DA_GRAVACAO.every((k) => mandou[k] === voltou[k])
     return bate ? null : { enviado: mandou, gravado: voltou }
 }
 
