@@ -37,6 +37,7 @@
  * Está no bloco (1), na ordem.
  */
 import type { NextApiRequest, NextApiResponse } from 'next'
+import { abasDaDP02NoBanco } from './fixtures/abas-da-DP-02-no-banco'
 
 type Linha = Record<string, unknown>
 
@@ -144,7 +145,12 @@ function montar() {
         orcamentista_levantamento: [],
         orcamentista_levantamento_item: [],
         orcamentista_conta_tabela: [{ tenant_id: TENANT, tabela_id: TABELA }],
-        orcamentista_motor_tipologia_detalhe: CANDIDATAS.map((c) => ({ ...c })),
+        // as abas da DP-02 como a importação as grava: o levantamento e a conversa as leem do banco
+        ...abasDaDP02NoBanco(TABELA),
+        orcamentista_motor_tipologia_detalhe: [
+            ...CANDIDATAS.filter((c) => c.tipologia !== 'DP-02').map((c) => ({ ...c })),
+            ...abasDaDP02NoBanco(TABELA).orcamentista_motor_tipologia_detalhe,
+        ],
         orcamentista_mp_categoria: [{ tenant_id: TENANT, categoria_chave: 'PERFIL', config: { serra_mm: 5, cores: ['BRANCO'] } }],
         orcamentista_motor_regra: DE_PARA.regras.map((r, k) => ({ id: `r-${String(k).padStart(4, '0')}`, ...r, tabela_id: TABELA, tipologias: ['DP-02'] })),
         orcamentista_tabela_item: DE_PARA.itens.map((i) => ({ ...i, tabela_id: TABELA })),

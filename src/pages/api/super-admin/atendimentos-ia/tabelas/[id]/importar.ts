@@ -27,6 +27,11 @@
  *   4. os dois objetos estão no bucket — senão 409 com o caminho que faltou;
  *   5. baixa os dois com `service_role` e lê com o leitor (`lerArquivosDaImportacao`). Planilha
  *      que o leitor recusa — aba que falta, arquivo que não abre — é 422 com a frase dele;
+ *   5a. A TRAVA DOS ITENS (25/10/2026, decisão do dono do produto): se a tabela tem item gravado
+ *      cujo código o arquivo NÃO traz, 409 com `fraseDaImportacaoTravadaPorItensForaDoArquivo` —
+ *      DEPOIS de ler (é a leitura que diz o que o arquivo traz) e ANTES de gravar. O caso: 24 vidros
+ *      inseridos à mão na tabela 5f7acebf. Erro do banco ao ler os códigos é 500: falha FECHADA.
+ *      Cobre os ITENS; regras, tipologias e fórmulas só existem vindas do arquivo;
  *   6. grava por UMA chamada à função `importar_conteudo_da_tabela` (`20261020000002`), que
  *      apaga e insere numa transação;
  *   7. CONFERE o que a função gravou contra o que foi mandado. Diferente é 500 com os dois
@@ -42,13 +47,22 @@ import {
   falhaInterna,
   importarConteudo,
   contarTemposGravados,
+  codigosDosItensGravados,
   nomeDoUsuario,
   objetoExiste,
   obterArquivosDaTabela,
   ultimaImportacao,
 } from '@/lib/atendimentos-ia/repositorio'
 import { arquivoImportavel, ehUuid, fraseDoArquivo, fraseDoArquivoNaoImportavel } from '@/utils/atendimentos-ia-catalogo'
-import { conferirGravacao, fraseDaImportacaoTravadaPeloTempo, lerArquivosDaImportacao, montarPayloadDaImportacao, type ResultadoDaLeitura } from '@/utils/atendimentos-ia-importacao'
+import {
+  conferirGravacao,
+  fraseDaImportacaoTravadaPeloTempo,
+  fraseDaImportacaoTravadaPorItensForaDoArquivo,
+  itensQueOArquivoNaoTraz,
+  lerArquivosDaImportacao,
+  montarPayloadDaImportacao,
+  type ResultadoDaLeitura,
+} from '@/utils/atendimentos-ia-importacao'
 
 export const config = { maxDuration: 60 }
 
@@ -120,6 +134,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const lida = leitura as Lida
 
   const payload = montarPayloadDaImportacao(lida, caller.user_id)
+
+  let foraDoArquivo: string[]
+  try {
+    foraDoArquivo = itensQueOArquivoNaoTraz(await codigosDosItensGravados(id), payload)
+  } catch (e) {
+    return falhaInterna(res, 'importação (itens gravados)', e, 'Não foi possível conferir os itens gravados da tabela. Nada foi alterado.')
+  }
+  if (foraDoArquivo.length > 0) return res.status(409).json({ error: fraseDaImportacaoTravadaPorItensForaDoArquivo(foraDoArquivo) })
   let gravado: Awaited<ReturnType<typeof importarConteudo>>
   try {
     gravado = await importarConteudo(id, payload)

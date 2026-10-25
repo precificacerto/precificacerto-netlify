@@ -41,6 +41,7 @@ import {
     type Aviso, type ResultadoDaLeitura,
 } from '@/utils/atendimentos-ia-importacao'
 import { EXTENSOES_IMPORTAVEIS, MOTIVO_DA_EXTENSAO_NAO_IMPORTAVEL, fraseDoArquivoNaoImportavel } from '@/utils/atendimentos-ia-catalogo'
+import { abasDoSpec } from './fixtures/abas-do-motor-do-spec'
 
 type Celulas = Record<number, ExcelJS.CellValue>
 
@@ -76,7 +77,7 @@ const CAB_MOTOR: Celulas = { 1: 'CÓDIGO', 14: 'TIPOLOGIAS' }
 const CAB_FAMILIA: Celulas = { 1: 'LINHA', 2: 'VARIÁVEL' }
 
 async function motorPadrao(regras: Celulas[] = [regra('A1', 'JC2F, JC4F')], familia: Celulas[] = []) {
-    return bytes({ [MOTOR]: [CAB_MOTOR, ...regras], [FAMILIA]: [CAB_FAMILIA, ...familia] })
+    return bytes({ [MOTOR]: [CAB_MOTOR, ...regras], [FAMILIA]: [CAB_FAMILIA, ...familia], ...abasDoSpec() })
 }
 // Com `strictNullChecks` desligado, `r.ok` não estreita a união — as guardas são explícitas.
 type Recusa = Extract<ResultadoDaLeitura, { ok: false }>
@@ -424,6 +425,7 @@ describe('(8) a aba "Sem uso no motor"', () => {
             [MOTOR]: [CAB_MOTOR, regra('A1', 'JC2F')],
             [FAMILIA]: [CAB_FAMILIA],
             'Sem uso no motor': [{ 1: 'CÓDIGO' }, { 1: 'X1' }, { 1: 'X2' }],
+            ...abasDoSpec(),
         })
         const r = await ler([cabecalho('VALOR METRO 17%', 'VALOR BARRA 17%'), item('A1')], motor)
         expect(r.regras.map((x) => x.codigo)).toEqual(['A1'])

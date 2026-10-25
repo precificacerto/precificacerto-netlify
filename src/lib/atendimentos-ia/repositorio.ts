@@ -271,7 +271,8 @@ export async function obterArquivosDaTabela(id: string): Promise<{ id: string; a
  * (`20261020000002`), que apaga e insere as quatro tabelas de conteúdo e grava o registro numa
  * transação só. Devolve as contagens que a função gravou.
  */
-export async function importarConteudo(tabelaId: string, payload: unknown): Promise<{ importacao_id: string; itens: number; regras: number; tipologias: number; formulas: number }> {
+/** As contagens que a função gravou: as quatro tabelas de sempre e as nove abas, pela chave do payload. */
+export async function importarConteudo(tabelaId: string, payload: unknown): Promise<{ importacao_id: string; itens: number; regras: number; tipologias: number; formulas: number } & Record<string, number | string>> {
     return q(db().rpc('importar_conteudo_da_tabela', { p_tabela_id: tabelaId, p_payload: payload }))
 }
 
@@ -298,6 +299,20 @@ export async function contarTemposGravados(tabelaId: string): Promise<{ total: n
     }
     const [total, ESTIMADO, IMPORTADO] = await Promise.all([contar(null), contar('ESTIMADO'), contar('IMPORTADO')])
     return { total, ESTIMADO, IMPORTADO }
+}
+
+/**
+ * Os códigos dos itens gravados para a tabela, paginados de mil em mil — a leitura padrão do
+ * PostgREST corta em mil linhas, e cortar aqui esconderia justamente o item que a trava procura.
+ */
+export async function codigosDosItensGravados(tabelaId: string): Promise<string[]> {
+    const PAGINA = 1000
+    const codigos: string[] = []
+    for (let de = 0; ; de += PAGINA) {
+        const linhas = await q(db().from('orcamentista_tabela_item').select('codigo').eq('tabela_id', tabelaId).order('id').range(de, de + PAGINA - 1)) as Array<{ codigo: string }>
+        codigos.push(...linhas.map((l) => l.codigo))
+        if (linhas.length < PAGINA) return codigos
+    }
 }
 
 /** O resumo por tipologia gravado para a tabela, SEM ordem — quem ordena é a rota. */

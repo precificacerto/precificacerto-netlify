@@ -696,6 +696,18 @@ export const COLUNAS_LIDAS: Readonly<Record<string, readonly string[]>> = {
     'Validações': ['Código', 'Condição válida', 'Mensagem'],
 }
 
+/**
+ * As linhas da aba 'Variáveis' de UMA tipologia, pelo nome da coluna. Ponto único: o avaliador e a
+ * conversa (que só precisa das variáveis para perguntar as escolhas) leem por aqui.
+ */
+export function variaveisDaAba(aba: AbaDoMotor, codigo: string): VariavelDaTipologia[] {
+    const texto = (v: unknown) => (v === null || v === undefined ? null : String(v))
+    return aba.linhas.filter((l) => l['Código'] === codigo).map((l) => ({
+        variavel: texto(l['Var.']) ?? '', descricao: texto(l['Descrição']), padrao: texto(l['Padrão']),
+        condicao: texto(l['Condição']), opcoes: texto(l['Opções']),
+    }))
+}
+
 export function lerTipologia(abas: AbasDoMotor, codigo: string): { ok: true; tipologia: Tipologia } | { ok: false; recusas: RecusaDoAvaliador[] } {
     const recusas: RecusaDoAvaliador[] = []
     for (const [aba, colunas] of Object.entries(COLUNAS_LIDAS)) {
@@ -727,10 +739,7 @@ export function lerTipologia(abas: AbasDoMotor, codigo: string): { ok: true; tip
             alt_min_mm: limite('Detalhe Tipologias', 'Alt. mín (mm)', detalhe['Alt. mín (mm)']),
             alt_max_mm: limite('Detalhe Tipologias', 'Alt. máx (mm)', detalhe['Alt. máx (mm)']),
         },
-        variaveis: daTipologia('Variáveis').map((l) => ({
-            variavel: textoObrigatorio(l['Var.']), descricao: texto(l['Descrição']), padrao: texto(l['Padrão']),
-            condicao: texto(l['Condição']), opcoes: texto(l['Opções']),
-        })),
+        variaveis: variaveisDaAba(abas['Variáveis'], codigo),
         formulas: daTipologia('Fórmulas').map((l) => ({ variavel: textoObrigatorio(l['Variável']), formula: textoObrigatorio(l['Fórmula']) })),
         perfis: daTipologia('Perfis').map((l) => ({
             perfil: textoObrigatorio(l['Perfil']), descricao: textoObrigatorio(l['Descrição']), corte: textoObrigatorio(l['Corte']),

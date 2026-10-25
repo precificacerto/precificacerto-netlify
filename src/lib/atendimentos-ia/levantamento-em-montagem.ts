@@ -24,8 +24,7 @@
  * Portão: `src/utils/__tests__/levantamento-em-montagem.test.ts`.
  */
 import { PERGUNTA_DO_CAMPO, valorValido } from '@/lib/atendimentos-ia/pre-definicao'
-import { escolhaPedida, lerEscolhasGravadas, perguntaDaEscolha, validarEscolha, type EscolhaPendente } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
-import type { Tipologia } from '@/lib/atendimentos-ia/avaliador-de-formulas'
+import { escolhaPedida, lerEscolhasGravadas, perguntaDaEscolha, validarEscolha, type EscolhaPendente, type VariaveisDaTipologia } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 
 /** Os campos de uma esquadria, na ordem em que são perguntados. */
 export const CAMPOS_DA_ESQUADRIA = ['tipologia', 'largura_mm', 'altura_mm', 'quantidade', 'cor_perfil', 'vidro'] as const
@@ -48,7 +47,7 @@ export const itemVazio = (ordem: number): ItemDoLevantamento => ({
 })
 
 /** As abas da tipologia lidas, ou null quando ela não as tem — não há escolha a perguntar. */
-export type DefinicaoDaTipologia = (tipologia: string | null) => Tipologia | null
+export type DefinicaoDaTipologia = (tipologia: string | null) => VariaveisDaTipologia | null
 
 export type ContextoDaProposta = {
     tipologias: readonly string[]

@@ -42,6 +42,9 @@ jest.mock('@/supabase/admin', () => ({
     },
 }))
 
+import { abasDoSpec } from './fixtures/abas-do-motor-do-spec'
+import { ABAS_DO_MOTOR } from '@/utils/atendimentos-ia-abas-do-motor'
+
 const T = '22222222-2222-4222-8222-222222222222'
 const TABELA = { id: T, arquivo_path: 'f/arquivo/x-Tabela Wolff.xlsm', arquivo_nome: 'Tabela Wolff.xlsm', motor_path: 'f/motor/x-Motor.xlsx', motor_nome: 'Motor.xlsx' }
 
@@ -57,8 +60,10 @@ jest.mock('@/lib/atendimentos-ia/repositorio', () => {
         obterArquivosDaTabela: fn('obterArquivosDaTabela', () => TABELA),
         objetoExiste: fn('objetoExiste', (p: string) => p in objetos),
         baixarObjeto: fn('baixarObjeto', (p: string) => objetos[p]),
+        // a função devolve a contagem de CADA lista que gravou: as quatro de sempre e as nove abas
         importarConteudo: fn('importarConteudo', (_id: string, p: any) => ({
-            importacao_id: 'imp-1', itens: p.itens.length, regras: p.regras.length, tipologias: p.tipologias.length, formulas: p.formulas.length,
+            importacao_id: 'imp-1',
+            ...Object.fromEntries(Object.entries(p).filter(([k, v]) => Array.isArray(v) && k !== 'avisos').map(([k, v]) => [k, (v as unknown[]).length])),
         })),
         ultimaImportacao: fn('ultimaImportacao', () => null),
         nomeDoUsuario: fn('nomeDoUsuario', () => 'Cristiano'),
@@ -66,6 +71,7 @@ jest.mock('@/lib/atendimentos-ia/repositorio', () => {
         listarTipologias: fn('listarTipologias', () => TIPOLOGIAS_DO_BANCO),
         contarFormulas: fn('contarFormulas', () => 137),
         contarTemposGravados: fn('contarTemposGravados', () => ({ total: 0, ESTIMADO: 0, IMPORTADO: 0 })),
+        codigosDosItensGravados: fn('codigosDosItensGravados', () => []),
     }
 })
 const DADOS = { id: T, fornecedor_id: 'f1', fornecedor_nome: 'Wolf Perfis', arquivo_nome: 'Tabela Wolff.xlsm', motor_nome: 'Motor.xlsx', vigencia: null as string | null }
@@ -109,8 +115,12 @@ const ARQUIVOS_BONS = async () => ({
     [TABELA.motor_path]: await planilha({
         'Motor por barra': [{ 1: 'CÓDIGO' }, { 1: 'IL4237', 14: 'DP-01', 15: 'ARE > 0' }, { 1: 'Z9', 14: 'DP-02' }],
         'Fórmulas da família': [{ 1: 'LINHA' }, { 1: 'PVC EUROPA 42', 2: 'L' }],
+        ...abasDoSpec(),
     }),
 })
+
+/** A contagem de cada lista do payload, como a função devolve. */
+const contagensDe = (p: any) => Object.fromEntries(Object.entries(p).filter(([k, v]) => Array.isArray(v) && k !== 'avisos').map(([k, v]) => [k, (v as unknown[]).length]))
 
 const SEM_TEMPO = { total: 0, ESTIMADO: 0, IMPORTADO: 0 }
 /** A frase da trava, lida DENTRO dos casos: no commit do portão ela ainda não existe. */
@@ -129,6 +139,7 @@ beforeEach(async () => {
     Object.values(repo).forEach((f) => { if (typeof f?.mockClear === 'function') f.mockClear() })
     repo.obterArquivosDaTabela.mockImplementation(async () => { ordem.push('obterArquivosDaTabela'); return TABELA })
     repo.contarTemposGravados.mockImplementation(async () => { ordem.push('contarTemposGravados'); return SEM_TEMPO })
+    repo.codigosDosItensGravados?.mockImplementation(async () => { ordem.push('codigosDosItensGravados'); return [] })
 })
 
 describe('quem passa', () => {
@@ -218,9 +229,10 @@ describe('a importação', () => {
         expect(repo.importarConteudo).not.toHaveBeenCalled()
     })
 
-    it.each([['itens'], ['regras'], ['tipologias'], ['formulas']])('contagem divergente em %s → 500 com os dois números lado a lado, nunca sucesso', async (campo) => {
+    // as nove abas entram na conferência como as quatro de sempre: a lista vem do mapa, não de cópia
+    it.each([['itens'], ['regras'], ['tipologias'], ['formulas'], ...ABAS_DO_MOTOR.map((a) => [a.payload])])('contagem divergente em %s → 500 com os dois números lado a lado, nunca sucesso', async (campo) => {
         repo.importarConteudo.mockImplementationOnce(async (_id: string, p: any) => ({
-            importacao_id: 'imp-2', itens: p.itens.length, regras: p.regras.length, tipologias: p.tipologias.length, formulas: p.formulas.length,
+            importacao_id: 'imp-2', ...contagensDe(p),
             [campo]: p[campo].length + 1,
         }))
         const r = await chamar('POST')
@@ -228,6 +240,35 @@ describe('a importação', () => {
         expect(r.json.enviado[campo]).not.toBe(r.json.gravado[campo])
         expect(r.json.gravado[campo]).toBe(r.json.enviado[campo] + 1)
         expect(r.json.error).toMatch(/não conferiu/)
+    })
+})
+
+describe('as nove abas na gravação', () => {
+    it('o payload leva as nove abas pela chave do mapa, e a função que não devolve a contagem de uma delas é divergência', async () => {
+        repo.importarConteudo.mockImplementationOnce(async (_id: string, p: any) => {
+            const c = contagensDe(p)
+            delete c.insumos
+            return { importacao_id: 'imp-3', ...c }
+        })
+        const r = await chamar('POST')
+        const enviado = repo.importarConteudo.mock.calls[0][1]
+        for (const a of ABAS_DO_MOTOR) expect(Array.isArray(enviado[a.payload])).toBe(true)
+        expect(enviado.perfis.length).toBeGreaterThan(0)
+        expect(r.status).toBe(500)
+        expect(r.json).toEqual(expect.objectContaining({ gravado: expect.objectContaining({ insumos: null }) }))
+    })
+
+    it('aba do motor que falta no arquivo → 422 nomeando a aba, e nada é gravado', async () => {
+        const motor = await planilha({
+            'Motor por barra': [{ 1: 'CÓDIGO' }, { 1: 'IL4237', 14: 'DP-01' }],
+            'Fórmulas da família': [{ 1: 'LINHA' }],
+            ...Object.fromEntries(Object.entries(abasDoSpec()).filter(([n]) => n !== 'Vidros')),
+        })
+        objetos[TABELA.motor_path] = motor
+        const r = await chamar('POST')
+        expect(r.status).toBe(422)
+        expect(r.json.error).toContain('não tem a aba "Vidros"')
+        expect(repo.importarConteudo).not.toHaveBeenCalled()
     })
 })
 
@@ -290,6 +331,65 @@ describe('A TRAVA DO TEMPO — a importação de hoje apagaria os tempos de fabr
         const r = await chamar('GET')
         expect(r.status).toBe(200)
         expect(repo.contarTemposGravados).not.toHaveBeenCalled()
+    })
+})
+
+describe('A TRAVA DOS ITENS QUE O ARQUIVO NÃO TRAZ — a importação apagaria linhas que não sabe pôr de volta', () => {
+    // O caso que a originou (dono do produto, 25/10/2026): 24 vidros inseridos à mão na tabela
+    // 5f7acebf, que nenhum arquivo traz. A importação apaga TODOS os itens da tabela e regrava só os
+    // do arquivo: sem a trava, os 24 sumiriam.
+    /** A frase lida DENTRO dos casos: no commit do portão ela ainda não existe. */
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const fraseDosItens = (c: string[]) => require('@/utils/atendimentos-ia-importacao').fraseDaImportacaoTravadaPorItensForaDoArquivo(c) as string
+    const gravados = (c: string[]) => repo.codigosDosItensGravados.mockImplementation(async () => { ordem.push('codigosDosItensGravados'); return c })
+
+    it('item gravado que o arquivo não traz → 409 com a frase, ANTES de gravar — e diz quantos e quais', async () => {
+        gravados(['IL4237', 'VIDRO 4MM', 'VIDRO 6MM'])
+        const r = await chamar('POST')
+        expect(r.status).toBe(409)
+        expect(r.json.error).toBe(fraseDosItens(['VIDRO 4MM', 'VIDRO 6MM']))
+        expect(r.json.error).toContain('2 itens')
+        expect(r.json.error).toContain('VIDRO 4MM')
+        expect(repo.importarConteudo).not.toHaveBeenCalled()
+    })
+
+    it('todos os itens gravados estão no arquivo → a importação segue (a substituição é o desenho certo aí)', async () => {
+        gravados(['IL4237', 'KT4237'])
+        const r = await chamar('POST')
+        expect(r.status).toBe(200)
+        expect(repo.importarConteudo).toHaveBeenCalledTimes(1)
+        expect(ordem.indexOf('codigosDosItensGravados')).toBeLessThan(ordem.indexOf('importarConteudo'))
+    })
+
+    it('a comparação é EXATA: "il4237" gravado não é o "IL4237" do arquivo — nada é casado pelo parecido', async () => {
+        gravados(['il4237'])
+        const r = await chamar('POST')
+        expect(r.status).toBe(409)
+        expect(r.json.error).toBe(fraseDosItens(['il4237']))
+    })
+
+    it('erro do banco ao ler os itens gravados → 500, e a importação NÃO segue (falha fechada)', async () => {
+        repo.codigosDosItensGravados.mockImplementation(async () => { throw new Error('falhou') })
+        const r = await chamar('POST')
+        expect(r.status).toBe(500)
+        expect(repo.importarConteudo).not.toHaveBeenCalled()
+    })
+
+    it('a função pura: o código do arquivo é comparado COMO ESTÁ, dos dois lados — "Vidro 4mm" casa com "Vidro 4mm" e com nada mais', () => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { itensQueOArquivoNaoTraz } = require('@/utils/atendimentos-ia-importacao')
+        expect(itensQueOArquivoNaoTraz(['Vidro 4mm', 'Vidro 4mm'], { itens: [{ codigo: 'Vidro 4mm' }] })).toEqual([])
+        expect(itensQueOArquivoNaoTraz(['Vidro 4mm', 'Vidro 4mm', 'X'], { itens: [{ codigo: 'VIDRO 4MM' }] })).toEqual(['Vidro 4mm', 'X'])
+    })
+
+    it('a frase nomeia até 10 códigos e conta o resto, e diz que nada foi alterado', () => {
+        const muitos = Array.from({ length: 24 }, (_, i) => `V${String(i + 1).padStart(2, '0')}`)
+        const f = fraseDosItens(muitos)
+        expect(f).toContain('24 itens')
+        expect(f).toContain('V10')
+        expect(f).not.toContain('V11')
+        expect(f).toContain('e mais 14')
+        expect(f).toContain('Nada foi alterado')
     })
 })
 
