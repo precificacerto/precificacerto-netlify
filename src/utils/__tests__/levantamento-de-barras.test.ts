@@ -219,6 +219,8 @@ describe('(4) o código do item: um valor por código', () => {
         const r = recusado([esquadria({ escolhas: { MAE: 2, ARI: 2 } })])
         expect(r.recusas.map((x) => [x.motivo, x.perfil])).toEqual([['COR_SEM_CODIGO', 'BZ1770/WOLFF']])
         expect(r.recusas[0].variantes).toHaveLength(8)
+        // a frase lista as variantes que existem, para o vendedor saber o que pedir
+        expect(r.recusas[0].mensagem).toContain(`as variantes que existem são: ${(r.recusas[0].variantes ?? []).join(', ')}`)
         expect(r.recusas[0].mensagem).toContain('BZ1770/WOLFF')
         expect(r.recusas[0].mensagem).toContain('BRANCO')
     })
