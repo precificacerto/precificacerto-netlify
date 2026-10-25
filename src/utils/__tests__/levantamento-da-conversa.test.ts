@@ -94,7 +94,11 @@ function montar() {
         orcamentista_motor_regra: DE_PARA.regras.map((r) => comId({ ...r, tabela_id: TABELA, tipologias: ['DP-02'] })),
         orcamentista_tabela_item: DE_PARA.itens.map((i) => ({ ...i, tabela_id: TABELA })),
         orcamentista_mp_categoria: [{ tenant_id: TENANT, categoria_chave: 'PERFIL', config: { serra_mm: 5, cores: ['BRANCO'], cor_predominante: 'BRANCO' } }],
-        orcamentista_motor_tipologia: [{ tabela_id: TABELA, tipologia: 'DP-02', linha: 'EUROPA 42', tempo_fabricacao_min: 150, tempo_origem: 'IMPORTADO' }],
+        // as colunas ANTIGAS de tempo continuam preenchidas em produção (obsoletas, saem numa migração
+        // posterior) — e aqui com OUTRO número, para que ler a coluna antiga apareça no resultado
+        orcamentista_motor_tipologia: [{ tabela_id: TABELA, tipologia: 'DP-02', linha: 'EUROPA 42', tempo_fabricacao_min: 999, tempo_origem: 'ESTIMADO' }],
+        // o tempo mora na tabela própria (20261024000003), que a importação não apaga
+        orcamentista_motor_tipologia_tempo: [{ tabela_id: TABELA, tipologia: 'DP-02', tempo_fabricacao_min: 150, tempo_origem: 'IMPORTADO' }],
         // os números do tenant ativo em produção, medidos em 25/10/2026
         tenant_settings: [{ tenant_id: TENANT, calc_type: 'INDUSTRIALIZACAO', monthly_workload: 528, workload_unit: 'HOURS', num_productive_employees: 5 }],
         tenant_expense_config: [{
@@ -182,13 +186,24 @@ describe('(1) a tabela da empresa e as tipologias candidatas', () => {
     })
 })
 
-describe('(2) o tempo de fabricação — leitura TEMPORÁRIA da coluna antiga', () => {
-    it('lê tempo_fabricacao_min e tempo_origem de orcamentista_motor_tipologia', async () => {
+describe('(2) o tempo de fabricação — da tabela própria, orcamentista_motor_tipologia_tempo', () => {
+    it('lê o tempo e a origem da tabela própria — e NÃO das colunas antigas, que têm outro número', async () => {
         expect(await M().tempoDeFabricacao(TABELA, 'DP-02')).toEqual({ minutos: 150, origem: 'IMPORTADO' })
     })
 
-    it('sem tempo cadastrado: null, nunca zero', async () => {
+    it('sem linha na tabela própria: null, nunca zero — mesmo com a coluna antiga preenchida', async () => {
+        banco.db.orcamentista_motor_tipologia.push({ tabela_id: TABELA, tipologia: 'DP-01', linha: 'DESIGN', tempo_fabricacao_min: 90, tempo_origem: 'ESTIMADO' })
         expect(await M().tempoDeFabricacao(TABELA, 'DP-01')).toBeNull()
+    })
+
+    it('o tempo da MESMA tipologia em outra tabela não é lido', async () => {
+        banco.db.orcamentista_motor_tipologia_tempo = [{ tabela_id: 'outra-tabela', tipologia: 'DP-02', tempo_fabricacao_min: 777, tempo_origem: 'ESTIMADO' }]
+        expect(await M().tempoDeFabricacao(TABELA, 'DP-02')).toBeNull()
+    })
+
+    it('a tabela própria AINDA NÃO EXISTE no banco: ausência declarada, não "sem tempo" e não erro', async () => {
+        banco.ausentes.add('orcamentista_motor_tipologia_tempo')
+        expect(await M().tempoDeFabricacao(TABELA, 'DP-02')).toEqual({ ausente: true })
     })
 })
 
@@ -387,7 +402,8 @@ describe('(7) a MÃO DE OBRA — o mesmo caminho da tela de produto, com os núm
     })
 
     it.each([
-        ['sem tempo de fabricação da tipologia', () => { banco.db.orcamentista_motor_tipologia = [] }, 'o tempo de fabricação de DP-02 não está cadastrado'],
+        ['sem tempo de fabricação da tipologia', () => { banco.db.orcamentista_motor_tipologia_tempo = [] }, 'o tempo de fabricação de DP-02 não está cadastrado'],
+        ['a tabela dos tempos ainda não existe', () => { banco.ausentes.add('orcamentista_motor_tipologia_tempo') }, 'a tabela dos tempos de fabricação ainda não foi carregada no banco'],
         ['sem carga horária', () => { banco.db.tenant_settings[0].monthly_workload = 0 }, 'a carga horária mensal da empresa não está configurada'],
         // sem a linha, faltam DUAS coisas, e as duas saem — uma não esconde a outra
         ['sem tenant_settings', () => { banco.db.tenant_settings = [] }, 'o tipo de cálculo da empresa (industrialização, revenda ou serviço) não está configurado; a carga horária mensal da empresa não está configurada'],
