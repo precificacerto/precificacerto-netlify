@@ -15,10 +15,10 @@
  * cor — e mesmo com a cor, 37 dos 509 pares têm mais de um.
  *
  * AS DECISÕES DO DONO DO PRODUTO, 24/10/2026:
- *   - A COR DESTA VERSÃO É BRANCO, FIXA (`COR_DA_PRIMEIRA_VERSAO`). As outras não existem no motor
- *     porque a tabela de preço delas não foi enviada. Nenhum de-para de cor é inventado: a lista
- *     `cores` da base de conhecimento ("branco", "amadeirado", "preto jet black") não casa com os
- *     valores da coluna `cor` do motor, e casar o parecido é o que a regra proíbe;
+ *   - A COR É A DA ENTRADA (`EntradaDoLevantamento.cor`), desde 25/10/2026 — antes era BRANCO fixa.
+ *     Quem chama passa a cor da pré-definição, que a conversa só aceita da lista `cores` da base de
+ *     conhecimento, escrita como a coluna `cor` do motor. Nenhum de-para de cor é inventado aqui:
+ *     uma cor que o motor não tem para um perfil é RECUSA nomeada, com as variantes que existem;
  *   - BARRA → REFERÊNCIA → CÓDIGO → VALOR, UM VALOR POR CÓDIGO. Dois códigos para o mesmo (perfil,
  *     cor) é dado incompleto, não ambiguidade aceitável: RECUSA com os dois códigos e os dois
  *     valores, mesmo com preço igual ("preço igual, usa os dois" foi proposto e rejeitado);
@@ -54,8 +54,6 @@
 import { avaliarTipologia, type AvisoDoAvaliador, type Tipologia } from './avaliador-de-formulas'
 import { agruparEmBarras, milimetrosDaBarra, type BarraDoCodigo, type ResultadoDoCodigo, type TotalDoLevantamento } from './agrupador-de-barras'
 
-/** Decisão do dono do produto, 24/10/2026: só BRANCO tem tabela de preço enviada. */
-export const COR_DA_PRIMEIRA_VERSAO = 'BRANCO'
 
 // ── A entrada ─────────────────────────────────────────────────────────────────────────────
 export type EsquadriaDoLevantamento = {
@@ -77,6 +75,8 @@ export type ItemDaTabela = {
     valor_metro_interno: number | null
 }
 export type EntradaDoLevantamento = {
+    /** A cor do perfil, comparada EXATA com a coluna `cor` do motor. Obrigatória: sem default. */
+    cor: string
     esquadrias: readonly EsquadriaDoLevantamento[]
     tipologias: Readonly<Record<string, Tipologia>>
     regras: readonly RegraDoDePara[]
@@ -218,7 +218,7 @@ const ORDEM_DA_ORIGEM: Record<OrigemDaRecusa, number> = { ESQUADRIA: 0, AVALIADO
 type RecusaParcial = Omit<RecusaDoLevantamento, 'mensagem' | 'esquadrias'> & { texto: string; esquadria?: number; comTipologia?: boolean }
 
 export function levantarBarras(entrada: EntradaDoLevantamento): ResultadoDoLevantamento {
-    const cor = COR_DA_PRIMEIRA_VERSAO
+    const cor = entrada.cor
     const parciais: RecusaParcial[] = []
 
     // 1. cada esquadria pelo avaliador

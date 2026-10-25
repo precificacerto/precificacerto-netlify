@@ -119,11 +119,17 @@ const textoValido = (v: unknown) => typeof v === 'string' && v.trim() !== '' && 
  * não inventa código. A comparação é EXATA, sem caixa nem espaço normalizados
  * (`faltou-dado-recusa-nomeada.md`: casar o parecido é escolher o parecido). Sem lista, nenhuma
  * tipologia valida.
+ *
+ * A COR DO PERFIL, desde 25/10/2026, segue a mesma regra: uma das `cores` da base de conhecimento da
+ * empresa (categoria Perfil), EXATA — é com ela que o motor é lido, e a coluna `cor` do motor não
+ * casa por caixa nem por gênero ("Branco" e "branca" não são BRANCO). Sem lista, nenhuma cor valida.
  */
-export function valorValido(campo: CampoDaPreDefinicao, v: unknown, tipologias: readonly string[]): unknown {
+export function valorValido(campo: CampoDaPreDefinicao, v: unknown, tipologias: readonly string[], cores: readonly string[]): unknown {
     switch (campo) {
         case 'tipologia':
             return typeof v === 'string' && tipologias.includes(v) ? v : undefined
+        case 'cor_perfil':
+            return typeof v === 'string' && cores.includes(v) ? v : undefined
         case 'largura_mm':
         case 'altura_mm':
             return inteiroNaFaixa(v, MEDIDA_MINIMA_MM, MEDIDA_MAXIMA_MM) ? v : undefined
@@ -156,10 +162,11 @@ export type ResultadoDaValidacao = {
  *   - a distribuição só é aceita com mais de um pavimento — o tipo considerado é o desta proposta,
  *     se válido, senão o já gravado;
  *   - a tipologia só é aceita se for um dos códigos de `tipologias` — a lista da tabela em uso da
- *     empresa. O parâmetro é obrigatório: um padrão vazio faria toda tipologia ser descartada sem
- *     que o chamador soubesse por quê (`construtor-empobrecido.md`).
+ *     empresa —, e a cor do perfil, se for uma das `cores` da base. Os dois parâmetros são
+ *     obrigatórios: um padrão vazio faria todo valor ser descartado sem que o chamador soubesse por
+ *     quê (`construtor-empobrecido.md`).
  */
-export function validarProposta(estadoAtual: Partial<EstadoDosCampos>, proposta: unknown, tipologias: readonly string[]): ResultadoDaValidacao {
+export function validarProposta(estadoAtual: Partial<EstadoDosCampos>, proposta: unknown, tipologias: readonly string[], cores: readonly string[]): ResultadoDaValidacao {
     const p = proposta && typeof proposta === 'object' ? (proposta as Record<string, unknown>) : {}
     const ler = (k: string) => (p[k] && typeof p[k] === 'object' ? (p[k] as Record<string, unknown>) : {})
     const campos = ler('campos')
@@ -172,7 +179,7 @@ export function validarProposta(estadoAtual: Partial<EstadoDosCampos>, proposta:
         for (const [origem, valor] of [['correcoes', correcoes[campo]], ['campos', campos[campo]]] as const) {
             if (valor === null || valor === undefined) continue
             propostos += 1
-            const valido = valorValido(campo, valor, tipologias)
+            const valido = valorValido(campo, valor, tipologias, cores)
             const podeSobrescrever = origem === 'correcoes'
             const jaTem = preenchido(estadoAtual[campo]) || campo in gravar
             // o tipo vem ANTES da distribuição na ordem: o aceito nesta proposta já está em `gravar`

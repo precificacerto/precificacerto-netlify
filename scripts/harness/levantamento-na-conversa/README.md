@@ -29,3 +29,16 @@ caíram; `L0` é o controle.
 | L13 | a recusa sai sem o prefixo técnico da esquadria | sem o prefixo de esquadria |
 | L14 | o total ausente diz o código que falta | PREÇO AUSENTE |
 | L15 | a lista que não existe não vira lista vazia | LISTA AINDA NÃO EXISTE |
+| L16 | em SERVIÇO, a MO administrativa e a fixa entram no minuto | o segmento decide |
+| L17 | em INDUSTRIALIZAÇÃO, elas NÃO entram | NÃO entram |
+| L18 | carga horária ausente é falta nomeada, nunca MO zero | nunca zero |
+| L19 | as faltas da mão de obra saem todas | sem tenant_settings |
+| L20 | os totais de material são arredondados ao centavo antes da diferença e da soma | o texto inteiro |
+| L21 | o total com mão de obra soma a mão de obra | o texto inteiro |
+| L22 | a mão de obra multiplica pela quantidade | a quantidade multiplica |
+| L23 | o levantamento usa a cor da pré-definição, não BRANCO fixa | PRETO TEXTURADO |
+| L24 | a cor do perfil só é aceita da lista, exata | não é BRANCO |
+| L25 | as cores da empresa vão ao prompt | a lista de cores vai ao prompt |
+| L26 | sem lista de cores, a conversa diz o que falta | SEM LISTA DE CORES |
+| L27 | as cores são só as desta empresa | outro tenant |
+| L28 | sem cor, o levantamento recusa | SEM COR |

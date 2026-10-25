@@ -39,7 +39,7 @@ const CANDIDATAS = [
  * O fechamento esperado para SETE_DE_PRODUTO_E_LOCAL, ESCRITO À MÃO a partir do texto aprovado pelo
  * dono do produto (22/10/2026) — não derivado do módulo, para que um erro no molde fique vermelho.
  */
-const FECHAMENTO_DOS_SETE = 'Fechado. Anotei tudo: DP-02, 1500x1200 mm, 4 peça(s), perfil Branco, vidro Temperado 6mm. Entrega em Porto Alegre. Já passo para o levantamento.'
+const FECHAMENTO_DOS_SETE = 'Fechado. Anotei tudo: DP-02, 1500x1200 mm, 4 peça(s), perfil BRANCO, vidro Temperado 6mm. Entrega em Porto Alegre. Já passo para o levantamento.'
 /** Os campos que o fechamento cita — a distribuição NÃO está aqui (dono do produto, 22/10/2026). */
 /**
  * Depois do fechamento, a SEGUNDA mensagem: o levantamento (`levantamento-da-conversa.ts`). Neste
@@ -53,7 +53,7 @@ const VAZIA: Linha = {
     local: null, tipo_edificacao: null, distribuicao_por_pavimento: null, escolhas: null,
 }
 const SETE_DE_PRODUTO_E_LOCAL = {
-    tipologia: 'DP-02', largura_mm: 1500, altura_mm: 1200, quantidade: 4, cor_perfil: 'Branco', vidro: 'Temperado 6mm',
+    tipologia: 'DP-02', largura_mm: 1500, altura_mm: 1200, quantidade: 4, cor_perfil: 'BRANCO', vidro: 'Temperado 6mm',
     local: 'Porto Alegre',
     // as escolhas da DP-02 já capturadas: sem arremate interno e sem externo — MAE não se aplica
     escolhas: { ARI: 4, ARE: 2 },
@@ -83,6 +83,8 @@ function montar(preDefinicao: Linha | null = null) {
         orcamentista_tentativa_desconhecida: [],
         orcamentista_conta_tabela: [{ tenant_id: TENANT, tabela_id: TABELA }],
         orcamentista_motor_tipologia_detalhe: CANDIDATAS.map((c) => ({ ...c })),
+        // a lista de cores da base de conhecimento (Perfil): é dela que a cor do perfil é escolhida
+        orcamentista_mp_categoria: [{ tenant_id: TENANT, categoria_chave: 'PERFIL', config: { cores: ['BRANCO'] } }],
         orcamentista_pre_definicao: preDefinicao
             ? [{ id: 'pd-1', tenant_id: TENANT, conversa_id: CONVERSA, estado: 'EM_COLETA', criado_em: '2026-10-22T00:00:00Z', atualizado_em: null, ...VAZIA, ...preDefinicao }]
             : [],
@@ -638,7 +640,7 @@ describe('(11) o FECHAMENTO: ao completar, o vendedor recebe UMA mensagem fixa, 
         expect(estado.envios.map((e) => e.corpo.Body)).toEqual([
             'Fechado. Anotei tudo: Basculante, 600x400 mm, 12 peça(s), perfil Preto fosco, vidro Mini boreal. Entrega em Canoas. Já passo para o levantamento.',
             // uma tipologia gravada antes da lista (texto livre) não tem abas: a recusa diz qual
-            'Não consegui fechar o levantamento de Basculante, 600 x 400 mm, 12 unidade(s), perfil BRANCO.\nFalta:\n'
+            'Não consegui fechar o levantamento de Basculante, 600 x 400 mm, 12 unidade(s), perfil Preto fosco.\nFalta:\n'
                 + '• A tipologia Basculante não tem as abas do motor importadas (Variáveis, Fórmulas, Perfis): ainda não consigo calcular as barras dela.',
         ])
     })
@@ -934,6 +936,8 @@ describe('(15) as ESCOLHAS da tipologia: uma de cada vez, só as que faltam, e a
         estado.db.orcamentista_tabela_item = dePara.itens.map((i) => ({ ...i, tabela_id: TABELA }))
         estado.db.orcamentista_mp_categoria = [{ tenant_id: TENANT, categoria_chave: 'PERFIL', config: { serra_mm: 5 } }]
         estado.db.orcamentista_motor_tipologia = [{ tabela_id: TABELA, tipologia: 'DP-02', tempo_fabricacao_min: 150, tempo_origem: 'IMPORTADO' }]
+        estado.db.tenant_settings = [{ tenant_id: TENANT, calc_type: 'INDUSTRIALIZACAO', monthly_workload: 528, workload_unit: 'HOURS', num_productive_employees: 5 }]
+        estado.db.tenant_expense_config = [{ tenant_id: TENANT, production_labor_cost_hub: 40813.03, production_labor_cost: 0, productive_value_per_minute: 0, admin_salary_total: 27649.76, admin_fgts_total: 0, admin_other_costs: 0, fixed_expense_monthly: 17884.79 }]
         llmResponde({ escolha: { variavel: 'MAE', opcao: 2 } })
         await chamar()
         const [fechamento, levantamento] = estado.envios.map((e) => String(e.corpo.Body))
@@ -943,8 +947,12 @@ describe('(15) as ESCOLHAS da tipologia: uma de cada vez, só as que faltam, e a
             'Escolhas: ARI 4 — SEM ARREMATE INTERNO; ARE 1 — BZ0010 - ARREMATE 20MM; MAE 2 — VÃO+50MM (CORTE 90/90) - PARA AJUSTE EM OBRA. As outras variáveis ficaram no Padrão da tipologia.',
         ])
         expect(levantamento).toContain('Barras por código:')
-        expect(levantamento).toMatch(/Total por barra inteira: R\$ [\d.]+,\d{2}\./)
-        expect(levantamento).toContain('Tempo de fabricação da tipologia: 150 min (IMPORTADO).')
+        expect(levantamento).toMatch(/Material por barra inteira: R\$ [\d.]+,\d{2}\./)
+        expect(levantamento).toMatch(/Diferença entre os dois: R\$ [\d.]+,\d{2}\./)
+        // 150 min × 4 unidades, a 40.813,03 ÷ 158.400 o minuto: 38,65 × 4 = 154,60
+        expect(levantamento).toContain('Mão de obra: 150 min por unidade (IMPORTADO) × 4 unidade(s), a R$ 0,257658 o minuto (R$ 40.813,03 ÷ 158.400 min): R$ 154,60.')
+        expect(levantamento).toMatch(/Total por barra inteira \(material \+ mão de obra\): R\$ [\d.]+,\d{2}\./)
+        expect(levantamento).toMatch(/Total por consumo real \(material \+ mão de obra\): R\$ [\d.]+,\d{2}\./)
         expect(linhaIa()[0]).toEqual(expect.stringMatching(/desfecho=fechou levantamento=levantou/))
     })
 
@@ -954,5 +962,50 @@ describe('(15) as ESCOLHAS da tipologia: uma de cada vez, só as que faltam, e a
         await chamar()
         expect(preDefinicao()?.estado).toBe('COMPLETA')
         expect(String(estado.envios[1].corpo.Body)).toContain('A tipologia DP-01 não tem as abas do motor importadas')
+    })
+})
+
+describe('(16) a COR DO PERFIL é escolhida da LISTA de cores da base de conhecimento — exata, como a tipologia', () => {
+    const QUATRO = { tipologia: 'DP-02', largura_mm: 1500, altura_mm: 1200, quantidade: 4 }
+
+    it('a lista de cores vai ao prompt', async () => {
+        montar(QUATRO)
+        await chamar()
+        expect(String(estado.chamadasDaLlm[0].corpo.system)).toContain('Cores da empresa (cor_perfil, escreva EXATAMENTE uma delas): BRANCO')
+    })
+
+    it('"Branco" não é BRANCO: a cor fora da lista exata é DESCARTADA, e a pergunta continua a da cor', async () => {
+        montar(QUATRO)
+        llmResponde({ campos: { cor_perfil: 'Branco' } })
+        await chamar()
+        expect(preDefinicao()?.cor_perfil).toBeNull()
+        expect(estado.envios[0].corpo.Body).toBe(preDef.PERGUNTA_DO_CAMPO.cor_perfil)
+        expect(linhaIa()[0]).toEqual(expect.stringMatching(/propostos=1 .*descartados=1/))
+    })
+
+    it('o contraste: BRANCO, da lista, é gravado', async () => {
+        montar(QUATRO)
+        llmResponde({ campos: { cor_perfil: 'BRANCO' } })
+        await chamar()
+        expect(preDefinicao()?.cor_perfil).toBe('BRANCO')
+    })
+
+    it('a lista é a DESTA empresa: a cor de outro tenant não vale', async () => {
+        montar(QUATRO)
+        estado.db.orcamentista_mp_categoria.push({ tenant_id: 'outro-tenant', categoria_chave: 'PERFIL', config: { cores: ['AZUL'] } })
+        llmResponde({ campos: { cor_perfil: 'AZUL' } })
+        await chamar()
+        expect(preDefinicao()?.cor_perfil).toBeNull()
+    })
+
+    it('SEM LISTA DE CORES na base: quando a vez é da cor, a conversa diz o que falta em vez de perguntar', async () => {
+        montar(QUATRO)
+        estado.db.orcamentista_mp_categoria = []
+        llmResponde({ campos: { cor_perfil: 'BRANCO' } })
+        await chamar()
+        expect(preDefinicao()?.cor_perfil).toBeNull()
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { FRASE_SEM_CORES } = require('@/lib/atendimentos-ia/levantamento-da-conversa') as { FRASE_SEM_CORES: string }
+        expect(estado.envios.map((e) => e.corpo.Body)).toEqual([FRASE_SEM_CORES])
     })
 })

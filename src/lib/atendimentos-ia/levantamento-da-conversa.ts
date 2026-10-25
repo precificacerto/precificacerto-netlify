@@ -4,7 +4,10 @@
  * pré-definição fecha. Quem chama é `conversa-da-ia.ts`.
  *
  * ══ PRIMEIRA VERSÃO, PARA VER RODANDO (dono do produto, 25/10/2026) ══
- *   - COR FIXA BRANCO (`COR_DA_PRIMEIRA_VERSAO`): a cor que o vendedor diz é anotada e NÃO é usada;
+ *   - A COR É A DA PRÉ-DEFINIÇÃO (`cor_perfil`), desde a rodada do preço na conversa. A conversa só a
+ *     aceita da lista `cores` da base de conhecimento (Perfil), EXATA (`lerCoresDaEmpresa`), e aqui
+ *     ela é comparada exata com a coluna `cor` do motor: cor que o motor não tem para um perfil é
+ *     recusa nomeada, com o perfil, a cor e as variantes que existem;
  *   - só as escolhas que a conversa captura (`escolhas-da-tipologia.ts`: ARI, ARE e MAE desde
  *     25/10/2026), gravadas em `orcamentista_pre_definicao.escolhas`; as outras variáveis ficam no
  *     Padrão, e a mensagem diz quais foram escolhidas. Sem escolha nenhuma, a DP-02 é recusada: o
@@ -36,6 +39,19 @@
  * migração 20261024000003 (`orcamentista_motor_tipologia_tempo`) ainda não foi aplicada. Quando for, a
  * troca é a tabela e as duas colunas DESTA função, e só dela.
  *
+ * ══ A MÃO DE OBRA — O CAMINHO DA TELA DE PRODUTO ══
+ * `lerMaoDeObra`: o tempo de fabricação da tipologia × o valor do minuto, pelo MESMO caminho que
+ * `products/content.component.tsx` usa — está em `src/utils/mao-de-obra-pelo-caminho-da-tela.ts`,
+ * fora desta área, porque a conta e o vocabulário dela são do sistema do cliente.
+ * `productive_value_per_minute` NÃO é lido: está 0 em produção e nada escreve nele (dono do
+ * produto, 25/10/2026). Faltou um dos números: falta NOMEADA, nunca zero, e os totais com mão de
+ * obra não saem.
+ *
+ * ══ OS VALORES DA MENSAGEM SÃO OS EXIBIDOS ══
+ * Os dois totais de material são arredondados ao centavo ANTES de virar diferença ou soma: assim a
+ * conta que o vendedor refaz com os números da mensagem bate com o número que ela traz. São CUSTO —
+ * material da tabela do fornecedor (`valor_*_interno`) e mão de obra —, sem margem nem imposto.
+ *
  * ══ A ESPESSURA DO VIDRO ══
  * O avaliador escolhe o baguete pela espessura. Ela é lida do campo `vidro` que o vendedor disse,
  * quando ele traz EXATAMENTE um número em mm ("Temperado 6mm" → 6). Sem número, ou com dois, ela fica
@@ -47,9 +63,10 @@ import { supabaseAdmin } from '@/supabase/admin'
 import { lerTipologia, type AbasDoMotor, type AvisoDoAvaliador, type Tipologia } from '@/lib/atendimentos-ia/avaliador-de-formulas'
 import { descreverEscolhas, lerEscolhasGravadas } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import {
-    COR_DA_PRIMEIRA_VERSAO, formatarReais, levantarBarras,
+    formatarReais, levantarBarras,
     type ItemDaTabela, type RegraDoDePara, type ResultadoDoLevantamento,
 } from '@/lib/atendimentos-ia/levantamento-de-barras'
+import { maoDeObraPeloCaminhoDaTela, type DadosDaEmpresaParaMaoDeObra } from '@/utils/mao-de-obra-pelo-caminho-da-tela'
 import ABAS_WOLFF_DP02 from '@/lib/atendimentos-ia/abas-do-motor-wolff-DP-02.json'
 
 // ── As abas do motor que existem no repositório ─────────────────────────────────────────────
@@ -133,6 +150,54 @@ export function espessuraDoVidro(vidro: unknown): number | null {
     return Number.isFinite(n) && n > 0 ? n : null
 }
 
+// ── A mão de obra ───────────────────────────────────────────────────────────────────────────
+export type MaoDeObra =
+    | {
+        ok: true
+        minutosPorUnidade: number
+        origem: string | null
+        quantidade: number
+        /** O custo mensal que a tela de produto entrega ao motor (`custoMensalDeMaoDeObraDoProduto`). */
+        custoMensal: number
+        /** Os minutos produtivos da empresa no mês (`resolveMonthlyWorkload`). */
+        minutosDaEmpresa: number
+        /** `calculatePricing(...).productiveLaborCost`: a mão de obra de UMA unidade, em R$ ao centavo. */
+        porUnidade: number
+        total: number
+    }
+    | { ok: false; falta: string }
+
+const centavos = (v: number) => Math.round(v * 100) / 100
+
+/**
+ * A mão de obra de `quantidade` unidades da tipologia: o tempo de fabricação × o valor do minuto pelo
+ * caminho da tela de produto (`maoDeObraPeloCaminhoDaTela`). A esquadria é PRODUZIDA: o tipo de
+ * cálculo é o da empresa, como na tela para um produto que não é de revenda. Toda leitura é desta
+ * empresa (`tenant_id`) ou da tabela ligada a ela.
+ */
+export async function lerMaoDeObra(tenantId: string, tabelaId: string, tipologia: string, quantidade: number): Promise<MaoDeObra> {
+    const tempo = await tempoDeFabricacao(tabelaId, tipologia)
+    if (tempo === null) return { ok: false, falta: `o tempo de fabricação de ${tipologia} não está cadastrado` }
+
+    const [{ data: settings, error: erroSettings }, { data: despesas, error: erroDespesas }] = await Promise.all([
+        supabaseAdmin.from('tenant_settings').select('calc_type, monthly_workload, workload_unit, num_productive_employees').eq('tenant_id', tenantId).maybeSingle(),
+        supabaseAdmin.from('tenant_expense_config')
+            .select('production_labor_cost_hub, production_labor_cost, admin_salary_total, admin_fgts_total, admin_other_costs, fixed_expense_monthly')
+            .eq('tenant_id', tenantId).maybeSingle(),
+    ])
+    if (erroSettings) throw new Error(`tenant_settings: ${erroSettings.message}`)
+    if (erroDespesas) throw new Error(`tenant_expense_config: ${erroDespesas.message}`)
+    const dados = { ...((settings ?? {}) as DadosDaEmpresaParaMaoDeObra), ...((despesas ?? {}) as DadosDaEmpresaParaMaoDeObra) }
+
+    const m = maoDeObraPeloCaminhoDaTela(dados, tempo.minutos)
+    if ('faltas' in m) return { ok: false, falta: m.faltas.join('; ') }
+    return {
+        ok: true, minutosPorUnidade: tempo.minutos, origem: tempo.origem, quantidade,
+        custoMensal: m.custoMensal, minutosDaEmpresa: m.minutosDaEmpresa,
+        porUnidade: m.valor, total: centavos(m.valor * quantidade),
+    }
+}
+
 // ── As leituras do banco ────────────────────────────────────────────────────────────────────
 const PAGINA = 1000
 
@@ -169,13 +234,35 @@ async function lerItens(tabelaId: string, codigos: string[]): Promise<ItemDaTabe
     return itens
 }
 
-/** A serra da base de conhecimento, categoria PERFIL. Um valor só — ou a frase do que falta. */
-async function lerSerra(tenantId: string): Promise<{ ok: true; serra_mm: number } | { ok: false; frase: string }> {
+/** As configurações da categoria PERFIL da base de conhecimento DESTA empresa — uma por matéria-prima. */
+async function lerConfigsDoPerfil(tenantId: string): Promise<Array<Record<string, unknown>>> {
     const { data, error } = await supabaseAdmin
         .from('orcamentista_mp_categoria').select('config').eq('tenant_id', tenantId).eq('categoria_chave', 'PERFIL')
     if (error) throw new Error(`orcamentista_mp_categoria: ${error.message}`)
-    const valores = [...new Set(((data ?? []) as Array<{ config: Record<string, unknown> | null }>)
-        .map((l) => l.config?.serra_mm).filter((v): v is number => typeof v === 'number' && Number.isFinite(v)))]
+    return ((data ?? []) as Array<{ config: Record<string, unknown> | null }>).map((l) => l.config ?? {})
+}
+
+/** A frase de quando a base de conhecimento não tem a lista de cores: a conversa diz isso em vez de perguntar. */
+export const FRASE_SEM_CORES = 'Ainda não consigo anotar a cor do perfil: a base de conhecimento da empresa não tem a lista de cores do Perfil.'
+
+/**
+ * As cores da empresa: a lista `cores` da categoria PERFIL, de todas as matérias-primas, sem repetição
+ * e na ordem em que aparecem. EXATAS, como estão gravadas — é contra elas que a cor do perfil é
+ * validada, e é com elas que o motor é lido.
+ */
+export async function lerCoresDaEmpresa(tenantId: string): Promise<string[]> {
+    const cores: string[] = []
+    for (const config of await lerConfigsDoPerfil(tenantId)) {
+        const lista = Array.isArray(config.cores) ? config.cores : []
+        for (const c of lista) if (typeof c === 'string' && c !== '' && !cores.includes(c)) cores.push(c)
+    }
+    return cores
+}
+
+/** A serra da base de conhecimento, categoria PERFIL. Um valor só — ou a frase do que falta. */
+async function lerSerra(tenantId: string): Promise<{ ok: true; serra_mm: number } | { ok: false; frase: string }> {
+    const valores = [...new Set((await lerConfigsDoPerfil(tenantId))
+        .map((c) => c.serra_mm).filter((v): v is number => typeof v === 'number' && Number.isFinite(v)))]
     if (valores.length === 1) return { ok: true, serra_mm: valores[0] }
     if (valores.length === 0) return { ok: false, frase: 'a largura da serra não está na base de conhecimento da empresa (categoria Perfil). Falta: a serra, em mm.' }
     return { ok: false, frase: `a base de conhecimento da empresa tem ${valores.length} larguras de serra diferentes na categoria Perfil (${valores.join(' mm, ')} mm). Falta dizer qual vale.` }
@@ -205,9 +292,9 @@ function fraseDoAviso(a: AvisoDoAvaliador): string {
  *   - ''   — as abas existem e nenhuma escolha foi capturada: "nenhuma — todas no Padrão";
  *   - texto — as escolhas descritas (`descreverEscolhas`).
  */
-export type DadosDaEsquadria = { tipologia: string; largura_mm: number; altura_mm: number; quantidade: number; escolhas: string | null }
+export type DadosDaEsquadria = { tipologia: string; largura_mm: number; altura_mm: number; quantidade: number; cor: string; escolhas: string | null }
 const cabecalho = (e: DadosDaEsquadria) =>
-    `${e.tipologia}, ${numeroBR(e.largura_mm, 0)} x ${numeroBR(e.altura_mm, 0)} mm, ${e.quantidade} unidade(s), perfil ${COR_DA_PRIMEIRA_VERSAO}`
+    `${e.tipologia}, ${numeroBR(e.largura_mm, 0)} x ${numeroBR(e.altura_mm, 0)} mm, ${e.quantidade} unidade(s), perfil ${e.cor}`
 const linhaDasEscolhas = (e: DadosDaEsquadria): string[] =>
     e.escolhas === null ? []
         : e.escolhas === '' ? ['Escolhas: nenhuma — todas as variáveis ficaram no Padrão da tipologia.']
@@ -223,8 +310,11 @@ export function fraseDaRecusa(e: DadosDaEsquadria, faltas: string[]): string {
     return [`Não consegui fechar o levantamento de ${cabecalho(e)}.`, ...linhaDasEscolhas(e), 'Falta:', ...listadas, ...resto].join('\n')
 }
 
-/** A frase do levantamento que fechou: barras por código, aproveitamento, os dois totais e o tempo. */
-export function fraseDoLevantamento(e: DadosDaEsquadria, r: Extract<ResultadoDoLevantamento, { ok: true }>, tempo: { minutos: number; origem: string | null } | null): string {
+/**
+ * A frase do levantamento que fechou: barras por código, aproveitamento, os dois totais de material, a
+ * diferença entre eles, a mão de obra, e os dois totais com a mão de obra. O que não sai diz o que falta.
+ */
+export function fraseDoLevantamento(e: DadosDaEsquadria, r: Extract<ResultadoDoLevantamento, { ok: true }>, mo: MaoDeObra): string {
     const linhas = [`Levantamento de ${cabecalho(e)}.`, ...linhaDasEscolhas(e), '', 'Barras por código:']
     for (const c of r.por_codigo) {
         linhas.push(`• ${c.codigo} (${c.perfil}): ${c.n_barras} barra(s) de ${metros(c.comprimento_barra_mm)}`)
@@ -236,15 +326,34 @@ export function fraseDoLevantamento(e: DadosDaEsquadria, r: Extract<ResultadoDoL
         : `Aproveitamento do levantamento: ${numeroBR(t.aproveitamento_pct, 1)}% (${numeroBR(t.metros_uteis, 2)} m úteis de ${numeroBR(t.metros_comprados, 2)} m comprados).`)
     const faltaDo = (total: 'total_por_barra_inteira' | 'total_por_consumo_real') =>
         r.falta_para_o_total.filter((f) => f.total === total).map((f) => `${f.codigo} (${f.perfil})`).join(', ')
-    linhas.push(t.total_por_barra_inteira === null
-        ? `Total por barra inteira: não sai — falta o valor da barra de ${faltaDo('total_por_barra_inteira')}.`
-        : `Total por barra inteira: ${formatarReais(t.total_por_barra_inteira)}.`)
-    linhas.push(t.total_por_consumo_real === null
-        ? `Total por consumo real: não sai — falta o valor do metro de ${faltaDo('total_por_consumo_real')}.`
-        : `Total por consumo real: ${formatarReais(t.total_por_consumo_real)}.`)
-    linhas.push(tempo === null
-        ? `Tempo de fabricação da tipologia: não está cadastrado para ${e.tipologia}.`
-        : `Tempo de fabricação da tipologia: ${numeroBR(tempo.minutos, 0)} min${tempo.origem ? ` (${tempo.origem})` : ''}.`)
+
+    // ao centavo ANTES de virar diferença ou soma: a conta refeita com os números da mensagem bate
+    const barra = t.total_por_barra_inteira === null ? null : centavos(t.total_por_barra_inteira)
+    const consumo = t.total_por_consumo_real === null ? null : centavos(t.total_por_consumo_real)
+    linhas.push('')
+    linhas.push(barra === null
+        ? `Material por barra inteira: não sai — falta o valor da barra de ${faltaDo('total_por_barra_inteira')}.`
+        : `Material por barra inteira: ${formatarReais(barra)}.`)
+    linhas.push(consumo === null
+        ? `Material por consumo real: não sai — falta o valor do metro de ${faltaDo('total_por_consumo_real')}.`
+        : `Material por consumo real: ${formatarReais(consumo)}.`)
+    linhas.push(barra === null || consumo === null
+        ? `Diferença entre os dois: não sai — falta o ${barra === null ? 'total por barra inteira' : 'total por consumo real'}.`
+        : `Diferença entre os dois: ${formatarReais(centavos(barra - consumo))}.`)
+    // `'falta' in mo` estreita a união: com strictNullChecks desligado, o booleano `ok` não estreita
+    const calculada = 'falta' in mo ? null : mo
+    linhas.push(calculada
+        ? `Mão de obra: ${numeroBR(calculada.minutosPorUnidade, 0)} min por unidade${calculada.origem ? ` (${calculada.origem})` : ''} × ${calculada.quantidade} unidade(s), `
+            + `a R$ ${numeroBR(calculada.custoMensal / calculada.minutosDaEmpresa, 6)} o minuto (${formatarReais(calculada.custoMensal)} ÷ ${numeroBR(calculada.minutosDaEmpresa, 0)} min): ${formatarReais(calculada.total)}.`
+        : `Mão de obra: não sai — ${'falta' in mo ? mo.falta : ''}.`)
+    const comMaoDeObra = (rotulo: string, material: number | null, nomeDoMaterial: string) => {
+        if (!calculada) return `${rotulo} (material + mão de obra): não sai — falta a mão de obra.`
+        if (material === null) return `${rotulo} (material + mão de obra): não sai — falta o ${nomeDoMaterial}.`
+        return `${rotulo} (material + mão de obra): ${formatarReais(centavos(material + calculada.total))}.`
+    }
+    linhas.push('')
+    linhas.push(comMaoDeObra('Total por barra inteira', barra, 'material por barra inteira'))
+    linhas.push(comMaoDeObra('Total por consumo real', consumo, 'material por consumo real'))
     if (r.avisos.length) {
         linhas.push('', 'Atenção:')
         for (const a of r.avisos) linhas.push(`• ${fraseDoAviso(a)}`)
@@ -266,15 +375,17 @@ export type LevantamentoDaConversa = { texto: string; desfecho: 'levantou' | 're
 export async function mensagemDoLevantamento(
     tenantId: string,
     tabela: TabelaDaEmpresa,
-    pre: { tipologia: unknown; largura_mm: unknown; altura_mm: unknown; quantidade: unknown; vidro: unknown; escolhas: unknown },
+    pre: { tipologia: unknown; largura_mm: unknown; altura_mm: unknown; quantidade: unknown; cor_perfil: unknown; vidro: unknown; escolhas: unknown },
 ): Promise<LevantamentoDaConversa> {
+    const cor = typeof pre.cor_perfil === 'string' && pre.cor_perfil !== '' ? pre.cor_perfil : null
     const e: DadosDaEsquadria = {
         tipologia: String(pre.tipologia), largura_mm: Number(pre.largura_mm), altura_mm: Number(pre.altura_mm), quantidade: Number(pre.quantidade),
-        escolhas: null,
+        cor: cor ?? '(sem cor)', escolhas: null,
     }
     const escolhas = lerEscolhasGravadas(pre.escolhas)
     const recusa = (faltas: string[]): LevantamentoDaConversa => ({ texto: fraseDaRecusa(e, faltas), desfecho: 'recusou' })
     if ('frase' in tabela) return recusa([maiuscula(tabela.frase.replace(/^Ainda não consigo escolher a tipologia: /, ''))])
+    if (cor === null) return recusa(['Falta: a cor do perfil.'])
 
     const abas = ABAS_IMPORTADAS[tabela.tabelaId]?.[e.tipologia]
     if (!abas) return recusa([fraseDaTipologiaSemAbas(e.tipologia)])
@@ -288,6 +399,7 @@ export async function mensagemDoLevantamento(
     const itens = await lerItens(tabela.tabelaId, [...new Set(regras.map((r) => r.codigo))].sort())
 
     const r = levantarBarras({
+        cor,
         esquadrias: [{ tipologia: e.tipologia, L_mm: e.largura_mm, H_mm: e.altura_mm, quantidade: e.quantidade, escolhas, espessura_vidro_mm: espessuraDoVidro(pre.vidro) }],
         tipologias: { [e.tipologia]: lida.tipologia },
         regras,
@@ -295,6 +407,6 @@ export async function mensagemDoLevantamento(
         serra_mm: serra.serra_mm,
     })
     if ('recusas' in r) return recusa(r.recusas.map((x) => maiuscula(semPrefixoDaEsquadria(x.mensagem))))
-    const tempo = await tempoDeFabricacao(tabela.tabelaId, e.tipologia)
-    return { texto: fraseDoLevantamento(e, r, tempo), desfecho: 'levantou' }
+    const mo = await lerMaoDeObra(tenantId, tabela.tabelaId, e.tipologia, e.quantidade)
+    return { texto: fraseDoLevantamento(e, r, mo), desfecho: 'levantou' }
 }
