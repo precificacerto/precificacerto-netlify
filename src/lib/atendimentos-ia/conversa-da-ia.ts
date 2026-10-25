@@ -1,8 +1,15 @@
 /**
  * Atendimentos I.A. — a CONVERSA: a IA responde no WhatsApp e preenche a pré-definição.
  *
- * ESCOPO: só a coleta conversacional. NADA de cálculo, NADA de orçamento no sistema maior, NADA de
- * traduzir a tipologia para código — isso depende do motor.
+ * ESCOPO: a coleta conversacional e, ao fechar, o LEVANTAMENTO DE BARRAS da esquadria
+ * (`levantamento-da-conversa.ts`, desde 25/10/2026). NADA de orçamento no sistema maior.
+ *
+ * ══ A TIPOLOGIA É ESCOLHIDA DA LISTA (dono do produto, 25/10/2026) ══
+ * A IA recebe as tipologias da tabela em uso da empresa (código, descrição e tipo) e propõe UM código
+ * dessa lista. Ela não traduz por conta própria e não inventa código: `validarProposta` só aceita um
+ * código da lista. Se ficar entre duas, pergunta qual é, com a descrição inteira. Sem a lista — a
+ * empresa sem tabela, ou a lista ainda não carregada —, a conversa NÃO chama a LLM enquanto a
+ * tipologia estiver vazia: responde a frase nomeada do que falta.
  *
  * ══ A REGRA QUE NÃO SE NEGOCIA: a LLM PROPÕE, a rota VALIDA e GRAVA ══
  *   1. lê o histórico da conversa e o estado da pré-definição (cria a pré-definição na primeira
@@ -22,7 +29,10 @@
  *      pré-definição gravada — nunca da LLM. UMA vez: só na PASSAGEM para COMPLETA. O reenvio do
  *      WUZAPI nem chega aqui (a entrada responde 'repetida'), e uma mensagem nova depois de fechada
  *      encontra o estado já COMPLETA e não fecha de novo. Se o envio do fechamento falhar, o estado
- *      fica COMPLETA e ele não é reenviado depois.
+ *      fica COMPLETA e ele não é reenviado depois;
+ *   7. com o fechamento ENVIADO, o LEVANTAMENTO: uma segunda mensagem, com as barras e os totais, ou
+ *      com a recusa nomeada do que falta. Também UMA vez, na mesma passagem. Erro de banco no
+ *      levantamento vai ao log, e nada técnico ao vendedor.
  *
  * LIMITE CONHECIDO (não resolvido): se o envio der certo e a gravação da saída falhar, a mensagem
  * chegou ao vendedor e o histórico não a tem — no turno seguinte a IA pode repetir a pergunta.
@@ -52,6 +62,9 @@ import {
     mensagemDeFechamento, proximoCampo, quantosVazios, validarProposta,
     type CampoDaPreDefinicao, type EstadoDosCampos,
 } from '@/lib/atendimentos-ia/pre-definicao'
+import {
+    lerTabelaDaEmpresa, linhaDoCandidato, mensagemDoLevantamento, type CandidatoDeTipologia,
+} from '@/lib/atendimentos-ia/levantamento-da-conversa'
 
 export const PREFIXO_DO_LOG_DA_IA = '[IA]'
 export const NOME_DA_FERRAMENTA = 'registrar_pre_definicao'
@@ -63,6 +76,7 @@ const wuzapi = () => (process.env.WUZAPI_BASE_URL || 'https://usapi.adabtech.sho
 export type DesfechoDaIa =
     | 'sem-chave' | 'sem-saldo' | 'erro-da-llm' | 'recusa' | 'sem-proposta'
     | 'fechou' | 'fechamento-falhou' | 'ja-completa' | 'perguntou' | 'envio-falhou' | 'erro'
+    | 'sem-tipologias'
 
 type Rastro = { conversa: string; vaziosAntes: number | null; propostos: number; descartados: number; enviou: boolean }
 
@@ -121,7 +135,7 @@ export const FERRAMENTA = {
     },
 }
 
-function sistema(estado: Partial<EstadoDosCampos>): string {
+function sistema(estado: Partial<EstadoDosCampos>, candidatos: readonly CandidatoDeTipologia[]): string {
     return [
         'Você conversa pelo WhatsApp com um VENDEDOR de uma empresa de esquadrias e levanta os dados de um pedido.',
         'O vendedor já sabe o que a empresa vende: você só pergunta e anota.',
@@ -131,7 +145,8 @@ function sistema(estado: Partial<EstadoDosCampos>): string {
         'Medidas em milímetros, inteiras: se o vendedor disser em metros ou centímetros, converta.',
         '',
         'Regras:',
-        '- Pergunte de forma ABERTA. NUNCA ofereça lista de opções ("Qual o vidro?", não um menu).',
+        '- Pergunte de forma ABERTA. NUNCA ofereça lista de opções ("Qual o vidro?", não um menu). A única exceção é a da tipologia, abaixo.',
+        '- tipologia: o CÓDIGO (ex.: DP-02) de UMA das tipologias da lista do fim, escolhida pela descrição do que o vendedor disse. NUNCA invente código nem preencha com as palavras do vendedor. Se o que ele disse cabe em mais de uma da lista, NÃO preencha: pergunte qual é, citando a descrição INTEIRA de cada uma, sem o código. Se não cabe em nenhuma, pergunte de novo.',
         '- NUNCA pergunte nada sobre os padrões da empresa.',
         '- UMA pergunta por vez: a do próximo campo vazio, na ordem.',
         '- Em `campos`, só o que o vendedor disse NESTA mensagem, para campos vazios. Não invente, não deduza.',
@@ -140,6 +155,9 @@ function sistema(estado: Partial<EstadoDosCampos>): string {
         `- Responda SEMPRE chamando a ferramenta ${NOME_DA_FERRAMENTA}, uma vez.`,
         '',
         `Estado atual da pré-definição (null = ainda não dito): ${JSON.stringify(estado)}`,
+        '',
+        'Tipologias da tabela em uso da empresa (código | descrição | tipo):',
+        ...(candidatos.length ? candidatos.map(linhaDoCandidato) : ['(nenhuma)']),
     ].join('\n')
 }
 
@@ -161,7 +179,7 @@ function mensagemParaOLog(mensagem: unknown, chave: string): string {
     return paraOLog(mensagem, [chave]).replace(/["\r\n]+/g, ' ').slice(0, MAXIMO_DA_MENSAGEM_NO_LOG)
 }
 
-async function chamarLlm(chave: string, mensagens: Array<{ role: 'user' | 'assistant'; content: string }>, estado: Partial<EstadoDosCampos>): Promise<ResultadoDaLlm> {
+async function chamarLlm(chave: string, mensagens: Array<{ role: 'user' | 'assistant'; content: string }>, estado: Partial<EstadoDosCampos>, candidatos: readonly CandidatoDeTipologia[]): Promise<ResultadoDaLlm> {
     let r: Response
     try {
         r = await fetch(URL_DA_API_ANTHROPIC, {
@@ -174,7 +192,7 @@ async function chamarLlm(chave: string, mensagens: Array<{ role: 'user' | 'assis
                 max_tokens: 16000,
                 // extração curta de uma mensagem de chat: o raciocínio fica no mínimo
                 output_config: { effort: 'low' },
-                system: sistema(estado),
+                system: sistema(estado, candidatos),
                 tools: [FERRAMENTA],
                 tool_choice: { type: 'auto' },
                 messages: mensagens,
@@ -288,6 +306,25 @@ async function gravarSaida(c: Interlocutor, texto: string, wuzapiMensagemId: str
     if (error) throw new Error(`orcamentista_mensagem: ${error.message}`)
 }
 
+/**
+ * O levantamento, depois do fechamento enviado: a mensagem das barras ou a da recusa. Devolve o
+ * desfecho para a linha `[IA]`; erro de banco vira `erro`, sem mensagem ao vendedor.
+ */
+async function enviarLevantamento(c: Interlocutor, tabela: Awaited<ReturnType<typeof lerTabelaDaEmpresa>>, gravada: PreDefinicao): Promise<string> {
+    let levantamento: Awaited<ReturnType<typeof mensagemDoLevantamento>>
+    try {
+        levantamento = await mensagemDoLevantamento(c.tenantId, tabela, {
+            tipologia: gravada.tipologia, largura_mm: gravada.largura_mm, altura_mm: gravada.altura_mm, quantidade: gravada.quantidade, vidro: gravada.vidro,
+        })
+    } catch (e) {
+        return `erro motivo_levantamento="${e instanceof Error ? e.message : 'desconhecido'}"`
+    }
+    const envio = await enviarTexto(c.wuzapiToken, c.telefone, levantamento.texto)
+    if (!envio.ok) return `envio-falhou status_envio_levantamento=${envio.status ?? 'sem resposta'}`
+    await gravarSaida(c, levantamento.texto, envio.id)
+    return levantamento.desfecho
+}
+
 /** Conduz um turno da conversa. NUNCA lança: toda falha vira uma linha `[IA]`. */
 export async function conduzirConversa(c: Interlocutor): Promise<DesfechoDaIa> {
     const rastro: Rastro = { conversa: c.conversaId, vaziosAntes: null, propostos: 0, descartados: 0, enviou: false }
@@ -306,11 +343,23 @@ export async function conduzirConversa(c: Interlocutor): Promise<DesfechoDaIa> {
         const estadoAtual = Object.fromEntries(CAMPOS_DA_PRE_DEFINICAO.map((k) => [k, pre[k] ?? null])) as EstadoDosCampos
         rastro.vaziosAntes = quantosVazios(estadoAtual)
 
+        // A lista de tipologias da tabela em uso. Sem ela, e com a tipologia ainda vazia, não há de
+        // onde a IA escolher: a conversa diz o que falta, sem chamar a LLM.
+        const tabela = await lerTabelaDaEmpresa(c.tenantId)
+        const candidatos = 'candidatos' in tabela ? tabela.candidatos : []
+        if ('frase' in tabela && estadoAtual.tipologia === null) {
+            const envio = await enviarTexto(c.wuzapiToken, c.telefone, tabela.frase)
+            if (!envio.ok) return fim('envio-falhou', `motivo=${tabela.motivo} status_envio=${envio.status ?? 'sem resposta'}`)
+            rastro.enviou = true
+            await gravarSaida(c, tabela.frase, envio.id)
+            return fim('sem-tipologias', `motivo=${tabela.motivo}${tabela.detalhe ? ` ${tabela.detalhe}` : ''}`)
+        }
+
         const historico = await lerHistorico(c.tenantId, c.conversaId)
-        const resposta = await chamarLlm(chave, historico, estadoAtual)
+        const resposta = await chamarLlm(chave, historico, estadoAtual, candidatos)
         if (resposta.tipo !== 'ok') return fim(resposta.tipo, resposta.detalhe)
 
-        const validacao = validarProposta(estadoAtual, resposta.proposta)
+        const validacao = validarProposta(estadoAtual, resposta.proposta, candidatos.map((x) => x.tipologia))
         rastro.propostos = validacao.propostos
         rastro.descartados = validacao.descartados
         const novoEstado = { ...estadoAtual, ...validacao.gravar }
@@ -336,7 +385,7 @@ export async function conduzirConversa(c: Interlocutor): Promise<DesfechoDaIa> {
             if (!envioDoFechamento.ok) return fim('fechamento-falhou', `status_envio=${envioDoFechamento.status ?? 'sem resposta'}`)
             rastro.enviou = true
             await gravarSaida(c, fechamento, envioDoFechamento.id)
-            return fim('fechou')
+            return fim('fechou', `levantamento=${await enviarLevantamento(c, tabela, gravada)}`)
         }
 
         const texto = perguntaPara(proximo, resposta.proposta)

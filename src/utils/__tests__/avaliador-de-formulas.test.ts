@@ -3,7 +3,7 @@
  * SÓ pela DP-02: dadas a tipologia, L e H em mm e as escolhas das variáveis, a lista de PEÇAS que o
  * agrupador de barras recebe.
  *
- * O FIXTURE (`fixtures/fixture_DP-02.json`) foi extraído pelo dono do produto do
+ * O FIXTURE (`src/lib/atendimentos-ia/abas-do-motor-wolff-DP-02.json`) foi extraído pelo dono do produto do
  * Motor_Wolf_PVC.xlsx em 24/10/2026 e copiado aqui como veio, aba por aba — MENOS a aba
  * 'Fórmulas da família (EUROPA 42)' (68 linhas), que o avaliador não lê. As linhas da família que
  * este portão compara estão citadas no bloco (9), com a fonte.
@@ -45,7 +45,7 @@ type Avaliador = typeof import('@/lib/atendimentos-ia/avaliador-de-formulas')
 const A = () => require('@/lib/atendimentos-ia/avaliador-de-formulas') as Avaliador
 type Agrupador = typeof import('@/lib/atendimentos-ia/agrupador-de-barras')
 const G = () => require('@/lib/atendimentos-ia/agrupador-de-barras') as Agrupador
-const FIXTURE = require('./fixtures/fixture_DP-02.json')
+const FIXTURE = require('@/lib/atendimentos-ia/abas-do-motor-wolff-DP-02.json')
 /* eslint-enable @typescript-eslint/no-require-imports */
 // O estreitamento é por `'recusas' in r` / `'recusa' in r`: com `strictNullChecks: false`, o tsc não
 // estreita a união pelo booleano `ok`.

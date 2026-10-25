@@ -113,9 +113,17 @@ const textoValido = (v: unknown) => typeof v === 'string' && v.trim() !== '' && 
 /**
  * O valor que vai para a COLUNA, ou `undefined` quando não valida. A distribuição chega como texto
  * e é gravada como `{"texto": ...}`, sem interpretar (dono do produto, 22/10/2026).
+ *
+ * A TIPOLOGIA é o CÓDIGO de uma das tipologias da tabela em uso da empresa (`DP-02`), e só ela
+ * (dono do produto, 25/10/2026): a IA escolhe da lista ou pergunta — não traduz por conta própria e
+ * não inventa código. A comparação é EXATA, sem caixa nem espaço normalizados
+ * (`faltou-dado-recusa-nomeada.md`: casar o parecido é escolher o parecido). Sem lista, nenhuma
+ * tipologia valida.
  */
-export function valorValido(campo: CampoDaPreDefinicao, v: unknown): unknown {
+export function valorValido(campo: CampoDaPreDefinicao, v: unknown, tipologias: readonly string[]): unknown {
     switch (campo) {
+        case 'tipologia':
+            return typeof v === 'string' && tipologias.includes(v) ? v : undefined
         case 'largura_mm':
         case 'altura_mm':
             return inteiroNaFaixa(v, MEDIDA_MINIMA_MM, MEDIDA_MAXIMA_MM) ? v : undefined
@@ -146,9 +154,12 @@ export type ResultadoDaValidacao = {
  *   - `campos` só PREENCHE o que está nulo; `correcoes` é a ÚNICA via de sobrescrever. Os dois
  *     passam pela mesma validação; null nunca apaga;
  *   - a distribuição só é aceita com mais de um pavimento — o tipo considerado é o desta proposta,
- *     se válido, senão o já gravado.
+ *     se válido, senão o já gravado;
+ *   - a tipologia só é aceita se for um dos códigos de `tipologias` — a lista da tabela em uso da
+ *     empresa. O parâmetro é obrigatório: um padrão vazio faria toda tipologia ser descartada sem
+ *     que o chamador soubesse por quê (`construtor-empobrecido.md`).
  */
-export function validarProposta(estadoAtual: Partial<EstadoDosCampos>, proposta: unknown): ResultadoDaValidacao {
+export function validarProposta(estadoAtual: Partial<EstadoDosCampos>, proposta: unknown, tipologias: readonly string[]): ResultadoDaValidacao {
     const p = proposta && typeof proposta === 'object' ? (proposta as Record<string, unknown>) : {}
     const ler = (k: string) => (p[k] && typeof p[k] === 'object' ? (p[k] as Record<string, unknown>) : {})
     const campos = ler('campos')
@@ -161,7 +172,7 @@ export function validarProposta(estadoAtual: Partial<EstadoDosCampos>, proposta:
         for (const [origem, valor] of [['correcoes', correcoes[campo]], ['campos', campos[campo]]] as const) {
             if (valor === null || valor === undefined) continue
             propostos += 1
-            const valido = valorValido(campo, valor)
+            const valido = valorValido(campo, valor, tipologias)
             const podeSobrescrever = origem === 'correcoes'
             const jaTem = preenchido(estadoAtual[campo]) || campo in gravar
             // o tipo vem ANTES da distribuição na ordem: o aceito nesta proposta já está em `gravar`

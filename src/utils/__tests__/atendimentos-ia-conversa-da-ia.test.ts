@@ -27,20 +27,33 @@ const TELEFONE_GRAVADO = '51999114290'
 const TEXTO = 'São 4 janelas de correr, 1500 por 1200'
 const CHAVE = 'sk-ant-CHAVE-DE-TESTE-nao-pode-ir-ao-log'
 const ANTHROPIC = 'https://api.anthropic.com/v1/messages'
+/** A tabela Wolff — a única com as abas da DP-02 no repositório. */
+const TABELA = '72366020-57c9-489f-9385-397b7fa3dedb'
+/** As tipologias candidatas, como estão em `orcamentista_motor_tipologia_detalhe` (25/10/2026). */
+const CANDIDATAS = [
+    { tabela_id: TABELA, tipologia: 'DP-01', descricao: 'MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL | DESIGN', tipo: 'Maxim-ar' },
+    { tabela_id: TABELA, tipologia: 'DP-02', descricao: 'JANELA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 42', tipo: 'Correr' },
+]
 
 /**
  * O fechamento esperado para SETE_DE_PRODUTO_E_LOCAL, ESCRITO À MÃO a partir do texto aprovado pelo
  * dono do produto (22/10/2026) — não derivado do módulo, para que um erro no molde fique vermelho.
  */
-const FECHAMENTO_DOS_SETE = 'Fechado. Anotei tudo: Janela de correr, 1500x1200 mm, 4 peça(s), perfil Branco, vidro Temperado 6mm. Entrega em Porto Alegre. Já passo para o levantamento.'
+const FECHAMENTO_DOS_SETE = 'Fechado. Anotei tudo: DP-02, 1500x1200 mm, 4 peça(s), perfil Branco, vidro Temperado 6mm. Entrega em Porto Alegre. Já passo para o levantamento.'
 /** Os campos que o fechamento cita — a distribuição NÃO está aqui (dono do produto, 22/10/2026). */
+/**
+ * Depois do fechamento, a SEGUNDA mensagem: o levantamento (`levantamento-da-conversa.ts`). Neste
+ * banco falso não há serra nem regras, e ele sai como recusa nomeada — o que estes casos conferem é
+ * que ele vem DEPOIS do fechamento, uma vez. O levantamento em si tem o portão dele.
+ */
+const LEVANTAMENTO_DOS_SETE = expect.stringMatching(/^Não consegui fechar o levantamento de DP-02, 1\.500 x 1\.200 mm, 4 unidade\(s\), perfil BRANCO\. Falta:\n• /)
 const CAMPOS_NO_FECHAMENTO = ['tipologia', 'largura_mm', 'altura_mm', 'quantidade', 'cor_perfil', 'vidro', 'local']
 const VAZIA: Linha = {
     tipologia: null, largura_mm: null, altura_mm: null, quantidade: null, cor_perfil: null, vidro: null,
     local: null, tipo_edificacao: null, distribuicao_por_pavimento: null,
 }
 const SETE_DE_PRODUTO_E_LOCAL = {
-    tipologia: 'Janela de correr', largura_mm: 1500, altura_mm: 1200, quantidade: 4, cor_perfil: 'Branco', vidro: 'Temperado 6mm',
+    tipologia: 'DP-02', largura_mm: 1500, altura_mm: 1200, quantidade: 4, cor_perfil: 'Branco', vidro: 'Temperado 6mm',
     local: 'Porto Alegre',
 }
 
@@ -53,6 +66,8 @@ const estado = {
     chamadasDaLlm: [] as Array<{ headers: Record<string, string>; corpo: Record<string, unknown> }>,
     envioStatus: 200,
     envios: [] as Array<{ url: string; headers: Record<string, string>; corpo: Record<string, unknown> }>,
+    /** Tabelas que "não existem" no banco: a leitura volta com o erro do PostgREST. */
+    ausentes: new Set<string>(),
 }
 
 function montar(preDefinicao: Linha | null = null) {
@@ -64,6 +79,8 @@ function montar(preDefinicao: Linha | null = null) {
         orcamentista_conversa: [{ id: CONVERSA, tenant_id: TENANT, remetente_id: AUTORIZADO_ID, telefone: TELEFONE_DO_WEBHOOK, criado_em: '2026-10-22T00:00:00Z' }],
         orcamentista_mensagem: [],
         orcamentista_tentativa_desconhecida: [],
+        orcamentista_conta_tabela: [{ tenant_id: TENANT, tabela_id: TABELA }],
+        orcamentista_motor_tipologia_detalhe: CANDIDATAS.map((c) => ({ ...c })),
         orcamentista_pre_definicao: preDefinicao
             ? [{ id: 'pd-1', tenant_id: TENANT, conversa_id: CONVERSA, estado: 'EM_COLETA', criado_em: '2026-10-22T00:00:00Z', atualizado_em: null, ...VAZIA, ...preDefinicao }]
             : [],
@@ -74,6 +91,7 @@ function montar(preDefinicao: Linha | null = null) {
     estado.chamadasDaLlm = []
     estado.envioStatus = 200
     estado.envios = []
+    estado.ausentes = new Set()
 }
 
 let sequencia = 0
@@ -81,10 +99,13 @@ jest.mock('@/supabase/admin', () => ({
     supabaseAdmin: {
         from: (tabela: string) => {
             const filtros: Array<[string, unknown]> = []
+            const predicados: Array<(l: Linha) => boolean> = []
+            let contar = false
+            let faixa: [number, number] | null = null
             let ordem: { coluna: string; asc: boolean } | null = null
             let limite: number | null = null
             let atualizacao: Linha | null = null
-            const casa = (l: Linha) => filtros.every(([c, v]) => l[c] === v)
+            const casa = (l: Linha) => filtros.every(([c, v]) => l[c] === v) && predicados.every((f) => f(l))
             const ler = () => {
                 let linhas = (estado.db[tabela] ?? []).filter(casa)
                 if (ordem) {
@@ -92,10 +113,14 @@ jest.mock('@/supabase/admin', () => ({
                     linhas = [...linhas].sort((a, b) => (String(a[coluna]) < String(b[coluna]) ? -1 : 1) * (asc ? 1 : -1))
                 }
                 if (limite !== null) linhas = linhas.slice(0, limite)
+                if (faixa) linhas = linhas.slice(faixa[0], faixa[1] + 1)
                 return linhas
             }
             const q: Record<string, unknown> = {}
-            q.select = () => q
+            q.select = (_c?: string, o?: { count?: string }) => { contar = o?.count === 'exact'; return q }
+            q.in = (c: string, vs: unknown[]) => { predicados.push((l) => vs.includes(l[c])); return q }
+            q.contains = (c: string, vs: unknown[]) => { predicados.push((l) => Array.isArray(l[c]) && vs.every((v) => (l[c] as unknown[]).includes(v))); return q }
+            q.range = (de: number, ate: number) => { faixa = [de, ate]; return q }
             q.eq = (c: string, v: unknown) => { filtros.push([c, v]); return q }
             q.order = (c: string, o?: { ascending?: boolean }) => { ordem = { coluna: c, asc: o?.ascending !== false }; return q }
             q.limit = (n: number) => { limite = n; return q }
@@ -107,7 +132,9 @@ jest.mock('@/supabase/admin', () => ({
                     for (const l of (estado.db[tabela] ?? []).filter(casa)) Object.assign(l, atualizacao)
                     return Promise.resolve({ data: null, error: null }).then(ok, erro)
                 }
-                return Promise.resolve({ data: ler(), error: null }).then(ok, erro)
+                if (estado.ausentes.has(tabela)) return Promise.resolve({ data: null, error: { code: 'PGRST205', message: `Could not find the table 'public.${tabela}'` } }).then(ok, erro)
+                const total = (estado.db[tabela] ?? []).filter(casa).length
+                return Promise.resolve({ data: ler(), error: null, ...(contar ? { count: total } : {}) }).then(ok, erro)
             }
             q.insert = (carga: Linha) => {
                 estado.escritas.push({ tabela, op: 'insert', carga })
@@ -260,7 +287,7 @@ describe('(2) o contrato da chamada à Anthropic', () => {
     })
 
     it('manda o histórico da conversa (entrada como user, saída como assistant) e o estado atual da pré-definição', async () => {
-        montar({ tipologia: 'Janela de correr' })
+        montar({ tipologia: 'DP-02' })
         estado.db.orcamentista_mensagem.push(
             { id: 'm0', tenant_id: TENANT, conversa_id: CONVERSA, direcao: 'entrada', texto: 'Oi', wuzapi_mensagem_id: 'MSG_0', criado_em: '2026-10-22T00:00:01Z' },
             { id: 'm1', tenant_id: TENANT, conversa_id: CONVERSA, direcao: 'saida', texto: 'Qual a tipologia?', wuzapi_mensagem_id: null, criado_em: '2026-10-22T00:00:02Z' },
@@ -271,7 +298,7 @@ describe('(2) o contrato da chamada à Anthropic', () => {
         expect(mensagens.map((m) => m.role)).toEqual(['user', 'assistant', 'user'])
         expect(JSON.stringify(mensagens)).toContain('Qual a tipologia?')
         expect(JSON.stringify(mensagens[2].content)).toContain(TEXTO)
-        expect(String(corpo.system)).toContain('Janela de correr')
+        expect(String(corpo.system)).toContain('DP-02')
     })
 
     it('a rota de entrada DECLARA o limite da função (a LLM roda dentro da requisição)', () => {
@@ -289,10 +316,10 @@ describe('(2) o contrato da chamada à Anthropic', () => {
 describe('(3) a rota VALIDA antes de gravar: o que não valida é DESCARTADO', () => {
     it('largura_mm = "mil e quinhentos" → descartado, NADA nesse campo; o campo válido da mesma resposta é gravado', async () => {
         montar(VAZIA)
-        llmResponde({ campos: { tipologia: 'Janela de correr', largura_mm: 'mil e quinhentos' } })
+        llmResponde({ campos: { tipologia: 'DP-02', largura_mm: 'mil e quinhentos' } })
         await chamar()
         expect(preDefinicao()?.largura_mm).toBeNull()
-        expect(preDefinicao()?.tipologia).toBe('Janela de correr')
+        expect(preDefinicao()?.tipologia).toBe('DP-02')
         expect(linhaIa()[0]).toEqual(expect.stringMatching(/propostos=2 .*descartados=1/))
     })
 
@@ -318,7 +345,7 @@ describe('(3) a rota VALIDA antes de gravar: o que não valida é DESCARTADO', (
 
     it('tenant_id e conversa_id propostos pela LLM — no topo e dentro dos campos — são IGNORADOS', async () => {
         montar(VAZIA)
-        llmResponde({ tenant_id: OUTRO_TENANT, conversa_id: 'conversa-de-outro', campos: { tipologia: 'Porta', tenant_id: OUTRO_TENANT, conversa_id: 'x' } as Linha })
+        llmResponde({ tenant_id: OUTRO_TENANT, conversa_id: 'conversa-de-outro', campos: { tipologia: 'DP-01', tenant_id: OUTRO_TENANT, conversa_id: 'x' } as Linha })
         await chamar()
         const escritas = estado.escritas.filter((e) => e.tabela === 'orcamentista_pre_definicao')
         expect(escritas.length).toBeGreaterThan(0)
@@ -327,24 +354,25 @@ describe('(3) a rota VALIDA antes de gravar: o que não valida é DESCARTADO', (
             expect(JSON.stringify(e.carga)).not.toContain('conversa-de-outro')
             if (e.op === 'update') expect(e.filtros).toEqual(expect.arrayContaining([['tenant_id', TENANT]]))
         }
-        expect(preDefinicao()).toEqual(expect.objectContaining({ tenant_id: TENANT, conversa_id: CONVERSA, tipologia: 'Porta' }))
+        expect(preDefinicao()).toEqual(expect.objectContaining({ tenant_id: TENANT, conversa_id: CONVERSA, tipologia: 'DP-01' }))
         expect(estado.db.orcamentista_pre_definicao).toHaveLength(1)
     })
 })
 
 describe('(4) a LLM NÃO apaga nem sobrescreve: só preenche o que está nulo, salvo correção explícita', () => {
     it('campo preenchido proposto em `campos` (sem correção) → NÃO sobrescreve', async () => {
-        montar({ tipologia: 'Janela de correr' })
-        llmResponde({ campos: { tipologia: 'Porta de giro' } })
+        montar({ tipologia: 'DP-02' })
+        // DP-01 é um código VÁLIDO da lista: se ele não entra, é por não ser correção, não por não validar
+        llmResponde({ campos: { tipologia: 'DP-01' } })
         await chamar()
-        expect(preDefinicao()?.tipologia).toBe('Janela de correr')
+        expect(preDefinicao()?.tipologia).toBe('DP-02')
     })
 
     it('o contraste: a MESMA mudança em `correcoes` → sobrescreve', async () => {
-        montar({ tipologia: 'Janela de correr' })
-        llmResponde({ correcoes: { tipologia: 'Porta de giro' } })
+        montar({ tipologia: 'DP-02' })
+        llmResponde({ correcoes: { tipologia: 'DP-01' } })
         await chamar()
-        expect(preDefinicao()?.tipologia).toBe('Porta de giro')
+        expect(preDefinicao()?.tipologia).toBe('DP-01')
     })
 
     it('correção que não valida → descartada, o valor antigo fica', async () => {
@@ -355,16 +383,16 @@ describe('(4) a LLM NÃO apaga nem sobrescreve: só preenche o que está nulo, s
     })
 
     it('null nunca apaga — nem em campos, nem em correcoes', async () => {
-        montar({ tipologia: 'Janela de correr', vidro: 'Temperado 6mm' })
+        montar({ tipologia: 'DP-02', vidro: 'Temperado 6mm' })
         llmResponde({ campos: { tipologia: null }, correcoes: { vidro: null } })
         await chamar()
-        expect(preDefinicao()).toEqual(expect.objectContaining({ tipologia: 'Janela de correr', vidro: 'Temperado 6mm' }))
+        expect(preDefinicao()).toEqual(expect.objectContaining({ tipologia: 'DP-02', vidro: 'Temperado 6mm' }))
     })
 })
 
 describe('(5) uma pergunta por vez, a do PRÓXIMO campo vazio — decidido pela rota, não pela LLM', () => {
     it('a pergunta da LLM sobre o próximo campo é a que vai ao vendedor, e fica gravada como saída', async () => {
-        montar({ tipologia: 'Janela de correr' })
+        montar({ tipologia: 'DP-02' })
         llmResponde({ pergunta: { campo: 'largura_mm', texto: 'E a largura de cada uma?' } })
         const r = await chamar()
         expect(r.status).toBe(200)
@@ -375,7 +403,7 @@ describe('(5) uma pergunta por vez, a do PRÓXIMO campo vazio — decidido pela 
     })
 
     it('a LLM pergunta FORA de ordem → a rota manda a pergunta fixa do próximo campo', async () => {
-        montar({ tipologia: 'Janela de correr' })
+        montar({ tipologia: 'DP-02' })
         llmResponde({ pergunta: { campo: 'vidro', texto: 'Qual o vidro?' } })
         await chamar()
         expect(estado.envios[0].corpo.Body).toBe(preDef.PERGUNTA_DO_CAMPO.largura_mm)
@@ -383,7 +411,7 @@ describe('(5) uma pergunta por vez, a do PRÓXIMO campo vazio — decidido pela 
 
     it('com os campos desta mensagem gravados, a pergunta é a do campo SEGUINTE a eles', async () => {
         montar(VAZIA)
-        llmResponde({ campos: { tipologia: 'Janela de correr', largura_mm: 1500, altura_mm: 1200, quantidade: 4 }, pergunta: { campo: 'cor_perfil', texto: 'E a cor do perfil?' } })
+        llmResponde({ campos: { tipologia: 'DP-02', largura_mm: 1500, altura_mm: 1200, quantidade: 4 }, pergunta: { campo: 'cor_perfil', texto: 'E a cor do perfil?' } })
         await chamar()
         expect(estado.envios[0].corpo.Body).toBe('E a cor do perfil?')
     })
@@ -403,10 +431,10 @@ describe('(6) a distribuição por pavimento: SÓ com mais de um pavimento', () 
         llmResponde({ campos: { tipo_edificacao: 'CASA', distribuicao_por_pavimento: 'térreo: 4' } })
         await chamar()
         expect(preDefinicao()).toEqual(expect.objectContaining({ tipo_edificacao: 'CASA', distribuicao_por_pavimento: null, estado: 'COMPLETA' }))
-        expect(estado.envios).toHaveLength(1)
+        expect(estado.envios).toHaveLength(2)
         expect(estado.envios[0].corpo.Body).toBe(FECHAMENTO_DOS_SETE)
         expect(estado.envios[0].corpo.Body).not.toMatch(/pavimento|térreo/i)
-        expect(saidas()).toEqual([expect.objectContaining({ direcao: 'saida', texto: FECHAMENTO_DOS_SETE })])
+        expect(saidas()).toEqual([expect.objectContaining({ direcao: 'saida', texto: FECHAMENTO_DOS_SETE }), expect.objectContaining({ direcao: 'saida', texto: LEVANTAMENTO_DOS_SETE })])
         expect(linhaIa()[0]).toEqual(expect.stringMatching(/enviou=sim.*desfecho=fechou/))
     })
 
@@ -434,24 +462,28 @@ describe('(6) a distribuição por pavimento: SÓ com mais de um pavimento', () 
 })
 
 describe('(7) os 9 campos preenchidos: a IA não pergunta mais nada, e a pré-definição FECHA', () => {
-    it('PREDIO, os 9 com a distribuição desta mensagem → COMPLETA e UMA mensagem: o fechamento fixo, não a pergunta da LLM', async () => {
+    it('PREDIO, os 9 com a distribuição desta mensagem → COMPLETA, o fechamento fixo (não a pergunta da LLM), e depois o levantamento', async () => {
         montar({ ...SETE_DE_PRODUTO_E_LOCAL, tipo_edificacao: 'PREDIO' })
         llmResponde({ campos: { distribuicao_por_pavimento: 'térreo 4, primeiro andar 6' }, pergunta: { campo: null, texto: 'Mais alguma coisa?' } })
         await chamar()
         expect(preDefinicao()?.estado).toBe('COMPLETA')
-        expect(estado.envios).toHaveLength(1)
+        expect(estado.envios).toHaveLength(2)
         expect(estado.envios[0].corpo).toEqual({ Phone: TELEFONE_DO_WEBHOOK, Body: FECHAMENTO_DOS_SETE })
-        expect(saidas()).toEqual([expect.objectContaining({ tenant_id: TENANT, conversa_id: CONVERSA, direcao: 'saida', texto: FECHAMENTO_DOS_SETE, wuzapi_mensagem_id: 'WAMID_SAIDA_1' })])
+        expect(estado.envios[1].corpo).toEqual({ Phone: TELEFONE_DO_WEBHOOK, Body: LEVANTAMENTO_DOS_SETE })
+        expect(saidas()).toEqual([
+            expect.objectContaining({ tenant_id: TENANT, conversa_id: CONVERSA, direcao: 'saida', texto: FECHAMENTO_DOS_SETE, wuzapi_mensagem_id: 'WAMID_SAIDA_1' }),
+            expect.objectContaining({ tenant_id: TENANT, conversa_id: CONVERSA, direcao: 'saida', texto: LEVANTAMENTO_DOS_SETE }),
+        ])
         expect(linhaIa()[0]).toEqual(expect.stringMatching(/enviou=sim.*desfecho=fechou/))
     })
 
     it('enquanto falta campo, o estado é EM_COLETA; a pré-definição nasce na primeira mensagem, UMA por conversa', async () => {
-        llmResponde({ campos: { tipologia: 'Janela de correr' } })
+        llmResponde({ campos: { tipologia: 'DP-02' } })
         await chamar({ id: 'MSG_A' })
         llmResponde({ campos: { largura_mm: 1500 } })
         await chamar({ id: 'MSG_B' })
         expect(estado.db.orcamentista_pre_definicao).toHaveLength(1)
-        expect(preDefinicao()).toEqual(expect.objectContaining({ estado: 'EM_COLETA', tipologia: 'Janela de correr', largura_mm: 1500 }))
+        expect(preDefinicao()).toEqual(expect.objectContaining({ estado: 'EM_COLETA', tipologia: 'DP-02', largura_mm: 1500 }))
     })
 })
 
@@ -508,13 +540,13 @@ describe('(8) erro da LLM ou do envio: 200 ao WUZAPI, sempre — e nenhuma mensa
     it('FALHA NO ENVIO do WUZAPI → 200, a entrada continua gravada, nenhuma saída gravada, e o campo validado fica', async () => {
         montar(VAZIA)
         estado.envioStatus = 500
-        llmResponde({ campos: { tipologia: 'Janela de correr' } })
+        llmResponde({ campos: { tipologia: 'DP-02' } })
         const r = await chamar()
         expect(r.status).toBe(200)
         expect(estado.envios).toHaveLength(1)
         expect(entradas()).toHaveLength(1)
         expect(saidas()).toEqual([])
-        expect(preDefinicao()?.tipologia).toBe('Janela de correr')
+        expect(preDefinicao()?.tipologia).toBe('DP-02')
         expect(linhaIa()[0]).toEqual(expect.stringMatching(/enviou=nao.*desfecho=envio-falhou/))
     })
 
@@ -546,7 +578,7 @@ describe('(9) a conversa só roda no desfecho "gravada"', () => {
 
 describe('(10) o log [IA]: em console.error, com a contagem — nunca a chave, o telefone ou o texto', () => {
     it('conversa, vazios antes, propostos, descartados, se enviou e o desfecho', async () => {
-        montar({ tipologia: 'Janela de correr' })
+        montar({ tipologia: 'DP-02' })
         llmResponde({ campos: { largura_mm: 1500, altura_mm: 'alto' }, pergunta: { campo: 'altura_mm', texto: 'E a altura?' } })
         await chamar()
         const linha = linhaIa()[0]
@@ -579,8 +611,8 @@ describe('(11) o FECHAMENTO: ao completar, o vendedor recebe UMA mensagem fixa, 
         })
         await chamar()
         const gravada = preDefinicao() as Linha
-        expect(gravada.tipologia).toBe('Janela de correr')
-        expect(estado.envios).toHaveLength(1)
+        expect(gravada.tipologia).toBe('DP-02')
+        expect(estado.envios).toHaveLength(2)
         const enviado = String(estado.envios[0].corpo.Body)
         expect(enviado).toBe(FECHAMENTO_DOS_SETE)
         // nenhum número fora dos valores gravados que o molde usa — nem o da distribuição
@@ -595,6 +627,9 @@ describe('(11) o FECHAMENTO: ao completar, o vendedor recebe UMA mensagem fixa, 
         await chamar()
         expect(estado.envios.map((e) => e.corpo.Body)).toEqual([
             'Fechado. Anotei tudo: Basculante, 600x400 mm, 12 peça(s), perfil Preto fosco, vidro Mini boreal. Entrega em Canoas. Já passo para o levantamento.',
+            // uma tipologia gravada antes da lista (texto livre) não tem abas: a recusa diz qual
+            'Não consegui fechar o levantamento de Basculante, 600 x 400 mm, 12 unidade(s), perfil BRANCO. Falta:\n'
+                + '• A tipologia Basculante não tem as abas do motor importadas (Variáveis, Fórmulas, Perfis): ainda não consigo calcular as barras dela.',
         ])
     })
 
@@ -617,8 +652,9 @@ describe('(11) o FECHAMENTO: ao completar, o vendedor recebe UMA mensagem fixa, 
         await chamar({ id: 'MSG_QUE_FECHOU' })
         await chamar({ id: 'MSG_QUE_FECHOU' })
         expect(estado.chamadasDaLlm).toHaveLength(1)
-        expect(estado.envios).toHaveLength(1)
-        expect(saidas()).toHaveLength(1)
+        // o fechamento e o levantamento, UMA vez cada
+        expect(estado.envios).toHaveLength(2)
+        expect(saidas()).toHaveLength(2)
         expect(erros.filter((l) => l.startsWith('[INBOUND]'))[1]).toEqual(expect.stringContaining('desfecho=repetida'))
     })
 
@@ -628,8 +664,9 @@ describe('(11) o FECHAMENTO: ao completar, o vendedor recebe UMA mensagem fixa, 
         await chamar({ id: 'MSG_QUE_FECHOU' })
         llmResponde({})
         await chamar({ id: 'MSG_DEPOIS', texto: 'Obrigado!' })
-        expect(estado.envios).toHaveLength(1)
-        expect(saidas()).toHaveLength(1)
+        // o fechamento e o levantamento da primeira — e NADA na segunda
+        expect(estado.envios).toHaveLength(2)
+        expect(saidas()).toHaveLength(2)
         expect(linhaIa()[1]).toEqual(expect.stringMatching(/enviou=nao.*desfecho=ja-completa/))
     })
 })
@@ -737,5 +774,87 @@ describe('(13) o esquema da ferramenta cabe nos limites de complexidade do stric
             expect([...(p.properties.tipo_edificacao.enum ?? [])].sort()).toEqual([...preDef.TIPOS_DE_EDIFICACAO].sort())
         }
         expect(esquema.additionalProperties).toBe(false)
+    })
+})
+
+describe('(14) a TIPOLOGIA é escolhida da LISTA da tabela em uso — a IA não traduz nem inventa código', () => {
+    it('a lista vai ao prompt: código, descrição inteira e tipo, da tabela ligada à empresa', async () => {
+        await chamar()
+        const sistema = String(estado.chamadasDaLlm[0].corpo.system)
+        expect(sistema).toContain('DP-02 | JANELA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 42 | Correr')
+        expect(sistema).toContain('DP-01 | MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL | DESIGN | Maxim-ar')
+    })
+
+    it('o que o vendedor disse, como texto, NÃO é tipologia: "Janela de correr" é descartada, e a pergunta continua a da tipologia', async () => {
+        montar(VAZIA)
+        llmResponde({ campos: { tipologia: 'Janela de correr', largura_mm: 1500 } })
+        await chamar()
+        expect(preDefinicao()?.tipologia).toBeNull()
+        expect(preDefinicao()?.largura_mm).toBe(1500)
+        expect(estado.envios[0].corpo.Body).toBe(preDef.PERGUNTA_DO_CAMPO.tipologia)
+    })
+
+    it('código INVENTADO, fora da lista ("DP-99"), é descartado', async () => {
+        montar(VAZIA)
+        llmResponde({ campos: { tipologia: 'DP-99' } })
+        await chamar()
+        expect(preDefinicao()?.tipologia).toBeNull()
+        expect(linhaIa()[0]).toEqual(expect.stringMatching(/propostos=1 .*descartados=1/))
+    })
+
+    it('o contraste: um código DA LISTA é gravado', async () => {
+        montar(VAZIA)
+        llmResponde({ campos: { tipologia: 'DP-02' } })
+        await chamar()
+        expect(preDefinicao()?.tipologia).toBe('DP-02')
+    })
+
+    it('a comparação é EXATA: "dp-02" não é DP-02', async () => {
+        montar(VAZIA)
+        llmResponde({ campos: { tipologia: 'dp-02' } })
+        await chamar()
+        expect(preDefinicao()?.tipologia).toBeNull()
+    })
+
+    it('ENTRE DUAS, a IA pergunta qual é — e a pergunta dela, sobre a tipologia, vai como ela escreveu', async () => {
+        montar(VAZIA)
+        const pergunta = 'É a JANELA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 42, ou o MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL | DESIGN?'
+        llmResponde({ pergunta: { campo: 'tipologia', texto: pergunta } })
+        await chamar()
+        expect(estado.envios[0].corpo.Body).toBe(pergunta)
+    })
+
+    it('a LISTA AINDA NÃO EXISTE no banco: NÃO chama a LLM, e o vendedor lê o que falta', async () => {
+        montar(VAZIA)
+        estado.ausentes.add('orcamentista_motor_tipologia_detalhe')
+        const r = await chamar()
+        expect(r.status).toBe(200)
+        expect(estado.chamadasDaLlm).toHaveLength(0)
+        expect(estado.envios.map((e) => e.corpo.Body)).toEqual(['Ainda não consigo escolher a tipologia: a lista de tipologias do fornecedor, com a descrição de cada uma, ainda não foi carregada.'])
+        expect(saidas()).toHaveLength(1)
+        expect(linhaIa()[0]).toEqual(expect.stringMatching(/enviou=sim desfecho=sem-tipologias motivo=SEM_LISTA_DE_TIPOLOGIAS codigo=PGRST205/))
+    })
+
+    it('a empresa SEM TABELA ligada: NÃO chama a LLM, e o vendedor lê isso', async () => {
+        montar(VAZIA)
+        estado.db.orcamentista_conta_tabela = []
+        await chamar()
+        expect(estado.chamadasDaLlm).toHaveLength(0)
+        expect(estado.envios.map((e) => e.corpo.Body)).toEqual(['Ainda não consigo escolher a tipologia: a sua empresa não tem uma tabela de fornecedor ligada ao orçamentista.'])
+    })
+
+    it('o contraste: sem a lista, mas com a tipologia JÁ gravada, a conversa segue — a LLM é chamada', async () => {
+        montar({ tipologia: 'DP-02' })
+        estado.ausentes.add('orcamentista_motor_tipologia_detalhe')
+        await chamar()
+        expect(estado.chamadasDaLlm).toHaveLength(1)
+    })
+
+    it('o fechamento é seguido do LEVANTAMENTO, uma vez, e o log diz o desfecho dele', async () => {
+        montar({ ...SETE_DE_PRODUTO_E_LOCAL })
+        llmResponde({ campos: { tipo_edificacao: 'CASA' } })
+        await chamar()
+        expect(estado.envios.map((e) => e.corpo.Body)).toEqual([FECHAMENTO_DOS_SETE, LEVANTAMENTO_DOS_SETE])
+        expect(linhaIa()[0]).toEqual(expect.stringMatching(/desfecho=fechou levantamento=recusou/))
     })
 })
