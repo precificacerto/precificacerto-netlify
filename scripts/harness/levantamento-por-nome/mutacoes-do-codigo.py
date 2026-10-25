@@ -11,6 +11,9 @@ aparecer na saída da falha (`teste-que-nao-exercita.md`).
 O arquivo-alvo é mutado no lugar, com `.bak`, e conferido por sha256 no fim; o script recusa rodar com
 o alvo sujo. NÃO COMMITE enquanto ele roda.
 
+Tirar o filtro de tenant da LEITURA do user não é mutação aqui: a decisão pura confere o tenant de
+novo, e a mutação seria equivalente. A conferência da decisão é a N20.
+
 Uso:   python3 -B scripts/harness/levantamento-por-nome/mutacoes-do-codigo.py          (todas)
        python3 -B scripts/harness/levantamento-por-nome/mutacoes-do-codigo.py N3 N8   (só estas)
 """
@@ -24,7 +27,8 @@ NM = 'src/lib/atendimentos-ia/nome-do-levantamento.ts'
 LM = 'src/lib/atendimentos-ia/levantamento-em-montagem.ts'
 CV = 'src/lib/atendimentos-ia/conversa-da-ia.ts'
 IN = 'src/pages/api/atendimentos-ia/inbound.ts'
-T = ['src/utils/__tests__/nome-do-levantamento.test.ts', 'src/utils/__tests__/levantamento-em-montagem.test.ts',
+PR = 'src/lib/atendimentos-ia/permissao-do-remetente.ts'
+T = ['src/utils/__tests__/permissao-do-remetente.test.ts', 'src/utils/__tests__/nome-do-levantamento.test.ts', 'src/utils/__tests__/levantamento-em-montagem.test.ts',
      'src/utils/__tests__/atendimentos-ia-levantamento-por-nome.test.ts', 'src/utils/__tests__/atendimentos-ia-inbound.test.ts']
 CONTROLE = 'N0'
 
@@ -51,6 +55,16 @@ M = [
  # decisão 4 e o "sempre responde"
  ('N16', 'a entrada não conduz a conversa', IN, [("        await conduzirMensagem({", "        if (false) await conduzirMensagem({")], 'conduzida UMA vez'),
  ('N17', 'a entrada passa o texto errado', IN, [("telefone, texto, wuzapiToken:", "telefone, texto: '', wuzapiToken:")], 'o texto e o token'),
+ # decisão 2, REVISTA — o admin da empresa também altera, com falha fechada
+ ('N18', 'qualquer papel vira admin', PR, [("return e.user.role === PAPEL_DE_ADMIN ? { admin: true } : nao('NAO_E_ADMIN')", "return e.user.role ? { admin: true } : nao('NAO_E_ADMIN')")], 'super_admin'),
+ ('N19', 'employees.user_id nulo não fecha', PR, [("    if (!e.employee.user_id) return nao('SEM_USER')\n    if (!e.user) return nao('USER_NAO_ACHADO')\n", "    if (!e.employee.user_id || !e.user) return { admin: true }\n")], 'user_id NULO'),
+ ('N20', 'o tenant do user não é conferido', PR, [("    if (e.user.tenant_id !== tenantId) return nao('OUTRO_TENANT')\n", "")], 'OUTRO tenant'),
+ ('N22', 'o não admin recebe a resposta que revela o outro dono', CV, [("if ('motivo' in rastro.admin) { rastro.rota = 'NAO_ENCONTRADO'; return await responder(fraseDeNaoEncontrei(lido), 'nao-encontrado') }", "if ('motivo' in rastro.admin && (await lerLevantamentosDaEmpresaPeloNome(c.tenantId, normalizarNome(lido))).length === 0) { rastro.rota = 'NAO_ENCONTRADO'; return await responder(fraseDeNaoEncontrei(lido), 'nao-encontrado') }")], 'a MESMA frase'),
+ ('N23', 'com dois vendedores, o admin altera o mais recente', CV, [("if (doVendedor.length !== 1 && (daEmpresa.length > 1 || vendedorLido !== null)) {", "if (false) {"), ("const escolhido = doVendedor.length === 1 ? doVendedor[0] : daEmpresa[0]", "const escolhido = doVendedor.length === 1 ? doVendedor[0] : daEmpresa[daEmpresa.length - 1]")], 'DOIS vendedores'),
+ ('N24', 'o vendedor dito não precisa estar no texto', CV, [("const vendedorLido = nomeDaMensagem(proposta.vendedor, c.texto)", "const vendedorLido = typeof proposta.vendedor === 'string' ? proposta.vendedor : null")], 'inventado'),
+ ('N25', 'o admin monta o levantamento de outro (grava com pendência)', CV, [("if (pendencia && alvo && alvo.donoId !== c.remetenteId) {", "if (false) {")], 'INCOMPLETO'),
+ ('N26', 'a alteração do admin passa o levantamento para o admin', CV, [("await gravarLevantamento(c.tenantId, alvo ? alvo.donoId : c.remetenteId,", "await gravarLevantamento(c.tenantId, c.remetenteId,")], 'continua do criador'),
+ ('N27', 'o pedido de alteração é ignorado: cria em vez de procurar', CV, [("} else if (proposta.alteracao === true && !novo) {", "} else if (false) {")], 'não encontrei'),
  ('N0', 'controle: nada muda', NM, [("export", "export")]),
 ]
 
