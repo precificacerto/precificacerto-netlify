@@ -8,8 +8,8 @@
  *
  * A ARQUITETURA (dono do produto, 25/10/2026): o LEVANTAMENTO é a entidade, achado pelo NOME, de um
  * remetente. A conversa deixa de ser identidade de qualquer coisa:
- *   - com um levantamento EM_MONTAGEM do remetente, a mensagem continua nele — é isso que faz o "4", o
- *     "1" e o "2" das perguntas de arremate caírem no lugar;
+ *   - com um levantamento EM_MONTAGEM do remetente, a mensagem continua nele — é isso que faz a resposta a
+ *     uma pergunta em aberto cair no lugar;
  *   - sem ele: nome que não existe → NOVO; nome que existe (sem caixa e sem acento) → ALTERAÇÃO, e o
  *     trajeto INTEIRO é refeito; nome ausente, parcial ou parecido → a IA PERGUNTA;
  *   - nenhuma linha nova em `orcamentista_mensagem` nem em `orcamentista_conversa`, e nada em
@@ -23,9 +23,18 @@
  * recebe "não encontrei um levantamento seu com esse nome" — a MESMA frase exista ou não o levantamento
  * de outro vendedor. Bloco (12).
  *
- * O TESTE QUE VALE (dono do produto): três pedidos seguidos do MESMO telefone, os três respondidos —
- * "Casa do João", "Obra Centro" e a alteração por "casa do joao" — e um quarto, "Casa do João 2", que
- * tem de PERGUNTAR. Está no bloco (1), na ordem.
+ * O ARREMATE (dono do produto, 25/10/2026): o padrão da tipologia é ASSUMIDO e confirmado ("Considerando
+ * guarnição e arremate padrão, certo!"), nunca perguntado; ARI, ARE, MAE e número de opção são vocabulário
+ * interno e não aparecem em resposta nenhuma. Só quando o vendedor pede outro arremate as opções são
+ * mostradas, por extenso.
+ *
+ * MEDIDO (25/10/2026), e é o que o aceite 1 recebe: o PADRÃO da DP-02 NÃO FECHA EM BRANCO. A MAE padrão
+ * ("MEDIDA DO VÃO") não traz medida, e o BZ0012/WOLFF que a ARI padrão puxa só tem a variante CLICK. A
+ * resposta é a RECUSA NOMEADA — nunca um número suposto. Com o arremate dito em palavras, sai o preço.
+ *
+ * O TESTE QUE VALE (dono do produto): pedidos seguidos do MESMO telefone, todos respondidos — "Casa do
+ * João", "Obra Centro", a alteração por "casa do joao" — e "Casa do João 2", que tem de PERGUNTAR.
+ * Está no bloco (1), na ordem.
  */
 import type { NextApiRequest, NextApiResponse } from 'next'
 
@@ -54,18 +63,22 @@ const DE_PARA = require('./fixtures/fixture_de-para_DP-02.json') as { regras: Li
 
 /** A esquadria do aceite: DP-02, 1200 x 1000, branco, temperado 5 mm. */
 const DP02 = { tipologia: 'DP-02', largura_mm: 1200, altura_mm: 1000, quantidade: 1, cor_perfil: 'BRANCO', vidro: 'Temperado 5mm' }
-const PERGUNTA_ARI = 'ARREMATE INTERNO — qual opção? 1 = BZ0006 - ARREMATE 65MM; 2 = BZ1770 - ARREMATE 70MM; 3 = BZ0010 - ARREMATE 20MM; 4 = SEM ARREMATE INTERNO.'
-const PERGUNTA_ARE = 'ARREMATE EXTERNO — qual opção? 1 = BZ0010 - ARREMATE 20MM; 2 = SEM ARREMATE EXTERNO.'
-const PERGUNTA_MAE = 'MEDIDA ARREMATE EXTERNO — qual opção? 1 = MEDIDA DO VÃO (CORTE 45/45); 2 = VÃO+50MM (CORTE 90/90) - PARA AJUSTE EM OBRA; 3 = VÃO+100MM (CORTE 90/90) - PARA AJUSTE EM OBRA.'
+/** A pergunta do vidro: o campo que falta nos casos de montagem. */
+const PERGUNTA_DO_VIDRO = 'Qual o vidro?'
+/** O que nenhuma resposta ao vendedor pode conter: o vocabulário interno do arremate e a opção numerada. */
+const VOCABULARIO_INTERNO = /\b(ARI|ARE|MAE|MAI|MTE)\b|qual opção\?|\b\d+ = /
 
 /**
  * O levantamento que fecha, inteiro — os números são os da conta à mão do portão da ligação, com o
  * tempo de produção (300 min, ESTIMADO) e os números do tenant ativo para a mão de obra.
  */
 const LEVANTAMENTO_CASA_DO_JOAO = [
+    'Considerando o arremate que você pediu, e o padrão no que não foi dito, certo!',
+    '',
     'Levantamento “Casa do João”, perfil BRANCO.',
     'Esquadria 1: DP-02, 1.200 x 1.000 mm, 1 unidade(s).',
-    'Escolhas: ARI 4 — SEM ARREMATE INTERNO; ARE 1 — BZ0010 - ARREMATE 20MM; MAE 2 — VÃO+50MM (CORTE 90/90) - PARA AJUSTE EM OBRA. As outras variáveis ficaram no Padrão da tipologia.',
+    'Arremate e guarnição — arremate interno: SEM ARREMATE INTERNO (como você pediu); arremate externo: BZ0010 - ARREMATE 20MM (padrão); '
+        + 'medida arremate externo: VÃO+50MM (CORTE 90/90) - PARA AJUSTE EM OBRA (como você pediu).',
     '',
     'Barras por código:',
     '• 1023 (1023/WOLFF): 1 barra(s) de 6 m',
@@ -79,13 +92,15 @@ const LEVANTAMENTO_CASA_DO_JOAO = [
     '',
     'Aproveitamento do levantamento: 60,7% (32,77 m úteis de 54,00 m comprados).',
     '',
-    'Material por barra inteira: R$ 1.342,09.',
-    'Material por consumo real: R$ 829,79.',
+    'Perfis por barra inteira: R$ 1.342,09.',
+    'Perfis por consumo real: R$ 829,79.',
     'Diferença entre os dois: R$ 512,30.',
     'Mão de obra: 300 min por unidade (ESTIMADO) × 1 unidade(s), a R$ 0,257658 o minuto (R$ 40.813,03 ÷ 158.400 min): R$ 77,30.',
     '',
-    'Total por barra inteira (material + mão de obra): R$ 1.419,39.',
-    'Total por consumo real (material + mão de obra): R$ 907,09.',
+    'Total por barra inteira (perfis + mão de obra): R$ 1.419,39.',
+    'Total por consumo real (perfis + mão de obra): R$ 907,09.',
+    '',
+    'O que este preço cobre: os perfis (o baguete incluído), pela tabela do fornecedor, e a mão de obra. NÃO cobre o vidro nem os insumos e acessórios (ferragens, escovas, calços e outros): eles ainda não estão na base.',
 ].join('\n')
 
 const estado = {
@@ -102,6 +117,8 @@ const estado = {
      * ela vê; o número da opção só se o prompt o der. E responde no formato da ferramenta enviada.
      */
     respostaPeloPrompt: null as null | { variavelDescrita: string; opcaoDescrita: string; nome: string },
+    /** R1: a tabela cujo update NÃO atinge linha nenhuma (como uma linha apagada entre a leitura e a escrita). */
+    updateNaoAtinge: null as string | null,
 }
 
 function montar() {
@@ -142,6 +159,7 @@ function montar() {
     estado.envios = []
     estado.ausentes = new Set()
     estado.respostaPeloPrompt = null
+    estado.updateNaoAtinge = null
 }
 
 /** As UNIQUE da migração 20261025000003 que importam aqui, para o banco falso recusar como o real. */
@@ -163,6 +181,8 @@ jest.mock('@/supabase/admin', () => ({
             let limite: number | null = null
             let atualizacao: Linha | null = null
             let colunas: string[] | null = null
+            // `.update(...).select(...)`: o PostgREST devolve as linhas que o update atingiu
+            let devolveAtingidas = false
             const projetar = (l: Linha): Linha => (colunas ? Object.fromEntries(colunas.filter((c) => c in l).map((c) => [c, l[c]])) : l)
             const casa = (l: Linha) => filtros.every(([c, v]) => l[c] === v) && predicados.every((f) => f(l))
             const ler = () => {
@@ -178,6 +198,7 @@ jest.mock('@/supabase/admin', () => ({
             const ausente = () => ({ data: null as Linha | null, error: { code: 'PGRST205', message: `Could not find the table 'public.${tabela}'` } })
             const q: Record<string, unknown> = {}
             q.select = (c?: string, o?: { count?: string }) => {
+                if (atualizacao) devolveAtingidas = true
                 contar = o?.count === 'exact'
                 colunas = c && /^[a-z_0-9,\s]+$/i.test(c) ? c.split(',').map((x) => x.trim()).filter(Boolean) : null
                 return q
@@ -193,8 +214,9 @@ jest.mock('@/supabase/admin', () => ({
             q.then = (ok: (v: unknown) => unknown, erro?: (e: unknown) => unknown) => {
                 if (atualizacao) {
                     estado.escritas.push({ tabela, op: 'update', carga: atualizacao })
-                    for (const l of (estado.db[tabela] ?? []).filter(casa)) Object.assign(l, atualizacao)
-                    return Promise.resolve({ data: null, error: null }).then(ok, erro)
+                    const atingidas = estado.updateNaoAtinge === tabela ? [] : (estado.db[tabela] ?? []).filter(casa)
+                    for (const l of atingidas) Object.assign(l, atualizacao)
+                    return Promise.resolve({ data: devolveAtingidas ? atingidas.map(projetar) : null, error: null }).then(ok, erro)
                 }
                 if (estado.ausentes.has(tabela)) return Promise.resolve(ausente()).then(ok, erro)
                 const total = (estado.db[tabela] ?? []).filter(casa).length
@@ -231,7 +253,7 @@ const rota = require('@/pages/api/atendimentos-ia/inbound').default as (req: Nex
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const conversa = require('@/lib/atendimentos-ia/conversa-da-ia') as typeof import('@/lib/atendimentos-ia/conversa-da-ia')
 
-type Proposta = { nome?: string; novo?: boolean; itens?: Linha[]; escolha?: Linha; pergunta?: { texto: string } } & Linha
+type Proposta = { nome?: string; novo?: boolean; itens?: Linha[]; escolhas?: Linha[]; opcoes_de?: string[]; pergunta?: { texto: string } } & Linha
 function respostaComFerramenta(p: Proposta) {
     return {
         id: 'msg_teste', type: 'message', role: 'assistant', model: 'claude-sonnet-5-5', stop_reason: 'tool_use',
@@ -267,17 +289,19 @@ const levantamentos = () => estado.db.orcamentista_levantamento ?? []
 const itensDe = (id: unknown) => (estado.db.orcamentista_levantamento_item ?? []).filter((i) => i.levantamento_id === id).sort((a, b) => Number(a.ordem) - Number(b.ordem))
 const linhaIa = () => erros.filter((l) => l.startsWith('[IA]'))
 
-/** O pedido do aceite e as três escolhas, mensagem a mensagem — devolve o que foi enviado por último. */
+/** As escolhas em palavras que fazem a DP-02 fechar em branco: "sem arremate interno" e "externo com folga de 50". */
+const ESCOLHAS_QUE_FECHAM = [{ variavel: 'ARI', opcao: 4 }, { variavel: 'MAE', opcao: 2 }]
+/** Uma esquadria DP-02 completa, com o arremate dito em palavras, numa mensagem só — devolve a resposta. */
 async function fecharDp02(nome: string, opcoes: { senderAlt?: string } = {}) {
-    llmResponde({ nome, itens: [{ ...DP02 }] })
-    await chamar(`Levantamento ${nome}: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm`, opcoes)
-    llmResponde({ escolha: { variavel: 'ARI', opcao: 4 } })
-    await chamar('4', opcoes)
-    llmResponde({ escolha: { variavel: 'ARE', opcao: 1 } })
-    await chamar('1', opcoes)
-    llmResponde({ escolha: { variavel: 'MAE', opcao: 2 } })
-    await chamar('2', opcoes)
+    llmResponde({ nome, itens: [{ ...DP02 }], escolhas: ESCOLHAS_QUE_FECHAM })
+    await chamar(`Levantamento ${nome}: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50`, opcoes)
     return ultimoEnviado()
+}
+const linhaDa = (texto: string, comeco: string) => texto.split('\n').find((l) => l.startsWith(comeco))
+/** Abre um levantamento EM_MONTAGEM: a esquadria sem o vidro, e a pergunta do vidro em aberto. */
+async function abrirSemVidro(nome: string) {
+    llmResponde({ nome, itens: [{ ...DP02, vidro: undefined }] })
+    await chamar(`Levantamento ${nome}: DP-02 1200 x 1000, 1 unidade, branco`)
 }
 
 let erros: string[] = []
@@ -297,7 +321,7 @@ beforeEach(() => {
                 const codigo = new RegExp(`\\b([A-Z]{2,5})\\s*[=:]\\s*${pelo.variavelDescrita}\\b`).exec(sistema)?.[1] ?? pelo.variavelDescrita
                 const opcao = Number(new RegExp(`(\\d+)\\s*=\\s*${pelo.opcaoDescrita}`).exec(sistema)?.[1] ?? NaN)
                 const escolha = { variavel: codigo, opcao: Number.isFinite(opcao) ? opcao : 0 }
-                const input = { nome: pelo.nome, itens: [], ...('escolhas' in props ? { escolhas: [escolha] } : { escolha }) }
+                const input = { nome: pelo.nome, itens: [] as Linha[], ...('escolhas' in props ? { escolhas: [escolha] } : { escolha }) }
                 return { ok: true, status: 200, json: async () => ({ ...respostaComFerramenta({}), content: [{ type: 'tool_use', id: 't', name: conversa.NOME_DA_FERRAMENTA, input }] }) }
             }
             const proxima = estado.respostasDaLlm.shift() ?? { status: 200, corpo: respostaComFerramenta({}) }
@@ -324,62 +348,59 @@ afterEach(() => {
 })
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════
-describe('(1) O TESTE QUE VALE: três pedidos seguidos do MESMO telefone, e um quarto que pergunta', () => {
-    it('1. "Levantamento Casa do João" + DP-02 1200x1000 branco: as escolhas uma a uma, e a resposta com os dois totais', async () => {
-        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02 }] })
-        await chamar('Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm')
-        expect(enviados()).toEqual([PERGUNTA_ARI])
-        expect(levantamentos().map((l) => [l.nome, l.nome_normalizado, l.estado, l.remetente_id, l.tenant_id]))
-            .toEqual([['Casa do João', 'casa do joao', 'EM_MONTAGEM', VENDEDOR, TENANT]])
+describe('(1) O TESTE QUE VALE: pedidos seguidos do MESMO telefone, todos respondidos, e um que pergunta', () => {
+    const ACEITE_1 = 'Levantamento Casa do João — janela de correr 2 folhas móveis Europa 42, 1200 x 1000 mm, 1 unidade, perfil branco, vidro 5mm'
 
-        // o "4" cai na ARI porque o levantamento está EM_MONTAGEM — não há histórico de mensagens
-        llmResponde({ escolha: { variavel: 'ARI', opcao: 4 } })
-        await chamar('4')
-        llmResponde({ escolha: { variavel: 'ARE', opcao: 1 } })
-        await chamar('1')
-        llmResponde({ escolha: { variavel: 'MAE', opcao: 2 } })
-        await chamar('2')
-        expect(enviados()).toEqual([PERGUNTA_ARI, PERGUNTA_ARE, PERGUNTA_MAE, LEVANTAMENTO_CASA_DO_JOAO])
-        expect(levantamentos()[0].estado).toBe('COMPLETO')
-        expect(itensDe(levantamentos()[0].id)).toEqual([expect.objectContaining({ ordem: 1, ...DP02, escolhas: { ARI: 4, ARE: 1, MAE: 2 } })])
+    it('1. a esquadria inteira, SEM nenhuma pergunta de arremate: o padrão é assumido e confirmado, e a resposta sai JÁ — no padrão da DP-02 em branco, a RECUSA NOMEADA do que falta', async () => {
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, vidro: 'vidro 5mm' }] })
+        await chamar(ACEITE_1)
+        expect(enviados()).toHaveLength(1)
+        const r = enviados()[0]
+        expect(r.split('\n')[0]).toBe(conversa.FRASE_ARREMATE_PADRAO)
+        // a resposta diz, por extenso, qual arremate foi usado
+        expect(r).toContain('Arremate e guarnição — arremate interno: BZ0006 - ARREMATE 65MM (padrão); arremate externo: BZ0010 - ARREMATE 20MM (padrão); medida arremate externo: MEDIDA DO VÃO (CORTE 45/45) (padrão).')
+        // MEDIDO: o padrão não fecha — a MAE padrão não traz medida. Recusa nomeada, nenhum número suposto
+        expect(r).toContain('Não consegui fechar o levantamento “Casa do João”, perfil BRANCO.')
+        expect(r).toContain('“MEDIDA ARREMATE EXTERNO” não tem valor, e nenhum é suposto.')
+        expect(r).not.toMatch(/R\$/)
+        expect(r).not.toMatch(VOCABULARIO_INTERNO)
+        expect(levantamentos()[0]).toEqual(expect.objectContaining({ nome: 'Casa do João', estado: 'COMPLETO' }))
+    })
+
+    it('1b. o MESMO pedido com o arremate dito em palavras: sai JÁ, com os dois totais, o arremate usado e o que o preço cobre e não cobre', async () => {
+        expect(await fecharDp02('Casa do João')).toBe(LEVANTAMENTO_CASA_DO_JOAO)
+        expect(enviados()).toHaveLength(1)
+        expect(itensDe(levantamentos()[0].id)).toEqual([expect.objectContaining({ ordem: 1, ...DP02, escolhas: { ARI: 4, MAE: 2 } })])
+        expect(LEVANTAMENTO_CASA_DO_JOAO).not.toMatch(VOCABULARIO_INTERNO)
     })
 
     it('2. "Levantamento Obra Centro" logo depois: responde, e são DOIS levantamentos distintos', async () => {
         await fecharDp02('Casa do João')
-        llmResponde({ nome: 'Obra Centro', itens: [{ ...DP02, largura_mm: 800, altura_mm: 600 }] })
-        await chamar('Levantamento Obra Centro: DP-02 800 x 600, branco, temperado 5mm')
-        expect(ultimoEnviado()).toBe(PERGUNTA_ARI)
-        llmResponde({ escolha: { variavel: 'ARI', opcao: 4 } })
-        await chamar('4')
-        llmResponde({ escolha: { variavel: 'ARE', opcao: 2 } })
-        await chamar('2')
-        expect(ultimoEnviado().split('\n')[0]).toBe('Levantamento “Obra Centro”, perfil BRANCO.')
+        llmResponde({ nome: 'Obra Centro', itens: [{ ...DP02, largura_mm: 800, altura_mm: 600 }], escolhas: [{ variavel: 'ARI', opcao: 4 }, { variavel: 'ARE', opcao: 2 }] })
+        await chamar('Levantamento Obra Centro: DP-02 800 x 600, branco, temperado 5mm, sem arremate interno nem externo')
+        expect(enviados()).toHaveLength(2)
+        expect(ultimoEnviado()).toContain('Levantamento “Obra Centro”, perfil BRANCO.')
         expect(ultimoEnviado()).toContain('Esquadria 1: DP-02, 800 x 600 mm, 1 unidade(s).')
-        expect(ultimoEnviado()).toMatch(/Total por consumo real \(material \+ mão de obra\): R\$ [\d.]+,\d{2}\./)
+        expect(ultimoEnviado()).toMatch(/Total por consumo real \(perfis \+ mão de obra\): R\$ [\d.]+,\d{2}\./)
         expect(levantamentos().map((l) => [l.nome, l.estado])).toEqual([['Casa do João', 'COMPLETO'], ['Obra Centro', 'COMPLETO']])
-        // a Casa do João ficou como estava
         expect(itensDe(levantamentos()[0].id)[0]).toEqual(expect.objectContaining({ largura_mm: 1200, altura_mm: 1000 }))
     })
 
     it('3. "casa do joao" (minúscula, sem acento) trocando a altura para 1200: é ALTERAÇÃO do primeiro, refaz tudo e responde com os números novos', async () => {
         const antes = await fecharDp02('Casa do João')
         const escritasAntes = estado.escritas.length
-        llmResponde({ nome: 'casa do joao', itens: [{ altura_mm: 1200 }] })
-        await chamar('casa do joao, troca a altura para 1200')
+        llmResponde({ nome: 'casa do joao', alteracao: true, itens: [{ altura_mm: 1200 }] })
+        await chamar('casa do joao, trocar a altura para 1200')
         const depois = ultimoEnviado()
         expect(levantamentos()).toHaveLength(1)
         expect(levantamentos()[0]).toEqual(expect.objectContaining({ nome: 'Casa do João', estado: 'COMPLETO' }))
-        // o único rastro é atualizado_em (decisão 3): a alteração o grava
         expect(estado.escritas.slice(escritasAntes).some((e) => e.tabela === 'orcamentista_levantamento' && e.op === 'update'
             && typeof (e.carga as Linha).atualizado_em === 'string')).toBe(true)
-        // sobrescreve (decisão 3): a altura é a nova, e as escolhas ficam — a tipologia não mudou
-        expect(itensDe(levantamentos()[0].id)).toEqual([expect.objectContaining({ ordem: 1, altura_mm: 1200, escolhas: { ARI: 4, ARE: 1, MAE: 2 } })])
-        expect(depois.split('\n').slice(0, 2)).toEqual(['Levantamento “Casa do João”, perfil BRANCO.', 'Esquadria 1: DP-02, 1.200 x 1.200 mm, 1 unidade(s).'])
-        // o trajeto inteiro foi refeito: o material mudou — não só o número final
-        const material = (t: string) => t.split('\n').find((l) => l.startsWith('Material por consumo real:'))
-        expect(material(depois)).toBeDefined()
-        expect(material(depois)).not.toBe(material(antes))
-        expect(depois).toMatch(/Total por barra inteira \(material \+ mão de obra\): R\$ [\d.]+,\d{2}\./)
+        expect(itensDe(levantamentos()[0].id)).toEqual([expect.objectContaining({ ordem: 1, altura_mm: 1200, escolhas: { ARI: 4, MAE: 2 } })])
+        expect(linhaDa(depois, 'Esquadria 1:')).toBe('Esquadria 1: DP-02, 1.200 x 1.200 mm, 1 unidade(s).')
+        expect(linhaDa(depois, 'Perfis por consumo real:')).toBeDefined()
+        expect(linhaDa(depois, 'Perfis por consumo real:')).not.toBe(linhaDa(antes, 'Perfis por consumo real:'))
+        expect(depois).toMatch(/Total por barra inteira \(perfis \+ mão de obra\): R\$ [\d.]+,\d{2}\./)
     })
 
     it('4. "Casa do João 2": PERGUNTA se é novo ou se é sobre o "Casa do João" — e não cria nem altera nada', async () => {
@@ -391,6 +412,25 @@ describe('(1) O TESTE QUE VALE: três pedidos seguidos do MESMO telefone, e um q
         expect(ultimoEnviado()).toContain('“Casa do João”')
         expect(levantamentos()).toHaveLength(1)
         expect(JSON.stringify(estado.db.orcamentista_levantamento_item)).toBe(itensAntes)
+    })
+})
+
+describe('(1c) o arremate só é perguntado quando o vendedor PEDE outro — e as opções vão por extenso', () => {
+    it('"quero trocar o arremate externo" mostra as opções em palavras; "sem arremate externo" é gravado e o preço sai refeito', async () => {
+        await fecharDp02('Casa do João')
+        llmResponde({ nome: 'Casa do João', alteracao: true, opcoes_de: ['ARE'] })
+        await chamar('Casa do João: quero trocar o arremate externo')
+        expect(ultimoEnviado()).toBe('Para arremate externo, as opções são: BZ0010 - ARREMATE 20MM; SEM ARREMATE EXTERNO. Qual você quer?')
+        expect(levantamentos()[0].estado).toBe('EM_MONTAGEM')
+
+        // a resposta vem SEM o nome: o levantamento está em montagem, e a LLM só sabe o que o prompt diz
+        estado.respostaPeloPrompt = { variavelDescrita: 'ARREMATE EXTERNO', opcaoDescrita: 'SEM ARREMATE EXTERNO', nome: '' }
+        await chamar('sem arremate externo')
+        expect(itensDe(levantamentos()[0].id)[0].escolhas).toEqual({ ARI: 4, MAE: 2, ARE: 2 })
+        expect(levantamentos()[0].estado).toBe('COMPLETO')
+        expect(ultimoEnviado()).toContain('arremate externo: SEM ARREMATE EXTERNO (como você pediu)')
+        expect(ultimoEnviado()).toMatch(/Total por barra inteira \(perfis \+ mão de obra\): R\$ [\d.]+,\d{2}\./)
+        for (const t of enviados()) expect(t).not.toMatch(VOCABULARIO_INTERNO)
     })
 })
 
@@ -409,12 +449,12 @@ describe('(2) o roteamento por nome', () => {
         expect(levantamentos()).toEqual([])
     })
 
-    it('o vendedor responde dizendo que é NOVO, com o nome: "novo Casa do João 2" cria o segundo', async () => {
+    it('o vendedor responde dizendo que é NOVO, com o nome: "novo Casa do João 2" cria o segundo, e responde JÁ', async () => {
         await fecharDp02('Casa do João')
         llmResponde({ nome: 'Casa do João 2', novo: true, itens: [{ ...DP02 }] })
         await chamar('novo Casa do João 2: DP-02 1200 x 1000 branco temperado 5mm')
         expect(levantamentos().map((l) => l.nome)).toEqual(['Casa do João', 'Casa do João 2'])
-        expect(ultimoEnviado()).toBe(PERGUNTA_ARI)
+        expect(ultimoEnviado().split('\n')[0]).toBe(conversa.FRASE_ARREMATE_PADRAO)
     })
 
     it('"novo" com um nome que JÁ existe não cria outro: diz que o nome já existe', async () => {
@@ -426,13 +466,13 @@ describe('(2) o roteamento por nome', () => {
     })
 
     it('com um levantamento EM_MONTAGEM, a mensagem continua nele — mesmo trazendo outro nome', async () => {
-        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02 }] })
-        await chamar('Levantamento Casa do João: DP-02 1200 x 1000 branco temperado 5mm')
-        llmResponde({ nome: 'Obra Centro', escolha: { variavel: 'ARI', opcao: 4 } })
-        await chamar('Obra Centro? não, 4')
+        await abrirSemVidro('Casa do João')
+        expect(ultimoEnviado()).toBe(PERGUNTA_DO_VIDRO)
+        llmResponde({ nome: 'Obra Centro', itens: [{ vidro: 'Temperado 5mm' }] })
+        await chamar('Obra Centro? não, vidro temperado 5mm')
         expect(levantamentos()).toHaveLength(1)
-        expect(itensDe(levantamentos()[0].id)[0].escolhas).toEqual({ ARI: 4 })
-        expect(ultimoEnviado()).toBe(PERGUNTA_ARE)
+        expect(itensDe(levantamentos()[0].id)[0].vidro).toBe('Temperado 5mm')
+        expect(levantamentos()[0].estado).toBe('COMPLETO')
     })
 
     it('o nome é único POR VENDEDOR: o OUTRO vendedor, CRIANDO com o MESMO nome, cria o DELE — não altera o do primeiro', async () => {
@@ -447,7 +487,7 @@ describe('(2) o roteamento por nome', () => {
         await fecharDp02('Casa do João')
         const id = levantamentos()[0].id
         estado.db.orcamentista_levantamento_item.push({ id: 'item-2', tenant_id: TENANT, levantamento_id: id, ordem: 2, ...DP02, tipologia: 'DP-01', escolhas: null })
-        llmResponde({ nome: 'casa do joao', itens: [{ altura_mm: 1300 }] })
+        llmResponde({ nome: 'casa do joao', alteracao: true, itens: [{ altura_mm: 1300 }] })
         await chamar('casa do joao, altura 1300')
         expect(ultimoEnviado()).toBe(conversa.fraseDeQualEsquadria('Casa do João', 2))
         expect(itensDe(id).map((i) => i.altura_mm)).toEqual([1000, 1000])
@@ -455,19 +495,19 @@ describe('(2) o roteamento por nome', () => {
 
     it('ALTERAÇÃO com a ordem dita e a MESMA tipologia: as escolhas ficam, e sai o levantamento refeito', async () => {
         await fecharDp02('Casa do João')
-        llmResponde({ nome: 'Casa do João', itens: [{ ordem: 1, tipologia: 'DP-02', largura_mm: 1500 }] })
+        llmResponde({ nome: 'Casa do João', alteracao: true, itens: [{ ordem: 1, tipologia: 'DP-02', largura_mm: 1500 }] })
         await chamar('Casa do João: largura 1500')
-        // a tipologia é a mesma: escolhas ficam, e o levantamento refeito sai
-        expect(ultimoEnviado().split('\n')[1]).toBe('Esquadria 1: DP-02, 1.500 x 1.000 mm, 1 unidade(s).')
+        expect(linhaDa(ultimoEnviado(), 'Esquadria 1:')).toBe('Esquadria 1: DP-02, 1.500 x 1.000 mm, 1 unidade(s).')
+        expect(itensDe(levantamentos()[0].id)[0].escolhas).toEqual({ ARI: 4, MAE: 2 })
         expect(levantamentos()[0].estado).toBe('COMPLETO')
     })
 })
 
 describe('(3) o estado mora no levantamento: NADA em mensagem, conversa ou pré-definição', () => {
-    it('os quatro pedidos do teste que vale não escrevem uma linha em orcamentista_mensagem, _conversa ou _pre_definicao', async () => {
+    it('os pedidos do teste que vale não escrevem uma linha em orcamentista_mensagem, _conversa ou _pre_definicao', async () => {
         await fecharDp02('Casa do João')
-        llmResponde({ nome: 'casa do joao', itens: [{ altura_mm: 1200 }] })
-        await chamar('casa do joao, troca a altura para 1200')
+        llmResponde({ nome: 'casa do joao', alteracao: true, itens: [{ altura_mm: 1200 }] })
+        await chamar('casa do joao, trocar a altura para 1200')
         const tocadas = new Set(estado.escritas.map((e) => e.tabela))
         expect([...tocadas].sort()).toEqual(['orcamentista_levantamento', 'orcamentista_levantamento_item'])
         expect(estado.db.orcamentista_mensagem).toEqual([])
@@ -476,13 +516,12 @@ describe('(3) o estado mora no levantamento: NADA em mensagem, conversa ou pré-
     })
 
     it('a LLM recebe SÓ a mensagem desta vez — não há histórico — e, em montagem, a pergunta em aberto no prompt', async () => {
-        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02 }] })
-        await chamar('Levantamento Casa do João: DP-02 1200 x 1000 branco temperado 5mm')
-        llmResponde({ escolha: { variavel: 'ARI', opcao: 4 } })
-        await chamar('4')
+        await abrirSemVidro('Casa do João')
+        llmResponde({ itens: [{ vidro: 'Temperado 5mm' }] })
+        await chamar('temperado 5mm')
         const segunda = estado.chamadasDaLlm[1].corpo
-        expect(segunda.messages).toEqual([{ role: 'user', content: '4' }])
-        expect(String(segunda.system)).toContain(`Pergunta em aberto: ${PERGUNTA_ARI}`)
+        expect(segunda.messages).toEqual([{ role: 'user', content: 'temperado 5mm' }])
+        expect(String(segunda.system)).toContain(`Pergunta em aberto: ${PERGUNTA_DO_VIDRO}`)
     })
 
     it('a LLM não escolhe tenant nem remetente: as chaves propostas são ignoradas', async () => {
@@ -494,13 +533,15 @@ describe('(3) o estado mora no levantamento: NADA em mensagem, conversa ou pré-
 })
 
 describe('(4) a lista: a tipologia e a cor só da lista, exatas', () => {
-    it('as tipologias e as cores da empresa vão ao prompt', async () => {
+    it('as tipologias, as cores e as escolhas de arremate (internas, com o código) vão ao prompt', async () => {
         await chamar('oi')
         const sistema = String(estado.chamadasDaLlm[0].corpo.system)
         expect(sistema).toContain('DP-02 | JANELA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 42 | Correr')
         expect(sistema).toContain('Cores da empresa (cor_perfil, escreva EXATAMENTE uma delas): BRANCO')
+        // sem o código e o número no prompt, a LLM não tem como registrar a escolha — o defeito 1
+        expect(sistema).toContain('ARI = ARREMATE INTERNO: 1 = BZ0006 - ARREMATE 65MM; 2 = BZ1770 - ARREMATE 70MM; 3 = BZ0010 - ARREMATE 20MM; 4 = SEM ARREMATE INTERNO')
         // a escolha que muda o preço é do vendedor: o prompt proíbe a IA de escolher
-        expect(sistema).toContain('NUNCA escolha sozinho, nem pelo Padrão')
+        expect(sistema).toContain('NUNCA escolha sozinho')
     })
 
     it('"Branco" não é BRANCO, e "Janela de correr" não é tipologia: descartados, e a pergunta é a do primeiro campo vazio', async () => {
@@ -540,31 +581,30 @@ describe('(5) remetente autorizado é SEMPRE respondido; silêncio só para o de
     it('autorizado com o histórico antigo inteiro (uma pré-definição COMPLETA numa conversa antiga): É respondido', async () => {
         estado.db.orcamentista_conversa = [{ id: 'antiga', tenant_id: TENANT, remetente_id: VENDEDOR, telefone: TELEFONE_DO_WEBHOOK, criado_em: '2026-10-22T00:00:00Z' }]
         estado.db.orcamentista_pre_definicao = [{ id: 'pd', tenant_id: TENANT, conversa_id: 'antiga', estado: 'COMPLETA', tipologia: 'janela de correr 2 folhas Europa 42' }]
-        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02 }] })
-        await chamar('Levantamento Casa do João: DP-02 1200 x 1000 branco temperado 5mm')
-        expect(enviados()).toEqual([PERGUNTA_ARI])
-        // e o histórico antigo não foi tocado
+        await fecharDp02('Casa do João')
+        expect(enviados()).toEqual([LEVANTAMENTO_CASA_DO_JOAO])
         expect(estado.db.orcamentista_pre_definicao).toEqual([expect.objectContaining({ id: 'pd', estado: 'COMPLETA' })])
     })
 })
 
-describe('(6) erro da LLM ou do envio: 200 ao WUZAPI, e nenhuma mensagem técnica ao vendedor', () => {
-    it('sem ANTHROPIC_API_KEY: a LLM não é chamada, 200, e o log diz por quê', async () => {
+describe('(6) DEFEITO 3: toda falha vira resposta que diz o que falhou — 200 ao WUZAPI, e nada técnico', () => {
+    it('sem ANTHROPIC_API_KEY: a LLM não é chamada, e o vendedor sabe que falta a chave', async () => {
         delete process.env.ANTHROPIC_API_KEY
         const r = await chamar('oi')
         expect(r.status).toBe(200)
         expect(estado.chamadasDaLlm).toHaveLength(0)
+        expect(enviados()).toEqual([conversa.FALHA_SEM_CHAVE])
         expect(linhaIa()[0]).toContain('desfecho=sem-chave')
     })
 
     it.each([
-        ['402 billing_error', 402, { type: 'error', error: { type: 'billing_error', message: 'Your credit balance is too low' } }, 'sem-saldo'],
-        ['500', 500, { type: 'error', error: { type: 'api_error', message: 'interno' } }, 'erro-da-llm'],
-    ])('%s → desfecho %s, nada enviado, nada gravado', async (_n, status, corpo, desfecho) => {
+        ['402 billing_error', 402, { type: 'error', error: { type: 'billing_error', message: 'Your credit balance is too low' } }, 'sem-saldo', 'FALHA_SEM_SALDO'],
+        ['500', 500, { type: 'error', error: { type: 'api_error', message: 'interno' } }, 'erro-da-llm', 'FALHA_DA_IA'],
+    ])('%s → desfecho %s, a frase da falha, nada gravado', async (_n, status, corpo, desfecho, frase) => {
         estado.respostasDaLlm.push({ status, corpo })
         const r = await chamar('Levantamento Casa do João')
         expect(r.status).toBe(200)
-        expect(enviados()).toEqual([])
+        expect(enviados()).toEqual([(conversa as unknown as Record<string, string>)[frase]])
         expect(levantamentos()).toEqual([])
         expect(linhaIa()[0]).toContain(`desfecho=${desfecho}`)
     })
@@ -576,11 +616,11 @@ describe('(6) erro da LLM ou do envio: 200 ao WUZAPI, e nenhuma mensagem técnic
         expect(erros.join('\n')).not.toContain(CHAVE)
     })
 
-    it('RECUSA (stop_reason refusal): nada gravado, nada enviado', async () => {
+    it('RECUSA (stop_reason refusal): nada gravado, e a frase diz que o serviço recusou', async () => {
         estado.respostasDaLlm.push({ status: 200, corpo: { ...respostaComFerramenta({ nome: 'Casa do João', itens: [{ ...DP02 }] }), stop_reason: 'refusal' } })
         await chamar('Levantamento Casa do João')
         expect(levantamentos()).toEqual([])
-        expect(enviados()).toEqual([])
+        expect(enviados()).toEqual([conversa.FALHA_RECUSA])
         expect(linhaIa()[0]).toContain('desfecho=recusa')
     })
 
@@ -592,18 +632,72 @@ describe('(6) erro da LLM ou do envio: 200 ao WUZAPI, e nenhuma mensagem técnic
         expect(levantamentos()).toHaveLength(1)
         expect(linhaIa()[0]).toContain('desfecho=envio-falhou')
     })
+
+    it('erro do banco ANTES de gravar: o vendedor sabe que nada foi gravado', async () => {
+        estado.ausentes.add('orcamentista_levantamento')
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02 }] })
+        await chamar('Levantamento Casa do João: DP-02 1200 x 1000 branco temperado 5mm')
+        expect(enviados()).toEqual([conversa.FALHA_DO_BANCO_ANTES])
+        expect(linhaIa()[0]).toContain('desfecho=erro')
+    })
+})
+
+describe('(6b) R1 e R2: nenhum update falha em silêncio, e a pergunta respondida não volta igual', () => {
+    it('R1: o update da esquadria que NÃO atinge linha é erro — o vendedor sabe, e o log diz quantas linhas', async () => {
+        await fecharDp02('Casa do João')
+        estado.updateNaoAtinge = 'orcamentista_levantamento_item'
+        llmResponde({ nome: 'casa do joao', alteracao: true, itens: [{ altura_mm: 1200 }] })
+        await chamar('casa do joao, trocar a altura para 1200')
+        expect(ultimoEnviado()).toBe(conversa.FALHA_DO_BANCO_AO_GRAVAR)
+        expect(linhaIa().pop()).toMatch(/desfecho=erro .*atingiu 0 linha\(s\)/)
+    })
+
+    it('R1: o mesmo para o update do levantamento', async () => {
+        await fecharDp02('Casa do João')
+        estado.updateNaoAtinge = 'orcamentista_levantamento'
+        llmResponde({ nome: 'casa do joao', alteracao: true, itens: [{ altura_mm: 1200 }] })
+        await chamar('casa do joao, trocar a altura para 1200')
+        expect(ultimoEnviado()).toBe(conversa.FALHA_DO_BANCO_AO_GRAVAR)
+    })
+
+    it('R2: a resposta que não muda nada, com a pergunta em aberto, NÃO devolve a mesma pergunta: diz que não registrou — e nada é gravado', async () => {
+        await abrirSemVidro('Casa do João')
+        const escritasAntes = estado.escritas.length
+        llmResponde({ itens: [] })
+        await chamar('hmm, sei lá')
+        expect(ultimoEnviado()).toBe(conversa.fraseDeNaoRegistrei(PERGUNTA_DO_VIDRO))
+        expect(ultimoEnviado()).not.toBe(PERGUNTA_DO_VIDRO)
+        expect(estado.escritas.length).toBe(escritasAntes)
+        expect(linhaIa().pop()).toContain('desfecho=nao-avancou')
+    })
+
+    it('R2: numa alteração, o que foi proposto e não vale aparece — nada alterado, nada gravado', async () => {
+        await fecharDp02('Casa do João')
+        const escritasAntes = estado.escritas.length
+        llmResponde({ nome: 'casa do joao', alteracao: true, itens: [{ cor_perfil: 'Azul Piscina' }] })
+        await chamar('casa do joao, troca a cor para azul piscina')
+        expect(ultimoEnviado()).toBe(conversa.fraseDeNaoApliquei('Casa do João'))
+        expect(estado.escritas.length).toBe(escritasAntes)
+    })
+
+    it('mandar só o nome refaz a conta e NÃO toca o banco: o rastro (atualizado_em) é só de mudança', async () => {
+        await fecharDp02('Casa do João')
+        const escritasAntes = estado.escritas.length
+        llmResponde({ nome: 'Casa do João' })
+        await chamar('Casa do João')
+        expect(ultimoEnviado()).toBe(LEVANTAMENTO_CASA_DO_JOAO)
+        expect(estado.escritas.length).toBe(escritasAntes)
+    })
 })
 
 describe('(7) o log [IA]: o levantamento e o desfecho — nunca a chave, o telefone ou o texto', () => {
     it('levantamento, propostos, descartados, se enviou e o desfecho', async () => {
-        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02 }] })
-        await chamar('Levantamento Casa do João: DP-02 1200 x 1000 branco temperado 5mm')
-        expect(linhaIa()[0]).toMatch(/^\[IA\] levantamento=\S+ rota=NOVO propostos=6 descartados=0 enviou=sim desfecho=perguntou/)
+        await fecharDp02('Casa do João')
+        expect(linhaIa()[0]).toMatch(/^\[IA\] levantamento=\S+ rota=NOVO propostos=8 descartados=0 enviou=sim desfecho=levantou/)
     })
 
-    it('nem a chave, nem o telefone, nem o texto, nem a pergunta enviada', async () => {
-        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02 }] })
-        await chamar('Levantamento Casa do João: DP-02 1200 x 1000 branco temperado 5mm')
+    it('nem a chave, nem o telefone, nem o texto, nem a resposta enviada', async () => {
+        await fecharDp02('Casa do João')
         const tudo = erros.join('\n')
         for (const proibido of [CHAVE, TELEFONE_DO_WEBHOOK, TELEFONE_GRAVADO, 'Casa do João', 'ARREMATE INTERNO', TOKEN]) expect(tudo).not.toContain(proibido)
     })
@@ -683,8 +777,10 @@ describe('(9) o contrato da chamada à Anthropic', () => {
         expect(Object.keys(item.properties).sort()).toEqual(['altura_mm', 'cor_perfil', 'largura_mm', 'ordem', 'quantidade', 'tipologia', 'vidro'])
         for (const k of ['ordem', 'largura_mm', 'altura_mm', 'quantidade']) expect(item.properties[k].type).toBe('integer')
         expect(item.properties.tipologia.type).toBe('string')
-        expect(e.properties.escolha.additionalProperties).toBe(false)
-        expect(e.properties.escolha.properties.opcao.type).toBe('integer')
+        const escolha = e.properties.escolhas.items as Esquema
+        expect(escolha.additionalProperties).toBe(false)
+        expect(escolha.properties.opcao.type).toBe('integer')
+        expect((e.properties.opcoes_de.items as Esquema).type).toBe('string')
         expect(e.properties.novo.type).toBe('boolean')
     })
 })
@@ -696,7 +792,7 @@ describe('(10) saldo, erro e a janela do 4xx — mascarada, cortada, e só no 4x
     it('400 com "credit balance is too low" também é SEM SALDO', async () => {
         estado.respostasDaLlm.push(erro400('Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing.'))
         await chamar('oi')
-        expect(enviados()).toEqual([])
+        expect(enviados()).toEqual([conversa.FALHA_SEM_SALDO])
         expect(linhaIa()[0]).toContain('desfecho=sem-saldo')
         expect(erros.join('\n')).toMatch(/saldo/i)
     })
@@ -711,11 +807,11 @@ describe('(10) saldo, erro e a janela do 4xx — mascarada, cortada, e só no 4x
     it.each([
         ['exceção de rede', () => { estado.respostasDaLlm.push('lanca') }],
         ['resposta sem chamar a ferramenta', () => { estado.respostasDaLlm.push({ status: 200, corpo: { type: 'message', stop_reason: 'end_turn', content: [{ type: 'text', text: 'Olá!' }] } }) }],
-    ])('LLM: %s → 200, nada enviado, nada gravado', async (_n, preparar) => {
+    ])('LLM: %s → 200, a frase da falha, nada gravado', async (_n, preparar) => {
         preparar()
         const r = await chamar('Levantamento Casa do João')
         expect(r.status).toBe(200)
-        expect(enviados()).toEqual([])
+        expect(enviados()).toEqual([conversa.FALHA_DA_IA])
         expect(estado.escritas).toEqual([])
     })
 
@@ -788,7 +884,7 @@ describe('(12) decisão 2, revista: quem altera — o criador, ou o admin da emp
         await fecharDp02('Casa do João')
         await alterarAltura('casa do joao')
         expect(alturaDe(VENDEDOR)).toBe(1200)
-        expect(ultimoEnviado().split('\n')[1]).toBe('Esquadria 1: DP-02, 1.200 x 1.200 mm, 1 unidade(s).')
+        expect(linhaDa(ultimoEnviado(), 'Esquadria 1:')).toBe('Esquadria 1: DP-02, 1.200 x 1.200 mm, 1 unidade(s).')
     })
 
     it('6. outro vendedor SEM admin tenta alterar pelo nome → "não encontrei um levantamento seu", nada gravado — a MESMA frase de quando o levantamento não existe', async () => {
@@ -817,8 +913,8 @@ describe('(12) decisão 2, revista: quem altera — o criador, ou o admin da emp
         expect(levantamentos()[0].atualizado_em).not.toBe('antes-da-alteracao')
         expect(levantamentos()[0]).toEqual(expect.objectContaining({ remetente_id: VENDEDOR, nome: 'Casa do João', estado: 'COMPLETO' }))
         expect(alturaDe(VENDEDOR)).toBe(1200)
-        expect(ultimoEnviado().split('\n')[1]).toBe('Esquadria 1: DP-02, 1.200 x 1.200 mm, 1 unidade(s).')
-        expect(ultimoEnviado()).toMatch(/Total por consumo real \(material \+ mão de obra\): R\$ [\d.]+,\d{2}\./)
+        expect(linhaDa(ultimoEnviado(), 'Esquadria 1:')).toBe('Esquadria 1: DP-02, 1.200 x 1.200 mm, 1 unidade(s).')
+        expect(ultimoEnviado()).toMatch(/Total por consumo real \(perfis \+ mão de obra\): R\$ [\d.]+,\d{2}\./)
     })
 
     it('8. o ADMIN busca um nome que existe em DOIS vendedores → pergunta de qual, citando os nomes, e não escolhe; com o vendedor dito, altera o certo', async () => {
@@ -871,12 +967,11 @@ describe('(12) decisão 2, revista: quem altera — o criador, ou o admin da emp
     })
 
     it('o ADMIN que deixaria o levantamento de outro INCOMPLETO: nada é gravado, e a resposta diz o que falta', async () => {
-        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02 }] })
-        await chamar('Levantamento Casa do João: DP-02 1200 x 1000 branco temperado 5mm')
+        await abrirSemVidro('Casa do João')
         comPapel(OUTRO_VENDEDOR, 'admin')
         const itensAntes = JSON.stringify(estado.db.orcamentista_levantamento_item)
         await alterarAltura('casa do joao', doOutro)
-        expect(ultimoEnviado()).toBe(conversa.fraseDaAlteracaoIncompleta('Casa do João', 'Cristiano Fernandes', PERGUNTA_ARI))
+        expect(ultimoEnviado()).toBe(conversa.fraseDaAlteracaoIncompleta('Casa do João', 'Cristiano Fernandes', PERGUNTA_DO_VIDRO))
         expect(JSON.stringify(estado.db.orcamentista_levantamento_item)).toBe(itensAntes)
         expect(levantamentos()[0].estado).toBe('EM_MONTAGEM')
     })

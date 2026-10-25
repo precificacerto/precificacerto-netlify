@@ -20,9 +20,16 @@
  *     sozinho — o Padrão entraria calado. E é o caso de MAE antes de o ARE ser respondido: ela fica
  *     pendente, e a Condição é avaliada de novo quando chegar a vez dela.
  *
- * O QUE SE ACEITA: a LLM propõe `{ variavel, opcao }`; vale só se a variável é uma das PENDENTES e a
- * opção é um dos números da aba. Uma escolha já feita não é sobrescrita (a correção de escolha fica
- * para outra rodada); a que não se aplica é descartada.
+ * O QUE SE ACEITA: a LLM propõe `{ variavel, opcao }`; vale se a variável é uma das capturadas, existe
+ * na tipologia, e a opção é um dos números da aba. A escolha feita SOBRESCREVE a anterior (decisão 3 do
+ * dono do produto, 25/10/2026: o vendedor pode trocar o arremate depois).
+ *
+ * ══ A MUDANÇA DE PRODUTO (dono do produto, 25/10/2026): o padrão é ASSUMIDO, não perguntado ══
+ * A conversa não pergunta o arremate: assume o Padrão da aba Variáveis e confirma em português. Só
+ * quando o vendedor pede outro, ela mostra as opções daquela variável POR EXTENSO, sem número. O pedido
+ * fica marcado no item como `null` na chave da variável (`lerEscolhasDoItem`): é a única pendência de
+ * escolha que existe. Os códigos (ARI, ARE, MAE) e os números das opções são vocabulário INTERNO — vão
+ * ao prompt, nunca ao vendedor; `traduzirVocabulario` os tira das recusas.
  *
  * Portão: `src/utils/__tests__/escolhas-da-tipologia.test.ts`.
  */
@@ -60,19 +67,39 @@ export function escolhasPendentes(tipologia: Tipologia, escolhas: Escolhas): Esc
     return pendentes
 }
 
-/** A pergunta FIXA da escolha: a descrição da aba e as opções por extenso. */
+const minuscula = (t: string) => t.toLocaleLowerCase('pt-BR')
+
+/** A pergunta FIXA da escolha, em português e por extenso: a descrição da aba e as opções, SEM número. */
 export function perguntaDaEscolha(p: EscolhaPendente): string {
-    return `${p.descricao} — qual opção? ${p.opcoes.map((o) => `${o.valor} = ${o.rotulo}`).join('; ')}.`
+    return `Para ${minuscula(p.descricao)}, as opções são: ${p.opcoes.map((o) => o.rotulo).join('; ')}. Qual você quer?`
+}
+
+/** A variável capturada da tipologia, como escolha a mostrar ao vendedor; null se não existe ou não tem opções. */
+export function escolhaPedida(tipologia: Tipologia, variavel: string): EscolhaPendente | null {
+    if (!capturada(variavel)) return null
+    const v = tipologia.variaveis.find((x) => x.variavel === variavel)
+    const opcoes = v ? opcoesDaVariavel(v.opcoes) : null
+    if (!v || !opcoes || opcoes.length === 0) return null
+    return { variavel, descricao: v.descricao ?? variavel, opcoes }
+}
+
+/**
+ * As escolhas que o vendedor pode pedir, para o PROMPT — com o código e o número das opções, que a LLM
+ * precisa para responder na ferramenta. Vocabulário interno: nunca vai ao vendedor.
+ */
+export function escolhasParaOPrompt(tipologia: Tipologia): string[] {
+    return ESCOLHAS_CAPTURADAS.map((v) => escolhaPedida(tipologia, v)).filter((p): p is EscolhaPendente => p !== null)
+        .map((p) => `${p.variavel} = ${p.descricao}: ${p.opcoes.map((o) => `${o.valor} = ${o.rotulo}`).join('; ')}`)
 }
 
 export type ResultadoDaEscolha = { gravar: Record<string, number> | null; propostos: number; descartados: number }
 
-/** Valida `{ variavel, opcao }` proposto pela LLM contra as pendentes da tipologia. */
+/** Valida `{ variavel, opcao }` proposto pela LLM contra as opções da variável na tipologia. Sobrescreve. */
 export function validarEscolha(tipologia: Tipologia, escolhas: Escolhas, proposta: unknown): ResultadoDaEscolha {
     if (proposta === null || proposta === undefined || typeof proposta !== 'object') return { gravar: null, propostos: 0, descartados: 0 }
     const { variavel, opcao } = proposta as { variavel?: unknown; opcao?: unknown }
-    const pendente = escolhasPendentes(tipologia, escolhas).find((p) => p.variavel === variavel)
-    const valida = pendente !== undefined && typeof opcao === 'number' && Number.isInteger(opcao) && pendente.opcoes.some((o) => o.valor === opcao)
+    const pedida = typeof variavel === 'string' ? escolhaPedida(tipologia, variavel) : null
+    const valida = pedida !== null && typeof opcao === 'number' && Number.isInteger(opcao) && pedida.opcoes.some((o) => o.valor === opcao)
     if (!valida) return { gravar: null, propostos: 1, descartados: 1 }
     return { gravar: { ...escolhas, [variavel as string]: opcao as number }, propostos: 1, descartados: 0 }
 }
@@ -87,14 +114,62 @@ export function lerEscolhasGravadas(valor: unknown): Record<string, number> {
     return lidas
 }
 
-/** "ARI 4 — SEM ARREMATE INTERNO; …", na ordem da aba. Null quando não há escolha nenhuma. */
-export function descreverEscolhas(tipologia: Tipologia, escolhas: Escolhas): string | null {
+/**
+ * O jsonb do item → as escolhas, PRESERVANDO o `null` de uma capturada: é a marca de que o vendedor
+ * pediu para escolher aquela variável. Número inteiro é escolha; o resto não vira nada.
+ */
+export function lerEscolhasDoItem(valor: unknown): Record<string, number | null> {
+    if (valor === null || typeof valor !== 'object' || Array.isArray(valor)) return {}
+    const lidas: Record<string, number | null> = {}
+    for (const [k, v] of Object.entries(valor as Record<string, unknown>)) {
+        if (!capturada(k)) continue
+        if (v === null) lidas[k] = null
+        else if (typeof v === 'number' && Number.isInteger(v)) lidas[k] = v
+    }
+    return lidas
+}
+
+/** O Padrão numérico da variável na aba, ou null quando ele não é um número. */
+function padraoDe(tipologia: Tipologia, variavel: string): number | null {
+    const p = tipologia.variaveis.find((v) => v.variavel === variavel)?.padrao?.trim() ?? ''
+    return /^\d+$/.test(p) ? Number(p) : null
+}
+
+/**
+ * A linha do ARREMATE, em português, para a resposta: cada variável capturada que se aplica, com a opção
+ * por extenso e se foi o padrão ou a escolha do vendedor. Sem código e sem número. A Condição é avaliada
+ * com as escolhas efetivas (as do vendedor, e o Padrão nas outras); a que não dá para avaliar entra.
+ * Null quando a tipologia não tem variável capturada.
+ */
+export function descreverArremate(tipologia: Tipologia, explicitas: Escolhas): string | null {
+    const efetivas: Record<string, number> = {}
+    for (const v of ESCOLHAS_CAPTURADAS) {
+        const valor = explicitas[v] ?? padraoDe(tipologia, v)
+        if (valor !== null && valor !== undefined) efetivas[v] = valor
+    }
     const partes: string[] = []
     for (const v of tipologia.variaveis) {
-        const valor = escolhas[v.variavel]
-        if (valor === undefined) continue
-        const rotulo = opcoesDaVariavel(v.opcoes)?.find((o) => o.valor === valor)?.rotulo
-        partes.push(`${v.variavel} ${valor}${rotulo ? ` — ${rotulo}` : ''}`)
+        if (!capturada(v.variavel) || !condicaoPede(v.condicao, efetivas)) continue
+        const valor = efetivas[v.variavel]
+        const rotulo = valor === undefined ? null : opcoesDaVariavel(v.opcoes)?.find((o) => o.valor === valor)?.rotulo
+        const origem = explicitas[v.variavel] !== undefined ? 'como você pediu' : 'padrão'
+        partes.push(`${minuscula(v.descricao ?? v.variavel)}: ${rotulo ?? 'padrão da tipologia'} (${origem})`)
     }
     return partes.length ? partes.join('; ') : null
+}
+
+/** Alguma capturada foi escolhida pelo vendedor? (A frase de confirmação muda.) */
+export const temEscolhaDoVendedor = (explicitas: Escolhas) => ESCOLHAS_CAPTURADAS.some((v) => explicitas[v] !== undefined)
+
+/**
+ * Tira o vocabulário interno de um texto que vai ao vendedor: `&MAE` e `MAE` viram a descrição da
+ * variável, entre aspas ("MEDIDA ARREMATE EXTERNO"). Só códigos de variáveis DESTA tipologia.
+ */
+export function traduzirVocabulario(texto: string, tipologia: Tipologia): string {
+    let saida = texto
+    for (const v of tipologia.variaveis) {
+        if (!/^[A-Z]{2,5}$/.test(v.variavel) || !v.descricao) continue
+        saida = saida.replace(new RegExp(`&?\\b${v.variavel}\\b`, 'g'), `“${v.descricao}”`)
+    }
+    return saida
 }
