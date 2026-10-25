@@ -88,7 +88,31 @@ function montar() {
 }
 beforeEach(montar)
 
-const ESQUADRIA = { tipologia: 'DP-02', largura_mm: 1200, altura_mm: 1000, quantidade: 1, vidro: 'Temperado 5mm' }
+/** O que a pré-definição gravada traz para o levantamento — `escolhas` é o jsonb da coluna. */
+const ESQUADRIA = { tipologia: 'DP-02', largura_mm: 1200, altura_mm: 1000, quantidade: 1, vidro: 'Temperado 5mm', escolhas: null as unknown }
+/** Os dados da esquadria como a FRASE os recebe: as escolhas já descritas. */
+const DESCRITAS = 'ARI 4 — SEM ARREMATE INTERNO; ARE 1 — BZ0010 - ARREMATE 20MM; MAE 2 — VÃO+50MM (CORTE 90/90) - PARA AJUSTE EM OBRA'
+const DADOS = { tipologia: 'DP-02', largura_mm: 1200, altura_mm: 1000, quantidade: 1, escolhas: DESCRITAS }
+/** O texto inteiro do levantamento que fecha — conta à mão no portão da ligação. */
+const TEXTO_QUE_FECHA = [
+    'Levantamento de DP-02, 1.200 x 1.000 mm, 1 unidade(s), perfil BRANCO.',
+    `Escolhas: ${DESCRITAS}. As outras variáveis ficaram no Padrão da tipologia.`,
+    '',
+    'Barras por código:',
+    '• 1023 (1023/WOLFF): 1 barra(s) de 6 m',
+    '• 10511 (BZ0010/WOLFF): 1 barra(s) de 6 m',
+    '• 8432 (8432/WOLFF): 1 barra(s) de 6 m',
+    '• 8433 (8433/WOLFF): 1 barra(s) de 6 m',
+    '• 9641 (HF88/WOLFF): 1 barra(s) de 6 m',
+    '• 9681 (SF66/WOLFF): 2 barra(s) de 6 m',
+    '• 9711 (IL36/WOLFF): 1 barra(s) de 6 m',
+    '• 9801 (GB25/WOLFF): 1 barra(s) de 6 m',
+    '',
+    'Aproveitamento do levantamento: 60,7% (32,77 m úteis de 54,00 m comprados).',
+    'Total por barra inteira: R$ 1.342,09.',
+    'Total por consumo real: R$ 829,79.',
+    'Tempo de fabricação da tipologia: 150 min (IMPORTADO).',
+].join('\n')
 
 describe('(1) a tabela da empresa e as tipologias candidatas', () => {
     it('a lista vem de orcamentista_motor_tipologia_detalhe da tabela LIGADA à empresa, em ordem de código', async () => {
@@ -172,31 +196,13 @@ describe('(5) a mensagem do levantamento', () => {
     }
 
     it('o LEVANTAMENTO QUE FECHA: barras por código, aproveitamento, os dois totais e o tempo — o texto inteiro', () => {
-        const texto = M().fraseDoLevantamento(ESQUADRIA, resultadoQueFecha(), { minutos: 150, origem: 'IMPORTADO' })
-        expect(texto).toBe([
-            'Levantamento de DP-02, 1.200 x 1.000 mm, 1 unidade(s), perfil BRANCO.',
-            '',
-            'Barras por código:',
-            '• 1023 (1023/WOLFF): 1 barra(s) de 6 m',
-            '• 10511 (BZ0010/WOLFF): 1 barra(s) de 6 m',
-            '• 8432 (8432/WOLFF): 1 barra(s) de 6 m',
-            '• 8433 (8433/WOLFF): 1 barra(s) de 6 m',
-            '• 9641 (HF88/WOLFF): 1 barra(s) de 6 m',
-            '• 9681 (SF66/WOLFF): 2 barra(s) de 6 m',
-            '• 9711 (IL36/WOLFF): 1 barra(s) de 6 m',
-            '• 9801 (GB25/WOLFF): 1 barra(s) de 6 m',
-            '',
-            'Aproveitamento do levantamento: 60,7% (32,77 m úteis de 54,00 m comprados).',
-            'Total por barra inteira: R$ 1.342,09.',
-            'Total por consumo real: R$ 829,79.',
-            'Tempo de fabricação da tipologia: 150 min (IMPORTADO).',
-        ].join('\n'))
+        expect(M().fraseDoLevantamento(DADOS, resultadoQueFecha(), { minutos: 150, origem: 'IMPORTADO' })).toBe(TEXTO_QUE_FECHA)
     })
 
     it('PREÇO AUSENTE: o total que não sai diz qual código falta — nunca R$ 0,00', () => {
         const r = resultadoQueFecha()
         const semBarra = { ...r, total: { ...r.total, total_por_barra_inteira: null as number | null }, falta_para_o_total: [{ codigo: '9641', perfil: 'HF88/WOLFF', falta: 'valor_barra_interno' as const, total: 'total_por_barra_inteira' as const, mensagem: '' }] }
-        const texto = M().fraseDoLevantamento(ESQUADRIA, semBarra, null)
+        const texto = M().fraseDoLevantamento(DADOS, semBarra, null)
         expect(texto).toContain('Total por barra inteira: não sai — falta o valor da barra de 9641 (HF88/WOLFF).')
         expect(texto).toContain('Tempo de fabricação da tipologia: não está cadastrado para DP-02.')
         expect(texto).not.toContain('R$ 0,00')
@@ -205,7 +211,27 @@ describe('(5) a mensagem do levantamento', () => {
     it('os AVISOS do avaliador saem em português, com a medida e o limite', () => {
         const r = resultadoQueFecha()
         const comAviso = { ...r, avisos: [{ origem: 'LIMITE' as const, medida: 'H' as const, limite: 'MIN' as const, valor_mm: 380, limite_mm: 388, excesso_mm: 8, excesso_pct: 2.0618556701, esquadria: 1 }] }
-        expect(M().fraseDoLevantamento(ESQUADRIA, comAviso, null)).toContain('Atenção:\n• A altura de 380 mm está abaixo do mínimo da tipologia (388 mm), 8 mm (2,1%).')
+        expect(M().fraseDoLevantamento(DADOS, comAviso, null)).toContain('Atenção:\n• A altura de 380 mm está abaixo do mínimo da tipologia (388 mm), 8 mm (2,1%).')
+    })
+})
+
+describe('(5b) as ESCOLHAS gravadas chegam ao avaliador', () => {
+    it('com ARI 4, ARE 1 e MAE 2 gravados, a DP-02 FECHA — e o texto é o da conta à mão, com as escolhas', async () => {
+        const t = await M().lerTabelaDaEmpresa(TENANT)
+        const r = await M().mensagemDoLevantamento(TENANT, t, { ...ESQUADRIA, escolhas: { ARI: 4, ARE: 1, MAE: 2 } })
+        expect(r).toEqual({ desfecho: 'levantou', texto: TEXTO_QUE_FECHA })
+    })
+
+    it('o contraste: SEM escolhas, a mesma esquadria é recusada — o Padrão de MAE não traz a medida', async () => {
+        const t = await M().lerTabelaDaEmpresa(TENANT)
+        const r = await M().mensagemDoLevantamento(TENANT, t, ESQUADRIA)
+        expect(r.desfecho).toBe('recusou')
+    })
+
+    it('uma chave que não é capturada, no jsonb, não vira escolha: {"MAI": 2} sozinho não muda nada', async () => {
+        const t = await M().lerTabelaDaEmpresa(TENANT)
+        const r = await M().mensagemDoLevantamento(TENANT, t, { ...ESQUADRIA, escolhas: { MAI: 2 } })
+        expect(r.texto).toContain('Escolhas: nenhuma')
     })
 })
 
@@ -214,7 +240,8 @@ describe('(6) a RECUSA chega como texto, inteira e nomeada', () => {
         const t = await M().lerTabelaDaEmpresa(TENANT)
         const r = await M().mensagemDoLevantamento(TENANT, t, ESQUADRIA)
         expect(r.desfecho).toBe('recusou')
-        expect(r.texto.startsWith('Não consegui fechar o levantamento de DP-02, 1.200 x 1.000 mm, 1 unidade(s), perfil BRANCO. Falta:\n• ')).toBe(true)
+        expect(r.texto.startsWith('Não consegui fechar o levantamento de DP-02, 1.200 x 1.000 mm, 1 unidade(s), perfil BRANCO.\n'
+            + 'Escolhas: nenhuma — todas as variáveis ficaram no Padrão da tipologia.\nFalta:\n• ')).toBe(true)
         expect(r.texto).toContain('MAE')
         expect(r.texto).toContain('MEDIDA DO VÃO')
         expect(r.texto).not.toMatch(/Esquadrias? \d/)
@@ -225,7 +252,8 @@ describe('(6) a RECUSA chega como texto, inteira e nomeada', () => {
         const r = await M().mensagemDoLevantamento(TENANT, t, { ...ESQUADRIA, tipologia: 'DP-01' })
         expect(r).toEqual({
             desfecho: 'recusou',
-            texto: 'Não consegui fechar o levantamento de DP-01, 1.200 x 1.000 mm, 1 unidade(s), perfil BRANCO. Falta:\n'
+            // sem as abas não há variável conhecida: a linha das escolhas não aparece
+            texto: 'Não consegui fechar o levantamento de DP-01, 1.200 x 1.000 mm, 1 unidade(s), perfil BRANCO.\nFalta:\n'
                 + '• A tipologia DP-01 não tem as abas do motor importadas (Variáveis, Fórmulas, Perfis): ainda não consigo calcular as barras dela.',
         })
     })
@@ -261,7 +289,7 @@ describe('(6) a RECUSA chega como texto, inteira e nomeada', () => {
 
     it('mais de 8 faltas: as 8 primeiras e a contagem do resto — nenhuma calada', () => {
         const faltas = Array.from({ length: 11 }, (_, k) => `Falta ${k + 1}.`)
-        const texto = M().fraseDaRecusa(ESQUADRIA, faltas)
+        const texto = M().fraseDaRecusa(DADOS, faltas)
         expect(texto.split('\n').filter((l) => l.startsWith('• Falta'))).toHaveLength(8)
         expect(texto).toContain('• e mais 3 falta(s) do mesmo levantamento.')
     })

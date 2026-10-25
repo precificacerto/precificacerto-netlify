@@ -46,15 +46,17 @@ const FECHAMENTO_DOS_SETE = 'Fechado. Anotei tudo: DP-02, 1500x1200 mm, 4 peça(
  * banco falso não há serra nem regras, e ele sai como recusa nomeada — o que estes casos conferem é
  * que ele vem DEPOIS do fechamento, uma vez. O levantamento em si tem o portão dele.
  */
-const LEVANTAMENTO_DOS_SETE = expect.stringMatching(/^Não consegui fechar o levantamento de DP-02, 1\.500 x 1\.200 mm, 4 unidade\(s\), perfil BRANCO\. Falta:\n• /)
+const LEVANTAMENTO_DOS_SETE = expect.stringMatching(/^Não consegui fechar o levantamento de DP-02, 1\.500 x 1\.200 mm, 4 unidade\(s\), perfil BRANCO\.\nEscolhas: ARI 4 — SEM ARREMATE INTERNO; ARE 2 — SEM ARREMATE EXTERNO\. As outras variáveis ficaram no Padrão da tipologia\.\nFalta:\n• /)
 const CAMPOS_NO_FECHAMENTO = ['tipologia', 'largura_mm', 'altura_mm', 'quantidade', 'cor_perfil', 'vidro', 'local']
 const VAZIA: Linha = {
     tipologia: null, largura_mm: null, altura_mm: null, quantidade: null, cor_perfil: null, vidro: null,
-    local: null, tipo_edificacao: null, distribuicao_por_pavimento: null,
+    local: null, tipo_edificacao: null, distribuicao_por_pavimento: null, escolhas: null,
 }
 const SETE_DE_PRODUTO_E_LOCAL = {
     tipologia: 'DP-02', largura_mm: 1500, altura_mm: 1200, quantidade: 4, cor_perfil: 'Branco', vidro: 'Temperado 6mm',
     local: 'Porto Alegre',
+    // as escolhas da DP-02 já capturadas: sem arremate interno e sem externo — MAE não se aplica
+    escolhas: { ARI: 4, ARE: 2 },
 }
 
 const estado = {
@@ -105,6 +107,10 @@ jest.mock('@/supabase/admin', () => ({
             let ordem: { coluna: string; asc: boolean } | null = null
             let limite: number | null = null
             let atualizacao: Linha | null = null
+            // Como o PostgREST: a lista de colunas do select decide o que VOLTA. Sem isto, uma coluna
+            // esquecida no select chegaria assim mesmo no teste e faltaria só em produção (E13).
+            let colunas: string[] | null = null
+            const projetar = (l: Linha): Linha => (colunas ? Object.fromEntries(colunas.filter((c) => c in l).map((c) => [c, l[c]])) : l)
             const casa = (l: Linha) => filtros.every(([c, v]) => l[c] === v) && predicados.every((f) => f(l))
             const ler = () => {
                 let linhas = (estado.db[tabela] ?? []).filter(casa)
@@ -117,14 +123,18 @@ jest.mock('@/supabase/admin', () => ({
                 return linhas
             }
             const q: Record<string, unknown> = {}
-            q.select = (_c?: string, o?: { count?: string }) => { contar = o?.count === 'exact'; return q }
+            q.select = (c?: string, o?: { count?: string }) => {
+                contar = o?.count === 'exact'
+                colunas = c && /^[a-z_0-9,\s]+$/i.test(c) ? c.split(',').map((x) => x.trim()).filter(Boolean) : null
+                return q
+            }
             q.in = (c: string, vs: unknown[]) => { predicados.push((l) => vs.includes(l[c])); return q }
             q.contains = (c: string, vs: unknown[]) => { predicados.push((l) => Array.isArray(l[c]) && vs.every((v) => (l[c] as unknown[]).includes(v))); return q }
             q.range = (de: number, ate: number) => { faixa = [de, ate]; return q }
             q.eq = (c: string, v: unknown) => { filtros.push([c, v]); return q }
             q.order = (c: string, o?: { ascending?: boolean }) => { ordem = { coluna: c, asc: o?.ascending !== false }; return q }
             q.limit = (n: number) => { limite = n; return q }
-            q.maybeSingle = async (): Promise<{ data: Linha | null; error: null }> => ({ data: ler()[0] ?? null, error: null })
+            q.maybeSingle = async (): Promise<{ data: Linha | null; error: null }> => ({ data: ler().map(projetar)[0] ?? null, error: null })
             q.update = (carga: Linha) => { atualizacao = carga; return q }
             q.then = (ok: (v: unknown) => unknown, erro?: (e: unknown) => unknown) => {
                 if (atualizacao) {
@@ -134,7 +144,7 @@ jest.mock('@/supabase/admin', () => ({
                 }
                 if (estado.ausentes.has(tabela)) return Promise.resolve({ data: null, error: { code: 'PGRST205', message: `Could not find the table 'public.${tabela}'` } }).then(ok, erro)
                 const total = (estado.db[tabela] ?? []).filter(casa).length
-                return Promise.resolve({ data: ler(), error: null, ...(contar ? { count: total } : {}) }).then(ok, erro)
+                return Promise.resolve({ data: ler().map(projetar), error: null, ...(contar ? { count: total } : {}) }).then(ok, erro)
             }
             q.insert = (carga: Linha) => {
                 estado.escritas.push({ tabela, op: 'insert', carga })
@@ -628,7 +638,7 @@ describe('(11) o FECHAMENTO: ao completar, o vendedor recebe UMA mensagem fixa, 
         expect(estado.envios.map((e) => e.corpo.Body)).toEqual([
             'Fechado. Anotei tudo: Basculante, 600x400 mm, 12 peça(s), perfil Preto fosco, vidro Mini boreal. Entrega em Canoas. Já passo para o levantamento.',
             // uma tipologia gravada antes da lista (texto livre) não tem abas: a recusa diz qual
-            'Não consegui fechar o levantamento de Basculante, 600 x 400 mm, 12 unidade(s), perfil BRANCO. Falta:\n'
+            'Não consegui fechar o levantamento de Basculante, 600 x 400 mm, 12 unidade(s), perfil BRANCO.\nFalta:\n'
                 + '• A tipologia Basculante não tem as abas do motor importadas (Variáveis, Fórmulas, Perfis): ainda não consigo calcular as barras dela.',
         ])
     })
@@ -856,5 +866,93 @@ describe('(14) a TIPOLOGIA é escolhida da LISTA da tabela em uso — a IA não 
         await chamar()
         expect(estado.envios.map((e) => e.corpo.Body)).toEqual([FECHAMENTO_DOS_SETE, LEVANTAMENTO_DOS_SETE])
         expect(linhaIa()[0]).toEqual(expect.stringMatching(/desfecho=fechou levantamento=recusou/))
+    })
+})
+
+describe('(15) as ESCOLHAS da tipologia: uma de cada vez, só as que faltam, e a IA nunca escolhe sozinha', () => {
+    /** Os nove campos preenchidos, CASA, e nenhuma escolha ainda. */
+    const NOVE_SEM_ESCOLHAS = { ...SETE_DE_PRODUTO_E_LOCAL, tipo_edificacao: 'CASA', escolhas: null as Record<string, number> | null }
+    const PERGUNTA_ARI = 'ARREMATE INTERNO — qual opção? 1 = BZ0006 - ARREMATE 65MM; 2 = BZ1770 - ARREMATE 70MM; 3 = BZ0010 - ARREMATE 20MM; 4 = SEM ARREMATE INTERNO.'
+    const PERGUNTA_ARE = 'ARREMATE EXTERNO — qual opção? 1 = BZ0010 - ARREMATE 20MM; 2 = SEM ARREMATE EXTERNO.'
+    const PERGUNTA_MAE = 'MEDIDA ARREMATE EXTERNO — qual opção? 1 = MEDIDA DO VÃO (CORTE 45/45); 2 = VÃO+50MM (CORTE 90/90) - PARA AJUSTE EM OBRA; 3 = VÃO+100MM (CORTE 90/90) - PARA AJUSTE EM OBRA.'
+
+    it('com os nove campos e nenhuma escolha, NÃO fecha: pergunta a ARI, com as opções por extenso', async () => {
+        montar(NOVE_SEM_ESCOLHAS)
+        llmResponde({})
+        await chamar()
+        expect(preDefinicao()?.estado).toBe('EM_COLETA')
+        expect(estado.envios.map((e) => e.corpo.Body)).toEqual([PERGUNTA_ARI])
+    })
+
+    it('as escolhas pendentes vão ao prompt, com as opções', async () => {
+        montar(NOVE_SEM_ESCOLHAS)
+        llmResponde({})
+        await chamar()
+        const sistema = String(estado.chamadasDaLlm[0].corpo.system)
+        expect(sistema).toContain(PERGUNTA_ARI)
+        expect(sistema).toContain('NUNCA escolha')
+    })
+
+    it('a resposta válida é GRAVADA em escolhas, e a próxima pergunta é a ARE', async () => {
+        montar(NOVE_SEM_ESCOLHAS)
+        llmResponde({ escolha: { variavel: 'ARI', opcao: 4 } })
+        await chamar()
+        expect(preDefinicao()?.escolhas).toEqual({ ARI: 4 })
+        expect(estado.envios.map((e) => e.corpo.Body)).toEqual([PERGUNTA_ARE])
+    })
+
+    it('opção que não existe é DESCARTADA: nada gravado, e a ARI é perguntada de novo', async () => {
+        montar(NOVE_SEM_ESCOLHAS)
+        llmResponde({ escolha: { variavel: 'ARI', opcao: 9 } })
+        await chamar()
+        expect(preDefinicao()?.escolhas).toBeNull()
+        expect(estado.envios.map((e) => e.corpo.Body)).toEqual([PERGUNTA_ARI])
+        expect(linhaIa()[0]).toEqual(expect.stringMatching(/propostos=1 .*descartados=1/))
+    })
+
+    it('com ARE = 1, a MAE é perguntada', async () => {
+        montar({ ...NOVE_SEM_ESCOLHAS, escolhas: { ARI: 4 } })
+        llmResponde({ escolha: { variavel: 'ARE', opcao: 1 } })
+        await chamar()
+        expect(preDefinicao()?.escolhas).toEqual({ ARI: 4, ARE: 1 })
+        expect(estado.envios.map((e) => e.corpo.Body)).toEqual([PERGUNTA_MAE])
+    })
+
+    it('com ARE = 2, a MAE NÃO se aplica: a pré-definição FECHA, e vêm o fechamento e o levantamento', async () => {
+        montar({ ...NOVE_SEM_ESCOLHAS, escolhas: { ARI: 4 } })
+        llmResponde({ escolha: { variavel: 'ARE', opcao: 2 } })
+        await chamar()
+        expect(preDefinicao()?.estado).toBe('COMPLETA')
+        expect(estado.envios.map((e) => e.corpo.Body)).toEqual([FECHAMENTO_DOS_SETE, LEVANTAMENTO_DOS_SETE])
+    })
+
+    it('as escolhas CHEGAM AO AVALIADOR: com as regras, os itens, a serra e o tempo no banco, a DP-02 fecha e saem as barras', async () => {
+        montar({ ...NOVE_SEM_ESCOLHAS, escolhas: { ARI: 4, ARE: 1 } })
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const dePara = require('./fixtures/fixture_de-para_DP-02.json') as { regras: Linha[]; itens: Linha[] }
+        estado.db.orcamentista_motor_regra = dePara.regras.map((r, k) => ({ id: `r-${String(k).padStart(4, '0')}`, ...r, tabela_id: TABELA, tipologias: ['DP-02'] }))
+        estado.db.orcamentista_tabela_item = dePara.itens.map((i) => ({ ...i, tabela_id: TABELA }))
+        estado.db.orcamentista_mp_categoria = [{ tenant_id: TENANT, categoria_chave: 'PERFIL', config: { serra_mm: 5 } }]
+        estado.db.orcamentista_motor_tipologia = [{ tabela_id: TABELA, tipologia: 'DP-02', tempo_fabricacao_min: 150, tempo_origem: 'IMPORTADO' }]
+        llmResponde({ escolha: { variavel: 'MAE', opcao: 2 } })
+        await chamar()
+        const [fechamento, levantamento] = estado.envios.map((e) => String(e.corpo.Body))
+        expect(fechamento).toBe(FECHAMENTO_DOS_SETE)
+        expect(levantamento.split('\n').slice(0, 2)).toEqual([
+            'Levantamento de DP-02, 1.500 x 1.200 mm, 4 unidade(s), perfil BRANCO.',
+            'Escolhas: ARI 4 — SEM ARREMATE INTERNO; ARE 1 — BZ0010 - ARREMATE 20MM; MAE 2 — VÃO+50MM (CORTE 90/90) - PARA AJUSTE EM OBRA. As outras variáveis ficaram no Padrão da tipologia.',
+        ])
+        expect(levantamento).toContain('Barras por código:')
+        expect(levantamento).toMatch(/Total por barra inteira: R\$ [\d.]+,\d{2}\./)
+        expect(levantamento).toContain('Tempo de fabricação da tipologia: 150 min (IMPORTADO).')
+        expect(linhaIa()[0]).toEqual(expect.stringMatching(/desfecho=fechou levantamento=levantou/))
+    })
+
+    it('uma tipologia SEM as abas do motor não tem escolhas a perguntar: fecha, e a recusa diz por quê', async () => {
+        montar({ ...NOVE_SEM_ESCOLHAS, tipologia: 'DP-01' })
+        llmResponde({})
+        await chamar()
+        expect(preDefinicao()?.estado).toBe('COMPLETA')
+        expect(String(estado.envios[1].corpo.Body)).toContain('A tipologia DP-01 não tem as abas do motor importadas')
     })
 })
