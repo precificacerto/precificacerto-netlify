@@ -30,6 +30,10 @@
  *      WUZAPI nem chega aqui (a entrada responde 'repetida'), e uma mensagem nova depois de fechada
  *      encontra o estado já COMPLETA e não fecha de novo. Se o envio do fechamento falhar, o estado
  *      fica COMPLETA e ele não é reenviado depois;
+ *   6a. ANTES de fechar, as ESCOLHAS DA TIPOLOGIA (`escolhas-da-tipologia.ts`, desde 25/10/2026): com os
+ *      campos cheios, a primeira escolha pendente é perguntada com a pergunta FIXA (a descrição da aba
+ *      e as opções por extenso). A LLM propõe `escolha` ({ variavel, opcao }); o código valida contra
+ *      a aba e grava em `escolhas`. A pré-definição só FECHA sem escolha pendente;
  *   7. com o fechamento ENVIADO, o LEVANTAMENTO: uma segunda mensagem, com as barras e os totais, ou
  *      com a recusa nomeada do que falta. Também UMA vez, na mesma passagem. Erro de banco no
  *      levantamento vai ao log, e nada técnico ao vendedor.
@@ -63,8 +67,11 @@ import {
     type CampoDaPreDefinicao, type EstadoDosCampos,
 } from '@/lib/atendimentos-ia/pre-definicao'
 import {
-    lerTabelaDaEmpresa, linhaDoCandidato, mensagemDoLevantamento, type CandidatoDeTipologia,
+    lerTabelaDaEmpresa, linhaDoCandidato, mensagemDoLevantamento, tipologiaDaTabela, type CandidatoDeTipologia,
 } from '@/lib/atendimentos-ia/levantamento-da-conversa'
+import {
+    escolhasPendentes, lerEscolhasGravadas, perguntaDaEscolha, validarEscolha, type EscolhaPendente,
+} from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 
 export const PREFIXO_DO_LOG_DA_IA = '[IA]'
 export const NOME_DA_FERRAMENTA = 'registrar_pre_definicao'
@@ -131,11 +138,18 @@ export const FERRAMENTA = {
                     texto,
                 },
             },
+            // a escolha da tipologia respondida NESTA mensagem: a variável e o NÚMERO da opção
+            escolha: {
+                type: 'object',
+                additionalProperties: false,
+                description: 'Só quando o vendedor respondeu NESTA mensagem uma escolha pendente da tipologia: a variável e o número da opção. Omita o resto.',
+                properties: { variavel: texto, opcao: inteiro },
+            },
         },
     },
 }
 
-function sistema(estado: Partial<EstadoDosCampos>, candidatos: readonly CandidatoDeTipologia[]): string {
+function sistema(estado: Partial<EstadoDosCampos>, candidatos: readonly CandidatoDeTipologia[], pendentes: readonly EscolhaPendente[]): string {
     return [
         'Você conversa pelo WhatsApp com um VENDEDOR de uma empresa de esquadrias e levanta os dados de um pedido.',
         'O vendedor já sabe o que a empresa vende: você só pergunta e anota.',
@@ -152,12 +166,16 @@ function sistema(estado: Partial<EstadoDosCampos>, candidatos: readonly Candidat
         '- Em `campos`, só o que o vendedor disse NESTA mensagem, para campos vazios. Não invente, não deduza.',
         '- Em `correcoes`, só quando o vendedor corrigiu EXPLICITAMENTE um campo já preenchido.',
         '- Em `pergunta`, o campo e o texto da próxima pergunta, curta e em português. Com tudo preenchido, omita campo e texto.',
+        '- As ESCOLHAS DA TIPOLOGIA (lista do fim) vêm depois dos campos: UMA por vez, na ordem, com as opções por extenso. Quando o vendedor responder, registre em `escolha` a variável e o NÚMERO da opção. NUNCA escolha sozinho, nem pelo Padrão: se a resposta não corresponder a uma das opções, não preencha e pergunte de novo.',
         `- Responda SEMPRE chamando a ferramenta ${NOME_DA_FERRAMENTA}, uma vez.`,
         '',
         `Estado atual da pré-definição (null = ainda não dito): ${JSON.stringify(estado)}`,
         '',
         'Tipologias da tabela em uso da empresa (código | descrição | tipo):',
         ...(candidatos.length ? candidatos.map(linhaDoCandidato) : ['(nenhuma)']),
+        '',
+        'Escolhas da tipologia ainda pendentes (variável: pergunta):',
+        ...(pendentes.length ? pendentes.map((p) => `${p.variavel}: ${perguntaDaEscolha(p)}`) : ['(nenhuma)']),
     ].join('\n')
 }
 
@@ -179,7 +197,10 @@ function mensagemParaOLog(mensagem: unknown, chave: string): string {
     return paraOLog(mensagem, [chave]).replace(/["\r\n]+/g, ' ').slice(0, MAXIMO_DA_MENSAGEM_NO_LOG)
 }
 
-async function chamarLlm(chave: string, mensagens: Array<{ role: 'user' | 'assistant'; content: string }>, estado: Partial<EstadoDosCampos>, candidatos: readonly CandidatoDeTipologia[]): Promise<ResultadoDaLlm> {
+async function chamarLlm(
+    chave: string, mensagens: Array<{ role: 'user' | 'assistant'; content: string }>, estado: Partial<EstadoDosCampos>,
+    candidatos: readonly CandidatoDeTipologia[], pendentes: readonly EscolhaPendente[],
+): Promise<ResultadoDaLlm> {
     let r: Response
     try {
         r = await fetch(URL_DA_API_ANTHROPIC, {
@@ -192,7 +213,7 @@ async function chamarLlm(chave: string, mensagens: Array<{ role: 'user' | 'assis
                 max_tokens: 16000,
                 // extração curta de uma mensagem de chat: o raciocínio fica no mínimo
                 output_config: { effort: 'low' },
-                system: sistema(estado, candidatos),
+                system: sistema(estado, candidatos, pendentes),
                 tools: [FERRAMENTA],
                 tool_choice: { type: 'auto' },
                 messages: mensagens,
@@ -216,8 +237,9 @@ async function chamarLlm(chave: string, mensagens: Array<{ role: 'user' | 'assis
 }
 
 // ── O BANCO ─────────────────────────────────────────────────────────────────────────────────
-const COLUNAS_DA_PRE_DEFINICAO = `id, estado, ${CAMPOS_DA_PRE_DEFINICAO.join(', ')}`
-type PreDefinicao = { id: string; estado: string | null } & Partial<EstadoDosCampos>
+// `escolhas` é a coluna da 20261025000001: sem ela aplicada, esta leitura falha — aplicar ANTES do merge
+const COLUNAS_DA_PRE_DEFINICAO = `id, estado, ${CAMPOS_DA_PRE_DEFINICAO.join(', ')}, escolhas`
+type PreDefinicao = { id: string; estado: string | null; escolhas?: unknown } & Partial<EstadoDosCampos>
 
 async function lerPreDefinicao(tenantId: string, conversaId: string): Promise<PreDefinicao | null> {
     const { data, error } = await supabaseAdmin
@@ -315,6 +337,7 @@ async function enviarLevantamento(c: Interlocutor, tabela: Awaited<ReturnType<ty
     try {
         levantamento = await mensagemDoLevantamento(c.tenantId, tabela, {
             tipologia: gravada.tipologia, largura_mm: gravada.largura_mm, altura_mm: gravada.altura_mm, quantidade: gravada.quantidade, vidro: gravada.vidro,
+            escolhas: gravada.escolhas,
         })
     } catch (e) {
         return `erro motivo_levantamento="${e instanceof Error ? e.message : 'desconhecido'}"`
@@ -355,26 +378,39 @@ export async function conduzirConversa(c: Interlocutor): Promise<DesfechoDaIa> {
             return fim('sem-tipologias', `motivo=${tabela.motivo}${tabela.detalhe ? ` ${tabela.detalhe}` : ''}`)
         }
 
+        // As escolhas da tipologia: as gravadas, e as que ainda faltam — só com as abas do motor
+        const escolhasAtuais = lerEscolhasGravadas(pre.escolhas)
+        const definicaoAntes = tipologiaDaTabela(tabela, estadoAtual.tipologia)
+        const pendentesAntes = definicaoAntes ? escolhasPendentes(definicaoAntes, escolhasAtuais) : []
+
         const historico = await lerHistorico(c.tenantId, c.conversaId)
-        const resposta = await chamarLlm(chave, historico, estadoAtual, candidatos)
+        const resposta = await chamarLlm(chave, historico, estadoAtual, candidatos, pendentesAntes)
         if (resposta.tipo !== 'ok') return fim(resposta.tipo, resposta.detalhe)
 
         const validacao = validarProposta(estadoAtual, resposta.proposta, candidatos.map((x) => x.tipologia))
-        rastro.propostos = validacao.propostos
-        rastro.descartados = validacao.descartados
         const novoEstado = { ...estadoAtual, ...validacao.gravar }
+        // a escolha proposta é validada contra a tipologia DEPOIS desta mensagem
+        const definicao = tipologiaDaTabela(tabela, novoEstado.tipologia)
+        const propostaDeEscolha = resposta.proposta.escolha
+        const escolha = definicao
+            ? validarEscolha(definicao, escolhasAtuais, propostaDeEscolha)
+            : { gravar: null, propostos: propostaDeEscolha ? 1 : 0, descartados: propostaDeEscolha ? 1 : 0 }
+        rastro.propostos = validacao.propostos + escolha.propostos
+        rastro.descartados = validacao.descartados + escolha.descartados
+        const pendentes = definicao ? escolhasPendentes(definicao, escolha.gravar ?? escolhasAtuais) : []
         const proximo = proximoCampo(novoEstado)
-        const estadoTexto = proximo === null ? COMPLETA : EM_COLETA
+        const fecha = proximo === null && pendentes.length === 0
+        const estadoTexto = fecha ? COMPLETA : EM_COLETA
 
-        if (Object.keys(validacao.gravar).length > 0 || estadoAntes !== estadoTexto) {
+        if (Object.keys(validacao.gravar).length > 0 || escolha.gravar || estadoAntes !== estadoTexto) {
             const { error } = await supabaseAdmin
                 .from('orcamentista_pre_definicao')
-                .update({ ...validacao.gravar, estado: estadoTexto, atualizado_em: new Date().toISOString() })
+                .update({ ...validacao.gravar, ...(escolha.gravar ? { escolhas: escolha.gravar } : {}), estado: estadoTexto, atualizado_em: new Date().toISOString() })
                 .eq('id', pre.id).eq('tenant_id', c.tenantId)
             if (error) throw new Error(`orcamentista_pre_definicao: ${error.message}`)
         }
 
-        if (proximo === null) {
+        if (fecha) {
             // Já estava fechada antes deste turno: não fecha de novo.
             if (estadoAntes === COMPLETA) return fim('ja-completa')
             // Os valores do fechamento são os GRAVADOS, relidos — não os da proposta.
@@ -388,7 +424,8 @@ export async function conduzirConversa(c: Interlocutor): Promise<DesfechoDaIa> {
             return fim('fechou', `levantamento=${await enviarLevantamento(c, tabela, gravada)}`)
         }
 
-        const texto = perguntaPara(proximo, resposta.proposta)
+        // um campo vazio vem antes; com os campos cheios, a primeira escolha pendente, com a pergunta FIXA
+        const texto = proximo !== null ? perguntaPara(proximo, resposta.proposta) : perguntaDaEscolha(pendentes[0])
         const envio = await enviarTexto(c.wuzapiToken, c.telefone, texto)
         if (!envio.ok) return fim('envio-falhou', `status_envio=${envio.status ?? 'sem resposta'}`)
         rastro.enviou = true

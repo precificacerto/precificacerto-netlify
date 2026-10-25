@@ -5,9 +5,10 @@
  *
  * ══ PRIMEIRA VERSÃO, PARA VER RODANDO (dono do produto, 25/10/2026) ══
  *   - COR FIXA BRANCO (`COR_DA_PRIMEIRA_VERSAO`): a cor que o vendedor diz é anotada e NÃO é usada;
- *   - só as escolhas que a conversa já captura — HOJE, NENHUMA: toda variável da tipologia fica no
- *     Padrão. Consequência medida na DP-02: com MAE no Padrão ("MEDIDA DO VÃO", sem colchete), o
- *     avaliador recusa o arremate externo, e o levantamento sai como RECUSA NOMEADA;
+ *   - só as escolhas que a conversa captura (`escolhas-da-tipologia.ts`: ARI, ARE e MAE desde
+ *     25/10/2026), gravadas em `orcamentista_pre_definicao.escolhas`; as outras variáveis ficam no
+ *     Padrão, e a mensagem diz quais foram escolhidas. Sem escolha nenhuma, a DP-02 é recusada: o
+ *     Padrão de MAE ("MEDIDA DO VÃO") não traz a medida;
  *   - UMA esquadria por conversa (é o que `orcamentista_pre_definicao` guarda);
  *   - NÃO persiste o levantamento: a mensagem é a saída;
  *   - SÓ A DP-02 DA TABELA WOLFF tem as abas do motor (Variáveis, Fórmulas, Perfis, Validações) no
@@ -43,7 +44,8 @@
  * Portão: `src/utils/__tests__/levantamento-da-conversa.test.ts`.
  */
 import { supabaseAdmin } from '@/supabase/admin'
-import { lerTipologia, type AbasDoMotor, type AvisoDoAvaliador } from '@/lib/atendimentos-ia/avaliador-de-formulas'
+import { lerTipologia, type AbasDoMotor, type AvisoDoAvaliador, type Tipologia } from '@/lib/atendimentos-ia/avaliador-de-formulas'
+import { descreverEscolhas, lerEscolhasGravadas } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import {
     COR_DA_PRIMEIRA_VERSAO, formatarReais, levantarBarras,
     type ItemDaTabela, type RegraDoDePara, type ResultadoDoLevantamento,
@@ -88,6 +90,15 @@ export async function lerTabelaDaEmpresa(tenantId: string): Promise<TabelaDaEmpr
 }
 
 /** A linha do candidato no prompt: código, descrição inteira e tipo. Ausente não vira texto inventado. */
+/** A tipologia com as abas do motor, para a tabela da empresa — ou null, quando as abas não existem. */
+export function tipologiaDaTabela(tabela: TabelaDaEmpresa, codigo: unknown): Tipologia | null {
+    if (!('tabelaId' in tabela) || typeof codigo !== 'string') return null
+    const abas = ABAS_IMPORTADAS[tabela.tabelaId]?.[codigo]
+    if (!abas) return null
+    const lida = lerTipologia(abas, codigo)
+    return 'tipologia' in lida ? lida.tipologia : null
+}
+
 export const linhaDoCandidato = (c: CandidatoDeTipologia) =>
     `${c.tipologia} | ${c.descricao ?? '(sem descrição no arquivo)'} | ${c.tipo ?? '(sem tipo no arquivo)'}`
 
@@ -188,9 +199,19 @@ function fraseDoAviso(a: AvisoDoAvaliador): string {
     return `A ${medida} de ${numeroBR(a.valor_mm, 0)} mm está ${lado} da tipologia (${numeroBR(a.limite_mm, 0)} mm), ${numeroBR(a.excesso_mm, 0)} mm (${numeroBR(a.excesso_pct, 1)}%).`
 }
 
-export type DadosDaEsquadria = { tipologia: string; largura_mm: number; altura_mm: number; quantidade: number }
+/**
+ * `escolhas`, em três estados que a mensagem distingue:
+ *   - null — a tipologia não tem as abas: não há variável conhecida, e a linha NÃO aparece;
+ *   - ''   — as abas existem e nenhuma escolha foi capturada: "nenhuma — todas no Padrão";
+ *   - texto — as escolhas descritas (`descreverEscolhas`).
+ */
+export type DadosDaEsquadria = { tipologia: string; largura_mm: number; altura_mm: number; quantidade: number; escolhas: string | null }
 const cabecalho = (e: DadosDaEsquadria) =>
     `${e.tipologia}, ${numeroBR(e.largura_mm, 0)} x ${numeroBR(e.altura_mm, 0)} mm, ${e.quantidade} unidade(s), perfil ${COR_DA_PRIMEIRA_VERSAO}`
+const linhaDasEscolhas = (e: DadosDaEsquadria): string[] =>
+    e.escolhas === null ? []
+        : e.escolhas === '' ? ['Escolhas: nenhuma — todas as variáveis ficaram no Padrão da tipologia.']
+            : [`Escolhas: ${e.escolhas}. As outras variáveis ficaram no Padrão da tipologia.`]
 
 /** No máximo tantas faltas listadas; o resto é contado, nunca calado. */
 const MAXIMO_DE_FALTAS = 8
@@ -199,12 +220,12 @@ const MAXIMO_DE_FALTAS = 8
 export function fraseDaRecusa(e: DadosDaEsquadria, faltas: string[]): string {
     const listadas = faltas.slice(0, MAXIMO_DE_FALTAS).map((f) => `• ${f}`)
     const resto = faltas.length > MAXIMO_DE_FALTAS ? [`• e mais ${faltas.length - MAXIMO_DE_FALTAS} falta(s) do mesmo levantamento.`] : []
-    return [`Não consegui fechar o levantamento de ${cabecalho(e)}. Falta:`, ...listadas, ...resto].join('\n')
+    return [`Não consegui fechar o levantamento de ${cabecalho(e)}.`, ...linhaDasEscolhas(e), 'Falta:', ...listadas, ...resto].join('\n')
 }
 
 /** A frase do levantamento que fechou: barras por código, aproveitamento, os dois totais e o tempo. */
 export function fraseDoLevantamento(e: DadosDaEsquadria, r: Extract<ResultadoDoLevantamento, { ok: true }>, tempo: { minutos: number; origem: string | null } | null): string {
-    const linhas = [`Levantamento de ${cabecalho(e)}.`, '', 'Barras por código:']
+    const linhas = [`Levantamento de ${cabecalho(e)}.`, ...linhaDasEscolhas(e), '', 'Barras por código:']
     for (const c of r.por_codigo) {
         linhas.push(`• ${c.codigo} (${c.perfil}): ${c.n_barras} barra(s) de ${metros(c.comprimento_barra_mm)}`)
     }
@@ -245,11 +266,13 @@ export type LevantamentoDaConversa = { texto: string; desfecho: 'levantou' | 're
 export async function mensagemDoLevantamento(
     tenantId: string,
     tabela: TabelaDaEmpresa,
-    pre: { tipologia: unknown; largura_mm: unknown; altura_mm: unknown; quantidade: unknown; vidro: unknown },
+    pre: { tipologia: unknown; largura_mm: unknown; altura_mm: unknown; quantidade: unknown; vidro: unknown; escolhas: unknown },
 ): Promise<LevantamentoDaConversa> {
     const e: DadosDaEsquadria = {
         tipologia: String(pre.tipologia), largura_mm: Number(pre.largura_mm), altura_mm: Number(pre.altura_mm), quantidade: Number(pre.quantidade),
+        escolhas: null,
     }
+    const escolhas = lerEscolhasGravadas(pre.escolhas)
     const recusa = (faltas: string[]): LevantamentoDaConversa => ({ texto: fraseDaRecusa(e, faltas), desfecho: 'recusou' })
     if ('frase' in tabela) return recusa([maiuscula(tabela.frase.replace(/^Ainda não consigo escolher a tipologia: /, ''))])
 
@@ -257,6 +280,7 @@ export async function mensagemDoLevantamento(
     if (!abas) return recusa([fraseDaTipologiaSemAbas(e.tipologia)])
     const lida = lerTipologia(abas, e.tipologia)
     if ('recusas' in lida) return recusa(lida.recusas.map((x) => x.mensagem))
+    e.escolhas = descreverEscolhas(lida.tipologia, escolhas) ?? ''
 
     const serra = await lerSerra(tenantId)
     if ('frase' in serra) return recusa([maiuscula(serra.frase)])
@@ -264,7 +288,7 @@ export async function mensagemDoLevantamento(
     const itens = await lerItens(tabela.tabelaId, [...new Set(regras.map((r) => r.codigo))].sort())
 
     const r = levantarBarras({
-        esquadrias: [{ tipologia: e.tipologia, L_mm: e.largura_mm, H_mm: e.altura_mm, quantidade: e.quantidade, escolhas: {}, espessura_vidro_mm: espessuraDoVidro(pre.vidro) }],
+        esquadrias: [{ tipologia: e.tipologia, L_mm: e.largura_mm, H_mm: e.altura_mm, quantidade: e.quantidade, escolhas, espessura_vidro_mm: espessuraDoVidro(pre.vidro) }],
         tipologias: { [e.tipologia]: lida.tipologia },
         regras,
         itens,

@@ -81,7 +81,11 @@
 export const CONSTANTES_DO_LEIA_ME: Readonly<Record<string, number>> = { WOLFIL: 0, WOLFIH: 0, WOLSPVC: 6 }
 
 // ── A tipologia ───────────────────────────────────────────────────────────────────────────
-export type VariavelDaTipologia = { variavel: string; padrao: string | null; opcoes: string | null }
+/**
+ * Uma linha da aba Variáveis. `descricao` e `condicao` não são lidas pelo avaliador: são o que a
+ * conversa usa para perguntar a escolha ao vendedor, e QUANDO perguntar (`escolhas-da-tipologia.ts`).
+ */
+export type VariavelDaTipologia = { variavel: string; descricao: string | null; padrao: string | null; condicao: string | null; opcoes: string | null }
 export type FormulaDaTipologia = { variavel: string; formula: string }
 export type PerfilDaTipologia = {
     perfil: string; descricao: string; corte: string; qtd: string; medida: string; posicao: string; esp_vidro: string | null; condicao: string
@@ -392,6 +396,15 @@ function avaliar(texto: string, amb: Ambiente, pilha: string[]): Valor {
 
 // ── As opções de uma variável ─────────────────────────────────────────────────────────────
 type Opcao = { valor: number; rotulo: string; medida: Q | null }
+/**
+ * As opções de uma variável, para quem PERGUNTA a escolha: o número e o rótulo, sem o valor entre
+ * colchetes. O MESMO leitor do avaliador — um segundo leitor das mesmas opções poderia discordar dele.
+ */
+export function opcoesDaVariavel(texto: string | null): Array<{ valor: number; rotulo: string }> | null {
+    if (texto === null) return null
+    const lidas = opcoesDe(texto)
+    return lidas === null ? null : lidas.map((o) => ({ valor: o.valor, rotulo: o.rotulo }))
+}
 /** "1 = BZ0006 - ARREMATE 65MM [33,00]; 4 = SEM ARREMATE INTERNO" → as opções, ou null se um pedaço não casar. */
 function opcoesDe(texto: string): Opcao[] | null {
     const saida: Opcao[] = []
@@ -664,7 +677,7 @@ export type AbasDoMotor = Readonly<Record<string, AbaDoMotor>>
  */
 export const COLUNAS_LIDAS: Readonly<Record<string, readonly string[]>> = {
     'Detalhe Tipologias': ['Código', 'Larg. mín (mm)', 'Larg. máx (mm)', 'Alt. mín (mm)', 'Alt. máx (mm)'],
-    'Variáveis': ['Código', 'Var.', 'Padrão', 'Opções'],
+    'Variáveis': ['Código', 'Var.', 'Descrição', 'Padrão', 'Condição', 'Opções'],
     'Fórmulas': ['Código', 'Variável', 'Fórmula'],
     'Perfis': ['Código', 'Perfil', 'Descrição', 'Corte', 'Qtd', 'Medida', 'Posição', 'Esp. vidro', 'Condição'],
     'Validações': ['Código', 'Condição válida', 'Mensagem'],
@@ -701,7 +714,10 @@ export function lerTipologia(abas: AbasDoMotor, codigo: string): { ok: true; tip
             alt_min_mm: limite('Detalhe Tipologias', 'Alt. mín (mm)', detalhe['Alt. mín (mm)']),
             alt_max_mm: limite('Detalhe Tipologias', 'Alt. máx (mm)', detalhe['Alt. máx (mm)']),
         },
-        variaveis: daTipologia('Variáveis').map((l) => ({ variavel: textoObrigatorio(l['Var.']), padrao: texto(l['Padrão']), opcoes: texto(l['Opções']) })),
+        variaveis: daTipologia('Variáveis').map((l) => ({
+            variavel: textoObrigatorio(l['Var.']), descricao: texto(l['Descrição']), padrao: texto(l['Padrão']),
+            condicao: texto(l['Condição']), opcoes: texto(l['Opções']),
+        })),
         formulas: daTipologia('Fórmulas').map((l) => ({ variavel: textoObrigatorio(l['Variável']), formula: textoObrigatorio(l['Fórmula']) })),
         perfis: daTipologia('Perfis').map((l) => ({
             perfil: textoObrigatorio(l['Perfil']), descricao: textoObrigatorio(l['Descrição']), corte: textoObrigatorio(l['Corte']),

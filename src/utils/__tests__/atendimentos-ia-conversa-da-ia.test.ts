@@ -863,7 +863,7 @@ describe('(14) a TIPOLOGIA é escolhida da LISTA da tabela em uso — a IA não 
 
 describe('(15) as ESCOLHAS da tipologia: uma de cada vez, só as que faltam, e a IA nunca escolhe sozinha', () => {
     /** Os nove campos preenchidos, CASA, e nenhuma escolha ainda. */
-    const NOVE_SEM_ESCOLHAS = { ...SETE_DE_PRODUTO_E_LOCAL, tipo_edificacao: 'CASA', escolhas: null }
+    const NOVE_SEM_ESCOLHAS = { ...SETE_DE_PRODUTO_E_LOCAL, tipo_edificacao: 'CASA', escolhas: null as Record<string, number> | null }
     const PERGUNTA_ARI = 'ARREMATE INTERNO — qual opção? 1 = BZ0006 - ARREMATE 65MM; 2 = BZ1770 - ARREMATE 70MM; 3 = BZ0010 - ARREMATE 20MM; 4 = SEM ARREMATE INTERNO.'
     const PERGUNTA_ARE = 'ARREMATE EXTERNO — qual opção? 1 = BZ0010 - ARREMATE 20MM; 2 = SEM ARREMATE EXTERNO.'
     const PERGUNTA_MAE = 'MEDIDA ARREMATE EXTERNO — qual opção? 1 = MEDIDA DO VÃO (CORTE 45/45); 2 = VÃO+50MM (CORTE 90/90) - PARA AJUSTE EM OBRA; 3 = VÃO+100MM (CORTE 90/90) - PARA AJUSTE EM OBRA.'
