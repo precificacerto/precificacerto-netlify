@@ -105,10 +105,12 @@ function montar() {
 beforeEach(montar)
 
 /** O que a pré-definição gravada traz para o levantamento — `escolhas` é o jsonb da coluna. */
-const ESQUADRIA = { tipologia: 'DP-02', largura_mm: 1200, altura_mm: 1000, quantidade: 1, cor_perfil: 'BRANCO' as unknown, vidro: 'Temperado 5mm', escolhas: null as unknown }
+const ESQUADRIA = { ordem: 1, tipologia: 'DP-02', largura_mm: 1200, altura_mm: 1000, quantidade: 1, cor_perfil: 'BRANCO' as string | null, vidro: 'Temperado 5mm', escolhas: null as Record<string, number> | null }
+/** O levantamento gravado — nome e esquadrias — como a conversa o entrega ao levantamento. */
+const lev = (o: Partial<typeof ESQUADRIA> = {}) => ({ nome: 'Casa do João', itens: [{ ...ESQUADRIA, ...o }] })
 /** Os dados da esquadria como a FRASE os recebe: as escolhas já descritas. */
 const DESCRITAS = 'ARI 4 — SEM ARREMATE INTERNO; ARE 1 — BZ0010 - ARREMATE 20MM; MAE 2 — VÃO+50MM (CORTE 90/90) - PARA AJUSTE EM OBRA'
-const DADOS = { tipologia: 'DP-02', largura_mm: 1200, altura_mm: 1000, quantidade: 1, cor: 'BRANCO', escolhas: DESCRITAS }
+const DADOS = { nome: 'Casa do João', cor: 'BRANCO', esquadrias: [{ tipologia: 'DP-02', largura_mm: 1200, altura_mm: 1000, quantidade: 1, escolhas: DESCRITAS }] }
 /**
  * A mão de obra da DP-02 com os números de produção: 150 min × (40.813,03 ÷ (5 × 528 h × 60)).
  * 5 × 528 × 60 = 158.400 min; 40.813,03 ÷ 158.400 = 0,25765802…; × 150 = 38,6487 → R$ 38,65.
@@ -116,7 +118,8 @@ const DADOS = { tipologia: 'DP-02', largura_mm: 1200, altura_mm: 1000, quantidad
 const MAO_DE_OBRA = { ok: true as const, minutosPorUnidade: 150, origem: 'IMPORTADO', quantidade: 1, custoMensal: 40813.03, minutosDaEmpresa: 158400, porUnidade: 38.65, total: 38.65 }
 /** O texto inteiro do levantamento que fecha — conta à mão no portão da ligação. */
 const TEXTO_QUE_FECHA = [
-    'Levantamento de DP-02, 1.200 x 1.000 mm, 1 unidade(s), perfil BRANCO.',
+    'Levantamento “Casa do João”, perfil BRANCO.',
+    'Esquadria 1: DP-02, 1.200 x 1.000 mm, 1 unidade(s).',
     `Escolhas: ${DESCRITAS}. As outras variáveis ficaram no Padrão da tipologia.`,
     '',
     'Barras por código:',
@@ -223,13 +226,13 @@ describe('(5) a mensagem do levantamento', () => {
     }
 
     it('o LEVANTAMENTO QUE FECHA: barras, aproveitamento, os dois totais de material, a diferença, a mão de obra e os dois totais — o texto inteiro', () => {
-        expect(M().fraseDoLevantamento(DADOS, resultadoQueFecha(), MAO_DE_OBRA)).toBe(TEXTO_QUE_FECHA)
+        expect(M().fraseDoLevantamento(DADOS, resultadoQueFecha(), [MAO_DE_OBRA])).toBe(TEXTO_QUE_FECHA)
     })
 
     it('PREÇO AUSENTE: o total que não sai diz qual código falta, e a diferença e o total com mão de obra também não saem — nunca R$ 0,00', () => {
         const r = resultadoQueFecha()
         const semBarra = { ...r, total: { ...r.total, total_por_barra_inteira: null as number | null }, falta_para_o_total: [{ codigo: '9641', perfil: 'HF88/WOLFF', falta: 'valor_barra_interno' as const, total: 'total_por_barra_inteira' as const, mensagem: '' }] }
-        const texto = M().fraseDoLevantamento(DADOS, semBarra, MAO_DE_OBRA)
+        const texto = M().fraseDoLevantamento(DADOS, semBarra, [MAO_DE_OBRA])
         expect(texto).toContain('Material por barra inteira: não sai — falta o valor da barra de 9641 (HF88/WOLFF).')
         expect(texto).toContain('Diferença entre os dois: não sai — falta o total por barra inteira.')
         expect(texto).toContain('Total por barra inteira (material + mão de obra): não sai — falta o material por barra inteira.')
@@ -239,7 +242,7 @@ describe('(5) a mensagem do levantamento', () => {
     })
 
     it('MÃO DE OBRA AUSENTE: a linha diz o que falta, e os totais com mão de obra NÃO saem — o material sai', () => {
-        const texto = M().fraseDoLevantamento(DADOS, resultadoQueFecha(), { ok: false, falta: 'o tempo de fabricação de DP-02 não está cadastrado' })
+        const texto = M().fraseDoLevantamento(DADOS, resultadoQueFecha(), [{ ok: false, falta: 'o tempo de fabricação de DP-02 não está cadastrado' }])
         expect(texto).toContain('Mão de obra: não sai — o tempo de fabricação de DP-02 não está cadastrado.')
         expect(texto).toContain('Material por barra inteira: R$ 1.342,09.')
         expect(texto).toContain('Total por barra inteira (material + mão de obra): não sai — falta a mão de obra.')
@@ -248,33 +251,33 @@ describe('(5) a mensagem do levantamento', () => {
     })
 
     it('a QUANTIDADE multiplica a mão de obra: 3 unidades, 3 × R$ 38,65', () => {
-        const texto = M().fraseDoLevantamento({ ...DADOS, quantidade: 3 }, resultadoQueFecha(), { ...MAO_DE_OBRA, quantidade: 3, total: 115.95 })
+        const texto = M().fraseDoLevantamento({ ...DADOS, esquadrias: [{ ...DADOS.esquadrias[0], quantidade: 3 }] }, resultadoQueFecha(), [{ ...MAO_DE_OBRA, quantidade: 3, total: 115.95 }])
         expect(texto).toContain('Mão de obra: 150 min por unidade (IMPORTADO) × 3 unidade(s), a R$ 0,257658 o minuto (R$ 40.813,03 ÷ 158.400 min): R$ 115,95.')
     })
 
     it('os AVISOS do avaliador saem em português, com a medida e o limite', () => {
         const r = resultadoQueFecha()
         const comAviso = { ...r, avisos: [{ origem: 'LIMITE' as const, medida: 'H' as const, limite: 'MIN' as const, valor_mm: 380, limite_mm: 388, excesso_mm: 8, excesso_pct: 2.0618556701, esquadria: 1 }] }
-        expect(M().fraseDoLevantamento(DADOS, comAviso, MAO_DE_OBRA)).toContain('Atenção:\n• A altura de 380 mm está abaixo do mínimo da tipologia (388 mm), 8 mm (2,1%).')
+        expect(M().fraseDoLevantamento(DADOS, comAviso, [MAO_DE_OBRA])).toContain('Atenção:\n• A altura de 380 mm está abaixo do mínimo da tipologia (388 mm), 8 mm (2,1%).')
     })
 })
 
 describe('(5b) as ESCOLHAS gravadas chegam ao avaliador', () => {
     it('com ARI 4, ARE 1 e MAE 2 gravados, a DP-02 FECHA — e o texto é o da conta à mão, com as escolhas', async () => {
         const t = await M().lerTabelaDaEmpresa(TENANT)
-        const r = await M().mensagemDoLevantamento(TENANT, t, { ...ESQUADRIA, escolhas: { ARI: 4, ARE: 1, MAE: 2 } })
+        const r = await M().mensagemDoLevantamento(TENANT, t, lev({ escolhas: { ARI: 4, ARE: 1, MAE: 2 } }))
         expect(r).toEqual({ desfecho: 'levantou', texto: TEXTO_QUE_FECHA })
     })
 
     it('o contraste: SEM escolhas, a mesma esquadria é recusada — o Padrão de MAE não traz a medida', async () => {
         const t = await M().lerTabelaDaEmpresa(TENANT)
-        const r = await M().mensagemDoLevantamento(TENANT, t, ESQUADRIA)
+        const r = await M().mensagemDoLevantamento(TENANT, t, lev())
         expect(r.desfecho).toBe('recusou')
     })
 
     it('uma chave que não é capturada, no jsonb, não vira escolha: {"MAI": 2} sozinho não muda nada', async () => {
         const t = await M().lerTabelaDaEmpresa(TENANT)
-        const r = await M().mensagemDoLevantamento(TENANT, t, { ...ESQUADRIA, escolhas: { MAI: 2 } })
+        const r = await M().mensagemDoLevantamento(TENANT, t, lev({ escolhas: { MAI: 2 } }))
         expect(r.texto).toContain('Escolhas: nenhuma')
     })
 })
@@ -282,9 +285,9 @@ describe('(5b) as ESCOLHAS gravadas chegam ao avaliador', () => {
 describe('(6) a RECUSA chega como texto, inteira e nomeada', () => {
     it('a DP-02 no PADRÃO (a conversa não captura escolha): MAE sem colchete é recusado, sem o prefixo de esquadria', async () => {
         const t = await M().lerTabelaDaEmpresa(TENANT)
-        const r = await M().mensagemDoLevantamento(TENANT, t, ESQUADRIA)
+        const r = await M().mensagemDoLevantamento(TENANT, t, lev())
         expect(r.desfecho).toBe('recusou')
-        expect(r.texto.startsWith('Não consegui fechar o levantamento de DP-02, 1.200 x 1.000 mm, 1 unidade(s), perfil BRANCO.\n'
+        expect(r.texto.startsWith('Não consegui fechar o levantamento “Casa do João”, perfil BRANCO.\nEsquadria 1: DP-02, 1.200 x 1.000 mm, 1 unidade(s).\n'
             + 'Escolhas: nenhuma — todas as variáveis ficaram no Padrão da tipologia.\nFalta:\n• ')).toBe(true)
         expect(r.texto).toContain('MAE')
         expect(r.texto).toContain('MEDIDA DO VÃO')
@@ -293,11 +296,11 @@ describe('(6) a RECUSA chega como texto, inteira e nomeada', () => {
 
     it('OUTRO DP: "a tipologia DP-01 não tem as abas do motor importadas"', async () => {
         const t = await M().lerTabelaDaEmpresa(TENANT)
-        const r = await M().mensagemDoLevantamento(TENANT, t, { ...ESQUADRIA, tipologia: 'DP-01' })
+        const r = await M().mensagemDoLevantamento(TENANT, t, lev({ tipologia: 'DP-01' }))
         expect(r).toEqual({
             desfecho: 'recusou',
             // sem as abas não há variável conhecida: a linha das escolhas não aparece
-            texto: 'Não consegui fechar o levantamento de DP-01, 1.200 x 1.000 mm, 1 unidade(s), perfil BRANCO.\nFalta:\n'
+            texto: 'Não consegui fechar o levantamento “Casa do João”, perfil BRANCO.\nEsquadria 1: DP-01, 1.200 x 1.000 mm, 1 unidade(s).\nFalta:\n'
                 + '• A tipologia DP-01 não tem as abas do motor importadas (Variáveis, Fórmulas, Perfis): ainda não consigo calcular as barras dela.',
         })
     })
@@ -306,28 +309,28 @@ describe('(6) a RECUSA chega como texto, inteira e nomeada', () => {
         banco.db.orcamentista_conta_tabela = [{ tenant_id: TENANT, tabela_id: 'tabela-de-outro-fornecedor' }]
         banco.db.orcamentista_motor_tipologia_detalhe.push({ tabela_id: 'tabela-de-outro-fornecedor', tipologia: 'DP-02', descricao: 'OUTRA', tipo: 'Correr' })
         const t = await M().lerTabelaDaEmpresa(TENANT)
-        const r = await M().mensagemDoLevantamento(TENANT, t, ESQUADRIA)
+        const r = await M().mensagemDoLevantamento(TENANT, t, lev())
         expect(r.texto).toContain(M().fraseDaTipologiaSemAbas('DP-02'))
     })
 
     it('SEM SERRA na base de conhecimento: a recusa diz que falta a serra', async () => {
         banco.db.orcamentista_mp_categoria = []
         const t = await M().lerTabelaDaEmpresa(TENANT)
-        const r = await M().mensagemDoLevantamento(TENANT, t, ESQUADRIA)
+        const r = await M().mensagemDoLevantamento(TENANT, t, lev())
         expect(r.texto).toContain('• A largura da serra não está na base de conhecimento da empresa (categoria Perfil). Falta: a serra, em mm.')
     })
 
     it('DUAS SERRAS diferentes: não escolhe uma', async () => {
         banco.db.orcamentista_mp_categoria.push({ tenant_id: TENANT, categoria_chave: 'PERFIL', config: { serra_mm: 4 } })
         const t = await M().lerTabelaDaEmpresa(TENANT)
-        const r = await M().mensagemDoLevantamento(TENANT, t, ESQUADRIA)
+        const r = await M().mensagemDoLevantamento(TENANT, t, lev())
         expect(r.texto).toContain('2 larguras de serra diferentes')
     })
 
     it('a empresa SEM TABELA, no fechamento: a recusa diz isso, em português', async () => {
         banco.db.orcamentista_conta_tabela = []
         const t = await M().lerTabelaDaEmpresa(TENANT)
-        const r = await M().mensagemDoLevantamento(TENANT, t, ESQUADRIA)
+        const r = await M().mensagemDoLevantamento(TENANT, t, lev())
         expect(r.texto).toContain('• A sua empresa não tem uma tabela de fornecedor ligada ao orçamentista.')
     })
 
@@ -378,35 +381,92 @@ describe('(7) a MÃO DE OBRA — o mesmo caminho da tela de produto, com os núm
 describe('(8) a COR é a da pré-definição, comparada exata com a coluna cor do motor', () => {
     it('em BRANCO, a DP-02 fecha — e o cabeçalho diz BRANCO', async () => {
         const t = await M().lerTabelaDaEmpresa(TENANT)
-        const r = await M().mensagemDoLevantamento(TENANT, t, { ...ESQUADRIA, escolhas: { ARI: 4, ARE: 1, MAE: 2 } })
+        const r = await M().mensagemDoLevantamento(TENANT, t, lev({ escolhas: { ARI: 4, ARE: 1, MAE: 2 } }))
         expect(r).toEqual({ desfecho: 'levantou', texto: TEXTO_QUE_FECHA })
     })
 
     it('em PRETO TEXTURADO, a mesma esquadria é RECUSADA nomeando o perfil e a cor — nenhuma cor parecida entra', async () => {
         const t = await M().lerTabelaDaEmpresa(TENANT)
-        const r = await M().mensagemDoLevantamento(TENANT, t, { ...ESQUADRIA, cor_perfil: 'PRETO TEXTURADO', escolhas: { ARI: 4, ARE: 1, MAE: 2 } })
+        const r = await M().mensagemDoLevantamento(TENANT, t, lev({ cor_perfil: 'PRETO TEXTURADO', escolhas: { ARI: 4, ARE: 1, MAE: 2 } }))
         expect(r.desfecho).toBe('recusou')
-        expect(r.texto.startsWith('Não consegui fechar o levantamento de DP-02, 1.200 x 1.000 mm, 1 unidade(s), perfil PRETO TEXTURADO.\n')).toBe(true)
+        expect(r.texto.startsWith('Não consegui fechar o levantamento “Casa do João”, perfil PRETO TEXTURADO.\nEsquadria 1: DP-02, 1.200 x 1.000 mm, 1 unidade(s).\n')).toBe(true)
         expect(r.texto).toContain('• O perfil HF88/WOLFF não tem código para a cor PRETO TEXTURADO na tabela do fornecedor; as variantes que existem são: BRANCO. Falta: o código de HF88/WOLFF em PRETO TEXTURADO.')
     })
 
     it('"Branco" não é BRANCO: a caixa diferente é recusada, não normalizada', async () => {
         const t = await M().lerTabelaDaEmpresa(TENANT)
-        const r = await M().mensagemDoLevantamento(TENANT, t, { ...ESQUADRIA, cor_perfil: 'Branco', escolhas: { ARI: 4, ARE: 1, MAE: 2 } })
+        const r = await M().mensagemDoLevantamento(TENANT, t, lev({ cor_perfil: 'Branco', escolhas: { ARI: 4, ARE: 1, MAE: 2 } }))
         expect(r.desfecho).toBe('recusou')
         expect(r.texto).toContain('não tem código para a cor Branco')
     })
 
     it('SEM COR na pré-definição: a recusa diz que falta a cor do perfil', async () => {
         const t = await M().lerTabelaDaEmpresa(TENANT)
-        const r = await M().mensagemDoLevantamento(TENANT, t, { ...ESQUADRIA, cor_perfil: null, escolhas: { ARI: 4, ARE: 1, MAE: 2 } })
+        const r = await M().mensagemDoLevantamento(TENANT, t, lev({ cor_perfil: null, escolhas: { ARI: 4, ARE: 1, MAE: 2 } }))
         expect(r.desfecho).toBe('recusou')
-        expect(r.texto).toContain('• Falta: a cor do perfil.')
+        expect(r.texto).toContain('• A esquadria 1 está sem a cor do perfil.')
     })
 
     it('as cores da empresa vêm da base de conhecimento (Perfil), juntas e sem repetição, na ordem em que aparecem', async () => {
         banco.db.orcamentista_mp_categoria.push({ tenant_id: TENANT, categoria_chave: 'PERFIL', config: { serra_mm: 5, cores: ['PRETO TEXTURADO', 'BRANCO'] } })
         banco.db.orcamentista_mp_categoria.push({ tenant_id: 'outro-tenant', categoria_chave: 'PERFIL', config: { cores: ['AZUL'] } })
         expect(await M().lerCoresDaEmpresa(TENANT)).toEqual(['BRANCO', 'PRETO TEXTURADO'])
+    })
+})
+
+describe('(9) o levantamento com N esquadrias', () => {
+    function resultadoDeUma() {
+        const lida = AV().lerTipologia(ABAS, 'DP-02')
+        if ('recusas' in lida) throw new Error('abas recusadas')
+        const r = LB().levantarBarras({
+            cor: 'BRANCO',
+            esquadrias: [{ tipologia: 'DP-02', L_mm: 1200, H_mm: 1000, quantidade: 1, escolhas: { MAE: 2, ARI: 4 }, espessura_vidro_mm: 5 }],
+            tipologias: { 'DP-02': lida.tipologia }, regras: DE_PARA.regras as never, itens: DE_PARA.itens as never, serra_mm: 5,
+        })
+        if ('recusas' in r) throw new Error('recusado')
+        return r
+    }
+
+    it('DUAS esquadrias: uma linha de mão de obra POR esquadria, a total, e os totais somam a total', () => {
+        const dados = { ...DADOS, esquadrias: [DADOS.esquadrias[0], { ...DADOS.esquadrias[0], largura_mm: 800, quantidade: 2 }] }
+        const texto = M().fraseDoLevantamento(dados, resultadoDeUma(), [MAO_DE_OBRA, { ...MAO_DE_OBRA, quantidade: 2, total: 77.3 }])
+        expect(texto).toContain('Esquadria 2: DP-02, 800 x 1.000 mm, 2 unidade(s).')
+        expect(texto).toContain('Mão de obra da esquadria 1: 150 min por unidade (IMPORTADO) × 1 unidade(s), a R$ 0,257658 o minuto (R$ 40.813,03 ÷ 158.400 min): R$ 38,65.')
+        expect(texto).toContain('Mão de obra da esquadria 2: 150 min por unidade (IMPORTADO) × 2 unidade(s), a R$ 0,257658 o minuto (R$ 40.813,03 ÷ 158.400 min): R$ 77,30.')
+        expect(texto).toContain('Mão de obra total: R$ 115,95.')
+        // 1.342,09 + 115,95
+        expect(texto).toContain('Total por barra inteira (material + mão de obra): R$ 1.458,04.')
+    })
+
+    it('a mão de obra de UMA esquadria ausente: os totais com mão de obra não saem', () => {
+        const dados = { ...DADOS, esquadrias: [DADOS.esquadrias[0], { ...DADOS.esquadrias[0], tipologia: 'DP-01' }] }
+        const texto = M().fraseDoLevantamento(dados, resultadoDeUma(), [MAO_DE_OBRA, { ok: false, falta: 'o tempo de fabricação de DP-01 não está cadastrado' }])
+        expect(texto).toContain('Mão de obra da esquadria 2: não sai — o tempo de fabricação de DP-01 não está cadastrado.')
+        expect(texto).toContain('Total por consumo real (material + mão de obra): não sai — falta a mão de obra.')
+    })
+
+    it('CORES DIFERENTES no mesmo levantamento: recusa nomeada, com a cor de cada esquadria', async () => {
+        const t = await M().lerTabelaDaEmpresa(TENANT)
+        const r = await M().mensagemDoLevantamento(TENANT, t, {
+            nome: 'Casa do João',
+            itens: [{ ...ESQUADRIA, escolhas: { ARI: 4, ARE: 1, MAE: 2 } }, { ...ESQUADRIA, ordem: 2, cor_perfil: 'PRETO TEXTURADO', escolhas: { ARI: 4, ARE: 2 } }],
+        })
+        expect(r.desfecho).toBe('recusou')
+        expect(r.texto).toContain('• As esquadrias têm cores diferentes (esquadria 1: BRANCO; esquadria 2: PRETO TEXTURADO): ainda não calculo um levantamento com cores misturadas.')
+    })
+
+    it('DUAS esquadrias DP-02 iguais: as barras são do levantamento inteiro, e a mão de obra é a das duas', async () => {
+        const t = await M().lerTabelaDaEmpresa(TENANT)
+        const uma = await M().mensagemDoLevantamento(TENANT, t, lev({ escolhas: { ARI: 4, ARE: 1, MAE: 2 } }))
+        const duas = await M().mensagemDoLevantamento(TENANT, t, {
+            nome: 'Casa do João',
+            itens: [{ ...ESQUADRIA, escolhas: { ARI: 4, ARE: 1, MAE: 2 } }, { ...ESQUADRIA, ordem: 2, escolhas: { ARI: 4, ARE: 1, MAE: 2 } }],
+        })
+        expect(duas.desfecho).toBe('levantou')
+        expect(duas.texto).toContain('Mão de obra total: R$ 77,30.')
+        const material = (x: string) => x.split('\n').find((l) => l.startsWith('Material por consumo real:'))
+        // o consumo real de duas é o dobro do de uma, ao centavo: 829,79 × 2
+        expect(material(uma.texto)).toBe('Material por consumo real: R$ 829,79.')
+        expect(material(duas.texto)).toBe('Material por consumo real: R$ 1.659,59.')
     })
 })

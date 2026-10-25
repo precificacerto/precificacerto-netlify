@@ -1,0 +1,603 @@
+/**
+ * @jest-environment node
+ *
+ * PORTÃO — o LEVANTAMENTO POR NOME no WhatsApp (`src/lib/atendimentos-ia/conversa-da-ia.ts`), pela
+ * rota de entrada (`/api/atendimentos-ia/inbound`). A Anthropic e o WUZAPI são FALSOS (um `fetch` que
+ * roteia pela URL e registra cada chamada); o banco é falso, em memória, registra cada escrita e
+ * projeta as colunas do select como o PostgREST.
+ *
+ * A ARQUITETURA (dono do produto, 25/10/2026): o LEVANTAMENTO é a entidade, achado pelo NOME, de um
+ * remetente. A conversa deixa de ser identidade de qualquer coisa:
+ *   - com um levantamento EM_MONTAGEM do remetente, a mensagem continua nele — é isso que faz o "4", o
+ *     "1" e o "2" das perguntas de arremate caírem no lugar;
+ *   - sem ele: nome que não existe → NOVO; nome que existe (sem caixa e sem acento) → ALTERAÇÃO, e o
+ *     trajeto INTEIRO é refeito; nome ausente, parcial ou parecido → a IA PERGUNTA;
+ *   - nenhuma linha nova em `orcamentista_mensagem` nem em `orcamentista_conversa`, e nada em
+ *     `orcamentista_pre_definicao`: o estado mora no levantamento;
+ *   - remetente autorizado é SEMPRE respondido; silêncio só para o desconhecido.
+ *
+ * O TESTE QUE VALE (dono do produto): três pedidos seguidos do MESMO telefone, os três respondidos —
+ * "Casa do João", "Obra Centro" e a alteração por "casa do joao" — e um quarto, "Casa do João 2", que
+ * tem de PERGUNTAR. Está no bloco (1), na ordem.
+ */
+import type { NextApiRequest, NextApiResponse } from 'next'
+
+type Linha = Record<string, unknown>
+
+const SEGREDO = '0123456789abcdef0123456789abcdef'
+const TOKEN = 'orc_TOKEN_DA_CONEXAO_9f8e7d'
+const TENANT = 'tenant-da-conexao'
+const VENDEDOR = 'remetente-1'
+const OUTRO_VENDEDOR = 'remetente-2'
+const TELEFONE_DO_WEBHOOK = '555199114290'
+const TELEFONE_GRAVADO = '51999114290'
+const TELEFONE_DO_OUTRO = '555188887777'
+const CHAVE = 'sk-ant-CHAVE-DE-TESTE-nao-pode-ir-ao-log'
+const ANTHROPIC = 'https://api.anthropic.com/v1/messages'
+const TABELA = '72366020-57c9-489f-9385-397b7fa3dedb'
+const CANDIDATAS = [
+    { tabela_id: TABELA, tipologia: 'DP-01', descricao: 'MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL | DESIGN', tipo: 'Maxim-ar' },
+    { tabela_id: TABELA, tipologia: 'DP-02', descricao: 'JANELA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 42', tipo: 'Correr' },
+]
+/* eslint-disable @typescript-eslint/no-require-imports */
+const DE_PARA = require('./fixtures/fixture_de-para_DP-02.json') as { regras: Linha[]; itens: Linha[] }
+/* eslint-enable @typescript-eslint/no-require-imports */
+
+/** A esquadria do aceite: DP-02, 1200 x 1000, branco, temperado 5 mm. */
+const DP02 = { tipologia: 'DP-02', largura_mm: 1200, altura_mm: 1000, quantidade: 1, cor_perfil: 'BRANCO', vidro: 'Temperado 5mm' }
+const PERGUNTA_ARI = 'ARREMATE INTERNO — qual opção? 1 = BZ0006 - ARREMATE 65MM; 2 = BZ1770 - ARREMATE 70MM; 3 = BZ0010 - ARREMATE 20MM; 4 = SEM ARREMATE INTERNO.'
+const PERGUNTA_ARE = 'ARREMATE EXTERNO — qual opção? 1 = BZ0010 - ARREMATE 20MM; 2 = SEM ARREMATE EXTERNO.'
+const PERGUNTA_MAE = 'MEDIDA ARREMATE EXTERNO — qual opção? 1 = MEDIDA DO VÃO (CORTE 45/45); 2 = VÃO+50MM (CORTE 90/90) - PARA AJUSTE EM OBRA; 3 = VÃO+100MM (CORTE 90/90) - PARA AJUSTE EM OBRA.'
+
+/**
+ * O levantamento que fecha, inteiro — os números são os da conta à mão do portão da ligação, com o
+ * tempo de produção (300 min, ESTIMADO) e os números do tenant ativo para a mão de obra.
+ */
+const LEVANTAMENTO_CASA_DO_JOAO = [
+    'Levantamento “Casa do João”, perfil BRANCO.',
+    'Esquadria 1: DP-02, 1.200 x 1.000 mm, 1 unidade(s).',
+    'Escolhas: ARI 4 — SEM ARREMATE INTERNO; ARE 1 — BZ0010 - ARREMATE 20MM; MAE 2 — VÃO+50MM (CORTE 90/90) - PARA AJUSTE EM OBRA. As outras variáveis ficaram no Padrão da tipologia.',
+    '',
+    'Barras por código:',
+    '• 1023 (1023/WOLFF): 1 barra(s) de 6 m',
+    '• 10511 (BZ0010/WOLFF): 1 barra(s) de 6 m',
+    '• 8432 (8432/WOLFF): 1 barra(s) de 6 m',
+    '• 8433 (8433/WOLFF): 1 barra(s) de 6 m',
+    '• 9641 (HF88/WOLFF): 1 barra(s) de 6 m',
+    '• 9681 (SF66/WOLFF): 2 barra(s) de 6 m',
+    '• 9711 (IL36/WOLFF): 1 barra(s) de 6 m',
+    '• 9801 (GB25/WOLFF): 1 barra(s) de 6 m',
+    '',
+    'Aproveitamento do levantamento: 60,7% (32,77 m úteis de 54,00 m comprados).',
+    '',
+    'Material por barra inteira: R$ 1.342,09.',
+    'Material por consumo real: R$ 829,79.',
+    'Diferença entre os dois: R$ 512,30.',
+    'Mão de obra: 300 min por unidade (ESTIMADO) × 1 unidade(s), a R$ 0,257658 o minuto (R$ 40.813,03 ÷ 158.400 min): R$ 77,30.',
+    '',
+    'Total por barra inteira (material + mão de obra): R$ 1.419,39.',
+    'Total por consumo real (material + mão de obra): R$ 907,09.',
+].join('\n')
+
+const estado = {
+    db: {} as Record<string, Linha[]>,
+    escritas: [] as Array<{ tabela: string; op: string; carga: unknown }>,
+    respostasDaLlm: [] as Array<{ status: number; corpo: unknown } | 'lanca'>,
+    chamadasDaLlm: [] as Array<{ headers: Record<string, string>; corpo: Record<string, unknown> }>,
+    envioStatus: 200,
+    envios: [] as Array<{ corpo: Record<string, unknown> }>,
+    ausentes: new Set<string>(),
+}
+
+function montar() {
+    estado.db = {
+        whatsapp_conexao: [{ id: 'c1', tenant_id: TENANT, canal: 'ORCAMENTISTA', wuzapi_token: TOKEN, webhook_segredo: SEGREDO, ativo: true }],
+        orcamentista_config: [{ tenant_id: TENANT, ativo: true, modelo: 'FABRICACAO' }],
+        orcamentista_remetente_autorizado: [
+            { id: VENDEDOR, tenant_id: TENANT, telefone: TELEFONE_GRAVADO, ativo: true },
+            { id: OUTRO_VENDEDOR, tenant_id: TENANT, telefone: '51988887777', ativo: true },
+        ],
+        orcamentista_tentativa_desconhecida: [],
+        orcamentista_conversa: [],
+        orcamentista_mensagem: [],
+        orcamentista_pre_definicao: [],
+        orcamentista_levantamento: [],
+        orcamentista_levantamento_item: [],
+        orcamentista_conta_tabela: [{ tenant_id: TENANT, tabela_id: TABELA }],
+        orcamentista_motor_tipologia_detalhe: CANDIDATAS.map((c) => ({ ...c })),
+        orcamentista_mp_categoria: [{ tenant_id: TENANT, categoria_chave: 'PERFIL', config: { serra_mm: 5, cores: ['BRANCO'] } }],
+        orcamentista_motor_regra: DE_PARA.regras.map((r, k) => ({ id: `r-${String(k).padStart(4, '0')}`, ...r, tabela_id: TABELA, tipologias: ['DP-02'] })),
+        orcamentista_tabela_item: DE_PARA.itens.map((i) => ({ ...i, tabela_id: TABELA })),
+        orcamentista_motor_tipologia: [{ tabela_id: TABELA, tipologia: 'DP-02', tempo_fabricacao_min: 300, tempo_origem: 'ESTIMADO' }],
+        tenant_settings: [{ tenant_id: TENANT, calc_type: 'INDUSTRIALIZACAO', monthly_workload: 528, workload_unit: 'HOURS', num_productive_employees: 5 }],
+        tenant_expense_config: [{ tenant_id: TENANT, production_labor_cost_hub: 40813.03, production_labor_cost: 0, productive_value_per_minute: 0, admin_salary_total: 27649.76, admin_fgts_total: 0, admin_other_costs: 0, fixed_expense_monthly: 17884.79 }],
+    }
+    estado.escritas = []
+    estado.respostasDaLlm = []
+    estado.chamadasDaLlm = []
+    estado.envioStatus = 200
+    estado.envios = []
+    estado.ausentes = new Set()
+}
+
+/** As UNIQUE da migração 20261025000003 que importam aqui, para o banco falso recusar como o real. */
+function violaUnica(tabela: string, nova: Linha, linhas: Linha[]): boolean {
+    if (tabela !== 'orcamentista_levantamento') return false
+    return linhas.some((l) => l.tenant_id === nova.tenant_id && l.remetente_id === nova.remetente_id
+        && (l.nome_normalizado === nova.nome_normalizado || (l.estado === 'EM_MONTAGEM' && nova.estado === 'EM_MONTAGEM')))
+}
+
+let sequencia = 0
+jest.mock('@/supabase/admin', () => ({
+    supabaseAdmin: {
+        from: (tabela: string) => {
+            const filtros: Array<[string, unknown]> = []
+            const predicados: Array<(l: Linha) => boolean> = []
+            let contar = false
+            let faixa: [number, number] | null = null
+            let ordem: { coluna: string; asc: boolean } | null = null
+            let limite: number | null = null
+            let atualizacao: Linha | null = null
+            let colunas: string[] | null = null
+            const projetar = (l: Linha): Linha => (colunas ? Object.fromEntries(colunas.filter((c) => c in l).map((c) => [c, l[c]])) : l)
+            const casa = (l: Linha) => filtros.every(([c, v]) => l[c] === v) && predicados.every((f) => f(l))
+            const ler = () => {
+                let linhas = (estado.db[tabela] ?? []).filter(casa)
+                if (ordem) {
+                    const { coluna, asc } = ordem
+                    linhas = [...linhas].sort((a, b) => (String(a[coluna]) < String(b[coluna]) ? -1 : String(a[coluna]) > String(b[coluna]) ? 1 : 0) * (asc ? 1 : -1))
+                }
+                if (limite !== null) linhas = linhas.slice(0, limite)
+                if (faixa) linhas = linhas.slice(faixa[0], faixa[1] + 1)
+                return linhas
+            }
+            const ausente = () => ({ data: null, error: { code: 'PGRST205', message: `Could not find the table 'public.${tabela}'` } })
+            const q: Record<string, unknown> = {}
+            q.select = (c?: string, o?: { count?: string }) => {
+                contar = o?.count === 'exact'
+                colunas = c && /^[a-z_0-9,\s]+$/i.test(c) ? c.split(',').map((x) => x.trim()).filter(Boolean) : null
+                return q
+            }
+            q.in = (c: string, vs: unknown[]) => { predicados.push((l) => vs.includes(l[c])); return q }
+            q.contains = (c: string, vs: unknown[]) => { predicados.push((l) => Array.isArray(l[c]) && vs.every((v) => (l[c] as unknown[]).includes(v))); return q }
+            q.range = (de: number, ate: number) => { faixa = [de, ate]; return q }
+            q.eq = (c: string, v: unknown) => { filtros.push([c, v]); return q }
+            q.order = (c: string, o?: { ascending?: boolean }) => { ordem = { coluna: c, asc: o?.ascending !== false }; return q }
+            q.limit = (n: number) => { limite = n; return q }
+            q.maybeSingle = async () => (estado.ausentes.has(tabela) ? ausente() : { data: ler().map(projetar)[0] ?? null, error: null })
+            q.update = (carga: Linha) => { atualizacao = carga; return q }
+            q.then = (ok: (v: unknown) => unknown, erro?: (e: unknown) => unknown) => {
+                if (atualizacao) {
+                    estado.escritas.push({ tabela, op: 'update', carga: atualizacao })
+                    for (const l of (estado.db[tabela] ?? []).filter(casa)) Object.assign(l, atualizacao)
+                    return Promise.resolve({ data: null, error: null }).then(ok, erro)
+                }
+                if (estado.ausentes.has(tabela)) return Promise.resolve(ausente()).then(ok, erro)
+                const total = (estado.db[tabela] ?? []).filter(casa).length
+                return Promise.resolve({ data: ler().map(projetar), error: null, ...(contar ? { count: total } : {}) }).then(ok, erro)
+            }
+            q.insert = (carga: Linha | Linha[]) => {
+                estado.escritas.push({ tabela, op: 'insert', carga })
+                const linhas = (estado.db[tabela] ??= [])
+                const novas: Linha[] = []
+                let erro: { code: string; message: string } | null = null
+                for (const c of Array.isArray(carga) ? carga : [carga]) {
+                    if (violaUnica(tabela, c, linhas)) { erro = { code: '23505', message: 'duplicate key value violates unique constraint' }; break }
+                    sequencia += 1
+                    const nova: Linha = { id: `${tabela}-${sequencia}`, criado_em: new Date(Date.UTC(2026, 9, 25, 1, 0, sequencia)).toISOString(), ...c }
+                    linhas.push(nova)
+                    novas.push(nova)
+                }
+                const r = { data: erro ? null : (Array.isArray(carga) ? novas : novas[0]), error: erro }
+                return {
+                    select: () => ({ single: async () => r, then: (ok: (v: unknown) => unknown) => Promise.resolve(r).then(ok) }),
+                    then: (ok: (v: unknown) => unknown, e?: (x: unknown) => unknown) => Promise.resolve({ data: null, error: r.error }).then(ok, e),
+                }
+            }
+            for (const proibido of ['upsert', 'delete']) {
+                q[proibido] = () => { throw new Error(`a conversa não pode ${proibido} em ${tabela}`) }
+            }
+            return q
+        },
+    },
+}))
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const rota = require('@/pages/api/atendimentos-ia/inbound').default as (req: NextApiRequest, res: NextApiResponse) => Promise<unknown>
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const conversa = require('@/lib/atendimentos-ia/conversa-da-ia') as typeof import('@/lib/atendimentos-ia/conversa-da-ia')
+
+type Proposta = { nome?: string; novo?: boolean; itens?: Linha[]; escolha?: Linha; pergunta?: { texto: string } } & Linha
+function respostaComFerramenta(p: Proposta) {
+    return {
+        id: 'msg_teste', type: 'message', role: 'assistant', model: 'claude-sonnet-5-5', stop_reason: 'tool_use',
+        content: [{ type: 'tool_use', id: 'toolu_teste', name: conversa.NOME_DA_FERRAMENTA, input: { itens: [], ...p } }],
+        usage: { input_tokens: 100, output_tokens: 50 },
+    }
+}
+const llmResponde = (p: Proposta) => { estado.respostasDaLlm.push({ status: 200, corpo: respostaComFerramenta(p) }) }
+
+async function chamar(texto: string, opcoes: { id?: string; senderAlt?: string } = {}) {
+    const saida = { status: 0 }
+    const res = { status(n: number) { saida.status = n; return res }, json() { return res }, end() { return res }, setHeader() { return res } } as unknown as NextApiResponse
+    sequencia += 1
+    const req = {
+        method: 'POST',
+        query: { c: SEGREDO },
+        headers: { 'content-type': 'application/json' },
+        body: {
+            type: 'Message',
+            event: {
+                Info: { ID: opcoes.id ?? `MSG_${sequencia}`, Sender: '1234:33@lid', SenderAlt: `${opcoes.senderAlt ?? TELEFONE_DO_WEBHOOK}:33@s.whatsapp.net`, IsFromMe: false, IsGroup: false, Type: 'text' },
+                Message: { conversation: texto },
+            },
+        },
+    } as unknown as NextApiRequest
+    await rota(req, res)
+    return saida
+}
+
+const enviados = () => estado.envios.map((e) => String(e.corpo.Body))
+const ultimoEnviado = () => enviados()[enviados().length - 1]
+const levantamentos = () => estado.db.orcamentista_levantamento ?? []
+const itensDe = (id: unknown) => (estado.db.orcamentista_levantamento_item ?? []).filter((i) => i.levantamento_id === id).sort((a, b) => Number(a.ordem) - Number(b.ordem))
+const linhaIa = () => erros.filter((l) => l.startsWith('[IA]'))
+
+/** O pedido do aceite e as três escolhas, mensagem a mensagem — devolve o que foi enviado por último. */
+async function fecharDp02(nome: string, opcoes: { senderAlt?: string } = {}) {
+    llmResponde({ nome, itens: [{ ...DP02 }] })
+    await chamar(`Levantamento ${nome}: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm`, opcoes)
+    llmResponde({ escolha: { variavel: 'ARI', opcao: 4 } })
+    await chamar('4', opcoes)
+    llmResponde({ escolha: { variavel: 'ARE', opcao: 1 } })
+    await chamar('1', opcoes)
+    llmResponde({ escolha: { variavel: 'MAE', opcao: 2 } })
+    await chamar('2', opcoes)
+    return ultimoEnviado()
+}
+
+let erros: string[] = []
+let espioes: jest.SpyInstance[] = []
+beforeEach(() => {
+    montar()
+    process.env.ANTHROPIC_API_KEY = CHAVE
+    ;(globalThis as { fetch: unknown }).fetch = jest.fn(async (url: string, init?: { headers?: Record<string, string>; body?: string }) => {
+        const corpo = init?.body ? JSON.parse(init.body) : {}
+        const headers = init?.headers ?? {}
+        if (url === ANTHROPIC) {
+            estado.chamadasDaLlm.push({ headers, corpo })
+            const proxima = estado.respostasDaLlm.shift() ?? { status: 200, corpo: respostaComFerramenta({}) }
+            if (proxima === 'lanca') throw new Error('fetch failed')
+            return { ok: proxima.status >= 200 && proxima.status < 300, status: proxima.status, json: async () => proxima.corpo }
+        }
+        if (url.endsWith('/chat/send/text')) {
+            estado.envios.push({ corpo })
+            const ok = estado.envioStatus >= 200 && estado.envioStatus < 300
+            return { ok, status: estado.envioStatus, json: async () => (ok ? { data: { Id: 'WAMID_SAIDA' } } : { error: 'falhou' }) }
+        }
+        throw new Error(`fetch inesperado: ${url}`)
+    })
+    erros = []
+    espioes = [
+        jest.spyOn(console, 'error').mockImplementation((...a: unknown[]) => { erros.push(a.map(String).join(' ')) }),
+        ...(['log', 'info', 'warn', 'debug'] as const).map((m) => jest.spyOn(console, m).mockImplementation(() => undefined)),
+    ]
+})
+afterEach(() => {
+    espioes.forEach((e) => e.mockRestore())
+    jest.restoreAllMocks()
+    delete process.env.ANTHROPIC_API_KEY
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+describe('(1) O TESTE QUE VALE: três pedidos seguidos do MESMO telefone, e um quarto que pergunta', () => {
+    it('1. "Levantamento Casa do João" + DP-02 1200x1000 branco: as escolhas uma a uma, e a resposta com os dois totais', async () => {
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02 }] })
+        await chamar('Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm')
+        expect(enviados()).toEqual([PERGUNTA_ARI])
+        expect(levantamentos().map((l) => [l.nome, l.nome_normalizado, l.estado, l.remetente_id, l.tenant_id]))
+            .toEqual([['Casa do João', 'casa do joao', 'EM_MONTAGEM', VENDEDOR, TENANT]])
+
+        // o "4" cai na ARI porque o levantamento está EM_MONTAGEM — não há histórico de mensagens
+        llmResponde({ escolha: { variavel: 'ARI', opcao: 4 } })
+        await chamar('4')
+        llmResponde({ escolha: { variavel: 'ARE', opcao: 1 } })
+        await chamar('1')
+        llmResponde({ escolha: { variavel: 'MAE', opcao: 2 } })
+        await chamar('2')
+        expect(enviados()).toEqual([PERGUNTA_ARI, PERGUNTA_ARE, PERGUNTA_MAE, LEVANTAMENTO_CASA_DO_JOAO])
+        expect(levantamentos()[0].estado).toBe('COMPLETO')
+        expect(itensDe(levantamentos()[0].id)).toEqual([expect.objectContaining({ ordem: 1, ...DP02, escolhas: { ARI: 4, ARE: 1, MAE: 2 } })])
+    })
+
+    it('2. "Levantamento Obra Centro" logo depois: responde, e são DOIS levantamentos distintos', async () => {
+        await fecharDp02('Casa do João')
+        llmResponde({ nome: 'Obra Centro', itens: [{ ...DP02, largura_mm: 800, altura_mm: 600 }] })
+        await chamar('Levantamento Obra Centro: DP-02 800 x 600, branco, temperado 5mm')
+        expect(ultimoEnviado()).toBe(PERGUNTA_ARI)
+        llmResponde({ escolha: { variavel: 'ARI', opcao: 4 } })
+        await chamar('4')
+        llmResponde({ escolha: { variavel: 'ARE', opcao: 2 } })
+        await chamar('2')
+        expect(ultimoEnviado().split('\n')[0]).toBe('Levantamento “Obra Centro”, perfil BRANCO.')
+        expect(ultimoEnviado()).toContain('Esquadria 1: DP-02, 800 x 600 mm, 1 unidade(s).')
+        expect(ultimoEnviado()).toMatch(/Total por consumo real \(material \+ mão de obra\): R\$ [\d.]+,\d{2}\./)
+        expect(levantamentos().map((l) => [l.nome, l.estado])).toEqual([['Casa do João', 'COMPLETO'], ['Obra Centro', 'COMPLETO']])
+        // a Casa do João ficou como estava
+        expect(itensDe(levantamentos()[0].id)[0]).toEqual(expect.objectContaining({ largura_mm: 1200, altura_mm: 1000 }))
+    })
+
+    it('3. "casa do joao" (minúscula, sem acento) trocando a altura para 1200: é ALTERAÇÃO do primeiro, refaz tudo e responde com os números novos', async () => {
+        const antes = await fecharDp02('Casa do João')
+        const escritasAntes = estado.escritas.length
+        llmResponde({ nome: 'casa do joao', itens: [{ altura_mm: 1200 }] })
+        await chamar('casa do joao, troca a altura para 1200')
+        const depois = ultimoEnviado()
+        expect(levantamentos()).toHaveLength(1)
+        expect(levantamentos()[0]).toEqual(expect.objectContaining({ nome: 'Casa do João', estado: 'COMPLETO' }))
+        // o único rastro é atualizado_em (decisão 3): a alteração o grava
+        expect(estado.escritas.slice(escritasAntes).some((e) => e.tabela === 'orcamentista_levantamento' && e.op === 'update'
+            && typeof (e.carga as Linha).atualizado_em === 'string')).toBe(true)
+        // sobrescreve (decisão 3): a altura é a nova, e as escolhas ficam — a tipologia não mudou
+        expect(itensDe(levantamentos()[0].id)).toEqual([expect.objectContaining({ ordem: 1, altura_mm: 1200, escolhas: { ARI: 4, ARE: 1, MAE: 2 } })])
+        expect(depois.split('\n').slice(0, 2)).toEqual(['Levantamento “Casa do João”, perfil BRANCO.', 'Esquadria 1: DP-02, 1.200 x 1.200 mm, 1 unidade(s).'])
+        // o trajeto inteiro foi refeito: o material mudou — não só o número final
+        const material = (t: string) => t.split('\n').find((l) => l.startsWith('Material por consumo real:'))
+        expect(material(depois)).toBeDefined()
+        expect(material(depois)).not.toBe(material(antes))
+        expect(depois).toMatch(/Total por barra inteira \(material \+ mão de obra\): R\$ [\d.]+,\d{2}\./)
+    })
+
+    it('4. "Casa do João 2": PERGUNTA se é novo ou se é sobre o "Casa do João" — e não cria nem altera nada', async () => {
+        await fecharDp02('Casa do João')
+        const itensAntes = JSON.stringify(estado.db.orcamentista_levantamento_item)
+        llmResponde({ nome: 'Casa do João 2', itens: [{ ...DP02 }] })
+        await chamar('Levantamento Casa do João 2: DP-02 1200 x 1000 branco temperado 5mm')
+        expect(ultimoEnviado()).toBe(conversa.fraseDoNomeParecido('Casa do João 2', ['Casa do João']))
+        expect(ultimoEnviado()).toContain('“Casa do João”')
+        expect(levantamentos()).toHaveLength(1)
+        expect(JSON.stringify(estado.db.orcamentista_levantamento_item)).toBe(itensAntes)
+    })
+})
+
+describe('(2) o roteamento por nome', () => {
+    it('sem levantamento em montagem e SEM nome na mensagem: pergunta se é novo ou sobre um já feito, e não cria nada', async () => {
+        llmResponde({ itens: [{ ...DP02 }] })
+        await chamar('DP-02 1200 x 1000 branco')
+        expect(enviados()).toEqual([conversa.FRASE_SEM_NOME])
+        expect(levantamentos()).toEqual([])
+    })
+
+    it('o nome que a IA propõe e NÃO está no texto do vendedor é inventado: conta como sem nome', async () => {
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02 }] })
+        await chamar('DP-02 1200 x 1000 branco')
+        expect(enviados()).toEqual([conversa.FRASE_SEM_NOME])
+        expect(levantamentos()).toEqual([])
+    })
+
+    it('o vendedor responde dizendo que é NOVO, com o nome: "novo Casa do João 2" cria o segundo', async () => {
+        await fecharDp02('Casa do João')
+        llmResponde({ nome: 'Casa do João 2', novo: true, itens: [{ ...DP02 }] })
+        await chamar('novo Casa do João 2: DP-02 1200 x 1000 branco temperado 5mm')
+        expect(levantamentos().map((l) => l.nome)).toEqual(['Casa do João', 'Casa do João 2'])
+        expect(ultimoEnviado()).toBe(PERGUNTA_ARI)
+    })
+
+    it('"novo" com um nome que JÁ existe não cria outro: diz que o nome já existe', async () => {
+        await fecharDp02('Casa do João')
+        llmResponde({ nome: 'casa do joão', novo: true, itens: [{ ...DP02 }] })
+        await chamar('novo casa do joão')
+        expect(levantamentos()).toHaveLength(1)
+        expect(ultimoEnviado()).toBe(conversa.fraseDoNomeQueJaExiste('Casa do João'))
+    })
+
+    it('com um levantamento EM_MONTAGEM, a mensagem continua nele — mesmo trazendo outro nome', async () => {
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02 }] })
+        await chamar('Levantamento Casa do João: DP-02 1200 x 1000 branco temperado 5mm')
+        llmResponde({ nome: 'Obra Centro', escolha: { variavel: 'ARI', opcao: 4 } })
+        await chamar('Obra Centro? não, 4')
+        expect(levantamentos()).toHaveLength(1)
+        expect(itensDe(levantamentos()[0].id)[0].escolhas).toEqual({ ARI: 4 })
+        expect(ultimoEnviado()).toBe(PERGUNTA_ARE)
+    })
+
+    it('decisão 2: o OUTRO vendedor, com o MESMO nome, cria o DELE — não altera o do primeiro', async () => {
+        await fecharDp02('Casa do João')
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, altura_mm: 1500 }] })
+        await chamar('Levantamento Casa do João: DP-02 1200 x 1500 branco temperado 5mm', { senderAlt: TELEFONE_DO_OUTRO })
+        expect(levantamentos().map((l) => [l.nome, l.remetente_id])).toEqual([['Casa do João', VENDEDOR], ['Casa do João', OUTRO_VENDEDOR]])
+        expect(itensDe(levantamentos()[0].id)[0].altura_mm).toBe(1000)
+    })
+
+    it('ALTERAÇÃO com duas esquadrias e sem dizer qual: pergunta qual esquadria, e não muda nada', async () => {
+        await fecharDp02('Casa do João')
+        const id = levantamentos()[0].id
+        estado.db.orcamentista_levantamento_item.push({ id: 'item-2', tenant_id: TENANT, levantamento_id: id, ordem: 2, ...DP02, tipologia: 'DP-01', escolhas: null })
+        llmResponde({ nome: 'casa do joao', itens: [{ altura_mm: 1300 }] })
+        await chamar('casa do joao, altura 1300')
+        expect(ultimoEnviado()).toBe(conversa.fraseDeQualEsquadria('Casa do João', 2))
+        expect(itensDe(id).map((i) => i.altura_mm)).toEqual([1000, 1000])
+    })
+
+    it('ALTERAÇÃO com a ordem dita e a MESMA tipologia: as escolhas ficam, e sai o levantamento refeito', async () => {
+        await fecharDp02('Casa do João')
+        llmResponde({ nome: 'Casa do João', itens: [{ ordem: 1, tipologia: 'DP-02', largura_mm: 1500 }] })
+        await chamar('Casa do João: largura 1500')
+        // a tipologia é a mesma: escolhas ficam, e o levantamento refeito sai
+        expect(ultimoEnviado().split('\n')[1]).toBe('Esquadria 1: DP-02, 1.500 x 1.000 mm, 1 unidade(s).')
+        expect(levantamentos()[0].estado).toBe('COMPLETO')
+    })
+})
+
+describe('(3) o estado mora no levantamento: NADA em mensagem, conversa ou pré-definição', () => {
+    it('os quatro pedidos do teste que vale não escrevem uma linha em orcamentista_mensagem, _conversa ou _pre_definicao', async () => {
+        await fecharDp02('Casa do João')
+        llmResponde({ nome: 'casa do joao', itens: [{ altura_mm: 1200 }] })
+        await chamar('casa do joao, troca a altura para 1200')
+        const tocadas = new Set(estado.escritas.map((e) => e.tabela))
+        expect([...tocadas].sort()).toEqual(['orcamentista_levantamento', 'orcamentista_levantamento_item'])
+        expect(estado.db.orcamentista_mensagem).toEqual([])
+        expect(estado.db.orcamentista_conversa).toEqual([])
+        expect(estado.db.orcamentista_pre_definicao).toEqual([])
+    })
+
+    it('a LLM recebe SÓ a mensagem desta vez — não há histórico — e, em montagem, a pergunta em aberto no prompt', async () => {
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02 }] })
+        await chamar('Levantamento Casa do João: DP-02 1200 x 1000 branco temperado 5mm')
+        llmResponde({ escolha: { variavel: 'ARI', opcao: 4 } })
+        await chamar('4')
+        const segunda = estado.chamadasDaLlm[1].corpo
+        expect(segunda.messages).toEqual([{ role: 'user', content: '4' }])
+        expect(String(segunda.system)).toContain(`Pergunta em aberto: ${PERGUNTA_ARI}`)
+    })
+
+    it('a LLM não escolhe tenant nem remetente: as chaves propostas são ignoradas', async () => {
+        llmResponde({ nome: 'Casa do João', tenant_id: 'outro', remetente_id: 'outro', itens: [{ ...DP02, tenant_id: 'outro' }] })
+        await chamar('Levantamento Casa do João: DP-02 1200 x 1000 branco temperado 5mm')
+        expect(levantamentos()[0]).toEqual(expect.objectContaining({ tenant_id: TENANT, remetente_id: VENDEDOR }))
+        expect(itensDe(levantamentos()[0].id)[0].tenant_id).toBe(TENANT)
+    })
+})
+
+describe('(4) a lista: a tipologia e a cor só da lista, exatas', () => {
+    it('as tipologias e as cores da empresa vão ao prompt', async () => {
+        await chamar('oi')
+        const sistema = String(estado.chamadasDaLlm[0].corpo.system)
+        expect(sistema).toContain('DP-02 | JANELA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 42 | Correr')
+        expect(sistema).toContain('Cores da empresa (cor_perfil, escreva EXATAMENTE uma delas): BRANCO')
+    })
+
+    it('"Branco" não é BRANCO, e "Janela de correr" não é tipologia: descartados, e a pergunta é a do primeiro campo vazio', async () => {
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, tipologia: 'Janela de correr', cor_perfil: 'Branco' }] })
+        await chamar('Levantamento Casa do João: janela de correr 1200 x 1000 Branco temperado 5mm')
+        const item = itensDe(levantamentos()[0].id)[0]
+        expect([item.tipologia, item.cor_perfil]).toEqual([null, null])
+        expect(ultimoEnviado()).toBe('Qual a tipologia das esquadrias?')
+    })
+
+    it('SEM LISTA de tipologias (a tabela não carregada): a conversa diz o que falta, sem chamar a LLM', async () => {
+        estado.ausentes.add('orcamentista_motor_tipologia_detalhe')
+        await chamar('Levantamento Casa do João: DP-02')
+        expect(estado.chamadasDaLlm).toHaveLength(0)
+        expect(enviados()).toHaveLength(1)
+        expect(enviados()[0]).toContain('a lista de tipologias do fornecedor')
+    })
+
+    it('SEM LISTA DE CORES: quando a vez é da cor, a conversa diz o que falta em vez de perguntar', async () => {
+        estado.db.orcamentista_mp_categoria = [{ tenant_id: TENANT, categoria_chave: 'PERFIL', config: { serra_mm: 5 } }]
+        llmResponde({ nome: 'Casa do João', itens: [{ tipologia: 'DP-02', largura_mm: 1200, altura_mm: 1000, quantidade: 1 }] })
+        await chamar('Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade')
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { FRASE_SEM_CORES } = require('@/lib/atendimentos-ia/levantamento-da-conversa') as { FRASE_SEM_CORES: string }
+        expect(enviados()).toEqual([FRASE_SEM_CORES])
+    })
+})
+
+describe('(5) remetente autorizado é SEMPRE respondido; silêncio só para o desconhecido', () => {
+    it('desconhecido: a LLM não é chamada, nada é enviado, e a tentativa é gravada', async () => {
+        await chamar('oi', { senderAlt: '555100000000' })
+        expect(estado.chamadasDaLlm).toHaveLength(0)
+        expect(enviados()).toEqual([])
+        expect(estado.db.orcamentista_tentativa_desconhecida).toHaveLength(1)
+    })
+
+    it('autorizado com o histórico antigo inteiro (uma pré-definição COMPLETA numa conversa antiga): É respondido', async () => {
+        estado.db.orcamentista_conversa = [{ id: 'antiga', tenant_id: TENANT, remetente_id: VENDEDOR, telefone: TELEFONE_DO_WEBHOOK, criado_em: '2026-10-22T00:00:00Z' }]
+        estado.db.orcamentista_pre_definicao = [{ id: 'pd', tenant_id: TENANT, conversa_id: 'antiga', estado: 'COMPLETA', tipologia: 'janela de correr 2 folhas Europa 42' }]
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02 }] })
+        await chamar('Levantamento Casa do João: DP-02 1200 x 1000 branco temperado 5mm')
+        expect(enviados()).toEqual([PERGUNTA_ARI])
+        // e o histórico antigo não foi tocado
+        expect(estado.db.orcamentista_pre_definicao).toEqual([expect.objectContaining({ id: 'pd', estado: 'COMPLETA' })])
+    })
+})
+
+describe('(6) erro da LLM ou do envio: 200 ao WUZAPI, e nenhuma mensagem técnica ao vendedor', () => {
+    it('sem ANTHROPIC_API_KEY: a LLM não é chamada, 200, e o log diz por quê', async () => {
+        delete process.env.ANTHROPIC_API_KEY
+        const r = await chamar('oi')
+        expect(r.status).toBe(200)
+        expect(estado.chamadasDaLlm).toHaveLength(0)
+        expect(linhaIa()[0]).toContain('desfecho=sem-chave')
+    })
+
+    it.each([
+        ['402 billing_error', 402, { type: 'error', error: { type: 'billing_error', message: 'Your credit balance is too low' } }, 'sem-saldo'],
+        ['500', 500, { type: 'error', error: { type: 'api_error', message: 'interno' } }, 'erro-da-llm'],
+    ])('%s → desfecho %s, nada enviado, nada gravado', async (_n, status, corpo, desfecho) => {
+        estado.respostasDaLlm.push({ status, corpo })
+        const r = await chamar('Levantamento Casa do João')
+        expect(r.status).toBe(200)
+        expect(enviados()).toEqual([])
+        expect(levantamentos()).toEqual([])
+        expect(linhaIa()[0]).toContain(`desfecho=${desfecho}`)
+    })
+
+    it('4xx: a mensagem de erro vai ao log, MASCARADA — a chave nunca aparece', async () => {
+        estado.respostasDaLlm.push({ status: 400, corpo: { type: 'error', error: { type: 'invalid_request_error', message: `tools.0.input_schema: inválido; chave ${CHAVE}` } } })
+        await chamar('oi')
+        expect(linhaIa()[0]).toContain('mensagem="tools.0.input_schema')
+        expect(erros.join('\n')).not.toContain(CHAVE)
+    })
+
+    it('RECUSA (stop_reason refusal): nada gravado, nada enviado', async () => {
+        estado.respostasDaLlm.push({ status: 200, corpo: { ...respostaComFerramenta({ nome: 'Casa do João', itens: [{ ...DP02 }] }), stop_reason: 'refusal' } })
+        await chamar('Levantamento Casa do João')
+        expect(levantamentos()).toEqual([])
+        expect(enviados()).toEqual([])
+        expect(linhaIa()[0]).toContain('desfecho=recusa')
+    })
+
+    it('falha no envio: 200, o levantamento fica gravado, e o log diz', async () => {
+        estado.envioStatus = 500
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02 }] })
+        const r = await chamar('Levantamento Casa do João: DP-02 1200 x 1000 branco temperado 5mm')
+        expect(r.status).toBe(200)
+        expect(levantamentos()).toHaveLength(1)
+        expect(linhaIa()[0]).toContain('desfecho=envio-falhou')
+    })
+})
+
+describe('(7) o log [IA]: o levantamento e o desfecho — nunca a chave, o telefone ou o texto', () => {
+    it('levantamento, propostos, descartados, se enviou e o desfecho', async () => {
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02 }] })
+        await chamar('Levantamento Casa do João: DP-02 1200 x 1000 branco temperado 5mm')
+        expect(linhaIa()[0]).toMatch(/^\[IA\] levantamento=\S+ rota=NOVO propostos=6 descartados=0 enviou=sim desfecho=perguntou/)
+    })
+
+    it('nem a chave, nem o telefone, nem o texto, nem a pergunta enviada', async () => {
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02 }] })
+        await chamar('Levantamento Casa do João: DP-02 1200 x 1000 branco temperado 5mm')
+        const tudo = erros.join('\n')
+        for (const proibido of [CHAVE, TELEFONE_DO_WEBHOOK, TELEFONE_GRAVADO, 'Casa do João', 'ARREMATE INTERNO', TOKEN]) expect(tudo).not.toContain(proibido)
+    })
+})
+
+describe('(8) o esquema da ferramenta cabe nos limites do strict', () => {
+    function contar(esquema: unknown, caminho = ''): { unioes: number; opcionais: number } {
+        let unioes = 0
+        let opcionais = 0
+        const e = esquema as { type?: unknown; anyOf?: unknown; properties?: Record<string, unknown>; required?: string[]; items?: unknown }
+        if (Array.isArray(e.type) || Array.isArray(e.anyOf)) unioes += 1
+        if (e.properties) {
+            for (const [k, v] of Object.entries(e.properties)) {
+                if (!(e.required ?? []).includes(k)) opcionais += 1
+                const r = contar(v, `${caminho}.${k}`)
+                unioes += r.unioes
+                opcionais += r.opcionais
+            }
+        }
+        if (e.items) { const r = contar(e.items, `${caminho}[]`); unioes += r.unioes; opcionais += r.opcionais }
+        return { unioes, opcionais }
+    }
+
+    it('o esquema ENVIADO: até 16 uniões, até 24 opcionais, uma ferramenta strict', async () => {
+        await chamar('oi')
+        const tools = estado.chamadasDaLlm[0].corpo.tools as Array<{ strict: boolean; input_schema: unknown }>
+        expect(tools).toHaveLength(1)
+        expect(tools[0].strict).toBe(true)
+        const { unioes, opcionais } = contar(tools[0].input_schema)
+        expect(unioes).toBeLessThanOrEqual(16)
+        expect(opcionais).toBeLessThanOrEqual(24)
+    })
+})
