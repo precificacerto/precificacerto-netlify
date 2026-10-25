@@ -18,9 +18,22 @@
 -- (`.claude/rules/transformacao-quebra-a-cadeia-de-hash.md`).
 --
 -- Por isso a verificação no fim confere O QUE CHEGOU: cada rótulo e COMMENT gravado contra o md5
--- do texto certo, escrito em hexadecimal (ASCII, que o transporte não corrompe), e o "Ã"/"Â"
--- procurado por chr(195)/chr(194), não por literal. Se o transporte corromper este arquivo, a
--- verificação aborta e nada fica gravado.
+-- do texto certo, escrito em hexadecimal (ASCII, que o transporte não corrompe), e o mojibake
+-- procurado pelo PAR — "Ã" ou "Â" seguido de caractere de U+0080 a U+00BF —, montado com chr(),
+-- não por literal. Se o transporte corromper este arquivo, a verificação aborta e nada fica gravado.
+--
+-- ══ CORRIGIDO em 25/10/2026 — a verificação 3a procurava "Ã"/"Â" SOZINHOS ══════════════════
+-- `strpos(t, chr(195)) > 0 OR strpos(t, chr(194)) > 0` acusa texto CERTO: "Ã" é letra do português
+-- (VEDAÇÃO, MODULAÇÃO, NÃO). Medido em 25/10/2026 sobre as 164 descrições corretas de
+-- `orcamentista_motor_tipologia_detalhe`: chr(195) sozinho acusa 20; o par acusa 0, e acusa 130 de
+-- 130 no mesmo texto corrompido de propósito (`instrumento-que-nao-enxerga.md`, aparição 6).
+-- Foi o detector antigo que abortou duas aplicações do dono do produto.
+--
+-- A versão APLICADA em produção (md5 do arquivo f98407a3f219cb051dc9399078a3046b) tem o detector
+-- antigo. Ele estava ARMADO, não disparado: nos 87 textos que a 3a examina, os dois detectores
+-- acusavam 0 em 25/10/2026 — a 3a só abortaria quando um rótulo ou COMMENT certo ganhasse "Ã"
+-- maiúsculo. Esta correção muda SÓ o bloco DO $verifica$ (a 3a e o comentário dela) e este
+-- cabeçalho: nada que fica no catálogo. Não há o que reaplicar; quem reaplicar o arquivo usa o par.
 --
 -- O corpo entre $fn$ também tem acentos nos comentários, e o catálogo guarda esse texto
 -- (`prosrc`): um transporte que corrompa o arquivo corromperia o corpo da função. É mais uma
@@ -279,9 +292,11 @@ GRANT EXECUTE ON FUNCTION public.orcamentista_opcoes_validas(text[]) TO service_
 
 -- ── 5. VERIFICAÇÃO — aborta a migração inteira, e confere O QUE CHEGOU ao banco ──────────
 -- Os md5 abaixo são do texto CERTO, calculados do arquivo da 20261023000002, e estão em
--- hexadecimal — ASCII, que nenhum transporte corrompe. E o "Ã"/"Â" é procurado por chr(195) e
--- chr(194), não por literal. Se o transporte corromper ESTE arquivo, os textos gravados não batem
--- com os md5, e a migração aborta: o md5 do arquivo provaria o arquivo; este prova o banco.
+-- hexadecimal — ASCII, que nenhum transporte corrompe. E o mojibake é procurado pelo PAR — "Ã" ou
+-- "Â" seguido de caractere de U+0080 a U+00BF —, montado com chr(), não por literal: o "Ã" sozinho
+-- é letra de texto certo (VEDAÇÃO) e não é mojibake. Se o transporte corromper ESTE arquivo, os
+-- textos gravados não batem com os md5, e a migração aborta: o md5 do arquivo provaria o arquivo;
+-- este prova o banco.
 DO $verifica$
 DECLARE
   tabelas text[] := ARRAY['orcamentista_categoria_catalogo', 'orcamentista_categoria_campo', 'orcamentista_materia_prima', 'orcamentista_mp_categoria', 'orcamentista_mp_categoria_fornecedor', 'orcamentista_mp_vidro', 'orcamentista_mp_ferragem', 'orcamentista_mp_instalacao', 'orcamentista_base_conhecimento', 'orcamentista_esquadrias_base', 'orcamentista_esquadrias_padrao'];
@@ -289,6 +304,8 @@ DECLARE
   f        regprocedure;
   falhas   text;
   sujos    text;
+  -- o par: "Ã" (195) ou "Â" (194) seguido de U+0080..U+00BF — a forma que UTF-8 lido como Latin-1 deixa
+  v_par    text := '[' || chr(195) || chr(194) || '][' || chr(128) || '-' || chr(191) || ']';
 BEGIN
   -- (1) opcoes existe e é text[]; os dois CHECKs estão lá
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns
@@ -312,23 +329,23 @@ BEGIN
     RAISE EXCEPTION 'verificacao 2: criterio_custo_barra nao esta em PERFIL como opcao {BARRA_INTEIRA, CONSUMO_REAL}, nesta ordem. Nada foi alterado.';
   END IF;
 
-  -- (3a) ZERO "Ã"/"Â" nos rótulos dos dois catálogos e nos COMMENTs das 11 tabelas — só nelas:
-  --      em outras tabelas há "NÃO" legítimo (o de employees, por exemplo), e não é mojibake
+  -- (3a) ZERO mojibake (o par) nos rótulos dos dois catálogos e nos COMMENTs das 11 tabelas. O "Ã"
+  --      sozinho NÃO conta: é letra de texto certo ("NÃO", "VEDAÇÃO") e não é mojibake
   SELECT string_agg(x, '; ') INTO sujos FROM (
     SELECT 'rotulo ' || chave AS x FROM public.orcamentista_categoria_catalogo
-     WHERE strpos(rotulo, chr(195)) > 0 OR strpos(rotulo, chr(194)) > 0
+     WHERE rotulo ~ v_par
     UNION ALL
     SELECT 'rotulo ' || categoria_chave || '.' || chave FROM public.orcamentista_categoria_campo
-     WHERE strpos(rotulo, chr(195)) > 0 OR strpos(rotulo, chr(194)) > 0
+     WHERE rotulo ~ v_par
     UNION ALL
     SELECT 'COMMENT ' || c.relname || CASE WHEN d.objsubid = 0 THEN '' ELSE '.' || d.objsubid END
       FROM pg_description d JOIN pg_class c ON c.oid = d.objoid
      WHERE d.classoid = 'pg_class'::regclass AND c.relnamespace = 'public'::regnamespace
        AND c.relname = ANY (tabelas)
-       AND (strpos(d.description, chr(195)) > 0 OR strpos(d.description, chr(194)) > 0)
+       AND d.description ~ v_par
   ) s;
   IF sujos IS NOT NULL THEN
-    RAISE EXCEPTION 'verificacao 3: ainda ha "Ã" ou "Â" em: %. Nada foi alterado.', sujos;
+    RAISE EXCEPTION 'verificacao 3: ainda ha mojibake ("Ã" ou "Â" seguido de U+0080..U+00BF) em: %. Nada foi alterado.', sujos;
   END IF;
 
   -- (3b) e o que chegou é o texto CERTO, não só um texto sem "Ã": md5 contra o md5 do arquivo

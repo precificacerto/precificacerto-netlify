@@ -54,6 +54,7 @@ como verde.
 ## As 26 mutações — o que cada uma derruba
 
 Medido em 24/10/2026: **26 de 26 vermelhas, e o controle M0 verde (23 de 23 casos ok).**
+Remedido em 25/10/2026, com a verificação 3a pelo par: **27 de 27 vermelhas (a V13 é nova), M0 verde (23 de 23) e M1 verde.**
 
 | # | mutação | o que caiu |
 |---|---|---|
@@ -61,8 +62,8 @@ Medido em 24/10/2026: **26 de 26 vermelhas, e o controle M0 verde (23 de 23 caso
 | V2 | a função de gravar aberta a anon | aborta: verificacao 4: public.superadmin_gravar_mp_categoria(uuid, uuid, uuid, text, jsonb) aberta a PUBLIC/anon/authenticated (o… |
 | V3 | a função de gravar sem SECURITY DEFINER | aborta: verificacao 4: public.superadmin_gravar_mp_categoria(uuid, uuid, uuid, text, jsonb) sem SECURITY DEFINER ou sem search_pa… |
 | V4 | a função de gravar sem o search_path | aborta: verificacao 4: public.superadmin_gravar_mp_categoria(uuid, uuid, uuid, text, jsonb) sem SECURITY DEFINER ou sem search_pa… |
-| V5 | sem o UPDATE de um rótulo (REFORCO) | aborta: verificacao 3: ainda ha "Ã" ou "Â" em: rotulo REFORCO. Nada foi alterado. |
-| V6 | sem o COMMENT de uma das 3 tabelas fora das 8 (esquadrias_padrao) | aborta: verificacao 3: ainda ha "Ã" ou "Â" em: COMMENT orcamentista_esquadrias_padrao. Nada foi alterado. |
+| V5 | sem o UPDATE de um rótulo (REFORCO) | aborta: verificacao 3: ainda ha mojibake ("Ã" ou "Â" seguido de U+0080..U+00BF) em: rotulo REFORCO. Nada foi alterado. |
+| V6 | sem o COMMENT de uma das 3 tabelas fora das 8 (esquadrias_padrao) | aborta: verificacao 3: ainda ha mojibake ("Ã" ou "Â" seguido de U+0080..U+00BF) em: COMMENT orcamentista_esquadrias_padrao. Nada foi alterado. |
 | V7 | rótulo "consertado" SEM acento — sem "Ã", só o md5 pega | aborta: verificacao 3: o texto gravado nao e o da 20261023000002 (md5 nao bate) em: rotulo REFORCO. Nada foi alterado. |
 | V8 | COMMENT com texto diferente e sem "Ã" — só o md5 pega | aborta: verificacao 3: o texto gravado nao e o da 20261023000002 (md5 nao bate) em: COMMENT orcamentista_mp_vidro. Nada foi alter… |
 | V9 | O ARQUIVO INTEIRO PELA ÁREA DE TRANSFERÊNCIA (UTF-8 lido como Latin-1) | aborta: verificacao 3: ainda ha "Ã" ou "Ã" em: rotulo REFORCO; rotulo ACESSORIOS_VEDACAO; rotulo INSTALACAO; rotulo REFORCO.usa… |
@@ -83,12 +84,14 @@ Medido em 24/10/2026: **26 de 26 vermelhas, e o controle M0 verde (23 de 23 caso
 | B12 | COM valor padrão: preenche BARRA_INTEIRA no PERFIL de quem já existia | FALHOU: sem padrao — a migracao escolheu um criterio por omissao: {"linha": "EUROPA 42", "barra_mm": 6000, "criterio_custo_barra": "BARRA_INTEIRA"} |
 | B13 | null deixa de passar (é o limpar) | FALHOU: null foi recusado: valor(es) com tipo errado em PERFIL: criterio_custo_barra (esperado um de: BARRA_INTEIRA, CONSUMO_REAL) |
 | B14 | o ausente mexe: o config SUBSTITUI em vez de merge | FALHOU: ausente mexeu no criterio: {"linha": "EUROPA 60"} |
+| V13 | a verificação 3a volta a `chr(195)`/`chr(194)` sozinhos, com um rótulo CERTO com "Ã" no banco (`TEXTO_CERTO_COM_A_TIL=1`) | aborta: verificacao 3 — acusa "VEDAÇÃO DAS FOLHAS", que é texto certo |
 | **M0** | **controle: nada muda** | **verde: 23 de 23 casos ok** |
+| **M1** | **controle com o rótulo CERTO com "Ã" no banco** | **verde: a migração passa, duas vezes, schema idêntico** |
 
 **V9 é a mutação do transporte.** Ela passa o arquivo inteiro por Latin-1, como aconteceu com a
 `20261023000002` na área de transferência do Windows, e a migração **aborta** na verificação 3.
 A própria mensagem de erro sai corrompida (`"Ã" ou "Ã"`), porque o literal dela também passou
-pelo transporte. A verificação procura por `chr(195)`/`chr(194)` e compara md5 em hexadecimal,
+pelo transporte. A verificação procura o PAR — `chr(195)` ou `chr(194)` seguido de U+0080..U+00BF — e compara md5 em hexadecimal,
 por isso não depende de literal nenhum que o transporte possa estragar.
 
 **V7 e V8 são as que só o md5 pega**: um rótulo "consertado" sem acento e um COMMENT trocado não
@@ -101,3 +104,12 @@ têm "Ã" nenhum, e a verificação 3a passaria. A 3b compara o texto gravado co
 arquivo, e este prova o banco. `teste-que-nao-exercita.md` é a razão do caso 12 e da contagem com
 `SELECT DISTINCT`. `instrumento-que-se-enxerga.md` é a razão do controle M0 sair verde, que é a
 fixture do alvo ausente.
+
+## O detector do mojibake é o PAR, não o "Ã" sozinho (25/10/2026)
+
+A 3a procurava `chr(195)`/`chr(194)` sozinhos, e isso acusa texto **certo**: "Ã" é letra do
+português (VEDAÇÃO, MODULAÇÃO, NÃO). Medido sobre as 164 descrições corretas de
+`orcamentista_motor_tipologia_detalhe`: o "Ã" sozinho acusa 20, e o par acusa 0 (130 de 130 no texto
+corrompido de propósito) — `instrumento-que-nao-enxerga.md`, aparição 6. As duas fixtures rodam aqui:
+**V13** é o detector antigo com o alvo AUSENTE (um rótulo certo com "Ã", `06_texto_certo_com_a_til.sql`)
+e aborta; **M1** é o par com o mesmo rótulo, e passa. **V5, V6 e V9** são o alvo PRESENTE, e abortam.
