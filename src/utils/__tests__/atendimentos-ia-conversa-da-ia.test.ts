@@ -107,6 +107,10 @@ jest.mock('@/supabase/admin', () => ({
             let ordem: { coluna: string; asc: boolean } | null = null
             let limite: number | null = null
             let atualizacao: Linha | null = null
+            // Como o PostgREST: a lista de colunas do select decide o que VOLTA. Sem isto, uma coluna
+            // esquecida no select chegaria assim mesmo no teste e faltaria só em produção (E13).
+            let colunas: string[] | null = null
+            const projetar = (l: Linha): Linha => (colunas ? Object.fromEntries(colunas.filter((c) => c in l).map((c) => [c, l[c]])) : l)
             const casa = (l: Linha) => filtros.every(([c, v]) => l[c] === v) && predicados.every((f) => f(l))
             const ler = () => {
                 let linhas = (estado.db[tabela] ?? []).filter(casa)
@@ -119,14 +123,18 @@ jest.mock('@/supabase/admin', () => ({
                 return linhas
             }
             const q: Record<string, unknown> = {}
-            q.select = (_c?: string, o?: { count?: string }) => { contar = o?.count === 'exact'; return q }
+            q.select = (c?: string, o?: { count?: string }) => {
+                contar = o?.count === 'exact'
+                colunas = c && /^[a-z_0-9,\s]+$/i.test(c) ? c.split(',').map((x) => x.trim()).filter(Boolean) : null
+                return q
+            }
             q.in = (c: string, vs: unknown[]) => { predicados.push((l) => vs.includes(l[c])); return q }
             q.contains = (c: string, vs: unknown[]) => { predicados.push((l) => Array.isArray(l[c]) && vs.every((v) => (l[c] as unknown[]).includes(v))); return q }
             q.range = (de: number, ate: number) => { faixa = [de, ate]; return q }
             q.eq = (c: string, v: unknown) => { filtros.push([c, v]); return q }
             q.order = (c: string, o?: { ascending?: boolean }) => { ordem = { coluna: c, asc: o?.ascending !== false }; return q }
             q.limit = (n: number) => { limite = n; return q }
-            q.maybeSingle = async (): Promise<{ data: Linha | null; error: null }> => ({ data: ler()[0] ?? null, error: null })
+            q.maybeSingle = async (): Promise<{ data: Linha | null; error: null }> => ({ data: ler().map(projetar)[0] ?? null, error: null })
             q.update = (carga: Linha) => { atualizacao = carga; return q }
             q.then = (ok: (v: unknown) => unknown, erro?: (e: unknown) => unknown) => {
                 if (atualizacao) {
@@ -136,7 +144,7 @@ jest.mock('@/supabase/admin', () => ({
                 }
                 if (estado.ausentes.has(tabela)) return Promise.resolve({ data: null, error: { code: 'PGRST205', message: `Could not find the table 'public.${tabela}'` } }).then(ok, erro)
                 const total = (estado.db[tabela] ?? []).filter(casa).length
-                return Promise.resolve({ data: ler(), error: null, ...(contar ? { count: total } : {}) }).then(ok, erro)
+                return Promise.resolve({ data: ler().map(projetar), error: null, ...(contar ? { count: total } : {}) }).then(ok, erro)
             }
             q.insert = (carga: Linha) => {
                 estado.escritas.push({ tabela, op: 'insert', carga })
