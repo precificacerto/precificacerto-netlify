@@ -29,7 +29,7 @@ CONTROLE = 'M0'
 
 # (id, o que estraga, arquivo, [(trecho, troca), ...], trecho exigido na saída) — o trecho tem de aparecer UMA vez
 M = [
- ('M1', 'a cor é ignorada: vale o primeiro código do perfil', A, [("const daCor = distintos(linhas.filter((r) => r.cor === cor).map((r) => r.codigo))", "const daCor = distintos(linhas.map((r) => r.codigo)).slice(0, 1)")], 'COR SEM CÓDIGO'),
+ ('M1', 'a cor é ignorada: vale o primeiro código do perfil', A, [("const daCor = distintos(linhas.filter((r) => r.cor === cor).map((r) => r.codigo))", "const daCor = distintos(linhas.map((r) => r.codigo)).slice(0, 1)")], 'VÁRIAS VARIANTES'),
  ('M2', 'dois códigos: escolhe o primeiro', A, [("if (daCor.length > 1) return { ok: false,", "if (daCor.length > 1) return { ok: true, codigo: daCor[0], origem: 'COR' } as never\n    if (false) return { ok: false,")], 'DOIS CÓDIGOS para o mesmo perfil'),
  ('M3', 'perfil sem variante é recusado', A, [("if (unicos.length === 1) return { ok: true, codigo: unicos[0], origem: 'SEM_VARIANTE' }", "")], 'SEM VARIANTE'),
  ('M4', 'a cor vazia vira coringa ao lado de outras cores', A, [("if (linhas.every((r) => r.cor === null)) {", "if (linhas.some((r) => r.cor === null)) {\n        const linhas2 = linhas.filter((r) => r.cor === null); void linhas2")], 'não é coringa'),
@@ -50,12 +50,15 @@ M = [
  ('M19', 'a recusa do agrupador sem o perfil', A, [("parciais.push({ origem: 'AGRUPADOR', motivo: x.motivo, codigo: x.codigo, perfil, esquadria, texto })", "parciais.push({ origem: 'AGRUPADOR', motivo: x.motivo, codigo: x.codigo, esquadria, texto: x.mensagem })")], 'recusa do AGRUPADOR'),
  ('M20', 'o preço ausente não é nomeado', A, [("if (!Number.isFinite(it.valor_barra_interno as number)) falta.push(", "if (false) falta.push(")], 'PREÇO AUSENTE'),
  ('M21', 'dois códigos sem os valores na frase', A, [("`${c.codigo} (${formatarReais(c.valor_barra_interno)} a barra)`", "`${c.codigo}`")], 'os dois valores'),
- ('M22', 'cor sem código sem as variantes na frase', A, [("as variantes que existem são: ${variantes.join(', ')}", "há outras variantes")], 'nomeando a variante'),
+ ('M22', 'cor sem código sem as variantes na frase', A, [("as variantes que existem são: ${variantes.join(', ')}", "há outras variantes")], 'VÁRIAS VARIANTES'),
  ('M23', 'a cor da entrada é ignorada: volta a BRANCO fixa', A, [("    const cor = entrada.cor\n", "    const cor = 'BRANCO'\n")], 'PRETO TEXTURADO'),
  ('M24', 'o real com ponto decimal', A, [("return `${v < 0 ? '−' : ''}R$ ${inteiro},${resto}`", "return `${v < 0 ? '−' : ''}R$ ${inteiro}.${resto}`")], 'ICU'),
  ('M25', 'o código do item sai sem o perfil', A, [("por_codigo: agrupado.por_codigo.map((c) => ({ ...c, perfil: perfilDoCodigo[c.codigo], descricao:", "por_codigo: agrupado.por_codigo.map((c) => ({ ...c, descricao:")], 'CÓDIGOS DO ITEM'),
  ('M26', 'o código WVetro vai ao agrupador', A, [("pecas: prontas.map((b) => ({ codigo: codigoDoPerfil[b.perfil], comprimento_mm", "pecas: prontas.map((b) => ({ codigo: b.perfil, comprimento_mm")], 'CÓDIGOS DO ITEM'),
  ('M27', 'os avisos do avaliador somem', A, [("H_mm: e.H_mm, quantidade: e.quantidade, avisos: r.avisos })", "H_mm: e.H_mm, quantidade: e.quantidade, avisos: [] })")], 'AVISOS'),
+ ('M28', 'a variante única não vale: BZ0012 volta a ser recusa', A, [("        if (!ehCorDaEmpresa(variante, coresDaEmpresa)) return { ok: true, codigo, origem: 'VARIANTE_UNICA' }", "        void ehCorDaEmpresa")], 'VARIANTE ÚNICA'),
+ ('M29', 'sem a guarda: a variante única que é cor da empresa vale para outra cor', A, [("if (!ehCorDaEmpresa(variante, coresDaEmpresa)) return", "if (true) return")], 'a GUARDA'),
+ ('M30', 'a variante única vale mesmo com várias variantes', A, [("    if (pares.length === 1) {", "    if (pares.length >= 1) {")], 'VÁRIAS VARIANTES'),
  ('M0', 'controle: nada muda', A, [("export", "export")]),
 ]
 

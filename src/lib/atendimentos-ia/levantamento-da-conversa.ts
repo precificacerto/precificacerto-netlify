@@ -47,6 +47,13 @@
  * produto, 25/10/2026). Faltou um dos números: falta NOMEADA, nunca zero, e os totais com mão de
  * obra não saem.
  *
+ * ══ O QUE O PREÇO COBRE — dito SEMPRE (dono do produto, 25/10/2026) ══
+ * Medido: `orcamentista_motor_regra` só tem tipo 'Perfil' e 'Insumo', e VIDRO não existe lá; o avaliador
+ * só gera peça para a aba Perfis. O número é PERFIS (o baguete incluído) mais a mão de obra — e a
+ * mensagem diz isso, e diz o que fica de fora, em toda resposta com preço. Um "Material" que exclui o
+ * vidro e os insumos sem declarar é um número que parece completo e não é. Por isso as linhas se chamam
+ * "Perfis", e `O_QUE_O_PRECO_COBRE` vai junto.
+ *
  * ══ OS VALORES DA MENSAGEM SÃO OS EXIBIDOS ══
  * Os dois totais de material são arredondados ao centavo ANTES de virar diferença ou soma: assim a
  * conta que o vendedor refaz com os números da mensagem bate com o número que ela traz. São CUSTO —
@@ -61,7 +68,7 @@
  */
 import { supabaseAdmin } from '@/supabase/admin'
 import { lerTipologia, type AbasDoMotor, type AvisoDoAvaliador, type Tipologia } from '@/lib/atendimentos-ia/avaliador-de-formulas'
-import { descreverEscolhas, lerEscolhasGravadas } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
+import { descreverArremate, escolhasComPadrao, lerEscolhasGravadas, traduzirVocabulario } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import {
     formatarReais, levantarBarras,
     type ItemDaTabela, type RegraDoDePara, type ResultadoDoLevantamento,
@@ -287,10 +294,9 @@ function fraseDoAviso(a: AvisoDoAvaliador): string {
 }
 
 /**
- * `escolhas`, em três estados que a mensagem distingue:
- *   - null — a tipologia não tem as abas: não há variável conhecida, e a linha NÃO aparece;
- *   - ''   — as abas existem e nenhuma escolha foi capturada: "nenhuma — todas no Padrão";
- *   - texto — as escolhas descritas (`descreverEscolhas`).
+ * `escolhas` é a linha do ARREMATE, em português (`descreverArremate`): cada variável capturada que se
+ * aplica, com a opção por extenso e se é o padrão ou a escolha do vendedor. Null quando a tipologia não
+ * tem as abas — não há variável conhecida, e a linha NÃO aparece.
  */
 export type DadosDaEsquadria = { tipologia: string; largura_mm: number; altura_mm: number; quantidade: number; escolhas: string | null }
 /** O levantamento como a mensagem o recebe: o nome que o vendedor deu, a cor, e as esquadrias na ordem. */
@@ -298,10 +304,12 @@ export type DadosDoLevantamento = { nome: string; cor: string; esquadrias: Dados
 const cabecalho = (d: DadosDoLevantamento) => `levantamento “${d.nome}”, perfil ${d.cor}`
 const linhasDaEsquadria = (e: DadosDaEsquadria, k: number): string[] => [
     `Esquadria ${k}: ${e.tipologia}, ${numeroBR(e.largura_mm, 0)} x ${numeroBR(e.altura_mm, 0)} mm, ${e.quantidade} unidade(s).`,
-    ...(e.escolhas === null ? []
-        : e.escolhas === '' ? ['Escolhas: nenhuma — todas as variáveis ficaram no Padrão da tipologia.']
-            : [`Escolhas: ${e.escolhas}. As outras variáveis ficaram no Padrão da tipologia.`]),
+    ...(e.escolhas === null ? [] : [`Arremate e guarnição — ${e.escolhas}.`]),
 ]
+
+/** O que o número cobre e o que NÃO cobre — vai em toda resposta com preço. */
+export const O_QUE_O_PRECO_COBRE = 'O que este preço cobre: os perfis (o baguete incluído), pela tabela do fornecedor, e a mão de obra. '
+    + 'NÃO cobre o vidro nem os insumos e acessórios (ferragens, escovas, calços e outros): eles ainda não estão na base.'
 const linhasDasEsquadrias = (d: DadosDoLevantamento) => d.esquadrias.flatMap((e, i) => linhasDaEsquadria(e, i + 1))
 
 /** No máximo tantas faltas listadas; o resto é contado, nunca calado. */
@@ -334,19 +342,20 @@ export function fraseDoLevantamento(d: DadosDoLevantamento, r: Extract<Resultado
     linhas.push(t.aproveitamento_pct === null
         ? 'Aproveitamento do levantamento: não há peça para aproveitar.'
         : `Aproveitamento do levantamento: ${numeroBR(t.aproveitamento_pct, 1)}% (${numeroBR(t.metros_uteis, 2)} m úteis de ${numeroBR(t.metros_comprados, 2)} m comprados).`)
+    // R3: o código E a cor que faltam — nunca a soma do que deu
     const faltaDo = (total: 'total_por_barra_inteira' | 'total_por_consumo_real') =>
-        r.falta_para_o_total.filter((f) => f.total === total).map((f) => `${f.codigo} (${f.perfil})`).join(', ')
+        `${r.falta_para_o_total.filter((f) => f.total === total).map((f) => `${f.codigo} (${f.perfil})`).join(', ')} em ${d.cor}`
 
     // ao centavo ANTES de virar diferença ou soma: a conta refeita com os números da mensagem bate
     const barra = t.total_por_barra_inteira === null ? null : centavos(t.total_por_barra_inteira)
     const consumo = t.total_por_consumo_real === null ? null : centavos(t.total_por_consumo_real)
     linhas.push('')
     linhas.push(barra === null
-        ? `Material por barra inteira: não sai — falta o valor da barra de ${faltaDo('total_por_barra_inteira')}.`
-        : `Material por barra inteira: ${formatarReais(barra)}.`)
+        ? `Perfis por barra inteira: não sai — falta o valor da barra de ${faltaDo('total_por_barra_inteira')}.`
+        : `Perfis por barra inteira: ${formatarReais(barra)}.`)
     linhas.push(consumo === null
-        ? `Material por consumo real: não sai — falta o valor do metro de ${faltaDo('total_por_consumo_real')}.`
-        : `Material por consumo real: ${formatarReais(consumo)}.`)
+        ? `Perfis por consumo real: não sai — falta o valor do metro de ${faltaDo('total_por_consumo_real')}.`
+        : `Perfis por consumo real: ${formatarReais(consumo)}.`)
     linhas.push(barra === null || consumo === null
         ? `Diferença entre os dois: não sai — falta o ${barra === null ? 'total por barra inteira' : 'total por consumo real'}.`
         : `Diferença entre os dois: ${formatarReais(centavos(barra - consumo))}.`)
@@ -359,13 +368,14 @@ export function fraseDoLevantamento(d: DadosDoLevantamento, r: Extract<Resultado
         linhas.push(maoDeObraTotal === null ? 'Mão de obra total: não sai — falta a mão de obra de uma esquadria.' : `Mão de obra total: ${formatarReais(maoDeObraTotal)}.`)
     }
     const comMaoDeObra = (rotulo: string, material: number | null, nomeDoMaterial: string) => {
-        if (maoDeObraTotal === null) return `${rotulo} (material + mão de obra): não sai — falta a mão de obra.`
-        if (material === null) return `${rotulo} (material + mão de obra): não sai — falta o ${nomeDoMaterial}.`
-        return `${rotulo} (material + mão de obra): ${formatarReais(centavos(material + maoDeObraTotal))}.`
+        if (maoDeObraTotal === null) return `${rotulo} (perfis + mão de obra): não sai — falta a mão de obra.`
+        if (material === null) return `${rotulo} (perfis + mão de obra): não sai — falta o ${nomeDoMaterial}.`
+        return `${rotulo} (perfis + mão de obra): ${formatarReais(centavos(material + maoDeObraTotal))}.`
     }
     linhas.push('')
-    linhas.push(comMaoDeObra('Total por barra inteira', barra, 'material por barra inteira'))
-    linhas.push(comMaoDeObra('Total por consumo real', consumo, 'material por consumo real'))
+    linhas.push(comMaoDeObra('Total por barra inteira', barra, 'valor dos perfis por barra inteira'))
+    linhas.push(comMaoDeObra('Total por consumo real', consumo, 'valor dos perfis por consumo real'))
+    linhas.push('', O_QUE_O_PRECO_COBRE)
     if (r.avisos.length) {
         linhas.push('', 'Atenção:')
         for (const a of r.avisos) {
@@ -428,7 +438,7 @@ export async function mensagemDoLevantamento(
         else lidas[t] = lida.tipologia
     }
     const escolhas = lev.itens.map((e) => lerEscolhasGravadas(e.escolhas))
-    d.esquadrias.forEach((e, i) => { if (lidas[e.tipologia]) e.escolhas = descreverEscolhas(lidas[e.tipologia], escolhas[i]) ?? '' })
+    d.esquadrias.forEach((e, i) => { if (lidas[e.tipologia]) e.escolhas = descreverArremate(lidas[e.tipologia], escolhas[i]) })
     if (faltas.length) return recusa(faltas)
 
     const serra = await lerSerra(tenantId)
@@ -440,11 +450,16 @@ export async function mensagemDoLevantamento(
     }
     const regras = [...porTrio.values()]
     const itens = await lerItens(tabela.tabelaId, [...new Set(regras.map((r) => r.codigo))].sort())
+    // as cores da empresa: o que é COR na coluna `cor` do motor, para a guarda da variante única
+    const coresDaEmpresa = await lerCoresDaEmpresa(tenantId)
 
     const r = levantarBarras({
         cor: cores[0],
+        coresDaEmpresa,
+        // o padrão do arremate entra AQUI, pelo ponto único (`padraoDoArremate`), e não pelo avaliador
         esquadrias: d.esquadrias.map((e, i) => ({
-            tipologia: e.tipologia, L_mm: e.largura_mm, H_mm: e.altura_mm, quantidade: e.quantidade, escolhas: escolhas[i], espessura_vidro_mm: espessuraDoVidro(lev.itens[i].vidro),
+            tipologia: e.tipologia, L_mm: e.largura_mm, H_mm: e.altura_mm, quantidade: e.quantidade,
+            escolhas: lidas[e.tipologia] ? escolhasComPadrao(lidas[e.tipologia], escolhas[i]) : escolhas[i], espessura_vidro_mm: espessuraDoVidro(lev.itens[i].vidro),
         })),
         tipologias: lidas,
         regras,
@@ -453,7 +468,9 @@ export async function mensagemDoLevantamento(
     })
     if ('recusas' in r) {
         const uma = d.esquadrias.length === 1
-        return recusa(r.recusas.map((x) => maiuscula(uma ? semPrefixoDaEsquadria(x.mensagem) : x.mensagem)))
+        // R4: a recusa nomeia o que falta, em português — sem o código interno da variável
+        const traduzir = (m: string) => Object.values(lidas).reduce((t, tip) => traduzirVocabulario(t, tip), m)
+        return recusa(r.recusas.map((x) => maiuscula(traduzir(uma ? semPrefixoDaEsquadria(x.mensagem) : x.mensagem))))
     }
     const maos: MaoDeObra[] = []
     for (const e of d.esquadrias) maos.push(await lerMaoDeObra(tenantId, tabela.tabelaId, e.tipologia, e.quantidade))

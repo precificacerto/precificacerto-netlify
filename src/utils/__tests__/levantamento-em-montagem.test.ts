@@ -9,6 +9,9 @@
  *
  * HISTÓRICO: sobrescreve (decisão 3 do dono do produto, 25/10/2026). Uma alteração substitui o valor
  * anterior; trocar a TIPOLOGIA apaga as escolhas da esquadria, porque as variáveis são da tipologia.
+ *
+ * O ARREMATE (dono do produto, 25/10/2026): o PADRÃO é assumido; escolha nenhuma é pendência por si. A
+ * pendência de escolha só existe quando o vendedor PEDIU as opções (`opcoes_de`), marcada com `null`.
  */
 export {}
 
@@ -102,13 +105,13 @@ describe('(3) a próxima pendência: os campos da esquadria, depois as escolhas 
         expect(L().proximaPendencia([{ ...L().itemVazio(1), tipologia: 'DP-02', largura_mm: 1200 }], definicao)).toEqual({ tipo: 'CAMPO', ordem: 1, campo: 'altura_mm' })
     })
 
-    it('com os campos cheios, a primeira escolha pendente da tipologia', () => {
-        const p = L().proximaPendencia([{ ...COMPLETO_SEM_ESCOLHAS }], definicao)
-        expect(p && p.tipo === 'ESCOLHA' && [p.ordem, p.pendente.variavel]).toEqual([1, 'ARI'])
+    it('com os campos cheios e NENHUMA escolha: nada pendente — o padrão vale, a conversa não pergunta o arremate', () => {
+        expect(L().proximaPendencia([{ ...COMPLETO_SEM_ESCOLHAS }], definicao)).toBeNull()
     })
 
-    it('com ARI 4 e ARE 2, a MAE não se aplica: nada pendente', () => {
-        expect(L().proximaPendencia([{ ...COMPLETO_SEM_ESCOLHAS, escolhas: { ARI: 4, ARE: 2 } }], definicao)).toBeNull()
+    it('o vendedor PEDIU as opções do arremate interno (null): ESSA é a pendência', () => {
+        const p = L().proximaPendencia([{ ...COMPLETO_SEM_ESCOLHAS, escolhas: { ARE: 1, ARI: null } }], definicao)
+        expect(p && p.tipo === 'ESCOLHA' && [p.ordem, p.pendente.variavel]).toEqual([1, 'ARI'])
     })
 
     it('uma tipologia sem as abas (DP-01) não tem escolha: completa só com os campos', () => {
@@ -116,21 +119,46 @@ describe('(3) a próxima pendência: os campos da esquadria, depois as escolhas 
     })
 
     it('a segunda esquadria só é perguntada depois da primeira inteira', () => {
-        const p = L().proximaPendencia([{ ...COMPLETO_SEM_ESCOLHAS }, { ...L().itemVazio(2), tipologia: 'DP-01' }], definicao)
+        const p = L().proximaPendencia([{ ...COMPLETO_SEM_ESCOLHAS, escolhas: { ARI: null } }, { ...L().itemVazio(2), tipologia: 'DP-01' }], definicao)
         expect(p && p.tipo === 'ESCOLHA' && p.ordem).toBe(1)
     })
 })
 
-describe('(4) a escolha respondida vai para a esquadria da pendência', () => {
-    it('"4" para a ARI da esquadria 1 é gravado', () => {
-        const r = L().aplicarProposta([{ ...COMPLETO_SEM_ESCOLHAS }], { escolha: { variavel: 'ARI', opcao: 4 } }, ctx(1))
+describe('(4) o arremate dito em palavras vira escolha; pedir as opções marca a variável', () => {
+    it('"sem arremate interno" (ARI 4) é gravado na esquadria', () => {
+        const r = L().aplicarProposta([{ ...COMPLETO_SEM_ESCOLHAS }], { escolhas: [{ variavel: 'ARI', opcao: 4 }] }, ctx(1))
         expect(r.itens[0].escolhas).toEqual({ ARI: 4 })
     })
 
+    it('duas escolhas na mesma mensagem: as duas', () => {
+        const r = L().aplicarProposta([{ ...COMPLETO_SEM_ESCOLHAS }], { escolhas: [{ variavel: 'ARI', opcao: 4 }, { variavel: 'MAE', opcao: 2 }] }, ctx(1))
+        expect(r.itens[0].escolhas).toEqual({ ARI: 4, MAE: 2 })
+    })
+
+    it('a escolha responde a marca de "pediu as opções": o null vira o número, e as outras marcas ficam', () => {
+        const r = L().aplicarProposta([{ ...COMPLETO_SEM_ESCOLHAS, escolhas: { ARI: null, ARE: null } }], { escolhas: [{ variavel: 'ARI', opcao: 3 }] }, ctx(1))
+        expect(r.itens[0].escolhas).toEqual({ ARI: 3, ARE: null })
+    })
+
     it('opção que não existe é descartada', () => {
-        const r = L().aplicarProposta([{ ...COMPLETO_SEM_ESCOLHAS }], { escolha: { variavel: 'ARI', opcao: 9 } }, ctx(1))
+        const r = L().aplicarProposta([{ ...COMPLETO_SEM_ESCOLHAS }], { escolhas: [{ variavel: 'ARI', opcao: 9 }] }, ctx(1))
         expect(r.itens[0].escolhas).toBeNull()
         expect(r.descartados).toBe(1)
+    })
+
+    it('a DESCRIÇÃO no lugar do código é descartada — é o defeito 1, e quem o evita é o prompt', () => {
+        const r = L().aplicarProposta([{ ...COMPLETO_SEM_ESCOLHAS }], { escolhas: [{ variavel: 'ARREMATE INTERNO', opcao: 4 }] }, ctx(1))
+        expect([r.itens[0].escolhas, r.descartados]).toEqual([null, 1])
+    })
+
+    it('pedir as opções do arremate externo marca ARE com null', () => {
+        const r = L().aplicarProposta([{ ...COMPLETO_SEM_ESCOLHAS, escolhas: { ARE: 1 } }], { opcoes_de: ['ARE'] }, ctx(1))
+        expect(r.itens[0].escolhas).toEqual({ ARE: null })
+    })
+
+    it('pedir as opções de uma variável que não é capturada é descartado', () => {
+        const r = L().aplicarProposta([{ ...COMPLETO_SEM_ESCOLHAS }], { opcoes_de: ['MTE'] }, ctx(1))
+        expect([r.itens[0].escolhas, r.descartados]).toEqual([null, 1])
     })
 })
 
@@ -143,9 +171,9 @@ describe('(5) a pergunta da pendência', () => {
         expect(L().perguntaDaPendencia({ tipo: 'CAMPO', ordem: 2, campo: 'altura_mm' }, 2)).toBe('Esquadria 2: Qual a altura, em milímetros?')
     })
 
-    it('a escolha: a pergunta FIXA da aba, com as opções por extenso', () => {
-        const p = L().proximaPendencia([{ ...COMPLETO_SEM_ESCOLHAS }], definicao)
+    it('a escolha pedida: a pergunta FIXA, por extenso, sem número', () => {
+        const p = L().proximaPendencia([{ ...COMPLETO_SEM_ESCOLHAS, escolhas: { ARI: null } }], definicao)
         if (!p) throw new Error('era para ter pendência')
-        expect(L().perguntaDaPendencia(p, 1)).toBe('ARREMATE INTERNO — qual opção? 1 = BZ0006 - ARREMATE 65MM; 2 = BZ1770 - ARREMATE 70MM; 3 = BZ0010 - ARREMATE 20MM; 4 = SEM ARREMATE INTERNO.')
+        expect(L().perguntaDaPendencia(p, 1)).toBe('Para arremate interno, as opções são: BZ0006 - ARREMATE 65MM; BZ1770 - ARREMATE 70MM; BZ0010 - ARREMATE 20MM; SEM ARREMATE INTERNO. Qual você quer?')
     })
 })

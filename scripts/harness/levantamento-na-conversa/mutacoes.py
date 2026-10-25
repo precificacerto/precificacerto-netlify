@@ -32,7 +32,7 @@ M = [
  ('L2', 'a tipologia comparada sem caixa', PD, [("typeof v === 'string' && tipologias.includes(v) ? v", "typeof v === 'string' && tipologias.some((t) => t.toLowerCase() === (v as string).toLowerCase()) ? (tipologias.find((t) => t.toLowerCase() === (v as string).toLowerCase()) as string)")], '"dp-02" não é DP-02'),
  ('L3', 'sem lista, a LLM é chamada assim mesmo', CV, [("if ('frase' in tabela) return await responder(", "if (false) return await responder(")], 'SEM LISTA de tipologias'),
  ('L4', 'a lista não vai ao prompt', CV, [("...(c.candidatos.length ? c.candidatos.map(linhaDoCandidato) : ['(nenhuma)']),", "'(nenhuma)',")], 'vão ao prompt'),
- ('L5', 'o levantamento não é enviado quando fica completo', CV, [("return await responder(levantamento.texto, levantamento.desfecho)", "return fim(levantamento.desfecho)")], 'os dois totais'),
+ ('L5', 'o levantamento não é enviado quando fica completo', CV, [("return await responder(`${confirmacao}${levantamento.texto}`, levantamento.desfecho)", "return fim(levantamento.desfecho)")], 'os dois totais'),
  ('L6', 'com duas tabelas, vale a primeira', LC, [("if (tabelas.length > 1) return {", "if (false) return {")], 'MAIS DE UMA TABELA'),
  ('L7', 'as abas da Wolff valem para qualquer tabela', LC, [("const abas = ABAS_IMPORTADAS[tabela.tabelaId]?.[t]", "const abas = ABAS_IMPORTADAS[TABELA_WOLFF]?.[t]")], 'OUTRA TABELA'),
  ('L8', 'as regras só da primeira página', LC, [("        if (pagina.length === 0) break\n", "        break\n")], 'página a página'),
@@ -40,7 +40,7 @@ M = [
  ('L10', 'a espessura pega o número que casa, mesmo com outro no texto', LC, [("    if (numeros.length !== 1) return null\n", "")], '4+4'),
  ('L11', 'com duas serras, vale a primeira', LC, [("if (valores.length === 1) return { ok: true, serra_mm: valores[0] }", "if (valores.length >= 1) return { ok: true, serra_mm: valores[0] }")], 'DUAS SERRAS'),
  ('L12', 'a recusa cala as faltas além da oitava', LC, [("const resto = faltas.length > MAXIMO_DE_FALTAS ? [`• e mais ${faltas.length - MAXIMO_DE_FALTAS} falta(s) do mesmo levantamento.`] : []", "const resto: string[] = []")], 'nenhuma calada'),
- ('L13', 'a recusa sai com o prefixo técnico da esquadria', LC, [("r.recusas.map((x) => maiuscula(uma ? semPrefixoDaEsquadria(x.mensagem) : x.mensagem))", "r.recusas.map((x) => x.mensagem)")], 'sem o prefixo de esquadria'),
+ ('L13', 'a recusa sai com o prefixo técnico da esquadria', LC, [("r.recusas.map((x) => maiuscula(traduzir(uma ? semPrefixoDaEsquadria(x.mensagem) : x.mensagem)))", "r.recusas.map((x) => maiuscula(traduzir(x.mensagem)))")], 'sem o prefixo de esquadria'),
  ('L14', 'o total ausente não diz o que falta', LC, [("    linhas.push(barra === null\n", "    linhas.push(false\n")], 'PREÇO AUSENTE'),
  ('L15', 'a lista que não existe vira lista vazia', LC, [("    if (erroDaLista) return {", "    if (false) return {")], 'LISTA AINDA NÃO EXISTE'),
  ('L16', 'a despesa da mão de obra é sempre a da industrialização', MO, [("segmentoDaDespesa: tipo === 'SERVICO' ? 'SERVICO' : 'INDUSTRIALIZACAO',", "segmentoDaDespesa: 'INDUSTRIALIZACAO',")], 'o segmento decide'),
@@ -51,7 +51,7 @@ M = [
                                                                        ("const consumo = t.total_por_consumo_real === null ? null : centavos(t.total_por_consumo_real)", "const consumo = t.total_por_consumo_real")], 'o texto inteiro'),
  ('L21', 'o total com mão de obra esquece a mão de obra', LC, [("formatarReais(centavos(material + maoDeObraTotal))", "formatarReais(centavos(material))")], 'o texto inteiro'),
  ('L22', 'a mão de obra não multiplica pela quantidade', LC, [("total: centavos(m.valor * quantidade),", "total: m.valor,")], 'a quantidade multiplica'),
- ('L23', 'o levantamento volta à cor fixa BRANCO', LC, [("        cor: cores[0],\n        esquadrias:", "        cor: 'BRANCO',\n        esquadrias:")], 'PRETO TEXTURADO'),
+ ('L23', 'o levantamento volta à cor fixa BRANCO', LC, [("        cor: cores[0],\n        coresDaEmpresa,", "        cor: 'BRANCO',\n        coresDaEmpresa,")], 'PRETO TEXTURADO'),
  ('L24', 'a cor do perfil aceita qualquer texto', PD, [("            return typeof v === 'string' && cores.includes(v) ? v : undefined", "            return textoValido(v) ? (v as string).trim() : undefined")], 'não é BRANCO'),
  ('L25', 'as cores não vão ao prompt', CV, [("${c.cores.length ? c.cores.join(', ') : '(nenhuma)'}", "(nenhuma)")], 'vão ao prompt'),
  ('L26', 'sem lista de cores, a conversa pergunta a cor assim mesmo', CV, [("pendencia.campo === 'cor_perfil' && cores.length === 0)", "pendencia.campo === 'cor_perfil' && false)")], 'SEM LISTA DE CORES'),
@@ -59,6 +59,10 @@ M = [
  ('L28', 'sem cor, o levantamento segue', LC, [("    lev.itens.forEach((e, i) => { if (corDe(e) === null) faltas.push(`A esquadria ${i + 1} está sem a cor do perfil.`) })\n", "")], 'SEM COR'),
  ('L29', 'a mão de obra total soma só as que existem', LC, [("const todasCalculadas = maos.length > 0 && maos.every((m) => !('falta' in m))", "const todasCalculadas = maos.some((m) => !('falta' in m))")], 'de UMA esquadria ausente'),
  ('L30', 'cores diferentes no mesmo levantamento passam', LC, [("    if (cores.length > 1) {\n", "    if (false) {\n")], 'CORES DIFERENTES'),
+ # 25/10/2026: o que o preço cobre (DEFEITO 2), e a falta que nomeia a cor (R3)
+ ('L31', 'a falta de preço não diz a cor', LC, [("`${r.falta_para_o_total.filter((f) => f.total === total).map((f) => `${f.codigo} (${f.perfil})`).join(', ')} em ${d.cor}`", "r.falta_para_o_total.filter((f) => f.total === total).map((f) => `${f.codigo} (${f.perfil})`).join(', ')")], 'PREÇO AUSENTE'),
+ ('L32', 'a resposta com preço não diz o que ele cobre', LC, [("    linhas.push('', O_QUE_O_PRECO_COBRE)\n", "")], 'o texto inteiro'),
+ ('L33', 'o perfil volta a se chamar Material', LC, [("        : `Perfis por barra inteira: ${formatarReais(barra)}.`)", "        : `Material por barra inteira: ${formatarReais(barra)}.`)")], 'o texto inteiro'),
  ('L0', 'controle: nada muda', LC, [("export", "export")]),
 ]
 
