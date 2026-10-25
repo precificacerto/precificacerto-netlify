@@ -18,7 +18,20 @@
  *       PARECIDO ("Casa do João 2", "João") → PERGUNTA se é novo, citando os que existem. Nunca decide
  *         por semelhança (decisão 1). Com "novo", cria;
  *       NOVO → cria, EM_MONTAGEM até não faltar nada.
- *   Só o remetente que criou altera (decisão 2): toda leitura é por (tenant_id, remetente_id).
+ *
+ * ══ QUEM ALTERA — decisão 2, REVISTA (dono do produto, 25/10/2026) ══
+ * (a) o vendedor que criou e (b) quem é admin NA EMPRESA (`permissao-do-remetente.ts`: `users.role =
+ * 'admin'` pela cadeia remetente → employees → users, com falha fechada). O nome continua único por
+ * vendedor; a busca pelo nome olha primeiro os DO REMETENTE, e só um pedido de ALTERAÇÃO sem nome dele
+ * vai além:
+ *   - não é admin → "não encontrei um levantamento seu com esse nome", a MESMA frase exista ou não o
+ *     de outro vendedor — a resposta não revela o que é dos outros;
+ *   - é admin → o nome IGUAL na empresa: um → altera o do criador, que continua dono; mais de um →
+ *     PERGUNTA de qual vendedor, citando os nomes, e nunca escolhe (nem o mais recente); com o vendedor
+ *     dito e presente no texto, o dele.
+ * O admin não MONTA levantamento de outro: o EM_MONTAGEM é de um remetente, e as perguntas seguintes
+ * iriam para o criador. Uma alteração do admin que deixaria pendência não é gravada, e a resposta diz
+ * o que falta mandar junto.
  *
  * ══ A REGRA QUE NÃO SE NEGOCIA: a LLM PROPÕE, o código VALIDA e GRAVA ══
  * Saída estruturada: uma ferramenta `strict`; `tool_choice` é `auto` porque o forçado é recusado com
@@ -56,6 +69,7 @@ import {
 } from '@/lib/atendimentos-ia/levantamento-em-montagem'
 import { compararNome, nomeDaMensagem, normalizarNome } from '@/lib/atendimentos-ia/nome-do-levantamento'
 import { lerEscolhasGravadas } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
+import { permissaoDoRemetente, type Permissao } from '@/lib/atendimentos-ia/permissao-do-remetente'
 
 export const PREFIXO_DO_LOG_DA_IA = '[IA]'
 export const NOME_DA_FERRAMENTA = 'registrar_levantamento'
@@ -65,14 +79,16 @@ const wuzapi = () => (process.env.WUZAPI_BASE_URL || 'https://usapi.adabtech.sho
 
 export type DesfechoDaIa =
     | 'sem-chave' | 'sem-saldo' | 'erro-da-llm' | 'recusa' | 'sem-proposta' | 'sem-tipologias'
-    | 'sem-nome' | 'nome-parecido' | 'nome-existe' | 'qual-esquadria'
+    | 'sem-nome' | 'nome-parecido' | 'nome-existe' | 'qual-esquadria' | 'nao-encontrado' | 'qual-vendedor' | 'alteracao-incompleta'
     | 'perguntou' | 'sem-cores' | 'levantou' | 'recusou' | 'envio-falhou' | 'erro'
 
-export type Rota = 'MONTAGEM' | 'NOVO' | 'ALTERACAO' | 'SEM_NOME' | 'PARECIDO' | 'NOME_EXISTE' | '-'
-type Rastro = { levantamento: string; rota: Rota; propostos: number; descartados: number; enviou: boolean }
+export type Rota = 'MONTAGEM' | 'NOVO' | 'ALTERACAO' | 'ALTERACAO_ADMIN' | 'SEM_NOME' | 'PARECIDO' | 'NOME_EXISTE' | 'NAO_ENCONTRADO' | 'QUAL_VENDEDOR' | '-'
+type Rastro = { levantamento: string; rota: Rota; propostos: number; descartados: number; enviou: boolean; admin: Permissao | null }
 
 function anotar(r: Rastro, desfecho: DesfechoDaIa, detalhe = '') {
-    console.error(`${PREFIXO_DO_LOG_DA_IA} levantamento=${r.levantamento} rota=${r.rota} propostos=${r.propostos} descartados=${r.descartados} enviou=${r.enviou ? 'sim' : 'nao'} desfecho=${desfecho}${detalhe ? ` ${detalhe}` : ''}`)
+    // a permissão só aparece quando foi consultada; o motivo é um código, nunca um nome
+    const admin = r.admin === null ? '' : 'motivo' in r.admin ? ` admin=nao motivo_admin=${r.admin.motivo}` : ' admin=sim'
+    console.error(`${PREFIXO_DO_LOG_DA_IA} levantamento=${r.levantamento} rota=${r.rota} propostos=${r.propostos} descartados=${r.descartados} enviou=${r.enviou ? 'sim' : 'nao'} desfecho=${desfecho}${admin}${detalhe ? ` ${detalhe}` : ''}`)
 }
 
 // ── As frases fixas do roteamento ───────────────────────────────────────────────────────────
@@ -85,13 +101,24 @@ export const fraseDoNomeQueJaExiste = (nome: string) =>
     `Já existe o levantamento “${nome}”. Para alterá-lo, escreva o nome dele e o que muda; para um novo, use outro nome.`
 export const fraseDeQualEsquadria = (nome: string, nItens: number) =>
     `O levantamento “${nome}” tem ${nItens} esquadrias. Qual delas muda? Diga o número (de 1 a ${nItens}) e o que muda.`
+/** Para quem não é admin: a MESMA frase exista ou não o levantamento de outro vendedor. */
+export const fraseDeNaoEncontrei = (nome: string) =>
+    `Não encontrei um levantamento seu com esse nome: “${nome}”. Confira o nome; para começar um novo, escreva: novo ${nome}.`
+export const fraseDeNaoEncontreiNaEmpresa = (nome: string) =>
+    `Não encontrei um levantamento com esse nome na empresa: “${nome}”. Confira o nome; para começar um novo, escreva: novo ${nome}.`
+export const fraseDeQualVendedor = (nome: string, vendedores: string[]) =>
+    `O levantamento “${nome}” existe para mais de um vendedor: ${vendedores.join(', ')}. De qual vendedor é? Escreva o nome do levantamento, o do vendedor e o que muda.`
+export const fraseDaAlteracaoIncompleta = (nome: string, vendedor: string, pergunta: string) =>
+    `A alteração deixaria o levantamento “${nome}”, de ${vendedor}, incompleto — falta: ${pergunta} Mande a alteração com isso junto. Nada foi gravado.`
+/** Quando o remetente não tem nome nem o employee dele. */
+const VENDEDOR_SEM_NOME = '(vendedor sem nome cadastrado)'
 
 // ── A FERRAMENTA — a saída estruturada ──────────────────────────────────────────────────────
 /**
  * O que NÃO foi dito é OMITIDO, não `null`: os campos são opcionais e de tipo simples, sem união.
  * "Schema complexity limits" (https://platform.claude.com/docs/en/build-with-claude/structured-outputs):
  * somando os esquemas `strict` da requisição, no máximo 16 parâmetros com união e 24 opcionais. Este tem
- * 0 uniões e 15 opcionais — o portão (8) conta o esquema enviado.
+ * 0 uniões e 17 opcionais — o portão (8) conta o esquema enviado.
  */
 const texto = { type: 'string' }
 const inteiro = { type: 'integer' }
@@ -106,6 +133,8 @@ export const FERRAMENTA = {
         properties: {
             nome: { ...texto, description: 'O nome do levantamento, copiado INTEIRO como o vendedor o escreveu NESTA mensagem. Omita se ele não escreveu.' },
             novo: { type: 'boolean', description: 'true SÓ quando o vendedor disse explicitamente que é um levantamento novo.' },
+            alteracao: { type: 'boolean', description: 'true quando o vendedor pede para MUDAR um levantamento que já existe (troca, muda, altera, corrige).' },
+            vendedor: { ...texto, description: 'O nome do VENDEDOR dono do levantamento, copiado como foi escrito NESTA mensagem. Omita se não foi escrito.' },
             itens: {
                 type: 'array',
                 description: 'As esquadrias ditas NESTA mensagem, com SÓ os campos ditos. Vazio se nenhuma.',
@@ -153,6 +182,8 @@ function sistema(c: ContextoDoPrompt): string {
         'Regras:',
         '- nome: copie o nome do levantamento INTEIRO, como o vendedor escreveu nesta mensagem. Não complete, não corrija, não encurte. Se ele não escreveu um nome, omita.',
         '- novo: true SÓ quando o vendedor disse que é um levantamento novo ("novo ..."). Senão, omita.',
+        '- alteracao: true quando ele pede para MUDAR um levantamento que já existe ("troca a altura", "muda a cor", "corrige"). Senão, omita.',
+        '- vendedor: só quando a mensagem diz de qual VENDEDOR é o levantamento; copie o nome como foi escrito. Senão, omita.',
         '- itens: só o que foi dito NESTA mensagem. Numa alteração, só os campos que mudam. Não invente, não deduza.',
         '- cor_perfil: EXATAMENTE uma das cores da empresa (lista do fim), escrita como está. Se for outra cor, ou se houver dúvida, NÃO preencha.',
         '- tipologia: o CÓDIGO (ex.: DP-02) de UMA das tipologias da lista do fim, escolhida pela descrição. NUNCA invente código nem preencha com as palavras do vendedor. Se cabe em mais de uma, NÃO preencha: em `pergunta`, pergunte qual é, citando a descrição INTEIRA de cada uma, sem o código.',
@@ -241,6 +272,35 @@ async function lerLevantamentos(tenantId: string, remetenteId: string, soEmMonta
     return (data ?? []) as Levantamento[]
 }
 
+type LevantamentoDaEmpresa = Levantamento & { remetente_id: string }
+
+/** Os levantamentos da empresa com ESTE nome, de qualquer vendedor — só para o admin. */
+async function lerLevantamentosDaEmpresaPeloNome(tenantId: string, nomeNormalizado: string): Promise<LevantamentoDaEmpresa[]> {
+    const { data, error } = await supabaseAdmin.from('orcamentista_levantamento').select('id, nome, nome_normalizado, estado, remetente_id')
+        .eq('tenant_id', tenantId).eq('nome_normalizado', nomeNormalizado).order('criado_em', { ascending: true })
+    if (error) throw new Error(`orcamentista_levantamento: ${error.message}`)
+    return (data ?? []) as LevantamentoDaEmpresa[]
+}
+
+/** O nome de cada vendedor: o do remetente; na falta, o do employee ligado a ele. */
+async function nomesDosVendedores(tenantId: string, remetenteIds: string[]): Promise<Map<string, string>> {
+    const { data, error } = await supabaseAdmin.from('orcamentista_remetente_autorizado').select('id, nome, employee_id')
+        .eq('tenant_id', tenantId).in('id', remetenteIds)
+    if (error) throw new Error(`orcamentista_remetente_autorizado: ${error.message}`)
+    const remetentes = (data ?? []) as Array<{ id: string; nome: string | null; employee_id: string | null }>
+    const semNome = remetentes.filter((r) => !r.nome?.trim() && r.employee_id).map((r) => r.employee_id as string)
+    const doEmployee = new Map<string, string>()
+    if (semNome.length) {
+        const { data: emps, error: e2 } = await supabaseAdmin.from('employees').select('id, name').eq('tenant_id', tenantId).in('id', semNome)
+        if (e2) throw new Error(`employees: ${e2.message}`)
+        for (const e of (emps ?? []) as Array<{ id: string; name: string | null }>) if (e.name?.trim()) doEmployee.set(e.id, e.name.trim())
+    }
+    return new Map(remetenteIds.map((id) => {
+        const r = remetentes.find((x) => x.id === id)
+        return [id, r?.nome?.trim() || (r?.employee_id ? doEmployee.get(r.employee_id) : undefined) || VENDEDOR_SEM_NOME]
+    }))
+}
+
 async function lerItens(tenantId: string, levantamentoId: string): Promise<ItemGravado[]> {
     const { data, error } = await supabaseAdmin.from('orcamentista_levantamento_item').select(COLUNAS_DO_ITEM)
         .eq('tenant_id', tenantId).eq('levantamento_id', levantamentoId).order('ordem', { ascending: true })
@@ -256,10 +316,11 @@ const camposDoItem = (i: ItemDoLevantamento) => ({
 
 /**
  * Grava o levantamento: cria (sem `existente`) ou sobrescreve (decisão 3) — o estado, o `atualizado_em`
- * (o único rastro), as esquadrias que mudaram e as novas. Nenhuma esquadria é apagada.
+ * (o único rastro), as esquadrias que mudaram e as novas. Nenhuma esquadria é apagada. `donoId` é o
+ * remetente que CRIOU: numa alteração do admin, o levantamento continua do criador.
  */
 async function gravarLevantamento(
-    tenantId: string, remetenteId: string, nome: string, existente: { id: string; itens: ItemGravado[] } | null,
+    tenantId: string, donoId: string, nome: string, existente: { id: string; itens: ItemGravado[] } | null,
     itens: ItemDoLevantamento[], estado: string,
 ): Promise<string> {
     const agora = new Date().toISOString()
@@ -269,11 +330,11 @@ async function gravarLevantamento(
         id = existente.id
         antes = existente.itens
         const { error } = await supabaseAdmin.from('orcamentista_levantamento').update({ estado, atualizado_em: agora })
-            .eq('id', id).eq('tenant_id', tenantId).eq('remetente_id', remetenteId)
+            .eq('id', id).eq('tenant_id', tenantId).eq('remetente_id', donoId)
         if (error) throw new Error(`orcamentista_levantamento: ${error.message}`)
     } else {
         const { data, error } = await supabaseAdmin.from('orcamentista_levantamento')
-            .insert({ tenant_id: tenantId, remetente_id: remetenteId, nome, nome_normalizado: normalizarNome(nome), estado })
+            .insert({ tenant_id: tenantId, remetente_id: donoId, nome, nome_normalizado: normalizarNome(nome), estado })
             .select('id').single()
         if (error || !data) throw new Error(`orcamentista_levantamento: ${error?.message ?? 'sem linha'}`)
         id = (data as { id: string }).id
@@ -331,7 +392,7 @@ export type Interlocutor = { tenantId: string; remetenteId: string; telefone: st
 
 /** Conduz uma mensagem do vendedor. NUNCA lança: toda falha vira uma linha `[IA]`. */
 export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
-    const rastro: Rastro = { levantamento: '-', rota: '-', propostos: 0, descartados: 0, enviou: false }
+    const rastro: Rastro = { levantamento: '-', rota: '-', propostos: 0, descartados: 0, enviou: false, admin: null }
     const fim = (desfecho: DesfechoDaIa, detalhe = ''): DesfechoDaIa => { anotar(rastro, desfecho, detalhe); return desfecho }
     const responder = async (textoDaResposta: string, desfecho: DesfechoDaIa, detalhe = ''): Promise<DesfechoDaIa> => {
         const envio = await enviarTexto(c.wuzapiToken, c.telefone, textoDaResposta)
@@ -365,11 +426,11 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         const proposta = resposta.proposta
 
         // ── a rota ──
-        let alvo: { id: string; nome: string; itens: ItemGravado[] } | null = null
+        let alvo: { id: string; nome: string; donoId: string; vendedor: string | null; itens: ItemGravado[] } | null = null
         let nome: string
         if (emMontagem) {
             rastro.rota = 'MONTAGEM'
-            alvo = { id: emMontagem.id, nome: emMontagem.nome, itens: itensDaMontagem }
+            alvo = { id: emMontagem.id, nome: emMontagem.nome, donoId: c.remetenteId, vendedor: null, itens: itensDaMontagem }
             nome = emMontagem.nome
         } else {
             const lido = nomeDaMensagem(proposta.nome, c.texto)
@@ -380,11 +441,31 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
                 rastro.levantamento = comparacao.existente.id
                 if (novo) { rastro.rota = 'NOME_EXISTE'; return await responder(fraseDoNomeQueJaExiste(comparacao.existente.nome), 'nome-existe') }
                 rastro.rota = 'ALTERACAO'
-                alvo = { id: comparacao.existente.id, nome: comparacao.existente.nome, itens: await lerItens(c.tenantId, comparacao.existente.id) }
+                alvo = { id: comparacao.existente.id, nome: comparacao.existente.nome, donoId: c.remetenteId, vendedor: null, itens: await lerItens(c.tenantId, comparacao.existente.id) }
                 nome = comparacao.existente.nome
             } else if ('existentes' in comparacao && !novo) {
                 rastro.rota = 'PARECIDO'
                 return await responder(fraseDoNomeParecido(lido, comparacao.existentes.map((l) => l.nome)), 'nome-parecido')
+            } else if (proposta.alteracao === true && !novo) {
+                // pedido de alteração de um nome que não é do remetente: só o admin vai além
+                rastro.admin = await permissaoDoRemetente(c.tenantId, c.remetenteId)
+                if ('motivo' in rastro.admin) { rastro.rota = 'NAO_ENCONTRADO'; return await responder(fraseDeNaoEncontrei(lido), 'nao-encontrado') }
+                const daEmpresa = await lerLevantamentosDaEmpresaPeloNome(c.tenantId, normalizarNome(lido))
+                if (daEmpresa.length === 0) { rastro.rota = 'NAO_ENCONTRADO'; return await responder(fraseDeNaoEncontreiNaEmpresa(lido), 'nao-encontrado') }
+                const nomes = await nomesDosVendedores(c.tenantId, [...new Set(daEmpresa.map((l) => l.remetente_id))])
+                // o vendedor dito só vale se estiver no texto, e casa pelo nome inteiro, sem caixa e sem acento
+                const vendedorLido = nomeDaMensagem(proposta.vendedor, c.texto)
+                const doVendedor = vendedorLido === null ? daEmpresa
+                    : daEmpresa.filter((l) => normalizarNome(nomes.get(l.remetente_id) ?? '') === normalizarNome(vendedorLido))
+                // um vendedor dito que não é dono de nenhum também pergunta: não se cai no único que existe
+                if (doVendedor.length !== 1 && (daEmpresa.length > 1 || vendedorLido !== null)) {
+                    rastro.rota = 'QUAL_VENDEDOR'
+                    return await responder(fraseDeQualVendedor(lido, daEmpresa.map((l) => nomes.get(l.remetente_id) ?? VENDEDOR_SEM_NOME)), 'qual-vendedor')
+                }
+                const escolhido = doVendedor.length === 1 ? doVendedor[0] : daEmpresa[0]
+                rastro.rota = 'ALTERACAO_ADMIN'
+                alvo = { id: escolhido.id, nome: escolhido.nome, donoId: escolhido.remetente_id, vendedor: nomes.get(escolhido.remetente_id) ?? VENDEDOR_SEM_NOME, itens: await lerItens(c.tenantId, escolhido.id) }
+                nome = escolhido.nome
             } else {
                 rastro.rota = 'NOVO'
                 nome = lido
@@ -403,7 +484,11 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
 
         // ── grava, e SÓ DEPOIS responde: o trajeto inteiro, a partir do que ficou gravado ──
         const pendencia = proximaPendencia(aplicada.itens, definicao)
-        rastro.levantamento = await gravarLevantamento(c.tenantId, c.remetenteId, nome, alvo, aplicada.itens, pendencia ? EM_MONTAGEM : COMPLETO)
+        // o admin não monta levantamento de outro: com pendência, nada é gravado e a resposta diz o que falta
+        if (pendencia && alvo && alvo.donoId !== c.remetenteId) {
+            return await responder(fraseDaAlteracaoIncompleta(nome, alvo.vendedor ?? VENDEDOR_SEM_NOME, perguntaDaPendencia(pendencia, aplicada.itens.length)), 'alteracao-incompleta')
+        }
+        rastro.levantamento = await gravarLevantamento(c.tenantId, alvo ? alvo.donoId : c.remetenteId, nome, alvo, aplicada.itens, pendencia ? EM_MONTAGEM : COMPLETO)
         if (pendencia) {
             // sem lista de cores na base, perguntar a cor não leva a lugar nenhum: a conversa diz o que falta
             if ('campo' in pendencia && pendencia.campo === 'cor_perfil' && cores.length === 0) return await responder(FRASE_SEM_CORES, 'sem-cores')

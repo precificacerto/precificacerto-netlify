@@ -13,6 +13,9 @@
  */
 export {}
 
+// a decisão é pura; o módulo importa o cliente do banco, que aqui não é usado
+jest.mock('@/supabase/admin', () => ({ supabaseAdmin: {} }))
+
 /* eslint-disable @typescript-eslint/no-require-imports */
 type Modulo = typeof import('@/lib/atendimentos-ia/permissao-do-remetente')
 const P = () => require('@/lib/atendimentos-ia/permissao-do-remetente') as Modulo
@@ -42,8 +45,8 @@ describe('permissaoPelaCadeia — admin só com a cadeia inteira', () => {
         ['role "Admin" (outra caixa) — comparação exata', { ...ADMIN, user: { role: 'Admin', tenant_id: TENANT } }, 'NAO_E_ADMIN'],
         ['employee de OUTRO tenant', { ...ADMIN, employee: { user_id: 'u1', tenant_id: 'outro' } }, 'OUTRO_TENANT'],
         ['user admin de OUTRO tenant', { ...ADMIN, user: { role: 'admin', tenant_id: 'outro' } }, 'OUTRO_TENANT'],
-        ['user sem tenant (o super admin não tem)', { ...ADMIN, user: { role: 'admin', tenant_id: null } }, 'OUTRO_TENANT'],
-    ])('%s → NÃO admin (%s)', (_n, elos, motivo) => {
+        ['user sem tenant', { ...ADMIN, user: { role: 'admin', tenant_id: null } }, 'OUTRO_TENANT'],
+    ])('%s → NÃO admin', (_n, elos, motivo) => {
         expect(P().permissaoPelaCadeia(TENANT, elos as never)).toEqual({ admin: false, motivo })
     })
 })
