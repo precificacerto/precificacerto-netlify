@@ -787,7 +787,7 @@ export const ProductPrice: FC<Props> = ({
         {/* O `c` AGIA E NÃO APARECIA. Ele encolhe a margem e levanta o preço inteiro (R9), e
             sem exibi-lo o usuário não tem como explicar por que a MC caiu. Só é exibido
             quando a matriz governou: fora dela não há `c` apurado, e um "0,000%" afirmaria
-            que foi apurado e deu zero — `.claude/rules/ausente-vs-falso.md`. */}
+            que foi apurado e deu zero — `docs/regras/ausente-vs-falso.md`. */}
         {linhas.externalOpsCoefficientPct != null && (
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', fontSize: 13 }}>
             <Tooltip title="Coeficiente da operação por fora (R3): quanto IBS, CBS, IS e IPI ocupam do total geral. É ele que converte cada % Original em % Efetivada e que faz o total geral ser P ÷ (1 − c).">
@@ -838,7 +838,7 @@ export const ProductPrice: FC<Props> = ({
 
             A nota abaixo existe porque o valor legado AINDA compõe o preço deste
             produto: escondê-lo por completo deixaria um número no preço final sem
-            origem visível — `.claude/rules/ausente-vs-falso.md` ao contrário, um
+            origem visível — `docs/regras/ausente-vs-falso.md` ao contrário, um
             valor apurado exibido como se não existisse.
             ══════════════════════════════════════════════════════════════════ */}
         {(isLucroReal || isLucroPresumed || isSimplesHibrido) && terceirizadasTotal > 0 && (

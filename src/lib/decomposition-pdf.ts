@@ -77,7 +77,7 @@ export function brlPdf(v: number | null | undefined): string {
   return Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 })
 }
 
-/** `12,34%`. `null` vira travessão, jamais `0,00%` — `.claude/rules/ausente-vs-falso.md`. */
+/** `12,34%`. `null` vira travessão, jamais `0,00%` — `docs/regras/ausente-vs-falso.md`. */
 export function pctPdf(v: number | null | undefined): string {
   if (v == null || !Number.isFinite(Number(v))) return '—'
   return `${(Number(v) * 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}%`
@@ -129,7 +129,7 @@ const LINHAS_DO_RRO = new Set(['comissao', 'lucro', 'irpj', 'csll'])
  * A alíquota é impressa COMO VEM. Houve aqui um `Math.abs` que não fazia nada — nenhum
  * `pctPerItem` é negativo, e a mutação que o removia deixava os 15 casos verdes. Tirado em
  * vez de coberto por um caso inventado: o que garante o sinal é a origem do número, e é
- * isso que o teste afirma (`.claude/rules/teste-que-nao-exercita.md`).
+ * isso que o teste afirma (`docs/regras/teste-que-nao-exercita.md`).
  */
 export function celulaDoProduto(row: DecompositionRow, k: number): string {
   if (row.perItem[k] === undefined) return '—'

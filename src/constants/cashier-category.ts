@@ -1,6 +1,6 @@
 // AS LISTAS DE GRUPO SAÍRAM DAQUI para `expense-groups.ts`, a fonte única. Eram CINCO cópias
 // divergentes — o tipo, o seletor, os rótulos, o Hub e o `switch` do DFC —, e nenhuma batia com
-// as outras. `.claude/rules/copia-divergente.md`. As reexportações abaixo mantêm os imports
+// as outras. `docs/regras/copia-divergente.md`. As reexportações abaixo mantêm os imports
 // existentes funcionando: quem já importava daqui continua importando daqui, e o VALOR passou a
 // ter um dono só.
 export type { ExpenseGroupKey, StandardExpenseGroupKey } from './expense-groups'

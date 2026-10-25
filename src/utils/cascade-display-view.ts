@@ -81,7 +81,7 @@ export const ETAPA_DA_OPERACAO_POR_FORA = 8
  * O `amount` da etapa é `1` por construção (`peso_interno + peso_externo = 1`), e os dois
  * filhos trazem a própria fração como `amount`. A coluna de valores da cascata é de REAIS, e
  * três números que não são reais numa coluna de reais afirmam um valor que ninguém apurou —
- * `.claude/rules/ausente-vs-falso.md` na UNIDADE, a mesma família do PIS/COFINS fora de escala.
+ * `docs/regras/ausente-vs-falso.md` na UNIDADE, a mesma família do PIS/COFINS fora de escala.
  *
  * >>> O MOTOR NÃO É TOCADO <<<
  * Os pesos continuam sendo calculados e usados — a âncora interna, o rateio do RRO e a

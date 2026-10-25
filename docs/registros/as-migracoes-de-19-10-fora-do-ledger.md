@@ -51,7 +51,7 @@ procedimento é medir.
   `supabase`). O ledger só é lido pelo CLI, e só quando alguém o roda.
 - **O app depende dos OBJETOS, e eles existem.** Tabela, coluna, política e linha estão no banco;
   o ledger é o histórico de quem os criou, não a condição para existirem.
-- **Não é a primeira vez, e a pasta nunca foi a fonte.** `migration-delivery.md` mediu em
+- **Não é a primeira vez, e a pasta nunca foi a fonte.** `migracao.md` (Parte II) mediu em
   15/09/2026: 142 arquivos locais sem versão remota, 133 versões remotas sem arquivo, 4 em comum.
   As cinco de 19 e 20/10 são cinco a mais no mesmo quadro, não uma exceção a ele.
 
@@ -65,7 +65,7 @@ ledger e **roda, em ordem, as que não estão lá**. Para registrar sem rodar, o
 **1. O problema é maior que as cinco — e acertar as cinco não torna o `db push` seguro.** Com 142
 arquivos sem versão remota, o `db push` os trataria como pendentes, e com 133 versões remotas sem
 arquivo o histórico está fora de sincronia — o caso em que a própria documentação diz que o push
-falha pedindo `migration repair`. É o item de INFRAESTRUTURA de `migration-delivery.md`, e ele
+falha pedindo `migration repair`. É o item de INFRAESTRUTURA de `migracao.md` (Parte II), e ele
 continua aberto depois deste acerto.
 
 **2. Se o push chegasse às cinco**, na ordem da versão:
@@ -92,7 +92,7 @@ continua aberto depois deste acerto.
 | `20261020000001` | `CREATE TABLE` sem `IF NOT EXISTS` |
 
 **3. O `supabase/config.toml` não aponta para a produção.** `project_id = "web-app"` é o
-placeholder do `supabase init` (`migration-delivery.md`). Qualquer comando do CLI exige antes
+placeholder do `supabase init` (`migracao.md` (Parte II)). Qualquer comando do CLI exige antes
 `supabase link --project-ref` para o projeto certo — um passo a mais em que se pode errar o alvo.
 
 ### Uma correção de registro — o cabeçalho da `…000003` errava a razão
@@ -142,7 +142,7 @@ novas, `orcamentista_config.modelo` e `.nicho_id`, as políticas `atendimentos_i
 | (a) | o prefixo do arquivo — `20261019000001`, `…02`, `…03`, `20261020000001` e `…02` | o nome do arquivo sem `.sql` | o CLI passa a reconhecer as cinco como aplicadas: entram nas "em comum", como as quatro de fevereiro |
 | (b) | o instante da aplicação | o nome do arquivo sem `.sql` | segue o formato das aplicadas pelo conector (versão gerada, nome do arquivo). Mas o SQL Editor não gerou versão, e o instante teria de vir dos logs — um número reconstruído, não gravado |
 
-A convenção de `migration-delivery.md` (o `name` é o nome completo do arquivo) vale nas duas. A
+A convenção de `migracao.md` (Parte II) (o `name` é o nome completo do arquivo) vale nas duas. A
 (a) é a única em que o `db push` deixaria de ver as cinco como pendentes. **Recomendação: (a).** A
 escolha é do dono do produto.
 
@@ -154,9 +154,9 @@ escolha é do dono do produto.
   Antes de rodar, confirmar que o `link` apontou para a produção.
 - **por SQL:** um `INSERT` nas colunas que o passo 0 mediu, com `ON CONFLICT DO NOTHING` se a
   chave permitir. O texto do `INSERT` é conteúdo autorizado por hash: publicar o md5 dele antes
-  da tela de aprovação (`transformacao-quebra-a-cadeia-de-hash.md`).
+  da tela de aprovação (`migracao.md` (Parte III)).
 
-**3. Verificar depois** — por consulta, não pelo retorno do comando (`migration-delivery.md`):
+**3. Verificar depois** — por consulta, não pelo retorno do comando (`migracao.md` (Parte II)):
 o ledger tem exatamente cinco linhas a mais, com as versões e os nomes decididos no passo 1, e
 nenhuma outra linha mudou.
 
@@ -166,8 +166,8 @@ fecha as cinco de 19 e 20/10, e só elas.
 
 ## Relação com as outras regras
 
-`migration-delivery.md` tem o quadro geral do ledger, a convenção de nome e o item de
+`migracao.md` (Parte II) tem o quadro geral do ledger, a convenção de nome e o item de
 infraestrutura que este acerto não fecha. `estado-relatado-vs-real.md` é a razão do passo 0.
-`transformacao-quebra-a-cadeia-de-hash.md` vale para o `INSERT` do caminho por SQL. E o cabeçalho
+`migracao.md` (Parte III) vale para o `INSERT` do caminho por SQL. E o cabeçalho
 corrigido acima é o mesmo erro de `estado-relatado-vs-real.md` em escala pequena: uma afirmação
 sobre o que o banco faria, escrita sem conferir quando ela falharia.

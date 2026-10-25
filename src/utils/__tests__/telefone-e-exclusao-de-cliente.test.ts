@@ -26,12 +26,12 @@
  * Os 14 clientes com as duas colunas preenchidas tinham valores distintos, e isso foi lido como
  * evidência de dois telefones reais (fixo e WhatsApp). Doze deles têm `999999999` de um lado e
  * 4 a 9 dígitos do outro: lixo dos dois lados. É a mesma armadilha de
- * `.claude/rules/teste-que-nao-exercita.md` — medir a propriedade FÁCIL em vez da propriedade
+ * `docs/regras/teste-que-nao-exercita.md` — medir a propriedade FÁCIL em vez da propriedade
  * que DECIDE.
  *
  * A MIGRAÇÃO DE DADOS É RODADA PRÓPRIA. Os 89 registros com telefone espalhado nas duas colunas
  * FICAM COMO ESTÃO; este PR só faz o código gravar certo daqui pra frente. Quando for feita,
- * vale o protocolo de `.claude/rules/migration-delivery.md`: SQL em raw e base64, `md5`,
+ * vale o protocolo de `.claude/rules/migracao.md (Parte II)`: SQL em raw e base64, `md5`,
  * verificação por consulta e `NOTIFY pgrst, 'reload schema'`. O único caso com DOIS valores
  * plausíveis é o Wfjnrjn (`51999999999` e `51999114290`), e ele fica com o `whatsapp_phone`.
  */
@@ -126,7 +126,7 @@ describe('vazio e malformado são afirmações DIFERENTES', () => {
 
     it('o validador aceita vazio — quem recusa vazio é a outra regra', () => {
         // Juntar as duas esconderia qual das duas é o caso: "não informou" e "informou errado"
-        // são coisas distintas. `.claude/rules/ausente-vs-falso.md`.
+        // são coisas distintas. `docs/regras/ausente-vs-falso.md`.
         return expect((formato as { validator: (a: unknown, b: string) => Promise<void> })
             .validator(null, '')).resolves.toBeUndefined()
     })
@@ -140,7 +140,7 @@ describe('vazio e malformado são afirmações DIFERENTES', () => {
 
 describe('a máscara está em UM módulo, não copiada para três telas', () => {
     it('nenhuma página redefine `phoneMask`', () => {
-        // Copiar para os dois campos seria `.claude/rules/copia-divergente.md`, a classe que já
+        // Copiar para os dois campos seria `docs/regras/copia-divergente.md`, a classe que já
         // custou o #27, o #28 e o #45.
         for (const fonte of [CLIENTES, ORCAMENTOS, AGENDA]) {
             expect(fonte).not.toContain('const phoneMask = (value: string)')

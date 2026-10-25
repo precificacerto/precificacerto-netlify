@@ -7,7 +7,7 @@
  *
  * A venda é FATO HISTÓRICO. O PEDIDO resolve do cadastro vivo por ser documento em edição;
  * a venda não pode: resolver custo, MO e alíquotas do cadastro de HOJE reescreveria o passado
- * a cada edição do produto — a 6ª aparição de `.claude/rules/fato-vs-referencia.md`.
+ * a cada edição do produto — a 6ª aparição de `docs/regras/fato-vs-referencia.md`.
  *
  * >>> POR QUE INSUMO CONGELADO, e não a decomposição pronta <<<
  * Ela é determinística a partir de poucos campos. Gravar as vinte e tantas linhas seria

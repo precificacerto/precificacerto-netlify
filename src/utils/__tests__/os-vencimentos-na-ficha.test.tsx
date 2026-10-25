@@ -3,7 +3,7 @@
  *
  * `hoje` é injetado em todo caso. As asserções negativas comparam contra o PRODUTO (o id da
  * fixture, `formatBRL(...)`), nunca contra literal transcrito —
- * `.claude/rules/assercao-negativa-que-nunca-falha.md`.
+ * `docs/regras/assercao-negativa-que-nunca-falha.md`.
  */
 
 import React from 'react'

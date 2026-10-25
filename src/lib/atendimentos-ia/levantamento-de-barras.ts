@@ -22,7 +22,7 @@
  *   - BARRA → REFERÊNCIA → CÓDIGO → VALOR, UM VALOR POR CÓDIGO. Dois códigos para o mesmo (perfil,
  *     cor) é dado incompleto, não ambiguidade aceitável: RECUSA com os dois códigos e os dois
  *     valores, mesmo com preço igual ("preço igual, usa os dois" foi proposto e rejeitado);
- *   - FALTOU DADO, RECUSA NOMEADA (`.claude/rules/faltou-dado-recusa-nomeada.md`): nunca aproxima,
+ *   - FALTOU DADO, RECUSA NOMEADA (`docs/regras/faltou-dado-recusa-nomeada.md`): nunca aproxima,
  *     nunca escolhe o parecido, nunca calcula com o que sobrou. Com qualquer recusa, não sai barra
  *     nenhuma — e saem TODAS as recusas, de todas as esquadrias, de uma vez.
  *

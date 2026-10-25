@@ -30,7 +30,7 @@ describe('1. A ENTRADA saiu da tela de produto', () => {
     // ÚNICOS do arquivo. A asserção é sobre o IDENTIFICADOR, não sobre a linha de import:
     // uma mutação que reintroduzisse o import com aspas duplas passaria por uma asserção
     // sobre o texto do import — e passou, na primeira rodada. Variante 2 de
-    // `.claude/rules/teste-que-nao-exercita.md`: o caso escolhido não discriminava.
+    // `docs/regras/teste-que-nao-exercita.md`: o caso escolhido não discriminava.
     expect(price).not.toContain('CurrencyInput')
     expect(price).not.toContain('onFreightChange')
     expect(price).not.toContain('onInsuranceChange')

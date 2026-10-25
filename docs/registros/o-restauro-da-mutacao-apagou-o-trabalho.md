@@ -1,7 +1,7 @@
 # O Restauro da Mutação Apagou o Trabalho, e o Indicador Não Acusou
 
 > **Incidente do assistente, 17/09/2026.** Registrado em `docs/registros/` e **não** como
-> aparição de `.claude/rules/portao-que-nao-alcanca.md` — a afinidade é discutida no fim, e a
+> aparição de `docs/regras/portao-que-nao-alcanca.md` — a afinidade é discutida no fim, e a
 > decisão de contá-la ou não é do dono do produto. `registro-de-classe.md` proíbe forçar.
 >
 > **Nome proposto, se um dia virar regra:** `restauro-para-a-referencia-errada.md`.

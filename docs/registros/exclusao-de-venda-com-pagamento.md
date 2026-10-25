@@ -74,7 +74,7 @@ fixo inserido pelo usuário"*, digitado à mão (1 linha na base inteira).
 **Três vezes o nome afirma o que a coisa não é** — e nas três a correção foi trocar o nome, não
 o comportamento. Nas duas primeiras isso já foi feito; nesta, não. Fica registrado como forma
 recorrente no vocabulário do sistema, ainda sem tabela própria: é o mesmo limite de
-`.claude/rules/registro-de-classe.md` que manteve a assimetria desktop×mobile em três
+`docs/regras/registro-de-classe.md` que manteve a assimetria desktop×mobile em três
 ocorrências. **Não se forçou uma quarta.**
 
 ---

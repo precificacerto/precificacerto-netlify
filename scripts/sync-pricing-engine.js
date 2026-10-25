@@ -20,7 +20,7 @@
  * arquivo, teria sido PIOR que o defeito: os checksums bateriam e o espelho iria para produção
  * apontando para um módulo que não existe na pasta da função.
  *
- * É a aparição 2 de `.claude/rules/portao-que-nao-alcanca.md`, literal: *"o check da cópia
+ * É a aparição 2 de `docs/regras/portao-que-nao-alcanca.md`, literal: *"o check da cópia
  * prova IGUALDADE entre os dois arquivos, nunca que qualquer um dos dois resolve seus
  * imports"*. E o corolário dela é o desenho deste arquivo: *"um portão de igualdade precisa de
  * um portão de sanidade ao lado, ou a cópia propaga o defeito com o carimbo de conforme."*

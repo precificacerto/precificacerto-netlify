@@ -8,7 +8,7 @@
  * SEM `onChange`, SEM `maxLength` e SEM validação: um placeholder prometendo um formato que
  * ninguém aplicava.
  *
- * Copiar a função para esses dois lugares seria `.claude/rules/copia-divergente.md`, a classe
+ * Copiar a função para esses dois lugares seria `docs/regras/copia-divergente.md`, a classe
  * que já custou o #27, o #28 e o #45: o mesmo mapeamento escrito em vários lugares, e a
  * terceira edição corrigindo um e esquecendo os outros. Com um módulo só, mudar a regra vale
  * para todas as telas e a omissão deixa de ser possível.

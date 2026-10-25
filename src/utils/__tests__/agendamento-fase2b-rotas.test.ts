@@ -1066,7 +1066,7 @@ describe('a migração nasce PENDENTE, e o arquivo diz o que precisa dizer', () 
   })
 
   it('o arquivo traz a verificação por CONSULTA e o `NOTIFY pgrst`', () => {
-    // `migration-delivery.md`: não confiar no retorno do comando de aplicação, e o NOTIFY não
+    // `migracao.md` (Parte II): não confiar no retorno do comando de aplicação, e o NOTIFY não
     // vem junto com o COMMIT.
     expect(sql).toContain('information_schema.columns')
     expect(sql).toContain('role_table_grants')

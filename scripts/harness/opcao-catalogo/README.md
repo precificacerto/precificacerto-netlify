@@ -100,7 +100,7 @@ têm "Ã" nenhum, e a verificação 3a passaria. A 3b compara o texto gravado co
 
 ## Relação com as outras regras
 
-`transformacao-quebra-a-cadeia-de-hash.md` é a razão da verificação 3b: o md5 do arquivo prova o
+`migracao.md` (Parte III) é a razão da verificação 3b: o md5 do arquivo prova o
 arquivo, e este prova o banco. `teste-que-nao-exercita.md` é a razão do caso 12 e da contagem com
 `SELECT DISTINCT`. `instrumento-que-se-enxerga.md` é a razão do controle M0 sair verde, que é a
 fixture do alvo ausente.

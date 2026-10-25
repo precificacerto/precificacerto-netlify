@@ -1,3 +1,13 @@
+---
+paths:
+  - "src/page-parts/products/**"
+  - "src/page-parts/services/**"
+  - "src/page-parts/items/**"
+  - "src/utils/item-tax-rates.ts"
+  - "src/utils/iva-dual-reduction-factor.ts"
+  - "src/utils/classificacao-fiscal.ts"
+---
+
 # A Razão Longe da Restrição
 
 > **Esta regra é independente da correção que a originou.** Nasceu na rodada em que a lista
@@ -113,7 +123,7 @@ ponto de leitura, leitor propõe alargar.**
 
 As duas últimas ainda não produziram proposta nenhuma. Estão na tabela porque a forma é
 idêntica e o gatilho é o mesmo — é o mesmo estado da migração do PR #18 em
-`migration-delivery.md`: **ficou armada, esperando**.
+`migracao.md` (Parte II): **ficou armada, esperando**.
 
 ### O que a #3 e a #4 NÃO afirmam
 

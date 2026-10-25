@@ -109,7 +109,7 @@ describe('a lista branca dos orçamentos', () => {
         // decisão de 08/09 revoga a parte da regra de 31/07 que escondia cadeia morta. Não é
         // defeito da regra antiga nem descuido de quem a escreveu — é MUDANÇA DE PROPÓSITO: a
         // regra da época cobria um histórico sem propósito de auditoria, e o propósito nasceu
-        // agora. `.claude/rules/decisao-sob-regra-da-epoca.md`.
+        // agora. `docs/regras/decisao-sob-regra-da-epoca.md`.
         expect(BUDGET_STATUSES_NO_HISTORICO).toContain('CANCELLED')
         expect(BUDGET_STATUSES_NO_HISTORICO).toContain('EXCLUIDO')
     })
@@ -293,7 +293,7 @@ describe('o rastro da venda excluída chega à tela — PRODUTO e SERVIÇO', () 
         // A cascata desativa os lançamentos, e a consulta do histórico traz só os ativos. Ali o
         // booleano é o ÚNICO marcador e significa REMOVIDO — o critério "status separa" não se
         // aplica porque não há status a separar. Lista vazia diria "zero parcelas"; `null` não
-        // diz nada, que é a leitura certa. `.claude/rules/ausente-vs-falso.md`.
+        // diz nada, que é a leitura certa. `docs/regras/ausente-vs-falso.md`.
         const detalhe = buildSaleHistoryDetail({
             sale: { final_value: 2.58, payment_method: 'PIX' },
             items: [{ product_id: PRODUTO.id, quantity: 1, unit_price: 2.58 }],

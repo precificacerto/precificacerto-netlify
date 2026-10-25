@@ -21,7 +21,7 @@
  *
  * Isso NÃO é falha da planilha: ela foi construída sob o nível anterior, quando a distinção
  * entre congelado-em-R$ e congelado-em-% ainda não tinha sido tomada
- * (`.claude/rules/decisao-sob-regra-da-epoca.md`). O que muda é UMA célula e o que ela
+ * (`docs/regras/decisao-sob-regra-da-epoca.md`). O que muda é UMA célula e o que ela
  * arrasta — RRO, as quatro do RRO, a análise vertical e o LUCRO DA VENDA.
  *
  * >>> DE ONDE VÊM OS NÚMEROS NOVOS, E POR QUE ELES NÃO SÃO A SAÍDA DO MÓDULO <<<

@@ -2,7 +2,7 @@
 
 > **Pendência registrada em 17/09/2026, por decisão do dono do produto.** Não é defeito, não
 > é classe, e **não deve ser puxada no meio de outra correção** — é o mesmo tratamento que
-> `fato-vs-referencia.md` dá ao inventário de congelamento e que `migration-delivery.md` dá à
+> `fato-vs-referencia.md` dá ao inventário de congelamento e que `migracao.md` (Parte II) dá à
 > reconciliação das migrações: escopo e rodada próprios.
 
 ## A decisão

@@ -9,7 +9,7 @@ python3 -B scripts/harness/escolhas-na-pre-definicao/mutacoes.py
 
 - `00_como_em_producao.sql` escreve `orcamentista_pre_definicao` com as colunas medidas em produção
   em 25/10/2026. A migração que a criou (`20261020000003_atendimentos_ia_conversa`) está no histórico
-  do banco e **não está no repositório** — `migration-delivery.md`.
+  do banco e **não está no repositório** — `migracao.md` (Parte II).
 - `run.sh` aplica a migração DUAS vezes (schema e dados idênticos) e roda os 4 casos.
 - `mutacoes.py`: 6 mutações e o controle. Medido em 25/10/2026: 6 de 6 vermelhas, controle verde.
 

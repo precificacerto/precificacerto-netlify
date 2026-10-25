@@ -104,7 +104,7 @@ nenhuma delas precisasse falhar primeiro.
 
 ## Relação com as outras regras
 
-`baseline-measurement.md` diz como medir sem se enganar. `migration-delivery.md` diz como
+`baseline-measurement.md` diz como medir sem se enganar. `migracao.md` (Parte II) diz como
 saber que o banco tem o que o repositório declara. `fato-vs-referencia.md` e
 `ausente-vs-falso.md` são registros de classe escritos segundo esta página. Esta aqui é a
 regra sobre as regras: onde elas moram e que forma têm.

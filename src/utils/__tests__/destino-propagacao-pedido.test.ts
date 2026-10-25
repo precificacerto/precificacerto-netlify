@@ -62,7 +62,7 @@ describe('A causa · o select deixou de ser escrito à mão', () => {
         // Antes isto era um ARRAY escrito à mão, e a comparação era entre duas listas
         // escritas à mão — a do módulo e a do teste. Um campo novo na interface que não
         // entrasse em nenhuma das duas passava verde: o teste afirmava o que podia ver, e o
-        // que podia ver não era a interface (`.claude/rules/teste-que-nao-exercita.md`).
+        // que podia ver não era a interface (`docs/regras/teste-que-nao-exercita.md`).
         //
         // Com `satisfies Record<keyof BudgetItemForOrder, true>`, faltar uma chave é ERRO DE
         // TIPO, e sobrar uma que a interface não tem também. Agora o build quebra de verdade.

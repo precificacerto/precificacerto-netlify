@@ -1,7 +1,7 @@
 # Leitores e Escritores São Listas Diferentes
 
 > **Ocorrência ÚNICA, registrada como caso único.** A busca por precedentes foi feita
-> conforme `.claude/rules/registro-de-classe.md` e está registrada abaixo. Nenhuma segunda
+> conforme `docs/regras/registro-de-classe.md` e está registrada abaixo. Nenhuma segunda
 > aparição foi forçada.
 >
 > **Nome proposto, se um dia virar regra:** `leitores-e-escritores.md`.

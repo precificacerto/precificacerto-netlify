@@ -122,7 +122,7 @@ Quando os quatro coincidem, é esta classe.
 
 ## Relação com as outras regras
 
-`migration-delivery.md` trata do que o banco tem contra o que o repositório declara.
+`migracao.md` (Parte II) trata do que o banco tem contra o que o repositório declara.
 `baseline-measurement.md` trata de medir o efeito de um PR sem se enganar. Esta trata do que
 o dado **significa**: se ele é memória de um cálculo que aconteceu, ou ponteiro para uma
 configuração que muda.

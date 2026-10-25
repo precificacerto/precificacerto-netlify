@@ -18,7 +18,7 @@
  *
  * O teste 2 do checklist existia no MOTOR e não na APRESENTAÇÃO, e por isso a lacuna passou.
  * Módulo puro é o que permite afirmar o EFEITO (o número que fecha) em vez da passagem
- * (`.claude/rules/teste-que-nao-exercita.md`).
+ * (`docs/regras/teste-que-nao-exercita.md`).
  *
  * >>> A EFETIVAÇÃO É LIDA, NUNCA RECALCULADA <<<
  *

@@ -97,7 +97,7 @@ export const LIFECYCLE_STYLE: Record<DocumentLifecycle, LifecycleStyle> = {
  * > A regra da época cobria um histórico que NÃO TINHA PROPÓSITO DE AUDITORIA. O propósito
  * > nasceu agora.
  *
- * É a família de `.claude/rules/decisao-sob-regra-da-epoca.md`. Sem a suspensão, *"a cadeia
+ * É a família de `docs/regras/decisao-sob-regra-da-epoca.md`. Sem a suspensão, *"a cadeia
  * aparece uma vez, no estágio em que morreu"* valeria SÓ PARA AS CADEIAS QUE DERAM CERTO, e o
  * rastro das que FALHARAM continuaria invisível — o oposto do que a auditoria precisa.
  *

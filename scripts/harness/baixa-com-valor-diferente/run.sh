@@ -3,7 +3,7 @@
 #
 # NÃO TOCA PRODUÇÃO. O schema mínimo (00_schema.sql) foi EXTRAÍDO do catálogo vivo de
 # produção em 16/10/2026 — não do histórico de migrações, que não reproduz o schema real
-# (ver `migration-delivery.md`). Cada bloco do schema diz se é EXTRAÍDO ou RECONSTRUÍDO.
+# (ver `migracao.md` (Parte II)). Cada bloco do schema diz se é EXTRAÍDO ou RECONSTRUÍDO.
 #
 # PENDÊNCIA NOMEADA — DIVERGÊNCIA DE VERSÃO: produção é PostgreSQL 17.6; este harness roda
 # 16.15. A RPC não usa nada específico de versão, mas isso é RACIOCÍNIO, NÃO MEDIÇÃO. Os 14

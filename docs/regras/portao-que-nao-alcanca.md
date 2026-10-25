@@ -107,10 +107,15 @@ de `baseline-measurement.md`, feita à mão — e essa comparação não existe 
 A autoria é do assistente: o P3 foi escrito, nomeado portão e relatado como tal sem que a
 pergunta 3 fosse feita. Quem perguntou foi o dono do produto, ao pedir o relato da CI.
 
-**As correções possíveis, NÃO aplicadas**, e são as duas da rota (a) abaixo: congelar a
-contagem do `tsc` e falhar quando ela aumentar; ou tornar o `tsc` bloqueante para um conjunto
-de caminhos. Até uma delas existir, um portão de tipo neste repositório é medição manual, e
-tem de ser relatado assim.
+**A correção foi APLICADA em 19/10/2026** (`6fb3969`), pela primeira das duas rotas: congelar a
+contagem do `tsc` e falhar quando ela aumentar. É o `npm run check-tsc`
+(`scripts/tsc-linha-de-base.js`), **bloqueante no job `gates`** (`.github/workflows/ci.yml:58`).
+Ele compara por arquivo + código contra `scripts/tsc-linha-de-base.json` e fica vermelho só com erro
+NOVO. O que esta seção mediu continua valendo para o `typecheck` do `diagnostics`, que segue com
+`continue-on-error`. Um portão de tipo **não** é mais medição manual neste repositório.
+
+> Redação até 25/10/2026, vencida: *"As correções possíveis, NÃO aplicadas […]. Até uma delas
+> existir, um portão de tipo neste repositório é medição manual, e tem de ser relatado assim."*
 
 ### A medição de hoje, que é a evidência
 
@@ -193,7 +198,16 @@ sanidade ao lado, ou a cópia propaga o defeito com o carimbo de conforme.
   exatamente por isso que o `continue-on-error` está lá. O furo não é descuido — é uma dívida
   conhecida com consequência não catalogada.
 
-## A correção candidata — NÃO implementada
+## A correção candidata — AS DUAS ROTAS FORAM IMPLEMENTADAS
+
+> **Estado em 25/10/2026.** O título desta seção dizia *"NÃO implementada"*, e está vencido:
+> - a **(b)** entrou em 12/10/2026 (`81e77c5`): `npm run check-edge-imports`, bloqueante no `gates`
+>   (`ci.yml:47`), confere que cada import do espelho resolve na pasta;
+> - a **(a)**, na forma "congelar a contagem e falhar só no aumento", entrou em 19/10/2026 (`6fb3969`):
+>   `npm run check-tsc`, bloqueante no `gates` (`ci.yml:58`).
+>
+> O `typecheck` do `diagnostics` continua com `continue-on-error`. O texto abaixo é o de antes, com
+> o raciocínio das duas rotas.
 
 A escolha fica para quem for mexer no CI. Duas rotas, com o custo de cada uma:
 

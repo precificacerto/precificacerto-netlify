@@ -14,14 +14,14 @@
  * >>> POR QUE ISTO NÃO CONTRADIZ O BUG-CARDS-RRO-001 <<<
  *
  * Aquela regra dizia "a Etapa 16 é a FONTE DE VERDADE ABSOLUTA de Comissão e Lucro", e ela
- * estava CERTA PARA A ÉPOCA (`.claude/rules/decisao-sob-regra-da-epoca.md`): o que ela
+ * estava CERTA PARA A ÉPOCA (`docs/regras/decisao-sob-regra-da-epoca.md`): o que ela
  * proibia era o card RECALCULAR por conta própria, e naquele momento a Etapa 16 era a única
  * apuração do RRO que existia. A decomposição não existia. Hoje existe, e ela corrige três
  * coisas que a Etapa 16 não corrige — a ordem das deduções da R19, o CMV do item e a escala
  * do PIS/COFINS. O princípio é o mesmo, com outra fonte: o card continua NÃO calculando.
  *
  * >>> UMA FONTE, NÃO DUAS CONFERIDAS <<<
- * `.claude/rules/copia-divergente.md`: "o remédio não é conferir as duas, é apagar uma".
+ * `docs/regras/copia-divergente.md`: "o remédio não é conferir as duas, é apagar uma".
  * Por isso a substituição é do VALOR e dos DOIS percentuais — deixar o percentual vindo da
  * Etapa 16 e o valor da decomposição devolveria um par que nenhum dos dois lados produziu.
  */

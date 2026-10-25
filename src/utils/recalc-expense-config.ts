@@ -233,7 +233,7 @@ export async function mergeExpenseConfig(tenantId: string): Promise<ExpenseConfi
       §8 — A COLUNA É PENDENTE POR PADRÃO. `financial_commitments_percent` vem da migração
       `20261002000001_compromissos_financeiros_percentual`, e ela tem de ser aplicada ANTES OU JUNTO do
       merge: este UPDATE é quem grava a coluna, e sem ela o PostgREST recusa a escrita inteira.
-      É a ordem que `migration-delivery.md` exige para coluna que o código GRAVA.
+      É a ordem que `migracao.md` (Parte II) exige para coluna que o código GRAVA.
     */
     financial_commitments_percent: result.financial_commitments_percent,
     financial_expense_percent: result.financial_expense_percent,

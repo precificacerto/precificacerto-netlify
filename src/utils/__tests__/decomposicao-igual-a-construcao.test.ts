@@ -596,7 +596,7 @@ describe('10. A JUNTA — a tela decompõe o array ENRIQUECIDO, não a linha cru
  * Está certo, e a razão é aritmética: com `discountPct = 0`, `receitaProdutosPorItem[k]` É
  * `items[k].totalProduto`, então `r × pct` e `totalProduto × pct` são o MESMO número. Os dez
  * blocos acima rodam todos em desconto zero — nenhum deles podia distinguir os dois estados.
- * É a variante 2 de `.claude/rules/teste-que-nao-exercita.md`, e ela passou despercebida
+ * É a variante 2 de `docs/regras/teste-que-nao-exercita.md`, e ela passou despercebida
  * porque o caso parecia completo: ele confere sete linhas ao centavo.
  *
  * O DEFEITO QUE ELE DEIXAVA PASSAR, medido no ORC-5487 com 5% de desconto:
@@ -698,7 +698,7 @@ describe('11. R18 COM DESCONTO — o que congela, o que recalcula, e a medida ex
 
   it('APRESENTAÇÃO: linha congelada não tem base nem percentual', () => {
     // Base e percentual numa linha congelada afirmam um cálculo que não existe — e o número
-    // que ele produziria é justamente o errado. `.claude/rules/ausente-vs-falso.md`.
+    // que ele produziria é justamente o errado. `docs/regras/ausente-vs-falso.md`.
     for (const k of CONGELADAS) {
       expect(linha(com, k).base).toBeNull()
       expect(linha(com, k).pct).toBeNull()
@@ -785,7 +785,7 @@ describe('12. DESCONTO POR ITEM — R14 na coluna', () => {
  *
  * Dois valores onde a Parte 0 de `cascata-lucro-real.md` tem três. Nenhum caso podia
  * distinguir os dois estados, porque nenhum deles saía da industrialização — variante 2 de
- * `.claude/rules/teste-que-nao-exercita.md`: o caso escolhido não discrimina.
+ * `docs/regras/teste-que-nao-exercita.md`: o caso escolhido não discrimina.
  *
  * >>> OS DOIS LADOS RODAM AQUI, E É ISSO QUE MUDA <<<
  *

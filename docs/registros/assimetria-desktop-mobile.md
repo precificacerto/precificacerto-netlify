@@ -65,7 +65,7 @@ registrado como verificado e descartado, para não voltar como falso positivo.
 
 ## Por que isto NÃO virou regra em `.claude/rules/`
 
-Pelo limite de `.claude/rules/registro-de-classe.md`:
+Pelo limite de `docs/regras/registro-de-classe.md`:
 
 > Uma ocorrência é anedota, quatro com o mesmo padrão é critério. **Se a busca por precedentes
 > não encontrar nada, registre a ocorrência isolada como caso único. Não force duas ocorrências

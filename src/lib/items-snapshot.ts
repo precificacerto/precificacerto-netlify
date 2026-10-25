@@ -122,7 +122,7 @@ export interface ItemHydrationInput {
    * Alcance medido: 77 produtos com ICMS próprio e 68 com PIS/COFINS, contra 21 itens com DAS.
    *
    * Consumir o input pronto — em vez de remontá-lo — é o que impede a cobertura de divergir de
-   * novo: passa a existir UM construtor, não dois. Ver `.claude/rules/construtor-empobrecido.md`.
+   * novo: passa a existir UM construtor, não dois. Ver `docs/regras/construtor-empobrecido.md`.
    */
   motorInput: ReapurationInput
   /**

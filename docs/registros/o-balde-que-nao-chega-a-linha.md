@@ -49,7 +49,7 @@ expense_group  ──[ o switch ]──▶  balde do agregador  ──[ os build
                └── DFC_GROUPS_QUE_SOMAM cobre ──┘      └── ninguém cobre ──┘
 ```
 
-É a mesma forma de `.claude/rules/portao-que-nao-alcanca.md`, agora no portão que eu mesmo
+É a mesma forma de `docs/regras/portao-que-nao-alcanca.md`, agora no portão que eu mesmo
 escrevi para tapar aquele buraco: **o nome promete mais do que o instrumento alcança.** O
 critério da regra, aplicado a ele, responde na hora — *"se eu introduzir o defeito que este
 portão existe para barrar, ele fica vermelho?"* O defeito "grupo sem `case`" sim; o defeito

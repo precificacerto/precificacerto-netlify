@@ -466,7 +466,7 @@ export interface TaxBreakdown {
    * >>> POR QUE CONGELAR, em vez de resolver do cadastro como o pedido faz <<<
    * A venda GRAVADA é fato histórico: resolver custo, MO e alíquotas do cadastro vivo
    * reescreveria o passado a cada edição do produto — a 6ª aparição de
-   * `.claude/rules/fato-vs-referencia.md`. O pedido é documento em edição e segue o outro
+   * `docs/regras/fato-vs-referencia.md`. O pedido é documento em edição e segue o outro
    * caminho, por decisão do dono do produto de 16/09/2026.
    *
    * AUSENTE = venda anterior a este congelamento. A tela diz isso explicitamente em vez de

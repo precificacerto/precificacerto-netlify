@@ -1,3 +1,10 @@
+---
+paths:
+  - "src/lib/atendimentos-ia/**"
+  - "src/pages/api/atendimentos-ia/**"
+  - "supabase/migrations/**"
+---
+
 # A Coluna Que Parece Enumeração
 
 > **Esta regra é independente da rodada que a originou.** Nasceu em 20/10/2026, na DP-02, ao

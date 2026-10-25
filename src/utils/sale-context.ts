@@ -13,7 +13,7 @@
  *
  * INEXISTENTE NÃO É ZERO. Zero é uma alíquota que resulta em valor nulo mas ocupa
  * linha, entra em soma e aparece na decomposição. Inexistente não tem linha. É a mesma
- * distinção de `.claude/rules/ausente-vs-falso.md`, aqui no FORMATO em vez do valor.
+ * distinção de `docs/regras/ausente-vs-falso.md`, aqui no FORMATO em vez do valor.
  *
  * O QUE A MATRIZ NÃO DECIDE: valor. Alíquota, fator de redução do IVA Dual e base
  * reduzida continuam vindo do cadastro do item e do tenant. A matriz responde "este
@@ -160,7 +160,7 @@ export function resolveSaleContext(input: SaleContextInput): SaleContextResult {
  *
  * `undefined` NÃO é o código 1: é NÃO CLASSIFICADO, e cai no padrão da R3. Confundir os dois
  * transformaria todo produto legado num produto com base `P`, silenciosamente
- * (`.claude/rules/ausente-vs-falso.md`).
+ * (`docs/regras/ausente-vs-falso.md`).
  */
 export interface BaseCodeOverrides {
   ibs?: BaseCode | null
