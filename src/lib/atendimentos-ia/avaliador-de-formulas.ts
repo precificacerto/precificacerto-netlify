@@ -39,11 +39,16 @@
  *   Nome que não está em lugar nenhum é `VARIAVEL_SEM_VALOR`. Nome que está na aba 'Fórmulas' E na
  *   'Variáveis' é recusado antes de avaliar (`NOME_EM_DUAS_FONTES`): não se escolhe um dos dois.
  *
- * `&X` é o número entre colchetes da opção ESCOLHIDA na variável X ("[33,00]" → 33). Opção sem
- * colchete NÃO é zero: é `MEDIDA_DA_OPCAO_AUSENTE`, com a opção nomeada. Consequência medida na
- * DP-02: com ARE = 1 e MAE no padrão (1 = "MEDIDA DO VÃO (CORTE 45/45)", sem colchete), as linhas
- * de LARE/HARE são recusadas — "medida do vão" quer dizer +0 para quem lê, mas o arquivo não diz
- * isso, e um zero suposto aqui vira preço.
+ * `&X` é o número entre colchetes da opção ESCOLHIDA na variável X ("[33,00]" → 33). A opção SEM
+ * colchete — DECISÃO DO DONO DO PRODUTO, 25/10/2026, que substitui a recusa de antes:
+ *   - se o nome NÃO anuncia acréscimo, `&X` = 0. Fundamento, do Leia-me do motor: "&MAE, &ARI, &FV,
+ *     &FF etc. são o valor (mm) da opção escolhida"; em MAE as opções 2 e 3 são "VÃO+50MM [50,00]" e
+ *     "VÃO+100MM [100,00]" — o colchete é o "+50" do nome —, e "MEDIDA DO VÃO" é o arremate igual ao
+ *     vão: soma zero. Regra geral, não exceção da DP-02;
+ *   - se o nome ANUNCIA acréscimo ("+" seguido de número) e o colchete falta, é
+ *     `MEDIDA_DA_OPCAO_AUSENTE`: o número do nome não é lido no lugar do colchete.
+ * Até 25/10/2026 toda opção sem colchete era recusa (`faltou-dado-recusa-nomeada.md`, aparição 5), e
+ * os padrões da DP-02 não fechavam; a decisão está registrada lá, datada.
  *
  * O QUE ESTE MÓDULO NÃO FAZ, e por quê:
  *   - NÃO avalia a coluna Condição da aba 'Variáveis'. Ela diz QUANDO perguntar a variável ao
@@ -405,6 +410,9 @@ export function opcoesDaVariavel(texto: string | null): Array<{ valor: number; r
     const lidas = opcoesDe(texto)
     return lidas === null ? null : lidas.map((o) => ({ valor: o.valor, rotulo: o.rotulo }))
 }
+/** O nome da opção anuncia um acréscimo: "VÃO+50MM", "VÃO + 100 MM". */
+const ANUNCIA_ACRESCIMO = /\+\s*\d/
+
 /** "1 = BZ0006 - ARREMATE 65MM [33,00]; 4 = SEM ARREMATE INTERNO" → as opções, ou null se um pedaço não casar. */
 function opcoesDe(texto: string): Opcao[] | null {
     const saida: Opcao[] = []
@@ -471,9 +479,14 @@ function ambienteDa(ctx: Contexto): Ambiente {
                 throw new ErroDeAvaliacao('OPCAO_INEXISTENTE', `&${nome}: a variável ${nome} vale ${escolhido}, e não há opção ${escolhido}.`, { variavel: nome })
             }
             if (opcao.medida === null) {
-                throw new ErroDeAvaliacao('MEDIDA_DA_OPCAO_AUSENTE',
-                    `&${nome}: a opção ${opcao.valor} da variável ${nome} ("${opcao.rotulo}") não tem medida entre colchetes. &${nome} não tem valor, e nenhum é suposto.`,
-                    { variavel: nome })
+                // o nome que anuncia acréscimo sem trazer o colchete: falta o número, e ele não é suposto
+                if (ANUNCIA_ACRESCIMO.test(opcao.rotulo)) {
+                    throw new ErroDeAvaliacao('MEDIDA_DA_OPCAO_AUSENTE',
+                        `&${nome}: a opção ${opcao.valor} da variável ${nome} ("${opcao.rotulo}") anuncia um acréscimo e não tem a medida entre colchetes. &${nome} não tem valor, e nenhum é suposto.`,
+                        { variavel: nome })
+                }
+                // sem colchete e sem acréscimo no nome ("MEDIDA DO VÃO"): soma zero — decisão de 25/10/2026
+                return racional(Z)
             }
             return opcao.medida
         },

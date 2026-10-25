@@ -29,11 +29,10 @@
  *   LBAG = LFOL−100 = 489.8              HBAG = HFOL−100 = 811.6
  *   Qtd do BZ0012 = ⌈(1200/450+1)·2⌉ + ⌈(1000/450+1)·2⌉ = ⌈7,333…⌉ + ⌈6,444…⌉ = 8 + 7 = 15
  *
- * O RECORTE QUE FECHA SEM VALOR INVENTADO. O pedido era "ARI e ARE com as opções padrão". Com ARE
- * no padrão (1), MAE também fica no padrão (1) = "MEDIDA DO VÃO (CORTE 45/45)" — SEM colchete. Pela
- * regra do próprio pedido, `&MAE` sem colchete é ERRO, nunca zero: as linhas 10 e 11 (BZ0010,
- * LARE/HARE) são recusadas. Esse é o caso (5). O recorte que fecha é MAE = 2 ("[50,00]"), no
- * caso (4); e ARE = 2 (sem arremate externo) fecha também, no caso (6).
+ * A OPÇÃO SEM COLCHETE. Até 25/10/2026, `&MAE` sem colchete era ERRO, e os padrões da DP-02 (ARE 1,
+ * MAE 1 = "MEDIDA DO VÃO (CORTE 45/45)") não fechavam. Desde a decisão do dono do produto daquela data,
+ * a opção sem colchete e sem acréscimo no nome vale 0 mm, e a que anuncia acréscimo ("+50") sem o
+ * colchete continua recusa. É o caso (5). MAE = 2 ("[50,00]") é o caso (4); ARE = 2, o caso (6).
  *
  * Cada caso fica VERMELHO sem a sua regra: a bateria está em `scripts/harness/avaliador-de-formulas/`.
  */

@@ -129,10 +129,32 @@ export function lerEscolhasDoItem(valor: unknown): Record<string, number | null>
     return lidas
 }
 
-/** O Padrão numérico da variável na aba, ou null quando ele não é um número. */
-function padraoDe(tipologia: Tipologia, variavel: string): number | null {
+/**
+ * O PADRÃO DO ARREMATE — o ÚNICO ponto onde ele é decidido (dono do produto, 25/10/2026).
+ *
+ * Hoje é o do MOTOR: a coluna "Padrão" da aba Variáveis da tipologia (DP-02: ARI 1, ARE 1, MAE 1).
+ * Se a base de conhecimento da EMPRESA (`orcamentista_esquadrias_base`: usa_arremate_interno,
+ * guarnicao_interna, usa_arremate_externo, medida_arremate_externo…) um dia tiver esses campos
+ * preenchidos, O DA EMPRESA PREVALECE sobre o da tipologia — e entra AQUI, e só aqui: a conta
+ * (`escolhasComPadrao`) e a frase (`descreverArremate`) leem esta função. Medido em 25/10/2026: no
+ * tenant 20e08592 os campos de arremate estão TODOS nulos, então não há padrão de empresa concorrendo.
+ *
+ * Null quando o Padrão da aba não é um número.
+ */
+export function padraoDoArremate(tipologia: Tipologia, variavel: string): number | null {
     const p = tipologia.variaveis.find((v) => v.variavel === variavel)?.padrao?.trim() ?? ''
     return /^\d+$/.test(p) ? Number(p) : null
+}
+
+/** As escolhas que a CONTA usa: as do vendedor e, nas capturadas que ele não disse, o padrão. */
+export function escolhasComPadrao(tipologia: Tipologia, explicitas: Escolhas): Record<string, number> {
+    const efetivas: Record<string, number> = { ...explicitas }
+    for (const v of ESCOLHAS_CAPTURADAS) {
+        if (efetivas[v] !== undefined) continue
+        const padrao = padraoDoArremate(tipologia, v)
+        if (padrao !== null) efetivas[v] = padrao
+    }
+    return efetivas
 }
 
 /**
@@ -142,11 +164,7 @@ function padraoDe(tipologia: Tipologia, variavel: string): number | null {
  * Null quando a tipologia não tem variável capturada.
  */
 export function descreverArremate(tipologia: Tipologia, explicitas: Escolhas): string | null {
-    const efetivas: Record<string, number> = {}
-    for (const v of ESCOLHAS_CAPTURADAS) {
-        const valor = explicitas[v] ?? padraoDe(tipologia, v)
-        if (valor !== null && valor !== undefined) efetivas[v] = valor
-    }
+    const efetivas = escolhasComPadrao(tipologia, explicitas)
     const partes: string[] = []
     for (const v of tipologia.variaveis) {
         if (!capturada(v.variavel) || !condicaoPede(v.condicao, efetivas)) continue

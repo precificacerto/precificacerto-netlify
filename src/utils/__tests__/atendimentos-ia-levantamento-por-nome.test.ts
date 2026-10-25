@@ -28,9 +28,9 @@
  * interno e não aparecem em resposta nenhuma. Só quando o vendedor pede outro arremate as opções são
  * mostradas, por extenso.
  *
- * MEDIDO (25/10/2026), e é o que o aceite 1 recebe: o PADRÃO da DP-02 NÃO FECHA EM BRANCO. A MAE padrão
- * ("MEDIDA DO VÃO") não traz medida, e o BZ0012/WOLFF que a ARI padrão puxa só tem a variante CLICK. A
- * resposta é a RECUSA NOMEADA — nunca um número suposto. Com o arremate dito em palavras, sai o preço.
+ * O PADRÃO DA DP-02 FECHA EM BRANCO desde as decisões do dono do produto de 25/10/2026: a opção sem
+ * colchete e sem acréscimo no nome ("MEDIDA DO VÃO") vale 0 mm, e o perfil com uma variante só no motor
+ * (o BZ0012, 'CLICK') usa essa variante. Antes delas, o aceite 1 era recusa nomeada.
  *
  * O TESTE QUE VALE (dono do produto): pedidos seguidos do MESMO telefone, todos respondidos — "Casa do
  * João", "Obra Centro", a alteração por "casa do joao" — e "Casa do João 2", que tem de PERGUNTAR.
@@ -252,6 +252,8 @@ jest.mock('@/supabase/admin', () => ({
 const rota = require('@/pages/api/atendimentos-ia/inbound').default as (req: NextApiRequest, res: NextApiResponse) => Promise<unknown>
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const conversa = require('@/lib/atendimentos-ia/conversa-da-ia') as typeof import('@/lib/atendimentos-ia/conversa-da-ia')
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { formatarReais } = require('@/lib/atendimentos-ia/levantamento-de-barras') as typeof import('@/lib/atendimentos-ia/levantamento-de-barras')
 
 type Proposta = { nome?: string; novo?: boolean; itens?: Linha[]; escolhas?: Linha[]; opcoes_de?: string[]; pergunta?: { texto: string } } & Linha
 function respostaComFerramenta(p: Proposta) {
@@ -349,22 +351,30 @@ afterEach(() => {
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════
 describe('(1) O TESTE QUE VALE: pedidos seguidos do MESMO telefone, todos respondidos, e um que pergunta', () => {
-    const ACEITE_1 = 'Levantamento Casa do João — janela de correr 2 folhas móveis Europa 42, 1200 x 1000 mm, 1 unidade, perfil branco, vidro 5mm'
+    // nomes novos no roteiro: o "Casa do João" de produção é dado de teste do dono do produto
+    const ACEITE_1 = 'Levantamento Casa do Pedro — janela de correr 2 folhas móveis Europa 42, 1200 x 1000 mm, 1 unidade, perfil branco, vidro 5mm'
 
-    it('1. a esquadria inteira, SEM nenhuma pergunta de arremate: o padrão é assumido e confirmado, e a resposta sai JÁ — no padrão da DP-02 em branco, a RECUSA NOMEADA do que falta', async () => {
-        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, vidro: 'vidro 5mm' }] })
+    it('1. a esquadria inteira, SEM nenhuma pergunta de arremate: o padrão é assumido e confirmado, e a resposta sai JÁ com os dois totais', async () => {
+        llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02, vidro: 'vidro 5mm' }] })
         await chamar(ACEITE_1)
         expect(enviados()).toHaveLength(1)
         const r = enviados()[0]
         expect(r.split('\n')[0]).toBe(conversa.FRASE_ARREMATE_PADRAO)
         // a resposta diz, por extenso, qual arremate foi usado
         expect(r).toContain('Arremate e guarnição — arremate interno: BZ0006 - ARREMATE 65MM (padrão); arremate externo: BZ0010 - ARREMATE 20MM (padrão); medida arremate externo: MEDIDA DO VÃO (CORTE 45/45) (padrão).')
-        // MEDIDO: o padrão não fecha — a MAE padrão não traz medida. Recusa nomeada, nenhum número suposto
-        expect(r).toContain('Não consegui fechar o levantamento “Casa do João”, perfil BRANCO.')
-        expect(r).toContain('“MEDIDA ARREMATE EXTERNO” não tem valor, e nenhum é suposto.')
-        expect(r).not.toMatch(/R\$/)
+        expect(r).not.toContain('Não consegui')
+        // os dois totais. A barra inteira é DERIVADA DA FONTE, não lida da saída: a conta à mão de 1b
+        // (ARI 4, MAE 2: R$ 1.342,0875) mais uma barra do BZ0006 e uma do BZ0012, pelo valor da tabela, e a
+        // mão de obra de R$ 77,30. MEDIDO em 25/10/2026: R$ 1.506,52 e R$ 955,30 — NÃO os R$ 1.419,39 e R$ 907,09
+        // esperados, que são os de "sem arremate interno" com MAE 2 (o caso 1b). Relatado ao dono do produto.
+        const valor = (c: string) => Number((DE_PARA.itens as Linha[]).find((i) => i.codigo === c)?.valor_barra_interno)
+        const perfis = Math.round((1342.0875 + valor('10501') + valor('10491')) * 100) / 100
+        expect(r).toContain(`Perfis por barra inteira: ${formatarReais(perfis)}.`)
+        expect(r).toContain(`Total por barra inteira (perfis + mão de obra): ${formatarReais(Math.round((perfis + 77.3) * 100) / 100)}.`)
+        expect(r).toMatch(/Total por consumo real \(perfis \+ mão de obra\): R\$ [\d.]+,\d{2}\./)
+        expect(r).toContain('NÃO cobre o vidro nem os insumos e acessórios')
         expect(r).not.toMatch(VOCABULARIO_INTERNO)
-        expect(levantamentos()[0]).toEqual(expect.objectContaining({ nome: 'Casa do João', estado: 'COMPLETO' }))
+        expect(levantamentos()[0]).toEqual(expect.objectContaining({ nome: 'Casa do Pedro', estado: 'COMPLETO' }))
     })
 
     it('1b. o MESMO pedido com o arremate dito em palavras: sai JÁ, com os dois totais, o arremate usado e o que o preço cobre e não cobre', async () => {

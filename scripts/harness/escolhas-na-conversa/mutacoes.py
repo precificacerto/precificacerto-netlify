@@ -42,7 +42,7 @@ M = [
  ('E11', 'o prompt não proíbe escolher sozinho', CV, [("NUNCA escolha sozinho:", "Escolha a mais comum:")], 'vão ao prompt'),
  ('E12', 'a escolha válida não é gravada', LM, [("        if (r.gravar) alvo.escolhas = { ...(alvo.escolhas ?? {}), ...r.gravar }\n", "")], '(ARI 4) é gravado'),
  ('E13', 'a coluna escolhas não é lida', CV, [("const COLUNAS_DO_ITEM = `id, ordem, ${CAMPOS_DA_ESQUADRIA.join(', ')}, escolhas`", "const COLUNAS_DO_ITEM = `id, ordem, ${CAMPOS_DA_ESQUADRIA.join(', ')}`")], 'as escolhas ficam'),
- ('E14', 'as escolhas não seguem para o avaliador', LC, [("escolhas: escolhas[i], espessura_vidro_mm:", "escolhas: {}, espessura_vidro_mm:")], 'a DP-02 FECHA'),
+ ('E14', 'as escolhas não seguem para o avaliador', LC, [("escolhas: lidas[e.tipologia] ? escolhasComPadrao(lidas[e.tipologia], escolhas[i]) : escolhas[i], espessura_vidro_mm:", "escolhas: {}, espessura_vidro_mm:")], 'a DP-02 FECHA'),
  ('E15', 'o levantamento ignora as escolhas gravadas', LC, [("    const escolhas = lev.itens.map((e) => lerEscolhasGravadas(e.escolhas))\n", "    const escolhas = lev.itens.map(() => lerEscolhasGravadas(null))\n")], 'a DP-02 FECHA'),
  ('E16', 'a linha das escolhas some do texto', LC, [("    ...(e.escolhas === null ? [] : [`Arremate e guarnição — ${e.escolhas}.`]),", "    ...([] as string[]),")], 'o texto inteiro'),
  ('E17', 'trocar a tipologia não apaga as escolhas', LM, [("        if (validos.tipologia !== undefined && validos.tipologia !== alvo.tipologia) alvo.escolhas = null\n", "")], 'trocar a TIPOLOGIA'),
@@ -51,8 +51,9 @@ M = [
  ('E19', 'o padrão não é confirmado', CV, [("const confirmacao = temArremate ?", "const confirmacao = false ?")], 'o padrão é assumido e confirmado'),
  ('E20', 'o pedido das opções (null) se perde na leitura', ES, [("        if (v === null) lidas[k] = null\n        else if", "        if")], 'mostra as opções em palavras'),
  ('E21', 'pedir as opções não marca a variável', LM, [("        alvo.escolhas = { ...(alvo.escolhas ?? {}), [variavel]: null }\n", "")], 'pedir as opções do arremate externo'),
- ('E22', 'a recusa sai com o código interno da variável', LC, [("const traduzir = (m: string) => Object.values(lidas).reduce((t, tip) => traduzirVocabulario(t, tip), m)", "const traduzir = (m: string) => m")], 'RECUSA NOMEADA'),
+ ('E22', 'a recusa sai com o código interno da variável', LC, [("const traduzir = (m: string) => Object.values(lidas).reduce((t, tip) => traduzirVocabulario(t, tip), m)", "const traduzir = (m: string) => m")], 'MAE 9'),
  ('E23', 'o arremate volta a ser perguntado por padrão', LM, [("const pedida = def ? Object.entries(item.escolhas ?? {}).find(([, v]) => v === null)?.[0] : undefined", "const pedida = def ? 'ARI' : undefined")], 'SEM nenhuma pergunta de arremate'),
+ ('E24', 'o ponto único do padrão devolve outra opção (a conta e a frase seguem juntas)', ES, [("    return /^\\d+$/.test(p) ? Number(p) : null\n}", "    return /^\\d+$/.test(p) ? Number(p) + 1 : null\n}")], 'o PADRÃO fecha'),
  ('E0', 'controle: nada muda', ES, [("export", "export")]),
 ]
 

@@ -68,7 +68,7 @@
  */
 import { supabaseAdmin } from '@/supabase/admin'
 import { lerTipologia, type AbasDoMotor, type AvisoDoAvaliador, type Tipologia } from '@/lib/atendimentos-ia/avaliador-de-formulas'
-import { descreverArremate, lerEscolhasGravadas, traduzirVocabulario } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
+import { descreverArremate, escolhasComPadrao, lerEscolhasGravadas, traduzirVocabulario } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import {
     formatarReais, levantarBarras,
     type ItemDaTabela, type RegraDoDePara, type ResultadoDoLevantamento,
@@ -450,11 +450,16 @@ export async function mensagemDoLevantamento(
     }
     const regras = [...porTrio.values()]
     const itens = await lerItens(tabela.tabelaId, [...new Set(regras.map((r) => r.codigo))].sort())
+    // as cores da empresa: o que é COR na coluna `cor` do motor, para a guarda da variante única
+    const coresDaEmpresa = await lerCoresDaEmpresa(tenantId)
 
     const r = levantarBarras({
         cor: cores[0],
+        coresDaEmpresa,
+        // o padrão do arremate entra AQUI, pelo ponto único (`padraoDoArremate`), e não pelo avaliador
         esquadrias: d.esquadrias.map((e, i) => ({
-            tipologia: e.tipologia, L_mm: e.largura_mm, H_mm: e.altura_mm, quantidade: e.quantidade, escolhas: escolhas[i], espessura_vidro_mm: espessuraDoVidro(lev.itens[i].vidro),
+            tipologia: e.tipologia, L_mm: e.largura_mm, H_mm: e.altura_mm, quantidade: e.quantidade,
+            escolhas: lidas[e.tipologia] ? escolhasComPadrao(lidas[e.tipologia], escolhas[i]) : escolhas[i], espessura_vidro_mm: espessuraDoVidro(lev.itens[i].vidro),
         })),
         tipologias: lidas,
         regras,

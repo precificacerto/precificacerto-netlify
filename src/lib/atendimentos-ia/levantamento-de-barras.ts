@@ -35,10 +35,20 @@
  * escolher. Mas a cor vazia AO LADO de outras cores NÃO é coringa: o que ela significa ali não foi
  * medido (`a-coluna-que-parece-enumeracao.md`, ressalvas), e a recusa diz quais variantes existem.
  *
- * A COLUNA `cor` NÃO É SÓ COR (`a-coluna-que-parece-enumeracao.md`): `BZ0012/WOLFF` só existe como
- * `CLICK`, e `BZ1770/WOLFF` como "GUARNIÇÃO ARREMATE INTERNO 17X70MM" e laminados. Em BRANCO, os dois
- * são recusados nomeando as variantes — e a DP-02 com arremate interno (ARI 1 ou 2) não fecha até
- * alguém dizer qual é o código em branco. É a regra funcionando, não um defeito.
+ * A COLUNA `cor` NÃO É SÓ COR (`a-coluna-que-parece-enumeracao.md`): na DP-02 ela carrega '1MM',
+ * 'IL50', 'LINHA 42', '(DESAGUE)', e `BZ0012/WOLFF` só existe como `CLICK` — o tipo de encaixe.
+ *
+ * A REGRA DA COR — decisão do dono do produto, 25/10/2026, geral:
+ *   - o perfil com UMA variante no motor (um par código + cor) usa essa variante, sem casar a cor
+ *     (`VARIANTE_UNICA`). É o BZ0012 (código 10491, 'CLICK');
+ *   - com MAIS DE UMA, casa pela cor pedida; sem ela, é RECUSA nomeando o código, a cor e as variantes
+ *     (o BZ1770 em BRANCO). NÃO autoriza "a mais parecida": com várias e sem a cor pedida, é recusa.
+ * A GUARDA, que é leitura minha da regra e está relatada ao dono do produto: a variante única que é
+ * uma COR DA EMPRESA (a lista `cores` da base, comparada sem caixa e sem acento só para classificar)
+ * diferente da pedida é RECUSA. Medido em 25/10/2026: 7 perfis do motor Wolff têm como única variante
+ * BRANCO (BZ0006, BZ0010, entre eles); sem a guarda, uma esquadria preta levaria o código branco, que
+ * é a troca pelo parecido que a R3 proíbe. Com a empresa só em BRANCO, como em produção hoje, a guarda
+ * não muda nada.
  *
  * O PREÇO AUSENTE NÃO TRAVA AS BARRAS. Quantas barras comprar não depende do preço; o TOTAL depende.
  * O agrupador já devolve o total `null` quando um código não tem o valor — não soma os que têm —, e
@@ -52,6 +62,7 @@
  * `scripts/harness/levantamento-de-barras/`.
  */
 import { avaliarTipologia, type AvisoDoAvaliador, type Tipologia } from './avaliador-de-formulas'
+import { normalizarNome } from './nome-do-levantamento'
 import { agruparEmBarras, milimetrosDaBarra, type BarraDoCodigo, type ResultadoDoCodigo, type TotalDoLevantamento } from './agrupador-de-barras'
 
 
@@ -77,6 +88,8 @@ export type ItemDaTabela = {
 export type EntradaDoLevantamento = {
     /** A cor do perfil, comparada EXATA com a coluna `cor` do motor. Obrigatória: sem default. */
     cor: string
+    /** As cores da empresa (a lista da base): o que é COR na coluna `cor`, para a guarda da variante única. */
+    coresDaEmpresa: readonly string[]
     esquadrias: readonly EsquadriaDoLevantamento[]
     tipologias: Readonly<Record<string, Tipologia>>
     regras: readonly RegraDoDePara[]
@@ -158,10 +171,14 @@ const soOCodigo = (codigo: string): CandidatoDoCodigo => ({ codigo, descricao: n
 
 type RecusaDaPonte = Omit<RecusaDoLevantamento, 'esquadrias' | 'mensagem'> & { texto: string }
 export type ResultadoDaPonte =
-    | { ok: true; codigo: string; origem: 'COR' | 'SEM_VARIANTE' }
+    | { ok: true; codigo: string; origem: OrigemDoCodigo }
     | { ok: false; recusa: RecusaDoLevantamento }
+type OrigemDoCodigo = 'COR' | 'SEM_VARIANTE' | 'VARIANTE_UNICA'
 
-function ponte(perfil: string, cor: string, regras: readonly RegraDoDePara[]): { ok: true; codigo: string; origem: 'COR' | 'SEM_VARIANTE' } | { ok: false; recusa: RecusaDaPonte } {
+/** A variante é uma cor da EMPRESA? Sem caixa e sem acento — só para classificar, nunca para casar. */
+const ehCorDaEmpresa = (variante: string, cores: readonly string[]) => cores.some((c) => normalizarNome(c) === normalizarNome(variante))
+
+function ponte(perfil: string, cor: string, regras: readonly RegraDoDePara[], coresDaEmpresa: readonly string[]): { ok: true; codigo: string; origem: OrigemDoCodigo } | { ok: false; recusa: RecusaDaPonte } {
     const linhas = regras.filter((r) => r.codigo_wvetro === perfil)
     if (!linhas.length) {
         return { ok: false, recusa: { origem: 'CODIGO', motivo: 'PERFIL_SEM_REGRA', perfil, cor,
@@ -174,6 +191,12 @@ function ponte(perfil: string, cor: string, regras: readonly RegraDoDePara[]): {
         const unicos = distintos(linhas.map((r) => r.codigo))
         if (unicos.length === 1) return { ok: true, codigo: unicos[0], origem: 'SEM_VARIANTE' }
         return { ok: false, recusa: { origem: 'CODIGO', motivo: 'DOIS_CODIGOS', perfil, cor, texto: '', candidatos: unicos.map(soOCodigo) } }
+    }
+    // UMA variante no motor: usa essa — salvo quando ela é uma cor da empresa, que não é a pedida
+    const pares = distintos(linhas.map((r) => JSON.stringify([r.codigo, r.cor])))
+    if (pares.length === 1) {
+        const [codigo, variante] = JSON.parse(pares[0]) as [string, string]
+        if (!ehCorDaEmpresa(variante, coresDaEmpresa)) return { ok: true, codigo, origem: 'VARIANTE_UNICA' }
     }
     const variantes = distintos(linhas.map((r) => r.cor ?? VAZIA))
     return { ok: false, recusa: { origem: 'CODIGO', motivo: 'COR_SEM_CODIGO', perfil, cor, variantes,
@@ -193,8 +216,8 @@ function completarDoisCodigos(r: RecusaDaPonte, itens: readonly ItemDaTabela[]):
 }
 
 /** A ponte, para quem quer só o código de uma peça. A recusa sai sem esquadria. */
-export function codigoDaPeca(perfil: string, cor: string, regras: readonly RegraDoDePara[], itens: readonly ItemDaTabela[] = []): ResultadoDaPonte {
-    const p = ponte(perfil, cor, regras)
+export function codigoDaPeca(perfil: string, cor: string, regras: readonly RegraDoDePara[], coresDaEmpresa: readonly string[], itens: readonly ItemDaTabela[] = []): ResultadoDaPonte {
+    const p = ponte(perfil, cor, regras, coresDaEmpresa)
     if (!('recusa' in p)) return p
     const r = p.recusa.motivo === 'DOIS_CODIGOS' ? completarDoisCodigos(p.recusa, itens) : p.recusa
     const { texto, ...resto } = r
@@ -256,7 +279,7 @@ export function levantarBarras(entrada: EntradaDoLevantamento): ResultadoDoLevan
     const perfis = distintos(brutas.map((p) => p.perfil))
     const codigoDoPerfil: Record<string, string> = {}
     for (const perfil of perfis) {
-        const p = ponte(perfil, cor, entrada.regras)
+        const p = ponte(perfil, cor, entrada.regras, entrada.coresDaEmpresa)
         const esquadrias = [...new Set(brutas.filter((b) => b.perfil === perfil).map((b) => b.esquadria))]
         if (!('recusa' in p)) { codigoDoPerfil[perfil] = p.codigo; continue }
         const r = p.recusa.motivo === 'DOIS_CODIGOS' ? completarDoisCodigos(p.recusa, entrada.itens) : p.recusa

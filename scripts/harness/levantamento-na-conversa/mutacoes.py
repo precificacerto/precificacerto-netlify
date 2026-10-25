@@ -51,7 +51,7 @@ M = [
                                                                        ("const consumo = t.total_por_consumo_real === null ? null : centavos(t.total_por_consumo_real)", "const consumo = t.total_por_consumo_real")], 'o texto inteiro'),
  ('L21', 'o total com mão de obra esquece a mão de obra', LC, [("formatarReais(centavos(material + maoDeObraTotal))", "formatarReais(centavos(material))")], 'o texto inteiro'),
  ('L22', 'a mão de obra não multiplica pela quantidade', LC, [("total: centavos(m.valor * quantidade),", "total: m.valor,")], 'a quantidade multiplica'),
- ('L23', 'o levantamento volta à cor fixa BRANCO', LC, [("        cor: cores[0],\n        esquadrias:", "        cor: 'BRANCO',\n        esquadrias:")], 'PRETO TEXTURADO'),
+ ('L23', 'o levantamento volta à cor fixa BRANCO', LC, [("        cor: cores[0],\n        coresDaEmpresa,", "        cor: 'BRANCO',\n        coresDaEmpresa,")], 'PRETO TEXTURADO'),
  ('L24', 'a cor do perfil aceita qualquer texto', PD, [("            return typeof v === 'string' && cores.includes(v) ? v : undefined", "            return textoValido(v) ? (v as string).trim() : undefined")], 'não é BRANCO'),
  ('L25', 'as cores não vão ao prompt', CV, [("${c.cores.length ? c.cores.join(', ') : '(nenhuma)'}", "(nenhuma)")], 'vão ao prompt'),
  ('L26', 'sem lista de cores, a conversa pergunta a cor assim mesmo', CV, [("pendencia.campo === 'cor_perfil' && cores.length === 0)", "pendencia.campo === 'cor_perfil' && false)")], 'SEM LISTA DE CORES'),
