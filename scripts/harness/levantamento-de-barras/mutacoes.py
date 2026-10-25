@@ -51,7 +51,7 @@ M = [
  ('M20', 'o preço ausente não é nomeado', A, [("if (!Number.isFinite(it.valor_barra_interno as number)) falta.push(", "if (false) falta.push(")], 'PREÇO AUSENTE'),
  ('M21', 'dois códigos sem os valores na frase', A, [("`${c.codigo} (${formatarReais(c.valor_barra_interno)} a barra)`", "`${c.codigo}`")], 'os dois valores'),
  ('M22', 'cor sem código sem as variantes na frase', A, [("as variantes que existem são: ${variantes.join(', ')}", "há outras variantes")], 'nomeando a variante'),
- ('M23', 'a cor desta versão não é BRANCO', A, [("export const COR_DA_PRIMEIRA_VERSAO = 'BRANCO'", "export const COR_DA_PRIMEIRA_VERSAO = 'Branco'")], 'só BRANCO'),
+ ('M23', 'a cor da entrada é ignorada: volta a BRANCO fixa', A, [("    const cor = entrada.cor\n", "    const cor = 'BRANCO'\n")], 'PRETO TEXTURADO'),
  ('M24', 'o real com ponto decimal', A, [("return `${v < 0 ? '−' : ''}R$ ${inteiro},${resto}`", "return `${v < 0 ? '−' : ''}R$ ${inteiro}.${resto}`")], 'ICU'),
  ('M25', 'o código do item sai sem o perfil', A, [("por_codigo: agrupado.por_codigo.map((c) => ({ ...c, perfil: perfilDoCodigo[c.codigo], descricao:", "por_codigo: agrupado.por_codigo.map((c) => ({ ...c, descricao:")], 'CÓDIGOS DO ITEM'),
  ('M26', 'o código WVetro vai ao agrupador', A, [("pecas: prontas.map((b) => ({ codigo: codigoDoPerfil[b.perfil], comprimento_mm", "pecas: prontas.map((b) => ({ codigo: b.perfil, comprimento_mm")], 'CÓDIGOS DO ITEM'),

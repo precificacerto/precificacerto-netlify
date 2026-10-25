@@ -40,7 +40,7 @@ M = [
  ('E11', 'o prompt não proíbe escolher sozinho', CV, [("NUNCA escolha sozinho, nem pelo Padrão", "Escolha a mais comum")], 'vão ao prompt'),
  ('E12', 'a escolha válida não é gravada', CV, [("...(escolha.gravar ? { escolhas: escolha.gravar } : {}), ", "")], 'GRAVADA em escolhas'),
  ('E13', 'a coluna escolhas não é lida', CV, [("${CAMPOS_DA_PRE_DEFINICAO.join(', ')}, escolhas`", "${CAMPOS_DA_PRE_DEFINICAO.join(', ')}`")], 'CHEGAM AO AVALIADOR'),
- ('E14', 'as escolhas não seguem para o levantamento', CV, [("            escolhas: gravada.escolhas,\n", "            escolhas: null,\n")], 'CHEGAM AO AVALIADOR'),
+ ('E14', 'as escolhas não seguem para o levantamento', CV, [("vidro: gravada.vidro, escolhas: gravada.escolhas,", "vidro: gravada.vidro, escolhas: null,")], 'CHEGAM AO AVALIADOR'),
  ('E15', 'o levantamento ignora as escolhas gravadas', LC, [("    const escolhas = lerEscolhasGravadas(pre.escolhas)\n", "    const escolhas = lerEscolhasGravadas(null)\n")], 'a DP-02 FECHA'),
  ('E16', 'a linha das escolhas some do texto', LC, [("            : [`Escolhas: ${e.escolhas}. As outras variáveis ficaram no Padrão da tipologia.`]", "            : []")], 'com as escolhas'),
  ('E0', 'controle: nada muda', ES, [("export", "export")]),
