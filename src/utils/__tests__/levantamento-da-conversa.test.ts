@@ -36,7 +36,8 @@ jest.mock('@/supabase/admin', () => ({
             let faixa: [number, number] | null = null
             let ordem: string | null = null
             const filtradas = () => (banco.db[tabela] ?? []).filter((l) => predicados.every((p) => p(l)))
-            const resposta = () => {
+            type Resposta = { data: Linha[] | null; error: { code: string; message: string } | null; count: number | null }
+            const resposta = (): Resposta => {
                 if (banco.ausentes.has(tabela)) return { data: null, error: { code: 'PGRST205', message: `Could not find the table 'public.${tabela}' in the schema cache` }, count: null }
                 let linhas = filtradas()
                 if (ordem) { const c = ordem; linhas = [...linhas].sort((a, b) => (String(a[c]) < String(b[c]) ? -1 : String(a[c]) > String(b[c]) ? 1 : 0)) }
@@ -194,7 +195,7 @@ describe('(5) a mensagem do levantamento', () => {
 
     it('PREÇO AUSENTE: o total que não sai diz qual código falta — nunca R$ 0,00', () => {
         const r = resultadoQueFecha()
-        const semBarra = { ...r, total: { ...r.total, total_por_barra_inteira: null }, falta_para_o_total: [{ codigo: '9641', perfil: 'HF88/WOLFF', falta: 'valor_barra_interno' as const, total: 'total_por_barra_inteira' as const, mensagem: '' }] }
+        const semBarra = { ...r, total: { ...r.total, total_por_barra_inteira: null as number | null }, falta_para_o_total: [{ codigo: '9641', perfil: 'HF88/WOLFF', falta: 'valor_barra_interno' as const, total: 'total_por_barra_inteira' as const, mensagem: '' }] }
         const texto = M().fraseDoLevantamento(ESQUADRIA, semBarra, null)
         expect(texto).toContain('Total por barra inteira: não sai — falta o valor da barra de 9641 (HF88/WOLFF).')
         expect(texto).toContain('Tempo de fabricação da tipologia: não está cadastrado para DP-02.')
