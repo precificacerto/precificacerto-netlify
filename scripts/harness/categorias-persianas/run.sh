@@ -27,6 +27,12 @@ for f in $R/scripts/harness/base-de-conhecimento/00_base.sql \
          $S/05_como_em_producao.sql; do
   $P -d $D -v ON_ERROR_STOP=1 -f $f >/dev/null 2>&1 || { echo "BASE FALHOU: $f"; $P -d $D -v ON_ERROR_STOP=1 -f $f 2>&1 | grep ERROR | head -3; exit 2; }
 done
+# TEXTO_CERTO_COM_A_TIL=1: um rótulo de campo CORRETO com "Ã" maiúsculo, que a verificação 2 não pode
+# confundir com mojibake (`instrumento-que-nao-enxerga.md`, aparição 6). Não é o estado de produção:
+# é o caso que a produção ainda não tem, e que a verificação antiga, por chr(195) sozinho, recusaria.
+if [ -n "$TEXTO_CERTO_COM_A_TIL" ]; then
+  $P -d $D -v ON_ERROR_STOP=1 -f $S/06_texto_certo_com_a_til.sql >/dev/null 2>&1 || { echo "BASE FALHOU: 06_texto_certo_com_a_til.sql"; exit 2; }
+fi
 DADOS="SELECT 'cat', ordem::text, chave, rotulo FROM orcamentista_categoria_catalogo
        UNION ALL SELECT 'mpc', id::text, categoria_chave, coalesce(config::text, 'NULL') || ' ' || coalesce(atualizado_por::text, '-') || ' ' || atualizado_em::text FROM orcamentista_mp_categoria
        UNION ALL SELECT 'campo', categoria_chave, chave, rotulo FROM orcamentista_categoria_campo ORDER BY 1, 2, 3"

@@ -56,3 +56,16 @@ verificação JUNTO com a regra, para provar que o CASO, sozinho, também pega.
 | V9 | o COMMENT do catálogo continua com "As 6 categorias…" | verificação 1 |
 | V10 | PERSIANAS ganha um campo escalar | verificação 5 |
 | **M0** | **controle: nada muda** | **verde — 7 de 7** |
+
+## A verificação 2 pelo PAR, não pelo "Ã" sozinho (25/10/2026)
+
+A verificação 2 procurava `chr(195)`/`chr(194)` sozinhos, e isso recusaria um texto **certo** com "Ã"
+maiúsculo — MODULAÇÃO, NÃO (`instrumento-que-nao-enxerga.md`, aparição 6). Agora ela procura o PAR:
+"Ã" ou "Â" seguido de um caractere de U+0080 a U+00BF, que é o que UTF-8 lido como Latin-1 produz.
+
+- `06_texto_certo_com_a_til.sql`, aplicado com `TEXTO_CERTO_COM_A_TIL=1`, grava "VEDAÇÃO DAS FOLHAS"
+  num rótulo de campo. Não é o estado de produção: é o caso que ela ainda não tem.
+- **V11** volta a verificação ao `chr(195)` sozinho, com esse rótulo no banco: a migração **aborta**
+  num texto certo. É o defeito, reproduzido.
+- **M1** é o controle com o mesmo rótulo e a migração do repositório: **passa**, 7 de 7.
+- **V8** continua vermelha: o mojibake de verdade ainda é pego.

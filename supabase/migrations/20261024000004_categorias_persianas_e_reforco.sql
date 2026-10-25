@@ -50,7 +50,12 @@
 --   1. o catálogo tem 7 linhas, ordem 1..7 sem buraco, nas chaves e rótulos acima — conferido pelo
 --      md5 do texto certo (ASCII, que nenhum transporte corrompe); e os três COMMENTs, idem;
 --   2. nenhum rótulo (catálogo e campos) e nenhum COMMENT das 11 tabelas da base com mojibake —
---      "Ã"/"Â" procurados por chr(195)/chr(194), não por literal. O conserto da 20261024000002 não
+--      procurado pelo PAR: "Ã" ou "Â" seguido de um caractere de U+0080 a U+00BF ("Ã§", "Ã£", "Â º"),
+--      que é o que UTF-8 lido como Latin-1 produz. "Ã" SOZINHO não serve: é letra do português
+--      (MODULAÇÃO, NÃO) — medido em 25/10/2026 nas 164 descrições de orcamentista_motor_tipologia_
+--      detalhe: chr(195) sozinho acusa 20 textos certos, o par acusa 0, e no mesmo texto corrompido
+--      de propósito o par acusa 130 de 130 (`instrumento-que-nao-enxerga.md`, aparição 6). Os
+--      caracteres são montados por chr(), não por literal. O conserto da 20261024000002 não
 --      pode ser desfeito por este arquivo;
 --   3. toda matéria-prima existente tem exatamente 7 linhas em mp_categoria, uma por chave do
 --      catálogo, e a de PERSIANAS com config NULL;
@@ -121,6 +126,8 @@ DECLARE
   v_c_antes  text;
   v_n_depois bigint;
   v_c_depois text;
+  -- o par do mojibake: [Ã Â] seguido de [U+0080 a U+00BF] — nunca "Ã" sozinho, que é letra
+  v_par      text := '[' || chr(195) || chr(194) || '][' || chr(128) || '-' || chr(191) || ']';
 BEGIN
   -- (1) 7 linhas, ordem 1..7 sem buraco, chaves e rótulos certos — e os três COMMENTs
   SELECT count(*), string_agg(ordem::text, ',' ORDER BY ordem) INTO v_n, v_ordens FROM public.orcamentista_categoria_catalogo;
@@ -137,17 +144,16 @@ BEGIN
     RAISE EXCEPTION 'verificacao 1: um dos tres COMMENTs reescritos nao chegou como o texto certo. Nada foi alterado.';
   END IF;
 
-  -- (2) nenhum mojibake: rótulos do catálogo e dos campos, e os COMMENTs das 11 tabelas
+  -- (2) nenhum mojibake: rótulos do catálogo e dos campos, e os COMMENTs das 11 tabelas — pelo PAR
   SELECT string_agg(x, ', ') INTO v_sujos FROM (
     SELECT 'catalogo.' || chave AS x FROM public.orcamentista_categoria_catalogo
-     WHERE strpos(rotulo, chr(195)) > 0 OR strpos(rotulo, chr(194)) > 0
+     WHERE rotulo ~ v_par
     UNION ALL
     SELECT categoria_chave || '.' || chave FROM public.orcamentista_categoria_campo
-     WHERE strpos(rotulo, chr(195)) > 0 OR strpos(rotulo, chr(194)) > 0
+     WHERE rotulo ~ v_par
     UNION ALL
     SELECT 'comment ' || t FROM unnest(tabelas) t
-     WHERE strpos(coalesce(obj_description(('public.' || t)::regclass, 'pg_class'), ''), chr(195)) > 0
-        OR strpos(coalesce(obj_description(('public.' || t)::regclass, 'pg_class'), ''), chr(194)) > 0
+     WHERE coalesce(obj_description(('public.' || t)::regclass, 'pg_class'), '') ~ v_par
   ) s;
   IF v_sujos IS NOT NULL THEN
     RAISE EXCEPTION 'verificacao 2: mojibake em %. Nada foi alterado.', v_sujos;

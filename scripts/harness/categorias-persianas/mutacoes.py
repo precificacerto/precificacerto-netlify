@@ -32,7 +32,8 @@ def pela_area_de_transferencia(texto):
     return texto.encode('utf-8').decode('latin-1')
 
 
-# (id, o que estraga, [(trecho, troca), ...] ou função, fragmento que TEM de aparecer na saída, só aplicar?)
+# (id, o que estraga, [(trecho, troca), ...] ou função, fragmento que TEM de aparecer na saída, só aplicar?
+#  [, ambiente extra para o run.sh])
 MUTACOES = [
     ('V1', 'sem o backfill de PERSIANAS', [(BACKFILL, "")], 'verificacao 3', False),
     ('B1', 'sem o backfill E sem a verificação 3 — o CASO tem de pegar sozinho',
@@ -68,7 +69,12 @@ MUTACOES = [
      [("-- ── 4. PERSIANAS sem campo escalar",
        "INSERT INTO public.orcamentista_categoria_campo (categoria_chave, chave, tipo, rotulo, ordem) VALUES ('PERSIANAS', 'modelo', 'texto', 'Modelo', 1) ON CONFLICT DO NOTHING;\n-- ── 4. PERSIANAS sem campo escalar")],
      'verificacao 5', False),
+    ('V11', 'a verificação 2 volta a ser chr(195) sozinho — com um rótulo CERTO com "Ã" no banco',
+     [("     WHERE rotulo ~ v_par\n    UNION ALL\n    SELECT categoria_chave || '.' || chave FROM public.orcamentista_categoria_campo\n     WHERE rotulo ~ v_par",
+       "     WHERE rotulo ~ v_par\n    UNION ALL\n    SELECT categoria_chave || '.' || chave FROM public.orcamentista_categoria_campo\n     WHERE strpos(rotulo, chr(195)) > 0 OR strpos(rotulo, chr(194)) > 0")],
+     'verificacao 2', False, {'TEXTO_CERTO_COM_A_TIL': '1'}),
     ('M0', 'CONTROLE: nada muda', [], None, False),
+    ('M1', 'CONTROLE com um rótulo CERTO com "Ã" no banco: a migração passa', [], None, False, {'TEXTO_CERTO_COM_A_TIL': '1'}),
 ]
 
 
@@ -92,13 +98,14 @@ def main():
     falhas = 0
     with tempfile.TemporaryDirectory() as tmp:
         copia = os.path.join(tmp, 'mutada.sql')
-        for ident, descricao, trocas, espera, so_aplicar in MUTACOES:
+        for ident, descricao, trocas, espera, so_aplicar, *ambiente in MUTACOES:
             if pedidas and ident not in pedidas:
                 continue
             open(copia, 'w', encoding='utf-8').write(mutar(original, trocas))
             env = dict(os.environ)
             if so_aplicar:
                 env['SO_APLICAR'] = '1'
+            env.update(ambiente[0] if ambiente else {})
             p = subprocess.run(['bash', os.path.join(AQUI, 'run.sh'), copia], capture_output=True, text=True, env=env)
             saida = p.stdout + p.stderr
             if espera is None:   # o controle
