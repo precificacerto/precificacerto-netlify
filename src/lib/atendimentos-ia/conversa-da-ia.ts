@@ -67,7 +67,7 @@ import {
     type CampoDaPreDefinicao, type EstadoDosCampos,
 } from '@/lib/atendimentos-ia/pre-definicao'
 import {
-    lerTabelaDaEmpresa, linhaDoCandidato, mensagemDoLevantamento, tipologiaDaTabela, type CandidatoDeTipologia,
+    FRASE_SEM_CORES, lerCoresDaEmpresa, lerTabelaDaEmpresa, linhaDoCandidato, mensagemDoLevantamento, tipologiaDaTabela, type CandidatoDeTipologia,
 } from '@/lib/atendimentos-ia/levantamento-da-conversa'
 import {
     escolhasPendentes, lerEscolhasGravadas, perguntaDaEscolha, validarEscolha, type EscolhaPendente,
@@ -82,7 +82,7 @@ const wuzapi = () => (process.env.WUZAPI_BASE_URL || 'https://usapi.adabtech.sho
 
 export type DesfechoDaIa =
     | 'sem-chave' | 'sem-saldo' | 'erro-da-llm' | 'recusa' | 'sem-proposta'
-    | 'fechou' | 'fechamento-falhou' | 'ja-completa' | 'perguntou' | 'envio-falhou' | 'erro'
+    | 'fechou' | 'fechamento-falhou' | 'ja-completa' | 'perguntou' | 'sem-cores' | 'envio-falhou' | 'erro'
     | 'sem-tipologias'
 
 type Rastro = { conversa: string; vaziosAntes: number | null; propostos: number; descartados: number; enviou: boolean }
@@ -149,7 +149,7 @@ export const FERRAMENTA = {
     },
 }
 
-function sistema(estado: Partial<EstadoDosCampos>, candidatos: readonly CandidatoDeTipologia[], pendentes: readonly EscolhaPendente[]): string {
+function sistema(estado: Partial<EstadoDosCampos>, candidatos: readonly CandidatoDeTipologia[], pendentes: readonly EscolhaPendente[], cores: readonly string[]): string {
     return [
         'Você conversa pelo WhatsApp com um VENDEDOR de uma empresa de esquadrias e levanta os dados de um pedido.',
         'O vendedor já sabe o que a empresa vende: você só pergunta e anota.',
@@ -159,7 +159,8 @@ function sistema(estado: Partial<EstadoDosCampos>, candidatos: readonly Candidat
         'Medidas em milímetros, inteiras: se o vendedor disser em metros ou centímetros, converta.',
         '',
         'Regras:',
-        '- Pergunte de forma ABERTA. NUNCA ofereça lista de opções ("Qual o vidro?", não um menu). A única exceção é a da tipologia, abaixo.',
+        '- Pergunte de forma ABERTA. NUNCA ofereça lista de opções ("Qual o vidro?", não um menu). As únicas exceções são a da tipologia e a da cor, abaixo.',
+        '- cor_perfil: EXATAMENTE uma das cores da empresa (lista do fim), escrita como está na lista. Preencha só quando o que o vendedor disse é, sem dúvida, uma delas; se for outra cor, ou se houver dúvida, NÃO preencha e pergunte, citando as cores da lista.',
         '- tipologia: o CÓDIGO (ex.: DP-02) de UMA das tipologias da lista do fim, escolhida pela descrição do que o vendedor disse. NUNCA invente código nem preencha com as palavras do vendedor. Se o que ele disse cabe em mais de uma da lista, NÃO preencha: pergunte qual é, citando a descrição INTEIRA de cada uma, sem o código. Se não cabe em nenhuma, pergunte de novo.',
         '- NUNCA pergunte nada sobre os padrões da empresa.',
         '- UMA pergunta por vez: a do próximo campo vazio, na ordem.',
@@ -173,6 +174,8 @@ function sistema(estado: Partial<EstadoDosCampos>, candidatos: readonly Candidat
         '',
         'Tipologias da tabela em uso da empresa (código | descrição | tipo):',
         ...(candidatos.length ? candidatos.map(linhaDoCandidato) : ['(nenhuma)']),
+        '',
+        `Cores da empresa (cor_perfil, escreva EXATAMENTE uma delas): ${cores.length ? cores.join(', ') : '(nenhuma)'}`,
         '',
         'Escolhas da tipologia ainda pendentes (variável: pergunta):',
         ...(pendentes.length ? pendentes.map((p) => `${p.variavel}: ${perguntaDaEscolha(p)}`) : ['(nenhuma)']),
@@ -199,7 +202,7 @@ function mensagemParaOLog(mensagem: unknown, chave: string): string {
 
 async function chamarLlm(
     chave: string, mensagens: Array<{ role: 'user' | 'assistant'; content: string }>, estado: Partial<EstadoDosCampos>,
-    candidatos: readonly CandidatoDeTipologia[], pendentes: readonly EscolhaPendente[],
+    candidatos: readonly CandidatoDeTipologia[], pendentes: readonly EscolhaPendente[], cores: readonly string[],
 ): Promise<ResultadoDaLlm> {
     let r: Response
     try {
@@ -213,7 +216,7 @@ async function chamarLlm(
                 max_tokens: 16000,
                 // extração curta de uma mensagem de chat: o raciocínio fica no mínimo
                 output_config: { effort: 'low' },
-                system: sistema(estado, candidatos, pendentes),
+                system: sistema(estado, candidatos, pendentes, cores),
                 tools: [FERRAMENTA],
                 tool_choice: { type: 'auto' },
                 messages: mensagens,
@@ -336,8 +339,8 @@ async function enviarLevantamento(c: Interlocutor, tabela: Awaited<ReturnType<ty
     let levantamento: Awaited<ReturnType<typeof mensagemDoLevantamento>>
     try {
         levantamento = await mensagemDoLevantamento(c.tenantId, tabela, {
-            tipologia: gravada.tipologia, largura_mm: gravada.largura_mm, altura_mm: gravada.altura_mm, quantidade: gravada.quantidade, vidro: gravada.vidro,
-            escolhas: gravada.escolhas,
+            tipologia: gravada.tipologia, largura_mm: gravada.largura_mm, altura_mm: gravada.altura_mm, quantidade: gravada.quantidade,
+            cor_perfil: gravada.cor_perfil, vidro: gravada.vidro, escolhas: gravada.escolhas,
         })
     } catch (e) {
         return `erro motivo_levantamento="${e instanceof Error ? e.message : 'desconhecido'}"`
@@ -384,10 +387,12 @@ export async function conduzirConversa(c: Interlocutor): Promise<DesfechoDaIa> {
         const pendentesAntes = definicaoAntes ? escolhasPendentes(definicaoAntes, escolhasAtuais) : []
 
         const historico = await lerHistorico(c.tenantId, c.conversaId)
-        const resposta = await chamarLlm(chave, historico, estadoAtual, candidatos, pendentesAntes)
+        // as cores da empresa: a cor do perfil só é aceita de uma delas, exata
+        const cores = await lerCoresDaEmpresa(c.tenantId)
+        const resposta = await chamarLlm(chave, historico, estadoAtual, candidatos, pendentesAntes, cores)
         if (resposta.tipo !== 'ok') return fim(resposta.tipo, resposta.detalhe)
 
-        const validacao = validarProposta(estadoAtual, resposta.proposta, candidatos.map((x) => x.tipologia))
+        const validacao = validarProposta(estadoAtual, resposta.proposta, candidatos.map((x) => x.tipologia), cores)
         const novoEstado = { ...estadoAtual, ...validacao.gravar }
         // a escolha proposta é validada contra a tipologia DEPOIS desta mensagem
         const definicao = tipologiaDaTabela(tabela, novoEstado.tipologia)
@@ -424,13 +429,16 @@ export async function conduzirConversa(c: Interlocutor): Promise<DesfechoDaIa> {
             return fim('fechou', `levantamento=${await enviarLevantamento(c, tabela, gravada)}`)
         }
 
+        // sem lista de cores na base, perguntar a cor não leva a lugar nenhum: a conversa diz o que falta
+        const semCores = proximo === 'cor_perfil' && cores.length === 0
         // um campo vazio vem antes; com os campos cheios, a primeira escolha pendente, com a pergunta FIXA
-        const texto = proximo !== null ? perguntaPara(proximo, resposta.proposta) : perguntaDaEscolha(pendentes[0])
+        const texto = semCores ? FRASE_SEM_CORES
+            : proximo !== null ? perguntaPara(proximo, resposta.proposta) : perguntaDaEscolha(pendentes[0])
         const envio = await enviarTexto(c.wuzapiToken, c.telefone, texto)
         if (!envio.ok) return fim('envio-falhou', `status_envio=${envio.status ?? 'sem resposta'}`)
         rastro.enviou = true
         await gravarSaida(c, texto, envio.id)
-        return fim('perguntou')
+        return fim(semCores ? 'sem-cores' : 'perguntou')
     } catch (e) {
         // Só o nome da tabela e o erro do banco — nunca a chave, o telefone ou o texto.
         return fim('erro', `motivo="${e instanceof Error ? e.message : 'desconhecido'}"`)

@@ -348,7 +348,8 @@ describe('(7) a MÃO DE OBRA — o mesmo caminho da tela de produto, com os núm
         banco.db.tenant_settings[0].calc_type = 'SERVICO'
         const mo = await M().lerMaoDeObra(TENANT, TABELA, 'DP-02', 1)
         // 40.813,03 + 27.649,76 + 17.884,79 = 86.347,58; ÷ 158.400 × 150 = 81,7685 → 81,77
-        expect(mo).toEqual({ ...MAO_DE_OBRA, custoMensal: 86347.58, porUnidade: 81.77, total: 81.77 })
+        // a soma é a da tela, em ponto flutuante, na mesma ordem — não um literal arredondado
+        expect(mo).toEqual({ ...MAO_DE_OBRA, custoMensal: 40813.03 + (27649.76 + 0 + 0) + 17884.79, porUnidade: 81.77, total: 81.77 })
     })
 
     it('a quantidade multiplica: 3 unidades', async () => {
@@ -363,7 +364,8 @@ describe('(7) a MÃO DE OBRA — o mesmo caminho da tela de produto, com os núm
     it.each([
         ['sem tempo de fabricação da tipologia', () => { banco.db.orcamentista_motor_tipologia = [] }, 'o tempo de fabricação de DP-02 não está cadastrado'],
         ['sem carga horária', () => { banco.db.tenant_settings[0].monthly_workload = 0 }, 'a carga horária mensal da empresa não está configurada'],
-        ['sem tenant_settings', () => { banco.db.tenant_settings = [] }, 'a carga horária mensal da empresa não está configurada'],
+        // sem a linha, faltam DUAS coisas, e as duas saem — uma não esconde a outra
+        ['sem tenant_settings', () => { banco.db.tenant_settings = [] }, 'o tipo de cálculo da empresa (industrialização, revenda ou serviço) não está configurado; a carga horária mensal da empresa não está configurada'],
         ['sem custo de mão de obra produtiva', () => { banco.db.tenant_expense_config[0].production_labor_cost_hub = 0 }, 'o custo mensal da mão de obra produtiva da empresa não está configurado'],
         ['sem tipo de cálculo', () => { banco.db.tenant_settings[0].calc_type = null }, 'o tipo de cálculo da empresa (industrialização, revenda ou serviço) não está configurado'],
         ['empresa de REVENDA', () => { banco.db.tenant_settings[0].calc_type = 'REVENDA' }, 'a empresa está configurada como revenda, e na revenda o tempo de fabricação não entra no custo'],
