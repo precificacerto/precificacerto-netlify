@@ -109,7 +109,7 @@ const ESQUADRIA = { ordem: 1, tipologia: 'DP-02', largura_mm: 1200, altura_mm: 1
 /** O levantamento gravado — nome e esquadrias — como a conversa o entrega ao levantamento. */
 const lev = (o: Partial<typeof ESQUADRIA> = {}) => ({ nome: 'Casa do João', itens: [{ ...ESQUADRIA, ...o }] })
 /** Os dados da esquadria como a FRASE os recebe: as escolhas já descritas. */
-const DESCRITAS = 'ARI 4 — SEM ARREMATE INTERNO; ARE 1 — BZ0010 - ARREMATE 20MM; MAE 2 — VÃO+50MM (CORTE 90/90) - PARA AJUSTE EM OBRA'
+const DESCRITAS = 'arremate interno: SEM ARREMATE INTERNO (como você pediu); arremate externo: BZ0010 - ARREMATE 20MM (como você pediu); medida arremate externo: VÃO+50MM (CORTE 90/90) - PARA AJUSTE EM OBRA (como você pediu)'
 const DADOS = { nome: 'Casa do João', cor: 'BRANCO', esquadrias: [{ tipologia: 'DP-02', largura_mm: 1200, altura_mm: 1000, quantidade: 1, escolhas: DESCRITAS }] }
 /**
  * A mão de obra da DP-02 com os números de produção: 150 min × (40.813,03 ÷ (5 × 528 h × 60)).
@@ -120,7 +120,7 @@ const MAO_DE_OBRA = { ok: true as const, minutosPorUnidade: 150, origem: 'IMPORT
 const TEXTO_QUE_FECHA = [
     'Levantamento “Casa do João”, perfil BRANCO.',
     'Esquadria 1: DP-02, 1.200 x 1.000 mm, 1 unidade(s).',
-    `Escolhas: ${DESCRITAS}. As outras variáveis ficaram no Padrão da tipologia.`,
+    `Arremate e guarnição — ${DESCRITAS}.`,
     '',
     'Barras por código:',
     '• 1023 (1023/WOLFF): 1 barra(s) de 6 m',
@@ -134,13 +134,15 @@ const TEXTO_QUE_FECHA = [
     '',
     'Aproveitamento do levantamento: 60,7% (32,77 m úteis de 54,00 m comprados).',
     '',
-    'Material por barra inteira: R$ 1.342,09.',
-    'Material por consumo real: R$ 829,79.',
+    'Perfis por barra inteira: R$ 1.342,09.',
+    'Perfis por consumo real: R$ 829,79.',
     'Diferença entre os dois: R$ 512,30.',
     'Mão de obra: 150 min por unidade (IMPORTADO) × 1 unidade(s), a R$ 0,257658 o minuto (R$ 40.813,03 ÷ 158.400 min): R$ 38,65.',
     '',
-    'Total por barra inteira (material + mão de obra): R$ 1.380,74.',
-    'Total por consumo real (material + mão de obra): R$ 868,44.',
+    'Total por barra inteira (perfis + mão de obra): R$ 1.380,74.',
+    'Total por consumo real (perfis + mão de obra): R$ 868,44.',
+    '',
+    'O que este preço cobre: os perfis (o baguete incluído), pela tabela do fornecedor, e a mão de obra. NÃO cobre o vidro nem os insumos e acessórios (ferragens, escovas, calços e outros): eles ainda não estão na base.',
 ].join('\n')
 
 describe('(1) a tabela da empresa e as tipologias candidatas', () => {
@@ -218,6 +220,7 @@ describe('(5) a mensagem do levantamento', () => {
         if ('recusas' in lida) throw new Error('abas recusadas')
         const r = LB().levantarBarras({
             cor: 'BRANCO',
+            coresDaEmpresa: ['BRANCO'],
             esquadrias: [{ tipologia: 'DP-02', L_mm: 1200, H_mm: 1000, quantidade: 1, escolhas: { MAE: 2, ARI: 4 }, espessura_vidro_mm: 5 }],
             tipologias: { 'DP-02': lida.tipologia }, regras: DE_PARA.regras as never, itens: DE_PARA.itens as never, serra_mm: 5,
         })
@@ -233,20 +236,20 @@ describe('(5) a mensagem do levantamento', () => {
         const r = resultadoQueFecha()
         const semBarra = { ...r, total: { ...r.total, total_por_barra_inteira: null as number | null }, falta_para_o_total: [{ codigo: '9641', perfil: 'HF88/WOLFF', falta: 'valor_barra_interno' as const, total: 'total_por_barra_inteira' as const, mensagem: '' }] }
         const texto = M().fraseDoLevantamento(DADOS, semBarra, [MAO_DE_OBRA])
-        expect(texto).toContain('Material por barra inteira: não sai — falta o valor da barra de 9641 (HF88/WOLFF).')
+        expect(texto).toContain('Perfis por barra inteira: não sai — falta o valor da barra de 9641 (HF88/WOLFF) em BRANCO.')
         expect(texto).toContain('Diferença entre os dois: não sai — falta o total por barra inteira.')
-        expect(texto).toContain('Total por barra inteira (material + mão de obra): não sai — falta o material por barra inteira.')
+        expect(texto).toContain('Total por barra inteira (perfis + mão de obra): não sai — falta o valor dos perfis por barra inteira.')
         // o outro critério continua saindo inteiro
-        expect(texto).toContain('Total por consumo real (material + mão de obra): R$ 868,44.')
+        expect(texto).toContain('Total por consumo real (perfis + mão de obra): R$ 868,44.')
         expect(texto).not.toContain('R$ 0,00')
     })
 
     it('MÃO DE OBRA AUSENTE: a linha diz o que falta, e os totais com mão de obra NÃO saem — o material sai', () => {
         const texto = M().fraseDoLevantamento(DADOS, resultadoQueFecha(), [{ ok: false, falta: 'o tempo de fabricação de DP-02 não está cadastrado' }])
         expect(texto).toContain('Mão de obra: não sai — o tempo de fabricação de DP-02 não está cadastrado.')
-        expect(texto).toContain('Material por barra inteira: R$ 1.342,09.')
-        expect(texto).toContain('Total por barra inteira (material + mão de obra): não sai — falta a mão de obra.')
-        expect(texto).toContain('Total por consumo real (material + mão de obra): não sai — falta a mão de obra.')
+        expect(texto).toContain('Perfis por barra inteira: R$ 1.342,09.')
+        expect(texto).toContain('Total por barra inteira (perfis + mão de obra): não sai — falta a mão de obra.')
+        expect(texto).toContain('Total por consumo real (perfis + mão de obra): não sai — falta a mão de obra.')
         expect(texto).not.toContain('R$ 0,00')
     })
 
@@ -269,30 +272,45 @@ describe('(5b) as ESCOLHAS gravadas chegam ao avaliador', () => {
         expect(r).toEqual({ desfecho: 'levantou', texto: TEXTO_QUE_FECHA })
     })
 
-    it('o contraste: SEM escolhas, a mesma esquadria é recusada — o Padrão de MAE não traz a medida', async () => {
+    it('SEM escolhas, o PADRÃO fecha (decisões do dono do produto, 25/10/2026): MAE 1 = 0 mm, e o BZ0012 pela variante única', async () => {
         const t = await M().lerTabelaDaEmpresa(TENANT)
         const r = await M().mensagemDoLevantamento(TENANT, t, lev())
-        expect(r.desfecho).toBe('recusou')
+        expect(r.desfecho).toBe('levantou')
+        expect(r.texto).toContain('• 10491 (BZ0012/WOLFF): 1 barra(s) de 6 m')
+        expect(r.texto).toContain('• 10501 (BZ0006/WOLFF): 1 barra(s) de 6 m')
+        // a barra inteira, derivada da FONTE: o total da conta à mão (ARI 4, MAE 2: 1.342,0875) mais uma barra
+        // do BZ0006 e uma do BZ0012, pelo valor da tabela — o BZ0010 continua numa barra só
+        const valor = (c: string) => Number((DE_PARA.itens as Linha[]).find((i) => i.codigo === c)?.valor_barra_interno)
+        const barra = Math.round((1342.0875 + valor('10501') + valor('10491')) * 100) / 100
+        expect(r.texto).toContain(`Perfis por barra inteira: ${LB().formatarReais(barra)}.`)
     })
 
     it('uma chave que não é capturada, no jsonb, não vira escolha: {"MAI": 2} sozinho não muda nada', async () => {
         const t = await M().lerTabelaDaEmpresa(TENANT)
         const r = await M().mensagemDoLevantamento(TENANT, t, lev({ escolhas: { MAI: 2 } }))
-        expect(r.texto).toContain('Escolhas: nenhuma')
+        // MAI não é capturada: a linha do arremate é a do padrão, como sem chave nenhuma
+        expect(r.texto).toContain('Arremate e guarnição — arremate interno: BZ0006 - ARREMATE 65MM (padrão)')
     })
 })
 
 describe('(6) a RECUSA chega como texto, inteira e nomeada', () => {
-    it('a DP-02 no PADRÃO (a conversa não captura escolha): MAE sem colchete é recusado, sem o prefixo de esquadria', async () => {
+    it('uma escolha gravada que não é opção (MAE 9): recusa nomeada, em português e sem o prefixo de esquadria', async () => {
         const t = await M().lerTabelaDaEmpresa(TENANT)
-        const r = await M().mensagemDoLevantamento(TENANT, t, lev())
+        const r = await M().mensagemDoLevantamento(TENANT, t, lev({ escolhas: { MAE: 9 } }))
         expect(r.desfecho).toBe('recusou')
-        expect(r.texto.startsWith('Não consegui fechar o levantamento “Casa do João”, perfil BRANCO.\nEsquadria 1: DP-02, 1.200 x 1.000 mm, 1 unidade(s).\n'
-            + 'Escolhas: nenhuma — todas as variáveis ficaram no Padrão da tipologia.\nFalta:\n• ')).toBe(true)
-        expect(r.texto).toContain('MAE')
-        expect(r.texto).toContain('MEDIDA DO VÃO')
+        expect(r.texto.startsWith('Não consegui fechar o levantamento “Casa do João”, perfil BRANCO.\nEsquadria 1: DP-02, 1.200 x 1.000 mm, 1 unidade(s).\n')).toBe(true)
+        // R4 e a mudança de produto: a recusa nomeia a variável em português, nunca pelo código interno
+        expect(r.texto.split('Falta:\n')[1]).toContain('MEDIDA ARREMATE EXTERNO')
+        expect(r.texto).not.toMatch(/\b(ARI|ARE|MAE|MAI)\b/)
         // o cabeçalho numera a esquadria; a FALTA, com uma esquadria só, vem sem o prefixo do avaliador
         expect(r.texto.split('Falta:\n')[1]).not.toMatch(/Esquadrias? \d/)
+    })
+
+    it('o arremate interno de 70 mm (BZ1770), que tem várias variantes e nenhuma branca: recusa nomeando o código e a cor', async () => {
+        const t = await M().lerTabelaDaEmpresa(TENANT)
+        const r = await M().mensagemDoLevantamento(TENANT, t, lev({ escolhas: { ARI: 2, MAE: 2 } }))
+        expect(r.desfecho).toBe('recusou')
+        expect(r.texto).toContain('O perfil BZ1770/WOLFF não tem código para a cor BRANCO na tabela do fornecedor')
     })
 
     it('OUTRO DP: "a tipologia DP-01 não tem as abas do motor importadas"', async () => {
@@ -421,6 +439,7 @@ describe('(9) o levantamento com N esquadrias', () => {
         if ('recusas' in lida) throw new Error('abas recusadas')
         const r = LB().levantarBarras({
             cor: 'BRANCO',
+            coresDaEmpresa: ['BRANCO'],
             esquadrias: [{ tipologia: 'DP-02', L_mm: 1200, H_mm: 1000, quantidade: 1, escolhas: { MAE: 2, ARI: 4 }, espessura_vidro_mm: 5 }],
             tipologias: { 'DP-02': lida.tipologia }, regras: DE_PARA.regras as never, itens: DE_PARA.itens as never, serra_mm: 5,
         })
@@ -436,14 +455,14 @@ describe('(9) o levantamento com N esquadrias', () => {
         expect(texto).toContain('Mão de obra da esquadria 2: 150 min por unidade (IMPORTADO) × 2 unidade(s), a R$ 0,257658 o minuto (R$ 40.813,03 ÷ 158.400 min): R$ 77,30.')
         expect(texto).toContain('Mão de obra total: R$ 115,95.')
         // 1.342,09 + 115,95
-        expect(texto).toContain('Total por barra inteira (material + mão de obra): R$ 1.458,04.')
+        expect(texto).toContain('Total por barra inteira (perfis + mão de obra): R$ 1.458,04.')
     })
 
     it('a mão de obra de UMA esquadria ausente: os totais com mão de obra não saem', () => {
         const dados = { ...DADOS, esquadrias: [DADOS.esquadrias[0], { ...DADOS.esquadrias[0], tipologia: 'DP-01' }] }
         const texto = M().fraseDoLevantamento(dados, resultadoDeUma(), [MAO_DE_OBRA, { ok: false, falta: 'o tempo de fabricação de DP-01 não está cadastrado' }])
         expect(texto).toContain('Mão de obra da esquadria 2: não sai — o tempo de fabricação de DP-01 não está cadastrado.')
-        expect(texto).toContain('Total por consumo real (material + mão de obra): não sai — falta a mão de obra.')
+        expect(texto).toContain('Total por consumo real (perfis + mão de obra): não sai — falta a mão de obra.')
     })
 
     it('CORES DIFERENTES no mesmo levantamento: recusa nomeada, com a cor de cada esquadria', async () => {
@@ -465,9 +484,9 @@ describe('(9) o levantamento com N esquadrias', () => {
         })
         expect(duas.desfecho).toBe('levantou')
         expect(duas.texto).toContain('Mão de obra total: R$ 77,30.')
-        const material = (x: string) => x.split('\n').find((l) => l.startsWith('Material por consumo real:'))
+        const material = (x: string) => x.split('\n').find((l) => l.startsWith('Perfis por consumo real:'))
         // o consumo real de duas é o dobro do de uma, ao centavo: 829,79 × 2
-        expect(material(uma.texto)).toBe('Material por consumo real: R$ 829,79.')
-        expect(material(duas.texto)).toBe('Material por consumo real: R$ 1.659,59.')
+        expect(material(uma.texto)).toBe('Perfis por consumo real: R$ 829,79.')
+        expect(material(duas.texto)).toBe('Perfis por consumo real: R$ 1.659,59.')
     })
 })

@@ -81,15 +81,29 @@ describe('(1) quais perguntar', () => {
     })
 })
 
-describe('(2) como perguntar', () => {
+describe('(2) como perguntar — por extenso, em português, SEM código e SEM número (dono do produto, 25/10/2026)', () => {
     it('a pergunta da ARI, inteira', () => {
         const [ari] = E().escolhasPendentes(dp02(), {})
-        expect(E().perguntaDaEscolha(ari)).toBe('ARREMATE INTERNO — qual opção? 1 = BZ0006 - ARREMATE 65MM; 2 = BZ1770 - ARREMATE 70MM; 3 = BZ0010 - ARREMATE 20MM; 4 = SEM ARREMATE INTERNO.')
+        expect(E().perguntaDaEscolha(ari)).toBe('Para arremate interno, as opções são: BZ0006 - ARREMATE 65MM; BZ1770 - ARREMATE 70MM; BZ0010 - ARREMATE 20MM; SEM ARREMATE INTERNO. Qual você quer?')
     })
 
     it('a pergunta da MAE, inteira', () => {
         const [mae] = E().escolhasPendentes(dp02(), { ARI: 4, ARE: 1 })
-        expect(E().perguntaDaEscolha(mae)).toBe('MEDIDA ARREMATE EXTERNO — qual opção? 1 = MEDIDA DO VÃO (CORTE 45/45); 2 = VÃO+50MM (CORTE 90/90) - PARA AJUSTE EM OBRA; 3 = VÃO+100MM (CORTE 90/90) - PARA AJUSTE EM OBRA.')
+        expect(E().perguntaDaEscolha(mae)).toBe('Para medida arremate externo, as opções são: MEDIDA DO VÃO (CORTE 45/45); VÃO+50MM (CORTE 90/90) - PARA AJUSTE EM OBRA; VÃO+100MM (CORTE 90/90) - PARA AJUSTE EM OBRA. Qual você quer?')
+    })
+
+    it('escolhaPedida: a variável capturada da tipologia, pronta para perguntar; a que não é capturada, null', () => {
+        expect(E().escolhaPedida(dp02(), 'ARE')).toEqual({ variavel: 'ARE', descricao: 'ARREMATE EXTERNO', opcoes: [{ valor: 1, rotulo: 'BZ0010 - ARREMATE 20MM' }, { valor: 2, rotulo: 'SEM ARREMATE EXTERNO' }] })
+        expect(E().escolhaPedida(dp02(), 'MTE')).toBeNull()
+        expect(E().escolhaPedida(dp02(), 'XYZ')).toBeNull()
+    })
+
+    it('para o PROMPT (uso interno), o código e os números — é o que a LLM precisa para registrar a escolha', () => {
+        expect(E().escolhasParaOPrompt(dp02())).toEqual([
+            'ARI = ARREMATE INTERNO: 1 = BZ0006 - ARREMATE 65MM; 2 = BZ1770 - ARREMATE 70MM; 3 = BZ0010 - ARREMATE 20MM; 4 = SEM ARREMATE INTERNO',
+            'ARE = ARREMATE EXTERNO: 1 = BZ0010 - ARREMATE 20MM; 2 = SEM ARREMATE EXTERNO',
+            'MAE = MEDIDA ARREMATE EXTERNO: 1 = MEDIDA DO VÃO (CORTE 45/45); 2 = VÃO+50MM (CORTE 90/90) - PARA AJUSTE EM OBRA; 3 = VÃO+100MM (CORTE 90/90) - PARA AJUSTE EM OBRA',
+        ])
     })
 })
 
@@ -106,10 +120,13 @@ describe('(3) o que aceitar como resposta — a LLM propõe, o código valida', 
         ['opção fracionária', { ARI: 4 }, { variavel: 'ARE', opcao: 1.5 }],
         ['variável que não é capturada (MTE)', { ARI: 4 }, { variavel: 'MTE', opcao: 1 }],
         ['variável que não existe', { ARI: 4 }, { variavel: 'XYZ', opcao: 1 }],
-        ['variável já escolhida (não sobrescreve)', { ARI: 4 }, { variavel: 'ARI', opcao: 1 }],
-        ['variável que não se aplica (MAE com ARE = 2)', { ARI: 4, ARE: 2 }, { variavel: 'MAE', opcao: 2 }],
+        ['a DESCRIÇÃO no lugar do código (o que a LLM propunha sem o código no prompt — o defeito 1)', { ARI: 4 }, { variavel: 'ARREMATE INTERNO', opcao: 4 }],
     ])('%s → descartada', (_nome, escolhas, proposta) => {
         expect(validar(escolhas, proposta)).toEqual({ gravar: null, propostos: 1, descartados: 1 })
+    })
+
+    it('a escolha já feita é SOBRESCRITA (decisão 3: o vendedor troca o arremate depois)', () => {
+        expect(validar({ ARI: 4 }, { variavel: 'ARI', opcao: 1 })).toEqual({ gravar: { ARI: 1 }, propostos: 1, descartados: 0 })
     })
 
     it('sem proposta: nada proposto, nada descartado', () => {
@@ -125,12 +142,34 @@ describe('(4) o que está gravado e como se descreve', () => {
         expect(E().lerEscolhasGravadas([4, 1])).toEqual({})
     })
 
-    it('descreve as escolhas com o rótulo da opção, na ordem da aba', () => {
-        expect(E().descreverEscolhas(dp02(), { MAE: 2, ARI: 4, ARE: 1 }))
-            .toBe('ARI 4 — SEM ARREMATE INTERNO; ARE 1 — BZ0010 - ARREMATE 20MM; MAE 2 — VÃO+50MM (CORTE 90/90) - PARA AJUSTE EM OBRA')
+    it('o item preserva o null de uma capturada (o vendedor pediu as opções); o resto como em lerEscolhasGravadas', () => {
+        expect(E().lerEscolhasDoItem({ ARI: null, ARE: 1, MAE: '2', XX: null })).toEqual({ ARI: null, ARE: 1 })
+        expect(E().lerEscolhasGravadas({ ARI: null, ARE: 1 })).toEqual({ ARE: 1 })
     })
 
-    it('sem escolha nenhuma: null — quem exibe diz "nenhuma"', () => {
-        expect(E().descreverEscolhas(dp02(), {})).toBeNull()
+    it('o arremate SEM escolha nenhuma: o PADRÃO da aba, por extenso, dito como padrão', () => {
+        expect(E().descreverArremate(dp02(), {})).toBe('arremate interno: BZ0006 - ARREMATE 65MM (padrão); arremate externo: BZ0010 - ARREMATE 20MM (padrão); '
+            + 'medida arremate externo: MEDIDA DO VÃO (CORTE 45/45) (padrão)')
+    })
+
+    it('o que o vendedor pediu sai como pedido, o resto como padrão', () => {
+        expect(E().descreverArremate(dp02(), { ARI: 4, MAE: 2 })).toBe('arremate interno: SEM ARREMATE INTERNO (como você pediu); arremate externo: BZ0010 - ARREMATE 20MM (padrão); '
+            + 'medida arremate externo: VÃO+50MM (CORTE 90/90) - PARA AJUSTE EM OBRA (como você pediu)')
+    })
+
+    it('a que não se aplica não aparece: sem arremate externo, a medida dele sai da linha', () => {
+        expect(E().descreverArremate(dp02(), { ARE: 2 })).toBe('arremate interno: BZ0006 - ARREMATE 65MM (padrão); arremate externo: SEM ARREMATE EXTERNO (como você pediu)')
+    })
+
+    it('a frase de confirmação muda quando o vendedor escolheu alguma', () => {
+        expect(E().temEscolhaDoVendedor({})).toBe(false)
+        expect(E().temEscolhaDoVendedor({ ARE: 2 })).toBe(true)
+    })
+
+    it('o vocabulário interno sai do texto ao vendedor: &MAE e MAE viram a descrição', () => {
+        const recusa = 'Linha 10 da aba Perfis (BZ0010/WOLFF), Medida: &MAE: a opção 1 da variável MAE ("MEDIDA DO VÃO (CORTE 45/45)") não tem medida entre colchetes. &MAE não tem valor, e nenhum é suposto.'
+        const traduzida = E().traduzirVocabulario(recusa, dp02())
+        expect(traduzida).toBe('Linha 10 da aba Perfis (BZ0010/WOLFF), Medida: “MEDIDA ARREMATE EXTERNO”: a opção 1 da variável “MEDIDA ARREMATE EXTERNO” ("MEDIDA DO VÃO (CORTE 45/45)") não tem medida entre colchetes. “MEDIDA ARREMATE EXTERNO” não tem valor, e nenhum é suposto.')
+        expect(traduzida).not.toMatch(/\b(ARI|ARE|MAE|MAI)\b/)
     })
 })

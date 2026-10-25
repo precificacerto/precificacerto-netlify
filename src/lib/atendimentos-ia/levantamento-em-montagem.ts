@@ -16,10 +16,15 @@
  * HISTÓRICO: sobrescreve (decisão 3 do dono do produto, 25/10/2026). Trocar a TIPOLOGIA apaga as
  * escolhas da esquadria — as variáveis são da tipologia; trocar uma medida, não.
  *
+ * O ARREMATE (dono do produto, 25/10/2026): o Padrão da tipologia é ASSUMIDO, e escolha nenhuma é
+ * pendência por si. A proposta traz `escolhas` (o que o vendedor disse, em palavras, que a LLM traduz
+ * para variável e número) e `opcoes_de` (as variáveis cujas opções ele pediu para ver). Pedir as opções
+ * marca a variável com `null` no item, e SÓ ESSA marca vira pendência de escolha.
+ *
  * Portão: `src/utils/__tests__/levantamento-em-montagem.test.ts`.
  */
 import { PERGUNTA_DO_CAMPO, valorValido } from '@/lib/atendimentos-ia/pre-definicao'
-import { escolhasPendentes, lerEscolhasGravadas, perguntaDaEscolha, validarEscolha, type EscolhaPendente } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
+import { escolhaPedida, lerEscolhasGravadas, perguntaDaEscolha, validarEscolha, type EscolhaPendente } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import type { Tipologia } from '@/lib/atendimentos-ia/avaliador-de-formulas'
 
 /** Os campos de uma esquadria, na ordem em que são perguntados. */
@@ -34,7 +39,8 @@ export type ItemDoLevantamento = {
     quantidade: number | null
     cor_perfil: string | null
     vidro: string | null
-    escolhas: Record<string, number> | null
+    /** número = escolha do vendedor; `null` = ele pediu para ver as opções desta variável */
+    escolhas: Record<string, number | null> | null
 }
 
 export const itemVazio = (ordem: number): ItemDoLevantamento => ({
@@ -63,13 +69,13 @@ export type ResultadoDaProposta = {
 const vazio = (v: unknown) => v === null || v === undefined
 const ordemValida = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 1
 
-/** Aplica `{ itens, escolha }` às esquadrias. Devolve uma cópia; as esquadrias recebidas não mudam. */
+/** Aplica `{ itens, escolhas, opcoes_de }` às esquadrias. Devolve uma cópia; as recebidas não mudam. */
 export function aplicarProposta(atuais: readonly ItemDoLevantamento[], proposta: unknown, ctx: ContextoDaProposta): ResultadoDaProposta {
     const itens = atuais.map((i) => ({ ...i, escolhas: i.escolhas ? { ...i.escolhas } : null })).sort((a, b) => a.ordem - b.ordem)
     let propostos = 0
     let descartados = 0
     let semEsquadria = false
-    const p = (proposta && typeof proposta === 'object' ? proposta : {}) as { itens?: unknown; escolha?: unknown }
+    const p = (proposta && typeof proposta === 'object' ? proposta : {}) as { itens?: unknown; escolhas?: unknown; opcoes_de?: unknown }
     const proxima = () => (itens.length ? Math.max(...itens.map((i) => i.ordem)) + 1 : 1)
 
     for (const bruto of Array.isArray(p.itens) ? p.itens : []) {
@@ -103,20 +109,28 @@ export function aplicarProposta(atuais: readonly ItemDoLevantamento[], proposta:
         Object.assign(alvo, validos)
     }
 
-    if (!vazio(p.escolha)) {
-        const e = p.escolha as { ordem?: unknown }
-        const ordem = ordemValida(e.ordem) ? e.ordem : ctx.ordemPadrao ?? (itens.length === 1 ? itens[0].ordem : null)
-        const alvo = ordem === null ? undefined : itens.find((i) => i.ordem === ordem)
+    // a esquadria das escolhas: a dita, a padrão (a da pergunta em aberto), ou a única
+    const alvoDaEscolha = (ordemDita: unknown) => {
+        const ordem = ordemValida(ordemDita) ? ordemDita : ctx.ordemPadrao ?? (itens.length === 1 ? itens[0].ordem : null)
+        return ordem === null ? undefined : itens.find((i) => i.ordem === ordem)
+    }
+    for (const bruta of Array.isArray(p.escolhas) ? p.escolhas : []) {
+        const e = (bruta && typeof bruta === 'object' ? bruta : {}) as { ordem?: unknown }
+        const alvo = alvoDaEscolha(e.ordem)
         const definicao = alvo ? ctx.definicao(alvo.tipologia) : null
-        if (!alvo || !definicao) {
-            propostos += 1
-            descartados += 1
-        } else {
-            const r = validarEscolha(definicao, lerEscolhasGravadas(alvo.escolhas), p.escolha)
-            propostos += r.propostos
-            descartados += r.descartados
-            if (r.gravar) alvo.escolhas = r.gravar
-        }
+        if (!alvo || !definicao) { propostos += 1; descartados += 1; continue }
+        const r = validarEscolha(definicao, lerEscolhasGravadas(alvo.escolhas), bruta)
+        propostos += r.propostos
+        descartados += r.descartados
+        // a escolha feita sai da marca de "pediu as opções" e as outras marcas ficam
+        if (r.gravar) alvo.escolhas = { ...(alvo.escolhas ?? {}), ...r.gravar }
+    }
+    for (const variavel of Array.isArray(p.opcoes_de) ? p.opcoes_de : []) {
+        const alvo = alvoDaEscolha(undefined)
+        const definicao = alvo ? ctx.definicao(alvo.tipologia) : null
+        propostos += 1
+        if (!alvo || !definicao || typeof variavel !== 'string' || escolhaPedida(definicao, variavel) === null) { descartados += 1; continue }
+        alvo.escolhas = { ...(alvo.escolhas ?? {}), [variavel]: null }
     }
     return { itens, propostos, descartados, semEsquadria }
 }
@@ -130,8 +144,10 @@ export function proximaPendencia(itens: readonly ItemDoLevantamento[], definicao
     for (const item of [...itens].sort((a, b) => a.ordem - b.ordem)) {
         const campo = CAMPOS_DA_ESQUADRIA.find((c) => vazio(item[c]))
         if (campo) return { tipo: 'CAMPO', ordem: item.ordem, campo }
+        // a escolha só é pendência quando o vendedor PEDIU as opções (o `null`); senão vale o Padrão
         const def = definicao(item.tipologia)
-        const pendente = def ? escolhasPendentes(def, lerEscolhasGravadas(item.escolhas))[0] : undefined
+        const pedida = def ? Object.entries(item.escolhas ?? {}).find(([, v]) => v === null)?.[0] : undefined
+        const pendente = def && pedida ? escolhaPedida(def, pedida) : null
         if (pendente) return { tipo: 'ESCOLHA', ordem: item.ordem, pendente }
     }
     return null

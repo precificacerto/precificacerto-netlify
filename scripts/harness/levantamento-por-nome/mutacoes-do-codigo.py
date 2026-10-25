@@ -49,7 +49,7 @@ M = [
  ('N11', 'com duas esquadrias, a alteração sem ordem cai na primeira', CV, [(": atuais.length === 1 ? atuais[0].ordem : null", ": atuais[0]?.ordem ?? null")], 'qual esquadria'),
  ('N12', 'a alteração não refaz: devolve o texto antigo', CV, [("const levantamento = await mensagemDoLevantamento(c.tenantId, tabela, { nome, itens: aplicada.itens })", "const levantamento = await mensagemDoLevantamento(c.tenantId, tabela, { nome, itens: alvo ? alvo.itens : aplicada.itens })")], 'refaz tudo'),
  # a montagem: o EM_MONTAGEM continua, e a LLM só vê esta mensagem
- ('N13', 'o levantamento em montagem é ignorado', CV, [("const [emMontagem] = await lerLevantamentos(c.tenantId, c.remetenteId, true)", "const [emMontagem] = [] as Levantamento[]")], 'escolhas uma a uma'),
+ ('N13', 'o levantamento em montagem é ignorado', CV, [("const [emMontagem] = await lerLevantamentos(c.tenantId, c.remetenteId, true)", "const [emMontagem] = [] as Levantamento[]")], 'a mensagem continua nele'),
  ('N14', 'a LLM não recebe a mensagem do vendedor', CV, [("messages: [{ role: 'user', content: mensagem }],", "messages: [{ role: 'user', content: '.' }],")], 'SÓ a mensagem desta vez'),
  ('N15', 'a proposta aceita esquadria sem ordem com duas e sem padrão', LM, [("        if (!alvo) { semEsquadria = true; continue }\n", "        if (!alvo) alvo = itens[0]\n")], 'SEM esquadria padrão'),
  # decisão 4 e o "sempre responde"
@@ -65,6 +65,15 @@ M = [
  ('N25', 'o admin monta o levantamento de outro (grava com pendência)', CV, [("if (pendencia && alvo && alvo.donoId !== c.remetenteId) {", "if (false) {")], 'INCOMPLETO'),
  ('N26', 'a alteração do admin passa o levantamento para o admin', CV, [("await gravarLevantamento(c.tenantId, alvo ? alvo.donoId : c.remetenteId,", "await gravarLevantamento(c.tenantId, c.remetenteId,")], 'continua do criador'),
  ('N27', 'o pedido de alteração é ignorado: cria em vez de procurar', CV, [("} else if (proposta.alteracao === true && !novo) {", "} else if (false) {")], 'não encontrei'),
+ # 25/10/2026: R1, R2, decisão 3 (só grava o que mudou) e o DEFEITO 3
+ ('N28', 'R1: o update do levantamento que não atinge linha passa calado', CV, [("        if ((data ?? []).length !== 1) throw new ErroAoGravar(`orcamentista_levantamento: o update atingiu", "        if (false) throw new ErroAoGravar(`orcamentista_levantamento: o update atingiu")], 'o mesmo para o update do levantamento'),
+ ('N29', 'R1: o update da esquadria que não atinge linha passa calado', CV, [("        if ((tocados ?? []).length !== 1) throw", "        if (false) throw")], 'NÃO atinge linha é erro'),
+ ('N30', 'R2: a mesma pergunta volta como se nada fosse', CV, [("if (nadaMudou && rastro.rota === 'MONTAGEM' && pendenciaAberta) {", "if (false) {")], 'NÃO devolve a mesma pergunta'),
+ ('N31', 'R2: a alteração que não valeu passa calada', CV, [("if (nadaMudou && aplicada.propostos > 0)", "if (false)")], 'o que foi proposto e não vale aparece'),
+ ('N32', 'decisão 3: grava mesmo sem mudança', CV, [("if (!(nadaMudou && alvo && alvo.estado === estado)) {", "if (true) {")], 'NÃO toca o banco'),
+ ('N33', 'DEFEITO 3: sem chave, silêncio', CV, [("if (!chave) return await responder(FALHA_SEM_CHAVE, 'sem-chave')", "if (!chave) return fim('sem-chave')")], 'falta a chave'),
+ ('N34', 'DEFEITO 3: erro da LLM, silêncio', CV, [("            return await responder(frase, resposta.tipo, resposta.detalhe)", "            return fim(resposta.tipo, resposta.detalhe)")], 'a frase da falha'),
+ ('N35', 'DEFEITO 3: erro do banco, silêncio', CV, [("        return await responder(frase, 'erro', `motivo=", "        return fim('erro', `motivo=")], 'nada foi gravado'),
  ('N0', 'controle: nada muda', NM, [("export", "export")]),
 ]
 

@@ -41,6 +41,21 @@
  * (`proximaPendencia`), não pela LLM. O levantamento é gravado ANTES do envio: se o envio falhar, o
  * que o vendedor disse não se perde.
  *
+ * ══ O ARREMATE: o padrão é ASSUMIDO e confirmado, nunca perguntado (dono do produto, 25/10/2026) ══
+ * Com os campos da esquadria preenchidos, a conversa vai DIRETO ao levantamento com o Padrão da aba
+ * Variáveis, e a resposta abre com a confirmação ("Considerando guarnição e arremate padrão, certo!") e
+ * diz, por extenso, qual arremate foi usado. Só quando o vendedor PEDE outro arremate a conversa mostra
+ * as opções daquela variável, por extenso e sem número. Os códigos e os números vão ao PROMPT — sem
+ * eles a LLM não tem como registrar a escolha, e foi esse o DEFEITO 1 medido em produção (b0465e57:
+ * `propostos=1 descartados=1` nas três respostas, e a mesma pergunta de volta) —, nunca ao vendedor.
+ *
+ * ══ NADA FALHA EM SILÊNCIO (regras R1 e R2, e o DEFEITO 3) ══
+ *   - todo update de levantamento ou de item confere que ATINGIU a linha; o que não atinge é erro;
+ *   - uma mensagem que não muda nada no levantamento não toca o banco, e a resposta DIZ que não
+ *     registrou — nunca devolve a mesma pergunta como se nada fosse;
+ *   - remetente autorizado SEMPRE recebe resposta: falta de chave, de saldo, erro da LLM ou do banco
+ *     viram uma frase que diz o que falhou. Silêncio só quando o próprio envio falha.
+ *
  * ══ O QUE SE PERDEU, por decisão (dono do produto, 25/10/2026) ══
  * Sem a linha da mensagem, o reenvio do WUZAPI não é mais reconhecido: o mesmo `Info.ID` é conduzido
  * de novo. Com o levantamento em montagem a resposta repetida cai na mesma pergunta; depois de
@@ -48,7 +63,7 @@
  *
  * ══ NUNCA LANÇA ══
  * Quem chama responde 200 ao WUZAPI aconteça o que acontecer: um erro da LLM não pode virar reenvio em
- * laço. Toda falha vira uma linha `[IA]`, e NENHUMA mensagem técnica ao vendedor.
+ * laço. Toda falha vira uma linha `[IA]` e uma frase ao vendedor que diz o que falhou, sem detalhe técnico.
  *
  * ══ O LOG ══
  * Uma linha `[IA]` em `console.error`: o id do levantamento, a rota, propostos, descartados, se
@@ -68,7 +83,7 @@ import {
     type DefinicaoDaTipologia, type ItemDoLevantamento, type Pendencia,
 } from '@/lib/atendimentos-ia/levantamento-em-montagem'
 import { compararNome, nomeDaMensagem, normalizarNome } from '@/lib/atendimentos-ia/nome-do-levantamento'
-import { lerEscolhasGravadas } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
+import { escolhasParaOPrompt, lerEscolhasDoItem, lerEscolhasGravadas, temEscolhaDoVendedor } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import { permissaoDoRemetente, type Permissao } from '@/lib/atendimentos-ia/permissao-do-remetente'
 
 export const PREFIXO_DO_LOG_DA_IA = '[IA]'
@@ -80,6 +95,7 @@ const wuzapi = () => (process.env.WUZAPI_BASE_URL || 'https://usapi.adabtech.sho
 export type DesfechoDaIa =
     | 'sem-chave' | 'sem-saldo' | 'erro-da-llm' | 'recusa' | 'sem-proposta' | 'sem-tipologias'
     | 'sem-nome' | 'nome-parecido' | 'nome-existe' | 'qual-esquadria' | 'nao-encontrado' | 'qual-vendedor' | 'alteracao-incompleta'
+    | 'nao-avancou'
     | 'perguntou' | 'sem-cores' | 'levantou' | 'recusou' | 'envio-falhou' | 'erro'
 
 export type Rota = 'MONTAGEM' | 'NOVO' | 'ALTERACAO' | 'ALTERACAO_ADMIN' | 'SEM_NOME' | 'PARECIDO' | 'NOME_EXISTE' | 'NAO_ENCONTRADO' | 'QUAL_VENDEDOR' | '-'
@@ -110,6 +126,23 @@ export const fraseDeQualVendedor = (nome: string, vendedores: string[]) =>
     `O levantamento “${nome}” existe para mais de um vendedor: ${vendedores.join(', ')}. De qual vendedor é? Escreva o nome do levantamento, o do vendedor e o que muda.`
 export const fraseDaAlteracaoIncompleta = (nome: string, vendedor: string, pergunta: string) =>
     `A alteração deixaria o levantamento “${nome}”, de ${vendedor}, incompleto — falta: ${pergunta} Mande a alteração com isso junto. Nada foi gravado.`
+/** A confirmação do arremate, no começo da resposta com o levantamento. */
+export const FRASE_ARREMATE_PADRAO = 'Considerando guarnição e arremate padrão, certo!'
+export const FRASE_ARREMATE_ESCOLHIDO = 'Considerando o arremate que você pediu, e o padrão no que não foi dito, certo!'
+/** R2: a mensagem não mudou nada — a resposta diz isso, em vez de repetir a pergunta como se nada fosse. */
+export const fraseDeNaoRegistrei = (pergunta: string) =>
+    `Não consegui registrar a sua resposta. A pergunta continua: ${pergunta} Responda em palavras, como está escrito acima.`
+export const fraseDeNaoApliquei = (nome: string) =>
+    `Não consegui aplicar o que você pediu no levantamento “${nome}”: o que entendi não é um valor aceito (por exemplo, uma cor, tipologia ou arremate fora da lista). Nada foi alterado. Diga de novo o que muda.`
+/** DEFEITO 3: o remetente autorizado sempre recebe resposta, e ela diz o que falhou. */
+export const FALHA_SEM_CHAVE = 'Não consegui processar a sua mensagem: o atendimento por IA está sem a chave de acesso configurada. Avise o administrador.'
+export const FALHA_SEM_SALDO = 'Não consegui processar a sua mensagem: a conta do serviço de IA está sem saldo de créditos. Avise o administrador.'
+export const FALHA_DA_IA = 'Não consegui processar a sua mensagem: o serviço de IA não respondeu. Nada foi gravado; mande de novo em alguns minutos.'
+export const FALHA_RECUSA = 'Não consegui processar a sua mensagem: o serviço de IA recusou o conteúdo. Nada foi gravado; reescreva a mensagem.'
+export const FALHA_DO_BANCO_ANTES = 'Não consegui processar a sua mensagem: houve um erro ao ler o levantamento. Nada foi gravado; mande de novo.'
+export const FALHA_DO_BANCO_AO_GRAVAR = 'Não consegui concluir: houve um erro ao gravar o levantamento, e ele pode não ter sido gravado por inteiro. Mande de novo o nome do levantamento e o que muda.'
+export const FALHA_NO_CALCULO = 'O levantamento foi gravado, mas houve um erro ao calcular o preço. Mande o nome do levantamento de novo para eu refazer a conta.'
+
 /** Quando o remetente não tem nome nem o employee dele. */
 const VENDEDOR_SEM_NOME = '(vendedor sem nome cadastrado)'
 
@@ -118,7 +151,7 @@ const VENDEDOR_SEM_NOME = '(vendedor sem nome cadastrado)'
  * O que NÃO foi dito é OMITIDO, não `null`: os campos são opcionais e de tipo simples, sem união.
  * "Schema complexity limits" (https://platform.claude.com/docs/en/build-with-claude/structured-outputs):
  * somando os esquemas `strict` da requisição, no máximo 16 parâmetros com união e 24 opcionais. Este tem
- * 0 uniões e 17 opcionais — o portão (8) conta o esquema enviado.
+ * 0 uniões e 18 opcionais — o portão (8) conta o esquema enviado.
  */
 const texto = { type: 'string' }
 const inteiro = { type: 'integer' }
@@ -147,11 +180,15 @@ export const FERRAMENTA = {
                     },
                 },
             },
-            escolha: {
-                type: 'object',
-                additionalProperties: false,
-                description: 'Só quando o vendedor respondeu NESTA mensagem a escolha em aberto: a variável e o NÚMERO da opção.',
-                properties: { variavel: texto, opcao: inteiro },
+            escolhas: {
+                type: 'array',
+                description: 'Só o arremate que o vendedor disse NESTA mensagem, em palavras: o CÓDIGO da variável e o NÚMERO da opção que corresponde. Vazio se ele não disse.',
+                items: { type: 'object', additionalProperties: false, properties: { variavel: texto, opcao: inteiro } },
+            },
+            opcoes_de: {
+                type: 'array',
+                description: 'O CÓDIGO das variáveis cujas opções o vendedor pediu para ver, ou que ele quer trocar sem dizer por qual.',
+                items: texto,
             },
             pergunta: {
                 type: 'object',
@@ -168,6 +205,8 @@ type ContextoDoPrompt = {
     cores: readonly string[]
     montagem: { nome: string; itens: ItemDoLevantamento[] } | null
     perguntaEmAberto: string | null
+    /** As escolhas de arremate de cada tipologia com as abas: código e números, só para a LLM. */
+    escolhasPorTipologia: Array<{ tipologia: string; linhas: string[] }>
 }
 
 function sistema(c: ContextoDoPrompt): string {
@@ -187,7 +226,8 @@ function sistema(c: ContextoDoPrompt): string {
         '- itens: só o que foi dito NESTA mensagem. Numa alteração, só os campos que mudam. Não invente, não deduza.',
         '- cor_perfil: EXATAMENTE uma das cores da empresa (lista do fim), escrita como está. Se for outra cor, ou se houver dúvida, NÃO preencha.',
         '- tipologia: o CÓDIGO (ex.: DP-02) de UMA das tipologias da lista do fim, escolhida pela descrição. NUNCA invente código nem preencha com as palavras do vendedor. Se cabe em mais de uma, NÃO preencha: em `pergunta`, pergunte qual é, citando a descrição INTEIRA de cada uma, sem o código.',
-        '- escolha: quando o vendedor responder a escolha em aberto, a variável e o NÚMERO da opção. NUNCA escolha sozinho, nem pelo Padrão: se a resposta não for uma das opções, não preencha.',
+        '- ARREMATE e GUARNIÇÃO: NÃO pergunte. O padrão da tipologia já vale sem ninguém dizer. NUNCA escolha sozinho: em `escolhas`, só o arremate que o vendedor DISSE, em palavras, com o código da variável e o número da opção que corresponde (lista do fim). Se ele pedir para ver as opções, ou quiser trocar sem dizer por qual, ponha o código da variável em `opcoes_de`.',
+        '- Os códigos das variáveis (ex.: ARI) e os números das opções são INTERNOS: nunca os escreva em `pergunta`.',
         '- NUNCA pergunte nada sobre os padrões da empresa.',
         `- Responda SEMPRE chamando a ferramenta ${NOME_DA_FERRAMENTA}, uma vez.`,
         '',
@@ -200,6 +240,11 @@ function sistema(c: ContextoDoPrompt): string {
         ...(c.candidatos.length ? c.candidatos.map(linhaDoCandidato) : ['(nenhuma)']),
         '',
         `Cores da empresa (cor_perfil, escreva EXATAMENTE uma delas): ${c.cores.length ? c.cores.join(', ') : '(nenhuma)'}`,
+        '',
+        'Escolhas de arremate por tipologia (USO INTERNO — código = descrição: número = opção):',
+        ...(c.escolhasPorTipologia.length
+            ? c.escolhasPorTipologia.flatMap((e) => [`${e.tipologia}:`, ...e.linhas.map((l) => `  ${l}`)])
+            : ['(nenhuma)']),
     ].join('\n')
 }
 
@@ -306,7 +351,8 @@ async function lerItens(tenantId: string, levantamentoId: string): Promise<ItemG
         .eq('tenant_id', tenantId).eq('levantamento_id', levantamentoId).order('ordem', { ascending: true })
     if (error) throw new Error(`orcamentista_levantamento_item: ${error.message}`)
     // a lista de colunas é montada em tempo de execução: o tipo gerado do supabase não a lê
-    return ((data ?? []) as unknown as ItemGravado[]).map((i) => ({ ...i, escolhas: i.escolhas ? lerEscolhasGravadas(i.escolhas) : null }))
+    // o `null` de uma variável é a marca de que o vendedor pediu as opções: ele é preservado
+    return ((data ?? []) as unknown as ItemGravado[]).map((i) => ({ ...i, escolhas: i.escolhas ? lerEscolhasDoItem(i.escolhas) : null }))
 }
 
 const camposDoItem = (i: ItemDoLevantamento) => ({
@@ -319,6 +365,13 @@ const camposDoItem = (i: ItemDoLevantamento) => ({
  * (o único rastro), as esquadrias que mudaram e as novas. Nenhuma esquadria é apagada. `donoId` é o
  * remetente que CRIOU: numa alteração do admin, o levantamento continua do criador.
  */
+/** O erro que aconteceu DEPOIS de começar a gravar: a resposta ao vendedor é outra. */
+class ErroAoGravar extends Error {}
+
+/** Os campos do item como ficam no banco: a comparação "mudou alguma coisa?" é sobre eles. */
+const mesmosItens = (a: readonly ItemDoLevantamento[], b: readonly ItemDoLevantamento[]) =>
+    JSON.stringify(a.map(camposDoItem)) === JSON.stringify(b.map(camposDoItem))
+
 async function gravarLevantamento(
     tenantId: string, donoId: string, nome: string, existente: { id: string; itens: ItemGravado[] } | null,
     itens: ItemDoLevantamento[], estado: string,
@@ -329,14 +382,16 @@ async function gravarLevantamento(
     if (existente) {
         id = existente.id
         antes = existente.itens
-        const { error } = await supabaseAdmin.from('orcamentista_levantamento').update({ estado, atualizado_em: agora })
-            .eq('id', id).eq('tenant_id', tenantId).eq('remetente_id', donoId)
-        if (error) throw new Error(`orcamentista_levantamento: ${error.message}`)
+        const { data, error } = await supabaseAdmin.from('orcamentista_levantamento').update({ estado, atualizado_em: agora })
+            .eq('id', id).eq('tenant_id', tenantId).eq('remetente_id', donoId).select('id')
+        if (error) throw new ErroAoGravar(`orcamentista_levantamento: ${error.message}`)
+        // R1: update que não atinge linha é ERRO — nunca vira "pergunta de novo"
+        if ((data ?? []).length !== 1) throw new ErroAoGravar(`orcamentista_levantamento: o update atingiu ${(data ?? []).length} linha(s), e devia atingir 1`)
     } else {
         const { data, error } = await supabaseAdmin.from('orcamentista_levantamento')
             .insert({ tenant_id: tenantId, remetente_id: donoId, nome, nome_normalizado: normalizarNome(nome), estado })
             .select('id').single()
-        if (error || !data) throw new Error(`orcamentista_levantamento: ${error?.message ?? 'sem linha'}`)
+        if (error || !data) throw new ErroAoGravar(`orcamentista_levantamento: ${error?.message ?? 'sem linha'}`)
         id = (data as { id: string }).id
     }
     const novos: Array<Record<string, unknown>> = []
@@ -344,13 +399,14 @@ async function gravarLevantamento(
         const anterior = antes.find((a) => a.ordem === item.ordem)
         if (!anterior) { novos.push({ tenant_id: tenantId, levantamento_id: id, ...camposDoItem(item) }); continue }
         if (JSON.stringify(camposDoItem(anterior)) === JSON.stringify(camposDoItem(item))) continue
-        const { error } = await supabaseAdmin.from('orcamentista_levantamento_item').update({ ...camposDoItem(item), atualizado_em: agora })
-            .eq('id', anterior.id).eq('tenant_id', tenantId)
-        if (error) throw new Error(`orcamentista_levantamento_item: ${error.message}`)
+        const { data: tocados, error } = await supabaseAdmin.from('orcamentista_levantamento_item').update({ ...camposDoItem(item), atualizado_em: agora })
+            .eq('id', anterior.id).eq('tenant_id', tenantId).eq('levantamento_id', id).select('id')
+        if (error) throw new ErroAoGravar(`orcamentista_levantamento_item: ${error.message}`)
+        if ((tocados ?? []).length !== 1) throw new ErroAoGravar(`orcamentista_levantamento_item: o update da esquadria ${item.ordem} atingiu ${(tocados ?? []).length} linha(s), e devia atingir 1`)
     }
     if (novos.length) {
         const { error } = await supabaseAdmin.from('orcamentista_levantamento_item').insert(novos)
-        if (error) throw new Error(`orcamentista_levantamento_item: ${error.message}`)
+        if (error) throw new ErroAoGravar(`orcamentista_levantamento_item: ${error.message}`)
     }
     return id
 }
@@ -400,9 +456,12 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         rastro.enviou = true
         return fim(desfecho, detalhe)
     }
+    // em que ponto a falha aconteceu decide a frase: antes de gravar, ao gravar, ou depois
+    let gravando = false
+    let gravado = false
     try {
         const chave = process.env.ANTHROPIC_API_KEY
-        if (!chave) return fim('sem-chave')
+        if (!chave) return await responder(FALHA_SEM_CHAVE, 'sem-chave')
 
         // O TETO DE CONSUMO entraria aqui, ANTES da chamada (dono do produto, 22/10/2026: não agora).
 
@@ -417,20 +476,29 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         const itensDaMontagem = emMontagem ? await lerItens(c.tenantId, emMontagem.id) : []
         const pendenciaAberta = emMontagem ? proximaPendencia(itensDaMontagem, definicao) : null
 
+        const escolhasPorTipologia = tabela.candidatos.flatMap((x) => {
+            const def = definicao(x.tipologia)
+            const linhas = def ? escolhasParaOPrompt(def) : []
+            return linhas.length ? [{ tipologia: x.tipologia, linhas }] : []
+        })
         const resposta = await chamarLlm(chave, c.texto, {
-            candidatos: tabela.candidatos, cores,
+            candidatos: tabela.candidatos, cores, escolhasPorTipologia,
             montagem: emMontagem ? { nome: emMontagem.nome, itens: itensDaMontagem.map(camposDoItem) } : null,
             perguntaEmAberto: pendenciaAberta ? perguntaDaPendencia(pendenciaAberta, itensDaMontagem.length) : null,
         })
-        if (resposta.tipo !== 'ok') return fim(resposta.tipo, resposta.detalhe)
+        if (resposta.tipo !== 'ok') {
+            // DEFEITO 3: o vendedor sempre fica sabendo — sem detalhe técnico
+            const frase = resposta.tipo === 'sem-saldo' ? FALHA_SEM_SALDO : resposta.tipo === 'recusa' ? FALHA_RECUSA : FALHA_DA_IA
+            return await responder(frase, resposta.tipo, resposta.detalhe)
+        }
         const proposta = resposta.proposta
 
         // ── a rota ──
-        let alvo: { id: string; nome: string; donoId: string; vendedor: string | null; itens: ItemGravado[] } | null = null
+        let alvo: { id: string; nome: string; estado: string; donoId: string; vendedor: string | null; itens: ItemGravado[] } | null = null
         let nome: string
         if (emMontagem) {
             rastro.rota = 'MONTAGEM'
-            alvo = { id: emMontagem.id, nome: emMontagem.nome, donoId: c.remetenteId, vendedor: null, itens: itensDaMontagem }
+            alvo = { id: emMontagem.id, nome: emMontagem.nome, estado: emMontagem.estado, donoId: c.remetenteId, vendedor: null, itens: itensDaMontagem }
             nome = emMontagem.nome
         } else {
             const lido = nomeDaMensagem(proposta.nome, c.texto)
@@ -441,7 +509,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
                 rastro.levantamento = comparacao.existente.id
                 if (novo) { rastro.rota = 'NOME_EXISTE'; return await responder(fraseDoNomeQueJaExiste(comparacao.existente.nome), 'nome-existe') }
                 rastro.rota = 'ALTERACAO'
-                alvo = { id: comparacao.existente.id, nome: comparacao.existente.nome, donoId: c.remetenteId, vendedor: null, itens: await lerItens(c.tenantId, comparacao.existente.id) }
+                alvo = { id: comparacao.existente.id, nome: comparacao.existente.nome, estado: comparacao.existente.estado, donoId: c.remetenteId, vendedor: null, itens: await lerItens(c.tenantId, comparacao.existente.id) }
                 nome = comparacao.existente.nome
             } else if ('existentes' in comparacao && !novo) {
                 rastro.rota = 'PARECIDO'
@@ -464,7 +532,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
                 }
                 const escolhido = doVendedor.length === 1 ? doVendedor[0] : daEmpresa[0]
                 rastro.rota = 'ALTERACAO_ADMIN'
-                alvo = { id: escolhido.id, nome: escolhido.nome, donoId: escolhido.remetente_id, vendedor: nomes.get(escolhido.remetente_id) ?? VENDEDOR_SEM_NOME, itens: await lerItens(c.tenantId, escolhido.id) }
+                alvo = { id: escolhido.id, nome: escolhido.nome, estado: escolhido.estado, donoId: escolhido.remetente_id, vendedor: nomes.get(escolhido.remetente_id) ?? VENDEDOR_SEM_NOME, itens: await lerItens(c.tenantId, escolhido.id) }
                 nome = escolhido.nome
             } else {
                 rastro.rota = 'NOVO'
@@ -481,6 +549,13 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         rastro.propostos = aplicada.propostos
         rastro.descartados = aplicada.descartados
         if (aplicada.semEsquadria && alvo) return await responder(fraseDeQualEsquadria(nome, alvo.itens.length), 'qual-esquadria')
+        const nadaMudou = alvo !== null && mesmosItens(alvo.itens, aplicada.itens)
+        // R2: com uma pergunta em aberto, a resposta que não mudou nada é ERRO e aparece — nunca a mesma pergunta de novo
+        if (nadaMudou && rastro.rota === 'MONTAGEM' && pendenciaAberta) {
+            return await responder(fraseDeNaoRegistrei(perguntaDaPendencia(pendenciaAberta, itensDaMontagem.length)), 'nao-avancou')
+        }
+        // numa alteração, o que foi proposto e não valeu também aparece; sem proposta nenhuma, a conta é refeita
+        if (nadaMudou && aplicada.propostos > 0) return await responder(fraseDeNaoApliquei(nome), 'nao-avancou')
 
         // ── grava, e SÓ DEPOIS responde: o trajeto inteiro, a partir do que ficou gravado ──
         const pendencia = proximaPendencia(aplicada.itens, definicao)
@@ -488,16 +563,28 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         if (pendencia && alvo && alvo.donoId !== c.remetenteId) {
             return await responder(fraseDaAlteracaoIncompleta(nome, alvo.vendedor ?? VENDEDOR_SEM_NOME, perguntaDaPendencia(pendencia, aplicada.itens.length)), 'alteracao-incompleta')
         }
-        rastro.levantamento = await gravarLevantamento(c.tenantId, alvo ? alvo.donoId : c.remetenteId, nome, alvo, aplicada.itens, pendencia ? EM_MONTAGEM : COMPLETO)
+        const estado = pendencia ? EM_MONTAGEM : COMPLETO
+        // decisão 3: o rastro é atualizado_em — só se grava o que MUDOU
+        if (!(nadaMudou && alvo && alvo.estado === estado)) {
+            gravando = true
+            rastro.levantamento = await gravarLevantamento(c.tenantId, alvo ? alvo.donoId : c.remetenteId, nome, alvo, aplicada.itens, estado)
+            gravando = false
+        }
+        gravado = true
         if (pendencia) {
             // sem lista de cores na base, perguntar a cor não leva a lugar nenhum: a conversa diz o que falta
             if ('campo' in pendencia && pendencia.campo === 'cor_perfil' && cores.length === 0) return await responder(FRASE_SEM_CORES, 'sem-cores')
             return await responder(perguntaPara(pendencia, aplicada.itens.length, proposta), 'perguntou')
         }
         const levantamento = await mensagemDoLevantamento(c.tenantId, tabela, { nome, itens: aplicada.itens })
-        return await responder(levantamento.texto, levantamento.desfecho)
+        // a confirmação do arremate abre a resposta, quando alguma esquadria tem arremate a considerar
+        const temArremate = aplicada.itens.some((i) => definicao(i.tipologia) !== null)
+        const escolhido = aplicada.itens.some((i) => temEscolhaDoVendedor(lerEscolhasGravadas(i.escolhas)))
+        const confirmacao = temArremate ? `${escolhido ? FRASE_ARREMATE_ESCOLHIDO : FRASE_ARREMATE_PADRAO}\n\n` : ''
+        return await responder(`${confirmacao}${levantamento.texto}`, levantamento.desfecho)
     } catch (e) {
-        // Só o nome da tabela e o erro do banco — nunca a chave, o telefone ou o texto.
-        return fim('erro', `motivo="${e instanceof Error ? e.message : 'desconhecido'}"`)
+        // Só o nome da tabela e o erro do banco — nunca a chave, o telefone ou o texto. E o vendedor sabe.
+        const frase = gravando || e instanceof ErroAoGravar ? FALHA_DO_BANCO_AO_GRAVAR : gravado ? FALHA_NO_CALCULO : FALHA_DO_BANCO_ANTES
+        return await responder(frase, 'erro', `motivo="${e instanceof Error ? e.message : 'desconhecido'}"`)
     }
 }

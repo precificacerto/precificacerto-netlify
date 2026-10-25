@@ -153,6 +153,24 @@ Sinais, em ordem de força:
 Quando o 1 e o 4 coincidem, liste os valores. Se todos forem do atributo, o filtro está certo —
 e a lista vira o caso de teste que prova isso.
 
+## A REGRA DA COR na ligação — decisão do dono do produto, 25/10/2026
+
+Formulação do dono do produto, registrada como está:
+
+> Código com UMA variante no motor → usa essa, sem casar cor. Código com MAIS DE UMA variante → casa
+> pela cor pedida; se a cor pedida não estiver entre elas, recusa nomeando o código e a cor. Não
+> ampliar: isso NÃO autoriza escolher "a mais parecida" quando há várias.
+
+É o que resolve o `BZ0012/WOLFF` (uma linha só, código 10491, `CLICK` — o tipo de encaixe, não uma cor)
+e mantém o `BZ1770/WOLFF` em BRANCO como recusa (oito variantes, nenhuma branca).
+
+**A guarda, que é leitura do assistente e foi relatada ao dono do produto no PR #163:** a variante única
+que é uma COR DA EMPRESA (a lista `cores` da base) diferente da pedida é recusa. Medido em 25/10/2026, no
+motor Wolff, entre os 21 perfis de variante única: 11 com a cor vazia, 7 só em BRANCO (BZ0006 e BZ0010
+entre eles), 1 `CLICK` e 2 de aço galvanizado. Sem a guarda, uma esquadria PRETA levaria o BZ0006 de
+código branco — a troca pelo parecido que esta página e a R3 proíbem. Com a empresa só em BRANCO, como
+em produção hoje, a guarda não muda resultado nenhum. Implementada em `levantamento-de-barras.ts`.
+
 ## As ressalvas de método — o que a medição NÃO diz
 
 - **Não decide como a ligação avaliador → agrupador trata essas regras.** A ponte entre a cor da

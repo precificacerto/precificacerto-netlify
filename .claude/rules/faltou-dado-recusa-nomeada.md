@@ -118,6 +118,21 @@ E a forma da recusa, que é a parte que a torna útil:
 - **todas** as recusas de uma vez — uma não esconde as outras. "Isso, isso e isso", não "isso" e
   depois de corrigido "isso".
 
+### A aparição 5 foi DECIDIDA pelo dono do produto — 25/10/2026
+
+A falta que a aparição 5 recusava foi preenchida por quem tinha o dado, e é assim que esta página
+pede que ela termine: com a decisão escrita, não com um número suposto. Formulação do dono do produto:
+
+> MAE opção 1 ("MEDIDA DO VÃO") vale &MAE = 0 mm. Fundamento, do Leia-me do motor: "&MAE, &ARI, &FV,
+> &FF etc. são o valor (mm) da opção escolhida". As opções 2 e 3 são "VÃO+50MM [50,00]" e
+> "VÃO+100MM [100,00]" — o colchete é o "+50"/"+100" do nome. Opção cujo nome não anuncia acréscimo e
+> não traz colchete vale 0; isso é regra geral, não exceção da DP-02.
+
+Desde então: sem colchete e sem acréscimo no nome → 0; nome que ANUNCIA acréscimo ("+" e número) sem
+o colchete → continua recusa, porque o número do nome não é lido no lugar do colchete
+(`avaliador-de-formulas.ts`, `ANUNCIA_ACRESCIMO`). A recusa de 24/10 estava certa sob a regra da época
+(`decisao-sob-regra-da-epoca.md`).
+
 ## As ressalvas de método — o que esta página NÃO diz
 
 - **Não substitui `ausente-vs-falso.md`.** Aquela decide a TELA quando falta o dado; esta decide o
