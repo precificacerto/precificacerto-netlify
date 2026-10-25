@@ -16,6 +16,13 @@
  *     `orcamentista_pre_definicao`: o estado mora no levantamento;
  *   - remetente autorizado é SEMPRE respondido; silêncio só para o desconhecido.
  *
+ * DECISÃO 2, REVISTA (dono do produto, 25/10/2026): altera um levantamento (a) o vendedor que o criou e
+ * (b) quem é admin NA EMPRESA (`users.role = 'admin'`, pela cadeia remetente → employees → users, com
+ * falha fechada). O nome continua único por vendedor: o admin pode achar o mesmo nome em dois
+ * vendedores, e então PERGUNTA de qual. Quem não é admin e pede para alterar um nome que não é dele
+ * recebe "não encontrei um levantamento seu com esse nome" — a MESMA frase exista ou não o levantamento
+ * de outro vendedor. Bloco (12).
+ *
  * O TESTE QUE VALE (dono do produto): três pedidos seguidos do MESMO telefone, os três respondidos —
  * "Casa do João", "Obra Centro" e a alteração por "casa do joao" — e um quarto, "Casa do João 2", que
  * tem de PERGUNTAR. Está no bloco (1), na ordem.
@@ -29,9 +36,11 @@ const TOKEN = 'orc_TOKEN_DA_CONEXAO_9f8e7d'
 const TENANT = 'tenant-da-conexao'
 const VENDEDOR = 'remetente-1'
 const OUTRO_VENDEDOR = 'remetente-2'
+const TERCEIRO = 'remetente-3'
 const TELEFONE_DO_WEBHOOK = '555199114290'
 const TELEFONE_GRAVADO = '51999114290'
 const TELEFONE_DO_OUTRO = '555188887777'
+const TELEFONE_DO_TERCEIRO = '555177776666'
 const CHAVE = 'sk-ant-CHAVE-DE-TESTE-nao-pode-ir-ao-log'
 const ANTHROPIC = 'https://api.anthropic.com/v1/messages'
 const TABELA = '72366020-57c9-489f-9385-397b7fa3dedb'
@@ -94,9 +103,17 @@ function montar() {
         whatsapp_conexao: [{ id: 'c1', tenant_id: TENANT, canal: 'ORCAMENTISTA', wuzapi_token: TOKEN, webhook_segredo: SEGREDO, ativo: true }],
         orcamentista_config: [{ tenant_id: TENANT, ativo: true, modelo: 'FABRICACAO' }],
         orcamentista_remetente_autorizado: [
-            { id: VENDEDOR, tenant_id: TENANT, telefone: TELEFONE_GRAVADO, ativo: true },
-            { id: OUTRO_VENDEDOR, tenant_id: TENANT, telefone: '51988887777', ativo: true },
+            // MEDIDO em produção (25/10/2026): o remetente de teste TEM employee_id, e o employees.user_id dele é NULO
+            { id: VENDEDOR, tenant_id: TENANT, telefone: TELEFONE_GRAVADO, ativo: true, nome: 'Cristiano Fernandes', employee_id: 'e-cristiano' },
+            { id: OUTRO_VENDEDOR, tenant_id: TENANT, telefone: '51988887777', ativo: true, nome: 'Fulano de Tal', employee_id: null },
+            // sem nome no remetente: o nome que a pergunta cita vem do employees
+            { id: TERCEIRO, tenant_id: TENANT, telefone: '51977776666', ativo: true, nome: null, employee_id: 'e-beltrana' },
         ],
+        employees: [
+            { id: 'e-cristiano', tenant_id: TENANT, name: 'Cristiano Fernandes', user_id: null, role: 'COMMERCIAL' },
+            { id: 'e-beltrana', tenant_id: TENANT, name: 'Beltrana Souza', user_id: null, role: 'COMMERCIAL' },
+        ],
+        users: [],
         orcamentista_tentativa_desconhecida: [],
         orcamentista_conversa: [],
         orcamentista_mensagem: [],
@@ -401,7 +418,7 @@ describe('(2) o roteamento por nome', () => {
         expect(ultimoEnviado()).toBe(PERGUNTA_ARE)
     })
 
-    it('decisão 2: o OUTRO vendedor, com o MESMO nome, cria o DELE — não altera o do primeiro', async () => {
+    it('o nome é único POR VENDEDOR: o OUTRO vendedor, CRIANDO com o MESMO nome, cria o DELE — não altera o do primeiro', async () => {
         await fecharDp02('Casa do João')
         llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, altura_mm: 1500 }] })
         await chamar('Levantamento Casa do João: DP-02 1200 x 1500 branco temperado 5mm', { senderAlt: TELEFONE_DO_OUTRO })
@@ -730,5 +747,126 @@ describe('(11) a lista de cores é a DESTA empresa', () => {
         await chamar('Levantamento Casa do João: DP-02 1200 x 1000 azul temperado 5mm')
         expect(itensDe(levantamentos()[0].id)[0].cor_perfil).toBeNull()
         expect(String(estado.chamadasDaLlm[0].corpo.system)).not.toContain('AZUL')
+    })
+})
+
+describe('(12) decisão 2, revista: quem altera — o criador, ou o admin da empresa', () => {
+    /** Liga o remetente a um user da empresa com o papel dado — a cadeia remetente → employees → users. */
+    function comPapel(remetenteId: string, role: string | null, opcoes: { tenantDoUser?: string | null; userId?: string | null } = {}) {
+        const r = estado.db.orcamentista_remetente_autorizado.find((x) => x.id === remetenteId) as Linha
+        const empregado = `e-${remetenteId}`
+        r.employee_id = empregado
+        const userId = opcoes.userId === undefined ? `u-${remetenteId}` : opcoes.userId
+        estado.db.employees.push({ id: empregado, tenant_id: TENANT, name: String(r.nome), user_id: userId, role: 'ADMINISTRATIVE' })
+        if (userId) estado.db.users.push({ id: userId, tenant_id: opcoes.tenantDoUser === undefined ? TENANT : opcoes.tenantDoUser, role, name: String(r.nome), email: 'x@y.z' })
+    }
+    const doOutro = { senderAlt: TELEFONE_DO_OUTRO }
+    const alterarAltura = async (nome: string, opcoes: { senderAlt?: string } = {}) => {
+        llmResponde({ nome, alteracao: true, itens: [{ altura_mm: 1200 }] })
+        await chamar(`${nome}, troca a altura para 1200`, opcoes)
+    }
+    const alturaDe = (remetenteId: string) => itensDe(levantamentos().find((l) => l.remetente_id === remetenteId)?.id)[0]?.altura_mm
+
+    it('5. o CRIADOR altera o próprio levantamento — permitido (o remetente de teste NÃO é admin: employees.user_id nulo)', async () => {
+        await fecharDp02('Casa do João')
+        await alterarAltura('casa do joao')
+        expect(alturaDe(VENDEDOR)).toBe(1200)
+        expect(ultimoEnviado().split('\n')[1]).toBe('Esquadria 1: DP-02, 1.200 x 1.200 mm, 1 unidade(s).')
+    })
+
+    it('6. outro vendedor SEM admin tenta alterar pelo nome → "não encontrei um levantamento seu", nada gravado — a MESMA frase de quando o levantamento não existe', async () => {
+        await fecharDp02('Casa do João')
+        const itensAntes = JSON.stringify(estado.db.orcamentista_levantamento_item)
+        const escritasAntes = estado.escritas.length
+        await alterarAltura('casa do joao', doOutro)
+        const comOutroDono = ultimoEnviado()
+        expect(comOutroDono).toBe(conversa.fraseDeNaoEncontrei('casa do joao'))
+        expect(estado.escritas.length).toBe(escritasAntes)
+        expect(JSON.stringify(estado.db.orcamentista_levantamento_item)).toBe(itensAntes)
+
+        // o contraste que prova que não vaza: ninguém tem "Casa do João", e a resposta é IDÊNTICA
+        montar()
+        await alterarAltura('casa do joao', doOutro)
+        expect(ultimoEnviado()).toBe(comOutroDono)
+    })
+
+    it('7. o ADMIN altera o levantamento de OUTRO vendedor — permitido, e o levantamento continua do criador', async () => {
+        await fecharDp02('Casa do João')
+        comPapel(OUTRO_VENDEDOR, 'admin')
+        await alterarAltura('casa do joao', doOutro)
+        expect(levantamentos()).toHaveLength(1)
+        expect(levantamentos()[0]).toEqual(expect.objectContaining({ remetente_id: VENDEDOR, nome: 'Casa do João', estado: 'COMPLETO' }))
+        expect(alturaDe(VENDEDOR)).toBe(1200)
+        expect(ultimoEnviado().split('\n')[1]).toBe('Esquadria 1: DP-02, 1.200 x 1.200 mm, 1 unidade(s).')
+        expect(ultimoEnviado()).toMatch(/Total por consumo real \(material \+ mão de obra\): R\$ [\d.]+,\d{2}\./)
+    })
+
+    it('8. o ADMIN busca um nome que existe em DOIS vendedores → pergunta de qual, citando os nomes, e não escolhe; com o vendedor dito, altera o certo', async () => {
+        await fecharDp02('Casa do João')
+        await fecharDp02('Casa do João', { senderAlt: TELEFONE_DO_TERCEIRO })
+        comPapel(OUTRO_VENDEDOR, 'admin')
+        const itensAntes = JSON.stringify(estado.db.orcamentista_levantamento_item)
+        await alterarAltura('casa do joao', doOutro)
+        // o nome do TERCEIRO vem do employees: o remetente dele não tem nome
+        expect(ultimoEnviado()).toBe(conversa.fraseDeQualVendedor('casa do joao', ['Cristiano Fernandes', 'Beltrana Souza']))
+        expect(JSON.stringify(estado.db.orcamentista_levantamento_item)).toBe(itensAntes)
+
+        llmResponde({ nome: 'casa do joao', vendedor: 'Beltrana Souza', alteracao: true, itens: [{ altura_mm: 1200 }] })
+        await chamar('casa do joao da Beltrana Souza, troca a altura para 1200', doOutro)
+        expect([alturaDe(VENDEDOR), alturaDe(TERCEIRO)]).toEqual([1000, 1200])
+        // os nomes dos vendedores não vão ao log
+        for (const nome of ['Cristiano Fernandes', 'Beltrana Souza', 'Fulano de Tal']) expect(erros.join('\n')).not.toContain(nome)
+    })
+
+    it('8b. o vendedor dito pelo admin que NÃO está no texto é inventado: pergunta de novo, e não altera', async () => {
+        await fecharDp02('Casa do João')
+        await fecharDp02('Casa do João', { senderAlt: TELEFONE_DO_TERCEIRO })
+        comPapel(OUTRO_VENDEDOR, 'admin')
+        llmResponde({ nome: 'casa do joao', vendedor: 'Beltrana Souza', alteracao: true, itens: [{ altura_mm: 1200 }] })
+        await chamar('casa do joao, troca a altura para 1200', doOutro)
+        expect(ultimoEnviado()).toBe(conversa.fraseDeQualVendedor('casa do joao', ['Cristiano Fernandes', 'Beltrana Souza']))
+        expect([alturaDe(VENDEDOR), alturaDe(TERCEIRO)]).toEqual([1000, 1000])
+    })
+
+    it.each([
+        ['employees.user_id NULO', (r: string) => comPapel(r, 'admin', { userId: null })],
+        ['users.role NULO', (r: string) => comPapel(r, null)],
+        ['users.role user', (r: string) => comPapel(r, 'user')],
+        ['users.role super_admin', (r: string) => comPapel(r, 'super_admin')],
+        ['user admin de OUTRO tenant', (r: string) => comPapel(r, 'admin', { tenantDoUser: 'tenant-de-outra-conta' })],
+        ['employees.role ADMINISTRATIVE sem users admin (centro de custo não é permissão)', (r: string) => comPapel(r, 'user')],
+    ])('9. %s → tratado como NÃO admin: "não encontrei", nada alterado', async (_n, preparar) => {
+        await fecharDp02('Casa do João')
+        preparar(OUTRO_VENDEDOR)
+        await alterarAltura('casa do joao', doOutro)
+        expect(ultimoEnviado()).toBe(conversa.fraseDeNaoEncontrei('casa do joao'))
+        expect(alturaDe(VENDEDOR)).toBe(1000)
+    })
+
+    it('o ADMIN com um nome que não existe na empresa: diz que não encontrou na empresa', async () => {
+        comPapel(OUTRO_VENDEDOR, 'admin')
+        await alterarAltura('casa do joao', doOutro)
+        expect(ultimoEnviado()).toBe(conversa.fraseDeNaoEncontreiNaEmpresa('casa do joao'))
+        expect(levantamentos()).toEqual([])
+    })
+
+    it('o ADMIN que deixaria o levantamento de outro INCOMPLETO: nada é gravado, e a resposta diz o que falta', async () => {
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02 }] })
+        await chamar('Levantamento Casa do João: DP-02 1200 x 1000 branco temperado 5mm')
+        comPapel(OUTRO_VENDEDOR, 'admin')
+        const itensAntes = JSON.stringify(estado.db.orcamentista_levantamento_item)
+        await alterarAltura('casa do joao', doOutro)
+        expect(ultimoEnviado()).toBe(conversa.fraseDaAlteracaoIncompleta('Casa do João', 'Cristiano Fernandes', PERGUNTA_ARI))
+        expect(JSON.stringify(estado.db.orcamentista_levantamento_item)).toBe(itensAntes)
+        expect(levantamentos()[0].estado).toBe('EM_MONTAGEM')
+    })
+
+    it('sem pedido de ALTERAÇÃO, o admin com um nome de outro vendedor CRIA o dele — não mexe no do outro', async () => {
+        await fecharDp02('Casa do João')
+        comPapel(OUTRO_VENDEDOR, 'admin')
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, altura_mm: 1500 }] })
+        await chamar('Levantamento Casa do João: DP-02 1200 x 1500 branco temperado 5mm', doOutro)
+        expect(levantamentos().map((l) => l.remetente_id)).toEqual([VENDEDOR, OUTRO_VENDEDOR])
+        expect(alturaDe(VENDEDOR)).toBe(1000)
     })
 })
