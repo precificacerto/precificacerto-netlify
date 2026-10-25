@@ -139,7 +139,7 @@ Não é pedido de permissão: é informação que só existe de um lado.
 
 `estado-relatado-vs-real.md` é a vizinha mais próxima, e a diferença é de direção: lá o relato
 afirma um estado externo que ninguém consultou; aqui o relato é **verdadeiro** (`3 commits à
-frente de main` é exato) e ainda assim engana, porque descreve o eixo errado. `migration-delivery.md`
+frente de main` é exato) e ainda assim engana, porque descreve o eixo errado. `migracao.md` (Parte II)
 é a mesma forma no banco — *merge não é entrega*, aqui *commit não é entrega* —, e as duas
 fixam um **default**: migração é pendente por padrão, trabalho é perdível por padrão.
 `razao-longe-da-restricao.md` é o espelho do corolário, como registrado acima.

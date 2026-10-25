@@ -1,3 +1,28 @@
+---
+paths:
+  - "src/utils/pricing-engine.ts"
+  - "src/utils/mrm-engine-v17/**"
+  - "src/utils/decomposition*.ts"
+  - "src/utils/residual-from-decomposition.ts"
+  - "src/utils/budget-*.ts"
+  - "src/utils/item-tax-rates.ts"
+  - "src/utils/despesas-do-segmento.ts"
+  - "src/utils/campos-do-segmento.ts"
+  - "src/utils/product-price-construction.ts"
+  - "src/utils/iva-dual-reduction-factor.ts"
+  - "src/utils/classificacao-fiscal.ts"
+  - "src/utils/limite-de-desconto.ts"
+  - "src/lib/document-snapshot.ts"
+  - "src/lib/decomposition-pdf.ts"
+  - "src/page-parts/products/**"
+  - "src/page-parts/services/**"
+  - "src/page-parts/shared/**"
+  - "src/pages/orcamentos/**"
+  - "src/pages/pedidos/**"
+  - "src/pages/vendas/**"
+  - "supabase/functions/calc-tax-engine/**"
+---
+
 # Regime e Segmento Determinam a Construção, e a Construção Manda na Decomposição
 
 > **Esta regra é independente da frente que a originou.** Nasceu no levantamento do percentual

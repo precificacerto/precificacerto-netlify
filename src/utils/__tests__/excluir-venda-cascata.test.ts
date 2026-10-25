@@ -15,7 +15,7 @@
  * CADA ASSERÇÃO FALHA SEM A SUA CORREÇÃO, e as de comportamento usam PRODUTO E SERVIÇO.
  *
  * A ARMADILHA QUE ESTES CASOS EVITAM, e é a terceira variante desta rodada
- * (`.claude/rules/teste-que-nao-exercita.md`): afirmar que o botão EXISTE não é afirmar que
+ * (`docs/regras/teste-que-nao-exercita.md`): afirmar que o botão EXISTE não é afirmar que
  * ele fica DESABILITADO no caso certo. Por isso `canDeleteSale` é exercitada com os dois
  * estados — com e sem pagamento — e a asserção é sobre o VEREDITO, não sobre a presença.
  */
@@ -51,7 +51,7 @@ describe('EXCLUÍDO e CANCELADO são estados DIFERENTES', () => {
     })
 
     it('documento SEM status não é excluído — ausência não é classificação', () => {
-        // `.claude/rules/ausente-vs-falso.md`: `null` é "nunca classificado", nunca "excluído".
+        // `docs/regras/ausente-vs-falso.md`: `null` é "nunca classificado", nunca "excluído".
         expect(isDeletedDocument({ status: null })).toBe(false)
         expect(isDeletedDocument({})).toBe(false)
         expect(isDeletedDocument(undefined)).toBe(false)
@@ -98,7 +98,7 @@ describe('O CRITÉRIO, depois que a pré-condição de pagamento saiu', () => {
     //
     // Eles diziam que venda com pagamento era BLOQUEADA. Aquilo estava CERTO sob a regra da
     // época; a decisão de 09/09/2026 REVOGOU a pré-condição. Não é correção de teste errado —
-    // é `.claude/rules/decisao-sob-regra-da-epoca.md`, e é a SEGUNDA mudança de decisão da
+    // é `docs/regras/decisao-sob-regra-da-epoca.md`, e é a SEGUNDA mudança de decisão da
     // mesma rodada (a primeira foi o botão voltar ao popup do Fluxo de Caixa).
     // ═══════════════════════════════════════════════════════════════════════════════════════
 
@@ -250,7 +250,7 @@ describe('O filtro nas TRÊS telas', () => {
 
     it('o hook dos excluídos é ÚNICO — não há uma cópia por tela', () => {
         // Três blocos iguais seriam a quinta aparição da CÓPIA DIVERGENTE, na mesma rodada em
-        // que a quarta foi corrigida (`.claude/rules/copia-divergente.md`).
+        // que a quarta foi corrigida (`docs/regras/copia-divergente.md`).
         for (const arquivo of ['pages/orcamentos/index.tsx', 'pages/pedidos/index.tsx', 'pages/vendas/index.tsx']) {
             const conteudo = read(arquivo)
             expect(conteudo).toContain('useDeletedDocuments<')
@@ -338,7 +338,7 @@ describe('As migrações — a ordem de aplicação é instrução de operação
     })
 
     it('a regra versionada cobre a ORDEM, não só o "pendente por padrão"', () => {
-        const regra = readRaiz('.claude/rules/migration-delivery.md')
+        const regra = readRaiz('.claude/rules/migracao.md')
         expect(regra).toContain('A ORDEM depende do que a migração CRIA')
         expect(regra).toContain('FUNÇÃO')
         expect(regra).toContain('ANTES DO MERGE')

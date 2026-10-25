@@ -1,3 +1,11 @@
+---
+paths:
+  - "src/lib/atendimentos-ia/**"
+  - "src/pages/api/atendimentos-ia/**"
+  - "src/pages/orcamentos/**"
+  - "supabase/migrations/**"
+---
+
 # A Tabela Que a Importação Apaga
 
 > **Esta regra é independente da rodada que a originou.** Nasceu em 24/10/2026, na importação das
@@ -98,7 +106,7 @@ apagada em produção. É o remédio de `copia-divergente.md` (teste ligando o c
 `construtor-empobrecido.md` (fazer o compilador enumerar), aplicado a quem apaga.
 
 > **A ressalva que decide de onde vem a lista.** As migrações deste repositório NÃO são a fonte de
-> verdade do schema (`migration-delivery.md`: 4 versões em comum de 146). O portão compara contra
+> verdade do schema (`migracao.md` (Parte II): 4 versões em comum de 146). O portão compara contra
 > uma lista declarada no código, e essa lista é conferida contra o `information_schema` de
 > produção quando a migração que acrescenta a coluna é aplicada. Ler a pasta `supabase/migrations/`
 > daria uma lista plausível e errada.
@@ -139,7 +147,7 @@ Quando o 1 e o 2 coincidem, a coluna nova já está sendo apagada.
 - **Não diz que a aparição 2 já causou dano.** O #34 a registrou como armada; a re-medição de hoje
   confirma o código, não mede quantos orçamentos foram reabertos e salvos desde então. Essa medição
   exigiria histórico de edição que não existe.
-- **Não substitui `migration-delivery.md`.** A lista de colunas do portão é conferida contra
+- **Não substitui `migracao.md` (Parte II).** A lista de colunas do portão é conferida contra
   produção porque a pasta de migrações não é o schema.
 
 ## Relação com as outras regras
@@ -150,5 +158,5 @@ coluna que chegou depois dele. O remédio 2 é o delas. `fato-vs-referencia.md` 
 2 — o valor regravado vem do cadastro vivo —, e a distinção está escrita acima. `ausente-vs-falso.md`
 explica por que a primeira metade do critério engana: a coluna apagada volta NULL, e NULL lê como
 "nunca informado", não como "apagado". `portao-que-nao-alcanca.md` é a razão de a conferência por
-contagem de linhas não bastar. `migration-delivery.md` é a ressalva do remédio 2.
+contagem de linhas não bastar. `migracao.md` (Parte II) é a ressalva do remédio 2.
 `registro-de-classe.md` decidiu a forma desta página e o limite que a manteve em duas linhas.

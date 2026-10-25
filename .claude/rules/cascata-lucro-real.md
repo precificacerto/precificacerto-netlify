@@ -1,3 +1,28 @@
+---
+paths:
+  - "src/utils/pricing-engine.ts"
+  - "src/utils/mrm-engine-v17/**"
+  - "src/utils/decomposition*.ts"
+  - "src/utils/residual-from-decomposition.ts"
+  - "src/utils/budget-*.ts"
+  - "src/utils/item-tax-rates.ts"
+  - "src/utils/despesas-do-segmento.ts"
+  - "src/utils/campos-do-segmento.ts"
+  - "src/utils/product-price-construction.ts"
+  - "src/utils/iva-dual-reduction-factor.ts"
+  - "src/utils/classificacao-fiscal.ts"
+  - "src/utils/limite-de-desconto.ts"
+  - "src/lib/document-snapshot.ts"
+  - "src/lib/decomposition-pdf.ts"
+  - "src/page-parts/products/**"
+  - "src/page-parts/services/**"
+  - "src/page-parts/shared/**"
+  - "src/pages/orcamentos/**"
+  - "src/pages/pedidos/**"
+  - "src/pages/vendas/**"
+  - "supabase/functions/calc-tax-engine/**"
+---
+
 # Regras da Cascata do Orçamento — Lucro Real
 
 **Escopo.** Vale para tenants em **Lucro Real**, nos três segmentos da cadeia:
@@ -355,7 +380,7 @@ dedução erra nos dois sentidos e a resposta muda sozinha.
 | `20260916000003` | a travessia ADITIVA: as duas colunas novas recebem o valor de `iva_dual_reduction_factor`, e a antiga FICA | **aplicada** |
 
 > **A verificação foi por CONSULTA AO SCHEMA, não pelo retorno do comando.**
-> `migration-delivery.md` diz que o default é PENDENTE até alguém olhar a coluna
+> `migracao.md` (Parte II) diz que o default é PENDENTE até alguém olhar a coluna
 > na tabela, e `estado-relatado-vs-real.md` diz que estado de sistema externo
 > exige a fonte primária antes de virar premissa. O dono do produto aplicou e
 > reportou; a consulta abaixo é independente do relato dele e bate com ele:

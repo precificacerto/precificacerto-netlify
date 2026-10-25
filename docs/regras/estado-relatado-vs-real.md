@@ -84,7 +84,7 @@ só conversa, não custa nada dizer "acho que" e seguir.
 
 ## Relação com as outras regras
 
-`migration-delivery.md` é o caso particular desta classe no banco: migração é PENDENTE POR
+`migracao.md` (Parte II) é o caso particular desta classe no banco: migração é PENDENTE POR
 PADRÃO até a consulta ao schema provar o contrário. `baseline-measurement.md` trata do irmão
 próximo — medição feita na árvore errada, onde o número está certo e a premissa é que está
 errada. `registro-de-classe.md` define a forma desta página, incluindo o limite que manteve a
