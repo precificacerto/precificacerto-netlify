@@ -34,7 +34,8 @@ def pela_area_de_transferencia(texto):
     return texto.encode('utf-8').decode('latin-1')
 
 
-# (id, o que estraga, [(trecho, troca), ...] ou função, fragmento que TEM de aparecer na saída, só aplicar?)
+# (id, o que estraga, [(trecho, troca), ...] ou função, fragmento que TEM de aparecer na saída, só aplicar?,
+#  e, opcional, variáveis de ambiente para o run.sh — TEXTO_CERTO_COM_A_TIL=1 põe um rótulo certo com "Ã")
 MUTACOES = [
     ('V1', 'sem o REVOKE da função das opções (nova: nasce com os DEFAULT PRIVILEGES do Supabase)',
      [("REVOKE ALL ON FUNCTION public.orcamentista_opcoes_validas(text[]) FROM PUBLIC, anon, authenticated;\n", "")],
@@ -51,10 +52,10 @@ MUTACOES = [
      'sem SECURITY DEFINER ou sem search_path fixo', True),
     ('V5', 'sem o UPDATE de um rótulo (REFORCO)',
      [("UPDATE public.orcamentista_categoria_catalogo SET rotulo = 'Reforço de aço' WHERE chave = 'REFORCO';\n", "")],
-     'verificacao 3: ainda ha "Ã" ou "Â" em: rotulo REFORCO', True),
+     'verificacao 3: ainda ha mojibake ("Ã" ou "Â" seguido de U+0080..U+00BF) em: rotulo REFORCO', True),
     ('V6', 'sem o COMMENT de uma das 3 tabelas fora das 8 (esquadrias_padrao)',
      [("COMMENT ON TABLE public.orcamentista_esquadrias_padrao IS\n  'legado: substituída pelo modelo de três níveis em 20261023000002';\n", "")],
-     'verificacao 3: ainda ha "Ã" ou "Â" em: COMMENT orcamentista_esquadrias_padrao', True),
+     'verificacao 3: ainda ha mojibake ("Ã" ou "Â" seguido de U+0080..U+00BF) em: COMMENT orcamentista_esquadrias_padrao', True),
     ('V7', 'rótulo "consertado" SEM acento — sem "Ã", só o md5 pega',
      [("SET rotulo = 'Reforço de aço' WHERE chave = 'REFORCO';", "SET rotulo = 'Reforco de aco' WHERE chave = 'REFORCO';")],
      'md5 nao bate) em: rotulo REFORCO', True),
@@ -121,7 +122,12 @@ MUTACOES = [
     ('B14', 'o ausente mexe: o config SUBSTITUI em vez de merge',
      [("coalesce(v_config, '{}'::jsonb) || p_corpo, p_por, now())", "p_corpo, p_por, now())")],
      'FALHOU: ausente mexeu no criterio', False),
+    ('V13', 'a verificação 3a volta a ser chr(195)/chr(194) SOZINHOS — com um rótulo CERTO com "Ã" no banco',
+     [("    SELECT 'rotulo ' || categoria_chave || '.' || chave FROM public.orcamentista_categoria_campo\n     WHERE rotulo ~ v_par",
+       "    SELECT 'rotulo ' || categoria_chave || '.' || chave FROM public.orcamentista_categoria_campo\n     WHERE strpos(rotulo, chr(195)) > 0 OR strpos(rotulo, chr(194)) > 0")],
+     'verificacao 3: ainda ha', True, {'TEXTO_CERTO_COM_A_TIL': '1'}),
     ('M0', 'CONTROLE: nada muda', [], None, False),
+    ('M1', 'CONTROLE com um rótulo CERTO com "Ã" no banco: a migração passa', [], None, True, {'TEXTO_CERTO_COM_A_TIL': '1'}),
 ]
 
 
@@ -145,11 +151,12 @@ def main():
     falhas = 0
     with tempfile.TemporaryDirectory() as tmp:
         copia = os.path.join(tmp, 'mutada.sql')
-        for ident, descricao, trocas, espera, so_aplicar in MUTACOES:
+        for ident, descricao, trocas, espera, so_aplicar, *extra in MUTACOES:
             if pedidas and ident not in pedidas:
                 continue
             open(copia, 'w', encoding='utf-8').write(mutar(original, trocas))
             env = dict(os.environ)
+            env.update(extra[0] if extra else {})
             if so_aplicar:
                 env['SO_APLICAR'] = '1'
             p = subprocess.run(['bash', os.path.join(AQUI, 'run.sh'), copia], capture_output=True, text=True, env=env)
