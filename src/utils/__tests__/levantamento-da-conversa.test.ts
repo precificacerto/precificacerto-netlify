@@ -8,9 +8,17 @@
  * abas em `abas-do-motor-wolff-DP-02.json` e o recorte conferido por md5 em
  * `fixtures/fixture_de-para_DP-02.json`.
  *
- * A primeira versão (dono do produto, 25/10/2026): cor fixa BRANCO, só as escolhas que a conversa
- * captura (hoje nenhuma: tudo no Padrão), uma esquadria por conversa, nada persistido, e só a DP-02
- * da tabela Wolff com as abas do motor.
+ * A primeira versão (dono do produto, 25/10/2026): só as escolhas que a conversa captura, uma
+ * esquadria por conversa, nada persistido, e só a DP-02 da tabela Wolff com as abas do motor.
+ *
+ * DESDE A RODADA DO PREÇO NA CONVERSA (25/10/2026):
+ *   - a COR é a da pré-definição (`cor_perfil`), comparada EXATA com a coluna `cor` do motor — não
+ *     mais BRANCO fixo;
+ *   - a MÃO DE OBRA é o tempo da tipologia × o valor do minuto que a TELA DE PRODUTO usa:
+ *     `calculatePricing` (passo 1) com `resolveMonthlyWorkload` e `custoMensalDeMaoDeObraDoProduto`.
+ *     O banco falso traz os números de produção do tenant ativo — e a MO administrativa e a fixa,
+ *     que NÃO podem entrar em INDUSTRIALIZACAO: é o que discrimina o segmento;
+ *   - os dois totais de material, a DIFERENÇA entre eles, e os dois totais com a mão de obra.
  */
 export {}
 
@@ -84,15 +92,28 @@ function montar() {
         orcamentista_tabela_item: DE_PARA.itens.map((i) => ({ ...i, tabela_id: TABELA })),
         orcamentista_mp_categoria: [{ tenant_id: TENANT, categoria_chave: 'PERFIL', config: { serra_mm: 5, cores: ['BRANCO'], cor_predominante: 'BRANCO' } }],
         orcamentista_motor_tipologia: [{ tabela_id: TABELA, tipologia: 'DP-02', tempo_fabricacao_min: 150, tempo_origem: 'IMPORTADO' }],
+        // os números do tenant ativo em produção, medidos em 25/10/2026
+        tenant_settings: [{ tenant_id: TENANT, calc_type: 'INDUSTRIALIZACAO', monthly_workload: 528, workload_unit: 'HOURS', num_productive_employees: 5 }],
+        tenant_expense_config: [{
+            tenant_id: TENANT, production_labor_cost_hub: 40813.03, production_labor_cost: 0,
+            // ZERO em produção, e nada escreve nele: o caminho da tela não o lê — o caso (7) põe outro valor e afirma que nada muda
+            productive_value_per_minute: 0,
+            admin_salary_total: 27649.76, admin_fgts_total: 0, admin_other_costs: 0, fixed_expense_monthly: 17884.79,
+        }],
     }
 }
 beforeEach(montar)
 
 /** O que a pré-definição gravada traz para o levantamento — `escolhas` é o jsonb da coluna. */
-const ESQUADRIA = { tipologia: 'DP-02', largura_mm: 1200, altura_mm: 1000, quantidade: 1, vidro: 'Temperado 5mm', escolhas: null as unknown }
+const ESQUADRIA = { tipologia: 'DP-02', largura_mm: 1200, altura_mm: 1000, quantidade: 1, cor_perfil: 'BRANCO' as unknown, vidro: 'Temperado 5mm', escolhas: null as unknown }
 /** Os dados da esquadria como a FRASE os recebe: as escolhas já descritas. */
 const DESCRITAS = 'ARI 4 — SEM ARREMATE INTERNO; ARE 1 — BZ0010 - ARREMATE 20MM; MAE 2 — VÃO+50MM (CORTE 90/90) - PARA AJUSTE EM OBRA'
-const DADOS = { tipologia: 'DP-02', largura_mm: 1200, altura_mm: 1000, quantidade: 1, escolhas: DESCRITAS }
+const DADOS = { tipologia: 'DP-02', largura_mm: 1200, altura_mm: 1000, quantidade: 1, cor: 'BRANCO', escolhas: DESCRITAS }
+/**
+ * A mão de obra da DP-02 com os números de produção: 150 min × (40.813,03 ÷ (5 × 528 h × 60)).
+ * 5 × 528 × 60 = 158.400 min; 40.813,03 ÷ 158.400 = 0,25765802…; × 150 = 38,6487 → R$ 38,65.
+ */
+const MAO_DE_OBRA = { ok: true as const, minutosPorUnidade: 150, origem: 'IMPORTADO', quantidade: 1, custoMensal: 40813.03, minutosDaEmpresa: 158400, porUnidade: 38.65, total: 38.65 }
 /** O texto inteiro do levantamento que fecha — conta à mão no portão da ligação. */
 const TEXTO_QUE_FECHA = [
     'Levantamento de DP-02, 1.200 x 1.000 mm, 1 unidade(s), perfil BRANCO.',
@@ -109,9 +130,14 @@ const TEXTO_QUE_FECHA = [
     '• 9801 (GB25/WOLFF): 1 barra(s) de 6 m',
     '',
     'Aproveitamento do levantamento: 60,7% (32,77 m úteis de 54,00 m comprados).',
-    'Total por barra inteira: R$ 1.342,09.',
-    'Total por consumo real: R$ 829,79.',
-    'Tempo de fabricação da tipologia: 150 min (IMPORTADO).',
+    '',
+    'Material por barra inteira: R$ 1.342,09.',
+    'Material por consumo real: R$ 829,79.',
+    'Diferença entre os dois: R$ 512,30.',
+    'Mão de obra: 150 min por unidade (IMPORTADO) × 1 unidade(s), a R$ 0,257658 o minuto (R$ 40.813,03 ÷ 158.400 min): R$ 38,65.',
+    '',
+    'Total por barra inteira (material + mão de obra): R$ 1.380,74.',
+    'Total por consumo real (material + mão de obra): R$ 868,44.',
 ].join('\n')
 
 describe('(1) a tabela da empresa e as tipologias candidatas', () => {
@@ -188,6 +214,7 @@ describe('(5) a mensagem do levantamento', () => {
         const lida = AV().lerTipologia(ABAS, 'DP-02')
         if ('recusas' in lida) throw new Error('abas recusadas')
         const r = LB().levantarBarras({
+            cor: 'BRANCO',
             esquadrias: [{ tipologia: 'DP-02', L_mm: 1200, H_mm: 1000, quantidade: 1, escolhas: { MAE: 2, ARI: 4 }, espessura_vidro_mm: 5 }],
             tipologias: { 'DP-02': lida.tipologia }, regras: DE_PARA.regras as never, itens: DE_PARA.itens as never, serra_mm: 5,
         })
@@ -195,23 +222,40 @@ describe('(5) a mensagem do levantamento', () => {
         return r
     }
 
-    it('o LEVANTAMENTO QUE FECHA: barras por código, aproveitamento, os dois totais e o tempo — o texto inteiro', () => {
-        expect(M().fraseDoLevantamento(DADOS, resultadoQueFecha(), { minutos: 150, origem: 'IMPORTADO' })).toBe(TEXTO_QUE_FECHA)
+    it('o LEVANTAMENTO QUE FECHA: barras, aproveitamento, os dois totais de material, a diferença, a mão de obra e os dois totais — o texto inteiro', () => {
+        expect(M().fraseDoLevantamento(DADOS, resultadoQueFecha(), MAO_DE_OBRA)).toBe(TEXTO_QUE_FECHA)
     })
 
-    it('PREÇO AUSENTE: o total que não sai diz qual código falta — nunca R$ 0,00', () => {
+    it('PREÇO AUSENTE: o total que não sai diz qual código falta, e a diferença e o total com mão de obra também não saem — nunca R$ 0,00', () => {
         const r = resultadoQueFecha()
         const semBarra = { ...r, total: { ...r.total, total_por_barra_inteira: null as number | null }, falta_para_o_total: [{ codigo: '9641', perfil: 'HF88/WOLFF', falta: 'valor_barra_interno' as const, total: 'total_por_barra_inteira' as const, mensagem: '' }] }
-        const texto = M().fraseDoLevantamento(DADOS, semBarra, null)
-        expect(texto).toContain('Total por barra inteira: não sai — falta o valor da barra de 9641 (HF88/WOLFF).')
-        expect(texto).toContain('Tempo de fabricação da tipologia: não está cadastrado para DP-02.')
+        const texto = M().fraseDoLevantamento(DADOS, semBarra, MAO_DE_OBRA)
+        expect(texto).toContain('Material por barra inteira: não sai — falta o valor da barra de 9641 (HF88/WOLFF).')
+        expect(texto).toContain('Diferença entre os dois: não sai — falta o total por barra inteira.')
+        expect(texto).toContain('Total por barra inteira (material + mão de obra): não sai — falta o material por barra inteira.')
+        // o outro critério continua saindo inteiro
+        expect(texto).toContain('Total por consumo real (material + mão de obra): R$ 868,44.')
         expect(texto).not.toContain('R$ 0,00')
+    })
+
+    it('MÃO DE OBRA AUSENTE: a linha diz o que falta, e os totais com mão de obra NÃO saem — o material sai', () => {
+        const texto = M().fraseDoLevantamento(DADOS, resultadoQueFecha(), { ok: false, falta: 'o tempo de fabricação de DP-02 não está cadastrado' })
+        expect(texto).toContain('Mão de obra: não sai — o tempo de fabricação de DP-02 não está cadastrado.')
+        expect(texto).toContain('Material por barra inteira: R$ 1.342,09.')
+        expect(texto).toContain('Total por barra inteira (material + mão de obra): não sai — falta a mão de obra.')
+        expect(texto).toContain('Total por consumo real (material + mão de obra): não sai — falta a mão de obra.')
+        expect(texto).not.toContain('R$ 0,00')
+    })
+
+    it('a QUANTIDADE multiplica a mão de obra: 3 unidades, 3 × R$ 38,65', () => {
+        const texto = M().fraseDoLevantamento({ ...DADOS, quantidade: 3 }, resultadoQueFecha(), { ...MAO_DE_OBRA, quantidade: 3, total: 115.95 })
+        expect(texto).toContain('Mão de obra: 150 min por unidade (IMPORTADO) × 3 unidade(s), a R$ 0,257658 o minuto (R$ 40.813,03 ÷ 158.400 min): R$ 115,95.')
     })
 
     it('os AVISOS do avaliador saem em português, com a medida e o limite', () => {
         const r = resultadoQueFecha()
         const comAviso = { ...r, avisos: [{ origem: 'LIMITE' as const, medida: 'H' as const, limite: 'MIN' as const, valor_mm: 380, limite_mm: 388, excesso_mm: 8, excesso_pct: 2.0618556701, esquadria: 1 }] }
-        expect(M().fraseDoLevantamento(DADOS, comAviso, null)).toContain('Atenção:\n• A altura de 380 mm está abaixo do mínimo da tipologia (388 mm), 8 mm (2,1%).')
+        expect(M().fraseDoLevantamento(DADOS, comAviso, MAO_DE_OBRA)).toContain('Atenção:\n• A altura de 380 mm está abaixo do mínimo da tipologia (388 mm), 8 mm (2,1%).')
     })
 })
 
@@ -292,5 +336,75 @@ describe('(6) a RECUSA chega como texto, inteira e nomeada', () => {
         const texto = M().fraseDaRecusa(DADOS, faltas)
         expect(texto.split('\n').filter((l) => l.startsWith('• Falta'))).toHaveLength(8)
         expect(texto).toContain('• e mais 3 falta(s) do mesmo levantamento.')
+    })
+})
+
+describe('(7) a MÃO DE OBRA — o mesmo caminho da tela de produto, com os números de produção', () => {
+    it('INDUSTRIALIZACAO: custo do Hub ÷ (5 × 528 h × 60 min) × 150 min = R$ 38,65 — a administrativa e a fixa NÃO entram', async () => {
+        expect(await M().lerMaoDeObra(TENANT, TABELA, 'DP-02', 1)).toEqual(MAO_DE_OBRA)
+    })
+
+    it('SERVICO: a administrativa e a fixa ENTRAM no custo do minuto (custoMensalDeMaoDeObra) — o segmento decide', async () => {
+        banco.db.tenant_settings[0].calc_type = 'SERVICO'
+        const mo = await M().lerMaoDeObra(TENANT, TABELA, 'DP-02', 1)
+        // 40.813,03 + 27.649,76 + 17.884,79 = 86.347,58; ÷ 158.400 × 150 = 81,7685 → 81,77
+        expect(mo).toEqual({ ...MAO_DE_OBRA, custoMensal: 86347.58, porUnidade: 81.77, total: 81.77 })
+    })
+
+    it('a quantidade multiplica: 3 unidades', async () => {
+        expect(await M().lerMaoDeObra(TENANT, TABELA, 'DP-02', 3)).toEqual({ ...MAO_DE_OBRA, quantidade: 3, total: 115.95 })
+    })
+
+    it('productive_value_per_minute NÃO é lido: com 9,99 gravado nele, o número é o mesmo', async () => {
+        banco.db.tenant_expense_config[0].productive_value_per_minute = 9.99
+        expect(await M().lerMaoDeObra(TENANT, TABELA, 'DP-02', 1)).toEqual(MAO_DE_OBRA)
+    })
+
+    it.each([
+        ['sem tempo de fabricação da tipologia', () => { banco.db.orcamentista_motor_tipologia = [] }, 'o tempo de fabricação de DP-02 não está cadastrado'],
+        ['sem carga horária', () => { banco.db.tenant_settings[0].monthly_workload = 0 }, 'a carga horária mensal da empresa não está configurada'],
+        ['sem tenant_settings', () => { banco.db.tenant_settings = [] }, 'a carga horária mensal da empresa não está configurada'],
+        ['sem custo de mão de obra produtiva', () => { banco.db.tenant_expense_config[0].production_labor_cost_hub = 0 }, 'o custo mensal da mão de obra produtiva da empresa não está configurado'],
+        ['sem tipo de cálculo', () => { banco.db.tenant_settings[0].calc_type = null }, 'o tipo de cálculo da empresa (industrialização, revenda ou serviço) não está configurado'],
+        ['empresa de REVENDA', () => { banco.db.tenant_settings[0].calc_type = 'REVENDA' }, 'a empresa está configurada como revenda, e na revenda o tempo de fabricação não entra no custo'],
+    ])('%s: a falta é NOMEADA — nunca zero', async (_nome, preparar, falta) => {
+        preparar()
+        expect(await M().lerMaoDeObra(TENANT, TABELA, 'DP-02', 1)).toEqual({ ok: false, falta })
+    })
+})
+
+describe('(8) a COR é a da pré-definição, comparada exata com a coluna cor do motor', () => {
+    it('em BRANCO, a DP-02 fecha — e o cabeçalho diz BRANCO', async () => {
+        const t = await M().lerTabelaDaEmpresa(TENANT)
+        const r = await M().mensagemDoLevantamento(TENANT, t, { ...ESQUADRIA, escolhas: { ARI: 4, ARE: 1, MAE: 2 } })
+        expect(r).toEqual({ desfecho: 'levantou', texto: TEXTO_QUE_FECHA })
+    })
+
+    it('em PRETO TEXTURADO, a mesma esquadria é RECUSADA nomeando o perfil e a cor — nenhuma cor parecida entra', async () => {
+        const t = await M().lerTabelaDaEmpresa(TENANT)
+        const r = await M().mensagemDoLevantamento(TENANT, t, { ...ESQUADRIA, cor_perfil: 'PRETO TEXTURADO', escolhas: { ARI: 4, ARE: 1, MAE: 2 } })
+        expect(r.desfecho).toBe('recusou')
+        expect(r.texto.startsWith('Não consegui fechar o levantamento de DP-02, 1.200 x 1.000 mm, 1 unidade(s), perfil PRETO TEXTURADO.\n')).toBe(true)
+        expect(r.texto).toContain('• O perfil HF88/WOLFF não tem código para a cor PRETO TEXTURADO na tabela do fornecedor; as variantes que existem são: BRANCO. Falta: o código de HF88/WOLFF em PRETO TEXTURADO.')
+    })
+
+    it('"Branco" não é BRANCO: a caixa diferente é recusada, não normalizada', async () => {
+        const t = await M().lerTabelaDaEmpresa(TENANT)
+        const r = await M().mensagemDoLevantamento(TENANT, t, { ...ESQUADRIA, cor_perfil: 'Branco', escolhas: { ARI: 4, ARE: 1, MAE: 2 } })
+        expect(r.desfecho).toBe('recusou')
+        expect(r.texto).toContain('não tem código para a cor Branco')
+    })
+
+    it('SEM COR na pré-definição: a recusa diz que falta a cor do perfil', async () => {
+        const t = await M().lerTabelaDaEmpresa(TENANT)
+        const r = await M().mensagemDoLevantamento(TENANT, t, { ...ESQUADRIA, cor_perfil: null, escolhas: { ARI: 4, ARE: 1, MAE: 2 } })
+        expect(r.desfecho).toBe('recusou')
+        expect(r.texto).toContain('• Falta: a cor do perfil.')
+    })
+
+    it('as cores da empresa vêm da base de conhecimento (Perfil), juntas e sem repetição, na ordem em que aparecem', async () => {
+        banco.db.orcamentista_mp_categoria.push({ tenant_id: TENANT, categoria_chave: 'PERFIL', config: { serra_mm: 5, cores: ['PRETO TEXTURADO', 'BRANCO'] } })
+        banco.db.orcamentista_mp_categoria.push({ tenant_id: 'outro-tenant', categoria_chave: 'PERFIL', config: { cores: ['AZUL'] } })
+        expect(await M().lerCoresDaEmpresa(TENANT)).toEqual(['BRANCO', 'PRETO TEXTURADO'])
     })
 })

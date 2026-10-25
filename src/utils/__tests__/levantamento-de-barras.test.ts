@@ -83,9 +83,10 @@ function tipologiaDeUmPerfil(codigo: string, perfil: string): import('@/lib/aten
 function esquadria(e: Partial<Esquadria> = {}): Esquadria {
     return { tipologia: 'DP-02', L_mm: 1200, H_mm: 1000, quantidade: 1, escolhas: FECHA, espessura_vidro_mm: 5, ...e }
 }
-function levantar(esquadrias: Esquadria[], o: { regras?: Regra[]; itens?: Item[]; tipologias?: Record<string, unknown> } = {}) {
+function levantar(esquadrias: Esquadria[], o: { regras?: Regra[]; itens?: Item[]; tipologias?: Record<string, unknown>; cor?: string } = {}) {
     return L().levantarBarras({
         esquadrias,
+        cor: o.cor ?? 'BRANCO',
         tipologias: (o.tipologias ?? { 'DP-02': dp02() }) as never,
         regras: o.regras ?? REGRAS,
         itens: o.itens ?? ITENS,
@@ -136,8 +137,15 @@ describe('(1) a DP-02 em BRANCO, de ponta a ponta', () => {
         expect(sf66.map((p) => [p.codigo, p.comprimento_mm, p.quantidade])).toEqual([['9681', 595.8, 4], ['9681', 917.6, 4]])
     })
 
-    it('a cor desta versão é BRANCO, e só BRANCO', () => {
-        expect(L().COR_DA_PRIMEIRA_VERSAO).toBe('BRANCO')
+    it('a COR É A DA ENTRADA, não uma fixa: em PRETO TEXTURADO, o HF88 só existe em BRANCO e é RECUSADO pelo nome e pela cor', () => {
+        // com a cor fixa em BRANCO, este levantamento fecharia: é a cor pedida que decide o código
+        const r = recusado([esquadria()], { cor: 'PRETO TEXTURADO' })
+        const hf88 = r.recusas.find((x) => x.perfil === 'HF88/WOLFF')
+        expect(hf88?.motivo).toBe('COR_SEM_CODIGO')
+        expect(hf88?.mensagem).toContain('HF88/WOLFF não tem código para a cor PRETO TEXTURADO')
+        expect(hf88?.variantes).toEqual(['BRANCO'])
+        // e o perfil SEM VARIANTE (cor vazia em todas as linhas) continua com o código único
+        expect(r.recusas.some((x) => x.perfil === '1023/WOLFF')).toBe(false)
     })
 })
 
