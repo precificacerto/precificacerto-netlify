@@ -332,6 +332,7 @@ O AIOS carrega regras contextuais de `.claude/rules/` automaticamente. Regras co
 | `instrumento-que-se-enxerga.md` | O instrumento que examina um conjunto em que ele mesmo está sempre se acha — fixture com o alvo AUSENTE, e prazo em todo laço de espera |
 | `limite-do-desconto.md` | O limite do desconto, a autorização, e o que a repartição faz acima dele (ESPEC Parte VII) |
 | `mcp-usage.md` | MCP server usage rules and tool selection priority |
+| `migration-antes-do-merge.md` | O que o código novo lê ou chama é aplicado e VERIFICADO em produção antes do merge — e o PR nomeia a migração que pressupõe |
 | `migration-delivery.md` | PR com migração só está entregue com a migração aplicada e verificada |
 | `portao-que-nao-alcanca.md` | O portão fica verde e a proteção declarada não foi exercida |
 | `razao-longe-da-restricao.md` | A restrição é imposta num ponto e a razão mora noutro — citar onde se declara |

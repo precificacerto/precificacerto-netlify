@@ -217,6 +217,12 @@ column of 'services' in the schema cache`.
 **É a mesma classe com a ordem invertida** — lá faltou aplicar DEPOIS do merge, aqui faltaria
 aplicar ANTES. Para função, depois já é tarde.
 
+> **APERTADO em 25/10/2026 — ver `migration-antes-do-merge.md`.** O *"antes ou junto"* da coluna
+> não tem instrumento: medido, seis PRs (#18, #26, #52, #72, #73, #74) foram mergeados de 13 minutos
+> a 25 horas ANTES da aplicação, quatro deles com o aviso no corpo. A regra de lá: para o que o
+> código novo lê ou chama, a migração é aplicada e VERIFICADA por consulta antes do merge, e o PR a
+> nomeia no topo do corpo.
+
 ### Função exige verificar TAMBÉM as dependências dela
 
 **`plpgsql` NÃO valida referências na criação.** A função é criada COM SUCESSO mesmo que
