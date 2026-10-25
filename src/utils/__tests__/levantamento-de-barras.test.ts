@@ -4,7 +4,7 @@
  * o CÓDIGO DO ITEM de cada peça pela tabela do fornecedor, e as barras do levantamento inteiro pelo
  * agrupador, com o aproveitamento e os dois totais.
  *
- * OS DADOS são reais. A tipologia é `fixtures/fixture_DP-02.json` (a do avaliador). O de-para e os
+ * OS DADOS são reais. A tipologia é `src/lib/atendimentos-ia/abas-do-motor-wolff-DP-02.json` (a do avaliador). O de-para e os
  * itens são `fixtures/fixture_de-para_DP-02.json`, um RECORTE de `orcamentista_motor_regra` e
  * `orcamentista_tabela_item` da tabela Wolff, lido em 24/10/2026 e conferido contra o banco: o md5
  * das 23 regras (`codigo;codigo_wvetro;cor`, ordenadas) e o dos 23 itens (`codigo;descricao;medida;
@@ -49,7 +49,7 @@ type Ligacao = typeof import('@/lib/atendimentos-ia/levantamento-de-barras')
 const L = () => require('@/lib/atendimentos-ia/levantamento-de-barras') as Ligacao
 type Avaliador = typeof import('@/lib/atendimentos-ia/avaliador-de-formulas')
 const A = () => require('@/lib/atendimentos-ia/avaliador-de-formulas') as Avaliador
-const TIPOLOGIAS = require('./fixtures/fixture_DP-02.json')
+const TIPOLOGIAS = require('@/lib/atendimentos-ia/abas-do-motor-wolff-DP-02.json')
 const DE_PARA = require('./fixtures/fixture_de-para_DP-02.json')
 /* eslint-enable @typescript-eslint/no-require-imports */
 // O estreitamento é por `'recusas' in r`: com `strictNullChecks: false`, o tsc não estreita a união
