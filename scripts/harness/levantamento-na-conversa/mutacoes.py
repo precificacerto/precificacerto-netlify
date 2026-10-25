@@ -22,6 +22,7 @@ os.chdir(RAIZ)
 LC = 'src/lib/atendimentos-ia/levantamento-da-conversa.ts'
 CV = 'src/lib/atendimentos-ia/conversa-da-ia.ts'
 PD = 'src/lib/atendimentos-ia/pre-definicao.ts'
+MO = 'src/utils/mao-de-obra-pelo-caminho-da-tela.ts'
 T = ['src/utils/__tests__/levantamento-da-conversa.test.ts', 'src/utils/__tests__/atendimentos-ia-conversa-da-ia.test.ts']
 CONTROLE = 'L0'
 
@@ -41,14 +42,14 @@ M = [
  ('L13', 'a recusa sai com o prefixo técnico da esquadria', LC, [("r.recusas.map((x) => maiuscula(semPrefixoDaEsquadria(x.mensagem)))", "r.recusas.map((x) => x.mensagem)")], 'sem o prefixo de esquadria'),
  ('L14', 'o total ausente não diz o que falta', LC, [("    linhas.push(barra === null\n", "    linhas.push(false\n")], 'PREÇO AUSENTE'),
  ('L15', 'a lista que não existe vira lista vazia', LC, [("    if (erroDaLista) return {", "    if (false) return {")], 'LISTA AINDA NÃO EXISTE'),
- ('L16', 'a despesa da mão de obra é sempre a da industrialização', LC, [("segmentoDaDespesa: segmento === 'SERVICO' ? 'SERVICO' : 'INDUSTRIALIZACAO',", "segmentoDaDespesa: 'INDUSTRIALIZACAO',")], 'o segmento decide'),
- ('L17', 'a despesa da mão de obra é sempre a do serviço (soma administrativa e fixa)', LC, [("segmentoDaDespesa: segmento === 'SERVICO' ? 'SERVICO' : 'INDUSTRIALIZACAO',", "segmentoDaDespesa: 'SERVICO',")], 'NÃO entram'),
- ('L18', 'carga horária ausente vira mão de obra zero', LC, [("    if (carga.isUnset) faltas.push('a carga horária mensal da empresa não está configurada')\n", "")], 'nunca zero'),
- ('L19', 'só a primeira falta da mão de obra sai', LC, [("return { ok: false, falta: faltas.join('; ') }", "return { ok: false, falta: faltas[0] ?? '' }")], 'sem tenant_settings'),
+ ('L16', 'a despesa da mão de obra é sempre a da industrialização', MO, [("segmentoDaDespesa: tipo === 'SERVICO' ? 'SERVICO' : 'INDUSTRIALIZACAO',", "segmentoDaDespesa: 'INDUSTRIALIZACAO',")], 'o segmento decide'),
+ ('L17', 'a despesa da mão de obra é sempre a do serviço (soma administrativa e fixa)', MO, [("segmentoDaDespesa: tipo === 'SERVICO' ? 'SERVICO' : 'INDUSTRIALIZACAO',", "segmentoDaDespesa: 'SERVICO',")], 'NÃO entram'),
+ ('L18', 'carga horária ausente vira mão de obra zero', MO, [("    if (carga.isUnset) faltas.push(FALTA_CARGA_HORARIA)\n", "")], 'nunca zero'),
+ ('L19', 'só a primeira falta da mão de obra sai', LC, [("return { ok: false, falta: m.faltas.join('; ') }", "return { ok: false, falta: m.faltas[0] ?? '' }")], 'sem tenant_settings'),
  ('L20', 'os totais de material não são arredondados antes da diferença', LC, [("const barra = t.total_por_barra_inteira === null ? null : centavos(t.total_por_barra_inteira)", "const barra = t.total_por_barra_inteira"),
                                                                        ("const consumo = t.total_por_consumo_real === null ? null : centavos(t.total_por_consumo_real)", "const consumo = t.total_por_consumo_real")], 'o texto inteiro'),
  ('L21', 'o total com mão de obra esquece a mão de obra', LC, [("formatarReais(centavos(material + calculada.total))", "formatarReais(centavos(material))")], 'o texto inteiro'),
- ('L22', 'a mão de obra não multiplica pela quantidade', LC, [("total: centavos(motor.productiveLaborCost * quantidade),", "total: motor.productiveLaborCost,")], 'a quantidade multiplica'),
+ ('L22', 'a mão de obra não multiplica pela quantidade', LC, [("total: centavos(m.valor * quantidade),", "total: m.valor,")], 'a quantidade multiplica'),
  ('L23', 'o levantamento volta à cor fixa BRANCO', LC, [("        cor,\n        esquadrias:", "        cor: 'BRANCO',\n        esquadrias:")], 'PRETO TEXTURADO'),
  ('L24', 'a cor do perfil aceita qualquer texto', PD, [("            return typeof v === 'string' && cores.includes(v) ? v : undefined", "            return textoValido(v) ? (v as string).trim() : undefined")], 'não é BRANCO'),
  ('L25', 'as cores não vão ao prompt', CV, [("${cores.length ? cores.join(', ') : '(nenhuma)'}", "(nenhuma)")], 'a lista de cores vai ao prompt'),

@@ -41,10 +41,9 @@
  *
  * ══ A MÃO DE OBRA — O CAMINHO DA TELA DE PRODUTO ══
  * `lerMaoDeObra`: o tempo de fabricação da tipologia × o valor do minuto, pelo MESMO caminho que
- * `products/content.component.tsx` usa — a carga horária por `resolveMonthlyWorkload`, o custo mensal
- * por `custoMensalDeMaoDeObraDoProduto` (o Hub, `production_labor_cost_hub`; em SERVIÇO somados a MO
- * administrativa e a fixa), e a divisão do passo 1 de `calculatePricing`, chamado com tudo o mais em
- * zero. `productive_value_per_minute` NÃO é lido: está 0 em produção e nada escreve nele (dono do
+ * `products/content.component.tsx` usa — está em `src/utils/mao-de-obra-pelo-caminho-da-tela.ts`,
+ * fora desta área, porque a conta e o vocabulário dela são do sistema do cliente.
+ * `productive_value_per_minute` NÃO é lido: está 0 em produção e nada escreve nele (dono do
  * produto, 25/10/2026). Faltou um dos números: falta NOMEADA, nunca zero, e os totais com mão de
  * obra não saem.
  *
@@ -67,9 +66,7 @@ import {
     formatarReais, levantarBarras,
     type ItemDaTabela, type RegraDoDePara, type ResultadoDoLevantamento,
 } from '@/lib/atendimentos-ia/levantamento-de-barras'
-import { resolveMonthlyWorkload } from '@/utils/resolve-monthly-workload'
-import { custoMensalDeMaoDeObraDoProduto, type SegmentoDaConstrucao } from '@/utils/despesas-do-segmento'
-import { calculatePricing } from '@/utils/pricing-engine'
+import { maoDeObraPeloCaminhoDaTela, type DadosDaEmpresaParaMaoDeObra } from '@/utils/mao-de-obra-pelo-caminho-da-tela'
 import ABAS_WOLFF_DP02 from '@/lib/atendimentos-ia/abas-do-motor-wolff-DP-02.json'
 
 // ── As abas do motor que existem no repositório ─────────────────────────────────────────────
@@ -170,17 +167,13 @@ export type MaoDeObra =
     }
     | { ok: false; falta: string }
 
-const SEGMENTO_DO_CALC_TYPE: Readonly<Record<string, SegmentoDaConstrucao>> = {
-    INDUSTRIALIZACAO: 'INDUSTRIALIZACAO', INDUSTRIALIZATION: 'INDUSTRIALIZACAO',
-    SERVICO: 'SERVICO', SERVICE: 'SERVICO',
-    REVENDA: 'REVENDA', RESALE: 'REVENDA',
-}
 const centavos = (v: number) => Math.round(v * 100) / 100
 
 /**
- * A mão de obra de `quantidade` unidades da tipologia, pelo caminho da tela de produto (cabeçalho).
- * A esquadria é PRODUZIDA: o tipo de cálculo é o da empresa, como na tela para um produto que não é
- * de revenda. Toda leitura é desta empresa (`tenant_id`) ou da tabela ligada a ela.
+ * A mão de obra de `quantidade` unidades da tipologia: o tempo de fabricação × o valor do minuto pelo
+ * caminho da tela de produto (`maoDeObraPeloCaminhoDaTela`). A esquadria é PRODUZIDA: o tipo de
+ * cálculo é o da empresa, como na tela para um produto que não é de revenda. Toda leitura é desta
+ * empresa (`tenant_id`) ou da tabela ligada a ela.
  */
 export async function lerMaoDeObra(tenantId: string, tabelaId: string, tipologia: string, quantidade: number): Promise<MaoDeObra> {
     const tempo = await tempoDeFabricacao(tabelaId, tipologia)
@@ -194,38 +187,14 @@ export async function lerMaoDeObra(tenantId: string, tabelaId: string, tipologia
     ])
     if (erroSettings) throw new Error(`tenant_settings: ${erroSettings.message}`)
     if (erroDespesas) throw new Error(`tenant_expense_config: ${erroDespesas.message}`)
-    const s = (settings ?? {}) as { calc_type?: string | null; monthly_workload?: number | null; workload_unit?: string | null; num_productive_employees?: number | null }
-    const d = (despesas ?? {}) as Record<string, number | null | undefined>
+    const dados = { ...((settings ?? {}) as DadosDaEmpresaParaMaoDeObra), ...((despesas ?? {}) as DadosDaEmpresaParaMaoDeObra) }
 
-    const segmento = SEGMENTO_DO_CALC_TYPE[String(s.calc_type ?? '')]
-    if (segmento === 'REVENDA') return { ok: false, falta: 'a empresa está configurada como revenda, e na revenda o tempo de fabricação não entra no custo' }
-    // todas as faltas de uma vez — uma não esconde a outra (`faltou-dado-recusa-nomeada.md`)
-    const faltas: string[] = []
-    if (!segmento) faltas.push('o tipo de cálculo da empresa (industrialização, revenda ou serviço) não está configurado')
-    const carga = resolveMonthlyWorkload(s.monthly_workload, s.workload_unit, s.num_productive_employees)
-    if (carga.isUnset) faltas.push('a carga horária mensal da empresa não está configurada')
-    // a mesma leitura de `build-calc-base.ts`, que é o `calcBase` da tela
-    const custoMensal = custoMensalDeMaoDeObraDoProduto({
-        effectiveCalcType: segmento ?? 'INDUSTRIALIZACAO',
-        segmentoDaDespesa: segmento === 'SERVICO' ? 'SERVICO' : 'INDUSTRIALIZACAO',
-        produtivaMensal: Number(d.production_labor_cost_hub) || Number(d.production_labor_cost) || 0,
-        adminMensal: (Number(d.admin_salary_total) || 0) + (Number(d.admin_fgts_total) || 0) + (Number(d.admin_other_costs) || 0),
-        fixaMensal: Number(d.fixed_expense_monthly) || 0,
-    })
-    if (!(custoMensal > 0)) faltas.push('o custo mensal da mão de obra produtiva da empresa não está configurado')
-    if (faltas.length || !segmento) return { ok: false, falta: faltas.join('; ') }
-
-    const motor = calculatePricing({
-        calcType: segmento, totalItemsCost: 0, yieldQuantity: 1,
-        laborCostMonthly: custoMensal, numProductiveEmployees: carga.totalEmployees,
-        monthlyWorkloadMinutes: carga.monthlyWorkloadMinutes, productWorkloadMinutes: tempo.minutos,
-        structurePct: 0, taxPct: 0, commissionPct: 0, profitPct: 0,
-    })
-    if (!motor.isValid) throw new Error(`calculatePricing: ${motor.validationErrors.join('; ')}`)
+    const m = maoDeObraPeloCaminhoDaTela(dados, tempo.minutos)
+    if ('faltas' in m) return { ok: false, falta: m.faltas.join('; ') }
     return {
         ok: true, minutosPorUnidade: tempo.minutos, origem: tempo.origem, quantidade,
-        custoMensal, minutosDaEmpresa: carga.monthlyWorkloadMinutes,
-        porUnidade: motor.productiveLaborCost, total: centavos(motor.productiveLaborCost * quantidade),
+        custoMensal: m.custoMensal, minutosDaEmpresa: m.minutosDaEmpresa,
+        porUnidade: m.valor, total: centavos(m.valor * quantidade),
     }
 }
 
