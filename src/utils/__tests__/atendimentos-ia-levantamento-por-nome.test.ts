@@ -603,3 +603,132 @@ describe('(8) o esquema da ferramenta cabe nos limites do strict', () => {
         expect(opcionais).toBeLessThanOrEqual(24)
     })
 })
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+// Os casos abaixo vêm de `atendimentos-ia-conversa-da-ia.test.ts`, removido com a pré-definição:
+// testam comportamento que NÃO mudou (o contrato com a Anthropic, a janela do 4xx, o saldo, o esquema
+// e a lista de cores por empresa), e por isso foram portados em vez de perdidos.
+describe('(9) o contrato da chamada à Anthropic', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const modelo = require('@/lib/atendimentos-ia/modelo-da-ia') as { MODELO_PADRAO_DA_IA: string; VERSAO_DA_API_ANTHROPIC: string }
+
+    it('POST com a chave no header, anthropic-version, o modelo da CONSTANTE — não o config.modelo, que é o modelo de atendimento', async () => {
+        await chamar('oi')
+        expect(estado.chamadasDaLlm).toHaveLength(1)
+        const [c] = estado.chamadasDaLlm
+        expect(c.headers['x-api-key']).toBe(CHAVE)
+        expect(c.headers['anthropic-version']).toBe(modelo.VERSAO_DA_API_ANTHROPIC)
+        expect(modelo.VERSAO_DA_API_ANTHROPIC).toBe('2026-10-21')
+        expect(c.corpo.model).toBe(modelo.MODELO_PADRAO_DA_IA)
+        expect(modelo.MODELO_PADRAO_DA_IA).toBe('claude-sonnet-5-5')
+        expect(c.corpo.model).not.toBe('FABRICACAO')
+    })
+
+    it('UMA ferramenta strict, tool_choice auto (o forçado é 400 neste modelo), e nada de temperature/top_p/top_k', async () => {
+        await chamar('oi')
+        const corpo = estado.chamadasDaLlm[0].corpo
+        const tools = corpo.tools as Array<Record<string, unknown>>
+        expect(tools.map((t) => [t.name, t.strict])).toEqual([[conversa.NOME_DA_FERRAMENTA, true]])
+        expect(corpo.tool_choice).toEqual({ type: 'auto' })
+        for (const k of ['temperature', 'top_p', 'top_k']) expect(corpo).not.toHaveProperty(k)
+    })
+
+    it('a chave NUNCA vai para o log', async () => {
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02 }] })
+        await chamar('Levantamento Casa do João: DP-02 1200 x 1000 branco temperado 5mm')
+        expect(erros.join('\n')).not.toContain(CHAVE)
+    })
+
+    it('o esquema RESTRINGE: sem chave extra, cada campo com o seu tipo, a opção da escolha inteira', async () => {
+        await chamar('oi')
+        type Esquema = { type?: string; additionalProperties?: boolean; properties: Record<string, Esquema>; items?: Esquema }
+        const e = (estado.chamadasDaLlm[0].corpo.tools as Array<{ input_schema: Esquema }>)[0].input_schema
+        expect(e.additionalProperties).toBe(false)
+        const item = e.properties.itens.items as Esquema
+        expect(item.additionalProperties).toBe(false)
+        expect(Object.keys(item.properties).sort()).toEqual(['altura_mm', 'cor_perfil', 'largura_mm', 'ordem', 'quantidade', 'tipologia', 'vidro'])
+        for (const k of ['ordem', 'largura_mm', 'altura_mm', 'quantidade']) expect(item.properties[k].type).toBe('integer')
+        expect(item.properties.tipologia.type).toBe('string')
+        expect(e.properties.escolha.additionalProperties).toBe(false)
+        expect(e.properties.escolha.properties.opcao.type).toBe('integer')
+        expect(e.properties.novo.type).toBe('boolean')
+    })
+})
+
+describe('(10) saldo, erro e a janela do 4xx — mascarada, cortada, e só no 4xx', () => {
+    const erro400 = (message: string) => ({ status: 400, corpo: { type: 'error', error: { type: 'invalid_request_error', message } } })
+    const mensagemDoLog = () => { const m = /mensagem="([^"]*)"/.exec(linhaIa()[0] ?? ''); return m ? m[1] : null }
+
+    it('400 com "credit balance is too low" também é SEM SALDO', async () => {
+        estado.respostasDaLlm.push(erro400('Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing.'))
+        await chamar('oi')
+        expect(enviados()).toEqual([])
+        expect(linhaIa()[0]).toContain('desfecho=sem-saldo')
+        expect(erros.join('\n')).toMatch(/saldo/i)
+    })
+
+    it('o contraste: OUTRO erro 400 não é saldo', async () => {
+        estado.respostasDaLlm.push(erro400('max_tokens: invalid'))
+        await chamar('oi')
+        expect(linhaIa()[0]).toContain('desfecho=erro-da-llm')
+        expect(linhaIa()[0]).not.toContain('sem-saldo')
+    })
+
+    it.each([
+        ['exceção de rede', () => { estado.respostasDaLlm.push('lanca') }],
+        ['resposta sem chamar a ferramenta', () => { estado.respostasDaLlm.push({ status: 200, corpo: { type: 'message', stop_reason: 'end_turn', content: [{ type: 'text', text: 'Olá!' }] } }) }],
+    ])('LLM: %s → 200, nada enviado, nada gravado', async (_n, preparar) => {
+        preparar()
+        const r = await chamar('Levantamento Casa do João')
+        expect(r.status).toBe(200)
+        expect(enviados()).toEqual([])
+        expect(estado.escritas).toEqual([])
+    })
+
+    it('400 → a linha [IA] leva a mensagem, que nomeia o CAMPO malformado', async () => {
+        estado.respostasDaLlm.push(erro400('tools.0.custom: Schema is too complex for compilation.'))
+        await chamar('oi')
+        expect(mensagemDoLog()).toBe('tools.0.custom: Schema is too complex for compilation.')
+    })
+
+    it('a chave atravessando o corte dos 300 não deixa PEDAÇO dela: mascara antes de cortar', async () => {
+        // a chave começa no caractere 282: um corte ANTES da máscara deixaria os primeiros dela
+        estado.respostasDaLlm.push(erro400(`${'a'.repeat(280)} ${CHAVE} fim`))
+        await chamar('oi')
+        expect(mensagemDoLog()).toContain('<segredo>')
+        expect(erros.join('\n')).not.toContain(CHAVE.slice(0, 12))
+    })
+
+    it('cortada em 300 caracteres', async () => {
+        estado.respostasDaLlm.push(erro400('campo invalido. '.repeat(100)))
+        await chamar('oi')
+        expect(mensagemDoLog()).toHaveLength(300)
+    })
+
+    it('402 sem saldo também é 4xx: leva a mensagem', async () => {
+        estado.respostasDaLlm.push({ status: 402, corpo: { type: 'error', error: { type: 'billing_error', message: 'Your credit balance is too low.' } } })
+        await chamar('oi')
+        expect(mensagemDoLog()).toBe('Your credit balance is too low.')
+    })
+
+    it.each([
+        ['5xx', () => { estado.respostasDaLlm.push({ status: 500, corpo: { type: 'error', error: { type: 'api_error', message: 'detalhe interno do servidor' } } }) }],
+        ['exceção de rede', () => { estado.respostasDaLlm.push('lanca') }],
+    ])('o contraste: %s → a mensagem NÃO vai ao log', async (_n, preparar) => {
+        preparar()
+        await chamar('oi')
+        expect(linhaIa()[0]).toContain('desfecho=erro-da-llm')
+        expect(linhaIa()[0]).not.toContain('mensagem=')
+        expect(erros.join('\n')).not.toContain('detalhe interno do servidor')
+    })
+})
+
+describe('(11) a lista de cores é a DESTA empresa', () => {
+    it('a cor de outro tenant não vale: AZUL, da base de outra empresa, é descartada', async () => {
+        estado.db.orcamentista_mp_categoria.push({ tenant_id: 'outro-tenant', categoria_chave: 'PERFIL', config: { cores: ['AZUL'] } })
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, cor_perfil: 'AZUL' }] })
+        await chamar('Levantamento Casa do João: DP-02 1200 x 1000 azul temperado 5mm')
+        expect(itensDe(levantamentos()[0].id)[0].cor_perfil).toBeNull()
+        expect(String(estado.chamadasDaLlm[0].corpo.system)).not.toContain('AZUL')
+    })
+})
