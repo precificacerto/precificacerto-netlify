@@ -565,6 +565,33 @@ export function conferirGravacao(
     return bate ? null : { enviado: mandou, gravado: voltou }
 }
 
+// ── A trava dos itens que o arquivo não traz ─────────────────────────────────────────────
+/**
+ * Os códigos GRAVADOS para a tabela que o arquivo NÃO traz: a importação os apagaria e não os
+ * regravaria (`tabela-que-a-importacao-apaga.md`). A comparação é EXATA, sem caixa nem acento
+ * normalizados: o que a importação regrava é o código como o leitor o produziu, e casar o parecido
+ * deixaria passar a linha que some (`faltou-dado-recusa-nomeada.md`). Sem repetição, na ordem gravada.
+ */
+export function itensQueOArquivoNaoTraz(gravados: readonly string[], payload: { itens: ReadonlyArray<{ codigo: string }> }): string[] {
+    const doArquivo = new Set(payload.itens.map((i) => i.codigo))
+    return [...new Set(gravados.filter((c) => !doArquivo.has(c)))]
+}
+
+const CODIGOS_NOMEADOS = 10
+
+/**
+ * A recusa da importação em tabela com itens que o arquivo não traz (dono do produto, 25/10/2026).
+ * O caso que a originou: 24 vidros inseridos à mão na tabela 5f7acebf, que nenhum arquivo traz.
+ * Diz quantos e nomeia até dez — todos de uma vez, sem esconder o resto.
+ */
+export function fraseDaImportacaoTravadaPorItensForaDoArquivo(codigos: readonly string[]): string {
+    const nomeados = codigos.slice(0, CODIGOS_NOMEADOS).join(', ')
+    const resto = codigos.length > CODIGOS_NOMEADOS ? ` e mais ${codigos.length - CODIGOS_NOMEADOS}` : ''
+    return `A importação está travada para esta tabela: ${codigos.length} ${codigos.length === 1 ? 'item gravado não está' : 'itens gravados não estão'} `
+        + `no arquivo (${nomeados}${resto}). A importação apaga todos os itens da tabela e regrava só os do arquivo, `
+        + `e ${codigos.length === 1 ? 'esse item se perderia' : 'esses itens se perderiam'}. Nada foi alterado.`
+}
+
 // ── A trava do tempo ───────────────────────────────────────────────────────────────────────
 /** Quantas tipologias da tabela têm tempo de fabricação gravado: o total e por origem. */
 export interface TemposGravados { total: number; ESTIMADO: number; IMPORTADO: number }

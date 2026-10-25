@@ -336,6 +336,13 @@ describe('A TRAVA DOS ITENS QUE O ARQUIVO NÃO TRAZ — a importação apagaria 
         expect(repo.importarConteudo).not.toHaveBeenCalled()
     })
 
+    it('a função pura: o código do arquivo é comparado COMO ESTÁ, dos dois lados — "Vidro 4mm" casa com "Vidro 4mm" e com nada mais', () => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { itensQueOArquivoNaoTraz } = require('@/utils/atendimentos-ia-importacao')
+        expect(itensQueOArquivoNaoTraz(['Vidro 4mm', 'Vidro 4mm'], { itens: [{ codigo: 'Vidro 4mm' }] })).toEqual([])
+        expect(itensQueOArquivoNaoTraz(['Vidro 4mm', 'Vidro 4mm', 'X'], { itens: [{ codigo: 'VIDRO 4MM' }] })).toEqual(['Vidro 4mm', 'X'])
+    })
+
     it('a frase nomeia até 10 códigos e conta o resto, e diz que nada foi alterado', () => {
         const muitos = Array.from({ length: 24 }, (_, i) => `V${String(i + 1).padStart(2, '0')}`)
         const f = fraseDosItens(muitos)

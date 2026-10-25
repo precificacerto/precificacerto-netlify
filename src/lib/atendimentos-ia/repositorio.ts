@@ -300,6 +300,20 @@ export async function contarTemposGravados(tabelaId: string): Promise<{ total: n
     return { total, ESTIMADO, IMPORTADO }
 }
 
+/**
+ * Os códigos dos itens gravados para a tabela, paginados de mil em mil — a leitura padrão do
+ * PostgREST corta em mil linhas, e cortar aqui esconderia justamente o item que a trava procura.
+ */
+export async function codigosDosItensGravados(tabelaId: string): Promise<string[]> {
+    const PAGINA = 1000
+    const codigos: string[] = []
+    for (let de = 0; ; de += PAGINA) {
+        const linhas = await q(db().from('orcamentista_tabela_item').select('codigo').eq('tabela_id', tabelaId).order('id').range(de, de + PAGINA - 1)) as Array<{ codigo: string }>
+        codigos.push(...linhas.map((l) => l.codigo))
+        if (linhas.length < PAGINA) return codigos
+    }
+}
+
 /** O resumo por tipologia gravado para a tabela, SEM ordem — quem ordena é a rota. */
 export async function listarTipologias(tabelaId: string): Promise<Array<{ tipologia: string; linha: string | null; n_regras: number; n_condicionais: number; variaveis: string[] }>> {
     return q(db().from('orcamentista_motor_tipologia').select('tipologia, linha, n_regras, n_condicionais, variaveis').eq('tabela_id', tabelaId))
