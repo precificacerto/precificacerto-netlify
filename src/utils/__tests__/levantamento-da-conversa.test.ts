@@ -498,7 +498,7 @@ describe('(10) as abas vêm do BANCO: a Fórmulas da tipologia é a fonte, a da 
     const ESCOLHAS = { ARI: 4, ARE: 1, MAE: 2 }
     const semDaDP02 = (tabela: string) => { banco.db[tabela] = banco.db[tabela].filter((l) => l.tipologia !== 'DP-02') }
     /** As fórmulas próprias da DP-02 como linhas da família — o cálculo com elas tem de dar o mesmo número. */
-    const comoFamilia = (linha: string, tabelaId = TABELA) => banco.db.orcamentista_motor_formula
+    const comoFamilia = (linha: string, tabelaId = TABELA): Linha[] => banco.db.orcamentista_motor_formula
         .filter((l) => l.tipologia === 'DP-02')
         .map((l) => comId({ tabela_id: tabelaId, linha, linha_original: `PVC ${linha}`, variavel: l.variavel, descricao: l.descricao, formula: l.formula, formula_em_lh: null, pct_padrao: null }))
     const levantar = async () => M().mensagemDoLevantamento(TENANT, await M().lerTabelaDaEmpresa(TENANT), lev({ escolhas: ESCOLHAS }))
