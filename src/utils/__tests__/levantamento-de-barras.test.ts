@@ -83,10 +83,13 @@ function tipologiaDeUmPerfil(codigo: string, perfil: string): import('@/lib/aten
 function esquadria(e: Partial<Esquadria> = {}): Esquadria {
     return { tipologia: 'DP-02', L_mm: 1200, H_mm: 1000, quantidade: 1, escolhas: FECHA, espessura_vidro_mm: 5, ...e }
 }
-function levantar(esquadrias: Esquadria[], o: { regras?: Regra[]; itens?: Item[]; tipologias?: Record<string, unknown>; cor?: string } = {}) {
+/** As cores da empresa — as da base de conhecimento. Medido em produção (25/10/2026): só BRANCO. */
+const CORES = ['BRANCO']
+function levantar(esquadrias: Esquadria[], o: { regras?: Regra[]; itens?: Item[]; tipologias?: Record<string, unknown>; cor?: string; coresDaEmpresa?: string[] } = {}) {
     return L().levantarBarras({
         esquadrias,
         cor: o.cor ?? 'BRANCO',
+        coresDaEmpresa: o.coresDaEmpresa ?? CORES,
         tipologias: (o.tipologias ?? { 'DP-02': dp02() }) as never,
         regras: o.regras ?? REGRAS,
         itens: o.itens ?? ITENS,
@@ -202,31 +205,47 @@ describe('(4) o código do item: um valor por código', () => {
         expect(r.recusas.map((x) => [x.motivo, x.perfil])).toEqual([['DOIS_CODIGOS', 'BZ0010/WOLFF']])
     })
 
-    it('COR SEM CÓDIGO: BZ0012/WOLFF só tem CLICK, e a DP-02 com arremate interno é recusada nomeando a variante', () => {
-        const r = recusado([esquadria({ escolhas: { MAE: 2 } })])   // ARI no padrão = 1 → BZ0012
-        expect(r.recusas.map((x) => [x.motivo, x.perfil])).toEqual([['COR_SEM_CODIGO', 'BZ0012/WOLFF']])
-        expect(r.recusas[0].variantes).toEqual(['CLICK'])
-        expect(r.recusas[0].mensagem).toContain('CLICK')
+    // A REGRA DA COR (dono do produto, 25/10/2026): o perfil com UMA variante no motor usa essa, sem casar
+    // cor; com MAIS DE UMA, casa pela cor pedida, e sem ela é recusa nomeando o código e a cor. Não autoriza
+    // "a mais parecida". A guarda (medida): a variante única que é uma COR DA EMPRESA diferente da pedida
+    // é recusa — senão uma esquadria preta levaria o BZ0006 branco, o único que o motor tem.
+    it('VARIANTE ÚNICA: BZ0012/WOLFF só tem CLICK — que não é cor — e é usado sem casar a cor', () => {
+        const r = ok([esquadria({ escolhas: { MAE: 2 } })])   // ARI no padrão = 1 → BZ0006 + BZ0012
+        expect(r.por_codigo.map((c) => [c.codigo, c.perfil])).toContainEqual(['10491', 'BZ0012/WOLFF'])
+        expect(L().codigoDaPeca('BZ0012/WOLFF', 'BRANCO', REGRAS, CORES)).toEqual({ ok: true, codigo: '10491', origem: 'VARIANTE_UNICA' })
+    })
+
+    it('VÁRIAS VARIANTES e nenhuma na cor pedida: BZ1770/WOLFF (ARI = 2) em BRANCO é recusa nomeando o código, a cor e as variantes', () => {
+        const r = recusado([esquadria({ escolhas: { MAE: 2, ARI: 2 } })])
+        expect(r.recusas.map((x) => [x.motivo, x.perfil])).toEqual([['COR_SEM_CODIGO', 'BZ1770/WOLFF']])
+        expect(r.recusas[0].variantes).toHaveLength(8)
+        expect(r.recusas[0].mensagem).toContain('BZ1770/WOLFF')
         expect(r.recusas[0].mensagem).toContain('BRANCO')
     })
 
+    it('a GUARDA: a variante única que é uma COR DA EMPRESA, diferente da pedida, é recusa — o BZ0006 só existe BRANCO, e a janela é PRETO', () => {
+        const c = L().codigoDaPeca('BZ0006/WOLFF', 'PRETO', REGRAS, ['BRANCO', 'PRETO'])
+        if (!('recusa' in c)) throw new Error('era para recusar, e saiu ' + c.codigo)
+        expect([c.recusa.motivo, c.recusa.variantes]).toEqual(['COR_SEM_CODIGO', ['BRANCO']])
+    })
+
     it('perfil SEM VARIANTE nenhuma (cor vazia em todas as linhas) usa o único código', () => {
-        const c = L().codigoDaPeca('1023/WOLFF', 'BRANCO', REGRAS)
+        const c = L().codigoDaPeca('1023/WOLFF', 'BRANCO', REGRAS, CORES)
         expect(c).toEqual({ ok: true, codigo: '1023', origem: 'SEM_VARIANTE' })
-        expect(L().codigoDaPeca('BZ0010/WOLFF', 'BRANCO', REGRAS)).toEqual({ ok: true, codigo: '10511', origem: 'COR' })
+        expect(L().codigoDaPeca('BZ0010/WOLFF', 'BRANCO', REGRAS, CORES)).toEqual({ ok: true, codigo: '10511', origem: 'COR' })
     })
 
     it('cor vazia AO LADO de outras cores não é coringa: recusa', () => {
         const regras = [{ codigo: 'P1', codigo_wvetro: 'P/WOLFF', cor: null }, { codigo: 'P2', codigo_wvetro: 'P/WOLFF', cor: 'PRETO' }]
-        const c = L().codigoDaPeca('P/WOLFF', 'BRANCO', regras)
+        const c = L().codigoDaPeca('P/WOLFF', 'BRANCO', regras, CORES)
         if (!('recusa' in c)) throw new Error('era para recusar, e saiu ' + c.codigo)
         expect(c.recusa.motivo).toBe('COR_SEM_CODIGO')
         expect(c.recusa.variantes).toEqual(['(vazia)', 'PRETO'])
     })
 
-    it('a cor é comparada EXATA: "Branco" não casa com BRANCO', () => {
+    it('a cor é comparada EXATA: "Branco" não casa com BRANCO — e, sendo cor da empresa, a variante única não vale', () => {
         const regras = [{ codigo: 'Q1', codigo_wvetro: 'Q/WOLFF', cor: 'Branco' }]
-        const c = L().codigoDaPeca('Q/WOLFF', 'BRANCO', regras)
+        const c = L().codigoDaPeca('Q/WOLFF', 'BRANCO', regras, CORES)
         if (!('recusa' in c)) throw new Error('era para recusar, e saiu ' + c.codigo)
         expect(c.recusa.motivo).toBe('COR_SEM_CODIGO')
         expect(c.recusa.variantes).toEqual(['Branco'])
@@ -276,8 +295,8 @@ describe('(5) o item da tabela de preço', () => {
 
 describe('(6) as recusas', () => {
     it('com qualquer recusa NÃO SAI BARRA NENHUMA — nada é calculado com o que sobrou', () => {
-        // a 1ª esquadria fecha; a 2ª tem o BZ0012 sem código em BRANCO
-        const r = levantar([esquadria(), esquadria({ escolhas: { MAE: 2 } })])
+        // a 1ª esquadria fecha; a 2ª tem o BZ1770 (ARI = 2) sem código em BRANCO
+        const r = levantar([esquadria(), esquadria({ escolhas: { MAE: 2, ARI: 2 } })])
         expect('recusas' in r).toBe(true)
         expect('por_codigo' in r).toBe(false)
         expect('total' in r).toBe(false)
@@ -285,15 +304,15 @@ describe('(6) as recusas', () => {
 
     it('TODAS AS RECUSAS de uma vez, e a mesma falta em duas esquadrias sai UMA vez com as duas', () => {
         const r = recusado([
-            esquadria({ escolhas: { MAE: 2 } }),          // 1: BZ0012
-            esquadria({ escolhas: { MAE: 2 } }),          // 2: BZ0012 de novo
+            esquadria({ escolhas: { MAE: 2, ARI: 2 } }),  // 1: BZ1770
+            esquadria({ escolhas: { MAE: 2, ARI: 2 } }),  // 2: BZ1770 de novo
             esquadria({ tipologia: 'DP-99' }),           // 3: tipologia que não existe
             esquadria(),                                 // 4: fecha — mas o 9641 sumiu da tabela
         ], { itens: ITENS.filter((i) => i.codigo !== '9641') })
         const resumo = r.recusas.map((x) => [x.motivo, x.perfil ?? x.tipologia, x.esquadrias])
         expect(resumo).toEqual([
             ['TIPOLOGIA_SEM_DEFINICAO', 'DP-99', [3]],
-            ['COR_SEM_CODIGO', 'BZ0012/WOLFF', [1, 2]],
+            ['COR_SEM_CODIGO', 'BZ1770/WOLFF', [1, 2]],
             ['ITEM_AUSENTE', 'HF88/WOLFF', [1, 2, 4]],
         ])
         expect(r.recusas[1].mensagem).toContain('Esquadrias 1 e 2')
@@ -301,15 +320,15 @@ describe('(6) as recusas', () => {
     })
 
     it('a recusa do AVALIADOR sai com o número da esquadria', () => {
-        // ARE = 1 e MAE no padrão: "MEDIDA DO VÃO" não tem colchete, e &MAE não tem valor
-        const r = recusado([esquadria(), esquadria({ escolhas: {} })])
+        // MAE = 9: a opção não existe, e o avaliador recusa
+        const r = recusado([esquadria(), esquadria({ escolhas: { ARI: 4, MAE: 9 } })])
         expect(r.recusas.length).toBeGreaterThan(0)
         for (const x of r.recusas) {
             expect(x.origem).toBe('AVALIADOR')
             expect(x.esquadrias).toEqual([2])
             expect(x.mensagem.startsWith('Esquadria 2 (DP-02): ')).toBe(true)
         }
-        expect(r.recusas.map((x) => x.motivo)).toContain('MEDIDA_DA_OPCAO_AUSENTE')
+        expect(r.recusas.map((x) => x.motivo)).toContain('ESCOLHA_FORA_DAS_OPCOES')
     })
 
     it('TIPOLOGIA SEM DEFINIÇÃO é recusada', () => {
@@ -327,7 +346,7 @@ describe('(6) as recusas', () => {
         // deste caso usava duas recusas da ponte, que já saem na ordem do perfil; a mutação que tira a
         // ordenação (M15) passou verde por ela. Medido, e trocado.
         const x = esquadria({ tipologia: 'DP-99' })             // TIPOLOGIA_SEM_DEFINICAO
-        const y = esquadria({ escolhas: {} })                   // MEDIDA_DA_OPCAO_AUSENTE, do avaliador
+        const y = esquadria({ escolhas: { ARI: 4, MAE: 9 } })   // ESCOLHA_FORA_DAS_OPCOES, do avaliador
         const chave = (r: ReturnType<typeof recusado>) => r.recusas.map((z) => `${z.origem}/${z.motivo}`)
         expect(chave(recusado([y, x]))[0]).toBe('ESQUADRIA/TIPOLOGIA_SEM_DEFINICAO')
         expect(chave(recusado([x, y]))).toEqual(chave(recusado([y, x])))

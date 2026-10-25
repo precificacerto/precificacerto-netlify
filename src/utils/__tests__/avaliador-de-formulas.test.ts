@@ -292,28 +292,39 @@ describe('(4) A DP-02, L = 1200, H = 1000, MAE = 2, vidro 6 mm — peça a peça
     })
 })
 
-describe('(5) OS PADRÕES (ARE = 1, MAE = 1) NÃO FECHAM: &MAE sem colchete é recusa nomeada, nunca zero', () => {
-    it('as linhas 10 e 11 (BZ0010, LARE/HARE) são recusadas, cada uma com o perfil, a variável e a fórmula', () => {
-        const r = avaliar({ L_mm: 1200, H_mm: 1000, espessura_vidro_mm: 6 })
-        expect('recusas' in r).toBe(true)
-        if (!('recusas' in r)) return
-        expect(r.recusas).toEqual([
-            expect.objectContaining({ motivo: 'MEDIDA_DA_OPCAO_AUSENTE', linha: 10, perfil: 'BZ0010/WOLFF', campo: 'Medida', variavel: 'MAE', formula: '(L+&MAE)' }),
-            expect.objectContaining({ motivo: 'MEDIDA_DA_OPCAO_AUSENTE', linha: 11, perfil: 'BZ0010/WOLFF', campo: 'Medida', variavel: 'MAE', formula: '(H+&MAE)' }),
-        ])
-        expect(r.recusas[0].mensagem).toContain('MEDIDA DO VÃO (CORTE 45/45)')
+describe('(5) A OPÇÃO SEM COLCHETE: vale 0 se o nome não anuncia acréscimo — decisão do dono do produto, 25/10/2026', () => {
+    // Do Leia-me do motor: "&MAE, &ARI, &FV, &FF etc. são o valor (mm) da opção escolhida". Em MAE, as
+    // opções 2 e 3 são "VÃO+50MM [50,00]" e "VÃO+100MM [100,00]": o colchete é o "+50"/"+100" do nome.
+    // "MEDIDA DO VÃO" é o arremate igual ao vão — soma zero. Regra geral, não exceção da DP-02.
+    it('com ARE = 1 e MAE no padrão (1 = "MEDIDA DO VÃO"), &MAE = 0: LARE = L e HARE = H', () => {
+        const e = { tipologia: dp02(), L_mm: 1200, H_mm: 1000, escolhas: {}, espessura_vidro_mm: 6 }
+        expect(A().valorDaVariavel(e, 'LARE')).toBe(1200)
+        expect(A().valorDaVariavel(e, 'HARE')).toBe(1000)
     })
 
-    it('com ARI = 1, o IIF de HARI NÃO avalia o ramo de &MAI — cuja opção padrão também não tem colchete', () => {
+    it('o contraste: MAE = 2 ("VÃO+50MM [50,00]") soma os 50 do colchete', () => {
         const e = { tipologia: dp02(), L_mm: 1200, H_mm: 1000, escolhas: { MAE: 2 }, espessura_vidro_mm: 6 }
-        expect(A().valorDaVariavel(e, 'HARI')).toBe(1066)
+        expect(A().valorDaVariavel(e, 'LARE')).toBe(1250)
     })
 
-    it('com ARI = 3 e MAI no padrão, aí sim o ramo é avaliado, e &MAI sem colchete é recusa', () => {
+    it('os padrões da DP-02 FECHAM: nenhuma recusa, e o BZ0010 entra com L e H', () => {
+        const r = ok({ L_mm: 1200, H_mm: 1000, espessura_vidro_mm: 6 })
+        expect(r.pecas.filter((x) => x.codigo === 'BZ0010/WOLFF').map((x) => x.comprimento_mm).sort()).toEqual([1000, 1200])
+    })
+
+    it('com ARI = 3 e MAI no padrão ("MEDIDA DO VÃO"), &MAI = 0 também — a regra é geral', () => {
         const r = avaliar({ L_mm: 1200, H_mm: 1000, escolhas: { MAE: 2, ARI: 3 }, espessura_vidro_mm: 6 })
-        expect('recusas' in r && r.recusas.map((x) => [x.linha, x.motivo, x.variavel])).toEqual([
-            [6, 'MEDIDA_DA_OPCAO_AUSENTE', 'MAI'], [7, 'MEDIDA_DA_OPCAO_AUSENTE', 'MAI'],
-        ])
+        expect('recusas' in r).toBe(false)
+    })
+
+    it('a opção que ANUNCIA acréscimo ("+50") e não traz o colchete é recusa nomeada — o número do nome não é lido', () => {
+        const t = dp02()
+        const mae = t.variaveis.find((v) => v.variavel === 'MAE')
+        if (!mae) throw new Error('fixture sem MAE')
+        const semColchete = { ...t, variaveis: t.variaveis.map((v) => (v.variavel === 'MAE' ? { ...mae, opcoes: '1 = MEDIDA DO VÃO (CORTE 45/45); 2 = VÃO+50MM (CORTE 90/90) - PARA AJUSTE EM OBRA' } : v)) }
+        const r = A().avaliarTipologia({ tipologia: semColchete, L_mm: 1200, H_mm: 1000, escolhas: { MAE: 2 }, espessura_vidro_mm: 6 })
+        expect('recusas' in r && r.recusas.map((x) => [x.motivo, x.variavel])).toEqual([['MEDIDA_DA_OPCAO_AUSENTE', 'MAE'], ['MEDIDA_DA_OPCAO_AUSENTE', 'MAE']])
+        expect('recusas' in r && r.recusas[0].mensagem).toContain('VÃO+50MM')
     })
 })
 
