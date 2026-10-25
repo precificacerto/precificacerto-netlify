@@ -426,6 +426,9 @@ describe('(1c) o arremate só é perguntado quando o vendedor PEDE outro — e a
         // a resposta vem SEM o nome: o levantamento está em montagem, e a LLM só sabe o que o prompt diz
         estado.respostaPeloPrompt = { variavelDescrita: 'ARREMATE EXTERNO', opcaoDescrita: 'SEM ARREMATE EXTERNO', nome: '' }
         await chamar('sem arremate externo')
+        // a pergunta em aberto foi RELIDA do item (o null da variável) e foi ao prompt: é o que dá sentido à resposta sem nome
+        expect(String(estado.chamadasDaLlm[estado.chamadasDaLlm.length - 1].corpo.system))
+            .toContain('Pergunta em aberto: Para arremate externo, as opções são: BZ0010 - ARREMATE 20MM; SEM ARREMATE EXTERNO. Qual você quer?')
         expect(itensDe(levantamentos()[0].id)[0].escolhas).toEqual({ ARI: 4, MAE: 2, ARE: 2 })
         expect(levantamentos()[0].estado).toBe('COMPLETO')
         expect(ultimoEnviado()).toContain('arremate externo: SEM ARREMATE EXTERNO (como você pediu)')
