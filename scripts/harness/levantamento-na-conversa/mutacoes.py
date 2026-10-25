@@ -3,8 +3,9 @@
 HARNESS do LEVANTAMENTO NA CONVERSA — as MUTAÇÕES. NÃO TOCA PRODUÇÃO nem banco nenhum: só jest.
 
 Cada mutação estraga UMA regra em `levantamento-da-conversa.ts`, `conversa-da-ia.ts` ou
-`pre-definicao.ts` e roda os dois portões — `levantamento-da-conversa.test.ts` e
-`atendimentos-ia-conversa-da-ia.test.ts`. A mutação tem de DERRUBAR pelo menos um caso, e o caso
+`pre-definicao.ts` e roda os portões — `levantamento-da-conversa.test.ts`,
+`levantamento-em-montagem.test.ts` e `atendimentos-ia-levantamento-por-nome.test.ts` (desde o
+levantamento por nome, 25/10/2026, que tirou `atendimentos-ia-conversa-da-ia.test.ts`). A mutação tem de DERRUBAR pelo menos um caso, e o caso
 exigido (5º elemento) tem de aparecer na saída da falha (`teste-que-nao-exercita.md`).
 
 O arquivo-alvo é mutado no lugar, com `.bak`, e conferido por sha256 no fim; o script recusa rodar com
@@ -23,23 +24,23 @@ LC = 'src/lib/atendimentos-ia/levantamento-da-conversa.ts'
 CV = 'src/lib/atendimentos-ia/conversa-da-ia.ts'
 PD = 'src/lib/atendimentos-ia/pre-definicao.ts'
 MO = 'src/utils/mao-de-obra-pelo-caminho-da-tela.ts'
-T = ['src/utils/__tests__/levantamento-da-conversa.test.ts', 'src/utils/__tests__/atendimentos-ia-conversa-da-ia.test.ts']
+T = ['src/utils/__tests__/levantamento-da-conversa.test.ts', 'src/utils/__tests__/levantamento-em-montagem.test.ts', 'src/utils/__tests__/atendimentos-ia-levantamento-por-nome.test.ts']
 CONTROLE = 'L0'
 
 M = [
- ('L1', 'a tipologia aceita qualquer texto', PD, [("return typeof v === 'string' && tipologias.includes(v) ? v : undefined", "return textoValido(v) ? (v as string).trim() : undefined")], 'NÃO é tipologia'),
- ('L2', 'a tipologia comparada sem caixa', PD, [("typeof v === 'string' && tipologias.includes(v) ? v", "typeof v === 'string' && tipologias.some((t) => t.toLowerCase() === (v as string).toLowerCase()) ? (tipologias.find((t) => t.toLowerCase() === (v as string).toLowerCase()) as string)")], 'EXATA'),
- ('L3', 'sem lista, a LLM é chamada assim mesmo', CV, [("if ('frase' in tabela && estadoAtual.tipologia === null) {", "if (false) {")], 'NÃO chama a LLM'),
- ('L4', 'a lista não vai ao prompt', CV, [("...(candidatos.length ? candidatos.map(linhaDoCandidato) : ['(nenhuma)']),", "'(nenhuma)',")], 'a lista vai ao prompt'),
- ('L5', 'o levantamento não é enviado depois do fechamento', CV, [("return fim('fechou', `levantamento=${await enviarLevantamento(c, tabela, gravada)}`)", "return fim('fechou')")], 'seguido do LEVANTAMENTO'),
+ ('L1', 'a tipologia aceita qualquer texto', PD, [("return typeof v === 'string' && tipologias.includes(v) ? v : undefined", "return textoValido(v) ? (v as string).trim() : undefined")], 'não é tipologia'),
+ ('L2', 'a tipologia comparada sem caixa', PD, [("typeof v === 'string' && tipologias.includes(v) ? v", "typeof v === 'string' && tipologias.some((t) => t.toLowerCase() === (v as string).toLowerCase()) ? (tipologias.find((t) => t.toLowerCase() === (v as string).toLowerCase()) as string)")], '"dp-02" não é DP-02'),
+ ('L3', 'sem lista, a LLM é chamada assim mesmo', CV, [("if ('frase' in tabela) return await responder(", "if (false) return await responder(")], 'SEM LISTA de tipologias'),
+ ('L4', 'a lista não vai ao prompt', CV, [("...(c.candidatos.length ? c.candidatos.map(linhaDoCandidato) : ['(nenhuma)']),", "'(nenhuma)',")], 'vão ao prompt'),
+ ('L5', 'o levantamento não é enviado quando fica completo', CV, [("return await responder(levantamento.texto, levantamento.desfecho)", "return fim(levantamento.desfecho)")], 'os dois totais'),
  ('L6', 'com duas tabelas, vale a primeira', LC, [("if (tabelas.length > 1) return {", "if (false) return {")], 'MAIS DE UMA TABELA'),
- ('L7', 'as abas da Wolff valem para qualquer tabela', LC, [("const abas = ABAS_IMPORTADAS[tabela.tabelaId]?.[e.tipologia]", "const abas = ABAS_IMPORTADAS[TABELA_WOLFF]?.[e.tipologia]")], 'OUTRA TABELA'),
+ ('L7', 'as abas da Wolff valem para qualquer tabela', LC, [("const abas = ABAS_IMPORTADAS[tabela.tabelaId]?.[t]", "const abas = ABAS_IMPORTADAS[TABELA_WOLFF]?.[t]")], 'OUTRA TABELA'),
  ('L8', 'as regras só da primeira página', LC, [("        if (pagina.length === 0) break\n", "        break\n")], 'página a página'),
  ('L9', 'tempo ausente vira zero', LC, [("if (!linha || typeof linha.tempo_fabricacao_min !== 'number') return null", "if (!linha || typeof linha.tempo_fabricacao_min !== 'number') return { minutos: 0, origem: null }")], 'nunca zero'),
  ('L10', 'a espessura pega o número que casa, mesmo com outro no texto', LC, [("    if (numeros.length !== 1) return null\n", "")], '4+4'),
  ('L11', 'com duas serras, vale a primeira', LC, [("if (valores.length === 1) return { ok: true, serra_mm: valores[0] }", "if (valores.length >= 1) return { ok: true, serra_mm: valores[0] }")], 'DUAS SERRAS'),
  ('L12', 'a recusa cala as faltas além da oitava', LC, [("const resto = faltas.length > MAXIMO_DE_FALTAS ? [`• e mais ${faltas.length - MAXIMO_DE_FALTAS} falta(s) do mesmo levantamento.`] : []", "const resto: string[] = []")], 'nenhuma calada'),
- ('L13', 'a recusa sai com o prefixo técnico da esquadria', LC, [("r.recusas.map((x) => maiuscula(semPrefixoDaEsquadria(x.mensagem)))", "r.recusas.map((x) => x.mensagem)")], 'sem o prefixo de esquadria'),
+ ('L13', 'a recusa sai com o prefixo técnico da esquadria', LC, [("r.recusas.map((x) => maiuscula(uma ? semPrefixoDaEsquadria(x.mensagem) : x.mensagem))", "r.recusas.map((x) => x.mensagem)")], 'sem o prefixo de esquadria'),
  ('L14', 'o total ausente não diz o que falta', LC, [("    linhas.push(barra === null\n", "    linhas.push(false\n")], 'PREÇO AUSENTE'),
  ('L15', 'a lista que não existe vira lista vazia', LC, [("    if (erroDaLista) return {", "    if (false) return {")], 'LISTA AINDA NÃO EXISTE'),
  ('L16', 'a despesa da mão de obra é sempre a da industrialização', MO, [("segmentoDaDespesa: tipo === 'SERVICO' ? 'SERVICO' : 'INDUSTRIALIZACAO',", "segmentoDaDespesa: 'INDUSTRIALIZACAO',")], 'o segmento decide'),
@@ -48,14 +49,16 @@ M = [
  ('L19', 'só a primeira falta da mão de obra sai', LC, [("return { ok: false, falta: m.faltas.join('; ') }", "return { ok: false, falta: m.faltas[0] ?? '' }")], 'sem tenant_settings'),
  ('L20', 'os totais de material não são arredondados antes da diferença', LC, [("const barra = t.total_por_barra_inteira === null ? null : centavos(t.total_por_barra_inteira)", "const barra = t.total_por_barra_inteira"),
                                                                        ("const consumo = t.total_por_consumo_real === null ? null : centavos(t.total_por_consumo_real)", "const consumo = t.total_por_consumo_real")], 'o texto inteiro'),
- ('L21', 'o total com mão de obra esquece a mão de obra', LC, [("formatarReais(centavos(material + calculada.total))", "formatarReais(centavos(material))")], 'o texto inteiro'),
+ ('L21', 'o total com mão de obra esquece a mão de obra', LC, [("formatarReais(centavos(material + maoDeObraTotal))", "formatarReais(centavos(material))")], 'o texto inteiro'),
  ('L22', 'a mão de obra não multiplica pela quantidade', LC, [("total: centavos(m.valor * quantidade),", "total: m.valor,")], 'a quantidade multiplica'),
- ('L23', 'o levantamento volta à cor fixa BRANCO', LC, [("        cor,\n        esquadrias:", "        cor: 'BRANCO',\n        esquadrias:")], 'PRETO TEXTURADO'),
+ ('L23', 'o levantamento volta à cor fixa BRANCO', LC, [("        cor: cores[0],\n        esquadrias:", "        cor: 'BRANCO',\n        esquadrias:")], 'PRETO TEXTURADO'),
  ('L24', 'a cor do perfil aceita qualquer texto', PD, [("            return typeof v === 'string' && cores.includes(v) ? v : undefined", "            return textoValido(v) ? (v as string).trim() : undefined")], 'não é BRANCO'),
- ('L25', 'as cores não vão ao prompt', CV, [("${cores.length ? cores.join(', ') : '(nenhuma)'}", "(nenhuma)")], 'a lista de cores vai ao prompt'),
- ('L26', 'sem lista de cores, a conversa pergunta a cor assim mesmo', CV, [("const semCores = proximo === 'cor_perfil' && cores.length === 0", "const semCores = false")], 'SEM LISTA DE CORES'),
+ ('L25', 'as cores não vão ao prompt', CV, [("${c.cores.length ? c.cores.join(', ') : '(nenhuma)'}", "(nenhuma)")], 'vão ao prompt'),
+ ('L26', 'sem lista de cores, a conversa pergunta a cor assim mesmo', CV, [("pendencia.campo === 'cor_perfil' && cores.length === 0)", "pendencia.campo === 'cor_perfil' && false)")], 'SEM LISTA DE CORES'),
  ('L27', 'as cores são lidas de todas as empresas', LC, [(".from('orcamentista_mp_categoria').select('config').eq('tenant_id', tenantId).eq('categoria_chave', 'PERFIL')", ".from('orcamentista_mp_categoria').select('config').eq('categoria_chave', 'PERFIL')")], 'outro tenant'),
- ('L28', 'sem cor, o levantamento segue', LC, [("    if (cor === null) return recusa(['Falta: a cor do perfil.'])\n", "")], 'SEM COR'),
+ ('L28', 'sem cor, o levantamento segue', LC, [("    lev.itens.forEach((e, i) => { if (corDe(e) === null) faltas.push(`A esquadria ${i + 1} está sem a cor do perfil.`) })\n", "")], 'SEM COR'),
+ ('L29', 'a mão de obra total soma só as que existem', LC, [("const todasCalculadas = maos.length > 0 && maos.every((m) => !('falta' in m))", "const todasCalculadas = maos.some((m) => !('falta' in m))")], 'de UMA esquadria ausente'),
+ ('L30', 'cores diferentes no mesmo levantamento passam', LC, [("    if (cores.length > 1) {\n", "    if (false) {\n")], 'CORES DIFERENTES'),
  ('L0', 'controle: nada muda', LC, [("export", "export")]),
 ]
 

@@ -41,6 +41,7 @@ describe('(1) a proposta preenche, e o que não valida é descartado', () => {
 
     it.each([
         ['tipologia fora da lista', { tipologia: 'Janela de correr' }, 'tipologia'],
+        ['tipologia em outra caixa ("dp-02" não é DP-02)', { tipologia: 'dp-02' }, 'tipologia'],
         ['cor fora da lista exata ("Branco")', { cor_perfil: 'Branco' }, 'cor_perfil'],
         ['largura como texto', { largura_mm: 'mil e duzentos' }, 'largura_mm'],
         ['altura fora da faixa', { altura_mm: 50 }, 'altura_mm'],

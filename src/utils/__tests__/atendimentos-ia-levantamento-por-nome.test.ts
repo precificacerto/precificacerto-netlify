@@ -465,6 +465,8 @@ describe('(4) a lista: a tipologia e a cor só da lista, exatas', () => {
         const sistema = String(estado.chamadasDaLlm[0].corpo.system)
         expect(sistema).toContain('DP-02 | JANELA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 42 | Correr')
         expect(sistema).toContain('Cores da empresa (cor_perfil, escreva EXATAMENTE uma delas): BRANCO')
+        // a escolha que muda o preço é do vendedor: o prompt proíbe a IA de escolher
+        expect(sistema).toContain('NUNCA escolha sozinho, nem pelo Padrão')
     })
 
     it('"Branco" não é BRANCO, e "Janela de correr" não é tipologia: descartados, e a pergunta é a do primeiro campo vazio', async () => {

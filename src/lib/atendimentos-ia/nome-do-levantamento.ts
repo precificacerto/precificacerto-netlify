@@ -17,7 +17,7 @@
 
 /** Minúscula, sem acento (NFD sem as marcas combinantes), espaços colapsados, sem espaço nas pontas. */
 export function normalizarNome(nome: string): string {
-    return nome.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim()
+    return nome.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim()
 }
 
 export type LevantamentoComNome = { id: string; nome: string; nome_normalizado: string }

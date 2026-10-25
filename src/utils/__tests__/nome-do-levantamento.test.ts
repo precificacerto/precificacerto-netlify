@@ -33,7 +33,7 @@ describe('(1) normalizarNome — minúscula, sem acento, espaços colapsados, se
     })
 
     it('o "João" escrito com o acento COMBINANTE (o + ´ separados) é o mesmo "joao"', () => {
-        expect(N().normalizarNome('João')).toBe('joao')
+        expect(N().normalizarNome('Joa\u0303o')).toBe('joao')
     })
 
     it('pontuação e números ficam: "Casa 2" não é "Casa"', () => {
