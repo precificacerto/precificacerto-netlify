@@ -793,8 +793,11 @@ describe('(12) decisão 2, revista: quem altera — o criador, ou o admin da emp
     it('7. o ADMIN altera o levantamento de OUTRO vendedor — permitido, e o levantamento continua do criador', async () => {
         await fecharDp02('Casa do João')
         comPapel(OUTRO_VENDEDOR, 'admin')
+        levantamentos()[0].atualizado_em = 'antes-da-alteracao'
         await alterarAltura('casa do joao', doOutro)
         expect(levantamentos()).toHaveLength(1)
+        // o rastro (decisão 3) é gravado NA LINHA DO CRIADOR: um update filtrado pelo admin não acharia linha nenhuma
+        expect(levantamentos()[0].atualizado_em).not.toBe('antes-da-alteracao')
         expect(levantamentos()[0]).toEqual(expect.objectContaining({ remetente_id: VENDEDOR, nome: 'Casa do João', estado: 'COMPLETO' }))
         expect(alturaDe(VENDEDOR)).toBe(1200)
         expect(ultimoEnviado().split('\n')[1]).toBe('Esquadria 1: DP-02, 1.200 x 1.200 mm, 1 unidade(s).')
