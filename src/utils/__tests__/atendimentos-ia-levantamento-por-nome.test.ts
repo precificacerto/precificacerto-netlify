@@ -154,7 +154,8 @@ function montar() {
         orcamentista_mp_categoria: [{ tenant_id: TENANT, categoria_chave: 'PERFIL', config: { serra_mm: 5, cores: ['BRANCO'] } }],
         orcamentista_motor_regra: DE_PARA.regras.map((r, k) => ({ id: `r-${String(k).padStart(4, '0')}`, ...r, tabela_id: TABELA, tipologias: ['DP-02'] })),
         orcamentista_tabela_item: DE_PARA.itens.map((i) => ({ ...i, tabela_id: TABELA })),
-        orcamentista_motor_tipologia: [{ tabela_id: TABELA, tipologia: 'DP-02', tempo_fabricacao_min: 300, tempo_origem: 'ESTIMADO' }],
+        orcamentista_motor_tipologia: [{ tabela_id: TABELA, tipologia: 'DP-02', tempo_fabricacao_min: null, tempo_origem: null }],
+        orcamentista_motor_tipologia_tempo: [{ tabela_id: TABELA, tipologia: 'DP-02', tempo_fabricacao_min: 300, tempo_origem: 'ESTIMADO' }],
         tenant_settings: [{ tenant_id: TENANT, calc_type: 'INDUSTRIALIZACAO', monthly_workload: 528, workload_unit: 'HOURS', num_productive_employees: 5 }],
         tenant_expense_config: [{ tenant_id: TENANT, production_labor_cost_hub: 40813.03, production_labor_cost: 0, productive_value_per_minute: 0, admin_salary_total: 27649.76, admin_fgts_total: 0, admin_other_costs: 0, fixed_expense_monthly: 17884.79 }],
     }

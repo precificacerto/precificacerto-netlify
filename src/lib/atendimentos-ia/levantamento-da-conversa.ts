@@ -37,10 +37,10 @@
  * linhas, acima das 1.000 que o PostgREST devolve por vez: a leitura pagina e confere a contagem
  * exata, em vez de calcular com uma lista cortada em silêncio (`instrumento-que-nao-enxerga.md`).
  *
- * ══ O TEMPO DE FABRICAÇÃO — LEITURA TEMPORÁRIA ══
- * `tempoDeFabricacao` lê `orcamentista_motor_tipologia.tempo_fabricacao_min`, a coluna antiga, porque a
- * migração 20261024000003 (`orcamentista_motor_tipologia_tempo`) ainda não foi aplicada. Quando for, a
- * troca é a tabela e as duas colunas DESTA função, e só dela.
+ * ══ O TEMPO DE FABRICAÇÃO ══
+ * `tempoDeFabricacao` lê `orcamentista_motor_tipologia_tempo` (20261024000003), a tabela que a importação
+ * não apaga. As colunas antigas de `orcamentista_motor_tipologia` estão OBSOLETAS — a importação as
+ * apaga — e não são lidas, nem como reserva: sem linha na tabela nova é "não informado".
  *
  * ══ A MÃO DE OBRA — O CAMINHO DA TELA DE PRODUTO ══
  * `lerMaoDeObra`: o tempo de fabricação da tipologia × o valor do minuto, pelo MESMO caminho que
@@ -112,16 +112,16 @@ export async function lerTabelaDaEmpresa(tenantId: string): Promise<TabelaDaEmpr
 export const linhaDoCandidato = (c: CandidatoDeTipologia) =>
     `${c.tipologia} | ${c.descricao ?? '(sem descrição no arquivo)'} | ${c.tipo ?? '(sem tipo no arquivo)'}`
 
-// ── O tempo de fabricação — TEMPORÁRIO ──────────────────────────────────────────────────────
+// ── O tempo de fabricação ───────────────────────────────────────────────────────────────────
 /**
- * TEMPORÁRIO: lê a coluna antiga de `orcamentista_motor_tipologia` enquanto a 20261024000003 não é
- * aplicada. Depois, a tabela passa a ser `orcamentista_motor_tipologia_tempo` — a troca é aqui, e só aqui.
+ * De `orcamentista_motor_tipologia_tempo`, chave (tabela_id, tipologia): uma linha ou nenhuma. Sem linha
+ * é null — "não informado", nunca zero. As colunas antigas de `orcamentista_motor_tipologia` NÃO são lidas.
  */
 export async function tempoDeFabricacao(tabelaId: string, tipologia: string): Promise<{ minutos: number; origem: string | null } | null> {
     const { data, error } = await supabaseAdmin
-        .from('orcamentista_motor_tipologia').select('tempo_fabricacao_min, tempo_origem')
+        .from('orcamentista_motor_tipologia_tempo').select('tempo_fabricacao_min, tempo_origem')
         .eq('tabela_id', tabelaId).eq('tipologia', tipologia).maybeSingle()
-    if (error) throw new Error(`orcamentista_motor_tipologia: ${error.message}`)
+    if (error) throw new Error(`orcamentista_motor_tipologia_tempo: ${error.message}`)
     const linha = data as { tempo_fabricacao_min: number | null; tempo_origem: string | null } | null
     if (!linha || typeof linha.tempo_fabricacao_min !== 'number') return null
     return { minutos: linha.tempo_fabricacao_min, origem: linha.tempo_origem }

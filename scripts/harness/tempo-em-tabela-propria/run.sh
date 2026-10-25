@@ -56,9 +56,20 @@ echo "$REAP"
 $P -d $D -c "UPDATE public.orcamentista_motor_tipologia_tempo SET tempo_fabricacao_min = 150, tempo_origem = 'IMPORTADO' WHERE tipologia = 'DP-02'" >/dev/null
 # O FILTRO LÊ A LINHA INTEIRA: um erro que não começa com FALHOU aparece como ERRO NAO PREVISTO
 # e não conta como caso verde (`instrumento-que-nao-enxerga.md`).
-SAIDA=$($P -d $D -f $S/10_casos.sql 2>&1 | sed -nE 's/^.*NOTICE:  (ok: .*)$/\1/p; s/^.*ERROR:  (FALHOU.*)$/\1/p; s/^.*ERROR:  (.*)$/ERRO NAO PREVISTO: \1/p')
+FILTRO='s/^.*NOTICE:  (ok: .*)$/\1/p; s/^.*ERROR:  (FALHOU.*)$/\1/p; s/^.*ERROR:  (.*)$/ERRO NAO PREVISTO: \1/p'
+SAIDA=$($P -d $D -f $S/10_casos.sql 2>&1 | sed -nE "$FILTRO")
+# O CASO 8 — a reimportação completa com os 164 tempos — roda com as DUAS versões da função de
+# importação: a da 20261020000002 (a da base acima) e a da 20261025000004, que a substitui e apaga
+# também as nove abas. Cada rodada conta como um caso.
+CASO8=$($P -d $D -f $S/20_reimportacao_completa.sql 2>&1 | sed -nE "$FILTRO" | sed 's/^/[função 20261020000002] /')
+$P -d $D -v ON_ERROR_STOP=1 -f $R/supabase/migrations/20261025000004_abas_do_motor_por_tipologia.sql >/dev/null 2>&1 \
+  || { echo "BASE FALHOU: 20261025000004"; exit 2; }
+CASO8="$CASO8
+$($P -d $D -f $S/20_reimportacao_completa.sql 2>&1 | sed -nE "$FILTRO" | sed 's/^/[função 20261025000004] /')"
+SAIDA="$SAIDA
+$CASO8"
 echo "$SAIDA"
-ESPERADO=$(( $(grep -c "^-- CASO " $S/10_casos.sql) + 1 ))
-OKS=$( (echo "$SAIDA"; echo "$REAP") | grep -c '^ok: ')
+ESPERADO=$(( $(grep -c "^-- CASO " $S/10_casos.sql) + 2 + 1 ))
+OKS=$( (echo "$SAIDA"; echo "$REAP") | grep -cE '^(\[função [0-9]+\] )?ok: ')
 echo "$OKS de $ESPERADO casos ok"
 [ "$OKS" = "$ESPERADO" ] || exit 1

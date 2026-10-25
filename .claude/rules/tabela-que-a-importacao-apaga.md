@@ -48,7 +48,7 @@ procura. Conferir LINHAS não alcança COLUNAS (`portao-que-nao-alcanca.md`).
 
 | # | Quando | O processo | O que ele não sabia reescrever | Estado |
 |---|---|---|---|---|
-| 1 | 24/10/2026 | `importar_conteudo_da_tabela` (`20261020000002`) apaga e regrava `orcamentista_motor_tipologia` | `tempo_fabricacao_min` e `tempo_origem`, acrescentadas pela `20261024000001` — a regravação não as preenche. Importar a tabela da Wolff apagaria **164 tempos ESTIMADO**, mesmo com o arquivo idêntico | **TRAVADO** pelo #147 (409 antes do DELETE). O remédio estrutural — o tempo em tabela própria — é a etapa seguinte |
+| 1 | 24/10/2026 | `importar_conteudo_da_tabela` (`20261020000002`) apaga e regrava `orcamentista_motor_tipologia` | `tempo_fabricacao_min` e `tempo_origem`, acrescentadas pela `20261024000001` — a regravação não as preenche. Importar a tabela da Wolff apagaria **164 tempos ESTIMADO**, mesmo com o arquivo idêntico | **RESOLVIDO** em 25/10/2026: o tempo mora em `orcamentista_motor_tipologia_tempo` (20261024000003), que a importação não alcança; o leitor (`tempoDeFabricacao`) lê a tabela nova e a trava do #147 saiu. Prova: harness `tempo-em-tabela-propria`, caso 8 (164 tempos, reimportação completa, os 164 ficam). As colunas antigas saem numa migração posterior |
 | 2 | 02/09/2026, #34 | a edição do orçamento apaga e regrava `budget_items` (`orcamentos/index.tsx:1867`) | `commission_pct` e `profit_pct` — a regravação os PREENCHE, com o que a reabertura leu do **cadastro vivo** (`it.products?.commission_percent`, `orcamentos/index.tsx:1992`). É a segunda metade do critério: reabrir e salvar um orçamento antigo troca os percentuais congelados pelos de hoje | **ABERTO** — registrado no #34 como "armado, não materializado"; **re-medido em 24/10/2026: a leitura do cadastro vivo continua lá** |
 
 **De quem são.** A 1 é do desenho: a importação foi escrita certa em 20/10, e a coluna chegou em
@@ -95,7 +95,7 @@ Nenhuma das três tem dano medido hoje. As três são o mecanismo armado: no dia
 
 **1. A trava antes do DELETE.** Enquanto o processo não souber reescrever uma coluna, ele recusa
 quando ela tem dado — e recusa ANTES de apagar, dizendo quanto se perderia. É o #147: a importação
-conta os tempos gravados e responde 409 antes de baixar os arquivos. A trava é barata e fecha o
+conta os tempos gravados e responde 409 antes de baixar os arquivos (removida em 25/10/2026, quando a camada estrutural chegou). A trava é barata e fecha o
 risco no dia, mas não o remove: ela troca "perde em silêncio" por "não deixa fazer".
 
 **2. O portão que liga as colunas da tabela às do processo.** Um teste lista as colunas da tabela e

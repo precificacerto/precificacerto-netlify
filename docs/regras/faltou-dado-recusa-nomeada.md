@@ -84,7 +84,7 @@ busca achou mais duas (a 1 e a 2), e a 6 nasceu na mesma rodada.
 | as dezenas de *"ausente não é zero"* em telas e utilitários | são de `ausente-vs-falso.md`: decidem o que **EXIBIR** quando falta o dado (travessão, omitir). Esta página decide o que **CALCULAR** — e a resposta é não calcular |
 | R7 da `cascata-lucro-real.md` — `MC ≤ 0` aborta | o dado não falta: está presente e é inválido |
 | a recusa da matriz em `buildProductConstruction` (17/09/2026) | o dado não falta: **sobra** — alíquota onde a matriz diz INEXISTENTE |
-| a trava da importação, `fraseDaImportacaoTravadaPeloTempo` (#147) | não falta dado: a recusa protege dado que **existe** de ser apagado (`tabela-que-a-importacao-apaga.md`) |
+| a trava da importação, `fraseDaImportacaoTravadaPeloTempo` (#147, removida em 25/10/2026) | não falta dado: a recusa protege dado que **existe** de ser apagado (`tabela-que-a-importacao-apaga.md`) |
 
 **E uma que CONTRADIZ a regra, registrada em vez de escondida:** `somaDoDenominador`, em
 `src/utils/limite-de-desconto.ts`, decidida em 13/10/2026 (`limite-do-desconto.md`). Quando a

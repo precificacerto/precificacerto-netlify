@@ -14,10 +14,10 @@
  * COMMIT ao terminar a chamada; a rota só vê as contagens DEPOIS. O que este portão afirma é o
  * que a rota consegue: divergência vira 500, com os dois números lado a lado — nunca sucesso.
  *
- * A TRAVA DO TEMPO (24/10/2026, decisão do dono do produto): enquanto a função apagar e regravar
- * `orcamentista_motor_tipologia` sem as colunas de tempo, o POST é RECUSADO em tabela que tenha
- * tempo de fabricação gravado — antes de baixar e antes de gravar. A contagem real (a consulta ao
- * banco) também não roda aqui: o repositório é falso. O que este portão prova é que a ROTA trava.
+ * SEM TRAVA DO TEMPO (25/10/2026): a trava do #147 saiu, porque o tempo mora em
+ * `orcamentista_motor_tipologia_tempo` (20261024000003), que a função não alcança. Que reimportar
+ * NÃO apaga os tempos é provado no banco (harness `tempo-em-tabela-propria`, caso 8); aqui, que a
+ * ROTA vai até o fim sem consultar nem gravar tempo.
  * ══════════════════════════════════════════════════════════════════════════════════════════
  */
 /* eslint-disable @typescript-eslint/no-explicit-any -- os clientes falsos imitam clientes sem tipo */
@@ -70,7 +70,6 @@ jest.mock('@/lib/atendimentos-ia/repositorio', () => {
         obterDadosDaTabela: fn('obterDadosDaTabela', () => DADOS),
         listarTipologias: fn('listarTipologias', () => TIPOLOGIAS_DO_BANCO),
         contarFormulas: fn('contarFormulas', () => 137),
-        contarTemposGravados: fn('contarTemposGravados', () => ({ total: 0, ESTIMADO: 0, IMPORTADO: 0 })),
         codigosDosItensGravados: fn('codigosDosItensGravados', () => []),
     }
 })
@@ -122,13 +121,6 @@ const ARQUIVOS_BONS = async () => ({
 /** A contagem de cada lista do payload, como a função devolve. */
 const contagensDe = (p: any) => Object.fromEntries(Object.entries(p).filter(([k, v]) => Array.isArray(v) && k !== 'avisos').map(([k, v]) => [k, (v as unknown[]).length]))
 
-const SEM_TEMPO = { total: 0, ESTIMADO: 0, IMPORTADO: 0 }
-/** A frase da trava, lida DENTRO dos casos: no commit do portão ela ainda não existe. */
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const fraseDaTrava = (t: { total: number; ESTIMADO: number; IMPORTADO: number }) => require('@/utils/atendimentos-ia-importacao').fraseDaImportacaoTravadaPeloTempo(t) as string
-const comTempos = (t: { total: number; ESTIMADO: number; IMPORTADO: number }) =>
-    repo.contarTemposGravados.mockImplementation(async () => { ordem.push('contarTemposGravados'); return t })
-
 const silencio = jest.spyOn(console, 'error').mockImplementation(() => {})
 afterAll(() => silencio.mockRestore())
 beforeEach(async () => {
@@ -138,7 +130,6 @@ beforeEach(async () => {
     Object.assign(objetos, await ARQUIVOS_BONS())
     Object.values(repo).forEach((f) => { if (typeof f?.mockClear === 'function') f.mockClear() })
     repo.obterArquivosDaTabela.mockImplementation(async () => { ordem.push('obterArquivosDaTabela'); return TABELA })
-    repo.contarTemposGravados.mockImplementation(async () => { ordem.push('contarTemposGravados'); return SEM_TEMPO })
     repo.codigosDosItensGravados?.mockImplementation(async () => { ordem.push('codigosDosItensGravados'); return [] })
 })
 
@@ -272,65 +263,21 @@ describe('as nove abas na gravação', () => {
     })
 })
 
-describe('A TRAVA DO TEMPO — a importação de hoje apagaria os tempos de fabricação gravados', () => {
-    // Os números são os de produção em 24/10/2026: 164 tipologias com tempo ESTIMADO na tabela da Wolff.
-    it('tabela com tempo gravado → 409 com a frase da trava, ANTES de baixar e de gravar', async () => {
-        const t = { total: 164, ESTIMADO: 164, IMPORTADO: 0 }
-        comTempos(t)
-        const r = await chamar('POST')
-        expect(r.status).toBe(409)
-        expect(r.json.error).toBe(fraseDaTrava(t))
-        expect(ordem).toEqual(['obterArquivosDaTabela', 'contarTemposGravados'])
-        expect(repo.objetoExiste).not.toHaveBeenCalled()
-        expect(repo.baixarObjeto).not.toHaveBeenCalled()
-        expect(repo.importarConteudo).not.toHaveBeenCalled()
-    })
-
-    it('trava também quando os tempos são só IMPORTADO — o que se perde é o tempo, venha de onde vier', async () => {
-        const t = { total: 3, ESTIMADO: 0, IMPORTADO: 3 }
-        comTempos(t)
-        const r = await chamar('POST')
-        expect(r.status).toBe(409)
-        expect(repo.importarConteudo).not.toHaveBeenCalled()
-    })
-
-    it('trava pelo TOTAL: uma origem que não é ESTIMADO nem IMPORTADO também conta', async () => {
-        comTempos({ total: 2, ESTIMADO: 0, IMPORTADO: 0 })
-        const r = await chamar('POST')
-        expect(r.status).toBe(409)
-        expect(repo.importarConteudo).not.toHaveBeenCalled()
-    })
-
-    it('a frase diz quantos tempos se perderiam e de que origem, e que nada foi alterado', () => {
-        const f = fraseDaTrava({ total: 167, ESTIMADO: 164, IMPORTADO: 3 })
-        expect(f).toContain('167')
-        expect(f).toContain('164 ESTIMADO')
-        expect(f).toContain('3 IMPORTADO')
-        expect(f).toContain('Nada foi alterado')
-        expect(fraseDaTrava({ total: 2, ESTIMADO: 0, IMPORTADO: 0 })).toContain('2 de outra origem')
-    })
-
-    it('tabela SEM tempo gravado → a importação segue, e a contagem é feita ANTES de baixar', async () => {
+describe('SEM TRAVA DO TEMPO — o tempo mora em tabela própria, e reimportar não o apaga', () => {
+    // A prova de que a FUNÇÃO não apaga os tempos é do banco, não daqui: harness
+    // `scripts/harness/tempo-em-tabela-propria`, caso 8 — 164 tempos, reimportação completa, os 164 ficam.
+    // O que este portão prova é o lado da ROTA: ela vai até o fim e não toca o tempo.
+    it('o POST vai até o fim (200) sem consultar tempo nenhum: nada no caminho lê ou trava pelo tempo', async () => {
         const r = await chamar('POST')
         expect(r.status).toBe(200)
         expect(repo.importarConteudo).toHaveBeenCalledTimes(1)
-        expect(ordem.indexOf('contarTemposGravados')).toBeGreaterThan(-1)
-        expect(ordem.indexOf('contarTemposGravados')).toBeLessThan(ordem.indexOf('objetoExiste'))
+        expect(ordem.filter((nome) => /tempo/i.test(nome))).toEqual([])
     })
 
-    it('erro do banco ao contar os tempos → 500, e a importação NÃO segue (a trava falha fechada)', async () => {
-        repo.contarTemposGravados.mockImplementation(async () => { throw new Error('falhou') })
-        const r = await chamar('POST')
-        expect(r.status).toBe(500)
-        expect(repo.baixarObjeto).not.toHaveBeenCalled()
-        expect(repo.importarConteudo).not.toHaveBeenCalled()
-    })
-
-    it('o GET continua respondendo com tempo gravado: a trava é só da importação', async () => {
-        comTempos({ total: 164, ESTIMADO: 164, IMPORTADO: 0 })
-        const r = await chamar('GET')
-        expect(r.status).toBe(200)
-        expect(repo.contarTemposGravados).not.toHaveBeenCalled()
+    it('o payload da gravação não leva tempo: a função não tem tempo para gravar, nem para apagar', async () => {
+        await chamar('POST')
+        const [, payload] = repo.importarConteudo.mock.calls[0]
+        expect(JSON.stringify(payload)).not.toMatch(/tempo/i)
     })
 })
 

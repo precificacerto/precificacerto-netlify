@@ -94,7 +94,9 @@ function montar() {
         orcamentista_motor_regra: DE_PARA.regras.map((r) => comId({ ...r, tabela_id: TABELA, tipologias: ['DP-02'] })),
         orcamentista_tabela_item: DE_PARA.itens.map((i) => ({ ...i, tabela_id: TABELA })),
         orcamentista_mp_categoria: [{ tenant_id: TENANT, categoria_chave: 'PERFIL', config: { serra_mm: 5, cores: ['BRANCO'], cor_predominante: 'BRANCO' } }],
-        orcamentista_motor_tipologia: [{ tabela_id: TABELA, tipologia: 'DP-02', linha: 'EUROPA 42', tempo_fabricacao_min: 150, tempo_origem: 'IMPORTADO' }],
+        // as colunas antigas de tempo como a importação as deixa: vazias. O tempo está na tabela própria.
+        orcamentista_motor_tipologia: [{ tabela_id: TABELA, tipologia: 'DP-02', linha: 'EUROPA 42', tempo_fabricacao_min: null, tempo_origem: null }],
+        orcamentista_motor_tipologia_tempo: [{ tabela_id: TABELA, tipologia: 'DP-02', tempo_fabricacao_min: 150, tempo_origem: 'IMPORTADO' }],
         // os números do tenant ativo em produção, medidos em 25/10/2026
         tenant_settings: [{ tenant_id: TENANT, calc_type: 'INDUSTRIALIZACAO', monthly_workload: 528, workload_unit: 'HOURS', num_productive_employees: 5 }],
         tenant_expense_config: [{
@@ -182,13 +184,24 @@ describe('(1) a tabela da empresa e as tipologias candidatas', () => {
     })
 })
 
-describe('(2) o tempo de fabricação — leitura TEMPORÁRIA da coluna antiga', () => {
-    it('lê tempo_fabricacao_min e tempo_origem de orcamentista_motor_tipologia', async () => {
+describe('(2) o tempo de fabricação — da tabela própria, orcamentista_motor_tipologia_tempo', () => {
+    it('lê tempo_fabricacao_min e tempo_origem de orcamentista_motor_tipologia_tempo', async () => {
         expect(await M().tempoDeFabricacao(TABELA, 'DP-02')).toEqual({ minutos: 150, origem: 'IMPORTADO' })
     })
 
     it('sem tempo cadastrado: null, nunca zero', async () => {
         expect(await M().tempoDeFabricacao(TABELA, 'DP-01')).toBeNull()
+    })
+
+    it('a coluna antiga NÃO é lida, nem como reserva: com tempo só nela, é null', async () => {
+        banco.db.orcamentista_motor_tipologia[0] = { ...banco.db.orcamentista_motor_tipologia[0], tempo_fabricacao_min: 999, tempo_origem: 'ESTIMADO' }
+        banco.db.orcamentista_motor_tipologia_tempo = []
+        expect(await M().tempoDeFabricacao(TABELA, 'DP-02')).toBeNull()
+    })
+
+    it('com valores diferentes nas duas, vale a tabela própria', async () => {
+        banco.db.orcamentista_motor_tipologia[0] = { ...banco.db.orcamentista_motor_tipologia[0], tempo_fabricacao_min: 999, tempo_origem: 'ESTIMADO' }
+        expect(await M().tempoDeFabricacao(TABELA, 'DP-02')).toEqual({ minutos: 150, origem: 'IMPORTADO' })
     })
 })
 
@@ -387,7 +400,7 @@ describe('(7) a MÃO DE OBRA — o mesmo caminho da tela de produto, com os núm
     })
 
     it.each([
-        ['sem tempo de fabricação da tipologia', () => { banco.db.orcamentista_motor_tipologia = [] }, 'o tempo de fabricação de DP-02 não está cadastrado'],
+        ['sem tempo de fabricação da tipologia', () => { banco.db.orcamentista_motor_tipologia_tempo = [] }, 'o tempo de fabricação de DP-02 não está cadastrado'],
         ['sem carga horária', () => { banco.db.tenant_settings[0].monthly_workload = 0 }, 'a carga horária mensal da empresa não está configurada'],
         // sem a linha, faltam DUAS coisas, e as duas saem — uma não esconde a outra
         ['sem tenant_settings', () => { banco.db.tenant_settings = [] }, 'o tipo de cálculo da empresa (industrialização, revenda ou serviço) não está configurado; a carga horária mensal da empresa não está configurada'],
@@ -568,7 +581,7 @@ describe('(10) as abas vêm do BANCO: a Fórmulas da tipologia é a fonte, a da 
 
     it('a tipologia com DUAS linhas no motor: recusa nomeando as duas — a família não é escolhida', async () => {
         banco.db.orcamentista_motor_formula_familia = comoFamilia('EUROPA 42')
-        banco.db.orcamentista_motor_tipologia.push({ tabela_id: TABELA, tipologia: 'DP-02', linha: 'EUROPA 60', tempo_fabricacao_min: 150, tempo_origem: 'IMPORTADO' })
+        banco.db.orcamentista_motor_tipologia.push({ tabela_id: TABELA, tipologia: 'DP-02', linha: 'EUROPA 60', tempo_fabricacao_min: null, tempo_origem: null })
         semDaDP02('orcamentista_motor_formula')
         const r = await levantar()
         expect(r.desfecho).toBe('recusou')

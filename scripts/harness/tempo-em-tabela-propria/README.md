@@ -19,7 +19,9 @@ python3 -B scripts/harness/tempo-em-tabela-propria/mutacoes.py   # as 13, e o co
 
 `run.sh` monta o banco até a 20261024000001, reproduz o estado de produção
 (`05_como_em_producao.sql`), aplica a migração **duas vezes** e confere que o schema ficou
-idêntico, roda o caso da reaplicação com divergência e depois os 7 casos de `10_casos.sql`.
+idêntico, roda o caso da reaplicação com divergência, os 7 casos de `10_casos.sql` e o caso 8
+(`20_reimportacao_completa.sql`) duas vezes — com a função de importação da 20261020000002 e,
+depois de aplicar a 20261025000004, com a que a substitui.
 
 ## O estado de partida, e por que é esse
 
@@ -44,6 +46,14 @@ Medido em 24/10/2026: **8 de 8**, mais a aplicação dupla com schema idêntico.
 | 5 | apagar a tabela do fornecedor leva os tempos dela, e só os dela |
 | 6 | tempo zero e origem desconhecida recusados |
 | 7 | anon e authenticated sem acesso, RLS ligada, 4 políticas |
+| 8 | **A TRAVA PODE SAIR:** o estado de produção — 164 tempos ESTIMADO, soma 87.300, tempos diferentes entre si — e a reimportação COMPLETA (164 tipologias, item, regra, fórmula), duas vezes seguidas: a função grava as 164, apaga as colunas antigas (o caso confere — o perigo é real), e os 164 tempos ficam na tabela nova, iguais linha a linha. Roda com as duas versões da função |
+
+**O caso 8 foi medido em 25/10/2026, no PGlite** (Postgres embutido em Node; a máquina não tinha
+`psql`), com a mesma sequência de arquivos do `run.sh`: **10 de 10** — a reaplicação, os casos 1 a 7
+e o caso 8 nas duas versões da função. **Controle negativo:** com a função da 20261025000004 mutada
+para apagar também `orcamentista_motor_tipologia_tempo`, o caso 8 dessa versão fica vermelho
+(`0 tempos, 164 linha(s) diferentes do antes`) e o da 20261020000002 segue verde — 9 de 10. Esta
+mutação não está em `mutacoes.py`, que muta só a 20261024000003.
 
 **O caso da reaplicação roda ANTES dos outros, e foi movido.** Na primeira versão ele rodava
 depois do caso 4. Àquela altura a importação já tinha apagado os tempos da tabela antiga, e a
