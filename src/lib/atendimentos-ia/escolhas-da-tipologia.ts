@@ -167,16 +167,28 @@ export function escolhasComPadrao(tipologia: VariaveisDaTipologia, explicitas: E
  * Null quando a tipologia não tem variável capturada.
  */
 export function descreverArremate(tipologia: VariaveisDaTipologia, explicitas: Escolhas): string | null {
+    const partes = escolhasDescritas(tipologia, explicitas)
+        .map((e) => `${minuscula(e.descricao)}: ${e.rotulo ?? 'padrão da tipologia'} (${e.doVendedor ? 'como você pediu' : 'padrão'})`)
+    return partes.length ? partes.join('; ') : null
+}
+
+export type EscolhaDescrita = { variavel: string; descricao: string; rotulo: string | null; doVendedor: boolean }
+
+/**
+ * As variáveis capturadas que se aplicam, com a opção efetiva por extenso (o rótulo da aba, como está) e se
+ * foi o vendedor quem escolheu. A Condição é avaliada com as escolhas efetivas; a que não dá para avaliar
+ * entra. É a fonte da linha do arremate do levantamento (`descreverArremate`) e da do apanhado.
+ */
+export function escolhasDescritas(tipologia: VariaveisDaTipologia, explicitas: Escolhas): EscolhaDescrita[] {
     const efetivas = escolhasComPadrao(tipologia, explicitas)
-    const partes: string[] = []
+    const descritas: EscolhaDescrita[] = []
     for (const v of tipologia.variaveis) {
         if (!capturada(v.variavel) || !condicaoPede(v.condicao, efetivas)) continue
         const valor = efetivas[v.variavel]
-        const rotulo = valor === undefined ? null : opcoesDaVariavel(v.opcoes)?.find((o) => o.valor === valor)?.rotulo
-        const origem = explicitas[v.variavel] !== undefined ? 'como você pediu' : 'padrão'
-        partes.push(`${minuscula(v.descricao ?? v.variavel)}: ${rotulo ?? 'padrão da tipologia'} (${origem})`)
+        const rotulo = valor === undefined ? null : opcoesDaVariavel(v.opcoes)?.find((o) => o.valor === valor)?.rotulo ?? null
+        descritas.push({ variavel: v.variavel, descricao: v.descricao ?? v.variavel, rotulo, doVendedor: explicitas[v.variavel] !== undefined })
     }
-    return partes.length ? partes.join('; ') : null
+    return descritas
 }
 
 /** Alguma capturada foi escolhida pelo vendedor? (A frase de confirmação muda.) */
