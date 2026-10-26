@@ -134,7 +134,7 @@ describe('(1)(2)(3) o menu desktop', () => {
     it('seção ligada: "Orçamentista" na seção atendimentos-ia, logo abaixo de CLIENTES — sem os itens do super admin', async () => {
         const host = await montar(<Nav />)
         expect(destinos(host)).toEqual([ROUTES.ATENDIMENTOS_IA_ORCAMENTISTA])
-        expect(host.querySelector(`[data-section-key="${SECAO}"] .nav-section-label`)?.textContent?.trim()).toBe('Atendimentos I.A.')
+        expect(host.querySelector(`[data-section-key="${SECAO}"] .nav-section-label`)?.textContent?.trim()).toBe('Agentes I.A.')
         expect(host.querySelector(`[data-section-key="${SECAO}"]`)?.textContent).toContain('Orçamentista')
         const ordem = ordemDasSecoes(host)
         expect(ordem.indexOf(SECAO)).toBe(ordem.indexOf('clientes') + 1)
@@ -169,6 +169,7 @@ describe('(1)(2)(3) o drawer mobile', () => {
     it('seção ligada: "Orçamentista" na mesma seção, e o bloco vem logo depois de Clientes', async () => {
         await montar(<MobileMoreDrawer open onClose={() => {}} />)
         expect(destinos(drawer())).toEqual([ROUTES.ATENDIMENTOS_IA_ORCAMENTISTA])
+        expect(drawer().querySelector(`[data-section-key="${SECAO}"] .pc-mobile-more-section-title`)?.textContent?.trim()).toBe('Agentes I.A.')
         const ordem = ordemDasSecoes(drawer())
         expect(ordem.indexOf(SECAO)).toBe(ordem.indexOf('clientes') + 1)
     })

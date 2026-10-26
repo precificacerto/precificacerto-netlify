@@ -133,7 +133,7 @@ describe('(3) o efeito, no menu do SUPER ADMIN', () => {
         superAdmin = true
         const host = montarMenu()
         const secoes = Array.from(host.querySelectorAll('.nav-section')).filter((s) => s.querySelector('.nav-section-header'))
-        expect(secoes.map(titulo)).toEqual(expect.arrayContaining(['Atendimentos I.A.', 'Super Admin']))
+        expect(secoes.map(titulo)).toEqual(expect.arrayContaining(['Agentes I.A.', 'Super Admin']))
         expect(secoes.map(titulo)).not.toContain('Clientes')
         expect(secoes.filter((s) => !s.querySelector('.nav-section-arrow')).map(titulo)).toEqual([])
     })

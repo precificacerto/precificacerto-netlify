@@ -19,15 +19,13 @@
  * Portão: `src/utils/__tests__/atendimentos-ia-levantamento-por-nome.test.ts` (17) e
  * `src/utils/__tests__/apanhado.test.ts`.
  */
-import { escolhasDescritas, lerEscolhasGravadas, type VariaveisDaTipologia } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
+import { escolhasDescritas, lerEscolhasGravadas, nomeDaVariavel, type VariaveisDaTipologia } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import type { ItemDoLevantamento } from '@/lib/atendimentos-ia/levantamento-em-montagem'
 
 export const CONFERE_O_APANHADO = 'Confere? Responda sim para eu fazer o levantamento com os preços, ou diga o que muda.'
 
 /** A MEDIDA do arremate (o corte): só aparece quando o vendedor a escolheu. */
 export const MEDIDAS_DO_ARREMATE = ['MAE', 'MAI'] as const
-/** Como o apanhado chama cada variável; a que não está aqui sai pela descrição da aba, em minúscula. */
-const NOME_NO_APANHADO: Record<string, string> = { ARI: 'arremate interno', ARE: 'arremate externo', MAE: 'medida do arremate externo', MAI: 'medida do arremate interno' }
 
 const minuscula = (t: string) => t.toLocaleLowerCase('pt-BR')
 const milhar = (n: number | null) => (n === null ? '?' : new Intl.NumberFormat('pt-BR').format(n))
@@ -55,7 +53,7 @@ export function arremateDoApanhado(tipologia: VariaveisDaTipologia | null, escol
     if (!descritas.some((e) => e.doVendedor)) return 'Padrão'
     return descritas
         .filter((e) => e.doVendedor || !(MEDIDAS_DO_ARREMATE as readonly string[]).includes(e.variavel))
-        .map((e) => `${NOME_NO_APANHADO[e.variavel] ?? minuscula(e.descricao)}: ${e.doVendedor && e.rotulo ? rotuloSemCodigo(e.rotulo, e.descricao) : 'Padrão'}`)
+        .map((e) => `${nomeDaVariavel(e.variavel, e.descricao)}: ${e.doVendedor && e.rotulo ? rotuloSemCodigo(e.rotulo, e.descricao) : 'Padrão'}`)
         .join('; ')
 }
 

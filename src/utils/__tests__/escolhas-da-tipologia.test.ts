@@ -84,12 +84,29 @@ describe('(1) quais perguntar', () => {
 describe('(2) como perguntar — por extenso, em português, SEM código e SEM número (dono do produto, 25/10/2026)', () => {
     it('a pergunta da ARI, inteira', () => {
         const [ari] = E().escolhasPendentes(dp02(), {})
-        expect(E().perguntaDaEscolha(ari)).toBe('Para arremate interno, as opções são: BZ0006 - ARREMATE 65MM; BZ1770 - ARREMATE 70MM; BZ0010 - ARREMATE 20MM; SEM ARREMATE INTERNO. Qual você quer?')
+        expect(E().perguntaDaEscolha(ari)).toBe('Para arremate interno, as opções são: arremate de 65 mm; arremate de 70 mm; arremate de 20 mm; sem arremate interno. Qual você quer?')
     })
 
     it('a pergunta da MAE, inteira', () => {
         const [mae] = E().escolhasPendentes(dp02(), { ARI: 4, ARE: 1 })
-        expect(E().perguntaDaEscolha(mae)).toBe('Para medida arremate externo, as opções são: MEDIDA DO VÃO (CORTE 45/45); VÃO+50MM (CORTE 90/90) - PARA AJUSTE EM OBRA; VÃO+100MM (CORTE 90/90) - PARA AJUSTE EM OBRA. Qual você quer?')
+        expect(E().perguntaDaEscolha(mae)).toBe('Para medida do arremate externo, as opções são: medida do vão (corte 45/45); vão + 50 mm (corte 90/90) - para ajuste em obra; vão + 100 mm (corte 90/90) - para ajuste em obra. Qual você quer?')
+    })
+
+    // Dono do produto, 26/10/2026: o que chega ao vendedor vai por extenso, sem código de fornecedor e sem número de opção.
+    // Os rótulos são TODOS os distintos das opções de ARI, ARE e MAE das 161 tipologias da Wolff em produção (26/10/2026).
+    it.each([
+        ['BZ0006 - ARREMATE 65MM [33,00]', 'arremate de 65 mm'],
+        ['BZ1770 - ARREMATE 70MM [50,00]', 'arremate de 70 mm'],
+        ['BZ0010 - ARREMATE 20MM', 'arremate de 20 mm'],
+        ['SEM ARREMATE INTERNO', 'sem arremate interno'],
+        ['SEM ARREMATE EXTERNO', 'sem arremate externo'],
+        ['MEDIDA DO VÃO (CORTE 45/45)', 'medida do vão (corte 45/45)'],
+        ['MEDIDA DO VÃO (CORTE 45)', 'medida do vão (corte 45)'],
+        ['VÃO+50MM (CORTE 90/90) - PARA AJUSTE EM OBRA [50,00]', 'vão + 50 mm (corte 90/90) - para ajuste em obra'],
+        ['VÃO+100MM (CORTE 90/90) - PARA AJUSTE EM OBRA [100,00]', 'vão + 100 mm (corte 90/90) - para ajuste em obra'],
+    ])('opcaoParaOVendedor: %s → %s', (rotulo, esperado) => {
+        expect(E().opcaoParaOVendedor(rotulo)).toBe(esperado)
+        expect(E().opcaoParaOVendedor(rotulo)).not.toMatch(/\b[A-Z]{1,5}\d{2,}\b|\[|\b\d+ = /)
     })
 
     it('escolhaPedida: a variável capturada da tipologia, pronta para perguntar; a que não é capturada, null', () => {

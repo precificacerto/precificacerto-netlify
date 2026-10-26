@@ -296,7 +296,7 @@ function sistema(c: ContextoDoPrompt): string {
         '- cor_perfil: EXATAMENTE uma das cores da empresa (lista do fim), escrita como está. Se for outra cor, ou se houver dúvida, NÃO preencha.',
         '- tipologia: o CÓDIGO (ex.: DP-02) de UMA das tipologias da lista do fim, escolhida pela descrição. NUNCA invente código nem preencha com as palavras do vendedor. Se cabe em mais de uma, NÃO preencha: em `pergunta`, pergunte qual é, citando a descrição INTEIRA de cada uma, sem o código.',
         '- ARREMATE e GUARNIÇÃO: NÃO pergunte. O padrão da tipologia já vale sem ninguém dizer. NUNCA escolha sozinho: em `escolhas`, só o arremate que o vendedor DISSE, em palavras, com o código da variável e o número da opção que corresponde (lista do fim). Se ele pedir para ver as opções, ou quiser trocar sem dizer por qual, ponha o código da variável em `opcoes_de`.',
-        '- Os códigos das variáveis (ex.: ARI) e os números das opções são INTERNOS: nunca os escreva em `pergunta`.',
+        '- Os códigos das variáveis (ex.: ARI), os números das opções e os códigos de fornecedor (ex.: BZ0010) são INTERNOS: nunca os escreva em `pergunta`.',
         '- NUNCA pergunte nada sobre os padrões da empresa.',
         `- Responda SEMPRE chamando a ferramenta ${NOME_DA_FERRAMENTA}, uma vez.`,
         '',
@@ -519,12 +519,16 @@ async function enviarTexto(token: string, telefone: string, texto: string): Prom
 }
 
 /** A pergunta da pendência; o texto da LLM só quando é sobre o MESMO campo que o código decidiu. */
+/** Um código de fornecedor no texto ("BZ0010", "IL50", "SF66"): o que chega ao vendedor não o traz. */
+const CODIGO_DE_FORNECEDOR = /\b[A-Z]{1,5}\d{2,}\b/
+
 function perguntaPara(p: Pendencia, nItens: number, proposta: Record<string, unknown>): string {
     const fixa = perguntaDaPendencia(p, nItens)
     if (!('campo' in p)) return fixa
     const q = proposta.pergunta && typeof proposta.pergunta === 'object' ? (proposta.pergunta as { campo?: unknown; texto?: unknown }) : {}
     const t = typeof q.texto === 'string' ? q.texto.trim() : ''
-    if (q.campo !== p.campo || t === '' || t.length > 500) return fixa
+    // o que chega ao vendedor não traz código de fornecedor (26/10/2026): a reformulação que traz vai para a fixa
+    if (q.campo !== p.campo || t === '' || t.length > 500 || CODIGO_DE_FORNECEDOR.test(t)) return fixa
     return nItens > 1 ? `Esquadria ${p.ordem}: ${t}` : t
 }
 

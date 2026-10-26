@@ -105,7 +105,9 @@ describe('a seção Atendimentos I.A. — menu e guarda', () => {
         const host = montar(<Nav />)
         expect(destinosDaSecao(host)).toEqual([ROUTES.SUPER_ADMIN_IA_CONTAS, ROUTES.SUPER_ADMIN_IA_FORNECEDORES])
         const rotulos = Array.from(host.querySelectorAll('.nav-section-label')).map((e) => (e.textContent || '').trim())
-        expect(rotulos).toContain('Atendimentos I.A.')
+        // o rótulo visível é "Agentes I.A." desde 26/10/2026 (dono do produto); a rota e a chave não mudaram
+        expect(rotulos).toContain('Agentes I.A.')
+        expect(rotulos).not.toContain('Atendimentos I.A.')
     })
 
     it('(b) o drawer mobile do super admin traz os mesmos itens, na mesma seção', () => {
@@ -113,6 +115,7 @@ describe('a seção Atendimentos I.A. — menu e guarda', () => {
         montar(<MobileMoreDrawer open onClose={() => {}} />)
         const drawer = document.querySelector('.pc-mobile-more-drawer-content') as ParentNode
         expect(destinosDaSecao(drawer)).toEqual([ROUTES.SUPER_ADMIN_IA_CONTAS, ROUTES.SUPER_ADMIN_IA_FORNECEDORES])
+        expect(drawer.querySelector(`[data-section-key="${SECAO}"] .pc-mobile-more-section-title`)?.textContent?.trim()).toBe('Agentes I.A.')
     })
 
     it('(c) todo destino da seção mora sob /super-admin/ — desktop e drawer', () => {

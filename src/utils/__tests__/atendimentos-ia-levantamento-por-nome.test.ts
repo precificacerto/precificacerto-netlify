@@ -303,7 +303,7 @@ const conversa = require('@/lib/atendimentos-ia/conversa-da-ia') as typeof impor
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { formatarReais } = require('@/lib/atendimentos-ia/levantamento-de-barras') as typeof import('@/lib/atendimentos-ia/levantamento-de-barras')
 
-type Proposta = { nome?: string; novo?: boolean; itens?: Linha[]; escolhas?: Linha[]; opcoes_de?: string[]; pergunta?: { texto: string } } & Linha
+type Proposta = { nome?: string; novo?: boolean; itens?: Linha[]; escolhas?: Linha[]; opcoes_de?: string[]; pergunta?: { campo?: string; texto: string } } & Linha
 function respostaComFerramenta(p: Proposta) {
     return {
         id: 'msg_teste', type: 'message', role: 'assistant', model: 'claude-sonnet-5-5', stop_reason: 'tool_use',
@@ -494,7 +494,7 @@ describe('(1c) o arremate só é perguntado quando o vendedor PEDE outro — e a
         await fecharDp02('Casa do João')
         llmResponde({ nome: 'Casa do João', alteracao: true, opcoes_de: ['ARE'] })
         await chamar('Casa do João: quero trocar o arremate externo')
-        expect(ultimoEnviado()).toBe('Para arremate externo, as opções são: BZ0010 - ARREMATE 20MM; SEM ARREMATE EXTERNO. Qual você quer?')
+        expect(ultimoEnviado()).toBe('Para arremate externo, as opções são: arremate de 20 mm; sem arremate externo. Qual você quer?')
         expect(levantamentos()[0].estado).toBe('EM_MONTAGEM')
 
         // a resposta vem SEM o nome: o levantamento está em montagem, e a LLM só sabe o que o prompt diz
@@ -502,7 +502,7 @@ describe('(1c) o arremate só é perguntado quando o vendedor PEDE outro — e a
         await chamar('sem arremate externo')
         // a pergunta em aberto foi RELIDA do item (o null da variável) e foi ao prompt: é o que dá sentido à resposta sem nome
         expect(String(estado.chamadasDaLlm[estado.chamadasDaLlm.length - 1].corpo.system))
-            .toContain('Pergunta em aberto: Para arremate externo, as opções são: BZ0010 - ARREMATE 20MM; SEM ARREMATE EXTERNO. Qual você quer?')
+            .toContain('Pergunta em aberto: Para arremate externo, as opções são: arremate de 20 mm; sem arremate externo. Qual você quer?')
         expect(itensDe(levantamentos()[0].id)[0].escolhas).toEqual({ ARI: 4, MAE: 2, ARE: 2 })
         expect(levantamentos()[0].estado).toBe('COMPLETO')
         expect(ultimoEnviado().split('\n')).toContain('Arremate e guarnição: arremate interno: sem arremate interno; arremate externo: sem arremate externo.')
@@ -1496,5 +1496,25 @@ describe('(17) O APANHADO (dono do produto, 26/10/2026): a primeira resposta é 
         estado.ausentes.add('orcamentista_pergunta_em_aberto')
         const r = await pedir()
         expect(r).toContain('Perfis por barra inteira:')
+    })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+describe('(18) o que chega ao VENDEDOR não traz código de fornecedor nem número de opção (dono do produto, 26/10/2026)', () => {
+    // "Regra única, para tudo que chega ao vendedor: nome por extenso, sem código de fornecedor e sem número de opção.
+    // Ele responde em palavras." O código continua no log, nas telas do super admin e no levantamento com preço.
+    const CODIGO_DE_FORNECEDOR = /\b[A-Z]{1,5}\d{2,}\b/
+
+    it('a pergunta que a IA reformula com um código de fornecedor não vai: vai a pergunta fixa do campo', async () => {
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, vidro: null }], pergunta: { campo: 'vidro', texto: 'Qual o vidro? O arremate BZ0010 já está incluído.' } })
+        await chamar('Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco')
+        expect(ultimoEnviado()).toBe(PERGUNTA_DO_VIDRO)
+    })
+
+    it('a mesma pergunta reformulada SEM código vai como a IA escreveu (o controle)', async () => {
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, vidro: null }], pergunta: { campo: 'vidro', texto: 'E o vidro dessa janela, qual vai ser?' } })
+        await chamar('Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco')
+        expect(ultimoEnviado()).toBe('E o vidro dessa janela, qual vai ser?')
+        expect(ultimoEnviado()).not.toMatch(CODIGO_DE_FORNECEDOR)
     })
 })
