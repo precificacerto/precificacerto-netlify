@@ -58,6 +58,7 @@ import {
     type Nicho,
 } from '@/utils/atendimentos-ia-catalogo'
 import { rotaDaConfig, type CorpoDoModeloENicho } from '@/utils/orcamentista-config'
+import { TesteDeAnexo } from '@/page-parts/atendimentos-ia/teste-de-anexo.component'
 import { chamarRota } from '@/page-parts/atendimentos-ia/api'
 import { NichoSelect } from '@/page-parts/atendimentos-ia/nicho-select.component'
 import { TabelasEmUso } from '@/page-parts/atendimentos-ia/tabelas-em-uso.component'
@@ -209,6 +210,9 @@ export default function ConfiguracaoDaConta() {
                     Perfil, vidro, acessórios, produção, vendedores e adicionais desta conta.
                 </Typography.Paragraph>
                 <Button onClick={() => router.push(rotaDaTelaDaBase(conta.tenant_id))}>Base de conhecimento</Button>
+            </Card>
+            <Card style={{ marginTop: 16 }}>
+                <TesteDeAnexo tenantId={conta.tenant_id} />
             </Card>
         </Layout>
     )

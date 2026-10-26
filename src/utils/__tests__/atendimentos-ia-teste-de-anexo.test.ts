@@ -21,7 +21,7 @@ const CONTA = '00000000-0000-4000-8000-0000000000a1'
 const OUTRA = '00000000-0000-4000-8000-0000000000b2'
 const TOKEN = 'orc_TOKEN_DA_CONEXAO_9f8e7d'
 const TELEFONE = '51999114290'
-const SUPER = { id: 'u-super', tenant_id: null, role: 'super_admin', is_super_admin: true }
+const SUPER: Linha = { id: 'u-super', tenant_id: null, role: 'super_admin', is_super_admin: true }
 const ADMIN = { id: 'u-admin', tenant_id: CONTA, role: 'admin', is_super_admin: false }
 
 const estado = {
@@ -53,7 +53,7 @@ function montar() {
 jest.mock('@/supabase/admin', () => ({
     supabaseAdmin: {
         auth: {
-            getUser: async () => (estado.usuario
+            getUser: async (): Promise<{ data: { user: { id: string } | null }; error: { message: string } | null }> => (estado.usuario
                 ? { data: { user: { id: String(estado.usuario.id) } }, error: null }
                 : { data: { user: null }, error: { message: 'sem sessão' } }),
         },
@@ -64,8 +64,8 @@ jest.mock('@/supabase/admin', () => ({
             q.select = () => q
             q.eq = (c: string, v: unknown) => { filtros.push([c, v]); return q }
             q.order = () => q
-            q.maybeSingle = async () => ({ data: linhas()[0] ?? null, error: null })
-            q.single = async () => { const l = linhas(); return l.length === 1 ? { data: l[0], error: null } : { data: null, error: { code: 'PGRST116', message: 'linhas' } } }
+            q.maybeSingle = async (): Promise<{ data: Linha | null; error: null }> => ({ data: linhas()[0] ?? null, error: null })
+            q.single = async (): Promise<{ data: Linha | null; error: Linha | null }> => { const l = linhas(); return l.length === 1 ? { data: l[0], error: null } : { data: null, error: { code: 'PGRST116', message: 'linhas' } } }
             q.then = (ok: (v: unknown) => unknown) => Promise.resolve({ data: linhas(), error: null }).then(ok)
             for (const escrita of ['insert', 'update', 'upsert', 'delete']) q[escrita] = () => { throw new Error(`o teste de anexo não escreve: ${escrita} ${tabela}`) }
             return q
