@@ -118,6 +118,11 @@ const estado = {
      * ela vê; o número da opção só se o prompt o der. E responde no formato da ferramenta enviada.
      */
     respostaPeloPrompt: null as null | { variavelDescrita: string; opcaoDescrita: string; nome: string },
+    /**
+     * A LLM falsa que decide pela MENSAGEM e pelo PROMPT, como a de verdade: o que ela sabe do passado é só o
+     * que o prompt lhe conta. Devolve a proposta, ou null para cair na fila `respostasDaLlm`.
+     */
+    llmPeloPrompt: null as null | ((mensagem: string, sistema: string) => Proposta | null),
     /** R1: a tabela cujo update NÃO atinge linha nenhuma (como uma linha apagada entre a leitura e a escrita). */
     updateNaoAtinge: null as string | null,
 }
@@ -144,6 +149,7 @@ function montar() {
         orcamentista_pre_definicao: [],
         orcamentista_levantamento: [],
         orcamentista_levantamento_item: [],
+        orcamentista_pergunta_em_aberto: [],
         orcamentista_conta_tabela: [{ tenant_id: TENANT, tabela_id: TABELA }],
         // as abas da DP-02 como a importação as grava: o levantamento e a conversa as leem do banco
         ...abasDaDP02NoBanco(TABELA),
@@ -167,6 +173,7 @@ function montar() {
     estado.envios = []
     estado.ausentes = new Set()
     estado.respostaPeloPrompt = null
+    estado.llmPeloPrompt = null
     estado.updateNaoAtinge = null
 }
 
@@ -254,6 +261,30 @@ jest.mock('@/supabase/admin', () => ({
             for (const proibido of ['upsert', 'delete']) {
                 q[proibido] = () => { throw new Error(`a conversa não pode ${proibido} em ${tabela}`) }
             }
+            // a pergunta em aberto (20261026000002) é a ÚNICA tabela que a conversa sobrescreve e apaga
+            if (tabela === 'orcamentista_pergunta_em_aberto') {
+                q.upsert = (carga: Linha, o?: { onConflict?: string }) => {
+                    if (estado.ausentes.has(tabela)) return Promise.resolve(ausente())
+                    estado.escritas.push({ tabela, op: 'upsert', carga })
+                    const chave = (o?.onConflict ?? '').split(',').map((x) => x.trim())
+                    if (chave.join(',') !== 'tenant_id,remetente_id') throw new Error(`upsert sem a chave primária: ${o?.onConflict}`)
+                    const linhas = (estado.db[tabela] ??= [])
+                    const i = linhas.findIndex((l) => chave.every((k) => l[k] === carga[k]))
+                    if (i >= 0) linhas[i] = { ...carga }; else linhas.push({ ...carga })
+                    return Promise.resolve({ data: null, error: null })
+                }
+                q.delete = () => {
+                    const apagar: Record<string, unknown> = {}
+                    apagar.eq = (c: string, v: unknown) => { filtros.push([c, v]); return apagar }
+                    apagar.then = (ok: (v: unknown) => unknown, e?: (x: unknown) => unknown) => {
+                        if (estado.ausentes.has(tabela)) return Promise.resolve(ausente()).then(ok, e)
+                        estado.escritas.push({ tabela, op: 'delete', carga: Object.fromEntries(filtros) })
+                        estado.db[tabela] = (estado.db[tabela] ?? []).filter((l) => !casa(l))
+                        return Promise.resolve({ data: null, error: null }).then(ok, e)
+                    }
+                    return apagar
+                }
+            }
             return q
         },
     },
@@ -337,6 +368,8 @@ beforeEach(() => {
                 const input = { nome: pelo.nome, itens: [] as Linha[], ...('escolhas' in props ? { escolhas: [escolha] } : { escolha }) }
                 return { ok: true, status: 200, json: async () => ({ ...respostaComFerramenta({}), content: [{ type: 'tool_use', id: 't', name: conversa.NOME_DA_FERRAMENTA, input }] }) }
             }
+            const pelaMensagem = estado.llmPeloPrompt?.(String((corpo.messages as Array<{ content: unknown }>)[0].content), String(corpo.system))
+            if (pelaMensagem) return { ok: true, status: 200, json: async () => respostaComFerramenta(pelaMensagem) }
             const proxima = estado.respostasDaLlm.shift() ?? { status: 200, corpo: respostaComFerramenta({}) }
             if (proxima === 'lanca') throw new Error('fetch failed')
             return { ok: proxima.status >= 200 && proxima.status < 300, status: proxima.status, json: async () => proxima.corpo }
@@ -1046,5 +1079,196 @@ describe('(14) o banco falso recusa ordenar por coluna que a tabela não tem, co
 
     it('ordenar a Detalhe por id é erro, como em produção', async () => {
         expect((await db().from('orcamentista_motor_tipologia_detalhe').select('*').eq('tabela_id', TABELA).order('id')).error?.code).toBe('42703')
+    })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+describe('(15) DEFEITO de 26/10/2026 (b0465e57, print do dono do produto): o nome não era gravado e a pergunta repetia', () => {
+    // A sequência medida nos logs de produção, 14:07:49 a 14:09:21: PARECIDO, SEM_NOME, SEM_NOME, SEM_NOME.
+    // A LLM falsa só sabe o que o prompt lhe conta — como a de verdade, que recebe SÓ a mensagem desta vez:
+    //   - sem nada no prompt sobre a pergunta anterior, "é o mesmo", "João medeiros" e "Novo levantamento João
+    //     Medeiros" não trazem nome que ela possa ler (foi o medido: propostos=0 nas três);
+    //   - com a pergunta em aberto no prompt, ela responde o que o vendedor quis dizer.
+    const MSG_1 = 'Levantamento Casa do João — janela de correr 2 folhas móveis Europa 42, 1200 x 1000 mm, 1 unidade, perfil branco, vidro 5mm, entrega em Montenegro, casa.'
+    const fala = (sistema: string, trecho: string) => sistema.toLowerCase().includes(trecho.toLowerCase())
+
+    async function oPrintInteiro() {
+        // o estado de produção: "Casa do João" COMPLETO, com as DUAS esquadrias iguais
+        await fecharDp02('Casa do João')
+        const casa = levantamentos()[0]
+        estado.db.orcamentista_levantamento_item.push({ id: 'item-2', tenant_id: TENANT, levantamento_id: casa.id, ordem: 2, ...DP02, escolhas: null })
+        const antes = enviados().length
+        estado.llmPeloPrompt = (mensagem, sistema) => {
+            if (mensagem === MSG_1) return { nome: 'Levantamento Casa do João', itens: [{ ...DP02 }] }
+            // com a pergunta "é NOVO?" em aberto no prompt, "é o mesmo" aponta o levantamento citado nela
+            if (mensagem === 'é o mesmo') return fala(sistema, 'é um levantamento NOVO?') && fala(sistema, 'Casa do João') ? { nome: 'Casa do João' } : {}
+            // com uma pergunta em aberto no prompt, a mensagem que é só um nome É o nome (a regra do prompt). Antes
+            // da decisão "Confirma antes" (26/10/2026) a pergunta aqui era a do nome; agora é a da confirmação
+            if (mensagem === 'João medeiros') return fala(sistema, 'Pergunta em aberto:') ? { nome: 'João medeiros' } : {}
+            if (mensagem === 'Novo levantamento João Medeiros') return fala(sistema, 'me diga o nome do levantamento') ? { nome: 'João Medeiros', novo: true } : {}
+            return null
+        }
+        for (const m of [MSG_1, 'é o mesmo', 'João medeiros', 'Novo levantamento João Medeiros']) await chamar(m)
+        return { casa, respostas: enviados().slice(antes) }
+    }
+
+    it('a primeira resposta é a de antes: nome parecido, pergunta se é NOVO', async () => {
+        const { respostas } = await oPrintInteiro()
+        expect(respostas[0]).toBe(conversa.fraseDoNomeParecido('Levantamento Casa do João', ['Casa do João']))
+    })
+
+    it('(a) "é o mesmo" RESOLVE a ambiguidade: a pergunta do nome NÃO volta', async () => {
+        const { respostas } = await oPrintInteiro()
+        expect(respostas[1]).not.toBe(conversa.FRASE_SEM_NOME)
+        expect(respostas[1]).toContain('Casa do João')
+    })
+
+    it('(b) "Novo levantamento João Medeiros" GRAVA o levantamento novo — com a esquadria que o vendedor mandou', async () => {
+        const { casa } = await oPrintInteiro()
+        const joao = levantamentos().filter((l) => l.nome_normalizado === 'joao medeiros')
+        expect(joao).toHaveLength(1)
+        expect(itensDe(joao[0].id)).toEqual([expect.objectContaining({ ordem: 1, ...DP02 })])
+        // e o "Casa do João" segue com as duas de antes: nada foi acrescentado a ele
+        expect(itensDe(casa.id)).toHaveLength(2)
+    })
+
+    it('(c) R2 em TODO o caminho: nenhuma resposta repete a anterior, e a pergunta genérica do nome nunca sai duas vezes', async () => {
+        const { respostas } = await oPrintInteiro()
+        expect(respostas).toHaveLength(4)
+        respostas.forEach((r, i) => { if (i > 0) expect(r).not.toBe(respostas[i - 1]) })
+        expect(respostas.filter((r) => r === conversa.FRASE_SEM_NOME).length).toBeLessThanOrEqual(1)
+    })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+describe('(16) a PERGUNTA EM ABERTO do roteamento pelo nome (20261026000002): guardada, lida no prompt, apagada quando resolve', () => {
+    // Decisão do dono do produto, 26/10/2026: "nunca o texto da mensagem, só a pergunta feita, os levantamentos
+    // citados e a proposta que espera resposta, apagada quando resolve." E "Confirma antes": a esquadria que veio
+    // antes de o vendedor dizer o levantamento só entra num que já existe com o "sim" dele.
+    const MSG_1 = 'Levantamento Casa do João — janela de correr 2 folhas móveis Europa 42, 1200 x 1000 mm, 1 unidade, perfil branco, vidro 5mm.'
+    const fala = (sistema: string, trecho: string) => sistema.includes(trecho)
+    const perguntas = () => estado.db.orcamentista_pergunta_em_aberto ?? []
+    const escritasNaPergunta = () => estado.escritas.filter((e) => e.tabela === 'orcamentista_pergunta_em_aberto')
+
+    /** "Casa do João" COMPLETO com uma DP-02, e a LLM falsa que responde pelo prompt. */
+    async function preparar(extra: (mensagem: string, sistema: string) => Proposta | null = () => null) {
+        await fecharDp02('Casa do João')
+        estado.llmPeloPrompt = (mensagem, sistema) => {
+            if (mensagem === MSG_1) return { nome: 'Levantamento Casa do João', itens: [{ ...DP02 }] }
+            if (mensagem === 'é o mesmo') return fala(sistema, 'é um levantamento NOVO?') ? { nome: 'Casa do João' } : {}
+            return extra(mensagem, sistema)
+        }
+        return levantamentos()[0]
+    }
+
+    it('a linha guardada é SÓ a pergunta, o nome e os levantamentos citados, e as esquadrias propostas — nunca o texto', async () => {
+        const casa = await preparar()
+        await chamar(MSG_1)
+        expect(perguntas()).toHaveLength(1)
+        const { criado_em, ...linha } = perguntas()[0]
+        expect(typeof criado_em).toBe('string')
+        expect(linha).toEqual({
+            tenant_id: TENANT, remetente_id: VENDEDOR, pergunta: 'NOME_PARECIDO', nome: 'Levantamento Casa do João',
+            levantamentos: [casa.id], itens: [{ ...DP02 }],
+        })
+    })
+
+    it('"é o mesmo" resolve o nome e PERGUNTA antes de acrescentar; "sim" acrescenta, e a pergunta é apagada', async () => {
+        const casa = await preparar((m, sistema) => (m === 'sim' && fala(sistema, 'Confirma?') ? { confirma: true } : null))
+        await chamar(MSG_1)
+        await chamar('é o mesmo')
+        expect(ultimoEnviado()).toBe(conversa.fraseDeConfirmarAcrescimo('Casa do João', 1, [{ ...DP02 }]))
+        expect(itensDe(casa.id)).toHaveLength(1)
+        expect(perguntas()).toEqual([expect.objectContaining({ pergunta: 'CONFIRMAR_ACRESCIMO', nome: null, levantamentos: [casa.id], itens: [{ ...DP02 }] })])
+        await chamar('sim')
+        expect(itensDe(casa.id)).toHaveLength(2)
+        expect(itensDe(casa.id)[1]).toEqual(expect.objectContaining({ ordem: 2, ...DP02 }))
+        expect(linhaDa(ultimoEnviado(), 'Esquadria 2:')).toBe('Esquadria 2: DP-02, 1.200 x 1.000 mm, 1 unidade(s).')
+        expect(perguntas()).toEqual([])
+    })
+
+    it('"não" à confirmação: nada é acrescentado, a resposta pede o levantamento, e a esquadria vai para o nome seguinte', async () => {
+        const casa = await preparar((m, sistema) => {
+            if (m === 'não' && fala(sistema, 'Confirma?')) return { confirma: false }
+            if (m === 'Obra Nova') return fala(sistema, 'Pergunta em aberto:') ? { nome: 'Obra Nova' } : {}
+            return null
+        })
+        await chamar(MSG_1)
+        await chamar('é o mesmo')
+        await chamar('não')
+        expect(ultimoEnviado()).toBe(conversa.fraseDoAcrescimoRecusado('Casa do João'))
+        expect(itensDe(casa.id)).toHaveLength(1)
+        expect(perguntas()).toEqual([expect.objectContaining({ pergunta: 'SEM_NOME', levantamentos: [], itens: [{ ...DP02 }] })])
+        await chamar('Obra Nova')
+        const obra = levantamentos().find((l) => l.nome === 'Obra Nova')
+        expect(itensDe(obra?.id)).toEqual([expect.objectContaining({ ordem: 1, ...DP02 })])
+        expect(perguntas()).toEqual([])
+    })
+
+    it('o "sim" vale só para o levantamento que a confirmação citou: "sim" com o nome de OUTRO pergunta de novo, por ele', async () => {
+        const casa = await preparar((m, sistema) => (m === 'sim, no Obra Centro' && fala(sistema, 'Confirma?') ? { nome: 'Obra Centro', confirma: true } : null))
+        await fecharDp02('Obra Centro')
+        const obra = levantamentos().find((l) => l.nome === 'Obra Centro')
+        await chamar(MSG_1)
+        await chamar('é o mesmo')
+        await chamar('sim, no Obra Centro')
+        expect(ultimoEnviado()).toBe(conversa.fraseDeConfirmarAcrescimo('Obra Centro', 1, [{ ...DP02 }]))
+        expect(itensDe(obra?.id)).toHaveLength(1)
+        expect(itensDe(casa.id)).toHaveLength(1)
+    })
+
+    it('R2 no SEM_NOME: a pergunta do nome não sai duas vezes seguidas — a segunda diz que não registrou', async () => {
+        llmResponde({})
+        await chamar('oi')
+        expect(ultimoEnviado()).toBe(conversa.FRASE_SEM_NOME)
+        llmResponde({})
+        await chamar('oi de novo')
+        expect(ultimoEnviado()).toBe(conversa.fraseDeNaoRegistrei(conversa.FRASE_SEM_NOME))
+        expect(linhaIa().pop()).toContain('desfecho=nao-avancou')
+    })
+
+    it('R2 no PARECIDO: o mesmo nome parecido de novo não repete a pergunta como se nada fosse', async () => {
+        await preparar()
+        await chamar(MSG_1)
+        const pergunta = conversa.fraseDoNomeParecido('Levantamento Casa do João', ['Casa do João'])
+        expect(ultimoEnviado()).toBe(pergunta)
+        await chamar(MSG_1)
+        expect(ultimoEnviado()).toBe(conversa.fraseDeNaoRegistrei(pergunta))
+    })
+
+    it('a pergunta vai ao prompt; a que cita um levantamento que não existe mais NÃO vai, e o nome fora do texto não é aceito', async () => {
+        const prompts: string[] = []
+        await preparar((m, sistema) => { prompts.push(sistema); return m === 'oi' ? {} : null })
+        await chamar(MSG_1)
+        await chamar('oi')
+        // com o levantamento citado existindo, a pergunta está no prompt
+        expect(prompts[0]).toContain(`Pergunta em aberto: ${conversa.fraseDoNomeParecido('Levantamento Casa do João', ['Casa do João'])}`)
+        estado.db.orcamentista_pergunta_em_aberto = [{ ...perguntas()[0], pergunta: 'NOME_PARECIDO', nome: 'Levantamento Casa do João', levantamentos: ['levantamento-que-sumiu'] }]
+        await chamar('oi')
+        expect(prompts[1]).not.toContain('Pergunta em aberto:')
+        expect(ultimoEnviado()).toBe(conversa.FRASE_SEM_NOME)
+    })
+
+    it('SEM A MIGRAÇÃO (tabela ausente): nada é gravado nela, ninguém quebra, e a linha [IA] diz aberta=ausente', async () => {
+        await preparar()
+        estado.ausentes.add('orcamentista_pergunta_em_aberto')
+        await chamar(MSG_1)
+        expect(ultimoEnviado()).toBe(conversa.fraseDoNomeParecido('Levantamento Casa do João', ['Casa do João']))
+        await chamar('é o mesmo')
+        // sem a pergunta guardada, o prompt não a tem: é o comportamento de antes, com o laço de 26/10
+        expect(ultimoEnviado()).toBe(conversa.FRASE_SEM_NOME)
+        expect(escritasNaPergunta()).toEqual([])
+        expect(linhaIa().slice(-2).every((l) => l.includes(' aberta=ausente'))).toBe(true)
+    })
+
+    it('a linha [IA] diz COMO o nome foi lido — veio, da_pergunta, fora_do_texto, faltou — e nunca o nome', async () => {
+        await preparar((m) => (m === 'quero o Sobrado Azul' ? { nome: 'Casa Verde' } : m === 'oi' ? {} : null))
+        await chamar(MSG_1)
+        await chamar('é o mesmo')
+        await chamar('quero o Sobrado Azul')
+        await chamar('oi')
+        const marcas = linhaIa().slice(-4).map((l) => /\bnome=(\S+)/.exec(l)?.[1])
+        expect(marcas).toEqual(['veio', 'da_pergunta', 'fora_do_texto', 'faltou'])
+        for (const l of linhaIa()) for (const nome of ['Casa do João', 'Levantamento Casa do João', 'Casa Verde']) expect(l.includes(nome)).toBe(false)
     })
 })
