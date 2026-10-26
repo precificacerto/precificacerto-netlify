@@ -112,6 +112,8 @@ const estado = {
     envioStatus: 200,
     envios: [] as Array<{ corpo: Record<string, unknown> }>,
     ausentes: new Set<string>(),
+    /** A CHECK de `pergunta` como era antes da migração do apanhado: o valor novo é recusado com 23514. */
+    checkAntigo: false,
     /**
      * Quando preenchida, a LLM falsa responde a partir do PROMPT, como a de verdade: o código da variável
      * só se o prompt o der ("ARI = ARREMATE INTERNO" ou "ARI: ARREMATE INTERNO"), senão a descrição que
@@ -175,6 +177,7 @@ function montar() {
     estado.respostaPeloPrompt = null
     estado.llmPeloPrompt = null
     estado.updateNaoAtinge = null
+    estado.checkAntigo = false
 }
 
 /** As UNIQUE da migração 20261025000003 que importam aqui, para o banco falso recusar como o real. */
@@ -268,6 +271,9 @@ jest.mock('@/supabase/admin', () => ({
                     estado.escritas.push({ tabela, op: 'upsert', carga })
                     const chave = (o?.onConflict ?? '').split(',').map((x) => x.trim())
                     if (chave.join(',') !== 'tenant_id,remetente_id') throw new Error(`upsert sem a chave primária: ${o?.onConflict}`)
+                    if (estado.checkAntigo && !['NOME_PARECIDO', 'SEM_NOME', 'CONFIRMAR_ACRESCIMO'].includes(String(carga.pergunta))) {
+                        return Promise.resolve({ data: null, error: { code: '23514', message: 'new row violates check constraint "orcamentista_pergunta_em_aberto_pergunta_valida"' } })
+                    }
                     const linhas = (estado.db[tabela] ??= [])
                     const i = linhas.findIndex((l) => chave.every((k) => l[k] === carga[k]))
                     if (i >= 0) linhas[i] = { ...carga }; else linhas.push({ ...carga })
@@ -1270,5 +1276,129 @@ describe('(16) a PERGUNTA EM ABERTO do roteamento pelo nome (20261026000002): gu
         const marcas = linhaIa().slice(-4).map((l) => /\bnome=(\S+)/.exec(l)?.[1])
         expect(marcas).toEqual(['veio', 'da_pergunta', 'fora_do_texto', 'faltou'])
         for (const l of linhaIa()) for (const nome of ['Casa do João', 'Levantamento Casa do João', 'Casa Verde']) expect(l.includes(nome)).toBe(false)
+    })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+describe('(17) O APANHADO (dono do produto, 26/10/2026): a primeira resposta é conversa, não orçamento — o preço vem depois do "sim"', () => {
+    // "O APANHADO NÃO TRAZ PREÇO": o bloco técnico (barras, aproveitamento, perfis, diferença, mão de obra, os dois
+    // totais e o que o preço cobre) é o resultado do LEVANTAMENTO FORMAL, que só vem depois da confirmação.
+    // INDIVIDUAL, uma linha por esquadria: tipologia, quantidade, largura, altura e vidro. COMUM, no PÉ, SEMPRE
+    // (um formato só): cor do perfil, arremate e guarnição. Sem código de fornecedor; "Padrão" quando nada foi
+    // escolhido; o nome por extenso quando foi ("arremate interno: 20 mm"); a medida do arremate (corte) não aparece.
+    const CONFERE = 'Confere? Responda sim para eu fazer o levantamento com os preços, ou diga o que muda.'
+    const APANHADO_DO_PEDRO = [
+        'Apanhado do levantamento “Casa do Pedro”:',
+        'Esquadria 1: DP-02, 1 unidade(s), 1.200 x 1.000 mm, vidro Temperado 5mm.',
+        '',
+        'Cor do perfil: BRANCO.',
+        'Arremate e guarnição: Padrão.',
+        '',
+        CONFERE,
+    ].join('\n')
+    /** O que o bloco de preço tem e o apanhado não pode ter: os rótulos das linhas do levantamento formal. */
+    const LINHAS_DO_PRECO = ['Barras por código:', 'Aproveitamento do levantamento:', 'Perfis por barra inteira:', 'Perfis por consumo real:',
+        'Diferença entre os dois:', 'Mão de obra:', 'Total por barra inteira', 'Total por consumo real', 'O que este preço cobre:']
+    /** Os códigos de fornecedor que a DP-02 usa: os do de-para (WVetro e interno) e os das opções de arremate. */
+    const CODIGOS = [...new Set([...(DE_PARA.itens as Linha[]).map((i) => String(i.codigo)), ...(DE_PARA.regras as Linha[]).map((r) => String(r.codigo_wvetro).replace('/WOLFF', ''))])]
+        .filter((c) => c.length >= 4)
+    const pedir = async (itens: Linha[] = [{ ...DP02 }], escolhas: Linha[] = []) => {
+        llmResponde({ nome: 'Casa do Pedro', itens, escolhas })
+        await chamar('Levantamento Casa do Pedro: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm')
+        return ultimoEnviado()
+    }
+    const confirmar = async () => { llmResponde({ confirma: true }); await chamar('sim'); return ultimoEnviado() }
+
+    it('a PRIMEIRA resposta é o apanhado: a linha da esquadria com o vidro, o pé — e nenhum R$, nenhum código, nenhuma linha de barra', async () => {
+        const apanhado = await pedir()
+        expect(apanhado).toBe(APANHADO_DO_PEDRO)
+        const formal = await confirmar()
+        // o controle: o que o apanhado não tem, o formal tem
+        for (const rotulo of LINHAS_DO_PRECO) { expect(formal).toContain(rotulo); expect(apanhado).not.toContain(rotulo) }
+        expect(formal).toContain('R$')
+        expect(apanhado).not.toContain('R$')
+        expect(formal).toContain('BZ0010')
+        for (const c of [...CODIGOS, 'BZ0006', 'BZ0010', 'BZ1770']) expect(apanhado.includes(c)).toBe(false)
+        expect(apanhado).not.toMatch(VOCABULARIO_INTERNO)
+    })
+
+    it('depois do "sim", a resposta seguinte é o levantamento formal com o bloco de preço INTEIRO, como era', async () => {
+        await pedir()
+        const formal = await confirmar()
+        expect(formal.split('\n')[0]).toBe(conversa.FRASE_ARREMATE_PADRAO)
+        expect(formal).toContain('Levantamento “Casa do Pedro”, perfil BRANCO.')
+        for (const rotulo of LINHAS_DO_PRECO) expect(formal).toContain(rotulo)
+        expect(formal).toMatch(/Total por consumo real \(perfis \+ mão de obra\): R\$ [\d.]+,\d{2}\./)
+        expect(estado.db.orcamentista_pergunta_em_aberto).toEqual([])
+    })
+
+    it('DUAS esquadrias diferentes: uma linha cada, e o pé diz UMA vez o que é comum (a cor não se repete nas linhas)', async () => {
+        const apanhado = await pedir([{ ...DP02 }, { ...DP02, largura_mm: 1500, quantidade: 3, vidro: 'Laminado 8mm' }])
+        expect(apanhado).toBe([
+            'Apanhado do levantamento “Casa do Pedro”:',
+            'Esquadria 1: DP-02, 1 unidade(s), 1.200 x 1.000 mm, vidro Temperado 5mm.',
+            'Esquadria 2: DP-02, 3 unidade(s), 1.500 x 1.000 mm, vidro Laminado 8mm.',
+            '',
+            'Cor do perfil: BRANCO.',
+            'Arremate e guarnição: Padrão.',
+            '',
+            CONFERE,
+        ].join('\n'))
+        expect(apanhado.split('BRANCO').length - 1).toBe(1)
+        expect(apanhado.split('Padrão').length - 1).toBe(1)
+    })
+
+    it('UMA esquadria: o pé aparece mesmo assim — um formato só', async () => {
+        const apanhado = await pedir()
+        const linhas = apanhado.split('\n')
+        expect(linhas).toContain('Cor do perfil: BRANCO.')
+        expect(linhas).toContain('Arremate e guarnição: Padrão.')
+        expect(linhas.filter((l) => l.startsWith('Esquadria '))).toEqual(['Esquadria 1: DP-02, 1 unidade(s), 1.200 x 1.000 mm, vidro Temperado 5mm.'])
+    })
+
+    it('o arremate ESCOLHIDO sai por extenso, sem código; a medida do arremate (corte) não aparece', async () => {
+        const apanhado = await pedir([{ ...DP02 }], [{ variavel: 'ARI', opcao: 3 }, { variavel: 'MAE', opcao: 2 }])
+        expect(apanhado.split('\n')).toContain('Arremate e guarnição: arremate interno: 20 mm; arremate externo: Padrão.')
+        expect(apanhado).not.toContain('MEDIDA')
+        expect(apanhado).not.toContain('CORTE')
+        expect(apanhado).not.toContain('BZ0010')
+    })
+
+    it('uma alteração de medida ANTES do "sim" entra no apanhado, sem nome e sem preço; o "sim" depois traz o formal com ela', async () => {
+        await pedir()
+        llmResponde({ itens: [{ largura_mm: 1500 }] })
+        await chamar('a largura é 1500')
+        expect(ultimoEnviado()).toBe(APANHADO_DO_PEDRO.replace('1.200 x 1.000 mm', '1.500 x 1.000 mm'))
+        expect(itensDe(levantamentos()[0].id)[0]).toEqual(expect.objectContaining({ largura_mm: 1500 }))
+        const formal = await confirmar()
+        expect(linhaDa(formal, 'Esquadria 1:')).toBe('Esquadria 1: DP-02, 1.500 x 1.000 mm, 1 unidade(s).')
+        expect(formal).toContain('Perfis por barra inteira:')
+    })
+
+    it('"não" ao apanhado: nenhum preço, e a resposta pede o que muda', async () => {
+        await pedir()
+        llmResponde({ confirma: false })
+        await chamar('não')
+        expect(ultimoEnviado()).toBe(conversa.fraseDoApanhadoNaoConfirmado('Casa do Pedro'))
+        expect(ultimoEnviado()).not.toContain('R$')
+    })
+
+    it('R2: a mesma mensagem de novo, sem mudar nada, não devolve o mesmo apanhado como se nada fosse', async () => {
+        await pedir()
+        await pedir()
+        expect(ultimoEnviado()).toBe(conversa.fraseDeNaoRegistrei(APANHADO_DO_PEDRO))
+    })
+
+    it('SEM a migração do CHECK (o valor novo recusado com 23514): a resposta é o levantamento formal, como antes', async () => {
+        estado.checkAntigo = true
+        const r = await pedir()
+        expect(r).toContain('Perfis por barra inteira:')
+        expect(linhaIa().pop()).toContain('apanhado=sem_migracao')
+    })
+
+    it('SEM a tabela da pergunta: a resposta é o levantamento formal, como antes', async () => {
+        estado.ausentes.add('orcamentista_pergunta_em_aberto')
+        const r = await pedir()
+        expect(r).toContain('Perfis por barra inteira:')
     })
 })
