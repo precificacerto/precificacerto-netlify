@@ -633,3 +633,27 @@ describe('(10) as abas vêm do BANCO: a Fórmulas da tipologia é a fonte, a da 
         expect(await M().lerVariaveisDasTipologias(TABELA)).toEqual({})
     })
 })
+
+describe('(11) o banco falso recusa ordenar por coluna que a tabela não tem — em TODAS as abas, como o PostgREST', () => {
+    // sem isto, o falso aceitou ordenar a Detalhe por `id` e o portão ficou verde com produção parada (26/10/2026)
+    const ABAS = ['orcamentista_motor_tipologia_detalhe', 'orcamentista_motor_formula', 'orcamentista_motor_perfil', 'orcamentista_motor_vidro', 'orcamentista_motor_baguete', 'orcamentista_motor_variavel', 'orcamentista_motor_validacao']
+    /* eslint-disable @typescript-eslint/no-require-imports */
+    const db = () => require('@/supabase/admin').supabaseAdmin as { from: (t: string) => { select: (c: string) => { eq: (c: string, v: unknown) => { order: (c: string) => PromiseLike<{ data: unknown; error: { code: string } | null }> } } } }
+    /* eslint-enable @typescript-eslint/no-require-imports */
+
+    it.each(ABAS.map((t) => [t]))('%s: coluna inexistente é erro 42703', async (tabela) => {
+        expect(banco.db[tabela]?.length).toBeGreaterThan(0)
+        const r = await db().from(tabela).select('*').eq('tabela_id', TABELA).order('coluna_que_nao_existe')
+        expect(r.error?.code).toBe('42703')
+    })
+
+    it.each(ABAS.map((t) => [t]))('%s: (tipologia, ordem), a ordem que a leitura usa, existe', async (tabela) => {
+        const r = await db().from(tabela).select('*').eq('tabela_id', TABELA).order('tipologia')
+        expect(r.error).toBeNull()
+    })
+
+    it('ordenar a Detalhe por id é erro, como em produção', async () => {
+        const r = await db().from('orcamentista_motor_tipologia_detalhe').select('*').eq('tabela_id', TABELA).order('id')
+        expect(r.error?.code).toBe('42703')
+    })
+})

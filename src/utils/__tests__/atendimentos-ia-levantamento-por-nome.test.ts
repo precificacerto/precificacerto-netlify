@@ -1028,3 +1028,23 @@ describe('(13) DEFEITO 1, medido em produção (b0465e57, 25/10/2026): a escolha
         expect(ultimoEnviado()).not.toBe(antes)
     })
 })
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+describe('(14) o banco falso recusa ordenar por coluna que a tabela não tem, como o PostgREST', () => {
+    // 26/10/2026: o falso aceitou ordenar a Detalhe por `id`, que ela não tem, e o portão ficou verde com
+    // todo levantamento parado em produção (`instrumento-que-nao-enxerga.md`, aparição 7)
+    /* eslint-disable @typescript-eslint/no-require-imports */
+    const db = () => require('@/supabase/admin').supabaseAdmin as { from: (t: string) => { select: (c: string) => { eq: (c: string, v: unknown) => { order: (c: string) => PromiseLike<{ error: { code: string } | null }> } } } }
+    /* eslint-enable @typescript-eslint/no-require-imports */
+    const ABAS = ['orcamentista_motor_tipologia_detalhe', 'orcamentista_motor_formula', 'orcamentista_motor_perfil', 'orcamentista_motor_vidro', 'orcamentista_motor_baguete', 'orcamentista_motor_variavel', 'orcamentista_motor_validacao']
+
+    it.each(ABAS.map((t) => [t]))('%s: coluna inexistente é erro 42703; tipologia existe', async (tabela) => {
+        expect(estado.db[tabela]?.length).toBeGreaterThan(0)
+        expect((await db().from(tabela).select('*').eq('tabela_id', TABELA).order('coluna_que_nao_existe')).error?.code).toBe('42703')
+        expect((await db().from(tabela).select('*').eq('tabela_id', TABELA).order('tipologia')).error).toBeNull()
+    })
+
+    it('ordenar a Detalhe por id é erro, como em produção', async () => {
+        expect((await db().from('orcamentista_motor_tipologia_detalhe').select('*').eq('tabela_id', TABELA).order('id')).error?.code).toBe('42703')
+    })
+})
