@@ -1563,6 +1563,10 @@ describe('(19) duas tabelas com o mesmo código: a conversa pergunta de qual for
         await chamar('Levantamento Casa do Pedro: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm')
         llmResponde({ itens: [{ fornecedor: 'Wolff Perfis' }] })
         await chamar('é da Wolff')
+        // a esquadria em montagem vai ao prompt SEM o id da tabela: é interno; o fornecedor a IA vê na lista
+        const segundo = String(estado.chamadasDaLlm[1].corpo.system)
+        expect(segundo).toContain('Levantamento em montagem: “Casa do Pedro”')
+        expect(segundo.includes('tabela_id')).toBe(false)
         const [l] = levantamentos()
         expect(itensDe(l.id).map((i) => i.tabela_id)).toEqual([TABELA])
         expect(ultimoEnviado().startsWith('Apanhado do levantamento')).toBe(true)

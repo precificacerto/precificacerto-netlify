@@ -457,9 +457,11 @@ const camposDoItem = (i: ItemDoLevantamento) => ({
     cor_perfil: i.cor_perfil, vidro: i.vidro, escolhas: i.escolhas, tabela_id: i.tabela_id,
 })
 /** A esquadria como vai ao prompt: sem o id da tabela, que é interno (o fornecedor a IA vê na lista). */
-const camposParaOPrompt = (i: ItemDoLevantamento) => {
-    const { tabela_id: _interno, ...campos } = camposDoItem(i)
-    return campos
+// derivada de `camposDoItem`, e não uma segunda lista de campos: um campo novo da esquadria chega aos dois (`copia-divergente.md`)
+const camposParaOPrompt = (i: ItemDoLevantamento): Omit<ItemDoLevantamento, 'tabela_id'> => {
+    const campos: Partial<ItemDoLevantamento> = camposDoItem(i)
+    delete campos.tabela_id
+    return campos as Omit<ItemDoLevantamento, 'tabela_id'>
 }
 
 /**
