@@ -36,12 +36,15 @@
  *      números lado a lado — nunca sucesso. LIMITE: a função já fez COMMIT quando a conferência
  *      acontece; o 500 torna a divergência visível, mas NÃO a desfaz.
  *
- * Medido pela sessão de verificação: 0,93 s para ler os dois arquivos da Wolff. 60 s é folga.
+ * Medido pela sessão de verificação: 0,93 s para ler os dois arquivos da Wolff (antes das nove abas).
+ * Medido em produção em 25/10/2026, com as nove abas: a rota rodou 38,4 s até a gravação ser
+ * cancelada pelo limite de 8 s — ver o `maxDuration` abaixo.
  */
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { requireSuperAdmin } from '@/lib/get-caller-tenant'
 import {
   baixarObjeto,
+  codigoDoErro,
   falhaInterna,
   importarConteudo,
   codigosDosItensGravados,
@@ -53,6 +56,7 @@ import {
 import { arquivoImportavel, ehUuid, fraseDoArquivo, fraseDoArquivoNaoImportavel } from '@/utils/atendimentos-ia-catalogo'
 import {
   conferirGravacao,
+  fraseDaGravacaoQueFalhou,
   fraseDaImportacaoTravadaPorItensForaDoArquivo,
   itensQueOArquivoNaoTraz,
   lerArquivosDaImportacao,
@@ -60,7 +64,10 @@ import {
   type ResultadoDaLeitura,
 } from '@/utils/atendimentos-ia-importacao'
 
-export const config = { maxDuration: 60 }
+// 90 s: ~9 s lendo do Storage e parseando, ~19 s até o comando começar no banco (18,1 MB de corpo,
+// medidos em produção em 25/10/2026), até LIMITE_DA_GRAVACAO_S (35 s) de gravação, e folga. Há portão
+// que liga os dois números: com menos, a rota morre antes do banco e a tela perde o motivo.
+export const config = { maxDuration: 90 }
 
 type Recusa = Extract<ResultadoDaLeitura, { ok: false }>
 type Lida = Extract<ResultadoDaLeitura, { ok: true }>
@@ -130,11 +137,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return falhaInterna(res, 'importação (itens gravados)', e, 'Não foi possível conferir os itens gravados da tabela. Nada foi alterado.')
   }
   if (foraDoArquivo.length > 0) return res.status(409).json({ error: fraseDaImportacaoTravadaPorItensForaDoArquivo(foraDoArquivo) })
+  // A DURAÇÃO da gravação vai para o log, no sucesso e na falha: é o número que calibra o limite
+  // da função (LIMITE_DA_GRAVACAO_S), e em produção ele só se mede assim.
   let gravado: Awaited<ReturnType<typeof importarConteudo>>
+  const inicio = Date.now()
   try {
     gravado = await importarConteudo(id, payload)
+    console.log(`atendimentos-ia importação (gravação): ${Date.now() - inicio} ms, gravada`)
   } catch (e) {
-    return falhaInterna(res, 'importação (gravação)', e, 'A importação não foi gravada. O conteúdo anterior da tabela continua como estava.')
+    console.log(`atendimentos-ia importação (gravação): ${Date.now() - inicio} ms, falhou (${codigoDoErro(e) ?? 'sem código'})`)
+    return falhaInterna(res, 'importação (gravação)', e, fraseDaGravacaoQueFalhou(codigoDoErro(e)))
   }
 
   const divergencia = conferirGravacao(payload, gravado)

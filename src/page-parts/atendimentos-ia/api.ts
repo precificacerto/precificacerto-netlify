@@ -16,6 +16,12 @@ export class ErroDaRota extends Error {
     constructor(status: number, mensagem: string, corpo: unknown = null) { super(mensagem); this.status = status; this.corpo = corpo }
 }
 
+/**
+ * Quando a PLATAFORMA corta a rota pelo tempo, a resposta é um 504 sem JSON e a frase da rota nunca
+ * chega. A tela diz o motivo em vez de "Erro 504" (dono do produto, 26/10/2026).
+ */
+export const FRASE_DO_LIMITE_DA_ROTA = 'A operação passou do limite de tempo do servidor (504) e foi interrompida antes de responder.'
+
 /** Chama a rota e devolve o JSON; resposta não-OK vira `ErroDaRota` com a frase da rota. */
 export async function chamarRota<T>(url: string, metodo = 'GET', corpo?: unknown): Promise<T> {
     const res = await fetch(url, {
@@ -25,7 +31,10 @@ export async function chamarRota<T>(url: string, metodo = 'GET', corpo?: unknown
     })
     let json: unknown = null
     try { json = await res.json() } catch { json = null }
-    if (!res.ok) throw new ErroDaRota(res.status, (json as { error?: string } | null)?.error ?? `Erro ${res.status}`, json)
+    if (!res.ok) {
+        const frase = (json as { error?: string } | null)?.error ?? (res.status === 504 ? FRASE_DO_LIMITE_DA_ROTA : `Erro ${res.status}`)
+        throw new ErroDaRota(res.status, frase, json)
+    }
     return json as T
 }
 
