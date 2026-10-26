@@ -23,6 +23,11 @@
  * O bloco 2C.1 trouxe o grupo MODELO + NICHO; "Tabelas em uso" entrou depois, no componente
  * `TabelasEmUso`. A projeção de gasto ainda não está aqui.
  *
+ * OS TRÊS BLOCOS (dono do produto, 26/10/2026): depois da configuração, a tela tem as três camadas, nesta
+ * ordem — BASE DE CONHECIMENTO (as tabelas em uso e o acesso à base), MOTOR (`MotorDaConta`: mostra o que está
+ * carregado e edita só escolha estruturada) e PROMPT DE ATENDIMENTO (o próximo passo). O teste de anexo fica
+ * à parte, como instrumento de diagnóstico do consultor.
+ *
  * TROCAR MODELO OU NICHO COM TABELA EM USO: a ROTA recusa (409) e nomeia as tabelas que seguram,
  * e esta tela mostra a recusa. É a escolha conservadora — nada é apagado por efeito colateral de
  * um seletor —; a decisão definitiva sobre o que a troca faz com as tabelas é do dono do produto,
@@ -62,6 +67,7 @@ import { TesteDeAnexo } from '@/page-parts/atendimentos-ia/teste-de-anexo.compon
 import { chamarRota } from '@/page-parts/atendimentos-ia/api'
 import { NichoSelect } from '@/page-parts/atendimentos-ia/nicho-select.component'
 import { TabelasEmUso } from '@/page-parts/atendimentos-ia/tabelas-em-uso.component'
+import { MotorDaConta } from '@/page-parts/atendimentos-ia/motor-da-conta.component'
 import { rotaDaTelaDaBase } from '@/page-parts/atendimentos-ia/base-de-conhecimento/formulario'
 
 const SEM_MODELO = '__sem_modelo__'
@@ -145,6 +151,7 @@ export default function ConfiguracaoDaConta() {
         )
     }
     if (conta === undefined) return <Layout title={PAGE_TITLES.SUPER_ADMIN_IA_CONTA}>{null}</Layout>
+    const semFornecedor = !!conta.modelo && !usaTabelaDeFornecedor(conta.modelo)
 
     return (
         <Layout title={conta.nome} subtitle={PAGE_TITLES.SUPER_ADMIN_IA_CONTA}>
@@ -186,13 +193,20 @@ export default function ConfiguracaoDaConta() {
                     {erroAoSalvar && <Alert type="error" showIcon message="A configuração não foi salva." description={erroAoSalvar} />}
                 </Space>
             </Card>
-            <Card style={{ marginTop: 16 }}>
+            {/* OS TRÊS BLOCOS (dono do produto, 26/10/2026): as três camadas, visíveis, nesta ordem.
+                BASE DE CONHECIMENTO (fornecedores, tabelas, preços — edita dado, estruturado), MOTOR (a cascata e o
+                que está carregado — mostra, e edita só escolha estruturada) e PROMPT DE ATENDIMENTO (como conversar). */}
+            <Card style={{ marginTop: 16 }} data-bloco="base-de-conhecimento">
+                <Typography.Title level={4} style={{ marginTop: 0 }}>1. Base de conhecimento</Typography.Title>
+                <Typography.Paragraph type="secondary" style={{ fontSize: 13 }}>
+                    Fornecedores, tabelas e preços desta conta. Edita dado, estruturado.
+                </Typography.Paragraph>
                 {/* Só Fabricação usa fornecedor → tabela → motor (`MODELO_COM_FORNECEDOR`, decisão do
                     dono do produto de 19/10/2026). Revenda e Prestação de serviço montam o orçamento
                     a partir do cadastro do próprio cliente. Lê o modelo SALVO da conta, não o do
                     formulário: a configuração vale depois de salva. Sem modelo, o grupo pede o
                     modelo e o nicho. */}
-                {conta.modelo && !usaTabelaDeFornecedor(conta.modelo) ? (
+                {semFornecedor ? (
                     <div data-grupo="base-do-cadastro">
                         <Typography.Title level={5} style={{ marginTop: 0 }}>{TITULO_DA_BASE_DO_CADASTRO}</Typography.Title>
                         <Typography.Paragraph style={{ marginBottom: 0 }}>{BASE_DO_CADASTRO[conta.modelo as ModeloSemFornecedor]}</Typography.Paragraph>
@@ -200,18 +214,45 @@ export default function ConfiguracaoDaConta() {
                 ) : (
                     <TabelasEmUso key={versaoSalva} tenantId={conta.tenant_id} />
                 )}
-            </Card>
-            {/* A ordem de leitura da tela é modelo e nicho › tabelas em uso › base de conhecimento
-                (dono do produto, 23/10/2026): a base vem por último porque fornecedor e linha dela são
-                escolhidos das tabelas em uso. */}
-            <Card style={{ marginTop: 16 }} data-grupo="acesso-a-base-de-conhecimento">
-                <Typography.Title level={5} style={{ marginTop: 0 }}>Base de conhecimento</Typography.Title>
-                <Typography.Paragraph type="secondary" style={{ fontSize: 13 }}>
-                    Perfil, vidro, acessórios, produção, vendedores e adicionais desta conta.
-                </Typography.Paragraph>
-                <Button onClick={() => router.push(rotaDaTelaDaBase(conta.tenant_id))}>Base de conhecimento</Button>
+                {/* a base vem depois das tabelas em uso: fornecedor e linha dela são escolhidos delas (23/10/2026) */}
+                <div style={{ marginTop: 16 }} data-grupo="acesso-a-base-de-conhecimento">
+                    <Typography.Title level={5} style={{ marginTop: 0 }}>Base de conhecimento</Typography.Title>
+                    <Typography.Paragraph type="secondary" style={{ fontSize: 13 }}>
+                        Perfil, vidro, acessórios, produção, vendedores e adicionais desta conta.
+                    </Typography.Paragraph>
+                    <Button onClick={() => router.push(rotaDaTelaDaBase(conta.tenant_id))}>Base de conhecimento</Button>
+                </div>
             </Card>
             <Card style={{ marginTop: 16 }}>
+                {semFornecedor ? (
+                    <div data-bloco="motor">
+                        <Typography.Title level={4} style={{ marginTop: 0 }}>2. Motor</Typography.Title>
+                        <Typography.Paragraph style={{ marginBottom: 0 }}>
+                            O modelo {ROTULO_DO_MODELO[conta.modelo as Modelo]} não usa motor de fornecedor: o orçamento sai do cadastro do próprio cliente.
+                        </Typography.Paragraph>
+                    </div>
+                ) : (
+                    <>
+                        <Typography.Title level={4} style={{ marginTop: 0 }}>2. Motor</Typography.Title>
+                        <MotorDaConta key={versaoSalva} tenantId={conta.tenant_id} />
+                    </>
+                )}
+            </Card>
+            <Card style={{ marginTop: 16 }} data-bloco="prompt-de-atendimento">
+                <Typography.Title level={4} style={{ marginTop: 0 }}>3. Prompt de atendimento</Typography.Title>
+                <Typography.Paragraph type="secondary" style={{ fontSize: 13, marginBottom: 0 }}>
+                    Como conversar: texto livre, até 4.000 caracteres. Manda em QUANDO e EM QUE FORMA; de onde vem o número
+                    é do motor. Ainda não construído — é o próximo passo.
+                </Typography.Paragraph>
+            </Card>
+            {/* REGRA DE PRODUTO (dono do produto, 26/10/2026): toda mensagem nasce da conversa do vendedor com o
+                agente; o super admin é o consultor e não fala com ninguém. O teste de anexo FICA, como instrumento
+                de diagnóstico do consultor — não é funcionalidade. */}
+            <Card style={{ marginTop: 16 }} data-bloco="diagnostico">
+                <Typography.Title level={5} style={{ marginTop: 0 }}>Instrumento de diagnóstico do consultor</Typography.Title>
+                <Typography.Paragraph type="secondary" style={{ fontSize: 13 }}>
+                    Para conferir a conexão — não é funcionalidade. Toda mensagem ao vendedor nasce da conversa dele com o agente.
+                </Typography.Paragraph>
                 <TesteDeAnexo tenantId={conta.tenant_id} />
             </Card>
         </Layout>
