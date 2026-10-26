@@ -622,6 +622,9 @@ describe('(4) a lista: a tipologia e a cor só da lista, exatas', () => {
         expect(sistema).toContain('Cores da empresa (cor_perfil, escreva EXATAMENTE uma delas): BRANCO')
         // sem o código e o número no prompt, a LLM não tem como registrar a escolha — o defeito 1
         expect(sistema).toContain('ARI = ARREMATE INTERNO: 1 = BZ0006 - ARREMATE 65MM; 2 = BZ1770 - ARREMATE 70MM; 3 = BZ0010 - ARREMATE 20MM; 4 = SEM ARREMATE INTERNO')
+        // as opções vão UMA vez, num dicionário, e a tipologia as referencia (26/10/2026)
+        expect(sistema.split('\n').filter((l) => l.includes('ARI = ARREMATE INTERNO'))).toHaveLength(1)
+        expect(sistema).toMatch(/^O\d+(, O\d+)*: DP-02$/m)
         // a escolha que muda o preço é do vendedor: o prompt proíbe a IA de escolher
         expect(sistema).toContain('NUNCA escolha sozinho')
     })

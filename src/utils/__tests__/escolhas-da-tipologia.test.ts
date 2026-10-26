@@ -173,3 +173,49 @@ describe('(4) o que está gravado e como se descreve', () => {
         expect(traduzida).not.toMatch(/\b(ARI|ARE|MAE|MAI)\b/)
     })
 })
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+describe('as opções de arremate no PROMPT, uma vez só (dono do produto, 26/10/2026)', () => {
+    // Medido em 26/10/2026: 62.298 dos 83.840 caracteres do pedido (74%) eram as mesmas opções repetidas para 161
+    // tipologias. "Mande as opções UMA VEZ, como um dicionário, e cada tipologia referencia a variação que usa. Nada
+    // muda no comportamento: a IA continua vendo as mesmas opções para cada tipologia."
+    const ARI = 'ARI = ARREMATE INTERNO: 1 = BZ0006 - ARREMATE 65MM; 2 = BZ1770 - ARREMATE 70MM; 3 = BZ0010 - ARREMATE 20MM; 4 = SEM ARREMATE INTERNO'
+    const ARE = 'ARE = ARREMATE EXTERNO: 1 = BZ0010 - ARREMATE 20MM; 2 = SEM ARREMATE EXTERNO'
+    const MAE_45_45 = 'MAE = MEDIDA ARREMATE EXTERNO: 1 = MEDIDA DO VÃO (CORTE 45/45); 2 = VÃO+50MM (CORTE 90/90) - PARA AJUSTE EM OBRA'
+    const MAE_45 = 'MAE = MEDIDA ARREMATE EXTERNO: 1 = MEDIDA DO VÃO (CORTE 45); 2 = VÃO+50MM (CORTE 90/90) - PARA AJUSTE EM OBRA'
+    const ENTRADA = [
+        { tipologia: 'DP-01', linhas: [ARI, ARE, MAE_45] },
+        { tipologia: 'DP-02', linhas: [ARI, ARE, MAE_45_45] },
+        { tipologia: 'DP-03', linhas: [ARI, ARE, MAE_45_45] },
+        { tipologia: 'DP-113', linhas: [ARE] },
+    ]
+
+    /** Relê o bloco como a IA o lê: o dicionário, e a referência de cada tipologia. */
+    function reler(bloco: string[]): Record<string, string[]> {
+        const dicionario = new Map<string, string>()
+        const porTipologia: Record<string, string[]> = {}
+        for (const l of bloco) {
+            const opcao = /^\[(O\d+)\] (.*)$/.exec(l)
+            if (opcao) { dicionario.set(opcao[1], opcao[2]); continue }
+            const ref = /^(O\d+(?:, O\d+)*): (.*)$/.exec(l)
+            if (ref) for (const t of ref[2].split(', ')) porTipologia[t] = ref[1].split(', ').map((id) => dicionario.get(id) as string)
+        }
+        return porTipologia
+    }
+
+    it('NADA MUDA: cada tipologia, relida do bloco, vê exatamente as mesmas linhas, na mesma ordem', () => {
+        const relido = reler(E().opcoesDeArremateNoPrompt(ENTRADA))
+        expect(relido).toEqual(Object.fromEntries(ENTRADA.map((e) => [e.tipologia, e.linhas])))
+    })
+
+    it('cada linha de opções aparece UMA vez, por mais tipologias que a usem', () => {
+        const bloco = E().opcoesDeArremateNoPrompt(ENTRADA)
+        for (const linha of [ARI, ARE, MAE_45, MAE_45_45]) expect(bloco.filter((l) => l.includes(linha))).toHaveLength(1)
+        // as tipologias com as mesmas opções ficam numa linha só de referência
+        expect(bloco.filter((l) => l.includes('DP-02'))).toEqual([expect.stringContaining('DP-02, DP-03')])
+    })
+
+    it('sem tipologia com escolhas: o bloco diz "(nenhuma)", como antes', () => {
+        expect(E().opcoesDeArremateNoPrompt([])).toEqual(['(nenhuma)'])
+    })
+})
