@@ -72,9 +72,27 @@ export function escolhasPendentes(tipologia: VariaveisDaTipologia, escolhas: Esc
 
 const minuscula = (t: string) => t.toLocaleLowerCase('pt-BR')
 
-/** A pergunta FIXA da escolha, em português e por extenso: a descrição da aba e as opções, SEM número. */
+/**
+ * O QUE CHEGA AO VENDEDOR (dono do produto, 26/10/2026): "nome por extenso, sem código de fornecedor e sem número
+ * de opção. Ele responde em palavras." Vale para arremate, medida e qualquer escolha futura. O código continua no
+ * log, nas telas do super admin e no levantamento com preço.
+ */
+const NOME_PARA_O_VENDEDOR: Record<string, string> = { ARI: 'arremate interno', ARE: 'arremate externo', MAE: 'medida do arremate externo', MAI: 'medida do arremate interno' }
+/** Como o vendedor chama a variável; a que não está no mapa sai pela descrição da aba, em minúscula. */
+export const nomeDaVariavel = (variavel: string, descricao: string) => NOME_PARA_O_VENDEDOR[variavel] ?? minuscula(descricao)
+
+/**
+ * A opção, para o vendedor: sem o código de fornecedor do início ("BZ0010 - "), sem o valor entre colchetes, em
+ * minúscula — "BZ0010 - ARREMATE 20MM" → "arremate de 20 mm". O resto do rótulo fica: não é código.
+ */
+export function opcaoParaOVendedor(rotulo: string): string {
+    const t = rotulo.replace(/\s*\[[^\]]*\]/g, '').replace(/^[A-Z]{1,5}\d+[A-Z0-9]*\s*-\s*/, '').trim()
+    return minuscula(t).replace(/(\d)\s*mm\b/g, '$1 mm').replace(/\s*\+\s*/g, ' + ').replace(/^arremate (\d+ mm)$/, 'arremate de $1')
+}
+
+/** A pergunta FIXA da escolha, em português e por extenso: o nome da variável e as opções, sem código e SEM número. */
 export function perguntaDaEscolha(p: EscolhaPendente): string {
-    return `Para ${minuscula(p.descricao)}, as opções são: ${p.opcoes.map((o) => o.rotulo).join('; ')}. Qual você quer?`
+    return `Para ${nomeDaVariavel(p.variavel, p.descricao)}, as opções são: ${p.opcoes.map((o) => opcaoParaOVendedor(o.rotulo)).join('; ')}. Qual você quer?`
 }
 
 /** A variável capturada da tipologia, como escolha a mostrar ao vendedor; null se não existe ou não tem opções. */

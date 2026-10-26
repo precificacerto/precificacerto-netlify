@@ -238,7 +238,7 @@ const Nav = () => {
     // não duas com o mesmo título (dono do produto). Cada perfil vê os itens dele; o super admin
     // não vê as seções de tenant, então para ele a ordem entre as suas não muda.
     // RECOLHE, COMO TODAS (decisão de 20/10/2026, `menu-toda-secao-recolhe.test.ts`).
-    { key: 'atendimentos-ia', label: 'Atendimentos I.A.', collapsible: true },
+    { key: 'atendimentos-ia', label: 'Agentes I.A.', collapsible: true },
     { key: 'comercial', label: 'Comercial', collapsible: true },
     { key: 'financeiro', label: 'Financeiro', collapsible: true },
     { key: 'agendamentos', label: 'Agendamentos', collapsible: true },
