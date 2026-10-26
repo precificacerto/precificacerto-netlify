@@ -187,6 +187,11 @@ export const LIMITE_DO_ROTULO_DA_FAMILIA = 60
 const FORMA_DA_CHAVE_DA_FAMILIA = /^[A-Z][A-Z0-9_]{0,39}$/
 export const ehChaveDeFamilia = (v: unknown): v is string => typeof v === 'string' && FORMA_DA_CHAVE_DA_FAMILIA.test(v)
 
+/** O 23505 é o do índice da tabela vigente (`orcamentista_tabela_uma_vigente`), e não outro. */
+export const ehIndiceDaVigente = (e: unknown): boolean => /orcamentista_tabela_uma_vigente/.test((e as { message?: string } | null)?.message ?? '')
+export const fraseDaVigenteQueJaExiste = (familia: string | null, arquivo: string) =>
+    `Já há uma tabela vigente deste fornecedor na família ${familia ?? 'não informada'}: ${arquivo}. Desmarque-a antes de marcar outra.`
+
 /** O 23503 é o da FK da família da tabela (`orcamentista_tabela_familia_fkey`), e não o do fornecedor: a mensagem do banco diz qual. */
 export const ehFkDaFamilia = (e: unknown): boolean => /orcamentista_tabela_familia_fkey/.test((e as { message?: string } | null)?.message ?? '')
 
@@ -221,6 +226,11 @@ export interface TabelaDoFornecedor {
     vigencia: string | null
     /** A chave da família; null = não informada (as tabelas de antes de 26/10/2026). */
     familia: string | null
+    /**
+     * A tabela vigente do fornecedor na família dela (migração 20261026000005): decide o que levantamento NOVO
+     * usa. No máximo uma por (fornecedor, família). A `vigencia` acima continua sendo só texto do consultor.
+     */
+    vigente: boolean
     /** "Subido em". */
     criado_em: string
     contas_usando: string[]
@@ -366,6 +376,8 @@ export interface EdicaoDaTabela {
     vigencia?: string | null
     /** `undefined` = não mexe. A família se troca pela lista, e não se apaga. */
     familia?: string
+    /** `undefined` = não mexe. A marca de vigente (migração 20261026000005): no máximo uma por fornecedor e família. */
+    vigente?: boolean
 }
 
 export function lerEdicaoDaTabela(body: unknown, fornecedorId: string): Leitura<EdicaoDaTabela> {
@@ -385,6 +397,10 @@ export function lerEdicaoDaTabela(body: unknown, fornecedorId: string): Leitura<
     if ('familia' in b) {
         if (!ehChaveDeFamilia(b.familia)) return { ok: false, erro: MENSAGEM_FAMILIA_OBRIGATORIA }
         out.familia = b.familia
+    }
+    if ('vigente' in b) {
+        if (typeof b.vigente !== 'boolean') return { ok: false, erro: 'A marca de vigente é sim ou não.' }
+        out.vigente = b.vigente
     }
     if (Object.keys(out).length === 0) return { ok: false, erro: 'Nada a alterar.' }
     return { ok: true, corpo: out }

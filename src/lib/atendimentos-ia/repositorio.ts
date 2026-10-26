@@ -202,7 +202,7 @@ async function montarLista(fornecedores: Linha[]): Promise<FornecedorComTabelas[
     const nichos: Linha[] = nichoIds.length ? await q(db().from('orcamentista_nicho').select('id, modelo, nome').in('id', nichoIds)) : []
     const fIds = fornecedores.map((f) => f.id)
     const tabelas: Linha[] = fIds.length
-        ? await q(db().from('orcamentista_tabela').select('id, fornecedor_id, arquivo_nome, arquivo_path, motor_nome, motor_path, vigencia, familia, criado_em').in('fornecedor_id', fIds).order('criado_em', { ascending: false }))
+        ? await q(db().from('orcamentista_tabela').select('id, fornecedor_id, arquivo_nome, arquivo_path, motor_nome, motor_path, vigencia, familia, vigente, criado_em').in('fornecedor_id', fIds).order('criado_em', { ascending: false }))
         : []
     const uso = await usoPorTabela(tabelas.map((t) => t.id))
     return fornecedores.map((f) => {
@@ -337,7 +337,16 @@ export async function criarTabela(t: CorpoDaTabela & { criado_por: string }): Pr
     return q(db().from('orcamentista_tabela').insert(t).select('id').single())
 }
 
-export async function atualizarTabela(id: string, campos: Record<string, string | null>): Promise<number> {
+/** A tabela que JÁ é a vigente do mesmo fornecedor e família da tabela dada — para a recusa nomeá-la. */
+export async function tabelaVigenteDoPar(tabelaId: string): Promise<{ id: string; arquivo_nome: string; familia: string | null } | null> {
+    const ts = await q(db().from('orcamentista_tabela').select('id, fornecedor_id, familia').eq('id', tabelaId))
+    if (ts.length === 0) return null
+    const doFornecedor = await q(db().from('orcamentista_tabela').select('id, arquivo_nome, familia, vigente').eq('fornecedor_id', ts[0].fornecedor_id).eq('vigente', true))
+    const par = doFornecedor.find((t: Linha) => t.id !== tabelaId && (t.familia ?? null) === (ts[0].familia ?? null))
+    return par ? { id: par.id, arquivo_nome: par.arquivo_nome, familia: par.familia ?? null } : null
+}
+
+export async function atualizarTabela(id: string, campos: Record<string, string | boolean | null>): Promise<number> {
     const linhas = await q(db().from('orcamentista_tabela').update(campos).eq('id', id).select('id'))
     return linhas.length
 }

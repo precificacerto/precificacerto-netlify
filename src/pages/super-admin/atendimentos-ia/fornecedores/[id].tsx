@@ -16,7 +16,7 @@
  */
 import React, { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/router'
-import { Alert, Button, Empty, Popconfirm, Space, Table, Tag, Typography, message } from 'antd'
+import { Alert, Button, Empty, Popconfirm, Space, Switch, Table, Tag, Typography, message } from 'antd'
 import { ArrowLeftOutlined, PlusOutlined } from '@ant-design/icons'
 import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
@@ -47,6 +47,8 @@ export default function TabelasDoFornecedor() {
     const [erroDaTabela, setErroDaTabela] = useState<string | null>(null)
     const [erroDoFornecedor, setErroDoFornecedor] = useState<ErroDoFornecedor | null>(null)
     const [erroAoExcluirTabela, setErroAoExcluirTabela] = useState<string | null>(null)
+    /** A recusa de marcar a vigente fica na página, acima da lista, com a frase inteira da rota. */
+    const [erroDaVigente, setErroDaVigente] = useState<string | null>(null)
 
     const carregar = useCallback(async () => {
         if (!id) return
@@ -148,6 +150,18 @@ export default function TabelasDoFornecedor() {
         }
     }
 
+    /** A marca de vigente: no máximo uma por família; o banco recusa a segunda, e a rota nomeia a de hoje. */
+    async function marcarVigente(t: TabelaDoFornecedor, vigente: boolean) {
+        setErroDaVigente(null)
+        try {
+            await chamarRota(ROTAS_DO_CATALOGO.tabela(t.id), 'PATCH', { vigente })
+            message.success(vigente ? 'Tabela marcada como vigente' : 'Marca de vigente retirada')
+            await carregar()
+        } catch (e) {
+            setErroDaVigente(fraseDoArquivo(t.arquivo_nome, (e as Error).message))
+        }
+    }
+
     async function excluirTabela(t: TabelaDoFornecedor) {
         setErroAoExcluirTabela(null)
         try {
@@ -193,6 +207,10 @@ export default function TabelasDoFornecedor() {
                             data-erro-da-tabela
                         />
                     )}
+                    {erroDaVigente && (
+                        <Alert type="error" showIcon closable onClose={() => setErroDaVigente(null)} style={{ marginBottom: 12 }}
+                            message="A marca de vigente não foi gravada." description={erroDaVigente} data-erro-da-vigente />
+                    )}
                     <div className="pc-card--table">
                         <Table<TabelaDoFornecedor>
                             rowKey="id"
@@ -209,7 +227,12 @@ export default function TabelasDoFornecedor() {
                                         ? familias.find((f) => f.chave === t.familia)?.rotulo ?? t.familia
                                         : <Typography.Text type="secondary" data-familia-nao-informada>não informada</Typography.Text>),
                                 },
-                                { title: 'Vigência', render: (_, t) => t.vigencia ?? <Typography.Text type="secondary">—</Typography.Text> },
+                                // a VIGENTE é a marca que decide o que levantamento novo usa (26/10/2026); a Vigência ao lado é só a nota do consultor
+                                {
+                                    title: 'Vigente',
+                                    render: (_, t) => <Switch size="small" checked={t.vigente} onChange={(v) => marcarVigente(t, v)} data-vigente={t.id} aria-label={`Vigente: ${t.arquivo_nome}`} />,
+                                },
+                                { title: 'Vigência (nota)', render: (_, t) => t.vigencia ?? <Typography.Text type="secondary">—</Typography.Text> },
                                 // A data na borda direita, em `tabular-nums` — o mesmo estilo da lista do credenciamento.
                                 { title: 'Subido em', align: 'right', render: (_, t) => <span style={ESTILO_DA_DATA} data-coluna="subido-em">{dataBR(t.criado_em)}</span> },
                                 { title: 'Contas usando', render: (_, t) => (t.contas_usando.length ? t.contas_usando.join(', ') : <Typography.Text type="secondary">—</Typography.Text>) },
