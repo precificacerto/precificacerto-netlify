@@ -1612,4 +1612,16 @@ describe('(19) duas tabelas com o mesmo código: a conversa pergunta de qual for
         expect(itensDe(levantamentos()[0].id).map((i) => i.tabela_id)).toEqual([TABELA])
         expect(ultimoEnviado().startsWith('Apanhado do levantamento')).toBe(true)
     })
+
+    it('a FAMÍLIA que a IA põe sem o vendedor ter dito também não vale: a pergunta da família continua', async () => {
+        const sul = estado.db.orcamentista_tabela.find((t) => t.id === SUL)
+        if (!sul) throw new Error('sem a tabela do sul')
+        sul.fornecedor_id = 'f-wolff'
+        llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }] })
+        await chamar('Levantamento Casa do Pedro: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm')
+        llmResponde({ itens: [{ familia: 'PVC' }] })
+        await chamar('pode ser a primeira')
+        expect(itensDe(levantamentos()[0].id).map((i) => i.tabela_id)).toEqual([null])
+        expect(ultimoEnviado()).toContain('A DP-02 está em 2 tabelas da Wolff Perfis: de Alumínio ou de PVC. De qual família é?')
+    })
 })

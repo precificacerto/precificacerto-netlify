@@ -34,7 +34,7 @@ function dp02() {
 const definicao = (e: { tipologia: string | null }) => (e.tipologia === 'DP-02' ? dp02() : null)
 /** Uma tabela só, com as duas tipologias: o caso de hoje em produção. Várias tabelas: bloco (V). */
 const UNICA = 'tabela-unica'
-const tabelasUnica = (c: string) => (TIPOLOGIAS.includes(c) ? [{ tabelaId: UNICA, fornecedor: 'Wolff' }] : [])
+const tabelasUnica = (c: string) => (TIPOLOGIAS.includes(c) ? [{ tabelaId: UNICA, fornecedor: 'Wolff', familia: 'PVC' as string | null }] : [])
 const ctx = (ordemPadrao: number | null) => ({ tipologias: TIPOLOGIAS, cores: CORES, ordemPadrao, definicao, tabelasDoCodigo: tabelasUnica })
 const COMPLETO_SEM_ESCOLHAS = { ordem: 1, tipologia: 'DP-02', largura_mm: 1200, altura_mm: 1000, quantidade: 1, cor_perfil: 'BRANCO', vidro: 'Temperado 5mm', escolhas: null as Record<string, number> | null, tabela_id: UNICA as string | null }
 
