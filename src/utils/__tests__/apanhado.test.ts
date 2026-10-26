@@ -9,7 +9,7 @@ import { arremateDoApanhado, fraseDoApanhado, rotuloSemCodigo, CONFERE_O_APANHAD
 import type { ItemDoLevantamento } from '@/lib/atendimentos-ia/levantamento-em-montagem'
 import type { VariaveisDaTipologia } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 
-/** As opções de ARI e ARE MEDIDAS em produção em 26/10/2026, nas 161 tipologias da Wolff: os cinco rótulos distintos. */
+/** As opções de ARI, ARE e MAE MEDIDAS em produção em 26/10/2026, nas 161 tipologias da Wolff: todos os rótulos distintos. */
 const REAIS: Array<[string, string, string]> = [
     ['BZ0006 - ARREMATE 65MM [33,00]', 'ARREMATE INTERNO', '65 mm'],
     ['BZ0006 - ARREMATE 65MM [48,00]', 'ARREMATE INTERNO', '65 mm'],
@@ -20,6 +20,10 @@ const REAIS: Array<[string, string, string]> = [
     ['SEM ARREMATE INTERNO', 'ARREMATE INTERNO', 'sem arremate interno'],
     ['BZ0010 - ARREMATE 20MM', 'ARREMATE EXTERNO', '20 mm'],
     ['SEM ARREMATE EXTERNO', 'ARREMATE EXTERNO', 'sem arremate externo'],
+    ['VÃO+50MM (CORTE 90/90) - PARA AJUSTE EM OBRA [50,00]', 'MEDIDA ARREMATE EXTERNO', 'vão + 50 mm'],
+    ['VÃO+100MM (CORTE 90/90) - PARA AJUSTE EM OBRA [100,00]', 'MEDIDA ARREMATE EXTERNO', 'vão + 100 mm'],
+    ['MEDIDA DO VÃO (CORTE 45/45)', 'MEDIDA ARREMATE EXTERNO', 'medida do vão'],
+    ['MEDIDA DO VÃO (CORTE 45)', 'MEDIDA ARREMATE EXTERNO', 'medida do vão'],
 ]
 
 const DP02: VariaveisDaTipologia = {
@@ -54,11 +58,14 @@ describe('arremateDoApanhado', () => {
     it('nada escolhido → "Padrão"', () => {
         expect(arremateDoApanhado(DP02, null)).toBe('Padrão')
     })
-    it('escolhido → o nome por extenso, e "Padrão" no que não foi dito; a medida (MAE) nunca aparece', () => {
-        expect(arremateDoApanhado(DP02, { ARI: 3, MAE: 2 })).toBe('arremate interno: 20 mm; arremate externo: Padrão')
+    it('escolhido → o nome por extenso, e "Padrão" no que não foi dito; a medida escolhida também aparece', () => {
+        expect(arremateDoApanhado(DP02, { ARI: 3, MAE: 2 })).toBe('arremate interno: 20 mm; arremate externo: Padrão; medida do arremate externo: vão + 50 mm')
     })
-    it('só a medida escolhida (MAE) → "Padrão": o corte não é arremate para o vendedor conferir', () => {
-        expect(arremateDoApanhado(DP02, { MAE: 2 })).toBe('Padrão')
+    it('só a medida escolhida → ela aparece, e o resto em "Padrão"', () => {
+        expect(arremateDoApanhado(DP02, { MAE: 2 })).toBe('arremate interno: Padrão; arremate externo: Padrão; medida do arremate externo: vão + 50 mm')
+    })
+    it('a medida não escolhida não aparece, nem com outra escolha', () => {
+        expect(arremateDoApanhado(DP02, { ARI: 3 })).toBe('arremate interno: 20 mm; arremate externo: Padrão')
     })
     it('tipologia sem a aba Variáveis → "Padrão"', () => {
         expect(arremateDoApanhado(null, { ARI: 3 })).toBe('Padrão')

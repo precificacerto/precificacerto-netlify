@@ -991,11 +991,15 @@ describe('(12) decisão 2, revista: quem altera — o criador, ou o admin da emp
         expect(ultimoEnviado()).toBe(comOutroDono)
     })
 
-    it('7. o ADMIN altera o levantamento de OUTRO vendedor — permitido, e o levantamento continua do criador', async () => {
+    it('7. o ADMIN altera o levantamento de OUTRO vendedor — permitido, recebe o APANHADO como todo mundo, e o levantamento continua do criador', async () => {
         await fecharDp02('Casa do João')
         comPapel(OUTRO_VENDEDOR, 'admin')
         levantamentos()[0].atualizado_em = 'antes-da-alteracao'
         await alterarAltura('casa do joao', doOutro)
+        // "Nada é formal antes da confirmação" não tem exceção (dono do produto, 26/10/2026)
+        expect(ultimoEnviado().startsWith('Apanhado do levantamento “Casa do João”:')).toBe(true)
+        expect(ultimoEnviado()).not.toContain('R$')
+        await confirmarApanhado(doOutro)
         expect(levantamentos()).toHaveLength(1)
         // o rastro (decisão 3) é gravado NA LINHA DO CRIADOR: um update filtrado pelo admin não acharia linha nenhuma
         expect(levantamentos()[0].atualizado_em).not.toBe('antes-da-alteracao')
@@ -1003,6 +1007,31 @@ describe('(12) decisão 2, revista: quem altera — o criador, ou o admin da emp
         expect(alturaDe(VENDEDOR)).toBe(1200)
         expect(linhaDa(ultimoEnviado(), 'Esquadria 1:')).toBe('Esquadria 1: DP-02, 1.200 x 1.200 mm, 1 unidade(s).')
         expect(ultimoEnviado()).toMatch(/Total por consumo real \(perfis \+ mão de obra\): R\$ [\d.]+,\d{2}\./)
+    })
+
+    it('7b. o ADMIN, antes do "sim", altera SEM o nome: a alteração vai ao levantamento do OUTRO vendedor que o apanhado citou', async () => {
+        await fecharDp02('Casa do João')
+        comPapel(OUTRO_VENDEDOR, 'admin')
+        await alterarAltura('casa do joao', doOutro)
+        llmResponde({ itens: [{ largura_mm: 1500 }] })
+        await chamar('a largura é 1500', doOutro)
+        expect(levantamentos()).toHaveLength(1)
+        expect(itensDe(levantamentos()[0].id)[0]).toEqual(expect.objectContaining({ largura_mm: 1500, altura_mm: 1200 }))
+        expect(ultimoEnviado().split('\n')).toContain('Esquadria 1: DP-02, 1 unidade(s), 1.500 x 1.200 mm, vidro Temperado 5mm.')
+        const formal = await confirmarApanhado(doOutro)
+        expect(linhaDa(formal, 'Esquadria 1:')).toBe('Esquadria 1: DP-02, 1.500 x 1.200 mm, 1 unidade(s).')
+        expect(estado.db.orcamentista_pergunta_em_aberto).toEqual([])
+    })
+
+    it('7c. quem deixou de ser admin entre o apanhado e o "sim" não recebe o formal do levantamento do outro', async () => {
+        await fecharDp02('Casa do João')
+        comPapel(OUTRO_VENDEDOR, 'admin')
+        await alterarAltura('casa do joao', doOutro)
+        estado.db.users = []
+        llmResponde({ confirma: true })
+        await chamar('sim', doOutro)
+        expect(ultimoEnviado()).toBe(conversa.fraseDeNaoEncontrei('Casa do João'))
+        expect(ultimoEnviado()).not.toContain('R$')
     })
 
     it('8. o ADMIN busca um nome que existe em DOIS vendedores → pergunta de qual, citando os nomes, e não escolhe; com o vendedor dito, altera o certo', async () => {
@@ -1384,12 +1413,19 @@ describe('(17) O APANHADO (dono do produto, 26/10/2026): a primeira resposta é 
         expect(linhas.filter((l) => l.startsWith('Esquadria '))).toEqual(['Esquadria 1: DP-02, 1 unidade(s), 1.200 x 1.000 mm, vidro Temperado 5mm.'])
     })
 
-    it('o arremate ESCOLHIDO sai por extenso, sem código; a medida do arremate (corte) não aparece', async () => {
+    it('o ESCOLHIDO sai por extenso, sem código — a medida do arremate também (26/10: "ele não pode confirmar sem ver")', async () => {
         const apanhado = await pedir([{ ...DP02 }], [{ variavel: 'ARI', opcao: 3 }, { variavel: 'MAE', opcao: 2 }])
-        expect(apanhado.split('\n')).toContain('Arremate e guarnição: arremate interno: 20 mm; arremate externo: Padrão.')
-        expect(apanhado).not.toContain('MEDIDA')
+        expect(apanhado.split('\n')).toContain('Arremate e guarnição: arremate interno: 20 mm; arremate externo: Padrão; medida do arremate externo: vão + 50 mm.')
+        // o detalhe de corte e o valor entre colchetes ficam no formal; o código, em lugar nenhum do apanhado
         expect(apanhado).not.toContain('CORTE')
+        expect(apanhado).not.toContain('[50,00]')
         expect(apanhado).not.toContain('BZ0010')
+    })
+
+    it('a medida do arremate NÃO escolhida entra no "Padrão", sem detalhe', async () => {
+        const apanhado = await pedir([{ ...DP02 }], [{ variavel: 'ARI', opcao: 3 }])
+        expect(apanhado.split('\n')).toContain('Arremate e guarnição: arremate interno: 20 mm; arremate externo: Padrão.')
+        expect(apanhado.toLowerCase()).not.toContain('medida')
     })
 
     it('uma alteração de medida ANTES do "sim" entra no apanhado, sem nome e sem preço; o "sim" depois traz o formal com ela', async () => {
