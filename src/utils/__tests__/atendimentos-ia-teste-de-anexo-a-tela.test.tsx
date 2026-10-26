@@ -29,7 +29,9 @@ beforeEach(() => {
 async function montarEClicar() {
     const host = document.createElement('div')
     document.body.appendChild(host)
-    await act(async () => { createRoot(host).render(<TesteDeAnexo tenantId={CONTA} />) })
+    const root = createRoot(host)
+    // eslint-disable-next-line testing-library/no-unnecessary-act -- é createRoot do React, não util da Testing Library; fora do act o render não assenta
+    await act(async () => { root.render(<TesteDeAnexo tenantId={CONTA} />) })
     await act(async () => { (host.querySelector('[data-enviar-teste-de-anexo]') as HTMLButtonElement).click() })
     return host
 }
