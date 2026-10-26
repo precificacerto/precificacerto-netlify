@@ -93,7 +93,8 @@ function montar() {
         ...ABAS_NO_BANCO(),
         orcamentista_motor_tipologia_detalhe: [
             ...ABAS_NO_BANCO().orcamentista_motor_tipologia_detalhe,
-            { tabela_id: TABELA, tipologia: 'DP-01', descricao: 'MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL | DESIGN', tipo: 'Maxim-ar' },
+            // `ordem` nula, como as 164 linhas de produção antes da reimportação (a coluna existe e está vazia)
+            { tabela_id: TABELA, tipologia: 'DP-01', descricao: 'MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL | DESIGN', tipo: 'Maxim-ar', ordem: null },
         ],
         orcamentista_motor_regra: DE_PARA.regras.map((r) => comId({ ...r, tabela_id: TABELA, tipologias: ['DP-02'] })),
         orcamentista_tabela_item: DE_PARA.itens.map((i) => ({ ...i, tabela_id: TABELA })),
@@ -348,7 +349,7 @@ describe('(6) a RECUSA chega como texto, inteira e nomeada', () => {
 
     it('a DP-02 de OUTRA TABELA também não tem abas: as da Wolff não valem para outro fornecedor', async () => {
         banco.db.orcamentista_conta_tabela = [{ tenant_id: TENANT, tabela_id: 'tabela-de-outro-fornecedor' }]
-        banco.db.orcamentista_motor_tipologia_detalhe.push({ tabela_id: 'tabela-de-outro-fornecedor', tipologia: 'DP-02', descricao: 'OUTRA', tipo: 'Correr' })
+        banco.db.orcamentista_motor_tipologia_detalhe.push({ tabela_id: 'tabela-de-outro-fornecedor', tipologia: 'DP-02', descricao: 'OUTRA', tipo: 'Correr', ordem: null })
         const t = await M().lerTabelaDaEmpresa(TENANT)
         const r = await M().mensagemDoLevantamento(TENANT, t, lev())
         expect(r.texto).toContain(M().fraseDaTipologiaSemAbas('DP-02'))
