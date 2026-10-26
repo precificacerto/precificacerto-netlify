@@ -114,6 +114,8 @@ export const ROTAS_DO_CATALOGO = {
     tabelasDaConta: (tenantId: string) => `/api/super-admin/atendimentos-ia/contas/${tenantId}/tabelas`,
     /** DELETE tira UMA tabela de uso DAQUELA conta. */
     tabelaDaConta: (tenantId: string, tabelaId: string) => `/api/super-admin/atendimentos-ia/contas/${tenantId}/tabelas/${tabelaId}`,
+    /** POST envia um PDF de teste ao remetente ativo da conta, pela conexão do orçamentista (26/10/2026). */
+    testeDeAnexo: (tenantId: string) => `/api/super-admin/atendimentos-ia/contas/${tenantId}/teste-de-anexo`,
 } as const
 
 /**
