@@ -17,11 +17,13 @@
  *   - AS ABAS DO MOTOR VÊM DO BANCO (desde a migração 20261025000004): Detalhe, Variáveis, Fórmulas,
  *     Perfis e Validações da tabela da empresa, gravadas pela importação pelo mesmo mapa
  *     (`atendimentos-ia-abas-do-motor.ts`). O JSON da DP-02 virou fixture de teste. A aba 'Fórmulas'
- *     DA TIPOLOGIA é a fonte de cálculo; a 'Fórmulas da família' só entra quando a tipologia não tem
- *     fórmula própria, e então a resposta DIZ isso (`fraseDasFormulasDaFamilia`) — nunca em silêncio,
- *     porque as da família divergem das da DP-02 em 9 de 16 variáveis (medido,
- *     `avaliador-de-formulas.test.ts`). Tabela ainda ausente, tipologia sem abas, sem perfis, sem
- *     linha, ou família sem fórmula: RECUSA NOMEADA.
+ *     DA TIPOLOGIA é a fonte de cálculo; as fórmulas da LINHA (a aba 'Fórmulas da família' do arquivo
+ *     do fornecedor) só entram quando a tipologia não tem fórmula própria, e então a resposta DIZ isso
+ *     (`fraseDasFormulasDaLinha`) — nunca em silêncio, porque as da linha divergem das da DP-02 em 9
+ *     de 16 variáveis (medido, `avaliador-de-formulas.test.ts`). Tabela ainda ausente, tipologia sem
+ *     abas, sem perfis, sem linha, ou linha sem fórmula: RECUSA NOMEADA.
+ *     O VOCABULÁRIO (dono do produto, 26/10/2026): o que o motor chama de "família" é a LINHA
+ *     (EUROPA 42, EUROPA 60). FAMÍLIA é a da tabela do fornecedor (PVC, ...).
  *
  * ══ A LISTA DE TIPOLOGIAS ══
  * Vem de `orcamentista_motor_tipologia_detalhe` (tabela_id, tipologia, descricao, tipo, …) da tabela
@@ -263,36 +265,37 @@ export const fraseDaAbaNaoCarregada = (aba: string) =>
     `A aba "${aba}" do motor ainda não foi carregada no banco: ainda não consigo calcular as barras.`
 export const fraseDaTipologiaSemPerfis = (tipologia: string) =>
     `A tipologia ${tipologia} não tem linhas na aba "Perfis" do motor importado: sem perfil não há barra a calcular.`
-/** O RÓTULO do fallback: vai na resposta toda vez que a família calculou no lugar da tipologia. */
-export const fraseDasFormulasDaFamilia = (tipologia: string, linha: string) =>
-    `Atenção: as fórmulas da ${tipologia} são as da FAMÍLIA ${linha} (fallback) — a tipologia não tem fórmulas próprias na aba "Fórmulas" do arquivo do fornecedor.`
-export const fraseDaFamiliaSemLinha = (tipologia: string) =>
-    `A tipologia ${tipologia} não tem fórmulas próprias na aba "Fórmulas", e não tem a linha cadastrada no motor para achar as da família: não calculo sem elas.`
-export const fraseDaFamiliaComDuasLinhas = (tipologia: string, linhas: readonly string[]) =>
-    `A tipologia ${tipologia} não tem fórmulas próprias na aba "Fórmulas", e tem ${linhas.length} linhas no motor (${linhas.join(', ')}): não escolho a família.`
-export const fraseDaFamiliaSemFormulas = (tipologia: string, linha: string) =>
-    `A tipologia ${tipologia} não tem fórmulas próprias na aba "Fórmulas", e a família ${linha} também não tem fórmulas no motor importado: não calculo sem elas.`
-export const fraseDaFamiliaComVariavelRepetida = (linha: string, variavel: string) =>
-    `A família ${linha} tem a variável ${variavel} mais de uma vez nas "Fórmulas da família": não escolho uma.`
+/** O RÓTULO do fallback: vai na resposta toda vez que as fórmulas da linha calcularam no lugar das da tipologia. */
+export const fraseDasFormulasDaLinha = (tipologia: string, linha: string) =>
+    `Atenção: as fórmulas da ${tipologia} são as da LINHA ${linha} (fallback) — a tipologia não tem fórmulas próprias na aba "Fórmulas" do arquivo do fornecedor.`
+export const fraseDaTipologiaSemLinha = (tipologia: string) =>
+    `A tipologia ${tipologia} não tem fórmulas próprias na aba "Fórmulas", e não tem a linha cadastrada no motor para achar as fórmulas da linha: não calculo sem elas.`
+export const fraseDaTipologiaComDuasLinhas = (tipologia: string, linhas: readonly string[]) =>
+    `A tipologia ${tipologia} não tem fórmulas próprias na aba "Fórmulas", e tem ${linhas.length} linhas no motor (${linhas.join(', ')}): não escolho a linha.`
+export const fraseDaLinhaSemFormulas = (tipologia: string, linha: string) =>
+    `A tipologia ${tipologia} não tem fórmulas próprias na aba "Fórmulas", e a linha ${linha} também não tem fórmulas no motor importado: não calculo sem elas.`
+export const fraseDaLinhaComVariavelRepetida = (linha: string, variavel: string) =>
+    `A linha ${linha} tem a variável ${variavel} mais de uma vez na aba "Fórmulas da família" do motor: não escolho uma.`
 
 /**
- * As fórmulas da FAMÍLIA da tipologia, como linhas da aba 'Fórmulas' — o fallback. A família é a da
- * `linha` da tipologia em `orcamentista_motor_tipologia`, comparada EXATA com a da família (as duas já
- * normalizadas pela importação). Sem linha, com duas, sem fórmula, ou com variável repetida: recusa.
+ * As fórmulas da LINHA da tipologia, como linhas da aba 'Fórmulas' — o fallback. A linha é a
+ * `linha` da tipologia em `orcamentista_motor_tipologia`, comparada EXATA com a de
+ * `orcamentista_motor_formula_familia` (nome vencido: é a linha; as duas já normalizadas pela
+ * importação). Sem linha, com duas, sem fórmula, ou com variável repetida: recusa.
  */
-async function formulasDaFamilia(tabelaId: string, tipologia: string): Promise<{ linhas: Array<Record<string, unknown>>; linha: string } | { falta: string }> {
+async function formulasDaLinha(tabelaId: string, tipologia: string): Promise<{ linhas: Array<Record<string, unknown>>; linha: string } | { falta: string }> {
     const { data, error } = await supabaseAdmin.from('orcamentista_motor_tipologia').select('linha').eq('tabela_id', tabelaId).eq('tipologia', tipologia)
     if (error) throw new Error(`orcamentista_motor_tipologia: ${error.message}`)
     const linhas = [...new Set(((data ?? []) as Array<{ linha: unknown }>).map((l) => l.linha).filter((l): l is string => typeof l === 'string' && l !== ''))]
-    if (linhas.length === 0) return { falta: fraseDaFamiliaSemLinha(tipologia) }
-    if (linhas.length > 1) return { falta: fraseDaFamiliaComDuasLinhas(tipologia, linhas) }
+    if (linhas.length === 0) return { falta: fraseDaTipologiaSemLinha(tipologia) }
+    if (linhas.length > 1) return { falta: fraseDaTipologiaComDuasLinhas(tipologia, linhas) }
     const linha = linhas[0]
     const lida = await lerTudo('orcamentista_motor_formula_familia', tabelaId, ORDEM_POR_ID, { coluna: 'linha', valores: [linha] })
     if ('ausente' in lida) return { falta: fraseDaAbaNaoCarregada('Fórmulas da família') }
-    if (lida.linhas.length === 0) return { falta: fraseDaFamiliaSemFormulas(tipologia, linha) }
+    if (lida.linhas.length === 0) return { falta: fraseDaLinhaSemFormulas(tipologia, linha) }
     const vistas = new Set<unknown>()
     for (const f of lida.linhas) {
-        if (vistas.has(f.variavel)) return { falta: fraseDaFamiliaComVariavelRepetida(linha, String(f.variavel)) }
+        if (vistas.has(f.variavel)) return { falta: fraseDaLinhaComVariavelRepetida(linha, String(f.variavel)) }
         vistas.add(f.variavel)
     }
     return { linha, linhas: lida.linhas.map((f) => ({ tipologia, variavel: f.variavel, descricao: f.descricao, formula: f.formula })) }
@@ -303,7 +306,7 @@ export type TipologiasDoBanco = { lidas: Record<string, Tipologia>; faltas: stri
 /**
  * As tipologias pedidas, com as abas que o avaliador lê (Detalhe, Variáveis, Fórmulas, Perfis,
  * Validações) vindas do BANCO, da tabela da empresa — gravadas pela importação, pelo mesmo mapa
- * (`ABAS_DO_MOTOR`). A aba 'Fórmulas' da tipologia é a fonte; sem ela, a da família entra e o RÓTULO
+ * (`ABAS_DO_MOTOR`). A aba 'Fórmulas' da tipologia é a fonte; sem ela, as da linha entram e o RÓTULO
  * sai em `rotulos`, que quem monta a resposta acrescenta ao texto — nunca em silêncio.
  */
 export async function lerTipologiasDoBanco(tabelaId: string, codigos: readonly string[]): Promise<TipologiasDoBanco> {
@@ -324,10 +327,10 @@ export async function lerTipologiasDoBanco(tabelaId: string, codigos: readonly s
         if (!tem('Variáveis') && !tem('Fórmulas') && !tem('Perfis')) { faltas.push(fraseDaTipologiaSemAbas(t)); continue }
         let formulas = porAba['Fórmulas']
         if (!tem('Fórmulas')) {
-            const familia = await formulasDaFamilia(tabelaId, t)
-            if ('falta' in familia) { faltas.push(familia.falta); continue }
-            formulas = familia.linhas
-            rotulos.push(fraseDasFormulasDaFamilia(t, familia.linha))
+            const daLinha = await formulasDaLinha(tabelaId, t)
+            if ('falta' in daLinha) { faltas.push(daLinha.falta); continue }
+            formulas = daLinha.linhas
+            rotulos.push(fraseDasFormulasDaLinha(t, daLinha.linha))
         }
         if (!tem('Perfis')) { faltas.push(fraseDaTipologiaSemPerfis(t)); continue }
         const abas: AbasDoMotor = Object.fromEntries(Object.keys(COLUNAS_LIDAS).map((nome) =>

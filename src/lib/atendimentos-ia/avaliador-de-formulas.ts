@@ -18,7 +18,7 @@
  *     cmp  := soma (('='|'<'|'>'|'<='|'>=') soma)?
  *     soma := prod (('+'|'-') prod)*      prod := prim (('*'|'/') prim)*
  *     prim := número | '&' NOME | NOME '(' args ')' | NOME | '(' ou ')'
- *   - número com PONTO decimal (88.4). A VÍRGULA é separador de argumento: a família escreve
+ *   - número com PONTO decimal (88.4). A VÍRGULA é separador de argumento: as fórmulas da linha escrevem
  *     "(HMC-87,8)" e "IIF(M=1,80,64,8)", e essas formas são RECUSADAS (`NAO_PARSEIA`, ou IIF com 4
  *     argumentos) em vez de lidas por adivinhação. A DP-02 não as usa;
  *   - funções: IIF(cond, a, b) e ARREDMAIOR(x) = teto. Nome e número de argumentos são conferidos
@@ -54,8 +54,8 @@
  *   - NÃO avalia a coluna Condição da aba 'Variáveis'. Ela diz QUANDO perguntar a variável ao
  *     vendedor, não quais peças entram; e ela cita `ARR`, que não está definido em aba nenhuma do
  *     fixture da DP-02 (medido). Avaliá-la travaria toda janela por um nome que ninguém define;
- *   - NÃO lê 'Fórmulas da família'. Ela é a fórmula mais comum entre as tipologias da família
- *     ("% padrão"), com as variáveis da família (NF = 4), e a DP-02 tem fórmula própria em
+ *   - NÃO lê 'Fórmulas da família' (a aba das fórmulas da LINHA). Ela é a fórmula mais comum entre as
+ *     tipologias da linha ("% padrão"), com as variáveis da linha (NF = 4), e a DP-02 tem fórmula própria em
  *     'Fórmulas'. Medido: das 16 variáveis comparadas, 9 divergem;
  *   - NÃO devolve vidros (aba 'Vidros'): eles não são cortados em barra. Só PERFIS;
  *   - o código da peça sai como está na coluna Perfil ("BZ0006/WOLFF"). Ligá-lo ao código do item

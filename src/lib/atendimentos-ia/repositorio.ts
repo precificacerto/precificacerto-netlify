@@ -303,7 +303,7 @@ export async function listarTipologias(tabelaId: string): Promise<Array<{ tipolo
     return q(db().from('orcamentista_motor_tipologia').select('tipologia, linha, n_regras, n_condicionais, variaveis').eq('tabela_id', tabelaId))
 }
 
-/** Quantas fórmulas da família estão gravadas para a tabela — contadas no banco. */
+/** Quantas fórmulas da linha (`orcamentista_motor_formula_familia`, nome vencido) estão gravadas para a tabela — contadas no banco. */
 export async function contarFormulas(tabelaId: string): Promise<number> {
     const { count, error } = await db().from('orcamentista_motor_formula_familia').select('id', { count: 'exact', head: true }).eq('tabela_id', tabelaId)
     if (error) throw new ErroDoBanco(error)

@@ -1,6 +1,6 @@
 /**
  * GET /api/super-admin/atendimentos-ia/tabelas/[id]/conteudo — o que a importação gravou para a
- * tabela: as tipologias e o total de fórmulas da família.
+ * tabela: as tipologias e o total de fórmulas da linha.
  *
  * ══════════════════════════════════════════════════════════════════════════════════════════
  * REGRA INVIOLÁVEL: a tela mostra apenas o nome da conta e a configuração do Atendimentos I.A.

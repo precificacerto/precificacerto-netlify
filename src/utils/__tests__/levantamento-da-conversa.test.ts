@@ -515,11 +515,11 @@ describe('(9) o levantamento com N esquadrias', () => {
     })
 })
 
-describe('(10) as abas vêm do BANCO: a Fórmulas da tipologia é a fonte, a da família é fallback ROTULADO', () => {
+describe('(10) as abas vêm do BANCO: a Fórmulas da tipologia é a fonte, a da linha é fallback ROTULADO', () => {
     const ESCOLHAS = { ARI: 4, ARE: 1, MAE: 2 }
     const semDaDP02 = (tabela: string) => { banco.db[tabela] = banco.db[tabela].filter((l) => l.tipologia !== 'DP-02') }
-    /** As fórmulas próprias da DP-02 como linhas da família — o cálculo com elas tem de dar o mesmo número. */
-    const comoFamilia = (linha: string, tabelaId = TABELA): Linha[] => banco.db.orcamentista_motor_formula
+    /** As fórmulas próprias da DP-02 como fórmulas da linha — o cálculo com elas tem de dar o mesmo número. */
+    const comoDaLinha = (linha: string, tabelaId = TABELA): Linha[] => banco.db.orcamentista_motor_formula
         .filter((l) => l.tipologia === 'DP-02')
         .map((l) => comId({ tabela_id: tabelaId, linha, linha_original: `PVC ${linha}`, variavel: l.variavel, descricao: l.descricao, formula: l.formula, formula_em_lh: null, pct_padrao: null }))
     const levantar = async () => M().mensagemDoLevantamento(TENANT, await M().lerTabelaDaEmpresa(TENANT), lev({ escolhas: ESCOLHAS }))
@@ -543,66 +543,77 @@ describe('(10) as abas vêm do BANCO: a Fórmulas da tipologia é a fonte, a da 
         expect(consumo(depois.texto)).not.toBe(consumo(antes.texto))
     })
 
-    it('SEM fórmulas próprias: as da FAMÍLIA da linha calculam, e a resposta DIZ que é a família — o número é o mesmo, o rótulo não', async () => {
-        // a família certa, e duas que NÃO podem entrar: outra linha e a mesma linha de outra tabela
-        const outraLinha = comoFamilia('EUROPA 60').map((l) => ({ ...l, formula: '(L+5000)' }))
-        const outraTabela = comoFamilia('EUROPA 42', 'tabela-de-outro-fornecedor').map((l) => ({ ...l, formula: '(L+7000)' }))
-        banco.db.orcamentista_motor_formula_familia = [...outraLinha, ...outraTabela, ...comoFamilia('EUROPA 42')]
+    it('SEM fórmulas próprias: as da LINHA calculam, e a resposta DIZ que são as da linha — o número é o mesmo, o rótulo não', async () => {
+        // a linha certa, e duas que NÃO podem entrar: outra linha e a mesma linha de outra tabela
+        const outraLinha = comoDaLinha('EUROPA 60').map((l) => ({ ...l, formula: '(L+5000)' }))
+        const outraTabela = comoDaLinha('EUROPA 42', 'tabela-de-outro-fornecedor').map((l) => ({ ...l, formula: '(L+7000)' }))
+        banco.db.orcamentista_motor_formula_familia = [...outraLinha, ...outraTabela, ...comoDaLinha('EUROPA 42')]
         semDaDP02('orcamentista_motor_formula')
         const r = await levantar()
-        expect(r).toEqual({ desfecho: 'levantou', texto: `${TEXTO_QUE_FECHA}\n\n${M().fraseDasFormulasDaFamilia('DP-02', 'EUROPA 42')}` })
-        expect(M().fraseDasFormulasDaFamilia('DP-02', 'EUROPA 42')).toBe(
-            'Atenção: as fórmulas da DP-02 são as da FAMÍLIA EUROPA 42 (fallback) — a tipologia não tem fórmulas próprias na aba "Fórmulas" do arquivo do fornecedor.')
+        expect(r).toEqual({ desfecho: 'levantou', texto: `${TEXTO_QUE_FECHA}\n\n${M().fraseDasFormulasDaLinha('DP-02', 'EUROPA 42')}` })
+        expect(M().fraseDasFormulasDaLinha('DP-02', 'EUROPA 42')).toBe(
+            'Atenção: as fórmulas da DP-02 são as da LINHA EUROPA 42 (fallback) — a tipologia não tem fórmulas próprias na aba "Fórmulas" do arquivo do fornecedor.')
     })
 
-    it('COM fórmulas próprias, a família NÃO é lida nem citada — mesmo que exista', async () => {
-        banco.db.orcamentista_motor_formula_familia = comoFamilia('EUROPA 42').map((l) => ({ ...l, formula: '(L+5000)' }))
+    it('COM fórmulas próprias, as da linha NÃO são lidas nem citadas — mesmo que existam', async () => {
+        banco.db.orcamentista_motor_formula_familia = comoDaLinha('EUROPA 42').map((l) => ({ ...l, formula: '(L+5000)' }))
         const r = await levantar()
         expect(r).toEqual({ desfecho: 'levantou', texto: TEXTO_QUE_FECHA })
     })
 
-    it('a recusa também carrega o rótulo: o vendedor sabe que a conta recusada foi a da família', async () => {
-        banco.db.orcamentista_motor_formula_familia = comoFamilia('EUROPA 42')
+    it('a recusa também carrega o rótulo: o vendedor sabe que a conta recusada foi a das fórmulas da linha', async () => {
+        banco.db.orcamentista_motor_formula_familia = comoDaLinha('EUROPA 42')
         semDaDP02('orcamentista_motor_formula')
         banco.db.orcamentista_mp_categoria = []
         const r = await levantar()
         expect(r.desfecho).toBe('recusou')
-        expect(r.texto.endsWith(`\n\n${M().fraseDasFormulasDaFamilia('DP-02', 'EUROPA 42')}`)).toBe(true)
+        expect(r.texto.endsWith(`\n\n${M().fraseDasFormulasDaLinha('DP-02', 'EUROPA 42')}`)).toBe(true)
     })
 
-    it('sem fórmulas próprias e SEM a linha da tipologia: recusa nomeada — a família não é adivinhada', async () => {
-        banco.db.orcamentista_motor_formula_familia = comoFamilia('EUROPA 42')
+    it('sem fórmulas próprias e SEM a linha da tipologia: recusa nomeada — a linha não é adivinhada', async () => {
+        banco.db.orcamentista_motor_formula_familia = comoDaLinha('EUROPA 42')
         banco.db.orcamentista_motor_tipologia[0].linha = null
         semDaDP02('orcamentista_motor_formula')
         const r = await levantar()
         expect(r.desfecho).toBe('recusou')
-        expect(r.texto).toContain(M().fraseDaFamiliaSemLinha('DP-02'))
+        expect(r.texto).toContain(M().fraseDaTipologiaSemLinha('DP-02'))
     })
 
-    it('sem fórmulas próprias e a FAMÍLIA sem fórmulas: recusa nomeando a linha', async () => {
-        banco.db.orcamentista_motor_formula_familia = comoFamilia('EUROPA 60')
+    it('sem fórmulas próprias e a LINHA sem fórmulas: recusa nomeando a linha', async () => {
+        banco.db.orcamentista_motor_formula_familia = comoDaLinha('EUROPA 60')
         semDaDP02('orcamentista_motor_formula')
         const r = await levantar()
         expect(r.desfecho).toBe('recusou')
-        expect(r.texto).toContain(M().fraseDaFamiliaSemFormulas('DP-02', 'EUROPA 42'))
+        expect(r.texto).toContain(M().fraseDaLinhaSemFormulas('DP-02', 'EUROPA 42'))
     })
 
-    it('a tipologia com DUAS linhas no motor: recusa nomeando as duas — a família não é escolhida', async () => {
-        banco.db.orcamentista_motor_formula_familia = comoFamilia('EUROPA 42')
+    it('a tipologia com DUAS linhas no motor: recusa nomeando as duas — a linha não é escolhida', async () => {
+        banco.db.orcamentista_motor_formula_familia = comoDaLinha('EUROPA 42')
         banco.db.orcamentista_motor_tipologia.push({ tabela_id: TABELA, tipologia: 'DP-02', linha: 'EUROPA 60', tempo_fabricacao_min: 150, tempo_origem: 'IMPORTADO' })
         semDaDP02('orcamentista_motor_formula')
         const r = await levantar()
         expect(r.desfecho).toBe('recusou')
-        expect(r.texto).toContain(M().fraseDaFamiliaComDuasLinhas('DP-02', ['EUROPA 42', 'EUROPA 60']))
+        expect(r.texto).toContain(M().fraseDaTipologiaComDuasLinhas('DP-02', ['EUROPA 42', 'EUROPA 60']))
     })
 
-    it('a família com a MESMA variável duas vezes: recusa nomeando a variável — não escolhe uma', async () => {
-        const familia = comoFamilia('EUROPA 42')
+    it('o VOCABULÁRIO (dono do produto, 26/10/2026): as frases dizem LINHA; "família" só no nome da aba do arquivo', () => {
+        const frases = [
+            M().fraseDasFormulasDaLinha('DP-02', 'EUROPA 42'), M().fraseDaTipologiaSemLinha('DP-02'),
+            M().fraseDaTipologiaComDuasLinhas('DP-02', ['EUROPA 42', 'EUROPA 60']), M().fraseDaLinhaSemFormulas('DP-02', 'EUROPA 42'),
+            M().fraseDaLinhaComVariavelRepetida('EUROPA 42', 'L'),
+        ]
+        // o nome da aba é do arquivo do fornecedor e fica entre aspas; fora dele, "família" não aparece
+        for (const f of frases) expect(f.replace(/"Fórmulas da família"/g, '').toLowerCase()).not.toContain('família')
+        expect(frases.filter((f) => /\blinha\b/i.test(f))).toHaveLength(frases.length)
+    })
+
+    it('a linha com a MESMA variável duas vezes: recusa nomeando a variável — não escolhe uma', async () => {
+        const familia = comoDaLinha('EUROPA 42')
         banco.db.orcamentista_motor_formula_familia = [...familia, comId({ ...familia[0], formula: '(L+9)' })]
         semDaDP02('orcamentista_motor_formula')
         const r = await levantar()
         expect(r.desfecho).toBe('recusou')
-        expect(r.texto).toContain(M().fraseDaFamiliaComVariavelRepetida('EUROPA 42', String(familia[0].variavel)))
+        expect(r.texto).toContain(M().fraseDaLinhaComVariavelRepetida('EUROPA 42', String(familia[0].variavel)))
     })
 
     it('sem PERFIS: recusa nomeada — sem perfil não há barra a calcular', async () => {
