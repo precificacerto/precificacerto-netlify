@@ -95,6 +95,29 @@ export function escolhasParaOPrompt(tipologia: VariaveisDaTipologia): string[] {
         .map((p) => `${p.variavel} = ${p.descricao}: ${p.opcoes.map((o) => `${o.valor} = ${o.rotulo}`).join('; ')}`)
 }
 
+/**
+ * As opções de arremate no PROMPT, UMA VEZ SÓ (dono do produto, 26/10/2026). Medido: 62.298 dos 83.840 caracteres do
+ * pedido (74%) eram as mesmas linhas repetidas para 161 tipologias. Agora cada linha distinta vai uma vez, num
+ * dicionário (`[O1] ARI = …`), e cada tipologia a referencia (`O1, O2, O3: DP-02, DP-03`); as que usam as mesmas
+ * linhas ficam juntas numa referência só. Nada muda no que a IA vê: relida, cada tipologia tem exatamente as linhas de
+ * antes, na mesma ordem (o portão relê o bloco e confere).
+ */
+export function opcoesDeArremateNoPrompt(escolhasPorTipologia: ReadonlyArray<{ tipologia: string; linhas: readonly string[] }>): string[] {
+    if (escolhasPorTipologia.length === 0) return ['(nenhuma)']
+    const ids = new Map<string, string>()
+    for (const e of escolhasPorTipologia) for (const l of e.linhas) if (!ids.has(l)) ids.set(l, `O${ids.size + 1}`)
+    const porReferencia = new Map<string, string[]>()
+    for (const e of escolhasPorTipologia) {
+        const ref = e.linhas.map((l) => ids.get(l) as string).join(', ')
+        porReferencia.set(ref, [...(porReferencia.get(ref) ?? []), e.tipologia])
+    }
+    return [
+        ...[...ids].map(([linha, id]) => `[${id}] ${linha}`),
+        'Quais opções cada tipologia usa (as opções, pelo número entre colchetes: tipologias):',
+        ...[...porReferencia].map(([ref, tipologias]) => `${ref}: ${tipologias.join(', ')}`),
+    ]
+}
+
 export type ResultadoDaEscolha = { gravar: Record<string, number> | null; propostos: number; descartados: number }
 
 /** Valida `{ variavel, opcao }` proposto pela LLM contra as opções da variável na tipologia. Sobrescreve. */
