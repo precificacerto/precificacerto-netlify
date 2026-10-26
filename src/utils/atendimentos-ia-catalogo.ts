@@ -116,6 +116,8 @@ export const ROTAS_DO_CATALOGO = {
     tabelaDaConta: (tenantId: string, tabelaId: string) => `/api/super-admin/atendimentos-ia/contas/${tenantId}/tabelas/${tabelaId}`,
     /** POST envia um PDF de teste ao remetente ativo da conta, pela conexão do orçamentista (26/10/2026). */
     testeDeAnexo: (tenantId: string) => `/api/super-admin/atendimentos-ia/contas/${tenantId}/teste-de-anexo`,
+    /** As FAMÍLIAS das tabelas (26/10/2026): GET a lista, na ordem; POST acrescenta `{ rotulo }` no fim. */
+    familias: '/api/super-admin/atendimentos-ia/familias',
 } as const
 
 /**
@@ -167,6 +169,34 @@ export const AVISO_DO_CATALOGO = 'Nada aqui pertence a um cliente — são tabel
 
 export const MENSAGEM_MOTOR_OBRIGATORIO = 'O motor é obrigatório: toda tabela entra com o arquivo do motor.'
 
+// ── A FAMÍLIA da tabela (dono do produto, 26/10/2026; migração 20261026000004) ─────────────
+/**
+ * O primeiro degrau da cascata FAMÍLIA -> LINHA -> TIPOLOGIA -> PERFIS, VIDROS, INSUMOS -> PREÇO.
+ * LISTA FECHADA (`orcamentista_familia_catalogo`), que o super admin acrescenta pela tela; a família
+ * é atributo da TABELA DO FORNECEDOR, escolhida da lista no cadastro — nunca deduzida do prefixo de
+ * `linha` nem de `orcamentista_motor_regra.segmento`. A conta pode ter duas tabelas da mesma família.
+ * O que o motor chama de "família" (a aba "Fórmulas da família") é a LINHA.
+ */
+export interface Familia { chave: string; rotulo: string; ordem: number }
+
+export const MENSAGEM_FAMILIA_OBRIGATORIA = 'Escolha a família da tabela.'
+export const fraseDaFamiliaDesconhecida = (chave: string) => `A família "${chave}" não está na lista de famílias.`
+/** O limite do rótulo: o mesmo da CHECK `orcamentista_familia_catalogo_rotulo_forma`. */
+export const LIMITE_DO_ROTULO_DA_FAMILIA = 60
+/** A forma da chave: a mesma da CHECK `orcamentista_familia_catalogo_chave_forma`. */
+const FORMA_DA_CHAVE_DA_FAMILIA = /^[A-Z][A-Z0-9_]{0,39}$/
+export const ehChaveDeFamilia = (v: unknown): v is string => typeof v === 'string' && FORMA_DA_CHAVE_DA_FAMILIA.test(v)
+
+/** O 23503 é o da FK da família da tabela (`orcamentista_tabela_familia_fkey`), e não o do fornecedor: a mensagem do banco diz qual. */
+export const ehFkDaFamilia = (e: unknown): boolean => /orcamentista_tabela_familia_fkey/.test((e as { message?: string } | null)?.message ?? '')
+
+/** A chave da família pelo rótulo: maiúscula, sem acento, palavras unidas por "_", até 40. Sem letra no começo, null. */
+export function chaveDaFamilia(rotulo: string): string | null {
+    const chave = rotulo.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase()
+        .replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40).replace(/_+$/, '')
+    return ehChaveDeFamilia(chave) ? chave : null
+}
+
 // ── Os tipos que a rota devolve e a tela lê ─────────────────────────────────────────────────
 export interface Nicho { id: string; modelo: Modelo; nome: string; ativo: boolean }
 
@@ -189,6 +219,8 @@ export interface TabelaDoFornecedor {
     motor_nome: string
     motor_path: string
     vigencia: string | null
+    /** A chave da família; null = não informada (as tabelas de antes de 26/10/2026). */
+    familia: string | null
     /** "Subido em". */
     criado_em: string
     contas_usando: string[]
@@ -290,6 +322,18 @@ export interface CorpoDaTabela {
     motor_path: string
     motor_nome: string
     vigencia: string | null
+    /** A chave da família, da lista. Obrigatória na tabela nova; a rota confere que está na lista. */
+    familia: string
+}
+
+/** A família nova: `{ rotulo }`, aparado, com a chave derivada dele. */
+export function lerFamiliaNova(body: unknown): Leitura<{ rotulo: string; chave: string }> {
+    const rotulo = textoAparado(obj(body).rotulo)
+    if (!rotulo) return { ok: false, erro: 'Escreva o nome da família.' }
+    if (rotulo.length > LIMITE_DO_ROTULO_DA_FAMILIA) return { ok: false, erro: `O nome da família tem ${rotulo.length} caracteres; o limite é ${LIMITE_DO_ROTULO_DA_FAMILIA}.` }
+    const chave = chaveDaFamilia(rotulo)
+    if (!chave) return { ok: false, erro: 'O nome da família precisa começar por uma letra.' }
+    return { ok: true, corpo: { rotulo, chave } }
 }
 
 /**
@@ -310,7 +354,8 @@ export function lerCorpoDaTabela(body: unknown): Leitura<CorpoDaTabela> {
     if (!dentroDoFornecedor(arquivo_path, fornecedor_id) || !dentroDoFornecedor(motor_path, fornecedor_id)) {
         return { ok: false, erro: 'Os arquivos não pertencem a este fornecedor.' }
     }
-    return { ok: true, corpo: { fornecedor_id, arquivo_path, arquivo_nome, motor_path, motor_nome, vigencia: textoAparado(b.vigencia) } }
+    if (!ehChaveDeFamilia(b.familia)) return { ok: false, erro: MENSAGEM_FAMILIA_OBRIGATORIA }
+    return { ok: true, corpo: { fornecedor_id, arquivo_path, arquivo_nome, motor_path, motor_nome, vigencia: textoAparado(b.vigencia), familia: b.familia } }
 }
 
 /** A EDIÇÃO de uma tabela: cada arquivo troca inteiro (caminho E nome) ou não troca; o motor não sai. */
@@ -319,6 +364,8 @@ export interface EdicaoDaTabela {
     motor?: { path: string; nome: string }
     /** `undefined` = não mexe; `null` = apaga a vigência. */
     vigencia?: string | null
+    /** `undefined` = não mexe. A família se troca pela lista, e não se apaga. */
+    familia?: string
 }
 
 export function lerEdicaoDaTabela(body: unknown, fornecedorId: string): Leitura<EdicaoDaTabela> {
@@ -335,6 +382,10 @@ export function lerEdicaoDaTabela(body: unknown, fornecedorId: string): Leitura<
         out[tipo] = { path: p, nome: n }
     }
     if ('vigencia' in b) out.vigencia = textoAparado(b.vigencia)
+    if ('familia' in b) {
+        if (!ehChaveDeFamilia(b.familia)) return { ok: false, erro: MENSAGEM_FAMILIA_OBRIGATORIA }
+        out.familia = b.familia
+    }
     if (Object.keys(out).length === 0) return { ok: false, erro: 'Nada a alterar.' }
     return { ok: true, corpo: out }
 }

@@ -312,10 +312,11 @@ describe('(6) a linha da tabela, no fornecedor, leva à importação', () => {
         consulta = { id: 'f1' }
         const FORN: FornecedorComTabelas = {
             id: 'f1', nome: 'Wolf Perfis', nicho_id: 'n1', nicho_nome: 'Esquadrias', modelo: 'FABRICACAO', tabelas: 1, contas_usando: [],
-            tabelas_da_lista: [{ id: T, fornecedor_id: 'f1', arquivo_nome: 'Tabela Wolff.xlsm', arquivo_path: 'p', motor_nome: 'Motor.xlsx', motor_path: 'm', vigencia: null, criado_em: '2026-10-20T00:00:00Z', contas_usando: [] }],
+            tabelas_da_lista: [{ id: T, fornecedor_id: 'f1', arquivo_nome: 'Tabela Wolff.xlsm', arquivo_path: 'p', motor_nome: 'Motor.xlsx', motor_path: 'm', vigencia: null, familia: null, criado_em: '2026-10-20T00:00:00Z', contas_usando: [] }],
         }
         responder(`GET ${ROTAS_DO_CATALOGO.fornecedor('f1')}`, { status: 200, body: FORN })
         responder(`GET ${ROTAS_DO_CATALOGO.nichos}`, { status: 200, body: [] })
+        responder(`GET ${ROTAS_DO_CATALOGO.familias}`, { status: 200, body: [{ chave: 'PVC', rotulo: 'PVC', ordem: 1 }] })
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const PaginaDoFornecedor = require('@/pages/super-admin/atendimentos-ia/fornecedores/[id]').default as React.ComponentType
         const host = await montar(<PaginaDoFornecedor />)

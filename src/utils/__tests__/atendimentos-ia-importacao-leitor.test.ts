@@ -29,7 +29,7 @@
  *       tipologia é condicional — e aí ela é medição, não suposição;
  * (6c) a coluna do banco `orcamentista_tabela_item.segmento`: a chave sai de UMA constante, e o
  *       item já sai com ela;
- *   (7) a família: o "PVC " sai do nome da linha, e `linha_original` guarda o que veio;
+ *   (7) as fórmulas da linha: o "PVC " sai do nome da linha, e `linha_original` guarda o que veio;
  *   (8) a aba "Sem uso no motor" é ignorada;
  *   (9) .csv, .pdf e .xls NÃO são importáveis — recusa com o nome, a extensão e o PORQUÊ dela;
  *  (10) aba que falta é recusa com o nome dela e as que existem.
@@ -67,17 +67,17 @@ const cabecalho = (r13: string, r15: string): Celulas => ({ 2: 'CÓDIGO', 4: 'DE
 
 const PRECO = ABAS_DA_IMPORTACAO.preco
 const MOTOR = ABAS_DA_IMPORTACAO.motor
-const FAMILIA = ABAS_DA_IMPORTACAO.familia
+const FORMULAS_DA_LINHA = ABAS_DA_IMPORTACAO.formulasDaLinha
 
 const regra = (codigo: ExcelJS.CellValue, tipologias: string, extra: Celulas = {}): Celulas => ({
     1: codigo, 2: 'corte', 3: 'PVC', 4: 'BRANCO', 5: 'W1', 6: 'EUROPA 42', 7: 'MARCO', 8: 'H', 9: '90', 10: 'L-10', 11: 'L', 12: '2',
     13: 999, 14: tipologias, ...extra,
 })
 const CAB_MOTOR: Celulas = { 1: 'CÓDIGO', 14: 'TIPOLOGIAS' }
-const CAB_FAMILIA: Celulas = { 1: 'LINHA', 2: 'VARIÁVEL' }
+const CAB_FORMULAS_DA_LINHA: Celulas = { 1: 'LINHA', 2: 'VARIÁVEL' }
 
-async function motorPadrao(regras: Celulas[] = [regra('A1', 'JC2F, JC4F')], familia: Celulas[] = []) {
-    return bytes({ [MOTOR]: [CAB_MOTOR, ...regras], [FAMILIA]: [CAB_FAMILIA, ...familia], ...abasDoSpec() })
+async function motorPadrao(regras: Celulas[] = [regra('A1', 'JC2F, JC4F')], formulasDaLinha: Celulas[] = []) {
+    return bytes({ [MOTOR]: [CAB_MOTOR, ...regras], [FORMULAS_DA_LINHA]: [CAB_FORMULAS_DA_LINHA, ...formulasDaLinha], ...abasDoSpec() })
 }
 // Com `strictNullChecks` desligado, `r.ok` não estreita a união — as guardas são explícitas.
 type Recusa = Extract<ResultadoDaLeitura, { ok: false }>
@@ -404,7 +404,7 @@ describe('(6c) a coluna do arquivo do fornecedor sai de UMA constante', () => {
     })
 })
 
-describe('(7) a família', () => {
+describe('(7) as fórmulas da linha', () => {
     it('"PVC EUROPA 42" vira "EUROPA 42" em `linha`, e `linha_original` guarda o que veio', async () => {
         const r = await ler([cabecalho('VALOR METRO 17%', 'VALOR BARRA 17%'), item('A1')], await motorPadrao(undefined, [
             { 1: 'PVC EUROPA 42', 2: 'L', 3: 'largura', 4: 'L-20', 5: 'L', 7: 0.5 },
@@ -414,7 +414,7 @@ describe('(7) a família', () => {
             { linha: 'EUROPA 42', linha_original: 'PVC EUROPA 42', variavel: 'L', descricao: 'largura', formula: 'L-20', formula_em_lh: 'L', pct_padrao: 0.5 },
             { linha: 'SUPREMA', linha_original: 'SUPREMA', variavel: 'H', descricao: 'altura', formula: 'H-10', formula_em_lh: 'H', pct_padrao: 1 },
         ])
-        // E é isso que faz a família cruzar com a regra, que diz "EUROPA 42".
+        // E é isso que faz a fórmula da linha cruzar com a regra, que diz "EUROPA 42".
         expect(r.formulas[0].linha).toBe(r.regras[0].linha)
     })
 })
@@ -423,7 +423,7 @@ describe('(8) a aba "Sem uso no motor"', () => {
     it('é ignorada: nada dela entra em regra, item ou contagem', async () => {
         const motor = await bytes({
             [MOTOR]: [CAB_MOTOR, regra('A1', 'JC2F')],
-            [FAMILIA]: [CAB_FAMILIA],
+            [FORMULAS_DA_LINHA]: [CAB_FORMULAS_DA_LINHA],
             'Sem uso no motor': [{ 1: 'CÓDIGO' }, { 1: 'X1' }, { 1: 'X2' }],
             ...abasDoSpec(),
         })

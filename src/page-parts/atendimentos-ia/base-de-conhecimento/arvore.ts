@@ -78,8 +78,8 @@ export const EM_BRANCO_DA_OPCAO = 'Em branco — ainda não configurado'
  * uso, a tela diz isso em vez de oferecer uma lista vazia em silêncio.
  *
  * A linha escolhida tem TRÊS estados, e cada um tem o seu aviso — nenhum bloqueia o salvar:
- *   1. com fórmula de família — sem aviso;
- *   2. só com regra, sem fórmula de família (DESIGN, medido em 23/10/2026) — a tabela não dimensiona
+ *   1. com fórmula da linha — sem aviso;
+ *   2. só com regra, sem fórmula da linha (DESIGN, medido em 23/10/2026) — a tabela não dimensiona
  *      essa linha: defeito da TABELA IMPORTADA, e o conserto é lá;
  *   3. fora das duas fontes — linha que a tabela não conhece: o conserto é na DIGITAÇÃO.
  * Juntar o 2 e o 3 no mesmo aviso esconderia que o 2 é da tabela e o 3 é de quem digitou.
@@ -254,7 +254,7 @@ export function origemDaLinha(arvore: ArvoreLida, c: CategoriaDoFormulario): Ori
     const fornecedor = nomeDoFornecedor(arvore, c, principal)
     const fontes = arvore.linhas_por_fornecedor[principal]
     if (!fontes) return { estado: 'sem_tabela', fornecedor }
-    // a LISTA é fórmula ∪ regra; quem tem fórmula de família é guardado à parte, para o estado 2
+    // a LISTA é fórmula ∪ regra; quem tem fórmula da linha é guardado à parte, para o estado 2
     const linhas = [...new Set([...fontes.formula, ...fontes.regra])].sort((a, b) => a.localeCompare(b, 'pt-BR'))
     return linhas.length ? { estado: 'lista', fornecedor, linhas, comFormula: fontes.formula } : { estado: 'tabela_sem_linha', fornecedor }
 }

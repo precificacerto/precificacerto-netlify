@@ -22,7 +22,7 @@
  * outro fornecedor vai precisar de um MAPA POR FORNECEDOR, que NÃO foi construído: decisão de
  * não construí-lo agora.
  *
- * O CABEÇALHO: no motor e na família é a PRIMEIRA linha da aba (medido pelo dono do produto). Na
+ * O CABEÇALHO: no motor e nas fórmulas da linha é a PRIMEIRA linha da aba (medido pelo dono do produto). Na
  * aba de preço NÃO vale essa regra: lá o cabeçalho se repete, uma vez por seção, e se reconhece
  * pela palavra "CÓDIGO" na coluna 2.
  *
@@ -67,7 +67,12 @@ export const ABAS_DA_IMPORTACAO = {
     preco: 'Tabela Wolff',
     /** No arquivo do MOTOR. */
     motor: 'Motor por barra',
-    familia: 'Fórmulas da família',
+    /**
+     * As fórmulas da LINHA do motor (EUROPA 42, EUROPA 60). O NOME DA ABA é o do arquivo do fornecedor,
+     * e por isso diz "família"; no nosso vocabulário isto é a LINHA — a FAMÍLIA é a da tabela do fornecedor
+     * (PVC, ...), `orcamentista_tabela.familia` (dono do produto, 26/10/2026).
+     */
+    formulasDaLinha: 'Fórmulas da família',
     /** NÃO é lida: os 185 códigos dela já estão na aba de preço (medição de 20/10/2026). */
     semUso: 'Sem uso no motor',
 } as const
@@ -88,8 +93,8 @@ const COL_MOTOR = {
     formula_medida: 10, formula_em_lh: 11, formula_qtde: 12, tipologias: 14, condicao: 15, obs: 16,
 } as const
 
-/** Aba da família. A PRIMEIRA linha da aba é o cabeçalho, e é pulada. */
-const COL_FAMILIA = { linha_original: 1, variavel: 2, descricao: 3, formula: 4, formula_em_lh: 5, pct_padrao: 7 } as const
+/** Aba das fórmulas da linha. A PRIMEIRA linha da aba é o cabeçalho, e é pulada. */
+const COL_FORMULAS_DA_LINHA = { linha_original: 1, variavel: 2, descricao: 3, formula: 4, formula_em_lh: 5, pct_padrao: 7 } as const
 
 // ── O que sai ──────────────────────────────────────────────────────────────────────────────
 /** Uma linha de `orcamentista_tabela_item`, sem `id` e `tabela_id`. A categoria vem em `CategoriaDoFornecedor`. */
@@ -206,7 +211,7 @@ export function normalizarCodigo(bruto: string): { codigo: string; mudou: boolea
     return { codigo: bruto, mudou: false }
 }
 
-/** O nome da linha na família: sem o prefixo "PVC " — a regra diz "EUROPA 42", a família "PVC EUROPA 42". */
+/** O nome da linha nas fórmulas da linha: sem o prefixo "PVC " — a regra diz "EUROPA 42", a aba do arquivo "PVC EUROPA 42". */
 export const normalizarLinha = (linha: string | null): string | null => (linha === null ? null : linha.replace(/^PVC\s+/i, '').trim() || null)
 
 const ehCabecalhoDoPreco = (v: ValorLido) => typeof v === 'string' && /^C[ÓO]DIGO$/i.test(v.trim())
@@ -368,20 +373,20 @@ function lerMotor(ws: ExcelJS.Worksheet): { regras: RegraLida[]; avisos: Aviso[]
     return { regras, avisos: l.avisos, normalizados: l.normalizados }
 }
 
-function lerFamilia(ws: ExcelJS.Worksheet): { formulas: FormulaLida[]; avisos: Aviso[] } {
-    const l = new Leitor(ABAS_DA_IMPORTACAO.familia, ws)
+function lerFormulasDaLinha(ws: ExcelJS.Worksheet): { formulas: FormulaLida[]; avisos: Aviso[] } {
+    const l = new Leitor(ABAS_DA_IMPORTACAO.formulasDaLinha, ws)
     const formulas: FormulaLida[] = []
     for (let r = 2; r <= ws.rowCount; r++) {
         if (l.linhaVazia(r)) continue
-        const linhaOriginal = l.texto(r, COL_FAMILIA.linha_original)
+        const linhaOriginal = l.texto(r, COL_FORMULAS_DA_LINHA.linha_original)
         formulas.push({
             linha: normalizarLinha(linhaOriginal),
             linha_original: linhaOriginal,
-            variavel: l.texto(r, COL_FAMILIA.variavel),
-            descricao: l.texto(r, COL_FAMILIA.descricao),
-            formula: l.texto(r, COL_FAMILIA.formula),
-            formula_em_lh: l.texto(r, COL_FAMILIA.formula_em_lh),
-            pct_padrao: l.numero(r, COL_FAMILIA.pct_padrao),
+            variavel: l.texto(r, COL_FORMULAS_DA_LINHA.variavel),
+            descricao: l.texto(r, COL_FORMULAS_DA_LINHA.descricao),
+            formula: l.texto(r, COL_FORMULAS_DA_LINHA.formula),
+            formula_em_lh: l.texto(r, COL_FORMULAS_DA_LINHA.formula_em_lh),
+            pct_padrao: l.numero(r, COL_FORMULAS_DA_LINHA.pct_padrao),
         })
     }
     return { formulas, avisos: l.avisos }
@@ -471,8 +476,8 @@ export async function lerArquivosDaImportacao(arquivos: { tabela: ArquivoDaImpor
     if (typeof wsPreco === 'string') return { ok: false, erro: wsPreco }
     const wsMotor = aba(wbMotor, arquivos.motor.nome, ABAS_DA_IMPORTACAO.motor)
     if (typeof wsMotor === 'string') return { ok: false, erro: wsMotor }
-    const wsFamilia = aba(wbMotor, arquivos.motor.nome, ABAS_DA_IMPORTACAO.familia)
-    if (typeof wsFamilia === 'string') return { ok: false, erro: wsFamilia }
+    const wsFormulasDaLinha = aba(wbMotor, arquivos.motor.nome, ABAS_DA_IMPORTACAO.formulasDaLinha)
+    if (typeof wsFormulasDaLinha === 'string') return { ok: false, erro: wsFormulasDaLinha }
 
     // as nove abas por tipologia: uma aba ou coluna que falte, um valor inválido ou uma chave repetida
     // RECUSAM a importação inteira, com todas as frases de uma vez — nada é gravado pela metade
@@ -481,13 +486,13 @@ export async function lerArquivosDaImportacao(arquivos: { tabela: ArquivoDaImpor
 
     const preco = lerPreco(wsPreco)
     const motor = lerMotor(wsMotor)
-    const familia = lerFamilia(wsFamilia)
+    const formulasDaLinha = lerFormulasDaLinha(wsFormulasDaLinha)
     const resumo = resumirTipologias(motor.regras)
 
     const codigosDoPreco = new Set(preco.itens.map((i) => i.codigo))
     const codigosDoMotor = [...new Set(motor.regras.map((r) => r.codigo))]
     const semPreco = codigosDoMotor.filter((c) => !codigosDoPreco.has(c))
-    const avisos: Aviso[] = [...preco.avisos, ...motor.avisos, ...familia.avisos, ...resumo.avisos]
+    const avisos: Aviso[] = [...preco.avisos, ...motor.avisos, ...formulasDaLinha.avisos, ...resumo.avisos]
     if (semPreco.length > 0) {
         avisos.push({ tipo: 'codigo_do_motor_sem_preco', codigos: semPreco, mensagem: `${semPreco.length} código(s) do motor não estão na tabela de preço` })
     }
@@ -497,7 +502,7 @@ export async function lerArquivosDaImportacao(arquivos: { tabela: ArquivoDaImpor
         itens: preco.itens,
         regras: motor.regras,
         tipologias: resumo.tipologias,
-        formulas: familia.formulas,
+        formulas: formulasDaLinha.formulas,
         abas: abasDoMotor.linhas,
         contagens: {
             itens: preco.itens.length,

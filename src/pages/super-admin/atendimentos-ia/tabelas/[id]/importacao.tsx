@@ -48,7 +48,7 @@ interface Conteudo { formulas: number; tipologias: TipologiaLida[] }
 interface ErroDaImportacao { motivo: string; divergencia: { enviado: ContagensDaGravacao; gravado: ContagensDaGravacao } | null }
 
 const num = (x: number) => x.toLocaleString('pt-BR')
-const ROTULO_DA_CONTAGEM: Record<keyof ContagensDaGravacao, string> = { itens: 'Itens de preço', regras: 'Regras do motor', tipologias: 'Tipologias', formulas: 'Fórmulas da família' }
+const ROTULO_DA_CONTAGEM: Record<keyof ContagensDaGravacao, string> = { itens: 'Itens de preço', regras: 'Regras do motor', tipologias: 'Tipologias', formulas: 'Fórmulas da linha' }
 
 function Contagem({ chave, rotulo, valor }: { chave: string; rotulo: string; valor: number }) {
     return (

@@ -244,13 +244,13 @@ const porTexto = (campo: string) => (a: Linha, b: Linha) => String(a[campo] ?? '
 /**
  * As LINHAS que a tabela em uso de cada fornecedor conhece, POR FONTE: as distintas de
  * `orcamentista_motor_formula_familia.linha` e as de `orcamentista_motor_regra.linha`, SEPARADAS —
- * medido em 23/10/2026, as duas divergem (DESIGN tem 139 regras e nenhuma fórmula de família), e a
+ * medido em 23/10/2026, as duas divergem (DESIGN tem 139 regras e nenhuma fórmula da linha), e a
  * tela precisa saber qual é qual: linha só com regra é defeito da tabela importada (não dimensiona),
  * não erro de digitação.
  *
  * REGISTRADO, NÃO RESOLVIDO: há uma TERCEIRA fonte de "linha" — `orcamentista_motor_tipologia.linha`,
  * que a rota `/tabelas/[id]/conteudo` lê. Medido em 23/10/2026: regra e tipologia trazem as mesmas 3
- * linhas (DESIGN, EUROPA 42, EUROPA 60); a fórmula de família, só 2 (sem DESIGN). A divergência entre
+ * linhas (DESIGN, EUROPA 42, EUROPA 60); a fórmula da linha, só 2 (sem DESIGN). A divergência entre
  * as três JÁ EXISTE hoje, não é futura — e é ela que o aviso do estado 2 (DESIGN) expõe na tela.
  * Registrada, não consertada: ver o corpo do PR #137.
  *

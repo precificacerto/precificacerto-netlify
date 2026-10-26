@@ -13,6 +13,9 @@
  *     ficam num Alert FIXO na página, acima da lista, até o usuário fechar. Cada falha já vem
  *     com o arquivo nomeado uma vez (`gravarTabelaNova`); aqui não se acrescenta nome.
  * Portão: `atendimentos-ia-recusa-onde-a-acao-aconteceu.test.tsx`.
+ *
+ * AS FAMÍLIAS (dono do produto, 26/10/2026) moram aqui, ao lado dos nichos: a lista fechada que o
+ * cadastro da tabela usa, com "Nova família" (`FamiliasCard`).
  */
 import React, { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/router'
@@ -22,10 +25,11 @@ import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
 import { ROUTES } from '@/constants/routes'
 import { useAuth } from '@/hooks/use-auth.hook'
-import { AVISO_DO_CATALOGO, ROTAS_DO_CATALOGO, ROTULO_DO_MODELO, type FornecedorDaLista, type Modelo, type Nicho } from '@/utils/atendimentos-ia-catalogo'
+import { AVISO_DO_CATALOGO, ROTAS_DO_CATALOGO, ROTULO_DO_MODELO, type Familia, type FornecedorDaLista, type Modelo, type Nicho } from '@/utils/atendimentos-ia-catalogo'
 import { chamarRota, gravarTabelaNova } from '@/page-parts/atendimentos-ia/api'
 import { FornecedorModal, TITULO_FORNECEDOR_NAO_CREDENCIADO, type DadosDoFornecedor, type ErroDoFornecedor } from '@/page-parts/atendimentos-ia/fornecedor-modal.component'
 import { NichosCard } from '@/page-parts/atendimentos-ia/nichos.component'
+import { FamiliasCard } from '@/page-parts/atendimentos-ia/familias.component'
 
 export default function FornecedoresETabelas() {
     const router = useRouter()
@@ -34,6 +38,7 @@ export default function FornecedoresETabelas() {
 
     const [fornecedores, setFornecedores] = useState<FornecedorDaLista[] | null>(null)
     const [nichos, setNichos] = useState<Nicho[]>([])
+    const [familias, setFamilias] = useState<Familia[]>([])
     const [erro, setErro] = useState<string | null>(null)
     const [credenciando, setCredenciando] = useState(false)
     const [salvando, setSalvando] = useState(false)
@@ -42,12 +47,14 @@ export default function FornecedoresETabelas() {
 
     const carregar = useCallback(async () => {
         try {
-            const [fs, ns] = await Promise.all([
+            const [fs, ns, fams] = await Promise.all([
                 chamarRota<FornecedorDaLista[]>(ROTAS_DO_CATALOGO.fornecedores),
                 chamarRota<Nicho[]>(ROTAS_DO_CATALOGO.nichos),
+                chamarRota<Familia[]>(ROTAS_DO_CATALOGO.familias),
             ])
             setFornecedores(fs)
             setNichos(ns)
+            setFamilias(fams)
             setErro(null)
         } catch (e) {
             setErro((e as Error).message)
@@ -98,6 +105,18 @@ export default function FornecedoresETabelas() {
             return true
         } catch (e) {
             message.error((e as Error).message)
+            return false
+        }
+    }
+
+    async function criarFamilia(rotulo: string) {
+        try {
+            await chamarRota(ROTAS_DO_CATALOGO.familias, 'POST', { rotulo })
+            message.success('Família acrescentada')
+            await carregar()
+            return true
+        } catch (e) {
+            message.error((e as Error).message, 8)
             return false
         }
     }
@@ -162,11 +181,13 @@ export default function FornecedoresETabelas() {
             )}
 
             {!erro && <NichosCard nichos={nichos} onCriar={criarNicho} onExcluir={excluirNicho} />}
+            {!erro && <FamiliasCard familias={familias} onCriar={criarFamilia} />}
 
             <FornecedorModal
                 aberto={credenciando}
                 modo="credenciar"
                 nichos={nichos}
+                familias={familias}
                 salvando={salvando}
                 erro={credenciando ? erroAoCredenciar : null}
                 onCancelar={() => abrirCredenciamento(false)}

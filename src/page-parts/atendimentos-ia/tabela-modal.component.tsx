@@ -1,5 +1,10 @@
 /**
- * O modal da TABELA (EPIC §5.6): Arquivo → Motor → Vigência, NESSA ORDEM.
+ * O modal da TABELA (EPIC §5.6): Arquivo → Motor → Família → Vigência, NESSA ORDEM.
+ *
+ * A FAMÍLIA (dono do produto, 26/10/2026) vem da LISTA (`familias`, da rota) e é OBRIGATÓRIA na
+ * tabela nova: sem ela o salvar não liga. Nenhuma vem escolhida pela tela — nem quando a lista tem
+ * uma só. Na edição de uma tabela de antes da família, a tela diz "Família não informada" e salvar
+ * sem escolher não manda família (a família se troca, e não se apaga).
  *
  * O MOTOR É OBRIGATÓRIO: sem ele o botão de salvar não liga, e a frase diz por quê. Mas esta é a
  * trava da TELA — a da ROTA é a que vale (`lerCorpoDaTabela`), e o banco tem a terceira (NOT NULL).
@@ -16,19 +21,21 @@
  * Portão: `atendimentos-ia-formato-do-arquivo.test.tsx`.
  */
 import React, { useEffect, useState } from 'react'
-import { Alert, Button, Input, Modal, Typography, Upload } from 'antd'
+import { Alert, Button, Input, Modal, Radio, Typography, Upload } from 'antd'
 import { UploadOutlined } from '@ant-design/icons'
-import { AVISO_DO_CATALOGO, EXTENSOES_ACEITAS, MENSAGEM_MOTOR_OBRIGATORIO, MOTIVO_DO_FORMATO_RECUSADO, extensaoAceita, fraseDoArquivo } from '@/utils/atendimentos-ia-catalogo'
+import { AVISO_DO_CATALOGO, EXTENSOES_ACEITAS, MENSAGEM_FAMILIA_OBRIGATORIA, MENSAGEM_MOTOR_OBRIGATORIO, MOTIVO_DO_FORMATO_RECUSADO, extensaoAceita, fraseDoArquivo, type Familia } from '@/utils/atendimentos-ia-catalogo'
 import type { TabelaPendente } from './api'
 
 export const TEXTO_DO_MOTOR = 'O motor é quem faz as reduções de tipologia em cima dos perfis desta tabela. Sem ele a tabela não calcula.'
 export const TITULO_DO_ERRO_AO_SALVAR = 'A tabela não foi salva.'
 
-export interface AtualDaTabela { arquivo_nome: string; motor_nome: string; vigencia: string | null }
+export interface AtualDaTabela { arquivo_nome: string; motor_nome: string; vigencia: string | null; familia: string | null }
 
 interface Props {
     aberto: boolean
     titulo: string
+    /** A lista fechada das famílias, na ordem (`ROTAS_DO_CATALOGO.familias`). */
+    familias: Familia[]
     /** Presente na edição: os arquivos atuais. Ausente na tabela nova. */
     atual?: AtualDaTabela
     salvando?: boolean
@@ -66,22 +73,27 @@ function Escolha({ rotulo, arquivo, atual, onEscolher }: { rotulo: string; arqui
     )
 }
 
-export function TabelaModal({ aberto, titulo, atual, salvando, erro, onCancelar, onSalvar }: Props) {
+export function TabelaModal({ aberto, titulo, familias, atual, salvando, erro, onCancelar, onSalvar }: Props) {
     const [arquivo, setArquivo] = useState<File | null>(null)
     const [motor, setMotor] = useState<File | null>(null)
     const [vigencia, setVigencia] = useState('')
+    const [familia, setFamilia] = useState<string | null>(null)
 
     useEffect(() => {
         if (!aberto) return
         setArquivo(null)
         setMotor(null)
         setVigencia(atual?.vigencia ?? '')
+        setFamilia(atual?.familia ?? null)
     // Só ao ABRIR — ver o mesmo comentário em `fornecedor-modal.component.tsx`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [aberto])
 
     const temArquivo = !!arquivo || !!atual?.arquivo_nome
     const temMotor = !!motor || !!atual?.motor_nome
+    // a tabela nova precisa da família; a edição de uma tabela sem família salva sem ela
+    const faltaFamilia = !atual && familia === null
+    const rotuloDaAtual = atual?.familia ? familias.find((f) => f.chave === atual.familia)?.rotulo ?? atual.familia : null
 
     return (
         <Modal
@@ -90,14 +102,26 @@ export function TabelaModal({ aberto, titulo, atual, salvando, erro, onCancelar,
             onCancel={onCancelar}
             okText="Salvar tabela"
             cancelText="Cancelar"
-            okButtonProps={{ disabled: !temArquivo || !temMotor, loading: salvando }}
-            onOk={() => onSalvar({ arquivo, motor, vigencia })}
+            okButtonProps={{ disabled: !temArquivo || !temMotor || faltaFamilia, loading: salvando }}
+            // na edição, só vai a família se ela mudou
+            onOk={() => onSalvar({ arquivo, motor, vigencia, familia: familia !== (atual?.familia ?? null) ? familia : null })}
             destroyOnClose
         >
             <Escolha rotulo="Arquivo da tabela" arquivo={arquivo} atual={atual?.arquivo_nome} onEscolher={setArquivo} />
             <Escolha rotulo="Arquivo do motor" arquivo={motor} atual={atual?.motor_nome} onEscolher={setMotor} />
             <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginTop: -6 }}>{TEXTO_DO_MOTOR}</Typography.Paragraph>
             {!temMotor && <Alert type="warning" showIcon message={MENSAGEM_MOTOR_OBRIGATORIO} style={{ marginBottom: 12 }} />}
+            <Typography.Text strong>Família</Typography.Text>
+            <div style={{ marginTop: 6, marginBottom: 14 }}>
+                <Radio.Group value={familia} onChange={(e) => setFamilia(e.target.value as string)} aria-label="Família da tabela">
+                    {familias.map((f) => <Radio.Button key={f.chave} value={f.chave} data-familia={f.chave}>{f.rotulo}</Radio.Button>)}
+                </Radio.Group>
+                {atual && !atual.familia && familia === null && (
+                    <Typography.Paragraph type="secondary" style={{ fontSize: 12, margin: '6px 0 0' }} data-familia-nao-informada>Família não informada.</Typography.Paragraph>
+                )}
+                {rotuloDaAtual && <Typography.Paragraph type="secondary" style={{ fontSize: 12, margin: '6px 0 0' }}>Atual: {rotuloDaAtual}.</Typography.Paragraph>}
+                {faltaFamilia && <Alert type="warning" showIcon message={MENSAGEM_FAMILIA_OBRIGATORIA} style={{ marginTop: 8 }} />}
+            </div>
             <Typography.Text strong>Vigência</Typography.Text>
             <Input
                 style={{ marginTop: 6 }}

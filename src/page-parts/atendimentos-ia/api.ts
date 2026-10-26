@@ -64,8 +64,11 @@ export async function enviarArquivo(fornecedorId: string, tipo: TipoDeArquivo, a
     return { path, nome: arquivo.name }
 }
 
-/** Uma tabela ainda no navegador: os dois arquivos e a vigência, antes de qualquer envio. */
-export interface TabelaPendente { arquivo: File | null; motor: File | null; vigencia: string }
+/**
+ * Uma tabela ainda no navegador: os dois arquivos, a vigência e a família, antes de qualquer envio.
+ * `familia` é a chave da lista; na edição, null = não mexe.
+ */
+export interface TabelaPendente { arquivo: File | null; motor: File | null; vigencia: string; familia: string | null }
 
 /**
  * Envia os dois arquivos e grava a tabela. Arquivo primeiro, motor depois — a ordem do modal.
@@ -81,6 +84,7 @@ export async function gravarTabelaNova(fornecedorId: string, t: TabelaPendente):
             arquivo_path: arquivo.path, arquivo_nome: arquivo.nome,
             motor_path: motor.path, motor_nome: motor.nome,
             vigencia: t.vigencia,
+            familia: t.familia,
         })
     } catch (e) {
         throw new ErroDaRota(e instanceof ErroDaRota ? e.status : 0, fraseDaTabela(arquivo.nome, (e as Error).message))

@@ -43,7 +43,7 @@
  * mm (peças do #143, com um corte por peça) e de 2.043,4 + 2.043,3 + 1.903,3 mm (com os dois cortes
  * entre elas), com serra de 5 mm, somam EXATAMENTE 6.000 em decimal e, em mm com ponto flutuante, na
  * ordem decrescente em que entram na barra, 6000.000000000001 — a barra recusaria o que cabe. Com inteiros
- * não há o problema; as medidas das fórmulas da família têm decimais. Arredondar para o µm não perde
+ * não há o problema; as medidas das fórmulas da linha têm decimais. Arredondar para o µm não perde
  * nada que uma serra enxergue.
  *
  * A SOBRA é TUDO o que se compra e não vira peça: comprado − útil, com o consumo da serra dentro
