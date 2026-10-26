@@ -303,7 +303,7 @@ const conversa = require('@/lib/atendimentos-ia/conversa-da-ia') as typeof impor
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { formatarReais } = require('@/lib/atendimentos-ia/levantamento-de-barras') as typeof import('@/lib/atendimentos-ia/levantamento-de-barras')
 
-type Proposta = { nome?: string; novo?: boolean; itens?: Linha[]; escolhas?: Linha[]; opcoes_de?: string[]; pergunta?: { texto: string } } & Linha
+type Proposta = { nome?: string; novo?: boolean; itens?: Linha[]; escolhas?: Linha[]; opcoes_de?: string[]; pergunta?: { campo?: string; texto: string } } & Linha
 function respostaComFerramenta(p: Proposta) {
     return {
         id: 'msg_teste', type: 'message', role: 'assistant', model: 'claude-sonnet-5-5', stop_reason: 'tool_use',
