@@ -154,9 +154,8 @@ function montar() {
         orcamentista_pergunta_em_aberto: [],
         orcamentista_conta_tabela: [{ tenant_id: TENANT, tabela_id: TABELA }],
         // a tabela e o fornecedor dela: com mais de uma tabela, a pergunta cita o fornecedor pelo nome (bloco 19)
-        orcamentista_tabela: [{ id: TABELA, fornecedor_id: 'f-wolff', arquivo_nome: 'Tabela Wolff.xlsx', familia: 'PVC' }],
+        orcamentista_tabela: [{ id: TABELA, fornecedor_id: 'f-wolff', arquivo_nome: 'Tabela Wolff.xlsx' }],
         orcamentista_fornecedor: [{ id: 'f-wolff', nome: 'Wolff Perfis' }],
-        orcamentista_familia_catalogo: [{ chave: 'PVC', rotulo: 'PVC', ordem: 1 }, { chave: 'ALUMINIO', rotulo: 'Alumínio', ordem: 2 }],
         // as abas da DP-02 como a importação as grava: o levantamento e a conversa as leem do banco
         ...abasDaDP02NoBanco(TABELA),
         orcamentista_motor_tipologia_detalhe: [
@@ -892,7 +891,7 @@ describe('(9) o contrato da chamada à Anthropic', () => {
         const item = e.properties.itens.items as Esquema
         expect(item.additionalProperties).toBe(false)
         // `fornecedor`: a resposta à pergunta de qual fornecedor, com mais de uma tabela (26/10/2026)
-        expect(Object.keys(item.properties).sort()).toEqual(['altura_mm', 'cor_perfil', 'familia', 'fornecedor', 'largura_mm', 'ordem', 'quantidade', 'tipologia', 'vidro'])
+        expect(Object.keys(item.properties).sort()).toEqual(['altura_mm', 'cor_perfil', 'fornecedor', 'largura_mm', 'ordem', 'quantidade', 'tipologia', 'vidro'])
         for (const k of ['ordem', 'largura_mm', 'altura_mm', 'quantidade']) expect(item.properties[k].type).toBe('integer')
         expect(item.properties.tipologia.type).toBe('string')
         const escolha = e.properties.escolhas.items as Esquema
@@ -1538,13 +1537,13 @@ describe('(19) duas tabelas com o mesmo código: a conversa pergunta de qual for
     const SUL = 'tabela-perfis-sul'
     beforeEach(() => {
         estado.db.orcamentista_conta_tabela.push({ tenant_id: TENANT, tabela_id: SUL })
-        estado.db.orcamentista_tabela.push({ id: SUL, fornecedor_id: 'f-sul', arquivo_nome: 'Sul 2026.xlsx', familia: 'ALUMINIO' })
+        estado.db.orcamentista_tabela.push({ id: SUL, fornecedor_id: 'f-sul', arquivo_nome: 'Sul 2026.xlsx' })
         estado.db.orcamentista_fornecedor.push({ id: 'f-sul', nome: 'Perfis Sul' })
         estado.db.orcamentista_motor_tipologia_detalhe.push({ tabela_id: SUL, tipologia: 'DP-02', descricao: 'JANELA DE CORRER 02 FOLHAS | LINHA SUL', tipo: 'Correr' })
     })
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const montagem = () => require('@/lib/atendimentos-ia/levantamento-em-montagem') as typeof import('@/lib/atendimentos-ia/levantamento-em-montagem')
-    const PERGUNTA = () => montagem().fraseDeQualFornecedor('DP-02', [{ fornecedor: 'Perfis Sul', familia: 'Alumínio' }, { fornecedor: 'Wolff Perfis', familia: 'PVC' }])
+    const PERGUNTA = () => montagem().fraseDeQualFornecedor('DP-02', ['Perfis Sul', 'Wolff Perfis'])
 
     it('a esquadria com o código nas duas: a resposta PERGUNTA de qual fornecedor, citando os dois — e a esquadria fica sem tabela', async () => {
         llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }] })
@@ -1555,8 +1554,8 @@ describe('(19) duas tabelas com o mesmo código: a conversa pergunta de qual for
         expect(itensDe(l.id).map((i) => i.tabela_id)).toEqual([null])
         // o prompt deu à IA as duas linhas, cada uma com o fornecedor
         const sistema = String(estado.chamadasDaLlm[0].corpo.system)
-        expect(sistema).toContain('DP-02 | JANELA DE CORRER 02 FOLHAS | LINHA SUL | Correr | fornecedor: Perfis Sul | família: Alumínio')
-        expect(sistema).toContain('DP-02 | JANELA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 42 | Correr | fornecedor: Wolff Perfis | família: PVC')
+        expect(sistema).toContain('DP-02 | JANELA DE CORRER 02 FOLHAS | LINHA SUL | Correr | fornecedor: Perfis Sul')
+        expect(sistema).toContain('DP-02 | JANELA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 42 | Correr | fornecedor: Wolff Perfis')
     })
 
     it('a resposta "é da Wolff": a esquadria leva a tabela da Wolff, e a conversa segue para o apanhado', async () => {
@@ -1597,19 +1596,5 @@ describe('(19) duas tabelas com o mesmo código: a conversa pergunta de qual for
         await chamar('Levantamento Casa do Pedro: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm')
         expect(ultimoEnviado().startsWith('Apanhado do levantamento')).toBe(true)
         expect(itensDe(levantamentos()[0].id).map((i) => i.tabela_id)).toEqual([TABELA])
-    })
-
-    it('o MESMO fornecedor com PVC e alumínio: a pergunta cita a família, e "é a de PVC" resolve', async () => {
-        // a tabela do sul passa a ser da Wolff, de alumínio: o caso que o dono do produto citou
-        const sul = estado.db.orcamentista_tabela.find((t) => t.id === SUL)
-        if (!sul) throw new Error('sem a tabela do sul')
-        sul.fornecedor_id = 'f-wolff'
-        llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }] })
-        await chamar('Levantamento Casa do Pedro: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm')
-        expect(ultimoEnviado()).toBe('A DP-02 está em 2 tabelas da Wolff Perfis: de Alumínio ou de PVC. De qual família é?')
-        llmResponde({ itens: [{ familia: 'PVC' }] })
-        await chamar('é a de PVC')
-        expect(itensDe(levantamentos()[0].id).map((i) => i.tabela_id)).toEqual([TABELA])
-        expect(ultimoEnviado().startsWith('Apanhado do levantamento')).toBe(true)
     })
 })
