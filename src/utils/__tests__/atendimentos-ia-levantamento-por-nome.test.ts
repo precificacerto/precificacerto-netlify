@@ -890,7 +890,8 @@ describe('(9) o contrato da chamada à Anthropic', () => {
         expect(e.additionalProperties).toBe(false)
         const item = e.properties.itens.items as Esquema
         expect(item.additionalProperties).toBe(false)
-        expect(Object.keys(item.properties).sort()).toEqual(['altura_mm', 'cor_perfil', 'largura_mm', 'ordem', 'quantidade', 'tipologia', 'vidro'])
+        // `fornecedor`: a resposta à pergunta de qual fornecedor, com mais de uma tabela (26/10/2026)
+        expect(Object.keys(item.properties).sort()).toEqual(['altura_mm', 'cor_perfil', 'fornecedor', 'largura_mm', 'ordem', 'quantidade', 'tipologia', 'vidro'])
         for (const k of ['ordem', 'largura_mm', 'altura_mm', 'quantidade']) expect(item.properties[k].type).toBe('integer')
         expect(item.properties.tipologia.type).toBe('string')
         const escolha = e.properties.escolhas.items as Esquema
@@ -1565,8 +1566,13 @@ describe('(19) duas tabelas com o mesmo código: a conversa pergunta de qual for
         const [l] = levantamentos()
         expect(itensDe(l.id).map((i) => i.tabela_id)).toEqual([TABELA])
         expect(ultimoEnviado().startsWith('Apanhado do levantamento')).toBe(true)
-        // e com o "sim", o levantamento formal pela tabela da Wolff: os mesmos números de uma tabela só
-        expect(await confirmarApanhado()).toContain('Perfis por barra inteira: R$ 1.342,09.')
+        // e com o "sim", o levantamento formal pela tabela da Wolff: o MESMO texto da conta com uma tabela só
+        const comDuas = await confirmarApanhado()
+        montar()
+        llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }] })
+        await chamar('Levantamento Casa do Pedro: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm')
+        expect(comDuas).toContain('Perfis por barra inteira: R$')
+        expect(comDuas).toBe(await confirmarApanhado())
     })
 
     it('o fornecedor que a IA põe SEM o vendedor ter dito: não vale — a pergunta não é respondida por ela', async () => {

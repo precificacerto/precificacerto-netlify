@@ -120,7 +120,7 @@ function montar() {
 beforeEach(montar)
 
 /** O que a pré-definição gravada traz para o levantamento — `escolhas` é o jsonb da coluna. */
-const ESQUADRIA = { ordem: 1, tipologia: 'DP-02', largura_mm: 1200, altura_mm: 1000, quantidade: 1, cor_perfil: 'BRANCO' as string | null, vidro: 'Temperado 5mm', escolhas: null as Record<string, number> | null }
+const ESQUADRIA = { ordem: 1, tipologia: 'DP-02', largura_mm: 1200, altura_mm: 1000, quantidade: 1, cor_perfil: 'BRANCO' as string | null, vidro: 'Temperado 5mm', escolhas: null as Record<string, number> | null, tabela_id: null as string | null }
 /** O levantamento gravado — nome e esquadrias — como a conversa o entrega ao levantamento. */
 const lev = (o: Partial<typeof ESQUADRIA> = {}) => ({ nome: 'Casa do João', itens: [{ ...ESQUADRIA, ...o }] })
 /** Os dados da esquadria como a FRASE os recebe: as escolhas já descritas. */
@@ -164,9 +164,9 @@ describe('(1) a tabela da empresa e as tipologias candidatas', () => {
     it('a lista vem de orcamentista_motor_tipologia_detalhe da tabela LIGADA à empresa, em ordem de código', async () => {
         const t = await M().lerTabelaDaEmpresa(TENANT)
         if (!('candidatos' in t)) throw new Error('era para ler a lista: ' + t.frase)
-        expect(t.tabelaId).toBe(TABELA)
+        expect(t.tabelas).toEqual([{ tabelaId: TABELA, fornecedor: 'Wolff Perfis' }])
         expect(t.candidatos.map((c) => c.tipologia)).toEqual(['DP-01', 'DP-02'])
-        expect(M().linhaDoCandidato(t.candidatos[1])).toBe('DP-02 | JANELA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 42 | Correr')
+        expect(M().linhaDoCandidato(t.candidatos[1], false)).toBe('DP-02 | JANELA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 42 | Correr')
     })
 
     it('SEM TABELA LIGADA: a frase diz que a empresa não tem tabela', async () => {
@@ -243,7 +243,7 @@ describe('(1) a tabela da empresa e as tipologias candidatas', () => {
     it('com a tabela dita, a esquadria calcula pela tabela DELA — o mesmo levantamento de uma tabela só', async () => {
         comOutraTabela()
         const t = await M().lerTabelaDaEmpresa(TENANT)
-        const r = await M().mensagemDoLevantamento(TENANT, t, lev({ escolhas: { ARI: 4, ARE: 1, MAE: 2 }, tabela_id: TABELA } as Partial<typeof ESQUADRIA>))
+        const r = await M().mensagemDoLevantamento(TENANT, t, lev({ escolhas: { ARI: 4, ARE: 1, MAE: 2 }, tabela_id: TABELA }))
         expect(r).toEqual({ desfecho: 'levantou', texto: TEXTO_QUE_FECHA })
     })
 

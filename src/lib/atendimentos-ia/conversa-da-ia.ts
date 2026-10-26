@@ -39,6 +39,14 @@
  * de outro vendedor também recebe o apanhado; a pergunta acha o levantamento pelo id, e a permissão de admin é
  * conferida de novo no "sim".
  *
+ * ══ VÁRIAS TABELAS (dono do produto, 26/10/2026; migração 20261026000004) ══
+ * Caiu a trava "a sua empresa tem 2 tabelas e ele trabalha com uma só". A lista de tipologias junta as de
+ * todas as tabelas ligadas; com mais de uma, cada linha do prompt diz o fornecedor. A esquadria guarda de
+ * qual tabela é (`tabela_id`): o código numa tabela só, aquela; em mais de uma, a conversa PERGUNTA de qual
+ * fornecedor, citando os nomes (`proximaPendencia`) — nunca escolhe, nunca "a primeira". A resposta vem em
+ * `itens[].fornecedor` e vale só se o vendedor disse o fornecedor (`fornecedorNaMensagem`) e ele é um dos
+ * daquela tipologia. As abas (e as escolhas de arremate) são as da tabela da esquadria.
+ *
  * ══ QUEM ALTERA — decisão 2, REVISTA (dono do produto, 25/10/2026) ══
  * (a) o vendedor que criou e (b) quem é admin NA EMPRESA (`permissao-do-remetente.ts`: `users.role =
  * 'admin'` pela cadeia remetente → employees → users, com falha fechada). O nome continua único por
@@ -100,12 +108,14 @@ import { supabaseAdmin } from '@/supabase/admin'
 import { MODELO_PADRAO_DA_IA, URL_DA_API_ANTHROPIC, VERSAO_DA_API_ANTHROPIC } from '@/lib/atendimentos-ia/modelo-da-ia'
 import { paraOLog } from '@/utils/atendimentos-ia-mascara-do-log'
 import {
-    FRASE_SEM_CORES, lerCoresDaEmpresa, lerTabelaDaEmpresa, linhaDoCandidato, lerVariaveisDasTipologias, mensagemDoLevantamento, type CandidatoDeTipologia,
+    FRASE_SEM_CORES, lerCoresDaEmpresa, lerTabelaDaEmpresa, linhaDoCandidato, lerVariaveisDasTipologias, mensagemDoLevantamento, tabelasDoCodigo,
+    type CandidatoDeTipologia,
 } from '@/lib/atendimentos-ia/levantamento-da-conversa'
 import {
-    CAMPOS_DA_ESQUADRIA, aplicarProposta, itemVazio, perguntaDaPendencia, proximaPendencia,
+    CAMPOS_DA_ESQUADRIA, aplicarProposta, itemVazio, perguntaDaPendencia, proximaPendencia, tabelaDaEsquadria,
     type DefinicaoDaTipologia, type ItemDoLevantamento, type Pendencia,
 } from '@/lib/atendimentos-ia/levantamento-em-montagem'
+import type { VariaveisDaTipologia } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import { compararNome, nomeDaMensagem, normalizarNome } from '@/lib/atendimentos-ia/nome-do-levantamento'
 import { escolhasParaOPrompt, opcoesDeArremateNoPrompt, lerEscolhasDoItem, lerEscolhasGravadas, temEscolhaDoVendedor } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import { permissaoDoRemetente, type Permissao } from '@/lib/atendimentos-ia/permissao-do-remetente'
@@ -244,6 +254,7 @@ export const FERRAMENTA = {
                     properties: {
                         ordem: { ...inteiro, description: 'O número da esquadria, SÓ quando o vendedor disse qual é.' },
                         tipologia: texto, largura_mm: inteiro, altura_mm: inteiro, quantidade: inteiro, cor_perfil: texto, vidro: texto,
+                        fornecedor: { ...texto, description: 'O nome do FORNECEDOR como está na lista, SÓ quando o vendedor disse de qual fornecedor é a tipologia.' },
                     },
                 },
             },
@@ -269,8 +280,10 @@ export const FERRAMENTA = {
 
 type ContextoDoPrompt = {
     candidatos: readonly CandidatoDeTipologia[]
+    /** A conta tem mais de uma tabela: cada linha diz o fornecedor, e a regra do fornecedor entra. */
+    variasTabelas: boolean
     cores: readonly string[]
-    montagem: { nome: string; itens: ItemDoLevantamento[] } | null
+    montagem: { nome: string; itens: Array<Omit<ItemDoLevantamento, 'tabela_id'>> } | null
     perguntaEmAberto: string | null
     /** As escolhas de arremate de cada tipologia com as abas: código e números, só para a LLM. */
     escolhasPorTipologia: Array<{ tipologia: string; linhas: string[] }>
@@ -296,6 +309,7 @@ function sistema(c: ContextoDoPrompt): string {
         '- cor_perfil: EXATAMENTE uma das cores da empresa (lista do fim), escrita como está. Se for outra cor, ou se houver dúvida, NÃO preencha.',
         '- tipologia: o CÓDIGO (ex.: DP-02) de UMA das tipologias da lista do fim, escolhida pela descrição. NUNCA invente código nem preencha com as palavras do vendedor. Se cabe em mais de uma, NÃO preencha: em `pergunta`, pergunte qual é, citando a descrição INTEIRA de cada uma, sem o código.',
         '- ARREMATE e GUARNIÇÃO: NÃO pergunte. O padrão da tipologia já vale sem ninguém dizer. NUNCA escolha sozinho: em `escolhas`, só o arremate que o vendedor DISSE, em palavras, com o código da variável e o número da opção que corresponde (lista do fim). Se ele pedir para ver as opções, ou quiser trocar sem dizer por qual, ponha o código da variável em `opcoes_de`.',
+        ...(c.variasTabelas ? ['- fornecedor: a mesma tipologia pode estar na tabela de mais de um fornecedor. SÓ quando o vendedor disse de qual fornecedor é, escreva o nome EXATAMENTE como está na lista. NUNCA escolha sozinho.'] : []),
         '- Os códigos das variáveis (ex.: ARI), os números das opções e os códigos de fornecedor (ex.: BZ0010) são INTERNOS: nunca os escreva em `pergunta`.',
         '- NUNCA pergunte nada sobre os padrões da empresa.',
         `- Responda SEMPRE chamando a ferramenta ${NOME_DA_FERRAMENTA}, uma vez.`,
@@ -305,8 +319,8 @@ function sistema(c: ContextoDoPrompt): string {
             : 'Levantamento em montagem: nenhum.',
         ...(c.perguntaEmAberto ? [`Pergunta em aberto: ${c.perguntaEmAberto}`] : []),
         '',
-        'Tipologias da tabela em uso da empresa (código | descrição | tipo):',
-        ...(c.candidatos.length ? c.candidatos.map(linhaDoCandidato) : ['(nenhuma)']),
+        c.variasTabelas ? 'Tipologias das tabelas em uso da empresa (código | descrição | tipo | fornecedor):' : 'Tipologias da tabela em uso da empresa (código | descrição | tipo):',
+        ...(c.candidatos.length ? c.candidatos.map((x) => linhaDoCandidato(x, c.variasTabelas)) : ['(nenhuma)']),
         '',
         `Cores da empresa (cor_perfil, escreva EXATAMENTE uma delas): ${c.cores.length ? c.cores.join(', ') : '(nenhuma)'}`,
         '',
@@ -380,7 +394,7 @@ async function chamarLlm(chave: string, mensagem: string, contexto: ContextoDoPr
 // ── O BANCO ─────────────────────────────────────────────────────────────────────────────────
 type Levantamento = { id: string; nome: string; nome_normalizado: string; estado: string }
 type ItemGravado = ItemDoLevantamento & { id: string }
-const COLUNAS_DO_ITEM = `id, ordem, ${CAMPOS_DA_ESQUADRIA.join(', ')}, escolhas`
+const COLUNAS_DO_ITEM = `id, ordem, ${CAMPOS_DA_ESQUADRIA.join(', ')}, escolhas, tabela_id`
 
 /** Os levantamentos do remetente — só dele, no tenant dele (decisão 2). */
 async function lerLevantamentos(tenantId: string, remetenteId: string, soEmMontagem: boolean): Promise<Levantamento[]> {
@@ -440,8 +454,24 @@ async function lerItens(tenantId: string, levantamentoId: string): Promise<ItemG
 
 const camposDoItem = (i: ItemDoLevantamento) => ({
     ordem: i.ordem, tipologia: i.tipologia, largura_mm: i.largura_mm, altura_mm: i.altura_mm, quantidade: i.quantidade,
-    cor_perfil: i.cor_perfil, vidro: i.vidro, escolhas: i.escolhas,
+    cor_perfil: i.cor_perfil, vidro: i.vidro, escolhas: i.escolhas, tabela_id: i.tabela_id,
 })
+/** A esquadria como vai ao prompt: sem o id da tabela, que é interno (o fornecedor a IA vê na lista). */
+const camposParaOPrompt = (i: ItemDoLevantamento) => {
+    const { tabela_id: _interno, ...campos } = camposDoItem(i)
+    return campos
+}
+
+/**
+ * O fornecedor que a IA pôs vale SÓ se o vendedor o disse: uma palavra do nome dele, de 3 letras ou mais,
+ * está na mensagem (sem caixa e sem acento). "é da Wolff" diz "Wolff Perfis"; "pode ser o primeiro" não diz
+ * nenhum — e a pergunta não se responde pela IA.
+ */
+export function fornecedorNaMensagem(nome: unknown, texto: string): boolean {
+    if (typeof nome !== 'string') return false
+    const palavrasDoTexto = new Set(normalizarNome(texto).split(/[^a-z0-9]+/))
+    return normalizarNome(nome).split(/[^a-z0-9]+/).some((p) => p.length >= 3 && palavrasDoTexto.has(p))
+}
 
 /**
  * Grava o levantamento: cria (sem `existente`) ou sobrescreve (decisão 3) — o estado, o `atualizado_em`
@@ -602,14 +632,20 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         // diz o que falta, sem chamar a LLM.
         const tabela = await lerTabelaDaEmpresa(c.tenantId)
         if ('frase' in tabela) return await responder(tabela.frase, 'sem-tipologias', `motivo=${tabela.motivo}${tabela.detalhe ? ` ${tabela.detalhe}` : ''}`)
-        // as Variáveis de cada tipologia, do banco: é o que a conversa precisa para perguntar as escolhas
-        const variaveisDaTabela = await lerVariaveisDasTipologias(tabela.tabelaId)
-        const definicao: DefinicaoDaTipologia = (t) => (t === null ? null : variaveisDaTabela[t] ?? null)
+        const doCodigo = tabelasDoCodigo(tabela)
+        const variasTabelas = tabela.tabelas.length > 1
+        // as Variáveis de cada tipologia, do banco, POR TABELA: as abas são as da tabela da esquadria
+        const variaveisPorTabela: Record<string, Record<string, VariaveisDaTipologia>> = {}
+        for (const t of tabela.tabelas) variaveisPorTabela[t.tabelaId] = await lerVariaveisDasTipologias(t.tabelaId)
+        const definicao: DefinicaoDaTipologia = (e) => {
+            const daEsquadria = tabelaDaEsquadria(e, doCodigo)
+            return e.tipologia !== null && daEsquadria && 'tabelaId' in daEsquadria ? variaveisPorTabela[daEsquadria.tabelaId]?.[e.tipologia] ?? null : null
+        }
         const cores = await lerCoresDaEmpresa(c.tenantId)
 
         const [emMontagem] = await lerLevantamentos(c.tenantId, c.remetenteId, true)
         const itensDaMontagem = emMontagem ? await lerItens(c.tenantId, emMontagem.id) : []
-        const pendenciaAberta = emMontagem ? proximaPendencia(itensDaMontagem, definicao) : null
+        const pendenciaAberta = emMontagem ? proximaPendencia(itensDaMontagem, definicao, doCodigo) : null
         // a pergunta em aberto do roteamento pelo nome: só fora da montagem, que guarda a sua no levantamento
         const lida = emMontagem ? null : await lerPerguntaEmAberto(c.tenantId, c.remetenteId)
         rastro.aberta = lida === 'ausente' ? 'ausente' : lida ? lida.pergunta : '-'
@@ -620,13 +656,13 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         const aberta = temLinha && doRemetente ? await refazerPergunta(c.tenantId, lida, doRemetente, definicao) : null
 
         const escolhasPorTipologia = tabela.candidatos.flatMap((x) => {
-            const def = definicao(x.tipologia)
+            const def = definicao({ tipologia: x.tipologia, tabela_id: x.tabelaId })
             const linhas = def ? escolhasParaOPrompt(def) : []
-            return linhas.length ? [{ tipologia: x.tipologia, linhas }] : []
+            return linhas.length ? [{ tipologia: variasTabelas ? `${x.tipologia} de ${x.fornecedor}` : x.tipologia, linhas }] : []
         })
         const resposta = await chamarLlm(chave, c.texto, {
-            candidatos: tabela.candidatos, cores, escolhasPorTipologia,
-            montagem: emMontagem ? { nome: emMontagem.nome, itens: itensDaMontagem.map(camposDoItem) } : null,
+            candidatos: tabela.candidatos, variasTabelas, cores, escolhasPorTipologia,
+            montagem: emMontagem ? { nome: emMontagem.nome, itens: itensDaMontagem.map(camposParaOPrompt) } : null,
             perguntaEmAberto: pendenciaAberta ? perguntaDaPendencia(pendenciaAberta, itensDaMontagem.length) : aberta?.texto ?? null,
         }, rastro.ia)
         if (resposta.tipo !== 'ok') {
@@ -640,7 +676,11 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         const daMensagem = esquadriasDaProposta(proposta)
         const daPergunta = daMensagem.length === 0 && aberta !== null && aberta.p.itens.length > 0
         const emEspera: EsquadriaProposta[] = daPergunta && aberta ? aberta.p.itens : daMensagem
-        const efetiva = daPergunta ? { ...proposta, itens: emEspera } : proposta
+        // o fornecedor que o vendedor NÃO disse sai da proposta: a pergunta de qual fornecedor não se responde pela IA
+        const semFornecedorInventado = (itens: unknown) => (Array.isArray(itens) ? itens.map((i) => (
+            i && typeof i === 'object' && 'fornecedor' in i && !fornecedorNaMensagem((i as { fornecedor: unknown }).fornecedor, c.texto)
+                ? { ...(i as Record<string, unknown>), fornecedor: undefined } : i)) : itens)
+        const efetiva = daPergunta ? { ...proposta, itens: emEspera } : { ...proposta, itens: semFornecedorInventado(proposta.itens) }
         /**
          * R2 em TODO caminho que pergunta: guarda a pergunta (com o que espera resposta) e, se ela é a MESMA
          * que estava em aberto, a resposta diz que não registrou — nunca a mesma pergunta como se nada fosse.
@@ -742,7 +782,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         const atuais = alvo ? alvo.itens : [itemVazio(1)]
         const ordemPadrao = rastro.rota === 'MONTAGEM' ? pendenciaAberta?.ordem ?? (atuais.length === 1 ? atuais[0].ordem : null)
             : atuais.length === 1 ? atuais[0].ordem : null
-        const aplicada = aplicarProposta(atuais, efetiva, { tipologias: tabela.candidatos.map((x) => x.tipologia), cores, ordemPadrao, definicao })
+        const aplicada = aplicarProposta(atuais, efetiva, { tipologias: [...new Set(tabela.candidatos.map((x) => x.tipologia))], cores, ordemPadrao, definicao, tabelasDoCodigo: doCodigo })
         rastro.propostos = aplicada.propostos
         rastro.descartados = aplicada.descartados
         if (aplicada.semEsquadria && alvo) return await responder(fraseDeQualEsquadria(nome, alvo.itens.length), 'qual-esquadria')
@@ -764,7 +804,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         if (nadaMudou && aplicada.propostos > 0) return await responder(fraseDeNaoApliquei(nome), 'nao-avancou')
 
         // ── grava, e SÓ DEPOIS responde: o trajeto inteiro, a partir do que ficou gravado ──
-        const pendencia = proximaPendencia(aplicada.itens, definicao)
+        const pendencia = proximaPendencia(aplicada.itens, definicao, doCodigo)
         // o admin não monta levantamento de outro: com pendência, nada é gravado e a resposta diz o que falta
         if (pendencia && alvo && alvo.donoId !== c.remetenteId) {
             return await responder(fraseDaAlteracaoIncompleta(nome, alvo.vendedor ?? VENDEDOR_SEM_NOME, perguntaDaPendencia(pendencia, aplicada.itens.length)), 'alteracao-incompleta')
@@ -803,7 +843,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         }
         const levantamento = await mensagemDoLevantamento(c.tenantId, tabela, { nome, itens: aplicada.itens })
         // a confirmação do arremate abre a resposta, quando alguma esquadria tem arremate a considerar
-        const temArremate = aplicada.itens.some((i) => definicao(i.tipologia) !== null)
+        const temArremate = aplicada.itens.some((i) => definicao(i) !== null)
         const escolhido = aplicada.itens.some((i) => temEscolhaDoVendedor(lerEscolhasGravadas(i.escolhas)))
         const confirmacao = temArremate ? `${escolhido ? FRASE_ARREMATE_ESCOLHIDO : FRASE_ARREMATE_PADRAO}\n\n` : ''
         return await responder(`${confirmacao}${levantamento.texto}`, levantamento.desfecho, semApanhado)

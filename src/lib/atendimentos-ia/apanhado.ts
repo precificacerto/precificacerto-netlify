@@ -20,7 +20,7 @@
  * `src/utils/__tests__/apanhado.test.ts`.
  */
 import { escolhasDescritas, lerEscolhasGravadas, nomeDaVariavel, type VariaveisDaTipologia } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
-import type { ItemDoLevantamento } from '@/lib/atendimentos-ia/levantamento-em-montagem'
+import type { DefinicaoDaTipologia, ItemDoLevantamento } from '@/lib/atendimentos-ia/levantamento-em-montagem'
 
 export const CONFERE_O_APANHADO = 'Confere? Responda sim para eu fazer o levantamento com os preços, ou diga o que muda.'
 
@@ -68,7 +68,8 @@ function linhaDoPe(rotulo: string, valores: string[]): string {
 export function fraseDoApanhado(
     nome: string,
     itens: readonly ItemDoLevantamento[],
-    definicao: (tipologia: string | null) => VariaveisDaTipologia | null,
+    /** As abas da tipologia NA TABELA da esquadria (várias tabelas, 26/10/2026). */
+    definicao: DefinicaoDaTipologia,
 ): string {
     const ordenados = [...itens].sort((a, b) => a.ordem - b.ordem)
     const linhas = ordenados.map((e, k) =>
@@ -78,7 +79,7 @@ export function fraseDoApanhado(
         ...linhas,
         '',
         linhaDoPe('Cor do perfil', ordenados.map((e) => e.cor_perfil ?? '?')),
-        linhaDoPe('Arremate e guarnição', ordenados.map((e) => arremateDoApanhado(definicao(e.tipologia), e.escolhas))),
+        linhaDoPe('Arremate e guarnição', ordenados.map((e) => arremateDoApanhado(definicao(e), e.escolhas))),
         '',
         CONFERE_O_APANHADO,
     ].join('\n')

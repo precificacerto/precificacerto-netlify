@@ -16,6 +16,13 @@
  * HISTÓRICO: sobrescreve (decisão 3 do dono do produto, 25/10/2026). Trocar a TIPOLOGIA apaga as
  * escolhas da esquadria — as variáveis são da tipologia; trocar uma medida, não.
  *
+ * VÁRIAS TABELAS (dono do produto, 26/10/2026; migração 20261026000004): a conta pode ter mais de uma
+ * tabela de fornecedor, e a esquadria guarda de qual é a tipologia (`tabela_id`). O código numa tabela só:
+ * a esquadria leva aquela. Em mais de uma: a esquadria fica sem tabela, e a pendência seguinte, logo depois
+ * da tipologia, é DE QUAL FORNECEDOR — citando os nomes. Nunca escolhe, nunca "a primeira". A resposta vem
+ * em `itens[].fornecedor`, e vale só se for, sem caixa e sem acento, o nome de um dos fornecedores daquela
+ * tipologia. Trocar a tipologia ou a tabela apaga as escolhas: as variáveis são da tipologia DAQUELA tabela.
+ *
  * O ARREMATE (dono do produto, 25/10/2026): o Padrão da tipologia é ASSUMIDO, e escolha nenhuma é
  * pendência por si. A proposta traz `escolhas` (o que o vendedor disse, em palavras, que a LLM traduz
  * para variável e número) e `opcoes_de` (as variáveis cujas opções ele pediu para ver). Pedir as opções
@@ -25,6 +32,7 @@
  */
 import { PERGUNTA_DO_CAMPO, valorValido } from '@/lib/atendimentos-ia/pre-definicao'
 import { escolhaPedida, lerEscolhasGravadas, perguntaDaEscolha, validarEscolha, type EscolhaPendente, type VariaveisDaTipologia } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
+import { normalizarNome } from '@/lib/atendimentos-ia/nome-do-levantamento'
 
 /** Os campos de uma esquadria, na ordem em que são perguntados. */
 export const CAMPOS_DA_ESQUADRIA = ['tipologia', 'largura_mm', 'altura_mm', 'quantidade', 'cor_perfil', 'vidro'] as const
@@ -40,14 +48,46 @@ export type ItemDoLevantamento = {
     vidro: string | null
     /** número = escolha do vendedor; `null` = ele pediu para ver as opções desta variável */
     escolhas: Record<string, number | null> | null
+    /** De qual tabela (fornecedor) é a tipologia. null = ainda não sabido (`tabelaDaEsquadria` resolve). */
+    tabela_id: string | null
 }
 
 export const itemVazio = (ordem: number): ItemDoLevantamento => ({
-    ordem, tipologia: null, largura_mm: null, altura_mm: null, quantidade: null, cor_perfil: null, vidro: null, escolhas: null,
+    ordem, tipologia: null, largura_mm: null, altura_mm: null, quantidade: null, cor_perfil: null, vidro: null, escolhas: null, tabela_id: null,
 })
 
-/** As abas da tipologia lidas, ou null quando ela não as tem — não há escolha a perguntar. */
-export type DefinicaoDaTipologia = (tipologia: string | null) => VariaveisDaTipologia | null
+/** A tipologia e a tabela da esquadria: é o par que decide as abas. */
+export type TipologiaNaTabela = { tipologia: string | null; tabela_id: string | null }
+
+/** As abas da tipologia NA TABELA da esquadria, ou null quando ela não as tem — não há escolha a perguntar. */
+export type DefinicaoDaTipologia = (esquadria: TipologiaNaTabela) => VariaveisDaTipologia | null
+
+/** Uma tabela ligada à conta que tem o código, com o nome do fornecedor dela. */
+export type TabelaDoCodigo = { tabelaId: string; fornecedor: string }
+/** As tabelas da conta que têm o código, na ordem do nome do fornecedor. */
+export type TabelasDoCodigo = (codigo: string) => readonly TabelaDoCodigo[]
+
+const porNome = (a: string, b: string) => a.localeCompare(b, 'pt-BR')
+
+/**
+ * De qual tabela é a esquadria: a guardada, se ainda tem o código; senão, a ÚNICA que tem o código. Com o
+ * código em mais de uma, os fornecedores — para perguntar. Sem tipologia, ou com o código em nenhuma: null.
+ */
+export function tabelaDaEsquadria(e: TipologiaNaTabela, tabelasDoCodigo: TabelasDoCodigo): { tabelaId: string } | { fornecedores: string[] } | null {
+    if (e.tipologia === null) return null
+    const opcoes = tabelasDoCodigo(e.tipologia)
+    if (e.tabela_id !== null && opcoes.some((o) => o.tabelaId === e.tabela_id)) return { tabelaId: e.tabela_id }
+    if (opcoes.length === 1) return { tabelaId: opcoes[0].tabelaId }
+    if (opcoes.length === 0) return null
+    return { fornecedores: opcoes.map((o) => o.fornecedor).sort(porNome) }
+}
+
+/** "Perfis Sul ou Wolff" — a lista da pergunta. */
+const ouLista = (nomes: readonly string[]) => (nomes.length <= 1 ? nomes.join('') : `${nomes.slice(0, -1).join(', ')} ou ${nomes[nomes.length - 1]}`)
+
+/** A pergunta de qual fornecedor: o código e os nomes, em ordem. */
+export const fraseDeQualFornecedor = (tipologia: string, fornecedores: readonly string[]) =>
+    `A ${tipologia} está nas tabelas de ${fornecedores.length} fornecedores: ${ouLista(fornecedores)}. De qual deles é?`
 
 export type ContextoDaProposta = {
     tipologias: readonly string[]
@@ -55,6 +95,7 @@ export type ContextoDaProposta = {
     /** A esquadria que recebe o que vier sem ordem e sem tipologia; null quando não há como saber. */
     ordemPadrao: number | null
     definicao: DefinicaoDaTipologia
+    tabelasDoCodigo: TabelasDoCodigo
 }
 
 export type ResultadoDaProposta = {
@@ -88,7 +129,8 @@ export function aplicarProposta(atuais: readonly ItemDoLevantamento[], proposta:
             if (v === undefined) descartados += 1
             else validos[campo] = v
         }
-        if (Object.keys(validos).length === 0) continue
+        const fornecedor = typeof b.fornecedor === 'string' && b.fornecedor.trim() !== '' ? b.fornecedor : null
+        if (Object.keys(validos).length === 0 && fornecedor === null) continue
 
         let alvo: ItemDoLevantamento | undefined
         if (ordemValida(b.ordem)) {
@@ -104,8 +146,20 @@ export function aplicarProposta(atuais: readonly ItemDoLevantamento[], proposta:
         }
         if (!alvo) { semEsquadria = true; continue }
 
-        if (validos.tipologia !== undefined && validos.tipologia !== alvo.tipologia) alvo.escolhas = null
+        if (validos.tipologia !== undefined && validos.tipologia !== alvo.tipologia) {
+            // as escolhas e a tabela são da tipologia: a tabela é a ÚNICA que tem o código, ou nenhuma (pergunta)
+            const opcoes = ctx.tabelasDoCodigo(String(validos.tipologia))
+            alvo.escolhas = null
+            alvo.tabela_id = opcoes.length === 1 ? opcoes[0].tabelaId : null
+        }
         Object.assign(alvo, validos)
+        if (fornecedor !== null) {
+            // a resposta à pergunta de qual fornecedor: vale só um dos fornecedores DAQUELA tipologia, pelo nome
+            propostos += 1
+            const casam = alvo.tipologia === null ? [] : ctx.tabelasDoCodigo(alvo.tipologia).filter((o) => normalizarNome(o.fornecedor) === normalizarNome(fornecedor))
+            if (casam.length !== 1) descartados += 1
+            else if (alvo.tabela_id !== casam[0].tabelaId) { alvo.tabela_id = casam[0].tabelaId; alvo.escolhas = null }
+        }
     }
 
     // a esquadria das escolhas: a dita, a padrão (a da pergunta em aberto), ou a única
@@ -116,7 +170,7 @@ export function aplicarProposta(atuais: readonly ItemDoLevantamento[], proposta:
     for (const bruta of Array.isArray(p.escolhas) ? p.escolhas : []) {
         const e = (bruta && typeof bruta === 'object' ? bruta : {}) as { ordem?: unknown }
         const alvo = alvoDaEscolha(e.ordem)
-        const definicao = alvo ? ctx.definicao(alvo.tipologia) : null
+        const definicao = alvo ? ctx.definicao(alvo) : null
         if (!alvo || !definicao) { propostos += 1; descartados += 1; continue }
         const r = validarEscolha(definicao, lerEscolhasGravadas(alvo.escolhas), bruta)
         propostos += r.propostos
@@ -126,7 +180,7 @@ export function aplicarProposta(atuais: readonly ItemDoLevantamento[], proposta:
     }
     for (const variavel of Array.isArray(p.opcoes_de) ? p.opcoes_de : []) {
         const alvo = alvoDaEscolha(undefined)
-        const definicao = alvo ? ctx.definicao(alvo.tipologia) : null
+        const definicao = alvo ? ctx.definicao(alvo) : null
         propostos += 1
         if (!alvo || !definicao || typeof variavel !== 'string' || escolhaPedida(definicao, variavel) === null) { descartados += 1; continue }
         alvo.escolhas = { ...(alvo.escolhas ?? {}), [variavel]: null }
@@ -136,15 +190,22 @@ export function aplicarProposta(atuais: readonly ItemDoLevantamento[], proposta:
 
 export type Pendencia =
     | { tipo: 'CAMPO'; ordem: number; campo: CampoDaEsquadria }
+    | { tipo: 'FORNECEDOR'; ordem: number; tipologia: string; fornecedores: string[] }
     | { tipo: 'ESCOLHA'; ordem: number; pendente: EscolhaPendente }
 
-/** A primeira coisa que falta: esquadria por esquadria, os campos e depois as escolhas dela. */
-export function proximaPendencia(itens: readonly ItemDoLevantamento[], definicao: DefinicaoDaTipologia): Pendencia | null {
+/**
+ * A primeira coisa que falta: esquadria por esquadria, a tipologia, DE QUAL FORNECEDOR ela é (quando o
+ * código está em mais de uma tabela), os outros campos, e depois as escolhas.
+ */
+export function proximaPendencia(itens: readonly ItemDoLevantamento[], definicao: DefinicaoDaTipologia, tabelasDoCodigo: TabelasDoCodigo): Pendencia | null {
     for (const item of [...itens].sort((a, b) => a.ordem - b.ordem)) {
         const campo = CAMPOS_DA_ESQUADRIA.find((c) => vazio(item[c]))
+        if (campo === 'tipologia') return { tipo: 'CAMPO', ordem: item.ordem, campo }
+        const tabela = tabelaDaEsquadria(item, tabelasDoCodigo)
+        if (tabela && 'fornecedores' in tabela) return { tipo: 'FORNECEDOR', ordem: item.ordem, tipologia: String(item.tipologia), fornecedores: tabela.fornecedores }
         if (campo) return { tipo: 'CAMPO', ordem: item.ordem, campo }
         // a escolha só é pendência quando o vendedor PEDIU as opções (o `null`); senão vale o Padrão
-        const def = definicao(item.tipologia)
+        const def = definicao(item)
         const pedida = def ? Object.entries(item.escolhas ?? {}).find(([, v]) => v === null)?.[0] : undefined
         const pendente = def && pedida ? escolhaPedida(def, pedida) : null
         if (pendente) return { tipo: 'ESCOLHA', ordem: item.ordem, pendente }
@@ -154,6 +215,8 @@ export function proximaPendencia(itens: readonly ItemDoLevantamento[], definicao
 
 /** A pergunta FIXA da pendência; com mais de uma esquadria, diz de qual. */
 export function perguntaDaPendencia(p: Pendencia, nItens: number): string {
-    const pergunta = 'campo' in p ? PERGUNTA_DO_CAMPO[p.campo] : perguntaDaEscolha(p.pendente)
+    const pergunta = p.tipo === 'CAMPO' ? PERGUNTA_DO_CAMPO[p.campo]
+        : p.tipo === 'FORNECEDOR' ? fraseDeQualFornecedor(p.tipologia, p.fornecedores)
+            : perguntaDaEscolha(p.pendente)
     return nItens > 1 ? `Esquadria ${p.ordem}: ${pergunta}` : pergunta
 }

@@ -31,9 +31,12 @@ function dp02() {
     return r.tipologia
 }
 /** Só a DP-02 tem as abas: a DP-01 não tem escolhas a perguntar. */
-const definicao = (t: string | null) => (t === 'DP-02' ? dp02() : null)
-const ctx = (ordemPadrao: number | null) => ({ tipologias: TIPOLOGIAS, cores: CORES, ordemPadrao, definicao })
-const COMPLETO_SEM_ESCOLHAS = { ordem: 1, tipologia: 'DP-02', largura_mm: 1200, altura_mm: 1000, quantidade: 1, cor_perfil: 'BRANCO', vidro: 'Temperado 5mm', escolhas: null as Record<string, number> | null }
+const definicao = (e: { tipologia: string | null }) => (e.tipologia === 'DP-02' ? dp02() : null)
+/** Uma tabela só, com as duas tipologias: o caso de hoje em produção. Várias tabelas: bloco (V). */
+const UNICA = 'tabela-unica'
+const tabelasUnica = (c: string) => (TIPOLOGIAS.includes(c) ? [{ tabelaId: UNICA, fornecedor: 'Wolff' }] : [])
+const ctx = (ordemPadrao: number | null) => ({ tipologias: TIPOLOGIAS, cores: CORES, ordemPadrao, definicao, tabelasDoCodigo: tabelasUnica })
+const COMPLETO_SEM_ESCOLHAS = { ordem: 1, tipologia: 'DP-02', largura_mm: 1200, altura_mm: 1000, quantidade: 1, cor_perfil: 'BRANCO', vidro: 'Temperado 5mm', escolhas: null as Record<string, number> | null, tabela_id: UNICA as string | null }
 
 describe('(1) a proposta preenche, e o que não valida é descartado', () => {
     it('um levantamento vazio recebe a esquadria inteira da mensagem como esquadria 1', () => {
@@ -102,24 +105,24 @@ describe('(2) a esquadria certa recebe o valor', () => {
 
 describe('(3) a próxima pendência: os campos da esquadria, depois as escolhas dela', () => {
     it('o primeiro campo vazio da primeira esquadria incompleta', () => {
-        expect(L().proximaPendencia([{ ...L().itemVazio(1), tipologia: 'DP-02', largura_mm: 1200 }], definicao)).toEqual({ tipo: 'CAMPO', ordem: 1, campo: 'altura_mm' })
+        expect(L().proximaPendencia([{ ...L().itemVazio(1), tipologia: 'DP-02', largura_mm: 1200 }], definicao, tabelasUnica)).toEqual({ tipo: 'CAMPO', ordem: 1, campo: 'altura_mm' })
     })
 
     it('com os campos cheios e NENHUMA escolha: nada pendente — o padrão vale, a conversa não pergunta o arremate', () => {
-        expect(L().proximaPendencia([{ ...COMPLETO_SEM_ESCOLHAS }], definicao)).toBeNull()
+        expect(L().proximaPendencia([{ ...COMPLETO_SEM_ESCOLHAS }], definicao, tabelasUnica)).toBeNull()
     })
 
     it('o vendedor PEDIU as opções do arremate interno (null): ESSA é a pendência', () => {
-        const p = L().proximaPendencia([{ ...COMPLETO_SEM_ESCOLHAS, escolhas: { ARE: 1, ARI: null } }], definicao)
+        const p = L().proximaPendencia([{ ...COMPLETO_SEM_ESCOLHAS, escolhas: { ARE: 1, ARI: null } }], definicao, tabelasUnica)
         expect(p && p.tipo === 'ESCOLHA' && [p.ordem, p.pendente.variavel]).toEqual([1, 'ARI'])
     })
 
     it('uma tipologia sem as abas (DP-01) não tem escolha: completa só com os campos', () => {
-        expect(L().proximaPendencia([{ ...COMPLETO_SEM_ESCOLHAS, tipologia: 'DP-01' }], definicao)).toBeNull()
+        expect(L().proximaPendencia([{ ...COMPLETO_SEM_ESCOLHAS, tipologia: 'DP-01' }], definicao, tabelasUnica)).toBeNull()
     })
 
     it('a segunda esquadria só é perguntada depois da primeira inteira', () => {
-        const p = L().proximaPendencia([{ ...COMPLETO_SEM_ESCOLHAS, escolhas: { ARI: null } }, { ...L().itemVazio(2), tipologia: 'DP-01' }], definicao)
+        const p = L().proximaPendencia([{ ...COMPLETO_SEM_ESCOLHAS, escolhas: { ARI: null } }, { ...L().itemVazio(2), tipologia: 'DP-01' }], definicao, tabelasUnica)
         expect(p && p.tipo === 'ESCOLHA' && p.ordem).toBe(1)
     })
 })
@@ -172,7 +175,7 @@ describe('(5) a pergunta da pendência', () => {
     })
 
     it('a escolha pedida: a pergunta FIXA, por extenso, sem número', () => {
-        const p = L().proximaPendencia([{ ...COMPLETO_SEM_ESCOLHAS, escolhas: { ARI: null } }], definicao)
+        const p = L().proximaPendencia([{ ...COMPLETO_SEM_ESCOLHAS, escolhas: { ARI: null } }], definicao, tabelasUnica)
         if (!p) throw new Error('era para ter pendência')
         expect(L().perguntaDaPendencia(p, 1)).toBe('Para arremate interno, as opções são: arremate de 65 mm; arremate de 70 mm; arremate de 20 mm; sem arremate interno. Qual você quer?')
     })
@@ -236,7 +239,8 @@ describe('(V) várias tabelas: a tipologia em mais de uma, a pergunta é de qual
 
     it('trocar a tipologia troca a tabela: a escolhida para a DP-02 não fica na DP-01', () => {
         const comSul = [{ ...L().itemVazio(1), ...COMPLETA, tabela_id: 'tab-sul' }]
-        const r = L().aplicarProposta(comSul, { itens: [{ tipologia: 'DP-01' }] }, ctxV(1))
+        // a ordem dita: sem ela, a tipologia abriria uma esquadria nova (a regra de "qual esquadria recebe")
+        const r = L().aplicarProposta(comSul, { itens: [{ ordem: 1, tipologia: 'DP-01' }] }, ctxV(1))
         expect(r.itens[0].tabela_id).toBe('tab-wolff')
     })
 
