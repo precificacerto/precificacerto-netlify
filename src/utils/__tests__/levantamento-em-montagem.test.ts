@@ -174,6 +174,6 @@ describe('(5) a pergunta da pendência', () => {
     it('a escolha pedida: a pergunta FIXA, por extenso, sem número', () => {
         const p = L().proximaPendencia([{ ...COMPLETO_SEM_ESCOLHAS, escolhas: { ARI: null } }], definicao)
         if (!p) throw new Error('era para ter pendência')
-        expect(L().perguntaDaPendencia(p, 1)).toBe('Para arremate interno, as opções são: BZ0006 - ARREMATE 65MM; BZ1770 - ARREMATE 70MM; BZ0010 - ARREMATE 20MM; SEM ARREMATE INTERNO. Qual você quer?')
+        expect(L().perguntaDaPendencia(p, 1)).toBe('Para arremate interno, as opções são: arremate de 65 mm; arremate de 70 mm; arremate de 20 mm; sem arremate interno. Qual você quer?')
     })
 })
