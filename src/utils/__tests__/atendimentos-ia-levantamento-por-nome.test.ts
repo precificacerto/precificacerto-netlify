@@ -792,6 +792,28 @@ describe('(7) o log [IA]: o levantamento e o desfecho — nunca a chave, o telef
         const tudo = erros.join('\n')
         for (const proibido of [CHAVE, TELEFONE_DO_WEBHOOK, TELEFONE_GRAVADO, 'Casa do João', 'ARREMATE INTERNO', TOKEN]) expect(tudo).not.toContain(proibido)
     })
+
+    // Dono do produto, 26/10/2026: "o tempo de cada chamada à IA e os tokens de entrada e saída que a própria API já
+    // devolve. [...] NÃO registre o texto do pedido nem o da resposta — só número."
+    it('o tempo da chamada à IA e os tokens de entrada e saída que a API devolve — só números', async () => {
+        const resposta = respostaComFerramenta({ nome: 'Casa do João', itens: [{ ...DP02 }] })
+        estado.respostasDaLlm.push({ status: 200, corpo: { ...resposta, usage: { input_tokens: 81234, output_tokens: 321 } } })
+        await chamar('Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm')
+        expect(linhaIa()[0]).toMatch(/ ia_ms=\d+ ia_entrada=81234 ia_saida=321(\s|$)/)
+    })
+
+    it('a resposta sem `usage` (um erro da API): o tempo, e os tokens como "-", nunca zero', async () => {
+        estado.respostasDaLlm.push({ status: 500, corpo: { type: 'error', error: { type: 'api_error', message: 'interno' } } })
+        await chamar('Levantamento Casa do João')
+        expect(linhaIa()[0]).toMatch(/ ia_ms=\d+ ia_entrada=- ia_saida=-(\s|$)/)
+    })
+
+    it('sem chamada à IA (sem a chave), a linha não traz tempo nem tokens: não houve chamada a medir', async () => {
+        delete process.env.ANTHROPIC_API_KEY
+        await chamar('oi')
+        expect(linhaIa()[0]).toContain('desfecho=sem-chave')
+        expect(linhaIa()[0]).not.toMatch(/ia_ms=|ia_entrada=|ia_saida=/)
+    })
 })
 
 describe('(8) o esquema da ferramenta cabe nos limites do strict', () => {

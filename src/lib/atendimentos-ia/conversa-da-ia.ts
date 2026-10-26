@@ -88,8 +88,9 @@
  *
  * ══ O LOG ══
  * Uma linha `[IA]` em `console.error`: o id do levantamento, a rota, propostos, descartados, se
- * enviou, o desfecho, COMO o nome foi lido (`nome=veio|faltou|fora_do_texto|da_pergunta`) e a pergunta
- * em aberto lida (`aberta=<código>|ausente|-`). NUNCA a chave, o telefone, o texto, o nome do
+ * enviou, o desfecho, COMO o nome foi lido (`nome=veio|faltou|fora_do_texto|da_pergunta`), a pergunta
+ * em aberto lida (`aberta=<código>|ausente|-`) e, quando houve chamada à IA, o tempo dela e os tokens de
+ * entrada e saída que a API devolve (`ia_ms=`, `ia_entrada=`, `ia_saida=`; "-" quando a API não os deu). NUNCA a chave, o telefone, o texto, o nome do
  * levantamento ou a pergunta. Num
  * 4xx da Anthropic a linha leva a `mensagem=` do erro, mascarada antes de cortada.
  *
@@ -133,15 +134,22 @@ export type Rota = 'MONTAGEM' | 'NOVO' | 'ALTERACAO' | 'ALTERACAO_ADMIN' | 'SEM_
  * `da_pergunta` (não está no texto, mas é um dos que a pergunta em aberto citou).
  */
 type MarcaDoNome = '-' | 'veio' | 'faltou' | 'fora_do_texto' | 'da_pergunta'
+/**
+ * A chamada à IA, medida (dono do produto, 26/10/2026): o tempo, do envio do pedido à resposta lida, e os tokens de
+ * entrada e de saída que a própria API devolve em `usage`. SÓ NÚMERO — nunca o texto do pedido nem o da resposta.
+ * Sem `usage` (um erro da API), o token é null, que vai ao log como "-", nunca zero. Sem chamada, `ms` é null.
+ */
+type MedidaDaIa = { ms: number | null; entrada: number | null; saida: number | null }
 type Rastro = {
     levantamento: string; rota: Rota; propostos: number; descartados: number; enviou: boolean; admin: Permissao | null
-    nome: MarcaDoNome; aberta: CodigoDaPergunta | 'ausente' | '-'
+    nome: MarcaDoNome; aberta: CodigoDaPergunta | 'ausente' | '-'; ia: MedidaDaIa
 }
 
 function anotar(r: Rastro, desfecho: DesfechoDaIa, detalhe = '') {
     // a permissão só aparece quando foi consultada; o motivo é um código, nunca um nome
     const admin = r.admin === null ? '' : 'motivo' in r.admin ? ` admin=nao motivo_admin=${r.admin.motivo}` : ' admin=sim'
-    console.error(`${PREFIXO_DO_LOG_DA_IA} levantamento=${r.levantamento} rota=${r.rota} propostos=${r.propostos} descartados=${r.descartados} enviou=${r.enviou ? 'sim' : 'nao'} desfecho=${desfecho}${admin} nome=${r.nome} aberta=${r.aberta}${detalhe ? ` ${detalhe}` : ''}`)
+    const ia = r.ia.ms === null ? '' : ` ia_ms=${r.ia.ms} ia_entrada=${r.ia.entrada ?? '-'} ia_saida=${r.ia.saida ?? '-'}`
+    console.error(`${PREFIXO_DO_LOG_DA_IA} levantamento=${r.levantamento} rota=${r.rota} propostos=${r.propostos} descartados=${r.descartados} enviou=${r.enviou ? 'sim' : 'nao'} desfecho=${desfecho}${admin} nome=${r.nome} aberta=${r.aberta}${ia}${detalhe ? ` ${detalhe}` : ''}`)
 }
 
 // ── As frases fixas do roteamento ───────────────────────────────────────────────────────────
@@ -325,7 +333,10 @@ function mensagemParaOLog(mensagem: unknown, chave: string): string {
     return paraOLog(mensagem, [chave]).replace(/["\r\n]+/g, ' ').slice(0, MAXIMO_DA_MENSAGEM_NO_LOG)
 }
 
-async function chamarLlm(chave: string, mensagem: string, contexto: ContextoDoPrompt): Promise<ResultadoDaLlm> {
+const tokens = (v: unknown) => (typeof v === 'number' && Number.isInteger(v) && v >= 0 ? v : null)
+
+async function chamarLlm(chave: string, mensagem: string, contexto: ContextoDoPrompt, medida: MedidaDaIa): Promise<ResultadoDaLlm> {
+    const inicio = Date.now()
     let r: Response
     try {
         r = await fetch(URL_DA_API_ANTHROPIC, {
@@ -345,9 +356,14 @@ async function chamarLlm(chave: string, mensagem: string, contexto: ContextoDoPr
             }),
         })
     } catch (e) {
+        medida.ms = Date.now() - inicio
         return { tipo: 'erro-da-llm', detalhe: `excecao=${e instanceof Error ? e.name : 'desconhecida'}` }
     }
     const corpo = (await r.json().catch((): null => null)) as Record<string, unknown> | null
+    medida.ms = Date.now() - inicio
+    const uso = (corpo?.usage ?? null) as { input_tokens?: unknown; output_tokens?: unknown } | null
+    medida.entrada = tokens(uso?.input_tokens)
+    medida.saida = tokens(uso?.output_tokens)
     if (!r.ok) {
         const erro = (corpo?.error ?? undefined) as { type?: unknown; message?: unknown } | undefined
         const janela = r.status >= 400 && r.status < 500 ? ` mensagem="${mensagemParaOLog(erro?.message, chave)}"` : ''
@@ -561,7 +577,7 @@ export type Interlocutor = { tenantId: string; remetenteId: string; telefone: st
 
 /** Conduz uma mensagem do vendedor. NUNCA lança: toda falha vira uma linha `[IA]`. */
 export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
-    const rastro: Rastro = { levantamento: '-', rota: '-', propostos: 0, descartados: 0, enviou: false, admin: null, nome: '-', aberta: '-' }
+    const rastro: Rastro = { levantamento: '-', rota: '-', propostos: 0, descartados: 0, enviou: false, admin: null, nome: '-', aberta: '-', ia: { ms: null, entrada: null, saida: null } }
     const fim = (desfecho: DesfechoDaIa, detalhe = ''): DesfechoDaIa => { anotar(rastro, desfecho, detalhe); return desfecho }
     const responder = async (textoDaResposta: string, desfecho: DesfechoDaIa, detalhe = ''): Promise<DesfechoDaIa> => {
         const envio = await enviarTexto(c.wuzapiToken, c.telefone, textoDaResposta)
@@ -608,7 +624,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             candidatos: tabela.candidatos, cores, escolhasPorTipologia,
             montagem: emMontagem ? { nome: emMontagem.nome, itens: itensDaMontagem.map(camposDoItem) } : null,
             perguntaEmAberto: pendenciaAberta ? perguntaDaPendencia(pendenciaAberta, itensDaMontagem.length) : aberta?.texto ?? null,
-        })
+        }, rastro.ia)
         if (resposta.tipo !== 'ok') {
             // DEFEITO 3: o vendedor sempre fica sabendo — sem detalhe técnico
             const frase = resposta.tipo === 'sem-saldo' ? FALHA_SEM_SALDO : resposta.tipo === 'recusa' ? FALHA_RECUSA : FALHA_DA_IA
