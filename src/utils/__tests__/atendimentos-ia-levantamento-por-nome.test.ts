@@ -118,6 +118,11 @@ const estado = {
      * ela vê; o número da opção só se o prompt o der. E responde no formato da ferramenta enviada.
      */
     respostaPeloPrompt: null as null | { variavelDescrita: string; opcaoDescrita: string; nome: string },
+    /**
+     * A LLM falsa que decide pela MENSAGEM e pelo PROMPT, como a de verdade: o que ela sabe do passado é só o
+     * que o prompt lhe conta. Devolve a proposta, ou null para cair na fila `respostasDaLlm`.
+     */
+    llmPeloPrompt: null as null | ((mensagem: string, sistema: string) => Proposta | null),
     /** R1: a tabela cujo update NÃO atinge linha nenhuma (como uma linha apagada entre a leitura e a escrita). */
     updateNaoAtinge: null as string | null,
 }
@@ -167,6 +172,7 @@ function montar() {
     estado.envios = []
     estado.ausentes = new Set()
     estado.respostaPeloPrompt = null
+    estado.llmPeloPrompt = null
     estado.updateNaoAtinge = null
 }
 
@@ -337,6 +343,8 @@ beforeEach(() => {
                 const input = { nome: pelo.nome, itens: [] as Linha[], ...('escolhas' in props ? { escolhas: [escolha] } : { escolha }) }
                 return { ok: true, status: 200, json: async () => ({ ...respostaComFerramenta({}), content: [{ type: 'tool_use', id: 't', name: conversa.NOME_DA_FERRAMENTA, input }] }) }
             }
+            const pelaMensagem = estado.llmPeloPrompt?.(String((corpo.messages as Array<{ content: unknown }>)[0].content), String(corpo.system))
+            if (pelaMensagem) return { ok: true, status: 200, json: async () => respostaComFerramenta(pelaMensagem) }
             const proxima = estado.respostasDaLlm.shift() ?? { status: 200, corpo: respostaComFerramenta({}) }
             if (proxima === 'lanca') throw new Error('fetch failed')
             return { ok: proxima.status >= 200 && proxima.status < 300, status: proxima.status, json: async () => proxima.corpo }
@@ -1026,5 +1034,62 @@ describe('(13) DEFEITO 1, medido em produção (b0465e57, 25/10/2026): a escolha
         const item = itensDe(levantamentos()[0].id)[0]
         expect(item.escolhas).toEqual(expect.objectContaining({ ARI: 4 }))
         expect(ultimoEnviado()).not.toBe(antes)
+    })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+describe('(14) DEFEITO de 26/10/2026 (b0465e57, print do dono do produto): o nome não era gravado e a pergunta repetia', () => {
+    // A sequência medida nos logs de produção, 14:07:49 a 14:09:21: PARECIDO, SEM_NOME, SEM_NOME, SEM_NOME.
+    // A LLM falsa só sabe o que o prompt lhe conta — como a de verdade, que recebe SÓ a mensagem desta vez:
+    //   - sem nada no prompt sobre a pergunta anterior, "é o mesmo", "João medeiros" e "Novo levantamento João
+    //     Medeiros" não trazem nome que ela possa ler (foi o medido: propostos=0 nas três);
+    //   - com a pergunta em aberto no prompt, ela responde o que o vendedor quis dizer.
+    const MSG_1 = 'Levantamento Casa do João — janela de correr 2 folhas móveis Europa 42, 1200 x 1000 mm, 1 unidade, perfil branco, vidro 5mm, entrega em Montenegro, casa.'
+    const fala = (sistema: string, trecho: string) => sistema.toLowerCase().includes(trecho.toLowerCase())
+
+    async function oPrintInteiro() {
+        // o estado de produção: "Casa do João" COMPLETO, com as DUAS esquadrias iguais
+        await fecharDp02('Casa do João')
+        const casa = levantamentos()[0]
+        estado.db.orcamentista_levantamento_item.push({ id: 'item-2', tenant_id: TENANT, levantamento_id: casa.id, ordem: 2, ...DP02, escolhas: null })
+        const antes = enviados().length
+        estado.llmPeloPrompt = (mensagem, sistema) => {
+            if (mensagem === MSG_1) return { nome: 'Levantamento Casa do João', itens: [{ ...DP02 }] }
+            // com a pergunta "é NOVO?" em aberto no prompt, "é o mesmo" aponta o levantamento citado nela
+            if (mensagem === 'é o mesmo') return fala(sistema, 'é um levantamento NOVO?') && fala(sistema, 'Casa do João') ? { nome: 'Casa do João' } : {}
+            // com o prompt dizendo que falta o nome, a mensagem que é só um nome É o nome
+            if (mensagem === 'João medeiros') return fala(sistema, 'me diga o nome do levantamento') ? { nome: 'João medeiros' } : {}
+            if (mensagem === 'Novo levantamento João Medeiros') return fala(sistema, 'me diga o nome do levantamento') ? { nome: 'João Medeiros', novo: true } : {}
+            return null
+        }
+        for (const m of [MSG_1, 'é o mesmo', 'João medeiros', 'Novo levantamento João Medeiros']) await chamar(m)
+        return { casa, respostas: enviados().slice(antes) }
+    }
+
+    it('a primeira resposta é a de antes: nome parecido, pergunta se é NOVO', async () => {
+        const { respostas } = await oPrintInteiro()
+        expect(respostas[0]).toBe(conversa.fraseDoNomeParecido('Levantamento Casa do João', ['Casa do João']))
+    })
+
+    it('(a) "é o mesmo" RESOLVE a ambiguidade: a pergunta do nome NÃO volta', async () => {
+        const { respostas } = await oPrintInteiro()
+        expect(respostas[1]).not.toBe(conversa.FRASE_SEM_NOME)
+        expect(respostas[1]).toContain('Casa do João')
+    })
+
+    it('(b) "Novo levantamento João Medeiros" GRAVA o levantamento novo — com a esquadria que o vendedor mandou', async () => {
+        const { casa } = await oPrintInteiro()
+        const joao = levantamentos().filter((l) => l.nome_normalizado === 'joao medeiros')
+        expect(joao).toHaveLength(1)
+        expect(itensDe(joao[0].id)).toEqual([expect.objectContaining({ ordem: 1, ...DP02 })])
+        // e o "Casa do João" segue com as duas de antes: nada foi acrescentado a ele
+        expect(itensDe(casa.id)).toHaveLength(2)
+    })
+
+    it('(c) R2 em TODO o caminho: nenhuma resposta repete a anterior, e a pergunta genérica do nome nunca sai duas vezes', async () => {
+        const { respostas } = await oPrintInteiro()
+        expect(respostas).toHaveLength(4)
+        respostas.forEach((r, i) => { if (i > 0) expect(r).not.toBe(respostas[i - 1]) })
+        expect(respostas.filter((r) => r === conversa.FRASE_SEM_NOME).length).toBeLessThanOrEqual(1)
     })
 })
