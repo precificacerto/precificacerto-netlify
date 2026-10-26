@@ -177,3 +177,74 @@ describe('(5) a pergunta da pendência', () => {
         expect(L().perguntaDaPendencia(p, 1)).toBe('Para arremate interno, as opções são: arremate de 65 mm; arremate de 70 mm; arremate de 20 mm; sem arremate interno. Qual você quer?')
     })
 })
+
+/**
+ * (V) VÁRIAS TABELAS NA CONTA (dono do produto, 26/10/2026; migração 20261026000004). Cai a trava "a sua
+ * empresa tem 2 tabelas e ele trabalha com uma só": a conta pode ter duas tabelas — inclusive da mesma
+ * família —, e a esquadria guarda de qual tabela é a tipologia (`tabela_id`). Quando o código está em mais
+ * de uma, a conversa PERGUNTA de qual fornecedor, citando os nomes. Nunca escolhe, nunca usa "a primeira".
+ * Sem dado de produção que o exercite hoje (1 tabela ligada): o caso vive aqui.
+ */
+describe('(V) várias tabelas: a tipologia em mais de uma, a pergunta é de qual fornecedor', () => {
+    const WOLFF = { tabelaId: 'tab-wolff', fornecedor: 'Wolff' }
+    const SUL = { tabelaId: 'tab-sul', fornecedor: 'Perfis Sul' }
+    const tabelasDoCodigo = (c: string) => (c === 'DP-02' ? [WOLFF, SUL] : c === 'DP-01' ? [WOLFF] : [])
+    // as abas da DP-02 só na Wolff: a definição depende da TABELA da esquadria, não só do código
+    const def = (i: { tipologia: string | null; tabela_id: string | null }) => (i.tipologia === 'DP-02' && i.tabela_id === 'tab-wolff' ? dp02() : null)
+    const ctxV = (ordemPadrao: number | null) => ({ tipologias: TIPOLOGIAS, cores: CORES, ordemPadrao, definicao: def, tabelasDoCodigo })
+    const COMPLETA = { tipologia: 'DP-02', largura_mm: 1200, altura_mm: 1000, quantidade: 1, cor_perfil: 'BRANCO', vidro: 'Temperado 5mm' }
+
+    it('o código em DUAS tabelas: a esquadria fica sem tabela, e a pendência é de qual fornecedor — os dois, em ordem, nunca "a primeira"', () => {
+        const r = L().aplicarProposta([L().itemVazio(1)], { itens: [COMPLETA] }, ctxV(1))
+        expect(r.itens[0].tabela_id).toBeNull()
+        const p = L().proximaPendencia(r.itens, def, tabelasDoCodigo)
+        expect(p).toEqual({ tipo: 'FORNECEDOR', ordem: 1, tipologia: 'DP-02', fornecedores: ['Perfis Sul', 'Wolff'] })
+        expect(L().perguntaDaPendencia(p!, 1)).toBe(L().fraseDeQualFornecedor('DP-02', ['Perfis Sul', 'Wolff']))
+        expect(L().fraseDeQualFornecedor('DP-02', ['Perfis Sul', 'Wolff'])).toBe('A DP-02 está nas tabelas de 2 fornecedores: Perfis Sul ou Wolff. De qual deles é?')
+        expect(L().perguntaDaPendencia(p!, 2)).toBe(`Esquadria 1: ${L().fraseDeQualFornecedor('DP-02', ['Perfis Sul', 'Wolff'])}`)
+    })
+
+    it('a pendência do fornecedor vem logo depois da tipologia, antes das medidas', () => {
+        const r = L().aplicarProposta([L().itemVazio(1)], { itens: [{ tipologia: 'DP-02' }] }, ctxV(1))
+        expect(L().proximaPendencia(r.itens, def, tabelasDoCodigo)).toEqual({ tipo: 'FORNECEDOR', ordem: 1, tipologia: 'DP-02', fornecedores: ['Perfis Sul', 'Wolff'] })
+    })
+
+    it('o código em UMA tabela: a esquadria leva a tabela dela, e não há pergunta', () => {
+        const r = L().aplicarProposta([L().itemVazio(1)], { itens: [{ ...COMPLETA, tipologia: 'DP-01' }] }, ctxV(1))
+        expect(r.itens[0].tabela_id).toBe('tab-wolff')
+        expect(L().proximaPendencia(r.itens, def, tabelasDoCodigo)).toBeNull()
+    })
+
+    it('a resposta com o fornecedor (sem caixa e sem acento) resolve a tabela, e a pendência some', () => {
+        const antes = L().aplicarProposta([L().itemVazio(1)], { itens: [COMPLETA] }, ctxV(1)).itens
+        const r = L().aplicarProposta(antes, { itens: [{ fornecedor: 'wolff' }] }, ctxV(1))
+        expect(r.itens[0].tabela_id).toBe('tab-wolff')
+        expect([r.propostos, r.descartados]).toEqual([1, 0])
+        expect(L().proximaPendencia(r.itens, def, tabelasDoCodigo)).toBeNull()
+        // e no MESMO pedido da tipologia também
+        const junto = L().aplicarProposta([L().itemVazio(1)], { itens: [{ ...COMPLETA, fornecedor: 'Perfis Sul' }] }, ctxV(1))
+        expect(junto.itens[0].tabela_id).toBe('tab-sul')
+    })
+
+    it('o fornecedor que não é um dos da tipologia é descartado: a tabela continua sem escolha', () => {
+        const antes = L().aplicarProposta([L().itemVazio(1)], { itens: [COMPLETA] }, ctxV(1)).itens
+        const r = L().aplicarProposta(antes, { itens: [{ fornecedor: 'Alumínio Norte' }] }, ctxV(1))
+        expect(r.itens[0].tabela_id).toBeNull()
+        expect([r.propostos, r.descartados]).toEqual([1, 1])
+        expect(L().proximaPendencia(r.itens, def, tabelasDoCodigo)?.tipo).toBe('FORNECEDOR')
+    })
+
+    it('trocar a tipologia troca a tabela: a escolhida para a DP-02 não fica na DP-01', () => {
+        const comSul = [{ ...L().itemVazio(1), ...COMPLETA, tabela_id: 'tab-sul' }]
+        const r = L().aplicarProposta(comSul, { itens: [{ tipologia: 'DP-01' }] }, ctxV(1))
+        expect(r.itens[0].tabela_id).toBe('tab-wolff')
+    })
+
+    it('a tabela guardada que já não tem o código (tirada da conta) não vale: volta a ser pergunta', () => {
+        expect(L().tabelaDaEsquadria({ tipologia: 'DP-02', tabela_id: 'tab-velha' }, tabelasDoCodigo)).toEqual({ fornecedores: ['Perfis Sul', 'Wolff'] })
+        expect(L().tabelaDaEsquadria({ tipologia: 'DP-02', tabela_id: 'tab-sul' }, tabelasDoCodigo)).toEqual({ tabelaId: 'tab-sul' })
+        expect(L().tabelaDaEsquadria({ tipologia: 'DP-01', tabela_id: null }, tabelasDoCodigo)).toEqual({ tabelaId: 'tab-wolff' })
+        expect(L().tabelaDaEsquadria({ tipologia: 'XX-9', tabela_id: null }, tabelasDoCodigo)).toBeNull()
+        expect(L().tabelaDaEsquadria({ tipologia: null, tabela_id: null }, tabelasDoCodigo)).toBeNull()
+    })
+})

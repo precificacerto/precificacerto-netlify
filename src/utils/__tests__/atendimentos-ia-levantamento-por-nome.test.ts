@@ -153,6 +153,9 @@ function montar() {
         orcamentista_levantamento_item: [],
         orcamentista_pergunta_em_aberto: [],
         orcamentista_conta_tabela: [{ tenant_id: TENANT, tabela_id: TABELA }],
+        // a tabela e o fornecedor dela: com mais de uma tabela, a pergunta cita o fornecedor pelo nome (bloco 19)
+        orcamentista_tabela: [{ id: TABELA, fornecedor_id: 'f-wolff', arquivo_nome: 'Tabela Wolff.xlsx' }],
+        orcamentista_fornecedor: [{ id: 'f-wolff', nome: 'Wolff Perfis' }],
         // as abas da DP-02 como a importação as grava: o levantamento e a conversa as leem do banco
         ...abasDaDP02NoBanco(TABELA),
         orcamentista_motor_tipologia_detalhe: [
@@ -1519,5 +1522,69 @@ describe('(18) o que chega ao VENDEDOR não traz código de fornecedor nem núme
         await chamar('Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco')
         expect(ultimoEnviado()).toBe('E o vidro dessa janela, qual vai ser?')
         expect(ultimoEnviado()).not.toMatch(CODIGO_DE_FORNECEDOR)
+    })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+/**
+ * (19) VÁRIAS TABELAS (dono do produto, 26/10/2026; migração 20261026000004): cai a trava "a sua empresa tem
+ * 2 tabelas e ele trabalha com uma só". Com o código de tipologia em mais de uma tabela da conta, a IA
+ * PERGUNTA de qual fornecedor, citando os dois pelo nome — nunca escolhe, nunca usa "a primeira". Sem dado
+ * de produção que o exercite hoje (1 tabela ligada).
+ */
+describe('(19) duas tabelas com o mesmo código: a conversa pergunta de qual fornecedor', () => {
+    const SUL = 'tabela-perfis-sul'
+    beforeEach(() => {
+        estado.db.orcamentista_conta_tabela.push({ tenant_id: TENANT, tabela_id: SUL })
+        estado.db.orcamentista_tabela.push({ id: SUL, fornecedor_id: 'f-sul', arquivo_nome: 'Sul 2026.xlsx' })
+        estado.db.orcamentista_fornecedor.push({ id: 'f-sul', nome: 'Perfis Sul' })
+        estado.db.orcamentista_motor_tipologia_detalhe.push({ tabela_id: SUL, tipologia: 'DP-02', descricao: 'JANELA DE CORRER 02 FOLHAS | LINHA SUL', tipo: 'Correr' })
+    })
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const montagem = () => require('@/lib/atendimentos-ia/levantamento-em-montagem') as typeof import('@/lib/atendimentos-ia/levantamento-em-montagem')
+    const PERGUNTA = () => montagem().fraseDeQualFornecedor('DP-02', ['Perfis Sul', 'Wolff Perfis'])
+
+    it('a esquadria com o código nas duas: a resposta PERGUNTA de qual fornecedor, citando os dois — e a esquadria fica sem tabela', async () => {
+        llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }] })
+        await chamar('Levantamento Casa do Pedro: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm')
+        expect(ultimoEnviado()).toBe(PERGUNTA())
+        const [l] = levantamentos()
+        expect(l.estado).toBe('EM_MONTAGEM')
+        expect(itensDe(l.id).map((i) => i.tabela_id)).toEqual([null])
+        // o prompt deu à IA as duas linhas, cada uma com o fornecedor
+        const sistema = String(estado.chamadasDaLlm[0].corpo.system)
+        expect(sistema).toContain('DP-02 | JANELA DE CORRER 02 FOLHAS | LINHA SUL | Correr | fornecedor: Perfis Sul')
+        expect(sistema).toContain('DP-02 | JANELA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 42 | Correr | fornecedor: Wolff Perfis')
+    })
+
+    it('a resposta "é da Wolff": a esquadria leva a tabela da Wolff, e a conversa segue para o apanhado', async () => {
+        llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }] })
+        await chamar('Levantamento Casa do Pedro: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm')
+        llmResponde({ itens: [{ fornecedor: 'Wolff Perfis' }] })
+        await chamar('é da Wolff')
+        const [l] = levantamentos()
+        expect(itensDe(l.id).map((i) => i.tabela_id)).toEqual([TABELA])
+        expect(ultimoEnviado().startsWith('Apanhado do levantamento')).toBe(true)
+        // e com o "sim", o levantamento formal pela tabela da Wolff: os mesmos números de uma tabela só
+        expect(await confirmarApanhado()).toContain('Perfis por barra inteira: R$ 1.342,09.')
+    })
+
+    it('o fornecedor que a IA põe SEM o vendedor ter dito: não vale — a pergunta não é respondida por ela', async () => {
+        llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }] })
+        await chamar('Levantamento Casa do Pedro: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm')
+        llmResponde({ itens: [{ fornecedor: 'Wolff Perfis' }] })
+        await chamar('pode ser o primeiro')
+        const [l] = levantamentos()
+        expect(itensDe(l.id).map((i) => i.tabela_id)).toEqual([null])
+        expect(ultimoEnviado()).toContain(PERGUNTA())
+    })
+
+    it('com o código em UMA tabela só, nada muda: sem pergunta de fornecedor, e a esquadria grava a tabela dela', async () => {
+        estado.db.orcamentista_motor_tipologia_detalhe = estado.db.orcamentista_motor_tipologia_detalhe.filter((d) => d.tabela_id !== SUL)
+        estado.db.orcamentista_motor_tipologia_detalhe.push({ tabela_id: SUL, tipologia: 'SU-07', descricao: 'PORTA PIVOTANTE | LINHA SUL', tipo: 'Porta' })
+        llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }] })
+        await chamar('Levantamento Casa do Pedro: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm')
+        expect(ultimoEnviado().startsWith('Apanhado do levantamento')).toBe(true)
+        expect(itensDe(levantamentos()[0].id).map((i) => i.tabela_id)).toEqual([TABELA])
     })
 })

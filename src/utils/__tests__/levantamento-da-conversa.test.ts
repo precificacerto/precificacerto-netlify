@@ -90,6 +90,9 @@ function montar() {
     banco.ausentes = new Set()
     banco.db = {
         orcamentista_conta_tabela: [{ tenant_id: TENANT, tabela_id: TABELA }],
+        // a tabela e o fornecedor dela: com mais de uma tabela, a pergunta cita o fornecedor pelo nome
+        orcamentista_tabela: [{ id: TABELA, fornecedor_id: 'f-wolff', arquivo_nome: 'Tabela Wolff.xlsx' }],
+        orcamentista_fornecedor: [{ id: 'f-wolff', nome: 'Wolff Perfis' }],
         ...ABAS_NO_BANCO(),
         orcamentista_motor_tipologia_detalhe: [
             ...ABAS_NO_BANCO().orcamentista_motor_tipologia_detalhe,
@@ -172,10 +175,76 @@ describe('(1) a tabela da empresa e as tipologias candidatas', () => {
         expect('frase' in t && [t.motivo, t.frase]).toEqual(['SEM_TABELA', M().FRASE_SEM_TABELA])
     })
 
-    it('MAIS DE UMA TABELA: não escolhe uma — a frase diz quantas', async () => {
-        banco.db.orcamentista_conta_tabela.push({ tenant_id: TENANT, tabela_id: 'outra-tabela' })
+    /**
+     * CAI A TRAVA "a sua empresa tem 2 tabelas e ele trabalha com uma só" (dono do produto, 26/10/2026): a
+     * conta pode ter duas tabelas, inclusive da mesma família. A lista junta as duas, e cada tipologia sabe
+     * de qual tabela e de qual fornecedor é.
+     */
+    const OUTRA = 'tabela-perfis-sul'
+    const comOutraTabela = (fornecedor = 'f-sul') => {
+        banco.db.orcamentista_conta_tabela.push({ tenant_id: TENANT, tabela_id: OUTRA })
+        banco.db.orcamentista_tabela.push({ id: OUTRA, fornecedor_id: fornecedor, arquivo_nome: 'Sul 2026.xlsx' })
+        banco.db.orcamentista_fornecedor.push({ id: 'f-sul', nome: 'Perfis Sul' })
+        banco.db.orcamentista_motor_tipologia_detalhe.push(
+            { tabela_id: OUTRA, tipologia: 'DP-02', descricao: 'JANELA DE CORRER 02 FOLHAS | LINHA SUL', tipo: 'Correr', ordem: null },
+            { tabela_id: OUTRA, tipologia: 'SU-07', descricao: 'PORTA PIVOTANTE | LINHA SUL', tipo: 'Porta', ordem: null },
+        )
+    }
+
+    it('DUAS TABELAS de fornecedores diferentes: a lista junta as duas, e cada tipologia traz a tabela e o fornecedor dela', async () => {
+        comOutraTabela()
         const t = await M().lerTabelaDaEmpresa(TENANT)
-        expect('frase' in t && [t.motivo, t.frase]).toEqual(['MAIS_DE_UMA_TABELA', M().fraseDeMaisDeUmaTabela(2)])
+        if (!('candidatos' in t)) throw new Error('era para ler a lista: ' + t.frase)
+        expect(t.tabelas).toEqual([{ tabelaId: OUTRA, fornecedor: 'Perfis Sul' }, { tabelaId: TABELA, fornecedor: 'Wolff Perfis' }])
+        expect(t.candidatos.map((c) => [c.tipologia, c.fornecedor])).toEqual([
+            ['DP-01', 'Wolff Perfis'], ['DP-02', 'Perfis Sul'], ['DP-02', 'Wolff Perfis'], ['SU-07', 'Perfis Sul'],
+        ])
+        expect(t.candidatos.find((c) => c.tipologia === 'SU-07')?.tabelaId).toBe(OUTRA)
+        // com mais de uma tabela, a linha do prompt diz o fornecedor; com uma só, é a de sempre
+        expect(M().linhaDoCandidato(t.candidatos[1], true)).toBe('DP-02 | JANELA DE CORRER 02 FOLHAS | LINHA SUL | Correr | fornecedor: Perfis Sul')
+        expect(M().linhaDoCandidato(t.candidatos[1], false)).toBe('DP-02 | JANELA DE CORRER 02 FOLHAS | LINHA SUL | Correr')
+        expect(M().tabelasDoCodigo(t)('DP-02')).toEqual([{ tabelaId: OUTRA, fornecedor: 'Perfis Sul' }, { tabelaId: TABELA, fornecedor: 'Wolff Perfis' }])
+    })
+
+    it('DUAS TABELAS do MESMO fornecedor: a pergunta não teria como distinguir pelo nome — recusa nomeando o fornecedor', async () => {
+        comOutraTabela('f-wolff')
+        const t = await M().lerTabelaDaEmpresa(TENANT)
+        expect('frase' in t && [t.motivo, t.frase]).toEqual(['FORNECEDOR_REPETIDO', M().fraseDeFornecedorRepetido('Wolff Perfis', 2)])
+        expect(M().fraseDeFornecedorRepetido('Wolff Perfis', 2)).toBe(
+            'Ainda não consigo escolher a tipologia: a sua empresa tem 2 tabelas do fornecedor Wolff Perfis ligadas ao orçamentista, e eu não escolho entre elas.')
+    })
+
+    it('uma das tabelas SEM a lista de tipologias: a frase nomeia o fornecedor — a outra não segue sozinha em silêncio', async () => {
+        comOutraTabela()
+        banco.db.orcamentista_motor_tipologia_detalhe = banco.db.orcamentista_motor_tipologia_detalhe.filter((l) => l.tabela_id !== OUTRA)
+        const t = await M().lerTabelaDaEmpresa(TENANT)
+        expect('frase' in t && [t.motivo, t.frase]).toEqual(['SEM_LISTA_DE_TIPOLOGIAS', M().fraseSemListaDoFornecedor('Perfis Sul')])
+    })
+
+    it('o levantamento com esquadrias de DOIS fornecedores: recusa nomeada, não calcula misturado', async () => {
+        comOutraTabela()
+        const t = await M().lerTabelaDaEmpresa(TENANT)
+        const r = await M().mensagemDoLevantamento(TENANT, t, {
+            nome: 'Casa do João',
+            itens: [{ ...ESQUADRIA, tabela_id: TABELA }, { ...ESQUADRIA, ordem: 2, tipologia: 'SU-07', tabela_id: OUTRA }],
+        })
+        expect(r.desfecho).toBe('recusou')
+        expect(r.texto).toContain(M().fraseDeFornecedoresMisturados('esquadria 1: Wolff Perfis; esquadria 2: Perfis Sul'))
+    })
+
+    it('a esquadria cuja tipologia está nas duas tabelas e não tem a tabela dita: recusa dizendo que falta o fornecedor', async () => {
+        comOutraTabela()
+        const t = await M().lerTabelaDaEmpresa(TENANT)
+        const r = await M().mensagemDoLevantamento(TENANT, t, { nome: 'Casa do João', itens: [{ ...ESQUADRIA, tabela_id: null }] })
+        expect(r.desfecho).toBe('recusou')
+        expect(r.texto).toContain(M().fraseDaTipologiaSemFornecedor(1, 'DP-02', ['Perfis Sul', 'Wolff Perfis']))
+    })
+
+    it('com a tabela dita, a esquadria calcula pela tabela DELA — o mesmo levantamento de uma tabela só', async () => {
+        comOutraTabela()
+        const t = await M().lerTabelaDaEmpresa(TENANT)
+        const r = await M().mensagemDoLevantamento(TENANT, t, lev({ escolhas: { ARI: 4, ARE: 1, MAE: 2 }, tabela_id: TABELA } as Partial<typeof ESQUADRIA>))
+        expect(r).toEqual({ desfecho: 'levantou', texto: TEXTO_QUE_FECHA })
     })
 
     it('a LISTA AINDA NÃO EXISTE (a tabela do banco não está lá): a frase diz que a lista não foi carregada', async () => {
