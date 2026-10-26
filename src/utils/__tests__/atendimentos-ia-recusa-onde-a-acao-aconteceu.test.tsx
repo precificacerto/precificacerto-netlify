@@ -50,7 +50,7 @@ const FORNECEDOR: FornecedorComTabelas = {
     id: 'f1', nome: 'Wolf Perfis', nicho_id: 'n1', nicho_nome: 'Esquadrias', modelo: 'FABRICACAO', tabelas: 1, contas_usando: [],
     tabelas_da_lista: [{
         id: 't1', fornecedor_id: 'f1', arquivo_nome: 'tabela-antiga.xlsx', arquivo_path: 'f1/arquivo/x-tabela-antiga.xlsx',
-        motor_nome: 'motor.xlsx', motor_path: 'f1/motor/x-motor.xlsx', vigencia: null, criado_em: '2026-10-19T12:00:00Z', contas_usando: ['Marcenaria Silva'],
+        motor_nome: 'motor.xlsx', motor_path: 'f1/motor/x-motor.xlsx', vigencia: null, familia: null, criado_em: '2026-10-19T12:00:00Z', contas_usando: ['Marcenaria Silva'],
     }],
 }
 
@@ -62,6 +62,7 @@ beforeEach(() => {
         [`GET ${ROTAS_DO_CATALOGO.fornecedor('f1')}`]: { status: 200, body: FORNECEDOR },
         [`GET ${ROTAS_DO_CATALOGO.fornecedores}`]: { status: 200, body: [] },
         [`GET ${ROTAS_DO_CATALOGO.nichos}`]: { status: 200, body: [NICHO] },
+        [`GET ${ROTAS_DO_CATALOGO.familias}`]: { status: 200, body: [{ chave: 'PVC', rotulo: 'PVC', ordem: 1 }] },
     }
     ;(globalThis as { fetch: unknown }).fetch = jest.fn(async (url: string, init?: { method?: string }) => {
         const chave = `${init?.method ?? 'GET'} ${url}`
@@ -114,6 +115,13 @@ async function clicar(b: HTMLElement | undefined) {
 async function confirmar(texto: string) {
     const baloes = Array.from(document.querySelectorAll('.ant-popover')).filter((p) => !p.className.includes('ant-popover-hidden'))
     await clicar(botao(baloes[baloes.length - 1], texto))
+}
+/** A família é obrigatória na tabela nova (26/10/2026): o teste a escolhe, como o usuário faria. */
+async function escolherFamilia(chave: string) {
+    const opcao = modal()!.querySelector(`input[data-familia="${chave}"]`) as HTMLInputElement | null
+    expect(opcao).not.toBeNull()
+    await act(async () => { opcao!.click() })
+    await assentar()
 }
 async function escolher(indice: 0 | 1, nome: string) {
     const input = modal()!.querySelectorAll('input[type=file]')[indice] as HTMLInputElement
@@ -180,6 +188,7 @@ describe('na página de UM fornecedor', () => {
         await clicar(botao(host, 'Nova tabela'))
         await escolher(0, XLSM)
         await escolher(1, 'motor.xlsm')
+        await escolherFamilia('PVC')
         await clicar(botao(modal()!, 'Salvar tabela'))
 
         expect(pedidos).toContain(`POST ${ROTAS_DO_CATALOGO.tabelas}`)
@@ -227,6 +236,7 @@ describe('no credenciamento', () => {
         await clicar(botao(modal()!, 'Adicionar tabela'))
         await escolher(0, XLSM)
         await escolher(1, 'motor.xlsm')
+        await escolherFamilia('PVC')
         await clicar(botao(modal()!, 'Salvar tabela'))
         await clicar(botao(modal()!, 'Salvar credenciamento'))
 

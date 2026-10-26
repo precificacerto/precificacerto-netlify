@@ -11,7 +11,7 @@
 import React, { useEffect, useState } from 'react'
 import { Alert, Button, Input, List, Modal, Popconfirm, Typography } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
-import type { Nicho } from '@/utils/atendimentos-ia-catalogo'
+import type { Familia, Nicho } from '@/utils/atendimentos-ia-catalogo'
 import { NichoSelect } from './nicho-select.component'
 import { TabelaModal } from './tabela-modal.component'
 import { LinhaDaTabela } from './linha-da-tabela.component'
@@ -30,6 +30,8 @@ interface Props {
     aberto: boolean
     modo: 'credenciar' | 'editar'
     nichos: Nicho[]
+    /** A lista das famílias, para o modal da tabela nova do credenciamento. */
+    familias: Familia[]
     inicial?: { nome: string; nicho_id: string }
     salvando?: boolean
     erro?: ErroDoFornecedor | null
@@ -38,7 +40,7 @@ interface Props {
     onExcluir?: () => void
 }
 
-export function FornecedorModal({ aberto, modo, nichos, inicial, salvando, erro, onCancelar, onSalvar, onExcluir }: Props) {
+export function FornecedorModal({ aberto, modo, nichos, familias, inicial, salvando, erro, onCancelar, onSalvar, onExcluir }: Props) {
     const [nome, setNome] = useState('')
     const [nichoId, setNichoId] = useState<string | undefined>(undefined)
     const [tabelas, setTabelas] = useState<TabelaPendente[]>([])
@@ -90,6 +92,7 @@ export function FornecedorModal({ aberto, modo, nichos, inicial, salvando, erro,
                     <TabelaModal
                         aberto={tabelaAberta}
                         titulo="Nova tabela"
+                        familias={familias}
                         onCancelar={() => setTabelaAberta(false)}
                         onSalvar={(t) => { setTabelas([...tabelas, t]); setTabelaAberta(false) }}
                     />

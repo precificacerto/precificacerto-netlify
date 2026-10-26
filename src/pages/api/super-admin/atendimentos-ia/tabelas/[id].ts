@@ -1,7 +1,8 @@
 /**
  * GET    /api/super-admin/atendimentos-ia/tabelas/[id] — a tabela, para a tela da importação: os
  *        nomes dos arquivos e o fornecedor (sem os caminhos do bucket).
- * PATCH  /api/super-admin/atendimentos-ia/tabelas/[id] — troca o arquivo, o motor ou a vigência.
+ * PATCH  /api/super-admin/atendimentos-ia/tabelas/[id] — troca o arquivo, o motor, a vigência ou a
+ *        FAMÍLIA (da lista, conferida aqui; ela se troca e não se apaga — 26/10/2026).
  * DELETE /api/super-admin/atendimentos-ia/tabelas/[id] — exclui uma tabela que nenhuma conta usa.
  *
  * TABELA EM USO o BANCO recusa (FK RESTRICT de `orcamentista_conta_tabela`, 23503). A rota não
@@ -24,12 +25,13 @@ import {
   contasQueUsamATabela,
   excluirTabela,
   falhaInterna,
+  listarFamilias,
   objetoExiste,
   obterDadosDaTabela,
   obterTabela,
   removerObjetos,
 } from '@/lib/atendimentos-ia/repositorio'
-import { ehUuid, emUsoPor, lerEdicaoDaTabela, recusada } from '@/utils/atendimentos-ia-catalogo'
+import { ehFkDaFamilia, ehUuid, emUsoPor, fraseDaFamiliaDesconhecida, lerEdicaoDaTabela, recusada } from '@/utils/atendimentos-ia-catalogo'
 
 const avisoDeOrfaos = (caminhos: string[]) =>
   `Os arquivos não puderam ser apagados do armazenamento e ficaram sem uso: ${caminhos.join(', ')}.`
@@ -65,12 +67,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (recusada(leitura)) return res.status(400).json({ error: leitura.erro })
     const ed = leitura.corpo
     try {
+      if (ed.familia !== undefined && !(await listarFamilias()).some((f) => f.chave === ed.familia)) return res.status(400).json({ error: fraseDaFamiliaDesconhecida(ed.familia) })
       if (ed.arquivo && !(await objetoExiste(ed.arquivo.path))) return res.status(400).json({ error: 'O arquivo da tabela não chegou ao armazenamento. Envie de novo.' })
       if (ed.motor && !(await objetoExiste(ed.motor.path))) return res.status(400).json({ error: 'O arquivo do motor não chegou ao armazenamento. Envie de novo.' })
       const campos: Record<string, string | null> = {}
       if (ed.arquivo) { campos.arquivo_path = ed.arquivo.path; campos.arquivo_nome = ed.arquivo.nome }
       if (ed.motor) { campos.motor_path = ed.motor.path; campos.motor_nome = ed.motor.nome }
       if (ed.vigencia !== undefined) campos.vigencia = ed.vigencia
+      if (ed.familia !== undefined) campos.familia = ed.familia
       await atualizarTabela(id, campos)
       const trocados = [ed.arquivo && atual.arquivo_path, ed.motor && atual.motor_path].filter((p): p is string => typeof p === 'string')
       const { erro } = await removerObjetos(trocados)
@@ -80,6 +84,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
       return res.status(200).json({ ok: true })
     } catch (e) {
+      if (codigoDoErro(e) === '23503' && ehFkDaFamilia(e) && ed.familia !== undefined) return res.status(400).json({ error: fraseDaFamiliaDesconhecida(ed.familia) })
       return falhaInterna(res, 'tabela PATCH', e, 'Não foi possível alterar a tabela.')
     }
   }

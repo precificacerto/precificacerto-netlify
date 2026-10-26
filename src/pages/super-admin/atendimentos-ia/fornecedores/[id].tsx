@@ -22,7 +22,7 @@ import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
 import { ROUTES } from '@/constants/routes'
 import { useAuth } from '@/hooks/use-auth.hook'
-import { ROTAS_DO_CATALOGO, ROTULO_DO_MODELO, TITULO_DA_TABELA_NAO_EXCLUIDA, fraseDoArquivo, type FornecedorComTabelas, type Nicho, type TabelaDoFornecedor } from '@/utils/atendimentos-ia-catalogo'
+import { ROTAS_DO_CATALOGO, ROTULO_DO_MODELO, TITULO_DA_TABELA_NAO_EXCLUIDA, fraseDoArquivo, type Familia, type FornecedorComTabelas, type Nicho, type TabelaDoFornecedor } from '@/utils/atendimentos-ia-catalogo'
 import { chamarRota, enviarArquivo, gravarTabelaNova, type TabelaPendente } from '@/page-parts/atendimentos-ia/api'
 import { FornecedorModal, TITULO_FORNECEDOR_NAO_EXCLUIDO, TITULO_FORNECEDOR_NAO_SALVO, type DadosDoFornecedor, type ErroDoFornecedor } from '@/page-parts/atendimentos-ia/fornecedor-modal.component'
 import { TabelaModal } from '@/page-parts/atendimentos-ia/tabela-modal.component'
@@ -38,6 +38,7 @@ export default function TabelasDoFornecedor() {
 
     const [fornecedor, setFornecedor] = useState<FornecedorComTabelas | null>(null)
     const [nichos, setNichos] = useState<Nicho[]>([])
+    const [familias, setFamilias] = useState<Familia[]>([])
     const [erro, setErro] = useState<string | null>(null)
     const [editandoFornecedor, setEditandoFornecedor] = useState(false)
     const [tabelaNova, setTabelaNova] = useState(false)
@@ -50,12 +51,14 @@ export default function TabelasDoFornecedor() {
     const carregar = useCallback(async () => {
         if (!id) return
         try {
-            const [f, ns] = await Promise.all([
+            const [f, ns, fams] = await Promise.all([
                 chamarRota<FornecedorComTabelas>(ROTAS_DO_CATALOGO.fornecedor(id)),
                 chamarRota<Nicho[]>(ROTAS_DO_CATALOGO.nichos),
+                chamarRota<Familia[]>(ROTAS_DO_CATALOGO.familias),
             ])
             setFornecedor(f)
             setNichos(ns)
+            setFamilias(fams)
             setErro(null)
         } catch (e) {
             setErro((e as Error).message)
@@ -130,6 +133,7 @@ export default function TabelasDoFornecedor() {
         setErroDaTabela(null)
         try {
             const corpo: Record<string, string> = { vigencia: t.vigencia }
+            if (t.familia) corpo.familia = t.familia
             if (t.arquivo) { const a = await enviarArquivo(id, 'arquivo', t.arquivo); corpo.arquivo_path = a.path; corpo.arquivo_nome = a.nome }
             if (t.motor) { const m = await enviarArquivo(id, 'motor', t.motor); corpo.motor_path = m.path; corpo.motor_nome = m.nome }
             const r = await chamarRota<{ ok: true; aviso?: string }>(ROTAS_DO_CATALOGO.tabela(tabelaEmEdicao.id), 'PATCH', corpo)
@@ -199,6 +203,12 @@ export default function TabelasDoFornecedor() {
                             columns={[
                                 { title: 'Arquivo', dataIndex: 'arquivo_nome' },
                                 { title: 'Motor', dataIndex: 'motor_nome' },
+                                {
+                                    title: 'Família',
+                                    render: (_, t) => (t.familia
+                                        ? familias.find((f) => f.chave === t.familia)?.rotulo ?? t.familia
+                                        : <Typography.Text type="secondary" data-familia-nao-informada>não informada</Typography.Text>),
+                                },
                                 { title: 'Vigência', render: (_, t) => t.vigencia ?? <Typography.Text type="secondary">—</Typography.Text> },
                                 // A data na borda direita, em `tabular-nums` — o mesmo estilo da lista do credenciamento.
                                 { title: 'Subido em', align: 'right', render: (_, t) => <span style={ESTILO_DA_DATA} data-coluna="subido-em">{dataBR(t.criado_em)}</span> },
@@ -222,10 +232,11 @@ export default function TabelasDoFornecedor() {
                 </>
             )}
 
-            <TabelaModal aberto={tabelaNova} titulo="Nova tabela" salvando={salvando} erro={tabelaNova ? erroDaTabela : null} onCancelar={() => abrirTabelaNova(false)} onSalvar={salvarTabelaNova} />
+            <TabelaModal aberto={tabelaNova} titulo="Nova tabela" familias={familias} salvando={salvando} erro={tabelaNova ? erroDaTabela : null} onCancelar={() => abrirTabelaNova(false)} onSalvar={salvarTabelaNova} />
             <TabelaModal
                 aberto={!!tabelaEmEdicao}
                 titulo="Editar tabela"
+                familias={familias}
                 atual={tabelaEmEdicao ?? undefined}
                 salvando={salvando}
                 erro={tabelaEmEdicao ? erroDaTabela : null}
@@ -236,6 +247,7 @@ export default function TabelasDoFornecedor() {
                 aberto={editandoFornecedor}
                 modo="editar"
                 nichos={nichos}
+                familias={familias}
                 inicial={fornecedor ? { nome: fornecedor.nome, nicho_id: fornecedor.nicho_id } : undefined}
                 salvando={salvando}
                 erro={editandoFornecedor ? erroDoFornecedor : null}

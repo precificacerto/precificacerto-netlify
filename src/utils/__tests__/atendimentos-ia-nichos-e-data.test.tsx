@@ -103,9 +103,9 @@ describe('a data na borda direita', () => {
     it('(d) na lista de tabelas do fornecedor, "Subido em" vem alinhada à direita, em tabular-nums', async () => {
         const fornecedor: FornecedorComTabelas = {
             id: 'f1', nome: 'Alumínio Sul', nicho_id: 'n0', nicho_nome: 'Esquadrias', modelo: 'FABRICACAO', tabelas: 1, contas_usando: [],
-            tabelas_da_lista: [{ id: 't1', fornecedor_id: 'f1', arquivo_nome: 't.xlsx', arquivo_path: 'f1/arquivo/t.xlsx', motor_nome: 'm.pdf', motor_path: 'f1/motor/m.pdf', vigencia: null, criado_em: '2026-10-19T12:00:00Z', contas_usando: [] }],
+            tabelas_da_lista: [{ id: 't1', fornecedor_id: 'f1', arquivo_nome: 't.xlsx', arquivo_path: 'f1/arquivo/t.xlsx', motor_nome: 'm.pdf', motor_path: 'f1/motor/m.pdf', vigencia: null, familia: null, criado_em: '2026-10-19T12:00:00Z', contas_usando: [] }],
         }
-        const respostas: Record<string, unknown> = { [ROTAS_DO_CATALOGO.fornecedor('f1')]: fornecedor, [ROTAS_DO_CATALOGO.nichos]: [] }
+        const respostas: Record<string, unknown> = { [ROTAS_DO_CATALOGO.fornecedor('f1')]: fornecedor, [ROTAS_DO_CATALOGO.nichos]: [], [ROTAS_DO_CATALOGO.familias]: [{ chave: 'PVC', rotulo: 'PVC', ordem: 1 }] }
         ;(globalThis as { fetch: unknown }).fetch = jest.fn(async (url: string) => ({ ok: true, status: 200, json: async () => respostas[url] }) as Response)
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const Pagina = require('@/pages/super-admin/atendimentos-ia/fornecedores/[id]').default as React.ComponentType

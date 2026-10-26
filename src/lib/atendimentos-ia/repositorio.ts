@@ -17,6 +17,7 @@ import {
     BUCKET_DO_CATALOGO,
     type ContaLigada,
     type CorpoDaTabela,
+    type Familia,
     type FornecedorComTabelas,
     type FornecedorDoNicho,
     type FornecedorDaLista,
@@ -201,7 +202,7 @@ async function montarLista(fornecedores: Linha[]): Promise<FornecedorComTabelas[
     const nichos: Linha[] = nichoIds.length ? await q(db().from('orcamentista_nicho').select('id, modelo, nome').in('id', nichoIds)) : []
     const fIds = fornecedores.map((f) => f.id)
     const tabelas: Linha[] = fIds.length
-        ? await q(db().from('orcamentista_tabela').select('id, fornecedor_id, arquivo_nome, arquivo_path, motor_nome, motor_path, vigencia, criado_em').in('fornecedor_id', fIds).order('criado_em', { ascending: false }))
+        ? await q(db().from('orcamentista_tabela').select('id, fornecedor_id, arquivo_nome, arquivo_path, motor_nome, motor_path, vigencia, familia, criado_em').in('fornecedor_id', fIds).order('criado_em', { ascending: false }))
         : []
     const uso = await usoPorTabela(tabelas.map((t) => t.id))
     return fornecedores.map((f) => {
@@ -252,6 +253,16 @@ export async function quemSeguraOFornecedor(id: string): Promise<{ tabelas: stri
     const ts = await q(db().from('orcamentista_tabela').select('id, arquivo_nome').eq('fornecedor_id', id))
     const uso = await usoPorTabela(ts.map((t: Linha) => t.id))
     return { tabelas: ts.map((t: Linha) => t.arquivo_nome), contas: [...new Set(Object.values(uso).flat())] }
+}
+
+// ── Famílias (migração 20261026000004) ───────────────────────────────────────────────────────
+/** O catálogo das famílias, SEM ordem — quem ordena é a rota. */
+export async function listarFamilias(): Promise<Familia[]> {
+    return q(db().from('orcamentista_familia_catalogo').select('chave, rotulo, ordem'))
+}
+
+export async function criarFamilia(f: Familia): Promise<Familia> {
+    return q(db().from('orcamentista_familia_catalogo').insert(f).select('chave, rotulo, ordem').single())
 }
 
 // ── Tabelas ────────────────────────────────────────────────────────────────────────────────

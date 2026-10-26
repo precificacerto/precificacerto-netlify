@@ -7,7 +7,7 @@
  *   - LISTA FECHADA, catálogo no padrão de `orcamentista_categoria_catalogo` (chave, rótulo, ordem). O
  *     super admin acrescenta entradas — "Portas de ACM e Portas de garagem ainda vão aparecer";
  *   - a FAMÍLIA é atributo da TABELA DO FORNECEDOR, escolhido da lista no cadastro da tabela. Não é
- *     deduzida do prefixo de `linha` nem do `segmento`;
+ *     deduzida do prefixo de `linha` nem de `orcamentista_motor_regra.segmento`;
  *   - a conta PODE ter duas tabelas da mesma família: sem unicidade por família.
  *
  * O que este portão fica vermelho:
@@ -72,7 +72,7 @@ jest.mock('@/lib/atendimentos-ia/repositorio', () => {
         obterTabela: jest.fn(async () => ({ id: T, fornecedor_id: F, arquivo_path: `${F}/arquivo/x-t.xlsx`, motor_path: `${F}/motor/x-m.xlsx` })),
         atualizarTabela: jest.fn(async () => 1),
         objetoExiste: jest.fn(async () => true),
-        removerObjetos: jest.fn(async () => ({ erro: null })),
+        removerObjetos: jest.fn(async (): Promise<{ erro: string | null }> => ({ erro: null })),
     }
 })
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -248,7 +248,8 @@ async function escolherArquivo(indice: 0 | 1, nome: string) {
     await act(async () => { input.dispatchEvent(new Event('change', { bubbles: true })) })
     await assentar()
 }
-const opcaoDaFamilia = (chave: string) => modal()!.querySelector(`[data-familia="${chave}"] input`) as HTMLInputElement | null
+// o antd põe o atributo no próprio input do Radio.Button; um invólucro com ele também vale
+const opcaoDaFamilia = (chave: string) => modal()!.querySelector(`input[data-familia="${chave}"], [data-familia="${chave}"] input`) as HTMLInputElement | null
 
 describe('(4) a TELA', () => {
     const FAMILIAS: Familia[] = [PVC, { chave: 'ALUMINIO', rotulo: 'Alumínio', ordem: 2 }]

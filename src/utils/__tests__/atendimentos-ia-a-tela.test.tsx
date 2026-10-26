@@ -73,6 +73,7 @@ describe('a tela de Fornecedores e tabelas', () => {
         respostas = {
             [ROTAS_DO_CATALOGO.fornecedores]: { status: 500, body: { error: 'Não foi possível ler os fornecedores.' } },
             [ROTAS_DO_CATALOGO.nichos]: { status: 200, body: [] },
+            [ROTAS_DO_CATALOGO.familias]: { status: 200, body: [{ chave: 'PVC', rotulo: 'PVC', ordem: 1 }] },
         }
         const host = await montar(<Pagina />)
         expect(host.textContent).toContain('Não foi possível ler o catálogo.')
@@ -84,6 +85,7 @@ describe('a tela de Fornecedores e tabelas', () => {
         respostas = {
             [ROTAS_DO_CATALOGO.fornecedores]: { status: 200, body: [FORNECEDOR] },
             [ROTAS_DO_CATALOGO.nichos]: { status: 200, body: [{ id: 'n1', modelo: 'FABRICACAO', nome: 'Esquadrias', ativo: true }] },
+            [ROTAS_DO_CATALOGO.familias]: { status: 200, body: [{ chave: 'PVC', rotulo: 'PVC', ordem: 1 }] },
         }
         const host = await montar(<Pagina />)
         const linha = host.querySelector('tbody tr') as HTMLElement
@@ -104,7 +106,7 @@ describe('a tela de Fornecedores e tabelas', () => {
     it('(d) o modal da tabela não salva sem o motor, e diz por quê', async () => {
         // COM o arquivo da tabela e SEM o motor: sem arquivo nenhum, o botão já estaria desligado
         // pela falta do arquivo, e o caso não distinguiria a trava do motor (`teste-que-nao-exercita.md`).
-        await montar(<TabelaModal aberto titulo="Nova tabela" atual={{ arquivo_nome: 't.xlsx', motor_nome: '', vigencia: null }} onCancelar={() => {}} onSalvar={() => {}} />)
+        await montar(<TabelaModal aberto familias={[]} titulo="Nova tabela" atual={{ arquivo_nome: 't.xlsx', motor_nome: '', vigencia: null, familia: null }} onCancelar={() => {}} onSalvar={() => {}} />)
         const salvar = Array.from(document.querySelectorAll('.ant-modal button')).find((b) => b.textContent?.includes('Salvar tabela')) as HTMLButtonElement
         expect(salvar).toBeDefined()
         expect(salvar.disabled).toBe(true)
@@ -112,7 +114,7 @@ describe('a tela de Fornecedores e tabelas', () => {
 
         // O contraste: na EDIÇÃO, com os dois arquivos atuais, o botão liga — sem isto, um botão
         // sempre desligado passaria o caso.
-        await montar(<TabelaModal aberto titulo="Editar tabela" atual={{ arquivo_nome: 't.xlsx', motor_nome: 'm.xlsx', vigencia: null }} onCancelar={() => {}} onSalvar={() => {}} />)
+        await montar(<TabelaModal aberto familias={[]} titulo="Editar tabela" atual={{ arquivo_nome: 't.xlsx', motor_nome: 'm.xlsx', vigencia: null, familia: null }} onCancelar={() => {}} onSalvar={() => {}} />)
         const botoes = Array.from(document.querySelectorAll('.ant-modal button')).filter((b) => b.textContent?.includes('Salvar tabela')) as HTMLButtonElement[]
         expect(botoes.some((b) => !b.disabled)).toBe(true)
     })
