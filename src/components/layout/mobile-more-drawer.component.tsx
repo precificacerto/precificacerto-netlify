@@ -29,6 +29,7 @@ import {
   RobotOutlined,
 } from '@ant-design/icons'
 import { ROUTES } from '@/constants/routes'
+import { ROTULO_DA_SECAO_DE_IA } from '@/constants/rotulo-da-secao-de-ia'
 import { monthObjects } from '@/constants/month'
 import { useAuth } from '@/hooks/use-auth.hook'
 import { usePermissions, MODULES, type ModuleKey } from '@/hooks/use-permissions.hook'
@@ -130,9 +131,9 @@ const MobileMoreDrawer = ({ open, onClose }: Props) => {
     // Super Admin
     // Atendimentos I.A. — a mesma seção do menu desktop (`nav.component.tsx`), com a mesma chave.
     // O Orçamentista é do TENANT e só com a seção ligada no servidor; os outros dois, do super admin.
-    { key: 'orcamentista', label: 'Orçamentista', href: ROUTES.ATENDIMENTOS_IA_ORCAMENTISTA, icon: <RobotOutlined />, section: 'Atendimentos I.A.', sectionKey: 'atendimentos-ia', module: MODULES.ORCAMENTISTA, hideForSuperAdmin: true, exigeSecaoDoOrcamentista: true },
-    { key: 'super-ia-contas', label: 'Contas ligadas', href: ROUTES.SUPER_ADMIN_IA_CONTAS, icon: <TeamOutlined />, section: 'Atendimentos I.A.', sectionKey: 'atendimentos-ia', superAdminOnly: true },
-    { key: 'super-ia-fornecedores', label: 'Fornecedores e tabelas', href: ROUTES.SUPER_ADMIN_IA_FORNECEDORES, icon: <DatabaseOutlined />, section: 'Atendimentos I.A.', sectionKey: 'atendimentos-ia', superAdminOnly: true },
+    { key: 'orcamentista', label: 'Orçamentista', href: ROUTES.ATENDIMENTOS_IA_ORCAMENTISTA, icon: <RobotOutlined />, section: ROTULO_DA_SECAO_DE_IA, sectionKey: 'atendimentos-ia', module: MODULES.ORCAMENTISTA, hideForSuperAdmin: true, exigeSecaoDoOrcamentista: true },
+    { key: 'super-ia-contas', label: 'Contas ligadas', href: ROUTES.SUPER_ADMIN_IA_CONTAS, icon: <TeamOutlined />, section: ROTULO_DA_SECAO_DE_IA, sectionKey: 'atendimentos-ia', superAdminOnly: true },
+    { key: 'super-ia-fornecedores', label: 'Fornecedores e tabelas', href: ROUTES.SUPER_ADMIN_IA_FORNECEDORES, icon: <DatabaseOutlined />, section: ROTULO_DA_SECAO_DE_IA, sectionKey: 'atendimentos-ia', superAdminOnly: true },
     { key: 'super-admin', label: 'Painel Super Admin', href: ROUTES.SUPER_ADMIN_PANEL, icon: <SafetyCertificateOutlined />, section: 'Super Admin', sectionKey: 'superadmin', superAdminOnly: true },
     { key: 'super-notifications', label: 'Notificações', href: ROUTES.SUPER_ADMIN_NOTIFICATIONS, icon: <BellOutlined />, section: 'Super Admin', sectionKey: 'superadmin', superAdminOnly: true },
     { key: 'super-tenants', label: 'Tenants', href: ROUTES.SUPER_ADMIN_TENANTS, icon: <TeamOutlined />, section: 'Super Admin', sectionKey: 'superadmin', superAdminOnly: true },
@@ -173,8 +174,8 @@ const MobileMoreDrawer = ({ open, onClose }: Props) => {
 
   // 'Clientes' entra entre Cadastros e Comercial — a MESMA posição da seção no menu
   // desktop. A ordem é o que faz o usuário achar no celular o que ele vê no desktop.
-  // 'Atendimentos I.A.' logo depois de 'Clientes' desde 21/10/2026, como no desktop.
-  const sectionOrder = ['Início', 'Cadastros', 'Clientes', 'Atendimentos I.A.', 'Comercial', 'Financeiro', 'Agendamentos', 'Operacional', 'Super Admin', 'Conta']
+  // A seção de IA logo depois de 'Clientes' desde 21/10/2026, como no desktop. O rótulo é a constante: ele é a chave aqui.
+  const sectionOrder = ['Início', 'Cadastros', 'Clientes', ROTULO_DA_SECAO_DE_IA, 'Comercial', 'Financeiro', 'Agendamentos', 'Operacional', 'Super Admin', 'Conta']
   const grouped = sectionOrder
     .map((section) => ({ section, list: visibleItems.filter((i) => i.section === section) }))
     .filter((g) => g.list.length > 0)
