@@ -34,7 +34,7 @@ function dp02() {
 const definicao = (e: { tipologia: string | null }) => (e.tipologia === 'DP-02' ? dp02() : null)
 /** Uma tabela só, com as duas tipologias: o caso de hoje em produção. Várias tabelas: bloco (V). */
 const UNICA = 'tabela-unica'
-const tabelasUnica = (c: string) => (TIPOLOGIAS.includes(c) ? [{ tabelaId: UNICA, fornecedor: 'Wolff' }] : [])
+const tabelasUnica = (c: string) => (TIPOLOGIAS.includes(c) ? [{ tabelaId: UNICA, fornecedor: 'Wolff', familia: 'PVC' as string | null }] : [])
 const ctx = (ordemPadrao: number | null) => ({ tipologias: TIPOLOGIAS, cores: CORES, ordemPadrao, definicao, tabelasDoCodigo: tabelasUnica })
 const COMPLETO_SEM_ESCOLHAS = { ordem: 1, tipologia: 'DP-02', largura_mm: 1200, altura_mm: 1000, quantidade: 1, cor_perfil: 'BRANCO', vidro: 'Temperado 5mm', escolhas: null as Record<string, number> | null, tabela_id: UNICA as string | null }
 
@@ -189,8 +189,9 @@ describe('(5) a pergunta da pendência', () => {
  * Sem dado de produção que o exercite hoje (1 tabela ligada): o caso vive aqui.
  */
 describe('(V) várias tabelas: a tipologia em mais de uma, a pergunta é de qual fornecedor', () => {
-    const WOLFF = { tabelaId: 'tab-wolff', fornecedor: 'Wolff' }
-    const SUL = { tabelaId: 'tab-sul', fornecedor: 'Perfis Sul' }
+    const WOLFF = { tabelaId: 'tab-wolff', fornecedor: 'Wolff', familia: 'PVC' as string | null }
+    const SUL = { tabelaId: 'tab-sul', fornecedor: 'Perfis Sul', familia: 'Alumínio' as string | null }
+    const OPCOES = [{ fornecedor: 'Perfis Sul', familia: 'Alumínio' }, { fornecedor: 'Wolff', familia: 'PVC' }]
     const tabelasDoCodigo = (c: string) => (c === 'DP-02' ? [WOLFF, SUL] : c === 'DP-01' ? [WOLFF] : [])
     // as abas da DP-02 só na Wolff: a definição depende da TABELA da esquadria, não só do código
     const def = (i: { tipologia: string | null; tabela_id: string | null }) => (i.tipologia === 'DP-02' && i.tabela_id === 'tab-wolff' ? dp02() : null)
@@ -201,15 +202,15 @@ describe('(V) várias tabelas: a tipologia em mais de uma, a pergunta é de qual
         const r = L().aplicarProposta([L().itemVazio(1)], { itens: [COMPLETA] }, ctxV(1))
         expect(r.itens[0].tabela_id).toBeNull()
         const p = L().proximaPendencia(r.itens, def, tabelasDoCodigo)
-        expect(p).toEqual({ tipo: 'FORNECEDOR', ordem: 1, tipologia: 'DP-02', fornecedores: ['Perfis Sul', 'Wolff'] })
-        expect(L().perguntaDaPendencia(p!, 1)).toBe(L().fraseDeQualFornecedor('DP-02', ['Perfis Sul', 'Wolff']))
-        expect(L().fraseDeQualFornecedor('DP-02', ['Perfis Sul', 'Wolff'])).toBe('A DP-02 está nas tabelas de 2 fornecedores: Perfis Sul ou Wolff. De qual deles é?')
-        expect(L().perguntaDaPendencia(p!, 2)).toBe(`Esquadria 1: ${L().fraseDeQualFornecedor('DP-02', ['Perfis Sul', 'Wolff'])}`)
+        expect(p).toEqual({ tipo: 'FORNECEDOR', ordem: 1, tipologia: 'DP-02', opcoes: OPCOES })
+        expect(L().perguntaDaPendencia(p!, 1)).toBe(L().fraseDeQualFornecedor('DP-02', OPCOES))
+        expect(L().fraseDeQualFornecedor('DP-02', OPCOES)).toBe('A DP-02 está nas tabelas de 2 fornecedores: Perfis Sul ou Wolff. De qual deles é?')
+        expect(L().perguntaDaPendencia(p!, 2)).toBe(`Esquadria 1: ${L().fraseDeQualFornecedor('DP-02', OPCOES)}`)
     })
 
     it('a pendência do fornecedor vem logo depois da tipologia, antes das medidas', () => {
         const r = L().aplicarProposta([L().itemVazio(1)], { itens: [{ tipologia: 'DP-02' }] }, ctxV(1))
-        expect(L().proximaPendencia(r.itens, def, tabelasDoCodigo)).toEqual({ tipo: 'FORNECEDOR', ordem: 1, tipologia: 'DP-02', fornecedores: ['Perfis Sul', 'Wolff'] })
+        expect(L().proximaPendencia(r.itens, def, tabelasDoCodigo)).toEqual({ tipo: 'FORNECEDOR', ordem: 1, tipologia: 'DP-02', opcoes: OPCOES })
     })
 
     it('o código em UMA tabela: a esquadria leva a tabela dela, e não há pergunta', () => {
@@ -245,10 +246,45 @@ describe('(V) várias tabelas: a tipologia em mais de uma, a pergunta é de qual
     })
 
     it('a tabela guardada que já não tem o código (tirada da conta) não vale: volta a ser pergunta', () => {
-        expect(L().tabelaDaEsquadria({ tipologia: 'DP-02', tabela_id: 'tab-velha' }, tabelasDoCodigo)).toEqual({ fornecedores: ['Perfis Sul', 'Wolff'] })
+        expect(L().tabelaDaEsquadria({ tipologia: 'DP-02', tabela_id: 'tab-velha' }, tabelasDoCodigo)).toEqual({ opcoes: OPCOES })
         expect(L().tabelaDaEsquadria({ tipologia: 'DP-02', tabela_id: 'tab-sul' }, tabelasDoCodigo)).toEqual({ tabelaId: 'tab-sul' })
         expect(L().tabelaDaEsquadria({ tipologia: 'DP-01', tabela_id: null }, tabelasDoCodigo)).toEqual({ tabelaId: 'tab-wolff' })
         expect(L().tabelaDaEsquadria({ tipologia: 'XX-9', tabela_id: null }, tabelasDoCodigo)).toBeNull()
         expect(L().tabelaDaEsquadria({ tipologia: null, tabela_id: null }, tabelasDoCodigo)).toBeNull()
+    })
+
+    /**
+     * O MESMO fornecedor com FAMÍLIAS diferentes (dono do produto, 26/10/2026: a Wolff com PVC e alumínio): a
+     * desambiguação é por FORNECEDOR + FAMÍLIA, e a pergunta cita a família.
+     */
+    describe('o mesmo fornecedor, famílias diferentes', () => {
+        const PVC = { tabelaId: 'tab-wolff-pvc', fornecedor: 'Wolff', familia: 'PVC' as string | null }
+        const ALU = { tabelaId: 'tab-wolff-alu', fornecedor: 'Wolff', familia: 'Alumínio' as string | null }
+        const doCodigo = (c: string) => (c === 'DP-02' ? [ALU, PVC] : [])
+        const ctxF = { tipologias: TIPOLOGIAS, cores: CORES, ordemPadrao: 1, definicao: def, tabelasDoCodigo: doCodigo }
+
+        it('a pergunta cita a FAMÍLIA, e a resposta pela família resolve a tabela', () => {
+            const antes = L().aplicarProposta([L().itemVazio(1)], { itens: [COMPLETA] }, ctxF).itens
+            const p = L().proximaPendencia(antes, def, doCodigo)
+            expect(p).toEqual({ tipo: 'FORNECEDOR', ordem: 1, tipologia: 'DP-02', opcoes: [{ fornecedor: 'Wolff', familia: 'Alumínio' }, { fornecedor: 'Wolff', familia: 'PVC' }] })
+            expect(L().perguntaDaPendencia(p!, 1)).toBe('A DP-02 está em 2 tabelas da Wolff: de Alumínio ou de PVC. De qual família é?')
+            const r = L().aplicarProposta(antes, { itens: [{ familia: 'pvc' }] }, ctxF)
+            expect(r.itens[0].tabela_id).toBe('tab-wolff-pvc')
+            expect([r.propostos, r.descartados]).toEqual([1, 0])
+        })
+
+        it('só o fornecedor, que as duas têm, não resolve: descartado, e a pergunta continua', () => {
+            const antes = L().aplicarProposta([L().itemVazio(1)], { itens: [COMPLETA] }, ctxF).itens
+            const r = L().aplicarProposta(antes, { itens: [{ fornecedor: 'Wolff' }] }, ctxF)
+            expect(r.itens[0].tabela_id).toBeNull()
+            expect([r.propostos, r.descartados]).toEqual([1, 1])
+        })
+
+        it('fornecedores e famílias misturados: cada opção pelo nome, e a família só onde o fornecedor se repete', () => {
+            expect(L().fraseDeQualFornecedor('DP-02', [{ fornecedor: 'Perfis Sul', familia: 'PVC' }, { fornecedor: 'Wolff', familia: 'Alumínio' }, { fornecedor: 'Wolff', familia: 'PVC' }]))
+                .toBe('A DP-02 está em 3 tabelas: Perfis Sul, Wolff (Alumínio) ou Wolff (PVC). De qual delas é?')
+            expect(L().fraseDeQualFornecedor('DP-02', [{ fornecedor: 'Wolff', familia: null }, { fornecedor: 'Wolff', familia: 'PVC' }]))
+                .toBe('A DP-02 está em 2 tabelas da Wolff: de família não informada ou de PVC. De qual família é?')
+        })
     })
 })

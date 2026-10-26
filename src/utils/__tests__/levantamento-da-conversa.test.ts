@@ -91,8 +91,9 @@ function montar() {
     banco.db = {
         orcamentista_conta_tabela: [{ tenant_id: TENANT, tabela_id: TABELA }],
         // a tabela e o fornecedor dela: com mais de uma tabela, a pergunta cita o fornecedor pelo nome
-        orcamentista_tabela: [{ id: TABELA, fornecedor_id: 'f-wolff', arquivo_nome: 'Tabela Wolff.xlsx' }],
+        orcamentista_tabela: [{ id: TABELA, fornecedor_id: 'f-wolff', arquivo_nome: 'Tabela Wolff.xlsx', familia: 'PVC' }],
         orcamentista_fornecedor: [{ id: 'f-wolff', nome: 'Wolff Perfis' }],
+        orcamentista_familia_catalogo: [{ chave: 'PVC', rotulo: 'PVC', ordem: 1 }, { chave: 'ALUMINIO', rotulo: 'Alumínio', ordem: 2 }],
         ...ABAS_NO_BANCO(),
         orcamentista_motor_tipologia_detalhe: [
             ...ABAS_NO_BANCO().orcamentista_motor_tipologia_detalhe,
@@ -125,7 +126,7 @@ const ESQUADRIA = { ordem: 1, tipologia: 'DP-02', largura_mm: 1200, altura_mm: 1
 const lev = (o: Partial<typeof ESQUADRIA> = {}) => ({ nome: 'Casa do João', itens: [{ ...ESQUADRIA, ...o }] })
 /** Os dados da esquadria como a FRASE os recebe: as escolhas já descritas. */
 const DESCRITAS = 'arremate interno: SEM ARREMATE INTERNO (como você pediu); arremate externo: BZ0010 - ARREMATE 20MM (como você pediu); medida arremate externo: VÃO+50MM (CORTE 90/90) - PARA AJUSTE EM OBRA (como você pediu)'
-const DADOS = { nome: 'Casa do João', cor: 'BRANCO', esquadrias: [{ tipologia: 'DP-02', largura_mm: 1200, altura_mm: 1000, quantidade: 1, escolhas: DESCRITAS }] }
+const DADOS = { nome: 'Casa do João', cor: 'BRANCO', esquadrias: [{ numero: 1, tipologia: 'DP-02', largura_mm: 1200, altura_mm: 1000, quantidade: 1, escolhas: DESCRITAS }] }
 /**
  * A mão de obra da DP-02 com os números de produção: 150 min × (40.813,03 ÷ (5 × 528 h × 60)).
  * 5 × 528 × 60 = 158.400 min; 40.813,03 ÷ 158.400 = 0,25765802…; × 150 = 38,6487 → R$ 38,65.
@@ -164,7 +165,7 @@ describe('(1) a tabela da empresa e as tipologias candidatas', () => {
     it('a lista vem de orcamentista_motor_tipologia_detalhe da tabela LIGADA à empresa, em ordem de código', async () => {
         const t = await M().lerTabelaDaEmpresa(TENANT)
         if (!('candidatos' in t)) throw new Error('era para ler a lista: ' + t.frase)
-        expect(t.tabelas).toEqual([{ tabelaId: TABELA, fornecedor: 'Wolff Perfis' }])
+        expect(t.tabelas).toEqual([{ tabelaId: TABELA, fornecedor: 'Wolff Perfis', familia: 'PVC' }])
         expect(t.candidatos.map((c) => c.tipologia)).toEqual(['DP-01', 'DP-02'])
         expect(M().linhaDoCandidato(t.candidatos[1], false)).toBe('DP-02 | JANELA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 42 | Correr')
     })
@@ -181,9 +182,9 @@ describe('(1) a tabela da empresa e as tipologias candidatas', () => {
      * de qual tabela e de qual fornecedor é.
      */
     const OUTRA = 'tabela-perfis-sul'
-    const comOutraTabela = (fornecedor = 'f-sul') => {
+    const comOutraTabela = (fornecedor = 'f-sul', familia: string | null = 'ALUMINIO') => {
         banco.db.orcamentista_conta_tabela.push({ tenant_id: TENANT, tabela_id: OUTRA })
-        banco.db.orcamentista_tabela.push({ id: OUTRA, fornecedor_id: fornecedor, arquivo_nome: 'Sul 2026.xlsx' })
+        banco.db.orcamentista_tabela.push({ id: OUTRA, fornecedor_id: fornecedor, arquivo_nome: 'Sul 2026.xlsx', familia })
         banco.db.orcamentista_fornecedor.push({ id: 'f-sul', nome: 'Perfis Sul' })
         banco.db.orcamentista_motor_tipologia_detalhe.push(
             { tabela_id: OUTRA, tipologia: 'DP-02', descricao: 'JANELA DE CORRER 02 FOLHAS | LINHA SUL', tipo: 'Correr', ordem: null },
@@ -195,23 +196,36 @@ describe('(1) a tabela da empresa e as tipologias candidatas', () => {
         comOutraTabela()
         const t = await M().lerTabelaDaEmpresa(TENANT)
         if (!('candidatos' in t)) throw new Error('era para ler a lista: ' + t.frase)
-        expect(t.tabelas).toEqual([{ tabelaId: OUTRA, fornecedor: 'Perfis Sul' }, { tabelaId: TABELA, fornecedor: 'Wolff Perfis' }])
+        expect(t.tabelas).toEqual([{ tabelaId: OUTRA, fornecedor: 'Perfis Sul', familia: 'Alumínio' }, { tabelaId: TABELA, fornecedor: 'Wolff Perfis', familia: 'PVC' }])
         expect(t.candidatos.map((c) => [c.tipologia, c.fornecedor])).toEqual([
             ['DP-01', 'Wolff Perfis'], ['DP-02', 'Perfis Sul'], ['DP-02', 'Wolff Perfis'], ['SU-07', 'Perfis Sul'],
         ])
         expect(t.candidatos.find((c) => c.tipologia === 'SU-07')?.tabelaId).toBe(OUTRA)
         // com mais de uma tabela, a linha do prompt diz o fornecedor; com uma só, é a de sempre
-        expect(M().linhaDoCandidato(t.candidatos[1], true)).toBe('DP-02 | JANELA DE CORRER 02 FOLHAS | LINHA SUL | Correr | fornecedor: Perfis Sul')
+        expect(M().linhaDoCandidato(t.candidatos[1], true)).toBe('DP-02 | JANELA DE CORRER 02 FOLHAS | LINHA SUL | Correr | fornecedor: Perfis Sul | família: Alumínio')
         expect(M().linhaDoCandidato(t.candidatos[1], false)).toBe('DP-02 | JANELA DE CORRER 02 FOLHAS | LINHA SUL | Correr')
-        expect(M().tabelasDoCodigo(t)('DP-02')).toEqual([{ tabelaId: OUTRA, fornecedor: 'Perfis Sul' }, { tabelaId: TABELA, fornecedor: 'Wolff Perfis' }])
+        expect(M().tabelasDoCodigo(t)('DP-02')).toEqual([{ tabelaId: OUTRA, fornecedor: 'Perfis Sul', familia: 'Alumínio' }, { tabelaId: TABELA, fornecedor: 'Wolff Perfis', familia: 'PVC' }])
     })
 
-    it('DUAS TABELAS do MESMO fornecedor: a pergunta não teria como distinguir pelo nome — recusa nomeando o fornecedor', async () => {
-        comOutraTabela('f-wolff')
+    /**
+     * O MESMO FORNECEDOR com FAMÍLIAS diferentes é legítimo (dono do produto, 26/10/2026: "a Wolf é exatamente
+     * um candidato" — PVC e alumínio). A desambiguação é por FORNECEDOR + FAMÍLIA; só fornecedor E família
+     * iguais não se distinguem para o vendedor, e aí é recusa.
+     */
+    it('o MESMO fornecedor com famílias DIFERENTES: as duas tabelas entram, e cada tipologia sabe a família', async () => {
+        comOutraTabela('f-wolff', 'ALUMINIO')
         const t = await M().lerTabelaDaEmpresa(TENANT)
-        expect('frase' in t && [t.motivo, t.frase]).toEqual(['FORNECEDOR_REPETIDO', M().fraseDeFornecedorRepetido('Wolff Perfis', 2)])
-        expect(M().fraseDeFornecedorRepetido('Wolff Perfis', 2)).toBe(
-            'Ainda não consigo escolher a tipologia: a sua empresa tem 2 tabelas do fornecedor Wolff Perfis ligadas ao orçamentista, e eu não escolho entre elas.')
+        if (!('candidatos' in t)) throw new Error('era para ler a lista: ' + t.frase)
+        expect(M().tabelasDoCodigo(t)('DP-02')).toEqual([{ tabelaId: OUTRA, fornecedor: 'Wolff Perfis', familia: 'Alumínio' }, { tabelaId: TABELA, fornecedor: 'Wolff Perfis', familia: 'PVC' }])
+    })
+
+    it('o MESMO fornecedor e a MESMA família: nada distingue as duas — recusa nomeando fornecedor e família', async () => {
+        comOutraTabela('f-wolff', 'PVC')
+        const t = await M().lerTabelaDaEmpresa(TENANT)
+        expect('frase' in t && [t.motivo, t.frase]).toEqual(['TABELA_REPETIDA', M().fraseDeTabelaRepetida('Wolff Perfis', 'PVC', 2)])
+        expect(M().fraseDeTabelaRepetida('Wolff Perfis', 'PVC', 2)).toBe(
+            'Ainda não consigo escolher a tipologia: a sua empresa tem 2 tabelas do fornecedor Wolff Perfis, da família PVC, ligadas ao orçamentista, e nada as distingue: não escolho entre elas.')
+        expect(M().fraseDeTabelaRepetida('Wolff Perfis', null, 2)).toContain('sem a família informada')
     })
 
     it('uma das tabelas SEM a lista de tipologias: a frase nomeia o fornecedor — a outra não segue sozinha em silêncio', async () => {
@@ -221,15 +235,66 @@ describe('(1) a tabela da empresa e as tipologias candidatas', () => {
         expect('frase' in t && [t.motivo, t.frase]).toEqual(['SEM_LISTA_DE_TIPOLOGIAS', M().fraseSemListaDoFornecedor('Perfis Sul')])
     })
 
-    it('o levantamento com esquadrias de DOIS fornecedores: recusa nomeada, não calcula misturado', async () => {
-        comOutraTabela()
+    /**
+     * DUAS FAMÍLIAS NO MESMO LEVANTAMENTO é o caso NORMAL (dono do produto, 26/10/2026: "é PVC ou alumínio?
+     * Pode ter os dois, inclusive"). Cada família vira um produto: o cálculo e o agrupamento de barras rodam
+     * UMA VEZ POR FAMÍLIA, com a tabela do fornecedor dela, e nenhuma barra atravessa de uma para a outra.
+     * A segunda tabela aqui é uma cópia da Wolff com os CÓDIGOS trocados (S…): é o que deixa ver de onde veio
+     * cada barra.
+     */
+    const comSegundaFamiliaCalculavel = () => {
+        comOutraTabela('f-sul', 'ALUMINIO')
+        const abas = abasDaDP02NoBanco(OUTRA) as Record<string, Linha[]>
+        for (const [t, linhas] of Object.entries(abas)) {
+            if (t === 'orcamentista_motor_tipologia_detalhe') continue
+            banco.db[t] = [...(banco.db[t] ?? []), ...linhas]
+        }
+        banco.db.orcamentista_motor_regra.push(...DE_PARA.regras.map((r) => comId({ ...r, codigo: `S${String(r.codigo)}`, tabela_id: OUTRA, tipologias: ['DP-02'] })))
+        banco.db.orcamentista_tabela_item.push(...DE_PARA.itens.map((it) => ({ ...it, codigo: `S${String(it.codigo)}`, tabela_id: OUTRA })))
+        banco.db.orcamentista_motor_tipologia_tempo.push({ tabela_id: OUTRA, tipologia: 'DP-02', tempo_fabricacao_min: 150, tempo_origem: 'IMPORTADO' })
+    }
+    const duasFamilias = () => ({
+        nome: 'Casa do João',
+        itens: [
+            { ...ESQUADRIA, escolhas: { ARI: 4, ARE: 1, MAE: 2 }, tabela_id: TABELA },
+            { ...ESQUADRIA, ordem: 2, escolhas: { ARI: 4, ARE: 1, MAE: 2 }, tabela_id: OUTRA },
+        ],
+    })
+    const barrasDo = (bloco: string) => bloco.split('\n').filter((l) => l.startsWith('• ')).map((l) => l.slice(2).split(' ')[0])
+
+    it('DUAS FAMÍLIAS no mesmo levantamento: calcula, e sai UMA relação por família, cada uma com as barras do seu fornecedor', async () => {
+        comSegundaFamiliaCalculavel()
+        const t = await M().lerTabelaDaEmpresa(TENANT)
+        const r = await M().mensagemDoLevantamento(TENANT, t, duasFamilias())
+        expect(r.desfecho).toBe('levantou')
+        const blocos = r.texto.split(/\n(?=Família )/)
+        const pvc = blocos.find((b) => b.startsWith('Família PVC — Wolff Perfis'))
+        const aluminio = blocos.find((b) => b.startsWith('Família Alumínio — Perfis Sul'))
+        if (!pvc || !aluminio) throw new Error('faltou o bloco de uma família:\n' + r.texto)
+        // cada família com as barras do SEU fornecedor, e nenhuma barra atravessa
+        expect(barrasDo(pvc).length).toBeGreaterThan(0)
+        expect(barrasDo(pvc).every((c) => !c.startsWith('S'))).toBe(true)
+        expect(barrasDo(aluminio).length).toBeGreaterThan(0)
+        expect(barrasDo(aluminio).every((c) => c.startsWith('S'))).toBe(true)
+        // a otimização de cada uma é a de uma esquadria só: as mesmas barras do levantamento de uma tabela
+        const umaSo = barrasDo(TEXTO_QUE_FECHA)
+        expect(barrasDo(pvc)).toEqual(umaSo)
+        expect(barrasDo(aluminio)).toEqual(umaSo.map((c) => `S${c}`))
+        // a esquadria guarda o número dela no levantamento: a 2 é a 2, no bloco do alumínio
+        expect(aluminio).toContain('Esquadria 2: DP-02')
+        expect(pvc).not.toContain('Esquadria 2:')
+    })
+
+    it('a mesma família com DUAS esquadrias continua UMA relação: o agrupamento junta as barras dentro da família', async () => {
+        comOutraTabela('f-sul', 'ALUMINIO')
         const t = await M().lerTabelaDaEmpresa(TENANT)
         const r = await M().mensagemDoLevantamento(TENANT, t, {
             nome: 'Casa do João',
-            itens: [{ ...ESQUADRIA, tabela_id: TABELA }, { ...ESQUADRIA, ordem: 2, tipologia: 'SU-07', tabela_id: OUTRA }],
+            itens: [{ ...ESQUADRIA, escolhas: { ARI: 4, ARE: 1, MAE: 2 }, tabela_id: TABELA }, { ...ESQUADRIA, ordem: 2, escolhas: { ARI: 4, ARE: 1, MAE: 2 }, tabela_id: TABELA }],
         })
-        expect(r.desfecho).toBe('recusou')
-        expect(r.texto).toContain(M().fraseDeFornecedoresMisturados('esquadria 1: Wolff Perfis; esquadria 2: Perfis Sul'))
+        expect(r.desfecho).toBe('levantou')
+        expect(r.texto.startsWith('Levantamento “Casa do João”, perfil BRANCO.')).toBe(true)
+        expect(r.texto).not.toContain('Família ')
     })
 
     it('a esquadria cuja tipologia está nas duas tabelas e não tem a tabela dita: recusa dizendo que falta o fornecedor', async () => {
@@ -541,7 +606,7 @@ describe('(9) o levantamento com N esquadrias', () => {
     }
 
     it('DUAS esquadrias: uma linha de mão de obra POR esquadria, a total, e os totais somam a total', () => {
-        const dados = { ...DADOS, esquadrias: [DADOS.esquadrias[0], { ...DADOS.esquadrias[0], largura_mm: 800, quantidade: 2 }] }
+        const dados = { ...DADOS, esquadrias: [DADOS.esquadrias[0], { ...DADOS.esquadrias[0], numero: 2, largura_mm: 800, quantidade: 2 }] }
         const texto = M().fraseDoLevantamento(dados, resultadoDeUma(), [MAO_DE_OBRA, { ...MAO_DE_OBRA, quantidade: 2, total: 77.3 }])
         expect(texto).toContain('Esquadria 2: DP-02, 800 x 1.000 mm, 2 unidade(s).')
         expect(texto).toContain('Mão de obra da esquadria 1: 150 min por unidade (IMPORTADO) × 1 unidade(s), a R$ 0,257658 o minuto (R$ 40.813,03 ÷ 158.400 min): R$ 38,65.')
@@ -552,7 +617,7 @@ describe('(9) o levantamento com N esquadrias', () => {
     })
 
     it('a mão de obra de UMA esquadria ausente: os totais com mão de obra não saem', () => {
-        const dados = { ...DADOS, esquadrias: [DADOS.esquadrias[0], { ...DADOS.esquadrias[0], tipologia: 'DP-01' }] }
+        const dados = { ...DADOS, esquadrias: [DADOS.esquadrias[0], { ...DADOS.esquadrias[0], numero: 2, tipologia: 'DP-01' }] }
         const texto = M().fraseDoLevantamento(dados, resultadoDeUma(), [MAO_DE_OBRA, { ok: false, falta: 'o tempo de fabricação de DP-01 não está cadastrado' }])
         expect(texto).toContain('Mão de obra da esquadria 2: não sai — o tempo de fabricação de DP-01 não está cadastrado.')
         expect(texto).toContain('Total por consumo real (perfis + mão de obra): não sai — falta a mão de obra.')

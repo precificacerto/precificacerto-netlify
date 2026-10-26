@@ -29,9 +29,11 @@
  * Cai a trava "a sua empresa tem 2 tabelas e ele trabalha com uma só": a conta pode ter mais de uma
  * tabela, inclusive da mesma família. A lista junta as tipologias de todas, cada uma com a tabela e o
  * fornecedor dela; o código em mais de uma vira a pergunta de qual fornecedor (`levantamento-em-montagem.ts`).
- * Duas tabelas do MESMO fornecedor a pergunta não distinguiria pelo nome: é recusa nomeada, e o consultor
- * deixa uma só. O levantamento é calculado pela tabela das esquadrias; esquadrias de fornecedores
- * diferentes no mesmo levantamento são recusa nomeada — como as cores diferentes.
+ * A desambiguação é por FORNECEDOR + FAMÍLIA: o mesmo fornecedor com PVC e alumínio é legítimo (a Wolff é
+ * candidata); só fornecedor E família iguais não se distinguem para o vendedor, e aí é recusa nomeada.
+ * UM LEVANTAMENTO PODE TER VÁRIAS FAMÍLIAS — "é PVC ou alumínio? Pode ter os dois, inclusive" (dono do
+ * produto, 26/10/2026). Cada família é um produto: o cálculo e o agrupamento de barras rodam UMA VEZ POR
+ * TABELA (fornecedor + família), e nenhuma barra atravessa de uma otimização para a outra.
  * Vem de `orcamentista_motor_tipologia_detalhe` (tabela_id, tipologia, descricao, tipo, …) das tabelas
  * ligadas à empresa em `orcamentista_conta_tabela`. Em 25/10/2026 ela AINDA NÃO EXISTE em produção — a
  * migração está sendo aplicada pelo dono do produto. Enquanto não existir, a leitura falha e a
@@ -86,22 +88,23 @@ import {
     type ItemDaTabela, type RegraDoDePara, type ResultadoDoLevantamento,
 } from '@/lib/atendimentos-ia/levantamento-de-barras'
 import { maoDeObraPeloCaminhoDaTela, type DadosDaEmpresaParaMaoDeObra } from '@/utils/mao-de-obra-pelo-caminho-da-tela'
-import { tabelaDaEsquadria, type TabelaDoCodigo, type TabelasDoCodigo } from '@/lib/atendimentos-ia/levantamento-em-montagem'
+import { FAMILIA_NAO_INFORMADA, rotulosDasOpcoes, tabelaDaEsquadria, type TabelaDoCodigo, type TabelasDoCodigo } from '@/lib/atendimentos-ia/levantamento-em-montagem'
 import { normalizarNome } from '@/lib/atendimentos-ia/nome-do-levantamento'
 import { abaDeclarada, abaDoBanco } from '@/utils/atendimentos-ia-abas-do-motor'
 
 // ── A tabela da empresa e as tipologias candidatas ──────────────────────────────────────────
-export type CandidatoDeTipologia = { tipologia: string; descricao: string | null; tipo: string | null; tabelaId: string; fornecedor: string }
+export type CandidatoDeTipologia = { tipologia: string; descricao: string | null; tipo: string | null; tabelaId: string; fornecedor: string; familia: string | null }
 /** Uma tabela ligada à conta, com o nome do fornecedor dela. */
 export type TabelaLigada = TabelaDoCodigo
 export type TabelaDaEmpresaLida = { ok: true; tabelas: TabelaLigada[]; candidatos: CandidatoDeTipologia[] }
 export type TabelaDaEmpresa =
     | TabelaDaEmpresaLida
-    | { ok: false; motivo: 'SEM_TABELA' | 'FORNECEDOR_REPETIDO' | 'SEM_LISTA_DE_TIPOLOGIAS'; frase: string; detalhe: string }
+    | { ok: false; motivo: 'SEM_TABELA' | 'TABELA_REPETIDA' | 'SEM_LISTA_DE_TIPOLOGIAS'; frase: string; detalhe: string }
 
 export const FRASE_SEM_TABELA = 'Ainda não consigo escolher a tipologia: a sua empresa não tem uma tabela de fornecedor ligada ao orçamentista.'
-export const fraseDeFornecedorRepetido = (fornecedor: string, n: number) =>
-    `Ainda não consigo escolher a tipologia: a sua empresa tem ${n} tabelas do fornecedor ${fornecedor} ligadas ao orçamentista, e eu não escolho entre elas.`
+export const fraseDeTabelaRepetida = (fornecedor: string, familia: string | null, n: number) =>
+    `Ainda não consigo escolher a tipologia: a sua empresa tem ${n} tabelas do fornecedor ${fornecedor}, ${familia === null ? 'sem a família informada' : `da família ${familia}`}, `
+    + 'ligadas ao orçamentista, e nada as distingue: não escolho entre elas.'
 export const FRASE_SEM_LISTA_DE_TIPOLOGIAS = 'Ainda não consigo escolher a tipologia: a lista de tipologias do fornecedor, com a descrição de cada uma, ainda não foi carregada.'
 export const fraseSemListaDoFornecedor = (fornecedor: string) =>
     `Ainda não consigo escolher a tipologia: a lista de tipologias do fornecedor ${fornecedor}, com a descrição de cada uma, ainda não foi carregada.`
@@ -109,7 +112,8 @@ export const fraseSemListaDoFornecedor = (fornecedor: string) =>
 const FORNECEDOR_SEM_NOME = '(fornecedor sem nome)'
 
 const porCodigoEFornecedor = (a: CandidatoDeTipologia, b: CandidatoDeTipologia) =>
-    (a.tipologia < b.tipologia ? -1 : a.tipologia > b.tipologia ? 1 : a.fornecedor.localeCompare(b.fornecedor, 'pt-BR'))
+    (a.tipologia < b.tipologia ? -1 : a.tipologia > b.tipologia ? 1
+        : a.fornecedor.localeCompare(b.fornecedor, 'pt-BR') || (a.familia ?? '').localeCompare(b.familia ?? '', 'pt-BR'))
 
 export async function lerTabelaDaEmpresa(tenantId: string): Promise<TabelaDaEmpresa> {
     const { data: ligadas, error } = await supabaseAdmin.from('orcamentista_conta_tabela').select('tabela_id').eq('tenant_id', tenantId)
@@ -118,9 +122,16 @@ export async function lerTabelaDaEmpresa(tenantId: string): Promise<TabelaDaEmpr
     if (ids.length === 0) return { ok: false, motivo: 'SEM_TABELA', frase: FRASE_SEM_TABELA, detalhe: '' }
 
     // o fornecedor de cada tabela, pelo nome: é como a pergunta de qual fornecedor os cita
-    const { data: dasTabelas, error: erroDasTabelas } = await supabaseAdmin.from('orcamentista_tabela').select('id, fornecedor_id').in('id', ids)
+    const { data: dasTabelas, error: erroDasTabelas } = await supabaseAdmin.from('orcamentista_tabela').select('id, fornecedor_id, familia').in('id', ids)
     if (erroDasTabelas) throw new Error(`orcamentista_tabela: ${erroDasTabelas.message}`)
-    const fornecedorDa = new Map(((dasTabelas ?? []) as Array<{ id: string; fornecedor_id: string }>).map((t) => [t.id, t.fornecedor_id]))
+    const lidasDasTabelas = (dasTabelas ?? []) as Array<{ id: string; fornecedor_id: string; familia: string | null }>
+    const fornecedorDa = new Map(lidasDasTabelas.map((t) => [t.id, t.fornecedor_id]))
+    const familiaDa = new Map(lidasDasTabelas.map((t) => [t.id, t.familia ?? null]))
+    // o rótulo da família, do catálogo; sem a linha no catálogo, a chave (a FK impede que falte)
+    const { data: catalogo, error: erroDoCatalogo } = await supabaseAdmin.from('orcamentista_familia_catalogo').select('chave, rotulo')
+    if (erroDoCatalogo) throw new Error(`orcamentista_familia_catalogo: ${erroDoCatalogo.message}`)
+    const rotuloDa = new Map(((catalogo ?? []) as Array<{ chave: string; rotulo: string }>).map((f) => [f.chave, f.rotulo]))
+    const familiaDaTabela = (id: string) => { const chave = familiaDa.get(id) ?? null; return chave === null ? null : rotuloDa.get(chave) ?? chave }
     const fIds = [...new Set(fornecedorDa.values())]
     const { data: fornecedores, error: erroDosFornecedores }: { data: unknown[] | null; error: { message: string } | null } = fIds.length
         ? await supabaseAdmin.from('orcamentista_fornecedor').select('id, nome').in('id', fIds)
@@ -128,12 +139,13 @@ export async function lerTabelaDaEmpresa(tenantId: string): Promise<TabelaDaEmpr
     if (erroDosFornecedores) throw new Error(`orcamentista_fornecedor: ${erroDosFornecedores.message}`)
     const nomeDo = new Map(((fornecedores ?? []) as Array<{ id: string; nome: string | null }>).map((f) => [f.id, f.nome?.trim() || FORNECEDOR_SEM_NOME]))
     const tabelas: TabelaLigada[] = ids
-        .map((id) => ({ tabelaId: id, fornecedor: nomeDo.get(fornecedorDa.get(id) ?? '') ?? FORNECEDOR_SEM_NOME }))
-        .sort((a, b) => a.fornecedor.localeCompare(b.fornecedor, 'pt-BR') || (a.tabelaId < b.tabelaId ? -1 : 1))
-    // duas tabelas do mesmo fornecedor (pelo nome, sem caixa e sem acento): a pergunta não as distinguiria
+        .map((id) => ({ tabelaId: id, fornecedor: nomeDo.get(fornecedorDa.get(id) ?? '') ?? FORNECEDOR_SEM_NOME, familia: familiaDaTabela(id) }))
+        .sort((a, b) => a.fornecedor.localeCompare(b.fornecedor, 'pt-BR') || (a.familia ?? '').localeCompare(b.familia ?? '', 'pt-BR') || (a.tabelaId < b.tabelaId ? -1 : 1))
+    // FORNECEDOR + FAMÍLIA iguais (o nome sem caixa e sem acento; a família sem informar também conta como uma):
+    // nada distingue as duas para o vendedor. O mesmo fornecedor com famílias diferentes é legítimo
     for (const t of tabelas) {
-        const mesmas = tabelas.filter((o) => normalizarNome(o.fornecedor) === normalizarNome(t.fornecedor))
-        if (mesmas.length > 1) return { ok: false, motivo: 'FORNECEDOR_REPETIDO', frase: fraseDeFornecedorRepetido(t.fornecedor, mesmas.length), detalhe: `tabelas=${tabelas.length}` }
+        const mesmas = tabelas.filter((o) => normalizarNome(o.fornecedor) === normalizarNome(t.fornecedor) && o.familia === t.familia)
+        if (mesmas.length > 1) return { ok: false, motivo: 'TABELA_REPETIDA', frase: fraseDeTabelaRepetida(t.fornecedor, t.familia, mesmas.length), detalhe: `tabelas=${tabelas.length}` }
     }
 
     const candidatos: CandidatoDeTipologia[] = []
@@ -149,21 +161,22 @@ export async function lerTabelaDaEmpresa(tenantId: string): Promise<TabelaDaEmpr
             const frase = tabelas.length === 1 ? FRASE_SEM_LISTA_DE_TIPOLOGIAS : fraseSemListaDoFornecedor(t.fornecedor)
             return { ok: false, motivo: 'SEM_LISTA_DE_TIPOLOGIAS', frase, detalhe: 'linhas=0' }
         }
-        candidatos.push(...daTabela.map((c) => ({ tipologia: c.tipologia, descricao: c.descricao, tipo: c.tipo, tabelaId: t.tabelaId, fornecedor: t.fornecedor })))
+        candidatos.push(...daTabela.map((c) => ({ tipologia: c.tipologia, descricao: c.descricao, tipo: c.tipo, tabelaId: t.tabelaId, fornecedor: t.fornecedor, familia: t.familia })))
     }
     return { ok: true, tabelas, candidatos: candidatos.sort(porCodigoEFornecedor) }
 }
 
 /** As tabelas da conta que têm o código, na ordem do fornecedor. */
 export const tabelasDoCodigo = (t: TabelaDaEmpresaLida): TabelasDoCodigo => (codigo: string) =>
-    t.candidatos.filter((c) => c.tipologia === codigo).map((c) => ({ tabelaId: c.tabelaId, fornecedor: c.fornecedor }))
+    t.candidatos.filter((c) => c.tipologia === codigo).map((c) => ({ tabelaId: c.tabelaId, fornecedor: c.fornecedor, familia: c.familia }))
 
 /**
- * A linha do candidato no prompt: código, descrição inteira e tipo — e o fornecedor quando a conta tem
- * mais de uma tabela (com uma só, a linha é a de sempre). Ausente não vira texto inventado.
+ * A linha do candidato no prompt: código, descrição inteira e tipo — e o fornecedor e a família quando a
+ * conta tem mais de uma tabela (com uma só, a linha é a de sempre). Ausente não vira texto inventado.
  */
 export const linhaDoCandidato = (c: CandidatoDeTipologia, comFornecedor: boolean) =>
-    `${c.tipologia} | ${c.descricao ?? '(sem descrição no arquivo)'} | ${c.tipo ?? '(sem tipo no arquivo)'}${comFornecedor ? ` | fornecedor: ${c.fornecedor}` : ''}`
+    `${c.tipologia} | ${c.descricao ?? '(sem descrição no arquivo)'} | ${c.tipo ?? '(sem tipo no arquivo)'}`
+    + (comFornecedor ? ` | fornecedor: ${c.fornecedor} | família: ${c.familia ?? FAMILIA_NAO_INFORMADA}` : '')
 
 /** A tabela ainda não existe no banco (migração não aplicada): é falta nomeada, não erro. */
 const tabelaAusente = (e: { code?: string }) => e.code === 'PGRST205' || e.code === '42P01'
@@ -476,7 +489,8 @@ function fraseDoAviso(a: AvisoDoAvaliador): string {
  * aplica, com a opção por extenso e se é o padrão ou a escolha do vendedor. Null quando a tipologia não
  * tem as abas — não há variável conhecida, e a linha NÃO aparece.
  */
-export type DadosDaEsquadria = { tipologia: string; largura_mm: number; altura_mm: number; quantidade: number; escolhas: string | null }
+/** `numero` é o da esquadria NO LEVANTAMENTO: num bloco de família, a esquadria 3 continua a 3. */
+export type DadosDaEsquadria = { numero: number; tipologia: string; largura_mm: number; altura_mm: number; quantidade: number; escolhas: string | null }
 /** O levantamento como a mensagem o recebe: o nome que o vendedor deu, a cor, e as esquadrias na ordem. */
 export type DadosDoLevantamento = { nome: string; cor: string; esquadrias: DadosDaEsquadria[] }
 const cabecalho = (d: DadosDoLevantamento) => `levantamento “${d.nome}”, perfil ${d.cor}`
@@ -488,7 +502,7 @@ const linhasDaEsquadria = (e: DadosDaEsquadria, k: number): string[] => [
 /** O que o número cobre e o que NÃO cobre — vai em toda resposta com preço. */
 export const O_QUE_O_PRECO_COBRE = 'O que este preço cobre: os perfis (o baguete incluído), pela tabela do fornecedor, e a mão de obra. '
     + 'NÃO cobre o vidro nem os insumos e acessórios (ferragens, escovas, calços e outros): eles ainda não estão na base.'
-const linhasDasEsquadrias = (d: DadosDoLevantamento) => d.esquadrias.flatMap((e, i) => linhasDaEsquadria(e, i + 1))
+const linhasDasEsquadrias = (d: DadosDoLevantamento) => d.esquadrias.flatMap((e) => linhasDaEsquadria(e, e.numero))
 
 /** No máximo tantas faltas listadas; o resto é contado, nunca calado. */
 const MAXIMO_DE_FALTAS = 8
@@ -510,8 +524,13 @@ const linhaDaMaoDeObra = (rotulo: string, mo: MaoDeObra) => ('falta' in mo
  * diferença entre eles, a mão de obra — uma linha por esquadria e a total, quando há mais de uma —, e
  * os dois totais com a mão de obra. O que não sai diz o que falta. `maos` vem na ordem das esquadrias.
  */
-export function fraseDoLevantamento(d: DadosDoLevantamento, r: Extract<ResultadoDoLevantamento, { ok: true }>, maos: MaoDeObra[]): string {
-    const linhas = [`${maiuscula(cabecalho(d))}.`, ...linhasDasEsquadrias(d), '', 'Barras por código:']
+export function fraseDoLevantamento(
+    d: DadosDoLevantamento, r: Extract<ResultadoDoLevantamento, { ok: true }>, maos: MaoDeObra[],
+    /** O bloco de UMA família num levantamento com várias: o título dela, sem o "o que cobre" (vai uma vez, no fim), e a esquadria sempre numerada. */
+    bloco: { titulo: string; cobertura: false; numerar: true } | null = null,
+): string {
+    const numerar = bloco !== null || d.esquadrias.length > 1
+    const linhas = [`${bloco ? bloco.titulo : maiuscula(cabecalho(d))}.`, ...linhasDasEsquadrias(d), '', 'Barras por código:']
     for (const c of r.por_codigo) {
         linhas.push(`• ${c.codigo} (${c.perfil}): ${c.n_barras} barra(s) de ${metros(c.comprimento_barra_mm)}`)
     }
@@ -542,7 +561,7 @@ export function fraseDoLevantamento(d: DadosDoLevantamento, r: Extract<Resultado
     const maoDeObraTotal = todasCalculadas ? centavos(maos.reduce((s, m) => s + ('falta' in m ? 0 : m.total), 0)) : null
     if (maos.length === 1) linhas.push(linhaDaMaoDeObra('Mão de obra', maos[0]))
     else {
-        maos.forEach((m, i) => linhas.push(linhaDaMaoDeObra(`Mão de obra da esquadria ${i + 1}`, m)))
+        maos.forEach((m, i) => linhas.push(linhaDaMaoDeObra(`Mão de obra da esquadria ${d.esquadrias[i]?.numero ?? i + 1}`, m)))
         linhas.push(maoDeObraTotal === null ? 'Mão de obra total: não sai — falta a mão de obra de uma esquadria.' : `Mão de obra total: ${formatarReais(maoDeObraTotal)}.`)
     }
     const comMaoDeObra = (rotulo: string, material: number | null, nomeDoMaterial: string) => {
@@ -553,12 +572,12 @@ export function fraseDoLevantamento(d: DadosDoLevantamento, r: Extract<Resultado
     linhas.push('')
     linhas.push(comMaoDeObra('Total por barra inteira', barra, 'valor dos perfis por barra inteira'))
     linhas.push(comMaoDeObra('Total por consumo real', consumo, 'valor dos perfis por consumo real'))
-    linhas.push('', O_QUE_O_PRECO_COBRE)
+    if (!bloco) linhas.push('', O_QUE_O_PRECO_COBRE)
     if (r.avisos.length) {
         linhas.push('', 'Atenção:')
         for (const a of r.avisos) {
             const k = (a as { esquadria?: unknown }).esquadria
-            linhas.push(`• ${d.esquadrias.length > 1 && typeof k === 'number' ? `Esquadria ${k}: ` : ''}${fraseDoAviso(a)}`)
+            linhas.push(`• ${numerar && typeof k === 'number' ? `Esquadria ${d.esquadrias[k - 1]?.numero ?? k}: ` : ''}${fraseDoAviso(a)}`)
         }
     }
     return linhas.join('\n')
@@ -574,8 +593,6 @@ export type LevantamentoDaConversa = { texto: string; desfecho: 'levantou' | 're
 /** Uma esquadria como o levantamento a guarda (`orcamentista_levantamento_item`). */
 export type EsquadriaGravada = { ordem?: unknown; tipologia: unknown; largura_mm: unknown; altura_mm: unknown; quantidade: unknown; cor_perfil: unknown; vidro: unknown; escolhas: unknown; tabela_id: unknown }
 
-export const fraseDeFornecedoresMisturados = (porEsquadria: string) =>
-    `As esquadrias são de fornecedores diferentes (${porEsquadria}): ainda não calculo um levantamento com fornecedores misturados.`
 export const fraseDaTipologiaSemFornecedor = (n: number, tipologia: string, fornecedores: readonly string[]) =>
     `A esquadria ${n} (${tipologia}) está nas tabelas de mais de um fornecedor (${fornecedores.join(', ')}), e falta dizer de qual.`
 export const fraseDaTipologiaSemTabela = (n: number, tipologia: string) =>
@@ -586,8 +603,13 @@ export const fraseDaTipologiaSemTabela = (n: number, tipologia: string) =>
  * loga e não manda nada técnico ao vendedor. Toda falta de DADO volta como texto de recusa, nomeada,
  * e as faltas de todas as esquadrias saem de uma vez.
  *
- * As esquadrias de um levantamento são calculadas com UMA cor — `levantarBarras` recebe uma —; cores
- * diferentes no mesmo levantamento são recusa nomeada, com a cor de cada uma. Nunca se escolhe uma.
+ * UMA RELAÇÃO POR FAMÍLIA (dono do produto, 26/10/2026): o levantamento pode ter várias famílias, e cada
+ * uma é um produto. As esquadrias se agrupam pela TABELA delas (fornecedor + família), e cada grupo tem o
+ * seu cálculo e a sua otimização de barras, com a tabela do seu fornecedor: nenhuma barra atravessa de um
+ * grupo para o outro. Com uma família só, a mensagem é a de sempre.
+ *
+ * Dentro de uma família, as esquadrias são calculadas com UMA cor — `levantarBarras` recebe uma —; cores
+ * diferentes na mesma família são recusa nomeada, com a cor de cada uma. Nunca se escolhe uma.
  */
 export async function mensagemDoLevantamento(
     tenantId: string,
@@ -599,8 +621,8 @@ export async function mensagemDoLevantamento(
     const d: DadosDoLevantamento = {
         nome: lev.nome,
         cor: cores.length === 1 ? cores[0] : cores.length === 0 ? '(sem cor)' : '(cores diferentes)',
-        esquadrias: lev.itens.map((e) => ({
-            tipologia: String(e.tipologia), largura_mm: Number(e.largura_mm), altura_mm: Number(e.altura_mm), quantidade: Number(e.quantidade), escolhas: null as string | null,
+        esquadrias: lev.itens.map((e, i) => ({
+            numero: i + 1, tipologia: String(e.tipologia), largura_mm: Number(e.largura_mm), altura_mm: Number(e.altura_mm), quantidade: Number(e.quantidade), escolhas: null as string | null,
         })),
     }
     const recusa = (faltas: string[]): LevantamentoDaConversa => ({ texto: fraseDaRecusa(d, faltas), desfecho: 'recusou' })
@@ -608,43 +630,81 @@ export async function mensagemDoLevantamento(
 
     const faltas: string[] = []
     lev.itens.forEach((e, i) => { if (corDe(e) === null) faltas.push(`A esquadria ${i + 1} está sem a cor do perfil.`) })
-    if (cores.length > 1) {
-        const porEsquadria = lev.itens.map((e, i) => (corDe(e) === null ? null : `esquadria ${i + 1}: ${corDe(e)}`)).filter(Boolean).join('; ')
-        faltas.push(`As esquadrias têm cores diferentes (${porEsquadria}): ainda não calculo um levantamento com cores misturadas.`)
-    }
 
-    // a tabela de cada esquadria (várias tabelas, 26/10/2026): o levantamento é calculado pela tabela DELAS,
-    // uma só. Sem tabela, com o código em mais de uma sem a dita, ou de fornecedores diferentes: recusa nomeada
+    // a tabela de cada esquadria (várias tabelas, 26/10/2026): sem tabela, ou com o código em mais de uma
+    // sem a dita, é recusa nomeada
     const doCodigo = tabelasDoCodigo(tabela)
     const tabelaDe = lev.itens.map((e) => tabelaDaEsquadria(
         { tipologia: typeof e.tipologia === 'string' ? e.tipologia : null, tabela_id: typeof e.tabela_id === 'string' ? e.tabela_id : null }, doCodigo))
     tabelaDe.forEach((t, i) => {
         if (t === null) faltas.push(fraseDaTipologiaSemTabela(i + 1, d.esquadrias[i].tipologia))
-        else if ('fornecedores' in t) faltas.push(fraseDaTipologiaSemFornecedor(i + 1, d.esquadrias[i].tipologia, t.fornecedores))
+        else if ('opcoes' in t) faltas.push(fraseDaTipologiaSemFornecedor(i + 1, d.esquadrias[i].tipologia, rotulosDasOpcoes(t.opcoes)))
     })
-    const idsDasEsquadrias = tabelaDe.map((t) => (t && 'tabelaId' in t ? t.tabelaId : null))
-    const usadas = [...new Set(idsDasEsquadrias.filter((t): t is string => t !== null))]
-    if (usadas.length > 1) {
-        const fornecedorDe = (id: string) => tabela.tabelas.find((t) => t.tabelaId === id)?.fornecedor ?? id
-        const porEsquadria = idsDasEsquadrias.map((id, i) => (id === null ? null : `esquadria ${i + 1}: ${fornecedorDe(id)}`)).filter(Boolean).join('; ')
-        faltas.push(fraseDeFornecedoresMisturados(porEsquadria))
-    }
     if (faltas.length) return recusa(faltas)
-    const tabelaId = usadas[0]
+
+    // os grupos: uma família (tabela) por grupo, na ordem da primeira esquadria de cada um
+    const grupos: Array<{ tabela: TabelaLigada; indices: number[] }> = []
+    tabelaDe.forEach((t, i) => {
+        const id = t && 'tabelaId' in t ? t.tabelaId : ''
+        const grupo = grupos.find((g) => g.tabela.tabelaId === id)
+        if (grupo) grupo.indices.push(i)
+        else grupos.push({ tabela: tabela.tabelas.find((x) => x.tabelaId === id) ?? { tabelaId: id, fornecedor: FORNECEDOR_SEM_NOME, familia: null }, indices: [i] })
+    })
+    const varias = grupos.length > 1
+    const calculos: CalculoDaFamilia[] = []
+    for (const g of grupos) calculos.push(await calcularFamilia(tenantId, g.tabela.tabelaId, lev, d, g.indices))
+    const rotulos = calculos.flatMap((c) => c.rotulos)
+    // o rótulo do fallback vai em TODA resposta, a que fecha e a que recusa
+    const rotulado = (r: LevantamentoDaConversa): LevantamentoDaConversa => (rotulos.length ? { ...r, texto: `${r.texto}\n\n${rotulos.join('\n')}` } : r)
+    const nomeDaFamilia = (t: TabelaLigada) => `Família ${t.familia ?? 'não informada'} — ${t.fornecedor}`
+    const recusadas = calculos.flatMap((c, k) => ('faltas' in c ? c.faltas.map((x) => (varias ? `${nomeDaFamilia(grupos[k].tabela)}: ${x}` : x)) : []))
+    if (recusadas.length) return rotulado(recusa(recusadas))
+
+    const fechados = calculos as Array<Extract<CalculoDaFamilia, { r: unknown }>>
+    if (!varias) return rotulado({ texto: fraseDoLevantamento(fechados[0].d, fechados[0].r, fechados[0].maos), desfecho: 'levantou' })
+    const blocos = fechados.map((c, k) => fraseDoLevantamento(c.d, c.r, c.maos, { titulo: `${nomeDaFamilia(grupos[k].tabela)}, perfil ${c.d.cor}`, cobertura: false, numerar: true }))
+    const texto = [
+        `Levantamento “${lev.nome}”: ${grupos.length} famílias, cada uma calculada com a tabela do seu fornecedor — as barras de uma não entram na otimização da outra.`,
+        '', blocos.join('\n\n'), '', O_QUE_O_PRECO_COBRE,
+    ].join('\n')
+    return rotulado({ texto, desfecho: 'levantou' })
+}
+
+type CalculoDaFamilia =
+    | { d: DadosDoLevantamento; r: Extract<ResultadoDoLevantamento, { ok: true }>; maos: MaoDeObra[]; rotulos: string[] }
+    | { faltas: string[]; rotulos: string[] }
+
+/** "Esquadria 1" do grupo vira o número dela no levantamento ("Esquadria 3"). */
+const renumerar = (m: string, numeros: readonly number[]) =>
+    m.replace(/^(Esquadrias? )([\d, e]+)/, (_t, p: string, lista: string) => p + lista.replace(/\d+/g, (n) => String(numeros[Number(n) - 1] ?? n)))
+
+/**
+ * O cálculo de UMA família: as esquadrias dela, com a tabela do fornecedor dela — as abas, as regras, os
+ * itens de preço, a otimização de barras e a mão de obra. `d` é o levantamento inteiro: as esquadrias do
+ * grupo são as MESMAS de `d` (a descrição do arremate escrita aqui aparece também na recusa).
+ */
+async function calcularFamilia(tenantId: string, tabelaId: string, lev: { nome: string; itens: EsquadriaGravada[] }, d: DadosDoLevantamento, indices: number[]): Promise<CalculoDaFamilia> {
+    const itensDoGrupo = indices.map((i) => lev.itens[i])
+    const corDe = (e: EsquadriaGravada) => (typeof e.cor_perfil === 'string' && e.cor_perfil !== '' ? e.cor_perfil : null)
+    const cores = [...new Set(itensDoGrupo.map(corDe).filter((c): c is string => c !== null))]
+    const dg: DadosDoLevantamento = { nome: d.nome, cor: cores.length === 1 ? cores[0] : '(cores diferentes)', esquadrias: indices.map((i) => d.esquadrias[i]) }
+    const faltas: string[] = []
+    if (cores.length > 1) {
+        const porEsquadria = dg.esquadrias.map((e, k) => `esquadria ${e.numero}: ${corDe(itensDoGrupo[k])}`).join('; ')
+        faltas.push(`As esquadrias têm cores diferentes (${porEsquadria}): ainda não calculo um levantamento com cores misturadas.`)
+    }
 
     // as abas de cada tipologia, uma vez por tipologia; as escolhas descritas, uma vez por esquadria
-    const doBanco = await lerTipologiasDoBanco(tabelaId, [...new Set(d.esquadrias.map((e) => e.tipologia))])
+    const doBanco = await lerTipologiasDoBanco(tabelaId, [...new Set(dg.esquadrias.map((e) => e.tipologia))])
     const lidas = doBanco.lidas
+    const rotulos = doBanco.rotulos
     faltas.push(...doBanco.faltas)
-    // o rótulo do fallback vai em TODA resposta, a que fecha e a que recusa
-    const rotulado = (r: LevantamentoDaConversa): LevantamentoDaConversa =>
-        (doBanco.rotulos.length ? { ...r, texto: `${r.texto}\n\n${doBanco.rotulos.join('\n')}` } : r)
-    const escolhas = lev.itens.map((e) => lerEscolhasGravadas(e.escolhas))
-    d.esquadrias.forEach((e, i) => { if (lidas[e.tipologia]) e.escolhas = descreverArremate(lidas[e.tipologia], escolhas[i]) })
-    if (faltas.length) return rotulado(recusa(faltas))
+    const escolhas = itensDoGrupo.map((e) => lerEscolhasGravadas(e.escolhas))
+    dg.esquadrias.forEach((e, k) => { if (lidas[e.tipologia]) e.escolhas = descreverArremate(lidas[e.tipologia], escolhas[k]) })
+    if (faltas.length) return { faltas, rotulos }
 
     const serra = await lerSerra(tenantId)
-    if ('frase' in serra) return rotulado(recusa([maiuscula(serra.frase)]))
+    if ('frase' in serra) return { faltas: [maiuscula(serra.frase)], rotulos }
     // a mesma linha do motor pode servir a duas tipologias: o de-para entra uma vez só
     const porTrio = new Map<string, RegraDoDePara>()
     for (const t of Object.keys(lidas)) {
@@ -659,9 +719,9 @@ export async function mensagemDoLevantamento(
         cor: cores[0],
         coresDaEmpresa,
         // o padrão do arremate entra AQUI, pelo ponto único (`padraoDoArremate`), e não pelo avaliador
-        esquadrias: d.esquadrias.map((e, i) => ({
+        esquadrias: dg.esquadrias.map((e, k) => ({
             tipologia: e.tipologia, L_mm: e.largura_mm, H_mm: e.altura_mm, quantidade: e.quantidade,
-            escolhas: lidas[e.tipologia] ? escolhasComPadrao(lidas[e.tipologia], escolhas[i]) : escolhas[i], espessura_vidro_mm: espessuraDoVidro(lev.itens[i].vidro),
+            escolhas: lidas[e.tipologia] ? escolhasComPadrao(lidas[e.tipologia], escolhas[k]) : escolhas[k], espessura_vidro_mm: espessuraDoVidro(itensDoGrupo[k].vidro),
         })),
         tipologias: lidas,
         regras,
@@ -669,12 +729,15 @@ export async function mensagemDoLevantamento(
         serra_mm: serra.serra_mm,
     })
     if ('recusas' in r) {
-        const uma = d.esquadrias.length === 1
-        // R4: a recusa nomeia o que falta, em português — sem o código interno da variável
+        // R4: a recusa nomeia o que falta, em português — sem o código interno da variável; a esquadria pelo
+        // número dela no levantamento, e sem prefixo quando o levantamento tem uma só
         const traduzir = (m: string) => Object.values(lidas).reduce((t, tip) => traduzirVocabulario(t, tip), m)
-        return rotulado(recusa(r.recusas.map((x) => maiuscula(traduzir(uma ? semPrefixoDaEsquadria(x.mensagem) : x.mensagem)))))
+        const numeros = dg.esquadrias.map((e) => e.numero)
+        const comNumero = (m: string) => (d.esquadrias.length === 1 ? semPrefixoDaEsquadria(m)
+            : dg.esquadrias.length === 1 ? `Esquadria ${numeros[0]}: ${semPrefixoDaEsquadria(m)}` : renumerar(m, numeros))
+        return { faltas: r.recusas.map((x) => maiuscula(traduzir(comNumero(x.mensagem)))), rotulos }
     }
     const maos: MaoDeObra[] = []
-    for (const e of d.esquadrias) maos.push(await lerMaoDeObra(tenantId, tabelaId, e.tipologia, e.quantidade))
-    return rotulado({ texto: fraseDoLevantamento(d, r, maos), desfecho: 'levantou' })
+    for (const e of dg.esquadrias) maos.push(await lerMaoDeObra(tenantId, tabelaId, e.tipologia, e.quantidade))
+    return { d: dg, r, maos, rotulos }
 }

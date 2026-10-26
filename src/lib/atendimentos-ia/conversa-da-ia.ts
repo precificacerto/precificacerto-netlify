@@ -42,10 +42,12 @@
  * ══ VÁRIAS TABELAS (dono do produto, 26/10/2026; migração 20261026000004) ══
  * Caiu a trava "a sua empresa tem 2 tabelas e ele trabalha com uma só". A lista de tipologias junta as de
  * todas as tabelas ligadas; com mais de uma, cada linha do prompt diz o fornecedor. A esquadria guarda de
- * qual tabela é (`tabela_id`): o código numa tabela só, aquela; em mais de uma, a conversa PERGUNTA de qual
- * fornecedor, citando os nomes (`proximaPendencia`) — nunca escolhe, nunca "a primeira". A resposta vem em
- * `itens[].fornecedor` e vale só se o vendedor disse o fornecedor (`fornecedorNaMensagem`) e ele é um dos
- * daquela tipologia. As abas (e as escolhas de arremate) são as da tabela da esquadria.
+ * qual tabela é (`tabela_id`): o código numa tabela só, aquela; em mais de uma, a conversa PERGUNTA de qual,
+ * citando os fornecedores e, quando o mesmo fornecedor tem mais de uma, as famílias (`proximaPendencia`) —
+ * nunca escolhe, nunca "a primeira". A resposta vem em `itens[].fornecedor` e/ou `itens[].familia`, e cada um
+ * vale só se o vendedor o disse (`ditoNaMensagem`) e se, juntos, apontam UMA das tabelas daquela tipologia.
+ * As abas (e as escolhas de arremate) são as da tabela da esquadria. Um levantamento com várias famílias é
+ * calculado uma vez por família (`mensagemDoLevantamento`).
  *
  * ══ QUEM ALTERA — decisão 2, REVISTA (dono do produto, 25/10/2026) ══
  * (a) o vendedor que criou e (b) quem é admin NA EMPRESA (`permissao-do-remetente.ts`: `users.role =
@@ -255,6 +257,7 @@ export const FERRAMENTA = {
                         ordem: { ...inteiro, description: 'O número da esquadria, SÓ quando o vendedor disse qual é.' },
                         tipologia: texto, largura_mm: inteiro, altura_mm: inteiro, quantidade: inteiro, cor_perfil: texto, vidro: texto,
                         fornecedor: { ...texto, description: 'O nome do FORNECEDOR como está na lista, SÓ quando o vendedor disse de qual fornecedor é a tipologia.' },
+                        familia: { ...texto, description: 'A FAMÍLIA (ex.: PVC, Alumínio) como está na lista, SÓ quando o vendedor disse de qual família é a tipologia.' },
                     },
                 },
             },
@@ -309,7 +312,7 @@ function sistema(c: ContextoDoPrompt): string {
         '- cor_perfil: EXATAMENTE uma das cores da empresa (lista do fim), escrita como está. Se for outra cor, ou se houver dúvida, NÃO preencha.',
         '- tipologia: o CÓDIGO (ex.: DP-02) de UMA das tipologias da lista do fim, escolhida pela descrição. NUNCA invente código nem preencha com as palavras do vendedor. Se cabe em mais de uma, NÃO preencha: em `pergunta`, pergunte qual é, citando a descrição INTEIRA de cada uma, sem o código.',
         '- ARREMATE e GUARNIÇÃO: NÃO pergunte. O padrão da tipologia já vale sem ninguém dizer. NUNCA escolha sozinho: em `escolhas`, só o arremate que o vendedor DISSE, em palavras, com o código da variável e o número da opção que corresponde (lista do fim). Se ele pedir para ver as opções, ou quiser trocar sem dizer por qual, ponha o código da variável em `opcoes_de`.',
-        ...(c.variasTabelas ? ['- fornecedor: a mesma tipologia pode estar na tabela de mais de um fornecedor. SÓ quando o vendedor disse de qual fornecedor é, escreva o nome EXATAMENTE como está na lista. NUNCA escolha sozinho.'] : []),
+        ...(c.variasTabelas ? ['- fornecedor e familia: a mesma tipologia pode estar em mais de uma tabela (outro fornecedor, ou outra família do mesmo fornecedor). SÓ o que o vendedor disse — o fornecedor, a família, ou os dois —, escrito EXATAMENTE como está na lista. NUNCA escolha sozinho.'] : []),
         '- Os códigos das variáveis (ex.: ARI), os números das opções e os códigos de fornecedor (ex.: BZ0010) são INTERNOS: nunca os escreva em `pergunta`.',
         '- NUNCA pergunte nada sobre os padrões da empresa.',
         `- Responda SEMPRE chamando a ferramenta ${NOME_DA_FERRAMENTA}, uma vez.`,
@@ -465,11 +468,11 @@ const camposParaOPrompt = (i: ItemDoLevantamento): Omit<ItemDoLevantamento, 'tab
 }
 
 /**
- * O fornecedor que a IA pôs vale SÓ se o vendedor o disse: uma palavra do nome dele, de 3 letras ou mais,
- * está na mensagem (sem caixa e sem acento). "é da Wolff" diz "Wolff Perfis"; "pode ser o primeiro" não diz
- * nenhum — e a pergunta não se responde pela IA.
+ * O fornecedor ou a família que a IA pôs vale SÓ se o vendedor o disse: uma palavra do nome, de 3 letras ou
+ * mais, está na mensagem (sem caixa e sem acento). "é da Wolff" diz "Wolff Perfis", "a de PVC" diz "PVC";
+ * "pode ser o primeiro" não diz nenhum — e a pergunta não se responde pela IA.
  */
-export function fornecedorNaMensagem(nome: unknown, texto: string): boolean {
+export function ditoNaMensagem(nome: unknown, texto: string): boolean {
     if (typeof nome !== 'string') return false
     const palavrasDoTexto = new Set(normalizarNome(texto).split(/[^a-z0-9]+/))
     return normalizarNome(nome).split(/[^a-z0-9]+/).some((p) => p.length >= 3 && palavrasDoTexto.has(p))
@@ -678,10 +681,13 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         const daMensagem = esquadriasDaProposta(proposta)
         const daPergunta = daMensagem.length === 0 && aberta !== null && aberta.p.itens.length > 0
         const emEspera: EsquadriaProposta[] = daPergunta && aberta ? aberta.p.itens : daMensagem
-        // o fornecedor que o vendedor NÃO disse sai da proposta: a pergunta de qual fornecedor não se responde pela IA
-        const semFornecedorInventado = (itens: unknown) => (Array.isArray(itens) ? itens.map((i) => (
-            i && typeof i === 'object' && 'fornecedor' in i && !fornecedorNaMensagem((i as { fornecedor: unknown }).fornecedor, c.texto)
-                ? { ...(i as Record<string, unknown>), fornecedor: undefined } : i)) : itens)
+        // o fornecedor e a família que o vendedor NÃO disse saem da proposta: a pergunta de qual tabela não se responde pela IA
+        const semFornecedorInventado = (itens: unknown) => (Array.isArray(itens) ? itens.map((i) => {
+            if (!i || typeof i !== 'object') return i
+            const item = { ...(i as Record<string, unknown>) }
+            for (const k of ['fornecedor', 'familia']) if (k in item && !ditoNaMensagem(item[k], c.texto)) item[k] = undefined
+            return item
+        }) : itens)
         const efetiva = daPergunta ? { ...proposta, itens: emEspera } : { ...proposta, itens: semFornecedorInventado(proposta.itens) }
         /**
          * R2 em TODO caminho que pergunta: guarda a pergunta (com o que espera resposta) e, se ela é a MESMA
