@@ -20,7 +20,8 @@ import { supabaseAdmin } from '@/supabase/admin'
 import { CAMPOS_DA_ESQUADRIA } from '@/lib/atendimentos-ia/levantamento-em-montagem'
 
 export const TABELA_DA_PERGUNTA = 'orcamentista_pergunta_em_aberto'
-export const PERGUNTAS = ['NOME_PARECIDO', 'SEM_NOME', 'CONFIRMAR_ACRESCIMO'] as const
+/** CONFIRMAR_APANHADO entrou com a migração 20261026000003 (o apanhado, dono do produto, 26/10/2026). */
+export const PERGUNTAS = ['NOME_PARECIDO', 'SEM_NOME', 'CONFIRMAR_ACRESCIMO', 'CONFIRMAR_APANHADO'] as const
 export type CodigoDaPergunta = (typeof PERGUNTAS)[number]
 
 /** A esquadria proposta que espera resposta: só os campos da esquadria, como a LLM os propôs. */
@@ -73,12 +74,19 @@ export async function lerPerguntaEmAberto(tenantId: string, remetenteId: string)
     return lerLinha(data as Record<string, unknown> | null)
 }
 
-export async function gravarPerguntaEmAberto(tenantId: string, remetenteId: string, p: PerguntaEmAberto): Promise<void> {
+/**
+ * Grava (sobrescreve) a pergunta do remetente. `false` quando o banco ainda não a aceita — a tabela ausente
+ * (PGRST205/42P01) ou a CHECK de `pergunta` sem o valor (23514: a migração do valor não foi aplicada). Quem
+ * chama decide o que fazer sem ela; qualquer outro erro lança.
+ */
+export async function gravarPerguntaEmAberto(tenantId: string, remetenteId: string, p: PerguntaEmAberto): Promise<boolean> {
     const { error } = await supabaseAdmin.from(TABELA_DA_PERGUNTA).upsert(
         { tenant_id: tenantId, remetente_id: remetenteId, pergunta: p.pergunta, nome: p.nome, levantamentos: p.levantamentos, itens: p.itens, criado_em: new Date().toISOString() },
         { onConflict: 'tenant_id,remetente_id' },
     )
-    if (error) throw new Error(`${TABELA_DA_PERGUNTA}: ${error.message}`)
+    if (!error) return true
+    if (tabelaAusente(error) || error.code === '23514') return false
+    throw new Error(`${TABELA_DA_PERGUNTA}: ${error.message}`)
 }
 
 export async function apagarPerguntaEmAberto(tenantId: string, remetenteId: string): Promise<void> {

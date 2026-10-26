@@ -29,6 +29,16 @@
  *         por semelhança (decisão 1). Com "novo", cria;
  *       NOVO → cria, EM_MONTAGEM até não faltar nada.
  *
+ * ══ O APANHADO (dono do produto, 26/10/2026; `apanhado.ts`) ══
+ * Com o levantamento sem pendência, a resposta é o APANHADO — uma linha por esquadria (tipologia, quantidade,
+ * largura, altura e vidro) e o pé com a cor, o arremate e a guarnição — SEM preço e sem código de fornecedor.
+ * Ele espera o "sim" numa pergunta em aberto (CONFIRMAR_APANHADO, migração 20261026000003); o que vier antes
+ * do "sim", mesmo sem nome, é alteração dele e refaz o apanhado. Com o "sim" sai o levantamento FORMAL, o de
+ * sempre, com o bloco de preço inteiro. Sem a migração (a CHECK recusa o valor) ou sem a tabela, o formal sai
+ * direto, como antes, e a linha [IA] diz `apanhado=sem_migracao`. Sem exceção: o admin que altera o levantamento
+ * de outro vendedor também recebe o apanhado; a pergunta acha o levantamento pelo id, e a permissão de admin é
+ * conferida de novo no "sim".
+ *
  * ══ QUEM ALTERA — decisão 2, REVISTA (dono do produto, 25/10/2026) ══
  * (a) o vendedor que criou e (b) quem é admin NA EMPRESA (`permissao-do-remetente.ts`: `users.role =
  * 'admin'` pela cadeia remetente → employees → users, com falha fechada). O nome continua único por
@@ -99,6 +109,7 @@ import {
 import { compararNome, nomeDaMensagem, normalizarNome } from '@/lib/atendimentos-ia/nome-do-levantamento'
 import { escolhasParaOPrompt, lerEscolhasDoItem, lerEscolhasGravadas, temEscolhaDoVendedor } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import { permissaoDoRemetente, type Permissao } from '@/lib/atendimentos-ia/permissao-do-remetente'
+import { fraseDoApanhado } from '@/lib/atendimentos-ia/apanhado'
 import {
     apagarPerguntaEmAberto, esquadriasDaProposta, gravarPerguntaEmAberto, lerPerguntaEmAberto,
     type CodigoDaPergunta, type EsquadriaProposta, type PerguntaEmAberto,
@@ -113,7 +124,7 @@ const wuzapi = () => (process.env.WUZAPI_BASE_URL || 'https://usapi.adabtech.sho
 export type DesfechoDaIa =
     | 'sem-chave' | 'sem-saldo' | 'erro-da-llm' | 'recusa' | 'sem-proposta' | 'sem-tipologias'
     | 'sem-nome' | 'nome-parecido' | 'nome-existe' | 'qual-esquadria' | 'nao-encontrado' | 'qual-vendedor' | 'alteracao-incompleta'
-    | 'nao-avancou' | 'confirmar-acrescimo' | 'nao-acrescentou'
+    | 'nao-avancou' | 'confirmar-acrescimo' | 'nao-acrescentou' | 'apanhado' | 'nao-confirmou'
     | 'perguntou' | 'sem-cores' | 'levantou' | 'recusou' | 'envio-falhou' | 'erro'
 
 export type Rota = 'MONTAGEM' | 'NOVO' | 'ALTERACAO' | 'ALTERACAO_ADMIN' | 'SEM_NOME' | 'PARECIDO' | 'NOME_EXISTE' | 'NAO_ENCONTRADO' | 'QUAL_VENDEDOR' | '-'
@@ -184,6 +195,9 @@ export const esquadriaPorExtenso = (e: Record<string, unknown>) => [
 export const fraseDeConfirmarAcrescimo = (nome: string, nExistentes: number, esquadrias: Array<Record<string, unknown>>) =>
     `Vou acrescentar ao levantamento “${nome}”, que tem ${nExistentes} esquadria(s), ${esquadrias.length > 1 ? `estas ${esquadrias.length} esquadrias` : 'esta esquadria'}: `
     + `${esquadrias.map(esquadriaPorExtenso).join('; ')}. Confirma? Responda sim para acrescentar, ou diga o nome de outro levantamento.`
+/** O "não" ao apanhado: nada de preço, e a conversa pede o que muda. A pergunta continua em aberto. */
+export const fraseDoApanhadoNaoConfirmado = (nome: string) =>
+    `Certo, o levantamento “${nome}” não foi confirmado. Diga o que muda — medida, vidro ou quantidade — e eu refaço o apanhado.`
 export const fraseDoAcrescimoRecusado = (nome: string) =>
     `Não acrescentei nada ao levantamento “${nome}”. De qual levantamento é a esquadria? Diga o nome dele.`
 /** DEFEITO 3: o remetente autorizado sempre recebe resposta, e ela diz o que falhou. */
@@ -390,6 +404,14 @@ async function lerLevantamentosDaEmpresaPeloNome(tenantId: string, nomeNormaliza
     return (data ?? []) as LevantamentoDaEmpresa[]
 }
 
+/** Um levantamento da empresa pelo id, de qualquer vendedor: o da pergunta em aberto do apanhado. */
+async function lerLevantamentoDaEmpresa(tenantId: string, id: string): Promise<LevantamentoDaEmpresa | null> {
+    const { data, error } = await supabaseAdmin.from('orcamentista_levantamento').select('id, nome, nome_normalizado, estado, remetente_id')
+        .eq('tenant_id', tenantId).eq('id', id).maybeSingle()
+    if (error) throw new Error(`orcamentista_levantamento: ${error.message}`)
+    return (data ?? null) as LevantamentoDaEmpresa | null
+}
+
 /** O nome de cada vendedor: o do remetente; na falta, o do employee ligado a ele. */
 async function nomesDosVendedores(tenantId: string, remetenteIds: string[]): Promise<Map<string, string>> {
     const { data, error } = await supabaseAdmin.from('orcamentista_remetente_autorizado').select('id, nome, employee_id')
@@ -508,17 +530,31 @@ function perguntaPara(p: Pendencia, nItens: number, proposta: Record<string, unk
 
 // ── A PERGUNTA EM ABERTO DO ROTEAMENTO PELO NOME (`pergunta-em-aberto.ts`) ──────────────────
 /** A pergunta guardada, com os levantamentos que ela cita relidos e o texto refeito pelo código. */
-type PerguntaRefeita = { p: PerguntaEmAberto; citados: Levantamento[]; texto: string }
+type PerguntaRefeita = {
+    p: PerguntaEmAberto; citados: Levantamento[]; texto: string
+    /** Na CONFIRMAR_APANHADO: o levantamento do apanhado, com o dono — o admin confirma o de outro vendedor. */
+    doApanhado?: LevantamentoDaEmpresa
+}
 
 /**
  * Refaz o texto da pergunta guardada, a partir das colunas — nunca de um texto guardado. Os citados são
  * os que ainda existem; a pergunta que cita levantamento e não acha nenhum não vale mais (null).
  */
-async function refazerPergunta(tenantId: string, p: PerguntaEmAberto, doRemetente: Levantamento[]): Promise<PerguntaRefeita | null> {
+async function refazerPergunta(
+    tenantId: string, p: PerguntaEmAberto, doRemetente: Levantamento[], definicao: DefinicaoDaTipologia,
+): Promise<PerguntaRefeita | null> {
     const citados = p.levantamentos.map((id) => doRemetente.find((l) => l.id === id)).filter((l): l is Levantamento => !!l)
     if (p.pergunta === 'SEM_NOME') return { p, citados, texto: FRASE_SEM_NOME }
-    if (citados.length === 0) return null
+    if (p.pergunta !== 'CONFIRMAR_APANHADO' && citados.length === 0) return null
     if (p.pergunta === 'NOME_PARECIDO') return p.nome ? { p, citados, texto: fraseDoNomeParecido(p.nome, citados.map((l) => l.nome)) } : null
+    // o apanhado é refeito do levantamento como está gravado: é ele que espera o "sim". Achado pelo id na
+    // EMPRESA, e não entre os do remetente: o admin que alterou o de outro vendedor também confirma (26/10/2026)
+    if (p.pergunta === 'CONFIRMAR_APANHADO') {
+        const doApanhado = p.levantamentos[0] ? await lerLevantamentoDaEmpresa(tenantId, p.levantamentos[0]) : null
+        if (!doApanhado) return null
+        return { p, citados: [doApanhado], doApanhado, texto: fraseDoApanhado(doApanhado.nome, await lerItens(tenantId, doApanhado.id), definicao) }
+    }
+    if (citados.length === 0) return null
     if (p.itens.length === 0) return null
     const nExistentes = (await lerItens(tenantId, citados[0].id)).length
     return { p, citados: [citados[0]], texto: fraseDeConfirmarAcrescimo(citados[0].nome, nExistentes, p.itens) }
@@ -579,7 +615,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         const guardaPergunta = lida !== 'ausente'
         const temLinha = lida !== null && lida !== 'ausente'
         const doRemetente = temLinha ? await lerLevantamentos(c.tenantId, c.remetenteId, false) : null
-        const aberta = temLinha && doRemetente ? await refazerPergunta(c.tenantId, lida, doRemetente) : null
+        const aberta = temLinha && doRemetente ? await refazerPergunta(c.tenantId, lida, doRemetente, definicao) : null
 
         const escolhasPorTipologia = tabela.candidatos.flatMap((x) => {
             const def = definicao(x.tipologia)
@@ -625,57 +661,77 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             const naPergunta = noTexto === null && aberta ? nomeDaPergunta(proposta.nome, aberta) : null
             rastro.nome = marcaDoNome(proposta.nome, noTexto, naPergunta)
             let lido = noTexto ?? naPergunta
-            // "sim" ou "não" à confirmação do acréscimo, sem nome: é sobre o levantamento que ela citou
-            if (lido === null && aberta?.p.pergunta === 'CONFIRMAR_ACRESCIMO' && confirma !== null) {
-                const citado = aberta.citados[0]
-                if (confirma) lido = citado.nome
-                else {
-                    rastro.rota = 'SEM_NOME'
-                    if (guardaPergunta) await gravarPerguntaEmAberto(c.tenantId, c.remetenteId, { pergunta: 'SEM_NOME', nome: null, levantamentos: [], itens: emEspera })
-                    return await responder(fraseDoAcrescimoRecusado(citado.nome), 'nao-acrescentou')
+            // O APANHADO espera o "sim": a resposta sem nome — ou com o nome dele — é sobre o levantamento que ele
+            // citou, achado pelo id, de qualquer vendedor. "sim" ou "não" confirmam; o resto ("a largura é 1500") é
+            // alteração DELE, e entra no apanhado. O admin que alterou o de outro também passa por aqui (26/10/2026)
+            const doApanhado = aberta?.p.pergunta === 'CONFIRMAR_APANHADO' ? aberta.doApanhado : undefined
+            if (doApanhado && (lido === null || normalizarNome(lido) === doApanhado.nome_normalizado)) {
+                if (lido === null) rastro.nome = 'da_pergunta'
+                rastro.levantamento = doApanhado.id
+                const deOutro = doApanhado.remetente_id !== c.remetenteId
+                if (deOutro) {
+                    // a permissão é conferida de novo: quem deixou de ser admin não alcança o levantamento do outro
+                    rastro.admin = await permissaoDoRemetente(c.tenantId, c.remetenteId)
+                    if ('motivo' in rastro.admin) { rastro.rota = 'NAO_ENCONTRADO'; return await responder(fraseDeNaoEncontrei(doApanhado.nome), 'nao-encontrado') }
                 }
-            }
-            if (lido === null) {
-                rastro.rota = 'SEM_NOME'
-                return await perguntar({ pergunta: 'SEM_NOME', nome: null, levantamentos: [], itens: emEspera }, FRASE_SEM_NOME, 'sem-nome')
-            }
-            const comparacao = compararNome(lido, doRemetente ?? await lerLevantamentos(c.tenantId, c.remetenteId, false))
-            const novo = proposta.novo === true
-            if ('existente' in comparacao) {
-                rastro.levantamento = comparacao.existente.id
-                if (novo) { rastro.rota = 'NOME_EXISTE'; return await responder(fraseDoNomeQueJaExiste(comparacao.existente.nome), 'nome-existe') }
-                rastro.rota = 'ALTERACAO'
-                alvo = { id: comparacao.existente.id, nome: comparacao.existente.nome, estado: comparacao.existente.estado, donoId: c.remetenteId, vendedor: null, itens: await lerItens(c.tenantId, comparacao.existente.id) }
-                nome = comparacao.existente.nome
-            } else if ('existentes' in comparacao && !novo) {
-                rastro.rota = 'PARECIDO'
-                return await perguntar(
-                    { pergunta: 'NOME_PARECIDO', nome: lido, levantamentos: comparacao.existentes.map((l) => l.id), itens: emEspera },
-                    fraseDoNomeParecido(lido, comparacao.existentes.map((l) => l.nome)), 'nome-parecido',
-                )
-            } else if (proposta.alteracao === true && !novo) {
-                // pedido de alteração de um nome que não é do remetente: só o admin vai além
-                rastro.admin = await permissaoDoRemetente(c.tenantId, c.remetenteId)
-                if ('motivo' in rastro.admin) { rastro.rota = 'NAO_ENCONTRADO'; return await responder(fraseDeNaoEncontrei(lido), 'nao-encontrado') }
-                const daEmpresa = await lerLevantamentosDaEmpresaPeloNome(c.tenantId, normalizarNome(lido))
-                if (daEmpresa.length === 0) { rastro.rota = 'NAO_ENCONTRADO'; return await responder(fraseDeNaoEncontreiNaEmpresa(lido), 'nao-encontrado') }
-                const nomes = await nomesDosVendedores(c.tenantId, [...new Set(daEmpresa.map((l) => l.remetente_id))])
-                // o vendedor dito só vale se estiver no texto, e casa pelo nome inteiro, sem caixa e sem acento
-                const vendedorLido = nomeDaMensagem(proposta.vendedor, c.texto)
-                const doVendedor = vendedorLido === null ? daEmpresa
-                    : daEmpresa.filter((l) => normalizarNome(nomes.get(l.remetente_id) ?? '') === normalizarNome(vendedorLido))
-                // um vendedor dito que não é dono de nenhum também pergunta: não se cai no único que existe
-                if (doVendedor.length !== 1 && (daEmpresa.length > 1 || vendedorLido !== null)) {
-                    rastro.rota = 'QUAL_VENDEDOR'
-                    return await responder(fraseDeQualVendedor(lido, daEmpresa.map((l) => nomes.get(l.remetente_id) ?? VENDEDOR_SEM_NOME)), 'qual-vendedor')
-                }
-                const escolhido = doVendedor.length === 1 ? doVendedor[0] : daEmpresa[0]
-                rastro.rota = 'ALTERACAO_ADMIN'
-                alvo = { id: escolhido.id, nome: escolhido.nome, estado: escolhido.estado, donoId: escolhido.remetente_id, vendedor: nomes.get(escolhido.remetente_id) ?? VENDEDOR_SEM_NOME, itens: await lerItens(c.tenantId, escolhido.id) }
-                nome = escolhido.nome
+                rastro.rota = deOutro ? 'ALTERACAO_ADMIN' : 'ALTERACAO'
+                if (lido === null && confirma === false) return await responder(fraseDoApanhadoNaoConfirmado(doApanhado.nome), 'nao-confirmou')
+                const vendedor = deOutro ? (await nomesDosVendedores(c.tenantId, [doApanhado.remetente_id])).get(doApanhado.remetente_id) ?? VENDEDOR_SEM_NOME : null
+                alvo = { id: doApanhado.id, nome: doApanhado.nome, estado: doApanhado.estado, donoId: doApanhado.remetente_id, vendedor, itens: await lerItens(c.tenantId, doApanhado.id) }
+                nome = doApanhado.nome
             } else {
-                rastro.rota = 'NOVO'
-                nome = lido
+                // "sim" ou "não" à confirmação do acréscimo, sem nome: é sobre o levantamento que ela citou
+                if (lido === null && aberta?.p.pergunta === 'CONFIRMAR_ACRESCIMO' && confirma !== null) {
+                    const citado = aberta.citados[0]
+                    if (confirma) lido = citado.nome
+                    else {
+                        rastro.rota = 'SEM_NOME'
+                        if (guardaPergunta) await gravarPerguntaEmAberto(c.tenantId, c.remetenteId, { pergunta: 'SEM_NOME', nome: null, levantamentos: [], itens: emEspera })
+                        return await responder(fraseDoAcrescimoRecusado(citado.nome), 'nao-acrescentou')
+                    }
+                }
+                if (lido === null) {
+                    rastro.rota = 'SEM_NOME'
+                    return await perguntar({ pergunta: 'SEM_NOME', nome: null, levantamentos: [], itens: emEspera }, FRASE_SEM_NOME, 'sem-nome')
+                }
+                const comparacao = compararNome(lido, doRemetente ?? await lerLevantamentos(c.tenantId, c.remetenteId, false))
+                const novo = proposta.novo === true
+                if ('existente' in comparacao) {
+                    rastro.levantamento = comparacao.existente.id
+                    if (novo) { rastro.rota = 'NOME_EXISTE'; return await responder(fraseDoNomeQueJaExiste(comparacao.existente.nome), 'nome-existe') }
+                    rastro.rota = 'ALTERACAO'
+                    alvo = { id: comparacao.existente.id, nome: comparacao.existente.nome, estado: comparacao.existente.estado, donoId: c.remetenteId, vendedor: null, itens: await lerItens(c.tenantId, comparacao.existente.id) }
+                    nome = comparacao.existente.nome
+                } else if ('existentes' in comparacao && !novo) {
+                    rastro.rota = 'PARECIDO'
+                    return await perguntar(
+                        { pergunta: 'NOME_PARECIDO', nome: lido, levantamentos: comparacao.existentes.map((l) => l.id), itens: emEspera },
+                        fraseDoNomeParecido(lido, comparacao.existentes.map((l) => l.nome)), 'nome-parecido',
+                    )
+                } else if (proposta.alteracao === true && !novo) {
+                    // pedido de alteração de um nome que não é do remetente: só o admin vai além
+                    rastro.admin = await permissaoDoRemetente(c.tenantId, c.remetenteId)
+                    if ('motivo' in rastro.admin) { rastro.rota = 'NAO_ENCONTRADO'; return await responder(fraseDeNaoEncontrei(lido), 'nao-encontrado') }
+                    const daEmpresa = await lerLevantamentosDaEmpresaPeloNome(c.tenantId, normalizarNome(lido))
+                    if (daEmpresa.length === 0) { rastro.rota = 'NAO_ENCONTRADO'; return await responder(fraseDeNaoEncontreiNaEmpresa(lido), 'nao-encontrado') }
+                    const nomes = await nomesDosVendedores(c.tenantId, [...new Set(daEmpresa.map((l) => l.remetente_id))])
+                    // o vendedor dito só vale se estiver no texto, e casa pelo nome inteiro, sem caixa e sem acento
+                    const vendedorLido = nomeDaMensagem(proposta.vendedor, c.texto)
+                    const doVendedor = vendedorLido === null ? daEmpresa
+                        : daEmpresa.filter((l) => normalizarNome(nomes.get(l.remetente_id) ?? '') === normalizarNome(vendedorLido))
+                    // um vendedor dito que não é dono de nenhum também pergunta: não se cai no único que existe
+                    if (doVendedor.length !== 1 && (daEmpresa.length > 1 || vendedorLido !== null)) {
+                        rastro.rota = 'QUAL_VENDEDOR'
+                        return await responder(fraseDeQualVendedor(lido, daEmpresa.map((l) => nomes.get(l.remetente_id) ?? VENDEDOR_SEM_NOME)), 'qual-vendedor')
+                    }
+                    const escolhido = doVendedor.length === 1 ? doVendedor[0] : daEmpresa[0]
+                    rastro.rota = 'ALTERACAO_ADMIN'
+                    alvo = { id: escolhido.id, nome: escolhido.nome, estado: escolhido.estado, donoId: escolhido.remetente_id, vendedor: nomes.get(escolhido.remetente_id) ?? VENDEDOR_SEM_NOME, itens: await lerItens(c.tenantId, escolhido.id) }
+                    nome = escolhido.nome
+                } else {
+                    rastro.rota = 'NOVO'
+                    nome = lido
+                }
             }
         }
         if (alvo) rastro.levantamento = alvo.id
@@ -727,12 +783,28 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             if ('campo' in pendencia && pendencia.campo === 'cor_perfil' && cores.length === 0) return await responder(FRASE_SEM_CORES, 'sem-cores')
             return await responder(perguntaPara(pendencia, aplicada.itens.length, proposta), 'perguntou')
         }
+        // O APANHADO (dono do produto, 26/10/2026): a primeira resposta é conversa, não orçamento. O levantamento
+        // formal, com o preço, só sai com o "sim" do vendedor à pergunta que citou ESTE levantamento. Sem exceção:
+        // o admin que altera o de outro vendedor também recebe o apanhado (dono do produto, 26/10/2026).
+        const confirmouApanhado = confirma === true && aberta?.p.pergunta === 'CONFIRMAR_APANHADO' && alvo?.id === aberta.citados[0]?.id
+        let semApanhado = ''
+        if (!confirmouApanhado) {
+            const apanhado = fraseDoApanhado(nome, aplicada.itens, definicao)
+            const guardada = await gravarPerguntaEmAberto(c.tenantId, c.remetenteId, { pergunta: 'CONFIRMAR_APANHADO', nome: null, levantamentos: [rastro.levantamento], itens: [] })
+            if (guardada) {
+                // R2: o mesmo apanhado de novo, sem mudar nada, diz que não registrou
+                const repetido = aberta !== null && aberta.texto === apanhado
+                return await responder(repetido ? fraseDeNaoRegistrei(apanhado) : apanhado, repetido ? 'nao-avancou' : 'apanhado')
+            }
+            // sem a tabela ou sem o valor na CHECK (migração 20261026000003 pendente): o formal, como antes
+            semApanhado = 'apanhado=sem_migracao'
+        }
         const levantamento = await mensagemDoLevantamento(c.tenantId, tabela, { nome, itens: aplicada.itens })
         // a confirmação do arremate abre a resposta, quando alguma esquadria tem arremate a considerar
         const temArremate = aplicada.itens.some((i) => definicao(i.tipologia) !== null)
         const escolhido = aplicada.itens.some((i) => temEscolhaDoVendedor(lerEscolhasGravadas(i.escolhas)))
         const confirmacao = temArremate ? `${escolhido ? FRASE_ARREMATE_ESCOLHIDO : FRASE_ARREMATE_PADRAO}\n\n` : ''
-        return await responder(`${confirmacao}${levantamento.texto}`, levantamento.desfecho)
+        return await responder(`${confirmacao}${levantamento.texto}`, levantamento.desfecho, semApanhado)
     } catch (e) {
         // Só o nome da tabela e o erro do banco — nunca a chave, o telefone ou o texto. E o vendedor sabe.
         const frase = gravando || e instanceof ErroAoGravar ? FALHA_DO_BANCO_AO_GRAVAR : gravado ? FALHA_NO_CALCULO : FALHA_DO_BANCO_ANTES
