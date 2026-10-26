@@ -55,7 +55,7 @@ const CHAVE = 'sk-ant-CHAVE-DE-TESTE-nao-pode-ir-ao-log'
 const ANTHROPIC = 'https://api.anthropic.com/v1/messages'
 const TABELA = '72366020-57c9-489f-9385-397b7fa3dedb'
 const CANDIDATAS = [
-    { tabela_id: TABELA, tipologia: 'DP-01', descricao: 'MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL | DESIGN', tipo: 'Maxim-ar' },
+    { tabela_id: TABELA, tipologia: 'DP-01', descricao: 'MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL | DESIGN', tipo: 'Maxim-ar', ordem: null as number | null },
     { tabela_id: TABELA, tipologia: 'DP-02', descricao: 'JANELA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 42', tipo: 'Correr' },
 ]
 /* eslint-disable @typescript-eslint/no-require-imports */
@@ -185,7 +185,7 @@ jest.mock('@/supabase/admin', () => ({
             const predicados: Array<(l: Linha) => boolean> = []
             let contar = false
             let faixa: [number, number] | null = null
-            let ordem: { coluna: string; asc: boolean } | null = null
+            const ordem: Array<{ coluna: string; asc: boolean }> = []
             let limite: number | null = null
             let atualizacao: Linha | null = null
             let colunas: string[] | null = null
@@ -195,9 +195,9 @@ jest.mock('@/supabase/admin', () => ({
             const casa = (l: Linha) => filtros.every(([c, v]) => l[c] === v) && predicados.every((f) => f(l))
             const ler = () => {
                 let linhas = (estado.db[tabela] ?? []).filter(casa)
-                if (ordem) {
-                    const { coluna, asc } = ordem
-                    linhas = [...linhas].sort((a, b) => (String(a[coluna]) < String(b[coluna]) ? -1 : String(a[coluna]) > String(b[coluna]) ? 1 : 0) * (asc ? 1 : -1))
+                if (ordem.length) {
+                    const compara = (x: unknown, y: unknown) => (typeof x === 'number' && typeof y === 'number' ? x - y : String(x) < String(y) ? -1 : String(x) > String(y) ? 1 : 0)
+                    linhas = [...linhas].sort((a, b) => ordem.reduce((r, { coluna, asc }) => r || compara(a[coluna], b[coluna]) * (asc ? 1 : -1), 0))
                 }
                 if (limite !== null) linhas = linhas.slice(0, limite)
                 if (faixa) linhas = linhas.slice(faixa[0], faixa[1] + 1)
@@ -215,7 +215,7 @@ jest.mock('@/supabase/admin', () => ({
             q.contains = (c: string, vs: unknown[]) => { predicados.push((l) => Array.isArray(l[c]) && vs.every((v) => (l[c] as unknown[]).includes(v))); return q }
             q.range = (de: number, ate: number) => { faixa = [de, ate]; return q }
             q.eq = (c: string, v: unknown) => { filtros.push([c, v]); return q }
-            q.order = (c: string, o?: { ascending?: boolean }) => { ordem = { coluna: c, asc: o?.ascending !== false }; return q }
+            q.order = (c: string, o?: { ascending?: boolean }) => { ordem.push({ coluna: c, asc: o?.ascending !== false }); return q }
             q.limit = (n: number) => { limite = n; return q }
             q.maybeSingle = async () => (estado.ausentes.has(tabela) ? ausente() : { data: ler().map(projetar)[0] ?? null, error: null })
             q.update = (carga: Linha) => { atualizacao = carga; return q }
@@ -227,6 +227,9 @@ jest.mock('@/supabase/admin', () => ({
                     return Promise.resolve({ data: devolveAtingidas ? atingidas.map(projetar) : null, error: null }).then(ok, erro)
                 }
                 if (estado.ausentes.has(tabela)) return Promise.resolve(ausente()).then(ok, erro)
+                // como o PostgREST: ordenar por coluna que a tabela não tem é erro, não lista desordenada
+                const semColuna = ordem.find(({ coluna }) => (estado.db[tabela] ?? []).filter(casa).some((l) => !(coluna in l)))
+                if (semColuna) return Promise.resolve({ data: null, error: { code: '42703', message: `column ${tabela}.${semColuna.coluna} does not exist` } }).then(ok, erro)
                 const total = (estado.db[tabela] ?? []).filter(casa).length
                 return Promise.resolve({ data: ler().map(projetar), error: null, ...(contar ? { count: total } : {}) }).then(ok, erro)
             }
@@ -1023,5 +1026,25 @@ describe('(13) DEFEITO 1, medido em produção (b0465e57, 25/10/2026): a escolha
         const item = itensDe(levantamentos()[0].id)[0]
         expect(item.escolhas).toEqual(expect.objectContaining({ ARI: 4 }))
         expect(ultimoEnviado()).not.toBe(antes)
+    })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+describe('(14) o banco falso recusa ordenar por coluna que a tabela não tem, como o PostgREST', () => {
+    // 26/10/2026: o falso aceitou ordenar a Detalhe por `id`, que ela não tem, e o portão ficou verde com
+    // todo levantamento parado em produção (`instrumento-que-nao-enxerga.md`, aparição 7)
+    /* eslint-disable @typescript-eslint/no-require-imports */
+    const db = () => require('@/supabase/admin').supabaseAdmin as { from: (t: string) => { select: (c: string) => { eq: (c: string, v: unknown) => { order: (c: string) => PromiseLike<{ error: { code: string } | null }> } } } }
+    /* eslint-enable @typescript-eslint/no-require-imports */
+    const ABAS = ['orcamentista_motor_tipologia_detalhe', 'orcamentista_motor_formula', 'orcamentista_motor_perfil', 'orcamentista_motor_vidro', 'orcamentista_motor_baguete', 'orcamentista_motor_variavel', 'orcamentista_motor_validacao']
+
+    it.each(ABAS.map((t) => [t]))('%s: coluna inexistente é erro 42703; tipologia existe', async (tabela) => {
+        expect(estado.db[tabela]?.length).toBeGreaterThan(0)
+        expect((await db().from(tabela).select('*').eq('tabela_id', TABELA).order('coluna_que_nao_existe')).error?.code).toBe('42703')
+        expect((await db().from(tabela).select('*').eq('tabela_id', TABELA).order('tipologia')).error).toBeNull()
+    })
+
+    it('ordenar a Detalhe por id é erro, como em produção', async () => {
+        expect((await db().from('orcamentista_motor_tipologia_detalhe').select('*').eq('tabela_id', TABELA).order('id')).error?.code).toBe('42703')
     })
 })

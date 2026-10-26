@@ -19,6 +19,7 @@ import ExcelJS from 'exceljs'
 
 import { ABAS_DO_MOTOR, abaDeclarada, abaDoBanco, lerAbasDoMotor, linhaDoBanco, type LinhaDoBanco } from '@/utils/atendimentos-ia-abas-do-motor'
 import { abasDoSpec, amostraDoSpec, type CelulasDoSpec } from './fixtures/abas-do-motor-do-spec'
+import { abasDaDP02NoBanco } from './fixtures/abas-da-DP-02-no-banco'
 
 const SQL = readFileSync(join(__dirname, '..', '..', '..', 'supabase', 'migrations', '20261025000004_abas_do_motor_por_tipologia.sql'), 'utf-8')
 /** O corpo da função, entre os `$function$`. */
@@ -200,5 +201,30 @@ describe('(3) do banco de volta à aba com cabeçalho', () => {
         const volta = abaDoBanco(aba, [...l.variaveis_da_tipologia].reverse())
         expect(volta.cabecalho).toEqual(aba.colunas.map((c) => c.cabecalho))
         expect(volta.linhas).toEqual(amostraDoSpec('Variáveis').map((x) => Object.fromEntries(aba.colunas.map((c) => [c.cabecalho, x.valores[c.cabecalho] ?? null]))))
+    })
+})
+
+describe('(4) o DADO DE TESTE das abas só tem colunas que a tabela real tem — em TODAS as abas', () => {
+    // 26/10/2026: o fixture inventava `id` na Detalhe, que em produção não tem `id` (chave tabela_id +
+    // tipologia), e o #165 ordenou a leitura por ele. Verde no portão, todo levantamento parado em
+    // produção (`instrumento-que-nao-enxerga.md`, aparição 7). O dublê não pode saber o que a real não sabe.
+    const tabelas = Object.entries(abasDaDP02NoBanco('T'))
+
+    it('o fixture cobre as abas por tipologia que ele traz, e cada uma tem linha', () => {
+        expect(tabelas.map(([t]) => t).sort()).toEqual(ABAS_DO_MOTOR.filter((a) => a.porTipologia && a.nome !== 'Insumos').map((a) => a.tabela).sort())
+        for (const [, linhas] of tabelas) expect(linhas.length).toBeGreaterThan(0)
+    })
+
+    it.each(ABAS_DO_MOTOR.filter((a) => a.porTipologia && a.nome !== 'Insumos').map((a) => [a.tabela]))('%s: nenhuma coluna fora do CREATE TABLE', (tabela) => {
+        // a Detalhe ganha `ordem` pelo ALTER da mesma migração; nenhuma outra coluna fora do CREATE
+        const reais = new Set([...colunasDoCreate(tabela), ...(tabela === 'orcamentista_motor_tipologia_detalhe' ? ['ordem'] : [])])
+        const linhas = abasDaDP02NoBanco('T')[tabela]
+        const inventadas = [...new Set(linhas.flatMap((l) => Object.keys(l)))].filter((c) => !reais.has(c))
+        expect(inventadas).toEqual([])
+    })
+
+    it('a Detalhe, em particular, NÃO tem id — nem no CREATE, nem no fixture', () => {
+        expect(colunasDoCreate('orcamentista_motor_tipologia_detalhe')).not.toContain('id')
+        expect(abasDaDP02NoBanco('T').orcamentista_motor_tipologia_detalhe.every((l) => !('id' in l))).toBe(true)
     })
 })

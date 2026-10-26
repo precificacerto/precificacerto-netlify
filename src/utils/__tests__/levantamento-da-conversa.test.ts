@@ -42,13 +42,17 @@ jest.mock('@/supabase/admin', () => ({
             const predicados: Array<(l: Linha) => boolean> = []
             let contar = false
             let faixa: [number, number] | null = null
-            let ordem: string | null = null
+            const ordem: string[] = []
             const filtradas = () => (banco.db[tabela] ?? []).filter((l) => predicados.every((p) => p(l)))
             type Resposta = { data: Linha[] | null; error: { code: string; message: string } | null; count: number | null }
             const resposta = (): Resposta => {
                 if (banco.ausentes.has(tabela)) return { data: null, error: { code: 'PGRST205', message: `Could not find the table 'public.${tabela}' in the schema cache` }, count: null }
                 let linhas = filtradas()
-                if (ordem) { const c = ordem; linhas = [...linhas].sort((a, b) => (String(a[c]) < String(b[c]) ? -1 : String(a[c]) > String(b[c]) ? 1 : 0)) }
+                // como o PostgREST: ordenar por coluna que a tabela não tem é erro, não lista desordenada
+                const semColuna = ordem.find((c) => linhas.some((l) => !(c in l)))
+                if (semColuna) return { data: null, error: { code: '42703', message: `column ${tabela}.${semColuna} does not exist` }, count: null }
+                const compara = (x: unknown, y: unknown) => (typeof x === 'number' && typeof y === 'number' ? x - y : String(x) < String(y) ? -1 : String(x) > String(y) ? 1 : 0)
+                if (ordem.length) linhas = [...linhas].sort((a, b) => ordem.reduce((r, c) => r || compara(a[c], b[c]), 0))
                 const total = linhas.length
                 if (faixa) linhas = linhas.slice(faixa[0], faixa[1] + 1)
                 return { data: linhas, error: null, count: contar ? total : null }
@@ -58,7 +62,7 @@ jest.mock('@/supabase/admin', () => ({
             q.eq = (c: string, v: unknown) => { predicados.push((l) => l[c] === v); return q }
             q.in = (c: string, vs: unknown[]) => { predicados.push((l) => vs.includes(l[c])); return q }
             q.contains = (c: string, vs: unknown[]) => { predicados.push((l) => Array.isArray(l[c]) && vs.every((v) => (l[c] as unknown[]).includes(v))); return q }
-            q.order = (c: string) => { ordem = c; return q }
+            q.order = (c: string) => { ordem.push(c); return q }
             q.range = (de: number, ate: number) => { faixa = [de, ate]; return q }
             q.maybeSingle = async () => { const r = resposta(); return { data: r.data ? r.data[0] ?? null : null, error: r.error } }
             q.then = (ok: (v: unknown) => unknown, erro?: (e: unknown) => unknown) => Promise.resolve(resposta()).then(ok, erro)
@@ -89,7 +93,8 @@ function montar() {
         ...ABAS_NO_BANCO(),
         orcamentista_motor_tipologia_detalhe: [
             ...ABAS_NO_BANCO().orcamentista_motor_tipologia_detalhe,
-            { tabela_id: TABELA, tipologia: 'DP-01', descricao: 'MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL | DESIGN', tipo: 'Maxim-ar' },
+            // `ordem` nula, como as 164 linhas de produção antes da reimportação (a coluna existe e está vazia)
+            { tabela_id: TABELA, tipologia: 'DP-01', descricao: 'MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL | DESIGN', tipo: 'Maxim-ar', ordem: null },
         ],
         orcamentista_motor_regra: DE_PARA.regras.map((r) => comId({ ...r, tabela_id: TABELA, tipologias: ['DP-02'] })),
         orcamentista_tabela_item: DE_PARA.itens.map((i) => ({ ...i, tabela_id: TABELA })),
@@ -344,7 +349,7 @@ describe('(6) a RECUSA chega como texto, inteira e nomeada', () => {
 
     it('a DP-02 de OUTRA TABELA também não tem abas: as da Wolff não valem para outro fornecedor', async () => {
         banco.db.orcamentista_conta_tabela = [{ tenant_id: TENANT, tabela_id: 'tabela-de-outro-fornecedor' }]
-        banco.db.orcamentista_motor_tipologia_detalhe.push({ tabela_id: 'tabela-de-outro-fornecedor', tipologia: 'DP-02', descricao: 'OUTRA', tipo: 'Correr' })
+        banco.db.orcamentista_motor_tipologia_detalhe.push({ tabela_id: 'tabela-de-outro-fornecedor', tipologia: 'DP-02', descricao: 'OUTRA', tipo: 'Correr', ordem: null })
         const t = await M().lerTabelaDaEmpresa(TENANT)
         const r = await M().mensagemDoLevantamento(TENANT, t, lev())
         expect(r.texto).toContain(M().fraseDaTipologiaSemAbas('DP-02'))
@@ -626,5 +631,29 @@ describe('(10) as abas vêm do BANCO: a Fórmulas da tipologia é a fonte, a da 
     it('as Variáveis com a tabela AUSENTE no banco: nenhuma definição, sem lançar — a conversa segue sem escolhas', async () => {
         banco.ausentes.add('orcamentista_motor_variavel')
         expect(await M().lerVariaveisDasTipologias(TABELA)).toEqual({})
+    })
+})
+
+describe('(11) o banco falso recusa ordenar por coluna que a tabela não tem — em TODAS as abas, como o PostgREST', () => {
+    // sem isto, o falso aceitou ordenar a Detalhe por `id` e o portão ficou verde com produção parada (26/10/2026)
+    const ABAS = ['orcamentista_motor_tipologia_detalhe', 'orcamentista_motor_formula', 'orcamentista_motor_perfil', 'orcamentista_motor_vidro', 'orcamentista_motor_baguete', 'orcamentista_motor_variavel', 'orcamentista_motor_validacao']
+    /* eslint-disable @typescript-eslint/no-require-imports */
+    const db = () => require('@/supabase/admin').supabaseAdmin as { from: (t: string) => { select: (c: string) => { eq: (c: string, v: unknown) => { order: (c: string) => PromiseLike<{ data: unknown; error: { code: string } | null }> } } } }
+    /* eslint-enable @typescript-eslint/no-require-imports */
+
+    it.each(ABAS.map((t) => [t]))('%s: coluna inexistente é erro 42703', async (tabela) => {
+        expect(banco.db[tabela]?.length).toBeGreaterThan(0)
+        const r = await db().from(tabela).select('*').eq('tabela_id', TABELA).order('coluna_que_nao_existe')
+        expect(r.error?.code).toBe('42703')
+    })
+
+    it.each(ABAS.map((t) => [t]))('%s: (tipologia, ordem), a ordem que a leitura usa, existe', async (tabela) => {
+        const r = await db().from(tabela).select('*').eq('tabela_id', TABELA).order('tipologia')
+        expect(r.error).toBeNull()
+    })
+
+    it('ordenar a Detalhe por id é erro, como em produção', async () => {
+        const r = await db().from('orcamentista_motor_tipologia_detalhe').select('*').eq('tabela_id', TABELA).order('id')
+        expect(r.error?.code).toBe('42703')
     })
 })

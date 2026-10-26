@@ -227,14 +227,24 @@ export async function lerRegras(tabelaId: string, tipologia: string): Promise<Re
 // ── As abas do motor por tipologia, do banco ────────────────────────────────────────────────
 type Leitura = { linhas: Array<Record<string, unknown>> } | { ausente: true }
 
+/**
+ * A ORDEM que pagina cada leitura: tem de ser TOTAL (sem empate), senão uma linha cai entre duas
+ * páginas, e tem de usar colunas que a tabela TEM. As abas por tipologia ordenam por
+ * (tipologia, ordem): é única em todas elas — a Detalhe tem chave (tabela_id, tipologia) e NÃO tem
+ * `id` (medido em 26/10/2026; ordenar por `id` derrubou todo levantamento em produção às 14:07).
+ */
+const ORDEM_DAS_ABAS = ['tipologia', 'ordem'] as const
+const ORDEM_POR_ID = ['id'] as const
+
 /** TODAS as linhas da tabela_id (e, se pedido, só dos valores de uma coluna), página a página, com a contagem conferida. */
-async function lerTudo(tabela: string, tabelaId: string, recorte?: { coluna: string; valores: readonly string[] }): Promise<Leitura> {
+async function lerTudo(tabela: string, tabelaId: string, ordem: readonly string[], recorte?: { coluna: string; valores: readonly string[] }): Promise<Leitura> {
     const linhas: Array<Record<string, unknown>> = []
     let total: number | null = null
     for (let de = 0; total === null || de < total; de += PAGINA) {
         let q = supabaseAdmin.from(tabela).select('*', { count: 'exact' }).eq('tabela_id', tabelaId)
         if (recorte) q = q.in(recorte.coluna, [...recorte.valores])
-        const { data, error, count } = await q.order('id', { ascending: true }).range(de, de + PAGINA - 1)
+        for (const c of ordem) q = q.order(c, { ascending: true })
+        const { data, error, count } = await q.range(de, de + PAGINA - 1)
         if (error) {
             if (tabelaAusente(error)) return { ausente: true }
             throw new Error(`${tabela}: ${error.message}`)
@@ -277,7 +287,7 @@ async function formulasDaFamilia(tabelaId: string, tipologia: string): Promise<{
     if (linhas.length === 0) return { falta: fraseDaFamiliaSemLinha(tipologia) }
     if (linhas.length > 1) return { falta: fraseDaFamiliaComDuasLinhas(tipologia, linhas) }
     const linha = linhas[0]
-    const lida = await lerTudo('orcamentista_motor_formula_familia', tabelaId, { coluna: 'linha', valores: [linha] })
+    const lida = await lerTudo('orcamentista_motor_formula_familia', tabelaId, ORDEM_POR_ID, { coluna: 'linha', valores: [linha] })
     if ('ausente' in lida) return { falta: fraseDaAbaNaoCarregada('Fórmulas da família') }
     if (lida.linhas.length === 0) return { falta: fraseDaFamiliaSemFormulas(tipologia, linha) }
     const vistas = new Set<unknown>()
@@ -302,7 +312,7 @@ export async function lerTipologiasDoBanco(tabelaId: string, codigos: readonly s
     const porAba: Record<string, Array<Record<string, unknown>>> = {}
     for (const nome of Object.keys(COLUNAS_LIDAS)) {
         const aba = abaDeclarada(nome)
-        const lida = await lerTudo(aba.tabela, tabelaId, { coluna: 'tipologia', valores: codigos })
+        const lida = await lerTudo(aba.tabela, tabelaId, ORDEM_DAS_ABAS, { coluna: 'tipologia', valores: codigos })
         if ('ausente' in lida) faltas.push(fraseDaAbaNaoCarregada(nome))
         else porAba[nome] = lida.linhas
     }
@@ -336,7 +346,7 @@ export async function lerTipologiasDoBanco(tabelaId: string, codigos: readonly s
  */
 export async function lerVariaveisDasTipologias(tabelaId: string): Promise<Record<string, VariaveisDaTipologia>> {
     const aba = abaDeclarada('Variáveis')
-    const lida = await lerTudo(aba.tabela, tabelaId)
+    const lida = await lerTudo(aba.tabela, tabelaId, ORDEM_DAS_ABAS)
     if ('ausente' in lida) return {}
     const planilha = abaDoBanco(aba, lida.linhas)
     const codigos = [...new Set(lida.linhas.map((l) => l.tipologia).filter((t): t is string => typeof t === 'string'))]

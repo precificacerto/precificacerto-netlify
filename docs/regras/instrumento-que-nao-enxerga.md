@@ -41,6 +41,7 @@ Todas a mesma classe: **a mesma pergunta, instrumentos sucessivos, números dife
 | 4 | `^(\s*)await …` — só `await` NU | `const { data: x } = await supabase…` — o await **atribuído** | **0 em `agenda/index.tsx`** | 3 |
 | 5 | `IL50` e `KT16` procurados como código **só na coluna `codigo`** do motor e da tabela de preço | o código que mora na **outra coluna**, `codigo_wvetro` | **"não existem no banco"** | `IL50/WOLFF` em **180** regras, `KT16/WOLFF` em **132** |
 | 6 | **o outro lado:** `chr(195)` ("Ã") como sinal de mojibake no texto de uma migração | que "Ã" também é letra do português — **MODULAÇÃO, INSTALAÇÃO, NÃO** | **"texto corrompido"**, duas vezes, num arquivo certo | **0** corrompidos; **20** das 164 descrições corretas têm "Ã" |
+| 7 | **o DUBLÊ:** o banco falso dos testes do levantamento, com o fixture das abas da DP-02 (#165) | que a Detalhe de produção **não tem `id`** — o fixture o inventava, e o falso ordenava por qualquer coluna, existente ou não | **portão verde**, 1.000+ casos | **todo levantamento parado em produção** desde o deploy do #165: `column orcamentista_motor_tipologia_detalhe.id does not exist` (26/10/2026, 14:07, b0465e57) |
 
 A quarta é a que dói. Com ela eu havia declarado um arquivo **fechado**, e o relatório dizia
 "zero escritas mudas". O número estava errado porque o padrão só via `await` no começo da linha,
@@ -126,9 +127,37 @@ aparições 1 e 2 de `instrumento-que-se-enxerga.md`. Medido hoje: a consulta da
 COMMENT correto com "Ã" maiúsculo a faria abortar. O detector do dono do produto, para a migração da
 tabela de detalhe, é a aparição que disparou — e é ele que a nomeia.
 
+### A sétima: o dublê sabia o que a real não sabe
+
+Formulação do dono do produto, registrada como está:
+
+> O dado de teste inventou um `id` que a tabela real não tem, e o banco falso aceitou ordenar por
+> coluna inexistente. É `instrumento-que-nao-enxerga` de novo — a dublê sabia o que a real não sabe.
+
+Nas seis primeiras o instrumento era um padrão de busca. Na sétima é o **ambiente do teste**: o
+banco falso e o fixture que o alimenta. O teste perguntava "o levantamento fecha?", e o instrumento
+que respondia — o falso — não tinha como responder "não" pelo motivo que derrubou a produção,
+porque ele não sabia quais colunas cada tabela TEM. O fixture acrescentava `id` em todas as abas
+por conveniência, a Detalhe de produção tem chave `(tabela_id, tipologia)` e nenhum `id`, e o
+`.order('id')` do código passou verde.
+
+**O remédio, aplicado em TODAS as abas, e cada um com mutação que o derruba:**
+- o banco falso recusa ordenar por coluna que a linha não tem, com o `42703` do PostgREST — nos dois
+  falsos (`levantamento-da-conversa.test.ts` e `atendimentos-ia-levantamento-por-nome.test.ts`), e um
+  caso por aba exercita a recusa;
+- o fixture só tem colunas que a tabela real tem: um caso por aba compara as chaves das linhas com
+  o `CREATE TABLE` da migração (`atendimentos-ia-abas-do-motor.test.ts`, bloco 4);
+- a leitura ordena por `(tipologia, ordem)`, que toda aba tem e que é única em todas.
+
+**O que ele NÃO cobre:** coluna que existe no `CREATE TABLE` do repositório e não em produção.
+O schema de produção não é a pasta de migrações (`migracao.md`, Parte II); a Detalhe foi conferida
+por `information_schema` em 26/10/2026, e as outras oito nasceram pela `20261025000004`, aplicada.
+
+**De quem é.** Do assistente: o fixture e a leitura são do #165.
+
 ### De quem são
 
-**As cinco primeiras são do assistente. A sexta é de um padrão que o assistente escreveu primeiro e que o detector do dono do produto também tem** — se um veio do outro, não foi medido. Está escrito assim porque suavizar apagaria o mecanismo: quem
+**As cinco primeiras e a sétima são do assistente. A sexta é de um padrão que o assistente escreveu primeiro e que o detector do dono do produto também tem** — se um veio do outro, não foi medido. Está escrito assim porque suavizar apagaria o mecanismo: quem
 escreve o padrão é quem acabou de ver o exemplo, e o exemplo vira o critério sem passar por
 verificação. O dono do produto apontou a primeira ao ler o relatório; as outras três apareceram
 porque a próxima versão do instrumento foi **testada** antes de ser usada. A quinta apareceu
@@ -155,8 +184,11 @@ dono do produto. Ela alarga o sinal 2 do corolário abaixo — a forma que o ins
 é só sintática; pode ser **a coluna**.
 
 A sexta também não foi procurada: o dono do produto a trouxe em 25/10/2026, depois de o detector dele
-rejeitar duas vezes um arquivo certo, e mandou registrar aqui, "do outro lado". Nenhuma sétima foi
-forçada.
+rejeitar duas vezes um arquivo certo, e mandou registrar aqui, "do outro lado".
+
+A sétima também não foi procurada: derrubou a produção em 26/10/2026, e o dono do produto a nomeou
+desta classe. Ela alarga o sinal 4 do corolário: a fixture que deveria fazer o instrumento ver é
+ela mesma um instrumento, e pode saber mais do que o mundo real. Nenhuma oitava foi forçada.
 
 ## O corolário aplicável ANTES do defeito existir
 
@@ -179,7 +211,9 @@ Sinais de que o número não vale ainda, em ordem de força:
    prioridade.
 4. Nenhuma fixture foi rodada contra ele — e as fixtures são DUAS: o caso que deveria aparecer, e o
    caso certo que NÃO deveria (aparição 6). Um detector de defeito rodado só sobre o defeito acusa
-   sempre, e acusar sempre parece funcionar.
+   sempre, e acusar sempre parece funcionar. **E o dublê do teste não pode saber o que a real não
+   sabe** (aparição 7): banco falso que aceita qualquer coluna e fixture com coluna inventada fazem o
+   portão responder sobre um mundo que não existe.
 
 Quando o 3 e o 4 coincidem, o número não vale. Construa o caso.
 
@@ -199,7 +233,7 @@ a medição derruba a hipótese de quem a formulou; aqui a medição **confirma*
 a formulou, porque o instrumento foi feito à imagem dela. `baseline-measurement.md` trata da
 medição feita na árvore errada — mesmo erro, outro eixo: lá o número está certo e a premissa
 errada, aqui a premissa está certa e o número é que não mede. `registro-de-classe.md` decidiu a
-forma desta página e o limite que manteve a tabela em seis linhas.
+forma desta página e o limite que manteve a tabela em sete linhas.
 `a-coluna-que-parece-enumeracao.md` é onde mora o terceiro papel do `IL50` — o valor da coluna
 `cor` —, e o remédio dela é o desta página aplicado a uma coluna: liste o que existe antes de
 concluir o que não existe.
