@@ -12,7 +12,14 @@ import { ABAS_DO_MOTOR, linhaDoBanco, type LinhaDoBanco } from '@/utils/atendime
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const ABAS = require('@/lib/atendimentos-ia/abas-do-motor-wolff-DP-02.json') as Record<string, { cabecalho?: string[]; linhas: Array<Record<string, unknown>> }>
 
-export type LinhaGravada = LinhaDoBanco & { id: string; tabela_id: string }
+export type LinhaGravada = LinhaDoBanco & { id?: string; tabela_id: string }
+
+/**
+ * A Detalhe NÃO tem coluna `id` em produção: a chave dela é (tabela_id, tipologia) — medido em
+ * 26/10/2026 (`information_schema` e `pg_constraint`). Um `id` inventado aqui deixou o #165 ordenar
+ * a leitura por uma coluna que não existe, e o portão ficou verde com a produção quebrada.
+ */
+const SEM_ID = new Set(['orcamentista_motor_tipologia_detalhe'])
 
 /** tabela do banco → linhas, todas com `tabela_id` e um `id` estável. */
 export function abasDaDP02NoBanco(tabelaId: string): Record<string, LinhaGravada[]> {
@@ -25,7 +32,8 @@ export function abasDaDP02NoBanco(tabelaId: string): Record<string, LinhaGravada
         saida[aba.tabela] = fonte.linhas.map((valores, i) => {
             const r = linhaDoBanco(aba, valores, i + 2)
             if ('erros' in r) throw new Error(r.erros.join(' '))
-            return { id: `${aba.tabela}-${tabelaId}-${String(i + 2).padStart(5, '0')}`, tabela_id: tabelaId, ...r.linha }
+            const id = SEM_ID.has(aba.tabela) ? {} : { id: `${aba.tabela}-${tabelaId}-${String(i + 2).padStart(5, '0')}` }
+            return { ...id, tabela_id: tabelaId, ...r.linha }
         })
     }
     return saida

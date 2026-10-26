@@ -42,13 +42,17 @@ jest.mock('@/supabase/admin', () => ({
             const predicados: Array<(l: Linha) => boolean> = []
             let contar = false
             let faixa: [number, number] | null = null
-            let ordem: string | null = null
+            const ordem: string[] = []
             const filtradas = () => (banco.db[tabela] ?? []).filter((l) => predicados.every((p) => p(l)))
             type Resposta = { data: Linha[] | null; error: { code: string; message: string } | null; count: number | null }
             const resposta = (): Resposta => {
                 if (banco.ausentes.has(tabela)) return { data: null, error: { code: 'PGRST205', message: `Could not find the table 'public.${tabela}' in the schema cache` }, count: null }
                 let linhas = filtradas()
-                if (ordem) { const c = ordem; linhas = [...linhas].sort((a, b) => (String(a[c]) < String(b[c]) ? -1 : String(a[c]) > String(b[c]) ? 1 : 0)) }
+                // como o PostgREST: ordenar por coluna que a tabela não tem é erro, não lista desordenada
+                const semColuna = ordem.find((c) => linhas.some((l) => !(c in l)))
+                if (semColuna) return { data: null, error: { code: '42703', message: `column ${tabela}.${semColuna} does not exist` }, count: null }
+                const compara = (x: unknown, y: unknown) => (typeof x === 'number' && typeof y === 'number' ? x - y : String(x) < String(y) ? -1 : String(x) > String(y) ? 1 : 0)
+                if (ordem.length) linhas = [...linhas].sort((a, b) => ordem.reduce((r, c) => r || compara(a[c], b[c]), 0))
                 const total = linhas.length
                 if (faixa) linhas = linhas.slice(faixa[0], faixa[1] + 1)
                 return { data: linhas, error: null, count: contar ? total : null }
@@ -58,7 +62,7 @@ jest.mock('@/supabase/admin', () => ({
             q.eq = (c: string, v: unknown) => { predicados.push((l) => l[c] === v); return q }
             q.in = (c: string, vs: unknown[]) => { predicados.push((l) => vs.includes(l[c])); return q }
             q.contains = (c: string, vs: unknown[]) => { predicados.push((l) => Array.isArray(l[c]) && vs.every((v) => (l[c] as unknown[]).includes(v))); return q }
-            q.order = (c: string) => { ordem = c; return q }
+            q.order = (c: string) => { ordem.push(c); return q }
             q.range = (de: number, ate: number) => { faixa = [de, ate]; return q }
             q.maybeSingle = async () => { const r = resposta(); return { data: r.data ? r.data[0] ?? null : null, error: r.error } }
             q.then = (ok: (v: unknown) => unknown, erro?: (e: unknown) => unknown) => Promise.resolve(resposta()).then(ok, erro)
