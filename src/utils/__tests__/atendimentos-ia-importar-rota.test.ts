@@ -24,6 +24,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- os clientes falsos imitam clientes sem tipo */
 import type { NextApiRequest, NextApiResponse } from 'next'
 import ExcelJS from 'exceljs'
+import fs from 'fs'
+import path from 'path'
 
 import { MOTIVO_DA_EXTENSAO_NAO_IMPORTAVEL, ROTAS_DO_CATALOGO, fraseDoArquivoNaoImportavel } from '@/utils/atendimentos-ia-catalogo'
 import { COLUNA_DA_CATEGORIA_DO_FORNECEDOR } from '@/utils/atendimentos-ia-importacao'
@@ -128,7 +130,12 @@ const contagensDe = (p: any) => Object.fromEntries(Object.entries(p).filter(([k,
 /** Os 164 tempos ESTIMADO da tabela da Wolff, como estão em produção em 25/10/2026. */
 const OS_164 = { total: 164, ESTIMADO: 164, IMPORTADO: 0 }
 
+/** O importador, lido DENTRO dos casos: no commit do portão as frases novas ainda não existem. */
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const IMP = () => require('@/utils/atendimentos-ia-importacao') as { LIMITE_DA_GRAVACAO_S: number; fraseDaGravacaoQueFalhou: (codigo: string | null) => string }
 const silencio = jest.spyOn(console, 'error').mockImplementation(() => {})
+const registro = jest.spyOn(console, 'log').mockImplementation(() => {})
+afterAll(() => registro.mockRestore())
 afterAll(() => silencio.mockRestore())
 beforeEach(async () => {
     perfil = SUPER
@@ -163,8 +170,20 @@ describe('quem passa', () => {
         expect(repo.importarConteudo).not.toHaveBeenCalled()
     })
 
-    it('a rota declara maxDuration de 60 segundos', () => {
-        expect(rota.config).toEqual(expect.objectContaining({ maxDuration: 60 }))
+    it('o limite de tempo da gravação no código é o MESMO da migração que o dá à função (35 s)', () => {
+        const sql = fs.readFileSync(path.join(process.cwd(), 'supabase/migrations/20261026000001_limite_de_tempo_da_importacao.sql'), 'utf8')
+        const m = sql.match(/ALTER FUNCTION public\.importar_conteudo_da_tabela\(uuid, jsonb\) SET statement_timeout = '(\d+)s';/)
+        expect(m).not.toBeNull()
+        expect(Number(m![1])).toBe(IMP().LIMITE_DA_GRAVACAO_S)
+        expect(IMP().LIMITE_DA_GRAVACAO_S).toBe(35)
+    })
+
+    it('o maxDuration da rota cobre o que vem ANTES da gravação (28 s medidos) mais o limite da função, com folga', () => {
+        // 25/10/2026, a reimportação da Wolff em produção: ~9 s lendo do Storage e parseando, ~19 s até o
+        // comando começar no banco (18,1 MB de corpo). Com menos que isso, a rota morre antes do banco e a
+        // tela volta a dizer só que não foi concluída
+        expect(rota.config.maxDuration).toBeGreaterThanOrEqual(IMP().LIMITE_DA_GRAVACAO_S + 28 + 15)
+        expect(rota.config.maxDuration).toBe(90)
     })
 
     it('a rota está no catálogo de rotas da tela', () => {
@@ -268,6 +287,54 @@ describe('as nove abas na gravação', () => {
         expect(r.status).toBe(422)
         expect(r.json.error).toContain('não tem a aba "Vidros"')
         expect(repo.importarConteudo).not.toHaveBeenCalled()
+    })
+})
+
+describe('A GRAVAÇÃO QUE FALHA DIZ O MOTIVO NA TELA — e a duração dela fica no log', () => {
+    const falhar = (erro: { code?: string; message: string }) =>
+        repo.importarConteudo.mockImplementationOnce(async () => { ordem.push('importarConteudo'); throw erro })
+
+    it('TEMPO esgotado no banco (57014): a tela diz que foi o limite de tempo, e quanto ele é', async () => {
+        falhar({ code: '57014', message: 'canceling statement due to statement timeout' })
+        const r = await chamar('POST')
+        expect(r.status).toBe(500)
+        expect(r.json.error).toBe(IMP().fraseDaGravacaoQueFalhou('57014'))
+        expect(r.json.error).toContain('limite de tempo')
+        expect(r.json.error).toContain('35 s')
+        expect(r.json.error).toContain('nada foi alterado')
+    })
+
+    it('LOCK esgotado (55P03): a tela diz que a tabela estava travada por outra operação', async () => {
+        falhar({ code: '55P03', message: 'canceling statement due to lock timeout' })
+        const r = await chamar('POST')
+        expect(r.json.error).toBe(IMP().fraseDaGravacaoQueFalhou('55P03'))
+        expect(r.json.error).toContain('travada')
+    })
+
+    it('outro erro do banco: a tela diz o CÓDIGO, nunca o texto do banco', async () => {
+        const texto = 'new row for relation "orcamentista_motor_insumo" violates check constraint "x"'
+        falhar({ code: '23514', message: texto })
+        const r = await chamar('POST')
+        expect(r.json.error).toBe(IMP().fraseDaGravacaoQueFalhou('23514'))
+        expect(r.json.error).toContain('23514')
+        expect(r.json.error).not.toBe(texto)
+        expect(r.json.error.includes(texto)).toBe(false)
+    })
+
+    it('as quatro frases são DIFERENTES entre si — cada motivo tem a sua', () => {
+        const frases = ['57014', '55P03', '23514', null].map((c) => IMP().fraseDaGravacaoQueFalhou(c))
+        expect(new Set(frases).size).toBe(4)
+    })
+
+    it('a duração da gravação vai para o log, no sucesso e na falha — é ela que calibra o limite', async () => {
+        registro.mockClear()
+        await chamar('POST')
+        falhar({ code: '57014', message: 'canceling statement due to statement timeout' })
+        await chamar('POST')
+        const linhas = registro.mock.calls.map((c) => c.join(' ')).filter((l) => /importação \(gravação\)/.test(l))
+        expect(linhas).toHaveLength(2)
+        expect(linhas[0]).toMatch(/^atendimentos-ia importação \(gravação\): \d+ ms, gravada$/)
+        expect(linhas[1]).toMatch(/^atendimentos-ia importação \(gravação\): \d+ ms, falhou \(57014\)$/)
     })
 })
 

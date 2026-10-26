@@ -581,3 +581,28 @@ export function fraseDaImportacaoTravadaPorItensForaDoArquivo(codigos: readonly 
         + `no arquivo (${nomeados}${resto}). A importação apaga todos os itens da tabela e regrava só os do arquivo, `
         + `e ${codigos.length === 1 ? 'esse item se perderia' : 'esses itens se perderiam'}. Nada foi alterado.`
 }
+
+// ── O limite de tempo da gravação, e o motivo quando ela falha ─────────────────────────────
+/**
+ * O `statement_timeout` próprio da função `importar_conteudo_da_tabela`, em segundos — o MESMO da
+ * migração `20261026000001_limite_de_tempo_da_importacao.sql`, e há portão que liga os dois. A razão
+ * do número (o medido local, o piso medido em produção e o teto da API) está no cabeçalho da migração.
+ */
+export const LIMITE_DA_GRAVACAO_S = 35
+
+/**
+ * A frase da gravação que falhou, com o MOTIVO (dono do produto, 26/10/2026: "timeout é timeout, e o
+ * usuário tem que ler isso na tela"). A transação é uma só, então em todos os casos nada foi gravado.
+ * Erro do banco sem frase própria diz o CÓDIGO, nunca o texto do banco.
+ */
+export function fraseDaGravacaoQueFalhou(codigo: string | null): string {
+    const nada = 'A gravação foi desfeita inteira: nada foi alterado, e o conteúdo anterior da tabela continua como estava.'
+    if (codigo === '57014') {
+        return `A importação não foi gravada: a gravação passou do limite de tempo do banco (${LIMITE_DA_GRAVACAO_S} s) e foi interrompida. ${nada}`
+    }
+    if (codigo === '55P03') {
+        return `A importação não foi gravada: a tabela estava travada por outra operação (outra importação ou uma alteração dela), e a espera passou do limite do banco. ${nada}`
+    }
+    if (codigo) return `A importação não foi gravada: o banco recusou a gravação (código ${codigo}). ${nada}`
+    return 'A importação não foi gravada. O conteúdo anterior da tabela continua como estava.'
+}
