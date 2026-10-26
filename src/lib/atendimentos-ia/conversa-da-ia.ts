@@ -107,7 +107,7 @@ import {
     type DefinicaoDaTipologia, type ItemDoLevantamento, type Pendencia,
 } from '@/lib/atendimentos-ia/levantamento-em-montagem'
 import { compararNome, nomeDaMensagem, normalizarNome } from '@/lib/atendimentos-ia/nome-do-levantamento'
-import { escolhasParaOPrompt, lerEscolhasDoItem, lerEscolhasGravadas, temEscolhaDoVendedor } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
+import { escolhasParaOPrompt, opcoesDeArremateNoPrompt, lerEscolhasDoItem, lerEscolhasGravadas, temEscolhaDoVendedor } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import { permissaoDoRemetente, type Permissao } from '@/lib/atendimentos-ia/permissao-do-remetente'
 import { fraseDoApanhado } from '@/lib/atendimentos-ia/apanhado'
 import {
@@ -310,10 +310,8 @@ function sistema(c: ContextoDoPrompt): string {
         '',
         `Cores da empresa (cor_perfil, escreva EXATAMENTE uma delas): ${c.cores.length ? c.cores.join(', ') : '(nenhuma)'}`,
         '',
-        'Escolhas de arremate por tipologia (USO INTERNO — código = descrição: número = opção):',
-        ...(c.escolhasPorTipologia.length
-            ? c.escolhasPorTipologia.flatMap((e) => [`${e.tipologia}:`, ...e.linhas.map((l) => `  ${l}`)])
-            : ['(nenhuma)']),
+        'Escolhas de arremate (USO INTERNO — código = descrição: número = opção). Cada linha de opções vai UMA vez, com o número entre colchetes; a tipologia diz quais usa:',
+        ...opcoesDeArremateNoPrompt(c.escolhasPorTipologia),
     ].join('\n')
 }
 
