@@ -112,6 +112,9 @@ jest.mock('@/supabase/admin', () => ({
             q.then = (ok: (v: unknown) => unknown) => {
                 estado.leituras.push(tabela)
                 const todas = linhas()
+                // como o PostgREST: ordenar por coluna que a tabela não tem é ERRO (a Detalhe não tem `id` — o #165)
+                const semColuna = ordem.find((c) => (estado.db[tabela] ?? []).some((l) => !(c in l)))
+                if (semColuna) return Promise.resolve({ data: null, error: { code: '42703', message: `column ${tabela}.${semColuna} does not exist` }, count: null }).then(ok)
                 // como o PostgREST: no máximo mil linhas por pedido, a não ser que a faixa diga outra coisa
                 const pagina = faixa ? todas.slice(faixa[0], faixa[1] + 1) : todas.slice(0, LIMITE_DO_POSTGREST)
                 return Promise.resolve({ data: cabeca ? null : pagina, error: null, count: contar ? todas.length : null }).then(ok)
