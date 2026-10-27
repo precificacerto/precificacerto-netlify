@@ -14,7 +14,7 @@
  *     menos os limites e as contagens do Detalhe, que já são `integer` em produção. O texto é o da
  *     célula como o leitor da importação o lê (`valorDaCelula`: sem os espaços das pontas); célula vazia
  *     é NULL, nunca '' (`ausente-vs-falso.md`). Número numa coluna de texto vira o texto do número.
- *   - SEM tenant_id: o catálogo do fornecedor é global e chega às contas por `orcamentista_conta_tabela`.
+ *   - SEM tenant_id: o catálogo do fornecedor é global e chega às contas pelos fornecedores que a base de conhecimento de cada uma vincula (`tabelas-da-conta.ts`).
  *   - UNICIDADE: `ordem` é o número da linha na aba, e (tabela_id, tipologia, ordem) é única em todas as
  *     abas por tipologia. Fórmulas e Variáveis têm ALÉM DISSO a chave natural (tabela_id, tipologia,
  *     variavel) — medida limpa no arquivo de 3.126.092 bytes (4.468 e 3.573 pares, zero duplicata). A

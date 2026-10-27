@@ -25,7 +25,18 @@
  *     O VOCABULÁRIO (dono do produto, 26/10/2026): o que o motor chama de "família" é a LINHA
  *     (EUROPA 42, EUROPA 60). FAMÍLIA é a da tabela do fornecedor (PVC, ...).
  *
- * ══ A LISTA DE TIPOLOGIAS — de TODAS as tabelas ligadas (dono do produto, 26/10/2026) ══
+ * ══ AS TABELAS DA EMPRESA SÃO DERIVADAS (dono do produto, 26/10/2026) ══
+ * São as tabelas dos fornecedores que a base de conhecimento da empresa vincula (`tabelas-da-conta.ts`);
+ * `orcamentista_conta_tabela` não é lida. Quem decide se a tabela entra na conversa é o MOTOR, não a
+ * categoria: COM tipologias entra; SEM é tabela de preço e fica fora, sem recusar. Por (fornecedor,
+ * família), uma tabela só vale sem marca; com mais de uma vale a VIGENTE. As recusas nomeadas, nesta ordem:
+ *   - fornecedor vinculado ao PERFIL sem tabela cadastrada (`fraseDoPerfilSemTabela`); fornecedor de outra
+ *     categoria sem tabela NÃO recusa — é aviso no bloco Motor;
+ *   - nenhum fornecedor com tabela (`FRASE_SEM_TABELA`);
+ *   - par com motor e mais de uma tabela, nenhuma vigente (`fraseSemVigente`);
+ *   - nenhuma tabela com motor (`fraseSemMotor`, nomeando os fornecedores das tabelas de preço).
+ *
+ * ══ A LISTA DE TIPOLOGIAS — de TODAS as tabelas com motor (dono do produto, 26/10/2026) ══
  * Cai a trava "a sua empresa tem 2 tabelas e ele trabalha com uma só": a conta pode ter mais de uma
  * tabela, inclusive da mesma família. A lista junta as tipologias de todas, cada uma com a tabela e o
  * fornecedor dela; o código em mais de uma vira a pergunta de qual fornecedor (`levantamento-em-montagem.ts`).
@@ -35,10 +46,9 @@
  * produto, 26/10/2026). Cada família é um produto: o cálculo e o agrupamento de barras rodam UMA VEZ POR
  * TABELA (fornecedor + família), e nenhuma barra atravessa de uma otimização para a outra.
  * Vem de `orcamentista_motor_tipologia_detalhe` (tabela_id, tipologia, descricao, tipo, …) das tabelas
- * ligadas à empresa em `orcamentista_conta_tabela`. Em 25/10/2026 ela AINDA NÃO EXISTE em produção — a
- * migração está sendo aplicada pelo dono do produto. Enquanto não existir, a leitura falha e a
- * conversa responde com a frase de `SEM_LISTA_DE_TIPOLOGIAS`, sem chamar a LLM: sem lista, a IA não
- * tem de onde escolher, e escolher por conta própria é o que a regra proíbe.
+ * que valem e têm motor. Se a leitura falhar, a conversa responde com a frase de
+ * `SEM_LISTA_DE_TIPOLOGIAS`, sem chamar a LLM: sem lista, a IA não tem de onde escolher, e escolher por
+ * conta própria é o que a regra proíbe.
  *
  * ══ AS REGRAS DO MOTOR, PAGINADAS ══
  * As regras são lidas POR TIPOLOGIA (`tipologias @> [DP]`), não por perfil na tabela inteira. Medido em
@@ -91,6 +101,7 @@ import { maoDeObraPeloCaminhoDaTela, type DadosDaEmpresaParaMaoDeObra } from '@/
 import { FAMILIA_NAO_INFORMADA, rotulosDasOpcoes, tabelaDaEsquadria, type TabelaDoCodigo, type TabelasDoCodigo } from '@/lib/atendimentos-ia/levantamento-em-montagem'
 import { normalizarNome } from '@/lib/atendimentos-ia/nome-do-levantamento'
 import { abaDeclarada, abaDoBanco } from '@/utils/atendimentos-ia-abas-do-motor'
+import { FORNECEDOR_SEM_NOME, FalhaNaDerivacao, derivarTabelasDaConta } from '@/lib/atendimentos-ia/tabelas-da-conta'
 
 // ── A tabela da empresa e as tipologias candidatas ──────────────────────────────────────────
 export type CandidatoDeTipologia = { tipologia: string; descricao: string | null; tipo: string | null; tabelaId: string; fornecedor: string; familia: string | null }
@@ -99,48 +110,53 @@ export type TabelaLigada = TabelaDoCodigo
 export type TabelaDaEmpresaLida = { ok: true; tabelas: TabelaLigada[]; candidatos: CandidatoDeTipologia[] }
 export type TabelaDaEmpresa =
     | TabelaDaEmpresaLida
-    | { ok: false; motivo: 'SEM_TABELA' | 'TABELA_REPETIDA' | 'SEM_LISTA_DE_TIPOLOGIAS'; frase: string; detalhe: string }
+    | { ok: false; motivo: 'SEM_TABELA' | 'PERFIL_SEM_TABELA' | 'SEM_MOTOR' | 'SEM_VIGENTE' | 'TABELA_REPETIDA' | 'SEM_LISTA_DE_TIPOLOGIAS'; frase: string; detalhe: string }
 
-export const FRASE_SEM_TABELA = 'Ainda não consigo escolher a tipologia: a sua empresa não tem uma tabela de fornecedor ligada ao orçamentista.'
+export const FRASE_SEM_TABELA = 'Ainda não consigo escolher a tipologia: a base de conhecimento da sua empresa não vincula nenhum fornecedor com tabela cadastrada.'
+export const fraseDoPerfilSemTabela = (fornecedor: string) =>
+    `Ainda não consigo escolher a tipologia: o fornecedor ${fornecedor}, vinculado ao perfil na base de conhecimento da sua empresa, não tem tabela cadastrada.`
+const juntarNomes = (nomes: string[]) => (nomes.length <= 1 ? nomes.join('') : `${nomes.slice(0, -1).join(', ')} e ${nomes[nomes.length - 1]}`)
+export const fraseSemMotor = (fornecedores: string[]) =>
+    'Ainda não consigo escolher a tipologia: nenhuma tabela dos fornecedores da sua empresa tem o motor (as tipologias) carregado. '
+    + `As de ${juntarNomes(fornecedores)} são só tabelas de preço.`
+export const fraseSemVigente = (fornecedor: string, familia: string | null, n: number) =>
+    `Ainda não consigo escolher a tipologia: o fornecedor ${fornecedor} tem ${n} tabelas ${familia === null ? 'sem a família informada' : `da família ${familia}`} `
+    + 'e nenhuma está marcada como vigente: não escolho entre elas.'
 export const fraseDeTabelaRepetida = (fornecedor: string, familia: string | null, n: number) =>
     `Ainda não consigo escolher a tipologia: a sua empresa tem ${n} tabelas do fornecedor ${fornecedor}, ${familia === null ? 'sem a família informada' : `da família ${familia}`}, `
     + 'ligadas ao orçamentista, e nada as distingue: não escolho entre elas.'
 export const FRASE_SEM_LISTA_DE_TIPOLOGIAS = 'Ainda não consigo escolher a tipologia: a lista de tipologias do fornecedor, com a descrição de cada uma, ainda não foi carregada.'
 export const fraseSemListaDoFornecedor = (fornecedor: string) =>
     `Ainda não consigo escolher a tipologia: a lista de tipologias do fornecedor ${fornecedor}, com a descrição de cada uma, ainda não foi carregada.`
-/** O fornecedor que o banco não devolveu (a FK impede; o texto não fica vazio se acontecer). */
-const FORNECEDOR_SEM_NOME = '(fornecedor sem nome)'
-
 const porCodigoEFornecedor = (a: CandidatoDeTipologia, b: CandidatoDeTipologia) =>
     (a.tipologia < b.tipologia ? -1 : a.tipologia > b.tipologia ? 1
         : a.fornecedor.localeCompare(b.fornecedor, 'pt-BR') || (a.familia ?? '').localeCompare(b.familia ?? '', 'pt-BR'))
 
 export async function lerTabelaDaEmpresa(tenantId: string): Promise<TabelaDaEmpresa> {
-    const { data: ligadas, error } = await supabaseAdmin.from('orcamentista_conta_tabela').select('tabela_id').eq('tenant_id', tenantId)
-    if (error) throw new Error(`orcamentista_conta_tabela: ${error.message}`)
-    const ids = [...new Set(((ligadas ?? []) as Array<{ tabela_id: string }>).map((l) => l.tabela_id))]
-    if (ids.length === 0) return { ok: false, motivo: 'SEM_TABELA', frase: FRASE_SEM_TABELA, detalhe: '' }
-
-    // o fornecedor de cada tabela, pelo nome: é como a pergunta de qual fornecedor os cita
-    const { data: dasTabelas, error: erroDasTabelas } = await supabaseAdmin.from('orcamentista_tabela').select('id, fornecedor_id, familia').in('id', ids)
-    if (erroDasTabelas) throw new Error(`orcamentista_tabela: ${erroDasTabelas.message}`)
-    const lidasDasTabelas = (dasTabelas ?? []) as Array<{ id: string; fornecedor_id: string; familia: string | null }>
-    const fornecedorDa = new Map(lidasDasTabelas.map((t) => [t.id, t.fornecedor_id]))
-    const familiaDa = new Map(lidasDasTabelas.map((t) => [t.id, t.familia ?? null]))
-    // o rótulo da família, do catálogo; sem a linha no catálogo, a chave (a FK impede que falte)
-    const { data: catalogo, error: erroDoCatalogo } = await supabaseAdmin.from('orcamentista_familia_catalogo').select('chave, rotulo')
-    if (erroDoCatalogo) throw new Error(`orcamentista_familia_catalogo: ${erroDoCatalogo.message}`)
-    const rotuloDa = new Map(((catalogo ?? []) as Array<{ chave: string; rotulo: string }>).map((f) => [f.chave, f.rotulo]))
-    const familiaDaTabela = (id: string) => { const chave = familiaDa.get(id) ?? null; return chave === null ? null : rotuloDa.get(chave) ?? chave }
-    const fIds = [...new Set(fornecedorDa.values())]
-    const { data: fornecedores, error: erroDosFornecedores }: { data: unknown[] | null; error: { message: string } | null } = fIds.length
-        ? await supabaseAdmin.from('orcamentista_fornecedor').select('id, nome').in('id', fIds)
-        : { data: [], error: null }
-    if (erroDosFornecedores) throw new Error(`orcamentista_fornecedor: ${erroDosFornecedores.message}`)
-    const nomeDo = new Map(((fornecedores ?? []) as Array<{ id: string; nome: string | null }>).map((f) => [f.id, f.nome?.trim() || FORNECEDOR_SEM_NOME]))
-    const tabelas: TabelaLigada[] = ids
-        .map((id) => ({ tabelaId: id, fornecedor: nomeDo.get(fornecedorDa.get(id) ?? '') ?? FORNECEDOR_SEM_NOME, familia: familiaDaTabela(id) }))
+    let derivacao: Awaited<ReturnType<typeof derivarTabelasDaConta>>
+    try {
+        derivacao = await derivarTabelasDaConta(tenantId)
+    } catch (e) {
+        // a contagem das tipologias falhou: é a lista que não se lê, e é isso que a frase diz
+        if (e instanceof FalhaNaDerivacao && e.onde === 'orcamentista_motor_tipologia_detalhe') {
+            return { ok: false, motivo: 'SEM_LISTA_DE_TIPOLOGIAS', frase: FRASE_SEM_LISTA_DE_TIPOLOGIAS, detalhe: `codigo=${e.codigo ?? '-'}` }
+        }
+        throw e
+    }
+    const perfilSemTabela = derivacao.fornecedoresSemTabela.find((f) => f.categorias.includes('PERFIL'))
+    if (perfilSemTabela) return { ok: false, motivo: 'PERFIL_SEM_TABELA', frase: fraseDoPerfilSemTabela(perfilSemTabela.fornecedor), detalhe: '' }
+    if (derivacao.tabelas.length === 0) return { ok: false, motivo: 'SEM_TABELA', frase: FRASE_SEM_TABELA, detalhe: '' }
+    // o par sem vigente só recusa quando alguma tabela dele tem motor: tabela de preço não entra na conversa
+    const semVigente = derivacao.paresSemVigente.find((p) => derivacao.tabelas.some((t) => t.fornecedor === p.fornecedor && t.familia === p.familia && t.comMotor))
+    if (semVigente) return { ok: false, motivo: 'SEM_VIGENTE', frase: fraseSemVigente(semVigente.fornecedor, semVigente.familia, semVigente.arquivos.length), detalhe: '' }
+    const tabelas: TabelaLigada[] = derivacao.tabelas
+        .filter((t) => t.vale && t.comMotor)
+        .map((t) => ({ tabelaId: t.tabelaId, fornecedor: t.fornecedor, familia: t.familia }))
         .sort((a, b) => a.fornecedor.localeCompare(b.fornecedor, 'pt-BR') || (a.familia ?? '').localeCompare(b.familia ?? '', 'pt-BR') || (a.tabelaId < b.tabelaId ? -1 : 1))
+    if (tabelas.length === 0) {
+        const dePreco = [...new Set(derivacao.tabelas.map((t) => t.fornecedor))].sort((a, b) => a.localeCompare(b, 'pt-BR'))
+        return { ok: false, motivo: 'SEM_MOTOR', frase: fraseSemMotor(dePreco), detalhe: `tabelas=${derivacao.tabelas.length}` }
+    }
     // FORNECEDOR + FAMÍLIA iguais (o nome sem caixa e sem acento; a família sem informar também conta como uma):
     // nada distingue as duas para o vendedor. O mesmo fornecedor com famílias diferentes é legítimo
     for (const t of tabelas) {

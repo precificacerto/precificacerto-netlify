@@ -26,7 +26,7 @@ import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 
 import { ROUTES } from '@/constants/routes'
-import { ROTAS_DO_CATALOGO, ROTULO_DO_MODELO, type ContaLigada, type Nicho } from '@/utils/atendimentos-ia-catalogo'
+import { AVISO_DA_TRAVA_DO_MODELO_E_NICHO, ROTAS_DO_CATALOGO, ROTULO_DO_MODELO, type ContaLigada, type Nicho } from '@/utils/atendimentos-ia-catalogo'
 import { rotaDaConfig } from '@/utils/orcamentista-config'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -168,6 +168,22 @@ describe('a configuração de uma conta', () => {
         await act(async () => { await new Promise((r) => setTimeout(r, 0)) })
         const gravacoes = pedidos.filter((p) => p.metodo !== 'GET')
         expect(gravacoes).toEqual([{ url: rotaDaConfig(CONTA_A), metodo: 'PATCH', corpo: { modelo: 'FABRICACAO', nicho_id: N_ESQ } }])
+    })
+
+    /**
+     * "Tabelas em uso" SAIU da tela (dono do produto, 26/10/2026): seletores, Adicionar, a lista com Remover e a
+     * rota que eles chamavam. A frase da trava NÃO sumiu: a trava continua, sobre as tabelas DERIVADAS da base de
+     * conhecimento, e o aviso novo diz isso junto do modelo e do nicho.
+     */
+    it('(g) sem a seção "Tabelas em uso", e o aviso da trava diz a fonte nova', async () => {
+        const Pagina = AConta()
+        const host = await montar(<Pagina />)
+        expect(host.querySelector('[data-grupo="tabelas-em-uso"]')).toBeNull()
+        expect(host.textContent).not.toContain('Tabelas em uso')
+        expect(host.textContent).not.toContain('Enquanto houver tabela em uso')
+        expect(pedidos.map((p) => p.url).filter((u) => u.includes(`/contas/${CONTA_A}/tabelas`))).toEqual([])
+        expect(host.querySelector('[data-aviso="trava-do-modelo-e-nicho"]')?.textContent).toBe(AVISO_DA_TRAVA_DO_MODELO_E_NICHO)
+        expect(AVISO_DA_TRAVA_DO_MODELO_E_NICHO).toContain('base de conhecimento')
     })
 
     it('(e) conta fora da lista de ligadas: sem formulário, e diz por quê', async () => {

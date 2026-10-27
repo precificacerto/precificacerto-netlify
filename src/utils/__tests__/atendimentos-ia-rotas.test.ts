@@ -191,14 +191,24 @@ describe('PORTÃO — tabela sem motor é recusada pela ROTA, não só pela tela
 describe('PORTÃO — excluir o que está em uso devolve QUEM usa', () => {
     const emUso = () => { throw new ErroDoBanco({ code: '23503', message: 'violates foreign key constraint' }) }
 
-    it('tabela em uso → 409 com os NOMES das contas, e o Storage não é tocado', async () => {
-        repo.excluirTabela.mockImplementationOnce(async () => { ordem.push('excluirTabela'); return emUso() })
+    // Desde 26/10/2026 o uso é DERIVADO e a ROTA o confere ANTES de apagar (o RESTRICT de conta_tabela não
+    // protege mais): a exclusão nem é tentada. A prova com o banco falso inteiro está em atendimentos-ia-tabelas-derivadas.
+    it('tabela em uso → 409 com os NOMES das contas, ANTES de apagar: nem a linha nem o Storage são tocados', async () => {
         repo.contasQueUsamATabela.mockImplementationOnce(async () => { ordem.push('contasQueUsamATabela'); return ['Marcenaria Silva', 'Esquadrias Norte'] })
         const r = await chamar('tabela', 'DELETE', { id: T })
         expect(r.status).toBe(409)
         expect(r.json.error).toContain('Esquadrias Norte')
         expect(r.json.error).toContain('Marcenaria Silva')
         expect(r.json.contas).toEqual(['Marcenaria Silva', 'Esquadrias Norte'])
+        expect(repo.excluirTabela).not.toHaveBeenCalled()
+        expect(repo.removerObjetos).not.toHaveBeenCalled()
+    })
+
+    it('ninguém usa, mas o BANCO recusa (23503, a FK da linha parada de conta_tabela) → 409, e o Storage não é tocado', async () => {
+        repo.excluirTabela.mockImplementationOnce(async () => { ordem.push('excluirTabela'); return emUso() })
+        const r = await chamar('tabela', 'DELETE', { id: T })
+        expect(r.status).toBe(409)
+        expect(ordem.indexOf('contasQueUsamATabela')).toBeLessThan(ordem.indexOf('excluirTabela'))
         expect(repo.removerObjetos).not.toHaveBeenCalled()
     })
 
@@ -224,7 +234,7 @@ describe('PORTÃO — excluir o que está em uso devolve QUEM usa', () => {
         repo.excluirTabela.mockImplementationOnce(async () => { ordem.push('excluirTabela'); throw new ErroDoBanco({ code: '57014', message: 'timeout' }) })
         const r = await chamar('tabela', 'DELETE', { id: T })
         expect(r.status).toBe(500)
-        expect(repo.contasQueUsamATabela).not.toHaveBeenCalled()
+        expect(r.json.contas).toBeUndefined()
         expect(repo.removerObjetos).not.toHaveBeenCalled()
     })
 })

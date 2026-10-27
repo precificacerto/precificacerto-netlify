@@ -111,7 +111,8 @@ function montar() {
         orcamentista_mp_vidro: [],
         orcamentista_mp_ferragem: [],
         orcamentista_mp_instalacao: [],
-        orcamentista_conta_tabela: [{ tenant_id: T_A, tabela_id: TAB_DE_A }, { tenant_id: T_B, tabela_id: TAB_DE_B }],
+        // a linha PARADA (26/10/2026): ninguém a lê — as tabelas da conta vêm do vínculo da base de conhecimento (`vincularAsTabelas`)
+        orcamentista_conta_tabela: [{ tenant_id: T_A, tabela_id: TAB_DE_B }],
         orcamentista_tabela: [{ id: TAB_DE_A, fornecedor_id: F_WOLFF }, { id: TAB_DE_B, fornecedor_id: F_MADEIRA }, { id: TAB_SEM_USO, fornecedor_id: F_ALCOA }],
         // EUROPA 60 só na fórmula; SUPREMA só na regra, e DEPOIS do corte — quem lê tudo e tira os distintos no JS não a vê
         orcamentista_motor_formula_familia: [
@@ -470,19 +471,55 @@ describe('(6) GET — a árvore inteira da empresa, numa resposta só', () => {
         expect(r.json.materias_primas).toEqual([])
     })
 
+    /**
+     * As tabelas da conta são DERIVADAS (26/10/2026): a base de conhecimento de A já vincula a Wolff e a Alcoa no
+     * PERFIL (o `beforeEach`); a de B passa a vincular a Madeireira. A linha parada de `orcamentista_conta_tabela`
+     * (A → a tabela da Madeireira) não muda nada.
+     */
+    const vincularAsTabelas = () => estado.db.orcamentista_mp_categoria_fornecedor.push(
+        { id: '00000000-0000-4000-8000-0000000a0002', tenant_id: T_B, mp_categoria_id: cat(MP_DE_B, 'PERFIL'), fornecedor_id: F_MADEIRA, principal: true, ordem: 1 },
+    )
+
     it('as LINHAS de cada fornecedor com tabela em uso NESTA conta, POR FONTE — fórmula e regra separadas, distintas, em ordem — e o corte do PostgREST não esconde nenhuma', async () => {
+        vincularAsTabelas()
         const r = await chamar('arvore', 'GET', { tenant: T_A })
         // EUROPA 60 só na fórmula; SUPREMA só na regra (é o caso DESIGN de produção: regra sem fórmula de família)
-        expect(r.json.linhas_por_fornecedor).toEqual({ [F_WOLFF]: { formula: ['EUROPA 42', 'EUROPA 60'], regra: ['EUROPA 42', 'SUPREMA'] } })
+        expect(r.json.linhas_por_fornecedor).toEqual({
+            [F_WOLFF]: { formula: ['EUROPA 42', 'EUROPA 60'], regra: ['EUROPA 42', 'SUPREMA'] },
+            [F_ALCOA]: { formula: ['ALCOA X'], regra: ['ALCOA Z'] },
+        })
     })
 
-    it('o contraste: a outra empresa vê as linhas da tabela DELA; a tabela que ninguém usa não entra', async () => {
+    // Com DUAS tabelas da Wolff na mesma família, só a VIGENTE vale (26/10/2026): as linhas são as dela, e as da
+    // antiga não entram. Sem nenhuma marcada, nenhuma vale — e a Wolff fica sem chave, como "sem tabela em uso".
+    const comSegundaDaWolff = (vigente: boolean) => {
+        const SEGUNDA = '00000000-0000-4000-8000-00000000ab09'
+        estado.db.orcamentista_tabela.push({ id: SEGUNDA, fornecedor_id: F_WOLFF, vigente })
+        estado.db.orcamentista_motor_formula_familia.push({ tabela_id: SEGUNDA, linha: 'LINHA NOVA' })
+        estado.db.orcamentista_motor_regra.push({ tabela_id: SEGUNDA, linha: 'LINHA NOVA' })
+    }
+
+    it('duas tabelas da Wolff, a nova VIGENTE: as linhas são só as dela', async () => {
+        comSegundaDaWolff(true)
+        const r = await chamar('arvore', 'GET', { tenant: T_A })
+        expect(r.json.linhas_por_fornecedor[F_WOLFF]).toEqual({ formula: ['LINHA NOVA'], regra: ['LINHA NOVA'] })
+    })
+
+    it('duas tabelas da Wolff, nenhuma vigente: nenhuma vale, e a Wolff fica sem chave', async () => {
+        comSegundaDaWolff(false)
+        const r = await chamar('arvore', 'GET', { tenant: T_A })
+        expect(F_WOLFF in r.json.linhas_por_fornecedor).toBe(false)
+    })
+
+    it('o contraste: a outra empresa vê as linhas da tabela DELA; a do fornecedor que ela não vincula não entra', async () => {
+        vincularAsTabelas()
         const r = await chamar('arvore', 'GET', { tenant: T_B })
         expect(r.json.linhas_por_fornecedor).toEqual({ [F_MADEIRA]: { formula: ['MDF Y'], regra: [] } })
         expect(F_ALCOA in r.json.linhas_por_fornecedor).toBe(false)
     })
 
     it('empresa sem tabela em uso: nenhum fornecedor — o objeto vazio, não a lista de outra empresa', async () => {
+        vincularAsTabelas()
         const r = await chamar('arvore', 'GET', { tenant: T_SEM_NICHO })
         expect(r.json.linhas_por_fornecedor).toEqual({})
     })

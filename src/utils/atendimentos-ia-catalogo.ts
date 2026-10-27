@@ -110,10 +110,6 @@ export const ROTAS_DO_CATALOGO = {
     conteudoDaTabela: (tabelaId: string) => `/api/super-admin/atendimentos-ia/tabelas/${tabelaId}/conteudo`,
     /** Bloco 2C.1 — as contas com o Atendimentos I.A. ligado (só nome, modelo e nicho). */
     contas: '/api/super-admin/atendimentos-ia/contas',
-    /** "Tabelas em uso" da conta: GET lista e opções do nicho; POST adiciona `{ tabela_id }`. */
-    tabelasDaConta: (tenantId: string) => `/api/super-admin/atendimentos-ia/contas/${tenantId}/tabelas`,
-    /** DELETE tira UMA tabela de uso DAQUELA conta. */
-    tabelaDaConta: (tenantId: string, tabelaId: string) => `/api/super-admin/atendimentos-ia/contas/${tenantId}/tabelas/${tabelaId}`,
     /** POST envia um PDF de teste ao remetente ativo da conta, pela conexão do orçamentista (26/10/2026). */
     testeDeAnexo: (tenantId: string) => `/api/super-admin/atendimentos-ia/contas/${tenantId}/teste-de-anexo`,
     /** As FAMÍLIAS das tabelas (26/10/2026): GET a lista, na ordem; POST acrescenta `{ rotulo }` no fim. */
@@ -126,18 +122,10 @@ export const ROTAS_DO_CATALOGO = {
  * salvos dentro do sistema"; e, sobre Revenda, "o motor dele vai considerar a base de
  * conhecimento, que são os produtos salvos no próprio sistema".
  *
- * Aplicada em 20/10/2026 ao USO POR CONTA: a tela da conta só mostra "Tabelas em uso" neste
- * modelo, e a rota recusa (409) tabela para conta de outro modelo. O CATÁLOGO não é restrito —
- * nicho, fornecedor e tabela podem existir nos três modelos.
- *
- * >>> O CASO DE BORDA: conta fora de Fabricação COM tabela em uso <<<
- * Nela a tela esconderia a tabela junto com o grupo, e com ela o "Remover". Medido em produção
- * em 20/10/2026 pela sessão de verificação: 0 contas fora de FABRICACAO com tabela em uso (1
- * tabela em uso ao todo, numa conta FABRICACAO). O estado é INALCANÇÁVEL pela tela: a troca de
- * modelo é recusada enquanto houver tabela em uso (`gravarModeloENicho`, na rota PATCH da conta),
- * então nenhuma conta sai de Fabricação carregando tabela. Só nasceria por escrita direta no
- * banco. Se um dia aparecer, a saída é MOSTRAR a lista com "Remover" nesses casos — e NÃO apagar
- * nada automaticamente.
+ * Aplicada em 20/10/2026 ao USO POR CONTA. O CATÁLOGO não é restrito — nicho, fornecedor e tabela
+ * podem existir nos três modelos. Desde 26/10/2026 as tabelas da conta são DERIVADAS da base de
+ * conhecimento (`tabelas-da-conta.ts`), e a troca de modelo continua recusada enquanto a base vincular
+ * fornecedor com tabela (`gravarModeloENicho`, na rota PATCH da conta).
  */
 export const MODELO_COM_FORNECEDOR: Modelo = 'FABRICACAO'
 export const usaTabelaDeFornecedor = (m: Modelo | null) => m === MODELO_COM_FORNECEDOR
@@ -187,6 +175,11 @@ export const LIMITE_DO_ROTULO_DA_FAMILIA = 60
 const FORMA_DA_CHAVE_DA_FAMILIA = /^[A-Z][A-Z0-9_]{0,39}$/
 export const ehChaveDeFamilia = (v: unknown): v is string => typeof v === 'string' && FORMA_DA_CHAVE_DA_FAMILIA.test(v)
 
+/** O 23505 é o do índice da tabela vigente (`orcamentista_tabela_uma_vigente`), e não outro. */
+export const ehIndiceDaVigente = (e: unknown): boolean => /orcamentista_tabela_uma_vigente/.test((e as { message?: string } | null)?.message ?? '')
+export const fraseDaVigenteQueJaExiste = (familia: string | null, arquivo: string) =>
+    `Já há uma tabela vigente deste fornecedor na família ${familia ?? 'não informada'}: ${arquivo}. Desmarque-a antes de marcar outra.`
+
 /** O 23503 é o da FK da família da tabela (`orcamentista_tabela_familia_fkey`), e não o do fornecedor: a mensagem do banco diz qual. */
 export const ehFkDaFamilia = (e: unknown): boolean => /orcamentista_tabela_familia_fkey/.test((e as { message?: string } | null)?.message ?? '')
 
@@ -221,6 +214,11 @@ export interface TabelaDoFornecedor {
     vigencia: string | null
     /** A chave da família; null = não informada (as tabelas de antes de 26/10/2026). */
     familia: string | null
+    /**
+     * A tabela vigente do fornecedor na família dela (migração 20261026000005): decide o que levantamento NOVO
+     * usa. No máximo uma por (fornecedor, família). A `vigencia` acima continua sendo só texto do consultor.
+     */
+    vigente: boolean
     /** "Subido em". */
     criado_em: string
     contas_usando: string[]
@@ -239,38 +237,16 @@ export interface ContaLigada {
     nicho_nome: string | null
 }
 
-// ── "Tabelas em uso" da conta ──────────────────────────────────────────────────────────────
+// ── As tabelas da conta, DERIVADAS da base de conhecimento (26/10/2026) ───────────────────
 /**
- * Uma tabela em uso por uma conta. SÓ catálogo — fornecedor, arquivo, motor, vigência — e é a
+ * Uma tabela da conta, como as recusas a nomeiam. SÓ catálogo — fornecedor e arquivo — e é a
  * REGRA INVIOLÁVEL: nada do conteúdo da conta.
- *
- * `vigencia` é o TEXTO COMO FOI DIGITADO. Se ela é data de upload ou prazo é decisão em aberto
- * (EPIC §9), e por isso não há regra de vencimento em lugar nenhum: nada a interpreta.
  */
 export interface TabelaEmUso {
     tabela_id: string
     fornecedor_id: string
     fornecedor_nome: string
     arquivo_nome: string
-    motor_nome: string
-    vigencia: string | null
-}
-
-/** Uma tabela que a conta pode escolher — do fornecedor, que é do nicho da conta. */
-export interface TabelaParaEscolher { id: string; arquivo_nome: string; motor_nome: string; vigencia: string | null }
-
-/** Um fornecedor do NICHO DA CONTA, com as tabelas dele. */
-export interface FornecedorDoNicho { id: string; nome: string; tabelas: TabelaParaEscolher[] }
-
-/**
- * O que a rota das tabelas da conta devolve. `fornecedores` são SÓ os do nicho salvo da conta —
- * e vazio quando o nicho não tem fornecedor ou a conta não tem nicho: NUNCA a lista da
- * plataforma (instrução do dono do produto; o mockup caía para a lista inteira).
- */
-export interface TabelasDaConta {
-    nicho_id: string | null
-    em_uso: TabelaEmUso[]
-    fornecedores: FornecedorDoNicho[]
 }
 
 export interface FornecedorComTabelas extends FornecedorDaLista { tabelas_da_lista: TabelaDoFornecedor[] }
@@ -366,6 +342,8 @@ export interface EdicaoDaTabela {
     vigencia?: string | null
     /** `undefined` = não mexe. A família se troca pela lista, e não se apaga. */
     familia?: string
+    /** `undefined` = não mexe. A marca de vigente (migração 20261026000005): no máximo uma por fornecedor e família. */
+    vigente?: boolean
 }
 
 export function lerEdicaoDaTabela(body: unknown, fornecedorId: string): Leitura<EdicaoDaTabela> {
@@ -385,6 +363,10 @@ export function lerEdicaoDaTabela(body: unknown, fornecedorId: string): Leitura<
     if ('familia' in b) {
         if (!ehChaveDeFamilia(b.familia)) return { ok: false, erro: MENSAGEM_FAMILIA_OBRIGATORIA }
         out.familia = b.familia
+    }
+    if ('vigente' in b) {
+        if (typeof b.vigente !== 'boolean') return { ok: false, erro: 'A marca de vigente é sim ou não.' }
+        out.vigente = b.vigente
     }
     if (Object.keys(out).length === 0) return { ok: false, erro: 'Nada a alterar.' }
     return { ok: true, corpo: out }
@@ -420,24 +402,22 @@ export function caminhoNoBucket(fornecedorId: string, tipo: TipoDeArquivo, nome:
     return `${fornecedorId}/${tipo}/${idUnico}-${nomeSeguroParaOBucket(nome)}`
 }
 
-/** O corpo de "adicionar tabela à conta": só `tabela_id`. A conta vem da URL, o autor da sessão. */
-export function lerPedidoDeTabelaDaConta(body: unknown): Leitura<{ tabela_id: string }> {
-    if (!body || typeof body !== 'object') return { ok: false, erro: 'Corpo inválido.' }
-    const b = body as Record<string, unknown>
-    if (!ehUuid(b.tabela_id)) return { ok: false, erro: 'Escolha a tabela.' }
-    return { ok: true, corpo: { tabela_id: b.tabela_id } }
-}
-
-/** "Alumínio Sul · sul-outubro.xlsx" — como uma tabela em uso é nomeada nas recusas. */
+/** "Alumínio Sul · sul-outubro.xlsx" — como uma tabela da conta é nomeada nas recusas. */
 export const nomeDaTabelaEmUso = (t: Pick<TabelaEmUso, 'fornecedor_nome' | 'arquivo_nome'>) => `${t.fornecedor_nome} · ${t.arquivo_nome}`
 
 /**
- * A recusa da troca de modelo ou nicho com tabela em uso — nomeia QUEM SEGURA, como as recusas
- * por RESTRICT desta área (EPIC §3.7).
+ * A TRAVA DO MODELO E DO NICHO, que continua existindo e mudou de fonte (dono do produto, 26/10/2026): ela é
+ * sobre as tabelas DERIVADAS — as dos fornecedores que a base de conhecimento da conta vincula. O aviso fica na
+ * tela, junto do modelo e do nicho; a recusa (409) nomeia QUEM SEGURA, como as recusas por RESTRICT desta área
+ * (EPIC §3.7). Fornecedor vinculado SEM tabela não trava: a trava sempre foi sobre tabela.
  */
+export const AVISO_DA_TRAVA_DO_MODELO_E_NICHO =
+    'Enquanto a base de conhecimento desta conta vincular fornecedor com tabela cadastrada, o modelo e o nicho não podem ser trocados. '
+    + 'Para trocar, tire esses fornecedores da base de conhecimento antes.'
 export function fraseDasTabelasQueSeguram(emUso: Pick<TabelaEmUso, 'fornecedor_nome' | 'arquivo_nome'>[]): string {
     const nomes = emUso.map(nomeDaTabelaEmUso).sort((a, b) => a.localeCompare(b, 'pt-BR'))
-    return `O modelo e o nicho não podem ser trocados enquanto houver tabela em uso. Remova antes: ${nomes.join('; ')}.`
+    return `O modelo e o nicho não podem ser trocados enquanto a base de conhecimento desta conta vincular fornecedor com tabela cadastrada: ${nomes.join('; ')}. `
+        + 'Tire esses fornecedores da base de conhecimento antes.'
 }
 
 /** "Em uso por: A, B" — a frase do mockup (EPIC §3.7). Sem nomes, não há frase. */

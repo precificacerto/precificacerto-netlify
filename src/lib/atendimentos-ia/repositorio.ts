@@ -4,10 +4,13 @@
  * o importam. É o único lugar fora das rotas onde as quatro tabelas são lidas — portão
  * `atendimentos-ia-a-tela-nao-fala-com-o-banco.test.ts`.
  *
- * As leituras são consultas SIMPLES, juntadas aqui, e não `select` com embutido do PostgREST:
- * `orcamentista_conta_tabela` tem duas FKs (para `tenants` e para `orcamentista_tabela`), e um
+ * As leituras são consultas SIMPLES, juntadas aqui, e não `select` com embutido do PostgREST: um
  * embutido ambíguo vira erro em produção que nenhum teste com cliente falso enxerga. As tabelas
  * são pequenas — catálogo da plataforma, não dado de conta.
+ *
+ * QUEM USA uma tabela é DERIVADO (dono do produto, 26/10/2026): as contas cuja base de conhecimento
+ * vincula o fornecedor dela (`tabelas-da-conta.ts`). `orcamentista_conta_tabela` não é lida nem escrita
+ * por ninguém: fica no banco, parada.
  *
  * Todo erro do banco SOBE com o `code` do Postgres (`ErroDoBanco`): é a rota que decide o que
  * fazer com um 23503, e ela nunca o engole.
@@ -19,13 +22,13 @@ import {
     type CorpoDaTabela,
     type Familia,
     type FornecedorComTabelas,
-    type FornecedorDoNicho,
     type FornecedorDaLista,
     type Modelo,
     type Nicho,
     type TabelaDoFornecedor,
     type TabelaEmUso,
 } from '@/utils/atendimentos-ia-catalogo'
+import { contasQueVinculam, derivarTabelasDaConta } from '@/lib/atendimentos-ia/tabelas-da-conta'
 
 export class ErroDoBanco extends Error {
     code: string | null
@@ -56,13 +59,13 @@ async function nomesDasContas(tenantIds: string[]): Promise<Record<string, strin
     return Object.fromEntries(linhas.map((l: Linha) => [l.id, l.name as string]))
 }
 
-async function usoPorTabela(tabelaIds: string[]): Promise<Record<string, string[]>> {
-    if (tabelaIds.length === 0) return {}
-    const usos = await q(db().from('orcamentista_conta_tabela').select('tenant_id, tabela_id').in('tabela_id', tabelaIds))
-    const nomes = await nomesDasContas(usos.map((u: Linha) => u.tenant_id))
-    const out: Record<string, string[]> = {}
-    for (const u of usos) (out[u.tabela_id] ||= []).push(nomes[u.tenant_id] ?? u.tenant_id)
-    return out
+/** tabela → os NOMES das contas que vinculam o fornecedor dela na base de conhecimento. */
+async function usoPorTabela(tabelas: Array<{ id: string; fornecedor_id: string }>): Promise<Record<string, string[]>> {
+    if (tabelas.length === 0) return {}
+    const porFornecedor = await contasQueVinculam(tabelas.map((t) => t.fornecedor_id))
+    const nomes = await nomesDasContas([...porFornecedor.values()].flat())
+    const nomeados = (f: string) => (porFornecedor.get(f) ?? []).map((t) => nomes[t] ?? t).sort((a, b) => a.localeCompare(b, 'pt-BR'))
+    return Object.fromEntries(tabelas.map((t) => [t.id, nomeados(t.fornecedor_id)]))
 }
 
 // ── Nichos ─────────────────────────────────────────────────────────────────────────────────
@@ -124,11 +127,10 @@ export async function listarContasLigadas(): Promise<ContaLigada[]> {
         .sort((a: ContaLigada, b: ContaLigada) => a.nome.localeCompare(b.nome, 'pt-BR'))
 }
 
-// ── Tabelas em uso da conta ────────────────────────────────────────────────────────────────
+// ── As tabelas da conta, DERIVADAS ─────────────────────────────────────────────────────────
 /*
  * REGRA INVIOLÁVEL: a tela mostra apenas o nome da conta e a configuração do Atendimentos I.A.
- * Nada do conteúdo da conta. Estas leituras não tocam `tenants` — o nome da conta a tela já tem,
- * da lista de contas ligadas — e devolvem só o catálogo.
+ * Nada do conteúdo da conta. Estas leituras não tocam `tenants` e devolvem só o catálogo.
  */
 
 /** O modelo e o nicho SALVOS da conta, ou `null` se a conta não tem configuração do Atendimentos I.A. */
@@ -138,62 +140,13 @@ export async function obterModeloENichoDaConta(tenantId: string): Promise<{ mode
     return { modelo: cfg[0].modelo ?? null, nicho_id: cfg[0].nicho_id ?? null }
 }
 
-/** As tabelas em uso pela conta, com fornecedor, arquivo, motor e a vigência como foi digitada. */
-export async function listarTabelasDaConta(tenantId: string): Promise<TabelaEmUso[]> {
-    const usos = await q(db().from('orcamentista_conta_tabela').select('tabela_id').eq('tenant_id', tenantId))
-    const ids = usos.map((u: Linha) => u.tabela_id)
-    if (ids.length === 0) return []
-    const tabelas = await q(db().from('orcamentista_tabela').select('id, fornecedor_id, arquivo_nome, motor_nome, vigencia').in('id', ids))
-    const fIds = [...new Set(tabelas.map((t: Linha) => t.fornecedor_id))]
-    const fornecedores = fIds.length ? await q(db().from('orcamentista_fornecedor').select('id, nome').in('id', fIds)) : []
-    const nomeDo = Object.fromEntries(fornecedores.map((f: Linha) => [f.id, f.nome as string]))
-    return tabelas
-        .map((t: Linha): TabelaEmUso => ({
-            tabela_id: t.id,
-            fornecedor_id: t.fornecedor_id,
-            fornecedor_nome: nomeDo[t.fornecedor_id] ?? '—',
-            arquivo_nome: t.arquivo_nome,
-            motor_nome: t.motor_nome,
-            vigencia: t.vigencia ?? null,
-        }))
-        .sort((a: TabelaEmUso, b: TabelaEmUso) => a.fornecedor_nome.localeCompare(b.fornecedor_nome, 'pt-BR') || a.arquivo_nome.localeCompare(b.arquivo_nome, 'pt-BR'))
-}
-
 /**
- * Os fornecedores de UM nicho, com as tabelas de cada um. O filtro é no banco, pelo nicho: a
- * lista da plataforma nunca sai daqui, nem quando o nicho não tem fornecedor — aí sai vazia.
+ * As tabelas da conta — as dos fornecedores que a base de conhecimento dela vincula —, com fornecedor e
+ * arquivo. É o que segura a troca de modelo e nicho.
  */
-export async function listarFornecedoresDoNicho(nichoId: string): Promise<FornecedorDoNicho[]> {
-    const fs = await q(db().from('orcamentista_fornecedor').select('id, nome').eq('nicho_id', nichoId).order('nome'))
-    if (fs.length === 0) return []
-    const tabelas = await q(db().from('orcamentista_tabela').select('id, fornecedor_id, arquivo_nome, motor_nome, vigencia').in('fornecedor_id', fs.map((f: Linha) => f.id)).order('criado_em', { ascending: false }))
-    return fs
-        .map((f: Linha): FornecedorDoNicho => ({
-            id: f.id,
-            nome: f.nome,
-            tabelas: tabelas.filter((t: Linha) => t.fornecedor_id === f.id).map((t: Linha) => ({
-                id: t.id, arquivo_nome: t.arquivo_nome, motor_nome: t.motor_nome, vigencia: t.vigencia ?? null,
-            })),
-        }))
-        .sort((a: FornecedorDoNicho, b: FornecedorDoNicho) => a.nome.localeCompare(b.nome, 'pt-BR'))
-}
-
-/** Uma tabela com o nicho do fornecedor dela — para a rota recusar tabela de outro nicho. */
-export async function obterTabelaComNicho(tabelaId: string): Promise<{ arquivo_nome: string; fornecedor_nome: string; nicho_id: string } | null> {
-    const ts = await q(db().from('orcamentista_tabela').select('id, fornecedor_id, arquivo_nome').eq('id', tabelaId))
-    if (ts.length === 0) return null
-    const fs = await q(db().from('orcamentista_fornecedor').select('id, nome, nicho_id').eq('id', ts[0].fornecedor_id))
-    if (fs.length === 0) return null
-    return { arquivo_nome: ts[0].arquivo_nome, fornecedor_nome: fs[0].nome, nicho_id: fs[0].nicho_id }
-}
-
-export async function adicionarTabelaNaConta(u: { tenant_id: string; tabela_id: string; criado_por: string }): Promise<void> {
-    await q(db().from('orcamentista_conta_tabela').insert(u).select('tenant_id, tabela_id'))
-}
-
-export async function removerTabelaDaConta(tenantId: string, tabelaId: string): Promise<number> {
-    const linhas = await q(db().from('orcamentista_conta_tabela').delete().eq('tenant_id', tenantId).eq('tabela_id', tabelaId).select('tabela_id'))
-    return linhas.length
+export async function listarTabelasDaConta(tenantId: string): Promise<Array<Pick<TabelaEmUso, 'tabela_id' | 'fornecedor_id' | 'fornecedor_nome' | 'arquivo_nome'>>> {
+    const { tabelas } = await derivarTabelasDaConta(tenantId)
+    return tabelas.map((t) => ({ tabela_id: t.tabelaId, fornecedor_id: t.fornecedorId, fornecedor_nome: t.fornecedor, arquivo_nome: t.arquivo_nome }))
 }
 
 // ── Fornecedores ───────────────────────────────────────────────────────────────────────────
@@ -202,9 +155,9 @@ async function montarLista(fornecedores: Linha[]): Promise<FornecedorComTabelas[
     const nichos: Linha[] = nichoIds.length ? await q(db().from('orcamentista_nicho').select('id, modelo, nome').in('id', nichoIds)) : []
     const fIds = fornecedores.map((f) => f.id)
     const tabelas: Linha[] = fIds.length
-        ? await q(db().from('orcamentista_tabela').select('id, fornecedor_id, arquivo_nome, arquivo_path, motor_nome, motor_path, vigencia, familia, criado_em').in('fornecedor_id', fIds).order('criado_em', { ascending: false }))
+        ? await q(db().from('orcamentista_tabela').select('id, fornecedor_id, arquivo_nome, arquivo_path, motor_nome, motor_path, vigencia, familia, vigente, criado_em').in('fornecedor_id', fIds).order('criado_em', { ascending: false }))
         : []
-    const uso = await usoPorTabela(tabelas.map((t) => t.id))
+    const uso = await usoPorTabela(tabelas.map((t) => ({ id: t.id, fornecedor_id: t.fornecedor_id })))
     return fornecedores.map((f) => {
         const nicho = nichos.find((n) => n.id === f.nicho_id)
         const daqui: TabelaDoFornecedor[] = tabelas.filter((t) => t.fornecedor_id === f.id).map((t) => ({ ...(t as TabelaDoFornecedor), contas_usando: uso[t.id] ?? [] }))
@@ -248,11 +201,12 @@ export async function excluirFornecedor(id: string): Promise<number> {
     return linhas.length
 }
 
-/** Quem SEGURA um fornecedor: as tabelas dele, e as contas que usam alguma delas. */
+/** Quem SEGURA um fornecedor: as tabelas dele, e as contas cuja base de conhecimento o vincula — com tabela ou sem. */
 export async function quemSeguraOFornecedor(id: string): Promise<{ tabelas: string[]; contas: string[] }> {
     const ts = await q(db().from('orcamentista_tabela').select('id, arquivo_nome').eq('fornecedor_id', id))
-    const uso = await usoPorTabela(ts.map((t: Linha) => t.id))
-    return { tabelas: ts.map((t: Linha) => t.arquivo_nome), contas: [...new Set(Object.values(uso).flat())] }
+    const tenants = (await contasQueVinculam([id])).get(id) ?? []
+    const nomes = await nomesDasContas(tenants)
+    return { tabelas: ts.map((t: Linha) => t.arquivo_nome), contas: tenants.map((t) => nomes[t] ?? t).sort((a, b) => a.localeCompare(b, 'pt-BR')) }
 }
 
 // ── Famílias (migração 20261026000004) ───────────────────────────────────────────────────────
@@ -337,7 +291,16 @@ export async function criarTabela(t: CorpoDaTabela & { criado_por: string }): Pr
     return q(db().from('orcamentista_tabela').insert(t).select('id').single())
 }
 
-export async function atualizarTabela(id: string, campos: Record<string, string | null>): Promise<number> {
+/** A tabela que JÁ é a vigente do mesmo fornecedor e família da tabela dada — para a recusa nomeá-la. */
+export async function tabelaVigenteDoPar(tabelaId: string): Promise<{ id: string; arquivo_nome: string; familia: string | null } | null> {
+    const ts = await q(db().from('orcamentista_tabela').select('id, fornecedor_id, familia').eq('id', tabelaId))
+    if (ts.length === 0) return null
+    const doFornecedor = await q(db().from('orcamentista_tabela').select('id, arquivo_nome, familia, vigente').eq('fornecedor_id', ts[0].fornecedor_id).eq('vigente', true))
+    const par = doFornecedor.find((t: Linha) => t.id !== tabelaId && (t.familia ?? null) === (ts[0].familia ?? null))
+    return par ? { id: par.id, arquivo_nome: par.arquivo_nome, familia: par.familia ?? null } : null
+}
+
+export async function atualizarTabela(id: string, campos: Record<string, string | boolean | null>): Promise<number> {
     const linhas = await q(db().from('orcamentista_tabela').update(campos).eq('id', id).select('id'))
     return linhas.length
 }
@@ -347,8 +310,11 @@ export async function excluirTabela(id: string): Promise<number> {
     return linhas.length
 }
 
+/** As contas que usam a tabela — as que vinculam o fornecedor dela. Tabela que não existe: ninguém. */
 export async function contasQueUsamATabela(id: string): Promise<string[]> {
-    return (await usoPorTabela([id]))[id] ?? []
+    const ts = await q(db().from('orcamentista_tabela').select('id, fornecedor_id').eq('id', id))
+    if (ts.length === 0) return []
+    return (await usoPorTabela([{ id, fornecedor_id: ts[0].fornecedor_id }]))[id] ?? []
 }
 
 // ── Storage — sempre o bucket do catálogo, sempre com `service_role` ───────────────────────

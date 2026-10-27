@@ -20,18 +20,21 @@
  * A regra continua valendo para o que protege — o conteúdo do negócio do cliente.
  * ══════════════════════════════════════════════════════════════════════════════════════════
  *
- * O bloco 2C.1 trouxe o grupo MODELO + NICHO; "Tabelas em uso" entrou depois, no componente
- * `TabelasEmUso`. A projeção de gasto ainda não está aqui.
+ * O bloco 2C.1 trouxe o grupo MODELO + NICHO. A projeção de gasto ainda não está aqui.
  *
  * OS TRÊS BLOCOS (dono do produto, 26/10/2026): depois da configuração, a tela tem as três camadas, nesta
- * ordem — BASE DE CONHECIMENTO (as tabelas em uso e o acesso à base), MOTOR (`MotorDaConta`: mostra o que está
- * carregado e edita só escolha estruturada) e PROMPT DE ATENDIMENTO (o próximo passo). O teste de anexo fica
- * à parte, como instrumento de diagnóstico do consultor.
+ * ordem — BASE DE CONHECIMENTO (o acesso à base, de onde vêm os fornecedores e, deles, as tabelas), MOTOR
+ * (`MotorDaConta`: mostra o que está carregado e edita só escolha estruturada) e PROMPT DE ATENDIMENTO (o
+ * próximo passo). O teste de anexo fica à parte, como instrumento de diagnóstico do consultor.
  *
- * TROCAR MODELO OU NICHO COM TABELA EM USO: a ROTA recusa (409) e nomeia as tabelas que seguram,
- * e esta tela mostra a recusa. É a escolha conservadora — nada é apagado por efeito colateral de
- * um seletor —; a decisão definitiva sobre o que a troca faz com as tabelas é do dono do produto,
- * PENDENTE (EPIC §3.6). Ver `gravarModeloENicho` em `pages/api/super-admin/orcamentista/[tenantId].ts`.
+ * "TABELAS EM USO" SAIU desta tela (dono do produto, 26/10/2026): as tabelas da conta são DERIVADAS dos
+ * fornecedores que a base de conhecimento vincula (`tabelas-da-conta.ts`), e não há segunda escolha a fazer.
+ * O bloco Motor as mostra.
+ *
+ * A TRAVA DO MODELO E DO NICHO CONTINUA, e mudou de fonte: enquanto a base de conhecimento vincular
+ * fornecedor com tabela, a ROTA recusa (409) a troca e nomeia as tabelas que seguram, e esta tela mostra a
+ * recusa — e diz a trava antes, em `AVISO_DA_TRAVA_DO_MODELO_E_NICHO`. É a escolha conservadora: nada é
+ * apagado por efeito colateral de um seletor. Ver `gravarModeloENicho` em `pages/api/super-admin/orcamentista/[tenantId].ts`.
  *
  * A gravação manda SÓ `modelo` e `nicho_id` (`CorpoDoModeloENicho`), pela rota da conta: o
  * liga/desliga é de Tenants, e a gravação do modelo e do nicho não leva `ativo` (`orcamentista-config.ts`).
@@ -51,6 +54,7 @@ import { PAGE_TITLES } from '@/constants/page-titles'
 import { ROUTES } from '@/constants/routes'
 import { useAuth } from '@/hooks/use-auth.hook'
 import {
+    AVISO_DA_TRAVA_DO_MODELO_E_NICHO,
     BASE_DO_CADASTRO,
     MODELOS,
     ROTAS_DO_CATALOGO,
@@ -66,7 +70,6 @@ import { rotaDaConfig, type CorpoDoModeloENicho } from '@/utils/orcamentista-con
 import { TesteDeAnexo } from '@/page-parts/atendimentos-ia/teste-de-anexo.component'
 import { chamarRota } from '@/page-parts/atendimentos-ia/api'
 import { NichoSelect } from '@/page-parts/atendimentos-ia/nicho-select.component'
-import { TabelasEmUso } from '@/page-parts/atendimentos-ia/tabelas-em-uso.component'
 import { MotorDaConta } from '@/page-parts/atendimentos-ia/motor-da-conta.component'
 import { rotaDaTelaDaBase } from '@/page-parts/atendimentos-ia/base-de-conhecimento/formulario'
 
@@ -86,8 +89,6 @@ export default function ConfiguracaoDaConta() {
     const [salvando, setSalvando] = useState(false)
     /** A recusa da rota fica NA TELA até a próxima tentativa — a frase do 409 diz o que segura. */
     const [erroAoSalvar, setErroAoSalvar] = useState<string | null>(null)
-    /** Sobe a cada modelo e nicho salvos: o grupo das tabelas relê com o nicho novo. */
-    const [versaoSalva, setVersaoSalva] = useState(0)
 
     const carregar = useCallback(async () => {
         if (!tenantId) return
@@ -126,7 +127,6 @@ export default function ConfiguracaoDaConta() {
             await chamarRota(rotaDaConfig(tenantId), 'PATCH', corpo)
             message.success('Configuração salva')
             await carregar()
-            setVersaoSalva((v) => v + 1)
         } catch (e) {
             setErroAoSalvar((e as Error).message)
         } finally {
@@ -189,6 +189,9 @@ export default function ConfiguracaoDaConta() {
                             placeholder={!modelo ? 'Escolha o modelo primeiro' : nichosDoModelo.length ? undefined : 'Nenhum nicho deste modelo — crie um em Fornecedores e tabelas'}
                         />
                     </div>
+                    <Typography.Paragraph type="secondary" style={{ fontSize: 12, margin: 0 }} data-aviso="trava-do-modelo-e-nicho">
+                        {AVISO_DA_TRAVA_DO_MODELO_E_NICHO}
+                    </Typography.Paragraph>
                     <Button type="primary" onClick={salvar} loading={salvando}>Salvar configuração</Button>
                     {erroAoSalvar && <Alert type="error" showIcon message="A configuração não foi salva." description={erroAoSalvar} />}
                 </Space>
@@ -204,21 +207,18 @@ export default function ConfiguracaoDaConta() {
                 {/* Só Fabricação usa fornecedor → tabela → motor (`MODELO_COM_FORNECEDOR`, decisão do
                     dono do produto de 19/10/2026). Revenda e Prestação de serviço montam o orçamento
                     a partir do cadastro do próprio cliente. Lê o modelo SALVO da conta, não o do
-                    formulário: a configuração vale depois de salva. Sem modelo, o grupo pede o
-                    modelo e o nicho. */}
-                {semFornecedor ? (
+                    formulário: a configuração vale depois de salva. */}
+                {semFornecedor && (
                     <div data-grupo="base-do-cadastro">
                         <Typography.Title level={5} style={{ marginTop: 0 }}>{TITULO_DA_BASE_DO_CADASTRO}</Typography.Title>
                         <Typography.Paragraph style={{ marginBottom: 0 }}>{BASE_DO_CADASTRO[conta.modelo as ModeloSemFornecedor]}</Typography.Paragraph>
                     </div>
-                ) : (
-                    <TabelasEmUso key={versaoSalva} tenantId={conta.tenant_id} />
                 )}
-                {/* a base vem depois das tabelas em uso: fornecedor e linha dela são escolhidos delas (23/10/2026) */}
-                <div style={{ marginTop: 16 }} data-grupo="acesso-a-base-de-conhecimento">
+                <div style={{ marginTop: semFornecedor ? 16 : 0 }} data-grupo="acesso-a-base-de-conhecimento">
                     <Typography.Title level={5} style={{ marginTop: 0 }}>Base de conhecimento</Typography.Title>
                     <Typography.Paragraph type="secondary" style={{ fontSize: 13 }}>
-                        Perfil, vidro, acessórios, produção, vendedores e adicionais desta conta.
+                        Perfil, vidro, acessórios, produção, vendedores e adicionais desta conta. As tabelas da conta são as
+                        dos fornecedores vinculados aqui.
                     </Typography.Paragraph>
                     <Button onClick={() => router.push(rotaDaTelaDaBase(conta.tenant_id))}>Base de conhecimento</Button>
                 </div>
@@ -234,7 +234,7 @@ export default function ConfiguracaoDaConta() {
                 ) : (
                     <>
                         <Typography.Title level={4} style={{ marginTop: 0 }}>2. Motor</Typography.Title>
-                        <MotorDaConta key={versaoSalva} tenantId={conta.tenant_id} />
+                        <MotorDaConta tenantId={conta.tenant_id} />
                     </>
                 )}
             </Card>

@@ -152,9 +152,10 @@ function montar() {
         orcamentista_levantamento: [],
         orcamentista_levantamento_item: [],
         orcamentista_pergunta_em_aberto: [],
-        orcamentista_conta_tabela: [{ tenant_id: TENANT, tabela_id: TABELA }],
+        // as tabelas da empresa são DERIVADAS (26/10/2026): a base de conhecimento vincula a Wolff no PERFIL
+        orcamentista_mp_categoria_fornecedor: [{ tenant_id: TENANT, mp_categoria_id: 'c-perfil', fornecedor_id: 'f-wolff' }],
         // a tabela e o fornecedor dela: com mais de uma tabela, a pergunta cita o fornecedor pelo nome (bloco 19)
-        orcamentista_tabela: [{ id: TABELA, fornecedor_id: 'f-wolff', arquivo_nome: 'Tabela Wolff.xlsx', familia: 'PVC' }],
+        orcamentista_tabela: [{ id: TABELA, fornecedor_id: 'f-wolff', arquivo_nome: 'Tabela Wolff.xlsx', familia: 'PVC', vigente: false }],
         orcamentista_fornecedor: [{ id: 'f-wolff', nome: 'Wolff Perfis' }],
         orcamentista_familia_catalogo: [{ chave: 'PVC', rotulo: 'PVC', ordem: 1 }, { chave: 'ALUMINIO', rotulo: 'Alumínio', ordem: 2 }],
         // as abas da DP-02 como a importação as grava: o levantamento e a conversa as leem do banco
@@ -163,7 +164,7 @@ function montar() {
             ...CANDIDATAS.filter((c) => c.tipologia !== 'DP-02').map((c) => ({ ...c })),
             ...abasDaDP02NoBanco(TABELA).orcamentista_motor_tipologia_detalhe,
         ],
-        orcamentista_mp_categoria: [{ tenant_id: TENANT, categoria_chave: 'PERFIL', config: { serra_mm: 5, cores: ['BRANCO'] } }],
+        orcamentista_mp_categoria: [{ id: 'c-perfil', tenant_id: TENANT, categoria_chave: 'PERFIL', config: { serra_mm: 5, cores: ['BRANCO'] } }],
         orcamentista_motor_regra: DE_PARA.regras.map((r, k) => ({ id: `r-${String(k).padStart(4, '0')}`, ...r, tabela_id: TABELA, tipologias: ['DP-02'] })),
         orcamentista_tabela_item: DE_PARA.itens.map((i) => ({ ...i, tabela_id: TABELA })),
         // o tempo da tabela própria (20261024000003); as colunas antigas, obsoletas, com OUTRO número
@@ -650,7 +651,7 @@ describe('(4) a lista: a tipologia e a cor só da lista, exatas', () => {
     })
 
     it('SEM LISTA DE CORES: quando a vez é da cor, a conversa diz o que falta em vez de perguntar', async () => {
-        estado.db.orcamentista_mp_categoria = [{ tenant_id: TENANT, categoria_chave: 'PERFIL', config: { serra_mm: 5 } }]
+        estado.db.orcamentista_mp_categoria = [{ id: 'c-perfil', tenant_id: TENANT, categoria_chave: 'PERFIL', config: { serra_mm: 5 } }]
         llmResponde({ nome: 'Casa do João', itens: [{ tipologia: 'DP-02', largura_mm: 1200, altura_mm: 1000, quantidade: 1 }] })
         await chamar('Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade')
         // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -1537,8 +1538,8 @@ describe('(18) o que chega ao VENDEDOR não traz código de fornecedor nem núme
 describe('(19) duas tabelas com o mesmo código: a conversa pergunta de qual fornecedor', () => {
     const SUL = 'tabela-perfis-sul'
     beforeEach(() => {
-        estado.db.orcamentista_conta_tabela.push({ tenant_id: TENANT, tabela_id: SUL })
-        estado.db.orcamentista_tabela.push({ id: SUL, fornecedor_id: 'f-sul', arquivo_nome: 'Sul 2026.xlsx', familia: 'ALUMINIO' })
+        estado.db.orcamentista_mp_categoria_fornecedor.push({ tenant_id: TENANT, mp_categoria_id: 'c-perfil', fornecedor_id: 'f-sul' })
+        estado.db.orcamentista_tabela.push({ id: SUL, fornecedor_id: 'f-sul', arquivo_nome: 'Sul 2026.xlsx', familia: 'ALUMINIO', vigente: false })
         estado.db.orcamentista_fornecedor.push({ id: 'f-sul', nome: 'Perfis Sul' })
         estado.db.orcamentista_motor_tipologia_detalhe.push({ tabela_id: SUL, tipologia: 'DP-02', descricao: 'JANELA DE CORRER 02 FOLHAS | LINHA SUL', tipo: 'Correr' })
     })
@@ -1604,6 +1605,8 @@ describe('(19) duas tabelas com o mesmo código: a conversa pergunta de qual for
         const sul = estado.db.orcamentista_tabela.find((t) => t.id === SUL)
         if (!sul) throw new Error('sem a tabela do sul')
         sul.fornecedor_id = 'f-wolff'
+        // a Perfis Sul fica sem tabela: o vínculo dela no PERFIL sai junto, senão é a recusa do perfil sem tabela
+        estado.db.orcamentista_mp_categoria_fornecedor = estado.db.orcamentista_mp_categoria_fornecedor.filter((v) => v.fornecedor_id !== 'f-sul')
         llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }] })
         await chamar('Levantamento Casa do Pedro: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm')
         expect(ultimoEnviado()).toBe('A DP-02 está em 2 tabelas da Wolff Perfis: de Alumínio ou de PVC. De qual família é?')
@@ -1617,6 +1620,8 @@ describe('(19) duas tabelas com o mesmo código: a conversa pergunta de qual for
         const sul = estado.db.orcamentista_tabela.find((t) => t.id === SUL)
         if (!sul) throw new Error('sem a tabela do sul')
         sul.fornecedor_id = 'f-wolff'
+        // a Perfis Sul fica sem tabela: o vínculo dela no PERFIL sai junto, senão é a recusa do perfil sem tabela
+        estado.db.orcamentista_mp_categoria_fornecedor = estado.db.orcamentista_mp_categoria_fornecedor.filter((v) => v.fornecedor_id !== 'f-sul')
         llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }] })
         await chamar('Levantamento Casa do Pedro: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm')
         llmResponde({ itens: [{ familia: 'PVC' }] })

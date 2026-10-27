@@ -103,8 +103,8 @@ describe('o vocabulário do Atendimentos I.A. — a palavra é MODELO', () => {
     it('o leitor alcança a área: páginas, componentes, rotas, utils, lib, testes e a documentação', () => {
         expect(DA_AREA).toEqual(expect.arrayContaining([
             'src/pages/super-admin/atendimentos-ia/contas/[tenantId].tsx',
-            'src/page-parts/atendimentos-ia/tabelas-em-uso.component.tsx',
-            'src/pages/api/super-admin/atendimentos-ia/contas/[tenantId]/tabelas/index.ts',
+            'src/lib/atendimentos-ia/tabelas-da-conta.ts',
+            'src/pages/api/super-admin/atendimentos-ia/tabelas/[id].ts',
             'src/pages/api/super-admin/orcamentista/[tenantId].ts',
             'src/utils/orcamentista-config.ts',
             'src/utils/atendimentos-ia-catalogo.ts',
