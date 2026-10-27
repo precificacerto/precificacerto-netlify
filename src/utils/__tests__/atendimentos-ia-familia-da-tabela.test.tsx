@@ -316,7 +316,7 @@ describe('(4) a TELA', () => {
 
     it('EDIÇÃO de tabela SEM categoria: diz "não informada", salvar sem escolher não manda categoria, e escolher uma manda', async () => {
         const salvos: Array<{ categoria: string | null }> = []
-        const props = { aberto: true, titulo: 'Editar tabela', familias: FAMILIAS, categorias: CATEGORIAS, atual: { arquivo_nome: 't.xlsx', motor_nome: 'm.xlsx', vigencia: null, familia: 'PVC', categoria_chave: null }, onCancelar: () => {}, onSalvar: (t: { categoria: string | null }) => { salvos.push(t) } }
+        const props = { aberto: true, titulo: 'Editar tabela', familias: FAMILIAS, categorias: CATEGORIAS, atual: { arquivo_nome: 't.xlsx', motor_nome: 'm.xlsx', vigencia: null as string | null, familia: 'PVC', categoria_chave: null as string | null }, onCancelar: () => {}, onSalvar: (t: { categoria: string | null }) => { salvos.push(t) } }
         await montar(React.createElement(Modal(), props))
         expect(modal()!.textContent).toContain('Categoria não informada')
         expect(botao(modal()!, 'Salvar tabela')!.disabled).toBe(false)

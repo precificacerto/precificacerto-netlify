@@ -28,7 +28,7 @@ jest.mock('@/supabase/admin', () => ({
         },
     },
 }))
-jest.mock('@/lib/atendimentos-ia/tabelas-da-conta', () => ({ contasQueVinculam: jest.fn(async () => new Map()), derivarTabelasDaConta: jest.fn(async () => ({ tabelas: [] })) }))
+jest.mock('@/lib/atendimentos-ia/tabelas-da-conta', () => ({ contasQueVinculam: jest.fn(async () => new Map()), derivarTabelasDaConta: jest.fn(async () => ({ tabelas: [] as unknown[] })) }))
 
 import { COLUNA_DA_CATEGORIA_DO_FORNECEDOR } from '@/utils/atendimentos-ia-importacao-celula'
 import { categoriasDoFornecedorDosItensGravados, listarCategorias, obterArquivosDaTabela, obterDadosDaTabela, obterFornecedor, obterTabela } from '@/lib/atendimentos-ia/repositorio'
