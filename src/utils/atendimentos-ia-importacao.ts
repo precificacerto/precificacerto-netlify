@@ -465,14 +465,29 @@ function aba(wb: ExcelJS.Workbook, nomeDoArquivo: string, nome: string): ExcelJS
 }
 
 /** Lê os dois arquivos e devolve as linhas prontas para gravar, as contagens e os avisos. */
-export async function lerArquivosDaImportacao(arquivos: { tabela: ArquivoDaImportacao; motor: ArquivoDaImportacao }): Promise<ResultadoDaLeitura> {
+export async function lerArquivosDaImportacao(arquivos: { tabela: ArquivoDaImportacao; motor: ArquivoDaImportacao | null }): Promise<ResultadoDaLeitura> {
     const wbTabela = await abrir(arquivos.tabela)
     if (typeof wbTabela === 'string') return { ok: false, erro: wbTabela }
-    const wbMotor = await abrir(arquivos.motor)
-    if (typeof wbMotor === 'string') return { ok: false, erro: wbMotor }
-
     const wsPreco = aba(wbTabela, arquivos.tabela.nome, ABAS_DA_IMPORTACAO.preco)
     if (typeof wsPreco === 'string') return { ok: false, erro: wsPreco }
+
+    // SEM ARQUIVO DE MOTOR (27/10/2026): a tabela de preço puro — Reforço, Acessórios… — só traz o preço. As listas do motor vão VAZIAS (o
+    // payload da função as exige todas) e o cruzamento não existe: não há motor para cruzar. Quem tem motor lê como sempre, abaixo.
+    if (arquivos.motor === null) {
+        const soPreco = lerPreco(wsPreco)
+        return {
+            ok: true,
+            itens: soPreco.itens,
+            regras: [],
+            tipologias: [],
+            formulas: [],
+            abas: Object.fromEntries(ABAS_DO_MOTOR.map((a): [string, LinhaDoBanco[]] => [a.payload, []])),
+            contagens: { itens: soPreco.itens.length, regras: 0, tipologias: 0, cruzam: 0, nao_cruzam: 0, normalizados: soPreco.normalizados },
+            avisos: soPreco.avisos,
+        }
+    }
+    const wbMotor = await abrir(arquivos.motor)
+    if (typeof wbMotor === 'string') return { ok: false, erro: wbMotor }
     const wsMotor = aba(wbMotor, arquivos.motor.nome, ABAS_DA_IMPORTACAO.motor)
     if (typeof wsMotor === 'string') return { ok: false, erro: wsMotor }
     const wsFormulasDaLinha = aba(wbMotor, arquivos.motor.nome, ABAS_DA_IMPORTACAO.formulasDaLinha)

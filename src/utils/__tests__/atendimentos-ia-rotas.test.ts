@@ -13,7 +13,7 @@
  */
 /* eslint-disable @typescript-eslint/no-explicit-any -- os clientes falsos imitam clientes sem tipo (o admin não tem os tipos destas tabelas) */
 import type { NextApiRequest, NextApiResponse } from 'next'
-import { MENSAGEM_MOTOR_OBRIGATORIO } from '@/utils/atendimentos-ia-catalogo'
+import { MENSAGEM_MOTOR_INCOMPLETO, MENSAGEM_MOTOR_NAO_SAI, MENSAGEM_MOTOR_OBRIGATORIO } from '@/utils/atendimentos-ia-catalogo'
 
 interface Perfil { id: string; tenant_id: string | null; role: string; is_super_admin: boolean }
 interface Resposta<T> { data: T; error: { message: string } | null }
@@ -57,7 +57,7 @@ jest.mock('@/lib/atendimentos-ia/repositorio', () => {
         obterTabela: fn('obterTabela', () => ({ id: T, fornecedor_id: F, arquivo_path: `${F}/arquivo/x-t.xlsx`, motor_path: `${F}/motor/x-m.xlsx` })),
         criarTabela: fn('criarTabela', () => ({ id: T })),
         listarFamilias: fn('listarFamilias', () => [{ chave: 'PVC', rotulo: 'PVC', ordem: 1 }]),
-        listarCategorias: fn('listarCategorias', () => [{ chave: 'PERFIL', rotulo: 'Perfil', ordem: 1 }]),
+        listarCategorias: fn('listarCategorias', () => [{ chave: 'PERFIL', rotulo: 'Perfil', ordem: 1 }, { chave: 'REFORCO', rotulo: 'Reforço', ordem: 2 }, { chave: 'ACESSORIOS_VEDACAO', rotulo: 'Acessórios', ordem: 3 }]),
         atualizarTabela: fn('atualizarTabela', () => 1),
         excluirTabela: fn('excluirTabela', () => 1),
         contasQueUsamATabela: fn('contasQueUsamATabela', () => []),
@@ -149,16 +149,41 @@ describe('PORTÃO — um usuário NÃO super admin é recusado em cada rota nova
     })
 })
 
-describe('PORTÃO — tabela sem motor é recusada pela ROTA, não só pela tela', () => {
+describe('PORTÃO — o arquivo do motor é exigido só na tabela de Perfil, e pela ROTA, não só pela tela', () => {
     it.each([
-        ['sem motor_path', { ...CORPO_DA_TABELA, motor_path: undefined }],
-        ['sem motor_nome', { ...CORPO_DA_TABELA, motor_nome: undefined }],
+        ['sem motor_path nem motor_nome', { ...CORPO_DA_TABELA, motor_path: undefined, motor_nome: undefined }],
         ['motor em branco', { ...CORPO_DA_TABELA, motor_path: '   ', motor_nome: '   ' }],
-    ])('%s → 400 com a frase do motor, e nada é gravado', async (_c, corpo) => {
+    ])('Perfil, %s → 400 com a frase do motor, e nada é gravado', async (_c, corpo) => {
         const r = await chamar('tabelas', 'POST', {}, corpo)
         expect(r.status).toBe(400)
         expect(r.json.error).toBe(MENSAGEM_MOTOR_OBRIGATORIO)
         expect(repo.criarTabela).not.toHaveBeenCalled()
+    })
+
+    it.each([
+        ['sem motor_path', { ...CORPO_DA_TABELA, motor_path: undefined }],
+        ['sem motor_nome', { ...CORPO_DA_TABELA, motor_nome: undefined }],
+    ])('motor pela metade (%s) → 400 com a frase da metade, em qualquer categoria', async (_c, corpo) => {
+        for (const categoria_chave of ['PERFIL', 'REFORCO']) {
+            const r = await chamar('tabelas', 'POST', {}, { ...corpo, categoria_chave })
+            expect(r.status).toBe(400)
+            expect(r.json.error).toBe(MENSAGEM_MOTOR_INCOMPLETO)
+        }
+        expect(repo.criarTabela).not.toHaveBeenCalled()
+    })
+
+    it.each(['REFORCO', 'ACESSORIOS_VEDACAO'])('%s, sem motor → 201: preço puro, grava com motor nulo e sem baixar nada do bucket do motor', async (categoria_chave) => {
+        const r = await chamar('tabelas', 'POST', {}, { ...CORPO_DA_TABELA, categoria_chave, motor_path: undefined, motor_nome: undefined })
+        expect(r.status).toBe(201)
+        expect(repo.criarTabela).toHaveBeenCalledWith(expect.objectContaining({ categoria_chave, motor_path: null, motor_nome: null }))
+        expect(repo.objetoExiste).not.toHaveBeenCalledWith(CORPO_DA_TABELA.motor_path)
+    })
+
+    it('a trava do banco (23514) sobe como 400 com a frase, e não como 500', async () => {
+        repo.criarTabela.mockImplementationOnce(async () => { throw new ErroDoBanco({ code: '23514', message: 'new row violates check constraint "orcamentista_tabela_perfil_exige_motor"' }) })
+        const r = await chamar('tabelas', 'POST', {}, CORPO_DA_TABELA)
+        expect(r.status).toBe(400)
+        expect(r.json.error).toBe(MENSAGEM_MOTOR_OBRIGATORIO)
     })
 
     it('com o motor, grava — e grava o motor', async () => {
@@ -179,7 +204,7 @@ describe('PORTÃO — tabela sem motor é recusada pela ROTA, não só pela tela
     it('na EDIÇÃO, apagar o motor é recusado', async () => {
         const r = await chamar('tabela', 'PATCH', { id: T }, { motor_path: '', motor_nome: '' })
         expect(r.status).toBe(400)
-        expect(r.json.error).toBe(MENSAGEM_MOTOR_OBRIGATORIO)
+        expect(r.json.error).toBe(MENSAGEM_MOTOR_NAO_SAI)
         expect(repo.atualizarTabela).not.toHaveBeenCalled()
     })
 

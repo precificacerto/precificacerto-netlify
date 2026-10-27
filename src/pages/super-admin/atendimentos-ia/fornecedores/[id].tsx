@@ -224,7 +224,7 @@ export default function TabelasDoFornecedor() {
                             locale={{ emptyText: <Empty description="Nenhuma tabela. Use “Nova tabela”." /> }}
                             columns={[
                                 { title: 'Arquivo', dataIndex: 'arquivo_nome' },
-                                { title: 'Motor', dataIndex: 'motor_nome' },
+                                { title: 'Motor', render: (_, t) => t.motor_nome ?? <Typography.Text type="secondary" data-sem-motor>sem motor (preço puro)</Typography.Text> },
                                 {
                                     title: 'Família',
                                     render: (_, t) => (t.familia

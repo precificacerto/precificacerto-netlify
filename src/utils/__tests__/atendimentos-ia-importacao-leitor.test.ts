@@ -42,6 +42,7 @@ import {
 } from '@/utils/atendimentos-ia-importacao'
 import { EXTENSOES_IMPORTAVEIS, MOTIVO_DA_EXTENSAO_NAO_IMPORTAVEL, fraseDoArquivoNaoImportavel } from '@/utils/atendimentos-ia-catalogo'
 import { abasDoSpec } from './fixtures/abas-do-motor-do-spec'
+import { ABAS_DO_MOTOR } from '@/utils/atendimentos-ia-abas-do-motor'
 
 type Celulas = Record<number, ExcelJS.CellValue>
 
@@ -474,5 +475,52 @@ describe('(10) aba que falta', () => {
         expect(erro).toContain(PRECO)
         expect(erro).toContain('Planilha1')
         expect(erro).toContain('Tabela.xlsm')
+    })
+})
+
+describe('(11) SEM arquivo de motor — a tabela de preço puro (Reforço, Acessórios…), 27/10/2026', () => {
+    const preco = [{ 1: 'LAMINADOS' }, cabecalho('VALOR METRO 18%', 'VALOR BARRA 18%'), item('R1', 10), item('R2', 11)]
+    async function lerSemMotor() {
+        const r = await lerArquivosDaImportacao({ tabela: { nome: 'Reforço.xlsx', bytes: await bytes({ [PRECO]: preco }) }, motor: null })
+        if (!r.ok) throw new Error(`recusada: ${erroDe(r)}`)
+        return r as Extract<ResultadoDaLeitura, { ok: true }>
+    }
+
+    it('os itens saem como sempre, com o valor numérico; regras, tipologias e fórmulas vão VAZIAS', async () => {
+        const r = await lerSemMotor()
+        expect(r.itens.map((i) => [i.codigo, i.valor_metro_interno])).toEqual([['R1', 10], ['R2', 11]])
+        expect(r.regras).toEqual([])
+        expect(r.tipologias).toEqual([])
+        expect(r.formulas).toEqual([])
+    })
+
+    it('as nove abas do motor saem VAZIAS, cada uma sob a chave do payload — a função as exige todas', async () => {
+        const r = await lerSemMotor()
+        expect(Object.keys(r.abas).sort()).toEqual(ABAS_DO_MOTOR.map((a) => a.payload).sort())
+        for (const linhas of Object.values(r.abas)) expect(linhas).toEqual([])
+    })
+
+    it('as contagens: itens contados, e o cruzamento é ZERO porque não há motor para cruzar', async () => {
+        const r = await lerSemMotor()
+        expect(r.contagens).toEqual({ itens: 2, regras: 0, tipologias: 0, cruzam: 0, nao_cruzam: 0, normalizados: 0 })
+    })
+
+    it('o código repetido ainda é normalizado e avisado, sem motor também', async () => {
+        const r = await lerArquivosDaImportacao({ tabela: { nome: 'Reforço.xlsx', bytes: await bytes({ [PRECO]: [{ 1: 'LAMINADOS' }, cabecalho('VALOR METRO 18%', 'VALOR BARRA 18%'), item('R1', 10), item('R1', 10)] }) }, motor: null }) as Extract<ResultadoDaLeitura, { ok: true }>
+        expect(r.itens).toHaveLength(1)
+        expect(r.contagens.normalizados).toBe(1)
+        expect(avisosDo(r, 'codigo_repetido').length).toBeGreaterThan(0)
+    })
+
+    it('a aba de preço faltando continua recusa com o nome dela — sem motor não é sem tabela', async () => {
+        const r = await lerArquivosDaImportacao({ tabela: { nome: 'Reforço.xlsx', bytes: await bytes({ Outra: [{ 1: 'x' }] }) }, motor: null })
+        expect(r.ok).toBe(false)
+        expect(erroDe(r)).toContain(PRECO)
+    })
+
+    it('o contraste: com o arquivo do motor, as listas do motor NÃO vêm vazias (o ramo novo não engoliu o antigo)', async () => {
+        const r = await ler(preco, await motorPadrao())
+        expect(r.regras.length).toBeGreaterThan(0)
+        expect(r.tipologias.length).toBeGreaterThan(0)
     })
 })

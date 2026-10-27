@@ -23,7 +23,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import {
     ACOES_DA_ETAPA, ABAS_DA_ETAPA, LIMITE_DA_INSTRUCAO_DA_ETAPA, LIMITE_DO_ROTULO_DA_ETAPA, MAXIMO_DE_ETAPAS_DA_FAMILIA,
-    abasEmOrdem, corpoDoRascunho, etapasMudaram, lerCorpoDasEtapas, moverEtapa, novaEtapaNoRascunho, rascunhoDasEtapas, rotaDasEtapas,
+    abasEmOrdem, corpoDoRascunho, etapasMudaram, lerCorpoDasEtapas, inserirEtapaAbaixo, moverEtapa, novaEtapaNoRascunho, rascunhoDasEtapas, rotaDasEtapas,
     type EtapaDaFamilia,
 } from '@/utils/atendimentos-ia-etapas'
 
@@ -32,6 +32,8 @@ const SUPER: Linha = { id: 'u-super', tenant_id: null, role: 'super_admin', is_s
 const ADMIN: Linha = { id: 'u-admin', tenant_id: 't-1', role: 'admin', is_super_admin: false }
 const E1 = '00000000-0000-4000-8000-0000000000e1'
 const E2 = '00000000-0000-4000-8000-0000000000e2'
+const M1 = '00000000-0000-4000-8000-0000000000a1'
+const M2 = '00000000-0000-4000-8000-0000000000a2'
 
 const estado = {
     usuario: SUPER as Linha | null,
@@ -49,9 +51,16 @@ function montar() {
     estado.db = {
         users: [SUPER, ADMIN],
         orcamentista_familia_catalogo: [{ chave: 'PVC', rotulo: 'PVC', ordem: 1 }, { chave: 'ALUMINIO', rotulo: 'Alumínio', ordem: 2 }],
+        orcamentista_fornecedor: [{ id: 'f-wolff', nome: 'Wolff' }],
+        orcamentista_motor: [
+            { id: M1, familia: 'PVC', fornecedor_id: 'f-wolff', arquivo_nome: 'Wolff.xlsx', vigente: true, arquivado_em: null, criado_em: '2026-10-27T10:00:00Z' },
+            { id: M2, familia: 'PVC', fornecedor_id: null, arquivo_nome: 'Da família.xlsx', vigente: false, arquivado_em: null, criado_em: '2026-10-27T11:00:00Z' },
+            { id: 'm-arq', familia: 'PVC', fornecedor_id: 'f-wolff', arquivo_nome: 'Velha.xlsx', vigente: false, arquivado_em: '2026-10-01T00:00:00Z', criado_em: '2026-09-01T00:00:00Z' },
+            { id: 'm-alu', familia: 'ALUMINIO', fornecedor_id: null, arquivo_nome: 'Alumínio.xlsx', vigente: false, arquivado_em: null, criado_em: '2026-10-27T12:00:00Z' },
+        ],
         orcamentista_familia_etapa: [
-            { id: E2, familia: 'PVC', numero: 2, rotulo: 'Confirmar', acao: 'CONFIRMAR', instrucao: 'confirme com o vendedor', abas: [] },
-            { id: E1, familia: 'PVC', numero: 1, rotulo: 'Apanhar o pedido', acao: 'APANHAR', instrucao: '', abas: ['variaveis', 'tipologias'] },
+            { id: E2, familia: 'PVC', numero: 2, rotulo: 'Confirmar', acao: 'CONFIRMAR', instrucao: 'confirme com o vendedor', abas: [], motor_id: M2 },
+            { id: E1, familia: 'PVC', numero: 1, rotulo: 'Apanhar o pedido', acao: 'APANHAR', instrucao: '', abas: ['variaveis', 'tipologias'], motor_id: M1 },
             { id: 'outra', familia: 'ALUMINIO', numero: 1, rotulo: 'Da outra família', acao: 'APANHAR', instrucao: '', abas: [] },
         ],
     }
@@ -70,6 +79,8 @@ jest.mock('@/supabase/admin', () => ({
             const q: any = {}
             q.select = () => q
             q.eq = (c: string, v: unknown) => { filtros.push((l) => l[c] === v); return q }
+            q.is = (c: string, v: unknown) => { filtros.push((l) => (l[c] ?? null) === v); return q }
+            q.in = (c: string, vs: unknown[]) => { filtros.push((l) => vs.includes(l[c])); return q }
             q.order = (c: string, o?: { ascending?: boolean }) => { ordem.push([c, o?.ascending !== false]); return q }
             const linhas = () => {
                 let ls = (estado.db[tabela] ?? []).filter((l) => filtros.every((f) => f(l)))
@@ -169,8 +180,16 @@ describe('(1) a regra do corpo', () => {
     })
 
     it('o NÚMERO não vai no corpo (é a posição), nem outro campo desconhecido', () => {
-        expect(ler(etapa({ numero: 3 }))).toEqual({ ok: false, erro: 'Etapa 1: o campo "numero" não existe (só id, rotulo, acao, instrucao e abas). O número é a posição na lista.' })
+        expect(ler(etapa({ numero: 3 }))).toEqual({ ok: false, erro: 'Etapa 1: o campo "numero" não existe (só id, rotulo, acao, instrucao, abas e motor_id). O número é a posição na lista.' })
         expect(ler(etapa({ por: 'x' })).ok).toBe(false)
+    })
+
+    it('o motor_id: uuid aponta, null limpa, ausente não mexe; o que não é uuid recusa nomeando a etapa', () => {
+        expect(ler(etapa({ motor_id: M1 }))).toEqual({ ok: true, etapas: [{ rotulo: 'Apanhar', acao: 'APANHAR', instrucao: '', abas: [], motor_id: M1 }] })
+        expect(ler(etapa({ motor_id: null }))).toEqual({ ok: true, etapas: [{ rotulo: 'Apanhar', acao: 'APANHAR', instrucao: '', abas: [], motor_id: null }] })
+        expect(ler(etapa())).toEqual({ ok: true, etapas: [{ rotulo: 'Apanhar', acao: 'APANHAR', instrucao: '', abas: [] }] })
+        expect(ler(etapa(), etapa({ motor_id: 'x' }))).toEqual({ ok: false, erro: 'Etapa 2: o motor_id não é um uuid (ou null, para limpar).' })
+        expect(ler(etapa({ motor_id: 5 })).ok).toBe(false)
     })
 
     it('o id: uuid, sem repetir na lista', () => {
@@ -192,8 +211,8 @@ describe('(1) a regra do corpo', () => {
 
 describe('(2) o rascunho da tela', () => {
     const gravadas: EtapaDaFamilia[] = [
-        { id: E1, numero: 1, rotulo: 'Apanhar', acao: 'APANHAR', instrucao: 'a', abas: ['tipologias', 'variaveis'] },
-        { id: E2, numero: 2, rotulo: 'Confirmar', acao: 'CONFIRMAR', instrucao: '', abas: [] },
+        { id: E1, numero: 1, rotulo: 'Apanhar', acao: 'APANHAR', instrucao: 'a', abas: ['tipologias', 'variaveis'], motor_id: null },
+        { id: E2, numero: 2, rotulo: 'Confirmar', acao: 'CONFIRMAR', instrucao: '', abas: [], motor_id: null },
     ]
 
     it('o rascunho sem mexer não mudou; qualquer campo mexido muda', () => {
@@ -243,6 +262,37 @@ describe('(2) o rascunho da tela', () => {
         expect(abasEmOrdem(['nada'])).toEqual([])
     })
 
+    it('o motor: trocar ou limpar muda; sem tocar, não; o corpo só leva motor_id quando MUDOU (salvar o rótulo não mexe no motor)', () => {
+        const r = rascunhoDasEtapas(gravadas)
+        expect(etapasMudaram([{ ...r[0], motor_id: M1 }, r[1]], gravadas)).toBe(true)
+        const comMotor: EtapaDaFamilia[] = [{ ...gravadas[0], motor_id: M1 }, gravadas[1]]
+        const rm = rascunhoDasEtapas(comMotor)
+        expect(etapasMudaram(rm, comMotor)).toBe(false)
+        expect(etapasMudaram([{ ...rm[0], motor_id: null }, rm[1]], comMotor)).toBe(true)
+        expect(etapasMudaram([{ ...rm[0], motor_id: M2 }, rm[1]], comMotor)).toBe(true)
+        expect(corpoDoRascunho(rm).etapas.map((e) => 'motor_id' in e)).toEqual([false, false])
+        expect(corpoDoRascunho([{ ...rm[0], rotulo: 'Outro' }, rm[1]]).etapas.map((e) => 'motor_id' in e)).toEqual([false, false])
+        expect(corpoDoRascunho([{ ...rm[0], motor_id: M2 }, { ...rm[1], motor_id: M1 }]).etapas.map((e) => (e as Linha).motor_id)).toEqual([M2, M1])
+        expect((corpoDoRascunho([{ ...rm[0], motor_id: null }, rm[1]]).etapas[0] as Linha).motor_id).toBeNull()
+    })
+
+    it('uma etapa NOVA com motor leva o motor no corpo; sem motor, não leva campo nenhum', () => {
+        const nova = { ...novaEtapaNoRascunho(), rotulo: 'x', acao: 'ENVIAR' as const }
+        expect('motor_id' in corpoDoRascunho([nova]).etapas[0]).toBe(false)
+        expect((corpoDoRascunho([{ ...nova, motor_id: M1 }]).etapas[0] as Linha).motor_id).toBe(M1)
+    })
+
+    it('inserir etapa abaixo: a nova entra logo depois da posição, as de baixo descem, e a lista de cima não muda', () => {
+        const r = rascunhoDasEtapas(gravadas)
+        const com = inserirEtapaAbaixo(r, 0)
+        expect(com.map((e) => e.id)).toEqual([E1, null, E2])
+        expect(com[1]).toEqual(expect.objectContaining({ rotulo: '', acao: null, motor_id: null, motor_gravado: null }))
+        expect(inserirEtapaAbaixo(r, 1).map((e) => e.id)).toEqual([E1, E2, null])
+        expect(inserirEtapaAbaixo(r, 9).map((e) => e.id)).toEqual([E1, E2, null])
+        expect(inserirEtapaAbaixo([], 0)).toHaveLength(1)
+        expect(r).toHaveLength(2)
+    })
+
     it('a rota da família escapa o que não é seguro na URL', () => {
         expect(rotaDasEtapas('PVC')).toBe('/api/super-admin/atendimentos-ia/familias/PVC/etapas')
         expect(rotaDasEtapas('A/B')).toBe('/api/super-admin/atendimentos-ia/familias/A%2FB/etapas')
@@ -268,7 +318,26 @@ describe('(3) a rota: só o super admin, e só a função grava', () => {
         expect(r.status).toBe(200)
         expect(r.corpo.familia).toBe('PVC')
         expect(r.corpo.etapas.map((e: Linha) => [e.numero, e.rotulo])).toEqual([[1, 'Apanhar o pedido'], [2, 'Confirmar']])
-        expect(r.corpo.etapas[0]).toEqual({ id: E1, numero: 1, rotulo: 'Apanhar o pedido', acao: 'APANHAR', instrucao: '', abas: ['variaveis', 'tipologias'] })
+        expect(r.corpo.etapas[0]).toEqual({ id: E1, numero: 1, rotulo: 'Apanhar o pedido', acao: 'APANHAR', instrucao: '', abas: ['variaveis', 'tipologias'], motor_id: M1 })
+    })
+
+    it('GET: cada etapa diz o motor que aponta (null quando a linha não tem), e os motores são os da MESMA família, não arquivados, com o nome do fornecedor — ou sem ele', async () => {
+        estado.db.orcamentista_familia_etapa[0].motor_id = undefined
+        const r = await chamar('GET', 'PVC')
+        expect(r.corpo.etapas.map((e: Linha) => e.motor_id)).toEqual([M1, null])
+        expect(r.corpo.motores).toEqual([
+            { id: M1, arquivo_nome: 'Wolff.xlsx', fornecedor: 'Wolff', vigente: true },
+            { id: M2, arquivo_nome: 'Da família.xlsx', fornecedor: null, vigente: false },
+        ])
+    })
+
+    it('PUT: o motor_id do item vai à função como veio — uuid aponta, null limpa — e o item sem motor_id não o leva', async () => {
+        const r = await chamar('PUT', 'PVC', { etapas: [{ id: E1, rotulo: 'Apanhar o pedido', acao: 'APANHAR', motor_id: M2 }, { id: E2, rotulo: 'Confirmar', acao: 'CONFIRMAR', motor_id: null }, { rotulo: 'Nova', acao: 'ENVIAR' }] })
+        expect(r.status).toBe(200)
+        const itens = estado.rpcs[0].args.p_etapas as Linha[]
+        expect(itens[0].motor_id).toBe(M2)
+        expect('motor_id' in itens[1] && itens[1].motor_id === null).toBe(true)
+        expect('motor_id' in itens[2]).toBe(false)
     })
 
     it('GET: família sem etapas é a lista vazia (ainda não cadastrada), e família que não existe é 404', async () => {

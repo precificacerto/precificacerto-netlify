@@ -147,7 +147,8 @@ export async function lerTabelaDaEmpresa(tenantId: string): Promise<TabelaDaEmpr
     if (perfilSemTabela) return { ok: false, motivo: 'PERFIL_SEM_TABELA', frase: fraseDoPerfilSemTabela(perfilSemTabela.fornecedor), detalhe: '' }
     if (derivacao.tabelas.length === 0) return { ok: false, motivo: 'SEM_TABELA', frase: FRASE_SEM_TABELA, detalhe: '' }
     // o par sem vigente só recusa quando alguma tabela dele tem motor: tabela de preço não entra na conversa
-    const semVigente = derivacao.paresSemVigente.find((p) => derivacao.tabelas.some((t) => t.fornecedor === p.fornecedor && t.familia === p.familia && t.comMotor))
+    // (a chave do grupo ganhou a categoria em 27/10/2026: o grupo sem vigente é o mesmo fornecedor, família E categoria)
+    const semVigente = derivacao.paresSemVigente.find((p) => derivacao.tabelas.some((t) => t.fornecedor === p.fornecedor && t.familia === p.familia && t.categoria === p.categoria && t.comMotor))
     if (semVigente) return { ok: false, motivo: 'SEM_VIGENTE', frase: fraseSemVigente(semVigente.fornecedor, semVigente.familia, semVigente.arquivos.length), detalhe: '' }
     const tabelas: TabelaLigada[] = derivacao.tabelas
         .filter((t) => t.vale && t.comMotor)
@@ -158,7 +159,9 @@ export async function lerTabelaDaEmpresa(tenantId: string): Promise<TabelaDaEmpr
         return { ok: false, motivo: 'SEM_MOTOR', frase: fraseSemMotor(dePreco), detalhe: `tabelas=${derivacao.tabelas.length}` }
     }
     // FORNECEDOR + FAMÍLIA iguais (o nome sem caixa e sem acento; a família sem informar também conta como uma):
-    // nada distingue as duas para o vendedor. O mesmo fornecedor com famílias diferentes é legítimo
+    // nada distingue as duas para o vendedor. O mesmo fornecedor com famílias diferentes é legítimo.
+    // A categoria NÃO entra aqui, de propósito (27/10/2026): a tabela de antes (sem categoria) e a nova de Perfil, ambas com motor, valem
+    // cada uma no seu grupo, e deixá-las entrar juntas duplicaria as tipologias. Até o PR D trocar os leitores, é recusa nomeada.
     for (const t of tabelas) {
         const mesmas = tabelas.filter((o) => normalizarNome(o.fornecedor) === normalizarNome(t.fornecedor) && o.familia === t.familia)
         if (mesmas.length > 1) return { ok: false, motivo: 'TABELA_REPETIDA', frase: fraseDeTabelaRepetida(t.fornecedor, t.familia, mesmas.length), detalhe: `tabelas=${tabelas.length}` }

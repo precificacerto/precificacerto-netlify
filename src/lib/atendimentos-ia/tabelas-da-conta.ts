@@ -10,11 +10,13 @@
  * policies — apagar é decisão do dono do produto. A proteção que o RESTRICT dela dava (não excluir tabela
  * em uso) mudou de lugar: a rota da tabela confere o uso DERIVADO (`contasQueVinculam`) antes de apagar.
  *
- * ══ QUAL TABELA VALE — por (fornecedor, família) ══
- *   - UMA tabela no par: ela vale, marcada ou não — não há o que escolher;
- *   - MAIS de uma: vale a VIGENTE (`orcamentista_tabela.vigente`, no máximo uma por par, pelo índice único
- *     da migração 20261026000005). Nenhuma marcada: nenhuma vale, e o par vai para `paresSemVigente` — quem
- *     usa a derivação recusa nomeando. O sistema não escolhe "a mais recente".
+ * ══ QUAL TABELA VALE — por (fornecedor, família, CATEGORIA) ══
+ * A chave ganhou a categoria em 27/10/2026 (migração 20261027000006): Perfil, Reforço e Acessórios da Wolff são três tabelas e
+ * podem ser vigentes ao mesmo tempo, uma por categoria. A tabela SEM categoria (as de antes) é um grupo à parte, como sempre foi.
+ *   - UMA tabela no grupo: ela vale, marcada ou não — não há o que escolher;
+ *   - MAIS de uma: vale a VIGENTE (`orcamentista_tabela.vigente`, no máximo uma por grupo, pelo índice único
+ *     `orcamentista_tabela_uma_vigente` sobre (fornecedor, família, categoria)). Nenhuma marcada: nenhuma vale, e o grupo vai para
+ *     `paresSemVigente` — quem usa a derivação recusa nomeando. O sistema não escolhe "a mais recente".
  * `vigente` só decide o que um levantamento NOVO usa: o antigo aponta a tabela dele em
  * `orcamentista_levantamento_item.tabela_id`. A `vigencia` é só texto, e não é lida aqui.
  *
@@ -47,6 +49,10 @@ export type TabelaDaConta = {
     fornecedor: string
     /** O RÓTULO da família, do catálogo; null quando a tabela não a informa. */
     familia: string | null
+    /** A CHAVE da família (a que `orcamentista_materia_prima.familia` e `orcamentista_motor.familia` guardam); null quando não informada. */
+    familiaChave: string | null
+    /** A chave da categoria da tabela (20261027000005); null = a tabela de antes, sem categoria. */
+    categoria: string | null
     arquivo_nome: string
     vigente: boolean
     /** As categorias da base de conhecimento pelas quais a conta vincula o fornecedor, em ordem. */
@@ -54,11 +60,11 @@ export type TabelaDaConta = {
     /** As linhas de `orcamentista_motor_tipologia_detalhe` da tabela. */
     tipologias: number
     comMotor: boolean
-    /** É a tabela que um levantamento NOVO usa no par (fornecedor, família). */
+    /** É a tabela que um levantamento NOVO usa no grupo (fornecedor, família, categoria). */
     vale: boolean
 }
 export type FornecedorSemTabela = { fornecedorId: string; fornecedor: string; categorias: string[] }
-export type ParSemVigente = { fornecedor: string; familia: string | null; arquivos: string[] }
+export type ParSemVigente = { fornecedor: string; familia: string | null; categoria: string | null; arquivos: string[] }
 export type DerivacaoDaConta = { tabelas: TabelaDaConta[]; fornecedoresSemTabela: FornecedorSemTabela[]; paresSemVigente: ParSemVigente[] }
 
 /** O fornecedor que o banco não devolveu (a FK impede; o texto não fica vazio se acontecer). */
@@ -95,12 +101,12 @@ export async function derivarTabelasDaConta(tenantId: string): Promise<Derivacao
     const fornecedores = await ler('orcamentista_fornecedor', db().from('orcamentista_fornecedor').select('id, nome').in('id', fIds))
     const nomeDo = new Map(fornecedores.map((f) => [String(f.id), (f.nome as string | null)?.trim() || FORNECEDOR_SEM_NOME]))
     const nome = (id: string) => nomeDo.get(id) ?? FORNECEDOR_SEM_NOME
-    const linhas = await ler('orcamentista_tabela', db().from('orcamentista_tabela').select('id, fornecedor_id, arquivo_nome, familia, vigente').in('fornecedor_id', fIds))
+    const linhas = await ler('orcamentista_tabela', db().from('orcamentista_tabela').select('id, fornecedor_id, arquivo_nome, familia, categoria_chave, vigente').in('fornecedor_id', fIds))
     const catalogo = await ler('orcamentista_familia_catalogo', db().from('orcamentista_familia_catalogo').select('chave, rotulo'))
     const rotuloDa = new Map(catalogo.map((f) => [String(f.chave), String(f.rotulo)]))
 
-    // o par (fornecedor, família): a família sem informar também é um par
-    const par = (t: Linha) => `${t.fornecedor_id}|${t.familia ?? ''}`
+    // o grupo (fornecedor, família, categoria): a família e a categoria sem informar também são um grupo
+    const par = (t: Linha) => `${t.fornecedor_id}|${t.familia ?? ''}|${t.categoria_chave ?? ''}`
     const doPar = new Map<string, Linha[]>()
     for (const t of linhas) doPar.set(par(t), [...(doPar.get(par(t)) ?? []), t])
     const vale = (t: Linha) => { const ts = doPar.get(par(t))!; return ts.length === 1 || t.vigente === true }
@@ -113,6 +119,8 @@ export async function derivarTabelasDaConta(tenantId: string): Promise<Derivacao
             fornecedorId: String(t.fornecedor_id),
             fornecedor: nome(String(t.fornecedor_id)),
             familia: t.familia == null ? null : rotuloDa.get(String(t.familia)) ?? String(t.familia),
+            familiaChave: t.familia == null ? null : String(t.familia),
+            categoria: t.categoria_chave == null ? null : String(t.categoria_chave),
             arquivo_nome: String(t.arquivo_nome),
             vigente: t.vigente === true,
             categorias: vinculos.get(String(t.fornecedor_id)) ?? [],
@@ -132,11 +140,11 @@ export async function derivarTabelasDaConta(tenantId: string): Promise<Derivacao
     const paresSemVigente: ParSemVigente[] = []
     const vistos = new Set<string>()
     for (const t of tabelas) {
-        const chave = `${t.fornecedorId}|${t.familia ?? ''}`
-        const doMesmo = tabelas.filter((o) => o.fornecedorId === t.fornecedorId && o.familia === t.familia)
+        const chave = `${t.fornecedorId}|${t.familia ?? ''}|${t.categoria ?? ''}`
+        const doMesmo = tabelas.filter((o) => o.fornecedorId === t.fornecedorId && o.familia === t.familia && o.categoria === t.categoria)
         if (vistos.has(chave) || doMesmo.length < 2 || doMesmo.some((o) => o.vale)) continue
         vistos.add(chave)
-        paresSemVigente.push({ fornecedor: t.fornecedor, familia: t.familia, arquivos: doMesmo.map((o) => o.arquivo_nome) })
+        paresSemVigente.push({ fornecedor: t.fornecedor, familia: t.familia, categoria: t.categoria, arquivos: doMesmo.map((o) => o.arquivo_nome) })
     }
     return { tabelas, fornecedoresSemTabela, paresSemVigente }
 }
@@ -169,4 +177,30 @@ export async function contasQueVinculam(fornecedorIds: string[]): Promise<Map<st
         if (!ts.includes(String(v.tenant_id))) out.set(f, [...ts, String(v.tenant_id)])
     }
     return out
+}
+
+/**
+ * As FAMÍLIAS que esta conta usa (as chaves), para a planilha da FAMÍLIA — a que não tem fornecedor (20261027000006) — aparecer no
+ * bloco Motor: a família de alguma matéria-prima da conta (`orcamentista_materia_prima.familia`) ou a família de alguma tabela dos
+ * fornecedores que a conta vincula. Família não informada não conta: não se deduz.
+ */
+export async function familiasDaConta(tenantId: string): Promise<Set<string>> {
+    const familias = new Set<string>()
+    const materias = await ler('orcamentista_materia_prima', db().from('orcamentista_materia_prima').select('familia').eq('tenant_id', tenantId).not('familia', 'is', null))
+    for (const m of materias) familias.add(String(m.familia))
+    const fIds = [...(await vinculosDaConta(tenantId)).keys()]
+    if (fIds.length > 0) {
+        const tabelas = await ler('orcamentista_tabela', db().from('orcamentista_tabela').select('familia').in('fornecedor_id', fIds).not('familia', 'is', null))
+        for (const t of tabelas) familias.add(String(t.familia))
+    }
+    return familias
+}
+
+/** Os tenants que usam a família (pelo mesmo critério de `familiasDaConta`): quem perde a planilha da família se ela for arquivada. */
+export async function contasQueUsamAFamilia(familia: string): Promise<string[]> {
+    const tenants = new Set<string>()
+    for (const m of await ler('orcamentista_materia_prima', db().from('orcamentista_materia_prima').select('tenant_id').eq('familia', familia))) tenants.add(String(m.tenant_id))
+    const fornecedores = [...new Set((await ler('orcamentista_tabela', db().from('orcamentista_tabela').select('fornecedor_id').eq('familia', familia))).map((t) => String(t.fornecedor_id)))]
+    for (const ts of (await contasQueVinculam(fornecedores)).values()) for (const t of ts) tenants.add(t)
+    return [...tenants]
 }

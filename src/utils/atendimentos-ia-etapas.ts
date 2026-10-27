@@ -86,6 +86,17 @@ export interface EtapaDaFamilia {
     acao: AcaoDaEtapa
     instrucao: string
     abas: AbaDaEtapa[]
+    /** O motor (planilha de `orcamentista_motor`) desta etapa; null = ainda não aponta nenhum (20261027000006). */
+    motor_id: string | null
+}
+
+/** A planilha que uma etapa da família pode apontar: a da MESMA família e não arquivada. */
+export interface MotorDaFamilia {
+    id: string
+    arquivo_nome: string
+    /** Nulo na planilha que é da família e não de um fornecedor (20261027000006). */
+    fornecedor: string | null
+    vigente: boolean
 }
 
 /** Uma etapa como a tela a manda: sem `numero` — a POSIÇÃO na lista é o número. Sem `id`, é etapa nova. */
@@ -95,6 +106,8 @@ export interface EtapaNoCorpo {
     acao: AcaoDaEtapa
     instrucao: string
     abas: AbaDaEtapa[]
+    /** `undefined` = não mexe (a função mantém o motor que a etapa já tem); `null` = limpa; uuid = aponta. */
+    motor_id?: string | null
 }
 
 export const rotaDasEtapas = (familia: string) => `/api/super-admin/atendimentos-ia/familias/${encodeURIComponent(familia)}/etapas`
@@ -124,8 +137,8 @@ export function lerCorpoDasEtapas(body: unknown): { ok: true; etapas: EtapaNoCor
         const n = i + 1
         const e = b.etapas[i] && typeof b.etapas[i] === 'object' && !Array.isArray(b.etapas[i]) ? (b.etapas[i] as Record<string, unknown>) : null
         if (!e) return { ok: false, erro: `Etapa ${n}: não é um objeto.` }
-        const fora = Object.keys(e).find((k) => !['id', 'rotulo', 'acao', 'instrucao', 'abas'].includes(k))
-        if (fora) return { ok: false, erro: `Etapa ${n}: o campo "${fora}" não existe (só id, rotulo, acao, instrucao e abas). O número é a posição na lista.` }
+        const fora = Object.keys(e).find((k) => !['id', 'rotulo', 'acao', 'instrucao', 'abas', 'motor_id'].includes(k))
+        if (fora) return { ok: false, erro: `Etapa ${n}: o campo "${fora}" não existe (só id, rotulo, acao, instrucao, abas e motor_id). O número é a posição na lista.` }
         if (typeof e.rotulo !== 'string') return { ok: false, erro: `Etapa ${n}: o rótulo é um texto.` }
         const rotulo = e.rotulo.trim()
         if (rotulo === '' || caracteres(rotulo) > LIMITE_DO_ROTULO_DA_ETAPA) return { ok: false, erro: fraseDoRotuloDaEtapa(n, caracteres(rotulo)) }
@@ -143,7 +156,11 @@ export function lerCorpoDasEtapas(body: unknown): { ok: true; etapas: EtapaNoCor
             if (ids.has(e.id)) return { ok: false, erro: `Etapa ${n}: o id aparece mais de uma vez na lista.` }
             ids.add(e.id)
         }
-        etapas.push({ ...(typeof e.id === 'string' ? { id: e.id } : {}), rotulo, acao: e.acao, instrucao, abas: abas as AbaDaEtapa[] })
+        if (e.motor_id !== undefined && e.motor_id !== null && !ehUuid(e.motor_id)) return { ok: false, erro: `Etapa ${n}: o motor_id não é um uuid (ou null, para limpar).` }
+        etapas.push({
+            ...(typeof e.id === 'string' ? { id: e.id } : {}), rotulo, acao: e.acao, instrucao, abas: abas as AbaDaEtapa[],
+            ...(e.motor_id !== undefined ? { motor_id: e.motor_id as string | null } : {}),
+        })
     }
     return { ok: true, etapas }
 }
@@ -157,20 +174,35 @@ export interface EtapaNoRascunho {
     acao: AcaoDaEtapa | null
     instrucao: string
     abas: AbaDaEtapa[]
+    /** O motor escolhido na tela; null = nenhum. */
+    motor_id: string | null
+    /** O motor que a etapa tinha quando foi lida: o corpo só leva `motor_id` se ele MUDOU (salvar outra coisa não mexe no motor). */
+    motor_gravado: string | null
 }
 
 let proximoLocal = 0
-export const novaEtapaNoRascunho = (): EtapaNoRascunho => ({ local: `nova-${++proximoLocal}`, id: null, rotulo: '', acao: null, instrucao: '', abas: [] })
+export const novaEtapaNoRascunho = (): EtapaNoRascunho => ({ local: `nova-${++proximoLocal}`, id: null, rotulo: '', acao: null, instrucao: '', abas: [], motor_id: null, motor_gravado: null })
+
+/** Uma etapa NOVA, inserida logo abaixo da posição dada (a posição é o número: as de baixo descem). */
+export function inserirEtapaAbaixo(rascunho: readonly EtapaNoRascunho[], posicao: number): EtapaNoRascunho[] {
+    const saida = [...rascunho]
+    saida.splice(Math.min(Math.max(posicao + 1, 0), saida.length), 0, novaEtapaNoRascunho())
+    return saida
+}
 
 export const rascunhoDasEtapas = (etapas: EtapaDaFamilia[]): EtapaNoRascunho[] =>
-    etapas.map((e) => ({ local: e.id, id: e.id, rotulo: e.rotulo, acao: e.acao, instrucao: e.instrucao, abas: [...e.abas] }))
+    etapas.map((e) => ({ local: e.id, id: e.id, rotulo: e.rotulo, acao: e.acao, instrucao: e.instrucao, abas: [...e.abas], motor_id: e.motor_id ?? null, motor_gravado: e.motor_id ?? null }))
 
 /** As abas na ordem da planilha, sem repetição: a tela marca e desmarca, a ordem não é escolha de ninguém. */
 export const abasEmOrdem = (marcadas: readonly string[]): AbaDaEtapa[] => ABAS_DA_ETAPA.filter((a) => marcadas.includes(a))
 
 /** O corpo do PUT: a lista inteira, na ordem da tela. A ação em branco vai como está, e `lerCorpoDasEtapas` a recusa nomeando a etapa. */
 export const corpoDoRascunho = (rascunho: readonly EtapaNoRascunho[]) => ({
-    etapas: rascunho.map((e) => ({ ...(e.id ? { id: e.id } : {}), rotulo: e.rotulo, acao: e.acao, instrucao: e.instrucao, abas: e.abas })),
+    etapas: rascunho.map((e) => ({
+        ...(e.id ? { id: e.id } : {}), rotulo: e.rotulo, acao: e.acao, instrucao: e.instrucao, abas: e.abas,
+        // só vai quando mudou: salvar o rótulo não pode tocar no motor (e funciona com a função de antes da 20261027000008)
+        ...(e.motor_id !== e.motor_gravado ? { motor_id: e.motor_id } : {}),
+    })),
 })
 
 /** A etapa mudou contra o gravado? Compara o que a rota grava: rótulo e instrução sem as pontas, as abas sem ordem. */
@@ -178,7 +210,7 @@ export function etapasMudaram(rascunho: readonly EtapaNoRascunho[], gravadas: re
     if (rascunho.length !== gravadas.length) return true
     return rascunho.some((e, i) => {
         const g = gravadas[i]
-        return e.id !== g.id || e.rotulo.trim() !== g.rotulo || e.acao !== g.acao || e.instrucao.trim() !== g.instrucao
+        return e.id !== g.id || e.rotulo.trim() !== g.rotulo || e.acao !== g.acao || e.instrucao.trim() !== g.instrucao || (e.motor_id ?? null) !== (g.motor_id ?? null)
             || [...e.abas].sort().join('|') !== [...g.abas].sort().join('|')
     })
 }

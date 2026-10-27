@@ -53,9 +53,9 @@ const estado = {
     removidosDoStorage: [] as string[],
 }
 
-const tabela = (id: string, fornecedor_id: string, arquivo_nome: string, familia: string | null, vigente = false) => ({
+const tabela = (id: string, fornecedor_id: string, arquivo_nome: string, familia: string | null, vigente = false, categoria_chave: string | null = null) => ({
     id, fornecedor_id, arquivo_nome, arquivo_path: `${fornecedor_id}/arquivo/${id}.xlsx`, motor_nome: 'motor.xlsx', motor_path: `${fornecedor_id}/motor/${id}.xlsx`,
-    vigencia: null as string | null, familia, vigente, criado_em: '2026-10-20T12:00:00Z',
+    vigencia: null as string | null, familia, vigente, categoria_chave, criado_em: '2026-10-20T12:00:00Z',
 })
 const tipologias = (tabela_id: string, ...codigos: string[]) => codigos.map((tipologia) => ({ tabela_id, tipologia, descricao: `${tipologia} da ${tabela_id.slice(-4)}`, tipo: 'Correr', ordem: null as number | null }))
 const categoria = (id: string, tenant_id: string, categoria_chave: string) => ({ id, tenant_id, materia_prima_id: `mp-${tenant_id.slice(-4)}`, categoria_chave, config: null as Linha | null })
@@ -154,8 +154,8 @@ describe('(1) a derivação: as tabelas dos fornecedores que a base de conhecime
     it('De Paula: a Wolff pelo PERFIL, com motor; a Estrela pelo VIDRO, tabela de preço — e a linha parada de conta_tabela não entra', async () => {
         const d = await D().derivarTabelasDaConta(PAULA)
         expect(d.tabelas).toEqual([
-            { tabelaId: T_ESTRELA, fornecedorId: F_ESTRELA, fornecedor: 'Vidros Estrela', familia: null, arquivo_nome: 'Estrela vidros.xlsx', vigente: false, categorias: ['VIDRO'], tipologias: 0, comMotor: false, vale: true },
-            { tabelaId: T_WOLFF, fornecedorId: F_WOLFF, fornecedor: 'Wolff Perfis', familia: 'PVC', arquivo_nome: 'Wolff 2026.xlsx', vigente: false, categorias: ['PERFIL'], tipologias: 2, comMotor: true, vale: true },
+            { tabelaId: T_ESTRELA, fornecedorId: F_ESTRELA, fornecedor: 'Vidros Estrela', familia: null, familiaChave: null, categoria: null, arquivo_nome: 'Estrela vidros.xlsx', vigente: false, categorias: ['VIDRO'], tipologias: 0, comMotor: false, vale: true },
+            { tabelaId: T_WOLFF, fornecedorId: F_WOLFF, fornecedor: 'Wolff Perfis', familia: 'PVC', familiaChave: 'PVC', categoria: null, arquivo_nome: 'Wolff 2026.xlsx', vigente: false, categorias: ['PERFIL'], tipologias: 2, comMotor: true, vale: true },
         ])
         expect(d.fornecedoresSemTabela).toEqual([])
         expect(d.paresSemVigente).toEqual([])
@@ -185,7 +185,7 @@ describe('(1) a derivação: as tabelas dos fornecedores que a base de conhecime
         estado.db.orcamentista_tabela.push(tabela(T_WOLFF_2027, F_WOLFF, 'Wolff 2027.xlsx', 'PVC'))
         const d = await D().derivarTabelasDaConta(PAULA)
         expect(d.tabelas.filter((t) => t.fornecedorId === F_WOLFF).map((t) => [t.arquivo_nome, t.vale])).toEqual([['Wolff 2026.xlsx', false], ['Wolff 2027.xlsx', false]])
-        expect(d.paresSemVigente).toEqual([{ fornecedor: 'Wolff Perfis', familia: 'PVC', arquivos: ['Wolff 2026.xlsx', 'Wolff 2027.xlsx'] }])
+        expect(d.paresSemVigente).toEqual([{ fornecedor: 'Wolff Perfis', familia: 'PVC', categoria: null, arquivos: ['Wolff 2026.xlsx', 'Wolff 2027.xlsx'] }])
     })
 
     it('o contraste: com a de 2027 marcada vigente, SÓ ela vale — a de 2026 continua listada, sem valer', async () => {
@@ -193,6 +193,48 @@ describe('(1) a derivação: as tabelas dos fornecedores que a base de conhecime
         const d = await D().derivarTabelasDaConta(PAULA)
         expect(d.tabelas.filter((t) => t.fornecedorId === F_WOLFF).map((t) => [t.arquivo_nome, t.vale])).toEqual([['Wolff 2026.xlsx', false], ['Wolff 2027.xlsx', true]])
         expect(d.paresSemVigente).toEqual([])
+    })
+
+    it('as TRÊS da Wolff na mesma família (Perfil, Reforço, Acessórios), cada uma com a sua categoria: as três valem, nenhuma marcada, e nada é par sem vigente', async () => {
+        estado.db.orcamentista_tabela.push(
+            tabela('wolff-perfil', F_WOLFF, 'Wolff perfil.xlsx', 'PVC', false, 'PERFIL'),
+            tabela('wolff-reforco', F_WOLFF, 'Wolff reforço.xlsx', 'PVC', false, 'REFORCO'),
+            tabela('wolff-acess', F_WOLFF, 'Wolff acessórios.xlsx', 'PVC', false, 'ACESSORIOS_VEDACAO'),
+        )
+        const d = await D().derivarTabelasDaConta(PAULA)
+        expect(d.tabelas.filter((t) => t.tabelaId.startsWith('wolff-')).map((t) => [t.categoria, t.familiaChave, t.vale])).toEqual([['ACESSORIOS_VEDACAO', 'PVC', true], ['PERFIL', 'PVC', true], ['REFORCO', 'PVC', true]])
+        expect(d.paresSemVigente).toEqual([])
+    })
+
+    it('a tabela de antes (sem categoria) e a PERFIL nova são grupos DIFERENTES: as duas valem, e a antiga continua listada sem categoria', async () => {
+        estado.db.orcamentista_tabela.push(tabela('wolff-perfil', F_WOLFF, 'Wolff perfil.xlsx', 'PVC', false, 'PERFIL'))
+        const d = await D().derivarTabelasDaConta(PAULA)
+        expect(d.tabelas.filter((t) => t.fornecedorId === F_WOLFF).map((t) => [t.arquivo_nome, t.categoria, t.vale])).toEqual([['Wolff 2026.xlsx', null, true], ['Wolff perfil.xlsx', 'PERFIL', true]])
+    })
+
+    it('duas de REFORCO sem vigente: SÓ esse grupo vira par sem vigente, com a categoria; a PERFIL ao lado segue valendo', async () => {
+        estado.db.orcamentista_tabela.push(
+            tabela('wolff-perfil', F_WOLFF, 'Wolff perfil.xlsx', 'PVC', false, 'PERFIL'),
+            tabela('wolff-ref-1', F_WOLFF, 'Reforço 2026.xlsx', 'PVC', false, 'REFORCO'),
+            tabela('wolff-ref-2', F_WOLFF, 'Reforço 2027.xlsx', 'PVC', false, 'REFORCO'),
+        )
+        const d = await D().derivarTabelasDaConta(PAULA)
+        expect(d.paresSemVigente).toEqual([{ fornecedor: 'Wolff Perfis', familia: 'PVC', categoria: 'REFORCO', arquivos: ['Reforço 2026.xlsx', 'Reforço 2027.xlsx'] }])
+        expect(d.tabelas.filter((t) => t.categoria === 'REFORCO').map((t) => t.vale)).toEqual([false, false])
+        expect(d.tabelas.find((t) => t.tabelaId === 'wolff-perfil')!.vale).toBe(true)
+    })
+
+    it('duas de REFORCO, uma vigente: só a vigente vale, e o grupo não é par sem vigente', async () => {
+        estado.db.orcamentista_tabela.push(tabela('wolff-ref-1', F_WOLFF, 'Reforço 2026.xlsx', 'PVC', false, 'REFORCO'), tabela('wolff-ref-2', F_WOLFF, 'Reforço 2027.xlsx', 'PVC', true, 'REFORCO'))
+        const d = await D().derivarTabelasDaConta(PAULA)
+        expect(d.tabelas.filter((t) => t.categoria === 'REFORCO').map((t) => [t.arquivo_nome, t.vale])).toEqual([['Reforço 2026.xlsx', false], ['Reforço 2027.xlsx', true]])
+        expect(d.paresSemVigente).toEqual([])
+    })
+
+    it('a categoria e a chave da família saem como a tabela as grava; a que não informa sai nula, nunca "PERFIL" nem "PVC" por palpite', async () => {
+        const d = await D().derivarTabelasDaConta(PAULA)
+        const estrela = d.tabelas.find((t) => t.tabelaId === T_ESTRELA)!
+        expect([estrela.categoria, estrela.familiaChave, estrela.familia]).toEqual([null, null, null])
     })
 
     it('o mesmo fornecedor com famílias DIFERENTES: as duas valem, sem marca nenhuma', async () => {
@@ -255,6 +297,35 @@ describe('(2) a conversa: quem entra é a tabela COM motor', () => {
         const t = await lida()
         expect(t.tabelas.map((x) => x.tabelaId)).toEqual([T_WOLFF_2027])
         expect(t.candidatos.map((c) => [c.tipologia, c.tabelaId])).toEqual([['DP-02', T_WOLFF_2027]])
+    })
+
+    it('Reforço e Acessórios da Wolff (preço puro, sem tipologias) ao lado da Perfil com motor: não entram e não atrapalham — a conversa lê só a que tem motor', async () => {
+        estado.db.orcamentista_tabela.push(
+            tabela('wolff-reforco', F_WOLFF, 'Wolff reforço.xlsx', 'PVC', false, 'REFORCO'),
+            tabela('wolff-acess', F_WOLFF, 'Wolff acessórios.xlsx', 'PVC', false, 'ACESSORIOS_VEDACAO'),
+        )
+        expect((await lida()).tabelas.map((t) => t.tabelaId)).toEqual([T_WOLFF])
+    })
+
+    it('a Wolff de antes (sem categoria) e a PERFIL nova, as duas COM motor, na mesma família: recusa nomeada — as duas nunca entram juntas, duplicando as tipologias', async () => {
+        estado.db.orcamentista_tabela.push(tabela('wolff-perfil', F_WOLFF, 'Wolff perfil.xlsx', 'PVC', false, 'PERFIL'))
+        estado.db.orcamentista_motor_tipologia_detalhe.push(...tipologias('wolff-perfil', 'DP-01'))
+        const t = await C().lerTabelaDaEmpresa(PAULA)
+        expect(t.ok === false && [t.motivo, t.frase]).toEqual(['TABELA_REPETIDA', C().fraseDeTabelaRepetida('Wolff Perfis', 'PVC', 2)])
+    })
+
+    it('a PERFIL nova SEM motor importado (só subiu) não entra: a conversa segue com a de antes', async () => {
+        estado.db.orcamentista_tabela.push(tabela('wolff-perfil', F_WOLFF, 'Wolff perfil.xlsx', 'PVC', false, 'PERFIL'))
+        expect((await lida()).tabelas.map((t) => t.tabelaId)).toEqual([T_WOLFF])
+    })
+
+    it('duas PERFIL com motor e nenhuma vigente: SEM_VIGENTE nomeia o grupo com a categoria; duas de REFORCO sem motor, nenhuma vigente, não recusam', async () => {
+        estado.db.orcamentista_tabela.push(tabela('r1', F_WOLFF, 'Reforço 1.xlsx', 'PVC', false, 'REFORCO'), tabela('r2', F_WOLFF, 'Reforço 2.xlsx', 'PVC', false, 'REFORCO'))
+        expect((await lida()).tabelas.map((t) => t.tabelaId)).toEqual([T_WOLFF])
+        estado.db.orcamentista_tabela.push(tabela('p1', F_WOLFF, 'Perfil 1.xlsx', 'PVC', false, 'PERFIL'), tabela('p2', F_WOLFF, 'Perfil 2.xlsx', 'PVC', false, 'PERFIL'))
+        estado.db.orcamentista_motor_tipologia_detalhe.push(...tipologias('p1', 'DP-01'), ...tipologias('p2', 'DP-01'))
+        const t = await C().lerTabelaDaEmpresa(PAULA)
+        expect(t.ok === false && [t.motivo, t.frase]).toEqual(['SEM_VIGENTE', C().fraseSemVigente('Wolff Perfis', 'PVC', 2)])
     })
 
     it('duas tabelas de PREÇO no mesmo par, sem vigente, não recusam: elas não entram na conversa', async () => {

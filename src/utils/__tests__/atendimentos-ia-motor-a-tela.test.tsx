@@ -66,6 +66,7 @@ const RESUMO: MotorDaConta = {
     }],
     avisos: { fornecedores_sem_tabela: [], pares_sem_vigente: [], nenhuma_com_motor: false },
     familias: [{ chave: 'PVC', rotulo: 'PVC', ordem: 1 }, { chave: 'ALUMINIO', rotulo: 'Alumínio', ordem: 2 }],
+    etapas_das_familias: [],
     materias_primas: [{ id: 'mp-1', nome: 'Perfis PVC', criterio_custo_barra: 'CONSUMO_REAL' }],
 }
 
