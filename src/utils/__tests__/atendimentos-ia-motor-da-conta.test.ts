@@ -17,7 +17,12 @@
  *   (3) a tabela de OUTRA conta não aparece, e a rota de detalhe recusa tabela que a conta não usa;
  *   (4) as tipologias de uma tabela, e as abas de UMA tipologia — PAGINADAS: a leitura padrão do PostgREST
  *       corta em mil, e uma aba cortada mostraria ao consultor um motor que não é o carregado;
- *   (5) nenhuma rota escreve.
+ *   (5) nenhuma rota escreve;
+ *   (6) A FONTE É A DERIVAÇÃO (dono do produto, 26/10/2026): as tabelas da conta são as dos fornecedores que a
+ *       base de conhecimento dela vincula — `orcamentista_conta_tabela` não é lida (a linha parada aqui aponta a
+ *       tabela de outra conta, e ela não aparece). Cada tabela diz por qual categoria entra, se é a vigente, se
+ *       vale para levantamento novo e se tem motor — sem motor é TABELA DE PREÇO, e não entra na conversa. Os
+ *       avisos: fornecedor vinculado sem tabela, par sem vigente, e nenhuma tabela com motor.
  */
 /* eslint-disable @typescript-eslint/no-explicit-any -- o cliente falso imita um cliente sem tipos */
 import type { NextApiRequest, NextApiResponse } from 'next'
@@ -27,6 +32,8 @@ const CONTA = '00000000-0000-4000-8000-0000000000a1'
 const OUTRA_CONTA = '00000000-0000-4000-8000-0000000000b2'
 const T1 = '00000000-0000-4000-8000-0000000000c1'
 const T2 = '00000000-0000-4000-8000-0000000000c2'
+/** A tabela de PREÇO da conta: o fornecedor de vidro, vinculado no VIDRO, sem nenhuma tipologia. */
+const T3 = '00000000-0000-4000-8000-0000000000c3'
 const SUPER: Linha = { id: 'u-super', tenant_id: null, role: 'super_admin', is_super_admin: true }
 const ADMIN: Linha = { id: 'u-admin', tenant_id: CONTA, role: 'admin', is_super_admin: false }
 const LIMITE_DO_POSTGREST = 1000
@@ -41,16 +48,27 @@ function montar() {
     estado.db = {
         users: [SUPER, ADMIN],
         tenants: [{ id: CONTA, name: 'Esquadrias De Paula' }, { id: OUTRA_CONTA, name: 'Outra Esquadrias' }],
-        orcamentista_conta_tabela: [{ tenant_id: CONTA, tabela_id: T1 }, { tenant_id: OUTRA_CONTA, tabela_id: T1 }, { tenant_id: OUTRA_CONTA, tabela_id: T2 }],
+        // a linha PARADA (26/10/2026): aponta a tabela que só a outra conta usa — ninguém a lê
+        orcamentista_conta_tabela: [{ tenant_id: CONTA, tabela_id: T2 }],
         orcamentista_tabela: [
-            { id: T1, fornecedor_id: 'f-wolff', arquivo_nome: 'Tabela Wolff.xlsx', motor_nome: 'Motor Wolff.xlsx', vigencia: 'desde 10/2026', familia: null },
-            { id: T2, fornecedor_id: 'f-sul', arquivo_nome: 'Sul.xlsx', motor_nome: 'Motor Sul.xlsx', vigencia: null, familia: 'PVC' },
+            { id: T1, fornecedor_id: 'f-wolff', arquivo_nome: 'Tabela Wolff.xlsx', motor_nome: 'Motor Wolff.xlsx', vigencia: 'desde 10/2026', familia: null, vigente: false },
+            { id: T2, fornecedor_id: 'f-sul', arquivo_nome: 'Sul.xlsx', motor_nome: 'Motor Sul.xlsx', vigencia: null, familia: 'PVC', vigente: false },
+            { id: T3, fornecedor_id: 'f-estrela', arquivo_nome: 'Estrela vidros.xlsx', motor_nome: 'Estrela motor.xlsx', vigencia: null, familia: null, vigente: false },
         ],
-        orcamentista_fornecedor: [{ id: 'f-wolff', nome: 'Wolff Perfis' }, { id: 'f-sul', nome: 'Perfis Sul' }],
+        orcamentista_fornecedor: [{ id: 'f-wolff', nome: 'Wolff Perfis' }, { id: 'f-sul', nome: 'Perfis Sul' }, { id: 'f-estrela', nome: 'Vidros Estrela' }, { id: 'f-omega', nome: 'Ferragens Ômega' }],
+        // a base de conhecimento: a conta vincula a Wolff no PERFIL e a Estrela no VIDRO; a outra, a Wolff e a Sul
+        orcamentista_mp_categoria_fornecedor: [
+            { id: 'v1', tenant_id: CONTA, mp_categoria_id: 'c1', fornecedor_id: 'f-wolff', principal: true, ordem: 1 },
+            { id: 'v2', tenant_id: CONTA, mp_categoria_id: 'c2', fornecedor_id: 'f-estrela', principal: true, ordem: 1 },
+            { id: 'vx1', tenant_id: OUTRA_CONTA, mp_categoria_id: 'cx', fornecedor_id: 'f-wolff', principal: true, ordem: 1 },
+            { id: 'vx2', tenant_id: OUTRA_CONTA, mp_categoria_id: 'cx', fornecedor_id: 'f-sul', principal: false, ordem: 2 },
+        ],
         orcamentista_familia_catalogo: [{ chave: 'ALUMINIO', rotulo: 'Alumínio', ordem: 2 }, { chave: 'PVC', rotulo: 'PVC', ordem: 1 }],
         orcamentista_materia_prima: [{ id: 'mp-1', tenant_id: CONTA, nome: 'Perfis PVC', ordem: 1 }, { id: 'mp-x', tenant_id: OUTRA_CONTA, nome: 'De outra conta', ordem: 1 }],
         orcamentista_mp_categoria: [
             { id: 'c1', tenant_id: CONTA, materia_prima_id: 'mp-1', categoria_chave: 'PERFIL', config: { criterio_custo_barra: 'CONSUMO_REAL', serra_mm: 5 } },
+            { id: 'c2', tenant_id: CONTA, materia_prima_id: 'mp-1', categoria_chave: 'VIDRO', config: null },
+            { id: 'c3', tenant_id: CONTA, materia_prima_id: 'mp-1', categoria_chave: 'FERRAGENS', config: null },
             { id: 'cx', tenant_id: OUTRA_CONTA, materia_prima_id: 'mp-x', categoria_chave: 'PERFIL', config: { criterio_custo_barra: 'BARRA_INTEIRA' } },
         ],
         orcamentista_motor_tipologia_detalhe: [
@@ -79,7 +97,7 @@ function montar() {
         ],
         orcamentista_motor_formula_familia: [{ id: 'ff1', tabela_id: T1, linha: 'EUROPA 42' }],
         orcamentista_motor_regra: [{ id: 'r1', tabela_id: T1 }, { id: 'r2', tabela_id: T1 }],
-        orcamentista_tabela_item: [{ id: 'it1', tabela_id: T1 }, { id: 'it2', tabela_id: T1 }, { id: 'it3', tabela_id: T1 }],
+        orcamentista_tabela_item: [{ id: 'it1', tabela_id: T1 }, { id: 'it2', tabela_id: T1 }, { id: 'it3', tabela_id: T1 }, { id: 'it4', tabela_id: T3 }],
     }
 }
 
@@ -167,14 +185,14 @@ describe('(1) só o super admin', () => {
 })
 
 describe('(2) o resumo do que a conta tem carregado', () => {
-    it('por tabela EM USO NA CONTA: fornecedor, arquivos, família, contas que a usam, linhas e contagens exatas', async () => {
+    it('por tabela DA CONTA: fornecedor, arquivos, família, vigente, contas que a usam, linhas e contagens exatas', async () => {
         const r = await chamar('motor', { tenantId: CONTA })
         expect(r.status).toBe(200)
-        expect(r.corpo.tabelas).toHaveLength(1)
-        const t = r.corpo.tabelas[0]
+        const t = r.corpo.tabelas.find((x: Linha) => x.tabela_id === T1)
         expect(t).toEqual(expect.objectContaining({
             tabela_id: T1, fornecedor: 'Wolff Perfis', arquivo_nome: 'Tabela Wolff.xlsx', motor_nome: 'Motor Wolff.xlsx', vigencia: 'desde 10/2026', familia: null,
             contas_usando: ['Esquadrias De Paula', 'Outra Esquadrias'],
+            categorias: ['PERFIL'], vigente: false, vale: true, com_motor: true,
         }))
         expect(t.linhas).toEqual([{ linha: 'PVC WOLFF DESIGN', tipologias: 1 }, { linha: 'PVC WOLFF EUROPA 42', tipologias: 2 }])
         // contagens EXATAS pelo banco — os 1.206 perfis da tabela, e não as mil linhas de uma leitura
@@ -197,8 +215,8 @@ describe('(2) o resumo do que a conta tem carregado', () => {
         expect(r.corpo.materias_primas).toEqual([{ id: 'mp-1', nome: 'Perfis PVC', criterio_custo_barra: null }])
     })
 
-    it('conta sem tabela em uso: a lista vem vazia, e não é erro', async () => {
-        estado.db.orcamentista_conta_tabela = estado.db.orcamentista_conta_tabela.filter((l) => l.tenant_id !== CONTA)
+    it('conta sem fornecedor vinculado: a lista vem vazia, e não é erro', async () => {
+        estado.db.orcamentista_mp_categoria_fornecedor = estado.db.orcamentista_mp_categoria_fornecedor.filter((l) => l.tenant_id !== CONTA)
         const r = await chamar('motor', { tenantId: CONTA })
         expect(r.status).toBe(200)
         expect(r.corpo.tabelas).toEqual([])
@@ -206,9 +224,10 @@ describe('(2) o resumo do que a conta tem carregado', () => {
 })
 
 describe('(3) a tabela de outra conta não entra', () => {
-    it('a T2, que só a outra conta usa, não aparece no resumo', async () => {
+    it('a T2, que só a outra conta usa, não aparece no resumo — nem com a linha parada de conta_tabela apontando para ela', async () => {
         const r = await chamar('motor', { tenantId: CONTA })
-        expect(r.corpo.tabelas.map((t: Linha) => t.tabela_id)).toEqual([T1])
+        expect(r.corpo.tabelas.map((t: Linha) => t.tabela_id)).toEqual([T3, T1])
+        expect(estado.leituras).not.toContain('orcamentista_conta_tabela')
     })
 
     it.each([['tipologias'], ['tipologia']] as const)('%s: a tabela que a conta não usa é 404, e as abas não são lidas', async (rota) => {
@@ -243,5 +262,51 @@ describe('(4) as tipologias e as abas de UMA tipologia', () => {
 
     it('tipologia sem código: 400', async () => {
         expect((await chamar('tipologia', { tenantId: CONTA, tabela: T1 })).status).toBe(400)
+    })
+})
+
+describe('(6) a fonte é a DERIVAÇÃO: a tabela de preço, a vigente e os avisos', () => {
+    it('a Estrela entra pelo VIDRO, SEM motor: é tabela de preço — vale, mas não entra na conversa', async () => {
+        const r = await chamar('motor', { tenantId: CONTA })
+        const t = r.corpo.tabelas.find((x: Linha) => x.tabela_id === T3)
+        expect(t).toEqual(expect.objectContaining({ fornecedor: 'Vidros Estrela', categorias: ['VIDRO'], com_motor: false, vale: true, vigente: false, contas_usando: ['Esquadrias De Paula'] }))
+        expect(t.contagens.tipologias).toBe(0)
+        expect(t.contagens.itens_de_preco).toBe(1)
+    })
+
+    it('sem nada a avisar: os avisos vêm vazios', async () => {
+        const r = await chamar('motor', { tenantId: CONTA })
+        expect(r.corpo.avisos).toEqual({ fornecedores_sem_tabela: [], pares_sem_vigente: [], nenhuma_com_motor: false })
+    })
+
+    it('fornecedor vinculado SEM tabela: aviso com a categoria', async () => {
+        estado.db.orcamentista_mp_categoria_fornecedor.push({ id: 'v3', tenant_id: CONTA, mp_categoria_id: 'c3', fornecedor_id: 'f-omega', principal: true, ordem: 1 })
+        const r = await chamar('motor', { tenantId: CONTA })
+        expect(r.corpo.avisos.fornecedores_sem_tabela).toEqual([{ fornecedor: 'Ferragens Ômega', categorias: ['FERRAGENS'] }])
+    })
+
+    it('duas tabelas da Wolff na mesma família, nenhuma vigente: as duas aparecem, nenhuma vale, e o par é avisado', async () => {
+        estado.db.orcamentista_tabela.push({ id: T2 + 'w', fornecedor_id: 'f-wolff', arquivo_nome: 'Wolff 2027.xlsx', motor_nome: 'Motor 2027.xlsx', vigencia: null, familia: null, vigente: false })
+        const r = await chamar('motor', { tenantId: CONTA })
+        expect(r.corpo.tabelas.filter((x: Linha) => x.fornecedor === 'Wolff Perfis').map((x: Linha) => [x.arquivo_nome, x.vale])).toEqual([['Tabela Wolff.xlsx', false], ['Wolff 2027.xlsx', false]])
+        expect(r.corpo.avisos.pares_sem_vigente).toEqual([{ fornecedor: 'Wolff Perfis', familia: null, arquivos: ['Tabela Wolff.xlsx', 'Wolff 2027.xlsx'] }])
+    })
+
+    it('o contraste: com a de 2027 VIGENTE, só ela vale, e não há aviso', async () => {
+        estado.db.orcamentista_tabela.push({ id: T2 + 'w', fornecedor_id: 'f-wolff', arquivo_nome: 'Wolff 2027.xlsx', motor_nome: 'Motor 2027.xlsx', vigencia: null, familia: null, vigente: true })
+        const r = await chamar('motor', { tenantId: CONTA })
+        expect(r.corpo.tabelas.filter((x: Linha) => x.fornecedor === 'Wolff Perfis').map((x: Linha) => [x.arquivo_nome, x.vale, x.vigente])).toEqual([['Tabela Wolff.xlsx', false, false], ['Wolff 2027.xlsx', true, true]])
+        expect(r.corpo.avisos.pares_sem_vigente).toEqual([])
+    })
+
+    it('NENHUMA tabela com motor: o aviso diz isso', async () => {
+        estado.db.orcamentista_motor_tipologia_detalhe = estado.db.orcamentista_motor_tipologia_detalhe.filter((l) => l.tabela_id !== T1)
+        const r = await chamar('motor', { tenantId: CONTA })
+        expect(r.corpo.avisos.nenhuma_com_motor).toBe(true)
+    })
+
+    it('a rota de detalhe aceita a tabela de PREÇO da conta (ela é da conta), e recusa a de outra conta', async () => {
+        expect((await chamar('tipologias', { tenantId: CONTA, tabela: T3 })).status).toBe(200)
+        expect((await chamar('tipologias', { tenantId: CONTA, tabela: T2 })).status).toBe(404)
     })
 })
