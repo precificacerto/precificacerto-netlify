@@ -158,12 +158,10 @@ export function fraseDoModeloSemFornecedor(m: ModeloSemFornecedor): string {
 export const AVISO_DO_CATALOGO = 'Nada aqui pertence a um cliente — são tabelas do fornecedor.'
 
 /**
- * A única categoria cuja tabela leva o ARQUIVO DO MOTOR (dono do produto, 27/10/2026): Reforço e Acessórios são preço puro, e o motor
- * tem casa própria (`orcamentista_motor`). É também o literal da CHECK `orcamentista_tabela_perfil_exige_motor` (migração
- * 20261027000007); `atendimentos-ia-motor-so-para-perfil.test.ts` liga as duas pontas.
+ * O ARQUIVO DO MOTOR NA TABELA É OPCIONAL EM TODA CATEGORIA (dono do produto, 27/10/2026, à noite): o motor mora na FAMÍLIA, em
+ * `orcamentista_motor`, e entra pela etapa. A exigência que a `20261027000007` pôs na tabela de Perfil (CHECK
+ * `orcamentista_tabela_perfil_exige_motor`) nasceu de manhã e saiu à noite, na `20261027000009`: não estava errada, o desenho mudou.
  */
-export const CATEGORIA_QUE_EXIGE_MOTOR = 'PERFIL'
-export const MENSAGEM_MOTOR_OBRIGATORIO = 'A tabela de Perfil leva o arquivo do motor: suba o arquivo do motor.'
 export const MENSAGEM_MOTOR_INCOMPLETO = 'O arquivo do motor chegou pela metade: faltou o caminho ou o nome. Envie de novo.'
 export const MENSAGEM_MOTOR_NAO_SAI = 'O arquivo do motor não se apaga da tabela: troque por outro.'
 
@@ -220,8 +218,6 @@ export const ehChaveDeCategoria = (v: unknown): v is string => typeof v === 'str
 const mensagemDoErro = (e: unknown): string => (e as { message?: string } | null)?.message ?? ''
 /** O 23503 é o da FK da categoria da tabela (`orcamentista_tabela_categoria_fkey`), e não o da família nem o do fornecedor. */
 export const ehFkDaCategoria = (e: unknown): boolean => /orcamentista_tabela_categoria_fkey/.test(mensagemDoErro(e))
-/** O 23514 da CHECK do Perfil: tabela de categoria PERFIL sem o arquivo do motor. */
-export const ehTravaDoPerfilSemMotor = (e: unknown): boolean => /orcamentista_tabela_perfil_exige_motor/.test(mensagemDoErro(e))
 /** O 23514 da CHECK do par: o caminho do motor sem o nome, ou o nome sem o caminho. */
 export const ehTravaDoMotorPelaMetade = (e: unknown): boolean => /orcamentista_tabela_motor_par/.test(mensagemDoErro(e))
 /** O 23514 da trava de INSERT: tabela nova sem categoria. */
@@ -339,7 +335,7 @@ export interface CorpoDaTabela {
     fornecedor_id: string
     arquivo_path: string
     arquivo_nome: string
-    /** Nulos fora da categoria PERFIL (`CATEGORIA_QUE_EXIGE_MOTOR`); os dois vêm juntos. */
+    /** Nulos quando a tabela não leva arquivo de motor (o normal); os dois vêm juntos. */
     motor_path: string | null
     motor_nome: string | null
     vigencia: string | null
@@ -360,10 +356,9 @@ export function lerFamiliaNova(body: unknown): Leitura<{ rotulo: string; chave: 
 }
 
 /**
- * A tabela NOVA. O MOTOR É OBRIGATÓRIO SÓ NA TABELA DE PERFIL (dono do produto, 27/10/2026, que mudou o EPIC §3.8): Reforço e
- * Acessórios são preço puro, e o motor tem casa própria (`orcamentista_motor`). Aqui, na rota, e não só na tela; o banco recusa
- * também (CHECK `orcamentista_tabela_perfil_exige_motor`, migração 20261027000007), mas a rota recusa antes, com a frase. Se vier
- * um motor fora do Perfil, ele é gravado como veio (a Estrela já tem o dela); chegar pela metade — caminho sem nome — é recusa.
+ * A tabela NOVA. O MOTOR É OPCIONAL EM TODA CATEGORIA (dono do produto, 27/10/2026, à noite): o motor mora na família, em
+ * `orcamentista_motor`, e entra pela etapa. Se vier um motor, é gravado como veio (a Estrela já tem o dela); chegar pela metade —
+ * caminho sem nome, ou o contrário — é recusa, aqui na rota, e o banco tem a terceira trava (CHECK `orcamentista_tabela_motor_par`).
  *
  * A CATEGORIA TAMBÉM É OBRIGATÓRIA (dono do produto, 27/10/2026): tabela sem categoria é recusa, aqui na rota; a
  * trava de INSERT do banco (23514) é a terceira.
@@ -375,12 +370,10 @@ export function lerCorpoDaTabela(body: unknown): Leitura<CorpoDaTabela> {
     const arquivo_path = textoAparado(b.arquivo_path)
     const arquivo_nome = textoAparado(b.arquivo_nome)
     if (!arquivo_path || !arquivo_nome) return { ok: false, erro: 'Suba o arquivo da tabela.' }
-    // a categoria vem ANTES do motor: é ela que diz se o motor é exigido
     if (!ehChaveDeCategoria(b.categoria_chave)) return { ok: false, erro: MENSAGEM_CATEGORIA_OBRIGATORIA }
     const motor_path = textoAparado(b.motor_path)
     const motor_nome = textoAparado(b.motor_nome)
     if (!motor_path !== !motor_nome) return { ok: false, erro: MENSAGEM_MOTOR_INCOMPLETO }
-    if (!motor_path && b.categoria_chave === CATEGORIA_QUE_EXIGE_MOTOR) return { ok: false, erro: MENSAGEM_MOTOR_OBRIGATORIO }
     if (!dentroDoFornecedor(arquivo_path, fornecedor_id) || (motor_path !== null && !dentroDoFornecedor(motor_path, fornecedor_id))) {
         return { ok: false, erro: 'Os arquivos não pertencem a este fornecedor.' }
     }

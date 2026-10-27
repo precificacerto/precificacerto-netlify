@@ -2,7 +2,7 @@
  * @jest-environment node
  *
  * PORTÃO — o REPOSITÓRIO, real, sobre um cliente falso que FILTRA: a tabela de preço puro (sem motor) e o par vigente por categoria
- * (migrações 20261027000006 e 20261027000007).
+ * (migrações 20261027000006, 20261027000007 e 20261027000009: o motor é opcional em toda categoria).
  *
  * POR QUÊ: (a) a tabela de Reforço ou de Acessórios não tem arquivo de motor, e o repositório tem de devolver NULO — nunca texto vazio,
  * que a rota leria como "tem motor" e tentaria baixar um arquivo que não existe; (b) o índice da vigente é por (fornecedor, família,

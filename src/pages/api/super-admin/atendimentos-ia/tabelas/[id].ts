@@ -8,8 +8,8 @@
  *        (`categoria_chave`) — UMA VEZ: a tabela de antes não a tem, ganha uma e depois ela não se troca nem se
  *        apaga (409 com a frase; o gatilho do banco é a segunda trava — migração 20261027000005). A tabela cujos
  *        itens gravados têm mais de uma categoria do fornecedor NÃO pode declarar uma só (409, nomeando as que
- *        achou): é o caso da Wolff, que fica como está até o dono do produto decidir. Declarar PERFIL exige que a tabela TENHA o
- *        arquivo do motor (o do PERFIL é o único obrigatório — 27/10/2026, migração 20261027000007).
+ *        achou): é o caso da Wolff, que fica como está até o dono do produto decidir. O arquivo do motor é opcional em
+ *        toda categoria (27/10/2026, à noite: o motor mora na família), e na edição ele troca inteiro e não se apaga.
  * DELETE /api/super-admin/atendimentos-ia/tabelas/[id] — exclui uma tabela que nenhuma conta usa.
  *
  * TABELA EM USO A ROTA RECUSA, ANTES de apagar: 409 com os NOMES das contas — "Em uso por: …" (EPIC §3.7).
@@ -53,7 +53,7 @@ import {
   obterTabela,
   removerObjetos,
 } from '@/lib/atendimentos-ia/repositorio'
-import { CATEGORIA_QUE_EXIGE_MOTOR, MENSAGEM_MOTOR_INCOMPLETO, MENSAGEM_MOTOR_OBRIGATORIO, ehFkDaCategoria, ehFkDaFamilia, ehIndiceDaVigente, ehTravaDaCategoriaQueNaoSeTroca, ehTravaDoMotorPelaMetade, ehTravaDoPerfilSemMotor, ehUuid, emUsoPor, fraseDaCategoriaDesconhecida, fraseDaCategoriaQueNaoSeTroca, fraseDaFamiliaDesconhecida, fraseDaVigenteQueJaExiste, lerEdicaoDaTabela, recusada } from '@/utils/atendimentos-ia-catalogo'
+import { MENSAGEM_MOTOR_INCOMPLETO, ehFkDaCategoria, ehFkDaFamilia, ehIndiceDaVigente, ehTravaDaCategoriaQueNaoSeTroca, ehTravaDoMotorPelaMetade, ehUuid, emUsoPor, fraseDaCategoriaDesconhecida, fraseDaCategoriaQueNaoSeTroca, fraseDaFamiliaDesconhecida, fraseDaVigenteQueJaExiste, lerEdicaoDaTabela, recusada } from '@/utils/atendimentos-ia-catalogo'
 import { categoriasDoFornecedorNosItens, fraseDaTabelaComMaisDeUmaCategoria } from '@/utils/atendimentos-ia-categoria-do-arquivo'
 
 const fraseDaTabelaEmUso = (contas: string[]) =>
@@ -129,7 +129,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           if (categorias.length > 1) return res.status(409).json({ error: fraseDaTabelaComMaisDeUmaCategoria(categorias) })
         }
       }
-      if (ed.categoria === CATEGORIA_QUE_EXIGE_MOTOR && !atual.motor_path && !ed.motor) return res.status(400).json({ error: MENSAGEM_MOTOR_OBRIGATORIO })
       if (ed.arquivo && !(await objetoExiste(ed.arquivo.path))) return res.status(400).json({ error: 'O arquivo da tabela não chegou ao armazenamento. Envie de novo.' })
       if (ed.motor && !(await objetoExiste(ed.motor.path))) return res.status(400).json({ error: 'O arquivo do motor não chegou ao armazenamento. Envie de novo.' })
       const campos: Record<string, string | boolean | null> = {}
@@ -146,7 +145,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(200).json(aviso ? { ok: true, aviso } : { ok: true })
     } catch (e) {
       if (codigoDoErro(e) === '23503' && ehFkDaFamilia(e) && ed.familia !== undefined) return res.status(400).json({ error: fraseDaFamiliaDesconhecida(ed.familia) })
-      if (codigoDoErro(e) === '23514' && ehTravaDoPerfilSemMotor(e)) return res.status(400).json({ error: MENSAGEM_MOTOR_OBRIGATORIO })
       if (codigoDoErro(e) === '23514' && ehTravaDoMotorPelaMetade(e)) return res.status(400).json({ error: MENSAGEM_MOTOR_INCOMPLETO })
       if (codigoDoErro(e) === '23503' && ehFkDaCategoria(e) && ed.categoria !== undefined) return res.status(400).json({ error: fraseDaCategoriaDesconhecida(ed.categoria) })
       if (codigoDoErro(e) === '23514' && ehTravaDaCategoriaQueNaoSeTroca(e) && ed.categoria !== undefined) {

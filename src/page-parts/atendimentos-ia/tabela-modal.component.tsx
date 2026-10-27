@@ -11,11 +11,10 @@
  * tela. Na edição, a tabela de antes (sem categoria) pode ganhar UMA, uma vez; a que já tem aparece como texto,
  * porque não se troca (a rota e o banco recusam).
  *
- * O MOTOR É OBRIGATÓRIO SÓ NA TABELA DE PERFIL (27/10/2026): com a categoria PERFIL escolhida, sem o arquivo do motor o botão de salvar
- * não liga, e a frase diz por quê; nas demais categorias (Reforço, Acessórios… — preço puro) o arquivo é opcional. Esta é a trava da
- * TELA — a da ROTA é a que vale (`lerCorpoDaTabela`), e o banco tem a terceira (CHECK `orcamentista_tabela_perfil_exige_motor`).
+ * O ARQUIVO DO MOTOR É OPCIONAL EM TODA CATEGORIA (27/10/2026, à noite): o motor mora na família e entra pela etapa; a tabela de preço
+ * não precisa dele. (De manhã a tabela de Perfil o exigia, e a CHECK saiu à noite, na `20261027000009`: o desenho mudou.)
  *
- * Serve dois usos: a tabela NOVA (os dois arquivos são exigidos) e a EDIÇÃO (cada arquivo é
+ * Serve dois usos: a tabela NOVA (só o arquivo da tabela é exigido) e a EDIÇÃO (cada arquivo é
  * trocado só se outro for escolhido; o atual aparece pelo nome).
  *
  * TODA RECUSA APARECE AQUI DENTRO, com o arquivo e o motivo (dono do produto, 20/10/2026: "pop-up
@@ -29,10 +28,10 @@
 import React, { useEffect, useState } from 'react'
 import { Alert, Button, Input, Modal, Radio, Typography, Upload } from 'antd'
 import { UploadOutlined } from '@ant-design/icons'
-import { AVISO_DO_CATALOGO, CATEGORIA_QUE_EXIGE_MOTOR, EXTENSOES_ACEITAS, MENSAGEM_CATEGORIA_OBRIGATORIA, MENSAGEM_FAMILIA_OBRIGATORIA, MENSAGEM_MOTOR_OBRIGATORIO, MOTIVO_DO_FORMATO_RECUSADO, extensaoAceita, fraseDoArquivo, type Categoria, type Familia } from '@/utils/atendimentos-ia-catalogo'
+import { AVISO_DO_CATALOGO, EXTENSOES_ACEITAS, MENSAGEM_CATEGORIA_OBRIGATORIA, MENSAGEM_FAMILIA_OBRIGATORIA, MOTIVO_DO_FORMATO_RECUSADO, extensaoAceita, fraseDoArquivo, type Categoria, type Familia } from '@/utils/atendimentos-ia-catalogo'
 import type { TabelaPendente } from './api'
 
-export const TEXTO_DO_MOTOR = 'O motor é quem faz as reduções de tipologia em cima dos perfis desta tabela. Só a tabela de Perfil leva o arquivo do motor; Reforço e Acessórios são preço puro.'
+export const TEXTO_DO_MOTOR = 'O arquivo do motor é opcional: o motor mora na família e entra pela etapa. Importado junto com uma tabela, um motor que a conversa também lê pelo fornecedor faz a conversa recusar a escolha.'
 export const TITULO_DO_ERRO_AO_SALVAR = 'A tabela não foi salva.'
 
 export interface AtualDaTabela { arquivo_nome: string; motor_nome: string | null; vigencia: string | null; familia: string | null; categoria_chave: string | null }
@@ -100,9 +99,6 @@ export function TabelaModal({ aberto, titulo, familias, categorias, atual, salva
     }, [aberto])
 
     const temArquivo = !!arquivo || !!atual?.arquivo_nome
-    const temMotor = !!motor || !!atual?.motor_nome
-    // o motor só é exigido na tabela de PERFIL (27/10/2026); na edição a categoria vem da tabela, e na nova do que foi escolhido
-    const faltaMotor = categoria === CATEGORIA_QUE_EXIGE_MOTOR && !temMotor
     // a tabela nova precisa da família; a edição de uma tabela sem família salva sem ela
     const faltaFamilia = !atual && familia === null
     // a tabela nova precisa da categoria; a edição de uma tabela de antes (sem categoria) salva sem ela
@@ -117,7 +113,7 @@ export function TabelaModal({ aberto, titulo, familias, categorias, atual, salva
             onCancel={onCancelar}
             okText="Salvar tabela"
             cancelText="Cancelar"
-            okButtonProps={{ disabled: !temArquivo || faltaMotor || faltaFamilia || faltaCategoria, loading: salvando }}
+            okButtonProps={{ disabled: !temArquivo || faltaFamilia || faltaCategoria, loading: salvando }}
             // na edição, só vai a família (e a categoria) se mudou
             onOk={() => onSalvar({
                 arquivo, motor, vigencia,
@@ -129,7 +125,6 @@ export function TabelaModal({ aberto, titulo, familias, categorias, atual, salva
             <Escolha rotulo="Arquivo da tabela" arquivo={arquivo} atual={atual?.arquivo_nome} onEscolher={setArquivo} />
             <Escolha rotulo="Arquivo do motor" arquivo={motor} atual={atual?.motor_nome} onEscolher={setMotor} />
             <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginTop: -6 }}>{TEXTO_DO_MOTOR}</Typography.Paragraph>
-            {faltaMotor && <Alert type="warning" showIcon message={MENSAGEM_MOTOR_OBRIGATORIO} style={{ marginBottom: 12 }} />}
             <Typography.Text strong>Família</Typography.Text>
             <div style={{ marginTop: 6, marginBottom: 14 }}>
                 <Radio.Group value={familia} onChange={(e) => setFamilia(e.target.value as string)} aria-label="Família da tabela">

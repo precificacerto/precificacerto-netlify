@@ -1,31 +1,33 @@
 /**
  * @jest-environment node
  *
- * PORTÃO — o ARQUIVO DO MOTOR é exigido SÓ na tabela de PERFIL (dono do produto, 27/10/2026; migração 20261027000007).
+ * PORTÃO — o ARQUIVO DO MOTOR NA TABELA É OPCIONAL EM TODA CATEGORIA (dono do produto, 27/10/2026, à noite; migração 20261027000009).
  *
- * POR QUÊ: "Hoje toda tabela nova exige arquivo de motor, e isso impede o dono do produto de subir a tabela de Reforço e a de
- * Acessórios da Wolff — que são preço puro. Exija o arquivo do motor apenas quando categoria_chave = 'PERFIL'. O motor tem casa
- * própria agora (orcamentista_motor)."
+ * POR QUÊ: de manhã a regra era "Exija o arquivo do motor apenas quando categoria_chave = 'PERFIL'" (migração 20261027000007). À noite o
+ * dono do produto corrigiu o desenho: "O MOTOR MORA NA FAMÍLIA" — ele entra pela etapa (`orcamentista_familia_etapa.motor_id`), e a tabela
+ * de Perfil não leva arquivo de motor. A CHECK `orcamentista_tabela_perfil_exige_motor` nasceu de manhã e saiu à noite: não estava errada, o
+ * desenho mudou. Resta a do par (`orcamentista_tabela_motor_par`): um arquivo sem nome, ou um nome sem arquivo, nunca fica gravado.
  *
  * O que este portão fica vermelho:
- *   (1) a PARIDADE com a migração: a categoria que exige motor no código é a do literal da CHECK; os nomes das duas CHECK que a rota
- *       reconhece são os que a migração cria; a migração não deixa a coluna NOT NULL;
- *   (2) os leitores: PERFIL sem motor é recusa com a frase; Reforço e Acessórios sem motor passam; caminho sem nome (ou nome sem
- *       caminho) é recusa nomeada em QUALQUER categoria; na edição, o motor não se apaga;
- *   (3) o PATCH: declarar PERFIL numa tabela sem motor é 400 (e com o motor chegando junto, passa); as duas CHECK do banco viram frase;
- *   (4) o índice da vigente recusado nomeia a vigente da MESMA categoria (o repositório real: `atendimentos-ia-motor-so-para-perfil-repositorio.test.ts`).
+ *   (1) a PARIDADE com as migrações: a 000009 remove SÓ a CHECK do Perfil e não escreve dado; o que o código reconhece pelo nome é a
+ *       CHECK que sobrou; a definição do par que a 000009 confere é a que a 000007 criou; o código não exporta mais a exigência;
+ *   (1b) a 000008 (a etapa aponta o motor): o que a etapa aceita é o que a função aceita;
+ *   (2) os leitores: PERFIL sem motor PASSA, como as demais; caminho sem nome (ou nome sem caminho) é recusa nomeada em QUALQUER categoria;
+ *       na edição, o motor troca inteiro e não se apaga;
+ *   (3) o PATCH: declarar PERFIL numa tabela sem motor passa; a CHECK do par vira frase; o índice da vigente nomeia a categoria;
+ *   (4) o índice da vigente recusado nomeia a vigente da MESMA categoria (o repositório real: `atendimentos-ia-motor-opcional-repositorio.test.ts`).
  *
- * O que NÃO alcança: o banco é falso. As duas CHECK estão provadas num Postgres real (`scripts/harness/etapa-aponta-o-motor/` e a
- * verificação `$verifica$` da própria migração), não aqui.
+ * O que NÃO alcança: o banco é falso. A CHECK do par e a saída da outra estão provadas num Postgres real
+ * (`scripts/harness/perfil-sem-motor-obrigatorio/`, com mutações), não aqui.
  */
 /* eslint-disable @typescript-eslint/no-explicit-any -- os clientes falsos imitam clientes sem tipo */
 import fs from 'fs'
 import path from 'path'
 import type { NextApiRequest, NextApiResponse } from 'next'
 
+import * as catalogo from '@/utils/atendimentos-ia-catalogo'
 import {
-    CATEGORIA_QUE_EXIGE_MOTOR, MENSAGEM_MOTOR_INCOMPLETO, MENSAGEM_MOTOR_NAO_SAI, MENSAGEM_MOTOR_OBRIGATORIO,
-    ehTravaDoMotorPelaMetade, ehTravaDoPerfilSemMotor, fraseDaVigenteQueJaExiste, lerCorpoDaTabela, lerEdicaoDaTabela, recusada,
+    MENSAGEM_MOTOR_INCOMPLETO, MENSAGEM_MOTOR_NAO_SAI, ehTravaDoMotorPelaMetade, fraseDaVigenteQueJaExiste, lerCorpoDaTabela, lerEdicaoDaTabela, recusada,
 } from '@/utils/atendimentos-ia-catalogo'
 
 interface Perfil { id: string; tenant_id: string | null; role: string; is_super_admin: boolean }
@@ -87,41 +89,48 @@ beforeEach(() => {
     repo.objetoExiste.mockImplementation(async () => true)
 })
 
-const MIGRACAO = fs.readFileSync(path.join(__dirname, '..', '..', '..', 'supabase', 'migrations', '20261027000007_motor_so_para_perfil.sql'), 'utf8')
+const MIGRACAO_DE_MANHA = fs.readFileSync(path.join(__dirname, '..', '..', '..', 'supabase', 'migrations', '20261027000007_motor_so_para_perfil.sql'), 'utf8')
+const MIGRACAO = fs.readFileSync(path.join(__dirname, '..', '..', '..', 'supabase', 'migrations', '20261027000009_tira_perfil_exige_motor.sql'), 'utf8')
+const executavelDe = (sql: string) => sql.split('\n').filter((l) => !l.trimStart().startsWith('--')).join('\n')
 const DA_ETAPA = fs.readFileSync(path.join(__dirname, '..', '..', '..', 'supabase', 'migrations', '20261027000008_etapa_aponta_o_motor.sql'), 'utf8')
 
 const CORPO = { fornecedor_id: F, arquivo_path: `${F}/arquivo/a-t.xlsx`, arquivo_nome: 't.xlsx', motor_path: `${F}/motor/a-m.xlsx`, motor_nome: 'm.xlsx', vigencia: null as string | null, familia: 'PVC', categoria_chave: 'PERFIL' }
 const semMotor = (extra: object = {}) => ({ ...CORPO, motor_path: undefined as string | undefined, motor_nome: undefined as string | undefined, ...extra })
 
-describe('(1) a paridade com a migração 20261027000007', () => {
-    it('a categoria que exige motor no código é a do literal da CHECK', () => {
-        expect(CATEGORIA_QUE_EXIGE_MOTOR).toBe('PERFIL')
-        // "ter motor" é ter um caminho com algum caractere que não seja espaço: NULL, '' e '   ' NÃO são motor (achado do dono do produto, 27/10/2026)
-        expect(MIGRACAO).toContain(`CHECK (categoria_chave IS DISTINCT FROM '${CATEGORIA_QUE_EXIGE_MOTOR}' OR coalesce(motor_path ~ '[^[:space:]]', false))`)
-        expect(MIGRACAO).not.toContain('motor_path IS NOT NULL)')
+describe('(1) a paridade com a migração 20261027000009', () => {
+    it('a 000009 remove SÓ a CHECK do Perfil: um DROP CONSTRAINT, e é o dela', () => {
+        const exe = executavelDe(MIGRACAO)
+        expect(exe.match(/DROP\s+CONSTRAINT/gi)).toHaveLength(1)
+        expect(exe).toContain('DROP CONSTRAINT IF EXISTS orcamentista_tabela_perfil_exige_motor;')
+        expect(exe).not.toMatch(/DROP\s+CONSTRAINT[^;]*orcamentista_tabela_motor_par/i)
     })
 
-    it('as duas CHECK que a rota reconhece pelo nome são as que a migração cria', () => {
-        for (const nome of ['orcamentista_tabela_perfil_exige_motor', 'orcamentista_tabela_motor_par']) {
-            expect(MIGRACAO).toContain(`ADD CONSTRAINT ${nome} CHECK`)
-        }
-        expect(ehTravaDoPerfilSemMotor(new ErroDoBanco({ code: '23514', message: 'violates check constraint "orcamentista_tabela_perfil_exige_motor"' }))).toBe(true)
+    it('a definição do par que a 000009 confere é a que a 000007 criou, e a CHECK do Perfil é a que a 000009 tira', () => {
+        const par = "CHECK ((motor_path IS NULL) = (motor_nome IS NULL))"
+        expect(MIGRACAO_DE_MANHA).toContain(`ADD CONSTRAINT orcamentista_tabela_motor_par ${par}`)
+        expect(MIGRACAO).toContain("'CHECK (((motor_path IS NULL) = (motor_nome IS NULL)))'")
+        expect(MIGRACAO_DE_MANHA).toContain('ADD CONSTRAINT orcamentista_tabela_perfil_exige_motor CHECK')
+    })
+
+    it('o código reconhece pelo nome só a CHECK que sobrou', () => {
         expect(ehTravaDoMotorPelaMetade(new ErroDoBanco({ code: '23514', message: 'violates check constraint "orcamentista_tabela_motor_par"' }))).toBe(true)
-        // e uma reconhece só a sua
-        expect(ehTravaDoPerfilSemMotor(new ErroDoBanco({ code: '23514', message: 'violates check constraint "orcamentista_tabela_motor_par"' }))).toBe(false)
         expect(ehTravaDoMotorPelaMetade(new ErroDoBanco({ code: '23514', message: 'violates check constraint "orcamentista_tabela_perfil_exige_motor"' }))).toBe(false)
     })
 
-    it('a migração solta o NOT NULL das duas colunas, e só delas', () => {
-        expect(MIGRACAO).toContain('ALTER COLUMN motor_path DROP NOT NULL')
-        expect(MIGRACAO).toContain('ALTER COLUMN motor_nome DROP NOT NULL')
-        const executavel = MIGRACAO.split('\n').filter((l) => !l.trimStart().startsWith('--')).join('\n')
-        expect(executavel.match(/DROP NOT NULL/g)).toHaveLength(2)
+    it('o código NÃO exporta mais a exigência do Perfil (a constante, a frase e a trava)', () => {
+        for (const nome of ['CATEGORIA_QUE_EXIGE_MOTOR', 'MENSAGEM_MOTOR_OBRIGATORIO', 'ehTravaDoPerfilSemMotor']) {
+            expect(Object.keys(catalogo)).not.toContain(nome)
+        }
+        expect(Object.keys(catalogo)).toEqual(expect.arrayContaining(['MENSAGEM_MOTOR_INCOMPLETO', 'MENSAGEM_MOTOR_NAO_SAI', 'ehTravaDoMotorPelaMetade']))
     })
 
-    it('a migração NÃO escreve dado: nenhum UPDATE, DELETE, DROP TABLE ou TRUNCATE executável', () => {
-        const executavel = MIGRACAO.split('\n').filter((l) => !l.trimStart().startsWith('--')).join('\n')
-        expect(executavel).not.toMatch(/\b(UPDATE|DELETE\s+FROM|TRUNCATE|DROP\s+TABLE|INSERT\s+INTO)\b/i)
+    it('a 000009 NÃO escreve dado nem mexe em coluna: nenhum UPDATE, DELETE, INSERT, TRUNCATE, DROP TABLE, DROP COLUMN ou ALTER COLUMN', () => {
+        expect(executavelDe(MIGRACAO)).not.toMatch(/\b(UPDATE|DELETE\s+FROM|TRUNCATE|DROP\s+TABLE|DROP\s+COLUMN|ALTER\s+COLUMN|INSERT\s+INTO)\b/i)
+    })
+
+    it('a 000009 pressupõe a 000007 e diz isso: a guarda exige a CHECK do par', () => {
+        expect(MIGRACAO).toContain("conname = 'orcamentista_tabela_motor_par'")
+        expect(MIGRACAO).toContain('20261027000007')
     })
 })
 
@@ -146,17 +155,12 @@ describe('(1b) a paridade com a migração 20261027000008 — o que a etapa acei
 })
 
 describe('(2) os leitores', () => {
-    it('PERFIL sem motor (ausente ou em branco) é recusa com a frase do Perfil', () => {
-        for (const corpo of [semMotor(), { ...CORPO, motor_path: '  ', motor_nome: '  ' }, { ...CORPO, motor_path: null, motor_nome: null }]) {
+    it.each(['PERFIL', 'REFORCO', 'ACESSORIOS_VEDACAO', 'VIDRO', 'FERRAGENS'])('%s sem motor (ausente, em branco ou nulo) passa, e o corpo leva motor nulo — nunca vazio', (categoria_chave) => {
+        for (const corpo of [semMotor({ categoria_chave }), { ...CORPO, categoria_chave, motor_path: '  ', motor_nome: '  ' }, { ...CORPO, categoria_chave, motor_path: null, motor_nome: null }]) {
             const l = lerCorpoDaTabela(corpo)
-            expect(recusada(l) && l.erro).toBe(MENSAGEM_MOTOR_OBRIGATORIO)
+            expect(recusada(l)).toBe(false)
+            if (!recusada(l)) expect([l.corpo.motor_path, l.corpo.motor_nome]).toEqual([null, null])
         }
-    })
-
-    it.each(['REFORCO', 'ACESSORIOS_VEDACAO', 'VIDRO', 'FERRAGENS'])('%s sem motor passa, e o corpo leva motor nulo — nunca vazio', (categoria_chave) => {
-        const l = lerCorpoDaTabela(semMotor({ categoria_chave }))
-        expect(recusada(l)).toBe(false)
-        if (!recusada(l)) expect([l.corpo.motor_path, l.corpo.motor_nome]).toEqual([null, null])
     })
 
     it('o motor que VEM, vem inteiro, em qualquer categoria (a Estrela, de Vidro, já tem o dela)', () => {
@@ -171,9 +175,9 @@ describe('(2) os leitores', () => {
         }
     })
 
-    it('a categoria inválida é recusada ANTES do motor: a frase da categoria, não a do motor', () => {
+    it('a categoria inválida continua recusada, com a frase da categoria — sem motor ela é a única razão', () => {
         const l = lerCorpoDaTabela(semMotor({ categoria_chave: 'perfil' }))
-        expect(recusada(l) && l.erro).not.toBe(MENSAGEM_MOTOR_OBRIGATORIO)
+        expect(recusada(l) && l.erro).toBe(catalogo.MENSAGEM_CATEGORIA_OBRIGATORIA)
     })
 
     it('o motor fora da pasta do fornecedor continua recusado, e o nulo não derruba a conferência', () => {
@@ -194,11 +198,10 @@ describe('(2) os leitores', () => {
 })
 
 describe('(3) PATCH /tabelas/[id]', () => {
-    it('declarar PERFIL numa tabela SEM motor é 400 com a frase do Perfil, e nada é gravado', async () => {
+    it('declarar PERFIL numa tabela SEM motor passa: o motor não é exigido em categoria nenhuma, e só a categoria é gravada', async () => {
         const r = await patch({ categoria_chave: 'PERFIL' })
-        expect(r.status).toBe(400)
-        expect(r.json.error).toBe(MENSAGEM_MOTOR_OBRIGATORIO)
-        expect(repo.atualizarTabela).not.toHaveBeenCalled()
+        expect(r.status).toBe(200)
+        expect(repo.atualizarTabela).toHaveBeenCalledWith(T, { categoria_chave: 'PERFIL' })
     })
 
     it('declarar PERFIL COM o motor chegando junto passa, e grava os dois', async () => {
@@ -225,10 +228,7 @@ describe('(3) PATCH /tabelas/[id]', () => {
         expect(repo.atualizarTabela).not.toHaveBeenCalled()
     })
 
-    it('as duas CHECK do banco (corrida) viram frase, e não 500', async () => {
-        repo.atualizarTabela.mockImplementationOnce(async () => { throw new ErroDoBanco({ code: '23514', message: 'violates check constraint "orcamentista_tabela_perfil_exige_motor"' }) })
-        const a = await patch({ vigencia: 'x' })
-        expect([a.status, a.json.error]).toEqual([400, MENSAGEM_MOTOR_OBRIGATORIO])
+    it('a CHECK do par (corrida) vira a frase da metade, e não 500', async () => {
         repo.atualizarTabela.mockImplementationOnce(async () => { throw new ErroDoBanco({ code: '23514', message: 'violates check constraint "orcamentista_tabela_motor_par"' }) })
         const b = await patch({ vigencia: 'x' })
         expect([b.status, b.json.error]).toEqual([400, MENSAGEM_MOTOR_INCOMPLETO])
