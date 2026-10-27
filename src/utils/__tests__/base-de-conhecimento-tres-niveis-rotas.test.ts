@@ -490,6 +490,27 @@ describe('(6) GET — a árvore inteira da empresa, numa resposta só', () => {
         })
     })
 
+    // Com DUAS tabelas da Wolff na mesma família, só a VIGENTE vale (26/10/2026): as linhas são as dela, e as da
+    // antiga não entram. Sem nenhuma marcada, nenhuma vale — e a Wolff fica sem chave, como "sem tabela em uso".
+    const comSegundaDaWolff = (vigente: boolean) => {
+        const SEGUNDA = '00000000-0000-4000-8000-00000000ab09'
+        estado.db.orcamentista_tabela.push({ id: SEGUNDA, fornecedor_id: F_WOLFF, vigente })
+        estado.db.orcamentista_motor_formula_familia.push({ tabela_id: SEGUNDA, linha: 'LINHA NOVA' })
+        estado.db.orcamentista_motor_regra.push({ tabela_id: SEGUNDA, linha: 'LINHA NOVA' })
+    }
+
+    it('duas tabelas da Wolff, a nova VIGENTE: as linhas são só as dela', async () => {
+        comSegundaDaWolff(true)
+        const r = await chamar('arvore', 'GET', { tenant: T_A })
+        expect(r.json.linhas_por_fornecedor[F_WOLFF]).toEqual({ formula: ['LINHA NOVA'], regra: ['LINHA NOVA'] })
+    })
+
+    it('duas tabelas da Wolff, nenhuma vigente: nenhuma vale, e a Wolff fica sem chave', async () => {
+        comSegundaDaWolff(false)
+        const r = await chamar('arvore', 'GET', { tenant: T_A })
+        expect(F_WOLFF in r.json.linhas_por_fornecedor).toBe(false)
+    })
+
     it('o contraste: a outra empresa vê as linhas da tabela DELA; a do fornecedor que ela não vincula não entra', async () => {
         vincularAsTabelas()
         const r = await chamar('arvore', 'GET', { tenant: T_B })
