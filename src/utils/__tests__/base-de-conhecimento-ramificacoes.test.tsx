@@ -19,7 +19,7 @@ import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import {
     arvoreDoDepois, categoriasDaMateriaPrima, categoriasForaDaFamilia, categoriaTemConteudo, familiaDeclaraRamificacao, formularioDaArvore, novaMateriaPrima,
-    type ArvoreLida, type EstadoDaArvore,
+    type ArvoreLida, type CategoriaLida, type EstadoDaArvore,
 } from '@/page-parts/atendimentos-ia/base-de-conhecimento/arvore'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -52,7 +52,7 @@ const RAMIFICACOES = [
 ]
 const FAMILIAS = [{ chave: 'PVC', rotulo: 'PVC', ordem: 1 }, { chave: 'ALUMINIO', rotulo: 'Alumínio', ordem: 2 }, { chave: 'PORTAS', rotulo: 'Portas de ACM', ordem: 3 }]
 
-const cat = (mp: string, chave: string, resto: Linha = {}): Linha => ({ id: `${mp}-${chave}`, materia_prima_id: mp, categoria_chave: chave, config: null, fornecedores: [], ...resto })
+const cat = (mp: string, chave: string, resto: Linha = {}): CategoriaLida => ({ id: `${mp}-${chave}`, materia_prima_id: mp, categoria_chave: chave, config: null, fornecedores: [], ...resto })
 const todas = (mp: string, extra: Record<string, Linha> = {}) => CATEGORIAS.map((c) => cat(mp, c.chave, extra[c.chave] ?? {}))
 
 function arvore(): ArvoreLida {
@@ -293,7 +293,7 @@ describe('(5) a família se escolhe da lista, pela rota, e só sem pendência', 
     it('catálogo sem famílias na resposta (servidor antigo): nenhum bloco de família, e a lista de categorias é a de antes', async () => {
         const a = arvore()
         const { familias: _f, ramificacoes: _r, ...catalogo } = a.catalogo
-        const { host } = await montar({ arvore: { ...a, catalogo, materias_primas: a.materias_primas.map((m) => ({ ...m, familia: undefined })) } })
+        const { host } = await montar({ arvore: { ...a, catalogo, materias_primas: a.materias_primas.map((m) => ({ ...m, familia: undefined as string | undefined })) } })
         expect(host.querySelector('[data-familia-da-materia-prima]')).toBeNull()
         expect(categoriasDo(host, 0)).toHaveLength(6)
     })
