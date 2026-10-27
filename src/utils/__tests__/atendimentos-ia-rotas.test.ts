@@ -176,14 +176,17 @@ describe('PORTÃO — o arquivo do motor é exigido só na tabela de Perfil, e p
         const r = await chamar('tabelas', 'POST', {}, { ...CORPO_DA_TABELA, categoria_chave, motor_path: undefined, motor_nome: undefined })
         expect(r.status).toBe(201)
         expect(repo.criarTabela).toHaveBeenCalledWith(expect.objectContaining({ categoria_chave, motor_path: null, motor_nome: null }))
-        expect(repo.objetoExiste).not.toHaveBeenCalledWith(CORPO_DA_TABELA.motor_path)
+        expect(repo.objetoExiste.mock.calls.map((c) => c[0])).toEqual([CORPO_DA_TABELA.arquivo_path])
     })
 
-    it('a trava do banco (23514) sobe como 400 com a frase, e não como 500', async () => {
-        repo.criarTabela.mockImplementationOnce(async () => { throw new ErroDoBanco({ code: '23514', message: 'new row violates check constraint "orcamentista_tabela_perfil_exige_motor"' }) })
+    it.each([
+        ['orcamentista_tabela_perfil_exige_motor', MENSAGEM_MOTOR_OBRIGATORIO],
+        ['orcamentista_tabela_motor_par', MENSAGEM_MOTOR_INCOMPLETO],
+    ])('a trava do banco (23514, %s) sobe como 400 com a frase, e não como 500', async (trava, frase) => {
+        repo.criarTabela.mockImplementationOnce(async () => { throw new ErroDoBanco({ code: '23514', message: `new row violates check constraint "${trava}"` }) })
         const r = await chamar('tabelas', 'POST', {}, CORPO_DA_TABELA)
         expect(r.status).toBe(400)
-        expect(r.json.error).toBe(MENSAGEM_MOTOR_OBRIGATORIO)
+        expect(r.json.error).toBe(frase)
     })
 
     it('com o motor, grava — e grava o motor', async () => {
@@ -275,6 +278,14 @@ describe('PORTÃO — apagar tabela: a LINHA primeiro, depois o Storage', () => 
         expect(r.json.aviso).toBeUndefined()
     })
 
+    it('a tabela de preço puro (sem motor): só o caminho do arquivo é conferido e removido — nenhum nulo vai ao armazenamento', async () => {
+        repo.obterTabela.mockImplementationOnce(async () => ({ id: T, fornecedor_id: F, arquivo_path: `${F}/arquivo/x-t.xlsx`, motor_path: null, categoria_chave: 'REFORCO' }))
+        const r = await chamar('tabela', 'DELETE', { id: T })
+        expect(r.status).toBe(200)
+        expect(repo.caminhosDaPlanilha).toHaveBeenCalledWith([`${F}/arquivo/x-t.xlsx`])
+        expect(repo.removerObjetos).toHaveBeenCalledWith([`${F}/arquivo/x-t.xlsx`])
+    })
+
     it('Storage que falha deixa ÓRFÃO e AVISA — não é 500, e a exclusão vale', async () => {
         repo.removerObjetos.mockImplementationOnce(async () => { ordem.push('removerObjetos'); return { erro: 'storage fora' } })
         const r = await chamar('tabela', 'DELETE', { id: T })
@@ -287,6 +298,17 @@ describe('PORTÃO — apagar tabela: a LINHA primeiro, depois o Storage', () => 
         expect(r.status).toBe(200)
         expect(ordem.indexOf('atualizarTabela')).toBeLessThan(ordem.indexOf('removerObjetos'))
         expect(repo.removerObjetos).toHaveBeenCalledWith([`${F}/motor/x-m.xlsx`])
+    })
+})
+
+describe('PORTÃO — dar o motor a uma tabela que não tinha: não há objeto antigo a remover', () => {
+    it('PATCH com o motor numa tabela de motor nulo: grava, e nada é conferido nem removido do armazenamento', async () => {
+        repo.obterTabela.mockImplementationOnce(async () => ({ id: T, fornecedor_id: F, arquivo_path: `${F}/arquivo/x-t.xlsx`, motor_path: null, categoria_chave: 'PERFIL' }))
+        const r = await chamar('tabela', 'PATCH', { id: T }, { motor_path: `${F}/motor/novo-m.xlsx`, motor_nome: 'novo.xlsx' })
+        expect(r.status).toBe(200)
+        expect(repo.atualizarTabela).toHaveBeenCalledWith(T, expect.objectContaining({ motor_path: `${F}/motor/novo-m.xlsx`, motor_nome: 'novo.xlsx' }))
+        expect(repo.caminhosDaPlanilha).toHaveBeenCalledWith([])
+        expect(repo.removerObjetos).toHaveBeenCalledWith([])
     })
 })
 

@@ -77,15 +77,18 @@ jest.mock('@/supabase/admin', () => ({
             const filtros: Array<(l: Linha) => boolean> = []
             const ordem: Array<[string, boolean]> = []
             const q: any = {}
-            q.select = () => q
+            // como o PostgREST: só voltam as colunas PEDIDAS — pedir de menos faz o campo sumir da linha (o #158 E13)
+            let pedidas: string[] | null = null
+            q.select = (colunas?: string) => { pedidas = colunas && colunas !== '*' ? colunas.split(',').map((c) => c.trim()) : null; return q }
             q.eq = (c: string, v: unknown) => { filtros.push((l) => l[c] === v); return q }
             q.is = (c: string, v: unknown) => { filtros.push((l) => (l[c] ?? null) === v); return q }
             q.in = (c: string, vs: unknown[]) => { filtros.push((l) => vs.includes(l[c])); return q }
             q.order = (c: string, o?: { ascending?: boolean }) => { ordem.push([c, o?.ascending !== false]); return q }
             const linhas = () => {
                 let ls = (estado.db[tabela] ?? []).filter((l) => filtros.every((f) => f(l)))
+                const projetar = (l: Linha) => (pedidas ? Object.fromEntries(pedidas.map((c) => [c, l[c]])) : l)
                 for (const [c, asc] of [...ordem].reverse()) ls = [...ls].sort((a, b) => (a[c] < b[c] ? -1 : a[c] > b[c] ? 1 : 0) * (asc ? 1 : -1))
-                return ls
+                return ls.map(projetar)
             }
             q.single = async (): Promise<{ data: Linha | null; error: null }> => ({ data: linhas()[0] ?? null, error: null })
             q.maybeSingle = async (): Promise<{ data: Linha | null; error: null }> => { estado.leituras.push(tabela); return { data: linhas()[0] ?? null, error: null } }

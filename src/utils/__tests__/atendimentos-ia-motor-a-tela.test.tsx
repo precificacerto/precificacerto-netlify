@@ -368,3 +368,41 @@ describe('(9) arquivar a planilha: com confirmação, sem excluir', () => {
         expect(host.querySelector(`[data-tabela-do-motor="${T1}"] [data-arquivar-motor]`)).toBeNull()
     })
 })
+
+describe('(10) o CABEÇALHO das etapas e a planilha da família (27/10/2026)', () => {
+    const MF = '00000000-0000-4000-8000-0000000000f9'
+    const comResumo = (extra: Record<string, unknown>) => { respostas[`GET ${ROTAS_DO_MOTOR.resumo(CONTA)}`] = { status: 200, body: { ...RESUMO, ...extra } } }
+
+    it('por família que a conta usa, um cartão ANTES das planilhas: etapa por etapa, o motor que aponta — ou "sem motor apontado"', async () => {
+        comResumo({ etapas_das_familias: [{ familia: 'PVC', etapas: [{ numero: 1, rotulo: 'Apanhar', motor: { id: M1, arquivo_nome: 'Motor_Wolf_PVC.xlsm' } }, { numero: 2, rotulo: 'Confirmar', motor: null }] }] })
+        const host = await montar()
+        const cartao = host.querySelector('[data-etapas-da-familia="PVC"]') as HTMLElement
+        expect(cartao).toBeTruthy()
+        expect(cartao.textContent).toContain('Motores das etapas — PVC')
+        expect(cartao.querySelector('[data-etapa-do-motor="1"]')!.textContent).toBe('Etapa 1 — Apanhar: Motor_Wolf_PVC.xlsm')
+        expect(cartao.querySelector('[data-etapa-do-motor="2"]')!.textContent).toBe('Etapa 2 — Confirmar: sem motor apontado')
+        // ANTES dos fornecedores: o cartão precede o da planilha no documento
+        const planilha = host.querySelector(`[data-planilha-do-motor="${M1}"]`) as HTMLElement
+        expect(cartao.compareDocumentPosition(planilha) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    })
+
+    it('sem etapa cadastrada: nenhum cartão de etapas', async () => {
+        const host = await montar()
+        expect(host.querySelector('[data-etapas-da-familia]')).toBeNull()
+    })
+
+    it('a planilha da FAMÍLIA, sem fornecedor, aparece com o título "Da família", e não some nem vira "null"', async () => {
+        comResumo({ planilhas: [{ ...RESUMO.planilhas[0], motor_id: MF, fornecedor: null, arquivo_nome: 'Motor PVC da família.xlsm', contas_usando: ['Esquadrias De Paula'] }] })
+        const host = await montar()
+        const cartao = host.querySelector(`[data-planilha-do-motor="${MF}"]`) as HTMLElement
+        expect(cartao).toBeTruthy()
+        expect(cartao.textContent).toContain('Da família — Motor PVC da família.xlsm')
+        expect(cartao.textContent).not.toContain('null')
+    })
+
+    it('o par sem vigente de UMA categoria nomeia a categoria no aviso', async () => {
+        comResumo({ avisos: { fornecedores_sem_tabela: [], pares_sem_vigente: [{ fornecedor: 'Wolff Perfis', familia: 'PVC', categoria: 'REFORCO', arquivos: ['Reforço 2026.xlsx', 'Reforço 2027.xlsx'] }], nenhuma_com_motor: false } })
+        const host = await montar()
+        expect(host.querySelector('[data-aviso="par-sem-vigente"]')!.textContent).toContain('categoria REFORCO')
+    })
+})

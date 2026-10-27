@@ -590,6 +590,17 @@ describe('(9) a planilha da FAMÍLIA (sem fornecedor) aparece para a conta que u
         expect((await chamar('motor', { tenantId: CONTA })).corpo.etapas_das_familias).toEqual([])
     })
 
+    it('familiasDaConta é EXATAMENTE o conjunto das famílias informadas: a matéria-prima sem família e a tabela sem família não entram', async () => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { familiasDaConta, contasQueUsamAFamilia } = require('@/lib/atendimentos-ia/tabelas-da-conta') as typeof import('@/lib/atendimentos-ia/tabelas-da-conta')
+        estado.db.orcamentista_materia_prima.push({ id: 'mp-2', tenant_id: CONTA, nome: 'Sem família', ordem: 2, familia: null })
+        daMateria('PVC')
+        expect([...(await familiasDaConta(CONTA))]).toEqual(['PVC'])
+        daMateria(null)
+        expect([...(await familiasDaConta(CONTA))]).toEqual([])
+        expect(await contasQueUsamAFamilia('PVC')).toEqual(['00000000-0000-4000-8000-0000000000b2'])
+    })
+
     it('o cabeçalho e a planilha da família são só leitura: nenhuma escrita e nenhuma função chamadas pelo resumo', async () => {
         comAsPlanilhasDaFamilia()
         daMateria('PVC')
