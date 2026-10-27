@@ -33,6 +33,7 @@ import {
     arvoreDoDepois, formularioDaArvore, planoDaArvore, type ArvoreLida, type EstadoDaArvore,
 } from '@/page-parts/atendimentos-ia/base-de-conhecimento/arvore'
 import { MateriasPrimas } from '@/page-parts/atendimentos-ia/base-de-conhecimento/materias-primas.component'
+import { EtapasDaFamilia } from '@/page-parts/atendimentos-ia/etapas-da-familia.component'
 
 type Linha = Record<string, unknown>
 export interface BaseDaEmpresa {
@@ -109,6 +110,7 @@ export function BaseDeConhecimento({ tenantId, topo }: { tenantId: string; topo:
     const [salvando, setSalvando] = useState(false)
     const [resultado, setResultado] = useState<Resultado | null>(null)
     const [erroDaFamilia, setErroDaFamilia] = useState<{ materiaPrimaId: string; mensagem: string } | null>(null)
+    const [erroDoNome, setErroDoNome] = useState<{ materiaPrimaId: string; mensagem: string } | null>(null)
 
     const ler = useCallback(async () => chamarRota<BaseDaEmpresa>(ROTAS_DA_BASE.base(tenantId)), [tenantId])
 
@@ -173,6 +175,20 @@ export function BaseDeConhecimento({ tenantId, topo }: { tenantId: string; topo:
             message.success('Família da matéria-prima salva')
         } catch (e) {
             setErroDaFamilia({ materiaPrimaId, mensagem: (e as Error).message })
+        }
+    }
+
+    /** O título da família é o nome da matéria-prima: grava na hora, por rota própria, e relê a árvore — só sem alteração pendente. */
+    async function renomear(materiaPrimaId: string, nome: string) {
+        setErroDoNome(null)
+        try {
+            await chamarRota(ROTAS_DA_BASE.nomeDaMateriaPrima(tenantId), 'PUT', { materia_prima: materiaPrimaId, nome })
+            const nova = await chamarRota<ArvoreLida>(ROTAS_DA_BASE.arvore(tenantId))
+            setArvore(nova)
+            setFormArvore(formularioDaArvore(nova))
+            message.success('Título salvo')
+        } catch (e) {
+            setErroDoNome({ materiaPrimaId, mensagem: (e as Error).message })
         }
     }
 
@@ -267,7 +283,8 @@ export function BaseDeConhecimento({ tenantId, topo }: { tenantId: string; topo:
             erros={planoArvore?.erros ?? []}
             erroDaRota={avisoDaArvore && 'rota' in avisoDaArvore ? avisoDaArvore.rota : null}
             naoEnviado={avisoDaArvore && 'locais' in avisoDaArvore ? avisoDaArvore.locais : null}
-            aoMudarAFamilia={mudarAFamilia} familiaTravada={pendentes > 0} erroDaFamilia={erroDaFamilia} />
+            aoMudarAFamilia={mudarAFamilia} familiaTravada={pendentes > 0} erroDaFamilia={erroDaFamilia}
+            aoRenomear={renomear} erroDoNome={erroDoNome} motoresDaFamilia={(f) => <EtapasDaFamilia familia={f} />} />
     )
 
     const mudarLinha = (set: React.Dispatch<React.SetStateAction<Linhas>>, id: string, p: Partial<LinhaDaLista> | { valor: [string, unknown] }) =>

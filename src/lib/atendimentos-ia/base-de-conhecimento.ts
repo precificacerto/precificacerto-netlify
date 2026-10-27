@@ -296,6 +296,28 @@ export function errosDoCorpoVazio(corpo: unknown): ErroNomeado[] {
         : { campo: k, mensagem: 'campo desconhecido: este pedido não tem corpo' }))
 }
 
+/** O nome (o título da família na tela) tem de 1 a 80 caracteres: o mesmo limite que a função do banco confere. */
+export const LIMITE_DO_NOME_DA_MATERIA_PRIMA = 80
+
+/**
+ * O corpo do PUT /nome-da-materia-prima: `{ materia_prima: uuid, nome: texto }`. O título da família é DIGITADO pelo consultor
+ * (dono do produto, 27/10/2026) e é o `nome` da matéria-prima; a função confere de novo (1 a 80 caracteres, sem repetir outro nome da
+ * mesma empresa). Aqui só o formato: campo a mais é erro, e o autor é o da sessão (`por` não é aceito).
+ */
+export function lerCorpoDoNomeDaMateriaPrima(corpo: unknown): { materia_prima: string; nome: string; erros: ErroNomeado[] } {
+    const b = corpo && typeof corpo === 'object' && !Array.isArray(corpo) ? (corpo as Record<string, unknown>) : null
+    if (!b) return { materia_prima: '', nome: '', erros: [{ campo: 'corpo', mensagem: 'o corpo é { materia_prima, nome }' }] }
+    const erros: ErroNomeado[] = Object.keys(b).filter((k) => k !== 'materia_prima' && k !== 'nome').map((k) => (k === 'por'
+        ? { campo: 'por', mensagem: 'o autor é o usuário da sessão: `por` no corpo não é aceito' }
+        : { campo: k, mensagem: 'campo desconhecido (só materia_prima e nome)' }))
+    if (typeof b.materia_prima !== 'string' || !UUID.test(b.materia_prima)) erros.push({ campo: 'materia_prima', mensagem: 'obrigatório: o id da matéria-prima' })
+    const nome = typeof b.nome === 'string' ? b.nome.trim() : ''
+    if (typeof b.nome !== 'string') erros.push({ campo: 'nome', mensagem: 'obrigatório: o nome é um texto' })
+    else if (nome === '') erros.push({ campo: 'nome', mensagem: 'o nome não pode ficar vazio' })
+    else if ([...nome].length > LIMITE_DO_NOME_DA_MATERIA_PRIMA) erros.push({ campo: 'nome', mensagem: `o nome passa de ${LIMITE_DO_NOME_DA_MATERIA_PRIMA} caracteres` })
+    return { materia_prima: typeof b.materia_prima === 'string' ? b.materia_prima : '', nome, erros }
+}
+
 /**
  * O corpo do PUT /familia-da-materia-prima: `{ materia_prima: uuid, familia: texto | null }`. A família AUSENTE não é
  * null — ausente não limpa por omissão: quem quer limpar manda `null`. O autor é o da sessão (`por` é erro).

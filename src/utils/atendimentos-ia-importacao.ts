@@ -464,6 +464,59 @@ function aba(wb: ExcelJS.Workbook, nomeDoArquivo: string, nome: string): ExcelJS
         ?? fraseDoArquivo(nomeDoArquivo, `não tem a aba "${nome}". Abas encontradas: ${wb.worksheets.map((w) => `"${w.name}"`).join(', ') || 'nenhuma'}.`)
 }
 
+/**
+ * A leitura do ARQUIVO DO MOTOR, uma só para os dois caminhos: a importação da tabela (`lerArquivosDaImportacao`) e o motor que
+ * a etapa da família sobe (`lerArquivoDoMotor`). As abas exigidas, a recusa com todas as frases de uma vez e o resumo por tipologia
+ * moram aqui UMA vez — a segunda cópia seria o defeito de `copia-divergente.md`.
+ */
+async function lerOMotor(arquivo: ArquivoDaImportacao) {
+    const wbMotor = await abrir(arquivo)
+    if (typeof wbMotor === 'string') return { ok: false as const, erro: wbMotor }
+    const wsMotor = aba(wbMotor, arquivo.nome, ABAS_DA_IMPORTACAO.motor)
+    if (typeof wsMotor === 'string') return { ok: false as const, erro: wsMotor }
+    const wsFormulasDaLinha = aba(wbMotor, arquivo.nome, ABAS_DA_IMPORTACAO.formulasDaLinha)
+    if (typeof wsFormulasDaLinha === 'string') return { ok: false as const, erro: wsFormulasDaLinha }
+
+    // as nove abas por tipologia: uma aba ou coluna que falte, um valor inválido ou uma chave repetida
+    // RECUSAM a importação inteira, com todas as frases de uma vez — nada é gravado pela metade
+    const abasDoMotor = lerAbasDoMotor(wbMotor)
+    if ('erros' in abasDoMotor) return { ok: false as const, erro: fraseDoArquivo(arquivo.nome, abasDoMotor.erros.join(' ')) }
+
+    const motor = lerMotor(wsMotor)
+    const formulasDaLinha = lerFormulasDaLinha(wsFormulasDaLinha)
+    const resumo = resumirTipologias(motor.regras)
+    return { ok: true as const, motor, formulasDaLinha, resumo, abasDoMotor }
+}
+
+/** O que sai da leitura do arquivo do motor SOZINHO (sem tabela de preço): o payload de `superadmin_criar_motor_da_etapa`. */
+export type ResultadoDoMotor =
+    | {
+        ok: true; regras: RegraLida[]; tipologias: TipologiaLida[]; formulas: FormulaLida[]; avisos: Aviso[]
+        /** As nove abas por tipologia (`ABAS_DO_MOTOR`), pela chave do payload. */
+        abas: Record<string, LinhaDoBanco[]>
+        contagens: { regras: number; tipologias: number; normalizados: number }
+    }
+    | { ok: false; erro: string }
+
+/**
+ * Lê o arquivo do motor que a ETAPA sobe (27/10/2026): sem tabela de preço, sem cruzamento, sem itens. O motor é da família, e
+ * quem o lê é o mesmo leitor da importação (`lerOMotor`) — as mesmas abas, as mesmas recusas.
+ */
+export async function lerArquivoDoMotor(arquivo: ArquivoDaImportacao): Promise<ResultadoDoMotor> {
+    const lido = await lerOMotor(arquivo)
+    if (lido.ok === false) return { ok: false, erro: lido.erro }
+    const { motor, formulasDaLinha, resumo, abasDoMotor } = lido
+    return {
+        ok: true,
+        regras: motor.regras,
+        tipologias: resumo.tipologias,
+        formulas: formulasDaLinha.formulas,
+        abas: abasDoMotor.linhas,
+        contagens: { regras: motor.regras.length, tipologias: resumo.tipologias.length, normalizados: motor.normalizados },
+        avisos: [...motor.avisos, ...formulasDaLinha.avisos, ...resumo.avisos],
+    }
+}
+
 /** Lê os dois arquivos e devolve as linhas prontas para gravar, as contagens e os avisos. */
 export async function lerArquivosDaImportacao(arquivos: { tabela: ArquivoDaImportacao; motor: ArquivoDaImportacao | null }): Promise<ResultadoDaLeitura> {
     const wbTabela = await abrir(arquivos.tabela)
@@ -486,23 +539,11 @@ export async function lerArquivosDaImportacao(arquivos: { tabela: ArquivoDaImpor
             avisos: soPreco.avisos,
         }
     }
-    const wbMotor = await abrir(arquivos.motor)
-    if (typeof wbMotor === 'string') return { ok: false, erro: wbMotor }
-    const wsMotor = aba(wbMotor, arquivos.motor.nome, ABAS_DA_IMPORTACAO.motor)
-    if (typeof wsMotor === 'string') return { ok: false, erro: wsMotor }
-    const wsFormulasDaLinha = aba(wbMotor, arquivos.motor.nome, ABAS_DA_IMPORTACAO.formulasDaLinha)
-    if (typeof wsFormulasDaLinha === 'string') return { ok: false, erro: wsFormulasDaLinha }
-
-    // as nove abas por tipologia: uma aba ou coluna que falte, um valor inválido ou uma chave repetida
-    // RECUSAM a importação inteira, com todas as frases de uma vez — nada é gravado pela metade
-    const abasDoMotor = lerAbasDoMotor(wbMotor)
-    if ('erros' in abasDoMotor) return { ok: false, erro: fraseDoArquivo(arquivos.motor.nome, abasDoMotor.erros.join(' ')) }
+    const doMotor = await lerOMotor(arquivos.motor)
+    if (doMotor.ok === false) return { ok: false, erro: doMotor.erro }
+    const { motor, formulasDaLinha, resumo, abasDoMotor } = doMotor
 
     const preco = lerPreco(wsPreco)
-    const motor = lerMotor(wsMotor)
-    const formulasDaLinha = lerFormulasDaLinha(wsFormulasDaLinha)
-    const resumo = resumirTipologias(motor.regras)
-
     const codigosDoPreco = new Set(preco.itens.map((i) => i.codigo))
     const codigosDoMotor = [...new Set(motor.regras.map((r) => r.codigo))]
     const semPreco = codigosDoMotor.filter((c) => !codigosDoPreco.has(c))
@@ -572,6 +613,28 @@ export function conferirGravacao(
     // contagem que a função não devolveu é divergência, nunca acerto: undefined !== n
     const bate = LISTAS_DA_GRAVACAO.every((k) => mandou[k] === voltou[k])
     return bate ? null : { enviado: mandou, gravado: voltou }
+}
+
+/**
+ * O payload de `superadmin_criar_motor_da_etapa` (20261027000010): as listas do motor COMO ESTÃO, as contagens e os avisos. Sem `itens`
+ * (o motor da família não leva preço) e sem `importado_por` (o autor vai em `p_por`, da sessão).
+ */
+export function montarPayloadDoMotor(lido: Extract<ResultadoDoMotor, { ok: true }>) {
+    return { regras: lido.regras, tipologias: lido.tipologias, formulas: lido.formulas, ...lido.abas, contagens: lido.contagens, avisos: lido.avisos }
+}
+
+/** As listas que a função do motor da etapa devolve contadas: as de `LISTAS_DA_GRAVACAO`, menos os itens de preço. */
+export const LISTAS_DO_MOTOR_DA_ETAPA: readonly string[] = LISTAS_DA_GRAVACAO.filter((k) => k !== 'itens')
+
+/** O mesmo que `conferirGravacao`, para o motor da etapa: lista por lista, sem os itens. Diferença nunca é sucesso. */
+export function conferirGravacaoDoMotor(
+    enviado: ReturnType<typeof montarPayloadDoMotor>,
+    gravado: Readonly<Record<string, unknown>>,
+): { enviado: Record<string, number>; gravado: Record<string, number | null> } | null {
+    const listas = enviado as unknown as Record<string, unknown[] | undefined>
+    const mandou = Object.fromEntries(LISTAS_DO_MOTOR_DA_ETAPA.map((k) => [k, listas[k]?.length ?? 0]))
+    const voltou = Object.fromEntries(LISTAS_DO_MOTOR_DA_ETAPA.map((k) => [k, typeof gravado[k] === 'number' ? (gravado[k] as number) : null]))
+    return LISTAS_DO_MOTOR_DA_ETAPA.every((k) => mandou[k] === voltou[k]) ? null : { enviado: mandou, gravado: voltou }
 }
 
 // ── A trava dos itens que o arquivo não traz ─────────────────────────────────────────────

@@ -17,6 +17,10 @@
  * A família se escolhe pela rota própria (`familiaDaMateriaPrima`), na hora, e só sem alteração pendente: depois
  * de gravar, a árvore é relida.
  *
+ * A FAMÍLIA, NA TELA, NESTA ORDEM (dono do produto, 27/10/2026): (1) o TÍTULO, digitado pelo consultor (é o nome da matéria-prima; renomear
+ * grava na hora, por rota própria, e só sem alteração pendente); (2) os MOTORES, um por etapa, cada um com o seu arquivo — a lista de
+ * etapas da família; (3) as categorias, com fornecedores e tabelas. Os motores entram por `motoresDaFamilia`, que a página injeta.
+ *
  * O ERRO DA FUNÇÃO aparece INTEIRO: a mensagem traz o caminho ("materia-prima Aço, categoria PERFIL,
  * fornecedores: ..."), e é isso que diz ao super admin o que arrumar. Com caminho reconhecível ela vai
  * para o cartão da categoria; sem, para o topo do cartão.
@@ -294,6 +298,51 @@ function CartaoDaCategoria({ c, arvore, mudar, erro, prefixo }: {
     )
 }
 
+/** O que o título editável precisa: renomear (rota própria), se está travado por pendência e a recusa da última tentativa. */
+type DoTitulo = { aoRenomear: (materiaPrimaId: string, nome: string) => Promise<void>; travado: boolean; erro: string | null }
+
+export const TITULO_DEPOIS_DE_SALVAR = 'O título se edita depois que a matéria-prima for salva.'
+export const TITULO_COM_PENDENCIA = 'Salve ou descarte as alterações da tela antes de renomear: renomear relê a base.'
+
+/**
+ * O TÍTULO DA FAMÍLIA É DIGITADO (dono do produto, 27/10/2026): é o nome da matéria-prima, e o consultor o escreve ("Esquadrias de
+ * PVC"). Matéria-prima gravada se renomeia na hora, por rota própria (`nomeDaMateriaPrima`), e a base é relida — por isso só sem
+ * alteração pendente. A recusa (nome repetido, vazio, longo) aparece aqui, inteira.
+ */
+function TituloDaMateriaPrima({ m, doTitulo }: { m: MateriaPrimaDoFormulario; doTitulo: DoTitulo | null }) {
+    const [editando, setEditando] = React.useState(false)
+    const [rascunho, setRascunho] = React.useState(m.nome)
+    const [gravando, setGravando] = React.useState(false)
+    const titulo = <Typography.Title level={5} style={{ margin: 0 }}>{m.nome}</Typography.Title>
+    if (m.id === null || !doTitulo) return titulo
+    const mudou = rascunho.trim() !== m.nome
+    async function renomear() {
+        if (m.id === null || !doTitulo) return
+        setGravando(true)
+        try { await doTitulo.aoRenomear(m.id, rascunho) } finally { setGravando(false) }
+    }
+    return (
+        <div data-titulo-da-materia-prima>
+            <Space wrap align="center">
+                {titulo}
+                {!editando && <Button size="small" type="link" onClick={() => setEditando(true)} data-editar-titulo aria-label={`Editar o título de ${m.nome}`}>Editar título</Button>}
+            </Space>
+            {editando && (
+                <div style={{ marginTop: 6 }}>
+                    <Space wrap align="center">
+                        <Input aria-label={`Título de ${m.nome}`} style={{ width: 300, fontWeight: 600 }} maxLength={80} value={rascunho} disabled={doTitulo.travado || gravando}
+                            onChange={(e) => setRascunho(e.target.value)} onPressEnter={() => { if (mudou && rascunho.trim() !== '') renomear() }} />
+                        <Button loading={gravando} disabled={!mudou || rascunho.trim() === '' || doTitulo.travado || gravando} onClick={renomear} data-renomear>Renomear</Button>
+                        <Button disabled={gravando} onClick={() => { setRascunho(m.nome); setEditando(false) }}>Cancelar</Button>
+                        {doTitulo.travado && <Typography.Text type="secondary" style={{ fontSize: 12 }} data-titulo-travado>{TITULO_COM_PENDENCIA}</Typography.Text>}
+                    </Space>
+                </div>
+            )}
+            {doTitulo.erro && <div style={{ marginTop: 8 }} data-erro-do-titulo><Alert type="error" showIcon message="O título não foi salvo." description={doTitulo.erro} /></div>}
+        </div>
+    )
+}
+
 /** O que a matéria-prima precisa para escolher a família: o que fazer, se está travada por pendência e a recusa da última tentativa. */
 type DaFamilia = { aoMudar: (materiaPrimaId: string, familia: string | null) => Promise<void>; travada: boolean; erro: string | null }
 
@@ -336,8 +385,9 @@ function FamiliaDaMateriaPrima({ m, arvore, daFamilia }: { m: MateriaPrimaDoForm
     )
 }
 
-function BlocoDaMateriaPrima({ m, i, arvore, mudarEstado, erros, erroDaFuncao, daFamilia }: {
+function BlocoDaMateriaPrima({ m, i, arvore, mudarEstado, erros, erroDaFuncao, daFamilia, doTitulo, motoresDaFamilia }: {
     m: MateriaPrimaDoFormulario; i: number; arvore: ArvoreLida; mudarEstado: Mudar; erros: string[]; erroDaFuncao: { categoria: string; mensagem: string } | null; daFamilia: DaFamilia | null
+    doTitulo: DoTitulo | null; motoresDaFamilia: ((familia: string) => React.ReactNode) | null
 }) {
     const mudarMp = (f: (x: MateriaPrimaDoFormulario) => MateriaPrimaDoFormulario) =>
         mudarEstado((e) => ({ ...e, materias: e.materias.map((x) => (x.local === m.local ? f(x) : x)) }))
@@ -349,12 +399,19 @@ function BlocoDaMateriaPrima({ m, i, arvore, mudarEstado, erros, erroDaFuncao, d
         <div data-materia-prima={i} style={{ border: '1px solid #f0f0f0', borderRadius: 8, padding: 12, marginBottom: 16 }}>
             <div data-cabecalho-da-materia-prima style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 12 }}>
                 {m.id
-                    ? <Typography.Title level={5} style={{ margin: 0 }}>{m.nome}</Typography.Title>
+                    ? <TituloDaMateriaPrima key={m.nome} m={m} doTitulo={doTitulo} />
                     : <Input aria-label="Nome da matéria-prima" placeholder="Nome da matéria-prima" style={{ maxWidth: 260 }} value={m.nome} onChange={(e) => mudarMp((x) => ({ ...x, nome: e.target.value }))} />}
                 <span data-categorias-configuradas>{fraseDasCategorias(categoriasConfiguradas(m, arvore.catalogo), m.categorias.length)}</span>
                 <Button danger onClick={remover}>Remover</Button>
             </div>
             <FamiliaDaMateriaPrima m={m} arvore={arvore} daFamilia={daFamilia} />
+            {/* OS MOTORES DA FAMÍLIA, ACIMA DA RAMIFICAÇÃO 1 e antes dos fornecedores (dono do produto, 27/10/2026): um por etapa, cada um com o seu arquivo */}
+            {m.familia && motoresDaFamilia && (
+                <div data-motores-da-materia-prima style={{ marginBottom: 12 }}>
+                    <Typography.Text strong style={{ display: 'block', marginBottom: 8 }}>Motores da família (um por etapa)</Typography.Text>
+                    {motoresDaFamilia(m.familia)}
+                </div>
+            )}
             {erros.length > 0 && (
                 <Alert data-erros-da-materia-prima type="warning" showIcon style={{ marginBottom: 12 }}
                     description={<ul style={{ margin: 0, paddingLeft: 18 }}>{erros.map((e, j) => <li key={j}>{e}</li>)}</ul>} />
@@ -368,7 +425,7 @@ function BlocoDaMateriaPrima({ m, i, arvore, mudarEstado, erros, erroDaFuncao, d
 }
 
 // ── O cartão ───────────────────────────────────────────────────────────────────────────────
-export function MateriasPrimas({ arvore, erroAoLer, estado, mudar, erros, erroDaRota, naoEnviado, aoMudarAFamilia, familiaTravada = false, erroDaFamilia = null }: {
+export function MateriasPrimas({ arvore, erroAoLer, estado, mudar, erros, erroDaRota, naoEnviado, aoMudarAFamilia, familiaTravada = false, erroDaFamilia = null, aoRenomear, erroDoNome = null, motoresDaFamilia }: {
     arvore: ArvoreLida | null
     erroAoLer: string | null
     estado: EstadoDaArvore
@@ -385,6 +442,12 @@ export function MateriasPrimas({ arvore, erroAoLer, estado, mudar, erros, erroDa
     familiaTravada?: boolean
     /** A recusa da última troca de família, com a matéria-prima onde ela aconteceu. */
     erroDaFamilia?: { materiaPrimaId: string; mensagem: string } | null
+    /** Renomeia a matéria-prima (o título da família, digitado) por rota própria e relê a base. Sem isto o título é só leitura. */
+    aoRenomear?: (materiaPrimaId: string, nome: string) => Promise<void>
+    /** A recusa do último renomear, com a matéria-prima onde ela aconteceu. */
+    erroDoNome?: { materiaPrimaId: string; mensagem: string } | null
+    /** O que mostrar entre a família e as categorias: as etapas, cada uma com o seu motor. A página injeta (a lista busca nas rotas). */
+    motoresDaFamilia?: (familia: string) => React.ReactNode
 }) {
     const onde = erroDaRota ? ondeEstaOErro(erroDaRota.message, estado) : null
     return (
@@ -402,7 +465,9 @@ export function MateriasPrimas({ arvore, erroAoLer, estado, mudar, erros, erroDa
                         <BlocoDaMateriaPrima key={m.local} m={m} i={i} arvore={arvore} mudarEstado={mudar}
                             erros={erros.filter((e) => e.campo === `materia:${m.local}`).map((e) => e.mensagem)}
                             erroDaFuncao={onde && onde.local === m.local && erroDaRota ? { categoria: onde.categoria, mensagem: erroDaRota.message } : null}
-                            daFamilia={aoMudarAFamilia ? { aoMudar: aoMudarAFamilia, travada: familiaTravada, erro: erroDaFamilia && erroDaFamilia.materiaPrimaId === m.id ? erroDaFamilia.mensagem : null } : null} />
+                            daFamilia={aoMudarAFamilia ? { aoMudar: aoMudarAFamilia, travada: familiaTravada, erro: erroDaFamilia && erroDaFamilia.materiaPrimaId === m.id ? erroDaFamilia.mensagem : null } : null}
+                            doTitulo={aoRenomear ? { aoRenomear, travado: familiaTravada, erro: erroDoNome && erroDoNome.materiaPrimaId === m.id ? erroDoNome.mensagem : null } : null}
+                            motoresDaFamilia={motoresDaFamilia ?? null} />
                     ))}
                     {estado.removidas.length > 0 && (
                         <div data-removidas style={{ marginBottom: 12 }}>

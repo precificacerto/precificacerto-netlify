@@ -72,7 +72,7 @@ uma planilha o referencia (`caminhosDaPlanilha`).
 - **O que a migração NÃO faz:** nenhum UPDATE de dado (as duas tabelas de hoje ficam nulas); não toca no índice
   `orcamentista_tabela_uma_vigente` (fornecedor, família); a coluna não é NOT NULL.
 
-## O que está implementado — o motor só no Perfil e a etapa que aponta o motor (PR de 27/10/2026, migrações `20261027000007` e `20261027000008`, PENDENTES)
+## O que está implementado — o motor opcional na tabela e a etapa que aponta o motor (27/10/2026, migrações `20261027000007` e `20261027000008` aplicadas; `20261027000009` mergeada)
 
 Decisão do dono do produto, 27/10/2026: "Exija o arquivo do motor apenas quando `categoria_chave = 'PERFIL'`. O motor tem casa própria agora
 (`orcamentista_motor`); não precisa mais viajar colado na tabela de preço."
@@ -110,6 +110,7 @@ nova de Perfil (com motor) valem cada uma no seu grupo, e deixá-las entrar junt
 - **REFORCO e ACESSORIOS_VEDACAO da De Paula não têm fornecedor vinculado** (medido em 27/10/2026): com a regra do
   principal, o preço delas não tem de onde vir até alguém vincular.
 - **A Parte 2** (tirar o código do material do motor) segue pendente de desenho.
+- **O motor criado por uma etapa não é lido pela conversa** (PR D) e nasce sem tempo — ver o PR E abaixo.
 
 ## O motor é da família — decisão de 27/10/2026 (corrige a de ontem) e as DÍVIDAS com data
 
@@ -153,7 +154,35 @@ restrição por satisfeita se uma coluna for nula; `MATCH FULL` não serve (recu
    27/10/2026: nenhuma tabela do catálogo da plataforma (`orcamentista_fornecedor`, `_tabela`, `_tabela_item`, `_motor` e suas 12 tabelas de
    conteúdo, `_familia_etapa`) tem `tenant_id`; todas têm RLS só de super admin e nenhum grant para `anon`/`authenticated`; o que é da conta
    (`orcamentista_materia_prima`, `_mp_categoria`, `_mp_categoria_fornecedor`, `_levantamento*`…) tem `tenant_id`. O vínculo conta→catálogo é a
-   matéria-prima (a família) e o fornecedor vinculado. Uma cópia do motor da Wolff pesa 24 MB (13 tabelas). **Não decidido**; propostas no PR.
+   matéria-prima (a família) e o fornecedor vinculado. Uma cópia do motor da Wolff pesa 24 MB (13 tabelas).
+
+## O PR E — a etapa sobe o motor e o título da família é digitado (27/10/2026, migração `20261027000010`, PENDENTE até o dono do produto aplicar)
+
+Escopo fechado pelo dono do produto: "O PR E é só isto." **(1)** O motor mora na família, na base de conhecimento, **acima da ramificação 1** (Perfil)
+e antes dos fornecedores. **(2)** A lista de etapas é a lista de motores: cada etapa **gravada** tem o seu campo de arquivo; subir o arquivo **cria
+a linha em `orcamentista_motor`** (família da etapa, sem fornecedor, não vigente) e **já aponta a etapa**, numa transação só
+(`superadmin_criar_motor_da_etapa`). Trocar o arquivo é subir outro: o motor novo nasce, a etapa o aponta, o velho fica arquivável
+(`superadmin_arquivar_motor` já recusa arquivar o que uma etapa aponta). **(3)** O rótulo da família é **digitado** e é o título:
+`orcamentista_materia_prima.nome`, renomeado por `superadmin_renomear_materia_prima` (1 a 80 caracteres, sem repetir outro nome da empresa,
+com log). **(4)** O motor é **global** (opção A): nenhuma duplicação por conta.
+
+- **Onde mora na tela:** a seção "Motores da família" é a lista de etapas (`EtapasDaFamilia`), montada dentro do bloco da matéria-prima que
+  tem família, entre a família e as categorias. O mesmo componente segue no cartão "Etapas da família" de Fornecedores e tabelas (o catálogo
+  global se edita dos dois lados; é a mesma lista e as mesmas rotas). A seção traz o aviso de que etapa e motor valem para **todas** as contas da
+  família e **nomeia** quais (só o nome da conta).
+- **Como o arquivo viaja:** a rota da família assina o envio em `familia/<chave>/motor/<uuid>-<nome>` (`motor-url-de-envio`), o navegador manda
+  os bytes ao Storage, e a rota da etapa (`etapas/[etapaId]/motor`) lê o objeto com o **mesmo leitor da importação** (`lerArquivoDoMotor` —
+  `lerOMotor` é uma só, para os dois caminhos), chama a função e **confere as doze contagens** contra o que mandou (divergência é 500, nunca
+  sucesso). A função confere o mesmo prefixo da pasta.
+- **Campo travado:** o arquivo só sobe com a lista salva (subir relê a lista e perderia o rascunho), e a etapa nova mostra "salve antes".
+- **O motor novo nasce SEM TEMPO** (os tempos são os 164 do motor da Wolff, 600/300/900, `ESTIMADO`; a coluna de tempo na aba de tipologias é a
+  dívida acima). O cálculo da conversa **não muda**: a conversa ainda lê o motor da tabela. Um motor criado por uma etapa é **invisível à
+  conversa até o PR D**. O PR D tem de decidir de onde vem o tempo do motor da etapa.
+- **Ainda não feito, de propósito:** o bloco Motor da página da conta continua onde está (o dono do produto ainda não confirmou a retirada);
+  trocar os leitores é o PR D; o código do material fora do motor é a Parte 2.
+- **Isolamento (medido, sem furo):** as funções novas e as rotas são de super admin; o motor e as etapas não têm `tenant_id` e a conta não os
+  lê; a única superfície nova que toca uma conta é o `nome` da matéria-prima, e a função confere `tenant_id`. O efeito entre contas de editar
+  dado global de dentro da página de uma conta é dito na tela, não escondido.
 
 **Em aberto, sem resposta (27/10/2026) — registrada como PERGUNTA ABERTA, pelo dono do produto: NÃO desenhar variante por linha sem a resposta:**
 a redução por tipologia vale para qualquer fornecedor de PVC? Não se sabe — e nem o assistente sabe:

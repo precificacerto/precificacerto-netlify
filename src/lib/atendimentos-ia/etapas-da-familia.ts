@@ -9,6 +9,7 @@
  * Família que não existe é `null` — a rota responde 404. Família sem etapa é a lista vazia: ainda não foi cadastrada.
  */
 import { supabaseAdmin } from '@/supabase/admin'
+import { contasQueUsamAFamilia } from '@/lib/atendimentos-ia/tabelas-da-conta'
 import { ABAS_DA_ETAPA, ehAcaoDaEtapa, type AbaDaEtapa, type EtapaDaFamilia, type MotorDaFamilia } from '@/utils/atendimentos-ia-etapas'
 
 // O cliente admin não tem os tipos destas tabelas.
@@ -48,4 +49,43 @@ export async function lerMotoresDaFamilia(familia: string): Promise<MotorDaFamil
         for (const f of ((await ler('orcamentista_fornecedor', db().from('orcamentista_fornecedor').select('id, nome').in('id', ids))) ?? []) as Linha[]) nomes.set(String(f.id), String(f.nome))
     }
     return motores.map((m) => ({ id: String(m.id), arquivo_nome: String(m.arquivo_nome), fornecedor: m.fornecedor_id == null ? null : nomes.get(String(m.fornecedor_id)) ?? null, vigente: m.vigente === true }))
+}
+
+/** A família existe no catálogo? A rota do motor da etapa pergunta antes de assinar o envio. */
+export async function familiaExiste(familia: string): Promise<boolean> {
+    return (await ler('orcamentista_familia_catalogo', db().from('orcamentista_familia_catalogo').select('chave').eq('chave', familia).maybeSingle())) !== null
+}
+
+/** A etapa é desta família? A função do banco também confere; a rota pergunta para responder 404 com a frase certa antes de baixar o arquivo. */
+export async function etapaEDaFamilia(familia: string, etapaId: string): Promise<boolean> {
+    return (await ler('orcamentista_familia_etapa', db().from('orcamentista_familia_etapa').select('id').eq('id', etapaId).eq('familia', familia).maybeSingle())) !== null
+}
+
+/**
+ * Os NOMES das contas que usam a família — o aviso de que a etapa e o motor são globais (opção A). Só o nome da conta, nunca dado dela:
+ * o mesmo critério e o mesmo nível de detalhe do bloco Motor da conta.
+ */
+export async function nomesDasContasDaFamilia(familia: string): Promise<string[]> {
+    const ids = await contasQueUsamAFamilia(familia)
+    if (ids.length === 0) return []
+    const contas = ((await ler('tenants', db().from('tenants').select('id, name').in('id', ids))) ?? []) as Linha[]
+    return contas.map((c) => String(c.name)).sort((a, b) => a.localeCompare(b, 'pt-BR'))
+}
+
+/** Erro do banco com o CÓDIGO (SQLSTATE) e a mensagem da função, para a rota decidir o status e a frase. */
+export class ErroDaFuncao extends Error {
+    code: string | null
+    constructor(e: { message?: string; code?: string | null }) { super(e.message ?? 'erro do banco'); this.code = e.code ?? null }
+}
+
+/**
+ * `superadmin_criar_motor_da_etapa` (20261027000010): cria o motor da família, grava as 12 tabelas por `motor_id`, registra a importação
+ * e aponta a etapa, numa transação só. Devolve as contagens que a função gravou. Falha LANÇA `ErroDaFuncao` com o código.
+ */
+export async function criarMotorDaEtapa(a: { etapaId: string; por: string; arquivoPath: string; arquivoNome: string; payload: unknown }): Promise<Record<string, unknown>> {
+    const { data, error } = await db().rpc('superadmin_criar_motor_da_etapa', {
+        p_etapa: a.etapaId, p_por: a.por, p_arquivo_path: a.arquivoPath, p_arquivo_nome: a.arquivoNome, p_payload: a.payload,
+    })
+    if (error) throw new ErroDaFuncao(error)
+    return data as Record<string, unknown>
 }
