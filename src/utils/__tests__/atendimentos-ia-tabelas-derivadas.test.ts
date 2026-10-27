@@ -292,6 +292,34 @@ describe('(3) a exclusão da tabela: a proteção que MUDOU DE LUGAR — do REST
         expect(estado.apagadas).toEqual([])
     })
 
+    it('o objeto do motor que uma PLANILHA também usa (PR C) NÃO sai do armazenamento — o do preço sai, e a planilha continua de pé', async () => {
+        estado.db.orcamentista_fornecedor.push({ id: 'f-solto', nome: 'Solto', nicho_id: 'n-esq' })
+        estado.db.orcamentista_tabela.push(tabela(T_SOLTA, 'f-solto', 'Solta.xlsx', null))
+        estado.db.orcamentista_motor = [{ id: 'm-1', familia: 'PVC', fornecedor_id: 'f-solto', arquivo_nome: 'motor.xlsx', arquivo_path: `f-solto/motor/${T_SOLTA}.xlsx`, vigente: true, arquivado_em: null }]
+        const r = await excluir(T_SOLTA)
+        expect(r.status).toBe(200)
+        expect(estado.removidosDoStorage).toEqual([`f-solto/arquivo/${T_SOLTA}.xlsx`])
+        expect(r.json.aviso).toBe(`Mantido no armazenamento, porque uma planilha do motor usa o mesmo arquivo: f-solto/motor/${T_SOLTA}.xlsx.`)
+        expect(estado.db.orcamentista_motor).toHaveLength(1)
+    })
+
+    it('...e a planilha ARQUIVADA também segura o objeto: arquivar não é apagar, e o arquivo é dela', async () => {
+        estado.db.orcamentista_fornecedor.push({ id: 'f-solto', nome: 'Solto', nicho_id: 'n-esq' })
+        estado.db.orcamentista_tabela.push(tabela(T_SOLTA, 'f-solto', 'Solta.xlsx', null))
+        estado.db.orcamentista_motor = [{ id: 'm-1', familia: 'PVC', fornecedor_id: 'f-solto', arquivo_nome: 'motor.xlsx', arquivo_path: `f-solto/motor/${T_SOLTA}.xlsx`, vigente: false, arquivado_em: '2026-10-27T10:00:00Z' }]
+        await excluir(T_SOLTA)
+        expect(estado.removidosDoStorage).toEqual([`f-solto/arquivo/${T_SOLTA}.xlsx`])
+    })
+
+    it('o controle: uma planilha que aponta OUTRO objeto não segura nada — os dois arquivos da tabela saem', async () => {
+        estado.db.orcamentista_fornecedor.push({ id: 'f-solto', nome: 'Solto', nicho_id: 'n-esq' })
+        estado.db.orcamentista_tabela.push(tabela(T_SOLTA, 'f-solto', 'Solta.xlsx', null))
+        estado.db.orcamentista_motor = [{ id: 'm-1', familia: 'PVC', fornecedor_id: 'f-solto', arquivo_nome: 'outro.xlsx', arquivo_path: 'f-solto/motor/outro-objeto.xlsx', vigente: true, arquivado_em: null }]
+        const r = await excluir(T_SOLTA)
+        expect(estado.removidosDoStorage).toEqual([`f-solto/arquivo/${T_SOLTA}.xlsx`, `f-solto/motor/${T_SOLTA}.xlsx`])
+        expect(r.json.aviso).toBeUndefined()
+    })
+
     it('o contraste: tabela de fornecedor que NENHUMA conta vincula sai, e os arquivos dela também', async () => {
         estado.db.orcamentista_fornecedor.push({ id: 'f-solto', nome: 'Solto', nicho_id: 'n-esq' })
         estado.db.orcamentista_tabela.push(tabela(T_SOLTA, 'f-solto', 'Solta.xlsx', null))
