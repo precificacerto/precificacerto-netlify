@@ -4,8 +4,8 @@
  * PATCH  — edita { nome, nicho_id }. Mover de nicho é isto.
  * DELETE — exclui o fornecedor SEM tabela.
  *
- * Fornecedor com tabela o BANCO recusa (FK RESTRICT, 23503). A rota não engole: traduz para
- * uma resposta que diz QUAIS tabelas o seguram e, se alguma está em uso, QUAIS contas usam.
+ * Fornecedor com tabela, ou vinculado na base de conhecimento de alguma conta, o BANCO recusa (FK RESTRICT,
+ * 23503). A rota não engole: traduz para uma resposta que diz QUAIS tabelas o seguram e QUAIS contas o vinculam.
  */
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { requireSuperAdmin } from '@/lib/get-caller-tenant'
@@ -59,11 +59,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (codigoDoErro(e) !== '23503') return falhaInterna(res, 'fornecedor DELETE', e, 'Não foi possível excluir o fornecedor.')
     try {
       const { tabelas, contas } = await quemSeguraOFornecedor(id)
+      // a base de conhecimento das contas também segura o fornecedor (FK RESTRICT de `orcamentista_mp_categoria_fornecedor`)
       const partes = [
-        `O fornecedor tem ${tabelas.length} tabela(s): ${tabelas.join(', ')} — exclua as tabelas primeiro.`,
-        contas.length ? `${emUsoPor(contas)}.` : '',
+        tabelas.length ? `O fornecedor tem ${tabelas.length} tabela(s): ${tabelas.join(', ')} — exclua as tabelas primeiro.` : '',
+        contas.length ? `${emUsoPor(contas)}: a base de conhecimento dessas contas vincula o fornecedor.` : '',
       ].filter(Boolean)
-      return res.status(409).json({ error: partes.join(' '), tabelas, contas })
+      return res.status(409).json({ error: partes.join(' ') || 'O fornecedor está em uso e não pode ser excluído: o banco recusou a exclusão.', tabelas, contas })
     } catch (e2) {
       return falhaInterna(res, 'fornecedor DELETE (quem segura)', e2, 'O fornecedor tem tabelas e não pode ser excluído; não foi possível listá-las.')
     }
