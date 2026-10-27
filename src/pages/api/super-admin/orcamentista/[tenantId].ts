@@ -106,16 +106,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 /**
  * O modelo e o nicho: UPDATE de `modelo` e `nicho_id` na linha DA conta, e nada mais.
  *
- * >>> TROCAR MODELO OU NICHO COM TABELA EM USO É RECUSADO (409), nomeando as tabelas <<<
+ * >>> TROCAR MODELO OU NICHO COM TABELA DA CONTA É RECUSADO (409), nomeando as tabelas <<<
  * É a ESCOLHA CONSERVADORA, a mesma postura do RESTRICT que o banco usa em toda esta área: nada
- * some por efeito colateral de um seletor. As tabelas em uso são de um fornecedor do nicho antigo,
+ * some por efeito colateral de um seletor. As tabelas da conta são de um fornecedor do nicho antigo,
  * e trocar o nicho por baixo delas deixaria a conta usando tabela de outro nicho. A alternativa —
- * apagar as tabelas na troca — NÃO foi feita. A decisão definitiva sobre o que a troca faz com as
- * tabelas da conta é do DONO DO PRODUTO, e está PENDENTE (EPIC §3.6). Até ela, a troca exige
- * remover as tabelas antes, uma a uma, pela tela.
+ * apagar na troca — NÃO foi feita. A decisão definitiva sobre o que a troca faz é do DONO DO
+ * PRODUTO, e está PENDENTE (EPIC §3.6).
+ *
+ * A TRAVA MUDOU DE FONTE em 26/10/2026 (dono do produto): as tabelas da conta são DERIVADAS — as dos
+ * fornecedores que a base de conhecimento dela vincula (`listarTabelasDaConta` → `tabelas-da-conta.ts`).
+ * Para trocar, tiram-se esses fornecedores da base de conhecimento antes; a frase diz isso
+ * (`fraseDasTabelasQueSeguram`), e a tela a avisa antes (`AVISO_DA_TRAVA_DO_MODELO_E_NICHO`).
  *
  * Regravar o MESMO modelo e o MESMO nicho não é troca, e passa. A conferência é da rota: o banco não tem
- * restrição entre `orcamentista_conta_tabela` e o nicho da conta.
+ * restrição entre a base de conhecimento da conta e o nicho dela.
  */
 async function gravarModeloENicho(res: NextApiResponse, tenantId: string, corpo: CorpoDoModeloENicho, usuarioId: string) {
   try {

@@ -29,7 +29,7 @@ import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 
 import { ROUTES } from '@/constants/routes'
-import { ROTAS_DO_CATALOGO, type ContaLigada, type TabelasDaConta } from '@/utils/atendimentos-ia-catalogo'
+import { ROTAS_DO_CATALOGO, type ContaLigada } from '@/utils/atendimentos-ia-catalogo'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 Object.defineProperty(window, 'matchMedia', {
@@ -110,15 +110,6 @@ const arvoreVazia = (): Corpo => ({
     materias_primas: [],
 })
 
-const TABELAS_DA_CONTA: TabelasDaConta = {
-    nicho_id: N_ESQ,
-    em_uso: [
-        { tabela_id: TAB_WOLFF, fornecedor_id: 'f-wolff', fornecedor_nome: 'Wolff Perfis', arquivo_nome: 'wolff-out.xlsm', motor_nome: 'motor-wolff.xlsm', vigencia: null },
-        { tabela_id: TAB_WOLFF_2, fornecedor_id: 'f-wolff', fornecedor_nome: 'Wolff Perfis', arquivo_nome: 'wolff-nov.xlsm', motor_nome: 'motor-wolff.xlsm', vigencia: null },
-    ],
-    fornecedores: [],
-}
-
 let respostas: Record<string, { status: number; body: unknown }> = {}
 const pedidos: { url: string; metodo: string; corpo: unknown }[] = []
 beforeEach(() => {
@@ -136,8 +127,6 @@ beforeEach(() => {
         [`PUT ${R.base(CONTA)}`]: { status: 200, body: { depois: {} } },
         [`PUT ${R.ambiente(CONTA)}`]: { status: 200, body: { depois: {} } },
         [`PUT ${R.vendedor(CONTA)}`]: { status: 200, body: { depois: {} } },
-        // As tabelas em uso da conta: duas, do mesmo fornecedor; a linha vem das tipologias importadas.
-        [`GET ${ROTAS_DO_CATALOGO.tabelasDaConta(CONTA)}`]: { status: 200, body: TABELAS_DA_CONTA },
         [`GET ${ROTAS_DO_CATALOGO.conteudoDaTabela(TAB_WOLFF)}`]: { status: 200, body: { formulas: 3, tipologias: [
             { tipologia: 'J1', linha: 'Suprema', n_regras: 1, n_condicionais: 0, variaveis: [] },
             { tipologia: 'J2', linha: null, n_regras: 1, n_condicionais: 0, variaveis: [] },
@@ -241,7 +230,9 @@ describe('(h) a empresa no topo, e o portão da tela', () => {
     it('os cinco blocos de esquadrias de um nível NÃO estão mais na tela, e a tela não lê mais as tabelas em uso', async () => {
         const host = await montar()
         for (const b of ['perfil', 'vidro', 'guarnicao', 'acessorios', 'producao']) expect(bloco(host, b)).toBeNull()
-        expect(pedidos.map((p) => p.url)).not.toContain(ROTAS_DO_CATALOGO.tabelasDaConta(CONTA))
+        // a rota das tabelas em uso da conta saiu (26/10/2026): nenhum pedido a ela, por nenhum caminho
+        expect(pedidos.map((p) => p.url).filter((u) => u.includes(`/contas/${CONTA}/tabelas`))).toEqual([])
+        expect(pedidos.length).toBeGreaterThan(0)
     })
 
     it('quem não é super admin volta ao início, e nenhuma rota é chamada', async () => {

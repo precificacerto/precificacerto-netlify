@@ -44,7 +44,7 @@ const T_WOLFF_ALU = '00000000-0000-4000-8000-00000000ab0a'
 const T_ESTRELA = '5f7acebf-3c91-46de-af00-57a47f8be288'
 const T_SUL = '00000000-0000-4000-8000-00000000ab03'
 const T_SOLTA = '00000000-0000-4000-8000-00000000ab04'
-const SUPER = { id: '00000000-0000-4000-8000-00000000005a', tenant_id: null, role: 'super_admin', is_super_admin: true }
+const SUPER = { id: '00000000-0000-4000-8000-00000000005a', tenant_id: null as string | null, role: 'super_admin', is_super_admin: true }
 
 const estado = {
     db: {} as Record<string, Linha[]>,
@@ -55,10 +55,10 @@ const estado = {
 
 const tabela = (id: string, fornecedor_id: string, arquivo_nome: string, familia: string | null, vigente = false) => ({
     id, fornecedor_id, arquivo_nome, arquivo_path: `${fornecedor_id}/arquivo/${id}.xlsx`, motor_nome: 'motor.xlsx', motor_path: `${fornecedor_id}/motor/${id}.xlsx`,
-    vigencia: null, familia, vigente, criado_em: '2026-10-20T12:00:00Z',
+    vigencia: null as string | null, familia, vigente, criado_em: '2026-10-20T12:00:00Z',
 })
-const tipologias = (tabela_id: string, ...codigos: string[]) => codigos.map((tipologia) => ({ tabela_id, tipologia, descricao: `${tipologia} da ${tabela_id.slice(-4)}`, tipo: 'Correr', ordem: null }))
-const categoria = (id: string, tenant_id: string, categoria_chave: string) => ({ id, tenant_id, materia_prima_id: `mp-${tenant_id.slice(-4)}`, categoria_chave, config: null })
+const tipologias = (tabela_id: string, ...codigos: string[]) => codigos.map((tipologia) => ({ tabela_id, tipologia, descricao: `${tipologia} da ${tabela_id.slice(-4)}`, tipo: 'Correr', ordem: null as number | null }))
+const categoria = (id: string, tenant_id: string, categoria_chave: string) => ({ id, tenant_id, materia_prima_id: `mp-${tenant_id.slice(-4)}`, categoria_chave, config: null as Linha | null })
 const vinculo = (tenant_id: string, mp_categoria_id: string, fornecedor_id: string, principal = false) => ({ id: `v-${mp_categoria_id}-${fornecedor_id}`, tenant_id, mp_categoria_id, fornecedor_id, principal, ordem: 1 })
 
 /** Produção em 26/10/2026, De Paula: PERFIL → Wolff (164 tipologias), VIDRO → Estrela (0 tipologias, tabela de preço). */
@@ -97,7 +97,7 @@ beforeEach(montar)
 
 jest.mock('@/supabase/admin', () => {
     const cliente = {
-        auth: { getUser: async (): Promise<any> => ({ data: { user: { id: '00000000-0000-4000-8000-00000000005a' } }, error: null }) },
+        auth: { getUser: async (): Promise<any> => ({ data: { user: { id: '00000000-0000-4000-8000-00000000005a' } }, error: null as unknown }) },
         from: (nome: string) => {
             const predicados: Array<(l: Linha) => boolean> = []
             const filtros: Linha = {}
@@ -113,7 +113,7 @@ jest.mock('@/supabase/admin', () => {
                 } else {
                     estado.lidas.push(nome)
                 }
-                return { data: cabeca ? null : linhas, error: null, count: contar ? linhas.length : null }
+                return { data: cabeca ? null : linhas, error: null as unknown, count: contar ? linhas.length : null }
             }
             const q: any = {
                 select: (_c?: string, o?: { count?: string; head?: boolean }) => { contar = o?.count === 'exact'; cabeca = !!o?.head; return q },
@@ -123,13 +123,13 @@ jest.mock('@/supabase/admin', () => {
                 order: () => q,
                 limit: () => q,
                 range: () => q,
-                single: async () => { const r = responder(); return { data: r.data?.[0] ?? null, error: null } },
-                maybeSingle: async () => { const r = responder(); return { data: r.data?.[0] ?? null, error: null } },
+                single: async () => { const r = responder(); return { data: r.data?.[0] ?? null, error: null as unknown } },
+                maybeSingle: async () => { const r = responder(); return { data: r.data?.[0] ?? null, error: null as unknown } },
                 then: (ok: (v: unknown) => unknown, erro?: (e: unknown) => unknown) => Promise.resolve(responder()).then(ok, erro),
             }
             return q
         },
-        storage: { from: () => ({ remove: async (caminhos: string[]) => { estado.removidosDoStorage.push(...caminhos); return { error: null } } }) },
+        storage: { from: () => ({ remove: async (caminhos: string[]) => { estado.removidosDoStorage.push(...caminhos); return { error: null as unknown } } }) },
     }
     return { supabaseAdmin: cliente }
 })
@@ -206,7 +206,7 @@ describe('(1) a derivação: as tabelas dos fornecedores que a base de conhecime
 describe('(2) a conversa: quem entra é a tabela COM motor', () => {
     const lida = async () => {
         const t = await C().lerTabelaDaEmpresa(PAULA)
-        if (!t.ok) throw new Error('era para ler: ' + t.frase)
+        if ('frase' in t) throw new Error('era para ler: ' + t.frase)
         return t
     }
 

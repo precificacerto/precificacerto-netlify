@@ -19,6 +19,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { supabaseAdmin } from '@/supabase/admin'
 import { NICHO_DAS_ESQUADRIAS, UUID, ehNichoDasEsquadrias, type ErroNomeado } from '@/lib/atendimentos-ia/base-de-conhecimento'
+import { FalhaNaDerivacao, derivarTabelasDaConta, type TabelaDaConta } from '@/lib/atendimentos-ia/tabelas-da-conta'
 
 export const PREFIXO_DO_LOG = '[BASE-DE-CONHECIMENTO]'
 
@@ -283,16 +284,22 @@ async function linhasDaFonte(tabela: string, tabelaIds: string[]): Promise<strin
 }
 
 /**
- * fornecedor → as linhas das tabelas que ESTA conta usa dele. Fornecedor sem tabela em uso na conta
- * NÃO tem chave: a tela distingue "sem tabela em uso" de "tabela sem linha" (a lista vazia).
+ * fornecedor → as linhas das tabelas que ESTA conta usa dele. As tabelas são as DERIVADAS (dono do produto,
+ * 26/10/2026): as dos fornecedores que a base de conhecimento vincula, e só as que VALEM — uma por
+ * (fornecedor, família), a vigente quando há mais de uma (`tabelas-da-conta.ts`). Fornecedor sem tabela que
+ * valha NÃO tem chave: a tela distingue "sem tabela em uso" de "tabela sem linha" (a lista vazia).
  */
 async function linhasPorFornecedor(tenantId: string): Promise<Record<string, LinhasDaTabela>> {
-    const emUso = await ler<Linha[]>('orcamentista_conta_tabela', db().from('orcamentista_conta_tabela').select('tabela_id').eq('tenant_id', tenantId))
-    if (emUso.length === 0) return {}
-    const tabelas = await ler<Linha[]>('orcamentista_tabela', db().from('orcamentista_tabela').select('id, fornecedor_id').in('id', emUso.map((t) => t.tabela_id)))
+    let tabelas: TabelaDaConta[]
+    try {
+        tabelas = (await derivarTabelasDaConta(tenantId)).tabelas.filter((t) => t.vale)
+    } catch (e) {
+        if (e instanceof FalhaNaDerivacao) throw new FalhaDeLeitura(e.onde, e.codigo)
+        throw e
+    }
     const porFornecedor: Record<string, LinhasDaTabela> = {}
-    for (const fornecedor of new Set(tabelas.map((t) => String(t.fornecedor_id)))) {
-        porFornecedor[fornecedor] = await linhasDasTabelas(tabelas.filter((t) => String(t.fornecedor_id) === fornecedor).map((t) => String(t.id)))
+    for (const fornecedor of new Set(tabelas.map((t) => t.fornecedorId))) {
+        porFornecedor[fornecedor] = await linhasDasTabelas(tabelas.filter((t) => t.fornecedorId === fornecedor).map((t) => t.tabelaId))
     }
     return porFornecedor
 }

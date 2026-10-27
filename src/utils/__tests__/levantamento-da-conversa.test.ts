@@ -89,9 +89,10 @@ const ABAS_NO_BANCO = () => abasDaDP02NoBanco(TABELA) as Record<string, Linha[]>
 function montar() {
     banco.ausentes = new Set()
     banco.db = {
-        orcamentista_conta_tabela: [{ tenant_id: TENANT, tabela_id: TABELA }],
+        // as tabelas da empresa são DERIVADAS (26/10/2026): a base de conhecimento vincula a Wolff no PERFIL
+        orcamentista_mp_categoria_fornecedor: [{ tenant_id: TENANT, mp_categoria_id: 'c-perfil', fornecedor_id: 'f-wolff' }],
         // a tabela e o fornecedor dela: com mais de uma tabela, a pergunta cita o fornecedor pelo nome
-        orcamentista_tabela: [{ id: TABELA, fornecedor_id: 'f-wolff', arquivo_nome: 'Tabela Wolff.xlsx', familia: 'PVC' }],
+        orcamentista_tabela: [{ id: TABELA, fornecedor_id: 'f-wolff', arquivo_nome: 'Tabela Wolff.xlsx', familia: 'PVC', vigente: false }],
         orcamentista_fornecedor: [{ id: 'f-wolff', nome: 'Wolff Perfis' }],
         orcamentista_familia_catalogo: [{ chave: 'PVC', rotulo: 'PVC', ordem: 1 }, { chave: 'ALUMINIO', rotulo: 'Alumínio', ordem: 2 }],
         ...ABAS_NO_BANCO(),
@@ -102,7 +103,7 @@ function montar() {
         ],
         orcamentista_motor_regra: DE_PARA.regras.map((r) => comId({ ...r, tabela_id: TABELA, tipologias: ['DP-02'] })),
         orcamentista_tabela_item: DE_PARA.itens.map((i) => ({ ...i, tabela_id: TABELA })),
-        orcamentista_mp_categoria: [{ tenant_id: TENANT, categoria_chave: 'PERFIL', config: { serra_mm: 5, cores: ['BRANCO'], cor_predominante: 'BRANCO' } }],
+        orcamentista_mp_categoria: [{ id: 'c-perfil', tenant_id: TENANT, categoria_chave: 'PERFIL', config: { serra_mm: 5, cores: ['BRANCO'], cor_predominante: 'BRANCO' } as Linha }],
         // as colunas ANTIGAS de tempo continuam preenchidas em produção (obsoletas, saem numa migração
         // posterior) — e aqui com OUTRO número, para que ler a coluna antiga apareça no resultado
         orcamentista_motor_tipologia: [{ tabela_id: TABELA, tipologia: 'DP-02', linha: 'EUROPA 42', tempo_fabricacao_min: 999, tempo_origem: 'ESTIMADO' }],
@@ -162,7 +163,7 @@ const TEXTO_QUE_FECHA = [
 ].join('\n')
 
 describe('(1) a tabela da empresa e as tipologias candidatas', () => {
-    it('a lista vem de orcamentista_motor_tipologia_detalhe da tabela LIGADA à empresa, em ordem de código', async () => {
+    it('a lista vem de orcamentista_motor_tipologia_detalhe da tabela da empresa (DERIVADA da base de conhecimento), em ordem de código', async () => {
         const t = await M().lerTabelaDaEmpresa(TENANT)
         if (!('candidatos' in t)) throw new Error('era para ler a lista: ' + t.frase)
         expect(t.tabelas).toEqual([{ tabelaId: TABELA, fornecedor: 'Wolff Perfis', familia: 'PVC' }])
@@ -170,8 +171,8 @@ describe('(1) a tabela da empresa e as tipologias candidatas', () => {
         expect(M().linhaDoCandidato(t.candidatos[1], false)).toBe('DP-02 | JANELA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 42 | Correr')
     })
 
-    it('SEM TABELA LIGADA: a frase diz que a empresa não tem tabela', async () => {
-        banco.db.orcamentista_conta_tabela = []
+    it('SEM FORNECEDOR VINCULADO: a frase diz que a empresa não tem tabela', async () => {
+        banco.db.orcamentista_mp_categoria_fornecedor = []
         const t = await M().lerTabelaDaEmpresa(TENANT)
         expect('frase' in t && [t.motivo, t.frase]).toEqual(['SEM_TABELA', M().FRASE_SEM_TABELA])
     })
@@ -183,8 +184,8 @@ describe('(1) a tabela da empresa e as tipologias candidatas', () => {
      */
     const OUTRA = 'tabela-perfis-sul'
     const comOutraTabela = (fornecedor = 'f-sul', familia: string | null = 'ALUMINIO') => {
-        banco.db.orcamentista_conta_tabela.push({ tenant_id: TENANT, tabela_id: OUTRA })
-        banco.db.orcamentista_tabela.push({ id: OUTRA, fornecedor_id: fornecedor, arquivo_nome: 'Sul 2026.xlsx', familia })
+        banco.db.orcamentista_mp_categoria_fornecedor.push({ tenant_id: TENANT, mp_categoria_id: 'c-perfil', fornecedor_id: fornecedor })
+        banco.db.orcamentista_tabela.push({ id: OUTRA, fornecedor_id: fornecedor, arquivo_nome: 'Sul 2026.xlsx', familia, vigente: false })
         banco.db.orcamentista_fornecedor.push({ id: 'f-sul', nome: 'Perfis Sul' })
         banco.db.orcamentista_motor_tipologia_detalhe.push(
             { tabela_id: OUTRA, tipologia: 'DP-02', descricao: 'JANELA DE CORRER 02 FOLHAS | LINHA SUL', tipo: 'Correr', ordem: null },
@@ -219,20 +220,31 @@ describe('(1) a tabela da empresa e as tipologias candidatas', () => {
         expect(M().tabelasDoCodigo(t)('DP-02')).toEqual([{ tabelaId: OUTRA, fornecedor: 'Wolff Perfis', familia: 'Alumínio' }, { tabelaId: TABELA, fornecedor: 'Wolff Perfis', familia: 'PVC' }])
     })
 
-    it('o MESMO fornecedor e a MESMA família: nada distingue as duas — recusa nomeando fornecedor e família', async () => {
+    it('o MESMO fornecedor e a MESMA família, nenhuma vigente: recusa nomeando fornecedor e família (a vigente decide, 26/10/2026)', async () => {
         comOutraTabela('f-wolff', 'PVC')
         const t = await M().lerTabelaDaEmpresa(TENANT)
-        expect('frase' in t && [t.motivo, t.frase]).toEqual(['TABELA_REPETIDA', M().fraseDeTabelaRepetida('Wolff Perfis', 'PVC', 2)])
+        expect('frase' in t && [t.motivo, t.frase]).toEqual(['SEM_VIGENTE', M().fraseSemVigente('Wolff Perfis', 'PVC', 2)])
+    })
+
+    it('DOIS fornecedores com o mesmo NOME e a mesma família: nada os distingue para o vendedor — recusa nomeando fornecedor e família', async () => {
+        banco.db.orcamentista_fornecedor.push({ id: 'f-wolff-2', nome: 'WOLFF PERFIS' })
+        comOutraTabela('f-wolff-2', 'PVC')
+        const t = await M().lerTabelaDaEmpresa(TENANT)
+        expect('frase' in t && t.motivo).toBe('TABELA_REPETIDA')
         expect(M().fraseDeTabelaRepetida('Wolff Perfis', 'PVC', 2)).toBe(
             'Ainda não consigo escolher a tipologia: a sua empresa tem 2 tabelas do fornecedor Wolff Perfis, da família PVC, ligadas ao orçamentista, e nada as distingue: não escolho entre elas.')
         expect(M().fraseDeTabelaRepetida('Wolff Perfis', null, 2)).toContain('sem a família informada')
     })
 
-    it('uma das tabelas SEM a lista de tipologias: a frase nomeia o fornecedor — a outra não segue sozinha em silêncio', async () => {
+    // MUDOU em 26/10/2026 (dono do produto): quem decide é o MOTOR. Tabela sem tipologias é TABELA DE PREÇO e
+    // não entra na conversa — antes, ela recusava a conversa inteira com `fraseSemListaDoFornecedor`.
+    it('uma das tabelas SEM a lista de tipologias é tabela de PREÇO: fica fora, e a conversa segue com a outra', async () => {
         comOutraTabela()
         banco.db.orcamentista_motor_tipologia_detalhe = banco.db.orcamentista_motor_tipologia_detalhe.filter((l) => l.tabela_id !== OUTRA)
         const t = await M().lerTabelaDaEmpresa(TENANT)
-        expect('frase' in t && [t.motivo, t.frase]).toEqual(['SEM_LISTA_DE_TIPOLOGIAS', M().fraseSemListaDoFornecedor('Perfis Sul')])
+        if (!('candidatos' in t)) throw new Error('era para ler a lista: ' + t.frase)
+        expect(t.tabelas).toEqual([{ tabelaId: TABELA, fornecedor: 'Wolff Perfis', familia: 'PVC' }])
+        expect(t.candidatos.every((c) => c.tabelaId === TABELA)).toBe(true)
     })
 
     /**
@@ -318,10 +330,12 @@ describe('(1) a tabela da empresa e as tipologias candidatas', () => {
         expect('frase' in t && [t.motivo, t.frase, t.detalhe]).toEqual(['SEM_LISTA_DE_TIPOLOGIAS', M().FRASE_SEM_LISTA_DE_TIPOLOGIAS, 'codigo=PGRST205'])
     })
 
-    it('a lista existe e está VAZIA para a tabela da empresa: a mesma frase', async () => {
+    // MUDOU em 26/10/2026: a tabela sem tipologias é tabela de PREÇO; sendo a única, NENHUMA tem motor — e a
+    // recusa diz isso, nomeando o fornecedor (antes: a frase de SEM_LISTA_DE_TIPOLOGIAS)
+    it('a lista existe e está VAZIA para a tabela da empresa: nenhuma tabela com motor — recusa nomeada', async () => {
         banco.db.orcamentista_motor_tipologia_detalhe = []
         const t = await M().lerTabelaDaEmpresa(TENANT)
-        expect('frase' in t && t.motivo).toBe('SEM_LISTA_DE_TIPOLOGIAS')
+        expect('frase' in t && [t.motivo, t.frase]).toEqual(['SEM_MOTOR', M().fraseSemMotor(['Wolff Perfis'])])
     })
 })
 
@@ -482,7 +496,9 @@ describe('(6) a RECUSA chega como texto, inteira e nomeada', () => {
     })
 
     it('a DP-02 de OUTRA TABELA também não tem abas: as da Wolff não valem para outro fornecedor', async () => {
-        banco.db.orcamentista_conta_tabela = [{ tenant_id: TENANT, tabela_id: 'tabela-de-outro-fornecedor' }]
+        banco.db.orcamentista_mp_categoria_fornecedor = [{ tenant_id: TENANT, mp_categoria_id: 'c-perfil', fornecedor_id: 'f-outro' }]
+        banco.db.orcamentista_fornecedor.push({ id: 'f-outro', nome: 'Outro Fornecedor' })
+        banco.db.orcamentista_tabela.push({ id: 'tabela-de-outro-fornecedor', fornecedor_id: 'f-outro', arquivo_nome: 'Outra.xlsx', familia: 'PVC', vigente: false })
         banco.db.orcamentista_motor_tipologia_detalhe.push({ tabela_id: 'tabela-de-outro-fornecedor', tipologia: 'DP-02', descricao: 'OUTRA', tipo: 'Correr', ordem: null })
         const t = await M().lerTabelaDaEmpresa(TENANT)
         const r = await M().mensagemDoLevantamento(TENANT, t, lev())
@@ -490,7 +506,7 @@ describe('(6) a RECUSA chega como texto, inteira e nomeada', () => {
     })
 
     it('SEM SERRA na base de conhecimento: a recusa diz que falta a serra', async () => {
-        banco.db.orcamentista_mp_categoria = []
+        delete (banco.db.orcamentista_mp_categoria[0].config as Linha).serra_mm
         const t = await M().lerTabelaDaEmpresa(TENANT)
         const r = await M().mensagemDoLevantamento(TENANT, t, lev())
         expect(r.texto).toContain('• A largura da serra não está na base de conhecimento da empresa (categoria Perfil). Falta: a serra, em mm.')
@@ -504,10 +520,10 @@ describe('(6) a RECUSA chega como texto, inteira e nomeada', () => {
     })
 
     it('a empresa SEM TABELA, no fechamento: a recusa diz isso, em português', async () => {
-        banco.db.orcamentista_conta_tabela = []
+        banco.db.orcamentista_mp_categoria_fornecedor = []
         const t = await M().lerTabelaDaEmpresa(TENANT)
         const r = await M().mensagemDoLevantamento(TENANT, t, lev())
-        expect(r.texto).toContain('• A sua empresa não tem uma tabela de fornecedor ligada ao orçamentista.')
+        expect(r.texto).toContain('• A base de conhecimento da sua empresa não vincula nenhum fornecedor com tabela cadastrada.')
     })
 
     it('mais de 8 faltas: as 8 primeiras e a contagem do resto — nenhuma calada', () => {
@@ -698,7 +714,8 @@ describe('(10) as abas vêm do BANCO: a Fórmulas da tipologia é a fonte, a da 
     it('a recusa também carrega o rótulo: o vendedor sabe que a conta recusada foi a das fórmulas da linha', async () => {
         banco.db.orcamentista_motor_formula_familia = comoDaLinha('EUROPA 42')
         semDaDP02('orcamentista_motor_formula')
-        banco.db.orcamentista_mp_categoria = []
+        // sem a serra, a recusa vem DEPOIS de as fórmulas da linha terem sido usadas (a categoria fica: ela vincula a tabela)
+        delete (banco.db.orcamentista_mp_categoria[0].config as Linha).serra_mm
         const r = await levantar()
         expect(r.desfecho).toBe('recusou')
         expect(r.texto.endsWith(`\n\n${M().fraseDasFormulasDaLinha('DP-02', 'EUROPA 42')}`)).toBe(true)
