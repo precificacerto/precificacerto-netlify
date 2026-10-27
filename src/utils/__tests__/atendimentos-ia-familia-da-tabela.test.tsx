@@ -28,7 +28,7 @@ import { createRoot } from 'react-dom/client'
 import type { NextApiRequest, NextApiResponse } from 'next'
 
 import {
-    LIMITE_DO_ROTULO_DA_FAMILIA, MENSAGEM_FAMILIA_OBRIGATORIA, ROTAS_DO_CATALOGO,
+    LIMITE_DO_ROTULO_DA_FAMILIA, MENSAGEM_CATEGORIA_OBRIGATORIA, MENSAGEM_FAMILIA_OBRIGATORIA, ROTAS_DO_CATALOGO,
     chaveDaFamilia, fraseDaFamiliaDesconhecida, lerCorpoDaTabela, lerEdicaoDaTabela, lerFamiliaNova, recusada,
     type Familia,
 } from '@/utils/atendimentos-ia-catalogo'
@@ -67,6 +67,7 @@ jest.mock('@/lib/atendimentos-ia/repositorio', () => {
         codigoDoErro: real.codigoDoErro,
         falhaInterna: real.falhaInterna,
         listarFamilias: jest.fn(async () => catalogo.map((f) => ({ ...f }))),
+        listarCategorias: jest.fn(async () => [{ chave: 'PERFIL', rotulo: 'Perfil', ordem: 1 }]),
         criarFamilia: jest.fn(async (f: Familia) => ({ ...f })),
         criarTabela: jest.fn(async () => ({ id: T })),
         obterTabela: jest.fn(async () => ({ id: T, fornecedor_id: F, arquivo_path: `${F}/arquivo/x-t.xlsx`, motor_path: `${F}/motor/x-m.xlsx` })),
@@ -106,7 +107,7 @@ beforeEach(() => {
     Object.values(repo).forEach((f) => { if (typeof f?.mockClear === 'function') f.mockClear() })
 })
 
-const CORPO = { fornecedor_id: F, arquivo_path: `${F}/arquivo/a-t.xlsx`, arquivo_nome: 't.xlsx', motor_path: `${F}/motor/a-m.xlsx`, motor_nome: 'm.xlsx', vigencia: null as string | null }
+const CORPO = { fornecedor_id: F, arquivo_path: `${F}/arquivo/a-t.xlsx`, arquivo_nome: 't.xlsx', motor_path: `${F}/motor/a-m.xlsx`, motor_nome: 'm.xlsx', vigencia: null as string | null, categoria_chave: 'PERFIL' }
 
 describe('(1) a chave da família nova vem do rótulo', () => {
     it('MAIÚSCULA ASCII, sem acento, palavras unidas por "_"', () => {
@@ -249,6 +250,7 @@ async function escolherArquivo(indice: 0 | 1, nome: string) {
     await assentar()
 }
 // o antd põe o atributo no próprio input do Radio.Button; um invólucro com ele também vale
+const opcaoDaCategoria = (chave: string) => modal()!.querySelector(`input[data-categoria="${chave}"], [data-categoria="${chave}"] input`) as HTMLInputElement | null
 const opcaoDaFamilia = (chave: string) => modal()!.querySelector(`input[data-familia="${chave}"], [data-familia="${chave}"] input`) as HTMLInputElement | null
 
 describe('(4) a TELA', () => {
@@ -256,9 +258,12 @@ describe('(4) a TELA', () => {
 
     it('tabela NOVA: as famílias da lista aparecem, NENHUMA vem escolhida, e sem família o salvar não liga', async () => {
         const salvos: Array<{ familia: string | null }> = []
-        await montar(React.createElement(Modal(), { aberto: true, titulo: 'Nova tabela', familias: FAMILIAS, onCancelar: () => {}, onSalvar: (t: { familia: string | null }) => { salvos.push(t) } }))
+        await montar(React.createElement(Modal(), { categorias: [{ chave: 'PERFIL', rotulo: 'Perfil', ordem: 1 }], aberto: true, titulo: 'Nova tabela', familias: FAMILIAS, onCancelar: () => {}, onSalvar: (t: { familia: string | null }) => { salvos.push(t) } }))
         await escolherArquivo(0, 't.xlsx')
         await escolherArquivo(1, 'm.xlsx')
+        // a categoria já está escolhida: o que mantém o salvar desligado, abaixo, é SÓ a família
+        await act(async () => { opcaoDaCategoria('PERFIL')!.click() })
+        await assentar()
         expect(opcaoDaFamilia('PVC')).not.toBeNull()
         expect(opcaoDaFamilia('ALUMINIO')).not.toBeNull()
         expect(opcaoDaFamilia('PVC')!.checked).toBe(false)
@@ -276,12 +281,68 @@ describe('(4) a TELA', () => {
     it('EDIÇÃO de tabela sem família: diz "não informada", e salvar sem escolher não manda família', async () => {
         const salvos: Array<{ familia: string | null }> = []
         await montar(React.createElement(Modal(), {
-            aberto: true, titulo: 'Editar tabela', familias: FAMILIAS, atual: { arquivo_nome: 't.xlsx', motor_nome: 'm.xlsx', vigencia: null, familia: null },
+            aberto: true, titulo: 'Editar tabela', familias: FAMILIAS, categorias: [{ chave: 'PERFIL', rotulo: 'Perfil', ordem: 1 }], atual: { arquivo_nome: 't.xlsx', motor_nome: 'm.xlsx', vigencia: null, familia: null, categoria_chave: null },
             onCancelar: () => {}, onSalvar: (t: { familia: string | null }) => { salvos.push(t) },
         }))
         expect(modal()!.textContent).toContain('Família não informada')
         await act(async () => { botao(modal()!, 'Salvar tabela')!.click() })
         expect(salvos.map((t) => t.familia)).toEqual([null])
+    })
+
+    // ── a CATEGORIA no mesmo modal (27/10/2026) ─────────────────────────────────────────────────
+    const CATEGORIAS = [{ chave: 'PERFIL', rotulo: 'Perfil', ordem: 1 }, { chave: 'VIDRO', rotulo: 'Vidro', ordem: 2 }]
+
+    it('tabela NOVA: as categorias da lista aparecem, NENHUMA vem escolhida, e sem categoria o salvar não liga (a família já está escolhida)', async () => {
+        const salvos: Array<{ familia: string | null; categoria: string | null }> = []
+        await montar(React.createElement(Modal(), { aberto: true, titulo: 'Nova tabela', familias: FAMILIAS, categorias: CATEGORIAS, onCancelar: () => {}, onSalvar: (t: { familia: string | null; categoria: string | null }) => { salvos.push(t) } }))
+        await escolherArquivo(0, 't.xlsx')
+        await escolherArquivo(1, 'm.xlsx')
+        await act(async () => { opcaoDaFamilia('PVC')!.click() })
+        await assentar()
+        expect(opcaoDaCategoria('PERFIL')).not.toBeNull()
+        expect(opcaoDaCategoria('VIDRO')).not.toBeNull()
+        expect(opcaoDaCategoria('PERFIL')!.checked).toBe(false)
+        expect(opcaoDaCategoria('VIDRO')!.checked).toBe(false)
+        expect(botao(modal()!, 'Salvar tabela')!.disabled).toBe(true)
+        expect(modal()!.textContent).toContain(MENSAGEM_CATEGORIA_OBRIGATORIA)
+
+        await act(async () => { opcaoDaCategoria('VIDRO')!.click() })
+        await assentar()
+        expect(botao(modal()!, 'Salvar tabela')!.disabled).toBe(false)
+        expect(modal()!.textContent).not.toContain(MENSAGEM_CATEGORIA_OBRIGATORIA)
+        await act(async () => { botao(modal()!, 'Salvar tabela')!.click() })
+        expect(salvos.map((t) => [t.familia, t.categoria])).toEqual([['PVC', 'VIDRO']])
+    })
+
+    it('EDIÇÃO de tabela SEM categoria: diz "não informada", salvar sem escolher não manda categoria, e escolher uma manda', async () => {
+        const salvos: Array<{ categoria: string | null }> = []
+        const props = { aberto: true, titulo: 'Editar tabela', familias: FAMILIAS, categorias: CATEGORIAS, atual: { arquivo_nome: 't.xlsx', motor_nome: 'm.xlsx', vigencia: null as string | null, familia: 'PVC', categoria_chave: null as string | null }, onCancelar: () => {}, onSalvar: (t: { categoria: string | null }) => { salvos.push(t) } }
+        await montar(React.createElement(Modal(), props))
+        expect(modal()!.textContent).toContain('Categoria não informada')
+        expect(botao(modal()!, 'Salvar tabela')!.disabled).toBe(false)
+        await act(async () => { botao(modal()!, 'Salvar tabela')!.click() })
+        expect(salvos.map((t) => t.categoria)).toEqual([null])
+
+        await act(async () => { opcaoDaCategoria('VIDRO')!.click() })
+        await assentar()
+        await act(async () => { botao(modal()!, 'Salvar tabela')!.click() })
+        expect(salvos.map((t) => t.categoria)).toEqual([null, 'VIDRO'])
+    })
+
+    it('EDIÇÃO de tabela COM categoria: ela aparece como texto, não há como trocá-la, e salvar não a manda', async () => {
+        const salvos: Array<{ categoria: string | null }> = []
+        await montar(React.createElement(Modal(), {
+            aberto: true, titulo: 'Editar tabela', familias: FAMILIAS, categorias: CATEGORIAS,
+            atual: { arquivo_nome: 't.xlsx', motor_nome: 'm.xlsx', vigencia: null, familia: 'PVC', categoria_chave: 'VIDRO' },
+            onCancelar: () => {}, onSalvar: (t: { categoria: string | null }) => { salvos.push(t) },
+        }))
+        expect(modal()!.querySelector('[data-categoria-da-tabela="VIDRO"]')!.textContent).toContain('Vidro')
+        expect(modal()!.textContent).toContain('não se troca')
+        expect(opcaoDaCategoria('PERFIL')).toBeNull()
+        expect(opcaoDaCategoria('VIDRO')).toBeNull()
+        expect(modal()!.textContent).not.toContain('Categoria não informada')
+        await act(async () => { botao(modal()!, 'Salvar tabela')!.click() })
+        expect(salvos.map((t) => t.categoria)).toEqual([null])
     })
 
     it('o card das famílias lista pela ordem e acrescenta pelo rótulo', async () => {

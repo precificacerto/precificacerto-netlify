@@ -4,7 +4,11 @@
  * PATCH  /api/super-admin/atendimentos-ia/tabelas/[id] — troca o arquivo, o motor, a vigência ou a
  *        FAMÍLIA (da lista, conferida aqui; ela se troca e não se apaga — 26/10/2026), ou a marca de
  *        VIGENTE (no máximo uma por fornecedor e família, pelo índice único do banco; a recusa nomeia a
- *        vigente de hoje — migração 20261026000005). A `vigencia` continua sendo só texto.
+ *        vigente de hoje — migração 20261026000005). A `vigencia` continua sendo só texto. Dá a CATEGORIA da tabela
+ *        (`categoria_chave`) — UMA VEZ: a tabela de antes não a tem, ganha uma e depois ela não se troca nem se
+ *        apaga (409 com a frase; o gatilho do banco é a segunda trava — migração 20261027000005). A tabela cujos
+ *        itens gravados têm mais de uma categoria do fornecedor NÃO pode declarar uma só (409, nomeando as que
+ *        achou): é o caso da Wolff, que fica como está até o dono do produto decidir.
  * DELETE /api/super-admin/atendimentos-ia/tabelas/[id] — exclui uma tabela que nenhuma conta usa.
  *
  * TABELA EM USO A ROTA RECUSA, ANTES de apagar: 409 com os NOMES das contas — "Em uso por: …" (EPIC §3.7).
@@ -39,6 +43,8 @@ import {
   contasQueUsamATabela,
   excluirTabela,
   falhaInterna,
+  categoriasDoFornecedorDosItensGravados,
+  listarCategorias,
   listarFamilias,
   objetoExiste,
   tabelaVigenteDoPar,
@@ -46,7 +52,8 @@ import {
   obterTabela,
   removerObjetos,
 } from '@/lib/atendimentos-ia/repositorio'
-import { ehFkDaFamilia, ehIndiceDaVigente, ehUuid, emUsoPor, fraseDaFamiliaDesconhecida, fraseDaVigenteQueJaExiste, lerEdicaoDaTabela, recusada } from '@/utils/atendimentos-ia-catalogo'
+import { ehFkDaCategoria, ehFkDaFamilia, ehIndiceDaVigente, ehTravaDaCategoriaQueNaoSeTroca, ehUuid, emUsoPor, fraseDaCategoriaDesconhecida, fraseDaCategoriaQueNaoSeTroca, fraseDaFamiliaDesconhecida, fraseDaVigenteQueJaExiste, lerEdicaoDaTabela, recusada } from '@/utils/atendimentos-ia-catalogo'
+import { categoriasDoFornecedorNosItens, fraseDaTabelaComMaisDeUmaCategoria } from '@/utils/atendimentos-ia-categoria-do-arquivo'
 
 const fraseDaTabelaEmUso = (contas: string[]) =>
   `A tabela está em uso e não pode ser excluída. ${emUsoPor(contas)}. Para excluir, tire o fornecedor dela da base de conhecimento dessas contas.`
@@ -113,6 +120,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const ed = leitura.corpo
     try {
       if (ed.familia !== undefined && !(await listarFamilias()).some((f) => f.chave === ed.familia)) return res.status(400).json({ error: fraseDaFamiliaDesconhecida(ed.familia) })
+      if (ed.categoria !== undefined) {
+        if (!(await listarCategorias()).some((c) => c.chave === ed.categoria)) return res.status(400).json({ error: fraseDaCategoriaDesconhecida(ed.categoria) })
+        if (atual.categoria_chave != null && atual.categoria_chave !== ed.categoria) return res.status(409).json({ error: fraseDaCategoriaQueNaoSeTroca(atual.categoria_chave, ed.categoria) })
+        if (atual.categoria_chave == null) {
+          const { categorias } = categoriasDoFornecedorNosItens(await categoriasDoFornecedorDosItensGravados(id))
+          if (categorias.length > 1) return res.status(409).json({ error: fraseDaTabelaComMaisDeUmaCategoria(categorias) })
+        }
+      }
       if (ed.arquivo && !(await objetoExiste(ed.arquivo.path))) return res.status(400).json({ error: 'O arquivo da tabela não chegou ao armazenamento. Envie de novo.' })
       if (ed.motor && !(await objetoExiste(ed.motor.path))) return res.status(400).json({ error: 'O arquivo do motor não chegou ao armazenamento. Envie de novo.' })
       const campos: Record<string, string | boolean | null> = {}
@@ -120,13 +135,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (ed.motor) { campos.motor_path = ed.motor.path; campos.motor_nome = ed.motor.nome }
       if (ed.vigencia !== undefined) campos.vigencia = ed.vigencia
       if (ed.familia !== undefined) campos.familia = ed.familia
+      // a MESMA categoria de novo não é troca nem escrita: só vai quando a tabela ainda não tem
+      if (ed.categoria !== undefined && atual.categoria_chave == null) campos.categoria_chave = ed.categoria
       if (ed.vigente !== undefined) campos.vigente = ed.vigente
-      await atualizarTabela(id, campos)
+      if (Object.keys(campos).length > 0) await atualizarTabela(id, campos)
       const trocados = [ed.arquivo && atual.arquivo_path, ed.motor && atual.motor_path].filter((p): p is string => typeof p === 'string')
       const { aviso } = await removerOsQueNinguemMaisUsa('tabela PATCH', trocados)
       return res.status(200).json(aviso ? { ok: true, aviso } : { ok: true })
     } catch (e) {
       if (codigoDoErro(e) === '23503' && ehFkDaFamilia(e) && ed.familia !== undefined) return res.status(400).json({ error: fraseDaFamiliaDesconhecida(ed.familia) })
+      if (codigoDoErro(e) === '23503' && ehFkDaCategoria(e) && ed.categoria !== undefined) return res.status(400).json({ error: fraseDaCategoriaDesconhecida(ed.categoria) })
+      if (codigoDoErro(e) === '23514' && ehTravaDaCategoriaQueNaoSeTroca(e) && ed.categoria !== undefined) {
+        // duas gravações ao mesmo tempo: a outra deu a categoria entre a leitura e a escrita
+        const agora = await obterTabela(id).catch((): null => null)
+        return res.status(409).json({ error: fraseDaCategoriaQueNaoSeTroca(agora?.categoria_chave ?? 'já dada', ed.categoria) })
+      }
       if (codigoDoErro(e) === '23505' && ehIndiceDaVigente(e)) {
         const ja = await tabelaVigenteDoPar(id)
         return res.status(409).json({ error: fraseDaVigenteQueJaExiste(ja?.familia ?? null, ja?.arquivo_nome ?? 'outra tabela') })

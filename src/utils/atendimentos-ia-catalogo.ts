@@ -102,6 +102,8 @@ export const ROTAS_DO_CATALOGO = {
     fornecedores: '/api/super-admin/atendimentos-ia/fornecedores',
     fornecedor: (id: string) => `/api/super-admin/atendimentos-ia/fornecedores/${id}`,
     tabelas: '/api/super-admin/atendimentos-ia/tabelas',
+    /** As categorias (as ramificações) da plataforma, NA ORDEM: de onde a tabela nova escolhe a sua (27/10/2026). */
+    categorias: '/api/super-admin/atendimentos-ia/categorias',
     tabela: (id: string) => `/api/super-admin/atendimentos-ia/tabelas/${id}`,
     urlDeEnvio: '/api/super-admin/atendimentos-ia/tabelas/url-de-envio',
     /** A importação da tabela: POST importa os dois arquivos; GET a última importação, ou null. */
@@ -190,6 +192,33 @@ export function chaveDaFamilia(rotulo: string): string | null {
     return ehChaveDeFamilia(chave) ? chave : null
 }
 
+// ── A CATEGORIA da tabela (dono do produto, 27/10/2026; migração 20261027000005) ─────────────
+/**
+ * UMA TABELA = UMA CATEGORIA (a ramificação: PERFIL, REFORCO, VIDRO…), da lista `orcamentista_categoria_catalogo`.
+ * Obrigatória na tabela NOVA — a rota recusa, e o banco é a terceira trava. Uma vez dada, não se troca: tabela de
+ * outra categoria é tabela nova. As de antes ficam sem (`null`): a da Wolff traz mais de uma categoria do
+ * fornecedor no arquivo e não pode declarar uma só (`.claude/rules/tabela-de-preco-por-categoria.md`).
+ * Não confundir com a CATEGORIA DO FORNECEDOR (`COLUNA_DA_CATEGORIA_DO_FORNECEDOR`), que é o que o arquivo traz
+ * em cada item: a importação confere que o arquivo traz UMA só, mas não deduz uma da outra.
+ */
+export interface Categoria { chave: string; rotulo: string; ordem: number }
+
+export const MENSAGEM_CATEGORIA_OBRIGATORIA = 'Escolha a categoria da tabela.'
+export const fraseDaCategoriaDesconhecida = (chave: string) => `A categoria "${chave}" não está na lista de categorias.`
+/** A forma da chave: a das chaves do catálogo (PERFIL, ACESSORIOS_VEDACAO…). A lista é conferida pela rota. */
+const FORMA_DA_CHAVE_DA_CATEGORIA = /^[A-Z][A-Z0-9_]{0,39}$/
+export const ehChaveDeCategoria = (v: unknown): v is string => typeof v === 'string' && FORMA_DA_CHAVE_DA_CATEGORIA.test(v)
+
+const mensagemDoErro = (e: unknown): string => (e as { message?: string } | null)?.message ?? ''
+/** O 23503 é o da FK da categoria da tabela (`orcamentista_tabela_categoria_fkey`), e não o da família nem o do fornecedor. */
+export const ehFkDaCategoria = (e: unknown): boolean => /orcamentista_tabela_categoria_fkey/.test(mensagemDoErro(e))
+/** O 23514 da trava de INSERT: tabela nova sem categoria. */
+export const ehTravaDaCategoriaObrigatoria = (e: unknown): boolean => /orcamentista_tabela_categoria_obrigatoria/.test(mensagemDoErro(e))
+/** O 23514 da trava de UPDATE: a categoria dada não se troca nem se apaga. */
+export const ehTravaDaCategoriaQueNaoSeTroca = (e: unknown): boolean => /orcamentista_tabela_categoria_nao_se_troca/.test(mensagemDoErro(e))
+export const fraseDaCategoriaQueNaoSeTroca = (atual: string, pedida: string) =>
+    `A categoria da tabela é ${atual} e não se troca${pedida === atual ? '' : ` (pedida: ${pedida})`}: para outra categoria, suba outra tabela.`
+
 // ── Os tipos que a rota devolve e a tela lê ─────────────────────────────────────────────────
 export interface Nicho { id: string; modelo: Modelo; nome: string; ativo: boolean }
 
@@ -214,6 +243,8 @@ export interface TabelaDoFornecedor {
     vigencia: string | null
     /** A chave da família; null = não informada (as tabelas de antes de 26/10/2026). */
     familia: string | null
+    /** A chave da categoria da tabela (27/10/2026); null = não declarada (as tabelas de antes). */
+    categoria_chave: string | null
     /**
      * A tabela vigente do fornecedor na família dela (migração 20261026000005): decide o que levantamento NOVO
      * usa. No máximo uma por (fornecedor, família). A `vigencia` acima continua sendo só texto do consultor.
@@ -300,6 +331,8 @@ export interface CorpoDaTabela {
     vigencia: string | null
     /** A chave da família, da lista. Obrigatória na tabela nova; a rota confere que está na lista. */
     familia: string
+    /** A chave da categoria, da lista. Obrigatória na tabela nova; a rota confere que está na lista. */
+    categoria_chave: string
 }
 
 /** A família nova: `{ rotulo }`, aparado, com a chave derivada dele. */
@@ -316,6 +349,9 @@ export function lerFamiliaNova(body: unknown): Leitura<{ rotulo: string; chave: 
  * A tabela NOVA. O MOTOR É OBRIGATÓRIO — aqui, na rota, e não só na tela: "quando for inserida
  * uma nova tabela, tem que inserir o motor de aplicação" (dono do produto, EPIC §3.8). O banco
  * também recusa (`motor_path` e `motor_nome` NOT NULL), mas a rota recusa antes, com a frase.
+ *
+ * A CATEGORIA TAMBÉM É OBRIGATÓRIA (dono do produto, 27/10/2026): tabela sem categoria é recusa, aqui na rota; a
+ * trava de INSERT do banco (23514) é a terceira.
  */
 export function lerCorpoDaTabela(body: unknown): Leitura<CorpoDaTabela> {
     const b = obj(body)
@@ -331,7 +367,8 @@ export function lerCorpoDaTabela(body: unknown): Leitura<CorpoDaTabela> {
         return { ok: false, erro: 'Os arquivos não pertencem a este fornecedor.' }
     }
     if (!ehChaveDeFamilia(b.familia)) return { ok: false, erro: MENSAGEM_FAMILIA_OBRIGATORIA }
-    return { ok: true, corpo: { fornecedor_id, arquivo_path, arquivo_nome, motor_path, motor_nome, vigencia: textoAparado(b.vigencia), familia: b.familia } }
+    if (!ehChaveDeCategoria(b.categoria_chave)) return { ok: false, erro: MENSAGEM_CATEGORIA_OBRIGATORIA }
+    return { ok: true, corpo: { fornecedor_id, arquivo_path, arquivo_nome, motor_path, motor_nome, vigencia: textoAparado(b.vigencia), familia: b.familia, categoria_chave: b.categoria_chave } }
 }
 
 /** A EDIÇÃO de uma tabela: cada arquivo troca inteiro (caminho E nome) ou não troca; o motor não sai. */
@@ -342,6 +379,8 @@ export interface EdicaoDaTabela {
     vigencia?: string | null
     /** `undefined` = não mexe. A família se troca pela lista, e não se apaga. */
     familia?: string
+    /** `undefined` = não mexe. A categoria se DÁ uma vez (a de antes não tem) e depois não se troca nem se apaga. */
+    categoria?: string
     /** `undefined` = não mexe. A marca de vigente (migração 20261026000005): no máximo uma por fornecedor e família. */
     vigente?: boolean
 }
@@ -363,6 +402,10 @@ export function lerEdicaoDaTabela(body: unknown, fornecedorId: string): Leitura<
     if ('familia' in b) {
         if (!ehChaveDeFamilia(b.familia)) return { ok: false, erro: MENSAGEM_FAMILIA_OBRIGATORIA }
         out.familia = b.familia
+    }
+    if ('categoria_chave' in b) {
+        if (!ehChaveDeCategoria(b.categoria_chave)) return { ok: false, erro: MENSAGEM_CATEGORIA_OBRIGATORIA }
+        out.categoria = b.categoria_chave
     }
     if ('vigente' in b) {
         if (typeof b.vigente !== 'boolean') return { ok: false, erro: 'A marca de vigente é sim ou não.' }

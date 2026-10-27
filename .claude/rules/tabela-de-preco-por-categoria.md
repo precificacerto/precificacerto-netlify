@@ -5,6 +5,7 @@ paths:
   - "src/page-parts/atendimentos-ia/**"
   - "src/utils/atendimentos-ia-*.ts"
   - "supabase/migrations/*motor*"
+  - "supabase/migrations/*categoria*"
 ---
 # Tabela de preço por categoria — e a ordem que protege o motor
 
@@ -44,12 +45,41 @@ uma planilha o referencia (`caminhosDaPlanilha`).
 | Wolff | 735 | Perfil PVC 534 · Reforço 112 · Acessórios 87 · "acessórios" (minúsculo) 1 · sem segmento 1 | **não** — quatro segmentos |
 | Estrela | 24 | Vidro | sim |
 
+> Pela comparação da importação (que ignora a caixa), a Wolff tem **três** categorias do fornecedor — Perfil PVC 534, Reforço 112, Acessórios **88** (os 87 e o "acessórios" em minúsculo) — e **um** item sem categoria. Continua fora da regra.
+
+## O que está implementado — a categoria no upload (PR de 27/10/2026, migração `20261027000005`)
+
+- **`orcamentista_tabela.categoria_chave`** (nula, FK para `orcamentista_categoria_catalogo`): a categoria **da
+  tabela**. **Obrigatória na tabela NOVA** — a rota recusa (`lerCorpoDaTabela`), e o banco tem a terceira trava
+  (gatilho de INSERT, 23514). Uma vez dada, **não se troca nem se apaga** (rota 409 e gatilho de UPDATE).
+- **Não confundir os dois nomes.** A *categoria da tabela* é a ramificação (PERFIL, REFORCO, VIDRO…), escolhida na
+  tela. A *categoria do fornecedor* é o que o arquivo traz em cada item, na coluna `COLUNA_DA_CATEGORIA_DO_FORNECEDOR`
+  (a palavra do dono do produto é "segmento", mas o portão de vocabulário proíbe a raiz em `src/`). **Nenhuma
+  deduz a outra**: o sistema não tem mapa "Perfil PVC → PERFIL", e a importação só confere que o arquivo traz **uma**.
+- **A importação de tabela que DECLARA a categoria recusa arquivo com mais de uma categoria do fornecedor**
+  (422, nomeando as que achou, com a contagem, antes de gravar). Duas grafias da mesma categoria ("Acessórios" e
+  "acessórios", espaço de sobra) contam como **uma**. Item sem a categoria preenchida **não é categoria**: vai a um
+  aviso (`itens_sem_categoria_do_fornecedor`), nunca é somado a uma delas.
+- **A tabela de antes NÃO é recusada retroativamente.** Sem categoria declarada (a da Wolff), a importação roda como
+  sempre, com o aviso `tabela_sem_categoria_declarada`. Se a leitura da tabela não trouxer a coluna (`undefined`), a
+  importação **falha fechada** (recusa), e não trata como "de antes".
+- **Declarar a categoria de uma tabela já importada** (PATCH, uma vez): a Estrela (24 itens, só Vidro) pode ganhar
+  VIDRO pela tela de edição. A tabela cujos itens gravados têm mais de uma categoria do fornecedor (a Wolff) **não
+  pode declarar uma só** (409, nomeando as que achou). As outras edições dela seguem livres.
+- **O que a migração NÃO faz:** nenhum UPDATE de dado (as duas tabelas de hoje ficam nulas); não toca no índice
+  `orcamentista_tabela_uma_vigente` (fornecedor, família); a coluna não é NOT NULL.
+
 ## O que NÃO está implementado ainda — não presuma
 
-- **A categoria obrigatória no upload e a recusa de arquivo com mais de um segmento:** é código do PR que vem
-  depois do C. Hoje a importação aceita a tabela da Wolff com os quatro segmentos.
 - **O preço pelo principal da ramificação:** hoje os leitores usam as tabelas dos fornecedores vinculados
   (`tabelas-da-conta.ts`), sem filtrar por categoria nem por principal. Trocar isso é trabalho dos leitores (PR D).
+- **A Wolff continua sem categoria**, com as categorias do fornecedor misturadas no mesmo arquivo, e é a fonte que a
+  conversa ainda lê. Sai de circulação por decisão do dono do produto, **depois** do PR D.
+- **O índice `orcamentista_tabela_uma_vigente` é por (fornecedor, família):** três tabelas da Wolff na mesma família
+  (Perfil, Reforço, Acessórios) não podem ser as três vigentes. Se a regra do principal dispensar a vigente na
+  escolha do preço, isso não atrapalha; se não, o índice precisa incluir a categoria. Decisão do PR D.
+- **O arquivo do motor continua obrigatório** em toda tabela nova (`motor_path`/`motor_nome` NOT NULL, `MENSAGEM_MOTOR_OBRIGATORIO`),
+  mesmo para Reforço e Acessórios, que não têm motor próprio: o motor mora em `orcamentista_motor` desde o PR C.
 - **REFORCO e ACESSORIOS_VEDACAO da De Paula não têm fornecedor vinculado** (medido em 27/10/2026): com a regra do
   principal, o preço delas não tem de onde vir até alguém vincular.
 

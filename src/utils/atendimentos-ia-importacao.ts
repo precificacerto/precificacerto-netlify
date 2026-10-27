@@ -50,13 +50,10 @@ import ExcelJS from 'exceljs'
 import { arquivoImportavel, fraseDoArquivo, fraseDoArquivoNaoImportavel } from '@/utils/atendimentos-ia-catalogo'
 import { ABAS_DO_MOTOR, lerAbasDoMotor, type LinhaDoBanco } from '@/utils/atendimentos-ia-abas-do-motor'
 
-/**
- * O nome da coluna do banco que guarda a categoria COMO VEIO DO ARQUIVO DO FORNECEDOR, nas duas
- * tabelas (o item do preço e a regra do motor). DECLARADO AQUI E SÓ AQUI — decisão do dono do
- * produto, 20/10/2026: é o nome da coluna do arquivo, e renomeá-la faria o código mentir sobre o
- * arquivo. Esta linha é a exceção nominal do portão de vocabulário.
- */
-export const COLUNA_DA_CATEGORIA_DO_FORNECEDOR = 'segmento' as const
+// A declaração mora em `atendimentos-ia-importacao-celula.ts` (módulo leve, sem o `exceljs`), para a camada de
+// dados (`repositorio.ts`) ler a coluna sem carregar o leitor; daqui ela segue exportada como sempre.
+import { COLUNA_DA_CATEGORIA_DO_FORNECEDOR } from '@/utils/atendimentos-ia-importacao-celula'
+export { COLUNA_DA_CATEGORIA_DO_FORNECEDOR }
 
 /** A chave da categoria do fornecedor, pela constante. */
 type CategoriaDoFornecedor = { [K in typeof COLUNA_DA_CATEGORIA_DO_FORNECEDOR]: string | null }
@@ -167,6 +164,8 @@ export type Aviso =
     | { tipo: 'codigo_do_motor_sem_preco'; codigos: string[]; mensagem: string }
     | { tipo: 'tipologia_em_mais_de_uma_linha'; tipologia: string; linhas: string[]; mensagem: string }
     | { tipo: 'tipologia_condicional_sem_variavel'; tipologia: string; n_condicionais: number; exemplo: string; mensagem: string }
+    | { tipo: 'itens_sem_categoria_do_fornecedor'; itens: number; mensagem: string }
+    | { tipo: 'tabela_sem_categoria_declarada'; mensagem: string }
 
 export interface Contagens {
     itens: number

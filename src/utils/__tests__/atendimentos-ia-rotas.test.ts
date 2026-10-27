@@ -57,6 +57,7 @@ jest.mock('@/lib/atendimentos-ia/repositorio', () => {
         obterTabela: fn('obterTabela', () => ({ id: T, fornecedor_id: F, arquivo_path: `${F}/arquivo/x-t.xlsx`, motor_path: `${F}/motor/x-m.xlsx` })),
         criarTabela: fn('criarTabela', () => ({ id: T })),
         listarFamilias: fn('listarFamilias', () => [{ chave: 'PVC', rotulo: 'PVC', ordem: 1 }]),
+        listarCategorias: fn('listarCategorias', () => [{ chave: 'PERFIL', rotulo: 'Perfil', ordem: 1 }]),
         atualizarTabela: fn('atualizarTabela', () => 1),
         excluirTabela: fn('excluirTabela', () => 1),
         contasQueUsamATabela: fn('contasQueUsamATabela', () => []),
@@ -108,7 +109,7 @@ const chamadasAoRepositorio = () => ordem.length
 
 // Cada rota nova, cada método — UMA POR UMA, com um corpo VÁLIDO: a recusa tem de vir da
 // autorização, e não de um corpo ruim que o super admin também receberia.
-const CORPO_DA_TABELA = { fornecedor_id: F, arquivo_path: `${F}/arquivo/a-t.xlsx`, arquivo_nome: 't.xlsx', motor_path: `${F}/motor/a-m.xlsx`, motor_nome: 'm.xlsx', vigencia: 'desde 01/10/2026', familia: 'PVC' }
+const CORPO_DA_TABELA = { fornecedor_id: F, arquivo_path: `${F}/arquivo/a-t.xlsx`, arquivo_nome: 't.xlsx', motor_path: `${F}/motor/a-m.xlsx`, motor_nome: 'm.xlsx', vigencia: 'desde 01/10/2026', familia: 'PVC', categoria_chave: 'PERFIL' }
 const CADA_ROTA: [keyof typeof ROTAS, string, object, unknown][] = [
     ['nichos', 'GET', {}, undefined],
     ['nichos', 'POST', {}, { modelo: 'FABRICACAO', nome: 'Esquadrias' }],
