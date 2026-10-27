@@ -7,20 +7,27 @@
  * uma frase em vez do motor. Ele MOSTRA, e edita só escolha estruturada:
  *   - a FAMÍLIA da tabela, da lista, pela rota da TABELA. A tabela é do catálogo da plataforma: a família
  *     vale para todas as contas que a usam, e o bloco diz quais antes de salvar;
+ *   - a VIGENTE da tabela, uma chave liga/desliga, pela rota da TABELA: no máximo uma por fornecedor e família
+ *     (índice do banco), e a recusa nomeia a vigente de hoje;
  *   - o CRITÉRIO DE CUSTO DAS BARRAS, uma das duas opções, pela rota da CATEGORIA da base de conhecimento
  *     (`superadmin_gravar_mp_categoria`, que faz merge: só essa chave vai, e o resto do Perfil fica). É o
  *     mesmo campo da tela da base — não uma cópia.
+ *
+ * AS TABELAS SÃO AS DERIVADAS (dono do produto, 26/10/2026): as dos fornecedores que a base de conhecimento
+ * vincula. Cada uma diz o PAPEL — com motor entra na conversa; sem motor é TABELA DE PREÇO e não entra —, a
+ * categoria pela qual entra e se vale para levantamento novo. Os avisos da derivação vêm no topo.
  *
  * Tudo pelas rotas (`ROTAS_DO_MOTOR`); falha de leitura é ERRO na tela, nunca um bloco vazio.
  * Portão: `src/utils/__tests__/atendimentos-ia-motor-a-tela.test.tsx`.
  */
 import React, { useCallback, useEffect, useState } from 'react'
-import { Alert, Button, Card, Drawer, Empty, Radio, Space, Table, Tabs, Tag, Typography, message } from 'antd'
+import { Alert, Button, Card, Drawer, Empty, Radio, Space, Switch, Table, Tabs, Tag, Typography, message } from 'antd'
 import { chamarRota } from '@/page-parts/atendimentos-ia/api'
 import { ROTAS_DA_BASE } from '@/page-parts/atendimentos-ia/base-de-conhecimento/formulario'
 import { ROTAS_DO_CATALOGO } from '@/utils/atendimentos-ia-catalogo'
 import {
-    ABAS_DA_TIPOLOGIA, CONTAGENS_DO_MOTOR, ROTAS_DO_MOTOR, ROTULO_DO_CRITERIO,
+    ABAS_DA_TIPOLOGIA, AVISO_NENHUMA_COM_MOTOR, CONTAGENS_DO_MOTOR, ROTAS_DO_MOTOR, ROTULO_DO_CRITERIO, ROTULO_DO_PAPEL, SEM_TABELA_NA_CONTA,
+    fraseDoFornecedorSemTabela, fraseDoParSemVigente,
     type AbasDaTipologia, type CriterioDeCustoDaBarra, type MotorDaConta as Resumo, type TabelaNoMotor, type TipologiaNoMotor,
 } from '@/utils/atendimentos-ia-motor'
 
@@ -66,6 +73,35 @@ function FamiliaDaTabela({ tabela, familias, onSalvo }: { tabela: TabelaNoMotor;
     )
 }
 
+/** A marca de vigente: uma chave, pela rota da tabela. A recusa do índice (já há outra vigente) fica no bloco. */
+function VigenteDaTabela({ tabela, onSalvo }: { tabela: TabelaNoMotor; onSalvo: () => void }) {
+    const [salvando, setSalvando] = useState(false)
+    const [erro, setErro] = useState<string | null>(null)
+    async function marcar(vigente: boolean) {
+        setSalvando(true)
+        setErro(null)
+        try {
+            await chamarRota(ROTAS_DO_CATALOGO.tabela(tabela.tabela_id), 'PATCH', { vigente })
+            message.success(vigente ? 'Tabela marcada como vigente' : 'Marca de vigente retirada')
+            onSalvo()
+        } catch (e) {
+            setErro((e as Error).message)
+        } finally {
+            setSalvando(false)
+        }
+    }
+    return (
+        <div style={{ marginBottom: 12 }}>
+            <Typography.Text strong>Vigente: </Typography.Text>
+            <Switch size="small" checked={tabela.vigente} loading={salvando} onChange={marcar} data-vigente-do-motor={tabela.tabela_id} />
+            <Typography.Text type={tabela.vale ? 'secondary' : 'warning'} style={{ marginLeft: 8, fontSize: 12 }} data-vale={tabela.tabela_id}>
+                {tabela.vale ? 'Vale para levantamento novo' : 'Esta tabela não vale para levantamento novo: há outra deste fornecedor na mesma família, e a vigente é a que vale.'}
+            </Typography.Text>
+            {erro && <Alert type="error" showIcon style={{ marginTop: 8 }} message="A marca de vigente não foi salva." description={erro} />}
+        </div>
+    )
+}
+
 function TipologiasDaTabela({ tenantId, tabela }: { tenantId: string; tabela: TabelaNoMotor }) {
     const [lista, setLista] = useState<TipologiaNoMotor[] | null>(null)
     const [erro, setErro] = useState<string | null>(null)
@@ -87,7 +123,7 @@ function TipologiasDaTabela({ tenantId, tabela }: { tenantId: string; tabela: Ta
     if (lista === null) {
         return (
             <>
-                <Button onClick={carregar}>Ver tipologias</Button>
+                <Button onClick={carregar} data-ver-tipologias>Ver tipologias</Button>
                 {erro && <Alert type="error" showIcon style={{ marginTop: 8 }} message="Não foi possível ler as tipologias." description={erro} />}
             </>
         )
@@ -188,19 +224,32 @@ export function MotorDaConta({ tenantId }: { tenantId: string }) {
     return (
         <div data-bloco="motor">
             <Typography.Paragraph type="secondary" style={{ fontSize: 13 }}>
-                O que esta conta tem carregado, na ordem da cascata: <b>{CASCATA}</b>. O bloco mostra; o que se edita aqui
-                é só escolha da lista — a família da tabela e o critério de custo das barras.
+                O que esta conta tem carregado, na ordem da cascata: <b>{CASCATA}</b>. As tabelas são as dos fornecedores
+                vinculados na base de conhecimento. O bloco mostra; o que se edita aqui é só escolha da lista — a família e a
+                vigente da tabela, e o critério de custo das barras.
             </Typography.Paragraph>
             {erro && <Alert type="error" showIcon message="Não foi possível ler o motor da conta." description={erro} action={<Button onClick={carregar}>Tentar de novo</Button>} />}
             {!erro && resumo && (
                 <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-                    {resumo.tabelas.length === 0 && <Alert type="info" showIcon message="A conta não tem tabela em uso: ligue uma em Tabelas em uso." />}
+                    {resumo.avisos.nenhuma_com_motor && <Alert type="warning" showIcon message={AVISO_NENHUMA_COM_MOTOR} data-aviso="nenhuma-com-motor" />}
+                    {resumo.avisos.fornecedores_sem_tabela.map((f) => (
+                        <Alert key={`sem-${f.fornecedor}`} type="warning" showIcon message={fraseDoFornecedorSemTabela(f.fornecedor, f.categorias)} data-aviso="fornecedor-sem-tabela" />
+                    ))}
+                    {resumo.avisos.pares_sem_vigente.map((p) => (
+                        <Alert key={`par-${p.fornecedor}-${p.familia ?? ''}`} type="warning" showIcon message={fraseDoParSemVigente(p.fornecedor, p.familia, p.arquivos)} data-aviso="par-sem-vigente" />
+                    ))}
+                    {resumo.tabelas.length === 0 && <Alert type="info" showIcon message={SEM_TABELA_NA_CONTA} />}
                     {resumo.tabelas.map((t) => (
                         <Card key={`${t.tabela_id}-${versao}`} size="small" title={`${t.fornecedor} — ${t.arquivo_nome}`} data-tabela-do-motor={t.tabela_id}>
+                            <Space wrap style={{ marginBottom: 8 }}>
+                                <Tag color={t.com_motor ? 'blue' : 'default'} data-papel={t.tabela_id}>{t.com_motor ? ROTULO_DO_PAPEL.MOTOR : ROTULO_DO_PAPEL.PRECO}</Tag>
+                                <Typography.Text type="secondary" style={{ fontSize: 12 }}>Entra pela base de conhecimento: {t.categorias.join(', ')}</Typography.Text>
+                            </Space>
                             <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
-                                Motor: {t.motor_nome}{t.vigencia ? ` · vigência: ${t.vigencia}` : ''}
+                                Motor: {t.motor_nome}{t.vigencia ? ` · vigência (nota): ${t.vigencia}` : ''}
                             </Typography.Paragraph>
                             <FamiliaDaTabela tabela={t} familias={resumo.familias} onSalvo={carregar} />
+                            <VigenteDaTabela tabela={t} onSalvo={carregar} />
                             <Typography.Text strong>Linhas</Typography.Text>
                             <ul style={{ margin: '4px 0 12px', paddingLeft: 18 }}>
                                 {t.linhas.map((l) => <li key={l.linha ?? '-'}>{`${l.linha ?? '(sem linha)'}: ${l.tipologias} tipologia(s)`}</li>)}
@@ -220,7 +269,7 @@ export function MotorDaConta({ tenantId }: { tenantId: string }) {
                             <ul style={{ margin: '4px 0 12px', paddingLeft: 18 }}>
                                 {t.otimizacao.length === 0 ? <li>nenhum parâmetro</li> : t.otimizacao.map((o, i) => <li key={i}>{`${o.parametro ?? '?'}: ${o.valor ?? '—'}`}</li>)}
                             </ul>
-                            <TipologiasDaTabela tenantId={tenantId} tabela={t} />
+                            {t.com_motor && <TipologiasDaTabela tenantId={tenantId} tabela={t} />}
                         </Card>
                     ))}
                     <Card size="small" title="Custo das barras">
