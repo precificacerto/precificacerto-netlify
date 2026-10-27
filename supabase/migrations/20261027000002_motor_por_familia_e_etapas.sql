@@ -57,8 +57,10 @@
 --      e uma família por conta. O NOME livre FICA no banco, sem uso e sem DROP.
 --   G. `orcamentista_levantamento_item.motor_id`: o histórico aponta o motor que calculou. RESTRICT.
 --   H. RLS e REVOKE nas três tabelas novas, no formato das outras (quatro políticas de is_super_admin()).
---   I. VERIFICAÇÃO (aborta): a forma de tudo isso, e que NENHUMA linha existente mudou — as contagens de antes e de
---      depois das 14 tabelas e das quatro vizinhas, e a unicidade da Detalhe e dos tempos.
+--   I. VERIFICAÇÃO (aborta): a forma de tudo isso, e que NENHUMA linha existente mudou — a contagem E o hash do
+--      conteudo (md5 de cada linha, sem as colunas que esta migracao acrescenta) das 14 tabelas e das quatro
+--      vizinhas, de antes e de depois, e a unicidade da Detalhe e dos tempos. So a contagem nao via uma linha
+--      reescrita com o mesmo numero de linhas (medido ao mutar a migracao: um UPDATE de tipologia passava).
 --
 -- NÃO FAZ: não copia o motor da Wolff (PR C), não lê nada novo (PR D), não muda a importação (PR E), não apaga o
 -- antigo (PR F). `orcamentista_tabela.motor_path` e `motor_nome` ficam como estão: param de ser escritos no PR E.
