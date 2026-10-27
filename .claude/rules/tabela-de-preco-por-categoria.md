@@ -79,6 +79,10 @@ Decisão do dono do produto, 27/10/2026: "Exija o arquivo do motor apenas quando
   (`lerCorpoDaTabela`: Perfil sem motor, ou o caminho sem o nome, em qualquer categoria); a tela só liga o salvar do Perfil com o motor; declarar
   PERFIL numa tabela sem motor no PATCH é 400; o motor, na edição, troca inteiro e **não se apaga**. A constante `CATEGORIA_QUE_EXIGE_MOTOR` é o
   literal da CHECK (`atendimentos-ia-motor-so-para-perfil.test.ts` liga as duas pontas).
+  **Vazio não é motor** (achado do dono do produto, 27/10/2026): a CHECK exige um caminho com algum caractere que não seja espaço
+  (`coalesce(motor_path ~ '[^[:space:]]', false)`), porque `IS NOT NULL` deixava passar a string vazia — e a Estrela está em produção com
+  `motor_path = ''` e `motor_nome = ''`. `btrim` simples não serve (só tira espaço; tab e enter passariam). A importação e a exclusão
+  tratam nulo, vazio e só-espaço como "sem motor".
 - **A importação de tabela sem motor lê só o preço**: as listas do motor vão vazias, não há cruzamento, e o arquivo do motor não é baixado.
 - **A etapa aponta o motor** (`orcamentista_familia_etapa.motor_id`): `superadmin_gravar_etapas_da_familia` aceita `motor_id` no item (ausente
   mantém, `null` limpa, uuid aponta, e confere que o motor é da família da etapa e não está arquivado); `superadmin_arquivar_motor` **recusa** arquivar

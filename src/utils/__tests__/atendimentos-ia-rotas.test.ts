@@ -57,8 +57,9 @@ jest.mock('@/lib/atendimentos-ia/repositorio', () => {
         obterTabela: fn('obterTabela', () => ({ id: T, fornecedor_id: F, arquivo_path: `${F}/arquivo/x-t.xlsx`, motor_path: `${F}/motor/x-m.xlsx` })),
         criarTabela: fn('criarTabela', () => ({ id: T })),
         listarFamilias: fn('listarFamilias', () => [{ chave: 'PVC', rotulo: 'PVC', ordem: 1 }]),
-        listarCategorias: fn('listarCategorias', () => [{ chave: 'PERFIL', rotulo: 'Perfil', ordem: 1 }, { chave: 'REFORCO', rotulo: 'Reforço', ordem: 2 }, { chave: 'ACESSORIOS_VEDACAO', rotulo: 'Acessórios', ordem: 3 }]),
+        listarCategorias: fn('listarCategorias', () => [{ chave: 'PERFIL', rotulo: 'Perfil', ordem: 1 }, { chave: 'REFORCO', rotulo: 'Reforço', ordem: 2 }, { chave: 'ACESSORIOS_VEDACAO', rotulo: 'Acessórios', ordem: 3 }, { chave: 'VIDRO', rotulo: 'Vidro', ordem: 6 }]),
         atualizarTabela: fn('atualizarTabela', () => 1),
+        categoriasDoFornecedorDosItensGravados: fn('categoriasDoFornecedorDosItensGravados', () => []),
         excluirTabela: fn('excluirTabela', () => 1),
         contasQueUsamATabela: fn('contasQueUsamATabela', () => []),
         assinarEnvio: fn('assinarEnvio', (p: string) => ({ path: p, signedUrl: `https://x/upload/sign/${p}?token=t` })),
@@ -286,6 +287,14 @@ describe('PORTÃO — apagar tabela: a LINHA primeiro, depois o Storage', () => 
         expect(repo.removerObjetos).toHaveBeenCalledWith([`${F}/arquivo/x-t.xlsx`])
     })
 
+    it('a Estrela de produção (motor_path VAZIO, não nulo): o "" não vai ao armazenamento', async () => {
+        repo.obterTabela.mockImplementationOnce(async () => ({ id: T, fornecedor_id: F, arquivo_path: `${F}/arquivo/x-t.xlsx`, motor_path: '', categoria_chave: null }))
+        const r = await chamar('tabela', 'DELETE', { id: T })
+        expect(r.status).toBe(200)
+        expect(repo.caminhosDaPlanilha).toHaveBeenCalledWith([`${F}/arquivo/x-t.xlsx`])
+        expect(repo.removerObjetos).toHaveBeenCalledWith([`${F}/arquivo/x-t.xlsx`])
+    })
+
     it('Storage que falha deixa ÓRFÃO e AVISA — não é 500, e a exclusão vale', async () => {
         repo.removerObjetos.mockImplementationOnce(async () => { ordem.push('removerObjetos'); return { erro: 'storage fora' } })
         const r = await chamar('tabela', 'DELETE', { id: T })
@@ -309,6 +318,25 @@ describe('PORTÃO — dar o motor a uma tabela que não tinha: não há objeto a
         expect(repo.atualizarTabela).toHaveBeenCalledWith(T, expect.objectContaining({ motor_path: `${F}/motor/novo-m.xlsx`, motor_nome: 'novo.xlsx' }))
         expect(repo.caminhosDaPlanilha).toHaveBeenCalledWith([])
         expect(repo.removerObjetos).toHaveBeenCalledWith([])
+    })
+})
+
+describe('PORTÃO — a Estrela de produção tem o motor VAZIO (""), e vazio não é motor', () => {
+    it('declarar PERFIL nela é 400 com a frase do Perfil — o "" não conta como motor — e nada é gravado', async () => {
+        repo.obterTabela.mockImplementationOnce(async () => ({ id: T, fornecedor_id: F, arquivo_path: `${F}/arquivo/x-t.xlsx`, motor_path: '', categoria_chave: null }))
+        const r = await chamar('tabela', 'PATCH', { id: T }, { categoria_chave: 'PERFIL' })
+        expect(r.status).toBe(400)
+        expect(r.json.error).toBe(MENSAGEM_MOTOR_OBRIGATORIO)
+        expect(repo.atualizarTabela).not.toHaveBeenCalled()
+    })
+
+    it('declarar VIDRO nela passa, e o "" do motor antigo não vai ao armazenamento ao trocar o motor', async () => {
+        repo.obterTabela.mockImplementationOnce(async () => ({ id: T, fornecedor_id: F, arquivo_path: `${F}/arquivo/x-t.xlsx`, motor_path: '', categoria_chave: null }))
+        expect((await chamar('tabela', 'PATCH', { id: T }, { categoria_chave: 'VIDRO' })).status).toBe(200)
+        repo.obterTabela.mockImplementationOnce(async () => ({ id: T, fornecedor_id: F, arquivo_path: `${F}/arquivo/x-t.xlsx`, motor_path: '', categoria_chave: null }))
+        const r = await chamar('tabela', 'PATCH', { id: T }, { motor_path: `${F}/motor/n.xlsx`, motor_nome: 'n.xlsx' })
+        expect(r.status).toBe(200)
+        expect(repo.removerObjetos).toHaveBeenLastCalledWith([])
     })
 })
 

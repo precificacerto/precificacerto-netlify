@@ -96,7 +96,9 @@ const semMotor = (extra: object = {}) => ({ ...CORPO, motor_path: undefined as s
 describe('(1) a paridade com a migração 20261027000007', () => {
     it('a categoria que exige motor no código é a do literal da CHECK', () => {
         expect(CATEGORIA_QUE_EXIGE_MOTOR).toBe('PERFIL')
-        expect(MIGRACAO).toContain(`CHECK (categoria_chave IS DISTINCT FROM '${CATEGORIA_QUE_EXIGE_MOTOR}' OR motor_path IS NOT NULL)`)
+        // "ter motor" é ter um caminho com algum caractere que não seja espaço: NULL, '' e '   ' NÃO são motor (achado do dono do produto, 27/10/2026)
+        expect(MIGRACAO).toContain(`CHECK (categoria_chave IS DISTINCT FROM '${CATEGORIA_QUE_EXIGE_MOTOR}' OR coalesce(motor_path ~ '[^[:space:]]', false))`)
+        expect(MIGRACAO).not.toContain('motor_path IS NOT NULL)')
     })
 
     it('as duas CHECK que a rota reconhece pelo nome são as que a migração cria', () => {

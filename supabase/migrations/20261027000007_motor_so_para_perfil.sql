@@ -20,13 +20,17 @@
 --   A. `orcamentista_tabela.motor_path` e `motor_nome` deixam de ser NOT NULL.
 --   B. CHECK `orcamentista_tabela_motor_par`: os dois andam juntos (os dois nulos ou os dois preenchidos). Um
 --      arquivo sem nome, ou um nome sem arquivo, nunca fica gravado.
---   C. CHECK `orcamentista_tabela_perfil_exige_motor`: tabela de categoria PERFIL tem o arquivo do motor. É a
---      terceira trava da regra (a rota e a tela recusam antes). Categoria nula (as tabelas de antes) e as demais
---      categorias não exigem.
+--   C. CHECK `orcamentista_tabela_perfil_exige_motor`: tabela de categoria PERFIL tem o arquivo do motor, e "ter" é
+--      ter um caminho com algum caractere que não seja espaço em branco: NULL, '' e '   ' NÃO são motor. (A primeira
+--      versão testava só `motor_path IS NOT NULL` e a string vazia passava; achado do dono do produto, 27/10/2026 —
+--      a Estrela está em produção com motor_path = '' e motor_nome = ''.) É a terceira trava da regra (a rota e a tela
+--      recusam antes). Categoria nula (as tabelas de antes) e as demais categorias não exigem.
 --
 -- O QUE NÃO FAZ:
---   - NENHUM UPDATE de dado. As duas tabelas de hoje (Wolff e Estrela) têm o motor preenchido e categoria nula: as
---     duas CHECK passam por elas como estão (a verificação abaixo confere isso por contagem).
+--   - NENHUM UPDATE de dado. As duas tabelas de hoje têm categoria nula (a Wolff com o motor preenchido, a Estrela com
+--     motor_path e motor_nome VAZIOS): as duas CHECK passam por elas como estão, a do par porque os dois estão não
+--     nulos e a do PERFIL porque a categoria não é PERFIL (a guarda abaixo confere). A Estrela fica como está, com o
+--     motor vazio; a rota da importação a trata como tabela sem motor.
 --   - NÃO apaga o motor de ninguém: tabela que já tem arquivo de motor continua com ele.
 --
 -- IDEMPOTENTE: DROP NOT NULL, e as CHECK só se ausentes.
@@ -46,7 +50,7 @@ BEGIN
   IF EXISTS (SELECT 1 FROM public.orcamentista_tabela WHERE (motor_path IS NULL) <> (motor_nome IS NULL)) THEN
     RAISE EXCEPTION 'ha tabela com motor_path e motor_nome fora de par. Nada foi alterado.';
   END IF;
-  IF EXISTS (SELECT 1 FROM public.orcamentista_tabela WHERE categoria_chave = 'PERFIL' AND motor_path IS NULL) THEN
+  IF EXISTS (SELECT 1 FROM public.orcamentista_tabela WHERE categoria_chave = 'PERFIL' AND NOT coalesce(motor_path ~ '[^[:space:]]', false)) THEN
     RAISE EXCEPTION 'ha tabela PERFIL sem motor. Nada foi alterado.';
   END IF;
 END
@@ -65,12 +69,12 @@ BEGIN
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'public.orcamentista_tabela'::regclass AND conname = 'orcamentista_tabela_perfil_exige_motor') THEN
     ALTER TABLE public.orcamentista_tabela
-      ADD CONSTRAINT orcamentista_tabela_perfil_exige_motor CHECK (categoria_chave IS DISTINCT FROM 'PERFIL' OR motor_path IS NOT NULL);
+      ADD CONSTRAINT orcamentista_tabela_perfil_exige_motor CHECK (categoria_chave IS DISTINCT FROM 'PERFIL' OR coalesce(motor_path ~ '[^[:space:]]', false));
   END IF;
 END
 $checks$;
 COMMENT ON COLUMN public.orcamentista_tabela.motor_path IS
-  'O arquivo do motor desta tabela. Obrigatorio so na tabela de categoria PERFIL (CHECK orcamentista_tabela_perfil_exige_motor); nulo nas de preco puro (Reforco, Acessorios...). O motor tem casa propria em orcamentista_motor.';
+  'O arquivo do motor desta tabela. Obrigatorio so na tabela de categoria PERFIL (CHECK orcamentista_tabela_perfil_exige_motor); nulo nas de preco puro (Reforco, Acessorios...); vazio ou em branco nao conta como motor. O motor tem casa propria em orcamentista_motor.';
 
 DO $verifica$
 DECLARE
@@ -88,7 +92,7 @@ BEGIN
   END IF;
   -- (3) a CHECK do PERFIL
   SELECT pg_get_constraintdef(oid) INTO def FROM pg_constraint WHERE conrelid = 'public.orcamentista_tabela'::regclass AND conname = 'orcamentista_tabela_perfil_exige_motor';
-  IF def IS DISTINCT FROM 'CHECK (((categoria_chave IS DISTINCT FROM ''PERFIL''::text) OR (motor_path IS NOT NULL)))' THEN
+  IF def IS DISTINCT FROM 'CHECK (((categoria_chave IS DISTINCT FROM ''PERFIL''::text) OR COALESCE((motor_path ~ ''[^[:space:]]''::text), false)))' THEN
     RAISE EXCEPTION 'verificacao 3: CHECK orcamentista_tabela_perfil_exige_motor ausente ou com outra definicao: %. Nada foi alterado.', coalesce(def, '(ausente)');
   END IF;
   RAISE NOTICE 'motor so para PERFIL: colunas opcionais e as duas CHECK.';
@@ -102,4 +106,4 @@ COMMIT;
 -- ── VERIFICAÇÃO DEPOIS DE APLICAR, por consulta ao banco (não pelo retorno do comando) ──────
 -- select column_name, is_nullable from information_schema.columns where table_name='orcamentista_tabela' and column_name in ('motor_path','motor_nome');  -- YES e YES
 -- select conname, pg_get_constraintdef(oid) from pg_constraint where conname in ('orcamentista_tabela_motor_par','orcamentista_tabela_perfil_exige_motor');
--- select id, motor_nome, categoria_chave from public.orcamentista_tabela;   -- esperado: as 2, com motor, categoria nula
+-- select id, categoria_chave, length(motor_path), length(motor_nome) from public.orcamentista_tabela;   -- esperado: as 2, categoria nula; a Wolff com motor, a Estrela com comprimento 0 (inalterada)

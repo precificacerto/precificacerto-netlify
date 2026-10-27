@@ -585,6 +585,27 @@ describe('TABELA DE PREÇO PURO — sem arquivo de motor (Reforço, Acessórios�
         expect(r.json.contagens).toEqual(expect.objectContaining({ itens: 2, regras: 0, tipologias: 0, cruzam: 0, nao_cruzam: 0 }))
     })
 
+    it('a Estrela de produção (motor_path e motor_nome VAZIOS, não nulos) é tabela sem motor: importa só o preço, sem baixar nem conferir ""', async () => {
+        repo.obterArquivosDaTabela.mockImplementation(async () => { ordem.push('obterArquivosDaTabela'); return { ...TABELA, motor_path: '', motor_nome: '', categoria_chave: 'VIDRO' } })
+        const r = await chamar('POST')
+        expect(r.status).toBe(200)
+        expect(repo.objetoExiste.mock.calls.map((c) => c[0])).toEqual([TABELA.arquivo_path])
+        expect(repo.baixarObjeto.mock.calls.map((c) => c[0])).toEqual([TABELA.arquivo_path])
+        expect(repo.importarConteudo.mock.calls[0][1].regras).toEqual([])
+    })
+
+    it('motor só com espaços também não é motor', async () => {
+        repo.obterArquivosDaTabela.mockImplementation(async () => { ordem.push('obterArquivosDaTabela'); return { ...TABELA, motor_path: '  ', motor_nome: ' ', categoria_chave: 'VIDRO' } })
+        expect((await chamar('POST')).status).toBe(200)
+        expect(repo.baixarObjeto.mock.calls.map((c) => c[0])).toEqual([TABELA.arquivo_path])
+    })
+
+    it('caminho preenchido e nome vazio (o banco só deixa por SQL à mão): o motor precisa dos DOIS para existir, e a importação segue só com o preço', async () => {
+        repo.obterArquivosDaTabela.mockImplementation(async () => { ordem.push('obterArquivosDaTabela'); return { ...TABELA, motor_nome: '', categoria_chave: 'VIDRO' } })
+        expect((await chamar('POST')).status).toBe(200)
+        expect(repo.baixarObjeto.mock.calls.map((c) => c[0])).toEqual([TABELA.arquivo_path])
+    })
+
     it('baixa SÓ o arquivo da tabela: o motor não é conferido no bucket nem baixado', async () => {
         semMotor()
         await chamar('POST')

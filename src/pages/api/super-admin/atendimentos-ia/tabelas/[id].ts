@@ -141,7 +141,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (ed.categoria !== undefined && atual.categoria_chave == null) campos.categoria_chave = ed.categoria
       if (ed.vigente !== undefined) campos.vigente = ed.vigente
       if (Object.keys(campos).length > 0) await atualizarTabela(id, campos)
-      const trocados = [ed.arquivo && atual.arquivo_path, ed.motor && atual.motor_path].filter((p): p is string => typeof p === 'string')
+      const trocados = [ed.arquivo && atual.arquivo_path, ed.motor && atual.motor_path].filter((p): p is string => typeof p === 'string' && p.trim() !== '')
       const { aviso } = await removerOsQueNinguemMaisUsa('tabela PATCH', trocados)
       return res.status(200).json(aviso ? { ok: true, aviso } : { ok: true })
     } catch (e) {
@@ -179,6 +179,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   // A linha saiu. Agora os objetos — e uma falha aqui deixa órfão, nunca uma tabela sem arquivo.
-  const { aviso } = await removerOsQueNinguemMaisUsa('tabela DELETE', [atual.arquivo_path, atual.motor_path].filter((p): p is string => typeof p === 'string'))
+  const { aviso } = await removerOsQueNinguemMaisUsa('tabela DELETE', [atual.arquivo_path, atual.motor_path].filter((p): p is string => typeof p === 'string' && p.trim() !== ''))
   return res.status(200).json(aviso ? { ok: true, aviso } : { ok: true })
 }

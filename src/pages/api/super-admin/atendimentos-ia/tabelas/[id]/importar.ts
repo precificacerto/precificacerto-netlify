@@ -111,7 +111,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   // O MOTOR É OPCIONAL (27/10/2026): a tabela de preço puro (Reforço, Acessórios…) não tem arquivo de motor, e a importação lê só o preço.
-  const comMotor = tabela.motor_path !== null && tabela.motor_nome !== null
+  // Nulo e VAZIO são a mesma coisa aqui: a Estrela está em produção com motor_path e motor_nome = '' (medido em 27/10/2026), e '' não é um arquivo.
+  const comMotor = !!tabela.motor_path?.trim() && !!tabela.motor_nome?.trim()
   const arquivos = [
     { nome: tabela.arquivo_nome, caminho: tabela.arquivo_path },
     ...(comMotor ? [{ nome: tabela.motor_nome as string, caminho: tabela.motor_path as string }] : []),
