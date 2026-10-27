@@ -40,7 +40,8 @@ const ETAPAS: EtapaDaFamilia[] = [
 ]
 
 let respostas: Record<string, { status: number; body: unknown }> = {}
-const pedidos: Array<{ chave: string; corpo: any }> = []
+type Corpo = { etapas: Array<Record<string, unknown>> }
+const pedidos: Array<{ chave: string; corpo: Corpo }> = []
 beforeEach(() => {
     pedidos.length = 0
     respostas = {
@@ -50,7 +51,7 @@ beforeEach(() => {
     }
     ;(globalThis as { fetch: unknown }).fetch = jest.fn(async (url: string, init?: { method?: string; body?: string }) => {
         const chave = `${init?.method ?? 'GET'} ${url}`
-        pedidos.push({ chave, corpo: init?.body ? JSON.parse(init.body) : undefined })
+        pedidos.push({ chave, corpo: (init?.body ? JSON.parse(init.body) : undefined) as Corpo })
         const r = respostas[chave] ?? { status: 404, body: { error: `sem resposta no teste: ${chave}` } }
         return { ok: r.status < 400, status: r.status, json: async () => r.body } as Response
     })

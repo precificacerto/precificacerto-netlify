@@ -87,7 +87,7 @@ describe('(1)(2)(3)(4) as categorias da matéria-prima: as ramificações da fam
     })
 
     it('catálogo sem ramificações na resposta (servidor antigo): com família, só o que tem dado; sem família, todas', () => {
-        const { ramificacoes: _fora, ...sem } = arvore().catalogo
+        const sem: ArvoreLida['catalogo'] = { ...arvore().catalogo, ramificacoes: undefined }
         expect(chaves(categoriasDaMateriaPrima(sem, 'PVC', ['REFORCO']))).toEqual(['REFORCO'])
         expect(chaves(categoriasDaMateriaPrima(sem, null))).toHaveLength(6)
     })
@@ -293,7 +293,7 @@ describe('(5) a família se escolhe da lista, pela rota, e só sem pendência', 
 
     it('catálogo sem famílias na resposta (servidor antigo): nenhum bloco de família, e a lista de categorias é a de antes', async () => {
         const a = arvore()
-        const { familias: _f, ramificacoes: _r, ...catalogo } = a.catalogo
+        const catalogo: ArvoreLida['catalogo'] = { ...a.catalogo, familias: undefined, ramificacoes: undefined }
         const { host } = await montar({ arvore: { ...a, catalogo, materias_primas: a.materias_primas.map((m) => ({ ...m, familia: undefined as string | undefined })) } })
         expect(host.querySelector('[data-familia-da-materia-prima]')).toBeNull()
         expect(categoriasDo(host, 0)).toHaveLength(6)
