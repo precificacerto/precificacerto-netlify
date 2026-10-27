@@ -340,6 +340,18 @@ export async function objetoExiste(caminho: string): Promise<boolean> {
     return data === true
 }
 
+/**
+ * Dos caminhos dados, os que uma PLANILHA do motor referencia (`orcamentista_motor.arquivo_path`). O motor da Wolff
+ * foi copiado para a planilha (20261027000004) apontando o MESMO objeto do bucket que `orcamentista_tabela.motor_path`:
+ * apagar ou trocar o motor da TABELA não pode levar o arquivo da PLANILHA. LANÇA se a leitura falhar — quem chama
+ * decide, e o que decide é não remover nada.
+ */
+export async function caminhosDaPlanilha(caminhos: string[]): Promise<Set<string>> {
+    if (caminhos.length === 0) return new Set()
+    const ls = await q(db().from('orcamentista_motor').select('arquivo_path').in('arquivo_path', caminhos))
+    return new Set(ls.map((l: Linha) => String(l.arquivo_path)))
+}
+
 /** Remove objetos. NÃO lança: devolve o erro, para a rota decidir — ver a exclusão da tabela. */
 export async function removerObjetos(caminhos: string[]): Promise<{ erro: string | null }> {
     if (caminhos.length === 0) return { erro: null }

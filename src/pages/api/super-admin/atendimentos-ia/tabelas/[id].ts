@@ -22,11 +22,19 @@
  * uma tabela que a conta vê e que não calcula. A resposta diz quando sobrou órfão (`aviso`), e o
  * log leva os caminhos. A troca de arquivo no PATCH segue a mesma ordem: grava a linha nova,
  * depois remove o objeto antigo.
+ *
+ * >>> O OBJETO QUE UMA PLANILHA TAMBÉM USA NÃO SE REMOVE (27/10/2026, PR C) <<<
+ * A migração `20261027000004` copiou o motor da Wolff para `orcamentista_motor`, e a planilha aponta o MESMO objeto do
+ * bucket que `motor_path` desta tabela. Trocar o motor (PATCH) ou excluir a tabela (DELETE) removeria o arquivo de
+ * uma planilha que continua de pé. Antes de remover, a rota tira da lista o que `orcamentista_motor.arquivo_path`
+ * referencia, e AVISA que o objeto ficou. Se a conferência falhar, NADA é removido: um objeto órfão é desperdício de
+ * espaço; uma planilha sem arquivo é perda (`caminhosDaPlanilha`).
  */
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { requireSuperAdmin } from '@/lib/get-caller-tenant'
 import {
   atualizarTabela,
+  caminhosDaPlanilha,
   codigoDoErro,
   contasQueUsamATabela,
   excluirTabela,
@@ -45,6 +53,33 @@ const fraseDaTabelaEmUso = (contas: string[]) =>
 
 const avisoDeOrfaos = (caminhos: string[]) =>
   `Os arquivos não puderam ser apagados do armazenamento e ficaram sem uso: ${caminhos.join(', ')}.`
+
+const avisoDosMantidos = (caminhos: string[]) =>
+  `Mantido no armazenamento, porque uma planilha do motor usa o mesmo arquivo: ${caminhos.join(', ')}.`
+
+const avisoSemConferir = (caminhos: string[]) =>
+  `Não foi possível conferir se uma planilha do motor usa estes arquivos; nada foi removido do armazenamento: ${caminhos.join(', ')}.`
+
+/** Remove do armazenamento só o que NENHUMA planilha referencia. Devolve o que a resposta precisa dizer. */
+async function removerOsQueNinguemMaisUsa(contexto: string, caminhos: string[]): Promise<{ aviso?: string }> {
+  let emUso: Set<string>
+  try {
+    emUso = await caminhosDaPlanilha(caminhos)
+  } catch (e) {
+    console.error(`atendimentos-ia ${contexto}: não conferiu as planilhas, nada removido:`, caminhos.join(', '), (e as { message?: string })?.message ?? 'erro')
+    return { aviso: avisoSemConferir(caminhos) }
+  }
+  const mantidos = caminhos.filter((c) => emUso.has(c))
+  const { erro } = await removerObjetos(caminhos.filter((c) => !emUso.has(c)))
+  const sobrou = caminhos.filter((c) => !emUso.has(c))
+  const avisos: string[] = []
+  if (erro) {
+    console.error(`atendimentos-ia ${contexto}: órfãos no Storage:`, sobrou.join(', '), erro)
+    avisos.push(avisoDeOrfaos(sobrou))
+  }
+  if (mantidos.length > 0) avisos.push(avisoDosMantidos(mantidos))
+  return avisos.length > 0 ? { aviso: avisos.join(' ') } : {}
+}
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET' && req.method !== 'PATCH' && req.method !== 'DELETE') return res.status(405).json({ error: 'Method not allowed' })
@@ -88,12 +123,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (ed.vigente !== undefined) campos.vigente = ed.vigente
       await atualizarTabela(id, campos)
       const trocados = [ed.arquivo && atual.arquivo_path, ed.motor && atual.motor_path].filter((p): p is string => typeof p === 'string')
-      const { erro } = await removerObjetos(trocados)
-      if (erro) {
-        console.error('atendimentos-ia tabela PATCH: órfãos no Storage:', trocados.join(', '), erro)
-        return res.status(200).json({ ok: true, aviso: avisoDeOrfaos(trocados) })
-      }
-      return res.status(200).json({ ok: true })
+      const { aviso } = await removerOsQueNinguemMaisUsa('tabela PATCH', trocados)
+      return res.status(200).json(aviso ? { ok: true, aviso } : { ok: true })
     } catch (e) {
       if (codigoDoErro(e) === '23503' && ehFkDaFamilia(e) && ed.familia !== undefined) return res.status(400).json({ error: fraseDaFamiliaDesconhecida(ed.familia) })
       if (codigoDoErro(e) === '23505' && ehIndiceDaVigente(e)) {
@@ -121,11 +152,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   // A linha saiu. Agora os objetos — e uma falha aqui deixa órfão, nunca uma tabela sem arquivo.
-  const caminhos = [atual.arquivo_path, atual.motor_path]
-  const { erro } = await removerObjetos(caminhos)
-  if (erro) {
-    console.error('atendimentos-ia tabela DELETE: órfãos no Storage:', caminhos.join(', '), erro)
-    return res.status(200).json({ ok: true, aviso: avisoDeOrfaos(caminhos) })
-  }
-  return res.status(200).json({ ok: true })
+  const { aviso } = await removerOsQueNinguemMaisUsa('tabela DELETE', [atual.arquivo_path, atual.motor_path])
+  return res.status(200).json(aviso ? { ok: true, aviso } : { ok: true })
 }
