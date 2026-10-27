@@ -157,7 +157,15 @@ export function fraseDoModeloSemFornecedor(m: ModeloSemFornecedor): string {
 /** A frase do mockup na tela de fornecedores (EPIC §3.3). */
 export const AVISO_DO_CATALOGO = 'Nada aqui pertence a um cliente — são tabelas do fornecedor.'
 
-export const MENSAGEM_MOTOR_OBRIGATORIO = 'O motor é obrigatório: toda tabela entra com o arquivo do motor.'
+/**
+ * A única categoria cuja tabela leva o ARQUIVO DO MOTOR (dono do produto, 27/10/2026): Reforço e Acessórios são preço puro, e o motor
+ * tem casa própria (`orcamentista_motor`). É também o literal da CHECK `orcamentista_tabela_perfil_exige_motor` (migração
+ * 20261027000007); `atendimentos-ia-motor-so-para-perfil.test.ts` liga as duas pontas.
+ */
+export const CATEGORIA_QUE_EXIGE_MOTOR = 'PERFIL'
+export const MENSAGEM_MOTOR_OBRIGATORIO = 'A tabela de Perfil leva o arquivo do motor: suba o arquivo do motor.'
+export const MENSAGEM_MOTOR_INCOMPLETO = 'O arquivo do motor chegou pela metade: faltou o caminho ou o nome. Envie de novo.'
+export const MENSAGEM_MOTOR_NAO_SAI = 'O arquivo do motor não se apaga da tabela: troque por outro.'
 
 // ── A FAMÍLIA da tabela (dono do produto, 26/10/2026; migração 20261026000004) ─────────────
 /**
@@ -179,8 +187,8 @@ export const ehChaveDeFamilia = (v: unknown): v is string => typeof v === 'strin
 
 /** O 23505 é o do índice da tabela vigente (`orcamentista_tabela_uma_vigente`), e não outro. */
 export const ehIndiceDaVigente = (e: unknown): boolean => /orcamentista_tabela_uma_vigente/.test((e as { message?: string } | null)?.message ?? '')
-export const fraseDaVigenteQueJaExiste = (familia: string | null, arquivo: string) =>
-    `Já há uma tabela vigente deste fornecedor na família ${familia ?? 'não informada'}: ${arquivo}. Desmarque-a antes de marcar outra.`
+export const fraseDaVigenteQueJaExiste = (familia: string | null, arquivo: string, categoria: string | null = null) =>
+    `Já há uma tabela vigente deste fornecedor na família ${familia ?? 'não informada'}${categoria === null ? '' : ` e na categoria ${categoria}`}: ${arquivo}. Desmarque-a antes de marcar outra.`
 
 /** O 23503 é o da FK da família da tabela (`orcamentista_tabela_familia_fkey`), e não o do fornecedor: a mensagem do banco diz qual. */
 export const ehFkDaFamilia = (e: unknown): boolean => /orcamentista_tabela_familia_fkey/.test((e as { message?: string } | null)?.message ?? '')
@@ -212,6 +220,10 @@ export const ehChaveDeCategoria = (v: unknown): v is string => typeof v === 'str
 const mensagemDoErro = (e: unknown): string => (e as { message?: string } | null)?.message ?? ''
 /** O 23503 é o da FK da categoria da tabela (`orcamentista_tabela_categoria_fkey`), e não o da família nem o do fornecedor. */
 export const ehFkDaCategoria = (e: unknown): boolean => /orcamentista_tabela_categoria_fkey/.test(mensagemDoErro(e))
+/** O 23514 da CHECK do Perfil: tabela de categoria PERFIL sem o arquivo do motor. */
+export const ehTravaDoPerfilSemMotor = (e: unknown): boolean => /orcamentista_tabela_perfil_exige_motor/.test(mensagemDoErro(e))
+/** O 23514 da CHECK do par: o caminho do motor sem o nome, ou o nome sem o caminho. */
+export const ehTravaDoMotorPelaMetade = (e: unknown): boolean => /orcamentista_tabela_motor_par/.test(mensagemDoErro(e))
 /** O 23514 da trava de INSERT: tabela nova sem categoria. */
 export const ehTravaDaCategoriaObrigatoria = (e: unknown): boolean => /orcamentista_tabela_categoria_obrigatoria/.test(mensagemDoErro(e))
 /** O 23514 da trava de UPDATE: a categoria dada não se troca nem se apaga. */
@@ -238,8 +250,9 @@ export interface TabelaDoFornecedor {
     fornecedor_id: string
     arquivo_nome: string
     arquivo_path: string
-    motor_nome: string
-    motor_path: string
+    /** Nulos nas tabelas de preço puro (Reforço, Acessórios…): só a de Perfil leva o arquivo do motor. */
+    motor_nome: string | null
+    motor_path: string | null
     vigencia: string | null
     /** A chave da família; null = não informada (as tabelas de antes de 26/10/2026). */
     familia: string | null
@@ -326,8 +339,9 @@ export interface CorpoDaTabela {
     fornecedor_id: string
     arquivo_path: string
     arquivo_nome: string
-    motor_path: string
-    motor_nome: string
+    /** Nulos fora da categoria PERFIL (`CATEGORIA_QUE_EXIGE_MOTOR`); os dois vêm juntos. */
+    motor_path: string | null
+    motor_nome: string | null
     vigencia: string | null
     /** A chave da família, da lista. Obrigatória na tabela nova; a rota confere que está na lista. */
     familia: string
@@ -346,9 +360,10 @@ export function lerFamiliaNova(body: unknown): Leitura<{ rotulo: string; chave: 
 }
 
 /**
- * A tabela NOVA. O MOTOR É OBRIGATÓRIO — aqui, na rota, e não só na tela: "quando for inserida
- * uma nova tabela, tem que inserir o motor de aplicação" (dono do produto, EPIC §3.8). O banco
- * também recusa (`motor_path` e `motor_nome` NOT NULL), mas a rota recusa antes, com a frase.
+ * A tabela NOVA. O MOTOR É OBRIGATÓRIO SÓ NA TABELA DE PERFIL (dono do produto, 27/10/2026, que mudou o EPIC §3.8): Reforço e
+ * Acessórios são preço puro, e o motor tem casa própria (`orcamentista_motor`). Aqui, na rota, e não só na tela; o banco recusa
+ * também (CHECK `orcamentista_tabela_perfil_exige_motor`, migração 20261027000007), mas a rota recusa antes, com a frase. Se vier
+ * um motor fora do Perfil, ele é gravado como veio (a Estrela já tem o dela); chegar pela metade — caminho sem nome — é recusa.
  *
  * A CATEGORIA TAMBÉM É OBRIGATÓRIA (dono do produto, 27/10/2026): tabela sem categoria é recusa, aqui na rota; a
  * trava de INSERT do banco (23514) é a terceira.
@@ -360,14 +375,16 @@ export function lerCorpoDaTabela(body: unknown): Leitura<CorpoDaTabela> {
     const arquivo_path = textoAparado(b.arquivo_path)
     const arquivo_nome = textoAparado(b.arquivo_nome)
     if (!arquivo_path || !arquivo_nome) return { ok: false, erro: 'Suba o arquivo da tabela.' }
+    // a categoria vem ANTES do motor: é ela que diz se o motor é exigido
+    if (!ehChaveDeCategoria(b.categoria_chave)) return { ok: false, erro: MENSAGEM_CATEGORIA_OBRIGATORIA }
     const motor_path = textoAparado(b.motor_path)
     const motor_nome = textoAparado(b.motor_nome)
-    if (!motor_path || !motor_nome) return { ok: false, erro: MENSAGEM_MOTOR_OBRIGATORIO }
-    if (!dentroDoFornecedor(arquivo_path, fornecedor_id) || !dentroDoFornecedor(motor_path, fornecedor_id)) {
+    if (!motor_path !== !motor_nome) return { ok: false, erro: MENSAGEM_MOTOR_INCOMPLETO }
+    if (!motor_path && b.categoria_chave === CATEGORIA_QUE_EXIGE_MOTOR) return { ok: false, erro: MENSAGEM_MOTOR_OBRIGATORIO }
+    if (!dentroDoFornecedor(arquivo_path, fornecedor_id) || (motor_path !== null && !dentroDoFornecedor(motor_path, fornecedor_id))) {
         return { ok: false, erro: 'Os arquivos não pertencem a este fornecedor.' }
     }
     if (!ehChaveDeFamilia(b.familia)) return { ok: false, erro: MENSAGEM_FAMILIA_OBRIGATORIA }
-    if (!ehChaveDeCategoria(b.categoria_chave)) return { ok: false, erro: MENSAGEM_CATEGORIA_OBRIGATORIA }
     return { ok: true, corpo: { fornecedor_id, arquivo_path, arquivo_nome, motor_path, motor_nome, vigencia: textoAparado(b.vigencia), familia: b.familia, categoria_chave: b.categoria_chave } }
 }
 
@@ -394,7 +411,8 @@ export function lerEdicaoDaTabela(body: unknown, fornecedorId: string): Leitura<
         if (!temPath && !temNome) continue
         const p = textoAparado(b[`${tipo}_path`])
         const n = textoAparado(b[`${tipo}_nome`])
-        if (!p || !n) return { ok: false, erro: tipo === 'motor' ? MENSAGEM_MOTOR_OBRIGATORIO : 'Suba o arquivo da tabela.' }
+        if (tipo === 'motor' && !p && !n) return { ok: false, erro: MENSAGEM_MOTOR_NAO_SAI }
+        if (!p || !n) return { ok: false, erro: tipo === 'motor' ? MENSAGEM_MOTOR_INCOMPLETO : 'Suba o arquivo da tabela.' }
         if (!dentroDoFornecedor(p, fornecedorId)) return { ok: false, erro: 'Os arquivos não pertencem a este fornecedor.' }
         out[tipo] = { path: p, nome: n }
     }

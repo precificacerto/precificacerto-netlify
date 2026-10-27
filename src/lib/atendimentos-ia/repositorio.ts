@@ -228,15 +228,15 @@ export async function listarCategorias(): Promise<Categoria[]> {
 }
 
 // ── Tabelas ────────────────────────────────────────────────────────────────────────────────
-export async function obterTabela(id: string): Promise<{ id: string; fornecedor_id: string; arquivo_path: string; motor_path: string; categoria_chave: string | null } | null> {
+export async function obterTabela(id: string): Promise<{ id: string; fornecedor_id: string; arquivo_path: string; motor_path: string | null; categoria_chave: string | null } | null> {
     const ts = await q(db().from('orcamentista_tabela').select('id, fornecedor_id, arquivo_path, motor_path, categoria_chave').eq('id', id))
-    return (ts[0] as { id: string; fornecedor_id: string; arquivo_path: string; motor_path: string; categoria_chave: string | null } | undefined) ?? null
+    return (ts[0] as { id: string; fornecedor_id: string; arquivo_path: string; motor_path: string | null; categoria_chave: string | null } | undefined) ?? null
 }
 
 /** Os dois arquivos da tabela — caminho no bucket e nome original —, para a importação. */
-export async function obterArquivosDaTabela(id: string): Promise<{ id: string; arquivo_path: string; arquivo_nome: string; motor_path: string; motor_nome: string; categoria_chave: string | null } | null> {
+export async function obterArquivosDaTabela(id: string): Promise<{ id: string; arquivo_path: string; arquivo_nome: string; motor_path: string | null; motor_nome: string | null; categoria_chave: string | null } | null> {
     const ts = await q(db().from('orcamentista_tabela').select('id, arquivo_path, arquivo_nome, motor_path, motor_nome, categoria_chave').eq('id', id))
-    return (ts[0] as { id: string; arquivo_path: string; arquivo_nome: string; motor_path: string; motor_nome: string; categoria_chave: string | null } | undefined) ?? null
+    return (ts[0] as { id: string; arquivo_path: string; arquivo_nome: string; motor_path: string | null; motor_nome: string | null; categoria_chave: string | null } | undefined) ?? null
 }
 
 /**
@@ -250,14 +250,14 @@ export async function importarConteudo(tabelaId: string, payload: unknown): Prom
 }
 
 /** A tabela, para a tela da importação: os nomes dos arquivos e o fornecedor. Sem os caminhos do bucket. */
-export async function obterDadosDaTabela(id: string): Promise<{ id: string; fornecedor_id: string; fornecedor_nome: string | null; arquivo_nome: string; motor_nome: string; vigencia: string | null; categoria_chave: string | null; categoria_rotulo: string | null } | null> {
+export async function obterDadosDaTabela(id: string): Promise<{ id: string; fornecedor_id: string; fornecedor_nome: string | null; arquivo_nome: string; motor_nome: string | null; vigencia: string | null; categoria_chave: string | null; categoria_rotulo: string | null } | null> {
     const ts = await q(db().from('orcamentista_tabela').select('id, fornecedor_id, arquivo_nome, motor_nome, vigencia, categoria_chave').eq('id', id))
     if (ts.length === 0) return null
     const fs = await q(db().from('orcamentista_fornecedor').select('id, nome').eq('id', ts[0].fornecedor_id))
     const categoria_chave: string | null = ts[0].categoria_chave ?? null
     const cs = categoria_chave ? await q(db().from('orcamentista_categoria_catalogo').select('rotulo').eq('chave', categoria_chave)) : []
     return {
-        id: ts[0].id, fornecedor_id: ts[0].fornecedor_id, fornecedor_nome: fs[0]?.nome ?? null, arquivo_nome: ts[0].arquivo_nome, motor_nome: ts[0].motor_nome, vigencia: ts[0].vigencia ?? null,
+        id: ts[0].id, fornecedor_id: ts[0].fornecedor_id, fornecedor_nome: fs[0]?.nome ?? null, arquivo_nome: ts[0].arquivo_nome, motor_nome: ts[0].motor_nome ?? null, vigencia: ts[0].vigencia ?? null,
         categoria_chave, categoria_rotulo: cs[0]?.rotulo ?? null,
     }
 }
@@ -319,13 +319,16 @@ export async function criarTabela(t: CorpoDaTabela & { criado_por: string }): Pr
     return q(db().from('orcamentista_tabela').insert(t).select('id').single())
 }
 
-/** A tabela que JÁ é a vigente do mesmo fornecedor e família da tabela dada — para a recusa nomeá-la. */
-export async function tabelaVigenteDoPar(tabelaId: string): Promise<{ id: string; arquivo_nome: string; familia: string | null } | null> {
-    const ts = await q(db().from('orcamentista_tabela').select('id, fornecedor_id, familia').eq('id', tabelaId))
+/**
+ * A tabela que JÁ é a vigente do mesmo fornecedor, família e CATEGORIA da tabela dada — para a recusa nomeá-la. O índice único é
+ * sobre os três (migração 20261027000006): a vigente de OUTRA categoria não é a que bloqueia, e nomeá-la mandaria desmarcar a errada.
+ */
+export async function tabelaVigenteDoPar(tabelaId: string): Promise<{ id: string; arquivo_nome: string; familia: string | null; categoria_chave: string | null } | null> {
+    const ts = await q(db().from('orcamentista_tabela').select('id, fornecedor_id, familia, categoria_chave').eq('id', tabelaId))
     if (ts.length === 0) return null
-    const doFornecedor = await q(db().from('orcamentista_tabela').select('id, arquivo_nome, familia, vigente').eq('fornecedor_id', ts[0].fornecedor_id).eq('vigente', true))
-    const par = doFornecedor.find((t: Linha) => t.id !== tabelaId && (t.familia ?? null) === (ts[0].familia ?? null))
-    return par ? { id: par.id, arquivo_nome: par.arquivo_nome, familia: par.familia ?? null } : null
+    const doFornecedor = await q(db().from('orcamentista_tabela').select('id, arquivo_nome, familia, categoria_chave, vigente').eq('fornecedor_id', ts[0].fornecedor_id).eq('vigente', true))
+    const par = doFornecedor.find((t: Linha) => t.id !== tabelaId && (t.familia ?? null) === (ts[0].familia ?? null) && (t.categoria_chave ?? null) === (ts[0].categoria_chave ?? null))
+    return par ? { id: par.id, arquivo_nome: par.arquivo_nome, familia: par.familia ?? null, categoria_chave: par.categoria_chave ?? null } : null
 }
 
 export async function atualizarTabela(id: string, campos: Record<string, string | boolean | null>): Promise<number> {

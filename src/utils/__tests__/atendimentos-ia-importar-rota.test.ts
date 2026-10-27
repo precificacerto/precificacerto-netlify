@@ -567,3 +567,83 @@ describe('GET /tabelas/[id]/conteudo — o que está no banco', () => {
         expect(repo.listarTipologias).not.toHaveBeenCalled()
     })
 })
+
+describe('TABELA DE PREÇO PURO — sem arquivo de motor (Reforço, Acessórios…): a importação lê só o preço (27/10/2026)', () => {
+    const semMotor = (categoria = 'REFORCO') => repo.obterArquivosDaTabela.mockImplementation(async () => { ordem.push('obterArquivosDaTabela'); return { ...TABELA, motor_path: null, motor_nome: null, categoria_chave: categoria } })
+
+    it('motor nulo: 200, grava os itens, e o payload leva TODAS as listas do motor vazias — a função as exige', async () => {
+        semMotor()
+        const r = await chamar('POST')
+        expect(r.status).toBe(200)
+        expect(repo.importarConteudo).toHaveBeenCalledTimes(1)
+        const payload = repo.importarConteudo.mock.calls[0][1]
+        expect(payload.itens.map((i: any) => i.codigo)).toEqual(['IL4237', 'KT4237'])
+        expect(payload.regras).toEqual([])
+        expect(payload.tipologias).toEqual([])
+        expect(payload.formulas).toEqual([])
+        for (const a of ABAS_DO_MOTOR) expect(payload[a.payload]).toEqual([])
+        expect(r.json.contagens).toEqual(expect.objectContaining({ itens: 2, regras: 0, tipologias: 0, cruzam: 0, nao_cruzam: 0 }))
+    })
+
+    it('a Estrela de produção (motor_path e motor_nome VAZIOS, não nulos) é tabela sem motor: importa só o preço, sem baixar nem conferir ""', async () => {
+        repo.obterArquivosDaTabela.mockImplementation(async () => { ordem.push('obterArquivosDaTabela'); return { ...TABELA, motor_path: '', motor_nome: '', categoria_chave: 'VIDRO' } })
+        const r = await chamar('POST')
+        expect(r.status).toBe(200)
+        expect(repo.objetoExiste.mock.calls.map((c) => c[0])).toEqual([TABELA.arquivo_path])
+        expect(repo.baixarObjeto.mock.calls.map((c) => c[0])).toEqual([TABELA.arquivo_path])
+        expect(repo.importarConteudo.mock.calls[0][1].regras).toEqual([])
+    })
+
+    it('motor só com espaços também não é motor', async () => {
+        repo.obterArquivosDaTabela.mockImplementation(async () => { ordem.push('obterArquivosDaTabela'); return { ...TABELA, motor_path: '  ', motor_nome: ' ', categoria_chave: 'VIDRO' } })
+        expect((await chamar('POST')).status).toBe(200)
+        expect(repo.baixarObjeto.mock.calls.map((c) => c[0])).toEqual([TABELA.arquivo_path])
+    })
+
+    it('caminho preenchido e nome vazio (o banco só deixa por SQL à mão): o motor precisa dos DOIS para existir, e a importação segue só com o preço', async () => {
+        repo.obterArquivosDaTabela.mockImplementation(async () => { ordem.push('obterArquivosDaTabela'); return { ...TABELA, motor_nome: '', categoria_chave: 'VIDRO' } })
+        expect((await chamar('POST')).status).toBe(200)
+        expect(repo.baixarObjeto.mock.calls.map((c) => c[0])).toEqual([TABELA.arquivo_path])
+    })
+
+    it('baixa SÓ o arquivo da tabela: o motor não é conferido no bucket nem baixado', async () => {
+        semMotor()
+        await chamar('POST')
+        expect(repo.objetoExiste.mock.calls.map((c) => c[0])).toEqual([TABELA.arquivo_path])
+        expect(repo.baixarObjeto.mock.calls.map((c) => c[0])).toEqual([TABELA.arquivo_path])
+    })
+
+    it('o arquivo da tabela faltando no bucket continua sendo recusa (409) — sem motor não é sem arquivo', async () => {
+        semMotor()
+        delete objetos[TABELA.arquivo_path]
+        const r = await chamar('POST')
+        expect(r.status).toBe(409)
+        expect(repo.importarConteudo).not.toHaveBeenCalled()
+    })
+
+    it('a regra de uma categoria do fornecedor vale igual sem motor: arquivo com duas é recusado (422)', async () => {
+        semMotor('ACESSORIOS_VEDACAO')
+        objetos[TABELA.arquivo_path] = await planilha({ 'Tabela Wolff': [
+            { 1: 'LAMINADOS' }, { 2: 'CÓDIGO', 13: 'VALOR METRO 18%', 15: 'VALOR BARRA 18%' },
+            { 2: 'A1', 11: 'Reforço', 13: 10 }, { 2: 'A2', 11: 'Acessórios', 13: 11 },
+        ] })
+        const r = await chamar('POST')
+        expect(r.status).toBe(422)
+        expect(repo.importarConteudo).not.toHaveBeenCalled()
+    })
+
+    it('o contraste: a tabela COM motor continua baixando e lendo os dois arquivos, e grava as listas do motor', async () => {
+        const r = await chamar('POST')
+        expect(r.status).toBe(200)
+        expect(repo.baixarObjeto.mock.calls.map((c) => c[0])).toEqual([TABELA.arquivo_path, TABELA.motor_path])
+        const payload = repo.importarConteudo.mock.calls[0][1]
+        expect(payload.regras.length + payload.tipologias.length).toBeGreaterThan(0)
+    })
+
+    it('o nome nulo do motor não vira texto em nenhum lugar da resposta', async () => {
+        semMotor()
+        const r = await chamar('POST')
+        expect(r.status).toBe(200)
+        expect(JSON.stringify(r.json)).not.toContain('null')
+    })
+})

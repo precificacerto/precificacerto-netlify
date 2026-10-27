@@ -98,7 +98,7 @@ function VigenteDaTabela({ tabela, onSalvo }: { tabela: TabelaNoMotor; onSalvo: 
             <Typography.Text strong>Vigente: </Typography.Text>
             <Switch size="small" checked={tabela.vigente} loading={salvando} onChange={marcar} data-vigente-do-motor={tabela.tabela_id} />
             <Typography.Text type={tabela.vale ? 'secondary' : 'warning'} style={{ marginLeft: 8, fontSize: 12 }} data-vale={tabela.tabela_id}>
-                {tabela.vale ? 'Vale para levantamento novo' : 'Esta tabela não vale para levantamento novo: há outra deste fornecedor na mesma família, e a vigente é a que vale.'}
+                {tabela.vale ? 'Vale para levantamento novo' : 'Esta tabela não vale para levantamento novo: há outra deste fornecedor na mesma família e categoria, e a vigente é a que vale.'}
             </Typography.Text>
             {erro && <Alert type="error" showIcon style={{ marginTop: 8 }} message="A marca de vigente não foi salva." description={erro} />}
         </div>
@@ -273,11 +273,22 @@ export function MotorDaConta({ tenantId }: { tenantId: string }) {
                         <Alert key={`sem-${f.fornecedor}`} type="warning" showIcon message={fraseDoFornecedorSemTabela(f.fornecedor, f.categorias)} data-aviso="fornecedor-sem-tabela" />
                     ))}
                     {resumo.avisos.pares_sem_vigente.map((p) => (
-                        <Alert key={`par-${p.fornecedor}-${p.familia ?? ''}`} type="warning" showIcon message={fraseDoParSemVigente(p.fornecedor, p.familia, p.arquivos)} data-aviso="par-sem-vigente" />
+                        <Alert key={`par-${p.fornecedor}-${p.familia ?? ''}-${p.categoria ?? ''}`} type="warning" showIcon message={fraseDoParSemVigente(p.fornecedor, p.familia, p.arquivos, p.categoria)} data-aviso="par-sem-vigente" />
                     ))}
                     {resumo.tabelas.length === 0 && resumo.planilhas.length === 0 && <Alert type="info" showIcon message={SEM_MOTOR_NA_CONTA} data-sem-motor />}
+                    {resumo.etapas_das_familias.map((f) => (
+                        <Card key={`etapas-${f.familia}`} size="small" title={`Motores das etapas — ${resumo.familias.find((x) => x.chave === f.familia)?.rotulo ?? f.familia}`} data-etapas-da-familia={f.familia}>
+                            <ul style={{ margin: 0, paddingLeft: 18 }}>
+                                {f.etapas.map((e) => (
+                                    <li key={e.numero} data-etapa-do-motor={e.numero}>
+                                        {`Etapa ${e.numero} — ${e.rotulo}: `}{e.motor ? <b>{e.motor.arquivo_nome}</b> : <Typography.Text type="secondary">sem motor apontado</Typography.Text>}
+                                    </li>
+                                ))}
+                            </ul>
+                        </Card>
+                    ))}
                     {resumo.planilhas.map((p) => (
-                        <Card key={`${p.motor_id}-${versao}`} size="small" title={`${p.fornecedor} — ${p.arquivo_nome}`} data-planilha-do-motor={p.motor_id}>
+                        <Card key={`${p.motor_id}-${versao}`} size="small" title={`${p.fornecedor ?? 'Da família'} — ${p.arquivo_nome}`} data-planilha-do-motor={p.motor_id}>
                             <Space wrap style={{ marginBottom: 8 }}>
                                 <Tag color="geekblue" data-origem={p.motor_id}>{ROTULO_DA_ORIGEM.PLANILHA}</Tag>
                                 <Tag color={p.vigente ? 'green' : 'default'} data-vigente-da-planilha={p.motor_id}>{p.vigente ? 'Vigente' : 'Não vigente'}</Tag>
@@ -306,7 +317,7 @@ export function MotorDaConta({ tenantId }: { tenantId: string }) {
                             <ul style={{ margin: '4px 0 12px', paddingLeft: 18 }}>
                                 {p.otimizacao.length === 0 ? <li>nenhum parâmetro</li> : p.otimizacao.map((o, i) => <li key={i}>{`${o.parametro ?? '?'}: ${o.valor ?? '—'}`}</li>)}
                             </ul>
-                            <TipologiasDoMotor tenantId={tenantId} dono={{ motor: p.motor_id }} fornecedor={p.fornecedor} />
+                            <TipologiasDoMotor tenantId={tenantId} dono={{ motor: p.motor_id }} fornecedor={p.fornecedor ?? 'da família'} />
                         </Card>
                     ))}
                     {resumo.tabelas.map((t) => (

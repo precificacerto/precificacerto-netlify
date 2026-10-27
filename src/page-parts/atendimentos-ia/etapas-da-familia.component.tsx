@@ -8,6 +8,11 @@
  * reordenar é subir e descer, e o salvar manda a lista inteira. NÃO HÁ botão de remover etapa gravada (a função
  * também recusa); a etapa nova, ainda não salva, pode ser descartada do rascunho.
  *
+ * CADA ETAPA TEM O SEU MOTOR (dono do produto, 27/10/2026; migração 20261027000008): o combo "Motor da etapa" lista as planilhas da MESMA
+ * família, não arquivadas, e vai no corpo só quando MUDA (salvar o rótulo não toca no motor). "Inserir etapa abaixo" põe uma etapa nova na
+ * posição (as de baixo descem). Trocar de planilha é apontar a etapa para a nova e só então arquivar a velha — arquivar a que uma etapa
+ * ainda aponta é recusado pela função.
+ *
  * O que se salva aqui AINDA NÃO muda a conversa: o PR D passa a ler as etapas. A tela diz isso.
  *
  * Tudo pela rota (`rotaDasEtapas`), nunca pelo cliente do Supabase. A recusa aparece NO cartão, com a frase da rota.
@@ -15,22 +20,25 @@
  */
 import React, { useCallback, useEffect, useState } from 'react'
 import { Alert, Button, Card, Checkbox, Input, Radio, Select, Space, Typography, message } from 'antd'
-import { ArrowDownOutlined, ArrowUpOutlined, PlusOutlined } from '@ant-design/icons'
+import { ArrowDownOutlined, ArrowUpOutlined, PlusOutlined, VerticalAlignBottomOutlined } from '@ant-design/icons'
 import { chamarRota } from '@/page-parts/atendimentos-ia/api'
 import type { Familia } from '@/utils/atendimentos-ia-catalogo'
 import {
     ABAS_DA_ETAPA, ACOES_DA_ETAPA, LIMITE_DA_INSTRUCAO_DA_ETAPA, LIMITE_DO_ROTULO_DA_ETAPA, ROTULO_DA_ABA, ROTULO_DA_ACAO,
-    abasEmOrdem, corpoDoRascunho, etapasMudaram, lerCorpoDasEtapas, moverEtapa, novaEtapaNoRascunho, rascunhoDasEtapas, rotaDasEtapas,
-    type EtapaDaFamilia, type EtapaNoRascunho,
+    abasEmOrdem, corpoDoRascunho, etapasMudaram, inserirEtapaAbaixo, lerCorpoDasEtapas, moverEtapa, novaEtapaNoRascunho, rascunhoDasEtapas, rotaDasEtapas,
+    type EtapaDaFamilia, type EtapaNoRascunho, type MotorDaFamilia,
 } from '@/utils/atendimentos-ia-etapas'
 
 export const AVISO_DAS_ETAPAS =
     'O rótulo é livre; a ação não é. Cada etapa tem uma das ações do sistema, e etapa sem ação da lista é erro, não etapa nova. '
     + 'O número é a posição na lista. Etapa gravada não se remove por aqui. O que for salvo ainda não muda a conversa: o PR que troca os leitores passa a lê-las.'
 export const SEM_ETAPAS = 'Esta família ainda não tem etapas cadastradas.'
+export const SEM_MOTORES = 'Esta família ainda não tem planilha de motor carregada.'
+export const rotuloDoMotor = (m: MotorDaFamilia) => `${m.arquivo_nome} (${m.fornecedor ?? 'da família'})`
 
 function EtapasDe({ familia }: { familia: string }) {
     const [gravadas, setGravadas] = useState<EtapaDaFamilia[] | null>(null)
+    const [motores, setMotores] = useState<MotorDaFamilia[]>([])
     const [rascunho, setRascunho] = useState<EtapaNoRascunho[]>([])
     const [erroAoLer, setErroAoLer] = useState<string | null>(null)
     const [erroAoSalvar, setErroAoSalvar] = useState<string | null>(null)
@@ -39,8 +47,9 @@ function EtapasDe({ familia }: { familia: string }) {
     const carregar = useCallback(async () => {
         setErroAoLer(null)
         try {
-            const r = await chamarRota<{ etapas: EtapaDaFamilia[] }>(rotaDasEtapas(familia))
+            const r = await chamarRota<{ etapas: EtapaDaFamilia[]; motores?: MotorDaFamilia[] }>(rotaDasEtapas(familia))
             setGravadas(r.etapas)
+            setMotores(r.motores ?? [])
             setRascunho(rascunhoDasEtapas(r.etapas))
         } catch (e) {
             setGravadas(null)
@@ -73,6 +82,9 @@ function EtapasDe({ familia }: { familia: string }) {
     if (gravadas === null) return null
     return (
         <div data-etapas-da-familia={familia}>
+            <Typography.Paragraph type="secondary" style={{ fontSize: 13 }} data-motores-da-familia>
+                {motores.length === 0 ? SEM_MOTORES : `Motores desta família: ${motores.map(rotuloDoMotor).join('; ')}.`}
+            </Typography.Paragraph>
             {rascunho.length === 0 && <Typography.Paragraph type="secondary" data-sem-etapas>{SEM_ETAPAS}</Typography.Paragraph>}
             <Space direction="vertical" size="middle" style={{ width: '100%' }}>
                 {rascunho.map((e, i) => (
@@ -81,6 +93,7 @@ function EtapasDe({ familia }: { familia: string }) {
                             <Space size={4}>
                                 <Button size="small" icon={<ArrowUpOutlined />} aria-label={`Subir a etapa ${i + 1}`} disabled={i === 0} onClick={() => setRascunho((r) => moverEtapa(r, i, -1))} />
                                 <Button size="small" icon={<ArrowDownOutlined />} aria-label={`Descer a etapa ${i + 1}`} disabled={i === rascunho.length - 1} onClick={() => setRascunho((r) => moverEtapa(r, i, 1))} />
+                                <Button size="small" icon={<VerticalAlignBottomOutlined />} aria-label={`Inserir uma etapa abaixo da etapa ${i + 1}`} onClick={() => setRascunho((r) => inserirEtapaAbaixo(r, i))}>Inserir etapa abaixo</Button>
                                 {e.id === null && <Button size="small" onClick={() => setRascunho((r) => r.filter((x) => x.local !== e.local))}>Descartar</Button>}
                             </Space>
                         )}>
@@ -93,6 +106,14 @@ function EtapasDe({ familia }: { familia: string }) {
                                 <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block' }}>Ação (da lista)</Typography.Text>
                                 <Select aria-label={`Ação da etapa ${i + 1}`} style={{ width: 280 }} placeholder="Escolha a ação" value={e.acao ?? undefined}
                                     onChange={(v) => mudarEtapa(e.local, { acao: v })} options={ACOES_DA_ETAPA.map((a) => ({ value: a, label: ROTULO_DA_ACAO[a] }))} />
+                            </div>
+                            <div data-motor-da-etapa={e.local}>
+                                <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block' }}>Motor da etapa (planilha da família)</Typography.Text>
+                                <Select aria-label={`Motor da etapa ${i + 1}`} style={{ width: 320 }} allowClear placeholder="Sem motor"
+                                    value={e.motor_id ?? undefined} onChange={(v) => mudarEtapa(e.local, { motor_id: v ?? null })}
+                                    options={[...motores.map((m) => ({ value: m.id, label: rotuloDoMotor(m) })),
+                                        // o motor gravado que a lista não traz (a função não deixa arquivar o apontado; isto é só para nunca esconder o que está gravado)
+                                        ...(e.motor_id != null && !motores.some((m) => m.id === e.motor_id) ? [{ value: e.motor_id, label: `(motor ${e.motor_id.slice(0, 8)}…, fora da lista)` }] : [])]} />
                             </div>
                         </Space>
                         <div style={{ marginTop: 8 }}>

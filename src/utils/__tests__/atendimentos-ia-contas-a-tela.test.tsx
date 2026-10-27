@@ -229,7 +229,7 @@ describe('a configuração de uma conta', () => {
  */
 describe('(g) os três blocos da conta, e o diagnóstico do consultor', () => {
     it('Base de conhecimento, Motor e Prompt de atendimento, nessa ordem; o teste de anexo depois, como diagnóstico', async () => {
-        respostas[`GET /api/super-admin/atendimentos-ia/contas/${CONTA_A}/motor`] = { status: 200, body: { tabelas: [], planilhas: [], familias: [], materias_primas: [], avisos: { fornecedores_sem_tabela: [], pares_sem_vigente: [], nenhuma_com_motor: false } } }
+        respostas[`GET /api/super-admin/atendimentos-ia/contas/${CONTA_A}/motor`] = { status: 200, body: { tabelas: [], planilhas: [], familias: [], etapas_das_familias: [], materias_primas: [], avisos: { fornecedores_sem_tabela: [], pares_sem_vigente: [], nenhuma_com_motor: false } } }
         const host = await montar(React.createElement(AConta()))
         const blocos = Array.from(host.querySelectorAll('[data-bloco]')).map((b) => b.getAttribute('data-bloco'))
         expect(blocos).toEqual(['base-de-conhecimento', 'motor', 'prompt-de-atendimento', 'diagnostico'])

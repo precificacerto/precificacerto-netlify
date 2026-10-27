@@ -32,7 +32,7 @@ import {
     ABAS_DA_TIPOLOGIA, CONTAGENS_DO_MOTOR,
     type AbaDaPlanilha, type AbasDaTipologia, type ChaveDaContagem, type CriterioDeCustoDaBarra, type MotorDaConta, type PlanilhaNoMotor, type TabelaNoMotor, type TipologiaNoMotor,
 } from '@/utils/atendimentos-ia-motor'
-import { contaTemATabela, contaVinculaOFornecedor, contasQueVinculam, derivarTabelasDaConta } from '@/lib/atendimentos-ia/tabelas-da-conta'
+import { contaTemATabela, contaVinculaOFornecedor, contasQueUsamAFamilia, contasQueVinculam, derivarTabelasDaConta, familiasDaConta } from '@/lib/atendimentos-ia/tabelas-da-conta'
 
 // O cliente admin não tem os tipos destas tabelas (`database.types.ts` é anterior a elas).
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -79,10 +79,15 @@ export async function contaUsaATabela(tenantId: string, tabelaId: string): Promi
 
 const porTexto = (a: string | null, b: string | null) => (a ?? '').localeCompare(b ?? '', 'pt-BR')
 
-/** A planilha é DESTA conta — ativa (não arquivada) e de um fornecedor que a conta vincula? É a guarda das rotas da planilha. */
+/**
+ * A planilha é DESTA conta — ativa (não arquivada) e de um fornecedor que a conta vincula, ou, na planilha da FAMÍLIA (sem fornecedor,
+ * 20261027000006), de uma família que a conta usa? É a guarda das rotas da planilha.
+ */
 export async function contaUsaAPlanilha(tenantId: string, motorId: string): Promise<boolean> {
-    const linhas = await q('orcamentista_motor', db().from('orcamentista_motor').select('id, fornecedor_id').eq('id', motorId).is('arquivado_em', null))
-    return linhas.length > 0 && contaVinculaOFornecedor(tenantId, String(linhas[0].fornecedor_id))
+    const linhas = await q('orcamentista_motor', db().from('orcamentista_motor').select('id, familia, fornecedor_id').eq('id', motorId).is('arquivado_em', null))
+    if (linhas.length === 0) return false
+    if (linhas[0].fornecedor_id == null) return (await familiasDaConta(tenantId)).has(String(linhas[0].familia))
+    return contaVinculaOFornecedor(tenantId, String(linhas[0].fornecedor_id))
 }
 
 /** As linhas (do motor) e a otimização — o que as duas origens mostram igual. */
@@ -104,7 +109,7 @@ export async function lerMotorDaConta(tenantId: string): Promise<MotorDaConta> {
     const ids = comMotor.map((t) => t.tabelaId)
     const avisos: MotorDaConta['avisos'] = {
         fornecedores_sem_tabela: derivacao.fornecedoresSemTabela.map((f) => ({ fornecedor: f.fornecedor, categorias: f.categorias })),
-        pares_sem_vigente: derivacao.paresSemVigente.map((p) => ({ fornecedor: p.fornecedor, familia: p.familia, arquivos: p.arquivos })),
+        pares_sem_vigente: derivacao.paresSemVigente.map((p) => ({ fornecedor: p.fornecedor, familia: p.familia, categoria: p.categoria, arquivos: p.arquivos })),
         nenhuma_com_motor: derivacao.tabelas.length > 0 && !derivacao.tabelas.some((t) => t.comMotor),
     }
     const familias = (await q('orcamentista_familia_catalogo', db().from('orcamentista_familia_catalogo').select('chave, rotulo, ordem')))
@@ -131,8 +136,14 @@ export async function lerMotorDaConta(tenantId: string): Promise<MotorDaConta> {
     const nomeDaConta = new Map(contas.map((c: Linha) => [String(c.id), String(c.name)]))
     const contasDo = (fornecedorId: string) => (vinculam.get(fornecedorId) ?? []).map((c) => nomeDaConta.get(c) ?? '—').sort(porTexto)
 
-    const planilhas = await lerPlanilhasDaConta(nomeDoFornecedor, contasDo, familias)
-    if (ids.length === 0) return { tabelas: [], planilhas, familias, materias_primas, avisos }
+    const daConta = await familiasDaConta(tenantId)
+    const planilhas = await lerPlanilhasDaConta(nomeDoFornecedor, contasDo, familias, daConta, async (familia) => {
+        const ts = await contasQueUsamAFamilia(familia)
+        const nomes = ts.length ? await q('tenants', db().from('tenants').select('id, name').in('id', ts)) : []
+        return nomes.map((c: Linha) => String(c.name)).sort(porTexto)
+    })
+    const etapas_das_familias = await lerEtapasDasFamilias(new Set([...daConta, ...planilhas.map((p) => p.familia), ...derivacao.tabelas.flatMap((t) => (t.familiaChave ? [t.familiaChave] : []))]), familias)
+    if (ids.length === 0) return { tabelas: [], planilhas, familias, etapas_das_familias, materias_primas, avisos }
 
     // a linha da tabela traz o que a derivação não traz: o motor, a nota de vigência e a CHAVE da família
     const linhaDa = new Map((await q('orcamentista_tabela', db().from('orcamentista_tabela').select('id, motor_nome, vigencia, familia').in('id', ids)))
@@ -162,16 +173,45 @@ export async function lerMotorDaConta(tenantId: string): Promise<MotorDaConta> {
             otimizacao,
         })
     }
-    return { tabelas: saida.sort((a, b) => porTexto(a.fornecedor, b.fornecedor) || porTexto(a.arquivo_nome, b.arquivo_nome)), planilhas, familias, materias_primas, avisos }
+    return { tabelas: saida.sort((a, b) => porTexto(a.fornecedor, b.fornecedor) || porTexto(a.arquivo_nome, b.arquivo_nome)), planilhas, familias, etapas_das_familias, materias_primas, avisos }
 }
 
 /**
- * As planilhas que a conta usa: `orcamentista_motor` de um fornecedor que a base de conhecimento dela vincula
- * (com tabela ou sem), NÃO arquivada e COM tipologias — medido pelo conteúdo (`motor_id`), nunca pelo nome do arquivo.
+ * O CABEÇALHO de cada família que a conta usa: etapa por etapa, o motor que ela aponta. Só leitura, e só das famílias com etapa cadastrada.
+ * A etapa que aponta um motor já arquivado não existe (a função de arquivar recusa); se aparecer, o motor sai como `null`.
  */
-async function lerPlanilhasDaConta(nomeDo: Map<string, string>, contasDo: (fornecedorId: string) => string[], familias: MotorDaConta['familias']): Promise<PlanilhaNoMotor[]> {
-    if (nomeDo.size === 0) return []
-    const motores = await q('orcamentista_motor', db().from('orcamentista_motor').select('id, familia, fornecedor_id, arquivo_nome, vigente').in('fornecedor_id', [...nomeDo.keys()]).is('arquivado_em', null))
+async function lerEtapasDasFamilias(chaves: Set<string>, familias: MotorDaConta['familias']): Promise<MotorDaConta['etapas_das_familias']> {
+    if (chaves.size === 0) return []
+    const etapas = await q('orcamentista_familia_etapa', db().from('orcamentista_familia_etapa').select('familia, numero, rotulo, motor_id').in('familia', [...chaves]).order('numero', { ascending: true }))
+    const motorIds = [...new Set(etapas.map((e: Linha) => e.motor_id).filter((m: unknown): m is string => typeof m === 'string'))]
+    const motores = motorIds.length ? await q('orcamentista_motor', db().from('orcamentista_motor').select('id, arquivo_nome, arquivado_em').in('id', motorIds)) : []
+    const nomeDo = new Map(motores.filter((m: Linha) => m.arquivado_em == null).map((m: Linha) => [String(m.id), String(m.arquivo_nome)]))
+    const ordem = new Map(familias.map((f) => [f.chave, f.ordem]))
+    return [...new Set(etapas.map((e: Linha) => String(e.familia)))]
+        .sort((a, b) => (ordem.get(a as string) ?? 0) - (ordem.get(b as string) ?? 0))
+        .map((familia) => ({
+            familia: familia as string,
+            etapas: etapas.filter((e: Linha) => e.familia === familia).map((e: Linha) => ({
+                numero: Number(e.numero), rotulo: String(e.rotulo),
+                motor: typeof e.motor_id === 'string' && nomeDo.has(e.motor_id) ? { id: e.motor_id, arquivo_nome: nomeDo.get(e.motor_id) as string } : null,
+            })),
+        }))
+}
+
+/**
+ * As planilhas que a conta usa: `orcamentista_motor` NÃO arquivada e COM tipologias — medido pelo conteúdo (`motor_id`), nunca pelo nome
+ * do arquivo —, de um fornecedor que a base de conhecimento dela vincula (com tabela ou sem), OU, na planilha da FAMÍLIA (sem
+ * fornecedor, 20261027000006), de uma família que a conta usa (`familiasDaConta`). Antes dessa migração só valia o fornecedor, e a
+ * planilha sem fornecedor não aparecia para conta nenhuma.
+ */
+async function lerPlanilhasDaConta(
+    nomeDo: Map<string, string>, contasDo: (fornecedorId: string) => string[], familias: MotorDaConta['familias'],
+    familiasDaConta: Set<string>, contasDaFamilia: (familia: string) => Promise<string[]>,
+): Promise<PlanilhaNoMotor[]> {
+    const doFornecedor = nomeDo.size === 0 ? [] : await q('orcamentista_motor', db().from('orcamentista_motor').select('id, familia, fornecedor_id, arquivo_nome, vigente').in('fornecedor_id', [...nomeDo.keys()]).is('arquivado_em', null))
+    const daFamilia = familiasDaConta.size === 0 ? [] : await q('orcamentista_motor', db().from('orcamentista_motor').select('id, familia, fornecedor_id, arquivo_nome, vigente').in('familia', [...familiasDaConta]).is('fornecedor_id', null).is('arquivado_em', null))
+    const motores = [...doFornecedor, ...daFamilia]
+    const contasDaFamiliaCache = new Map<string, string[]>()
     const saida: PlanilhaNoMotor[] = []
     for (const m of motores) {
         const id = String(m.id)
@@ -179,9 +219,17 @@ async function lerPlanilhasDaConta(nomeDo: Map<string, string>, contasDo: (forne
         const contagens = {} as Record<AbaDaPlanilha, number>
         for (const c of CONTAGENS_DO_MOTOR) if (c.chave !== 'itens_de_preco') contagens[c.chave] = await contar(c.tabela, c.coluna, id, 'motor_id')
         const { linhas, otimizacao } = await linhasEOtimizacao(id, 'motor_id')
+        let contasUsando: string[]
+        if (m.fornecedor_id == null) {
+            const familia = String(m.familia)
+            if (!contasDaFamiliaCache.has(familia)) contasDaFamiliaCache.set(familia, await contasDaFamilia(familia))
+            contasUsando = contasDaFamiliaCache.get(familia) as string[]
+        } else {
+            contasUsando = contasDo(String(m.fornecedor_id))
+        }
         saida.push({
-            motor_id: id, familia: String(m.familia), fornecedor: nomeDo.get(String(m.fornecedor_id)) ?? '—',
-            arquivo_nome: String(m.arquivo_nome), vigente: m.vigente === true, contas_usando: contasDo(String(m.fornecedor_id)), linhas, contagens, otimizacao,
+            motor_id: id, familia: String(m.familia), fornecedor: m.fornecedor_id == null ? null : nomeDo.get(String(m.fornecedor_id)) ?? '—',
+            arquivo_nome: String(m.arquivo_nome), vigente: m.vigente === true, contas_usando: contasUsando, linhas, contagens, otimizacao,
         })
     }
     const ordemDaFamilia = new Map(familias.map((f) => [f.chave, f.ordem]))

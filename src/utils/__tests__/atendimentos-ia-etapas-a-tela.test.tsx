@@ -34,9 +34,12 @@ Object.defineProperty(window, 'matchMedia', {
 const E1 = '00000000-0000-4000-8000-0000000000e1'
 const E2 = '00000000-0000-4000-8000-0000000000e2'
 const FAMILIAS = [{ chave: 'ALUMINIO', rotulo: 'Alumínio', ordem: 2 }, { chave: 'PVC', rotulo: 'PVC', ordem: 1 }]
+const M1 = '00000000-0000-4000-8000-0000000000a1'
+const M2 = '00000000-0000-4000-8000-0000000000a2'
+const MOTORES = [{ id: M1, arquivo_nome: 'Wolff.xlsx', fornecedor: 'Wolff', vigente: true }, { id: M2, arquivo_nome: 'Da família.xlsx', fornecedor: null, vigente: false }]
 const ETAPAS: EtapaDaFamilia[] = [
-    { id: E1, numero: 1, rotulo: 'Apanhar o pedido', acao: 'APANHAR', instrucao: 'pergunte a tipologia', abas: ['tipologias', 'variaveis'] },
-    { id: E2, numero: 2, rotulo: 'Confirmar', acao: 'CONFIRMAR', instrucao: '', abas: [] },
+    { id: E1, numero: 1, rotulo: 'Apanhar o pedido', acao: 'APANHAR', instrucao: 'pergunte a tipologia', abas: ['tipologias', 'variaveis'], motor_id: null },
+    { id: E2, numero: 2, rotulo: 'Confirmar', acao: 'CONFIRMAR', instrucao: '', abas: [], motor_id: null },
 ]
 
 let respostas: Record<string, { status: number; body: unknown }> = {}
@@ -45,8 +48,8 @@ const pedidos: Array<{ chave: string; corpo: Corpo }> = []
 beforeEach(() => {
     pedidos.length = 0
     respostas = {
-        [`GET ${rotaDasEtapas('PVC')}`]: { status: 200, body: { familia: 'PVC', etapas: ETAPAS } },
-        [`GET ${rotaDasEtapas('ALUMINIO')}`]: { status: 200, body: { familia: 'ALUMINIO', etapas: [] } },
+        [`GET ${rotaDasEtapas('PVC')}`]: { status: 200, body: { familia: 'PVC', etapas: ETAPAS, motores: MOTORES } },
+        [`GET ${rotaDasEtapas('ALUMINIO')}`]: { status: 200, body: { familia: 'ALUMINIO', etapas: [], motores: [] } },
         [`PUT ${rotaDasEtapas('PVC')}`]: { status: 200, body: { depois: { orcamentista_familia_etapa: [] } } },
     }
     ;(globalThis as { fetch: unknown }).fetch = jest.fn(async (url: string, init?: { method?: string; body?: string }) => {
@@ -60,7 +63,7 @@ beforeEach(() => {
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const Cartao = () => require('@/page-parts/atendimentos-ia/etapas-da-familia.component').EtapasDaFamiliaCard as React.ComponentType<{ familias: typeof FAMILIAS }>
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const Textos = () => require('@/page-parts/atendimentos-ia/etapas-da-familia.component') as { AVISO_DAS_ETAPAS: string; SEM_ETAPAS: string }
+const Textos = () => require('@/page-parts/atendimentos-ia/etapas-da-familia.component') as { AVISO_DAS_ETAPAS: string; SEM_ETAPAS: string; SEM_MOTORES: string }
 
 const montadas: { root: ReturnType<typeof createRoot>; host: HTMLElement }[] = []
 afterEach(() => { while (montadas.length) { const m = montadas.pop()!; act(() => { m.root.unmount() }); m.host.remove() } })
@@ -364,5 +367,85 @@ describe('(8) a tela diz o que as etapas ainda não fazem', () => {
         expect(aviso).toContain('O rótulo é livre; a ação não é.')
         expect(aviso).toContain('ainda não muda a conversa')
         expect(aviso).toContain('Etapa gravada não se remove por aqui.')
+    })
+})
+
+describe('(9) cada etapa aponta o seu motor, e a tela deixa inserir etapa abaixo', () => {
+    async function abrirMotor(host: ParentNode, n: number) {
+        const combo = campo(host, `Motor da etapa ${n}`)!.closest('.ant-select')!.querySelector('.ant-select-selector')!
+        await act(async () => { combo.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })) })
+        await assentar()
+        return Array.from(document.body.querySelectorAll('.ant-select-item-option')) as HTMLElement[]
+    }
+
+    it('a lista dos motores aparece, com o fornecedor ou "da família"; sem motor nenhum, a tela diz isso', async () => {
+        const host = await montar()
+        const lista = host.querySelector('[data-motores-da-familia]')!.textContent!
+        expect(lista).toContain('Wolff.xlsx (Wolff)')
+        expect(lista).toContain('Da família.xlsx (da família)')
+        respostas[`GET ${rotaDasEtapas('PVC')}`] = { status: 200, body: { familia: 'PVC', etapas: ETAPAS, motores: [] } }
+        const outra = await montar()
+        expect(outra.querySelector('[data-motores-da-familia]')!.textContent).toBe(Textos().SEM_MOTORES)
+    })
+
+    it('o combo do motor oferece os motores da família e nada mais; a etapa sem motor mostra o convite', async () => {
+        const host = await montar()
+        expect(campo(host, 'Motor da etapa 1')!.closest('.ant-select')!.querySelector('.ant-select-selection-placeholder')?.textContent).toBe('Sem motor')
+        const opcoes = await abrirMotor(host, 1)
+        expect(opcoes.map((o) => o.textContent)).toEqual(['Wolff.xlsx (Wolff)', 'Da família.xlsx (da família)'])
+    })
+
+    it('escolher o motor da etapa 1 habilita o salvar e vai no corpo SÓ nessa etapa', async () => {
+        const host = await montar()
+        const opcoes = await abrirMotor(host, 1)
+        await clicar(opcoes.find((o) => o.textContent === 'Wolff.xlsx (Wolff)'))
+        expect(salvar(host).disabled).toBe(false)
+        await clicar(salvar(host))
+        expect(puts()[0].corpo.etapas[0]).toEqual(expect.objectContaining({ id: E1, motor_id: M1 }))
+        expect('motor_id' in puts()[0].corpo.etapas[1]).toBe(false)
+    })
+
+    it('salvar só o rótulo NÃO manda motor_id, mesmo com a etapa já apontando um motor', async () => {
+        const comMotor: EtapaDaFamilia[] = [{ ...ETAPAS[0], motor_id: M1 }, ETAPAS[1]]
+        respostas[`GET ${rotaDasEtapas('PVC')}`] = { status: 200, body: { familia: 'PVC', etapas: comMotor, motores: MOTORES } }
+        const host = await montar()
+        expect(campo(host, 'Motor da etapa 1')!.closest('.ant-select')!.querySelector('.ant-select-selection-item')?.textContent).toBe('Wolff.xlsx (Wolff)')
+        await digitar(campo(host, 'Rótulo da etapa 1'), 'Apanhar de novo')
+        await clicar(salvar(host))
+        expect(puts()[0].corpo.etapas.map((e) => 'motor_id' in e)).toEqual([false, false])
+    })
+
+    it('limpar o motor gravado manda motor_id: null', async () => {
+        const comMotor: EtapaDaFamilia[] = [{ ...ETAPAS[0], motor_id: M1 }, ETAPAS[1]]
+        respostas[`GET ${rotaDasEtapas('PVC')}`] = { status: 200, body: { familia: 'PVC', etapas: comMotor, motores: MOTORES } }
+        const host = await montar()
+        const limpar = campo(host, 'Motor da etapa 1')!.closest('.ant-select')!.querySelector('.ant-select-clear') as HTMLElement
+        await act(async () => { limpar.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })) })
+        await assentar()
+        expect(salvar(host).disabled).toBe(false)
+        await clicar(salvar(host))
+        expect(puts()[0].corpo.etapas[0]).toEqual(expect.objectContaining({ id: E1, motor_id: null }))
+    })
+
+    it('o motor gravado que a lista não traz aparece como "fora da lista", e não some', async () => {
+        const fora = '99999999-0000-4000-8000-000000000001'
+        respostas[`GET ${rotaDasEtapas('PVC')}`] = { status: 200, body: { familia: 'PVC', etapas: [{ ...ETAPAS[0], motor_id: fora }, ETAPAS[1]], motores: MOTORES } }
+        const host = await montar()
+        expect(campo(host, 'Motor da etapa 1')!.closest('.ant-select')!.querySelector('.ant-select-selection-item')?.textContent).toBe('(motor 99999999…, fora da lista)')
+    })
+
+    it('"Inserir etapa abaixo" da etapa 1: a nova vira a 2, a antiga 2 vira 3, e o corpo sai nessa ordem, a nova SEM id', async () => {
+        const host = await montar()
+        await clicar(botao(host, 'Inserir uma etapa abaixo da etapa 1'))
+        expect(host.querySelectorAll('[data-etapa]')).toHaveLength(3)
+        expect((campo(host, 'Rótulo da etapa 2') as HTMLInputElement).value).toBe('')
+        expect((campo(host, 'Rótulo da etapa 3') as HTMLInputElement).value).toBe('Confirmar')
+        await digitar(campo(host, 'Rótulo da etapa 2'), 'Levantar')
+        const opcoes = await abrirAcao(host, 2)
+        await clicar(opcoes.find((o) => o.textContent === ROTULO_DA_ACAO.GERAR_LEVANTAMENTO))
+        await clicar(salvar(host))
+        const corpo = puts()[0].corpo.etapas
+        expect(corpo.map((e) => e.rotulo)).toEqual(['Apanhar o pedido', 'Levantar', 'Confirmar'])
+        expect(corpo.map((e) => 'id' in e)).toEqual([true, false, true])
     })
 })

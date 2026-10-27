@@ -19,7 +19,7 @@
  *   dono do produto: o tempo mora em `orcamentista_motor_tipologia_tempo` (20261024000003), que a
  *   função do passo 6 não alcança. A prova, num Postgres real, é `scripts/harness/reimportacao-com-os-tempos/`:
  *   uma reimportação completa com os 164 tempos gravados roda até o fim e os 164 continuam lá.)
- *   3. os dois arquivos são de extensão importável — senão 409 com o arquivo, a extensão e o
+ *   3. os arquivos são de extensão importável — senão 409 com o arquivo, a extensão e o
  *      porquê (`fraseDoArquivoNaoImportavel`). `.xls`, `.csv` e `.pdf` são aceitos no ENVIO e
  *      não são importáveis;
  *   4. os dois objetos estão no bucket — senão 409 com o caminho que faltou;
@@ -110,9 +110,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
   }
 
+  // O MOTOR É OPCIONAL (27/10/2026): a tabela de preço puro (Reforço, Acessórios…) não tem arquivo de motor, e a importação lê só o preço.
+  // Nulo e VAZIO são a mesma coisa aqui: a Estrela está em produção com motor_path e motor_nome = '' (medido em 27/10/2026), e '' não é um arquivo.
+  const comMotor = !!tabela.motor_path?.trim() && !!tabela.motor_nome?.trim()
   const arquivos = [
     { nome: tabela.arquivo_nome, caminho: tabela.arquivo_path },
-    { nome: tabela.motor_nome, caminho: tabela.motor_path },
+    ...(comMotor ? [{ nome: tabela.motor_nome as string, caminho: tabela.motor_path as string }] : []),
   ]
   for (const a of arquivos) {
     if (!arquivoImportavel(a.nome)) return res.status(409).json({ error: fraseDoArquivoNaoImportavel(a.nome) })
@@ -132,7 +135,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const leitura = await lerArquivosDaImportacao({
     tabela: { nome: tabela.arquivo_nome, bytes: bytes[0] },
-    motor: { nome: tabela.motor_nome, bytes: bytes[1] },
+    motor: comMotor ? { nome: tabela.motor_nome as string, bytes: bytes[1] } : null,
   })
   if (!leitura.ok) return res.status(422).json({ error: (leitura as Recusa).erro })
   const lida = leitura as Lida

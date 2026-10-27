@@ -71,18 +71,19 @@ export async function enviarArquivo(fornecedorId: string, tipo: TipoDeArquivo, a
 export interface TabelaPendente { arquivo: File | null; motor: File | null; vigencia: string; familia: string | null; categoria: string | null }
 
 /**
- * Envia os dois arquivos e grava a tabela. Arquivo primeiro, motor depois — a ordem do modal.
+ * Envia o arquivo (e o do motor, quando há) e grava a tabela. Arquivo primeiro, motor depois — a ordem do modal.
  * Toda falha nomeia UM arquivo, uma vez: o envio, pelo arquivo enviado (`enviarArquivo`); a
  * gravação, pela tabela (`fraseDaTabela`). Quem chama não acrescenta nome.
  */
 export async function gravarTabelaNova(fornecedorId: string, t: TabelaPendente): Promise<void> {
     const arquivo = await enviarArquivo(fornecedorId, 'arquivo', t.arquivo as File)
-    const motor = await enviarArquivo(fornecedorId, 'motor', t.motor as File)
+    // o motor só existe na tabela de PERFIL (27/10/2026); sem arquivo escolhido, nada é enviado e a rota recebe nulo
+    const motor = t.motor ? await enviarArquivo(fornecedorId, 'motor', t.motor) : null
     try {
         await chamarRota(ROTAS_DO_CATALOGO.tabelas, 'POST', {
             fornecedor_id: fornecedorId,
             arquivo_path: arquivo.path, arquivo_nome: arquivo.nome,
-            motor_path: motor.path, motor_nome: motor.nome,
+            motor_path: motor?.path ?? null, motor_nome: motor?.nome ?? null,
             vigencia: t.vigencia,
             familia: t.familia,
             categoria_chave: t.categoria,

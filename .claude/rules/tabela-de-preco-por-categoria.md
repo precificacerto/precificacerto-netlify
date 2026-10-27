@@ -69,19 +69,45 @@ uma planilha o referencia (`caminhosDaPlanilha`).
 - **O que a migração NÃO faz:** nenhum UPDATE de dado (as duas tabelas de hoje ficam nulas); não toca no índice
   `orcamentista_tabela_uma_vigente` (fornecedor, família); a coluna não é NOT NULL.
 
+## O que está implementado — o motor só no Perfil e a etapa que aponta o motor (PR de 27/10/2026, migrações `20261027000007` e `20261027000008`, PENDENTES)
+
+Decisão do dono do produto, 27/10/2026: "Exija o arquivo do motor apenas quando `categoria_chave = 'PERFIL'`. O motor tem casa própria agora
+(`orcamentista_motor`); não precisa mais viajar colado na tabela de preço."
+
+- **O arquivo do motor é exigido só na tabela de PERFIL.** `motor_path`/`motor_nome` deixam de ser NOT NULL; duas CHECK: o par anda junto
+  (`orcamentista_tabela_motor_par`) e Perfil tem o motor (`orcamentista_tabela_perfil_exige_motor`). A rota recusa antes, com a frase
+  (`lerCorpoDaTabela`: Perfil sem motor, ou o caminho sem o nome, em qualquer categoria); a tela só liga o salvar do Perfil com o motor; declarar
+  PERFIL numa tabela sem motor no PATCH é 400; o motor, na edição, troca inteiro e **não se apaga**. A constante `CATEGORIA_QUE_EXIGE_MOTOR` é o
+  literal da CHECK (`atendimentos-ia-motor-so-para-perfil.test.ts` liga as duas pontas).
+  **Vazio não é motor** (achado do dono do produto, 27/10/2026): a CHECK exige um caminho com algum caractere que não seja espaço
+  (`coalesce(motor_path ~ '[^[:space:]]', false)`), porque `IS NOT NULL` deixava passar a string vazia — e a Estrela está em produção com
+  `motor_path = ''` e `motor_nome = ''`. `btrim` simples não serve (só tira espaço; tab e enter passariam). A importação e a exclusão
+  tratam nulo, vazio e só-espaço como "sem motor".
+- **A importação de tabela sem motor lê só o preço**: as listas do motor vão vazias, não há cruzamento, e o arquivo do motor não é baixado.
+- **A etapa aponta o motor** (`orcamentista_familia_etapa.motor_id`): `superadmin_gravar_etapas_da_familia` aceita `motor_id` no item (ausente
+  mantém, `null` limpa, uuid aponta, e confere que o motor é da família da etapa e não está arquivado); `superadmin_arquivar_motor` **recusa** arquivar
+  a planilha que alguma etapa aponta, nomeando a etapa. A tela das etapas ganhou o motor por etapa e "Inserir etapa abaixo"; o corpo só leva
+  `motor_id` quando MUDOU.
+- **O bloco Motor da conta** mostra, antes dos fornecedores, o cabeçalho "Motores das etapas" de cada família que a conta usa, e a **planilha da
+  família** (sem fornecedor) aparece para a conta que usa a família (`familiasDaConta`: a família de uma matéria-prima da conta ou de uma tabela dos
+  fornecedores que ela vincula; família não informada não conta).
+- **`tabelas-da-conta.ts` agrupa por (fornecedor, família, categoria)**: Perfil, Reforço e Acessórios da Wolff são três grupos e as três valem.
+  A tabela sem categoria (as de antes) é um grupo à parte.
+
+**O que NÃO mudou — a conversa (PR D).** O leitor da conversa continua pedindo tabela **com motor** (tipologias importadas) e **recusa** duas tabelas
+com motor do mesmo fornecedor e família (`TABELA_REPETIDA`), sem olhar a categoria, de propósito: a Wolff de antes (sem categoria, com motor) e a
+nova de Perfil (com motor) valem cada uma no seu grupo, e deixá-las entrar juntas duplicaria as tipologias. **Subir** as três tabelas é seguro (Reforço e Acessórios não têm tipologia; a de Perfil só passa a ter ao ser IMPORTADA).
+**Importar a de Perfil, com motor, antes do PR D faz a conversa da conta parar**, com a recusa nomeada `TABELA_REPETIDA` — e não duplica nada. A ordem continua a de cima: PR D troca os leitores, só então a tabela antiga sai (PR F).
+
 ## O que NÃO está implementado ainda — não presuma
 
 - **O preço pelo principal da ramificação:** hoje os leitores usam as tabelas dos fornecedores vinculados
-  (`tabelas-da-conta.ts`), sem filtrar por categoria nem por principal. Trocar isso é trabalho dos leitores (PR D).
+  (`tabelas-da-conta.ts`), sem filtrar por principal. Trocar isso é trabalho dos leitores (PR D).
 - **A Wolff continua sem categoria**, com as categorias do fornecedor misturadas no mesmo arquivo, e é a fonte que a
   conversa ainda lê. Sai de circulação por decisão do dono do produto, **depois** do PR D.
-- **O índice `orcamentista_tabela_uma_vigente` é por (fornecedor, família):** três tabelas da Wolff na mesma família
-  (Perfil, Reforço, Acessórios) não podem ser as três vigentes. Se a regra do principal dispensar a vigente na
-  escolha do preço, isso não atrapalha; se não, o índice precisa incluir a categoria. Decisão do PR D.
-- **O arquivo do motor continua obrigatório** em toda tabela nova (`motor_path`/`motor_nome` NOT NULL, `MENSAGEM_MOTOR_OBRIGATORIO`),
-  mesmo para Reforço e Acessórios, que não têm motor próprio: o motor mora em `orcamentista_motor` desde o PR C.
 - **REFORCO e ACESSORIOS_VEDACAO da De Paula não têm fornecedor vinculado** (medido em 27/10/2026): com a regra do
   principal, o preço delas não tem de onde vir até alguém vincular.
+- **A Parte 2** (tirar o código do material do motor) segue pendente de desenho.
 
 ## O motor é da família — decisão de 27/10/2026 (corrige a de ontem) e as DÍVIDAS com data
 
@@ -98,14 +124,11 @@ restrição por satisfeita se uma coluna for nula; `MATCH FULL` não serve (recu
    povoado). O que sai: a coluna, o índice `orcamentista_motor_uma_vigente`, o CHECK
    `orcamentista_motor_arquivado_nao_e_vigente`, a escrita em `superadmin_arquivar_motor`, 3 arquivos de código
    (`motor-da-conta.ts`, `motor-da-conta.component.tsx`, `atendimentos-ia-motor.ts`) e 4 de teste. **Até lá, a etapa
-   vence**, e **arquivar planilha que uma etapa aponta é recusado** — isto último **ainda não está implementado**: a
-   função de arquivar de hoje não sabe das etapas.
-2. **`superadmin_gravar_etapas_da_familia` recusa `motor_id`** (lista fechada): hoje ninguém aponta o motor de uma
-   etapa pela tela. Muda junto com o código.
-3. **A conta só enxerga planilha de fornecedor que ela vincula** (`motor-da-conta.ts`): planilha sem fornecedor
-   (permitida pela `20261027000006`) não aparece para conta nenhuma.
-4. **`tabelas-da-conta.ts` e `tabelaVigenteDoPar` assumem uma vigente por (fornecedor, família)**; com o índice por
-   categoria podem existir várias.
+   vence**, e **arquivar planilha que uma etapa aponta é recusado** — implementado na `20261027000008` (pendente até ser aplicada).
+2. ~~`superadmin_gravar_etapas_da_familia` recusa `motor_id`~~ — **paga em 27/10/2026** (`20261027000008`, pendente até ser aplicada).
+3. ~~A conta só enxerga planilha de fornecedor que ela vincula~~ — **paga em 27/10/2026**: a planilha da família aparece para a conta que usa a família.
+4. ~~`tabelas-da-conta.ts` e `tabelaVigenteDoPar` assumem uma vigente por (fornecedor, família)~~ — **paga em 27/10/2026**: os dois agrupam por
+   (fornecedor, família, categoria).
 
 **Em aberto, sem resposta (27/10/2026):** a redução por tipologia vale para qualquer fornecedor de PVC? Não se sabe:
 só há um fornecedor de PVC em produção, e as constantes de geometria (119 das 137 fórmulas de família) estão

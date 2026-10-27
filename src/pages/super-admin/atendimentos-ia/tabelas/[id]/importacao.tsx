@@ -32,7 +32,7 @@ import { quandoFoiImportado, textoDoAviso } from '@/utils/atendimentos-ia-import
 import { ErroDaRota, chamarRota } from '@/page-parts/atendimentos-ia/api'
 import { ESTILO_DA_DATA } from '@/page-parts/atendimentos-ia/linha-da-tabela.component'
 
-interface DadosDaTabela { id: string; fornecedor_id: string; fornecedor_nome: string | null; arquivo_nome: string; motor_nome: string; vigencia: string | null; categoria_chave: string | null; categoria_rotulo: string | null }
+interface DadosDaTabela { id: string; fornecedor_id: string; fornecedor_nome: string | null; arquivo_nome: string; motor_nome: string | null; vigencia: string | null; categoria_chave: string | null; categoria_rotulo: string | null }
 interface UltimaImportacao {
     importado_em: string
     importado_por_nome: string | null
@@ -119,7 +119,8 @@ export default function ImportacaoDaTabela() {
 
     const arquivos = tabela ? [
         { papel: 'tabela' as const, rotulo: 'Arquivo da tabela', nome: tabela.arquivo_nome },
-        { papel: 'motor' as const, rotulo: 'Arquivo do motor', nome: tabela.motor_nome },
+        // sem arquivo de motor (preço puro), não há o que mostrar nem importar: a linha do motor não existe
+        ...(tabela.motor_nome ? [{ papel: 'motor' as const, rotulo: 'Arquivo do motor', nome: tabela.motor_nome }] : []),
     ] : []
 
     return (

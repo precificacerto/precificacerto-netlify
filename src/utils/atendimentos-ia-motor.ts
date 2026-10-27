@@ -76,8 +76,8 @@ const juntar = (xs: string[]) => (xs.length <= 1 ? xs.join('') : `${xs.slice(0, 
 export const fraseDoFornecedorSemTabela = (fornecedor: string, categorias: string[]) =>
     `${fornecedor} está vinculado na base de conhecimento (${juntar(categorias)}) e não tem tabela cadastrada.`
     + (categorias.includes('PERFIL') ? ' Como é do perfil, a conversa recusa escolher a tipologia até ele ter tabela.' : '')
-export const fraseDoParSemVigente = (fornecedor: string, familia: string | null, arquivos: string[]) =>
-    `${fornecedor} tem ${arquivos.length} tabelas ${familia === null ? 'sem a família informada' : `da família ${familia}`} (${juntar(arquivos)}) `
+export const fraseDoParSemVigente = (fornecedor: string, familia: string | null, arquivos: string[], categoria: string | null = null) =>
+    `${fornecedor} tem ${arquivos.length} tabelas ${familia === null ? 'sem a família informada' : `da família ${familia}`}${categoria === null ? '' : `, categoria ${categoria},`} (${juntar(arquivos)}) `
     + 'e nenhuma está marcada como vigente: nenhuma vale para levantamento novo. Marque a vigente.'
 
 export interface TabelaNoMotor {
@@ -108,11 +108,12 @@ export interface PlanilhaNoMotor {
     motor_id: string
     /** A chave da família — sempre informada: a planilha é de (família, fornecedor de perfil). */
     familia: string
-    fornecedor: string
+    /** Nulo na planilha da FAMÍLIA, que não tem fornecedor (20261027000006): ela aparece para a conta que usa a família. */
+    fornecedor: string | null
     arquivo_nome: string
     /** A vigente do par (família, fornecedor). Arquivar tira a marca. */
     vigente: boolean
-    /** O NOME das contas que usam a planilha (as que vinculam o fornecedor): arquivar sai da lista de TODAS elas. */
+    /** O NOME das contas que usam a planilha (as que vinculam o fornecedor, ou — na planilha da família — as que usam a família): arquivar sai da lista de TODAS elas. */
     contas_usando: string[]
     linhas: Array<{ linha: string | null; tipologias: number }>
     /** Sem os itens de preço: o preço é da tabela do fornecedor. */
@@ -126,11 +127,16 @@ export interface MotorDaConta {
     /** As planilhas COM motor carregado e não arquivadas, das famílias e fornecedores que a conta vincula. */
     planilhas: PlanilhaNoMotor[]
     familias: Array<{ chave: string; rotulo: string; ordem: number }>
+    /**
+     * O CABEÇALHO de cada família que a conta usa, ANTES dos fornecedores (dono do produto, 27/10/2026): etapa por etapa, o motor que ela
+     * aponta (`orcamentista_familia_etapa.motor_id`). Só mostra; quem aponta é a tela das etapas da família.
+     */
+    etapas_das_familias: Array<{ familia: string; etapas: Array<{ numero: number; rotulo: string; motor: { id: string; arquivo_nome: string } | null }> }>
     /** O critério de custo das barras de cada matéria-prima da conta (base de conhecimento, PERFIL). null = não configurado. */
     materias_primas: Array<{ id: string; nome: string; criterio_custo_barra: CriterioDeCustoDaBarra | null }>
     avisos: {
         fornecedores_sem_tabela: Array<{ fornecedor: string; categorias: string[] }>
-        pares_sem_vigente: Array<{ fornecedor: string; familia: string | null; arquivos: string[] }>
+        pares_sem_vigente: Array<{ fornecedor: string; familia: string | null; categoria: string | null; arquivos: string[] }>
         nenhuma_com_motor: boolean
     }
 }

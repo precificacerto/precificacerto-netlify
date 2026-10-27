@@ -158,6 +158,7 @@ jest.mock('@/supabase/admin', () => ({
             q.eq = (c: string, v: unknown) => { filtros.push((l) => l[c] === v); return q }
             q.in = (c: string, vs: unknown[]) => { filtros.push((l) => vs.includes(l[c])); return q }
             q.is = (c: string, v: null) => { filtros.push((l) => (l[c] ?? null) === v); return q }
+            q.not = (c: string, op: string, v: null) => { if (op !== 'is') throw new Error(`o fake só conhece not(..., 'is', null): ${op}`); filtros.push((l) => (l[c] ?? null) !== v); return q }
             q.order = (c: string) => { ordem.push(c); return q }
             q.range = (de: number, ate: number) => { faixa = [de, ate]; return q }
             q.maybeSingle = async (): Promise<{ data: Linha | null; error: null }> => ({ data: linhas()[0] ?? null, error: null })
@@ -328,7 +329,7 @@ describe('(6) a fonte é a DERIVAÇÃO: a tabela de preço, a vigente e os aviso
         estado.db.orcamentista_motor_tipologia_detalhe.push({ tabela_id: T2 + 'w', tipologia: 'W7-01', linha: 'PVC WOLFF', descricao: 'DA 2027', tipo: 'Porta', ordem: 1 })
         const r = await chamar('motor', { tenantId: CONTA })
         expect(r.corpo.tabelas.filter((x: Linha) => x.fornecedor === 'Wolff Perfis').map((x: Linha) => [x.arquivo_nome, x.vale])).toEqual([['Tabela Wolff.xlsx', false], ['Wolff 2027.xlsx', false]])
-        expect(r.corpo.avisos.pares_sem_vigente).toEqual([{ fornecedor: 'Wolff Perfis', familia: null, arquivos: ['Tabela Wolff.xlsx', 'Wolff 2027.xlsx'] }])
+        expect(r.corpo.avisos.pares_sem_vigente).toEqual([{ fornecedor: 'Wolff Perfis', familia: null, categoria: null, arquivos: ['Tabela Wolff.xlsx', 'Wolff 2027.xlsx'] }])
     })
 
     it('o contraste: com a de 2027 VIGENTE, só ela vale, e não há aviso', async () => {
@@ -479,5 +480,131 @@ describe('(8) arquivar a planilha: só pela função, nunca excluir', () => {
         const r = await chamar('arquivar', { tenantId: CONTA }, 'POST', { motor: P1 })
         expect(r.status).toBe(500)
         expect(JSON.stringify(r.corpo)).not.toContain('orcamentista_motor')
+    })
+})
+
+// ════════════════════════════════════════════════════════════════════════════════════════
+describe('(9) a planilha da FAMÍLIA (sem fornecedor) aparece para a conta que usa a família, e as etapas apontam o motor (27/10/2026)', () => {
+    const PF = '00000000-0000-4000-8000-0000000000f5'
+    const PF_ALU = '00000000-0000-4000-8000-0000000000f6'
+    const PF_VAZIA = '00000000-0000-4000-8000-0000000000f7'
+    const E1 = '00000000-0000-4000-8000-0000000000d1'
+    const E2 = '00000000-0000-4000-8000-0000000000d2'
+
+    /** A planilha da família PVC (sem fornecedor, com 2 tipologias), a de Alumínio (idem) e uma da família sem tipologia nenhuma. */
+    function comAsPlanilhasDaFamilia() {
+        estado.db.orcamentista_motor.push(
+            { id: PF, familia: 'PVC', fornecedor_id: null, arquivo_nome: 'Motor PVC da família.xlsm', vigente: false, arquivado_em: null },
+            { id: PF_ALU, familia: 'ALUMINIO', fornecedor_id: null, arquivo_nome: 'Motor Alumínio da família.xlsm', vigente: false, arquivado_em: null },
+            { id: PF_VAZIA, familia: 'PVC', fornecedor_id: null, arquivo_nome: 'PVC vazio.xlsm', vigente: false, arquivado_em: null },
+        )
+        estado.db.orcamentista_motor_tipologia_detalhe.push(
+            { motor_id: PF, tipologia: 'FA-01', linha: 'PVC', descricao: 'DA FAMÍLIA', tipo: 'Porta', ordem: 1 },
+            { motor_id: PF, tipologia: 'FA-02', linha: 'PVC', descricao: 'DA FAMÍLIA 2', tipo: 'Correr', ordem: 2 },
+            { motor_id: PF_ALU, tipologia: 'AL-01', linha: 'ALU', descricao: 'DO ALUMÍNIO', tipo: 'Porta', ordem: 1 },
+        )
+    }
+    const daMateria = (familia: string | null) => { estado.db.orcamentista_materia_prima.find((m) => m.id === 'mp-1')!.familia = familia }
+    const planilhasDaConta = async () => (await chamar('motor', { tenantId: CONTA })).corpo.planilhas as Linha[]
+
+    it('a conta cuja matéria-prima é PVC vê a planilha da família PVC, sem fornecedor, com as contas que usam a família por NOME — e não vê a de Alumínio nem a sem tipologia', async () => {
+        comAsPlanilhasDaFamilia()
+        daMateria('PVC')
+        const ps = await planilhasDaConta()
+        expect(ps.map((p) => p.motor_id).sort()).toEqual([P1, PF].sort())
+        const p = ps.find((x) => x.motor_id === PF)!
+        expect(p).toEqual(expect.objectContaining({ familia: 'PVC', fornecedor: null, arquivo_nome: 'Motor PVC da família.xlsm', vigente: false }))
+        expect(p.linhas).toEqual([{ linha: 'PVC', tipologias: 2 }])
+        expect(p.contas_usando).toEqual(['Esquadrias De Paula', 'Outra Esquadrias'])
+    })
+
+    it('família NÃO informada em lugar nenhum não conta: nem a matéria-prima nem as tabelas dos fornecedores dizem PVC, e a planilha da família não aparece para ninguém', async () => {
+        comAsPlanilhasDaFamilia()
+        daMateria(null)
+        expect((await planilhasDaConta()).map((p) => p.motor_id)).toEqual([P1])
+    })
+
+    it('a conta também usa a família pela TABELA de um fornecedor que ela vincula (T1 da Wolff passa a ser PVC)', async () => {
+        comAsPlanilhasDaFamilia()
+        daMateria(null)
+        estado.db.orcamentista_tabela.find((t) => t.id === T1)!.familia = 'PVC'
+        expect((await planilhasDaConta()).map((p) => p.motor_id).sort()).toEqual([P1, PF].sort())
+    })
+
+    it('a planilha da família ARQUIVADA sai da lista; a do fornecedor segue como estava', async () => {
+        comAsPlanilhasDaFamilia()
+        daMateria('PVC')
+        estado.db.orcamentista_motor.find((m) => m.id === PF)!.arquivado_em = '2026-10-27T12:00:00Z'
+        expect((await planilhasDaConta()).map((p) => p.motor_id)).toEqual([P1])
+    })
+
+    it('o detalhe da planilha da família vai por ?motor=: a conta que usa a família lê as tipologias; a que não usa recebe 404', async () => {
+        comAsPlanilhasDaFamilia()
+        daMateria('PVC')
+        const r = await chamar('tipologias', { tenantId: CONTA, motor: PF })
+        expect(r.status).toBe(200)
+        expect(r.corpo.map((t: Linha) => t.tipologia).sort()).toEqual(['FA-01', 'FA-02'])
+        expect((await chamar('tipologias', { tenantId: CONTA, motor: PF_ALU })).status).toBe(404)
+        expect((await chamar('tipologias', { tenantId: CONTA, motor: PF_VAZIA })).status).toBe(200)
+    })
+
+    it('arquivar a planilha da família: a rota deixa a conta que a usa chamar a função, e recusa a que não a usa', async () => {
+        comAsPlanilhasDaFamilia()
+        daMateria('PVC')
+        expect((await chamar('arquivar', { tenantId: CONTA }, 'POST', { motor: PF })).status).toBe(200)
+        expect(estado.rpcs).toEqual([{ funcao: 'superadmin_arquivar_motor', args: { p_motor: PF, p_por: 'u-super' } }])
+        estado.rpcs = []
+        expect((await chamar('arquivar', { tenantId: CONTA }, 'POST', { motor: PF_ALU })).status).toBe(404)
+        expect(estado.rpcs).toEqual([])
+    })
+
+    it('o CABEÇALHO: por família que a conta usa, etapa por etapa, o motor que ela aponta — e a etapa sem motor diz null', async () => {
+        comAsPlanilhasDaFamilia()
+        daMateria('PVC')
+        estado.db.orcamentista_familia_etapa = [
+            { id: E2, familia: 'PVC', numero: 2, rotulo: 'Confirmar', acao: 'CONFIRMAR', motor_id: null },
+            { id: E1, familia: 'PVC', numero: 1, rotulo: 'Apanhar', acao: 'APANHAR', motor_id: PF },
+            { id: 'e-alu', familia: 'ALUMINIO', numero: 1, rotulo: 'Da outra família', acao: 'APANHAR', motor_id: PF_ALU },
+        ]
+        const r = await chamar('motor', { tenantId: CONTA })
+        expect(r.corpo.etapas_das_familias).toEqual([{
+            familia: 'PVC',
+            etapas: [{ numero: 1, rotulo: 'Apanhar', motor: { id: PF, arquivo_nome: 'Motor PVC da família.xlsm' } }, { numero: 2, rotulo: 'Confirmar', motor: null }],
+        }])
+    })
+
+    it('o motor apontado por uma etapa mas ARQUIVADO nunca é mostrado como se valesse: sai null', async () => {
+        comAsPlanilhasDaFamilia()
+        daMateria('PVC')
+        estado.db.orcamentista_motor.find((m) => m.id === PF)!.arquivado_em = '2026-10-27T12:00:00Z'
+        estado.db.orcamentista_familia_etapa = [{ id: E1, familia: 'PVC', numero: 1, rotulo: 'Apanhar', acao: 'APANHAR', motor_id: PF }]
+        const r = await chamar('motor', { tenantId: CONTA })
+        expect(r.corpo.etapas_das_familias).toEqual([{ familia: 'PVC', etapas: [{ numero: 1, rotulo: 'Apanhar', motor: null }] }])
+    })
+
+    it('família sem etapa cadastrada não aparece no cabeçalho; e a conta sem família nenhuma devolve a lista vazia', async () => {
+        daMateria('PVC')
+        expect((await chamar('motor', { tenantId: CONTA })).corpo.etapas_das_familias).toEqual([])
+        daMateria(null)
+        estado.db.orcamentista_familia_etapa = [{ id: E1, familia: 'ALUMINIO', numero: 1, rotulo: 'x', acao: 'APANHAR', motor_id: null }]
+        expect((await chamar('motor', { tenantId: CONTA })).corpo.etapas_das_familias).toEqual([])
+    })
+
+    it('familiasDaConta é EXATAMENTE o conjunto das famílias informadas: a matéria-prima sem família e a tabela sem família não entram', async () => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { familiasDaConta, contasQueUsamAFamilia } = require('@/lib/atendimentos-ia/tabelas-da-conta') as typeof import('@/lib/atendimentos-ia/tabelas-da-conta')
+        estado.db.orcamentista_materia_prima.push({ id: 'mp-2', tenant_id: CONTA, nome: 'Sem família', ordem: 2, familia: null })
+        daMateria('PVC')
+        expect([...(await familiasDaConta(CONTA))]).toEqual(['PVC'])
+        daMateria(null)
+        expect([...(await familiasDaConta(CONTA))]).toEqual([])
+        expect(await contasQueUsamAFamilia('PVC')).toEqual(['00000000-0000-4000-8000-0000000000b2'])
+    })
+
+    it('o cabeçalho e a planilha da família são só leitura: nenhuma escrita e nenhuma função chamadas pelo resumo', async () => {
+        comAsPlanilhasDaFamilia()
+        daMateria('PVC')
+        await chamar('motor', { tenantId: CONTA })
+        expect(estado.rpcs).toEqual([])
     })
 })
