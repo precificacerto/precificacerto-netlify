@@ -29,6 +29,7 @@ fazendo, **leia o texto antes de agir**.
 - `decomposicao-na-tela`: ao mexer na tabela da decomposição. Coluna congelada, "% médio", nada truncado, residual e as duas bases.
 - `limite-do-desconto`: o limite de desconto, a autorização e a repartição acima do limite (ESPEC Parte VII).
 - `razao-longe-da-restricao`: ao alargar uma restrição sem razão citada. Pergunte antes; cite a fonte no ponto de declaração.
+- `tabela-de-preco-por-categoria`: ao subir, arquivar ou trocar uma tabela de fornecedor, ou ao decidir de onde vem o preço de uma ramificação. Uma tabela = uma categoria; decide o fornecedor principal; o motor se copia antes de mexer na tabela da Wolff.
 - `a-coluna-que-parece-enumeracao`: antes de filtrar por igualdade numa coluna com nome de atributo. Liste os valores distintos.
 - `tabela-que-a-importacao-apaga`: num processo que apaga e regrava uma tabela, ou numa coluna nova numa tabela assim.
 - `migracao`: em todo PR com migração. Aplicar e verificar antes do merge, nomear no PR, e os dois hashes quando o payload é transformado.
