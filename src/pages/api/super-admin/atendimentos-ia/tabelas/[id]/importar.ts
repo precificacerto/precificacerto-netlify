@@ -30,6 +30,13 @@
  *      DEPOIS de ler (é a leitura que diz o que o arquivo traz) e ANTES de gravar. O caso: 24 vidros
  *      inseridos à mão na tabela 5f7acebf. Erro do banco ao ler os códigos é 500: falha FECHADA.
  *      Cobre os ITENS; regras, tipologias e fórmulas só existem vindas do arquivo;
+ *   5b. UMA TABELA, UMA CATEGORIA DO FORNECEDOR (27/10/2026, decisão do dono do produto): a tabela que DECLARA a
+ *      categoria (`categoria_chave`, migração 20261027000005) recusa o arquivo cujos itens trazem mais de uma
+ *      categoria do fornecedor — 422 nomeando as que achou, antes de gravar. "Não pode haver margem para o agente
+ *      usar o preço de uma ramificação que ninguém escolheu." A tabela de antes, SEM categoria declarada (a da
+ *      Wolff), NÃO é recusada retroativamente: importa como sempre, e o aviso `tabela_sem_categoria_declarada` diz
+ *      que a regra não foi aplicada. Item sem a categoria do fornecedor preenchida vira o aviso
+ *      `itens_sem_categoria_do_fornecedor`, nunca é somado a uma categoria;
  *   6. grava por UMA chamada à função `importar_conteudo_da_tabela` (`20261020000002`), que
  *      apaga e insere numa transação;
  *   7. CONFERE o que a função gravou contra o que foi mandado. Diferente é 500 com os dois
@@ -54,7 +61,9 @@ import {
   ultimaImportacao,
 } from '@/lib/atendimentos-ia/repositorio'
 import { arquivoImportavel, ehUuid, fraseDoArquivo, fraseDoArquivoNaoImportavel } from '@/utils/atendimentos-ia-catalogo'
+import { categoriasDoFornecedorNosItens, FRASE_DA_TABELA_SEM_CATEGORIA_DECLARADA, fraseDoArquivoComMaisDeUmaCategoria, fraseDosItensSemCategoriaDoFornecedor } from '@/utils/atendimentos-ia-categoria-do-arquivo'
 import {
+  COLUNA_DA_CATEGORIA_DO_FORNECEDOR,
   conferirGravacao,
   fraseDaGravacaoQueFalhou,
   fraseDaImportacaoTravadaPorItensForaDoArquivo,
@@ -127,6 +136,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   })
   if (!leitura.ok) return res.status(422).json({ error: (leitura as Recusa).erro })
   const lida = leitura as Lida
+
+  // 5b. UMA TABELA, UMA CATEGORIA DO FORNECEDOR — antes de montar o payload e de qualquer gravação.
+  const doArquivo = categoriasDoFornecedorNosItens(lida.itens.map((i) => i[COLUNA_DA_CATEGORIA_DO_FORNECEDOR]))
+  // SEM `?? null`: um `undefined` (a leitura da tabela que esqueceu de pedir a coluna) NÃO vira "sem categoria" — falha FECHADA, recusando.
+  const declarada = tabela.categoria_chave
+  if (declarada !== null && doArquivo.categorias.length > 1) {
+    return res.status(422).json({ error: fraseDoArquivoComMaisDeUmaCategoria(tabela.arquivo_nome, doArquivo.categorias) })
+  }
+  if (declarada === null) lida.avisos.push({ tipo: 'tabela_sem_categoria_declarada', mensagem: FRASE_DA_TABELA_SEM_CATEGORIA_DECLARADA })
+  if (doArquivo.semCategoria > 0) lida.avisos.push({ tipo: 'itens_sem_categoria_do_fornecedor', itens: doArquivo.semCategoria, mensagem: fraseDosItensSemCategoriaDoFornecedor(doArquivo.semCategoria) })
 
   const payload = montarPayloadDaImportacao(lida, caller.user_id)
 

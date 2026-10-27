@@ -56,5 +56,9 @@ export function textoDoAviso(a: Aviso): { titulo: string; texto: string } {
             return { titulo: 'Tipologia em mais de uma linha', texto: `A tipologia ${a.tipologia} aparece nas linhas ${a.linhas.join(', ')}; a linha dela ficou em branco.` }
         case 'tipologia_condicional_sem_variavel':
             return { titulo: 'Condição que não foi lida', texto: `A tipologia ${a.tipologia} tem ${a.n_condicionais} regra(s) com condição, e nenhuma variável foi encontrada nelas (ex.: "${a.exemplo}").` }
+        case 'itens_sem_categoria_do_fornecedor':
+            return { titulo: 'Itens sem a categoria do fornecedor', texto: a.mensagem }
+        case 'tabela_sem_categoria_declarada':
+            return { titulo: 'Tabela sem categoria declarada', texto: a.mensagem }
     }
 }

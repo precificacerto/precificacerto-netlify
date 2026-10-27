@@ -8,6 +8,14 @@ import type ExcelJS from 'exceljs'
 export type ValorLido = string | number | Date | null
 
 /**
+ * O nome da coluna do banco que guarda a categoria COMO VEIO DO ARQUIVO DO FORNECEDOR, nas duas
+ * tabelas (o item do preço e a regra do motor). DECLARADO AQUI E SÓ AQUI — decisão do dono do
+ * produto, 20/10/2026: é o nome da coluna do arquivo, e renomeá-la faria o código mentir sobre o
+ * arquivo. Esta linha é a exceção nominal do portão de vocabulário.
+ */
+export const COLUNA_DA_CATEGORIA_DO_FORNECEDOR = 'segmento' as const
+
+/**
  * O valor de UMA célula do exceljs, em todas as formas que ela chega:
  *   - fórmula (`{formula, result}` ou `{sharedFormula, result}`) → o `result`, convertido de novo.
  *     As colunas de valor da tabela da Wolff SÃO fórmulas; gravar o objeto, ou NULL, seria

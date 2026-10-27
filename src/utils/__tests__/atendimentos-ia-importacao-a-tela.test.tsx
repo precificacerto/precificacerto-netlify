@@ -45,7 +45,7 @@ jest.mock('next/router', () => ({
 jest.mock('@/hooks/use-auth.hook', () => ({ useAuth: () => ({ currentUser: { id: 'u-super', is_super_admin: true, role: 'super_admin' } }) }))
 jest.mock('@/components/layout/layout.component', () => ({ Layout: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }))
 
-const TABELA = { id: T, fornecedor_id: 'f1', fornecedor_nome: 'Wolf Perfis', arquivo_nome: 'Tabela Wolff.xlsm', motor_nome: 'Motor.xlsx', vigencia: null as string | null }
+const TABELA = { id: T, fornecedor_id: 'f1', fornecedor_nome: 'Wolf Perfis', arquivo_nome: 'Tabela Wolff.xlsm', motor_nome: 'Motor.xlsx', vigencia: null as string | null, categoria_chave: null as string | null, categoria_rotulo: null as string | null }
 const AVISOS: Aviso[] = [
     { tipo: 'codigo_repetido', aba: 'Tabela Wolff', codigo: 'IL4237', linhas: [556, 674], secoes: ['LAMINADOS TOTAL', 'LAMINADOS PARTE EXTERNA'], valores_batem: true, mensagem: 'm1' },
     { tipo: 'codigo_do_motor_sem_preco', codigos: ['Z9', 'Z10'], mensagem: 'm2' },
@@ -115,6 +115,20 @@ describe('(1) ANTES da primeira importação', () => {
         expect(arquivos[1].textContent).toContain('.xlsx')
         expect(arquivos.every((a) => a.getAttribute('data-importavel') === 'sim')).toBe(true)
         expect(botao(host, 'Importar')).toBeDefined()
+    })
+
+    it('a CATEGORIA da tabela aparece junto dos arquivos: o rótulo da declarada, ou "não informada" na de antes', async () => {
+        responder(`GET ${ROTAS_DO_CATALOGO.tabela(T)}`, { status: 200, body: { ...TABELA, categoria_chave: 'REFORCO', categoria_rotulo: 'Reforço metálico' } })
+        const declarada = await montar(<Pagina />)
+        const linha = declarada.querySelector('[data-categoria-da-tabela="REFORCO"]')!
+        expect(linha.textContent).toContain('Categoria da tabela')
+        expect(linha.textContent).toContain('Reforço metálico')
+        expect(linha.textContent).not.toContain('não informada')
+
+        responder(`GET ${ROTAS_DO_CATALOGO.tabela(T)}`, { status: 200, body: TABELA })
+        const antes = await montar(<Pagina />)
+        const sem = antes.querySelector('[data-categoria-da-tabela="nao-informada"]')!
+        expect(sem.textContent).toContain('não informada')
     })
 
     it('NENHUMA contagem, nenhuma tipologia, nenhum cruzamento — nem zero', async () => {
@@ -253,6 +267,13 @@ describe('(4) a tradução dos avisos', () => {
         expect(`${titulo} ${texto}`).not.toContain(tipo)
     })
 
+    it('os dois avisos da categoria têm título e texto próprios, com a frase da rota', () => {
+        const itens = textoDoAviso({ tipo: 'itens_sem_categoria_do_fornecedor', itens: 2, mensagem: '2 itens do arquivo não trazem a categoria do fornecedor.' })
+        expect(itens).toEqual({ titulo: 'Itens sem a categoria do fornecedor', texto: '2 itens do arquivo não trazem a categoria do fornecedor.' })
+        const sem = textoDoAviso({ tipo: 'tabela_sem_categoria_declarada', mensagem: 'Esta tabela não declara a categoria.' })
+        expect(sem).toEqual({ titulo: 'Tabela sem categoria declarada', texto: 'Esta tabela não declara a categoria.' })
+    })
+
     it('código repetido com valores DIFERENTES diz isso em voz alta', () => {
         const { texto } = textoDoAviso({ ...(AVISOS[0] as Extract<Aviso, { tipo: 'codigo_repetido' }>), valores_batem: false })
         expect(texto).toMatch(/VALORES DIFERENTES/)
@@ -312,11 +333,12 @@ describe('(6) a linha da tabela, no fornecedor, leva à importação', () => {
         consulta = { id: 'f1' }
         const FORN: FornecedorComTabelas = {
             id: 'f1', nome: 'Wolf Perfis', nicho_id: 'n1', nicho_nome: 'Esquadrias', modelo: 'FABRICACAO', tabelas: 1, contas_usando: [],
-            tabelas_da_lista: [{ id: T, fornecedor_id: 'f1', arquivo_nome: 'Tabela Wolff.xlsm', arquivo_path: 'p', motor_nome: 'Motor.xlsx', motor_path: 'm', vigencia: null, familia: null, vigente: false, criado_em: '2026-10-20T00:00:00Z', contas_usando: [] }],
+            tabelas_da_lista: [{ id: T, fornecedor_id: 'f1', arquivo_nome: 'Tabela Wolff.xlsm', arquivo_path: 'p', motor_nome: 'Motor.xlsx', motor_path: 'm', vigencia: null, familia: null, categoria_chave: null, vigente: false, criado_em: '2026-10-20T00:00:00Z', contas_usando: [] }],
         }
         responder(`GET ${ROTAS_DO_CATALOGO.fornecedor('f1')}`, { status: 200, body: FORN })
         responder(`GET ${ROTAS_DO_CATALOGO.nichos}`, { status: 200, body: [] })
         responder(`GET ${ROTAS_DO_CATALOGO.familias}`, { status: 200, body: [{ chave: 'PVC', rotulo: 'PVC', ordem: 1 }] })
+        responder(`GET ${ROTAS_DO_CATALOGO.categorias}`, { status: 200, body: [{ chave: 'PERFIL', rotulo: 'Perfil', ordem: 1 }] })
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const PaginaDoFornecedor = require('@/pages/super-admin/atendimentos-ia/fornecedores/[id]').default as React.ComponentType
         const host = await montar(<PaginaDoFornecedor />)

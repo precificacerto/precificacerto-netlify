@@ -18,6 +18,7 @@
 import { supabaseAdmin } from '@/supabase/admin'
 import {
     BUCKET_DO_CATALOGO,
+    type Categoria,
     type ContaLigada,
     type CorpoDaTabela,
     type Familia,
@@ -28,6 +29,7 @@ import {
     type TabelaDoFornecedor,
     type TabelaEmUso,
 } from '@/utils/atendimentos-ia-catalogo'
+import { COLUNA_DA_CATEGORIA_DO_FORNECEDOR } from '@/utils/atendimentos-ia-importacao-celula'
 import { contasQueVinculam, derivarTabelasDaConta } from '@/lib/atendimentos-ia/tabelas-da-conta'
 
 export class ErroDoBanco extends Error {
@@ -155,7 +157,7 @@ async function montarLista(fornecedores: Linha[]): Promise<FornecedorComTabelas[
     const nichos: Linha[] = nichoIds.length ? await q(db().from('orcamentista_nicho').select('id, modelo, nome').in('id', nichoIds)) : []
     const fIds = fornecedores.map((f) => f.id)
     const tabelas: Linha[] = fIds.length
-        ? await q(db().from('orcamentista_tabela').select('id, fornecedor_id, arquivo_nome, arquivo_path, motor_nome, motor_path, vigencia, familia, vigente, criado_em').in('fornecedor_id', fIds).order('criado_em', { ascending: false }))
+        ? await q(db().from('orcamentista_tabela').select('id, fornecedor_id, arquivo_nome, arquivo_path, motor_nome, motor_path, vigencia, familia, categoria_chave, vigente, criado_em').in('fornecedor_id', fIds).order('criado_em', { ascending: false }))
         : []
     const uso = await usoPorTabela(tabelas.map((t) => ({ id: t.id, fornecedor_id: t.fornecedor_id })))
     return fornecedores.map((f) => {
@@ -219,16 +221,22 @@ export async function criarFamilia(f: Familia): Promise<Familia> {
     return q(db().from('orcamentista_familia_catalogo').insert(f).select('chave, rotulo, ordem').single())
 }
 
+// ── Categorias (migração 20261027000005) ─────────────────────────────────────────────────────
+/** O catálogo das categorias da plataforma, SEM ordem — quem ordena é a rota. Só leitura: a lista é da plataforma. */
+export async function listarCategorias(): Promise<Categoria[]> {
+    return q(db().from('orcamentista_categoria_catalogo').select('chave, rotulo, ordem'))
+}
+
 // ── Tabelas ────────────────────────────────────────────────────────────────────────────────
-export async function obterTabela(id: string): Promise<{ id: string; fornecedor_id: string; arquivo_path: string; motor_path: string } | null> {
-    const ts = await q(db().from('orcamentista_tabela').select('id, fornecedor_id, arquivo_path, motor_path').eq('id', id))
-    return (ts[0] as { id: string; fornecedor_id: string; arquivo_path: string; motor_path: string } | undefined) ?? null
+export async function obterTabela(id: string): Promise<{ id: string; fornecedor_id: string; arquivo_path: string; motor_path: string; categoria_chave: string | null } | null> {
+    const ts = await q(db().from('orcamentista_tabela').select('id, fornecedor_id, arquivo_path, motor_path, categoria_chave').eq('id', id))
+    return (ts[0] as { id: string; fornecedor_id: string; arquivo_path: string; motor_path: string; categoria_chave: string | null } | undefined) ?? null
 }
 
 /** Os dois arquivos da tabela — caminho no bucket e nome original —, para a importação. */
-export async function obterArquivosDaTabela(id: string): Promise<{ id: string; arquivo_path: string; arquivo_nome: string; motor_path: string; motor_nome: string } | null> {
-    const ts = await q(db().from('orcamentista_tabela').select('id, arquivo_path, arquivo_nome, motor_path, motor_nome').eq('id', id))
-    return (ts[0] as { id: string; arquivo_path: string; arquivo_nome: string; motor_path: string; motor_nome: string } | undefined) ?? null
+export async function obterArquivosDaTabela(id: string): Promise<{ id: string; arquivo_path: string; arquivo_nome: string; motor_path: string; motor_nome: string; categoria_chave: string | null } | null> {
+    const ts = await q(db().from('orcamentista_tabela').select('id, arquivo_path, arquivo_nome, motor_path, motor_nome, categoria_chave').eq('id', id))
+    return (ts[0] as { id: string; arquivo_path: string; arquivo_nome: string; motor_path: string; motor_nome: string; categoria_chave: string | null } | undefined) ?? null
 }
 
 /**
@@ -242,11 +250,16 @@ export async function importarConteudo(tabelaId: string, payload: unknown): Prom
 }
 
 /** A tabela, para a tela da importação: os nomes dos arquivos e o fornecedor. Sem os caminhos do bucket. */
-export async function obterDadosDaTabela(id: string): Promise<{ id: string; fornecedor_id: string; fornecedor_nome: string | null; arquivo_nome: string; motor_nome: string; vigencia: string | null } | null> {
-    const ts = await q(db().from('orcamentista_tabela').select('id, fornecedor_id, arquivo_nome, motor_nome, vigencia').eq('id', id))
+export async function obterDadosDaTabela(id: string): Promise<{ id: string; fornecedor_id: string; fornecedor_nome: string | null; arquivo_nome: string; motor_nome: string; vigencia: string | null; categoria_chave: string | null; categoria_rotulo: string | null } | null> {
+    const ts = await q(db().from('orcamentista_tabela').select('id, fornecedor_id, arquivo_nome, motor_nome, vigencia, categoria_chave').eq('id', id))
     if (ts.length === 0) return null
     const fs = await q(db().from('orcamentista_fornecedor').select('id, nome').eq('id', ts[0].fornecedor_id))
-    return { id: ts[0].id, fornecedor_id: ts[0].fornecedor_id, fornecedor_nome: fs[0]?.nome ?? null, arquivo_nome: ts[0].arquivo_nome, motor_nome: ts[0].motor_nome, vigencia: ts[0].vigencia ?? null }
+    const categoria_chave: string | null = ts[0].categoria_chave ?? null
+    const cs = categoria_chave ? await q(db().from('orcamentista_categoria_catalogo').select('rotulo').eq('chave', categoria_chave)) : []
+    return {
+        id: ts[0].id, fornecedor_id: ts[0].fornecedor_id, fornecedor_nome: fs[0]?.nome ?? null, arquivo_nome: ts[0].arquivo_nome, motor_nome: ts[0].motor_nome, vigencia: ts[0].vigencia ?? null,
+        categoria_chave, categoria_rotulo: cs[0]?.rotulo ?? null,
+    }
 }
 
 /**
@@ -260,6 +273,21 @@ export async function codigosDosItensGravados(tabelaId: string): Promise<string[
         const linhas = await q(db().from('orcamentista_tabela_item').select('codigo').eq('tabela_id', tabelaId).order('id').range(de, de + PAGINA - 1)) as Array<{ codigo: string }>
         codigos.push(...linhas.map((l) => l.codigo))
         if (linhas.length < PAGINA) return codigos
+    }
+}
+
+/**
+ * A categoria do fornecedor de CADA item gravado para a tabela (`COLUNA_DA_CATEGORIA_DO_FORNECEDOR`), `null` onde o
+ * arquivo não a trazia — paginada de mil em mil, pelo mesmo motivo de `codigosDosItensGravados`: cortar em mil
+ * esconderia justamente a categoria a mais que a recusa procura.
+ */
+export async function categoriasDoFornecedorDosItensGravados(tabelaId: string): Promise<Array<string | null>> {
+    const PAGINA = 1000
+    const valores: Array<string | null> = []
+    for (let de = 0; ; de += PAGINA) {
+        const linhas = await q(db().from('orcamentista_tabela_item').select(COLUNA_DA_CATEGORIA_DO_FORNECEDOR).eq('tabela_id', tabelaId).order('id').range(de, de + PAGINA - 1)) as Linha[]
+        valores.push(...linhas.map((l) => (l[COLUNA_DA_CATEGORIA_DO_FORNECEDOR] as string | null) ?? null))
+        if (linhas.length < PAGINA) return valores
     }
 }
 

@@ -54,7 +54,7 @@ const FORNECEDOR: FornecedorComTabelas = {
     id: 'f1', nome: 'Wolf Perfis', nicho_id: 'n1', nicho_nome: 'Esquadrias', modelo: 'FABRICACAO', tabelas: 1, contas_usando: [],
     tabelas_da_lista: [{
         id: 't1', fornecedor_id: 'f1', arquivo_nome: 'tabela-antiga.xlsx', arquivo_path: 'f1/arquivo/x-tabela-antiga.xlsx',
-        motor_nome: 'motor.xlsx', motor_path: 'f1/motor/x-motor.xlsx', vigencia: null, familia: null, vigente: false, criado_em: '2026-10-19T12:00:00Z', contas_usando: [],
+        motor_nome: 'motor.xlsx', motor_path: 'f1/motor/x-motor.xlsx', vigencia: null, familia: null, categoria_chave: null, vigente: false, criado_em: '2026-10-19T12:00:00Z', contas_usando: [],
     }],
 }
 
@@ -67,6 +67,7 @@ beforeEach(() => {
         [`GET ${ROTAS_DO_CATALOGO.fornecedor('f1')}`]: { status: 200, body: FORNECEDOR },
         [`GET ${ROTAS_DO_CATALOGO.nichos}`]: { status: 200, body: [{ id: 'n1', modelo: 'FABRICACAO', nome: 'Esquadrias', ativo: true }] },
         [`GET ${ROTAS_DO_CATALOGO.familias}`]: { status: 200, body: [{ chave: 'PVC', rotulo: 'PVC', ordem: 1 }] },
+        [`GET ${ROTAS_DO_CATALOGO.categorias}`]: { status: 200, body: [{ chave: 'PERFIL', rotulo: 'Perfil', ordem: 1 }] },
     }
     ;(globalThis as { fetch: unknown }).fetch = jest.fn(async (url: string, init?: { method?: string }) => {
         const chave = `${init?.method ?? 'GET'} ${url}`
@@ -114,6 +115,13 @@ async function escolherFamilia(chave: string) {
     await act(async () => { opcao!.click() })
     await assentar()
 }
+/** A categoria é obrigatória na tabela nova (27/10/2026): o teste a escolhe, como o usuário faria. */
+async function escolherCategoria(chave: string) {
+    const opcao = modal()!.querySelector(`input[data-categoria="${chave}"]`) as HTMLInputElement | null
+    expect(opcao).not.toBeNull()
+    await act(async () => { opcao!.click() })
+    await assentar()
+}
 /** Escolhe um arquivo como o diálogo do sistema faria — inclusive com "Todos os arquivos". */
 async function escolher(indice: 0 | 1, nome: string) {
     const input = modal()!.querySelectorAll('input[type=file]')[indice] as HTMLInputElement
@@ -144,7 +152,7 @@ describe('(1)(2) a regra que a ROTA aplica — a que vale', () => {
 describe('(3) a TELA recusa ao escolher, dentro do modal, com o nome e o motivo', () => {
     it('um `.docx` não entra, e o modal diz qual arquivo e por quê; um `.xlsm` entra', async () => {
         const salvos: unknown[] = []
-        await montar(<TabelaModal aberto familias={[]} titulo="Editar tabela" atual={{ arquivo_nome: 'tabela-antiga.xlsx', motor_nome: 'motor.xlsx', vigencia: null, familia: null }} onCancelar={() => {}} onSalvar={(t) => { salvos.push(t) }} />)
+        await montar(<TabelaModal aberto familias={[]} categorias={[]} titulo="Editar tabela" atual={{ arquivo_nome: 'tabela-antiga.xlsx', motor_nome: 'motor.xlsx', vigencia: null, familia: null, categoria_chave: null }} onCancelar={() => {}} onSalvar={(t) => { salvos.push(t) }} />)
 
         await escolher(0, 'proposta.docx')
         expect(modal()!.textContent).toContain(fraseDoArquivo('proposta.docx', MOTIVO_DO_FORMATO_RECUSADO))
@@ -203,6 +211,7 @@ describe('(4) o erro de salvar aparece DENTRO do modal, e o modal não fica pres
         await escolher(0, XLSM)
         await escolher(1, 'motor.xlsm')
         await escolherFamilia('PVC')
+        await escolherCategoria('PERFIL')
         await clicar(botao(modal()!, 'Salvar tabela'))
 
         expect(modal()).not.toBeNull()

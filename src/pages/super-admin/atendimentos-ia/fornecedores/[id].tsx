@@ -22,7 +22,7 @@ import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
 import { ROUTES } from '@/constants/routes'
 import { useAuth } from '@/hooks/use-auth.hook'
-import { ROTAS_DO_CATALOGO, ROTULO_DO_MODELO, TITULO_DA_TABELA_NAO_EXCLUIDA, fraseDoArquivo, type Familia, type FornecedorComTabelas, type Nicho, type TabelaDoFornecedor } from '@/utils/atendimentos-ia-catalogo'
+import { ROTAS_DO_CATALOGO, ROTULO_DO_MODELO, TITULO_DA_TABELA_NAO_EXCLUIDA, fraseDoArquivo, type Categoria, type Familia, type FornecedorComTabelas, type Nicho, type TabelaDoFornecedor } from '@/utils/atendimentos-ia-catalogo'
 import { chamarRota, enviarArquivo, gravarTabelaNova, type TabelaPendente } from '@/page-parts/atendimentos-ia/api'
 import { FornecedorModal, TITULO_FORNECEDOR_NAO_EXCLUIDO, TITULO_FORNECEDOR_NAO_SALVO, type DadosDoFornecedor, type ErroDoFornecedor } from '@/page-parts/atendimentos-ia/fornecedor-modal.component'
 import { TabelaModal } from '@/page-parts/atendimentos-ia/tabela-modal.component'
@@ -39,6 +39,7 @@ export default function TabelasDoFornecedor() {
     const [fornecedor, setFornecedor] = useState<FornecedorComTabelas | null>(null)
     const [nichos, setNichos] = useState<Nicho[]>([])
     const [familias, setFamilias] = useState<Familia[]>([])
+    const [categorias, setCategorias] = useState<Categoria[]>([])
     const [erro, setErro] = useState<string | null>(null)
     const [editandoFornecedor, setEditandoFornecedor] = useState(false)
     const [tabelaNova, setTabelaNova] = useState(false)
@@ -53,14 +54,16 @@ export default function TabelasDoFornecedor() {
     const carregar = useCallback(async () => {
         if (!id) return
         try {
-            const [f, ns, fams] = await Promise.all([
+            const [f, ns, fams, cats] = await Promise.all([
                 chamarRota<FornecedorComTabelas>(ROTAS_DO_CATALOGO.fornecedor(id)),
                 chamarRota<Nicho[]>(ROTAS_DO_CATALOGO.nichos),
                 chamarRota<Familia[]>(ROTAS_DO_CATALOGO.familias),
+                chamarRota<Categoria[]>(ROTAS_DO_CATALOGO.categorias),
             ])
             setFornecedor(f)
             setNichos(ns)
             setFamilias(fams)
+            setCategorias(cats)
             setErro(null)
         } catch (e) {
             setErro((e as Error).message)
@@ -136,6 +139,7 @@ export default function TabelasDoFornecedor() {
         try {
             const corpo: Record<string, string> = { vigencia: t.vigencia }
             if (t.familia) corpo.familia = t.familia
+            if (t.categoria) corpo.categoria_chave = t.categoria
             if (t.arquivo) { const a = await enviarArquivo(id, 'arquivo', t.arquivo); corpo.arquivo_path = a.path; corpo.arquivo_nome = a.nome }
             if (t.motor) { const m = await enviarArquivo(id, 'motor', t.motor); corpo.motor_path = m.path; corpo.motor_nome = m.nome }
             const r = await chamarRota<{ ok: true; aviso?: string }>(ROTAS_DO_CATALOGO.tabela(tabelaEmEdicao.id), 'PATCH', corpo)
@@ -227,6 +231,12 @@ export default function TabelasDoFornecedor() {
                                         ? familias.find((f) => f.chave === t.familia)?.rotulo ?? t.familia
                                         : <Typography.Text type="secondary" data-familia-nao-informada>não informada</Typography.Text>),
                                 },
+                                {
+                                    title: 'Categoria',
+                                    render: (_, t) => (t.categoria_chave
+                                        ? categorias.find((c) => c.chave === t.categoria_chave)?.rotulo ?? t.categoria_chave
+                                        : <Typography.Text type="secondary" data-categoria-nao-informada>não informada</Typography.Text>),
+                                },
                                 // a VIGENTE é a marca que decide o que levantamento novo usa (26/10/2026); a Vigência ao lado é só a nota do consultor
                                 {
                                     title: 'Vigente',
@@ -255,11 +265,12 @@ export default function TabelasDoFornecedor() {
                 </>
             )}
 
-            <TabelaModal aberto={tabelaNova} titulo="Nova tabela" familias={familias} salvando={salvando} erro={tabelaNova ? erroDaTabela : null} onCancelar={() => abrirTabelaNova(false)} onSalvar={salvarTabelaNova} />
+            <TabelaModal aberto={tabelaNova} titulo="Nova tabela" familias={familias} categorias={categorias} salvando={salvando} erro={tabelaNova ? erroDaTabela : null} onCancelar={() => abrirTabelaNova(false)} onSalvar={salvarTabelaNova} />
             <TabelaModal
                 aberto={!!tabelaEmEdicao}
                 titulo="Editar tabela"
                 familias={familias}
+                categorias={categorias}
                 atual={tabelaEmEdicao ?? undefined}
                 salvando={salvando}
                 erro={tabelaEmEdicao ? erroDaTabela : null}
@@ -271,6 +282,7 @@ export default function TabelasDoFornecedor() {
                 modo="editar"
                 nichos={nichos}
                 familias={familias}
+                categorias={categorias}
                 inicial={fornecedor ? { nome: fornecedor.nome, nicho_id: fornecedor.nicho_id } : undefined}
                 salvando={salvando}
                 erro={editandoFornecedor ? erroDoFornecedor : null}

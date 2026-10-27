@@ -134,6 +134,7 @@ function servir() {
         [`GET ${ROTAS_DO_CATALOGO.fornecedor('f1')}`]: { status: 200, body: FORNECEDOR },
         [`GET ${ROTAS_DO_CATALOGO.nichos}`]: { status: 200, body: [] },
         [`GET ${ROTAS_DO_CATALOGO.familias}`]: { status: 200, body: [{ chave: 'PVC', rotulo: 'PVC', ordem: 1 }] },
+        [`GET ${ROTAS_DO_CATALOGO.categorias}`]: { status: 200, body: [{ chave: 'PERFIL', rotulo: 'Perfil', ordem: 1 }] },
         [`PATCH ${ROTAS_DO_CATALOGO.tabela('t-2027')}`]: { status: 200, body: { ok: true } },
     }
     ;(globalThis as { fetch: unknown }).fetch = jest.fn(async (url: string, init?: { method?: string; body?: string }) => {

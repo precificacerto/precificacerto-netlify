@@ -32,7 +32,7 @@ import { quandoFoiImportado, textoDoAviso } from '@/utils/atendimentos-ia-import
 import { ErroDaRota, chamarRota } from '@/page-parts/atendimentos-ia/api'
 import { ESTILO_DA_DATA } from '@/page-parts/atendimentos-ia/linha-da-tabela.component'
 
-interface DadosDaTabela { id: string; fornecedor_id: string; fornecedor_nome: string | null; arquivo_nome: string; motor_nome: string; vigencia: string | null }
+interface DadosDaTabela { id: string; fornecedor_id: string; fornecedor_nome: string | null; arquivo_nome: string; motor_nome: string; vigencia: string | null; categoria_chave: string | null; categoria_rotulo: string | null }
 interface UltimaImportacao {
     importado_em: string
     importado_por_nome: string | null
@@ -165,6 +165,12 @@ export default function ImportacaoDaTabela() {
 
                     <Card size="small" title="Arquivos">
                         <Space direction="vertical" style={{ width: '100%' }}>
+                            <div data-categoria-da-tabela={tabela.categoria_chave ?? 'nao-informada'} style={{ display: 'flex', gap: 12, alignItems: 'baseline', flexWrap: 'wrap' }}>
+                                <Typography.Text type="secondary">Categoria da tabela</Typography.Text>
+                                {tabela.categoria_chave
+                                    ? <strong>{tabela.categoria_rotulo ?? tabela.categoria_chave}</strong>
+                                    : <Typography.Text type="secondary">não informada (tabela de antes da regra de uma categoria por tabela)</Typography.Text>}
+                            </div>
                             {arquivos.map((a) => {
                                 const importavel = arquivoImportavel(a.nome)
                                 return (

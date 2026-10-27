@@ -50,7 +50,7 @@ const FORNECEDOR: FornecedorComTabelas = {
     id: 'f1', nome: 'Wolf Perfis', nicho_id: 'n1', nicho_nome: 'Esquadrias', modelo: 'FABRICACAO', tabelas: 1, contas_usando: [],
     tabelas_da_lista: [{
         id: 't1', fornecedor_id: 'f1', arquivo_nome: 'tabela-antiga.xlsx', arquivo_path: 'f1/arquivo/x-tabela-antiga.xlsx',
-        motor_nome: 'motor.xlsx', motor_path: 'f1/motor/x-motor.xlsx', vigencia: null, familia: null, vigente: false, criado_em: '2026-10-19T12:00:00Z', contas_usando: ['Marcenaria Silva'],
+        motor_nome: 'motor.xlsx', motor_path: 'f1/motor/x-motor.xlsx', vigencia: null, familia: null, categoria_chave: null, vigente: false, criado_em: '2026-10-19T12:00:00Z', contas_usando: ['Marcenaria Silva'],
     }],
 }
 
@@ -63,6 +63,7 @@ beforeEach(() => {
         [`GET ${ROTAS_DO_CATALOGO.fornecedores}`]: { status: 200, body: [] },
         [`GET ${ROTAS_DO_CATALOGO.nichos}`]: { status: 200, body: [NICHO] },
         [`GET ${ROTAS_DO_CATALOGO.familias}`]: { status: 200, body: [{ chave: 'PVC', rotulo: 'PVC', ordem: 1 }] },
+        [`GET ${ROTAS_DO_CATALOGO.categorias}`]: { status: 200, body: [{ chave: 'PERFIL', rotulo: 'Perfil', ordem: 1 }] },
     }
     ;(globalThis as { fetch: unknown }).fetch = jest.fn(async (url: string, init?: { method?: string }) => {
         const chave = `${init?.method ?? 'GET'} ${url}`
@@ -119,6 +120,13 @@ async function confirmar(texto: string) {
 /** A família é obrigatória na tabela nova (26/10/2026): o teste a escolhe, como o usuário faria. */
 async function escolherFamilia(chave: string) {
     const opcao = modal()!.querySelector(`input[data-familia="${chave}"]`) as HTMLInputElement | null
+    expect(opcao).not.toBeNull()
+    await act(async () => { opcao!.click() })
+    await assentar()
+}
+/** A categoria é obrigatória na tabela nova (27/10/2026): o teste a escolhe, como o usuário faria. */
+async function escolherCategoria(chave: string) {
+    const opcao = modal()!.querySelector(`input[data-categoria="${chave}"]`) as HTMLInputElement | null
     expect(opcao).not.toBeNull()
     await act(async () => { opcao!.click() })
     await assentar()
@@ -189,6 +197,7 @@ describe('na página de UM fornecedor', () => {
         await escolher(0, XLSM)
         await escolher(1, 'motor.xlsm')
         await escolherFamilia('PVC')
+        await escolherCategoria('PERFIL')
         await clicar(botao(modal()!, 'Salvar tabela'))
 
         expect(pedidos).toContain(`POST ${ROTAS_DO_CATALOGO.tabelas}`)
@@ -237,6 +246,7 @@ describe('no credenciamento', () => {
         await escolher(0, XLSM)
         await escolher(1, 'motor.xlsm')
         await escolherFamilia('PVC')
+        await escolherCategoria('PERFIL')
         await clicar(botao(modal()!, 'Salvar tabela'))
         await clicar(botao(modal()!, 'Salvar credenciamento'))
 

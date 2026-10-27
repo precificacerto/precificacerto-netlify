@@ -26,7 +26,7 @@ import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
 import { ROUTES } from '@/constants/routes'
 import { useAuth } from '@/hooks/use-auth.hook'
-import { AVISO_DO_CATALOGO, ROTAS_DO_CATALOGO, ROTULO_DO_MODELO, type Familia, type FornecedorDaLista, type Modelo, type Nicho } from '@/utils/atendimentos-ia-catalogo'
+import { AVISO_DO_CATALOGO, ROTAS_DO_CATALOGO, ROTULO_DO_MODELO, type Categoria, type Familia, type FornecedorDaLista, type Modelo, type Nicho } from '@/utils/atendimentos-ia-catalogo'
 import { chamarRota, gravarTabelaNova } from '@/page-parts/atendimentos-ia/api'
 import { FornecedorModal, TITULO_FORNECEDOR_NAO_CREDENCIADO, type DadosDoFornecedor, type ErroDoFornecedor } from '@/page-parts/atendimentos-ia/fornecedor-modal.component'
 import { NichosCard } from '@/page-parts/atendimentos-ia/nichos.component'
@@ -41,6 +41,7 @@ export default function FornecedoresETabelas() {
     const [fornecedores, setFornecedores] = useState<FornecedorDaLista[] | null>(null)
     const [nichos, setNichos] = useState<Nicho[]>([])
     const [familias, setFamilias] = useState<Familia[]>([])
+    const [categorias, setCategorias] = useState<Categoria[]>([])
     const [erro, setErro] = useState<string | null>(null)
     const [credenciando, setCredenciando] = useState(false)
     const [salvando, setSalvando] = useState(false)
@@ -49,14 +50,16 @@ export default function FornecedoresETabelas() {
 
     const carregar = useCallback(async () => {
         try {
-            const [fs, ns, fams] = await Promise.all([
+            const [fs, ns, fams, cats] = await Promise.all([
                 chamarRota<FornecedorDaLista[]>(ROTAS_DO_CATALOGO.fornecedores),
                 chamarRota<Nicho[]>(ROTAS_DO_CATALOGO.nichos),
                 chamarRota<Familia[]>(ROTAS_DO_CATALOGO.familias),
+                chamarRota<Categoria[]>(ROTAS_DO_CATALOGO.categorias),
             ])
             setFornecedores(fs)
             setNichos(ns)
             setFamilias(fams)
+            setCategorias(cats)
             setErro(null)
         } catch (e) {
             setErro((e as Error).message)
@@ -191,6 +194,7 @@ export default function FornecedoresETabelas() {
                 modo="credenciar"
                 nichos={nichos}
                 familias={familias}
+                categorias={categorias}
                 salvando={salvando}
                 erro={credenciando ? erroAoCredenciar : null}
                 onCancelar={() => abrirCredenciamento(false)}

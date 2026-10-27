@@ -49,7 +49,7 @@ import { abasDoSpec } from './fixtures/abas-do-motor-do-spec'
 import { ABAS_DO_MOTOR } from '@/utils/atendimentos-ia-abas-do-motor'
 
 const T = '22222222-2222-4222-8222-222222222222'
-const TABELA = { id: T, arquivo_path: 'f/arquivo/x-Tabela Wolff.xlsm', arquivo_nome: 'Tabela Wolff.xlsm', motor_path: 'f/motor/x-Motor.xlsx', motor_nome: 'Motor.xlsx' }
+const TABELA = { id: T, arquivo_path: 'f/arquivo/x-Tabela Wolff.xlsm', arquivo_nome: 'Tabela Wolff.xlsm', motor_path: 'f/motor/x-Motor.xlsx', motor_nome: 'Motor.xlsx', categoria_chave: null as string | null }
 
 const ordem: string[] = []
 const objetos: Record<string, Uint8Array> = {}
@@ -412,6 +412,94 @@ describe('A TRAVA DOS ITENS QUE O ARQUIVO NÃO TRAZ — a importação apagaria 
         expect(f).not.toContain('V11')
         expect(f).toContain('e mais 14')
         expect(f).toContain('Nada foi alterado')
+    })
+})
+
+describe('UMA TABELA, UMA CATEGORIA DO FORNECEDOR — o arquivo com mais de uma é recusado, nomeando as que achou (27/10/2026)', () => {
+    /** A tabela de preço com um item por valor, cada um na coluna da categoria do fornecedor (a 11). */
+    async function comCategorias(valores: Array<string | null>) {
+        const linhas: Array<Record<number, ExcelJS.CellValue>> = [{ 1: 'LAMINADOS' }, { 2: 'CÓDIGO', 13: 'VALOR METRO 18%', 15: 'VALOR BARRA 18%' }]
+        valores.forEach((v, i) => linhas.push({ 2: `C${i + 1}`, ...(v === null ? {} : { 11: v }), 13: 10 + i }))
+        objetos[TABELA.arquivo_path] = await planilha({ 'Tabela Wolff': linhas })
+    }
+    const declarada = (chave: string | null) => repo.obterArquivosDaTabela.mockImplementation(async () => { ordem.push('obterArquivosDaTabela'); return { ...TABELA, categoria_chave: chave } })
+
+    it('tabela que DECLARA a categoria + arquivo com 3 categorias do fornecedor → 422 nomeando as 3 com a contagem, e NADA é gravado nem conferido', async () => {
+        declarada('PERFIL')
+        await comCategorias(['Perfil PVC', 'Perfil PVC', 'Reforço', 'Acessórios'])
+        const r = await chamar('POST')
+        expect(r.status).toBe(422)
+        expect(r.json.error).toContain('Tabela Wolff.xlsm')
+        expect(r.json.error).toContain('3 categorias do fornecedor')
+        expect(r.json.error).toContain('Perfil PVC (2)')
+        expect(r.json.error).toContain('Reforço (1)')
+        expect(r.json.error).toContain('Acessórios (1)')
+        expect(r.json.error).toContain('Nada foi alterado.')
+        expect(repo.importarConteudo).not.toHaveBeenCalled()
+        expect(ordem).not.toContain('codigosDosItensGravados')
+    })
+
+    it('tabela que declara + arquivo de UMA categoria só → 200, e o aviso de "sem categoria declarada" NÃO aparece', async () => {
+        declarada('VIDRO')
+        await comCategorias(['Vidro', 'Vidro', 'Vidro'])
+        const r = await chamar('POST')
+        expect(r.status).toBe(200)
+        expect(repo.importarConteudo.mock.calls[0][1].itens.map((i: any) => i[COLUNA_DA_CATEGORIA_DO_FORNECEDOR])).toEqual(['Vidro', 'Vidro', 'Vidro'])
+        expect(r.json.avisos.map((a: any) => a.tipo)).not.toContain('tabela_sem_categoria_declarada')
+        expect(r.json.avisos.map((a: any) => a.tipo)).not.toContain('itens_sem_categoria_do_fornecedor')
+    })
+
+    it('a mesma categoria em duas grafias ("Acessórios" e "acessórios", com espaço de sobra) é UMA categoria só', async () => {
+        declarada('ACESSORIOS_VEDACAO')
+        await comCategorias(['Acessórios', 'acessórios', ' Acessórios  '])
+        expect((await chamar('POST')).status).toBe(200)
+        expect(repo.importarConteudo).toHaveBeenCalledTimes(1)
+    })
+
+    it('item SEM a categoria do fornecedor não é somado a nenhuma: grava assim e AVISA quantos', async () => {
+        declarada('VIDRO')
+        await comCategorias(['Vidro', null, 'Vidro'])
+        const r = await chamar('POST')
+        expect(r.status).toBe(200)
+        expect(repo.importarConteudo.mock.calls[0][1].itens.map((i: any) => i[COLUNA_DA_CATEGORIA_DO_FORNECEDOR])).toEqual(['Vidro', null, 'Vidro'])
+        const aviso = r.json.avisos.find((a: any) => a.tipo === 'itens_sem_categoria_do_fornecedor')
+        expect(aviso).toEqual(expect.objectContaining({ itens: 1 }))
+        expect(aviso.mensagem).toContain('1 item do arquivo não traz a categoria do fornecedor')
+    })
+
+    it('só itens SEM categoria + uma com: continua UMA categoria (o branco não é categoria)', async () => {
+        declarada('VIDRO')
+        await comCategorias([null, null, 'Vidro'])
+        expect((await chamar('POST')).status).toBe(200)
+    })
+
+    it('tabela de ANTES, sem categoria declarada (a Wolff, 4 categorias): NÃO é recusada — importa como sempre, e o aviso diz que a regra não foi aplicada', async () => {
+        declarada(null)
+        await comCategorias(['Perfil PVC', 'Reforço', 'Acessórios', 'acessórios', null])
+        const r = await chamar('POST')
+        expect(r.status).toBe(200)
+        expect(repo.importarConteudo).toHaveBeenCalledTimes(1)
+        expect(repo.importarConteudo.mock.calls[0][1].itens).toHaveLength(5)
+        const tipos = r.json.avisos.map((a: any) => a.tipo)
+        expect(tipos).toContain('tabela_sem_categoria_declarada')
+        expect(tipos).toContain('itens_sem_categoria_do_fornecedor')
+        // o aviso vai no payload, e fica gravado com a importação
+        expect(repo.importarConteudo.mock.calls[0][1].avisos.map((a: any) => a.tipo)).toContain('tabela_sem_categoria_declarada')
+    })
+
+    it('FALHA FECHADA: se a leitura da tabela não trouxe a coluna da categoria (undefined), um arquivo com 2 categorias é RECUSADO — nunca tratado como tabela de antes', async () => {
+        repo.obterArquivosDaTabela.mockImplementation(async () => { ordem.push('obterArquivosDaTabela'); return { ...TABELA, categoria_chave: undefined } })
+        await comCategorias(['A', 'B'])
+        expect((await chamar('POST')).status).toBe(422)
+        expect(repo.importarConteudo).not.toHaveBeenCalled()
+    })
+
+    it('a recusa vem DEPOIS de ler e ANTES de conferir/gravar: o arquivo é baixado, e nada mais acontece', async () => {
+        declarada('PERFIL')
+        await comCategorias(['A', 'B'])
+        await chamar('POST')
+        expect(ordem).toEqual(expect.arrayContaining(['obterArquivosDaTabela', 'objetoExiste', 'baixarObjeto']))
+        expect(ordem).not.toContain('importarConteudo')
     })
 })
 
