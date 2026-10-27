@@ -45,10 +45,11 @@ const CATEGORIAS = [
     { chave: 'FERRAGENS', ordem: 3, rotulo: 'Ferragens' }, { chave: 'ACESSORIOS_VEDACAO', ordem: 4, rotulo: 'Acessórios e vedação' }, { chave: 'INSTALACAO', ordem: 6, rotulo: 'Instalação' },
 ]
 /** A PVC declara todas, mas o VIDRO vem ANTES do PERFIL — a ordem é da família, não a do catálogo. O alumínio não tem reforço. */
+// na resposta as linhas chegam FORA de ordem (a ordem é o campo `ordem`): a tela não pode confiar na posição
 const RAMIFICACOES = [
-    { familia: 'PVC', categoria_chave: 'VIDRO', ordem: 1 }, { familia: 'PVC', categoria_chave: 'PERFIL', ordem: 2 }, { familia: 'PVC', categoria_chave: 'REFORCO', ordem: 3 },
-    { familia: 'PVC', categoria_chave: 'FERRAGENS', ordem: 4 }, { familia: 'PVC', categoria_chave: 'ACESSORIOS_VEDACAO', ordem: 5 }, { familia: 'PVC', categoria_chave: 'INSTALACAO', ordem: 6 },
-    { familia: 'ALUMINIO', categoria_chave: 'PERFIL', ordem: 1 }, { familia: 'ALUMINIO', categoria_chave: 'VIDRO', ordem: 2 },
+    { familia: 'PVC', categoria_chave: 'INSTALACAO', ordem: 6 }, { familia: 'ALUMINIO', categoria_chave: 'VIDRO', ordem: 2 }, { familia: 'PVC', categoria_chave: 'PERFIL', ordem: 2 },
+    { familia: 'PVC', categoria_chave: 'ACESSORIOS_VEDACAO', ordem: 5 }, { familia: 'PVC', categoria_chave: 'REFORCO', ordem: 3 }, { familia: 'ALUMINIO', categoria_chave: 'PERFIL', ordem: 1 },
+    { familia: 'PVC', categoria_chave: 'FERRAGENS', ordem: 4 }, { familia: 'PVC', categoria_chave: 'VIDRO', ordem: 1 },
 ]
 const FAMILIAS = [{ chave: 'PVC', rotulo: 'PVC', ordem: 1 }, { chave: 'ALUMINIO', rotulo: 'Alumínio', ordem: 2 }, { chave: 'PORTAS', rotulo: 'Portas de ACM', ordem: 3 }]
 

@@ -687,6 +687,14 @@ describe('(7) PUT /familia-da-materia-prima — a família escolhe as ramificaç
         nenhumaEscrita()
     })
 
+    it('família ausente: o erro é nomeado — "obrigatório", que não é o de "texto da lista" — e null LIMPA sem erro', async () => {
+        const r = await put({ materia_prima: MP_PVC })
+        expect(r.json.erros).toEqual([{ campo: 'familia', mensagem: 'obrigatório: a família da lista, ou null para limpar' }])
+        const ruim = await put({ materia_prima: MP_PVC, familia: 3 })
+        expect(ruim.json.erros).toEqual([{ campo: 'familia', mensagem: 'a família é um texto da lista, ou null para limpar' }])
+        expect((await put({ materia_prima: MP_PVC, familia: null })).status).toBe(200)
+    })
+
     it.each([
         ['22023', 400, 'a empresa ja tem outra materia-prima nesta familia: e uma por familia'],
         ['P0002', 404, 'materia-prima inexistente nesta empresa'],
