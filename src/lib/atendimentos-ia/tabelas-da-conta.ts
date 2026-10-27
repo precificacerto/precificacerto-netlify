@@ -141,6 +141,14 @@ export async function derivarTabelasDaConta(tenantId: string): Promise<Derivacao
     return { tabelas, fornecedoresSemTabela, paresSemVigente }
 }
 
+/** A tabela é DESTA conta — o fornecedor dela é vinculado na base de conhecimento? Sem contar tipologias. */
+export async function contaTemATabela(tenantId: string, tabelaId: string): Promise<boolean> {
+    const vinculos = await vinculosDaConta(tenantId)
+    if (vinculos.size === 0) return false
+    const ts = await ler('orcamentista_tabela', db().from('orcamentista_tabela').select('id, fornecedor_id').eq('id', tabelaId))
+    return ts.length > 0 && vinculos.has(String(ts[0].fornecedor_id))
+}
+
 /**
  * fornecedor → os tenants cuja base de conhecimento o vincula. É o USO derivado: a tabela de um fornecedor
  * vinculado é tabela daquela conta, e a rota da tabela recusa apagá-la.
