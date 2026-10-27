@@ -13,13 +13,15 @@ MUTACOES = [
     ("M03 FK da etapa em cascata", "(id, familia) ON DELETE RESTRICT;\n  END IF;\nEND\n$fk_etapa$;", "(id, familia) ON DELETE CASCADE;\n  END IF;\nEND\n$fk_etapa$;"),
     ("M04 sem a chave única (id, familia)", "ALTER TABLE public.orcamentista_motor ADD CONSTRAINT orcamentista_motor_id_familia_key UNIQUE (id, familia);", "SELECT 1;"),
     ("M05 item sem a FK da família", "      FOREIGN KEY (familia) REFERENCES public.orcamentista_familia_catalogo (chave) ON DELETE RESTRICT;", "      CHECK (true);"),
-    ("M06 item sem a FK composta com o motor", "      FOREIGN KEY (motor_id, familia) REFERENCES public.orcamentista_motor (id, familia) ON DELETE RESTRICT;\n  END IF;\nEND\n$fk_item$;", "      CHECK (true);\n  END IF;\nEND\n$fk_item$;"),
+    ("M06 item sem a FK composta com o motor", "      FOREIGN KEY (motor_id, familia) REFERENCES public.orcamentista_motor (id, familia) ON DELETE RESTRICT;\n  END IF;\n  IF NOT EXISTS", "      CHECK (true);\n  END IF;\n  IF NOT EXISTS"),
     ("M07 família do item obrigatória (NOT NULL)", "ADD COLUMN IF NOT EXISTS familia text;", "ADD COLUMN IF NOT EXISTS familia text NOT NULL DEFAULT 'PVC';"),
     ("M08 índice da vigente segue sem a categoria", "(fornecedor_id, familia, categoria_chave) NULLS NOT DISTINCT WHERE vigente;\n  END IF;", "(fornecedor_id, familia) NULLS NOT DISTINCT WHERE vigente;\n  END IF;"),
     ("M09 índice da vigente com nulos distintos", "ON public.orcamentista_tabela (fornecedor_id, familia, categoria_chave) NULLS NOT DISTINCT WHERE vigente;\n  END IF;", "ON public.orcamentista_tabela (fornecedor_id, familia, categoria_chave) WHERE vigente;\n  END IF;"),
     ("M10 índice da vigente sem WHERE", "ON public.orcamentista_tabela (fornecedor_id, familia, categoria_chave) NULLS NOT DISTINCT WHERE vigente;\n  END IF;", "ON public.orcamentista_tabela (fornecedor_id, familia, categoria_chave) NULLS NOT DISTINCT;\n  END IF;"),
     ("M11 mexe no índice da vigente do motor", "NOTIFY pgrst, 'reload schema';\n\nCOMMIT;", "DROP INDEX public.orcamentista_motor_uma_vigente;\nNOTIFY pgrst, 'reload schema';\n\nCOMMIT;"),
     ("M12 apaga dado (UPDATE de família nos itens)", "NOTIFY pgrst, 'reload schema';\n\nCOMMIT;", "UPDATE public.orcamentista_levantamento_item SET familia = 'PVC';\nNOTIFY pgrst, 'reload schema';\n\nCOMMIT;"),
+    ("M14 sem o CHECK (só a FK composta MATCH SIMPLE: o buraco do achado)", "      CHECK (motor_id IS NULL OR familia IS NOT NULL);\n  END IF;\nEND\n$fk_item$;", "      CHECK (true);\n  END IF;\nEND\n$fk_item$;"),
+    ("M15 MATCH FULL no lugar do CHECK (a correção proposta no pedido)", "ADD CONSTRAINT orcamentista_levantamento_item_motor_familia_fkey\n      FOREIGN KEY (motor_id, familia) REFERENCES public.orcamentista_motor (id, familia) ON DELETE RESTRICT;", "ADD CONSTRAINT orcamentista_levantamento_item_motor_familia_fkey\n      FOREIGN KEY (motor_id, familia) REFERENCES public.orcamentista_motor (id, familia) MATCH FULL ON DELETE RESTRICT;"),
     ("M13 coluna da etapa NOT NULL", "ALTER TABLE public.orcamentista_familia_etapa ADD COLUMN IF NOT EXISTS motor_id uuid;", "ALTER TABLE public.orcamentista_familia_etapa ADD COLUMN IF NOT EXISTS motor_id uuid NOT NULL DEFAULT gen_random_uuid();"),
 ]
 
@@ -49,6 +51,8 @@ vivas2 = []
 c2 = rodar(sem_verifica(ORIGINAL))
 print(f"CONTROLE sem verificação: {'passa' if c2 == 0 else 'FALHOU exit ' + str(c2)}")
 for nome, de, para in MUTACOES:
+    if ORIGINAL.count(de) != 1:
+        print(f"{nome}: TRECHO NAO ACHADO — a mutação não se aplica"); vivas2.append(nome); continue
     r = rodar(sem_verifica(ORIGINAL.replace(de, para)))
     print(f"{nome} {'MORTA pelos casos' if r == 1 else ('abortou na base' if r == 2 else 'SOBREVIVEU')} (exit {r})")
     if r == 0: vivas2.append(nome)

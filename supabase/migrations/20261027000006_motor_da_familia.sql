@@ -27,8 +27,12 @@
 --      apontar o motor, ela impede que a etapa de uma família aponte o motor de OUTRA. Para isso o motor
 --      ganha a chave única (id, familia), que o `id` sozinho já garante — não restringe nada.
 --   C. `orcamentista_levantamento_item.familia` (FK para o catálogo das famílias, RESTRICT): de que família
---      é cada item do apanhado multi-família. Nula nos itens de antes: não se deduz, não se grava. A FK
---      composta (motor_id, familia) -> orcamentista_motor (id, familia) faz o item concordar com o motor.
+--      é cada item do apanhado multi-família. Nula nos itens de antes: não se deduz, não se grava. Duas travas
+--      fazem o item concordar com o motor: a FK composta (motor_id, familia) -> orcamentista_motor (id, familia)
+--      e um CHECK "motor_id preenchido exige familia preenchida". O CHECK é necessário: a FK composta é MATCH
+--      SIMPLE (o padrão), que dá a restrição por satisfeita se QUALQUER coluna for nula, e sem o CHECK um item com
+--      motor e família nula passaria sem checagem (achado do dono do produto, 27/10/2026). MATCH FULL não serve:
+--      recusaria o item com família e SEM motor, que é o caso normal (a família vem antes do motor).
 --   D. `orcamentista_tabela_uma_vigente` passa de (fornecedor_id, familia) para (fornecedor_id, familia,
 --      categoria_chave), NULLS NOT DISTINCT: Perfil, Reforço e Acessórios da Wolff podem ser vigentes ao
 --      mesmo tempo (uma por categoria). É AFROUXAR: todo conjunto de linhas que passava no índice antigo
@@ -46,7 +50,7 @@
 --
 -- IDEMPOTENTE: DROP NOT NULL, ADD COLUMN IF NOT EXISTS, constraints só se ausentes, o índice só se a definição
 -- difere da nova.
--- VERIFICAÇÃO (aborta): a nulabilidade, a chave única, as quatro FKs com a definição, a coluna do item e a
+-- VERIFICAÇÃO (aborta): a nulabilidade, a chave única, as FKs e o CHECK com a definição, a coluna do item e a
 -- definição do índice.
 -- ════════════════════════════════════════════════════════════════════════════════════════
 BEGIN;
@@ -117,10 +121,15 @@ BEGIN
       ADD CONSTRAINT orcamentista_levantamento_item_motor_familia_fkey
       FOREIGN KEY (motor_id, familia) REFERENCES public.orcamentista_motor (id, familia) ON DELETE RESTRICT;
   END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'public.orcamentista_levantamento_item'::regclass AND conname = 'orcamentista_levantamento_item_motor_exige_familia') THEN
+    ALTER TABLE public.orcamentista_levantamento_item
+      ADD CONSTRAINT orcamentista_levantamento_item_motor_exige_familia
+      CHECK (motor_id IS NULL OR familia IS NOT NULL);
+  END IF;
 END
 $fk_item$;
 COMMENT ON COLUMN public.orcamentista_levantamento_item.familia IS
-  'A familia do item do apanhado (multi-familia): e ela que decide o motor do item. Nula nos itens de antes de 27/10/2026. Com motor_id preenchido, tem de ser a familia desse motor.';
+  'A familia do item do apanhado (multi-familia): e ela que decide o motor do item. Nula nos itens de antes de 27/10/2026. Com motor_id preenchido ela e obrigatoria (CHECK) e tem de ser a familia desse motor (FK composta); sem motor pode ser preenchida.';
 
 -- ── D. uma vigente por (fornecedor, família, CATEGORIA) ────────────────────────────────────
 DO $indice$
@@ -176,6 +185,11 @@ BEGIN
   IF def IS DISTINCT FROM 'FOREIGN KEY (motor_id, familia) REFERENCES orcamentista_motor(id, familia) ON DELETE RESTRICT' THEN
     RAISE EXCEPTION 'verificacao 4c: FK orcamentista_levantamento_item_motor_familia_fkey ausente ou com outra definicao: %. Nada foi alterado.', coalesce(def, '(ausente)');
   END IF;
+  SELECT pg_get_constraintdef(oid) INTO def FROM pg_constraint
+   WHERE conrelid = 'public.orcamentista_levantamento_item'::regclass AND conname = 'orcamentista_levantamento_item_motor_exige_familia';
+  IF def IS DISTINCT FROM 'CHECK (((motor_id IS NULL) OR (familia IS NOT NULL)))' THEN
+    RAISE EXCEPTION 'verificacao 4d: CHECK orcamentista_levantamento_item_motor_exige_familia ausente ou com outra definicao: %. Nada foi alterado.', coalesce(def, '(ausente)');
+  END IF;
   -- (5) o índice da vigente, com a categoria
   SELECT indexdef INTO def FROM pg_indexes WHERE schemaname = 'public' AND indexname = 'orcamentista_tabela_uma_vigente';
   IF def IS DISTINCT FROM 'CREATE UNIQUE INDEX orcamentista_tabela_uma_vigente ON public.orcamentista_tabela USING btree (fornecedor_id, familia, categoria_chave) NULLS NOT DISTINCT WHERE vigente' THEN
@@ -196,6 +210,6 @@ COMMIT;
 
 -- ── VERIFICAÇÃO DEPOIS DE APLICAR, por consulta ao banco (não pelo retorno do comando) ──────
 -- select column_name, is_nullable from information_schema.columns where table_name='orcamentista_motor' and column_name='fornecedor_id';  -- YES
--- select conname, pg_get_constraintdef(oid) from pg_constraint where conname in ('orcamentista_motor_id_familia_key','orcamentista_familia_etapa_motor_fkey','orcamentista_levantamento_item_familia_fkey','orcamentista_levantamento_item_motor_familia_fkey');
+-- select conname, pg_get_constraintdef(oid) from pg_constraint where conname in ('orcamentista_motor_id_familia_key','orcamentista_familia_etapa_motor_fkey','orcamentista_levantamento_item_familia_fkey','orcamentista_levantamento_item_motor_familia_fkey','orcamentista_levantamento_item_motor_exige_familia');
 -- select indexdef from pg_indexes where indexname='orcamentista_tabela_uma_vigente';
 -- select count(*) filter (where familia is not null) from public.orcamentista_levantamento_item;   -- esperado: 0 (os 4 de hoje, sem família)

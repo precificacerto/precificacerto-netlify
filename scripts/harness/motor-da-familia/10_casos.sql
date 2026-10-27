@@ -132,13 +132,13 @@ begin
   raise notice 'ok: caso 8 — apanhado com PVC e ALUMINIO no mesmo levantamento; família fora da lista é recusada';
 end $$;
 
--- CASO 9 — o item concorda com o motor: mesma família passa; outra é recusada; motor sem família (item de antes) passa
+-- CASO 9 — o item concorda com o motor: mesma família passa; outra é recusada (o item sem família e com motor é o caso 16)
 do $$
 declare cod text; msg text;
 begin
   begin
-    update public.orcamentista_levantamento_item set motor_id = '9a233c55-f377-45d3-b2ae-b1a740a98e44' where levantamento_id = '02db9513-7eda-43f0-852d-df940e781bef' and ordem = 1;
     update public.orcamentista_levantamento_item set familia = 'PVC' where levantamento_id = '02db9513-7eda-43f0-852d-df940e781bef' and ordem = 1;
+    update public.orcamentista_levantamento_item set motor_id = '9a233c55-f377-45d3-b2ae-b1a740a98e44' where levantamento_id = '02db9513-7eda-43f0-852d-df940e781bef' and ordem = 1;
     begin
       update public.orcamentista_levantamento_item set familia = 'ALUMINIO' where levantamento_id = '02db9513-7eda-43f0-852d-df940e781bef' and ordem = 1;
       raise exception 'FALHOU caso 9: item de ALUMINIO com motor de PVC foi gravado';
@@ -150,13 +150,7 @@ begin
     raise exception 'desfazer' using errcode = 'P0099';
   exception when sqlstate 'P0099' then null;
   end;
-  begin
-    -- item de antes: motor e família nula
-    update public.orcamentista_levantamento_item set motor_id = '9a233c55-f377-45d3-b2ae-b1a740a98e44' where levantamento_id = 'b0465e57-a829-4f81-9f3e-9ba7d00a999f' and ordem = 1;
-    raise exception 'desfazer' using errcode = 'P0099';
-  exception when sqlstate 'P0099' then null;
-  end;
-  raise notice 'ok: caso 9 — item concorda com o motor; ALUMINIO com motor de PVC é recusado; item de antes (família nula) passa';
+  raise notice 'ok: caso 9 — item com família PVC e motor de PVC passa; trocar a família para ALUMINIO com o motor de PVC é recusado (23503)';
 end $$;
 
 -- CASO 10 — o contraste: o índice de ANTES era por (fornecedor, família); o de agora tem a categoria
@@ -242,4 +236,31 @@ begin
   select indexdef into def from pg_indexes where indexname = 'orcamentista_motor_uma_vigente';
   if def is distinct from 'CREATE UNIQUE INDEX orcamentista_motor_uma_vigente ON public.orcamentista_motor USING btree (familia, fornecedor_id) WHERE vigente' then raise exception 'FALHOU caso 15: %', def; end if;
   raise notice 'ok: caso 15 — o índice da vigente do motor segue como estava';
+end $$;
+
+-- CASO 16 — o achado do dono do produto (27/10/2026): item com motor e FAMÍLIA NULA é recusado (a FK composta, MATCH SIMPLE, deixaria passar)
+do $$
+declare cod text; msg text;
+begin
+  begin
+    update public.orcamentista_levantamento_item set motor_id = '9a233c55-f377-45d3-b2ae-b1a740a98e44' where levantamento_id = '02db9513-7eda-43f0-852d-df940e781bef' and ordem = 1;
+    raise exception 'FALHOU caso 16: item com motor e familia nula foi gravado';
+  exception when others then
+    get stacked diagnostics msg = message_text, cod = returned_sqlstate;
+    if msg like 'FALHOU%' then raise; end if;
+    if cod <> '23514' or msg not like '%orcamentista_levantamento_item_motor_exige_familia%' then raise exception 'FALHOU caso 16: % / %', cod, msg; end if;
+  end;
+  raise notice 'ok: caso 16 — item com motor e família nula é recusado (23514)';
+end $$;
+
+-- CASO 17 — e o item COM família e SEM motor (o caso normal: a família vem antes do motor) continua passando
+do $$
+begin
+  begin
+    update public.orcamentista_levantamento_item set familia = 'PVC' where levantamento_id = '02db9513-7eda-43f0-852d-df940e781bef' and ordem = 1;
+    if (select motor_id from public.orcamentista_levantamento_item where levantamento_id = '02db9513-7eda-43f0-852d-df940e781bef' and ordem = 1) is not null then raise exception 'FALHOU caso 17: motor_id apareceu'; end if;
+    raise exception 'desfazer' using errcode = 'P0099';
+  exception when sqlstate 'P0099' then null;
+  end;
+  raise notice 'ok: caso 17 — item com família e sem motor passa';
 end $$;

@@ -83,6 +83,34 @@ uma planilha o referencia (`caminhosDaPlanilha`).
 - **REFORCO e ACESSORIOS_VEDACAO da De Paula não têm fornecedor vinculado** (medido em 27/10/2026): com a regra do
   principal, o preço delas não tem de onde vir até alguém vincular.
 
+## O motor é da família — decisão de 27/10/2026 (corrige a de ontem) e as DÍVIDAS com data
+
+Alinhamento com o dono do produto: o motor **não** é do par família + fornecedor de perfil. "Dentro das famílias, o
+motor é mais importante dentro da família do que os fornecedores. A família definida aciona o motor, e o motor faz a
+busca através das tipologias dos perfis ou dos materiais lá dentro dos fornecedores." Cada **etapa** da família aponta
+o seu motor (`orcamentista_familia_etapa.motor_id`); o apanhado é multi-família, e cada item diz a sua
+(`orcamentista_levantamento_item.familia`). A estrutura é a migração `20261027000006` (proposta; **só vale depois de
+aplicada e conferida**). O item com `motor_id` exige `familia` por **CHECK**: a FK composta é `MATCH SIMPLE` e dá a
+restrição por satisfeita se uma coluna for nula; `MATCH FULL` não serve (recusa o item com família e sem motor).
+
+**Dívidas registradas em 27/10/2026:**
+1. **`orcamentista_motor.vigente` fica por ora e sai quando os leitores trocarem** (PR D, com `motor_id` das etapas
+   povoado). O que sai: a coluna, o índice `orcamentista_motor_uma_vigente`, o CHECK
+   `orcamentista_motor_arquivado_nao_e_vigente`, a escrita em `superadmin_arquivar_motor`, 3 arquivos de código
+   (`motor-da-conta.ts`, `motor-da-conta.component.tsx`, `atendimentos-ia-motor.ts`) e 4 de teste. **Até lá, a etapa
+   vence**, e **arquivar planilha que uma etapa aponta é recusado** — isto último **ainda não está implementado**: a
+   função de arquivar de hoje não sabe das etapas.
+2. **`superadmin_gravar_etapas_da_familia` recusa `motor_id`** (lista fechada): hoje ninguém aponta o motor de uma
+   etapa pela tela. Muda junto com o código.
+3. **A conta só enxerga planilha de fornecedor que ela vincula** (`motor-da-conta.ts`): planilha sem fornecedor
+   (permitida pela `20261027000006`) não aparece para conta nenhuma.
+4. **`tabelas-da-conta.ts` e `tabelaVigenteDoPar` assumem uma vigente por (fornecedor, família)**; com o índice por
+   categoria podem existir várias.
+
+**Em aberto, sem resposta (27/10/2026):** a redução por tipologia vale para qualquer fornecedor de PVC? Não se sabe:
+só há um fornecedor de PVC em produção, e as constantes de geometria (119 das 137 fórmulas de família) estão
+indexadas por LINHA (EUROPA 42/60, DESIGN), que são linhas da Wolff.
+
 ## O corolário aplicável ANTES do defeito existir
 
 Antes de tirar uma tabela de fornecedor de circulação — arquivar, substituir o arquivo, apagar —, pergunte **o que
