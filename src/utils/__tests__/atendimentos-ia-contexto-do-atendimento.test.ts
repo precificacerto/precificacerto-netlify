@@ -101,6 +101,7 @@ describe('(1) o filtro da fala: número em qualquer forma derruba; o resto passa
     it.each([
         ['R$ 1.000', 'Ficou em R$ 1.000, tudo certo.'],
         ['R$ sem espaço', 'Ficou em R$1000.'],
+        ['só o símbolo, sem algarismo', 'Fica em R$ — confere?'],
         ['reais', 'Fica em mil reais.'],
         ['real no singular', 'Custa um real a mais.'],
         ['dígito solto', 'São 3 janelas, certo?'],
@@ -146,6 +147,8 @@ describe('(2) o filtro de DINHEIRO do texto que a IA reformula numa pergunta', (
         ['São mil reais. Qual é a tipologia?'],
         ['Fica em quinhentos; qual vidro?'],
         ['Sai por dois conto, qual é?'],
+        ['Fica em dois mil. Qual vidro?'],
+        ['FICA EM QUINHENTOS. QUAL É?'],
     ])('%s → derruba', (t) => {
         expect(S().temDinheiro(t)).toBe(true)
     })

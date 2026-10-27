@@ -61,7 +61,7 @@ export const blocoDoContexto = (texto: string): string[] => [
 export const DESCRICAO_DA_FALA = `Uma frase sua para abrir a resposta, no tom do contexto da empresa, até ${LIMITE_DA_FALA} caracteres, SEM número nenhum. Omita se não tiver o que dizer.`
 
 /** Sem caixa e sem acento: "Três" e "TRES" são a mesma palavra. */
-const semAcento = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+const semAcento = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
 
 const CARDINAIS = [
     'zero', 'dois', 'duas', 'tres', 'quatro', 'cinco', 'seis', 'sete', 'oito', 'nove', 'dez', 'onze', 'doze', 'treze', 'quatorze', 'catorze',

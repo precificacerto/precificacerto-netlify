@@ -1745,6 +1745,13 @@ describe('(20) o CONTEXTO DO ATENDIMENTO: o prompt manda em quando e em que form
         expect(ultimoEnviado()).toBe('E o vidro, temperado ou comum?')
     })
 
+    it('SEM contexto, a pergunta reformulada é a de hoje — o filtro de dinheiro só vale com contexto', async () => {
+        montar()
+        llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02, vidro: undefined }], pergunta: { campo: 'vidro', texto: 'Custa R$ 1.000. Qual o vidro?' } })
+        await chamar('Levantamento Casa do Pedro: DP-02 1200 x 1000, 1 unidade, branco')
+        expect(ultimoEnviado()).toBe('Custa R$ 1.000. Qual o vidro?')
+    })
+
     it('a fala acima de 600 caracteres cai inteira — não é cortada', async () => {
         const deSempre = await fluxo()
         expect(await fluxo({ contexto: DE_PAULA, falas: ['a'.repeat(601), undefined] })).toEqual(deSempre)
@@ -1771,6 +1778,15 @@ describe('(20) o CONTEXTO DO ATENDIMENTO: o prompt manda em quando e em que form
         expect(linhas[1]).toContain('contexto=sim fala=usada')
         expect(linhas.join('\n')).not.toContain('senha-secreta-do-consultor')
         expect(linhas.join('\n')).not.toContain('mil reais')
+    })
+
+    it('a fala não abre uma frase de ERRO: a falha ao gravar vai sozinha', async () => {
+        await fecharDp02('Casa do João')
+        comContexto(DE_PAULA)
+        estado.updateNaoAtinge = 'orcamentista_levantamento'
+        llmResponde({ nome: 'casa do joao', alteracao: true, itens: [{ altura_mm: 1200 }], fala: 'Opa, já troco!' })
+        await chamar('casa do joao, trocar a altura para 1200')
+        expect(ultimoEnviado()).toBe(conversa.FALHA_DO_BANCO_AO_GRAVAR)
     })
 
     it('o log sem contexto diz vazio, e com a tabela ausente diz sem_migracao', async () => {
