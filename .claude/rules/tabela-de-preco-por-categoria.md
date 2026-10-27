@@ -26,8 +26,11 @@ paths:
 ## A ORDEM OBRIGATÓRIA (a parte crítica)
 
 A tabela atual da Wolff (`72366020-57c9-489f-9385-397b7fa3dedb`) é a **dona do motor**: 12.116 regras, 137 fórmulas
-de família, as abas e os **164 tempos ESTIMADO** pendem do `tabela_id` dela. Os tempos foram **digitados à mão** e
-**não estão no arquivo**. Portanto:
+de família, as abas e os **164 tempos ESTIMADO** pendem do `tabela_id` dela. (**CORREÇÃO do dono do produto, 27/10/2026, à
+noite:** este texto dizia que os tempos foram "digitados à mão e não estão no arquivo". **Medido: os 164 têm só TRÊS valores —
+600 min em 91 tipologias, 300 em 55, 900 em 18 —, todos `ESTIMADO`, `atualizado_por` nulo e o mesmo `atualizado_em`: foram
+preenchidos por regra, de uma vez. Não há trabalho manual a preservar.** A ordem abaixo vale do mesmo jeito: são 62.299 linhas
+do motor, com ou sem o argumento dos tempos, e o `ON DELETE RESTRICT` fica.) Portanto:
 
 > **NADA arquiva, substitui ou apaga essa tabela antes de o motor estar em `orcamentista_motor`** — a migração
 > `20261027000004_copiar_motor_da_wolff_para_a_planilha`, aplicada **e conferida por consulta** (as contagens e o
@@ -130,13 +133,23 @@ restrição por satisfeita se uma coluna for nula; `MATCH FULL` não serve (recu
    (fornecedor, família, categoria).
 
 **Decisões do dono do produto, 27/10/2026, à noite (o motor mora na família, na base de conhecimento):**
-1. **Tempos na troca do arquivo do motor: COPIAR, com três limites** (vale para o PR E, que sobe o motor pela etapa; ainda NÃO implementado).
-   Medido: 164 linhas, 164 tipologias distintas, 87.300 minutos, todas `ESTIMADO`, chave (motor, TIPOLOGIA). Copia por **casamento de tipologia**
-   (a que existe no motor novo recebe o tempo do motor que a etapa apontava); **só o que falta** (INSERT, nunca UPDATE: não sobrescreve tempo já
-   gravado no motor novo); **preserva** `tempo_origem`, `atualizado_por` e `atualizado_em` do original (fato histórico congela); e a tela diz
-   QUANTOS vieram e QUANTOS ficaram sem, nomeando as tipologias sem. Razão: os 164 foram digitados e não estão em arquivo nenhum.
+1. ~~Tempos na troca do arquivo do motor: COPIAR, com três limites~~ — **CAIU no mesmo dia (prioridade do dono do produto, à noite)**: "os tempos
+   ficam como estão"; a estrutura de tempos não muda, e a regra de copiar tempos na troca de arquivo cai por ora. **Correção da premissa:** os 164
+   tempos NÃO foram digitados à mão. Medido em produção em 27/10/2026: **164 linhas, 164 tipologias distintas, só TRÊS valores — 600 min em 91
+   tipologias, 300 em 55, 900 em 18 (soma 87.300) —, todos `ESTIMADO`, `atualizado_por` nulo e um único `atualizado_em`**: preenchidos por regra, de
+   uma vez. Servem para o teste. O `ON DELETE RESTRICT` e a ordem "copiar o motor antes de arquivar a tabela" ficam (62.299 linhas do motor, com
+   ou sem o argumento dos tempos).
+   **DÍVIDA REGISTRADA (não é trabalho de agora): a coluna de TEMPO DE FABRICAÇÃO na aba de tipologias do motor.** Decisão do dono do produto:
+   "o tempo de fabricação de cada tipologia virá na tabela das tipologias [...] tudo dentro do motor, em uma coluna específica". Hoje a aba
+   Detalhe (`orcamentista_motor_tipologia_detalhe`: tipologia, linha, descrição, tipo, larg/alt mín/máx, fonte do limite, n_perfis, n_vidros,
+   n_insumos, ordem) NÃO tem tempo, e o arquivo `Motor_Wolf_PVC.xlsx` também não — por isso os tempos foram estimados. Quando a coluna vier: a
+   coluna entra na Detalhe e `orcamentista_motor_tipologia_tempo` vira dívida, ou continua alimentada pela importação (a decidir então). Até lá,
+   um motor novo subido pela etapa nasce **sem tempo** (a tabela de tempos só tem linhas do motor da Wolff, `motor_id` da planilha dela); como a
+   conversa ainda lê o motor da tabela (PR D depois), nada do cálculo muda. O PR D terá de decidir de onde vem o tempo do motor da etapa.
 2. **A exigência do Perfil sai agora** (`20261027000009`), num PR pequeno antes do PR E — ver acima.
-3. **Aberto — o bloco Motor na família: a planilha é global ou por conta?** Toca a regra de isolamento entre contas, que é inviolável. Medido em
+3. **DECIDIDO (dono do produto, à noite): o motor fica GLOBAL — opção A** — porque o tempo, vindo no motor, é da plataforma, e toda conta da
+   família herda os mesmos; **não se duplica por conta**. (Antes estava "aberto — planilha global ou por conta?", pergunta que toca a regra de
+   isolamento entre contas, que é inviolável.) Medido em
    27/10/2026: nenhuma tabela do catálogo da plataforma (`orcamentista_fornecedor`, `_tabela`, `_tabela_item`, `_motor` e suas 12 tabelas de
    conteúdo, `_familia_etapa`) tem `tenant_id`; todas têm RLS só de super admin e nenhum grant para `anon`/`authenticated`; o que é da conta
    (`orcamentista_materia_prima`, `_mp_categoria`, `_mp_categoria_fornecedor`, `_levantamento*`…) tem `tenant_id`. O vínculo conta→catálogo é a
@@ -150,6 +163,6 @@ indexadas por LINHA (EUROPA 42/60, DESIGN), que são linhas da Wolff. **Só o mo
 ## O corolário aplicável ANTES do defeito existir
 
 Antes de tirar uma tabela de fornecedor de circulação — arquivar, substituir o arquivo, apagar —, pergunte **o que
-pende do `tabela_id` dela** (consulte as 14 tabelas do motor e os tempos), e não só o que a tela mostra. O que foi
-digitado à mão e não está no arquivo (`orcamentista_motor_tipologia_tempo`) não volta com uma reimportação
-(`tabela-que-a-importacao-apaga.md`, camada 3).
+pende do `tabela_id` dela** (consulte as 14 tabelas do motor e os tempos), e não só o que a tela mostra. O tempo
+(`orcamentista_motor_tipologia_tempo`) não volta com uma reimportação (`tabela-que-a-importacao-apaga.md`, camada 3) — e hoje são 164 valores de
+teste, 600/300/900, não trabalho manual (correção de 27/10/2026).

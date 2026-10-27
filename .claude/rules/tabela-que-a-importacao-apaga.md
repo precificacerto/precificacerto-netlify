@@ -51,6 +51,13 @@ procura. Conferir LINHAS não alcança COLUNAS (`portao-que-nao-alcanca.md`).
 | 1 | 24/10/2026 | `importar_conteudo_da_tabela` (`20261020000002`) apaga e regrava `orcamentista_motor_tipologia` | `tempo_fabricacao_min` e `tempo_origem`, acrescentadas pela `20261024000001` — a regravação não as preenche. Importar a tabela da Wolff apagaria **164 tempos ESTIMADO**, mesmo com o arquivo idêntico | **RESOLVIDO pela camada 3** (25/10/2026): o tempo foi para `orcamentista_motor_tipologia_tempo` (`20261024000003`), o leitor passou a lê-la, e a trava do #147 foi **removida**. Provado num Postgres real (`scripts/harness/reimportacao-com-os-tempos/`): com os 164 tempos na tabela própria, uma reimportação completa roda até o fim e os 164 continuam lá. As colunas antigas ficam, obsoletas e esvaziadas pela reimportação, até a migração que as apaga |
 | 2 | 02/09/2026, #34 | a edição do orçamento apaga e regrava `budget_items` (`orcamentos/index.tsx:1867`) | `commission_pct` e `profit_pct` — a regravação os PREENCHE, com o que a reabertura leu do **cadastro vivo** (`it.products?.commission_percent`, `orcamentos/index.tsx:1992`). É a segunda metade do critério: reabrir e salvar um orçamento antigo troca os percentuais congelados pelos de hoje | **ABERTO** — registrado no #34 como "armado, não materializado"; **re-medido em 24/10/2026: a leitura do cadastro vivo continua lá** |
 
+> **Correção do dono do produto, 27/10/2026, à noite — sobre a aparição 1.** Esta página (e a regra do motor) tratou os 164 tempos como trabalho
+> digitado à mão e fora do arquivo. **Medido em produção: eles têm só TRÊS valores — 600 min em 91 tipologias, 300 em 55, 900 em 18 —, todos
+> `ESTIMADO`, `atualizado_por` nulo e o mesmo `atualizado_em`: foram preenchidos por regra, de uma vez; servem para o teste.** O defeito da
+> classe (a coluna que a regravação não sabe reescrever) continua real, e a camada 3 continua sendo o desenho certo para dado de outro dono;
+> o que cai é o argumento de que ali havia trabalho manual a perder. O tempo passará a vir no próprio motor (coluna na aba de tipologias —
+> dívida registrada em `tabela-de-preco-por-categoria.md`).
+
 **De quem são.** A 1 é do desenho: a importação foi escrita certa em 20/10, e a coluna chegou em
 24/10 por outra porta. Quem viu foi o dono do produto, ao pedir a medição antes de importar o
 arquivo novo. A 2 foi registrada pelo assistente no #34 como defeito próprio e ficou na fila.

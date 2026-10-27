@@ -22,8 +22,11 @@
 --      a uma etapa: o apanhado carrega a Detalhe e as Variáveis; a relação de barras carrega tudo.
 --      O rótulo é livre; a ação não é — etapa sem ação da lista é erro, não etapa nova.
 --   3. EXCLUIR É ARQUIVAR. Motor com conteúdo se arquiva: sai da lista e da conversa, o dado fica. DELETE só com
---      autorização explícita do dono do produto, e recusado enquanto houver levantamento ou tempo pendurado — os
---      164 tempos ESTIMADO foram digitados à mão e não estão no arquivo. Por isso `motor_id` é ON DELETE RESTRICT
+--      autorização explícita do dono do produto, e recusado enquanto houver levantamento ou tempo pendurado.
+--      (CORREÇÃO de 27/10/2026, à noite: este comentário dizia que os 164 tempos ESTIMADO foram digitados à mão e não estão no
+--      arquivo. Medido: eles têm só TRÊS valores — 600 min em 91 tipologias, 300 em 55, 900 em 18 —, `atualizado_por` nulo e o mesmo
+--      `atualizado_em`: foram preenchidos por regra, de uma vez. Não há trabalho manual a preservar. O RESTRICT fica pelo mesmo motivo
+--      de sempre: são 62.299 linhas do motor, com ou sem o argumento dos tempos.) Por isso `motor_id` é ON DELETE RESTRICT
 --      em TODAS as tabelas, e não CASCADE como o `tabela_id`.
 --   4. A OPÇÃO 1 PARA A CHAVE: afrouxar. `tabela_id` deixa de ser obrigatório nas 14 tabelas; a Detalhe e os tempos
 --      ganham a coluna `id` como chave primária nova, e a unicidade `(tabela_id, tipologia)` continua como UNIQUE.
