@@ -74,15 +74,14 @@ uma planilha o referencia (`caminhosDaPlanilha`).
 Decisão do dono do produto, 27/10/2026: "Exija o arquivo do motor apenas quando `categoria_chave = 'PERFIL'`. O motor tem casa própria agora
 (`orcamentista_motor`); não precisa mais viajar colado na tabela de preço."
 
-- **O arquivo do motor é exigido só na tabela de PERFIL.** `motor_path`/`motor_nome` deixam de ser NOT NULL; duas CHECK: o par anda junto
-  (`orcamentista_tabela_motor_par`) e Perfil tem o motor (`orcamentista_tabela_perfil_exige_motor`). A rota recusa antes, com a frase
-  (`lerCorpoDaTabela`: Perfil sem motor, ou o caminho sem o nome, em qualquer categoria); a tela só liga o salvar do Perfil com o motor; declarar
-  PERFIL numa tabela sem motor no PATCH é 400; o motor, na edição, troca inteiro e **não se apaga**. A constante `CATEGORIA_QUE_EXIGE_MOTOR` é o
-  literal da CHECK (`atendimentos-ia-motor-so-para-perfil.test.ts` liga as duas pontas).
-  **Vazio não é motor** (achado do dono do produto, 27/10/2026): a CHECK exige um caminho com algum caractere que não seja espaço
-  (`coalesce(motor_path ~ '[^[:space:]]', false)`), porque `IS NOT NULL` deixava passar a string vazia — e a Estrela está em produção com
-  `motor_path = ''` e `motor_nome = ''`. `btrim` simples não serve (só tira espaço; tab e enter passariam). A importação e a exclusão
-  tratam nulo, vazio e só-espaço como "sem motor".
+- **O arquivo do motor na tabela é OPCIONAL EM TODA CATEGORIA** (decisão do dono do produto, 27/10/2026, à noite: "o motor mora na família").
+  De manhã (`20261027000007`) só o Perfil o exigia, por uma CHECK (`orcamentista_tabela_perfil_exige_motor`); **ela nasceu de manhã e saiu à noite**
+  (`20261027000009`, pendente até ser aplicada) — não estava errada, o desenho mudou: o motor entra pela etapa da família, e o motor importado
+  na tabela grava por `tabela_id` e faria a conversa recusar `TABELA_REPETIDA`. Resta a CHECK do par (`orcamentista_tabela_motor_par`): caminho
+  e nome andam juntos. A rota recusa a metade (`lerCorpoDaTabela`) e o motor, na edição, troca inteiro e **não se apaga**.
+  **Vazio não é motor** (achado do dono do produto): a Estrela está em produção com `motor_path = ''` e `motor_nome = ''`; a importação e a
+  exclusão tratam nulo, vazio e só-espaço como "sem motor". (Quando a CHECK do Perfil existia, o `IS NOT NULL` deixava passar a string vazia;
+  a versão final dela, `coalesce(motor_path ~ '[^[:space:]]', false)`, é a que foi aplicada — `btrim` simples não serve: só tira espaço.)
 - **A importação de tabela sem motor lê só o preço**: as listas do motor vão vazias, não há cruzamento, e o arquivo do motor não é baixado.
 - **A etapa aponta o motor** (`orcamentista_familia_etapa.motor_id`): `superadmin_gravar_etapas_da_familia` aceita `motor_id` no item (ausente
   mantém, `null` limpa, uuid aponta, e confere que o motor é da família da etapa e não está arquivado); `superadmin_arquivar_motor` **recusa** arquivar
@@ -130,9 +129,23 @@ restrição por satisfeita se uma coluna for nula; `MATCH FULL` não serve (recu
 4. ~~`tabelas-da-conta.ts` e `tabelaVigenteDoPar` assumem uma vigente por (fornecedor, família)~~ — **paga em 27/10/2026**: os dois agrupam por
    (fornecedor, família, categoria).
 
-**Em aberto, sem resposta (27/10/2026):** a redução por tipologia vale para qualquer fornecedor de PVC? Não se sabe:
+**Decisões do dono do produto, 27/10/2026, à noite (o motor mora na família, na base de conhecimento):**
+1. **Tempos na troca do arquivo do motor: COPIAR, com três limites** (vale para o PR E, que sobe o motor pela etapa; ainda NÃO implementado).
+   Medido: 164 linhas, 164 tipologias distintas, 87.300 minutos, todas `ESTIMADO`, chave (motor, TIPOLOGIA). Copia por **casamento de tipologia**
+   (a que existe no motor novo recebe o tempo do motor que a etapa apontava); **só o que falta** (INSERT, nunca UPDATE: não sobrescreve tempo já
+   gravado no motor novo); **preserva** `tempo_origem`, `atualizado_por` e `atualizado_em` do original (fato histórico congela); e a tela diz
+   QUANTOS vieram e QUANTOS ficaram sem, nomeando as tipologias sem. Razão: os 164 foram digitados e não estão em arquivo nenhum.
+2. **A exigência do Perfil sai agora** (`20261027000009`), num PR pequeno antes do PR E — ver acima.
+3. **Aberto — o bloco Motor na família: a planilha é global ou por conta?** Toca a regra de isolamento entre contas, que é inviolável. Medido em
+   27/10/2026: nenhuma tabela do catálogo da plataforma (`orcamentista_fornecedor`, `_tabela`, `_tabela_item`, `_motor` e suas 12 tabelas de
+   conteúdo, `_familia_etapa`) tem `tenant_id`; todas têm RLS só de super admin e nenhum grant para `anon`/`authenticated`; o que é da conta
+   (`orcamentista_materia_prima`, `_mp_categoria`, `_mp_categoria_fornecedor`, `_levantamento*`…) tem `tenant_id`. O vínculo conta→catálogo é a
+   matéria-prima (a família) e o fornecedor vinculado. Uma cópia do motor da Wolff pesa 24 MB (13 tabelas). **Não decidido**; propostas no PR.
+
+**Em aberto, sem resposta (27/10/2026) — registrada como PERGUNTA ABERTA, pelo dono do produto: NÃO desenhar variante por linha sem a resposta:**
+a redução por tipologia vale para qualquer fornecedor de PVC? Não se sabe — e nem o assistente sabe:
 só há um fornecedor de PVC em produção, e as constantes de geometria (119 das 137 fórmulas de família) estão
-indexadas por LINHA (EUROPA 42/60, DESIGN), que são linhas da Wolff.
+indexadas por LINHA (EUROPA 42/60, DESIGN), que são linhas da Wolff. **Só o motor de um segundo fornecedor responde.** Não deduzir.
 
 ## O corolário aplicável ANTES do defeito existir
 

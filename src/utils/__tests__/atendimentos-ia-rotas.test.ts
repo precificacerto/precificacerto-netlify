@@ -13,7 +13,7 @@
  */
 /* eslint-disable @typescript-eslint/no-explicit-any -- os clientes falsos imitam clientes sem tipo (o admin não tem os tipos destas tabelas) */
 import type { NextApiRequest, NextApiResponse } from 'next'
-import { MENSAGEM_MOTOR_INCOMPLETO, MENSAGEM_MOTOR_NAO_SAI, MENSAGEM_MOTOR_OBRIGATORIO } from '@/utils/atendimentos-ia-catalogo'
+import { MENSAGEM_MOTOR_INCOMPLETO, MENSAGEM_MOTOR_NAO_SAI } from '@/utils/atendimentos-ia-catalogo'
 
 interface Perfil { id: string; tenant_id: string | null; role: string; is_super_admin: boolean }
 interface Resposta<T> { data: T; error: { message: string } | null }
@@ -150,15 +150,15 @@ describe('PORTÃO — um usuário NÃO super admin é recusado em cada rota nova
     })
 })
 
-describe('PORTÃO — o arquivo do motor é exigido só na tabela de Perfil, e pela ROTA, não só pela tela', () => {
-    it.each([
-        ['sem motor_path nem motor_nome', { ...CORPO_DA_TABELA, motor_path: undefined, motor_nome: undefined }],
-        ['motor em branco', { ...CORPO_DA_TABELA, motor_path: '   ', motor_nome: '   ' }],
-    ])('Perfil, %s → 400 com a frase do motor, e nada é gravado', async (_c, corpo) => {
-        const r = await chamar('tabelas', 'POST', {}, corpo)
-        expect(r.status).toBe(400)
-        expect(r.json.error).toBe(MENSAGEM_MOTOR_OBRIGATORIO)
-        expect(repo.criarTabela).not.toHaveBeenCalled()
+describe('PORTÃO — o arquivo do motor é OPCIONAL em toda categoria, e a metade é recusada pela ROTA (27/10/2026, à noite)', () => {
+    it.each(['PERFIL', 'REFORCO', 'ACESSORIOS_VEDACAO', 'VIDRO'])('%s, sem motor (ausente ou em branco) → 201: grava com motor nulo, e nada do motor vai ao bucket', async (categoria_chave) => {
+        for (const corpo of [{ motor_path: undefined, motor_nome: undefined }, { motor_path: '   ', motor_nome: '   ' }]) {
+            repo.criarTabela.mockClear(); repo.objetoExiste.mockClear()
+            const r = await chamar('tabelas', 'POST', {}, { ...CORPO_DA_TABELA, categoria_chave, ...corpo })
+            expect(r.status).toBe(201)
+            expect(repo.criarTabela).toHaveBeenCalledWith(expect.objectContaining({ categoria_chave, motor_path: null, motor_nome: null }))
+            expect(repo.objetoExiste.mock.calls.map((c) => c[0])).toEqual([CORPO_DA_TABELA.arquivo_path])
+        }
     })
 
     it.each([
@@ -173,21 +173,11 @@ describe('PORTÃO — o arquivo do motor é exigido só na tabela de Perfil, e p
         expect(repo.criarTabela).not.toHaveBeenCalled()
     })
 
-    it.each(['REFORCO', 'ACESSORIOS_VEDACAO'])('%s, sem motor → 201: preço puro, grava com motor nulo e sem baixar nada do bucket do motor', async (categoria_chave) => {
-        const r = await chamar('tabelas', 'POST', {}, { ...CORPO_DA_TABELA, categoria_chave, motor_path: undefined, motor_nome: undefined })
-        expect(r.status).toBe(201)
-        expect(repo.criarTabela).toHaveBeenCalledWith(expect.objectContaining({ categoria_chave, motor_path: null, motor_nome: null }))
-        expect(repo.objetoExiste.mock.calls.map((c) => c[0])).toEqual([CORPO_DA_TABELA.arquivo_path])
-    })
-
-    it.each([
-        ['orcamentista_tabela_perfil_exige_motor', MENSAGEM_MOTOR_OBRIGATORIO],
-        ['orcamentista_tabela_motor_par', MENSAGEM_MOTOR_INCOMPLETO],
-    ])('a trava do banco (23514, %s) sobe como 400 com a frase, e não como 500', async (trava, frase) => {
-        repo.criarTabela.mockImplementationOnce(async () => { throw new ErroDoBanco({ code: '23514', message: `new row violates check constraint "${trava}"` }) })
+    it('a trava do banco (23514, orcamentista_tabela_motor_par) sobe como 400 com a frase da metade, e não como 500', async () => {
+        repo.criarTabela.mockImplementationOnce(async () => { throw new ErroDoBanco({ code: '23514', message: 'new row violates check constraint "orcamentista_tabela_motor_par"' }) })
         const r = await chamar('tabelas', 'POST', {}, CORPO_DA_TABELA)
         expect(r.status).toBe(400)
-        expect(r.json.error).toBe(frase)
+        expect(r.json.error).toBe(MENSAGEM_MOTOR_INCOMPLETO)
     })
 
     it('com o motor, grava — e grava o motor', async () => {
@@ -321,13 +311,12 @@ describe('PORTÃO — dar o motor a uma tabela que não tinha: não há objeto a
     })
 })
 
-describe('PORTÃO — a Estrela de produção tem o motor VAZIO (""), e vazio não é motor', () => {
-    it('declarar PERFIL nela é 400 com a frase do Perfil — o "" não conta como motor — e nada é gravado', async () => {
+describe('PORTÃO — a Estrela de produção tem o motor VAZIO (""), e vazio não é arquivo', () => {
+    it('declarar PERFIL nela passa: o motor não é exigido em categoria nenhuma, e só a categoria é gravada', async () => {
         repo.obterTabela.mockImplementationOnce(async () => ({ id: T, fornecedor_id: F, arquivo_path: `${F}/arquivo/x-t.xlsx`, motor_path: '', categoria_chave: null }))
         const r = await chamar('tabela', 'PATCH', { id: T }, { categoria_chave: 'PERFIL' })
-        expect(r.status).toBe(400)
-        expect(r.json.error).toBe(MENSAGEM_MOTOR_OBRIGATORIO)
-        expect(repo.atualizarTabela).not.toHaveBeenCalled()
+        expect(r.status).toBe(200)
+        expect(repo.atualizarTabela).toHaveBeenCalledWith(T, { categoria_chave: 'PERFIL' })
     })
 
     it('declarar VIDRO nela passa, e o "" do motor antigo não vai ao armazenamento ao trocar o motor', async () => {

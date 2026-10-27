@@ -14,7 +14,7 @@ import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 
 import { ROUTES } from '@/constants/routes'
-import { MENSAGEM_MOTOR_OBRIGATORIO, ROTAS_DO_CATALOGO, type FornecedorDaLista } from '@/utils/atendimentos-ia-catalogo'
+import { ROTAS_DO_CATALOGO, type FornecedorDaLista } from '@/utils/atendimentos-ia-catalogo'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 Object.defineProperty(window, 'matchMedia', {
@@ -105,7 +105,7 @@ describe('a tela de Fornecedores e tabelas', () => {
         expect(pedidos).toEqual([])
     })
 
-    describe('(d) o arquivo do motor é exigido SÓ na tabela de Perfil (27/10/2026)', () => {
+    describe('(d) o arquivo do motor é OPCIONAL em toda categoria (27/10/2026, à noite)', () => {
         const CATEGORIAS = [{ chave: 'PERFIL', rotulo: 'Perfil', ordem: 1 }, { chave: 'REFORCO', rotulo: 'Reforço', ordem: 2 }]
         const salvarDoModal = () => Array.from(document.querySelectorAll('.ant-modal button')).filter((b) => b.textContent?.includes('Salvar tabela')) as HTMLButtonElement[]
         const escolher = async (rotulo: string) => {
@@ -113,33 +113,26 @@ describe('a tela de Fornecedores e tabelas', () => {
             await act(async () => { (botao.querySelector('input') as HTMLInputElement).click() })
             await act(async () => { await new Promise((r) => setTimeout(r, 0)) })
         }
-        // COM o arquivo da tabela: sem arquivo nenhum o botão já estaria desligado pela falta do arquivo, e o caso não distinguiria a trava do motor
+        // COM o arquivo da tabela: sem arquivo nenhum o botão já estaria desligado pela falta do arquivo, e o caso não distinguiria nada
         const semMotor = { arquivo_nome: 't.xlsx', motor_nome: null as string | null, vigencia: null as string | null, familia: null as string | null, categoria_chave: null as string | null }
 
-        it('escolher PERFIL sem o arquivo do motor desliga o salvar e diz por quê; escolher REFORÇO liga e a frase some', async () => {
+        it.each(['Perfil', 'Reforço'])('escolher %s sem o arquivo do motor NÃO desliga o salvar, e nenhuma frase de motor aparece', async (rotulo) => {
             await montar(<TabelaModal aberto familias={[]} categorias={CATEGORIAS} titulo="Editar tabela" atual={semMotor} onCancelar={() => {}} onSalvar={() => {}} />)
-            await escolher('Perfil')
+            await escolher(rotulo)
+            expect(salvarDoModal().some((b) => !b.disabled)).toBe(true)
+            expect(document.querySelector('.ant-modal')?.textContent).not.toContain('leva o arquivo do motor')
+        })
+
+        it('o contraste: sem o arquivo DA TABELA o salvar fica desligado (o botão não é sempre ligado)', async () => {
+            await montar(<TabelaModal aberto familias={[]} categorias={CATEGORIAS} titulo="Nova tabela" atual={undefined} onCancelar={() => {}} onSalvar={() => {}} />)
             expect(salvarDoModal().every((b) => b.disabled)).toBe(true)
-            expect(document.querySelector('.ant-modal')?.textContent).toContain(MENSAGEM_MOTOR_OBRIGATORIO)
-            await escolher('Reforço')
-            expect(salvarDoModal().some((b) => !b.disabled)).toBe(true)
-            expect(document.querySelector('.ant-modal')?.textContent).not.toContain(MENSAGEM_MOTOR_OBRIGATORIO)
         })
 
-        it('a tabela de antes (sem categoria) e sem motor salva: a frase do motor não aparece', async () => {
+        it('o texto do motor diz que ele é opcional e mora na família', async () => {
             await montar(<TabelaModal aberto familias={[]} categorias={CATEGORIAS} titulo="Editar tabela" atual={semMotor} onCancelar={() => {}} onSalvar={() => {}} />)
-            expect(salvarDoModal().some((b) => !b.disabled)).toBe(true)
-            expect(document.querySelector('.ant-modal')?.textContent).not.toContain(MENSAGEM_MOTOR_OBRIGATORIO)
-        })
-
-        it('a tabela que já é de Perfil e tem o motor liga o salvar (o contraste: o botão não é sempre desligado)', async () => {
-            await montar(<TabelaModal aberto familias={[]} categorias={CATEGORIAS} titulo="Editar tabela" atual={{ ...semMotor, motor_nome: 'm.xlsx', categoria_chave: 'PERFIL' }} onCancelar={() => {}} onSalvar={() => {}} />)
-            expect(salvarDoModal().some((b) => !b.disabled)).toBe(true)
-        })
-
-        it('o texto do motor diz que só o Perfil leva o arquivo', async () => {
-            await montar(<TabelaModal aberto familias={[]} categorias={CATEGORIAS} titulo="Editar tabela" atual={semMotor} onCancelar={() => {}} onSalvar={() => {}} />)
-            expect(document.querySelector('.ant-modal')?.textContent).toContain('Só a tabela de Perfil leva o arquivo do motor')
+            const texto = document.querySelector('.ant-modal')?.textContent ?? ''
+            expect(texto).toContain('O arquivo do motor é opcional')
+            expect(texto).toContain('o motor mora na família')
         })
     })
 })
