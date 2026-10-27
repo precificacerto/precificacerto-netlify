@@ -147,3 +147,47 @@ export function lerCorpoDasEtapas(body: unknown): { ok: true; etapas: EtapaNoCor
     }
     return { ok: true, etapas }
 }
+
+// ── O RASCUNHO DA TELA ───────────────────────────────────────────────────────────────────────────────────
+/** A etapa como está sendo editada na tela. `acao` é null na etapa nova até alguém escolher: nenhuma vem por omissão. */
+export interface EtapaNoRascunho {
+    local: string
+    id: string | null
+    rotulo: string
+    acao: AcaoDaEtapa | null
+    instrucao: string
+    abas: AbaDaEtapa[]
+}
+
+let proximoLocal = 0
+export const novaEtapaNoRascunho = (): EtapaNoRascunho => ({ local: `nova-${++proximoLocal}`, id: null, rotulo: '', acao: null, instrucao: '', abas: [] })
+
+export const rascunhoDasEtapas = (etapas: EtapaDaFamilia[]): EtapaNoRascunho[] =>
+    etapas.map((e) => ({ local: e.id, id: e.id, rotulo: e.rotulo, acao: e.acao, instrucao: e.instrucao, abas: [...e.abas] }))
+
+/** As abas na ordem da planilha, sem repetição: a tela marca e desmarca, a ordem não é escolha de ninguém. */
+export const abasEmOrdem = (marcadas: readonly string[]): AbaDaEtapa[] => ABAS_DA_ETAPA.filter((a) => marcadas.includes(a))
+
+/** O corpo do PUT: a lista inteira, na ordem da tela. A ação em branco vai como está, e `lerCorpoDasEtapas` a recusa nomeando a etapa. */
+export const corpoDoRascunho = (rascunho: readonly EtapaNoRascunho[]) => ({
+    etapas: rascunho.map((e) => ({ ...(e.id ? { id: e.id } : {}), rotulo: e.rotulo, acao: e.acao, instrucao: e.instrucao, abas: e.abas })),
+})
+
+/** A etapa mudou contra o gravado? Compara o que a rota grava: rótulo e instrução sem as pontas, as abas sem ordem. */
+export function etapasMudaram(rascunho: readonly EtapaNoRascunho[], gravadas: readonly EtapaDaFamilia[]): boolean {
+    if (rascunho.length !== gravadas.length) return true
+    return rascunho.some((e, i) => {
+        const g = gravadas[i]
+        return e.id !== g.id || e.rotulo.trim() !== g.rotulo || e.acao !== g.acao || e.instrucao.trim() !== g.instrucao
+            || [...e.abas].sort().join('|') !== [...g.abas].sort().join('|')
+    })
+}
+
+/** Troca a etapa de lugar com a vizinha. Fora da lista, devolve a lista como está. */
+export function moverEtapa<T>(lista: readonly T[], de: number, delta: -1 | 1): T[] {
+    const para = de + delta
+    if (de < 0 || de >= lista.length || para < 0 || para >= lista.length) return [...lista]
+    const saida = [...lista]
+    ;[saida[de], saida[para]] = [saida[para], saida[de]]
+    return saida
+}
