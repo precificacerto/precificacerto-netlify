@@ -315,6 +315,12 @@ const LISTA_DA_CATEGORIA: Record<string, string> = { VIDRO: 'vidros', FERRAGENS:
 export async function lerArvoreDaEmpresa(tenantId: string) {
     const nicho = await nichoDaEmpresa(tenantId)
     const categoriasDoCatalogo = (await ler<Linha[]>('orcamentista_categoria_catalogo', db().from('orcamentista_categoria_catalogo').select('*'))).sort(porOrdem)
+    // AS RAMIFICAÇÕES DA FAMÍLIA (27/10/2026): cada família declara as categorias que usa, na ordem. A lista de TODAS
+    // as categorias é o catálogo; quem diz quais valem para uma matéria-prima é a família dela. Falha ao ler é erro —
+    // nunca a lista inteira no lugar da declarada.
+    const familias = (await ler<Linha[]>('orcamentista_familia_catalogo', db().from('orcamentista_familia_catalogo').select('chave, rotulo, ordem'))).sort(porOrdem)
+    const ramificacoes = (await ler<Linha[]>('orcamentista_familia_ramificacao', db().from('orcamentista_familia_ramificacao').select('familia, categoria_chave, ordem')))
+        .sort((a, b) => porTexto('familia')(a, b) || porOrdem(a, b))
     const campos = (await ler<Linha[]>('orcamentista_categoria_campo', db().from('orcamentista_categoria_campo').select('*')))
         .sort((a, b) => porTexto('categoria_chave')(a, b) || porOrdem(a, b))
     const fornecedoresDoNicho = nicho
@@ -343,7 +349,7 @@ export async function lerArvoreDaEmpresa(tenantId: string) {
     return {
         tenant_id: tenantId,
         nicho,
-        catalogo: { categorias: categoriasDoCatalogo, campos },
+        catalogo: { categorias: categoriasDoCatalogo, campos, familias, ramificacoes },
         fornecedores_do_nicho: fornecedoresDoNicho,
         linhas_por_fornecedor: await linhasPorFornecedor(tenantId),
         materias_primas: materiasPrimas.map((mp) => ({

@@ -106,7 +106,7 @@ async function chamar(metodo: string, chave: string | undefined, body: unknown =
     return saida
 }
 
-const etapa = (extra: Linha = {}) => ({ rotulo: 'Apanhar', acao: 'APANHAR', instrucao: '', abas: [], ...extra })
+const etapa = (extra: Linha = {}) => ({ rotulo: 'Apanhar', acao: 'APANHAR', instrucao: '', abas: [] as string[], ...extra })
 const ler = (...etapas: unknown[]) => lerCorpoDasEtapas({ etapas })
 
 describe('(1) a regra do corpo', () => {

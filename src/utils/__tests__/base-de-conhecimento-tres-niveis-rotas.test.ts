@@ -62,6 +62,8 @@ const estado = {
     rpcs: [] as Array<{ nome: string; args: Linha }>,
     escritasDiretas: [] as string[],
     respostaDoRpc: null as null | RespostaDoBanco,
+    /** A tabela cuja leitura falha: o banco falso devolve erro nela. */
+    falhaEm: null as string | null,
 }
 
 function categoriasDe(tenant: string, mp: string): Linha[] {
@@ -73,7 +75,14 @@ function montar() {
     estado.rpcs = []
     estado.escritasDiretas = []
     estado.respostaDoRpc = null
+    estado.falhaEm = null
     estado.db = {
+        // as famílias e as ramificações que cada uma declara (migração 20261027000002): a PVC declara as seis, numa ordem que NÃO é a do catálogo
+        orcamentista_familia_catalogo: [{ chave: 'PVC', rotulo: 'PVC', ordem: 1 }, { chave: 'ALUMINIO', rotulo: 'Alumínio', ordem: 2 }],
+        orcamentista_familia_ramificacao: [
+            { familia: 'PVC', categoria_chave: 'VIDRO', ordem: 2 }, { familia: 'PVC', categoria_chave: 'PERFIL', ordem: 1 },
+            { familia: 'ALUMINIO', categoria_chave: 'PERFIL', ordem: 1 },
+        ],
         users: [SUPER, ADMIN_DE_TENANT, COMUM],
         tenants: [{ id: T_A }, { id: T_B }, { id: T_SEM_NICHO }],
         orcamentista_nicho: [
@@ -103,7 +112,7 @@ function montar() {
         ],
         orcamentista_materia_prima: [
             { id: MP_ALU, tenant_id: T_A, nome: 'Alumínio', ordem: 2, atualizado_por: null, atualizado_em: null },
-            { id: MP_PVC, tenant_id: T_A, nome: 'PVC', ordem: 1, atualizado_por: null, atualizado_em: null },
+            { id: MP_PVC, tenant_id: T_A, nome: 'PVC', ordem: 1, atualizado_por: null, atualizado_em: null, familia: 'PVC' },
             { id: MP_DE_B, tenant_id: T_B, nome: 'MDF', ordem: 1, atualizado_por: null, atualizado_em: null },
         ],
         orcamentista_mp_categoria: [...categoriasDe(T_A, MP_PVC), ...categoriasDe(T_A, MP_ALU), ...categoriasDe(T_B, MP_DE_B)],
@@ -166,7 +175,8 @@ jest.mock('@/supabase/admin', () => ({
                 const l = linhas()
                 return l.length === 1 ? { data: l[0], error: null } : { data: null, error: { code: 'PGRST116', message: 'linhas' } }
             }
-            q.then = (ok: (v: unknown) => unknown, erro?: (e: unknown) => unknown) => Promise.resolve<RespostaDoBanco>({ data: linhas(), error: null }).then(ok, erro)
+            q.then = (ok: (v: unknown) => unknown, erro?: (e: unknown) => unknown) => Promise.resolve<RespostaDoBanco>(
+                estado.falhaEm === tabela ? { data: null, error: { code: '57014', message: `falha lendo ${tabela}` } } : { data: linhas(), error: null }).then(ok, erro)
             for (const escrita of ['insert', 'update', 'upsert', 'delete']) {
                 q[escrita] = () => { estado.escritasDiretas.push(`${escrita} ${tabela}`); return q }
             }
@@ -188,6 +198,7 @@ const ROTAS = {
     vidros: rota('vidros'),
     ferragens: rota('ferragens'),
     instalacao: rota('instalacao'),
+    familiaDaMateriaPrima: rota('familia-da-materia-prima'),
 }
 
 async function chamar(nome: keyof typeof ROTAS, method: string, query: Linha = {}, body?: unknown) {
@@ -219,6 +230,7 @@ const CADA_ESCRITA: Caso[] = [
     ['instalacao', 'PUT', { tenant: T_A, mp_categoria: C_PVC_INSTALACAO }, { instalacao: [{ produto: 'CONTRAMARCO' }] }, 'superadmin_gravar_mp_instalacao',
         { p_tenant: T_A, p_mp_categoria: C_PVC_INSTALACAO, p_lista: [{ produto: 'CONTRAMARCO' }] }],
     ['materiaPrima', 'DELETE', { tenant: T_A, materia_prima: MP_PVC }, undefined, 'superadmin_remover_materia_prima', { p_tenant: T_A, p_materia_prima: MP_PVC }],
+    ['familiaDaMateriaPrima', 'PUT', { tenant: T_A }, { materia_prima: MP_PVC, familia: 'PVC' }, 'superadmin_definir_familia_da_materia_prima', { p_tenant: T_A, p_materia_prima: MP_PVC, p_familia: 'PVC' }],
     ['arvore', 'PUT', { tenant: T_A }, { arvore: { materias_primas: [{ nome: 'PVC' }] } }, 'superadmin_gravar_arvore', { p_tenant: T_A, p_arvore: { materias_primas: [{ nome: 'PVC' }] } }],
 ]
 const CADA_ROTA: Array<[keyof typeof ROTAS, string, Linha, unknown]> = [
@@ -453,6 +465,30 @@ describe('(6) GET — a árvore inteira da empresa, numa resposta só', () => {
         expect(r.json.catalogo.campos).toEqual(expect.arrayContaining([expect.objectContaining({ categoria_chave: 'REFORCO', chave: 'usa', tipo: 'booleano' })]))
     })
 
+    it('AS RAMIFICAÇÕES (27/10/2026): o catálogo traz as famílias e o que cada uma declara, na ordem da família — não a do catálogo', async () => {
+        const r = await chamar('arvore', 'GET', { tenant: T_A })
+        expect(r.json.catalogo.familias).toEqual([{ chave: 'PVC', rotulo: 'PVC', ordem: 1 }, { chave: 'ALUMINIO', rotulo: 'Alumínio', ordem: 2 }])
+        expect(r.json.catalogo.ramificacoes).toEqual([
+            { familia: 'ALUMINIO', categoria_chave: 'PERFIL', ordem: 1 },
+            { familia: 'PVC', categoria_chave: 'PERFIL', ordem: 1 },
+            { familia: 'PVC', categoria_chave: 'VIDRO', ordem: 2 },
+        ])
+    })
+
+    it('a matéria-prima chega com a família que tem — e sem família, a chave fica ausente ou null, nunca um padrão', async () => {
+        const r = await chamar('arvore', 'GET', { tenant: T_A })
+        expect(r.json.materias_primas.find((m: Linha) => m.id === MP_PVC).familia).toBe('PVC')
+        expect(r.json.materias_primas.find((m: Linha) => m.id === MP_ALU).familia ?? null).toBeNull()
+    })
+
+    it.each([['orcamentista_familia_ramificacao'], ['orcamentista_familia_catalogo']])('falha ao ler %s: ERRO 500 — nunca a árvore com a lista inteira do catálogo no lugar da declarada', async (tabela) => {
+        estado.falhaEm = tabela
+        const r = await chamar('arvore', 'GET', { tenant: T_A })
+        expect(r.status).toBe(500)
+        expect(r.json).toEqual({ error: 'Falha ao ler a base de conhecimento.' })
+        expect(r.json.catalogo).toBeUndefined()
+    })
+
     it('os fornecedores disponíveis são os do NICHO da empresa — o de outro nicho fica fora', async () => {
         const r = await chamar('arvore', 'GET', { tenant: T_A })
         expect(r.json.nicho).toEqual({ id: N_ESQ, modelo: 'FABRICACAO', nome: 'Esquadrias' })
@@ -615,5 +651,55 @@ describe('(7) métodos', () => {
     it('método errado de quem NÃO é super admin → 404 (o portão vem antes do 405)', async () => {
         estado.usuario = COMUM
         expect((await chamar('vidros', 'GET', { tenant: T_A, mp_categoria: C_PVC_VIDRO })).status).toBe(404)
+    })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+describe('(7) PUT /familia-da-materia-prima — a família escolhe as ramificações (27/10/2026)', () => {
+    const put = (corpo: unknown) => chamar('familiaDaMateriaPrima', 'PUT', { tenant: T_A }, corpo)
+
+    it('chama SÓ superadmin_definir_familia_da_materia_prima, com a empresa da URL e o autor da sessão', async () => {
+        const r = await put({ materia_prima: MP_ALU, familia: 'ALUMINIO' })
+        expect(r.status).toBe(200)
+        expect(estado.rpcs).toEqual([{ nome: 'superadmin_definir_familia_da_materia_prima', args: { p_tenant: T_A, p_por: SUPER.id, p_materia_prima: MP_ALU, p_familia: 'ALUMINIO' } }])
+        expect(estado.escritasDiretas).toEqual([])
+    })
+
+    it('null LIMPA a família: vai à função como null, não como texto vazio', async () => {
+        await put({ materia_prima: MP_PVC, familia: null })
+        expect(estado.rpcs[0].args.p_familia).toBeNull()
+    })
+
+    it.each([
+        ['família em branco', { materia_prima: MP_PVC, familia: '   ' }],
+        ['família que não é texto', { materia_prima: MP_PVC, familia: 3 }],
+        ['família ausente (ausente não é null: não limpa por omissão)', { materia_prima: MP_PVC }],
+        ['matéria-prima que não é uuid', { materia_prima: 'x', familia: 'PVC' }],
+        ['sem matéria-prima', { familia: 'PVC' }],
+        ['campo que não existe', { materia_prima: MP_PVC, familia: 'PVC', nome: 'PVC' }],
+        ['o autor no corpo (é o da sessão)', { materia_prima: MP_PVC, familia: 'PVC', por: SUPER.id }],
+        ['corpo que não é objeto', 'PVC'],
+        ['corpo lista', [MP_PVC]],
+    ])('%s: 400 nomeado, e a função NÃO é chamada', async (_nome, corpo) => {
+        const r = await put(corpo)
+        expect(r.status).toBe(400)
+        expect(typeof r.json.error).toBe('string')
+        nenhumaEscrita()
+    })
+
+    it.each([
+        ['22023', 400, 'a empresa ja tem outra materia-prima nesta familia: e uma por familia'],
+        ['P0002', 404, 'materia-prima inexistente nesta empresa'],
+        ['42501', 403, 'o autor da alteracao nao e super admin'],
+    ])('o código %s vira %i com a mensagem da função', async (code, status, message) => {
+        estado.respostaDoRpc = { data: null, error: { code, message } }
+        const r = await put({ materia_prima: MP_PVC, familia: 'PVC' })
+        expect(r.status).toBe(status)
+        expect(r.json).toEqual({ error: message })
+    })
+
+    it('só PUT: GET, POST e DELETE são 405', async () => {
+        for (const m of ['GET', 'POST', 'DELETE']) expect((await chamar('familiaDaMateriaPrima', m, { tenant: T_A }, {})).status).toBe(405)
+        nenhumaEscrita()
     })
 })
