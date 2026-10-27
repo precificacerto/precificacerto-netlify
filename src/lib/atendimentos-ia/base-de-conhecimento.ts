@@ -295,3 +295,19 @@ export function errosDoCorpoVazio(corpo: unknown): ErroNomeado[] {
         ? { campo: 'por', mensagem: 'o autor é o usuário da sessão: `por` no corpo não é aceito' }
         : { campo: k, mensagem: 'campo desconhecido: este pedido não tem corpo' }))
 }
+
+/**
+ * O corpo do PUT /familia-da-materia-prima: `{ materia_prima: uuid, familia: texto | null }`. A família AUSENTE não é
+ * null — ausente não limpa por omissão: quem quer limpar manda `null`. O autor é o da sessão (`por` é erro).
+ */
+export function lerCorpoDaFamiliaDaMateriaPrima(corpo: unknown): { materia_prima: string; familia: string | null; erros: ErroNomeado[] } {
+    const b = corpo && typeof corpo === 'object' && !Array.isArray(corpo) ? (corpo as Record<string, unknown>) : null
+    if (!b) return { materia_prima: '', familia: null, erros: [{ campo: 'corpo', mensagem: 'o corpo é { materia_prima, familia }' }] }
+    const erros: ErroNomeado[] = Object.keys(b).filter((k) => k !== 'materia_prima' && k !== 'familia').map((k) => (k === 'por'
+        ? { campo: 'por', mensagem: 'o autor é o usuário da sessão: `por` no corpo não é aceito' }
+        : { campo: k, mensagem: 'campo desconhecido (só materia_prima e familia)' }))
+    if (typeof b.materia_prima !== 'string' || !UUID.test(b.materia_prima)) erros.push({ campo: 'materia_prima', mensagem: 'obrigatório: o id da matéria-prima' })
+    if (!('familia' in b)) erros.push({ campo: 'familia', mensagem: 'obrigatório: a família da lista, ou null para limpar' })
+    else if (b.familia !== null && (typeof b.familia !== 'string' || b.familia.trim() === '')) erros.push({ campo: 'familia', mensagem: 'a família é um texto da lista, ou null para limpar' })
+    return { materia_prima: typeof b.materia_prima === 'string' ? b.materia_prima : '', familia: typeof b.familia === 'string' ? b.familia.trim() : null, erros }
+}

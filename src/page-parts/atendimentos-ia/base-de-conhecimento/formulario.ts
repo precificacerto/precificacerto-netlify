@@ -36,6 +36,8 @@ export const ROTAS_DA_BASE = {
     funcionarios: (tenantId: string) => daEmpresa('/funcionarios', tenantId),
     /** GET e PUT da árvore dos três níveis — `superadmin_gravar_arvore`, numa transação só. */
     arvore: (tenantId: string) => daEmpresa('/arvore', tenantId),
+    /** PUT `{ materia_prima, familia | null }` — `superadmin_definir_familia_da_materia_prima`: a família escolhe as ramificações. */
+    familiaDaMateriaPrima: (tenantId: string) => daEmpresa('/familia-da-materia-prima', tenantId),
     /** PUT de UMA categoria de UMA matéria-prima — `superadmin_gravar_mp_categoria`, que faz MERGE no config. */
     categoria: (tenantId: string, materiaPrimaId: string, categoria: string) =>
         `${daEmpresa('/categoria', tenantId)}&materia_prima=${encodeURIComponent(materiaPrimaId)}&categoria=${encodeURIComponent(categoria)}`,

@@ -24,11 +24,14 @@
  */
 import fs from 'fs'
 import path from 'path'
-import { ABAS_DA_ETAPA, ACOES_DA_ETAPA, ROTULO_DA_ACAO, TABELAS_DO_MOTOR, ehAcaoDaEtapa } from '@/utils/atendimentos-ia-etapas'
+import {
+    ABAS_DA_ETAPA, ACOES_DA_ETAPA, LIMITE_DA_INSTRUCAO_DA_ETAPA, LIMITE_DO_ROTULO_DA_ETAPA, MAXIMO_DE_ETAPAS_DA_FAMILIA, ROTULO_DA_ACAO, TABELAS_DO_MOTOR, ehAcaoDaEtapa,
+} from '@/utils/atendimentos-ia-etapas'
 import { CONTAGENS_DO_MOTOR } from '@/utils/atendimentos-ia-motor'
 
 const ARQUIVO = path.join(__dirname, '..', '..', '..', 'supabase', 'migrations', '20261027000002_motor_por_familia_e_etapas.sql')
 const sql = () => fs.readFileSync(ARQUIVO, 'utf8')
+const sqlA = sql
 
 /** Os literais de uma lista `ARRAY['A', 'B']` que vem depois de `marca` no texto. Vazio se a marca não existe. */
 export function listaDepois(texto: string, marca: string): string[] {
@@ -134,5 +137,83 @@ describe('(4) a migração diz o que o dono do produto pediu', () => {
 
     it('registra a dívida de Acessórios e Borrachas juntas', () => {
         expect(sql()).toMatch(/Borrachas/)
+    })
+})
+
+// ── A migração das GRAVAÇÕES (PR B, 20261027000003) ────────────────────────────────────────────────────
+const ARQUIVO_B = path.join(__dirname, '..', '..', '..', 'supabase', 'migrations', '20261027000003_etapas_da_familia_arquivar_motor_e_familia_da_materia_prima.sql')
+const sqlB = () => fs.readFileSync(ARQUIVO_B, 'utf8')
+const executavelB = () => sqlB().split('\n').filter((l) => !l.trimStart().startsWith('--')).join('\n')
+const FUNCOES_B = [
+    'superadmin_gravar_etapas_da_familia(text, uuid, jsonb)',
+    'superadmin_arquivar_motor(uuid, uuid)',
+    'superadmin_definir_familia_da_materia_prima(uuid, uuid, uuid, text)',
+] as const
+
+describe('(6) a migração das gravações da tela da família', () => {
+    it('nasce PENDENTE, com o nome para aplicar fora do CLI', () => {
+        expect(sqlB()).toMatch(/PENDENTE\. N.O APLICADA/)
+        expect(sqlB()).toContain('20261027000003_etapas_da_familia_arquivar_motor_e_familia_da_materia_prima')
+    })
+
+    it.each(FUNCOES_B)('%s: SECURITY DEFINER, search_path fixo, fechada para PUBLIC/anon/authenticated e aberta só ao service_role', (assinatura) => {
+        const sql = executavelB()
+        const nome = assinatura.slice(0, assinatura.indexOf('('))
+        const corpo = sql.slice(sql.indexOf(`FUNCTION public.${nome}(`))
+        expect(corpo).toMatch(/SECURITY DEFINER/)
+        expect(corpo).toMatch(/SET search_path = public, pg_temp/)
+        expect(sql).toContain(`REVOKE ALL ON FUNCTION public.${assinatura} FROM PUBLIC, anon, authenticated;`)
+        expect(sql).toContain(`GRANT EXECUTE ON FUNCTION public.${assinatura} TO service_role;`)
+        expect(sql).not.toMatch(new RegExp(`GRANT EXECUTE ON FUNCTION public\\.${nome.replace(/[()]/g, '')}[^;]* TO (anon|authenticated|PUBLIC)`))
+    })
+
+    it('as três LOGAM em superadmin_alteracao_log, e conferem que o autor é super admin', () => {
+        const sql = executavelB()
+        expect(sql.match(/INSERT INTO public\.superadmin_alteracao_log/g)?.length).toBe(3)
+        expect(sql.match(/u\.is_super_admin IS TRUE/g)?.length).toBe(3)
+    })
+
+    it('nada é apagado: nenhum DELETE, DROP ou TRUNCATE (arquivar é UPDATE de arquivado_em, e não há função de excluir)', () => {
+        const sql = executavelB()
+        expect(sql).not.toMatch(/\bDELETE\s+FROM\b/i)
+        expect(sql).not.toMatch(/\bDROP\b/i)
+        expect(sql).not.toMatch(/\bTRUNCATE\b/i)
+        expect(sql).not.toMatch(/CREATE (OR REPLACE )?FUNCTION public\.superadmin_(excluir|remover|apagar|deletar)/i)
+    })
+
+    it('arquivar grava arquivado_em e arquivado_por e TIRA a vigente (a CHECK da tabela não deixa arquivado e vigente)', () => {
+        const sql = executavelB()
+        expect(sql).toMatch(/UPDATE public\.orcamentista_motor SET arquivado_em = now\(\), arquivado_por = p_por, vigente = false WHERE id = p_motor/)
+        expect(sqlA()).toContain('CONSTRAINT orcamentista_motor_arquivado_nao_e_vigente   CHECK (NOT (vigente AND arquivado_em IS NOT NULL))')
+    })
+
+    it('a função das etapas NÃO remove etapa: recusa a que não veio na lista, nomeando-a', () => {
+        expect(sqlB()).toMatch(/remover etapa nao e permitido por aqui/)
+    })
+
+    it('COPIA-DIVERGENTE: a função NÃO repete a lista de ações nem a de abas — quem decide é a CHECK da tabela', () => {
+        const sql = executavelB()
+        for (const a of ACOES_DA_ETAPA) expect(sql).not.toContain(`'${a}'`)
+        for (const a of ABAS_DA_ETAPA) expect(sql).not.toContain(`'${a}'`)
+    })
+
+    it('...e traduz as violações pelas CHECK que a 20261027000002 criou: os nomes existem nas duas migrações', () => {
+        for (const c of ['orcamentista_familia_etapa_acao_da_lista', 'orcamentista_familia_etapa_abas_da_planilha', 'orcamentista_familia_etapa_rotulo_forma', 'orcamentista_familia_etapa_instrucao_ate_4000']) {
+            expect(executavelB()).toContain(`'${c}'`)
+            expect(sqlA()).toContain(c)
+        }
+    })
+
+    it('o limite da instrução e do rótulo na função são os do código', () => {
+        expect(sqlA()).toContain(`char_length(instrucao) <= ${LIMITE_DA_INSTRUCAO_DA_ETAPA}`)
+        expect(sqlA()).toContain(`char_length(rotulo) <= ${LIMITE_DO_ROTULO_DA_ETAPA}`)
+        expect(executavelB()).toContain(`v_n > ${MAXIMO_DE_ETAPAS_DA_FAMILIA}`)
+    })
+
+    it('o log das etapas e do motor é do CATÁLOGO: tenant nulo; o da matéria-prima leva a empresa', () => {
+        const sql = executavelB()
+        expect(sql).toMatch(/VALUES \(NULL, 'orcamentista_familia_etapa'/)
+        expect(sql).toMatch(/VALUES \(NULL, 'orcamentista_motor'/)
+        expect(sql).toMatch(/VALUES \(p_tenant, 'orcamentista_materia_prima'/)
     })
 })

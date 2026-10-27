@@ -108,6 +108,7 @@ export function BaseDeConhecimento({ tenantId, topo }: { tenantId: string; topo:
     const [avisos, setAvisos] = useState<Partial<Record<ChaveDoBloco, Aviso | null>>>({})
     const [salvando, setSalvando] = useState(false)
     const [resultado, setResultado] = useState<Resultado | null>(null)
+    const [erroDaFamilia, setErroDaFamilia] = useState<{ materiaPrimaId: string; mensagem: string } | null>(null)
 
     const ler = useCallback(async () => chamarRota<BaseDaEmpresa>(ROTAS_DA_BASE.base(tenantId)), [tenantId])
 
@@ -160,6 +161,20 @@ export function BaseDeConhecimento({ tenantId, topo }: { tenantId: string; topo:
             window.removeEventListener('beforeunload', aoFecharAAba)
         }
     }, [router])
+
+    /** A família da matéria-prima grava na hora, por rota própria, e relê a árvore — por isso só sem alteração pendente. */
+    async function mudarAFamilia(materiaPrimaId: string, familia: string | null) {
+        setErroDaFamilia(null)
+        try {
+            await chamarRota(ROTAS_DA_BASE.familiaDaMateriaPrima(tenantId), 'PUT', { materia_prima: materiaPrimaId, familia })
+            const nova = await chamarRota<ArvoreLida>(ROTAS_DA_BASE.arvore(tenantId))
+            setArvore(nova)
+            setFormArvore(formularioDaArvore(nova))
+            message.success('Família da matéria-prima salva')
+        } catch (e) {
+            setErroDaFamilia({ materiaPrimaId, mensagem: (e as Error).message })
+        }
+    }
 
     const avisar = (b: ChaveDoBloco, a: Aviso | null) => setAvisos((x) => ({ ...x, [b]: a }))
 
@@ -251,7 +266,8 @@ export function BaseDeConhecimento({ tenantId, topo }: { tenantId: string; topo:
         <MateriasPrimas key="materias" arvore={arvore} erroAoLer={erroDaArvore} estado={formArvore} mudar={setFormArvore}
             erros={planoArvore?.erros ?? []}
             erroDaRota={avisoDaArvore && 'rota' in avisoDaArvore ? avisoDaArvore.rota : null}
-            naoEnviado={avisoDaArvore && 'locais' in avisoDaArvore ? avisoDaArvore.locais : null} />
+            naoEnviado={avisoDaArvore && 'locais' in avisoDaArvore ? avisoDaArvore.locais : null}
+            aoMudarAFamilia={mudarAFamilia} familiaTravada={pendentes > 0} erroDaFamilia={erroDaFamilia} />
     )
 
     const mudarLinha = (set: React.Dispatch<React.SetStateAction<Linhas>>, id: string, p: Partial<LinhaDaLista> | { valor: [string, unknown] }) =>

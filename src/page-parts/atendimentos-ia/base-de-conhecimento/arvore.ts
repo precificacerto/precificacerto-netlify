@@ -45,11 +45,14 @@ export type CategoriaLida = Linha & {
     id: string; categoria_chave: string; config: Linha | null; fornecedores: FornecedorGravado[]
     vidros?: Linha[]; ferragens?: Linha[]; instalacao?: Linha[]
 }
-export type MateriaPrimaLida = Linha & { id: string; nome: string; ordem: number; categorias: CategoriaLida[] }
+export type MateriaPrimaLida = Linha & { id: string; nome: string; ordem: number; familia?: string | null; categorias: CategoriaLida[] }
+/** As famílias da lista e as ramificações que cada uma declara (`orcamentista_familia_ramificacao`), na ordem dela. */
+export type FamiliaDoCatalogo = { chave: string; rotulo: string; ordem: number }
+export type RamificacaoDaFamilia = { familia: string; categoria_chave: string; ordem: number }
 export type ArvoreLida = {
     tenant_id: string
     nicho: { id: string; modelo: string; nome: string } | null
-    catalogo: { categorias: CategoriaDoCatalogo[]; campos: CampoDoCatalogo[] }
+    catalogo: { categorias: CategoriaDoCatalogo[]; campos: CampoDoCatalogo[]; familias?: FamiliaDoCatalogo[]; ramificacoes?: RamificacaoDaFamilia[] }
     fornecedores_do_nicho: Array<{ id: string; nome: string }>
     /** fornecedor → as linhas da tabela em uso dele NESTA conta, POR FONTE. Sem chave: o fornecedor não tem tabela em uso. */
     linhas_por_fornecedor: Record<string, { formula: string[]; regra: string[] }>
@@ -63,6 +66,14 @@ export const ADICIONAR_VIDRO = '+ Adicionar vidro'
 export const ADICIONAR_FERRAGEM = '+ Adicionar ferragem'
 export const NOVO_FORNECEDOR = '+ fornecedor'
 export const fraseDasCategorias = (configuradas: number, total: number) => `${configuradas} de ${total} categorias`
+export const SEM_FAMILIA_NA_MATERIA_PRIMA =
+    'A família desta matéria-prima não está informada: a tela mostra todas as categorias do catálogo. Escolha a família para ver só as ramificações dela.'
+export const fraseFamiliaSemRamificacao = (rotulo: string) =>
+    `A família ${rotulo} ainda não declara ramificações: não há categoria a mostrar além das que já têm algo gravado.`
+export const fraseCategoriaForaDaFamilia = (rotulo: string) =>
+    `${rotulo} não é ramificação da família desta matéria-prima, mas tem dados gravados — por isso continua aqui.`
+export const FAMILIA_DEPOIS_DE_SALVAR = 'A família se escolhe depois de salvar a matéria-prima.'
+export const FAMILIA_COM_PENDENCIA = 'Salve as alterações antes de trocar a família: a tela é relida.'
 export const fraseRemoverEGravar = (nome: string) =>
     `"${nome}" está marcada para remoção neste salvar: desfaça a remoção ou use outro nome — remover e gravar a mesma matéria-prima no mesmo salvar é recusado.`
 export const USA_SEM_REFERENCIA = 'com "Usa?" em Sim, a referência é obrigatória'
@@ -116,6 +127,37 @@ const CAMPOS_DA_INSTALACAO: Record<string, TipoDoCampo> = {
 
 // ── O catálogo, em ordem ───────────────────────────────────────────────────────────────────
 export const categoriasEmOrdem = (c: ArvoreLida['catalogo']) => [...c.categorias].sort((a, b) => a.ordem - b.ordem)
+
+/** A categoria tem algo gravado? Config, fornecedor ou item de lista. */
+export const categoriaTemConteudo = (c: CategoriaLida): boolean =>
+    c.config !== null || c.fornecedores.length > 0 || (c.vidros?.length ?? 0) > 0 || (c.ferragens?.length ?? 0) > 0 || (c.instalacao?.length ?? 0) > 0
+
+/**
+ * AS CATEGORIAS QUE A MATÉRIA-PRIMA MOSTRA (dono do produto, 27/10/2026): as RAMIFICAÇÕES da família dela, na
+ * ordem que a família declara — `orcamentista_familia_ramificacao`, não a lista fixa do catálogo. Três casos:
+ *   - sem família: TODAS as do catálogo (a tela AVISA, em vez de fingir que a lista é a da família);
+ *   - com família: as que ela declara; a que NÃO declara mas tem dado gravado continua aparecendo (nada que está
+ *     gravado some da tela), depois das declaradas, na ordem do catálogo;
+ *   - com família que não declara nenhuma: só as que têm dado gravado.
+ */
+export function categoriasDaMateriaPrima(catalogo: ArvoreLida['catalogo'], familia: string | null | undefined, comConteudo: readonly string[] = []): CategoriaDoCatalogo[] {
+    const todas = categoriasEmOrdem(catalogo)
+    if (!familia) return todas
+    const declaradas = (catalogo.ramificacoes ?? []).filter((r) => r.familia === familia).sort((a, b) => a.ordem - b.ordem)
+    const chaves = new Set(declaradas.map((r) => r.categoria_chave))
+    const dasDeclaradas = declaradas.flatMap((r) => todas.filter((c) => c.chave === r.categoria_chave))
+    return [...dasDeclaradas, ...todas.filter((c) => !chaves.has(c.chave) && comConteudo.includes(c.chave))]
+}
+
+/** As categorias mostradas que a família NÃO declara (estão aqui porque têm dado gravado). Sem família ou sem ramificações declaradas: nenhuma. */
+export function categoriasForaDaFamilia(catalogo: ArvoreLida['catalogo'], familia: string | null | undefined, mostradas: readonly string[]): string[] {
+    if (!familia || !familiaDeclaraRamificacao(catalogo, familia)) return []
+    const declaradas = new Set((catalogo.ramificacoes ?? []).filter((r) => r.familia === familia).map((r) => r.categoria_chave))
+    return mostradas.filter((c) => !declaradas.has(c))
+}
+
+/** A família declara alguma ramificação? */
+export const familiaDeclaraRamificacao = (catalogo: ArvoreLida['catalogo'], familia: string) => (catalogo.ramificacoes ?? []).some((r) => r.familia === familia)
 export const camposDa = (c: ArvoreLida['catalogo'], chave: string) =>
     c.campos.filter((x) => x.categoria_chave === chave).sort((a, b) => a.ordem - b.ordem)
 
@@ -172,7 +214,7 @@ export type CategoriaDoFormulario = {
     ferragens: ItemDaLista[]
     instalacao: Record<string, Linha>
 }
-export type MateriaPrimaDoFormulario = { local: string; id: string | null; nome: string; categorias: CategoriaDoFormulario[] }
+export type MateriaPrimaDoFormulario = { local: string; id: string | null; nome: string; familia: string | null; categorias: CategoriaDoFormulario[] }
 export type EstadoDaArvore = { materias: MateriaPrimaDoFormulario[]; removidas: Array<{ id: string; nome: string }> }
 
 let proximo = 0
@@ -205,18 +247,21 @@ export function categoriaDoFormulario(catalogo: ArvoreLida['catalogo'], chave: s
 }
 
 export function formularioDaArvore(lida: ArvoreLida): EstadoDaArvore {
-    const ordem = categoriasEmOrdem(lida.catalogo)
     return {
-        materias: [...lida.materias_primas].sort(porOrdem).map((m) => ({
-            local: novoLocal(), id: m.id, nome: m.nome,
-            categorias: ordem.map((k) => categoriaDoFormulario(lida.catalogo, k.chave, m.categorias.find((c) => c.categoria_chave === k.chave) ?? null)),
-        })),
+        materias: [...lida.materias_primas].sort(porOrdem).map((m) => {
+            // as ramificações da FAMÍLIA da matéria-prima; a que não é ramificação mas tem dado gravado continua aparecendo
+            const ordem = categoriasDaMateriaPrima(lida.catalogo, m.familia ?? null, m.categorias.filter(categoriaTemConteudo).map((c) => c.categoria_chave))
+            return {
+                local: novoLocal(), id: m.id, nome: m.nome, familia: m.familia ?? null,
+                categorias: ordem.map((k) => categoriaDoFormulario(lida.catalogo, k.chave, m.categorias.find((c) => c.categoria_chave === k.chave) ?? null)),
+            }
+        }),
         removidas: [],
     }
 }
 
 export function novaMateriaPrima(catalogo: ArvoreLida['catalogo']): MateriaPrimaDoFormulario {
-    return { local: novoLocal(), id: null, nome: '', categorias: categoriasEmOrdem(catalogo).map((k) => categoriaDoFormulario(catalogo, k.chave, null)) }
+    return { local: novoLocal(), id: null, nome: '', familia: null, categorias: categoriasEmOrdem(catalogo).map((k) => categoriaDoFormulario(catalogo, k.chave, null)) }
 }
 
 /**
@@ -419,6 +464,8 @@ export function arvoreDoDepois(depois: Record<string, Linha[] | null | undefined
         materias_primas: materias.map((m) => ({
             ...m,
             id: String(m.id), nome: String(m.nome), ordem: Number(m.ordem),
+            // a família não vem em todo `depois`: sem ela na resposta, vale a que a tela já tinha (nunca "não informada" por esquecimento)
+            familia: m.familia !== undefined ? (m.familia as string | null) : (anterior.materias_primas.find((x) => x.id === String(m.id))?.familia ?? null),
             categorias: (depois.orcamentista_mp_categoria ?? [])
                 .filter((c) => c.materia_prima_id === m.id)
                 .sort((a, b) => (posicao.get(String(a.categoria_chave)) ?? 0) - (posicao.get(String(b.categoria_chave)) ?? 0))

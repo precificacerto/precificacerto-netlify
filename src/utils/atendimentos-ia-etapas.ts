@@ -15,7 +15,8 @@
  * CHECK, e é isso que o portão `atendimentos-ia-etapas-paridade.test.ts` confere — a lista não vive em dois
  * lugares sem alguém olhar os dois (`copia-divergente.md`).
  */
-import { CONTAGENS_DO_MOTOR, type ChaveDaContagem } from '@/utils/atendimentos-ia-motor'
+import { ehUuid } from '@/utils/atendimentos-ia-catalogo'
+import { CONTAGENS_DO_MOTOR, type AbaDaPlanilha } from '@/utils/atendimentos-ia-motor'
 
 /** O que o código sabe fazer numa etapa. Ordem = a do processo do dono do produto. */
 export const ACOES_DA_ETAPA = ['APANHAR', 'CONFIRMAR', 'GERAR_LEVANTAMENTO', 'CALCULAR_BARRAS', 'ENVIAR'] as const
@@ -36,7 +37,7 @@ export const ehAcaoDaEtapa = (v: unknown): v is AcaoDaEtapa => typeof v === 'str
  * da tabela do fornecedor (`orcamentista_tabela_item`), não do motor. Vêm de `CONTAGENS_DO_MOTOR`: nenhuma lista
  * de abas fica escrita em outro lugar.
  */
-export type AbaDaEtapa = Exclude<ChaveDaContagem, 'itens_de_preco'>
+export type AbaDaEtapa = AbaDaPlanilha
 export const ABAS_DA_ETAPA: readonly AbaDaEtapa[] = CONTAGENS_DO_MOTOR.map((c) => c.chave).filter((c): c is AbaDaEtapa => c !== 'itens_de_preco')
 
 /**
@@ -59,3 +60,134 @@ export const TABELAS_DO_MOTOR = [
     'orcamentista_motor_variavel',
     'orcamentista_motor_vidro',
 ] as const
+
+// ── AS ETAPAS DA FAMÍLIA NA TELA E NA ROTA (PR B; migração 20261027000003) ─────────────────────────────
+/**
+ * O limite do texto da etapa, contado como o banco conta (`char_length`: pontos de código). O rótulo e a
+ * instrução têm CHECK no banco (`..._rotulo_forma`, `..._instrucao_ate_4000`) e a função traduz a violação; a
+ * rota confere ANTES, com a frase que diz quantos.
+ */
+export const LIMITE_DO_ROTULO_DA_ETAPA = 60
+export const LIMITE_DA_INSTRUCAO_DA_ETAPA = 4000
+export const MAXIMO_DE_ETAPAS_DA_FAMILIA = 50
+
+const caracteres = (texto: string) => [...texto].length
+
+/** O rótulo de cada aba na tela: o mesmo do bloco Motor, das contagens. */
+export const ROTULO_DA_ABA: Record<AbaDaEtapa, string> = Object.fromEntries(
+    CONTAGENS_DO_MOTOR.filter((c) => c.chave !== 'itens_de_preco').map((c) => [c.chave, c.rotulo]),
+) as Record<AbaDaEtapa, string>
+
+/** Uma etapa como o banco a guarda. */
+export interface EtapaDaFamilia {
+    id: string
+    numero: number
+    rotulo: string
+    acao: AcaoDaEtapa
+    instrucao: string
+    abas: AbaDaEtapa[]
+}
+
+/** Uma etapa como a tela a manda: sem `numero` — a POSIÇÃO na lista é o número. Sem `id`, é etapa nova. */
+export interface EtapaNoCorpo {
+    id?: string
+    rotulo: string
+    acao: AcaoDaEtapa
+    instrucao: string
+    abas: AbaDaEtapa[]
+}
+
+export const rotaDasEtapas = (familia: string) => `/api/super-admin/atendimentos-ia/familias/${encodeURIComponent(familia)}/etapas`
+
+export const fraseDaAcaoForaDaLista = (n: number, acao: unknown) =>
+    `Etapa ${n}: a ação ${typeof acao === 'string' && acao !== '' ? `"${acao}"` : 'em branco'} não é uma das ações do sistema (${ACOES_DA_ETAPA.join(', ')}). O rótulo é livre; a ação não é.`
+export const fraseDoRotuloDaEtapa = (n: number, tamanho: number) =>
+    tamanho === 0 ? `Etapa ${n}: o rótulo está em branco.` : `Etapa ${n}: o rótulo tem ${tamanho} caracteres; o limite é ${LIMITE_DO_ROTULO_DA_ETAPA}.`
+export const fraseDaInstrucaoDaEtapa = (n: number, tamanho: number) =>
+    `Etapa ${n}: a instrução tem ${tamanho.toLocaleString('pt-BR')} caracteres; o limite é ${LIMITE_DA_INSTRUCAO_DA_ETAPA.toLocaleString('pt-BR')}. Encurte antes de salvar.`
+
+/**
+ * O corpo do PUT: `{ etapas: [{ id?, rotulo, acao, instrucao?, abas? }] }`, a LISTA INTEIRA da família na
+ * ordem desejada. Confere o que a função e o banco conferem — a primeira falha para, com o número da etapa —,
+ * e devolve a lista já limpa (rótulo e instrução sem os espaços das pontas). A lista de ações e a de abas são as
+ * constantes deste arquivo, que o portão de paridade amarra às CHECK da migração.
+ */
+export function lerCorpoDasEtapas(body: unknown): { ok: true; etapas: EtapaNoCorpo[] } | { ok: false; erro: string } {
+    const b = body && typeof body === 'object' && !Array.isArray(body) ? (body as Record<string, unknown>) : null
+    if (!b || !Array.isArray(b.etapas)) return { ok: false, erro: 'As etapas vão numa lista.' }
+    if (b.etapas.length > MAXIMO_DE_ETAPAS_DA_FAMILIA) {
+        return { ok: false, erro: `A família tem ${b.etapas.length} etapas na lista; o máximo é ${MAXIMO_DE_ETAPAS_DA_FAMILIA}.` }
+    }
+    const etapas: EtapaNoCorpo[] = []
+    const ids = new Set<string>()
+    for (let i = 0; i < b.etapas.length; i++) {
+        const n = i + 1
+        const e = b.etapas[i] && typeof b.etapas[i] === 'object' && !Array.isArray(b.etapas[i]) ? (b.etapas[i] as Record<string, unknown>) : null
+        if (!e) return { ok: false, erro: `Etapa ${n}: não é um objeto.` }
+        const fora = Object.keys(e).find((k) => !['id', 'rotulo', 'acao', 'instrucao', 'abas'].includes(k))
+        if (fora) return { ok: false, erro: `Etapa ${n}: o campo "${fora}" não existe (só id, rotulo, acao, instrucao e abas). O número é a posição na lista.` }
+        if (typeof e.rotulo !== 'string') return { ok: false, erro: `Etapa ${n}: o rótulo é um texto.` }
+        const rotulo = e.rotulo.trim()
+        if (rotulo === '' || caracteres(rotulo) > LIMITE_DO_ROTULO_DA_ETAPA) return { ok: false, erro: fraseDoRotuloDaEtapa(n, caracteres(rotulo)) }
+        if (!ehAcaoDaEtapa(e.acao)) return { ok: false, erro: fraseDaAcaoForaDaLista(n, e.acao) }
+        if (e.instrucao !== undefined && typeof e.instrucao !== 'string') return { ok: false, erro: `Etapa ${n}: a instrução é um texto.` }
+        const instrucao = (e.instrucao ?? '').toString().trim()
+        if (caracteres(instrucao) > LIMITE_DA_INSTRUCAO_DA_ETAPA) return { ok: false, erro: fraseDaInstrucaoDaEtapa(n, caracteres(instrucao)) }
+        if (e.abas !== undefined && !Array.isArray(e.abas)) return { ok: false, erro: `Etapa ${n}: as abas vão numa lista.` }
+        const abas = (e.abas ?? []) as unknown[]
+        const estranha = abas.find((a) => typeof a !== 'string' || !(ABAS_DA_ETAPA as readonly string[]).includes(a))
+        if (estranha !== undefined) return { ok: false, erro: `Etapa ${n}: "${String(estranha)}" não é uma aba da planilha.` }
+        if (new Set(abas).size !== abas.length) return { ok: false, erro: `Etapa ${n}: uma aba aparece mais de uma vez.` }
+        if (e.id !== undefined && e.id !== null) {
+            if (!ehUuid(e.id)) return { ok: false, erro: `Etapa ${n}: o id não é um uuid.` }
+            if (ids.has(e.id)) return { ok: false, erro: `Etapa ${n}: o id aparece mais de uma vez na lista.` }
+            ids.add(e.id)
+        }
+        etapas.push({ ...(typeof e.id === 'string' ? { id: e.id } : {}), rotulo, acao: e.acao, instrucao, abas: abas as AbaDaEtapa[] })
+    }
+    return { ok: true, etapas }
+}
+
+// ── O RASCUNHO DA TELA ───────────────────────────────────────────────────────────────────────────────────
+/** A etapa como está sendo editada na tela. `acao` é null na etapa nova até alguém escolher: nenhuma vem por omissão. */
+export interface EtapaNoRascunho {
+    local: string
+    id: string | null
+    rotulo: string
+    acao: AcaoDaEtapa | null
+    instrucao: string
+    abas: AbaDaEtapa[]
+}
+
+let proximoLocal = 0
+export const novaEtapaNoRascunho = (): EtapaNoRascunho => ({ local: `nova-${++proximoLocal}`, id: null, rotulo: '', acao: null, instrucao: '', abas: [] })
+
+export const rascunhoDasEtapas = (etapas: EtapaDaFamilia[]): EtapaNoRascunho[] =>
+    etapas.map((e) => ({ local: e.id, id: e.id, rotulo: e.rotulo, acao: e.acao, instrucao: e.instrucao, abas: [...e.abas] }))
+
+/** As abas na ordem da planilha, sem repetição: a tela marca e desmarca, a ordem não é escolha de ninguém. */
+export const abasEmOrdem = (marcadas: readonly string[]): AbaDaEtapa[] => ABAS_DA_ETAPA.filter((a) => marcadas.includes(a))
+
+/** O corpo do PUT: a lista inteira, na ordem da tela. A ação em branco vai como está, e `lerCorpoDasEtapas` a recusa nomeando a etapa. */
+export const corpoDoRascunho = (rascunho: readonly EtapaNoRascunho[]) => ({
+    etapas: rascunho.map((e) => ({ ...(e.id ? { id: e.id } : {}), rotulo: e.rotulo, acao: e.acao, instrucao: e.instrucao, abas: e.abas })),
+})
+
+/** A etapa mudou contra o gravado? Compara o que a rota grava: rótulo e instrução sem as pontas, as abas sem ordem. */
+export function etapasMudaram(rascunho: readonly EtapaNoRascunho[], gravadas: readonly EtapaDaFamilia[]): boolean {
+    if (rascunho.length !== gravadas.length) return true
+    return rascunho.some((e, i) => {
+        const g = gravadas[i]
+        return e.id !== g.id || e.rotulo.trim() !== g.rotulo || e.acao !== g.acao || e.instrucao.trim() !== g.instrucao
+            || [...e.abas].sort().join('|') !== [...g.abas].sort().join('|')
+    })
+}
+
+/** Troca a etapa de lugar com a vizinha. Fora da lista, devolve a lista como está. */
+export function moverEtapa<T>(lista: readonly T[], de: number, delta: -1 | 1): T[] {
+    const para = de + delta
+    if (de < 0 || de >= lista.length || para < 0 || para >= lista.length) return [...lista]
+    const saida = [...lista]
+    ;[saida[de], saida[para]] = [saida[para], saida[de]]
+    return saida
+}

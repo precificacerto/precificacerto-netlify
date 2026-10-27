@@ -149,6 +149,11 @@ export async function contaTemATabela(tenantId: string, tabelaId: string): Promi
     return ts.length > 0 && vinculos.has(String(ts[0].fornecedor_id))
 }
 
+/** O fornecedor é vinculado por ESTA conta na base de conhecimento? É a guarda das rotas da planilha. */
+export async function contaVinculaOFornecedor(tenantId: string, fornecedorId: string): Promise<boolean> {
+    return (await vinculosDaConta(tenantId)).has(fornecedorId)
+}
+
 /**
  * fornecedor → os tenants cuja base de conhecimento o vincula. É o USO derivado: a tabela de um fornecedor
  * vinculado é tabela daquela conta, e a rota da tabela recusa apagá-la.

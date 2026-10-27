@@ -11,6 +11,12 @@
  * TRÊS ESTADOS, SEMPRE: todo booleano é sim / não / não informado — `usa` NULL não é "não", e voltar
  * para "não informado" é um clique. Não há caixa de marcar: ela só tem dois estados.
  *
+ * A FAMÍLIA ESCOLHE AS RAMIFICAÇÕES (dono do produto, 27/10/2026): cada matéria-prima mostra as categorias que a
+ * família dela declara (`orcamentista_familia_ramificacao`), na ordem que a família dá — não a lista inteira do
+ * catálogo. Sem família, mostra todas e AVISA; categoria que não é da família mas tem dado gravado continua aqui, dita.
+ * A família se escolhe pela rota própria (`familiaDaMateriaPrima`), na hora, e só sem alteração pendente: depois
+ * de gravar, a árvore é relida.
+ *
  * O ERRO DA FUNÇÃO aparece INTEIRO: a mensagem traz o caminho ("materia-prima Aço, categoria PERFIL,
  * fornecedores: ..."), e é isso que diz ao super admin o que arrumar. Com caminho reconhecível ela vai
  * para o cartão da categoria; sem, para o topo do cartão.
@@ -22,6 +28,7 @@ import { ROTULO_DOS_TRES_ESTADOS, deTresEstados, paraTresEstados, type Par, type
 import {
     ADICIONAR_FERRAGEM, ADICIONAR_MATERIA_PRIMA, ADICIONAR_VIDRO, CAMPO_DA_LINHA, EM_BRANCO_DA_OPCAO, LISTA_DA_CATEGORIA, NOVO_FORNECEDOR, POSICOES_DA_FERRAGEM, PRODUTOS_DA_INSTALACAO,
     ROTULO_DA_POSICAO, ROTULO_DO_PRODUTO, SEM_PRINCIPAL_DO_PERFIL, TITULO_DO_CARTAO,
+    FAMILIA_COM_PENDENCIA, FAMILIA_DEPOIS_DE_SALVAR, SEM_FAMILIA_NA_MATERIA_PRIMA, categoriasForaDaFamilia, familiaDeclaraRamificacao, fraseCategoriaForaDaFamilia, fraseFamiliaSemRamificacao,
     camposDa, categoriasConfiguradas, desfazerRemocao, estadoDaLinha, fraseDasCategorias, fraseLinhaForaDaTabela, fraseLinhaSemFormula, fraseSemTabelaEmUso,
     fraseTabelaSemLinha, nomeDoFornecedor, novaMateriaPrima, novoLocal, ondeEstaOErro, origemDaLinha, tipoConhecido,
     type ArvoreLida, type CategoriaDoFormulario, type EstadoDaArvore, type ItemDaLista, type MateriaPrimaDoFormulario, type TipoDoCampo,
@@ -287,8 +294,50 @@ function CartaoDaCategoria({ c, arvore, mudar, erro, prefixo }: {
     )
 }
 
-function BlocoDaMateriaPrima({ m, i, arvore, mudarEstado, erros, erroDaFuncao }: {
-    m: MateriaPrimaDoFormulario; i: number; arvore: ArvoreLida; mudarEstado: Mudar; erros: string[]; erroDaFuncao: { categoria: string; mensagem: string } | null
+/** O que a matéria-prima precisa para escolher a família: o que fazer, se está travada por pendência e a recusa da última tentativa. */
+type DaFamilia = { aoMudar: (materiaPrimaId: string, familia: string | null) => Promise<void>; travada: boolean; erro: string | null }
+
+/** A FAMÍLIA da matéria-prima: o combo da lista, os avisos de sem família / família sem ramificação, e a categoria que ficou por ter dado. */
+function FamiliaDaMateriaPrima({ m, arvore, daFamilia }: { m: MateriaPrimaDoFormulario; arvore: ArvoreLida; daFamilia: DaFamilia | null }) {
+    const [gravando, setGravando] = React.useState(false)
+    const familias = arvore.catalogo.familias ?? []
+    if (familias.length === 0) return null
+    const rotulo = m.familia ? familias.find((f) => f.chave === m.familia)?.rotulo ?? m.familia : null
+    const fora = categoriasForaDaFamilia(arvore.catalogo, m.familia, m.categorias.map((c) => c.chave))
+    async function trocar(v: string | undefined) {
+        if (!m.id || !daFamilia) return
+        setGravando(true)
+        try { await daFamilia.aoMudar(m.id, v ?? null) } finally { setGravando(false) }
+    }
+    return (
+        <div data-familia-da-materia-prima style={{ marginBottom: 12 }}>
+            <Space wrap align="center">
+                <Typography.Text strong>Família:</Typography.Text>
+                {m.id === null || !daFamilia
+                    ? <Typography.Text type="secondary" data-familia-depois-de-salvar>{FAMILIA_DEPOIS_DE_SALVAR}</Typography.Text>
+                    : (
+                        <Select allowClear aria-label={`Família de ${m.nome}`} style={{ minWidth: 200 }} placeholder="Não informada" loading={gravando}
+                            disabled={daFamilia.travada || gravando} value={m.familia ?? undefined} onChange={trocar}
+                            options={familias.map((f) => ({ value: f.chave, label: f.rotulo }))} />
+                    )}
+                {daFamilia?.travada && m.id !== null && <Typography.Text type="secondary" style={{ fontSize: 12 }} data-familia-travada>{FAMILIA_COM_PENDENCIA}</Typography.Text>}
+            </Space>
+            {daFamilia?.erro && <div style={{ marginTop: 8 }} data-erro-da-familia><Alert type="error" showIcon message="A família não foi salva." description={daFamilia.erro} /></div>}
+            {!m.familia && <div style={{ marginTop: 8 }} data-sem-familia><Alert type="info" showIcon message={SEM_FAMILIA_NA_MATERIA_PRIMA} /></div>}
+            {m.familia && !familiaDeclaraRamificacao(arvore.catalogo, m.familia) && (
+                <div style={{ marginTop: 8 }} data-familia-sem-ramificacao><Alert type="warning" showIcon message={fraseFamiliaSemRamificacao(rotulo ?? m.familia)} /></div>
+            )}
+            {fora.map((c) => (
+                <Typography.Text key={c} type="warning" style={{ display: 'block', fontSize: 12, marginTop: 4 }} data-categoria-fora-da-familia={c}>
+                    {fraseCategoriaForaDaFamilia(arvore.catalogo.categorias.find((k) => k.chave === c)?.rotulo ?? c)}
+                </Typography.Text>
+            ))}
+        </div>
+    )
+}
+
+function BlocoDaMateriaPrima({ m, i, arvore, mudarEstado, erros, erroDaFuncao, daFamilia }: {
+    m: MateriaPrimaDoFormulario; i: number; arvore: ArvoreLida; mudarEstado: Mudar; erros: string[]; erroDaFuncao: { categoria: string; mensagem: string } | null; daFamilia: DaFamilia | null
 }) {
     const mudarMp = (f: (x: MateriaPrimaDoFormulario) => MateriaPrimaDoFormulario) =>
         mudarEstado((e) => ({ ...e, materias: e.materias.map((x) => (x.local === m.local ? f(x) : x)) }))
@@ -302,9 +351,10 @@ function BlocoDaMateriaPrima({ m, i, arvore, mudarEstado, erros, erroDaFuncao }:
                 {m.id
                     ? <Typography.Title level={5} style={{ margin: 0 }}>{m.nome}</Typography.Title>
                     : <Input aria-label="Nome da matéria-prima" placeholder="Nome da matéria-prima" style={{ maxWidth: 260 }} value={m.nome} onChange={(e) => mudarMp((x) => ({ ...x, nome: e.target.value }))} />}
-                <span data-categorias-configuradas>{fraseDasCategorias(categoriasConfiguradas(m, arvore.catalogo), arvore.catalogo.categorias.length)}</span>
+                <span data-categorias-configuradas>{fraseDasCategorias(categoriasConfiguradas(m, arvore.catalogo), m.categorias.length)}</span>
                 <Button danger onClick={remover}>Remover</Button>
             </div>
+            <FamiliaDaMateriaPrima m={m} arvore={arvore} daFamilia={daFamilia} />
             {erros.length > 0 && (
                 <Alert data-erros-da-materia-prima type="warning" showIcon style={{ marginBottom: 12 }}
                     description={<ul style={{ margin: 0, paddingLeft: 18 }}>{erros.map((e, j) => <li key={j}>{e}</li>)}</ul>} />
@@ -318,7 +368,7 @@ function BlocoDaMateriaPrima({ m, i, arvore, mudarEstado, erros, erroDaFuncao }:
 }
 
 // ── O cartão ───────────────────────────────────────────────────────────────────────────────
-export function MateriasPrimas({ arvore, erroAoLer, estado, mudar, erros, erroDaRota, naoEnviado }: {
+export function MateriasPrimas({ arvore, erroAoLer, estado, mudar, erros, erroDaRota, naoEnviado, aoMudarAFamilia, familiaTravada = false, erroDaFamilia = null }: {
     arvore: ArvoreLida | null
     erroAoLer: string | null
     estado: EstadoDaArvore
@@ -329,6 +379,12 @@ export function MateriasPrimas({ arvore, erroAoLer, estado, mudar, erros, erroDa
     erroDaRota: Error | null
     /** O que o último salvar segurou na tela, ou null. */
     naoEnviado: ErroNomeado[] | null
+    /** Grava a família da matéria-prima (rota própria) e relê a árvore. Sem isto, a tela só mostra a família. */
+    aoMudarAFamilia?: (materiaPrimaId: string, familia: string | null) => Promise<void>
+    /** Há alteração pendente: trocar a família releria a árvore e perderia o que está na tela. */
+    familiaTravada?: boolean
+    /** A recusa da última troca de família, com a matéria-prima onde ela aconteceu. */
+    erroDaFamilia?: { materiaPrimaId: string; mensagem: string } | null
 }) {
     const onde = erroDaRota ? ondeEstaOErro(erroDaRota.message, estado) : null
     return (
@@ -345,7 +401,8 @@ export function MateriasPrimas({ arvore, erroAoLer, estado, mudar, erros, erroDa
                     {estado.materias.map((m, i) => (
                         <BlocoDaMateriaPrima key={m.local} m={m} i={i} arvore={arvore} mudarEstado={mudar}
                             erros={erros.filter((e) => e.campo === `materia:${m.local}`).map((e) => e.mensagem)}
-                            erroDaFuncao={onde && onde.local === m.local && erroDaRota ? { categoria: onde.categoria, mensagem: erroDaRota.message } : null} />
+                            erroDaFuncao={onde && onde.local === m.local && erroDaRota ? { categoria: onde.categoria, mensagem: erroDaRota.message } : null}
+                            daFamilia={aoMudarAFamilia ? { aoMudar: aoMudarAFamilia, travada: familiaTravada, erro: erroDaFamilia && erroDaFamilia.materiaPrimaId === m.id ? erroDaFamilia.mensagem : null } : null} />
                     ))}
                     {estado.removidas.length > 0 && (
                         <div data-removidas style={{ marginBottom: 12 }}>
