@@ -1680,7 +1680,7 @@ describe('(20) o CONTEXTO DO ATENDIMENTO: o prompt manda em quando e em que form
     const numeros = (t: string) => t.match(/\d[\d.,]*/g) ?? []
 
     it.each([
-        ['sem linha', () => undefined],
+        ['sem linha', (): void => undefined],
         ['texto vazio', () => comContexto('')],
         ['só espaços', () => comContexto('   \n  ')],
         ['a tabela ainda não existe (migração pendente)', () => { estado.ausentes.add('orcamentista_contexto_do_atendimento') }],

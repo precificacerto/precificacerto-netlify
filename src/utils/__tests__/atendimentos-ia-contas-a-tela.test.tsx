@@ -242,6 +242,10 @@ describe('(g) os três blocos da conta, e o diagnóstico do consultor', () => {
         // a base de conhecimento leva o acesso à base, de onde vêm os fornecedores e, deles, as tabelas
         const base = host.querySelector('[data-bloco="base-de-conhecimento"]')!
         expect(base.querySelector('[data-grupo="acesso-a-base-de-conhecimento"]')).not.toBeNull()
+        // o prompt de atendimento é o bloco do contexto da empresa (26/10/2026), não mais o aviso "ainda não construído"
+        const prompt = host.querySelector('[data-bloco="prompt-de-atendimento"]')!
+        expect(prompt.querySelector('[data-grupo="contexto-do-atendimento"]')).not.toBeNull()
+        expect(prompt.textContent).not.toContain('Ainda não construído')
     })
 
     it('conta de modelo SEM fornecedor: o bloco Motor diz que o modelo não usa motor de fornecedor, e não lê o motor', async () => {

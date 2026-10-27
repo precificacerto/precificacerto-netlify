@@ -92,6 +92,14 @@
  * de novo. Com o levantamento em montagem a resposta repetida cai na mesma pergunta; depois de
  * COMPLETO, o reenvio de uma alteração a refaz com os mesmos números.
  *
+ * ══ O CONTEXTO DO ATENDIMENTO (dono do produto, 26/10/2026; `contexto-do-atendimento.ts`) ══
+ * "O PROMPT MANDA EM QUANDO E EM QUE FORMA. O CÓDIGO MANDA EM DE ONDE VEM O NÚMERO." Com contexto gravado, ele
+ * vai num bloco no FIM do sistema, e a ferramenta ganha a `fala`: uma frase da IA que ABRE a resposta do
+ * código — até 600 caracteres, sem número em forma nenhuma; filtro disparado, a fala cai e a resposta é a do
+ * código, sozinha. O texto que a IA reformula numa pergunta também cai se trouxer DINHEIRO. Sem contexto, o
+ * pedido e a resposta são os de hoje, byte a byte. Nenhum número da resposta sai da IA, e o caminho —
+ * apanhado, "sim", levantamento — continua decidido pelo código.
+ *
  * ══ NUNCA LANÇA ══
  * Quem chama responde 200 ao WUZAPI aconteça o que acontecer: um erro da LLM não pode virar reenvio em
  * laço. Toda falha vira uma linha `[IA]` e uma frase ao vendedor que diz o que falhou, sem detalhe técnico.
@@ -99,7 +107,8 @@
  * ══ O LOG ══
  * Uma linha `[IA]` em `console.error`: o id do levantamento, a rota, propostos, descartados, se
  * enviou, o desfecho, COMO o nome foi lido (`nome=veio|faltou|fora_do_texto|da_pergunta`), a pergunta
- * em aberto lida (`aberta=<código>|ausente|-`) e, quando houve chamada à IA, o tempo dela e os tokens de
+ * em aberto lida (`aberta=<código>|ausente|-`), o contexto (`contexto=sim|vazio|sem_migracao`) e, com ele, o que
+ * aconteceu com a fala (`fala=usada|ausente|descartada_numero|descartada_longa`) e, quando houve chamada à IA, o tempo dela e os tokens de
  * entrada e saída que a API devolve (`ia_ms=`, `ia_entrada=`, `ia_saida=`; "-" quando a API não os deu). NUNCA a chave, o telefone, o texto, o nome do
  * levantamento ou a pergunta. Num
  * 4xx da Anthropic a linha leva a `mensagem=` do erro, mascarada antes de cortada.
@@ -126,6 +135,7 @@ import {
     apagarPerguntaEmAberto, esquadriasDaProposta, gravarPerguntaEmAberto, lerPerguntaEmAberto,
     type CodigoDaPergunta, type EsquadriaProposta, type PerguntaEmAberto,
 } from '@/lib/atendimentos-ia/pergunta-em-aberto'
+import { DESCRICAO_DA_FALA, blocoDoContexto, falaValida, lerContextoDoAtendimento, temDinheiro, type ContextoLido, type FalaLida } from '@/lib/atendimentos-ia/contexto-do-atendimento'
 
 export const PREFIXO_DO_LOG_DA_IA = '[IA]'
 export const NOME_DA_FERRAMENTA = 'registrar_levantamento'
@@ -155,13 +165,17 @@ type MedidaDaIa = { ms: number | null; entrada: number | null; saida: number | n
 type Rastro = {
     levantamento: string; rota: Rota; propostos: number; descartados: number; enviou: boolean; admin: Permissao | null
     nome: MarcaDoNome; aberta: CodigoDaPergunta | 'ausente' | '-'; ia: MedidaDaIa
+    contexto: ContextoLido['estado'] | '-'; fala: FalaLida['motivo'] | '-'
 }
+const FALA_NO_LOG: Record<FalaLida['motivo'], string> = { usada: 'usada', ausente: 'ausente', numero: 'descartada_numero', longa: 'descartada_longa' }
 
 function anotar(r: Rastro, desfecho: DesfechoDaIa, detalhe = '') {
     // a permissão só aparece quando foi consultada; o motivo é um código, nunca um nome
     const admin = r.admin === null ? '' : 'motivo' in r.admin ? ` admin=nao motivo_admin=${r.admin.motivo}` : ' admin=sim'
     const ia = r.ia.ms === null ? '' : ` ia_ms=${r.ia.ms} ia_entrada=${r.ia.entrada ?? '-'} ia_saida=${r.ia.saida ?? '-'}`
-    console.error(`${PREFIXO_DO_LOG_DA_IA} levantamento=${r.levantamento} rota=${r.rota} propostos=${r.propostos} descartados=${r.descartados} enviou=${r.enviou ? 'sim' : 'nao'} desfecho=${desfecho}${admin} nome=${r.nome} aberta=${r.aberta}${ia}${detalhe ? ` ${detalhe}` : ''}`)
+    // o contexto e a fala: o ESTADO, nunca o texto
+    const contexto = r.contexto === '-' ? '' : ` contexto=${r.contexto}${r.fala === '-' ? '' : ` fala=${FALA_NO_LOG[r.fala]}`}`
+    console.error(`${PREFIXO_DO_LOG_DA_IA} levantamento=${r.levantamento} rota=${r.rota} propostos=${r.propostos} descartados=${r.descartados} enviou=${r.enviou ? 'sim' : 'nao'} desfecho=${desfecho}${admin} nome=${r.nome} aberta=${r.aberta}${contexto}${ia}${detalhe ? ` ${detalhe}` : ''}`)
 }
 
 // ── As frases fixas do roteamento ───────────────────────────────────────────────────────────
@@ -281,7 +295,18 @@ export const FERRAMENTA = {
     },
 }
 
+/**
+ * Com contexto da empresa, a mesma ferramenta e mais a `fala` (20 opcionais, dentro dos 24). Sem contexto, a de
+ * hoje: a IA nem é convidada a falar.
+ */
+export const FERRAMENTA_COM_FALA = {
+    ...FERRAMENTA,
+    input_schema: { ...FERRAMENTA.input_schema, properties: { ...FERRAMENTA.input_schema.properties, fala: { ...texto, description: DESCRICAO_DA_FALA } } },
+}
+
 type ContextoDoPrompt = {
+    /** O contexto da empresa, ou null — e null é o pedido de hoje, byte a byte. */
+    contexto: string | null
     candidatos: readonly CandidatoDeTipologia[]
     /** A conta tem mais de uma tabela: cada linha diz o fornecedor, e a regra do fornecedor entra. */
     variasTabelas: boolean
@@ -293,7 +318,7 @@ type ContextoDoPrompt = {
 }
 
 function sistema(c: ContextoDoPrompt): string {
-    return [
+    const deHoje = [
         'Você conversa pelo WhatsApp com um VENDEDOR de uma empresa de esquadrias e anota LEVANTAMENTOS.',
         'Cada levantamento tem um NOME dado pelo vendedor (ex.: "Levantamento Casa do João") e uma ou mais esquadrias.',
         'O vendedor já sabe o que a empresa vende: você só anota. Você recebe SÓ a mensagem desta vez.',
@@ -330,6 +355,8 @@ function sistema(c: ContextoDoPrompt): string {
         'Escolhas de arremate (USO INTERNO — código = descrição: número = opção). Cada linha de opções vai UMA vez, com o número entre colchetes; a tipologia diz quais usa:',
         ...opcoesDeArremateNoPrompt(c.escolhasPorTipologia),
     ].join('\n')
+    // o contexto vai no FIM: o que vem antes é o pedido de hoje, intacto
+    return c.contexto === null ? deHoje : `${deHoje}\n\n${blocoDoContexto(c.contexto).join('\n')}`
 }
 
 // ── A LLM ───────────────────────────────────────────────────────────────────────────────────
@@ -367,7 +394,7 @@ async function chamarLlm(chave: string, mensagem: string, contexto: ContextoDoPr
                 // extração curta de uma mensagem de chat: o raciocínio fica no mínimo
                 output_config: { effort: 'low' },
                 system: sistema(contexto),
-                tools: [FERRAMENTA],
+                tools: [contexto.contexto === null ? FERRAMENTA : FERRAMENTA_COM_FALA],
                 tool_choice: { type: 'auto' },
                 messages: [{ role: 'user', content: mensagem }],
             }),
@@ -555,13 +582,15 @@ async function enviarTexto(token: string, telefone: string, texto: string): Prom
 /** Um código de fornecedor no texto ("BZ0010", "IL50", "SF66"): o que chega ao vendedor não o traz. */
 const CODIGO_DE_FORNECEDOR = /\b[A-Z]{1,5}\d{2,}\b/
 
-function perguntaPara(p: Pendencia, nItens: number, proposta: Record<string, unknown>): string {
+function perguntaPara(p: Pendencia, nItens: number, proposta: Record<string, unknown>, comContexto: boolean): string {
     const fixa = perguntaDaPendencia(p, nItens)
     if (!('campo' in p)) return fixa
     const q = proposta.pergunta && typeof proposta.pergunta === 'object' ? (proposta.pergunta as { campo?: unknown; texto?: unknown }) : {}
     const t = typeof q.texto === 'string' ? q.texto.trim() : ''
     // o que chega ao vendedor não traz código de fornecedor (26/10/2026): a reformulação que traz vai para a fixa
     if (q.campo !== p.campo || t === '' || t.length > 500 || CODIGO_DE_FORNECEDOR.test(t)) return fixa
+    // com contexto da empresa, a reformulação que traz DINHEIRO também vai para a fixa: o número é do código
+    if (comContexto && temDinheiro(t)) return fixa
     return nItens > 1 ? `Esquadria ${p.ordem}: ${t}` : t
 }
 
@@ -616,10 +645,12 @@ export type Interlocutor = { tenantId: string; remetenteId: string; telefone: st
 
 /** Conduz uma mensagem do vendedor. NUNCA lança: toda falha vira uma linha `[IA]`. */
 export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
-    const rastro: Rastro = { levantamento: '-', rota: '-', propostos: 0, descartados: 0, enviou: false, admin: null, nome: '-', aberta: '-', ia: { ms: null, entrada: null, saida: null } }
+    const rastro: Rastro = { levantamento: '-', rota: '-', propostos: 0, descartados: 0, enviou: false, admin: null, nome: '-', aberta: '-', ia: { ms: null, entrada: null, saida: null }, contexto: '-', fala: '-' }
     const fim = (desfecho: DesfechoDaIa, detalhe = ''): DesfechoDaIa => { anotar(rastro, desfecho, detalhe); return desfecho }
+    // a fala da IA, já filtrada: abre a resposta do código. Sem contexto, ou com o filtro disparado, não há
+    let abertura: string | null = null
     const responder = async (textoDaResposta: string, desfecho: DesfechoDaIa, detalhe = ''): Promise<DesfechoDaIa> => {
-        const envio = await enviarTexto(c.wuzapiToken, c.telefone, textoDaResposta)
+        const envio = await enviarTexto(c.wuzapiToken, c.telefone, abertura ? `${abertura}\n\n${textoDaResposta}` : textoDaResposta)
         if (!envio.ok) return fim('envio-falhou', `status_envio=${envio.status ?? 'sem resposta'}${detalhe ? ` ${detalhe}` : ''}`)
         rastro.enviou = true
         return fim(desfecho, detalhe)
@@ -665,7 +696,11 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             const linhas = def ? escolhasParaOPrompt(def) : []
             return linhas.length ? [{ tipologia: variasTabelas ? `${x.tipologia} de ${x.fornecedor}` : x.tipologia, linhas }] : []
         })
+        // o contexto da empresa: vazio (ou a tabela ausente) é o pedido de hoje
+        const contexto = await lerContextoDoAtendimento(c.tenantId)
+        rastro.contexto = contexto.estado
         const resposta = await chamarLlm(chave, c.texto, {
+            contexto: contexto.texto,
             candidatos: tabela.candidatos, variasTabelas, cores, escolhasPorTipologia,
             montagem: emMontagem ? { nome: emMontagem.nome, itens: itensDaMontagem.map(camposParaOPrompt) } : null,
             perguntaEmAberto: pendenciaAberta ? perguntaDaPendencia(pendenciaAberta, itensDaMontagem.length) : aberta?.texto ?? null,
@@ -676,6 +711,11 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             return await responder(frase, resposta.tipo, resposta.detalhe)
         }
         const proposta = resposta.proposta
+        if (contexto.texto !== null) {
+            const fala = falaValida(proposta.fala)
+            rastro.fala = fala.motivo
+            abertura = fala.fala
+        }
         const confirma = proposta.confirma === true ? true : proposta.confirma === false ? false : null
         // a proposta que espera resposta entra quando ESTA mensagem não trouxe esquadria
         const daMensagem = esquadriasDaProposta(proposta)
@@ -831,7 +871,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         if (pendencia) {
             // sem lista de cores na base, perguntar a cor não leva a lugar nenhum: a conversa diz o que falta
             if ('campo' in pendencia && pendencia.campo === 'cor_perfil' && cores.length === 0) return await responder(FRASE_SEM_CORES, 'sem-cores')
-            return await responder(perguntaPara(pendencia, aplicada.itens.length, proposta), 'perguntou')
+            return await responder(perguntaPara(pendencia, aplicada.itens.length, proposta, contexto.texto !== null), 'perguntou')
         }
         // O APANHADO (dono do produto, 26/10/2026): a primeira resposta é conversa, não orçamento. O levantamento
         // formal, com o preço, só sai com o "sim" do vendedor à pergunta que citou ESTE levantamento. Sem exceção:
@@ -857,6 +897,8 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         return await responder(`${confirmacao}${levantamento.texto}`, levantamento.desfecho, semApanhado)
     } catch (e) {
         // Só o nome da tabela e o erro do banco — nunca a chave, o telefone ou o texto. E o vendedor sabe.
+        // A falha vai sozinha: a fala da IA não abre uma frase de erro
+        abertura = null
         const frase = gravando || e instanceof ErroAoGravar ? FALHA_DO_BANCO_AO_GRAVAR : gravado ? FALHA_NO_CALCULO : FALHA_DO_BANCO_ANTES
         return await responder(frase, 'erro', `motivo="${e instanceof Error ? e.message : 'desconhecido'}"`)
     }

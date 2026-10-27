@@ -363,6 +363,24 @@ export async function lerArvoreDaEmpresa(tenantId: string) {
     }
 }
 
+/**
+ * O contexto do atendimento gravado: o texto, quando e o NOME de quem alterou (o super admin — nunca dado de
+ * cliente). Sem linha, tudo null: vazio é o padrão, e nenhum texto é inventado.
+ */
+export async function lerContextoGravado(tenantId: string): Promise<{ texto: string | null; atualizado_em: string | null; atualizado_por: string | null }> {
+    const linha = await ler<Linha | null>('orcamentista_contexto_do_atendimento',
+        db().from('orcamentista_contexto_do_atendimento').select('texto, atualizado_em, atualizado_por').eq('tenant_id', tenantId).maybeSingle())
+    if (!linha) return { texto: null, atualizado_em: null, atualizado_por: null }
+    const autor = linha.atualizado_por
+        ? await ler<Linha | null>('users', db().from('users').select('id, name').eq('id', linha.atualizado_por).maybeSingle())
+        : null
+    return {
+        texto: typeof linha.texto === 'string' ? linha.texto : null,
+        atualizado_em: (linha.atualizado_em as string | null) ?? null,
+        atualizado_por: (autor?.name as string | null | undefined) ?? null,
+    }
+}
+
 export function falhaDeLeitura(res: NextApiResponse, e: unknown) {
     const f = e instanceof FalhaDeLeitura ? e : null
     console.error(`${PREFIXO_DO_LOG} leitura=${f?.onde ?? '-'} codigo=${f?.codigo ?? (e instanceof Error ? e.name : '-')}`)

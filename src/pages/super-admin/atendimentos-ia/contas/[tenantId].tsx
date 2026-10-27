@@ -24,8 +24,9 @@
  *
  * OS TRÊS BLOCOS (dono do produto, 26/10/2026): depois da configuração, a tela tem as três camadas, nesta
  * ordem — BASE DE CONHECIMENTO (o acesso à base, de onde vêm os fornecedores e, deles, as tabelas), MOTOR
- * (`MotorDaConta`: mostra o que está carregado e edita só escolha estruturada) e PROMPT DE ATENDIMENTO (o
- * próximo passo). O teste de anexo fica à parte, como instrumento de diagnóstico do consultor.
+ * (`MotorDaConta`: mostra o que está carregado e edita só escolha estruturada) e PROMPT DE ATENDIMENTO
+ * (`PromptDeAtendimento`: o contexto da empresa, texto livre até 4.000 caracteres — manda em quando e em que
+ * forma, nunca no número). O teste de anexo fica à parte, como instrumento de diagnóstico do consultor.
  *
  * "TABELAS EM USO" SAIU desta tela (dono do produto, 26/10/2026): as tabelas da conta são DERIVADAS dos
  * fornecedores que a base de conhecimento vincula (`tabelas-da-conta.ts`), e não há segunda escolha a fazer.
@@ -71,6 +72,7 @@ import { TesteDeAnexo } from '@/page-parts/atendimentos-ia/teste-de-anexo.compon
 import { chamarRota } from '@/page-parts/atendimentos-ia/api'
 import { NichoSelect } from '@/page-parts/atendimentos-ia/nicho-select.component'
 import { MotorDaConta } from '@/page-parts/atendimentos-ia/motor-da-conta.component'
+import { PromptDeAtendimento } from '@/page-parts/atendimentos-ia/prompt-de-atendimento.component'
 import { rotaDaTelaDaBase } from '@/page-parts/atendimentos-ia/base-de-conhecimento/formulario'
 
 const SEM_MODELO = '__sem_modelo__'
@@ -240,10 +242,7 @@ export default function ConfiguracaoDaConta() {
             </Card>
             <Card style={{ marginTop: 16 }} data-bloco="prompt-de-atendimento">
                 <Typography.Title level={4} style={{ marginTop: 0 }}>3. Prompt de atendimento</Typography.Title>
-                <Typography.Paragraph type="secondary" style={{ fontSize: 13, marginBottom: 0 }}>
-                    Como conversar: texto livre, até 4.000 caracteres. Manda em QUANDO e EM QUE FORMA; de onde vem o número
-                    é do motor. Ainda não construído — é o próximo passo.
-                </Typography.Paragraph>
+                <PromptDeAtendimento tenantId={conta.tenant_id} />
             </Card>
             {/* REGRA DE PRODUTO (dono do produto, 26/10/2026): toda mensagem nasce da conversa do vendedor com o
                 agente; o super admin é o consultor e não fala com ninguém. O teste de anexo FICA, como instrumento

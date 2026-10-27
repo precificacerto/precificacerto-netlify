@@ -62,7 +62,6 @@ jest.mock('@/supabase/admin', () => ({
             const predicados: Array<(l: Linha) => boolean> = []
             const responder = () => {
                 if (estado.ausentes.has(tabela)) return { data: null as unknown, error: { code: 'PGRST205', message: `Could not find the table 'public.${tabela}'` } }
-                if (tabela === 'users') return { data: [estado.usuario].filter(Boolean), error: null as unknown }
                 return { data: (estado.db[tabela] ?? []).filter((l) => predicados.every((p) => p(l))), error: null as unknown }
             }
             const q: any = {
