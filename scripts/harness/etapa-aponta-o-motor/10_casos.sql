@@ -22,8 +22,10 @@ do $$
 declare n int;
 begin
   select count(*) into n from public.orcamentista_tabela where motor_path is not null and motor_nome is not null and categoria_chave is null;
-  if n <> 2 then raise exception 'FALHOU caso T1: % tabelas de hoje com motor e categoria nula (esperado 2)', n; end if;
-  raise notice 'ok: caso T1 — Wolff e Estrela seguem com o motor e sem categoria';
+  if n <> 2 then raise exception 'FALHOU caso T1: % tabelas de hoje com motor nao nulo e categoria nula (esperado 2)', n; end if;
+  select count(*) into n from public.orcamentista_tabela where motor_path = '' and motor_nome = '' and categoria_chave is null;
+  if n <> 1 then raise exception 'FALHOU caso T1: % tabelas de hoje com motor VAZIO (esperado 1, a Estrela)', n; end if;
+  raise notice 'ok: caso T1 — Wolff (motor preenchido) e Estrela (motor vazio, como em producao) seguem sem categoria';
 end $$;
 -- CASO T2 — Reforço e Acessórios sem arquivo de motor gravam
 do $$
@@ -48,6 +50,19 @@ begin
   if r <> 'ok' then raise exception 'FALHOU caso T3b: %', r; end if;
   delete from public.orcamentista_tabela where id = 'f0000000-0000-0000-0000-0000000000a1';
   raise notice 'ok: caso T3 — PERFIL sem motor é recusado (23514); PERFIL com motor grava';
+end $$;
+-- CASO T3c — PERFIL com o motor VAZIO ou em branco NÃO tem motor: o banco recusa (achado do dono do produto, 27/10/2026)
+do $$
+declare r text; v text;
+begin
+  foreach v in array array['', '   ', E'\t', E'\n '] loop
+    r := public.h_erro(format($q$insert into public.orcamentista_tabela (fornecedor_id, arquivo_path, arquivo_nome, motor_path, motor_nome, familia, categoria_chave) values ('44c5c0fe-a0d3-4aab-802d-20a6eff3f654', 'x', 'perfil.xlsx', %L, %L, 'PVC', 'PERFIL')$q$, v, v));
+    if r not like '23514|%orcamentista_tabela_perfil_exige_motor%' then raise exception 'FALHOU caso T3c: PERFIL com motor_path % passou ou caiu em outra trava: %', quote_literal(v), r; end if;
+  end loop;
+  -- por UPDATE também: a Estrela (motor vazio) não pode declarar PERFIL; declarar VIDRO passa (a regra é só do PERFIL)
+  r := public.h_erro($q$update public.orcamentista_tabela set categoria_chave = 'PERFIL' where id = '5f7acebf-3c91-46de-af00-57a47f8be288'$q$);
+  if r not like '23514|%orcamentista_tabela_perfil_exige_motor%' then raise exception 'FALHOU caso T3d: a Estrela (motor vazio) declarou PERFIL: %', r; end if;
+  raise notice 'ok: caso T3c — PERFIL com motor vazio ou em branco é recusado, no INSERT e no UPDATE (a Estrela não declara PERFIL)';
 end $$;
 -- CASO T4 — arquivo sem nome (ou nome sem arquivo) é recusado (motor_par)
 do $$
