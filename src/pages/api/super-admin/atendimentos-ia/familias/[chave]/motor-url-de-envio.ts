@@ -5,7 +5,7 @@
  * de um fornecedor: ele é da plataforma, global. A rota escolhe o caminho (`caminhoDoMotorDaFamilia`: a pasta da família, um id único e
  * o nome limpo) e assina UM envio para esse caminho e só para ele; os bytes vão do navegador direto ao Storage, sem passar pela rota
  * (o corpo de uma função na Vercel é limitado, e o motor da Wolff pesa ~24 MB descompactado). Quem lê o objeto, cria o motor e aponta
- * a etapa é `familias/[chave]/etapas/[etapaId]/motor`. URL assinada e não usada não deixa rastro.
+ * a etapa é `familias/[chave]/motor-da-etapa/[etapaId]`. URL assinada e não usada não deixa rastro.
  *
  * Só planilha que a leitura abre (`.xlsx`, `.xlsm`): o que não abre é recusado AQUI, antes do envio, com o arquivo e o porquê.
  * Só o super admin (os outros recebem 404, como nas etapas).

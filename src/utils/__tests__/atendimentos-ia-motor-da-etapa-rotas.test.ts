@@ -3,7 +3,7 @@
  *
  * PORTÃO — as ROTAS do motor que a etapa sobe (27/10/2026; migração 20261027000010):
  *   POST /api/super-admin/atendimentos-ia/familias/[chave]/motor-url-de-envio
- *   POST /api/super-admin/atendimentos-ia/familias/[chave]/etapas/[etapaId]/motor
+ *   POST /api/super-admin/atendimentos-ia/familias/[chave]/motor-da-etapa/[etapaId]
  *   PUT  /api/super-admin/base-de-conhecimento/nome-da-materia-prima  (o título da família é digitado)
  *
  * >>> O QUE ESTE PORTÃO **NÃO** ALCANÇA <<<
@@ -104,7 +104,7 @@ jest.mock('@/supabase/admin', () => ({
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 const rotaDoEnvio = () => require('@/pages/api/super-admin/atendimentos-ia/familias/[chave]/motor-url-de-envio').default
-const rotaDoMotor = () => require('@/pages/api/super-admin/atendimentos-ia/familias/[chave]/etapas/[etapaId]/motor').default
+const rotaDoMotor = () => require('@/pages/api/super-admin/atendimentos-ia/familias/[chave]/motor-da-etapa/[etapaId]').default
 const rotaDoNome = () => require('@/pages/api/super-admin/base-de-conhecimento/nome-da-materia-prima').default
 /* eslint-enable @typescript-eslint/no-require-imports */
 
@@ -206,7 +206,7 @@ describe('(2) POST motor-url-de-envio — assina UM envio, na pasta DA FAMÍLIA'
     })
 })
 
-describe('(3) POST etapas/[etapaId]/motor — lê o arquivo, chama a função e confere', () => {
+describe('(3) POST motor-da-etapa/[etapaId] — lê o arquivo, chama a função e confere', () => {
     it('o caminho feliz: chama SÓ a função, com a etapa da URL, o autor da SESSÃO, o caminho e o nome do corpo, e o payload do leitor', async () => {
         estado.objetos.set(PATH_PVC, await arquivoDoMotor())
         estado.rpcResposta = devolveOQueRecebeu
@@ -334,7 +334,7 @@ describe('(3) POST etapas/[etapaId]/motor — lê o arquivo, chama a função e 
 
     it('a rota tem maxDuration de 90 s (a gravação chega a 35 s e o corpo leva ~19 s ao banco)', () => {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
-        expect(require('@/pages/api/super-admin/atendimentos-ia/familias/[chave]/etapas/[etapaId]/motor').config).toEqual({ maxDuration: 90 })
+        expect(require('@/pages/api/super-admin/atendimentos-ia/familias/[chave]/motor-da-etapa/[etapaId]').config).toEqual({ maxDuration: 90 })
     })
 })
 

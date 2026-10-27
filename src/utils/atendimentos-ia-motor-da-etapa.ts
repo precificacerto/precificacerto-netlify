@@ -18,7 +18,7 @@ const RAIZ = '/api/super-admin/atendimentos-ia/familias'
 /** POST `{ nome }` → `{ path, signedUrl }`: assina o envio para a pasta DA FAMÍLIA. */
 export const rotaDoEnvioDoMotor = (familia: string) => `${RAIZ}/${encodeURIComponent(familia)}/motor-url-de-envio`
 /** POST `{ path, nome }`: lê o objeto, cria o motor e aponta a etapa. */
-export const rotaDoMotorDaEtapa = (familia: string, etapaId: string) => `${RAIZ}/${encodeURIComponent(familia)}/etapas/${encodeURIComponent(etapaId)}/motor`
+export const rotaDoMotorDaEtapa = (familia: string, etapaId: string) => `${RAIZ}/${encodeURIComponent(familia)}/motor-da-etapa/${encodeURIComponent(etapaId)}`
 
 /** A pasta do bucket onde mora o arquivo de motor de uma família. A função do banco confere o MESMO prefixo. */
 export const pastaDoMotorDaFamilia = (familia: string) => `familia/${familia}/motor/`

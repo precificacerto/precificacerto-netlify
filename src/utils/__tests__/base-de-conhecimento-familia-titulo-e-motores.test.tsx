@@ -31,9 +31,6 @@ const N_ESQ = '00000000-0000-4000-8000-0000000000e5'
 const PVC = '00000000-0000-4000-8000-00000000d001'
 const SEM = '00000000-0000-4000-8000-00000000d002'
 const F_WOLFF = '00000000-0000-4000-8000-0000000000f1'
-const F_ALCOA = '00000000-0000-4000-8000-0000000000f2'
-const F_FORA = '00000000-0000-4000-8000-0000000000f3'
-const F_HYDRO = '00000000-0000-4000-8000-0000000000f4'
 
 jest.mock('next/router', () => ({
     useRouter: () => ({ pathname: '/super-admin/atendimentos-ia/contas/[tenantId]/base-de-conhecimento', asPath: '/', query: { tenantId: CONTA }, replace: () => {}, push: () => {},
@@ -80,8 +77,6 @@ const catalogo = () => ({
     ],
 })
 const ORDEM_DO_CATALOGO = ['PERFIL', 'REFORCO', 'FERRAGENS', 'ACESSORIOS_VEDACAO', 'VIDRO', 'INSTALACAO']
-/** O "M" de "N de M categorias" é o tamanho do catálogo DO TESTE — nunca um 6 escrito à mão. */
-const TOTAL_DO_CATALOGO = catalogo().categorias.length
 
 const categoria = (chave: string, resto: Linha = {}): Linha => ({
     id: `cat-pvc-${chave}`, tenant_id: CONTA, materia_prima_id: PVC, categoria_chave: chave, config: null, atualizado_por: null, atualizado_em: '2026-10-23T12:00:00Z',
@@ -163,7 +158,6 @@ async function montar(): Promise<HTMLElement> {
 
 const cartao = (host: ParentNode) => host.querySelector('[data-bloco="materias"]') as HTMLElement
 const mp = (host: ParentNode, i: number) => cartao(host).querySelector(`[data-materia-prima="${i}"]`) as HTMLElement
-const cat = (host: ParentNode, i: number, chave: string) => mp(host, i).querySelector(`[data-categoria="${chave}"]`) as HTMLElement
 const campo = (raiz: ParentNode, c: string) => raiz.querySelector(`[data-campo="${c}"]`) as HTMLElement | null
 const botao = (raiz: ParentNode, texto: string) =>
     Array.from(raiz.querySelectorAll('button')).find((b) => (b.textContent || '').trim() === texto) as HTMLButtonElement | undefined
@@ -180,36 +174,8 @@ async function digitar(input: HTMLInputElement | null | undefined, valor: string
     })
     await act(async () => { input.dispatchEvent(new Event('blur', { bubbles: true })) })
 }
-async function escolherNoSeletor(el: HTMLElement | null, texto: string) {
-    if (!el) throw new Error('seletor não encontrado')
-    await act(async () => { (el.querySelector('.ant-select-selector') as HTMLElement).dispatchEvent(new MouseEvent('mousedown', { bubbles: true })) })
-    const listas = Array.from(document.querySelectorAll('.ant-select-dropdown:not(.ant-select-dropdown-hidden)'))
-    const ultima = listas[listas.length - 1] as HTMLElement
-    const opcao = Array.from(ultima.querySelectorAll('.ant-select-item-option')).find((o) => (o.textContent || '').trim() === texto) as HTMLElement
-    if (!opcao) throw new Error(`opção ${texto} não encontrada`)
-    await act(async () => { opcao.click() })
-    await assentar()
-}
-async function opcoesDoSeletor(el: HTMLElement | null): Promise<string[]> {
-    if (!el) throw new Error('seletor não encontrado')
-    await act(async () => { (el.querySelector('.ant-select-selector') as HTMLElement).dispatchEvent(new MouseEvent('mousedown', { bubbles: true })) })
-    const listas = Array.from(document.querySelectorAll('.ant-select-dropdown:not(.ant-select-dropdown-hidden)'))
-    return Array.from(listas[listas.length - 1].querySelectorAll('.ant-select-item-option')).map((o) => (o.textContent || '').trim())
-}
-const radio = (raiz: ParentNode | null, estado: 'sim' | 'nao' | 'nao_informado') =>
-    raiz?.querySelector(`input[type="radio"][value="${estado}"]`) as HTMLInputElement | null
 const entrada = (raiz: ParentNode | null) => raiz?.querySelector('input') as HTMLInputElement | null
-const botaoDeSalvar = (host: ParentNode) => host.querySelector('[data-empresa-no-topo] [data-salvar-alteracoes]') as HTMLButtonElement
 const pendencias = (host: ParentNode) => host.querySelector('[data-empresa-no-topo] [data-pendencias]')?.textContent ?? null
-async function salvar(host: ParentNode) { await clicar(botaoDeSalvar(host)); await assentar() }
-const putsDaArvore = () => pedidos.filter((p) => p.metodo === 'PUT' && p.url === F().ROTAS_DA_BASE.arvore(CONTA))
-const arvoreEnviada = () => { const p = putsDaArvore(); expect(p).toHaveLength(1); return (p[0].corpo as { arvore: Linha }).arvore }
-/** Toda chave de um JSON, em qualquer profundidade — para afirmar ausência sobre o VALOR, não sobre o texto serializado. */
-function chaves(v: unknown): string[] {
-    if (Array.isArray(v)) return v.flatMap(chaves)
-    if (v && typeof v === 'object') return Object.entries(v as Linha).flatMap(([k, x]) => [k, ...chaves(x)])
-    return []
-}
 
 
 const titulo = (host: ParentNode, i: number) => mp(host, i).querySelector('[data-cabecalho-da-materia-prima] h5') as HTMLElement

@@ -171,7 +171,7 @@ com log). **(4)** O motor é **global** (opção A): nenhuma duplicação por co
   global se edita dos dois lados; é a mesma lista e as mesmas rotas). A seção traz o aviso de que etapa e motor valem para **todas** as contas da
   família e **nomeia** quais (só o nome da conta).
 - **Como o arquivo viaja:** a rota da família assina o envio em `familia/<chave>/motor/<uuid>-<nome>` (`motor-url-de-envio`), o navegador manda
-  os bytes ao Storage, e a rota da etapa (`etapas/[etapaId]/motor`) lê o objeto com o **mesmo leitor da importação** (`lerArquivoDoMotor` —
+  os bytes ao Storage, e a rota da etapa (`motor-da-etapa/[etapaId]`) lê o objeto com o **mesmo leitor da importação** (`lerArquivoDoMotor` —
   `lerOMotor` é uma só, para os dois caminhos), chama a função e **confere as doze contagens** contra o que mandou (divergência é 500, nunca
   sucesso). A função confere o mesmo prefixo da pasta.
 - **Campo travado:** o arquivo só sobe com a lista salva (subir relê a lista e perderia o rascunho), e a etapa nova mostra "salve antes".

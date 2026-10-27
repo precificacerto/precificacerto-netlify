@@ -145,7 +145,8 @@ describe('(3) a conferência do que a função gravou', () => {
 
     it('contagem que a função não devolveu (ausente ou texto) é divergência, nunca acerto', async () => {
         const p = montarPayloadDoMotor(await ler())
-        const { regras: _tira, ...semRegras } = gravadoIgual(p)
+        const semRegras: Record<string, unknown> = { ...gravadoIgual(p) }
+        delete semRegras.regras
         expect(conferirGravacaoDoMotor(p, semRegras)).not.toBeNull()
         expect(conferirGravacaoDoMotor(p, { ...gravadoIgual(p), regras: String(gravadoIgual(p).regras) })).not.toBeNull()
     })
@@ -220,7 +221,7 @@ describe('(5) os corpos, o caminho e as frases', () => {
 
     it('as rotas são as da família, com a chave e o id codificados', () => {
         expect(rotaDoEnvioDoMotor('PVC')).toBe('/api/super-admin/atendimentos-ia/familias/PVC/motor-url-de-envio')
-        expect(rotaDoMotorDaEtapa('PVC', 'e-1')).toBe('/api/super-admin/atendimentos-ia/familias/PVC/etapas/e-1/motor')
+        expect(rotaDoMotorDaEtapa('PVC', 'e-1')).toBe('/api/super-admin/atendimentos-ia/familias/PVC/motor-da-etapa/e-1')
         expect(rotaDoEnvioDoMotor('A B')).toContain('A%20B')
     })
 

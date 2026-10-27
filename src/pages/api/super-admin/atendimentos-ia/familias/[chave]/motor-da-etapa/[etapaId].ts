@@ -1,8 +1,11 @@
 /**
- * POST /api/super-admin/atendimentos-ia/familias/[chave]/etapas/[etapaId]/motor — { path, nome }: o arquivo de motor enviado vira o
+ * POST /api/super-admin/atendimentos-ia/familias/[chave]/motor-da-etapa/[etapaId] — { path, nome }: o arquivo de motor enviado vira o
  * MOTOR DA ETAPA. Cria a linha em `orcamentista_motor` (família = a da etapa, sem fornecedor), grava as 12 tabelas por `motor_id`,
  * registra a importação e aponta a etapa, numa transação só (`superadmin_criar_motor_da_etapa`, migração 20261027000010, que loga).
  * Trocar o arquivo é a mesma chamada: o motor novo nasce, a etapa o aponta, o velho fica arquivável.
+ *
+ * POR QUE NÃO `etapas/[etapaId]/motor`: com essa pasta ao lado de `etapas.ts`, o `next build` morre em "Collecting build traces" com EMFILE (medido em
+ * 27/10/2026; a mesma rota fora dela compila, e sem ela o build passa). O caminho é irmão, não filho, de `etapas`.
  *
  * O motor é GLOBAL (opção A, dono do produto, 27/10/2026): vale para toda conta da família, e não se duplica por conta. O motor novo
  * NASCE SEM TEMPO: os tempos de fabricação ficam como estão. O cálculo da conversa NÃO muda — quem passa a ler as etapas é o PR D.
