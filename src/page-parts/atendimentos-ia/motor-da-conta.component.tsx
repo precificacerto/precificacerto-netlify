@@ -14,21 +14,24 @@
  *     mesmo campo da tela da base — não uma cópia.
  *
  * AS TABELAS SÃO AS DERIVADAS (dono do produto, 26/10/2026): as dos fornecedores que a base de conhecimento
- * vincula. Cada uma diz o PAPEL — com motor entra na conversa; sem motor é TABELA DE PREÇO e não entra —, a
- * categoria pela qual entra e se vale para levantamento novo. Os avisos da derivação vêm no topo.
+ * vincula. O bloco LISTA SÓ O QUE TEM MOTOR CARREGADO (dono do produto, 27/10/2026), medido pelo conteúdo
+ * (tipologias > 0) — a tabela de preço sai da lista, sem nada ser apagado — e diz A QUAL FAMÍLIA cada motor
+ * pertence e DE ONDE ele vem: a tabela do fornecedor (a conversa lê) ou a planilha (a conversa ainda não lê).
+ * ARQUIVAR é da planilha: sai da lista e da conversa, o dado fica. NÃO HÁ botão de excluir. Os avisos da
+ * derivação vêm no topo.
  *
  * Tudo pelas rotas (`ROTAS_DO_MOTOR`); falha de leitura é ERRO na tela, nunca um bloco vazio.
  * Portão: `src/utils/__tests__/atendimentos-ia-motor-a-tela.test.tsx`.
  */
 import React, { useCallback, useEffect, useState } from 'react'
-import { Alert, Button, Card, Drawer, Empty, Radio, Space, Switch, Table, Tabs, Tag, Typography, message } from 'antd'
+import { Alert, Button, Card, Drawer, Empty, Popconfirm, Radio, Space, Switch, Table, Tabs, Tag, Typography, message } from 'antd'
 import { chamarRota } from '@/page-parts/atendimentos-ia/api'
 import { ROTAS_DA_BASE } from '@/page-parts/atendimentos-ia/base-de-conhecimento/formulario'
 import { ROTAS_DO_CATALOGO } from '@/utils/atendimentos-ia-catalogo'
 import {
-    ABAS_DA_TIPOLOGIA, AVISO_NENHUMA_COM_MOTOR, CONTAGENS_DO_MOTOR, ROTAS_DO_MOTOR, ROTULO_DO_CRITERIO, ROTULO_DO_PAPEL, SEM_TABELA_NA_CONTA,
-    fraseDoFornecedorSemTabela, fraseDoParSemVigente,
-    type AbasDaTipologia, type CriterioDeCustoDaBarra, type MotorDaConta as Resumo, type TabelaNoMotor, type TipologiaNoMotor,
+    ABAS_DA_TIPOLOGIA, AVISO_NENHUMA_COM_MOTOR, CONTAGENS_DO_MOTOR, ROTAS_DO_MOTOR, ROTULO_DA_ORIGEM, ROTULO_DO_CRITERIO, SEM_MOTOR_NA_CONTA,
+    fraseDoArquivar, fraseDoFornecedorSemTabela, fraseDoParSemVigente,
+    type AbasDaTipologia, type CriterioDeCustoDaBarra, type DonoDoMotor, type MotorDaConta as Resumo, type PlanilhaNoMotor, type TabelaNoMotor, type TipologiaNoMotor,
 } from '@/utils/atendimentos-ia-motor'
 
 export const CASCATA = 'Família → Linha → Tipologia → Perfis, vidros, insumos → Preço'
@@ -102,7 +105,7 @@ function VigenteDaTabela({ tabela, onSalvo }: { tabela: TabelaNoMotor; onSalvo: 
     )
 }
 
-function TipologiasDaTabela({ tenantId, tabela }: { tenantId: string; tabela: TabelaNoMotor }) {
+function TipologiasDoMotor({ tenantId, dono, fornecedor }: { tenantId: string; dono: DonoDoMotor; fornecedor: string }) {
     const [lista, setLista] = useState<TipologiaNoMotor[] | null>(null)
     const [erro, setErro] = useState<string | null>(null)
     const [aberta, setAberta] = useState<string | null>(null)
@@ -111,13 +114,13 @@ function TipologiasDaTabela({ tenantId, tabela }: { tenantId: string; tabela: Ta
 
     async function carregar() {
         setErro(null)
-        try { setLista(await chamarRota<TipologiaNoMotor[]>(ROTAS_DO_MOTOR.tipologias(tenantId, tabela.tabela_id))) } catch (e) { setErro((e as Error).message) }
+        try { setLista(await chamarRota<TipologiaNoMotor[]>(ROTAS_DO_MOTOR.tipologias(tenantId, dono))) } catch (e) { setErro((e as Error).message) }
     }
     async function abrir(tipologia: string) {
         setAberta(tipologia)
         setAbas(null)
         setErroDasAbas(null)
-        try { setAbas(await chamarRota<AbasDaTipologia>(ROTAS_DO_MOTOR.tipologia(tenantId, tabela.tabela_id, tipologia))) } catch (e) { setErroDasAbas((e as Error).message) }
+        try { setAbas(await chamarRota<AbasDaTipologia>(ROTAS_DO_MOTOR.tipologia(tenantId, dono, tipologia))) } catch (e) { setErroDasAbas((e as Error).message) }
     }
 
     if (lista === null) {
@@ -149,7 +152,7 @@ function TipologiasDaTabela({ tenantId, tabela }: { tenantId: string; tabela: Ta
                     { title: 'Tempo', render: (_, t) => (t.tempo_fabricacao_min === null ? 'não cadastrado' : `${t.tempo_fabricacao_min} min${t.tempo_origem ? ` (${t.tempo_origem})` : ''}`) },
                 ]}
             />
-            <Drawer open={aberta !== null} title={aberta ? `${aberta} — ${tabela.fornecedor}` : ''} width={960} onClose={() => setAberta(null)}>
+            <Drawer open={aberta !== null} title={aberta ? `${aberta} — ${fornecedor}` : ''} width={960} onClose={() => setAberta(null)}>
                 {erroDasAbas && <Alert type="error" showIcon message="Não foi possível ler as abas da tipologia." description={erroDasAbas} />}
                 {abas && (
                     <Tabs
@@ -171,6 +174,39 @@ function TipologiasDaTabela({ tenantId, tabela }: { tenantId: string; tabela: Ta
                 )}
             </Drawer>
         </>
+    )
+}
+
+/** ARQUIVAR a planilha: sai da lista e da conversa, o dado fica. A rota não exclui; não há botão de excluir. */
+function ArquivarPlanilha({ tenantId, planilha, onFeito }: { tenantId: string; planilha: PlanilhaNoMotor; onFeito: () => void }) {
+    const [arquivando, setArquivando] = useState(false)
+    const [erro, setErro] = useState<string | null>(null)
+    async function arquivar() {
+        setArquivando(true)
+        setErro(null)
+        try {
+            await chamarRota(ROTAS_DO_MOTOR.arquivar(tenantId), 'POST', { motor: planilha.motor_id })
+            message.success('Motor arquivado')
+            onFeito()
+        } catch (e) {
+            setErro((e as Error).message)
+        } finally {
+            setArquivando(false)
+        }
+    }
+    const outras = planilha.contas_usando.length > 1
+    return (
+        <div style={{ marginBottom: 12 }}>
+            <Popconfirm title={fraseDoArquivar(planilha.arquivo_nome)} okText="Arquivar" cancelText="Voltar" onConfirm={arquivar}>
+                <Button danger loading={arquivando} data-arquivar-motor={planilha.motor_id}>Arquivar</Button>
+            </Popconfirm>
+            {outras && (
+                <Typography.Paragraph type="warning" style={{ fontSize: 12, margin: '6px 0 0' }} data-arquivar-contas={planilha.motor_id}>
+                    {`Este motor é usado por ${planilha.contas_usando.length} contas (${planilha.contas_usando.join(', ')}): arquivar tira da lista de todas.`}
+                </Typography.Paragraph>
+            )}
+            {erro && <Alert type="error" showIcon style={{ marginTop: 8 }} message="O motor não foi arquivado." description={erro} />}
+        </div>
     )
 }
 
@@ -224,9 +260,10 @@ export function MotorDaConta({ tenantId }: { tenantId: string }) {
     return (
         <div data-bloco="motor">
             <Typography.Paragraph type="secondary" style={{ fontSize: 13 }}>
-                O que esta conta tem carregado, na ordem da cascata: <b>{CASCATA}</b>. As tabelas são as dos fornecedores
-                vinculados na base de conhecimento. O bloco mostra; o que se edita aqui é só escolha da lista — a família e a
-                vigente da tabela, e o critério de custo das barras.
+                O que esta conta tem carregado, na ordem da cascata: <b>{CASCATA}</b>. Só aparece o que tem motor carregado
+                (tabela de preço, sem tipologias, não é motor). As tabelas são as dos fornecedores vinculados na base de
+                conhecimento. O bloco mostra; o que se edita aqui é só escolha da lista — a família e a vigente da tabela, o
+                critério de custo das barras — e arquivar a planilha, que não apaga nada.
             </Typography.Paragraph>
             {erro && <Alert type="error" showIcon message="Não foi possível ler o motor da conta." description={erro} action={<Button onClick={carregar}>Tentar de novo</Button>} />}
             {!erro && resumo && (
@@ -238,11 +275,44 @@ export function MotorDaConta({ tenantId }: { tenantId: string }) {
                     {resumo.avisos.pares_sem_vigente.map((p) => (
                         <Alert key={`par-${p.fornecedor}-${p.familia ?? ''}`} type="warning" showIcon message={fraseDoParSemVigente(p.fornecedor, p.familia, p.arquivos)} data-aviso="par-sem-vigente" />
                     ))}
-                    {resumo.tabelas.length === 0 && <Alert type="info" showIcon message={SEM_TABELA_NA_CONTA} />}
+                    {resumo.tabelas.length === 0 && resumo.planilhas.length === 0 && <Alert type="info" showIcon message={SEM_MOTOR_NA_CONTA} data-sem-motor />}
+                    {resumo.planilhas.map((p) => (
+                        <Card key={`${p.motor_id}-${versao}`} size="small" title={`${p.fornecedor} — ${p.arquivo_nome}`} data-planilha-do-motor={p.motor_id}>
+                            <Space wrap style={{ marginBottom: 8 }}>
+                                <Tag color="geekblue" data-origem={p.motor_id}>{ROTULO_DA_ORIGEM.PLANILHA}</Tag>
+                                <Tag color={p.vigente ? 'green' : 'default'} data-vigente-da-planilha={p.motor_id}>{p.vigente ? 'Vigente' : 'Não vigente'}</Tag>
+                            </Space>
+                            <div style={{ marginBottom: 12 }}>
+                                <Typography.Text strong>Família: </Typography.Text>
+                                <span data-familia-do-motor={p.motor_id}>{resumo.familias.find((f) => f.chave === p.familia)?.rotulo ?? p.familia}</span>
+                            </div>
+                            <ArquivarPlanilha tenantId={tenantId} planilha={p} onFeito={carregar} />
+                            <Typography.Text strong>Linhas</Typography.Text>
+                            <ul style={{ margin: '4px 0 12px', paddingLeft: 18 }}>
+                                {p.linhas.map((l) => <li key={l.linha ?? '-'}>{`${l.linha ?? '(sem linha)'}: ${l.tipologias} tipologia(s)`}</li>)}
+                            </ul>
+                            <Typography.Text strong>O que está carregado</Typography.Text>
+                            <table style={{ margin: '4px 0 12px', fontSize: 13 }}>
+                                <tbody>
+                                    {CONTAGENS_DO_MOTOR.filter((c) => c.chave !== 'itens_de_preco').map((c) => (
+                                        <tr key={c.chave} data-contagem={c.chave}>
+                                            <td style={{ paddingRight: 16 }}>{c.rotulo}</td>
+                                            <td style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{numero(p.contagens[c.chave as keyof PlanilhaNoMotor['contagens']])}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                            <Typography.Text strong>Otimização (aba do motor)</Typography.Text>
+                            <ul style={{ margin: '4px 0 12px', paddingLeft: 18 }}>
+                                {p.otimizacao.length === 0 ? <li>nenhum parâmetro</li> : p.otimizacao.map((o, i) => <li key={i}>{`${o.parametro ?? '?'}: ${o.valor ?? '—'}`}</li>)}
+                            </ul>
+                            <TipologiasDoMotor tenantId={tenantId} dono={{ motor: p.motor_id }} fornecedor={p.fornecedor} />
+                        </Card>
+                    ))}
                     {resumo.tabelas.map((t) => (
                         <Card key={`${t.tabela_id}-${versao}`} size="small" title={`${t.fornecedor} — ${t.arquivo_nome}`} data-tabela-do-motor={t.tabela_id}>
                             <Space wrap style={{ marginBottom: 8 }}>
-                                <Tag color={t.com_motor ? 'blue' : 'default'} data-papel={t.tabela_id}>{t.com_motor ? ROTULO_DO_PAPEL.MOTOR : ROTULO_DO_PAPEL.PRECO}</Tag>
+                                <Tag color="blue" data-origem={t.tabela_id}>{ROTULO_DA_ORIGEM.TABELA}</Tag>
                                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>Entra pela base de conhecimento: {t.categorias.join(', ')}</Typography.Text>
                             </Space>
                             <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
@@ -269,7 +339,7 @@ export function MotorDaConta({ tenantId }: { tenantId: string }) {
                             <ul style={{ margin: '4px 0 12px', paddingLeft: 18 }}>
                                 {t.otimizacao.length === 0 ? <li>nenhum parâmetro</li> : t.otimizacao.map((o, i) => <li key={i}>{`${o.parametro ?? '?'}: ${o.valor ?? '—'}`}</li>)}
                             </ul>
-                            {t.com_motor && <TipologiasDaTabela tenantId={tenantId} tabela={t} />}
+                            <TipologiasDoMotor tenantId={tenantId} dono={{ tabela: t.tabela_id }} fornecedor={t.fornecedor} />
                         </Card>
                     ))}
                     <Card size="small" title="Custo das barras">

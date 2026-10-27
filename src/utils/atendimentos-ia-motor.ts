@@ -9,9 +9,15 @@
  * categoria da base de conhecimento, que faz merge).
  *
  * AS TABELAS SÃO AS DERIVADAS (dono do produto, 26/10/2026): as dos fornecedores que a base de conhecimento
- * da conta vincula (`tabelas-da-conta.ts`). Cada uma diz o PAPEL — com motor entra na conversa; sem motor é
- * TABELA DE PREÇO e não entra —, a categoria pela qual entra e se VALE para levantamento novo (uma por
- * fornecedor e família; com mais de uma, a vigente).
+ * da conta vincula (`tabelas-da-conta.ts`). Cada uma diz a categoria pela qual entra e se VALE para levantamento
+ * novo (uma por fornecedor e família; com mais de uma, a vigente).
+ *
+ * O BLOCO LISTA SÓ O QUE TEM MOTOR CARREGADO (dono do produto, 27/10/2026), medido pelo CONTEÚDO — tipologias na
+ * Detalhe —, não pelo nome do arquivo: `motor_nome` pode estar preenchido com uma importação que falhou, ou vazio
+ * com conteúdo. A tabela de preço (sem tipologias) não é motor e sai da lista; nada é apagado. Cada motor diz A QUAL
+ * FAMÍLIA pertence. Há dois lugares onde o motor mora: a TABELA do fornecedor (o modelo de hoje, que a conversa
+ * lê) e a PLANILHA (`orcamentista_motor`, o modelo novo, por família e fornecedor de perfil), que só o PR C
+ * enche. ARQUIVAR é da planilha: sai da lista e da conversa, o dado fica. Excluir não existe.
  */
 
 /** As contagens do resumo, na ordem da cascata: a chave da resposta, a tabela do banco e o rótulo. */
@@ -33,6 +39,8 @@ export const CONTAGENS_DO_MOTOR = [
 ] as const
 
 export type ChaveDaContagem = (typeof CONTAGENS_DO_MOTOR)[number]['chave']
+/** As contagens que são da PLANILHA: todas menos o preço, que é da tabela do fornecedor. */
+export type AbaDaPlanilha = Exclude<ChaveDaContagem, 'itens_de_preco'>
 
 /** As abas de UMA tipologia: a chave da resposta, a tabela do banco, o rótulo e as colunas mostradas. */
 export const ABAS_DA_TIPOLOGIA = [
@@ -50,13 +58,19 @@ export type ChaveDaAba = (typeof ABAS_DA_TIPOLOGIA)[number]['chave']
 export type CriterioDeCustoDaBarra = 'BARRA_INTEIRA' | 'CONSUMO_REAL'
 export const ROTULO_DO_CRITERIO: Record<CriterioDeCustoDaBarra, string> = { BARRA_INTEIRA: 'Barra inteira', CONSUMO_REAL: 'Consumo real' }
 
-/** O papel da tabela na conversa: o MOTOR decide, não a categoria (dono do produto, 26/10/2026). */
-export const ROTULO_DO_PAPEL = {
-    MOTOR: 'Motor carregado — entra na conversa',
-    PRECO: 'Tabela de preço — não entra na conversa',
+/**
+ * DE ONDE VEM o motor listado, e o que a conversa faz com ele HOJE: a tabela do fornecedor é lida (o PR D troca os
+ * leitores); a planilha está guardada para o PR C e ainda não é lida. A tela diz isso, em vez de deixar a lista
+ * sugerir que os dois valem igual.
+ */
+export const ROTULO_DA_ORIGEM = {
+    TABELA: 'Motor da tabela do fornecedor — a conversa lê este',
+    PLANILHA: 'Planilha do motor — a conversa ainda não lê',
 } as const
-export const SEM_TABELA_NA_CONTA = 'A conta não tem tabela: as tabelas vêm dos fornecedores vinculados na base de conhecimento, e nenhum deles tem tabela cadastrada.'
 export const AVISO_NENHUMA_COM_MOTOR = 'Nenhuma tabela desta conta tem o motor carregado: a conversa recusa escolher a tipologia até haver uma.'
+export const SEM_MOTOR_NA_CONTA = 'A conta não tem nenhum motor carregado. Tabela de preço (sem tipologias) não é motor e não aparece aqui.'
+export const fraseDoArquivar = (arquivo: string) =>
+    `Arquivar "${arquivo}"? Ele sai da lista e da conversa; o conteúdo fica guardado e nada é apagado. Excluir não existe.`
 const juntar = (xs: string[]) => (xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} e ${xs[xs.length - 1]}`)
 /** Fornecedor vinculado sem tabela. No PERFIL a conversa recusa; nas outras categorias é só este aviso. */
 export const fraseDoFornecedorSemTabela = (fornecedor: string, categorias: string[]) =>
@@ -89,8 +103,28 @@ export interface TabelaNoMotor {
     otimizacao: Array<{ parametro: string | null; valor: string | null }>
 }
 
+/** A planilha do motor (`orcamentista_motor`) que a conta usa: o fornecedor dela é vinculado na base de conhecimento. */
+export interface PlanilhaNoMotor {
+    motor_id: string
+    /** A chave da família — sempre informada: a planilha é de (família, fornecedor de perfil). */
+    familia: string
+    fornecedor: string
+    arquivo_nome: string
+    /** A vigente do par (família, fornecedor). Arquivar tira a marca. */
+    vigente: boolean
+    /** O NOME das contas que usam a planilha (as que vinculam o fornecedor): arquivar sai da lista de TODAS elas. */
+    contas_usando: string[]
+    linhas: Array<{ linha: string | null; tipologias: number }>
+    /** Sem os itens de preço: o preço é da tabela do fornecedor. */
+    contagens: Record<AbaDaPlanilha, number>
+    otimizacao: Array<{ parametro: string | null; valor: string | null }>
+}
+
 export interface MotorDaConta {
+    /** Só as tabelas COM motor carregado (tipologias > 0). A tabela de preço não é motor e não entra aqui. */
     tabelas: TabelaNoMotor[]
+    /** As planilhas COM motor carregado e não arquivadas, das famílias e fornecedores que a conta vincula. */
+    planilhas: PlanilhaNoMotor[]
     familias: Array<{ chave: string; rotulo: string; ordem: number }>
     /** O critério de custo das barras de cada matéria-prima da conta (base de conhecimento, PERFIL). null = não configurado. */
     materias_primas: Array<{ id: string; nome: string; criterio_custo_barra: CriterioDeCustoDaBarra | null }>
@@ -119,10 +153,16 @@ export interface TipologiaNoMotor {
 
 export type AbasDaTipologia = Record<ChaveDaAba, Array<Record<string, unknown>>>
 
+/** De quem é o motor que o detalhe lê: de uma tabela do fornecedor, ou de uma planilha. */
+export type DonoDoMotor = { tabela: string } | { motor: string }
+const donoNaRota = (d: DonoDoMotor) => ('tabela' in d ? `tabela=${encodeURIComponent(d.tabela)}` : `motor=${encodeURIComponent(d.motor)}`)
+
 const base = (tenantId: string) => `/api/super-admin/atendimentos-ia/contas/${tenantId}/motor`
 export const ROTAS_DO_MOTOR = {
     resumo: (tenantId: string) => base(tenantId),
-    tipologias: (tenantId: string, tabelaId: string) => `${base(tenantId)}/tipologias?tabela=${encodeURIComponent(tabelaId)}`,
-    tipologia: (tenantId: string, tabelaId: string, tipologia: string) =>
-        `${base(tenantId)}/tipologia?tabela=${encodeURIComponent(tabelaId)}&tipologia=${encodeURIComponent(tipologia)}`,
+    tipologias: (tenantId: string, dono: DonoDoMotor | string) => `${base(tenantId)}/tipologias?${donoNaRota(typeof dono === 'string' ? { tabela: dono } : dono)}`,
+    tipologia: (tenantId: string, dono: DonoDoMotor | string, tipologia: string) =>
+        `${base(tenantId)}/tipologia?${donoNaRota(typeof dono === 'string' ? { tabela: dono } : dono)}&tipologia=${encodeURIComponent(tipologia)}`,
+    /** POST `{ motor }` — arquiva a planilha (`superadmin_arquivar_motor`). Não existe rota de excluir. */
+    arquivar: (tenantId: string) => `${base(tenantId)}/arquivar`,
 }
