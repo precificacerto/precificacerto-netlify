@@ -30,8 +30,9 @@
 --      `superadmin_alteracao_log` NA MESMA TRANSAÇÃO; devolve o depois. NASCE FECHADA: SECURITY
 --      DEFINER, search_path fixo, REVOKE de PUBLIC, anon e authenticated, EXECUTE só a service_role.
 --
--- Sem UPDATE e sem DELETE de dado existente: a tabela é nova.
--- IDEMPOTENTE: CREATE TABLE IF NOT EXISTS, políticas recriadas, CREATE OR REPLACE.
+-- Sem UPDATE, sem DELETE e sem DROP: a tabela é nova, e nada é apagado — nem política.
+-- IDEMPOTENTE: CREATE TABLE IF NOT EXISTS, cada política criada só se ainda não existe, CREATE OR REPLACE.
+-- Uma política que já existisse com outra expressão não é trocada: a verificação 4 a acusa e aborta.
 -- VERIFICAÇÃO (aborta): as colunas, a CHECK pela definição, a PK e as FKs, a RLS e as quatro políticas,
 -- nenhum privilégio de anon e authenticated na tabela, e a função fechada.
 -- ════════════════════════════════════════════════════════════════════════════════════════
@@ -69,14 +70,25 @@ COMMENT ON COLUMN public.orcamentista_contexto_do_atendimento.texto IS
 
 -- ── B. RLS — as quatro políticas de is_super_admin(), e nada para anon e authenticated ─────
 ALTER TABLE public.orcamentista_contexto_do_atendimento ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS orcamentista_contexto_do_atendimento_select_super_admin ON public.orcamentista_contexto_do_atendimento;
-DROP POLICY IF EXISTS orcamentista_contexto_do_atendimento_insert_super_admin ON public.orcamentista_contexto_do_atendimento;
-DROP POLICY IF EXISTS orcamentista_contexto_do_atendimento_update_super_admin ON public.orcamentista_contexto_do_atendimento;
-DROP POLICY IF EXISTS orcamentista_contexto_do_atendimento_delete_super_admin ON public.orcamentista_contexto_do_atendimento;
-CREATE POLICY orcamentista_contexto_do_atendimento_select_super_admin ON public.orcamentista_contexto_do_atendimento FOR SELECT USING (public.is_super_admin());
-CREATE POLICY orcamentista_contexto_do_atendimento_insert_super_admin ON public.orcamentista_contexto_do_atendimento FOR INSERT WITH CHECK (public.is_super_admin());
-CREATE POLICY orcamentista_contexto_do_atendimento_update_super_admin ON public.orcamentista_contexto_do_atendimento FOR UPDATE USING (public.is_super_admin()) WITH CHECK (public.is_super_admin());
-CREATE POLICY orcamentista_contexto_do_atendimento_delete_super_admin ON public.orcamentista_contexto_do_atendimento FOR DELETE USING (public.is_super_admin());
+-- cria só a que ainda não existe: nada é apagado, e a segunda aplicação não muda nada
+DO $politicas$
+DECLARE
+  t text := 'orcamentista_contexto_do_atendimento';
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = t AND policyname = t || '_select_super_admin') THEN
+    EXECUTE format('CREATE POLICY %I ON public.%I FOR SELECT USING (public.is_super_admin())', t || '_select_super_admin', t);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = t AND policyname = t || '_insert_super_admin') THEN
+    EXECUTE format('CREATE POLICY %I ON public.%I FOR INSERT WITH CHECK (public.is_super_admin())', t || '_insert_super_admin', t);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = t AND policyname = t || '_update_super_admin') THEN
+    EXECUTE format('CREATE POLICY %I ON public.%I FOR UPDATE USING (public.is_super_admin()) WITH CHECK (public.is_super_admin())', t || '_update_super_admin', t);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = t AND policyname = t || '_delete_super_admin') THEN
+    EXECUTE format('CREATE POLICY %I ON public.%I FOR DELETE USING (public.is_super_admin())', t || '_delete_super_admin', t);
+  END IF;
+END
+$politicas$;
 REVOKE ALL ON public.orcamentista_contexto_do_atendimento FROM anon, authenticated;
 
 -- ── C. a função que grava, com o log na mesma transação ───────────────────────────────────
