@@ -15,17 +15,21 @@
  *       de conhecimento, só com essa chave (a função faz merge: o resto do Perfil não é tocado);
  *   (5) as tipologias de uma tabela e as abas de uma tipologia, pelas rotas do motor;
  *   (6) falha de leitura é ERRO na tela, nunca um bloco vazio;
- *   (7) A FONTE É A DERIVAÇÃO (26/10/2026): cada tabela diz se tem motor ou é TABELA DE PREÇO (que não entra na
- *       conversa), por qual categoria da base de conhecimento entra, e se vale para levantamento novo; a VIGENTE
- *       se marca com uma chave, pela rota da tabela, e a recusa do índice aparece no bloco; os avisos dizem
- *       fornecedor sem tabela, par sem vigente e nenhuma tabela com motor; nada fala em "Tabelas em uso".
+ *   (7) A FONTE É A DERIVAÇÃO (26/10/2026): cada tabela diz por qual categoria da base de conhecimento entra e se vale
+ *       para levantamento novo; a VIGENTE se marca com uma chave, pela rota da tabela, e a recusa do índice aparece
+ *       no bloco; os avisos dizem fornecedor sem tabela, par sem vigente e nenhuma tabela com motor; nada fala em
+ *       "Tabelas em uso";
+ *   (8) SÓ O QUE TEM MOTOR (27/10/2026): o bloco lista o que o servidor manda — e diz DE ONDE vem (tabela do
+ *       fornecedor, que a conversa lê; planilha, que ainda não) e A QUAL FAMÍLIA pertence;
+ *   (9) ARQUIVAR (27/10/2026): a planilha se arquiva pela rota de arquivar, com confirmação, dizendo que o dado fica
+ *       e quais contas a perdem da lista; a recusa aparece no bloco; NÃO HÁ botão de excluir, em lugar nenhum.
  */
 import React from 'react'
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { ROTAS_DO_CATALOGO } from '@/utils/atendimentos-ia-catalogo'
 import {
-    AVISO_NENHUMA_COM_MOTOR, ROTAS_DO_MOTOR, ROTULO_DO_PAPEL, SEM_TABELA_NA_CONTA, fraseDoFornecedorSemTabela, fraseDoParSemVigente,
+    AVISO_NENHUMA_COM_MOTOR, ROTAS_DO_MOTOR, ROTULO_DA_ORIGEM, SEM_MOTOR_NA_CONTA, fraseDoArquivar, fraseDoFornecedorSemTabela, fraseDoParSemVigente,
     type MotorDaConta,
 } from '@/utils/atendimentos-ia-motor'
 
@@ -41,7 +45,7 @@ Object.defineProperty(window, 'matchMedia', {
 
 const CONTA = '00000000-0000-4000-8000-0000000000a1'
 const T1 = '00000000-0000-4000-8000-0000000000c1'
-const T3 = '00000000-0000-4000-8000-0000000000c3'
+const M1 = '00000000-0000-4000-8000-0000000000d1'
 const CATEGORIA = `/api/super-admin/base-de-conhecimento/categoria?tenant=${CONTA}&materia_prima=mp-1&categoria=PERFIL`
 
 const RESUMO: MotorDaConta = {
@@ -52,13 +56,13 @@ const RESUMO: MotorDaConta = {
         linhas: [{ linha: 'PVC WOLFF DESIGN', tipologias: 1 }, { linha: 'PVC WOLFF EUROPA 42', tipologias: 109 }],
         contagens: { tipologias: 164, perfis: 10496, formulas: 4468, variaveis: 3573, vidros: 402, baguetes: 418, insumos: 30017, validacoes: 169, otimizacao: 7, formulas_da_linha: 137, regras: 12116, tempos: 164, itens_de_preco: 735 },
         otimizacao: [{ parametro: 'barra_mm', valor: '6000' }, { parametro: 'serra_mm', valor: '5' }],
-    }, {
-        tabela_id: T3, fornecedor: 'Vidros Estrela', arquivo_nome: 'Estrela vidros.xlsx', motor_nome: 'Estrela motor.xlsx', vigencia: null, familia: null,
-        contas_usando: ['Esquadrias De Paula'],
-        categorias: ['VIDRO'], vigente: false, vale: true, com_motor: false,
-        linhas: [],
-        contagens: { tipologias: 0, perfis: 0, formulas: 0, variaveis: 0, vidros: 0, baguetes: 0, insumos: 0, validacoes: 0, otimizacao: 0, formulas_da_linha: 0, regras: 0, tempos: 0, itens_de_preco: 24 },
-        otimizacao: [],
+    }],
+    planilhas: [{
+        motor_id: M1, familia: 'PVC', fornecedor: 'Wolff Perfis', arquivo_nome: 'Motor_Wolf_PVC.xlsm', vigente: true,
+        contas_usando: ['Esquadrias De Paula', 'Outra Esquadrias'],
+        linhas: [{ linha: 'PVC WOLFF EUROPA 42', tipologias: 109 }],
+        contagens: { tipologias: 109, perfis: 2000, formulas: 300, variaveis: 200, vidros: 50, baguetes: 40, insumos: 900, validacoes: 20, otimizacao: 7, formulas_da_linha: 30, regras: 4000, tempos: 109 },
+        otimizacao: [{ parametro: 'barra_mm', valor: '6000' }],
     }],
     avisos: { fornecedores_sem_tabela: [], pares_sem_vigente: [], nenhuma_com_motor: false },
     familias: [{ chave: 'PVC', rotulo: 'PVC', ordem: 1 }, { chave: 'ALUMINIO', rotulo: 'Alumínio', ordem: 2 }],
@@ -72,7 +76,11 @@ beforeEach(() => {
     respostas = {
         [`GET ${ROTAS_DO_MOTOR.resumo(CONTA)}`]: { status: 200, body: RESUMO },
         [`PATCH ${ROTAS_DO_CATALOGO.tabela(T1)}`]: { status: 200, body: { ok: true } },
-        [`PATCH ${ROTAS_DO_CATALOGO.tabela(T3)}`]: { status: 200, body: { ok: true } },
+        [`POST ${ROTAS_DO_MOTOR.arquivar(CONTA)}`]: { status: 200, body: { depois: { orcamentista_motor: { id: M1 } } } },
+        [`GET ${ROTAS_DO_MOTOR.tipologias(CONTA, { motor: M1 })}`]: {
+            status: 200,
+            body: [{ tipologia: 'PL-01', linha: 'PVC WOLFF EUROPA 42', descricao: 'PORTA DA PLANILHA', tipo: 'Porta', larg_min_mm: null, larg_max_mm: null, alt_min_mm: null, alt_max_mm: null, n_perfis: 3, n_vidros: 0, n_insumos: 0, tempo_fabricacao_min: null, tempo_origem: null }],
+        },
         [`PUT ${CATEGORIA}`]: { status: 200, body: {} },
         [`GET ${ROTAS_DO_MOTOR.tipologias(CONTA, T1)}`]: {
             status: 200,
@@ -128,7 +136,7 @@ describe('(1)(2) o bloco MOSTRA, e não tem campo de texto', () => {
         expect(texto).toContain('Tabela Wolff.xlsx')
         expect(texto).toContain('Motor Wolff.xlsx')
         expect(texto).toContain('PVC WOLFF EUROPA 42: 109 tipologia(s)')
-        const contagem = (c: string) => host.querySelector(`[data-contagem="${c}"]`)?.textContent ?? ''
+        const contagem = (c: string) => host.querySelector(`[data-tabela-do-motor="${T1}"] [data-contagem="${c}"]`)?.textContent ?? ''
         expect(contagem('perfis')).toContain('10.496')
         expect(contagem('insumos')).toContain('30.017')
         expect(contagem('itens_de_preco')).toContain('735')
@@ -204,13 +212,9 @@ describe('(6) falha de leitura é erro, nunca bloco vazio', () => {
 })
 
 describe('(7) a fonte é a derivação: motor ou tabela de preço, a vigente e os avisos', () => {
-    it('cada tabela diz o papel: a Wolff tem motor, a Estrela é tabela de preço e não entra na conversa', async () => {
+    it('a tabela diz por qual categoria da base de conhecimento entra', async () => {
         const host = await montar()
-        expect(host.querySelector(`[data-papel="${T1}"]`)?.textContent).toBe(ROTULO_DO_PAPEL.MOTOR)
-        expect(host.querySelector(`[data-papel="${T3}"]`)?.textContent).toBe(ROTULO_DO_PAPEL.PRECO)
-        expect(host.querySelector(`[data-tabela-do-motor="${T3}"]`)?.textContent).toContain('VIDRO')
-        // a tabela de preço não tem tipologia para ver: o botão não aparece
-        expect(host.querySelector(`[data-tabela-do-motor="${T3}"] [data-ver-tipologias]`)).toBeNull()
+        expect(host.querySelector(`[data-tabela-do-motor="${T1}"]`)?.textContent).toContain('PERFIL')
     })
 
     it('a vigente: uma chave por tabela; marcar a Wolff manda PATCH { vigente: true } pela rota da tabela, e só isso', async () => {
@@ -233,7 +237,11 @@ describe('(7) a fonte é a derivação: motor ou tabela de preço, a vigente e o
         respostas[`GET ${ROTAS_DO_MOTOR.resumo(CONTA)}`] = { status: 200, body: { ...RESUMO, tabelas: RESUMO.tabelas.map((t) => (t.tabela_id === T1 ? { ...t, vale: false } : t)) } }
         const host = await montar()
         expect(host.querySelector(`[data-vale="${T1}"]`)?.textContent).toContain('não vale')
-        expect(host.querySelector(`[data-vale="${T3}"]`)?.textContent).not.toContain('não vale')
+    })
+
+    it('a que vale não diz que não vale', async () => {
+        const host = await montar()
+        expect(host.querySelector(`[data-vale="${T1}"]`)?.textContent).not.toContain('não vale')
     })
 
     it('os três avisos aparecem, cada um com a sua frase', async () => {
@@ -249,17 +257,113 @@ describe('(7) a fonte é a derivação: motor ou tabela de preço, a vigente e o
         expect(texto).toContain(AVISO_NENHUMA_COM_MOTOR)
     })
 
-    it('sem tabela: a frase manda à base de conhecimento — nada fala em "Tabelas em uso"', async () => {
-        respostas[`GET ${ROTAS_DO_MOTOR.resumo(CONTA)}`] = { status: 200, body: { ...RESUMO, tabelas: [] } }
+    it('sem nenhum motor: a frase diz que tabela de preço não é motor — nada fala em "Tabelas em uso"', async () => {
+        respostas[`GET ${ROTAS_DO_MOTOR.resumo(CONTA)}`] = { status: 200, body: { ...RESUMO, tabelas: [], planilhas: [] } }
         const host = await montar()
-        expect(host.textContent).toContain(SEM_TABELA_NA_CONTA)
-        expect(SEM_TABELA_NA_CONTA).toContain('base de conhecimento')
+        expect(host.querySelector('[data-sem-motor]')?.textContent).toContain(SEM_MOTOR_NA_CONTA)
+        expect(SEM_MOTOR_NA_CONTA).toContain('Tabela de preço')
         expect(host.textContent).not.toContain('Tabelas em uso')
     })
 
     it('com as chaves da vigente, continua sem campo de texto', async () => {
         const host = await montar()
-        expect(host.querySelectorAll('[data-vigente-do-motor]').length).toBe(2)
+        expect(host.querySelectorAll('[data-vigente-do-motor]').length).toBe(1)
         expect(host.querySelectorAll('textarea, input[type="text"], input:not([type])').length).toBe(0)
+    })
+})
+
+describe('(8) só o que tem motor, de onde vem e a que família pertence', () => {
+    it('cada card diz a origem: a tabela do fornecedor (a conversa lê) e a planilha (a conversa ainda não lê)', async () => {
+        const host = await montar()
+        expect(host.querySelector(`[data-origem="${T1}"]`)?.textContent).toBe(ROTULO_DA_ORIGEM.TABELA)
+        expect(host.querySelector(`[data-origem="${M1}"]`)?.textContent).toBe(ROTULO_DA_ORIGEM.PLANILHA)
+        expect(ROTULO_DA_ORIGEM.PLANILHA).toContain('ainda não lê')
+    })
+
+    it('a planilha mostra a família pelo RÓTULO do catálogo, e a vigente', async () => {
+        const host = await montar()
+        expect(host.querySelector(`[data-familia-do-motor="${M1}"]`)?.textContent).toBe('PVC')
+        expect(host.querySelector(`[data-vigente-da-planilha="${M1}"]`)?.textContent).toBe('Vigente')
+    })
+
+    it('a planilha lista as linhas e as contagens SEM os itens de preço (o preço é da tabela do fornecedor)', async () => {
+        const host = await montar()
+        const planilha = host.querySelector(`[data-planilha-do-motor="${M1}"]`) as HTMLElement
+        expect(planilha.textContent).toContain('PVC WOLFF EUROPA 42: 109 tipologia(s)')
+        expect(planilha.querySelector('[data-contagem="perfis"]')?.textContent).toContain('2.000')
+        expect(planilha.querySelector('[data-contagem="itens_de_preco"]')).toBeNull()
+    })
+
+    it('"Ver tipologias" da planilha chama a rota com ?motor=, não com ?tabela=', async () => {
+        const host = await montar()
+        await clicar(host.querySelector(`[data-planilha-do-motor="${M1}"] [data-ver-tipologias]`))
+        expect(pedidos.some((p) => p.chave === `GET ${ROTAS_DO_MOTOR.tipologias(CONTA, { motor: M1 })}`)).toBe(true)
+        expect(ROTAS_DO_MOTOR.tipologias(CONTA, { motor: M1 })).toContain(`motor=${M1}`)
+        expect(ROTAS_DO_MOTOR.tipologias(CONTA, { motor: M1 })).not.toContain('tabela=')
+        expect(host.textContent).toContain('PORTA DA PLANILHA')
+    })
+
+    it('a rota por tabela continua com ?tabela= (a forma antiga, com a string)', () => {
+        expect(ROTAS_DO_MOTOR.tipologias(CONTA, T1)).toBe(ROTAS_DO_MOTOR.tipologias(CONTA, { tabela: T1 }))
+        expect(ROTAS_DO_MOTOR.tipologias(CONTA, T1)).toContain(`tabela=${T1}`)
+    })
+})
+
+describe('(9) arquivar a planilha: com confirmação, sem excluir', () => {
+    const confirmar = () => botao(document.body.querySelector('.ant-popover') as ParentNode, 'Arquivar')
+
+    it('o clique pede confirmação dizendo que o dado fica e que nada é apagado; só a confirmação manda o POST { motor }', async () => {
+        const host = await montar()
+        await clicar(host.querySelector(`[data-arquivar-motor="${M1}"]`))
+        expect(document.body.querySelector('.ant-popover')?.textContent).toContain(fraseDoArquivar('Motor_Wolf_PVC.xlsm'))
+        expect(fraseDoArquivar('x')).toContain('nada é apagado')
+        expect(pedidos.some((p) => p.chave.startsWith('POST '))).toBe(false)
+        await clicar(confirmar())
+        const post = pedidos.find((p) => p.chave === `POST ${ROTAS_DO_MOTOR.arquivar(CONTA)}`)
+        expect(post?.corpo).toEqual({ motor: M1 })
+    })
+
+    it('depois de arquivar, o bloco relê o resumo', async () => {
+        const host = await montar()
+        const antes = pedidos.filter((p) => p.chave === `GET ${ROTAS_DO_MOTOR.resumo(CONTA)}`).length
+        await clicar(host.querySelector(`[data-arquivar-motor="${M1}"]`))
+        await clicar(confirmar())
+        expect(pedidos.filter((p) => p.chave === `GET ${ROTAS_DO_MOTOR.resumo(CONTA)}`).length).toBe(antes + 1)
+    })
+
+    it('com a planilha em duas contas, o bloco diz que arquivar tira da lista de todas, pelo nome', async () => {
+        const host = await montar()
+        expect(host.querySelector(`[data-arquivar-contas="${M1}"]`)?.textContent).toContain('2 contas (Esquadrias De Paula, Outra Esquadrias): arquivar tira da lista de todas.')
+    })
+
+    it('com a planilha em uma conta só, não há o aviso das outras', async () => {
+        respostas[`GET ${ROTAS_DO_MOTOR.resumo(CONTA)}`] = { status: 200, body: { ...RESUMO, planilhas: [{ ...RESUMO.planilhas[0], contas_usando: ['Esquadrias De Paula'] }] } }
+        const host = await montar()
+        expect(host.querySelector(`[data-arquivar-contas="${M1}"]`)).toBeNull()
+    })
+
+    it('a recusa da rota aparece no bloco, inteira, e o resumo não é relido', async () => {
+        respostas[`POST ${ROTAS_DO_MOTOR.arquivar(CONTA)}`] = { status: 400, body: { error: 'o motor ja esta arquivado' } }
+        const host = await montar()
+        const antes = pedidos.filter((p) => p.chave === `GET ${ROTAS_DO_MOTOR.resumo(CONTA)}`).length
+        await clicar(host.querySelector(`[data-arquivar-motor="${M1}"]`))
+        await clicar(confirmar())
+        expect(host.textContent).toContain('o motor ja esta arquivado')
+        expect(host.textContent).toContain('O motor não foi arquivado.')
+        expect(pedidos.filter((p) => p.chave === `GET ${ROTAS_DO_MOTOR.resumo(CONTA)}`).length).toBe(antes)
+    })
+
+    it('NÃO HÁ botão de excluir, apagar ou remover em lugar nenhum do bloco, e nenhum pedido DELETE sai', async () => {
+        const host = await montar()
+        const textos = Array.from(host.querySelectorAll('button')).map((b) => b.textContent ?? '')
+        expect(textos.filter((t) => /exclu|apag|remov|delet/i.test(t))).toEqual([])
+        await clicar(host.querySelector(`[data-arquivar-motor="${M1}"]`))
+        await clicar(confirmar())
+        expect(pedidos.filter((p) => p.chave.startsWith('DELETE '))).toEqual([])
+    })
+
+    it('a tabela do fornecedor NÃO tem botão de arquivar: arquivar é da planilha', async () => {
+        const host = await montar()
+        expect(host.querySelector(`[data-tabela-do-motor="${T1}"] [data-arquivar-motor]`)).toBeNull()
     })
 })
