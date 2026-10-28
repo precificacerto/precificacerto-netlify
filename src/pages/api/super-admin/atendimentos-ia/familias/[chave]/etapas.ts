@@ -1,6 +1,7 @@
 /**
- * GET /api/super-admin/atendimentos-ia/familias/[chave]/etapas — as etapas da família, na ordem, cada uma com o `motor_id` que aponta, e os
- *     `motores` que podem ser apontados (as planilhas da mesma família, não arquivadas).
+ * GET /api/super-admin/atendimentos-ia/familias/[chave]/etapas — as etapas da família, na ordem, cada uma com o `motor_id` que aponta, os
+ *     `motores` que podem ser apontados (as planilhas da mesma família, não arquivadas) e as `contas` (só os NOMES) que usam a família: a etapa e
+ *     o motor são globais, e a tela avisa quem é afetado ao alterá-los.
  * PUT /api/super-admin/atendimentos-ia/familias/[chave]/etapas — grava `{ etapas: [...] }`, a LISTA INTEIRA na
  *     ordem desejada (a posição é o número), pela função `superadmin_gravar_etapas_da_familia` (migração
  *     20261027000003 e 20261027000008), que loga na mesma transação. Item com `id` edita; sem `id`, cria. NÃO remove etapa. `motor_id`
@@ -14,7 +15,7 @@
  */
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { superAdminOu404 } from '@/lib/get-caller-tenant'
-import { lerEtapasDaFamilia, lerMotoresDaFamilia } from '@/lib/atendimentos-ia/etapas-da-familia'
+import { lerEtapasDaFamilia, lerMotoresDaFamilia, nomesDasContasDaFamilia } from '@/lib/atendimentos-ia/etapas-da-familia'
 import { gravarPelaFuncaoComAMensagemDela, metodoNaoPermitido } from '@/lib/atendimentos-ia/base-de-conhecimento-servidor'
 import { lerCorpoDasEtapas } from '@/utils/atendimentos-ia-etapas'
 
@@ -30,7 +31,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         if (req.method === 'GET') {
             const etapas = await lerEtapasDaFamilia(chave)
             if (etapas === null) return res.status(404).json({ error: 'Família não encontrada.' })
-            return res.status(200).json({ familia: chave, etapas, motores: await lerMotoresDaFamilia(chave) })
+            return res.status(200).json({ familia: chave, etapas, motores: await lerMotoresDaFamilia(chave), contas: await nomesDasContasDaFamilia(chave) })
         }
 
         const corpo = lerCorpoDasEtapas(req.body)

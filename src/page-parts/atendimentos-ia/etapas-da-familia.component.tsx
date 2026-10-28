@@ -13,43 +13,56 @@
  * posição (as de baixo descem). Trocar de planilha é apontar a etapa para a nova e só então arquivar a velha — arquivar a que uma etapa
  * ainda aponta é recusado pela função.
  *
+ * A LISTA DE ETAPAS É A LISTA DE MOTORES (dono do produto, 27/10/2026; migração 20261027000010): cada etapa GRAVADA tem o seu campo de
+ * arquivo. Subir o arquivo cria o motor da família (global, opção A) e já aponta a etapa, numa transação só; trocar é subir outro. A
+ * etapa nova, ainda não salva, mostra "salve antes"; com alteração pendente o campo fica travado (subir relê a lista). O motor novo nasce
+ * SEM TEMPO. O aviso no topo diz que etapa e motor valem para TODAS as contas da família, e nomeia quais.
+ *
  * O que se salva aqui AINDA NÃO muda a conversa: o PR D passa a ler as etapas. A tela diz isso.
  *
  * Tudo pela rota (`rotaDasEtapas`), nunca pelo cliente do Supabase. A recusa aparece NO cartão, com a frase da rota.
  * Portão: `src/utils/__tests__/atendimentos-ia-etapas-a-tela.test.tsx`.
  */
 import React, { useCallback, useEffect, useState } from 'react'
-import { Alert, Button, Card, Checkbox, Input, Radio, Select, Space, Typography, message } from 'antd'
-import { ArrowDownOutlined, ArrowUpOutlined, PlusOutlined, VerticalAlignBottomOutlined } from '@ant-design/icons'
-import { chamarRota } from '@/page-parts/atendimentos-ia/api'
+import { Alert, Button, Card, Checkbox, Input, Radio, Select, Space, Typography, Upload, message } from 'antd'
+import { ArrowDownOutlined, ArrowUpOutlined, PlusOutlined, UploadOutlined, VerticalAlignBottomOutlined } from '@ant-design/icons'
+import { chamarRota, enviarArquivoDoMotor } from '@/page-parts/atendimentos-ia/api'
 import type { Familia } from '@/utils/atendimentos-ia-catalogo'
 import {
     ABAS_DA_ETAPA, ACOES_DA_ETAPA, LIMITE_DA_INSTRUCAO_DA_ETAPA, LIMITE_DO_ROTULO_DA_ETAPA, ROTULO_DA_ABA, ROTULO_DA_ACAO,
     abasEmOrdem, corpoDoRascunho, etapasMudaram, inserirEtapaAbaixo, lerCorpoDasEtapas, moverEtapa, novaEtapaNoRascunho, rascunhoDasEtapas, rotaDasEtapas,
     type EtapaDaFamilia, type EtapaNoRascunho, type MotorDaFamilia,
 } from '@/utils/atendimentos-ia-etapas'
+import { avisoDoMotorGlobal, fraseDoMotorCriado, rotaDoMotorDaEtapa } from '@/utils/atendimentos-ia-motor-da-etapa'
 
 export const AVISO_DAS_ETAPAS =
     'O rótulo é livre; a ação não é. Cada etapa tem uma das ações do sistema, e etapa sem ação da lista é erro, não etapa nova. '
     + 'O número é a posição na lista. Etapa gravada não se remove por aqui. O que for salvo ainda não muda a conversa: o PR que troca os leitores passa a lê-las.'
 export const SEM_ETAPAS = 'Esta família ainda não tem etapas cadastradas.'
+export const SALVE_ANTES_DE_SUBIR_O_MOTOR = 'Salve a etapa antes de subir o arquivo do motor.'
+export const SALVE_AS_ETAPAS_ANTES_DE_SUBIR = 'Há alterações nas etapas que ainda não foram salvas: salve antes de subir um arquivo (subir relê a lista).'
 export const SEM_MOTORES = 'Esta família ainda não tem planilha de motor carregada.'
 export const rotuloDoMotor = (m: MotorDaFamilia) => `${m.arquivo_nome} (${m.fornecedor ?? 'da família'})`
 
-function EtapasDe({ familia }: { familia: string }) {
+/** As etapas de UMA família — a lista de etapas é a lista de motores. Montada no cartão de "Fornecedores e tabelas" e na base de conhecimento. */
+export function EtapasDaFamilia({ familia }: { familia: string }) {
     const [gravadas, setGravadas] = useState<EtapaDaFamilia[] | null>(null)
     const [motores, setMotores] = useState<MotorDaFamilia[]>([])
     const [rascunho, setRascunho] = useState<EtapaNoRascunho[]>([])
     const [erroAoLer, setErroAoLer] = useState<string | null>(null)
     const [erroAoSalvar, setErroAoSalvar] = useState<string | null>(null)
     const [salvando, setSalvando] = useState(false)
+    const [contas, setContas] = useState<string[]>([])
+    const [subindo, setSubindo] = useState<string | null>(null)
+    const [erroDaSubida, setErroDaSubida] = useState<{ etapaId: string; mensagem: string } | null>(null)
 
     const carregar = useCallback(async () => {
         setErroAoLer(null)
         try {
-            const r = await chamarRota<{ etapas: EtapaDaFamilia[]; motores?: MotorDaFamilia[] }>(rotaDasEtapas(familia))
+            const r = await chamarRota<{ etapas: EtapaDaFamilia[]; motores?: MotorDaFamilia[]; contas?: string[] }>(rotaDasEtapas(familia))
             setGravadas(r.etapas)
             setMotores(r.motores ?? [])
+            setContas(r.contas ?? [])
             setRascunho(rascunhoDasEtapas(r.etapas))
         } catch (e) {
             setGravadas(null)
@@ -78,10 +91,30 @@ function EtapasDe({ familia }: { familia: string }) {
         }
     }
 
+    /**
+     * Subir o arquivo numa etapa GRAVADA: envia para a pasta da família, e a rota lê, cria o motor e aponta a etapa numa transação só.
+     * Só sem alteração pendente — subir relê a lista, e o que estivesse no rascunho se perderia. A recusa aparece NO cartão da etapa.
+     */
+    async function subir(etapaId: string, arquivo: File) {
+        setSubindo(etapaId)
+        setErroDaSubida(null)
+        try {
+            const enviado = await enviarArquivoDoMotor(familia, arquivo)
+            const r = await chamarRota<{ regras: number; tipologias: number; detalhes?: number }>(rotaDoMotorDaEtapa(familia, etapaId), 'POST', { path: enviado.path, nome: enviado.nome })
+            message.success(fraseDoMotorCriado(r))
+            await carregar()
+        } catch (e) {
+            setErroDaSubida({ etapaId, mensagem: (e as Error).message })
+        } finally {
+            setSubindo(null)
+        }
+    }
+
     if (erroAoLer) return <Alert type="error" showIcon message="Não foi possível ler as etapas." description={erroAoLer} action={<Button onClick={carregar}>Tentar de novo</Button>} data-erro-das-etapas />
     if (gravadas === null) return null
     return (
         <div data-etapas-da-familia={familia}>
+            <Alert type="info" showIcon style={{ marginBottom: 12 }} message={avisoDoMotorGlobal(contas)} data-aviso-do-motor-global />
             <Typography.Paragraph type="secondary" style={{ fontSize: 13 }} data-motores-da-familia>
                 {motores.length === 0 ? SEM_MOTORES : `Motores desta família: ${motores.map(rotuloDoMotor).join('; ')}.`}
             </Typography.Paragraph>
@@ -116,6 +149,27 @@ function EtapasDe({ familia }: { familia: string }) {
                                         ...(e.motor_id != null && !motores.some((m) => m.id === e.motor_id) ? [{ value: e.motor_id, label: `(motor ${e.motor_id.slice(0, 8)}…, fora da lista)` }] : [])]} />
                             </div>
                         </Space>
+                        <div style={{ marginTop: 8 }} data-arquivo-do-motor={e.local}>
+                            <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block' }}>Arquivo do motor desta etapa (subir cria o motor e aponta a etapa)</Typography.Text>
+                            {e.id === null
+                                ? <Typography.Text type="secondary" data-salve-antes-de-subir>{SALVE_ANTES_DE_SUBIR_O_MOTOR}</Typography.Text>
+                                : (
+                                    <Space wrap>
+                                        <Upload accept=".xlsx,.xlsm" showUploadList={false} maxCount={1} disabled={mudou || subindo !== null}
+                                            beforeUpload={(arquivo) => {
+                                                // o campo desabilitado já não dispara; esta guarda vale para o evento que chegar mesmo assim (arrastar, duplo disparo)
+                                                if (!mudou && subindo === null) subir(e.id as string, arquivo as unknown as File)
+                                                return false
+                                            }}>
+                                            <Button icon={<UploadOutlined />} loading={subindo === e.id} disabled={mudou || subindo !== null} aria-label={`Subir o arquivo do motor da etapa ${i + 1}`}>
+                                                {e.motor_id ? 'Trocar o arquivo do motor' : 'Subir o arquivo do motor'}
+                                            </Button>
+                                        </Upload>
+                                        {mudou && <Typography.Text type="secondary" style={{ fontSize: 12 }} data-salve-as-etapas>{SALVE_AS_ETAPAS_ANTES_DE_SUBIR}</Typography.Text>}
+                                    </Space>
+                                )}
+                            {erroDaSubida?.etapaId === e.id && <Alert type="error" showIcon style={{ marginTop: 8 }} message="O motor não foi criado." description={erroDaSubida.mensagem} data-erro-da-subida />}
+                        </div>
                         <div style={{ marginTop: 8 }}>
                             <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block' }}>Instrução</Typography.Text>
                             <Input.TextArea aria-label={`Instrução da etapa ${i + 1}`} autoSize={{ minRows: 2, maxRows: 10 }} value={e.instrucao} onChange={(ev) => mudarEtapa(e.local, { instrucao: ev.target.value })} />
@@ -154,7 +208,7 @@ export function EtapasDaFamiliaCard({ familias }: { familias: Familia[] }) {
                         <Radio.Group value={atual} onChange={(ev) => setEscolhida(ev.target.value as string)} aria-label="Família das etapas" style={{ marginBottom: 12 }}>
                             {ordenadas.map((f) => <Radio.Button key={f.chave} value={f.chave}>{f.rotulo}</Radio.Button>)}
                         </Radio.Group>
-                        <EtapasDe key={atual} familia={atual} />
+                        <EtapasDaFamilia key={atual} familia={atual} />
                     </>
                 )}
         </Card>

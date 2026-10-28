@@ -324,6 +324,22 @@ describe('(3) a rota: só o super admin, e só a função grava', () => {
         expect(r.corpo.etapas[0]).toEqual({ id: E1, numero: 1, rotulo: 'Apanhar o pedido', acao: 'APANHAR', instrucao: '', abas: ['variaveis', 'tipologias'], motor_id: M1 })
     })
 
+    it('GET: as `contas` são os NOMES das contas que usam a família (matéria-prima dela ou fornecedor vinculado de tabela dela), em ordem, e só elas', async () => {
+        estado.db.tenants = [{ id: 't-9', name: 'Zeta' }, { id: 't-8', name: 'Da outra família' }, { id: 't-7', name: 'Álamo' }]
+        estado.db.orcamentista_materia_prima = [{ tenant_id: 't-9', familia: 'PVC' }, { tenant_id: 't-8', familia: 'ALUMINIO' }]
+        estado.db.orcamentista_tabela = [{ fornecedor_id: 'f-wolff', familia: 'PVC' }]
+        estado.db.orcamentista_mp_categoria_fornecedor = [{ tenant_id: 't-7', fornecedor_id: 'f-wolff' }]
+        const r = await chamar('GET', 'PVC')
+        expect(r.corpo.contas).toEqual(['Álamo', 'Zeta'])
+        // só o nome: nenhum id de conta nem dado dela na resposta
+        expect(JSON.stringify(r.corpo)).not.toContain('t-9')
+        expect((await chamar('GET', 'ALUMINIO')).corpo.contas).toEqual(['Da outra família'])
+    })
+
+    it('GET: família que nenhuma conta usa devolve `contas` vazia, não ausente', async () => {
+        expect((await chamar('GET', 'PVC')).corpo.contas).toEqual([])
+    })
+
     it('GET: cada etapa diz o motor que aponta (null quando a linha não tem), e os motores são os da MESMA família, não arquivados, com o nome do fornecedor — ou sem ele', async () => {
         estado.db.orcamentista_familia_etapa[0].motor_id = undefined
         const r = await chamar('GET', 'PVC')

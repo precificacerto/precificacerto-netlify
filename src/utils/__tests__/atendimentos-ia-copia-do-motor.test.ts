@@ -5,7 +5,7 @@
  * (`20261027000004_copiar_motor_da_wolff_para_a_planilha`, PR C).
  *
  * POR QUÊ (dono do produto, 27/10/2026): a tabela atual da Wolff é a DONA DO MOTOR — 12.116 regras, 137 fórmulas
- * de família, as abas e os 164 tempos ESTIMADO (digitados à mão, fora do arquivo) pendem do `tabela_id` dela.
+ * de família, as abas e os 164 tempos ESTIMADO (3 valores: 600 min em 91 tipologias, 300 em 55, 900 em 18; preenchidos por regra — correção de 27/10/2026) pendem do `tabela_id` dela.
  * "NADA pode arquivar, substituir ou apagar essa tabela antes de o PR C mover o motor para `orcamentista_motor`."
  * A cópia é `INSERT … SELECT`, com as provas de `EXCEPT` nos dois sentidos para cada uma das 14 tabelas, e SEM apagar
  * o antigo (isso é o PR F).

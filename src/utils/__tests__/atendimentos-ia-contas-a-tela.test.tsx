@@ -222,17 +222,16 @@ describe('a configuração de uma conta', () => {
 
 /**
  * A TELA DA CONTA EM TRÊS BLOCOS (dono do produto, 26/10/2026) — as três camadas, visíveis:
- * BASE DE CONHECIMENTO (fornecedores, tabelas, preços: edita dado, estruturado), MOTOR (a cascata e o que está
- * carregado: mostra, e edita só escolha estruturada) e PROMPT DE ATENDIMENTO (como conversar: texto livre).
+ * BASE DE CONHECIMENTO (fornecedores, tabelas, preços: edita dado, estruturado) e PROMPT DE ATENDIMENTO (como conversar: texto livre).
+ * O bloco MOTOR saiu em 28/10/2026: o motor mora na família, dentro da base de conhecimento.
  * E a regra de produto: toda mensagem nasce da conversa do vendedor com o agente; o super admin é o consultor
  * e não fala com ninguém. O teste de anexo FICA, marcado como instrumento de diagnóstico, não funcionalidade.
  */
-describe('(g) os três blocos da conta, e o diagnóstico do consultor', () => {
-    it('Base de conhecimento, Motor e Prompt de atendimento, nessa ordem; o teste de anexo depois, como diagnóstico', async () => {
-        respostas[`GET /api/super-admin/atendimentos-ia/contas/${CONTA_A}/motor`] = { status: 200, body: { tabelas: [], planilhas: [], familias: [], etapas_das_familias: [], materias_primas: [], avisos: { fornecedores_sem_tabela: [], pares_sem_vigente: [], nenhuma_com_motor: false } } }
+describe('(g) os dois blocos da conta, e o diagnóstico do consultor', () => {
+    it('Base de conhecimento e Prompt de atendimento, nessa ordem; o teste de anexo depois, como diagnóstico', async () => {
         const host = await montar(React.createElement(AConta()))
         const blocos = Array.from(host.querySelectorAll('[data-bloco]')).map((b) => b.getAttribute('data-bloco'))
-        expect(blocos).toEqual(['base-de-conhecimento', 'motor', 'prompt-de-atendimento', 'diagnostico'])
+        expect(blocos).toEqual(['base-de-conhecimento', 'prompt-de-atendimento', 'diagnostico'])
         const diagnostico = host.querySelector('[data-bloco="diagnostico"]')!
         expect(diagnostico.textContent).toContain('Instrumento de diagnóstico do consultor')
         expect(diagnostico.textContent).toContain('não é funcionalidade')
@@ -248,11 +247,15 @@ describe('(g) os três blocos da conta, e o diagnóstico do consultor', () => {
         expect(prompt.textContent).not.toContain('Ainda não construído')
     })
 
-    it('conta de modelo SEM fornecedor: o bloco Motor diz que o modelo não usa motor de fornecedor, e não lê o motor', async () => {
-        respostas[`GET ${ROTAS_DO_CATALOGO.contas}`] = { status: 200, body: [{ ...CONTAS[0], modelo: 'REVENDA', nicho_id: null, nicho_nome: null }] }
-        const host = await montar(React.createElement(AConta()))
-        expect(host.querySelector('[data-bloco="motor"]')?.textContent).toContain('não usa motor de fornecedor')
-        expect(pedidos.some((p) => p.url.endsWith('/motor'))).toBe(false)
+    it('o bloco Motor SAIU da página da conta (28/10/2026): o motor mora na família, na base de conhecimento — nem bloco, nem leitura do motor da conta', async () => {
+        for (const modelo of ['FABRICACAO', 'REVENDA']) {
+            respostas[`GET ${ROTAS_DO_CATALOGO.contas}`] = { status: 200, body: [{ ...CONTAS[0], modelo, ...(modelo === 'REVENDA' ? { nicho_id: null, nicho_nome: null } : {}) }] }
+            pedidos.length = 0
+            const host = await montar(React.createElement(AConta()))
+            expect(host.querySelector('[data-bloco="motor"]')).toBeNull()
+            expect(host.textContent).not.toContain('2. Motor')
+            expect(host.textContent).toContain('2. Prompt de atendimento')
+            expect(pedidos.some((p) => p.url.endsWith('/motor'))).toBe(false)
+        }
     })
 })
-

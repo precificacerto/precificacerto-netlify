@@ -5,8 +5,8 @@
  *
  * EXCLUIR É ARQUIVAR (dono do produto, 27/10/2026). Motor arquivado sai da lista e da conversa; o dado fica. Esta
  * rota NÃO exclui nada e não existe outra que exclua: DELETE só com autorização explícita do dono do produto, e
- * recusado enquanto houver levantamento ou tempo pendurado (`motor_id` é RESTRICT, os 164 tempos ESTIMADO foram
- * digitados à mão). Só a planilha DESTA conta (ativa, de fornecedor que a conta vincula); outra é 404.
+ * recusado enquanto houver levantamento ou tempo pendurado (`motor_id` é RESTRICT: são 62.299 linhas do motor; os 164 tempos
+ * ESTIMADO têm 3 valores, 600/300/900, preenchidos por regra — correção de 27/10/2026). Só a planilha DESTA conta (ativa, de fornecedor que a conta vincula); outra é 404.
  * Só o super admin (os outros recebem 404).
  */
 import type { NextApiRequest, NextApiResponse } from 'next'
