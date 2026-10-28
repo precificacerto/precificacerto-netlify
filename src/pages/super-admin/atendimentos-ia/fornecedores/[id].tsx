@@ -22,7 +22,7 @@ import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
 import { ROUTES } from '@/constants/routes'
 import { useAuth } from '@/hooks/use-auth.hook'
-import { ROTAS_DO_CATALOGO, ROTULO_DO_MODELO, TITULO_DA_TABELA_NAO_EXCLUIDA, fraseDoArquivo, type Categoria, type Familia, type FornecedorComTabelas, type Nicho, type TabelaDoFornecedor } from '@/utils/atendimentos-ia-catalogo'
+import { ROTAS_DO_CATALOGO, ROTULO_DO_MODELO, ROTULO_QUALQUER_LINHA, familiaObrigatoria, TITULO_DA_TABELA_NAO_EXCLUIDA, fraseDoArquivo, type Categoria, type Familia, type FornecedorComTabelas, type Nicho, type TabelaDoFornecedor } from '@/utils/atendimentos-ia-catalogo'
 import { chamarRota, enviarArquivo, gravarTabelaNova, type TabelaPendente } from '@/page-parts/atendimentos-ia/api'
 import { FornecedorModal, TITULO_FORNECEDOR_NAO_EXCLUIDO, TITULO_FORNECEDOR_NAO_SALVO, type DadosDoFornecedor, type ErroDoFornecedor } from '@/page-parts/atendimentos-ia/fornecedor-modal.component'
 import { TabelaModal } from '@/page-parts/atendimentos-ia/tabela-modal.component'
@@ -137,8 +137,9 @@ export default function TabelasDoFornecedor() {
         setSalvando(true)
         setErroDaTabela(null)
         try {
-            const corpo: Record<string, string> = { vigencia: t.vigencia }
-            if (t.familia) corpo.familia = t.familia
+            const corpo: Record<string, string | null> = { vigencia: t.vigencia }
+            if (t.semFamilia) corpo.familia = null
+            else if (t.familia) corpo.familia = t.familia
             if (t.categoria) corpo.categoria_chave = t.categoria
             if (t.arquivo) { const a = await enviarArquivo(id, 'arquivo', t.arquivo); corpo.arquivo_path = a.path; corpo.arquivo_nome = a.nome }
             const r = await chamarRota<{ ok: true; aviso?: string }>(ROTAS_DO_CATALOGO.tabela(tabelaEmEdicao.id), 'PATCH', corpo)
@@ -228,7 +229,10 @@ export default function TabelasDoFornecedor() {
                                     title: 'Família',
                                     render: (_, t) => (t.familia
                                         ? familias.find((f) => f.chave === t.familia)?.rotulo ?? t.familia
-                                        : <Typography.Text type="secondary" data-familia-nao-informada>não informada</Typography.Text>),
+                                        // fora do Perfil, sem família é escolha: a tabela serve qualquer linha (28/10/2026)
+                                        : t.categoria_chave && !familiaObrigatoria(t.categoria_chave)
+                                            ? <Typography.Text type="secondary" data-qualquer-linha>{ROTULO_QUALQUER_LINHA}</Typography.Text>
+                                            : <Typography.Text type="secondary" data-familia-nao-informada>não informada</Typography.Text>),
                                 },
                                 {
                                     title: 'Categoria',

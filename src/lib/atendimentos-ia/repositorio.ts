@@ -230,9 +230,9 @@ export async function listarCategorias(): Promise<Categoria[]> {
 }
 
 // ── Tabelas ────────────────────────────────────────────────────────────────────────────────
-export async function obterTabela(id: string): Promise<{ id: string; fornecedor_id: string; arquivo_path: string; motor_path: string | null; categoria_chave: string | null } | null> {
-    const ts = await q(db().from('orcamentista_tabela').select('id, fornecedor_id, arquivo_path, motor_path, categoria_chave').eq('id', id))
-    return (ts[0] as { id: string; fornecedor_id: string; arquivo_path: string; motor_path: string | null; categoria_chave: string | null } | undefined) ?? null
+export async function obterTabela(id: string): Promise<{ id: string; fornecedor_id: string; arquivo_path: string; motor_path: string | null; categoria_chave: string | null; familia: string | null } | null> {
+    const ts = await q(db().from('orcamentista_tabela').select('id, fornecedor_id, arquivo_path, motor_path, categoria_chave, familia').eq('id', id))
+    return (ts[0] as { id: string; fornecedor_id: string; arquivo_path: string; motor_path: string | null; categoria_chave: string | null; familia: string | null } | undefined) ?? null
 }
 
 /** Os dois arquivos da tabela — caminho no bucket e nome original —, para a importação. */

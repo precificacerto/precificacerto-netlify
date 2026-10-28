@@ -16,7 +16,10 @@
  *       a EDIÇÃO troca a família, e nunca a apaga;
  *   (3) a rota das famílias: só o super admin; a nova entra no FIM da lista; a repetida é 409;
  *   (4) a TELA: o modal da tabela nova não salva sem família, e nada vem escolhido por ela;
- *       o card das famílias acrescenta pelo rótulo.
+ *       o card das famílias acrescenta pelo rótulo;
+ *   (5) A FAMÍLIA É OBRIGATÓRIA SÓ NO PERFIL (dono do produto, 28/10/2026; migração 20261028000002): a tabela de ferragem, vidro,
+ *       acessórios, persianas, reforço e instalação pode ir sem família e serve qualquer linha; a de Perfil, não — nem na tabela nova,
+ *       nem tirando a família na edição, nem dando Perfil a uma tabela sem família. E o nome de família repetido (sem olhar a caixa) é 409.
  *
  * O que NÃO alcança: o banco é falso. A FK, a CHECK da chave e a ordem única estão provadas num
  * Postgres real (o PR cita a prova), não aqui.
@@ -29,7 +32,7 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 
 import {
     LIMITE_DO_ROTULO_DA_FAMILIA, MENSAGEM_CATEGORIA_OBRIGATORIA, MENSAGEM_FAMILIA_OBRIGATORIA, ROTAS_DO_CATALOGO,
-    chaveDaFamilia, fraseDaFamiliaDesconhecida, lerCorpoDaTabela, lerEdicaoDaTabela, lerFamiliaNova, recusada,
+    ROTULO_QUALQUER_LINHA, chaveDaFamilia, fraseDaFamiliaComNomeRepetido, fraseDaFamiliaDesconhecida, lerCorpoDaTabela, lerEdicaoDaTabela, lerFamiliaNova, recusada,
     type Familia,
 } from '@/utils/atendimentos-ia-catalogo'
 
@@ -67,11 +70,12 @@ jest.mock('@/lib/atendimentos-ia/repositorio', () => {
         codigoDoErro: real.codigoDoErro,
         falhaInterna: real.falhaInterna,
         listarFamilias: jest.fn(async () => catalogo.map((f) => ({ ...f }))),
-        listarCategorias: jest.fn(async () => [{ chave: 'PERFIL', rotulo: 'Perfil', ordem: 1 }]),
+        listarCategorias: jest.fn(async () => [{ chave: 'PERFIL', rotulo: 'Perfil', ordem: 1 }, { chave: 'FERRAGENS', rotulo: 'Ferragens', ordem: 4 }]),
         criarFamilia: jest.fn(async (f: Familia) => ({ ...f })),
         criarTabela: jest.fn(async () => ({ id: T })),
         obterTabela: jest.fn(async () => ({ id: T, fornecedor_id: F, arquivo_path: `${F}/arquivo/x-t.xlsx`, motor_path: `${F}/motor/x-m.xlsx` })),
         atualizarTabela: jest.fn(async () => 1),
+        categoriasDoFornecedorDosItensGravados: jest.fn(async (): Promise<Array<string | null>> => []),
         objetoExiste: jest.fn(async () => true),
         removerObjetos: jest.fn(async (): Promise<{ erro: string | null }> => ({ erro: null })),
     }
@@ -362,5 +366,126 @@ describe('(4) a TELA', () => {
 
     it('a rota das famílias está no catálogo das rotas', () => {
         expect(ROTAS_DO_CATALOGO.familias).toBe('/api/super-admin/atendimentos-ia/familias')
+    })
+})
+
+// ── (5) a família obrigatória SÓ no Perfil (28/10/2026) ──────────────────────────────────────────
+describe('(5) a família é obrigatória SÓ na tabela de Perfil', () => {
+    const FERRAGEM = { ...CORPO, motor_path: null as string | null, motor_nome: null as string | null, categoria_chave: 'FERRAGENS' }
+
+    it('o corpo: FERRAGENS sem família (ausente ou null) passa com família NULA; com família, ela vai; família inválida é recusada; PERFIL sem família não passa', () => {
+        for (const corpo of [FERRAGEM, { ...FERRAGEM, familia: null as string | null }]) {
+            const r = lerCorpoDaTabela(corpo)
+            expect(recusada(r) ? r.erro : r.corpo.familia).toBeNull()
+        }
+        const com = lerCorpoDaTabela({ ...FERRAGEM, familia: 'PVC' })
+        expect(recusada(com) ? com.erro : com.corpo.familia).toBe('PVC')
+        const ruim = lerCorpoDaTabela({ ...FERRAGEM, familia: 'pvc' })
+        expect(recusada(ruim) && ruim.erro).toBe(MENSAGEM_FAMILIA_OBRIGATORIA)
+        const perfil = lerCorpoDaTabela({ ...CORPO, familia: null })
+        expect(recusada(perfil) && perfil.erro).toBe(MENSAGEM_FAMILIA_OBRIGATORIA)
+    })
+
+    it('POST de FERRAGENS sem família grava com família NULA; a trava do banco (corrida) vira a frase da família, não um 500', async () => {
+        const r = await chamar('tabelas', 'POST', {}, FERRAGEM)
+        expect(r.status).toBe(201)
+        expect(repo.criarTabela).toHaveBeenCalledWith(expect.objectContaining({ familia: null, categoria_chave: 'FERRAGENS' }))
+        repo.criarTabela.mockRejectedValueOnce(new ErroDoBanco({ code: '23514', message: 'new row for relation "orcamentista_tabela" violates check constraint "orcamentista_tabela_familia_no_perfil"' }))
+        expect(await chamar('tabelas', 'POST', {}, { ...CORPO, familia: 'PVC' })).toEqual({ status: 400, json: { error: MENSAGEM_FAMILIA_OBRIGATORIA } })
+    })
+
+    it('a EDIÇÃO tira a família com `familia: null` — da ferragem, sim; do Perfil, não', async () => {
+        const ed = lerEdicaoDaTabela({ familia: null }, F)
+        expect(recusada(ed) ? ed.erro : ed.corpo).toEqual({ familia: null })
+        repo.obterTabela.mockImplementationOnce(async () => ({ id: T, fornecedor_id: F, arquivo_path: `${F}/arquivo/x-t.xlsx`, motor_path: null, categoria_chave: 'FERRAGENS', familia: 'PVC' }))
+        expect((await chamar('tabela', 'PATCH', { id: T }, { familia: null })).status).toBe(200)
+        expect(repo.atualizarTabela).toHaveBeenCalledWith(T, { familia: null })
+        repo.atualizarTabela.mockClear()
+        repo.obterTabela.mockImplementationOnce(async () => ({ id: T, fornecedor_id: F, arquivo_path: `${F}/arquivo/x-t.xlsx`, motor_path: null, categoria_chave: 'PERFIL', familia: 'PVC' }))
+        expect(await chamar('tabela', 'PATCH', { id: T }, { familia: null })).toEqual({ status: 400, json: { error: MENSAGEM_FAMILIA_OBRIGATORIA } })
+        expect(repo.atualizarTabela).not.toHaveBeenCalled()
+    })
+
+    it('dar PERFIL a uma tabela sem família: recusado; com a família junto, passa; dar FERRAGENS a ela, passa', async () => {
+        const semNada = async () => ({ id: T, fornecedor_id: F, arquivo_path: `${F}/arquivo/x-t.xlsx`, motor_path: null as string | null, categoria_chave: null as string | null, familia: null as string | null })
+        repo.obterTabela.mockImplementationOnce(semNada)
+        expect(await chamar('tabela', 'PATCH', { id: T }, { categoria_chave: 'PERFIL' })).toEqual({ status: 400, json: { error: MENSAGEM_FAMILIA_OBRIGATORIA } })
+        expect(repo.atualizarTabela).not.toHaveBeenCalled()
+        repo.obterTabela.mockImplementationOnce(semNada)
+        expect((await chamar('tabela', 'PATCH', { id: T }, { categoria_chave: 'PERFIL', familia: 'PVC' })).status).toBe(200)
+        expect(repo.atualizarTabela).toHaveBeenLastCalledWith(T, { categoria_chave: 'PERFIL', familia: 'PVC' })
+        repo.obterTabela.mockImplementationOnce(semNada)
+        expect((await chamar('tabela', 'PATCH', { id: T }, { categoria_chave: 'FERRAGENS' })).status).toBe(200)
+        expect(repo.atualizarTabela).toHaveBeenLastCalledWith(T, { categoria_chave: 'FERRAGENS' })
+    })
+
+    it('a trava do banco no PATCH (corrida) vira a frase da família', async () => {
+        repo.atualizarTabela.mockRejectedValueOnce(new ErroDoBanco({ code: '23514', message: 'violates check constraint "orcamentista_tabela_familia_no_perfil"' }))
+        expect(await chamar('tabela', 'PATCH', { id: T }, { familia: 'PVC' })).toEqual({ status: 400, json: { error: MENSAGEM_FAMILIA_OBRIGATORIA } })
+    })
+
+    it('a família com o MESMO NOME de outra (sem olhar a caixa) é 409 nomeando a que existe, sem gravar', async () => {
+        // as chaves NÃO batem (PVC x PVC_WOLF; ALU x ALUMINIO): é o NOME que repete — e é isso que a recusa pega
+        catalogo = [{ chave: 'PVC', rotulo: 'PVC Wolf', ordem: 1 }, { chave: 'ALU', rotulo: 'Alumínio', ordem: 2 }]
+        expect(await chamar('familias', 'POST', {}, { rotulo: 'pvc WOLF' })).toEqual({ status: 409, json: { error: fraseDaFamiliaComNomeRepetido('PVC Wolf') } })
+        expect(await chamar('familias', 'POST', {}, { rotulo: 'ALUMÍNIO' })).toEqual({ status: 409, json: { error: fraseDaFamiliaComNomeRepetido('Alumínio') } })
+        expect(repo.criarFamilia).not.toHaveBeenCalled()
+        expect((await chamar('familias', 'POST', {}, { rotulo: 'PVC Veca' })).status).toBe(201)
+        expect(repo.criarFamilia).toHaveBeenCalledWith({ chave: 'PVC_VECA', rotulo: 'PVC Veca', ordem: 3 })
+    })
+
+    const CATS = [{ chave: 'PERFIL', rotulo: 'Perfil', ordem: 1 }, { chave: 'FERRAGENS', rotulo: 'Ferragens', ordem: 4 }]
+    const FAMS: Familia[] = [PVC, { chave: 'ALUMINIO', rotulo: 'Alumínio', ordem: 2 }]
+    const qualquer = () => modal()!.querySelector('[data-familia-qualquer-linha] input, input[data-familia-qualquer-linha]') as HTMLInputElement | null
+    type Salvo = { familia: string | null; semFamilia: boolean; categoria: string | null }
+
+    it('a TELA, tabela nova de FERRAGENS: sem família o salvar LIGA, a frase diz que serve qualquer linha, e vai com família nula', async () => {
+        const salvos: Salvo[] = []
+        await montar(React.createElement(Modal(), { aberto: true, titulo: 'Nova tabela', familias: FAMS, categorias: CATS, onCancelar: () => {}, onSalvar: (t: Salvo) => { salvos.push(t) } }))
+        await escolherArquivo(0, 't.xlsx')
+        await act(async () => { opcaoDaCategoria('FERRAGENS')!.click() })
+        await assentar()
+        expect(botao(modal()!, 'Salvar tabela')!.disabled).toBe(false)
+        expect(modal()!.querySelector('[data-sem-familia-serve-qualquer-linha]')).toBeTruthy()
+        expect(modal()!.textContent).not.toContain(MENSAGEM_FAMILIA_OBRIGATORIA)
+        expect(qualquer()).not.toBeNull()
+        expect(modal()!.textContent).toContain(ROTULO_QUALQUER_LINHA)
+        await act(async () => { botao(modal()!, 'Salvar tabela')!.click() })
+        expect(salvos).toEqual([expect.objectContaining({ familia: null, semFamilia: false, categoria: 'FERRAGENS' })])
+    })
+
+    it('a TELA: passar para o PERFIL com "Qualquer linha" escolhido DESLIGA o salvar e a opção some; voltar à FERRAGENS religa', async () => {
+        await montar(React.createElement(Modal(), { aberto: true, titulo: 'Nova tabela', familias: FAMS, categorias: CATS, onCancelar: () => {}, onSalvar: () => {} }))
+        await escolherArquivo(0, 't.xlsx')
+        await act(async () => { opcaoDaCategoria('FERRAGENS')!.click() })
+        await assentar()
+        await act(async () => { qualquer()!.click() })
+        await assentar()
+        expect(botao(modal()!, 'Salvar tabela')!.disabled).toBe(false)
+        await act(async () => { opcaoDaCategoria('PERFIL')!.click() })
+        await assentar()
+        expect(qualquer()).toBeNull()
+        expect(botao(modal()!, 'Salvar tabela')!.disabled).toBe(true)
+        expect(modal()!.textContent).toContain(MENSAGEM_FAMILIA_OBRIGATORIA)
+        await act(async () => { opcaoDaCategoria('FERRAGENS')!.click() })
+        await assentar()
+        expect(botao(modal()!, 'Salvar tabela')!.disabled).toBe(false)
+    })
+
+    it('a TELA, EDIÇÃO de ferragem com família: "Qualquer linha" TIRA a família (semFamilia); na de Perfil, a opção não existe', async () => {
+        const salvos: Salvo[] = []
+        await montar(React.createElement(Modal(), {
+            aberto: true, titulo: 'Editar tabela', familias: FAMS, categorias: CATS, atual: { arquivo_nome: 't.xlsx', vigencia: null, familia: 'PVC', categoria_chave: 'FERRAGENS' },
+            onCancelar: () => {}, onSalvar: (t: Salvo) => { salvos.push(t) },
+        }))
+        await act(async () => { qualquer()!.click() })
+        await assentar()
+        await act(async () => { botao(modal()!, 'Salvar tabela')!.click() })
+        expect(salvos).toEqual([expect.objectContaining({ familia: null, semFamilia: true })])
+        await montar(React.createElement(Modal(), {
+            aberto: true, titulo: 'Editar tabela 2', familias: FAMS, categorias: CATS, atual: { arquivo_nome: 'p.xlsx', vigencia: null, familia: 'PVC', categoria_chave: 'PERFIL' },
+            onCancelar: () => {}, onSalvar: () => {},
+        }))
+        expect(qualquer()).toBeNull()
     })
 })

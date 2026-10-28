@@ -66,9 +66,10 @@ export async function enviarArquivo(fornecedorId: string, tipo: TipoDeArquivo, a
 
 /**
  * Uma tabela ainda no navegador: os dois arquivos, a vigência, a família e a categoria, antes de qualquer envio.
- * `familia` e `categoria` são chaves das listas; na edição, null = não mexe.
+ * `familia` e `categoria` são chaves das listas; na edição, null = não mexe. Na tabela NOVA, `familia` null = sem família (serve qualquer
+ * linha; só fora do Perfil). `semFamilia` é TIRAR a família de uma tabela que tem (edição; a rota recusa no Perfil).
  */
-export interface TabelaPendente { arquivo: File | null; vigencia: string; familia: string | null; categoria: string | null }
+export interface TabelaPendente { arquivo: File | null; vigencia: string; familia: string | null; semFamilia: boolean; categoria: string | null }
 
 /**
  * Envia o arquivo e grava a tabela (sem motor: ele entra pela etapa da família).

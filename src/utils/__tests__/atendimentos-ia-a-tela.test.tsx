@@ -114,7 +114,8 @@ describe('a tela de Fornecedores e tabelas', () => {
             await act(async () => { await new Promise((r) => setTimeout(r, 0)) })
         }
         // COM o arquivo da tabela: sem arquivo nenhum o botão já estaria desligado pela falta do arquivo, e o caso não distinguiria nada
-        const semMotor = { arquivo_nome: 't.xlsx', motor_nome: null as string | null, vigencia: null as string | null, familia: null as string | null, categoria_chave: null as string | null }
+        // COM família: desde 28/10/2026 o Perfil exige família, e sem ela o salvar desligaria por OUTRO motivo — o caso não distinguiria o motor
+        const semMotor = { arquivo_nome: 't.xlsx', motor_nome: null as string | null, vigencia: null as string | null, familia: 'PVC' as string | null, categoria_chave: null as string | null }
 
         it.each(['Perfil', 'Reforço'])('escolher %s sem o arquivo do motor NÃO desliga o salvar, e nenhuma frase de motor aparece', async (rotulo) => {
             await montar(<TabelaModal aberto familias={[]} categorias={CATEGORIAS} titulo="Editar tabela" atual={semMotor} onCancelar={() => {}} onSalvar={() => {}} />)
