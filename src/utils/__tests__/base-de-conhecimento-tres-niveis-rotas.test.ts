@@ -122,7 +122,8 @@ function montar() {
         orcamentista_mp_instalacao: [],
         // a linha PARADA (26/10/2026): ninguém a lê — as tabelas da conta vêm do vínculo da base de conhecimento (`vincularAsTabelas`)
         orcamentista_conta_tabela: [{ tenant_id: T_A, tabela_id: TAB_DE_B }],
-        orcamentista_tabela: [{ id: TAB_DE_A, fornecedor_id: F_WOLFF }, { id: TAB_DE_B, fornecedor_id: F_MADEIRA }, { id: TAB_SEM_USO, fornecedor_id: F_ALCOA }],
+        // a categoria é da TABELA: a Wolff tem a de PERFIL, a Madeireira a de VIDRO, e a da Alcoa não declara categoria (as de antes)
+        orcamentista_tabela: [{ id: TAB_DE_A, fornecedor_id: F_WOLFF, categoria_chave: 'PERFIL' }, { id: TAB_DE_B, fornecedor_id: F_MADEIRA, categoria_chave: 'VIDRO' }, { id: TAB_SEM_USO, fornecedor_id: F_ALCOA, categoria_chave: null }],
         // EUROPA 60 só na fórmula; SUPREMA só na regra, e DEPOIS do corte — quem lê tudo e tira os distintos no JS não a vê
         orcamentista_motor_formula_familia: [
             { tabela_id: TAB_DE_A, linha: 'EUROPA 60' }, { tabela_id: TAB_DE_A, linha: 'EUROPA 42' }, { tabela_id: TAB_DE_A, linha: 'EUROPA 42' },
@@ -492,12 +493,35 @@ describe('(6) GET — a árvore inteira da empresa, numa resposta só', () => {
     it('os fornecedores disponíveis são os do NICHO da empresa — o de outro nicho fica fora', async () => {
         const r = await chamar('arvore', 'GET', { tenant: T_A })
         expect(r.json.nicho).toEqual({ id: N_ESQ, modelo: 'FABRICACAO', nome: 'Esquadrias' })
-        expect(r.json.fornecedores_do_nicho).toEqual([{ id: F_ALCOA, nome: 'Alcoa' }, { id: F_WOLFF, nome: 'Wolff' }])
+        expect(r.json.fornecedores_do_nicho).toEqual([
+            { id: F_ALCOA, nome: 'Alcoa', categorias_das_tabelas: [], tabelas_sem_categoria: 1 },
+            { id: F_WOLFF, nome: 'Wolff', categorias_das_tabelas: ['PERFIL'], tabelas_sem_categoria: 0 },
+        ])
     })
 
     it('o contraste: a outra empresa vê os do nicho DELA', async () => {
         const r = await chamar('arvore', 'GET', { tenant: T_B })
-        expect(r.json.fornecedores_do_nicho).toEqual([{ id: F_MADEIRA, nome: 'Madeireira' }])
+        expect(r.json.fornecedores_do_nicho).toEqual([{ id: F_MADEIRA, nome: 'Madeireira', categorias_das_tabelas: ['VIDRO'], tabelas_sem_categoria: 0 }])
+    })
+
+    it('a CATEGORIA DA TABELA decide em que ramificação o fornecedor aparece (28/10/2026): duas tabelas de categorias diferentes e uma sem categoria — cada uma no seu lugar, e a nula NUNCA vira categoria', async () => {
+        estado.db.orcamentista_tabela.push(
+            { id: '00000000-0000-4000-8000-00000000ab11', fornecedor_id: F_WOLFF, categoria_chave: 'REFORCO' },
+            { id: '00000000-0000-4000-8000-00000000ab12', fornecedor_id: F_WOLFF, categoria_chave: 'PERFIL' },
+            { id: '00000000-0000-4000-8000-00000000ab13', fornecedor_id: F_WOLFF, categoria_chave: null },
+            { id: '00000000-0000-4000-8000-00000000ab14', fornecedor_id: F_WOLFF, categoria_chave: '  ' },
+        )
+        const wolff = (await chamar('arvore', 'GET', { tenant: T_A })).json.fornecedores_do_nicho.find((f: Linha) => f.id === F_WOLFF)
+        // distintas e em ordem; a nula e a só-espaço vão para a contagem, e a PERFIL repetida conta UMA vez
+        expect(wolff.categorias_das_tabelas).toEqual(['PERFIL', 'REFORCO'])
+        expect(wolff.tabelas_sem_categoria).toBe(2)
+    })
+
+    it('a leitura das tabelas dos fornecedores que falha é ERRO (500), nunca a lista sem categorias', async () => {
+        estado.falhaEm = 'orcamentista_tabela'
+        const r = await chamar('arvore', 'GET', { tenant: T_A })
+        expect(r.status).toBe(500)
+        expect(r.json.fornecedores_do_nicho).toBeUndefined()
     })
 
     it('empresa sem nicho: nicho null e nenhum fornecedor disponível — não a lista da plataforma', async () => {
@@ -530,7 +554,7 @@ describe('(6) GET — a árvore inteira da empresa, numa resposta só', () => {
     // antiga não entram. Sem nenhuma marcada, nenhuma vale — e a Wolff fica sem chave, como "sem tabela em uso".
     const comSegundaDaWolff = (vigente: boolean) => {
         const SEGUNDA = '00000000-0000-4000-8000-00000000ab09'
-        estado.db.orcamentista_tabela.push({ id: SEGUNDA, fornecedor_id: F_WOLFF, vigente })
+        estado.db.orcamentista_tabela.push({ id: SEGUNDA, fornecedor_id: F_WOLFF, categoria_chave: 'PERFIL', vigente })
         estado.db.orcamentista_motor_formula_familia.push({ tabela_id: SEGUNDA, linha: 'LINHA NOVA' })
         estado.db.orcamentista_motor_regra.push({ tabela_id: SEGUNDA, linha: 'LINHA NOVA' })
     }

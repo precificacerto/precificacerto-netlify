@@ -304,6 +304,20 @@ async function linhasPorFornecedor(tenantId: string): Promise<Record<string, Lin
     return porFornecedor
 }
 
+/**
+ * De quais categorias o fornecedor TEM tabela (as chaves distintas, em ordem) e quantas tabelas suas não declaram categoria. Pura.
+ * Categoria nula não é categoria: ela não entra na lista e vai para a contagem — nunca é somada a uma.
+ */
+export function categoriasDasTabelas(tabelas: ReadonlyArray<{ categoria_chave?: unknown }>): { categorias_das_tabelas: string[]; tabelas_sem_categoria: number } {
+    const chaves = new Set<string>()
+    let semCategoria = 0
+    for (const t of tabelas) {
+        if (typeof t.categoria_chave === 'string' && t.categoria_chave.trim() !== '') chaves.add(t.categoria_chave)
+        else semCategoria += 1
+    }
+    return { categorias_das_tabelas: [...chaves].sort(), tabelas_sem_categoria: semCategoria }
+}
+
 /** A lista que pendura em cada categoria, além dos fornecedores — e só nela. */
 const LISTA_DA_CATEGORIA: Record<string, string> = { VIDRO: 'vidros', FERRAGENS: 'ferragens', INSTALACAO: 'instalacao' }
 
@@ -323,10 +337,17 @@ export async function lerArvoreDaEmpresa(tenantId: string) {
         .sort((a, b) => porTexto('familia')(a, b) || porOrdem(a, b))
     const campos = (await ler<Linha[]>('orcamentista_categoria_campo', db().from('orcamentista_categoria_campo').select('*')))
         .sort((a, b) => porTexto('categoria_chave')(a, b) || porOrdem(a, b))
-    const fornecedoresDoNicho = nicho
+    // O FORNECEDOR DA RAMIFICAÇÃO SAI DA TABELA (dono do produto, 28/10/2026): a categoria é da TABELA, e um fornecedor tem várias, uma por
+    // categoria. Cada fornecedor do nicho diz de quais categorias tem tabela, e quantas tabelas suas não declaram categoria (as de antes: não
+    // aparecem em categoria nenhuma, e a tela diz isso). Falha ao ler é erro — nunca a lista inteira no lugar da filtrada.
+    const fornecedoresDoNichoBrutos = nicho
         ? (await ler<Linha[]>('orcamentista_fornecedor', db().from('orcamentista_fornecedor').select('id, nome').eq('nicho_id', nicho.id)))
-            .map((f) => ({ id: f.id, nome: f.nome })).sort(porTexto('nome'))
         : []
+    const tabelasDosFornecedores = fornecedoresDoNichoBrutos.length === 0 ? [] : await ler<Linha[]>('orcamentista_tabela',
+        db().from('orcamentista_tabela').select('fornecedor_id, categoria_chave').in('fornecedor_id', fornecedoresDoNichoBrutos.map((f) => f.id)))
+    const fornecedoresDoNicho = fornecedoresDoNichoBrutos
+        .map((f) => ({ id: f.id, nome: f.nome, ...categoriasDasTabelas(tabelasDosFornecedores.filter((t) => t.fornecedor_id === f.id)) }))
+        .sort(porTexto('nome'))
 
     const doTenant = (tabela: string) => ler<Linha[]>(tabela, db().from(tabela).select('*').eq('tenant_id', tenantId))
     const materiasPrimas = (await doTenant('orcamentista_materia_prima')).sort(porOrdem)

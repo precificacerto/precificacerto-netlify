@@ -86,7 +86,7 @@ export function FornecedorModal({ aberto, modo, nichos, familias, categorias, in
                         locale={{ emptyText: 'Nenhuma tabela ainda.' }}
                         renderItem={(t, i) => (
                             <List.Item actions={[<Button key="x" size="small" type="link" onClick={() => setTabelas(tabelas.filter((_, j) => j !== i))}>remover</Button>]}>
-                                <LinhaDaTabela arquivo={t.arquivo?.name ?? ''} motor={t.motor?.name ?? ''} data={t.vigencia} />
+                                <LinhaDaTabela arquivo={t.arquivo?.name ?? ''} motor={null} data={t.vigencia} />
                             </List.Item>
                         )}
                     />

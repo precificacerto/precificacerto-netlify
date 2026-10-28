@@ -1,5 +1,5 @@
 /**
- * O modal da TABELA (EPIC §5.6): Arquivo → Motor → Família → Categoria → Vigência, NESSA ORDEM.
+ * O modal da TABELA (EPIC §5.6): Arquivo → Família → Categoria → Vigência, NESSA ORDEM.
  *
  * A FAMÍLIA (dono do produto, 26/10/2026) vem da LISTA (`familias`, da rota) e é OBRIGATÓRIA na
  * tabela nova: sem ela o salvar não liga. Nenhuma vem escolhida pela tela — nem quando a lista tem
@@ -11,8 +11,9 @@
  * tela. Na edição, a tabela de antes (sem categoria) pode ganhar UMA, uma vez; a que já tem aparece como texto,
  * porque não se troca (a rota e o banco recusam).
  *
- * O ARQUIVO DO MOTOR É OPCIONAL EM TODA CATEGORIA (27/10/2026, à noite): o motor mora na família e entra pela etapa; a tabela de preço
- * não precisa dele. (De manhã a tabela de Perfil o exigia, e a CHECK saiu à noite, na `20261027000009`: o desenho mudou.)
+ * NÃO HÁ CAMPO DE ARQUIVO DO MOTOR AQUI (dono do produto, 28/10/2026): o motor mora na família e entra pela ETAPA
+ * (`etapas-da-familia.component.tsx`); a tabela de preço é só preço. (Era opcional desde a `20261027000009`; agora sai da tela.) A rota da
+ * tabela segue aceitando `motor_path`/`motor_nome` no corpo — as tabelas de antes (a Wolff) têm motor, e o PR D decide o destino delas.
  *
  * Serve dois usos: a tabela NOVA (só o arquivo da tabela é exigido) e a EDIÇÃO (cada arquivo é
  * trocado só se outro for escolhido; o atual aparece pelo nome).
@@ -31,10 +32,9 @@ import { UploadOutlined } from '@ant-design/icons'
 import { AVISO_DO_CATALOGO, EXTENSOES_ACEITAS, MENSAGEM_CATEGORIA_OBRIGATORIA, MENSAGEM_FAMILIA_OBRIGATORIA, MOTIVO_DO_FORMATO_RECUSADO, extensaoAceita, fraseDoArquivo, type Categoria, type Familia } from '@/utils/atendimentos-ia-catalogo'
 import type { TabelaPendente } from './api'
 
-export const TEXTO_DO_MOTOR = 'O arquivo do motor é opcional: o motor mora na família e entra pela etapa. Importado junto com uma tabela, um motor que a conversa também lê pelo fornecedor faz a conversa recusar a escolha.'
 export const TITULO_DO_ERRO_AO_SALVAR = 'A tabela não foi salva.'
 
-export interface AtualDaTabela { arquivo_nome: string; motor_nome: string | null; vigencia: string | null; familia: string | null; categoria_chave: string | null }
+export interface AtualDaTabela { arquivo_nome: string; vigencia: string | null; familia: string | null; categoria_chave: string | null }
 
 interface Props {
     aberto: boolean
@@ -82,7 +82,6 @@ function Escolha({ rotulo, arquivo, atual, onEscolher }: { rotulo: string; arqui
 
 export function TabelaModal({ aberto, titulo, familias, categorias, atual, salvando, erro, onCancelar, onSalvar }: Props) {
     const [arquivo, setArquivo] = useState<File | null>(null)
-    const [motor, setMotor] = useState<File | null>(null)
     const [vigencia, setVigencia] = useState('')
     const [familia, setFamilia] = useState<string | null>(null)
     const [categoria, setCategoria] = useState<string | null>(null)
@@ -90,7 +89,6 @@ export function TabelaModal({ aberto, titulo, familias, categorias, atual, salva
     useEffect(() => {
         if (!aberto) return
         setArquivo(null)
-        setMotor(null)
         setVigencia(atual?.vigencia ?? '')
         setFamilia(atual?.familia ?? null)
         setCategoria(atual?.categoria_chave ?? null)
@@ -116,15 +114,13 @@ export function TabelaModal({ aberto, titulo, familias, categorias, atual, salva
             okButtonProps={{ disabled: !temArquivo || faltaFamilia || faltaCategoria, loading: salvando }}
             // na edição, só vai a família (e a categoria) se mudou
             onOk={() => onSalvar({
-                arquivo, motor, vigencia,
+                arquivo, vigencia,
                 familia: familia !== (atual?.familia ?? null) ? familia : null,
                 categoria: categoria !== (atual?.categoria_chave ?? null) ? categoria : null,
             })}
             destroyOnClose
         >
             <Escolha rotulo="Arquivo da tabela" arquivo={arquivo} atual={atual?.arquivo_nome} onEscolher={setArquivo} />
-            <Escolha rotulo="Arquivo do motor" arquivo={motor} atual={atual?.motor_nome} onEscolher={setMotor} />
-            <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginTop: -6 }}>{TEXTO_DO_MOTOR}</Typography.Paragraph>
             <Typography.Text strong>Família</Typography.Text>
             <div style={{ marginTop: 6, marginBottom: 14 }}>
                 <Radio.Group value={familia} onChange={(e) => setFamilia(e.target.value as string)} aria-label="Família da tabela">

@@ -260,7 +260,6 @@ describe('(4) a TELA', () => {
         const salvos: Array<{ familia: string | null }> = []
         await montar(React.createElement(Modal(), { categorias: [{ chave: 'PERFIL', rotulo: 'Perfil', ordem: 1 }], aberto: true, titulo: 'Nova tabela', familias: FAMILIAS, onCancelar: () => {}, onSalvar: (t: { familia: string | null }) => { salvos.push(t) } }))
         await escolherArquivo(0, 't.xlsx')
-        await escolherArquivo(1, 'm.xlsx')
         // a categoria já está escolhida: o que mantém o salvar desligado, abaixo, é SÓ a família
         await act(async () => { opcaoDaCategoria('PERFIL')!.click() })
         await assentar()
@@ -281,7 +280,7 @@ describe('(4) a TELA', () => {
     it('EDIÇÃO de tabela sem família: diz "não informada", e salvar sem escolher não manda família', async () => {
         const salvos: Array<{ familia: string | null }> = []
         await montar(React.createElement(Modal(), {
-            aberto: true, titulo: 'Editar tabela', familias: FAMILIAS, categorias: [{ chave: 'PERFIL', rotulo: 'Perfil', ordem: 1 }], atual: { arquivo_nome: 't.xlsx', motor_nome: 'm.xlsx', vigencia: null, familia: null, categoria_chave: null },
+            aberto: true, titulo: 'Editar tabela', familias: FAMILIAS, categorias: [{ chave: 'PERFIL', rotulo: 'Perfil', ordem: 1 }], atual: { arquivo_nome: 't.xlsx', vigencia: null, familia: null, categoria_chave: null },
             onCancelar: () => {}, onSalvar: (t: { familia: string | null }) => { salvos.push(t) },
         }))
         expect(modal()!.textContent).toContain('Família não informada')
@@ -296,7 +295,6 @@ describe('(4) a TELA', () => {
         const salvos: Array<{ familia: string | null; categoria: string | null }> = []
         await montar(React.createElement(Modal(), { aberto: true, titulo: 'Nova tabela', familias: FAMILIAS, categorias: CATEGORIAS, onCancelar: () => {}, onSalvar: (t: { familia: string | null; categoria: string | null }) => { salvos.push(t) } }))
         await escolherArquivo(0, 't.xlsx')
-        await escolherArquivo(1, 'm.xlsx')
         await act(async () => { opcaoDaFamilia('PVC')!.click() })
         await assentar()
         expect(opcaoDaCategoria('PERFIL')).not.toBeNull()
@@ -316,7 +314,7 @@ describe('(4) a TELA', () => {
 
     it('EDIÇÃO de tabela SEM categoria: diz "não informada", salvar sem escolher não manda categoria, e escolher uma manda', async () => {
         const salvos: Array<{ categoria: string | null }> = []
-        const props = { aberto: true, titulo: 'Editar tabela', familias: FAMILIAS, categorias: CATEGORIAS, atual: { arquivo_nome: 't.xlsx', motor_nome: 'm.xlsx', vigencia: null as string | null, familia: 'PVC', categoria_chave: null as string | null }, onCancelar: () => {}, onSalvar: (t: { categoria: string | null }) => { salvos.push(t) } }
+        const props = { aberto: true, titulo: 'Editar tabela', familias: FAMILIAS, categorias: CATEGORIAS, atual: { arquivo_nome: 't.xlsx', vigencia: null as string | null, familia: 'PVC', categoria_chave: null as string | null }, onCancelar: () => {}, onSalvar: (t: { categoria: string | null }) => { salvos.push(t) } }
         await montar(React.createElement(Modal(), props))
         expect(modal()!.textContent).toContain('Categoria não informada')
         expect(botao(modal()!, 'Salvar tabela')!.disabled).toBe(false)
@@ -333,7 +331,7 @@ describe('(4) a TELA', () => {
         const salvos: Array<{ categoria: string | null }> = []
         await montar(React.createElement(Modal(), {
             aberto: true, titulo: 'Editar tabela', familias: FAMILIAS, categorias: CATEGORIAS,
-            atual: { arquivo_nome: 't.xlsx', motor_nome: 'm.xlsx', vigencia: null, familia: 'PVC', categoria_chave: 'VIDRO' },
+            atual: { arquivo_nome: 't.xlsx', vigencia: null, familia: 'PVC', categoria_chave: 'VIDRO' },
             onCancelar: () => {}, onSalvar: (t: { categoria: string | null }) => { salvos.push(t) },
         }))
         expect(modal()!.querySelector('[data-categoria-da-tabela="VIDRO"]')!.textContent).toContain('Vidro')
