@@ -2,7 +2,7 @@
  * As ETAPAS de UMA família-instância (dono do produto, 27/10/2026; família-instância e catálogo de motores em 28/10/2026, migração
  * 20261028000001): o que o consultor cadastra — número, rótulo LIVRE, AÇÃO de uma lista FECHADA (combo, nunca texto), instrução, as abas
  * da planilha que a etapa carrega e o MOTOR que ela usa. Mora na base de conhecimento da conta, dentro da família (a matéria-prima): a
- * mesma empresa pode ter três famílias PVC, cada uma com as suas etapas. O cartão "Etapas da família" de Fornecedores e tabelas saiu.
+ * mesma empresa pode ter três famílias PVC, cada uma com as suas etapas. O cartão "Etapas da família" do Catálogo saiu.
  *
  * O RÓTULO É LIVRE; A AÇÃO NÃO É. A ação sai do combo com as cinco do sistema: etapa sem ação da lista é erro, não
  * etapa nova — o código precisa saber o que fazer ali, e um rótulo não diz isso. O número é a posição na lista:
@@ -12,7 +12,7 @@
  * O MOTOR DA ETAPA SAI DO CATÁLOGO: o combo lista os motores do MESMO TIPO da família, não arquivados — primeiro os dos fornecedores
  * principais desta família —, e vai no corpo só quando MUDA (salvar o rótulo não toca no motor). NÃO HÁ campo de arquivo aqui: subir motor
  * de dentro da página de uma conta criaria dado global fora do catálogo. O link "cadastrar motor no catálogo" leva ao catálogo, em
- * Fornecedores e tabelas. Arquivar o motor que uma etapa aponta é recusado pela função.
+ * Catálogo. Arquivar o motor que uma etapa aponta é recusado pela função.
  *
  * O que se salva aqui AINDA NÃO muda a conversa: o PR D passa a ler as etapas (por instância). A tela diz isso.
  *

@@ -1,12 +1,14 @@
 /**
- * O CATÁLOGO DE MOTORES (dono do produto, 28/10/2026; migração 20261028000001): mora em "Fornecedores e tabelas", logo abaixo dos
- * fornecedores. O motor é GLOBAL e COMPARTILHADO — "empresas diferentes podem usar o mesmo motor" —, e cada um tem FORNECEDOR + CATEGORIA +
+ * O CATÁLOGO DE MOTORES (dono do produto, 28/10/2026; migração 20261028000001): mora no CATÁLOGO, a última seção, depois dos
+ * fornecedores (nicho → famílias → fornecedores → motores: o motor vem por último porque escolhe o fornecedor). O motor é GLOBAL e COMPARTILHADO — "empresas diferentes podem usar o mesmo motor" —, e cada um tem FORNECEDOR + CATEGORIA +
  * TIPO (a família do catálogo: PVC, ALUMINIO…). A etapa da família-instância, na base de conhecimento da conta, só o seleciona.
  *
  * A lista mostra, de cada motor: fornecedor, categoria, tipo, arquivo, tipologias e QUEM USA (empresa, família e etapa — só nomes). Arquivar
  * o que uma etapa aponta é recusado pela função, com a frase dela; o botão já vem travado quando a lista sabe que há uso.
  *
- * "Novo motor" pede, nesta ordem, fornecedor → categoria → tipo → arquivo. O arquivo vai em dois passos, como o da tabela
+ * "Novo motor" pede, nesta ordem, FAMÍLIA → CATEGORIA → FORNECEDOR → ARQUIVO (28/10/2026). A família explícita é o que impede uma etapa de
+ * PVC usar motor de alumínio (a FK composta do banco garante). O fornecedor sai SÓ dos que têm tabela daquela categoria — a categoria é da
+ * tabela, não do fornecedor —, e trocar a categoria limpa o fornecedor que não a tem. O arquivo vai em dois passos, como o da tabela
  * (`enviarArquivo` com `tipo: 'motor'`, na pasta DO FORNECEDOR), e a rota lê, confere e cria numa transação só. A Wolf pode ter motor de
  * PERFIL e de PERSIANAS ao mesmo tempo: não há vigente. O motor novo nasce SEM TEMPO e sem etapa.
  *
@@ -27,6 +29,12 @@ export const AVISO_DO_CATALOGO_DE_MOTORES =
     'O motor é da plataforma e pode ser usado por várias empresas: cada etapa de cada família escolhe o seu, na base de conhecimento da conta. '
     + 'Cada motor tem fornecedor, categoria e tipo. Arquivar não apaga, e o motor que uma etapa aponta não se arquiva.'
 export const SEM_MOTOR_NO_CATALOGO = 'Nenhum motor no catálogo.'
+export const fraseSemFornecedorDaCategoria = (categoria: string) =>
+    `Nenhum fornecedor tem tabela da categoria ${categoria}: cadastre a tabela do fornecedor, com essa categoria, antes do motor.`
+
+/** Os fornecedores que têm tabela da categoria, em ordem alfabética: é deles que o motor da categoria escolhe. */
+export const fornecedoresDaCategoria = (fornecedores: readonly FornecedorDaLista[], categoria: string) =>
+    fornecedores.filter((f) => f.categorias_das_tabelas.includes(categoria)).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
 
 interface Novo { fornecedor_id: string | null; categoria: string | null; familia: string | null; arquivo: File | null }
 const NOVO_VAZIO: Novo = { fornecedor_id: null, categoria: null, familia: null, arquivo: null }
@@ -56,6 +64,7 @@ export function MotoresDoCatalogo({ fornecedores, categorias, familias }: { forn
     const rotuloDaCategoria = (c: string) => categorias.find((x) => x.chave === c)?.rotulo ?? c
     const rotuloDoTipo = (f: string) => familias.find((x) => x.chave === f)?.rotulo ?? f
     const visiveis = (motores ?? []).filter((m) => verArquivados || m.arquivado_em === null)
+    const doMotor = novo.categoria === null ? [] : fornecedoresDaCategoria(fornecedores, novo.categoria)
     const completo = novo.fornecedor_id !== null && novo.categoria !== null && novo.familia !== null && novo.arquivo !== null
 
     async function arquivar(m: MotorDoCatalogo) {
@@ -138,20 +147,24 @@ export function MotoresDoCatalogo({ fornecedores, categorias, familias }: { forn
             <Modal title="Novo motor" open={aberto} onCancel={() => abrir(false)} okText="Criar motor" onOk={criar}
                 okButtonProps={{ disabled: !completo || criando, loading: criando }} destroyOnClose>
                 <Space direction="vertical" style={{ width: '100%' }} data-modal-do-motor>
-                    <Select aria-label="Fornecedor do motor" placeholder="1. Fornecedor" style={{ width: '100%' }} showSearch optionFilterProp="label"
-                        value={novo.fornecedor_id ?? undefined} onChange={(v) => setNovo((n) => ({ ...n, fornecedor_id: v }))}
-                        options={[...fornecedores].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')).map((f) => ({ value: f.id, label: f.nome }))} />
-                    <Select aria-label="Categoria do motor" placeholder="2. Categoria" style={{ width: '100%' }} disabled={novo.fornecedor_id === null}
-                        value={novo.categoria ?? undefined} onChange={(v) => setNovo((n) => ({ ...n, categoria: v }))}
-                        options={[...categorias].sort((a, b) => a.ordem - b.ordem).map((c) => ({ value: c.chave, label: c.rotulo }))} />
-                    <Select aria-label="Tipo do motor" placeholder="3. Tipo (família)" style={{ width: '100%' }} disabled={novo.categoria === null}
+                    <Select aria-label="Família do motor" placeholder="1. Família" style={{ width: '100%' }}
                         value={novo.familia ?? undefined} onChange={(v) => setNovo((n) => ({ ...n, familia: v }))}
                         options={[...familias].sort((a, b) => a.ordem - b.ordem).map((f) => ({ value: f.chave, label: f.rotulo }))} />
-                    <Upload accept=".xlsx,.xlsm" maxCount={1} disabled={novo.familia === null}
+                    <Select aria-label="Categoria do motor" placeholder="2. Categoria" style={{ width: '100%' }} disabled={novo.familia === null}
+                        value={novo.categoria ?? undefined}
+                        onChange={(v) => setNovo((n) => ({ ...n, categoria: v, fornecedor_id: fornecedoresDaCategoria(fornecedores, v).some((f) => f.id === n.fornecedor_id) ? n.fornecedor_id : null }))}
+                        options={[...categorias].sort((a, b) => a.ordem - b.ordem).map((c) => ({ value: c.chave, label: c.rotulo }))} />
+                    <Select aria-label="Fornecedor do motor" placeholder="3. Fornecedor" style={{ width: '100%' }} showSearch optionFilterProp="label" disabled={novo.categoria === null}
+                        value={novo.fornecedor_id ?? undefined} onChange={(v) => setNovo((n) => ({ ...n, fornecedor_id: v }))}
+                        options={doMotor.map((f) => ({ value: f.id, label: f.nome }))} />
+                    {novo.categoria !== null && doMotor.length === 0 && (
+                        <Typography.Text type="secondary" style={{ fontSize: 12 }} data-sem-fornecedor-da-categoria>{fraseSemFornecedorDaCategoria(rotuloDaCategoria(novo.categoria))}</Typography.Text>
+                    )}
+                    <Upload accept=".xlsx,.xlsm" maxCount={1} disabled={novo.fornecedor_id === null}
                         fileList={novo.arquivo ? [{ uid: 'motor', name: novo.arquivo.name, status: 'done' }] : []}
                         onRemove={() => { setNovo((n) => ({ ...n, arquivo: null })); return true }}
                         beforeUpload={(arquivo) => { setNovo((n) => ({ ...n, arquivo: arquivo as unknown as File })); return false }}>
-                        <Button icon={<UploadOutlined />} disabled={novo.familia === null} aria-label="Arquivo do motor">4. Arquivo do motor (.xlsx, .xlsm)</Button>
+                        <Button icon={<UploadOutlined />} disabled={novo.fornecedor_id === null} aria-label="Arquivo do motor">4. Arquivo do motor (.xlsx, .xlsm)</Button>
                     </Upload>
                     {erroAoCriar && <Alert type="error" showIcon message="O motor não foi criado." description={erroAoCriar} data-erro-ao-criar-motor />}
                 </Space>

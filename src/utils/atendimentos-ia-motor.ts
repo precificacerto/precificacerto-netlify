@@ -3,7 +3,7 @@
  * leem daqui as abas que uma etapa carrega, e o portão de paridade as amarra às CHECK da migração.
  *
  * O bloco "Motor" da página da conta, que também lia este mapa, saiu (27/10/2026, #188) e o código dele foi apagado em 28/10/2026
- * (migração 20261028000001): lia `orcamentista_motor.vigente`, que deixou de existir. O motor mora no CATÁLOGO de Fornecedores e tabelas
+ * (migração 20261028000001): lia `orcamentista_motor.vigente`, que deixou de existir. O motor mora no CATÁLOGO (o antigo "Fornecedores e tabelas")
  * (`atendimentos-ia-catalogo-de-motores.ts`), e a etapa da família-instância o seleciona.
  */
 

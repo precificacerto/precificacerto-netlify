@@ -82,7 +82,7 @@ export function fornecedoresComTabelaSemCategoria(arvore: Pick<ArvoreLida, 'forn
 /**
  * Por que a lista de uma ramificação está como está — quando NÃO sobra ninguém para escolher, a tela diz por quê em vez de deixar o combo
  * vazio: ou nenhum fornecedor do nicho tem tabela da categoria, ou os que têm já estão na lista. E nomeia os fornecedores cuja tabela não
- * declara categoria (não aparecem em categoria nenhuma até alguém declarar a da tabela, em "Fornecedores e tabelas").
+ * declara categoria (não aparecem em categoria nenhuma até alguém declarar a da tabela, no Catálogo).
  */
 export function fraseDaListaDeFornecedoresVazia(rotuloDaCategoria: string, comTabelaDaCategoria: number, semCategoria: readonly string[]): string {
     const base = comTabelaDaCategoria === 0
@@ -90,7 +90,7 @@ export function fraseDaListaDeFornecedoresVazia(rotuloDaCategoria: string, comTa
         : `Todos os fornecedores com tabela da categoria ${rotuloDaCategoria} já estão nesta lista.`
     if (semCategoria.length === 0) return base
     const nomes = [...semCategoria].sort((a, b) => a.localeCompare(b, 'pt-BR')).join(', ')
-    return `${base} ${semCategoria.length === 1 ? 'Um fornecedor tem tabela' : `${semCategoria.length} fornecedores têm tabela`} sem categoria declarada e por isso não aparece${semCategoria.length === 1 ? '' : 'm'} em categoria nenhuma: ${nomes}. Declare a categoria da tabela em Fornecedores e tabelas.`
+    return `${base} ${semCategoria.length === 1 ? 'Um fornecedor tem tabela' : `${semCategoria.length} fornecedores têm tabela`} sem categoria declarada e por isso não aparece${semCategoria.length === 1 ? '' : 'm'} em categoria nenhuma: ${nomes}. Declare a categoria da tabela no Catálogo.`
 }
 export const fraseDasCategorias = (configuradas: number, total: number) => `${configuradas} de ${total} categorias`
 export const SEM_FAMILIA_NA_MATERIA_PRIMA =

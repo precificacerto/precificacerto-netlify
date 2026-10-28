@@ -58,7 +58,7 @@ export enum PAGE_TITLES {
   SUPER_ADMIN_CADASTROS = 'Cadastros Pendentes',
   SUPER_ADMIN_PLANS_EXPIRING = 'Planos Expirando',
   SUPER_ADMIN_NOTIFICATIONS = 'Notificações',
-  SUPER_ADMIN_IA_FORNECEDORES = 'Fornecedores e tabelas de preço',
+  SUPER_ADMIN_IA_FORNECEDORES = 'Catálogo',
   SUPER_ADMIN_IA_CONTAS = 'Contas ligadas',
   SUPER_ADMIN_IA_CONTA = 'Configuração da conta',
   SUPER_ADMIN_IA_IMPORTACAO = 'Importação da tabela',

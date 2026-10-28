@@ -1,6 +1,6 @@
 /**
  * O CATÁLOGO DE MOTORES (dono do produto, 28/10/2026; migração 20261028000001): o motor é GLOBAL e COMPARTILHADO — "empresas diferentes
- * podem usar o mesmo motor" —, mora em "Fornecedores e tabelas", abaixo dos fornecedores, e cada um tem FORNECEDOR + CATEGORIA + TIPO
+ * podem usar o mesmo motor" —, mora no CATÁLOGO (o antigo "Fornecedores e tabelas"), depois dos fornecedores, e cada um tem FAMÍLIA + CATEGORIA + FORNECEDOR
  * (`familia`: PVC, ALUMINIO…). A etapa da família-instância só SELECIONA um motor do catálogo; ela não sobe arquivo (subir motor de
  * dentro da página de uma conta criaria dado global fora do catálogo).
  *
@@ -22,7 +22,7 @@ export const ROTAS_DOS_MOTORES = {
     arquivar: `${RAIZ}/arquivar`,
 }
 
-/** A âncora do cartão do catálogo na página de Fornecedores e tabelas: o link "cadastrar motor no catálogo" da etapa leva até ela. */
+/** A âncora do cartão dos motores na página do Catálogo: o link "cadastrar motor no catálogo" da etapa leva até ela. */
 export const ANCORA_DO_CATALOGO_DE_MOTORES = 'motores'
 
 /** A pasta do bucket onde mora o arquivo de motor de um fornecedor. A função do banco confere o MESMO prefixo. */

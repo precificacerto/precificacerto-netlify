@@ -188,7 +188,7 @@ export default function ConfiguracaoDaConta() {
                             onChange={(id) => setNichoId(id ?? null)}
                             disabled={!modelo}
                             allowClear
-                            placeholder={!modelo ? 'Escolha o modelo primeiro' : nichosDoModelo.length ? undefined : 'Nenhum nicho deste modelo — crie um em Fornecedores e tabelas'}
+                            placeholder={!modelo ? 'Escolha o modelo primeiro' : nichosDoModelo.length ? undefined : 'Nenhum nicho deste modelo — crie um no Catálogo'}
                         />
                     </div>
                     <Typography.Paragraph type="secondary" style={{ fontSize: 12, margin: 0 }} data-aviso="trava-do-modelo-e-nicho">

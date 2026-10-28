@@ -30,7 +30,7 @@ jest.mock('@/supabase/admin', () => ({
 }))
 jest.mock('@/lib/atendimentos-ia/tabelas-da-conta', () => ({ contasQueVinculam: jest.fn(async () => new Map()), derivarTabelasDaConta: jest.fn(async () => ({ tabelas: [] as unknown[] })) }))
 
-import { obterArquivosDaTabela, obterDadosDaTabela, obterTabela, tabelaVigenteDoPar } from '@/lib/atendimentos-ia/repositorio'
+import { listarFornecedores, obterArquivosDaTabela, obterDadosDaTabela, obterTabela, tabelaVigenteDoPar } from '@/lib/atendimentos-ia/repositorio'
 
 const tabela = (id: string, extra: Record<string, unknown> = {}) => ({
     id, fornecedor_id: 'f1', arquivo_path: `f1/arquivo/${id}.xlsx`, arquivo_nome: `${id}.xlsx`, motor_path: null as string | null, motor_nome: null as string | null,
@@ -94,5 +94,19 @@ describe('(b) a vigente que bloqueia é a da MESMA categoria', () => {
     it('a família diferente não bloqueia, e a própria tabela não se bloqueia', async () => {
         linhas.orcamentista_tabela = [tabela('alu-vigente', { familia: 'ALUMINIO', categoria_chave: 'PERFIL', vigente: true }), tabela('pvc-vigente', { categoria_chave: 'PERFIL', vigente: true })]
         expect(await tabelaVigenteDoPar('pvc-vigente')).toBeNull()
+    })
+})
+
+describe('(c) as categorias das tabelas de cada fornecedor — de onde o cadastro de motor tira "os fornecedores daquela categoria" (28/10/2026)', () => {
+    it('sem repetição, em ordem, só as do PRÓPRIO fornecedor; tabela sem categoria não entra; fornecedor sem tabela tem a lista vazia', async () => {
+        linhas.orcamentista_fornecedor = [{ id: 'f1', nome: 'Wolff', nicho_id: 'n1' }, { id: 'f2', nome: 'Roller', nicho_id: 'n1' }, { id: 'f3', nome: 'Sem tabela', nicho_id: 'n1' }]
+        linhas.orcamentista_nicho = [{ id: 'n1', modelo: 'FABRICACAO', nome: 'Esquadrias' }]
+        linhas.orcamentista_tabela = [
+            tabela('a', { categoria_chave: 'REFORCO' }), tabela('b', { categoria_chave: 'PERFIL' }), tabela('c', { categoria_chave: 'PERFIL' }),
+            tabela('d', { categoria_chave: null }), tabela('e', { categoria_chave: '  ' }),
+            tabela('r', { fornecedor_id: 'f2', categoria_chave: 'PERSIANAS' }),
+        ]
+        const porId = Object.fromEntries((await listarFornecedores()).map((f) => [f.id, f.categorias_das_tabelas]))
+        expect(porId).toEqual({ f1: ['PERFIL', 'REFORCO'], f2: ['PERSIANAS'], f3: [] })
     })
 })

@@ -1,5 +1,9 @@
 /**
- * Atendimentos I.A. → Fornecedores e tabelas (EPIC §5.5). Só o super admin.
+ * Atendimentos I.A. → CATÁLOGO (EPIC §5.5; "Fornecedores e tabelas" até 28/10/2026). Só o super admin.
+ *
+ * A ORDEM DAS SEÇÕES (dono do produto, 28/10/2026): NICHO → FAMÍLIAS → FORNECEDORES → MOTORES. A família vem antes do fornecedor porque é
+ * ela que define quais categorias existem nela, e o fornecedor usa essas categorias ao inserir a tabela; o motor vem por último porque
+ * escolhe o fornecedor.
  *
  * TUDO PELAS ROTAS (`ROTAS_DO_CATALOGO`), nada pelo cliente do Supabase: as quatro tabelas não
  * dão privilégio ao navegador, e uma lista lida por ele chegaria VAZIA, dizendo "nenhum
@@ -17,8 +21,8 @@
  * AS FAMÍLIAS (dono do produto, 26/10/2026) moram aqui, ao lado dos nichos: a lista fechada que o
  * cadastro da tabela usa, com "Nova família" (`FamiliasCard`).
  *
- * O CATÁLOGO DE MOTORES (dono do produto, 28/10/2026) mora logo abaixo dos fornecedores (`MotoresDoCatalogo`): cada motor com fornecedor,
- * categoria e tipo, global e compartilhado. As ETAPAS saíram daqui: são da família-instância, na base de conhecimento da conta.
+ * O CATÁLOGO DE MOTORES (dono do produto, 28/10/2026) é a última seção (`MotoresDoCatalogo`): cada motor com família, categoria e
+ * fornecedor, global e compartilhado. As ETAPAS saíram daqui: são da família-instância, na base de conhecimento da conta.
  */
 import React, { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/router'
@@ -140,56 +144,56 @@ export default function FornecedoresETabelas() {
 
     return (
         <Layout title={PAGE_TITLES.SUPER_ADMIN_IA_FORNECEDORES} subtitle={AVISO_DO_CATALOGO}>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
-                <Button type="primary" icon={<PlusOutlined />} onClick={() => abrirCredenciamento(true)} disabled={!!erro}>
-                    Credenciar fornecedor
-                </Button>
-            </div>
-
-            {credenciadoComFalhas && (
-                <Alert
-                    type="warning"
-                    showIcon
-                    closable
-                    onClose={() => setCredenciadoComFalhas(null)}
-                    style={{ marginBottom: 12 }}
-                    message={`Fornecedor "${credenciadoComFalhas.nome}" credenciado, mas ${credenciadoComFalhas.falhas.length} tabela(s) não entraram.`}
-                    description={<ul style={{ margin: 0, paddingLeft: 18 }}>{credenciadoComFalhas.falhas.map((f, i) => <li key={i}>{f}</li>)}</ul>}
-                    data-credenciado-com-falhas
-                />
-            )}
-
             {erro ? (
                 <Alert type="error" showIcon message="Não foi possível ler o catálogo." description={erro} action={<Button onClick={carregar}>Tentar de novo</Button>} />
             ) : (
-                <div className="pc-card--table">
-                    <Table<FornecedorDaLista>
-                        rowKey="id"
-                        loading={fornecedores === null}
-                        dataSource={fornecedores ?? []}
-                        pagination={false}
-                        locale={{ emptyText: <Empty description="Nenhum fornecedor credenciado." /> }}
-                        columns={[
-                            { title: 'Fornecedor', dataIndex: 'nome' },
-                            { title: 'Nicho', render: (_, f) => <span>{f.nicho_nome} {f.modelo && <Tag>{ROTULO_DO_MODELO[f.modelo]}</Tag>}</span> },
-                            { title: 'Contas usando', render: (_, f) => (f.contas_usando.length ? f.contas_usando.join(', ') : <Typography.Text type="secondary">—</Typography.Text>) },
-                            {
-                                title: '',
-                                align: 'right',
-                                render: (_, f) => (
-                                    <Button size="small" onClick={() => router.push(`${ROUTES.SUPER_ADMIN_IA_FORNECEDORES}/${f.id}`)}>
-                                        Tabelas ({f.tabelas})
-                                    </Button>
-                                ),
-                            },
-                        ]}
-                    />
-                </div>
+                <>
+                    <NichosCard nichos={nichos} onCriar={criarNicho} onExcluir={excluirNicho} />
+                    <FamiliasCard familias={familias} onCriar={criarFamilia} />
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '16px 0 12px' }} data-secao-fornecedores>
+                        <Typography.Title level={5} style={{ margin: 0 }}>Fornecedores</Typography.Title>
+                        <Button type="primary" icon={<PlusOutlined />} onClick={() => abrirCredenciamento(true)}>
+                            Credenciar fornecedor
+                        </Button>
+                    </div>
+                    {credenciadoComFalhas && (
+                        <Alert
+                            type="warning"
+                            showIcon
+                            closable
+                            onClose={() => setCredenciadoComFalhas(null)}
+                            style={{ marginBottom: 12 }}
+                            message={`Fornecedor "${credenciadoComFalhas.nome}" credenciado, mas ${credenciadoComFalhas.falhas.length} tabela(s) não entraram.`}
+                            description={<ul style={{ margin: 0, paddingLeft: 18 }}>{credenciadoComFalhas.falhas.map((f, i) => <li key={i}>{f}</li>)}</ul>}
+                            data-credenciado-com-falhas
+                        />
+                    )}
+                    <div className="pc-card--table">
+                        <Table<FornecedorDaLista>
+                            rowKey="id"
+                            loading={fornecedores === null}
+                            dataSource={fornecedores ?? []}
+                            pagination={false}
+                            locale={{ emptyText: <Empty description="Nenhum fornecedor credenciado." /> }}
+                            columns={[
+                                { title: 'Fornecedor', dataIndex: 'nome' },
+                                { title: 'Nicho', render: (_, f) => <span>{f.nicho_nome} {f.modelo && <Tag>{ROTULO_DO_MODELO[f.modelo]}</Tag>}</span> },
+                                { title: 'Contas usando', render: (_, f) => (f.contas_usando.length ? f.contas_usando.join(', ') : <Typography.Text type="secondary">—</Typography.Text>) },
+                                {
+                                    title: '',
+                                    align: 'right',
+                                    render: (_, f) => (
+                                        <Button size="small" onClick={() => router.push(`${ROUTES.SUPER_ADMIN_IA_FORNECEDORES}/${f.id}`)}>
+                                            Tabelas ({f.tabelas})
+                                        </Button>
+                                    ),
+                                },
+                            ]}
+                        />
+                    </div>
+                    {fornecedores !== null && <MotoresDoCatalogo fornecedores={fornecedores} categorias={categorias} familias={familias} />}
+                </>
             )}
-
-            {!erro && fornecedores !== null && <MotoresDoCatalogo fornecedores={fornecedores} categorias={categorias} familias={familias} />}
-            {!erro && <NichosCard nichos={nichos} onCriar={criarNicho} onExcluir={excluirNicho} />}
-            {!erro && <FamiliasCard familias={familias} onCriar={criarFamilia} />}
 
             <FornecedorModal
                 aberto={credenciando}

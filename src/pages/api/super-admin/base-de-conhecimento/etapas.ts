@@ -7,7 +7,7 @@
  *     Item com `id` edita; sem `id`, cria. NÃO remove etapa. `motor_id` no item: ausente mantém o motor da etapa, null limpa, uuid aponta.
  *
  * A ETAPA É DA FAMÍLIA-INSTÂNCIA (dono do produto, 28/10/2026): a mesma empresa pode ter três famílias PVC, cada uma com as suas etapas. O
- * motor é global, do catálogo de Fornecedores e tabelas: aqui só se seleciona. O rótulo é livre; a AÇÃO é de uma lista fechada. A rota
+ * motor é global, do Catálogo (o antigo "Fornecedores e tabelas"): aqui só se seleciona. O rótulo é livre; a AÇÃO é de uma lista fechada. A rota
  * confere o corpo ANTES da função (`lerCorpoDasEtapas`), com a frase que diz qual etapa e por quê; a função e a CHECK do banco conferem de
  * novo, e a mensagem dela vai na resposta (42501, P0002, 22023). O autor é o usuário da sessão.
  *

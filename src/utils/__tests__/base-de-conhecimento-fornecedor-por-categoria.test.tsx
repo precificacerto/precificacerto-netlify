@@ -238,7 +238,7 @@ describe('(2) quando não sobra ninguém, a tela diz por quê — não deixa o c
         const f = filtro(host, 'VIDRO')
         expect(f).toContain('Nenhum fornecedor do nicho tem tabela da categoria Vidro.')
         expect(f).toContain('3 fornecedores têm tabela sem categoria declarada e por isso não aparecem em categoria nenhuma: Estrela Vidros, Hydro, Wolf Perfis.')
-        expect(f).toContain('Declare a categoria da tabela em Fornecedores e tabelas.')
+        expect(f).toContain('Declare a categoria da tabela no Catálogo.')
     })
 
     it('quando há quem escolher, a frase é o aviso curto do filtro — não o diagnóstico', async () => {
@@ -313,7 +313,7 @@ describe('(5) as funções puras', () => {
 
     it('a frase: singular e plural, com ou sem sem-categoria, e os dois motivos de lista vazia', () => {
         expect(fraseDaListaDeFornecedoresVazia('Persianas', 0, [])).toBe('Nenhum fornecedor do nicho tem tabela da categoria Persianas.')
-        expect(fraseDaListaDeFornecedoresVazia('Persianas', 0, ['Wolf'])).toBe('Nenhum fornecedor do nicho tem tabela da categoria Persianas. Um fornecedor tem tabela sem categoria declarada e por isso não aparece em categoria nenhuma: Wolf. Declare a categoria da tabela em Fornecedores e tabelas.')
+        expect(fraseDaListaDeFornecedoresVazia('Persianas', 0, ['Wolf'])).toBe('Nenhum fornecedor do nicho tem tabela da categoria Persianas. Um fornecedor tem tabela sem categoria declarada e por isso não aparece em categoria nenhuma: Wolf. Declare a categoria da tabela no Catálogo.')
         expect(fraseDaListaDeFornecedoresVazia('Persianas', 0, ['Z', 'A'])).toContain('2 fornecedores têm tabela sem categoria declarada e por isso não aparecem em categoria nenhuma: A, Z.')
         expect(fraseDaListaDeFornecedoresVazia('Perfil', 2, [])).toBe('Todos os fornecedores com tabela da categoria Perfil já estão nesta lista.')
     })

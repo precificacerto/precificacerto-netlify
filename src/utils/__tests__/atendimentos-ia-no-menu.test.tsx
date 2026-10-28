@@ -100,10 +100,11 @@ const destinosDaSecao = (raiz: ParentNode) =>
     Array.from(raiz.querySelectorAll(`[data-section-key="${SECAO}"] a[href]`)).map((a) => a.getAttribute('href') as string)
 
 describe('a seção Atendimentos I.A. — menu e guarda', () => {
-    it('(a) o menu desktop do super admin traz a seção, com "Contas ligadas" e "Fornecedores e tabelas"', () => {
+    it('(a) o menu desktop do super admin traz a seção, com "Contas ligadas" e "Catálogo" (o antigo "Fornecedores e tabelas", 28/10/2026)', () => {
         caminhoAtual = ROUTES.SUPER_ADMIN_PANEL
         const host = montar(<Nav />)
         expect(destinosDaSecao(host)).toEqual([ROUTES.SUPER_ADMIN_IA_CONTAS, ROUTES.SUPER_ADMIN_IA_FORNECEDORES])
+        expect(host.querySelector(`[data-section-key="${SECAO}"] a[href="${ROUTES.SUPER_ADMIN_IA_FORNECEDORES}"]`)?.textContent?.trim()).toBe('Catálogo')
         const rotulos = Array.from(host.querySelectorAll('.nav-section-label')).map((e) => (e.textContent || '').trim())
         // o rótulo visível é "Agentes I.A." desde 26/10/2026 (dono do produto); a rota e a chave não mudaram
         expect(rotulos).toContain('Agentes I.A.')
@@ -115,6 +116,7 @@ describe('a seção Atendimentos I.A. — menu e guarda', () => {
         montar(<MobileMoreDrawer open onClose={() => {}} />)
         const drawer = document.querySelector('.pc-mobile-more-drawer-content') as ParentNode
         expect(destinosDaSecao(drawer)).toEqual([ROUTES.SUPER_ADMIN_IA_CONTAS, ROUTES.SUPER_ADMIN_IA_FORNECEDORES])
+        expect(drawer.querySelector(`[data-section-key="${SECAO}"] a[href="${ROUTES.SUPER_ADMIN_IA_FORNECEDORES}"]`)?.textContent?.trim()).toBe('Catálogo')
         expect(drawer.querySelector(`[data-section-key="${SECAO}"] .pc-mobile-more-section-title`)?.textContent?.trim()).toBe('Agentes I.A.')
     })
 

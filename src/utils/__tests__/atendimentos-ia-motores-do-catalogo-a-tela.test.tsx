@@ -1,5 +1,5 @@
 /**
- * PORTÃO — o CATÁLOGO DE MOTORES na tela (`motores-do-catalogo.component.tsx`, em "Fornecedores e tabelas"; dono do produto, 28/10/2026,
+ * PORTÃO — o CATÁLOGO DE MOTORES na tela (`motores-do-catalogo.component.tsx`, no CATÁLOGO — o antigo "Fornecedores e tabelas"; dono do produto, 28/10/2026,
  * migração 20261028000001).
  *
  * POR QUÊ: o motor é GLOBAL e COMPARTILHADO — "empresas diferentes podem usar o mesmo motor" —, com fornecedor + categoria + tipo, e mora
@@ -10,9 +10,10 @@
  *       interruptor; falha de leitura é ERRO, nunca "nenhum motor";
  *   (2) arquivar: o motor em uso tem o botão travado (com o porquê); o livre chama SÓ a rota de arquivar com o id, e relê; a recusa da rota
  *       aparece no cartão, com a frase dela;
- *   (3) "Novo motor": fornecedor → categoria → tipo → arquivo, cada um liberando o seguinte; criar faz, NESTA ordem, a URL assinada na pasta
- *       DO FORNECEDOR (tipo motor), os bytes, o POST do catálogo com os cinco campos — e relê; a recusa aparece DENTRO do modal;
- *   (4) a página: o catálogo fica logo abaixo dos fornecedores, e o cartão "Etapas da família" saiu.
+ *   (3) "Novo motor": família → categoria → fornecedor → arquivo, cada um liberando o seguinte; o fornecedor sai SÓ dos que têm tabela da
+ *       categoria; criar faz, NESTA ordem, a URL assinada na pasta DO FORNECEDOR (tipo motor), os bytes, o POST do catálogo com os cinco
+ *       campos — e relê; a recusa aparece DENTRO do modal;
+ *   (4) a página: CATÁLOGO, na ordem nicho → famílias → fornecedores → motores, e o cartão "Etapas da família" saiu.
  */
 import React from 'react'
 import { act } from 'react'
@@ -40,10 +41,12 @@ const M_ARQ = '00000000-0000-4000-8000-0000000000a3'
 const PATH = `${W}/motor/u1-Motor-persiana.xlsx`
 const URL_ASSINADA = `https://storage.exemplo/${PATH}?token=t`
 const FORNECEDORES: FornecedorDaLista[] = [
-    { id: W, nome: 'Wolf', nicho_id: 'n', nicho_nome: 'Esquadrias', modelo: 'FABRICACAO' as const, tabelas: 2, contas_usando: [] },
-    { id: R, nome: 'Roller Star', nicho_id: 'n', nicho_nome: 'Esquadrias', modelo: 'FABRICACAO' as const, tabelas: 1, contas_usando: [] },
+    { id: W, nome: 'Wolf', nicho_id: 'n', nicho_nome: 'Esquadrias', modelo: 'FABRICACAO' as const, tabelas: 2, contas_usando: [], categorias_das_tabelas: ['PERFIL', 'PERSIANAS'] },
+    { id: R, nome: 'Roller Star', nicho_id: 'n', nicho_nome: 'Esquadrias', modelo: 'FABRICACAO' as const, tabelas: 1, contas_usando: [], categorias_das_tabelas: ['PERSIANAS'] },
+    // sem tabela nenhuma: não aparece em categoria nenhuma
+    { id: 'f-sem', nome: 'Alfa Sem Tabela', nicho_id: 'n', nicho_nome: 'Esquadrias', modelo: 'FABRICACAO' as const, tabelas: 0, contas_usando: [], categorias_das_tabelas: [] },
 ]
-const CATEGORIAS = [{ chave: 'PERFIL', rotulo: 'Perfil', ordem: 1 }, { chave: 'PERSIANAS', rotulo: 'Persianas', ordem: 2 }]
+const CATEGORIAS = [{ chave: 'PERFIL', rotulo: 'Perfil', ordem: 1 }, { chave: 'PERSIANAS', rotulo: 'Persianas', ordem: 2 }, { chave: 'VIDRO', rotulo: 'Vidro', ordem: 6 }]
 const FAMILIAS = [{ chave: 'PVC', rotulo: 'PVC', ordem: 1 }, { chave: 'ALUMINIO', rotulo: 'Alumínio', ordem: 2 }]
 const motor = (id: string, f: Partial<MotorDoCatalogo>): MotorDoCatalogo => ({
     id, familia: 'PVC', fornecedor_id: W, fornecedor: 'Wolf', categoria: 'PERFIL', arquivo_nome: `${id}.xlsx`, criado_em: '2026-10-28', arquivado_em: null, tipologias: 0, usos: [], ...f,
@@ -83,6 +86,7 @@ beforeEach(() => {
 const Componente = () => require('@/page-parts/atendimentos-ia/motores-do-catalogo.component') as {
     MotoresDoCatalogo: React.ComponentType<{ fornecedores: typeof FORNECEDORES; categorias: typeof CATEGORIAS; familias: typeof FAMILIAS }>
     SEM_MOTOR_NO_CATALOGO: string
+    fraseSemFornecedorDaCategoria: (c: string) => string
 }
 
 const montadas: { root: ReturnType<typeof createRoot>; host: HTMLElement }[] = []
@@ -127,10 +131,15 @@ async function anexar(nome = 'Motor persiana.xlsx') {
     await assentar()
 }
 const criar = () => Array.from(document.body.querySelectorAll('.ant-modal-footer button')).find((b) => b.textContent?.includes('Criar motor')) as HTMLButtonElement
+const opcoesDoCombo = async (rotulo: string) => {
+    await act(async () => { combo(rotulo).querySelector('.ant-select-selector')!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })) })
+    await assentar()
+    return Array.from(document.body.querySelectorAll('.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option')).map((o) => o.textContent)
+}
 async function preencherTudo() {
-    await escolher('Fornecedor do motor', 'Wolf')
+    await escolher('Família do motor', 'PVC')
     await escolher('Categoria do motor', 'Persianas')
-    await escolher('Tipo do motor', 'PVC')
+    await escolher('Fornecedor do motor', 'Wolf')
     await anexar()
 }
 
@@ -196,30 +205,59 @@ describe('(2) arquivar', () => {
     })
 })
 
-describe('(3) "Novo motor": fornecedor → categoria → tipo → arquivo', () => {
-    it('cada campo libera o seguinte, e o criar só liga com os quatro', async () => {
+describe('(3) "Novo motor": família → categoria → fornecedor → arquivo', () => {
+    it('cada campo libera o seguinte, NESTA ordem, e o criar só liga com os quatro', async () => {
         const host = await montar()
         await clicar(host.querySelector('[data-novo-motor]'))
+        // o antd põe o rótulo no input e no contêiner do combo: a ordem é a da primeira aparição de cada um
+        const campos = [...new Set(Array.from(modal().querySelectorAll('[aria-label$=" do motor"]')).map((e) => e.getAttribute('aria-label')))]
+        expect(campos).toEqual(['Família do motor', 'Categoria do motor', 'Fornecedor do motor', 'Arquivo do motor'])
         expect(combo('Categoria do motor').className).toContain('ant-select-disabled')
-        expect(combo('Tipo do motor').className).toContain('ant-select-disabled')
+        expect(combo('Fornecedor do motor').className).toContain('ant-select-disabled')
         expect(criar().disabled).toBe(true)
-        await escolher('Fornecedor do motor', 'Wolf')
+        await escolher('Família do motor', 'PVC')
         expect(combo('Categoria do motor').className).not.toContain('ant-select-disabled')
-        expect(combo('Tipo do motor').className).toContain('ant-select-disabled')
+        expect(combo('Fornecedor do motor').className).toContain('ant-select-disabled')
         await escolher('Categoria do motor', 'Persianas')
-        await escolher('Tipo do motor', 'PVC')
+        expect(combo('Fornecedor do motor').className).not.toContain('ant-select-disabled')
+        expect((modal().querySelector('[aria-label="Arquivo do motor"]') as HTMLButtonElement).disabled).toBe(true)
+        await escolher('Fornecedor do motor', 'Wolf')
         expect(criar().disabled).toBe(true)
         await anexar()
         expect(criar().disabled).toBe(false)
     })
 
-    it('o fornecedor oferece TODOS os credenciados, em ordem alfabética', async () => {
+    it('o fornecedor sai SÓ dos que têm tabela da categoria, em ordem alfabética; o sem tabela não aparece', async () => {
         const host = await montar()
         await clicar(host.querySelector('[data-novo-motor]'))
-        await act(async () => { combo('Fornecedor do motor').querySelector('.ant-select-selector')!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })) })
-        await assentar()
-        const opcoes = Array.from(document.body.querySelectorAll('.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option')).map((o) => o.textContent)
-        expect(opcoes).toEqual(['Roller Star', 'Wolf'])
+        await escolher('Família do motor', 'PVC')
+        await escolher('Categoria do motor', 'Persianas')
+        expect(await opcoesDoCombo('Fornecedor do motor')).toEqual(['Roller Star', 'Wolf'])
+        await escolher('Categoria do motor', 'Perfil')
+        expect(await opcoesDoCombo('Fornecedor do motor')).toEqual(['Wolf'])
+    })
+
+    it('trocar a categoria LIMPA o fornecedor que não a tem, e mantém o que tem', async () => {
+        const host = await montar()
+        await clicar(host.querySelector('[data-novo-motor]'))
+        await escolher('Família do motor', 'PVC')
+        await escolher('Categoria do motor', 'Persianas')
+        await escolher('Fornecedor do motor', 'Roller Star')
+        await escolher('Categoria do motor', 'Perfil')
+        expect(combo('Fornecedor do motor').querySelector('.ant-select-selection-item')).toBeNull()
+        await escolher('Fornecedor do motor', 'Wolf')
+        await escolher('Categoria do motor', 'Persianas')
+        expect(combo('Fornecedor do motor').querySelector('.ant-select-selection-item')?.textContent).toBe('Wolf')
+    })
+
+    it('categoria sem fornecedor com tabela: a tela diz isso, nomeando a categoria', async () => {
+        const host = await montar()
+        await clicar(host.querySelector('[data-novo-motor]'))
+        await escolher('Família do motor', 'PVC')
+        await escolher('Categoria do motor', 'Vidro')
+        expect(modal().querySelector('[data-sem-fornecedor-da-categoria]')?.textContent).toBe(Componente().fraseSemFornecedorDaCategoria('Vidro'))
+        expect(Componente().fraseSemFornecedorDaCategoria('Vidro')).toContain('Nenhum fornecedor tem tabela da categoria Vidro')
+        expect(await opcoesDoCombo('Fornecedor do motor')).toEqual([])
     })
 
     it('criar: URL na pasta DO FORNECEDOR (tipo motor), os bytes, o POST do catálogo com os cinco campos — nessa ordem — e relê', async () => {
@@ -265,8 +303,8 @@ jest.mock('next/router', () => ({ useRouter: () => ({ push: jest.fn(), replace: 
 jest.mock('@/hooks/use-auth.hook', () => ({ useAuth: () => ({ currentUser: { is_super_admin: true } }) }))
 jest.mock('@/components/layout/layout.component', () => ({ Layout: ({ children }: { children: React.ReactNode }) => React.createElement('div', null, children) }))
 
-describe('(4) a página de Fornecedores e tabelas', () => {
-    it('o catálogo fica LOGO ABAIXO dos fornecedores (antes dos nichos), e o cartão "Etapas da família" saiu', async () => {
+describe('(4) a página do CATÁLOGO', () => {
+    it('a ordem é NICHO → FAMÍLIAS → FORNECEDORES → MOTORES, e o cartão "Etapas da família" saiu', async () => {
         respostas[`GET ${ROTAS_DO_CATALOGO.fornecedores}`] = [{ status: 200, body: FORNECEDORES }]
         respostas[`GET ${ROTAS_DO_CATALOGO.nichos}`] = [{ status: 200, body: [] }]
         respostas[`GET ${ROTAS_DO_CATALOGO.familias}`] = [{ status: 200, body: FAMILIAS }]
@@ -274,14 +312,25 @@ describe('(4) a página de Fornecedores e tabelas', () => {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const Pagina = require('@/pages/super-admin/atendimentos-ia/fornecedores/index').default as React.ComponentType
         const host = await montar(React.createElement(Pagina))
-        const catalogo = host.querySelector('[data-catalogo-de-motores]') as HTMLElement
-        expect(catalogo).toBeTruthy()
-        expect(catalogo.id).toBe('motores')
+        const titulo = (re: RegExp) => Array.from(host.querySelectorAll('.ant-card-head-title')).find((t) => re.test(t.textContent ?? '')) as HTMLElement
+        const nichos = titulo(/nicho/i)
+        const familias = titulo(/fam[ií]lia/i)
+        const fornecedores = host.querySelector('[data-secao-fornecedores]') as HTMLElement
         const tabela = host.querySelector('.pc-card--table') as HTMLElement
-        const nichos = Array.from(host.querySelectorAll('.ant-card-head-title')).find((t) => /nicho/i.test(t.textContent ?? '')) as HTMLElement
-        expect(tabela.compareDocumentPosition(catalogo) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-        expect(catalogo.compareDocumentPosition(nichos) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+        const motores = host.querySelector('[data-catalogo-de-motores]') as HTMLElement
+        expect(motores.id).toBe('motores')
+        const antes = (a: Node, b: Node) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING)
+        expect(antes(nichos, familias)).toBe(true)
+        expect(antes(familias, fornecedores)).toBe(true)
+        expect(antes(fornecedores, tabela)).toBe(true)
+        expect(antes(tabela, motores)).toBe(true)
+        expect(fornecedores.textContent).toContain('Credenciar fornecedor')
         expect(host.querySelector('[data-etapas-card]')).toBeNull()
         expect(Array.from(host.querySelectorAll('.ant-card-head-title')).map((t) => t.textContent)).not.toContain('Etapas da família')
+    })
+
+    it('o menu e o título chamam a página de "Catálogo"', () => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        expect((require('@/constants/page-titles') as { PAGE_TITLES: Record<string, string> }).PAGE_TITLES.SUPER_ADMIN_IA_FORNECEDORES).toBe('Catálogo')
     })
 })
