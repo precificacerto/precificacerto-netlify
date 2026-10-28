@@ -1,13 +1,15 @@
 /**
- * PORTÃO — a FAMÍLIA, NA TELA, NESTA ORDEM (dono do produto, 27/10/2026): (1) o TÍTULO digitado — o nome da matéria-prima; (2) os MOTORES, um por
- * etapa, cada um com o seu arquivo — ACIMA da ramificação 1 (Perfil) e antes dos fornecedores; (3) as categorias.
+ * PORTÃO — a FAMÍLIA, NA TELA, NESTA ORDEM (dono do produto, 27/10/2026): (1) o TÍTULO digitado — o nome da matéria-prima; (2) as ETAPAS desta
+ * família-instância, cada uma com o motor que seleciona do catálogo (28/10/2026; sem campo de arquivo) — ACIMA da ramificação 1 (Perfil) e antes dos
+ * fornecedores; (3) as categorias.
  *
- *   (1) a ordem no DOM: título → família → motores → primeira categoria; sem família não há seção de motores (e a lista nem é pedida);
+ *   (1) a ordem no DOM: título → família → etapas → primeira categoria; sem família não há seção de etapas (e a lista nem é pedida); o combo do
+ *       motor recebe os fornecedores PRINCIPAIS desta família; duas famílias do mesmo tipo e mesmos principais são AVISO, nunca trava;
  *   (2) o título é digitado e renomeia na hora, por rota própria (`nome-da-materia-prima`), e a base é relida; a recusa aparece NO bloco;
  *   (3) renomear com alteração pendente é travado; nome vazio não sai; a matéria-prima nova (ainda sem id) não tem "Editar título".
  *
  * O que ele NÃO alcança: a função `superadmin_renomear_materia_prima` (provada num Postgres real em `scripts/harness/etapa-sobe-o-motor/`) nem
- * o envio do arquivo (`atendimentos-ia-motor-da-etapa-a-tela.test.tsx`). O `fetch` só registra o pedido e devolve o que o caso manda.
+ * o catálogo de motores (`atendimentos-ia-motores-do-catalogo-a-tela.test.tsx`). O `fetch` só registra o pedido e devolve o que o caso manda.
  */
 import React from 'react'
 import { act } from 'react'
@@ -15,6 +17,7 @@ import { createRoot } from 'react-dom/client'
 
 import { ROTAS_DO_CATALOGO, type ContaLigada } from '@/utils/atendimentos-ia-catalogo'
 import { rotaDasEtapas } from '@/utils/atendimentos-ia-etapas'
+import type { MotorDoCatalogo } from '@/utils/atendimentos-ia-catalogo-de-motores'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 Object.defineProperty(window, 'matchMedia', {
@@ -31,6 +34,10 @@ const N_ESQ = '00000000-0000-4000-8000-0000000000e5'
 const PVC = '00000000-0000-4000-8000-00000000d001'
 const SEM = '00000000-0000-4000-8000-00000000d002'
 const F_WOLFF = '00000000-0000-4000-8000-0000000000f1'
+const F_ROLLER = '00000000-0000-4000-8000-0000000000f2'
+const motorDoCatalogo = (id: string, fornecedor_id: string, fornecedor: string, arquivo_nome: string): MotorDoCatalogo =>
+    ({ id, familia: 'PVC', fornecedor_id, fornecedor, categoria: 'PERFIL', arquivo_nome, criado_em: '2026-10-28', arquivado_em: null, tipologias: null, usos: [] })
+const MOTORES = [motorDoCatalogo('m-roller', F_ROLLER, 'Alfa Roller', 'roller.xlsx'), motorDoCatalogo('m-wolff', F_WOLFF, 'Wolff', 'wolff.xlsm')]
 
 jest.mock('next/router', () => ({
     useRouter: () => ({ pathname: '/super-admin/atendimentos-ia/contas/[tenantId]/base-de-conhecimento', asPath: '/', query: { tenantId: CONTA }, replace: () => {}, push: () => {},
@@ -114,7 +121,7 @@ beforeEach(() => {
         [`GET ${R.funcionarios(CONTA)}`]: { status: 200, body: { funcionarios: [] } },
         [`GET ${R.arvore(CONTA)}`]: { status: 200, body: arvoreGravada() },
         [`PUT ${R.arvore(CONTA)}`]: { status: 200, body: { depois: depoisDe(arvoreGravada()) } },
-        [`GET ${rotaDasEtapas('PVC')}`]: { status: 200, body: { familia: 'PVC', etapas: [{ id: 'et-1', numero: 1, rotulo: 'Apanhar o pedido', acao: 'APANHAR', instrucao: '', abas: [], motor_id: null }], motores: [], contas: ['Vidraçaria Alfa'] } },
+        [`GET ${rotaDasEtapas(CONTA, PVC)}`]: { status: 200, body: { familia: 'PVC', etapas: [{ id: 'et-1', numero: 1, rotulo: 'Apanhar o pedido', acao: 'APANHAR', instrucao: '', abas: [], motor_id: null }], motores: MOTORES } },
         [`PUT ${R.nomeDaMateriaPrima(CONTA)}`]: { status: 200, body: { depois: {} } },
     }
     ;(globalThis as { fetch: unknown }).fetch = jest.fn(async (url: string, init?: { method?: string; body?: string }) => {
@@ -185,39 +192,65 @@ const renomear = (host: ParentNode, i: number) => mp(host, i).querySelector('[da
 const putsDoNome = () => pedidos.filter((p) => p.metodo === 'PUT' && p.url === F().ROTAS_DA_BASE.nomeDaMateriaPrima(CONTA))
 const lerArvore = () => pedidos.filter((p) => p.metodo === 'GET' && p.url === F().ROTAS_DA_BASE.arvore(CONTA))
 
-describe('(1) a ordem na tela: título → família → motores → categorias', () => {
-    it('no bloco da PVC, os motores vêm DEPOIS da família e ANTES da primeira categoria (a ramificação 1)', async () => {
+describe('(1) a ordem na tela: título → família → etapas → categorias', () => {
+    it('no bloco da PVC, as etapas vêm DEPOIS da família e ANTES da primeira categoria (a ramificação 1)', async () => {
         const host = await montar()
         const bloco = mp(host, 0)
         const cabecalho = bloco.querySelector('[data-cabecalho-da-materia-prima]') as HTMLElement
         const familia = bloco.querySelector('[data-familia-da-materia-prima]') as HTMLElement
-        const motores = bloco.querySelector('[data-motores-da-materia-prima]') as HTMLElement
+        const motores = bloco.querySelector('[data-etapas-da-materia-prima]') as HTMLElement
         const primeira = bloco.querySelector('[data-categoria]') as HTMLElement
         expect(motores).toBeTruthy()
         const antes = (a: Node, b: Node) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING)
         expect(antes(cabecalho, familia)).toBe(true)
         expect(antes(familia, motores)).toBe(true)
         expect(antes(motores, primeira)).toBe(true)
-        // a ramificação 1 é o Perfil, e a seção de motores está acima dela
+        // a ramificação 1 é o Perfil, e a seção das etapas está acima dela
         expect(primeira.getAttribute('data-categoria')).toBe('PERFIL')
-        // os motores são a lista de etapas da família DESTA matéria-prima, cada uma com o seu campo de arquivo
-        expect(motores.querySelector('[data-etapas-da-familia="PVC"]')).toBeTruthy()
-        expect(motores.querySelector('[data-arquivo-do-motor] input[type="file"]')).toBeTruthy()
-        expect(motores.textContent).toContain('Motores da família (um por etapa)')
+        // as etapas são as DESTA matéria-prima (a família-instância), e o motor sai do catálogo: não há campo de arquivo
+        expect(motores.querySelector(`[data-etapas-da-familia="${PVC}"]`)).toBeTruthy()
+        expect(motores.querySelector('input[type="file"]')).toBeNull()
+        expect(motores.querySelector('[data-cadastrar-motor-no-catalogo]')).toBeTruthy()
+        expect(motores.textContent).toContain('Etapas da família (cada uma com o seu motor)')
     })
 
-    it('matéria-prima SEM família: nenhuma seção de motores, e a lista de etapas nem é pedida', async () => {
+    it('matéria-prima SEM família: nenhuma seção de etapas, e a lista de etapas dela nem é pedida', async () => {
         const host = await montar()
-        expect(mp(host, 1).querySelector('[data-motores-da-materia-prima]')).toBeNull()
-        expect(pedidos.filter((p) => p.url === rotaDasEtapas('PVC'))).toHaveLength(1)
-        expect(pedidos.filter((p) => p.url.includes('/familias/'))).toHaveLength(1)
+        expect(mp(host, 1).querySelector('[data-etapas-da-materia-prima]')).toBeNull()
+        expect(pedidos.filter((p) => p.url === rotaDasEtapas(CONTA, PVC))).toHaveLength(1)
+        expect(pedidos.filter((p) => p.url.includes('/etapas'))).toHaveLength(1)
     })
 
-    it('o aviso de que o motor é global aparece na seção, com a conta da família por NOME', async () => {
+    it('o combo do motor recebe os PRINCIPAIS desta família: o motor do fornecedor principal do Perfil vem primeiro', async () => {
+        const comPrincipal = arvoreGravada()
+        const mps = comPrincipal.materias_primas as Array<Linha & { categorias: Linha[] }>
+        mps[0].categorias[0] = categoria('PERFIL', { fornecedores: [{ id: 'cf-1', tenant_id: CONTA, mp_categoria_id: 'cat-pvc-PERFIL', fornecedor_id: F_WOLFF, principal: true, ordem: 1 }] })
+        respostas[`GET ${F().ROTAS_DA_BASE.arvore(CONTA)}`] = { status: 200, body: comPrincipal }
         const host = await montar()
-        const aviso = mp(host, 0).querySelector('[data-aviso-do-motor-global]')?.textContent ?? ''
-        expect(aviso).toContain('TODAS as contas desta família')
-        expect(aviso).toContain('Vidraçaria Alfa')
+        const sel = mp(host, 0).querySelector('[aria-label="Motor da etapa 1"]')!.closest('.ant-select')!.querySelector('.ant-select-selector')!
+        await act(async () => { sel.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })) })
+        await assentar()
+        const opcoes = Array.from(document.body.querySelectorAll('.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option')).map((o) => o.textContent)
+        expect(opcoes).toEqual(['Wolff · Perfil · wolff.xlsm', 'Alfa Roller · Perfil · roller.xlsx'])
+    })
+
+    it('duas famílias do MESMO tipo e mesmos principais: AVISO que nomeia as duas — e o salvar não trava; com principais diferentes, nada', async () => {
+        const iguais = arvoreGravada()
+        const mps = iguais.materias_primas as Array<Linha & { categorias: Linha[] }>
+        mps[1].familia = 'PVC'
+        respostas[`GET ${F().ROTAS_DA_BASE.arvore(CONTA)}`] = { status: 200, body: iguais }
+        respostas[`GET ${rotaDasEtapas(CONTA, SEM)}`] = { status: 200, body: { familia: 'PVC', etapas: [], motores: [] } }
+        const host = await montar()
+        const aviso = cartao(host).querySelector('[data-instancias-iguais]')?.textContent ?? ''
+        expect(aviso).toBe(A().fraseDasInstanciasIguais(['Esquadrias de PVC', 'Outra coisa'], 'PVC'))
+        expect(aviso).toContain('nada impede salvar')
+        // é aviso: o botão de salvar continua respondendo à pendência, e nada é bloqueado por causa dele
+        expect(host.querySelector('[data-salvar-alteracoes]')).toBeTruthy()
+
+        mps[1].categorias[0] = { ...mps[1].categorias[0], fornecedores: [{ id: 'cf-2', tenant_id: CONTA, mp_categoria_id: 'cat-sem-PERFIL', fornecedor_id: F_WOLFF, principal: true, ordem: 1 }] }
+        respostas[`GET ${F().ROTAS_DA_BASE.arvore(CONTA)}`] = { status: 200, body: iguais }
+        const outra = await montar()
+        expect(cartao(outra).querySelector('[data-instancias-iguais]')).toBeNull()
     })
 })
 

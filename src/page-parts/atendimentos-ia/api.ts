@@ -8,7 +8,6 @@
  * `src/pages/api/super-admin/atendimentos-ia/tabelas/url-de-envio.ts`.
  */
 import { ROTAS_DO_CATALOGO, fraseDaTabela, fraseDoArquivo, type TipoDeArquivo } from '@/utils/atendimentos-ia-catalogo'
-import { rotaDoEnvioDoMotor } from '@/utils/atendimentos-ia-motor-da-etapa'
 
 export class ErroDaRota extends Error {
     status: number
@@ -63,25 +62,6 @@ export async function enviarArquivo(fornecedorId: string, tipo: TipoDeArquivo, a
     const res = await fetch(signedUrl, { method: 'PUT', headers: { 'x-upsert': 'false' }, body: corpo })
     if (!res.ok) throw new ErroDaRota(res.status, fraseDoArquivo(arquivo.name, `o envio falhou (${res.status}).`))
     return { path, nome: arquivo.name }
-}
-
-/**
- * O mesmo envio em dois passos, para o arquivo de MOTOR de uma etapa: a rota assina um caminho na pasta DA FAMÍLIA
- * (`familia/<chave>/motor/…`), e o navegador manda os bytes para ele. Toda falha sai com o NOME do arquivo.
- */
-export async function enviarArquivoDoMotor(familia: string, arquivo: File): Promise<ArquivoEnviado> {
-    let assinado: { path: string; signedUrl: string }
-    try {
-        assinado = await chamarRota<{ path: string; signedUrl: string }>(rotaDoEnvioDoMotor(familia), 'POST', { nome: arquivo.name })
-    } catch (e) {
-        throw new ErroDaRota(e instanceof ErroDaRota ? e.status : 0, fraseDoArquivo(arquivo.name, (e as Error).message))
-    }
-    const corpo = new FormData()
-    corpo.append('cacheControl', '3600')
-    corpo.append('', arquivo)
-    const res = await fetch(assinado.signedUrl, { method: 'PUT', headers: { 'x-upsert': 'false' }, body: corpo })
-    if (!res.ok) throw new ErroDaRota(res.status, fraseDoArquivo(arquivo.name, `o envio falhou (${res.status}).`))
-    return { path: assinado.path, nome: arquivo.name }
 }
 
 /**

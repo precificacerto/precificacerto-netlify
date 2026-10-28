@@ -1,9 +1,10 @@
 /**
- * PORTÃO — as ETAPAS da família na tela (`etapas-da-familia.component.tsx`, em "Fornecedores e tabelas").
+ * PORTÃO — as ETAPAS da família-instância na tela (`etapas-da-familia.component.tsx`, na base de conhecimento da conta).
  *
  * POR QUÊ (dono do produto, 27/10/2026): o consultor cadastra, por família, as etapas — número, rótulo LIVRE, AÇÃO de
  * uma lista FECHADA ("combo, não texto"), instrução e as abas da planilha que a etapa carrega. "O rótulo é livre; a
- * ação não é. Etapa sem ação da lista é erro, não etapa nova."
+ * ação não é. Etapa sem ação da lista é erro, não etapa nova." Desde 28/10/2026 (migração 20261028000001) a etapa é da
+ * FAMÍLIA-INSTÂNCIA (a matéria-prima de UMA empresa), e o motor dela sai do CATÁLOGO, sem campo de arquivo.
  *
  * O que este portão fica vermelho:
  *   (1) a tela LÊ pela rota e mostra cada etapa: número (a posição), rótulo, ação, instrução e abas; falha de leitura
@@ -14,12 +15,15 @@
  *   (5) etapa sem ação, rótulo em branco ou instrução acima do limite NÃO sai da tela: a frase nomeia a etapa;
  *   (6) a recusa da rota aparece NO cartão, e o rascunho continua na tela;
  *   (7) NÃO HÁ botão de remover etapa gravada; a nova, ainda não salva, só se descarta do rascunho;
- *   (8) a tela diz, sem rodeio, que as etapas ainda não mudam a conversa.
+ *   (8) a tela diz, sem rodeio, que as etapas ainda não mudam a conversa;
+ *   (9) o motor da etapa sai do catálogo: só do mesmo tipo e não arquivado, os dos principais primeiro; NÃO há campo de arquivo, e o
+ *       link "cadastrar motor no catálogo" leva ao catálogo.
  */
 import React from 'react'
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { ACOES_DA_ETAPA, ROTULO_DA_ABA, ROTULO_DA_ACAO, rotaDasEtapas, type EtapaDaFamilia } from '@/utils/atendimentos-ia-etapas'
+import type { MotorDoCatalogo } from '@/utils/atendimentos-ia-catalogo-de-motores'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 Object.defineProperty(window, 'matchMedia', {
@@ -33,24 +37,35 @@ Object.defineProperty(window, 'matchMedia', {
 
 const E1 = '00000000-0000-4000-8000-0000000000e1'
 const E2 = '00000000-0000-4000-8000-0000000000e2'
-const FAMILIAS = [{ chave: 'ALUMINIO', rotulo: 'Alumínio', ordem: 2 }, { chave: 'PVC', rotulo: 'PVC', ordem: 1 }]
+const T = '00000000-0000-4000-8000-0000000000d1'
+const MP = '00000000-0000-4000-8000-0000000000b1'
+const MP2 = '00000000-0000-4000-8000-0000000000b2'
 const M1 = '00000000-0000-4000-8000-0000000000a1'
 const M2 = '00000000-0000-4000-8000-0000000000a2'
-const MOTORES = [{ id: M1, arquivo_nome: 'Wolff.xlsx', fornecedor: 'Wolff', vigente: true }, { id: M2, arquivo_nome: 'Da família.xlsx', fornecedor: null, vigente: false }]
+const motor = (id: string, f: Partial<MotorDoCatalogo>): MotorDoCatalogo => ({ id, familia: 'PVC', fornecedor_id: 'f-x', fornecedor: 'X', categoria: 'PERFIL', arquivo_nome: `${id}.xlsx`, criado_em: '2026-10-28', arquivado_em: null, tipologias: null, usos: [], ...f })
+// o catálogo como a rota o entrega; a tela ainda filtra o tipo e o arquivado (a rota já filtra — a tela não confia)
+const MOTORES = [
+    motor(M2, { fornecedor_id: 'f-roller', fornecedor: 'Roller', categoria: 'PERSIANAS', arquivo_nome: 'Roller.xlsx' }),
+    motor(M1, { fornecedor_id: 'f-wolff', fornecedor: 'Wolff', arquivo_nome: 'Wolff.xlsx' }),
+    motor('m-alu', { familia: 'ALUMINIO', fornecedor: 'Alu', arquivo_nome: 'Alu.xlsx' }),
+    motor('m-arq', { fornecedor: 'Velho', arquivo_nome: 'Velha.xlsx', arquivado_em: '2026-10-01' }),
+]
+const WOLFF = 'Wolff · PERFIL · Wolff.xlsx'
+const ROLLER = 'Roller · PERSIANAS · Roller.xlsx'
 const ETAPAS: EtapaDaFamilia[] = [
     { id: E1, numero: 1, rotulo: 'Apanhar o pedido', acao: 'APANHAR', instrucao: 'pergunte a tipologia', abas: ['tipologias', 'variaveis'], motor_id: null },
     { id: E2, numero: 2, rotulo: 'Confirmar', acao: 'CONFIRMAR', instrucao: '', abas: [], motor_id: null },
 ]
 
 let respostas: Record<string, { status: number; body: unknown }> = {}
-type Corpo = { etapas: Array<Record<string, unknown>> }
+type Corpo = { materia_prima?: string; etapas: Array<Record<string, unknown>> }
 const pedidos: Array<{ chave: string; corpo: Corpo }> = []
 beforeEach(() => {
     pedidos.length = 0
     respostas = {
-        [`GET ${rotaDasEtapas('PVC')}`]: { status: 200, body: { familia: 'PVC', etapas: ETAPAS, motores: MOTORES } },
-        [`GET ${rotaDasEtapas('ALUMINIO')}`]: { status: 200, body: { familia: 'ALUMINIO', etapas: [], motores: [] } },
-        [`PUT ${rotaDasEtapas('PVC')}`]: { status: 200, body: { depois: { orcamentista_familia_etapa: [] } } },
+        [`GET ${rotaDasEtapas(T, MP)}`]: { status: 200, body: { familia: 'PVC', etapas: ETAPAS, motores: MOTORES } },
+        [`GET ${rotaDasEtapas(T, MP2)}`]: { status: 200, body: { familia: 'PVC', etapas: [], motores: [] } },
+        [`PUT ${rotaDasEtapas(T)}`]: { status: 200, body: { depois: { orcamentista_familia_etapa: [] } } },
     }
     ;(globalThis as { fetch: unknown }).fetch = jest.fn(async (url: string, init?: { method?: string; body?: string }) => {
         const chave = `${init?.method ?? 'GET'} ${url}`
@@ -61,20 +76,22 @@ beforeEach(() => {
 })
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const Cartao = () => require('@/page-parts/atendimentos-ia/etapas-da-familia.component').EtapasDaFamiliaCard as React.ComponentType<{ familias: typeof FAMILIAS }>
+const Etapas = () => require('@/page-parts/atendimentos-ia/etapas-da-familia.component').EtapasDaFamilia as React.ComponentType<{ tenantId: string; materiaPrimaId: string; principais?: string[] }>
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const Textos = () => require('@/page-parts/atendimentos-ia/etapas-da-familia.component') as { AVISO_DAS_ETAPAS: string; SEM_ETAPAS: string; SEM_MOTORES: string }
+const Textos = () => require('@/page-parts/atendimentos-ia/etapas-da-familia.component') as {
+    AVISO_DAS_ETAPAS: string; SEM_ETAPAS: string; SEM_TIPO_SEM_ETAPAS: string; SEM_MOTORES_DO_TIPO: (t: string) => string; CADASTRAR_MOTOR_NO_CATALOGO: string; LINK_DO_CATALOGO_DE_MOTORES: string
+}
 
 const montadas: { root: ReturnType<typeof createRoot>; host: HTMLElement }[] = []
 afterEach(() => { while (montadas.length) { const m = montadas.pop()!; act(() => { m.root.unmount() }); m.host.remove() } })
 const assentar = () => act(async () => { for (let i = 0; i < 6; i++) await new Promise((r) => setTimeout(r, 0)) })
-async function montar(): Promise<HTMLElement> {
+async function montar(props: { materiaPrimaId?: string; principais?: string[] } = {}): Promise<HTMLElement> {
     const host = document.createElement('div')
     document.body.appendChild(host)
     const root = createRoot(host)
     montadas.push({ root, host })
     // eslint-disable-next-line testing-library/no-unnecessary-act -- é createRoot do React, não util da Testing Library
-    await act(async () => { root.render(React.createElement(Cartao(), { familias: FAMILIAS })) })
+    await act(async () => { root.render(React.createElement(Etapas(), { tenantId: T, materiaPrimaId: props.materiaPrimaId ?? MP, principais: props.principais })) })
     await assentar()
     return host
 }
@@ -108,11 +125,9 @@ async function abrirAcao(host: ParentNode, n: number) {
 }
 
 describe('(1) a tela lê pela rota e mostra cada etapa', () => {
-    it('as famílias na ordem do catálogo (PVC antes de Alumínio), a primeira escolhida, e a rota da PVC chamada', async () => {
-        const host = await montar()
-        const rotulos = Array.from(host.querySelectorAll('.ant-radio-button-wrapper')).map((l) => l.textContent)
-        expect(rotulos).toEqual(['PVC', 'Alumínio'])
-        expect(pedidos[0].chave).toBe(`GET ${rotaDasEtapas('PVC')}`)
+    it('lê a rota DESTA família-instância (empresa e matéria-prima), e só ela', async () => {
+        await montar()
+        expect(pedidos.map((p) => p.chave)).toEqual([`GET ${rotaDasEtapas(T, MP)}`])
     })
 
     it('cada etapa: o número (a posição), o rótulo, a ação pelo rótulo dela, a instrução e as abas marcadas', async () => {
@@ -135,22 +150,29 @@ describe('(1) a tela lê pela rota e mostra cada etapa', () => {
         expect(host.querySelector(`[data-etapa="${E1}"] [data-contagem-da-instrucao]`)?.textContent).toBe('20 de 4.000 caracteres')
     })
 
-    it('trocar de família lê a rota da outra', async () => {
-        const host = await montar()
-        await clicar(host.querySelector('.ant-radio-button-wrapper:last-child input'))
-        expect(pedidos.some((p) => p.chave === `GET ${rotaDasEtapas('ALUMINIO')}`)).toBe(true)
+    it('outra família PVC da MESMA empresa lê a rota dela, com as etapas dela', async () => {
+        const host = await montar({ materiaPrimaId: MP2 })
+        expect(pedidos.map((p) => p.chave)).toEqual([`GET ${rotaDasEtapas(T, MP2)}`])
         expect(host.querySelector('[data-sem-etapas]')?.textContent).toBe(Textos().SEM_ETAPAS)
     })
 
+    it('família SEM tipo: a tela diz para escolher o tipo, e o salvar fica desligado', async () => {
+        respostas[`GET ${rotaDasEtapas(T, MP)}`] = { status: 200, body: { familia: null, etapas: [], motores: [] } }
+        const host = await montar()
+        expect(host.querySelector('[data-sem-tipo]')?.textContent).toContain(Textos().SEM_TIPO_SEM_ETAPAS)
+        await clicar(botao(host, 'Nova etapa'))
+        expect(salvar(host).disabled).toBe(true)
+    })
+
     it('família sem etapa: diz que ainda não foi cadastrada, e dá para acrescentar', async () => {
-        respostas[`GET ${rotaDasEtapas('PVC')}`] = { status: 200, body: { familia: 'PVC', etapas: [] } }
+        respostas[`GET ${rotaDasEtapas(T, MP)}`] = { status: 200, body: { familia: 'PVC', etapas: [] } }
         const host = await montar()
         expect(host.querySelector('[data-sem-etapas]')).toBeTruthy()
         expect(botao(host, 'Nova etapa')).toBeTruthy()
     })
 
     it('500 na leitura: ERRO com a frase da rota — nunca "nenhuma etapa" nem as etapas antigas', async () => {
-        respostas[`GET ${rotaDasEtapas('PVC')}`] = { status: 500, body: { error: 'Não foi possível ler as etapas.' } }
+        respostas[`GET ${rotaDasEtapas(T, MP)}`] = { status: 500, body: { error: 'Não foi possível ler as etapas.' } }
         const host = await montar()
         expect(host.querySelector('[data-erro-das-etapas]')?.textContent).toContain('Não foi possível ler as etapas.')
         expect(host.querySelector('[data-sem-etapas]')).toBeNull()
@@ -204,8 +226,9 @@ describe('(3) salvar manda a lista inteira, na ordem da tela', () => {
         expect(salvar(host).disabled).toBe(false)
         await clicar(salvar(host))
         expect(puts()).toHaveLength(1)
-        expect(puts()[0].chave).toBe(`PUT ${rotaDasEtapas('PVC')}`)
+        expect(puts()[0].chave).toBe(`PUT ${rotaDasEtapas(T)}`)
         expect(puts()[0].corpo).toEqual({
+            materia_prima: MP,
             etapas: [
                 { id: E1, rotulo: 'Apanhar o que o vendedor pede', acao: 'APANHAR', instrucao: 'pergunte a tipologia', abas: ['tipologias', 'variaveis'] },
                 { id: E2, rotulo: 'Confirmar', acao: 'CONFIRMAR', instrucao: '', abas: [] },
@@ -223,10 +246,10 @@ describe('(3) salvar manda a lista inteira, na ordem da tela', () => {
     it('depois de salvar, a tela relê a rota (o que vale é o que o banco gravou) e desliga o salvar', async () => {
         const host = await montar()
         await digitar(campo(host, 'Rótulo da etapa 2'), 'Confirmar com o vendedor')
-        const antes = pedidos.filter((p) => p.chave === `GET ${rotaDasEtapas('PVC')}`).length
-        respostas[`GET ${rotaDasEtapas('PVC')}`] = { status: 200, body: { familia: 'PVC', etapas: [ETAPAS[0], { ...ETAPAS[1], rotulo: 'Confirmar com o vendedor' }] } }
+        const antes = pedidos.filter((p) => p.chave === `GET ${rotaDasEtapas(T, MP)}`).length
+        respostas[`GET ${rotaDasEtapas(T, MP)}`] = { status: 200, body: { familia: 'PVC', etapas: [ETAPAS[0], { ...ETAPAS[1], rotulo: 'Confirmar com o vendedor' }] } }
         await clicar(salvar(host))
-        expect(pedidos.filter((p) => p.chave === `GET ${rotaDasEtapas('PVC')}`).length).toBe(antes + 1)
+        expect(pedidos.filter((p) => p.chave === `GET ${rotaDasEtapas(T, MP)}`).length).toBe(antes + 1)
         expect((campo(host, 'Rótulo da etapa 2') as HTMLInputElement).value).toBe('Confirmar com o vendedor')
         expect(salvar(host).disabled).toBe(true)
     })
@@ -317,7 +340,7 @@ describe('(5) o que não passa não sai da tela, e a frase nomeia a etapa', () =
 describe('(6) a recusa da rota aparece no cartão e o rascunho fica', () => {
     it('400 da rota: a frase inteira no cartão, e o que foi digitado continua na tela, pendente', async () => {
         const frase = 'a etapa 1 ("Apanhar o pedido") nao veio na lista: remover etapa nao e permitido por aqui'
-        respostas[`PUT ${rotaDasEtapas('PVC')}`] = { status: 400, body: { error: frase } }
+        respostas[`PUT ${rotaDasEtapas(T)}`] = { status: 400, body: { error: frase } }
         const host = await montar()
         await digitar(campo(host, 'Rótulo da etapa 2'), 'Confirmar de outro jeito')
         await clicar(salvar(host))
@@ -327,12 +350,12 @@ describe('(6) a recusa da rota aparece no cartão e o rascunho fica', () => {
     })
 
     it('depois de um erro, uma tentativa que passa limpa a frase', async () => {
-        respostas[`PUT ${rotaDasEtapas('PVC')}`] = { status: 400, body: { error: 'falhou' } }
+        respostas[`PUT ${rotaDasEtapas(T)}`] = { status: 400, body: { error: 'falhou' } }
         const host = await montar()
         await digitar(campo(host, 'Rótulo da etapa 2'), 'Outro')
         await clicar(salvar(host))
         expect(host.querySelector('[data-erro-ao-salvar-etapas]')).toBeTruthy()
-        respostas[`PUT ${rotaDasEtapas('PVC')}`] = { status: 200, body: { depois: {} } }
+        respostas[`PUT ${rotaDasEtapas(T)}`] = { status: 200, body: { depois: {} } }
         await clicar(salvar(host))
         expect(host.querySelector('[data-erro-ao-salvar-etapas]')).toBeNull()
     })
@@ -367,10 +390,11 @@ describe('(8) a tela diz o que as etapas ainda não fazem', () => {
         expect(aviso).toContain('O rótulo é livre; a ação não é.')
         expect(aviso).toContain('ainda não muda a conversa')
         expect(aviso).toContain('Etapa gravada não se remove por aqui.')
+        expect(aviso).toContain('As etapas são desta família, nesta empresa.')
     })
 })
 
-describe('(9) cada etapa aponta o seu motor, e a tela deixa inserir etapa abaixo', () => {
+describe('(9) cada etapa seleciona o seu motor DO CATÁLOGO, e a tela deixa inserir etapa abaixo', () => {
     async function abrirMotor(host: ParentNode, n: number) {
         const combo = campo(host, `Motor da etapa ${n}`)!.closest('.ant-select')!.querySelector('.ant-select-selector')!
         await act(async () => { combo.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })) })
@@ -378,27 +402,40 @@ describe('(9) cada etapa aponta o seu motor, e a tela deixa inserir etapa abaixo
         return Array.from(document.body.querySelectorAll('.ant-select-item-option')) as HTMLElement[]
     }
 
-    it('a lista dos motores aparece, com o fornecedor ou "da família"; sem motor nenhum, a tela diz isso', async () => {
+    it('NÃO há campo de arquivo na etapa: nenhum input de arquivo, nenhum botão de subir; há o link para o catálogo', async () => {
         const host = await montar()
-        const lista = host.querySelector('[data-motores-da-familia]')!.textContent!
-        expect(lista).toContain('Wolff.xlsx (Wolff)')
-        expect(lista).toContain('Da família.xlsx (da família)')
-        respostas[`GET ${rotaDasEtapas('PVC')}`] = { status: 200, body: { familia: 'PVC', etapas: ETAPAS, motores: [] } }
-        const outra = await montar()
-        expect(outra.querySelector('[data-motores-da-familia]')!.textContent).toBe(Textos().SEM_MOTORES)
+        expect(host.querySelector('input[type="file"]')).toBeNull()
+        expect(Array.from(host.querySelectorAll('button')).filter((b) => /subir o arquivo|trocar o arquivo/i.test(`${b.textContent}${b.getAttribute('aria-label') ?? ''}`))).toEqual([])
+        expect(host.querySelector('[data-arquivo-do-motor]')).toBeNull()
+        const link = host.querySelector('[data-cadastrar-motor-no-catalogo]') as HTMLAnchorElement
+        expect(link.textContent).toBe(Textos().CADASTRAR_MOTOR_NO_CATALOGO)
+        expect(link.getAttribute('href')).toBe('/super-admin/atendimentos-ia/fornecedores#motores')
+        expect(Textos().LINK_DO_CATALOGO_DE_MOTORES).toBe('/super-admin/atendimentos-ia/fornecedores#motores')
     })
 
-    it('o combo do motor oferece os motores da família e nada mais; a etapa sem motor mostra o convite', async () => {
+    it('o combo oferece SÓ os motores do mesmo tipo e não arquivados, por fornecedor; a etapa sem motor mostra o convite', async () => {
         const host = await montar()
         expect(campo(host, 'Motor da etapa 1')!.closest('.ant-select')!.querySelector('.ant-select-selection-placeholder')?.textContent).toBe('Sem motor')
         const opcoes = await abrirMotor(host, 1)
-        expect(opcoes.map((o) => o.textContent)).toEqual(['Wolff.xlsx (Wolff)', 'Da família.xlsx (da família)'])
+        expect(opcoes.map((o) => o.textContent)).toEqual([ROLLER, WOLFF])
+        expect(host.querySelector('[data-sem-motores-do-tipo]')).toBeNull()
+    })
+
+    it('os motores dos fornecedores PRINCIPAIS desta família vêm primeiro', async () => {
+        const host = await montar({ principais: ['f-wolff'] })
+        expect((await abrirMotor(host, 1)).map((o) => o.textContent)).toEqual([WOLFF, ROLLER])
+    })
+
+    it('catálogo sem motor do tipo: a tela diz isso', async () => {
+        respostas[`GET ${rotaDasEtapas(T, MP)}`] = { status: 200, body: { familia: 'PVC', etapas: ETAPAS, motores: [] } }
+        const host = await montar()
+        expect(host.querySelector('[data-sem-motores-do-tipo]')?.textContent).toBe(Textos().SEM_MOTORES_DO_TIPO('PVC'))
     })
 
     it('escolher o motor da etapa 1 habilita o salvar e vai no corpo SÓ nessa etapa', async () => {
         const host = await montar()
         const opcoes = await abrirMotor(host, 1)
-        await clicar(opcoes.find((o) => o.textContent === 'Wolff.xlsx (Wolff)'))
+        await clicar(opcoes.find((o) => o.textContent === WOLFF))
         expect(salvar(host).disabled).toBe(false)
         await clicar(salvar(host))
         expect(puts()[0].corpo.etapas[0]).toEqual(expect.objectContaining({ id: E1, motor_id: M1 }))
@@ -407,9 +444,9 @@ describe('(9) cada etapa aponta o seu motor, e a tela deixa inserir etapa abaixo
 
     it('salvar só o rótulo NÃO manda motor_id, mesmo com a etapa já apontando um motor', async () => {
         const comMotor: EtapaDaFamilia[] = [{ ...ETAPAS[0], motor_id: M1 }, ETAPAS[1]]
-        respostas[`GET ${rotaDasEtapas('PVC')}`] = { status: 200, body: { familia: 'PVC', etapas: comMotor, motores: MOTORES } }
+        respostas[`GET ${rotaDasEtapas(T, MP)}`] = { status: 200, body: { familia: 'PVC', etapas: comMotor, motores: MOTORES } }
         const host = await montar()
-        expect(campo(host, 'Motor da etapa 1')!.closest('.ant-select')!.querySelector('.ant-select-selection-item')?.textContent).toBe('Wolff.xlsx (Wolff)')
+        expect(campo(host, 'Motor da etapa 1')!.closest('.ant-select')!.querySelector('.ant-select-selection-item')?.textContent).toBe(WOLFF)
         await digitar(campo(host, 'Rótulo da etapa 1'), 'Apanhar de novo')
         await clicar(salvar(host))
         expect(puts()[0].corpo.etapas.map((e) => 'motor_id' in e)).toEqual([false, false])
@@ -417,7 +454,7 @@ describe('(9) cada etapa aponta o seu motor, e a tela deixa inserir etapa abaixo
 
     it('limpar o motor gravado manda motor_id: null', async () => {
         const comMotor: EtapaDaFamilia[] = [{ ...ETAPAS[0], motor_id: M1 }, ETAPAS[1]]
-        respostas[`GET ${rotaDasEtapas('PVC')}`] = { status: 200, body: { familia: 'PVC', etapas: comMotor, motores: MOTORES } }
+        respostas[`GET ${rotaDasEtapas(T, MP)}`] = { status: 200, body: { familia: 'PVC', etapas: comMotor, motores: MOTORES } }
         const host = await montar()
         const limpar = campo(host, 'Motor da etapa 1')!.closest('.ant-select')!.querySelector('.ant-select-clear') as HTMLElement
         await act(async () => { limpar.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })) })
@@ -429,7 +466,7 @@ describe('(9) cada etapa aponta o seu motor, e a tela deixa inserir etapa abaixo
 
     it('o motor gravado que a lista não traz aparece como "fora da lista", e não some', async () => {
         const fora = '99999999-0000-4000-8000-000000000001'
-        respostas[`GET ${rotaDasEtapas('PVC')}`] = { status: 200, body: { familia: 'PVC', etapas: [{ ...ETAPAS[0], motor_id: fora }, ETAPAS[1]], motores: MOTORES } }
+        respostas[`GET ${rotaDasEtapas(T, MP)}`] = { status: 200, body: { familia: 'PVC', etapas: [{ ...ETAPAS[0], motor_id: fora }, ETAPAS[1]], motores: MOTORES } }
         const host = await montar()
         expect(campo(host, 'Motor da etapa 1')!.closest('.ant-select')!.querySelector('.ant-select-selection-item')?.textContent).toBe('(motor 99999999…, fora da lista)')
     })

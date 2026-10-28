@@ -11,6 +11,10 @@
  * O RÓTULO É LIVRE; A AÇÃO NÃO É. "Etapa sem ação da lista é erro, não etapa nova": o código precisa saber o que
  * fazer ali (apanhar, confirmar, gerar o PDF, calcular as barras, enviar), e um rótulo não diz isso.
  *
+ * A ETAPA É DA FAMÍLIA-INSTÂNCIA (dono do produto, 28/10/2026; migração 20261028000001): da matéria-prima de UMA empresa, não da chave do
+ * catálogo — a mesma empresa pode ter três famílias PVC, cada uma com as suas etapas. O motor é do CATÁLOGO (global, com fornecedor e
+ * categoria), e a etapa só o seleciona (`atendimentos-ia-catalogo-de-motores.ts`).
+ *
  * ESTA LISTA MORA TAMBÉM NO BANCO (as CHECK da etapa). Acrescentar uma ação aqui exige a migração que a põe na
  * CHECK, e é isso que o portão `atendimentos-ia-etapas-paridade.test.ts` confere — a lista não vive em dois
  * lugares sem alguém olhar os dois (`copia-divergente.md`).
@@ -90,15 +94,6 @@ export interface EtapaDaFamilia {
     motor_id: string | null
 }
 
-/** A planilha que uma etapa da família pode apontar: a da MESMA família e não arquivada. */
-export interface MotorDaFamilia {
-    id: string
-    arquivo_nome: string
-    /** Nulo na planilha que é da família e não de um fornecedor (20261027000006). */
-    fornecedor: string | null
-    vigente: boolean
-}
-
 /** Uma etapa como a tela a manda: sem `numero` — a POSIÇÃO na lista é o número. Sem `id`, é etapa nova. */
 export interface EtapaNoCorpo {
     id?: string
@@ -110,7 +105,12 @@ export interface EtapaNoCorpo {
     motor_id?: string | null
 }
 
-export const rotaDasEtapas = (familia: string) => `/api/super-admin/atendimentos-ia/familias/${encodeURIComponent(familia)}/etapas`
+/**
+ * GET `?tenant=&materia_prima=` → `{ familia, etapas, motores }`; PUT `?tenant=` com `{ materia_prima, etapas }`. A empresa e a família-instância
+ * vão no pedido: a etapa é de UMA matéria-prima de UMA empresa.
+ */
+export const rotaDasEtapas = (tenantId: string, materiaPrimaId?: string) =>
+    `/api/super-admin/base-de-conhecimento/etapas?tenant=${encodeURIComponent(tenantId)}${materiaPrimaId === undefined ? '' : `&materia_prima=${encodeURIComponent(materiaPrimaId)}`}`
 
 export const fraseDaAcaoForaDaLista = (n: number, acao: unknown) =>
     `Etapa ${n}: a ação ${typeof acao === 'string' && acao !== '' ? `"${acao}"` : 'em branco'} não é uma das ações do sistema (${ACOES_DA_ETAPA.join(', ')}). O rótulo é livre; a ação não é.`

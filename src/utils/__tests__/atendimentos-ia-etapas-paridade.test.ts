@@ -217,3 +217,43 @@ describe('(6) a migração das gravações da tela da família', () => {
         expect(sql).toMatch(/VALUES \(p_tenant, 'orcamentista_materia_prima'/)
     })
 })
+
+// ── A família-instância (20261028000001): a função que o código chama AGORA ──────────────────────────
+const ARQUIVO_H = path.join(__dirname, '..', '..', '..', 'supabase', 'migrations', '20261028000001_familia_instancia_e_catalogo_de_motores.sql')
+const executavelH = () => fs.readFileSync(ARQUIVO_H, 'utf8').split('\n').filter((l) => !l.trimStart().startsWith('--')).join('\n')
+const funcaoH = (nome: string) => {
+    const sql = executavelH()
+    const i = sql.indexOf(`CREATE OR REPLACE FUNCTION public.${nome}(`)
+    return i < 0 ? '' : sql.slice(i, sql.indexOf('$fn$;', i))
+}
+
+describe('(7) a função das etapas da família-instância (20261028000001)', () => {
+    it('o instrumento: a função existe no arquivo (sem ela os casos abaixo passariam lendo o vazio)', () => {
+        expect(funcaoH('superadmin_gravar_etapas_da_materia_prima')).toContain('p_materia_prima')
+        expect(funcaoH('nao_existe')).toBe('')
+    })
+
+    it('COPIA-DIVERGENTE: a função NÃO repete a lista de ações nem a de abas — quem decide é a CHECK da tabela', () => {
+        const f = funcaoH('superadmin_gravar_etapas_da_materia_prima')
+        for (const a of ACOES_DA_ETAPA) expect(f).not.toContain(`'${a}'`)
+        for (const a of ABAS_DA_ETAPA) expect(f).not.toContain(`'${a}'`)
+    })
+
+    it('traduz as violações pelas MESMAS CHECK da 20261027000002, e o máximo de etapas é o do código', () => {
+        const f = funcaoH('superadmin_gravar_etapas_da_materia_prima')
+        for (const c of ['orcamentista_familia_etapa_acao_da_lista', 'orcamentista_familia_etapa_abas_da_planilha', 'orcamentista_familia_etapa_rotulo_forma', 'orcamentista_familia_etapa_instrucao_ate_4000']) {
+            expect(f).toContain(`'${c}'`)
+            expect(sqlA()).toContain(c)
+        }
+        expect(f).toContain(`v_n > ${MAXIMO_DE_ETAPAS_DA_FAMILIA}`)
+    })
+
+    it('os campos que o corpo aceita são os mesmos da rota (id, rotulo, acao, instrucao, abas, motor_id)', () => {
+        expect(funcaoH('superadmin_gravar_etapas_da_materia_prima')).toContain("v_permitidas text[] := ARRAY['id', 'rotulo', 'acao', 'instrucao', 'abas', 'motor_id'];")
+    })
+
+    it('o log das etapas é DA EMPRESA agora (a etapa é da família-instância); o do motor continua do catálogo', () => {
+        expect(funcaoH('superadmin_gravar_etapas_da_materia_prima')).toMatch(/VALUES \(p_tenant, 'orcamentista_familia_etapa', p_materia_prima::text,/)
+        expect(funcaoH('superadmin_criar_motor')).toMatch(/VALUES \(NULL, 'orcamentista_motor', v_motor::text, NULL,/)
+    })
+})

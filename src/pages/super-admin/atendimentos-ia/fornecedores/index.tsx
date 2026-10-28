@@ -15,8 +15,10 @@
  * Portão: `atendimentos-ia-recusa-onde-a-acao-aconteceu.test.tsx`.
  *
  * AS FAMÍLIAS (dono do produto, 26/10/2026) moram aqui, ao lado dos nichos: a lista fechada que o
- * cadastro da tabela usa, com "Nova família" (`FamiliasCard`). As ETAPAS de cada família (27/10/2026) moram logo
- * abaixo (`EtapasDaFamiliaCard`): rótulo livre, ação da lista fechada, instrução e abas da planilha.
+ * cadastro da tabela usa, com "Nova família" (`FamiliasCard`).
+ *
+ * O CATÁLOGO DE MOTORES (dono do produto, 28/10/2026) mora logo abaixo dos fornecedores (`MotoresDoCatalogo`): cada motor com fornecedor,
+ * categoria e tipo, global e compartilhado. As ETAPAS saíram daqui: são da família-instância, na base de conhecimento da conta.
  */
 import React, { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/router'
@@ -31,7 +33,7 @@ import { chamarRota, gravarTabelaNova } from '@/page-parts/atendimentos-ia/api'
 import { FornecedorModal, TITULO_FORNECEDOR_NAO_CREDENCIADO, type DadosDoFornecedor, type ErroDoFornecedor } from '@/page-parts/atendimentos-ia/fornecedor-modal.component'
 import { NichosCard } from '@/page-parts/atendimentos-ia/nichos.component'
 import { FamiliasCard } from '@/page-parts/atendimentos-ia/familias.component'
-import { EtapasDaFamiliaCard } from '@/page-parts/atendimentos-ia/etapas-da-familia.component'
+import { MotoresDoCatalogo } from '@/page-parts/atendimentos-ia/motores-do-catalogo.component'
 
 export default function FornecedoresETabelas() {
     const router = useRouter()
@@ -185,9 +187,9 @@ export default function FornecedoresETabelas() {
                 </div>
             )}
 
+            {!erro && fornecedores !== null && <MotoresDoCatalogo fornecedores={fornecedores} categorias={categorias} familias={familias} />}
             {!erro && <NichosCard nichos={nichos} onCriar={criarNicho} onExcluir={excluirNicho} />}
             {!erro && <FamiliasCard familias={familias} onCriar={criarFamilia} />}
-            {!erro && <EtapasDaFamiliaCard familias={familias} />}
 
             <FornecedorModal
                 aberto={credenciando}

@@ -18,8 +18,11 @@
  * de gravar, a árvore é relida.
  *
  * A FAMÍLIA, NA TELA, NESTA ORDEM (dono do produto, 27/10/2026): (1) o TÍTULO, digitado pelo consultor (é o nome da matéria-prima; renomear
- * grava na hora, por rota própria, e só sem alteração pendente); (2) os MOTORES, um por etapa, cada um com o seu arquivo — a lista de
- * etapas da família; (3) as categorias, com fornecedores e tabelas. Os motores entram por `motoresDaFamilia`, que a página injeta.
+ * grava na hora, por rota própria, e só sem alteração pendente); (2) as ETAPAS desta família-instância, cada uma com o motor que ela
+ * seleciona do catálogo (28/10/2026: a etapa é da matéria-prima, não do tipo; não há arquivo aqui); (3) as categorias, com fornecedores e
+ * tabelas. As etapas entram por `etapasDaFamilia`, que a página injeta, e só na família já gravada e com tipo.
+ *
+ * DUAS FAMÍLIAS "IGUAIS" (mesmo tipo, mesmos principais) são AVISO no topo do cartão, nunca trava (`instanciasIguais`).
  *
  * O ERRO DA FUNÇÃO aparece INTEIRO: a mensagem traz o caminho ("materia-prima Aço, categoria PERFIL,
  * fornecedores: ..."), e é isso que diz ao super admin o que arrumar. Com caminho reconhecível ela vai
@@ -32,7 +35,7 @@ import { ROTULO_DOS_TRES_ESTADOS, deTresEstados, paraTresEstados, type Par, type
 import {
     ADICIONAR_FERRAGEM, ADICIONAR_MATERIA_PRIMA, ADICIONAR_VIDRO, CAMPO_DA_LINHA, EM_BRANCO_DA_OPCAO, LISTA_DA_CATEGORIA, NOVO_FORNECEDOR, POSICOES_DA_FERRAGEM, PRODUTOS_DA_INSTALACAO,
     ROTULO_DA_POSICAO, ROTULO_DO_PRODUTO, SEM_PRINCIPAL_DO_PERFIL, TITULO_DO_CARTAO,
-    FAMILIA_COM_PENDENCIA, FAMILIA_DEPOIS_DE_SALVAR, SEM_FAMILIA_NA_MATERIA_PRIMA, categoriasForaDaFamilia, familiaDeclaraRamificacao, fraseCategoriaForaDaFamilia, fraseFamiliaSemRamificacao,
+    FAMILIA_COM_PENDENCIA, FAMILIA_DEPOIS_DE_SALVAR, fraseDasInstanciasIguais, instanciasIguais, SEM_FAMILIA_NA_MATERIA_PRIMA, categoriasForaDaFamilia, familiaDeclaraRamificacao, fraseCategoriaForaDaFamilia, fraseFamiliaSemRamificacao,
     AVISO_DO_FILTRO_DE_FORNECEDOR, SEM_TABELA_DESTA_CATEGORIA, fornecedoresComTabelaDaCategoria, fornecedoresComTabelaSemCategoria, fraseDaListaDeFornecedoresVazia,
     camposDa, categoriasConfiguradas, desfazerRemocao, estadoDaLinha, fraseDasCategorias, fraseLinhaForaDaTabela, fraseLinhaSemFormula, fraseSemTabelaEmUso,
     fraseTabelaSemLinha, nomeDoFornecedor, novaMateriaPrima, novoLocal, ondeEstaOErro, origemDaLinha, tipoConhecido,
@@ -400,9 +403,9 @@ function FamiliaDaMateriaPrima({ m, arvore, daFamilia }: { m: MateriaPrimaDoForm
     )
 }
 
-function BlocoDaMateriaPrima({ m, i, arvore, mudarEstado, erros, erroDaFuncao, daFamilia, doTitulo, motoresDaFamilia }: {
+function BlocoDaMateriaPrima({ m, i, arvore, mudarEstado, erros, erroDaFuncao, daFamilia, doTitulo, etapasDaFamilia }: {
     m: MateriaPrimaDoFormulario; i: number; arvore: ArvoreLida; mudarEstado: Mudar; erros: string[]; erroDaFuncao: { categoria: string; mensagem: string } | null; daFamilia: DaFamilia | null
-    doTitulo: DoTitulo | null; motoresDaFamilia: ((familia: string) => React.ReactNode) | null
+    doTitulo: DoTitulo | null; etapasDaFamilia: ((m: MateriaPrimaDoFormulario) => React.ReactNode) | null
 }) {
     const mudarMp = (f: (x: MateriaPrimaDoFormulario) => MateriaPrimaDoFormulario) =>
         mudarEstado((e) => ({ ...e, materias: e.materias.map((x) => (x.local === m.local ? f(x) : x)) }))
@@ -420,11 +423,11 @@ function BlocoDaMateriaPrima({ m, i, arvore, mudarEstado, erros, erroDaFuncao, d
                 <Button danger onClick={remover}>Remover</Button>
             </div>
             <FamiliaDaMateriaPrima m={m} arvore={arvore} daFamilia={daFamilia} />
-            {/* OS MOTORES DA FAMÍLIA, ACIMA DA RAMIFICAÇÃO 1 e antes dos fornecedores (dono do produto, 27/10/2026): um por etapa, cada um com o seu arquivo */}
-            {m.familia && motoresDaFamilia && (
-                <div data-motores-da-materia-prima style={{ marginBottom: 12 }}>
-                    <Typography.Text strong style={{ display: 'block', marginBottom: 8 }}>Motores da família (um por etapa)</Typography.Text>
-                    {motoresDaFamilia(m.familia)}
+            {/* AS ETAPAS DESTA FAMÍLIA, ACIMA DA RAMIFICAÇÃO 1 e antes dos fornecedores: cada uma seleciona o seu motor do catálogo */}
+            {m.id && m.familia && etapasDaFamilia && (
+                <div data-etapas-da-materia-prima style={{ marginBottom: 12 }}>
+                    <Typography.Text strong style={{ display: 'block', marginBottom: 8 }}>Etapas da família (cada uma com o seu motor)</Typography.Text>
+                    {etapasDaFamilia(m)}
                 </div>
             )}
             {erros.length > 0 && (
@@ -440,7 +443,7 @@ function BlocoDaMateriaPrima({ m, i, arvore, mudarEstado, erros, erroDaFuncao, d
 }
 
 // ── O cartão ───────────────────────────────────────────────────────────────────────────────
-export function MateriasPrimas({ arvore, erroAoLer, estado, mudar, erros, erroDaRota, naoEnviado, aoMudarAFamilia, familiaTravada = false, erroDaFamilia = null, aoRenomear, erroDoNome = null, motoresDaFamilia }: {
+export function MateriasPrimas({ arvore, erroAoLer, estado, mudar, erros, erroDaRota, naoEnviado, aoMudarAFamilia, familiaTravada = false, erroDaFamilia = null, aoRenomear, erroDoNome = null, etapasDaFamilia }: {
     arvore: ArvoreLida | null
     erroAoLer: string | null
     estado: EstadoDaArvore
@@ -461,8 +464,8 @@ export function MateriasPrimas({ arvore, erroAoLer, estado, mudar, erros, erroDa
     aoRenomear?: (materiaPrimaId: string, nome: string) => Promise<void>
     /** A recusa do último renomear, com a matéria-prima onde ela aconteceu. */
     erroDoNome?: { materiaPrimaId: string; mensagem: string } | null
-    /** O que mostrar entre a família e as categorias: as etapas, cada uma com o seu motor. A página injeta (a lista busca nas rotas). */
-    motoresDaFamilia?: (familia: string) => React.ReactNode
+    /** O que mostrar entre a família e as categorias: as etapas desta família-instância, cada uma com o seu motor. A página injeta (a lista busca nas rotas). */
+    etapasDaFamilia?: (m: MateriaPrimaDoFormulario) => React.ReactNode
 }) {
     const onde = erroDaRota ? ondeEstaOErro(erroDaRota.message, estado) : null
     return (
@@ -476,13 +479,17 @@ export function MateriasPrimas({ arvore, erroAoLer, estado, mudar, erros, erroDa
             {arvore && !erroAoLer && (
                 <>
                     {estado.materias.length === 0 && <Typography.Paragraph type="secondary">Nenhuma matéria-prima.</Typography.Paragraph>}
+                    {instanciasIguais(estado.materias).map((g) => (
+                        <Alert key={g.nomes.join('|')} type="warning" showIcon style={{ marginBottom: 12 }} data-instancias-iguais
+                            message={fraseDasInstanciasIguais(g.nomes, (arvore.catalogo.familias ?? []).find((f) => f.chave === g.familia)?.rotulo ?? g.familia)} />
+                    ))}
                     {estado.materias.map((m, i) => (
                         <BlocoDaMateriaPrima key={m.local} m={m} i={i} arvore={arvore} mudarEstado={mudar}
                             erros={erros.filter((e) => e.campo === `materia:${m.local}`).map((e) => e.mensagem)}
                             erroDaFuncao={onde && onde.local === m.local && erroDaRota ? { categoria: onde.categoria, mensagem: erroDaRota.message } : null}
                             daFamilia={aoMudarAFamilia ? { aoMudar: aoMudarAFamilia, travada: familiaTravada, erro: erroDaFamilia && erroDaFamilia.materiaPrimaId === m.id ? erroDaFamilia.mensagem : null } : null}
                             doTitulo={aoRenomear ? { aoRenomear, travado: familiaTravada, erro: erroDoNome && erroDoNome.materiaPrimaId === m.id ? erroDoNome.mensagem : null } : null}
-                            motoresDaFamilia={motoresDaFamilia ?? null} />
+                            etapasDaFamilia={etapasDaFamilia ?? null} />
                     ))}
                     {estado.removidas.length > 0 && (
                         <div data-removidas style={{ marginBottom: 12 }}>
