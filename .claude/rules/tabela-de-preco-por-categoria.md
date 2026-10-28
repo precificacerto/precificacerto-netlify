@@ -206,6 +206,34 @@ nas palavras dele: "quando eu for lá na categoria dentro da família ver o que 
   continuam na tela, com a marca. Para um fornecedor aparecer, alguém declara a categoria da tabela (PATCH uma vez; a Wolff, com quatro categorias do fornecedor no arquivo, não
   pode — ver acima).
 
+## DESENHO FINAL — família-instância e catálogo de motores (dono do produto, 28/10/2026; consolida e prevalece sobre o anterior)
+
+**A categoria é da TABELA** (o #189): a Wolf pode vender perfil, reforço metálico, persiana, ferragem e adesivo, e tem UMA TABELA POR CATEGORIA — "para
+não dar conflito e não ter sobra de informação no perfil e faltar em outro lugar". **O motor é GLOBAL e COMPARTILHADO** ("empresas diferentes podem usar o
+mesmo motor"): uma base só na plataforma, e cada família de cada empresa seleciona qual usa.
+
+**Aprovado, 28/10/2026:**
+1. **As etapas são da FAMÍLIA-INSTÂNCIA** (a matéria-prima, que tem `tenant_id`), não da chave do catálogo: a mesma empresa pode ter três famílias PVC,
+   cada uma com fornecedores diferentes ("o motor da etapa busca fornecedores através dos códigos de cada perfil identificado"). A etapa ganha
+   `tenant_id` e `materia_prima_id`, mantém `familia` para a FK composta com o motor (PVC só aponta motor PVC), e a unicidade passa a ser
+   `(materia_prima_id, numero)`. Trocar a família de uma matéria-prima que tem etapas é recusa nomeada. O cartão "Etapas da família" sai de Fornecedores e tabelas.
+2. **Cai o índice `(tenant_id, familia)`** (`orcamentista_materia_prima_tenant_familia_idx`, da `20261027000002`): a unicidade que fica é `(tenant_id, lower(nome))`
+   — títulos diferentes bastam. Duas instâncias "iguais" (mesmo tipo, mesmos principais) são AVISO, não trava.
+3. **Catálogo de motores** em Fornecedores e tabelas, abaixo dos fornecedores: cada motor com **fornecedor + categoria**; `familia` fica como TIPO.
+   `vigente` e o índice `orcamentista_motor_uma_vigente` **saem** (quem escolhe é a etapa; eles impediriam a Wolf de ter motor de PERFIL e de PERSIANA).
+4. **Na etapa, o campo de arquivo some**: fica o combo do catálogo e o link "cadastrar motor no catálogo". Subir motor de dentro da página de uma conta
+   criaria dado global fora do catálogo.
+5. **Preenchimentos autorizados** (com guarda que aborta): o motor da Wolff ganha `categoria_chave = 'PERFIL'`; as 3 etapas PVC passam para a instância
+   "Esquadrias de PVC" da De Paula. A migração aborta se houver mais de uma matéria-prima PVC ou se as etapas não forem exatamente as 3 medidas.
+
+**REGISTRO PARA O PR D (antes de escrevê-lo): derivar POR INSTÂNCIA, não por conta.** Hoje a derivação das tabelas da conversa (`derivarTabelasDaConta`,
+`vinculosDaConta`) junta os fornecedores de TODAS as matérias-primas da conta. Com duas famílias PVC na mesma empresa, isso mistura os fornecedores da
+Família 1 com os da Família 2 — exatamente o que o desenho quer separar. O PR D deriva as tabelas (e o motor, pelas etapas) a partir da família-instância
+do item, e o item de levantamento passa a dizer de qual instância é (`materia_prima_id`, a acrescentar no PR D).
+
+**Pendentes com o dono do produto (não mexer):** o fornecedor repetido "Wolf  Perfis PVC" (espaço duplo, de 24/10) e a tabela PERFIL pendurada nele;
+as duas tabelas FERRAGENS da IMAB, nenhuma vigente.
+
 **Comentários desatualizados em migração já aplicada (não se corrigem lá — `migracao.md`, "migração aplicada é imutável"):** o cabeçalho da
 `20261027000002` (linha 26: "digitados à mão e não estão no arquivo") e o da `20261027000004` ("DIGITADOS À MÃO e NÃO estão no arquivo") dizem que os 164 tempos têm trabalho manual. **Isso está errado e a
 correção é a medição acima** (3 valores, 600/300/900, `ESTIMADO`, `atualizado_por` nulo, um único `atualizado_em`). O `ON DELETE RESTRICT` e a ordem
