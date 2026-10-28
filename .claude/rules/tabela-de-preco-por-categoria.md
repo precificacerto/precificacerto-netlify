@@ -226,6 +226,14 @@ mesmo motor"): uma base só na plataforma, e cada família de cada empresa selec
 5. **Preenchimentos autorizados** (com guarda que aborta): o motor da Wolff ganha `categoria_chave = 'PERFIL'`; as 3 etapas PVC passam para a instância
    "Esquadrias de PVC" da De Paula. A migração aborta se houver mais de uma matéria-prima PVC ou se as etapas não forem exatamente as 3 medidas.
 
+**Implementado (28/10/2026, migração `20261028000001`, PENDENTE até o dono do produto aplicar):** a etapa tem `tenant_id` e `materia_prima_id`
+(FK composta `(materia_prima_id, tenant_id, familia)` → matéria-prima, `ON DELETE CASCADE`; o remover loga as etapas); o motor tem `fornecedor_id` e
+`categoria_chave` obrigatórios e não tem mais `vigente`. Funções: `superadmin_gravar_etapas_da_materia_prima`, `superadmin_criar_motor` (no catálogo,
+pasta `<fornecedor>/motor/`, sem apontar etapa), `superadmin_arquivar_motor` (a recusa nomeia etapa, família e EMPRESA), `superadmin_definir_familia_da_materia_prima`
+(recusa trocar o tipo de quem tem etapas). Na tela: as etapas ficam na base de conhecimento da conta, dentro da família; o catálogo de motores fica em
+Fornecedores e tabelas (âncora `#motores`); o bloco "Motor" da conta (morto desde o #188) foi apagado porque lia `vigente`. Prova:
+`scripts/harness/familia-instancia/` (cadeia real + estado de produção conferido em 28/10/2026). **O cálculo da conversa não muda**: quem lê as etapas é o PR D.
+
 **REGISTRO PARA O PR D (antes de escrevê-lo): derivar POR INSTÂNCIA, não por conta.** Hoje a derivação das tabelas da conversa (`derivarTabelasDaConta`,
 `vinculosDaConta`) junta os fornecedores de TODAS as matérias-primas da conta. Com duas famílias PVC na mesma empresa, isso mistura os fornecedores da
 Família 1 com os da Família 2 — exatamente o que o desenho quer separar. O PR D deriva as tabelas (e o motor, pelas etapas) a partir da família-instância
