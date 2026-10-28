@@ -184,6 +184,27 @@ com log). **(4)** O motor é **global** (opção A): nenhuma duplicação por co
   lê; a única superfície nova que toca uma conta é o `nome` da matéria-prima, e a função confere `tenant_id`. O efeito entre contas de editar
   dado global de dentro da página de uma conta é dito na tela, não escondido.
 
+## O fornecedor da ramificação sai da TABELA — o filtro (28/10/2026, sem migração)
+
+**A categoria fica na tabela** (`orcamentista_tabela.categoria_chave`, `20261027000005`, aplicada): um fornecedor tem VÁRIAS tabelas, uma por categoria, e
+a nomenclatura as distingue ("Wolf perfil", "Wolf reforço metálico", "Wolf persiana"). **Não se move a categoria para `orcamentista_fornecedor`, não se cria
+coluna lá, e não se credencia fornecedor repetido.** (Uma mensagem anterior pedia o contrário; o dono do produto a corrigiu no mesmo dia.) O que ele quer,
+nas palavras dele: "quando eu for lá na categoria dentro da família ver o que eu preciso de persiana, eu vou ver quais são os fornecedores de persiana que eu tenho".
+
+- **O filtro é da TELA** (a lista "+ fornecedor" de cada ramificação): só aparece quem tem tabela COM AQUELA categoria. O servidor da árvore devolve, por fornecedor
+  do nicho, `categorias_das_tabelas` (distintas, em ordem) e `tabelas_sem_categoria`. **Categoria nula não é categoria:** vai para a contagem, nunca é somada a uma.
+  A função do banco (`superadmin_gravar_mp_fornecedores`) continua aceitando qualquer fornecedor do nicho — **não há migração**, e o filtro não é trava de banco.
+- **Quem já está na lista não some:** sem tabela da categoria, ganha a marca "sem tabela desta categoria". Quando não sobra ninguém para escolher, a tela diz por
+  quê — "nenhum fornecedor do nicho tem tabela da categoria X", ou "todos já estão" — e **nomeia os fornecedores com tabela sem categoria declarada** (não aparecem em
+  categoria nenhuma até alguém declarar a da tabela, em Fornecedores e tabelas).
+- **O arquivo do motor saiu do modal de tabela** (o motor entra pela etapa da família). A rota da tabela segue aceitando `motor_path`/`motor_nome` no corpo: as tabelas de antes
+  (a Wolff) têm motor, e o destino delas é do PR D.
+- **Medido em produção em 28/10/2026:** 64 fornecedores no nicho Esquadrias (e só ele), **3 com tabela, 61 sem nenhuma**. Das 3 tabelas, **1 tem categoria** (IMAB, FERRAGENS,
+  família PVC) e **2 têm categoria nula** (Wolf Perfis, Estrela). Ou seja, hoje a lista "+ fornecedor" oferece: **FERRAGENS 1 (IMAB)**; **PERFIL, PERSIANAS, REFORCO,
+  ACESSORIOS_VEDACAO, VIDRO e INSTALACAO 0**. Os dois vínculos que existem (Wolf como PERFIL principal, Estrela como VIDRO) são de fornecedores cuja tabela não declara categoria:
+  continuam na tela, com a marca. Para um fornecedor aparecer, alguém declara a categoria da tabela (PATCH uma vez; a Wolff, com quatro categorias do fornecedor no arquivo, não
+  pode — ver acima).
+
 **Comentários desatualizados em migração já aplicada (não se corrigem lá — `migracao.md`, "migração aplicada é imutável"):** o cabeçalho da
 `20261027000002` (linha 26: "digitados à mão e não estão no arquivo") e o da `20261027000004` ("DIGITADOS À MÃO e NÃO estão no arquivo") dizem que os 164 tempos têm trabalho manual. **Isso está errado e a
 correção é a medição acima** (3 valores, 600/300/900, `ESTIMADO`, `atualizado_por` nulo, um único `atualizado_em`). O `ON DELETE RESTRICT` e a ordem

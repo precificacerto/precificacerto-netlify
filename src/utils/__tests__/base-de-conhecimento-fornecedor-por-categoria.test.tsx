@@ -278,6 +278,18 @@ describe('(4) escolher o que o filtro oferece adiciona o fornecedor', () => {
     })
 })
 
+describe('(4b) empresa sem nicho: o combo está desligado, e a frase do filtro NÃO aparece (a explicação é a do nicho)', () => {
+    it('nenhum "Só aparecem…" nem diagnóstico; fica a frase de que a empresa não tem nicho', async () => {
+        const sem = arvoreGravada()
+        sem.nicho = null
+        sem.fornecedores_do_nicho = []
+        respostas[`GET ${F().ROTAS_DA_BASE.arvore(CONTA)}`] = { status: 200, body: sem }
+        const host = await montar()
+        expect(cat(host, 0, 'PERFIL').querySelector('[data-filtro-de-fornecedor]')).toBeNull()
+        expect(cat(host, 0, 'PERFIL').textContent).toContain('A empresa não tem nicho: nenhum fornecedor pode ser dela.')
+    })
+})
+
 describe('(5) as funções puras', () => {
     const nicho = [
         { id: 'a', nome: 'A', categorias_das_tabelas: ['PERFIL', 'VIDRO'], tabelas_sem_categoria: 0 },
