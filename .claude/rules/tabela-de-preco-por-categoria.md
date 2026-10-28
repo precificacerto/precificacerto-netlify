@@ -178,8 +178,9 @@ com log). **(4)** O motor é **global** (opção A): nenhuma duplicação por co
 - **O motor novo nasce SEM TEMPO** (os tempos são os 164 do motor da Wolff, 600/300/900, `ESTIMADO`; a coluna de tempo na aba de tipologias é a
   dívida acima). O cálculo da conversa **não muda**: a conversa ainda lê o motor da tabela. Um motor criado por uma etapa é **invisível à
   conversa até o PR D**. O PR D tem de decidir de onde vem o tempo do motor da etapa.
-- **Ainda não feito, de propósito:** o bloco Motor da página da conta continua onde está (o dono do produto ainda não confirmou a retirada);
-  trocar os leitores é o PR D; o código do material fora do motor é a Parte 2.
+- **O bloco Motor saiu da página da conta** (dono do produto, 28/10/2026: "manter os dois é duas verdades na mesma tela"); o componente, o `lib` e as rotas `contas/[tenantId]/motor/*`
+  ficaram no código, sem ninguém montá-los (arquivar planilha, marcar vigente, família da tabela e ver tipologias perderam tela). **Ainda não feito, de propósito:** trocar os leitores é o PR D;
+  o código do material fora do motor é a Parte 2.
 - **Isolamento (medido, sem furo):** as funções novas e as rotas são de super admin; o motor e as etapas não têm `tenant_id` e a conta não os
   lê; a única superfície nova que toca uma conta é o `nome` da matéria-prima, e a função confere `tenant_id`. O efeito entre contas de editar
   dado global de dentro da página de uma conta é dito na tela, não escondido.

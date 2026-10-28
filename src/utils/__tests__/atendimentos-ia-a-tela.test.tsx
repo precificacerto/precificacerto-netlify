@@ -128,11 +128,12 @@ describe('a tela de Fornecedores e tabelas', () => {
             expect(salvarDoModal().every((b) => b.disabled)).toBe(true)
         })
 
-        it('o texto do motor diz que ele é opcional e mora na família', async () => {
+        it('NÃO há campo nem texto do arquivo do motor no modal (28/10/2026): o motor entra pela etapa da família', async () => {
             await montar(<TabelaModal aberto familias={[]} categorias={CATEGORIAS} titulo="Editar tabela" atual={semMotor} onCancelar={() => {}} onSalvar={() => {}} />)
-            const texto = document.querySelector('.ant-modal')?.textContent ?? ''
-            expect(texto).toContain('O arquivo do motor é opcional')
-            expect(texto).toContain('o motor mora na família')
+            const modal = document.querySelector('.ant-modal') as HTMLElement
+            expect(modal.querySelectorAll('input[type="file"]')).toHaveLength(1)
+            expect(modal.textContent).not.toContain('Arquivo do motor')
+            expect(modal.textContent).not.toContain('O arquivo do motor é opcional')
         })
     })
 })
