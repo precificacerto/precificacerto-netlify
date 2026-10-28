@@ -2,7 +2,8 @@
  * GET    /api/super-admin/atendimentos-ia/tabelas/[id] — a tabela, para a tela da importação: os
  *        nomes dos arquivos e o fornecedor (sem os caminhos do bucket).
  * PATCH  /api/super-admin/atendimentos-ia/tabelas/[id] — troca o arquivo, o motor, a vigência ou a
- *        FAMÍLIA (da lista, conferida aqui; ela se troca e não se apaga — 26/10/2026), ou a marca de
+ *        FAMÍLIA (da lista, conferida aqui; ela se troca, e SÓ fora do Perfil se tira — `familia: null`, a tabela passa a servir qualquer
+ *        linha; na tabela de PERFIL é obrigatória: 28/10/2026, migração 20261028000002), ou a marca de
  *        VIGENTE (no máximo uma por fornecedor, família e CATEGORIA, pelo índice único do banco; a recusa nomeia a
  *        vigente de hoje — migração 20261026000005). A `vigencia` continua sendo só texto. Dá a CATEGORIA da tabela
  *        (`categoria_chave`) — UMA VEZ: a tabela de antes não a tem, ganha uma e depois ela não se troca nem se
@@ -53,7 +54,7 @@ import {
   obterTabela,
   removerObjetos,
 } from '@/lib/atendimentos-ia/repositorio'
-import { MENSAGEM_MOTOR_INCOMPLETO, ehFkDaCategoria, ehFkDaFamilia, ehIndiceDaVigente, ehTravaDaCategoriaQueNaoSeTroca, ehTravaDoMotorPelaMetade, ehUuid, emUsoPor, fraseDaCategoriaDesconhecida, fraseDaCategoriaQueNaoSeTroca, fraseDaFamiliaDesconhecida, fraseDaVigenteQueJaExiste, lerEdicaoDaTabela, recusada } from '@/utils/atendimentos-ia-catalogo'
+import { MENSAGEM_FAMILIA_OBRIGATORIA, MENSAGEM_MOTOR_INCOMPLETO, ehFkDaCategoria, ehFkDaFamilia, ehIndiceDaVigente, ehTravaDaFamiliaNoPerfil, familiaObrigatoria, ehTravaDaCategoriaQueNaoSeTroca, ehTravaDoMotorPelaMetade, ehUuid, emUsoPor, fraseDaCategoriaDesconhecida, fraseDaCategoriaQueNaoSeTroca, fraseDaFamiliaDesconhecida, fraseDaVigenteQueJaExiste, lerEdicaoDaTabela, recusada } from '@/utils/atendimentos-ia-catalogo'
 import { categoriasDoFornecedorNosItens, fraseDaTabelaComMaisDeUmaCategoria } from '@/utils/atendimentos-ia-categoria-do-arquivo'
 
 const fraseDaTabelaEmUso = (contas: string[]) =>
@@ -120,7 +121,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (recusada(leitura)) return res.status(400).json({ error: leitura.erro })
     const ed = leitura.corpo
     try {
-      if (ed.familia !== undefined && !(await listarFamilias()).some((f) => f.chave === ed.familia)) return res.status(400).json({ error: fraseDaFamiliaDesconhecida(ed.familia) })
+      if (typeof ed.familia === 'string' && !(await listarFamilias()).some((f) => f.chave === ed.familia)) return res.status(400).json({ error: fraseDaFamiliaDesconhecida(ed.familia) })
       if (ed.categoria !== undefined) {
         if (!(await listarCategorias()).some((c) => c.chave === ed.categoria)) return res.status(400).json({ error: fraseDaCategoriaDesconhecida(ed.categoria) })
         if (atual.categoria_chave != null && atual.categoria_chave !== ed.categoria) return res.status(409).json({ error: fraseDaCategoriaQueNaoSeTroca(atual.categoria_chave, ed.categoria) })
@@ -129,6 +130,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           if (categorias.length > 1) return res.status(409).json({ error: fraseDaTabelaComMaisDeUmaCategoria(categorias) })
         }
       }
+      // a tabela de PERFIL tem família: nem se tira a dela, nem se dá PERFIL a uma tabela sem família (sem dar a família junto)
+      const familiaDepois = ed.familia !== undefined ? ed.familia : (atual.familia ?? null)
+      const categoriaDepois = atual.categoria_chave ?? ed.categoria ?? null
+      if (familiaDepois === null && familiaObrigatoria(categoriaDepois)) return res.status(400).json({ error: MENSAGEM_FAMILIA_OBRIGATORIA })
       if (ed.arquivo && !(await objetoExiste(ed.arquivo.path))) return res.status(400).json({ error: 'O arquivo da tabela não chegou ao armazenamento. Envie de novo.' })
       if (ed.motor && !(await objetoExiste(ed.motor.path))) return res.status(400).json({ error: 'O arquivo do motor não chegou ao armazenamento. Envie de novo.' })
       const campos: Record<string, string | boolean | null> = {}
@@ -144,7 +149,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const { aviso } = await removerOsQueNinguemMaisUsa('tabela PATCH', trocados)
       return res.status(200).json(aviso ? { ok: true, aviso } : { ok: true })
     } catch (e) {
-      if (codigoDoErro(e) === '23503' && ehFkDaFamilia(e) && ed.familia !== undefined) return res.status(400).json({ error: fraseDaFamiliaDesconhecida(ed.familia) })
+      if (codigoDoErro(e) === '23503' && ehFkDaFamilia(e) && typeof ed.familia === 'string') return res.status(400).json({ error: fraseDaFamiliaDesconhecida(ed.familia) })
+      if (codigoDoErro(e) === '23514' && ehTravaDaFamiliaNoPerfil(e)) return res.status(400).json({ error: MENSAGEM_FAMILIA_OBRIGATORIA })
       if (codigoDoErro(e) === '23514' && ehTravaDoMotorPelaMetade(e)) return res.status(400).json({ error: MENSAGEM_MOTOR_INCOMPLETO })
       if (codigoDoErro(e) === '23503' && ehFkDaCategoria(e) && ed.categoria !== undefined) return res.status(400).json({ error: fraseDaCategoriaDesconhecida(ed.categoria) })
       if (codigoDoErro(e) === '23514' && ehTravaDaCategoriaQueNaoSeTroca(e) && ed.categoria !== undefined) {

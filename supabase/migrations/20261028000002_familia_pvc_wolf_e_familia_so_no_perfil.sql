@@ -13,7 +13,8 @@
 -- POR QUÊ — decisões do dono do produto, 28/10/2026 (`.claude/rules/tabela-de-preco-por-categoria.md`):
 --   1. O catálogo de famílias passa a ter UMA ENTRADA POR LINHA DE PRODUTO ("PVC Wolf", "PVC Veca"). A família que existe, chave
 --      'PVC', é a linha da Wolff: o NOME EXIBIDO passa a "PVC Wolf" e a CHAVE FICA 'PVC'. Trocar a chave exigiria derrubar e recriar as
---      7 FKs que a apontam (três compostas), numa transação só — custo alto para ganho nenhum. As famílias novas nascem com chave própria.
+--      6 FKs que apontam a chave e as 2 compostas que a carregam pelo motor (medido em 28/10/2026; a 20261028000001 acrescenta a 3ª
+--      composta), numa transação só — custo alto para ganho nenhum. As famílias novas nascem com chave própria.
 --   2. A FAMÍLIA NA TABELA É OBRIGATÓRIA SÓ NO PERFIL: a tabela de perfil é de uma linha (o motor cita os códigos daquele fornecedor);
 --      a de ferragem, vidro, acessórios, persianas, reforço e instalação é da categoria e serve qualquer linha. Hoje a rota exige a
 --      família em TODA tabela nova e o banco não exige em nenhuma; passa a ser: a rota e a tela exigem no Perfil, e o banco também.
@@ -26,7 +27,7 @@
 --
 -- O QUE NÃO FAZ: não toca em chave, em FK, em matéria-prima, etapa, motor, tabela (nenhum UPDATE de tabela), ramificação ou levantamento.
 -- IDEMPOTENTE: o nome só muda se ainda for 'PVC' (reaplicada, não loga de novo); a CHECK só entra se não existir.
--- VERIFICAÇÃO (aborta): o nome, a chave, a CHECK validada e as 7 FKs que apontam o catálogo, intactas.
+-- VERIFICAÇÃO (aborta): o nome, a chave, a CHECK validada e as FKs que apontam o catálogo (6 em produção; aborta com menos de 5), intactas.
 -- ════════════════════════════════════════════════════════════════════════════════════════
 BEGIN;
 

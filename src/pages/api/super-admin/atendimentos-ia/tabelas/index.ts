@@ -9,8 +9,9 @@
  * E os dois arquivos têm de ESTAR no bucket: a linha não é gravada apontando para um objeto que
  * não chegou (o envio é feito pelo navegador com a URL assinada de `url-de-envio`).
  *
- * A FAMÍLIA É OBRIGATÓRIA e vem DA LISTA (dono do produto, 26/10/2026; migração 20261026000004): a
- * rota confere a chave contra `orcamentista_familia_catalogo` antes de gravar. A FK da família e a do
+ * A FAMÍLIA vem DA LISTA (dono do produto, 26/10/2026; migração 20261026000004), e é OBRIGATÓRIA SÓ NA TABELA DE PERFIL
+ * (28/10/2026; migração 20261028000002, que põe a CHECK `orcamentista_tabela_familia_no_perfil`): nas outras categorias a tabela pode ir
+ * sem família e serve qualquer linha. A rota confere a chave contra `orcamentista_familia_catalogo` antes de gravar. A FK da família e a do
  * fornecedor são ambas 23503: a mensagem do banco diz qual, e cada uma tem a sua frase — a da
  * família nunca vira "Fornecedor não encontrado".
  *
@@ -21,7 +22,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { requireSuperAdmin } from '@/lib/get-caller-tenant'
 import { codigoDoErro, criarTabela, falhaInterna, listarCategorias, listarFamilias, objetoExiste } from '@/lib/atendimentos-ia/repositorio'
-import { ehFkDaCategoria, ehFkDaFamilia, ehTravaDaCategoriaObrigatoria, ehTravaDoMotorPelaMetade, fraseDaCategoriaDesconhecida, fraseDaFamiliaDesconhecida, lerCorpoDaTabela, MENSAGEM_CATEGORIA_OBRIGATORIA, MENSAGEM_MOTOR_INCOMPLETO, recusada } from '@/utils/atendimentos-ia-catalogo'
+import { ehFkDaCategoria, ehFkDaFamilia, ehTravaDaCategoriaObrigatoria, ehTravaDaFamiliaNoPerfil, ehTravaDoMotorPelaMetade, fraseDaCategoriaDesconhecida, fraseDaFamiliaDesconhecida, lerCorpoDaTabela, MENSAGEM_CATEGORIA_OBRIGATORIA, MENSAGEM_FAMILIA_OBRIGATORIA, MENSAGEM_MOTOR_INCOMPLETO, recusada } from '@/utils/atendimentos-ia-catalogo'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
@@ -34,7 +35,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const t = leitura.corpo
 
   try {
-    if (!(await listarFamilias()).some((f) => f.chave === t.familia)) return res.status(400).json({ error: fraseDaFamiliaDesconhecida(t.familia) })
+    if (t.familia !== null && !(await listarFamilias()).some((f) => f.chave === t.familia)) return res.status(400).json({ error: fraseDaFamiliaDesconhecida(t.familia) })
     if (!(await listarCategorias()).some((c) => c.chave === t.categoria_chave)) return res.status(400).json({ error: fraseDaCategoriaDesconhecida(t.categoria_chave) })
     if (!(await objetoExiste(t.arquivo_path))) return res.status(400).json({ error: 'O arquivo da tabela não chegou ao armazenamento. Envie de novo.' })
     if (t.motor_path !== null && !(await objetoExiste(t.motor_path))) return res.status(400).json({ error: 'O arquivo do motor não chegou ao armazenamento. Envie de novo.' })
@@ -42,7 +43,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(201).json(criada)
   } catch (e) {
     const codigo = codigoDoErro(e)
-    if (codigo === '23503' && ehFkDaFamilia(e)) return res.status(400).json({ error: fraseDaFamiliaDesconhecida(t.familia) })
+    if (codigo === '23503' && ehFkDaFamilia(e)) return res.status(400).json({ error: fraseDaFamiliaDesconhecida(t.familia ?? '') })
+    if (codigo === '23514' && ehTravaDaFamiliaNoPerfil(e)) return res.status(400).json({ error: MENSAGEM_FAMILIA_OBRIGATORIA })
     if (codigo === '23503' && ehFkDaCategoria(e)) return res.status(400).json({ error: fraseDaCategoriaDesconhecida(t.categoria_chave) })
     if (codigo === '23514' && ehTravaDaCategoriaObrigatoria(e)) return res.status(400).json({ error: MENSAGEM_CATEGORIA_OBRIGATORIA })
     if (codigo === '23503') return res.status(404).json({ error: 'Fornecedor não encontrado.' })

@@ -13,7 +13,7 @@
  */
 /* eslint-disable @typescript-eslint/no-explicit-any -- os clientes falsos imitam clientes sem tipo (o admin não tem os tipos destas tabelas) */
 import type { NextApiRequest, NextApiResponse } from 'next'
-import { MENSAGEM_MOTOR_INCOMPLETO, MENSAGEM_MOTOR_NAO_SAI } from '@/utils/atendimentos-ia-catalogo'
+import { MENSAGEM_FAMILIA_OBRIGATORIA, MENSAGEM_MOTOR_INCOMPLETO, MENSAGEM_MOTOR_NAO_SAI } from '@/utils/atendimentos-ia-catalogo'
 
 interface Perfil { id: string; tenant_id: string | null; role: string; is_super_admin: boolean }
 interface Resposta<T> { data: T; error: { message: string } | null }
@@ -54,7 +54,7 @@ jest.mock('@/lib/atendimentos-ia/repositorio', () => {
         excluirFornecedor: fn('excluirFornecedor', () => 1),
         quemSeguraOFornecedor: fn('quemSeguraOFornecedor', () => ({ tabelas: [], contas: [] })),
         fornecedorExiste: fn('fornecedorExiste', () => true),
-        obterTabela: fn('obterTabela', () => ({ id: T, fornecedor_id: F, arquivo_path: `${F}/arquivo/x-t.xlsx`, motor_path: `${F}/motor/x-m.xlsx` })),
+        obterTabela: fn('obterTabela', () => ({ id: T, fornecedor_id: F, arquivo_path: `${F}/arquivo/x-t.xlsx`, motor_path: `${F}/motor/x-m.xlsx`, familia: 'PVC' })),
         criarTabela: fn('criarTabela', () => ({ id: T })),
         listarFamilias: fn('listarFamilias', () => [{ chave: 'PVC', rotulo: 'PVC', ordem: 1 }]),
         listarCategorias: fn('listarCategorias', () => [{ chave: 'PERFIL', rotulo: 'Perfil', ordem: 1 }, { chave: 'REFORCO', rotulo: 'Reforço', ordem: 2 }, { chave: 'ACESSORIOS_VEDACAO', rotulo: 'Acessórios', ordem: 3 }, { chave: 'VIDRO', rotulo: 'Vidro', ordem: 6 }]),
@@ -302,7 +302,7 @@ describe('PORTÃO — apagar tabela: a LINHA primeiro, depois o Storage', () => 
 
 describe('PORTÃO — dar o motor a uma tabela que não tinha: não há objeto antigo a remover', () => {
     it('PATCH com o motor numa tabela de motor nulo: grava, e nada é conferido nem removido do armazenamento', async () => {
-        repo.obterTabela.mockImplementationOnce(async () => ({ id: T, fornecedor_id: F, arquivo_path: `${F}/arquivo/x-t.xlsx`, motor_path: null, categoria_chave: 'PERFIL' }))
+        repo.obterTabela.mockImplementationOnce(async () => ({ id: T, fornecedor_id: F, arquivo_path: `${F}/arquivo/x-t.xlsx`, motor_path: null, categoria_chave: 'PERFIL', familia: 'PVC' }))
         const r = await chamar('tabela', 'PATCH', { id: T }, { motor_path: `${F}/motor/novo-m.xlsx`, motor_nome: 'novo.xlsx' })
         expect(r.status).toBe(200)
         expect(repo.atualizarTabela).toHaveBeenCalledWith(T, expect.objectContaining({ motor_path: `${F}/motor/novo-m.xlsx`, motor_nome: 'novo.xlsx' }))
@@ -312,11 +312,17 @@ describe('PORTÃO — dar o motor a uma tabela que não tinha: não há objeto a
 })
 
 describe('PORTÃO — a Estrela de produção tem o motor VAZIO (""), e vazio não é arquivo', () => {
-    it('declarar PERFIL nela passa: o motor não é exigido em categoria nenhuma, e só a categoria é gravada', async () => {
-        repo.obterTabela.mockImplementationOnce(async () => ({ id: T, fornecedor_id: F, arquivo_path: `${F}/arquivo/x-t.xlsx`, motor_path: '', categoria_chave: null }))
-        const r = await chamar('tabela', 'PATCH', { id: T }, { categoria_chave: 'PERFIL' })
+    it('declarar PERFIL nela, que não tem família, é RECUSADO (28/10/2026: o Perfil exige família); com a família junto, passa — o motor não é exigido', async () => {
+        const estrela = async () => ({ id: T, fornecedor_id: F, arquivo_path: `${F}/arquivo/x-t.xlsx`, motor_path: '', categoria_chave: null as string | null, familia: null as string | null })
+        repo.obterTabela.mockImplementationOnce(estrela)
+        const recusa = await chamar('tabela', 'PATCH', { id: T }, { categoria_chave: 'PERFIL' })
+        expect(recusa.status).toBe(400)
+        expect(recusa.json).toEqual({ error: MENSAGEM_FAMILIA_OBRIGATORIA })
+        expect(repo.atualizarTabela).not.toHaveBeenCalled()
+        repo.obterTabela.mockImplementationOnce(estrela)
+        const r = await chamar('tabela', 'PATCH', { id: T }, { categoria_chave: 'PERFIL', familia: 'PVC' })
         expect(r.status).toBe(200)
-        expect(repo.atualizarTabela).toHaveBeenCalledWith(T, { categoria_chave: 'PERFIL' })
+        expect(repo.atualizarTabela).toHaveBeenCalledWith(T, { categoria_chave: 'PERFIL', familia: 'PVC' })
     })
 
     it('declarar VIDRO nela passa, e o "" do motor antigo não vai ao armazenamento ao trocar o motor', async () => {

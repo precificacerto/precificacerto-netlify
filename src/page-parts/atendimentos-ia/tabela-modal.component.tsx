@@ -1,10 +1,10 @@
 /**
  * O modal da TABELA (EPIC §5.6): Arquivo → Família → Categoria → Vigência, NESSA ORDEM.
  *
- * A FAMÍLIA (dono do produto, 26/10/2026) vem da LISTA (`familias`, da rota) e é OBRIGATÓRIA na
- * tabela nova: sem ela o salvar não liga. Nenhuma vem escolhida pela tela — nem quando a lista tem
- * uma só. Na edição de uma tabela de antes da família, a tela diz "Família não informada" e salvar
- * sem escolher não manda família (a família se troca, e não se apaga).
+ * A FAMÍLIA (dono do produto, 26/10/2026) vem da LISTA (`familias`, da rota). É OBRIGATÓRIA SÓ NA TABELA DE PERFIL (28/10/2026): a tabela
+ * de perfil é de uma linha (o motor da linha cita os códigos dela); a de ferragem, vidro, acessórios, persianas, reforço e instalação serve
+ * qualquer linha, e pode ir sem família ("Qualquer linha"). No Perfil, sem família o salvar não liga. Nenhuma vem escolhida pela tela — nem
+ * quando a lista tem uma só. Na edição, a família se troca; fora do Perfil também se tira ("Qualquer linha"); no Perfil, não.
  *
  * A CATEGORIA (dono do produto, 27/10/2026: "uma tabela = uma categoria") vem da LISTA (`categorias`, da rota) e é
  * OBRIGATÓRIA na tabela nova, nos mesmos termos da família: sem ela o salvar não liga, e nenhuma vem escolhida pela
@@ -29,10 +29,16 @@
 import React, { useEffect, useState } from 'react'
 import { Alert, Button, Input, Modal, Radio, Typography, Upload } from 'antd'
 import { UploadOutlined } from '@ant-design/icons'
-import { AVISO_DO_CATALOGO, EXTENSOES_ACEITAS, MENSAGEM_CATEGORIA_OBRIGATORIA, MENSAGEM_FAMILIA_OBRIGATORIA, MOTIVO_DO_FORMATO_RECUSADO, extensaoAceita, fraseDoArquivo, type Categoria, type Familia } from '@/utils/atendimentos-ia-catalogo'
+import {
+    AVISO_DO_CATALOGO, EXTENSOES_ACEITAS, MENSAGEM_CATEGORIA_OBRIGATORIA, MENSAGEM_FAMILIA_OBRIGATORIA, MOTIVO_DO_FORMATO_RECUSADO, ROTULO_QUALQUER_LINHA,
+    extensaoAceita, familiaObrigatoria, fraseDoArquivo, type Categoria, type Familia,
+} from '@/utils/atendimentos-ia-catalogo'
 import type { TabelaPendente } from './api'
 
 export const TITULO_DO_ERRO_AO_SALVAR = 'A tabela não foi salva.'
+/** A escolha "sem família" na tela (só fora do Perfil). Não é chave: chave de família começa por letra maiúscula. */
+const QUALQUER = '__qualquer_linha__'
+export const FRASE_SEM_FAMILIA = 'Sem família: a tabela é da categoria e serve qualquer linha. Só a tabela de Perfil precisa da família.'
 
 export interface AtualDaTabela { arquivo_nome: string; vigencia: string | null; familia: string | null; categoria_chave: string | null }
 
@@ -97,8 +103,10 @@ export function TabelaModal({ aberto, titulo, familias, categorias, atual, salva
     }, [aberto])
 
     const temArquivo = !!arquivo || !!atual?.arquivo_nome
-    // a tabela nova precisa da família; a edição de uma tabela sem família salva sem ela
-    const faltaFamilia = !atual && familia === null
+    // a família é obrigatória só no PERFIL — a categoria que vale é a da tabela (não se troca) ou a escolhida
+    const categoriaDaTabela = atual?.categoria_chave ?? categoria
+    const exigeFamilia = familiaObrigatoria(categoriaDaTabela)
+    const faltaFamilia = exigeFamilia && (familia === null || familia === QUALQUER)
     // a tabela nova precisa da categoria; a edição de uma tabela de antes (sem categoria) salva sem ela
     const faltaCategoria = !atual && categoria === null
     const rotuloDaCategoria = atual?.categoria_chave ? categorias.find((c) => c.chave === atual.categoria_chave)?.rotulo ?? atual.categoria_chave : null
@@ -115,7 +123,9 @@ export function TabelaModal({ aberto, titulo, familias, categorias, atual, salva
             // na edição, só vai a família (e a categoria) se mudou
             onOk={() => onSalvar({
                 arquivo, vigencia,
-                familia: familia !== (atual?.familia ?? null) ? familia : null,
+                familia: familia !== QUALQUER && familia !== (atual?.familia ?? null) ? familia : null,
+                // tirar a família: só da tabela que tem, e só fora do Perfil (a rota e o banco também recusam no Perfil)
+                semFamilia: familia === QUALQUER && !!atual?.familia && !exigeFamilia,
                 categoria: categoria !== (atual?.categoria_chave ?? null) ? categoria : null,
             })}
             destroyOnClose
@@ -125,7 +135,11 @@ export function TabelaModal({ aberto, titulo, familias, categorias, atual, salva
             <div style={{ marginTop: 6, marginBottom: 14 }}>
                 <Radio.Group value={familia} onChange={(e) => setFamilia(e.target.value as string)} aria-label="Família da tabela">
                     {familias.map((f) => <Radio.Button key={f.chave} value={f.chave} data-familia={f.chave}>{f.rotulo}</Radio.Button>)}
+                    {!exigeFamilia && <Radio.Button value={QUALQUER} data-familia-qualquer-linha>{ROTULO_QUALQUER_LINHA}</Radio.Button>}
                 </Radio.Group>
+                {!exigeFamilia && (familia === QUALQUER || (!atual && familia === null)) && (
+                    <Typography.Paragraph type="secondary" style={{ fontSize: 12, margin: '6px 0 0' }} data-sem-familia-serve-qualquer-linha>{FRASE_SEM_FAMILIA}</Typography.Paragraph>
+                )}
                 {atual && !atual.familia && familia === null && (
                     <Typography.Paragraph type="secondary" style={{ fontSize: 12, margin: '6px 0 0' }} data-familia-nao-informada>Família não informada.</Typography.Paragraph>
                 )}

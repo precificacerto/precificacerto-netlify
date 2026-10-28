@@ -51,7 +51,7 @@ const CATEGORIAS = [
     { chave: 'REFORCO', rotulo: 'Reforço metálico', ordem: 3 },
     { chave: 'VIDRO', rotulo: 'Vidro', ordem: 6 },
 ]
-const TABELA_SEM = { id: T, fornecedor_id: F, arquivo_path: `${F}/arquivo/x-t.xlsx`, motor_path: `${F}/motor/x-m.xlsx`, categoria_chave: null as string | null }
+const TABELA_SEM = { id: T, fornecedor_id: F, arquivo_path: `${F}/arquivo/x-t.xlsx`, motor_path: `${F}/motor/x-m.xlsx`, categoria_chave: null as string | null, familia: 'PVC' as string | null }
 
 jest.mock('@/lib/atendimentos-ia/repositorio', () => {
     const real = jest.requireActual('@/lib/atendimentos-ia/repositorio')

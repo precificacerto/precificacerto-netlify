@@ -52,6 +52,13 @@ describe('cada leitura da tabela pede `categoria_chave`', () => {
         expect(t?.categoria_chave).toBe('VIDRO')
     })
 
+    it('obterTabela pede também a `familia`: o PATCH decide por ela se a tabela de Perfil ficaria sem família (20261028000002)', async () => {
+        linhasPorTabela.orcamentista_tabela = [{ ...linhasPorTabela.orcamentista_tabela[0], categoria_chave: 'PERFIL', familia: 'PVC' }]
+        const t = await obterTabela('t1')
+        expect(colunasDe('orcamentista_tabela')[0]).toContain('familia')
+        expect(t?.familia).toBe('PVC')
+    })
+
     it('obterArquivosDaTabela (a importação decide a recusa por ela)', async () => {
         const t = await obterArquivosDaTabela('t1')
         expect(colunasDe('orcamentista_tabela')[0]).toContain('categoria_chave')

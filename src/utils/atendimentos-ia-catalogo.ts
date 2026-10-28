@@ -175,7 +175,20 @@ export const MENSAGEM_MOTOR_NAO_SAI = 'O arquivo do motor não se apaga da tabel
  */
 export interface Familia { chave: string; rotulo: string; ordem: number }
 
-export const MENSAGEM_FAMILIA_OBRIGATORIA = 'Escolha a família da tabela.'
+/**
+ * A FAMÍLIA É OBRIGATÓRIA SÓ NA TABELA DE PERFIL (dono do produto, 28/10/2026; migração 20261028000002): a tabela de perfil é de UMA linha
+ * (o motor daquela linha cita os códigos do perfil dela); a de ferragem, vidro, acessórios, persianas, reforço e instalação é da categoria
+ * e serve qualquer linha — "a ferragem da Celsus é a mesma para PVC Wolf e PVC Veca". O banco tem a terceira trava
+ * (CHECK `orcamentista_tabela_familia_no_perfil`).
+ */
+export const CATEGORIA_QUE_EXIGE_FAMILIA = 'PERFIL'
+export const ROTULO_QUALQUER_LINHA = 'Qualquer linha'
+export const familiaObrigatoria = (categoria: string | null | undefined) => categoria === CATEGORIA_QUE_EXIGE_FAMILIA
+export const MENSAGEM_FAMILIA_OBRIGATORIA = 'A tabela de Perfil precisa da família: o motor da linha cita os códigos do perfil dela. Escolha a família.'
+/** A trava do banco: tabela de PERFIL sem família (`orcamentista_tabela_familia_no_perfil`, 23514). */
+export const ehTravaDaFamiliaNoPerfil = (e: unknown): boolean => /orcamentista_tabela_familia_no_perfil/.test((e as { message?: string } | null)?.message ?? '')
+/** O nome de família que já existe, sem olhar a caixa: duas famílias com o mesmo nome no catálogo confundem quem escolhe. */
+export const fraseDaFamiliaComNomeRepetido = (rotulo: string) => `Já há uma família chamada "${rotulo}" no catálogo.`
 export const fraseDaFamiliaDesconhecida = (chave: string) => `A família "${chave}" não está na lista de famílias.`
 /** O limite do rótulo: o mesmo da CHECK `orcamentista_familia_catalogo_rotulo_forma`. */
 export const LIMITE_DO_ROTULO_DA_FAMILIA = 60
@@ -339,8 +352,8 @@ export interface CorpoDaTabela {
     motor_path: string | null
     motor_nome: string | null
     vigencia: string | null
-    /** A chave da família, da lista. Obrigatória na tabela nova; a rota confere que está na lista. */
-    familia: string
+    /** A chave da família, da lista; a rota confere que está na lista. Obrigatória só na tabela de PERFIL; nas outras, null = serve qualquer linha. */
+    familia: string | null
     /** A chave da categoria, da lista. Obrigatória na tabela nova; a rota confere que está na lista. */
     categoria_chave: string
 }
@@ -377,8 +390,10 @@ export function lerCorpoDaTabela(body: unknown): Leitura<CorpoDaTabela> {
     if (!dentroDoFornecedor(arquivo_path, fornecedor_id) || (motor_path !== null && !dentroDoFornecedor(motor_path, fornecedor_id))) {
         return { ok: false, erro: 'Os arquivos não pertencem a este fornecedor.' }
     }
-    if (!ehChaveDeFamilia(b.familia)) return { ok: false, erro: MENSAGEM_FAMILIA_OBRIGATORIA }
-    return { ok: true, corpo: { fornecedor_id, arquivo_path, arquivo_nome, motor_path, motor_nome, vigencia: textoAparado(b.vigencia), familia: b.familia, categoria_chave: b.categoria_chave } }
+    // ausente ou nulo é "sem família" (serve qualquer linha) — só no Perfil a família é obrigatória
+    const semFamilia = b.familia === undefined || b.familia === null
+    if (semFamilia ? familiaObrigatoria(b.categoria_chave) : !ehChaveDeFamilia(b.familia)) return { ok: false, erro: MENSAGEM_FAMILIA_OBRIGATORIA }
+    return { ok: true, corpo: { fornecedor_id, arquivo_path, arquivo_nome, motor_path, motor_nome, vigencia: textoAparado(b.vigencia), familia: semFamilia ? null : b.familia as string, categoria_chave: b.categoria_chave } }
 }
 
 /** A EDIÇÃO de uma tabela: cada arquivo troca inteiro (caminho E nome) ou não troca; o motor não sai. */
@@ -387,8 +402,8 @@ export interface EdicaoDaTabela {
     motor?: { path: string; nome: string }
     /** `undefined` = não mexe; `null` = apaga a vigência. */
     vigencia?: string | null
-    /** `undefined` = não mexe. A família se troca pela lista, e não se apaga. */
-    familia?: string
+    /** `undefined` = não mexe; `null` = tira a família (a tabela serve qualquer linha) — a rota recusa na tabela de PERFIL. */
+    familia?: string | null
     /** `undefined` = não mexe. A categoria se DÁ uma vez (a de antes não tem) e depois não se troca nem se apaga. */
     categoria?: string
     /** `undefined` = não mexe. A marca de vigente (migração 20261026000005): no máximo uma por fornecedor e família. */
@@ -411,8 +426,9 @@ export function lerEdicaoDaTabela(body: unknown, fornecedorId: string): Leitura<
     }
     if ('vigencia' in b) out.vigencia = textoAparado(b.vigencia)
     if ('familia' in b) {
-        if (!ehChaveDeFamilia(b.familia)) return { ok: false, erro: MENSAGEM_FAMILIA_OBRIGATORIA }
-        out.familia = b.familia
+        if (b.familia === null) out.familia = null
+        else if (!ehChaveDeFamilia(b.familia)) return { ok: false, erro: MENSAGEM_FAMILIA_OBRIGATORIA }
+        else out.familia = b.familia
     }
     if ('categoria_chave' in b) {
         if (!ehChaveDeCategoria(b.categoria_chave)) return { ok: false, erro: MENSAGEM_CATEGORIA_OBRIGATORIA }

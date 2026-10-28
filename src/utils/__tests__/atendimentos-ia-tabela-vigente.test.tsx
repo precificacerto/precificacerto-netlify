@@ -183,3 +183,39 @@ describe('(3)(4) a tela do fornecedor: a marca de cada tabela', () => {
         expect(host.textContent).toContain('Já há uma tabela vigente deste fornecedor na família PVC: Wolff 2026.xlsx. Desmarque-a antes de marcar outra.')
     })
 })
+
+// ── a família só no Perfil (28/10/2026): a lista diz "Qualquer linha", e tirar a família manda `familia: null` ──
+describe('(5) a tela do fornecedor: a tabela fora do Perfil sem família serve qualquer linha', () => {
+    const ferragem = { ...linha('t-ferr', 'IMAB ferragens.xlsx', false), categoria_chave: 'FERRAGENS', familia: null as string | null }
+    const ferragemComFamilia = { ...linha('t-ferr2', 'IMAB 2.xlsx', false), categoria_chave: 'FERRAGENS', familia: 'PVC' as string | null }
+    const perfilSemFamilia = { ...linha('t-velha', 'Wolff antiga.xlsx', false), categoria_chave: null as string | null, familia: null as string | null }
+    beforeEach(() => {
+        servir()
+        respostas[`GET ${ROTAS_DO_CATALOGO.fornecedor('f1')}`] = { status: 200, body: { ...FORNECEDOR, tabelas_da_lista: [ferragem, ferragemComFamilia, perfilSemFamilia] } }
+        respostas[`GET ${ROTAS_DO_CATALOGO.categorias}`] = { status: 200, body: [{ chave: 'PERFIL', rotulo: 'Perfil', ordem: 1 }, { chave: 'FERRAGENS', rotulo: 'Ferragens', ordem: 4 }] }
+        respostas[`PATCH ${ROTAS_DO_CATALOGO.tabela('t-ferr2')}`] = { status: 200, body: { ok: true } }
+    })
+    const linhaDa = (host: ParentNode, arquivo: string) => Array.from(host.querySelectorAll('tr')).find((tr) => tr.textContent?.includes(arquivo)) as HTMLElement
+
+    it('a ferragem sem família diz "Qualquer linha"; a tabela de antes, sem categoria e sem família, continua "não informada"', async () => {
+        const host = await montar()
+        expect(linhaDa(host, 'IMAB ferragens.xlsx').querySelector('[data-qualquer-linha]')?.textContent).toBe('Qualquer linha')
+        expect(linhaDa(host, 'Wolff antiga.xlsx').querySelector('[data-qualquer-linha]')).toBeNull()
+        expect(linhaDa(host, 'Wolff antiga.xlsx').querySelector('[data-familia-nao-informada]')).toBeTruthy()
+    })
+
+    it('editar a ferragem COM família e escolher "Qualquer linha" manda PATCH com `familia: null`', async () => {
+        const host = await montar()
+        const editar = Array.from(linhaDa(host, 'IMAB 2.xlsx').querySelectorAll('button')).find((b) => b.textContent === 'Editar')!
+        await act(async () => { editar.click() })
+        await assentar()
+        const opcao = document.querySelector('[data-familia-qualquer-linha] input, input[data-familia-qualquer-linha]') as HTMLInputElement
+        await act(async () => { opcao.click() })
+        await assentar()
+        const salvar = Array.from(document.querySelectorAll('.ant-modal button')).find((b) => b.textContent?.includes('Salvar tabela')) as HTMLButtonElement
+        await act(async () => { salvar.click() })
+        await assentar()
+        const p = pedidos.find((x) => x.chave === `PATCH ${ROTAS_DO_CATALOGO.tabela('t-ferr2')}`)
+        expect(p?.corpo).toEqual(expect.objectContaining({ familia: null }))
+    })
+})

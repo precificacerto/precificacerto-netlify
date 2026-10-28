@@ -13,7 +13,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { requireSuperAdmin } from '@/lib/get-caller-tenant'
 import { codigoDoErro, criarFamilia, falhaInterna, listarFamilias } from '@/lib/atendimentos-ia/repositorio'
-import { lerFamiliaNova, recusada } from '@/utils/atendimentos-ia-catalogo'
+import { fraseDaFamiliaComNomeRepetido, lerFamiliaNova, recusada } from '@/utils/atendimentos-ia-catalogo'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET' && req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
@@ -35,6 +35,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     const atuais = await listarFamilias()
     if (atuais.some((f) => f.chave === chave)) return res.status(409).json({ error: `A família "${chave}" já está na lista.` })
+    // uma entrada por LINHA, cada uma com nome próprio (28/10/2026): o nome repetido, sem olhar a caixa, também é recusa — chaves
+    // diferentes (PVC e PVC_WOLF) com o mesmo nome exibido seriam duas famílias que ninguém distingue na tela
+    const igual = atuais.find((f) => f.rotulo.trim().toLocaleLowerCase('pt-BR') === rotulo.toLocaleLowerCase('pt-BR'))
+    if (igual) return res.status(409).json({ error: fraseDaFamiliaComNomeRepetido(igual.rotulo) })
     const ordem = atuais.reduce((m, f) => Math.max(m, f.ordem), 0) + 1
     return res.status(201).json(await criarFamilia({ chave, rotulo, ordem }))
   } catch (e) {

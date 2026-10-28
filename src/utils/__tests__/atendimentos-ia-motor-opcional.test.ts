@@ -44,7 +44,7 @@ jest.mock('@/supabase/admin', () => ({
 const F = '11111111-1111-1111-1111-111111111111'
 const T = '22222222-2222-2222-2222-222222222222'
 const CATEGORIAS = [{ chave: 'PERFIL', rotulo: 'Perfil', ordem: 1 }, { chave: 'REFORCO', rotulo: 'Reforço', ordem: 3 }, { chave: 'VIDRO', rotulo: 'Vidro', ordem: 6 }]
-const SEM_MOTOR = { id: T, fornecedor_id: F, arquivo_path: `${F}/arquivo/x-t.xlsx`, motor_path: null as string | null, motor_nome: null as string | null, categoria_chave: null as string | null }
+const SEM_MOTOR = { id: T, fornecedor_id: F, arquivo_path: `${F}/arquivo/x-t.xlsx`, motor_path: null as string | null, motor_nome: null as string | null, categoria_chave: null as string | null, familia: 'PVC' as string | null }
 
 jest.mock('@/lib/atendimentos-ia/repositorio', () => {
     const real = jest.requireActual('@/lib/atendimentos-ia/repositorio')

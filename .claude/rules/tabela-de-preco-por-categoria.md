@@ -222,3 +222,38 @@ Antes de tirar uma tabela de fornecedor de circulação — arquivar, substituir
 pende do `tabela_id` dela** (consulte as 14 tabelas do motor e os tempos), e não só o que a tela mostra. O tempo
 (`orcamentista_motor_tipologia_tempo`) não volta com uma reimportação (`tabela-que-a-importacao-apaga.md`, camada 3) — e hoje são 164 valores de
 teste, 600/300/900, não trabalho manual (correção de 27/10/2026).
+
+## A família por linha de produto e a família só no Perfil — decisões de 28/10/2026 (migração `20261028000002`, PENDENTE até o dono do produto aplicar)
+
+Formulação do dono do produto, registrada como está:
+
+> **MOTOR POR LINHA: CONFIRMADO.** [...] **A FAMÍLIA NA TABELA É OBRIGATÓRIA SÓ NO PERFIL.** Nas demais categorias [...] a família fica OPCIONAL.
+> [...] **Troque o nome para "PVC Wolf" MANTENDO a chave `PVC`**, por migração pequena com log, sem tocar em chave estrangeira nenhuma. As famílias
+> novas ("PVC Veca") nascem com chave própria. **NÃO renomeie a chave.**
+
+- **O catálogo de famílias tem uma entrada por LINHA de produto** ("PVC Wolf", "PVC Veca"), e o motor é por linha — a FK composta motor ↔ etapa fica.
+- **A família `PVC` é a linha da Wolff:** o nome exibido passa a "PVC Wolf" e a chave fica `PVC`. Trocar a chave derrubaria e recriaria as 6 FKs que
+  apontam a chave e as 2 compostas que a carregam pelo motor (3 depois da `20261028000001`); o nome resolve o que se vê sem tocar em nenhuma. A migração guarda o antes e o depois no `superadmin_alteracao_log` e aborta
+  se a família já tiver outro nome ou se outra família já se chamar "PVC Wolf". **A rota das famílias recusa nome repetido** (sem olhar a caixa), com 409
+  nomeando a que existe.
+- **A família na tabela é obrigatória SÓ no PERFIL.** A tabela de perfil é de uma linha (o motor cita os códigos do perfil dela); a de ferragem, vidro,
+  acessórios, persianas, reforço e instalação é da categoria e serve **qualquer linha**. As três camadas dizem o mesmo:
+  - o banco: a CHECK `orcamentista_tabela_familia_no_perfil` (`categoria_chave IS DISTINCT FROM 'PERFIL' OR familia IS NOT NULL`);
+  - a rota: o POST aceita família ausente ou nula fora do Perfil; o PATCH tira a família com `familia: null` e recusa quando a tabela ficaria Perfil sem
+    família — inclusive ao DAR a categoria Perfil a uma tabela de antes sem família; a trava do banco numa corrida vira a mesma frase, não um 500;
+  - a tela: a opção "Qualquer linha" aparece fora do Perfil, e a coluna da família mostra "Qualquer linha" na tabela sem família de outra categoria.
+- **Medido em produção em 28/10/2026, antes da migração:** nenhuma tabela de PERFIL sem família (a do Wolf duplicado tem `PVC`); a família `PVC` se
+  chama "PVC"; nenhuma outra família.
+
+**DÍVIDA, registrada como o dono do produto mediu (28/10/2026) — não é trabalho de agora:**
+
+> Dos **549 códigos do motor, 488 são de perfil e 63 de INSUMO** — e os insumos também são da Wolff. **Enquanto o insumo vier de dentro do motor, ele
+> segue o fornecedor de perfil, não um fornecedor próprio.**
+
+**A conta, reconferida em produção em 28/10/2026 (só leitura, `orcamentista_motor_regra`):** 488 + 63 = 551, dois a mais que os 549 distintos — porque
+**dois códigos estão nos dois tipos**: `8428` (40 regras) e `8431` (138 regras) aparecem como Perfil **e** como Insumo. Não é erro da medição; é o mesmo
+código em dois papéis, e quem separar o insumo do fornecedor de perfil decide código a código (`a-coluna-que-parece-enumeracao.md`).
+
+Ou seja: a família opcional nas outras categorias vale para a tabela que é **só** de preço (ferragem da IMAB, vidro da Estrela). O insumo que o motor da
+Wolff cita (vedação, calço, escova) **não** é buscado numa tabela de ACESSÓRIOS de outro fornecedor: ele sai do mesmo fornecedor do perfil. Separar o
+insumo do motor do fornecedor de perfil é desenho futuro, e pede decisão do dono do produto.
