@@ -224,7 +224,7 @@ mesmo motor"): uma base só na plataforma, e cada família de cada empresa selec
 4. **Na etapa, o campo de arquivo some**: fica o combo do catálogo e o link "cadastrar motor no catálogo". Subir motor de dentro da página de uma conta
    criaria dado global fora do catálogo.
 5. **Preenchimentos autorizados** (com guarda que aborta): o motor da Wolff ganha `categoria_chave = 'PERFIL'`; as 3 etapas PVC passam para a instância
-   "Esquadrias de PVC" da De Paula. A migração aborta se houver mais de uma matéria-prima PVC ou se as etapas não forem exatamente as 3 medidas.
+   "Esquadrias de PVC WOLF" da De Paula (o nome que ela tem desde 28/10/2026). A migração aborta se houver mais de uma matéria-prima PVC ou se as etapas não forem exatamente as 3 medidas.
 
 **Implementado (28/10/2026, migração `20261028000001`, PENDENTE até o dono do produto aplicar):** a etapa tem `tenant_id` e `materia_prima_id`
 (FK composta `(materia_prima_id, tenant_id, familia)` → matéria-prima, `ON DELETE CASCADE`; o remover loga as etapas); o motor tem `fornecedor_id` e

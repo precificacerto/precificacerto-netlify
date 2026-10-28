@@ -22,7 +22,7 @@ create or replace function public.h_payload(n int) returns jsonb language sql as
 $f$;
 create or replace function public.h_conta_tempo(m uuid) returns bigint language sql as $f$ select count(*) from public.orcamentista_motor_tipologia_tempo where motor_id = m $f$;
 
--- CASO M1 — o preenchimento autorizado: as 3 etapas estão na instância "Esquadrias de PVC" da De Paula, com o motor e o número de antes; o log tem o antes e o depois de cada uma
+-- CASO M1 — o preenchimento autorizado: as 3 etapas estão na instância "Esquadrias de PVC WOLF" da De Paula, com o motor e o número de antes; o log tem o antes e o depois de cada uma
 do $$
 declare n int;
 begin
@@ -200,7 +200,7 @@ declare x text; m uuid;
 begin
   begin
     x := public.h_erro($q$select public.superadmin_arquivar_motor('9a233c55-f377-45d3-b2ae-b1a740a98e44', 'e0000000-0000-0000-0000-000000000001')$q$);
-    if x not like '22023|%da familia "Esquadrias de PVC" da empresa Esquadrias De Paula Ltda (e de mais 2)%' then raise exception 'FALHOU caso M8: a recusa: %', x; end if;
+    if x not like '22023|%da familia "Esquadrias de PVC WOLF" da empresa Esquadrias De Paula Ltda (e de mais 2)%' then raise exception 'FALHOU caso M8: a recusa: %', x; end if;
     insert into public.orcamentista_motor (familia, fornecedor_id, categoria_chave, arquivo_nome, arquivo_path) values ('PVC', 'f2000000-0000-0000-0000-000000000002', 'PERSIANAS', 'r.xlsx', 'f2000000-0000-0000-0000-000000000002/motor/r.xlsx') returning id into m;
     x := public.h_erro(format('select public.superadmin_arquivar_motor(%L, %L)', m, 'e0000000-0000-0000-0000-000000000001'));
     if x <> 'ok' or (select arquivado_em from public.orcamentista_motor where id = m) is null then raise exception 'FALHOU caso M8: arquivar sem etapa: %', x; end if;
@@ -215,7 +215,7 @@ declare x text;
 begin
   begin
     x := public.h_erro($q$select public.superadmin_definir_familia_da_materia_prima('20e08592-f957-4e72-b7eb-251387e34eb9', 'e0000000-0000-0000-0000-000000000001', '79d764fe-4acd-43e2-bed9-38e20667ca3d', 'ALUMINIO')$q$);
-    if x not like '22023|a familia "Esquadrias de PVC" tem 3 etapa(s) cadastrada(s)%' then raise exception 'FALHOU caso M9: a recusa: %', x; end if;
+    if x not like '22023|a familia "Esquadrias de PVC WOLF" tem 3 etapa(s) cadastrada(s)%' then raise exception 'FALHOU caso M9: a recusa: %', x; end if;
     x := public.h_erro($q$select public.superadmin_definir_familia_da_materia_prima('20e08592-f957-4e72-b7eb-251387e34eb9', 'e0000000-0000-0000-0000-000000000001', '79d764fe-4acd-43e2-bed9-38e20667ca3d', null)$q$);
     if x not like '22023|%' then raise exception 'FALHOU caso M9: limpar o tipo com etapas devia ser recusado: %', x; end if;
     -- a mesma, pela porta do banco: a FK composta segura

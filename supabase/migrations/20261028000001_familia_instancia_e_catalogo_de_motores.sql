@@ -25,7 +25,7 @@
 --      categoria é só o da Wolff (9a233c55-f377-45d3-b2ae-b1a740a98e44); nenhum motor sem fornecedor.
 --   B. `orcamentista_materia_prima`: cai o índice (tenant_id, familia); entra UNIQUE (id, tenant_id, familia), alvo da FK da etapa.
 --   C. `orcamentista_familia_etapa`: ganha tenant_id e materia_prima_id; PREENCHIMENTO AUTORIZADO pelo dono do produto em 28/10/2026 — as 3 etapas passam
---      para a única instância PVC ("Esquadrias de PVC", da Esquadrias De Paula), com antes e depois no `superadmin_alteracao_log`; NOT NULL; FK composta
+--      para a única instância PVC ("Esquadrias de PVC WOLF", da Esquadrias De Paula), com antes e depois no `superadmin_alteracao_log`; NOT NULL; FK composta
 --      (materia_prima_id, tenant_id, familia) -> materia_prima (ON DELETE CASCADE: a etapa é da família, e o remover loga as etapas); a unicidade passa a ser
 --      (materia_prima_id, numero). A familia FICA, para a FK composta com o motor: família PVC só aponta motor PVC.
 --   D. `orcamentista_motor`: ganha categoria_chave (FK para o catálogo de categorias); PREENCHIMENTO AUTORIZADO — o motor da Wolff ganha 'PERFIL', com antes e

@@ -1,12 +1,12 @@
 -- O estado ANTES da 20261028000001, como em PRODUÇÃO em 28/10/2026 (consulta somente leitura): os mesmos ids.
---  - UMA matéria-prima com família PVC: "Esquadrias de PVC" da Esquadrias De Paula (79d764fe…, empresa 20e08592…);
+--  - UMA matéria-prima com família PVC: "Esquadrias de PVC WOLF" da Esquadrias De Paula (o nome de produção em 28/10/2026) (79d764fe…, empresa 20e08592…);
 --  - o motor da Wolff (9a233c55…), família PVC, fornecedor Wolf Perfis (44c5c0fe…), vigente, sem categoria; com conteúdo e tempos;
 --  - as 3 etapas PVC (bc8bcb4a…, ed9a9b06…, dd8d3526…), as três apontando o motor da Wolff;
 --  e, para os casos: uma segunda empresa ("Vidraçaria B", com uma matéria-prima sem família), o catálogo com ALUMINIO, e um segundo fornecedor.
 insert into public.orcamentista_familia_catalogo (chave, rotulo, ordem) values ('ALUMINIO', 'Esquadrias de alumínio', 2) on conflict do nothing;
 insert into public.tenants (id, name) values ('20e08592-f957-4e72-b7eb-251387e34eb9', 'Esquadrias De Paula Ltda'), ('b0000000-0000-0000-0000-00000000000b', 'Vidraçaria B');
 insert into public.orcamentista_materia_prima (id, tenant_id, nome, ordem, familia) values
-  ('79d764fe-4acd-43e2-bed9-38e20667ca3d', '20e08592-f957-4e72-b7eb-251387e34eb9', 'Esquadrias de PVC', 1, 'PVC'),
+  ('79d764fe-4acd-43e2-bed9-38e20667ca3d', '20e08592-f957-4e72-b7eb-251387e34eb9', 'Esquadrias de PVC WOLF', 1, 'PVC'),
   ('c1000000-0000-0000-0000-00000000000b', 'b0000000-0000-0000-0000-00000000000b', 'Esquadrias da B', 1, null);
 insert into public.orcamentista_fornecedor (id, nicho_id, nome) select '44c5c0fe-a0d3-4aab-802d-20a6eff3f654', n.id, 'Wolf Perfis' from public.orcamentista_nicho n limit 1;
 insert into public.orcamentista_fornecedor (id, nicho_id, nome) select 'f2000000-0000-0000-0000-000000000002', n.id, 'Roller Star' from public.orcamentista_nicho n limit 1;
