@@ -363,6 +363,19 @@ Foi exatamente essa presunção que quebrou produção em 01/09/2026: o PR #26 e
 build estava verde, e a coluna não existia. E a do PR #18 já estava pendente havia dias sem
 ninguém notar, porque nada olhou.
 
+### MIGRAÇÃO APLICADA É IMUTÁVEL — nem comentário (dono do produto, 28/10/2026)
+
+> Elas JÁ FORAM APLICADAS em produção, e eu as autorizei pelo md5 do arquivo. Se o arquivo muda depois, o md5 que está no PR e na nossa
+> conversa deixa de bater com o repositório, e some a prova de O QUE foi aplicado. Que o SQL executável seja idêntico não resolve: o md5
+> existe justamente para dispensar essa comparação. Comentário sobre migração já aplicada vai no arquivo de regra, não dentro dela.
+
+**Regra daqui para a frente: depois de aplicada (ou de autorizada por md5), a migração não muda. Nem uma linha de comentário.** Premissa errada num
+comentário de migração aplicada se corrige **na regra** do assunto, dizendo qual migração traz o texto antigo — nunca no arquivo. A aparição que
+originou a regra: o PR #188 editou só comentário das migrações `20261027000002` e `20261027000004` (a premissa dos tempos) e o dono do produto mandou
+reverter; os dois arquivos voltaram a ser byte a byte os autorizados (md5 `3a3462d0e3cda1fe20bfc9c86207fc4a` e `f843dd80341799213520652fb23764d9`).
+
+**Antes de mexer num arquivo de `supabase/migrations/`, confira se ele já foi aplicado ou autorizado.** Se foi, a mudança vai em migração nova.
+
 #### Item de INFRAESTRUTURA — rodada futura, não agora
 
 Ligar o repositório ao banco (um gate que compare os arquivos declarados com o schema real, ou

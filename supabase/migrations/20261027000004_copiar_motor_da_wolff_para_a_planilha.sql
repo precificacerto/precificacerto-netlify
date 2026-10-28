@@ -24,9 +24,8 @@
 --   4. O CAMINHO: o dono do produto vai subir TRÊS tabelas independentes da Wolff (Perfil, Reforço, Acessórios), cada
 --      uma com o seu arquivo, e a tabela atual é arquivada DEPOIS.
 --   5. ORDEM OBRIGATÓRIA. A tabela atual da Wolff é a DONA DO MOTOR — 12.116 regras, 137 fórmulas de família, as
---      abas e os 164 tempos ESTIMADO pendem do `tabela_id` dela. (CORREÇÃO de 27/10/2026, à noite: este comentário dizia
---      que os 164 tempos foram DIGITADOS À MÃO e NÃO estão no arquivo. Medido: eles têm só TRÊS valores (600 min em 91 tipologias, 300 em 55, 900 em 18), `atualizado_por` nulo e o mesmo `atualizado_em`: foram preenchidos por regra, de uma vez — NÃO foram digitados à mão. A ordem abaixo
---      vale do mesmo jeito: são 62.299 linhas, com ou sem o argumento dos tempos.) NADA pode arquivar, substituir ou apagar essa tabela antes de esta migração mover o motor para
+--      abas e os 164 tempos ESTIMADO pendem do `tabela_id` dela. Os 164 tempos foram DIGITADOS À MÃO e NÃO estão no
+--      arquivo. NADA pode arquivar, substituir ou apagar essa tabela antes de esta migração mover o motor para
 --      `orcamentista_motor`. Esta é a migração. Só depois dela há o que mexer nas tabelas de preço.
 --
 -- O QUE FAZ, nesta ordem, numa transação:

@@ -184,6 +184,11 @@ com log). **(4)** O motor é **global** (opção A): nenhuma duplicação por co
   lê; a única superfície nova que toca uma conta é o `nome` da matéria-prima, e a função confere `tenant_id`. O efeito entre contas de editar
   dado global de dentro da página de uma conta é dito na tela, não escondido.
 
+**Comentários desatualizados em migração já aplicada (não se corrigem lá — `migracao.md`, "migração aplicada é imutável"):** o cabeçalho da
+`20261027000002` (linha 26: "digitados à mão e não estão no arquivo") e o da `20261027000004` ("DIGITADOS À MÃO e NÃO estão no arquivo") dizem que os 164 tempos têm trabalho manual. **Isso está errado e a
+correção é a medição acima** (3 valores, 600/300/900, `ESTIMADO`, `atualizado_por` nulo, um único `atualizado_em`). O `ON DELETE RESTRICT` e a ordem
+"copiar o motor antes de arquivar a tabela" valem pelas 62.299 linhas, não pelo argumento dos tempos.
+
 **Em aberto, sem resposta (27/10/2026) — registrada como PERGUNTA ABERTA, pelo dono do produto: NÃO desenhar variante por linha sem a resposta:**
 a redução por tipologia vale para qualquer fornecedor de PVC? Não se sabe — e nem o assistente sabe:
 só há um fornecedor de PVC em produção, e as constantes de geometria (119 das 137 fórmulas de família) estão
