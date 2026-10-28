@@ -284,7 +284,11 @@ export function BaseDeConhecimento({ tenantId, topo }: { tenantId: string; topo:
             erroDaRota={avisoDaArvore && 'rota' in avisoDaArvore ? avisoDaArvore.rota : null}
             naoEnviado={avisoDaArvore && 'locais' in avisoDaArvore ? avisoDaArvore.locais : null}
             aoMudarAFamilia={mudarAFamilia} familiaTravada={pendentes > 0} erroDaFamilia={erroDaFamilia}
-            aoRenomear={renomear} erroDoNome={erroDoNome} motoresDaFamilia={(f) => <EtapasDaFamilia familia={f} />} />
+            aoRenomear={renomear} erroDoNome={erroDoNome} etapasDaFamilia={(m) => (
+                <EtapasDaFamilia key={m.id} tenantId={tenantId} materiaPrimaId={m.id as string}
+                    principais={m.categorias.map((c) => c.fornecedores.principal).filter((f): f is string => f !== null)}
+                    rotuloDaCategoria={(c) => arvore?.catalogo.categorias.find((x) => x.chave === c)?.rotulo ?? c} />
+            )} />
     )
 
     const mudarLinha = (set: React.Dispatch<React.SetStateAction<Linhas>>, id: string, p: Partial<LinhaDaLista> | { valor: [string, unknown] }) =>

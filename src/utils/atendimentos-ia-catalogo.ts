@@ -239,6 +239,11 @@ export interface FornecedorDaLista {
     tabelas: number
     /** Nomes das contas que usam ALGUMA tabela deste fornecedor, sem repetição. */
     contas_usando: string[]
+    /**
+     * As categorias das tabelas DESTE fornecedor, sem repetição e em ordem (a categoria é da TABELA, não do fornecedor — 27/10/2026). É de
+     * onde o cadastro de motor tira "os fornecedores daquela categoria" (28/10/2026). Tabela sem categoria não entra em categoria nenhuma.
+     */
+    categorias_das_tabelas: string[]
 }
 
 export interface TabelaDoFornecedor {

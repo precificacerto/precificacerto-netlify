@@ -1,36 +1,39 @@
 /**
  * @jest-environment node
  *
- * PORTÃO — as ROTAS do motor que a etapa sobe (27/10/2026; migração 20261027000010):
- *   POST /api/super-admin/atendimentos-ia/familias/[chave]/motor-url-de-envio
- *   POST /api/super-admin/atendimentos-ia/familias/[chave]/motor-da-etapa/[etapaId]
+ * PORTÃO — as ROTAS do CATÁLOGO DE MOTORES (dono do produto, 28/10/2026; migração 20261028000001):
+ *   GET  /api/super-admin/atendimentos-ia/motores           (o catálogo, com fornecedor, categoria, tipo, tipologias e quem usa)
+ *   POST /api/super-admin/atendimentos-ia/motores           (cria o motor no catálogo: `superadmin_criar_motor`)
+ *   POST /api/super-admin/atendimentos-ia/motores/arquivar  (`superadmin_arquivar_motor`)
  *   PUT  /api/super-admin/base-de-conhecimento/nome-da-materia-prima  (o título da família é digitado)
  *
  * >>> O QUE ESTE PORTÃO **NÃO** ALCANÇA <<<
- * O banco é FALSO e o Storage também: o `rpc` só REGISTRA a chamada e devolve o que o caso mandar. O que a FUNÇÃO faz — criar o motor, gravar as
- * doze tabelas por `motor_id`, apontar a etapa, desfazer tudo no erro, não tocar no motor da Wolff nem nos tempos, serializar duas subidas — está
- * provado num Postgres real em `scripts/harness/etapa-sobe-o-motor/` (12 casos e corridas, 35 mutações). O que ESTE portão prova é o que as ROTAS
- * decidem: quem passa (404 para o resto, antes de qualquer leitura de arquivo), que o caminho assinado e o aceito são os da pasta DA FAMÍLIA, a
- * ORDEM das recusas (cada uma antes do passo seguinte), que o autor é o da SESSÃO, que a rota chama SÓ a função (nunca insert, update ou delete),
- * que o erro da função vira o status e a frase certos, e que a conferência das contagens recusa o sucesso falso.
+ * O banco é FALSO e o Storage também: o `rpc` só REGISTRA a chamada e devolve o que o caso mandar. O que a FUNÇÃO faz — criar o motor com
+ * fornecedor e categoria, gravar as doze tabelas por `motor_id`, não apontar etapa, recusar o arquivar do motor que uma etapa aponta nomeando a
+ * empresa — está provado num Postgres real em `scripts/harness/familia-instancia/`. O que ESTE portão prova é o que as ROTAS decidem: quem passa
+ * (404 para o resto, antes de qualquer leitura de arquivo), que o caminho aceito é o da pasta DO FORNECEDOR, a ORDEM das recusas, que o autor é
+ * o da SESSÃO, que a rota chama SÓ a função (nunca insert, update ou delete), que o erro da função vira o status e a frase certos, e que a
+ * conferência das contagens recusa o sucesso falso.
  */
 /* eslint-disable @typescript-eslint/no-explicit-any -- o cliente falso imita um cliente sem tipos */
 import type { NextApiRequest, NextApiResponse } from 'next'
 import ExcelJS from 'exceljs'
 
 import { ABAS_DA_IMPORTACAO, LISTAS_DO_MOTOR_DA_ETAPA } from '@/utils/atendimentos-ia-importacao'
-import { fraseDoArquivoNaoImportavel } from '@/utils/atendimentos-ia-catalogo'
+import { ROTAS_DOS_MOTORES } from '@/utils/atendimentos-ia-catalogo-de-motores'
 import { abasDoSpec } from './fixtures/abas-do-motor-do-spec'
 
 type Linha = Record<string, any>
 const SUPER: Linha = { id: '00000000-0000-4000-8000-00000000005a', tenant_id: null, role: 'super_admin', is_super_admin: true }
 const COMUM: Linha = { id: '00000000-0000-4000-8000-0000000000c0', tenant_id: 't-1', role: 'user', is_super_admin: false }
-const E_PVC = '00000000-0000-4000-8000-0000000000e1'
-const E_ALU = '00000000-0000-4000-8000-0000000000e2'
-const E_INEXISTENTE = '00000000-0000-4000-8000-0000000000ff'
+const W = '00000000-0000-4000-8000-0000000000f1'
+const R = '00000000-0000-4000-8000-0000000000f2'
 const MOTOR_NOVO = '00000000-0000-4000-8000-0000000000a9'
-const MOTOR_VELHO = '00000000-0000-4000-8000-0000000000a1'
-const PATH_PVC = 'familia/PVC/motor/u1-Motor.xlsx'
+const M_WOLF = '00000000-0000-4000-8000-0000000000a1'
+const M_ROLLER = '00000000-0000-4000-8000-0000000000a2'
+const PATH = `${W}/motor/u1-Motor.xlsx`
+// tipo ALUMINIO de propósito: o motor de PVC da Wolf é o único em produção, e um tipo fixo no código passaria com ele
+const NOVO = { fornecedor_id: W, categoria: 'PERFIL', familia: 'ALUMINIO', path: PATH, nome: 'Motor.xlsx' }
 
 type RespostaDoRpc = { data: unknown; error: { code?: string; message: string } | null }
 const estado = {
@@ -56,8 +59,19 @@ function montar() {
     estado.falhaNoDownload = false
     estado.db = {
         users: [SUPER, COMUM],
-        orcamentista_familia_catalogo: [{ chave: 'PVC' }, { chave: 'ALUMINIO' }],
-        orcamentista_familia_etapa: [{ id: E_PVC, familia: 'PVC' }, { id: E_ALU, familia: 'ALUMINIO' }],
+        orcamentista_fornecedor: [{ id: W, nome: 'Wolf' }, { id: R, nome: 'Roller Star' }],
+        orcamentista_motor: [
+            { id: M_WOLF, familia: 'PVC', fornecedor_id: W, categoria_chave: 'PERFIL', arquivo_nome: 'wolff.xlsm', criado_em: '2026-10-27', arquivado_em: null },
+            { id: M_ROLLER, familia: 'PVC', fornecedor_id: R, categoria_chave: 'PERSIANAS', arquivo_nome: 'roller.xlsx', criado_em: '2026-10-28', arquivado_em: '2026-10-28' },
+        ],
+        orcamentista_motor_tipologia_detalhe: [{ motor_id: M_WOLF }, { motor_id: M_WOLF }, { motor_id: M_WOLF }],
+        orcamentista_familia_etapa: [
+            { motor_id: M_WOLF, numero: 3, rotulo: 'Barras', materia_prima_id: 'mp-1', tenant_id: 't-1' },
+            { motor_id: M_WOLF, numero: 1, rotulo: 'Apanhado', materia_prima_id: 'mp-1', tenant_id: 't-1' },
+            { motor_id: M_WOLF, numero: 1, rotulo: 'Apanhar', materia_prima_id: 'mp-2', tenant_id: 't-2' },
+        ],
+        orcamentista_materia_prima: [{ id: 'mp-1', nome: 'Esquadrias de PVC' }, { id: 'mp-2', nome: 'PVC Linha 2' }],
+        tenants: [{ id: 't-1', name: 'Esquadrias De Paula Ltda' }, { id: 't-2', name: 'Alfa Vidros' }],
     }
 }
 
@@ -71,7 +85,8 @@ jest.mock('@/supabase/admin', () => ({
         from: (tabela: string) => {
             const filtros: Array<(l: Linha) => boolean> = []
             const q: any = {}
-            q.select = () => q
+            let cabeca = false
+            q.select = (_c?: string, o?: { head?: boolean }) => { cabeca = o?.head === true; return q }
             q.eq = (c: string, v: unknown) => { filtros.push((l) => l[c] === v); return q }
             q.is = (c: string, v: unknown) => { filtros.push((l) => (l[c] ?? null) === v); return q }
             q.in = (c: string, vs: unknown[]) => { filtros.push((l) => vs.includes(l[c])); return q }
@@ -79,7 +94,7 @@ jest.mock('@/supabase/admin', () => ({
             const linhas = () => (estado.db[tabela] ?? []).filter((l) => filtros.every((f) => f(l)))
             q.single = async (): Promise<Linha> => ({ data: linhas()[0] ?? null, error: null })
             q.maybeSingle = async (): Promise<Linha> => ({ data: linhas()[0] ?? null, error: null })
-            q.then = (ok: (v: unknown) => unknown) => Promise.resolve({ data: linhas(), error: null }).then(ok)
+            q.then = (ok: (v: unknown) => unknown) => Promise.resolve(cabeca ? { data: null, count: linhas().length, error: null } : { data: linhas(), error: null }).then(ok)
             for (const escrita of ['insert', 'update', 'upsert', 'delete']) q[escrita] = () => { estado.escritasDiretas.push(`${escrita} ${tabela}`); throw new Error(`escrita direta: ${escrita} ${tabela}`) }
             return q
         },
@@ -103,8 +118,8 @@ jest.mock('@/supabase/admin', () => ({
 }))
 
 /* eslint-disable @typescript-eslint/no-require-imports */
-const rotaDoEnvio = () => require('@/pages/api/super-admin/atendimentos-ia/familias/[chave]/motor-url-de-envio').default
-const rotaDoMotor = () => require('@/pages/api/super-admin/atendimentos-ia/familias/[chave]/motor-da-etapa/[etapaId]').default
+const rotaDosMotores = () => require('@/pages/api/super-admin/atendimentos-ia/motores').default
+const rotaDoArquivar = () => require('@/pages/api/super-admin/atendimentos-ia/motores/arquivar').default
 const rotaDoNome = () => require('@/pages/api/super-admin/base-de-conhecimento/nome-da-materia-prima').default
 /* eslint-enable @typescript-eslint/no-require-imports */
 
@@ -119,8 +134,8 @@ async function chamar(rota: () => (q: NextApiRequest, s: NextApiResponse) => Pro
     await rota()({ method: metodo, query, cookies: { token: 'sessao' }, body, headers: {} } as unknown as NextApiRequest, res)
     return saida
 }
-const envio = (metodo: string, chave: string | undefined, body?: unknown) => chamar(rotaDoEnvio, metodo, { chave }, body)
-const subida = (metodo: string, chave: string | undefined, etapaId: string | undefined, body?: unknown) => chamar(rotaDoMotor, metodo, { chave, etapaId }, body)
+const motores = (metodo: string, body?: unknown) => chamar(rotaDosMotores, metodo, {}, body)
+const arquivar = (metodo: string, body?: unknown) => chamar(rotaDoArquivar, metodo, {}, body)
 
 type Celulas = Record<number, ExcelJS.CellValue>
 async function arquivoDoMotor(regras: Celulas[] = [{ 1: 'A1', 14: 'JC2F, JC4F', 15: 'L>1000' }, { 1: 'B2', 14: 'JC2F' }]): Promise<Uint8Array> {
@@ -140,7 +155,7 @@ async function arquivoDoMotor(regras: Celulas[] = [{ 1: 'A1', 14: 'JC2F, JC4F', 
 function devolveOQueRecebeu(): { data: unknown; error: null } {
     const p = estado.rpcs[estado.rpcs.length - 1].args.p_payload as Record<string, unknown[]>
     const contagens = Object.fromEntries(LISTAS_DO_MOTOR_DA_ETAPA.map((k) => [k, p[k].length]))
-    return { data: { motor_id: MOTOR_NOVO, etapa_id: E_PVC, motor_anterior: MOTOR_VELHO, importacao_id: 'imp-1', ...contagens }, error: null }
+    return { data: { motor_id: MOTOR_NOVO, importacao_id: 'imp-1', ...contagens }, error: null }
 }
 
 let silencio: jest.SpyInstance
@@ -150,130 +165,98 @@ afterEach(() => { silencio.mockRestore(); registro.mockRestore() })
 
 const nenhumaEscrita = () => { expect(estado.rpcs).toEqual([]); expect(estado.escritasDiretas).toEqual([]) }
 
-describe('(1) o portão: quem não é super admin recebe 404, antes de assinar, de ler arquivo e de chamar a função', () => {
-    it.each([['comum', COMUM], ['sem sessão', null]])('as três rotas, com usuário %s → 404', async (_n, usuario) => {
+describe('(1) o portão: quem não é super admin recebe 404, antes de ler arquivo e de chamar a função', () => {
+    it.each([['comum', COMUM], ['sem sessão', null]])('as rotas, com usuário %s → 404', async (_n, usuario) => {
         estado.usuario = usuario
-        expect((await envio('POST', 'PVC', { nome: 'x.xlsx' })).status).toBe(404)
-        expect((await subida('POST', 'PVC', E_PVC, { path: PATH_PVC, nome: 'Motor.xlsx' })).status).toBe(404)
-        expect((await chamar(rotaDoNome, 'PUT', { tenant: '00000000-0000-4000-8000-0000000000a1' }, { materia_prima: E_PVC, nome: 'x' })).status).toBe(404)
+        expect((await motores('GET')).status).toBe(404)
+        expect((await motores('POST', NOVO)).status).toBe(404)
+        expect((await arquivar('POST', { motor_id: M_WOLF })).status).toBe(404)
+        expect((await chamar(rotaDoNome, 'PUT', { tenant: '00000000-0000-4000-8000-0000000000a1' }, { materia_prima: M_WOLF, nome: 'x' })).status).toBe(404)
         nenhumaEscrita()
-        expect(estado.assinados).toEqual([])
         expect(estado.lidos).toEqual([])
     })
 
-    it('só POST nas duas rotas do motor: GET, PUT e DELETE são 405', async () => {
-        for (const m of ['GET', 'PUT', 'DELETE']) {
-            expect((await envio(m, 'PVC', {})).status).toBe(405)
-            expect((await subida(m, 'PVC', E_PVC, {})).status).toBe(405)
-        }
+    it('métodos: motores só GET e POST; arquivar só POST', async () => {
+        for (const m of ['PUT', 'DELETE']) expect((await motores(m, {})).status).toBe(405)
+        for (const m of ['GET', 'PUT', 'DELETE']) expect((await arquivar(m, {})).status).toBe(405)
         nenhumaEscrita()
     })
 })
 
-describe('(2) POST motor-url-de-envio — assina UM envio, na pasta DA FAMÍLIA', () => {
-    it('assina o caminho familia/<chave>/motor/<uuid>-<nome limpo> e devolve o que o Storage deu', async () => {
-        const r = await envio('POST', 'PVC', { nome: 'Motor Várias (2).xlsx' })
+describe('(2) GET motores — o catálogo, com os nomes e quem usa', () => {
+    it('cada motor com o NOME do fornecedor, a categoria, o tipo, as tipologias contadas e os usos por nome, em ordem', async () => {
+        const r = await motores('GET')
         expect(r.status).toBe(200)
-        expect(estado.assinados).toHaveLength(1)
-        expect(estado.assinados[0]).toMatch(/^familia\/PVC\/motor\/[0-9a-f-]{36}-Motor-Varias-2-\.xlsx$/)
-        expect(r.corpo.path).toBe(estado.assinados[0])
-        expect(r.corpo.signedUrl).toContain(estado.assinados[0])
+        const [wolf, roller] = r.corpo.motores
+        expect(wolf).toMatchObject({ id: M_WOLF, fornecedor: 'Wolf', categoria: 'PERFIL', familia: 'PVC', arquivo_nome: 'wolff.xlsm', arquivado_em: null, tipologias: 3 })
+        expect(wolf.usos).toEqual([
+            { empresa: 'Alfa Vidros', familia: 'PVC Linha 2', etapa: 1, rotulo: 'Apanhar' },
+            { empresa: 'Esquadrias De Paula Ltda', familia: 'Esquadrias de PVC', etapa: 1, rotulo: 'Apanhado' },
+            { empresa: 'Esquadrias De Paula Ltda', familia: 'Esquadrias de PVC', etapa: 3, rotulo: 'Barras' },
+        ])
+        // o arquivado também vem (a tela o separa), sem uso e sem tipologia
+        expect(roller).toMatchObject({ id: M_ROLLER, fornecedor: 'Roller Star', categoria: 'PERSIANAS', arquivado_em: '2026-10-28', tipologias: 0, usos: [] })
         nenhumaEscrita()
     })
 
-    it('duas chamadas com o mesmo nome dão caminhos DIFERENTES (o id é único)', async () => {
-        await envio('POST', 'PVC', { nome: 'a.xlsx' })
-        await envio('POST', 'PVC', { nome: 'a.xlsx' })
-        expect(estado.assinados[0]).not.toBe(estado.assinados[1])
-    })
-
-    it.each([
-        ['sem corpo', undefined, 'Arquivo sem nome.'],
-        ['nome em branco', { nome: '  ' }, 'Arquivo sem nome.'],
-        ['.xls (aceito no envio da tabela, mas a leitura não abre)', { nome: 'motor.xls' }, fraseDoArquivoNaoImportavel('motor.xls')],
-        ['.pdf', { nome: 'motor.pdf' }, fraseDoArquivoNaoImportavel('motor.pdf')],
-    ])('%s: 400 com o motivo, e nada é assinado', async (_n, corpo, frase) => {
-        const r = await envio('POST', 'PVC', corpo)
-        expect(r.status).toBe(400)
-        expect(r.corpo).toEqual({ error: frase })
-        expect(estado.assinados).toEqual([])
-    })
-
-    it('família que não existe: 404, e nada é assinado', async () => {
-        expect((await envio('POST', 'NAO_EXISTE', { nome: 'a.xlsx' })).status).toBe(404)
-        expect((await envio('POST', undefined, { nome: 'a.xlsx' })).status).toBe(404)
-        expect(estado.assinados).toEqual([])
+    it('catálogo vazio é a lista vazia, não erro', async () => {
+        estado.db.orcamentista_motor = []
+        expect((await motores('GET')).corpo).toEqual({ motores: [] })
     })
 })
 
-describe('(3) POST motor-da-etapa/[etapaId] — lê o arquivo, chama a função e confere', () => {
-    it('o caminho feliz: chama SÓ a função, com a etapa da URL, o autor da SESSÃO, o caminho e o nome do corpo, e o payload do leitor', async () => {
-        estado.objetos.set(PATH_PVC, await arquivoDoMotor())
+describe('(3) POST motores — lê o arquivo, chama a função e confere', () => {
+    it('o caminho feliz: chama SÓ a função, com o autor da SESSÃO, fornecedor, categoria, tipo, caminho e nome, e o payload do leitor', async () => {
+        estado.objetos.set(PATH, await arquivoDoMotor())
         estado.rpcResposta = devolveOQueRecebeu
-        // o corpo tenta trazer o autor: é recusado antes (ver o caso do autor no corpo); aqui o corpo é o legítimo
-        const r = await subida('POST', 'PVC', E_PVC, { path: PATH_PVC, nome: ' Motor.xlsx ' })
+        const r = await motores('POST', { ...NOVO, nome: ' Motor.xlsx ' })
         expect(r.status).toBe(200)
         expect(estado.rpcs).toHaveLength(1)
         const { funcao, args } = estado.rpcs[0]
-        expect(funcao).toBe('superadmin_criar_motor_da_etapa')
-        expect(args).toMatchObject({ p_etapa: E_PVC, p_por: SUPER.id, p_arquivo_path: PATH_PVC, p_arquivo_nome: 'Motor.xlsx' })
+        expect(funcao).toBe('superadmin_criar_motor')
+        expect(args).toMatchObject({ p_por: SUPER.id, p_fornecedor: W, p_categoria: 'PERFIL', p_familia: 'ALUMINIO', p_arquivo_path: PATH, p_arquivo_nome: 'Motor.xlsx' })
         const p = args.p_payload as Record<string, unknown[]>
         expect(p.regras.map((x: any) => x.codigo)).toEqual(['A1', 'B2'])
-        expect(p.tipologias).toHaveLength(2)
         expect(p).not.toHaveProperty('itens')
-        expect(estado.lidos).toEqual([PATH_PVC])
+        expect(estado.lidos).toEqual([PATH])
         expect(estado.escritasDiretas).toEqual([])
-        expect(r.corpo).toMatchObject({ motor_id: MOTOR_NOVO, etapa_id: E_PVC, motor_anterior: MOTOR_VELHO, importacao_id: 'imp-1', regras: 2, tipologias: 2 })
+        expect(r.corpo).toMatchObject({ motor_id: MOTOR_NOVO, importacao_id: 'imp-1', regras: 2, tipologias: 2 })
+        expect(r.corpo).not.toHaveProperty('etapa_id')
         expect(Array.isArray(r.corpo.avisos)).toBe(true)
     })
 
-    it('o motor anterior que a função não trouxe vira null na resposta (a primeira subida da etapa)', async () => {
-        estado.objetos.set(PATH_PVC, await arquivoDoMotor())
-        estado.rpcResposta = () => { const r = devolveOQueRecebeu(); delete (r.data as Linha).motor_anterior; return r }
-        expect((await subida('POST', 'PVC', E_PVC, { path: PATH_PVC, nome: 'Motor.xlsx' })).corpo.motor_anterior).toBeNull()
-    })
-
     it.each([
-        ['o autor no corpo (é o da sessão)', { path: PATH_PVC, nome: 'Motor.xlsx', por: SUPER.id }],
-        ['sem caminho', { nome: 'Motor.xlsx' }],
-        ['sem nome', { path: PATH_PVC }],
-        ['caminho da pasta de OUTRA família', { path: 'familia/ALUMINIO/motor/u1-Motor.xlsx', nome: 'Motor.xlsx' }],
-        ['caminho da pasta de um fornecedor', { path: 'f1/motor/u1-Motor.xlsx', nome: 'Motor.xlsx' }],
-        ['caminho com ..', { path: 'familia/PVC/motor/../../f1/arquivo/x.xlsx', nome: 'Motor.xlsx' }],
-        ['arquivo .xls', { path: 'familia/PVC/motor/u1-Motor.xls', nome: 'Motor.xls' }],
+        ['o autor no corpo (é o da sessão)', { ...NOVO, por: SUPER.id }],
+        ['sem fornecedor', { ...NOVO, fornecedor_id: undefined }],
+        ['sem categoria', { ...NOVO, categoria: '' }],
+        ['sem tipo', { ...NOVO, familia: '' }],
+        ['sem caminho', { ...NOVO, path: undefined }],
+        ['caminho da pasta de OUTRO fornecedor', { ...NOVO, path: `${R}/motor/u1-Motor.xlsx` }],
+        ['caminho da pasta da família (o desenho de antes)', { ...NOVO, path: 'familia/PVC/motor/u1-Motor.xlsx' }],
+        ['caminho com ..', { ...NOVO, path: `${W}/motor/../../x/arquivo/x.xlsx` }],
+        ['arquivo .xls', { ...NOVO, path: `${W}/motor/u1-Motor.xls`, nome: 'Motor.xls' }],
         ['corpo que não é objeto', 'x'],
     ])('%s: 400, e NADA é lido nem gravado', async (_n, corpo) => {
-        estado.objetos.set(PATH_PVC, await arquivoDoMotor())
-        const r = await subida('POST', 'PVC', E_PVC, corpo)
+        estado.objetos.set(PATH, await arquivoDoMotor())
+        const r = await motores('POST', corpo)
         expect(r.status).toBe(400)
         expect(typeof r.corpo.error).toBe('string')
         nenhumaEscrita()
         expect(estado.lidos).toEqual([])
     })
 
-    it('a etapa de OUTRA família (ou inexistente, ou id que não é uuid): 404, e o arquivo não é lido', async () => {
-        estado.objetos.set(PATH_PVC, await arquivoDoMotor())
-        const corpo = { path: PATH_PVC, nome: 'Motor.xlsx' }
-        expect((await subida('POST', 'PVC', E_ALU, corpo)).status).toBe(404)
-        expect((await subida('POST', 'PVC', E_INEXISTENTE, corpo)).status).toBe(404)
-        expect((await subida('POST', 'PVC', 'x', corpo)).status).toBe(404)
-        expect((await subida('POST', undefined, E_PVC, corpo)).status).toBe(404)
-        nenhumaEscrita()
-        expect(estado.lidos).toEqual([])
-    })
-
     it('objeto que não está no bucket: 409 com o caminho que faltou — e nada é gravado', async () => {
-        const r = await subida('POST', 'PVC', E_PVC, { path: PATH_PVC, nome: 'Motor.xlsx' })
+        const r = await motores('POST', NOVO)
         expect(r.status).toBe(409)
-        expect(r.corpo.error).toContain(PATH_PVC)
+        expect(r.corpo.error).toContain(PATH)
         expect(r.corpo.error).toContain('Motor.xlsx')
         nenhumaEscrita()
     })
 
     it('o Storage falha ao baixar: 500 com frase fixa, nunca o texto do Storage; nada gravado', async () => {
-        estado.objetos.set(PATH_PVC, await arquivoDoMotor())
+        estado.objetos.set(PATH, await arquivoDoMotor())
         estado.falhaNoDownload = true
-        const r = await subida('POST', 'PVC', E_PVC, { path: PATH_PVC, nome: 'Motor.xlsx' })
+        const r = await motores('POST', NOVO)
         expect(r.status).toBe(500)
         expect(r.corpo.error).toBe('Não foi possível baixar o arquivo do motor.')
         expect(JSON.stringify(r.corpo)).not.toContain('storage fora')
@@ -283,8 +266,8 @@ describe('(3) POST motor-da-etapa/[etapaId] — lê o arquivo, chama a função 
     it('planilha que o leitor recusa (sem as abas): 422 com a frase do leitor, e a função NÃO é chamada', async () => {
         const wb = new ExcelJS.Workbook()
         wb.addWorksheet('Outra').getRow(1).getCell(1).value = 'x'
-        estado.objetos.set(PATH_PVC, new Uint8Array(await wb.xlsx.writeBuffer()))
-        const r = await subida('POST', 'PVC', E_PVC, { path: PATH_PVC, nome: 'Motor.xlsx' })
+        estado.objetos.set(PATH, new Uint8Array(await wb.xlsx.writeBuffer()))
+        const r = await motores('POST', NOVO)
         expect(r.status).toBe(422)
         expect(r.corpo.error).toContain('Motor.xlsx')
         expect(r.corpo.error).toContain(`"${ABAS_DA_IMPORTACAO.motor}"`)
@@ -292,25 +275,24 @@ describe('(3) POST motor-da-etapa/[etapaId] — lê o arquivo, chama a função 
     })
 
     it.each([
-        ['22023', 400, 'o arquivo nao esta na pasta da familia PVC'],
-        ['P0002', 404, 'etapa inexistente'],
+        ['22023', 400, 'categoria fora da lista'],
+        ['P0002', 404, 'fornecedor inexistente'],
         ['42501', 403, 'o autor da alteracao nao e super admin'],
     ])('a recusa da função (%s) vira %i com a MENSAGEM DELA', async (code, status, message) => {
-        estado.objetos.set(PATH_PVC, await arquivoDoMotor())
+        estado.objetos.set(PATH, await arquivoDoMotor())
         estado.rpcResposta = () => ({ data: null, error: { code, message } })
-        const r = await subida('POST', 'PVC', E_PVC, { path: PATH_PVC, nome: 'Motor.xlsx' })
+        const r = await motores('POST', NOVO)
         expect(r.status).toBe(status)
         expect(r.corpo).toEqual({ error: message })
     })
 
     it.each([
         ['57014', 'passou do limite de tempo'],
-        ['55P03', 'travada por outra operação'],
         ['23505', 'código 23505'],
     ])('outro erro do banco (%s): 500 com a frase do código e "nada foi gravado" — nunca o texto do banco', async (code, trecho) => {
-        estado.objetos.set(PATH_PVC, await arquivoDoMotor())
+        estado.objetos.set(PATH, await arquivoDoMotor())
         estado.rpcResposta = () => ({ data: null, error: { code, message: 'duplicate key value violates unique constraint "segredo_do_banco"' } })
-        const r = await subida('POST', 'PVC', E_PVC, { path: PATH_PVC, nome: 'Motor.xlsx' })
+        const r = await motores('POST', NOVO)
         expect(r.status).toBe(500)
         expect(r.corpo.error).toContain(trecho)
         expect(r.corpo.error).toContain('Nada foi gravado')
@@ -318,23 +300,51 @@ describe('(3) POST motor-da-etapa/[etapaId] — lê o arquivo, chama a função 
     })
 
     it('a conferência recusa o SUCESSO FALSO: a função devolve uma contagem menor → 500 com os dois lados', async () => {
-        estado.objetos.set(PATH_PVC, await arquivoDoMotor())
+        estado.objetos.set(PATH, await arquivoDoMotor())
         estado.rpcResposta = () => { const r = devolveOQueRecebeu(); (r.data as Linha).perfis = ((r.data as Linha).perfis as number) - 1; return r }
-        const r = await subida('POST', 'PVC', E_PVC, { path: PATH_PVC, nome: 'Motor.xlsx' })
+        const r = await motores('POST', NOVO)
         expect(r.status).toBe(500)
         expect(r.corpo.error).toContain('NÃO deve ser considerado válido')
         expect(r.corpo.enviado.perfis).toBe(r.corpo.gravado.perfis + 1)
     })
 
     it('a função que não devolve a contagem de uma lista também é divergência', async () => {
-        estado.objetos.set(PATH_PVC, await arquivoDoMotor())
+        estado.objetos.set(PATH, await arquivoDoMotor())
         estado.rpcResposta = () => { const r = devolveOQueRecebeu(); delete (r.data as Linha).vidros; return r }
-        expect((await subida('POST', 'PVC', E_PVC, { path: PATH_PVC, nome: 'Motor.xlsx' })).status).toBe(500)
+        expect((await motores('POST', NOVO)).status).toBe(500)
     })
 
     it('a rota tem maxDuration de 90 s (a gravação chega a 35 s e o corpo leva ~19 s ao banco)', () => {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
-        expect(require('@/pages/api/super-admin/atendimentos-ia/familias/[chave]/motor-da-etapa/[etapaId]').config).toEqual({ maxDuration: 90 })
+        expect(require('@/pages/api/super-admin/atendimentos-ia/motores').config).toEqual({ maxDuration: 90 })
+    })
+})
+
+describe('(3b) POST motores/arquivar — só a função, com o autor da sessão', () => {
+    it('chama SÓ superadmin_arquivar_motor com o motor do corpo e o autor da sessão', async () => {
+        estado.rpcResposta = () => ({ data: { orcamentista_motor: {} }, error: null })
+        const r = await arquivar('POST', { motor_id: M_ROLLER })
+        expect(r.status).toBe(200)
+        expect(estado.rpcs).toEqual([{ funcao: 'superadmin_arquivar_motor', args: { p_motor: M_ROLLER, p_por: SUPER.id } }])
+        expect(estado.escritasDiretas).toEqual([])
+    })
+
+    it.each([['o autor no corpo', { motor_id: M_ROLLER, por: SUPER.id }], ['id que não é uuid', { motor_id: 'x' }], ['sem corpo', undefined]])('%s: 400, e a função NÃO é chamada', async (_n, corpo) => {
+        expect((await arquivar('POST', corpo)).status).toBe(400)
+        nenhumaEscrita()
+    })
+
+    it('a recusa da função (o motor que uma etapa aponta) vai com a MENSAGEM dela, que nomeia a empresa', async () => {
+        const message = 'o motor e o da etapa 1 ("Apanhado") da familia "Esquadrias de PVC" da empresa Esquadrias De Paula Ltda (e de mais 2): aponte as etapas para outro motor antes de arquivar'
+        estado.rpcResposta = () => ({ data: null, error: { code: '22023', message } })
+        const r = await arquivar('POST', { motor_id: M_WOLF })
+        expect(r.status).toBe(400)
+        expect(r.corpo).toEqual({ error: message })
+    })
+
+    it('as rotas da tela são estas', () => {
+        expect(ROTAS_DOS_MOTORES.lista).toBe('/api/super-admin/atendimentos-ia/motores')
+        expect(ROTAS_DOS_MOTORES.arquivar).toBe('/api/super-admin/atendimentos-ia/motores/arquivar')
     })
 })
 

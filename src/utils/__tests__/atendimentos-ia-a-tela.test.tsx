@@ -35,7 +35,7 @@ jest.mock('@/hooks/use-auth.hook', () => ({ useAuth: () => ({ currentUser: usuar
 jest.mock('@/components/layout/layout.component', () => ({ Layout: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }))
 
 const FORNECEDOR: FornecedorDaLista = {
-    id: 'f1', nome: 'Alumínio Sul', nicho_id: 'n1', nicho_nome: 'Esquadrias', modelo: 'FABRICACAO', tabelas: 2, contas_usando: ['Marcenaria Silva'],
+    id: 'f1', nome: 'Alumínio Sul', nicho_id: 'n1', nicho_nome: 'Esquadrias', modelo: 'FABRICACAO', tabelas: 2, contas_usando: ['Marcenaria Silva'], categorias_das_tabelas: [],
 }
 let respostas: Record<string, { status: number; body: unknown }> = {}
 const pedidos: string[] = []

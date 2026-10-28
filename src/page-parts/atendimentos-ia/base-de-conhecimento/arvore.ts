@@ -82,7 +82,7 @@ export function fornecedoresComTabelaSemCategoria(arvore: Pick<ArvoreLida, 'forn
 /**
  * Por que a lista de uma ramificação está como está — quando NÃO sobra ninguém para escolher, a tela diz por quê em vez de deixar o combo
  * vazio: ou nenhum fornecedor do nicho tem tabela da categoria, ou os que têm já estão na lista. E nomeia os fornecedores cuja tabela não
- * declara categoria (não aparecem em categoria nenhuma até alguém declarar a da tabela, em "Fornecedores e tabelas").
+ * declara categoria (não aparecem em categoria nenhuma até alguém declarar a da tabela, no Catálogo).
  */
 export function fraseDaListaDeFornecedoresVazia(rotuloDaCategoria: string, comTabelaDaCategoria: number, semCategoria: readonly string[]): string {
     const base = comTabelaDaCategoria === 0
@@ -90,7 +90,7 @@ export function fraseDaListaDeFornecedoresVazia(rotuloDaCategoria: string, comTa
         : `Todos os fornecedores com tabela da categoria ${rotuloDaCategoria} já estão nesta lista.`
     if (semCategoria.length === 0) return base
     const nomes = [...semCategoria].sort((a, b) => a.localeCompare(b, 'pt-BR')).join(', ')
-    return `${base} ${semCategoria.length === 1 ? 'Um fornecedor tem tabela' : `${semCategoria.length} fornecedores têm tabela`} sem categoria declarada e por isso não aparece${semCategoria.length === 1 ? '' : 'm'} em categoria nenhuma: ${nomes}. Declare a categoria da tabela em Fornecedores e tabelas.`
+    return `${base} ${semCategoria.length === 1 ? 'Um fornecedor tem tabela' : `${semCategoria.length} fornecedores têm tabela`} sem categoria declarada e por isso não aparece${semCategoria.length === 1 ? '' : 'm'} em categoria nenhuma: ${nomes}. Declare a categoria da tabela no Catálogo.`
 }
 export const fraseDasCategorias = (configuradas: number, total: number) => `${configuradas} de ${total} categorias`
 export const SEM_FAMILIA_NA_MATERIA_PRIMA =
@@ -100,6 +100,26 @@ export const fraseFamiliaSemRamificacao = (rotulo: string) =>
 export const fraseCategoriaForaDaFamilia = (rotulo: string) =>
     `${rotulo} não é ramificação da família desta matéria-prima, mas tem dados gravados — por isso continua aqui.`
 export const FAMILIA_DEPOIS_DE_SALVAR = 'A família se escolhe depois de salvar a matéria-prima.'
+/**
+ * DUAS INSTÂNCIAS "IGUAIS" SÃO AVISO, NÃO TRAVA (dono do produto, 28/10/2026): a mesma empresa pode ter várias famílias do mesmo tipo (três
+ * famílias PVC, cada uma com os seus fornecedores), e a unicidade que o banco guarda é só a do título. Quando duas matérias-primas têm o mesmo
+ * tipo e os MESMOS fornecedores principais em cada categoria, a tela avisa — pode ser a mesma família cadastrada duas vezes —, e nada impede
+ * salvar. Lê o formulário como está na tela; só matéria-prima com tipo entra.
+ */
+export function instanciasIguais(materias: readonly MateriaPrimaDoFormulario[]): Array<{ familia: string; nomes: string[] }> {
+    const grupos = new Map<string, { familia: string; nomes: string[] }>()
+    for (const m of materias) {
+        if (!m.familia) continue
+        const principais = m.categorias.filter((c) => c.fornecedores.principal).map((c) => `${c.chave}=${c.fornecedores.principal}`).sort().join('|')
+        const chave = `${m.familia}#${principais}`
+        const g = grupos.get(chave) ?? { familia: m.familia, nomes: [] }
+        g.nomes.push(m.nome.trim() || '(sem título)')
+        grupos.set(chave, g)
+    }
+    return [...grupos.values()].filter((g) => g.nomes.length > 1)
+}
+export const fraseDasInstanciasIguais = (nomes: readonly string[], tipo: string) =>
+    `As famílias ${nomes.map((n) => `"${n}"`).join(' e ')} são do mesmo tipo (${tipo}) e têm os mesmos fornecedores principais: confira se não são a mesma família cadastrada duas vezes. É só um aviso — nada impede salvar.`
 export const FAMILIA_COM_PENDENCIA = 'Salve as alterações antes de trocar a família: a tela é relida.'
 export const fraseRemoverEGravar = (nome: string) =>
     `"${nome}" está marcada para remoção neste salvar: desfaça a remoção ou use outro nome — remover e gravar a mesma matéria-prima no mesmo salvar é recusado.`

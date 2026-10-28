@@ -47,7 +47,7 @@ jest.mock('@/components/layout/layout.component', () => ({ Layout: ({ children }
 const XLSM = 'Modelo 2026 - Tabela de Pedidos.xlsm'
 const NICHO = { id: 'n1', modelo: 'FABRICACAO', nome: 'Esquadrias', ativo: true }
 const FORNECEDOR: FornecedorComTabelas = {
-    id: 'f1', nome: 'Wolf Perfis', nicho_id: 'n1', nicho_nome: 'Esquadrias', modelo: 'FABRICACAO', tabelas: 1, contas_usando: [],
+    id: 'f1', nome: 'Wolf Perfis', nicho_id: 'n1', nicho_nome: 'Esquadrias', modelo: 'FABRICACAO', tabelas: 1, contas_usando: [], categorias_das_tabelas: [],
     tabelas_da_lista: [{
         id: 't1', fornecedor_id: 'f1', arquivo_nome: 'tabela-antiga.xlsx', arquivo_path: 'f1/arquivo/x-tabela-antiga.xlsx',
         motor_nome: 'motor.xlsx', motor_path: 'f1/motor/x-motor.xlsx', vigencia: null, familia: null, categoria_chave: null, vigente: false, criado_em: '2026-10-19T12:00:00Z', contas_usando: ['Marcenaria Silva'],

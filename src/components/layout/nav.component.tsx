@@ -170,7 +170,7 @@ const Nav = () => {
     // são o contrário — só do super admin.
     { key: 'orcamentista', label: 'Orçamentista', icon: 'robot', href: ROUTES.ATENDIMENTOS_IA_ORCAMENTISTA, section: 'atendimentos-ia', module: MODULES.ORCAMENTISTA, hideForSuperAdmin: true, exigeSecaoDoOrcamentista: true },
     { key: 'super-ia-contas', label: 'Contas ligadas', icon: 'team', href: ROUTES.SUPER_ADMIN_IA_CONTAS, section: 'atendimentos-ia', superAdminOnly: true },
-    { key: 'super-ia-fornecedores', label: 'Fornecedores e tabelas', icon: 'database', href: ROUTES.SUPER_ADMIN_IA_FORNECEDORES, section: 'atendimentos-ia', superAdminOnly: true },
+    { key: 'super-ia-fornecedores', label: 'Catálogo', icon: 'database', href: ROUTES.SUPER_ADMIN_IA_FORNECEDORES, section: 'atendimentos-ia', superAdminOnly: true },
 
     { key: 'super-admin', label: 'Painel Super Admin', icon: 'super-admin', href: ROUTES.SUPER_ADMIN_PANEL, section: 'superadmin', superAdminOnly: true },
     { key: 'super-notifications', label: 'Notificações', icon: 'super-notifications', href: ROUTES.SUPER_ADMIN_NOTIFICATIONS, section: 'superadmin', superAdminOnly: true },

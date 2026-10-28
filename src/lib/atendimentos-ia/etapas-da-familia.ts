@@ -1,16 +1,18 @@
 /**
- * As ETAPAS de uma família — a leitura. SÓ SERVIDOR (`supabaseAdmin`). A gravação é a função
- * `superadmin_gravar_etapas_da_familia` (migração 20261027000003), chamada pela rota; aqui só se lê.
+ * As ETAPAS da família-instância e o CATÁLOGO DE MOTORES — a leitura, e a criação do motor. SÓ SERVIDOR (`supabaseAdmin`).
  *
- * Etapa é do CATÁLOGO da plataforma (por família), não de uma empresa: número, rótulo livre, ação da lista
- * fechada, instrução e as abas da planilha que ela carrega (`src/utils/atendimentos-ia-etapas.ts`). Nada
- * disto muda o cálculo: quem lê as etapas na conversa é o PR D.
+ * A ETAPA É DA FAMÍLIA-INSTÂNCIA (dono do produto, 28/10/2026; migração 20261028000001): da matéria-prima de UMA empresa, e não da chave do
+ * catálogo ('PVC') — a mesma empresa pode ter três famílias PVC, cada uma com os seus fornecedores e as suas etapas. A gravação é a função
+ * `superadmin_gravar_etapas_da_materia_prima`, chamada pela rota; aqui só se lê.
  *
- * Família que não existe é `null` — a rota responde 404. Família sem etapa é a lista vazia: ainda não foi cadastrada.
+ * O MOTOR É GLOBAL, NUM CATÁLOGO, com fornecedor + categoria + tipo; a etapa só o seleciona. Criar é `superadmin_criar_motor`, que grava as
+ * 12 tabelas por `motor_id` e registra a importação numa transação só, sem apontar etapa nenhuma.
+ *
+ * Nada disto muda o cálculo: quem lê as etapas na conversa é o PR D, que deriva POR INSTÂNCIA.
  */
 import { supabaseAdmin } from '@/supabase/admin'
-import { contasQueUsamAFamilia } from '@/lib/atendimentos-ia/tabelas-da-conta'
-import { ABAS_DA_ETAPA, ehAcaoDaEtapa, type AbaDaEtapa, type EtapaDaFamilia, type MotorDaFamilia } from '@/utils/atendimentos-ia-etapas'
+import { ABAS_DA_ETAPA, ehAcaoDaEtapa, type AbaDaEtapa, type EtapaDaFamilia } from '@/utils/atendimentos-ia-etapas'
+import type { MotorDoCatalogo, UsoDoMotor } from '@/utils/atendimentos-ia-catalogo-de-motores'
 
 // O cliente admin não tem os tipos destas tabelas.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -24,52 +26,69 @@ async function ler(onde: string, p: PromiseLike<{ data: unknown; error: { messag
     return data
 }
 
-export async function lerEtapasDaFamilia(familia: string): Promise<EtapaDaFamilia[] | null> {
-    const existe = (await ler('orcamentista_familia_catalogo', db().from('orcamentista_familia_catalogo').select('chave').eq('chave', familia).maybeSingle())) as Linha | null
-    if (!existe) return null
+/**
+ * As etapas de UMA família-instância, na ordem. A matéria-prima tem de ser DESTA empresa: a de outra (ou inexistente) é `null` — a rota
+ * responde 404. Família sem etapa é a lista vazia. `familia` é o TIPO da matéria-prima (null = ainda não escolhido: sem tipo, não há etapa).
+ */
+export async function lerEtapasDaMateriaPrima(tenantId: string, materiaPrimaId: string): Promise<{ familia: string | null; etapas: EtapaDaFamilia[] } | null> {
+    const mp = (await ler('orcamentista_materia_prima', db().from('orcamentista_materia_prima').select('id, familia').eq('id', materiaPrimaId).eq('tenant_id', tenantId).maybeSingle())) as Linha | null
+    if (!mp) return null
     const linhas = ((await ler('orcamentista_familia_etapa',
-        db().from('orcamentista_familia_etapa').select('id, numero, rotulo, acao, instrucao, abas, motor_id').eq('familia', familia).order('numero', { ascending: true }))) ?? []) as Linha[]
-    return linhas.map((l) => {
+        db().from('orcamentista_familia_etapa').select('id, numero, rotulo, acao, instrucao, abas, motor_id')
+            .eq('materia_prima_id', materiaPrimaId).eq('tenant_id', tenantId).order('numero', { ascending: true }))) ?? []) as Linha[]
+    const etapas = linhas.map((l) => {
         // a CHECK do banco garante a ação e as abas; se uma linha fugir disso, é erro — nunca uma etapa sem ação
         if (!ehAcaoDaEtapa(l.acao)) throw new Error(`orcamentista_familia_etapa: a etapa ${l.numero} tem a ação "${String(l.acao)}", que não é da lista`)
         const abas = ((l.abas ?? []) as unknown[]).filter((a): a is AbaDaEtapa => typeof a === 'string' && (ABAS_DA_ETAPA as readonly string[]).includes(a))
         return { id: String(l.id), numero: Number(l.numero), rotulo: String(l.rotulo), acao: l.acao, instrucao: String(l.instrucao ?? ''), abas, motor_id: l.motor_id == null ? null : String(l.motor_id) }
     })
+    return { familia: mp.familia == null ? null : String(mp.familia), etapas }
 }
 
 /**
- * As planilhas que uma etapa da família pode apontar: `orcamentista_motor` da MESMA família e NÃO arquivadas — as mesmas que a função
- * `superadmin_gravar_etapas_da_familia` aceita (20261027000008). O nome do fornecedor é só rótulo; a planilha da família não tem.
+ * O CATÁLOGO: todos os motores (também os arquivados — a tela os separa), com o NOME do fornecedor, a categoria, o tipo, as tipologias
+ * que o arquivo trouxe e QUEM USA (empresa, título da família e número da etapa — só nomes). `tipo` filtra pelo tipo e deixa de fora as
+ * tipologias e os usos (o combo da etapa não precisa deles).
  */
-export async function lerMotoresDaFamilia(familia: string): Promise<MotorDaFamilia[]> {
-    const motores = ((await ler('orcamentista_motor', db().from('orcamentista_motor').select('id, arquivo_nome, fornecedor_id, vigente, criado_em').eq('familia', familia).is('arquivado_em', null).order('criado_em', { ascending: true }))) ?? []) as Linha[]
-    const ids = [...new Set(motores.map((m) => m.fornecedor_id).filter((f): f is string => typeof f === 'string'))]
+export async function lerCatalogoDeMotores(o: { tipo?: string } = {}): Promise<MotorDoCatalogo[]> {
+    let consulta = db().from('orcamentista_motor').select('id, familia, fornecedor_id, categoria_chave, arquivo_nome, criado_em, arquivado_em')
+    if (o.tipo !== undefined) consulta = consulta.eq('familia', o.tipo).is('arquivado_em', null)
+    const motores = ((await ler('orcamentista_motor', consulta.order('criado_em', { ascending: true }))) ?? []) as Linha[]
+    if (motores.length === 0) return []
+
+    const fIds = [...new Set(motores.map((m) => String(m.fornecedor_id)))]
     const nomes = new Map<string, string>()
-    if (ids.length > 0) {
-        for (const f of ((await ler('orcamentista_fornecedor', db().from('orcamentista_fornecedor').select('id, nome').in('id', ids))) ?? []) as Linha[]) nomes.set(String(f.id), String(f.nome))
+    for (const f of ((await ler('orcamentista_fornecedor', db().from('orcamentista_fornecedor').select('id, nome').in('id', fIds))) ?? []) as Linha[]) nomes.set(String(f.id), String(f.nome))
+
+    const usos = new Map<string, UsoDoMotor[]>()
+    const tipologias = new Map<string, number>()
+    if (o.tipo === undefined) {
+        const ids = motores.map((m) => String(m.id))
+        const etapas = ((await ler('orcamentista_familia_etapa', db().from('orcamentista_familia_etapa').select('motor_id, numero, rotulo, materia_prima_id, tenant_id').in('motor_id', ids))) ?? []) as Linha[]
+        if (etapas.length > 0) {
+            const mps = new Map<string, string>()
+            for (const m of ((await ler('orcamentista_materia_prima', db().from('orcamentista_materia_prima').select('id, nome').in('id', [...new Set(etapas.map((e) => String(e.materia_prima_id)))]))) ?? []) as Linha[]) mps.set(String(m.id), String(m.nome))
+            const empresas = new Map<string, string>()
+            for (const t of ((await ler('tenants', db().from('tenants').select('id, name').in('id', [...new Set(etapas.map((e) => String(e.tenant_id)))]))) ?? []) as Linha[]) empresas.set(String(t.id), String(t.name ?? ''))
+            for (const e of etapas) {
+                const u: UsoDoMotor = { empresa: empresas.get(String(e.tenant_id)) || '(sem nome)', familia: mps.get(String(e.materia_prima_id)) ?? '(família removida)', etapa: Number(e.numero), rotulo: String(e.rotulo) }
+                usos.set(String(e.motor_id), [...(usos.get(String(e.motor_id)) ?? []), u])
+            }
+        }
+        // uma contagem por motor (o catálogo é pequeno): ler as linhas para contar seria cortado pelo PostgREST
+        for (const id of ids) {
+            const { count, error } = await db().from('orcamentista_motor_tipologia_detalhe').select('motor_id', { count: 'exact', head: true }).eq('motor_id', id)
+            if (error) throw new Error(`orcamentista_motor_tipologia_detalhe: ${error.message ?? 'erro do banco'}`)
+            tipologias.set(id, Number(count ?? 0))
+        }
     }
-    return motores.map((m) => ({ id: String(m.id), arquivo_nome: String(m.arquivo_nome), fornecedor: m.fornecedor_id == null ? null : nomes.get(String(m.fornecedor_id)) ?? null, vigente: m.vigente === true }))
-}
 
-/** A família existe no catálogo? A rota do motor da etapa pergunta antes de assinar o envio. */
-export async function familiaExiste(familia: string): Promise<boolean> {
-    return (await ler('orcamentista_familia_catalogo', db().from('orcamentista_familia_catalogo').select('chave').eq('chave', familia).maybeSingle())) !== null
-}
-
-/** A etapa é desta família? A função do banco também confere; a rota pergunta para responder 404 com a frase certa antes de baixar o arquivo. */
-export async function etapaEDaFamilia(familia: string, etapaId: string): Promise<boolean> {
-    return (await ler('orcamentista_familia_etapa', db().from('orcamentista_familia_etapa').select('id').eq('id', etapaId).eq('familia', familia).maybeSingle())) !== null
-}
-
-/**
- * Os NOMES das contas que usam a família — o aviso de que a etapa e o motor são globais (opção A). Só o nome da conta, nunca dado dela:
- * o mesmo critério e o mesmo nível de detalhe do bloco Motor da conta.
- */
-export async function nomesDasContasDaFamilia(familia: string): Promise<string[]> {
-    const ids = await contasQueUsamAFamilia(familia)
-    if (ids.length === 0) return []
-    const contas = ((await ler('tenants', db().from('tenants').select('id, name').in('id', ids))) ?? []) as Linha[]
-    return contas.map((c) => String(c.name)).sort((a, b) => a.localeCompare(b, 'pt-BR'))
+    const porUso = (a: UsoDoMotor, b: UsoDoMotor) => a.empresa.localeCompare(b.empresa, 'pt-BR') || a.familia.localeCompare(b.familia, 'pt-BR') || a.etapa - b.etapa
+    return motores.map((m) => ({
+        id: String(m.id), familia: String(m.familia), fornecedor_id: String(m.fornecedor_id), fornecedor: nomes.get(String(m.fornecedor_id)) ?? '(fornecedor removido)',
+        categoria: String(m.categoria_chave), arquivo_nome: String(m.arquivo_nome), criado_em: String(m.criado_em), arquivado_em: m.arquivado_em == null ? null : String(m.arquivado_em),
+        tipologias: o.tipo === undefined ? tipologias.get(String(m.id)) ?? 0 : null, usos: [...(usos.get(String(m.id)) ?? [])].sort(porUso),
+    }))
 }
 
 /** Erro do banco com o CÓDIGO (SQLSTATE) e a mensagem da função, para a rota decidir o status e a frase. */
@@ -79,12 +98,13 @@ export class ErroDaFuncao extends Error {
 }
 
 /**
- * `superadmin_criar_motor_da_etapa` (20261027000010): cria o motor da família, grava as 12 tabelas por `motor_id`, registra a importação
- * e aponta a etapa, numa transação só. Devolve as contagens que a função gravou. Falha LANÇA `ErroDaFuncao` com o código.
+ * `superadmin_criar_motor` (20261028000001): cria o motor no catálogo, grava as 12 tabelas por `motor_id` e registra a importação, numa
+ * transação só. Devolve as contagens que a função gravou. Falha LANÇA `ErroDaFuncao` com o código.
  */
-export async function criarMotorDaEtapa(a: { etapaId: string; por: string; arquivoPath: string; arquivoNome: string; payload: unknown }): Promise<Record<string, unknown>> {
-    const { data, error } = await db().rpc('superadmin_criar_motor_da_etapa', {
-        p_etapa: a.etapaId, p_por: a.por, p_arquivo_path: a.arquivoPath, p_arquivo_nome: a.arquivoNome, p_payload: a.payload,
+export async function criarMotor(a: { por: string; fornecedorId: string; categoria: string; familia: string; arquivoPath: string; arquivoNome: string; payload: unknown }): Promise<Record<string, unknown>> {
+    const { data, error } = await db().rpc('superadmin_criar_motor', {
+        p_por: a.por, p_fornecedor: a.fornecedorId, p_categoria: a.categoria, p_familia: a.familia,
+        p_arquivo_path: a.arquivoPath, p_arquivo_nome: a.arquivoNome, p_payload: a.payload,
     })
     if (error) throw new ErroDaFuncao(error)
     return data as Record<string, unknown>

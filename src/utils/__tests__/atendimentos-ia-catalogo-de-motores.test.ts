@@ -1,15 +1,15 @@
 /**
  * @jest-environment node
  *
- * PORTÃO — o MOTOR QUE A ETAPA SOBE (dono do produto, 27/10/2026; migração 20261027000010): o que é PURO. A lista de etapas é a
- * lista de motores; subir o arquivo numa etapa cria o motor da família (global) e aponta a etapa. As rotas estão em
- * `atendimentos-ia-motor-da-etapa-rotas.test.ts`; o que a função faz no banco, em `scripts/harness/etapa-sobe-o-motor/`.
+ * PORTÃO — o CATÁLOGO DE MOTORES (dono do produto, 28/10/2026; migração 20261028000001): o que é PURO. O motor é global, com fornecedor,
+ * categoria e tipo, e nasce no catálogo de Fornecedores e tabelas; a etapa da família-instância só o seleciona. As rotas estão em
+ * `atendimentos-ia-catalogo-de-motores-rotas.test.ts`; o que a função faz no banco, em `scripts/harness/familia-instancia/`.
  *
  *   (1) o LEITOR do arquivo do motor sozinho: as mesmas listas que a importação da tabela lê do mesmo arquivo — é UM leitor, não dois;
  *   (2) o PAYLOAD tem exatamente as chaves que a função exige (o teste lê a migração), e não leva `itens` nem `importado_por`;
  *   (3) a CONFERÊNCIA do que a função gravou contra o que foi mandado: divergência nunca é sucesso;
  *   (4) a recusa: aba que falta, planilha que não abre, extensão que a leitura não abre — com o nome do arquivo;
- *   (5) os dois corpos (pedido de envio e subida), o caminho no bucket e as frases;
+ *   (5) os corpos (criar e arquivar), a ordem do combo da etapa e as frases;
  *   (6) o que liga o código à migração: a pasta do bucket e o limite de tempo.
  */
 import { readFileSync } from 'fs'
@@ -22,14 +22,15 @@ import {
 } from '@/utils/atendimentos-ia-importacao'
 import { ABAS_DO_MOTOR } from '@/utils/atendimentos-ia-abas-do-motor'
 import { fraseDoArquivoNaoImportavel } from '@/utils/atendimentos-ia-catalogo'
+import { caminhoNoBucket } from '@/utils/atendimentos-ia-catalogo'
 import {
-    avisoDoMotorGlobal, caminhoDoMotorDaFamilia, fraseDoMotorCriado, fraseDoMotorQueNaoFoiGravado, lerCorpoDaSubidaDoMotor, lerPedidoDeEnvioDoMotor, pastaDoMotorDaFamilia,
-    rotaDoEnvioDoMotor, rotaDoMotorDaEtapa,
-} from '@/utils/atendimentos-ia-motor-da-etapa'
+    MOTOR_SEM_USO, ROTAS_DOS_MOTORES, fraseDoMotorCriado, fraseDoMotorEmUso, fraseDoMotorQueNaoFoiGravado, fraseDoUso, lerCorpoDoArquivar, lerCorpoDoMotorNovo,
+    motoresParaAEtapa, pastaDoMotorDoFornecedor, rotuloDoMotor, type MotorDoCatalogo,
+} from '@/utils/atendimentos-ia-catalogo-de-motores'
 import { abasDoSpec } from './fixtures/abas-do-motor-do-spec'
 
 type Celulas = Record<number, ExcelJS.CellValue>
-const MIGRACAO = readFileSync(join(__dirname, '../../../supabase/migrations/20261027000010_etapa_sobe_o_motor_e_titulo_da_familia.sql'), 'utf8')
+const MIGRACAO = readFileSync(join(__dirname, '../../../supabase/migrations/20261028000001_familia_instancia_e_catalogo_de_motores.sql'), 'utf8')
 
 async function bytes(abas: Record<string, Array<Celulas | null>>): Promise<Uint8Array> {
     const wb = new ExcelJS.Workbook()
@@ -119,7 +120,8 @@ describe('(2) o payload é o que a função exige', () => {
     })
 
     it('as listas conferidas são as que a função DEVOLVE contadas, e são as doze (o mesmo conjunto da importação, sem itens)', () => {
-        const devolvidas = MIGRACAO.slice(MIGRACAO.indexOf('RETURN jsonb_build_object(')).split('END')[0]
+        const criar = MIGRACAO.slice(MIGRACAO.indexOf('CREATE OR REPLACE FUNCTION public.superadmin_criar_motor('))
+        const devolvidas = criar.slice(criar.indexOf('RETURN jsonb_build_object(')).split('END')[0]
         for (const k of LISTAS_DO_MOTOR_DA_ETAPA) expect(devolvidas).toContain(`'${k}'`)
         expect(LISTAS_DO_MOTOR_DA_ETAPA).toHaveLength(12)
         expect(LISTAS_DO_MOTOR_DA_ETAPA).not.toContain('itens')
@@ -188,68 +190,92 @@ describe('(4) a recusa diz o arquivo e o porquê', () => {
     })
 })
 
-describe('(5) os corpos, o caminho e as frases', () => {
-    it('o pedido de envio: nome aparado; vazio e extensão que não abre são recusados no pedido', () => {
-        expect(lerPedidoDeEnvioDoMotor({ nome: '  Motor Novo.xlsx ' })).toEqual({ ok: true, corpo: { nome: 'Motor Novo.xlsx' } })
-        expect(lerPedidoDeEnvioDoMotor({ nome: 'Motor.xlsm' }).ok).toBe(true)
-        for (const corpo of [null, {}, { nome: '   ' }, { nome: 5 }, 'x']) expect(lerPedidoDeEnvioDoMotor(corpo)).toEqual({ ok: false, erro: 'Arquivo sem nome.' })
-        expect(lerPedidoDeEnvioDoMotor({ nome: 'motor.xls' })).toEqual({ ok: false, erro: fraseDoArquivoNaoImportavel('motor.xls') })
+const F = 'aaaaaaaa-0000-4000-8000-000000000001'
+const OUTRO = 'bbbbbbbb-0000-4000-8000-000000000002'
+const NOVO = { fornecedor_id: F, categoria: 'PERFIL', familia: 'PVC', path: `${F}/motor/u1-x.xlsx`, nome: ' x.xlsx ' }
+
+describe('(5) os corpos, a ordem do combo e as frases', () => {
+    it('o corpo da criação: fornecedor, categoria, tipo, caminho e nome — aparados', () => {
+        expect(lerCorpoDoMotorNovo(NOVO)).toEqual({ ok: true, corpo: { fornecedor_id: F, categoria: 'PERFIL', familia: 'PVC', path: `${F}/motor/u1-x.xlsx`, nome: 'x.xlsx' } })
     })
 
-    it('o caminho: a pasta da família primeiro, o id único, o nome SEM acento e sem caractere que o bucket recusa', () => {
-        expect(caminhoDoMotorDaFamilia('PVC', 'Motor Várias Linhas (2).xlsx', 'u1')).toBe('familia/PVC/motor/u1-Motor-Varias-Linhas-2-.xlsx')
-        expect(caminhoDoMotorDaFamilia('PVC', 'x.xlsx', 'u1').startsWith(pastaDoMotorDaFamilia('PVC'))).toBe(true)
-        expect(pastaDoMotorDaFamilia('PVC')).toBe('familia/PVC/motor/')
+    it('cada campo obrigatório falta com a SUA frase', () => {
+        expect(lerCorpoDoMotorNovo({ ...NOVO, fornecedor_id: 'x' })).toEqual({ ok: false, erro: 'Escolha o fornecedor do motor.' })
+        expect(lerCorpoDoMotorNovo({ ...NOVO, categoria: '  ' })).toEqual({ ok: false, erro: 'Escolha a categoria do motor.' })
+        expect(lerCorpoDoMotorNovo({ ...NOVO, familia: null })).toEqual({ ok: false, erro: 'Escolha o tipo (família) do motor.' })
+        expect(lerCorpoDoMotorNovo({ ...NOVO, path: '' }).ok).toBe(false)
+        expect(lerCorpoDoMotorNovo({ ...NOVO, nome: '' }).ok).toBe(false)
+        expect(lerCorpoDoMotorNovo(null).ok).toBe(false)
     })
 
-    it('o corpo da subida: o caminho TEM de estar na pasta da família da URL', () => {
-        const ok = 'familia/PVC/motor/u1-x.xlsx'
-        expect(lerCorpoDaSubidaDoMotor({ path: ok, nome: ' x.xlsx ' }, 'PVC')).toEqual({ ok: true, corpo: { path: ok, nome: 'x.xlsx' } })
-        for (const path of ['familia/ALUMINIO/motor/u1-x.xlsx', 'f1/motor/u1-x.xlsx', 'familia/PVC/motor/../../x.xlsx', 'familia/PVC/x.xlsx', '/familia/PVC/motor/x.xlsx']) {
-            expect(lerCorpoDaSubidaDoMotor({ path, nome: 'x.xlsx' }, 'PVC')).toEqual({ ok: false, erro: 'O arquivo não está na pasta de motor desta família.' })
+    it('o caminho TEM de estar na pasta de motor DO FORNECEDOR do corpo — a mesma que a url-de-envio assina para o tipo motor', () => {
+        expect(caminhoNoBucket(F, 'motor', 'x.xlsx', 'u1').startsWith(pastaDoMotorDoFornecedor(F))).toBe(true)
+        for (const path of [`${OUTRO}/motor/u1-x.xlsx`, `${F}/arquivo/u1-x.xlsx`, `${F}/motor/../../x.xlsx`, `familia/PVC/motor/x.xlsx`, `/${F}/motor/x.xlsx`]) {
+            expect(lerCorpoDoMotorNovo({ ...NOVO, path })).toEqual({ ok: false, erro: 'O arquivo não está na pasta de motor deste fornecedor.' })
         }
     })
 
-    it('o corpo da subida: path e nome obrigatórios, extensão que abre, e nenhum campo a mais (o autor é o da sessão)', () => {
-        expect(lerCorpoDaSubidaDoMotor({ path: 'familia/PVC/motor/u-x.xlsx' }, 'PVC').ok).toBe(false)
-        expect(lerCorpoDaSubidaDoMotor({ nome: 'x.xlsx' }, 'PVC').ok).toBe(false)
-        expect(lerCorpoDaSubidaDoMotor({ path: 'familia/PVC/motor/u-x.xls', nome: 'x.xls' }, 'PVC')).toEqual({ ok: false, erro: fraseDoArquivoNaoImportavel('x.xls') })
-        const comAutor = lerCorpoDaSubidaDoMotor({ path: 'familia/PVC/motor/u-x.xlsx', nome: 'x.xlsx', por: 'u' }, 'PVC')
-        expect(comAutor).toEqual({ ok: false, erro: 'Campo desconhecido no corpo: por (só path e nome).' })
-        expect(lerCorpoDaSubidaDoMotor(null, 'PVC').ok).toBe(false)
+    it('extensão que a leitura não abre é recusada; campo a mais é erro (o autor é o da sessão)', () => {
+        expect(lerCorpoDoMotorNovo({ ...NOVO, path: `${F}/motor/u-x.xls`, nome: 'x.xls' })).toEqual({ ok: false, erro: fraseDoArquivoNaoImportavel('x.xls') })
+        expect(lerCorpoDoMotorNovo({ ...NOVO, por: 'u' })).toEqual({ ok: false, erro: 'Campo desconhecido no corpo: por (só fornecedor_id, categoria, familia, path, nome).' })
     })
 
-    it('as rotas são as da família, com a chave e o id codificados', () => {
-        expect(rotaDoEnvioDoMotor('PVC')).toBe('/api/super-admin/atendimentos-ia/familias/PVC/motor-url-de-envio')
-        expect(rotaDoMotorDaEtapa('PVC', 'e-1')).toBe('/api/super-admin/atendimentos-ia/familias/PVC/motor-da-etapa/e-1')
-        expect(rotaDoEnvioDoMotor('A B')).toContain('A%20B')
+    it('o corpo do arquivar: só motor_id, uuid', () => {
+        expect(lerCorpoDoArquivar({ motor_id: F })).toEqual({ ok: true, corpo: { motor_id: F } })
+        expect(lerCorpoDoArquivar({ motor_id: 'x' })).toEqual({ ok: false, erro: 'O motor_id não é um uuid.' })
+        expect(lerCorpoDoArquivar({ motor_id: F, por: 'u' })).toEqual({ ok: false, erro: 'Campo desconhecido no corpo: por (só motor_id).' })
+    })
+
+    it('as rotas do catálogo', () => {
+        expect(ROTAS_DOS_MOTORES.lista).toBe('/api/super-admin/atendimentos-ia/motores')
+        expect(ROTAS_DOS_MOTORES.arquivar).toBe('/api/super-admin/atendimentos-ia/motores/arquivar')
+    })
+
+    const m = (id: string, f: Partial<MotorDoCatalogo>): MotorDoCatalogo => ({
+        id, familia: 'PVC', fornecedor_id: OUTRO, fornecedor: 'Zeta', categoria: 'PERFIL', arquivo_nome: `${id}.xlsx`, criado_em: '2026-10-28', arquivado_em: null, tipologias: null, usos: [], ...f,
+    })
+
+    it('o combo da etapa: só o MESMO tipo e não arquivado; os dos principais primeiro, depois por fornecedor e arquivo', () => {
+        const lista = [
+            m('alu', { familia: 'ALUMINIO', fornecedor_id: F }), m('arq', { fornecedor_id: F, arquivado_em: '2026-10-27' }),
+            m('z2', { fornecedor: 'Zeta' }), m('a1', { fornecedor: 'Alfa' }), m('p2', { fornecedor_id: F, fornecedor: 'Wolf', arquivo_nome: 'b.xlsx' }), m('p1', { fornecedor_id: F, fornecedor: 'Wolf', arquivo_nome: 'a.xlsx' }),
+        ]
+        expect(motoresParaAEtapa(lista, 'PVC', [F]).map((x) => x.id)).toEqual(['p1', 'p2', 'a1', 'z2'])
+        expect(motoresParaAEtapa(lista, 'PVC', []).map((x) => x.id)).toEqual(['a1', 'p1', 'p2', 'z2'])
+        expect(motoresParaAEtapa(lista, 'ALUMINIO', []).map((x) => x.id)).toEqual(['alu'])
+    })
+
+    it('o rótulo do motor: fornecedor · categoria · arquivo, com o nome da categoria quando dado', () => {
+        expect(rotuloDoMotor(m('x', { fornecedor: 'Wolf', arquivo_nome: 'motor.xlsm' }))).toBe('Wolf · PERFIL · motor.xlsm')
+        expect(rotuloDoMotor(m('x', { fornecedor: 'Wolf', arquivo_nome: 'motor.xlsm' }), (c) => (c === 'PERFIL' ? 'Perfil' : c))).toBe('Wolf · Perfil · motor.xlsm')
+    })
+
+    it('quem usa, por nome; e a frase do motor em uso no singular e no plural', () => {
+        expect(fraseDoUso({ empresa: 'De Paula', familia: 'Esquadrias de PVC', etapa: 1, rotulo: 'Apanhado' })).toBe('De Paula · Esquadrias de PVC · etapa 1 (Apanhado)')
+        expect(fraseDoMotorEmUso(1)).toBe('Uma etapa aponta este motor: aponte a etapa para outro antes de arquivar.')
+        expect(fraseDoMotorEmUso(3)).toBe('3 etapas apontam este motor: aponte as etapas para outro antes de arquivar.')
+        expect(MOTOR_SEM_USO).toBe('Nenhuma etapa aponta este motor.')
     })
 
     it('a frase da falha diz o motivo pelo código e NUNCA o texto do banco; em todas, "nada foi gravado"', () => {
-        for (const c of ['57014', '55P03', '23505', null]) expect(fraseDoMotorQueNaoFoiGravado(c)).toContain('Nada foi gravado')
+        for (const c of ['57014', '23505', null]) expect(fraseDoMotorQueNaoFoiGravado(c)).toContain('Nada foi gravado')
         expect(fraseDoMotorQueNaoFoiGravado('57014')).toContain(`${LIMITE_DA_GRAVACAO_S} s`)
-        expect(fraseDoMotorQueNaoFoiGravado('55P03')).toContain('travada')
         expect(fraseDoMotorQueNaoFoiGravado('23505')).toContain('código 23505')
     })
 
-    it('a frase do motor criado: tipologias e regras com o plural certo, e a lembrança de que nasce sem tempo', () => {
+    it('a frase do motor criado: plural certo, sem etapa apontada e sem tempo', () => {
         expect(fraseDoMotorCriado({ regras: 1, tipologias: 1, detalhes: 1 })).toContain('1 tipologia e 1 regra.')
         const f = fraseDoMotorCriado({ regras: 12116, tipologias: 157, detalhes: 164 })
         expect(f).toContain('164 tipologias e 12.116 regras')
+        expect(f).toContain('Nenhuma etapa o aponta ainda')
         expect(f).toContain('sem tempo')
-    })
-
-    it('o aviso do motor GLOBAL: diz que vale para todas as contas e nomeia quais, em ordem', () => {
-        expect(avisoDoMotorGlobal([])).toContain('TODAS as contas desta família')
-        expect(avisoDoMotorGlobal([])).not.toContain('Contas que usam')
-        expect(avisoDoMotorGlobal(['Zeta', 'Álamo'])).toContain('Contas que usam esta família: Álamo, Zeta.')
     })
 })
 
 describe('(6) o que liga o código à migração', () => {
-    it('a pasta do bucket: a função confere o MESMO prefixo que a rota assina', () => {
-        expect(MIGRACAO).toContain("v_prefixo := 'familia/' || v_familia || '/motor/';")
-        expect(pastaDoMotorDaFamilia('X')).toBe('familia/X/motor/')
+    it('a pasta do bucket: a função confere o MESMO prefixo que a url-de-envio assina', () => {
+        expect(MIGRACAO).toContain("v_prefixo := p_fornecedor::text || '/motor/';")
+        expect(pastaDoMotorDoFornecedor('X')).toBe('X/motor/')
     })
 
     it('o limite de tempo da função é o da frase e o da importação da tabela: 35 s', () => {

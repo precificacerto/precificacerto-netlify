@@ -132,7 +132,7 @@ const MobileMoreDrawer = ({ open, onClose }: Props) => {
     // O Orçamentista é do TENANT e só com a seção ligada no servidor; os outros dois, do super admin.
     { key: 'orcamentista', label: 'Orçamentista', href: ROUTES.ATENDIMENTOS_IA_ORCAMENTISTA, icon: <RobotOutlined />, section: 'Agentes I.A.', sectionKey: 'atendimentos-ia', module: MODULES.ORCAMENTISTA, hideForSuperAdmin: true, exigeSecaoDoOrcamentista: true },
     { key: 'super-ia-contas', label: 'Contas ligadas', href: ROUTES.SUPER_ADMIN_IA_CONTAS, icon: <TeamOutlined />, section: 'Agentes I.A.', sectionKey: 'atendimentos-ia', superAdminOnly: true },
-    { key: 'super-ia-fornecedores', label: 'Fornecedores e tabelas', href: ROUTES.SUPER_ADMIN_IA_FORNECEDORES, icon: <DatabaseOutlined />, section: 'Agentes I.A.', sectionKey: 'atendimentos-ia', superAdminOnly: true },
+    { key: 'super-ia-fornecedores', label: 'Catálogo', href: ROUTES.SUPER_ADMIN_IA_FORNECEDORES, icon: <DatabaseOutlined />, section: 'Agentes I.A.', sectionKey: 'atendimentos-ia', superAdminOnly: true },
     { key: 'super-admin', label: 'Painel Super Admin', href: ROUTES.SUPER_ADMIN_PANEL, icon: <SafetyCertificateOutlined />, section: 'Super Admin', sectionKey: 'superadmin', superAdminOnly: true },
     { key: 'super-notifications', label: 'Notificações', href: ROUTES.SUPER_ADMIN_NOTIFICATIONS, icon: <BellOutlined />, section: 'Super Admin', sectionKey: 'superadmin', superAdminOnly: true },
     { key: 'super-tenants', label: 'Tenants', href: ROUTES.SUPER_ADMIN_TENANTS, icon: <TeamOutlined />, section: 'Super Admin', sectionKey: 'superadmin', superAdminOnly: true },
