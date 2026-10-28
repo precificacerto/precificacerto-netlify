@@ -250,9 +250,24 @@ Formulação do dono do produto, registrada como está:
 > Dos **549 códigos do motor, 488 são de perfil e 63 de INSUMO** — e os insumos também são da Wolff. **Enquanto o insumo vier de dentro do motor, ele
 > segue o fornecedor de perfil, não um fornecedor próprio.**
 
-**A conta, reconferida em produção em 28/10/2026 (só leitura, `orcamentista_motor_regra`):** 488 + 63 = 551, dois a mais que os 549 distintos — porque
-**dois códigos estão nos dois tipos**: `8428` (40 regras) e `8431` (138 regras) aparecem como Perfil **e** como Insumo. Não é erro da medição; é o mesmo
-código em dois papéis, e quem separar o insumo do fornecedor de perfil decide código a código (`a-coluna-que-parece-enumeracao.md`).
+**MEDIÇÃO — a conta por tipo é 551, com 2 em comum; 549 é a de códigos distintos** (assistente, 28/10/2026, só leitura; confirmada pelo dono do
+produto, que tinha usado 549 em vários comandos como se fosse a soma):
+
+| contagem em `orcamentista_motor_regra` | códigos |
+|---|---:|
+| distintos, todos os tipos | **549** |
+| distintos com `tipo = 'Perfil'` | 488 |
+| distintos com `tipo = 'Insumo'` | 63 |
+| soma por tipo | **551** |
+| nos dois tipos | **2**: `8428` (40 regras) e `8431` (138 regras) |
+
+```sql
+select tipo, count(distinct codigo) from orcamentista_motor_regra group by rollup(tipo);
+select codigo, array_agg(distinct tipo), count(*) from orcamentista_motor_regra group by codigo having count(distinct tipo) > 1;
+```
+
+**Quem citar o número diz qual dos dois é:** 549 códigos distintos, ou 488 + 63 = 551 por tipo. Os dois códigos em comum não são erro da medição: é o
+mesmo código em dois papéis, e quem separar o insumo do fornecedor de perfil decide código a código (`a-coluna-que-parece-enumeracao.md`).
 
 Ou seja: a família opcional nas outras categorias vale para a tabela que é **só** de preço (ferragem da IMAB, vidro da Estrela). O insumo que o motor da
 Wolff cita (vedação, calço, escova) **não** é buscado numa tabela de ACESSÓRIOS de outro fornecedor: ele sai do mesmo fornecedor do perfil. Separar o
