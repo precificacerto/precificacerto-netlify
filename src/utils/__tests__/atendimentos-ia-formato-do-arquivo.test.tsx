@@ -152,7 +152,7 @@ describe('(1)(2) a regra que a ROTA aplica — a que vale', () => {
 describe('(3) a TELA recusa ao escolher, dentro do modal, com o nome e o motivo', () => {
     it('um `.docx` não entra, e o modal diz qual arquivo e por quê; um `.xlsm` entra', async () => {
         const salvos: unknown[] = []
-        await montar(<TabelaModal aberto familias={[]} categorias={[]} titulo="Editar tabela" atual={{ arquivo_nome: 'tabela-antiga.xlsx', motor_nome: 'motor.xlsx', vigencia: null, familia: null, categoria_chave: null }} onCancelar={() => {}} onSalvar={(t) => { salvos.push(t) }} />)
+        await montar(<TabelaModal aberto familias={[]} categorias={[]} titulo="Editar tabela" atual={{ arquivo_nome: 'tabela-antiga.xlsx', vigencia: null, familia: null, categoria_chave: null }} onCancelar={() => {}} onSalvar={(t) => { salvos.push(t) }} />)
 
         await escolher(0, 'proposta.docx')
         expect(modal()!.textContent).toContain(fraseDoArquivo('proposta.docx', MOTIVO_DO_FORMATO_RECUSADO))
@@ -165,8 +165,9 @@ describe('(3) a TELA recusa ao escolher, dentro do modal, com o nome e o motivo'
         expect(escolhido('Arquivo da tabela')).toContain(XLSM)
         expect(modal()!.textContent).not.toContain(fraseDoArquivo('proposta.docx', MOTIVO_DO_FORMATO_RECUSADO))
 
-        await escolher(1, 'motor.xlsm')
-        expect(escolhido('Arquivo do motor')).toContain('motor.xlsm')
+        // NÃO HÁ campo de arquivo do motor no modal (28/10/2026): o motor entra pela etapa da família
+        expect(modal()!.querySelectorAll('input[type="file"]')).toHaveLength(1)
+        expect(modal()!.textContent).not.toContain('Arquivo do motor')
     })
 })
 
@@ -209,7 +210,6 @@ describe('(4) o erro de salvar aparece DENTRO do modal, e o modal não fica pres
         const host = await montar(<Pagina />)
         await clicar(botao(host, 'Nova tabela'))
         await escolher(0, XLSM)
-        await escolher(1, 'motor.xlsm')
         await escolherFamilia('PVC')
         await escolherCategoria('PERFIL')
         await clicar(botao(modal()!, 'Salvar tabela'))

@@ -53,7 +53,8 @@ export type ArvoreLida = {
     tenant_id: string
     nicho: { id: string; modelo: string; nome: string } | null
     catalogo: { categorias: CategoriaDoCatalogo[]; campos: CampoDoCatalogo[]; familias?: FamiliaDoCatalogo[]; ramificacoes?: RamificacaoDaFamilia[] }
-    fornecedores_do_nicho: Array<{ id: string; nome: string }>
+    /** `categorias_das_tabelas`: de quais categorias o fornecedor TEM tabela; `tabelas_sem_categoria`: as tabelas dele sem categoria declarada. */
+    fornecedores_do_nicho: Array<{ id: string; nome: string; categorias_das_tabelas: string[]; tabelas_sem_categoria: number }>
     /** fornecedor → as linhas da tabela em uso dele NESTA conta, POR FONTE. Sem chave: o fornecedor não tem tabela em uso. */
     linhas_por_fornecedor: Record<string, { formula: string[]; regra: string[] }>
     materias_primas: MateriaPrimaLida[]
@@ -65,6 +66,32 @@ export const ADICIONAR_MATERIA_PRIMA = '+ Adicionar matéria-prima'
 export const ADICIONAR_VIDRO = '+ Adicionar vidro'
 export const ADICIONAR_FERRAGEM = '+ Adicionar ferragem'
 export const NOVO_FORNECEDOR = '+ fornecedor'
+export const AVISO_DO_FILTRO_DE_FORNECEDOR = 'Só aparecem para escolher os fornecedores que têm tabela desta categoria.'
+export const SEM_TABELA_DESTA_CATEGORIA = 'sem tabela desta categoria'
+
+/** Os fornecedores do nicho que têm tabela da categoria — os únicos que a lista de "+ fornecedor" oferece. Pura. */
+export function fornecedoresComTabelaDaCategoria(arvore: Pick<ArvoreLida, 'fornecedores_do_nicho'>, categoria: string) {
+    return arvore.fornecedores_do_nicho.filter((f) => f.categorias_das_tabelas.includes(categoria))
+}
+
+/** Os fornecedores com tabela SEM categoria declarada: não aparecem em categoria nenhuma, e a tela diz quais. Pura. */
+export function fornecedoresComTabelaSemCategoria(arvore: Pick<ArvoreLida, 'fornecedores_do_nicho'>) {
+    return arvore.fornecedores_do_nicho.filter((f) => f.tabelas_sem_categoria > 0)
+}
+
+/**
+ * Por que a lista de uma ramificação está como está — quando NÃO sobra ninguém para escolher, a tela diz por quê em vez de deixar o combo
+ * vazio: ou nenhum fornecedor do nicho tem tabela da categoria, ou os que têm já estão na lista. E nomeia os fornecedores cuja tabela não
+ * declara categoria (não aparecem em categoria nenhuma até alguém declarar a da tabela, em "Fornecedores e tabelas").
+ */
+export function fraseDaListaDeFornecedoresVazia(rotuloDaCategoria: string, comTabelaDaCategoria: number, semCategoria: readonly string[]): string {
+    const base = comTabelaDaCategoria === 0
+        ? `Nenhum fornecedor do nicho tem tabela da categoria ${rotuloDaCategoria}.`
+        : `Todos os fornecedores com tabela da categoria ${rotuloDaCategoria} já estão nesta lista.`
+    if (semCategoria.length === 0) return base
+    const nomes = [...semCategoria].sort((a, b) => a.localeCompare(b, 'pt-BR')).join(', ')
+    return `${base} ${semCategoria.length === 1 ? 'Um fornecedor tem tabela' : `${semCategoria.length} fornecedores têm tabela`} sem categoria declarada e por isso não aparece${semCategoria.length === 1 ? '' : 'm'} em categoria nenhuma: ${nomes}. Declare a categoria da tabela em Fornecedores e tabelas.`
+}
 export const fraseDasCategorias = (configuradas: number, total: number) => `${configuradas} de ${total} categorias`
 export const SEM_FAMILIA_NA_MATERIA_PRIMA =
     'A família desta matéria-prima não está informada: a tela mostra todas as categorias do catálogo. Escolha a família para ver só as ramificações dela.'

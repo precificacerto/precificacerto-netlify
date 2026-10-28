@@ -141,7 +141,6 @@ export default function TabelasDoFornecedor() {
             if (t.familia) corpo.familia = t.familia
             if (t.categoria) corpo.categoria_chave = t.categoria
             if (t.arquivo) { const a = await enviarArquivo(id, 'arquivo', t.arquivo); corpo.arquivo_path = a.path; corpo.arquivo_nome = a.nome }
-            if (t.motor) { const m = await enviarArquivo(id, 'motor', t.motor); corpo.motor_path = m.path; corpo.motor_nome = m.nome }
             const r = await chamarRota<{ ok: true; aviso?: string }>(ROTAS_DO_CATALOGO.tabela(tabelaEmEdicao.id), 'PATCH', corpo)
             if (r.aviso) message.warning(r.aviso, 8)
             else message.success('Tabela alterada')

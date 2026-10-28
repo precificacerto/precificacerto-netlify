@@ -108,7 +108,8 @@ function arvoreGravada(): Linha {
         tenant_id: CONTA,
         nicho: { id: N_ESQ, modelo: 'FABRICACAO', nome: 'Esquadrias' },
         catalogo: catalogo(),
-        fornecedores_do_nicho: [{ id: F_ALCOA, nome: 'Alcoa' }, { id: F_HYDRO, nome: 'Hydro' }, { id: F_WOLFF, nome: 'Wolff' }],
+        // cada fornecedor tem tabela de TODAS as categorias: estes casos não são sobre o filtro (28/10/2026) — o filtro está em base-de-conhecimento-fornecedor-por-categoria.test.tsx
+        fornecedores_do_nicho: [{ id: F_ALCOA, nome: 'Alcoa' }, { id: F_HYDRO, nome: 'Hydro' }, { id: F_WOLFF, nome: 'Wolff' }].map((f) => ({ ...f, categorias_das_tabelas: ORDEM_DO_CATALOGO, tabelas_sem_categoria: 0 })),
         // medido em produção, 23/10/2026, POR FONTE: DESIGN tem 139 regras e nenhuma fórmula de família — e o Wolff é o principal do PERFIL
         linhas_por_fornecedor: { [F_WOLFF]: { formula: ['EUROPA 42', 'EUROPA 60'], regra: ['DESIGN', 'EUROPA 42', 'EUROPA 60'] } },
         materias_primas: [{

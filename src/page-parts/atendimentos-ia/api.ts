@@ -88,22 +88,20 @@ export async function enviarArquivoDoMotor(familia: string, arquivo: File): Prom
  * Uma tabela ainda no navegador: os dois arquivos, a vigência, a família e a categoria, antes de qualquer envio.
  * `familia` e `categoria` são chaves das listas; na edição, null = não mexe.
  */
-export interface TabelaPendente { arquivo: File | null; motor: File | null; vigencia: string; familia: string | null; categoria: string | null }
+export interface TabelaPendente { arquivo: File | null; vigencia: string; familia: string | null; categoria: string | null }
 
 /**
- * Envia o arquivo (e o do motor, quando há) e grava a tabela. Arquivo primeiro, motor depois — a ordem do modal.
+ * Envia o arquivo e grava a tabela (sem motor: ele entra pela etapa da família).
  * Toda falha nomeia UM arquivo, uma vez: o envio, pelo arquivo enviado (`enviarArquivo`); a
  * gravação, pela tabela (`fraseDaTabela`). Quem chama não acrescenta nome.
  */
 export async function gravarTabelaNova(fornecedorId: string, t: TabelaPendente): Promise<void> {
     const arquivo = await enviarArquivo(fornecedorId, 'arquivo', t.arquivo as File)
-    // o motor só existe na tabela de PERFIL (27/10/2026); sem arquivo escolhido, nada é enviado e a rota recebe nulo
-    const motor = t.motor ? await enviarArquivo(fornecedorId, 'motor', t.motor) : null
+    // a tabela é só preço (28/10/2026): o motor entra pela etapa da família, não por aqui
     try {
         await chamarRota(ROTAS_DO_CATALOGO.tabelas, 'POST', {
             fornecedor_id: fornecedorId,
             arquivo_path: arquivo.path, arquivo_nome: arquivo.nome,
-            motor_path: motor?.path ?? null, motor_nome: motor?.nome ?? null,
             vigencia: t.vigencia,
             familia: t.familia,
             categoria_chave: t.categoria,

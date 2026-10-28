@@ -88,7 +88,7 @@ function arvoreGravada(): Linha {
         tenant_id: CONTA,
         nicho: { id: N_ESQ, modelo: 'FABRICACAO', nome: 'Esquadrias' },
         catalogo: { ...catalogo(), familias: [{ chave: 'PVC', rotulo: 'PVC', ordem: 1 }], ramificacoes: RAMIFICACOES },
-        fornecedores_do_nicho: [{ id: F_WOLFF, nome: 'Wolff' }],
+        fornecedores_do_nicho: [{ id: F_WOLFF, nome: 'Wolff', categorias_das_tabelas: ORDEM_DO_CATALOGO, tabelas_sem_categoria: 0 }],
         linhas_por_fornecedor: {},
         materias_primas: [
             { id: PVC, tenant_id: CONTA, nome: 'Esquadrias de PVC', ordem: 1, familia: 'PVC', atualizado_por: null, atualizado_em: null, categorias: ORDEM_DO_CATALOGO.map((c) => categoria(c)) },

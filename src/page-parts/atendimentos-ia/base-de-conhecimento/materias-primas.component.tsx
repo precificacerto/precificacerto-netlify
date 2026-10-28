@@ -33,6 +33,7 @@ import {
     ADICIONAR_FERRAGEM, ADICIONAR_MATERIA_PRIMA, ADICIONAR_VIDRO, CAMPO_DA_LINHA, EM_BRANCO_DA_OPCAO, LISTA_DA_CATEGORIA, NOVO_FORNECEDOR, POSICOES_DA_FERRAGEM, PRODUTOS_DA_INSTALACAO,
     ROTULO_DA_POSICAO, ROTULO_DO_PRODUTO, SEM_PRINCIPAL_DO_PERFIL, TITULO_DO_CARTAO,
     FAMILIA_COM_PENDENCIA, FAMILIA_DEPOIS_DE_SALVAR, SEM_FAMILIA_NA_MATERIA_PRIMA, categoriasForaDaFamilia, familiaDeclaraRamificacao, fraseCategoriaForaDaFamilia, fraseFamiliaSemRamificacao,
+    AVISO_DO_FILTRO_DE_FORNECEDOR, SEM_TABELA_DESTA_CATEGORIA, fornecedoresComTabelaDaCategoria, fornecedoresComTabelaSemCategoria, fraseDaListaDeFornecedoresVazia,
     camposDa, categoriasConfiguradas, desfazerRemocao, estadoDaLinha, fraseDasCategorias, fraseLinhaForaDaTabela, fraseLinhaSemFormula, fraseSemTabelaEmUso,
     fraseTabelaSemLinha, nomeDoFornecedor, novaMateriaPrima, novoLocal, ondeEstaOErro, origemDaLinha, tipoConhecido,
     type ArvoreLida, type CategoriaDoFormulario, type EstadoDaArvore, type ItemDaLista, type MateriaPrimaDoFormulario, type TipoDoCampo,
@@ -140,6 +141,14 @@ function Fornecedores({ c, arvore, mudar }: { c: CategoriaDoFormulario; arvore: 
     })
     const tornarPrincipal = (id: string) => mudar((x) => ({ ...x, fornecedores: { ids: [id, ...x.fornecedores.ids.filter((y) => y !== id)], principal: id } }))
     const acrescentar = (id: string) => mudar((x) => ({ ...x, fornecedores: { ids: [...x.fornecedores.ids, id], principal: x.fornecedores.principal ?? id } }))
+    // O FORNECEDOR DA RAMIFICAÇÃO SAI DA TABELA (dono do produto, 28/10/2026): só aparece para escolher quem tem tabela DESTA categoria. Quem já
+    // está na lista continua (nada some em silêncio) e, se não tem tabela da categoria, a marca diz isso. Fornecedor com tabela sem categoria
+    // declarada não aparece em categoria nenhuma — e a tela nomeia quem é, quando não sobra ninguém para escolher.
+    const rotuloDaCategoria = arvore.catalogo.categorias.find((k) => k.chave === c.chave)?.rotulo ?? c.chave
+    const daCategoria = fornecedoresComTabelaDaCategoria(arvore, c.chave)
+    const oferecidos = daCategoria.filter((f) => !ids.includes(f.id))
+    const temTabelaDaCategoria = (id: string) => daCategoria.some((f) => f.id === id)
+    const semCategoria = fornecedoresComTabelaSemCategoria(arvore).map((f) => f.nome)
     return (
         <div data-fornecedores style={{ marginBottom: 12 }}>
             <Space size={6} wrap>
@@ -149,6 +158,7 @@ function Fornecedores({ c, arvore, mudar }: { c: CategoriaDoFormulario; arvore: 
                         <span data-nome-do-fornecedor>{nome(id)}</span>
                         {id === principal && <span data-principal><Tag color="blue" style={{ marginInlineEnd: 0 }}>principal</Tag></span>}
                         {!doNicho.has(id) && <span data-fora-do-nicho><Tag color="red" style={{ marginInlineEnd: 0 }}>fora do nicho</Tag></span>}
+                        {doNicho.has(id) && !temTabelaDaCategoria(id) && <span data-sem-tabela-da-categoria><Tag color="orange" style={{ marginInlineEnd: 0 }}>{SEM_TABELA_DESTA_CATEGORIA}</Tag></span>}
                         {id !== principal && <Button data-tornar-principal type="link" size="small" onClick={() => tornarPrincipal(id)}>tornar principal</Button>}
                         <Button data-remover-fornecedor type="link" size="small" danger aria-label={`Remover ${nome(id)}`} onClick={() => tirar(id)}>×</Button>
                     </span>
@@ -156,10 +166,15 @@ function Fornecedores({ c, arvore, mudar }: { c: CategoriaDoFormulario; arvore: 
                 <span data-novo-fornecedor>
                     <Select style={{ minWidth: 170 }} placeholder={NOVO_FORNECEDOR} value={null} disabled={!arvore.nicho}
                         onChange={(v: string | null) => { if (v) acrescentar(v) }}
-                        options={arvore.fornecedores_do_nicho.filter((f) => !ids.includes(f.id)).map((f) => ({ value: f.id, label: f.nome }))} />
+                        options={oferecidos.map((f) => ({ value: f.id, label: f.nome }))} />
                 </span>
                 {!arvore.nicho && <Typography.Text type="secondary">A empresa não tem nicho: nenhum fornecedor pode ser dela.</Typography.Text>}
             </Space>
+            {arvore.nicho && (
+                <Typography.Text type="secondary" style={{ display: 'block', fontSize: 12, marginTop: 4 }} data-filtro-de-fornecedor>
+                    {oferecidos.length === 0 ? fraseDaListaDeFornecedoresVazia(rotuloDaCategoria, daCategoria.length, semCategoria) : AVISO_DO_FILTRO_DE_FORNECEDOR}
+                </Typography.Text>
+            )}
         </div>
     )
 }
