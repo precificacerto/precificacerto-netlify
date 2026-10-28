@@ -32,7 +32,8 @@ const MOTOR_NOVO = '00000000-0000-4000-8000-0000000000a9'
 const M_WOLF = '00000000-0000-4000-8000-0000000000a1'
 const M_ROLLER = '00000000-0000-4000-8000-0000000000a2'
 const PATH = `${W}/motor/u1-Motor.xlsx`
-const NOVO = { fornecedor_id: W, categoria: 'PERFIL', familia: 'PVC', path: PATH, nome: 'Motor.xlsx' }
+// tipo ALUMINIO de propósito: o motor de PVC da Wolf é o único em produção, e um tipo fixo no código passaria com ele
+const NOVO = { fornecedor_id: W, categoria: 'PERFIL', familia: 'ALUMINIO', path: PATH, nome: 'Motor.xlsx' }
 
 type RespostaDoRpc = { data: unknown; error: { code?: string; message: string } | null }
 const estado = {
@@ -213,7 +214,7 @@ describe('(3) POST motores — lê o arquivo, chama a função e confere', () =>
         expect(estado.rpcs).toHaveLength(1)
         const { funcao, args } = estado.rpcs[0]
         expect(funcao).toBe('superadmin_criar_motor')
-        expect(args).toMatchObject({ p_por: SUPER.id, p_fornecedor: W, p_categoria: 'PERFIL', p_familia: 'PVC', p_arquivo_path: PATH, p_arquivo_nome: 'Motor.xlsx' })
+        expect(args).toMatchObject({ p_por: SUPER.id, p_fornecedor: W, p_categoria: 'PERFIL', p_familia: 'ALUMINIO', p_arquivo_path: PATH, p_arquivo_nome: 'Motor.xlsx' })
         const p = args.p_payload as Record<string, unknown[]>
         expect(p.regras.map((x: any) => x.codigo)).toEqual(['A1', 'B2'])
         expect(p).not.toHaveProperty('itens')
