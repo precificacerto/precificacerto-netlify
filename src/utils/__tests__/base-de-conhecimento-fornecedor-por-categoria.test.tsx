@@ -216,15 +216,19 @@ describe('(1) na lista "+ fornecedor" só aparece quem tem tabela DESTA categori
         expect(await oferecidos(host, 'FERRAGENS')).toEqual(['IMAB'])
     })
 
-    it('REFORCO: a Alcoa; VIDRO, INSTALACAO e ACESSORIOS_VEDACAO: ninguém (nenhuma tabela tem essa categoria)', async () => {
+    it('REFORCO: a Alcoa', async () => {
         const host = await montar()
         expect(await oferecidos(host, 'REFORCO')).toEqual(['Alcoa'])
-        for (const c of ['VIDRO', 'INSTALACAO', 'ACESSORIOS_VEDACAO']) expect(await oferecidos(host, c)).toEqual([])
     })
 
-    it('o fornecedor sem tabela nenhuma não aparece em categoria nenhuma', async () => {
+    it.each(['VIDRO', 'INSTALACAO', 'ACESSORIOS_VEDACAO'])('%s: ninguém (nenhuma tabela tem essa categoria)', async (c) => {
         const host = await montar()
-        for (const c of ORDEM_DO_CATALOGO) expect(await oferecidos(host, c)).not.toContain('Sem tabela')
+        expect(await oferecidos(host, c)).toEqual([])
+    })
+
+    it.each(ORDEM_DO_CATALOGO)('o fornecedor sem tabela nenhuma não aparece em %s', async (c) => {
+        const host = await montar()
+        expect(await oferecidos(host, c)).not.toContain('Sem tabela')
     })
 })
 
