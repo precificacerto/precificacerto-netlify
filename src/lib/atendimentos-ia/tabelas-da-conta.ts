@@ -49,7 +49,7 @@ export type TabelaDaConta = {
     fornecedor: string
     /** O RÓTULO da família, do catálogo; null quando a tabela não a informa. */
     familia: string | null
-    /** A CHAVE da família (a que `orcamentista_materia_prima.familia` e `orcamentista_motor.familia` guardam); null quando não informada. */
+    /** A CHAVE da família (a que `orcamentista_materia_prima.familia` e `orcamentista_motor_familia.familia` guardam); null quando não informada. */
     familiaChave: string | null
     /** A chave da categoria da tabela (20261027000005); null = a tabela de antes, sem categoria. */
     categoria: string | null

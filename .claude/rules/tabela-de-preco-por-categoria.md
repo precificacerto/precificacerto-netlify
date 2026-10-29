@@ -399,3 +399,32 @@ Formulação do dono do produto, registrada como está:
      - a edição de Perfil pede a família da tabela de Perfil do fornecedor.
    - **Prova:** `scripts/harness/familia-do-motor-so-no-perfil/`, com a cadeia real e o estado de produção de 29/10/2026, as 8 guardas, as duas
      corridas e as mutações nas duas passadas.
+
+## O motor serve N famílias e uma categoria — dono do produto, 29/10/2026 (migração `20261029000003`, PENDENTE até o dono do produto aplicar)
+
+Formulação do dono do produto, registrada como está:
+
+> "A gente define, bota o arquivo do motor, a qual categoria ele pertence e para quais famílias ele atua." [...] Medido: nenhum '*' em uso [...]
+> Dados limpos, então o '*' sai de cena — todo motor passa a listar famílias explicitamente. [...] A migração 20261029000002 FICA COMO ESTÁ.
+
+**Substitui o item 7 acima** (a família só no Perfil, com o `'*'`). A `20261029000002` não muda (migração aplicada é imutável); a `20261029000003` desfaz o
+desenho dela por cima.
+
+- **A ligação `orcamentista_motor_familia (motor_id, familia)`**, PK das duas; `motor_id` → motor `ON DELETE CASCADE`; `familia` → catálogo `ON DELETE
+  RESTRICT`. RLS e as mesmas quatro políticas e grants de `orcamentista_motor` (lidos do banco em 29/10/2026). Semeada de `motor.familia` (1 motor, 1 linha),
+  com antes e depois medidos e log.
+- **Todo motor tem pelo menos uma família** — um `CONSTRAINT TRIGGER ... DEFERRABLE INITIALLY DEFERRED` (`orcamentista_motor_sem_familia`, nas duas tabelas),
+  conferido no COMMIT. Por que não uma coluna de contagem: a CHECK não é adiável, e o motor nasce antes da ligação — a trava impediria a criação. A função
+  do gatilho trava a linha do motor antes de contar (duas transações que tiram famílias diferentes do mesmo motor se enfileiram).
+- **Na etapa e no item:** a CHECK da exigida perde o `'*'` (a exigida é a família da linha), e a FK `(motor_id, motor_familia_exigida)` aponta a LIGAÇÃO.
+  Uma etapa de família X só aponta motor que atua em X.
+- **Saem do motor** `familia`, `familia_exigida`, a CHECK `orcamentista_motor_familia_so_no_perfil` e o UNIQUE delas. `categoria_chave` fica.
+- **Funções:** `superadmin_criar_motor(..., p_familias text[], ...)` (pelo menos uma, sem repetição, todas do catálogo; a ligação depois do motor, na mesma
+  transação); `superadmin_editar_motor(..., p_familias text[], ...)` — fornecedor e categoria SÓ SEM USO, as famílias também COM uso, e tirar a que uma etapa
+  ou item usa é recusa `23001` que nomeia quem usa (empresa / família-instância / etapa; o levantamento do item); a gravação das etapas recusa o motor que não
+  atua na família; trocar o arquivo cria o novo com as mesmas famílias.
+- **No código:** o POST `/motores` leva `familias: string[]`; **caiu a trava "família só no Perfil, a da tabela de Perfil do fornecedor"** (zero tabelas de
+  Perfil em produção) — a família não se amarra mais a uma tabela da categoria; família fora do catálogo é 400 nomeando-a. O catálogo mostra a lista; o
+  "Editar" vale com uso (categoria e fornecedor travados no modal), e a recusa da família em uso é 409 dentro do modal.
+- **Prova:** `scripts/harness/motor-para-n-familias/` — a cadeia real com a `20261029000002` como em produção, os casos de cada trava (DML direto e funções),
+  os COMMITs de verdade do gatilho adiado, três corridas, cinco guardas e as mutações nas duas passadas.

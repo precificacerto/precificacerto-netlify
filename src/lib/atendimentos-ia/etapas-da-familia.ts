@@ -45,22 +45,36 @@ export async function lerEtapasDaMateriaPrima(tenantId: string, materiaPrimaId: 
     return { familia: mp.familia == null ? null : String(mp.familia), etapas }
 }
 
+/** As famílias de cada motor (`orcamentista_motor_familia`, 20261029000003), em ordem de chave. Motor sem linha aqui não existe (o gatilho adiado). */
+async function familiasDosMotores(ids: readonly string[]): Promise<Map<string, string[]>> {
+    const porMotor = new Map<string, string[]>()
+    if (ids.length === 0) return porMotor
+    for (const l of ((await ler('orcamentista_motor_familia', db().from('orcamentista_motor_familia').select('motor_id, familia').in('motor_id', ids))) ?? []) as Linha[]) {
+        porMotor.set(String(l.motor_id), [...(porMotor.get(String(l.motor_id)) ?? []), String(l.familia)])
+    }
+    for (const fs of porMotor.values()) fs.sort()
+    return porMotor
+}
+
 /**
- * O CATÁLOGO: todos os motores (também os arquivados — a tela os separa), com o NOME do fornecedor, a categoria, a família, as tipologias
- * que o arquivo trouxe e QUEM USA (empresa e título da família — só nomes; a etapa não aparece, 29/10/2026, e as etapas da mesma família
- * são um uso só). `tipo` dá os que uma família pode apontar — os de Perfil DELA e os SEM família, que servem qualquer linha (20261029000002) —,
- * não arquivados, e deixa de fora as tipologias e os usos (o combo da etapa não precisa deles).
+ * O CATÁLOGO: todos os motores (também os arquivados — a tela os separa), com o NOME do fornecedor, a categoria, as FAMÍLIAS em que atua, as
+ * tipologias que o arquivo trouxe e QUEM USA (empresa e título da família — só nomes; a etapa não aparece, 29/10/2026, e as etapas da mesma
+ * família são um uso só). `tipo` dá os que uma família pode apontar — os que atuam NELA (20261029000003) —, não arquivados, e deixa de fora as
+ * tipologias e os usos (o combo da etapa não precisa deles).
  */
 export async function lerCatalogoDeMotores(o: { tipo?: string } = {}): Promise<MotorDoCatalogo[]> {
-    const colunas = 'id, familia, fornecedor_id, categoria_chave, arquivo_nome, criado_em, arquivado_em'
-    const consulta = () => db().from('orcamentista_motor').select(colunas)
-    const motores = o.tipo === undefined
-        ? ((await ler('orcamentista_motor', consulta().order('criado_em', { ascending: true }))) ?? []) as Linha[]
-        : [
-            ...(((await ler('orcamentista_motor', consulta().eq('familia', o.tipo).is('arquivado_em', null))) ?? []) as Linha[]),
-            ...(((await ler('orcamentista_motor', consulta().is('familia', null).is('arquivado_em', null))) ?? []) as Linha[]),
-        ].sort((a, b) => String(a.criado_em).localeCompare(String(b.criado_em)))
+    const colunas = 'id, fornecedor_id, categoria_chave, arquivo_nome, criado_em, arquivado_em'
+    let motores: Linha[]
+    if (o.tipo === undefined) {
+        motores = ((await ler('orcamentista_motor', db().from('orcamentista_motor').select(colunas).order('criado_em', { ascending: true }))) ?? []) as Linha[]
+    } else {
+        const daFamilia = ((await ler('orcamentista_motor_familia', db().from('orcamentista_motor_familia').select('motor_id').eq('familia', o.tipo))) ?? []) as Linha[]
+        if (daFamilia.length === 0) return []
+        motores = ((await ler('orcamentista_motor', db().from('orcamentista_motor').select(colunas).in('id', [...new Set(daFamilia.map((l) => String(l.motor_id)))])
+            .is('arquivado_em', null).order('criado_em', { ascending: true }))) ?? []) as Linha[]
+    }
     if (motores.length === 0) return []
+    const familias = await familiasDosMotores(motores.map((m) => String(m.id)))
 
     const fIds = [...new Set(motores.map((m) => String(m.fornecedor_id)))]
     const nomes = new Map<string, string>()
@@ -95,7 +109,7 @@ export async function lerCatalogoDeMotores(o: { tipo?: string } = {}): Promise<M
 
     const porUso = (a: UsoDoMotor, b: UsoDoMotor) => a.empresa.localeCompare(b.empresa, 'pt-BR') || a.familia.localeCompare(b.familia, 'pt-BR')
     return motores.map((m) => ({
-        id: String(m.id), familia: m.familia == null ? null : String(m.familia), fornecedor_id: String(m.fornecedor_id), fornecedor: nomes.get(String(m.fornecedor_id)) ?? '(fornecedor removido)',
+        id: String(m.id), familias: familias.get(String(m.id)) ?? [], fornecedor_id: String(m.fornecedor_id), fornecedor: nomes.get(String(m.fornecedor_id)) ?? '(fornecedor removido)',
         categoria: String(m.categoria_chave), arquivo_nome: String(m.arquivo_nome), criado_em: String(m.criado_em), arquivado_em: m.arquivado_em == null ? null : String(m.arquivado_em),
         tipologias: o.tipo === undefined ? tipologias.get(String(m.id)) ?? 0 : null, usos: [...(usos.get(String(m.id)) ?? [])].sort(porUso),
     }))
@@ -112,12 +126,12 @@ export class ErroDaFuncao extends Error {
  * transação só. Devolve as contagens que a função gravou. Falha LANÇA `ErroDaFuncao` com o código.
  */
 /** UM motor do catálogo, como está no banco — o que trocar e editar precisam saber antes de chamar a função. Ausente é null. */
-export async function obterMotor(id: string): Promise<{ id: string; fornecedor_id: string; categoria_chave: string; familia: string | null; arquivo_path: string; arquivo_nome: string; arquivado_em: string | null } | null> {
-    const ls = ((await ler('orcamentista_motor', db().from('orcamentista_motor').select('id, fornecedor_id, categoria_chave, familia, arquivo_path, arquivo_nome, arquivado_em').eq('id', id))) ?? []) as Linha[]
+export async function obterMotor(id: string): Promise<{ id: string; fornecedor_id: string; categoria_chave: string; familias: string[]; arquivo_path: string; arquivo_nome: string; arquivado_em: string | null } | null> {
+    const ls = ((await ler('orcamentista_motor', db().from('orcamentista_motor').select('id, fornecedor_id, categoria_chave, arquivo_path, arquivo_nome, arquivado_em').eq('id', id))) ?? []) as Linha[]
     const m = ls[0]
     if (!m) return null
     return {
-        id: String(m.id), fornecedor_id: String(m.fornecedor_id), categoria_chave: String(m.categoria_chave), familia: m.familia == null ? null : String(m.familia),
+        id: String(m.id), fornecedor_id: String(m.fornecedor_id), categoria_chave: String(m.categoria_chave), familias: (await familiasDosMotores([String(m.id)])).get(String(m.id)) ?? [],
         arquivo_path: String(m.arquivo_path), arquivo_nome: String(m.arquivo_nome), arquivado_em: m.arquivado_em == null ? null : String(m.arquivado_em),
     }
 }
@@ -131,18 +145,21 @@ export async function trocarArquivoDoMotor(a: { por: string; motorId: string; ar
     return data as Record<string, unknown>
 }
 
-/** EDITAR categoria, fornecedor e família, só em motor SEM USO (`superadmin_editar_motor`, 20261029000002: a família só no Perfil). */
-export async function editarMotor(a: { por: string; motorId: string; fornecedorId: string; categoria: string; familia: string | null; arquivoPath: string }): Promise<Record<string, unknown>> {
+/**
+ * EDITAR (`superadmin_editar_motor`, 20261029000003): categoria e fornecedor só em motor SEM USO; as famílias também com uso, e tirar a que uma
+ * etapa ou item usa é recusa 23001 nomeando quem usa.
+ */
+export async function editarMotor(a: { por: string; motorId: string; fornecedorId: string; categoria: string; familias: string[]; arquivoPath: string }): Promise<Record<string, unknown>> {
     const { data, error } = await db().rpc('superadmin_editar_motor', {
-        p_por: a.por, p_motor: a.motorId, p_fornecedor: a.fornecedorId, p_categoria: a.categoria, p_familia: a.familia, p_arquivo_path: a.arquivoPath,
+        p_por: a.por, p_motor: a.motorId, p_fornecedor: a.fornecedorId, p_categoria: a.categoria, p_familias: a.familias, p_arquivo_path: a.arquivoPath,
     })
     if (error) throw new ErroDaFuncao(error)
     return data as Record<string, unknown>
 }
 
-export async function criarMotor(a: { por: string; fornecedorId: string; categoria: string; familia: string | null; arquivoPath: string; arquivoNome: string; payload: unknown }): Promise<Record<string, unknown>> {
+export async function criarMotor(a: { por: string; fornecedorId: string; categoria: string; familias: string[]; arquivoPath: string; arquivoNome: string; payload: unknown }): Promise<Record<string, unknown>> {
     const { data, error } = await db().rpc('superadmin_criar_motor', {
-        p_por: a.por, p_fornecedor: a.fornecedorId, p_categoria: a.categoria, p_familia: a.familia,
+        p_por: a.por, p_fornecedor: a.fornecedorId, p_categoria: a.categoria, p_familias: a.familias,
         p_arquivo_path: a.arquivoPath, p_arquivo_nome: a.arquivoNome, p_payload: a.payload,
     })
     if (error) throw new ErroDaFuncao(error)
