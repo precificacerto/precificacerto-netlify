@@ -1,5 +1,9 @@
 # Proposta — a família do motor só no Perfil, sem perder a trava (29/10/2026)
 
+> **APROVADA pelo dono do produto em 29/10/2026**, com o preenchimento das 3 etapas autorizado. Implementada na migração
+> `20261029000002_familia_do_motor_so_no_perfil` (PENDENTE até o dono do produto aplicar). A regra está em
+> `.claude/rules/tabela-de-preco-por-categoria.md`, "Decisões de 29/10/2026", item 7. O texto abaixo é o da proposta, como foi enviada.
+
 **Decisão pedida (dono do produto, 29/10/2026, item 6):** a família do motor é obrigatória só no PERFIL e nula nas demais categorias, e a ligação
 etapa ↔ motor deixa de exigir família igual quando o motor não tem família. **Este texto mede e propõe. Nada foi escrito em migração.**
 

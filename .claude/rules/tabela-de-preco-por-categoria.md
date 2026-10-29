@@ -363,9 +363,39 @@ Formulação do dono do produto, registrada como está:
    - no Perfil, a família é a das tabelas de Perfil do fornecedor (`familias_do_perfil`): com uma, já vem escolhida e travada; com mais de uma,
      escolhe-se entre elas;
    - a rota recusa outra (400 nomeando as que há) e o fornecedor sem tabela de Perfil, antes de baixar o arquivo;
-   - nas demais categorias a família ainda se escolhe à mão: o banco a exige em todo motor até o item 7.
+   - nas demais categorias a família ainda se escolhia à mão até o item 7; com ele, fora do Perfil a tela não pergunta a família.
 7. **A família do motor só no Perfil (motor de persiana serve qualquer linha):** decidido como regra, com o mesmo motivo da tabela
    (`20261028000002`). **Mexe na FK composta da `20261028000001`.**
    - A medição e a proposta estão em `docs/propostas/2026-10-29-familia-do-motor-so-no-perfil.md`: uma coluna gerada `familia_exigida =
      coalesce(familia, '*')`, com a trava declarativa, provada em 11 casos num Postgres 16 local.
-   - **Aguarda a decisão do dono do produto**, inclusive a autorização de preencher as 3 etapas.
+   - **APROVADA pelo dono do produto em 29/10/2026**, nas palavras dele: "A trava continua DECLARATIVA, no catálogo de constraints, e não em código
+     de função — era esse o ponto. O '*' é seguro porque a CHECK orcamentista_familia_catalogo_chave_forma exige ^[A-Z][A-Z0-9_]{0,39}$ [...]
+     Escreva a migração assim, sem gatilho." E: "AUTORIZADO O PREENCHIMENTO: as 3 etapas de hoje ganham motor_familia_exigida = 'PVC', com antes
+     e depois no log, e com a guarda que você propôs."
+
+   **Implementado na `20261029000002_familia_do_motor_so_no_perfil` (PENDENTE até o dono do produto aplicar; pressupõe a `20261029000001`):**
+   - **No motor:**
+     - `familia` nula permitida;
+     - a CHECK `orcamentista_motor_familia_so_no_perfil`, `(categoria_chave = 'PERFIL') = (familia IS NOT NULL)`;
+     - a coluna gerada `familia_exigida` e o `UNIQUE (id, familia_exigida)`;
+     - sai o `UNIQUE (id, familia)`.
+   - **Na etapa e no item:** `motor_familia_exigida`, a CHECK (existe se e só se há motor; vale a família da linha ou `'*'`) e a FK
+     `(motor_id, motor_familia_exigida) -> motor (id, familia_exigida)`, `ON DELETE RESTRICT`. As FKs `(motor_id, familia)` saem; a FK simples
+     do item fica.
+   - **O preenchimento autorizado:** as 3 etapas ganham `'PVC'`, com log. A guarda aborta se:
+     - as etapas a preencher não forem exatamente as 3;
+     - alguma tiver motor sem família, de outra família ou fora do Perfil;
+     - houver motor fora do Perfil com família;
+     - houver item de levantamento com motor;
+     - a forma da chave de família não for a medida.
+   - **Funções:**
+     - `superadmin_criar_motor`: a família é obrigatória no Perfil e recusada fora dele;
+     - `superadmin_gravar_etapas_da_materia_prima`: aceita o motor sem família e grava a exigida;
+     - `superadmin_editar_motor`: ganha `p_familia`, e a família anda com a categoria. Sai a assinatura sem ela.
+   - **O código:**
+     - o "Novo motor" só pergunta a família no Perfil;
+     - a lista diz "Qualquer linha";
+     - o combo da etapa oferece também os motores sem família;
+     - a edição de Perfil pede a família da tabela de Perfil do fornecedor.
+   - **Prova:** `scripts/harness/familia-do-motor-so-no-perfil/`, com a cadeia real e o estado de produção de 29/10/2026, as 8 guardas, as duas
+     corridas e as mutações nas duas passadas.

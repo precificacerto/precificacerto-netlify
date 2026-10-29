@@ -9,10 +9,11 @@
  *
  * "Novo motor" pede, nesta ordem, CATEGORIA → FORNECEDOR → FAMÍLIA → ARQUIVO (29/10/2026; era família primeiro): no PERFIL a família VEM da
  * tabela de Perfil do fornecedor ("derivar da tabela de PERFIL do fornecedor quando ela existir"), e por isso vem depois dele — com uma família
- * só, ela já vem escolhida; com mais de uma, escolhe-se entre elas; a rota recusa outra. Nas demais categorias a família ainda se escolhe à mão
- * (o banco a exige em todo motor até a decisão do item 6). A família é o que impede uma etapa de PVC usar motor de alumínio (a FK composta do
- * banco garante). O fornecedor sai SÓ dos que têm tabela daquela categoria — a categoria é da tabela, não do fornecedor —, e trocar a categoria
- * ou o fornecedor limpa o que deixou de valer.
+ * só, ela já vem escolhida; com mais de uma, escolhe-se entre elas; a rota recusa outra. A FAMÍLIA SÓ EXISTE NO PERFIL (dono do produto,
+ * 29/10/2026, item 6; migração 20261029000002): o motor de persiana, ferragem, vidro… serve QUALQUER linha, e a tela nem pergunta — a lista diz
+ * "Qualquer linha". No Perfil, a família é o que impede uma etapa de PVC usar motor de alumínio (a FK pela família exigida, no banco, garante).
+ * O fornecedor sai SÓ dos que têm tabela daquela categoria — a categoria é da tabela, não do fornecedor —, e trocar a categoria ou o
+ * fornecedor limpa o que deixou de valer. EDITAR segue a mesma regra: a família aparece só quando a categoria é Perfil.
  *
  * DENTRO DO NICHO (29/10/2026): a página do nicho passa só os fornecedores dele, e a lista mostra só os motores desses fornecedores.
  *
@@ -29,7 +30,7 @@ import React, { useCallback, useEffect, useState } from 'react'
 import { Alert, Button, Card, Empty, Modal, Select, Space, Switch, Table, Tag, Typography, Upload, message } from 'antd'
 import { PlusOutlined, UploadOutlined } from '@ant-design/icons'
 import { chamarRota, enviarArquivo } from '@/page-parts/atendimentos-ia/api'
-import { familiaObrigatoria, type Categoria, type Familia, type FornecedorDaLista } from '@/utils/atendimentos-ia-catalogo'
+import { ROTULO_QUALQUER_LINHA, familiaObrigatoria, type Categoria, type Familia, type FornecedorDaLista } from '@/utils/atendimentos-ia-catalogo'
 import {
     ANCORA_DO_CATALOGO_DE_MOTORES, MOTOR_COM_USO_NAO_SE_EDITA, MOTOR_SEM_USO, ROTAS_DOS_MOTORES, fraseDoArquivoTrocado, fraseDoMotorCriado, fraseDoMotorEmUso, fraseDoUso,
     type MotorDoCatalogo,
@@ -41,11 +42,13 @@ export const AVISO_DO_CATALOGO_DE_MOTORES =
     + 'Cada motor tem fornecedor, categoria e tipo. Arquivar não apaga, e o motor que uma família usa não se arquiva.'
 export const SEM_MOTOR_NO_CATALOGO = 'Nenhum motor no catálogo.'
 export const FAMILIA_DA_TABELA_DE_PERFIL = 'No Perfil, a família vem da tabela de Perfil do fornecedor.'
+/** Fora do Perfil, a tela não pergunta a família (20261029000002): o motor serve qualquer linha. */
+export const MOTOR_DE_QUALQUER_LINHA = 'Fora do Perfil, o motor não tem família: serve qualquer linha.'
 /** Dono do produto, 29/10/2026: trocar o arquivo é MOTOR NOVO; o antigo fica arquivado, com o que já foi calculado com ele. */
 export const AVISO_DA_TROCA =
     'Trocar o arquivo cria um motor NOVO, com o mesmo fornecedor, categoria e família. As famílias que usam este motor passam ao novo, e este fica '
     + 'arquivado com o conteúdo intacto: o que já foi calculado com ele continua lendo o que leu.'
-export const AVISO_DA_EDICAO = 'Categoria e fornecedor só se editam em motor sem uso. Trocar o fornecedor leva o arquivo para a pasta do fornecedor novo.'
+export const AVISO_DA_EDICAO = 'Categoria, fornecedor e família só se editam em motor sem uso. Trocar o fornecedor leva o arquivo para a pasta do fornecedor novo.'
 export const fraseSemFornecedorDaCategoria = (categoria: string) =>
     `Nenhum fornecedor tem tabela da categoria ${categoria}: cadastre a tabela do fornecedor, com essa categoria, antes do motor.`
 
@@ -70,7 +73,7 @@ export function MotoresDoCatalogo({ fornecedores, categorias, familias }: { forn
     const [salvandoTroca, setSalvandoTroca] = useState(false)
     const [erroAoTrocar, setErroAoTrocar] = useState<string | null>(null)
     const [editando, setEditando] = useState<MotorDoCatalogo | null>(null)
-    const [edicao, setEdicao] = useState<{ categoria: string | null; fornecedor_id: string | null }>({ categoria: null, fornecedor_id: null })
+    const [edicao, setEdicao] = useState<{ categoria: string | null; fornecedor_id: string | null; familia: string | null }>({ categoria: null, fornecedor_id: null, familia: null })
     const [salvandoEdicao, setSalvandoEdicao] = useState(false)
     const [erroAoEditar, setErroAoEditar] = useState<string | null>(null)
     const [erroAoCriar, setErroAoCriar] = useState<string | null>(null)
@@ -88,14 +91,15 @@ export function MotoresDoCatalogo({ fornecedores, categorias, familias }: { forn
 
     const rotuloDaCategoria = (c: string) => categorias.find((x) => x.chave === c)?.rotulo ?? c
     const rotuloDoTipo = (f: string) => familias.find((x) => x.chave === f)?.rotulo ?? f
+    /** No Perfil, as famílias que a tela oferece são SÓ as das tabelas de Perfil do fornecedor; fora dele, nenhuma. */
+    const familiasDoPerfilDe = (fornecedorId: string | null) =>
+        familias.filter((f) => (fornecedores.find((x) => x.id === fornecedorId)?.familias_do_perfil ?? []).includes(f.chave))
     const doNicho = new Set(fornecedores.map((f) => f.id))
     const visiveis = (motores ?? []).filter((m) => doNicho.has(m.fornecedor_id) && (verArquivados || m.arquivado_em === null))
     const doMotor = novo.categoria === null ? [] : fornecedoresDaCategoria(fornecedores, novo.categoria)
     const perfil = novo.categoria !== null && familiaObrigatoria(novo.categoria)
-    const doFornecedor = fornecedores.find((f) => f.id === novo.fornecedor_id) ?? null
-    // no Perfil, as famílias que a tela oferece são SÓ as das tabelas de Perfil do fornecedor; nas demais, todas
-    const familiasOferecidas = perfil ? familias.filter((f) => (doFornecedor?.familias_do_perfil ?? []).includes(f.chave)) : familias
-    const completo = novo.fornecedor_id !== null && novo.categoria !== null && novo.familia !== null && novo.arquivo !== null
+    const familiasOferecidas = perfil ? familiasDoPerfilDe(novo.fornecedor_id) : []
+    const completo = novo.fornecedor_id !== null && novo.categoria !== null && (!perfil || novo.familia !== null) && novo.arquivo !== null
 
     async function arquivar(m: MotorDoCatalogo) {
         setArquivando(m.id)
@@ -113,18 +117,22 @@ export function MotoresDoCatalogo({ fornecedores, categorias, familias }: { forn
 
     const abrir = (sim: boolean) => { setErroAoCriar(null); setNovo(NOVO_VAZIO); setAberto(sim) }
 
-    /** A família depois de escolher o fornecedor: no Perfil, a da tabela de Perfil dele quando é uma só; senão, a que estava, se ainda vale. */
-    function familiaDepois(n: Novo, fornecedorId: string | null): string | null {
-        if (n.categoria === null || !familiaObrigatoria(n.categoria)) return n.familia
+    /**
+     * A família depois de escolher a categoria ou o fornecedor: fora do Perfil, NENHUMA (o motor serve qualquer linha); no Perfil, a da tabela
+     * de Perfil dele quando é uma só; senão, a que estava, se ainda vale.
+     */
+    function familiaPara(categoria: string | null, fornecedorId: string | null, atual: string | null): string | null {
+        if (categoria === null || !familiaObrigatoria(categoria)) return null
         const doPerfil = fornecedores.find((f) => f.id === fornecedorId)?.familias_do_perfil ?? []
         if (doPerfil.length === 1) return doPerfil[0]
-        return n.familia !== null && doPerfil.includes(n.familia) ? n.familia : null
+        return atual !== null && doPerfil.includes(atual) ? atual : null
     }
 
     const abrirTroca = (m: MotorDoCatalogo) => { setErroAoTrocar(null); setArquivoNovo(null); setTrocando(m) }
-    const abrirEdicao = (m: MotorDoCatalogo) => { setErroAoEditar(null); setEdicao({ categoria: m.categoria, fornecedor_id: m.fornecedor_id }); setEditando(m) }
-    const edicaoMudou = editando !== null && edicao.categoria !== null && edicao.fornecedor_id !== null
-        && (edicao.categoria !== editando.categoria || edicao.fornecedor_id !== editando.fornecedor_id)
+    const abrirEdicao = (m: MotorDoCatalogo) => { setErroAoEditar(null); setEdicao({ categoria: m.categoria, fornecedor_id: m.fornecedor_id, familia: m.familia }); setEditando(m) }
+    const edicaoPerfil = edicao.categoria !== null && familiaObrigatoria(edicao.categoria)
+    const edicaoMudou = editando !== null && edicao.categoria !== null && edicao.fornecedor_id !== null && (!edicaoPerfil || edicao.familia !== null)
+        && (edicao.categoria !== editando.categoria || edicao.fornecedor_id !== editando.fornecedor_id || edicao.familia !== editando.familia)
 
     /** TROCAR O ARQUIVO = MOTOR NOVO: o arquivo vai à pasta do fornecedor DO MOTOR, e a rota cria, reaponta e arquiva numa transação. */
     async function trocar() {
@@ -149,7 +157,7 @@ export function MotoresDoCatalogo({ fornecedores, categorias, familias }: { forn
         setSalvandoEdicao(true)
         setErroAoEditar(null)
         try {
-            await chamarRota(ROTAS_DOS_MOTORES.editar, 'POST', { motor_id: editando.id, fornecedor_id: edicao.fornecedor_id, categoria: edicao.categoria })
+            await chamarRota(ROTAS_DOS_MOTORES.editar, 'POST', { motor_id: editando.id, fornecedor_id: edicao.fornecedor_id, categoria: edicao.categoria, familia: edicao.familia })
             message.success('Motor editado')
             setEditando(null)
             await carregar()
@@ -198,7 +206,12 @@ export function MotoresDoCatalogo({ fornecedores, categorias, familias }: { forn
                         columns={[
                             { title: 'Fornecedor', dataIndex: 'fornecedor' },
                             { title: 'Categoria', render: (_, m) => rotuloDaCategoria(m.categoria) },
-                            { title: 'Tipo', render: (_, m) => rotuloDoTipo(m.familia) },
+                            {
+                                title: 'Família',
+                                render: (_, m) => (m.familia === null
+                                    ? <Typography.Text type="secondary" data-qualquer-linha>{ROTULO_QUALQUER_LINHA}</Typography.Text>
+                                    : rotuloDoTipo(m.familia)),
+                            },
                             { title: 'Arquivo', render: (_, m) => <span>{m.arquivo_nome} {m.arquivado_em && <Tag>arquivado</Tag>}</span> },
                             { title: 'Tipologias', align: 'right', render: (_, m) => (m.tipologias === null ? '—' : m.tipologias.toLocaleString('pt-BR')) },
                             {
@@ -235,26 +248,33 @@ export function MotoresDoCatalogo({ fornecedores, categorias, familias }: { forn
                         onChange={(v) => setNovo((n) => {
                             const fornecedorId = fornecedoresDaCategoria(fornecedores, v).some((f) => f.id === n.fornecedor_id) ? n.fornecedor_id : null
                             const comCategoria = { ...n, categoria: v, fornecedor_id: fornecedorId }
-                            return { ...comCategoria, familia: familiaDepois(comCategoria, fornecedorId) }
+                            return { ...comCategoria, familia: familiaPara(v, fornecedorId, n.familia) }
                         })}
                         options={[...categorias].sort((a, b) => a.ordem - b.ordem).map((c) => ({ value: c.chave, label: c.rotulo }))} />
                     <Select aria-label="Fornecedor do motor" placeholder="2. Fornecedor" style={{ width: '100%' }} showSearch optionFilterProp="label" disabled={novo.categoria === null}
-                        value={novo.fornecedor_id ?? undefined} onChange={(v) => setNovo((n) => ({ ...n, fornecedor_id: v, familia: familiaDepois(n, v) }))}
+                        value={novo.fornecedor_id ?? undefined} onChange={(v) => setNovo((n) => ({ ...n, fornecedor_id: v, familia: familiaPara(n.categoria, v, n.familia) }))}
                         options={doMotor.map((f) => ({ value: f.id, label: f.nome }))} />
                     {novo.categoria !== null && doMotor.length === 0 && (
                         <Typography.Text type="secondary" style={{ fontSize: 12 }} data-sem-fornecedor-da-categoria>{fraseSemFornecedorDaCategoria(rotuloDaCategoria(novo.categoria))}</Typography.Text>
                     )}
-                    <Select aria-label="Família do motor" placeholder="3. Família" style={{ width: '100%' }} disabled={novo.fornecedor_id === null || (perfil && familiasOferecidas.length <= 1)}
-                        value={novo.familia ?? undefined} onChange={(v) => setNovo((n) => ({ ...n, familia: v }))}
-                        options={[...familiasOferecidas].sort((a, b) => a.ordem - b.ordem).map((f) => ({ value: f.chave, label: f.rotulo }))} />
+                    {perfil && (
+                        <Select aria-label="Família do motor" placeholder="3. Família" style={{ width: '100%' }} disabled={novo.fornecedor_id === null || familiasOferecidas.length <= 1}
+                            value={novo.familia ?? undefined} onChange={(v) => setNovo((n) => ({ ...n, familia: v }))}
+                            options={[...familiasOferecidas].sort((a, b) => a.ordem - b.ordem).map((f) => ({ value: f.chave, label: f.rotulo }))} />
+                    )}
                     {perfil && novo.fornecedor_id !== null && (
                         <Typography.Text type="secondary" style={{ fontSize: 12 }} data-familia-da-tabela-de-perfil>{FAMILIA_DA_TABELA_DE_PERFIL}</Typography.Text>
                     )}
-                    <Upload accept=".xlsx,.xlsm" maxCount={1} disabled={novo.familia === null}
+                    {novo.categoria !== null && !perfil && (
+                        <Typography.Text type="secondary" style={{ fontSize: 12 }} data-motor-de-qualquer-linha>{MOTOR_DE_QUALQUER_LINHA}</Typography.Text>
+                    )}
+                    <Upload accept=".xlsx,.xlsm" maxCount={1} disabled={novo.fornecedor_id === null || (perfil && novo.familia === null)}
                         fileList={novo.arquivo ? [{ uid: 'motor', name: novo.arquivo.name, status: 'done' }] : []}
                         onRemove={() => { setNovo((n) => ({ ...n, arquivo: null })); return true }}
                         beforeUpload={(arquivo) => { setNovo((n) => ({ ...n, arquivo: arquivo as unknown as File })); return false }}>
-                        <Button icon={<UploadOutlined />} disabled={novo.familia === null} aria-label="Arquivo do motor">4. Arquivo do motor (.xlsx, .xlsm)</Button>
+                        <Button icon={<UploadOutlined />} disabled={novo.fornecedor_id === null || (perfil && novo.familia === null)} aria-label="Arquivo do motor">
+                            {perfil ? '4.' : '3.'} Arquivo do motor (.xlsx, .xlsm)
+                        </Button>
                     </Upload>
                     {erroAoCriar && <Alert type="error" showIcon message="O motor não foi criado." description={erroAoCriar} data-erro-ao-criar-motor />}
                 </Space>
@@ -277,11 +297,19 @@ export function MotoresDoCatalogo({ fornecedores, categorias, familias }: { forn
                 <Space direction="vertical" style={{ width: '100%' }} data-modal-da-edicao>
                     <Typography.Paragraph type="secondary" style={{ fontSize: 13, margin: 0 }}>{AVISO_DA_EDICAO}</Typography.Paragraph>
                     <Select aria-label="Categoria do motor (edição)" style={{ width: '100%' }} value={edicao.categoria ?? undefined}
-                        onChange={(v) => setEdicao((x) => ({ categoria: v, fornecedor_id: fornecedoresDaCategoria(fornecedores, v).some((f) => f.id === x.fornecedor_id) ? x.fornecedor_id : null }))}
+                        onChange={(v) => setEdicao((x) => {
+                            const fornecedorId = fornecedoresDaCategoria(fornecedores, v).some((f) => f.id === x.fornecedor_id) ? x.fornecedor_id : null
+                            return { categoria: v, fornecedor_id: fornecedorId, familia: familiaPara(v, fornecedorId, x.familia) }
+                        })}
                         options={[...categorias].sort((a, b) => a.ordem - b.ordem).map((c) => ({ value: c.chave, label: c.rotulo }))} />
                     <Select aria-label="Fornecedor do motor (edição)" style={{ width: '100%' }} showSearch optionFilterProp="label" disabled={edicao.categoria === null}
-                        value={edicao.fornecedor_id ?? undefined} onChange={(v) => setEdicao((x) => ({ ...x, fornecedor_id: v }))}
+                        value={edicao.fornecedor_id ?? undefined} onChange={(v) => setEdicao((x) => ({ ...x, fornecedor_id: v, familia: familiaPara(x.categoria, v, x.familia) }))}
                         options={(edicao.categoria === null ? [] : fornecedoresDaCategoria(fornecedores, edicao.categoria)).map((f) => ({ value: f.id, label: f.nome }))} />
+                    {edicaoPerfil && (
+                        <Select aria-label="Família do motor (edição)" style={{ width: '100%' }} disabled={edicao.fornecedor_id === null || familiasDoPerfilDe(edicao.fornecedor_id).length <= 1}
+                            value={edicao.familia ?? undefined} onChange={(v) => setEdicao((x) => ({ ...x, familia: v }))}
+                            options={[...familiasDoPerfilDe(edicao.fornecedor_id)].sort((a, b) => a.ordem - b.ordem).map((f) => ({ value: f.chave, label: f.rotulo }))} />
+                    )}
                     {erroAoEditar && <Alert type="error" showIcon message="O motor não foi editado." description={erroAoEditar} data-erro-ao-editar />}
                 </Space>
             </Modal>

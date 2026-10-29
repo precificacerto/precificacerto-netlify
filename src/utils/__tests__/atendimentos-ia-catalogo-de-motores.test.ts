@@ -10,7 +10,9 @@
  *   (3) a CONFERÊNCIA do que a função gravou contra o que foi mandado: divergência nunca é sucesso;
  *   (4) a recusa: aba que falta, planilha que não abre, extensão que a leitura não abre — com o nome do arquivo;
  *   (5) os corpos (criar e arquivar), a ordem do combo da etapa e as frases;
- *   (6) o que liga o código à migração: a pasta do bucket e o limite de tempo.
+ *   (6) o que liga o código à migração: a pasta do bucket e o limite de tempo;
+ *   (7) a FAMÍLIA SÓ NO PERFIL (dono do produto, 29/10/2026, item 6; migração 20261029000002): no Perfil, obrigatória; fora dele, nula — mandar
+ *       uma é recusa, nunca ignorada; o combo da etapa oferece também os motores sem família; a regra é a MESMA CHECK da migração.
  */
 import { readFileSync } from 'fs'
 import { join } from 'path'
@@ -21,16 +23,17 @@ import {
     type ResultadoDoMotor,
 } from '@/utils/atendimentos-ia-importacao'
 import { ABAS_DO_MOTOR } from '@/utils/atendimentos-ia-abas-do-motor'
-import { fraseDoArquivoNaoImportavel } from '@/utils/atendimentos-ia-catalogo'
+import { CATEGORIA_QUE_EXIGE_FAMILIA, fraseDoArquivoNaoImportavel } from '@/utils/atendimentos-ia-catalogo'
 import { caminhoNoBucket } from '@/utils/atendimentos-ia-catalogo'
 import {
-    MOTOR_SEM_USO, ROTAS_DOS_MOTORES, fraseDoMotorCriado, fraseDoMotorEmUso, fraseDoMotorQueNaoFoiGravado, fraseDoUso, lerCorpoDoArquivar, lerCorpoDoMotorNovo,
-    motoresParaAEtapa, pastaDoMotorDoFornecedor, rotuloDoMotor, type MotorDoCatalogo,
+    FAMILIA_DO_MOTOR_DE_PERFIL_OBRIGATORIA, MOTOR_SEM_USO, ROTAS_DOS_MOTORES, fraseDaFamiliaSoNoPerfil, fraseDoMotorCriado, fraseDoMotorEmUso, fraseDoMotorQueNaoFoiGravado,
+    fraseDoUso, lerCorpoDaEdicao, lerCorpoDoArquivar, lerCorpoDoMotorNovo, motoresParaAEtapa, pastaDoMotorDoFornecedor, rotuloDoMotor, type MotorDoCatalogo,
 } from '@/utils/atendimentos-ia-catalogo-de-motores'
 import { abasDoSpec } from './fixtures/abas-do-motor-do-spec'
 
 type Celulas = Record<number, ExcelJS.CellValue>
 const MIGRACAO = readFileSync(join(__dirname, '../../../supabase/migrations/20261028000001_familia_instancia_e_catalogo_de_motores.sql'), 'utf8')
+const MIGRACAO_DA_FAMILIA_SO_NO_PERFIL = readFileSync(join(__dirname, '../../../supabase/migrations/20261029000002_familia_do_motor_so_no_perfil.sql'), 'utf8')
 
 async function bytes(abas: Record<string, Array<Celulas | null>>): Promise<Uint8Array> {
     const wb = new ExcelJS.Workbook()
@@ -202,7 +205,7 @@ describe('(5) os corpos, a ordem do combo e as frases', () => {
     it('cada campo obrigatório falta com a SUA frase', () => {
         expect(lerCorpoDoMotorNovo({ ...NOVO, fornecedor_id: 'x' })).toEqual({ ok: false, erro: 'Escolha o fornecedor do motor.' })
         expect(lerCorpoDoMotorNovo({ ...NOVO, categoria: '  ' })).toEqual({ ok: false, erro: 'Escolha a categoria do motor.' })
-        expect(lerCorpoDoMotorNovo({ ...NOVO, familia: null })).toEqual({ ok: false, erro: 'Escolha o tipo (família) do motor.' })
+        expect(lerCorpoDoMotorNovo({ ...NOVO, familia: null })).toEqual({ ok: false, erro: FAMILIA_DO_MOTOR_DE_PERFIL_OBRIGATORIA })
         expect(lerCorpoDoMotorNovo({ ...NOVO, path: '' }).ok).toBe(false)
         expect(lerCorpoDoMotorNovo({ ...NOVO, nome: '' }).ok).toBe(false)
         expect(lerCorpoDoMotorNovo(null).ok).toBe(false)
@@ -280,5 +283,51 @@ describe('(6) o que liga o código à migração', () => {
 
     it('o limite de tempo da função é o da frase e o da importação da tabela: 35 s', () => {
         expect(MIGRACAO).toContain(`SET statement_timeout = '${LIMITE_DA_GRAVACAO_S}s'`)
+    })
+})
+
+describe('(7) a família só no Perfil (20261029000002)', () => {
+    const PERSIANA = { fornecedor_id: F, categoria: 'PERSIANAS', path: `${F}/motor/u1-x.xlsx`, nome: 'x.xlsx' }
+    const EDICAO = { motor_id: F, fornecedor_id: OUTRO, categoria: 'PERSIANAS' }
+
+    it('criar: no Perfil a família é obrigatória (ausente, null ou vazia); fora dele, ausente, null ou vazia é NULL', () => {
+        for (const familia of [undefined, null, '', '  ']) {
+            expect(lerCorpoDoMotorNovo({ ...NOVO, familia })).toEqual({ ok: false, erro: FAMILIA_DO_MOTOR_DE_PERFIL_OBRIGATORIA })
+            const corpo = familia === undefined ? PERSIANA : { ...PERSIANA, familia }
+            expect(lerCorpoDoMotorNovo(corpo)).toEqual({ ok: true, corpo: { ...PERSIANA, familia: null } })
+        }
+    })
+
+    it('criar: fora do Perfil, MANDAR uma família é recusa com a frase — nunca ignorada em silêncio', () => {
+        expect(lerCorpoDoMotorNovo({ ...PERSIANA, familia: 'PVC' })).toEqual({ ok: false, erro: fraseDaFamiliaSoNoPerfil('PERSIANAS') })
+        expect(lerCorpoDoMotorNovo({ ...PERSIANA, familia: 7 })).toEqual({ ok: false, erro: fraseDaFamiliaSoNoPerfil('PERSIANAS') })
+        expect(fraseDaFamiliaSoNoPerfil('PERSIANAS')).toBe('Só o motor de Perfil tem família (linha): o de PERSIANAS serve qualquer linha.')
+    })
+
+    it('editar: a família anda com a categoria — a mesma regra da criação, e o corpo a devolve', () => {
+        expect(lerCorpoDaEdicao(EDICAO)).toEqual({ ok: true, corpo: { ...EDICAO, familia: null } })
+        expect(lerCorpoDaEdicao({ ...EDICAO, familia: null })).toEqual({ ok: true, corpo: { ...EDICAO, familia: null } })
+        expect(lerCorpoDaEdicao({ ...EDICAO, familia: 'PVC' })).toEqual({ ok: false, erro: fraseDaFamiliaSoNoPerfil('PERSIANAS') })
+        expect(lerCorpoDaEdicao({ ...EDICAO, categoria: 'PERFIL' })).toEqual({ ok: false, erro: FAMILIA_DO_MOTOR_DE_PERFIL_OBRIGATORIA })
+        expect(lerCorpoDaEdicao({ ...EDICAO, categoria: 'PERFIL', familia: ' ALUMINIO ' })).toEqual({ ok: true, corpo: { ...EDICAO, categoria: 'PERFIL', familia: 'ALUMINIO' } })
+        expect(lerCorpoDaEdicao({ ...EDICAO, por: 'u' })).toEqual({ ok: false, erro: 'Campo desconhecido no corpo: por (só motor_id, fornecedor_id, categoria, familia).' })
+    })
+
+    const m = (id: string, f: Partial<MotorDoCatalogo>): MotorDoCatalogo => ({
+        id, familia: 'PVC', fornecedor_id: OUTRO, fornecedor: 'Zeta', categoria: 'PERFIL', arquivo_nome: `${id}.xlsx`, criado_em: '2026-10-28', arquivado_em: null, tipologias: null, usos: [], ...f,
+    })
+    it('o combo da etapa: o motor SEM família (persiana) serve a família PVC e a ALUMINIO; o arquivado sem família não', () => {
+        const lista = [
+            m('pvc', {}), m('alu', { familia: 'ALUMINIO' }),
+            m('persiana', { familia: null, categoria: 'PERSIANAS', fornecedor: 'Roller' }), m('velha', { familia: null, categoria: 'PERSIANAS', arquivado_em: '2026-10-27' }),
+        ]
+        expect(motoresParaAEtapa(lista, 'PVC', []).map((x) => x.id)).toEqual(['persiana', 'pvc'])
+        expect(motoresParaAEtapa(lista, 'ALUMINIO', []).map((x) => x.id)).toEqual(['persiana', 'alu'])
+    })
+
+    it('a regra é a MESMA da migração: a CHECK do motor amarra a família ao Perfil, pela mesma chave de categoria do código', () => {
+        expect(CATEGORIA_QUE_EXIGE_FAMILIA).toBe('PERFIL')
+        expect(MIGRACAO_DA_FAMILIA_SO_NO_PERFIL).toContain(`CHECK ((categoria_chave = '${CATEGORIA_QUE_EXIGE_FAMILIA}') = (familia IS NOT NULL));`)
+        expect(MIGRACAO_DA_FAMILIA_SO_NO_PERFIL).toContain(`IF p_categoria = '${CATEGORIA_QUE_EXIGE_FAMILIA}' THEN`)
     })
 })
