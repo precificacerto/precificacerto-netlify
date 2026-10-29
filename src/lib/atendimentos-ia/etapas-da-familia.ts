@@ -105,6 +105,35 @@ export class ErroDaFuncao extends Error {
  * `superadmin_criar_motor` (20261028000001): cria o motor no catálogo, grava as 12 tabelas por `motor_id` e registra a importação, numa
  * transação só. Devolve as contagens que a função gravou. Falha LANÇA `ErroDaFuncao` com o código.
  */
+/** UM motor do catálogo, como está no banco — o que trocar e editar precisam saber antes de chamar a função. Ausente é null. */
+export async function obterMotor(id: string): Promise<{ id: string; fornecedor_id: string; categoria_chave: string; familia: string; arquivo_path: string; arquivo_nome: string; arquivado_em: string | null } | null> {
+    const ls = ((await ler('orcamentista_motor', db().from('orcamentista_motor').select('id, fornecedor_id, categoria_chave, familia, arquivo_path, arquivo_nome, arquivado_em').eq('id', id))) ?? []) as Linha[]
+    const m = ls[0]
+    if (!m) return null
+    return {
+        id: String(m.id), fornecedor_id: String(m.fornecedor_id), categoria_chave: String(m.categoria_chave), familia: String(m.familia),
+        arquivo_path: String(m.arquivo_path), arquivo_nome: String(m.arquivo_nome), arquivado_em: m.arquivado_em == null ? null : String(m.arquivado_em),
+    }
+}
+
+/** TROCAR O ARQUIVO = MOTOR NOVO (`superadmin_trocar_arquivo_do_motor`, 20261029000001): cria, reaponta as etapas e arquiva o antigo, numa transação. */
+export async function trocarArquivoDoMotor(a: { por: string; motorId: string; arquivoPath: string; arquivoNome: string; payload: unknown }): Promise<Record<string, unknown>> {
+    const { data, error } = await db().rpc('superadmin_trocar_arquivo_do_motor', {
+        p_por: a.por, p_motor: a.motorId, p_arquivo_path: a.arquivoPath, p_arquivo_nome: a.arquivoNome, p_payload: a.payload,
+    })
+    if (error) throw new ErroDaFuncao(error)
+    return data as Record<string, unknown>
+}
+
+/** EDITAR categoria e fornecedor, só em motor SEM USO (`superadmin_editar_motor`, 20261029000001). */
+export async function editarMotor(a: { por: string; motorId: string; fornecedorId: string; categoria: string; arquivoPath: string }): Promise<Record<string, unknown>> {
+    const { data, error } = await db().rpc('superadmin_editar_motor', {
+        p_por: a.por, p_motor: a.motorId, p_fornecedor: a.fornecedorId, p_categoria: a.categoria, p_arquivo_path: a.arquivoPath,
+    })
+    if (error) throw new ErroDaFuncao(error)
+    return data as Record<string, unknown>
+}
+
 export async function criarMotor(a: { por: string; fornecedorId: string; categoria: string; familia: string; arquivoPath: string; arquivoNome: string; payload: unknown }): Promise<Record<string, unknown>> {
     const { data, error } = await db().rpc('superadmin_criar_motor', {
         p_por: a.por, p_fornecedor: a.fornecedorId, p_categoria: a.categoria, p_familia: a.familia,

@@ -90,6 +90,7 @@ const Componente = () => require('@/page-parts/atendimentos-ia/motores-do-catalo
     SEM_MOTOR_NO_CATALOGO: string
     fraseSemFornecedorDaCategoria: (c: string) => string
     FAMILIA_DA_TABELA_DE_PERFIL: string
+    AVISO_DA_TROCA: string
 }
 
 const montadas: { root: ReturnType<typeof createRoot>; host: HTMLElement }[] = []
@@ -365,6 +366,95 @@ describe('(3) "Novo motor": categoria → fornecedor → família → arquivo (2
         expect(chaves().slice(n)).toEqual([`POST ${ROTAS_DO_CATALOGO.urlDeEnvio}`])
         expect(modal().querySelector('[data-erro-ao-criar-motor]')?.textContent).toContain('Motor persiana.xlsx')
         expect(modal().querySelector('[data-erro-ao-criar-motor]')?.textContent).toContain('Fornecedor não encontrado.')
+    })
+})
+
+describe('(5) trocar o arquivo (motor NOVO) e editar (só sem uso) — 29/10/2026', () => {
+    const modalDa = (marca: string) => document.body.querySelector(`[${marca}]`) as HTMLElement
+    async function anexarNa(marca: string, nome: string) {
+        const input = modalDa(marca).querySelector('input[type="file"]') as HTMLInputElement
+        const arquivo = new File([new Uint8Array([80, 75, 3, 4])], nome)
+        await act(async () => { Object.defineProperty(input, 'files', { value: [arquivo], configurable: true }); input.dispatchEvent(new Event('change', { bubbles: true })) })
+        await assentar()
+    }
+    const ok = (texto: string) => Array.from(document.body.querySelectorAll('.ant-modal-footer button')).find((b) => b.textContent?.includes(texto)) as HTMLButtonElement
+
+    it('"Trocar arquivo" vale também com USO; o aviso diz que é motor novo e que o antigo fica arquivado', async () => {
+        const host = await montar()
+        const b = botao(linha(host, M_WOLF)!, 'Trocar o arquivo de wolff.xlsm')!
+        expect(b.disabled).toBe(false)
+        await clicar(b)
+        expect(modalDa('data-modal-da-troca').querySelector('[data-aviso-da-troca]')!.textContent).toBe(Componente().AVISO_DA_TROCA)
+        expect(ok('Trocar o arquivo').disabled).toBe(true)
+        // o arquivado não tem botão de trocar
+        await clicar(host.querySelector('[aria-label="Mostrar os arquivados"]'))
+        expect(botao(linha(host, M_ARQ)!, 'Trocar o arquivo de velho.xlsx')).toBeUndefined()
+    })
+
+    it('trocar: URL na pasta do fornecedor DO MOTOR (tipo motor), os bytes, o POST da troca com o motor e o arquivo — nessa ordem — e relê', async () => {
+        respostas[`POST ${ROTAS_DOS_MOTORES.trocarArquivo}`] = [{ status: 200, body: { motor_id: 'novo', motor_antigo: M_WOLF, etapas_reapontadas: 3, regras: 30, tipologias: 4 } }]
+        const host = await montar()
+        await clicar(botao(linha(host, M_WOLF)!, 'Trocar o arquivo de wolff.xlsm'))
+        await anexarNa('data-modal-da-troca', 'Motor persiana.xlsx')
+        const n = pedidos.length
+        await clicar(ok('Trocar o arquivo'))
+        expect(chaves().slice(n)).toEqual([`POST ${ROTAS_DO_CATALOGO.urlDeEnvio}`, `PUT ${URL_ASSINADA}`, `POST ${ROTAS_DOS_MOTORES.trocarArquivo}`, `GET ${ROTAS_DOS_MOTORES.lista}`])
+        expect(pedidos[n].corpo).toEqual({ fornecedor_id: W, tipo: 'motor', nome: 'Motor persiana.xlsx' })
+        expect(pedidos[n + 2].corpo).toEqual({ motor_id: M_WOLF, path: PATH, nome: 'Motor persiana.xlsx' })
+        expect(document.body.querySelector('[data-modal-da-troca]')).toBeNull()
+    })
+
+    it('a recusa da troca aparece DENTRO do modal, com a frase da rota, e o catálogo não é relido', async () => {
+        respostas[`POST ${ROTAS_DOS_MOTORES.trocarArquivo}`] = [{ status: 422, body: { error: 'Motor persiana.xlsx: falta a aba "Motor por barra".' } }]
+        const host = await montar()
+        await clicar(botao(linha(host, M_WOLF)!, 'Trocar o arquivo de wolff.xlsm'))
+        await anexarNa('data-modal-da-troca', 'Motor persiana.xlsx')
+        const n = pedidos.length
+        await clicar(ok('Trocar o arquivo'))
+        expect(modalDa('data-modal-da-troca').querySelector('[data-erro-ao-trocar]')!.textContent).toContain('falta a aba "Motor por barra"')
+        expect(chaves().slice(n)).not.toContain(`GET ${ROTAS_DOS_MOTORES.lista}`)
+    })
+
+    it('a frase do arquivo trocado: o motor novo, as etapas que passaram e o antigo arquivado', () => {
+        const U = require('@/utils/atendimentos-ia-catalogo-de-motores') as typeof import('@/utils/atendimentos-ia-catalogo-de-motores') // eslint-disable-line @typescript-eslint/no-require-imports
+        expect(U.fraseDoArquivoTrocado({ tipologias: 4, etapas_reapontadas: 3 })).toBe('Arquivo trocado: motor novo com 4 tipologia(s); 3 etapa(s) passaram ao motor novo; o antigo foi arquivado, com o conteúdo intacto.')
+        expect(U.fraseDoArquivoTrocado({ tipologias: 1, etapas_reapontadas: 0 })).toContain('nenhuma etapa usava o motor')
+    })
+
+    it('"Editar" fica TRAVADO no motor com uso, com o porquê; no livre, abre com a categoria e o fornecedor de agora, e salvar só liga quando muda', async () => {
+        const host = await montar()
+        const travado = botao(linha(host, M_WOLF)!, 'Editar wolff.xlsm')!
+        expect(travado.disabled).toBe(true)
+        expect(travado.getAttribute('title')).toBe((require('@/utils/atendimentos-ia-catalogo-de-motores') as typeof import('@/utils/atendimentos-ia-catalogo-de-motores')).MOTOR_COM_USO_NAO_SE_EDITA) // eslint-disable-line @typescript-eslint/no-require-imports
+        await clicar(botao(linha(host, M_LIVRE)!, 'Editar roller.xlsx'))
+        expect(combo('Categoria do motor (edição)').querySelector('.ant-select-selection-item')?.textContent).toBe('Persianas')
+        expect(combo('Fornecedor do motor (edição)').querySelector('.ant-select-selection-item')?.textContent).toBe('Roller Star')
+        expect(ok('Salvar').disabled).toBe(true)
+        await escolher('Fornecedor do motor (edição)', 'Wolf')
+        expect(ok('Salvar').disabled).toBe(false)
+    })
+
+    it('editar: trocar a categoria LIMPA o fornecedor sem tabela dela; salvar manda motor, fornecedor e categoria, e relê', async () => {
+        respostas[`POST ${ROTAS_DOS_MOTORES.editar}`] = [{ status: 200, body: { orcamentista_motor: {} } }]
+        const host = await montar()
+        await clicar(botao(linha(host, M_LIVRE)!, 'Editar roller.xlsx'))
+        await escolher('Categoria do motor (edição)', 'Perfil')
+        expect(combo('Fornecedor do motor (edição)').querySelector('.ant-select-selection-item')).toBeNull()
+        expect(ok('Salvar').disabled).toBe(true)
+        await escolher('Fornecedor do motor (edição)', 'Wolf')
+        const n = pedidos.length
+        await clicar(ok('Salvar'))
+        expect(chaves().slice(n)).toEqual([`POST ${ROTAS_DOS_MOTORES.editar}`, `GET ${ROTAS_DOS_MOTORES.lista}`])
+        expect(pedidos[n].corpo).toEqual({ motor_id: M_LIVRE, fornecedor_id: W, categoria: 'PERFIL' })
+    })
+
+    it('a recusa da edição aparece DENTRO do modal, com a frase da rota', async () => {
+        respostas[`POST ${ROTAS_DOS_MOTORES.editar}`] = [{ status: 400, body: { error: 'o motor tem uso (0 etapa(s), 1 item(ns) de levantamento)' } }]
+        const host = await montar()
+        await clicar(botao(linha(host, M_LIVRE)!, 'Editar roller.xlsx'))
+        await escolher('Fornecedor do motor (edição)', 'Wolf')
+        await clicar(ok('Salvar'))
+        expect(modalDa('data-modal-da-edicao').querySelector('[data-erro-ao-editar]')!.textContent).toContain('1 item(ns) de levantamento')
     })
 })
 

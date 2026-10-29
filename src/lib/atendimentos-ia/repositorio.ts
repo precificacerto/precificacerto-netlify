@@ -392,6 +392,12 @@ export async function caminhosDaPlanilha(caminhos: string[]): Promise<Set<string
     return new Set(ls.map((l: Linha) => String(l.arquivo_path)))
 }
 
+/** Copia UM objeto dentro do bucket (o motor que muda de fornecedor leva o arquivo para a pasta do novo). Falha LANÇA. */
+export async function copiarObjeto(de: string, para: string): Promise<void> {
+    const { error } = await bucket().copy(de, para)
+    if (error) throw new ErroDoBanco({ message: error.message ?? 'erro do Storage ao copiar' })
+}
+
 /** Remove objetos. NÃO lança: devolve o erro, para a rota decidir — ver a exclusão da tabela. */
 export async function removerObjetos(caminhos: string[]): Promise<{ erro: string | null }> {
     if (caminhos.length === 0) return { erro: null }

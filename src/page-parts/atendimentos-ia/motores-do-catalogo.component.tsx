@@ -14,7 +14,11 @@
  * banco garante). O fornecedor sai SÓ dos que têm tabela daquela categoria — a categoria é da tabela, não do fornecedor —, e trocar a categoria
  * ou o fornecedor limpa o que deixou de valer.
  *
- * DENTRO DO NICHO (29/10/2026): a página do nicho passa só os fornecedores dele, e a lista mostra só os motores desses fornecedores. O arquivo vai em dois passos, como o da tabela
+ * DENTRO DO NICHO (29/10/2026): a página do nicho passa só os fornecedores dele, e a lista mostra só os motores desses fornecedores.
+ *
+ * TROCAR O ARQUIVO = MOTOR NOVO (29/10/2026, migração 20261029000001): vale também com uso — as famílias passam ao novo, e o antigo fica arquivado
+ * com o conteúdo intacto. EDITAR (categoria e fornecedor) só em motor SEM USO: o botão vem travado quando a lista sabe que há uso, e a função
+ * recusa também o motor que só um item de levantamento leu. "Remover o arquivo" é ARQUIVAR — motor sem arquivo não é motor. O arquivo vai em dois passos, como o da tabela
  * (`enviarArquivo` com `tipo: 'motor'`, na pasta DO FORNECEDOR), e a rota lê, confere e cria numa transação só. A Wolf pode ter motor de
  * PERFIL e de PERSIANAS ao mesmo tempo: não há vigente. O motor novo nasce SEM TEMPO e sem etapa.
  *
@@ -27,7 +31,8 @@ import { PlusOutlined, UploadOutlined } from '@ant-design/icons'
 import { chamarRota, enviarArquivo } from '@/page-parts/atendimentos-ia/api'
 import { familiaObrigatoria, type Categoria, type Familia, type FornecedorDaLista } from '@/utils/atendimentos-ia-catalogo'
 import {
-    ANCORA_DO_CATALOGO_DE_MOTORES, MOTOR_SEM_USO, ROTAS_DOS_MOTORES, fraseDoMotorCriado, fraseDoMotorEmUso, fraseDoUso, type MotorDoCatalogo,
+    ANCORA_DO_CATALOGO_DE_MOTORES, MOTOR_COM_USO_NAO_SE_EDITA, MOTOR_SEM_USO, ROTAS_DOS_MOTORES, fraseDoArquivoTrocado, fraseDoMotorCriado, fraseDoMotorEmUso, fraseDoUso,
+    type MotorDoCatalogo,
 } from '@/utils/atendimentos-ia-catalogo-de-motores'
 
 export const TITULO_DO_CATALOGO_DE_MOTORES = 'Catálogo de motores'
@@ -36,6 +41,11 @@ export const AVISO_DO_CATALOGO_DE_MOTORES =
     + 'Cada motor tem fornecedor, categoria e tipo. Arquivar não apaga, e o motor que uma família usa não se arquiva.'
 export const SEM_MOTOR_NO_CATALOGO = 'Nenhum motor no catálogo.'
 export const FAMILIA_DA_TABELA_DE_PERFIL = 'No Perfil, a família vem da tabela de Perfil do fornecedor.'
+/** Dono do produto, 29/10/2026: trocar o arquivo é MOTOR NOVO; o antigo fica arquivado, com o que já foi calculado com ele. */
+export const AVISO_DA_TROCA =
+    'Trocar o arquivo cria um motor NOVO, com o mesmo fornecedor, categoria e família. As famílias que usam este motor passam ao novo, e este fica '
+    + 'arquivado com o conteúdo intacto: o que já foi calculado com ele continua lendo o que leu.'
+export const AVISO_DA_EDICAO = 'Categoria e fornecedor só se editam em motor sem uso. Trocar o fornecedor leva o arquivo para a pasta do fornecedor novo.'
 export const fraseSemFornecedorDaCategoria = (categoria: string) =>
     `Nenhum fornecedor tem tabela da categoria ${categoria}: cadastre a tabela do fornecedor, com essa categoria, antes do motor.`
 
@@ -55,6 +65,14 @@ export function MotoresDoCatalogo({ fornecedores, categorias, familias }: { forn
     const [aberto, setAberto] = useState(false)
     const [novo, setNovo] = useState<Novo>(NOVO_VAZIO)
     const [criando, setCriando] = useState(false)
+    const [trocando, setTrocando] = useState<MotorDoCatalogo | null>(null)
+    const [arquivoNovo, setArquivoNovo] = useState<File | null>(null)
+    const [salvandoTroca, setSalvandoTroca] = useState(false)
+    const [erroAoTrocar, setErroAoTrocar] = useState<string | null>(null)
+    const [editando, setEditando] = useState<MotorDoCatalogo | null>(null)
+    const [edicao, setEdicao] = useState<{ categoria: string | null; fornecedor_id: string | null }>({ categoria: null, fornecedor_id: null })
+    const [salvandoEdicao, setSalvandoEdicao] = useState(false)
+    const [erroAoEditar, setErroAoEditar] = useState<string | null>(null)
     const [erroAoCriar, setErroAoCriar] = useState<string | null>(null)
 
     const carregar = useCallback(async () => {
@@ -101,6 +119,45 @@ export function MotoresDoCatalogo({ fornecedores, categorias, familias }: { forn
         const doPerfil = fornecedores.find((f) => f.id === fornecedorId)?.familias_do_perfil ?? []
         if (doPerfil.length === 1) return doPerfil[0]
         return n.familia !== null && doPerfil.includes(n.familia) ? n.familia : null
+    }
+
+    const abrirTroca = (m: MotorDoCatalogo) => { setErroAoTrocar(null); setArquivoNovo(null); setTrocando(m) }
+    const abrirEdicao = (m: MotorDoCatalogo) => { setErroAoEditar(null); setEdicao({ categoria: m.categoria, fornecedor_id: m.fornecedor_id }); setEditando(m) }
+    const edicaoMudou = editando !== null && edicao.categoria !== null && edicao.fornecedor_id !== null
+        && (edicao.categoria !== editando.categoria || edicao.fornecedor_id !== editando.fornecedor_id)
+
+    /** TROCAR O ARQUIVO = MOTOR NOVO: o arquivo vai à pasta do fornecedor DO MOTOR, e a rota cria, reaponta e arquiva numa transação. */
+    async function trocar() {
+        if (!trocando || !arquivoNovo) return
+        setSalvandoTroca(true)
+        setErroAoTrocar(null)
+        try {
+            const enviado = await enviarArquivo(trocando.fornecedor_id, 'motor', arquivoNovo)
+            const r = await chamarRota<{ tipologias: number; etapas_reapontadas: number }>(ROTAS_DOS_MOTORES.trocarArquivo, 'POST', { motor_id: trocando.id, path: enviado.path, nome: enviado.nome })
+            message.success(fraseDoArquivoTrocado(r), 8)
+            setTrocando(null)
+            await carregar()
+        } catch (e) {
+            setErroAoTrocar((e as Error).message)
+        } finally {
+            setSalvandoTroca(false)
+        }
+    }
+
+    async function editar() {
+        if (!editando || !edicaoMudou) return
+        setSalvandoEdicao(true)
+        setErroAoEditar(null)
+        try {
+            await chamarRota(ROTAS_DOS_MOTORES.editar, 'POST', { motor_id: editando.id, fornecedor_id: edicao.fornecedor_id, categoria: edicao.categoria })
+            message.success('Motor editado')
+            setEditando(null)
+            await carregar()
+        } catch (e) {
+            setErroAoEditar((e as Error).message)
+        } finally {
+            setSalvandoEdicao(false)
+        }
     }
 
     async function criar() {
@@ -154,10 +211,16 @@ export function MotoresDoCatalogo({ fornecedores, categorias, familias }: { forn
                                 title: '',
                                 align: 'right',
                                 render: (_, m) => (m.arquivado_em !== null ? null : (
-                                    <Button size="small" danger loading={arquivando === m.id} disabled={m.usos.length > 0 || arquivando !== null}
-                                        title={m.usos.length > 0 ? fraseDoMotorEmUso(m.usos.length) : undefined} onClick={() => arquivar(m)} aria-label={`Arquivar ${m.arquivo_nome}`}>
-                                        Arquivar
-                                    </Button>
+                                    <Space size={4} wrap style={{ justifyContent: 'flex-end' }}>
+                                        {/* trocar o arquivo é MOTOR NOVO: vale também com uso (as famílias passam ao novo) */}
+                                        <Button size="small" onClick={() => abrirTroca(m)} aria-label={`Trocar o arquivo de ${m.arquivo_nome}`} data-trocar-arquivo>Trocar arquivo</Button>
+                                        <Button size="small" disabled={m.usos.length > 0} title={m.usos.length > 0 ? MOTOR_COM_USO_NAO_SE_EDITA : undefined}
+                                            onClick={() => abrirEdicao(m)} aria-label={`Editar ${m.arquivo_nome}`} data-editar-motor>Editar</Button>
+                                        <Button size="small" danger loading={arquivando === m.id} disabled={m.usos.length > 0 || arquivando !== null}
+                                            title={m.usos.length > 0 ? fraseDoMotorEmUso(m.usos.length) : undefined} onClick={() => arquivar(m)} aria-label={`Arquivar ${m.arquivo_nome}`}>
+                                            Arquivar
+                                        </Button>
+                                    </Space>
                                 )),
                             },
                         ]}
@@ -194,6 +257,32 @@ export function MotoresDoCatalogo({ fornecedores, categorias, familias }: { forn
                         <Button icon={<UploadOutlined />} disabled={novo.familia === null} aria-label="Arquivo do motor">4. Arquivo do motor (.xlsx, .xlsm)</Button>
                     </Upload>
                     {erroAoCriar && <Alert type="error" showIcon message="O motor não foi criado." description={erroAoCriar} data-erro-ao-criar-motor />}
+                </Space>
+            </Modal>
+            <Modal title={trocando ? `Trocar o arquivo de ${trocando.arquivo_nome}` : 'Trocar o arquivo'} open={trocando !== null} onCancel={() => setTrocando(null)}
+                okText="Trocar o arquivo" onOk={trocar} okButtonProps={{ disabled: arquivoNovo === null || salvandoTroca, loading: salvandoTroca }} destroyOnClose>
+                <Space direction="vertical" style={{ width: '100%' }} data-modal-da-troca>
+                    <Typography.Paragraph type="secondary" style={{ fontSize: 13, margin: 0 }} data-aviso-da-troca>{AVISO_DA_TROCA}</Typography.Paragraph>
+                    <Upload accept=".xlsx,.xlsm" maxCount={1}
+                        fileList={arquivoNovo ? [{ uid: 'novo', name: arquivoNovo.name, status: 'done' }] : []}
+                        onRemove={() => { setArquivoNovo(null); return true }}
+                        beforeUpload={(a) => { setArquivoNovo(a as unknown as File); return false }}>
+                        <Button icon={<UploadOutlined />} aria-label="Arquivo novo do motor">Arquivo novo (.xlsx, .xlsm)</Button>
+                    </Upload>
+                    {erroAoTrocar && <Alert type="error" showIcon message="O arquivo não foi trocado." description={erroAoTrocar} data-erro-ao-trocar />}
+                </Space>
+            </Modal>
+            <Modal title={editando ? `Editar ${editando.arquivo_nome}` : 'Editar o motor'} open={editando !== null} onCancel={() => setEditando(null)}
+                okText="Salvar" onOk={editar} okButtonProps={{ disabled: !edicaoMudou || salvandoEdicao, loading: salvandoEdicao }} destroyOnClose>
+                <Space direction="vertical" style={{ width: '100%' }} data-modal-da-edicao>
+                    <Typography.Paragraph type="secondary" style={{ fontSize: 13, margin: 0 }}>{AVISO_DA_EDICAO}</Typography.Paragraph>
+                    <Select aria-label="Categoria do motor (edição)" style={{ width: '100%' }} value={edicao.categoria ?? undefined}
+                        onChange={(v) => setEdicao((x) => ({ categoria: v, fornecedor_id: fornecedoresDaCategoria(fornecedores, v).some((f) => f.id === x.fornecedor_id) ? x.fornecedor_id : null }))}
+                        options={[...categorias].sort((a, b) => a.ordem - b.ordem).map((c) => ({ value: c.chave, label: c.rotulo }))} />
+                    <Select aria-label="Fornecedor do motor (edição)" style={{ width: '100%' }} showSearch optionFilterProp="label" disabled={edicao.categoria === null}
+                        value={edicao.fornecedor_id ?? undefined} onChange={(v) => setEdicao((x) => ({ ...x, fornecedor_id: v }))}
+                        options={(edicao.categoria === null ? [] : fornecedoresDaCategoria(fornecedores, edicao.categoria)).map((f) => ({ value: f.id, label: f.nome }))} />
+                    {erroAoEditar && <Alert type="error" showIcon message="O motor não foi editado." description={erroAoEditar} data-erro-ao-editar />}
                 </Space>
             </Modal>
         </Card>

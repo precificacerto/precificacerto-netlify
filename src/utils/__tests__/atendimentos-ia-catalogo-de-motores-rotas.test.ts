@@ -46,6 +46,8 @@ const estado = {
     assinados: [] as string[],
     lidos: [] as string[],
     falhaNoDownload: false,
+    copias: [] as Array<{ de: string; para: string }>,
+    removidos: [] as string[],
 }
 
 function montar() {
@@ -56,6 +58,8 @@ function montar() {
     estado.objetos = new Map()
     estado.assinados = []
     estado.lidos = []
+    estado.copias = []
+    estado.removidos = []
     estado.falhaNoDownload = false
     estado.db = {
         users: [SUPER, COMUM],
@@ -112,6 +116,8 @@ jest.mock('@/supabase/admin', () => ({
             from: () => ({
                 createSignedUploadUrl: async (caminho: string): Promise<Linha> => { estado.assinados.push(caminho); return { data: { signedUrl: `https://storage.exemplo/${caminho}?token=t`, path: caminho }, error: null } },
                 exists: async (caminho: string): Promise<Linha> => ({ data: estado.objetos.has(caminho), error: null }),
+                copy: async (de: string, para: string): Promise<Linha> => { estado.copias.push({ de, para }); return { data: { path: para }, error: null } },
+                remove: async (caminhos: string[]): Promise<Linha> => { estado.removidos.push(...caminhos); return { data: [], error: null } },
                 download: async (caminho: string): Promise<Linha> => {
                     estado.lidos.push(caminho)
                     if (estado.falhaNoDownload) return { data: null, error: { message: 'storage fora' } }
@@ -126,6 +132,8 @@ jest.mock('@/supabase/admin', () => ({
 /* eslint-disable @typescript-eslint/no-require-imports */
 const rotaDosMotores = () => require('@/pages/api/super-admin/atendimentos-ia/motores').default
 const rotaDoArquivar = () => require('@/pages/api/super-admin/atendimentos-ia/motores/arquivar').default
+const rotaDaTroca = () => require('@/pages/api/super-admin/atendimentos-ia/motores/trocar-arquivo').default
+const rotaDaEdicao = () => require('@/pages/api/super-admin/atendimentos-ia/motores/editar').default
 const rotaDoNome = () => require('@/pages/api/super-admin/base-de-conhecimento/nome-da-materia-prima').default
 /* eslint-enable @typescript-eslint/no-require-imports */
 
@@ -142,6 +150,8 @@ async function chamar(rota: () => (q: NextApiRequest, s: NextApiResponse) => Pro
 }
 const motores = (metodo: string, body?: unknown) => chamar(rotaDosMotores, metodo, {}, body)
 const arquivar = (metodo: string, body?: unknown) => chamar(rotaDoArquivar, metodo, {}, body)
+const trocar = (body?: unknown, metodo = 'POST') => chamar(rotaDaTroca, metodo, {}, body)
+const editar = (body?: unknown, metodo = 'POST') => chamar(rotaDaEdicao, metodo, {}, body)
 
 type Celulas = Record<number, ExcelJS.CellValue>
 async function arquivoDoMotor(regras: Celulas[] = [{ 1: 'A1', 14: 'JC2F, JC4F', 15: 'L>1000' }, { 1: 'B2', 14: 'JC2F' }]): Promise<Uint8Array> {
@@ -434,6 +444,147 @@ describe('(4) PUT nome-da-materia-prima — o título da família é digitado', 
 
     it('só PUT: GET, POST e DELETE são 405', async () => {
         for (const m of ['GET', 'POST', 'DELETE']) expect((await chamar(rotaDoNome, m, { tenant: T }, {})).status).toBe(405)
+        nenhumaEscrita()
+    })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// TROCAR O ARQUIVO = MOTOR NOVO, e EDITAR só sem uso (dono do produto, 29/10/2026; migração 20261029000001)
+const PATH_NOVO = `${W}/motor/u2-Motor-v2.xlsx`
+function devolveATroca(): { data: unknown; error: null } {
+    const r = devolveOQueRecebeu()
+    return { data: { ...(r.data as Record<string, unknown>), motor_antigo: M_WOLF, etapas_reapontadas: 3 }, error: null }
+}
+
+describe('(6) POST motores/trocar-arquivo — motor NOVO, pela função, e confere', () => {
+    it('o caminho feliz: lê o arquivo NOVO, chama SÓ a função de trocar com o autor da sessão, e devolve o motor novo, o antigo e as etapas', async () => {
+        estado.objetos.set(PATH_NOVO, await arquivoDoMotor())
+        estado.rpcResposta = devolveATroca
+        const r = await trocar({ motor_id: M_WOLF, path: PATH_NOVO, nome: ' Motor v2.xlsx ' })
+        expect(r.status).toBe(200)
+        expect(estado.rpcs.map((x) => x.funcao)).toEqual(['superadmin_trocar_arquivo_do_motor'])
+        expect(estado.rpcs[0].args).toMatchObject({ p_por: SUPER.id, p_motor: M_WOLF, p_arquivo_path: PATH_NOVO, p_arquivo_nome: 'Motor v2.xlsx' })
+        expect((estado.rpcs[0].args.p_payload as Record<string, unknown[]>).regras).toHaveLength(2)
+        expect(estado.lidos).toEqual([PATH_NOVO])
+        expect(r.corpo).toMatchObject({ motor_id: MOTOR_NOVO, motor_antigo: M_WOLF, etapas_reapontadas: 3, regras: 2 })
+        // nada se apaga: nem objeto, nem escrita direta
+        expect(estado.removidos).toEqual([])
+        expect(estado.escritasDiretas).toEqual([])
+    })
+
+    it('as recusas ANTES da função — cada uma sem baixar nada e sem chamar a função', async () => {
+        estado.objetos.set(PATH_NOVO, await arquivoDoMotor())
+        const casos: Array<[unknown, number, string]> = [
+            [{ motor_id: 'x', path: PATH_NOVO, nome: 'a.xlsx' }, 400, 'O motor_id não é um uuid.'],
+            [{ motor_id: M_WOLF, path: PATH_NOVO, nome: 'a.xlsx', por: SUPER.id }, 400, 'Campo desconhecido no corpo: por (só motor_id, path, nome).'],
+            [{ motor_id: M_WOLF, path: PATH_NOVO, nome: 'a.pdf' }, 400, ''],
+            [{ motor_id: '00000000-0000-4000-8000-0000000000ff', path: PATH_NOVO, nome: 'a.xlsx' }, 404, 'Motor não encontrado.'],
+            [{ motor_id: M_ROLLER, path: `${R}/motor/u2.xlsx`, nome: 'a.xlsx' }, 400, 'O motor está arquivado: motor arquivado não se edita nem troca de arquivo.'],
+            // o arquivo tem de estar na pasta do fornecedor DO MOTOR (o da Wolf), não na de outro
+            [{ motor_id: M_WOLF, path: `${R}/motor/u2.xlsx`, nome: 'a.xlsx' }, 400, 'O arquivo não está na pasta de motor do fornecedor deste motor.'],
+            [{ motor_id: M_WOLF, path: `${W}/motor/../x.xlsx`, nome: 'a.xlsx' }, 400, 'O arquivo não está na pasta de motor do fornecedor deste motor.'],
+        ]
+        for (const [corpo, status, frase] of casos) {
+            const r = await trocar(corpo)
+            expect([r.status, frase === '' || r.corpo.error === frase]).toEqual([status, true])
+        }
+        expect(estado.lidos).toEqual([])
+        nenhumaEscrita()
+    })
+
+    it('o objeto que não está no bucket: 409 com o caminho; a planilha que o leitor recusa: 422 — a função NÃO é chamada', async () => {
+        const r = await trocar({ motor_id: M_WOLF, path: PATH_NOVO, nome: 'Motor v2.xlsx' })
+        expect(r.status).toBe(409)
+        expect(r.corpo.error).toContain(PATH_NOVO)
+        estado.objetos.set(PATH_NOVO, new Uint8Array([1, 2, 3]))
+        expect((await trocar({ motor_id: M_WOLF, path: PATH_NOVO, nome: 'Motor v2.xlsx' })).status).toBe(422)
+        nenhumaEscrita()
+    })
+
+    it('a recusa da função vai com a MENSAGEM DELA; outro erro é 500 com frase fixa', async () => {
+        estado.objetos.set(PATH_NOVO, await arquivoDoMotor())
+        estado.rpcResposta = () => ({ data: null, error: { code: '22023', message: 'o arquivo novo e o mesmo objeto do motor atual' } })
+        let r = await trocar({ motor_id: M_WOLF, path: PATH_NOVO, nome: 'Motor v2.xlsx' })
+        expect([r.status, r.corpo.error]).toEqual([400, 'o arquivo novo e o mesmo objeto do motor atual'])
+        estado.rpcResposta = () => ({ data: null, error: { code: '57014', message: 'canceling statement due to statement timeout' } })
+        r = await trocar({ motor_id: M_WOLF, path: PATH_NOVO, nome: 'Motor v2.xlsx' })
+        expect(r.status).toBe(500)
+        expect(r.corpo.error).not.toContain('canceling')
+    })
+
+    it('a conferência recusa o SUCESSO FALSO: a função devolve uma contagem menor → 500, nunca sucesso', async () => {
+        estado.objetos.set(PATH_NOVO, await arquivoDoMotor())
+        estado.rpcResposta = () => { const r = devolveATroca(); return { data: { ...(r.data as Record<string, unknown>), regras: 1 }, error: null } }
+        const r = await trocar({ motor_id: M_WOLF, path: PATH_NOVO, nome: 'Motor v2.xlsx' })
+        expect(r.status).toBe(500)
+        expect(r.corpo.error).toContain('NÃO deve ser considerado válido')
+    })
+
+    it('só POST', async () => {
+        for (const m of ['GET', 'PUT', 'DELETE']) expect((await trocar({}, m)).status).toBe(405)
+        nenhumaEscrita()
+    })
+})
+
+describe('(7) POST motores/editar — só sem uso; trocar o fornecedor leva o arquivo para a pasta do NOVO', () => {
+    beforeEach(() => {
+        // um motor de PERSIANAS da Roller Star, sem uso, para editar
+        estado.db.orcamentista_motor.push({ id: MOTOR_NOVO, familia: 'PVC', fornecedor_id: R, categoria_chave: 'PERSIANAS', arquivo_nome: 'persiana.xlsx', arquivo_path: `${R}/motor/u1-persiana.xlsx`, criado_em: '2026-10-29', arquivado_em: null })
+        estado.rpcResposta = () => ({ data: { orcamentista_motor: {} }, error: null })
+    })
+
+    it('a categoria, com o MESMO fornecedor: nenhuma cópia, e a função recebe o caminho de agora', async () => {
+        const r = await editar({ motor_id: MOTOR_NOVO, fornecedor_id: R, categoria: 'FERRAGENS' })
+        expect(r.status).toBe(200)
+        expect(estado.copias).toEqual([])
+        expect(estado.rpcs).toEqual([{ funcao: 'superadmin_editar_motor', args: { p_por: SUPER.id, p_motor: MOTOR_NOVO, p_fornecedor: R, p_categoria: 'FERRAGENS', p_arquivo_path: `${R}/motor/u1-persiana.xlsx` } }])
+    })
+
+    it('o fornecedor muda: o arquivo é COPIADO para a pasta de motor do novo, e a função recebe o caminho da cópia; o antigo não é tocado', async () => {
+        const r = await editar({ motor_id: MOTOR_NOVO, fornecedor_id: W, categoria: 'PERSIANAS' })
+        expect(r.status).toBe(200)
+        expect(estado.copias).toHaveLength(1)
+        expect(estado.copias[0].de).toBe(`${R}/motor/u1-persiana.xlsx`)
+        expect(estado.copias[0].para.startsWith(`${W}/motor/`)).toBe(true)
+        expect(estado.copias[0].para.endsWith('-persiana.xlsx')).toBe(true)
+        expect(estado.rpcs[0].args.p_arquivo_path).toBe(estado.copias[0].para)
+        expect(estado.removidos).toEqual([])
+    })
+
+    it('a função recusa (motor com uso): a mensagem dela vai, e a CÓPIA é removida — só ela, nunca o arquivo antigo', async () => {
+        estado.rpcResposta = () => ({ data: null, error: { code: '22023', message: 'o motor tem uso (1 etapa(s), 0 item(ns) de levantamento)' } })
+        const r = await editar({ motor_id: MOTOR_NOVO, fornecedor_id: W, categoria: 'PERSIANAS' })
+        expect([r.status, r.corpo.error]).toEqual([400, 'o motor tem uso (1 etapa(s), 0 item(ns) de levantamento)'])
+        expect(estado.removidos).toEqual([estado.copias[0].para])
+        expect(estado.removidos).not.toContain(`${R}/motor/u1-persiana.xlsx`)
+    })
+
+    it('a recusa sem cópia (mesmo fornecedor) não remove nada', async () => {
+        estado.rpcResposta = () => ({ data: null, error: { code: '22023', message: 'nada mudou' } })
+        expect((await editar({ motor_id: MOTOR_NOVO, fornecedor_id: R, categoria: 'PERSIANAS' })).status).toBe(400)
+        expect(estado.removidos).toEqual([])
+    })
+
+    it('PERFIL: a família do motor tem de ser a de uma tabela de Perfil do fornecedor — antes de copiar e de chamar a função', async () => {
+        // a Wolf tem Perfil ALUMINIO; o motor é PVC
+        let r = await editar({ motor_id: MOTOR_NOVO, fornecedor_id: W, categoria: 'PERFIL' })
+        expect([r.status, r.corpo.error]).toEqual([400, 'A família do motor de Perfil vem da tabela de Perfil do fornecedor (ALUMINIO), e PVC não está entre elas.'])
+        r = await editar({ motor_id: MOTOR_NOVO, fornecedor_id: R, categoria: 'PERFIL' })
+        expect(r.corpo.error).toContain('não tem tabela de Perfil')
+        expect(estado.copias).toEqual([])
+        nenhumaEscrita()
+    })
+
+    it('as recusas da rota: corpo, motor inexistente, motor arquivado — sem cópia e sem função', async () => {
+        const casos: Array<[unknown, number]> = [
+            [{ motor_id: MOTOR_NOVO, fornecedor_id: R }, 400],
+            [{ motor_id: MOTOR_NOVO, fornecedor_id: 'x', categoria: 'PERSIANAS' }, 400],
+            [{ motor_id: MOTOR_NOVO, fornecedor_id: R, categoria: 'PERSIANAS', arquivo_path: 'x' }, 400],
+            [{ motor_id: '00000000-0000-4000-8000-0000000000ff', fornecedor_id: R, categoria: 'PERSIANAS' }, 404],
+            [{ motor_id: M_ROLLER, fornecedor_id: R, categoria: 'FERRAGENS' }, 400],
+        ]
+        for (const [corpo, status] of casos) expect((await editar(corpo)).status).toBe(status)
+        expect(estado.copias).toEqual([])
         nenhumaEscrita()
     })
 })
