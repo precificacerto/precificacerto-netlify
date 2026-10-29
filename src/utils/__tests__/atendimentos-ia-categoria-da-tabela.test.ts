@@ -68,6 +68,7 @@ jest.mock('@/lib/atendimentos-ia/repositorio', () => {
         atualizarTabela: jest.fn(async () => 1),
         categoriasDoFornecedorDosItensGravados: jest.fn(async (): Promise<Array<string | null>> => []),
         contarItensDaTabela: jest.fn(async () => 0),
+        caminhosDeTabela: jest.fn(async () => new Set<string>()),
         objetoExiste: jest.fn(async () => true),
         removerObjetos: jest.fn(async (): Promise<{ erro: string | null }> => ({ erro: null })),
         caminhosDaPlanilha: jest.fn(async () => new Set<string>()),
@@ -352,5 +353,72 @@ describe('(5) PATCH /tabelas/[id] — o ARQUIVO da tabela já importada NÃO se 
         const r = await patch({ vigencia: 'desde 01/11/2026' })
         expect(r.status).toBe(200)
         expect(repo.contarItensDaTabela).not.toHaveBeenCalled()
+    })
+})
+
+describe('(6) a edição RECUSADA tira do bucket o arquivo que a tela acabou de enviar (29/10/2026: três ficaram sobrando)', () => {
+    const patch = (corpo: object) => chamar('tabela', 'PATCH', { id: T }, corpo)
+    const ENVIADO = `${F}/arquivo/u3-Perfis_de_PVC_-_Wolff.xlsx`
+    const NOVO_ARQUIVO = { arquivo_path: ENVIADO, arquivo_nome: 'Perfis_de_PVC_-_Wolff.xlsx' }
+    const removidos = () => repo.removerObjetos.mock.calls.flatMap((c) => c[0] as string[])
+    beforeEach(() => {
+        repo.caminhosDeTabela.mockImplementation(async () => new Set<string>())
+        repo.caminhosDaPlanilha.mockImplementation(async () => new Set<string>())
+    })
+
+    it('recusada pelo arquivo da tabela importada: o ENVIADO sai, o de antes fica — e a resposta é a recusa', async () => {
+        repo.contarItensDaTabela.mockImplementation(async () => 735)
+        const r = await patch(NOVO_ARQUIVO)
+        expect(r).toEqual({ status: 409, json: { error: fraseDoArquivoDaTabelaImportada(735) } })
+        expect(removidos()).toEqual([ENVIADO])
+    })
+
+    it('recusada por outro motivo (a categoria que não se troca, a família fora da lista, a corrida do banco): o enviado sai também', async () => {
+        repo.obterTabela.mockImplementation(async () => ({ ...TABELA_SEM, categoria_chave: 'PERFIL' }))
+        expect((await patch({ ...NOVO_ARQUIVO, categoria_chave: 'VIDRO' })).status).toBe(409)
+        expect(removidos()).toEqual([ENVIADO])
+        repo.removerObjetos.mockClear()
+        repo.obterTabela.mockImplementation(async () => ({ ...TABELA_SEM }))
+        expect((await patch({ ...NOVO_ARQUIVO, familia: 'INVENTADA' })).status).toBe(400)
+        expect(removidos()).toEqual([ENVIADO])
+        repo.removerObjetos.mockClear()
+        repo.atualizarTabela.mockRejectedValueOnce(new ErroDoBanco({ code: 'XX000', message: 'falhou' }))
+        expect((await patch(NOVO_ARQUIVO)).status).toBe(500)
+        expect(removidos()).toEqual([ENVIADO])
+    })
+
+    it('o enviado que ALGUÉM referencia (outra tabela ou uma planilha do motor) NÃO sai — o corpo não apaga arquivo dos outros', async () => {
+        repo.contarItensDaTabela.mockImplementation(async () => 735)
+        repo.caminhosDeTabela.mockImplementation(async () => new Set([ENVIADO]))
+        await patch(NOVO_ARQUIVO)
+        repo.caminhosDeTabela.mockImplementation(async () => new Set<string>())
+        repo.caminhosDaPlanilha.mockImplementation(async () => new Set([ENVIADO]))
+        await patch(NOVO_ARQUIVO)
+        expect(removidos()).toEqual([])
+    })
+
+    it('a conferência de quem usa FALHOU: nada sai (órfão é desperdício; arquivo de tabela apagado é perda), e a resposta segue a recusa', async () => {
+        repo.contarItensDaTabela.mockImplementation(async () => 735)
+        repo.caminhosDeTabela.mockRejectedValueOnce(new Error('caiu'))
+        const r = await patch(NOVO_ARQUIVO)
+        expect(r.status).toBe(409)
+        expect(removidos()).toEqual([])
+    })
+
+    it('a edição ACEITA não tira o enviado (é o arquivo novo da tabela); a recusada SEM arquivo não remove nada', async () => {
+        expect((await patch(NOVO_ARQUIVO)).status).toBe(200)
+        expect(removidos()).not.toContain(ENVIADO)
+        repo.removerObjetos.mockClear()
+        repo.obterTabela.mockImplementation(async () => ({ ...TABELA_SEM, categoria_chave: 'PERFIL' }))
+        expect((await patch({ categoria_chave: 'VIDRO' })).status).toBe(409)
+        expect(removidos()).toEqual([])
+    })
+})
+
+describe('(7) a frase da tabela com itens de mais de uma categoria diz que são os do ARQUIVO DE ANTES e aponta a tabela nova', () => {
+    it('a frase', () => {
+        const f = fraseDaTabelaComMaisDeUmaCategoria(categoriasDoFornecedorNosItens(['Perfil PVC', 'Reforço', 'Acessórios']).categorias)
+        expect(f).toBe('Os itens gravados do arquivo de antes têm 3 categorias do fornecedor: Perfil PVC (1), Reforço (1), Acessórios (1). '
+            + 'Uma tabela é de uma categoria só, e esta não pode declarar uma. Para um arquivo de uma categoria só, cadastre uma tabela nova do fornecedor, com a categoria dele. Nada foi alterado.')
     })
 })

@@ -41,10 +41,15 @@ export function fraseDoArquivoComMaisDeUmaCategoria(nomeDoArquivo: string, categ
         + 'Uma tabela é de uma categoria só: separe o arquivo em um por categoria e suba cada um como uma tabela. Nada foi alterado.')
 }
 
-/** A recusa de DECLARAR a categoria de uma tabela cujos itens já gravados têm mais de uma categoria do fornecedor. */
+/**
+ * A recusa de DECLARAR a categoria de uma tabela cujos itens já gravados têm mais de uma categoria do fornecedor. A frase diz que a contagem é a dos
+ * ITENS GRAVADOS DO ARQUIVO DE ANTES (dono do produto, 29/10/2026: quem sobe um arquivo novo lia a contagem como se fosse a dele) e aponta o caminho:
+ * arquivo de uma categoria só é tabela nova.
+ */
 export function fraseDaTabelaComMaisDeUmaCategoria(categorias: readonly CategoriaNoArquivo[]): string {
-    return `A tabela tem itens de ${categorias.length} categorias do fornecedor: ${listaDasCategorias(categorias)}. `
-        + 'Uma tabela é de uma categoria só, e esta não pode declarar uma. Nada foi alterado.'
+    return `Os itens gravados do arquivo de antes têm ${categorias.length} categorias do fornecedor: ${listaDasCategorias(categorias)}. `
+        + 'Uma tabela é de uma categoria só, e esta não pode declarar uma. Para um arquivo de uma categoria só, cadastre uma tabela nova do fornecedor, '
+        + 'com a categoria dele. Nada foi alterado.'
 }
 
 export const fraseDosItensSemCategoriaDoFornecedor = (n: number) =>

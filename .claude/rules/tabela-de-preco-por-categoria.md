@@ -399,3 +399,25 @@ Formulação do dono do produto, registrada como está:
      - a edição de Perfil pede a família da tabela de Perfil do fornecedor.
    - **Prova:** `scripts/harness/familia-do-motor-so-no-perfil/`, com a cadeia real e o estado de produção de 29/10/2026, as 8 guardas, as duas
      corridas e as mutações nas duas passadas.
+
+## Incidente de 29/10/2026 — a edição trocou o arquivo da tabela da Wolff e apagou o original
+
+**Medido (logs do Supabase e `storage.objects`, só leitura):** às 16:07:09 uma edição (PATCH) **sem categoria** trocou o `arquivo_path` da tabela
+`72366020…` (735 itens importados em 20/10) para `arquivo/acc4e760-…-Perfis_de_PVC_-_Wolff.xlsx`, e às 16:07:10 a rota **apagou** o objeto antigo,
+`arquivo/2b9fc126-…-Modelo-2026-Atualizada-Tabela-de-Pedidos-Wolff-Perfis.xlsm` (601.701 bytes, eTag `2a7e0959153303fac954af9851c4dd8f`). A
+rota só protegia o arquivo do MOTOR (`caminhosDaPlanilha`); o de preço não tinha trava — e é exatamente o que "A ORDEM OBRIGATÓRIA", acima,
+proíbe ("NADA arquiva, substitui ou apaga essa tabela"). **Nada se perdeu:** o dono do produto tinha a cópia (md5 e tamanho iguais ao eTag).
+As outras quatro edições (16:03, 16:04, 16:06, 16:13) traziam a categoria e foram recusadas pela conferência dos itens gravados — a recusa
+estava certa no efeito, mas a frase não dizia que contava os itens do arquivo de antes. Cada uma deixou o arquivo enviado sobrando no bucket:
+`9ad536c7`, `56f75f12` e `d6ab0018`, guardados como prova até o conserto (c) estar em produção.
+
+**Os consertos (aprovados pelo dono do produto, 29/10/2026, nesta prioridade):**
+- **(a)** o arquivo de uma tabela com algum item importado **não se troca**: a edição responde 409 com `fraseDoArquivoDaTabelaImportada`, que manda
+  criar **tabela nova**, antes de qualquer outra conferência, gravação ou remoção;
+- **(c)** a edição **recusada** tira do bucket o arquivo que a tela acabou de enviar — só se nenhuma tabela (arquivo ou motor) e nenhuma planilha do
+  motor o referencia, e nada sai se a conferência falhar;
+- **(b)** a recusa das categorias diz "os itens gravados do arquivo de antes" e aponta a tabela nova.
+
+**Arquivo novo de uma categoria é TABELA NOVA.** O `Perfis_de_PVC_-_Wolff.xlsx` é um **terceiro formato** que o importador não lê (17 abas — Resumo,
+16 por cor e "Sem preço na tabela" —, cabeçalho na linha 4, toda linha com Categoria = "Perfis de PVC"); o leitor que reconhece pela FORMA, e não
+pelo nome da aba, se mede junto com os arquivos WVetro.

@@ -60,6 +60,9 @@ jest.mock('@/lib/atendimentos-ia/repositorio', () => {
         listarCategorias: fn('listarCategorias', () => [{ chave: 'PERFIL', rotulo: 'Perfil', ordem: 1 }, { chave: 'REFORCO', rotulo: 'Reforço', ordem: 2 }, { chave: 'ACESSORIOS_VEDACAO', rotulo: 'Acessórios', ordem: 3 }, { chave: 'VIDRO', rotulo: 'Vidro', ordem: 6 }]),
         atualizarTabela: fn('atualizarTabela', () => 1),
         categoriasDoFornecedorDosItensGravados: fn('categoriasDoFornecedorDosItensGravados', () => []),
+        // a tabela destes casos ainda não tem itens importados: o arquivo dela se troca (a recusa da importada está em atendimentos-ia-categoria-da-tabela)
+        contarItensDaTabela: fn('contarItensDaTabela', () => 0),
+        caminhosDeTabela: fn('caminhosDeTabela', () => new Set<string>()),
         excluirTabela: fn('excluirTabela', () => 1),
         contasQueUsamATabela: fn('contasQueUsamATabela', () => []),
         assinarEnvio: fn('assinarEnvio', (p: string) => ({ path: p, signedUrl: `https://x/upload/sign/${p}?token=t` })),
