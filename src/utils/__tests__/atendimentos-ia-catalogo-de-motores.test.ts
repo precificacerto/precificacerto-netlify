@@ -251,10 +251,10 @@ describe('(5) os corpos, a ordem do combo e as frases', () => {
     })
 
     it('quem usa, por nome; e a frase do motor em uso no singular e no plural', () => {
-        expect(fraseDoUso({ empresa: 'De Paula', familia: 'Esquadrias de PVC', etapa: 1, rotulo: 'Apanhado' })).toBe('De Paula · Esquadrias de PVC · etapa 1 (Apanhado)')
-        expect(fraseDoMotorEmUso(1)).toBe('Uma etapa aponta este motor: aponte a etapa para outro antes de arquivar.')
-        expect(fraseDoMotorEmUso(3)).toBe('3 etapas apontam este motor: aponte as etapas para outro antes de arquivar.')
-        expect(MOTOR_SEM_USO).toBe('Nenhuma etapa aponta este motor.')
+        expect(fraseDoUso({ empresa: 'De Paula', familia: 'Esquadrias de PVC WOLF' })).toBe('De Paula · Esquadrias de PVC WOLF')
+        expect(fraseDoMotorEmUso(1)).toBe('Uma família usa este motor: troque o motor dela, na base de conhecimento da conta, antes de arquivar.')
+        expect(fraseDoMotorEmUso(3)).toBe('3 famílias usam este motor: troque o motor delas, na base de conhecimento da conta, antes de arquivar.')
+        expect(MOTOR_SEM_USO).toBe('Nenhuma família usa este motor.')
     })
 
     it('a frase da falha diz o motivo pelo código e NUNCA o texto do banco; em todas, "nada foi gravado"', () => {

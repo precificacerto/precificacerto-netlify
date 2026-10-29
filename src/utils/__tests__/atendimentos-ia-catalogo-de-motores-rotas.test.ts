@@ -184,15 +184,15 @@ describe('(1) o portão: quem não é super admin recebe 404, antes de ler arqui
 })
 
 describe('(2) GET motores — o catálogo, com os nomes e quem usa', () => {
-    it('cada motor com o NOME do fornecedor, a categoria, o tipo, as tipologias contadas e os usos por nome, em ordem', async () => {
+    it('cada motor com o NOME do fornecedor, a categoria, o tipo, as tipologias contadas e os usos por nome, em ordem — UM por família, sem a etapa (29/10/2026)', async () => {
         const r = await motores('GET')
         expect(r.status).toBe(200)
         const [wolf, roller] = r.corpo.motores
         expect(wolf).toMatchObject({ id: M_WOLF, fornecedor: 'Wolf', categoria: 'PERFIL', familia: 'PVC', arquivo_nome: 'wolff.xlsm', arquivado_em: null, tipologias: 3 })
+        // três etapas apontam o motor, duas delas da MESMA família: dois usos, e nenhum número nem nome de etapa
         expect(wolf.usos).toEqual([
-            { empresa: 'Alfa Vidros', familia: 'PVC Linha 2', etapa: 1, rotulo: 'Apanhar' },
-            { empresa: 'Esquadrias De Paula Ltda', familia: 'Esquadrias de PVC', etapa: 1, rotulo: 'Apanhado' },
-            { empresa: 'Esquadrias De Paula Ltda', familia: 'Esquadrias de PVC', etapa: 3, rotulo: 'Barras' },
+            { empresa: 'Alfa Vidros', familia: 'PVC Linha 2' },
+            { empresa: 'Esquadrias De Paula Ltda', familia: 'Esquadrias de PVC' },
         ])
         // o arquivado também vem (a tela o separa), sem uso e sem tipologia
         expect(roller).toMatchObject({ id: M_ROLLER, fornecedor: 'Roller Star', categoria: 'PERSIANAS', arquivado_em: '2026-10-28', tipologias: 0, usos: [] })

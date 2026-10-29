@@ -37,7 +37,7 @@ import {
     ROTULO_DA_POSICAO, ROTULO_DO_PRODUTO, SEM_PRINCIPAL_DO_PERFIL, TITULO_DO_CARTAO,
     FAMILIA_COM_PENDENCIA, FAMILIA_DEPOIS_DE_SALVAR, fraseDasInstanciasIguais, instanciasIguais, SEM_FAMILIA_NA_MATERIA_PRIMA, categoriasForaDaFamilia, familiaDeclaraRamificacao, fraseCategoriaForaDaFamilia, fraseFamiliaSemRamificacao,
     AVISO_DO_FILTRO_DE_FORNECEDOR, SEM_TABELA_DESTA_CATEGORIA, fornecedoresComTabelaDaCategoria, fornecedoresComTabelaSemCategoria, fraseDaListaDeFornecedoresVazia,
-    camposDa, categoriasConfiguradas, desfazerRemocao, estadoDaLinha, fraseDasCategorias, fraseLinhaForaDaTabela, fraseLinhaSemFormula, fraseSemTabelaEmUso,
+    camposDa, desfazerRemocao, estadoDaLinha, fraseLinhaForaDaTabela, REMOVER_FAMILIA, fraseLinhaSemFormula, fraseSemTabelaEmUso,
     fraseTabelaSemLinha, nomeDoFornecedor, novaMateriaPrima, novoLocal, ondeEstaOErro, origemDaLinha, tipoConhecido,
     type ArvoreLida, type CategoriaDoFormulario, type EstadoDaArvore, type ItemDaLista, type MateriaPrimaDoFormulario, type TipoDoCampo,
 } from '@/page-parts/atendimentos-ia/base-de-conhecimento/arvore'
@@ -419,8 +419,9 @@ function BlocoDaMateriaPrima({ m, i, arvore, mudarEstado, erros, erroDaFuncao, d
                 {m.id
                     ? <TituloDaMateriaPrima key={m.nome} m={m} doTitulo={doTitulo} />
                     : <Input aria-label="Nome da matéria-prima" placeholder="Nome da matéria-prima" style={{ maxWidth: 260 }} value={m.nome} onChange={(e) => mudarMp((x) => ({ ...x, nome: e.target.value }))} />}
-                <span data-categorias-configuradas>{fraseDasCategorias(categoriasConfiguradas(m, arvore.catalogo), m.categorias.length)}</span>
-                <Button danger onClick={remover}>Remover</Button>
+                {/* REMOVER FAMÍLIA na borda direita (dono do produto, 29/10/2026; saiu o "N de M categorias"). Marca, e o salvar manda em
+                    `remover`: a superadmin_gravar_arvore chama a superadmin_remover_materia_prima, que loga a árvore inteira e as etapas. */}
+                <Button danger style={{ marginLeft: 'auto' }} onClick={remover} data-remover-familia>{REMOVER_FAMILIA}</Button>
             </div>
             <FamiliaDaMateriaPrima m={m} arvore={arvore} daFamilia={daFamilia} />
             {/* AS ETAPAS DESTA FAMÍLIA, ACIMA DA RAMIFICAÇÃO 1 e antes dos fornecedores: cada uma seleciona o seu motor do catálogo */}
