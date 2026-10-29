@@ -10,8 +10,13 @@
  * MESMO prefixo. Os bytes não passam pelas rotas.
  *
  * O motor novo NASCE SEM TEMPO e sem etapa: quem o aponta é a etapa, na base de conhecimento da conta.
+ *
+ * A FAMÍLIA DO MOTOR SÓ NO PERFIL (dono do produto, 29/10/2026, item 6; migração 20261029000002): o motor de Perfil é de uma linha (cita os
+ * códigos do perfil dela) e tem família; o de persiana, ferragem, vidro… serve QUALQUER linha e tem a família NULA. O banco trava dos dois
+ * lados — a CHECK `orcamentista_motor_familia_so_no_perfil` e a FK `(motor_id, motor_familia_exigida) -> motor (id, familia_exigida)` —, e o
+ * corpo aqui recusa antes, com frase: família fora do Perfil é erro, não é ignorada.
  */
-import { arquivoImportavel, ehUuid, fraseDoArquivoNaoImportavel } from '@/utils/atendimentos-ia-catalogo'
+import { arquivoImportavel, ehUuid, familiaObrigatoria, fraseDoArquivoNaoImportavel } from '@/utils/atendimentos-ia-catalogo'
 
 const RAIZ = '/api/super-admin/atendimentos-ia/motores'
 
@@ -22,7 +27,7 @@ export const ROTAS_DOS_MOTORES = {
     arquivar: `${RAIZ}/arquivar`,
     /** POST `{ motor_id, path, nome }` — trocar o arquivo é MOTOR NOVO (`superadmin_trocar_arquivo_do_motor`, 20261029000001). */
     trocarArquivo: `${RAIZ}/trocar-arquivo`,
-    /** POST `{ motor_id, fornecedor_id, categoria }` — só em motor SEM USO (`superadmin_editar_motor`, 20261029000001). */
+    /** POST `{ motor_id, fornecedor_id, categoria, familia }` — só em motor SEM USO (`superadmin_editar_motor`, 20261029000002: a família anda com a categoria). */
     editar: `${RAIZ}/editar`,
 }
 
@@ -45,8 +50,11 @@ export interface UsoDoMotor {
 /** Um motor do catálogo como as rotas o entregam. */
 export interface MotorDoCatalogo {
     id: string
-    /** O TIPO (`orcamentista_familia_catalogo.chave`): a etapa só aponta motor do mesmo tipo da família dela. */
-    familia: string
+    /**
+     * A LINHA (`orcamentista_familia_catalogo.chave`), SÓ no motor de Perfil: a etapa só aponta motor de Perfil da mesma família dela. Fora do
+     * Perfil é null — o motor serve qualquer linha, e qualquer família o aponta (20261029000002).
+     */
+    familia: string | null
     fornecedor_id: string
     fornecedor: string
     categoria: string
@@ -62,12 +70,24 @@ type Leitura<T> = { ok: true; corpo: T } | { ok: false; erro: string }
 const objeto = (b: unknown): Record<string, unknown> => (b && typeof b === 'object' && !Array.isArray(b) ? (b as Record<string, unknown>) : {})
 const texto = (v: unknown): string => (typeof v === 'string' ? v.trim() : '')
 
-export interface CorpoDoMotorNovo { fornecedor_id: string; categoria: string; familia: string; path: string; nome: string }
+export interface CorpoDoMotorNovo { fornecedor_id: string; categoria: string; familia: string | null; path: string; nome: string }
 const CAMPOS_DO_MOTOR_NOVO = ['fornecedor_id', 'categoria', 'familia', 'path', 'nome']
 
+/** Fora do Perfil, o motor não tem família (20261029000002): mandar uma é recusa, nunca é ignorada em silêncio. */
+export const fraseDaFamiliaSoNoPerfil = (categoria: string) => `Só o motor de Perfil tem família (linha): o de ${categoria} serve qualquer linha.`
+export const FAMILIA_DO_MOTOR_DE_PERFIL_OBRIGATORIA = 'Escolha a família (linha) do motor de Perfil.'
+
+/** A família do corpo pela categoria: no Perfil, obrigatória; fora dele, ausente, null ou vazia é null, e qualquer outra é recusa. */
+function familiaDoCorpo(categoria: string, valor: unknown): Leitura<string | null> {
+    const familia = texto(valor)
+    if (familiaObrigatoria(categoria)) return familia ? { ok: true, corpo: familia } : { ok: false, erro: FAMILIA_DO_MOTOR_DE_PERFIL_OBRIGATORIA }
+    if (valor !== undefined && valor !== null && typeof valor !== 'string') return { ok: false, erro: fraseDaFamiliaSoNoPerfil(categoria) }
+    return familia ? { ok: false, erro: fraseDaFamiliaSoNoPerfil(categoria) } : { ok: true, corpo: null }
+}
+
 /**
- * O corpo da criação: o fornecedor, a categoria, o tipo, o caminho que `url-de-envio` assinou (na pasta de motor DESTE fornecedor) e o
- * nome original. Campo a mais é erro — o autor é o da sessão. Categoria e tipo existirem na lista é a função quem confere.
+ * O corpo da criação: o fornecedor, a categoria, a família (só no Perfil), o caminho que `url-de-envio` assinou (na pasta de motor DESTE
+ * fornecedor) e o nome original. Campo a mais é erro — o autor é o da sessão. Categoria e família existirem na lista é a função quem confere.
  */
 export function lerCorpoDoMotorNovo(body: unknown): Leitura<CorpoDoMotorNovo> {
     const b = objeto(body)
@@ -76,14 +96,14 @@ export function lerCorpoDoMotorNovo(body: unknown): Leitura<CorpoDoMotorNovo> {
     if (!ehUuid(b.fornecedor_id)) return { ok: false, erro: 'Escolha o fornecedor do motor.' }
     const categoria = texto(b.categoria)
     if (!categoria) return { ok: false, erro: 'Escolha a categoria do motor.' }
-    const familia = texto(b.familia)
-    if (!familia) return { ok: false, erro: 'Escolha o tipo (família) do motor.' }
+    const familia = familiaDoCorpo(categoria, b.familia)
+    if (familia.ok === false) return familia
     const path = texto(b.path)
     const nome = texto(b.nome)
     if (!path || !nome) return { ok: false, erro: 'Falta o arquivo: o corpo leva o caminho do arquivo enviado e o nome dele.' }
     if (!path.startsWith(pastaDoMotorDoFornecedor(b.fornecedor_id)) || path.includes('..')) return { ok: false, erro: 'O arquivo não está na pasta de motor deste fornecedor.' }
     if (!arquivoImportavel(nome)) return { ok: false, erro: fraseDoArquivoNaoImportavel(nome) }
-    return { ok: true, corpo: { fornecedor_id: b.fornecedor_id, categoria, familia, path, nome } }
+    return { ok: true, corpo: { fornecedor_id: b.fornecedor_id, categoria, familia: familia.corpo, path, nome } }
 }
 
 /** O corpo do arquivar: `{ motor_id }`. Campo a mais é erro. */
@@ -100,16 +120,21 @@ export function lerCorpoDaTroca(body: unknown): Leitura<{ motor_id: string; path
     return { ok: true, corpo: { motor_id: b.motor_id, path, nome } }
 }
 
-/** O corpo de EDITAR: o motor, o fornecedor e a categoria — os dois, sempre (o que não muda vai igual). */
-export function lerCorpoDaEdicao(body: unknown): Leitura<{ motor_id: string; fornecedor_id: string; categoria: string }> {
+/**
+ * O corpo de EDITAR: o motor, o fornecedor, a categoria e a família — sempre os três (o que não muda vai igual). A família anda com a categoria
+ * (20261029000002): no Perfil, obrigatória; fora dele, ausente ou null.
+ */
+export function lerCorpoDaEdicao(body: unknown): Leitura<{ motor_id: string; fornecedor_id: string; categoria: string; familia: string | null }> {
     const b = objeto(body)
-    const extra = Object.keys(b).filter((k) => !['motor_id', 'fornecedor_id', 'categoria'].includes(k))
-    if (extra.length > 0) return { ok: false, erro: `Campo desconhecido no corpo: ${extra.join(', ')} (só motor_id, fornecedor_id, categoria).` }
+    const extra = Object.keys(b).filter((k) => !['motor_id', 'fornecedor_id', 'categoria', 'familia'].includes(k))
+    if (extra.length > 0) return { ok: false, erro: `Campo desconhecido no corpo: ${extra.join(', ')} (só motor_id, fornecedor_id, categoria, familia).` }
     if (!ehUuid(b.motor_id)) return { ok: false, erro: 'O motor_id não é um uuid.' }
     if (!ehUuid(b.fornecedor_id)) return { ok: false, erro: 'Escolha o fornecedor do motor.' }
     const categoria = texto(b.categoria)
     if (!categoria) return { ok: false, erro: 'Escolha a categoria do motor.' }
-    return { ok: true, corpo: { motor_id: b.motor_id, fornecedor_id: b.fornecedor_id, categoria } }
+    const familia = familiaDoCorpo(categoria, b.familia)
+    if (familia.ok === false) return familia
+    return { ok: true, corpo: { motor_id: b.motor_id, fornecedor_id: b.fornecedor_id, categoria, familia: familia.corpo } }
 }
 
 /** "Arquivo trocado: …" — o motor novo, as famílias que passaram a ele e o antigo arquivado. */
@@ -117,8 +142,8 @@ export function fraseDoArquivoTrocado(r: { tipologias: number; etapas_reapontada
     const etapas = r.etapas_reapontadas === 0 ? 'nenhuma etapa usava o motor' : `${r.etapas_reapontadas} etapa(s) passaram ao motor novo`
     return `Arquivo trocado: motor novo com ${r.tipologias} tipologia(s); ${etapas}; o antigo foi arquivado, com o conteúdo intacto.`
 }
-/** Por que "Editar" está travado: categoria e fornecedor só se editam em motor SEM USO (dono do produto, 29/10/2026). */
-export const MOTOR_COM_USO_NAO_SE_EDITA = 'Este motor tem uso: categoria e fornecedor só se editam em motor sem uso. Para outro arquivo, troque o arquivo.'
+/** Por que "Editar" está travado: categoria, fornecedor e família só se editam em motor SEM USO (dono do produto, 29/10/2026). */
+export const MOTOR_COM_USO_NAO_SE_EDITA = 'Este motor tem uso: categoria, fornecedor e família só se editam em motor sem uso. Para outro arquivo, troque o arquivo.'
 export const MOTOR_ARQUIVADO_NAO_SE_EDITA = 'O motor está arquivado: motor arquivado não se edita nem troca de arquivo.'
 
 export function lerCorpoDoArquivar(body: unknown): Leitura<{ motor_id: string }> {
@@ -161,14 +186,15 @@ export const rotuloDoMotor = (m: Pick<MotorDoCatalogo, 'fornecedor' | 'categoria
     `${m.fornecedor} · ${rotuloDaCategoria(m.categoria)} · ${m.arquivo_nome}`
 
 /**
- * Os motores que o combo da etapa oferece: do MESMO TIPO da família e não arquivados (os que a função aceita). Primeiro os dos
+ * Os motores que o combo da etapa oferece: os de Perfil da MESMA família e os SEM família (persiana, ferragem…: servem qualquer linha,
+ * 20261029000002), não arquivados — os que a FK aceita. Primeiro os dos
  * fornecedores PRINCIPAIS desta família-instância (o motor da etapa busca fornecedores pelos códigos de cada perfil, e o principal é o
  * que a família já usa), depois os outros; dentro de cada grupo, por fornecedor e arquivo.
  */
 export function motoresParaAEtapa(motores: readonly MotorDoCatalogo[], familia: string, principais: readonly string[]): MotorDoCatalogo[] {
     const principal = new Set(principais)
     return motores
-        .filter((m) => m.familia === familia && m.arquivado_em === null)
+        .filter((m) => (m.familia === familia || m.familia === null) && m.arquivado_em === null)
         .sort((a, b) => Number(principal.has(b.fornecedor_id)) - Number(principal.has(a.fornecedor_id))
             || a.fornecedor.localeCompare(b.fornecedor, 'pt-BR') || a.arquivo_nome.localeCompare(b.arquivo_nome, 'pt-BR'))
 }

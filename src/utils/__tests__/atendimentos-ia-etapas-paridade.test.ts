@@ -218,8 +218,9 @@ describe('(6) a migração das gravações da tela da família', () => {
     })
 })
 
-// ── A família-instância (20261028000001): a função que o código chama AGORA ──────────────────────────
-const ARQUIVO_H = path.join(__dirname, '..', '..', '..', 'supabase', 'migrations', '20261028000001_familia_instancia_e_catalogo_de_motores.sql')
+// ── A família-instância (20261028000001): a função que o código chama AGORA — redefinida pela 20261029000002 (a família do motor só no Perfil),
+// que é a última a escrever `superadmin_gravar_etapas_da_materia_prima` e `superadmin_criar_motor`: é ela que o portão lê ─────────────────
+const ARQUIVO_H = path.join(__dirname, '..', '..', '..', 'supabase', 'migrations', '20261029000002_familia_do_motor_so_no_perfil.sql')
 const executavelH = () => fs.readFileSync(ARQUIVO_H, 'utf8').split('\n').filter((l) => !l.trimStart().startsWith('--')).join('\n')
 const funcaoH = (nome: string) => {
     const sql = executavelH()
@@ -227,7 +228,7 @@ const funcaoH = (nome: string) => {
     return i < 0 ? '' : sql.slice(i, sql.indexOf('$fn$;', i))
 }
 
-describe('(7) a função das etapas da família-instância (20261028000001)', () => {
+describe('(7) a função das etapas da família-instância (20261028000001, redefinida pela 20261029000002)', () => {
     it('o instrumento: a função existe no arquivo (sem ela os casos abaixo passariam lendo o vazio)', () => {
         expect(funcaoH('superadmin_gravar_etapas_da_materia_prima')).toContain('p_materia_prima')
         expect(funcaoH('nao_existe')).toBe('')

@@ -67,7 +67,9 @@ function montar() {
         orcamentista_fornecedor: [{ id: 'f-wolff', nome: 'Wolff' }, { id: 'f-roller', nome: 'Roller' }],
         orcamentista_motor: [
             { id: M1, familia: 'PVC', fornecedor_id: 'f-wolff', categoria_chave: 'PERFIL', arquivo_nome: 'Wolff.xlsx', arquivado_em: null, criado_em: '2026-10-27T10:00:00Z' },
-            { id: M2, familia: 'PVC', fornecedor_id: 'f-roller', categoria_chave: 'PERSIANAS', arquivo_nome: 'Roller.xlsx', arquivado_em: null, criado_em: '2026-10-27T11:00:00Z' },
+            // o motor de persiana serve QUALQUER linha: família nula (20261029000002)
+            { id: M2, familia: null, fornecedor_id: 'f-roller', categoria_chave: 'PERSIANAS', arquivo_nome: 'Roller.xlsx', arquivado_em: null, criado_em: '2026-10-27T11:00:00Z' },
+            { id: 'm-arq-sem', familia: null, fornecedor_id: 'f-roller', categoria_chave: 'PERSIANAS', arquivo_nome: 'Roller velha.xlsx', arquivado_em: '2026-10-01T00:00:00Z', criado_em: '2026-09-02T00:00:00Z' },
             { id: 'm-arq', familia: 'PVC', fornecedor_id: 'f-wolff', categoria_chave: 'PERFIL', arquivo_nome: 'Velha.xlsx', arquivado_em: '2026-10-01T00:00:00Z', criado_em: '2026-09-01T00:00:00Z' },
             { id: 'm-alu', familia: 'ALUMINIO', fornecedor_id: 'f-wolff', categoria_chave: 'PERFIL', arquivo_nome: 'Alumínio.xlsx', arquivado_em: null, criado_em: '2026-10-27T12:00:00Z' },
         ],
@@ -349,13 +351,13 @@ describe('(3) a rota: só o super admin, e só a função grava', () => {
         expect((await chamar('GET', MP_DA_OUTRA, {}, T2)).corpo.etapas.map((e: Linha) => e.rotulo)).toEqual(['Da outra empresa'])
     })
 
-    it('GET: cada etapa diz o motor que aponta (null quando a linha não tem), e os motores são do CATÁLOGO, do MESMO tipo, não arquivados, com fornecedor e categoria', async () => {
+    it('GET: cada etapa diz o motor que aponta (null quando a linha não tem), e os motores são do CATÁLOGO, os de Perfil do MESMO tipo e os SEM família, não arquivados', async () => {
         estado.db.orcamentista_familia_etapa[0].motor_id = undefined
         const r = await chamar('GET', MP)
         expect(r.corpo.etapas.map((e: Linha) => e.motor_id)).toEqual([M1, null])
         expect(r.corpo.motores.map((m: Linha) => [m.id, m.fornecedor, m.categoria, m.familia, m.fornecedor_id])).toEqual([
             [M1, 'Wolff', 'PERFIL', 'PVC', 'f-wolff'],
-            [M2, 'Roller', 'PERSIANAS', 'PVC', 'f-roller'],
+            [M2, 'Roller', 'PERSIANAS', null, 'f-roller'],
         ])
         // o combo não precisa de quem usa nem de tipologias: a leitura leve não as traz
         expect(r.corpo.motores[0]).toMatchObject({ tipologias: null, usos: [] })

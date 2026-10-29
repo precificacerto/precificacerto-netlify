@@ -1,7 +1,7 @@
 /**
  * GET  /api/super-admin/atendimentos-ia/motores — `{ motores }`: o CATÁLOGO DE MOTORES inteiro (também os arquivados), cada um com fornecedor,
  *      categoria, tipo, arquivo, tipologias e QUEM USA (empresa, família e etapa — só nomes).
- * POST /api/super-admin/atendimentos-ia/motores — `{ fornecedor_id, categoria, familia, path, nome }`: o arquivo de motor enviado (por
+ * POST /api/super-admin/atendimentos-ia/motores — `{ fornecedor_id, categoria, familia?, path, nome }`: o arquivo de motor enviado (por
  *      `tabelas/url-de-envio` com `tipo: 'motor'`, na pasta de motor DO FORNECEDOR) vira um motor do catálogo. Cria a linha em
  *      `orcamentista_motor`, grava as 12 tabelas por `motor_id` e registra a importação, numa transação só (`superadmin_criar_motor`,
  *      migração 20261028000001, que loga). O motor NÃO aponta etapa nenhuma: quem o seleciona é a etapa, na base de conhecimento da conta.
@@ -11,7 +11,8 @@
  *
  * A ORDEM do POST, e cada recusa sai ANTES do passo seguinte:
  *   1. só super admin (404 para os outros), método GET ou POST;
- *   2. o corpo: fornecedor, categoria e tipo presentes; o caminho na pasta de motor DESTE fornecedor; planilha que a leitura abre (400);
+ *   2. o corpo: fornecedor e categoria presentes; a família SÓ no Perfil — fora dele, mandar uma é 400 (20261029000002: o motor de persiana,
+ *      ferragem… serve qualquer linha); o caminho na pasta de motor DESTE fornecedor; planilha que a leitura abre (400);
  *      no PERFIL, a família tem de ser a de uma tabela de PERFIL do fornecedor (400 nomeando as que há — 29/10/2026);
  *   3. o objeto está no bucket (409, com o caminho que faltou);
  *   4. baixa e lê com o MESMO leitor da importação (`lerArquivoDoMotor`): aba que falta ou valor inválido é 422 com todas as frases;
@@ -63,8 +64,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         } catch (e) {
             return falhaInterna(res, 'motor do catálogo (família do perfil)', e, 'Não foi possível ler as tabelas de Perfil do fornecedor.')
         }
-        if (!doPerfil.includes(familia)) {
-            return res.status(400).json({ error: doPerfil.length === 0 ? fraseSemTabelaDePerfil() : fraseDaFamiliaForaDoPerfil(familia, doPerfil) })
+        if (familia === null || !doPerfil.includes(familia)) {
+            return res.status(400).json({ error: doPerfil.length === 0 ? fraseSemTabelaDePerfil() : fraseDaFamiliaForaDoPerfil(String(familia), doPerfil) })
         }
     }
 
