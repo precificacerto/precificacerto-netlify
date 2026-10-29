@@ -321,3 +321,45 @@ insumo do motor do fornecedor de perfil é desenho futuro, e pede decisão do do
   nicho** — é global; o fornecedor tem `nicho_id`; o motor só chega ao nicho pelo fornecedor. 12 nichos, só "Esquadrias" com fornecedor (63). O motor
   da Wolff pende de 62.299 linhas (62.295 de conteúdo em 13 tabelas + 4 importações), todas `ON DELETE RESTRICT`, e tem 3 etapas apontando. **Nenhuma
   tabela de PERFIL existe hoje**: a família do motor não se deriva de tabela nenhuma, e o "Novo motor" de PERFIL não oferece fornecedor.
+
+## Decisões de 29/10/2026 — o nicho, o motor e a família do motor
+
+Formulação do dono do produto, registrada como está:
+
+> **NICHO COMO CONTAINER: OPÇÃO A**, página própria (/catalogo/[nicho]) com as três abas. A família fica GLOBAL com aviso, até haver motivo medido para
+> lhe dar nicho. [...] **TROCAR O ARQUIVO DO MOTOR: OPÇÃO (a)** [...] um levantamento antigo tem de continuar lendo o que leu. [...] **NÃO faça a opção
+> (b)**: apagar e reimportar com o mesmo id muda, em silêncio, o que um levantamento já calculado leu. [...] **"REMOVER O ARQUIVO" É ARQUIVAR.**
+
+1. **O nicho é o container — implementado (sem migração):**
+   - o Catálogo lista os nichos, e cada um abre `/super-admin/atendimentos-ia/catalogo/[nichoId]`, com as abas **Famílias → Fornecedores → Motores**
+     e a aba na URL (`?aba=`);
+   - fornecedores são os do `nicho_id`; motores, os desses fornecedores;
+   - o "voltar" do fornecedor e o "cadastrar motor no catálogo" da etapa levam ao nicho.
+2. **DÍVIDA — a família não tem nicho.** `orcamentista_familia_catalogo` é global, e a aba diz isso (`AVISO_DA_FAMILIA_GLOBAL`). **Não se cria a
+   coluna agora:**
+   - 12 nichos, um só com fornecedores (Esquadrias, 63);
+   - nenhuma família além da PVC Wolf;
+   - "seria estrutura nova para um problema que ainda não existe".
+
+   Quando houver família de outro nicho, mede-se e propõe-se.
+3. **Trocar o arquivo do motor = motor NOVO** (opção a, aprovada):
+   - as famílias que usavam o antigo são reapontadas na mesma transação, e o antigo é arquivado com as linhas intactas;
+   - os 164 tempos ficam no motor antigo, porque são do arquivo antigo;
+   - **a opção (b), apagar e reimportar com o mesmo id, é proibida.**
+
+   É função nova, portanto migração (PR seguinte).
+4. **"Remover o arquivo" é ARQUIVAR**, que já existe: motor sem arquivo não é motor (`arquivo_path`/`arquivo_nome` NOT NULL). **Apagar o motor** só sem
+   uso NEM conteúdo, e só com autorização do dono do produto, como todo DELETE. Não há botão para isso.
+5. **Editar categoria e fornecedor do motor: só sem uso.** Com uso, o arquivo ficaria na pasta do fornecedor antigo e o motor mentiria sobre a origem.
+   É migração (PR seguinte).
+6. **A família do motor de PERFIL vem da tabela de PERFIL do fornecedor — implementado (sem migração):**
+   - o "Novo motor" pede **categoria → fornecedor → família → arquivo** (era família primeiro);
+   - no Perfil, a família é a das tabelas de Perfil do fornecedor (`familias_do_perfil`): com uma, já vem escolhida e travada; com mais de uma,
+     escolhe-se entre elas;
+   - a rota recusa outra (400 nomeando as que há) e o fornecedor sem tabela de Perfil, antes de baixar o arquivo;
+   - nas demais categorias a família ainda se escolhe à mão: o banco a exige em todo motor até o item 7.
+7. **A família do motor só no Perfil (motor de persiana serve qualquer linha):** decidido como regra, com o mesmo motivo da tabela
+   (`20261028000002`). **Mexe na FK composta da `20261028000001`.**
+   - A medição e a proposta estão em `docs/propostas/2026-10-29-familia-do-motor-so-no-perfil.md`: uma coluna gerada `familia_exigida =
+     coalesce(familia, '*')`, com a trava declarativa, provada em 11 casos num Postgres 16 local.
+   - **Aguarda a decisão do dono do produto**, inclusive a autorização de preencher as 3 etapas.

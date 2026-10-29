@@ -51,7 +51,7 @@ const F = '11111111-1111-4111-8111-111111111111'
 const XLSM = 'Modelo 2026 - Atualizada - Tabela de Pedidos - Wolff Perfis.xlsm'
 
 const FORNECEDOR: FornecedorComTabelas = {
-    id: 'f1', nome: 'Wolf Perfis', nicho_id: 'n1', nicho_nome: 'Esquadrias', modelo: 'FABRICACAO', tabelas: 1, contas_usando: [], categorias_das_tabelas: [],
+    id: 'f1', nome: 'Wolf Perfis', nicho_id: 'n1', nicho_nome: 'Esquadrias', modelo: 'FABRICACAO', tabelas: 1, contas_usando: [], categorias_das_tabelas: [], familias_do_perfil: [] as string[],
     tabelas_da_lista: [{
         id: 't1', fornecedor_id: 'f1', arquivo_nome: 'tabela-antiga.xlsx', arquivo_path: 'f1/arquivo/x-tabela-antiga.xlsx',
         motor_nome: 'motor.xlsx', motor_path: 'f1/motor/x-motor.xlsx', vigencia: null, familia: null, categoria_chave: null, vigente: false, criado_em: '2026-10-19T12:00:00Z', contas_usando: [],

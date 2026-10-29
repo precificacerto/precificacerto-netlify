@@ -60,6 +60,12 @@ function montar() {
     estado.db = {
         users: [SUPER, COMUM],
         orcamentista_fornecedor: [{ id: W, nome: 'Wolf' }, { id: R, nome: 'Roller Star' }],
+        // a família do motor de PERFIL vem da tabela de PERFIL do fornecedor (29/10/2026): a Wolf tem uma, ALUMINIO; a Roller Star, só de persiana
+        orcamentista_tabela: [
+            { id: 't-perfil', fornecedor_id: W, categoria_chave: 'PERFIL', familia: 'ALUMINIO' },
+            { id: 't-ferragem', fornecedor_id: W, categoria_chave: 'FERRAGENS', familia: 'PVC' },
+            { id: 't-persiana', fornecedor_id: R, categoria_chave: 'PERSIANAS', familia: null },
+        ],
         orcamentista_motor: [
             { id: M_WOLF, familia: 'PVC', fornecedor_id: W, categoria_chave: 'PERFIL', arquivo_nome: 'wolff.xlsm', criado_em: '2026-10-27', arquivado_em: null },
             { id: M_ROLLER, familia: 'PVC', fornecedor_id: R, categoria_chave: 'PERSIANAS', arquivo_nome: 'roller.xlsx', criado_em: '2026-10-28', arquivado_em: '2026-10-28' },
@@ -202,6 +208,35 @@ describe('(2) GET motores — o catálogo, com os nomes e quem usa', () => {
     it('catálogo vazio é a lista vazia, não erro', async () => {
         estado.db.orcamentista_motor = []
         expect((await motores('GET')).corpo).toEqual({ motores: [] })
+    })
+})
+
+describe('(3b) POST motores de PERFIL — a família vem da tabela de PERFIL do fornecedor (29/10/2026)', () => {
+    it('família que NÃO é a de uma tabela de PERFIL do fornecedor: 400 nomeando as que há — nem download, nem função', async () => {
+        estado.objetos.set(PATH, await arquivoDoMotor())
+        const r = await motores('POST', { ...NOVO, familia: 'PVC' })
+        expect(r.status).toBe(400)
+        // a tabela de FERRAGENS da Wolf é PVC, e não conta: só a de PERFIL
+        expect(r.corpo).toEqual({ error: 'A família do motor de Perfil vem da tabela de Perfil do fornecedor (ALUMINIO), e PVC não está entre elas.' })
+        expect(estado.lidos).toEqual([])
+        expect(estado.rpcs).toEqual([])
+    })
+
+    it('fornecedor SEM tabela de PERFIL: 400 dizendo de onde a família viria — nem download, nem função', async () => {
+        estado.objetos.set(`${R}/motor/u1-Motor.xlsx`, await arquivoDoMotor())
+        const r = await motores('POST', { ...NOVO, fornecedor_id: R, path: `${R}/motor/u1-Motor.xlsx` })
+        expect(r.status).toBe(400)
+        expect(r.corpo).toEqual({ error: 'O fornecedor não tem tabela de Perfil: a família do motor de Perfil vem dela. Cadastre a tabela de Perfil do fornecedor antes do motor.' })
+        expect(estado.lidos).toEqual([])
+        expect(estado.rpcs).toEqual([])
+    })
+
+    it('o contraste: fora do PERFIL a família não é conferida contra tabela — o motor de PERSIANAS da Roller Star segue até a função', async () => {
+        estado.objetos.set(`${R}/motor/u1-Motor.xlsx`, await arquivoDoMotor())
+        estado.rpcResposta = devolveOQueRecebeu
+        const r = await motores('POST', { ...NOVO, fornecedor_id: R, categoria: 'PERSIANAS', familia: 'PVC', path: `${R}/motor/u1-Motor.xlsx` })
+        expect(r.status).toBe(200)
+        expect(estado.rpcs.map((x) => x.funcao)).toEqual(['superadmin_criar_motor'])
     })
 })
 

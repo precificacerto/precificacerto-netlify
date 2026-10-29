@@ -30,6 +30,7 @@ import {
     type EtapaDaFamilia, type EtapaNoRascunho,
 } from '@/utils/atendimentos-ia-etapas'
 import { ANCORA_DO_CATALOGO_DE_MOTORES, motoresParaAEtapa, rotuloDoMotor, type MotorDoCatalogo } from '@/utils/atendimentos-ia-catalogo-de-motores'
+import { rotaDoNicho } from '@/utils/atendimentos-ia-catalogo'
 
 export const AVISO_DAS_ETAPAS =
     'O rótulo é livre; a ação não é. Cada etapa tem uma das ações do sistema, e etapa sem ação da lista é erro, não etapa nova. '
@@ -39,14 +40,18 @@ export const SEM_ETAPAS = 'Esta família ainda não tem etapas cadastradas.'
 export const SEM_TIPO_SEM_ETAPAS = 'Escolha a família (o tipo) antes de cadastrar as etapas: o motor da etapa é do mesmo tipo.'
 export const SEM_MOTORES_DO_TIPO = (tipo: string) => `O catálogo não tem motor do tipo ${tipo}: cadastre um antes de apontá-lo na etapa.`
 export const CADASTRAR_MOTOR_NO_CATALOGO = 'Cadastrar motor no catálogo'
-export const LINK_DO_CATALOGO_DE_MOTORES = `${ROUTES.SUPER_ADMIN_IA_FORNECEDORES}#${ANCORA_DO_CATALOGO_DE_MOTORES}`
+/** Os motores moram no NICHO (29/10/2026): o link cai na aba de motores do nicho da conta; sem nicho, no Catálogo, que lista os nichos. */
+export const linkDoCatalogoDeMotores = (nichoId: string | null | undefined) =>
+    (nichoId ? rotaDoNicho(nichoId, 'motores') : `${ROUTES.SUPER_ADMIN_IA_FORNECEDORES}#${ANCORA_DO_CATALOGO_DE_MOTORES}`)
 
 /**
  * As etapas de UMA família-instância. `principais` são os fornecedores principais das categorias desta família (o combo os põe primeiro);
  * `rotuloDaCategoria` dá o nome da categoria no rótulo do motor.
  */
-export function EtapasDaFamilia({ tenantId, materiaPrimaId, principais = [], rotuloDaCategoria }: {
+export function EtapasDaFamilia({ tenantId, materiaPrimaId, principais = [], rotuloDaCategoria, nichoId = null }: {
     tenantId: string; materiaPrimaId: string; principais?: readonly string[]; rotuloDaCategoria?: (c: string) => string
+    /** O nicho da conta: o link "cadastrar motor no catálogo" cai nos motores dele. */
+    nichoId?: string | null
 }) {
     const [gravadas, setGravadas] = useState<EtapaDaFamilia[] | null>(null)
     const [familia, setFamilia] = useState<string | null>(null)
@@ -101,7 +106,7 @@ export function EtapasDaFamilia({ tenantId, materiaPrimaId, principais = [], rot
             {familia === null && <Alert type="info" showIcon style={{ marginBottom: 12 }} message={SEM_TIPO_SEM_ETAPAS} data-sem-tipo />}
             {familia !== null && doCombo.length === 0 && <Typography.Paragraph type="secondary" style={{ fontSize: 13 }} data-sem-motores-do-tipo>{SEM_MOTORES_DO_TIPO(familia)}</Typography.Paragraph>}
             <Typography.Paragraph style={{ fontSize: 13 }}>
-                <a href={LINK_DO_CATALOGO_DE_MOTORES} target="_blank" rel="noreferrer" data-cadastrar-motor-no-catalogo>{CADASTRAR_MOTOR_NO_CATALOGO}</a>
+                <a href={linkDoCatalogoDeMotores(nichoId)} target="_blank" rel="noreferrer" data-cadastrar-motor-no-catalogo>{CADASTRAR_MOTOR_NO_CATALOGO}</a>
             </Typography.Paragraph>
             {rascunho.length === 0 && <Typography.Paragraph type="secondary" data-sem-etapas>{SEM_ETAPAS}</Typography.Paragraph>}
             <Space direction="vertical" size="middle" style={{ width: '100%' }}>

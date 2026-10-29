@@ -39,7 +39,7 @@ Object.defineProperty(window, 'matchMedia', {
 })
 
 jest.mock('next/router', () => ({
-    useRouter: () => ({ pathname: '/super-admin/atendimentos-ia/fornecedores', asPath: '/', query: { id: 'f1' }, replace: () => {}, push: () => {} }),
+    useRouter: () => ({ pathname: '/super-admin/atendimentos-ia/fornecedores', asPath: '/', query: { id: 'f1', nichoId: 'n1', aba: 'fornecedores' }, replace: () => {}, push: () => {} }),
 }))
 jest.mock('@/hooks/use-auth.hook', () => ({ useAuth: () => ({ currentUser: { id: 'u-super', is_super_admin: true, role: 'super_admin' } }) }))
 jest.mock('@/components/layout/layout.component', () => ({ Layout: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }))
@@ -47,7 +47,7 @@ jest.mock('@/components/layout/layout.component', () => ({ Layout: ({ children }
 const XLSM = 'Modelo 2026 - Tabela de Pedidos.xlsm'
 const NICHO = { id: 'n1', modelo: 'FABRICACAO', nome: 'Esquadrias', ativo: true }
 const FORNECEDOR: FornecedorComTabelas = {
-    id: 'f1', nome: 'Wolf Perfis', nicho_id: 'n1', nicho_nome: 'Esquadrias', modelo: 'FABRICACAO', tabelas: 1, contas_usando: [], categorias_das_tabelas: [],
+    id: 'f1', nome: 'Wolf Perfis', nicho_id: 'n1', nicho_nome: 'Esquadrias', modelo: 'FABRICACAO', tabelas: 1, contas_usando: [], categorias_das_tabelas: [], familias_do_perfil: [] as string[],
     tabelas_da_lista: [{
         id: 't1', fornecedor_id: 'f1', arquivo_nome: 'tabela-antiga.xlsx', arquivo_path: 'f1/arquivo/x-tabela-antiga.xlsx',
         motor_nome: 'motor.xlsx', motor_path: 'f1/motor/x-motor.xlsx', vigencia: null, familia: null, categoria_chave: null, vigente: false, criado_em: '2026-10-19T12:00:00Z', contas_usando: ['Marcenaria Silva'],
@@ -75,8 +75,9 @@ beforeEach(() => {
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const PaginaDoFornecedor = require('@/pages/super-admin/atendimentos-ia/fornecedores/[id]').default as React.ComponentType
+// o credenciamento mora na aba de fornecedores do NICHO (29/10/2026: o nicho é o container)
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const PaginaDeFornecedores = require('@/pages/super-admin/atendimentos-ia/fornecedores/index').default as React.ComponentType
+const PaginaDeFornecedores = require('@/pages/super-admin/atendimentos-ia/catalogo/[nichoId]').default as React.ComponentType
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const M = require('@/page-parts/atendimentos-ia/fornecedor-modal.component') as typeof import('@/page-parts/atendimentos-ia/fornecedor-modal.component')
 // eslint-disable-next-line @typescript-eslint/no-require-imports

@@ -31,7 +31,7 @@ jest.mock('@/supabase/admin', () => ({
 jest.mock('@/lib/atendimentos-ia/tabelas-da-conta', () => ({ contasQueVinculam: jest.fn(async () => new Map()), derivarTabelasDaConta: jest.fn(async () => ({ tabelas: [] as unknown[] })) }))
 
 import { COLUNA_DA_CATEGORIA_DO_FORNECEDOR } from '@/utils/atendimentos-ia-importacao-celula'
-import { categoriasDoFornecedorDosItensGravados, listarCategorias, obterArquivosDaTabela, obterDadosDaTabela, obterFornecedor, obterTabela } from '@/lib/atendimentos-ia/repositorio'
+import { categoriasDoFornecedorDosItensGravados, listarCategorias, listarFornecedores, obterArquivosDaTabela, obterDadosDaTabela, obterFornecedor, obterTabela } from '@/lib/atendimentos-ia/repositorio'
 
 const colunasDe = (tabela: string) => pedidos.filter((p) => p.tabela === tabela).map((p) => p.colunas.split(',').map((c) => c.trim()))
 
@@ -82,6 +82,14 @@ describe('cada leitura da tabela pede `categoria_chave`', () => {
         const f = await obterFornecedor('f1')
         expect(colunasDe('orcamentista_tabela').some((cs) => cs.includes('categoria_chave'))).toBe(true)
         expect(f?.tabelas_da_lista[0].categoria_chave).toBe('VIDRO')
+    })
+
+    it('listarFornecedores: `familias_do_perfil` são SÓ as famílias das tabelas de PERFIL, sem repetir e em ordem (29/10/2026)', async () => {
+        const t = (id: string, categoria_chave: string | null, familia: string | null) => ({ ...linhasPorTabela.orcamentista_tabela[0], id, categoria_chave, familia })
+        linhasPorTabela.orcamentista_tabela = [t('p1', 'PERFIL', 'VECA'), t('p2', 'PERFIL', 'PVC'), t('p3', 'PERFIL', 'PVC'), t('fe', 'FERRAGENS', 'ALUMINIO'), t('ve', null, 'OUTRA')]
+        const [f] = await listarFornecedores()
+        expect(f.familias_do_perfil).toEqual(['PVC', 'VECA'])
+        expect(f.categorias_das_tabelas).toEqual(['FERRAGENS', 'PERFIL'])
     })
 
     it('listarCategorias lê o catálogo da plataforma, com chave, rótulo e ordem', async () => {
