@@ -1,7 +1,7 @@
 /**
  * GET  /api/super-admin/atendimentos-ia/motores — `{ motores }`: o CATÁLOGO DE MOTORES inteiro (também os arquivados), cada um com fornecedor,
  *      categoria, tipo, arquivo, tipologias e QUEM USA (empresa, família e etapa — só nomes).
- * POST /api/super-admin/atendimentos-ia/motores — `{ fornecedor_id, categoria, familia?, path, nome }`: o arquivo de motor enviado (por
+ * POST /api/super-admin/atendimentos-ia/motores — `{ fornecedor_id, categoria, familias, path, nome }`: o arquivo de motor enviado (por
  *      `tabelas/url-de-envio` com `tipo: 'motor'`, na pasta de motor DO FORNECEDOR) vira um motor do catálogo. Cria a linha em
  *      `orcamentista_motor`, grava as 12 tabelas por `motor_id` e registra a importação, numa transação só (`superadmin_criar_motor`,
  *      migração 20261028000001, que loga). O motor NÃO aponta etapa nenhuma: quem o seleciona é a etapa, na base de conhecimento da conta.
@@ -11,9 +11,10 @@
  *
  * A ORDEM do POST, e cada recusa sai ANTES do passo seguinte:
  *   1. só super admin (404 para os outros), método GET ou POST;
- *   2. o corpo: fornecedor e categoria presentes; a família SÓ no Perfil — fora dele, mandar uma é 400 (20261029000002: o motor de persiana,
- *      ferragem… serve qualquer linha); o caminho na pasta de motor DESTE fornecedor; planilha que a leitura abre (400);
- *      no PERFIL, a família tem de ser a de uma tabela de PERFIL do fornecedor (400 nomeando as que há — 29/10/2026);
+ *   2. o corpo: fornecedor e categoria presentes; as FAMÍLIAS em que o motor atua, pelo menos uma e sem repetição (20261029000003: o motor
+ *      serve N famílias e uma categoria); o caminho na pasta de motor DESTE fornecedor; planilha que a leitura abre (400); cada família está
+ *      no catálogo (400 nomeando as que não estão). A família NÃO se amarra a uma tabela da categoria do fornecedor (dono do produto,
+ *      29/10/2026: a trava "família só no Perfil, a da tabela de Perfil" caiu);
  *   3. o objeto está no bucket (409, com o caminho que faltou);
  *   4. baixa e lê com o MESMO leitor da importação (`lerArquivoDoMotor`): aba que falta ou valor inválido é 422 com todas as frases;
  *   5. chama a função; recusa dela vai com a mensagem dela (42501→403, P0002→404, 22023→400); outro erro é 500 com o código;
@@ -25,11 +26,11 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { superAdminOu404 } from '@/lib/get-caller-tenant'
 import { ErroDaFuncao, criarMotor, lerCatalogoDeMotores } from '@/lib/atendimentos-ia/etapas-da-familia'
-import { baixarObjeto, falhaInterna, familiasDoPerfilDoFornecedor, objetoExiste } from '@/lib/atendimentos-ia/repositorio'
+import { baixarObjeto, falhaInterna, listarFamilias, objetoExiste } from '@/lib/atendimentos-ia/repositorio'
 import { metodoNaoPermitido } from '@/lib/atendimentos-ia/base-de-conhecimento-servidor'
-import { CATEGORIA_QUE_EXIGE_FAMILIA, fraseDoArquivo } from '@/utils/atendimentos-ia-catalogo'
+import { fraseDoArquivo } from '@/utils/atendimentos-ia-catalogo'
 import { conferirGravacaoDoMotor, lerArquivoDoMotor, montarPayloadDoMotor, type ResultadoDoMotor } from '@/utils/atendimentos-ia-importacao'
-import { fraseDaFamiliaForaDoPerfil, fraseDoMotorQueNaoFoiGravado, fraseSemTabelaDePerfil, lerCorpoDoMotorNovo } from '@/utils/atendimentos-ia-catalogo-de-motores'
+import { familiasForaDoCatalogo, fraseDaFamiliaForaDoCatalogo, fraseDoMotorQueNaoFoiGravado, lerCorpoDoMotorNovo } from '@/utils/atendimentos-ia-catalogo-de-motores'
 
 export const config = { maxDuration: 90 }
 
@@ -54,20 +55,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const corpo = lerCorpoDoMotorNovo(req.body)
     if (corpo.ok === false) return res.status(400).json({ error: corpo.erro })
-    const { fornecedor_id, categoria, familia, path, nome } = corpo.corpo
+    const { fornecedor_id, categoria, familias, path, nome } = corpo.corpo
 
-    // a família do motor de PERFIL é a de uma tabela de PERFIL do fornecedor — antes de baixar o arquivo
-    if (categoria === CATEGORIA_QUE_EXIGE_FAMILIA) {
-        let doPerfil: string[]
-        try {
-            doPerfil = await familiasDoPerfilDoFornecedor(fornecedor_id)
-        } catch (e) {
-            return falhaInterna(res, 'motor do catálogo (família do perfil)', e, 'Não foi possível ler as tabelas de Perfil do fornecedor.')
-        }
-        if (familia === null || !doPerfil.includes(familia)) {
-            return res.status(400).json({ error: doPerfil.length === 0 ? fraseSemTabelaDePerfil() : fraseDaFamiliaForaDoPerfil(String(familia), doPerfil) })
-        }
+    // cada família está no catálogo — antes de baixar o arquivo (a função confere de novo, e a FK da ligação é a trava)
+    let fora: string[]
+    try {
+        fora = familiasForaDoCatalogo(familias, await listarFamilias())
+    } catch (e) {
+        return falhaInterna(res, 'motor do catálogo (famílias)', e, 'Não foi possível ler o catálogo de famílias.')
     }
+    if (fora.length > 0) return res.status(400).json({ error: fraseDaFamiliaForaDoCatalogo(fora) })
 
     let bytes: Uint8Array
     try {
@@ -85,7 +82,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     let gravado: Record<string, unknown>
     const inicio = Date.now()
     try {
-        gravado = await criarMotor({ por: caller.user_id, fornecedorId: fornecedor_id, categoria, familia, arquivoPath: path, arquivoNome: nome, payload })
+        gravado = await criarMotor({ por: caller.user_id, fornecedorId: fornecedor_id, categoria, familias, arquivoPath: path, arquivoNome: nome, payload })
         console.log(`atendimentos-ia motor do catálogo (gravação): ${Date.now() - inicio} ms, gravada`)
     } catch (e) {
         const codigo = e instanceof ErroDaFuncao ? e.code : null

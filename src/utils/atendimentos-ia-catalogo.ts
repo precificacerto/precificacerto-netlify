@@ -276,8 +276,8 @@ export interface FornecedorDaLista {
      */
     categorias_das_tabelas: string[]
     /**
-     * As FAMÍLIAS das tabelas de PERFIL deste fornecedor, sem repetição e em ordem: é de onde o motor de PERFIL tira a família (dono do produto,
-     * 29/10/2026: "derivar da tabela de PERFIL do fornecedor quando ela existir"). A tabela de Perfil sempre tem família (`20261028000002`).
+     * As FAMÍLIAS das tabelas de PERFIL deste fornecedor, sem repetição e em ordem. A tabela de Perfil sempre tem família (`20261028000002`).
+     * Desde o motor de N famílias (20261029000003) a família do motor NÃO vem mais daqui — nenhuma tela ou rota a amarra a esta lista.
      */
     familias_do_perfil: string[]
 }

@@ -42,12 +42,12 @@ const MP = '00000000-0000-4000-8000-0000000000b1'
 const MP2 = '00000000-0000-4000-8000-0000000000b2'
 const M1 = '00000000-0000-4000-8000-0000000000a1'
 const M2 = '00000000-0000-4000-8000-0000000000a2'
-const motor = (id: string, f: Partial<MotorDoCatalogo>): MotorDoCatalogo => ({ id, familia: 'PVC', fornecedor_id: 'f-x', fornecedor: 'X', categoria: 'PERFIL', arquivo_nome: `${id}.xlsx`, criado_em: '2026-10-28', arquivado_em: null, tipologias: null, usos: [], ...f })
+const motor = (id: string, f: Partial<MotorDoCatalogo>): MotorDoCatalogo => ({ id, familias: ['PVC'], fornecedor_id: 'f-x', fornecedor: 'X', categoria: 'PERFIL', arquivo_nome: `${id}.xlsx`, criado_em: '2026-10-28', arquivado_em: null, tipologias: null, usos: [], ...f })
 // o catálogo como a rota o entrega; a tela ainda filtra o tipo e o arquivado (a rota já filtra — a tela não confia)
 const MOTORES = [
     motor(M2, { fornecedor_id: 'f-roller', fornecedor: 'Roller', categoria: 'PERSIANAS', arquivo_nome: 'Roller.xlsx' }),
     motor(M1, { fornecedor_id: 'f-wolff', fornecedor: 'Wolff', arquivo_nome: 'Wolff.xlsx' }),
-    motor('m-alu', { familia: 'ALUMINIO', fornecedor: 'Alu', arquivo_nome: 'Alu.xlsx' }),
+    motor('m-alu', { familias: ['ALUMINIO'], fornecedor: 'Alu', arquivo_nome: 'Alu.xlsx' }),
     motor('m-arq', { fornecedor: 'Velho', arquivo_nome: 'Velha.xlsx', arquivado_em: '2026-10-01' }),
 ]
 const WOLFF = 'Wolff · PERFIL · Wolff.xlsx'
