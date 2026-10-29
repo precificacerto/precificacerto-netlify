@@ -71,7 +71,8 @@ jest.mock('@/lib/atendimentos-ia/repositorio', () => {
         falhaInterna: real.falhaInterna,
         listarFamilias: jest.fn(async () => catalogo.map((f) => ({ ...f }))),
         listarCategorias: jest.fn(async () => [{ chave: 'PERFIL', rotulo: 'Perfil', ordem: 1 }, { chave: 'FERRAGENS', rotulo: 'Ferragens', ordem: 4 }]),
-        criarFamilia: jest.fn(async (f: Familia) => ({ ...f })),
+        listarRamificacoes: jest.fn(async () => [{ familia: 'PVC', categoria_chave: 'FERRAGENS', ordem: 2 }, { familia: 'PVC', categoria_chave: 'PERFIL', ordem: 1 }]),
+        criarFamilia: jest.fn(async (f: Record<string, unknown>) => ({ ...f })),
         criarTabela: jest.fn(async () => ({ id: T })),
         obterTabela: jest.fn(async () => ({ id: T, fornecedor_id: F, arquivo_path: `${F}/arquivo/x-t.xlsx`, motor_path: `${F}/motor/x-m.xlsx` })),
         atualizarTabela: jest.fn(async () => 1),
@@ -131,14 +132,15 @@ describe('(1) a chave da família nova vem do rótulo', () => {
     })
 
     it('o rótulo é aparado e tem o limite declarado; vazio e longo são recusados com a frase', () => {
-        const ok = lerFamiliaNova({ rotulo: '  Portas de ACM ' })
-        expect(recusada(ok) ? ok.erro : ok.corpo).toEqual({ rotulo: 'Portas de ACM', chave: 'PORTAS_DE_ACM' })
-        const vazio = lerFamiliaNova({ rotulo: '   ' })
+        const R = { ramificacoes: ['PERFIL'] }
+        const ok = lerFamiliaNova({ rotulo: '  Portas de ACM ', ...R })
+        expect(recusada(ok) ? ok.erro : ok.corpo).toEqual({ rotulo: 'Portas de ACM', chave: 'PORTAS_DE_ACM', ramificacoes: ['PERFIL'] })
+        const vazio = lerFamiliaNova({ rotulo: '   ', ...R })
         expect(recusada(vazio) && vazio.erro).toBe('Escreva o nome da família.')
-        const longo = lerFamiliaNova({ rotulo: 'x'.repeat(LIMITE_DO_ROTULO_DA_FAMILIA + 1) })
+        const longo = lerFamiliaNova({ rotulo: 'x'.repeat(LIMITE_DO_ROTULO_DA_FAMILIA + 1), ...R })
         expect(recusada(longo) && longo.erro).toBe(`O nome da família tem ${LIMITE_DO_ROTULO_DA_FAMILIA + 1} caracteres; o limite é ${LIMITE_DO_ROTULO_DA_FAMILIA}.`)
         expect(LIMITE_DO_ROTULO_DA_FAMILIA).toBe(60)
-        const semLetra = lerFamiliaNova({ rotulo: '2 folhas' })
+        const semLetra = lerFamiliaNova({ rotulo: '2 folhas', ...R })
         expect(recusada(semLetra) && semLetra.erro).toBe('O nome da família precisa começar por uma letra.')
     })
 })
@@ -193,31 +195,31 @@ describe('(3) a rota das famílias', () => {
     it('quem não é super admin: 403, e o repositório não é tocado', async () => {
         perfil = ADMIN
         expect((await chamar('familias', 'GET')).status).toBe(403)
-        expect((await chamar('familias', 'POST', {}, { rotulo: 'Portas de ACM' })).status).toBe(403)
+        expect((await chamar('familias', 'POST', {}, { rotulo: 'Portas de ACM', ramificacoes: ['PERFIL'] })).status).toBe(403)
         expect(repo.listarFamilias).not.toHaveBeenCalled()
         expect(repo.criarFamilia).not.toHaveBeenCalled()
     })
 
-    it('GET devolve a lista NA ORDEM; POST acrescenta no FIM, com a chave do rótulo', async () => {
+    it('GET devolve a lista NA ORDEM, cada uma com as ramificações NA ORDEM DELA; POST chama a função com o autor, a chave do rótulo e as ramificações', async () => {
         catalogo = [{ chave: 'ALUMINIO', rotulo: 'Alumínio', ordem: 2 }, PVC]
         const lista = await chamar('familias', 'GET')
-        expect(lista).toEqual({ status: 200, json: [PVC, { chave: 'ALUMINIO', rotulo: 'Alumínio', ordem: 2 }] })
-        const nova = await chamar('familias', 'POST', {}, { rotulo: ' Portas de ACM ' })
+        expect(lista).toEqual({ status: 200, json: [{ ...PVC, ramificacoes: ['PERFIL', 'FERRAGENS'] }, { chave: 'ALUMINIO', rotulo: 'Alumínio', ordem: 2, ramificacoes: [] }] })
+        const nova = await chamar('familias', 'POST', {}, { rotulo: ' Portas de ACM ', ramificacoes: ['FERRAGENS', 'PERFIL'] })
         expect(nova.status).toBe(201)
-        expect(repo.criarFamilia).toHaveBeenCalledWith({ chave: 'PORTAS_DE_ACM', rotulo: 'Portas de ACM', ordem: 3 })
+        expect(repo.criarFamilia).toHaveBeenCalledWith({ por: SUPER.id, chave: 'PORTAS_DE_ACM', rotulo: 'Portas de ACM', ramificacoes: ['FERRAGENS', 'PERFIL'] })
     })
 
-    it('a família que já existe (pela chave) é 409 nomeando-a, sem gravar; a corrida na ordem também é 409', async () => {
-        const repetida = await chamar('familias', 'POST', {}, { rotulo: 'pvc' })
+    it('a família que já existe (pela chave) é 409 nomeando-a, sem gravar; a recusa da função numa corrida vai com a frase dela', async () => {
+        const repetida = await chamar('familias', 'POST', {}, { rotulo: 'pvc', ramificacoes: ['PERFIL'] })
         expect(repetida).toEqual({ status: 409, json: { error: 'A família "PVC" já está na lista.' } })
         expect(repo.criarFamilia).not.toHaveBeenCalled()
-        repo.criarFamilia.mockRejectedValueOnce(new ErroDoBanco({ code: '23505', message: 'duplicate key value violates unique constraint "orcamentista_familia_catalogo_ordem_key"' }))
-        const corrida = await chamar('familias', 'POST', {}, { rotulo: 'Portas de garagem' })
-        expect(corrida).toEqual({ status: 409, json: { error: 'Outra família foi gravada ao mesmo tempo. Tente de novo.' } })
+        repo.criarFamilia.mockRejectedValueOnce(new ErroDoBanco({ code: '22023', message: 'ja existe a familia "Portas de garagem": o nome nao se repete. Nada foi gravado.' }))
+        const corrida = await chamar('familias', 'POST', {}, { rotulo: 'Portas de garagem', ramificacoes: ['PERFIL'] })
+        expect(corrida).toEqual({ status: 409, json: { error: 'ja existe a familia "Portas de garagem": o nome nao se repete. Nada foi gravado.' } })
     })
 
     it('rótulo inválido: 400 com a frase de `lerFamiliaNova`; método errado: 405', async () => {
-        expect(await chamar('familias', 'POST', {}, { rotulo: '' })).toEqual({ status: 400, json: { error: 'Escreva o nome da família.' } })
+        expect(await chamar('familias', 'POST', {}, { rotulo: '', ramificacoes: ['PERFIL'] })).toEqual({ status: 400, json: { error: 'Escreva o nome da família.' } })
         expect((await chamar('familias', 'DELETE')).status).toBe(405)
     })
 })
@@ -226,7 +228,6 @@ describe('(3) a rota das famílias', () => {
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const Modal = () => require('@/page-parts/atendimentos-ia/tabela-modal.component').TabelaModal as React.ComponentType<any>
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const card = () => require('@/page-parts/atendimentos-ia/familias.component') as { FamiliasCard: React.ComponentType<{ familias: Familia[]; onCriar: (rotulo: string) => Promise<boolean> }> }
 
 const montadas: { root: ReturnType<typeof createRoot>; host: HTMLElement }[] = []
 afterEach(() => { while (montadas.length) { const m = montadas.pop()!; act(() => { m.root.unmount() }); m.host.remove() } })
@@ -347,22 +348,7 @@ describe('(4) a TELA', () => {
         expect(salvos.map((t) => t.categoria)).toEqual([null])
     })
 
-    it('o card das famílias lista pela ordem e acrescenta pelo rótulo', async () => {
-        const criadas: string[] = []
-        const host = await montar(React.createElement(card().FamiliasCard, { familias: [{ chave: 'ALUMINIO', rotulo: 'Alumínio', ordem: 2 }, PVC], onCriar: async (r: string) => { criadas.push(r); return true } }))
-        const nomes = Array.from(host.querySelectorAll('[data-familia-do-catalogo]')).map((e) => e.textContent)
-        expect(nomes).toEqual(['PVC', 'Alumínio'])
-        const input = host.querySelector('input[aria-label="Nome da família"]') as HTMLInputElement
-        expect(botao(host, 'Nova família')!.disabled).toBe(true)
-        await act(async () => {
-            Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'Portas de ACM')
-            input.dispatchEvent(new Event('input', { bubbles: true }))
-        })
-        await assentar()
-        await act(async () => { botao(host, 'Nova família')!.click() })
-        await assentar()
-        expect(criadas).toEqual(['Portas de ACM'])
-    })
+    // o card das famílias tem portão próprio desde 29/10/2026 (criar, editar e remover): `atendimentos-ia-familias-do-catalogo.test.tsx`
 
     it('a rota das famílias está no catálogo das rotas', () => {
         expect(ROTAS_DO_CATALOGO.familias).toBe('/api/super-admin/atendimentos-ia/familias')
@@ -427,11 +413,12 @@ describe('(5) a família é obrigatória SÓ na tabela de Perfil', () => {
     it('a família com o MESMO NOME de outra (sem olhar a caixa) é 409 nomeando a que existe, sem gravar', async () => {
         // as chaves NÃO batem (PVC x PVC_WOLF; ALU x ALUMINIO): é o NOME que repete — e é isso que a recusa pega
         catalogo = [{ chave: 'PVC', rotulo: 'PVC Wolf', ordem: 1 }, { chave: 'ALU', rotulo: 'Alumínio', ordem: 2 }]
-        expect(await chamar('familias', 'POST', {}, { rotulo: 'pvc WOLF' })).toEqual({ status: 409, json: { error: fraseDaFamiliaComNomeRepetido('PVC Wolf') } })
-        expect(await chamar('familias', 'POST', {}, { rotulo: 'ALUMÍNIO' })).toEqual({ status: 409, json: { error: fraseDaFamiliaComNomeRepetido('Alumínio') } })
+        const R = { ramificacoes: ['PERFIL'] }
+        expect(await chamar('familias', 'POST', {}, { rotulo: 'pvc WOLF', ...R })).toEqual({ status: 409, json: { error: fraseDaFamiliaComNomeRepetido('PVC Wolf') } })
+        expect(await chamar('familias', 'POST', {}, { rotulo: 'ALUMÍNIO', ...R })).toEqual({ status: 409, json: { error: fraseDaFamiliaComNomeRepetido('Alumínio') } })
         expect(repo.criarFamilia).not.toHaveBeenCalled()
-        expect((await chamar('familias', 'POST', {}, { rotulo: 'PVC Veca' })).status).toBe(201)
-        expect(repo.criarFamilia).toHaveBeenCalledWith({ chave: 'PVC_VECA', rotulo: 'PVC Veca', ordem: 3 })
+        expect((await chamar('familias', 'POST', {}, { rotulo: 'PVC Veca', ...R })).status).toBe(201)
+        expect(repo.criarFamilia).toHaveBeenCalledWith({ por: SUPER.id, chave: 'PVC_VECA', rotulo: 'PVC Veca', ramificacoes: ['PERFIL'] })
     })
 
     const CATS = [{ chave: 'PERFIL', rotulo: 'Perfil', ordem: 1 }, { chave: 'FERRAGENS', rotulo: 'Ferragens', ordem: 4 }]

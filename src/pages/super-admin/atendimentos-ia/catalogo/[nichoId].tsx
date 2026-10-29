@@ -33,11 +33,11 @@ import { ROUTES } from '@/constants/routes'
 import { useAuth } from '@/hooks/use-auth.hook'
 import {
     ABAS_DO_NICHO, AVISO_DA_FAMILIA_GLOBAL, AVISO_DO_CATALOGO, NICHO_NAO_ENCONTRADO, ROTAS_DO_CATALOGO, ROTULO_DA_ABA_DO_NICHO, ROTULO_DO_MODELO,
-    abaDoNicho, rotaDoNicho, type AbaDoNicho, type Categoria, type Familia, type FornecedorDaLista, type Nicho,
+    abaDoNicho, rotaDoNicho, type AbaDoNicho, type Categoria, type FamiliaDoCatalogo, type FornecedorDaLista, type Nicho,
 } from '@/utils/atendimentos-ia-catalogo'
 import { chamarRota, gravarTabelaNova } from '@/page-parts/atendimentos-ia/api'
 import { FornecedorModal, TITULO_FORNECEDOR_NAO_CREDENCIADO, type DadosDoFornecedor, type ErroDoFornecedor } from '@/page-parts/atendimentos-ia/fornecedor-modal.component'
-import { FamiliasCard } from '@/page-parts/atendimentos-ia/familias.component'
+import { FamiliasCard, type DadosDaFamilia } from '@/page-parts/atendimentos-ia/familias.component'
 import { MotoresDoCatalogo } from '@/page-parts/atendimentos-ia/motores-do-catalogo.component'
 
 export default function NichoDoCatalogo() {
@@ -49,7 +49,7 @@ export default function NichoDoCatalogo() {
 
     const [todos, setTodos] = useState<FornecedorDaLista[] | null>(null)
     const [nichos, setNichos] = useState<Nicho[] | null>(null)
-    const [familias, setFamilias] = useState<Familia[]>([])
+    const [familias, setFamilias] = useState<FamiliaDoCatalogo[]>([])
     const [categorias, setCategorias] = useState<Categoria[]>([])
     const [erro, setErro] = useState<string | null>(null)
     const [credenciando, setCredenciando] = useState(false)
@@ -62,7 +62,7 @@ export default function NichoDoCatalogo() {
             const [fs, ns, fams, cats] = await Promise.all([
                 chamarRota<FornecedorDaLista[]>(ROTAS_DO_CATALOGO.fornecedores),
                 chamarRota<Nicho[]>(ROTAS_DO_CATALOGO.nichos),
-                chamarRota<Familia[]>(ROTAS_DO_CATALOGO.familias),
+                chamarRota<FamiliaDoCatalogo[]>(ROTAS_DO_CATALOGO.familias),
                 chamarRota<Categoria[]>(ROTAS_DO_CATALOGO.categorias),
             ])
             setTodos(fs)
@@ -115,23 +115,26 @@ export default function NichoDoCatalogo() {
         }
     }
 
-    async function criarFamilia(rotulo: string) {
+    /** As três ações da aba Famílias: null quando gravou (e o catálogo é relido); a frase da recusa, para o modal mostrar. */
+    async function naFamilia(gravar: () => Promise<unknown>, sucesso: string): Promise<string | null> {
         try {
-            await chamarRota(ROTAS_DO_CATALOGO.familias, 'POST', { rotulo })
-            message.success('Família acrescentada')
+            await gravar()
+            message.success(sucesso)
             await carregar()
-            return true
+            return null
         } catch (e) {
-            message.error((e as Error).message, 8)
-            return false
+            return (e as Error).message
         }
     }
+    const criarFamilia = (d: DadosDaFamilia) => naFamilia(() => chamarRota(ROTAS_DO_CATALOGO.familias, 'POST', d), 'Família acrescentada')
+    const editarFamilia = (chave: string, d: DadosDaFamilia) => naFamilia(() => chamarRota(ROTAS_DO_CATALOGO.familia(chave), 'PATCH', d), 'Família alterada')
+    const removerFamilia = (chave: string) => naFamilia(() => chamarRota(ROTAS_DO_CATALOGO.familia(chave), 'DELETE'), 'Família removida')
 
     const conteudo: Record<AbaDoNicho, React.ReactNode> = {
         familias: (
             <div data-aba-familias>
                 <Alert type="info" showIcon style={{ marginBottom: 12 }} message={AVISO_DA_FAMILIA_GLOBAL} data-familia-global />
-                <FamiliasCard familias={familias} onCriar={criarFamilia} />
+                <FamiliasCard familias={familias} categorias={categorias} onCriar={criarFamilia} onEditar={editarFamilia} onRemover={removerFamilia} />
             </div>
         ),
         fornecedores: (
