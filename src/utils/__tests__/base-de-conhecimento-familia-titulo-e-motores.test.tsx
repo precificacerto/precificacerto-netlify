@@ -36,7 +36,7 @@ const SEM = '00000000-0000-4000-8000-00000000d002'
 const F_WOLFF = '00000000-0000-4000-8000-0000000000f1'
 const F_ROLLER = '00000000-0000-4000-8000-0000000000f2'
 const motorDoCatalogo = (id: string, fornecedor_id: string, fornecedor: string, arquivo_nome: string): MotorDoCatalogo =>
-    ({ id, familia: 'PVC', fornecedor_id, fornecedor, categoria: 'PERFIL', arquivo_nome, criado_em: '2026-10-28', arquivado_em: null, tipologias: null, usos: [] })
+    ({ id, familias: ['PVC'], fornecedor_id, fornecedor, categoria: 'PERFIL', arquivo_nome, criado_em: '2026-10-28', arquivado_em: null, tipologias: null, usos: [] })
 const MOTORES = [motorDoCatalogo('m-roller', F_ROLLER, 'Alfa Roller', 'roller.xlsx'), motorDoCatalogo('m-wolff', F_WOLFF, 'Wolff', 'wolff.xlsm')]
 
 jest.mock('next/router', () => ({

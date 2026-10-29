@@ -10,11 +10,11 @@
  *       interruptor; falha de leitura é ERRO, nunca "nenhum motor";
  *   (2) arquivar: o motor em uso tem o botão travado (com o porquê); o livre chama SÓ a rota de arquivar com o id, e relê; a recusa da rota
  *       aparece no cartão, com a frase dela;
- *   (3) "Novo motor": categoria → fornecedor → família → arquivo (29/10/2026), cada um liberando o seguinte; o fornecedor sai SÓ dos que têm
- *       tabela da categoria; no PERFIL a família vem da tabela de Perfil do fornecedor; criar faz, NESTA ordem, a URL assinada na pasta DO FORNECEDOR (tipo motor), os bytes, o POST do catálogo com os cinco
- *       campos — e relê; a recusa aparece DENTRO do modal;
- *   (3b) A FAMÍLIA SÓ NO PERFIL (dono do produto, 29/10/2026, item 6; migração 20261029000002): fora do Perfil a tela NÃO pergunta a família, o
- *       corpo vai com `familia: null`, e a lista diz "Qualquer linha"; sair do Perfil limpa a família;
+ *   (3) "Novo motor": categoria → fornecedor → famílias → arquivo, cada um liberando o seguinte; o fornecedor sai SÓ dos que têm tabela da
+ *       categoria; O MOTOR SERVE N FAMÍLIAS (dono do produto, 29/10/2026; migração 20261029000003): as famílias são escolha LIVRE do catálogo,
+ *       pelo menos uma, em qualquer categoria, sem amarrar a uma tabela do fornecedor; criar faz, NESTA ordem, a URL assinada na pasta DO
+ *       FORNECEDOR (tipo motor), os bytes, o POST do catálogo com os cinco campos (as famílias na ordem do catálogo) — e relê; a recusa aparece
+ *       DENTRO do modal;
  *   (4) o menu chama a página de CATÁLOGO; a página do nicho tem portão próprio.
  */
 import React from 'react'
@@ -53,15 +53,15 @@ const FORNECEDORES: FornecedorDaLista[] = [
 const CATEGORIAS = [{ chave: 'PERFIL', rotulo: 'Perfil', ordem: 1 }, { chave: 'PERSIANAS', rotulo: 'Persianas', ordem: 2 }, { chave: 'VIDRO', rotulo: 'Vidro', ordem: 6 }]
 const FAMILIAS = [{ chave: 'PVC', rotulo: 'PVC', ordem: 1 }, { chave: 'ALUMINIO', rotulo: 'Alumínio', ordem: 2 }, { chave: 'VECA', rotulo: 'PVC Veca', ordem: 3 }]
 const motor = (id: string, f: Partial<MotorDoCatalogo>): MotorDoCatalogo => ({
-    id, familia: 'PVC', fornecedor_id: W, fornecedor: 'Wolf', categoria: 'PERFIL', arquivo_nome: `${id}.xlsx`, criado_em: '2026-10-28', arquivado_em: null, tipologias: 0, usos: [], ...f,
+    id, familias: ['PVC'], fornecedor_id: W, fornecedor: 'Wolf', categoria: 'PERFIL', arquivo_nome: `${id}.xlsx`, criado_em: '2026-10-28', arquivado_em: null, tipologias: 0, usos: [], ...f,
 })
 const MOTORES = [
     motor(M_WOLF, { arquivo_nome: 'wolff.xlsm', tipologias: 164, usos: [
         { empresa: 'Alfa Vidros', familia: 'PVC Linha 2' },
         { empresa: 'Esquadrias De Paula Ltda', familia: 'Esquadrias de PVC WOLF' },
     ] }),
-    // o motor de persiana serve QUALQUER linha: família nula (20261029000002)
-    motor(M_LIVRE, { fornecedor_id: R, fornecedor: 'Roller Star', categoria: 'PERSIANAS', familia: null, arquivo_nome: 'roller.xlsx', tipologias: 12 }),
+    // o motor de persiana da Roller Star atua em DUAS famílias (20261029000003), fora da ordem do catálogo de propósito
+    motor(M_LIVRE, { fornecedor_id: R, fornecedor: 'Roller Star', categoria: 'PERSIANAS', familias: ['ALUMINIO', 'PVC'], arquivo_nome: 'roller.xlsx', tipologias: 12 }),
     motor(M_ARQ, { arquivo_nome: 'velho.xlsx', arquivado_em: '2026-10-01' }),
 ]
 
@@ -92,9 +92,8 @@ const Componente = () => require('@/page-parts/atendimentos-ia/motores-do-catalo
     MotoresDoCatalogo: React.ComponentType<{ fornecedores: typeof FORNECEDORES; categorias: typeof CATEGORIAS; familias: typeof FAMILIAS }>
     SEM_MOTOR_NO_CATALOGO: string
     fraseSemFornecedorDaCategoria: (c: string) => string
-    FAMILIA_DA_TABELA_DE_PERFIL: string
     AVISO_DA_TROCA: string
-    MOTOR_DE_QUALQUER_LINHA: string
+    FAMILIAS_DO_MOTOR_NA_TELA: string
 }
 
 const montadas: { root: ReturnType<typeof createRoot>; host: HTMLElement }[] = []
@@ -152,8 +151,11 @@ const opcoesDoCombo = async (rotulo: string) => {
 async function preencherTudo() {
     await escolher('Categoria do motor', 'Persianas')
     await escolher('Fornecedor do motor', 'Wolf')
+    await escolher('Famílias do motor', 'PVC')
     await anexar()
 }
+/** As famílias escolhidas num seletor múltiplo, como a tela as mostra. */
+const escolhidas = (rotulo: string) => Array.from(combo(rotulo).querySelectorAll('.ant-select-selection-item-content')).map((e) => e.textContent)
 const camposDoModal = () => [...new Set(Array.from(modal().querySelectorAll('[aria-label$=" do motor"]')).map((e) => e.getAttribute('aria-label')))]
 
 describe('(1) a lista do catálogo', () => {
@@ -174,9 +176,11 @@ describe('(1) a lista do catálogo', () => {
         expect(host.querySelector('[data-catalogo-de-motores]')!.textContent).not.toMatch(/etapa/i)
         const livre = linha(host, M_LIVRE)!
         expect(livre.textContent).toContain('Persianas')
-        // o motor sem família (persiana) diz "Qualquer linha" — nunca o rótulo de uma família, nem vazio
-        expect(livre.querySelector('[data-qualquer-linha]')?.textContent).toBe('Qualquer linha')
-        expect(linha(host, M_WOLF)!.querySelector('[data-qualquer-linha]')).toBeNull()
+        // as FAMÍLIAS do motor, pelo nome e na ORDEM do catálogo (PVC antes de Alumínio), todas — nunca só a primeira
+        expect(livre.querySelector('[data-familias-do-motor]')?.getAttribute('data-familias-do-motor')).toBe('PVC,ALUMINIO')
+        expect(Array.from(livre.querySelectorAll('[data-familias-do-motor] .ant-tag')).map((e) => e.textContent)).toEqual(['PVC', 'Alumínio'])
+        expect(Array.from(linha(host, M_WOLF)!.querySelectorAll('[data-familias-do-motor] .ant-tag')).map((e) => e.textContent)).toEqual(['PVC'])
+        expect(host.textContent).not.toContain('Qualquer linha')
         expect(livre.querySelector('[data-sem-uso]')?.textContent).toBe('Nenhuma família usa este motor.')
     })
 
@@ -229,70 +233,56 @@ describe('(2) arquivar', () => {
     })
 })
 
-describe('(3) "Novo motor": categoria → fornecedor → família → arquivo (29/10/2026)', () => {
-    it('cada campo libera o seguinte, NESTA ordem; no PERFIL são quatro (a família entre o fornecedor e o arquivo), e o criar só liga com todos', async () => {
+describe('(3) "Novo motor": categoria → fornecedor → famílias → arquivo (20261029000003)', () => {
+    it('cada campo libera o seguinte, NESTA ordem, em QUALQUER categoria; o arquivo só com pelo menos uma família, e o criar só liga com todos', async () => {
         const host = await montar()
         await clicar(host.querySelector('[data-novo-motor]'))
         // o antd põe o rótulo no input e no contêiner do combo: a ordem é a da primeira aparição de cada um
-        expect(camposDoModal()).toEqual(['Categoria do motor', 'Fornecedor do motor', 'Arquivo do motor'])
+        expect(camposDoModal()).toEqual(['Categoria do motor', 'Fornecedor do motor', 'Famílias do motor', 'Arquivo do motor'])
         expect(combo('Fornecedor do motor').className).toContain('ant-select-disabled')
+        expect(combo('Famílias do motor').className).toContain('ant-select-disabled')
         expect(criar().disabled).toBe(true)
-        await escolher('Categoria do motor', 'Perfil')
-        expect(camposDoModal()).toEqual(['Categoria do motor', 'Fornecedor do motor', 'Família do motor', 'Arquivo do motor'])
+        await escolher('Categoria do motor', 'Persianas')
         expect(combo('Fornecedor do motor').className).not.toContain('ant-select-disabled')
-        expect(combo('Família do motor').className).toContain('ant-select-disabled')
-        await escolher('Fornecedor do motor', 'Veca')
-        expect(combo('Família do motor').className).not.toContain('ant-select-disabled')
-        // sem a família, o arquivo não se escolhe — nem o botão, nem o campo de arquivo por trás dele
+        expect(combo('Famílias do motor').className).toContain('ant-select-disabled')
+        await escolher('Fornecedor do motor', 'Roller Star')
+        expect(combo('Famílias do motor').className).not.toContain('ant-select-disabled')
+        // sem família, o arquivo não se escolhe — nem o botão, nem o campo de arquivo por trás dele
         expect((modal().querySelector('[aria-label="Arquivo do motor"]') as HTMLButtonElement).disabled).toBe(true)
         expect((modal().querySelector('input[type="file"]') as HTMLInputElement).disabled).toBe(true)
-        await escolher('Família do motor', 'PVC')
+        await escolher('Famílias do motor', 'Alumínio')
+        expect((modal().querySelector('[aria-label="Arquivo do motor"]') as HTMLButtonElement).disabled).toBe(false)
         expect(criar().disabled).toBe(true)
         await anexar()
         expect(criar().disabled).toBe(false)
+        expect(modal().querySelector('[data-familias-do-motor-na-tela]')?.textContent).toBe(Componente().FAMILIAS_DO_MOTOR_NA_TELA)
     })
 
-    it('PERFIL com UMA tabela de Perfil no fornecedor: a família já vem escolhida (a da tabela), travada, e o aviso diz de onde veio', async () => {
+    it('as famílias NÃO se amarram a uma tabela do fornecedor: o catálogo inteiro, na ordem, para a Wolf de Perfil (cuja tabela de Perfil é só PVC) e para a Roller Star de persiana', async () => {
         const host = await montar()
         await clicar(host.querySelector('[data-novo-motor]'))
         await escolher('Categoria do motor', 'Perfil')
         await escolher('Fornecedor do motor', 'Wolf')
-        expect(combo('Família do motor').querySelector('.ant-select-selection-item')?.textContent).toBe('PVC')
-        expect(combo('Família do motor').className).toContain('ant-select-disabled')
-        expect(modal().querySelector('[data-familia-da-tabela-de-perfil]')?.textContent).toBe(Componente().FAMILIA_DA_TABELA_DE_PERFIL)
-        await anexar()
-        expect(criar().disabled).toBe(false)
-    })
-
-    it('PERFIL com DUAS famílias nas tabelas de Perfil: nada vem escolhido, e só elas são oferecidas', async () => {
-        const host = await montar()
-        await clicar(host.querySelector('[data-novo-motor]'))
-        await escolher('Categoria do motor', 'Perfil')
-        await escolher('Fornecedor do motor', 'Veca')
-        expect(combo('Família do motor').querySelector('.ant-select-selection-item')).toBeNull()
-        expect(combo('Família do motor').className).not.toContain('ant-select-disabled')
-        expect(await opcoesDoCombo('Família do motor')).toEqual(['PVC', 'Alumínio'])
-        await escolherNoAberto('Alumínio')
-        // trocar para o fornecedor de uma família só: a dele entra no lugar
-        await escolher('Fornecedor do motor', 'Wolf')
-        expect(combo('Família do motor').querySelector('.ant-select-selection-item')?.textContent).toBe('PVC')
-    })
-
-    it('PERFIL com várias famílias: trocar o fornecedor mantém a escolhida que é dele; a família não sobrevive a sair do Perfil', async () => {
-        const host = await montar()
-        await clicar(host.querySelector('[data-novo-motor]'))
-        await escolher('Categoria do motor', 'Perfil')
-        await escolher('Fornecedor do motor', 'Veca')
-        await escolher('Família do motor', 'Alumínio')
-        // a Wolf tem tabela de Perfil só PVC: Alumínio sai, PVC entra; de volta à Veca, PVC é dela e fica
-        await escolher('Fornecedor do motor', 'Wolf')
-        expect(combo('Família do motor').querySelector('.ant-select-selection-item')?.textContent).toBe('PVC')
-        await escolher('Fornecedor do motor', 'Veca')
-        expect(combo('Família do motor').querySelector('.ant-select-selection-item')?.textContent).toBe('PVC')
-        // sair do Perfil e voltar: a família foi LIMPA ao sair (fora do Perfil não há família), e a Veca tem duas — nada vem escolhido
+        // nada vem escolhido por ser "a da tabela": a escolha é de quem cadastra
+        expect(escolhidas('Famílias do motor')).toEqual([])
+        expect(await opcoesDoCombo('Famílias do motor')).toEqual(['PVC', 'Alumínio', 'PVC Veca'])
+        await escolherNoAberto('PVC Veca')
         await escolher('Categoria do motor', 'Persianas')
-        await escolher('Categoria do motor', 'Perfil')
-        expect(combo('Família do motor').querySelector('.ant-select-selection-item')).toBeNull()
+        await escolher('Fornecedor do motor', 'Roller Star')
+        // trocar categoria e fornecedor NÃO limpa as famílias: elas não dependem de nenhum dos dois
+        expect(escolhidas('Famílias do motor')).toEqual(['PVC Veca'])
+    })
+
+    it('tirar a única família desliga o arquivo e o criar de novo', async () => {
+        const host = await montar()
+        await clicar(host.querySelector('[data-novo-motor]'))
+        await preencherTudo()
+        expect(criar().disabled).toBe(false)
+        // tira pelo "x" da etiqueta, como quem usa a tela
+        await clicar(combo('Famílias do motor').querySelector('.ant-select-selection-item-remove'))
+        expect(escolhidas('Famílias do motor')).toEqual([])
+        expect(criar().disabled).toBe(true)
+        expect((modal().querySelector('[aria-label="Arquivo do motor"]') as HTMLButtonElement).disabled).toBe(true)
     })
 
     it('o fornecedor sai SÓ dos que têm tabela da categoria, em ordem alfabética; o sem tabela não aparece', async () => {
@@ -336,18 +326,22 @@ describe('(3) "Novo motor": categoria → fornecedor → família → arquivo (2
         ])
         expect(pedidos[n].corpo).toEqual({ fornecedor_id: W, tipo: 'motor', nome: 'Motor persiana.xlsx' })
         expect(pedidos[n + 1].headers).toEqual({ 'x-upsert': 'false' })
-        expect(pedidos[n + 2].corpo).toEqual({ fornecedor_id: W, categoria: 'PERSIANAS', familia: null, path: PATH, nome: 'Motor persiana.xlsx' })
+        expect(pedidos[n + 2].corpo).toEqual({ fornecedor_id: W, categoria: 'PERSIANAS', familias: ['PVC'], path: PATH, nome: 'Motor persiana.xlsx' })
     })
 
-    it('criar de PERFIL: o corpo leva a família da tabela de Perfil do fornecedor', async () => {
+    it('criar com DUAS famílias escolhidas fora de ordem: o corpo as leva TODAS, na ordem do catálogo', async () => {
         const host = await montar()
         await clicar(host.querySelector('[data-novo-motor]'))
         await escolher('Categoria do motor', 'Perfil')
         await escolher('Fornecedor do motor', 'Wolf')
+        await opcoesDoCombo('Famílias do motor')
+        await escolherNoAberto('PVC Veca')
+        await escolherNoAberto('PVC')
+        expect(escolhidas('Famílias do motor')).toEqual(['PVC Veca', 'PVC'])
         await anexar()
         const n = pedidos.length
         await clicar(criar())
-        expect(pedidos[n + 2].corpo).toEqual({ fornecedor_id: W, categoria: 'PERFIL', familia: 'PVC', path: PATH, nome: 'Motor persiana.xlsx' })
+        expect(pedidos[n + 2].corpo).toEqual({ fornecedor_id: W, categoria: 'PERFIL', familias: ['PVC', 'VECA'], path: PATH, nome: 'Motor persiana.xlsx' })
     })
 
     it('a recusa da rota aparece DENTRO do modal, com a frase dela, e o catálogo não é relido', async () => {
@@ -372,36 +366,6 @@ describe('(3) "Novo motor": categoria → fornecedor → família → arquivo (2
         expect(chaves().slice(n)).toEqual([`POST ${ROTAS_DO_CATALOGO.urlDeEnvio}`])
         expect(modal().querySelector('[data-erro-ao-criar-motor]')?.textContent).toContain('Motor persiana.xlsx')
         expect(modal().querySelector('[data-erro-ao-criar-motor]')?.textContent).toContain('Fornecedor não encontrado.')
-    })
-})
-
-describe('(3b) a família só no Perfil (20261029000002)', () => {
-    it('fora do Perfil a tela NÃO pergunta a família: diz que o motor serve qualquer linha, e o arquivo libera com o fornecedor', async () => {
-        const host = await montar()
-        await clicar(host.querySelector('[data-novo-motor]'))
-        await escolher('Categoria do motor', 'Persianas')
-        expect(modal().querySelector('[aria-label="Família do motor"]')).toBeNull()
-        expect(modal().querySelector('[data-motor-de-qualquer-linha]')?.textContent).toBe(Componente().MOTOR_DE_QUALQUER_LINHA)
-        expect((modal().querySelector('[aria-label="Arquivo do motor"]') as HTMLButtonElement).disabled).toBe(true)
-        await escolher('Fornecedor do motor', 'Roller Star')
-        expect((modal().querySelector('[aria-label="Arquivo do motor"]') as HTMLButtonElement).disabled).toBe(false)
-        expect((modal().querySelector('input[type="file"]') as HTMLInputElement).disabled).toBe(false)
-        await anexar()
-        expect(criar().disabled).toBe(false)
-    })
-
-    it('sair do Perfil LIMPA a família: o corpo vai com familia null, e o aviso do Perfil some', async () => {
-        const host = await montar()
-        await clicar(host.querySelector('[data-novo-motor]'))
-        await escolher('Categoria do motor', 'Perfil')
-        await escolher('Fornecedor do motor', 'Wolf')
-        expect(combo('Família do motor').querySelector('.ant-select-selection-item')?.textContent).toBe('PVC')
-        await escolher('Categoria do motor', 'Persianas')
-        expect(modal().querySelector('[data-familia-da-tabela-de-perfil]')).toBeNull()
-        await anexar()
-        const n = pedidos.length
-        await clicar(criar())
-        expect(pedidos[n + 2].corpo).toMatchObject({ categoria: 'PERSIANAS', familia: null })
     })
 })
 
@@ -457,67 +421,76 @@ describe('(5) trocar o arquivo (motor NOVO) e editar (só sem uso) — 29/10/202
         expect(U.fraseDoArquivoTrocado({ tipologias: 1, etapas_reapontadas: 0 })).toContain('nenhuma etapa usava o motor')
     })
 
-    it('"Editar" fica TRAVADO no motor com uso, com o porquê; no livre, abre com a categoria e o fornecedor de agora, e salvar só liga quando muda', async () => {
+    it('"Editar" vale também COM USO: categoria e fornecedor vêm TRAVADOS, com o porquê; as FAMÍLIAS se editam, e salvar manda a lista inteira', async () => {
+        respostas[`POST ${ROTAS_DOS_MOTORES.editar}`] = [{ status: 200, body: { orcamentista_motor: {} } }]
         const host = await montar()
-        const travado = botao(linha(host, M_WOLF)!, 'Editar wolff.xlsm')!
-        expect(travado.disabled).toBe(true)
-        expect(travado.getAttribute('title')).toBe((require('@/utils/atendimentos-ia-catalogo-de-motores') as typeof import('@/utils/atendimentos-ia-catalogo-de-motores')).MOTOR_COM_USO_NAO_SE_EDITA) // eslint-disable-line @typescript-eslint/no-require-imports
-        await clicar(botao(linha(host, M_LIVRE)!, 'Editar roller.xlsx'))
-        expect(combo('Categoria do motor (edição)').querySelector('.ant-select-selection-item')?.textContent).toBe('Persianas')
-        expect(combo('Fornecedor do motor (edição)').querySelector('.ant-select-selection-item')?.textContent).toBe('Roller Star')
+        const b = botao(linha(host, M_WOLF)!, 'Editar wolff.xlsm')!
+        expect(b.disabled).toBe(false)
+        await clicar(b)
+        const U = require('@/utils/atendimentos-ia-catalogo-de-motores') as typeof import('@/utils/atendimentos-ia-catalogo-de-motores') // eslint-disable-line @typescript-eslint/no-require-imports
+        expect(combo('Categoria do motor (edição)').className).toContain('ant-select-disabled')
+        expect(combo('Fornecedor do motor (edição)').className).toContain('ant-select-disabled')
+        expect(combo('Categoria do motor (edição)').getAttribute('title')).toBe(U.MOTOR_COM_USO_NAO_SE_EDITA)
+        expect(modalDa('data-modal-da-edicao').querySelector('[data-motor-com-uso]')?.textContent).toBe(U.MOTOR_COM_USO_NAO_SE_EDITA)
+        expect(combo('Famílias do motor (edição)').className).not.toContain('ant-select-disabled')
+        expect(escolhidas('Famílias do motor (edição)')).toEqual(['PVC'])
         expect(ok('Salvar').disabled).toBe(true)
-        await escolher('Fornecedor do motor (edição)', 'Wolf')
+        await escolher('Famílias do motor (edição)', 'Alumínio')
         expect(ok('Salvar').disabled).toBe(false)
+        const n = pedidos.length
+        await clicar(ok('Salvar'))
+        expect(chaves().slice(n)).toEqual([`POST ${ROTAS_DOS_MOTORES.editar}`, `GET ${ROTAS_DOS_MOTORES.lista}`])
+        expect(pedidos[n].corpo).toEqual({ motor_id: M_WOLF, fornecedor_id: W, categoria: 'PERFIL', familias: ['PVC', 'ALUMINIO'] })
     })
 
-    it('editar: trocar a categoria LIMPA o fornecedor sem tabela dela; no PERFIL a família vem da tabela dele; salvar manda os quatro, e relê', async () => {
+    it('sem uso: categoria e fornecedor LIVRES; trocar a categoria limpa o fornecedor sem tabela dela; salvar manda os quatro, as famílias na ordem do catálogo', async () => {
         respostas[`POST ${ROTAS_DOS_MOTORES.editar}`] = [{ status: 200, body: { orcamentista_motor: {} } }]
         const host = await montar()
         await clicar(botao(linha(host, M_LIVRE)!, 'Editar roller.xlsx'))
-        // persiana: sem família na edição
-        expect(document.body.querySelector('[aria-label="Família do motor (edição)"]')).toBeNull()
+        expect(combo('Categoria do motor (edição)').querySelector('.ant-select-selection-item')?.textContent).toBe('Persianas')
+        expect(combo('Fornecedor do motor (edição)').querySelector('.ant-select-selection-item')?.textContent).toBe('Roller Star')
+        expect(modalDa('data-modal-da-edicao').querySelector('[data-motor-com-uso]')).toBeNull()
+        expect(ok('Salvar').disabled).toBe(true)
         await escolher('Categoria do motor (edição)', 'Perfil')
         expect(combo('Fornecedor do motor (edição)').querySelector('.ant-select-selection-item')).toBeNull()
         expect(ok('Salvar').disabled).toBe(true)
         await escolher('Fornecedor do motor (edição)', 'Wolf')
-        expect(combo('Família do motor (edição)').querySelector('.ant-select-selection-item')?.textContent).toBe('PVC')
+        // as famílias não dependem da categoria nem do fornecedor: ficam as duas
+        expect(escolhidas('Famílias do motor (edição)')).toEqual(['Alumínio', 'PVC'])
         const n = pedidos.length
         await clicar(ok('Salvar'))
-        expect(chaves().slice(n)).toEqual([`POST ${ROTAS_DOS_MOTORES.editar}`, `GET ${ROTAS_DOS_MOTORES.lista}`])
-        expect(pedidos[n].corpo).toEqual({ motor_id: M_LIVRE, fornecedor_id: W, categoria: 'PERFIL', familia: 'PVC' })
+        expect(pedidos[n].corpo).toEqual({ motor_id: M_LIVRE, fornecedor_id: W, categoria: 'PERFIL', familias: ['PVC', 'ALUMINIO'] })
     })
 
-    it('editar para o PERFIL com duas famílias no fornecedor: salvar só liga depois de escolher uma; fora do Perfil, manda familia null', async () => {
-        respostas[`POST ${ROTAS_DOS_MOTORES.editar}`] = [{ status: 200, body: { orcamentista_motor: {} } }]
+    it('as MESMAS famílias em outra ordem não é mudança; sem nenhuma família, salvar não liga', async () => {
         const host = await montar()
         await clicar(botao(linha(host, M_LIVRE)!, 'Editar roller.xlsx'))
-        await escolher('Categoria do motor (edição)', 'Perfil')
-        await escolher('Fornecedor do motor (edição)', 'Veca')
-        expect(combo('Família do motor (edição)').querySelector('.ant-select-selection-item')).toBeNull()
-        expect(ok('Salvar').disabled).toBe(true)
-        await escolher('Família do motor (edição)', 'Alumínio')
+        // tira Alumínio e põe de volta: a lista fica ['PVC', 'ALUMINIO'], a mesma de antes noutra ordem
+        await opcoesDoCombo('Famílias do motor (edição)')
+        await escolherNoAberto('Alumínio')
         expect(ok('Salvar').disabled).toBe(false)
-        // de volta a Persianas, com outro fornecedor: a família sai, e o corpo a manda nula
-        await escolher('Categoria do motor (edição)', 'Persianas')
-        expect(document.body.querySelector('[aria-label="Família do motor (edição)"]')).toBeNull()
-        const n = pedidos.length
-        await clicar(ok('Salvar'))
-        expect(pedidos[n].corpo).toEqual({ motor_id: M_LIVRE, fornecedor_id: 'f-veca', categoria: 'PERSIANAS', familia: null })
+        await escolherNoAberto('Alumínio')
+        expect(escolhidas('Famílias do motor (edição)')).toEqual(['PVC', 'Alumínio'])
+        expect(ok('Salvar').disabled).toBe(true)
+        await escolherNoAberto('Alumínio')
+        await escolherNoAberto('PVC')
+        expect(escolhidas('Famílias do motor (edição)')).toEqual([])
+        expect(ok('Salvar').disabled).toBe(true)
     })
 
-    it('editar um motor de PERFIL sem uso trocando SÓ a família (entre as da tabela de Perfil do fornecedor): salvar liga, e o corpo leva a nova', async () => {
-        const M_VECA = '00000000-0000-4000-8000-0000000000a4'
-        respostas[`GET ${ROTAS_DOS_MOTORES.lista}`] = [{ status: 200, body: { motores: [...MOTORES, motor(M_VECA, { fornecedor_id: 'f-veca', fornecedor: 'Veca', familia: 'ALUMINIO', arquivo_nome: 'veca.xlsx' })] } }]
-        respostas[`POST ${ROTAS_DOS_MOTORES.editar}`] = [{ status: 200, body: { orcamentista_motor: {} } }]
+    it('tirar a família que uma etapa usa: a recusa 409 da rota aparece DENTRO do modal, nomeando quem usa, e o catálogo não é relido', async () => {
+        const frase = 'a familia PVC nao pode sair do motor: em uso por 2 etapa(s) (Alfa Vidros / PVC Linha 2 / etapa 1; Esquadrias De Paula Ltda / Esquadrias de PVC WOLF / etapa 1). Aponte-os para outro motor antes. Nada foi gravado.'
+        respostas[`POST ${ROTAS_DOS_MOTORES.editar}`] = [{ status: 409, body: { error: frase } }]
         const host = await montar()
-        await clicar(botao(linha(host, M_VECA)!, 'Editar veca.xlsx'))
-        expect(combo('Família do motor (edição)').querySelector('.ant-select-selection-item')?.textContent).toBe('Alumínio')
-        expect(ok('Salvar').disabled).toBe(true)
-        await escolher('Família do motor (edição)', 'PVC')
-        expect(ok('Salvar').disabled).toBe(false)
+        await clicar(botao(linha(host, M_WOLF)!, 'Editar wolff.xlsm'))
+        await opcoesDoCombo('Famílias do motor (edição)')
+        await escolherNoAberto('Alumínio')
+        await escolherNoAberto('PVC')
         const n = pedidos.length
         await clicar(ok('Salvar'))
-        expect(pedidos[n].corpo).toEqual({ motor_id: M_VECA, fornecedor_id: 'f-veca', categoria: 'PERFIL', familia: 'PVC' })
+        expect(pedidos[n].corpo).toEqual({ motor_id: M_WOLF, fornecedor_id: W, categoria: 'PERFIL', familias: ['ALUMINIO'] })
+        expect(modalDa('data-modal-da-edicao').querySelector('[data-erro-ao-editar]')!.textContent).toContain(frase)
+        expect(chaves().slice(n)).not.toContain(`GET ${ROTAS_DOS_MOTORES.lista}`)
     })
 
     it('a recusa da edição aparece DENTRO do modal, com a frase da rota', async () => {

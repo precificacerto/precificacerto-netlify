@@ -247,12 +247,6 @@ export async function listarCategorias(): Promise<Categoria[]> {
 }
 
 // ── Tabelas ────────────────────────────────────────────────────────────────────────────────
-/** As famílias das tabelas de PERFIL do fornecedor, sem repetição e em ordem: o motor de PERFIL tira a família delas (29/10/2026). */
-export async function familiasDoPerfilDoFornecedor(fornecedorId: string): Promise<string[]> {
-    const ts = await q(db().from('orcamentista_tabela').select('familia').eq('fornecedor_id', fornecedorId).eq('categoria_chave', 'PERFIL'))
-    return [...new Set(ts.map((t) => t.familia).filter((f): f is string => typeof f === 'string' && f.trim() !== ''))].sort()
-}
-
 export async function obterTabela(id: string): Promise<{ id: string; fornecedor_id: string; arquivo_path: string; motor_path: string | null; categoria_chave: string | null; familia: string | null } | null> {
     const ts = await q(db().from('orcamentista_tabela').select('id, fornecedor_id, arquivo_path, motor_path, categoria_chave, familia').eq('id', id))
     return (ts[0] as { id: string; fornecedor_id: string; arquivo_path: string; motor_path: string | null; categoria_chave: string | null; familia: string | null } | undefined) ?? null
