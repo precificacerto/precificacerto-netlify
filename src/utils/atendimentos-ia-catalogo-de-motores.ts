@@ -20,6 +20,10 @@ export const ROTAS_DOS_MOTORES = {
     lista: RAIZ,
     /** POST `{ motor_id }` — `superadmin_arquivar_motor`, que recusa o motor que uma etapa aponta. */
     arquivar: `${RAIZ}/arquivar`,
+    /** POST `{ motor_id, path, nome }` — trocar o arquivo é MOTOR NOVO (`superadmin_trocar_arquivo_do_motor`, 20261029000001). */
+    trocarArquivo: `${RAIZ}/trocar-arquivo`,
+    /** POST `{ motor_id, fornecedor_id, categoria }` — só em motor SEM USO (`superadmin_editar_motor`, 20261029000001). */
+    editar: `${RAIZ}/editar`,
 }
 
 /** A âncora do cartão dos motores na página do Catálogo: o link "cadastrar motor no catálogo" da etapa leva até ela. */
@@ -83,6 +87,40 @@ export function lerCorpoDoMotorNovo(body: unknown): Leitura<CorpoDoMotorNovo> {
 }
 
 /** O corpo do arquivar: `{ motor_id }`. Campo a mais é erro. */
+/** O corpo de TROCAR O ARQUIVO: o motor e o arquivo enviado (a rota confere que ele está na pasta do fornecedor DO MOTOR). */
+export function lerCorpoDaTroca(body: unknown): Leitura<{ motor_id: string; path: string; nome: string }> {
+    const b = objeto(body)
+    const extra = Object.keys(b).filter((k) => !['motor_id', 'path', 'nome'].includes(k))
+    if (extra.length > 0) return { ok: false, erro: `Campo desconhecido no corpo: ${extra.join(', ')} (só motor_id, path, nome).` }
+    if (!ehUuid(b.motor_id)) return { ok: false, erro: 'O motor_id não é um uuid.' }
+    const path = texto(b.path)
+    const nome = texto(b.nome)
+    if (!path || !nome) return { ok: false, erro: 'Falta o arquivo: o corpo leva o caminho do arquivo enviado e o nome dele.' }
+    if (!arquivoImportavel(nome)) return { ok: false, erro: fraseDoArquivoNaoImportavel(nome) }
+    return { ok: true, corpo: { motor_id: b.motor_id, path, nome } }
+}
+
+/** O corpo de EDITAR: o motor, o fornecedor e a categoria — os dois, sempre (o que não muda vai igual). */
+export function lerCorpoDaEdicao(body: unknown): Leitura<{ motor_id: string; fornecedor_id: string; categoria: string }> {
+    const b = objeto(body)
+    const extra = Object.keys(b).filter((k) => !['motor_id', 'fornecedor_id', 'categoria'].includes(k))
+    if (extra.length > 0) return { ok: false, erro: `Campo desconhecido no corpo: ${extra.join(', ')} (só motor_id, fornecedor_id, categoria).` }
+    if (!ehUuid(b.motor_id)) return { ok: false, erro: 'O motor_id não é um uuid.' }
+    if (!ehUuid(b.fornecedor_id)) return { ok: false, erro: 'Escolha o fornecedor do motor.' }
+    const categoria = texto(b.categoria)
+    if (!categoria) return { ok: false, erro: 'Escolha a categoria do motor.' }
+    return { ok: true, corpo: { motor_id: b.motor_id, fornecedor_id: b.fornecedor_id, categoria } }
+}
+
+/** "Arquivo trocado: …" — o motor novo, as famílias que passaram a ele e o antigo arquivado. */
+export function fraseDoArquivoTrocado(r: { tipologias: number; etapas_reapontadas: number }): string {
+    const etapas = r.etapas_reapontadas === 0 ? 'nenhuma etapa usava o motor' : `${r.etapas_reapontadas} etapa(s) passaram ao motor novo`
+    return `Arquivo trocado: motor novo com ${r.tipologias} tipologia(s); ${etapas}; o antigo foi arquivado, com o conteúdo intacto.`
+}
+/** Por que "Editar" está travado: categoria e fornecedor só se editam em motor SEM USO (dono do produto, 29/10/2026). */
+export const MOTOR_COM_USO_NAO_SE_EDITA = 'Este motor tem uso: categoria e fornecedor só se editam em motor sem uso. Para outro arquivo, troque o arquivo.'
+export const MOTOR_ARQUIVADO_NAO_SE_EDITA = 'O motor está arquivado: motor arquivado não se edita nem troca de arquivo.'
+
 export function lerCorpoDoArquivar(body: unknown): Leitura<{ motor_id: string }> {
     const b = objeto(body)
     const extra = Object.keys(b).filter((k) => k !== 'motor_id')

@@ -347,11 +347,17 @@ Formulação do dono do produto, registrada como está:
    - os 164 tempos ficam no motor antigo, porque são do arquivo antigo;
    - **a opção (b), apagar e reimportar com o mesmo id, é proibida.**
 
-   É função nova, portanto migração (PR seguinte).
+   **Implementado na `20261029000001` (PENDENTE até o dono do produto aplicar):** `superadmin_trocar_arquivo_do_motor` trava o antigo, cria o
+   novo pela `superadmin_criar_motor`, reaponta as etapas (com log por etapa, com a empresa) e arquiva o antigo pela `superadmin_arquivar_motor`,
+   numa transação só. O item de levantamento que leu o antigo continua no antigo. Na tela, "Trocar arquivo" vale também em motor com uso.
 4. **"Remover o arquivo" é ARQUIVAR**, que já existe: motor sem arquivo não é motor (`arquivo_path`/`arquivo_nome` NOT NULL). **Apagar o motor** só sem
    uso NEM conteúdo, e só com autorização do dono do produto, como todo DELETE. Não há botão para isso.
 5. **Editar categoria e fornecedor do motor: só sem uso.** Com uso, o arquivo ficaria na pasta do fornecedor antigo e o motor mentiria sobre a origem.
-   É migração (PR seguinte).
+   **Implementado na `20261029000001`:**
+   - `superadmin_editar_motor` recusa com uso (etapa **ou** item de levantamento), nomeando quantos.
+   - Trocar o fornecedor exige o caminho na pasta de motor do NOVO: a rota **copia** o objeto e, se a função recusar, remove **só a cópia**. O
+     arquivo antigo nunca é apagado, porque apagar é DELETE.
+   - No Perfil, a família do motor tem de ser a de uma tabela de Perfil do fornecedor novo.
 6. **A família do motor de PERFIL vem da tabela de PERFIL do fornecedor — implementado (sem migração):**
    - o "Novo motor" pede **categoria → fornecedor → família → arquivo** (era família primeiro);
    - no Perfil, a família é a das tabelas de Perfil do fornecedor (`familias_do_perfil`): com uma, já vem escolhida e travada; com mais de uma,
