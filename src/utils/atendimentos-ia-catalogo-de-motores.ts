@@ -103,6 +103,15 @@ export function fraseDoMotorQueNaoFoiGravado(codigo: string | null): string {
 }
 
 /** O que a tela diz quando o motor foi criado: quantas tipologias e regras entraram, e a lembrança dos tempos e da etapa. */
+/**
+ * A FAMÍLIA DO MOTOR DE PERFIL VEM DA TABELA DE PERFIL DO FORNECEDOR (dono do produto, 29/10/2026): o motor de perfil cita os códigos
+ * daquela linha. Sem tabela de Perfil, não há de onde tirar; com uma família só, ela vem escolhida; com mais de uma, escolhe-se entre elas.
+ */
+export const fraseSemTabelaDePerfil = (fornecedor = 'O fornecedor') =>
+    `${fornecedor} não tem tabela de Perfil: a família do motor de Perfil vem dela. Cadastre a tabela de Perfil do fornecedor antes do motor.`
+export const fraseDaFamiliaForaDoPerfil = (familia: string, doPerfil: readonly string[]) =>
+    `A família do motor de Perfil vem da tabela de Perfil do fornecedor (${doPerfil.join(', ')}), e ${familia} não está entre elas.`
+
 export function fraseDoMotorCriado(r: { regras: number; tipologias: number; detalhes?: number }): string {
     const tip = r.detalhes ?? r.tipologias
     return `Motor criado no catálogo: ${tip.toLocaleString('pt-BR')} ${tip === 1 ? 'tipologia' : 'tipologias'} e ${r.regras.toLocaleString('pt-BR')} ${r.regras === 1 ? 'regra' : 'regras'}. `

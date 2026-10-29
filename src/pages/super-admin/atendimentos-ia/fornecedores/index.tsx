@@ -1,71 +1,43 @@
 /**
  * Atendimentos I.A. → CATÁLOGO (EPIC §5.5; "Fornecedores e tabelas" até 28/10/2026). Só o super admin.
  *
- * A ORDEM DAS SEÇÕES (dono do produto, 28/10/2026): NICHO → FAMÍLIAS → FORNECEDORES → MOTORES. A família vem antes do fornecedor porque é
- * ela que define quais categorias existem nela, e o fornecedor usa essas categorias ao inserir a tabela; o motor vem por último porque
- * escolhe o fornecedor.
+ * O NICHO É O CONTAINER (dono do produto, 29/10/2026, opção A): esta página é a PORTA — os nichos, agrupados por modelo, com criar e excluir.
+ * Abrir um nicho leva à página dele (`rotaDoNicho`, `catalogo/[nichoId].tsx`), onde moram, em abas, as famílias, os fornecedores e os motores.
+ * Até 29/10/2026 as quatro seções estavam lado a lado aqui; agora são conteúdo do nicho.
  *
- * TUDO PELAS ROTAS (`ROTAS_DO_CATALOGO`), nada pelo cliente do Supabase: as quatro tabelas não
- * dão privilégio ao navegador, e uma lista lida por ele chegaria VAZIA, dizendo "nenhum
- * fornecedor" sobre um dado que ninguém leu. Pelo mesmo motivo, falha de leitura aqui aparece
- * como ERRO, nunca como lista vazia (`ausente-vs-falso.md`).
- *
- * CREDENCIAR — a recusa aparece onde a ação aconteceu (cabeçalho de `EXTENSOES_ACEITAS`):
- *   - o fornecedor recusado: o erro aparece DENTRO do modal de credenciamento;
- *   - o fornecedor gravado e alguma tabela recusada: o modal FECHA — o fornecedor já existe, e um
- *     novo "Salvar credenciamento" criaria um SEGUNDO (não há índice único no nome) — e as falhas
- *     ficam num Alert FIXO na página, acima da lista, até o usuário fechar. Cada falha já vem
- *     com o arquivo nomeado uma vez (`gravarTabelaNova`); aqui não se acrescenta nome.
- * Portão: `atendimentos-ia-recusa-onde-a-acao-aconteceu.test.tsx`.
- *
- * AS FAMÍLIAS (dono do produto, 26/10/2026) moram aqui, ao lado dos nichos: a lista fechada que o
- * cadastro da tabela usa, com "Nova família" (`FamiliasCard`).
- *
- * O CATÁLOGO DE MOTORES (dono do produto, 28/10/2026) é a última seção (`MotoresDoCatalogo`): cada motor com família, categoria e
- * fornecedor, global e compartilhado. As ETAPAS saíram daqui: são da família-instância, na base de conhecimento da conta.
+ * TUDO PELAS ROTAS (`ROTAS_DO_CATALOGO`), nada pelo cliente do Supabase. A contagem de fornecedores por nicho sai da mesma lista de
+ * fornecedores da rota; falha de leitura aparece como ERRO, nunca como "nenhum fornecedor" (`ausente-vs-falso.md`).
  */
 import React, { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/router'
-import { Alert, Button, Empty, Table, Tag, Typography, message } from 'antd'
-import { PlusOutlined } from '@ant-design/icons'
+import { Alert, Button, message } from 'antd'
 import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
 import { ROUTES } from '@/constants/routes'
 import { useAuth } from '@/hooks/use-auth.hook'
-import { AVISO_DO_CATALOGO, ROTAS_DO_CATALOGO, ROTULO_DO_MODELO, type Categoria, type Familia, type FornecedorDaLista, type Modelo, type Nicho } from '@/utils/atendimentos-ia-catalogo'
-import { chamarRota, gravarTabelaNova } from '@/page-parts/atendimentos-ia/api'
-import { FornecedorModal, TITULO_FORNECEDOR_NAO_CREDENCIADO, type DadosDoFornecedor, type ErroDoFornecedor } from '@/page-parts/atendimentos-ia/fornecedor-modal.component'
+import { AVISO_DO_CATALOGO, ROTAS_DO_CATALOGO, type FornecedorDaLista, type Modelo, type Nicho } from '@/utils/atendimentos-ia-catalogo'
+import { chamarRota } from '@/page-parts/atendimentos-ia/api'
 import { NichosCard } from '@/page-parts/atendimentos-ia/nichos.component'
-import { FamiliasCard } from '@/page-parts/atendimentos-ia/familias.component'
-import { MotoresDoCatalogo } from '@/page-parts/atendimentos-ia/motores-do-catalogo.component'
 
-export default function FornecedoresETabelas() {
+export default function Catalogo() {
     const router = useRouter()
     const { currentUser } = useAuth()
     const ehSuperAdmin = !!currentUser?.is_super_admin
 
-    const [fornecedores, setFornecedores] = useState<FornecedorDaLista[] | null>(null)
     const [nichos, setNichos] = useState<Nicho[]>([])
-    const [familias, setFamilias] = useState<Familia[]>([])
-    const [categorias, setCategorias] = useState<Categoria[]>([])
+    const [porNicho, setPorNicho] = useState<Record<string, number>>({})
     const [erro, setErro] = useState<string | null>(null)
-    const [credenciando, setCredenciando] = useState(false)
-    const [salvando, setSalvando] = useState(false)
-    const [erroAoCredenciar, setErroAoCredenciar] = useState<ErroDoFornecedor | null>(null)
-    const [credenciadoComFalhas, setCredenciadoComFalhas] = useState<{ nome: string; falhas: string[] } | null>(null)
 
     const carregar = useCallback(async () => {
         try {
-            const [fs, ns, fams, cats] = await Promise.all([
-                chamarRota<FornecedorDaLista[]>(ROTAS_DO_CATALOGO.fornecedores),
+            const [ns, fs] = await Promise.all([
                 chamarRota<Nicho[]>(ROTAS_DO_CATALOGO.nichos),
-                chamarRota<Familia[]>(ROTAS_DO_CATALOGO.familias),
-                chamarRota<Categoria[]>(ROTAS_DO_CATALOGO.categorias),
+                chamarRota<FornecedorDaLista[]>(ROTAS_DO_CATALOGO.fornecedores),
             ])
-            setFornecedores(fs)
+            const contagem: Record<string, number> = {}
+            for (const f of fs) contagem[f.nicho_id] = (contagem[f.nicho_id] ?? 0) + 1
             setNichos(ns)
-            setFamilias(fams)
-            setCategorias(cats)
+            setPorNicho(contagem)
             setErro(null)
         } catch (e) {
             setErro((e as Error).message)
@@ -80,34 +52,6 @@ export default function FornecedoresETabelas() {
     }
     if (!ehSuperAdmin) return null
 
-    /** Abre ou fecha o credenciamento sempre SEM o erro da tentativa anterior. */
-    const abrirCredenciamento = (aberto: boolean) => { setErroAoCredenciar(null); setCredenciando(aberto) }
-
-    async function credenciar(d: DadosDoFornecedor) {
-        setSalvando(true)
-        setErroAoCredenciar(null)
-        let id: string
-        try {
-            id = (await chamarRota<{ id: string }>(ROTAS_DO_CATALOGO.fornecedores, 'POST', { nome: d.nome, nicho_id: d.nicho_id })).id
-        } catch (e) {
-            setErroAoCredenciar({ titulo: TITULO_FORNECEDOR_NAO_CREDENCIADO, motivo: (e as Error).message })
-            setSalvando(false)
-            return
-        }
-        try {
-            const falhas: string[] = []
-            for (const t of d.tabelas) {
-                try { await gravarTabelaNova(id, t) } catch (e) { falhas.push((e as Error).message) }
-            }
-            setCredenciadoComFalhas(falhas.length ? { nome: d.nome.trim(), falhas } : null)
-            if (!falhas.length) message.success('Fornecedor credenciado')
-            abrirCredenciamento(false)
-            await carregar()
-        } finally {
-            setSalvando(false)
-        }
-    }
-
     async function criarNicho(n: { modelo: Modelo; nome: string }) {
         try {
             await chamarRota(ROTAS_DO_CATALOGO.nichos, 'POST', n)
@@ -116,18 +60,6 @@ export default function FornecedoresETabelas() {
             return true
         } catch (e) {
             message.error((e as Error).message)
-            return false
-        }
-    }
-
-    async function criarFamilia(rotulo: string) {
-        try {
-            await chamarRota(ROTAS_DO_CATALOGO.familias, 'POST', { rotulo })
-            message.success('Família acrescentada')
-            await carregar()
-            return true
-        } catch (e) {
-            message.error((e as Error).message, 8)
             return false
         }
     }
@@ -147,65 +79,8 @@ export default function FornecedoresETabelas() {
             {erro ? (
                 <Alert type="error" showIcon message="Não foi possível ler o catálogo." description={erro} action={<Button onClick={carregar}>Tentar de novo</Button>} />
             ) : (
-                <>
-                    <NichosCard nichos={nichos} onCriar={criarNicho} onExcluir={excluirNicho} />
-                    <FamiliasCard familias={familias} onCriar={criarFamilia} />
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '16px 0 12px' }} data-secao-fornecedores>
-                        <Typography.Title level={5} style={{ margin: 0 }}>Fornecedores</Typography.Title>
-                        <Button type="primary" icon={<PlusOutlined />} onClick={() => abrirCredenciamento(true)}>
-                            Credenciar fornecedor
-                        </Button>
-                    </div>
-                    {credenciadoComFalhas && (
-                        <Alert
-                            type="warning"
-                            showIcon
-                            closable
-                            onClose={() => setCredenciadoComFalhas(null)}
-                            style={{ marginBottom: 12 }}
-                            message={`Fornecedor "${credenciadoComFalhas.nome}" credenciado, mas ${credenciadoComFalhas.falhas.length} tabela(s) não entraram.`}
-                            description={<ul style={{ margin: 0, paddingLeft: 18 }}>{credenciadoComFalhas.falhas.map((f, i) => <li key={i}>{f}</li>)}</ul>}
-                            data-credenciado-com-falhas
-                        />
-                    )}
-                    <div className="pc-card--table">
-                        <Table<FornecedorDaLista>
-                            rowKey="id"
-                            loading={fornecedores === null}
-                            dataSource={fornecedores ?? []}
-                            pagination={false}
-                            locale={{ emptyText: <Empty description="Nenhum fornecedor credenciado." /> }}
-                            columns={[
-                                { title: 'Fornecedor', dataIndex: 'nome' },
-                                { title: 'Nicho', render: (_, f) => <span>{f.nicho_nome} {f.modelo && <Tag>{ROTULO_DO_MODELO[f.modelo]}</Tag>}</span> },
-                                { title: 'Contas usando', render: (_, f) => (f.contas_usando.length ? f.contas_usando.join(', ') : <Typography.Text type="secondary">—</Typography.Text>) },
-                                {
-                                    title: '',
-                                    align: 'right',
-                                    render: (_, f) => (
-                                        <Button size="small" onClick={() => router.push(`${ROUTES.SUPER_ADMIN_IA_FORNECEDORES}/${f.id}`)}>
-                                            Tabelas ({f.tabelas})
-                                        </Button>
-                                    ),
-                                },
-                            ]}
-                        />
-                    </div>
-                    {fornecedores !== null && <MotoresDoCatalogo fornecedores={fornecedores} categorias={categorias} familias={familias} />}
-                </>
+                <NichosCard nichos={nichos} fornecedoresPorNicho={porNicho} onCriar={criarNicho} onExcluir={excluirNicho} />
             )}
-
-            <FornecedorModal
-                aberto={credenciando}
-                modo="credenciar"
-                nichos={nichos}
-                familias={familias}
-                categorias={categorias}
-                salvando={salvando}
-                erro={credenciando ? erroAoCredenciar : null}
-                onCancelar={() => abrirCredenciamento(false)}
-                onSalvar={credenciar}
-            />
         </Layout>
     )
 }

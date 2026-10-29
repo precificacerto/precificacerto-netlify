@@ -157,6 +157,24 @@ export function fraseDoModeloSemFornecedor(m: ModeloSemFornecedor): string {
 /** A frase do mockup na tela de fornecedores (EPIC §3.3). */
 export const AVISO_DO_CATALOGO = 'Nada aqui pertence a um cliente — são tabelas do fornecedor.'
 
+// ── O nicho é o CONTAINER (dono do produto, 29/10/2026, opção A) ─────────────────────────────
+/** As abas da página do nicho, nesta ordem: famílias, fornecedores e motores vivem DENTRO do nicho. */
+export const ABAS_DO_NICHO = ['familias', 'fornecedores', 'motores'] as const
+export type AbaDoNicho = (typeof ABAS_DO_NICHO)[number]
+export const ROTULO_DA_ABA_DO_NICHO: Record<AbaDoNicho, string> = { familias: 'Famílias', fornecedores: 'Fornecedores', motores: 'Motores' }
+/** A aba pedida na URL, ou a primeira — o que não é aba vira a primeira, nunca uma aba vazia. */
+export const abaDoNicho = (v: unknown): AbaDoNicho => (ABAS_DO_NICHO as readonly unknown[]).includes(v) ? (v as AbaDoNicho) : 'familias'
+/** O endereço da página de um nicho, opcionalmente já numa aba. */
+export const rotaDoNicho = (nichoId: string, aba?: AbaDoNicho) =>
+    `/super-admin/atendimentos-ia/catalogo/${encodeURIComponent(nichoId)}${aba ? `?aba=${aba}` : ''}`
+/**
+ * A FAMÍLIA É GLOBAL (dono do produto, 29/10/2026): `orcamentista_familia_catalogo` não tem nicho, e não ganha agora — 12 nichos, um só com
+ * fornecedores, nenhuma família além da PVC Wolf. É DÍVIDA registrada em `tabela-de-preco-por-categoria.md`, e a tela diz.
+ */
+export const AVISO_DA_FAMILIA_GLOBAL =
+    'As famílias são da plataforma, não do nicho: a lista abaixo é a mesma em todos os nichos. Acrescentar uma família aqui a acrescenta em todos.'
+export const NICHO_NAO_ENCONTRADO = 'Nicho não encontrado.'
+
 /**
  * O ARQUIVO DO MOTOR NA TABELA É OPCIONAL EM TODA CATEGORIA (dono do produto, 27/10/2026, à noite): o motor mora na FAMÍLIA, em
  * `orcamentista_motor`, e entra pela etapa. A exigência que a `20261027000007` pôs na tabela de Perfil (CHECK
@@ -257,6 +275,11 @@ export interface FornecedorDaLista {
      * onde o cadastro de motor tira "os fornecedores daquela categoria" (28/10/2026). Tabela sem categoria não entra em categoria nenhuma.
      */
     categorias_das_tabelas: string[]
+    /**
+     * As FAMÍLIAS das tabelas de PERFIL deste fornecedor, sem repetição e em ordem: é de onde o motor de PERFIL tira a família (dono do produto,
+     * 29/10/2026: "derivar da tabela de PERFIL do fornecedor quando ela existir"). A tabela de Perfil sempre tem família (`20261028000002`).
+     */
+    familias_do_perfil: string[]
 }
 
 export interface TabelaDoFornecedor {

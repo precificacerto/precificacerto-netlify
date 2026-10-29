@@ -84,6 +84,8 @@ describe('PORTÃO 1 — a tela do Atendimentos I.A. não fala com o banco', () =
         expect(daTela.map(rel)).toEqual(expect.arrayContaining([
             'src/pages/super-admin/atendimentos-ia/fornecedores/index.tsx',
             'src/pages/super-admin/atendimentos-ia/fornecedores/[id].tsx',
+            // O nicho é o container (29/10/2026): a página de um nicho, com famílias, fornecedores e motores.
+            'src/pages/super-admin/atendimentos-ia/catalogo/[nichoId].tsx',
             'src/pages/super-admin/atendimentos-ia/contas/index.tsx',
             'src/pages/super-admin/atendimentos-ia/contas/[tenantId].tsx',
             // "Tabelas em uso" (depois do 2C.1): o componente que escolhe fornecedor e tabela.

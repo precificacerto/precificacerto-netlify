@@ -28,14 +28,15 @@ Object.defineProperty(window, 'matchMedia', {
 
 const replaces: string[] = []
 jest.mock('next/router', () => ({
-    useRouter: () => ({ pathname: '/super-admin/atendimentos-ia/fornecedores', asPath: '/', query: {}, replace: (u: string) => { replaces.push(u) }, push: () => {} }),
+    // o índice do Catálogo ignora a query; a página do nicho (29/10/2026) a lê: o nicho n1, na aba dos fornecedores
+    useRouter: () => ({ pathname: '/super-admin/atendimentos-ia/fornecedores', asPath: '/', query: { nichoId: 'n1', aba: 'fornecedores' }, replace: (u: string) => { replaces.push(u) }, push: () => {} }),
 }))
 let usuario: Record<string, unknown> = { id: 'u-super', is_super_admin: true, role: 'super_admin' }
 jest.mock('@/hooks/use-auth.hook', () => ({ useAuth: () => ({ currentUser: usuario }) }))
 jest.mock('@/components/layout/layout.component', () => ({ Layout: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }))
 
 const FORNECEDOR: FornecedorDaLista = {
-    id: 'f1', nome: 'Alumínio Sul', nicho_id: 'n1', nicho_nome: 'Esquadrias', modelo: 'FABRICACAO', tabelas: 2, contas_usando: ['Marcenaria Silva'], categorias_das_tabelas: [],
+    id: 'f1', nome: 'Alumínio Sul', nicho_id: 'n1', nicho_nome: 'Esquadrias', modelo: 'FABRICACAO', tabelas: 2, contas_usando: ['Marcenaria Silva'], categorias_das_tabelas: [], familias_do_perfil: [] as string[],
 }
 let respostas: Record<string, { status: number; body: unknown }> = {}
 const pedidos: string[] = []
@@ -52,6 +53,8 @@ beforeEach(() => {
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const Pagina = require('@/pages/super-admin/atendimentos-ia/fornecedores/index').default as React.ComponentType
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const PaginaDoNicho = require('@/pages/super-admin/atendimentos-ia/catalogo/[nichoId]').default as React.ComponentType
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { TabelaModal } = require('@/page-parts/atendimentos-ia/tabela-modal.component') as typeof import('@/page-parts/atendimentos-ia/tabela-modal.component')
 
@@ -82,17 +85,16 @@ describe('a tela de Fornecedores e tabelas', () => {
         expect(host.textContent).not.toContain('Nenhum fornecedor credenciado')
     })
 
-    it('(b) a lista da rota aparece: fornecedor, nicho, contas usando, tabelas', async () => {
+    it('(b) a lista da rota aparece, na aba de fornecedores do NICHO: fornecedor, contas usando, tabelas', async () => {
         respostas = {
             [ROTAS_DO_CATALOGO.fornecedores]: { status: 200, body: [FORNECEDOR] },
             [ROTAS_DO_CATALOGO.nichos]: { status: 200, body: [{ id: 'n1', modelo: 'FABRICACAO', nome: 'Esquadrias', ativo: true }] },
             [ROTAS_DO_CATALOGO.familias]: { status: 200, body: [{ chave: 'PVC', rotulo: 'PVC', ordem: 1 }] },
             [ROTAS_DO_CATALOGO.categorias]: { status: 200, body: [{ chave: 'PERFIL', rotulo: 'Perfil', ordem: 1 }] },
         }
-        const host = await montar(<Pagina />)
-        const linha = host.querySelector('tbody tr') as HTMLElement
+        const host = await montar(<PaginaDoNicho />)
+        const linha = host.querySelector('[data-aba-fornecedores] tbody tr') as HTMLElement
         expect(linha.textContent).toContain('Alumínio Sul')
-        expect(linha.textContent).toContain('Esquadrias')
         expect(linha.textContent).toContain('Marcenaria Silva')
         expect(linha.textContent).toContain('Tabelas (2)')
         expect(pedidos).toEqual(expect.arrayContaining([ROTAS_DO_CATALOGO.fornecedores, ROTAS_DO_CATALOGO.nichos]))

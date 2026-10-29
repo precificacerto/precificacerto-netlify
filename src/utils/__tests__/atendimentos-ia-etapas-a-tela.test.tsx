@@ -79,7 +79,7 @@ beforeEach(() => {
 const Etapas = () => require('@/page-parts/atendimentos-ia/etapas-da-familia.component').EtapasDaFamilia as React.ComponentType<{ tenantId: string; materiaPrimaId: string; principais?: string[] }>
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const Textos = () => require('@/page-parts/atendimentos-ia/etapas-da-familia.component') as {
-    AVISO_DAS_ETAPAS: string; SEM_ETAPAS: string; SEM_TIPO_SEM_ETAPAS: string; SEM_MOTORES_DO_TIPO: (t: string) => string; CADASTRAR_MOTOR_NO_CATALOGO: string; LINK_DO_CATALOGO_DE_MOTORES: string
+    AVISO_DAS_ETAPAS: string; SEM_ETAPAS: string; SEM_TIPO_SEM_ETAPAS: string; SEM_MOTORES_DO_TIPO: (t: string) => string; CADASTRAR_MOTOR_NO_CATALOGO: string; linkDoCatalogoDeMotores: (n: string | null) => string
 }
 
 const montadas: { root: ReturnType<typeof createRoot>; host: HTMLElement }[] = []
@@ -409,8 +409,9 @@ describe('(9) cada etapa seleciona o seu motor DO CATÁLOGO, e a tela deixa inse
         expect(host.querySelector('[data-arquivo-do-motor]')).toBeNull()
         const link = host.querySelector('[data-cadastrar-motor-no-catalogo]') as HTMLAnchorElement
         expect(link.textContent).toBe(Textos().CADASTRAR_MOTOR_NO_CATALOGO)
+        // montada sem o nicho da conta: o link cai no Catálogo (com o nicho, nos motores dele — `atendimentos-ia-catalogo-por-nicho.test.tsx`)
         expect(link.getAttribute('href')).toBe('/super-admin/atendimentos-ia/fornecedores#motores')
-        expect(Textos().LINK_DO_CATALOGO_DE_MOTORES).toBe('/super-admin/atendimentos-ia/fornecedores#motores')
+        expect(Textos().linkDoCatalogoDeMotores(null)).toBe('/super-admin/atendimentos-ia/fornecedores#motores')
     })
 
     it('o combo oferece SÓ os motores do mesmo tipo e não arquivados, por fornecedor; a etapa sem motor mostra o convite', async () => {

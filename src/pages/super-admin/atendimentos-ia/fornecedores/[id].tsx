@@ -22,7 +22,7 @@ import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
 import { ROUTES } from '@/constants/routes'
 import { useAuth } from '@/hooks/use-auth.hook'
-import { ROTAS_DO_CATALOGO, ROTULO_DO_MODELO, ROTULO_QUALQUER_LINHA, familiaObrigatoria, TITULO_DA_TABELA_NAO_EXCLUIDA, fraseDoArquivo, type Categoria, type Familia, type FornecedorComTabelas, type Nicho, type TabelaDoFornecedor } from '@/utils/atendimentos-ia-catalogo'
+import { ROTAS_DO_CATALOGO, ROTULO_DO_MODELO, ROTULO_QUALQUER_LINHA, familiaObrigatoria, rotaDoNicho, TITULO_DA_TABELA_NAO_EXCLUIDA, fraseDoArquivo, type Categoria, type Familia, type FornecedorComTabelas, type Nicho, type TabelaDoFornecedor } from '@/utils/atendimentos-ia-catalogo'
 import { chamarRota, enviarArquivo, gravarTabelaNova, type TabelaPendente } from '@/page-parts/atendimentos-ia/api'
 import { FornecedorModal, TITULO_FORNECEDOR_NAO_EXCLUIDO, TITULO_FORNECEDOR_NAO_SALVO, type DadosDoFornecedor, type ErroDoFornecedor } from '@/page-parts/atendimentos-ia/fornecedor-modal.component'
 import { TabelaModal } from '@/page-parts/atendimentos-ia/tabela-modal.component'
@@ -78,7 +78,8 @@ export default function TabelasDoFornecedor() {
     }
     if (!ehSuperAdmin) return null
 
-    const voltar = () => router.push(ROUTES.SUPER_ADMIN_IA_FORNECEDORES)
+    // o fornecedor mora no nicho (29/10/2026): voltar é voltar para a aba de fornecedores do nicho dele; sem o nicho lido, para o Catálogo
+    const voltar = () => router.push(fornecedor?.nicho_id ? rotaDoNicho(fornecedor.nicho_id, 'fornecedores') : ROUTES.SUPER_ADMIN_IA_FORNECEDORES)
 
     /** Abre ou fecha "Editar fornecedor" sempre SEM o erro da tentativa anterior. */
     const editarFornecedor = (aberto: boolean) => { setErroDoFornecedor(null); setEditandoFornecedor(aberto) }

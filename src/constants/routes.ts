@@ -65,6 +65,8 @@ export enum ROUTES {
   SUPER_ADMIN_NOTIFICATIONS = '/super-admin/notificacoes',
   // Atendimentos I.A. — sob /super-admin/, que o AuthGuard já permite ao super admin.
   SUPER_ADMIN_IA_FORNECEDORES = '/super-admin/atendimentos-ia/fornecedores',
+  /** A página de UM nicho do Catálogo: `${SUPER_ADMIN_IA_CATALOGO}/[nichoId]?aba=…` (dono do produto, 29/10/2026: o nicho é o container). */
+  SUPER_ADMIN_IA_CATALOGO = '/super-admin/atendimentos-ia/catalogo',
   SUPER_ADMIN_IA_CONTAS = '/super-admin/atendimentos-ia/contas',
   ATENDIMENTOS_IA_ORCAMENTISTA = '/atendimentos-ia/orcamentista',
   /** Base das telas de UMA tabela: `${SUPER_ADMIN_IA_TABELAS}/[id]/importacao`. */

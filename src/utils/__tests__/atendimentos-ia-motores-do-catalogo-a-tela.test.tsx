@@ -10,10 +10,10 @@
  *       interruptor; falha de leitura é ERRO, nunca "nenhum motor";
  *   (2) arquivar: o motor em uso tem o botão travado (com o porquê); o livre chama SÓ a rota de arquivar com o id, e relê; a recusa da rota
  *       aparece no cartão, com a frase dela;
- *   (3) "Novo motor": família → categoria → fornecedor → arquivo, cada um liberando o seguinte; o fornecedor sai SÓ dos que têm tabela da
- *       categoria; criar faz, NESTA ordem, a URL assinada na pasta DO FORNECEDOR (tipo motor), os bytes, o POST do catálogo com os cinco
+ *   (3) "Novo motor": categoria → fornecedor → família → arquivo (29/10/2026), cada um liberando o seguinte; o fornecedor sai SÓ dos que têm
+ *       tabela da categoria; no PERFIL a família vem da tabela de Perfil do fornecedor; criar faz, NESTA ordem, a URL assinada na pasta DO FORNECEDOR (tipo motor), os bytes, o POST do catálogo com os cinco
  *       campos — e relê; a recusa aparece DENTRO do modal;
- *   (4) a página: CATÁLOGO, na ordem nicho → famílias → fornecedores → motores, e o cartão "Etapas da família" saiu.
+ *   (4) o menu chama a página de CATÁLOGO; a página do nicho tem portão próprio.
  */
 import React from 'react'
 import { act } from 'react'
@@ -41,13 +41,15 @@ const M_ARQ = '00000000-0000-4000-8000-0000000000a3'
 const PATH = `${W}/motor/u1-Motor-persiana.xlsx`
 const URL_ASSINADA = `https://storage.exemplo/${PATH}?token=t`
 const FORNECEDORES: FornecedorDaLista[] = [
-    { id: W, nome: 'Wolf', nicho_id: 'n', nicho_nome: 'Esquadrias', modelo: 'FABRICACAO' as const, tabelas: 2, contas_usando: [], categorias_das_tabelas: ['PERFIL', 'PERSIANAS'] },
-    { id: R, nome: 'Roller Star', nicho_id: 'n', nicho_nome: 'Esquadrias', modelo: 'FABRICACAO' as const, tabelas: 1, contas_usando: [], categorias_das_tabelas: ['PERSIANAS'] },
+    { id: W, nome: 'Wolf', nicho_id: 'n', nicho_nome: 'Esquadrias', modelo: 'FABRICACAO' as const, tabelas: 2, contas_usando: [], categorias_das_tabelas: ['PERFIL', 'PERSIANAS'], familias_do_perfil: ['PVC'] },
+    // duas tabelas de PERFIL, de duas famílias: a família do motor se escolhe ENTRE elas
+    { id: 'f-veca', nome: 'Veca', nicho_id: 'n', nicho_nome: 'Esquadrias', modelo: 'FABRICACAO' as const, tabelas: 3, contas_usando: [], categorias_das_tabelas: ['PERFIL', 'PERSIANAS'], familias_do_perfil: ['ALUMINIO', 'PVC'] },
+    { id: R, nome: 'Roller Star', nicho_id: 'n', nicho_nome: 'Esquadrias', modelo: 'FABRICACAO' as const, tabelas: 1, contas_usando: [], categorias_das_tabelas: ['PERSIANAS'], familias_do_perfil: [] as string[] },
     // sem tabela nenhuma: não aparece em categoria nenhuma
-    { id: 'f-sem', nome: 'Alfa Sem Tabela', nicho_id: 'n', nicho_nome: 'Esquadrias', modelo: 'FABRICACAO' as const, tabelas: 0, contas_usando: [], categorias_das_tabelas: [] },
+    { id: 'f-sem', nome: 'Alfa Sem Tabela', nicho_id: 'n', nicho_nome: 'Esquadrias', modelo: 'FABRICACAO' as const, tabelas: 0, contas_usando: [], categorias_das_tabelas: [], familias_do_perfil: [] as string[] },
 ]
 const CATEGORIAS = [{ chave: 'PERFIL', rotulo: 'Perfil', ordem: 1 }, { chave: 'PERSIANAS', rotulo: 'Persianas', ordem: 2 }, { chave: 'VIDRO', rotulo: 'Vidro', ordem: 6 }]
-const FAMILIAS = [{ chave: 'PVC', rotulo: 'PVC', ordem: 1 }, { chave: 'ALUMINIO', rotulo: 'Alumínio', ordem: 2 }]
+const FAMILIAS = [{ chave: 'PVC', rotulo: 'PVC', ordem: 1 }, { chave: 'ALUMINIO', rotulo: 'Alumínio', ordem: 2 }, { chave: 'VECA', rotulo: 'PVC Veca', ordem: 3 }]
 const motor = (id: string, f: Partial<MotorDoCatalogo>): MotorDoCatalogo => ({
     id, familia: 'PVC', fornecedor_id: W, fornecedor: 'Wolf', categoria: 'PERFIL', arquivo_nome: `${id}.xlsx`, criado_em: '2026-10-28', arquivado_em: null, tipologias: 0, usos: [], ...f,
 })
@@ -87,6 +89,7 @@ const Componente = () => require('@/page-parts/atendimentos-ia/motores-do-catalo
     MotoresDoCatalogo: React.ComponentType<{ fornecedores: typeof FORNECEDORES; categorias: typeof CATEGORIAS; familias: typeof FAMILIAS }>
     SEM_MOTOR_NO_CATALOGO: string
     fraseSemFornecedorDaCategoria: (c: string) => string
+    FAMILIA_DA_TABELA_DE_PERFIL: string
 }
 
 const montadas: { root: ReturnType<typeof createRoot>; host: HTMLElement }[] = []
@@ -120,6 +123,11 @@ async function escolher(rotulo: string, texto: string) {
     const opcoes = Array.from(document.body.querySelectorAll('.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option')) as HTMLElement[]
     await clicar(opcoes.find((o) => o.textContent === texto))
 }
+/** Escolhe a opção pelo texto no dropdown que JÁ está aberto (depois de `opcoesDoCombo`, abrir de novo o fecharia). */
+async function escolherNoAberto(texto: string) {
+    const opcoes = Array.from(document.body.querySelectorAll('.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option')) as HTMLElement[]
+    await clicar(opcoes.find((o) => o.textContent === texto))
+}
 async function anexar(nome = 'Motor persiana.xlsx') {
     const input = modal().querySelector('input[type="file"]') as HTMLInputElement
     expect(input).toBeTruthy()
@@ -137,9 +145,9 @@ const opcoesDoCombo = async (rotulo: string) => {
     return Array.from(document.body.querySelectorAll('.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option')).map((o) => o.textContent)
 }
 async function preencherTudo() {
-    await escolher('Família do motor', 'PVC')
     await escolher('Categoria do motor', 'Persianas')
     await escolher('Fornecedor do motor', 'Wolf')
+    await escolher('Família do motor', 'PVC')
     await anexar()
 }
 
@@ -163,6 +171,12 @@ describe('(1) a lista do catálogo', () => {
         expect(livre.textContent).toContain('Persianas')
         expect(livre.textContent).toContain('Alumínio')
         expect(livre.querySelector('[data-sem-uso]')?.textContent).toBe('Nenhuma família usa este motor.')
+    })
+
+    it('DENTRO DO NICHO (29/10/2026): só os motores dos fornecedores recebidos — o da Wolf some quando a lista é só a da Roller Star', async () => {
+        const host = await montar(React.createElement(Componente().MotoresDoCatalogo, { fornecedores: FORNECEDORES.filter((f) => f.id === R), categorias: CATEGORIAS, familias: FAMILIAS }))
+        expect(linha(host, M_WOLF)).toBeNull()
+        expect(linha(host, M_LIVRE)).not.toBeNull()
     })
 
     it('o arquivado só aparece com o interruptor, marcado como arquivado e sem botão de arquivar', async () => {
@@ -208,42 +222,95 @@ describe('(2) arquivar', () => {
     })
 })
 
-describe('(3) "Novo motor": família → categoria → fornecedor → arquivo', () => {
+describe('(3) "Novo motor": categoria → fornecedor → família → arquivo (29/10/2026)', () => {
     it('cada campo libera o seguinte, NESTA ordem, e o criar só liga com os quatro', async () => {
         const host = await montar()
         await clicar(host.querySelector('[data-novo-motor]'))
         // o antd põe o rótulo no input e no contêiner do combo: a ordem é a da primeira aparição de cada um
         const campos = [...new Set(Array.from(modal().querySelectorAll('[aria-label$=" do motor"]')).map((e) => e.getAttribute('aria-label')))]
-        expect(campos).toEqual(['Família do motor', 'Categoria do motor', 'Fornecedor do motor', 'Arquivo do motor'])
-        expect(combo('Categoria do motor').className).toContain('ant-select-disabled')
+        expect(campos).toEqual(['Categoria do motor', 'Fornecedor do motor', 'Família do motor', 'Arquivo do motor'])
         expect(combo('Fornecedor do motor').className).toContain('ant-select-disabled')
+        expect(combo('Família do motor').className).toContain('ant-select-disabled')
         expect(criar().disabled).toBe(true)
-        await escolher('Família do motor', 'PVC')
-        expect(combo('Categoria do motor').className).not.toContain('ant-select-disabled')
-        expect(combo('Fornecedor do motor').className).toContain('ant-select-disabled')
         await escolher('Categoria do motor', 'Persianas')
         expect(combo('Fornecedor do motor').className).not.toContain('ant-select-disabled')
-        expect((modal().querySelector('[aria-label="Arquivo do motor"]') as HTMLButtonElement).disabled).toBe(true)
+        expect(combo('Família do motor').className).toContain('ant-select-disabled')
         await escolher('Fornecedor do motor', 'Wolf')
+        // fora do Perfil a família ainda se escolhe à mão, entre todas
+        expect(combo('Família do motor').className).not.toContain('ant-select-disabled')
+        expect(await opcoesDoCombo('Família do motor')).toEqual(['PVC', 'Alumínio', 'PVC Veca'])
+        // sem a família, o arquivo não se escolhe — nem o botão, nem o campo de arquivo por trás dele
+        expect((modal().querySelector('[aria-label="Arquivo do motor"]') as HTMLButtonElement).disabled).toBe(true)
+        expect((modal().querySelector('input[type="file"]') as HTMLInputElement).disabled).toBe(true)
+        await escolherNoAberto('PVC')
         expect(criar().disabled).toBe(true)
         await anexar()
         expect(criar().disabled).toBe(false)
     })
 
+    it('PERFIL com UMA tabela de Perfil no fornecedor: a família já vem escolhida (a da tabela), travada, e o aviso diz de onde veio', async () => {
+        const host = await montar()
+        await clicar(host.querySelector('[data-novo-motor]'))
+        await escolher('Categoria do motor', 'Perfil')
+        await escolher('Fornecedor do motor', 'Wolf')
+        expect(combo('Família do motor').querySelector('.ant-select-selection-item')?.textContent).toBe('PVC')
+        expect(combo('Família do motor').className).toContain('ant-select-disabled')
+        expect(modal().querySelector('[data-familia-da-tabela-de-perfil]')?.textContent).toBe(Componente().FAMILIA_DA_TABELA_DE_PERFIL)
+        await anexar()
+        expect(criar().disabled).toBe(false)
+    })
+
+    it('PERFIL com DUAS famílias nas tabelas de Perfil: nada vem escolhido, e só elas são oferecidas', async () => {
+        const host = await montar()
+        await clicar(host.querySelector('[data-novo-motor]'))
+        await escolher('Categoria do motor', 'Perfil')
+        await escolher('Fornecedor do motor', 'Veca')
+        expect(combo('Família do motor').querySelector('.ant-select-selection-item')).toBeNull()
+        expect(combo('Família do motor').className).not.toContain('ant-select-disabled')
+        expect(await opcoesDoCombo('Família do motor')).toEqual(['PVC', 'Alumínio'])
+        await escolherNoAberto('Alumínio')
+        // trocar para o fornecedor de uma família só: a dele entra no lugar
+        await escolher('Fornecedor do motor', 'Wolf')
+        expect(combo('Família do motor').querySelector('.ant-select-selection-item')?.textContent).toBe('PVC')
+    })
+
+    it('PERFIL: a família escolhida à mão em outra categoria que não está no Perfil do fornecedor é LIMPA ao passar para o Perfil', async () => {
+        const host = await montar()
+        await clicar(host.querySelector('[data-novo-motor]'))
+        await escolher('Categoria do motor', 'Persianas')
+        await escolher('Fornecedor do motor', 'Wolf')
+        await escolher('Família do motor', 'Alumínio')
+        await escolher('Categoria do motor', 'Perfil')
+        // a Wolf tem tabela de Perfil só PVC: Alumínio sai, PVC entra
+        expect(combo('Família do motor').querySelector('.ant-select-selection-item')?.textContent).toBe('PVC')
+    })
+
+    it('PERFIL com várias famílias: a escolhida à mão que NÃO é de nenhuma delas é limpa; a que é, fica', async () => {
+        const host = await montar()
+        await clicar(host.querySelector('[data-novo-motor]'))
+        await escolher('Categoria do motor', 'Persianas')
+        await escolher('Fornecedor do motor', 'Veca')
+        await escolher('Família do motor', 'PVC Veca')
+        await escolher('Categoria do motor', 'Perfil')
+        expect(combo('Família do motor').querySelector('.ant-select-selection-item')).toBeNull()
+        await escolher('Família do motor', 'Alumínio')
+        await escolher('Categoria do motor', 'Persianas')
+        await escolher('Categoria do motor', 'Perfil')
+        expect(combo('Família do motor').querySelector('.ant-select-selection-item')?.textContent).toBe('Alumínio')
+    })
+
     it('o fornecedor sai SÓ dos que têm tabela da categoria, em ordem alfabética; o sem tabela não aparece', async () => {
         const host = await montar()
         await clicar(host.querySelector('[data-novo-motor]'))
-        await escolher('Família do motor', 'PVC')
         await escolher('Categoria do motor', 'Persianas')
-        expect(await opcoesDoCombo('Fornecedor do motor')).toEqual(['Roller Star', 'Wolf'])
+        expect(await opcoesDoCombo('Fornecedor do motor')).toEqual(['Roller Star', 'Veca', 'Wolf'])
         await escolher('Categoria do motor', 'Perfil')
-        expect(await opcoesDoCombo('Fornecedor do motor')).toEqual(['Wolf'])
+        expect(await opcoesDoCombo('Fornecedor do motor')).toEqual(['Veca', 'Wolf'])
     })
 
     it('trocar a categoria LIMPA o fornecedor que não a tem, e mantém o que tem', async () => {
         const host = await montar()
         await clicar(host.querySelector('[data-novo-motor]'))
-        await escolher('Família do motor', 'PVC')
         await escolher('Categoria do motor', 'Persianas')
         await escolher('Fornecedor do motor', 'Roller Star')
         await escolher('Categoria do motor', 'Perfil')
@@ -256,7 +323,6 @@ describe('(3) "Novo motor": família → categoria → fornecedor → arquivo', 
     it('categoria sem fornecedor com tabela: a tela diz isso, nomeando a categoria', async () => {
         const host = await montar()
         await clicar(host.querySelector('[data-novo-motor]'))
-        await escolher('Família do motor', 'PVC')
         await escolher('Categoria do motor', 'Vidro')
         expect(modal().querySelector('[data-sem-fornecedor-da-categoria]')?.textContent).toBe(Componente().fraseSemFornecedorDaCategoria('Vidro'))
         expect(Componente().fraseSemFornecedorDaCategoria('Vidro')).toContain('Nenhum fornecedor tem tabela da categoria Vidro')
@@ -306,32 +372,7 @@ jest.mock('next/router', () => ({ useRouter: () => ({ push: jest.fn(), replace: 
 jest.mock('@/hooks/use-auth.hook', () => ({ useAuth: () => ({ currentUser: { is_super_admin: true } }) }))
 jest.mock('@/components/layout/layout.component', () => ({ Layout: ({ children }: { children: React.ReactNode }) => React.createElement('div', null, children) }))
 
-describe('(4) a página do CATÁLOGO', () => {
-    it('a ordem é NICHO → FAMÍLIAS → FORNECEDORES → MOTORES, e o cartão "Etapas da família" saiu', async () => {
-        respostas[`GET ${ROTAS_DO_CATALOGO.fornecedores}`] = [{ status: 200, body: FORNECEDORES }]
-        respostas[`GET ${ROTAS_DO_CATALOGO.nichos}`] = [{ status: 200, body: [] }]
-        respostas[`GET ${ROTAS_DO_CATALOGO.familias}`] = [{ status: 200, body: FAMILIAS }]
-        respostas[`GET ${ROTAS_DO_CATALOGO.categorias}`] = [{ status: 200, body: CATEGORIAS }]
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const Pagina = require('@/pages/super-admin/atendimentos-ia/fornecedores/index').default as React.ComponentType
-        const host = await montar(React.createElement(Pagina))
-        const titulo = (re: RegExp) => Array.from(host.querySelectorAll('.ant-card-head-title')).find((t) => re.test(t.textContent ?? '')) as HTMLElement
-        const nichos = titulo(/nicho/i)
-        const familias = titulo(/fam[ií]lia/i)
-        const fornecedores = host.querySelector('[data-secao-fornecedores]') as HTMLElement
-        const tabela = host.querySelector('.pc-card--table') as HTMLElement
-        const motores = host.querySelector('[data-catalogo-de-motores]') as HTMLElement
-        expect(motores.id).toBe('motores')
-        const antes = (a: Node, b: Node) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING)
-        expect(antes(nichos, familias)).toBe(true)
-        expect(antes(familias, fornecedores)).toBe(true)
-        expect(antes(fornecedores, tabela)).toBe(true)
-        expect(antes(tabela, motores)).toBe(true)
-        expect(fornecedores.textContent).toContain('Credenciar fornecedor')
-        expect(host.querySelector('[data-etapas-card]')).toBeNull()
-        expect(Array.from(host.querySelectorAll('.ant-card-head-title')).map((t) => t.textContent)).not.toContain('Etapas da família')
-    })
-
+describe('(4) o menu do CATÁLOGO (a página do nicho tem portão próprio: `atendimentos-ia-catalogo-por-nicho.test.tsx`)', () => {
     it('o menu e o título chamam a página de "Catálogo"', () => {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         expect((require('@/constants/page-titles') as { PAGE_TITLES: Record<string, string> }).PAGE_TITLES.SUPER_ADMIN_IA_FORNECEDORES).toBe('Catálogo')

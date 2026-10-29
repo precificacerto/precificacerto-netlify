@@ -210,7 +210,8 @@ describe('(1) a ordem na tela: título → família → etapas → categorias', 
         // as etapas são as DESTA matéria-prima (a família-instância), e o motor sai do catálogo: não há campo de arquivo
         expect(motores.querySelector(`[data-etapas-da-familia="${PVC}"]`)).toBeTruthy()
         expect(motores.querySelector('input[type="file"]')).toBeNull()
-        expect(motores.querySelector('[data-cadastrar-motor-no-catalogo]')).toBeTruthy()
+        // o link cai nos MOTORES DO NICHO da conta (29/10/2026: o nicho é o container)
+        expect(motores.querySelector('[data-cadastrar-motor-no-catalogo]')!.getAttribute('href')).toBe(`/super-admin/atendimentos-ia/catalogo/${N_ESQ}?aba=motores`)
         expect(motores.textContent).toContain('Etapas da família (cada uma com o seu motor)')
     })
 

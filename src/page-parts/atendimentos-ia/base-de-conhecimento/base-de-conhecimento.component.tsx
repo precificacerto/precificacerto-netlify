@@ -285,7 +285,7 @@ export function BaseDeConhecimento({ tenantId, topo }: { tenantId: string; topo:
             naoEnviado={avisoDaArvore && 'locais' in avisoDaArvore ? avisoDaArvore.locais : null}
             aoMudarAFamilia={mudarAFamilia} familiaTravada={pendentes > 0} erroDaFamilia={erroDaFamilia}
             aoRenomear={renomear} erroDoNome={erroDoNome} etapasDaFamilia={(m) => (
-                <EtapasDaFamilia key={m.id} tenantId={tenantId} materiaPrimaId={m.id as string}
+                <EtapasDaFamilia key={m.id} tenantId={tenantId} materiaPrimaId={m.id as string} nichoId={arvore?.nicho?.id ?? null}
                     principais={m.categorias.map((c) => c.fornecedores.principal).filter((f): f is string => f !== null)}
                     rotuloDaCategoria={(c) => arvore?.catalogo.categorias.find((x) => x.chave === c)?.rotulo ?? c} />
             )} />
