@@ -36,3 +36,13 @@ SAIDA=$($P -d $D -At -c "select public.superadmin_editar_motor('$SU', '$M', '$R'
 CAT=$($P -d $D -At -c "select categoria_chave from public.orcamentista_motor where id = '$M'")
 if echo "$SAIDA" | grep -q "o motor tem uso (1 etapa(s)" && [ "$CAT" = "PERSIANAS" ] && [ $((FIM-INI)) -ge 1 ]; then echo "NOTICE:  ok: corrida 3 — editar espera a etapa que aponta o motor, ve a etapa e recusa (esperou $((FIM-INI)) s)"; else echo "ERROR:  FALHOU corrida 3: categoria=$CAT esperou $((FIM-INI)) s saida=$SAIDA"; fi
 $P -d $D -c "delete from public.orcamentista_familia_etapa where materia_prima_id = '$MP3'; delete from public.orcamentista_materia_prima where id = '$MP3'" >/dev/null
+
+# CORRIDA 4 — uma etapa NOVA apontando o motor (segura o motor) e TROCAR o arquivo no meio: a troca espera, e leva TAMBÉM a etapa nova ao motor novo
+MP4=$($P -d $D -At -c "insert into public.orcamentista_materia_prima (tenant_id, nome, ordem, familia) values ('$T', 'Corrida 4', 9, 'PVC') returning id" | head -1)
+( $P -d $D -c "begin; select public.superadmin_gravar_etapas_da_materia_prima('$T', '$SU', '$MP4', '[{\"rotulo\":\"x\",\"acao\":\"APANHAR\",\"motor_id\":\"$WM\"}]'::jsonb); select pg_sleep(3); commit;" >/dev/null 2>&1 ) &
+sleep 1; INI=$(date +%s)
+SAIDA=$($P -d $D -At -c "select public.superadmin_trocar_arquivo_do_motor('$SU', '$WM', '$W/motor/c4.xlsx', 'c4.xlsx', $PAY) ->> 'etapas_reapontadas'" 2>&1); FIM=$(date +%s); wait
+NOVO=$($P -d $D -At -c "select count(*) from public.orcamentista_familia_etapa where motor_id = (select id from public.orcamentista_motor where arquivo_path = '$W/motor/c4.xlsx')")
+if [ "$SAIDA" = "4" ] && [ "$NOVO" = "4" ] && [ $((FIM-INI)) -ge 1 ]; then echo "NOTICE:  ok: corrida 4 — a troca espera a etapa nova que aponta o motor e a leva tambem ao motor novo: 4 etapas (esperou $((FIM-INI)) s)"; else echo "ERROR:  FALHOU corrida 4: reapontadas=$SAIDA no novo=$NOVO esperou $((FIM-INI)) s"; fi
+$P -d $D -c "delete from public.orcamentista_familia_etapa where materia_prima_id = '$MP4'; delete from public.orcamentista_materia_prima where id = '$MP4'" >/dev/null
+restaurar

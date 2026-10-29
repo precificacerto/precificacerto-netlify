@@ -40,7 +40,7 @@ begin
     r := public.superadmin_trocar_arquivo_do_motor(SUPER, velho, W::text || '/motor/u2-Motor_Wolf_PVC_v2.xlsx', ' Motor_Wolf_PVC_v2.xlsx ', public.h_payload(2));
     novo := (r ->> 'motor_id')::uuid;
     if novo is null or novo = velho then raise exception 'FALHOU caso T1: nao devolveu o motor novo'; end if;
-    if (r ->> 'motor_antigo')::uuid is distinct from velho or (r ->> 'etapas_reapontadas')::int <> 3 or (r ->> 'tipologias') is null then raise exception 'FALHOU caso T1: o retorno (%)', r; end if;
+    if (r ->> 'motor_antigo')::uuid is distinct from velho or (r ->> 'etapas_reapontadas')::int is distinct from 3 or (r ->> 'tipologias') is null then raise exception 'FALHOU caso T1: o retorno (%)', r; end if;
     if not exists (select 1 from public.orcamentista_motor where id = novo and fornecedor_id = W and categoria_chave = 'PERFIL' and familia = 'PVC'
                      and arquivo_nome = 'Motor_Wolf_PVC_v2.xlsx' and arquivado_em is null and criado_por = SUPER) then raise exception 'FALHOU caso T1: a linha do motor novo'; end if;
     if (select count(*) from public.orcamentista_motor_tipologia_detalhe where motor_id = novo) <> 2 then raise exception 'FALHOU caso T1: o conteudo do motor novo'; end if;
@@ -108,6 +108,8 @@ begin
       'P0002|' || public.h_erro(format(g, 'e0000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-0000000000ff', W || '/motor/u9.xlsx', 'a.xlsx', p)),
       'P0002|' || public.h_erro(format(g, 'e0000000-0000-0000-0000-000000000001', null, W || '/motor/u9.xlsx', 'a.xlsx', p)),
       '22023|' || public.h_erro(format(g, 'e0000000-0000-0000-0000-000000000001', arq::text, W || '/motor/u9.xlsx', 'a.xlsx', p)),
+      -- o autor comum num motor arquivado: quem recusa é a troca (42501), antes de qualquer outra conferência
+      '42501|' || public.h_erro(format(g, 'e0000000-0000-0000-0000-000000000002', arq::text, W || '/motor/u9.xlsx', 'a.xlsx', p)),
       '22023|' || public.h_erro(format(g, 'e0000000-0000-0000-0000-000000000001', velho, W || '/motor/wolff.xlsx', 'a.xlsx', p)),
       '22023|' || public.h_erro(format(g, 'e0000000-0000-0000-0000-000000000001', velho, ' ' || W || '/motor/wolff.xlsx ', 'a.xlsx', p)),
       -- o que a criação recusa, a troca recusa: pasta de outro fornecedor, sem tipologia, payload incompleto
@@ -118,6 +120,11 @@ begin
       if split_part(x, '|', 1) <> split_part(x, '|', 2) then raise exception 'FALHOU caso T3: esperado %, obtido (%)', split_part(x, '|', 1), x; end if;
     end loop;
     if public.h_estado() is distinct from antes then raise exception 'FALHOU caso T3: uma recusa mudou motor, etapa, item ou log'; end if;
+    -- a recusa do arquivado é a DA TROCA, com a frase dela — não a do arquivar, no fim
+    x := public.h_erro(format(g, 'e0000000-0000-0000-0000-000000000001', arq::text, W || '/motor/u9.xlsx', 'a.xlsx', p));
+    if position('o arquivo de um motor arquivado nao se troca' in x) = 0 then raise exception 'FALHOU caso T3: a frase do arquivado (%)', x; end if;
+    x := public.h_erro(format(g, 'e0000000-0000-0000-0000-000000000001', velho, W || '/motor/wolff.xlsx', 'a.xlsx', p));
+    if position('o arquivo novo e o mesmo objeto do motor atual' in x) = 0 then raise exception 'FALHOU caso T3: a frase do mesmo caminho (%)', x; end if;
     raise exception 'desfazer' using errcode = 'P0099';
   exception when sqlstate 'P0099' then null;
   end;
