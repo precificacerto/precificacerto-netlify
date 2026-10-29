@@ -47,8 +47,8 @@ export async function lerEtapasDaMateriaPrima(tenantId: string, materiaPrimaId: 
 
 /**
  * O CATÁLOGO: todos os motores (também os arquivados — a tela os separa), com o NOME do fornecedor, a categoria, o tipo, as tipologias
- * que o arquivo trouxe e QUEM USA (empresa, título da família e número da etapa — só nomes). `tipo` filtra pelo tipo e deixa de fora as
- * tipologias e os usos (o combo da etapa não precisa deles).
+ * que o arquivo trouxe e QUEM USA (empresa e título da família — só nomes; a etapa não aparece, 29/10/2026, e as etapas da mesma família
+ * são um uso só). `tipo` filtra pelo tipo e deixa de fora as tipologias e os usos (o combo da etapa não precisa deles).
  */
 export async function lerCatalogoDeMotores(o: { tipo?: string } = {}): Promise<MotorDoCatalogo[]> {
     let consulta = db().from('orcamentista_motor').select('id, familia, fornecedor_id, categoria_chave, arquivo_nome, criado_em, arquivado_em')
@@ -64,14 +64,18 @@ export async function lerCatalogoDeMotores(o: { tipo?: string } = {}): Promise<M
     const tipologias = new Map<string, number>()
     if (o.tipo === undefined) {
         const ids = motores.map((m) => String(m.id))
-        const etapas = ((await ler('orcamentista_familia_etapa', db().from('orcamentista_familia_etapa').select('motor_id, numero, rotulo, materia_prima_id, tenant_id').in('motor_id', ids))) ?? []) as Linha[]
+        const etapas = ((await ler('orcamentista_familia_etapa', db().from('orcamentista_familia_etapa').select('motor_id, materia_prima_id, tenant_id').in('motor_id', ids))) ?? []) as Linha[]
         if (etapas.length > 0) {
             const mps = new Map<string, string>()
             for (const m of ((await ler('orcamentista_materia_prima', db().from('orcamentista_materia_prima').select('id, nome').in('id', [...new Set(etapas.map((e) => String(e.materia_prima_id)))]))) ?? []) as Linha[]) mps.set(String(m.id), String(m.nome))
             const empresas = new Map<string, string>()
             for (const t of ((await ler('tenants', db().from('tenants').select('id, name').in('id', [...new Set(etapas.map((e) => String(e.tenant_id)))]))) ?? []) as Linha[]) empresas.set(String(t.id), String(t.name ?? ''))
+            const vistos = new Set<string>()
             for (const e of etapas) {
-                const u: UsoDoMotor = { empresa: empresas.get(String(e.tenant_id)) || '(sem nome)', familia: mps.get(String(e.materia_prima_id)) ?? '(família removida)', etapa: Number(e.numero), rotulo: String(e.rotulo) }
+                const chave = `${e.motor_id}|${e.materia_prima_id}`
+                if (vistos.has(chave)) continue
+                vistos.add(chave)
+                const u: UsoDoMotor = { empresa: empresas.get(String(e.tenant_id)) || '(sem nome)', familia: mps.get(String(e.materia_prima_id)) ?? '(família removida)' }
                 usos.set(String(e.motor_id), [...(usos.get(String(e.motor_id)) ?? []), u])
             }
         }
@@ -83,7 +87,7 @@ export async function lerCatalogoDeMotores(o: { tipo?: string } = {}): Promise<M
         }
     }
 
-    const porUso = (a: UsoDoMotor, b: UsoDoMotor) => a.empresa.localeCompare(b.empresa, 'pt-BR') || a.familia.localeCompare(b.familia, 'pt-BR') || a.etapa - b.etapa
+    const porUso = (a: UsoDoMotor, b: UsoDoMotor) => a.empresa.localeCompare(b.empresa, 'pt-BR') || a.familia.localeCompare(b.familia, 'pt-BR')
     return motores.map((m) => ({
         id: String(m.id), familia: String(m.familia), fornecedor_id: String(m.fornecedor_id), fornecedor: nomes.get(String(m.fornecedor_id)) ?? '(fornecedor removido)',
         categoria: String(m.categoria_chave), arquivo_nome: String(m.arquivo_nome), criado_em: String(m.criado_em), arquivado_em: m.arquivado_em == null ? null : String(m.arquivado_em),

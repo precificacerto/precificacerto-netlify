@@ -92,7 +92,8 @@ export function fraseDaListaDeFornecedoresVazia(rotuloDaCategoria: string, comTa
     const nomes = [...semCategoria].sort((a, b) => a.localeCompare(b, 'pt-BR')).join(', ')
     return `${base} ${semCategoria.length === 1 ? 'Um fornecedor tem tabela' : `${semCategoria.length} fornecedores têm tabela`} sem categoria declarada e por isso não aparece${semCategoria.length === 1 ? '' : 'm'} em categoria nenhuma: ${nomes}. Declare a categoria da tabela no Catálogo.`
 }
-export const fraseDasCategorias = (configuradas: number, total: number) => `${configuradas} de ${total} categorias`
+/** O botão da borda direita do cabeçalho da família (dono do produto, 29/10/2026): marca a família para sair no salvar, com "Desfazer". */
+export const REMOVER_FAMILIA = 'Remover família'
 export const SEM_FAMILIA_NA_MATERIA_PRIMA =
     'A família desta matéria-prima não está informada: a tela mostra todas as categorias do catálogo. Escolha a família para ver só as ramificações dela.'
 export const fraseFamiliaSemRamificacao = (rotulo: string) =>
@@ -356,15 +357,6 @@ export type EstadoDaLinha = 'com_formula' | 'sem_formula' | 'fora_da_tabela'
 export function estadoDaLinha(origem: Extract<OrigemDaLinha, { estado: 'lista' }>, linha: string): EstadoDaLinha {
     if (origem.comFormula.includes(linha)) return 'com_formula'
     return origem.linhas.includes(linha) ? 'sem_formula' : 'fora_da_tabela'
-}
-
-/** Quantas categorias da matéria-prima têm alguma coisa — no formulário, como está agora. */
-export function categoriasConfiguradas(m: MateriaPrimaDoFormulario, catalogo: ArvoreLida['catalogo']): number {
-    return m.categorias.filter((c) =>
-        camposDa(catalogo, c.chave).some((x) => normalizar(x.tipo, c.config[x.chave]).valor !== null)
-        || c.fornecedores.ids.length > 0 || c.vidros.length > 0 || c.ferragens.length > 0
-        || Object.values(c.instalacao).some((v) => Object.entries(v).some(([k, x]) => normalizar(CAMPOS_DA_INSTALACAO[k], x).valor !== null)),
-    ).length
 }
 
 // ── O corpo: a categoria ───────────────────────────────────────────────────────────────────

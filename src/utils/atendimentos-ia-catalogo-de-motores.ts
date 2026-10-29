@@ -28,12 +28,14 @@ export const ANCORA_DO_CATALOGO_DE_MOTORES = 'motores'
 /** A pasta do bucket onde mora o arquivo de motor de um fornecedor. A função do banco confere o MESMO prefixo. */
 export const pastaDoMotorDoFornecedor = (fornecedorId: string) => `${fornecedorId}/motor/`
 
-/** Quem usa o motor: a etapa de uma família (o título digitado) de uma empresa — só nomes, nunca dado de cliente. */
+/**
+ * Quem usa o motor: uma FAMÍLIA (o título digitado) de uma empresa — só nomes, nunca dado de cliente. A ETAPA NÃO APARECE no catálogo
+ * (dono do produto, 29/10/2026: "etapa deve ser desconsiderada"): a etapa é da empresa, e o mesmo motor serve empresas que numeram
+ * diferente. Três etapas da mesma família que apontam o motor são UM uso.
+ */
 export interface UsoDoMotor {
     empresa: string
     familia: string
-    etapa: number
-    rotulo: string
 }
 
 /** Um motor do catálogo como as rotas o entregam. */
@@ -124,9 +126,9 @@ export function motoresParaAEtapa(motores: readonly MotorDoCatalogo[], familia: 
             || a.fornecedor.localeCompare(b.fornecedor, 'pt-BR') || a.arquivo_nome.localeCompare(b.arquivo_nome, 'pt-BR'))
 }
 
-/** "Esquadrias De Paula Ltda · Esquadrias de PVC · etapa 1 (Apanhado)" — quem usa, por nome. */
-export const fraseDoUso = (u: UsoDoMotor) => `${u.empresa} · ${u.familia} · etapa ${u.etapa} (${u.rotulo})`
+/** "Esquadrias De Paula Ltda · Esquadrias de PVC WOLF" — quem usa, por nome. */
+export const fraseDoUso = (u: UsoDoMotor) => `${u.empresa} · ${u.familia}`
 
-export const MOTOR_SEM_USO = 'Nenhuma etapa aponta este motor.'
+export const MOTOR_SEM_USO = 'Nenhuma família usa este motor.'
 export const fraseDoMotorEmUso = (n: number) =>
-    `${n === 1 ? 'Uma etapa aponta' : `${n} etapas apontam`} este motor: aponte ${n === 1 ? 'a etapa' : 'as etapas'} para outro antes de arquivar.`
+    `${n === 1 ? 'Uma família usa' : `${n} famílias usam`} este motor: troque o motor ${n === 1 ? 'dela' : 'delas'}, na base de conhecimento da conta, antes de arquivar.`

@@ -201,12 +201,6 @@ describe('(1)(2)(3)(4) a tela mostra o que a família declara', () => {
         expect(categoriasDo(host, 3)).toEqual(['FERRAGENS'])
     })
 
-    it('o "N de M categorias" conta as MOSTRADAS, não as do catálogo', async () => {
-        const { host } = await montar()
-        expect(bloco(host, 1).querySelector('[data-categorias-configuradas]')?.textContent).toMatch(/de 3 categorias$/)
-        expect(bloco(host, 0).querySelector('[data-categorias-configuradas]')?.textContent).toMatch(/de 6 categorias$/)
-    })
-
     it('sem família: o aviso, e todas as categorias', async () => {
         const { host } = await montar()
         expect(bloco(host, 2).querySelector('[data-sem-familia]')?.textContent).toContain('A família desta matéria-prima não está informada')

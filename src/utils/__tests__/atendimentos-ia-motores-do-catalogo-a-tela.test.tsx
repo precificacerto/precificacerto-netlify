@@ -53,8 +53,8 @@ const motor = (id: string, f: Partial<MotorDoCatalogo>): MotorDoCatalogo => ({
 })
 const MOTORES = [
     motor(M_WOLF, { arquivo_nome: 'wolff.xlsm', tipologias: 164, usos: [
-        { empresa: 'Esquadrias De Paula Ltda', familia: 'Esquadrias de PVC', etapa: 1, rotulo: 'Apanhado' },
-        { empresa: 'Esquadrias De Paula Ltda', familia: 'Esquadrias de PVC', etapa: 3, rotulo: 'Barras' },
+        { empresa: 'Alfa Vidros', familia: 'PVC Linha 2' },
+        { empresa: 'Esquadrias De Paula Ltda', familia: 'Esquadrias de PVC WOLF' },
     ] }),
     motor(M_LIVRE, { fornecedor_id: R, fornecedor: 'Roller Star', categoria: 'PERSIANAS', familia: 'ALUMINIO', arquivo_nome: 'roller.xlsx', tipologias: 12 }),
     motor(M_ARQ, { arquivo_nome: 'velho.xlsx', arquivado_em: '2026-10-01' }),
@@ -154,12 +154,15 @@ describe('(1) a lista do catálogo', () => {
         expect(wolf).toContain('wolff.xlsm')
         expect(wolf).toContain('164')
         expect(Array.from(linha(host, M_WOLF)!.querySelectorAll('[data-usos] li')).map((l) => l.textContent)).toEqual([
-            'Esquadrias De Paula Ltda · Esquadrias de PVC · etapa 1 (Apanhado)', 'Esquadrias De Paula Ltda · Esquadrias de PVC · etapa 3 (Barras)',
+            'Alfa Vidros · PVC Linha 2', 'Esquadrias De Paula Ltda · Esquadrias de PVC WOLF',
         ])
+        // a etapa saiu do catálogo (29/10/2026): nem a palavra aparece no cartão — lista, aviso e títulos
+        expect(host.querySelector('[data-catalogo-de-motores]')!.textContent).toContain('cada família escolhe o seu')
+        expect(host.querySelector('[data-catalogo-de-motores]')!.textContent).not.toMatch(/etapa/i)
         const livre = linha(host, M_LIVRE)!
         expect(livre.textContent).toContain('Persianas')
         expect(livre.textContent).toContain('Alumínio')
-        expect(livre.querySelector('[data-sem-uso]')?.textContent).toBe('Nenhuma etapa aponta este motor.')
+        expect(livre.querySelector('[data-sem-uso]')?.textContent).toBe('Nenhuma família usa este motor.')
     })
 
     it('o arquivado só aparece com o interruptor, marcado como arquivado e sem botão de arquivar', async () => {
@@ -179,11 +182,11 @@ describe('(1) a lista do catálogo', () => {
 })
 
 describe('(2) arquivar', () => {
-    it('o motor que etapas apontam tem o botão TRAVADO, e o porquê no título', async () => {
+    it('o motor que famílias usam tem o botão TRAVADO, e o porquê no título — contando famílias, não etapas', async () => {
         const host = await montar()
         const b = botao(linha(host, M_WOLF)!, 'Arquivar wolff.xlsm')!
         expect(b.disabled).toBe(true)
-        expect(b.getAttribute('title')).toBe('2 etapas apontam este motor: aponte as etapas para outro antes de arquivar.')
+        expect(b.getAttribute('title')).toBe('2 famílias usam este motor: troque o motor delas, na base de conhecimento da conta, antes de arquivar.')
     })
 
     it('o livre: chama SÓ a rota de arquivar com o id, e relê o catálogo', async () => {

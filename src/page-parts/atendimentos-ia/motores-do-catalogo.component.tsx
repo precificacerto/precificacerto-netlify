@@ -3,8 +3,9 @@
  * fornecedores (nicho → famílias → fornecedores → motores: o motor vem por último porque escolhe o fornecedor). O motor é GLOBAL e COMPARTILHADO — "empresas diferentes podem usar o mesmo motor" —, e cada um tem FORNECEDOR + CATEGORIA +
  * TIPO (a família do catálogo: PVC, ALUMINIO…). A etapa da família-instância, na base de conhecimento da conta, só o seleciona.
  *
- * A lista mostra, de cada motor: fornecedor, categoria, tipo, arquivo, tipologias e QUEM USA (empresa, família e etapa — só nomes). Arquivar
- * o que uma etapa aponta é recusado pela função, com a frase dela; o botão já vem travado quando a lista sabe que há uso.
+ * A lista mostra, de cada motor: fornecedor, categoria, tipo, arquivo, tipologias e QUEM USA (empresa e família — só nomes). A ETAPA SAIU
+ * DO CATÁLOGO (dono do produto, 29/10/2026: "etapa deve ser desconsiderada"): ela é da empresa, e o mesmo motor serve empresas que numeram
+ * diferente. Arquivar o motor que uma família usa é recusado pela função, com a frase dela; o botão já vem travado quando a lista sabe que há uso.
  *
  * "Novo motor" pede, nesta ordem, FAMÍLIA → CATEGORIA → FORNECEDOR → ARQUIVO (28/10/2026). A família explícita é o que impede uma etapa de
  * PVC usar motor de alumínio (a FK composta do banco garante). O fornecedor sai SÓ dos que têm tabela daquela categoria — a categoria é da
@@ -26,8 +27,8 @@ import {
 
 export const TITULO_DO_CATALOGO_DE_MOTORES = 'Catálogo de motores'
 export const AVISO_DO_CATALOGO_DE_MOTORES =
-    'O motor é da plataforma e pode ser usado por várias empresas: cada etapa de cada família escolhe o seu, na base de conhecimento da conta. '
-    + 'Cada motor tem fornecedor, categoria e tipo. Arquivar não apaga, e o motor que uma etapa aponta não se arquiva.'
+    'O motor é da plataforma e pode ser usado por várias empresas: cada família escolhe o seu, na base de conhecimento da conta. '
+    + 'Cada motor tem fornecedor, categoria e tipo. Arquivar não apaga, e o motor que uma família usa não se arquiva.'
 export const SEM_MOTOR_NO_CATALOGO = 'Nenhum motor no catálogo.'
 export const fraseSemFornecedorDaCategoria = (categoria: string) =>
     `Nenhum fornecedor tem tabela da categoria ${categoria}: cadastre a tabela do fornecedor, com essa categoria, antes do motor.`

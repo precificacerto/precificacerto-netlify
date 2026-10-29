@@ -308,3 +308,16 @@ mesmo código em dois papéis, e quem separar o insumo do fornecedor de perfil d
 Ou seja: a família opcional nas outras categorias vale para a tabela que é **só** de preço (ferragem da IMAB, vidro da Estrela). O insumo que o motor da
 Wolff cita (vedação, calço, escova) **não** é buscado numa tabela de ACESSÓRIOS de outro fornecedor: ele sai do mesmo fornecedor do perfil. Separar o
 insumo do motor do fornecedor de perfil é desenho futuro, e pede decisão do dono do produto.
+
+## Ajustes de tela — dono do produto, 29/10/2026 (sem estrutura nova no banco)
+
+- **A etapa saiu do catálogo de motores** ("etapa deve ser desconsiderada"): a etapa é da empresa, e o mesmo motor serve empresas que numeram
+  diferente. O "Quem usa" mostra **empresa · família**, um por família — três etapas da mesma família que apontam o motor são um uso só —, e a trava
+  de arquivar conta famílias. A recusa da função (`superadmin_arquivar_motor`) ainda nomeia a etapa: mudar o texto dela é migração, e não foi pedida.
+- **A base de conhecimento perdeu o "N de M categorias"** do cabeçalho da família, e o "Remover" virou **"Remover família"**, na borda direita do
+  cabeçalho. O caminho não mudou: marca, "Desfazer" devolve, e o salvar manda `remover` à `superadmin_gravar_arvore`, que chama a
+  `superadmin_remover_materia_prima` (conferido no `prosrc` de produção em 29/10/2026) — a que loga a árvore inteira e as etapas que o CASCADE leva.
+- **Medido para as propostas (29/10/2026, só leitura):** o catálogo de famílias (`orcamentista_familia_catalogo`: chave, rótulo, ordem) **não tem
+  nicho** — é global; o fornecedor tem `nicho_id`; o motor só chega ao nicho pelo fornecedor. 12 nichos, só "Esquadrias" com fornecedor (63). O motor
+  da Wolff pende de 62.299 linhas (62.295 de conteúdo em 13 tabelas + 4 importações), todas `ON DELETE RESTRICT`, e tem 3 etapas apontando. **Nenhuma
+  tabela de PERFIL existe hoje**: a família do motor não se deriva de tabela nenhuma, e o "Novo motor" de PERFIL não oferece fornecedor.

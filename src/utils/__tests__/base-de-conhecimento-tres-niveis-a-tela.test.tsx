@@ -263,13 +263,21 @@ describe('(1) o cartão, os blocos e as categorias na ordem do CATÁLOGO', () =>
         expect(Array.from(host.querySelectorAll('[data-bloco]')).map((b) => b.getAttribute('data-bloco'))).toEqual(['materias', 'ambientes', 'vendedores', 'adicionais'])
     })
 
-    it('o cabeçalho: o nome, "N de M categorias" e Remover', async () => {
+    it('o cabeçalho (29/10/2026): o nome e, na BORDA DIREITA, "Remover família" — o "N de M categorias" saiu', async () => {
         const host = await montar()
         const cabeca = mp(host, 0).querySelector('[data-cabecalho-da-materia-prima]') as HTMLElement
         expect(cabeca.textContent).toContain('PVC')
-        // PERFIL, REFORCO, FERRAGENS, VIDRO e INSTALACAO têm algo; ACESSORIOS_VEDACAO está vazia
-        expect(cabeca.querySelector('[data-categorias-configuradas]')!.textContent).toBe(A().fraseDasCategorias(5, TOTAL_DO_CATALOGO))
-        expect(botao(cabeca, 'Remover')).toBeDefined()
+        expect(cabeca.querySelector('[data-categorias-configuradas]')).toBeNull()
+        // PERFIL, REFORCO, FERRAGENS, VIDRO e INSTALACAO têm algo: a contagem antiga diria "5 de 6"; nem ela nem a palavra ficam
+        expect(cabeca.textContent).not.toContain(`5 de ${TOTAL_DO_CATALOGO}`)
+        expect(cabeca.textContent).not.toMatch(/categorias/i)
+        const remover = botao(cabeca, A().REMOVER_FAMILIA)!
+        expect(remover).toBeDefined()
+        expect(remover.hasAttribute('data-remover-familia')).toBe(true)
+        // a borda direita: o último do cabeçalho, empurrado pela margem automática
+        expect(cabeca.lastElementChild).toBe(remover)
+        expect(remover.style.marginLeft).toBe('auto')
+        expect(botao(cabeca, 'Remover')).toBeUndefined()
     })
 
     it('as categorias na ordem do catálogo, com "número · rótulo" vindos dele — e o catálogo veio embaralhado', async () => {
@@ -287,11 +295,10 @@ describe('(1) o cartão, os blocos e as categorias na ordem do CATÁLOGO', () =>
 })
 
 describe('(2) matéria-prima NOVA: as categorias do catálogo, os campos dele, e nada inventado', () => {
-    it('"+ Adicionar matéria-prima" abre um bloco com as categorias na ordem, "0 de M", e o nome a digitar', async () => {
+    it('"+ Adicionar matéria-prima" abre um bloco com as categorias na ordem e o nome a digitar', async () => {
         const host = await montar()
         await clicar(botao(cartao(host), A().ADICIONAR_MATERIA_PRIMA))
         expect(Array.from(mp(host, 1).querySelectorAll('[data-categoria]')).map((c) => c.getAttribute('data-categoria'))).toEqual(ORDEM_DO_CATALOGO)
-        expect(mp(host, 1).querySelector('[data-categorias-configuradas]')!.textContent).toBe(A().fraseDasCategorias(0, TOTAL_DO_CATALOGO))
         expect(mp(host, 1).querySelector('[data-cabecalho-da-materia-prima] input')).not.toBeNull()
     })
 
@@ -420,7 +427,7 @@ describe('(3) a árvore do PUT: só o que mudou — null limpa, false é "não",
 describe('(4) sem matéria-prima, o corpo NÃO tem materias_primas; remoção vai em remover', () => {
     it('remover a única gravada: { remover: [id] } — e a chave materias_primas não existe', async () => {
         const host = await montar()
-        await clicar(botao(mp(host, 0).querySelector('[data-cabecalho-da-materia-prima]') as HTMLElement, 'Remover'))
+        await clicar(botao(mp(host, 0).querySelector('[data-cabecalho-da-materia-prima]') as HTMLElement, A().REMOVER_FAMILIA))
         await salvar(host)
         const arvore = arvoreEnviada()
         expect(arvore).toEqual({ remover: [PVC] })
@@ -429,7 +436,7 @@ describe('(4) sem matéria-prima, o corpo NÃO tem materias_primas; remoção va
 
     it('o contraste: removida a gravada e acrescentada outra, materias_primas volta, com a lista inteira', async () => {
         const host = await montar()
-        await clicar(botao(mp(host, 0).querySelector('[data-cabecalho-da-materia-prima]') as HTMLElement, 'Remover'))
+        await clicar(botao(mp(host, 0).querySelector('[data-cabecalho-da-materia-prima]') as HTMLElement, A().REMOVER_FAMILIA))
         await clicar(botao(cartao(host), A().ADICIONAR_MATERIA_PRIMA))
         await digitar(entrada(mp(host, 0).querySelector('[data-cabecalho-da-materia-prima]')), 'Alumínio')
         await salvar(host)
@@ -442,7 +449,7 @@ describe('(4) sem matéria-prima, o corpo NÃO tem materias_primas; remoção va
         mps.push({ id: '00000000-0000-4000-8000-00000000d002', tenant_id: CONTA, nome: 'Alumínio', ordem: 2, atualizado_por: null, atualizado_em: null, categorias: [] })
         respostas[`GET ${F().ROTAS_DA_BASE.arvore(CONTA)}`] = { status: 200, body: arv }
         const host = await montar()
-        await clicar(botao(mp(host, 0).querySelector('[data-cabecalho-da-materia-prima]') as HTMLElement, 'Remover'))
+        await clicar(botao(mp(host, 0).querySelector('[data-cabecalho-da-materia-prima]') as HTMLElement, A().REMOVER_FAMILIA))
         expect(mp(host, 0).querySelector('[data-cabecalho-da-materia-prima]')!.textContent).toContain('Alumínio')
         await clicar(botao(cartao(host).querySelector('[data-removidas]') as HTMLElement, 'Desfazer'))
         const nomes = [0, 1].map((i) => mp(host, i).querySelector('[data-cabecalho-da-materia-prima] h5')!.textContent)
@@ -452,7 +459,7 @@ describe('(4) sem matéria-prima, o corpo NÃO tem materias_primas; remoção va
 
     it('a removida fica listada, e "Desfazer" a devolve sem nada a salvar', async () => {
         const host = await montar()
-        await clicar(botao(mp(host, 0).querySelector('[data-cabecalho-da-materia-prima]') as HTMLElement, 'Remover'))
+        await clicar(botao(mp(host, 0).querySelector('[data-cabecalho-da-materia-prima]') as HTMLElement, A().REMOVER_FAMILIA))
         const removidas = cartao(host).querySelector('[data-removidas]') as HTMLElement
         expect(removidas.textContent).toContain('PVC')
         await clicar(botao(removidas, 'Desfazer'))
@@ -589,7 +596,7 @@ describe('(7) a mensagem da FUNÇÃO chega inteira, no cartão que ela nomeia', 
 describe('(8) remover e gravar a MESMA matéria-prima no mesmo salvar: a tela barra', () => {
     it('removida a PVC, uma nova chamada "pvc": a tela diz por quê, e o PUT /arvore não sai', async () => {
         const host = await montar()
-        await clicar(botao(mp(host, 0).querySelector('[data-cabecalho-da-materia-prima]') as HTMLElement, 'Remover'))
+        await clicar(botao(mp(host, 0).querySelector('[data-cabecalho-da-materia-prima]') as HTMLElement, A().REMOVER_FAMILIA))
         await clicar(botao(cartao(host), A().ADICIONAR_MATERIA_PRIMA))
         await digitar(entrada(mp(host, 0).querySelector('[data-cabecalho-da-materia-prima]')), 'pvc')
         expect(mp(host, 0).textContent).toContain(A().fraseRemoverEGravar('pvc'))
@@ -599,7 +606,7 @@ describe('(8) remover e gravar a MESMA matéria-prima no mesmo salvar: a tela ba
 
     it('o contraste: outro nome passa', async () => {
         const host = await montar()
-        await clicar(botao(mp(host, 0).querySelector('[data-cabecalho-da-materia-prima]') as HTMLElement, 'Remover'))
+        await clicar(botao(mp(host, 0).querySelector('[data-cabecalho-da-materia-prima]') as HTMLElement, A().REMOVER_FAMILIA))
         await clicar(botao(cartao(host), A().ADICIONAR_MATERIA_PRIMA))
         await digitar(entrada(mp(host, 0).querySelector('[data-cabecalho-da-materia-prima]')), 'PVC Premium')
         expect(mp(host, 0).textContent).not.toContain(A().fraseRemoverEGravar('PVC Premium'))
@@ -812,13 +819,12 @@ describe("(12) o tipo 'opcao' — e o tipo desconhecido, que não pode quebrar a
         expect(campo(cat(host, 0, 'PERFIL'), 'PERFIL.criterio_custo_barra')).toBeNull()
     })
 
-    it('O CASO MEDIDO: com o campo no catálogo, "+ Adicionar matéria-prima" não estoura — o cabeçalho diz "0 de M categorias"', async () => {
+    it('O CASO MEDIDO: com o campo no catálogo, "+ Adicionar matéria-prima" não estoura — o bloco novo aparece com as categorias e o campo', async () => {
         servir(comCatalogo([CRITERIO]))
         const host = await montar()
         await clicar(botao(cartao(host), A().ADICIONAR_MATERIA_PRIMA))
-        expect(mp(host, 1).querySelector('[data-categorias-configuradas]')!.textContent).toBe(A().fraseDasCategorias(0, TOTAL_DO_CATALOGO))
-        // e a gravada continua contada como antes
-        expect(mp(host, 0).querySelector('[data-categorias-configuradas]')!.textContent).toBe(A().fraseDasCategorias(5, TOTAL_DO_CATALOGO))
+        expect(Array.from(mp(host, 1).querySelectorAll('[data-categoria]')).map((c) => c.getAttribute('data-categoria'))).toEqual(ORDEM_DO_CATALOGO)
+        expect(campo(cat(host, 1, 'PERFIL'), 'PERFIL.criterio_custo_barra')).not.toBeNull()
     })
 
     it('o campo é SELEÇÃO: as opções do catálogo, na ordem dele, mais a de deixar em branco — e nada inventado', async () => {
@@ -856,13 +862,13 @@ describe("(12) o tipo 'opcao' — e o tipo desconhecido, que não pode quebrar a
     // ordem 0: o campo desconhecido é lido ANTES dos outros do PERFIL — é o primeiro que o cabeçalho avalia
     const DO_FUTURO = { categoria_chave: 'PERFIL', chave: 'campo_do_futuro', tipo: 'tipo_que_a_tela_nao_conhece', rotulo: 'Do futuro', ordem: 0 }
 
-    it('TIPO DESCONHECIDO no catálogo: a tela não quebra, o campo não aparece, e o cabeçalho conta — na gravada e na recém-criada', async () => {
+    it('TIPO DESCONHECIDO no catálogo: a tela não quebra e o campo não aparece — na gravada e na recém-criada', async () => {
         servir(comCatalogo([DO_FUTURO], { campo_do_futuro: 'GRAVADO' }))
         const host = await montar()
-        expect(mp(host, 0).querySelector('[data-categorias-configuradas]')!.textContent).toBe(A().fraseDasCategorias(5, TOTAL_DO_CATALOGO))
         expect(campo(cat(host, 0, 'PERFIL'), 'PERFIL.campo_do_futuro')).toBeNull()
         await clicar(botao(cartao(host), A().ADICIONAR_MATERIA_PRIMA))
-        expect(mp(host, 1).querySelector('[data-categorias-configuradas]')!.textContent).toBe(A().fraseDasCategorias(0, TOTAL_DO_CATALOGO))
+        expect(Array.from(mp(host, 1).querySelectorAll('[data-categoria]')).map((c) => c.getAttribute('data-categoria'))).toEqual(ORDEM_DO_CATALOGO)
+        expect(campo(cat(host, 1, 'PERFIL'), 'PERFIL.campo_do_futuro')).toBeNull()
     })
 
     it('TIPO DESCONHECIDO: salvar outra mudança do PERFIL NÃO MEXE no valor gravado dele — a chave fica AUSENTE (null a apagaria)', async () => {
@@ -902,16 +908,10 @@ function comPersianas(): Linha {
     return a
 }
 
-describe('(7) com PERSIANAS no catálogo: o total é o do catálogo, a ordem é a dele, e a categoria sem campo aparece vazia', () => {
+describe('(7) com PERSIANAS no catálogo: a ordem é a dele, e a categoria sem campo aparece vazia', () => {
     it('o catálogo deste caso tem 7 — senão ele não distinguiria de um 6 escrito à mão', () => {
         expect(CATALOGO_COM_PERSIANAS).toHaveLength(7)
         expect(TOTAL_DO_CATALOGO).not.toBe(CATALOGO_COM_PERSIANAS.length)
-    })
-
-    it('a gravada diz "5 de 7": PERSIANAS conta no total e, sem nada, não conta como configurada', async () => {
-        servir(comPersianas())
-        const host = await montar()
-        expect(mp(host, 0).querySelector('[data-categorias-configuradas]')!.textContent).toBe(A().fraseDasCategorias(5, CATALOGO_COM_PERSIANAS.length))
     })
 
     it('as 7 na ordem nova, com "número · rótulo" do catálogo — "2 · Persianas" e "3 · Reforço metálico"', async () => {
@@ -930,11 +930,10 @@ describe('(7) com PERSIANAS no catálogo: o total é o do catálogo, a ordem é 
         expect(cat(host, 0, 'PERSIANAS').querySelectorAll('[data-campo]')).toHaveLength(0)
     })
 
-    it('"+ Adicionar matéria-prima" com o catálogo de 7: as 7 na ordem, e "0 de 7"', async () => {
+    it('"+ Adicionar matéria-prima" com o catálogo de 7: as 7 na ordem', async () => {
         servir(comPersianas())
         const host = await montar()
         await clicar(botao(cartao(host), A().ADICIONAR_MATERIA_PRIMA))
         expect(Array.from(mp(host, 1).querySelectorAll('[data-categoria]')).map((c) => c.getAttribute('data-categoria'))).toEqual(ORDEM_COM_PERSIANAS)
-        expect(mp(host, 1).querySelector('[data-categorias-configuradas]')!.textContent).toBe(A().fraseDasCategorias(0, CATALOGO_COM_PERSIANAS.length))
     })
 })
