@@ -16,7 +16,9 @@
  *       viram frase própria, nunca "Fornecedor não encontrado";
  *   (3) o PATCH: a tabela de antes ganha UMA categoria; a que já tem não troca; a que tem itens de mais de uma
  *       categoria do fornecedor (a Wolff) NÃO pode declarar uma só, e as outras edições dela seguem livres;
- *   (4) a contagem das categorias do arquivo e a frase da recusa.
+ *   (4) a contagem das categorias do arquivo e a frase da recusa;
+ *   (5) o ARQUIVO da tabela já importada NÃO se troca (29/10/2026: uma edição trocou o arquivo da tabela da Wolff, de 735 itens, e a rota
+ *       apagou o .xlsm original do bucket): 409 com a frase que manda criar tabela nova, ANTES de gravar e de apagar qualquer coisa.
  *
  * O que NÃO alcança: o banco é falso. A FK, a trava de INSERT e a de UPDATE estão provadas num Postgres real
  * (`scripts/harness/categoria-da-tabela/`, com mutações), não aqui.
@@ -26,7 +28,7 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 
 import {
     MENSAGEM_CATEGORIA_OBRIGATORIA, ROTAS_DO_CATALOGO, ehChaveDeCategoria, fraseDaCategoriaDesconhecida, fraseDaCategoriaQueNaoSeTroca,
-    lerCorpoDaTabela, lerEdicaoDaTabela, recusada,
+    fraseDoArquivoDaTabelaImportada, lerCorpoDaTabela, lerEdicaoDaTabela, recusada,
 } from '@/utils/atendimentos-ia-catalogo'
 import {
     categoriasDoFornecedorNosItens, fraseDaTabelaComMaisDeUmaCategoria, fraseDoArquivoComMaisDeUmaCategoria, fraseDosItensSemCategoriaDoFornecedor,
@@ -65,6 +67,7 @@ jest.mock('@/lib/atendimentos-ia/repositorio', () => {
         obterTabela: jest.fn(async () => ({ ...TABELA_SEM })),
         atualizarTabela: jest.fn(async () => 1),
         categoriasDoFornecedorDosItensGravados: jest.fn(async (): Promise<Array<string | null>> => []),
+        contarItensDaTabela: jest.fn(async () => 0),
         objetoExiste: jest.fn(async () => true),
         removerObjetos: jest.fn(async (): Promise<{ erro: string | null }> => ({ erro: null })),
         caminhosDaPlanilha: jest.fn(async () => new Set<string>()),
@@ -100,6 +103,7 @@ beforeEach(() => {
     repo.obterTabela.mockImplementation(async () => ({ ...TABELA_SEM }))
     repo.categoriasDoFornecedorDosItensGravados.mockImplementation(async () => [])
     repo.atualizarTabela.mockImplementation(async () => 1)
+    repo.contarItensDaTabela.mockImplementation(async () => 0)
 })
 
 const CORPO = { fornecedor_id: F, arquivo_path: `${F}/arquivo/a-t.xlsx`, arquivo_nome: 't.xlsx', motor_path: `${F}/motor/a-m.xlsx`, motor_nome: 'm.xlsx', vigencia: null as string | null, familia: 'PVC', categoria_chave: 'PERFIL' }
@@ -303,5 +307,50 @@ describe('(4) a contagem das categorias do arquivo e a frase da recusa', () => {
     it('a frase dos itens sem categoria concorda no singular e no plural', () => {
         expect(fraseDosItensSemCategoriaDoFornecedor(1)).toContain('1 item do arquivo não traz')
         expect(fraseDosItensSemCategoriaDoFornecedor(3)).toContain('3 itens do arquivo não trazem')
+    })
+})
+
+describe('(5) PATCH /tabelas/[id] — o ARQUIVO da tabela já importada NÃO se troca (29/10/2026)', () => {
+    const patch = (corpo: object) => chamar('tabela', 'PATCH', { id: T }, corpo)
+    const NOVO_ARQUIVO = { arquivo_path: `${F}/arquivo/u2-Perfis_de_PVC_-_Wolff.xlsx`, arquivo_nome: 'Perfis_de_PVC_-_Wolff.xlsx' }
+
+    it('a tabela com itens importados (a da Wolff: 735): trocar o arquivo é 409 com a frase, e NADA é gravado nem apagado — o arquivo de antes fica', async () => {
+        repo.contarItensDaTabela.mockImplementation(async () => 735)
+        const r = await patch(NOVO_ARQUIVO)
+        expect(r).toEqual({ status: 409, json: { error: fraseDoArquivoDaTabelaImportada(735) } })
+        expect(repo.atualizarTabela).not.toHaveBeenCalled()
+        // o objeto de antes NUNCA é removido: foi o que a rota fez com o .xlsm da Wolff
+        const removidos = repo.removerObjetos.mock.calls.flatMap((c) => c[0] as string[])
+        expect(removidos).not.toContain(TABELA_SEM.arquivo_path)
+    })
+
+    it('com a categoria junto (o pedido de 29/10/2026): a recusa é a do ARQUIVO, e as categorias dos itens gravados nem são lidas', async () => {
+        repo.contarItensDaTabela.mockImplementation(async () => 735)
+        repo.categoriasDoFornecedorDosItensGravados.mockImplementation(async () => ['Perfil PVC', 'Reforço', 'Acessórios'])
+        const r = await patch({ ...NOVO_ARQUIVO, categoria_chave: 'PERFIL' })
+        expect(r).toEqual({ status: 409, json: { error: fraseDoArquivoDaTabelaImportada(735) } })
+        expect(repo.categoriasDoFornecedorDosItensGravados).not.toHaveBeenCalled()
+        expect(repo.atualizarTabela).not.toHaveBeenCalled()
+    })
+
+    it('a frase diz quantos itens, que nada foi alterado e o caminho: tabela nova — no singular e no plural', () => {
+        expect(fraseDoArquivoDaTabelaImportada(735)).toBe('Esta tabela já tem 735 itens importados do arquivo de antes: o arquivo dela não se troca. Para um arquivo novo, cadastre uma tabela nova do fornecedor, com a categoria dele. Nada foi alterado.')
+        expect(fraseDoArquivoDaTabelaImportada(1)).toContain('1 item importado do arquivo de antes')
+        expect(fraseDoArquivoDaTabelaImportada(12116)).toContain('12.116 itens')
+    })
+
+    it('o contraste: a tabela SEM itens importados troca o arquivo como antes — grava o novo e remove o de antes', async () => {
+        const r = await patch(NOVO_ARQUIVO)
+        expect(r.status).toBe(200)
+        expect(repo.contarItensDaTabela).toHaveBeenCalledWith(T)
+        expect(repo.atualizarTabela).toHaveBeenCalledWith(T, NOVO_ARQUIVO)
+        expect(repo.removerObjetos.mock.calls.flatMap((c) => c[0] as string[])).toContain(TABELA_SEM.arquivo_path)
+    })
+
+    it('as outras edições da tabela importada seguem livres, e nem contam os itens (só a troca do arquivo conta)', async () => {
+        repo.contarItensDaTabela.mockImplementation(async () => 735)
+        const r = await patch({ vigencia: 'desde 01/11/2026' })
+        expect(r.status).toBe(200)
+        expect(repo.contarItensDaTabela).not.toHaveBeenCalled()
     })
 })

@@ -181,6 +181,14 @@ export const NICHO_NAO_ENCONTRADO = 'Nicho não encontrado.'
  * `orcamentista_tabela_perfil_exige_motor`) nasceu de manhã e saiu à noite, na `20261027000009`: não estava errada, o desenho mudou.
  */
 export const MENSAGEM_MOTOR_INCOMPLETO = 'O arquivo do motor chegou pela metade: faltou o caminho ou o nome. Envie de novo.'
+/**
+ * O ARQUIVO DE UMA TABELA JÁ IMPORTADA NÃO SE TROCA (dono do produto, 29/10/2026). Os itens gravados são os do arquivo de antes: trocar só o
+ * arquivo deixaria a tabela apontando um arquivo que não é o dos itens dela — e a rota apagava o objeto antigo. Em 29/10/2026, às 16:07, uma
+ * edição trocou o arquivo da tabela da Wolff (735 itens) e a rota apagou o `.xlsm` original do bucket. Arquivo novo é TABELA NOVA.
+ */
+export const fraseDoArquivoDaTabelaImportada = (itens: number) =>
+    `Esta tabela já tem ${itens.toLocaleString('pt-BR')} ${itens === 1 ? 'item importado' : 'itens importados'} do arquivo de antes: o arquivo dela não se troca. `
+    + 'Para um arquivo novo, cadastre uma tabela nova do fornecedor, com a categoria dele. Nada foi alterado.'
 export const MENSAGEM_MOTOR_NAO_SAI = 'O arquivo do motor não se apaga da tabela: troque por outro.'
 
 // ── A FAMÍLIA da tabela (dono do produto, 26/10/2026; migração 20261026000004) ─────────────
