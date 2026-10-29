@@ -28,7 +28,7 @@ for i in 1 2; do $P -d $D -v ON_ERROR_STOP=1 -f "$MIG" >/dev/null 2>&1 || { echo
 guarda() { # sem a 20261028000001: aborta com a frase, e nenhuma das três funções nasce
   local SAI; SAI=$($P -d $G0 -v ON_ERROR_STOP=1 -f "$MIG" 2>&1)
   local F; F=$($P -d $G0 -At -c "select count(*) from pg_proc where proname in ('superadmin_criar_familia', 'superadmin_editar_familia', 'superadmin_remover_familia')")
-  if echo "$SAI" | grep -q "dependencia ausente" && [ "$F" = "0" ]; then echo "NOTICE:  ok: guarda 1 — sem a 20261028000001, aborta com a frase e nenhuma funcao nasce"; else echo "ERROR:  FALHOU guarda 1: funcoes=$F saida=$(echo "$SAI" | grep ERROR | head -1)"; fi
+  if echo "$SAI" | grep -q "dependencia ausente: a etapa nao tem materia_prima_id (a 20261028000001)" && [ "$F" = "0" ]; then echo "NOTICE:  ok: guarda 1 — sem a 20261028000001, aborta com a frase e nenhuma funcao nasce"; else echo "ERROR:  FALHOU guarda 1: funcoes=$F saida=$(echo "$SAI" | grep ERROR | head -1)"; fi
   # sem a 20261029000003 (a ligação motor-família): aborta com a frase dela, e nenhuma das três funções nasce
   SAI=$($P -d $G3 -v ON_ERROR_STOP=1 -f "$MIG" 2>&1)
   F=$($P -d $G3 -At -c "select count(*) from pg_proc where proname in ('superadmin_criar_familia', 'superadmin_editar_familia', 'superadmin_remover_familia')")
