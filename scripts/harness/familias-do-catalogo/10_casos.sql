@@ -91,6 +91,20 @@ begin
   raise notice 'ok: caso E1 — editar a PVC: nome e ramificacoes mudam, a chave e a ordem nao; quem aponta a chave segue; log antes e depois';
 end $$;
 
+-- CASO E3 — EDITAR só as RAMIFICAÇÕES, com o mesmo nome: vale (não é "nada mudou"), e a lista nova é a gravada, na ordem dada
+do $$
+declare SUPER uuid := 'e0000000-0000-0000-0000-000000000001';
+begin
+  begin
+    perform public.superadmin_editar_familia(SUPER, 'PVC', 'PVC Wolf', array['VIDRO', 'PERFIL']);
+    if public.h_ram('PVC') <> 'VIDRO:1,PERFIL:2' then raise exception 'FALHOU caso E3: as ramificacoes (%)', public.h_ram('PVC'); end if;
+    if not exists (select 1 from public.orcamentista_familia_catalogo where chave = 'PVC' and rotulo = 'PVC Wolf' and ordem = 1) then raise exception 'FALHOU caso E3: a linha'; end if;
+    raise exception 'desfazer' using errcode = 'P0099';
+  exception when sqlstate 'P0099' then null;
+  end;
+  raise notice 'ok: caso E3 — editar so as ramificacoes, com o mesmo nome: vale, e grava a lista nova na ordem dada';
+end $$;
+
 -- CASO E2 — EDITAR recusa, com a frase, e NADA muda: nada mudou; o nome de outra família; família inexistente; sem ramificação; fora do catálogo;
 -- nome vazio; autor comum
 do $$
@@ -160,10 +174,12 @@ begin
     r := public.h_erro($q$select public.superadmin_remover_familia('e0000000-0000-0000-0000-000000000001', 'VECA')$q$);
     if r not like '22023|a familia "PVC Veca" esta em uso: 1 tabela(s) de fornecedor (Wolf Perfis / veca.xlsx). Tire%' then raise exception 'FALHOU caso R3: tabela (%)', r; end if;
     delete from public.orcamentista_tabela where familia = 'VECA';
-    insert into public.orcamentista_motor (familia, fornecedor_id, categoria_chave, arquivo_nome, arquivo_path) values ('VECA', W, 'PERFIL', 'veca-motor.xlsx', W::text || '/motor/v.xlsx');
+    -- o motor que atua em DUAS famílias (PVC e VECA, 20261029000003) também é uso da VECA: a recusa o nomeia
+    with m as (insert into public.orcamentista_motor (fornecedor_id, categoria_chave, arquivo_nome, arquivo_path) values (W, 'PERFIL', 'veca-motor.xlsx', W::text || '/motor/v.xlsx') returning id)
+    insert into public.orcamentista_motor_familia (motor_id, familia) select m.id, f from m, unnest(array['PVC', 'VECA']) f;
     r := public.h_erro($q$select public.superadmin_remover_familia('e0000000-0000-0000-0000-000000000001', 'VECA')$q$);
     if r not like '22023|a familia "PVC Veca" esta em uso: 1 motor(es) (Wolf Perfis / veca-motor.xlsx). Tire%' then raise exception 'FALHOU caso R3: motor (%)', r; end if;
-    delete from public.orcamentista_motor where familia = 'VECA';
+    delete from public.orcamentista_motor where arquivo_nome = 'veca-motor.xlsx';
     insert into public.orcamentista_levantamento (id, tenant_id) values ('1e000000-0000-0000-0000-0000000000f1', T);
     insert into public.orcamentista_levantamento_item (tenant_id, levantamento_id, ordem, tipologia, familia) values (T, '1e000000-0000-0000-0000-0000000000f1', 1, 'X', 'VECA');
     r := public.h_erro($q$select public.superadmin_remover_familia('e0000000-0000-0000-0000-000000000001', 'VECA')$q$);

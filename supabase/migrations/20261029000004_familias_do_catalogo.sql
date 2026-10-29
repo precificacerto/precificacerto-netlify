@@ -7,7 +7,8 @@
 -- ║ extensão: 20261029000004_familias_do_catalogo.
 -- ║ SEM ELA O CÓDIGO QUEBRA: a aba Famílias do nicho chama `superadmin_criar_familia`, `superadmin_editar_familia` e
 -- ║ `superadmin_remover_familia`; "Nova família" deixa de gravar direto na tabela.
--- ║ Pressupõe a 20261027000002 (o catálogo de ramificações) e a 20261028000002 (o nome "PVC Wolf"), conferidas em 29/10/2026.
+-- ║ Pressupõe a 20261027000002 (o catálogo de ramificações), a 20261028000002 (o nome "PVC Wolf") e a 20261029000003 (o motor serve N
+-- ║ famílias: a ligação `orcamentista_motor_familia`), conferidas em produção em 29/10/2026 (a 000003 aplicada às 18:50 UTC).
 -- ║ A ordem é aplicar, verificar por consulta, e só então mergear (`.claude/rules/migracao.md`).
 -- ║ As partes que executam são ASCII; os acentos estão só em comentário.
 -- ╚══════════════════════════════════════════════════════════════════════════════════════
@@ -30,7 +31,8 @@
 --      ramificação não apaga dado da base de conhecimento: a categoria com dado gravado continua aparecendo, marcada como fora da família.
 --      "Nada mudou" é recusa.
 --   C. `superadmin_remover_familia(p_por, p_chave)`: RECUSA NOMEADA se a família está em uso — matéria-prima (empresa · nome), tabela de
---      fornecedor (fornecedor · arquivo), motor (fornecedor · arquivo), etapa ou item de levantamento —, contando cada um; as chaves estrangeiras
+--      fornecedor (fornecedor · arquivo), motor que ATUA nela (fornecedor · arquivo; pela ligação `orcamentista_motor_familia`, 20261029000003 —
+--      o motor de duas famílias também conta), etapa ou item de levantamento —, contando cada um; as chaves estrangeiras
 --      continuam ON DELETE RESTRICT (nada de cascata). Sem uso, apaga as ramificações dela e a linha, numa transação, e loga o antes.
 --
 -- O QUE NÃO FAZ: nenhuma estrutura nova (tabela, coluna, constraint); nenhum UPDATE/DELETE de dado na aplicação; não toca na família PVC.
@@ -52,6 +54,10 @@ BEGIN
   END IF;
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'orcamentista_familia_etapa' AND column_name = 'materia_prima_id') THEN
     RAISE EXCEPTION 'dependencia ausente: a etapa nao tem materia_prima_id (a 20261028000001). Nada foi alterado.';
+  END IF;
+  -- a familia do motor mora na ligacao (20261029000003): sem ela, a recusa de remover nao enxergaria o motor
+  IF to_regclass('public.orcamentista_motor_familia') IS NULL THEN
+    RAISE EXCEPTION 'dependencia ausente: a ligacao motor-familia (20261029000003) nao esta aplicada. Nada foi alterado.';
   END IF;
 END
 $guarda$;
@@ -230,7 +236,7 @@ BEGIN
 
   SELECT count(*) INTO v_mps FROM public.orcamentista_materia_prima m WHERE m.familia = p_chave;
   SELECT count(*) INTO v_tabelas FROM public.orcamentista_tabela t WHERE t.familia = p_chave;
-  SELECT count(*) INTO v_motores FROM public.orcamentista_motor m WHERE m.familia = p_chave;
+  SELECT count(*) INTO v_motores FROM public.orcamentista_motor_familia mf WHERE mf.familia = p_chave;
   SELECT count(*) INTO v_etapas FROM public.orcamentista_familia_etapa e WHERE e.familia = p_chave;
   SELECT count(*) INTO v_itens FROM public.orcamentista_levantamento_item i WHERE i.familia = p_chave;
 
@@ -251,8 +257,9 @@ BEGIN
   IF v_motores > 0 THEN
     SELECT string_agg(x, ', ') INTO v_nomes FROM (
       SELECT coalesce(fo.nome, '(fornecedor removido)') || ' / ' || m.arquivo_nome AS x
-        FROM public.orcamentista_motor m LEFT JOIN public.orcamentista_fornecedor fo ON fo.id = m.fornecedor_id
-       WHERE m.familia = p_chave ORDER BY 1 LIMIT 3) z;
+        FROM public.orcamentista_motor_familia mf JOIN public.orcamentista_motor m ON m.id = mf.motor_id
+        LEFT JOIN public.orcamentista_fornecedor fo ON fo.id = m.fornecedor_id
+       WHERE mf.familia = p_chave ORDER BY 1 LIMIT 3) z;
     v_partes := v_partes || format('%s motor(es) (%s%s)', v_motores, v_nomes, CASE WHEN v_motores > 3 THEN format(' e mais %s', v_motores - 3) ELSE '' END);
   END IF;
   IF v_etapas > 0 THEN
