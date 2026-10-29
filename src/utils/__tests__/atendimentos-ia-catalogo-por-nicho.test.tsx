@@ -43,7 +43,7 @@ const fornecedor = (id: string, nome: string, nichoId: string, nichoNome: string
 const VECA = '00000000-0000-4000-8000-0000000000f3'
 const FORNECEDORES = [fornecedor(W, 'Wolf Perfis', ESQ, 'Esquadrias'), fornecedor(VECA, 'Veca Perfis', ESQ, 'Esquadrias'), fornecedor(OUTRO, 'Marcenaria Alfa', MOV, 'Móveis personalizados')]
 const motor = (id: string, fornecedorId: string, nome: string): MotorDoCatalogo => ({
-    id, familias: ['PVC'], fornecedor_id: fornecedorId, fornecedor: nome, categoria: 'PERFIL', arquivo_nome: `${id}.xlsx`, criado_em: '2026-10-28', arquivado_em: null, tipologias: 1, usos: [],
+    id, nome: `Motor ${id}`, familias: ['PVC'], fornecedor_id: fornecedorId, fornecedor: nome, categoria: 'PERFIL', arquivo_nome: `${id}.xlsx`, criado_em: '2026-10-28', arquivado_em: null, tipologias: 1, usos: [],
 })
 const M_ESQ = '00000000-0000-4000-8000-0000000000a1'
 const M_MOV = '00000000-0000-4000-8000-0000000000a2'

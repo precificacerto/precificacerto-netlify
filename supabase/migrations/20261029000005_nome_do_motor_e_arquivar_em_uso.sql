@@ -552,7 +552,8 @@ BEGIN
     RAISE EXCEPTION 'nada mudou: o fornecedor, a categoria, as familias e o nome sao os de agora. Nada foi gravado.' USING ERRCODE = 'invalid_parameter_value';
   END IF;
 
-  -- a familia que SAI e alguma etapa ou item usa: RECUSA nomeada (a FK RESTRICT da etapa e do item e a trava; aqui sai a frase)
+  -- a familia que SAI e alguma etapa ou item usa: RECUSA nomeada. Com a FK em SET NULL (C), a trava e ESTA conferencia, depois da linha do
+  -- motor travada acima (gravar etapa leva FOR SHARE nela): apagar a ligacao em uso limparia a etapa em silencio em vez de recusar
   IF cardinality(v_saem) > 0 THEN
     SELECT count(*) INTO v_etapas FROM public.orcamentista_familia_etapa x WHERE x.motor_id = p_motor AND x.motor_familia_exigida = ANY (v_saem);
     SELECT count(*) INTO v_itens FROM public.orcamentista_levantamento_item x WHERE x.motor_id = p_motor AND x.motor_familia_exigida = ANY (v_saem);

@@ -350,6 +350,18 @@ describe('(3) a rota: só o super admin, e só a função grava', () => {
         expect((await chamar('GET', MP2)).corpo.etapas.map((e: Linha) => e.rotulo)).toEqual(['Da outra família PVC'])
     })
 
+    it('GET: a família PRONTA (todas as etapas com motor) e a que não está, com a lista das etapas sem motor (29/10/2026)', async () => {
+        const pronta = await chamar('GET', MP)
+        expect([pronta.corpo.pronta, pronta.corpo.etapas_sem_motor]).toEqual([true, []])
+        const sem = await chamar('GET', MP2)
+        expect([sem.corpo.pronta, sem.corpo.etapas_sem_motor]).toEqual([false, [{ id: 'da-outra-familia', numero: 1, rotulo: 'Da outra família PVC' }]])
+        // o motor arquivado limpou a etapa 2 da MP (20261029000005): a família deixa de estar pronta, e a etapa vem nomeada
+        estado.db.orcamentista_familia_etapa[0].motor_id = null
+        const depois = await chamar('GET', MP)
+        expect([depois.corpo.pronta, depois.corpo.etapas_sem_motor]).toEqual([false, [{ id: E2, numero: 2, rotulo: 'Confirmar' }]])
+        expect(estado.rpcs).toEqual([])
+    })
+
     it('GET: a matéria-prima de OUTRA empresa é 404 (a da URL manda), e a sem id ou inexistente também; empresa inexistente é 404', async () => {
         expect((await chamar('GET', MP_DA_OUTRA)).status).toBe(404)
         expect((await chamar('GET', undefined)).status).toBe(404)
@@ -374,7 +386,7 @@ describe('(3) a rota: só o super admin, e só a função grava', () => {
     it('GET: a família SEM tipo devolve familia null e nenhum motor (sem tipo não há etapa)', async () => {
         const r = await chamar('GET', MP_SEM_TIPO)
         expect(r.status).toBe(200)
-        expect(r.corpo).toEqual({ familia: null, etapas: [], motores: [] })
+        expect(r.corpo).toEqual({ familia: null, etapas: [], motores: [], pronta: false, etapas_sem_motor: [] })
     })
 
     it('PUT: o motor_id do item vai à função como veio — uuid aponta, null limpa — e o item sem motor_id não o leva', async () => {

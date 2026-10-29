@@ -428,3 +428,36 @@ desenho dela por cima.
   "Editar" vale com uso (categoria e fornecedor travados no modal), e a recusa da família em uso é 409 dentro do modal.
 - **Prova:** `scripts/harness/motor-para-n-familias/` — a cadeia real com a `20261029000002` como em produção, os casos de cada trava (DML direto e funções),
   os COMMITs de verdade do gatilho adiado, três corridas, cinco guardas e as mutações nas duas passadas.
+
+## O motor tem nome; arquivar motor em uso é permitido; a família só calcula pronta — dono do produto, 29/10/2026 (migração `20261029000005`, PENDENTE até o dono do produto aplicar)
+
+Formulação do dono do produto, registrada como está:
+
+> A. "Quando for criar ou credenciar um novo motor, ou qualquer motor, é preciso nomeá-lo. Então, nós temos que ter o local de inserir ou editar o nome."
+> B. "Excluir um motor que esteja vinculado a uma família ou etapa não é problema. [...] Caso não tenha, ele fica apontando para ele. Se não tiver nenhum,
+> ele não vai poder fazer o cálculo. Então, ele não responde nada. [...] eu posso apontar um outro motor, um motor mais atualizado [...] Aí ele volta a
+> funcionar."
+> C. "para funcionar, a família funcionar, ela precisa ter todos os motores. Caso não tenha um motor, ela não funciona."
+
+A `20261029000003` (aplicada às 18:50 UTC de 29/10/2026) não muda; a `20261029000005` vem por cima, e **não depende da `20261029000004`** (as duas ordens
+provadas no harness).
+
+- **A. `orcamentista_motor.nome`**, NOT NULL; CHECK `orcamentista_motor_nome_forma` (sem espaço nas pontas, 1 a 80 caracteres — a forma do rótulo da etapa);
+  índice único PARCIAL `orcamentista_motor_nome_ativo (fornecedor_id, nome) WHERE arquivado_em IS NULL` (o arquivado libera o nome). Semeado do
+  `arquivo_nome` sem a extensão (`Motor_Wolf_PVC.xlsx` → `Motor_Wolf_PVC`; 1 motor), com antes e depois no log. `superadmin_criar_motor` recebe `p_nome`;
+  `superadmin_editar_motor` edita o nome COM uso. No corpo das rotas ele é `nome_do_motor` (`nome` continua sendo o do arquivo); o combo da etapa e o
+  catálogo mostram o nome. **Trocar o arquivo dá ao novo o MESMO nome** — e, como o índice é conferido no INSERT, a troca **arquiva o antigo ANTES de
+  criar o novo** (a premissa "o antigo é arquivado na mesma transação, então não colide" só vale nessa ordem; na de antes — criar, reapontar, arquivar
+  — o INSERT colidiria. Provado no harness, caso F5).
+- **B. As FKs `(motor_id, motor_familia_exigida)` da etapa e do item passam a `ON DELETE SET NULL`** (anula as duas colunas; a CHECK "a exigida existe se e só
+  se há motor" continua satisfeita — caso K3). Arquivar não apaga a ligação (é UPDATE), então o SET NULL só age quando uma ligação é apagada; **a FK deixou
+  de proteger a família em uso**: quem recusa tirar do motor a família que uma etapa usa é a conferência de `superadmin_editar_motor`, com o motor travado
+  (caso F6, mutação E7). `superadmin_arquivar_motor` arquiva também com uso: LIMPA o motor das etapas, loga cada uma com o tenant dela e devolve
+  `etapas_sem_motor` (empresa / família / número / rótulo), que a tela lista depois de arquivar. **O item de levantamento já gravado não é tocado** — a
+  pergunta está com o dono do produto (medido em 29/10/2026: 4 itens, nenhum com motor, e nenhum código lê ou grava `motor_id` do item).
+- **C. Não é constraint.** Montar a família aos poucos e gravar etapa sem motor continuam permitidos. A leitura das etapas devolve `pronta` (tem etapas e
+  TODAS com motor; família sem etapa NÃO está pronta) e `etapas_sem_motor`; a tela mostra. A conferência de execução é `conferirEtapasParaExecutar`
+  (`src/utils/atendimentos-ia-etapas.ts`), que recusa nomeando cada etapa: *a etapa 2 ("Levantamento de esquadrias") está sem motor: escolha um motor
+  para ela*. **Dívida:** nada executa as etapas hoje (a conversa ainda não as lê, é o PR D) — quem passar a executá-las chama a conferência antes.
+- **Prova:** `scripts/harness/nome-do-motor-e-arquivar/` — a cadeia real com a `20261029000003` e o estado de produção medido, os casos de cada trava e
+  função, duas corridas (gravar etapa × arquivar), três guardas, as duas ordens com a `20261029000004`, e as mutações nas duas passadas.

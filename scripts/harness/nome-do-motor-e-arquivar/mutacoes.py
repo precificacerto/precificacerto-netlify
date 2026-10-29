@@ -4,6 +4,7 @@ O CONTROLE (sem mutação) tem de passar (exit 0). A segunda passada tira o bloc
 sozinhos, derrubem cada mutação (ou que a base aborte). Cada mutação é uma lista de trocas (de, para).
 Fora da lista, por ser EQUIVALENTE: tirar a conferência das contagens do semeio (`v_depois <> 0 OR v_n <> v_antes`) — o laço nomeia todo motor sem
 nome, e nenhum estado faz as contagens divergirem."""
+import os
 import pathlib, subprocess, sys, tempfile
 
 AQUI = pathlib.Path(__file__).resolve().parent
@@ -17,7 +18,8 @@ ARQ_ANTES = """  UPDATE public.orcamentista_motor SET arquivado_em = now(), arqu
           jsonb_build_object('orcamentista_motor', (SELECT to_jsonb(m) FROM public.orcamentista_motor m WHERE m.id = p_motor)), p_por);
 """
 MUTACOES = [
-    ("G1 a guarda não exige a 20261029000003", [("  IF to_regclass('public.orcamentista_motor_familia') IS NULL OR to_regclass('public.superadmin_alteracao_log') IS NULL\n     OR to_regprocedure('public.superadmin_arquivar_motor(uuid, uuid)') IS NULL", "  IF false")]),
+    # a guarda tem seis condições, cada uma basta para acusar a 000003 ausente (redundância de propósito): a mutação tira TODAS
+    ("G1 a guarda não exige a 20261029000003", [("  IF to_regclass('public.orcamentista_motor_familia') IS NULL OR to_regclass('public.superadmin_alteracao_log') IS NULL\n     OR to_regprocedure('public.superadmin_arquivar_motor(uuid, uuid)') IS NULL\n     OR to_regprocedure('public.superadmin_trocar_arquivo_do_motor(uuid, uuid, text, text, jsonb)') IS NULL\n     OR (to_regprocedure('public.superadmin_criar_motor(uuid, uuid, text, text[], text, text, jsonb)') IS NULL\n         AND to_regprocedure('public.superadmin_criar_motor(uuid, uuid, text, text[], text, text, text, jsonb)') IS NULL)\n     OR (to_regprocedure('public.superadmin_editar_motor(uuid, uuid, uuid, text, text[], text)') IS NULL\n         AND to_regprocedure('public.superadmin_editar_motor(uuid, uuid, uuid, text, text[], text, text)') IS NULL) THEN", "  IF false THEN")]),
     ("G2 a guarda da forma do nome semeado some", [("    IF v_ruins IS NOT NULL THEN", "    IF false THEN")]),
     ("G3 a guarda do nome repetido some", [("    IF v_repet IS NOT NULL THEN", "    IF false THEN")]),
     ("S1 o semeio não nomeia", [("    UPDATE public.orcamentista_motor SET nome = btrim(regexp_replace(arquivo_nome, '\\.[A-Za-z0-9]+$', '')) WHERE id = r.id;", "    NULL;")]),
@@ -51,6 +53,7 @@ MUTACOES = [
     ("E4 editar acha a si mesmo repetido", [("              WHERE m.fornecedor_id = p_fornecedor AND m.nome = p_nome AND m.arquivado_em IS NULL AND m.id <> p_motor) THEN", "              WHERE m.fornecedor_id = p_fornecedor AND m.nome = p_nome AND m.arquivado_em IS NULL) THEN")]),
     ("E5 a assinatura antiga do editar fica", [("DROP FUNCTION IF EXISTS public.superadmin_editar_motor(uuid, uuid, uuid, text, text[], text);\n", "")]),
     ("E6 o nome com uso recusado", [("    IF v_etapas > 0 OR v_itens > 0 THEN\n      RAISE EXCEPTION 'o motor tem uso (% etapa(s), % item(ns) de levantamento): categoria e fornecedor so se editam em motor sem uso (as familias e o nome", "    IF (v_etapas > 0 OR v_itens > 0) THEN\n      RAISE EXCEPTION 'o motor tem uso (% etapa(s), % item(ns) de levantamento): categoria e fornecedor so se editam em motor sem uso (as familias e o nome"), ("  v_origem := p_fornecedor <> v_atual.fornecedor_id OR p_categoria <> v_atual.categoria_chave;", "  v_origem := p_fornecedor <> v_atual.fornecedor_id OR p_categoria <> v_atual.categoria_chave OR p_nome <> v_atual.nome;")]),
+    ("E7 editar deixa sair a família em uso (a FK SET NULL limparia as etapas)", [("    IF v_etapas > 0 OR v_itens > 0 THEN\n      v_msg := '';", "    IF false THEN\n      v_msg := '';")]),
     ("R1 trocar arquiva DEPOIS de criar (a ordem de antes)", [(ARQ_ANTES, ""), ("  RETURN v_criado || jsonb_build_object('motor_antigo', p_motor, 'etapas_reapontadas', v_n);", ARQ_ANTES + "  RETURN v_criado || jsonb_build_object('motor_antigo', p_motor, 'etapas_reapontadas', v_n);")]),
     ("R2 trocar dá ao novo o nome do arquivo", [("                                            v_antigo.nome, p_arquivo_path, p_arquivo_nome, p_payload);", "                                            btrim(regexp_replace(p_arquivo_nome, '\\.[A-Za-z0-9]+$', '')), p_arquivo_path, p_arquivo_nome, p_payload);")]),
     ("R3 trocar não loga o arquivamento", [("  VALUES (NULL, 'orcamentista_motor', p_motor::text,\n          jsonb_build_object('orcamentista_motor', to_jsonb(v_antigo), 'troca_de_arquivo_do_motor', p_motor),", "  SELECT NULL, 'orcamentista_motor', p_motor::text,\n          jsonb_build_object('orcamentista_motor', to_jsonb(v_antigo), 'troca_de_arquivo_do_motor', p_motor),")]),
@@ -72,6 +75,9 @@ def aplicar(trocas, tira):
     for de, para in trocas: t = t.replace(de, para)
     return sem_verifica(t) if tira else t
 
+# SO=G1,E7 roda só as mutações com esses prefixos (o controle roda sempre)
+if os.environ.get("SO"):
+    MUTACOES = [m for m in MUTACOES if m[0].split(" ")[0] in os.environ["SO"].split(",")]
 erro = [(n, de[:60]) for n, trocas in MUTACOES for de, _ in trocas if ORIG.count(de) != 1]
 if erro:
     print("TRECHO NAO ACHADO ou repetido:", erro); sys.exit(1)

@@ -259,6 +259,29 @@ begin
   raise notice 'ok: caso F5 — trocar: o novo com o MESMO nome, o antigo arquivado (antes de criar o novo), as 3 etapas no novo; com o antigo ativo, o nome colide';
 end $$;
 
+-- CASO F6 — com a FK em SET NULL, a FK não protege mais a família em uso: TIRAR do motor da Wolff a família PVC, que as 3 etapas usam, continua
+-- RECUSA 23001 nomeando quem usa, e nada muda — as 3 seguem com o motor e a exigida (sem a conferência da função, apagar a ligação as limparia
+-- em silêncio). Trocar PVC por PVC + ALUMINIO passa (acrescentar não tira nada)
+do $$
+declare WM uuid := '9a233c55-f377-45d3-b2ae-b1a740a98e44'; W uuid := '44c5c0fe-a0d3-4aab-802d-20a6eff3f654'; p text; e text; r text;
+begin
+  select arquivo_path into p from public.orcamentista_motor where id = WM;
+  e := public.h_estado();
+  r := public.h_erro(format($q$select public.superadmin_editar_motor('e0000000-0000-0000-0000-000000000001', %L, %L, 'PERFIL', array['ALUMINIO'], 'Motor_Wolf_PVC', %L)$q$, WM, W, p));
+  if r not like '23001||a familia PVC nao pode sair do motor: em uso por 3 etapa(s) (%' or public.h_estado() <> e
+     or (select count(*) from public.orcamentista_familia_etapa where motor_id = WM and motor_familia_exigida = 'PVC') <> 3 then
+    raise exception 'FALHOU caso F6: %', r; end if;
+  begin
+    perform public.superadmin_editar_motor('e0000000-0000-0000-0000-000000000001', WM, W, 'PERFIL', array['PVC', 'ALUMINIO'], 'Motor_Wolf_PVC', p);
+    if (select count(*) from public.orcamentista_motor_familia where motor_id = WM) <> 2
+       or (select count(*) from public.orcamentista_familia_etapa where motor_id = WM and motor_familia_exigida = 'PVC') <> 3 then
+      raise exception 'FALHOU caso F6: acrescentar'; end if;
+    raise exception 'desfazer' using errcode = 'P0099';
+  exception when sqlstate 'P0099' then null;
+  end;
+  raise notice 'ok: caso F6 — tirar a familia em uso segue recusa nomeada (a FK SET NULL nao protege; a funcao sim), e as 3 etapas ficam; acrescentar passa';
+end $$;
+
 -- CASO P1 — as quatro funções FECHADAS; as assinaturas antigas (sem o nome) não existem mais
 do $$
 declare f regprocedure; nome text;
