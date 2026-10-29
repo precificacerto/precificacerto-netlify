@@ -26,15 +26,15 @@ F=$($P -d $D -At -c "select public.h_familias('$M')"); E=$($P -d $D -At -c "sele
 if echo "$SAIDA" | grep -q 'a familia ALUMINIO nao pode sair do motor: em uso por 1 etapa(s) (Esquadrias De Paula Ltda / Esquadrias de alumínio / etapa 1)' && [ "$F" = "ALUMINIO,PVC" ] && [ "$E" = "ALUMINIO" ] && [ $((FIM-INI)) -ge 1 ]; then echo "NOTICE:  ok: corrida 2 — tirar a familia espera a etapa que a aponta, ve e recusa nomeando (esperou $((FIM-INI)) s)"; else echo "ERROR:  FALHOU corrida 2: familias=$F exigida=$E esperou $((FIM-INI)) s saida=$SAIDA"; fi
 limpar $M
 
-# CORRIDA 3 — duas transações tiram, cada uma, uma família DIFERENTE do mesmo motor (sem uso), e os dois COMMITs se encontram: uma terceira sessão segura
-# a linha do motor, as duas param no gatilho; solta, a primeira passa e a segunda conta de novo e RECUSA. O motor fica com uma família
+# CORRIDA 3 — duas transações tiram, cada uma, uma família DIFERENTE do mesmo motor (sem uso), e as duas CONFERÊNCIAS se encontram: cada uma força a
+# conferência adiada na hora (SET CONSTRAINTS ... IMMEDIATE, que confere o que estava pendente) e segura a transação aberta. A segunda espera a trava do
+# motor que a primeira tomou, conta de novo depois do COMMIT dela e RECUSA. Sem a trava, as duas contariam a família da outra e o motor ficaria sem nenhuma
 M=$(novo_motor); XA=$(mktemp); XB=$(mktemp)
-( $P -d $D -c "begin; select 1 from public.orcamentista_motor where id = '$M' for update; select pg_sleep(3); commit;" >/dev/null 2>&1 ) &
+( $P -d $D -c "begin; delete from public.orcamentista_motor_familia where motor_id = '$M' and familia = 'PVC'; set constraints orcamentista_motor_sem_familia immediate; select pg_sleep(3); commit;" > $XA 2>&1 ) &
 sleep 1
-( $P -d $D -c "begin; delete from public.orcamentista_motor_familia where motor_id = '$M' and familia = 'PVC'; commit;" > $XA 2>&1 ) &
-( $P -d $D -c "begin; delete from public.orcamentista_motor_familia where motor_id = '$M' and familia = 'ALUMINIO'; commit;" > $XB 2>&1 ) &
+( $P -d $D -c "begin; delete from public.orcamentista_motor_familia where motor_id = '$M' and familia = 'ALUMINIO'; set constraints orcamentista_motor_sem_familia immediate; commit;" > $XB 2>&1 ) &
 wait
-ERROS=$(cat $XA $XB | grep -c "o motor $M ficou sem familia"); L=$($P -d $D -At -c "select count(*) from public.orcamentista_motor_familia where motor_id = '$M'")
-if [ "$ERROS" = "1" ] && [ "$L" = "1" ]; then echo "NOTICE:  ok: corrida 3 — dois commits tirando familias diferentes ao mesmo tempo: um passa, o outro recusa; o motor fica com uma"; else echo "ERROR:  FALHOU corrida 3: recusas=$ERROS ligacoes=$L"; fi
+ERROS_A=$(grep -c "o motor $M ficou sem familia" $XA); ERROS_B=$(grep -c "o motor $M ficou sem familia" $XB); L=$($P -d $D -At -c "select public.h_familias('$M')")
+if [ "$ERROS_A" = "0" ] && [ "$ERROS_B" = "1" ] && [ "$L" = "ALUMINIO" ]; then echo "NOTICE:  ok: corrida 3 — duas conferencias ao mesmo tempo tirando familias diferentes: a segunda espera a trava do motor, conta de novo e recusa; o motor fica com uma"; else echo "ERROR:  FALHOU corrida 3: recusas=$ERROS_A/$ERROS_B familias=$L"; fi
 rm -f $XA $XB
 limpar $M
