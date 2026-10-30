@@ -64,7 +64,7 @@ beforeEach(() => {
     respostas = {
         [`GET ${ROTAS_DO_CATALOGO.nichos}`]: { status: 200, body: NICHOS },
         [`GET ${ROTAS_DO_CATALOGO.fornecedores}`]: { status: 200, body: FORNECEDORES },
-        [`GET ${ROTAS_DO_CATALOGO.familias}`]: { status: 200, body: [{ chave: 'PVC', rotulo: 'PVC Wolf', ordem: 1 }] },
+        [`GET ${ROTAS_DO_CATALOGO.familias}`]: { status: 200, body: [{ chave: 'PVC', rotulo: 'PVC Wolf', ordem: 1, ramificacoes: ['PERFIL'] }] },
         [`GET ${ROTAS_DO_CATALOGO.categorias}`]: { status: 200, body: [{ chave: 'PERFIL', rotulo: 'Perfil', ordem: 1 }] },
         [`GET ${ROTAS_DOS_MOTORES.lista}`]: { status: 200, body: { motores: [motor(M_ESQ, W, 'Wolf Perfis'), motor(M_MOV, OUTRO, 'Marcenaria Alfa')] } },
     }
