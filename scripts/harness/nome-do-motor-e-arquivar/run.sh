@@ -3,15 +3,14 @@
 # Cadeia: a mesma de motor-para-n-familias (as migrações REAIS, os stubs e o estado de PRODUÇÃO, os mesmos ids) -> a 20261029000001, a
 # 20261029000002 e a 20261029000003, como em produção em 29/10/2026 (conferido: 1 motor, o da Wolff, sem nome; 3 etapas com ele; 4 itens, nenhum
 # com motor) -> a foto do antes -> a 20261029000005 DUAS vezes -> os casos e as corridas. As GUARDAS rodam em cópias à parte. As ORDENS com a
-# 20261029000004 (em voo, no branch claude/familias-do-catalogo; o arquivo vem de $MIG4, ou do git) rodam em cópias à parte.
+# 20261029000004 (mergeada no #198 em 30/10/2026; o arquivo vem de $MIG4, ou da pasta de migrações) rodam em cópias à parte.
 # Uso: run.sh [arquivo da migração]. Sai 1 se faltar ok; 2 se a base abortar.
 S=$(cd "$(dirname "$0")" && pwd); R=$(cd "$S/../../.." && pwd); H=$R/scripts/harness; M=$R/supabase/migrations; B=$H/familia-do-motor-so-no-perfil
 MIG=${1:-$M/20261029000005_nome_do_motor_e_arquivar_em_uso.sql}
 P="psql -h ${PGHOST:-/tmp/harness-pg} -p ${PGPORT:-54329} -U postgres -q -X"
 D=${HARNESS_DB:-harness_nome_do_motor}
 A=${D}_antes; G0=${D}_sem_000003; GC=${D}_guarda
-MIG4=${MIG4:-$(mktemp --suffix=.sql)}
-[ -s "$MIG4" ] || git -C $R show origin/claude/familias-do-catalogo:supabase/migrations/20261029000004_familias_do_catalogo.sql > "$MIG4" 2>/dev/null
+MIG4=${MIG4:-$M/20261029000004_familias_do_catalogo.sql}
 REM=$(mktemp --suffix=.sql)
 awk '/^CREATE OR REPLACE FUNCTION public.superadmin_remover_materia_prima/{on=1} on && /^-- ── 8\. FECHADAS/{on=0} on{print}' $M/20261023000003_funcoes_dos_tres_niveis.sql > "$REM"
 for x in $D $A $G0 $GC; do $P -c "drop database if exists $x" >/dev/null 2>&1; done
