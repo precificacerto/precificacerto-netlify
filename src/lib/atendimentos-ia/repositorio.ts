@@ -220,9 +220,25 @@ export async function listarFamilias(): Promise<Familia[]> {
     return q(db().from('orcamentista_familia_catalogo').select('chave, rotulo, ordem'))
 }
 
-export async function criarFamilia(f: Familia): Promise<Familia> {
-    return q(db().from('orcamentista_familia_catalogo').insert(f).select('chave, rotulo, ordem').single())
+/** As ramificações de TODAS as famílias, sem ordem — quem agrupa e ordena é a rota. */
+export async function listarRamificacoes(): Promise<Array<{ familia: string; categoria_chave: string; ordem: number }>> {
+    return q(db().from('orcamentista_familia_ramificacao').select('familia, categoria_chave, ordem'))
 }
+
+/**
+ * As famílias do catálogo (migração 20261029000004): criar, editar (nome e ramificações) e remover — cada uma uma função do banco, com log, que
+ * confere de novo o que a rota já conferiu (nome repetido, ramificação do catálogo, uso). Falha LANÇA `ErroDoBanco` com o código.
+ */
+async function rpc(nome: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const { data, error } = await db().rpc(nome, args)
+    if (error) throw new ErroDoBanco(error)
+    return data as Record<string, unknown>
+}
+export const criarFamilia = (a: { por: string; chave: string; rotulo: string; ramificacoes: string[] }) =>
+    rpc('superadmin_criar_familia', { p_por: a.por, p_chave: a.chave, p_rotulo: a.rotulo, p_ramificacoes: a.ramificacoes })
+export const editarFamilia = (a: { por: string; chave: string; rotulo: string; ramificacoes: string[] }) =>
+    rpc('superadmin_editar_familia', { p_por: a.por, p_chave: a.chave, p_rotulo: a.rotulo, p_ramificacoes: a.ramificacoes })
+export const removerFamilia = (a: { por: string; chave: string }) => rpc('superadmin_remover_familia', { p_por: a.por, p_chave: a.chave })
 
 // ── Categorias (migração 20261027000005) ─────────────────────────────────────────────────────
 /** O catálogo das categorias da plataforma, SEM ordem — quem ordena é a rota. Só leitura: a lista é da plataforma. */
