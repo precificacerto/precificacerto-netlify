@@ -1,19 +1,21 @@
 /**
- * POST /api/super-admin/atendimentos-ia/motores/editar — `{ motor_id, fornecedor_id, categoria, familias }`: EDITAR o motor (`superadmin_editar_motor`,
- * migração 20261029000003, que loga o antes e o depois).
+ * POST /api/super-admin/atendimentos-ia/motores/editar — `{ motor_id, fornecedor_id, categoria, familias, nome_do_motor }`: EDITAR o motor
+ * (`superadmin_editar_motor`, migração 20261029000005, que loga o antes e o depois).
  *   - FORNECEDOR E CATEGORIA, SÓ EM MOTOR SEM USO (dono do produto, 29/10/2026: "com uso, o arquivo ficaria na pasta do fornecedor antigo e o motor
  *     passaria a mentir sobre a própria origem"): a função confere o uso — nenhuma etapa e nenhum item de levantamento.
  *   - AS FAMÍLIAS em que o motor atua (o motor serve N famílias e uma categoria, 29/10/2026) se editam TAMBÉM COM USO: o corpo leva a lista inteira
- *     de depois. TIRAR a família que alguma etapa ou item usa é RECUSA 409 que nomeia quem usa (a função, 23001); se a recusa vier da FK RESTRICT da
- *     etapa ou do item (23503 — uma corrida que a conferência da função não viu), é 409 com a frase genérica. A família NÃO se amarra a uma tabela
- *     da categoria do fornecedor.
+ *     de depois. TIRAR a família que alguma etapa ou item usa é RECUSA 409 que nomeia quem usa (a função, 23001). Desde a 20261029000005 a FK da
+ *     etapa e do item é ON DELETE SET NULL: a conferência da função, com o motor travado, é a trava (o 23503 de antes não vem mais da etapa; fica
+ *     tratado para a FK simples do item). A família NÃO se amarra a uma tabela da categoria do fornecedor.
+ *   - O NOME (20261029000005) se edita também com uso; repetir o de outro motor ATIVO do fornecedor é 400 com a frase da função, e 409 quando a
+ *     recusa vem do índice (23505, uma corrida).
  *
  * O ARQUIVO DIZ A ORIGEM: trocar o fornecedor COPIA o objeto para a pasta de motor do fornecedor novo, e a função confere o caminho novo. Se a
  * função recusar, a CÓPIA é removida (é nova, não tem dado de ninguém); o objeto antigo nunca é tocado — apagar arquivo é DELETE, e DELETE é do
  * dono do produto.
  *
  * A ORDEM: só super admin (404); o corpo (400); o motor existe (404) e não está arquivado (400); cada família no catálogo (400 nomeando); a cópia,
- * se o fornecedor muda; a função (42501→403, P0002→404, 22023→400 e 23001→409 com a mensagem dela; 23503→409; outro erro é 500).
+ * se o fornecedor muda; a função (42501→403, P0002→404, 22023→400 e 23001→409 com a mensagem dela; 23503→409; 23505→409; outro erro é 500).
  */
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { randomUUID } from 'crypto'
@@ -23,7 +25,7 @@ import { copiarObjeto, falhaInterna, listarFamilias, removerObjetos } from '@/li
 import { metodoNaoPermitido } from '@/lib/atendimentos-ia/base-de-conhecimento-servidor'
 import { caminhoNoBucket } from '@/utils/atendimentos-ia-catalogo'
 import {
-    FAMILIA_EM_USO_NAO_SAI_DO_MOTOR, MOTOR_ARQUIVADO_NAO_SE_EDITA, familiasForaDoCatalogo, fraseDaFamiliaForaDoCatalogo, lerCorpoDaEdicao,
+    FAMILIA_EM_USO_NAO_SAI_DO_MOTOR, MOTOR_ARQUIVADO_NAO_SE_EDITA, NOME_DO_MOTOR_REPETIDO, familiasForaDoCatalogo, fraseDaFamiliaForaDoCatalogo, lerCorpoDaEdicao,
 } from '@/utils/atendimentos-ia-catalogo-de-motores'
 
 /** A recusa da função, por código, com a mensagem DELA; 23001 é a família em uso que não sai (nomeia quem usa). */
@@ -36,7 +38,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const corpo = lerCorpoDaEdicao(req.body)
     if (corpo.ok === false) return res.status(400).json({ error: corpo.erro })
-    const { motor_id, fornecedor_id, categoria, familias } = corpo.corpo
+    const { motor_id, fornecedor_id, categoria, familias, nome_do_motor } = corpo.corpo
 
     let caminho: string
     let copia: string | null = null
@@ -57,7 +59,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     try {
-        const depois = await editarMotor({ por: caller.user_id, motorId: motor_id, fornecedorId: fornecedor_id, categoria, familias, arquivoPath: caminho })
+        const depois = await editarMotor({ por: caller.user_id, motorId: motor_id, fornecedorId: fornecedor_id, categoria, familias, nome: nome_do_motor, arquivoPath: caminho })
         return res.status(200).json(depois)
     } catch (e) {
         // a cópia é nova: se a função recusou, ela sai; o objeto antigo nunca é tocado
@@ -66,6 +68,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const status = codigo ? STATUS_DA_FUNCAO[codigo] : undefined
         if (status && e instanceof Error && e.message.trim() !== '') return res.status(status).json({ error: e.message })
         if (codigo === '23503') return res.status(409).json({ error: FAMILIA_EM_USO_NAO_SAI_DO_MOTOR })
+        if (codigo === '23505') return res.status(409).json({ error: NOME_DO_MOTOR_REPETIDO })
         return falhaInterna(res, 'editar motor (gravação)', e, 'Não foi possível editar o motor. Nada foi gravado.')
     }
 }

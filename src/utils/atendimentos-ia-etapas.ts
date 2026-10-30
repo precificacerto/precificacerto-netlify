@@ -223,3 +223,38 @@ export function moverEtapa<T>(lista: readonly T[], de: number, delta: -1 | 1): T
     ;[saida[de], saida[para]] = [saida[para], saida[de]]
     return saida
 }
+
+// ── A FAMÍLIA SÓ CALCULA COM TODAS AS ETAPAS COM MOTOR (dono do produto, 29/10/2026) ───────────────────────
+/**
+ * "Para funcionar, a família funcionar, ela precisa ter todos os motores. Caso não tenha um motor, ela não funciona." NÃO é constraint: montar a
+ * família aos poucos e gravar etapa sem motor continuam permitidos. É conferência NO MOMENTO DE CALCULAR/EXECUTAR — `conferirEtapasParaExecutar`,
+ * que quem executar as etapas chama antes de começar —, e a leitura da família mostra `pronta` e a lista das que estão sem motor.
+ *
+ * Família SEM ETAPA não está pronta: não há o que executar (leitura do assistente, relatada ao dono do produto no PR).
+ */
+export interface EtapaSemMotor {
+    id: string
+    numero: number
+    rotulo: string
+}
+
+/** As etapas sem motor, na ordem do número. */
+export const etapasSemMotor = (etapas: readonly Pick<EtapaDaFamilia, 'id' | 'numero' | 'rotulo' | 'motor_id'>[]): EtapaSemMotor[] =>
+    etapas.filter((e) => e.motor_id === null).sort((a, b) => a.numero - b.numero).map((e) => ({ id: e.id, numero: e.numero, rotulo: e.rotulo }))
+
+/** Pronta: tem pelo menos uma etapa, e TODAS com motor. */
+export const familiaPronta = (etapas: readonly Pick<EtapaDaFamilia, 'motor_id'>[]) => etapas.length > 0 && etapas.every((e) => e.motor_id !== null)
+
+/** A frase da recusa, nomeando a etapa: `a etapa 2 ("Levantamento de esquadrias") está sem motor: escolha um motor para ela`. */
+export const fraseDaEtapaSemMotor = (e: Pick<EtapaSemMotor, 'numero' | 'rotulo'>) => `a etapa ${e.numero} ("${e.rotulo}") está sem motor: escolha um motor para ela`
+export const FAMILIA_SEM_ETAPAS_NAO_CALCULA = 'a família não tem etapas: cadastre as etapas, cada uma com o seu motor'
+
+/**
+ * A conferência antes de executar: a família só calcula com TODAS as etapas com motor. A recusa nomeia CADA etapa sem motor (uma frase por
+ * etapa, na ordem), para quem lê saber onde repor sem tentar de novo.
+ */
+export function conferirEtapasParaExecutar(etapas: readonly EtapaDaFamilia[]): { ok: true } | { ok: false; erros: string[] } {
+    if (etapas.length === 0) return { ok: false, erros: [FAMILIA_SEM_ETAPAS_NAO_CALCULA] }
+    const sem = etapasSemMotor(etapas)
+    return sem.length === 0 ? { ok: true } : { ok: false, erros: sem.map(fraseDaEtapaSemMotor) }
+}

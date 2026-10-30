@@ -12,7 +12,10 @@
  * O MOTOR DA ETAPA SAI DO CATÁLOGO: o combo lista os motores do MESMO TIPO da família, não arquivados — primeiro os dos fornecedores
  * principais desta família —, e vai no corpo só quando MUDA (salvar o rótulo não toca no motor). NÃO HÁ campo de arquivo aqui: subir motor
  * de dentro da página de uma conta criaria dado global fora do catálogo. O link "cadastrar motor no catálogo" leva ao catálogo, em
- * Catálogo. Arquivar o motor que uma etapa aponta é recusado pela função.
+ * Catálogo. Arquivar o motor que uma etapa aponta é permitido (20261029000005): a etapa fica SEM MOTOR, e alguém escolhe outro aqui.
+ *
+ * A FAMÍLIA SÓ CALCULA COM TODAS AS ETAPAS COM MOTOR (dono do produto, 29/10/2026). Não é trava de gravação — montar aos poucos continua
+ * permitido —: a tela mostra, do que está SALVO, se a família está pronta, e cada etapa sem motor, com a frase que a execução usará na recusa.
  *
  * O que se salva aqui AINDA NÃO muda a conversa: o PR D passa a ler as etapas (por instância). A tela diz isso.
  *
@@ -26,8 +29,8 @@ import { chamarRota } from '@/page-parts/atendimentos-ia/api'
 import { ROUTES } from '@/constants/routes'
 import {
     ABAS_DA_ETAPA, ACOES_DA_ETAPA, LIMITE_DA_INSTRUCAO_DA_ETAPA, LIMITE_DO_ROTULO_DA_ETAPA, ROTULO_DA_ABA, ROTULO_DA_ACAO,
-    abasEmOrdem, corpoDoRascunho, etapasMudaram, inserirEtapaAbaixo, lerCorpoDasEtapas, moverEtapa, novaEtapaNoRascunho, rascunhoDasEtapas, rotaDasEtapas,
-    type EtapaDaFamilia, type EtapaNoRascunho,
+    abasEmOrdem, corpoDoRascunho, etapasMudaram, fraseDaEtapaSemMotor, inserirEtapaAbaixo, lerCorpoDasEtapas, moverEtapa, novaEtapaNoRascunho, rascunhoDasEtapas,
+    rotaDasEtapas, type EtapaDaFamilia, type EtapaNoRascunho, type EtapaSemMotor,
 } from '@/utils/atendimentos-ia-etapas'
 import { ANCORA_DO_CATALOGO_DE_MOTORES, motoresParaAEtapa, rotuloDoMotor, type MotorDoCatalogo } from '@/utils/atendimentos-ia-catalogo-de-motores'
 import { rotaDoNicho } from '@/utils/atendimentos-ia-catalogo'
@@ -40,6 +43,10 @@ export const SEM_ETAPAS = 'Esta família ainda não tem etapas cadastradas.'
 export const SEM_TIPO_SEM_ETAPAS = 'Escolha a família (o tipo) antes de cadastrar as etapas: o motor da etapa é do mesmo tipo.'
 export const SEM_MOTORES_DO_TIPO = (tipo: string) => `O catálogo não tem motor do tipo ${tipo}: cadastre um antes de apontá-lo na etapa.`
 export const CADASTRAR_MOTOR_NO_CATALOGO = 'Cadastrar motor no catálogo'
+export const FAMILIA_PRONTA = 'A família está pronta: todas as etapas salvas têm motor.'
+export const FAMILIA_NAO_PRONTA = 'A família não calcula enquanto houver etapa sem motor (do que está salvo):'
+/** A frase da etapa sem motor, com a primeira letra maiúscula para a lista da tela. */
+const naLista = (e: EtapaSemMotor) => { const f = fraseDaEtapaSemMotor(e); return `${f[0].toUpperCase()}${f.slice(1)}.` }
 /** Os motores moram no NICHO (29/10/2026): o link cai na aba de motores do nicho da conta; sem nicho, no Catálogo, que lista os nichos. */
 export const linkDoCatalogoDeMotores = (nichoId: string | null | undefined) =>
     (nichoId ? rotaDoNicho(nichoId, 'motores') : `${ROUTES.SUPER_ADMIN_IA_FORNECEDORES}#${ANCORA_DO_CATALOGO_DE_MOTORES}`)
@@ -56,6 +63,8 @@ export function EtapasDaFamilia({ tenantId, materiaPrimaId, principais = [], rot
     const [gravadas, setGravadas] = useState<EtapaDaFamilia[] | null>(null)
     const [familia, setFamilia] = useState<string | null>(null)
     const [motores, setMotores] = useState<MotorDoCatalogo[]>([])
+    /** O que a rota diz da família salva; null quando a resposta não trouxe (a tela não afirma pronta nem não pronta sem o dado). */
+    const [prontidao, setProntidao] = useState<{ pronta: boolean; semMotor: EtapaSemMotor[] } | null>(null)
     const [rascunho, setRascunho] = useState<EtapaNoRascunho[]>([])
     const [erroAoLer, setErroAoLer] = useState<string | null>(null)
     const [erroAoSalvar, setErroAoSalvar] = useState<string | null>(null)
@@ -64,10 +73,12 @@ export function EtapasDaFamilia({ tenantId, materiaPrimaId, principais = [], rot
     const carregar = useCallback(async () => {
         setErroAoLer(null)
         try {
-            const r = await chamarRota<{ familia: string | null; etapas: EtapaDaFamilia[]; motores?: MotorDoCatalogo[] }>(rotaDasEtapas(tenantId, materiaPrimaId))
+            const r = await chamarRota<{ familia: string | null; etapas: EtapaDaFamilia[]; motores?: MotorDoCatalogo[]; pronta?: boolean; etapas_sem_motor?: EtapaSemMotor[] }>(
+                rotaDasEtapas(tenantId, materiaPrimaId))
             setGravadas(r.etapas)
             setFamilia(r.familia)
             setMotores(r.motores ?? [])
+            setProntidao(typeof r.pronta === 'boolean' && Array.isArray(r.etapas_sem_motor) ? { pronta: r.pronta, semMotor: r.etapas_sem_motor } : null)
             setRascunho(rascunhoDasEtapas(r.etapas))
         } catch (e) {
             setGravadas(null)
@@ -109,6 +120,11 @@ export function EtapasDaFamilia({ tenantId, materiaPrimaId, principais = [], rot
                 <a href={linkDoCatalogoDeMotores(nichoId)} target="_blank" rel="noreferrer" data-cadastrar-motor-no-catalogo>{CADASTRAR_MOTOR_NO_CATALOGO}</a>
             </Typography.Paragraph>
             {rascunho.length === 0 && <Typography.Paragraph type="secondary" data-sem-etapas>{SEM_ETAPAS}</Typography.Paragraph>}
+            {prontidao?.pronta === true && <Alert type="success" showIcon style={{ marginBottom: 12 }} message={FAMILIA_PRONTA} data-familia-pronta />}
+            {prontidao?.pronta === false && prontidao.semMotor.length > 0 && (
+                <Alert type="warning" showIcon style={{ marginBottom: 12 }} message={FAMILIA_NAO_PRONTA} data-familia-nao-pronta
+                    description={<ul style={{ margin: 0, paddingLeft: 16 }}>{prontidao.semMotor.map((e) => <li key={e.id} data-etapa-sem-motor={e.numero}>{naLista(e)}</li>)}</ul>} />
+            )}
             <Space direction="vertical" size="middle" style={{ width: '100%' }}>
                 {rascunho.map((e, i) => (
                     <Card key={e.local} size="small" data-etapa={e.local} title={<span data-numero-da-etapa>{`Etapa ${i + 1}`}</span>}
@@ -135,7 +151,7 @@ export function EtapasDaFamilia({ tenantId, materiaPrimaId, principais = [], rot
                                 <Select aria-label={`Motor da etapa ${i + 1}`} style={{ width: 320 }} allowClear placeholder="Sem motor"
                                     value={e.motor_id ?? undefined} onChange={(v) => mudarEtapa(e.local, { motor_id: v ?? null })}
                                     options={[...doCombo.map((m) => ({ value: m.id, label: rotulo(m) })),
-                                        // o motor gravado que a lista não traz (a função não deixa arquivar o apontado; isto é só para nunca esconder o que está gravado)
+                                        // o motor gravado que a lista não traz (arquivar limpa as etapas que o apontam; isto é só para nunca esconder o que está gravado)
                                         ...(e.motor_id != null && !doCombo.some((m) => m.id === e.motor_id) ? [{ value: e.motor_id, label: `(motor ${e.motor_id.slice(0, 8)}…, fora da lista)` }] : [])]} />
                             </div>
                         </Space>
