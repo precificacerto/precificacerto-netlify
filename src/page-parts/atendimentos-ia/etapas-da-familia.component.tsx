@@ -24,7 +24,7 @@
  * Portão: `src/utils/__tests__/atendimentos-ia-etapas-a-tela.test.tsx`.
  */
 import React, { useCallback, useEffect, useState } from 'react'
-import { Alert, Button, Card, Checkbox, Input, Popconfirm, Select, Space, Typography, message } from 'antd'
+import { Alert, Button, Card, Input, Popconfirm, Select, Space, Typography, message } from 'antd'
 import { ArrowDownOutlined, ArrowUpOutlined, PlusOutlined, VerticalAlignBottomOutlined } from '@ant-design/icons'
 import { chamarRota } from '@/page-parts/atendimentos-ia/api'
 import { ROUTES } from '@/constants/routes'
