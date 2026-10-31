@@ -22,7 +22,7 @@
  * aqui: um campo novo no catálogo aparece na tela sem mudar a tela. O que está escrito são os três
  * domínios que o banco ENUMERA por CHECK, e que não têm catálogo — ver cada constante.
  */
-import type { ErroNomeado } from '@/lib/atendimentos-ia/base-de-conhecimento'
+import { campoForaDaTela, type ErroNomeado } from '@/lib/atendimentos-ia/base-de-conhecimento'
 import { TITULO_DO_BLOCO, mapaDosPares, mesmoValor, paresDoMapa, type Par } from '@/page-parts/atendimentos-ia/base-de-conhecimento/formulario'
 
 type Linha = Record<string, unknown>
@@ -206,8 +206,12 @@ export function categoriasForaDaFamilia(catalogo: ArvoreLida['catalogo'], famili
 
 /** A família declara alguma ramificação? */
 export const familiaDeclaraRamificacao = (catalogo: ArvoreLida['catalogo'], familia: string) => (catalogo.ramificacoes ?? []).some((r) => r.familia === familia)
+/**
+ * Os campos da categoria que a tela mostra, edita e manda — sem os que saíram da tela e da gravação (`CAMPOS_FORA_DA_TELA`, 30/10/2026): fora daqui,
+ * eles não entram no formulário nem no corpo, e o valor gravado fica como está (a gravação faz merge).
+ */
 export const camposDa = (c: ArvoreLida['catalogo'], chave: string) =>
-    c.campos.filter((x) => x.categoria_chave === chave).sort((a, b) => a.ordem - b.ordem)
+    c.campos.filter((x) => x.categoria_chave === chave && !campoForaDaTela(chave, x.chave)).sort((a, b) => a.ordem - b.ordem)
 
 // ── O valor: a forma do formulário, a forma do corpo, e a comparação com o gravado ──────────
 /** O gravado na forma que o formulário edita. O mapa vira pares; o resto fica como veio — null é null. */
