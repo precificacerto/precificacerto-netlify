@@ -461,3 +461,24 @@ provadas no harness).
   para ela*. **Dívida:** nada executa as etapas hoje (a conversa ainda não as lê, é o PR D) — quem passar a executá-las chama a conferência antes.
 - **Prova:** `scripts/harness/nome-do-motor-e-arquivar/` — a cadeia real com a `20261029000003` e o estado de produção medido, os casos de cada trava e
   função, duas corridas (gravar etapa × arquivar), três guardas, as duas ordens com a `20261029000004`, e as mutações nas duas passadas.
+
+## Excluir etapa na conta passa a ser permitido — dono do produto, 30/10/2026 (migração `20261031000001`, PENDENTE até o dono do produto aplicar)
+
+Formulação do dono do produto, registrada como está:
+
+> Hoje `superadmin_gravar_etapas_da_materia_prima` recusa: 'a etapa % ("%") nao veio na lista: remover etapa nao e permitido por aqui'. Essa recusa
+> SAI. A etapa que não vier na lista é removida, com antes e depois no log, e as demais RENUMERAM para 1..N sem buraco (a numeração aparece na
+> conversa e na ordem de execução). A tela ganha o botão de excluir, com confirmação que nomeia o que se perde (rótulo, instrução e motor).
+
+- **A função** (mesma assinatura; o corpo da `20261029000003` com uma mudança): a etapa desta família que não veio na lista é travada e APAGADA, com
+  uma linha de log por etapa (o tenant dela; o antes é a linha inteira e `remocao_da_etapa`; o depois é nulo), além do log da lista inteira. As que
+  ficam recebem o número da posição: 1..N, sem buraco. A resposta traz `etapas_removidas`. **Lista vazia remove todas** — é o que a regra diz; a
+  tela confirma etapa por etapa. Um item inválido na mesma lista desfaz tudo, também a remoção (caso X5).
+- **A guarda:** nenhuma FK aponta `orcamentista_familia_etapa` (medido em 31/10/2026). Se alguém passar a apontar, apagar a etapa deixa de ser
+  inofensivo, e a migração aborta em vez de seguir.
+- **A tela:** as etapas gravadas ganham "Excluir", com confirmação que nomeia o rótulo, a instrução e o motor GRAVADOS (não o rascunho); confirmada,
+  a etapa sai do rascunho e não vai na lista ao salvar.
+- **O portão de paridade** passou a ler a função da ÚLTIMA migração que a escreve (antes fixava a `20261029000003`, e a `20261029000005` já tinha
+  redefinido `superadmin_criar_motor` sem ele ver — `copia-divergente.md`).
+- **Prova:** `scripts/harness/excluir-etapa-na-conta/` — a cadeia real até a `20261029000005` e o estado das 3 etapas medido em 31/10/2026, os casos,
+  duas corridas (remover × salvar a lista inteira; renomear × remover), duas guardas e as mutações nas duas passadas.

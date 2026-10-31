@@ -458,7 +458,7 @@ describe('(3) a rota: só o super admin, e só a função grava', () => {
 
 describe('(4) a recusa chega a quem clicou', () => {
     it.each([
-        ['22023', 400, 'a etapa 1 ("Apanhar o pedido") nao veio na lista: remover etapa nao e permitido por aqui'],
+        ['22023', 400, 'etapa 2: o id nao e de uma etapa desta familia'],
         ['42501', 403, 'o autor da alteracao nao e super admin'],
         ['P0002', 404, 'materia-prima inexistente nesta empresa'],
         ['22023', 400, 'etapa 1: o motor nao atua na familia PVC'],

@@ -258,3 +258,33 @@ export function conferirEtapasParaExecutar(etapas: readonly EtapaDaFamilia[]): {
     const sem = etapasSemMotor(etapas)
     return sem.length === 0 ? { ok: true } : { ok: false, erros: sem.map(fraseDaEtapaSemMotor) }
 }
+
+// ── EXCLUIR ETAPA NA CONTA (dono do produto, 30/10/2026; migração 20261031000001) ─────────────────────────────
+/**
+ * A etapa GRAVADA que não vai na lista é REMOVIDA pela função, com log, e as que ficam renumeram 1..N pela posição (a numeração aparece na conversa e
+ * na ordem de execução). A tela tira a etapa do rascunho só depois de uma confirmação que diz o que se perde: o rótulo, a instrução e o motor — os
+ * GRAVADOS, que são o que sai do banco ao salvar.
+ */
+export const TAMANHO_DO_TRECHO_DA_INSTRUCAO = 80
+
+/** A instrução como a confirmação a mostra: vazia é "sem instrução"; longa, o começo e quantos caracteres tem. */
+export function instrucaoNaConfirmacao(instrucao: string): string {
+    const t = instrucao.trim()
+    if (t === '') return 'sem instrução'
+    const n = caracteres(t)
+    if (n <= TAMANHO_DO_TRECHO_DA_INSTRUCAO) return `a instrução "${t}"`
+    return `a instrução de ${n.toLocaleString('pt-BR')} caracteres ("${[...t].slice(0, TAMANHO_DO_TRECHO_DA_INSTRUCAO).join('')}…")`
+}
+
+/** O que se perde ao excluir a etapa: `motor` é o rótulo do motor gravado, ou null quando ela não tem motor. */
+export function fraseDaExclusaoDaEtapa(e: { numero: number; rotulo: string; instrucao: string; motor: string | null }): { titulo: string; perde: string[] } {
+    return {
+        titulo: `Excluir a etapa ${e.numero} ("${e.rotulo}")?`,
+        perde: [
+            `o rótulo "${e.rotulo}"`,
+            instrucaoNaConfirmacao(e.instrucao),
+            e.motor === null ? 'sem motor' : `o motor ${e.motor}`,
+        ],
+    }
+}
+export const AVISO_DA_EXCLUSAO = 'A etapa sai ao salvar, com o que está gravado nela; as de baixo sobem um número. Até salvar, nada é apagado.'

@@ -6,8 +6,9 @@
  *
  * O RÓTULO É LIVRE; A AÇÃO NÃO É. A ação sai do combo com as cinco do sistema: etapa sem ação da lista é erro, não
  * etapa nova — o código precisa saber o que fazer ali, e um rótulo não diz isso. O número é a posição na lista:
- * reordenar é subir e descer, e o salvar manda a lista inteira. NÃO HÁ botão de remover etapa gravada (a função
- * também recusa); a etapa nova, ainda não salva, pode ser descartada do rascunho.
+ * reordenar é subir e descer, e o salvar manda a lista inteira. EXCLUIR ETAPA GRAVADA É PERMITIDO (dono do produto, 30/10/2026; migração
+ * 20261031000001): o botão pede confirmação dizendo o que se perde — o rótulo, a instrução e o motor GRAVADOS —, tira a etapa do rascunho, e ao salvar a
+ * função a remove (com log) e renumera as que ficam, 1..N. A etapa nova, ainda não salva, só se descarta do rascunho.
  *
  * O MOTOR DA ETAPA SAI DO CATÁLOGO: o combo lista os motores do MESMO TIPO da família, não arquivados — primeiro os dos fornecedores
  * principais desta família —, e vai no corpo só quando MUDA (salvar o rótulo não toca no motor). NÃO HÁ campo de arquivo aqui: subir motor
@@ -23,13 +24,13 @@
  * Portão: `src/utils/__tests__/atendimentos-ia-etapas-a-tela.test.tsx`.
  */
 import React, { useCallback, useEffect, useState } from 'react'
-import { Alert, Button, Card, Checkbox, Input, Select, Space, Typography, message } from 'antd'
+import { Alert, Button, Card, Checkbox, Input, Popconfirm, Select, Space, Typography, message } from 'antd'
 import { ArrowDownOutlined, ArrowUpOutlined, PlusOutlined, VerticalAlignBottomOutlined } from '@ant-design/icons'
 import { chamarRota } from '@/page-parts/atendimentos-ia/api'
 import { ROUTES } from '@/constants/routes'
 import {
-    ABAS_DA_ETAPA, ACOES_DA_ETAPA, LIMITE_DA_INSTRUCAO_DA_ETAPA, LIMITE_DO_ROTULO_DA_ETAPA, ROTULO_DA_ABA, ROTULO_DA_ACAO,
-    abasEmOrdem, corpoDoRascunho, etapasMudaram, fraseDaEtapaSemMotor, inserirEtapaAbaixo, lerCorpoDasEtapas, moverEtapa, novaEtapaNoRascunho, rascunhoDasEtapas,
+    ABAS_DA_ETAPA, ACOES_DA_ETAPA, AVISO_DA_EXCLUSAO, LIMITE_DA_INSTRUCAO_DA_ETAPA, LIMITE_DO_ROTULO_DA_ETAPA, ROTULO_DA_ABA, ROTULO_DA_ACAO,
+    abasEmOrdem, corpoDoRascunho, etapasMudaram, fraseDaEtapaSemMotor, fraseDaExclusaoDaEtapa, inserirEtapaAbaixo, lerCorpoDasEtapas, moverEtapa, novaEtapaNoRascunho, rascunhoDasEtapas,
     rotaDasEtapas, type EtapaDaFamilia, type EtapaNoRascunho, type EtapaSemMotor,
 } from '@/utils/atendimentos-ia-etapas'
 import { ANCORA_DO_CATALOGO_DE_MOTORES, motoresParaAEtapa, rotuloDoMotor, type MotorDoCatalogo } from '@/utils/atendimentos-ia-catalogo-de-motores'
@@ -37,7 +38,7 @@ import { rotaDoNicho } from '@/utils/atendimentos-ia-catalogo'
 
 export const AVISO_DAS_ETAPAS =
     'O rótulo é livre; a ação não é. Cada etapa tem uma das ações do sistema, e etapa sem ação da lista é erro, não etapa nova. '
-    + 'O número é a posição na lista. Etapa gravada não se remove por aqui. As etapas são desta família, nesta empresa. '
+    + 'O número é a posição na lista. Excluir uma etapa gravada pede confirmação, e ela sai ao salvar. As etapas são desta família, nesta empresa. '
     + 'O que for salvo ainda não muda a conversa: o PR que troca os leitores passa a lê-las.'
 export const SEM_ETAPAS = 'Esta família ainda não tem etapas cadastradas.'
 export const SEM_TIPO_SEM_ETAPAS = 'Escolha a família (o tipo) antes de cadastrar as etapas: o motor da etapa é do mesmo tipo.'
@@ -91,6 +92,13 @@ export function EtapasDaFamilia({ tenantId, materiaPrimaId, principais = [], rot
     const mudarEtapa = (local: string, f: Partial<EtapaNoRascunho>) => setRascunho((r) => r.map((e) => (e.local === local ? { ...e, ...f } : e)))
     const doCombo = familia === null ? [] : motoresParaAEtapa(motores, familia, principais)
     const rotulo = (m: MotorDoCatalogo) => rotuloDoMotor(m, rotuloDaCategoria)
+    /** O que a exclusão da etapa GRAVADA leva: o rótulo, a instrução e o motor como estão no banco (não no rascunho). */
+    const exclusao = (id: string) => {
+        const g = (gravadas ?? []).find((x) => x.id === id)
+        if (!g) return null
+        const m = g.motor_id === null ? null : motores.find((x) => x.id === g.motor_id)
+        return fraseDaExclusaoDaEtapa({ numero: g.numero, rotulo: g.rotulo, instrucao: g.instrucao, motor: g.motor_id === null ? null : m ? rotulo(m) : `(motor ${g.motor_id.slice(0, 8)}…)` })
+    }
 
     async function salvar() {
         // a rota confere de novo; conferir aqui diz qual etapa antes de gastar o pedido
@@ -134,6 +142,22 @@ export function EtapasDaFamilia({ tenantId, materiaPrimaId, principais = [], rot
                                 <Button size="small" icon={<ArrowDownOutlined />} aria-label={`Descer a etapa ${i + 1}`} disabled={i === rascunho.length - 1} onClick={() => setRascunho((r) => moverEtapa(r, i, 1))} />
                                 <Button size="small" icon={<VerticalAlignBottomOutlined />} aria-label={`Inserir uma etapa abaixo da etapa ${i + 1}`} onClick={() => setRascunho((r) => inserirEtapaAbaixo(r, i))}>Inserir etapa abaixo</Button>
                                 {e.id === null && <Button size="small" onClick={() => setRascunho((r) => r.filter((x) => x.local !== e.local))}>Descartar</Button>}
+                                {e.id !== null && (() => {
+                                    const x = exclusao(e.id)
+                                    return x === null ? null : (
+                                        <Popconfirm title={x.titulo} okText="Excluir" cancelText="Cancelar" okButtonProps={{ danger: true }}
+                                            description={(
+                                                <div style={{ maxWidth: 360 }} data-o-que-se-perde>
+                                                    <div>Perde-se:</div>
+                                                    <ul style={{ margin: 0, paddingLeft: 16 }}>{x.perde.map((p) => <li key={p}>{p}</li>)}</ul>
+                                                    <div style={{ marginTop: 4 }}>{AVISO_DA_EXCLUSAO}</div>
+                                                </div>
+                                            )}
+                                            onConfirm={() => setRascunho((r) => r.filter((y) => y.local !== e.local))}>
+                                            <Button size="small" danger aria-label={`Excluir a etapa ${i + 1}`} data-excluir-etapa>Excluir</Button>
+                                        </Popconfirm>
+                                    )
+                                })()}
                             </Space>
                         )}>
                         <Space wrap align="start" style={{ width: '100%' }}>
