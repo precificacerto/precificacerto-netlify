@@ -25,13 +25,17 @@
 import fs from 'fs'
 import path from 'path'
 import {
-    ABAS_DA_ETAPA, ACOES_DA_ETAPA, LIMITE_DA_INSTRUCAO_DA_ETAPA, LIMITE_DO_ROTULO_DA_ETAPA, MAXIMO_DE_ETAPAS_DA_FAMILIA, ROTULO_DA_ACAO, TABELAS_DO_MOTOR, ehAcaoDaEtapa,
+    ABAS_DA_ETAPA, ACOES_DA_ETAPA, LIMITE_DA_INSTRUCAO_DA_ETAPA, LIMITE_DO_NOME_DA_ETAPA, MAXIMO_DE_ETAPAS_DA_FAMILIA, ROTULO_DA_ACAO, TABELAS_DO_MOTOR, ehAcaoDaEtapa,
 } from '@/utils/atendimentos-ia-etapas'
 import { CONTAGENS_DO_MOTOR } from '@/utils/atendimentos-ia-motor'
 
 const ARQUIVO = path.join(__dirname, '..', '..', '..', 'supabase', 'migrations', '20261027000002_motor_por_familia_e_etapas.sql')
 const sql = () => fs.readFileSync(ARQUIVO, 'utf8')
 const sqlA = sql
+// a lista fechada MORA no item do catálogo desde a 20261031000002 (a etapa da conta perdeu rotulo, acao e abas): é ela que a CHECK de hoje tem
+const ARQUIVO_CATALOGO = path.join(__dirname, '..', '..', '..', 'supabase', 'migrations', '20261031000002_etapa_no_catalogo.sql')
+const sqlCatalogo = () => fs.readFileSync(ARQUIVO_CATALOGO, 'utf8')
+const executavelCatalogo = () => sqlCatalogo().split('\n').filter((l) => !l.trimStart().startsWith('--')).join('\n')
 
 /** Os literais de uma lista `ARRAY['A', 'B']` que vem depois de `marca` no texto. Vazio se a marca não existe. */
 export function listaDepois(texto: string, marca: string): string[] {
@@ -58,6 +62,8 @@ describe('(1) as ações da etapa: o código e a CHECK do banco', () => {
     it('as cinco, na mesma ordem', () => {
         expect(ACOES_DA_ETAPA).toEqual(['APANHAR', 'CONFIRMAR', 'GERAR_LEVANTAMENTO', 'CALCULAR_BARRAS', 'ENVIAR'])
         expect(listaDepois(sql(), 'orcamentista_familia_etapa_acao_da_lista')).toEqual([...ACOES_DA_ETAPA])
+        // a CHECK de hoje: a do item do catálogo
+        expect(listaDepois(executavelCatalogo(), 'CONSTRAINT orcamentista_etapa_catalogo_acao_da_lista')).toEqual([...ACOES_DA_ETAPA])
     })
 
     it('toda ação tem rótulo para a tela, e só as da lista', () => {
@@ -73,6 +79,7 @@ describe('(1) as ações da etapa: o código e a CHECK do banco', () => {
 describe('(2) as abas que uma etapa carrega', () => {
     it('são as da CHECK, na mesma ordem', () => {
         expect(listaDepois(sql(), 'orcamentista_familia_etapa_abas_da_planilha')).toEqual([...ABAS_DA_ETAPA])
+        expect(listaDepois(executavelCatalogo(), 'CONSTRAINT orcamentista_etapa_catalogo_abas_da_planilha')).toEqual([...ABAS_DA_ETAPA])
     })
 
     it('vêm das contagens do bloco Motor — sem os itens de preço, que são da tabela do fornecedor', () => {
@@ -206,7 +213,8 @@ describe('(6) a migração das gravações da tela da família', () => {
 
     it('o limite da instrução e do rótulo na função são os do código', () => {
         expect(sqlA()).toContain(`char_length(instrucao) <= ${LIMITE_DA_INSTRUCAO_DA_ETAPA}`)
-        expect(sqlA()).toContain(`char_length(rotulo) <= ${LIMITE_DO_ROTULO_DA_ETAPA}`)
+        expect(sqlA()).toContain(`char_length(rotulo) <= ${LIMITE_DO_NOME_DA_ETAPA}`)
+        expect(executavelCatalogo()).toContain(`char_length(nome) <= ${LIMITE_DO_NOME_DA_ETAPA}`)
         expect(executavelB()).toContain(`v_n > ${MAXIMO_DE_ETAPAS_DA_FAMILIA}`)
     })
 
@@ -238,7 +246,8 @@ describe('(7) a função das etapas da família-instância, como a ÚLTIMA migra
     it('o instrumento: a função existe no arquivo (sem ela os casos abaixo passariam lendo o vazio), e é a da última migração', () => {
         expect(funcaoH('superadmin_gravar_etapas_da_materia_prima')).toContain('p_materia_prima')
         expect(funcaoH('nao_existe')).toBe('')
-        expect(ultimaQueDefine('superadmin_gravar_etapas_da_materia_prima')).toBe('20261031000001_excluir_etapa_na_conta.sql')
+        expect(ultimaQueDefine('superadmin_gravar_etapas_da_materia_prima')).toBe('20261031000002_etapa_no_catalogo.sql')
+        expect(ultimaQueDefine('superadmin_arquivar_motor')).toBe('20261031000002_etapa_no_catalogo.sql')
         expect(ultimaQueDefine('superadmin_criar_motor')).toBe('20261029000005_nome_do_motor_e_arquivar_em_uso.sql')
     })
 
@@ -256,21 +265,86 @@ describe('(7) a função das etapas da família-instância, como a ÚLTIMA migra
         for (const a of ABAS_DA_ETAPA) expect(f).not.toContain(`'${a}'`)
     })
 
-    it('traduz as violações pelas MESMAS CHECK da 20261027000002, e o máximo de etapas é o do código', () => {
+    it('traduz a violação da instrução pela CHECK da 20261027000002 (as do rótulo, da ação e das abas saíram com as colunas), e o máximo é o do código', () => {
         const f = funcaoH('superadmin_gravar_etapas_da_materia_prima')
-        for (const c of ['orcamentista_familia_etapa_acao_da_lista', 'orcamentista_familia_etapa_abas_da_planilha', 'orcamentista_familia_etapa_rotulo_forma', 'orcamentista_familia_etapa_instrucao_ate_4000']) {
-            expect(f).toContain(`'${c}'`)
-            expect(sqlA()).toContain(c)
+        expect(f).toContain("'orcamentista_familia_etapa_instrucao_ate_4000'")
+        expect(sqlA()).toContain('orcamentista_familia_etapa_instrucao_ate_4000')
+        for (const c of ['orcamentista_familia_etapa_acao_da_lista', 'orcamentista_familia_etapa_abas_da_planilha', 'orcamentista_familia_etapa_rotulo_forma']) {
+            expect(f).not.toContain(c)
+            expect(executavelCatalogo()).toContain(`DROP CONSTRAINT IF EXISTS ${c};`)
         }
         expect(f).toContain(`v_n > ${MAXIMO_DE_ETAPAS_DA_FAMILIA}`)
     })
 
-    it('os campos que o corpo aceita são os mesmos da rota (id, rotulo, acao, instrucao, abas, motor_id)', () => {
-        expect(funcaoH('superadmin_gravar_etapas_da_materia_prima')).toContain("v_permitidas text[] := ARRAY['id', 'rotulo', 'acao', 'instrucao', 'abas', 'motor_id'];")
+    it('os campos que o corpo aceita são os mesmos da rota (id, etapa_catalogo_id, instrucao, motor_id)', () => {
+        expect(funcaoH('superadmin_gravar_etapas_da_materia_prima')).toContain("v_permitidas text[] := ARRAY['id', 'etapa_catalogo_id', 'instrucao', 'motor_id'];")
+    })
+
+    it('a etapa da conta não lê nem grava mais o rótulo, a ação ou as abas: o nome vem do item do catálogo', () => {
+        const f = funcaoH('superadmin_gravar_etapas_da_materia_prima')
+        expect(f).not.toMatch(/\b(rotulo|acao|abas)\s*=/)
+        expect(f).toContain("etapa_catalogo_id = (e ->> 'etapa_catalogo_id')::uuid")
+        expect(funcaoH('superadmin_arquivar_motor')).toContain('c.nome AS nome_da_etapa')
     })
 
     it('o log das etapas é DA EMPRESA agora (a etapa é da família-instância); o do motor continua do catálogo', () => {
         expect(funcaoH('superadmin_gravar_etapas_da_materia_prima')).toMatch(/VALUES \(p_tenant, 'orcamentista_familia_etapa', p_materia_prima::text,/)
         expect(funcaoH('superadmin_criar_motor')).toMatch(/VALUES \(NULL, 'orcamentista_motor', v_motor::text, NULL,/)
+    })
+})
+
+// ── O CATÁLOGO DE ETAPAS (31/10/2026, 20261031000002) ───────────────────────────────────────────────────────
+const FUNCOES_DO_CATALOGO = [
+    'superadmin_criar_etapa_do_catalogo(uuid, text, text, text[])',
+    'superadmin_editar_etapa_do_catalogo(uuid, uuid, text, text, text[])',
+    'superadmin_remover_etapa_do_catalogo(uuid, uuid)',
+] as const
+
+describe('(8) a migração do catálogo de etapas', () => {
+    it('nasce PENDENTE, com o nome para aplicar fora do CLI, e pressupõe a 20261031000001', () => {
+        expect(sqlCatalogo()).toMatch(/PENDENTE\. N.O APLICADA/)
+        expect(sqlCatalogo()).toContain('20261031000002_etapa_no_catalogo')
+        expect(sqlCatalogo()).toContain('PRESSUPÕE a 20261031000001')
+    })
+
+    it.each(FUNCOES_DO_CATALOGO)('%s: SECURITY DEFINER, search_path fixo, fechada para PUBLIC/anon/authenticated e aberta só ao service_role', (assinatura) => {
+        const sql = executavelCatalogo()
+        const nome = assinatura.slice(0, assinatura.indexOf('('))
+        const corpo = sql.slice(sql.indexOf(`FUNCTION public.${nome}(`))
+        expect(corpo).toMatch(/SECURITY DEFINER/)
+        expect(corpo).toMatch(/SET search_path = public, pg_temp/)
+        expect(sql).toContain(`REVOKE ALL ON FUNCTION public.${assinatura} FROM PUBLIC, anon, authenticated;`)
+        expect(sql).toContain(`GRANT EXECUTE ON FUNCTION public.${assinatura} TO service_role;`)
+    })
+
+    it('as três logam, conferem o super admin e travam o catálogo (pg_advisory_xact_lock)', () => {
+        for (const a of FUNCOES_DO_CATALOGO) {
+            const f = funcaoH(a.slice(0, a.indexOf('(')))
+            expect(f).toContain('INSERT INTO public.superadmin_alteracao_log')
+            expect(f).toContain('u.is_super_admin IS TRUE')
+            expect(f).toContain("pg_advisory_xact_lock(hashtextextended('orcamentista_etapa_catalogo', 0))")
+        }
+    })
+
+    it('remover em uso é RECUSA NOMEADA (empresa / família / etapa N), nunca cascata: a FK da etapa é RESTRICT', () => {
+        const f = funcaoH('superadmin_remover_etapa_do_catalogo')
+        expect(f).toContain("format('%s / %s / etapa %s', coalesce(t.name, '(sem nome)'), mp.nome, e.numero)")
+        expect(f).toContain('Tire o uso antes de remover. Nada foi removido.')
+        expect(executavelCatalogo()).toContain('REFERENCES public.orcamentista_etapa_catalogo (id) ON DELETE RESTRICT;')
+        expect(executavelCatalogo()).not.toMatch(/ON DELETE CASCADE/)
+    })
+
+    it('o nome é único SEM OLHAR A CAIXA (índice em lower), com a forma da etapa (1..60, sem pontas)', () => {
+        expect(executavelCatalogo()).toContain('CREATE UNIQUE INDEX IF NOT EXISTS orcamentista_etapa_catalogo_nome_unico ON public.orcamentista_etapa_catalogo (lower(nome));')
+        expect(executavelCatalogo()).toContain(`CHECK (nome = btrim(nome) AND char_length(nome) >= 1 AND char_length(nome) <= ${LIMITE_DO_NOME_DA_ETAPA})`)
+    })
+
+    it('o semeio é LITERAL (nada inventado): o nome é o rótulo, a ação e as abas como estão, e sem autor', () => {
+        expect(executavelCatalogo()).toContain('SELECT e.rotulo, e.acao, e.abas, row_number() OVER (ORDER BY min(e.numero), e.rotulo, e.acao)::integer, NULL')
+    })
+
+    it('a etapa da conta perde rotulo, acao e abas; instrução, número e motor ficam', () => {
+        for (const c of ['rotulo', 'acao', 'abas']) expect(executavelCatalogo()).toContain(`ALTER TABLE public.orcamentista_familia_etapa DROP COLUMN IF EXISTS ${c};`)
+        expect(executavelCatalogo()).not.toMatch(/DROP COLUMN IF EXISTS (instrucao|numero|motor_id|motor_familia_exigida)/)
     })
 })

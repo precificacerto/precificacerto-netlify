@@ -4,18 +4,18 @@
  * O motor deixou de ser "o arquivo da tabela do fornecedor". São duas coisas separadas:
  *   - a PLANILHA (`orcamentista_motor`): a fonte de dados, importada UMA vez por (família, fornecedor de
  *     perfil). O Motor_Wolf_PVC é a planilha da família PVC com o fornecedor Wolff — não pertence a uma etapa;
- *   - a ETAPA (`orcamentista_familia_etapa`): o que o consultor cadastra por família — número, rótulo LIVRE,
- *     AÇÃO de uma lista FECHADA, texto de instrução e quais abas da planilha ela carrega. Várias etapas leem a
- *     mesma planilha: o apanhado carrega a Detalhe e as Variáveis; a relação de barras carrega tudo.
+ *   - a ETAPA: desde 31/10/2026 (migração 20261031000002), um ITEM DO CATÁLOGO (`orcamentista_etapa_catalogo`, global) com o NOME, a AÇÃO de
+ *     uma lista FECHADA e as abas da planilha que ela carrega; a etapa da conta (`orcamentista_familia_etapa`) o SELECIONA e guarda o número,
+ *     a instrução e o motor. Várias etapas leem a mesma planilha: o apanhado carrega a Detalhe e as Variáveis; a relação de barras carrega tudo.
  *
- * O RÓTULO É LIVRE; A AÇÃO NÃO É. "Etapa sem ação da lista é erro, não etapa nova": o código precisa saber o que
- * fazer ali (apanhar, confirmar, gerar o PDF, calcular as barras, enviar), e um rótulo não diz isso.
+ * O NOME É DO CATÁLOGO; A AÇÃO É DA LISTA. "Etapa sem ação da lista é erro, não etapa nova": o código precisa saber o que fazer ali (apanhar,
+ * confirmar, gerar o PDF, calcular as barras, enviar), e um nome não diz isso. A conta seleciona o item; não o renomeia.
  *
  * A ETAPA É DA FAMÍLIA-INSTÂNCIA (dono do produto, 28/10/2026; migração 20261028000001): da matéria-prima de UMA empresa, não da chave do
  * catálogo — a mesma empresa pode ter três famílias PVC, cada uma com as suas etapas. O motor é do CATÁLOGO (global, com fornecedor e
  * categoria), e a etapa só o seleciona (`atendimentos-ia-catalogo-de-motores.ts`).
  *
- * ESTA LISTA MORA TAMBÉM NO BANCO (as CHECK da etapa). Acrescentar uma ação aqui exige a migração que a põe na
+ * ESTA LISTA MORA TAMBÉM NO BANCO (as CHECK do item do catálogo, 20261031000002). Acrescentar uma ação aqui exige a migração que a põe na
  * CHECK, e é isso que o portão `atendimentos-ia-etapas-paridade.test.ts` confere — a lista não vive em dois
  * lugares sem alguém olhar os dois (`copia-divergente.md`).
  */
@@ -65,13 +65,18 @@ export const TABELAS_DO_MOTOR = [
     'orcamentista_motor_vidro',
 ] as const
 
-// ── AS ETAPAS DA FAMÍLIA NA TELA E NA ROTA (PR B; migração 20261027000003) ─────────────────────────────
+// ── A ETAPA DO CATÁLOGO (dono do produto, 31/10/2026; migração 20261031000002) ───────────────────────────────
 /**
- * O limite do texto da etapa, contado como o banco conta (`char_length`: pontos de código). O rótulo e a
- * instrução têm CHECK no banco (`..._rotulo_forma`, `..._instrucao_ate_4000`) e a função traduz a violação; a
- * rota confere ANTES, com a frase que diz quantos.
+ * A ETAPA VIRA ITEM DE CATÁLOGO: `orcamentista_etapa_catalogo` (GLOBAL, como o catálogo de famílias) guarda o NOME, a AÇÃO e as ABAS — "dizem o que a
+ * etapa CARREGA do motor: técnico, igual para toda empresa" —, e a etapa da conta só o SELECIONA (`etapa_catalogo_id`): a conta não renomeia. O que
+ * varia por empresa é a INSTRUÇÃO, que fica na conta, com o número e o motor. Criar, editar e remover o item são funções do banco, na aba Etapas do
+ * nicho; remover o item que alguma conta usa é RECUSA NOMEADA (empresa · família · número), nunca cascata.
+ *
+ * O limite do texto, contado como o banco conta (`char_length`: pontos de código). O nome e a instrução têm CHECK no banco
+ * (`orcamentista_etapa_catalogo_nome_forma`, `orcamentista_familia_etapa_instrucao_ate_4000`) e a função traduz a violação; a rota confere ANTES,
+ * com a frase que diz quantos.
  */
-export const LIMITE_DO_ROTULO_DA_ETAPA = 60
+export const LIMITE_DO_NOME_DA_ETAPA = 60
 export const LIMITE_DA_INSTRUCAO_DA_ETAPA = 4000
 export const MAXIMO_DE_ETAPAS_DA_FAMILIA = 50
 
@@ -82,48 +87,104 @@ export const ROTULO_DA_ABA: Record<AbaDaEtapa, string> = Object.fromEntries(
     CONTAGENS_DO_MOTOR.filter((c) => c.chave !== 'itens_de_preco').map((c) => [c.chave, c.rotulo]),
 ) as Record<AbaDaEtapa, string>
 
-/** Uma etapa como o banco a guarda. */
+/** Quem usa um item do catálogo: a empresa, a família-instância (o nome da matéria-prima) e o número da etapa nela. */
+export interface UsoDaEtapaDoCatalogo {
+    empresa: string
+    familia: string
+    numero: number
+}
+
+/** Um item do catálogo de etapas, como o banco o guarda, com QUEM USA (na ordem empresa → família → número). */
+export interface EtapaDoCatalogo {
+    id: string
+    nome: string
+    acao: AcaoDaEtapa
+    abas: AbaDaEtapa[]
+    ordem: number
+    criado_em: string
+    usos: UsoDaEtapaDoCatalogo[]
+}
+
+/** GET (a lista) e POST (`{ nome, acao, abas }`) em `rotaDoCatalogoDeEtapas`; PATCH e DELETE em `rotaDaEtapaDoCatalogo(id)`. */
+export const rotaDoCatalogoDeEtapas = '/api/super-admin/atendimentos-ia/etapas'
+export const rotaDaEtapaDoCatalogo = (id: string) => `${rotaDoCatalogoDeEtapas}/${encodeURIComponent(id)}`
+
+export const fraseDaAcaoForaDaLista = (acao: unknown) =>
+    `A ação ${typeof acao === 'string' && acao !== '' ? `"${acao}"` : 'em branco'} não é uma das ações do sistema (${ACOES_DA_ETAPA.join(', ')}).`
+export const fraseDoNomeDaEtapa = (tamanho: number) =>
+    tamanho === 0 ? 'O nome da etapa está em branco.' : `O nome da etapa tem ${tamanho} caracteres; o limite é ${LIMITE_DO_NOME_DA_ETAPA}.`
+export const fraseDaEtapaDoCatalogoComNomeRepetido = (nome: string) => `Já existe a etapa "${nome}" no catálogo: o nome não se repete (sem olhar maiúsculas e minúsculas).`
+export const fraseDaEtapaDoCatalogoEmUso = (nome: string, usos: readonly UsoDaEtapaDoCatalogo[]) =>
+    `A etapa "${nome}" do catálogo está em uso: ${usos.map((u) => `${u.empresa} · ${u.familia} · etapa ${u.numero}`).join('; ')}. Tire o uso antes de remover.`
+export const ETAPA_DO_CATALOGO_QUE_NAO_MUDOU = 'Nada mudou: o nome, a ação e as abas são os de agora.'
+export const ETAPA_DO_CATALOGO_INEXISTENTE = 'Etapa do catálogo não encontrada.'
+
+/** O corpo do POST e do PATCH: `{ nome, acao, abas? }`. O nome sem as pontas; as abas na ordem da planilha, sem repetição (a ordem não é escolha de ninguém). */
+export function lerCorpoDaEtapaDoCatalogo(body: unknown): { ok: true; corpo: { nome: string; acao: AcaoDaEtapa; abas: AbaDaEtapa[] } } | { ok: false; erro: string } {
+    const b = body && typeof body === 'object' && !Array.isArray(body) ? (body as Record<string, unknown>) : null
+    if (!b) return { ok: false, erro: 'O corpo é um objeto com nome, acao e abas.' }
+    const fora = Object.keys(b).find((k) => !['nome', 'acao', 'abas'].includes(k))
+    if (fora) return { ok: false, erro: `O campo "${fora}" não existe (só nome, acao e abas).` }
+    if (typeof b.nome !== 'string') return { ok: false, erro: 'O nome da etapa é um texto.' }
+    const nome = b.nome.trim()
+    if (nome === '' || caracteres(nome) > LIMITE_DO_NOME_DA_ETAPA) return { ok: false, erro: fraseDoNomeDaEtapa(caracteres(nome)) }
+    if (!ehAcaoDaEtapa(b.acao)) return { ok: false, erro: fraseDaAcaoForaDaLista(b.acao) }
+    if (b.abas !== undefined && !Array.isArray(b.abas)) return { ok: false, erro: 'As abas vão numa lista.' }
+    const abas = (b.abas ?? []) as unknown[]
+    const estranha = abas.find((a) => typeof a !== 'string' || !(ABAS_DA_ETAPA as readonly string[]).includes(a))
+    if (estranha !== undefined) return { ok: false, erro: `"${String(estranha)}" não é uma aba da planilha.` }
+    if (new Set(abas).size !== abas.length) return { ok: false, erro: 'Uma aba aparece mais de uma vez.' }
+    return { ok: true, corpo: { nome, acao: b.acao, abas: abasEmOrdem(abas as string[]) } }
+}
+
+/** O item mudou? Compara o que a função grava: o nome sem as pontas (a caixa conta: mudar só a caixa é mudança), a ação e as abas na ordem da planilha. */
+export const etapaDoCatalogoMudou = (atual: Pick<EtapaDoCatalogo, 'nome' | 'acao' | 'abas'>, novo: { nome: string; acao: string; abas: readonly string[] }) =>
+    atual.nome !== novo.nome.trim() || atual.acao !== novo.acao || abasEmOrdem(atual.abas).join('|') !== abasEmOrdem(novo.abas).join('|')
+
+// ── AS ETAPAS DA CONTA NA TELA E NA ROTA ───────────────────────────────────────────────────────────────
+/**
+ * Uma etapa da conta como a leitura a devolve: o que é da CONTA (número, instrução, motor) e o que vem do ITEM DO CATÁLOGO que ela seleciona (o nome,
+ * em `rotulo`, a ação e as abas — de leitura: a conta não os edita).
+ */
 export interface EtapaDaFamilia {
     id: string
     numero: number
+    /** O item do catálogo que a etapa seleciona (20261031000002). */
+    etapa_catalogo_id: string
+    /** O NOME do item do catálogo (a conta não renomeia). */
     rotulo: string
     acao: AcaoDaEtapa
-    instrucao: string
     abas: AbaDaEtapa[]
+    instrucao: string
     /** O motor (planilha de `orcamentista_motor`) desta etapa; null = ainda não aponta nenhum (20261027000006). */
     motor_id: string | null
 }
 
-/** Uma etapa como a tela a manda: sem `numero` — a POSIÇÃO na lista é o número. Sem `id`, é etapa nova. */
+/** Uma etapa como a tela a manda: sem `numero` — a POSIÇÃO na lista é o número. Sem `id`, é etapa nova. O nome, a ação e as abas vêm do catálogo. */
 export interface EtapaNoCorpo {
     id?: string
-    rotulo: string
-    acao: AcaoDaEtapa
+    etapa_catalogo_id: string
     instrucao: string
-    abas: AbaDaEtapa[]
     /** `undefined` = não mexe (a função mantém o motor que a etapa já tem); `null` = limpa; uuid = aponta. */
     motor_id?: string | null
 }
 
 /**
- * GET `?tenant=&materia_prima=` → `{ familia, etapas, motores }`; PUT `?tenant=` com `{ materia_prima, etapas }`. A empresa e a família-instância
- * vão no pedido: a etapa é de UMA matéria-prima de UMA empresa.
+ * GET `?tenant=&materia_prima=` → `{ familia, etapas, motores, catalogo }`; PUT `?tenant=` com `{ materia_prima, etapas }`. A empresa e a
+ * família-instância vão no pedido: a etapa é de UMA matéria-prima de UMA empresa.
  */
 export const rotaDasEtapas = (tenantId: string, materiaPrimaId?: string) =>
     `/api/super-admin/base-de-conhecimento/etapas?tenant=${encodeURIComponent(tenantId)}${materiaPrimaId === undefined ? '' : `&materia_prima=${encodeURIComponent(materiaPrimaId)}`}`
 
-export const fraseDaAcaoForaDaLista = (n: number, acao: unknown) =>
-    `Etapa ${n}: a ação ${typeof acao === 'string' && acao !== '' ? `"${acao}"` : 'em branco'} não é uma das ações do sistema (${ACOES_DA_ETAPA.join(', ')}). O rótulo é livre; a ação não é.`
-export const fraseDoRotuloDaEtapa = (n: number, tamanho: number) =>
-    tamanho === 0 ? `Etapa ${n}: o rótulo está em branco.` : `Etapa ${n}: o rótulo tem ${tamanho} caracteres; o limite é ${LIMITE_DO_ROTULO_DA_ETAPA}.`
+export const fraseDaEtapaSemItemDoCatalogo = (n: number) => `Etapa ${n}: escolha a etapa do catálogo.`
 export const fraseDaInstrucaoDaEtapa = (n: number, tamanho: number) =>
     `Etapa ${n}: a instrução tem ${tamanho.toLocaleString('pt-BR')} caracteres; o limite é ${LIMITE_DA_INSTRUCAO_DA_ETAPA.toLocaleString('pt-BR')}. Encurte antes de salvar.`
+const CAMPOS_DA_ETAPA_NO_CORPO = ['id', 'etapa_catalogo_id', 'instrucao', 'motor_id']
 
 /**
- * O corpo do PUT: `{ etapas: [{ id?, rotulo, acao, instrucao?, abas? }] }`, a LISTA INTEIRA da família na
- * ordem desejada. Confere o que a função e o banco conferem — a primeira falha para, com o número da etapa —,
- * e devolve a lista já limpa (rótulo e instrução sem os espaços das pontas). A lista de ações e a de abas são as
- * constantes deste arquivo, que o portão de paridade amarra às CHECK da migração.
+ * O corpo do PUT: `{ etapas: [{ id?, etapa_catalogo_id, instrucao?, motor_id? }] }`, a LISTA INTEIRA da família na ordem desejada. Confere o que a
+ * função confere — a primeira falha para, com o número da etapa —, e devolve a lista já limpa (a instrução sem os espaços das pontas). O nome, a
+ * ação e as abas NÃO vão: são do item do catálogo, e mandá-los é recusa (a conta seleciona, não renomeia).
  */
 export function lerCorpoDasEtapas(body: unknown): { ok: true; etapas: EtapaNoCorpo[] } | { ok: false; erro: string } {
     const b = body && typeof body === 'object' && !Array.isArray(body) ? (body as Record<string, unknown>) : null
@@ -137,20 +198,12 @@ export function lerCorpoDasEtapas(body: unknown): { ok: true; etapas: EtapaNoCor
         const n = i + 1
         const e = b.etapas[i] && typeof b.etapas[i] === 'object' && !Array.isArray(b.etapas[i]) ? (b.etapas[i] as Record<string, unknown>) : null
         if (!e) return { ok: false, erro: `Etapa ${n}: não é um objeto.` }
-        const fora = Object.keys(e).find((k) => !['id', 'rotulo', 'acao', 'instrucao', 'abas', 'motor_id'].includes(k))
-        if (fora) return { ok: false, erro: `Etapa ${n}: o campo "${fora}" não existe (só id, rotulo, acao, instrucao, abas e motor_id). O número é a posição na lista.` }
-        if (typeof e.rotulo !== 'string') return { ok: false, erro: `Etapa ${n}: o rótulo é um texto.` }
-        const rotulo = e.rotulo.trim()
-        if (rotulo === '' || caracteres(rotulo) > LIMITE_DO_ROTULO_DA_ETAPA) return { ok: false, erro: fraseDoRotuloDaEtapa(n, caracteres(rotulo)) }
-        if (!ehAcaoDaEtapa(e.acao)) return { ok: false, erro: fraseDaAcaoForaDaLista(n, e.acao) }
+        const fora = Object.keys(e).find((k) => !CAMPOS_DA_ETAPA_NO_CORPO.includes(k))
+        if (fora) return { ok: false, erro: `Etapa ${n}: o campo "${fora}" não existe (só id, etapa_catalogo_id, instrucao e motor_id). O nome, a ação e as abas vêm do catálogo; o número é a posição na lista.` }
+        if (!ehUuid(e.etapa_catalogo_id)) return { ok: false, erro: fraseDaEtapaSemItemDoCatalogo(n) }
         if (e.instrucao !== undefined && typeof e.instrucao !== 'string') return { ok: false, erro: `Etapa ${n}: a instrução é um texto.` }
         const instrucao = (e.instrucao ?? '').toString().trim()
         if (caracteres(instrucao) > LIMITE_DA_INSTRUCAO_DA_ETAPA) return { ok: false, erro: fraseDaInstrucaoDaEtapa(n, caracteres(instrucao)) }
-        if (e.abas !== undefined && !Array.isArray(e.abas)) return { ok: false, erro: `Etapa ${n}: as abas vão numa lista.` }
-        const abas = (e.abas ?? []) as unknown[]
-        const estranha = abas.find((a) => typeof a !== 'string' || !(ABAS_DA_ETAPA as readonly string[]).includes(a))
-        if (estranha !== undefined) return { ok: false, erro: `Etapa ${n}: "${String(estranha)}" não é uma aba da planilha.` }
-        if (new Set(abas).size !== abas.length) return { ok: false, erro: `Etapa ${n}: uma aba aparece mais de uma vez.` }
         if (e.id !== undefined && e.id !== null) {
             if (!ehUuid(e.id)) return { ok: false, erro: `Etapa ${n}: o id não é um uuid.` }
             if (ids.has(e.id)) return { ok: false, erro: `Etapa ${n}: o id aparece mais de uma vez na lista.` }
@@ -158,7 +211,7 @@ export function lerCorpoDasEtapas(body: unknown): { ok: true; etapas: EtapaNoCor
         }
         if (e.motor_id !== undefined && e.motor_id !== null && !ehUuid(e.motor_id)) return { ok: false, erro: `Etapa ${n}: o motor_id não é um uuid (ou null, para limpar).` }
         etapas.push({
-            ...(typeof e.id === 'string' ? { id: e.id } : {}), rotulo, acao: e.acao, instrucao, abas: abas as AbaDaEtapa[],
+            ...(typeof e.id === 'string' ? { id: e.id } : {}), etapa_catalogo_id: e.etapa_catalogo_id, instrucao,
             ...(e.motor_id !== undefined ? { motor_id: e.motor_id as string | null } : {}),
         })
     }
@@ -166,14 +219,12 @@ export function lerCorpoDasEtapas(body: unknown): { ok: true; etapas: EtapaNoCor
 }
 
 // ── O RASCUNHO DA TELA ───────────────────────────────────────────────────────────────────────────────────
-/** A etapa como está sendo editada na tela. `acao` é null na etapa nova até alguém escolher: nenhuma vem por omissão. */
+/** A etapa como está sendo editada na tela. `etapa_catalogo_id` é null na etapa nova até alguém escolher: nenhuma vem por omissão. */
 export interface EtapaNoRascunho {
     local: string
     id: string | null
-    rotulo: string
-    acao: AcaoDaEtapa | null
+    etapa_catalogo_id: string | null
     instrucao: string
-    abas: AbaDaEtapa[]
     /** O motor escolhido na tela; null = nenhum. */
     motor_id: string | null
     /** O motor que a etapa tinha quando foi lida: o corpo só leva `motor_id` se ele MUDOU (salvar outra coisa não mexe no motor). */
@@ -181,7 +232,7 @@ export interface EtapaNoRascunho {
 }
 
 let proximoLocal = 0
-export const novaEtapaNoRascunho = (): EtapaNoRascunho => ({ local: `nova-${++proximoLocal}`, id: null, rotulo: '', acao: null, instrucao: '', abas: [], motor_id: null, motor_gravado: null })
+export const novaEtapaNoRascunho = (): EtapaNoRascunho => ({ local: `nova-${++proximoLocal}`, id: null, etapa_catalogo_id: null, instrucao: '', motor_id: null, motor_gravado: null })
 
 /** Uma etapa NOVA, inserida logo abaixo da posição dada (a posição é o número: as de baixo descem). */
 export function inserirEtapaAbaixo(rascunho: readonly EtapaNoRascunho[], posicao: number): EtapaNoRascunho[] {
@@ -191,27 +242,26 @@ export function inserirEtapaAbaixo(rascunho: readonly EtapaNoRascunho[], posicao
 }
 
 export const rascunhoDasEtapas = (etapas: EtapaDaFamilia[]): EtapaNoRascunho[] =>
-    etapas.map((e) => ({ local: e.id, id: e.id, rotulo: e.rotulo, acao: e.acao, instrucao: e.instrucao, abas: [...e.abas], motor_id: e.motor_id ?? null, motor_gravado: e.motor_id ?? null }))
+    etapas.map((e) => ({ local: e.id, id: e.id, etapa_catalogo_id: e.etapa_catalogo_id, instrucao: e.instrucao, motor_id: e.motor_id ?? null, motor_gravado: e.motor_id ?? null }))
 
 /** As abas na ordem da planilha, sem repetição: a tela marca e desmarca, a ordem não é escolha de ninguém. */
 export const abasEmOrdem = (marcadas: readonly string[]): AbaDaEtapa[] => ABAS_DA_ETAPA.filter((a) => marcadas.includes(a))
 
-/** O corpo do PUT: a lista inteira, na ordem da tela. A ação em branco vai como está, e `lerCorpoDasEtapas` a recusa nomeando a etapa. */
+/** O corpo do PUT: a lista inteira, na ordem da tela. A etapa sem item do catálogo vai como está, e `lerCorpoDasEtapas` a recusa nomeando a etapa. */
 export const corpoDoRascunho = (rascunho: readonly EtapaNoRascunho[]) => ({
     etapas: rascunho.map((e) => ({
-        ...(e.id ? { id: e.id } : {}), rotulo: e.rotulo, acao: e.acao, instrucao: e.instrucao, abas: e.abas,
-        // só vai quando mudou: salvar o rótulo não pode tocar no motor (e funciona com a função de antes da 20261027000008)
+        ...(e.id ? { id: e.id } : {}), etapa_catalogo_id: e.etapa_catalogo_id, instrucao: e.instrucao,
+        // só vai quando mudou: salvar a instrução não pode tocar no motor
         ...(e.motor_id !== e.motor_gravado ? { motor_id: e.motor_id } : {}),
     })),
 })
 
-/** A etapa mudou contra o gravado? Compara o que a rota grava: rótulo e instrução sem as pontas, as abas sem ordem. */
+/** A etapa mudou contra o gravado? Compara o que a rota grava: o item do catálogo, a instrução sem as pontas e o motor. */
 export function etapasMudaram(rascunho: readonly EtapaNoRascunho[], gravadas: readonly EtapaDaFamilia[]): boolean {
     if (rascunho.length !== gravadas.length) return true
     return rascunho.some((e, i) => {
         const g = gravadas[i]
-        return e.id !== g.id || e.rotulo.trim() !== g.rotulo || e.acao !== g.acao || e.instrucao.trim() !== g.instrucao || (e.motor_id ?? null) !== (g.motor_id ?? null)
-            || [...e.abas].sort().join('|') !== [...g.abas].sort().join('|')
+        return e.id !== g.id || e.etapa_catalogo_id !== g.etapa_catalogo_id || e.instrucao.trim() !== g.instrucao || (e.motor_id ?? null) !== (g.motor_id ?? null)
     })
 }
 
@@ -281,7 +331,7 @@ export function fraseDaExclusaoDaEtapa(e: { numero: number; rotulo: string; inst
     return {
         titulo: `Excluir a etapa ${e.numero} ("${e.rotulo}")?`,
         perde: [
-            `o rótulo "${e.rotulo}"`,
+            `a etapa "${e.rotulo}" do catálogo nesta família (o item continua no catálogo)`,
             instrucaoNaConfirmacao(e.instrucao),
             e.motor === null ? 'sem motor' : `o motor ${e.motor}`,
         ],
