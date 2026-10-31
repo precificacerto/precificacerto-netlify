@@ -187,7 +187,7 @@ describe('(6) a migração das gravações da tela da família', () => {
         expect(sqlA()).toContain('CONSTRAINT orcamentista_motor_arquivado_nao_e_vigente   CHECK (NOT (vigente AND arquivado_em IS NOT NULL))')
     })
 
-    it('a função das etapas NÃO remove etapa: recusa a que não veio na lista, nomeando-a', () => {
+    it('HISTÓRICO: a 20261027000003 recusava remover etapa (a que não veio na lista) — a 20261031000001 tirou a recusa; ver a seção (7)', () => {
         expect(sqlB()).toMatch(/remover etapa nao e permitido por aqui/)
     })
 
@@ -218,20 +218,36 @@ describe('(6) a migração das gravações da tela da família', () => {
     })
 })
 
-// ── A família-instância (20261028000001): a função que o código chama AGORA — redefinida pela 20261029000003 (o motor serve N famílias),
-// que é a última a escrever `superadmin_gravar_etapas_da_materia_prima` e `superadmin_criar_motor`: é ela que o portão lê ─────────────────
-const ARQUIVO_H = path.join(__dirname, '..', '..', '..', 'supabase', 'migrations', '20261029000003_motor_para_n_familias.sql')
-const executavelH = () => fs.readFileSync(ARQUIVO_H, 'utf8').split('\n').filter((l) => !l.trimStart().startsWith('--')).join('\n')
+// ── A função que o código chama AGORA: a da ÚLTIMA migração que a escreve (em ordem de nome). Antes este portão fixava a 20261029000003, e a
+// 20261029000005 (criar motor) e a 20261031000001 (gravar etapas) a redefiniram sem ele ver — `copia-divergente.md`. Agora quem decide é a pasta ──
+const PASTA = path.join(__dirname, '..', '..', '..', 'supabase', 'migrations')
+const executavel = (arquivo: string) => fs.readFileSync(path.join(PASTA, arquivo), 'utf8').split('\n').filter((l) => !l.trimStart().startsWith('--')).join('\n')
+/** O arquivo da última migração que cria a função; vazio se nenhuma. */
+const ultimaQueDefine = (nome: string) =>
+    fs.readdirSync(PASTA).filter((a) => /^\d{14}_.*\.sql$/.test(a)).sort()
+        .filter((a) => executavel(a).includes(`CREATE OR REPLACE FUNCTION public.${nome}(`)).pop() ?? ''
 const funcaoH = (nome: string) => {
-    const sql = executavelH()
+    const arquivo = ultimaQueDefine(nome)
+    if (arquivo === '') return ''
+    const sql = executavel(arquivo)
     const i = sql.indexOf(`CREATE OR REPLACE FUNCTION public.${nome}(`)
-    return i < 0 ? '' : sql.slice(i, sql.indexOf('$fn$;', i))
+    return sql.slice(i, sql.indexOf('$fn$;', i))
 }
 
-describe('(7) a função das etapas da família-instância (20261028000001, redefinida pela 20261029000003)', () => {
-    it('o instrumento: a função existe no arquivo (sem ela os casos abaixo passariam lendo o vazio)', () => {
+describe('(7) a função das etapas da família-instância, como a ÚLTIMA migração a escreve', () => {
+    it('o instrumento: a função existe no arquivo (sem ela os casos abaixo passariam lendo o vazio), e é a da última migração', () => {
         expect(funcaoH('superadmin_gravar_etapas_da_materia_prima')).toContain('p_materia_prima')
         expect(funcaoH('nao_existe')).toBe('')
+        expect(ultimaQueDefine('superadmin_gravar_etapas_da_materia_prima')).toBe('20261031000001_excluir_etapa_na_conta.sql')
+        expect(ultimaQueDefine('superadmin_criar_motor')).toBe('20261029000005_nome_do_motor_e_arquivar_em_uso.sql')
+    })
+
+    it('EXCLUIR ETAPA (30/10/2026): a que não veio na lista sai, com log por etapa e a empresa; a recusa antiga não existe mais', () => {
+        const f = funcaoH('superadmin_gravar_etapas_da_materia_prima')
+        expect(f).not.toContain('remover etapa nao e permitido')
+        expect(f).toContain('DELETE FROM public.orcamentista_familia_etapa WHERE id = v_rem.id;')
+        expect(f).toMatch(/VALUES \(p_tenant, 'orcamentista_familia_etapa', v_rem\.id::text,/)
+        expect(f).toContain("'etapas_removidas', v_removidas")
     })
 
     it('COPIA-DIVERGENTE: a função NÃO repete a lista de ações nem a de abas — quem decide é a CHECK da tabela', () => {
