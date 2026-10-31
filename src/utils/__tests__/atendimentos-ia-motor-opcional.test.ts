@@ -92,7 +92,11 @@ beforeEach(() => {
 const MIGRACAO_DE_MANHA = fs.readFileSync(path.join(__dirname, '..', '..', '..', 'supabase', 'migrations', '20261027000007_motor_so_para_perfil.sql'), 'utf8')
 const MIGRACAO = fs.readFileSync(path.join(__dirname, '..', '..', '..', 'supabase', 'migrations', '20261027000009_tira_perfil_exige_motor.sql'), 'utf8')
 const executavelDe = (sql: string) => sql.split('\n').filter((l) => !l.trimStart().startsWith('--')).join('\n')
-const DA_ETAPA = fs.readFileSync(path.join(__dirname, '..', '..', '..', 'supabase', 'migrations', '20261027000008_etapa_aponta_o_motor.sql'), 'utf8')
+// a gravação das etapas como a ÚLTIMA migração que a escreve (era a 20261027000008; a 20261031000002 trocou o rótulo, a ação e as abas pelo item do catálogo)
+const PASTA = path.join(__dirname, '..', '..', '..', 'supabase', 'migrations')
+const ULTIMA_DA_ETAPA = fs.readdirSync(PASTA).filter((a) => /^\d{14}_.*\.sql$/.test(a)).sort()
+    .filter((a) => fs.readFileSync(path.join(PASTA, a), 'utf8').includes('CREATE OR REPLACE FUNCTION public.superadmin_gravar_etapas_da_materia_prima(')).pop() ?? ''
+const DA_ETAPA = fs.readFileSync(path.join(PASTA, ULTIMA_DA_ETAPA), 'utf8')
 
 const CORPO = { fornecedor_id: F, arquivo_path: `${F}/arquivo/a-t.xlsx`, arquivo_nome: 't.xlsx', motor_path: `${F}/motor/a-m.xlsx`, motor_nome: 'm.xlsx', vigencia: null as string | null, familia: 'PVC', categoria_chave: 'PERFIL' }
 const semMotor = (extra: object = {}) => ({ ...CORPO, motor_path: undefined as string | undefined, motor_nome: undefined as string | undefined, ...extra })
@@ -134,23 +138,25 @@ describe('(1) a paridade com a migração 20261027000009', () => {
     })
 })
 
-describe('(1b) a paridade com a migração 20261027000008 — o que a etapa aceita é o que a função aceita', () => {
+describe('(1b) a paridade com a gravação das etapas — o que a etapa aceita é o que a função aceita', () => {
     it('a lista de campos permitidos da função é a do leitor do corpo', () => {
+        expect(ULTIMA_DA_ETAPA).toBe('20261031000002_etapa_no_catalogo.sql')
         const m = DA_ETAPA.match(/v_permitidas text\[\] := ARRAY\[([^\]]+)\]/)
         expect(m).not.toBeNull()
         const daFuncao = m![1].split(',').map((s) => s.trim().replace(/^'|'$/g, ''))
         const mensagem = daFuncao.slice(0, -1).join(', ') + ' e ' + daFuncao[daFuncao.length - 1]
-        expect(daFuncao).toEqual(['id', 'rotulo', 'acao', 'instrucao', 'abas', 'motor_id'])
-        expect(DA_ETAPA).toContain(`(so ${mensagem})`)
+        expect(daFuncao).toEqual(['id', 'etapa_catalogo_id', 'instrucao', 'motor_id'])
+        expect(DA_ETAPA).toContain(`(so ${mensagem};`)
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { lerCorpoDasEtapas } = require('@/utils/atendimentos-ia-etapas') as typeof import('@/utils/atendimentos-ia-etapas')
-        const valido: Record<string, unknown> = { id: null, rotulo: 'x', acao: 'APANHAR', instrucao: 'x', abas: [], motor_id: null }
+        const C = '00000000-0000-4000-8000-0000000000c1'
+        const valido: Record<string, unknown> = { id: null, etapa_catalogo_id: C, instrucao: 'x', motor_id: null }
         for (const campo of daFuncao) {
             // cada campo da função, sozinho, passa no leitor: nenhum é "desconhecido" para a rota
-            const r = lerCorpoDasEtapas({ etapas: [{ rotulo: 'x', acao: 'APANHAR', [campo]: valido[campo] }] })
+            const r = lerCorpoDasEtapas({ etapas: [{ etapa_catalogo_id: C, [campo]: valido[campo] }] })
             expect(r.ok).toBe(true)
         }
-        expect(lerCorpoDasEtapas({ etapas: [{ rotulo: 'x', acao: 'APANHAR', numero: 1 }] }).ok).toBe(false)
+        for (const fora of ['numero', 'rotulo', 'acao', 'abas']) expect(lerCorpoDasEtapas({ etapas: [{ etapa_catalogo_id: C, [fora]: 1 }] }).ok).toBe(false)
     })
 })
 

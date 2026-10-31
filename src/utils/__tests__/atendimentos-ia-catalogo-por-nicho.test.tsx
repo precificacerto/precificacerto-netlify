@@ -4,7 +4,8 @@
  *
  * O que este portão fica vermelho:
  *   (1) o Catálogo: cada nicho é um LINK para a página dele, com a contagem de fornecedores; excluir é botão à parte;
- *   (2) a página do nicho: as três abas, nesta ordem; a aba vem da URL (`?aba=`), e o que não é aba vira a primeira;
+ *   (2) a página do nicho: as quatro abas, nesta ordem (Etapas, a quarta, ao lado de Motores — 31/10/2026); a aba vem da URL (`?aba=`), e o que
+ *       não é aba vira a primeira;
  *   (3) o que é do nicho: só os fornecedores dele; só os motores desses fornecedores; o credenciamento já vem com este nicho;
  *   (4) a família é GLOBAL e a aba diz isso;
  *   (5) nicho que não existe é "Nicho não encontrado.", nunca a página vazia; falha de leitura é ERRO;
@@ -125,11 +126,11 @@ describe('(1) o Catálogo: os nichos, cada um uma porta', () => {
     })
 })
 
-describe('(2) a página do nicho: três abas, nesta ordem, e a aba vem da URL', () => {
-    it('FAMÍLIAS → FORNECEDORES → MOTORES; sem `aba`, a primeira', async () => {
+describe('(2) a página do nicho: quatro abas, nesta ordem, e a aba vem da URL', () => {
+    it('FAMÍLIAS → FORNECEDORES → MOTORES → ETAPAS; sem `aba`, a primeira', async () => {
         mockRoteador.query = { nichoId: ESQ }
         const host = await montar(PaginaDoNicho())
-        expect(abas(host)).toEqual(['Famílias', 'Fornecedores', 'Motores'])
+        expect(abas(host)).toEqual(['Famílias', 'Fornecedores', 'Motores', 'Etapas'])
         expect(abaAtiva(host)).toBe('Famílias')
         expect(host.querySelector('[data-titulo]')!.getAttribute('data-titulo')).toBe('Esquadrias')
     })
@@ -143,6 +144,11 @@ describe('(2) a página do nicho: três abas, nesta ordem, e a aba vem da URL', 
         host = await montar(PaginaDoNicho())
         expect(abaAtiva(host)).toBe('Famílias')
         expect([C().abaDoNicho('fornecedores'), C().abaDoNicho(undefined), C().abaDoNicho(['motores'])]).toEqual(['fornecedores', 'familias', 'familias'])
+        while (montadas.length) { const m = montadas.pop()!; act(() => { m.root.unmount() }); m.host.remove() }
+        mockRoteador.query = { nichoId: ESQ, aba: 'etapas' }
+        host = await montar(PaginaDoNicho())
+        expect(abaAtiva(host)).toBe('Etapas')
+        expect(host.querySelector('[data-aba-etapas] [data-catalogo-de-etapas], [data-aba-etapas] [data-erro-do-catalogo-de-etapas]')).toBeTruthy()
     })
 
     it('trocar de aba troca a URL (sem recarregar a página)', async () => {
