@@ -504,3 +504,22 @@ Formulação do dono do produto, registrada como está:
   redefinido `superadmin_criar_motor` sem ele ver — `copia-divergente.md`).
 - **Prova:** `scripts/harness/excluir-etapa-na-conta/` — a cadeia real até a `20261029000005` e o estado das 3 etapas medido em 31/10/2026, os casos,
   duas corridas (remover × salvar a lista inteira; renomear × remover), duas guardas e as mutações nas duas passadas.
+
+## Saem da tela os campos do Perfil que o motor já traz — dono do produto, 30/10/2026 (sem migração)
+
+Formulação do dono do produto, registrada como está:
+
+> "Eu quero remover também essas indicações aqui de maior usabilidade. [...] a gente já vai estar tendo as informações da tipologia. Tipologia que vai
+> trazer todas as relações que nós precisamos. Então, e também vai existir o contexto de conversa." [...] NÃO apague coluna nenhuma nesta rodada.
+
+- **Os campos não são colunas de `orcamentista_esquadrias_base`** (medido em 31/10/2026): são linhas de `orcamentista_categoria_campo` (categoria PERFIL),
+  e o valor mora em `orcamentista_mp_categoria.config`. `esquadrias_base`/`_padrao` já tinham saído da tela em 23/10/2026.
+- **Saíram da tela e da gravação** (`CAMPOS_FORA_DA_TELA`, `src/lib/atendimentos-ia/base-de-conhecimento.ts`): Linha, Cor predominante, Barra (mm),
+  Solda e Custo das barras. A tela não os mostra (`camposDa`), e as rotas `/categoria` e `/arvore` os recusam com frase, antes da função. A definição no
+  catálogo de campos e o valor gravado FICAM (a gravação faz merge); apagar é migração à parte.
+- **NÃO saíram, e estão com o dono do produto: Cores que trabalha e Serra (mm).** O cálculo da conversa os lê do `config` (`lerCoresDaEmpresa` valida a cor
+  do perfil e lê o motor por ela; `lerSerra` alimenta o agrupador de barras). A premissa "os campos da tela são cópia manual do motor" vale para o VALOR,
+  não para quem lê: tirar os dois da tela deixaria o cálculo dependendo de um valor que ninguém mais edita. E a `cor` do motor não é lista de cores
+  (`a-coluna-que-parece-enumeracao.md`: 16 valores que não são cor), então "as cores vêm do motor" pede uma decisão de como filtrar.
+- **Dívida:** o combobox de Linha (as linhas da tabela em uso, os avisos de "sem fórmula" e "fora da tabela", e as consultas de `linhas_por_fornecedor` no
+  GET da árvore) ficou sem campo que o use. Sai junto com a migração que apagar a definição de Linha.

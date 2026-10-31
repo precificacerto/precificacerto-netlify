@@ -16,11 +16,13 @@
  *         sessão; `por` no corpo é erro. Os erros vêm com a mensagem dela, que traz o CAMINHO
  *         (matéria-prima e categoria), nos quatro códigos (42501, P0002, 22023, 23503).
  *
+ *         Os campos que saíram da tela e da gravação (`CAMPOS_FORA_DA_TELA`, 30/10/2026) são recusa nomeada AQUI, com o caminho, antes da função.
+ *
  * O portão está em `src/lib/atendimentos-ia/base-de-conhecimento-servidor.ts`.
  */
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { superAdminOu404 } from '@/lib/get-caller-tenant'
-import { lerEnvelope } from '@/lib/atendimentos-ia/base-de-conhecimento'
+import { errosDosCamposForaDaTelaNaArvore, lerEnvelope } from '@/lib/atendimentos-ia/base-de-conhecimento'
 import {
     empresaDoPedido, falhaDeLeitura, gravarPelaFuncaoComAMensagemDela, lerArvoreDaEmpresa, metodoNaoPermitido, recusaNomeada,
 } from '@/lib/atendimentos-ia/base-de-conhecimento-servidor'
@@ -38,6 +40,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
         const corpo = lerEnvelope(req.body, 'arvore')
         if (corpo.erros.length > 0) return recusaNomeada(res, corpo.erros)
+        const fora = errosDosCamposForaDaTelaNaArvore(corpo.valor)
+        if (fora.length > 0) return recusaNomeada(res, fora)
         return gravarPelaFuncaoComAMensagemDela(res, 'superadmin_gravar_arvore', { p_tenant: tenantId, p_por: caller.user_id, p_arvore: corpo.valor })
     } catch (e) {
         return falhaDeLeitura(res, e)
