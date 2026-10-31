@@ -333,3 +333,35 @@ export function lerCorpoDaFamiliaDaMateriaPrima(corpo: unknown): { materia_prima
     else if (b.familia !== null && (typeof b.familia !== 'string' || b.familia.trim() === '')) erros.push({ campo: 'familia', mensagem: 'a família é um texto da lista, ou null para limpar' })
     return { materia_prima: typeof b.materia_prima === 'string' ? b.materia_prima : '', familia: typeof b.familia === 'string' ? b.familia.trim() : null, erros }
 }
+
+// ── OS CAMPOS DA CATEGORIA QUE SAÍRAM DA TELA E DA GRAVAÇÃO (dono do produto, 30/10/2026) ─────────────────────
+/**
+ * "Eu quero remover também essas indicações aqui de maior usabilidade. [...] a gente já vai estar tendo as informações da tipologia." Saem da tela e
+ * da gravação; a LINHA de `orcamentista_categoria_campo` e o valor gravado em `orcamentista_mp_categoria.config` FICAM (a gravação faz merge: chave
+ * ausente não é tocada). Apagar a definição ou o valor é migração à parte, depois da decisão do dono do produto.
+ *
+ * Medido em 31/10/2026, antes de tirar: nenhum código fora da base de conhecimento lê estas cinco chaves (a barra vem da tabela de preço, `medida_barra_m`).
+ * `cores` e `serra_mm`, do mesmo bloco, NÃO estão aqui: o cálculo da conversa as lê do `config` (`lerCoresDaEmpresa`, `lerSerra` em
+ * `levantamento-da-conversa.ts`), e tirá-las da tela deixaria o cálculo dependendo de um valor que ninguém mais consegue editar — a decisão de
+ * onde elas passam a vir está com o dono do produto.
+ */
+export const CAMPOS_FORA_DA_TELA: Readonly<Record<string, readonly string[]>> = {
+    PERFIL: ['linha', 'cor_predominante', 'barra_mm', 'solda', 'criterio_custo_barra'],
+}
+export const campoForaDaTela = (categoria: string, chave: string) => (CAMPOS_FORA_DA_TELA[categoria] ?? []).includes(chave)
+export const fraseDoCampoForaDaTela = (chave: string) =>
+    `o campo "${chave}" saiu da base de conhecimento: o motor da família já traz essa informação. O valor gravado fica, sem tela.`
+
+/** As chaves do `config` que saíram da tela e da gravação: erro nomeado para cada uma (a rota recusa antes da função). */
+export function errosDosCamposForaDaTela(categoria: string, config: unknown): ErroNomeado[] {
+    if (!ehObjeto(config)) return []
+    return Object.keys(config).filter((k) => campoForaDaTela(categoria, k)).map((k) => ({ campo: `config.${k}`, mensagem: fraseDoCampoForaDaTela(k) }))
+}
+
+/** O mesmo, na árvore do PUT /arvore: cada categoria de cada matéria-prima, com o caminho do campo (a árvore vai à função como veio). */
+export function errosDosCamposForaDaTelaNaArvore(arvore: unknown): ErroNomeado[] {
+    if (!ehObjeto(arvore) || !Array.isArray(arvore.materias_primas)) return []
+    return arvore.materias_primas.flatMap((mp, i) => (!ehObjeto(mp) || !Array.isArray(mp.categorias) ? [] : mp.categorias.flatMap((c, j) =>
+        (!ehObjeto(c) || typeof c.categoria_chave !== 'string' ? [] : errosDosCamposForaDaTela(c.categoria_chave, c.config)
+            .map((e) => ({ ...e, campo: `arvore.materias_primas[${i}].categorias[${j}].${e.campo}` }))))))
+}

@@ -17,10 +17,8 @@
  *   (7) a mensagem da função chega INTEIRA, no cartão da categoria que ela nomeia;
  *   (8) remover e gravar a mesma matéria-prima no mesmo salvar é barrado NA TELA;
  *   (9) depois do salvar, a tela se redesenha pelo `depois` que a rota devolveu;
- *  (10) PERFIL.linha é COMBOBOX: oferece as linhas da tabela em uso do fornecedor PRINCIPAL (fórmula
- *       ∪ regra), aceita outra, e tem TRÊS estados com avisos DIFERENTES — com fórmula de família (sem
- *       aviso), só com regra (DESIGN: a tabela não dimensiona) e fora das duas (digitada); sem
- *       principal ou sem tabela, diz isso;
+ *  (10) Linha, Cor predominante, Barra, Solda e Custo das barras SAÍRAM da tela e da gravação (30/10/2026): não aparecem
+ *       na gravada nem na nova, e salvar outra mudança não os manda (o valor gravado fica); Cores e Serra ficam;
  *  (11) as colunas `par_inox_referencia` (ferragem) e `referencia` (vidro): ausente, null e
  *       preenchido distinguíveis, e o round-trip pelo `depois`.
  *
@@ -32,6 +30,7 @@ import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 
 import { ROTAS_DO_CATALOGO, type ContaLigada } from '@/utils/atendimentos-ia-catalogo'
+import { CAMPOS_FORA_DA_TELA as FORA_DA_TELA } from '@/lib/atendimentos-ia/base-de-conhecimento'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 Object.defineProperty(window, 'matchMedia', {
@@ -87,6 +86,8 @@ const catalogo = () => ({
         { categoria_chave: 'PERFIL', chave: 'cor_predominante', tipo: 'texto', rotulo: 'Cor predominante', ordem: 2 },
         { categoria_chave: 'PERFIL', chave: 'serra_mm', tipo: 'inteiro', rotulo: 'Serra (mm)', ordem: 5 },
         { categoria_chave: 'PERFIL', chave: 'barra_mm', tipo: 'inteiro', rotulo: 'Barra (mm)', ordem: 4 },
+        // um campo de TEXTO do Perfil só do teste: Linha, Cor predominante e Solda saíram da tela (30/10/2026), e os casos de texto precisam de um
+        { categoria_chave: 'PERFIL', chave: 'observacao', tipo: 'texto', rotulo: 'Observação (campo do teste)', ordem: 8 },
         { categoria_chave: 'REFORCO', chave: 'material', tipo: 'texto', rotulo: 'Material', ordem: 2 },
         { categoria_chave: 'REFORCO', chave: 'usa', tipo: 'booleano', rotulo: 'Usa reforço', ordem: 1 },
         { categoria_chave: 'REFORCO', chave: 'par_inox_referencia', tipo: 'texto', rotulo: 'Referência do par em inox', ordem: 3 },
@@ -116,7 +117,7 @@ function arvoreGravada(): Linha {
             id: PVC, tenant_id: CONTA, nome: 'PVC', ordem: 1, atualizado_por: null, atualizado_em: null,
             categorias: [
                 categoria('PERFIL', {
-                    config: { linha: 'Suprema', cor_predominante: null, cores: ['Branco'], barra_mm: 6000 },
+                    config: { linha: 'Suprema', cor_predominante: null, cores: ['Branco'], barra_mm: 6000, serra_mm: 5, observacao: 'nota gravada' },
                     fornecedores: [
                         { id: 'r1', tenant_id: CONTA, mp_categoria_id: 'cat-pvc-PERFIL', fornecedor_id: F_WOLFF, principal: true, ordem: 1, nome_do_fornecedor: 'Wolff' },
                         { id: 'r2', tenant_id: CONTA, mp_categoria_id: 'cat-pvc-PERFIL', fornecedor_id: F_FORA, principal: false, ordem: 2, nome_do_fornecedor: 'Madeireira' },
@@ -306,7 +307,8 @@ describe('(2) matéria-prima NOVA: as categorias do catálogo, os campos dele, e
         const host = await montar()
         await clicar(botao(cartao(host), A().ADICIONAR_MATERIA_PRIMA))
         for (const chave of ['PERFIL', 'REFORCO', 'ACESSORIOS_VEDACAO']) {
-            const doCatalogo = catalogo().campos.filter((c) => c.categoria_chave === chave).sort((a, b) => a.ordem - b.ordem)
+            // menos os que saíram da tela (30/10/2026): a definição continua no catálogo, a tela não a mostra
+            const doCatalogo = catalogo().campos.filter((c) => c.categoria_chave === chave && !(FORA_DA_TELA[chave] ?? []).includes(c.chave)).sort((a, b) => a.ordem - b.ordem)
             const naTela = Array.from(cat(host, 1, chave).querySelectorAll('[data-campo]'))
             expect(naTela.map((c) => c.getAttribute('data-campo'))).toEqual(doCatalogo.map((c) => `${chave}.${c.chave}`))
             expect(naTela.map((c) => c.querySelector('[data-rotulo-do-campo]')!.textContent)).toEqual(doCatalogo.map((c) => c.rotulo))
@@ -356,7 +358,7 @@ describe('(3) a árvore do PUT: só o que mudou — null limpa, false é "não",
 
     it('limpar um texto gravado manda null; "não informado" manda null; "não" manda false; o não tocado fica AUSENTE', async () => {
         const host = await montar()
-        await digitar(entrada(campo(cat(host, 0, 'PERFIL'), 'PERFIL.linha')), '')
+        await digitar(entrada(campo(cat(host, 0, 'PERFIL'), 'PERFIL.observacao')), '')
         await clicar(radio(campo(cat(host, 0, 'REFORCO'), 'REFORCO.usa'), 'nao_informado'))
         await clicar(radio(cat(host, 0, 'INSTALACAO').querySelector('[data-produto="CONTRAMARCO"] [data-coluna="usa"]'), 'nao'))
         await salvar(host)
@@ -365,7 +367,7 @@ describe('(3) a árvore do PUT: só o que mudou — null limpa, false é "não",
             materias_primas: [{
                 nome: 'PVC',
                 categorias: [
-                    { categoria_chave: 'PERFIL', config: { linha: null } },
+                    { categoria_chave: 'PERFIL', config: { observacao: null } },
                     { categoria_chave: 'REFORCO', config: { usa: null } },
                     { categoria_chave: 'INSTALACAO', instalacao: [{ produto: 'ARREMATE_INTERNO' }, { produto: 'CONTRAMARCO', usa: false }] },
                 ],
@@ -373,20 +375,28 @@ describe('(3) a árvore do PUT: só o que mudou — null limpa, false é "não",
         })
         const [perfil, reforco, instalacao] = (arvore.materias_primas as Array<{ categorias: Linha[] }>)[0].categorias
         // AUSENTE é ausente, não null nem false: o que não foi tocado não está no objeto
-        expect(Object.keys(perfil.config as Linha)).toEqual(['linha'])
+        expect(Object.keys(perfil.config as Linha)).toEqual(['observacao'])
         expect('fornecedores' in perfil).toBe(false)
         expect((reforco.config as Linha).usa).toBeNull()
         expect(((instalacao.instalacao as Linha[])[1]).usa).toBe(false)
         expect('usa' in (instalacao.instalacao as Linha[])[0]).toBe(false)
     })
 
-    it('número digitado vai como NÚMERO, e o inteiro apagado vai null', async () => {
+    it('número digitado vai como NÚMERO', async () => {
         const host = await montar()
         await digitar(entrada(campo(cat(host, 0, 'PERFIL'), 'PERFIL.serra_mm')), '4')
-        await digitar(entrada(campo(cat(host, 0, 'PERFIL'), 'PERFIL.barra_mm')), '')
         await salvar(host)
         expect((arvoreEnviada().materias_primas as Array<{ categorias: Linha[] }>)[0].categorias).toEqual([
-            { categoria_chave: 'PERFIL', config: { barra_mm: null, serra_mm: 4 } },
+            { categoria_chave: 'PERFIL', config: { serra_mm: 4 } },
+        ])
+    })
+
+    it('o inteiro gravado e apagado vai null', async () => {
+        const host = await montar()
+        await digitar(entrada(campo(cat(host, 0, 'PERFIL'), 'PERFIL.serra_mm')), '')
+        await salvar(host)
+        expect((arvoreEnviada().materias_primas as Array<{ categorias: Linha[] }>)[0].categorias).toEqual([
+            { categoria_chave: 'PERFIL', config: { serra_mm: null } },
         ])
     })
 
@@ -415,11 +425,12 @@ describe('(3) a árvore do PUT: só o que mudou — null limpa, false é "não",
     it('a contagem de pendências acompanha a árvore, e desfazer tira da conta', async () => {
         const host = await montar()
         expect(pendencias(host)).toBe(F().fraseDasPendencias(0))
-        await digitar(entrada(campo(cat(host, 0, 'PERFIL'), 'PERFIL.solda')), 'MIG')
+        await digitar(entrada(campo(cat(host, 0, 'PERFIL'), 'PERFIL.observacao')), 'MIG')
         expect(pendencias(host)).toBe(F().fraseDasPendencias(1))
         await clicar(radio(campo(cat(host, 0, 'REFORCO'), 'REFORCO.usa'), 'sim'))
         expect(pendencias(host)).toBe(F().fraseDasPendencias(2))
-        await digitar(entrada(campo(cat(host, 0, 'PERFIL'), 'PERFIL.solda')), '')
+        // de volta ao GRAVADO: deixa de ser pendência
+        await digitar(entrada(campo(cat(host, 0, 'PERFIL'), 'PERFIL.observacao')), 'nota gravada')
         expect(pendencias(host)).toBe(F().fraseDasPendencias(1))
     })
 })
@@ -567,18 +578,18 @@ describe('(7) a mensagem da FUNÇÃO chega inteira, no cartão que ela nomeia', 
     it('400 com o caminho: a mensagem COMO VEIO, dentro do cartão da categoria PERFIL do PVC — e a pendência fica', async () => {
         respostas[`PUT ${F().ROTAS_DA_BASE.arvore(CONTA)}`] = { status: 400, body: { error: MENSAGEM } }
         const host = await montar()
-        await digitar(entrada(campo(cat(host, 0, 'PERFIL'), 'PERFIL.solda')), 'MIG')
+        await digitar(entrada(campo(cat(host, 0, 'PERFIL'), 'PERFIL.observacao')), 'MIG')
         await salvar(host)
         expect(cat(host, 0, 'PERFIL').querySelector('[data-erro-da-arvore]')!.textContent).toContain(MENSAGEM)
         expect(cat(host, 0, 'VIDRO').querySelector('[data-erro-da-arvore]')).toBeNull()
-        expect(entrada(campo(cat(host, 0, 'PERFIL'), 'PERFIL.solda'))!.value).toBe('MIG')
+        expect(entrada(campo(cat(host, 0, 'PERFIL'), 'PERFIL.observacao'))!.value).toBe('MIG')
         expect(pendencias(host)).toBe(F().fraseDasPendencias(1))
     })
 
     it('mensagem sem caminho (ex.: 403): no topo do cartão, inteira', async () => {
         respostas[`PUT ${F().ROTAS_DA_BASE.arvore(CONTA)}`] = { status: 403, body: { error: 'o autor da alteracao nao e super admin' } }
         const host = await montar()
-        await digitar(entrada(campo(cat(host, 0, 'PERFIL'), 'PERFIL.solda')), 'MIG')
+        await digitar(entrada(campo(cat(host, 0, 'PERFIL'), 'PERFIL.observacao')), 'MIG')
         await salvar(host)
         const noTopo = cartao(host).querySelector(':scope > .ant-card-body > [data-erro-da-arvore]') as HTMLElement
         expect(noTopo.textContent).toContain('o autor da alteracao nao e super admin')
@@ -619,12 +630,12 @@ describe('(9) depois do salvar, a tela é o que o BANCO gravou', () => {
     it('redesenha pelo `depois` da resposta — não pelo que estava digitado', async () => {
         const doBanco = arvoreGravada()
         const perfil = (doBanco.materias_primas as Array<{ categorias: Linha[] }>)[0].categorias[0]
-        perfil.config = { ...(perfil.config as Linha), solda: 'MIG gravado pela funcao' }
+        perfil.config = { ...(perfil.config as Linha), observacao: 'MIG gravado pela funcao' }
         respostas[`PUT ${F().ROTAS_DA_BASE.arvore(CONTA)}`] = { status: 200, body: { depois: depoisDe(doBanco) } }
         const host = await montar()
-        await digitar(entrada(campo(cat(host, 0, 'PERFIL'), 'PERFIL.solda')), 'MIG')
+        await digitar(entrada(campo(cat(host, 0, 'PERFIL'), 'PERFIL.observacao')), 'MIG')
         await salvar(host)
-        expect(entrada(campo(cat(host, 0, 'PERFIL'), 'PERFIL.solda'))!.value).toBe('MIG gravado pela funcao')
+        expect(entrada(campo(cat(host, 0, 'PERFIL'), 'PERFIL.observacao'))!.value).toBe('MIG gravado pela funcao')
         expect(pendencias(host)).toBe(F().fraseDasPendencias(0))
         // e o GET da árvore não foi refeito: a fonte é a resposta do PUT
         expect(pedidos.filter((p) => p.metodo === 'GET' && p.url === F().ROTAS_DA_BASE.arvore(CONTA))).toHaveLength(1)
@@ -632,94 +643,42 @@ describe('(9) depois do salvar, a tela é o que o BANCO gravou', () => {
 
     it('o nome do fornecedor continua no chip depois do redesenho (o `depois` não traz nome)', async () => {
         const host = await montar()
-        await digitar(entrada(campo(cat(host, 0, 'PERFIL'), 'PERFIL.solda')), 'MIG')
+        await digitar(entrada(campo(cat(host, 0, 'PERFIL'), 'PERFIL.observacao')), 'MIG')
         await salvar(host)
         const chips = Array.from(cat(host, 0, 'PERFIL').querySelectorAll('[data-fornecedor]'))
         expect(chips.map((c) => (c.querySelector('[data-nome-do-fornecedor]')!.textContent || '').trim())).toEqual(['Wolff', 'Madeireira'])
     })
 })
 
-describe('(10) PERFIL.linha: COMBOBOX com as linhas da tabela em uso do fornecedor PRINCIPAL', () => {
-    const linha = (host: ParentNode) => campo(cat(host, 0, 'PERFIL'), 'PERFIL.linha') as HTMLElement
-    const aviso = (host: ParentNode) => linha(host).querySelector('[data-linha-fora-da-tabela]')
-    const semFormula = (host: ParentNode) => linha(host).querySelector('[data-linha-sem-formula]')
-    const frase = (host: ParentNode) => linha(host).querySelector('[data-origem-da-linha]')
+describe('(10) SAÍRAM da tela e da gravação (30/10/2026): Linha, Cor predominante, Barra, Solda e Custo das barras; Cores e Serra ficam', () => {
+    const SAIRAM = ['linha', 'cor_predominante', 'barra_mm', 'solda', 'criterio_custo_barra']
 
-    it('o catálogo continua dizendo `texto` — quem sabe a origem é a tela', () => {
-        expect(catalogo().campos.find((c) => c.categoria_chave === 'PERFIL' && c.chave === 'linha')!.tipo).toBe('texto')
-        expect(A().CAMPO_DA_LINHA).toEqual({ categoria: 'PERFIL', campo: 'linha' })
+    it('a lista é a do dono do produto, e as duas que o cálculo lê (cores, serra_mm) NÃO estão nela', () => {
+        expect(FORA_DA_TELA).toEqual({ PERFIL: SAIRAM })
+        expect(FORA_DA_TELA.PERFIL).not.toContain('cores')
+        expect(FORA_DA_TELA.PERFIL).not.toContain('serra_mm')
     })
 
-    it('a lista é fórmula ∪ regra: DESIGN aparece, entre as duas da fórmula', async () => {
+    it('na matéria-prima GRAVADA (com linha e barra gravadas) e na NOVA, o PERFIL mostra só cores, serra e o campo do teste', async () => {
+        const arv = comCatalogo([{ categoria_chave: 'PERFIL', chave: 'criterio_custo_barra', tipo: 'opcao', rotulo: 'Custo das barras', ordem: 7, opcoes: ['BARRA_INTEIRA', 'CONSUMO_REAL'] }],
+            { solda: '45/45', criterio_custo_barra: 'CONSUMO_REAL' })
+        servir(arv)
         const host = await montar()
-        expect(await opcoesDoSeletor(linha(host))).toEqual(['DESIGN', 'EUROPA 42', 'EUROPA 60'])
-    })
-
-    it('ESTADO 1 — linha COM fórmula de família (EUROPA 42): nenhum dos dois avisos', async () => {
-        const host = await montar()
-        await escolherNoSeletor(linha(host), 'EUROPA 42')
-        expect(aviso(host)).toBeNull()
-        expect(semFormula(host)).toBeNull()
-        await salvar(host)
-        expect((arvoreEnviada().materias_primas as Array<{ categorias: Linha[] }>)[0].categorias).toEqual([{ categoria_chave: 'PERFIL', config: { linha: 'EUROPA 42' } }])
-    })
-
-    it('ESTADO 2 — linha que o motor conhece SEM fórmula de família (DESIGN): o aviso PRÓPRIO, e não o de digitação — e não bloqueia', async () => {
-        const host = await montar()
-        await escolherNoSeletor(linha(host), 'DESIGN')
-        expect(semFormula(host)!.textContent).toBe(A().fraseLinhaSemFormula('DESIGN', 'Wolff'))
-        expect(aviso(host)).toBeNull()
-        // os dois textos são diferentes: o conserto de um é na tabela importada, o do outro na digitação
-        expect(A().fraseLinhaSemFormula('DESIGN', 'Wolff')).not.toBe(A().fraseLinhaForaDaTabela('DESIGN', 'Wolff'))
-        await salvar(host)
-        expect((arvoreEnviada().materias_primas as Array<{ categorias: Linha[] }>)[0].categorias).toEqual([{ categoria_chave: 'PERFIL', config: { linha: 'DESIGN' } }])
-    })
-
-    it('ESTADO 3 — linha fora das duas fontes ("Suprema", digitada): o aviso de fora da tabela, e NÃO o de sem fórmula — e não bloqueia', async () => {
-        const host = await montar()
-        // o gravado "Suprema" não está em nenhuma das duas fontes da tabela em uso do Wolff
-        expect(aviso(host)!.textContent).toBe(A().fraseLinhaForaDaTabela('Suprema', 'Wolff'))
-        expect(semFormula(host)).toBeNull()
-        await digitar(entrada(linha(host)), 'ZETA 70')
-        expect(aviso(host)!.textContent).toBe(A().fraseLinhaForaDaTabela('ZETA 70', 'Wolff'))
-        await salvar(host)
-        expect((arvoreEnviada().materias_primas as Array<{ categorias: Linha[] }>)[0].categorias).toEqual([{ categoria_chave: 'PERFIL', config: { linha: 'ZETA 70' } }])
-    })
-
-    it('tabela em uso SEM linha nenhuma nas duas fontes: a frase dela, e nenhum aviso de linha', async () => {
-        const arv = arvoreGravada()
-        arv.linhas_por_fornecedor = { [F_WOLFF]: { formula: [], regra: [] } }
-        respostas[`GET ${F().ROTAS_DA_BASE.arvore(CONTA)}`] = { status: 200, body: arv }
-        const host = await montar()
-        expect(frase(host)!.textContent).toBe(A().fraseTabelaSemLinha('Wolff'))
-        expect(aviso(host)).toBeNull()
-        expect(semFormula(host)).toBeNull()
-    })
-
-    it('SEM TABELA EM USO: a tela diz isso — não oferece lista vazia em silêncio, e o campo continua aceitando digitação', async () => {
-        const arv = arvoreGravada()
-        arv.linhas_por_fornecedor = {}
-        respostas[`GET ${F().ROTAS_DA_BASE.arvore(CONTA)}`] = { status: 200, body: arv }
-        const host = await montar()
-        expect(frase(host)!.textContent).toBe(A().fraseSemTabelaEmUso('Wolff'))
-        expect(aviso(host)).toBeNull()
-        await digitar(entrada(linha(host)), 'EUROPA 42')
-        await salvar(host)
-        expect((arvoreEnviada().materias_primas as Array<{ categorias: Linha[] }>)[0].categorias).toEqual([{ categoria_chave: 'PERFIL', config: { linha: 'EUROPA 42' } }])
-    })
-
-    it('SEM FORNECEDOR PRINCIPAL: a tela diz que falta o principal', async () => {
-        const host = await montar()
+        const naTela = (i: number) => Array.from(cat(host, i, 'PERFIL').querySelectorAll('[data-campo]')).map((c) => c.getAttribute('data-campo'))
+        expect(naTela(0)).toEqual(['PERFIL.cores', 'PERFIL.serra_mm', 'PERFIL.observacao'])
+        expect(cat(host, 0, 'PERFIL').textContent).not.toContain('Suprema')
         await clicar(botao(cartao(host), A().ADICIONAR_MATERIA_PRIMA))
-        const daNova = campo(cat(host, 1, 'PERFIL'), 'PERFIL.linha') as HTMLElement
-        expect(daNova.querySelector('[data-origem-da-linha]')!.textContent).toBe(A().SEM_PRINCIPAL_DO_PERFIL)
+        expect(naTela(1)).toEqual(['PERFIL.cores', 'PERFIL.serra_mm', 'PERFIL.observacao'])
     })
 
-    it('trocar o principal troca a origem: com o Hydro (sem tabela em uso), a frase é a dele', async () => {
+    it('salvar outra mudança do PERFIL NÃO manda os que saíram: o valor gravado deles fica (a gravação faz merge)', async () => {
+        servir(comCatalogo([], { solda: '45/45' }))
         const host = await montar()
-        await escolherNoSeletor(cat(host, 0, 'PERFIL').querySelector('[data-novo-fornecedor]'), 'Hydro')
-        await clicar(cat(host, 0, 'PERFIL').querySelector(`[data-fornecedor="${F_HYDRO}"] [data-tornar-principal]`) as HTMLElement)
-        expect(frase(host)!.textContent).toBe(A().fraseSemTabelaEmUso('Hydro'))
+        await digitar(entrada(campo(cat(host, 0, 'PERFIL'), 'PERFIL.serra_mm')), '4')
+        await salvar(host)
+        const config = configDoPerfilEnviado() as Linha
+        expect(config).toEqual({ serra_mm: 4 })
+        for (const c of SAIRAM) expect(c in config).toBe(false)
     })
 })
 
@@ -797,7 +756,8 @@ describe('(11) as colunas Par em inox (ferragem) e Referência (vidro): ausente,
 // "N de 6 categorias" de uma matéria-prima RECÉM-CRIADA estourava (`normalizar` devolvia undefined
 // e `.valor` quebrava a tela inteira). O caso do "+ Adicionar matéria-prima" é esse estado.
 // ═══════════════════════════════════════════════════════════════════════════════════════
-const CRITERIO = { categoria_chave: 'PERFIL', chave: 'criterio_custo_barra', tipo: 'opcao', rotulo: 'Custo das barras', ordem: 7, opcoes: ['BARRA_INTEIRA', 'CONSUMO_REAL'] }
+// O campo real deste tipo, `criterio_custo_barra`, saiu da tela em 30/10/2026 (seção 10): o tipo continua, e é provado com um campo do teste.
+const CRITERIO = { categoria_chave: 'PERFIL', chave: 'acabamento', tipo: 'opcao', rotulo: 'Acabamento (campo do teste)', ordem: 7, opcoes: ['FOSCO', 'BRILHO'] }
 /** A árvore com campos a mais no catálogo e chaves a mais no config gravado do PERFIL do PVC. */
 function comCatalogo(camposAMais: Linha[], configAMais: Linha = {}): Linha {
     const a = arvoreGravada() as Linha & { catalogo: { campos: Linha[] }; materias_primas: Array<{ categorias: Linha[] }> }
@@ -816,7 +776,7 @@ const configDoPerfilEnviado = () =>
 describe("(12) o tipo 'opcao' — e o tipo desconhecido, que não pode quebrar a tela", () => {
     it('SEM o campo no catálogo (produção hoje, antes da 20261024000002): ele não aparece — a tela vai para a main antes da migração', async () => {
         const host = await montar()
-        expect(campo(cat(host, 0, 'PERFIL'), 'PERFIL.criterio_custo_barra')).toBeNull()
+        expect(campo(cat(host, 0, 'PERFIL'), 'PERFIL.acabamento')).toBeNull()
     })
 
     it('O CASO MEDIDO: com o campo no catálogo, "+ Adicionar matéria-prima" não estoura — o bloco novo aparece com as categorias e o campo', async () => {
@@ -824,39 +784,39 @@ describe("(12) o tipo 'opcao' — e o tipo desconhecido, que não pode quebrar a
         const host = await montar()
         await clicar(botao(cartao(host), A().ADICIONAR_MATERIA_PRIMA))
         expect(Array.from(mp(host, 1).querySelectorAll('[data-categoria]')).map((c) => c.getAttribute('data-categoria'))).toEqual(ORDEM_DO_CATALOGO)
-        expect(campo(cat(host, 1, 'PERFIL'), 'PERFIL.criterio_custo_barra')).not.toBeNull()
+        expect(campo(cat(host, 1, 'PERFIL'), 'PERFIL.acabamento')).not.toBeNull()
     })
 
     it('o campo é SELEÇÃO: as opções do catálogo, na ordem dele, mais a de deixar em branco — e nada inventado', async () => {
         servir(comCatalogo([CRITERIO]))
         const host = await montar()
-        expect(await opcoesDoSeletor(campo(cat(host, 0, 'PERFIL'), 'PERFIL.criterio_custo_barra'))).toEqual([A().EM_BRANCO_DA_OPCAO, 'BARRA_INTEIRA', 'CONSUMO_REAL'])
+        expect(await opcoesDoSeletor(campo(cat(host, 0, 'PERFIL'), 'PERFIL.acabamento'))).toEqual([A().EM_BRANCO_DA_OPCAO, 'FOSCO', 'BRILHO'])
     })
 
     it('NULL gravado aparece como "em branco"; o valor gravado aparece escolhido', async () => {
         servir(comCatalogo([CRITERIO]))
         let host = await montar()
-        expect(campo(cat(host, 0, 'PERFIL'), 'PERFIL.criterio_custo_barra')!.querySelector('.ant-select-selection-item')?.textContent).toBe(A().EM_BRANCO_DA_OPCAO)
+        expect(campo(cat(host, 0, 'PERFIL'), 'PERFIL.acabamento')!.querySelector('.ant-select-selection-item')?.textContent).toBe(A().EM_BRANCO_DA_OPCAO)
         while (montadas.length) { const m = montadas.pop()!; act(() => { m.root.unmount() }); m.host.remove() }
-        servir(comCatalogo([CRITERIO], { criterio_custo_barra: 'CONSUMO_REAL' }))
+        servir(comCatalogo([CRITERIO], { acabamento: 'BRILHO' }))
         host = await montar()
-        expect(campo(cat(host, 0, 'PERFIL'), 'PERFIL.criterio_custo_barra')!.querySelector('.ant-select-selection-item')?.textContent).toBe('CONSUMO_REAL')
+        expect(campo(cat(host, 0, 'PERFIL'), 'PERFIL.acabamento')!.querySelector('.ant-select-selection-item')?.textContent).toBe('BRILHO')
     })
 
-    it('escolher BARRA_INTEIRA manda SÓ { criterio_custo_barra: "BARRA_INTEIRA" } — o resto do PERFIL fica ausente', async () => {
+    it('escolher FOSCO manda SÓ { acabamento: "FOSCO" } — o resto do PERFIL fica ausente', async () => {
         servir(comCatalogo([CRITERIO]))
         const host = await montar()
-        await escolherNoSeletor(campo(cat(host, 0, 'PERFIL'), 'PERFIL.criterio_custo_barra'), 'BARRA_INTEIRA')
+        await escolherNoSeletor(campo(cat(host, 0, 'PERFIL'), 'PERFIL.acabamento'), 'FOSCO')
         await salvar(host)
-        expect(configDoPerfilEnviado()).toEqual({ criterio_custo_barra: 'BARRA_INTEIRA' })
+        expect(configDoPerfilEnviado()).toEqual({ acabamento: 'FOSCO' })
     })
 
     it('deixar EM BRANCO o que estava gravado manda null (limpa) — não ausente, não string vazia', async () => {
-        servir(comCatalogo([CRITERIO], { criterio_custo_barra: 'CONSUMO_REAL' }))
+        servir(comCatalogo([CRITERIO], { acabamento: 'BRILHO' }))
         const host = await montar()
-        await escolherNoSeletor(campo(cat(host, 0, 'PERFIL'), 'PERFIL.criterio_custo_barra'), A().EM_BRANCO_DA_OPCAO)
+        await escolherNoSeletor(campo(cat(host, 0, 'PERFIL'), 'PERFIL.acabamento'), A().EM_BRANCO_DA_OPCAO)
         await salvar(host)
-        expect(configDoPerfilEnviado()).toEqual({ criterio_custo_barra: null })
+        expect(configDoPerfilEnviado()).toEqual({ acabamento: null })
     })
 
     // ordem 0: o campo desconhecido é lido ANTES dos outros do PERFIL — é o primeiro que o cabeçalho avalia
@@ -874,9 +834,9 @@ describe("(12) o tipo 'opcao' — e o tipo desconhecido, que não pode quebrar a
     it('TIPO DESCONHECIDO: salvar outra mudança do PERFIL NÃO MEXE no valor gravado dele — a chave fica AUSENTE (null a apagaria)', async () => {
         servir(comCatalogo([DO_FUTURO], { campo_do_futuro: 'GRAVADO' }))
         const host = await montar()
-        await digitar(entrada(campo(cat(host, 0, 'PERFIL'), 'PERFIL.solda')), 'MIG')
+        await digitar(entrada(campo(cat(host, 0, 'PERFIL'), 'PERFIL.observacao')), 'MIG')
         await salvar(host)
-        expect(configDoPerfilEnviado()).toEqual({ solda: 'MIG' })
+        expect(configDoPerfilEnviado()).toEqual({ observacao: 'MIG' })
     })
 
     it('normalizar NUNCA devolve undefined: o tipo desconhecido é ausente — { valor: null, erro: null }', () => {

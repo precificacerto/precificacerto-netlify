@@ -220,8 +220,8 @@ afterEach(() => silencio.mockRestore())
 type Caso = [keyof typeof ROTAS, string, Linha, unknown, string, Linha]
 const CADA_ESCRITA: Caso[] = [
     ['materiaPrima', 'PUT', { tenant: T_A }, { materias_primas: [{ nome: 'PVC' }] }, 'superadmin_gravar_materia_prima', { p_tenant: T_A, p_lista: [{ nome: 'PVC' }] }],
-    ['categoria', 'PUT', { tenant: T_A, materia_prima: MP_PVC, categoria: 'PERFIL' }, { config: { linha: 'Suprema' } }, 'superadmin_gravar_mp_categoria',
-        { p_tenant: T_A, p_materia_prima: MP_PVC, p_categoria: 'PERFIL', p_corpo: { linha: 'Suprema' } }],
+    ['categoria', 'PUT', { tenant: T_A, materia_prima: MP_PVC, categoria: 'PERFIL' }, { config: { serra_mm: 5 } }, 'superadmin_gravar_mp_categoria',
+        { p_tenant: T_A, p_materia_prima: MP_PVC, p_categoria: 'PERFIL', p_corpo: { serra_mm: 5 } }],
     ['fornecedores', 'PUT', { tenant: T_A, mp_categoria: C_PVC_PERFIL }, { fornecedores: [{ fornecedor_id: F_WOLFF, principal: true }] }, 'superadmin_gravar_mp_fornecedores',
         { p_tenant: T_A, p_mp_categoria: C_PVC_PERFIL, p_lista: [{ fornecedor_id: F_WOLFF, principal: true }] }],
     ['vidros', 'PUT', { tenant: T_A, mp_categoria: C_PVC_VIDRO }, { vidros: [{ descricao: 'Incolor 4 mm' }] }, 'superadmin_gravar_mp_vidros',
@@ -275,7 +275,7 @@ describe('(2) o tenant e os ids vêm do QUERY STRING: uuid e existente, senão 4
     })
 
     it('categoria sem a chave da categoria no query → 400 nomeado, sem chamada', async () => {
-        const r = await chamar('categoria', 'PUT', { tenant: T_A, materia_prima: MP_PVC }, { config: { linha: 'x' } })
+        const r = await chamar('categoria', 'PUT', { tenant: T_A, materia_prima: MP_PVC }, { config: { serra_mm: 5 } })
         expect(r.status).toBe(400)
         expect(r.json.erros).toEqual(expect.arrayContaining([expect.objectContaining({ campo: 'categoria' })]))
         nenhumaEscrita()
@@ -597,7 +597,7 @@ describe('(6b) PUT /arvore — 1:1 com superadmin_gravar_arvore (migração 2026
             {
                 nome: 'PVC',
                 categorias: [
-                    { categoria_chave: 'PERFIL', config: { linha: 'Suprema', solda: null as string | null, reforco: false }, fornecedores: [] as Linha[] },
+                    { categoria_chave: 'PERFIL', config: { cores: ['BRANCO'], serra_mm: null as number | null, reforco: false }, fornecedores: [] as Linha[] },
                     { categoria_chave: 'VIDRO', vidros: [{ descricao: 'Fumê', onde_predomina: [] as string[] }, { descricao: 'Bronze' }] },
                     { categoria_chave: 'INSTALACAO', instalacao: [{ produto: 'CONTRAMARCO', usa: null }, { produto: 'ARREMATE_INTERNO', usa: false }] },
                 ],
@@ -612,7 +612,7 @@ describe('(6b) PUT /arvore — 1:1 com superadmin_gravar_arvore (migração 2026
         expect(estado.rpcs).toEqual([{ nome: 'superadmin_gravar_arvore', args: { p_tenant: T_A, p_por: SUPER.id, p_arvore: ARVORE } }])
         const enviada = estado.rpcs[0].args.p_arvore
         const [perfil, vidro, instalacao] = enviada.materias_primas[0].categorias
-        expect(perfil.config).toHaveProperty('solda', null)
+        expect(perfil.config).toHaveProperty('serra_mm', null)
         expect(perfil.config).toHaveProperty('reforco', false)
         expect(perfil.fornecedores).toEqual([])
         expect(vidro.vidros[0].onde_predomina).toEqual([])
@@ -655,6 +655,38 @@ describe('(6b) PUT /arvore — 1:1 com superadmin_gravar_arvore (migração 2026
         expect(r.status).toBe(200)
         expect(r.json.materias_primas.map((m: Linha) => m.nome)).toEqual(['PVC', 'Alumínio'])
         nenhumaEscrita()
+    })
+})
+
+describe('(6c) os campos que SAÍRAM da tela e da gravação (30/10/2026): recusa nomeada antes da função, nas duas rotas que gravam o config', () => {
+    const FORA = ['linha', 'cor_predominante', 'barra_mm', 'solda', 'criterio_custo_barra'] as const
+
+    it.each(FORA)('PUT /categoria com PERFIL.%s: 400 que nomeia o campo e diz que o motor traz — a função NÃO é chamada', async (chave) => {
+        const r = await chamar('categoria', 'PUT', { tenant: T_A, materia_prima: MP_PVC, categoria: 'PERFIL' }, { config: { serra_mm: 5, [chave]: null } })
+        expect(r.status).toBe(400)
+        expect(r.json.erros).toEqual([{ campo: `config.${chave}`, mensagem: `o campo "${chave}" saiu da base de conhecimento: o motor da família já traz essa informação. O valor gravado fica, sem tela.` }])
+        nenhumaEscrita()
+    })
+
+    it('PUT /arvore: o caminho de cada campo recusado (matéria-prima, categoria, chave), e a função NÃO é chamada', async () => {
+        const arvore = { materias_primas: [
+            { nome: 'PVC', categorias: [{ categoria_chave: 'VIDRO', config: {} }, { categoria_chave: 'PERFIL', config: { cores: ['BRANCO'], linha: 'EUROPA 42' } }] },
+            { nome: 'Aço', categorias: [{ categoria_chave: 'PERFIL', config: { criterio_custo_barra: 'CONSUMO_REAL' } }] },
+        ] }
+        const r = await chamar('arvore', 'PUT', { tenant: T_A }, { arvore })
+        expect(r.status).toBe(400)
+        expect(r.json.erros.map((e: Linha) => e.campo)).toEqual([
+            'arvore.materias_primas[0].categorias[1].config.linha', 'arvore.materias_primas[1].categorias[0].config.criterio_custo_barra',
+        ])
+        nenhumaEscrita()
+    })
+
+    it('FICAM: cores e serra_mm (o cálculo da conversa as lê), e a mesma chave em OUTRA categoria não é recusada', async () => {
+        const r = await chamar('categoria', 'PUT', { tenant: T_A, materia_prima: MP_PVC, categoria: 'PERFIL' }, { config: { cores: ['BRANCO'], serra_mm: 5 } })
+        expect(r.status).toBe(200)
+        const r2 = await chamar('categoria', 'PUT', { tenant: T_A, materia_prima: MP_PVC, categoria: 'REFORCO' }, { config: { linha: 'x' } })
+        expect(r2.status).toBe(200)
+        expect(estado.rpcs.map((x) => x.nome)).toEqual(['superadmin_gravar_mp_categoria', 'superadmin_gravar_mp_categoria'])
     })
 })
 

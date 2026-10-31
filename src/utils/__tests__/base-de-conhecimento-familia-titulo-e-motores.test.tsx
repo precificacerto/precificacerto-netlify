@@ -326,8 +326,8 @@ describe('(3) renomear só sem alteração pendente; matéria-prima nova não te
         const host = await montar()
         await clicar(editarTitulo(host, 0))
         await digitar(campoDoTitulo(host, 0), 'Novo título')
-        // uma alteração pendente: a cor predominante do Perfil
-        await digitar(entrada(campo(mp(host, 0), 'PERFIL.cor_predominante')), 'Branco')
+        // uma alteração pendente: o material do Reforço (a cor predominante do Perfil saiu da tela, 30/10/2026)
+        await digitar(entrada(campo(mp(host, 0), 'REFORCO.material')), 'aço galvanizado')
         expect(pendencias(host)).not.toBeNull()
         expect(campoDoTitulo(host, 0).disabled).toBe(true)
         expect(renomear(host, 0).disabled).toBe(true)

@@ -6,11 +6,14 @@
  * false grava false. Ela confere a chave e o tipo contra `orcamentista_categoria_campo` e que a
  * matéria-prima é desta empresa — a rota não repete nada disso. `por` no corpo é erro.
  *
+ * Os campos que saíram da tela e da gravação (`CAMPOS_FORA_DA_TELA`, dono do produto, 30/10/2026: Linha, Cor predominante, Barra, Solda e Custo das
+ * barras, na categoria Perfil) são recusa nomeada AQUI, antes da função: a definição no catálogo de campos e o valor gravado ficam, sem tela.
+ *
  * O portão está em `src/lib/atendimentos-ia/base-de-conhecimento-servidor.ts`.
  */
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { superAdminOu404 } from '@/lib/get-caller-tenant'
-import { lerEnvelope } from '@/lib/atendimentos-ia/base-de-conhecimento'
+import { errosDosCamposForaDaTela, lerEnvelope } from '@/lib/atendimentos-ia/base-de-conhecimento'
 import {
     empresaDoPedido, falhaDeLeitura, gravarPelaFuncaoComAMensagemDela, idDoQuery, metodoNaoPermitido, recusaNomeada,
 } from '@/lib/atendimentos-ia/base-de-conhecimento-servidor'
@@ -31,6 +34,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
         const corpo = lerEnvelope(req.body, 'config')
         if (corpo.erros.length > 0) return recusaNomeada(res, corpo.erros)
+        const fora = errosDosCamposForaDaTela(categoria, corpo.valor)
+        if (fora.length > 0) return recusaNomeada(res, fora)
         return gravarPelaFuncaoComAMensagemDela(res, 'superadmin_gravar_mp_categoria', {
             p_tenant: tenantId, p_por: caller.user_id, p_materia_prima: materiaPrimaId, p_categoria: categoria, p_corpo: corpo.valor,
         })
