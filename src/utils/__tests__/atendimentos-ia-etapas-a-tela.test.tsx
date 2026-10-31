@@ -593,8 +593,8 @@ describe('(10) a família só calcula com TODAS as etapas com motor: a tela most
     })
 
     // a FALTA DE CONFIGURAÇÃO é ERRO (31/10/2026): cada falta que a rota conferiu, com a frase dela; "pronta" não aparece junto
-    it('com falta de configuração (o Perfil ficou sem fornecedor): o ERRO lista cada falta, e o "pronta" some mesmo com todas as etapas com motor', async () => {
-        const falta = 'Falta de configuração — fornecedor: o Perfil de "Esquadrias de PVC" está sem fornecedor principal (o motor lê os códigos do perfil dele). Veja a configuração: escolha o fornecedor principal do Perfil na base de conhecimento da empresa.'
+    it('com falta de configuração (uma categoria sem fornecedor): o ERRO lista cada falta, e o "pronta" some mesmo com todas as etapas com motor', async () => {
+        const falta = 'Falta de configuração — fornecedor: a categoria Reforço de "Esquadrias de PVC" está sem fornecedor. Veja a configuração: escolha o fornecedor da categoria Reforço na base de conhecimento da empresa.'
         respostas[`GET ${rotaDasEtapas(T, MP)}`] = { status: 200, body: {
             familia: 'PVC', etapas: ETAPAS.map((e) => ({ ...e, motor_id: M1 })), motores: MOTORES, catalogo: CATALOGO, pronta: true, etapas_sem_motor: [], erros_de_configuracao: [falta],
         } }

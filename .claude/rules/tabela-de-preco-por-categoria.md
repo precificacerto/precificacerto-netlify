@@ -614,10 +614,17 @@ Formulação do dono do produto, registrada como está:
   escolher qual das duas fica vigente não foi autorizado.
 - **E. A falta de configuração é ERRO que nomeia o que falta e manda ver a configuração.** `conferirEtapasParaExecutar(etapas, contexto)` recusa, uma
   frase por falta, na ordem: **família** sem tipo (removida do catálogo ou nunca escolhida), **etapa** (família sem etapas), **motor** (cada etapa sem
-  motor), **fornecedor** (o Perfil sem fornecedor principal). A rota das etapas da conta devolve `erros_de_configuracao`, e a tela mostra o erro (e não
-  mostra "pronta" enquanto houver falta). **O fornecedor conferido é só o do PERFIL** (o que o motor lê). Medido em produção em 31/10/2026: na De Paula,
-  5 das 7 categorias da PVC estão sem fornecedor principal (PERSIANAS, REFORCO, FERRAGENS, ACESSORIOS_VEDACAO, INSTALACAO) — **se a falta delas também
-  impede executar está com o dono do produto**, e a conferência não as acusa até ele decidir.
+  motor), **fornecedor** (cada categoria da família sem fornecedor). A rota das etapas da conta devolve `erros_de_configuracao`, e a tela mostra o erro
+  (e não mostra "pronta" enquanto houver falta).
+  **O FORNECEDOR É COBRADO EM TODAS AS CATEGORIAS** que a família declara como ramificação — decisão do dono do produto, 31/10/2026, registrada como foi
+  dita: "Sim deve reclamar que está faltando fornecedores." Falta é a categoria **sem nenhum fornecedor vinculado** (ou que nem foi criada na conta),
+  cada uma com a sua frase. Medido em produção em 31/10/2026: a De Paula tem fornecedor só em PERFIL (Wolf Perfis) e VIDRO (Estrela); PERSIANAS, REFORCO,
+  FERRAGENS, ACESSORIOS_VEDACAO e INSTALACAO estão com zero — **hoje a conferência acusa cinco faltas, e isso é o esperado, não defeito.**
+- **REQUISITO SEGUINTE, registrado e NÃO implementado (dono do produto, 31/10/2026):** o fornecedor de cada categoria vira uma **lista hierárquica com
+  busca em cascata** — "o fornecedor Celsius, ele fica como primeiro, o fornecedor Roto como segundo e o fornecedor Detone como terceiro [...] não havendo
+  o insumo dentro da tabela da Celsius, ele vai consultar a tabela da Roto [...] a ordem é muito importante." A estrutura (`ordem`, N por categoria) já
+  existe em `orcamentista_mp_categoria_fornecedor`; faltam a tela (vários e ordenar) e o cálculo (procurar na ordem, parar no primeiro que tiver). Trabalho
+  próprio, depois da medição pedida.
 - **Prova:** `scripts/harness/catalogo-soberano/` — a cadeia real com a `20261031000002` e o estado de produção medido em 31/10/2026 (os ids reais), a
   migração duas vezes, 22 casos (cada arrasto, a trava C pelos três caminhos, o log linha a linha, a assinatura, o impedimento, a linha que some no
   meio e a que sai por cascata), 3 corridas (gravar etapa × remover motor nos dois sentidos; duas remoções do mesmo item), 3 guardas, a prova de volume

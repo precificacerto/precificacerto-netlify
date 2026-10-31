@@ -303,12 +303,14 @@ export const FAMILIA_SEM_ETAPAS_NAO_CALCULA = 'a família não tem etapas: cadas
  * A FALTA DE CONFIGURAÇÃO É ERRO QUE NOMEIA O QUE FALTA E MANDA VER A CONFIGURAÇÃO (dono do produto, 31/10/2026, com o catálogo soberano —
  * migração 20261031000003): "a instrução para quando não houver ou houver uma falta dentro dessas quatro categorias [família, fornecedor, motor e
  * etapa] [...] é importante que ela reporte como um erro, solicitando que veja a configuração." Remover do catálogo deixa a família de conta sem
- * tipo, a etapa sem motor, o Perfil sem fornecedor, a família sem etapa — e quem for executar recusa nomeando cada falta, uma frase por falta.
+ * tipo, a etapa sem motor, a categoria sem fornecedor, a família sem etapa — e quem for executar recusa nomeando cada falta, uma frase por falta.
  *
- * O `contexto` é o da família-instância; sem ele, só as etapas são conferidas (o que a função conferia antes). `perfilSemFornecedor: null` é
- * "não conferido", nunca "tem fornecedor" (`ausente-vs-falso.md`). O fornecedor conferido é SÓ o do PERFIL: é o que o motor lê (os códigos do perfil,
- * e o insumo que segue o fornecedor de perfil). As outras categorias sem principal (medido em 31/10/2026: 5 das 7 da De Paula) estão com o dono do
- * produto — se a falta delas também impede executar não foi decidido.
+ * O FORNECEDOR É COBRADO EM TODAS AS CATEGORIAS que a família declara como ramificação (dono do produto, 31/10/2026: "Sim deve reclamar que está
+ * faltando fornecedores."): cada categoria sem NENHUM fornecedor vinculado é uma falta, com a frase que a nomeia. Medido em 31/10/2026, na De Paula:
+ * PERSIANAS, REFORCO, FERRAGENS, ACESSORIOS_VEDACAO e INSTALACAO estão sem fornecedor — cinco faltas, e isso é o esperado, não defeito.
+ *
+ * O `contexto` é o da família-instância; sem ele, só as etapas são conferidas (o que a função conferia antes). `categoriasSemFornecedor: null` é
+ * "não conferido", nunca "todas têm" (`ausente-vs-falso.md`).
  */
 export const PREFIXO_DA_FALTA = 'Falta de configuração'
 export interface ContextoDaExecucao {
@@ -316,8 +318,8 @@ export interface ContextoDaExecucao {
     nome: string
     /** O tipo (a chave do catálogo de famílias); null quando foi removido do catálogo ou nunca escolhido. */
     familia: string | null
-    /** O Perfil da família está sem fornecedor principal? null = não conferido. */
-    perfilSemFornecedor: boolean | null
+    /** As categorias (ramificações da família) sem nenhum fornecedor, na ordem da família, com o nome de cada uma; null = não conferido. */
+    categoriasSemFornecedor: Array<{ chave: string; rotulo: string }> | null
 }
 export const fraseDaFamiliaSemTipo = (nome: string) =>
     `${PREFIXO_DA_FALTA} — família: "${nome}" está sem família do catálogo (ela foi removida do catálogo ou nunca foi escolhida). Veja a configuração: escolha a família na base de conhecimento da empresa.`
@@ -325,11 +327,11 @@ export const fraseDaFaltaDeEtapas = (nome: string | null) =>
     `${PREFIXO_DA_FALTA} — etapa: ${nome === null ? 'a família' : `"${nome}"`} não tem etapas. Veja a configuração: cadastre as etapas, cada uma com o seu motor.`
 export const fraseDaFaltaDeMotor = (e: Pick<EtapaSemMotor, 'numero' | 'rotulo'>) =>
     `${PREFIXO_DA_FALTA} — motor: a etapa ${e.numero} ("${e.rotulo}") está sem motor. Veja a configuração: escolha um motor para ela.`
-export const fraseDoPerfilSemFornecedor = (nome: string) =>
-    `${PREFIXO_DA_FALTA} — fornecedor: o Perfil de "${nome}" está sem fornecedor principal (o motor lê os códigos do perfil dele). Veja a configuração: escolha o fornecedor principal do Perfil na base de conhecimento da empresa.`
+export const fraseDaCategoriaSemFornecedor = (nome: string, categoria: string) =>
+    `${PREFIXO_DA_FALTA} — fornecedor: a categoria ${categoria} de "${nome}" está sem fornecedor. Veja a configuração: escolha o fornecedor da categoria ${categoria} na base de conhecimento da empresa.`
 
 /**
- * A conferência antes de executar: a família só calcula com tipo, com etapas, com TODAS as etapas com motor e com o fornecedor principal do Perfil.
+ * A conferência antes de executar: a família só calcula com tipo, com etapas, com TODAS as etapas com motor e com fornecedor em TODAS as categorias dela.
  * A recusa nomeia CADA falta (uma frase por falta, na ordem família → etapa → motor → fornecedor), para quem lê saber onde repor sem tentar de novo.
  */
 export function conferirEtapasParaExecutar(etapas: readonly EtapaDaFamilia[], contexto?: ContextoDaExecucao): { ok: true } | { ok: false; erros: string[] } {
@@ -337,7 +339,7 @@ export function conferirEtapasParaExecutar(etapas: readonly EtapaDaFamilia[], co
     if (contexto && contexto.familia === null) erros.push(fraseDaFamiliaSemTipo(contexto.nome))
     if (etapas.length === 0) erros.push(fraseDaFaltaDeEtapas(contexto?.nome ?? null))
     erros.push(...etapasSemMotor(etapas).map(fraseDaFaltaDeMotor))
-    if (contexto && contexto.familia !== null && contexto.perfilSemFornecedor === true) erros.push(fraseDoPerfilSemFornecedor(contexto.nome))
+    if (contexto && contexto.familia !== null) erros.push(...(contexto.categoriasSemFornecedor ?? []).map((c) => fraseDaCategoriaSemFornecedor(contexto.nome, c.rotulo)))
     return erros.length === 0 ? { ok: true } : { ok: false, erros }
 }
 

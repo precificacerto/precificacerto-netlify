@@ -52,7 +52,7 @@ describe('a família pronta', () => {
  * frase, na ordem família → etapa → motor → fornecedor.
  */
 describe('a falta de configuração é ERRO que nomeia o que falta e manda ver a configuração', () => {
-    const ctx = (o: Partial<ContextoDaExecucao> = {}): ContextoDaExecucao => ({ nome: 'Esquadrias de PVC WOLF', familia: 'PVC', perfilSemFornecedor: false, ...o })
+    const ctx = (o: Partial<ContextoDaExecucao> = {}): ContextoDaExecucao => ({ nome: 'Esquadrias de PVC WOLF', familia: 'PVC', categoriasSemFornecedor: [], ...o })
     const todas = [etapa(1, 'Apanhado', 'm1'), etapa(2, 'Barras', 'm1')]
 
     it('tudo configurado: passa (o contexto não inventa falta)', () => {
@@ -66,21 +66,23 @@ describe('a falta de configuração é ERRO que nomeia o que falta e manda ver a
         ] })
     })
 
-    it('o FORNECEDOR do Perfil removido: a frase nomeia a família; null (não conferido) não é falta nem "tem"', () => {
-        expect(conferirEtapasParaExecutar(todas, ctx({ perfilSemFornecedor: true }))).toEqual({ ok: false, erros: [
-            'Falta de configuração — fornecedor: o Perfil de "Esquadrias de PVC WOLF" está sem fornecedor principal (o motor lê os códigos do perfil dele). Veja a configuração: escolha o fornecedor principal do Perfil na base de conhecimento da empresa.',
-        ] })
-        expect(conferirEtapasParaExecutar(todas, ctx({ perfilSemFornecedor: null }))).toEqual({ ok: true })
+    it('o FORNECEDOR é cobrado em TODAS as categorias da família: uma frase por categoria sem fornecedor, nomeando-a, na ordem', () => {
+        // o estado medido na De Paula em 31/10/2026: cinco categorias sem fornecedor — cinco faltas, o esperado
+        const cinco = [['PERSIANAS', 'Persianas'], ['REFORCO', 'Reforço'], ['FERRAGENS', 'Ferragens'], ['ACESSORIOS_VEDACAO', 'Acessórios e vedação'], ['INSTALACAO', 'Instalação']]
+            .map(([chave, rotulo]) => ({ chave, rotulo }))
+        const r = conferirEtapasParaExecutar(todas, ctx({ categoriasSemFornecedor: cinco }))
+        expect(r).toEqual({ ok: false, erros: cinco.map((c) => `Falta de configuração — fornecedor: a categoria ${c.rotulo} de "Esquadrias de PVC WOLF" está sem fornecedor. Veja a configuração: escolha o fornecedor da categoria ${c.rotulo} na base de conhecimento da empresa.`) })
+        expect(conferirEtapasParaExecutar(todas, ctx({ categoriasSemFornecedor: null }))).toEqual({ ok: true })
     })
 
     it('o MOTOR removido e o fornecedor junto: as duas faltas, na ordem — motor antes de fornecedor', () => {
-        const r = conferirEtapasParaExecutar([etapa(1, 'Apanhado', null), etapa(2, 'Barras', 'm1')], ctx({ perfilSemFornecedor: true }))
+        const r = conferirEtapasParaExecutar([etapa(1, 'Apanhado', null), etapa(2, 'Barras', 'm1')], ctx({ categoriasSemFornecedor: [{ chave: 'PERFIL', rotulo: 'Perfil' }] }))
         expect(r.ok === false && r.erros.map((e) => e.split(':')[0])).toEqual(['Falta de configuração — motor', 'Falta de configuração — fornecedor'])
         expect(r.ok === false && r.erros.every((e) => e.includes('Veja a configuração'))).toBe(true)
     })
 
-    it('a família sem tipo não confere o Perfil (não há ramificação a conferir sem família)', () => {
-        const r = conferirEtapasParaExecutar(todas, ctx({ familia: null, perfilSemFornecedor: true }))
+    it('a família sem tipo não confere fornecedor (não há ramificação a conferir sem família)', () => {
+        const r = conferirEtapasParaExecutar(todas, ctx({ familia: null, categoriasSemFornecedor: [{ chave: 'PERFIL', rotulo: 'Perfil' }] }))
         expect(r.ok === false && r.erros.map((e) => e.split(':')[0])).toEqual(['Falta de configuração — família'])
     })
 })
