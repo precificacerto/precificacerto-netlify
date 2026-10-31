@@ -405,6 +405,12 @@ describe('(7) EXCLUIR etapa gravada (30/10/2026): confirma dizendo o que se perd
         ])
     })
 
+    it('a etapa SEM instrução diz "sem instrução" (nunca uma instrução vazia entre aspas)', async () => {
+        const host = await montar()
+        const b2 = await abrirExclusao(host, 2)
+        expect(Array.from(b2.querySelectorAll('[data-o-que-se-perde] li')).map((l) => l.textContent)).toEqual(['o rótulo "Confirmar"', 'sem instrução', 'sem motor'])
+    })
+
     it('confirmada: a etapa sai do rascunho, as de baixo sobem um número, e o salvar manda a lista SEM ela — o resto como estava', async () => {
         const host = await montar()
         await confirmar(await abrirExclusao(host, 1))
