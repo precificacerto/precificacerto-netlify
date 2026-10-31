@@ -513,7 +513,10 @@ Formulação do dono do produto, registrada como está:
   a da `20261029000005` (`a6219d0a…`). Por isso a ordem acordada: aplicar a `20261031000001` → mergear o #200 → mergear o #201 → esta.
 - **Na tela:** a quarta aba do nicho, **Etapas**, depois de Motores — criar, renomear/editar e remover, com quem usa cada item. Na base de
   conhecimento, a etapa é **escolhida de uma lista** (o catálogo); somem os campos de rótulo e de ação, e as abas aparecem só para leitura.
-- **O que não se decidiu (fica como está, sem regra nova):** o mesmo item em duas etapas da mesma família é permitido — nenhuma regra o proíbe.
+- **O mesmo item em duas etapas da mesma família é PERMITIDO** — decisão do dono do produto, 31/10/2026, registrada como foi dita: "CONFIRMADO que
+  o MESMO item do catálogo de etapas PODE aparecer em duas etapas da mesma família. [...] a instrução (o prompt) continua morando na conta, então
+  'Confirmar' pode aparecer duas vezes no mesmo fluxo com textos diferentes — uma depois do apanhado, outra depois do levantamento." **Não há
+  unicidade (família, item)** — nem no banco nem na rota —, e quem acrescentar uma trava dessas contraria esta decisão.
 - **DÍVIDA — o catálogo de etapas não tem nicho**, como o de famílias (seção de 29/10/2026, item 2): a lista é a mesma em todos os nichos, e a aba diz
   isso (`AVISO_DA_ETAPA_GLOBAL`). Quando houver etapa de outro nicho, mede-se e propõe-se.
 - **Cores e Serra** ficaram fora deste PR (dono do produto, 31/10/2026): trocar a fonte para o motor é mudança de cálculo, e a coluna `cor` do motor não é
