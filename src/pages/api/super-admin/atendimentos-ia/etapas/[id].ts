@@ -1,28 +1,25 @@
 /**
  * PATCH  /api/super-admin/atendimentos-ia/etapas/[id] — `{ nome, acao, abas }`: EDITA o item do catálogo — renomear, trocar a ação e as abas —,
  *        também COM uso: o item é o mesmo para toda conta que o seleciona, e a resposta da tela diz quantas o usam.
- * DELETE /api/super-admin/atendimentos-ia/etapas/[id] — REMOVE o item sem uso.
+ * REMOVER o item é da rota `catalogo/remover` (migração 20261031000003, dono do produto, 31/10/2026: "o catálogo é soberano"): as etapas de
+ * conta que o usam saem junto, as de baixo renumeram, e cada linha vai ao log. A recusa por uso (20261031000002) caiu. Aqui não há mais DELETE.
  *
- * Dono do produto, 31/10/2026: "Remover etapa do catálogo que alguma conta usa é RECUSA NOMEADA (empresa · família · número), nunca cascata." As
- * funções são `superadmin_editar_etapa_do_catalogo` e `superadmin_remover_etapa_do_catalogo` (migração 20261031000002), com log. A FK da etapa da
- * conta para o item é ON DELETE RESTRICT.
+ * A função é `superadmin_editar_etapa_do_catalogo` (migração 20261031000002), com log.
  *   - EDITAR: a rota confere o que dá frase em português — o item existe (404), o nome não é o de OUTRO (409, sem olhar a caixa), a forma do corpo
  *     (400) e algo mudou (400); a função confere de novo.
- *   - REMOVER: a rota nomeia o uso (409, empresa · família · etapa N) antes de chamar a função; a função conta de novo com o item travado, e a recusa
- *     dela numa corrida volta com a frase dela (22023 → 409).
  */
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { requireSuperAdmin } from '@/lib/get-caller-tenant'
 import { codigoDoErro, falhaInterna } from '@/lib/atendimentos-ia/repositorio'
-import { editarEtapaDoCatalogo, lerCatalogoDeEtapas, removerEtapaDoCatalogo } from '@/lib/atendimentos-ia/etapas-da-familia'
+import { editarEtapaDoCatalogo, lerCatalogoDeEtapas } from '@/lib/atendimentos-ia/etapas-da-familia'
 import { ehUuid } from '@/utils/atendimentos-ia-catalogo'
 import {
-  ETAPA_DO_CATALOGO_INEXISTENTE, ETAPA_DO_CATALOGO_QUE_NAO_MUDOU, etapaDoCatalogoMudou, fraseDaEtapaDoCatalogoComNomeRepetido, fraseDaEtapaDoCatalogoEmUso,
+  ETAPA_DO_CATALOGO_INEXISTENTE, ETAPA_DO_CATALOGO_QUE_NAO_MUDOU, etapaDoCatalogoMudou, fraseDaEtapaDoCatalogoComNomeRepetido,
   lerCorpoDaEtapaDoCatalogo,
 } from '@/utils/atendimentos-ia-etapas'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method !== 'PATCH' && req.method !== 'DELETE') return res.status(405).json({ error: 'Method not allowed' })
+  if (req.method !== 'PATCH') return res.status(405).json({ error: 'Method not allowed' })
 
   const caller = await requireSuperAdmin(req, res)
   if (!caller) return
@@ -30,7 +27,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const { id } = req.query as { id?: string }
   if (!ehUuid(id)) return res.status(404).json({ error: ETAPA_DO_CATALOGO_INEXISTENTE })
 
-  if (req.method === 'PATCH') {
+  {
     const leitura = lerCorpoDaEtapaDoCatalogo(req.body)
     if (leitura.ok === false) return res.status(400).json({ error: leitura.erro })
     const ed = leitura.corpo
@@ -45,15 +42,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     } catch (e) {
       return recusaDaFuncao(res, e, 'etapa do catalogo PATCH', 'Não foi possível editar a etapa.')
     }
-  }
-
-  try {
-    const atual = (await lerCatalogoDeEtapas()).find((c) => c.id === id)
-    if (!atual) return res.status(404).json({ error: ETAPA_DO_CATALOGO_INEXISTENTE })
-    if (atual.usos.length > 0) return res.status(409).json({ error: fraseDaEtapaDoCatalogoEmUso(atual.nome, atual.usos) })
-    return res.status(200).json(await removerEtapaDoCatalogo({ por: caller.user_id, id }))
-  } catch (e) {
-    return recusaDaFuncao(res, e, 'etapa do catalogo DELETE', 'Não foi possível remover a etapa.')
   }
 }
 

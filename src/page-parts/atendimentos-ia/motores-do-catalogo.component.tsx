@@ -14,6 +14,10 @@
  * ARQUIVAR MOTOR EM USO É PERMITIDO (20261029000005): o botão pede confirmação dizendo que as etapas ficam sem motor, e depois de arquivar a tela
  * lista ONDE repor — empresa, família, número e rótulo de cada etapa que ficou sem motor.
  *
+ * ARQUIVAR E REMOVER COEXISTEM (dono do produto, 31/10/2026; migração 20261031000003): arquivar não apaga; REMOVER apaga o motor e o conteúdo dele,
+ * e as etapas que o apontam ficam sem motor — pela confirmação do arrasto (`RemocaoDoCatalogo`), que mostra o que sai antes de apagar. Remover
+ * vale também para o motor arquivado.
+ *
  * "Novo motor" pede, nesta ordem, CATEGORIA → FORNECEDOR → FAMÍLIAS → ARQUIVO. O MOTOR SERVE N FAMÍLIAS E UMA CATEGORIA (dono do produto,
  * 29/10/2026; migração 20261029000003): "A gente define, bota o arquivo do motor, a qual categoria ele pertence e para quais famílias ele
  * atua." As famílias são escolha livre do catálogo de famílias, PELO MENOS UMA, em qualquer categoria — não se amarram mais a uma tabela do
@@ -37,6 +41,7 @@ import React, { useCallback, useEffect, useState } from 'react'
 import { Alert, Button, Card, Empty, Input, Modal, Popconfirm, Select, Space, Switch, Table, Tag, Typography, Upload, message } from 'antd'
 import { PlusOutlined, UploadOutlined } from '@ant-design/icons'
 import { chamarRota, enviarArquivo } from '@/page-parts/atendimentos-ia/api'
+import { RemocaoDoCatalogo, type AlvoDaRemocao } from '@/page-parts/atendimentos-ia/remocao-do-catalogo.component'
 import { type Categoria, type Familia, type FornecedorDaLista } from '@/utils/atendimentos-ia-catalogo'
 import {
     ANCORA_DO_CATALOGO_DE_MOTORES, LIMITE_DO_NOME_DO_MOTOR, MOTOR_COM_USO_NAO_SE_EDITA, MOTOR_SEM_USO, ROTAS_DOS_MOTORES, etapasQueFicaramSemMotor,
@@ -96,6 +101,7 @@ export function MotoresDoCatalogo({ fornecedores, categorias, familias }: { forn
     const [salvandoEdicao, setSalvandoEdicao] = useState(false)
     const [erroAoEditar, setErroAoEditar] = useState<string | null>(null)
     const [erroAoCriar, setErroAoCriar] = useState<string | null>(null)
+    const [removendo, setRemovendo] = useState<AlvoDaRemocao | null>(null)
 
     const carregar = useCallback(async () => {
         setErroAoLer(null)
@@ -121,6 +127,12 @@ export function MotoresDoCatalogo({ fornecedores, categorias, familias }: { forn
     const visiveis = (motores ?? []).filter((m) => doNicho.has(m.fornecedor_id) && (verArquivados || m.arquivado_em === null))
     const doMotor = novo.categoria === null ? [] : fornecedoresDaCategoria(fornecedores, novo.categoria)
     const completo = novo.fornecedor_id !== null && novo.categoria !== null && novo.familias.length > 0 && novo.arquivo !== null && nomeAceito(novo.nome)
+
+    const botaoDeRemover = (m: MotorDoCatalogo) => (
+        <Button size="small" danger type="text" onClick={() => setRemovendo({ tipo: 'motor', chave: m.id, nome: m.nome })} aria-label={`Remover ${m.nome}`} data-remover-motor>
+            Remover
+        </Button>
+    )
 
     async function arquivar(m: MotorDoCatalogo) {
         setArquivando(m.id)
@@ -268,7 +280,7 @@ export function MotoresDoCatalogo({ fornecedores, categorias, familias }: { forn
                             {
                                 title: '',
                                 align: 'right',
-                                render: (_, m) => (m.arquivado_em !== null ? null : (
+                                render: (_, m) => (m.arquivado_em !== null ? botaoDeRemover(m) : (
                                     <Space size={4} wrap style={{ justifyContent: 'flex-end' }}>
                                         {/* trocar o arquivo é MOTOR NOVO: vale também com uso (as famílias passam ao novo) */}
                                         <Button size="small" onClick={() => abrirTroca(m)} aria-label={`Trocar o arquivo de ${m.nome}`} data-trocar-arquivo>Trocar arquivo</Button>
@@ -281,6 +293,7 @@ export function MotoresDoCatalogo({ fornecedores, categorias, familias }: { forn
                                                 Arquivar
                                             </Button>
                                         </Popconfirm>
+                                        {botaoDeRemover(m)}
                                     </Space>
                                 )),
                             },
@@ -357,6 +370,8 @@ export function MotoresDoCatalogo({ fornecedores, categorias, familias }: { forn
                     {erroAoEditar && <Alert type="error" showIcon message="O motor não foi editado." description={erroAoEditar} data-erro-ao-editar />}
                 </Space>
             </Modal>
+            <RemocaoDoCatalogo alvo={removendo} onFechar={() => setRemovendo(null)}
+                onRemovido={() => { setRemovendo(null); message.success('Motor removido'); carregar() }} />
         </Card>
     )
 }

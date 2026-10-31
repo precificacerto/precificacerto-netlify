@@ -49,6 +49,8 @@ export const SEM_ETAPAS_NO_CATALOGO = 'O catálogo de etapas está vazio: cadast
 /** O item do catálogo que a etapa aponta e a lista não traz: nunca esconder o que está gravado. */
 export const ITEM_FORA_DA_LISTA = (id: string) => `(etapa do catálogo ${id.slice(0, 8)}…, fora da lista)`
 export const FAMILIA_PRONTA = 'A família está pronta: todas as etapas salvas têm motor.'
+/** A falta de configuração é ERRO (dono do produto, 31/10/2026): cada linha nomeia o que falta e manda ver a configuração. */
+export const FAMILIA_NAO_EXECUTA = 'A família não executa enquanto faltar configuração:'
 export const FAMILIA_NAO_PRONTA = 'A família não calcula enquanto houver etapa sem motor (do que está salvo):'
 /** A frase da etapa sem motor, com a primeira letra maiúscula para a lista da tela. */
 const naLista = (e: EtapaSemMotor) => { const f = fraseDaEtapaSemMotor(e); return `${f[0].toUpperCase()}${f.slice(1)}.` }
@@ -74,6 +76,8 @@ export function EtapasDaFamilia({ tenantId, materiaPrimaId, principais = [], rot
     const [catalogo, setCatalogo] = useState<EtapaDoCatalogo[] | null>(null)
     /** O que a rota diz da família salva; null quando a resposta não trouxe (a tela não afirma pronta nem não pronta sem o dado). */
     const [prontidao, setProntidao] = useState<{ pronta: boolean; semMotor: EtapaSemMotor[] } | null>(null)
+    /** As faltas de configuração que a rota conferiu (31/10/2026); null quando a resposta não trouxe — a tela não afirma "nenhuma falta" sem o dado. */
+    const [faltas, setFaltas] = useState<string[] | null>(null)
     const [rascunho, setRascunho] = useState<EtapaNoRascunho[]>([])
     const [erroAoLer, setErroAoLer] = useState<string | null>(null)
     const [erroAoSalvar, setErroAoSalvar] = useState<string | null>(null)
@@ -83,13 +87,14 @@ export function EtapasDaFamilia({ tenantId, materiaPrimaId, principais = [], rot
         setErroAoLer(null)
         try {
             const r = await chamarRota<{
-                familia: string | null; etapas: EtapaDaFamilia[]; motores?: MotorDoCatalogo[]; catalogo?: EtapaDoCatalogo[]; pronta?: boolean; etapas_sem_motor?: EtapaSemMotor[]
+                familia: string | null; etapas: EtapaDaFamilia[]; motores?: MotorDoCatalogo[]; catalogo?: EtapaDoCatalogo[]; pronta?: boolean; etapas_sem_motor?: EtapaSemMotor[]; erros_de_configuracao?: unknown
             }>(rotaDasEtapas(tenantId, materiaPrimaId))
             setGravadas(r.etapas)
             setFamilia(r.familia)
             setMotores(r.motores ?? [])
             setCatalogo(Array.isArray(r.catalogo) ? r.catalogo : null)
             setProntidao(typeof r.pronta === 'boolean' && Array.isArray(r.etapas_sem_motor) ? { pronta: r.pronta, semMotor: r.etapas_sem_motor } : null)
+            setFaltas(Array.isArray(r.erros_de_configuracao) && r.erros_de_configuracao.every((x) => typeof x === 'string') ? r.erros_de_configuracao as string[] : null)
             setRascunho(rascunhoDasEtapas(r.etapas))
         } catch (e) {
             setGravadas(null)
@@ -142,7 +147,11 @@ export function EtapasDaFamilia({ tenantId, materiaPrimaId, principais = [], rot
                 </Space>
             </Typography.Paragraph>
             {rascunho.length === 0 && <Typography.Paragraph type="secondary" data-sem-etapas>{SEM_ETAPAS}</Typography.Paragraph>}
-            {prontidao?.pronta === true && <Alert type="success" showIcon style={{ marginBottom: 12 }} message={FAMILIA_PRONTA} data-familia-pronta />}
+            {faltas !== null && faltas.length > 0 && (
+                <Alert type="error" showIcon style={{ marginBottom: 12 }} message={FAMILIA_NAO_EXECUTA} data-faltas-de-configuracao
+                    description={<ul style={{ margin: 0, paddingLeft: 16 }}>{faltas.map((f) => <li key={f} data-falta-de-configuracao>{f}</li>)}</ul>} />
+            )}
+            {prontidao?.pronta === true && (faltas === null || faltas.length === 0) && <Alert type="success" showIcon style={{ marginBottom: 12 }} message={FAMILIA_PRONTA} data-familia-pronta />}
             {prontidao?.pronta === false && prontidao.semMotor.length > 0 && (
                 <Alert type="warning" showIcon style={{ marginBottom: 12 }} message={FAMILIA_NAO_PRONTA} data-familia-nao-pronta
                     description={<ul style={{ margin: 0, paddingLeft: 16 }}>{prontidao.semMotor.map((e) => <li key={e.id} data-etapa-sem-motor={e.numero}>{naLista(e)}</li>)}</ul>} />

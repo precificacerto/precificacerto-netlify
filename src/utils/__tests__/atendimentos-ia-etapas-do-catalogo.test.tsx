@@ -3,7 +3,7 @@
  *
  * POR QUÊ: "Vamos criar a aba das etapas para que a gente consiga partir dela, alimentar ela, fazer as integrações, as divisões corretas, informando
  * onde vai cada coisa." O item é o NOME, a AÇÃO (da lista fechada) e as ABAS do motor que a etapa carrega; a conta SELECIONA o item e guarda a
- * instrução. "Remover etapa do catálogo que alguma conta usa é RECUSA NOMEADA (empresa · família · número), nunca cascata."
+ * instrução. (A recusa por uso da 20261031000002 caiu em 31/10/2026: remover é o arrasto declarado — "o catálogo é soberano".)
  *
  * O que este portão fica vermelho:
  *   (1) o leitor do corpo: o nome de 1 a 60 sem as pontas, a ação da lista, as abas da planilha sem repetir (na ordem da planilha); campo a mais é
@@ -12,9 +12,9 @@
  *   (3) POST: o nome repetido sem olhar a caixa é 409 antes da função; a função recebe o autor da sessão e o corpo limpo; a recusa dela vai com a
  *       frase dela; só o super admin;
  *   (4) PATCH: 404 do item que não há; 409 do nome de OUTRO (o próprio em outra caixa vale); 400 de nada mudou; a função recebe o id da URL;
- *   (5) DELETE: o item em uso é 409 NOMEANDO cada uso, e a função NÃO é chamada; sem uso, só a função; a recusa dela numa corrida vai com a frase dela;
+ *   (5) DELETE não existe mais (405): remover é a rota do arrasto (`atendimentos-ia-remocao.test.tsx`);
  *   (6) a TELA: a lista com a ação, as abas e quem usa; criar e editar no modal (salvar só liga com nome e ação, e na edição quando mudou); a
- *       edição de item em uso avisa quantas etapas a mudança alcança; remover pede confirmação, e a recusa aparece DENTRO do modal;
+ *       edição de item em uso avisa quantas etapas a mudança alcança; remover abre o arrasto e só remove confirmado;
  *   (7) a página do nicho tem a quarta aba, Etapas, depois de Motores.
  *
  * O que NÃO alcança: o banco é falso aqui. As travas (nome único sem caixa, FK RESTRICT, uso, corridas, o semeio literal) estão provadas num Postgres
@@ -29,6 +29,7 @@ import {
     ABAS_DA_ETAPA, ETAPA_DO_CATALOGO_QUE_NAO_MUDOU, ROTULO_DA_ABA, ROTULO_DA_ACAO, etapaDoCatalogoMudou, fraseDaEtapaDoCatalogoComNomeRepetido,
     lerCorpoDaEtapaDoCatalogo, rotaDaEtapaDoCatalogo, rotaDoCatalogoDeEtapas, type EtapaDoCatalogo,
 } from '@/utils/atendimentos-ia-etapas'
+import { ROTA_DA_REMOCAO, rotaDoArrasto } from '@/utils/atendimentos-ia-remocao'
 import { ABAS_DO_NICHO, ROTULO_DA_ABA_DO_NICHO, abaDoNicho, rotaDoNicho } from '@/utils/atendimentos-ia-catalogo'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -262,23 +263,9 @@ describe('(4) PATCH /etapas/[id]', () => {
     })
 })
 
-describe('(5) DELETE /etapas/[id]: em uso é RECUSA NOMEADA, nunca cascata', () => {
-    it('o item em uso: 409 nomeando CADA uso (empresa · família · etapa N), e a função NÃO é chamada', async () => {
-        const r = await chamar('item', 'DELETE', { id: C3 })
-        expect(r).toEqual({ status: 409, json: { error: 'A etapa "Relação de barras e materiais" do catálogo está em uso: Alfa Esquadrias · PVC da Alfa · etapa 2; Esquadrias De Paula Ltda · Esquadrias de PVC WOLF · etapa 3. Tire o uso antes de remover.' } })
-        expect(estado.rpcs).toEqual([])
-    })
-    it('sem uso: só a função, com o autor da sessão e o id', async () => {
-        expect((await chamar('item', 'DELETE', { id: C2 })).status).toBe(200)
-        expect(estado.rpcs).toEqual([{ funcao: 'superadmin_remover_etapa_do_catalogo', args: { p_por: 'u-super', p_id: C2 } }])
-    })
-    it('numa corrida, a recusa da função (que conta de novo com o item travado) vai com a frase dela', async () => {
-        const frase = 'a etapa "Conferência" do catalogo esta em uso em 1 etapa(s) de conta (X / Y / etapa 1). Tire o uso antes de remover. Nada foi removido.'
-        estado.rpcResposta = () => ({ data: null, error: { code: '22023', message: frase } })
-        expect(await chamar('item', 'DELETE', { id: C2 })).toEqual({ status: 409, json: { error: frase } })
-    })
-    it('o item que não há é 404, sem chamar a função', async () => {
-        expect((await chamar('item', 'DELETE', { id: '00000000-0000-4000-8000-0000000000cf' })).status).toBe(404)
+describe('(5) DELETE /etapas/[id] não existe mais: remover é o arrasto declarado (31/10/2026, migração 20261031000003)', () => {
+    it('DELETE é 405, e nada é lido nem chamado — nem para o item em uso', async () => {
+        for (const id of [C3, C2]) expect((await chamar('item', 'DELETE', { id })).status).toBe(405)
         expect(estado.rpcs).toEqual([])
     })
 })
@@ -288,6 +275,15 @@ const ITENS: EtapaDoCatalogo[] = [
     { id: C1, nome: 'Apanhado e levantamento de esquadrias', acao: 'GERAR_LEVANTAMENTO', abas: ['tipologias', 'variaveis'], ordem: 1, criado_em: '2026-10-31', usos: [{ empresa: 'Esquadrias De Paula Ltda', familia: 'Esquadrias de PVC WOLF', numero: 1 }] },
     { id: C2, nome: 'Conferência', acao: 'CONFIRMAR', abas: [], ordem: 2, criado_em: '2026-10-31', usos: [] },
 ]
+/** A medição do item em uso: a etapa da conta sai com ele, e as de baixo sobem (o aviso da renumeração). */
+const ARRASTO_DE_C1 = {
+    tipo: 'etapa', chave: C1, nome: 'Apanhado e levantamento de esquadrias', sai: 2, perde_o_vinculo: 0, assinatura: 'd'.repeat(32), ficam: [] as unknown[], impedimentos: [] as unknown[],
+    avisos: [{ tipo: 'renumeracao' }],
+    passos: [
+        { passo: 1, tabela: 'orcamentista_familia_etapa', acao: 'sai', rotulo: 'etapa de conta', quantidade: 1, nomes: ['Esquadrias De Paula Ltda / Esquadrias de PVC WOLF / etapa 1'], mais: 0 },
+        { passo: 2, tabela: 'orcamentista_etapa_catalogo', acao: 'sai', rotulo: 'etapa do catalogo', quantidade: 1, nomes: ['Apanhado e levantamento de esquadrias'], mais: 0 },
+    ],
+}
 let respostas: Record<string, { status: number; body: unknown }> = {}
 const pedidos: Array<{ chave: string; corpo: any }> = []
 function montarFetch() {
@@ -297,7 +293,8 @@ function montarFetch() {
         [`POST ${rotaDoCatalogoDeEtapas}`]: { status: 201, body: {} },
         [`PATCH ${rotaDaEtapaDoCatalogo(C1)}`]: { status: 200, body: {} },
         [`PATCH ${rotaDaEtapaDoCatalogo(C2)}`]: { status: 200, body: {} },
-        [`DELETE ${rotaDaEtapaDoCatalogo(C2)}`]: { status: 200, body: {} },
+        [`GET ${rotaDoArrasto('etapa', C1)}`]: { status: 200, body: ARRASTO_DE_C1 },
+        [`POST ${ROTA_DA_REMOCAO}`]: { status: 200, body: { ...ARRASTO_DE_C1, removido: true } },
     }
     ;(globalThis as { fetch: unknown }).fetch = jest.fn(async (url: string, init?: { method?: string; body?: string }) => {
         const chave = `${init?.method ?? 'GET'} ${url}`
@@ -411,15 +408,19 @@ describe('(6) a tela do catálogo de etapas', () => {
         expect(modal().querySelector('[data-edicao-com-uso]')).toBeNull()
     })
 
-    it('remover pede confirmação; confirmado manda DELETE; a recusa nomeada aparece DENTRO do modal', async () => {
-        respostas[`DELETE ${rotaDaEtapaDoCatalogo(C1)}`] = { status: 409, body: { error: 'A etapa "Apanhado e levantamento de esquadrias" do catálogo está em uso: Esquadrias De Paula Ltda · Esquadrias de PVC WOLF · etapa 1. Tire o uso antes de remover.' } }
+    it('remover o item EM USO abre o arrasto: a etapa da conta que sai, o aviso da renumeração, e só remove confirmado; a lista é relida', async () => {
         const host = await montar()
         await clicar(botao(host, 'Remover Apanhado e levantamento de esquadrias'))
-        expect(modal().textContent).toContain(Componente().fraseDaRemocaoDaEtapa('Apanhado e levantamento de esquadrias'))
-        expect(pedidos.filter((p) => p.chave.startsWith('DELETE '))).toEqual([])
+        expect(pedidos.map((p) => p.chave).pop()).toBe(`GET ${rotaDoArrasto('etapa', C1)}`)
+        const remocao = document.body.querySelector('[data-remocao-do-catalogo]') as HTMLElement
+        expect(remocao.querySelector('[data-o-que-sai]')!.textContent).toContain('Esquadrias De Paula Ltda / Esquadrias de PVC WOLF / etapa 1')
+        expect(remocao.querySelector('[data-aviso-do-arrasto="renumeracao"]')).not.toBeNull()
+        expect(ok().disabled).toBe(true)
+        await clicar(remocao.querySelector('[data-confirmo-o-arrasto] input'))
+        const n = pedidos.length
         await clicar(ok())
-        expect(pedidos.filter((p) => p.chave.startsWith('DELETE ')).map((p) => p.chave)).toEqual([`DELETE ${rotaDaEtapaDoCatalogo(C1)}`])
-        expect(modal().querySelector('[data-erro-ao-remover-etapa]')?.textContent).toContain('Esquadrias De Paula Ltda · Esquadrias de PVC WOLF · etapa 1')
+        expect(pedidos.slice(n).map((p) => p.chave)).toEqual([`POST ${ROTA_DA_REMOCAO}`, `GET ${rotaDoCatalogoDeEtapas}`])
+        expect(pedidos[n].corpo).toEqual({ tipo: 'etapa', chave: C1, assinatura: 'd'.repeat(32), confirmo: true })
     })
 })
 

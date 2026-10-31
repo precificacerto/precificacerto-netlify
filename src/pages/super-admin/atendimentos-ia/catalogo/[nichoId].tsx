@@ -118,7 +118,7 @@ export default function NichoDoCatalogo() {
         }
     }
 
-    /** As três ações da aba Famílias: null quando gravou (e o catálogo é relido); a frase da recusa, para o modal mostrar. */
+    /** As ações de criar e editar da aba Famílias (remover é a confirmação do arrasto, `RemocaoDoCatalogo`): null quando gravou (e o catálogo é relido); a frase da recusa, para o modal mostrar. */
     async function naFamilia(gravar: () => Promise<unknown>, sucesso: string): Promise<string | null> {
         try {
             await gravar()
@@ -131,13 +131,13 @@ export default function NichoDoCatalogo() {
     }
     const criarFamilia = (d: DadosDaFamilia) => naFamilia(() => chamarRota(ROTAS_DO_CATALOGO.familias, 'POST', d), 'Família acrescentada')
     const editarFamilia = (chave: string, d: DadosDaFamilia) => naFamilia(() => chamarRota(ROTAS_DO_CATALOGO.familia(chave), 'PATCH', d), 'Família alterada')
-    const removerFamilia = (chave: string) => naFamilia(() => chamarRota(ROTAS_DO_CATALOGO.familia(chave), 'DELETE'), 'Família removida')
+    const familiaRemovida = () => { message.success('Família removida'); carregar() }
 
     const conteudo: Record<AbaDoNicho, React.ReactNode> = {
         familias: (
             <div data-aba-familias>
                 <Alert type="info" showIcon style={{ marginBottom: 12 }} message={AVISO_DA_FAMILIA_GLOBAL} data-familia-global />
-                <FamiliasCard familias={familias} categorias={categorias} onCriar={criarFamilia} onEditar={editarFamilia} onRemover={removerFamilia} />
+                <FamiliasCard familias={familias} categorias={categorias} onCriar={criarFamilia} onEditar={editarFamilia} onRemovida={familiaRemovida} />
             </div>
         ),
         fornecedores: (

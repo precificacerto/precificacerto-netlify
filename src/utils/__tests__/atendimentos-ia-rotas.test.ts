@@ -36,6 +36,11 @@ jest.mock('@/supabase/admin', () => ({
 
 /** A ordem em que o repositório foi chamado — é com ela que se afirma "a linha antes do Storage". */
 const ordem: string[] = []
+/** Uma medição do arrasto na forma que a rota confere (`lerArrasto`). */
+function mockArrasto(tipo: string, chave: string) {
+    const vazio: unknown[] = []
+    return { tipo, chave, nome: 'Alumínio Sul', passos: vazio, ficam: vazio, avisos: vazio, impedimentos: vazio, sai: 0, perde_o_vinculo: 0, assinatura: 'a'.repeat(32) }
+}
 jest.mock('@/lib/atendimentos-ia/repositorio', () => {
     const real = jest.requireActual('@/lib/atendimentos-ia/repositorio')
     const fn = (nome: string, impl: (...a: any[]) => any) => jest.fn(async (...a: any[]) => { ordem.push(nome); return impl(...a) })
@@ -51,8 +56,8 @@ jest.mock('@/lib/atendimentos-ia/repositorio', () => {
         obterFornecedor: fn('obterFornecedor', () => null),
         criarFornecedor: fn('criarFornecedor', () => ({ id: F })),
         atualizarFornecedor: fn('atualizarFornecedor', () => 1),
-        excluirFornecedor: fn('excluirFornecedor', () => 1),
-        quemSeguraOFornecedor: fn('quemSeguraOFornecedor', () => ({ tabelas: [], contas: [] })),
+        medirArrastoDoCatalogo: fn('medirArrastoDoCatalogo', (a: any) => mockArrasto(a.tipo, a.chave)),
+        removerDoCatalogo: fn('removerDoCatalogo', (a: any) => ({ ...mockArrasto(a.tipo, a.chave), removido: true })),
         fornecedorExiste: fn('fornecedorExiste', () => true),
         obterTabela: fn('obterTabela', () => ({ id: T, fornecedor_id: F, arquivo_path: `${F}/arquivo/x-t.xlsx`, motor_path: `${F}/motor/x-m.xlsx`, familia: 'PVC' })),
         criarTabela: fn('criarTabela', () => ({ id: T })),
@@ -90,6 +95,7 @@ const ROTAS: Record<string, Rota> = {
     urlDeEnvio: require('@/pages/api/super-admin/atendimentos-ia/tabelas/url-de-envio').default,
     tabelas: require('@/pages/api/super-admin/atendimentos-ia/tabelas/index').default,
     tabela: require('@/pages/api/super-admin/atendimentos-ia/tabelas/[id]').default,
+    remover: require('@/pages/api/super-admin/atendimentos-ia/catalogo/remover').default,
 }
 /* eslint-enable @typescript-eslint/no-require-imports */
 
@@ -122,7 +128,9 @@ const CADA_ROTA: [keyof typeof ROTAS, string, object, unknown][] = [
     ['fornecedores', 'POST', {}, { nome: 'Alumínio Sul', nicho_id: N }],
     ['fornecedor', 'GET', { id: F }, undefined],
     ['fornecedor', 'PATCH', { id: F }, { nome: 'Alumínio Sul', nicho_id: N }],
-    ['fornecedor', 'DELETE', { id: F }, undefined],
+    // remover o fornecedor é a rota do arrasto (31/10/2026): medir e remover
+    ['remover', 'GET', { tipo: 'fornecedor', chave: F }, undefined],
+    ['remover', 'POST', {}, { tipo: 'fornecedor', chave: F, assinatura: 'a'.repeat(32), confirmo: true }],
     ['urlDeEnvio', 'POST', {}, { fornecedor_id: F, tipo: 'motor', nome: 'motor.xlsx' }],
     ['tabelas', 'POST', {}, CORPO_DA_TABELA],
     ['tabela', 'PATCH', { id: T }, { vigencia: '01/07 a 30/09/2026' }],
@@ -236,13 +244,10 @@ describe('PORTÃO — excluir o que está em uso devolve QUEM usa', () => {
         expect(repo.removerObjetos).not.toHaveBeenCalled()
     })
 
-    it('fornecedor com tabela → 409 com as tabelas e as contas', async () => {
-        repo.excluirFornecedor.mockImplementationOnce(async () => { ordem.push('excluirFornecedor'); return emUso() })
-        repo.quemSeguraOFornecedor.mockImplementationOnce(async () => { ordem.push('quem'); return { tabelas: ['perfis-out.xlsx'], contas: ['Marcenaria Silva'] } })
+    it('fornecedor: DELETE não existe mais (405) — remover é a rota do arrasto, que mede antes e só remove confirmado', async () => {
         const r = await chamar('fornecedor', 'DELETE', { id: F })
-        expect(r.status).toBe(409)
-        expect(r.json.error).toContain('perfis-out.xlsx')
-        expect(r.json.error).toContain('Marcenaria Silva')
+        expect(r.status).toBe(405)
+        expect(chamadasAoRepositorio()).toBe(0)
     })
 
     it('nicho em uso → 409 com os fornecedores e as contas', async () => {

@@ -11,11 +11,11 @@
  *   (2) POST /familias: categoria fora do catálogo é 400 antes da função;
  *   (3) PATCH /familias/[chave]: 404 da família que não há; 409 do nome de OUTRA (a própria em outra caixa vale); 400 de fora do catálogo e de
  *       nada mudou; a função recebe o autor da sessão, a chave da URL, o nome e as ramificações; a recusa dela vai com a frase dela;
- *   (4) DELETE /familias/[chave]: chama SÓ a função; a recusa nomeada (22023) é 409 com a frase do banco; P0002 é 404; erro outro é 500 sem o
- *       texto do banco; só o super admin;
+ *   (4) DELETE /familias/[chave] não existe mais (405): remover é o arrasto declarado (dono do produto, 31/10/2026; migração 20261031000003 —
+ *       a recusa por uso caiu: "o catálogo é soberano");
  *   (5) a TELA: a lista com as categorias de cada família; criar e editar no modal — salvar só liga com nome e ao menos uma categoria (e, na
- *       edição, quando algo mudou); as categorias vão na ORDEM DO CATÁLOGO, não na do clique; remover pede confirmação; a recusa aparece DENTRO
- *       do modal, que não fecha;
+ *       edição, quando algo mudou); as categorias vão na ORDEM DO CATÁLOGO, não na do clique; remover abre a confirmação do arrasto (mede, mostra,
+ *       só remove confirmado); a recusa de criar e editar aparece DENTRO do modal, que não fecha;
  *   (6) a PÁGINA DO NICHO liga as três ações às rotas e relê o catálogo.
  *
  * O que NÃO alcança: o banco é falso aqui. A trava (nome único, ramificação do catálogo, uso, FK RESTRICT, corridas) está provada num Postgres
@@ -30,6 +30,7 @@ import {
     FAMILIA_SEM_RAMIFICACAO, RAMIFICACAO_REPETIDA, RAMIFICACOES_INVALIDAS, ROTAS_DO_CATALOGO, familiaNaoMudou, fraseDaFamiliaComNomeRepetido,
     lerEdicaoDaFamilia, lerFamiliaNova, recusada, type FamiliaDoCatalogo,
 } from '@/utils/atendimentos-ia-catalogo'
+import { ROTA_DA_REMOCAO, rotaDoArrasto } from '@/utils/atendimentos-ia-remocao'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 jest.setTimeout(20000)
@@ -72,7 +73,6 @@ jest.mock('@/lib/atendimentos-ia/repositorio', () => {
         listarCategorias: jest.fn(async () => CATEGORIAS.map((c) => ({ ...c }))),
         criarFamilia: jest.fn(async () => ({ ok: true })),
         editarFamilia: jest.fn(async () => ({ ok: true })),
-        removerFamilia: jest.fn(async () => ({ removida: 'VECA' })),
     }
 })
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -106,7 +106,6 @@ beforeEach(() => {
 const nenhumaEscrita = () => {
     expect(repo.criarFamilia).not.toHaveBeenCalled()
     expect(repo.editarFamilia).not.toHaveBeenCalled()
-    expect(repo.removerFamilia).not.toHaveBeenCalled()
 }
 
 describe('(1) os leitores do corpo', () => {
@@ -173,7 +172,6 @@ describe('(3) PATCH /familias/[chave] — editar o nome e as ramificações', ()
         expect(r.status).toBe(200)
         expect(repo.editarFamilia).toHaveBeenCalledWith({ por: SUPER.id, chave: 'PVC', rotulo: 'PVC Wolff', ramificacoes: ['VIDRO', 'PERFIL', 'FERRAGENS'] })
         expect(repo.criarFamilia).not.toHaveBeenCalled()
-        expect(repo.removerFamilia).not.toHaveBeenCalled()
     })
 
     it('a família que não há (ou chave fora da forma) é 404; o nome de OUTRA é 409 nomeando-a; a PRÓPRIA em outra caixa vale', async () => {
@@ -205,39 +203,28 @@ describe('(3) PATCH /familias/[chave] — editar o nome e as ramificações', ()
     })
 })
 
-describe('(4) DELETE /familias/[chave] — remover; em uso é RECUSA NOMEADA', () => {
-    const remover = (chave: string) => chamar('familia', 'DELETE', { chave })
-
-    it('chama SÓ a função, com o autor da sessão e a chave', async () => {
-        expect((await remover('VECA')).status).toBe(200)
-        expect(repo.removerFamilia).toHaveBeenCalledWith({ por: SUPER.id, chave: 'VECA' })
-        expect(repo.editarFamilia).not.toHaveBeenCalled()
-    })
-
-    it('em uso (22023): 409 com a frase do banco, que nomeia quem usa; P0002: 404; outro erro: 500 sem o texto do banco', async () => {
-        const frase = 'a familia "PVC Wolf" esta em uso: 1 materia(s)-prima(s) (Esquadrias De Paula Ltda / Esquadrias de PVC WOLF); 3 etapa(s). Tire o uso antes de remover. Nada foi removido.'
-        repo.removerFamilia.mockRejectedValueOnce(new ErroDoBanco({ code: '22023', message: frase }))
-        expect(await remover('PVC')).toEqual({ status: 409, json: { error: frase } })
-        repo.removerFamilia.mockRejectedValueOnce(new ErroDoBanco({ code: 'P0002', message: 'familia inexistente' }))
-        expect(await remover('NAO_HA')).toEqual({ status: 404, json: { error: 'Família não encontrada.' } })
-        repo.removerFamilia.mockRejectedValueOnce(new ErroDoBanco({ code: '23503', message: 'segredo do banco' }))
-        expect(await remover('VECA')).toEqual({ status: 500, json: { error: 'Não foi possível remover a família.' } })
-    })
-
-    it('só o super admin; método errado é 405', async () => {
-        perfil = ADMIN
-        expect((await remover('VECA')).status).toBe(403)
-        expect(repo.removerFamilia).not.toHaveBeenCalled()
-        perfil = SUPER
+describe('(4) DELETE /familias/[chave] não existe mais: remover é o arrasto declarado (31/10/2026, migração 20261031000003)', () => {
+    it('DELETE é 405 e nada é chamado; a rota segue só com PATCH', async () => {
+        expect((await chamar('familia', 'DELETE', { chave: 'VECA' })).status).toBe(405)
+        nenhumaEscrita()
         expect((await chamar('familia', 'GET', { chave: 'VECA' })).status).toBe(405)
     })
 })
 
 // ── (5) a TELA e (6) a PÁGINA ──────────────────────────────────────────────────────────────────
 type Dados = { rotulo: string; ramificacoes: string[] }
-type Card = React.ComponentType<{ familias: FamiliaDoCatalogo[]; categorias: typeof CATEGORIAS; onCriar: (d: Dados) => Promise<string | null>; onEditar: (c: string, d: Dados) => Promise<string | null>; onRemover: (c: string) => Promise<string | null> }>
+type Card = React.ComponentType<{ familias: FamiliaDoCatalogo[]; categorias: typeof CATEGORIAS; onCriar: (d: Dados) => Promise<string | null>; onEditar: (c: string, d: Dados) => Promise<string | null>; onRemovida: () => void }>
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const C = () => require('@/page-parts/atendimentos-ia/familias.component') as { FamiliasCard: Card; AVISO_DA_REMOCAO_DA_FAMILIA: string; fraseDaRemocao: (r: string) => string }
+const C = () => require('@/page-parts/atendimentos-ia/familias.component') as { FamiliasCard: Card }
+/** A medição que a rota do arrasto devolve, na forma que a tela confere. */
+const arrastoDe = (chave: string, rotulo: string) => ({
+    tipo: 'familia', chave, nome: rotulo, sai: 2, perde_o_vinculo: 1, assinatura: 'b'.repeat(32), avisos: [] as unknown[], impedimentos: [] as unknown[], ficam: [] as unknown[],
+    passos: [
+        { passo: 1, tabela: 'orcamentista_materia_prima', acao: 'perde_o_vinculo', rotulo: 'materia-prima de conta (fica, sem tipo)', quantidade: 1, nomes: ['Esquadrias De Paula Ltda / Esquadrias de PVC WOLF'], mais: 0 },
+        { passo: 2, tabela: 'orcamentista_familia_ramificacao', acao: 'sai', rotulo: 'ramificacao da familia', quantidade: 1, nomes: ['PERFIL'], mais: 0 },
+        { passo: 3, tabela: 'orcamentista_familia_catalogo', acao: 'sai', rotulo: 'familia', quantidade: 1, nomes: [rotulo], mais: 0 },
+    ],
+})
 const FAMILIAS: FamiliaDoCatalogo[] = [
     { chave: 'VECA', rotulo: 'PVC Veca', ordem: 2, ramificacoes: ['PERFIL'] },
     { chave: 'PVC', rotulo: 'PVC Wolf', ordem: 1, ramificacoes: ['PERFIL', 'VIDRO'] },
@@ -275,10 +262,10 @@ async function digitar(input: HTMLInputElement, valor: string) {
 const marcar = (chave: string) => clicar(modal()!.querySelector(`[data-categoria-da-familia="${chave}"] input`))
 const marcadas = () => Array.from(modal()!.querySelectorAll('[data-categoria-da-familia] input')).filter((i) => (i as HTMLInputElement).checked).map((i) => i.closest('[data-categoria-da-familia]')!.getAttribute('data-categoria-da-familia'))
 
-function card(o: Partial<{ onCriar: (d: Dados) => Promise<string | null>; onEditar: (c: string, d: Dados) => Promise<string | null>; onRemover: (c: string) => Promise<string | null> }> = {}) {
+function card(o: Partial<{ onCriar: (d: Dados) => Promise<string | null>; onEditar: (c: string, d: Dados) => Promise<string | null>; onRemovida: () => void }> = {}) {
     return React.createElement(C().FamiliasCard, {
         familias: FAMILIAS, categorias: CATEGORIAS,
-        onCriar: o.onCriar ?? (async () => null), onEditar: o.onEditar ?? (async () => null), onRemover: o.onRemover ?? (async () => null),
+        onCriar: o.onCriar ?? (async () => null), onEditar: o.onEditar ?? (async () => null), onRemovida: o.onRemovida ?? (() => {}),
     })
 }
 
@@ -342,19 +329,26 @@ describe('(5) a TELA da aba Famílias', () => {
         expect(ok('Salvar').disabled).toBe(true)
     })
 
-    it('REMOVER pede confirmação, chama com a chave; a recusa nomeada aparece DENTRO do modal da remoção, que não fecha', async () => {
-        const removidas: string[] = []
-        const frase = 'a familia "PVC Wolf" esta em uso: 1 materia(s)-prima(s) (Esquadrias De Paula Ltda / Esquadrias de PVC WOLF). Tire o uso antes de remover. Nada foi removido.'
-        const host = await montar(card({ onRemover: async (c) => { removidas.push(c); return c === 'PVC' ? frase : null } }))
+    it('REMOVER abre a confirmação do ARRASTO: mede pela rota (sem apagar), mostra o que sai e o que perde o vínculo, e só remove confirmado', async () => {
+        const pedidos: Array<{ chave: string; corpo: unknown }> = []
+        ;(globalThis as { fetch: unknown }).fetch = jest.fn(async (url: string, init?: { method?: string; body?: string }) => {
+            pedidos.push({ chave: `${init?.method ?? 'GET'} ${url}`, corpo: init?.body ? JSON.parse(init.body) : undefined })
+            const corpo = init?.method === 'POST' ? { ...arrastoDe('PVC', 'PVC Wolf'), removido: true } : arrastoDe('PVC', 'PVC Wolf')
+            return { ok: true, status: 200, json: async () => corpo } as Response
+        })
+        let removidas = 0
+        const host = await montar(card({ onRemovida: () => { removidas += 1 } }))
         await clicar(botao(host, 'Remover PVC Wolf'))
-        expect(removidas).toEqual([])
-        const remocao = document.body.querySelector('[data-modal-da-remocao]') as HTMLElement
-        expect(remocao.textContent).toContain(C().AVISO_DA_REMOCAO_DA_FAMILIA)
-        expect(document.body.textContent).toContain(C().fraseDaRemocao('PVC Wolf'))
+        expect(pedidos.map((p) => p.chave)).toEqual([`GET ${rotaDoArrasto('familia', 'PVC')}`])
+        const remocao = document.body.querySelector('[data-remocao-do-catalogo]') as HTMLElement
+        expect(remocao.querySelector('[data-o-que-sai]')!.textContent).toContain('família do catálogo')
+        expect(remocao.querySelector('[data-o-que-perde-o-vinculo]')!.textContent).toContain('Esquadrias De Paula Ltda / Esquadrias de PVC WOLF')
+        expect(ok('Remover').disabled).toBe(true)
+        await clicar(remocao.querySelector('[data-confirmo-o-arrasto] input'))
+        expect(ok('Remover').disabled).toBe(false)
         await clicar(ok('Remover'))
-        expect(removidas).toEqual(['PVC'])
-        expect(document.body.querySelector('[data-erro-ao-remover-familia]')!.textContent).toContain(frase)
-        expect(document.body.querySelector('[data-modal-da-remocao]')).not.toBeNull()
+        expect(pedidos[1]).toEqual({ chave: `POST ${ROTA_DA_REMOCAO}`, corpo: { tipo: 'familia', chave: 'PVC', assinatura: 'b'.repeat(32), confirmo: true } })
+        expect(removidas).toBe(1)
     })
 })
 
@@ -375,7 +369,8 @@ describe('(6) a PÁGINA DO NICHO liga as três ações às rotas e relê o catá
             [`GET ${ROTAS_DO_CATALOGO.categorias}`]: { status: 200, body: CATEGORIAS },
             [`POST ${ROTAS_DO_CATALOGO.familias}`]: { status: 201, body: {} },
             [`PATCH ${ROTAS_DO_CATALOGO.familia('PVC')}`]: { status: 200, body: {} },
-            [`DELETE ${ROTAS_DO_CATALOGO.familia('VECA')}`]: { status: 409, body: { error: 'a familia "PVC Veca" esta em uso: 1 motor(es) (Wolf / v.xlsx). Tire o uso antes de remover. Nada foi removido.' } },
+            [`GET ${rotaDoArrasto('familia', 'VECA')}`]: { status: 200, body: arrastoDe('VECA', 'PVC Veca') },
+            [`POST ${ROTA_DA_REMOCAO}`]: { status: 409, body: { error: 'O que sai mudou desde que foi mostrado.', arrasto: { ...arrastoDe('VECA', 'PVC Veca'), sai: 3, assinatura: 'c'.repeat(32) } } },
         }
         ;(globalThis as { fetch: unknown }).fetch = jest.fn(async (url: string, init?: { method?: string; body?: string }) => {
             const chave = `${init?.method ?? 'GET'} ${url}`
@@ -387,7 +382,7 @@ describe('(6) a PÁGINA DO NICHO liga as três ações às rotas e relê o catá
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const Pagina = () => require('@/pages/super-admin/atendimentos-ia/catalogo/[nichoId]').default as React.ComponentType
 
-    it('criar e editar vão às rotas com os dados, e o catálogo é relido; a recusa da remoção aparece no modal', async () => {
+    it('criar e editar vão às rotas com os dados, e o catálogo é relido; remover mede, confirma, e o arrasto que mudou volta ao modal', async () => {
         const host = await montar(React.createElement(Pagina()))
         await clicar(host.querySelector('[data-nova-familia]'))
         await digitar(modal()!.querySelector('input[aria-label="Nome da família"]') as HTMLInputElement, 'Portas de ACM')
@@ -403,11 +398,17 @@ describe('(6) a PÁGINA DO NICHO liga as três ações às rotas e relê o catá
         await clicar(ok('Salvar'))
         expect(pedidos[n]).toEqual({ chave: `PATCH ${ROTAS_DO_CATALOGO.familia('PVC')}`, corpo: { rotulo: 'PVC Wolf', ramificacoes: ['PERFIL'] } })
 
+        n = pedidos.length
         await clicar(botao(host, 'Remover PVC Veca'))
+        expect(pedidos.slice(n).map((p) => p.chave)).toEqual([`GET ${rotaDoArrasto('familia', 'VECA')}`])
+        await clicar(document.body.querySelector('[data-confirmo-o-arrasto] input'))
         n = pedidos.length
         await clicar(ok('Remover'))
-        expect(pedidos.slice(n).map((p) => p.chave)).toEqual([`DELETE ${ROTAS_DO_CATALOGO.familia('VECA')}`])
-        expect(document.body.querySelector('[data-erro-ao-remover-familia]')!.textContent).toContain('esta em uso: 1 motor(es) (Wolf / v.xlsx)')
+        expect(pedidos.slice(n).map((p) => p.chave)).toEqual([`POST ${ROTA_DA_REMOCAO}`])
+        // o arrasto mudou: a tela mostra o NOVO (3 linhas saem) e pede a confirmação de novo
+        expect(document.body.querySelector('[data-erro-da-remocao]')!.textContent).toContain('O que sai mudou desde que foi mostrado.')
+        expect(document.body.querySelector('[data-resumo-do-arrasto]')!.textContent).toContain('Sai: 3 linha(s).')
+        expect(ok('Remover').disabled).toBe(true)
     })
 })
 
@@ -415,15 +416,16 @@ describe('(7) o que liga o código à migração 20261029000004', () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { readFileSync } = require('fs') as typeof import('fs')
     const MIGRACAO = readFileSync(require('path').join(__dirname, '../../../supabase/migrations/20261029000004_familias_do_catalogo.sql'), 'utf8') // eslint-disable-line @typescript-eslint/no-require-imports
+    const SOBERANO = readFileSync(require('path').join(__dirname, '../../../supabase/migrations/20261031000003_catalogo_soberano.sql'), 'utf8') // eslint-disable-line @typescript-eslint/no-require-imports
     const REPO = jest.requireActual('fs').readFileSync(require('path').join(__dirname, '../../lib/atendimentos-ia/repositorio.ts'), 'utf8') as string // eslint-disable-line @typescript-eslint/no-require-imports
 
-    it('as três funções têm os parâmetros que o repositório manda, com os mesmos nomes', () => {
+    it('criar e editar têm os parâmetros que o repositório manda, com os mesmos nomes; remover saiu', () => {
         expect(MIGRACAO).toContain('CREATE OR REPLACE FUNCTION public.superadmin_criar_familia(\n  p_por uuid, p_chave text, p_rotulo text, p_ramificacoes text[]\n)')
         expect(MIGRACAO).toContain('CREATE OR REPLACE FUNCTION public.superadmin_editar_familia(\n  p_por uuid, p_chave text, p_rotulo text, p_ramificacoes text[]\n)')
-        expect(MIGRACAO).toContain('CREATE OR REPLACE FUNCTION public.superadmin_remover_familia(\n  p_por uuid, p_chave text\n)')
         expect(REPO).toContain("rpc('superadmin_criar_familia', { p_por: a.por, p_chave: a.chave, p_rotulo: a.rotulo, p_ramificacoes: a.ramificacoes })")
         expect(REPO).toContain("rpc('superadmin_editar_familia', { p_por: a.por, p_chave: a.chave, p_rotulo: a.rotulo, p_ramificacoes: a.ramificacoes })")
-        expect(REPO).toContain("rpc('superadmin_remover_familia', { p_por: a.por, p_chave: a.chave })")
+        // a remoção da 20261029000004 (recusa por uso) sai na 20261031000003: remover é o arrasto (`atendimentos-ia-remocao.test.tsx`)
+        expect(SOBERANO).toContain('DROP FUNCTION IF EXISTS public.superadmin_remover_familia(uuid, text);')
     })
 
     it('o limite do nome é o da CHECK da migração (o mesmo da tela)', () => {

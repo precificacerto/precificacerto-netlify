@@ -8,7 +8,7 @@
  * as etapas tem de chamar `conferirEtapasParaExecutar` antes de começar — e o teste daquele PR é que prova a chamada.
  */
 import {
-    FAMILIA_SEM_ETAPAS_NAO_CALCULA, conferirEtapasParaExecutar, etapasSemMotor, familiaPronta, fraseDaEtapaSemMotor, type EtapaDaFamilia,
+    FAMILIA_SEM_ETAPAS_NAO_CALCULA, conferirEtapasParaExecutar, etapasSemMotor, familiaPronta, fraseDaEtapaSemMotor, type ContextoDaExecucao, type EtapaDaFamilia,
 } from '@/utils/atendimentos-ia-etapas'
 
 const etapa = (numero: number, rotulo: string, motor_id: string | null): EtapaDaFamilia =>
@@ -31,8 +31,8 @@ describe('a família pronta', () => {
         expect(familiaPronta(etapas)).toBe(false)
         expect(etapasSemMotor(etapas)).toEqual([{ id: 'e2', numero: 2, rotulo: 'Levantamento de esquadrias' }, { id: 'e3', numero: 3, rotulo: 'Barras' }])
         expect(conferirEtapasParaExecutar(etapas)).toEqual({ ok: false, erros: [
-            'a etapa 2 ("Levantamento de esquadrias") está sem motor: escolha um motor para ela',
-            'a etapa 3 ("Barras") está sem motor: escolha um motor para ela',
+            'Falta de configuração — motor: a etapa 2 ("Levantamento de esquadrias") está sem motor. Veja a configuração: escolha um motor para ela.',
+            'Falta de configuração — motor: a etapa 3 ("Barras") está sem motor. Veja a configuração: escolha um motor para ela.',
         ] })
         expect(familiaPronta([etapa(1, 'A', 'm1'), etapa(2, 'B', null)])).toBe(false)
         expect(familiaPronta([etapa(1, 'A', null), etapa(2, 'B', 'm1')])).toBe(false)
@@ -41,7 +41,46 @@ describe('a família pronta', () => {
     it('família SEM etapa não está pronta: não há o que executar — recusa nomeada, nunca "pronta" por vacuidade', () => {
         expect(familiaPronta([])).toBe(false)
         expect(etapasSemMotor([])).toEqual([])
-        expect(conferirEtapasParaExecutar([])).toEqual({ ok: false, erros: [FAMILIA_SEM_ETAPAS_NAO_CALCULA] })
+        expect(conferirEtapasParaExecutar([])).toEqual({ ok: false, erros: ['Falta de configuração — etapa: a família não tem etapas. Veja a configuração: cadastre as etapas, cada uma com o seu motor.'] })
         expect(FAMILIA_SEM_ETAPAS_NAO_CALCULA).toBe('a família não tem etapas: cadastre as etapas, cada uma com o seu motor')
+    })
+})
+
+/**
+ * A FALTA DE CONFIGURAÇÃO NAS QUATRO SEÇÕES (dono do produto, 31/10/2026, com o catálogo soberano): "é importante que ela reporte como um erro,
+ * solicitando que veja a configuração." Remover do catálogo deixa a família sem tipo, a etapa sem motor, o Perfil sem fornecedor; cada falta é uma
+ * frase, na ordem família → etapa → motor → fornecedor.
+ */
+describe('a falta de configuração é ERRO que nomeia o que falta e manda ver a configuração', () => {
+    const ctx = (o: Partial<ContextoDaExecucao> = {}): ContextoDaExecucao => ({ nome: 'Esquadrias de PVC WOLF', familia: 'PVC', perfilSemFornecedor: false, ...o })
+    const todas = [etapa(1, 'Apanhado', 'm1'), etapa(2, 'Barras', 'm1')]
+
+    it('tudo configurado: passa (o contexto não inventa falta)', () => {
+        expect(conferirEtapasParaExecutar(todas, ctx())).toEqual({ ok: true })
+    })
+
+    it('a FAMÍLIA removida do catálogo: a matéria-prima ficou sem tipo — a frase diz qual e manda escolher', () => {
+        expect(conferirEtapasParaExecutar([], ctx({ familia: null }))).toEqual({ ok: false, erros: [
+            'Falta de configuração — família: "Esquadrias de PVC WOLF" está sem família do catálogo (ela foi removida do catálogo ou nunca foi escolhida). Veja a configuração: escolha a família na base de conhecimento da empresa.',
+            'Falta de configuração — etapa: "Esquadrias de PVC WOLF" não tem etapas. Veja a configuração: cadastre as etapas, cada uma com o seu motor.',
+        ] })
+    })
+
+    it('o FORNECEDOR do Perfil removido: a frase nomeia a família; null (não conferido) não é falta nem "tem"', () => {
+        expect(conferirEtapasParaExecutar(todas, ctx({ perfilSemFornecedor: true }))).toEqual({ ok: false, erros: [
+            'Falta de configuração — fornecedor: o Perfil de "Esquadrias de PVC WOLF" está sem fornecedor principal (o motor lê os códigos do perfil dele). Veja a configuração: escolha o fornecedor principal do Perfil na base de conhecimento da empresa.',
+        ] })
+        expect(conferirEtapasParaExecutar(todas, ctx({ perfilSemFornecedor: null }))).toEqual({ ok: true })
+    })
+
+    it('o MOTOR removido e o fornecedor junto: as duas faltas, na ordem — motor antes de fornecedor', () => {
+        const r = conferirEtapasParaExecutar([etapa(1, 'Apanhado', null), etapa(2, 'Barras', 'm1')], ctx({ perfilSemFornecedor: true }))
+        expect(r.ok === false && r.erros.map((e) => e.split(':')[0])).toEqual(['Falta de configuração — motor', 'Falta de configuração — fornecedor'])
+        expect(r.ok === false && r.erros.every((e) => e.includes('Veja a configuração'))).toBe(true)
+    })
+
+    it('a família sem tipo não confere o Perfil (não há ramificação a conferir sem família)', () => {
+        const r = conferirEtapasParaExecutar(todas, ctx({ familia: null, perfilSemFornecedor: true }))
+        expect(r.ok === false && r.erros.map((e) => e.split(':')[0])).toEqual(['Falta de configuração — família'])
     })
 })

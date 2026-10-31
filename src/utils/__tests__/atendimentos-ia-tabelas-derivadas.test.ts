@@ -410,10 +410,8 @@ describe('(4) quem usa: pelo vínculo da base de conhecimento, não por conta_ta
         naoTocouAContaTabela()
     })
 
-    it('fornecedor vinculado SEM tabela também é usado: a exclusão dele é recusada pelo vínculo', async () => {
-        estado.db.orcamentista_mp_categoria_fornecedor.push(vinculo(PAULA, 'c-ferragem', F_FERRAGEM))
-        expect(await R().quemSeguraOFornecedor(F_FERRAGEM)).toEqual({ tabelas: [], contas: ['Esquadrias De Paula'] })
-    })
+    // (o "fornecedor vinculado sem tabela segura a exclusão" saiu em 31/10/2026: remover o fornecedor é arrasto declarado, e o vínculo de conta
+    // aparece no arrasto — `atendimentos-ia-remocao.test.ts`)
 })
 
 // ════════════════════════════════════════════════════════════════════════════════════════
