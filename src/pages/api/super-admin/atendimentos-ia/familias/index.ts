@@ -1,18 +1,20 @@
 /**
- * GET  /api/super-admin/atendimentos-ia/familias — as famílias das tabelas de fornecedor, NA ORDEM.
- * POST /api/super-admin/atendimentos-ia/familias — acrescenta `{ rotulo }` no FIM da lista.
+ * GET  /api/super-admin/atendimentos-ia/familias — as famílias do catálogo, NA ORDEM, cada uma com as RAMIFICAÇÕES que declara, na ordem dela.
+ * POST /api/super-admin/atendimentos-ia/familias — `{ rotulo, ramificacoes }`: acrescenta uma família no FIM da lista.
  *
- * A FAMÍLIA (dono do produto, 26/10/2026; migração 20261026000004): o primeiro degrau da cascata
- * FAMÍLIA -> LINHA -> TIPOLOGIA. LISTA FECHADA, no padrão de `orcamentista_categoria_catalogo`; o super
- * admin acrescenta entradas ("Portas de ACM e Portas de garagem ainda vão aparecer"). Não há excluir
- * nem renomear: a família de uma tabela é FK RESTRICT, e ninguém pediu.
+ * A FAMÍLIA (dono do produto, 26/10/2026; migração 20261026000004) é o primeiro degrau da cascata FAMÍLIA -> LINHA -> TIPOLOGIA, e uma entrada
+ * por LINHA de produto (28/10/2026). Ela é o NOME e as RAMIFICAÇÕES (29/10/2026, migração 20261029000004): a base de conhecimento mostra, numa
+ * matéria-prima da família, as categorias que a família declara — família sem ramificação não mostra nenhuma; por isso criar exige ao menos uma.
+ * Editar e remover moram em `familias/[chave]`.
  *
- * A chave é derivada do rótulo (`lerFamiliaNova`); a ordem é a última + 1, calculada aqui. Duas
- * gravações ao mesmo tempo esbarram na ordem única (23505), e a resposta diz para tentar de novo.
+ * A chave é derivada do rótulo (`lerFamiliaNova`). A ROTA confere o que dá frase em português — a chave que já existe, o nome repetido (sem
+ * olhar a caixa) e as ramificações fora do catálogo de categorias —, e a FUNÇÃO (`superadmin_criar_familia`, que loga e calcula a ordem sob
+ * trava) confere de novo: a recusa dela numa corrida volta com a frase dela (22023 → 409).
  */
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { requireSuperAdmin } from '@/lib/get-caller-tenant'
 import { codigoDoErro, criarFamilia, falhaInterna, listarFamilias } from '@/lib/atendimentos-ia/repositorio'
+import { familiasDoCatalogo, fraseDaRamificacaoForaDoCatalogo, ramificacoesForaDoCatalogo } from '@/lib/atendimentos-ia/familias-do-catalogo'
 import { fraseDaFamiliaComNomeRepetido, lerFamiliaNova, recusada } from '@/utils/atendimentos-ia-catalogo'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -23,7 +25,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   if (req.method === 'GET') {
     try {
-      return res.status(200).json((await listarFamilias()).sort((a, b) => a.ordem - b.ordem))
+      return res.status(200).json(await familiasDoCatalogo())
     } catch (e) {
       return falhaInterna(res, 'familias GET', e, 'Não foi possível ler as famílias.')
     }
@@ -31,7 +33,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const leitura = lerFamiliaNova(req.body)
   if (recusada(leitura)) return res.status(400).json({ error: leitura.erro })
-  const { rotulo, chave } = leitura.corpo
+  const { rotulo, chave, ramificacoes } = leitura.corpo
   try {
     const atuais = await listarFamilias()
     if (atuais.some((f) => f.chave === chave)) return res.status(409).json({ error: `A família "${chave}" já está na lista.` })
@@ -39,10 +41,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // diferentes (PVC e PVC_WOLF) com o mesmo nome exibido seriam duas famílias que ninguém distingue na tela
     const igual = atuais.find((f) => f.rotulo.trim().toLocaleLowerCase('pt-BR') === rotulo.toLocaleLowerCase('pt-BR'))
     if (igual) return res.status(409).json({ error: fraseDaFamiliaComNomeRepetido(igual.rotulo) })
-    const ordem = atuais.reduce((m, f) => Math.max(m, f.ordem), 0) + 1
-    return res.status(201).json(await criarFamilia({ chave, rotulo, ordem }))
+    const fora = await ramificacoesForaDoCatalogo(ramificacoes)
+    if (fora.length > 0) return res.status(400).json({ error: fraseDaRamificacaoForaDoCatalogo(fora) })
+    return res.status(201).json(await criarFamilia({ por: caller.user_id, chave, rotulo, ramificacoes }))
   } catch (e) {
-    if (codigoDoErro(e) === '23505') return res.status(409).json({ error: 'Outra família foi gravada ao mesmo tempo. Tente de novo.' })
+    const codigo = codigoDoErro(e)
+    if (codigo === '42501') return res.status(403).json({ error: 'Só o super admin altera o catálogo.' })
+    if (codigo === '22023' && e instanceof Error && e.message.trim() !== '') return res.status(409).json({ error: e.message })
     return falhaInterna(res, 'familias POST', e, 'Não foi possível acrescentar a família.')
   }
 }

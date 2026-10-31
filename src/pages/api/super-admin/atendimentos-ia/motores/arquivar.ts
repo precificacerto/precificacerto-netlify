@@ -1,9 +1,12 @@
 /**
  * POST /api/super-admin/atendimentos-ia/motores/arquivar — `{ motor_id }`: arquiva um motor do catálogo pela função `superadmin_arquivar_motor`
- * (migração 20261028000001), que loga na mesma transação. ARQUIVAR NÃO APAGA: o conteúdo continua, e o motor sai do combo das etapas.
+ * (migração 20261029000005), que loga na mesma transação. ARQUIVAR NÃO APAGA: o conteúdo continua, e o motor sai do combo das etapas.
  *
- * A ETAPA VENCE: o motor que alguma etapa aponta não se arquiva — a função recusa nomeando a etapa, a família e a EMPRESA (o motor é global),
- * e a mensagem dela vai na resposta (42501→403, P0002→404, 22023→400). O autor é o usuário da sessão; campo a mais no corpo é erro.
+ * ARQUIVAR MOTOR EM USO É PERMITIDO (dono do produto, 29/10/2026: "Excluir um motor que esteja vinculado a uma família ou etapa não é problema.
+ * [...] eu posso apontar um outro motor [...] Aí ele volta a funcionar."): as etapas que o usam ficam SEM MOTOR, cada uma logada com o tenant
+ * dela, e a resposta é `{ depois: { orcamentista_motor, etapas_sem_motor: [{ empresa, familia, numero, rotulo, … }] } }` — a tela diz onde repor.
+ * O item de levantamento já gravado não é tocado. A recusa da função vai com a mensagem dela (42501→403, P0002→404, 22023→400). O autor é o
+ * usuário da sessão; campo a mais no corpo é erro.
  * Só o super admin (os outros recebem 404).
  */
 import type { NextApiRequest, NextApiResponse } from 'next'

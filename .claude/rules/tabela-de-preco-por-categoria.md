@@ -421,3 +421,65 @@ estava certa no efeito, mas a frase não dizia que contava os itens do arquivo d
 **Arquivo novo de uma categoria é TABELA NOVA.** O `Perfis_de_PVC_-_Wolff.xlsx` é um **terceiro formato** que o importador não lê (17 abas — Resumo,
 16 por cor e "Sem preço na tabela" —, cabeçalho na linha 4, toda linha com Categoria = "Perfis de PVC"); o leitor que reconhece pela FORMA, e não
 pelo nome da aba, se mede junto com os arquivos WVetro.
+
+## O motor serve N famílias e uma categoria — dono do produto, 29/10/2026 (migração `20261029000003`, PENDENTE até o dono do produto aplicar)
+
+Formulação do dono do produto, registrada como está:
+
+> "A gente define, bota o arquivo do motor, a qual categoria ele pertence e para quais famílias ele atua." [...] Medido: nenhum '*' em uso [...]
+> Dados limpos, então o '*' sai de cena — todo motor passa a listar famílias explicitamente. [...] A migração 20261029000002 FICA COMO ESTÁ.
+
+**Substitui o item 7 acima** (a família só no Perfil, com o `'*'`). A `20261029000002` não muda (migração aplicada é imutável); a `20261029000003` desfaz o
+desenho dela por cima.
+
+- **A ligação `orcamentista_motor_familia (motor_id, familia)`**, PK das duas; `motor_id` → motor `ON DELETE CASCADE`; `familia` → catálogo `ON DELETE
+  RESTRICT`. RLS e as mesmas quatro políticas e grants de `orcamentista_motor` (lidos do banco em 29/10/2026). Semeada de `motor.familia` (1 motor, 1 linha),
+  com antes e depois medidos e log.
+- **Todo motor tem pelo menos uma família** — um `CONSTRAINT TRIGGER ... DEFERRABLE INITIALLY DEFERRED` (`orcamentista_motor_sem_familia`, nas duas tabelas),
+  conferido no COMMIT. Por que não uma coluna de contagem: a CHECK não é adiável, e o motor nasce antes da ligação — a trava impediria a criação. A função
+  do gatilho trava a linha do motor antes de contar (duas transações que tiram famílias diferentes do mesmo motor se enfileiram).
+- **Na etapa e no item:** a CHECK da exigida perde o `'*'` (a exigida é a família da linha), e a FK `(motor_id, motor_familia_exigida)` aponta a LIGAÇÃO.
+  Uma etapa de família X só aponta motor que atua em X.
+- **Saem do motor** `familia`, `familia_exigida`, a CHECK `orcamentista_motor_familia_so_no_perfil` e o UNIQUE delas. `categoria_chave` fica.
+- **Funções:** `superadmin_criar_motor(..., p_familias text[], ...)` (pelo menos uma, sem repetição, todas do catálogo; a ligação depois do motor, na mesma
+  transação); `superadmin_editar_motor(..., p_familias text[], ...)` — fornecedor e categoria SÓ SEM USO, as famílias também COM uso, e tirar a que uma etapa
+  ou item usa é recusa `23001` que nomeia quem usa (empresa / família-instância / etapa; o levantamento do item); a gravação das etapas recusa o motor que não
+  atua na família; trocar o arquivo cria o novo com as mesmas famílias.
+- **No código:** o POST `/motores` leva `familias: string[]`; **caiu a trava "família só no Perfil, a da tabela de Perfil do fornecedor"** (zero tabelas de
+  Perfil em produção) — a família não se amarra mais a uma tabela da categoria; família fora do catálogo é 400 nomeando-a. O catálogo mostra a lista; o
+  "Editar" vale com uso (categoria e fornecedor travados no modal), e a recusa da família em uso é 409 dentro do modal.
+- **Prova:** `scripts/harness/motor-para-n-familias/` — a cadeia real com a `20261029000002` como em produção, os casos de cada trava (DML direto e funções),
+  os COMMITs de verdade do gatilho adiado, três corridas, cinco guardas e as mutações nas duas passadas.
+
+## O motor tem nome; arquivar motor em uso é permitido; a família só calcula pronta — dono do produto, 29/10/2026 (migração `20261029000005`, PENDENTE até o dono do produto aplicar)
+
+Formulação do dono do produto, registrada como está:
+
+> A. "Quando for criar ou credenciar um novo motor, ou qualquer motor, é preciso nomeá-lo. Então, nós temos que ter o local de inserir ou editar o nome."
+> B. "Excluir um motor que esteja vinculado a uma família ou etapa não é problema. [...] Caso não tenha, ele fica apontando para ele. Se não tiver nenhum,
+> ele não vai poder fazer o cálculo. Então, ele não responde nada. [...] eu posso apontar um outro motor, um motor mais atualizado [...] Aí ele volta a
+> funcionar."
+> C. "para funcionar, a família funcionar, ela precisa ter todos os motores. Caso não tenha um motor, ela não funciona."
+
+A `20261029000003` (aplicada às 18:50 UTC de 29/10/2026) não muda; a `20261029000005` vem por cima, e **não depende da `20261029000004`** (as duas ordens
+provadas no harness).
+
+- **A. `orcamentista_motor.nome`**, NOT NULL; CHECK `orcamentista_motor_nome_forma` (sem espaço nas pontas, 1 a 80 caracteres — a forma do rótulo da etapa);
+  índice único PARCIAL `orcamentista_motor_nome_ativo (fornecedor_id, nome) WHERE arquivado_em IS NULL` (o arquivado libera o nome). Semeado do
+  `arquivo_nome` sem a extensão (`Motor_Wolf_PVC.xlsx` → `Motor_Wolf_PVC`; 1 motor), com antes e depois no log. `superadmin_criar_motor` recebe `p_nome`;
+  `superadmin_editar_motor` edita o nome COM uso. No corpo das rotas ele é `nome_do_motor` (`nome` continua sendo o do arquivo); o combo da etapa e o
+  catálogo mostram o nome. **Trocar o arquivo dá ao novo o MESMO nome** — e, como o índice é conferido no INSERT, a troca **arquiva o antigo ANTES de
+  criar o novo** (a premissa "o antigo é arquivado na mesma transação, então não colide" só vale nessa ordem; na de antes — criar, reapontar, arquivar
+  — o INSERT colidiria. Provado no harness, caso F5).
+- **B. As FKs `(motor_id, motor_familia_exigida)` da etapa e do item passam a `ON DELETE SET NULL`** (anula as duas colunas; a CHECK "a exigida existe se e só
+  se há motor" continua satisfeita — caso K3). Arquivar não apaga a ligação (é UPDATE), então o SET NULL só age quando uma ligação é apagada; **a FK deixou
+  de proteger a família em uso**: quem recusa tirar do motor a família que uma etapa usa é a conferência de `superadmin_editar_motor`, com o motor travado
+  (caso F6, mutação E7). `superadmin_arquivar_motor` arquiva também com uso: LIMPA o motor das etapas, loga cada uma com o tenant dela e devolve
+  `etapas_sem_motor` (empresa / família / número / rótulo), que a tela lista depois de arquivar. **O item de levantamento já gravado não é tocado** — a
+  pergunta está com o dono do produto (medido em 29/10/2026: 4 itens, nenhum com motor, e nenhum código lê ou grava `motor_id` do item).
+- **C. Não é constraint.** Montar a família aos poucos e gravar etapa sem motor continuam permitidos. A leitura das etapas devolve `pronta` (tem etapas e
+  TODAS com motor; família sem etapa NÃO está pronta) e `etapas_sem_motor`; a tela mostra. A conferência de execução é `conferirEtapasParaExecutar`
+  (`src/utils/atendimentos-ia-etapas.ts`), que recusa nomeando cada etapa: *a etapa 2 ("Levantamento de esquadrias") está sem motor: escolha um motor
+  para ela*. **Dívida:** nada executa as etapas hoje (a conversa ainda não as lê, é o PR D) — quem passar a executá-las chama a conferência antes.
+- **Prova:** `scripts/harness/nome-do-motor-e-arquivar/` — a cadeia real com a `20261029000003` e o estado de produção medido, os casos de cada trava e
+  função, duas corridas (gravar etapa × arquivar), três guardas, as duas ordens com a `20261029000004`, e as mutações nas duas passadas.

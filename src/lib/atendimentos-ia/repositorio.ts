@@ -220,9 +220,25 @@ export async function listarFamilias(): Promise<Familia[]> {
     return q(db().from('orcamentista_familia_catalogo').select('chave, rotulo, ordem'))
 }
 
-export async function criarFamilia(f: Familia): Promise<Familia> {
-    return q(db().from('orcamentista_familia_catalogo').insert(f).select('chave, rotulo, ordem').single())
+/** As ramificações de TODAS as famílias, sem ordem — quem agrupa e ordena é a rota. */
+export async function listarRamificacoes(): Promise<Array<{ familia: string; categoria_chave: string; ordem: number }>> {
+    return q(db().from('orcamentista_familia_ramificacao').select('familia, categoria_chave, ordem'))
 }
+
+/**
+ * As famílias do catálogo (migração 20261029000004): criar, editar (nome e ramificações) e remover — cada uma uma função do banco, com log, que
+ * confere de novo o que a rota já conferiu (nome repetido, ramificação do catálogo, uso). Falha LANÇA `ErroDoBanco` com o código.
+ */
+async function rpc(nome: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const { data, error } = await db().rpc(nome, args)
+    if (error) throw new ErroDoBanco(error)
+    return data as Record<string, unknown>
+}
+export const criarFamilia = (a: { por: string; chave: string; rotulo: string; ramificacoes: string[] }) =>
+    rpc('superadmin_criar_familia', { p_por: a.por, p_chave: a.chave, p_rotulo: a.rotulo, p_ramificacoes: a.ramificacoes })
+export const editarFamilia = (a: { por: string; chave: string; rotulo: string; ramificacoes: string[] }) =>
+    rpc('superadmin_editar_familia', { p_por: a.por, p_chave: a.chave, p_rotulo: a.rotulo, p_ramificacoes: a.ramificacoes })
+export const removerFamilia = (a: { por: string; chave: string }) => rpc('superadmin_remover_familia', { p_por: a.por, p_chave: a.chave })
 
 // ── Categorias (migração 20261027000005) ─────────────────────────────────────────────────────
 /** O catálogo das categorias da plataforma, SEM ordem — quem ordena é a rota. Só leitura: a lista é da plataforma. */
@@ -231,12 +247,6 @@ export async function listarCategorias(): Promise<Categoria[]> {
 }
 
 // ── Tabelas ────────────────────────────────────────────────────────────────────────────────
-/** As famílias das tabelas de PERFIL do fornecedor, sem repetição e em ordem: o motor de PERFIL tira a família delas (29/10/2026). */
-export async function familiasDoPerfilDoFornecedor(fornecedorId: string): Promise<string[]> {
-    const ts = await q(db().from('orcamentista_tabela').select('familia').eq('fornecedor_id', fornecedorId).eq('categoria_chave', 'PERFIL'))
-    return [...new Set(ts.map((t) => t.familia).filter((f): f is string => typeof f === 'string' && f.trim() !== ''))].sort()
-}
-
 export async function obterTabela(id: string): Promise<{ id: string; fornecedor_id: string; arquivo_path: string; motor_path: string | null; categoria_chave: string | null; familia: string | null } | null> {
     const ts = await q(db().from('orcamentista_tabela').select('id, fornecedor_id, arquivo_path, motor_path, categoria_chave, familia').eq('id', id))
     return (ts[0] as { id: string; fornecedor_id: string; arquivo_path: string; motor_path: string | null; categoria_chave: string | null; familia: string | null } | undefined) ?? null

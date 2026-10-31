@@ -20,7 +20,10 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 import ExcelJS from 'exceljs'
 
 import { ABAS_DA_IMPORTACAO, LISTAS_DO_MOTOR_DA_ETAPA } from '@/utils/atendimentos-ia-importacao'
-import { FAMILIA_DO_MOTOR_DE_PERFIL_OBRIGATORIA, ROTAS_DOS_MOTORES, fraseDaFamiliaSoNoPerfil } from '@/utils/atendimentos-ia-catalogo-de-motores'
+import {
+    FAMILIAS_DO_MOTOR_OBRIGATORIAS, FAMILIA_EM_USO_NAO_SAI_DO_MOTOR, NOME_DO_MOTOR_REPETIDO, ROTAS_DOS_MOTORES, fraseDaFamiliaForaDoCatalogo,
+    fraseDaFamiliaRepetidaNoMotor,
+} from '@/utils/atendimentos-ia-catalogo-de-motores'
 import { abasDoSpec } from './fixtures/abas-do-motor-do-spec'
 
 type Linha = Record<string, any>
@@ -32,8 +35,8 @@ const MOTOR_NOVO = '00000000-0000-4000-8000-0000000000a9'
 const M_WOLF = '00000000-0000-4000-8000-0000000000a1'
 const M_ROLLER = '00000000-0000-4000-8000-0000000000a2'
 const PATH = `${W}/motor/u1-Motor.xlsx`
-// tipo ALUMINIO de propósito: o motor de PVC da Wolf é o único em produção, e um tipo fixo no código passaria com ele
-const NOVO = { fornecedor_id: W, categoria: 'PERFIL', familia: 'ALUMINIO', path: PATH, nome: 'Motor.xlsx' }
+// família ALUMINIO de propósito: o motor de PVC da Wolf é o único em produção, e uma família fixa no código passaria com ele
+const NOVO = { fornecedor_id: W, categoria: 'PERFIL', familias: ['ALUMINIO'], nome_do_motor: 'Motor Wolf', path: PATH, nome: 'Motor.xlsx' }
 
 type RespostaDoRpc = { data: unknown; error: { code?: string; message: string } | null }
 const estado = {
@@ -64,16 +67,18 @@ function montar() {
     estado.db = {
         users: [SUPER, COMUM],
         orcamentista_fornecedor: [{ id: W, nome: 'Wolf' }, { id: R, nome: 'Roller Star' }],
-        // a família do motor de PERFIL vem da tabela de PERFIL do fornecedor (29/10/2026): a Wolf tem uma, ALUMINIO; a Roller Star, só de persiana
+        // as tabelas NÃO decidem mais a família do motor (20261029000003): a Wolf tem Perfil ALUMINIO, e o motor de Perfil PVC dela passa assim mesmo
         orcamentista_tabela: [
             { id: 't-perfil', fornecedor_id: W, categoria_chave: 'PERFIL', familia: 'ALUMINIO' },
             { id: 't-ferragem', fornecedor_id: W, categoria_chave: 'FERRAGENS', familia: 'PVC' },
             { id: 't-persiana', fornecedor_id: R, categoria_chave: 'PERSIANAS', familia: null },
         ],
         orcamentista_motor: [
-            { id: M_WOLF, familia: 'PVC', fornecedor_id: W, categoria_chave: 'PERFIL', arquivo_nome: 'wolff.xlsm', criado_em: '2026-10-27', arquivado_em: null },
-            { id: M_ROLLER, familia: null, fornecedor_id: R, categoria_chave: 'PERSIANAS', arquivo_nome: 'roller.xlsx', criado_em: '2026-10-28', arquivado_em: '2026-10-28' },
+            { id: M_WOLF, nome: 'Wolf PVC Europa', fornecedor_id: W, categoria_chave: 'PERFIL', arquivo_nome: 'wolff.xlsm', criado_em: '2026-10-27', arquivado_em: null },
+            { id: M_ROLLER, nome: 'Roller', fornecedor_id: R, categoria_chave: 'PERSIANAS', arquivo_nome: 'roller.xlsx', criado_em: '2026-10-28', arquivado_em: '2026-10-28' },
         ],
+        orcamentista_motor_familia: [{ motor_id: M_WOLF, familia: 'PVC' }, { motor_id: M_ROLLER, familia: 'PVC' }, { motor_id: M_ROLLER, familia: 'ALUMINIO' }],
+        orcamentista_familia_catalogo: [{ chave: 'PVC', rotulo: 'PVC Wolf', ordem: 1 }, { chave: 'ALUMINIO', rotulo: 'Alumínio', ordem: 2 }, { chave: 'VECA', rotulo: 'PVC Veca', ordem: 3 }],
         orcamentista_motor_tipologia_detalhe: [{ motor_id: M_WOLF }, { motor_id: M_WOLF }, { motor_id: M_WOLF }],
         orcamentista_familia_etapa: [
             { motor_id: M_WOLF, numero: 3, rotulo: 'Barras', materia_prima_id: 'mp-1', tenant_id: 't-1' },
@@ -96,12 +101,15 @@ jest.mock('@/supabase/admin', () => ({
             const filtros: Array<(l: Linha) => boolean> = []
             const q: any = {}
             let cabeca = false
-            q.select = (_c?: string, o?: { head?: boolean }) => { cabeca = o?.head === true; return q }
+            // o select PROJETA as colunas pedidas: a coluna que a leitura não pede não chega à rota (a mutação "não lê o nome" fica vermelha)
+            let colunas: string[] | null = null
+            q.select = (c?: string, o?: { head?: boolean }) => { cabeca = o?.head === true; colunas = c && c.trim() !== '*' ? c.split(',').map((x) => x.trim()) : null; return q }
             q.eq = (c: string, v: unknown) => { filtros.push((l) => l[c] === v); return q }
             q.is = (c: string, v: unknown) => { filtros.push((l) => (l[c] ?? null) === v); return q }
             q.in = (c: string, vs: unknown[]) => { filtros.push((l) => vs.includes(l[c])); return q }
             q.order = () => q
             const linhas = () => (estado.db[tabela] ?? []).filter((l) => filtros.every((f) => f(l)))
+                .map((l) => (colunas === null ? l : Object.fromEntries((colunas as string[]).filter((c) => c in l).map((c) => [c, l[c]]))))
             q.single = async (): Promise<Linha> => ({ data: linhas()[0] ?? null, error: null })
             q.maybeSingle = async (): Promise<Linha> => ({ data: linhas()[0] ?? null, error: null })
             q.then = (ok: (v: unknown) => unknown) => Promise.resolve(cabeca ? { data: null, count: linhas().length, error: null } : { data: linhas(), error: null }).then(ok)
@@ -204,14 +212,14 @@ describe('(2) GET motores — o catálogo, com os nomes e quem usa', () => {
         const r = await motores('GET')
         expect(r.status).toBe(200)
         const [wolf, roller] = r.corpo.motores
-        expect(wolf).toMatchObject({ id: M_WOLF, fornecedor: 'Wolf', categoria: 'PERFIL', familia: 'PVC', arquivo_nome: 'wolff.xlsm', arquivado_em: null, tipologias: 3 })
+        expect(wolf).toMatchObject({ id: M_WOLF, nome: 'Wolf PVC Europa', fornecedor: 'Wolf', categoria: 'PERFIL', familias: ['PVC'], arquivo_nome: 'wolff.xlsm', arquivado_em: null, tipologias: 3 })
         // três etapas apontam o motor, duas delas da MESMA família: dois usos, e nenhum número nem nome de etapa
         expect(wolf.usos).toEqual([
             { empresa: 'Alfa Vidros', familia: 'PVC Linha 2' },
             { empresa: 'Esquadrias De Paula Ltda', familia: 'Esquadrias de PVC' },
         ])
         // o arquivado também vem (a tela o separa), sem uso e sem tipologia
-        expect(roller).toMatchObject({ id: M_ROLLER, fornecedor: 'Roller Star', categoria: 'PERSIANAS', arquivado_em: '2026-10-28', tipologias: 0, usos: [] })
+        expect(roller).toMatchObject({ id: M_ROLLER, fornecedor: 'Roller Star', categoria: 'PERSIANAS', familias: ['ALUMINIO', 'PVC'], arquivado_em: '2026-10-28', tipologias: 0, usos: [] })
         nenhumaEscrita()
     })
 
@@ -221,53 +229,63 @@ describe('(2) GET motores — o catálogo, com os nomes e quem usa', () => {
     })
 })
 
-describe('(3b) POST motores de PERFIL — a família vem da tabela de PERFIL do fornecedor (29/10/2026)', () => {
-    it('família que NÃO é a de uma tabela de PERFIL do fornecedor: 400 nomeando as que há — nem download, nem função', async () => {
+describe('(3b) POST motores — as famílias em que o motor atua (20261029000003)', () => {
+    it('família fora do catálogo: 400 NOMEANDO-A — nem download, nem função', async () => {
         estado.objetos.set(PATH, await arquivoDoMotor())
-        const r = await motores('POST', { ...NOVO, familia: 'PVC' })
-        expect(r.status).toBe(400)
-        // a tabela de FERRAGENS da Wolf é PVC, e não conta: só a de PERFIL
-        expect(r.corpo).toEqual({ error: 'A família do motor de Perfil vem da tabela de Perfil do fornecedor (ALUMINIO), e PVC não está entre elas.' })
+        const r = await motores('POST', { ...NOVO, familias: ['ALUMINIO', 'XYZ', 'PVC'] })
+        expect([r.status, r.corpo.error]).toEqual([400, fraseDaFamiliaForaDoCatalogo(['XYZ'])])
+        expect(r.corpo.error).toBe('A família XYZ não está no catálogo de famílias.')
         expect(estado.lidos).toEqual([])
-        expect(estado.rpcs).toEqual([])
-    })
-
-    it('fornecedor SEM tabela de PERFIL: 400 dizendo de onde a família viria — nem download, nem função', async () => {
-        estado.objetos.set(`${R}/motor/u1-Motor.xlsx`, await arquivoDoMotor())
-        const r = await motores('POST', { ...NOVO, fornecedor_id: R, path: `${R}/motor/u1-Motor.xlsx` })
-        expect(r.status).toBe(400)
-        expect(r.corpo).toEqual({ error: 'O fornecedor não tem tabela de Perfil: a família do motor de Perfil vem dela. Cadastre a tabela de Perfil do fornecedor antes do motor.' })
-        expect(estado.lidos).toEqual([])
-        expect(estado.rpcs).toEqual([])
-    })
-
-    it('o contraste: fora do PERFIL a família não é conferida contra tabela — o motor de PERSIANAS da Roller Star, SEM família, segue até a função com família nula', async () => {
-        estado.objetos.set(`${R}/motor/u1-Motor.xlsx`, await arquivoDoMotor())
-        estado.rpcResposta = devolveOQueRecebeu
-        const r = await motores('POST', { fornecedor_id: R, categoria: 'PERSIANAS', path: `${R}/motor/u1-Motor.xlsx`, nome: NOVO.nome })
-        expect(r.status).toBe(200)
-        expect(estado.rpcs.map((x) => x.funcao)).toEqual(['superadmin_criar_motor'])
-        expect(estado.rpcs[0].args).toMatchObject({ p_categoria: 'PERSIANAS', p_familia: null })
-    })
-
-    it('a família SÓ NO PERFIL (20261029000002): o motor de PERSIANAS COM família é 400 com a frase — sem baixar o arquivo e sem chamar a função', async () => {
-        const r = await motores('POST', { ...NOVO, fornecedor_id: R, categoria: 'PERSIANAS', familia: 'PVC', path: `${R}/motor/u1-Motor.xlsx` })
-        expect([r.status, r.corpo.error]).toEqual([400, fraseDaFamiliaSoNoPerfil('PERSIANAS')])
         expect(estado.rpcs).toEqual([])
         nenhumaEscrita()
+    })
+
+    it('lista vazia e família repetida: 400 com a frase — nem download, nem função', async () => {
+        estado.objetos.set(PATH, await arquivoDoMotor())
+        let r = await motores('POST', { ...NOVO, familias: [] })
+        expect([r.status, r.corpo.error]).toEqual([400, FAMILIAS_DO_MOTOR_OBRIGATORIAS])
+        r = await motores('POST', { ...NOVO, familias: ['PVC', 'ALUMINIO', 'PVC'] })
+        expect([r.status, r.corpo.error]).toEqual([400, fraseDaFamiliaRepetidaNoMotor('PVC')])
+        expect(estado.lidos).toEqual([])
+        expect(estado.rpcs).toEqual([])
+    })
+
+    it('a família NÃO se amarra a uma tabela do fornecedor: o motor de Perfil PVC da Wolf (cuja tabela de Perfil é ALUMINIO) segue até a função', async () => {
+        estado.objetos.set(PATH, await arquivoDoMotor())
+        estado.rpcResposta = devolveOQueRecebeu
+        const r = await motores('POST', { ...NOVO, familias: ['PVC'] })
+        expect(r.status).toBe(200)
+        expect(estado.rpcs[0].args).toMatchObject({ p_categoria: 'PERFIL', p_familias: ['PVC'] })
+    })
+
+    it('o motor de PERSIANAS da Roller Star (sem tabela de Perfil) com DUAS famílias: segue até a função com as duas, na ordem do corpo', async () => {
+        estado.objetos.set(`${R}/motor/u1-Motor.xlsx`, await arquivoDoMotor())
+        estado.rpcResposta = devolveOQueRecebeu
+        const r = await motores('POST', { fornecedor_id: R, categoria: 'PERSIANAS', familias: ['VECA', 'PVC'], nome_do_motor: 'Roller duas', path: `${R}/motor/u1-Motor.xlsx`, nome: NOVO.nome })
+        expect(r.status).toBe(200)
+        expect(estado.rpcs.map((x) => x.funcao)).toEqual(['superadmin_criar_motor'])
+        expect(estado.rpcs[0].args).toMatchObject({ p_categoria: 'PERSIANAS', p_familias: ['VECA', 'PVC'] })
+        expect(estado.rpcs[0].args).not.toHaveProperty('p_familia')
+    })
+
+    it('a recusa da função por família (22023) vai com a mensagem dela', async () => {
+        estado.objetos.set(PATH, await arquivoDoMotor())
+        estado.rpcResposta = () => ({ data: null, error: { code: '22023', message: 'familia fora do catalogo: PVC. Nada foi gravado.' } })
+        const r = await motores('POST', NOVO)
+        expect([r.status, r.corpo.error]).toEqual([400, 'familia fora do catalogo: PVC. Nada foi gravado.'])
     })
 })
 
 describe('(3) POST motores — lê o arquivo, chama a função e confere', () => {
-    it('o caminho feliz: chama SÓ a função, com o autor da SESSÃO, fornecedor, categoria, tipo, caminho e nome, e o payload do leitor', async () => {
+    it('o caminho feliz: chama SÓ a função, com o autor da SESSÃO, fornecedor, categoria, famílias, NOME do motor, caminho e nome do arquivo, e o payload do leitor', async () => {
         estado.objetos.set(PATH, await arquivoDoMotor())
         estado.rpcResposta = devolveOQueRecebeu
-        const r = await motores('POST', { ...NOVO, nome: ' Motor.xlsx ' })
+        const r = await motores('POST', { ...NOVO, nome_do_motor: '  Motor Wolf  ', nome: ' Motor.xlsx ' })
         expect(r.status).toBe(200)
         expect(estado.rpcs).toHaveLength(1)
         const { funcao, args } = estado.rpcs[0]
         expect(funcao).toBe('superadmin_criar_motor')
-        expect(args).toMatchObject({ p_por: SUPER.id, p_fornecedor: W, p_categoria: 'PERFIL', p_familia: 'ALUMINIO', p_arquivo_path: PATH, p_arquivo_nome: 'Motor.xlsx' })
+        expect(args).toMatchObject({ p_por: SUPER.id, p_fornecedor: W, p_categoria: 'PERFIL', p_familias: ['ALUMINIO'], p_nome: 'Motor Wolf', p_arquivo_path: PATH, p_arquivo_nome: 'Motor.xlsx' })
         const p = args.p_payload as Record<string, unknown[]>
         expect(p.regras.map((x: any) => x.codigo)).toEqual(['A1', 'B2'])
         expect(p).not.toHaveProperty('itens')
@@ -282,7 +300,10 @@ describe('(3) POST motores — lê o arquivo, chama a função e confere', () =>
         ['o autor no corpo (é o da sessão)', { ...NOVO, por: SUPER.id }],
         ['sem fornecedor', { ...NOVO, fornecedor_id: undefined }],
         ['sem categoria', { ...NOVO, categoria: '' }],
-        ['sem tipo', { ...NOVO, familia: '' }],
+        ['sem o nome do motor', { ...NOVO, nome_do_motor: '  ' }],
+        ['o nome do motor com 81 caracteres', { ...NOVO, nome_do_motor: 'a'.repeat(81) }],
+        ['sem família', { ...NOVO, familias: [] }],
+        ['a família de antes (texto solto)', { ...NOVO, familias: undefined, familia: 'ALUMINIO' }],
         ['sem caminho', { ...NOVO, path: undefined }],
         ['caminho da pasta de OUTRO fornecedor', { ...NOVO, path: `${R}/motor/u1-Motor.xlsx` }],
         ['caminho da pasta da família (o desenho de antes)', { ...NOVO, path: 'familia/PVC/motor/u1-Motor.xlsx' }],
@@ -339,9 +360,23 @@ describe('(3) POST motores — lê o arquivo, chama a função e confere', () =>
         expect(r.corpo).toEqual({ error: message })
     })
 
+    it('o nome repetido entre os ativos do fornecedor que chega pelo ÍNDICE (23505, uma corrida que a frase da função não viu): 409 com a frase da tela', async () => {
+        estado.objetos.set(PATH, await arquivoDoMotor())
+        estado.rpcResposta = () => ({ data: null, error: { code: '23505', message: 'duplicate key value violates unique constraint "orcamentista_motor_nome_ativo"' } })
+        const r = await motores('POST', NOVO)
+        expect([r.status, r.corpo]).toEqual([409, { error: NOME_DO_MOTOR_REPETIDO }])
+    })
+
+    it('o nome repetido que a função viu (22023) vai com a MENSAGEM DELA, que nomeia o nome', async () => {
+        const message = 'ja existe um motor ativo "Motor Wolf" deste fornecedor: o nome nao se repete entre os motores ativos. Nada foi gravado.'
+        estado.objetos.set(PATH, await arquivoDoMotor())
+        estado.rpcResposta = () => ({ data: null, error: { code: '22023', message } })
+        expect(await motores('POST', NOVO)).toMatchObject({ status: 400, corpo: { error: message } })
+    })
+
     it.each([
         ['57014', 'passou do limite de tempo'],
-        ['23505', 'código 23505'],
+        ['40001', 'código 40001'],
     ])('outro erro do banco (%s): 500 com a frase do código e "nada foi gravado" — nunca o texto do banco', async (code, trecho) => {
         estado.objetos.set(PATH, await arquivoDoMotor())
         estado.rpcResposta = () => ({ data: null, error: { code, message: 'duplicate key value violates unique constraint "segredo_do_banco"' } })
@@ -375,7 +410,7 @@ describe('(3) POST motores — lê o arquivo, chama a função e confere', () =>
 
 describe('(3b) POST motores/arquivar — só a função, com o autor da sessão', () => {
     it('chama SÓ superadmin_arquivar_motor com o motor do corpo e o autor da sessão', async () => {
-        estado.rpcResposta = () => ({ data: { orcamentista_motor: {} }, error: null })
+        estado.rpcResposta = () => ({ data: { orcamentista_motor: {}, etapas_sem_motor: [] }, error: null })
         const r = await arquivar('POST', { motor_id: M_ROLLER })
         expect(r.status).toBe(200)
         expect(estado.rpcs).toEqual([{ funcao: 'superadmin_arquivar_motor', args: { p_motor: M_ROLLER, p_por: SUPER.id } }])
@@ -387,8 +422,19 @@ describe('(3b) POST motores/arquivar — só a função, com o autor da sessão'
         nenhumaEscrita()
     })
 
-    it('a recusa da função (o motor que uma etapa aponta) vai com a MENSAGEM dela, que nomeia a empresa', async () => {
-        const message = 'o motor e o da etapa 1 ("Apanhado") da familia "Esquadrias de PVC" da empresa Esquadrias De Paula Ltda (e de mais 2): aponte as etapas para outro motor antes de arquivar'
+    it('o motor EM USO se arquiva (20261029000005): a resposta leva, intacta, a lista das etapas que ficaram sem motor', async () => {
+        const etapas = [
+            { etapa_id: 'e1', tenant_id: 't1', materia_prima_id: 'mp-1', empresa: 'Esquadrias De Paula Ltda', familia: 'Esquadrias de PVC', numero: 1, rotulo: 'Apanhado' },
+            { etapa_id: 'e2', tenant_id: 't1', materia_prima_id: 'mp-1', empresa: 'Esquadrias De Paula Ltda', familia: 'Esquadrias de PVC', numero: 2, rotulo: 'Levantamento de esquadrias' },
+        ]
+        estado.rpcResposta = () => ({ data: { orcamentista_motor: { id: M_WOLF }, etapas_sem_motor: etapas }, error: null })
+        const r = await arquivar('POST', { motor_id: M_WOLF })
+        expect(r.status).toBe(200)
+        expect(r.corpo).toEqual({ depois: { orcamentista_motor: { id: M_WOLF }, etapas_sem_motor: etapas } })
+    })
+
+    it('a recusa da função (o motor já arquivado) vai com a MENSAGEM dela', async () => {
+        const message = 'o motor ja esta arquivado'
         estado.rpcResposta = () => ({ data: null, error: { code: '22023', message } })
         const r = await arquivar('POST', { motor_id: M_WOLF })
         expect(r.status).toBe(400)
@@ -537,19 +583,20 @@ describe('(6) POST motores/trocar-arquivo — motor NOVO, pela função, e confe
 describe('(7) POST motores/editar — só sem uso; trocar o fornecedor leva o arquivo para a pasta do NOVO', () => {
     beforeEach(() => {
         // um motor de PERSIANAS da Roller Star, sem uso e sem família (serve qualquer linha), para editar
-        estado.db.orcamentista_motor.push({ id: MOTOR_NOVO, familia: null, fornecedor_id: R, categoria_chave: 'PERSIANAS', arquivo_nome: 'persiana.xlsx', arquivo_path: `${R}/motor/u1-persiana.xlsx`, criado_em: '2026-10-29', arquivado_em: null })
+        estado.db.orcamentista_motor.push({ id: MOTOR_NOVO, nome: 'Persiana', fornecedor_id: R, categoria_chave: 'PERSIANAS', arquivo_nome: 'persiana.xlsx', arquivo_path: `${R}/motor/u1-persiana.xlsx`, criado_em: '2026-10-29', arquivado_em: null })
+        estado.db.orcamentista_motor_familia.push({ motor_id: MOTOR_NOVO, familia: 'PVC' })
         estado.rpcResposta = () => ({ data: { orcamentista_motor: {} }, error: null })
     })
 
     it('a categoria, com o MESMO fornecedor: nenhuma cópia, e a função recebe o caminho de agora', async () => {
-        const r = await editar({ motor_id: MOTOR_NOVO, fornecedor_id: R, categoria: 'FERRAGENS' })
+        const r = await editar({ motor_id: MOTOR_NOVO, fornecedor_id: R, categoria: 'FERRAGENS', familias: ['PVC'], nome_do_motor: 'Persiana' })
         expect(r.status).toBe(200)
         expect(estado.copias).toEqual([])
-        expect(estado.rpcs).toEqual([{ funcao: 'superadmin_editar_motor', args: { p_por: SUPER.id, p_motor: MOTOR_NOVO, p_fornecedor: R, p_categoria: 'FERRAGENS', p_familia: null, p_arquivo_path: `${R}/motor/u1-persiana.xlsx` } }])
+        expect(estado.rpcs).toEqual([{ funcao: 'superadmin_editar_motor', args: { p_por: SUPER.id, p_motor: MOTOR_NOVO, p_fornecedor: R, p_categoria: 'FERRAGENS', p_familias: ['PVC'], p_nome: 'Persiana', p_arquivo_path: `${R}/motor/u1-persiana.xlsx` } }])
     })
 
     it('o fornecedor muda: o arquivo é COPIADO para a pasta de motor do novo, e a função recebe o caminho da cópia; o antigo não é tocado', async () => {
-        const r = await editar({ motor_id: MOTOR_NOVO, fornecedor_id: W, categoria: 'PERSIANAS' })
+        const r = await editar({ motor_id: MOTOR_NOVO, fornecedor_id: W, categoria: 'PERSIANAS', familias: ['PVC'], nome_do_motor: 'Persiana' })
         expect(r.status).toBe(200)
         expect(estado.copias).toHaveLength(1)
         expect(estado.copias[0].de).toBe(`${R}/motor/u1-persiana.xlsx`)
@@ -561,7 +608,7 @@ describe('(7) POST motores/editar — só sem uso; trocar o fornecedor leva o ar
 
     it('a função recusa (motor com uso): a mensagem dela vai, e a CÓPIA é removida — só ela, nunca o arquivo antigo', async () => {
         estado.rpcResposta = () => ({ data: null, error: { code: '22023', message: 'o motor tem uso (1 etapa(s), 0 item(ns) de levantamento)' } })
-        const r = await editar({ motor_id: MOTOR_NOVO, fornecedor_id: W, categoria: 'PERSIANAS' })
+        const r = await editar({ motor_id: MOTOR_NOVO, fornecedor_id: W, categoria: 'PERSIANAS', familias: ['PVC'], nome_do_motor: 'Persiana' })
         expect([r.status, r.corpo.error]).toEqual([400, 'o motor tem uso (1 etapa(s), 0 item(ns) de levantamento)'])
         expect(estado.removidos).toEqual([estado.copias[0].para])
         expect(estado.removidos).not.toContain(`${R}/motor/u1-persiana.xlsx`)
@@ -569,37 +616,66 @@ describe('(7) POST motores/editar — só sem uso; trocar o fornecedor leva o ar
 
     it('a recusa sem cópia (mesmo fornecedor) não remove nada', async () => {
         estado.rpcResposta = () => ({ data: null, error: { code: '22023', message: 'nada mudou' } })
-        expect((await editar({ motor_id: MOTOR_NOVO, fornecedor_id: R, categoria: 'PERSIANAS' })).status).toBe(400)
+        expect((await editar({ motor_id: MOTOR_NOVO, fornecedor_id: R, categoria: 'PERSIANAS', familias: ['PVC'], nome_do_motor: 'Persiana' })).status).toBe(400)
         expect(estado.removidos).toEqual([])
     })
 
-    it('PERFIL: a família do CORPO tem de ser a de uma tabela de Perfil do fornecedor — sem ela, ou outra, é 400 antes de copiar e de chamar a função', async () => {
-        // a Wolf tem Perfil ALUMINIO
-        let r = await editar({ motor_id: MOTOR_NOVO, fornecedor_id: W, categoria: 'PERFIL' })
-        expect([r.status, r.corpo.error]).toEqual([400, FAMILIA_DO_MOTOR_DE_PERFIL_OBRIGATORIA])
-        r = await editar({ motor_id: MOTOR_NOVO, fornecedor_id: W, categoria: 'PERFIL', familia: 'PVC' })
-        expect([r.status, r.corpo.error]).toEqual([400, 'A família do motor de Perfil vem da tabela de Perfil do fornecedor (ALUMINIO), e PVC não está entre elas.'])
-        r = await editar({ motor_id: MOTOR_NOVO, fornecedor_id: R, categoria: 'PERFIL', familia: 'PVC' })
-        expect(r.corpo.error).toContain('não tem tabela de Perfil')
-        r = await editar({ motor_id: MOTOR_NOVO, fornecedor_id: R, categoria: 'FERRAGENS', familia: 'PVC' })
-        expect([r.status, r.corpo.error]).toEqual([400, fraseDaFamiliaSoNoPerfil('FERRAGENS')])
+    it('família fora do catálogo: 400 NOMEANDO-A, antes de copiar e de chamar a função; a lista vazia e a repetida também', async () => {
+        let r = await editar({ motor_id: MOTOR_NOVO, fornecedor_id: W, categoria: 'PERSIANAS', familias: ['PVC', 'QQ', 'XYZ'], nome_do_motor: 'Persiana' })
+        expect([r.status, r.corpo.error]).toEqual([400, 'As famílias QQ, XYZ não estão no catálogo de famílias.'])
+        r = await editar({ motor_id: MOTOR_NOVO, fornecedor_id: R, categoria: 'PERSIANAS', familias: [], nome_do_motor: 'Persiana' })
+        expect([r.status, r.corpo.error]).toEqual([400, FAMILIAS_DO_MOTOR_OBRIGATORIAS])
+        r = await editar({ motor_id: MOTOR_NOVO, fornecedor_id: R, categoria: 'PERSIANAS', familias: ['ALUMINIO', 'ALUMINIO'], nome_do_motor: 'Persiana' })
+        expect([r.status, r.corpo.error]).toEqual([400, fraseDaFamiliaRepetidaNoMotor('ALUMINIO')])
         expect(estado.copias).toEqual([])
+        expect(estado.rpcs).toEqual([])
         nenhumaEscrita()
     })
 
-    it('PERFIL com a família da tabela de Perfil do fornecedor: a função recebe a família do CORPO (dar família ao motor de persiana sem uso)', async () => {
-        const r = await editar({ motor_id: MOTOR_NOVO, fornecedor_id: W, categoria: 'PERFIL', familia: 'ALUMINIO' })
+    it('a família NÃO se amarra a uma tabela: dar PVC e ALUMINIO a um motor de PERFIL da Wolf (tabela de Perfil ALUMINIO) chega à função com as duas', async () => {
+        const r = await editar({ motor_id: MOTOR_NOVO, fornecedor_id: W, categoria: 'PERFIL', familias: ['PVC', 'ALUMINIO'], nome_do_motor: 'Persiana' })
         expect(r.status).toBe(200)
-        expect(estado.rpcs[0].args).toMatchObject({ p_motor: MOTOR_NOVO, p_fornecedor: W, p_categoria: 'PERFIL', p_familia: 'ALUMINIO' })
+        expect(estado.rpcs[0].args).toMatchObject({ p_motor: MOTOR_NOVO, p_fornecedor: W, p_categoria: 'PERFIL', p_familias: ['PVC', 'ALUMINIO'] })
+    })
+
+    it('TIRAR a família em uso: a recusa 23001 da função vira 409 com a MENSAGEM DELA, que nomeia quem usa; a cópia, se houve, sai', async () => {
+        const mensagem = 'a familia PVC nao pode sair do motor: em uso por 1 etapa(s) (Esquadrias De Paula Ltda / Esquadrias de PVC WOLF / etapa 1). Aponte-os para outro motor antes. Nada foi gravado.'
+        estado.rpcResposta = () => ({ data: null, error: { code: '23001', message: mensagem } })
+        let r = await editar({ motor_id: MOTOR_NOVO, fornecedor_id: R, categoria: 'PERSIANAS', familias: ['ALUMINIO'], nome_do_motor: 'Persiana' })
+        expect([r.status, r.corpo.error]).toEqual([409, mensagem])
+        expect(estado.removidos).toEqual([])
+        r = await editar({ motor_id: MOTOR_NOVO, fornecedor_id: W, categoria: 'PERSIANAS', familias: ['ALUMINIO'], nome_do_motor: 'Persiana' })
+        expect([r.status, r.corpo.error]).toEqual([409, mensagem])
+        expect(estado.removidos).toEqual([estado.copias[0].para])
+    })
+
+    it('a FK simples do item (23503 — com a 20261029000005 a da etapa é SET NULL e não recusa mais) vira 409 com a frase da tela, nunca o texto do banco', async () => {
+        estado.rpcResposta = () => ({ data: null, error: { code: '23503', message: 'update or delete on table "orcamentista_motor_familia" violates foreign key constraint' } })
+        const r = await editar({ motor_id: MOTOR_NOVO, fornecedor_id: R, categoria: 'PERSIANAS', familias: ['ALUMINIO'], nome_do_motor: 'Persiana' })
+        expect([r.status, r.corpo.error]).toEqual([409, FAMILIA_EM_USO_NAO_SAI_DO_MOTOR])
+        expect(JSON.stringify(r.corpo)).not.toContain('orcamentista_motor_familia')
+    })
+
+    it('o NOME se edita também com uso: chega à função aparado; vazio é 400 sem função; o repetido do índice (23505) é 409 com a frase da tela', async () => {
+        let r = await editar({ motor_id: MOTOR_NOVO, fornecedor_id: R, categoria: 'PERSIANAS', familias: ['PVC'], nome_do_motor: '  Persiana Roller  ' })
+        expect(r.status).toBe(200)
+        expect(estado.rpcs[0].args).toMatchObject({ p_motor: MOTOR_NOVO, p_nome: 'Persiana Roller' })
+        r = await editar({ motor_id: MOTOR_NOVO, fornecedor_id: R, categoria: 'PERSIANAS', familias: ['PVC'], nome_do_motor: ' ' })
+        expect([r.status, r.corpo.error]).toEqual([400, 'Dê um nome ao motor.'])
+        expect(estado.rpcs).toHaveLength(1)
+        estado.rpcResposta = () => ({ data: null, error: { code: '23505', message: 'duplicate key value violates unique constraint "orcamentista_motor_nome_ativo"' } })
+        r = await editar({ motor_id: MOTOR_NOVO, fornecedor_id: R, categoria: 'PERSIANAS', familias: ['PVC'], nome_do_motor: 'Outro' })
+        expect([r.status, r.corpo]).toEqual([409, { error: NOME_DO_MOTOR_REPETIDO }])
     })
 
     it('as recusas da rota: corpo, motor inexistente, motor arquivado — sem cópia e sem função', async () => {
         const casos: Array<[unknown, number]> = [
-            [{ motor_id: MOTOR_NOVO, fornecedor_id: R }, 400],
-            [{ motor_id: MOTOR_NOVO, fornecedor_id: 'x', categoria: 'PERSIANAS' }, 400],
-            [{ motor_id: MOTOR_NOVO, fornecedor_id: R, categoria: 'PERSIANAS', arquivo_path: 'x' }, 400],
-            [{ motor_id: '00000000-0000-4000-8000-0000000000ff', fornecedor_id: R, categoria: 'PERSIANAS' }, 404],
-            [{ motor_id: M_ROLLER, fornecedor_id: R, categoria: 'FERRAGENS' }, 400],
+            [{ motor_id: MOTOR_NOVO, fornecedor_id: R, familias: ['PVC'], nome_do_motor: 'Persiana' }, 400],
+            [{ motor_id: MOTOR_NOVO, fornecedor_id: 'x', categoria: 'PERSIANAS', familias: ['PVC'], nome_do_motor: 'Persiana' }, 400],
+            [{ motor_id: MOTOR_NOVO, fornecedor_id: R, categoria: 'PERSIANAS', familias: ['PVC'], arquivo_path: 'x', nome_do_motor: 'Persiana' }, 400],
+            [{ motor_id: MOTOR_NOVO, fornecedor_id: R, categoria: 'PERSIANAS', familia: 'PVC', nome_do_motor: 'Persiana' }, 400],
+            [{ motor_id: '00000000-0000-4000-8000-0000000000ff', fornecedor_id: R, categoria: 'PERSIANAS', familias: ['PVC'], nome_do_motor: 'Persiana' }, 404],
+            [{ motor_id: M_ROLLER, fornecedor_id: R, categoria: 'FERRAGENS', familias: ['PVC'], nome_do_motor: 'Persiana' }, 400],
         ]
         for (const [corpo, status] of casos) expect((await editar(corpo)).status).toBe(status)
         expect(estado.copias).toEqual([])

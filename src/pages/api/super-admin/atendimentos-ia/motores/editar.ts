@@ -1,27 +1,35 @@
 /**
- * POST /api/super-admin/atendimentos-ia/motores/editar — `{ motor_id, fornecedor_id, categoria, familia? }`: EDITAR categoria, fornecedor e família do motor, SÓ
- * EM MOTOR SEM USO (dono do produto, 29/10/2026: "com uso, o arquivo ficaria na pasta do fornecedor antigo e o motor passaria a mentir sobre a
- * própria origem"). A função `superadmin_editar_motor` (migração 20261029000001) confere o uso — nenhuma etapa e nenhum item de levantamento —
- * e loga o antes e o depois.
+ * POST /api/super-admin/atendimentos-ia/motores/editar — `{ motor_id, fornecedor_id, categoria, familias, nome_do_motor }`: EDITAR o motor
+ * (`superadmin_editar_motor`, migração 20261029000005, que loga o antes e o depois).
+ *   - FORNECEDOR E CATEGORIA, SÓ EM MOTOR SEM USO (dono do produto, 29/10/2026: "com uso, o arquivo ficaria na pasta do fornecedor antigo e o motor
+ *     passaria a mentir sobre a própria origem"): a função confere o uso — nenhuma etapa e nenhum item de levantamento.
+ *   - AS FAMÍLIAS em que o motor atua (o motor serve N famílias e uma categoria, 29/10/2026) se editam TAMBÉM COM USO: o corpo leva a lista inteira
+ *     de depois. TIRAR a família que alguma etapa ou item usa é RECUSA 409 que nomeia quem usa (a função, 23001). Desde a 20261029000005 a FK da
+ *     etapa e do item é ON DELETE SET NULL: a conferência da função, com o motor travado, é a trava (o 23503 de antes não vem mais da etapa; fica
+ *     tratado para a FK simples do item). A família NÃO se amarra a uma tabela da categoria do fornecedor.
+ *   - O NOME (20261029000005) se edita também com uso; repetir o de outro motor ATIVO do fornecedor é 400 com a frase da função, e 409 quando a
+ *     recusa vem do índice (23505, uma corrida).
  *
  * O ARQUIVO DIZ A ORIGEM: trocar o fornecedor COPIA o objeto para a pasta de motor do fornecedor novo, e a função confere o caminho novo. Se a
  * função recusar, a CÓPIA é removida (é nova, não tem dado de ninguém); o objeto antigo nunca é tocado — apagar arquivo é DELETE, e DELETE é do
- * dono do produto. A FAMÍLIA ANDA COM A CATEGORIA (20261029000002): no PERFIL, obrigatória e a de uma tabela de Perfil do fornecedor (a mesma
- * trava da criação); fora dele, nula — o motor serve qualquer linha. A função `superadmin_editar_motor` confere as duas metades.
+ * dono do produto.
  *
- * A ORDEM: só super admin (404); o corpo, com a família pela categoria (400); o motor existe (404) e não está arquivado (400); a família do Perfil (400); a cópia, se o
- * fornecedor muda; a função (42501→403, P0002→404, 22023→400 com a mensagem dela; outro erro é 500).
+ * A ORDEM: só super admin (404); o corpo (400); o motor existe (404) e não está arquivado (400); cada família no catálogo (400 nomeando); a cópia,
+ * se o fornecedor muda; a função (42501→403, P0002→404, 22023→400 e 23001→409 com a mensagem dela; 23503→409; 23505→409; outro erro é 500).
  */
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { randomUUID } from 'crypto'
 import { superAdminOu404 } from '@/lib/get-caller-tenant'
 import { ErroDaFuncao, editarMotor, obterMotor } from '@/lib/atendimentos-ia/etapas-da-familia'
-import { copiarObjeto, falhaInterna, familiasDoPerfilDoFornecedor, removerObjetos } from '@/lib/atendimentos-ia/repositorio'
+import { copiarObjeto, falhaInterna, listarFamilias, removerObjetos } from '@/lib/atendimentos-ia/repositorio'
 import { metodoNaoPermitido } from '@/lib/atendimentos-ia/base-de-conhecimento-servidor'
-import { CATEGORIA_QUE_EXIGE_FAMILIA, caminhoNoBucket } from '@/utils/atendimentos-ia-catalogo'
-import { MOTOR_ARQUIVADO_NAO_SE_EDITA, fraseDaFamiliaForaDoPerfil, fraseSemTabelaDePerfil, lerCorpoDaEdicao } from '@/utils/atendimentos-ia-catalogo-de-motores'
+import { caminhoNoBucket } from '@/utils/atendimentos-ia-catalogo'
+import {
+    FAMILIA_EM_USO_NAO_SAI_DO_MOTOR, MOTOR_ARQUIVADO_NAO_SE_EDITA, NOME_DO_MOTOR_REPETIDO, familiasForaDoCatalogo, fraseDaFamiliaForaDoCatalogo, lerCorpoDaEdicao,
+} from '@/utils/atendimentos-ia-catalogo-de-motores'
 
-const STATUS_DA_FUNCAO: Record<string, number> = { '42501': 403, P0002: 404, '22023': 400 }
+/** A recusa da função, por código, com a mensagem DELA; 23001 é a família em uso que não sai (nomeia quem usa). */
+const STATUS_DA_FUNCAO: Record<string, number> = { '42501': 403, P0002: 404, '22023': 400, '23001': 409 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
     const caller = await superAdminOu404(req, res)
@@ -30,7 +38,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const corpo = lerCorpoDaEdicao(req.body)
     if (corpo.ok === false) return res.status(400).json({ error: corpo.erro })
-    const { motor_id, fornecedor_id, categoria, familia } = corpo.corpo
+    const { motor_id, fornecedor_id, categoria, familias, nome_do_motor } = corpo.corpo
 
     let caminho: string
     let copia: string | null = null
@@ -38,12 +46,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const motor = await obterMotor(motor_id)
         if (!motor) return res.status(404).json({ error: 'Motor não encontrado.' })
         if (motor.arquivado_em !== null) return res.status(400).json({ error: MOTOR_ARQUIVADO_NAO_SE_EDITA })
-        if (categoria === CATEGORIA_QUE_EXIGE_FAMILIA) {
-            const doPerfil = await familiasDoPerfilDoFornecedor(fornecedor_id)
-            if (familia === null || !doPerfil.includes(familia)) {
-                return res.status(400).json({ error: doPerfil.length === 0 ? fraseSemTabelaDePerfil() : fraseDaFamiliaForaDoPerfil(String(familia), doPerfil) })
-            }
-        }
+        const fora = familiasForaDoCatalogo(familias, await listarFamilias())
+        if (fora.length > 0) return res.status(400).json({ error: fraseDaFamiliaForaDoCatalogo(fora) })
         caminho = motor.arquivo_path
         if (fornecedor_id !== motor.fornecedor_id) {
             copia = caminhoNoBucket(fornecedor_id, 'motor', motor.arquivo_nome, randomUUID())
@@ -55,7 +59,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     try {
-        const depois = await editarMotor({ por: caller.user_id, motorId: motor_id, fornecedorId: fornecedor_id, categoria, familia, arquivoPath: caminho })
+        const depois = await editarMotor({ por: caller.user_id, motorId: motor_id, fornecedorId: fornecedor_id, categoria, familias, nome: nome_do_motor, arquivoPath: caminho })
         return res.status(200).json(depois)
     } catch (e) {
         // a cópia é nova: se a função recusou, ela sai; o objeto antigo nunca é tocado
@@ -63,6 +67,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const codigo = e instanceof ErroDaFuncao ? e.code : null
         const status = codigo ? STATUS_DA_FUNCAO[codigo] : undefined
         if (status && e instanceof Error && e.message.trim() !== '') return res.status(status).json({ error: e.message })
+        if (codigo === '23503') return res.status(409).json({ error: FAMILIA_EM_USO_NAO_SAI_DO_MOTOR })
+        if (codigo === '23505') return res.status(409).json({ error: NOME_DO_MOTOR_REPETIDO })
         return falhaInterna(res, 'editar motor (gravação)', e, 'Não foi possível editar o motor. Nada foi gravado.')
     }
 }

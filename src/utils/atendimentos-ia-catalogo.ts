@@ -114,8 +114,10 @@ export const ROTAS_DO_CATALOGO = {
     contas: '/api/super-admin/atendimentos-ia/contas',
     /** POST envia um PDF de teste ao remetente ativo da conta, pela conexão do orçamentista (26/10/2026). */
     testeDeAnexo: (tenantId: string) => `/api/super-admin/atendimentos-ia/contas/${tenantId}/teste-de-anexo`,
-    /** As FAMÍLIAS das tabelas (26/10/2026): GET a lista, na ordem; POST acrescenta `{ rotulo }` no fim. */
+    /** As FAMÍLIAS do catálogo: GET a lista, na ordem, cada uma com as suas ramificações; POST `{ rotulo, ramificacoes }` acrescenta no fim. */
     familias: '/api/super-admin/atendimentos-ia/familias',
+    /** UMA família (29/10/2026, migração 20261029000004): PATCH `{ rotulo, ramificacoes }` edita; DELETE remove — em uso é recusa nomeada. */
+    familia: (chave: string) => `/api/super-admin/atendimentos-ia/familias/${chave}`,
 } as const
 
 /**
@@ -200,6 +202,12 @@ export const MENSAGEM_MOTOR_NAO_SAI = 'O arquivo do motor não se apaga da tabel
  * O que o motor chama de "família" (a aba "Fórmulas da família") é a LINHA.
  */
 export interface Familia { chave: string; rotulo: string; ordem: number }
+/**
+ * A família como o catálogo a mostra e edita (29/10/2026): o nome e as RAMIFICAÇÕES que ela declara (`orcamentista_familia_ramificacao`, as
+ * categorias que a base de conhecimento mostra numa matéria-prima dessa família), na ordem dela. Família sem ramificação, na base de
+ * conhecimento, mostra só as categorias com dado gravado — numa família nova, nenhuma: por isso criar e editar exigem ao menos uma.
+ */
+export interface FamiliaDoCatalogo extends Familia { ramificacoes: string[] }
 
 /**
  * A FAMÍLIA É OBRIGATÓRIA SÓ NA TABELA DE PERFIL (dono do produto, 28/10/2026; migração 20261028000002): a tabela de perfil é de UMA linha
@@ -284,8 +292,8 @@ export interface FornecedorDaLista {
      */
     categorias_das_tabelas: string[]
     /**
-     * As FAMÍLIAS das tabelas de PERFIL deste fornecedor, sem repetição e em ordem: é de onde o motor de PERFIL tira a família (dono do produto,
-     * 29/10/2026: "derivar da tabela de PERFIL do fornecedor quando ela existir"). A tabela de Perfil sempre tem família (`20261028000002`).
+     * As FAMÍLIAS das tabelas de PERFIL deste fornecedor, sem repetição e em ordem. A tabela de Perfil sempre tem família (`20261028000002`).
+     * Desde o motor de N famílias (20261029000003) a família do motor NÃO vem mais daqui — nenhuma tela ou rota a amarra a esta lista.
      */
     familias_do_perfil: string[]
 }
@@ -394,15 +402,54 @@ export interface CorpoDaTabela {
     categoria_chave: string
 }
 
-/** A família nova: `{ rotulo }`, aparado, com a chave derivada dele. */
-export function lerFamiliaNova(body: unknown): Leitura<{ rotulo: string; chave: string }> {
-    const rotulo = textoAparado(obj(body).rotulo)
+export const FAMILIA_SEM_RAMIFICACAO = 'Marque ao menos uma categoria da família: sem ela, a base de conhecimento não mostra nenhuma.'
+export const RAMIFICACAO_REPETIDA = 'Uma categoria aparece mais de uma vez na lista.'
+export const RAMIFICACOES_INVALIDAS = 'As categorias da família vão numa lista de chaves do catálogo.'
+
+function lerRotuloDaFamilia(v: unknown): Leitura<string> {
+    const rotulo = textoAparado(v)
     if (!rotulo) return { ok: false, erro: 'Escreva o nome da família.' }
     if (rotulo.length > LIMITE_DO_ROTULO_DA_FAMILIA) return { ok: false, erro: `O nome da família tem ${rotulo.length} caracteres; o limite é ${LIMITE_DO_ROTULO_DA_FAMILIA}.` }
-    const chave = chaveDaFamilia(rotulo)
-    if (!chave) return { ok: false, erro: 'O nome da família precisa começar por uma letra.' }
-    return { ok: true, corpo: { rotulo, chave } }
+    return { ok: true, corpo: rotulo }
 }
+
+/** As ramificações: uma lista de chaves de categoria, ao menos uma, sem repetir, na ordem dada. Estar no catálogo, a rota confere. */
+function lerRamificacoes(v: unknown): Leitura<string[]> {
+    if (!Array.isArray(v) || v.some((x) => !ehChaveDeCategoria(x))) return { ok: false, erro: RAMIFICACOES_INVALIDAS }
+    if (v.length === 0) return { ok: false, erro: FAMILIA_SEM_RAMIFICACAO }
+    if (new Set(v).size !== v.length) return { ok: false, erro: RAMIFICACAO_REPETIDA }
+    return { ok: true, corpo: v as string[] }
+}
+
+/** A família nova: `{ rotulo, ramificacoes }`, o rótulo aparado e a chave derivada dele. Campo a mais é erro. */
+export function lerFamiliaNova(body: unknown): Leitura<{ rotulo: string; chave: string; ramificacoes: string[] }> {
+    const b = obj(body)
+    const extra = Object.keys(b).filter((k) => k !== 'rotulo' && k !== 'ramificacoes')
+    if (extra.length > 0) return { ok: false, erro: `Campo desconhecido no corpo: ${extra.join(', ')} (só rotulo e ramificacoes).` }
+    const rotulo = lerRotuloDaFamilia(b.rotulo)
+    if (rotulo.ok === false) return rotulo
+    const chave = chaveDaFamilia(rotulo.corpo)
+    if (!chave) return { ok: false, erro: 'O nome da família precisa começar por uma letra.' }
+    const ramificacoes = lerRamificacoes(b.ramificacoes)
+    if (ramificacoes.ok === false) return ramificacoes
+    return { ok: true, corpo: { rotulo: rotulo.corpo, chave, ramificacoes: ramificacoes.corpo } }
+}
+
+/** A edição da família: `{ rotulo, ramificacoes }` — os dois, sempre (o que não muda vai igual). A CHAVE não se renomeia (28/10/2026). */
+export function lerEdicaoDaFamilia(body: unknown): Leitura<{ rotulo: string; ramificacoes: string[] }> {
+    const b = obj(body)
+    const extra = Object.keys(b).filter((k) => k !== 'rotulo' && k !== 'ramificacoes')
+    if (extra.length > 0) return { ok: false, erro: `Campo desconhecido no corpo: ${extra.join(', ')} (só rotulo e ramificacoes).` }
+    const rotulo = lerRotuloDaFamilia(b.rotulo)
+    if (rotulo.ok === false) return rotulo
+    const ramificacoes = lerRamificacoes(b.ramificacoes)
+    if (ramificacoes.ok === false) return ramificacoes
+    return { ok: true, corpo: { rotulo: rotulo.corpo, ramificacoes: ramificacoes.corpo } }
+}
+
+/** "Nada mudou": o nome (aparado) e as ramificações (na ordem) são os de agora. */
+export const familiaNaoMudou = (atual: FamiliaDoCatalogo, ed: { rotulo: string; ramificacoes: readonly string[] }) =>
+    atual.rotulo.trim() === ed.rotulo && atual.ramificacoes.length === ed.ramificacoes.length && atual.ramificacoes.every((c, i) => c === ed.ramificacoes[i])
 
 /**
  * A tabela NOVA. O MOTOR É OPCIONAL EM TODA CATEGORIA (dono do produto, 27/10/2026, à noite): o motor mora na família, em

@@ -66,12 +66,19 @@ function montar() {
         ],
         orcamentista_fornecedor: [{ id: 'f-wolff', nome: 'Wolff' }, { id: 'f-roller', nome: 'Roller' }],
         orcamentista_motor: [
-            { id: M1, familia: 'PVC', fornecedor_id: 'f-wolff', categoria_chave: 'PERFIL', arquivo_nome: 'Wolff.xlsx', arquivado_em: null, criado_em: '2026-10-27T10:00:00Z' },
-            // o motor de persiana serve QUALQUER linha: família nula (20261029000002)
-            { id: M2, familia: null, fornecedor_id: 'f-roller', categoria_chave: 'PERSIANAS', arquivo_nome: 'Roller.xlsx', arquivado_em: null, criado_em: '2026-10-27T11:00:00Z' },
-            { id: 'm-arq-sem', familia: null, fornecedor_id: 'f-roller', categoria_chave: 'PERSIANAS', arquivo_nome: 'Roller velha.xlsx', arquivado_em: '2026-10-01T00:00:00Z', criado_em: '2026-09-02T00:00:00Z' },
-            { id: 'm-arq', familia: 'PVC', fornecedor_id: 'f-wolff', categoria_chave: 'PERFIL', arquivo_nome: 'Velha.xlsx', arquivado_em: '2026-10-01T00:00:00Z', criado_em: '2026-09-01T00:00:00Z' },
-            { id: 'm-alu', familia: 'ALUMINIO', fornecedor_id: 'f-wolff', categoria_chave: 'PERFIL', arquivo_nome: 'Alumínio.xlsx', arquivado_em: null, criado_em: '2026-10-27T12:00:00Z' },
+            { id: M1, fornecedor_id: 'f-wolff', categoria_chave: 'PERFIL', arquivo_nome: 'Wolff.xlsx', arquivado_em: null, criado_em: '2026-10-27T10:00:00Z' },
+            { id: M2, fornecedor_id: 'f-roller', categoria_chave: 'PERSIANAS', arquivo_nome: 'Roller.xlsx', arquivado_em: null, criado_em: '2026-10-27T11:00:00Z' },
+            { id: 'm-arq-sem', fornecedor_id: 'f-roller', categoria_chave: 'PERSIANAS', arquivo_nome: 'Roller velha.xlsx', arquivado_em: '2026-10-01T00:00:00Z', criado_em: '2026-09-02T00:00:00Z' },
+            { id: 'm-arq', fornecedor_id: 'f-wolff', categoria_chave: 'PERFIL', arquivo_nome: 'Velha.xlsx', arquivado_em: '2026-10-01T00:00:00Z', criado_em: '2026-09-01T00:00:00Z' },
+            { id: 'm-alu', fornecedor_id: 'f-wolff', categoria_chave: 'PERFIL', arquivo_nome: 'Alumínio.xlsx', arquivado_em: null, criado_em: '2026-10-27T12:00:00Z' },
+        ],
+        // as famílias de cada motor (20261029000003): o de persiana atua em PVC e ALUMINIO; o de alumínio, só em ALUMINIO
+        orcamentista_motor_familia: [
+            { motor_id: M1, familia: 'PVC' },
+            { motor_id: M2, familia: 'PVC' }, { motor_id: M2, familia: 'ALUMINIO' },
+            { motor_id: 'm-arq-sem', familia: 'PVC' },
+            { motor_id: 'm-arq', familia: 'PVC' },
+            { motor_id: 'm-alu', familia: 'ALUMINIO' },
         ],
         orcamentista_familia_etapa: [
             { id: E2, tenant_id: T, materia_prima_id: MP, familia: 'PVC', numero: 2, rotulo: 'Confirmar', acao: 'CONFIRMAR', instrucao: 'confirme com o vendedor', abas: [], motor_id: M2 },
@@ -343,6 +350,18 @@ describe('(3) a rota: só o super admin, e só a função grava', () => {
         expect((await chamar('GET', MP2)).corpo.etapas.map((e: Linha) => e.rotulo)).toEqual(['Da outra família PVC'])
     })
 
+    it('GET: a família PRONTA (todas as etapas com motor) e a que não está, com a lista das etapas sem motor (29/10/2026)', async () => {
+        const pronta = await chamar('GET', MP)
+        expect([pronta.corpo.pronta, pronta.corpo.etapas_sem_motor]).toEqual([true, []])
+        const sem = await chamar('GET', MP2)
+        expect([sem.corpo.pronta, sem.corpo.etapas_sem_motor]).toEqual([false, [{ id: 'da-outra-familia', numero: 1, rotulo: 'Da outra família PVC' }]])
+        // o motor arquivado limpou a etapa 2 da MP (20261029000005): a família deixa de estar pronta, e a etapa vem nomeada
+        estado.db.orcamentista_familia_etapa[0].motor_id = null
+        const depois = await chamar('GET', MP)
+        expect([depois.corpo.pronta, depois.corpo.etapas_sem_motor]).toEqual([false, [{ id: E2, numero: 2, rotulo: 'Confirmar' }]])
+        expect(estado.rpcs).toEqual([])
+    })
+
     it('GET: a matéria-prima de OUTRA empresa é 404 (a da URL manda), e a sem id ou inexistente também; empresa inexistente é 404', async () => {
         expect((await chamar('GET', MP_DA_OUTRA)).status).toBe(404)
         expect((await chamar('GET', undefined)).status).toBe(404)
@@ -351,13 +370,13 @@ describe('(3) a rota: só o super admin, e só a função grava', () => {
         expect((await chamar('GET', MP_DA_OUTRA, {}, T2)).corpo.etapas.map((e: Linha) => e.rotulo)).toEqual(['Da outra empresa'])
     })
 
-    it('GET: cada etapa diz o motor que aponta (null quando a linha não tem), e os motores são do CATÁLOGO, os de Perfil do MESMO tipo e os SEM família, não arquivados', async () => {
+    it('GET: cada etapa diz o motor que aponta (null quando a linha não tem), e os motores são do CATÁLOGO, os que ATUAM na família (de qualquer categoria), não arquivados', async () => {
         estado.db.orcamentista_familia_etapa[0].motor_id = undefined
         const r = await chamar('GET', MP)
         expect(r.corpo.etapas.map((e: Linha) => e.motor_id)).toEqual([M1, null])
-        expect(r.corpo.motores.map((m: Linha) => [m.id, m.fornecedor, m.categoria, m.familia, m.fornecedor_id])).toEqual([
-            [M1, 'Wolff', 'PERFIL', 'PVC', 'f-wolff'],
-            [M2, 'Roller', 'PERSIANAS', null, 'f-roller'],
+        expect(r.corpo.motores.map((m: Linha) => [m.id, m.fornecedor, m.categoria, m.familias, m.fornecedor_id])).toEqual([
+            [M1, 'Wolff', 'PERFIL', ['PVC'], 'f-wolff'],
+            [M2, 'Roller', 'PERSIANAS', ['ALUMINIO', 'PVC'], 'f-roller'],
         ])
         // o combo não precisa de quem usa nem de tipologias: a leitura leve não as traz
         expect(r.corpo.motores[0]).toMatchObject({ tipologias: null, usos: [] })
@@ -367,7 +386,7 @@ describe('(3) a rota: só o super admin, e só a função grava', () => {
     it('GET: a família SEM tipo devolve familia null e nenhum motor (sem tipo não há etapa)', async () => {
         const r = await chamar('GET', MP_SEM_TIPO)
         expect(r.status).toBe(200)
-        expect(r.corpo).toEqual({ familia: null, etapas: [], motores: [] })
+        expect(r.corpo).toEqual({ familia: null, etapas: [], motores: [], pronta: false, etapas_sem_motor: [] })
     })
 
     it('PUT: o motor_id do item vai à função como veio — uuid aponta, null limpa — e o item sem motor_id não o leva', async () => {
@@ -442,7 +461,7 @@ describe('(4) a recusa chega a quem clicou', () => {
         ['22023', 400, 'a etapa 1 ("Apanhar o pedido") nao veio na lista: remover etapa nao e permitido por aqui'],
         ['42501', 403, 'o autor da alteracao nao e super admin'],
         ['P0002', 404, 'materia-prima inexistente nesta empresa'],
-        ['22023', 400, 'etapa 1: o motor e do tipo ALUMINIO, e a familia e do tipo PVC'],
+        ['22023', 400, 'etapa 1: o motor nao atua na familia PVC'],
     ])('o código %s vira %i com a mensagem da função', async (code, status, mensagem) => {
         estado.rpcResposta = () => ({ data: null, error: { code, message: mensagem } })
         const r = await chamar('PUT', undefined, { materia_prima: MP, etapas: [] })
