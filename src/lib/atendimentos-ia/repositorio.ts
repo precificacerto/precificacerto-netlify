@@ -402,6 +402,23 @@ export async function caminhosDaPlanilha(caminhos: string[]): Promise<Set<string
     return new Set(ls.map((l: Linha) => String(l.arquivo_path)))
 }
 
+/** Os caminhos, entre os dados, que alguma TABELA referencia (arquivo ou motor). LANÇA se a leitura falhar — quem chama não remove nada. */
+export async function caminhosDeTabela(caminhos: string[]): Promise<Set<string>> {
+    if (caminhos.length === 0) return new Set()
+    const [doArquivo, doMotor] = await Promise.all([
+        q(db().from('orcamentista_tabela').select('arquivo_path').in('arquivo_path', caminhos)),
+        q(db().from('orcamentista_tabela').select('motor_path').in('motor_path', caminhos)),
+    ])
+    return new Set([...doArquivo.map((l: Linha) => String(l.arquivo_path)), ...doMotor.map((l: Linha) => String(l.motor_path))])
+}
+
+/** Quantos itens importados a tabela tem — contados no banco (a edição recusa trocar o arquivo da tabela que tem algum). */
+export async function contarItensDaTabela(tabelaId: string): Promise<number> {
+    const { count, error } = await db().from('orcamentista_tabela_item').select('id', { count: 'exact', head: true }).eq('tabela_id', tabelaId)
+    if (error) throw new ErroDoBanco(error)
+    return count ?? 0
+}
+
 /** Copia UM objeto dentro do bucket (o motor que muda de fornecedor leva o arquivo para a pasta do novo). Falha LANÇA. */
 export async function copiarObjeto(de: string, para: string): Promise<void> {
     const { error } = await bucket().copy(de, para)

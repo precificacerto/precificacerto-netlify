@@ -14,7 +14,8 @@
  *   (4) reordenar é subir e descer, e o número que vai é a posição;
  *   (5) etapa sem ação, rótulo em branco ou instrução acima do limite NÃO sai da tela: a frase nomeia a etapa;
  *   (6) a recusa da rota aparece NO cartão, e o rascunho continua na tela;
- *   (7) NÃO HÁ botão de remover etapa gravada; a nova, ainda não salva, só se descarta do rascunho;
+ *   (7) EXCLUIR etapa gravada pede confirmação nomeando o rótulo, a instrução e o motor GRAVADOS, e ao salvar ela não vai na lista (a função a
+ *       remove e renumera as que ficam, 20261031000001); a nova, ainda não salva, só se descarta do rascunho;
  *   (8) a tela diz, sem rodeio, que as etapas ainda não mudam a conversa;
  *   (9) o motor da etapa sai do catálogo: só do mesmo tipo e não arquivado, os dos principais primeiro; NÃO há campo de arquivo, e o
  *       link "cadastrar motor no catálogo" leva ao catálogo.
@@ -340,7 +341,7 @@ describe('(5) o que não passa não sai da tela, e a frase nomeia a etapa', () =
 
 describe('(6) a recusa da rota aparece no cartão e o rascunho fica', () => {
     it('400 da rota: a frase inteira no cartão, e o que foi digitado continua na tela, pendente', async () => {
-        const frase = 'a etapa 1 ("Apanhar o pedido") nao veio na lista: remover etapa nao e permitido por aqui'
+        const frase = 'etapa 1: o motor esta arquivado'
         respostas[`PUT ${rotaDasEtapas(T)}`] = { status: 400, body: { error: frase } }
         const host = await montar()
         await digitar(campo(host, 'Rótulo da etapa 2'), 'Confirmar de outro jeito')
@@ -362,14 +363,73 @@ describe('(6) a recusa da rota aparece no cartão e o rascunho fica', () => {
     })
 })
 
-describe('(7) não se remove etapa gravada', () => {
-    it('nenhum botão de remover, excluir, apagar ou deletar; só a etapa NOVA tem "Descartar"', async () => {
+describe('(7) EXCLUIR etapa gravada (30/10/2026): confirma dizendo o que se perde, e ao salvar ela não vai na lista', () => {
+    /** Clica em Excluir da etapa N e devolve o balão de confirmação aberto. */
+    async function abrirExclusao(host: HTMLElement, n: number) {
+        await clicar(botao(host, `Excluir a etapa ${n}`))
+        return document.body.querySelector('.ant-popover:not(.ant-popover-hidden)') as HTMLElement
+    }
+    const confirmar = async (balao: HTMLElement) => clicar(Array.from(balao.querySelectorAll('.ant-popconfirm-buttons button')).find((b) => b.textContent?.replace(/\s/g, '') === 'Excluir'))
+    const COM_MOTOR: EtapaDaFamilia[] = [
+        { ...ETAPAS[0], motor_id: M1, instrucao: 'pergunte a tipologia' },
+        { ...ETAPAS[1], instrucao: 'x'.repeat(100) },
+    ]
+
+    it('só as GRAVADAS têm Excluir; a nova segue só com Descartar', async () => {
         const host = await montar()
-        const textos = () => Array.from(host.querySelectorAll('button')).map((b) => `${b.textContent ?? ''}${b.getAttribute('aria-label') ?? ''}`)
-        expect(textos().filter((t) => /remov|exclu|apag|delet|descart/i.test(t))).toEqual([])
+        expect(host.querySelectorAll('[data-excluir-etapa]')).toHaveLength(2)
         await clicar(botao(host, 'Nova etapa'))
-        expect(textos().filter((t) => /descart/i.test(t))).toHaveLength(1)
-        expect(textos().filter((t) => /remov|exclu|apag|delet/i.test(t))).toEqual([])
+        expect(host.querySelectorAll('[data-excluir-etapa]')).toHaveLength(2)
+        expect(botao(host, 'Descartar')).toBeTruthy()
+    })
+
+    it('a confirmação nomeia o que se perde, do GRAVADO: o rótulo, a instrução e o motor — e clicar em Excluir sozinho não tira nada', async () => {
+        respostas[`GET ${rotaDasEtapas(T, MP)}`] = { status: 200, body: { familia: 'PVC', etapas: COM_MOTOR, motores: MOTORES } }
+        const host = await montar()
+        // o rascunho mudou o rótulo: a confirmação diz o que está GRAVADO, que é o que sai do banco
+        await digitar(campo(host, 'Rótulo da etapa 1'), 'Digitado e não salvo')
+        const b1 = await abrirExclusao(host, 1)
+        expect(b1.textContent).toContain('Excluir a etapa 1 ("Apanhar o pedido")?')
+        expect(Array.from(b1.querySelectorAll('[data-o-que-se-perde] li')).map((l) => l.textContent)).toEqual([
+            'o rótulo "Apanhar o pedido"', 'a instrução "pergunte a tipologia"', `o motor ${WOLFF}`,
+        ])
+        expect(host.querySelectorAll('[data-etapa]')).toHaveLength(2)
+    })
+
+    it('a instrução longa vai pelo começo e pelo tamanho; a etapa sem motor diz "sem motor"', async () => {
+        respostas[`GET ${rotaDasEtapas(T, MP)}`] = { status: 200, body: { familia: 'PVC', etapas: COM_MOTOR, motores: MOTORES } }
+        const host = await montar()
+        const b2 = await abrirExclusao(host, 2)
+        expect(Array.from(b2.querySelectorAll('[data-o-que-se-perde] li')).map((l) => l.textContent)).toEqual([
+            'o rótulo "Confirmar"', `a instrução de 100 caracteres ("${'x'.repeat(80)}…")`, 'sem motor',
+        ])
+    })
+
+    it('a etapa SEM instrução diz "sem instrução" (nunca uma instrução vazia entre aspas)', async () => {
+        const host = await montar()
+        const b2 = await abrirExclusao(host, 2)
+        expect(Array.from(b2.querySelectorAll('[data-o-que-se-perde] li')).map((l) => l.textContent)).toEqual(['o rótulo "Confirmar"', 'sem instrução', 'sem motor'])
+    })
+
+    it('confirmada: a etapa sai do rascunho, as de baixo sobem um número, e o salvar manda a lista SEM ela — o resto como estava', async () => {
+        const host = await montar()
+        await confirmar(await abrirExclusao(host, 1))
+        expect(host.querySelectorAll('[data-etapa]')).toHaveLength(1)
+        expect(Array.from(host.querySelectorAll('[data-numero-da-etapa]')).map((n) => n.textContent)).toEqual(['Etapa 1'])
+        expect(salvar(host).disabled).toBe(false)
+        await clicar(salvar(host))
+        const put = puts()
+        expect(put).toHaveLength(1)
+        expect(put[0].corpo.etapas).toEqual([{ id: E2, rotulo: 'Confirmar', acao: 'CONFIRMAR', instrucao: '', abas: [] }])
+        expect(pedidos.filter((p) => p.chave.startsWith('DELETE '))).toEqual([])
+    })
+
+    it('cancelada: nada muda, e o salvar segue desligado', async () => {
+        const host = await montar()
+        const b = await abrirExclusao(host, 1)
+        await clicar(Array.from(b.querySelectorAll('.ant-popconfirm-buttons button')).find((x) => x.textContent?.replace(/\s/g, '') === 'Cancelar'))
+        expect(host.querySelectorAll('[data-etapa]')).toHaveLength(2)
+        expect(salvar(host).disabled).toBe(true)
     })
 
     it('descartar a nova volta ao gravado: o salvar desliga e nenhum pedido de apagar sai', async () => {
@@ -390,7 +450,8 @@ describe('(8) a tela diz o que as etapas ainda não fazem', () => {
         expect(host.textContent).toContain(aviso)
         expect(aviso).toContain('O rótulo é livre; a ação não é.')
         expect(aviso).toContain('ainda não muda a conversa')
-        expect(aviso).toContain('Etapa gravada não se remove por aqui.')
+        expect(aviso).toContain('Excluir uma etapa gravada pede confirmação, e ela sai ao salvar.')
+        expect(aviso).not.toContain('não se remove')
         expect(aviso).toContain('As etapas são desta família, nesta empresa.')
     })
 })

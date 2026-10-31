@@ -400,6 +400,28 @@ Formulação do dono do produto, registrada como está:
    - **Prova:** `scripts/harness/familia-do-motor-so-no-perfil/`, com a cadeia real e o estado de produção de 29/10/2026, as 8 guardas, as duas
      corridas e as mutações nas duas passadas.
 
+## Incidente de 29/10/2026 — a edição trocou o arquivo da tabela da Wolff e apagou o original
+
+**Medido (logs do Supabase e `storage.objects`, só leitura):** às 16:07:09 uma edição (PATCH) **sem categoria** trocou o `arquivo_path` da tabela
+`72366020…` (735 itens importados em 20/10) para `arquivo/acc4e760-…-Perfis_de_PVC_-_Wolff.xlsx`, e às 16:07:10 a rota **apagou** o objeto antigo,
+`arquivo/2b9fc126-…-Modelo-2026-Atualizada-Tabela-de-Pedidos-Wolff-Perfis.xlsm` (601.701 bytes, eTag `2a7e0959153303fac954af9851c4dd8f`). A
+rota só protegia o arquivo do MOTOR (`caminhosDaPlanilha`); o de preço não tinha trava — e é exatamente o que "A ORDEM OBRIGATÓRIA", acima,
+proíbe ("NADA arquiva, substitui ou apaga essa tabela"). **Nada se perdeu:** o dono do produto tinha a cópia (md5 e tamanho iguais ao eTag).
+As outras quatro edições (16:03, 16:04, 16:06, 16:13) traziam a categoria e foram recusadas pela conferência dos itens gravados — a recusa
+estava certa no efeito, mas a frase não dizia que contava os itens do arquivo de antes. Cada uma deixou o arquivo enviado sobrando no bucket:
+`9ad536c7`, `56f75f12` e `d6ab0018`, guardados como prova até o conserto (c) estar em produção.
+
+**Os consertos (aprovados pelo dono do produto, 29/10/2026, nesta prioridade):**
+- **(a)** o arquivo de uma tabela com algum item importado **não se troca**: a edição responde 409 com `fraseDoArquivoDaTabelaImportada`, que manda
+  criar **tabela nova**, antes de qualquer outra conferência, gravação ou remoção;
+- **(c)** a edição **recusada** tira do bucket o arquivo que a tela acabou de enviar — só se nenhuma tabela (arquivo ou motor) e nenhuma planilha do
+  motor o referencia, e nada sai se a conferência falhar;
+- **(b)** a recusa das categorias diz "os itens gravados do arquivo de antes" e aponta a tabela nova.
+
+**Arquivo novo de uma categoria é TABELA NOVA.** O `Perfis_de_PVC_-_Wolff.xlsx` é um **terceiro formato** que o importador não lê (17 abas — Resumo,
+16 por cor e "Sem preço na tabela" —, cabeçalho na linha 4, toda linha com Categoria = "Perfis de PVC"); o leitor que reconhece pela FORMA, e não
+pelo nome da aba, se mede junto com os arquivos WVetro.
+
 ## O motor serve N famílias e uma categoria — dono do produto, 29/10/2026 (migração `20261029000003`, PENDENTE até o dono do produto aplicar)
 
 Formulação do dono do produto, registrada como está:
@@ -461,6 +483,27 @@ provadas no harness).
   para ela*. **Dívida:** nada executa as etapas hoje (a conversa ainda não as lê, é o PR D) — quem passar a executá-las chama a conferência antes.
 - **Prova:** `scripts/harness/nome-do-motor-e-arquivar/` — a cadeia real com a `20261029000003` e o estado de produção medido, os casos de cada trava e
   função, duas corridas (gravar etapa × arquivar), três guardas, as duas ordens com a `20261029000004`, e as mutações nas duas passadas.
+
+## Excluir etapa na conta passa a ser permitido — dono do produto, 30/10/2026 (migração `20261031000001`, PENDENTE até o dono do produto aplicar)
+
+Formulação do dono do produto, registrada como está:
+
+> Hoje `superadmin_gravar_etapas_da_materia_prima` recusa: 'a etapa % ("%") nao veio na lista: remover etapa nao e permitido por aqui'. Essa recusa
+> SAI. A etapa que não vier na lista é removida, com antes e depois no log, e as demais RENUMERAM para 1..N sem buraco (a numeração aparece na
+> conversa e na ordem de execução). A tela ganha o botão de excluir, com confirmação que nomeia o que se perde (rótulo, instrução e motor).
+
+- **A função** (mesma assinatura; o corpo da `20261029000003` com uma mudança): a etapa desta família que não veio na lista é travada e APAGADA, com
+  uma linha de log por etapa (o tenant dela; o antes é a linha inteira e `remocao_da_etapa`; o depois é nulo), além do log da lista inteira. As que
+  ficam recebem o número da posição: 1..N, sem buraco. A resposta traz `etapas_removidas`. **Lista vazia remove todas** — é o que a regra diz; a
+  tela confirma etapa por etapa. Um item inválido na mesma lista desfaz tudo, também a remoção (caso X5).
+- **A guarda:** nenhuma FK aponta `orcamentista_familia_etapa` (medido em 31/10/2026). Se alguém passar a apontar, apagar a etapa deixa de ser
+  inofensivo, e a migração aborta em vez de seguir.
+- **A tela:** as etapas gravadas ganham "Excluir", com confirmação que nomeia o rótulo, a instrução e o motor GRAVADOS (não o rascunho); confirmada,
+  a etapa sai do rascunho e não vai na lista ao salvar.
+- **O portão de paridade** passou a ler a função da ÚLTIMA migração que a escreve (antes fixava a `20261029000003`, e a `20261029000005` já tinha
+  redefinido `superadmin_criar_motor` sem ele ver — `copia-divergente.md`).
+- **Prova:** `scripts/harness/excluir-etapa-na-conta/` — a cadeia real até a `20261029000005` e o estado das 3 etapas medido em 31/10/2026, os casos,
+  duas corridas (remover × salvar a lista inteira; renomear × remover), duas guardas e as mutações nas duas passadas.
 
 ## Saem da tela os campos do Perfil que o motor já traz — dono do produto, 30/10/2026 (sem migração)
 

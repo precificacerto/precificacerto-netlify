@@ -11,6 +11,10 @@
  *        itens gravados têm mais de uma categoria do fornecedor NÃO pode declarar uma só (409, nomeando as que
  *        achou): é o caso da Wolff, que fica como está até o dono do produto decidir. O arquivo do motor é opcional em
  *        toda categoria (27/10/2026, à noite: o motor mora na família), e na edição ele troca inteiro e não se apaga.
+ *        O ARQUIVO DA TABELA JÁ IMPORTADA NÃO SE TROCA (dono do produto, 29/10/2026): com algum item gravado, trocar o arquivo é 409, que manda
+ *        criar tabela nova — antes de gravar e de apagar qualquer coisa. Em 29/10/2026, às 16:07, uma edição trocou o arquivo da tabela da
+ *        Wolff (735 itens) e esta rota apagou o .xlsm original (a cópia do dono do produto o recuperou). E a edição RECUSADA tira do bucket o
+ *        arquivo que a tela acabou de enviar, se ninguém o referencia (`descartarEnvioRecusado`).
  * DELETE /api/super-admin/atendimentos-ia/tabelas/[id] — exclui uma tabela que nenhuma conta usa.
  *
  * TABELA EM USO A ROTA RECUSA, ANTES de apagar: 409 com os NOMES das contas — "Em uso por: …" (EPIC §3.7).
@@ -41,7 +45,9 @@ import { requireSuperAdmin } from '@/lib/get-caller-tenant'
 import {
   atualizarTabela,
   caminhosDaPlanilha,
+  caminhosDeTabela,
   codigoDoErro,
+  contarItensDaTabela,
   contasQueUsamATabela,
   excluirTabela,
   falhaInterna,
@@ -54,7 +60,7 @@ import {
   obterTabela,
   removerObjetos,
 } from '@/lib/atendimentos-ia/repositorio'
-import { MENSAGEM_FAMILIA_OBRIGATORIA, MENSAGEM_MOTOR_INCOMPLETO, ehFkDaCategoria, ehFkDaFamilia, ehIndiceDaVigente, ehTravaDaFamiliaNoPerfil, familiaObrigatoria, ehTravaDaCategoriaQueNaoSeTroca, ehTravaDoMotorPelaMetade, ehUuid, emUsoPor, fraseDaCategoriaDesconhecida, fraseDaCategoriaQueNaoSeTroca, fraseDaFamiliaDesconhecida, fraseDaVigenteQueJaExiste, lerEdicaoDaTabela, recusada } from '@/utils/atendimentos-ia-catalogo'
+import { MENSAGEM_FAMILIA_OBRIGATORIA, MENSAGEM_MOTOR_INCOMPLETO, ehFkDaCategoria, ehFkDaFamilia, ehIndiceDaVigente, ehTravaDaFamiliaNoPerfil, familiaObrigatoria, ehTravaDaCategoriaQueNaoSeTroca, ehTravaDoMotorPelaMetade, ehUuid, emUsoPor, fraseDaCategoriaDesconhecida, fraseDaCategoriaQueNaoSeTroca, fraseDaFamiliaDesconhecida, fraseDaVigenteQueJaExiste, fraseDoArquivoDaTabelaImportada, lerEdicaoDaTabela, recusada, type EdicaoDaTabela } from '@/utils/atendimentos-ia-catalogo'
 import { categoriasDoFornecedorNosItens, fraseDaTabelaComMaisDeUmaCategoria } from '@/utils/atendimentos-ia-categoria-do-arquivo'
 
 const fraseDaTabelaEmUso = (contas: string[]) =>
@@ -90,6 +96,83 @@ async function removerOsQueNinguemMaisUsa(contexto: string, caminhos: string[]):
   return avisos.length > 0 ? { aviso: avisos.join(' ') } : {}
 }
 
+type Saida = { status: (n: number) => { json: (b: unknown) => unknown } }
+
+/** Guarda a resposta da edição, para a rota decidir o que fazer com o arquivo enviado antes de responder. */
+function gravador() {
+  const g = { status_: 0, corpo: undefined as unknown, status(n: number) { g.status_ = n; return g }, json(b: unknown) { g.corpo = b; return g } }
+  return g
+}
+
+/**
+ * (c) O ARQUIVO RECÉM-ENVIADO DE UMA EDIÇÃO RECUSADA SAI DO BUCKET (dono do produto, 29/10/2026). A tela manda os bytes ANTES do PATCH; se a
+ * edição é recusada, o objeto fica sem ninguém. Só sai o que NINGUÉM referencia — nenhuma tabela (arquivo ou motor) e nenhuma planilha do motor:
+ * um corpo que citasse o caminho de outra tabela não a deixa sem arquivo. Se a conferência falhar, nada é removido (órfão é desperdício; arquivo
+ * de tabela apagado é perda). NUNCA lança: a resposta da edição é a recusa dela.
+ */
+async function descartarEnvioRecusado(caminho: string): Promise<void> {
+  try {
+    const [daTabela, daPlanilha] = await Promise.all([caminhosDeTabela([caminho]), caminhosDaPlanilha([caminho])])
+    if (daTabela.has(caminho) || daPlanilha.has(caminho)) return
+    const { erro } = await removerObjetos([caminho])
+    if (erro) console.error('atendimentos-ia tabela PATCH: o arquivo da edição recusada ficou no Storage:', caminho, erro)
+  } catch (e) {
+    console.error('atendimentos-ia tabela PATCH: não conferiu quem usa o arquivo da edição recusada; nada removido:', caminho, (e as { message?: string })?.message ?? 'erro')
+  }
+}
+
+async function editarTabela(saida: Saida, id: string, atual: NonNullable<Awaited<ReturnType<typeof obterTabela>>>, ed: EdicaoDaTabela) {
+  try {
+    // (a) o ARQUIVO da tabela já importada não se troca (29/10/2026): ANTES de qualquer outra conferência, gravação ou remoção
+    if (ed.arquivo) {
+      const itens = await contarItensDaTabela(id)
+      if (itens > 0) return saida.status(409).json({ error: fraseDoArquivoDaTabelaImportada(itens) })
+    }
+    if (typeof ed.familia === 'string' && !(await listarFamilias()).some((f) => f.chave === ed.familia)) return saida.status(400).json({ error: fraseDaFamiliaDesconhecida(ed.familia) })
+    if (ed.categoria !== undefined) {
+      if (!(await listarCategorias()).some((c) => c.chave === ed.categoria)) return saida.status(400).json({ error: fraseDaCategoriaDesconhecida(ed.categoria) })
+      if (atual.categoria_chave != null && atual.categoria_chave !== ed.categoria) return saida.status(409).json({ error: fraseDaCategoriaQueNaoSeTroca(atual.categoria_chave, ed.categoria) })
+      if (atual.categoria_chave == null) {
+        const { categorias } = categoriasDoFornecedorNosItens(await categoriasDoFornecedorDosItensGravados(id))
+        if (categorias.length > 1) return saida.status(409).json({ error: fraseDaTabelaComMaisDeUmaCategoria(categorias) })
+      }
+    }
+    // a tabela de PERFIL tem família: nem se tira a dela, nem se dá PERFIL a uma tabela sem família (sem dar a família junto)
+    const familiaDepois = ed.familia !== undefined ? ed.familia : (atual.familia ?? null)
+    const categoriaDepois = atual.categoria_chave ?? ed.categoria ?? null
+    if (familiaDepois === null && familiaObrigatoria(categoriaDepois)) return saida.status(400).json({ error: MENSAGEM_FAMILIA_OBRIGATORIA })
+    if (ed.arquivo && !(await objetoExiste(ed.arquivo.path))) return saida.status(400).json({ error: 'O arquivo da tabela não chegou ao armazenamento. Envie de novo.' })
+    if (ed.motor && !(await objetoExiste(ed.motor.path))) return saida.status(400).json({ error: 'O arquivo do motor não chegou ao armazenamento. Envie de novo.' })
+    const campos: Record<string, string | boolean | null> = {}
+    if (ed.arquivo) { campos.arquivo_path = ed.arquivo.path; campos.arquivo_nome = ed.arquivo.nome }
+    if (ed.motor) { campos.motor_path = ed.motor.path; campos.motor_nome = ed.motor.nome }
+    if (ed.vigencia !== undefined) campos.vigencia = ed.vigencia
+    if (ed.familia !== undefined) campos.familia = ed.familia
+    // a MESMA categoria de novo não é troca nem escrita: só vai quando a tabela ainda não tem
+    if (ed.categoria !== undefined && atual.categoria_chave == null) campos.categoria_chave = ed.categoria
+    if (ed.vigente !== undefined) campos.vigente = ed.vigente
+    if (Object.keys(campos).length > 0) await atualizarTabela(id, campos)
+    const trocados = [ed.arquivo && atual.arquivo_path, ed.motor && atual.motor_path].filter((p): p is string => typeof p === 'string' && p.trim() !== '')
+    const { aviso } = await removerOsQueNinguemMaisUsa('tabela PATCH', trocados)
+    return saida.status(200).json(aviso ? { ok: true, aviso } : { ok: true })
+  } catch (e) {
+    if (codigoDoErro(e) === '23503' && ehFkDaFamilia(e) && typeof ed.familia === 'string') return saida.status(400).json({ error: fraseDaFamiliaDesconhecida(ed.familia) })
+    if (codigoDoErro(e) === '23514' && ehTravaDaFamiliaNoPerfil(e)) return saida.status(400).json({ error: MENSAGEM_FAMILIA_OBRIGATORIA })
+    if (codigoDoErro(e) === '23514' && ehTravaDoMotorPelaMetade(e)) return saida.status(400).json({ error: MENSAGEM_MOTOR_INCOMPLETO })
+    if (codigoDoErro(e) === '23503' && ehFkDaCategoria(e) && ed.categoria !== undefined) return saida.status(400).json({ error: fraseDaCategoriaDesconhecida(ed.categoria) })
+    if (codigoDoErro(e) === '23514' && ehTravaDaCategoriaQueNaoSeTroca(e) && ed.categoria !== undefined) {
+      // duas gravações ao mesmo tempo: a outra deu a categoria entre a leitura e a escrita
+      const agora = await obterTabela(id).catch((): null => null)
+      return saida.status(409).json({ error: fraseDaCategoriaQueNaoSeTroca(agora?.categoria_chave ?? 'já dada', ed.categoria) })
+    }
+    if (codigoDoErro(e) === '23505' && ehIndiceDaVigente(e)) {
+      const ja = await tabelaVigenteDoPar(id)
+      return saida.status(409).json({ error: fraseDaVigenteQueJaExiste(ja?.familia ?? null, ja?.arquivo_nome ?? 'outra tabela', ja?.categoria_chave ?? null) })
+    }
+    return falhaInterna(saida, 'tabela PATCH', e, 'Não foi possível alterar a tabela.')
+  }
+}
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET' && req.method !== 'PATCH' && req.method !== 'DELETE') return res.status(405).json({ error: 'Method not allowed' })
 
@@ -120,50 +203,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const leitura = lerEdicaoDaTabela(req.body, atual.fornecedor_id)
     if (recusada(leitura)) return res.status(400).json({ error: leitura.erro })
     const ed = leitura.corpo
-    try {
-      if (typeof ed.familia === 'string' && !(await listarFamilias()).some((f) => f.chave === ed.familia)) return res.status(400).json({ error: fraseDaFamiliaDesconhecida(ed.familia) })
-      if (ed.categoria !== undefined) {
-        if (!(await listarCategorias()).some((c) => c.chave === ed.categoria)) return res.status(400).json({ error: fraseDaCategoriaDesconhecida(ed.categoria) })
-        if (atual.categoria_chave != null && atual.categoria_chave !== ed.categoria) return res.status(409).json({ error: fraseDaCategoriaQueNaoSeTroca(atual.categoria_chave, ed.categoria) })
-        if (atual.categoria_chave == null) {
-          const { categorias } = categoriasDoFornecedorNosItens(await categoriasDoFornecedorDosItensGravados(id))
-          if (categorias.length > 1) return res.status(409).json({ error: fraseDaTabelaComMaisDeUmaCategoria(categorias) })
-        }
-      }
-      // a tabela de PERFIL tem família: nem se tira a dela, nem se dá PERFIL a uma tabela sem família (sem dar a família junto)
-      const familiaDepois = ed.familia !== undefined ? ed.familia : (atual.familia ?? null)
-      const categoriaDepois = atual.categoria_chave ?? ed.categoria ?? null
-      if (familiaDepois === null && familiaObrigatoria(categoriaDepois)) return res.status(400).json({ error: MENSAGEM_FAMILIA_OBRIGATORIA })
-      if (ed.arquivo && !(await objetoExiste(ed.arquivo.path))) return res.status(400).json({ error: 'O arquivo da tabela não chegou ao armazenamento. Envie de novo.' })
-      if (ed.motor && !(await objetoExiste(ed.motor.path))) return res.status(400).json({ error: 'O arquivo do motor não chegou ao armazenamento. Envie de novo.' })
-      const campos: Record<string, string | boolean | null> = {}
-      if (ed.arquivo) { campos.arquivo_path = ed.arquivo.path; campos.arquivo_nome = ed.arquivo.nome }
-      if (ed.motor) { campos.motor_path = ed.motor.path; campos.motor_nome = ed.motor.nome }
-      if (ed.vigencia !== undefined) campos.vigencia = ed.vigencia
-      if (ed.familia !== undefined) campos.familia = ed.familia
-      // a MESMA categoria de novo não é troca nem escrita: só vai quando a tabela ainda não tem
-      if (ed.categoria !== undefined && atual.categoria_chave == null) campos.categoria_chave = ed.categoria
-      if (ed.vigente !== undefined) campos.vigente = ed.vigente
-      if (Object.keys(campos).length > 0) await atualizarTabela(id, campos)
-      const trocados = [ed.arquivo && atual.arquivo_path, ed.motor && atual.motor_path].filter((p): p is string => typeof p === 'string' && p.trim() !== '')
-      const { aviso } = await removerOsQueNinguemMaisUsa('tabela PATCH', trocados)
-      return res.status(200).json(aviso ? { ok: true, aviso } : { ok: true })
-    } catch (e) {
-      if (codigoDoErro(e) === '23503' && ehFkDaFamilia(e) && typeof ed.familia === 'string') return res.status(400).json({ error: fraseDaFamiliaDesconhecida(ed.familia) })
-      if (codigoDoErro(e) === '23514' && ehTravaDaFamiliaNoPerfil(e)) return res.status(400).json({ error: MENSAGEM_FAMILIA_OBRIGATORIA })
-      if (codigoDoErro(e) === '23514' && ehTravaDoMotorPelaMetade(e)) return res.status(400).json({ error: MENSAGEM_MOTOR_INCOMPLETO })
-      if (codigoDoErro(e) === '23503' && ehFkDaCategoria(e) && ed.categoria !== undefined) return res.status(400).json({ error: fraseDaCategoriaDesconhecida(ed.categoria) })
-      if (codigoDoErro(e) === '23514' && ehTravaDaCategoriaQueNaoSeTroca(e) && ed.categoria !== undefined) {
-        // duas gravações ao mesmo tempo: a outra deu a categoria entre a leitura e a escrita
-        const agora = await obterTabela(id).catch((): null => null)
-        return res.status(409).json({ error: fraseDaCategoriaQueNaoSeTroca(agora?.categoria_chave ?? 'já dada', ed.categoria) })
-      }
-      if (codigoDoErro(e) === '23505' && ehIndiceDaVigente(e)) {
-        const ja = await tabelaVigenteDoPar(id)
-        return res.status(409).json({ error: fraseDaVigenteQueJaExiste(ja?.familia ?? null, ja?.arquivo_nome ?? 'outra tabela', ja?.categoria_chave ?? null) })
-      }
-      return falhaInterna(res, 'tabela PATCH', e, 'Não foi possível alterar a tabela.')
-    }
+    const saida = gravador()
+    await editarTabela(saida, id, atual, ed)
+    // (c) a edição RECUSADA não deixa o arquivo recém-enviado sobrando no bucket (29/10/2026: três ficaram)
+    if (saida.status_ !== 200 && ed.arquivo) await descartarEnvioRecusado(ed.arquivo.path)
+    return res.status(saida.status_).json(saida.corpo)
   }
 
   let contas: string[]

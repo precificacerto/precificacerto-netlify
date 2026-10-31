@@ -6,7 +6,8 @@
  *     montar aos poucos continua permitido —; é o que a tela mostra, e o que a execução confere (`conferirEtapasParaExecutar`).
  * PUT /api/super-admin/base-de-conhecimento/etapas?tenant=<uuid> — grava `{ materia_prima, etapas: [...] }`, a LISTA INTEIRA na ordem desejada
  *     (a posição é o número), pela função `superadmin_gravar_etapas_da_materia_prima` (migração 20261028000001), que loga na mesma transação.
- *     Item com `id` edita; sem `id`, cria. NÃO remove etapa. `motor_id` no item: ausente mantém o motor da etapa, null limpa, uuid aponta.
+ *     Item com `id` edita; sem `id`, cria; a etapa GRAVADA que não vem na lista é REMOVIDA, com log, e as que ficam renumeram 1..N (dono do produto,
+ *     30/10/2026; migração 20261031000001 — a resposta traz `etapas_removidas`). `motor_id` no item: ausente mantém o motor da etapa, null limpa, uuid aponta.
  *
  * A ETAPA É DA FAMÍLIA-INSTÂNCIA (dono do produto, 28/10/2026): a mesma empresa pode ter três famílias PVC, cada uma com as suas etapas. O
  * motor é global, do Catálogo (o antigo "Fornecedores e tabelas"): aqui só se seleciona. O rótulo é livre; a AÇÃO é de uma lista fechada. A rota
