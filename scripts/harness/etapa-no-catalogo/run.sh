@@ -18,6 +18,8 @@ for f in $H/orcamentista/00_schema.sql $M/20261018000001_orcamentista_bloco_1.sq
 done
 # o estado das 3 etapas de 31/10/2026 (o mesmo arquivo do harness da 000001) sem as fotos que ele tira
 grep -v '^create table public.h_' $H/excluir-etapa-na-conta/09_dados.sql | $P -d $G0 -v ON_ERROR_STOP=1 >/dev/null 2>&1 || { echo "BASE FALHOU: o estado de 31/10"; exit 2; }
+# medido em produção em 31/10/2026: as 3 etapas têm autor, um super admin (quem as gravou pela tela); aqui, o super admin dos stubs
+$P -d $G0 -v ON_ERROR_STOP=1 -c "update public.orcamentista_familia_etapa set atualizado_por = 'e0000000-0000-0000-0000-000000000001' where materia_prima_id = '79d764fe-4acd-43e2-bed9-38e20667ca3d'" >/dev/null 2>&1 || { echo "BASE FALHOU: o autor das etapas"; exit 2; }
 $P -c "create database $A template $G0" >/dev/null || { echo "COPIA NAO CRIADA"; exit 2; }
 $P -d $A -v ON_ERROR_STOP=1 -f $M/20261031000001_excluir_etapa_na_conta.sql >/dev/null 2>&1 || { echo "BASE FALHOU: a 20261031000001"; exit 2; }
 $P -d $A -v ON_ERROR_STOP=1 -c "create table public.h_etapas_antes_do_catalogo as select * from public.orcamentista_familia_etapa;

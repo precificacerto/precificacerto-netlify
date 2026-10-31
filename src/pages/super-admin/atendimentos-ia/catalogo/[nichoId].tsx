@@ -2,8 +2,9 @@
  * Atendimentos I.A. → CATÁLOGO → UM NICHO. Só o super admin.
  *
  * O NICHO É O CONTAINER (dono do produto, 29/10/2026, opção A): famílias, fornecedores e motores vivem DENTRO do nicho — abrindo
- * "Esquadrias" é que se cria, edita e remove os três. A página tem três abas, nesta ordem: FAMÍLIAS → FORNECEDORES → MOTORES (a mesma ordem do
- * Catálogo de 28/10/2026: a família define as categorias, o fornecedor usa as categorias, o motor escolhe o fornecedor). A aba vem da URL
+ * "Esquadrias" é que se cria, edita e remove os três. A página tem quatro abas, nesta ordem: FAMÍLIAS → FORNECEDORES → MOTORES → ETAPAS (a ordem do
+ * Catálogo de 28/10/2026: a família define as categorias, o fornecedor usa as categorias, o motor escolhe o fornecedor; a ETAPA, ao lado de Motores,
+ * é o item que a conta seleciona — 31/10/2026, migração 20261031000002). A aba vem da URL
  * (`?aba=`), para o link "cadastrar motor no catálogo" da etapa cair direto nos motores do nicho da conta.
  *
  * O QUE É DO NICHO, E O QUE NÃO É:
@@ -12,6 +13,7 @@
  *   - FAMÍLIAS: GLOBAIS. `orcamentista_familia_catalogo` não tem nicho e não ganha agora (12 nichos, um só com fornecedores, nenhuma família
  *     além da PVC Wolf — dívida registrada em `tabela-de-preco-por-categoria.md`). A aba diz isso, para ninguém achar que acrescentar uma
  *     família aqui a deixa só neste nicho.
+ *   - ETAPAS: GLOBAIS também, como as famílias (a mesma dívida). O nome, a ação e as abas do motor que a etapa carrega; a conta escolhe o item.
  *
  * TUDO PELAS ROTAS (`ROTAS_DO_CATALOGO`), nada pelo cliente do Supabase: as tabelas não dão privilégio ao navegador, e uma lista lida por ele
  * chegaria VAZIA, dizendo "nenhum fornecedor" sobre um dado que ninguém leu. Falha de leitura aparece como ERRO, nunca como lista vazia
@@ -39,6 +41,7 @@ import { chamarRota, gravarTabelaNova } from '@/page-parts/atendimentos-ia/api'
 import { FornecedorModal, TITULO_FORNECEDOR_NAO_CREDENCIADO, type DadosDoFornecedor, type ErroDoFornecedor } from '@/page-parts/atendimentos-ia/fornecedor-modal.component'
 import { FamiliasCard, type DadosDaFamilia } from '@/page-parts/atendimentos-ia/familias.component'
 import { MotoresDoCatalogo } from '@/page-parts/atendimentos-ia/motores-do-catalogo.component'
+import { EtapasDoCatalogo } from '@/page-parts/atendimentos-ia/etapas-do-catalogo.component'
 
 export default function NichoDoCatalogo() {
     const router = useRouter()
@@ -184,6 +187,7 @@ export default function NichoDoCatalogo() {
         motores: fornecedores === null ? null : (
             <div data-aba-motores><MotoresDoCatalogo fornecedores={fornecedores} categorias={categorias} familias={familias} /></div>
         ),
+        etapas: <div data-aba-etapas><EtapasDoCatalogo /></div>,
     }
 
     return (
@@ -198,7 +202,7 @@ export default function NichoDoCatalogo() {
             ) : nicho === null ? null : (
                 <div data-pagina-do-nicho={nicho.id}>
                     <Typography.Paragraph type="secondary" style={{ marginBottom: 4 }}>
-                        <Tag>{ROTULO_DO_MODELO[nicho.modelo]}</Tag> Famílias, fornecedores e motores do nicho {nicho.nome}.
+                        <Tag>{ROTULO_DO_MODELO[nicho.modelo]}</Tag> Famílias, fornecedores, motores e etapas do nicho {nicho.nome}.
                     </Typography.Paragraph>
                     <Tabs activeKey={aba} onChange={trocarAba}
                         items={ABAS_DO_NICHO.map((a) => ({ key: a, label: ROTULO_DA_ABA_DO_NICHO[a], children: conteudo[a] }))} />

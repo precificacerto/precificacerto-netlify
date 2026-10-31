@@ -38,15 +38,15 @@ begin
                   from public.orcamentista_familia_etapa e join public.orcamentista_etapa_catalogo c on c.id = e.etapa_catalogo_id
                 except select id, tenant_id, materia_prima_id, familia, numero, instrucao, motor_id, motor_familia_exigida, atualizado_por, atualizado_em, rotulo, acao, abas
                   from public.h_etapas_antes_do_catalogo)
-     or (select count(*) from public.orcamentista_familia_etapa) <> (select count(*) from public.h_etapas_antes_do_catalogo)
-     or (select count(*) from information_schema.columns where table_name = 'orcamentista_familia_etapa' and column_name in ('rotulo', 'acao', 'abas')) <> 0
-     or (select n from public.h_log_depois_da_1) - (select n from public.h_log_antes_do_catalogo) <> 6
-     or public.h_log() <> (select n from public.h_log_depois_da_1)
+     or (select count(*) from public.orcamentista_familia_etapa) is distinct from (select count(*) from public.h_etapas_antes_do_catalogo)
+     or (select count(*) from information_schema.columns where table_name = 'orcamentista_familia_etapa' and column_name in ('rotulo', 'acao', 'abas')) is distinct from 0
+     or (select n from public.h_log_depois_da_1) - (select n from public.h_log_antes_do_catalogo) is distinct from 6
+     or public.h_log() is distinct from (select n from public.h_log_depois_da_1)
      or (select count(*) from public.superadmin_alteracao_log l where l.tabela = 'orcamentista_familia_etapa' and (l.antes ->> 'etapa_vira_item_de_catalogo')::boolean
            and l.tenant_id = '20e08592-f957-4e72-b7eb-251387e34eb9' and l.antes -> 'orcamentista_familia_etapa' ? 'rotulo'
-           and l.depois -> 'orcamentista_familia_etapa' ? 'etapa_catalogo_id') <> 3
+           and l.depois -> 'orcamentista_familia_etapa' ? 'etapa_catalogo_id') is distinct from 3
      or (select count(*) from public.superadmin_alteracao_log l where l.tabela = 'orcamentista_etapa_catalogo' and l.antes is null
-           and jsonb_array_length(l.depois -> 'semeio_das_etapas') = 1) <> 3 then
+           and jsonb_array_length(l.depois -> 'semeio_das_etapas') = 1) is distinct from 3 then
     raise exception 'FALHOU caso C1';
   end if;
   raise notice 'ok: caso C1 — aplicada duas vezes: 3 itens literais na ordem, cada etapa intacta apontando o seu, as colunas fora, 6 logs e nenhum na reaplicacao';
@@ -81,7 +81,7 @@ begin
         get stacked diagnostics v_cod = returned_sqlstate, r = constraint_name;
         r := v_cod || '|' || coalesce(r, '');
     end;
-    if r <> esperado[i][2] then raise exception 'FALHOU caso K1 (%): % em vez de %', i, r, esperado[i][2]; end if;
+    if r is distinct from esperado[i][2] then raise exception 'FALHOU caso K1 (%): % em vez de %', i, r, esperado[i][2]; end if;
   end loop;
   raise notice 'ok: caso K1 — as travas: nome 1..60 sem pontas, acao e abas da lista, ordem positiva e unica, nome unico sem caixa, FK RESTRICT e NOT NULL na etapa';
 end $$;
@@ -93,7 +93,7 @@ begin
      or has_table_privilege('anon', 'public.orcamentista_etapa_catalogo', 'SELECT') or has_table_privilege('authenticated', 'public.orcamentista_etapa_catalogo', 'SELECT')
      or has_table_privilege('authenticated', 'public.orcamentista_etapa_catalogo', 'INSERT') or has_table_privilege('authenticated', 'public.orcamentista_etapa_catalogo', 'DELETE')
      or not has_table_privilege('service_role', 'public.orcamentista_etapa_catalogo', 'SELECT, INSERT, UPDATE, DELETE')
-     or (select count(*) from pg_policies where tablename = 'orcamentista_etapa_catalogo' and coalesce(qual, with_check) = 'is_super_admin()') <> 4 then
+     or (select count(*) from pg_policies where tablename = 'orcamentista_etapa_catalogo' and coalesce(qual, with_check) = 'is_super_admin()') is distinct from 4 then
     raise exception 'FALHOU caso K2';
   end if;
   raise notice 'ok: caso K2 — RLS ligada; anon e authenticated sem privilegio; service_role com todos; as 4 politicas de super admin';
@@ -106,22 +106,22 @@ begin
   antes := public.h_estado();
   if public.h_erro($q$select public.superadmin_criar_etapa_do_catalogo('e0000000-0000-0000-0000-000000000002', 'Nova', 'APANHAR', '{}')$q$) not like '42501|%'
      or public.h_erro($q$select public.superadmin_criar_etapa_do_catalogo('e0000000-0000-0000-0000-000000000001', 'relação de barras e materiais', 'APANHAR', '{}')$q$)
-        <> '22023|ja existe a etapa "Relação de barras e materiais" no catalogo: o nome nao se repete. Nada foi gravado.'
-     or public.h_erro($q$select public.superadmin_criar_etapa_do_catalogo('e0000000-0000-0000-0000-000000000001', 'Nova', 'OUTRA', '{}')$q$) <> '22023|a acao nao esta na lista. Nada foi gravado.'
-     or public.h_erro($q$select public.superadmin_criar_etapa_do_catalogo('e0000000-0000-0000-0000-000000000001', 'Nova', null, '{}')$q$) <> '22023|a acao e obrigatoria e e da lista. Nada foi gravado.'
-     or public.h_erro($q$select public.superadmin_criar_etapa_do_catalogo('e0000000-0000-0000-0000-000000000001', 'Nova', 'APANHAR', array['tipologias', 'tipologias'])$q$) <> '22023|uma aba aparece mais de uma vez, ou vazia. Nada foi gravado.'
-     or public.h_erro($q$select public.superadmin_criar_etapa_do_catalogo('e0000000-0000-0000-0000-000000000001', 'Nova', 'APANHAR', array['precos'])$q$) <> '22023|uma aba nao e da planilha. Nada foi gravado.'
-     or public.h_erro($q$select public.superadmin_criar_etapa_do_catalogo('e0000000-0000-0000-0000-000000000001', repeat('x', 61), 'APANHAR', '{}')$q$) <> '22023|o nome da etapa tem de 1 a 60 caracteres. Nada foi gravado.'
-     or public.h_erro($q$select public.superadmin_criar_etapa_do_catalogo('e0000000-0000-0000-0000-000000000001', '   ', 'APANHAR', '{}')$q$) <> '22023|o nome da etapa tem de 1 a 60 caracteres. Nada foi gravado.'
-     or public.h_estado() <> antes then
+        is distinct from '22023|ja existe a etapa "Relação de barras e materiais" no catalogo: o nome nao se repete. Nada foi gravado.'
+     or public.h_erro($q$select public.superadmin_criar_etapa_do_catalogo('e0000000-0000-0000-0000-000000000001', 'Nova', 'OUTRA', '{}')$q$) is distinct from '22023|a acao nao esta na lista. Nada foi gravado.'
+     or public.h_erro($q$select public.superadmin_criar_etapa_do_catalogo('e0000000-0000-0000-0000-000000000001', 'Nova', null, '{}')$q$) is distinct from '22023|a acao e obrigatoria e e da lista. Nada foi gravado.'
+     or public.h_erro($q$select public.superadmin_criar_etapa_do_catalogo('e0000000-0000-0000-0000-000000000001', 'Nova', 'APANHAR', array['tipologias', 'tipologias'])$q$) is distinct from '22023|uma aba aparece mais de uma vez, ou vazia. Nada foi gravado.'
+     or public.h_erro($q$select public.superadmin_criar_etapa_do_catalogo('e0000000-0000-0000-0000-000000000001', 'Nova', 'APANHAR', array['precos'])$q$) is distinct from '22023|uma aba nao e da planilha. Nada foi gravado.'
+     or public.h_erro($q$select public.superadmin_criar_etapa_do_catalogo('e0000000-0000-0000-0000-000000000001', repeat('x', 61), 'APANHAR', '{}')$q$) is distinct from '22023|o nome da etapa tem de 1 a 60 caracteres. Nada foi gravado.'
+     or public.h_erro($q$select public.superadmin_criar_etapa_do_catalogo('e0000000-0000-0000-0000-000000000001', '   ', 'APANHAR', '{}')$q$) is distinct from '22023|o nome da etapa tem de 1 a 60 caracteres. Nada foi gravado.'
+     or public.h_estado() is distinct from antes then
     raise exception 'FALHOU caso F1 (as recusas)';
   end if;
   begin
     l0 := public.h_log();
     r := public.superadmin_criar_etapa_do_catalogo(SU, '  Conferência do apanhado  ', 'CONFIRMAR', array['tipologias', 'variaveis']);
-    if r ->> 'nome' <> 'Conferência do apanhado' or (r ->> 'ordem')::int <> 4 or (r ->> 'criado_por')::uuid <> SU or r ->> 'acao' <> 'CONFIRMAR'
-       or (select abas from public.orcamentista_etapa_catalogo where id = (r ->> 'id')::uuid) <> array['tipologias', 'variaveis']
-       or public.h_log() - l0 <> 1
+    if r ->> 'nome' is distinct from 'Conferência do apanhado' or (r ->> 'ordem')::int is distinct from 4 or (r ->> 'criado_por')::uuid is distinct from SU or r ->> 'acao' is distinct from 'CONFIRMAR'
+       or (select abas from public.orcamentista_etapa_catalogo where id = (r ->> 'id')::uuid) is distinct from array['tipologias', 'variaveis']
+       or public.h_log() - l0 is distinct from 1
        or not exists (select 1 from public.superadmin_alteracao_log l where l.tabela = 'orcamentista_etapa_catalogo' and l.chave = r ->> 'id' and l.antes is null and l.por = SU
                         and l.tenant_id is null and l.depois -> 'orcamentista_etapa_catalogo' ->> 'nome' = 'Conferência do apanhado') then
       raise exception 'FALHOU caso F1: %', r;
@@ -140,28 +140,28 @@ begin
   antes := public.h_estado();
   if public.h_erro(format($q$select public.superadmin_editar_etapa_do_catalogo('%s', '%s', 'Relação de barras, materiais e tempo fabricaçãoprodução', 'CALCULAR_BARRAS',
                     (select abas from public.orcamentista_etapa_catalogo where ordem = 2))$q$, SU, I2))
-        <> '22023|nada mudou: o nome, a acao e as abas sao os de agora. Nada foi gravado.'
+        is distinct from '22023|nada mudou: o nome, a acao e as abas sao os de agora. Nada foi gravado.'
      or public.h_erro(format($q$select public.superadmin_editar_etapa_do_catalogo('%s', '%s', 'RELAÇÃO DE BARRAS E MATERIAIS', 'CALCULAR_BARRAS', '{}')$q$, SU, I2))
-        <> '22023|ja existe a etapa "Relação de barras e materiais" no catalogo: o nome nao se repete. Nada foi gravado.'
-     or public.h_erro(format($q$select public.superadmin_editar_etapa_do_catalogo('%s', gen_random_uuid(), 'X', 'APANHAR', '{}')$q$, SU)) <> 'P0002|etapa do catalogo inexistente'
+        is distinct from '22023|ja existe a etapa "Relação de barras e materiais" no catalogo: o nome nao se repete. Nada foi gravado.'
+     or public.h_erro(format($q$select public.superadmin_editar_etapa_do_catalogo('%s', gen_random_uuid(), 'X', 'APANHAR', '{}')$q$, SU)) is distinct from 'P0002|etapa do catalogo inexistente'
      or public.h_erro(format($q$select public.superadmin_editar_etapa_do_catalogo('e0000000-0000-0000-0000-000000000002', '%s', 'X', 'APANHAR', '{}')$q$, I2)) not like '42501|%'
-     or public.h_erro(format($q$select public.superadmin_editar_etapa_do_catalogo('%s', '%s', 'X', 'OUTRA', '{}')$q$, SU, I2)) <> '22023|a acao nao esta na lista. Nada foi gravado.'
-     or public.h_estado() <> antes then
+     or public.h_erro(format($q$select public.superadmin_editar_etapa_do_catalogo('%s', '%s', 'X', 'OUTRA', '{}')$q$, SU, I2)) is distinct from '22023|a acao nao esta na lista. Nada foi gravado.'
+     or public.h_estado() is distinct from antes then
     raise exception 'FALHOU caso F2 (as recusas)';
   end if;
   begin
     l0 := public.h_log();
     r := public.superadmin_editar_etapa_do_catalogo(SU, I2, 'Relação de barras, materiais e tempo de produção', 'GERAR_LEVANTAMENTO', array['tipologias']);
     if (select c.nome || '|' || c.acao || '|' || array_to_string(c.abas, ',') from public.orcamentista_familia_etapa e join public.orcamentista_etapa_catalogo c on c.id = e.etapa_catalogo_id
-         where e.id = 'ed9a9b06-d898-4f75-8487-e260d8ba8ec0') <> 'Relação de barras, materiais e tempo de produção|GERAR_LEVANTAMENTO|tipologias'
-       or (select ordem from public.orcamentista_etapa_catalogo where id = I2) <> 2 or public.h_log() - l0 <> 1
+         where e.id = 'ed9a9b06-d898-4f75-8487-e260d8ba8ec0') is distinct from 'Relação de barras, materiais e tempo de produção|GERAR_LEVANTAMENTO|tipologias'
+       or (select ordem from public.orcamentista_etapa_catalogo where id = I2) is distinct from 2 or public.h_log() - l0 is distinct from 1
        or not exists (select 1 from public.superadmin_alteracao_log l where l.tabela = 'orcamentista_etapa_catalogo' and l.chave = I2::text and l.por = SU
                         and l.antes -> 'orcamentista_etapa_catalogo' ->> 'nome' = 'Relação de barras, materiais e tempo fabricaçãoprodução'
                         and l.depois -> 'orcamentista_etapa_catalogo' ->> 'nome' = 'Relação de barras, materiais e tempo de produção') then
       raise exception 'FALHOU caso F2: %', r;
     end if;
     r := public.superadmin_editar_etapa_do_catalogo(SU, I2, 'RELAÇÃO de barras, materiais e tempo de produção', 'GERAR_LEVANTAMENTO', array['tipologias']);
-    if r ->> 'nome' <> 'RELAÇÃO de barras, materiais e tempo de produção' then raise exception 'FALHOU caso F2 (so a caixa): %', r; end if;
+    if r ->> 'nome' is distinct from 'RELAÇÃO de barras, materiais e tempo de produção' then raise exception 'FALHOU caso F2 (so a caixa): %', r; end if;
     raise exception 'desfazer' using errcode = 'P0099';
   exception when sqlstate 'P0099' then null;
   end;
@@ -174,17 +174,17 @@ declare SU uuid := 'e0000000-0000-0000-0000-000000000001'; r jsonb; v_novo uuid;
 begin
   antes := public.h_estado();
   if public.h_erro(format($q$select public.superadmin_remover_etapa_do_catalogo('%s', '%s')$q$, SU, public.h_item_de(3)))
-        <> '22023|a etapa "Relação de barras e materiais" do catalogo esta em uso em 1 etapa(s) de conta (Esquadrias De Paula Ltda / Esquadrias de PVC WOLF / etapa 3). Tire o uso antes de remover. Nada foi removido.'
-     or public.h_erro(format($q$select public.superadmin_remover_etapa_do_catalogo('%s', gen_random_uuid())$q$, SU)) <> 'P0002|etapa do catalogo inexistente'
+        is distinct from '22023|a etapa "Relação de barras e materiais" do catalogo esta em uso em 1 etapa(s) de conta (Esquadrias De Paula Ltda / Esquadrias de PVC WOLF / etapa 3). Tire o uso antes de remover. Nada foi removido.'
+     or public.h_erro(format($q$select public.superadmin_remover_etapa_do_catalogo('%s', gen_random_uuid())$q$, SU)) is distinct from 'P0002|etapa do catalogo inexistente'
      or public.h_erro(format($q$select public.superadmin_remover_etapa_do_catalogo('e0000000-0000-0000-0000-000000000002', '%s')$q$, public.h_item_de(3))) not like '42501|%'
-     or public.h_estado() <> antes then
+     or public.h_estado() is distinct from antes then
     raise exception 'FALHOU caso F3 (as recusas)';
   end if;
   begin
     v_novo := (public.superadmin_criar_etapa_do_catalogo(SU, 'Sem uso', 'ENVIAR', '{}') ->> 'id')::uuid;
     l0 := public.h_log();
     r := public.superadmin_remover_etapa_do_catalogo(SU, v_novo);
-    if exists (select 1 from public.orcamentista_etapa_catalogo where id = v_novo) or r ->> 'nome' <> 'Sem uso' or public.h_log() - l0 <> 1
+    if exists (select 1 from public.orcamentista_etapa_catalogo where id = v_novo) or r ->> 'nome' is distinct from 'Sem uso' or public.h_log() - l0 is distinct from 1
        or not exists (select 1 from public.superadmin_alteracao_log l where l.tabela = 'orcamentista_etapa_catalogo' and l.chave = v_novo::text and l.depois is null
                         and l.antes -> 'orcamentista_etapa_catalogo' ->> 'nome' = 'Sem uso' and l.por = SU) then
       raise exception 'FALHOU caso F3: %', r;
@@ -222,15 +222,15 @@ declare E1 uuid := 'bc8bcb4a-5b43-4e5f-87ab-ae6d85df588d'; antes text;
 begin
   antes := public.h_estado();
   if public.h_erro(format($q$select public.h_gravar(jsonb_build_array(public.h_item('%s') || '{"rotulo": "X"}'))$q$, E1))
-        <> '22023|etapa 1: o campo "rotulo" nao existe (so id, etapa_catalogo_id, instrucao e motor_id; o nome, a acao e as abas sao do catalogo)'
+        is distinct from '22023|etapa 1: o campo "rotulo" nao existe (so id, etapa_catalogo_id, instrucao e motor_id; o nome, a acao e as abas sao do catalogo)'
      or public.h_erro(format($q$select public.h_gravar(jsonb_build_array(public.h_item('%s') || '{"acao": "APANHAR"}'))$q$, E1)) not like '22023|etapa 1: o campo "acao" nao existe%'
      or public.h_erro(format($q$select public.h_gravar(jsonb_build_array(public.h_item('%s') || '{"abas": []}'))$q$, E1)) not like '22023|etapa 1: o campo "abas" nao existe%'
      or public.h_erro(format($q$select public.h_gravar(jsonb_build_array(public.h_item('%s') - 'etapa_catalogo_id'))$q$, E1))
-        <> '22023|etapa 1: a etapa do catalogo e obrigatoria (o etapa_catalogo_id, um uuid)'
-     or public.h_erro(format($q$select public.h_gravar(jsonb_build_array(public.h_item('%s') || '{"etapa_catalogo_id": null}'))$q$, E1)) <> '22023|etapa 1: a etapa do catalogo e obrigatoria (o etapa_catalogo_id, um uuid)'
+        is distinct from '22023|etapa 1: a etapa do catalogo e obrigatoria (o etapa_catalogo_id, um uuid)'
+     or public.h_erro(format($q$select public.h_gravar(jsonb_build_array(public.h_item('%s') || '{"etapa_catalogo_id": null}'))$q$, E1)) is distinct from '22023|etapa 1: a etapa do catalogo e obrigatoria (o etapa_catalogo_id, um uuid)'
      or public.h_erro(format($q$select public.h_gravar(jsonb_build_array(public.h_item('%s') || jsonb_build_object('etapa_catalogo_id', gen_random_uuid())))$q$, E1))
-        <> '22023|etapa 1: a etapa do catalogo nao existe'
-     or public.h_estado() <> antes then
+        is distinct from '22023|etapa 1: a etapa do catalogo nao existe'
+     or public.h_estado() is distinct from antes then
     raise exception 'FALHOU caso G1';
   end if;
   raise notice 'ok: caso G1 — gravar: rotulo, acao e abas no item sao recusa; o item do catalogo e obrigatorio e tem de existir; nada muda';
@@ -246,18 +246,18 @@ begin
   begin
     perform public.h_gravar(jsonb_build_array(public.h_item(E1), jsonb_build_object('id', E2, 'etapa_catalogo_id', public.h_item_de(3), 'instrucao', 'confira o vidro'),
                                               public.h_item(E3), jsonb_build_object('etapa_catalogo_id', public.h_item_de(1), 'instrucao', '  ')));
-    if (select etapa_catalogo_id from public.orcamentista_familia_etapa where id = E2) <> public.h_item_de(3)
-       or (select instrucao from public.orcamentista_familia_etapa where id = E2) <> 'confira o vidro'
+    if (select etapa_catalogo_id from public.orcamentista_familia_etapa where id = E2) is distinct from public.h_item_de(3)
+       or (select instrucao from public.orcamentista_familia_etapa where id = E2) is distinct from 'confira o vidro'
        or (select motor_id from public.orcamentista_familia_etapa where id = E2) is distinct from motor2
-       or (select (etapa_catalogo_id = public.h_item_de(1) and motor_id is null and familia = 'PVC')::text from public.orcamentista_familia_etapa where numero = 4) <> 'true' then
+       or (select (etapa_catalogo_id = public.h_item_de(1) and motor_id is null and familia = 'PVC')::text from public.orcamentista_familia_etapa where numero = 4) is distinct from 'true' then
       raise exception 'FALHOU caso G2 (trocar e inserir)';
     end if;
     select id into nova from public.orcamentista_familia_etapa where numero = 4;
     r := public.h_gravar(jsonb_build_array(public.h_item(E1), public.h_item(E3)));
-    if r -> 'etapas_removidas' <> jsonb_build_array(
+    if r -> 'etapas_removidas' is distinct from jsonb_build_array(
          jsonb_build_object('id', E2, 'numero', 2, 'rotulo', 'Relação de barras e materiais'),
          jsonb_build_object('id', nova, 'numero', 4, 'rotulo', 'Apanhado e levantamento de esquadrias'))
-       or (select array_agg(numero order by numero) from public.orcamentista_familia_etapa) <> array[1, 2]
+       or (select array_agg(numero order by numero) from public.orcamentista_familia_etapa) is distinct from array[1, 2]
        or not exists (select 1 from public.superadmin_alteracao_log l where l.chave = E2::text and (l.antes ->> 'remocao_da_etapa')::boolean
                         and l.antes ->> 'etapa_do_catalogo' = 'Relação de barras e materiais' and l.antes -> 'orcamentista_familia_etapa' ->> 'instrucao' = 'confira o vidro'
                         and not (l.antes -> 'orcamentista_familia_etapa' ? 'nome_do_catalogo')) then
@@ -276,9 +276,9 @@ begin
   begin
     r := public.superadmin_arquivar_motor('9a233c55-f377-45d3-b2ae-b1a740a98e44', 'e0000000-0000-0000-0000-000000000001');
     if (select array_agg(x ->> 'rotulo' order by (x ->> 'numero')::int) from jsonb_array_elements(r -> 'etapas_sem_motor') x)
-         <> (select array_agg(rotulo order by numero) from public.h_etapas_antes_do_catalogo)
+         is distinct from (select array_agg(rotulo order by numero) from public.h_etapas_antes_do_catalogo)
        or (select array_agg((x ->> 'empresa') || '/' || (x ->> 'familia')) from jsonb_array_elements(r -> 'etapas_sem_motor') x)
-         <> array_fill('Esquadrias De Paula Ltda/Esquadrias de PVC WOLF'::text, array[3])
+         is distinct from array_fill('Esquadrias De Paula Ltda/Esquadrias de PVC WOLF'::text, array[3])
        or exists (select 1 from public.orcamentista_familia_etapa where motor_id is not null) then
       raise exception 'FALHOU caso A1: %', r;
     end if;

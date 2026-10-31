@@ -482,3 +482,42 @@ Formulação do dono do produto, registrada como está:
   redefinido `superadmin_criar_motor` sem ele ver — `copia-divergente.md`).
 - **Prova:** `scripts/harness/excluir-etapa-na-conta/` — a cadeia real até a `20261029000005` e o estado das 3 etapas medido em 31/10/2026, os casos,
   duas corridas (remover × salvar a lista inteira; renomear × remover), duas guardas e as mutações nas duas passadas.
+
+## A etapa vira item de catálogo — dono do produto, 31/10/2026 (migração `20261031000002`, PENDENTE até o dono do produto aplicar; pressupõe a `20261031000001`)
+
+Formulação do dono do produto, registrada como está:
+
+> "Vamos criar a aba das etapas para que a gente consiga partir dela, alimentar ela, fazer as integrações, as divisões corretas, informando onde vai
+> cada coisa, para depois a gente alinhar isso." E: "O apanhado, o levantamento, a definição de cada etapa, qual motor vai ser colocado, eu vou
+> determinar manualmente. Eu quero que você crie somente a sessão." [...] NÃO INVENTE ETAPA NENHUMA. [...] As abas "dizem o que a etapa CARREGA do
+> motor: técnico, igual para toda empresa. O que varia por empresa é a INSTRUÇÃO, que fica na conta."
+
+- **`orcamentista_etapa_catalogo`** (global, sem nicho): nome NOT NULL de 1 a 60 sem espaço nas pontas, **único sem olhar a caixa** (índice em
+  `lower(nome)`; a função dá a frase), `acao` da lista fechada, `abas` da planilha (as mesmas CHECK que a etapa tinha), `ordem` (>= 1, única),
+  `criado_por`, `criado_em`. RLS e grants **espelhados de `orcamentista_motor`** — medidos em produção em 31/10/2026 e conferidos pelo `$verifica$`
+  contra o catálogo do banco (políticas e privilégios iguais, por `EXCEPT` nos dois sentidos), não contra o texto do arquivo.
+- **A etapa da conta** ganha `etapa_catalogo_id uuid NOT NULL` → catálogo `ON DELETE RESTRICT` e **perde `rotulo`, `acao` e `abas`** (com as três
+  CHECK). `instrucao`, `numero`, `motor_id` e `motor_familia_exigida` ficam. A conta **seleciona**, não renomeia.
+- **O semeio (opção b, escolhida pelo dono do produto):** as 3 etapas gravadas por ele em 31/10/2026 às 14:57:47 UTC sobem **exatamente como estão** —
+  nome = rótulo, ação e abas literais, um item por (rótulo, ação, abas), na ordem do menor número; `criado_por` nulo (quem criou o item foi a migração;
+  o log diz de que etapas ele veio). O "fabricaçãoprodução" fica: corrigi-lo é trabalho do dono do produto, na tela. Duas etapas com o mesmo nome sem
+  olhar a caixa e conteúdo diferente **abortam** (escolher qual vale não foi autorizado); iguais em tudo viram um item só. Contagens antes e depois e
+  uma linha de log por item e por etapa; aborta se não fecharem.
+- **Funções** (SECURITY DEFINER, `search_path` fixo, só `service_role`, log, trava de aviso): `superadmin_criar_etapa_do_catalogo` (no fim da lista),
+  `superadmin_editar_etapa_do_catalogo` (nome, ação e abas, também **com uso** — o item é o mesmo para toda conta que o seleciona; a tela avisa quantas
+  etapas a mudança alcança), `superadmin_remover_etapa_do_catalogo` (em uso é **recusa nomeada**, empresa / família / etapa N, até dez e "e mais N";
+  nunca cascata). A gravação das etapas da conta recebe `etapa_catalogo_id` no lugar de rótulo, ação e abas (com `FOR SHARE` no item: remover espera
+  e vê o uso), e a remoção da etapa da conta (a `20261031000001`) continua. `superadmin_arquivar_motor` lê o rótulo do catálogo; a lista
+  `etapas_sem_motor` mantém a chave `rotulo`.
+- **A guarda** confere pelo md5 do corpo que substitui o que foi lido: a gravação das etapas tem de ser a da `20261031000001` (`bc74a15d…`) e o arquivar
+  a da `20261029000005` (`a6219d0a…`). Por isso a ordem acordada: aplicar a `20261031000001` → mergear o #200 → mergear o #201 → esta.
+- **Na tela:** a quarta aba do nicho, **Etapas**, depois de Motores — criar, renomear/editar e remover, com quem usa cada item. Na base de
+  conhecimento, a etapa é **escolhida de uma lista** (o catálogo); somem os campos de rótulo e de ação, e as abas aparecem só para leitura.
+- **O que não se decidiu (fica como está, sem regra nova):** o mesmo item em duas etapas da mesma família é permitido — nenhuma regra o proíbe.
+- **DÍVIDA — o catálogo de etapas não tem nicho**, como o de famílias (seção de 29/10/2026, item 2): a lista é a mesma em todos os nichos, e a aba diz
+  isso (`AVISO_DA_ETAPA_GLOBAL`). Quando houver etapa de outro nicho, mede-se e propõe-se.
+- **Cores e Serra** ficaram fora deste PR (dono do produto, 31/10/2026): trocar a fonte para o motor é mudança de cálculo, e a coluna `cor` do motor não é
+  só cor (16 dos 72 valores não são — `a-coluna-que-parece-enumeracao.md`).
+- **Prova:** `scripts/harness/etapa-no-catalogo/` — a cadeia real até a `20261031000001` e o estado das 3 etapas de 31/10/2026, a migração duas vezes,
+  os casos de cada trava e função, duas corridas (remover o item × gravar a etapa que o aponta, nos dois sentidos), cinco guardas, o semeio de etapas
+  iguais, e as mutações nas duas passadas.

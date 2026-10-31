@@ -11,7 +11,9 @@
  * Nada disto muda o cálculo: quem lê as etapas na conversa é o PR D, que deriva POR INSTÂNCIA.
  */
 import { supabaseAdmin } from '@/supabase/admin'
-import { ABAS_DA_ETAPA, ehAcaoDaEtapa, type AbaDaEtapa, type EtapaDaFamilia } from '@/utils/atendimentos-ia-etapas'
+import {
+    ABAS_DA_ETAPA, ehAcaoDaEtapa, type AbaDaEtapa, type AcaoDaEtapa, type EtapaDaFamilia, type EtapaDoCatalogo, type UsoDaEtapaDoCatalogo,
+} from '@/utils/atendimentos-ia-etapas'
 import type { MotorDoCatalogo, UsoDoMotor } from '@/utils/atendimentos-ia-catalogo-de-motores'
 
 // O cliente admin não tem os tipos destas tabelas.
@@ -29,20 +31,84 @@ async function ler(onde: string, p: PromiseLike<{ data: unknown; error: { messag
 /**
  * As etapas de UMA família-instância, na ordem. A matéria-prima tem de ser DESTA empresa: a de outra (ou inexistente) é `null` — a rota
  * responde 404. Família sem etapa é a lista vazia. `familia` é o TIPO da matéria-prima (null = ainda não escolhido: sem tipo, não há etapa).
+ * O NOME, a AÇÃO e as ABAS vêm do item do catálogo que a etapa seleciona (20261031000002); o número, a instrução e o motor são da conta.
  */
 export async function lerEtapasDaMateriaPrima(tenantId: string, materiaPrimaId: string): Promise<{ familia: string | null; etapas: EtapaDaFamilia[] } | null> {
     const mp = (await ler('orcamentista_materia_prima', db().from('orcamentista_materia_prima').select('id, familia').eq('id', materiaPrimaId).eq('tenant_id', tenantId).maybeSingle())) as Linha | null
     if (!mp) return null
     const linhas = ((await ler('orcamentista_familia_etapa',
-        db().from('orcamentista_familia_etapa').select('id, numero, rotulo, acao, instrucao, abas, motor_id')
+        db().from('orcamentista_familia_etapa').select('id, numero, etapa_catalogo_id, instrucao, motor_id')
             .eq('materia_prima_id', materiaPrimaId).eq('tenant_id', tenantId).order('numero', { ascending: true }))) ?? []) as Linha[]
+    const itens = new Map<string, Linha>()
+    const ids = [...new Set(linhas.map((l) => String(l.etapa_catalogo_id)))]
+    if (ids.length > 0) {
+        for (const c of ((await ler('orcamentista_etapa_catalogo', db().from('orcamentista_etapa_catalogo').select('id, nome, acao, abas').in('id', ids))) ?? []) as Linha[]) itens.set(String(c.id), c)
+    }
     const etapas = linhas.map((l) => {
-        // a CHECK do banco garante a ação e as abas; se uma linha fugir disso, é erro — nunca uma etapa sem ação
-        if (!ehAcaoDaEtapa(l.acao)) throw new Error(`orcamentista_familia_etapa: a etapa ${l.numero} tem a ação "${String(l.acao)}", que não é da lista`)
-        const abas = ((l.abas ?? []) as unknown[]).filter((a): a is AbaDaEtapa => typeof a === 'string' && (ABAS_DA_ETAPA as readonly string[]).includes(a))
-        return { id: String(l.id), numero: Number(l.numero), rotulo: String(l.rotulo), acao: l.acao, instrucao: String(l.instrucao ?? ''), abas, motor_id: l.motor_id == null ? null : String(l.motor_id) }
+        // a FK (RESTRICT, NOT NULL) garante o item; se ele não vier, é erro — nunca uma etapa sem nome
+        const c = itens.get(String(l.etapa_catalogo_id))
+        if (!c) throw new Error(`orcamentista_familia_etapa: a etapa ${l.numero} aponta o item ${String(l.etapa_catalogo_id)}, que o catálogo de etapas não devolveu`)
+        const item = itemDoCatalogo(c)
+        return {
+            id: String(l.id), numero: Number(l.numero), etapa_catalogo_id: item.id, rotulo: item.nome, acao: item.acao, abas: item.abas,
+            instrucao: String(l.instrucao ?? ''), motor_id: l.motor_id == null ? null : String(l.motor_id),
+        }
     })
     return { familia: mp.familia == null ? null : String(mp.familia), etapas }
+}
+
+/** Uma linha do catálogo de etapas, conferida: a CHECK do banco garante a ação e as abas; se uma linha fugir disso, é erro — nunca um item sem ação. */
+function itemDoCatalogo(c: Linha): { id: string; nome: string; acao: AcaoDaEtapa; abas: AbaDaEtapa[] } {
+    if (!ehAcaoDaEtapa(c.acao)) throw new Error(`orcamentista_etapa_catalogo: o item "${String(c.nome)}" tem a ação "${String(c.acao)}", que não é da lista`)
+    const abas = ((c.abas ?? []) as unknown[]).filter((a): a is AbaDaEtapa => typeof a === 'string' && (ABAS_DA_ETAPA as readonly string[]).includes(a))
+    return { id: String(c.id), nome: String(c.nome), acao: c.acao, abas }
+}
+
+/**
+ * O CATÁLOGO DE ETAPAS (20261031000002), na ordem, cada item com QUEM USA: empresa · família (o nome da matéria-prima) · número da etapa, em ordem.
+ * `usos: false` deixa de fora quem usa (o combo da base de conhecimento só precisa dos itens).
+ */
+export async function lerCatalogoDeEtapas(o: { usos?: boolean } = {}): Promise<EtapaDoCatalogo[]> {
+    const itens = ((await ler('orcamentista_etapa_catalogo', db().from('orcamentista_etapa_catalogo').select('id, nome, acao, abas, ordem, criado_em').order('ordem', { ascending: true }))) ?? []) as Linha[]
+    if (itens.length === 0) return []
+    const usos = new Map<string, UsoDaEtapaDoCatalogo[]>()
+    if (o.usos !== false) {
+        const etapas = ((await ler('orcamentista_familia_etapa', db().from('orcamentista_familia_etapa').select('etapa_catalogo_id, materia_prima_id, tenant_id, numero')
+            .in('etapa_catalogo_id', itens.map((c) => String(c.id))))) ?? []) as Linha[]
+        if (etapas.length > 0) {
+            const mps = new Map<string, string>()
+            for (const m of ((await ler('orcamentista_materia_prima', db().from('orcamentista_materia_prima').select('id, nome').in('id', [...new Set(etapas.map((e) => String(e.materia_prima_id)))]))) ?? []) as Linha[]) mps.set(String(m.id), String(m.nome))
+            const empresas = new Map<string, string>()
+            for (const t of ((await ler('tenants', db().from('tenants').select('id, name').in('id', [...new Set(etapas.map((e) => String(e.tenant_id)))]))) ?? []) as Linha[]) empresas.set(String(t.id), String(t.name ?? ''))
+            for (const e of etapas) {
+                const u: UsoDaEtapaDoCatalogo = { empresa: empresas.get(String(e.tenant_id)) || '(sem nome)', familia: mps.get(String(e.materia_prima_id)) ?? '(família removida)', numero: Number(e.numero) }
+                usos.set(String(e.etapa_catalogo_id), [...(usos.get(String(e.etapa_catalogo_id)) ?? []), u])
+            }
+        }
+    }
+    const porUso = (a: UsoDaEtapaDoCatalogo, b: UsoDaEtapaDoCatalogo) => a.empresa.localeCompare(b.empresa, 'pt-BR') || a.familia.localeCompare(b.familia, 'pt-BR') || a.numero - b.numero
+    return itens.map((c) => ({ ...itemDoCatalogo(c), ordem: Number(c.ordem), criado_em: String(c.criado_em), usos: [...(usos.get(String(c.id)) ?? [])].sort(porUso) }))
+}
+
+/** `superadmin_criar_etapa_do_catalogo` (20261031000002): o item vai ao fim, com o autor e o log. Falha LANÇA `ErroDaFuncao` com o código. */
+export async function criarEtapaDoCatalogo(a: { por: string; nome: string; acao: AcaoDaEtapa; abas: AbaDaEtapa[] }): Promise<Record<string, unknown>> {
+    const { data, error } = await db().rpc('superadmin_criar_etapa_do_catalogo', { p_por: a.por, p_nome: a.nome, p_acao: a.acao, p_abas: a.abas })
+    if (error) throw new ErroDaFuncao(error)
+    return data as Record<string, unknown>
+}
+
+/** `superadmin_editar_etapa_do_catalogo`: o nome, a ação e as abas — também COM uso (o item é o mesmo para toda conta que o seleciona). */
+export async function editarEtapaDoCatalogo(a: { por: string; id: string; nome: string; acao: AcaoDaEtapa; abas: AbaDaEtapa[] }): Promise<Record<string, unknown>> {
+    const { data, error } = await db().rpc('superadmin_editar_etapa_do_catalogo', { p_por: a.por, p_id: a.id, p_nome: a.nome, p_acao: a.acao, p_abas: a.abas })
+    if (error) throw new ErroDaFuncao(error)
+    return data as Record<string, unknown>
+}
+
+/** `superadmin_remover_etapa_do_catalogo`: em uso é recusa NOMEADA (22023, empresa / família / etapa N); sem uso, sai, com o antes no log. */
+export async function removerEtapaDoCatalogo(a: { por: string; id: string }): Promise<Record<string, unknown>> {
+    const { data, error } = await db().rpc('superadmin_remover_etapa_do_catalogo', { p_por: a.por, p_id: a.id })
+    if (error) throw new ErroDaFuncao(error)
+    return data as Record<string, unknown>
 }
 
 /** As famílias de cada motor (`orcamentista_motor_familia`, 20261029000003), em ordem de chave. Motor sem linha aqui não existe (o gatilho adiado). */

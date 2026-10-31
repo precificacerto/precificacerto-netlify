@@ -134,7 +134,7 @@ beforeEach(() => {
         [`GET ${R.funcionarios(CONTA)}`]: { status: 200, body: { funcionarios: [] } },
         [`GET ${R.arvore(CONTA)}`]: { status: 200, body: arvoreGravada() },
         [`PUT ${R.arvore(CONTA)}`]: { status: 200, body: { depois: depoisDe(arvoreGravada()) } },
-        [`GET ${rotaDasEtapas(CONTA, PVC)}`]: { status: 200, body: { familia: 'PVC', etapas: [{ id: 'et-1', numero: 1, rotulo: 'Apanhar o pedido', acao: 'APANHAR', instrucao: '', abas: [], motor_id: null }], motores: [] } },
+        [`GET ${rotaDasEtapas(CONTA, PVC)}`]: { status: 200, body: { familia: 'PVC', etapas: [{ id: 'et-1', numero: 1, etapa_catalogo_id: 'c-apanhar', rotulo: 'Apanhar o pedido', acao: 'APANHAR', abas: [], instrucao: '', motor_id: null }], motores: [] } },
         [`PUT ${R.nomeDaMateriaPrima(CONTA)}`]: { status: 200, body: { depois: {} } },
     }
     ;(globalThis as { fetch: unknown }).fetch = jest.fn(async (url: string, init?: { method?: string; body?: string }) => {

@@ -12,7 +12,7 @@ import {
 } from '@/utils/atendimentos-ia-etapas'
 
 const etapa = (numero: number, rotulo: string, motor_id: string | null): EtapaDaFamilia =>
-    ({ id: `e${numero}`, numero, rotulo, acao: 'APANHAR', instrucao: '', abas: [], motor_id })
+    ({ id: `e${numero}`, numero, etapa_catalogo_id: `c${numero}`, rotulo, acao: 'APANHAR', instrucao: '', abas: [], motor_id })
 
 describe('a família pronta', () => {
     it('a frase nomeia a etapa como o dono do produto escreveu', () => {

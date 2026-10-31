@@ -3,14 +3,16 @@
  *     empresa), na ordem, cada uma com o `motor_id` que aponta, o `familia` (o TIPO da matéria-prima) e os `motores` do catálogo que podem ser
  *     apontados: do mesmo tipo e não arquivados — os que a função aceita. E `pronta` (a família tem etapas e TODAS com motor) e `etapas_sem_motor`
  *     (número e rótulo de cada uma): a família só calcula com todas as etapas com motor (dono do produto, 29/10/2026). Não é trava de gravação —
- *     montar aos poucos continua permitido —; é o que a tela mostra, e o que a execução confere (`conferirEtapasParaExecutar`).
+ *     montar aos poucos continua permitido —; é o que a tela mostra, e o que a execução confere (`conferirEtapasParaExecutar`). E o `catalogo`: os
+ *     itens do catálogo de etapas (20261031000002), que a tela oferece para a conta SELECIONAR — o nome, a ação e as abas vêm de lá.
  * PUT /api/super-admin/base-de-conhecimento/etapas?tenant=<uuid> — grava `{ materia_prima, etapas: [...] }`, a LISTA INTEIRA na ordem desejada
  *     (a posição é o número), pela função `superadmin_gravar_etapas_da_materia_prima` (migração 20261028000001), que loga na mesma transação.
  *     Item com `id` edita; sem `id`, cria; a etapa GRAVADA que não vem na lista é REMOVIDA, com log, e as que ficam renumeram 1..N (dono do produto,
- *     30/10/2026; migração 20261031000001 — a resposta traz `etapas_removidas`). `motor_id` no item: ausente mantém o motor da etapa, null limpa, uuid aponta.
+ *     30/10/2026; migração 20261031000001 — a resposta traz `etapas_removidas`). O item leva `etapa_catalogo_id` (obrigatório) e a `instrucao`; o
+ *     nome, a ação e as abas são do catálogo, e mandá-los é recusa (31/10/2026). `motor_id` no item: ausente mantém o motor da etapa, null limpa, uuid aponta.
  *
  * A ETAPA É DA FAMÍLIA-INSTÂNCIA (dono do produto, 28/10/2026): a mesma empresa pode ter três famílias PVC, cada uma com as suas etapas. O
- * motor é global, do Catálogo (o antigo "Fornecedores e tabelas"): aqui só se seleciona. O rótulo é livre; a AÇÃO é de uma lista fechada. A rota
+ * motor é global, do Catálogo (o antigo "Fornecedores e tabelas"): aqui só se seleciona — e a etapa também (o item do catálogo). A rota
  * confere o corpo ANTES da função (`lerCorpoDasEtapas`), com a frase que diz qual etapa e por quê; a função e a CHECK do banco conferem de
  * novo, e a mensagem dela vai na resposta (42501, P0002, 22023). O autor é o usuário da sessão.
  *
@@ -18,7 +20,7 @@
  */
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { superAdminOu404 } from '@/lib/get-caller-tenant'
-import { lerCatalogoDeMotores, lerEtapasDaMateriaPrima } from '@/lib/atendimentos-ia/etapas-da-familia'
+import { lerCatalogoDeEtapas, lerCatalogoDeMotores, lerEtapasDaMateriaPrima } from '@/lib/atendimentos-ia/etapas-da-familia'
 import { empresaDoPedido, falhaDeLeitura, gravarPelaFuncaoComAMensagemDela, idDoQuery, metodoNaoPermitido } from '@/lib/atendimentos-ia/base-de-conhecimento-servidor'
 import { etapasSemMotor, familiaPronta, lerCorpoDasEtapas } from '@/utils/atendimentos-ia-etapas'
 import { ehUuid } from '@/utils/atendimentos-ia-catalogo'
@@ -37,8 +39,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             const lidas = materiaPrima ? await lerEtapasDaMateriaPrima(tenantId, materiaPrima) : null
             if (!lidas) return res.status(404).json({ error: 'Família não encontrada nesta empresa.' })
             const motores = lidas.familia === null ? [] : await lerCatalogoDeMotores({ tipo: lidas.familia })
+            const catalogo = await lerCatalogoDeEtapas({ usos: false })
             return res.status(200).json({
-                familia: lidas.familia, etapas: lidas.etapas, motores, pronta: familiaPronta(lidas.etapas), etapas_sem_motor: etapasSemMotor(lidas.etapas),
+                familia: lidas.familia, etapas: lidas.etapas, motores, catalogo, pronta: familiaPronta(lidas.etapas), etapas_sem_motor: etapasSemMotor(lidas.etapas),
             })
         }
 
