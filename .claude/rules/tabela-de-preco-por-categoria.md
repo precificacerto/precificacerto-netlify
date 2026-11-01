@@ -664,3 +664,25 @@ Formulação do dono do produto, registrada como está:
   CRLF — 93 no dos passos, 116 no da remoção); sem o `\r`, os cinco md5 são os do arquivo. O contraste `aceita 1` aplica a `20261031000003` em CRLF e
   prova que a guarda aceita; a mutação G3 (comparar com o `\r`) o derruba.
 
+
+## "Subido em" é o momento do arquivo, não o da linha — dono do produto, 01/11/2026 (migração `20261101000002`, PENDENTE até o dono do produto aplicar)
+
+Formulação do dono do produto, registrada como está:
+
+> "onde está escrito subido em, foi alterado agora, então ele deveria pegar o exato momento, não o dia que foi criado."
+
+**O defeito era de dado, não de tela.** A `orcamentista_tabela` só tinha `criado_em`, e a troca de arquivo (PATCH de `tabelas/[id]`) é um UPDATE que não
+gravava data. A `21acfa75` foi criada em 29/10/2026 às 19:26 UTC e teve o arquivo trocado em 01/11; a tela mostrava 29/10.
+
+- **`arquivo_em timestamptz NOT NULL DEFAULT now()`**, mantida pelo **banco** (gatilho `orcamentista_tabela_arquivo_em`), por qualquer caminho:
+  na criação, `arquivo_em = criado_em`; na troca de `arquivo_path`, o instante da troca; em qualquer outro UPDATE (vigência, família, motor, o arrasto
+  que tira a família), fica como estava — **não se escreve à mão** (fato histórico: `fato-vs-referencia.md`). Só o `arquivo_path` conta: o `motor_path`
+  da tabela é legado e não é "Subido em".
+- **O semeio:** as linhas de antes de 01/11 recebem `criado_em` (decisão do dono do produto: "é a melhor aproximação que existe"), **uma linha de log
+  por tabela** no `superadmin_alteracao_log` (antes sem `arquivo_em`, depois com ele, e `origem_de_arquivo_em`). Reaplicar não semeia nem loga de novo.
+- **Leitura do assistente, levada ao dono do produto:** para a `21acfa75` há uma medida melhor que `criado_em` — o objeto atual do Storage foi enviado em
+  **01/11/2026 21:08:19 UTC** (`storage.objects.created_at`). O semeio ficou com `criado_em`, como decidido.
+- A tela mostra `arquivo_em` (`fornecedores/[id].tsx`, coluna "Subido em"), só a data, como antes.
+- **Prova:** `scripts/harness/arquivo-em/` — a base da `tabela-soberana` (com a `20261101000001`), o estado de produção de 01/11 depois das 21:08 (a
+  `72366020` removida pelo arrasto, os `criado_em` reais), a migração duas vezes, 8 casos, a regressão das duas suítes do arrasto e o contraste da
+  reaplicação (39/39); 15 mutações mortas nas duas passadas.
