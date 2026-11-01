@@ -6,8 +6,9 @@
  * "Tabelas em uso" sai da tela da conta. As tabelas de uma conta passam a ser as tabelas dos fornecedores
  * que a base de conhecimento já vincula (matéria-prima → categoria → fornecedores). As decisões:
  *   1 e 2. `orcamentista_conta_tabela` deixa de ser ESCRITA e de ser LIDA, e FICA no banco, parada, com as
- *          FKs e as policies. A proteção que o RESTRICT dela dava — não excluir tabela em uso — muda de
- *          lugar: a rota confere o uso DERIVADO antes de apagar. "Escreva o teste que prova a recusa."
+ *          FKs e as policies. A proteção que o RESTRICT dela dava — não excluir tabela em uso — mudou de
+ *          lugar para a rota em 26/10/2026, e SAIU em 01/11/2026 (dono do produto: "Se for excluído, deve ser excluído"; migração
+ *          20261101000001): a tabela está na soberania do catálogo e se remove pelo arrasto, que mostra quem para.
  *   3. Quem decide se a tabela entra na conversa é o MOTOR, não a categoria: tabela com tipologias entra;
  *      tabela sem tipologias é TABELA DE PREÇO e não entra. Recusas nomeadas: fornecedor do PERFIL sem
  *      tabela, e NENHUMA tabela da conta com motor. Fornecedor de outra categoria sem tabela não recusa.
@@ -18,8 +19,7 @@
  *   (1) a derivação: as tabelas dos fornecedores vinculados NESTA conta, com a categoria, o motor e qual
  *       vale — e a linha de `orcamentista_conta_tabela` não muda nada;
  *   (2) a conversa: tabela de preço fora, as três recusas nomeadas, a vigente;
- *   (3) a exclusão da tabela: 409 nomeando a conta que vincula o fornecedor, ANTES de apagar — com
- *       `orcamentista_conta_tabela` vazia, que é o caso em que o RESTRICT do banco não protegeria nada;
+ *   (3) a rota da tabela não apaga mais: o DELETE é 405, e nada sai do banco nem do armazenamento — também a tabela que uma conta usa;
  *   (4) quem usa: a lista de fornecedores diz as contas pelo vínculo da base de conhecimento;
  *   (5) nenhum arquivo de `src/` fala com `orcamentista_conta_tabela`.
  *
@@ -335,7 +335,7 @@ describe('(2) a conversa: quem entra é a tabela COM motor', () => {
 })
 
 // ════════════════════════════════════════════════════════════════════════════════════════
-describe('(3) a exclusão da tabela: a proteção que MUDOU DE LUGAR — do RESTRICT de conta_tabela para a rota', () => {
+describe('(3) a rota da tabela não apaga mais (01/11/2026): remover é o arrasto do catálogo', () => {
     async function excluir(id: string) {
         let status = 0
         let json: any = null
@@ -344,60 +344,14 @@ describe('(3) a exclusão da tabela: a proteção que MUDOU DE LUGAR — do REST
         return { status, json }
     }
 
-    it('tabela de fornecedor que uma conta vincula: 409 NOMEANDO a conta, e nada é apagado — com conta_tabela VAZIA', async () => {
-        estado.db.orcamentista_conta_tabela = []
-        const r = await excluir(T_WOLFF)
-        expect(r.status).toBe(409)
-        expect(r.json.contas).toEqual(['Esquadrias De Paula'])
-        expect(r.json.error).toContain('Esquadrias De Paula')
+    it.each([['a tabela que a De Paula usa', () => T_WOLFF], ['a tabela que ninguém usa', () => T_SOLTA]])('%s: DELETE → 405, e nada sai do banco nem do armazenamento', async (_, id) => {
+        estado.db.orcamentista_fornecedor.push({ id: 'f-solto', nome: 'Solto', nicho_id: 'n-esq' })
+        estado.db.orcamentista_tabela.push(tabela(T_SOLTA, 'f-solto', 'Solta.xlsx', null))
+        const r = await excluir(id())
+        expect(r.status).toBe(405)
         expect(estado.apagadas).toEqual([])
         expect(estado.removidosDoStorage).toEqual([])
-        expect(estado.db.orcamentista_tabela.map((t) => t.id)).toContain(T_WOLFF)
-    })
-
-    it('a tabela ANTIGA, não vigente, do fornecedor vinculado também é recusada: ela explica um orçamento do ano passado', async () => {
-        estado.db.orcamentista_conta_tabela = []
-        estado.db.orcamentista_tabela.push(tabela(T_WOLFF_2027, F_WOLFF, 'Wolff 2027.xlsx', 'PVC', true))
-        const r = await excluir(T_WOLFF)
-        expect(r.status).toBe(409)
-        expect(estado.apagadas).toEqual([])
-    })
-
-    it('o objeto do motor que uma PLANILHA também usa (PR C) NÃO sai do armazenamento — o do preço sai, e a planilha continua de pé', async () => {
-        estado.db.orcamentista_fornecedor.push({ id: 'f-solto', nome: 'Solto', nicho_id: 'n-esq' })
-        estado.db.orcamentista_tabela.push(tabela(T_SOLTA, 'f-solto', 'Solta.xlsx', null))
-        estado.db.orcamentista_motor = [{ id: 'm-1', familia: 'PVC', fornecedor_id: 'f-solto', arquivo_nome: 'motor.xlsx', arquivo_path: `f-solto/motor/${T_SOLTA}.xlsx`, vigente: true, arquivado_em: null }]
-        const r = await excluir(T_SOLTA)
-        expect(r.status).toBe(200)
-        expect(estado.removidosDoStorage).toEqual([`f-solto/arquivo/${T_SOLTA}.xlsx`])
-        expect(r.json.aviso).toBe(`Mantido no armazenamento, porque uma planilha do motor usa o mesmo arquivo: f-solto/motor/${T_SOLTA}.xlsx.`)
-        expect(estado.db.orcamentista_motor).toHaveLength(1)
-    })
-
-    it('...e a planilha ARQUIVADA também segura o objeto: arquivar não é apagar, e o arquivo é dela', async () => {
-        estado.db.orcamentista_fornecedor.push({ id: 'f-solto', nome: 'Solto', nicho_id: 'n-esq' })
-        estado.db.orcamentista_tabela.push(tabela(T_SOLTA, 'f-solto', 'Solta.xlsx', null))
-        estado.db.orcamentista_motor = [{ id: 'm-1', familia: 'PVC', fornecedor_id: 'f-solto', arquivo_nome: 'motor.xlsx', arquivo_path: `f-solto/motor/${T_SOLTA}.xlsx`, vigente: false, arquivado_em: '2026-10-27T10:00:00Z' }]
-        await excluir(T_SOLTA)
-        expect(estado.removidosDoStorage).toEqual([`f-solto/arquivo/${T_SOLTA}.xlsx`])
-    })
-
-    it('o controle: uma planilha que aponta OUTRO objeto não segura nada — os dois arquivos da tabela saem', async () => {
-        estado.db.orcamentista_fornecedor.push({ id: 'f-solto', nome: 'Solto', nicho_id: 'n-esq' })
-        estado.db.orcamentista_tabela.push(tabela(T_SOLTA, 'f-solto', 'Solta.xlsx', null))
-        estado.db.orcamentista_motor = [{ id: 'm-1', familia: 'PVC', fornecedor_id: 'f-solto', arquivo_nome: 'outro.xlsx', arquivo_path: 'f-solto/motor/outro-objeto.xlsx', vigente: true, arquivado_em: null }]
-        const r = await excluir(T_SOLTA)
-        expect(estado.removidosDoStorage).toEqual([`f-solto/arquivo/${T_SOLTA}.xlsx`, `f-solto/motor/${T_SOLTA}.xlsx`])
-        expect(r.json.aviso).toBeUndefined()
-    })
-
-    it('o contraste: tabela de fornecedor que NENHUMA conta vincula sai, e os arquivos dela também', async () => {
-        estado.db.orcamentista_fornecedor.push({ id: 'f-solto', nome: 'Solto', nicho_id: 'n-esq' })
-        estado.db.orcamentista_tabela.push(tabela(T_SOLTA, 'f-solto', 'Solta.xlsx', null))
-        const r = await excluir(T_SOLTA)
-        expect(r.status).toBe(200)
-        expect(estado.apagadas).toEqual([{ tabela: 'orcamentista_tabela', filtros: { id: T_SOLTA } }])
-        expect(estado.removidosDoStorage).toEqual([`f-solto/arquivo/${T_SOLTA}.xlsx`, `f-solto/motor/${T_SOLTA}.xlsx`])
+        expect(estado.db.orcamentista_tabela.map((t) => t.id)).toEqual(expect.arrayContaining([T_WOLFF, T_SOLTA]))
     })
 })
 
@@ -406,7 +360,6 @@ describe('(4) quem usa: pelo vínculo da base de conhecimento, não por conta_ta
     it('a Wolff é usada pela De Paula, a Sul pela Norte — a linha parada (De Paula → Sul) não conta', async () => {
         expect((await R().obterFornecedor(F_WOLFF))?.contas_usando).toEqual(['Esquadrias De Paula'])
         expect((await R().obterFornecedor(F_SUL))?.contas_usando).toEqual(['Esquadrias Norte'])
-        expect(await R().contasQueUsamATabela(T_SUL)).toEqual(['Esquadrias Norte'])
         naoTocouAContaTabela()
     })
 

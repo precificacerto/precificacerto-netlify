@@ -1,28 +1,28 @@
 /**
  * Atendimentos I.A. → Fornecedores e tabelas → UM fornecedor (EPIC §5.6). Só o super admin.
  *
- * As tabelas: Arquivo · Motor · Vigência · Subido em · Contas usando, com Editar e Excluir; e
+ * As tabelas: Arquivo · Motor · Vigência · Subido em · Contas usando, com Editar e Remover; e
  * "+ Nova tabela", "Editar fornecedor" (nome e nicho) e "Excluir fornecedor". Tudo pelas rotas.
- * Excluir o que está em uso a ROTA recusa e diz quais contas usam — a mensagem é mostrada
- * inteira, não trocada por um "não foi possível".
+ * Remover o fornecedor e remover a TABELA abrem a confirmação do arrasto (`RemocaoDoCatalogo`): a tabela entrou na soberania do catálogo
+ * (dono do produto, 01/11/2026; migração 20261101000001) — não há mais recusa por uso; a confirmação mostra o que sai, o que fica e o aviso
+ * de que a conversa da empresa PARA quando a tabela tem motor. O erro aparece dentro da própria confirmação.
  *
  * O erro de salvar uma TABELA (nova ou edição) aparece DENTRO do modal (`erroDaTabela` → prop
  * `erro`), com o arquivo e o motivo — nunca num `message` passageiro fora dele: o modal fica
  * aberto quando a gravação falha, e aberto sem explicação manda o usuário adivinhar (20/10/2026,
  * `atendimentos-ia-formato-do-arquivo.test.tsx`). Pelo mesmo princípio — a recusa aparece ONDE A
  * AÇÃO ACONTECEU —, editar e excluir fornecedor mostram o erro dentro do modal "Editar
- * fornecedor", e excluir tabela (que não tem modal) mostra num Alert na página, acima da lista
- * (`atendimentos-ia-recusa-onde-a-acao-aconteceu.test.tsx`).
+ * fornecedor" (`atendimentos-ia-recusa-onde-a-acao-aconteceu.test.tsx`).
  */
 import React, { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/router'
-import { Alert, Button, Empty, Popconfirm, Space, Switch, Table, Tag, Typography, message } from 'antd'
+import { Alert, Button, Empty, Space, Switch, Table, Tag, Typography, message } from 'antd'
 import { ArrowLeftOutlined, PlusOutlined } from '@ant-design/icons'
 import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
 import { ROUTES } from '@/constants/routes'
 import { useAuth } from '@/hooks/use-auth.hook'
-import { ROTAS_DO_CATALOGO, ROTULO_DO_MODELO, ROTULO_QUALQUER_LINHA, familiaObrigatoria, rotaDoNicho, TITULO_DA_TABELA_NAO_EXCLUIDA, fraseDoArquivo, type Categoria, type Familia, type FornecedorComTabelas, type Nicho, type TabelaDoFornecedor } from '@/utils/atendimentos-ia-catalogo'
+import { ROTAS_DO_CATALOGO, ROTULO_DO_MODELO, ROTULO_QUALQUER_LINHA, familiaObrigatoria, rotaDoNicho, fraseDoArquivo, type Categoria, type Familia, type FornecedorComTabelas, type Nicho, type TabelaDoFornecedor } from '@/utils/atendimentos-ia-catalogo'
 import { chamarRota, enviarArquivo, gravarTabelaNova, type TabelaPendente } from '@/page-parts/atendimentos-ia/api'
 import { RemocaoDoCatalogo, type AlvoDaRemocao } from '@/page-parts/atendimentos-ia/remocao-do-catalogo.component'
 import { FornecedorModal, TITULO_FORNECEDOR_NAO_SALVO, type DadosDoFornecedor, type ErroDoFornecedor } from '@/page-parts/atendimentos-ia/fornecedor-modal.component'
@@ -49,7 +49,6 @@ export default function TabelasDoFornecedor() {
     const [salvando, setSalvando] = useState(false)
     const [erroDaTabela, setErroDaTabela] = useState<string | null>(null)
     const [erroDoFornecedor, setErroDoFornecedor] = useState<ErroDoFornecedor | null>(null)
-    const [erroAoExcluirTabela, setErroAoExcluirTabela] = useState<string | null>(null)
     /** A recusa de marcar a vigente fica na página, acima da lista, com a frase inteira da rota. */
     const [erroDaVigente, setErroDaVigente] = useState<string | null>(null)
 
@@ -164,16 +163,9 @@ export default function TabelasDoFornecedor() {
         }
     }
 
-    async function excluirTabela(t: TabelaDoFornecedor) {
-        setErroAoExcluirTabela(null)
-        try {
-            const r = await chamarRota<{ ok: true; aviso?: string }>(ROTAS_DO_CATALOGO.tabela(t.id), 'DELETE')
-            if (r.aviso) message.warning(r.aviso, 8)
-            else message.success('Tabela excluída')
-            await carregar()
-        } catch (e) {
-            setErroAoExcluirTabela(fraseDoArquivo(t.arquivo_nome, (e as Error).message))
-        }
+    /** A tabela é a quinta raiz do catálogo soberano: a confirmação mede o arrasto antes e só remove confirmado. */
+    function removerTabela(t: TabelaDoFornecedor) {
+        setRemovendo({ tipo: 'tabela', chave: t.id, nome: t.arquivo_nome })
     }
 
     return (
@@ -196,18 +188,6 @@ export default function TabelasDoFornecedor() {
                         <Typography.Paragraph>
                             Nicho: <b>{fornecedor.nicho_nome}</b> {fornecedor.modelo && <Tag>{ROTULO_DO_MODELO[fornecedor.modelo]}</Tag>}
                         </Typography.Paragraph>
-                    )}
-                    {erroAoExcluirTabela && (
-                        <Alert
-                            type="error"
-                            showIcon
-                            closable
-                            onClose={() => setErroAoExcluirTabela(null)}
-                            style={{ marginBottom: 12 }}
-                            message={TITULO_DA_TABELA_NAO_EXCLUIDA}
-                            description={erroAoExcluirTabela}
-                            data-erro-da-tabela
-                        />
                     )}
                     {erroDaVigente && (
                         <Alert type="error" showIcon closable onClose={() => setErroDaVigente(null)} style={{ marginBottom: 12 }}
@@ -254,9 +234,7 @@ export default function TabelasDoFornecedor() {
                                         <Space>
                                             <Button size="small" onClick={() => router.push(`${ROUTES.SUPER_ADMIN_IA_TABELAS}/${t.id}/importacao`)}>Importação</Button>
                                             <Button size="small" onClick={() => editarTabela(t)}>Editar</Button>
-                                            <Popconfirm title="Excluir esta tabela?" okText="Excluir" cancelText="Cancelar" onConfirm={() => excluirTabela(t)}>
-                                                <Button size="small" danger>Excluir</Button>
-                                            </Popconfirm>
+                                            <Button size="small" danger onClick={() => removerTabela(t)} data-remover-tabela={t.id}>Remover</Button>
                                         </Space>
                                     ),
                                 },
@@ -292,7 +270,11 @@ export default function TabelasDoFornecedor() {
                 onExcluir={excluirFornecedor}
             />
             <RemocaoDoCatalogo alvo={removendo} onFechar={() => setRemovendo(null)}
-                onRemovido={() => { setRemovendo(null); message.success('Fornecedor removido'); voltar() }} />
+                onRemovido={() => {
+                    const tipo = removendo?.tipo
+                    setRemovendo(null)
+                    if (tipo === 'tabela') { message.success('Tabela removida'); carregar() } else { message.success('Fornecedor removido'); voltar() }
+                }} />
         </Layout>
     )
 }

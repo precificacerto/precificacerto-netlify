@@ -1,5 +1,6 @@
 /**
  * O CATÁLOGO É SOBERANO NAS QUATRO SEÇÕES — família, fornecedor, motor e etapa (dono do produto, 31/10/2026; migração 20261031000003).
+ * E a TABELA de fornecedor entra como a quinta raiz (dono do produto, 01/11/2026; migração 20261101000001), pelos mesmos passos.
  *
  * "A remoção é soberana. [...] Família, fornecedor, motor e etapa. Isso é soberano dentro do catálogo." Remover deixa de ser recusa por uso e passa a
  * ser ARRASTO DECLARADO E CONFIRMADO:
@@ -15,17 +16,18 @@
  */
 import { ehChaveDeFamilia, ehUuid, type Leitura } from '@/utils/atendimentos-ia-catalogo'
 
-export const TIPOS_DE_REMOCAO = ['familia', 'fornecedor', 'motor', 'etapa'] as const
+// 'tabela' (dono do produto, 01/11/2026; migração 20261101000001): a tabela de fornecedor é a quinta raiz — "Se for excluído, deve ser excluído".
+export const TIPOS_DE_REMOCAO = ['familia', 'fornecedor', 'motor', 'etapa', 'tabela'] as const
 export type TipoDeRemocao = (typeof TIPOS_DE_REMOCAO)[number]
 export const ehTipoDeRemocao = (v: unknown): v is TipoDeRemocao => typeof v === 'string' && (TIPOS_DE_REMOCAO as readonly string[]).includes(v)
 
 /** O nome do que se remove, para o título da confirmação. */
-export const NOME_DO_TIPO: Record<TipoDeRemocao, string> = { familia: 'a família', fornecedor: 'o fornecedor', motor: 'o motor', etapa: 'a etapa do catálogo' }
+export const NOME_DO_TIPO: Record<TipoDeRemocao, string> = { familia: 'a família', fornecedor: 'o fornecedor', motor: 'o motor', etapa: 'a etapa do catálogo', tabela: 'a tabela' }
 
 export const ROTA_DA_REMOCAO = '/api/super-admin/atendimentos-ia/catalogo/remover'
 export const rotaDoArrasto = (tipo: TipoDeRemocao, chave: string) => `${ROTA_DA_REMOCAO}?tipo=${tipo}&chave=${encodeURIComponent(chave)}`
 
-/** A chave de cada tipo: a família é a CHAVE do catálogo (texto); os outros três, o uuid da linha. */
+/** A chave de cada tipo: a família é a CHAVE do catálogo (texto); os outros quatro, o uuid da linha. */
 export const chaveDaRemocaoValida = (tipo: TipoDeRemocao, chave: unknown): chave is string => (tipo === 'familia' ? ehChaveDeFamilia(chave) : ehUuid(chave))
 
 export interface PassoDoArrasto {

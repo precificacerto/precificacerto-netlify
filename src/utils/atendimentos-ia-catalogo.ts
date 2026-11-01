@@ -93,9 +93,6 @@ export const fraseDoArquivo = (nome: string, motivo: string) => `Arquivo "${nome
 /** A gravação da tabela recusada DEPOIS dos envios: `Tabela "x.xlsm": …` — nomeada pelo arquivo da tabela. */
 export const fraseDaTabela = (nome: string, motivo: string) => `Tabela "${nome}": ${motivo}`
 
-/** O título do Alert, na página, quando excluir uma tabela é recusado. */
-export const TITULO_DA_TABELA_NAO_EXCLUIDA = 'A tabela não foi excluída.'
-
 export const ROTAS_DO_CATALOGO = {
     nichos: '/api/super-admin/atendimentos-ia/nichos',
     nicho: (id: string) => `/api/super-admin/atendimentos-ia/nichos/${id}`,

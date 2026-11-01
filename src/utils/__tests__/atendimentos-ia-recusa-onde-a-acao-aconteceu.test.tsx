@@ -6,8 +6,8 @@
  * para um `message.error` no topo da página, longe do clique, e sumia. Este portão cobre as
  * outras aparições da mesma classe na área:
  *
- *   (A) EXCLUIR TABELA — não há modal (é um balão de confirmação na lista): o erro vira Alert NA
- *       PÁGINA, ACIMA DA LISTA, com o arquivo e o motivo;
+ *   (A) REMOVER TABELA — desde 01/11/2026 a tabela está na soberania do catálogo (migração 20261101000001): o botão da linha abre a
+ *       confirmação do ARRASTO, sem DELETE e sem recusa por uso; o aviso da conversa aparece e a recusa da remoção fica DENTRO dela;
  *   (B) EDITAR FORNECEDOR — o erro de salvar aparece DENTRO do modal "Editar fornecedor";
  *   (C) EXCLUIR FORNECEDOR — o botão mora no modal "Editar fornecedor", e o erro aparece lá dentro;
  *   (D) CREDENCIAR — o fornecedor recusado: o erro aparece DENTRO do modal de credenciamento;
@@ -24,10 +24,10 @@ import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 
 import {
-    ROTAS_DO_CATALOGO, TITULO_DA_TABELA_NAO_EXCLUIDA,
+    ROTAS_DO_CATALOGO,
     fraseDaTabela, fraseDoArquivo, type FornecedorComTabelas,
 } from '@/utils/atendimentos-ia-catalogo'
-import { ROTA_DA_REMOCAO, rotaDoArrasto } from '@/utils/atendimentos-ia-remocao'
+import { ROTA_DA_REMOCAO, rotaDoArrasto, type Arrasto } from '@/utils/atendimentos-ia-remocao'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 Object.defineProperty(window, 'matchMedia', {
@@ -39,8 +39,9 @@ Object.defineProperty(window, 'matchMedia', {
     }),
 })
 
+const push = jest.fn()
 jest.mock('next/router', () => ({
-    useRouter: () => ({ pathname: '/super-admin/atendimentos-ia/fornecedores', asPath: '/', query: { id: 'f1', nichoId: 'n1', aba: 'fornecedores' }, replace: () => {}, push: () => {} }),
+    useRouter: () => ({ pathname: '/super-admin/atendimentos-ia/fornecedores', asPath: '/', query: { id: 'f1', nichoId: 'n1', aba: 'fornecedores' }, replace: () => {}, push }),
 }))
 jest.mock('@/hooks/use-auth.hook', () => ({ useAuth: () => ({ currentUser: { id: 'u-super', is_super_admin: true, role: 'super_admin' } }) }))
 jest.mock('@/components/layout/layout.component', () => ({ Layout: ({ children }: { children: React.ReactNode }) => <div>{children}</div> }))
@@ -59,6 +60,7 @@ let respostas: Record<string, { status: number; body: unknown }> = {}
 const pedidos: string[] = []
 beforeEach(() => {
     pedidos.length = 0
+    push.mockClear()
     respostas = {
         [`GET ${ROTAS_DO_CATALOGO.fornecedor('f1')}`]: { status: 200, body: FORNECEDOR },
         [`GET ${ROTAS_DO_CATALOGO.fornecedores}`]: { status: 200, body: [] },
@@ -114,11 +116,6 @@ async function clicar(b: HTMLElement | undefined) {
     await act(async () => { b!.click() })
     await assentar()
 }
-/** Confirma o balão de confirmação aberto (Popconfirm). */
-async function confirmar(texto: string) {
-    const baloes = Array.from(document.querySelectorAll('.ant-popover')).filter((p) => !p.className.includes('ant-popover-hidden'))
-    await clicar(botao(baloes[baloes.length - 1], texto))
-}
 /** A família é obrigatória na tabela nova (26/10/2026): o teste a escolhe, como o usuário faria. */
 async function escolherFamilia(chave: string) {
     const opcao = modal()!.querySelector(`input[data-familia="${chave}"]`) as HTMLInputElement | null
@@ -142,19 +139,49 @@ async function escolher(indice: 0 | 1, nome: string) {
 const vezes = (texto: string, trecho: string) => texto.split(trecho).length - 1
 
 describe('na página de UM fornecedor', () => {
-    it('(A) excluir tabela recusado: Alert NA PÁGINA, ACIMA da lista, com o arquivo e o motivo', async () => {
-        respostas[`DELETE ${ROTAS_DO_CATALOGO.tabela('t1')}`] = { status: 409, body: { error: 'Em uso por Marcenaria Silva.' } }
+    it('(A) remover tabela (01/11/2026): a confirmação do ARRASTO abre com o tipo tabela; sem DELETE; o aviso aparece; a recusa fica DENTRO dela', async () => {
+        respostas[`GET ${rotaDoArrasto('tabela', 't1')}`] = { status: 200, body: {
+            tipo: 'tabela', chave: 't1', nome: 'Wolf Perfis / tabela-antiga.xlsx (t1)', sai: 2, perde_o_vinculo: 0, assinatura: 'a'.repeat(32), ficam: [], impedimentos: [],
+            avisos: [{ tipo: 'conversa_para', tabela_id: '72366020-57c9-489f-9385-397b7fa3dedb', arquivo: 'tabela-antiga.xlsx', empresas: ['Marcenaria Silva'] }],
+            passos: [
+                { passo: 1, tabela: 'orcamentista_tabela_item', acao: 'sai', rotulo: 'item de preco', quantidade: 1, nomes: ['94733'], mais: 0 },
+                { passo: 2, tabela: 'orcamentista_tabela', acao: 'sai', rotulo: 'tabela', quantidade: 1, nomes: ['tabela-antiga.xlsx'], mais: 0 },
+            ],
+        } }
+        respostas[`POST ${ROTA_DA_REMOCAO}`] = { status: 504, body: { error: 'A remoção passou do tempo e foi desfeita inteira: nada foi removido. Tente de novo.' } }
         const host = await montar(<PaginaDoFornecedor />)
-        await clicar(botao(host.querySelector('tbody')!, 'Excluir'))
-        await confirmar('Excluir')
+        await clicar(botao(host.querySelector('tbody')!, 'Remover'))
 
-        expect(pedidos).toContain(`DELETE ${ROTAS_DO_CATALOGO.tabela('t1')}`)
-        const alerta = host.querySelector('[data-erro-da-tabela]') as HTMLElement
-        expect(alerta).not.toBeNull()
-        expect(alerta.textContent).toContain(TITULO_DA_TABELA_NAO_EXCLUIDA)
-        expect(alerta.textContent).toContain(fraseDoArquivo('tabela-antiga.xlsx', 'Em uso por Marcenaria Silva.'))
-        // ACIMA da lista: o Alert vem antes da tabela no documento.
-        expect(alerta.compareDocumentPosition(host.querySelector('table')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+        expect(pedidos).toContain(`GET ${rotaDoArrasto('tabela', 't1')}`)
+        expect(pedidos.filter((p) => p.startsWith('POST ') || p.startsWith('DELETE '))).toEqual([])
+        expect(modal()!.textContent).toContain('Remover a tabela "tabela-antiga.xlsx"?')
+        const remocao = modal()!.querySelector('[data-remocao-do-catalogo]') as HTMLElement
+        expect(remocao.querySelector('[data-aviso-do-arrasto="conversa_para"]')!.textContent).toContain('A conversa de Marcenaria Silva PARA de funcionar até ser reconfigurada')
+
+        await clicar(remocao.querySelector('[data-confirmo-o-arrasto] input') as HTMLElement)
+        await clicar(botao(modal()!, 'Remover'))
+        expect(pedidos).toContain(`POST ${ROTA_DA_REMOCAO}`)
+        expect(pedidos.filter((p) => p.startsWith('DELETE '))).toEqual([])
+        expect(remocao.querySelector('[data-erro-da-remocao]')!.textContent).toContain('nada foi removido')
+    })
+
+    it('(A2) tabela removida: a página RECARREGA a lista e fica (remover o fornecedor é que volta)', async () => {
+        const arrasto: Arrasto = {
+            tipo: 'tabela', chave: 't1', nome: 'Wolf Perfis / tabela-antiga.xlsx (t1)', sai: 1, perde_o_vinculo: 0, assinatura: 'a'.repeat(32), ficam: [], impedimentos: [], avisos: [],
+            passos: [{ passo: 1, tabela: 'orcamentista_tabela', acao: 'sai', rotulo: 'tabela', quantidade: 1, nomes: ['tabela-antiga.xlsx'], mais: 0 }],
+        }
+        respostas[`GET ${rotaDoArrasto('tabela', 't1')}`] = { status: 200, body: arrasto }
+        respostas[`POST ${ROTA_DA_REMOCAO}`] = { status: 200, body: arrasto }
+        const host = await montar(<PaginaDoFornecedor />)
+        const lidas = () => pedidos.filter((p) => p === `GET ${ROTAS_DO_CATALOGO.fornecedor('f1')}`).length
+        const antes = lidas()
+        await clicar(botao(host.querySelector('tbody')!, 'Remover'))
+        await clicar(modal()!.querySelector('[data-confirmo-o-arrasto] input') as HTMLElement)
+        await clicar(botao(modal()!, 'Remover'))
+
+        expect(pedidos).toContain(`POST ${ROTA_DA_REMOCAO}`)
+        expect(lidas()).toBe(antes + 1)
+        expect(push).not.toHaveBeenCalled()
     })
 
     it('(B) editar fornecedor recusado: o erro aparece DENTRO do modal, e reabrir não o traz', async () => {

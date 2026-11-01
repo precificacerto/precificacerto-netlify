@@ -1,5 +1,6 @@
 /**
  * PORTÃO — O CATÁLOGO É SOBERANO NAS QUATRO SEÇÕES (dono do produto, 31/10/2026; migração 20261031000003): família, fornecedor, motor e etapa
+ * — e na TABELA de fornecedor, a quinta raiz (dono do produto, 01/11/2026; migração 20261101000001), pelos mesmos passos (bloco 7)
  * saem por ARRASTO DECLARADO E CONFIRMADO, numa rota só (`catalogo/remover`).
  *
  * O que este portão fica vermelho:
@@ -24,7 +25,7 @@ import path from 'path'
 import type { NextApiRequest, NextApiResponse } from 'next'
 import {
     ASSINATURA_OBRIGATORIA, CHAVE_INVALIDA, CONFIRMACAO_OBRIGATORIA, ITEM_INEXISTENTE, REMOCAO_PASSOU_DO_TEMPO, TIPO_DESCONHECIDO, fraseDoAviso,
-    fraseDoImpedimento, lerArrasto, lerPedidoDeRemocao, nomesComOResto, passosQueMexem, resumoDoArrasto, rotaDoArrasto, rotuloDoPasso, type Arrasto,
+    fraseDoImpedimento, lerArrasto, lerPedidoDeRemocao, nomesComOResto, passosQueMexem, resumoDoArrasto, rotaDoArrasto, rotuloDoPasso, TIPOS_DE_REMOCAO, tituloDaRemocao, type Arrasto,
 } from '@/utils/atendimentos-ia-remocao'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -59,7 +60,7 @@ describe('(1) a leitura da medição', () => {
     it.each([
         ['sem assinatura', { assinatura: undefined }],
         ['assinatura fora da forma', { assinatura: 'xyz' }],
-        ['tipo desconhecido', { tipo: 'tabela' }],
+        ['tipo desconhecido', { tipo: 'nicho' }],
         ['passo com ação que não é sai nem perde o vínculo', { passos: [{ ...arrasto().passos[0], acao: 'apaga' }] }],
         ['quantidade negativa', { passos: [{ ...arrasto().passos[0], quantidade: -1 }] }],
         ['aviso de tipo desconhecido', { avisos: [{ tipo: 'outro' }] }],
@@ -89,7 +90,10 @@ describe('(2) o pedido de remoção', () => {
         expect(lerPedidoDeRemocao({ ...ok, assinatura: 'A'.repeat(32) })).toEqual({ ok: false, erro: ASSINATURA_OBRIGATORIA })
     })
     it('o tipo e a chave na forma do tipo: família é a chave do catálogo; os outros, uuid', () => {
-        expect(lerPedidoDeRemocao({ ...ok, tipo: 'tabela' })).toEqual({ ok: false, erro: TIPO_DESCONHECIDO })
+        // 'nicho': desde a 20261101000001 a 'tabela' é um tipo
+        expect(lerPedidoDeRemocao({ ...ok, tipo: 'nicho' })).toEqual({ ok: false, erro: TIPO_DESCONHECIDO })
+        expect(lerPedidoDeRemocao({ ...ok, tipo: 'tabela' })).toEqual({ ok: true, corpo: { tipo: 'tabela', chave: W, assinatura: A } })
+        expect(lerPedidoDeRemocao({ ...ok, tipo: 'tabela', chave: 'PVC' })).toEqual({ ok: false, erro: CHAVE_INVALIDA })
         expect(lerPedidoDeRemocao({ ...ok, tipo: 'familia', chave: W })).toEqual({ ok: false, erro: CHAVE_INVALIDA })
         expect(lerPedidoDeRemocao({ ...ok, tipo: 'motor', chave: 'PVC' })).toEqual({ ok: false, erro: CHAVE_INVALIDA })
     })
@@ -175,8 +179,9 @@ describe('(4) a rota catalogo/remover', () => {
         expect(repo.removerDoCatalogo).not.toHaveBeenCalled()
     })
     it('GET com tipo ou chave fora da forma é 400, sem ler o banco', async () => {
-        expect(await chamar('GET', { tipo: 'tabela', chave: W })).toEqual({ status: 400, json: { error: TIPO_DESCONHECIDO } })
+        expect(await chamar('GET', { tipo: 'nicho', chave: W })).toEqual({ status: 400, json: { error: TIPO_DESCONHECIDO } })
         expect(await chamar('GET', { tipo: 'familia', chave: 'pvc minúsculo' })).toEqual({ status: 400, json: { error: CHAVE_INVALIDA } })
+        expect(await chamar('GET', { tipo: 'tabela', chave: 'PVC' })).toEqual({ status: 400, json: { error: CHAVE_INVALIDA } })
         expect(repo.medirArrastoDoCatalogo).not.toHaveBeenCalled()
     })
     it('GET: a medição em forma errada é 500 com a frase (nunca um arrasto vazio); P0002 é 404', async () => {
@@ -302,5 +307,30 @@ describe('(6) o que liga o código à migração 20261031000003', () => {
     it('a rota espera mais que o tempo da função (80 s)', () => {
         expect(MIG).toContain("SET statement_timeout = '80s'")
         expect(rota().config.maxDuration).toBeGreaterThan(80)
+    })
+})
+
+describe('(7) o que liga o código à migração 20261101000001 — a tabela, a quinta raiz (01/11/2026)', () => {
+    const MIG = fs.readFileSync(path.join(__dirname, '../../../supabase/migrations/20261101000001_tabela_na_soberania.sql'), 'utf8')
+    const ROTULOS = fs.readFileSync(path.join(__dirname, '../atendimentos-ia-remocao.ts'), 'utf8')
+
+    it('os tipos que a tela manda são os que a função aceita: a etapa à parte e os quatro da lista', () => {
+        expect(MIG).toContain("IF p_tipo = 'etapa' THEN")
+        const lista = /IF p_tipo NOT IN \(([^)]*)\) THEN/.exec(MIG)
+        expect(lista).not.toBeNull()
+        const daFuncao = ['etapa', ...[...lista![1].matchAll(/'([a-z]+)'/g)].map((m) => m[1])].sort()
+        expect([...TIPOS_DE_REMOCAO].sort()).toEqual(daFuncao)
+    })
+    it('o conjunto da tabela é a própria tabela, e nenhum motor', () => {
+        expect(MIG).toContain("ELSIF p_tipo = 'tabela' THEN")
+        expect(MIG).toContain('IF nome IS NOT NULL THEN tabelas := ARRAY[p_chave::uuid]; END IF;')
+    })
+    it('cada tabela que um passo alcança tem rótulo com acento na tela', () => {
+        const tabelas = [...new Set([...MIG.matchAll(/'t', '(orcamentista_[a-z_]+)'/g)].map((m) => m[1]))]
+        expect(tabelas.length).toBeGreaterThan(10)
+        expect(tabelas.filter((t) => !ROTULOS.includes(`'${t}:`))).toEqual([])
+    })
+    it('o título da confirmação nomeia a tabela', () => {
+        expect(tituloDaRemocao('tabela', 'Perfis_de_PVC_-_Wolff.xlsx')).toBe('Remover a tabela "Perfis_de_PVC_-_Wolff.xlsx"?')
     })
 })

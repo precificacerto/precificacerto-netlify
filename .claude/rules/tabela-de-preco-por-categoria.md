@@ -566,7 +566,7 @@ Formulação do dono do produto, registrada como está:
   os casos de cada trava e função, duas corridas (remover o item × gravar a etapa que o aponta, nos dois sentidos), cinco guardas, o semeio de etapas
   iguais, e as mutações nas duas passadas.
 
-## O catálogo é soberano nas quatro seções — dono do produto, 31/10/2026 (migração `20261031000003`, PENDENTE até o dono do produto aplicar; pressupõe a `20261031000002`)
+## O catálogo é soberano nas quatro seções — dono do produto, 31/10/2026 (migração `20261031000003`, aplicada e conferida em produção em 01/11/2026; pressupõe a `20261031000002`)
 
 Formulação do dono do produto, registrada como está:
 
@@ -629,3 +629,38 @@ Formulação do dono do produto, registrada como está:
   migração duas vezes, 22 casos (cada arrasto, a trava C pelos três caminhos, o log linha a linha, a assinatura, o impedimento, a linha que some no
   meio e a que sai por cascata), 3 corridas (gravar etapa × remover motor nos dois sentidos; duas remoções do mesmo item), 3 guardas, a prova de volume
   (`30_volume.sh`: ~125 mil linhas em ~5 s, limite da função 80 s) e as mutações nas duas passadas.
+
+## A tabela de fornecedor entra na soberania do catálogo — dono do produto, 01/11/2026 (migração `20261101000001`, PENDENTE até o dono do produto aplicar; pressupõe a `20261031000003`)
+
+Formulação do dono do produto, registrada como está:
+
+> "definido em regra que essa mensagem não pode acontecer. Se for excluído, deve ser excluído, permitir a exclusão. Depois, ele só não vai calcular.
+> Então, ele deve permitir que eu faça exclusão de tabelas dentro de fornecedores."
+
+**A recusa "A tabela está em uso e não pode ser excluída" NÃO PODE MAIS ACONTECER.** O DELETE de `/api/super-admin/atendimentos-ia/tabelas/[id]` saiu
+(405), com `fraseDaTabelaEmUso`, `contasQueUsamATabela` e `excluirTabela`. A tabela é a **quinta raiz** do arrasto (`tipo: 'tabela'`), pela mesma rota
+(`catalogo/remover`), a mesma tela (`RemocaoDoCatalogo`, aberta pelo botão Remover da linha na página do fornecedor) e **os mesmos passos**
+(`orcamentista_arrasto_passos`), sem caminho novo — desenho aprovado pelo dono do produto: "reaproveitar os passos, sem caminho novo".
+
+- **O que sai com a tabela:** os itens de preço, o conteúdo de motor gravado por `tabela_id` (as 13 tabelas), as importações e a
+  `orcamentista_conta_tabela`. **O item de levantamento fica e perde a tabela** (`tabela_id` nulo; o motor e a família dele ficam) — a trava C.
+- **O que NÃO sai:** o motor do catálogo (tem cópia própria, por `motor_id`), as ligações, as etapas (não perdem o motor), o fornecedor e as outras
+  tabelas dele.
+- **OS ARQUIVOS DO BUCKET FICAM** (dono do produto, 01/11/2026: "Apagar objeto de Storage é irreversível e fora da transação"), só listados no arrasto,
+  como a decisão 5 das outras quatro raízes. **Vale também para o `motor_path` que a `72366020` divide com o motor `9a233c55`: esse não sai em hipótese
+  nenhuma.**
+- **A ORDEM — a remoção da tabela é PERMITIDA antes do PR D, com o aviso obrigatório** (dono do produto, 01/11/2026). Se a tabela tem motor (tipologias
+  importadas), a confirmação mostra o aviso `conversa_para`: a conversa da empresa que a usa **PARA** (hoje vale para a `72366020`, usada pela De Paula).
+  **ESTE AVISO SAI QUANDO O PR D ENTRAR** (a conversa passa a ler o motor pelo catálogo) — quem escrever o PR D tira o aviso da função e da tela
+  (`fraseDoAviso`), também para o tipo `tabela`.
+- **Medido em produção em 01/11/2026 (só leitura):** 17 FKs apontam `orcamentista_tabela` (`conta_tabela` RESTRICT, `levantamento_item` SET NULL, o resto
+  CASCADE; nenhuma fora dos passos). A `72366020` tem 735 itens, 62.295 linhas de conteúdo (164 tipologias), 4 importações, 1 `conta_tabela` e 0 itens de
+  levantamento; o motor `9a233c55` tem as suas 12.116 regras e os 164 tempos por `motor_id`, e não muda.
+- **Prova:** `scripts/harness/tabela-soberana/` — a cadeia real com a `20261031000003` e o estado de produção, a migração duas vezes, 8 casos próprios mais
+  a regressão inteira da `catalogo-soberano`, 2 corridas (duas remoções da mesma tabela; tabela × fornecedor medido antes, 40001), 3 guardas e o
+  contraste delas (36/36), o volume (`30_volume.sh`: a `72366020` com ~62 mil linhas em ~3 s, e as regras do motor intactas) e 15 mutações, mortas nas
+  duas passadas.
+- **A guarda compara os corpos SEM o `\r`.** Medido em 01/11/2026: os corpos da `20261031000003` em produção têm `\r` (foi aplicada pelo Editor, em
+  CRLF — 93 no dos passos, 116 no da remoção); sem o `\r`, os cinco md5 são os do arquivo. O contraste `aceita 1` aplica a `20261031000003` em CRLF e
+  prova que a guarda aceita; a mutação G3 (comparar com o `\r`) o derruba.
+
