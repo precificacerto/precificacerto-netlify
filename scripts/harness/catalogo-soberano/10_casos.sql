@@ -80,10 +80,10 @@ do $c$ begin
   raise notice 'ok: caso 2 — superadmin_remover_familia e superadmin_remover_etapa_do_catalogo fora';
 end $c$;
 
--- CASO 3: tipo desconhecido é 22023, na medição e na remoção
+-- CASO 3: tipo desconhecido é 22023, na medição e na remoção ('nicho': desde a 20261101000001 a 'tabela' é um tipo)
 do $c$ declare n int := 0; begin
   begin perform pg_temp.medir('fornecedores', pg_temp.k('W')); exception when sqlstate '22023' then n := n + 1; end;
-  begin perform public.superadmin_remover_do_catalogo(pg_temp.k('SA')::uuid, 'tabela', pg_temp.k('T1'), 'x'); exception when sqlstate '22023' then n := n + 1; end;
+  begin perform public.superadmin_remover_do_catalogo(pg_temp.k('SA')::uuid, 'nicho', pg_temp.k('T1'), 'x'); exception when sqlstate '22023' then n := n + 1; end;
   if n is distinct from 2 then raise exception 'FALHOU caso 3: % de 2 recusas 22023', n; end if;
   raise notice 'ok: caso 3 — tipo desconhecido e 22023';
 end $c$;
