@@ -15,28 +15,21 @@
  *        criar tabela nova — antes de gravar e de apagar qualquer coisa. Em 29/10/2026, às 16:07, uma edição trocou o arquivo da tabela da
  *        Wolff (735 itens) e esta rota apagou o .xlsm original (a cópia do dono do produto o recuperou). E a edição RECUSADA tira do bucket o
  *        arquivo que a tela acabou de enviar, se ninguém o referencia (`descartarEnvioRecusado`).
- * DELETE /api/super-admin/atendimentos-ia/tabelas/[id] — exclui uma tabela que nenhuma conta usa.
  *
- * TABELA EM USO A ROTA RECUSA, ANTES de apagar: 409 com os NOMES das contas — "Em uso por: …" (EPIC §3.7).
- * O uso é DERIVADO (dono do produto, 26/10/2026): a conta usa a tabela quando a base de conhecimento dela
- * vincula o fornecedor da tabela — qualquer tabela dele, também a antiga não vigente, que explica um
- * orçamento do ano passado. Era o RESTRICT de `orcamentista_conta_tabela` que protegia; ela não é mais
- * escrita, e a proteção MUDOU DE LUGAR para cá (`atendimentos-ia-tabelas-derivadas.test.ts`, (3)). Um 23503
- * do banco ainda vira 409 — a linha parada de `orcamentista_conta_tabela` continua com a FK.
+ * REMOVER a tabela é da rota `catalogo/remover` (migração 20261101000001, dono do produto, 01/11/2026: "definido em regra que essa mensagem não
+ * pode acontecer. Se for excluído, deve ser excluído, permitir a exclusão. Depois, ele só não vai calcular."): a recusa "A tabela está em uso"
+ * SAIU. Os itens de preço, o conteúdo de motor dela, as importações e a `orcamentista_conta_tabela` saem com ela, medidos, confirmados e
+ * logados linha a linha; o item de levantamento fica e perde a tabela; os arquivos do bucket FICAM (também o `motor_path` que divide o objeto
+ * com um motor do catálogo). Aqui não há mais DELETE.
  *
- * >>> A ORDEM DA EXCLUSÃO, e é escolha registrada (bloco 2B.2, 19/10/2026) <<<
- * Primeiro a LINHA, depois os OBJETOS no Storage. Se o Storage falhar, os arquivos ficam no
- * bucket sem linha apontando para eles — ÓRFÃOS. Isso é desperdício de espaço, não erro de
- * cálculo: nenhuma conta enxerga uma tabela que não tem linha. A ordem contrária (objetos
- * primeiro) deixaria, numa falha do banco, uma linha apontando para arquivos que não existem —
- * uma tabela que a conta vê e que não calcula. A resposta diz quando sobrou órfão (`aviso`), e o
- * log leva os caminhos. A troca de arquivo no PATCH segue a mesma ordem: grava a linha nova,
- * depois remove o objeto antigo.
+ * >>> A ORDEM NA TROCA DE ARQUIVO, e é escolha registrada (bloco 2B.2, 19/10/2026) <<<
+ * Primeiro a LINHA, depois os OBJETOS no Storage. Se o Storage falhar, os arquivos ficam no bucket sem linha apontando para eles — ÓRFÃOS.
+ * Isso é desperdício de espaço, não erro de cálculo. A ordem contrária deixaria, numa falha do banco, uma linha apontando para arquivos que não
+ * existem. A resposta diz quando sobrou órfão (`aviso`), e o log leva os caminhos.
  *
  * >>> O OBJETO QUE UMA PLANILHA TAMBÉM USA NÃO SE REMOVE (27/10/2026, PR C) <<<
  * A migração `20261027000004` copiou o motor da Wolff para `orcamentista_motor`, e a planilha aponta o MESMO objeto do
- * bucket que `motor_path` desta tabela. Trocar o motor (PATCH) ou excluir a tabela (DELETE) removeria o arquivo de
- * uma planilha que continua de pé. Antes de remover, a rota tira da lista o que `orcamentista_motor.arquivo_path`
+ * bucket que `motor_path` desta tabela. Trocar o motor (PATCH) removeria o arquivo de uma planilha que continua de pé. Antes de remover, a rota tira da lista o que `orcamentista_motor.arquivo_path`
  * referencia, e AVISA que o objeto ficou. Se a conferência falhar, NADA é removido: um objeto órfão é desperdício de
  * espaço; uma planilha sem arquivo é perda (`caminhosDaPlanilha`).
  */
@@ -48,8 +41,6 @@ import {
   caminhosDeTabela,
   codigoDoErro,
   contarItensDaTabela,
-  contasQueUsamATabela,
-  excluirTabela,
   falhaInterna,
   categoriasDoFornecedorDosItensGravados,
   listarCategorias,
@@ -60,11 +51,8 @@ import {
   obterTabela,
   removerObjetos,
 } from '@/lib/atendimentos-ia/repositorio'
-import { MENSAGEM_FAMILIA_OBRIGATORIA, MENSAGEM_MOTOR_INCOMPLETO, ehFkDaCategoria, ehFkDaFamilia, ehIndiceDaVigente, ehTravaDaFamiliaNoPerfil, familiaObrigatoria, ehTravaDaCategoriaQueNaoSeTroca, ehTravaDoMotorPelaMetade, ehUuid, emUsoPor, fraseDaCategoriaDesconhecida, fraseDaCategoriaQueNaoSeTroca, fraseDaFamiliaDesconhecida, fraseDaVigenteQueJaExiste, fraseDoArquivoDaTabelaImportada, lerEdicaoDaTabela, recusada, type EdicaoDaTabela } from '@/utils/atendimentos-ia-catalogo'
+import { MENSAGEM_FAMILIA_OBRIGATORIA, MENSAGEM_MOTOR_INCOMPLETO, ehFkDaCategoria, ehFkDaFamilia, ehIndiceDaVigente, ehTravaDaFamiliaNoPerfil, familiaObrigatoria, ehTravaDaCategoriaQueNaoSeTroca, ehTravaDoMotorPelaMetade, ehUuid, fraseDaCategoriaDesconhecida, fraseDaCategoriaQueNaoSeTroca, fraseDaFamiliaDesconhecida, fraseDaVigenteQueJaExiste, fraseDoArquivoDaTabelaImportada, lerEdicaoDaTabela, recusada, type EdicaoDaTabela } from '@/utils/atendimentos-ia-catalogo'
 import { categoriasDoFornecedorNosItens, fraseDaTabelaComMaisDeUmaCategoria } from '@/utils/atendimentos-ia-categoria-do-arquivo'
-
-const fraseDaTabelaEmUso = (contas: string[]) =>
-  `A tabela está em uso e não pode ser excluída. ${emUsoPor(contas)}. Para excluir, tire o fornecedor dela da base de conhecimento dessas contas.`
 
 const avisoDeOrfaos = (caminhos: string[]) =>
   `Os arquivos não puderam ser apagados do armazenamento e ficaram sem uso: ${caminhos.join(', ')}.`
@@ -174,7 +162,7 @@ async function editarTabela(saida: Saida, id: string, atual: NonNullable<Awaited
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method !== 'GET' && req.method !== 'PATCH' && req.method !== 'DELETE') return res.status(405).json({ error: 'Method not allowed' })
+  if (req.method !== 'GET' && req.method !== 'PATCH') return res.status(405).json({ error: 'Method not allowed' })
 
   const caller = await requireSuperAdmin(req, res)
   if (!caller) return
@@ -199,34 +187,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
   if (!atual) return res.status(404).json({ error: 'Tabela não encontrada.' })
 
-  if (req.method === 'PATCH') {
-    const leitura = lerEdicaoDaTabela(req.body, atual.fornecedor_id)
-    if (recusada(leitura)) return res.status(400).json({ error: leitura.erro })
-    const ed = leitura.corpo
-    const saida = gravador()
-    await editarTabela(saida, id, atual, ed)
-    // (c) a edição RECUSADA não deixa o arquivo recém-enviado sobrando no bucket (29/10/2026: três ficaram)
-    if (saida.status_ !== 200 && ed.arquivo) await descartarEnvioRecusado(ed.arquivo.path)
-    return res.status(saida.status_).json(saida.corpo)
-  }
-
-  let contas: string[]
-  try {
-    contas = await contasQueUsamATabela(id)
-  } catch (e) {
-    return falhaInterna(res, 'tabela DELETE (quem usa)', e, 'Não foi possível conferir quem usa a tabela; ela não foi excluída.')
-  }
-  if (contas.length > 0) return res.status(409).json({ error: fraseDaTabelaEmUso(contas), contas })
-
-  try {
-    const n = await excluirTabela(id)
-    if (n === 0) return res.status(404).json({ error: 'Tabela não encontrada.' })
-  } catch (e) {
-    if (codigoDoErro(e) !== '23503') return falhaInterna(res, 'tabela DELETE', e, 'Não foi possível excluir a tabela.')
-    return res.status(409).json({ error: 'A tabela está em uso e não pode ser excluída: o banco recusou a exclusão.', contas: [] })
-  }
-
-  // A linha saiu. Agora os objetos — e uma falha aqui deixa órfão, nunca uma tabela sem arquivo.
-  const { aviso } = await removerOsQueNinguemMaisUsa('tabela DELETE', [atual.arquivo_path, atual.motor_path].filter((p): p is string => typeof p === 'string' && p.trim() !== ''))
-  return res.status(200).json(aviso ? { ok: true, aviso } : { ok: true })
+  // PATCH
+  const leitura = lerEdicaoDaTabela(req.body, atual.fornecedor_id)
+  if (recusada(leitura)) return res.status(400).json({ error: leitura.erro })
+  const ed = leitura.corpo
+  const saida = gravador()
+  await editarTabela(saida, id, atual, ed)
+  // (c) a edição RECUSADA não deixa o arquivo recém-enviado sobrando no bucket (29/10/2026: três ficaram)
+  if (saida.status_ !== 200 && ed.arquivo) await descartarEnvioRecusado(ed.arquivo.path)
+  return res.status(saida.status_).json(saida.corpo)
 }

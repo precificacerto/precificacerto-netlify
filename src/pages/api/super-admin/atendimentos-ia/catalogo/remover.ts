@@ -1,8 +1,9 @@
 /**
  * O CATÁLOGO É SOBERANO NAS QUATRO SEÇÕES (dono do produto, 31/10/2026; migração 20261031000003) — uma rota só para família, fornecedor,
- * motor e etapa do catálogo:
+ * motor e etapa do catálogo — e a tabela de fornecedor, a quinta raiz (dono do produto, 01/11/2026; migração 20261101000001; o DELETE de
+ * `tabelas/[id]` saiu, 405):
  *
- * GET  /api/super-admin/atendimentos-ia/catalogo/remover?tipo=<familia|fornecedor|motor|etapa>&chave=<chave da família ou uuid>
+ * GET  /api/super-admin/atendimentos-ia/catalogo/remover?tipo=<familia|fornecedor|motor|etapa|tabela>&chave=<chave da família ou uuid>
  *      MEDE o arrasto, SEM APAGAR NADA (`superadmin_arrasto_do_catalogo`): por passo, a quantidade e até dez nomes ("e mais N"); o que FICA;
  *      os avisos (a conversa que PARA quando sai uma tabela com motor — decisão 4; a renumeração das etapas); os impedimentos; a assinatura.
  * POST `{ tipo, chave, assinatura, confirmo: true }` — REMOVE, só com a confirmação explícita e a assinatura do que foi mostrado

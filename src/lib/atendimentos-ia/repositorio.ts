@@ -348,18 +348,6 @@ export async function atualizarTabela(id: string, campos: Record<string, string 
     return linhas.length
 }
 
-export async function excluirTabela(id: string): Promise<number> {
-    const linhas = await q(db().from('orcamentista_tabela').delete().eq('id', id).select('id'))
-    return linhas.length
-}
-
-/** As contas que usam a tabela — as que vinculam o fornecedor dela. Tabela que não existe: ninguém. */
-export async function contasQueUsamATabela(id: string): Promise<string[]> {
-    const ts = await q(db().from('orcamentista_tabela').select('id, fornecedor_id').eq('id', id))
-    if (ts.length === 0) return []
-    return (await usoPorTabela([{ id, fornecedor_id: ts[0].fornecedor_id }]))[id] ?? []
-}
-
 // ── Storage — sempre o bucket do catálogo, sempre com `service_role` ───────────────────────
 const bucket = () => supabaseAdmin.storage.from(BUCKET_DO_CATALOGO)
 
