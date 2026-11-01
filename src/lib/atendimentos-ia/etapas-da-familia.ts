@@ -33,8 +33,8 @@ async function ler(onde: string, p: PromiseLike<{ data: unknown; error: { messag
  * responde 404. Família sem etapa é a lista vazia. `familia` é o TIPO da matéria-prima (null = ainda não escolhido: sem tipo, não há etapa).
  * O NOME, a AÇÃO e as ABAS vêm do item do catálogo que a etapa seleciona (20261031000002); o número, a instrução e o motor são da conta.
  */
-export async function lerEtapasDaMateriaPrima(tenantId: string, materiaPrimaId: string): Promise<{ familia: string | null; etapas: EtapaDaFamilia[] } | null> {
-    const mp = (await ler('orcamentista_materia_prima', db().from('orcamentista_materia_prima').select('id, familia').eq('id', materiaPrimaId).eq('tenant_id', tenantId).maybeSingle())) as Linha | null
+export async function lerEtapasDaMateriaPrima(tenantId: string, materiaPrimaId: string): Promise<{ familia: string | null; nome: string; categoriasSemFornecedor: Array<{ chave: string; rotulo: string }> | null; etapas: EtapaDaFamilia[] } | null> {
+    const mp = (await ler('orcamentista_materia_prima', db().from('orcamentista_materia_prima').select('id, familia, nome').eq('id', materiaPrimaId).eq('tenant_id', tenantId).maybeSingle())) as Linha | null
     if (!mp) return null
     const linhas = ((await ler('orcamentista_familia_etapa',
         db().from('orcamentista_familia_etapa').select('id, numero, etapa_catalogo_id, instrucao, motor_id')
@@ -54,7 +54,25 @@ export async function lerEtapasDaMateriaPrima(tenantId: string, materiaPrimaId: 
             instrucao: String(l.instrucao ?? ''), motor_id: l.motor_id == null ? null : String(l.motor_id),
         }
     })
-    return { familia: mp.familia == null ? null : String(mp.familia), etapas }
+    const familia = mp.familia == null ? null : String(mp.familia)
+    return { familia, nome: String(mp.nome ?? ''), categoriasSemFornecedor: familia === null ? null : await categoriasSemFornecedor(tenantId, materiaPrimaId, familia), etapas }
+}
+
+/**
+ * As categorias da família-instância SEM NENHUM fornecedor (a conferência de configuração, 31/10/2026: "Sim deve reclamar que está faltando
+ * fornecedores."): cada ramificação da família cuja categoria desta matéria-prima não tem fornecedor vinculado — ou nem foi criada —, na ordem das
+ * ramificações, com o nome da categoria do catálogo (a chave, se o catálogo não trouxer o nome).
+ */
+async function categoriasSemFornecedor(tenantId: string, materiaPrimaId: string, familia: string): Promise<Array<{ chave: string; rotulo: string }>> {
+    const ramos = ((await ler('orcamentista_familia_ramificacao', db().from('orcamentista_familia_ramificacao').select('categoria_chave, ordem').eq('familia', familia).order('ordem', { ascending: true }))) ?? []) as Linha[]
+    if (ramos.length === 0) return []
+    const cats = ((await ler('orcamentista_mp_categoria', db().from('orcamentista_mp_categoria').select('id, categoria_chave').eq('materia_prima_id', materiaPrimaId).eq('tenant_id', tenantId))) ?? []) as Linha[]
+    const vinculos = cats.length === 0 ? [] : ((await ler('orcamentista_mp_categoria_fornecedor', db().from('orcamentista_mp_categoria_fornecedor').select('mp_categoria_id').in('mp_categoria_id', cats.map((c) => c.id)))) ?? []) as Linha[]
+    const comFornecedor = new Set(cats.filter((c) => vinculos.some((v) => v.mp_categoria_id === c.id)).map((c) => String(c.categoria_chave)))
+    const faltam = ramos.map((r) => String(r.categoria_chave)).filter((c) => !comFornecedor.has(c))
+    if (faltam.length === 0) return []
+    const nomes = ((await ler('orcamentista_categoria_catalogo', db().from('orcamentista_categoria_catalogo').select('chave, rotulo').in('chave', faltam))) ?? []) as Linha[]
+    return faltam.map((c) => ({ chave: c, rotulo: String(nomes.find((n) => n.chave === c)?.rotulo ?? c) }))
 }
 
 /** Uma linha do catálogo de etapas, conferida: a CHECK do banco garante a ação e as abas; se uma linha fugir disso, é erro — nunca um item sem ação. */
@@ -104,12 +122,6 @@ export async function editarEtapaDoCatalogo(a: { por: string; id: string; nome: 
     return data as Record<string, unknown>
 }
 
-/** `superadmin_remover_etapa_do_catalogo`: em uso é recusa NOMEADA (22023, empresa / família / etapa N); sem uso, sai, com o antes no log. */
-export async function removerEtapaDoCatalogo(a: { por: string; id: string }): Promise<Record<string, unknown>> {
-    const { data, error } = await db().rpc('superadmin_remover_etapa_do_catalogo', { p_por: a.por, p_id: a.id })
-    if (error) throw new ErroDaFuncao(error)
-    return data as Record<string, unknown>
-}
 
 /** As famílias de cada motor (`orcamentista_motor_familia`, 20261029000003), em ordem de chave. Motor sem linha aqui não existe (o gatilho adiado). */
 async function familiasDosMotores(ids: readonly string[]): Promise<Map<string, string[]>> {

@@ -6,15 +6,17 @@
  *
  * O ITEM É O NOME, A AÇÃO (da lista fechada) E AS ABAS da planilha que a etapa carrega — "técnico, igual para toda empresa". A conta SELECIONA o item na
  * base de conhecimento e guarda a instrução, o número e o motor. Editar vale também com uso: a tela diz quantas etapas de conta o usam, porque a
- * mudança chega a todas. REMOVER o item em uso é RECUSA NOMEADA (empresa · família · número), nunca cascata — a lista "Quem usa" já mostra isso.
+ * mudança chega a todas. REMOVER é SOBERANO (dono do produto, 31/10/2026; migração 20261031000003): a confirmação mostra o arrasto — as etapas de
+ * conta que usam o item saem junto, e as de baixo sobem um número — e só remove com a confirmação explícita. A recusa por uso caiu.
  *
  * O catálogo é GLOBAL, como o de famílias (`AVISO_DA_ETAPA_GLOBAL`). Tudo pelas rotas; a falha de leitura aparece como ERRO, nunca como lista vazia
- * (`ausente-vs-falso.md`). A recusa aparece dentro do modal da ação, e o modal não fecha.
+ * (`ausente-vs-falso.md`). A recusa da edição aparece dentro do modal, e o modal não fecha.
  */
 import React, { useCallback, useEffect, useState } from 'react'
 import { Alert, Button, Card, Checkbox, Empty, Input, Modal, Select, Space, Table, Tag, Typography, message } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
 import { chamarRota } from '@/page-parts/atendimentos-ia/api'
+import { RemocaoDoCatalogo, type AlvoDaRemocao } from '@/page-parts/atendimentos-ia/remocao-do-catalogo.component'
 import {
     ABAS_DA_ETAPA, ACOES_DA_ETAPA, LIMITE_DO_NOME_DA_ETAPA, ROTULO_DA_ABA, ROTULO_DA_ACAO, abasEmOrdem, etapaDoCatalogoMudou, rotaDaEtapaDoCatalogo,
     rotaDoCatalogoDeEtapas, type AcaoDaEtapa, type EtapaDoCatalogo,
@@ -27,8 +29,6 @@ export const AVISO_DA_ETAPA_GLOBAL =
     + 'a conta escolhe o item na base de conhecimento e escreve a instrução dela.'
 export const AVISO_DA_EDICAO_COM_USO = (n: number) =>
     `Este item é usado por ${n} etapa(s) de conta: a mudança vale para todas elas.`
-export const AVISO_DA_REMOCAO_DA_ETAPA = 'O item sai do catálogo. Item em uso não sai: a recusa diz quem o usa (empresa · família · número da etapa).'
-export const fraseDaRemocaoDaEtapa = (nome: string) => `Remover a etapa "${nome}" do catálogo?`
 export const usoNaLista = (u: EtapaDoCatalogo['usos'][number]) => `${u.empresa} · ${u.familia} · etapa ${u.numero}`
 
 type Edicao = { modo: 'criar' } | { modo: 'editar'; item: EtapaDoCatalogo }
@@ -42,8 +42,7 @@ export function EtapasDoCatalogo() {
     const [abas, setAbas] = useState<string[]>([])
     const [erro, setErro] = useState<string | null>(null)
     const [salvando, setSalvando] = useState(false)
-    const [removendo, setRemovendo] = useState<EtapaDoCatalogo | null>(null)
-    const [erroAoRemover, setErroAoRemover] = useState<string | null>(null)
+    const [removendo, setRemovendo] = useState<AlvoDaRemocao | null>(null)
 
     const carregar = useCallback(async () => {
         try {
@@ -85,22 +84,6 @@ export function EtapasDoCatalogo() {
         }
     }
 
-    async function remover() {
-        if (!removendo) return
-        setSalvando(true)
-        setErroAoRemover(null)
-        try {
-            await chamarRota(rotaDaEtapaDoCatalogo(removendo.id), 'DELETE')
-            message.success('Etapa removida do catálogo')
-            setRemovendo(null)
-            await carregar()
-        } catch (e) {
-            setErroAoRemover((e as Error).message)
-        } finally {
-            setSalvando(false)
-        }
-    }
-
     if (erroAoLer) {
         return <Alert type="error" showIcon message="Não foi possível ler o catálogo de etapas." description={erroAoLer} action={<Button onClick={carregar}>Tentar de novo</Button>} data-erro-do-catalogo-de-etapas />
     }
@@ -135,7 +118,7 @@ export function EtapasDoCatalogo() {
                             render: (_, c) => (
                                 <Space size={4}>
                                     <Button size="small" onClick={() => abrir({ modo: 'editar', item: c })} aria-label={`Editar ${c.nome}`}>Editar</Button>
-                                    <Button size="small" danger onClick={() => { setErroAoRemover(null); setRemovendo(c) }} aria-label={`Remover ${c.nome}`}>Remover</Button>
+                                    <Button size="small" danger onClick={() => setRemovendo({ tipo: 'etapa', chave: c.id, nome: c.nome })} aria-label={`Remover ${c.nome}`}>Remover</Button>
                                 </Space>
                             ),
                         },
@@ -155,13 +138,8 @@ export function EtapasDoCatalogo() {
                     {erro && <Alert type="error" showIcon message="A etapa não foi gravada." description={erro} data-erro-da-etapa-do-catalogo />}
                 </Space>
             </Modal>
-            <Modal title={removendo ? fraseDaRemocaoDaEtapa(removendo.nome) : 'Remover a etapa'} open={removendo !== null} onCancel={() => setRemovendo(null)}
-                okText="Remover" okButtonProps={{ danger: true, loading: salvando }} onOk={remover} destroyOnClose>
-                <Space direction="vertical" style={{ width: '100%' }} data-modal-da-remocao-da-etapa>
-                    <Typography.Paragraph type="secondary" style={{ margin: 0 }}>{AVISO_DA_REMOCAO_DA_ETAPA}</Typography.Paragraph>
-                    {erroAoRemover && <Alert type="error" showIcon message="A etapa não foi removida." description={erroAoRemover} data-erro-ao-remover-etapa />}
-                </Space>
-            </Modal>
+            <RemocaoDoCatalogo alvo={removendo} onFechar={() => setRemovendo(null)}
+                onRemovido={() => { setRemovendo(null); message.success('Etapa removida do catálogo'); carregar() }} />
         </div>
     )
 }

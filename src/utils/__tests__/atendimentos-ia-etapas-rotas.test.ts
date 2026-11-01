@@ -23,7 +23,7 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 import {
     ACOES_DA_ETAPA, ABAS_DA_ETAPA, LIMITE_DA_INSTRUCAO_DA_ETAPA, MAXIMO_DE_ETAPAS_DA_FAMILIA,
     abasEmOrdem, corpoDoRascunho, etapasMudaram, lerCorpoDasEtapas, inserirEtapaAbaixo, moverEtapa, novaEtapaNoRascunho, rascunhoDasEtapas, rotaDasEtapas,
-    type EtapaDaFamilia,
+    fraseDaCategoriaSemFornecedor, fraseDaFaltaDeEtapas, fraseDaFaltaDeMotor, fraseDaFamiliaSemTipo, type EtapaDaFamilia,
 } from '@/utils/atendimentos-ia-etapas'
 
 type Linha = Record<string, any>
@@ -384,8 +384,41 @@ describe('(3) a rota: só o super admin, e só a função grava', () => {
     it('GET: a família SEM tipo devolve familia null e nenhum motor (sem tipo não há etapa)', async () => {
         const r = await chamar('GET', MP_SEM_TIPO)
         expect(r.status).toBe(200)
-        expect(r.corpo).toEqual({ familia: null, etapas: [], motores: [], catalogo: expect.any(Array), pronta: false, etapas_sem_motor: [] })
+        expect(r.corpo).toEqual({
+            familia: null, etapas: [], motores: [], catalogo: expect.any(Array), pronta: false, etapas_sem_motor: [],
+            erros_de_configuracao: [fraseDaFamiliaSemTipo('Sem tipo'), fraseDaFaltaDeEtapas('Sem tipo')],
+        })
     })
+
+    // a FALTA DE CONFIGURAÇÃO (31/10/2026): a rota confere e devolve cada falta com a frase que manda ver a configuração
+    describe('GET: as faltas de configuração (família, etapa, motor e o fornecedor de CADA categoria)', () => {
+        const ramos = (...cs: string[]) => { estado.db.orcamentista_familia_ramificacao = cs.map((c, i) => ({ familia: 'PVC', categoria_chave: c, ordem: i + 1 })) }
+        beforeEach(() => {
+            estado.db.orcamentista_categoria_catalogo = [{ chave: 'PERFIL', rotulo: 'Perfil' }, { chave: 'VIDRO', rotulo: 'Vidro' }, { chave: 'REFORCO', rotulo: 'Reforço' }]
+            estado.db.orcamentista_mp_categoria = [
+                { id: 'c-perfil', tenant_id: T, materia_prima_id: MP, categoria_chave: 'PERFIL' }, { id: 'c-vidro', tenant_id: T, materia_prima_id: MP, categoria_chave: 'VIDRO' },
+                // a categoria de OUTRA família-instância da mesma empresa não conta
+                { id: 'c-outra', tenant_id: T, materia_prima_id: MP2, categoria_chave: 'REFORCO' },
+            ]
+            estado.db.orcamentista_mp_categoria_fornecedor = [{ mp_categoria_id: 'c-perfil', fornecedor_id: 'f-wolff', principal: true, ordem: 1 }, { mp_categoria_id: 'c-outra', fornecedor_id: 'f-wolff', principal: true, ordem: 1 }]
+        })
+        it('tudo com fornecedor (as duas etapas com motor): nenhuma falta', async () => {
+            ramos('PERFIL')
+            expect((await chamar('GET', MP)).corpo.erros_de_configuracao).toEqual([])
+        })
+        it('cada ramificação sem fornecedor é uma falta, na ordem da família, pelo nome do catálogo — a categoria criada sem vínculo e a que nem foi criada', async () => {
+            ramos('PERFIL', 'VIDRO', 'REFORCO')
+            expect((await chamar('GET', MP)).corpo.erros_de_configuracao).toEqual([
+                fraseDaCategoriaSemFornecedor('Esquadrias de PVC', 'Vidro'), fraseDaCategoriaSemFornecedor('Esquadrias de PVC', 'Reforço'),
+            ])
+        })
+        it('sem ramificação nenhuma, nenhum fornecedor a cobrar; a etapa sem motor é a falta do motor', async () => {
+            estado.db.orcamentista_familia_ramificacao = []
+            estado.db.orcamentista_familia_etapa[0].motor_id = null
+            expect((await chamar('GET', MP)).corpo.erros_de_configuracao).toEqual([fraseDaFaltaDeMotor({ numero: 2, rotulo: 'Confirmar' })])
+        })
+    })
+
 
     it('PUT: o motor_id do item vai à função como veio — uuid aponta, null limpa — e o item sem motor_id não o leva', async () => {
         const r = await chamar('PUT', undefined, { materia_prima: MP, etapas: [{ id: E1, etapa_catalogo_id: C_APANHAR, motor_id: M2 }, { id: E2, etapa_catalogo_id: C_CONFIRMAR, motor_id: null }, { etapa_catalogo_id: C_OUTRA }] })

@@ -201,19 +201,6 @@ export async function atualizarFornecedor(id: string, f: { nome: string; nicho_i
     return linhas.length
 }
 
-export async function excluirFornecedor(id: string): Promise<number> {
-    const linhas = await q(db().from('orcamentista_fornecedor').delete().eq('id', id).select('id'))
-    return linhas.length
-}
-
-/** Quem SEGURA um fornecedor: as tabelas dele, e as contas cuja base de conhecimento o vincula — com tabela ou sem. */
-export async function quemSeguraOFornecedor(id: string): Promise<{ tabelas: string[]; contas: string[] }> {
-    const ts = await q(db().from('orcamentista_tabela').select('id, arquivo_nome').eq('fornecedor_id', id))
-    const tenants = (await contasQueVinculam([id])).get(id) ?? []
-    const nomes = await nomesDasContas(tenants)
-    return { tabelas: ts.map((t: Linha) => t.arquivo_nome), contas: tenants.map((t) => nomes[t] ?? t).sort((a, b) => a.localeCompare(b, 'pt-BR')) }
-}
-
 // ── Famílias (migração 20261026000004) ───────────────────────────────────────────────────────
 /** O catálogo das famílias, SEM ordem — quem ordena é a rota. */
 export async function listarFamilias(): Promise<Familia[]> {
@@ -238,7 +225,13 @@ export const criarFamilia = (a: { por: string; chave: string; rotulo: string; ra
     rpc('superadmin_criar_familia', { p_por: a.por, p_chave: a.chave, p_rotulo: a.rotulo, p_ramificacoes: a.ramificacoes })
 export const editarFamilia = (a: { por: string; chave: string; rotulo: string; ramificacoes: string[] }) =>
     rpc('superadmin_editar_familia', { p_por: a.por, p_chave: a.chave, p_rotulo: a.rotulo, p_ramificacoes: a.ramificacoes })
-export const removerFamilia = (a: { por: string; chave: string }) => rpc('superadmin_remover_familia', { p_por: a.por, p_chave: a.chave })
+
+// ── A remoção soberana do catálogo (migração 20261031000003) ─────────────────────────────────
+/** MEDE o arrasto, sem apagar nada: por passo, a quantidade e até dez nomes; o que fica; os avisos; os impedimentos; a assinatura. */
+export const medirArrastoDoCatalogo = (a: { tipo: string; chave: string }) => rpc('superadmin_arrasto_do_catalogo', { p_tipo: a.tipo, p_chave: a.chave })
+/** REMOVE o que foi medido, se a assinatura ainda é a mostrada; apaga explicitamente, em ordem, logando cada linha. */
+export const removerDoCatalogo = (a: { por: string; tipo: string; chave: string; assinatura: string }) =>
+    rpc('superadmin_remover_do_catalogo', { p_por: a.por, p_tipo: a.tipo, p_chave: a.chave, p_assinatura: a.assinatura })
 
 // ── Categorias (migração 20261027000005) ─────────────────────────────────────────────────────
 /** O catálogo das categorias da plataforma, SEM ordem — quem ordena é a rota. Só leitura: a lista é da plataforma. */

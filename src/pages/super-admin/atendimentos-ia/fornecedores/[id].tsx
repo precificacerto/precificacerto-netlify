@@ -24,7 +24,8 @@ import { ROUTES } from '@/constants/routes'
 import { useAuth } from '@/hooks/use-auth.hook'
 import { ROTAS_DO_CATALOGO, ROTULO_DO_MODELO, ROTULO_QUALQUER_LINHA, familiaObrigatoria, rotaDoNicho, TITULO_DA_TABELA_NAO_EXCLUIDA, fraseDoArquivo, type Categoria, type Familia, type FornecedorComTabelas, type Nicho, type TabelaDoFornecedor } from '@/utils/atendimentos-ia-catalogo'
 import { chamarRota, enviarArquivo, gravarTabelaNova, type TabelaPendente } from '@/page-parts/atendimentos-ia/api'
-import { FornecedorModal, TITULO_FORNECEDOR_NAO_EXCLUIDO, TITULO_FORNECEDOR_NAO_SALVO, type DadosDoFornecedor, type ErroDoFornecedor } from '@/page-parts/atendimentos-ia/fornecedor-modal.component'
+import { RemocaoDoCatalogo, type AlvoDaRemocao } from '@/page-parts/atendimentos-ia/remocao-do-catalogo.component'
+import { FornecedorModal, TITULO_FORNECEDOR_NAO_SALVO, type DadosDoFornecedor, type ErroDoFornecedor } from '@/page-parts/atendimentos-ia/fornecedor-modal.component'
 import { TabelaModal } from '@/page-parts/atendimentos-ia/tabela-modal.component'
 import { ESTILO_DA_DATA } from '@/page-parts/atendimentos-ia/linha-da-tabela.component'
 
@@ -37,6 +38,7 @@ export default function TabelasDoFornecedor() {
     const id = typeof router.query.id === 'string' ? router.query.id : null
 
     const [fornecedor, setFornecedor] = useState<FornecedorComTabelas | null>(null)
+    const [removendo, setRemovendo] = useState<AlvoDaRemocao | null>(null)
     const [nichos, setNichos] = useState<Nicho[]>([])
     const [familias, setFamilias] = useState<Familia[]>([])
     const [categorias, setCategorias] = useState<Categoria[]>([])
@@ -101,16 +103,11 @@ export default function TabelasDoFornecedor() {
         }
     }
 
-    async function excluirFornecedor() {
-        if (!id) return
-        setErroDoFornecedor(null)
-        try {
-            await chamarRota(ROTAS_DO_CATALOGO.fornecedor(id), 'DELETE')
-            message.success('Fornecedor excluído')
-            voltar()
-        } catch (e) {
-            setErroDoFornecedor({ titulo: TITULO_FORNECEDOR_NAO_EXCLUIDO, motivo: (e as Error).message })
-        }
+    /** Remover o fornecedor abre a confirmação do arrasto (o que sai junto, medido); a edição fecha para a confirmação aparecer sozinha. */
+    function excluirFornecedor() {
+        if (!id || !fornecedor) return
+        editarFornecedor(false)
+        setRemovendo({ tipo: 'fornecedor', chave: id, nome: fornecedor.nome })
     }
 
     /** Abre ou fecha um modal de tabela sempre SEM o erro da tentativa anterior. */
@@ -294,6 +291,8 @@ export default function TabelasDoFornecedor() {
                 onSalvar={salvarFornecedor}
                 onExcluir={excluirFornecedor}
             />
+            <RemocaoDoCatalogo alvo={removendo} onFechar={() => setRemovendo(null)}
+                onRemovido={() => { setRemovendo(null); message.success('Fornecedor removido'); voltar() }} />
         </Layout>
     )
 }

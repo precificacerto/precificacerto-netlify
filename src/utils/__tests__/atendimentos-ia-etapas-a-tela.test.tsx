@@ -589,5 +589,29 @@ describe('(10) a família só calcula com TODAS as etapas com motor: a tela most
         const host = await montar()
         expect(host.querySelector('[data-familia-pronta]')).toBeNull()
         expect(host.querySelector('[data-familia-nao-pronta]')).toBeNull()
+        expect(host.querySelector('[data-faltas-de-configuracao]')).toBeNull()
+    })
+
+    // a FALTA DE CONFIGURAÇÃO é ERRO (31/10/2026): cada falta que a rota conferiu, com a frase dela; "pronta" não aparece junto
+    it('com falta de configuração (uma categoria sem fornecedor): o ERRO lista cada falta, e o "pronta" some mesmo com todas as etapas com motor', async () => {
+        const falta = 'Falta de configuração — fornecedor: a categoria Reforço de "Esquadrias de PVC" está sem fornecedor. Veja a configuração: escolha o fornecedor da categoria Reforço na base de conhecimento da empresa.'
+        respostas[`GET ${rotaDasEtapas(T, MP)}`] = { status: 200, body: {
+            familia: 'PVC', etapas: ETAPAS.map((e) => ({ ...e, motor_id: M1 })), motores: MOTORES, catalogo: CATALOGO, pronta: true, etapas_sem_motor: [], erros_de_configuracao: [falta],
+        } }
+        const host = await montar()
+        const erro = host.querySelector('[data-faltas-de-configuracao]')!
+        expect(erro.closest('.ant-alert-error')).not.toBeNull()
+        expect(erro.textContent).toContain('A família não executa enquanto faltar configuração:')
+        expect(Array.from(erro.querySelectorAll('[data-falta-de-configuracao]')).map((l) => l.textContent)).toEqual([falta])
+        expect(host.querySelector('[data-familia-pronta]')).toBeNull()
+    })
+
+    it('sem falta (lista vazia): nenhum erro, e o "pronta" aparece', async () => {
+        respostas[`GET ${rotaDasEtapas(T, MP)}`] = { status: 200, body: {
+            familia: 'PVC', etapas: ETAPAS.map((e) => ({ ...e, motor_id: M1 })), motores: MOTORES, catalogo: CATALOGO, pronta: true, etapas_sem_motor: [], erros_de_configuracao: [],
+        } }
+        const host = await montar()
+        expect(host.querySelector('[data-faltas-de-configuracao]')).toBeNull()
+        expect(host.querySelector('[data-familia-pronta]')).not.toBeNull()
     })
 })

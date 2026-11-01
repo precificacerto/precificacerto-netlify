@@ -19,6 +19,7 @@
  */
 import React from 'react'
 import { act } from 'react'
+import { ROTA_DA_REMOCAO, rotaDoArrasto } from '@/utils/atendimentos-ia-remocao'
 import { createRoot } from 'react-dom/client'
 import { ROTAS_DO_CATALOGO, type FornecedorDaLista } from '@/utils/atendimentos-ia-catalogo'
 import { ROTAS_DOS_MOTORES, type MotorDoCatalogo } from '@/utils/atendimentos-ia-catalogo-de-motores'
@@ -284,6 +285,38 @@ describe('(2) arquivar — também COM USO (20261029000005): as etapas ficam sem
         await arquivarConfirmando(host, M_LIVRE, 'Arquivar Roller persiana')
         expect(host.querySelector('[data-erro-ao-arquivar]')?.textContent).toContain(frase)
         expect(chaves().slice(n)).toEqual([`POST ${ROTAS_DOS_MOTORES.arquivar}`])
+    })
+})
+
+describe('(2b) REMOVER coexiste com ARQUIVAR (dono do produto, 31/10/2026; migração 20261031000003): o arrasto medido, confirmado', () => {
+    const arrastoDoMotor = (id: string, nome: string) => ({
+        tipo: 'motor', chave: id, nome, sai: 2, perde_o_vinculo: 1, assinatura: '9'.repeat(32), ficam: [] as unknown[], avisos: [] as unknown[], impedimentos: [] as unknown[],
+        passos: [
+            { passo: 1, tabela: 'orcamentista_familia_etapa', acao: 'perde_o_vinculo', rotulo: 'etapa de conta (fica sem motor)', quantidade: 1, nomes: ['Alfa Vidros / PVC Linha 2 / etapa 1'], mais: 0 },
+            { passo: 2, tabela: 'orcamentista_motor', acao: 'sai', rotulo: 'motor', quantidade: 1, nomes: [nome], mais: 0 },
+        ],
+    })
+    it('o motor ativo tem Arquivar E Remover; Remover mede pela rota do arrasto (nada sai ainda) e, confirmado, remove e relê o catálogo', async () => {
+        respostas[`GET ${rotaDoArrasto('motor', M_WOLF)}`] = [{ status: 200, body: arrastoDoMotor(M_WOLF, 'Wolf PVC Europa') }]
+        respostas[`POST ${ROTA_DA_REMOCAO}`] = [{ status: 200, body: { ...arrastoDoMotor(M_WOLF, 'Wolf PVC Europa'), removido: true } }]
+        const host = await montar()
+        expect(botao(linha(host, M_WOLF)!, 'Arquivar Wolf PVC Europa')).toBeTruthy()
+        let n = pedidos.length
+        await clicar(botao(linha(host, M_WOLF)!, 'Remover Wolf PVC Europa'))
+        expect(chaves().slice(n)).toEqual([`GET ${rotaDoArrasto('motor', M_WOLF)}`])
+        const remocao = document.body.querySelector('[data-remocao-do-catalogo]') as HTMLElement
+        expect(remocao.querySelector('[data-o-que-perde-o-vinculo]')!.textContent).toContain('etapa de conta (fica sem motor)')
+        await clicar(remocao.querySelector('[data-confirmo-o-arrasto] input'))
+        n = pedidos.length
+        await clicar(Array.from(document.body.querySelectorAll('.ant-modal-footer button')).find((b) => b.textContent?.replace(/\s/g, '') === 'Remover'))
+        expect(chaves().slice(n)).toEqual([`POST ${ROTA_DA_REMOCAO}`, `GET ${ROTAS_DOS_MOTORES.lista}`])
+        expect(pedidos[n].corpo).toEqual({ tipo: 'motor', chave: M_WOLF, assinatura: '9'.repeat(32), confirmo: true })
+    })
+    it('o motor ARQUIVADO também se remove (e não tem Arquivar)', async () => {
+        const host = await montar()
+        await clicar(host.querySelector('[data-ver-arquivados] button, button[role="switch"]'))
+        expect(botao(linha(host, M_ARQ)!, 'Remover Velho')).toBeTruthy()
+        expect(botao(linha(host, M_ARQ)!, 'Arquivar Velho')).toBeUndefined()
     })
 })
 

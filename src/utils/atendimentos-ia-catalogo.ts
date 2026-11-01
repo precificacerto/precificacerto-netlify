@@ -116,7 +116,7 @@ export const ROTAS_DO_CATALOGO = {
     testeDeAnexo: (tenantId: string) => `/api/super-admin/atendimentos-ia/contas/${tenantId}/teste-de-anexo`,
     /** As FAMÍLIAS do catálogo: GET a lista, na ordem, cada uma com as suas ramificações; POST `{ rotulo, ramificacoes }` acrescenta no fim. */
     familias: '/api/super-admin/atendimentos-ia/familias',
-    /** UMA família (29/10/2026, migração 20261029000004): PATCH `{ rotulo, ramificacoes }` edita; DELETE remove — em uso é recusa nomeada. */
+    /** UMA família (29/10/2026, migração 20261029000004): PATCH `{ rotulo, ramificacoes }` edita. Remover é a rota `catalogo/remover` (20261031000003). */
     familia: (chave: string) => `/api/super-admin/atendimentos-ia/familias/${chave}`,
 } as const
 

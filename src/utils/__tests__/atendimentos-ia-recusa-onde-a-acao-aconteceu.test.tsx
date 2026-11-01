@@ -27,6 +27,7 @@ import {
     ROTAS_DO_CATALOGO, TITULO_DA_TABELA_NAO_EXCLUIDA,
     fraseDaTabela, fraseDoArquivo, type FornecedorComTabelas,
 } from '@/utils/atendimentos-ia-catalogo'
+import { ROTA_DA_REMOCAO, rotaDoArrasto } from '@/utils/atendimentos-ia-remocao'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 Object.defineProperty(window, 'matchMedia', {
@@ -172,21 +173,28 @@ describe('na página de UM fornecedor', () => {
         expect(modal()!.textContent).not.toContain(M.TITULO_FORNECEDOR_NAO_SALVO)
     })
 
-    it('(C) excluir fornecedor recusado: o erro aparece DENTRO do modal "Editar fornecedor"', async () => {
-        respostas[`DELETE ${ROTAS_DO_CATALOGO.fornecedor('f1')}`] = { status: 409, body: { error: 'Há contas usando tabelas deste fornecedor.' } }
+    it('(C) remover fornecedor (31/10/2026): a edição fecha e a confirmação do ARRASTO abre; o aviso da conversa aparece; a recusa fica DENTRO dela', async () => {
+        respostas[`GET ${rotaDoArrasto('fornecedor', 'f1')}`] = { status: 200, body: {
+            tipo: 'fornecedor', chave: 'f1', nome: 'Alumínio Sul', sai: 3, perde_o_vinculo: 0, assinatura: 'e'.repeat(32), ficam: [], impedimentos: [],
+            avisos: [{ tipo: 'conversa_para', tabela_id: '72366020-57c9-489f-9385-397b7fa3dedb', arquivo: 'Perfis_de_PVC_-_Wolff.xlsx', empresas: ['Marcenaria Silva'] }],
+            passos: [{ passo: 1, tabela: 'orcamentista_fornecedor', acao: 'sai', rotulo: 'fornecedor', quantidade: 1, nomes: ['Alumínio Sul'], mais: 0 }],
+        } }
+        respostas[`POST ${ROTA_DA_REMOCAO}`] = { status: 504, body: { error: 'A remoção passou do tempo e foi desfeita inteira: nada foi removido. Tente de novo.' } }
         const host = await montar(<PaginaDoFornecedor />)
         await clicar(botao(host, 'Editar fornecedor'))
-        await clicar(botao(modal()!, 'Excluir fornecedor'))
-        await confirmar('Excluir')
+        await clicar(botao(modal()!, 'Remover fornecedor'))
 
-        expect(pedidos).toContain(`DELETE ${ROTAS_DO_CATALOGO.fornecedor('f1')}`)
-        expect(modal()).not.toBeNull()
-        expect(modal()!.textContent).toContain(M.TITULO_FORNECEDOR_NAO_EXCLUIDO)
-        expect(modal()!.textContent).toContain('Há contas usando tabelas deste fornecedor.')
+        expect(pedidos).toContain(`GET ${rotaDoArrasto('fornecedor', 'f1')}`)
+        expect(pedidos.filter((p) => p.startsWith('POST ') || p.startsWith('DELETE '))).toEqual([])
+        // a edição fechou: o único modal aberto é a confirmação do arrasto
+        expect(Array.from(document.querySelectorAll('.ant-modal-wrap')).filter(visivel)).toHaveLength(1)
+        const remocao = modal()!.querySelector('[data-remocao-do-catalogo]') as HTMLElement
+        expect(remocao.querySelector('[data-aviso-do-arrasto="conversa_para"]')!.textContent).toContain('A conversa de Marcenaria Silva PARA de funcionar até ser reconfigurada: ela ainda lê o motor pela tabela Perfis_de_PVC_-_Wolff.xlsx (72366020)')
 
-        await clicar(botao(modal()!, 'Cancelar'))
-        await clicar(botao(host, 'Editar fornecedor'))
-        expect(modal()!.textContent).not.toContain(M.TITULO_FORNECEDOR_NAO_EXCLUIDO)
+        await clicar(remocao.querySelector('[data-confirmo-o-arrasto] input') as HTMLElement)
+        await clicar(botao(modal()!, 'Remover'))
+        expect(pedidos).toContain(`POST ${ROTA_DA_REMOCAO}`)
+        expect(remocao.querySelector('[data-erro-da-remocao]')!.textContent).toContain('nada foi removido')
     })
 
     it('(F) nova tabela recusada DEPOIS dos envios: a frase nomeia a tabela uma vez só', async () => {

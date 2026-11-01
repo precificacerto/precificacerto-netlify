@@ -6,8 +6,9 @@
  * duas coisas — ao menos uma categoria, na ordem do catálogo de categorias (é a ordem que a PVC tem, medida em 29/10/2026). A CHAVE não se
  * edita: é derivada do nome na criação e é o que as chaves estrangeiras citam.
  *
- * REMOVER pede confirmação, e a família EM USO não sai: a recusa do banco nomeia quem a usa (matéria-prima, tabela, motor, etapa, item de
- * levantamento). A recusa aparece onde a ação aconteceu — dentro do modal da criação, da edição ou da remoção —, e o modal não fecha.
+ * REMOVER é SOBERANO (dono do produto, 31/10/2026; migração 20261031000003): a confirmação (`RemocaoDoCatalogo`) mostra o arrasto medido — o
+ * motor de família única e a tabela de Perfil saem junto; a família de conta fica sem tipo; as etapas dela saem; o item de levantamento perde o
+ * vínculo — e só remove com a confirmação explícita. A recusa da criação e da edição aparece dentro do modal, e o modal não fecha.
  *
  * A família é GLOBAL (a aba diz isso, `AVISO_DA_FAMILIA_GLOBAL`): editar aqui vale para todos os nichos.
  */
@@ -15,12 +16,10 @@ import React, { useState } from 'react'
 import { Alert, Button, Card, Checkbox, Empty, Input, Modal, Space, Table, Tag, Typography } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
 import { FAMILIA_SEM_RAMIFICACAO, LIMITE_DO_ROTULO_DA_FAMILIA, familiaNaoMudou, type Categoria, type FamiliaDoCatalogo } from '@/utils/atendimentos-ia-catalogo'
+import { RemocaoDoCatalogo, type AlvoDaRemocao } from '@/page-parts/atendimentos-ia/remocao-do-catalogo.component'
 
 export const TITULO_DAS_FAMILIAS = 'Famílias'
 export const SEM_FAMILIA_NO_CATALOGO = 'Nenhuma família no catálogo.'
-export const AVISO_DA_REMOCAO_DA_FAMILIA =
-    'A família sai com as categorias dela. Família em uso não sai: a recusa diz quem a usa (matéria-prima, tabela, motor, etapa ou levantamento).'
-export const fraseDaRemocao = (rotulo: string) => `Remover a família "${rotulo}"?`
 
 export interface DadosDaFamilia { rotulo: string; ramificacoes: string[] }
 
@@ -30,12 +29,13 @@ interface Props {
     /** Cada ação devolve null quando gravou, ou a frase da recusa (que aparece dentro do modal). */
     onCriar: (d: DadosDaFamilia) => Promise<string | null>
     onEditar: (chave: string, d: DadosDaFamilia) => Promise<string | null>
-    onRemover: (chave: string) => Promise<string | null>
+    /** Depois de removida (o arrasto confirmado): quem chama relê o catálogo. */
+    onRemovida: () => void
 }
 
 type Edicao = { modo: 'criar' } | { modo: 'editar'; familia: FamiliaDoCatalogo }
 
-export function FamiliasCard({ familias, categorias, onCriar, onEditar, onRemover }: Props) {
+export function FamiliasCard({ familias, categorias, onCriar, onEditar, onRemovida }: Props) {
     const ordenadas = [...familias].sort((a, b) => a.ordem - b.ordem)
     const catalogo = [...categorias].sort((a, b) => a.ordem - b.ordem)
     const rotuloDaCategoria = (c: string) => categorias.find((x) => x.chave === c)?.rotulo ?? c
@@ -45,8 +45,7 @@ export function FamiliasCard({ familias, categorias, onCriar, onEditar, onRemove
     const [marcadas, setMarcadas] = useState<string[]>([])
     const [erro, setErro] = useState<string | null>(null)
     const [salvando, setSalvando] = useState(false)
-    const [removendo, setRemovendo] = useState<FamiliaDoCatalogo | null>(null)
-    const [erroAoRemover, setErroAoRemover] = useState<string | null>(null)
+    const [removendo, setRemovendo] = useState<AlvoDaRemocao | null>(null)
 
     // as marcadas vão na ORDEM DO CATÁLOGO de categorias, não na ordem do clique
     const ramificacoes = catalogo.map((c) => c.chave).filter((c) => marcadas.includes(c))
@@ -74,19 +73,6 @@ export function FamiliasCard({ familias, categorias, onCriar, onEditar, onRemove
         }
     }
 
-    async function remover() {
-        if (!removendo) return
-        setSalvando(true)
-        setErroAoRemover(null)
-        try {
-            const recusa = await onRemover(removendo.chave)
-            if (recusa === null) setRemovendo(null)
-            else setErroAoRemover(recusa)
-        } finally {
-            setSalvando(false)
-        }
-    }
-
     return (
         <Card title={TITULO_DAS_FAMILIAS} size="small" style={{ marginTop: 16 }} data-familias-do-catalogo
             extra={<Button size="small" icon={<PlusOutlined />} onClick={() => abrir({ modo: 'criar' })} data-nova-familia>Nova família</Button>}>
@@ -108,7 +94,7 @@ export function FamiliasCard({ familias, categorias, onCriar, onEditar, onRemove
                         render: (_, f) => (
                             <Space size={4}>
                                 <Button size="small" onClick={() => abrir({ modo: 'editar', familia: f })} aria-label={`Editar ${f.rotulo}`}>Editar</Button>
-                                <Button size="small" danger onClick={() => { setErroAoRemover(null); setRemovendo(f) }} aria-label={`Remover ${f.rotulo}`}>Remover</Button>
+                                <Button size="small" danger onClick={() => setRemovendo({ tipo: 'familia', chave: f.chave, nome: f.rotulo })} aria-label={`Remover ${f.rotulo}`}>Remover</Button>
                             </Space>
                         ),
                     },
@@ -128,13 +114,7 @@ export function FamiliasCard({ familias, categorias, onCriar, onEditar, onRemove
                     {erro && <Alert type="error" showIcon message="A família não foi gravada." description={erro} data-erro-da-familia />}
                 </Space>
             </Modal>
-            <Modal title={removendo ? fraseDaRemocao(removendo.rotulo) : 'Remover a família'} open={removendo !== null} onCancel={() => setRemovendo(null)}
-                okText="Remover" okButtonProps={{ danger: true, loading: salvando }} onOk={remover} destroyOnClose>
-                <Space direction="vertical" style={{ width: '100%' }} data-modal-da-remocao>
-                    <Typography.Paragraph type="secondary" style={{ margin: 0 }}>{AVISO_DA_REMOCAO_DA_FAMILIA}</Typography.Paragraph>
-                    {erroAoRemover && <Alert type="error" showIcon message="A família não foi removida." description={erroAoRemover} data-erro-ao-remover-familia />}
-                </Space>
-            </Modal>
+            <RemocaoDoCatalogo alvo={removendo} onFechar={() => setRemovendo(null)} onRemovido={() => { setRemovendo(null); onRemovida() }} />
         </Card>
     )
 }

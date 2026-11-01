@@ -4,7 +4,9 @@
  *     apontados: do mesmo tipo e não arquivados — os que a função aceita. E `pronta` (a família tem etapas e TODAS com motor) e `etapas_sem_motor`
  *     (número e rótulo de cada uma): a família só calcula com todas as etapas com motor (dono do produto, 29/10/2026). Não é trava de gravação —
  *     montar aos poucos continua permitido —; é o que a tela mostra, e o que a execução confere (`conferirEtapasParaExecutar`). E o `catalogo`: os
- *     itens do catálogo de etapas (20261031000002), que a tela oferece para a conta SELECIONAR — o nome, a ação e as abas vêm de lá.
+ *     itens do catálogo de etapas (20261031000002), que a tela oferece para a conta SELECIONAR — o nome, a ação e as abas vêm de lá. E os
+ *     `erros_de_configuracao` (31/10/2026): cada FALTA — família sem tipo, sem etapa, etapa sem motor, categoria da família sem fornecedor —, com a frase que
+ *     manda ver a configuração, a mesma que a execução usará (`conferirEtapasParaExecutar`).
  * PUT /api/super-admin/base-de-conhecimento/etapas?tenant=<uuid> — grava `{ materia_prima, etapas: [...] }`, a LISTA INTEIRA na ordem desejada
  *     (a posição é o número), pela função `superadmin_gravar_etapas_da_materia_prima` (migração 20261028000001), que loga na mesma transação.
  *     Item com `id` edita; sem `id`, cria; a etapa GRAVADA que não vem na lista é REMOVIDA, com log, e as que ficam renumeram 1..N (dono do produto,
@@ -22,7 +24,7 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 import { superAdminOu404 } from '@/lib/get-caller-tenant'
 import { lerCatalogoDeEtapas, lerCatalogoDeMotores, lerEtapasDaMateriaPrima } from '@/lib/atendimentos-ia/etapas-da-familia'
 import { empresaDoPedido, falhaDeLeitura, gravarPelaFuncaoComAMensagemDela, idDoQuery, metodoNaoPermitido } from '@/lib/atendimentos-ia/base-de-conhecimento-servidor'
-import { etapasSemMotor, familiaPronta, lerCorpoDasEtapas } from '@/utils/atendimentos-ia-etapas'
+import { conferirEtapasParaExecutar, etapasSemMotor, familiaPronta, lerCorpoDasEtapas } from '@/utils/atendimentos-ia-etapas'
 import { ehUuid } from '@/utils/atendimentos-ia-catalogo'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -40,8 +42,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             if (!lidas) return res.status(404).json({ error: 'Família não encontrada nesta empresa.' })
             const motores = lidas.familia === null ? [] : await lerCatalogoDeMotores({ tipo: lidas.familia })
             const catalogo = await lerCatalogoDeEtapas({ usos: false })
+            const conferencia = conferirEtapasParaExecutar(lidas.etapas, { nome: lidas.nome, familia: lidas.familia, categoriasSemFornecedor: lidas.categoriasSemFornecedor })
             return res.status(200).json({
                 familia: lidas.familia, etapas: lidas.etapas, motores, catalogo, pronta: familiaPronta(lidas.etapas), etapas_sem_motor: etapasSemMotor(lidas.etapas),
+                erros_de_configuracao: conferencia.ok === false ? conferencia.erros : [],
             })
         }
 

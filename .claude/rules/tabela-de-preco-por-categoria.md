@@ -565,3 +565,67 @@ Formulação do dono do produto, registrada como está:
 - **Prova:** `scripts/harness/etapa-no-catalogo/` — a cadeia real até a `20261031000001` e o estado das 3 etapas de 31/10/2026, a migração duas vezes,
   os casos de cada trava e função, duas corridas (remover o item × gravar a etapa que o aponta, nos dois sentidos), cinco guardas, o semeio de etapas
   iguais, e as mutações nas duas passadas.
+
+## O catálogo é soberano nas quatro seções — dono do produto, 31/10/2026 (migração `20261031000003`, PENDENTE até o dono do produto aplicar; pressupõe a `20261031000002`)
+
+Formulação do dono do produto, registrada como está:
+
+> "A remoção é soberana. O departamento de motores, de famílias, de categoria, de fornecedores que tem ali, ele é soberano quanto ao resto. Família,
+> fornecedor, motor e etapa. Isso é soberano dentro do catálogo." E: "a instrução para quando não houver ou houver uma falta dentro dessas quatro
+> categorias [...] é importante que ela reporte como um erro, solicitando que veja a configuração."
+
+**Substitui as recusas por uso** de remover família (`20261029000004`, `superadmin_remover_familia`) e de remover etapa do catálogo (`20261031000002`,
+`superadmin_remover_etapa_do_catalogo`): as duas funções saem, e as seções acima que dizem "remover em uso é recusa nomeada" valem só para a época delas.
+
+- **A. Remover é ARRASTO DECLARADO E CONFIRMADO**, numa rota só (`/api/super-admin/atendimentos-ia/catalogo/remover`):
+  1. a rota **mede antes, sem apagar** (`superadmin_arrasto_do_catalogo`): por passo, a quantidade e até 10 nomes ("e mais N"); o que **fica** (Storage,
+     texto `fornecedor_perfil`, categorias da conta); os **avisos**; os **impedimentos**; e a **assinatura** (md5 das quantidades por passo);
+  2. a tela (`RemocaoDoCatalogo`) mostra tudo e exige a **confirmação explícita** (a caixa marcada; o corpo leva `confirmo: true` e a assinatura);
+  3. só então `superadmin_remover_do_catalogo` trava o que sai, **mede de novo e recusa se a assinatura mudou** (40001 → a tela mostra o arrasto novo e
+     pede a confirmação de novo), e apaga **explicitamente, em ordem** (filhos antes dos pais), numa transação, **logando cada linha** no
+     `superadmin_alteracao_log` (a linha inteira em `antes`, `depois` nulo no que sai, o tenant de quem era dela; o que perde o vínculo tem antes e depois).
+  4. A medição e a remoção leem a **mesma lista de passos** (`orcamentista_arrasto_passos`): o que a tela mostra é o que a função apaga. Cada passo
+     confere o `ROW_COUNT` contra o que mediu, e no fim **cada tabela alcançada tem de ter perdido exatamente o que os passos dela apagaram** — aborta se
+     não (prova contra uma linha que some no meio ou sai por cascata sem log).
+- **AS FKs CONTINUAM COMO ESTÃO. Nenhuma vira CASCADE.** Medido no harness: algumas FKs **de antes** já são CASCADE (o conteúdo do motor → a tabela; as
+  categorias da conta → a matéria-prima; a ligação → o motor) ou SET NULL (o item e a etapa → a ligação; o item → a tabela). Ficam assim; os passos
+  apagam/soltam os filhos antes, e a conta das tabelas prova que nenhuma cascata agiu sem log. A **guarda do fecho** aborta a migração se uma tabela
+  nova passar a apontar uma tabela de onde se apaga sem estar nos passos.
+- **C. DOCUMENTO DE CLIENTE NÃO É ARRASTADO (trava inegociável).** O item de levantamento **fica e perde o vínculo** (família, motor e
+  `motor_familia_exigida`, tabela → nulo), com antes e depois no log. O `$verifica$` aborta se algum passo tiver documento de cliente com ação `sai`.
+- **O que cada remoção leva** (decisões do dono do produto, 31/10/2026):
+  - **família:** a matéria-prima da conta **fica, sem tipo** (as etapas dela saem; as categorias e os dados ficam); a tabela de **PERFIL** da família **sai
+    junto** (com os itens e o conteúdo); a de outra categoria só **perde a família**; o motor cuja **única** família é a removida **sai junto** (o de várias
+    só perde a ligação); as ramificações e a família do catálogo saem;
+  - **fornecedor:** as tabelas dele (itens, conteúdo de motor por `tabela_id`, importações, `conta_tabela`), os motores dele (com o conteúdo), as ligações,
+    e o vínculo de conta (`mp_categoria_fornecedor`); as etapas que apontavam o motor ficam sem motor;
+  - **motor:** o conteúdo e as importações dele, as ligações; as etapas ficam sem motor; a tabela e o fornecedor ficam. **Arquivar e Remover coexistem**
+    (D): arquivar não apaga; remover vale também para o motor arquivado;
+  - **etapa do catálogo:** as etapas de conta que a usam saem, e as de baixo **renumeram** 1..N, com antes e depois no log.
+  - **Ficam, só listados no arrasto (decisão 5):** os arquivos do Storage (nada é apagado do bucket) e o texto `fornecedor_perfil` de
+    `esquadrias_base`/`_padrao`.
+- **Decisão 4 — remover o fornecedor Wolf Perfis é PERMITIDO hoje, antes do PR D, COM AVISO EXPLÍCITO** na confirmação: a conversa da empresa que usa a
+  tabela `72366020` **PARA de funcionar até ser reconfigurada**, porque a conversa ainda lê o motor pela tabela, não pelo catálogo. Não é exceção nem
+  recusa: é aviso (`conversa_para`, com as empresas e a tabela). **ESTE AVISO SAI QUANDO O PR D ENTRAR** (a conversa passa a ler o motor pelo catálogo);
+  quem escrever o PR D tira o aviso da função e da tela (`fraseDoAviso`).
+- **O impedimento (não é uso, é conflito):** na família, a tabela de outra categoria que perde a família e é **vigente** colidiria no índice
+  `orcamentista_tabela_uma_vigente` com outra vigente do mesmo fornecedor e categoria sem família. A medição nomeia as tabelas e a remoção recusa (23505)
+  antes de apagar. Medido em 31/10/2026: nenhuma tabela vigente em produção — o impedimento não aparece hoje. **Leitura do assistente, relatada no PR:**
+  escolher qual das duas fica vigente não foi autorizado.
+- **E. A falta de configuração é ERRO que nomeia o que falta e manda ver a configuração.** `conferirEtapasParaExecutar(etapas, contexto)` recusa, uma
+  frase por falta, na ordem: **família** sem tipo (removida do catálogo ou nunca escolhida), **etapa** (família sem etapas), **motor** (cada etapa sem
+  motor), **fornecedor** (cada categoria da família sem fornecedor). A rota das etapas da conta devolve `erros_de_configuracao`, e a tela mostra o erro
+  (e não mostra "pronta" enquanto houver falta).
+  **O FORNECEDOR É COBRADO EM TODAS AS CATEGORIAS** que a família declara como ramificação — decisão do dono do produto, 31/10/2026, registrada como foi
+  dita: "Sim deve reclamar que está faltando fornecedores." Falta é a categoria **sem nenhum fornecedor vinculado** (ou que nem foi criada na conta),
+  cada uma com a sua frase. Medido em produção em 31/10/2026: a De Paula tem fornecedor só em PERFIL (Wolf Perfis) e VIDRO (Estrela); PERSIANAS, REFORCO,
+  FERRAGENS, ACESSORIOS_VEDACAO e INSTALACAO estão com zero — **hoje a conferência acusa cinco faltas, e isso é o esperado, não defeito.**
+- **REQUISITO SEGUINTE, registrado e NÃO implementado (dono do produto, 31/10/2026):** o fornecedor de cada categoria vira uma **lista hierárquica com
+  busca em cascata** — "o fornecedor Celsius, ele fica como primeiro, o fornecedor Roto como segundo e o fornecedor Detone como terceiro [...] não havendo
+  o insumo dentro da tabela da Celsius, ele vai consultar a tabela da Roto [...] a ordem é muito importante." A estrutura (`ordem`, N por categoria) já
+  existe em `orcamentista_mp_categoria_fornecedor`; faltam a tela (vários e ordenar) e o cálculo (procurar na ordem, parar no primeiro que tiver). Trabalho
+  próprio, depois da medição pedida.
+- **Prova:** `scripts/harness/catalogo-soberano/` — a cadeia real com a `20261031000002` e o estado de produção medido em 31/10/2026 (os ids reais), a
+  migração duas vezes, 22 casos (cada arrasto, a trava C pelos três caminhos, o log linha a linha, a assinatura, o impedimento, a linha que some no
+  meio e a que sai por cascata), 3 corridas (gravar etapa × remover motor nos dois sentidos; duas remoções do mesmo item), 3 guardas, a prova de volume
+  (`30_volume.sh`: ~125 mil linhas em ~5 s, limite da função 80 s) e as mutações nas duas passadas.

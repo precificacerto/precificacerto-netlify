@@ -3,13 +3,14 @@
  *   - CREDENCIAR: nome, nicho (agrupado por modelo) e "Tabelas deste fornecedor" — pode salvar
  *     sem nenhuma e subir depois. Cada tabela entra pelo MESMO modal da tabela, com o motor
  *     obrigatório: o atalho do protótipo, que criava tabela sem motor, NÃO é regra (EPIC §3.8).
- *   - EDITAR: nome e nicho, e "Excluir fornecedor".
+ *   - EDITAR: nome e nicho, e "Remover fornecedor" — que abre a confirmação do arrasto (`RemocaoDoCatalogo`, dono do produto, 31/10/2026:
+ *     "o catálogo é soberano"): o que sai junto é medido e mostrado antes, e só sai com a confirmação explícita.
  *
  * O erro de credenciar, salvar ou excluir vem da página pela prop `erro` e aparece DENTRO deste
  * modal — onde a ação aconteceu (ver o cabeçalho de `EXTENSOES_ACEITAS`).
  */
 import React, { useEffect, useState } from 'react'
-import { Alert, Button, Input, List, Modal, Popconfirm, Typography } from 'antd'
+import { Alert, Button, Input, List, Modal, Typography } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
 import type { Categoria, Familia, Nicho } from '@/utils/atendimentos-ia-catalogo'
 import { NichoSelect } from './nicho-select.component'
@@ -21,7 +22,6 @@ export interface DadosDoFornecedor { nome: string; nicho_id: string; tabelas: Ta
 
 export const TITULO_FORNECEDOR_NAO_CREDENCIADO = 'O fornecedor não foi credenciado.'
 export const TITULO_FORNECEDOR_NAO_SALVO = 'O fornecedor não foi salvo.'
-export const TITULO_FORNECEDOR_NAO_EXCLUIDO = 'O fornecedor não foi excluído.'
 
 /** A última tentativa que falhou: o título diz QUAL ação, o motivo é a frase da rota. */
 export interface ErroDoFornecedor { titulo: string; motivo: string }
@@ -102,11 +102,7 @@ export function FornecedorModal({ aberto, modo, nichos, familias, categorias, in
                 </>
             )}
 
-            {modo === 'editar' && onExcluir && (
-                <Popconfirm title="Excluir este fornecedor?" okText="Excluir" cancelText="Cancelar" onConfirm={onExcluir}>
-                    <Button danger>Excluir fornecedor</Button>
-                </Popconfirm>
-            )}
+            {modo === 'editar' && onExcluir && <Button danger onClick={onExcluir} data-remover-fornecedor>Remover fornecedor</Button>}
 
             {erro && <Alert type="error" showIcon style={{ marginTop: 14 }} message={erro.titulo} description={erro.motivo} data-erro-do-fornecedor />}
         </Modal>
