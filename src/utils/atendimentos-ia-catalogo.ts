@@ -313,8 +313,13 @@ export interface TabelaDoFornecedor {
      * usa. No máximo uma por (fornecedor, família). A `vigencia` acima continua sendo só texto do consultor.
      */
     vigente: boolean
-    /** "Subido em". */
+    /** Quando a LINHA nasceu. Não é "Subido em": a troca de arquivo não muda esta data. */
     criado_em: string
+    /**
+     * "Subido em" (dono do produto, 01/11/2026; migração 20261101000002): o momento em que o arquivo de preço ATUAL entrou — criado_em na
+     * criação, o instante de cada troca de arquivo depois. O banco o mantém (gatilho); as linhas de antes de 01/11 foram semeadas com criado_em.
+     */
+    arquivo_em: string
     contas_usando: string[]
 }
 

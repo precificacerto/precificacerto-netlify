@@ -119,7 +119,7 @@ jest.mock('@/components/layout/layout.component', () => ({ Layout: ({ children }
 
 const linha = (id: string, arquivo: string, vigente: boolean) => ({
     id, fornecedor_id: 'f1', arquivo_nome: arquivo, arquivo_path: `f1/arquivo/${id}`, motor_nome: 'motor.xlsx', motor_path: `f1/motor/${id}`,
-    vigencia: 'desde 01/10/2026', familia: 'PVC', vigente, criado_em: '2026-10-19T12:00:00Z', contas_usando: [] as string[],
+    vigencia: 'desde 01/10/2026', familia: 'PVC', vigente, criado_em: '2026-10-19T12:00:00Z', arquivo_em: '2026-10-19T12:00:00Z', contas_usando: [] as string[],
 })
 const FORNECEDOR = {
     id: 'f1', nome: 'Wolff Perfis', nicho_id: 'n1', nicho_nome: 'Esquadrias', modelo: 'FABRICACAO', tabelas: 2, contas_usando: [],

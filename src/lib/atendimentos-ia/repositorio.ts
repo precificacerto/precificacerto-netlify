@@ -157,7 +157,7 @@ async function montarLista(fornecedores: Linha[]): Promise<FornecedorComTabelas[
     const nichos: Linha[] = nichoIds.length ? await q(db().from('orcamentista_nicho').select('id, modelo, nome').in('id', nichoIds)) : []
     const fIds = fornecedores.map((f) => f.id)
     const tabelas: Linha[] = fIds.length
-        ? await q(db().from('orcamentista_tabela').select('id, fornecedor_id, arquivo_nome, arquivo_path, motor_nome, motor_path, vigencia, familia, categoria_chave, vigente, criado_em').in('fornecedor_id', fIds).order('criado_em', { ascending: false }))
+        ? await q(db().from('orcamentista_tabela').select('id, fornecedor_id, arquivo_nome, arquivo_path, motor_nome, motor_path, vigencia, familia, categoria_chave, vigente, criado_em, arquivo_em').in('fornecedor_id', fIds).order('criado_em', { ascending: false }))
         : []
     const uso = await usoPorTabela(tabelas.map((t) => ({ id: t.id, fornecedor_id: t.fornecedor_id })))
     return fornecedores.map((f) => {

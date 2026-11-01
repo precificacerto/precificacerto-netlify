@@ -9,7 +9,9 @@
  *   (c) na lista do credenciamento, a data é um elemento PRÓPRIO, alinhado à direita e em
  *       `tabular-nums`, e não um pedaço do texto do arquivo;
  *   (d) na lista de tabelas do fornecedor, a coluna "Subido em" é alinhada à direita, no mesmo
- *       estilo.
+ *       estilo;
+ *   (e) "Subido em" é o momento do ARQUIVO ATUAL (`arquivo_em`), não o da linha (`criado_em`) — dono do produto, 01/11/2026; migração
+ *       20261101000002: a 21acfa75 foi criada em 29/10 e teve o arquivo trocado em 01/11, e a tela mostrava 29/10.
  */
 import React from 'react'
 import { act } from 'react'
@@ -103,7 +105,7 @@ describe('a data na borda direita', () => {
     it('(d) na lista de tabelas do fornecedor, "Subido em" vem alinhada à direita, em tabular-nums', async () => {
         const fornecedor: FornecedorComTabelas = {
             id: 'f1', nome: 'Alumínio Sul', nicho_id: 'n0', nicho_nome: 'Esquadrias', modelo: 'FABRICACAO', tabelas: 1, contas_usando: [], categorias_das_tabelas: [], familias_do_perfil: [] as string[],
-            tabelas_da_lista: [{ id: 't1', fornecedor_id: 'f1', arquivo_nome: 't.xlsx', arquivo_path: 'f1/arquivo/t.xlsx', motor_nome: 'm.pdf', motor_path: 'f1/motor/m.pdf', vigencia: null, familia: null, categoria_chave: null, vigente: false, criado_em: '2026-10-19T12:00:00Z', contas_usando: [] }],
+            tabelas_da_lista: [{ id: 't1', fornecedor_id: 'f1', arquivo_nome: 't.xlsx', arquivo_path: 'f1/arquivo/t.xlsx', motor_nome: 'm.pdf', motor_path: 'f1/motor/m.pdf', vigencia: null, familia: null, categoria_chave: null, vigente: false, criado_em: '2026-10-19T12:00:00Z', arquivo_em: '2026-10-19T12:00:00Z', contas_usando: [] }],
         }
         const respostas: Record<string, unknown> = { [ROTAS_DO_CATALOGO.fornecedor('f1')]: fornecedor, [ROTAS_DO_CATALOGO.nichos]: [], [ROTAS_DO_CATALOGO.familias]: [{ chave: 'PVC', rotulo: 'PVC', ordem: 1 }], [ROTAS_DO_CATALOGO.categorias]: [{ chave: 'PERFIL', rotulo: 'Perfil', ordem: 1 }] }
         ;(globalThis as { fetch: unknown }).fetch = jest.fn(async (url: string) => ({ ok: true, status: 200, json: async () => respostas[url] }) as Response)
@@ -115,5 +117,34 @@ describe('a data na borda direita', () => {
         expect(celula.style.fontVariantNumeric).toBe('tabular-nums')
         const td = celula.closest('td') as HTMLElement
         expect(td.style.textAlign).toBe('right')
+    })
+
+    it('(e) "Subido em" mostra arquivo_em (o arquivo trocado em 01/11), não criado_em (a linha de 29/10)', async () => {
+        const fornecedor: FornecedorComTabelas = {
+            id: 'f1', nome: 'Wolf Perfis', nicho_id: 'n0', nicho_nome: 'Esquadrias', modelo: 'FABRICACAO', tabelas: 1, contas_usando: [], categorias_das_tabelas: ['PERFIL'], familias_do_perfil: ['PVC'],
+            tabelas_da_lista: [{ id: '21acfa75-e4e7-4de6-9b96-cdd95525467d', fornecedor_id: 'f1', arquivo_nome: 'Tabela_Wolff_Perfis_PVC.xlsx', arquivo_path: 'f1/arquivo/t.xlsx',
+                motor_nome: null, motor_path: null, vigencia: null, familia: 'PVC', categoria_chave: 'PERFIL', vigente: false,
+                criado_em: '2026-10-29T19:26:10.322Z', arquivo_em: '2026-11-01T21:08:19.337Z', contas_usando: [] }],
+        }
+        const respostas: Record<string, unknown> = { [ROTAS_DO_CATALOGO.fornecedor('f1')]: fornecedor, [ROTAS_DO_CATALOGO.nichos]: [], [ROTAS_DO_CATALOGO.familias]: [{ chave: 'PVC', rotulo: 'PVC', ordem: 1 }], [ROTAS_DO_CATALOGO.categorias]: [{ chave: 'PERFIL', rotulo: 'Perfil', ordem: 1 }] }
+        ;(globalThis as { fetch: unknown }).fetch = jest.fn(async (url: string) => ({ ok: true, status: 200, json: async () => respostas[url] }) as Response)
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const Pagina = require('@/pages/super-admin/atendimentos-ia/fornecedores/[id]').default as React.ComponentType
+        const host = await montar(<Pagina />)
+        const celula = host.querySelector('[data-coluna="subido-em"]') as HTMLElement
+        const doArquivo = new Date('2026-11-01T21:08:19.337Z').toLocaleDateString('pt-BR')
+        const daLinha = new Date('2026-10-29T19:26:10.322Z').toLocaleDateString('pt-BR')
+        expect(doArquivo).not.toBe(daLinha) // o contraste: as duas datas são outras na tela
+        expect(celula.textContent).toBe(doArquivo)
+    })
+
+    it('(e) o repositório pede arquivo_em junto, e a migração 20261101000002 a cria', () => {
+        const REPO = fs.readFileSync(path.join(__dirname, '../../lib/atendimentos-ia/repositorio.ts'), 'utf8')
+        const MIG = fs.readFileSync(path.join(__dirname, '../../../supabase/migrations/20261101000002_arquivo_em_da_tabela.sql'), 'utf8')
+        const select = /from\('orcamentista_tabela'\)\.select\('([^']*)'\)\.in\('fornecedor_id', fIds\)/.exec(REPO)
+        expect(select).not.toBeNull()
+        expect(select![1].split(',').map((c) => c.trim())).toContain('arquivo_em')
+        expect(MIG).toContain('ALTER TABLE public.orcamentista_tabela ADD COLUMN IF NOT EXISTS arquivo_em timestamptz;')
+        expect(MIG).toContain('ALTER TABLE public.orcamentista_tabela ALTER COLUMN arquivo_em SET NOT NULL;')
     })
 })

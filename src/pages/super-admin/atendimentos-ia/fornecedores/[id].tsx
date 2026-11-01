@@ -225,7 +225,7 @@ export default function TabelasDoFornecedor() {
                                 },
                                 { title: 'Vigência (nota)', render: (_, t) => t.vigencia ?? <Typography.Text type="secondary">—</Typography.Text> },
                                 // A data na borda direita, em `tabular-nums` — o mesmo estilo da lista do credenciamento.
-                                { title: 'Subido em', align: 'right', render: (_, t) => <span style={ESTILO_DA_DATA} data-coluna="subido-em">{dataBR(t.criado_em)}</span> },
+                                { title: 'Subido em', align: 'right', render: (_, t) => <span style={ESTILO_DA_DATA} data-coluna="subido-em">{dataBR(t.arquivo_em)}</span> },
                                 { title: 'Contas usando', render: (_, t) => (t.contas_usando.length ? t.contas_usando.join(', ') : <Typography.Text type="secondary">—</Typography.Text>) },
                                 {
                                     title: '',
