@@ -180,6 +180,18 @@ export const abaDoNicho = (v: unknown): AbaDoNicho => (ABAS_DO_NICHO as readonly
 /** O endereço da página de um nicho, opcionalmente já numa aba. */
 export const rotaDoNicho = (nichoId: string, aba?: AbaDoNicho) =>
     `/super-admin/atendimentos-ia/catalogo/${encodeURIComponent(nichoId)}${aba ? `?aba=${aba}` : ''}`
+
+// ── IMPORTAR AO SALVAR (dono do produto, 02/11/2026) ─────────────────────────────────────────
+/**
+ * "Salvar tabela" com arquivo (novo ou trocado) leva à tela de Importação da tabela JÁ IMPORTANDO: a tela dispara a mesma importação que o
+ * botão dispara, e o resultado — contagens, avisos ou a recusa nomeada — aparece lá, uma vez só. O cadastro já está salvo quando a importação
+ * roda: a recusa do arquivo não o desfaz. Salvar sem trocar o arquivo não reimporta. O credenciamento no nicho (N tabelas em laço) NÃO
+ * importa ao salvar (cada importação tem até 90 s); o que cobre esse caminho é o estado "não importada" do cartão.
+ */
+export const PARAMETRO_IMPORTAR_AO_ABRIR = 'importar'
+/** O endereço da tela de Importação de uma tabela; com `importarAoAbrir`, a tela dispara a importação assim que abre. */
+export const telaDaImportacao = (tabelaId: string, importarAoAbrir = false) =>
+    `/super-admin/atendimentos-ia/tabelas/${encodeURIComponent(tabelaId)}/importacao${importarAoAbrir ? `?${PARAMETRO_IMPORTAR_AO_ABRIR}=1` : ''}`
 /**
  * A FAMÍLIA É GLOBAL (dono do produto, 29/10/2026): `orcamentista_familia_catalogo` não tem nicho, e não ganha agora — 12 nichos, um só com
  * fornecedores, nenhuma família além da PVC Wolf. É DÍVIDA registrada em `tabela-de-preco-por-categoria.md`, e a tela diz.
@@ -383,6 +395,11 @@ export interface TabelaDoFornecedor {
      */
     arquivo_em: string
     contas_usando: string[]
+    /**
+     * Os itens de preço GRAVADOS da tabela (dono do produto, 02/11/2026: "o cartão da tabela passa a mostrar 'não importada' quando a tabela
+     * tem 0 itens"). É contagem do banco, não da última importação: a tabela recusada ou nunca importada tem 0.
+     */
+    itens: number
 }
 
 /**

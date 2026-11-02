@@ -161,9 +161,11 @@ async function montarLista(fornecedores: Linha[]): Promise<FornecedorComTabelas[
         ? await q(db().from('orcamentista_tabela').select('id, fornecedor_id, arquivo_nome, arquivo_path, motor_nome, motor_path, vigencia, familia, categoria_chave, vigente, criado_em, arquivo_em').in('fornecedor_id', fIds).order('criado_em', { ascending: false }))
         : []
     const uso = await usoPorTabela(tabelas.map((t) => ({ id: t.id, fornecedor_id: t.fornecedor_id })))
+    // os itens GRAVADOS de cada tabela (02/11/2026): é o que diz "não importada" no cartão — a contagem do banco, não a da última importação
+    const itens = Object.fromEntries(await Promise.all(tabelas.map(async (t): Promise<[string, number]> => [t.id, await contarItensDaTabela(t.id)])))
     return fornecedores.map((f) => {
         const nicho = nichos.find((n) => n.id === f.nicho_id)
-        const daqui: TabelaDoFornecedor[] = tabelas.filter((t) => t.fornecedor_id === f.id).map((t) => ({ ...(t as TabelaDoFornecedor), contas_usando: uso[t.id] ?? [] }))
+        const daqui: TabelaDoFornecedor[] = tabelas.filter((t) => t.fornecedor_id === f.id).map((t) => ({ ...(t as TabelaDoFornecedor), contas_usando: uso[t.id] ?? [], itens: itens[t.id] }))
         return {
             id: f.id,
             nome: f.nome,

@@ -8,6 +8,10 @@
  * informação numa LINHA, com o rótulo à esquerda e o valor à direita — as MESMAS SETE de antes, mais nada (`CAMPOS_DO_CARTAO`); os botões
  * (Importação, Editar, Remover) no rodapé. Em janela estreita, o valor desce para baixo do rótulo e o texto quebra em qualquer ponto
  * (`overflowWrap: 'anywhere'`), em vez de sair do cartão; os botões quebram de linha, sem corte.
+ *
+ * "NÃO IMPORTADA" (dono do produto, 02/11/2026, ao pedir importar ao salvar): a tabela com 0 itens gravados diz isso logo abaixo do nome, com o
+ * atalho para a Importação. Não é a oitava informação — é o ESTADO da tabela, e só aparece quando há o que dizer: a tabela com itens não
+ * mostra nada. É o que cobre o credenciamento no nicho e qualquer outro caminho que grave a tabela sem importar.
  */
 import React from 'react'
 import { Button, Space, Switch, Typography } from 'antd'
@@ -33,6 +37,8 @@ function Linha({ rotulo, campo, children }: { rotulo: (typeof CAMPOS_DO_CARTAO)[
     )
 }
 
+export const FRASE_DA_TABELA_NAO_IMPORTADA = 'Não importada: nenhum item de preço gravado.'
+
 const Vazio = ({ children, ...data }: { children: React.ReactNode } & Record<`data-${string}`, boolean>) => <Typography.Text type="secondary" {...data}>{children}</Typography.Text>
 
 interface Props {
@@ -50,6 +56,12 @@ export function CartaoDaTabela({ tabela: t, familia, categoria, onVigente, onImp
     return (
         <article className="pc-card" style={{ padding: 16, minWidth: 0 }} data-cartao-da-tabela={t.id}>
             <Typography.Title level={5} style={{ margin: '0 0 8px', overflowWrap: 'anywhere' }} data-arquivo-do-cartao>{t.arquivo_nome}</Typography.Title>
+            {t.itens === 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', columnGap: 8, marginBottom: 8 }} data-nao-importada>
+                    <Typography.Text type="warning">{FRASE_DA_TABELA_NAO_IMPORTADA}</Typography.Text>
+                    <Button type="link" size="small" style={{ padding: 0, height: 'auto' }} onClick={onImportacao} data-importar-agora>Importar agora</Button>
+                </div>
+            )}
             <Linha rotulo="Motor" campo="motor">{t.motor_nome ?? <Vazio data-sem-motor>sem motor (preço puro)</Vazio>}</Linha>
             <Linha rotulo="Família" campo="familia">{familia}</Linha>
             <Linha rotulo="Categoria" campo="categoria">{categoria}</Linha>
