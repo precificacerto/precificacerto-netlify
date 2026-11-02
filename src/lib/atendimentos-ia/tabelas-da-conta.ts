@@ -20,10 +20,10 @@
  * `vigente` só decide o que um levantamento NOVO usa: o antigo aponta a tabela dele em
  * `orcamentista_levantamento_item.tabela_id`. A `vigencia` é só texto, e não é lida aqui.
  *
- * ══ O MOTOR decide se a tabela entra na conversa, não a categoria ══
- * `tipologias` é a contagem de `orcamentista_motor_tipologia_detalhe` da tabela, feita no banco. Com
- * tipologias, a tabela tem motor e entra na conversa; sem, é TABELA DE PREÇO. Esta função só MEDE: quem
- * decide e recusa é a conversa (`levantamento-da-conversa.ts`) e, na tela, o bloco Motor.
+ * ══ A TABELA É SÓ PREÇO (PR D, dono do produto, 02/11/2026) ══
+ * Até o PR D, a contagem de `orcamentista_motor_tipologia_detalhe` POR `tabela_id` dizia se a tabela "tinha motor" e entrava na
+ * conversa. O motor passou a vir da FAMÍLIA (as etapas da base de conhecimento → `motor_id`, `motor-da-familia.ts`), e a contagem é
+ * por `motor_id`, lá. Esta derivação não conta tipologias: ela só diz quais tabelas de PREÇO a conta tem e qual vale.
  */
 import { supabaseAdmin } from '@/supabase/admin'
 
@@ -57,9 +57,6 @@ export type TabelaDaConta = {
     vigente: boolean
     /** As categorias da base de conhecimento pelas quais a conta vincula o fornecedor, em ordem. */
     categorias: string[]
-    /** As linhas de `orcamentista_motor_tipologia_detalhe` da tabela. */
-    tipologias: number
-    comMotor: boolean
     /** É a tabela que um levantamento NOVO usa no grupo (fornecedor, família, categoria). */
     vale: boolean
 }
@@ -87,12 +84,6 @@ async function vinculosDaConta(tenantId: string): Promise<Map<string, string[]>>
     return new Map([...porFornecedor].map(([f, cs]) => [f, [...cs].sort(porTexto)]))
 }
 
-async function contarTipologias(tabelaId: string): Promise<number> {
-    const { count, error } = await db().from('orcamentista_motor_tipologia_detalhe').select('tabela_id', { count: 'exact', head: true }).eq('tabela_id', tabelaId)
-    if (error) throw new FalhaNaDerivacao('orcamentista_motor_tipologia_detalhe', error.code ?? null)
-    return count ?? 0
-}
-
 export async function derivarTabelasDaConta(tenantId: string): Promise<DerivacaoDaConta> {
     const vinculos = await vinculosDaConta(tenantId)
     const fIds = [...vinculos.keys()]
@@ -113,7 +104,6 @@ export async function derivarTabelasDaConta(tenantId: string): Promise<Derivacao
 
     const tabelas: TabelaDaConta[] = []
     for (const t of linhas) {
-        const tipologias = await contarTipologias(String(t.id))
         tabelas.push({
             tabelaId: String(t.id),
             fornecedorId: String(t.fornecedor_id),
@@ -124,8 +114,6 @@ export async function derivarTabelasDaConta(tenantId: string): Promise<Derivacao
             arquivo_nome: String(t.arquivo_nome),
             vigente: t.vigente === true,
             categorias: vinculos.get(String(t.fornecedor_id)) ?? [],
-            tipologias,
-            comMotor: tipologias > 0,
             vale: vale(t),
         })
     }

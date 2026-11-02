@@ -25,7 +25,12 @@ import { abasDaDP02NoBanco } from './fixtures/abas-da-DP-02-no-banco'
 type Linha = Record<string, unknown>
 
 const TENANT = 'tenant-1'
+/** A tabela de PREÇO da conta (a da Wolff): o motor não é lido por ela desde o PR D. */
 const TABELA = '72366020-57c9-489f-9385-397b7fa3dedb'
+/** O motor do catálogo que as etapas 1 e 2 da família apontam (o Motor_Wolf_PVC de produção). */
+const MOTOR = '9a233c55-f377-45d3-b2ae-b1a740a98e44'
+const MOTOR_SUL = 'motor-sul-aluminio'
+const OUTRA = 'tabela-perfis-sul'
 /* eslint-disable @typescript-eslint/no-require-imports */
 const DE_PARA = require('./fixtures/fixture_de-para_DP-02.json') as { regras: Linha[]; itens: Linha[] }
 /* eslint-enable @typescript-eslint/no-require-imports */
@@ -83,32 +88,48 @@ const ABAS = require('@/lib/atendimentos-ia/abas-do-motor-wolff-DP-02.json')
 
 let sequencia = 0
 const comId = (l: Linha) => ({ id: `r-${String(++sequencia).padStart(6, '0')}`, ...l })
-/** As abas da DP-02 como a importação as grava — o levantamento as lê do banco, não do JSON. */
-const ABAS_NO_BANCO = () => abasDaDP02NoBanco(TABELA) as Record<string, Linha[]>
+/** As abas da DP-02 como produção as tem: do MOTOR (`motor_id`), com `tabela_id` nulo — o levantamento as lê do banco, não do JSON. */
+const ABAS_NO_BANCO = () => abasDaDP02NoBanco(MOTOR, 'motor') as Record<string, Linha[]>
+/** O conteúdo do motor na forma ANTIGA, por tabela_id da tabela da conta: o PR D não o lê, nem como reserva. */
+const comConteudoPorTabela = () => {
+    const antigas = abasDaDP02NoBanco(TABELA) as Record<string, Linha[]>
+    for (const [t, linhas] of Object.entries(antigas)) banco.db[t] = [...(banco.db[t] ?? []), ...linhas]
+    banco.db.orcamentista_motor_tipologia_detalhe.push({ tabela_id: TABELA, tipologia: 'TB-99', descricao: 'SÓ NA TABELA', tipo: 'Correr', ordem: null })
+    banco.db.orcamentista_motor_regra.push(...DE_PARA.regras.map((r) => comId({ ...r, tabela_id: TABELA, tipologias: ['DP-02'] })))
+    banco.db.orcamentista_motor_tipologia_tempo.push({ tabela_id: TABELA, tipologia: 'DP-02', tempo_fabricacao_min: 777, tempo_origem: 'ESTIMADO' })
+}
 
 function montar() {
     banco.ausentes = new Set()
     banco.db = {
-        // as tabelas da empresa são DERIVADAS (26/10/2026): a base de conhecimento vincula a Wolff no PERFIL
+        // A FAMÍLIA da conta é a da base de conhecimento (PR D, 02/11/2026): a família-instância, e as etapas 1 e 2 dela com o motor
+        orcamentista_materia_prima: [{ id: 'mp-pvc', tenant_id: TENANT, nome: 'Esquadrias de PVC', familia: 'PVC' }],
+        orcamentista_familia_etapa: [
+            { tenant_id: TENANT, materia_prima_id: 'mp-pvc', numero: 1, motor_id: MOTOR },
+            { tenant_id: TENANT, materia_prima_id: 'mp-pvc', numero: 2, motor_id: MOTOR },
+            // a etapa 3 não é lida pela conversa (o fluxo fixo usa a 1 e a 2)
+            { tenant_id: TENANT, materia_prima_id: 'mp-pvc', numero: 3, motor_id: null },
+        ],
+        orcamentista_motor: [{ id: MOTOR, nome: 'Motor_Wolf_PVC', fornecedor_id: 'f-wolff', arquivado_em: null }],
+        // as tabelas de PREÇO da empresa são DERIVADAS (26/10/2026): a base de conhecimento vincula a Wolff no PERFIL
         orcamentista_mp_categoria_fornecedor: [{ tenant_id: TENANT, mp_categoria_id: 'c-perfil', fornecedor_id: 'f-wolff' }],
-        // a tabela e o fornecedor dela: com mais de uma tabela, a pergunta cita o fornecedor pelo nome
-        orcamentista_tabela: [{ id: TABELA, fornecedor_id: 'f-wolff', arquivo_nome: 'Tabela Wolff.xlsx', familia: 'PVC', vigente: false }],
+        orcamentista_tabela: [{ id: TABELA, fornecedor_id: 'f-wolff', arquivo_nome: 'Tabela Wolff.xlsx', familia: 'PVC', categoria_chave: 'PERFIL', vigente: false }],
         orcamentista_fornecedor: [{ id: 'f-wolff', nome: 'Wolff Perfis' }],
         orcamentista_familia_catalogo: [{ chave: 'PVC', rotulo: 'PVC', ordem: 1 }, { chave: 'ALUMINIO', rotulo: 'Alumínio', ordem: 2 }],
         ...ABAS_NO_BANCO(),
         orcamentista_motor_tipologia_detalhe: [
             ...ABAS_NO_BANCO().orcamentista_motor_tipologia_detalhe,
             // `ordem` nula, como as 164 linhas de produção antes da reimportação (a coluna existe e está vazia)
-            { tabela_id: TABELA, tipologia: 'DP-01', descricao: 'MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL | DESIGN', tipo: 'Maxim-ar', ordem: null },
+            { tabela_id: null, motor_id: MOTOR, tipologia: 'DP-01', descricao: 'MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL | DESIGN', tipo: 'Maxim-ar', ordem: null },
         ],
-        orcamentista_motor_regra: DE_PARA.regras.map((r) => comId({ ...r, tabela_id: TABELA, tipologias: ['DP-02'] })),
+        orcamentista_motor_regra: DE_PARA.regras.map((r) => comId({ ...r, tabela_id: null, motor_id: MOTOR, tipologias: ['DP-02'] })),
         orcamentista_tabela_item: DE_PARA.itens.map((i) => ({ ...i, tabela_id: TABELA })),
         orcamentista_mp_categoria: [{ id: 'c-perfil', tenant_id: TENANT, categoria_chave: 'PERFIL', config: { serra_mm: 5, cores: ['BRANCO'], cor_predominante: 'BRANCO' } as Linha }],
         // as colunas ANTIGAS de tempo continuam preenchidas em produção (obsoletas, saem numa migração
         // posterior) — e aqui com OUTRO número, para que ler a coluna antiga apareça no resultado
-        orcamentista_motor_tipologia: [{ tabela_id: TABELA, tipologia: 'DP-02', linha: 'EUROPA 42', tempo_fabricacao_min: 999, tempo_origem: 'ESTIMADO' }],
+        orcamentista_motor_tipologia: [{ tabela_id: null, motor_id: MOTOR, tipologia: 'DP-02', linha: 'EUROPA 42', tempo_fabricacao_min: 999, tempo_origem: 'ESTIMADO' }],
         // o tempo mora na tabela própria (20261024000003), que a importação não apaga
-        orcamentista_motor_tipologia_tempo: [{ tabela_id: TABELA, tipologia: 'DP-02', tempo_fabricacao_min: 150, tempo_origem: 'IMPORTADO' }],
+        orcamentista_motor_tipologia_tempo: [{ tabela_id: null, motor_id: MOTOR, tipologia: 'DP-02', tempo_fabricacao_min: 150, tempo_origem: 'IMPORTADO' }],
         // os números do tenant ativo em produção, medidos em 25/10/2026
         tenant_settings: [{ tenant_id: TENANT, calc_type: 'INDUSTRIALIZACAO', monthly_workload: 528, workload_unit: 'HOURS', num_productive_employees: 5 }],
         tenant_expense_config: [{
@@ -122,7 +143,7 @@ function montar() {
 beforeEach(montar)
 
 /** O que a pré-definição gravada traz para o levantamento — `escolhas` é o jsonb da coluna. */
-const ESQUADRIA = { ordem: 1, tipologia: 'DP-02', largura_mm: 1200, altura_mm: 1000, quantidade: 1, cor_perfil: 'BRANCO' as string | null, vidro: 'Temperado 5mm', escolhas: null as Record<string, number> | null, tabela_id: null as string | null }
+const ESQUADRIA = { ordem: 1, tipologia: 'DP-02', largura_mm: 1200, altura_mm: 1000, quantidade: 1, cor_perfil: 'BRANCO' as string | null, vidro: 'Temperado 5mm', escolhas: null as Record<string, number> | null, familia: null as string | null }
 /** O levantamento gravado — nome e esquadrias — como a conversa o entrega ao levantamento. */
 const lev = (o: Partial<typeof ESQUADRIA> = {}) => ({ nome: 'Casa do João', itens: [{ ...ESQUADRIA, ...o }] })
 /** Os dados da esquadria como a FRASE os recebe: as escolhas já descritas. */
@@ -162,201 +183,367 @@ const TEXTO_QUE_FECHA = [
     'O que este preço cobre: os perfis (o baguete incluído), pela tabela do fornecedor, e a mão de obra. NÃO cobre o vidro nem os insumos e acessórios (ferragens, escovas, calços e outros): eles ainda não estão na base.',
 ].join('\n')
 
-describe('(1) a tabela da empresa e as tipologias candidatas', () => {
-    it('a lista vem de orcamentista_motor_tipologia_detalhe da tabela da empresa (DERIVADA da base de conhecimento), em ordem de código', async () => {
-        const t = await M().lerTabelaDaEmpresa(TENANT)
+describe('(1) a família da conta, o motor dela e as tipologias candidatas (PR D, dono do produto, 02/11/2026)', () => {
+    /** A família da conta como produção a tem hoje: 1 família (PVC), as etapas 1 e 2 apontando o Motor_Wolf_PVC. */
+    const FAMILIA_DE_PAULA = {
+        familia: 'PVC', rotulo: 'PVC', fornecedor: 'Wolff Perfis',
+        levantamento: { id: MOTOR, nome: 'Motor_Wolf_PVC' }, calculo: { id: MOTOR, nome: 'Motor_Wolf_PVC' }, tabelasDePreco: [TABELA],
+    }
+
+    it('DE PAULA — 1 família: é ela, sem perguntar; a lista vem do motor da etapa 1, POR motor_id, em ordem de código', async () => {
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
         if (!('candidatos' in t)) throw new Error('era para ler a lista: ' + t.frase)
-        expect(t.tabelas).toEqual([{ tabelaId: TABELA, fornecedor: 'Wolff Perfis', familia: 'PVC' }])
+        expect(t.familias).toEqual([FAMILIA_DE_PAULA])
         expect(t.candidatos.map((c) => c.tipologia)).toEqual(['DP-01', 'DP-02'])
         expect(M().linhaDoCandidato(t.candidatos[1], false)).toBe('DP-02 | JANELA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 42 | Correr')
+        expect(M().familiasDoCodigo(t)('DP-02')).toEqual([{ familia: 'PVC', rotulo: 'PVC', fornecedor: 'Wolff Perfis', motorId: MOTOR }])
     })
 
-    it('SEM FORNECEDOR VINCULADO: a frase diz que a empresa não tem tabela', async () => {
-        banco.db.orcamentista_mp_categoria_fornecedor = []
-        const t = await M().lerTabelaDaEmpresa(TENANT)
-        expect('frase' in t && [t.motivo, t.frase]).toEqual(['SEM_TABELA', M().FRASE_SEM_TABELA])
+    it('o conteúdo do motor gravado por tabela_id NÃO é lido: nem como lista, nem como reserva', async () => {
+        comConteudoPorTabela()
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
+        if (!('candidatos' in t)) throw new Error('era para ler a lista: ' + t.frase)
+        expect(t.candidatos.map((c) => c.tipologia)).not.toContain('TB-99')
+        expect(t.candidatos.map((c) => c.tipologia)).toEqual(['DP-01', 'DP-02'])
+    })
+
+    it('a família vem da BASE DE CONHECIMENTO, não da tabela: a tabela é de ALUMÍNIO e a família da conta continua PVC — e a tabela de alumínio não dá preço', async () => {
+        banco.db.orcamentista_tabela.push({ id: 'tabela-aluminio', fornecedor_id: 'f-wolff', arquivo_nome: 'Wolff Alumínio.xlsx', familia: 'ALUMINIO', categoria_chave: 'PERFIL', vigente: false })
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
+        if (!('candidatos' in t)) throw new Error('era para ler a lista: ' + t.frase)
+        expect(t.familias.map((f) => f.familia)).toEqual(['PVC'])
+        expect(t.familias[0].tabelasDePreco).toEqual([TABELA])
+    })
+
+    it('o PREÇO vem de TODAS as tabelas vigentes da família — de qualquer categoria, e as de "qualquer linha" (família nula)', async () => {
+        banco.db.orcamentista_mp_categoria_fornecedor.push({ tenant_id: TENANT, mp_categoria_id: 'c-ferragem', fornecedor_id: 'f-imab' })
+        banco.db.orcamentista_mp_categoria.push({ id: 'c-ferragem', tenant_id: TENANT, categoria_chave: 'FERRAGENS', config: {} })
+        banco.db.orcamentista_fornecedor.push({ id: 'f-imab', nome: 'IMAB' })
+        banco.db.orcamentista_tabela.push(
+            { id: 'tabela-ferragens', fornecedor_id: 'f-imab', arquivo_nome: 'FERRAGENS - IMAB.xlsx', familia: 'PVC', categoria_chave: 'FERRAGENS', vigente: false },
+            { id: 'tabela-qualquer-linha', fornecedor_id: 'f-imab', arquivo_nome: 'Acessórios.xlsx', familia: null, categoria_chave: 'ACESSORIOS', vigente: false },
+        )
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
+        if (!('candidatos' in t)) throw new Error('era para ler a lista: ' + t.frase)
+        expect(t.familias[0].tabelasDePreco).toEqual([TABELA, 'tabela-ferragens', 'tabela-qualquer-linha'].sort())
+    })
+
+    it('duas instâncias da MESMA família com o MESMO motor: uma família só, sem perguntar', async () => {
+        banco.db.orcamentista_materia_prima.push({ id: 'mp-pvc-2', tenant_id: TENANT, nome: 'PVC da obra', familia: 'PVC' })
+        banco.db.orcamentista_familia_etapa.push(
+            { tenant_id: TENANT, materia_prima_id: 'mp-pvc-2', numero: 1, motor_id: MOTOR }, { tenant_id: TENANT, materia_prima_id: 'mp-pvc-2', numero: 2, motor_id: MOTOR })
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
+        if (!('candidatos' in t)) throw new Error('era para ler a lista: ' + t.frase)
+        expect(t.familias).toEqual([FAMILIA_DE_PAULA])
     })
 
     /**
-     * CAI A TRAVA "a sua empresa tem 2 tabelas e ele trabalha com uma só" (dono do produto, 26/10/2026): a
-     * conta pode ter duas tabelas, inclusive da mesma família. A lista junta as duas, e cada tipologia sabe
-     * de qual tabela e de qual fornecedor é.
+     * ERRO EXPLÍCITO, nunca fallback e nunca voltar a ler por tabela_id (item 4 do pedido). Em todos, o conteúdo do motor
+     * gravado por tabela_id da tabela da conta EXISTE (`comConteudoPorTabela`): se o código caísse na leitura antiga, acharia lista.
+     * As frases esperadas são escritas aqui por extenso, não montadas pela função que se testa.
      */
-    const OUTRA = 'tabela-perfis-sul'
-    const comOutraTabela = (fornecedor = 'f-sul', familia: string | null = 'ALUMINIO') => {
-        banco.db.orcamentista_mp_categoria_fornecedor.push({ tenant_id: TENANT, mp_categoria_id: 'c-perfil', fornecedor_id: fornecedor })
-        banco.db.orcamentista_tabela.push({ id: OUTRA, fornecedor_id: fornecedor, arquivo_nome: 'Sul 2026.xlsx', familia, vigente: false })
+    const comConteudoPorTabelaSo = () => banco.db.orcamentista_motor_tipologia_detalhe.filter((l) => l.tabela_id === TABELA)
+    describe('(1e) a falta de configuração', () => {
+        beforeEach(comConteudoPorTabela)
+        const falta = async () => { const t = await M().lerFamiliasDaEmpresa(TENANT); return 'frase' in t ? [t.motivo, t.frase] : ['LEU', ''] }
+
+        it('conta SEM FAMÍLIA na base de conhecimento (a família-instância sem família): erro de configuração, não cai na família da tabela', async () => {
+            banco.db.orcamentista_materia_prima[0].familia = null
+            expect(await falta()).toEqual(['SEM_FAMILIA', 'Falta de configuração — a base de conhecimento da empresa não tem família: verifique o catálogo em Base de conhecimento › Famílias.'])
+        })
+
+        it('conta sem NENHUMA família-instância: o mesmo erro', async () => {
+            banco.db.orcamentista_materia_prima = []
+            expect((await falta())[0]).toBe('SEM_FAMILIA')
+        })
+
+        it('família SEM ETAPA cadastrada (a 2): erro nomeando a família e a etapa', async () => {
+            banco.db.orcamentista_familia_etapa = banco.db.orcamentista_familia_etapa.filter((e) => e.numero !== 2)
+            expect(await falta()).toEqual(['SEM_ETAPA', 'Falta de configuração — a família Esquadrias de PVC não tem a etapa 2 (Calcular as barras e os materiais) cadastrada: verifique o catálogo em Base de conhecimento › Etapas da família.'])
+        })
+
+        it('ETAPA SEM MOTOR (a 1): erro nomeando a etapa e a família', async () => {
+            banco.db.orcamentista_familia_etapa.find((e) => e.numero === 1)!.motor_id = null
+            expect(await falta()).toEqual(['ETAPA_SEM_MOTOR', 'Falta de configuração — a etapa 1 (Gerar o levantamento) da família Esquadrias de PVC não tem motor: verifique o catálogo em Base de conhecimento › Etapas da família.'])
+        })
+
+        it('MOTOR ARQUIVADO: erro nomeando o motor', async () => {
+            banco.db.orcamentista_motor[0].arquivado_em = '2026-11-01T12:00:00Z'
+            expect(await falta()).toEqual(['MOTOR_ARQUIVADO', 'Falta de configuração — o motor Motor_Wolf_PVC, da etapa 1 da família Esquadrias de PVC, está arquivado: verifique o catálogo em Catálogo › Motores.'])
+        })
+
+        it('MOTOR SEM CONTEÚDO importado (0 tipologias por motor_id) — com as tipologias da tabela lá: erro, e a lista por tabela_id não é lida', async () => {
+            banco.db.orcamentista_motor_tipologia_detalhe = banco.db.orcamentista_motor_tipologia_detalhe.filter((l) => l.motor_id !== MOTOR)
+            expect(banco.db.orcamentista_motor_tipologia_detalhe.length).toBeGreaterThan(0)
+            expect(await falta()).toEqual(['MOTOR_SEM_CONTEUDO', 'Falta de configuração — o motor Motor_Wolf_PVC, da etapa 1 da família Esquadrias de PVC, não tem tipologias importadas: verifique o catálogo em Catálogo › Motores.'])
+        })
+
+        it('família SEM NENHUMA TABELA VIGENTE (nenhum fornecedor vinculado): erro nomeando a família', async () => {
+            banco.db.orcamentista_mp_categoria_fornecedor = []
+            expect(await falta()).toEqual(['SEM_TABELA_VIGENTE', 'Falta de configuração — a família PVC não tem nenhuma tabela de preço vigente: verifique o catálogo em Catálogo › Fornecedores.'])
+        })
+
+        it('família sem tabela vigente porque a única tabela é de OUTRA família: o mesmo erro', async () => {
+            banco.db.orcamentista_tabela[0].familia = 'ALUMINIO'
+            expect((await falta())[0]).toBe('SEM_TABELA_VIGENTE')
+        })
+
+        it('duas tabelas no mesmo grupo e nenhuma marcada vigente: recusa nomeada SEM_VIGENTE, não escolho', async () => {
+            banco.db.orcamentista_tabela.push({ id: 'tabela-2', fornecedor_id: 'f-wolff', arquivo_nome: 'Wolff 2.xlsx', familia: 'PVC', categoria_chave: 'PERFIL', vigente: false })
+            expect(await falta()).toEqual(['SEM_VIGENTE', M().fraseSemVigente('Wolff Perfis', 'PVC', 2)])
+            // com a marca, a marcada vale — e só ela
+            banco.db.orcamentista_tabela[1].vigente = true
+            const t = await M().lerFamiliasDaEmpresa(TENANT)
+            expect('familias' in t && t.familias[0].tabelasDePreco).toEqual(['tabela-2'])
+        })
+
+        it('duas instâncias da mesma família com MOTORES DIFERENTES na mesma etapa: erro de configuração', async () => {
+            banco.db.orcamentista_materia_prima.push({ id: 'mp-pvc-2', tenant_id: TENANT, nome: 'PVC da obra', familia: 'PVC' })
+            banco.db.orcamentista_familia_etapa.push(
+                { tenant_id: TENANT, materia_prima_id: 'mp-pvc-2', numero: 1, motor_id: MOTOR }, { tenant_id: TENANT, materia_prima_id: 'mp-pvc-2', numero: 2, motor_id: 'motor-outro' })
+            expect(await falta()).toEqual(['MOTORES_DIVERGENTES', 'Falta de configuração — as famílias Esquadrias de PVC e PVC da obra (PVC) apontam motores diferentes na etapa 2: verifique o catálogo em Base de conhecimento › Etapas da família.'])
+        })
+
+        it('o motor com linhas na lista mas NENHUM código válido (tipologia vazia): recusa nomeando o motor e a família — não segue com lista vazia', async () => {
+            banco.db.orcamentista_motor_tipologia_detalhe = [{ tabela_id: null, motor_id: MOTOR, tipologia: '', descricao: 'SEM CÓDIGO', tipo: 'Correr', ordem: null }, ...comConteudoPorTabelaSo()]
+            const t = await M().lerFamiliasDaEmpresa(TENANT)
+            expect('frase' in t && [t.motivo, t.frase, t.detalhe]).toEqual(['SEM_LISTA_DE_TIPOLOGIAS', M().fraseSemListaDoMotor('Motor_Wolf_PVC', 'PVC'), 'linhas=0'])
+            expect(M().fraseSemListaDoMotor('Motor_Wolf_PVC', 'PVC')).toContain('Motor_Wolf_PVC')
+        })
+
+        it('a lista de tipologias AINDA NÃO EXISTE no banco: recusa nomeada, nunca a lista de outro lugar', async () => {
+            banco.ausentes.add('orcamentista_motor_tipologia_detalhe')
+            const t = await M().lerFamiliasDaEmpresa(TENANT)
+            expect('frase' in t && [t.motivo, t.frase, t.detalhe]).toEqual([
+                'SEM_LISTA_DE_TIPOLOGIAS', 'Ainda não consigo escolher a tipologia: a lista de tipologias do motor, com a descrição de cada uma, ainda não foi carregada.', 'codigo=PGRST205'])
+        })
+    })
+
+    /**
+     * 2+ FAMÍLIAS (item 1 do pedido): junta as tipologias dos motores de cada família, e cada uma sabe de qual família e de
+     * qual motor é. A segunda família tem motor PRÓPRIO (Motor_Sul_ALU, do fornecedor Perfis Sul) e tabela de preço própria.
+     */
+    const comOutraFamilia = () => {
+        banco.db.orcamentista_materia_prima.push({ id: 'mp-alu', tenant_id: TENANT, nome: 'Esquadrias de alumínio', familia: 'ALUMINIO' })
+        banco.db.orcamentista_familia_etapa.push(
+            { tenant_id: TENANT, materia_prima_id: 'mp-alu', numero: 1, motor_id: MOTOR_SUL }, { tenant_id: TENANT, materia_prima_id: 'mp-alu', numero: 2, motor_id: MOTOR_SUL })
+        banco.db.orcamentista_motor.push({ id: MOTOR_SUL, nome: 'Motor_Sul_ALU', fornecedor_id: 'f-sul', arquivado_em: null })
+        banco.db.orcamentista_mp_categoria_fornecedor.push({ tenant_id: TENANT, mp_categoria_id: 'c-perfil', fornecedor_id: 'f-sul' })
+        banco.db.orcamentista_tabela.push({ id: OUTRA, fornecedor_id: 'f-sul', arquivo_nome: 'Sul 2026.xlsx', familia: 'ALUMINIO', categoria_chave: 'PERFIL', vigente: false })
         banco.db.orcamentista_fornecedor.push({ id: 'f-sul', nome: 'Perfis Sul' })
         banco.db.orcamentista_motor_tipologia_detalhe.push(
-            { tabela_id: OUTRA, tipologia: 'DP-02', descricao: 'JANELA DE CORRER 02 FOLHAS | LINHA SUL', tipo: 'Correr', ordem: null },
-            { tabela_id: OUTRA, tipologia: 'SU-07', descricao: 'PORTA PIVOTANTE | LINHA SUL', tipo: 'Porta', ordem: null },
+            { tabela_id: null, motor_id: MOTOR_SUL, tipologia: 'DP-02', descricao: 'JANELA DE CORRER 02 FOLHAS | LINHA SUL', tipo: 'Correr', ordem: null },
+            { tabela_id: null, motor_id: MOTOR_SUL, tipologia: 'SU-07', descricao: 'PORTA PIVOTANTE | LINHA SUL', tipo: 'Porta', ordem: null },
         )
     }
 
-    it('DUAS TABELAS de fornecedores diferentes: a lista junta as duas, e cada tipologia traz a tabela e o fornecedor dela', async () => {
-        comOutraTabela()
-        const t = await M().lerTabelaDaEmpresa(TENANT)
+    it('DUAS FAMÍLIAS: a lista junta os dois motores, e cada tipologia traz a família e o fornecedor do motor dela', async () => {
+        comOutraFamilia()
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
         if (!('candidatos' in t)) throw new Error('era para ler a lista: ' + t.frase)
-        expect(t.tabelas).toEqual([{ tabelaId: OUTRA, fornecedor: 'Perfis Sul', familia: 'Alumínio' }, { tabelaId: TABELA, fornecedor: 'Wolff Perfis', familia: 'PVC' }])
-        expect(t.candidatos.map((c) => [c.tipologia, c.fornecedor])).toEqual([
-            ['DP-01', 'Wolff Perfis'], ['DP-02', 'Perfis Sul'], ['DP-02', 'Wolff Perfis'], ['SU-07', 'Perfis Sul'],
+        expect(t.familias.map((f) => [f.familia, f.rotulo, f.fornecedor, f.levantamento.id, f.calculo.id, f.tabelasDePreco])).toEqual([
+            ['ALUMINIO', 'Alumínio', 'Perfis Sul', MOTOR_SUL, MOTOR_SUL, [OUTRA]], ['PVC', 'PVC', 'Wolff Perfis', MOTOR, MOTOR, [TABELA]],
         ])
-        expect(t.candidatos.find((c) => c.tipologia === 'SU-07')?.tabelaId).toBe(OUTRA)
-        // com mais de uma tabela, a linha do prompt diz o fornecedor; com uma só, é a de sempre
-        expect(M().linhaDoCandidato(t.candidatos[1], true)).toBe('DP-02 | JANELA DE CORRER 02 FOLHAS | LINHA SUL | Correr | fornecedor: Perfis Sul | família: Alumínio')
+        expect(t.candidatos.map((c) => [c.tipologia, c.familia])).toEqual([['DP-01', 'PVC'], ['DP-02', 'ALUMINIO'], ['DP-02', 'PVC'], ['SU-07', 'ALUMINIO']])
+        // com mais de uma família, a linha do prompt diz a família e o fornecedor; com uma só, é a de sempre
+        expect(M().linhaDoCandidato(t.candidatos[1], true)).toBe('DP-02 | JANELA DE CORRER 02 FOLHAS | LINHA SUL | Correr | família: Alumínio | fornecedor: Perfis Sul')
         expect(M().linhaDoCandidato(t.candidatos[1], false)).toBe('DP-02 | JANELA DE CORRER 02 FOLHAS | LINHA SUL | Correr')
-        expect(M().tabelasDoCodigo(t)('DP-02')).toEqual([{ tabelaId: OUTRA, fornecedor: 'Perfis Sul', familia: 'Alumínio' }, { tabelaId: TABELA, fornecedor: 'Wolff Perfis', familia: 'PVC' }])
+        expect(M().familiasDoCodigo(t)('DP-02')).toEqual([
+            { familia: 'ALUMINIO', rotulo: 'Alumínio', fornecedor: 'Perfis Sul', motorId: MOTOR_SUL }, { familia: 'PVC', rotulo: 'PVC', fornecedor: 'Wolff Perfis', motorId: MOTOR },
+        ])
+        expect(M().familiasDoCodigo(t)('SU-07').map((f) => f.familia)).toEqual(['ALUMINIO'])
+    })
+
+    it('a etapa 2 com OUTRO motor que a 1: a lista vem do motor da 1, e o cálculo é o motor da 2', async () => {
+        banco.db.orcamentista_motor.push({ id: 'motor-calculo', nome: 'Motor_Calculo', fornecedor_id: 'f-wolff', arquivado_em: null })
+        banco.db.orcamentista_motor_tipologia_detalhe.push({ tabela_id: null, motor_id: 'motor-calculo', tipologia: 'ZZ-01', descricao: 'SÓ NO DO CÁLCULO', tipo: 'Correr', ordem: null })
+        banco.db.orcamentista_familia_etapa.find((e) => e.numero === 2)!.motor_id = 'motor-calculo'
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
+        if (!('candidatos' in t)) throw new Error('era para ler a lista: ' + t.frase)
+        expect(t.candidatos.map((c) => c.tipologia)).toEqual(['DP-01', 'DP-02'])
+        expect([t.familias[0].levantamento.id, t.familias[0].calculo.id]).toEqual([MOTOR, 'motor-calculo'])
+        expect(M().familiasDoCodigo(t)('DP-02')[0].motorId).toBe('motor-calculo')
+        // o CÁLCULO lê as abas do motor da etapa 2, que não tem a DP-02: recusa nomeada — as abas do motor da 1 não valem para ele
+        const r = await M().mensagemDoLevantamento(TENANT, t, lev({ escolhas: { ARI: 4, ARE: 1, MAE: 2 } }))
+        expect(r.desfecho).toBe('recusou')
+        expect(r.texto).toContain(M().fraseDaTipologiaSemAbas('DP-02'))
+    })
+
+    it('o contraste: com as abas, as regras e o tempo da DP-02 no motor da etapa 2 (com OUTROS códigos), a conta sai com os códigos DELE', async () => {
+        banco.db.orcamentista_motor.push({ id: 'motor-calculo', nome: 'Motor_Calculo', fornecedor_id: 'f-wolff', arquivado_em: null })
+        banco.db.orcamentista_motor_tipologia_detalhe.push({ tabela_id: null, motor_id: 'motor-calculo', tipologia: 'ZZ-01', descricao: 'SÓ NO DO CÁLCULO', tipo: 'Correr', ordem: null })
+        banco.db.orcamentista_familia_etapa.find((e) => e.numero === 2)!.motor_id = 'motor-calculo'
+        // as abas inteiras, a Detalhe junto (o cálculo também a lê); a lista de candidatas continua a do motor da etapa 1
+        for (const [tab, linhas] of Object.entries(abasDaDP02NoBanco('motor-calculo', 'motor') as Record<string, Linha[]>)) banco.db[tab] = [...(banco.db[tab] ?? []), ...linhas]
+        banco.db.orcamentista_motor_tipologia.push({ tabela_id: null, motor_id: 'motor-calculo', tipologia: 'DP-02', linha: 'EUROPA 42', tempo_fabricacao_min: 999, tempo_origem: 'ESTIMADO' })
+        banco.db.orcamentista_motor_regra.push(...DE_PARA.regras.map((x) => comId({ ...x, codigo: `K${String(x.codigo)}`, tabela_id: null, motor_id: 'motor-calculo', tipologias: ['DP-02'] })))
+        banco.db.orcamentista_tabela_item.push(...DE_PARA.itens.map((x) => ({ ...x, codigo: `K${String(x.codigo)}`, tabela_id: TABELA })))
+        banco.db.orcamentista_motor_tipologia_tempo.push({ tabela_id: null, motor_id: 'motor-calculo', tipologia: 'DP-02', tempo_fabricacao_min: 150, tempo_origem: 'IMPORTADO' })
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
+        const r = await M().mensagemDoLevantamento(TENANT, t, lev({ escolhas: { ARI: 4, ARE: 1, MAE: 2 } }))
+        expect(r.desfecho).toBe('levantou')
+        const barras = r.texto.split('\n').filter((l) => l.startsWith('• ')).map((l) => l.slice(2).split(' ')[0])
+        expect(barras.length).toBeGreaterThan(0)
+        expect(barras.every((c) => c.startsWith('K'))).toBe(true)
+        expect(t.ok && t.candidatos.map((c) => c.tipologia)).toEqual(['DP-01', 'DP-02'])
     })
 
     /**
-     * O MESMO FORNECEDOR com FAMÍLIAS diferentes é legítimo (dono do produto, 26/10/2026: "a Wolf é exatamente
-     * um candidato" — PVC e alumínio). A desambiguação é por FORNECEDOR + FAMÍLIA; só fornecedor E família
-     * iguais não se distinguem para o vendedor, e aí é recusa.
-     */
-    it('o MESMO fornecedor com famílias DIFERENTES: as duas tabelas entram, e cada tipologia sabe a família', async () => {
-        comOutraTabela('f-wolff', 'ALUMINIO')
-        const t = await M().lerTabelaDaEmpresa(TENANT)
-        if (!('candidatos' in t)) throw new Error('era para ler a lista: ' + t.frase)
-        expect(M().tabelasDoCodigo(t)('DP-02')).toEqual([{ tabelaId: OUTRA, fornecedor: 'Wolff Perfis', familia: 'Alumínio' }, { tabelaId: TABELA, fornecedor: 'Wolff Perfis', familia: 'PVC' }])
-    })
-
-    it('o MESMO fornecedor e a MESMA família, nenhuma vigente: recusa nomeando fornecedor e família (a vigente decide, 26/10/2026)', async () => {
-        comOutraTabela('f-wolff', 'PVC')
-        const t = await M().lerTabelaDaEmpresa(TENANT)
-        expect('frase' in t && [t.motivo, t.frase]).toEqual(['SEM_VIGENTE', M().fraseSemVigente('Wolff Perfis', 'PVC', 2)])
-    })
-
-    it('DOIS fornecedores com o mesmo NOME e a mesma família: nada os distingue para o vendedor — recusa nomeando fornecedor e família', async () => {
-        banco.db.orcamentista_fornecedor.push({ id: 'f-wolff-2', nome: 'WOLFF PERFIS' })
-        comOutraTabela('f-wolff-2', 'PVC')
-        const t = await M().lerTabelaDaEmpresa(TENANT)
-        expect('frase' in t && t.motivo).toBe('TABELA_REPETIDA')
-        expect(M().fraseDeTabelaRepetida('Wolff Perfis', 'PVC', 2)).toBe(
-            'Ainda não consigo escolher a tipologia: a sua empresa tem 2 tabelas do fornecedor Wolff Perfis, da família PVC, ligadas ao orçamentista, e nada as distingue: não escolho entre elas.')
-        expect(M().fraseDeTabelaRepetida('Wolff Perfis', null, 2)).toContain('sem a família informada')
-    })
-
-    // MUDOU em 26/10/2026 (dono do produto): quem decide é o MOTOR. Tabela sem tipologias é TABELA DE PREÇO e
-    // não entra na conversa — antes, ela recusava a conversa inteira com `fraseSemListaDoFornecedor`.
-    it('uma das tabelas SEM a lista de tipologias é tabela de PREÇO: fica fora, e a conversa segue com a outra', async () => {
-        comOutraTabela()
-        banco.db.orcamentista_motor_tipologia_detalhe = banco.db.orcamentista_motor_tipologia_detalhe.filter((l) => l.tabela_id !== OUTRA)
-        const t = await M().lerTabelaDaEmpresa(TENANT)
-        if (!('candidatos' in t)) throw new Error('era para ler a lista: ' + t.frase)
-        expect(t.tabelas).toEqual([{ tabelaId: TABELA, fornecedor: 'Wolff Perfis', familia: 'PVC' }])
-        expect(t.candidatos.every((c) => c.tabelaId === TABELA)).toBe(true)
-    })
-
-    /**
-     * DUAS FAMÍLIAS NO MESMO LEVANTAMENTO é o caso NORMAL (dono do produto, 26/10/2026: "é PVC ou alumínio?
-     * Pode ter os dois, inclusive"). Cada família vira um produto: o cálculo e o agrupamento de barras rodam
-     * UMA VEZ POR FAMÍLIA, com a tabela do fornecedor dela, e nenhuma barra atravessa de uma para a outra.
-     * A segunda tabela aqui é uma cópia da Wolff com os CÓDIGOS trocados (S…): é o que deixa ver de onde veio
-     * cada barra.
+     * DUAS FAMÍLIAS NO MESMO LEVANTAMENTO: cada família vira um produto, calculado com o MOTOR DELA (abas e regras por motor_id)
+     * e as TABELAS DE PREÇO dela (por tabela_id). A segunda família é uma cópia da Wolff com os CÓDIGOS trocados (S…): é o que
+     * deixa ver de onde veio cada barra.
      */
     const comSegundaFamiliaCalculavel = () => {
-        comOutraTabela('f-sul', 'ALUMINIO')
-        const abas = abasDaDP02NoBanco(OUTRA) as Record<string, Linha[]>
+        comOutraFamilia()
+        const abas = abasDaDP02NoBanco(MOTOR_SUL, 'motor') as Record<string, Linha[]>
         for (const [t, linhas] of Object.entries(abas)) {
             if (t === 'orcamentista_motor_tipologia_detalhe') continue
             banco.db[t] = [...(banco.db[t] ?? []), ...linhas]
         }
-        banco.db.orcamentista_motor_regra.push(...DE_PARA.regras.map((r) => comId({ ...r, codigo: `S${String(r.codigo)}`, tabela_id: OUTRA, tipologias: ['DP-02'] })))
+        banco.db.orcamentista_motor_regra.push(...DE_PARA.regras.map((r) => comId({ ...r, codigo: `S${String(r.codigo)}`, tabela_id: null, motor_id: MOTOR_SUL, tipologias: ['DP-02'] })))
         banco.db.orcamentista_tabela_item.push(...DE_PARA.itens.map((it) => ({ ...it, codigo: `S${String(it.codigo)}`, tabela_id: OUTRA })))
-        banco.db.orcamentista_motor_tipologia_tempo.push({ tabela_id: OUTRA, tipologia: 'DP-02', tempo_fabricacao_min: 150, tempo_origem: 'IMPORTADO' })
+        banco.db.orcamentista_motor_tipologia_tempo.push({ tabela_id: null, motor_id: MOTOR_SUL, tipologia: 'DP-02', tempo_fabricacao_min: 150, tempo_origem: 'IMPORTADO' })
     }
     const duasFamilias = () => ({
         nome: 'Casa do João',
         itens: [
-            { ...ESQUADRIA, escolhas: { ARI: 4, ARE: 1, MAE: 2 }, tabela_id: TABELA },
-            { ...ESQUADRIA, ordem: 2, escolhas: { ARI: 4, ARE: 1, MAE: 2 }, tabela_id: OUTRA },
+            { ...ESQUADRIA, escolhas: { ARI: 4, ARE: 1, MAE: 2 }, familia: 'PVC' },
+            { ...ESQUADRIA, ordem: 2, escolhas: { ARI: 4, ARE: 1, MAE: 2 }, familia: 'ALUMINIO' },
         ],
     })
     const barrasDo = (bloco: string) => bloco.split('\n').filter((l) => l.startsWith('• ')).map((l) => l.slice(2).split(' ')[0])
 
-    it('DUAS FAMÍLIAS no mesmo levantamento: calcula, e sai UMA relação por família, cada uma com as barras do seu fornecedor', async () => {
+    it('DUAS FAMÍLIAS no mesmo levantamento: calcula, e sai UMA relação por família, cada uma com as barras do seu motor e do seu preço', async () => {
         comSegundaFamiliaCalculavel()
-        const t = await M().lerTabelaDaEmpresa(TENANT)
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
         const r = await M().mensagemDoLevantamento(TENANT, t, duasFamilias())
         expect(r.desfecho).toBe('levantou')
         const blocos = r.texto.split(/\n(?=Família )/)
         const pvc = blocos.find((b) => b.startsWith('Família PVC — Wolff Perfis'))
         const aluminio = blocos.find((b) => b.startsWith('Família Alumínio — Perfis Sul'))
         if (!pvc || !aluminio) throw new Error('faltou o bloco de uma família:\n' + r.texto)
-        // cada família com as barras do SEU fornecedor, e nenhuma barra atravessa
         expect(barrasDo(pvc).length).toBeGreaterThan(0)
         expect(barrasDo(pvc).every((c) => !c.startsWith('S'))).toBe(true)
         expect(barrasDo(aluminio).length).toBeGreaterThan(0)
         expect(barrasDo(aluminio).every((c) => c.startsWith('S'))).toBe(true)
-        // a otimização de cada uma é a de uma esquadria só: as mesmas barras do levantamento de uma tabela
         const umaSo = barrasDo(TEXTO_QUE_FECHA)
         expect(barrasDo(pvc)).toEqual(umaSo)
         expect(barrasDo(aluminio)).toEqual(umaSo.map((c) => `S${c}`))
-        // a esquadria guarda o número dela no levantamento: a 2 é a 2, no bloco do alumínio
         expect(aluminio).toContain('Esquadria 2: DP-02')
         expect(pvc).not.toContain('Esquadria 2:')
     })
 
     it('a mesma família com DUAS esquadrias continua UMA relação: o agrupamento junta as barras dentro da família', async () => {
-        comOutraTabela('f-sul', 'ALUMINIO')
-        const t = await M().lerTabelaDaEmpresa(TENANT)
+        comOutraFamilia()
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
         const r = await M().mensagemDoLevantamento(TENANT, t, {
             nome: 'Casa do João',
-            itens: [{ ...ESQUADRIA, escolhas: { ARI: 4, ARE: 1, MAE: 2 }, tabela_id: TABELA }, { ...ESQUADRIA, ordem: 2, escolhas: { ARI: 4, ARE: 1, MAE: 2 }, tabela_id: TABELA }],
+            itens: [{ ...ESQUADRIA, escolhas: { ARI: 4, ARE: 1, MAE: 2 }, familia: 'PVC' }, { ...ESQUADRIA, ordem: 2, escolhas: { ARI: 4, ARE: 1, MAE: 2 }, familia: 'PVC' }],
         })
         expect(r.desfecho).toBe('levantou')
         expect(r.texto.startsWith('Levantamento “Casa do João”, perfil BRANCO.')).toBe(true)
         expect(r.texto).not.toContain('Família ')
     })
 
-    it('a esquadria cuja tipologia está nas duas tabelas e não tem a tabela dita: recusa dizendo que falta o fornecedor', async () => {
-        comOutraTabela()
-        const t = await M().lerTabelaDaEmpresa(TENANT)
-        const r = await M().mensagemDoLevantamento(TENANT, t, { nome: 'Casa do João', itens: [{ ...ESQUADRIA, tabela_id: null }] })
+    it('a esquadria cuja tipologia está nos dois motores e não tem a família dita: recusa dizendo que falta a família', async () => {
+        comOutraFamilia()
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
+        const r = await M().mensagemDoLevantamento(TENANT, t, { nome: 'Casa do João', itens: [{ ...ESQUADRIA, familia: null }] })
         expect(r.desfecho).toBe('recusou')
-        expect(r.texto).toContain(M().fraseDaTipologiaSemFornecedor(1, 'DP-02', ['Perfis Sul', 'Wolff Perfis']))
+        expect(r.texto).toContain('A esquadria 1 (DP-02) está no motor de mais de uma família da empresa (Alumínio, PVC), e falta dizer de qual.')
     })
 
-    it('com a tabela dita, a esquadria calcula pela tabela DELA — o mesmo levantamento de uma tabela só', async () => {
-        comOutraTabela()
-        const t = await M().lerTabelaDaEmpresa(TENANT)
-        const r = await M().mensagemDoLevantamento(TENANT, t, lev({ escolhas: { ARI: 4, ARE: 1, MAE: 2 }, tabela_id: TABELA }))
+    it('com a família dita, a esquadria calcula pelo motor e pelo preço DELA — o mesmo levantamento de uma família só', async () => {
+        comOutraFamilia()
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
+        const r = await M().mensagemDoLevantamento(TENANT, t, lev({ escolhas: { ARI: 4, ARE: 1, MAE: 2 }, familia: 'PVC' }))
         expect(r).toEqual({ desfecho: 'levantou', texto: TEXTO_QUE_FECHA })
     })
 
-    it('a LISTA AINDA NÃO EXISTE (a tabela do banco não está lá): a frase diz que a lista não foi carregada', async () => {
-        banco.ausentes.add('orcamentista_motor_tipologia_detalhe')
-        const t = await M().lerTabelaDaEmpresa(TENANT)
-        expect('frase' in t && [t.motivo, t.frase, t.detalhe]).toEqual(['SEM_LISTA_DE_TIPOLOGIAS', M().FRASE_SEM_LISTA_DE_TIPOLOGIAS, 'codigo=PGRST205'])
+    it('a tipologia que nenhum motor tem: recusa nomeada', async () => {
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
+        const r = await M().mensagemDoLevantamento(TENANT, t, lev({ tipologia: 'XX-01' }))
+        expect(r.texto).toContain('A esquadria 1 (XX-01) não está na lista de tipologias do motor de nenhuma família da empresa.')
     })
 
-    // MUDOU em 26/10/2026: a tabela sem tipologias é tabela de PREÇO; sendo a única, NENHUMA tem motor — e a
-    // recusa diz isso, nomeando o fornecedor (antes: a frase de SEM_LISTA_DE_TIPOLOGIAS)
-    it('a lista existe e está VAZIA para a tabela da empresa: nenhuma tabela com motor — recusa nomeada', async () => {
-        banco.db.orcamentista_motor_tipologia_detalhe = []
-        const t = await M().lerTabelaDaEmpresa(TENANT)
-        expect('frase' in t && [t.motivo, t.frase]).toEqual(['SEM_MOTOR', M().fraseSemMotor(['Wolff Perfis'])])
+    it('a falta de configuração chega ao vendedor como recusa, com a frase do padrão', async () => {
+        banco.db.orcamentista_familia_etapa = []
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
+        const r = await M().mensagemDoLevantamento(TENANT, t, lev())
+        expect(r.desfecho).toBe('recusou')
+        expect(r.texto).toContain('• Falta de configuração — a família Esquadrias de PVC não tem a etapa 1 (Gerar o levantamento) cadastrada: verifique o catálogo em Base de conhecimento › Etapas da família.')
+    })
+})
+
+/**
+ * (1p) A DE PAULA COMO PRODUÇÃO ESTÁ, medida em 02/11/2026 (só leitura), com o PR D: 1 família (PVC, "Esquadrias de PVC WOLF"), as
+ * etapas 1 e 2 apontando o Motor_Wolf_PVC (`9a233c55`: 12.116 regras, 164 tipologias e 164 tempos, TODOS por motor_id e nenhum por
+ * tabela_id), e o preço nas duas tabelas vinculadas: a Wolf `21acfa75` (PVC, Perfil, 485 itens) e a Estrela `5f7acebf` (qualquer linha).
+ * As abas da DP-02 do motor de produção são as da fixture, conferidas por md5 coluna a coluna: Perfis 34 linhas `9293e816…`, Fórmulas
+ * 21 `8d93754e…`, Variáveis 19 `90def4b2…`, Validações 1 `f73ccaa3…`, Detalhe 1 `bd4fdca7…`. O que difere da fixture, e entra aqui:
+ * os códigos 1023, 8432 e 8433 não estão em NENHUMA tabela de preço do catálogo; o tempo é 300 min ESTIMADO; a carga horária, 176 h.
+ * O resultado é a recusa nomeada dos três códigos — nunca estimados, nunca escondidos.
+ */
+describe('(1p) a De Paula como produção está: o motor da família, e os códigos sem preço nomeados', () => {
+    it('a DP-02 recusa nomeando 1023, 8432 e 8433 — o preço é das tabelas da família, e o resto do levantamento não é inventado', async () => {
+        banco.db.orcamentista_tabela = [
+            { id: '21acfa75-e4e7-4de6-9b96-cdd95525467d', fornecedor_id: 'f-wolff', arquivo_nome: 'Tabela_Wolff_Perfis_PVC.xlsx', familia: 'PVC', categoria_chave: 'PERFIL', vigente: false },
+            { id: '5f7acebf-3c91-46de-af00-57a47f8be288', fornecedor_id: 'f-estrela', arquivo_nome: 'Estrela.xlsx', familia: null, categoria_chave: null, vigente: false },
+        ]
+        banco.db.orcamentista_fornecedor.push({ id: 'f-estrela', nome: 'INDUSTRIA DE VIDROS TEMPERADOS ESTRELA LTDA' })
+        banco.db.orcamentista_mp_categoria.push({ id: 'c-vidro', tenant_id: TENANT, categoria_chave: 'VIDRO', config: {} })
+        banco.db.orcamentista_mp_categoria_fornecedor.push({ tenant_id: TENANT, mp_categoria_id: 'c-vidro', fornecedor_id: 'f-estrela' })
+        banco.db.orcamentista_tabela_item = DE_PARA.itens.filter((i) => !['1023', '8432', '8433'].includes(String(i.codigo))).map((i) => ({ ...i, tabela_id: '21acfa75-e4e7-4de6-9b96-cdd95525467d' }))
+        banco.db.orcamentista_motor_tipologia_tempo = [{ tabela_id: null, motor_id: MOTOR, tipologia: 'DP-02', tempo_fabricacao_min: 300, tempo_origem: 'ESTIMADO' }]
+        banco.db.tenant_settings[0].monthly_workload = 176
+        banco.db.orcamentista_familia_etapa = banco.db.orcamentista_familia_etapa.filter((e) => e.numero !== 3)
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
+        if (!('familias' in t)) throw new Error('era para ler: ' + t.frase)
+        expect(t.familias.map((f) => [f.familia, f.levantamento.id, f.calculo.id, f.tabelasDePreco])).toEqual([
+            ['PVC', MOTOR, MOTOR, ['21acfa75-e4e7-4de6-9b96-cdd95525467d', '5f7acebf-3c91-46de-af00-57a47f8be288']],
+        ])
+        const r = await M().mensagemDoLevantamento(TENANT, t, lev({ escolhas: { ARI: 4, ARE: 1, MAE: 2 } }))
+        expect(r).toEqual({
+            desfecho: 'recusou',
+            texto: [
+                'Não consegui fechar o levantamento “Casa do João”, perfil BRANCO.',
+                'Esquadria 1: DP-02, 1.200 x 1.000 mm, 1 unidade(s).',
+                `Arremate e guarnição — ${DESCRITAS}.`,
+                'Falta:',
+                '• O código 1023 (perfil 1023/WOLFF) não está na tabela de preço. Falta: o item 1023, com a barra e o valor.',
+                '• O código 8432 (perfil 8432/WOLFF) não está na tabela de preço. Falta: o item 8432, com a barra e o valor.',
+                '• O código 8433 (perfil 8433/WOLFF) não está na tabela de preço. Falta: o item 8433, com a barra e o valor.',
+            ].join('\n'),
+        })
+        // o contraste: com os três na tabela de preço da família, a mesma esquadria fecha
+        banco.db.orcamentista_tabela_item.push(...DE_PARA.itens.filter((i) => ['1023', '8432', '8433'].includes(String(i.codigo))).map((i) => ({ ...i, tabela_id: '5f7acebf-3c91-46de-af00-57a47f8be288' })))
+        expect((await M().mensagemDoLevantamento(TENANT, t, lev({ escolhas: { ARI: 4, ARE: 1, MAE: 2 } }))).desfecho).toBe('levantou')
     })
 })
 
 describe('(2) o tempo de fabricação — da tabela própria, orcamentista_motor_tipologia_tempo', () => {
     it('lê o tempo e a origem da tabela própria — e NÃO das colunas antigas, que têm outro número', async () => {
-        expect(await M().tempoDeFabricacao(TABELA, 'DP-02')).toEqual({ minutos: 150, origem: 'IMPORTADO' })
+        expect(await M().tempoDeFabricacao(MOTOR, 'DP-02')).toEqual({ minutos: 150, origem: 'IMPORTADO' })
     })
 
     it('sem linha na tabela própria: null, nunca zero — mesmo com a coluna antiga preenchida', async () => {
-        banco.db.orcamentista_motor_tipologia.push({ tabela_id: TABELA, tipologia: 'DP-01', linha: 'DESIGN', tempo_fabricacao_min: 90, tempo_origem: 'ESTIMADO' })
-        expect(await M().tempoDeFabricacao(TABELA, 'DP-01')).toBeNull()
+        banco.db.orcamentista_motor_tipologia.push({ tabela_id: null, motor_id: MOTOR, tipologia: 'DP-01', linha: 'DESIGN', tempo_fabricacao_min: 90, tempo_origem: 'ESTIMADO' })
+        expect(await M().tempoDeFabricacao(MOTOR, 'DP-01')).toBeNull()
     })
 
-    it('o tempo da MESMA tipologia em outra tabela não é lido', async () => {
-        banco.db.orcamentista_motor_tipologia_tempo = [{ tabela_id: 'outra-tabela', tipologia: 'DP-02', tempo_fabricacao_min: 777, tempo_origem: 'ESTIMADO' }]
-        expect(await M().tempoDeFabricacao(TABELA, 'DP-02')).toBeNull()
+    it('o tempo da MESMA tipologia em outro motor não é lido', async () => {
+        banco.db.orcamentista_motor_tipologia_tempo = [{ tabela_id: null, motor_id: 'outro-motor', tipologia: 'DP-02', tempo_fabricacao_min: 777, tempo_origem: 'ESTIMADO' }]
+        expect(await M().tempoDeFabricacao(MOTOR, 'DP-02')).toBeNull()
+    })
+
+    it('o tempo gravado por tabela_id (a forma antiga) não é lido: a chave é o motor', async () => {
+        banco.db.orcamentista_motor_tipologia_tempo = [{ tabela_id: MOTOR, motor_id: null, tipologia: 'DP-02', tempo_fabricacao_min: 777, tempo_origem: 'ESTIMADO' }]
+        expect(await M().tempoDeFabricacao(MOTOR, 'DP-02')).toBeNull()
     })
 
     it('a tabela própria AINDA NÃO EXISTE no banco: ausência declarada, não "sem tempo" e não erro', async () => {
         banco.ausentes.add('orcamentista_motor_tipologia_tempo')
-        expect(await M().tempoDeFabricacao(TABELA, 'DP-02')).toEqual({ ausente: true })
+        expect(await M().tempoDeFabricacao(MOTOR, 'DP-02')).toEqual({ ausente: true })
     })
 })
 
@@ -376,12 +563,14 @@ describe('(3) a espessura do vidro', () => {
 
 describe('(4) as regras são lidas TODAS, página a página', () => {
     it('com 2.500 regras na tipologia, as 2.500 chegam — e as de outra tipologia, não', async () => {
-        const muitas = Array.from({ length: 2500 }, (_, k) => comId({ tabela_id: TABELA, codigo: `C${k}`, codigo_wvetro: `P${k}/WOLFF`, cor: 'BRANCO', tipologias: ['DP-07'] }))
+        const muitas = Array.from({ length: 2500 }, (_, k) => comId({ tabela_id: null, motor_id: MOTOR, codigo: `C${k}`, codigo_wvetro: `P${k}/WOLFF`, cor: 'BRANCO', tipologias: ['DP-07'] }))
         banco.db.orcamentista_motor_regra.push(...muitas)
-        const lidas = await M().lerRegras(TABELA, 'DP-07')
+        // as mesmas regras por tabela_id (a forma antiga) não entram
+        banco.db.orcamentista_motor_regra.push(comId({ tabela_id: MOTOR, codigo: 'INTRUSA', codigo_wvetro: 'X/WOLFF', cor: 'BRANCO', tipologias: ['DP-07'] }))
+        const lidas = await M().lerRegras(MOTOR, 'DP-07')
         expect(lidas).toHaveLength(2500)
         expect(new Set(lidas.map((r) => r.codigo)).size).toBe(2500)
-        expect(await M().lerRegras(TABELA, 'DP-02')).toHaveLength(DE_PARA.regras.length)
+        expect(await M().lerRegras(MOTOR, 'DP-02')).toHaveLength(DE_PARA.regras.length)
     })
 })
 
@@ -438,13 +627,13 @@ describe('(5) a mensagem do levantamento', () => {
 
 describe('(5b) as ESCOLHAS gravadas chegam ao avaliador', () => {
     it('com ARI 4, ARE 1 e MAE 2 gravados, a DP-02 FECHA — e o texto é o da conta à mão, com as escolhas', async () => {
-        const t = await M().lerTabelaDaEmpresa(TENANT)
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
         const r = await M().mensagemDoLevantamento(TENANT, t, lev({ escolhas: { ARI: 4, ARE: 1, MAE: 2 } }))
         expect(r).toEqual({ desfecho: 'levantou', texto: TEXTO_QUE_FECHA })
     })
 
     it('SEM escolhas, o PADRÃO fecha (decisões do dono do produto, 25/10/2026): MAE 1 = 0 mm, e o BZ0012 pela variante única', async () => {
-        const t = await M().lerTabelaDaEmpresa(TENANT)
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
         const r = await M().mensagemDoLevantamento(TENANT, t, lev())
         expect(r.desfecho).toBe('levantou')
         expect(r.texto).toContain('• 10491 (BZ0012/WOLFF): 1 barra(s) de 6 m')
@@ -457,7 +646,7 @@ describe('(5b) as ESCOLHAS gravadas chegam ao avaliador', () => {
     })
 
     it('uma chave que não é capturada, no jsonb, não vira escolha: {"MAI": 2} sozinho não muda nada', async () => {
-        const t = await M().lerTabelaDaEmpresa(TENANT)
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
         const r = await M().mensagemDoLevantamento(TENANT, t, lev({ escolhas: { MAI: 2 } }))
         // MAI não é capturada: a linha do arremate é a do padrão, como sem chave nenhuma
         expect(r.texto).toContain('Arremate e guarnição — arremate interno: BZ0006 - ARREMATE 65MM (padrão)')
@@ -466,7 +655,7 @@ describe('(5b) as ESCOLHAS gravadas chegam ao avaliador', () => {
 
 describe('(6) a RECUSA chega como texto, inteira e nomeada', () => {
     it('uma escolha gravada que não é opção (MAE 9): recusa nomeada, em português e sem o prefixo de esquadria', async () => {
-        const t = await M().lerTabelaDaEmpresa(TENANT)
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
         const r = await M().mensagemDoLevantamento(TENANT, t, lev({ escolhas: { MAE: 9 } }))
         expect(r.desfecho).toBe('recusou')
         expect(r.texto.startsWith('Não consegui fechar o levantamento “Casa do João”, perfil BRANCO.\nEsquadria 1: DP-02, 1.200 x 1.000 mm, 1 unidade(s).\n')).toBe(true)
@@ -478,14 +667,14 @@ describe('(6) a RECUSA chega como texto, inteira e nomeada', () => {
     })
 
     it('o arremate interno de 70 mm (BZ1770), que tem várias variantes e nenhuma branca: recusa nomeando o código e a cor', async () => {
-        const t = await M().lerTabelaDaEmpresa(TENANT)
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
         const r = await M().mensagemDoLevantamento(TENANT, t, lev({ escolhas: { ARI: 2, MAE: 2 } }))
         expect(r.desfecho).toBe('recusou')
         expect(r.texto).toContain('O perfil BZ1770/WOLFF não tem código para a cor BRANCO na tabela do fornecedor')
     })
 
     it('OUTRO DP: "a tipologia DP-01 não tem as abas do motor importadas"', async () => {
-        const t = await M().lerTabelaDaEmpresa(TENANT)
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
         const r = await M().mensagemDoLevantamento(TENANT, t, lev({ tipologia: 'DP-01' }))
         expect(r).toEqual({
             desfecho: 'recusou',
@@ -495,35 +684,34 @@ describe('(6) a RECUSA chega como texto, inteira e nomeada', () => {
         })
     })
 
-    it('a DP-02 de OUTRA TABELA também não tem abas: as da Wolff não valem para outro fornecedor', async () => {
-        banco.db.orcamentista_mp_categoria_fornecedor = [{ tenant_id: TENANT, mp_categoria_id: 'c-perfil', fornecedor_id: 'f-outro' }]
-        banco.db.orcamentista_fornecedor.push({ id: 'f-outro', nome: 'Outro Fornecedor' })
-        banco.db.orcamentista_tabela.push({ id: 'tabela-de-outro-fornecedor', fornecedor_id: 'f-outro', arquivo_nome: 'Outra.xlsx', familia: 'PVC', vigente: false })
-        banco.db.orcamentista_motor_tipologia_detalhe.push({ tabela_id: 'tabela-de-outro-fornecedor', tipologia: 'DP-02', descricao: 'OUTRA', tipo: 'Correr', ordem: null })
-        const t = await M().lerTabelaDaEmpresa(TENANT)
+    it('a DP-02 de OUTRO MOTOR também não tem abas: as do Motor_Wolf_PVC não valem para outro motor', async () => {
+        banco.db.orcamentista_motor.push({ id: 'motor-de-outro-fornecedor', nome: 'Motor_Outro', fornecedor_id: 'f-wolff', arquivado_em: null })
+        for (const e of banco.db.orcamentista_familia_etapa) if (e.numero !== 3) e.motor_id = 'motor-de-outro-fornecedor'
+        banco.db.orcamentista_motor_tipologia_detalhe.push({ tabela_id: null, motor_id: 'motor-de-outro-fornecedor', tipologia: 'DP-02', descricao: 'OUTRA', tipo: 'Correr', ordem: null })
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
         const r = await M().mensagemDoLevantamento(TENANT, t, lev())
         expect(r.texto).toContain(M().fraseDaTipologiaSemAbas('DP-02'))
     })
 
     it('SEM SERRA na base de conhecimento: a recusa diz que falta a serra', async () => {
         delete (banco.db.orcamentista_mp_categoria[0].config as Linha).serra_mm
-        const t = await M().lerTabelaDaEmpresa(TENANT)
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
         const r = await M().mensagemDoLevantamento(TENANT, t, lev())
         expect(r.texto).toContain('• A largura da serra não está na base de conhecimento da empresa (categoria Perfil). Falta: a serra, em mm.')
     })
 
     it('DUAS SERRAS diferentes: não escolhe uma', async () => {
         banco.db.orcamentista_mp_categoria.push({ tenant_id: TENANT, categoria_chave: 'PERFIL', config: { serra_mm: 4 } })
-        const t = await M().lerTabelaDaEmpresa(TENANT)
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
         const r = await M().mensagemDoLevantamento(TENANT, t, lev())
         expect(r.texto).toContain('2 larguras de serra diferentes')
     })
 
-    it('a empresa SEM TABELA, no fechamento: a recusa diz isso, em português', async () => {
+    it('a empresa SEM TABELA de preço, no fechamento: a recusa diz isso, em português, com o padrão da falta de configuração', async () => {
         banco.db.orcamentista_mp_categoria_fornecedor = []
-        const t = await M().lerTabelaDaEmpresa(TENANT)
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
         const r = await M().mensagemDoLevantamento(TENANT, t, lev())
-        expect(r.texto).toContain('• A base de conhecimento da sua empresa não vincula nenhum fornecedor com tabela cadastrada.')
+        expect(r.texto).toContain('• Falta de configuração — a família PVC não tem nenhuma tabela de preço vigente: verifique o catálogo em Catálogo › Fornecedores.')
     })
 
     it('mais de 8 faltas: as 8 primeiras e a contagem do resto — nenhuma calada', () => {
@@ -536,24 +724,24 @@ describe('(6) a RECUSA chega como texto, inteira e nomeada', () => {
 
 describe('(7) a MÃO DE OBRA — o mesmo caminho da tela de produto, com os números de produção', () => {
     it('INDUSTRIALIZACAO: custo do Hub ÷ (5 × 528 h × 60 min) × 150 min = R$ 38,65 — a administrativa e a fixa NÃO entram', async () => {
-        expect(await M().lerMaoDeObra(TENANT, TABELA, 'DP-02', 1)).toEqual(MAO_DE_OBRA)
+        expect(await M().lerMaoDeObra(TENANT, MOTOR, 'DP-02', 1)).toEqual(MAO_DE_OBRA)
     })
 
     it('SERVICO: a administrativa e a fixa ENTRAM no custo do minuto (custoMensalDeMaoDeObra) — o segmento decide', async () => {
         banco.db.tenant_settings[0].calc_type = 'SERVICO'
-        const mo = await M().lerMaoDeObra(TENANT, TABELA, 'DP-02', 1)
+        const mo = await M().lerMaoDeObra(TENANT, MOTOR, 'DP-02', 1)
         // 40.813,03 + 27.649,76 + 17.884,79 = 86.347,58; ÷ 158.400 × 150 = 81,7685 → 81,77
         // a soma é a da tela, em ponto flutuante, na mesma ordem — não um literal arredondado
         expect(mo).toEqual({ ...MAO_DE_OBRA, custoMensal: 40813.03 + (27649.76 + 0 + 0) + 17884.79, porUnidade: 81.77, total: 81.77 })
     })
 
     it('a quantidade multiplica: 3 unidades', async () => {
-        expect(await M().lerMaoDeObra(TENANT, TABELA, 'DP-02', 3)).toEqual({ ...MAO_DE_OBRA, quantidade: 3, total: 115.95 })
+        expect(await M().lerMaoDeObra(TENANT, MOTOR, 'DP-02', 3)).toEqual({ ...MAO_DE_OBRA, quantidade: 3, total: 115.95 })
     })
 
     it('productive_value_per_minute NÃO é lido: com 9,99 gravado nele, o número é o mesmo', async () => {
         banco.db.tenant_expense_config[0].productive_value_per_minute = 9.99
-        expect(await M().lerMaoDeObra(TENANT, TABELA, 'DP-02', 1)).toEqual(MAO_DE_OBRA)
+        expect(await M().lerMaoDeObra(TENANT, MOTOR, 'DP-02', 1)).toEqual(MAO_DE_OBRA)
     })
 
     it.each([
@@ -567,19 +755,19 @@ describe('(7) a MÃO DE OBRA — o mesmo caminho da tela de produto, com os núm
         ['empresa de REVENDA', () => { banco.db.tenant_settings[0].calc_type = 'REVENDA' }, 'a empresa está configurada como revenda, e na revenda o tempo de fabricação não entra no custo'],
     ])('%s: a falta é NOMEADA — nunca zero', async (_nome, preparar, falta) => {
         preparar()
-        expect(await M().lerMaoDeObra(TENANT, TABELA, 'DP-02', 1)).toEqual({ ok: false, falta })
+        expect(await M().lerMaoDeObra(TENANT, MOTOR, 'DP-02', 1)).toEqual({ ok: false, falta })
     })
 })
 
 describe('(8) a COR é a da pré-definição, comparada exata com a coluna cor do motor', () => {
     it('em BRANCO, a DP-02 fecha — e o cabeçalho diz BRANCO', async () => {
-        const t = await M().lerTabelaDaEmpresa(TENANT)
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
         const r = await M().mensagemDoLevantamento(TENANT, t, lev({ escolhas: { ARI: 4, ARE: 1, MAE: 2 } }))
         expect(r).toEqual({ desfecho: 'levantou', texto: TEXTO_QUE_FECHA })
     })
 
     it('em PRETO TEXTURADO, a mesma esquadria é RECUSADA nomeando o perfil e a cor — nenhuma cor parecida entra', async () => {
-        const t = await M().lerTabelaDaEmpresa(TENANT)
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
         const r = await M().mensagemDoLevantamento(TENANT, t, lev({ cor_perfil: 'PRETO TEXTURADO', escolhas: { ARI: 4, ARE: 1, MAE: 2 } }))
         expect(r.desfecho).toBe('recusou')
         expect(r.texto.startsWith('Não consegui fechar o levantamento “Casa do João”, perfil PRETO TEXTURADO.\nEsquadria 1: DP-02, 1.200 x 1.000 mm, 1 unidade(s).\n')).toBe(true)
@@ -587,14 +775,14 @@ describe('(8) a COR é a da pré-definição, comparada exata com a coluna cor d
     })
 
     it('"Branco" não é BRANCO: a caixa diferente é recusada, não normalizada', async () => {
-        const t = await M().lerTabelaDaEmpresa(TENANT)
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
         const r = await M().mensagemDoLevantamento(TENANT, t, lev({ cor_perfil: 'Branco', escolhas: { ARI: 4, ARE: 1, MAE: 2 } }))
         expect(r.desfecho).toBe('recusou')
         expect(r.texto).toContain('não tem código para a cor Branco')
     })
 
     it('SEM COR na pré-definição: a recusa diz que falta a cor do perfil', async () => {
-        const t = await M().lerTabelaDaEmpresa(TENANT)
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
         const r = await M().mensagemDoLevantamento(TENANT, t, lev({ cor_perfil: null, escolhas: { ARI: 4, ARE: 1, MAE: 2 } }))
         expect(r.desfecho).toBe('recusou')
         expect(r.texto).toContain('• A esquadria 1 está sem a cor do perfil.')
@@ -640,7 +828,7 @@ describe('(9) o levantamento com N esquadrias', () => {
     })
 
     it('CORES DIFERENTES no mesmo levantamento: recusa nomeada, com a cor de cada esquadria', async () => {
-        const t = await M().lerTabelaDaEmpresa(TENANT)
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
         const r = await M().mensagemDoLevantamento(TENANT, t, {
             nome: 'Casa do João',
             itens: [{ ...ESQUADRIA, escolhas: { ARI: 4, ARE: 1, MAE: 2 } }, { ...ESQUADRIA, ordem: 2, cor_perfil: 'PRETO TEXTURADO', escolhas: { ARI: 4, ARE: 2 } }],
@@ -650,7 +838,7 @@ describe('(9) o levantamento com N esquadrias', () => {
     })
 
     it('DUAS esquadrias DP-02 iguais: as barras são do levantamento inteiro, e a mão de obra é a das duas', async () => {
-        const t = await M().lerTabelaDaEmpresa(TENANT)
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
         const uma = await M().mensagemDoLevantamento(TENANT, t, lev({ escolhas: { ARI: 4, ARE: 1, MAE: 2 } }))
         const duas = await M().mensagemDoLevantamento(TENANT, t, {
             nome: 'Casa do João',
@@ -669,10 +857,10 @@ describe('(10) as abas vêm do BANCO: a Fórmulas da tipologia é a fonte, a da 
     const ESCOLHAS = { ARI: 4, ARE: 1, MAE: 2 }
     const semDaDP02 = (tabela: string) => { banco.db[tabela] = banco.db[tabela].filter((l) => l.tipologia !== 'DP-02') }
     /** As fórmulas próprias da DP-02 como fórmulas da linha — o cálculo com elas tem de dar o mesmo número. */
-    const comoDaLinha = (linha: string, tabelaId = TABELA): Linha[] => banco.db.orcamentista_motor_formula
+    const comoDaLinha = (linha: string, motorId = MOTOR): Linha[] => banco.db.orcamentista_motor_formula
         .filter((l) => l.tipologia === 'DP-02')
-        .map((l) => comId({ tabela_id: tabelaId, linha, linha_original: `PVC ${linha}`, variavel: l.variavel, descricao: l.descricao, formula: l.formula, formula_em_lh: null, pct_padrao: null }))
-    const levantar = async () => M().mensagemDoLevantamento(TENANT, await M().lerTabelaDaEmpresa(TENANT), lev({ escolhas: ESCOLHAS }))
+        .map((l) => comId({ tabela_id: null, motor_id: motorId, linha, linha_original: `PVC ${linha}`, variavel: l.variavel, descricao: l.descricao, formula: l.formula, formula_em_lh: null, pct_padrao: null }))
+    const levantar = async () => M().mensagemDoLevantamento(TENANT, await M().lerFamiliasDaEmpresa(TENANT), lev({ escolhas: ESCOLHAS }))
 
     it('o JSON do repositório NÃO é mais fonte: sem as abas da DP-02 no banco, a DP-02 é recusada pelo nome', async () => {
         for (const t of ['orcamentista_motor_variavel', 'orcamentista_motor_formula', 'orcamentista_motor_perfil']) semDaDP02(t)
@@ -740,7 +928,7 @@ describe('(10) as abas vêm do BANCO: a Fórmulas da tipologia é a fonte, a da 
 
     it('a tipologia com DUAS linhas no motor: recusa nomeando as duas — a linha não é escolhida', async () => {
         banco.db.orcamentista_motor_formula_familia = comoDaLinha('EUROPA 42')
-        banco.db.orcamentista_motor_tipologia.push({ tabela_id: TABELA, tipologia: 'DP-02', linha: 'EUROPA 60', tempo_fabricacao_min: 150, tempo_origem: 'IMPORTADO' })
+        banco.db.orcamentista_motor_tipologia.push({ tabela_id: null, motor_id: MOTOR, tipologia: 'DP-02', linha: 'EUROPA 60', tempo_fabricacao_min: 150, tempo_origem: 'IMPORTADO' })
         semDaDP02('orcamentista_motor_formula')
         const r = await levantar()
         expect(r.desfecho).toBe('recusou')
@@ -782,9 +970,9 @@ describe('(10) as abas vêm do BANCO: a Fórmulas da tipologia é a fonte, a da 
     })
 
     it('as Variáveis da conversa vêm do banco, TODAS, página a página — e só as da tabela', async () => {
-        const muitas = Array.from({ length: 2500 }, (_, k) => comId({ tabela_id: TABELA, tipologia: `DP-${1000 + Math.floor(k / 10)}`, ordem: (k % 10) + 2, variavel: `V${k % 10}`, descricao: null, padrao: null, min_max: null, condicao: null, opcoes: null }))
-        banco.db.orcamentista_motor_variavel.push(...muitas, comId({ tabela_id: 'outra', tipologia: 'DP-02', ordem: 99, variavel: 'INTRUSA' }))
-        const v = await M().lerVariaveisDasTipologias(TABELA)
+        const muitas = Array.from({ length: 2500 }, (_, k) => comId({ tabela_id: null, motor_id: MOTOR, tipologia: `DP-${1000 + Math.floor(k / 10)}`, ordem: (k % 10) + 2, variavel: `V${k % 10}`, descricao: null, padrao: null, min_max: null, condicao: null, opcoes: null }))
+        banco.db.orcamentista_motor_variavel.push(...muitas, comId({ tabela_id: null, motor_id: 'outro', tipologia: 'DP-02', ordem: 99, variavel: 'INTRUSA' }), comId({ tabela_id: MOTOR, tipologia: 'DP-02', ordem: 98, variavel: 'POR_TABELA' }))
+        const v = await M().lerVariaveisDasTipologias(MOTOR)
         expect(Object.keys(v)).toHaveLength(251)
         expect(v['DP-1249'].variaveis.map((x) => x.variavel)).toEqual(['V0', 'V1', 'V2', 'V3', 'V4', 'V5', 'V6', 'V7', 'V8', 'V9'])
         expect(v['DP-02'].variaveis.map((x) => x.variavel)).toEqual((ABAS['Variáveis'].linhas as Linha[]).map((l) => l['Var.']))
@@ -792,7 +980,7 @@ describe('(10) as abas vêm do BANCO: a Fórmulas da tipologia é a fonte, a da 
 
     it('as Variáveis com a tabela AUSENTE no banco: nenhuma definição, sem lançar — a conversa segue sem escolhas', async () => {
         banco.ausentes.add('orcamentista_motor_variavel')
-        expect(await M().lerVariaveisDasTipologias(TABELA)).toEqual({})
+        expect(await M().lerVariaveisDasTipologias(MOTOR)).toEqual({})
     })
 })
 
@@ -805,17 +993,17 @@ describe('(11) o banco falso recusa ordenar por coluna que a tabela não tem —
 
     it.each(ABAS.map((t) => [t]))('%s: coluna inexistente é erro 42703', async (tabela) => {
         expect(banco.db[tabela]?.length).toBeGreaterThan(0)
-        const r = await db().from(tabela).select('*').eq('tabela_id', TABELA).order('coluna_que_nao_existe')
+        const r = await db().from(tabela).select('*').eq('motor_id', MOTOR).order('coluna_que_nao_existe')
         expect(r.error?.code).toBe('42703')
     })
 
     it.each(ABAS.map((t) => [t]))('%s: (tipologia, ordem), a ordem que a leitura usa, existe', async (tabela) => {
-        const r = await db().from(tabela).select('*').eq('tabela_id', TABELA).order('tipologia')
+        const r = await db().from(tabela).select('*').eq('motor_id', MOTOR).order('tipologia')
         expect(r.error).toBeNull()
     })
 
     it('ordenar a Detalhe por id é erro, como em produção', async () => {
-        const r = await db().from('orcamentista_motor_tipologia_detalhe').select('*').eq('tabela_id', TABELA).order('id')
+        const r = await db().from('orcamentista_motor_tipologia_detalhe').select('*').eq('motor_id', MOTOR).order('id')
         expect(r.error?.code).toBe('42703')
     })
 })
