@@ -46,15 +46,25 @@ guarda() { # $1 número, $2 o SQL que monta o estado, $3 a frase esperada, $4 a 
 }
 guardas() {
 guarda 1 "create or replace function public.superadmin_arrasto_do_catalogo(p_tipo text, p_chave text) returns jsonb language plpgsql security definer set search_path = public, pg_temp as \$x\$ begin return public.orcamentista_arrasto_medir(p_tipo, p_chave) || '{}'; end \$x\$;" \
-  "ERROR:  dependencia ausente: a 20261031000003 e a 20261101000001" "um corpo do arrasto diferente do aplicado (md5): aborta"
+  "public.superadmin_arrasto_do_catalogo(text, text): md5 d13965bec434c1efdad3d55fbaff8e70, esperado 353e8ee77a0e4f903c79b9846a54ce44" "um corpo do arrasto diferente do aplicado: aborta nomeando a funcao, o md5 achado e o esperado"
 guarda 2 "update public.orcamentista_categoria_catalogo set rotulo = ' Perfil ' where chave = 'PERFIL';" \
   "ERROR:  guarda: categoria fora da forma que a migracao exige: PERFIL" "uma linha do catalogo fora da forma das CHECKs novas: aborta, nomeando-a"
 guarda 3 "create table public.h_aponta_mp_categoria (i uuid references public.orcamentista_mp_categoria (id));" \
   "ERROR:  guarda: o fecho da remocao nao conhece estas chaves estrangeiras: h_aponta_mp_categoria -> orcamentista_mp_categoria" "uma tabela nova que aponta a categoria da familia de conta: aborta (o fecho nao a conhece)"
+# o banco ERRADO (02/11/2026: a migracao foi colada no SQL Editor de OUTRO projeto, sem nenhuma funcao do arrasto): a guarda nomeia o banco e diz
+# que as cinco nao existem, em vez de "corpos: {}"
+local VAZIO=${D}_vazio
+$P -c "drop database if exists $VAZIO" >/dev/null 2>&1; $P -c "create database $VAZIO" >/dev/null
+SAI=$($P -d $VAZIO -v ON_ERROR_STOP=1 -f "$MIG" 2>&1)
+if echo "$SAI" | grep -q "dependencia ausente no banco $VAZIO" && echo "$SAI" | grep -q "orcamentista_arrasto_conjuntos(text, text): nao existe" \
+   && echo "$SAI" | grep -q "superadmin_remover_do_catalogo(uuid, text, text, text): nao existe" && [ "$($P -d $VAZIO -At -c "select count(*) from pg_proc where proname like 'superadmin_%'")" = "0" ]; then
+  echo "NOTICE:  ok: guarda 4 — um banco sem nenhuma funcao do arrasto (o projeto errado): aborta nomeando o banco e cada funcao que nao existe"
+else echo "ERROR:  FALHOU guarda 4: $(echo "$SAI" | grep ERROR | head -1)"; fi
+$P -c "drop database if exists $VAZIO" >/dev/null 2>&1
 }
 SAIDA=$( (cd $S && $P -d $D -f 10_casos.sql 2>&1; cd $CS && $P -d $RG -f 10_casos.sql 2>&1; cd $TS && $P -d $RG -f 10_casos.sql 2>&1; bash $S/20_corrida.sh "$P" $D 2>&1; guardas) | sed -nE 's/^.*NOTICE:  (ok: .*)$/\1/p; s/^.*ERROR:  (FALHOU.*)$/\1/p; s/^.*ERROR:  (.*)$/ERRO NAO PREVISTO: \1/p')
 echo "$SAIDA"
-ESPERADO=$(( $(grep -c "^-- CASO " $S/10_casos.sql) + $(grep -c "^-- CASO " $CS/10_casos.sql) + $(grep -c "^-- CASO " $TS/10_casos.sql) + $(grep -c "^# CORRIDA " $S/20_corrida.sh) + $(grep -c "^guarda [0-9]" $S/run.sh) ))
+ESPERADO=$(( $(grep -c "^-- CASO " $S/10_casos.sql) + $(grep -c "^-- CASO " $CS/10_casos.sql) + $(grep -c "^-- CASO " $TS/10_casos.sql) + $(grep -c "^# CORRIDA " $S/20_corrida.sh) + $(grep -c "^guarda [0-9]" $S/run.sh) + 1 ))
 OKS=$(echo "$SAIDA" | grep -c '^ok: ')
 echo "$OKS de $ESPERADO casos ok"
 $P -c "drop database if exists $GC" >/dev/null 2>&1; $P -c "drop database if exists $RG" >/dev/null 2>&1

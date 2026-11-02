@@ -45,21 +45,47 @@ BEGIN;
 -- ── A GUARDA: o que esta migração substitui é o que foi lido ─────────────────────────────────
 DO $guarda$
 DECLARE
+  -- cada funcao pela ASSINATURA DE ENTRADA (regprocedure: os parametros OUT de orcamentista_arrasto_conjuntos nao entram na identidade), e o md5 do
+  -- corpo como foi lido em producao em 02/11/2026 (md5(replace(prosrc, chr(13), '')))
   v_esperado jsonb := jsonb_build_object(
-    'orcamentista_arrasto_passos', 'c5beabd1f3179b55d279f5c6d411502e', 'orcamentista_arrasto_conjuntos', '790b7d036726b5944c801a58d7ddc5e9',
-    'orcamentista_arrasto_medir', 'c68e4124320ac56e658362a20d38af57', 'superadmin_arrasto_do_catalogo', '353e8ee77a0e4f903c79b9846a54ce44',
-    'superadmin_remover_do_catalogo', '24ade9ea78cb348ecd44658390d92bfd');
+    'public.orcamentista_arrasto_passos(text)', 'c5beabd1f3179b55d279f5c6d411502e',
+    'public.orcamentista_arrasto_conjuntos(text, text)', '790b7d036726b5944c801a58d7ddc5e9',
+    'public.orcamentista_arrasto_medir(text, text)', 'c68e4124320ac56e658362a20d38af57',
+    'public.superadmin_arrasto_do_catalogo(text, text)', '353e8ee77a0e4f903c79b9846a54ce44',
+    'public.superadmin_remover_do_catalogo(uuid, text, text, text)', '24ade9ea78cb348ecd44658390d92bfd');
   -- reaplicar esta migração encontra os corpos DELA nas quatro que ela troca: também valem (a reaplicação é inofensiva)
-  v_desta    jsonb := jsonb_build_object('orcamentista_arrasto_passos', 'f50bd778b563778eda14d0a752aaef1c', 'orcamentista_arrasto_conjuntos', 'e5f5de25bffb57f225ab3d3fc17c05f9',
-    'orcamentista_arrasto_medir', '086abcd7e532634f3062962199807de3', 'superadmin_remover_do_catalogo', '9d6066e00618810b6927c61992c59cbf');
-  v_achado   jsonb;
+  v_desta    jsonb := jsonb_build_object(
+    'public.orcamentista_arrasto_passos(text)', '6a7f73765b7d6f459905d569df9daefe',
+    'public.orcamentista_arrasto_conjuntos(text, text)', '3a9438f848f28412e9c3f91821a8f3b0',
+    'public.orcamentista_arrasto_medir(text, text)', '9fb2af78f27fc18808373e02828fea9a',
+    'public.superadmin_remover_do_catalogo(uuid, text, text, text)', '24f74d56af8d3b92c91a15e9723f4648');
+  k          text;
+  v_oid      regprocedure;
+  v_md5      text;
+  v_laudo    text := '';
+  v_ok       boolean := true;
+  v_tabelas  bigint;
   v_tx       text;
 BEGIN
-  SELECT coalesce(jsonb_object_agg(p.proname, md5(replace(p.prosrc, chr(13), ''))), '{}'::jsonb) INTO v_achado
-    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-   WHERE n.nspname = 'public' AND p.proname IN (SELECT jsonb_object_keys(v_esperado));
-  IF v_achado IS DISTINCT FROM v_esperado AND v_achado IS DISTINCT FROM v_esperado || v_desta THEN
-    RAISE EXCEPTION 'dependencia ausente: a 20261031000003 e a 20261101000001 (o arrasto do catalogo) nao estao aplicadas como foram lidas (corpos: %). Nada foi alterado.', v_achado;
+  -- o laudo nomeia CADA funcao: existe ou nao, e o md5 achado contra o esperado. Em 02/11/2026 a versao anterior desta guarda, colada no SQL Editor
+  -- de OUTRO projeto (sem nenhuma funcao do arrasto), abortou dizendo so "corpos: {}"; a frase agora diz o banco, quantas tabelas orcamentista_*
+  -- ele tem e o que falta
+  FOR k IN SELECT jsonb_object_keys(v_esperado) ORDER BY 1 LOOP
+    v_oid := to_regprocedure(k);
+    IF v_oid IS NULL THEN
+      v_laudo := v_laudo || k || ': nao existe; '; v_ok := false; CONTINUE;
+    END IF;
+    SELECT md5(replace(p.prosrc, chr(13), '')) INTO v_md5 FROM pg_catalog.pg_proc p WHERE p.oid = v_oid;
+    IF v_md5 = v_esperado ->> k THEN v_laudo := v_laudo || k || ': ok; ';
+    ELSIF v_md5 = v_desta ->> k THEN v_laudo := v_laudo || k || ': ja e o corpo desta migracao; ';
+    ELSE v_laudo := v_laudo || k || ': md5 ' || v_md5 || ', esperado ' || (v_esperado ->> k) || '; '; v_ok := false;
+    END IF;
+  END LOOP;
+  IF NOT v_ok THEN
+    SELECT count(*) INTO v_tabelas FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+     WHERE n.nspname = 'public' AND c.relkind = 'r' AND c.relname LIKE 'orcamentista\_%';
+    RAISE EXCEPTION 'dependencia ausente no banco % (usuario %, % tabelas orcamentista_*: e o projeto certo?): a 20261031000003 e a 20261101000001 (o arrasto do catalogo) nao estao aplicadas como foram lidas: %Nada foi alterado.',
+      current_database(), current_user, v_tabelas, v_laudo;
   END IF;
   -- as CHECKs novas valem para o que ja esta la: nenhuma das linhas de hoje pode ficar fora da forma
   SELECT string_agg(c.chave || ' (' || c.rotulo || ')', ', ') INTO v_tx FROM public.orcamentista_categoria_catalogo c
@@ -289,7 +315,7 @@ BEGIN
            'nome', v_empresa || ' || '' / '' || (SELECT c.categoria_chave FROM public.orcamentista_mp_categoria c WHERE c.id = x.mp_categoria_id)', 'rotulo', 'fornecedor escolhido por conta')
       || jsonb_build_object('t', 'orcamentista_fornecedor', 'acao', 'sai', 'filtro', 'x.id = $1::uuid', 'nome', 'x.nome', 'rotulo', 'fornecedor');
   END IF;
-  -- a CATEGORIA (02/11/2026, a sexta raiz): leva os motores e as tabelas dela (acima), e a BASE DE CONHECIMENTO das contas que a usam —
+  -- a CATEGORIA (02/11/2026, a sexta raiz): leva os motores e as tabelas dela (acima), e a BASE DE CONHECIMENTO das contas que a usam -
   -- configuracao de conta, nao documento de cliente (decisao 2 do dono do produto): sai, nomeando a empresa em cada linha
   IF p_tipo = 'categoria' THEN
     v_p := v_p
@@ -350,10 +376,10 @@ BEGIN
     SELECT coalesce(array_agg(t.id ORDER BY t.id), '{}') INTO tabelas FROM public.orcamentista_tabela t WHERE t.fornecedor_id = p_chave::uuid;
   ELSIF p_tipo = 'familia' THEN
     SELECT f.rotulo INTO nome FROM public.orcamentista_familia_catalogo f WHERE f.chave = p_chave;
-    -- decisão 3: o motor cuja ÚNICA família é a removida sai junto
+    -- decisao 3: o motor cuja UNICA familia e a removida sai junto
     SELECT coalesce(array_agg(mf.motor_id ORDER BY mf.motor_id), '{}') INTO motores FROM public.orcamentista_motor_familia mf
      WHERE mf.familia = p_chave AND NOT EXISTS (SELECT 1 FROM public.orcamentista_motor_familia o WHERE o.motor_id = mf.motor_id AND o.familia <> p_chave);
-    -- decisão 2: a tabela de PERFIL da família sai junto
+    -- decisao 2: a tabela de PERFIL da familia sai junto
     SELECT coalesce(array_agg(t.id ORDER BY t.id), '{}') INTO tabelas FROM public.orcamentista_tabela t WHERE t.familia = p_chave AND t.categoria_chave = 'PERFIL';
   ELSIF p_tipo = 'tabela' THEN
     -- a quinta raiz (01/11/2026): a tabela sozinha; o motor do catalogo, que tem copia propria, fica
@@ -406,7 +432,7 @@ BEGIN
                                                'nomes', to_jsonb(coalesce(v_nomes, '{}')), 'mais', greatest(v_n - 10, 0));
   END LOOP;
 
-  -- o que FICA (decisão 5: o Storage e o texto não saem; só aparecem no arrasto)
+  -- o que FICA (decisao 5: o Storage e o texto nao saem; so aparecem no arrasto)
   SELECT array_agg(a) INTO v_arq FROM (
     SELECT m.arquivo_path AS a FROM public.orcamentista_motor m WHERE m.id = ANY (c.motores)
     UNION SELECT t.arquivo_path FROM public.orcamentista_tabela t WHERE t.id = ANY (c.tabelas)
@@ -441,8 +467,8 @@ BEGIN
     END IF;
   END IF;
 
-  -- decisão 4: a tabela com motor que sai faz a conversa de quem a usa PARAR (a conversa ainda lê o motor pela tabela, até o PR D). Os avisos e
-  -- os impedimentos vão como DADO (tipo e o que nomeiam): a frase, com acento, é da tela (src/utils/atendimentos-ia-remocao.ts)
+  -- decisao 4: a tabela com motor que sai faz a conversa de quem a usa PARAR (a conversa ainda le o motor pela tabela, ate o PR D). Os avisos e
+  -- os impedimentos vao como DADO (tipo e o que nomeiam): a frase, com acento, e da tela (src/utils/atendimentos-ia-remocao.ts)
   SELECT coalesce(jsonb_agg(jsonb_build_object('tipo', 'conversa_para', 'tabela_id', z.id, 'arquivo', z.arquivo_nome, 'empresas', to_jsonb(z.empresas))
                             ORDER BY z.arquivo_nome, z.id), '[]'::jsonb)
     INTO v_avisos
@@ -473,7 +499,7 @@ BEGIN
   END IF;
 
   -- a CATEGORIA (02/11/2026): a base de conhecimento das contas sai com ela, e o arrasto NOMEIA CADA EMPRESA com a contagem por empresa
-  -- (decisao 2 do dono do produto) — a lista inteira, nao so dez nomes. E as quatro ESTRUTURAIS (decisao 3) impedem a remocao: o codigo
+  -- (decisao 2 do dono do produto) - a lista inteira, nao so dez nomes. E as quatro ESTRUTURAIS (decisao 3) impedem a remocao: o codigo
   -- (CATEGORIA_QUE_EXIGE_FAMILIA, CAMPO_DA_LINHA, familias_do_perfil, o levantamento) e o banco (as CHECKs de familia_no_perfil, mp_vidro,
   -- mp_ferragem, mp_instalacao e as tres funcoes superadmin_gravar_mp_*) dependem da chave
   IF p_tipo = 'categoria' THEN
@@ -565,8 +591,8 @@ BEGIN
     SELECT coalesce(array_agg(DISTINCT e.materia_prima_id), '{}') INTO v_mps FROM public.orcamentista_familia_etapa e WHERE e.etapa_catalogo_id = p_chave::uuid;
   END IF;
   v_origem := jsonb_build_object('remocao_do_catalogo', jsonb_build_object('tipo', p_tipo, 'chave', p_chave, 'nome', c.nome));
-  -- quantas linhas cada tabela alcançada tem ANTES: no fim, cada uma tem de ter perdido exatamente o que os passos dela apagaram. Algumas FKs
-  -- de antes são CASCADE (o conteúdo para a tabela, as categorias para a matéria-prima, a ligação para o motor); os passos apagam os filhos
+  -- quantas linhas cada tabela alcancada tem ANTES: no fim, cada uma tem de ter perdido exatamente o que os passos dela apagaram. Algumas FKs
+  -- de antes sao CASCADE (o conteudo para a tabela, as categorias para a materia-prima, a ligacao para o motor); os passos apagam os filhos
   -- antes, e esta conta prova que nenhuma cascata levou linha sem log
   FOR t IN SELECT DISTINCT x ->> 't' FROM jsonb_array_elements(public.orcamentista_arrasto_passos(p_tipo)) x
             UNION SELECT unnest(ARRAY['orcamentista_mp_categoria', 'orcamentista_mp_categoria_fornecedor', 'orcamentista_mp_ferragem', 'orcamentista_mp_vidro',

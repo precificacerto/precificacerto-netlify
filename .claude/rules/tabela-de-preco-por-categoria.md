@@ -809,7 +809,17 @@ tipos de antes mudarem, se os 43 da categoria não forem os esperados na ordem, 
 catálogo de campos como em produção (`09_estado.sql`) + a tabela de persianas (`09_persianas.sql`), a migração duas vezes, 14 casos (os 43 passos, a
 medição por empresa, as quatro estruturais recusadas, a remoção de PERSIANAS e de REFORCO com o log linha a linha e as outras intactas, a assinatura,
 a categoria com motor e etapa, criar e editar com cada recusa, as CHECKs), a regressão dos 22 + 8 casos das duas migrações de antes, 4 corridas, 3
-guardas e 30 mutações nas duas passadas (a mutação do GRANT da remoção era equivalente — o CREATE OR REPLACE preserva a ACL — e foi trocada; está anotada no `mutacoes.py`).
+guardas e 31 mutações nas duas passadas (a mutação do GRANT da remoção era equivalente — o CREATE OR REPLACE preserva a ACL — e foi trocada; está anotada no `mutacoes.py`).
+
+**Aparição de 02/11/2026 — a migração colada no projeto errado.** A primeira tentativa de aplicar abortou com "dependencia ausente [...] (corpos: {})".
+O log de postgres mostrou que a colagem foi no SQL Editor do projeto **DAMA-Consultoria** (`azyrbuxvecbohdwrjaqe`), que não tem nenhuma tabela nem função
+`orcamentista_*`; no Precifica Certo não houve tentativa. A guarda fez o que devia, mas a frase não dizia onde estava: a guarda passou a conferir
+cada função pela **assinatura de entrada** (`to_regprocedure`; os parâmetros OUT de `orcamentista_arrasto_conjuntos` não entram na identidade) e a
+nomear, na recusa, o banco, o usuário, quantas tabelas `orcamentista_*` ele tem e, função a função, "não existe" ou o md5 achado contra o esperado
+(`guarda 4` do harness: um banco vazio). O mesmo log mostrou o texto colado com CRLF e com os caracteres de caixa (`═`) corrompidos em `ÔòÉ`: a
+colagem pelo navegador no Windows reescreve o que não é ASCII. Por isso os comentários **dentro dos corpos `$fn$`** desta migração ficaram em ASCII
+(o que entra em `prosrc` fica igual ao arquivo em qualquer colagem); o que está fora dos corpos não vai ao catálogo. É a Parte III de `migracao.md`
+(o corpo é o artefato) aparecendo pela codificação, não pelo comentário cortado.
 
 ## O bloco tributário do item da tabela — dono do produto, 02/11/2026 (migração `20261102000001`, PENDENTE até o dono do produto aplicar)
 

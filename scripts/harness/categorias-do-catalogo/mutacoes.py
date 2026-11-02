@@ -12,7 +12,9 @@ ORIG = (MIGS / "20261102000002_categorias_do_catalogo.sql").read_text()
 
 MUTACOES = [
     # a guarda
-    ("G1 a guarda não confere os corpos", [("  IF v_achado IS DISTINCT FROM v_esperado AND v_achado IS DISTINCT FROM v_esperado || v_desta THEN", "  IF false THEN")]),
+    ("G1 a guarda não confere os corpos", [("  IF NOT v_ok THEN\n    SELECT count(*) INTO v_tabelas", "  IF false THEN\n    SELECT count(*) INTO v_tabelas")]),
+    # (um espaço a mais na assinatura é mutação EQUIVALENTE: o leitor de regprocedure o tolera)
+    ("G4 a guarda aceita qualquer md5 como o desta migração", [("    ELSIF v_md5 = v_desta ->> k THEN v_laudo", "    ELSIF true THEN v_laudo")]),
     ("G2 a guarda não confere a forma do catálogo", [("  IF v_tx IS NOT NULL THEN\n    RAISE EXCEPTION 'guarda: categoria fora da forma", "  IF false THEN\n    RAISE EXCEPTION 'guarda: categoria fora da forma")]),
     ("G3 o fecho não confere as FKs", [("  IF v_tx IS NOT NULL THEN\n    RAISE EXCEPTION 'guarda: o fecho da remocao nao conhece", "  IF false THEN\n    RAISE EXCEPTION 'guarda: o fecho da remocao nao conhece")]),
     # as CHECKs e as estruturais
