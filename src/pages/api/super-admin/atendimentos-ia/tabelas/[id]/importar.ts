@@ -184,5 +184,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     importacao_id: gravado.importacao_id,
     contagens: { ...lida.contagens, formulas: gravado.formulas },
     avisos: lida.avisos,
+    // o layout lido e, SÓ no layout único, os seis campos da aba CABECALHO — lidos e devolvidos, sem gravar (dono do produto, 02/11/2026).
+    // No layout de antes a chave nem vai: a resposta não carrega "null" que a tela leia como texto.
+    layout: lida.layout,
+    ...(lida.cabecalho ? { cabecalho: lida.cabecalho } : {}),
   })
 }
