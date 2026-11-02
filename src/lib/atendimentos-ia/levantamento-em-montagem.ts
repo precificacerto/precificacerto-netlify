@@ -16,14 +16,14 @@
  * HISTÓRICO: sobrescreve (decisão 3 do dono do produto, 25/10/2026). Trocar a TIPOLOGIA apaga as
  * escolhas da esquadria — as variáveis são da tipologia; trocar uma medida, não.
  *
- * VÁRIAS TABELAS (dono do produto, 26/10/2026; migração 20261026000004): a conta pode ter mais de uma
- * tabela de fornecedor, e a esquadria guarda de qual é a tipologia (`tabela_id`). O código numa tabela só:
- * a esquadria leva aquela. Em mais de uma: a esquadria fica sem tabela, e a pendência seguinte, logo depois
- * da tipologia, é DE QUAL TABELA — citando os fornecedores e, quando o mesmo fornecedor tem mais de uma
- * (a Wolff com PVC e alumínio), as FAMÍLIAS. A desambiguação é por FORNECEDOR + FAMÍLIA. Nunca escolhe,
- * nunca "a primeira". A resposta vem em `itens[].fornecedor` e/ou `itens[].familia`, e vale só se apontar,
- * sem caixa e sem acento, UMA das tabelas daquela tipologia. Trocar a tipologia ou a tabela apaga as
- * escolhas: as variáveis são da tipologia DAQUELA tabela.
+ * VÁRIAS FAMÍLIAS (PR D, dono do produto, 02/11/2026): a tipologia vem do MOTOR de uma família da conta (a base de
+ * conhecimento → a etapa 1 → o motor), não mais de uma tabela de fornecedor. A esquadria guarda de qual família é (`familia`, a
+ * chave do catálogo) e o motor que a calcula (`motor_id`, o da etapa 2 da família), como a regra do projeto pede: "cada item diz
+ * a sua". O código numa família só: a esquadria leva aquela. Em mais de uma: a esquadria fica sem família, e a pendência
+ * seguinte, logo depois da tipologia, é DE QUAL FAMÍLIA — pelo rótulo do catálogo. Nunca escolhe, nunca "a primeira". A
+ * resposta vem em `itens[].familia` (o rótulo ou a chave) e/ou `itens[].fornecedor` (o do motor da família), e vale só se
+ * apontar, sem caixa e sem acento, UMA das famílias daquela tipologia. Trocar a tipologia ou a família apaga as escolhas: as
+ * variáveis são da tipologia DAQUELE motor. (Até o PR D, a fonte era a tabela de fornecedor, em `tabela_id`.)
  *
  * O ARREMATE (dono do produto, 25/10/2026): o Padrão da tipologia é ASSUMIDO, e escolha nenhuma é
  * pendência por si. A proposta traz `escolhas` (o que o vendedor disse, em palavras, que a LLM traduz
@@ -50,69 +50,68 @@ export type ItemDoLevantamento = {
     vidro: string | null
     /** número = escolha do vendedor; `null` = ele pediu para ver as opções desta variável */
     escolhas: Record<string, number | null> | null
-    /** De qual tabela (fornecedor) é a tipologia. null = ainda não sabido (`tabelaDaEsquadria` resolve). */
-    tabela_id: string | null
+    /** De qual família da conta (a CHAVE do catálogo) é a tipologia. null = ainda não sabido (`familiaDaEsquadria` resolve). */
+    familia: string | null
+    /** O motor que calcula a esquadria: o da etapa 2 da família (`resolverFamilias` o põe junto com a família). */
+    motor_id: string | null
 }
 
 export const itemVazio = (ordem: number): ItemDoLevantamento => ({
-    ordem, tipologia: null, largura_mm: null, altura_mm: null, quantidade: null, cor_perfil: null, vidro: null, escolhas: null, tabela_id: null,
+    ordem, tipologia: null, largura_mm: null, altura_mm: null, quantidade: null, cor_perfil: null, vidro: null, escolhas: null, familia: null, motor_id: null,
 })
 
-/** A tipologia e a tabela da esquadria: é o par que decide as abas. */
-export type TipologiaNaTabela = { tipologia: string | null; tabela_id: string | null }
+/** A tipologia e a família da esquadria: é o par que decide as abas. */
+export type TipologiaNaFamilia = { tipologia: string | null; familia: string | null }
 
-/** As abas da tipologia NA TABELA da esquadria, ou null quando ela não as tem — não há escolha a perguntar. */
-export type DefinicaoDaTipologia = (esquadria: TipologiaNaTabela) => VariaveisDaTipologia | null
+/** As abas da tipologia NO MOTOR da família da esquadria, ou null quando ele não as tem — não há escolha a perguntar. */
+export type DefinicaoDaTipologia = (esquadria: TipologiaNaFamilia) => VariaveisDaTipologia | null
 
-/** Uma tabela ligada à conta que tem o código: o fornecedor e a família (o rótulo; null = não informada). */
-export type TabelaDoCodigo = { tabelaId: string; fornecedor: string; familia: string | null }
-/** Uma opção da pergunta de qual tabela: o que o vendedor reconhece — fornecedor e família. */
-export type OpcaoDeTabela = { fornecedor: string; familia: string | null }
-/** As tabelas da conta que têm o código, na ordem do nome do fornecedor. */
-export type TabelasDoCodigo = (codigo: string) => readonly TabelaDoCodigo[]
+/** Uma família da conta cujo motor tem o código: a chave, o rótulo, o fornecedor do motor e o motor do cálculo (o que a esquadria grava). */
+export type FamiliaDoCodigo = { familia: string; rotulo: string; fornecedor: string; motorId: string }
+/** Uma opção da pergunta de qual família: o que o vendedor reconhece — o rótulo da família (e o fornecedor do motor dela). */
+export type OpcaoDeFamilia = { rotulo: string; fornecedor: string }
+/** As famílias da conta cujo motor tem o código, na ordem do rótulo. */
+export type FamiliasDoCodigo = (codigo: string) => readonly FamiliaDoCodigo[]
 
 const porNome = (a: string, b: string) => a.localeCompare(b, 'pt-BR')
-
-export const FAMILIA_NAO_INFORMADA = 'família não informada'
-const familiaDita = (f: string | null) => f ?? FAMILIA_NAO_INFORMADA
-const porOpcao = (a: OpcaoDeTabela, b: OpcaoDeTabela) => porNome(a.fornecedor, b.fornecedor) || porNome(familiaDita(a.familia), familiaDita(b.familia))
+const porOpcao = (a: OpcaoDeFamilia, b: OpcaoDeFamilia) => porNome(a.rotulo, b.rotulo) || porNome(a.fornecedor, b.fornecedor)
 
 /**
- * De qual tabela é a esquadria: a guardada, se ainda tem o código; senão, a ÚNICA que tem o código. Com o
- * código em mais de uma, as opções (fornecedor e família) — para perguntar. Sem tipologia, ou com o código
- * em nenhuma: null.
+ * De qual família é a esquadria: a guardada, se o motor dela ainda tem o código; senão, a ÚNICA cujo motor tem o código. Com o
+ * código em mais de uma, as opções (o rótulo e o fornecedor do motor) — para perguntar. Sem tipologia, ou com o código em
+ * nenhuma: null.
  */
-export function tabelaDaEsquadria(e: TipologiaNaTabela, tabelasDoCodigo: TabelasDoCodigo): { tabelaId: string } | { opcoes: OpcaoDeTabela[] } | null {
+export function familiaDaEsquadria(e: TipologiaNaFamilia, familiasDoCodigo: FamiliasDoCodigo): FamiliaDoCodigo | { opcoes: OpcaoDeFamilia[] } | null {
     if (e.tipologia === null) return null
-    const opcoes = tabelasDoCodigo(e.tipologia)
-    if (e.tabela_id !== null && opcoes.some((o) => o.tabelaId === e.tabela_id)) return { tabelaId: e.tabela_id }
-    if (opcoes.length === 1) return { tabelaId: opcoes[0].tabelaId }
+    const opcoes = familiasDoCodigo(e.tipologia)
+    const guardada = e.familia !== null ? opcoes.find((o) => o.familia === e.familia) : undefined
+    if (guardada) return guardada
+    if (opcoes.length === 1) return opcoes[0]
     if (opcoes.length === 0) return null
-    return { opcoes: opcoes.map((o) => ({ fornecedor: o.fornecedor, familia: o.familia })).sort(porOpcao) }
+    return { opcoes: opcoes.map((o) => ({ rotulo: o.rotulo, fornecedor: o.fornecedor })).sort(porOpcao) }
 }
 
-/** "Perfis Sul ou Wolff" — a lista da pergunta. */
+/**
+ * A família e o motor de cada esquadria, como ficam gravados (`orcamentista_levantamento_item.familia` e `motor_id`): a família
+ * resolvida e o motor do CÁLCULO dela (o da etapa 2, hoje). Sem família resolvida (sem tipologia, código em nenhuma, ou em mais de
+ * uma — a pergunta), os dois ficam nulos: nada é escolhido.
+ */
+export function resolverFamilias(itens: readonly ItemDoLevantamento[], familiasDoCodigo: FamiliasDoCodigo): ItemDoLevantamento[] {
+    return itens.map((i) => {
+        const f = familiaDaEsquadria(i, familiasDoCodigo)
+        return f && 'familia' in f ? { ...i, familia: f.familia, motor_id: f.motorId } : { ...i, familia: null, motor_id: null }
+    })
+}
+
+/** "PVC Wolf ou PVC Veca" — a lista da pergunta. */
 const ouLista = (nomes: readonly string[]) => (nomes.length <= 1 ? nomes.join('') : `${nomes.slice(0, -1).join(', ')} ou ${nomes[nomes.length - 1]}`)
 
-/** Como cada opção é dita: o fornecedor; com a família entre parênteses só onde o fornecedor se repete. */
-export function rotulosDasOpcoes(opcoes: readonly OpcaoDeTabela[]): string[] {
-    const repetido = (f: string) => opcoes.filter((o) => normalizarNome(o.fornecedor) === normalizarNome(f)).length > 1
-    return opcoes.map((o) => (repetido(o.fornecedor) ? `${o.fornecedor} (${familiaDita(o.familia)})` : o.fornecedor))
-}
+/** Como cada opção é dita: o rótulo da família (único no catálogo). */
+export const rotulosDasOpcoes = (opcoes: readonly OpcaoDeFamilia[]): string[] => opcoes.map((o) => o.rotulo)
 
-/**
- * A pergunta de qual tabela, com as opções em ordem: fornecedores diferentes, pelo nome; o mesmo fornecedor,
- * pela família ("a Wolff tem tabela de PVC e de Alumínio"); misturados, cada opção pelo seu rótulo.
- */
-export function fraseDeQualFornecedor(tipologia: string, opcoes: readonly OpcaoDeTabela[]): string {
-    const fornecedores = [...new Set(opcoes.map((o) => normalizarNome(o.fornecedor)))]
-    if (fornecedores.length === opcoes.length) {
-        return `A ${tipologia} está nas tabelas de ${opcoes.length} fornecedores: ${ouLista(opcoes.map((o) => o.fornecedor))}. De qual deles é?`
-    }
-    if (fornecedores.length === 1) {
-        return `A ${tipologia} está em ${opcoes.length} tabelas da ${opcoes[0].fornecedor}: ${ouLista(opcoes.map((o) => `de ${familiaDita(o.familia)}`))}. De qual família é?`
-    }
-    return `A ${tipologia} está em ${opcoes.length} tabelas: ${ouLista(rotulosDasOpcoes(opcoes))}. De qual delas é?`
+/** A pergunta de qual família, com as opções em ordem pelo rótulo. */
+export function fraseDeQualFamilia(tipologia: string, opcoes: readonly OpcaoDeFamilia[]): string {
+    return `A ${tipologia} está em ${opcoes.length} famílias da sua empresa: ${ouLista(rotulosDasOpcoes(opcoes))}. De qual família é?`
 }
 
 export type ContextoDaProposta = {
@@ -121,7 +120,7 @@ export type ContextoDaProposta = {
     /** A esquadria que recebe o que vier sem ordem e sem tipologia; null quando não há como saber. */
     ordemPadrao: number | null
     definicao: DefinicaoDaTipologia
-    tabelasDoCodigo: TabelasDoCodigo
+    familiasDoCodigo: FamiliasDoCodigo
 }
 
 export type ResultadoDaProposta = {
@@ -175,21 +174,22 @@ export function aplicarProposta(atuais: readonly ItemDoLevantamento[], proposta:
         if (!alvo) { semEsquadria = true; continue }
 
         if (validos.tipologia !== undefined && validos.tipologia !== alvo.tipologia) {
-            // as escolhas e a tabela são da tipologia: a tabela é a ÚNICA que tem o código, ou nenhuma (pergunta)
-            const opcoes = ctx.tabelasDoCodigo(String(validos.tipologia))
+            // as escolhas e a família são da tipologia: a família é a ÚNICA cujo motor tem o código, ou nenhuma (pergunta)
+            const opcoes = ctx.familiasDoCodigo(String(validos.tipologia))
             alvo.escolhas = null
-            alvo.tabela_id = opcoes.length === 1 ? opcoes[0].tabelaId : null
+            alvo.familia = opcoes.length === 1 ? opcoes[0].familia : null
+            alvo.motor_id = opcoes.length === 1 ? opcoes[0].motorId : null
         }
         Object.assign(alvo, validos)
         if (fornecedor !== null || familia !== null) {
-            // a resposta à pergunta de qual tabela: o fornecedor e/ou a família dita apontam UMA das tabelas
-            // DAQUELA tipologia — fornecedor + família é a desambiguação; o que aponta duas, ou nenhuma, não vale
+            // a resposta à pergunta de qual família: a família dita (o rótulo ou a chave) e/ou o fornecedor do motor apontam UMA
+            // das famílias DAQUELA tipologia; o que aponta duas, ou nenhuma, não vale
             propostos += 1
-            const casam = alvo.tipologia === null ? [] : ctx.tabelasDoCodigo(alvo.tipologia).filter((o) =>
+            const casam = alvo.tipologia === null ? [] : ctx.familiasDoCodigo(alvo.tipologia).filter((o) =>
                 (fornecedor === null || normalizarNome(o.fornecedor) === normalizarNome(fornecedor))
-                && (familia === null || (o.familia !== null && normalizarNome(o.familia) === normalizarNome(familia))))
+                && (familia === null || normalizarNome(o.rotulo) === normalizarNome(familia) || normalizarNome(o.familia) === normalizarNome(familia)))
             if (casam.length !== 1) descartados += 1
-            else if (alvo.tabela_id !== casam[0].tabelaId) { alvo.tabela_id = casam[0].tabelaId; alvo.escolhas = null }
+            else if (alvo.familia !== casam[0].familia) { alvo.familia = casam[0].familia; alvo.motor_id = casam[0].motorId; alvo.escolhas = null }
         }
     }
 
@@ -221,19 +221,19 @@ export function aplicarProposta(atuais: readonly ItemDoLevantamento[], proposta:
 
 export type Pendencia =
     | { tipo: 'CAMPO'; ordem: number; campo: CampoDaEsquadria }
-    | { tipo: 'FORNECEDOR'; ordem: number; tipologia: string; opcoes: OpcaoDeTabela[] }
+    | { tipo: 'FAMILIA'; ordem: number; tipologia: string; opcoes: OpcaoDeFamilia[] }
     | { tipo: 'ESCOLHA'; ordem: number; pendente: EscolhaPendente }
 
 /**
- * A primeira coisa que falta: esquadria por esquadria, a tipologia, DE QUAL FORNECEDOR ela é (quando o
- * código está em mais de uma tabela), os outros campos, e depois as escolhas.
+ * A primeira coisa que falta: esquadria por esquadria, a tipologia, DE QUAL FAMÍLIA ela é (quando o
+ * código está no motor de mais de uma), os outros campos, e depois as escolhas.
  */
-export function proximaPendencia(itens: readonly ItemDoLevantamento[], definicao: DefinicaoDaTipologia, tabelasDoCodigo: TabelasDoCodigo): Pendencia | null {
+export function proximaPendencia(itens: readonly ItemDoLevantamento[], definicao: DefinicaoDaTipologia, familiasDoCodigo: FamiliasDoCodigo): Pendencia | null {
     for (const item of [...itens].sort((a, b) => a.ordem - b.ordem)) {
         const campo = CAMPOS_DA_ESQUADRIA.find((c) => vazio(item[c]))
         if (campo === 'tipologia') return { tipo: 'CAMPO', ordem: item.ordem, campo }
-        const tabela = tabelaDaEsquadria(item, tabelasDoCodigo)
-        if (tabela && 'opcoes' in tabela) return { tipo: 'FORNECEDOR', ordem: item.ordem, tipologia: String(item.tipologia), opcoes: tabela.opcoes }
+        const familia = familiaDaEsquadria(item, familiasDoCodigo)
+        if (familia && 'opcoes' in familia) return { tipo: 'FAMILIA', ordem: item.ordem, tipologia: String(item.tipologia), opcoes: familia.opcoes }
         if (campo) return { tipo: 'CAMPO', ordem: item.ordem, campo }
         // a escolha só é pendência quando o vendedor PEDIU as opções (o `null`); senão vale o Padrão
         const def = definicao(item)
@@ -247,7 +247,7 @@ export function proximaPendencia(itens: readonly ItemDoLevantamento[], definicao
 /** A pergunta FIXA da pendência; com mais de uma esquadria, diz de qual. */
 export function perguntaDaPendencia(p: Pendencia, nItens: number): string {
     const pergunta = p.tipo === 'CAMPO' ? PERGUNTA_DO_CAMPO[p.campo]
-        : p.tipo === 'FORNECEDOR' ? fraseDeQualFornecedor(p.tipologia, p.opcoes)
+        : p.tipo === 'FAMILIA' ? fraseDeQualFamilia(p.tipologia, p.opcoes)
             : perguntaDaEscolha(p.pendente)
     return nItens > 1 ? `Esquadria ${p.ordem}: ${pergunta}` : pergunta
 }

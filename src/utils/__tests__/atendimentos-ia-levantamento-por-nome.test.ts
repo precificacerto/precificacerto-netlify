@@ -53,10 +53,13 @@ const TELEFONE_DO_OUTRO = '555188887777'
 const TELEFONE_DO_TERCEIRO = '555177776666'
 const CHAVE = 'sk-ant-CHAVE-DE-TESTE-nao-pode-ir-ao-log'
 const ANTHROPIC = 'https://api.anthropic.com/v1/messages'
+/** A tabela de PREÇO da conta. O motor não é lido por ela desde o PR D (02/11/2026). */
 const TABELA = '72366020-57c9-489f-9385-397b7fa3dedb'
+/** O motor da família PVC da conta: as etapas 1 e 2 o apontam, e o conteúdo dele está por motor_id (a forma de produção). */
+const MOTOR = '9a233c55-f377-45d3-b2ae-b1a740a98e44'
 const CANDIDATAS = [
-    { tabela_id: TABELA, tipologia: 'DP-01', descricao: 'MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL | DESIGN', tipo: 'Maxim-ar', ordem: null as number | null },
-    { tabela_id: TABELA, tipologia: 'DP-02', descricao: 'JANELA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 42', tipo: 'Correr' },
+    { tabela_id: null as string | null, motor_id: MOTOR, tipologia: 'DP-01', descricao: 'MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL | DESIGN', tipo: 'Maxim-ar', ordem: null as number | null },
+    { tabela_id: null as string | null, motor_id: MOTOR, tipologia: 'DP-02', descricao: 'JANELA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 42', tipo: 'Correr' },
 ]
 /* eslint-disable @typescript-eslint/no-require-imports */
 const DE_PARA = require('./fixtures/fixture_de-para_DP-02.json') as { regras: Linha[]; itens: Linha[] }
@@ -152,24 +155,27 @@ function montar() {
         orcamentista_levantamento: [],
         orcamentista_levantamento_item: [],
         orcamentista_pergunta_em_aberto: [],
-        // as tabelas da empresa são DERIVADAS (26/10/2026): a base de conhecimento vincula a Wolff no PERFIL
+        // a FAMÍLIA da conta é a da base de conhecimento, e o motor vem das etapas 1 e 2 dela (PR D, 02/11/2026)
+        orcamentista_materia_prima: [{ id: 'mp-pvc', tenant_id: TENANT, nome: 'Esquadrias de PVC', familia: 'PVC' }],
+        orcamentista_familia_etapa: [1, 2].map((numero) => ({ tenant_id: TENANT, materia_prima_id: 'mp-pvc', numero, motor_id: MOTOR })),
+        orcamentista_motor: [{ id: MOTOR, nome: 'Motor_Wolf_PVC', fornecedor_id: 'f-wolff', arquivado_em: null }],
+        // as tabelas de PREÇO da empresa são DERIVADAS (26/10/2026): a base de conhecimento vincula a Wolff no PERFIL
         orcamentista_mp_categoria_fornecedor: [{ tenant_id: TENANT, mp_categoria_id: 'c-perfil', fornecedor_id: 'f-wolff' }],
-        // a tabela e o fornecedor dela: com mais de uma tabela, a pergunta cita o fornecedor pelo nome (bloco 19)
-        orcamentista_tabela: [{ id: TABELA, fornecedor_id: 'f-wolff', arquivo_nome: 'Tabela Wolff.xlsx', familia: 'PVC', vigente: false }],
+        orcamentista_tabela: [{ id: TABELA, fornecedor_id: 'f-wolff', arquivo_nome: 'Tabela Wolff.xlsx', familia: 'PVC', categoria_chave: 'PERFIL', vigente: false }],
         orcamentista_fornecedor: [{ id: 'f-wolff', nome: 'Wolff Perfis' }],
         orcamentista_familia_catalogo: [{ chave: 'PVC', rotulo: 'PVC', ordem: 1 }, { chave: 'ALUMINIO', rotulo: 'Alumínio', ordem: 2 }],
-        // as abas da DP-02 como a importação as grava: o levantamento e a conversa as leem do banco
-        ...abasDaDP02NoBanco(TABELA),
+        // as abas da DP-02 do MOTOR (motor_id, tabela_id nulo): o levantamento e a conversa as leem do banco
+        ...abasDaDP02NoBanco(MOTOR, 'motor'),
         orcamentista_motor_tipologia_detalhe: [
             ...CANDIDATAS.filter((c) => c.tipologia !== 'DP-02').map((c) => ({ ...c })),
-            ...abasDaDP02NoBanco(TABELA).orcamentista_motor_tipologia_detalhe,
+            ...abasDaDP02NoBanco(MOTOR, 'motor').orcamentista_motor_tipologia_detalhe,
         ],
         orcamentista_mp_categoria: [{ id: 'c-perfil', tenant_id: TENANT, categoria_chave: 'PERFIL', config: { serra_mm: 5, cores: ['BRANCO'] } }],
-        orcamentista_motor_regra: DE_PARA.regras.map((r, k) => ({ id: `r-${String(k).padStart(4, '0')}`, ...r, tabela_id: TABELA, tipologias: ['DP-02'] })),
+        orcamentista_motor_regra: DE_PARA.regras.map((r, k) => ({ id: `r-${String(k).padStart(4, '0')}`, ...r, tabela_id: null as string | null, motor_id: MOTOR, tipologias: ['DP-02'] })),
         orcamentista_tabela_item: DE_PARA.itens.map((i) => ({ ...i, tabela_id: TABELA })),
         // o tempo da tabela própria (20261024000003); as colunas antigas, obsoletas, com OUTRO número
-        orcamentista_motor_tipologia: [{ tabela_id: TABELA, tipologia: 'DP-02', tempo_fabricacao_min: 999, tempo_origem: 'IMPORTADO' }],
-        orcamentista_motor_tipologia_tempo: [{ tabela_id: TABELA, tipologia: 'DP-02', tempo_fabricacao_min: 300, tempo_origem: 'ESTIMADO' }],
+        orcamentista_motor_tipologia: [{ tabela_id: null, motor_id: MOTOR, tipologia: 'DP-02', tempo_fabricacao_min: 999, tempo_origem: 'IMPORTADO' }],
+        orcamentista_motor_tipologia_tempo: [{ tabela_id: null, motor_id: MOTOR, tipologia: 'DP-02', tempo_fabricacao_min: 300, tempo_origem: 'ESTIMADO' }],
         tenant_settings: [{ tenant_id: TENANT, calc_type: 'INDUSTRIALIZACAO', monthly_workload: 528, workload_unit: 'HOURS', num_productive_employees: 5 }],
         tenant_expense_config: [{ tenant_id: TENANT, production_labor_cost_hub: 40813.03, production_labor_cost: 0, productive_value_per_minute: 0, admin_salary_total: 27649.76, admin_fgts_total: 0, admin_other_costs: 0, fixed_expense_monthly: 17884.79 }],
     }
@@ -647,7 +653,7 @@ describe('(4) a lista: a tipologia e a cor só da lista, exatas', () => {
         await chamar('Levantamento Casa do João: DP-02')
         expect(estado.chamadasDaLlm).toHaveLength(0)
         expect(enviados()).toHaveLength(1)
-        expect(enviados()[0]).toContain('a lista de tipologias do fornecedor')
+        expect(enviados()[0]).toContain('a lista de tipologias do motor')
     })
 
     it('SEM LISTA DE CORES: quando a vez é da cor, a conversa diz o que falta em vez de perguntar', async () => {
@@ -1164,12 +1170,12 @@ describe('(14) o banco falso recusa ordenar por coluna que a tabela não tem, co
 
     it.each(ABAS.map((t) => [t]))('%s: coluna inexistente é erro 42703; tipologia existe', async (tabela) => {
         expect(estado.db[tabela]?.length).toBeGreaterThan(0)
-        expect((await db().from(tabela).select('*').eq('tabela_id', TABELA).order('coluna_que_nao_existe')).error?.code).toBe('42703')
-        expect((await db().from(tabela).select('*').eq('tabela_id', TABELA).order('tipologia')).error).toBeNull()
+        expect((await db().from(tabela).select('*').eq('motor_id', MOTOR).order('coluna_que_nao_existe')).error?.code).toBe('42703')
+        expect((await db().from(tabela).select('*').eq('motor_id', MOTOR).order('tipologia')).error).toBeNull()
     })
 
     it('ordenar a Detalhe por id é erro, como em produção', async () => {
-        expect((await db().from('orcamentista_motor_tipologia_detalhe').select('*').eq('tabela_id', TABELA).order('id')).error?.code).toBe('42703')
+        expect((await db().from('orcamentista_motor_tipologia_detalhe').select('*').eq('motor_id', MOTOR).order('id')).error?.code).toBe('42703')
     })
 })
 
@@ -1530,49 +1536,53 @@ describe('(18) o que chega ao VENDEDOR não traz código de fornecedor nem núme
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════
 /**
- * (19) VÁRIAS TABELAS (dono do produto, 26/10/2026; migração 20261026000004): cai a trava "a sua empresa tem
- * 2 tabelas e ele trabalha com uma só". Com o código de tipologia em mais de uma tabela da conta, a IA
- * PERGUNTA de qual fornecedor, citando os dois pelo nome — nunca escolhe, nunca usa "a primeira". Sem dado
- * de produção que o exercite hoje (1 tabela ligada).
+ * (19) VÁRIAS FAMÍLIAS (PR D, dono do produto, 02/11/2026): "2+: junta as tipologias dos motores de cada família e a IA pergunta
+ * de qual é, no mesmo lugar onde hoje pergunta por fornecedor". Com o código no motor de mais de uma família da conta, a IA
+ * PERGUNTA de qual família, citando as duas pelo rótulo — nunca escolhe, nunca usa "a primeira". A esquadria grava a família e o
+ * motor do cálculo dela (`familia`, `motor_id`, `motor_familia_exigida`); `tabela_id` não é lido nem escrito. Sem dado de
+ * produção que o exercite hoje (1 família).
  */
-describe('(19) duas tabelas com o mesmo código: a conversa pergunta de qual fornecedor', () => {
+describe('(19) duas famílias com o mesmo código: a conversa pergunta de qual família', () => {
+    const MOTOR_SUL = 'motor-sul-aluminio'
     const SUL = 'tabela-perfis-sul'
     beforeEach(() => {
+        estado.db.orcamentista_materia_prima.push({ id: 'mp-alu', tenant_id: TENANT, nome: 'Esquadrias de alumínio', familia: 'ALUMINIO' })
+        estado.db.orcamentista_familia_etapa.push(...[1, 2].map((numero) => ({ tenant_id: TENANT, materia_prima_id: 'mp-alu', numero, motor_id: MOTOR_SUL })))
+        estado.db.orcamentista_motor.push({ id: MOTOR_SUL, nome: 'Motor_Sul_ALU', fornecedor_id: 'f-sul', arquivado_em: null })
         estado.db.orcamentista_mp_categoria_fornecedor.push({ tenant_id: TENANT, mp_categoria_id: 'c-perfil', fornecedor_id: 'f-sul' })
-        estado.db.orcamentista_tabela.push({ id: SUL, fornecedor_id: 'f-sul', arquivo_nome: 'Sul 2026.xlsx', familia: 'ALUMINIO', vigente: false })
+        estado.db.orcamentista_tabela.push({ id: SUL, fornecedor_id: 'f-sul', arquivo_nome: 'Sul 2026.xlsx', familia: 'ALUMINIO', categoria_chave: 'PERFIL', vigente: false })
         estado.db.orcamentista_fornecedor.push({ id: 'f-sul', nome: 'Perfis Sul' })
-        estado.db.orcamentista_motor_tipologia_detalhe.push({ tabela_id: SUL, tipologia: 'DP-02', descricao: 'JANELA DE CORRER 02 FOLHAS | LINHA SUL', tipo: 'Correr' })
+        estado.db.orcamentista_motor_tipologia_detalhe.push({ tabela_id: null, motor_id: MOTOR_SUL, tipologia: 'DP-02', descricao: 'JANELA DE CORRER 02 FOLHAS | LINHA SUL', tipo: 'Correr' })
     })
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const montagem = () => require('@/lib/atendimentos-ia/levantamento-em-montagem') as typeof import('@/lib/atendimentos-ia/levantamento-em-montagem')
-    const PERGUNTA = () => montagem().fraseDeQualFornecedor('DP-02', [{ fornecedor: 'Perfis Sul', familia: 'Alumínio' }, { fornecedor: 'Wolff Perfis', familia: 'PVC' }])
+    const PERGUNTA = 'A DP-02 está em 2 famílias da sua empresa: Alumínio ou PVC. De qual família é?'
+    const gravado = () => itensDe(levantamentos()[0].id).map((i) => [i.familia, i.motor_id, i.motor_familia_exigida, 'tabela_id' in i])
 
-    it('a esquadria com o código nas duas: a resposta PERGUNTA de qual fornecedor, citando os dois — e a esquadria fica sem tabela', async () => {
+    it('a esquadria com o código nos dois motores: a resposta PERGUNTA de qual família, citando as duas — e a esquadria fica sem família e sem motor', async () => {
         llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }] })
         await chamar('Levantamento Casa do Pedro: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm')
-        expect(ultimoEnviado()).toBe(PERGUNTA())
+        expect(ultimoEnviado()).toBe(PERGUNTA)
         const [l] = levantamentos()
         expect(l.estado).toBe('EM_MONTAGEM')
-        expect(itensDe(l.id).map((i) => i.tabela_id)).toEqual([null])
-        // o prompt deu à IA as duas linhas, cada uma com o fornecedor
+        expect(gravado()).toEqual([[null, null, null, false]])
+        // o prompt deu à IA as duas linhas, cada uma com a família e o fornecedor do motor
         const sistema = String(estado.chamadasDaLlm[0].corpo.system)
-        expect(sistema).toContain('DP-02 | JANELA DE CORRER 02 FOLHAS | LINHA SUL | Correr | fornecedor: Perfis Sul | família: Alumínio')
-        expect(sistema).toContain('DP-02 | JANELA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 42 | Correr | fornecedor: Wolff Perfis | família: PVC')
+        expect(sistema).toContain('DP-02 | JANELA DE CORRER 02 FOLHAS | LINHA SUL | Correr | família: Alumínio | fornecedor: Perfis Sul')
+        expect(sistema).toContain('DP-02 | JANELA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 42 | Correr | família: PVC | fornecedor: Wolff Perfis')
     })
 
-    it('a resposta "é da Wolff": a esquadria leva a tabela da Wolff, e a conversa segue para o apanhado', async () => {
+    it('a resposta "é a de PVC": a esquadria grava a família e o motor do PVC, e a conversa segue para o apanhado', async () => {
         llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }] })
         await chamar('Levantamento Casa do Pedro: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm')
-        llmResponde({ itens: [{ fornecedor: 'Wolff Perfis' }] })
-        await chamar('é da Wolff')
-        // a esquadria em montagem vai ao prompt SEM o id da tabela: é interno; o fornecedor a IA vê na lista
+        llmResponde({ itens: [{ familia: 'PVC' }] })
+        await chamar('é a de PVC')
+        // a esquadria em montagem vai ao prompt SEM a família e o motor gravados: são internos; a família a IA vê na lista
         const segundo = String(estado.chamadasDaLlm[1].corpo.system)
         expect(segundo).toContain('Levantamento em montagem: “Casa do Pedro”')
-        expect(segundo.includes('tabela_id')).toBe(false)
-        const [l] = levantamentos()
-        expect(itensDe(l.id).map((i) => i.tabela_id)).toEqual([TABELA])
+        expect(segundo.includes('motor_id')).toBe(false)
+        expect(segundo.includes('motor_familia_exigida')).toBe(false)
+        expect(gravado()).toEqual([['PVC', MOTOR, 'PVC', false]])
         expect(ultimoEnviado().startsWith('Apanhado do levantamento')).toBe(true)
-        // e com o "sim", o levantamento formal pela tabela da Wolff: o MESMO texto da conta com uma tabela só
+        // e com o "sim", o levantamento formal pelo motor e pelo preço do PVC: o MESMO texto da conta com uma família só
         const comDuas = await confirmarApanhado()
         montar()
         llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }] })
@@ -1581,53 +1591,30 @@ describe('(19) duas tabelas com o mesmo código: a conversa pergunta de qual for
         expect(comDuas).toBe(await confirmarApanhado())
     })
 
-    it('o fornecedor que a IA põe SEM o vendedor ter dito: não vale — a pergunta não é respondida por ela', async () => {
+    it('o fornecedor do motor também responde: "é da Perfis Sul" grava a família e o motor do alumínio', async () => {
         llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }] })
         await chamar('Levantamento Casa do Pedro: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm')
-        llmResponde({ itens: [{ fornecedor: 'Wolff Perfis' }] })
-        await chamar('pode ser o primeiro')
-        const [l] = levantamentos()
-        expect(itensDe(l.id).map((i) => i.tabela_id)).toEqual([null])
-        expect(ultimoEnviado()).toContain(PERGUNTA())
+        llmResponde({ itens: [{ fornecedor: 'Perfis Sul' }] })
+        await chamar('é da Perfis Sul')
+        expect(gravado()).toEqual([['ALUMINIO', MOTOR_SUL, 'ALUMINIO', false]])
     })
 
-    it('com o código em UMA tabela só, nada muda: sem pergunta de fornecedor, e a esquadria grava a tabela dela', async () => {
-        estado.db.orcamentista_motor_tipologia_detalhe = estado.db.orcamentista_motor_tipologia_detalhe.filter((d) => d.tabela_id !== SUL)
-        estado.db.orcamentista_motor_tipologia_detalhe.push({ tabela_id: SUL, tipologia: 'SU-07', descricao: 'PORTA PIVOTANTE | LINHA SUL', tipo: 'Porta' })
-        llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }] })
-        await chamar('Levantamento Casa do Pedro: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm')
-        expect(ultimoEnviado().startsWith('Apanhado do levantamento')).toBe(true)
-        expect(itensDe(levantamentos()[0].id).map((i) => i.tabela_id)).toEqual([TABELA])
-    })
-
-    it('o MESMO fornecedor com PVC e alumínio: a pergunta cita a família, e "é a de PVC" resolve', async () => {
-        // a tabela do sul passa a ser da Wolff, de alumínio: o caso que o dono do produto citou
-        const sul = estado.db.orcamentista_tabela.find((t) => t.id === SUL)
-        if (!sul) throw new Error('sem a tabela do sul')
-        sul.fornecedor_id = 'f-wolff'
-        // a Perfis Sul fica sem tabela: o vínculo dela no PERFIL sai junto, senão é a recusa do perfil sem tabela
-        estado.db.orcamentista_mp_categoria_fornecedor = estado.db.orcamentista_mp_categoria_fornecedor.filter((v) => v.fornecedor_id !== 'f-sul')
-        llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }] })
-        await chamar('Levantamento Casa do Pedro: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm')
-        expect(ultimoEnviado()).toBe('A DP-02 está em 2 tabelas da Wolff Perfis: de Alumínio ou de PVC. De qual família é?')
-        llmResponde({ itens: [{ familia: 'PVC' }] })
-        await chamar('é a de PVC')
-        expect(itensDe(levantamentos()[0].id).map((i) => i.tabela_id)).toEqual([TABELA])
-        expect(ultimoEnviado().startsWith('Apanhado do levantamento')).toBe(true)
-    })
-
-    it('a FAMÍLIA que a IA põe sem o vendedor ter dito também não vale: a pergunta da família continua', async () => {
-        const sul = estado.db.orcamentista_tabela.find((t) => t.id === SUL)
-        if (!sul) throw new Error('sem a tabela do sul')
-        sul.fornecedor_id = 'f-wolff'
-        // a Perfis Sul fica sem tabela: o vínculo dela no PERFIL sai junto, senão é a recusa do perfil sem tabela
-        estado.db.orcamentista_mp_categoria_fornecedor = estado.db.orcamentista_mp_categoria_fornecedor.filter((v) => v.fornecedor_id !== 'f-sul')
+    it('a FAMÍLIA que a IA põe SEM o vendedor ter dito: não vale — a pergunta não é respondida por ela', async () => {
         llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }] })
         await chamar('Levantamento Casa do Pedro: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm')
         llmResponde({ itens: [{ familia: 'PVC' }] })
         await chamar('pode ser a primeira')
-        expect(itensDe(levantamentos()[0].id).map((i) => i.tabela_id)).toEqual([null])
-        expect(ultimoEnviado()).toContain('A DP-02 está em 2 tabelas da Wolff Perfis: de Alumínio ou de PVC. De qual família é?')
+        expect(gravado()).toEqual([[null, null, null, false]])
+        expect(ultimoEnviado()).toContain(PERGUNTA)
+    })
+
+    it('com o código no motor de UMA família só, nada muda: sem pergunta, e a esquadria grava a família e o motor dela', async () => {
+        estado.db.orcamentista_motor_tipologia_detalhe = estado.db.orcamentista_motor_tipologia_detalhe.filter((d) => d.motor_id !== MOTOR_SUL)
+        estado.db.orcamentista_motor_tipologia_detalhe.push({ tabela_id: null, motor_id: MOTOR_SUL, tipologia: 'SU-07', descricao: 'PORTA PIVOTANTE | LINHA SUL', tipo: 'Porta' })
+        llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }] })
+        await chamar('Levantamento Casa do Pedro: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm')
+        expect(ultimoEnviado().startsWith('Apanhado do levantamento')).toBe(true)
+        expect(gravado()).toEqual([['PVC', MOTOR, 'PVC', false]])
     })
 })
 
