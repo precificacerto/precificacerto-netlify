@@ -686,6 +686,12 @@ gravava data. A `21acfa75` foi criada em 29/10/2026 às 19:26 UTC e teve o arqui
   semeava só com `criado_em` ("é a melhor aproximação que existe"); a medida do Storage a superou antes de a migração ser aplicada.
 - **Tabela criada depois da migração:** o gatilho dá `arquivo_em = criado_em` (a linha), não o envio do objeto, que acontece segundos antes. A
   diferença é de segundos e só vale para o arquivo de criação; a troca de arquivo grava o instante da troca.
+- **O aborto de 02/11/2026, na verificação 3 (nada foi alterado):** a versão `102a8c59…` revogava a função do gatilho só `FROM PUBLIC`. Em produção,
+  o que o `postgres` cria no schema `public` dá EXECUTE a `authenticated` e `service_role` por **privilégio padrão** (`pg_default_acl`, medido: grant
+  próprio, não herdado de PUBLIC; o do `supabase_admin` dá também a `anon`), e o REVOKE de PUBLIC não os alcança. A verificação 3 pegou; o harness
+  não, porque o Postgres local não tinha esse privilégio padrão. Corrigido para `FROM PUBLIC, anon, authenticated`, como as outras migrações
+  (`5fce5f31…`); o harness passou a reproduzir o privilégio padrão de produção e o **contraste 2** prova que o REVOKE só de PUBLIC aborta com a
+  frase da verificação 3 — e que, sem o privilégio padrão, o contraste falha (o harness de antes não via o defeito).
 - **A tela mostra data e hora** (dono do produto, 02/11/2026: "É o que 'exato momento' quer dizer"): `dd/mm/aaaa hh:mm`, no fuso de quem olha
   (`dataEHoraBR`).
 
@@ -705,4 +711,4 @@ Formulação do dono do produto, registrada como está:
   quebram de linha, e a grade de cartões nunca pede mais que a largura da tela (`minmax(min(100%, 22rem), 1fr)`).
 - **Prova:** `scripts/harness/arquivo-em/` — a base da `tabela-soberana` (com a `20261101000001`), o estado de produção de 01/11 depois das 21:08 (a
   `72366020` removida pelo arrasto, os `criado_em` reais e os objetos do Storage, com um de mesmo nome em outro bucket), a migração duas vezes, 8 casos,
-  a regressão das duas suítes do arrasto e o contraste da reaplicação (39/39); 19 mutações mortas nas duas passadas.
+  a regressão das duas suítes do arrasto, o contraste da reaplicação e o da verificação 3 (40/40); 20 mutações mortas nas duas passadas.

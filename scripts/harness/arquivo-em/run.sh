@@ -13,7 +13,12 @@ D=${HARNESS_DB:-harness_arquivo_em}; BASE=${D}_base; RG=${D}_regressao; GC=${D}_
 if [ -z "$REUSA_BASE" ] || ! $P -At -c "select 1 from pg_database where datname = '$BASE'" | grep -q 1; then
   HARNESS_DB=$BASE BASE_SO=1 bash $TS/run.sh >/dev/null 2>&1 || { echo "BASE FALHOU: a base da tabela-soberana"; exit 2; }
 fi
-for x in $D $RG $GC; do $P -c "drop database if exists $x" >/dev/null 2>&1; $P -c "create database $x template $BASE" >/dev/null || { echo "COPIA NAO CRIADA"; exit 2; }; done
+# o PRIVILÉGIO PADRÃO de funções do schema public, como em produção (medido em 02/11/2026, pg_default_acl): o que o postgres cria dá EXECUTE a
+# authenticated e service_role por grant PRÓPRIO, não herdado de PUBLIC. Sem isto, o REVOKE só de PUBLIC passava aqui e abortava lá (02/11/2026).
+$P -d $BASE -v ON_ERROR_STOP=1 -c "alter default privileges for role postgres in schema public grant execute on functions to authenticated, service_role" >/dev/null 2>&1 \
+  || { echo "BASE FALHOU: o privilegio padrao"; exit 2; }
+G2=${D}_contraste2
+for x in $D $RG $GC $G2; do $P -c "drop database if exists $x" >/dev/null 2>&1; $P -c "create database $x template $BASE" >/dev/null || { echo "COPIA NAO CRIADA"; exit 2; }; done
 OUT=$($P -d $D -v ON_ERROR_STOP=1 -f $S/09_estado.sql 2>&1) || { echo "BASE FALHOU: o estado"; echo "$OUT" | grep -E "ERROR|DETAIL" | head -3; exit 2; }
 for db in $D $RG; do for i in 1 2; do
   OUT=$($P -d $db -v ON_ERROR_STOP=1 -f "$MIG" 2>&1) || { echo "BASE FALHOU: a migracao em $db (vez $i)"; echo "$OUT" | grep -E "ERROR|DETAIL|CONTEXT" | head -4; exit 2; }
@@ -30,6 +35,19 @@ local L2; L2=$($P -d $GC -At -c "select count(*) from public.superadmin_alteraca
 local T; T=$($P -d $GC -At -c "select count(*) from public.orcamentista_tabela")
 if [ "$L1" = "$T" ] || [ "$L1" != "$L2" ] || [ "$(( T - 1 ))" != "$L1" ]; then echo "ERROR:  FALHOU contraste 1: log $L1 -> $L2, tabelas $T"; return; fi
 echo "NOTICE:  ok: contraste 1 — a tabela criada entre as aplicacoes nao e semeada nem logada, e a reaplicacao nao aborta ($L1 logs, $T tabelas)"
+# CONTRASTE 2: a verificação 3 — com o REVOKE só de PUBLIC (a versão que abortou em produção em 02/11/2026), authenticated fica com EXECUTE pelo
+# privilégio padrão, e a migração aborta com a frase; nada muda (nem coluna, nem função, nem log)
+# (sem o bloco $verifica$ — a segunda passada das mutações — não há frase a esperar: quem pega o REVOKE só de PUBLIC ali é o caso 8)
+if ! grep -q '^DO \$verifica\$' "$MIG"; then echo "NOTICE:  ok: contraste 2 — sem o bloco \$verifica\$, nao se aplica (o caso 8 confere o privilegio)"; return; fi
+local SO_PUBLIC; SO_PUBLIC=$(mktemp --suffix=.sql)
+sed 's/^REVOKE ALL ON FUNCTION public.orcamentista_tabela_arquivo_em() FROM PUBLIC, anon, authenticated;$/REVOKE ALL ON FUNCTION public.orcamentista_tabela_arquivo_em() FROM PUBLIC;/' "$MIG" > "$SO_PUBLIC"
+if cmp -s "$MIG" "$SO_PUBLIC"; then echo "ERROR:  FALHOU contraste 2: a linha do REVOKE nao foi achada na migracao"; return; fi
+SAI=$($P -d $G2 -v ON_ERROR_STOP=1 -f "$SO_PUBLIC" 2>&1)
+local RESTO; RESTO=$($P -d $G2 -At -c "select (select count(*) from information_schema.columns where table_name = 'orcamentista_tabela' and column_name = 'arquivo_em')
+  + (select count(*) from pg_proc where proname = 'orcamentista_tabela_arquivo_em') + (select count(*) from public.superadmin_alteracao_log where antes ->> 'migracao' = '20261101000002_arquivo_em_da_tabela')")
+if echo "$SAI" | grep -q "ERROR:  verificacao 3: a funcao orcamentista_tabela_arquivo_em esta aberta a anon ou authenticated" && [ "$RESTO" = "0" ]; then
+  echo "NOTICE:  ok: contraste 2 — o REVOKE so de PUBLIC aborta na verificacao 3 (authenticated tem EXECUTE pelo privilegio padrao), e nada muda"
+else echo "ERROR:  FALHOU contraste 2: saida=$(echo "$SAI" | grep ERROR | head -1) resto=$RESTO"; fi
 }
 SAIDA=$( (cd $S && $P -d $D -f 10_casos.sql 2>&1; cd $TS && $P -d $RG -f 10_casos.sql 2>&1; cd $CS && $P -d $RG -f 10_casos.sql 2>&1; contrastes) \
   | sed -nE 's/^.*NOTICE:  (ok: .*)$/\1/p; s/^.*ERROR:  (FALHOU.*)$/\1/p; s/^.*ERROR:  (.*)$/ERRO NAO PREVISTO: \1/p')
@@ -37,5 +55,5 @@ echo "$SAIDA"
 ESPERADO=$(( $(grep -c "^-- CASO " $S/10_casos.sql) + $(grep -c "^-- CASO " $TS/10_casos.sql) + $(grep -c "^-- CASO " $CS/10_casos.sql) + $(grep -c "^# CONTRASTE " $S/run.sh) ))
 OKS=$(echo "$SAIDA" | grep -c '^ok: ')
 echo "$OKS de $ESPERADO casos ok"
-for x in $RG $GC; do $P -c "drop database if exists $x" >/dev/null 2>&1; done
+for x in $RG $GC $G2; do $P -c "drop database if exists $x" >/dev/null 2>&1; done
 [ "$OKS" = "$ESPERADO" ] || exit 1

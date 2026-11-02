@@ -27,7 +27,8 @@ MUTACOES = [
     ("G4 o gatilho só na troca do arquivo", [("  BEFORE INSERT OR UPDATE ON public.orcamentista_tabela\n", "  BEFORE INSERT OR UPDATE OF arquivo_path ON public.orcamentista_tabela\n")]),
     ("G5 o gatilho só no UPDATE", [("  BEFORE INSERT OR UPDATE ON public.orcamentista_tabela\n", "  BEFORE UPDATE ON public.orcamentista_tabela\n")]),
     ("G6 o motor também conta como troca", [("  ELSIF NEW.arquivo_path IS DISTINCT FROM OLD.arquivo_path THEN", "  ELSIF NEW.arquivo_path IS DISTINCT FROM OLD.arquivo_path OR NEW.motor_path IS DISTINCT FROM OLD.motor_path THEN")]),
-    ("G7 a função aberta", [("REVOKE ALL ON FUNCTION public.orcamentista_tabela_arquivo_em() FROM PUBLIC;\n", "")]),
+    ("G7 a função aberta", [("REVOKE ALL ON FUNCTION public.orcamentista_tabela_arquivo_em() FROM PUBLIC, anon, authenticated;\n", "")]),
+    ("G9 o REVOKE só de PUBLIC (o que abortou em produção em 02/11/2026)", [("REVOKE ALL ON FUNCTION public.orcamentista_tabela_arquivo_em() FROM PUBLIC, anon, authenticated;", "REVOKE ALL ON FUNCTION public.orcamentista_tabela_arquivo_em() FROM PUBLIC;")]),
     ("G8 a troca com clock_timestamp", [("    NEW.arquivo_em := now();\n  ELSE", "    NEW.arquivo_em := clock_timestamp();\n  ELSE")]),
 ]
 

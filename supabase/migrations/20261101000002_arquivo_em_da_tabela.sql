@@ -84,7 +84,7 @@ BEGIN
 END
 $fn$;
 
-REVOKE ALL ON FUNCTION public.orcamentista_tabela_arquivo_em() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.orcamentista_tabela_arquivo_em() FROM PUBLIC, anon, authenticated;
 
 DROP TRIGGER IF EXISTS orcamentista_tabela_arquivo_em ON public.orcamentista_tabela;
 CREATE TRIGGER orcamentista_tabela_arquivo_em
