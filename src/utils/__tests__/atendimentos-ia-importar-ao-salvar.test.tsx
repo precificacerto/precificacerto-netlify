@@ -235,6 +235,14 @@ describe('(4)(5)(6) a tela de Importação', () => {
         expect(vezes(POST_IMPORTAR)).toBe(2)
     })
 
+    it('(4) em StrictMode (o projeto liga `reactStrictMode`): os efeitos rodam duas vezes na montagem, e a importação dispara UMA só', async () => {
+        consulta = { id: T, [PARAMETRO_IMPORTAR_AO_ABRIR]: '1' }
+        responder(POST_IMPORTAR, { status: 200, body: { importacao_id: 'imp-1', contagens: { itens: 18 }, avisos: [] } })
+        await montar(<React.StrictMode><PaginaDaImportacao /></React.StrictMode>)
+        expect(vezes(POST_IMPORTAR)).toBe(1)
+        expect(replaces).toEqual([telaDaImportacao(T)])
+    })
+
     it('(4) sem o parâmetro: nada é disparado ao abrir', async () => {
         responder(POST_IMPORTAR, { status: 200, body: { importacao_id: 'imp-1', contagens: {}, avisos: [] } })
         await montar(<PaginaDaImportacao />)
@@ -284,6 +292,17 @@ describe('(4)(5)(6) a tela de Importação', () => {
         const aviso = host.querySelector('[data-nao-importada]')!
         expect(aviso.getAttribute('data-nao-importada')).toBe('sem-itens')
         expect(aviso.textContent).toContain(MOTIVO_DA_NAO_IMPORTADA.sem_itens)
+    })
+
+    it('(6) recusa POR CIMA de uma última importação: o motivo é a recusa (o mais recente), não "sem itens"', async () => {
+        consulta = { id: T, [PARAMETRO_IMPORTAR_AO_ABRIR]: '1' }
+        responder(`GET ${ROTAS_DO_CATALOGO.importacao(T)}`, { status: 200, body: ULTIMA })
+        responder(POST_IMPORTAR, { status: 422, body: { error: 'Arquivo recusado.' } })
+        const host = await montar(<PaginaDaImportacao />)
+        const aviso = host.querySelector('[data-nao-importada]')!
+        expect(aviso.getAttribute('data-nao-importada')).toBe('recusada')
+        expect(aviso.textContent).toContain(MOTIVO_DA_NAO_IMPORTADA.recusada)
+        expect(aviso.textContent).not.toContain(MOTIVO_DA_NAO_IMPORTADA.sem_itens)
     })
 
     it('(6) com itens gravados não há aviso; e sem a contagem do conteúdo (rota de antes) nada é dito — ausente não é zero', async () => {
