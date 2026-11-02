@@ -87,6 +87,17 @@ export function fraseDoArquivoNaoImportavel(nome: string): string {
 /** O motivo da recusa de formato — o mesmo na tela e na rota. */
 export const MOTIVO_DO_FORMATO_RECUSADO = `Formato não aceito. Use ${EXTENSOES_ACEITAS.join(', ')}.`
 
+/**
+ * "Subido em" com a hora (dono do produto, 02/11/2026: "exato momento"): `dd/mm/aaaa hh:mm`, no fuso de quem olha. Sem vírgula entre a data e a
+ * hora (o `toLocaleString('pt-BR')` põe uma). Data que não se lê é traço, nunca "Invalid Date" (`ausente-vs-falso.md`).
+ */
+export function dataEHoraBR(iso: string): string {
+    const d = new Date(iso)
+    if (Number.isNaN(d.getTime())) return '—'
+    const dois = (n: number) => String(n).padStart(2, '0')
+    return `${dois(d.getDate())}/${dois(d.getMonth() + 1)}/${d.getFullYear()} ${dois(d.getHours())}:${dois(d.getMinutes())}`
+}
+
 /** Uma recusa que diz QUAL arquivo: `Arquivo "x.docx": Formato não aceito…`. */
 export const fraseDoArquivo = (nome: string, motivo: string) => `Arquivo "${nome}": ${motivo}`
 
@@ -313,8 +324,13 @@ export interface TabelaDoFornecedor {
      * usa. No máximo uma por (fornecedor, família). A `vigencia` acima continua sendo só texto do consultor.
      */
     vigente: boolean
-    /** "Subido em". */
+    /** Quando a LINHA nasceu. Não é "Subido em": a troca de arquivo não muda esta data. */
     criado_em: string
+    /**
+     * "Subido em" (dono do produto, 01/11/2026; migração 20261101000002): o momento em que o arquivo de preço ATUAL entrou — criado_em na
+     * criação, o instante de cada troca de arquivo depois. O banco o mantém (gatilho); as linhas de antes de 01/11 foram semeadas com criado_em.
+     */
+    arquivo_em: string
     contas_usando: string[]
 }
 

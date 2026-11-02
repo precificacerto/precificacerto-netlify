@@ -35,6 +35,8 @@ $P -c "create database $D template $A" >/dev/null || { echo "COPIA NAO CRIADA"; 
 for i in $(seq 1 ${VEZES:-2}); do  # as mutações rodam com VEZES=1: o corpo mutado tem outro md5, e a guarda da reaplicação o recusaria (morte falsa)
   OUT=$($P -d $D -v ON_ERROR_STOP=1 -f "$MIG" 2>&1) || { echo "BASE FALHOU: a migracao (vez $i)"; echo "$OUT" | grep -E "ERROR|DETAIL|CONTEXT" | head -4; exit 2; }
 done
+# BASE_SO=1: para aqui, com $D no estado de produção de hoje (a 20261101000001 aplicada) — é a base de quem vem depois (arquivo-em)
+if [ -n "$BASE_SO" ]; then for x in $A $G0 ${D}_cadeia; do $P -c "drop database if exists $x" >/dev/null 2>&1; done; exit 0; fi
 
 
 # as GUARDAS: cada uma numa cópia com o estado que a dispara; aborta com a frase, e nada muda (o tipo 'tabela' continua desconhecido)

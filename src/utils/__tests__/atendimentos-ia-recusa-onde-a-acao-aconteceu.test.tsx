@@ -52,7 +52,7 @@ const FORNECEDOR: FornecedorComTabelas = {
     id: 'f1', nome: 'Wolf Perfis', nicho_id: 'n1', nicho_nome: 'Esquadrias', modelo: 'FABRICACAO', tabelas: 1, contas_usando: [], categorias_das_tabelas: [], familias_do_perfil: [] as string[],
     tabelas_da_lista: [{
         id: 't1', fornecedor_id: 'f1', arquivo_nome: 'tabela-antiga.xlsx', arquivo_path: 'f1/arquivo/x-tabela-antiga.xlsx',
-        motor_nome: 'motor.xlsx', motor_path: 'f1/motor/x-motor.xlsx', vigencia: null, familia: null, categoria_chave: null, vigente: false, criado_em: '2026-10-19T12:00:00Z', contas_usando: ['Marcenaria Silva'],
+        motor_nome: 'motor.xlsx', motor_path: 'f1/motor/x-motor.xlsx', vigencia: null, familia: null, categoria_chave: null, vigente: false, criado_em: '2026-10-19T12:00:00Z', arquivo_em: '2026-10-19T12:00:00Z', contas_usando: ['Marcenaria Silva'],
     }],
 }
 
@@ -150,7 +150,7 @@ describe('na página de UM fornecedor', () => {
         } }
         respostas[`POST ${ROTA_DA_REMOCAO}`] = { status: 504, body: { error: 'A remoção passou do tempo e foi desfeita inteira: nada foi removido. Tente de novo.' } }
         const host = await montar(<PaginaDoFornecedor />)
-        await clicar(botao(host.querySelector('tbody')!, 'Remover'))
+        await clicar(botao(host.querySelector('[data-tabelas-do-fornecedor]')!, 'Remover'))
 
         expect(pedidos).toContain(`GET ${rotaDoArrasto('tabela', 't1')}`)
         expect(pedidos.filter((p) => p.startsWith('POST ') || p.startsWith('DELETE '))).toEqual([])
@@ -175,7 +175,7 @@ describe('na página de UM fornecedor', () => {
         const host = await montar(<PaginaDoFornecedor />)
         const lidas = () => pedidos.filter((p) => p === `GET ${ROTAS_DO_CATALOGO.fornecedor('f1')}`).length
         const antes = lidas()
-        await clicar(botao(host.querySelector('tbody')!, 'Remover'))
+        await clicar(botao(host.querySelector('[data-tabelas-do-fornecedor]')!, 'Remover'))
         await clicar(modal()!.querySelector('[data-confirmo-o-arrasto] input') as HTMLElement)
         await clicar(botao(modal()!, 'Remover'))
 

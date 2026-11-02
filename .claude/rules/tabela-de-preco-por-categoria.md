@@ -664,3 +664,51 @@ Formulação do dono do produto, registrada como está:
   CRLF — 93 no dos passos, 116 no da remoção); sem o `\r`, os cinco md5 são os do arquivo. O contraste `aceita 1` aplica a `20261031000003` em CRLF e
   prova que a guarda aceita; a mutação G3 (comparar com o `\r`) o derruba.
 
+
+## "Subido em" é o momento do arquivo, não o da linha — dono do produto, 01/11/2026 (migração `20261101000002`, PENDENTE até o dono do produto aplicar)
+
+Formulação do dono do produto, registrada como está:
+
+> "onde está escrito subido em, foi alterado agora, então ele deveria pegar o exato momento, não o dia que foi criado."
+
+**O defeito era de dado, não de tela.** A `orcamentista_tabela` só tinha `criado_em`, e a troca de arquivo (PATCH de `tabelas/[id]`) é um UPDATE que não
+gravava data. A `21acfa75` foi criada em 29/10/2026 às 19:26 UTC e teve o arquivo trocado em 01/11; a tela mostrava 29/10.
+
+- **`arquivo_em timestamptz NOT NULL DEFAULT now()`**, mantida pelo **banco** (gatilho `orcamentista_tabela_arquivo_em`), por qualquer caminho:
+  na criação, `arquivo_em = criado_em`; na troca de `arquivo_path`, o instante da troca; em qualquer outro UPDATE (vigência, família, motor, o arrasto
+  que tira a família), fica como estava — **não se escreve à mão** (fato histórico: `fato-vs-referencia.md`). Só o `arquivo_path` conta: o `motor_path`
+  da tabela é legado e não é "Subido em".
+- **O semeio (dono do produto, 02/11/2026: "SEMEIE PELO STORAGE"):** cada linha de antes recebe o **envio do objeto do arquivo atual** no Storage
+  (`storage.objects.created_at`, bucket `atendimentos-ia`, nome = `arquivo_path`); `criado_em` **só como reserva**, para a tabela cujo objeto não está
+  lá. **Uma linha de log por tabela** no `superadmin_alteracao_log` (antes sem `arquivo_em`, depois com ele, e `origem_de_arquivo_em`, que diz qual
+  dos dois). Reaplicar não semeia nem loga de novo. Medido em 02/11/2026: a `21acfa75` fica com **01/11 21:08:19 UTC** (o arquivo trocado); a IMAB
+  (`fe2c6667`) com 28/10 16:24:39 (o envio, 2 s antes da linha); a Estrela (`arquivo_path` vazio, sem objeto) com o `criado_em`. A primeira versão
+  semeava só com `criado_em` ("é a melhor aproximação que existe"); a medida do Storage a superou antes de a migração ser aplicada.
+- **Tabela criada depois da migração:** o gatilho dá `arquivo_em = criado_em` (a linha), não o envio do objeto, que acontece segundos antes. A
+  diferença é de segundos e só vale para o arquivo de criação; a troca de arquivo grava o instante da troca.
+- **O aborto de 02/11/2026, na verificação 3 (nada foi alterado):** a versão `102a8c59…` revogava a função do gatilho só `FROM PUBLIC`. Em produção,
+  o que o `postgres` cria no schema `public` dá EXECUTE a `authenticated` e `service_role` por **privilégio padrão** (`pg_default_acl`, medido: grant
+  próprio, não herdado de PUBLIC; o do `supabase_admin` dá também a `anon`), e o REVOKE de PUBLIC não os alcança. A verificação 3 pegou; o harness
+  não, porque o Postgres local não tinha esse privilégio padrão. Corrigido para `FROM PUBLIC, anon, authenticated`, como as outras migrações
+  (`5fce5f31…`); o harness passou a reproduzir o privilégio padrão de produção e o **contraste 2** prova que o REVOKE só de PUBLIC aborta com a
+  frase da verificação 3 — e que, sem o privilégio padrão, o contraste falha (o harness de antes não via o defeito).
+- **A tela mostra data e hora** (dono do produto, 02/11/2026: "É o que 'exato momento' quer dizer"): `dd/mm/aaaa hh:mm`, no fuso de quem olha
+  (`dataEHoraBR`).
+
+## A lista de tabelas do fornecedor é UM CARTÃO POR TABELA — dono do produto, 02/11/2026 (sem migração)
+
+Formulação do dono do produto, registrada como está:
+
+> "eu estou vendo muito mal distribuído por coluna. Eu acho que nós temos que fazer as colunas se tornarem linhas. E aí cada discriminação tendo a sua
+> descrição. [...] Cada fornecedor, que vai ter uma tabela, vai ser uma célula."
+
+- A grade de nove colunas saiu da página do fornecedor (`fornecedores/[id].tsx`). Cada tabela é um cartão (`CartaoDaTabela`): o **nome do arquivo** em
+  destaque no topo, inteiro; dentro, as **mesmas sete** informações, cada uma numa linha com o rótulo à esquerda e o valor à direita — motor · família ·
+  categoria · vigente · vigência (nota) · subido em · contas usando (`CAMPOS_DO_CARTAO`); **Importação, Editar e Remover** no rodapé.
+- **"NÃO acrescente informação nova: as mesmas sete, mais nada."** O portão (`atendimentos-ia-cartao-da-tabela.test.tsx`) confere a lista contra o
+  pedido escrito no teste, não contra a constante, e que o texto do cartão é só o título, as sete linhas e os três botões.
+- **Janela estreita:** a linha quebra (o valor desce para baixo do rótulo), o valor quebra em qualquer ponto (`overflowWrap: 'anywhere'`), os botões
+  quebram de linha, e a grade de cartões nunca pede mais que a largura da tela (`minmax(min(100%, 22rem), 1fr)`).
+- **Prova:** `scripts/harness/arquivo-em/` — a base da `tabela-soberana` (com a `20261101000001`), o estado de produção de 01/11 depois das 21:08 (a
+  `72366020` removida pelo arrasto, os `criado_em` reais e os objetos do Storage, com um de mesmo nome em outro bucket), a migração duas vezes, 8 casos,
+  a regressão das duas suítes do arrasto, o contraste da reaplicação e o da verificação 3 (40/40); 20 mutações mortas nas duas passadas.

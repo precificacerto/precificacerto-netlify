@@ -119,7 +119,7 @@ jest.mock('@/components/layout/layout.component', () => ({ Layout: ({ children }
 
 const linha = (id: string, arquivo: string, vigente: boolean) => ({
     id, fornecedor_id: 'f1', arquivo_nome: arquivo, arquivo_path: `f1/arquivo/${id}`, motor_nome: 'motor.xlsx', motor_path: `f1/motor/${id}`,
-    vigencia: 'desde 01/10/2026', familia: 'PVC', vigente, criado_em: '2026-10-19T12:00:00Z', contas_usando: [] as string[],
+    vigencia: 'desde 01/10/2026', familia: 'PVC', vigente, criado_em: '2026-10-19T12:00:00Z', arquivo_em: '2026-10-19T12:00:00Z', contas_usando: [] as string[],
 })
 const FORNECEDOR = {
     id: 'f1', nome: 'Wolff Perfis', nicho_id: 'n1', nicho_nome: 'Esquadrias', modelo: 'FABRICACAO', tabelas: 2, contas_usando: [],
@@ -195,7 +195,7 @@ describe('(5) a tela do fornecedor: a tabela fora do Perfil sem família serve q
         respostas[`GET ${ROTAS_DO_CATALOGO.categorias}`] = { status: 200, body: [{ chave: 'PERFIL', rotulo: 'Perfil', ordem: 1 }, { chave: 'FERRAGENS', rotulo: 'Ferragens', ordem: 4 }] }
         respostas[`PATCH ${ROTAS_DO_CATALOGO.tabela('t-ferr2')}`] = { status: 200, body: { ok: true } }
     })
-    const linhaDa = (host: ParentNode, arquivo: string) => Array.from(host.querySelectorAll('tr')).find((tr) => tr.textContent?.includes(arquivo)) as HTMLElement
+    const linhaDa = (host: ParentNode, arquivo: string) => Array.from(host.querySelectorAll('[data-cartao-da-tabela]')).find((c) => c.querySelector('[data-arquivo-do-cartao]')?.textContent === arquivo) as HTMLElement
 
     it('a ferragem sem família diz "Qualquer linha"; a tabela de antes, sem categoria e sem família, continua "não informada"', async () => {
         const host = await montar()
