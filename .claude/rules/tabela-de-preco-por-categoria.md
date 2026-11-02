@@ -678,11 +678,31 @@ gravava data. A `21acfa75` foi criada em 29/10/2026 às 19:26 UTC e teve o arqui
   na criação, `arquivo_em = criado_em`; na troca de `arquivo_path`, o instante da troca; em qualquer outro UPDATE (vigência, família, motor, o arrasto
   que tira a família), fica como estava — **não se escreve à mão** (fato histórico: `fato-vs-referencia.md`). Só o `arquivo_path` conta: o `motor_path`
   da tabela é legado e não é "Subido em".
-- **O semeio:** as linhas de antes de 01/11 recebem `criado_em` (decisão do dono do produto: "é a melhor aproximação que existe"), **uma linha de log
-  por tabela** no `superadmin_alteracao_log` (antes sem `arquivo_em`, depois com ele, e `origem_de_arquivo_em`). Reaplicar não semeia nem loga de novo.
-- **Leitura do assistente, levada ao dono do produto:** para a `21acfa75` há uma medida melhor que `criado_em` — o objeto atual do Storage foi enviado em
-  **01/11/2026 21:08:19 UTC** (`storage.objects.created_at`). O semeio ficou com `criado_em`, como decidido.
-- A tela mostra `arquivo_em` (`fornecedores/[id].tsx`, coluna "Subido em"), só a data, como antes.
+- **O semeio (dono do produto, 02/11/2026: "SEMEIE PELO STORAGE"):** cada linha de antes recebe o **envio do objeto do arquivo atual** no Storage
+  (`storage.objects.created_at`, bucket `atendimentos-ia`, nome = `arquivo_path`); `criado_em` **só como reserva**, para a tabela cujo objeto não está
+  lá. **Uma linha de log por tabela** no `superadmin_alteracao_log` (antes sem `arquivo_em`, depois com ele, e `origem_de_arquivo_em`, que diz qual
+  dos dois). Reaplicar não semeia nem loga de novo. Medido em 02/11/2026: a `21acfa75` fica com **01/11 21:08:19 UTC** (o arquivo trocado); a IMAB
+  (`fe2c6667`) com 28/10 16:24:39 (o envio, 2 s antes da linha); a Estrela (`arquivo_path` vazio, sem objeto) com o `criado_em`. A primeira versão
+  semeava só com `criado_em` ("é a melhor aproximação que existe"); a medida do Storage a superou antes de a migração ser aplicada.
+- **Tabela criada depois da migração:** o gatilho dá `arquivo_em = criado_em` (a linha), não o envio do objeto, que acontece segundos antes. A
+  diferença é de segundos e só vale para o arquivo de criação; a troca de arquivo grava o instante da troca.
+- **A tela mostra data e hora** (dono do produto, 02/11/2026: "É o que 'exato momento' quer dizer"): `dd/mm/aaaa hh:mm`, no fuso de quem olha
+  (`dataEHoraBR`).
+
+## A lista de tabelas do fornecedor é UM CARTÃO POR TABELA — dono do produto, 02/11/2026 (sem migração)
+
+Formulação do dono do produto, registrada como está:
+
+> "eu estou vendo muito mal distribuído por coluna. Eu acho que nós temos que fazer as colunas se tornarem linhas. E aí cada discriminação tendo a sua
+> descrição. [...] Cada fornecedor, que vai ter uma tabela, vai ser uma célula."
+
+- A grade de nove colunas saiu da página do fornecedor (`fornecedores/[id].tsx`). Cada tabela é um cartão (`CartaoDaTabela`): o **nome do arquivo** em
+  destaque no topo, inteiro; dentro, as **mesmas sete** informações, cada uma numa linha com o rótulo à esquerda e o valor à direita — motor · família ·
+  categoria · vigente · vigência (nota) · subido em · contas usando (`CAMPOS_DO_CARTAO`); **Importação, Editar e Remover** no rodapé.
+- **"NÃO acrescente informação nova: as mesmas sete, mais nada."** O portão (`atendimentos-ia-cartao-da-tabela.test.tsx`) confere a lista contra o
+  pedido escrito no teste, não contra a constante, e que o texto do cartão é só o título, as sete linhas e os três botões.
+- **Janela estreita:** a linha quebra (o valor desce para baixo do rótulo), o valor quebra em qualquer ponto (`overflowWrap: 'anywhere'`), os botões
+  quebram de linha, e a grade de cartões nunca pede mais que a largura da tela (`minmax(min(100%, 22rem), 1fr)`).
 - **Prova:** `scripts/harness/arquivo-em/` — a base da `tabela-soberana` (com a `20261101000001`), o estado de produção de 01/11 depois das 21:08 (a
-  `72366020` removida pelo arrasto, os `criado_em` reais), a migração duas vezes, 8 casos, a regressão das duas suítes do arrasto e o contraste da
-  reaplicação (39/39); 15 mutações mortas nas duas passadas.
+  `72366020` removida pelo arrasto, os `criado_em` reais e os objetos do Storage, com um de mesmo nome em outro bucket), a migração duas vezes, 8 casos,
+  a regressão das duas suítes do arrasto e o contraste da reaplicação (39/39); 19 mutações mortas nas duas passadas.
