@@ -28,7 +28,7 @@ import fs from 'fs'
 import path from 'path'
 
 import { MOTIVO_DA_EXTENSAO_NAO_IMPORTAVEL, ROTAS_DO_CATALOGO, fraseDoArquivoNaoImportavel } from '@/utils/atendimentos-ia-catalogo'
-import { COLUNA_DA_CATEGORIA_DO_FORNECEDOR } from '@/utils/atendimentos-ia-importacao'
+import { COLUNA_DA_CATEGORIA_DO_FORNECEDOR, COLUNAS_DO_LAYOUT_UNICO } from '@/utils/atendimentos-ia-importacao'
 
 interface Perfil { id: string; tenant_id: string | null; role: string; is_super_admin: boolean }
 const SUPER: Perfil = { id: 'u-super', tenant_id: null, role: 'super_admin', is_super_admin: true }
@@ -583,6 +583,36 @@ describe('TABELA DE PREÇO PURO — sem arquivo de motor (Reforço, Acessórios�
         expect(payload.formulas).toEqual([])
         for (const a of ABAS_DO_MOTOR) expect(payload[a.payload]).toEqual([])
         expect(r.json.contagens).toEqual(expect.objectContaining({ itens: 2, regras: 0, tipologias: 0, cruzam: 0, nao_cruzam: 0 }))
+    })
+
+    it('o LAYOUT ÚNICO (CABECALHO + ITENS, colunas por nome; 02/11/2026): a resposta diz o layout e devolve a aba CABECALHO como veio, e o payload leva as 12 do bloco', async () => {
+        semMotor('PERSIANAS')
+        const colunas = [...COLUNAS_DO_LAYOUT_UNICO]
+        const linha = (v: Record<string, ExcelJS.CellValue>) => Object.fromEntries(Object.entries(v).map(([c, x]) => [colunas.indexOf(c) + 1, x]))
+        objetos[TABELA.arquivo_path] = await planilha({
+            CABECALHO: [{ 1: 'categoria', 2: 'fornecedor', 3: 'vigencia', 4: 'regime_tributario', 5: 'uf_origem', 6: 'moeda' }, { 1: 'PERSIANAS', 2: 'Wolff', 3: '2026-11-02', 6: 'BRL' }],
+            ITENS: [
+                Object.fromEntries(colunas.map((c, k) => [k + 1, c])),
+                linha({ codigo: 'PS-001', descricao: 'CAIXA', segmento: 'Persianas', vendido_por: 'unidade', custo_bruto: 200, cred_icms_pct: 12, cred_pis_cofins_pct: 9.25, cred_ibs_pct: 0, cred_cbs_pct: 0, cred_ipi_pct: 0, credito_pct: 21.25, credito_valor: 42.5, custo_liquido: 157.5 }),
+                linha({ codigo: 'PS-002', descricao: 'GUIA', segmento: 'Persianas', vendido_por: 'barra', medida_barra_m: 6, custo_bruto: 120, valor_metro: 20 }),
+            ],
+        })
+        const r = await chamar('POST')
+        expect(r.status).toBe(200)
+        expect(r.json.layout).toBe('unico')
+        expect(r.json.cabecalho).toEqual({ categoria: 'PERSIANAS', fornecedor: 'Wolff', vigencia: '2026-11-02', regime_tributario: null, uf_origem: null, moeda: 'BRL' })
+        const payload = repo.importarConteudo.mock.calls[0][1]
+        expect(payload.itens.map((i: any) => [i.codigo, i.custo, i.valor_barra_interno, i.valor_metro_interno, i.segmento, i.cred_icms_pct, i.credito_pct]))
+            .toEqual([['PS-001', 200, null, null, 'Persianas', 12, 21.25], ['PS-002', 120, 120, 20, 'Persianas', null, null]])
+        expect(r.json.contagens).toEqual(expect.objectContaining({ itens: 2 }))
+    })
+
+    it('no layout de antes a resposta diz por_posicao e NÃO traz a chave cabecalho', async () => {
+        semMotor()
+        const r = await chamar('POST')
+        expect(r.status).toBe(200)
+        expect(r.json.layout).toBe('por_posicao')
+        expect('cabecalho' in r.json).toBe(false)
     })
 
     it('a Estrela de produção (motor_path e motor_nome VAZIOS, não nulos) é tabela sem motor: importa só o preço, sem baixar nem conferir ""', async () => {

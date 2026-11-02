@@ -481,7 +481,7 @@ export type ColunaDoLayoutUnico = (typeof COLUNAS_DO_LAYOUT_UNICO)[number]
 /** Exigidas no cabeçalho e lidas, mas SEM coluna em `orcamentista_tabela_item` (medido em 02/11/2026): ficam fora da gravação nesta PR. */
 export const COLUNAS_SEM_DESTINO_DO_LAYOUT_UNICO = ['linha', 'cor', 'codigo_wvetro', 'valor_kg', 'multiplo_compra'] as const
 /** As numéricas: texto nelas é recusa nomeada, como no bloco tributário (nunca vira 0 nem NULL). */
-const NUMERICAS_DO_LAYOUT_UNICO = ['medida_barra_m', 'peso_kg_por_m', 'custo_bruto', 'valor_metro', ...COLUNAS_DO_BLOCO_TRIBUTARIO] as const
+type NumericaDoLayoutUnico = 'medida_barra_m' | 'peso_kg_por_m' | 'custo_bruto' | 'valor_metro' | ColunaDoBlocoTributario
 
 export const fraseDoLayoutUnicoSemItens = (abas: readonly string[]) =>
     `tem a aba "${ABAS_DO_LAYOUT_UNICO.cabecalho}" do layout único, mas não a aba "${ABAS_DO_LAYOUT_UNICO.itens}". Abas encontradas: ${abas.map((a) => `"${a}"`).join(', ') || 'nenhuma'}.`
@@ -569,7 +569,7 @@ function lerItensDoLayoutUnico(ws: ExcelJS.Worksheet): LeituraDoPreco {
         const codigo = l.codigo(r, coluna('codigo'))
         if (codigo === null) continue
         const texto = (nome: ColunaDoLayoutUnico) => l.texto(r, coluna(nome))
-        const numero = (nome: (typeof NUMERICAS_DO_LAYOUT_UNICO)[number]): number | null => {
+        const numero = (nome: NumericaDoLayoutUnico): number | null => {
             const lida = celulaDoBloco(ws, r, coluna(nome))
             if ('invalida' in lida) { invalidas.push({ linha: r, coluna: nome, valor: lida.invalida, motivo: lida.motivo }); return null }
             return lida.valor
