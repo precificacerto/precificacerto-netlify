@@ -242,6 +242,7 @@ describe('(1) a família da conta, o motor dela e as tipologias candidatas (PR D
      * gravado por tabela_id da tabela da conta EXISTE (`comConteudoPorTabela`): se o código caísse na leitura antiga, acharia lista.
      * As frases esperadas são escritas aqui por extenso, não montadas pela função que se testa.
      */
+    const comConteudoPorTabelaSo = () => banco.db.orcamentista_motor_tipologia_detalhe.filter((l) => l.tabela_id === TABELA)
     describe('(1e) a falta de configuração', () => {
         beforeEach(comConteudoPorTabela)
         const falta = async () => { const t = await M().lerFamiliasDaEmpresa(TENANT); return 'frase' in t ? [t.motivo, t.frase] : ['LEU', ''] }
@@ -301,6 +302,13 @@ describe('(1) a família da conta, o motor dela e as tipologias candidatas (PR D
             banco.db.orcamentista_familia_etapa.push(
                 { tenant_id: TENANT, materia_prima_id: 'mp-pvc-2', numero: 1, motor_id: MOTOR }, { tenant_id: TENANT, materia_prima_id: 'mp-pvc-2', numero: 2, motor_id: 'motor-outro' })
             expect(await falta()).toEqual(['MOTORES_DIVERGENTES', 'Falta de configuração — as famílias Esquadrias de PVC e PVC da obra (PVC) apontam motores diferentes na etapa 2: verifique o catálogo em Base de conhecimento › Etapas da família.'])
+        })
+
+        it('o motor com linhas na lista mas NENHUM código válido (tipologia vazia): recusa nomeando o motor e a família — não segue com lista vazia', async () => {
+            banco.db.orcamentista_motor_tipologia_detalhe = [{ tabela_id: null, motor_id: MOTOR, tipologia: '', descricao: 'SEM CÓDIGO', tipo: 'Correr', ordem: null }, ...comConteudoPorTabelaSo()]
+            const t = await M().lerFamiliasDaEmpresa(TENANT)
+            expect('frase' in t && [t.motivo, t.frase, t.detalhe]).toEqual(['SEM_LISTA_DE_TIPOLOGIAS', M().fraseSemListaDoMotor('Motor_Wolf_PVC', 'PVC'), 'linhas=0'])
+            expect(M().fraseSemListaDoMotor('Motor_Wolf_PVC', 'PVC')).toContain('Motor_Wolf_PVC')
         })
 
         it('a lista de tipologias AINDA NÃO EXISTE no banco: recusa nomeada, nunca a lista de outro lugar', async () => {
@@ -464,6 +472,52 @@ describe('(1) a família da conta, o motor dela e as tipologias candidatas (PR D
         const r = await M().mensagemDoLevantamento(TENANT, t, lev())
         expect(r.desfecho).toBe('recusou')
         expect(r.texto).toContain('• Falta de configuração — a família Esquadrias de PVC não tem a etapa 1 (Gerar o levantamento) cadastrada: verifique o catálogo em Base de conhecimento › Etapas da família.')
+    })
+})
+
+/**
+ * (1p) A DE PAULA COMO PRODUÇÃO ESTÁ, medida em 02/11/2026 (só leitura), com o PR D: 1 família (PVC, "Esquadrias de PVC WOLF"), as
+ * etapas 1 e 2 apontando o Motor_Wolf_PVC (`9a233c55`: 12.116 regras, 164 tipologias e 164 tempos, TODOS por motor_id e nenhum por
+ * tabela_id), e o preço nas duas tabelas vinculadas: a Wolf `21acfa75` (PVC, Perfil, 485 itens) e a Estrela `5f7acebf` (qualquer linha).
+ * As abas da DP-02 do motor de produção são as da fixture, conferidas por md5 coluna a coluna: Perfis 34 linhas `9293e816…`, Fórmulas
+ * 21 `8d93754e…`, Variáveis 19 `90def4b2…`, Validações 1 `f73ccaa3…`, Detalhe 1 `bd4fdca7…`. O que difere da fixture, e entra aqui:
+ * os códigos 1023, 8432 e 8433 não estão em NENHUMA tabela de preço do catálogo; o tempo é 300 min ESTIMADO; a carga horária, 176 h.
+ * O resultado é a recusa nomeada dos três códigos — nunca estimados, nunca escondidos.
+ */
+describe('(1p) a De Paula como produção está: o motor da família, e os códigos sem preço nomeados', () => {
+    it('a DP-02 recusa nomeando 1023, 8432 e 8433 — o preço é das tabelas da família, e o resto do levantamento não é inventado', async () => {
+        banco.db.orcamentista_tabela = [
+            { id: '21acfa75-e4e7-4de6-9b96-cdd95525467d', fornecedor_id: 'f-wolff', arquivo_nome: 'Tabela_Wolff_Perfis_PVC.xlsx', familia: 'PVC', categoria_chave: 'PERFIL', vigente: false },
+            { id: '5f7acebf-3c91-46de-af00-57a47f8be288', fornecedor_id: 'f-estrela', arquivo_nome: 'Estrela.xlsx', familia: null, categoria_chave: null, vigente: false },
+        ]
+        banco.db.orcamentista_fornecedor.push({ id: 'f-estrela', nome: 'INDUSTRIA DE VIDROS TEMPERADOS ESTRELA LTDA' })
+        banco.db.orcamentista_mp_categoria.push({ id: 'c-vidro', tenant_id: TENANT, categoria_chave: 'VIDRO', config: {} })
+        banco.db.orcamentista_mp_categoria_fornecedor.push({ tenant_id: TENANT, mp_categoria_id: 'c-vidro', fornecedor_id: 'f-estrela' })
+        banco.db.orcamentista_tabela_item = DE_PARA.itens.filter((i) => !['1023', '8432', '8433'].includes(String(i.codigo))).map((i) => ({ ...i, tabela_id: '21acfa75-e4e7-4de6-9b96-cdd95525467d' }))
+        banco.db.orcamentista_motor_tipologia_tempo = [{ tabela_id: null, motor_id: MOTOR, tipologia: 'DP-02', tempo_fabricacao_min: 300, tempo_origem: 'ESTIMADO' }]
+        banco.db.tenant_settings[0].monthly_workload = 176
+        banco.db.orcamentista_familia_etapa = banco.db.orcamentista_familia_etapa.filter((e) => e.numero !== 3)
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
+        if (!('familias' in t)) throw new Error('era para ler: ' + t.frase)
+        expect(t.familias.map((f) => [f.familia, f.levantamento.id, f.calculo.id, f.tabelasDePreco])).toEqual([
+            ['PVC', MOTOR, MOTOR, ['21acfa75-e4e7-4de6-9b96-cdd95525467d', '5f7acebf-3c91-46de-af00-57a47f8be288']],
+        ])
+        const r = await M().mensagemDoLevantamento(TENANT, t, lev({ escolhas: { ARI: 4, ARE: 1, MAE: 2 } }))
+        expect(r).toEqual({
+            desfecho: 'recusou',
+            texto: [
+                'Não consegui fechar o levantamento “Casa do João”, perfil BRANCO.',
+                'Esquadria 1: DP-02, 1.200 x 1.000 mm, 1 unidade(s).',
+                `Arremate e guarnição — ${DESCRITAS}.`,
+                'Falta:',
+                '• O código 1023 (perfil 1023/WOLFF) não está na tabela de preço. Falta: o item 1023, com a barra e o valor.',
+                '• O código 8432 (perfil 8432/WOLFF) não está na tabela de preço. Falta: o item 8432, com a barra e o valor.',
+                '• O código 8433 (perfil 8433/WOLFF) não está na tabela de preço. Falta: o item 8433, com a barra e o valor.',
+            ].join('\n'),
+        })
+        // o contraste: com os três na tabela de preço da família, a mesma esquadria fecha
+        banco.db.orcamentista_tabela_item.push(...DE_PARA.itens.filter((i) => ['1023', '8432', '8433'].includes(String(i.codigo))).map((i) => ({ ...i, tabela_id: '5f7acebf-3c91-46de-af00-57a47f8be288' })))
+        expect((await M().mensagemDoLevantamento(TENANT, t, lev({ escolhas: { ARI: 4, ARE: 1, MAE: 2 } }))).desfecho).toBe('levantou')
     })
 })
 

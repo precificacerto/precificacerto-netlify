@@ -1608,6 +1608,22 @@ describe('(19) duas famílias com o mesmo código: a conversa pergunta de qual f
         expect(ultimoEnviado()).toContain(PERGUNTA)
     })
 
+    it('a família trocou o motor do cálculo depois de gravada: na próxima gravação a esquadria leva o motor NOVO — nunca o velho', async () => {
+        llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }] })
+        await chamar('Levantamento Casa do Pedro: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm')
+        llmResponde({ itens: [{ familia: 'PVC' }] })
+        await chamar('é a de PVC')
+        expect(gravado()).toEqual([['PVC', MOTOR, 'PVC', false]])
+        // o super admin aponta outro motor na etapa 2 do PVC (com conteúdo, para não ser falta de configuração)
+        estado.db.orcamentista_motor.push({ id: 'motor-novo', nome: 'Motor_Wolf_PVC_2027', fornecedor_id: 'f-wolff', arquivado_em: null })
+        estado.db.orcamentista_motor_tipologia_detalhe.push({ tabela_id: null, motor_id: 'motor-novo', tipologia: 'DP-02', descricao: 'NOVO', tipo: 'Correr' })
+        estado.db.orcamentista_familia_etapa.find((e) => e.materia_prima_id === 'mp-pvc' && e.numero === 2)!.motor_id = 'motor-novo'
+        llmResponde({ itens: [{ ordem: 1, quantidade: 2 }] })
+        await chamar('são 2 unidades')
+        expect(itensDe(levantamentos()[0].id).map((i) => i.quantidade)).toEqual([2])
+        expect(gravado()).toEqual([['PVC', 'motor-novo', 'PVC', false]])
+    })
+
     it('com o código no motor de UMA família só, nada muda: sem pergunta, e a esquadria grava a família e o motor dela', async () => {
         estado.db.orcamentista_motor_tipologia_detalhe = estado.db.orcamentista_motor_tipologia_detalhe.filter((d) => d.motor_id !== MOTOR_SUL)
         estado.db.orcamentista_motor_tipologia_detalhe.push({ tabela_id: null, motor_id: MOTOR_SUL, tipologia: 'SU-07', descricao: 'PORTA PIVOTANTE | LINHA SUL', tipo: 'Porta' })
