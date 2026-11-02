@@ -181,7 +181,9 @@ describe('(2) POST /tabelas — a ROTA recusa antes do banco', () => {
         perfil = ADMIN
         expect((await chamar('categorias', 'GET')).status).toBe(403)
         perfil = SUPER
-        expect((await chamar('categorias', 'POST')).status).toBe(405)
+        // desde a 20261102000002 o POST cria categoria (a aba Categorias): sem corpo é 400, e o que não existe é o DELETE
+        expect((await chamar('categorias', 'POST')).status).toBe(400)
+        expect((await chamar('categorias', 'DELETE')).status).toBe(405)
     })
 })
 
