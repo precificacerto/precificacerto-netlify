@@ -25,6 +25,15 @@
  *     O VOCABULÁRIO (dono do produto, 26/10/2026): o que o motor chama de "família" é a LINHA
  *     (EUROPA 42, EUROPA 60). FAMÍLIA é a da tabela do fornecedor (PVC, ...).
  *
+ * ══ O MOTOR VEM DA FAMÍLIA; A TABELA É SÓ PREÇO (PR D, dono do produto, 02/11/2026) ══
+ * A família é a da base de conhecimento da conta (`orcamentista_materia_prima.familia`); o motor é o das etapas dela
+ * (`motor-da-familia.ts`): a etapa 1 dá a lista de tipologias e as Variáveis, a etapa 2 dá as abas, as regras, as fórmulas da
+ * linha e o tempo. TODA leitura do motor é por `motor_id`; nenhuma volta a ler o motor por `tabela_id`. O PREÇO é o das tabelas que
+ * valem da família — as dos fornecedores que a base de conhecimento vincula, com a família da conta ou sem família ("qualquer
+ * linha"), de todas as categorias —, lido por `tabela_id` (`lerItens`). Falta de configuração é erro que nomeia a falta, nunca
+ * fallback. O que vem abaixo, sobre a tabela "com motor", é a história de antes do PR D: o critério de qual tabela VALE (a única
+ * do grupo, ou a vigente) continua; o resto passou para a família.
+ *
  * ══ AS TABELAS DA EMPRESA SÃO DERIVADAS (dono do produto, 26/10/2026) ══
  * São as tabelas dos fornecedores que a base de conhecimento da empresa vincula (`tabelas-da-conta.ts`);
  * `orcamentista_conta_tabela` não é lida. Quem decide se a tabela entra na conversa é o MOTOR, não a
@@ -45,7 +54,7 @@
  * UM LEVANTAMENTO PODE TER VÁRIAS FAMÍLIAS — "é PVC ou alumínio? Pode ter os dois, inclusive" (dono do
  * produto, 26/10/2026). Cada família é um produto: o cálculo e o agrupamento de barras rodam UMA VEZ POR
  * TABELA (fornecedor + família), e nenhuma barra atravessa de uma otimização para a outra.
- * Vem de `orcamentista_motor_tipologia_detalhe` (tabela_id, tipologia, descricao, tipo, …) das tabelas
+ * Vinha de `orcamentista_motor_tipologia_detalhe` (por tabela_id; desde o PR D, por motor_id) das tabelas
  * que valem e têm motor. Se a leitura falhar, a conversa responde com a frase de
  * `SEM_LISTA_DE_TIPOLOGIAS`, sem chamar a LLM: sem lista, a IA não tem de onde escolher, e escolher por
  * conta própria é o que a regra proíbe.
@@ -98,104 +107,86 @@ import {
     type ItemDaTabela, type RegraDoDePara, type ResultadoDoLevantamento,
 } from '@/lib/atendimentos-ia/levantamento-de-barras'
 import { maoDeObraPeloCaminhoDaTela, type DadosDaEmpresaParaMaoDeObra } from '@/utils/mao-de-obra-pelo-caminho-da-tela'
-import { FAMILIA_NAO_INFORMADA, rotulosDasOpcoes, tabelaDaEsquadria, type TabelaDoCodigo, type TabelasDoCodigo } from '@/lib/atendimentos-ia/levantamento-em-montagem'
-import { normalizarNome } from '@/lib/atendimentos-ia/nome-do-levantamento'
+import { familiaDaEsquadria, rotulosDasOpcoes, type FamiliaDoCodigo, type FamiliasDoCodigo } from '@/lib/atendimentos-ia/levantamento-em-montagem'
 import { abaDeclarada, abaDoBanco } from '@/utils/atendimentos-ia-abas-do-motor'
-import { FORNECEDOR_SEM_NOME, FalhaNaDerivacao, derivarTabelasDaConta } from '@/lib/atendimentos-ia/tabelas-da-conta'
+import { derivarTabelasDaConta } from '@/lib/atendimentos-ia/tabelas-da-conta'
+import { FRASE_SEM_LISTA_DE_TIPOLOGIAS, SECAO_DOS_FORNECEDORES, fraseDeFalta, lerMotoresDaConta, type FonteDaFamilia, type MotivoDaFalta } from '@/lib/atendimentos-ia/motor-da-familia'
+export { FRASE_SEM_LISTA_DE_TIPOLOGIAS }
 
-// ── A tabela da empresa e as tipologias candidatas ──────────────────────────────────────────
-export type CandidatoDeTipologia = { tipologia: string; descricao: string | null; tipo: string | null; tabelaId: string; fornecedor: string; familia: string | null }
-/** Uma tabela ligada à conta, com o nome do fornecedor dela. */
-export type TabelaLigada = TabelaDoCodigo
-export type TabelaDaEmpresaLida = { ok: true; tabelas: TabelaLigada[]; candidatos: CandidatoDeTipologia[] }
-export type TabelaDaEmpresa =
-    | TabelaDaEmpresaLida
-    | { ok: false; motivo: 'SEM_TABELA' | 'PERFIL_SEM_TABELA' | 'SEM_MOTOR' | 'SEM_VIGENTE' | 'TABELA_REPETIDA' | 'SEM_LISTA_DE_TIPOLOGIAS'; frase: string; detalhe: string }
+// ── As famílias da empresa e as tipologias candidatas ───────────────────────────────────────
+/** Uma tipologia que a IA pode escolher: do motor do LEVANTAMENTO (etapa 1) de uma família da conta. */
+export type CandidatoDeTipologia = { tipologia: string; descricao: string | null; tipo: string | null; familia: string; rotulo: string; fornecedor: string }
+/** Uma família da conta, com os motores das etapas e as tabelas de PREÇO que valem para ela. */
+export type FamiliaLigada = FonteDaFamilia & { tabelasDePreco: string[] }
+export type FamiliasDaEmpresaLidas = { ok: true; familias: FamiliaLigada[]; candidatos: CandidatoDeTipologia[] }
+export type FamiliasDaEmpresa =
+    | FamiliasDaEmpresaLidas
+    | { ok: false; motivo: MotivoDaFalta | 'PERFIL_SEM_TABELA' | 'SEM_VIGENTE' | 'SEM_TABELA_VIGENTE'; frase: string; detalhe: string }
 
-export const FRASE_SEM_TABELA = 'Ainda não consigo escolher a tipologia: a base de conhecimento da sua empresa não vincula nenhum fornecedor com tabela cadastrada.'
 export const fraseDoPerfilSemTabela = (fornecedor: string) =>
     `Ainda não consigo escolher a tipologia: o fornecedor ${fornecedor}, vinculado ao perfil na base de conhecimento da sua empresa, não tem tabela cadastrada.`
-const juntarNomes = (nomes: string[]) => (nomes.length <= 1 ? nomes.join('') : `${nomes.slice(0, -1).join(', ')} e ${nomes[nomes.length - 1]}`)
-export const fraseSemMotor = (fornecedores: string[]) =>
-    'Ainda não consigo escolher a tipologia: nenhuma tabela dos fornecedores da sua empresa tem o motor (as tipologias) carregado. '
-    + `As de ${juntarNomes(fornecedores)} são só tabelas de preço.`
 export const fraseSemVigente = (fornecedor: string, familia: string | null, n: number) =>
     `Ainda não consigo escolher a tipologia: o fornecedor ${fornecedor} tem ${n} tabelas ${familia === null ? 'sem a família informada' : `da família ${familia}`} `
     + 'e nenhuma está marcada como vigente: não escolho entre elas.'
-export const fraseDeTabelaRepetida = (fornecedor: string, familia: string | null, n: number) =>
-    `Ainda não consigo escolher a tipologia: a sua empresa tem ${n} tabelas do fornecedor ${fornecedor}, ${familia === null ? 'sem a família informada' : `da família ${familia}`}, `
-    + 'ligadas ao orçamentista, e nada as distingue: não escolho entre elas.'
-export const FRASE_SEM_LISTA_DE_TIPOLOGIAS = 'Ainda não consigo escolher a tipologia: a lista de tipologias do fornecedor, com a descrição de cada uma, ainda não foi carregada.'
-export const fraseSemListaDoFornecedor = (fornecedor: string) =>
-    `Ainda não consigo escolher a tipologia: a lista de tipologias do fornecedor ${fornecedor}, com a descrição de cada uma, ainda não foi carregada.`
-const porCodigoEFornecedor = (a: CandidatoDeTipologia, b: CandidatoDeTipologia) =>
-    (a.tipologia < b.tipologia ? -1 : a.tipologia > b.tipologia ? 1
-        : a.fornecedor.localeCompare(b.fornecedor, 'pt-BR') || (a.familia ?? '').localeCompare(b.familia ?? '', 'pt-BR'))
-
-export async function lerTabelaDaEmpresa(tenantId: string): Promise<TabelaDaEmpresa> {
-    let derivacao: Awaited<ReturnType<typeof derivarTabelasDaConta>>
-    try {
-        derivacao = await derivarTabelasDaConta(tenantId)
-    } catch (e) {
-        // a contagem das tipologias falhou: é a lista que não se lê, e é isso que a frase diz
-        if (e instanceof FalhaNaDerivacao && e.onde === 'orcamentista_motor_tipologia_detalhe') {
-            return { ok: false, motivo: 'SEM_LISTA_DE_TIPOLOGIAS', frase: FRASE_SEM_LISTA_DE_TIPOLOGIAS, detalhe: `codigo=${e.codigo ?? '-'}` }
-        }
-        throw e
-    }
-    const perfilSemTabela = derivacao.fornecedoresSemTabela.find((f) => f.categorias.includes('PERFIL'))
-    if (perfilSemTabela) return { ok: false, motivo: 'PERFIL_SEM_TABELA', frase: fraseDoPerfilSemTabela(perfilSemTabela.fornecedor), detalhe: '' }
-    if (derivacao.tabelas.length === 0) return { ok: false, motivo: 'SEM_TABELA', frase: FRASE_SEM_TABELA, detalhe: '' }
-    // o par sem vigente só recusa quando alguma tabela dele tem motor: tabela de preço não entra na conversa
-    // (a chave do grupo ganhou a categoria em 27/10/2026: o grupo sem vigente é o mesmo fornecedor, família E categoria)
-    const semVigente = derivacao.paresSemVigente.find((p) => derivacao.tabelas.some((t) => t.fornecedor === p.fornecedor && t.familia === p.familia && t.categoria === p.categoria && t.comMotor))
-    if (semVigente) return { ok: false, motivo: 'SEM_VIGENTE', frase: fraseSemVigente(semVigente.fornecedor, semVigente.familia, semVigente.arquivos.length), detalhe: '' }
-    const tabelas: TabelaLigada[] = derivacao.tabelas
-        .filter((t) => t.vale && t.comMotor)
-        .map((t) => ({ tabelaId: t.tabelaId, fornecedor: t.fornecedor, familia: t.familia }))
-        .sort((a, b) => a.fornecedor.localeCompare(b.fornecedor, 'pt-BR') || (a.familia ?? '').localeCompare(b.familia ?? '', 'pt-BR') || (a.tabelaId < b.tabelaId ? -1 : 1))
-    if (tabelas.length === 0) {
-        const dePreco = [...new Set(derivacao.tabelas.map((t) => t.fornecedor))].sort((a, b) => a.localeCompare(b, 'pt-BR'))
-        return { ok: false, motivo: 'SEM_MOTOR', frase: fraseSemMotor(dePreco), detalhe: `tabelas=${derivacao.tabelas.length}` }
-    }
-    // FORNECEDOR + FAMÍLIA iguais (o nome sem caixa e sem acento; a família sem informar também conta como uma):
-    // nada distingue as duas para o vendedor. O mesmo fornecedor com famílias diferentes é legítimo.
-    // A categoria NÃO entra aqui, de propósito (27/10/2026): a tabela de antes (sem categoria) e a nova de Perfil, ambas com motor, valem
-    // cada uma no seu grupo, e deixá-las entrar juntas duplicaria as tipologias. Até o PR D trocar os leitores, é recusa nomeada.
-    for (const t of tabelas) {
-        const mesmas = tabelas.filter((o) => normalizarNome(o.fornecedor) === normalizarNome(t.fornecedor) && o.familia === t.familia)
-        if (mesmas.length > 1) return { ok: false, motivo: 'TABELA_REPETIDA', frase: fraseDeTabelaRepetida(t.fornecedor, t.familia, mesmas.length), detalhe: `tabelas=${tabelas.length}` }
-    }
-
-    const candidatos: CandidatoDeTipologia[] = []
-    for (const t of tabelas) {
-        const { data, error: erroDaLista } = await supabaseAdmin
-            .from('orcamentista_motor_tipologia_detalhe').select('tipologia, descricao, tipo').eq('tabela_id', t.tabelaId)
-        // a tabela ainda não existe em produção: a leitura falha, e é isso que a frase diz
-        if (erroDaLista) return { ok: false, motivo: 'SEM_LISTA_DE_TIPOLOGIAS', frase: FRASE_SEM_LISTA_DE_TIPOLOGIAS, detalhe: `codigo=${erroDaLista.code ?? '-'}` }
-        const daTabela = ((data ?? []) as Array<{ tipologia: unknown; descricao: string | null; tipo: string | null }>)
-            .filter((c): c is { tipologia: string; descricao: string | null; tipo: string | null } => typeof c.tipologia === 'string' && c.tipologia !== '')
-        // uma tabela ligada sem lista não segue em silêncio: a outra sozinha esconderia as tipologias dela
-        if (daTabela.length === 0) {
-            const frase = tabelas.length === 1 ? FRASE_SEM_LISTA_DE_TIPOLOGIAS : fraseSemListaDoFornecedor(t.fornecedor)
-            return { ok: false, motivo: 'SEM_LISTA_DE_TIPOLOGIAS', frase, detalhe: 'linhas=0' }
-        }
-        candidatos.push(...daTabela.map((c) => ({ tipologia: c.tipologia, descricao: c.descricao, tipo: c.tipo, tabelaId: t.tabelaId, fornecedor: t.fornecedor, familia: t.familia })))
-    }
-    return { ok: true, tabelas, candidatos: candidatos.sort(porCodigoEFornecedor) }
-}
-
-/** As tabelas da conta que têm o código, na ordem do fornecedor. */
-export const tabelasDoCodigo = (t: TabelaDaEmpresaLida): TabelasDoCodigo => (codigo: string) =>
-    t.candidatos.filter((c) => c.tipologia === codigo).map((c) => ({ tabelaId: c.tabelaId, fornecedor: c.fornecedor, familia: c.familia }))
+/** A família sem tabela de preço que vale (a única do grupo, ou a vigente) — PR D: erro de configuração, nunca preço de outra família. */
+export const fraseDaFamiliaSemTabelaVigente = (familia: string) => fraseDeFalta(`a família ${familia} não tem nenhuma tabela de preço vigente`, SECAO_DOS_FORNECEDORES)
+export const fraseSemListaDoMotor = (motor: string, familia: string) =>
+    `Ainda não consigo escolher a tipologia: a lista de tipologias do motor ${motor}, da família ${familia}, com a descrição de cada uma, ainda não foi carregada.`
+const porCodigoEFamilia = (a: CandidatoDeTipologia, b: CandidatoDeTipologia) =>
+    (a.tipologia < b.tipologia ? -1 : a.tipologia > b.tipologia ? 1 : a.rotulo.localeCompare(b.rotulo, 'pt-BR'))
 
 /**
- * A linha do candidato no prompt: código, descrição inteira e tipo — e o fornecedor e a família quando a
- * conta tem mais de uma tabela (com uma só, a linha é a de sempre). Ausente não vira texto inventado.
+ * As famílias da empresa (a base de conhecimento), com o motor de cada etapa conferido (`lerMotoresDaConta`) e as tabelas de PREÇO
+ * que valem para cada uma; e as tipologias candidatas, do motor do levantamento de cada família. A primeira falta é a resposta.
  */
-export const linhaDoCandidato = (c: CandidatoDeTipologia, comFornecedor: boolean) =>
+export async function lerFamiliasDaEmpresa(tenantId: string): Promise<FamiliasDaEmpresa> {
+    const motores = await lerMotoresDaConta(tenantId)
+    if (motores.ok === false) return { ok: false, motivo: motores.motivo, frase: motores.frase, detalhe: motores.detalhe }
+
+    // o PREÇO: as tabelas dos fornecedores que a base de conhecimento vincula (`tabelas-da-conta.ts`), e qual vale
+    const derivacao = await derivarTabelasDaConta(tenantId)
+    const perfilSemTabela = derivacao.fornecedoresSemTabela.find((f) => f.categorias.includes('PERFIL'))
+    if (perfilSemTabela) return { ok: false, motivo: 'PERFIL_SEM_TABELA', frase: fraseDoPerfilSemTabela(perfilSemTabela.fornecedor), detalhe: '' }
+    const familias: FamiliaLigada[] = []
+    for (const f of motores.familias) {
+        // da família: com a família da conta, ou sem família ("qualquer linha", dono do produto, 02/11/2026)
+        const daFamilia = derivacao.tabelas.filter((t) => t.familiaChave === f.familia || t.familiaChave === null)
+        // o grupo com mais de uma tabela e nenhuma vigente é recusa nomeada (a regra de sempre): não escolho entre elas
+        const semVigente = derivacao.paresSemVigente.find((p) => daFamilia.some((t) => t.fornecedor === p.fornecedor && t.familia === p.familia && t.categoria === p.categoria))
+        if (semVigente) return { ok: false, motivo: 'SEM_VIGENTE', frase: fraseSemVigente(semVigente.fornecedor, semVigente.familia, semVigente.arquivos.length), detalhe: `familia=${f.familia}` }
+        const valem = daFamilia.filter((t) => t.vale).map((t) => t.tabelaId).sort()
+        if (valem.length === 0) return { ok: false, motivo: 'SEM_TABELA_VIGENTE', frase: fraseDaFamiliaSemTabelaVigente(f.rotulo), detalhe: `familia=${f.familia} tabelas=${daFamilia.length}` }
+        familias.push({ ...f, tabelasDePreco: valem })
+    }
+
+    // as tipologias: do motor do LEVANTAMENTO (etapa 1) de cada família, por motor_id
+    const candidatos: CandidatoDeTipologia[] = []
+    for (const f of familias) {
+        const { data, error: erroDaLista } = await supabaseAdmin
+            .from('orcamentista_motor_tipologia_detalhe').select('tipologia, descricao, tipo').eq('motor_id', f.levantamento.id)
+        if (erroDaLista) return { ok: false, motivo: 'SEM_LISTA_DE_TIPOLOGIAS', frase: FRASE_SEM_LISTA_DE_TIPOLOGIAS, detalhe: `codigo=${erroDaLista.code ?? '-'}` }
+        const doMotor = ((data ?? []) as Array<{ tipologia: unknown; descricao: string | null; tipo: string | null }>)
+            .filter((c): c is { tipologia: string; descricao: string | null; tipo: string | null } => typeof c.tipologia === 'string' && c.tipologia !== '')
+        // um motor sem lista não segue em silêncio: as outras famílias sozinhas esconderiam as tipologias dele
+        if (doMotor.length === 0) return { ok: false, motivo: 'SEM_LISTA_DE_TIPOLOGIAS', frase: fraseSemListaDoMotor(f.levantamento.nome, f.rotulo), detalhe: 'linhas=0' }
+        candidatos.push(...doMotor.map((c) => ({ tipologia: c.tipologia, descricao: c.descricao, tipo: c.tipo, familia: f.familia, rotulo: f.rotulo, fornecedor: f.fornecedor })))
+    }
+    return { ok: true, familias, candidatos: candidatos.sort(porCodigoEFamilia) }
+}
+
+/** As famílias da conta cujo motor tem o código, na ordem do rótulo — com o motor do CÁLCULO de cada uma (o que a esquadria grava). */
+export const familiasDoCodigo = (t: FamiliasDaEmpresaLidas): FamiliasDoCodigo => (codigo: string) =>
+    t.candidatos.filter((c) => c.tipologia === codigo).map((c): FamiliaDoCodigo => ({
+        familia: c.familia, rotulo: c.rotulo, fornecedor: c.fornecedor, motorId: t.familias.find((f) => f.familia === c.familia)!.calculo.id,
+    }))
+
+/**
+ * A linha do candidato no prompt: código, descrição inteira e tipo — e a família (e o fornecedor do motor) quando a conta tem mais
+ * de uma família (com uma só, a linha é a de sempre). Ausente não vira texto inventado.
+ */
+export const linhaDoCandidato = (c: CandidatoDeTipologia, comFamilia: boolean) =>
     `${c.tipologia} | ${c.descricao ?? '(sem descrição no arquivo)'} | ${c.tipo ?? '(sem tipo no arquivo)'}`
-    + (comFornecedor ? ` | fornecedor: ${c.fornecedor} | família: ${c.familia ?? FAMILIA_NAO_INFORMADA}` : '')
+    + (comFamilia ? ` | família: ${c.rotulo} | fornecedor: ${c.fornecedor}` : '')
 
 /** A tabela ainda não existe no banco (migração não aplicada): é falta nomeada, não erro. */
 const tabelaAusente = (e: { code?: string }) => e.code === 'PGRST205' || e.code === '42P01'
@@ -207,10 +198,10 @@ export const FALTA_TABELA_DOS_TEMPOS = 'a tabela dos tempos de fabricação aind
  * nunca zero (a linha só existe quando há tempo). Com a tabela ainda ausente no banco, `{ ausente: true }`:
  * é outra falta, e quem a exibe diz qual.
  */
-export async function tempoDeFabricacao(tabelaId: string, tipologia: string): Promise<{ minutos: number; origem: string | null } | { ausente: true } | null> {
+export async function tempoDeFabricacao(motorId: string, tipologia: string): Promise<{ minutos: number; origem: string | null } | { ausente: true } | null> {
     const { data, error } = await supabaseAdmin
         .from('orcamentista_motor_tipologia_tempo').select('tempo_fabricacao_min, tempo_origem')
-        .eq('tabela_id', tabelaId).eq('tipologia', tipologia).maybeSingle()
+        .eq('motor_id', motorId).eq('tipologia', tipologia).maybeSingle()
     if (error) {
         if (tabelaAusente(error)) return { ausente: true }
         throw new Error(`orcamentista_motor_tipologia_tempo: ${error.message}`)
@@ -259,10 +250,10 @@ const centavos = (v: number) => Math.round(v * 100) / 100
  * A mão de obra de `quantidade` unidades da tipologia: o tempo de fabricação × o valor do minuto pelo
  * caminho da tela de produto (`maoDeObraPeloCaminhoDaTela`). A esquadria é PRODUZIDA: o tipo de
  * cálculo é o da empresa, como na tela para um produto que não é de revenda. Toda leitura é desta
- * empresa (`tenant_id`) ou da tabela ligada a ela.
+ * empresa (`tenant_id`) ou do motor do cálculo da família dela (o tempo, por `motor_id`).
  */
-export async function lerMaoDeObra(tenantId: string, tabelaId: string, tipologia: string, quantidade: number): Promise<MaoDeObra> {
-    const tempo = await tempoDeFabricacao(tabelaId, tipologia)
+export async function lerMaoDeObra(tenantId: string, motorId: string, tipologia: string, quantidade: number): Promise<MaoDeObra> {
+    const tempo = await tempoDeFabricacao(motorId, tipologia)
     if (tempo === null) return { ok: false, falta: `o tempo de fabricação de ${tipologia} não está cadastrado` }
     if ('ausente' in tempo) return { ok: false, falta: FALTA_TABELA_DOS_TEMPOS }
 
@@ -289,13 +280,13 @@ export async function lerMaoDeObra(tenantId: string, tabelaId: string, tipologia
 const PAGINA = 1000
 
 /** As regras da tipologia, página a página, conferidas contra a contagem exata. */
-export async function lerRegras(tabelaId: string, tipologia: string): Promise<RegraDoDePara[]> {
+export async function lerRegras(motorId: string, tipologia: string): Promise<RegraDoDePara[]> {
     const regras: RegraDoDePara[] = []
     let total: number | null = null
     for (let de = 0; total === null || de < total; de += PAGINA) {
         const { data, error, count } = await supabaseAdmin
             .from('orcamentista_motor_regra').select('codigo, codigo_wvetro, cor', { count: 'exact' })
-            .eq('tabela_id', tabelaId).contains('tipologias', [tipologia])
+            .eq('motor_id', motorId).contains('tipologias', [tipologia])
             .order('id', { ascending: true }).range(de, de + PAGINA - 1)
         if (error) throw new Error(`orcamentista_motor_regra: ${error.message}`)
         if (typeof count !== 'number') throw new Error('orcamentista_motor_regra: a contagem exata não veio')
@@ -314,18 +305,18 @@ type Leitura = { linhas: Array<Record<string, unknown>> } | { ausente: true }
 /**
  * A ORDEM que pagina cada leitura: tem de ser TOTAL (sem empate), senão uma linha cai entre duas
  * páginas, e tem de usar colunas que a tabela TEM. As abas por tipologia ordenam por
- * (tipologia, ordem): é única em todas elas — a Detalhe tem chave (tabela_id, tipologia) e NÃO tem
+ * (tipologia, ordem): é única em todas elas — a Detalhe tem chave (motor, tipologia) e NÃO tem
  * `id` (medido em 26/10/2026; ordenar por `id` derrubou todo levantamento em produção às 14:07).
  */
 const ORDEM_DAS_ABAS = ['tipologia', 'ordem'] as const
 const ORDEM_POR_ID = ['id'] as const
 
-/** TODAS as linhas da tabela_id (e, se pedido, só dos valores de uma coluna), página a página, com a contagem conferida. */
-async function lerTudo(tabela: string, tabelaId: string, ordem: readonly string[], recorte?: { coluna: string; valores: readonly string[] }): Promise<Leitura> {
+/** TODAS as linhas do motor (`motor_id`; e, se pedido, só dos valores de uma coluna), página a página, com a contagem conferida. */
+async function lerTudo(tabela: string, motorId: string, ordem: readonly string[], recorte?: { coluna: string; valores: readonly string[] }): Promise<Leitura> {
     const linhas: Array<Record<string, unknown>> = []
     let total: number | null = null
     for (let de = 0; total === null || de < total; de += PAGINA) {
-        let q = supabaseAdmin.from(tabela).select('*', { count: 'exact' }).eq('tabela_id', tabelaId)
+        let q = supabaseAdmin.from(tabela).select('*', { count: 'exact' }).eq('motor_id', motorId)
         if (recorte) q = q.in(recorte.coluna, [...recorte.valores])
         for (const c of ordem) q = q.order(c, { ascending: true })
         const { data, error, count } = await q.range(de, de + PAGINA - 1)
@@ -365,14 +356,14 @@ export const fraseDaLinhaComVariavelRepetida = (linha: string, variavel: string)
  * `orcamentista_motor_formula_familia` (nome vencido: é a linha; as duas já normalizadas pela
  * importação). Sem linha, com duas, sem fórmula, ou com variável repetida: recusa.
  */
-async function formulasDaLinha(tabelaId: string, tipologia: string): Promise<{ linhas: Array<Record<string, unknown>>; linha: string } | { falta: string }> {
-    const { data, error } = await supabaseAdmin.from('orcamentista_motor_tipologia').select('linha').eq('tabela_id', tabelaId).eq('tipologia', tipologia)
+async function formulasDaLinha(motorId: string, tipologia: string): Promise<{ linhas: Array<Record<string, unknown>>; linha: string } | { falta: string }> {
+    const { data, error } = await supabaseAdmin.from('orcamentista_motor_tipologia').select('linha').eq('motor_id', motorId).eq('tipologia', tipologia)
     if (error) throw new Error(`orcamentista_motor_tipologia: ${error.message}`)
     const linhas = [...new Set(((data ?? []) as Array<{ linha: unknown }>).map((l) => l.linha).filter((l): l is string => typeof l === 'string' && l !== ''))]
     if (linhas.length === 0) return { falta: fraseDaTipologiaSemLinha(tipologia) }
     if (linhas.length > 1) return { falta: fraseDaTipologiaComDuasLinhas(tipologia, linhas) }
     const linha = linhas[0]
-    const lida = await lerTudo('orcamentista_motor_formula_familia', tabelaId, ORDEM_POR_ID, { coluna: 'linha', valores: [linha] })
+    const lida = await lerTudo('orcamentista_motor_formula_familia', motorId, ORDEM_POR_ID, { coluna: 'linha', valores: [linha] })
     if ('ausente' in lida) return { falta: fraseDaAbaNaoCarregada('Fórmulas da família') }
     if (lida.linhas.length === 0) return { falta: fraseDaLinhaSemFormulas(tipologia, linha) }
     const vistas = new Set<unknown>()
@@ -387,17 +378,17 @@ export type TipologiasDoBanco = { lidas: Record<string, Tipologia>; faltas: stri
 
 /**
  * As tipologias pedidas, com as abas que o avaliador lê (Detalhe, Variáveis, Fórmulas, Perfis,
- * Validações) vindas do BANCO, da tabela da empresa — gravadas pela importação, pelo mesmo mapa
+ * Validações) vindas do BANCO, do motor do cálculo da família (por `motor_id`) — gravadas pela importação, pelo mesmo mapa
  * (`ABAS_DO_MOTOR`). A aba 'Fórmulas' da tipologia é a fonte; sem ela, as da linha entram e o RÓTULO
  * sai em `rotulos`, que quem monta a resposta acrescenta ao texto — nunca em silêncio.
  */
-export async function lerTipologiasDoBanco(tabelaId: string, codigos: readonly string[]): Promise<TipologiasDoBanco> {
+export async function lerTipologiasDoBanco(motorId: string, codigos: readonly string[]): Promise<TipologiasDoBanco> {
     const faltas: string[] = []
     const rotulos: string[] = []
     const porAba: Record<string, Array<Record<string, unknown>>> = {}
     for (const nome of Object.keys(COLUNAS_LIDAS)) {
         const aba = abaDeclarada(nome)
-        const lida = await lerTudo(aba.tabela, tabelaId, ORDEM_DAS_ABAS, { coluna: 'tipologia', valores: codigos })
+        const lida = await lerTudo(aba.tabela, motorId, ORDEM_DAS_ABAS, { coluna: 'tipologia', valores: codigos })
         if ('ausente' in lida) faltas.push(fraseDaAbaNaoCarregada(nome))
         else porAba[nome] = lida.linhas
     }
@@ -409,7 +400,7 @@ export async function lerTipologiasDoBanco(tabelaId: string, codigos: readonly s
         if (!tem('Variáveis') && !tem('Fórmulas') && !tem('Perfis')) { faltas.push(fraseDaTipologiaSemAbas(t)); continue }
         let formulas = porAba['Fórmulas']
         if (!tem('Fórmulas')) {
-            const daLinha = await formulasDaLinha(tabelaId, t)
+            const daLinha = await formulasDaLinha(motorId, t)
             if ('falta' in daLinha) { faltas.push(daLinha.falta); continue }
             formulas = daLinha.linhas
             rotulos.push(fraseDasFormulasDaLinha(t, daLinha.linha))
@@ -425,26 +416,32 @@ export async function lerTipologiasDoBanco(tabelaId: string, codigos: readonly s
 }
 
 /**
- * As Variáveis de TODAS as tipologias da tabela, para a conversa perguntar as escolhas. Com a tabela
- * ainda ausente no banco, nenhuma definição: a conversa segue sem escolhas, e o levantamento recusa
+ * As Variáveis de TODAS as tipologias do motor (o do levantamento da família, por `motor_id`), para a conversa perguntar as
+ * escolhas. Com a tabela ainda ausente no banco, nenhuma definição: a conversa segue sem escolhas, e o levantamento recusa
  * nomeando a aba que falta.
  */
-export async function lerVariaveisDasTipologias(tabelaId: string): Promise<Record<string, VariaveisDaTipologia>> {
+export async function lerVariaveisDasTipologias(motorId: string): Promise<Record<string, VariaveisDaTipologia>> {
     const aba = abaDeclarada('Variáveis')
-    const lida = await lerTudo(aba.tabela, tabelaId, ORDEM_DAS_ABAS)
+    const lida = await lerTudo(aba.tabela, motorId, ORDEM_DAS_ABAS)
     if ('ausente' in lida) return {}
     const planilha = abaDoBanco(aba, lida.linhas)
     const codigos = [...new Set(lida.linhas.map((l) => l.tipologia).filter((t): t is string => typeof t === 'string'))]
     return Object.fromEntries(codigos.map((t) => [t, { variaveis: variaveisDaAba(planilha, t) }]))
 }
 
-async function lerItens(tabelaId: string, codigos: string[]): Promise<ItemDaTabela[]> {
+/**
+ * O PREÇO dos códigos: os itens das tabelas que valem para a família (todas as categorias), por `tabela_id` — é preço, não motor.
+ * O mesmo código em duas tabelas vem duas vezes, e `levantarBarras` o recusa nomeando-o (dono do produto, 02/11/2026: "Recusa
+ * nomeada, como hoje"); código em nenhuma é recusa nomeada também — nunca estimado nem escondido.
+ */
+async function lerItens(tabelaIds: readonly string[], codigos: string[]): Promise<ItemDaTabela[]> {
     const itens: ItemDaTabela[] = []
+    if (tabelaIds.length === 0) return itens
     for (let i = 0; i < codigos.length; i += 200) {
         const lote = codigos.slice(i, i + 200)
         const { data, error } = await supabaseAdmin
             .from('orcamentista_tabela_item').select('codigo, descricao, medida_barra_m, valor_barra_interno, valor_metro_interno')
-            .eq('tabela_id', tabelaId).in('codigo', lote)
+            .in('tabela_id', [...tabelaIds]).in('codigo', lote)
         if (error) throw new Error(`orcamentista_tabela_item: ${error.message}`)
         itens.push(...((data ?? []) as ItemDaTabela[]))
     }
@@ -610,12 +607,12 @@ const maiuscula = (t: string) => t.charAt(0).toUpperCase() + t.slice(1)
 export type LevantamentoDaConversa = { texto: string; desfecho: 'levantou' | 'recusou' }
 
 /** Uma esquadria como o levantamento a guarda (`orcamentista_levantamento_item`). */
-export type EsquadriaGravada = { ordem?: unknown; tipologia: unknown; largura_mm: unknown; altura_mm: unknown; quantidade: unknown; cor_perfil: unknown; vidro: unknown; escolhas: unknown; tabela_id: unknown }
+export type EsquadriaGravada = { ordem?: unknown; tipologia: unknown; largura_mm: unknown; altura_mm: unknown; quantidade: unknown; cor_perfil: unknown; vidro: unknown; escolhas: unknown; familia: unknown }
 
-export const fraseDaTipologiaSemFornecedor = (n: number, tipologia: string, fornecedores: readonly string[]) =>
-    `A esquadria ${n} (${tipologia}) está nas tabelas de mais de um fornecedor (${fornecedores.join(', ')}), e falta dizer de qual.`
-export const fraseDaTipologiaSemTabela = (n: number, tipologia: string) =>
-    `A esquadria ${n} (${tipologia}) não está na lista de tipologias de nenhuma tabela ligada à empresa.`
+export const fraseDaTipologiaSemFamilia = (n: number, tipologia: string, familias: readonly string[]) =>
+    `A esquadria ${n} (${tipologia}) está no motor de mais de uma família da empresa (${familias.join(', ')}), e falta dizer de qual.`
+export const fraseDaTipologiaForaDosMotores = (n: number, tipologia: string) =>
+    `A esquadria ${n} (${tipologia}) não está na lista de tipologias do motor de nenhuma família da empresa.`
 
 /**
  * A mensagem do levantamento, com TODAS as esquadrias dele. Lança só em erro de banco — quem chama
@@ -623,8 +620,8 @@ export const fraseDaTipologiaSemTabela = (n: number, tipologia: string) =>
  * e as faltas de todas as esquadrias saem de uma vez.
  *
  * UMA RELAÇÃO POR FAMÍLIA (dono do produto, 26/10/2026): o levantamento pode ter várias famílias, e cada
- * uma é um produto. As esquadrias se agrupam pela TABELA delas (fornecedor + família), e cada grupo tem o
- * seu cálculo e a sua otimização de barras, com a tabela do seu fornecedor: nenhuma barra atravessa de um
+ * uma é um produto. As esquadrias se agrupam pela FAMÍLIA delas (desde o PR D; antes, pela tabela), e cada grupo tem o
+ * seu cálculo e a sua otimização de barras, com o motor e as tabelas de preço da família: nenhuma barra atravessa de um
  * grupo para o outro. Com uma família só, a mensagem é a de sempre.
  *
  * Dentro de uma família, as esquadrias são calculadas com UMA cor — `levantarBarras` recebe uma —; cores
@@ -632,7 +629,7 @@ export const fraseDaTipologiaSemTabela = (n: number, tipologia: string) =>
  */
 export async function mensagemDoLevantamento(
     tenantId: string,
-    tabela: TabelaDaEmpresa,
+    fonte: FamiliasDaEmpresa,
     lev: { nome: string; itens: EsquadriaGravada[] },
 ): Promise<LevantamentoDaConversa> {
     const corDe = (e: EsquadriaGravada) => (typeof e.cor_perfil === 'string' && e.cor_perfil !== '' ? e.cor_perfil : null)
@@ -645,45 +642,45 @@ export async function mensagemDoLevantamento(
         })),
     }
     const recusa = (faltas: string[]): LevantamentoDaConversa => ({ texto: fraseDaRecusa(d, faltas), desfecho: 'recusou' })
-    if ('frase' in tabela) return recusa([maiuscula(tabela.frase.replace(/^Ainda não consigo escolher a tipologia: /, ''))])
+    if ('frase' in fonte) return recusa([maiuscula(fonte.frase.replace(/^Ainda não consigo escolher a tipologia: /, ''))])
 
     const faltas: string[] = []
     lev.itens.forEach((e, i) => { if (corDe(e) === null) faltas.push(`A esquadria ${i + 1} está sem a cor do perfil.`) })
 
-    // a tabela de cada esquadria (várias tabelas, 26/10/2026): sem tabela, ou com o código em mais de uma
-    // sem a dita, é recusa nomeada
-    const doCodigo = tabelasDoCodigo(tabela)
-    const tabelaDe = lev.itens.map((e) => tabelaDaEsquadria(
-        { tipologia: typeof e.tipologia === 'string' ? e.tipologia : null, tabela_id: typeof e.tabela_id === 'string' ? e.tabela_id : null }, doCodigo))
-    tabelaDe.forEach((t, i) => {
-        if (t === null) faltas.push(fraseDaTipologiaSemTabela(i + 1, d.esquadrias[i].tipologia))
-        else if ('opcoes' in t) faltas.push(fraseDaTipologiaSemFornecedor(i + 1, d.esquadrias[i].tipologia, rotulosDasOpcoes(t.opcoes)))
+    // a família de cada esquadria (PR D): a guardada, ou a única cujo motor tem o código; com o código em mais de uma sem a dita,
+    // ou em nenhuma, é recusa nomeada
+    const doCodigo = familiasDoCodigo(fonte)
+    const familiaDe = lev.itens.map((e) => familiaDaEsquadria(
+        { tipologia: typeof e.tipologia === 'string' ? e.tipologia : null, familia: typeof e.familia === 'string' ? e.familia : null }, doCodigo))
+    familiaDe.forEach((f, i) => {
+        if (f === null) faltas.push(fraseDaTipologiaForaDosMotores(i + 1, d.esquadrias[i].tipologia))
+        else if ('opcoes' in f) faltas.push(fraseDaTipologiaSemFamilia(i + 1, d.esquadrias[i].tipologia, rotulosDasOpcoes(f.opcoes)))
     })
     if (faltas.length) return recusa(faltas)
 
-    // os grupos: uma família (tabela) por grupo, na ordem da primeira esquadria de cada um
-    const grupos: Array<{ tabela: TabelaLigada; indices: number[] }> = []
-    tabelaDe.forEach((t, i) => {
-        const id = t && 'tabelaId' in t ? t.tabelaId : ''
-        const grupo = grupos.find((g) => g.tabela.tabelaId === id)
+    // os grupos: uma família por grupo, na ordem da primeira esquadria de cada um
+    const grupos: Array<{ familia: FamiliaLigada; indices: number[] }> = []
+    familiaDe.forEach((f, i) => {
+        const chave = (f as FamiliaDoCodigo).familia
+        const grupo = grupos.find((g) => g.familia.familia === chave)
         if (grupo) grupo.indices.push(i)
-        else grupos.push({ tabela: tabela.tabelas.find((x) => x.tabelaId === id) ?? { tabelaId: id, fornecedor: FORNECEDOR_SEM_NOME, familia: null }, indices: [i] })
+        else grupos.push({ familia: fonte.familias.find((x) => x.familia === chave)!, indices: [i] })
     })
     const varias = grupos.length > 1
     const calculos: CalculoDaFamilia[] = []
-    for (const g of grupos) calculos.push(await calcularFamilia(tenantId, g.tabela.tabelaId, lev, d, g.indices))
+    for (const g of grupos) calculos.push(await calcularFamilia(tenantId, g.familia, lev, d, g.indices))
     const rotulos = calculos.flatMap((c) => c.rotulos)
     // o rótulo do fallback vai em TODA resposta, a que fecha e a que recusa
     const rotulado = (r: LevantamentoDaConversa): LevantamentoDaConversa => (rotulos.length ? { ...r, texto: `${r.texto}\n\n${rotulos.join('\n')}` } : r)
-    const nomeDaFamilia = (t: TabelaLigada) => `Família ${t.familia ?? 'não informada'} — ${t.fornecedor}`
-    const recusadas = calculos.flatMap((c, k) => ('faltas' in c ? c.faltas.map((x) => (varias ? `${nomeDaFamilia(grupos[k].tabela)}: ${x}` : x)) : []))
+    const nomeDaFamilia = (f: FamiliaLigada) => `Família ${f.rotulo} — ${f.fornecedor}`
+    const recusadas = calculos.flatMap((c, k) => ('faltas' in c ? c.faltas.map((x) => (varias ? `${nomeDaFamilia(grupos[k].familia)}: ${x}` : x)) : []))
     if (recusadas.length) return rotulado(recusa(recusadas))
 
     const fechados = calculos as Array<Extract<CalculoDaFamilia, { r: unknown }>>
     if (!varias) return rotulado({ texto: fraseDoLevantamento(fechados[0].d, fechados[0].r, fechados[0].maos), desfecho: 'levantou' })
-    const blocos = fechados.map((c, k) => fraseDoLevantamento(c.d, c.r, c.maos, { titulo: `${nomeDaFamilia(grupos[k].tabela)}, perfil ${c.d.cor}`, cobertura: false, numerar: true }))
+    const blocos = fechados.map((c, k) => fraseDoLevantamento(c.d, c.r, c.maos, { titulo: `${nomeDaFamilia(grupos[k].familia)}, perfil ${c.d.cor}`, cobertura: false, numerar: true }))
     const texto = [
-        `Levantamento “${lev.nome}”: ${grupos.length} famílias, cada uma calculada com a tabela do seu fornecedor — as barras de uma não entram na otimização da outra.`,
+        `Levantamento “${lev.nome}”: ${grupos.length} famílias, cada uma calculada com o motor e as tabelas de preço dela — as barras de uma não entram na otimização da outra.`,
         '', blocos.join('\n\n'), '', O_QUE_O_PRECO_COBRE,
     ].join('\n')
     return rotulado({ texto, desfecho: 'levantou' })
@@ -698,11 +695,12 @@ const renumerar = (m: string, numeros: readonly number[]) =>
     m.replace(/^(Esquadrias? )([\d, e]+)/, (_t, p: string, lista: string) => p + lista.replace(/\d+/g, (n) => String(numeros[Number(n) - 1] ?? n)))
 
 /**
- * O cálculo de UMA família: as esquadrias dela, com a tabela do fornecedor dela — as abas, as regras, os
- * itens de preço, a otimização de barras e a mão de obra. `d` é o levantamento inteiro: as esquadrias do
- * grupo são as MESMAS de `d` (a descrição do arremate escrita aqui aparece também na recusa).
+ * O cálculo de UMA família: as esquadrias dela, com o MOTOR do cálculo dela (a etapa 2: as abas, as regras e o tempo, por
+ * `motor_id`) e o PREÇO das tabelas que valem para ela (por `tabela_id`) — a otimização de barras e a mão de obra. `d` é o
+ * levantamento inteiro: as esquadrias do grupo são as MESMAS de `d` (a descrição do arremate escrita aqui aparece também na recusa).
  */
-async function calcularFamilia(tenantId: string, tabelaId: string, lev: { nome: string; itens: EsquadriaGravada[] }, d: DadosDoLevantamento, indices: number[]): Promise<CalculoDaFamilia> {
+async function calcularFamilia(tenantId: string, familia: FamiliaLigada, lev: { nome: string; itens: EsquadriaGravada[] }, d: DadosDoLevantamento, indices: number[]): Promise<CalculoDaFamilia> {
+    const motorId = familia.calculo.id
     const itensDoGrupo = indices.map((i) => lev.itens[i])
     const corDe = (e: EsquadriaGravada) => (typeof e.cor_perfil === 'string' && e.cor_perfil !== '' ? e.cor_perfil : null)
     const cores = [...new Set(itensDoGrupo.map(corDe).filter((c): c is string => c !== null))]
@@ -714,7 +712,7 @@ async function calcularFamilia(tenantId: string, tabelaId: string, lev: { nome: 
     }
 
     // as abas de cada tipologia, uma vez por tipologia; as escolhas descritas, uma vez por esquadria
-    const doBanco = await lerTipologiasDoBanco(tabelaId, [...new Set(dg.esquadrias.map((e) => e.tipologia))])
+    const doBanco = await lerTipologiasDoBanco(motorId, [...new Set(dg.esquadrias.map((e) => e.tipologia))])
     const lidas = doBanco.lidas
     const rotulos = doBanco.rotulos
     faltas.push(...doBanco.faltas)
@@ -727,10 +725,10 @@ async function calcularFamilia(tenantId: string, tabelaId: string, lev: { nome: 
     // a mesma linha do motor pode servir a duas tipologias: o de-para entra uma vez só
     const porTrio = new Map<string, RegraDoDePara>()
     for (const t of Object.keys(lidas)) {
-        for (const g of await lerRegras(tabelaId, t)) porTrio.set(JSON.stringify([g.codigo, g.codigo_wvetro, g.cor]), g)
+        for (const g of await lerRegras(motorId, t)) porTrio.set(JSON.stringify([g.codigo, g.codigo_wvetro, g.cor]), g)
     }
     const regras = [...porTrio.values()]
-    const itens = await lerItens(tabelaId, [...new Set(regras.map((r) => r.codigo))].sort())
+    const itens = await lerItens(familia.tabelasDePreco, [...new Set(regras.map((r) => r.codigo))].sort())
     // as cores da empresa: o que é COR na coluna `cor` do motor, para a guarda da variante única
     const coresDaEmpresa = await lerCoresDaEmpresa(tenantId)
 
@@ -757,6 +755,6 @@ async function calcularFamilia(tenantId: string, tabelaId: string, lev: { nome: 
         return { faltas: r.recusas.map((x) => maiuscula(traduzir(comNumero(x.mensagem)))), rotulos }
     }
     const maos: MaoDeObra[] = []
-    for (const e of dg.esquadrias) maos.push(await lerMaoDeObra(tenantId, tabelaId, e.tipologia, e.quantidade))
+    for (const e of dg.esquadrias) maos.push(await lerMaoDeObra(tenantId, motorId, e.tipologia, e.quantidade))
     return { d: dg, r, maos, rotulos }
 }

@@ -96,6 +96,9 @@ Decisão do dono do produto, 27/10/2026: "Exija o arquivo do motor apenas quando
 - **`tabelas-da-conta.ts` agrupa por (fornecedor, família, categoria)**: Perfil, Reforço e Acessórios da Wolff são três grupos e as três valem.
   A tabela sem categoria (as de antes) é um grupo à parte.
 
+> **SUPERADO pelo PR D (02/11/2026)** — a conversa não lê motor de tabela nenhuma; ver a seção do PR D no fim desta página. O parágrafo abaixo fica
+> como o estado de 27/10/2026.
+
 **O que NÃO mudou — a conversa (PR D).** O leitor da conversa continua pedindo tabela **com motor** (tipologias importadas) e **recusa** duas tabelas
 com motor do mesmo fornecedor e família (`TABELA_REPETIDA`), sem olhar a categoria, de propósito: a Wolff de antes (sem categoria, com motor) e a
 nova de Perfil (com motor) valem cada uma no seu grupo, e deixá-las entrar juntas duplicaria as tipologias. **Subir** as três tabelas é seguro (Reforço e Acessórios não têm tipologia; a de Perfil só passa a ter ao ser IMPORTADA).
@@ -110,7 +113,8 @@ nova de Perfil (com motor) valem cada uma no seu grupo, e deixá-las entrar junt
 - **REFORCO e ACESSORIOS_VEDACAO da De Paula não têm fornecedor vinculado** (medido em 27/10/2026): com a regra do
   principal, o preço delas não tem de onde vir até alguém vincular.
 - **A Parte 2** (tirar o código do material do motor) segue pendente de desenho.
-- **O motor criado por uma etapa não é lido pela conversa** (PR D) e nasce sem tempo — ver o PR E abaixo.
+- **O motor criado por uma etapa não é lido pela conversa** (PR D) e nasce sem tempo — ver o PR E abaixo. *(Desde o PR D, 02/11/2026, a conversa lê o
+  motor das etapas 1 e 2; o tempo vem de `orcamentista_motor_tipologia_tempo` por `motor_id`, e o motor sem tempo dá a mão de obra "não sai", nomeada.)*
 
 ## O motor é da família — decisão de 27/10/2026 (corrige a de ontem) e as DÍVIDAS com data
 
@@ -238,6 +242,9 @@ Fornecedores e tabelas (âncora `#motores`); o bloco "Motor" da conta (morto des
 `vinculosDaConta`) junta os fornecedores de TODAS as matérias-primas da conta. Com duas famílias PVC na mesma empresa, isso mistura os fornecedores da
 Família 1 com os da Família 2 — exatamente o que o desenho quer separar. O PR D deriva as tabelas (e o motor, pelas etapas) a partir da família-instância
 do item, e o item de levantamento passa a dizer de qual instância é (`materia_prima_id`, a acrescentar no PR D).
+**SUPERADO pela decisão do dono do produto de 02/11/2026, no PR D:** a família é a CHAVE do catálogo (as famílias distintas da conta), as tabelas de
+preço são as dos fornecedores vinculados POR CONTA com a família da conta ou família nula, e o item grava `familia` e `motor_id` — não `materia_prima_id`.
+Duas instâncias da mesma família com motores diferentes na mesma etapa são erro de configuração (`MOTORES_DIVERGENTES`), não duas famílias.
 
 **Pendentes com o dono do produto (não mexer):** o fornecedor repetido "Wolf  Perfis PVC" (espaço duplo, de 24/10) e a tabela PERFIL pendurada nele;
 as duas tabelas FERRAGENS da IMAB, nenhuma vigente.
@@ -607,7 +614,9 @@ Formulação do dono do produto, registrada como está:
 - **Decisão 4 — remover o fornecedor Wolf Perfis é PERMITIDO hoje, antes do PR D, COM AVISO EXPLÍCITO** na confirmação: a conversa da empresa que usa a
   tabela `72366020` **PARA de funcionar até ser reconfigurada**, porque a conversa ainda lê o motor pela tabela, não pelo catálogo. Não é exceção nem
   recusa: é aviso (`conversa_para`, com as empresas e a tabela). **ESTE AVISO SAI QUANDO O PR D ENTRAR** (a conversa passa a ler o motor pelo catálogo);
-  quem escrever o PR D tira o aviso da função e da tela (`fraseDoAviso`).
+  quem escrever o PR D tira o aviso da função e da tela (`fraseDoAviso`). **REVISTO pelo dono do produto em 02/11/2026, no pedido do PR D:** "Não mexa
+  [...] na função do arrasto nem no texto do aviso conversa_para — ficam como estão." O aviso FICOU; o texto dele (a conversa lê o motor pela tabela)
+  deixou de descrever o código — ver a seção do PR D.
 - **O impedimento (não é uso, é conflito):** na família, a tabela de outra categoria que perde a família e é **vigente** colidiria no índice
   `orcamentista_tabela_uma_vigente` com outra vigente do mesmo fornecedor e categoria sem família. A medição nomeia as tabelas e a remoção recusa (23505)
   antes de apagar. Medido em 31/10/2026: nenhuma tabela vigente em produção — o impedimento não aparece hoje. **Leitura do assistente, relatada no PR:**
@@ -652,7 +661,7 @@ Formulação do dono do produto, registrada como está:
 - **A ORDEM — a remoção da tabela é PERMITIDA antes do PR D, com o aviso obrigatório** (dono do produto, 01/11/2026). Se a tabela tem motor (tipologias
   importadas), a confirmação mostra o aviso `conversa_para`: a conversa da empresa que a usa **PARA** (hoje vale para a `72366020`, usada pela De Paula).
   **ESTE AVISO SAI QUANDO O PR D ENTRAR** (a conversa passa a ler o motor pelo catálogo) — quem escrever o PR D tira o aviso da função e da tela
-  (`fraseDoAviso`), também para o tipo `tabela`.
+  (`fraseDoAviso`), também para o tipo `tabela`. **REVISTO em 02/11/2026: o aviso fica como está** (ver a seção do PR D).
 - **Medido em produção em 01/11/2026 (só leitura):** 17 FKs apontam `orcamentista_tabela` (`conta_tabela` RESTRICT, `levantamento_item` SET NULL, o resto
   CASCADE; nenhuma fora dos passos). A `72366020` tem 735 itens, 62.295 linhas de conteúdo (164 tipologias), 4 importações, 1 `conta_tabela` e 0 itens de
   levantamento; o motor `9a233c55` tem as suas 12.116 regras e os 164 tempos por `motor_id`, e não muda.
@@ -712,3 +721,41 @@ Formulação do dono do produto, registrada como está:
 - **Prova:** `scripts/harness/arquivo-em/` — a base da `tabela-soberana` (com a `20261101000001`), o estado de produção de 01/11 depois das 21:08 (a
   `72366020` removida pelo arrasto, os `criado_em` reais e os objetos do Storage, com um de mesmo nome em outro bucket), a migração duas vezes, 8 casos,
   a regressão das duas suítes do arrasto, o contraste da reaplicação e o da verificação 3 (40/40); 20 mutações mortas nas duas passadas.
+
+## A conversa lê o motor pela FAMÍLIA, não pela tabela — PR D, dono do produto, 02/11/2026 (sem migração)
+
+Formulação do dono do produto, registrada como está (o pedido inteiro está no corpo do PR):
+
+> "1. ORIGEM DA FAMÍLIA — Família(s) da conta = orcamentista_materia_prima da conta (campo família), distintas. 1 família: é ela, sem perguntar. 2+:
+> junta as tipologias dos motores de cada família e a IA pergunta de qual é [...]. 0: erro de configuração, não cai na família da tabela.
+> 2. ORIGEM DO MOTOR — família -> orcamentista_familia_etapa (familia, numero) -> motor_id. [...] 3. ORIGEM DO PREÇO — O preço do código continua vindo
+> das tabelas VIGENTES da(s) família(s) da conta, todas as categorias [...]. Código sem preço: reporte o código sem valor, nunca estime nem oculte.
+> 4. ERRO EXPLÍCITO, nunca fallback e nunca voltar a ler por tabela_id [...] Padrão: 'Falta de configuração — <o que falta>: verifique o catálogo em <seção>'."
+
+E as respostas dele às perguntas do PR (02/11/2026): a família pela **base de conhecimento**; **vigente = a regra atual** (sozinha no grupo vale sem a
+marca; com 2+, só a marcada; nenhuma marcada é `SEM_VIGENTE`); as tabelas de preço são as **vinculadas + "qualquer linha"** (família da conta ou nula);
+código **sem preço** mantém a recusa nomeada; código **em duas tabelas** mantém `ITEM_EM_DUAS_LINHAS`; o item grava **`familia` e `motor_id`**; a mesma
+família com motores diferentes na mesma etapa é **erro de configuração**.
+
+- **A família e o motor:** `src/lib/atendimentos-ia/motor-da-familia.ts` (`lerMotoresDaConta`): as famílias distintas de `orcamentista_materia_prima`, as
+  etapas 1 (Gerar o levantamento) e 2 (Calcular as barras e os materiais) de cada instância, e o motor de cada etapa. A lista de tipologias é a do motor
+  da etapa 1; as abas, as regras, o tempo e a mão de obra do cálculo são do motor da etapa 2. **Tudo por `motor_id`**; a conversa não lê mais conteúdo de
+  motor por `tabela_id` em ponto nenhum (nem como reserva).
+- **O preço:** `orcamentista_tabela_item` continua por `tabela_id`, das tabelas que `derivarTabelasDaConta` deriva e que valem para a família.
+  `tabelas-da-conta.ts` virou só PREÇO: não conta mais tipologia de tabela nenhuma (`tipologias`/`comMotor` saíram).
+- **Os erros, cada um com a frase do padrão:** `SEM_FAMILIA`, `SEM_ETAPA`, `ETAPA_SEM_MOTOR`, `MOTOR_ARQUIVADO`, `MOTOR_SEM_CONTEUDO` (0 tipologias por
+  `motor_id`), `MOTORES_DIVERGENTES`, `SEM_TABELA_VIGENTE`; e, de antes, `PERFIL_SEM_TABELA`, `SEM_VIGENTE` e `SEM_LISTA_DE_TIPOLOGIAS`.
+- **A esquadria grava** `familia`, `motor_id` (o motor do cálculo, o da etapa 2) e `motor_familia_exigida` = `familia` (as CHECKs da tabela);
+  `tabela_id` não é lido nem escrito pela conversa. A cada gravação a família e o motor são resolvidos de novo (`resolverFamilias`): a etapa que troca de
+  motor leva a esquadria ao motor novo.
+- **MUDOU, e é efeito da decisão, não descuido:** como toda tabela da família é preço, duas tabelas de PREÇO no mesmo grupo (fornecedor, família,
+  categoria) e nenhuma vigente passam a recusar `SEM_VIGENTE` — antes ficavam fora da conversa e não recusavam.
+- **Não mudou, de propósito (o pedido):** `motor_path`/`motor_nome`, a função do arrasto e o texto do aviso `conversa_para`; a execução de etapa pela
+  `acao` do catálogo (o fluxo fixo continua). **Leitura do assistente, relatada no PR:** a decisão C de 29/10 ("a família só funciona com todos os
+  motores") não é conferida aqui — o PR D confere as etapas 1 e 2, como o pedido; a família com uma etapa 3 sem motor conversa. Medido em 02/11/2026: a
+  De Paula só tem as etapas 1 e 2, as duas com motor.
+- **Medido em produção em 02/11/2026 (só leitura):** as 12.116 regras e as 164 tipologias e tempos do `9a233c55` têm `motor_id` e **nenhuma** tem
+  `tabela_id` — a leitura antiga por `tabela_id` não achava nada. A `72366020` não existe mais. As cinco abas da DP-02 do motor têm o md5 das da fixture
+  dos testes. Com o PR D, a DP-02 da De Paula **recusa nomeando 1023, 8432 e 8433**: os três estão no motor e em nenhuma tabela de preço do catálogo
+  (o portão `(1p)` de `levantamento-da-conversa.test.ts` reproduz isso).
+

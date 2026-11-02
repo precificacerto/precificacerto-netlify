@@ -12,7 +12,7 @@ import { ABAS_DO_MOTOR, linhaDoBanco, type LinhaDoBanco } from '@/utils/atendime
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const ABAS = require('@/lib/atendimentos-ia/abas-do-motor-wolff-DP-02.json') as Record<string, { cabecalho?: string[]; linhas: Array<Record<string, unknown>> }>
 
-export type LinhaGravada = LinhaDoBanco & { id?: string; tabela_id: string }
+export type LinhaGravada = LinhaDoBanco & { id?: string; tabela_id: string | null; motor_id?: string }
 
 /**
  * A Detalhe NÃO tem coluna `id` em produção: a chave dela é (tabela_id, tipologia) — medido em
@@ -21,8 +21,13 @@ export type LinhaGravada = LinhaDoBanco & { id?: string; tabela_id: string }
  */
 const SEM_ID = new Set(['orcamentista_motor_tipologia_detalhe'])
 
-/** tabela do banco → linhas, todas com `tabela_id` e um `id` estável. */
-export function abasDaDP02NoBanco(tabelaId: string): Record<string, LinhaGravada[]> {
+/**
+ * tabela do banco → linhas, todas com o DONO e um `id` estável. O dono é a tabela de fornecedor (`tabela_id`, a forma da importação
+ * antiga) ou o MOTOR do catálogo (`motor_id`, com `tabela_id` nulo): é a forma de produção, medida em 02/11/2026 — as 12.116 regras e
+ * as 164 tipologias do Motor_Wolf_PVC têm `motor_id` e nenhuma tem `tabela_id` (PR D).
+ */
+export function abasDaDP02NoBanco(donoId: string, dono: 'tabela' | 'motor' = 'tabela'): Record<string, LinhaGravada[]> {
+    const tabelaId = donoId
     const saida: Record<string, LinhaGravada[]> = {}
     for (const aba of ABAS_DO_MOTOR) {
         const fonte = ABAS[aba.nome]
@@ -33,7 +38,8 @@ export function abasDaDP02NoBanco(tabelaId: string): Record<string, LinhaGravada
             const r = linhaDoBanco(aba, valores, i + 2)
             if ('erros' in r) throw new Error(r.erros.join(' '))
             const id = SEM_ID.has(aba.tabela) ? {} : { id: `${aba.tabela}-${tabelaId}-${String(i + 2).padStart(5, '0')}` }
-            return { ...id, tabela_id: tabelaId, ...r.linha }
+            const doDono: { tabela_id: string | null; motor_id?: string } = dono === 'motor' ? { tabela_id: null, motor_id: donoId } : { tabela_id: tabelaId }
+            return { ...id, ...doDono, ...r.linha }
         })
     }
     return saida

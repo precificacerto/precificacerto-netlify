@@ -9,16 +9,16 @@
  *          FKs e as policies. A proteção que o RESTRICT dela dava — não excluir tabela em uso — mudou de
  *          lugar para a rota em 26/10/2026, e SAIU em 01/11/2026 (dono do produto: "Se for excluído, deve ser excluído"; migração
  *          20261101000001): a tabela está na soberania do catálogo e se remove pelo arrasto, que mostra quem para.
- *   3. Quem decide se a tabela entra na conversa é o MOTOR, não a categoria: tabela com tipologias entra;
- *      tabela sem tipologias é TABELA DE PREÇO e não entra. Recusas nomeadas: fornecedor do PERFIL sem
- *      tabela, e NENHUMA tabela da conta com motor. Fornecedor de outra categoria sem tabela não recusa.
+ *   3. (Até o PR D: quem decidia se a tabela entrava na conversa era o motor importado nela.) DESDE O PR D (02/11/2026), o motor
+ *      vem da FAMÍLIA da conta, e toda tabela derivada da família (ou de família nula) é PREÇO. Recusas nomeadas: fornecedor do
+ *      PERFIL sem tabela, e a família sem tabela vigente. Fornecedor de outra categoria sem tabela não recusa.
  *   5. Com mais de uma tabela do mesmo fornecedor e da mesma família, vale a VIGENTE; nenhuma marcada é
  *      recusa nomeada. Com UMA só no par, ela vale (não há o que escolher).
  *
  * O que este portão fica vermelho:
  *   (1) a derivação: as tabelas dos fornecedores vinculados NESTA conta, com a categoria, o motor e qual
  *       vale — e a linha de `orcamentista_conta_tabela` não muda nada;
- *   (2) a conversa: tabela de preço fora, as três recusas nomeadas, a vigente;
+ *   (2) a conversa: o motor da família, as tabelas da família como preço, as recusas nomeadas, a vigente;
  *   (3) a rota da tabela não apaga mais: o DELETE é 405, e nada sai do banco nem do armazenamento — também a tabela que uma conta usa;
  *   (4) quem usa: a lista de fornecedores diz as contas pelo vínculo da base de conhecimento;
  *   (5) nenhum arquivo de `src/` fala com `orcamentista_conta_tabela`.
@@ -44,6 +44,8 @@ const T_WOLFF_ALU = '00000000-0000-4000-8000-00000000ab0a'
 const T_ESTRELA = '5f7acebf-3c91-46de-af00-57a47f8be288'
 const T_SUL = '00000000-0000-4000-8000-00000000ab03'
 const T_SOLTA = '00000000-0000-4000-8000-00000000ab04'
+/** O motor do catálogo que as etapas 1 e 2 da família PVC da De Paula apontam (PR D). */
+const M_WOLFF = '9a233c55-f377-45d3-b2ae-b1a740a98e44'
 const SUPER = { id: '00000000-0000-4000-8000-00000000005a', tenant_id: null as string | null, role: 'super_admin', is_super_admin: true }
 
 const estado = {
@@ -61,7 +63,10 @@ const tipologias = (tabela_id: string, ...codigos: string[]) => codigos.map((tip
 const categoria = (id: string, tenant_id: string, categoria_chave: string) => ({ id, tenant_id, materia_prima_id: `mp-${tenant_id.slice(-4)}`, categoria_chave, config: null as Linha | null })
 const vinculo = (tenant_id: string, mp_categoria_id: string, fornecedor_id: string, principal = false) => ({ id: `v-${mp_categoria_id}-${fornecedor_id}`, tenant_id, mp_categoria_id, fornecedor_id, principal, ordem: 1 })
 
-/** Produção em 26/10/2026, De Paula: PERFIL → Wolff (164 tipologias), VIDRO → Estrela (0 tipologias, tabela de preço). */
+/**
+ * Produção em 26/10/2026, De Paula: PERFIL → Wolff, VIDRO → Estrela (tabela de preço). Desde o PR D (02/11/2026), as 164 tipologias são do
+ * MOTOR da família (motor_id), não da tabela da Wolff.
+ */
 function montar() {
     estado.lidas = []
     estado.apagadas = []
@@ -80,7 +85,16 @@ function montar() {
             tabela(T_ESTRELA, F_ESTRELA, 'Estrela vidros.xlsx', null),
             tabela(T_SUL, F_SUL, 'Sul 2026.xlsx', 'ALUMINIO'),
         ],
-        orcamentista_motor_tipologia_detalhe: [...tipologias(T_WOLFF, 'DP-01', 'DP-02'), ...tipologias(T_SUL, 'SU-07')],
+        // o conteúdo do motor mora no MOTOR (motor_id), como em produção; as linhas por tabela_id ficam PARADAS (a forma antiga) e não
+        // são lidas pela conversa (PR D)
+        orcamentista_motor_tipologia_detalhe: [
+            ...tipologias(T_WOLFF, 'XX-01'), ...tipologias(T_SUL, 'SU-07'),
+            ...['DP-01', 'DP-02'].map((tipologia) => ({ tabela_id: null as string | null, motor_id: M_WOLFF, tipologia, descricao: `${tipologia} do motor`, tipo: 'Correr', ordem: null as number | null })),
+        ],
+        // a família da De Paula na base de conhecimento, e as etapas 1 e 2 com o motor
+        orcamentista_materia_prima: [{ id: 'mp-4eb9', tenant_id: PAULA, nome: 'Esquadrias de PVC', familia: 'PVC' }],
+        orcamentista_familia_etapa: [1, 2].map((numero) => ({ tenant_id: PAULA, materia_prima_id: 'mp-4eb9', numero, motor_id: M_WOLFF })),
+        orcamentista_motor: [{ id: M_WOLFF, nome: 'Motor_Wolf_PVC', fornecedor_id: F_WOLFF, arquivado_em: null }],
         orcamentista_mp_categoria: [
             categoria('c-perfil', PAULA, 'PERFIL'), categoria('c-vidro', PAULA, 'VIDRO'), categoria('c-ferragem', PAULA, 'FERRAGENS'),
             categoria('c-norte-perfil', NORTE, 'PERFIL'),
@@ -154,9 +168,11 @@ describe('(1) a derivação: as tabelas dos fornecedores que a base de conhecime
     it('De Paula: a Wolff pelo PERFIL, com motor; a Estrela pelo VIDRO, tabela de preço — e a linha parada de conta_tabela não entra', async () => {
         const d = await D().derivarTabelasDaConta(PAULA)
         expect(d.tabelas).toEqual([
-            { tabelaId: T_ESTRELA, fornecedorId: F_ESTRELA, fornecedor: 'Vidros Estrela', familia: null, familiaChave: null, categoria: null, arquivo_nome: 'Estrela vidros.xlsx', vigente: false, categorias: ['VIDRO'], tipologias: 0, comMotor: false, vale: true },
-            { tabelaId: T_WOLFF, fornecedorId: F_WOLFF, fornecedor: 'Wolff Perfis', familia: 'PVC', familiaChave: 'PVC', categoria: null, arquivo_nome: 'Wolff 2026.xlsx', vigente: false, categorias: ['PERFIL'], tipologias: 2, comMotor: true, vale: true },
+            { tabelaId: T_ESTRELA, fornecedorId: F_ESTRELA, fornecedor: 'Vidros Estrela', familia: null, familiaChave: null, categoria: null, arquivo_nome: 'Estrela vidros.xlsx', vigente: false, categorias: ['VIDRO'], vale: true },
+            { tabelaId: T_WOLFF, fornecedorId: F_WOLFF, fornecedor: 'Wolff Perfis', familia: 'PVC', familiaChave: 'PVC', categoria: null, arquivo_nome: 'Wolff 2026.xlsx', vigente: false, categorias: ['PERFIL'], vale: true },
         ])
+        // a derivação é só PREÇO desde o PR D: não conta tipologia de tabela nenhuma
+        expect(estado.lidas).not.toContain('orcamentista_motor_tipologia_detalhe')
         expect(d.fornecedoresSemTabela).toEqual([])
         expect(d.paresSemVigente).toEqual([])
         naoTocouAContaTabela()
@@ -245,92 +261,89 @@ describe('(1) a derivação: as tabelas dos fornecedores que a base de conhecime
 })
 
 // ════════════════════════════════════════════════════════════════════════════════════════
-describe('(2) a conversa: quem entra é a tabela COM motor', () => {
+/**
+ * (2) MUDOU no PR D (dono do produto, 02/11/2026): a conversa NÃO decide mais "tabela com motor entra; sem motor é preço". O motor
+ * vem da FAMÍLIA da conta (a base de conhecimento → as etapas → o motor, por motor_id), e TODA tabela da derivação que é da família
+ * (ou de "qualquer linha", família nula) é PREÇO — de qualquer categoria. A vigente decide como antes, agora em todas elas.
+ */
+describe('(2) a conversa: o motor vem da família; as tabelas da família são o preço', () => {
     const lida = async () => {
-        const t = await C().lerTabelaDaEmpresa(PAULA)
+        const t = await C().lerFamiliasDaEmpresa(PAULA)
         if ('frase' in t) throw new Error('era para ler: ' + t.frase)
         return t
     }
+    const precos = async () => (await lida()).familias[0].tabelasDePreco
 
-    it('a tabela de preço (Estrela, sem tipologias) NÃO entra, e não recusa: a lista é a da Wolff', async () => {
+    it('De Paula: a lista é a do MOTOR da família (por motor_id), e o preço é a Wolff (PVC) e a Estrela (qualquer linha) — a lista parada por tabela_id não entra', async () => {
         const t = await lida()
-        expect(t.tabelas).toEqual([{ tabelaId: T_WOLFF, fornecedor: 'Wolff Perfis', familia: 'PVC' }])
+        expect(t.familias.map((f) => [f.familia, f.levantamento.id, f.calculo.id])).toEqual([['PVC', M_WOLFF, M_WOLFF]])
         expect(t.candidatos.map((c) => c.tipologia)).toEqual(['DP-01', 'DP-02'])
+        expect(await precos()).toEqual([T_ESTRELA, T_WOLFF].sort())
         naoTocouAContaTabela()
+    })
+
+    it('a tabela de OUTRA família (a Sul, de alumínio) não dá preço, mesmo vinculada', async () => {
+        estado.db.orcamentista_mp_categoria_fornecedor.push(vinculo(PAULA, 'c-perfil', F_SUL))
+        expect(await precos()).toEqual([T_ESTRELA, T_WOLFF].sort())
     })
 
     it('fornecedor de OUTRA categoria sem tabela não recusa: a conversa segue', async () => {
         estado.db.orcamentista_mp_categoria_fornecedor.push(vinculo(PAULA, 'c-ferragem', F_FERRAGEM))
-        expect((await lida()).tabelas.map((t) => t.tabelaId)).toEqual([T_WOLFF])
+        expect(await precos()).toEqual([T_ESTRELA, T_WOLFF].sort())
     })
 
     it('fornecedor do PERFIL sem tabela: recusa NOMEADA, dizendo qual', async () => {
         estado.db.orcamentista_mp_categoria_fornecedor.push(vinculo(PAULA, 'c-perfil', F_FERRAGEM))
-        const t = await C().lerTabelaDaEmpresa(PAULA)
+        const t = await C().lerFamiliasDaEmpresa(PAULA)
         expect(t.ok === false && [t.motivo, t.frase]).toEqual(['PERFIL_SEM_TABELA', C().fraseDoPerfilSemTabela('Ferragens Ômega')])
         expect(C().fraseDoPerfilSemTabela('Ferragens Ômega')).toContain('Ferragens Ômega')
     })
 
-    it('NENHUMA tabela com motor: recusa nomeada dizendo isso, com os fornecedores das tabelas de preço', async () => {
-        estado.db.orcamentista_motor_tipologia_detalhe = []
-        const t = await C().lerTabelaDaEmpresa(PAULA)
-        expect(t.ok === false && [t.motivo, t.frase]).toEqual(['SEM_MOTOR', C().fraseSemMotor(['Vidros Estrela', 'Wolff Perfis'])])
-        expect(C().fraseSemMotor(['Vidros Estrela', 'Wolff Perfis'])).toContain('Vidros Estrela e Wolff Perfis')
-    })
-
-    it('a base de conhecimento não vincula fornecedor nenhum: SEM_TABELA — a linha parada de conta_tabela não a salva', async () => {
+    it('a base de conhecimento não vincula fornecedor nenhum: a família fica sem tabela vigente — a linha parada de conta_tabela não a salva', async () => {
         estado.db.orcamentista_mp_categoria_fornecedor = estado.db.orcamentista_mp_categoria_fornecedor.filter((v) => v.tenant_id !== PAULA)
-        const t = await C().lerTabelaDaEmpresa(PAULA)
-        expect(t.ok === false && [t.motivo, t.frase]).toEqual(['SEM_TABELA', C().FRASE_SEM_TABELA])
+        const t = await C().lerFamiliasDaEmpresa(PAULA)
+        expect(t.ok === false && [t.motivo, t.frase]).toEqual(['SEM_TABELA_VIGENTE', 'Falta de configuração — a família PVC não tem nenhuma tabela de preço vigente: verifique o catálogo em Catálogo › Fornecedores.'])
+        naoTocouAContaTabela()
     })
 
     it('duas tabelas da Wolff em PVC, nenhuma vigente: recusa nomeada — não escolho entre elas', async () => {
         estado.db.orcamentista_tabela.push(tabela(T_WOLFF_2027, F_WOLFF, 'Wolff 2027.xlsx', 'PVC'))
-        estado.db.orcamentista_motor_tipologia_detalhe.push(...tipologias(T_WOLFF_2027, 'DP-02'))
-        const t = await C().lerTabelaDaEmpresa(PAULA)
+        const t = await C().lerFamiliasDaEmpresa(PAULA)
         expect(t.ok === false && [t.motivo, t.frase]).toEqual(['SEM_VIGENTE', C().fraseSemVigente('Wolff Perfis', 'PVC', 2)])
     })
 
-    it('o contraste: com a de 2027 vigente, a conversa usa SÓ a de 2027', async () => {
+    it('o contraste: com a de 2027 vigente, o preço é SÓ a de 2027 (e a Estrela)', async () => {
         estado.db.orcamentista_tabela.push(tabela(T_WOLFF_2027, F_WOLFF, 'Wolff 2027.xlsx', 'PVC', true))
-        estado.db.orcamentista_motor_tipologia_detalhe.push(...tipologias(T_WOLFF_2027, 'DP-02'))
-        const t = await lida()
-        expect(t.tabelas.map((x) => x.tabelaId)).toEqual([T_WOLFF_2027])
-        expect(t.candidatos.map((c) => [c.tipologia, c.tabelaId])).toEqual([['DP-02', T_WOLFF_2027]])
+        expect(await precos()).toEqual([T_ESTRELA, T_WOLFF_2027].sort())
     })
 
-    it('Reforço e Acessórios da Wolff (preço puro, sem tipologias) ao lado da Perfil com motor: não entram e não atrapalham — a conversa lê só a que tem motor', async () => {
+    it('Reforço e Acessórios da Wolff: entram como PREÇO, ao lado da Perfil — todas as categorias, e a lista continua a do motor', async () => {
         estado.db.orcamentista_tabela.push(
             tabela('wolff-reforco', F_WOLFF, 'Wolff reforço.xlsx', 'PVC', false, 'REFORCO'),
             tabela('wolff-acess', F_WOLFF, 'Wolff acessórios.xlsx', 'PVC', false, 'ACESSORIOS_VEDACAO'),
         )
-        expect((await lida()).tabelas.map((t) => t.tabelaId)).toEqual([T_WOLFF])
+        expect(await precos()).toEqual([T_ESTRELA, T_WOLFF, 'wolff-acess', 'wolff-reforco'].sort())
+        expect((await lida()).candidatos.map((c) => c.tipologia)).toEqual(['DP-01', 'DP-02'])
     })
 
-    it('a Wolff de antes (sem categoria) e a PERFIL nova, as duas COM motor, na mesma família: recusa nomeada — as duas nunca entram juntas, duplicando as tipologias', async () => {
+    it('uma tabela com tipologias gravadas por tabela_id NÃO muda a lista: quem decide a lista é o motor da família', async () => {
         estado.db.orcamentista_tabela.push(tabela('wolff-perfil', F_WOLFF, 'Wolff perfil.xlsx', 'PVC', false, 'PERFIL'))
-        estado.db.orcamentista_motor_tipologia_detalhe.push(...tipologias('wolff-perfil', 'DP-01'))
-        const t = await C().lerTabelaDaEmpresa(PAULA)
-        expect(t.ok === false && [t.motivo, t.frase]).toEqual(['TABELA_REPETIDA', C().fraseDeTabelaRepetida('Wolff Perfis', 'PVC', 2)])
+        estado.db.orcamentista_motor_tipologia_detalhe.push(...tipologias('wolff-perfil', 'WP-01'))
+        const t = await lida()
+        expect(t.candidatos.map((c) => c.tipologia)).toEqual(['DP-01', 'DP-02'])
+        expect(t.familias[0].tabelasDePreco).toContain('wolff-perfil')
     })
 
-    it('a PERFIL nova SEM motor importado (só subiu) não entra: a conversa segue com a de antes', async () => {
-        estado.db.orcamentista_tabela.push(tabela('wolff-perfil', F_WOLFF, 'Wolff perfil.xlsx', 'PVC', false, 'PERFIL'))
-        expect((await lida()).tabelas.map((t) => t.tabelaId)).toEqual([T_WOLFF])
-    })
-
-    it('duas PERFIL com motor e nenhuma vigente: SEM_VIGENTE nomeia o grupo com a categoria; duas de REFORCO sem motor, nenhuma vigente, não recusam', async () => {
+    it('duas de REFORCO no mesmo grupo e nenhuma vigente: agora RECUSA (são preço da família) — a regra da vigente vale em todas', async () => {
         estado.db.orcamentista_tabela.push(tabela('r1', F_WOLFF, 'Reforço 1.xlsx', 'PVC', false, 'REFORCO'), tabela('r2', F_WOLFF, 'Reforço 2.xlsx', 'PVC', false, 'REFORCO'))
-        expect((await lida()).tabelas.map((t) => t.tabelaId)).toEqual([T_WOLFF])
-        estado.db.orcamentista_tabela.push(tabela('p1', F_WOLFF, 'Perfil 1.xlsx', 'PVC', false, 'PERFIL'), tabela('p2', F_WOLFF, 'Perfil 2.xlsx', 'PVC', false, 'PERFIL'))
-        estado.db.orcamentista_motor_tipologia_detalhe.push(...tipologias('p1', 'DP-01'), ...tipologias('p2', 'DP-01'))
-        const t = await C().lerTabelaDaEmpresa(PAULA)
+        const t = await C().lerFamiliasDaEmpresa(PAULA)
         expect(t.ok === false && [t.motivo, t.frase]).toEqual(['SEM_VIGENTE', C().fraseSemVigente('Wolff Perfis', 'PVC', 2)])
     })
 
-    it('duas tabelas de PREÇO no mesmo par, sem vigente, não recusam: elas não entram na conversa', async () => {
+    it('duas da Estrela ("qualquer linha") no mesmo grupo, sem vigente: recusa nomeada, com a família não informada', async () => {
         estado.db.orcamentista_tabela.push(tabela('estrela-2027', F_ESTRELA, 'Estrela 2027.xlsx', null))
-        expect((await lida()).tabelas.map((t) => t.tabelaId)).toEqual([T_WOLFF])
+        const t = await C().lerFamiliasDaEmpresa(PAULA)
+        expect(t.ok === false && [t.motivo, t.frase]).toEqual(['SEM_VIGENTE', C().fraseSemVigente('Vidros Estrela', null, 2)])
     })
 })
 

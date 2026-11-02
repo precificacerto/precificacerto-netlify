@@ -40,13 +40,13 @@
  * conferida de novo no "sim".
  *
  * ══ VÁRIAS TABELAS (dono do produto, 26/10/2026; migração 20261026000004) ══
- * Caiu a trava "a sua empresa tem 2 tabelas e ele trabalha com uma só". A lista de tipologias junta as de
- * todas as tabelas ligadas; com mais de uma, cada linha do prompt diz o fornecedor. A esquadria guarda de
- * qual tabela é (`tabela_id`): o código numa tabela só, aquela; em mais de uma, a conversa PERGUNTA de qual,
- * citando os fornecedores e, quando o mesmo fornecedor tem mais de uma, as famílias (`proximaPendencia`) —
- * nunca escolhe, nunca "a primeira". A resposta vem em `itens[].fornecedor` e/ou `itens[].familia`, e cada um
- * vale só se o vendedor o disse (`ditoNaMensagem`) e se, juntos, apontam UMA das tabelas daquela tipologia.
- * As abas (e as escolhas de arremate) são as da tabela da esquadria. Um levantamento com várias famílias é
+ * PR D (dono do produto, 02/11/2026): a lista de tipologias é a dos MOTORES das famílias da conta (a base de conhecimento → a
+ * etapa 1 → o motor, `motor-da-familia.ts`); com mais de uma família, cada linha do prompt diz a família (e o fornecedor do motor).
+ * A esquadria guarda de qual família é e o motor que a calcula (`familia` e `motor_id` em `orcamentista_levantamento_item`): o
+ * código no motor de uma família só, aquela; em mais de uma, a conversa PERGUNTA de qual família (`proximaPendencia`) — nunca
+ * escolhe, nunca "a primeira". A resposta vem em `itens[].familia` e/ou `itens[].fornecedor`, e cada um vale só se o vendedor o
+ * disse (`ditoNaMensagem`) e se, juntos, apontam UMA das famílias daquela tipologia. As abas (e as escolhas de arremate) são as do
+ * motor da família da esquadria. (Até o PR D, a fonte era a tabela de fornecedor, em `tabela_id`.) Um levantamento com várias famílias é
  * calculado uma vez por família (`mensagemDoLevantamento`).
  *
  * ══ QUEM ALTERA — decisão 2, REVISTA (dono do produto, 25/10/2026) ══
@@ -119,11 +119,11 @@ import { supabaseAdmin } from '@/supabase/admin'
 import { MODELO_PADRAO_DA_IA, URL_DA_API_ANTHROPIC, VERSAO_DA_API_ANTHROPIC } from '@/lib/atendimentos-ia/modelo-da-ia'
 import { paraOLog } from '@/utils/atendimentos-ia-mascara-do-log'
 import {
-    FRASE_SEM_CORES, lerCoresDaEmpresa, lerTabelaDaEmpresa, linhaDoCandidato, lerVariaveisDasTipologias, mensagemDoLevantamento, tabelasDoCodigo,
+    FRASE_SEM_CORES, familiasDoCodigo, lerCoresDaEmpresa, lerFamiliasDaEmpresa, linhaDoCandidato, lerVariaveisDasTipologias, mensagemDoLevantamento,
     type CandidatoDeTipologia,
 } from '@/lib/atendimentos-ia/levantamento-da-conversa'
 import {
-    CAMPOS_DA_ESQUADRIA, aplicarProposta, itemVazio, perguntaDaPendencia, proximaPendencia, tabelaDaEsquadria,
+    CAMPOS_DA_ESQUADRIA, aplicarProposta, familiaDaEsquadria, itemVazio, perguntaDaPendencia, proximaPendencia, resolverFamilias,
     type DefinicaoDaTipologia, type ItemDoLevantamento, type Pendencia,
 } from '@/lib/atendimentos-ia/levantamento-em-montagem'
 import type { VariaveisDaTipologia } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
@@ -308,10 +308,10 @@ type ContextoDoPrompt = {
     /** O contexto da empresa, ou null — e null é o pedido de hoje, byte a byte. */
     contexto: string | null
     candidatos: readonly CandidatoDeTipologia[]
-    /** A conta tem mais de uma tabela: cada linha diz o fornecedor, e a regra do fornecedor entra. */
-    variasTabelas: boolean
+    /** A conta tem mais de uma família: cada linha diz a família (e o fornecedor do motor), e a regra da família entra. */
+    variasFamilias: boolean
     cores: readonly string[]
-    montagem: { nome: string; itens: Array<Omit<ItemDoLevantamento, 'tabela_id'>> } | null
+    montagem: { nome: string; itens: Array<Omit<ItemDoLevantamento, 'familia' | 'motor_id'>> } | null
     perguntaEmAberto: string | null
     /** As escolhas de arremate de cada tipologia com as abas: código e números, só para a LLM. */
     escolhasPorTipologia: Array<{ tipologia: string; linhas: string[] }>
@@ -337,7 +337,7 @@ function sistema(c: ContextoDoPrompt): string {
         '- cor_perfil: EXATAMENTE uma das cores da empresa (lista do fim), escrita como está. Se for outra cor, ou se houver dúvida, NÃO preencha.',
         '- tipologia: o CÓDIGO (ex.: DP-02) de UMA das tipologias da lista do fim, escolhida pela descrição. NUNCA invente código nem preencha com as palavras do vendedor. Se cabe em mais de uma, NÃO preencha: em `pergunta`, pergunte qual é, citando a descrição INTEIRA de cada uma, sem o código.',
         '- ARREMATE e GUARNIÇÃO: NÃO pergunte. O padrão da tipologia já vale sem ninguém dizer. NUNCA escolha sozinho: em `escolhas`, só o arremate que o vendedor DISSE, em palavras, com o código da variável e o número da opção que corresponde (lista do fim). Se ele pedir para ver as opções, ou quiser trocar sem dizer por qual, ponha o código da variável em `opcoes_de`.',
-        ...(c.variasTabelas ? ['- fornecedor e familia: a mesma tipologia pode estar em mais de uma tabela (outro fornecedor, ou outra família do mesmo fornecedor). SÓ o que o vendedor disse — o fornecedor, a família, ou os dois —, escrito EXATAMENTE como está na lista. NUNCA escolha sozinho.'] : []),
+        ...(c.variasFamilias ? ['- familia e fornecedor: a mesma tipologia pode estar no motor de mais de uma família da empresa. SÓ o que o vendedor disse — a família, o fornecedor, ou os dois —, escrito EXATAMENTE como está na lista. NUNCA escolha sozinho.'] : []),
         '- Os códigos das variáveis (ex.: ARI), os números das opções e os códigos de fornecedor (ex.: BZ0010) são INTERNOS: nunca os escreva em `pergunta`.',
         '- NUNCA pergunte nada sobre os padrões da empresa.',
         `- Responda SEMPRE chamando a ferramenta ${NOME_DA_FERRAMENTA}, uma vez.`,
@@ -347,8 +347,8 @@ function sistema(c: ContextoDoPrompt): string {
             : 'Levantamento em montagem: nenhum.',
         ...(c.perguntaEmAberto ? [`Pergunta em aberto: ${c.perguntaEmAberto}`] : []),
         '',
-        c.variasTabelas ? 'Tipologias das tabelas em uso da empresa (código | descrição | tipo | fornecedor):' : 'Tipologias da tabela em uso da empresa (código | descrição | tipo):',
-        ...(c.candidatos.length ? c.candidatos.map((x) => linhaDoCandidato(x, c.variasTabelas)) : ['(nenhuma)']),
+        c.variasFamilias ? 'Tipologias dos motores das famílias da empresa (código | descrição | tipo | família | fornecedor):' : 'Tipologias do motor da família da empresa (código | descrição | tipo):',
+        ...(c.candidatos.length ? c.candidatos.map((x) => linhaDoCandidato(x, c.variasFamilias)) : ['(nenhuma)']),
         '',
         `Cores da empresa (cor_perfil, escreva EXATAMENTE uma delas): ${c.cores.length ? c.cores.join(', ') : '(nenhuma)'}`,
         '',
@@ -424,7 +424,8 @@ async function chamarLlm(chave: string, mensagem: string, contexto: ContextoDoPr
 // ── O BANCO ─────────────────────────────────────────────────────────────────────────────────
 type Levantamento = { id: string; nome: string; nome_normalizado: string; estado: string }
 type ItemGravado = ItemDoLevantamento & { id: string }
-const COLUNAS_DO_ITEM = `id, ordem, ${CAMPOS_DA_ESQUADRIA.join(', ')}, escolhas, tabela_id`
+// a família e o motor do cálculo (PR D): `tabela_id` não é lido nem escrito pela conversa desde então
+const COLUNAS_DO_ITEM = `id, ordem, ${CAMPOS_DA_ESQUADRIA.join(', ')}, escolhas, familia, motor_id`
 
 /** Os levantamentos do remetente — só dele, no tenant dele (decisão 2). */
 async function lerLevantamentos(tenantId: string, remetenteId: string, soEmMontagem: boolean): Promise<Levantamento[]> {
@@ -484,14 +485,18 @@ async function lerItens(tenantId: string, levantamentoId: string): Promise<ItemG
 
 const camposDoItem = (i: ItemDoLevantamento) => ({
     ordem: i.ordem, tipologia: i.tipologia, largura_mm: i.largura_mm, altura_mm: i.altura_mm, quantidade: i.quantidade,
-    cor_perfil: i.cor_perfil, vidro: i.vidro, escolhas: i.escolhas, tabela_id: i.tabela_id,
+    cor_perfil: i.cor_perfil, vidro: i.vidro, escolhas: i.escolhas,
+    // a família e o motor que a calcula (PR D, dono do produto, 02/11/2026); a exigida acompanha o motor, pelas CHECKs da tabela
+    familia: i.familia, motor_id: i.motor_id, motor_familia_exigida: i.motor_id ? i.familia : null,
 })
-/** A esquadria como vai ao prompt: sem o id da tabela, que é interno (o fornecedor a IA vê na lista). */
+/** A esquadria como vai ao prompt: sem a família e o motor gravados, que são internos (a família a IA vê na lista). */
 // derivada de `camposDoItem`, e não uma segunda lista de campos: um campo novo da esquadria chega aos dois (`copia-divergente.md`)
-const camposParaOPrompt = (i: ItemDoLevantamento): Omit<ItemDoLevantamento, 'tabela_id'> => {
-    const campos: Partial<ItemDoLevantamento> = camposDoItem(i)
-    delete campos.tabela_id
-    return campos as Omit<ItemDoLevantamento, 'tabela_id'>
+const camposParaOPrompt = (i: ItemDoLevantamento): Omit<ItemDoLevantamento, 'familia' | 'motor_id'> => {
+    const campos: Partial<ItemDoLevantamento> & { motor_familia_exigida?: unknown } = camposDoItem(i)
+    delete campos.familia
+    delete campos.motor_id
+    delete campos.motor_familia_exigida
+    return campos as Omit<ItemDoLevantamento, 'familia' | 'motor_id'>
 }
 
 /**
@@ -666,16 +671,17 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
 
         // Sem a lista de tipologias não há de onde a IA escolher, nem com o que calcular: a conversa
         // diz o que falta, sem chamar a LLM.
-        const tabela = await lerTabelaDaEmpresa(c.tenantId)
+        // a falta de configuração (família, etapa, motor, tabela de preço) volta com a frase que a nomeia (PR D)
+        const tabela = await lerFamiliasDaEmpresa(c.tenantId)
         if ('frase' in tabela) return await responder(tabela.frase, 'sem-tipologias', `motivo=${tabela.motivo}${tabela.detalhe ? ` ${tabela.detalhe}` : ''}`)
-        const doCodigo = tabelasDoCodigo(tabela)
-        const variasTabelas = tabela.tabelas.length > 1
-        // as Variáveis de cada tipologia, do banco, POR TABELA: as abas são as da tabela da esquadria
-        const variaveisPorTabela: Record<string, Record<string, VariaveisDaTipologia>> = {}
-        for (const t of tabela.tabelas) variaveisPorTabela[t.tabelaId] = await lerVariaveisDasTipologias(t.tabelaId)
+        const doCodigo = familiasDoCodigo(tabela)
+        const variasFamilias = tabela.familias.length > 1
+        // as Variáveis de cada tipologia, do banco, POR FAMÍLIA: as do motor do LEVANTAMENTO dela (a etapa 1), por motor_id
+        const variaveisPorFamilia: Record<string, Record<string, VariaveisDaTipologia>> = {}
+        for (const f of tabela.familias) variaveisPorFamilia[f.familia] = await lerVariaveisDasTipologias(f.levantamento.id)
         const definicao: DefinicaoDaTipologia = (e) => {
-            const daEsquadria = tabelaDaEsquadria(e, doCodigo)
-            return e.tipologia !== null && daEsquadria && 'tabelaId' in daEsquadria ? variaveisPorTabela[daEsquadria.tabelaId]?.[e.tipologia] ?? null : null
+            const daEsquadria = familiaDaEsquadria(e, doCodigo)
+            return e.tipologia !== null && daEsquadria && 'familia' in daEsquadria ? variaveisPorFamilia[daEsquadria.familia]?.[e.tipologia] ?? null : null
         }
         const cores = await lerCoresDaEmpresa(c.tenantId)
 
@@ -692,16 +698,16 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         const aberta = temLinha && doRemetente ? await refazerPergunta(c.tenantId, lida, doRemetente, definicao) : null
 
         const escolhasPorTipologia = tabela.candidatos.flatMap((x) => {
-            const def = definicao({ tipologia: x.tipologia, tabela_id: x.tabelaId })
+            const def = definicao({ tipologia: x.tipologia, familia: x.familia })
             const linhas = def ? escolhasParaOPrompt(def) : []
-            return linhas.length ? [{ tipologia: variasTabelas ? `${x.tipologia} de ${x.fornecedor}` : x.tipologia, linhas }] : []
+            return linhas.length ? [{ tipologia: variasFamilias ? `${x.tipologia} de ${x.rotulo}` : x.tipologia, linhas }] : []
         })
         // o contexto da empresa: vazio (ou a tabela ausente) é o pedido de hoje
         const contexto = await lerContextoDoAtendimento(c.tenantId)
         rastro.contexto = contexto.estado
         const resposta = await chamarLlm(chave, c.texto, {
             contexto: contexto.texto,
-            candidatos: tabela.candidatos, variasTabelas, cores, escolhasPorTipologia,
+            candidatos: tabela.candidatos, variasFamilias, cores, escolhasPorTipologia,
             montagem: emMontagem ? { nome: emMontagem.nome, itens: itensDaMontagem.map(camposParaOPrompt) } : null,
             perguntaEmAberto: pendenciaAberta ? perguntaDaPendencia(pendenciaAberta, itensDaMontagem.length) : aberta?.texto ?? null,
         }, rastro.ia)
@@ -721,7 +727,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         const daMensagem = esquadriasDaProposta(proposta)
         const daPergunta = daMensagem.length === 0 && aberta !== null && aberta.p.itens.length > 0
         const emEspera: EsquadriaProposta[] = daPergunta && aberta ? aberta.p.itens : daMensagem
-        // o fornecedor e a família que o vendedor NÃO disse saem da proposta: a pergunta de qual tabela não se responde pela IA
+        // o fornecedor e a família que o vendedor NÃO disse saem da proposta: a pergunta de qual família não se responde pela IA
         const semFornecedorInventado = (itens: unknown) => (Array.isArray(itens) ? itens.map((i) => {
             if (!i || typeof i !== 'object') return i
             const item = { ...(i as Record<string, unknown>) }
@@ -830,7 +836,9 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         const atuais = alvo ? alvo.itens : [itemVazio(1)]
         const ordemPadrao = rastro.rota === 'MONTAGEM' ? pendenciaAberta?.ordem ?? (atuais.length === 1 ? atuais[0].ordem : null)
             : atuais.length === 1 ? atuais[0].ordem : null
-        const aplicada = aplicarProposta(atuais, efetiva, { tipologias: [...new Set(tabela.candidatos.map((x) => x.tipologia))], cores, ordemPadrao, definicao, tabelasDoCodigo: doCodigo })
+        const proposta_ = aplicarProposta(atuais, efetiva, { tipologias: [...new Set(tabela.candidatos.map((x) => x.tipologia))], cores, ordemPadrao, definicao, familiasDoCodigo: doCodigo })
+        // a família e o motor de cada esquadria, como ficam gravados: a resolvida e o motor do cálculo dela HOJE (PR D)
+        const aplicada = { ...proposta_, itens: resolverFamilias(proposta_.itens, doCodigo) }
         rastro.propostos = aplicada.propostos
         rastro.descartados = aplicada.descartados
         if (aplicada.semEsquadria && alvo) return await responder(fraseDeQualEsquadria(nome, alvo.itens.length), 'qual-esquadria')
