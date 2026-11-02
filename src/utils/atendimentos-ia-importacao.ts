@@ -172,6 +172,10 @@ export type Aviso =
     // o bloco tributário (dono do produto, 02/11/2026): o recálculo que diverge do arquivo, item a item, e o que não pôde ser recalculado
     | { tipo: 'bloco_tributario_divergente'; aba: string; codigo: string; linha: number; divergencias: DivergenciaDoBloco[]; mensagem: string }
     | { tipo: 'bloco_tributario_nao_recalculavel'; aba: string; codigo: string; linha: number; faltam: string[]; mensagem: string }
+    // o layout único (dono do produto, 02/11/2026): o item sem custo_bruto, a tabela sem valor por barra, e as colunas que o banco não guarda
+    | { tipo: 'itens_sem_custo'; aba: string; itens: number; codigos: string[]; mensagem: string }
+    | { tipo: 'tabela_sem_valor_por_barra'; aba: string; itens: number; codigos: string[]; mensagem: string }
+    | { tipo: 'colunas_sem_destino_no_layout_unico'; aba: string; colunas: Record<string, number>; mensagem: string }
 
 export interface Contagens {
     itens: number
@@ -187,6 +191,10 @@ export type ResultadoDaLeitura =
         ok: true; itens: ItemLido[]; regras: RegraLida[]; tipologias: TipologiaLida[]; formulas: FormulaLida[]; contagens: Contagens; avisos: Aviso[]
         /** As nove abas por tipologia (`ABAS_DO_MOTOR`), pela chave do payload. */
         abas: Record<string, LinhaDoBanco[]>
+        /** Como a tabela de preço foi lida: o layout único (abas CABECALHO + ITENS, colunas por nome) ou o de antes (aba pelo nome, colunas por posição). */
+        layout: LayoutDaTabela
+        /** Os seis campos da aba CABECALHO do layout único, só lidos e devolvidos (dono do produto, 02/11/2026); null no layout de antes. */
+        cabecalho: CabecalhoDoLayoutUnico | null
     }
     | { ok: false; erro: string }
 
@@ -390,20 +398,8 @@ function lerPreco(ws: ExcelJS.Worksheet): LeituraDoPreco {
             valor_barra_12: l.numero(r, COL_PRECO.valor_barra_12),
             ...blocoDaLinha(r),
         }
-        conferirBloco(r, item)
-        const antes = primeiraLinha.get(codigo)
-        if (!antes) { primeiraLinha.set(codigo, { linha: r, item }); itens.push(item); continue }
-        // Código repetido: fica a PRIMEIRA. Decisão da sessão de verificação, 20/10/2026, que o dono
-        // do produto pode derrubar (cabeçalho da `20261020000001`). Só é segura enquanto as duas
-        // linhas forem o mesmo preço — e o aviso diz, em voz alta, quando não são.
-        l.normalizados += 1
-        const batem = valoresDoItem(antes.item).every((v, k) => v === valoresDoItem(item)[k])
-        l.avisos.push({
-            tipo: 'codigo_repetido', aba, codigo, linhas: [antes.linha, r], secoes: [antes.item.secao, item.secao], valores_batem: batem,
-            mensagem: batem
-                ? `código ${codigo} repetido (linhas ${antes.linha} e ${r}), com os mesmos valores: ficou a primeira`
-                : `VALORES DIFERENTES — código ${codigo} repetido (linhas ${antes.linha} e ${r}) com preços diferentes. Ficou a primeira; a decisão volta para o dono do produto.`,
-        })
+        conferirBlocoDoItem(l, aba, r, item, foraDaRegra)
+        registrarItem(l, aba, itens, primeiraLinha, r, item)
     }
     const recusas: string[] = []
     if (repetidasNoCabecalho.length) recusas.push(`A aba "${aba}" tem coluna do bloco tributário repetida no mesmo cabeçalho (${repetidasNoCabecalho.join('; ')}): não sei qual ler. Nada foi gravado.`)
@@ -424,22 +420,234 @@ function lerPreco(ws: ExcelJS.Worksheet): LeituraDoPreco {
         return b
     }
 
-    /** As regras do banco (antes de gravar, para nomear o item), e o recálculo do resultado contra o que veio. */
-    function conferirBloco(linha: number, item: ItemLido) {
-        for (const motivo of foraDaRegraDoBloco(item)) foraDaRegra.push({ codigo: item.codigo, linha, motivo })
-        if (COLUNAS_DO_BLOCO_TRIBUTARIO.every((c) => item[c] === null)) return
-        const resultado = [item.credito_pct, item.credito_valor, item.custo_liquido]
-        const recalculo = recalcularBloco(item.custo, item)
-        if (recalculo.ok === false) {
-            // sem resultado no arquivo não há o que comparar; com ele, o item é reportado — nada é preenchido com 0
-            if (resultado.some((v) => v !== null)) {
-                l.avisos.push({ tipo: 'bloco_tributario_nao_recalculavel', aba, codigo: item.codigo, linha, faltam: recalculo.faltam, mensagem: fraseDoBlocoNaoRecalculavel(item.codigo, linha, recalculo.faltam) })
-            }
-            return
+}
+
+/**
+ * Um item lido entra na lista — ou, com o CÓDIGO REPETIDO, fica a PRIMEIRA. Decisão da sessão de verificação, 20/10/2026, que o dono do produto
+ * pode derrubar (cabeçalho da `20261020000001`). Só é segura enquanto as duas linhas forem o mesmo preço — e o aviso diz, em voz alta, quando
+ * não são. Vale para os dois layouts.
+ */
+function registrarItem(l: Leitor, aba: string, itens: ItemLido[], primeiraLinha: Map<string, { linha: number; item: ItemLido }>, linha: number, item: ItemLido) {
+    const antes = primeiraLinha.get(item.codigo)
+    if (!antes) { primeiraLinha.set(item.codigo, { linha, item }); itens.push(item); return }
+    l.normalizados += 1
+    const batem = valoresDoItem(antes.item).every((v, k) => v === valoresDoItem(item)[k])
+    l.avisos.push({
+        tipo: 'codigo_repetido', aba, codigo: item.codigo, linhas: [antes.linha, linha], secoes: [antes.item.secao, item.secao], valores_batem: batem,
+        mensagem: batem
+            ? `código ${item.codigo} repetido (linhas ${antes.linha} e ${linha}), com os mesmos valores: ficou a primeira`
+            : `VALORES DIFERENTES — código ${item.codigo} repetido (linhas ${antes.linha} e ${linha}) com preços diferentes. Ficou a primeira; a decisão volta para o dono do produto.`,
+    })
+}
+
+/** As regras do banco (antes de gravar, para nomear o item), e o recálculo do resultado contra o que veio. Vale para os dois layouts. */
+function conferirBlocoDoItem(l: Leitor, aba: string, linha: number, item: ItemLido, foraDaRegra: ItemForaDaRegraDoBloco[]) {
+    for (const motivo of foraDaRegraDoBloco(item)) foraDaRegra.push({ codigo: item.codigo, linha, motivo })
+    if (COLUNAS_DO_BLOCO_TRIBUTARIO.every((c) => item[c] === null)) return
+    const resultado = [item.credito_pct, item.credito_valor, item.custo_liquido]
+    const recalculo = recalcularBloco(item.custo, item)
+    if (recalculo.ok === false) {
+        // sem resultado no arquivo não há o que comparar; com ele, o item é reportado — nada é preenchido com 0
+        if (resultado.some((v) => v !== null)) {
+            l.avisos.push({ tipo: 'bloco_tributario_nao_recalculavel', aba, codigo: item.codigo, linha, faltam: recalculo.faltam, mensagem: fraseDoBlocoNaoRecalculavel(item.codigo, linha, recalculo.faltam) })
         }
-        const ds = divergenciasDoBloco(item, recalculo)
-        if (ds.length) l.avisos.push({ tipo: 'bloco_tributario_divergente', aba, codigo: item.codigo, linha, divergencias: ds, mensagem: fraseDaDivergenciaDoBloco(item.codigo, linha, ds) })
+        return
     }
+    const ds = divergenciasDoBloco(item, recalculo)
+    if (ds.length) l.avisos.push({ tipo: 'bloco_tributario_divergente', aba, codigo: item.codigo, linha, divergencias: ds, mensagem: fraseDaDivergenciaDoBloco(item.codigo, linha, ds) })
+}
+
+// ── O LAYOUT ÚNICO da tabela de fornecedor (dono do produto, 02/11/2026) ─────────────────────────────────────────────────────────────
+/**
+ * "Aceitar o layout único de tabela de fornecedor (CABECALHO + ITENS, colunas por nome)." A aba ITENS tem o cabeçalho na linha 1 e as 28
+ * colunas abaixo, lidas PELO NOME exato (sem trocar caixa nem acento); a aba CABECALHO traz seis campos que são só lidos e devolvidos.
+ * O layout de antes (a aba pelo nome, as colunas por posição) continua valendo: o caminho é escolhido pela presença da aba ITENS ou da
+ * CABECALHO (`lerTabelaDePreco`). As 28 são TODAS obrigatórias (decisão do dono do produto, 02/11/2026): ausente, repetida ou a aba ITENS sem
+ * cabeçalho reconhecível é recusa nomeada. As que o banco não tem onde guardar (`COLUNAS_SEM_DESTINO_DO_LAYOUT_UNICO`) são exigidas no cabeçalho,
+ * não são gravadas, e um aviso diz quantas linhas vieram com valor nelas — nada some em silêncio.
+ */
+export const ABAS_DO_LAYOUT_UNICO = { cabecalho: 'CABECALHO', itens: 'ITENS' } as const
+export const CAMPOS_DO_CABECALHO_UNICO = ['categoria', 'fornecedor', 'vigencia', 'regime_tributario', 'uf_origem', 'moeda'] as const
+export type CabecalhoDoLayoutUnico = Record<(typeof CAMPOS_DO_CABECALHO_UNICO)[number], string | null>
+export type LayoutDaTabela = 'unico' | 'por_posicao'
+/** As 28 colunas, na ordem do pedido, com os nomes EXATOS do cabeçalho. */
+export const COLUNAS_DO_LAYOUT_UNICO = [
+    'codigo', 'descricao', 'secao', COLUNA_DA_CATEGORIA_DO_FORNECEDOR, 'linha', 'cor', 'codigo_wvetro', 'unidade', 'vendido_por',
+    'medida_barra_m', 'peso_kg_por_m', 'multiplo_compra', 'custo_bruto', 'valor_metro', 'valor_kg',
+    'cred_icms_pct', 'cred_pis_cofins_pct', 'cred_ibs_pct', 'cred_cbs_pct', 'cred_ipi_pct',
+    'nc_ipi_pct', 'nc_icms_st_pct', 'nc_difal_pct', 'nc_is_pct', 'ncm', 'credito_pct', 'credito_valor', 'custo_liquido',
+] as const
+export type ColunaDoLayoutUnico = (typeof COLUNAS_DO_LAYOUT_UNICO)[number]
+/** Exigidas no cabeçalho e lidas, mas SEM coluna em `orcamentista_tabela_item` (medido em 02/11/2026): ficam fora da gravação nesta PR. */
+export const COLUNAS_SEM_DESTINO_DO_LAYOUT_UNICO = ['linha', 'cor', 'codigo_wvetro', 'valor_kg', 'multiplo_compra'] as const
+/** As numéricas: texto nelas é recusa nomeada, como no bloco tributário (nunca vira 0 nem NULL). */
+type NumericaDoLayoutUnico = 'medida_barra_m' | 'peso_kg_por_m' | 'custo_bruto' | 'valor_metro' | ColunaDoBlocoTributario
+
+export const fraseDoLayoutUnicoSemItens = (abas: readonly string[]) =>
+    `tem a aba "${ABAS_DO_LAYOUT_UNICO.cabecalho}" do layout único, mas não a aba "${ABAS_DO_LAYOUT_UNICO.itens}". Abas encontradas: ${abas.map((a) => `"${a}"`).join(', ') || 'nenhuma'}.`
+export const FRASE_DO_CABECALHO_DOS_ITENS_NAO_RECONHECIVEL =
+    `a aba "${ABAS_DO_LAYOUT_UNICO.itens}" não tem um cabeçalho reconhecível na linha 1: a coluna "codigo" não está lá. As ${COLUNAS_DO_LAYOUT_UNICO.length} colunas do layout único ficam na linha 1, com os nomes exatos.`
+export const fraseDasColunasAusentesDoLayoutUnico = (faltam: readonly string[]) =>
+    `a aba "${ABAS_DO_LAYOUT_UNICO.itens}" não tem ${faltam.length} ${faltam.length === 1 ? 'coluna obrigatória' : 'colunas obrigatórias'} do layout único: ${faltam.join(', ')}. Nada foi gravado.`
+export const fraseDasColunasRepetidasDoLayoutUnico = (repetidas: readonly string[]) =>
+    `a aba "${ABAS_DO_LAYOUT_UNICO.itens}" tem coluna repetida no cabeçalho (${repetidas.join(', ')}): não sei qual ler. Nada foi gravado.`
+export const fraseDoVendidoPorInvalido = (cs: ReadonlyArray<{ linha: number; valor: string }>) =>
+    `a aba "${ABAS_DO_LAYOUT_UNICO.itens}" tem ${cs.length} ${cs.length === 1 ? 'célula' : 'células'} de vendido_por fora de "barra" ou "unidade": `
+    + `${cs.slice(0, 10).map((c) => `linha ${c.linha} = "${c.valor}"`).join('; ')}${cs.length > 10 ? `; e mais ${cs.length - 10}` : ''}. Nada foi gravado.`
+export const fraseDasCelulasNaoNumericasDoLayoutUnico = (cs: readonly CelulaInvalidaDoBloco[]) =>
+    `a aba "${ABAS_DO_LAYOUT_UNICO.itens}" tem ${cs.length} ${cs.length === 1 ? 'célula' : 'células'} em coluna numérica que não ${cs.length === 1 ? 'é número' : 'são números'}: `
+    + `${cs.slice(0, 10).map((c) => `linha ${c.linha}, ${c.coluna} = "${c.valor}" (${c.motivo})`).join('; ')}${cs.length > 10 ? `; e mais ${cs.length - 10}` : ''}. Vazio é "não informado" e 0 é zero; texto não vira nenhum dos dois. Nada foi gravado.`
+const nomeados = (codigos: readonly string[]) => `${codigos.slice(0, 10).join(', ')}${codigos.length > 10 ? ` e mais ${codigos.length - 10}` : ''}`
+export const fraseDosItensSemCusto = (codigos: readonly string[]) =>
+    `${codigos.length} ${codigos.length === 1 ? 'item veio' : 'itens vieram'} sem custo_bruto (${nomeados(codigos)}): ${codigos.length === 1 ? 'entrou' : 'entraram'} com o custo em branco, e sem valor por barra nem líquido para recalcular.`
+export const fraseDaTabelaSemValorPorBarra = (codigos: readonly string[]) =>
+    `${codigos.length} ${codigos.length === 1 ? 'item não é vendido' : 'itens não são vendidos'} por barra (${nomeados(codigos)}): a tabela não tem valor por barra para ${codigos.length === 1 ? 'ele' : 'eles'}, e o total por barra inteira não sai para ${codigos.length === 1 ? 'esse código' : 'esses códigos'}.`
+export const fraseDasColunasSemDestino = (colunas: Record<string, number>) =>
+    `o arquivo traz valor em ${Object.keys(colunas).length === 1 ? 'coluna' : 'colunas'} que o banco ainda não guarda — ${Object.entries(colunas).map(([c, n]) => `${c} (${n} ${n === 1 ? 'linha' : 'linhas'})`).join(', ')}: ${Object.keys(colunas).length === 1 ? 'ela não foi gravada' : 'elas não foram gravadas'}.`
+
+/** A aba pelo nome, sem olhar a caixa nem os espaços das pontas. */
+const abaDoLayoutUnico = (wb: ExcelJS.Workbook, nome: string) => wb.worksheets.find((w) => w.name.trim().toUpperCase() === nome)
+
+/**
+ * Os seis campos da aba CABECALHO, SÓ LIDOS (decisão do dono do produto, 02/11/2026: devolvidos no resultado, sem gravar nem comparar).
+ * Duas formas: os nomes na linha 1 e os valores na linha 2 (dois ou mais nomes na linha 1), ou um campo por linha (nome na coluna A, valor na B).
+ * Campo ausente é null.
+ */
+export function lerCabecalhoDoLayoutUnico(ws: ExcelJS.Worksheet | undefined): CabecalhoDoLayoutUnico {
+    const c = Object.fromEntries(CAMPOS_DO_CABECALHO_UNICO.map((k): [string, null] => [k, null])) as CabecalhoDoLayoutUnico
+    if (!ws) return c
+    const campos = new Set<string>(CAMPOS_DO_CABECALHO_UNICO)
+    const texto = (v: ValorLido): string | null => (v === null ? null : v instanceof Date ? v.toISOString().slice(0, 10) : String(v).trim() || null)
+    const nomeDa = (linha: number, coluna: number) => { const v = valorDaCelula(ws.getRow(linha).getCell(coluna).value).valor; return typeof v === 'string' && campos.has(v.trim()) ? (v.trim() as keyof CabecalhoDoLayoutUnico) : null }
+    const row1 = ws.getRow(1)
+    const porColuna: Array<[keyof CabecalhoDoLayoutUnico, number]> = []
+    for (let col = 1; col <= row1.cellCount; col++) { const k = nomeDa(1, col); if (k) porColuna.push([k, col]) }
+    if (porColuna.length >= 2) {
+        for (const [k, col] of porColuna) c[k] = texto(valorDaCelula(ws.getRow(2).getCell(col).value).valor)
+        return c
+    }
+    for (let r = 1; r <= ws.rowCount; r++) { const k = nomeDa(r, 1); if (k) c[k] = texto(valorDaCelula(ws.getRow(r).getCell(2).value).valor) }
+    return c
+}
+
+/** A aba ITENS do layout único: o cabeçalho na linha 1 pelo nome, e cada linha abaixo um item. */
+function lerItensDoLayoutUnico(ws: ExcelJS.Worksheet): LeituraDoPreco {
+    const aba = ABAS_DO_LAYOUT_UNICO.itens
+    const l = new Leitor(aba, ws)
+    const vazia: LeituraDoPreco = { itens: [], avisos: l.avisos, normalizados: 0, recusas: [] }
+
+    // o cabeçalho: coluna do arquivo (1-based) de cada nome; repetida é ambígua; ausente é recusa
+    const col: Partial<Record<ColunaDoLayoutUnico, number>> = {}
+    const repetidas: string[] = []
+    const nomes = new Set<string>(COLUNAS_DO_LAYOUT_UNICO)
+    const row1 = ws.getRow(1)
+    for (let c = 1; c <= row1.cellCount; c++) {
+        const v = valorDaCelula(row1.getCell(c).value).valor
+        if (typeof v !== 'string' || !nomes.has(v.trim())) continue
+        const nome = v.trim() as ColunaDoLayoutUnico
+        if (col[nome] !== undefined) repetidas.push(nome)
+        else col[nome] = c
+    }
+    if (col.codigo === undefined) return { ...vazia, recusas: [FRASE_DO_CABECALHO_DOS_ITENS_NAO_RECONHECIVEL] }
+    const faltam = COLUNAS_DO_LAYOUT_UNICO.filter((c) => col[c] === undefined)
+    const recusas: string[] = []
+    if (faltam.length) recusas.push(fraseDasColunasAusentesDoLayoutUnico(faltam))
+    if (repetidas.length) recusas.push(fraseDasColunasRepetidasDoLayoutUnico(repetidas))
+    if (recusas.length) return { ...vazia, recusas }
+    const coluna = (nome: ColunaDoLayoutUnico) => col[nome] as number
+
+    const itens: ItemLido[] = []
+    const primeiraLinha = new Map<string, { linha: number; item: ItemLido }>()
+    const invalidas: CelulaInvalidaDoBloco[] = []
+    const vendidoInvalido: Array<{ linha: number; valor: string }> = []
+    const foraDaRegra: ItemForaDaRegraDoBloco[] = []
+    const semCusto: string[] = []
+    const semValorPorBarra: string[] = []
+    const comValorSemDestino: Record<string, number> = {}
+    for (let r = 2; r <= ws.rowCount; r++) {
+        if (l.linhaVazia(r)) continue
+        const codigo = l.codigo(r, coluna('codigo'))
+        if (codigo === null) continue
+        const texto = (nome: ColunaDoLayoutUnico) => l.texto(r, coluna(nome))
+        const numero = (nome: NumericaDoLayoutUnico): number | null => {
+            const lida = celulaDoBloco(ws, r, coluna(nome))
+            if ('invalida' in lida) { invalidas.push({ linha: r, coluna: nome, valor: lida.invalida, motivo: lida.motivo }); return null }
+            return lida.valor
+        }
+        // vendido_por: "barra" ou "unidade" (a CHECK do banco); vazio é não informado; outra coisa é recusa
+        const vendidoBruto = texto('vendido_por')
+        let vendido_por: 'barra' | 'unidade' | null = null
+        if (vendidoBruto !== null) {
+            const v = vendidoBruto.trim().toLowerCase()
+            if (v === 'barra' || v === 'unidade') vendido_por = v
+            else vendidoInvalido.push({ linha: r, valor: vendidoBruto })
+        }
+        const custo = numero('custo_bruto')
+        const bloco = Object.fromEntries(COLUNAS_DO_BLOCO_TRIBUTARIO.map((c): [string, number | null] => [c, numero(c)])) as BlocoTributario
+        const item: ItemLido = {
+            codigo,
+            descricao: texto('descricao'),
+            medida_barra_m: numero('medida_barra_m'),
+            unidade: texto('unidade'),
+            ncm: texto('ncm'),
+            peso: numero('peso_kg_por_m'),
+            // sem coluna no layout único: a coluna antiga `ipi` (o IPI agora é cred_ipi_pct/nc_ipi_pct), o pacote e as de 12%
+            ipi: null,
+            pacote: null,
+            // a coluna do arquivo com o nome de `COLUNA_DA_CATEGORIA_DO_FORNECEDOR` vai para `orcamentista_tabela_item.segmento` (a coluna 11 de antes);
+            // a categoria da TABELA é a do cadastro, não do arquivo
+            [COLUNA_DA_CATEGORIA_DO_FORNECEDOR]: texto(COLUNA_DA_CATEGORIA_DO_FORNECEDOR),
+            custo,
+            secao: texto('secao'),
+            // o layout único não tem o rótulo "18%" de onde a alíquota saía; nada no cálculo nem na conversa a lê (medido em 02/11/2026)
+            aliquota_interna_pct: null,
+            vendido_por,
+            valor_metro_interno: numero('valor_metro'),
+            // dono do produto, 02/11/2026: "valor_barra_interno = custo_bruto quando vendido_por = 'barra' (é o mesmo número, não há multiplicação
+            // nem cálculo). Quando vendido_por for outra coisa, grave NULL e avise [...]. Nunca multiplique valor_metro × medida_barra_m."
+            valor_barra_interno: vendido_por === 'barra' ? custo : null,
+            valor_metro_12: null,
+            valor_barra_12: null,
+            ...bloco,
+        }
+        if (custo === null) semCusto.push(codigo)
+        if (vendido_por !== 'barra') semValorPorBarra.push(codigo)
+        for (const c of COLUNAS_SEM_DESTINO_DO_LAYOUT_UNICO) {
+            if (valorDaCelula(ws.getRow(r).getCell(coluna(c)).value).valor !== null) comValorSemDestino[c] = (comValorSemDestino[c] ?? 0) + 1
+        }
+        conferirBlocoDoItem(l, aba, r, item, foraDaRegra)
+        registrarItem(l, aba, itens, primeiraLinha, r, item)
+    }
+    if (semCusto.length) l.avisos.push({ tipo: 'itens_sem_custo', aba, itens: semCusto.length, codigos: semCusto, mensagem: fraseDosItensSemCusto(semCusto) })
+    if (semValorPorBarra.length) l.avisos.push({ tipo: 'tabela_sem_valor_por_barra', aba, itens: semValorPorBarra.length, codigos: semValorPorBarra, mensagem: fraseDaTabelaSemValorPorBarra(semValorPorBarra) })
+    if (Object.keys(comValorSemDestino).length) l.avisos.push({ tipo: 'colunas_sem_destino_no_layout_unico', aba, colunas: comValorSemDestino, mensagem: fraseDasColunasSemDestino(comValorSemDestino) })
+    if (invalidas.length) recusas.push(fraseDasCelulasNaoNumericasDoLayoutUnico(invalidas))
+    if (vendidoInvalido.length) recusas.push(fraseDoVendidoPorInvalido(vendidoInvalido))
+    if (foraDaRegra.length) recusas.push(fraseDosItensForaDaRegraDoBloco(aba, foraDaRegra))
+    return { itens, avisos: l.avisos, normalizados: l.normalizados, recusas }
+}
+
+type TabelaDePrecoLida = { preco: LeituraDoPreco; layout: LayoutDaTabela; cabecalho: CabecalhoDoLayoutUnico | null }
+
+/**
+ * A tabela de preço, pelo layout que o arquivo tem: com a aba ITENS ou a CABECALHO, o layout único (e a ITENS tem de estar lá); sem as duas,
+ * o de antes — a aba pelo nome (`ABAS_DA_IMPORTACAO.preco`) e as colunas por posição. A recusa do layout de antes diz que o único também não
+ * foi achado. Devolve a frase da recusa (já com o nome do arquivo) ou a leitura.
+ */
+function lerTabelaDePreco(wb: ExcelJS.Workbook, nomeDoArquivo: string): TabelaDePrecoLida | string {
+    const itens = abaDoLayoutUnico(wb, ABAS_DO_LAYOUT_UNICO.itens)
+    const cabecalho = abaDoLayoutUnico(wb, ABAS_DO_LAYOUT_UNICO.cabecalho)
+    if (itens || cabecalho) {
+        if (!itens) return fraseDoArquivo(nomeDoArquivo, fraseDoLayoutUnicoSemItens(wb.worksheets.map((w) => w.name)))
+        const preco = lerItensDoLayoutUnico(itens)
+        if (preco.recusas.length) return fraseDoArquivo(nomeDoArquivo, preco.recusas.join(' '))
+        return { preco, layout: 'unico', cabecalho: lerCabecalhoDoLayoutUnico(cabecalho) }
+    }
+    const ws = aba(wb, nomeDoArquivo, ABAS_DA_IMPORTACAO.preco)
+    if (typeof ws === 'string') return `${ws} O layout único (abas "${ABAS_DO_LAYOUT_UNICO.cabecalho}" e "${ABAS_DO_LAYOUT_UNICO.itens}", colunas por nome) também não foi encontrado.`
+    const preco = lerPreco(ws)
+    if (preco.recusas.length) return fraseDoArquivo(nomeDoArquivo, preco.recusas.join(' '))
+    return { preco, layout: 'por_posicao', cabecalho: null }
 }
 
 function lerMotor(ws: ExcelJS.Worksheet): { regras: RegraLida[]; avisos: Aviso[]; normalizados: number } {
@@ -620,31 +828,30 @@ export async function lerArquivoDoMotor(arquivo: ArquivoDaImportacao): Promise<R
 export async function lerArquivosDaImportacao(arquivos: { tabela: ArquivoDaImportacao; motor: ArquivoDaImportacao | null }): Promise<ResultadoDaLeitura> {
     const wbTabela = await abrir(arquivos.tabela)
     if (typeof wbTabela === 'string') return { ok: false, erro: wbTabela }
-    const wsPreco = aba(wbTabela, arquivos.tabela.nome, ABAS_DA_IMPORTACAO.preco)
-    if (typeof wsPreco === 'string') return { ok: false, erro: wsPreco }
+    // o layout único ou o de antes, pela forma do arquivo (02/11/2026); a recusa já vem com o nome do arquivo
+    const tabela = lerTabelaDePreco(wbTabela, arquivos.tabela.nome)
+    if (typeof tabela === 'string') return { ok: false, erro: tabela }
+    const { preco, layout, cabecalho } = tabela
 
     // SEM ARQUIVO DE MOTOR (27/10/2026): a tabela de preço puro — Reforço, Acessórios… — só traz o preço. As listas do motor vão VAZIAS (o
     // payload da função as exige todas) e o cruzamento não existe: não há motor para cruzar. Quem tem motor lê como sempre, abaixo.
     if (arquivos.motor === null) {
-        const soPreco = lerPreco(wsPreco)
-        if (soPreco.recusas.length) return { ok: false, erro: fraseDoArquivo(arquivos.tabela.nome, soPreco.recusas.join(' ')) }
         return {
             ok: true,
-            itens: soPreco.itens,
+            itens: preco.itens,
             regras: [],
             tipologias: [],
             formulas: [],
             abas: Object.fromEntries(ABAS_DO_MOTOR.map((a): [string, LinhaDoBanco[]] => [a.payload, []])),
-            contagens: { itens: soPreco.itens.length, regras: 0, tipologias: 0, cruzam: 0, nao_cruzam: 0, normalizados: soPreco.normalizados },
-            avisos: soPreco.avisos,
+            contagens: { itens: preco.itens.length, regras: 0, tipologias: 0, cruzam: 0, nao_cruzam: 0, normalizados: preco.normalizados },
+            avisos: preco.avisos,
+            layout, cabecalho,
         }
     }
     const doMotor = await lerOMotor(arquivos.motor)
     if (doMotor.ok === false) return { ok: false, erro: doMotor.erro }
     const { motor, formulasDaLinha, resumo, abasDoMotor } = doMotor
 
-    const preco = lerPreco(wsPreco)
-    if (preco.recusas.length) return { ok: false, erro: fraseDoArquivo(arquivos.tabela.nome, preco.recusas.join(' ')) }
     const codigosDoPreco = new Set(preco.itens.map((i) => i.codigo))
     const codigosDoMotor = [...new Set(motor.regras.map((r) => r.codigo))]
     const semPreco = codigosDoMotor.filter((c) => !codigosDoPreco.has(c))
@@ -669,6 +876,7 @@ export async function lerArquivosDaImportacao(arquivos: { tabela: ArquivoDaImpor
             normalizados: preco.normalizados + motor.normalizados,
         },
         avisos,
+        layout, cabecalho,
     }
 }
 

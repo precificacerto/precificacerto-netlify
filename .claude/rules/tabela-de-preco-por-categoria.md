@@ -784,3 +784,38 @@ Formulação do dono do produto, registrada como está:
 - **Prova:** `scripts/harness/bloco-tributario/` (12 casos e 2 contrastes; 31 de 32 mutações mortas — a sobrevivente, o REVOKE só de PUBLIC na passada
   sem a verificação, não muda nada em produção, porque o `CREATE OR REPLACE` preserva o ACL da função que já existe) e
   `src/utils/__tests__/atendimentos-ia-bloco-tributario.test.ts` (23 mutações do importador, todas mortas).
+
+## O layout ÚNICO da tabela de fornecedor — CABECALHO + ITENS, colunas por nome — dono do produto, 02/11/2026 (sem migração; pressupõe a `20261102000001` aplicada)
+
+Formulação do dono do produto, registrada como está:
+
+> "Hoje o importador procura a aba de preço pelo nome e lê as colunas por posição fixa; por isso o arquivo Reforco_Metalico_-_Wolff.xlsx foi
+> recusado com 'não tem a aba Tabela Wolff'. [...] Reconhecer o layout único: aba CABECALHO (categoria, fornecedor, vigencia, regime_tributario,
+> uf_origem, moeda) e aba ITENS com cabeçalho na linha 1 e estas colunas, lidas POR NOME [...]. O formato antigo continua funcionando."
+
+E as decisões dele no mesmo dia: **as 28 colunas são obrigatórias**; `valor_barra_interno = custo_bruto` quando `vendido_por = 'barra'` ("é o mesmo
+número, não há multiplicação nem cálculo"), senão NULL com aviso — **nunca `valor_metro × medida_barra_m`**; a aba CABECALHO é **só lida e devolvida**
+no resultado, sem gravar nem comparar; `segmento` do arquivo vai para a coluna `segmento` do item (a coluna 11 de antes), e a categoria da TABELA é a
+do cadastro, não do arquivo; `valor_kg`, `multiplo_compra`, `linha`, `cor` e `codigo_wvetro` **não têm coluna no banco** e ficam fora da gravação
+nesta PR (um aviso diz quantas linhas vieram com valor nelas).
+
+- **O caminho é escolhido pela FORMA do arquivo** (`lerTabelaDePreco`): com a aba `ITENS` ou a `CABECALHO` (nome sem olhar caixa nem espaços), é o
+  layout único — e a ITENS tem de estar lá; sem as duas, o de antes (aba `ABAS_DA_IMPORTACAO.preco`, colunas `COL_PRECO` por posição), cuja recusa
+  passa a dizer que o layout único também não foi achado. A ITENS vence quando as duas abas coexistem.
+- **Recusas nomeadas (nada é gravado):** CABECALHO sem ITENS; ITENS sem a coluna `codigo` na linha 1 (cabeçalho não reconhecível); coluna obrigatória
+  ausente (cada uma nomeada; o nome é exato, `CUSTO_BRUTO` não é `custo_bruto`); coluna repetida; **texto, data ou erro do Excel em coluna numérica**
+  (as 4 de preço/medida e as 12 do bloco — nunca vira 0 nem NULL; o texto numérico brasileiro "1.234,56" é número); `vendido_por` fora de
+  `barra`/`unidade` (a CHECK do banco; a caixa não importa); e as do #208 (os dois IPIs, percentual fora de 0..100).
+- **O mapa:** `custo_bruto → custo`, `valor_metro → valor_metro_interno`, `peso_kg_por_m → peso`, `segmento → segmento`; `secao`, `descricao`,
+  `unidade`, `ncm`, `medida_barra_m`, `vendido_por` e as 12 tributárias diretos. **Ficam NULL** por não existirem no layout: `aliquota_interna_pct`
+  (medido em 02/11/2026: **nenhum leitor** no cálculo, na conversa ou nas telas — só o importador escreve; 24 das 509 linhas de produção já a têm
+  NULL), `ipi` (a coluna antiga; o IPI agora é `cred_ipi_pct`/`nc_ipi_pct`), `pacote`, `valor_metro_12`, `valor_barra_12`.
+- **Avisos novos:** `itens_sem_custo` (o item sem `custo_bruto` entra com `custo` NULL — nunca 0 —, sem valor por barra nem resultado a recalcular),
+  `tabela_sem_valor_por_barra` (os vendidos por unidade ou sem `vendido_por`: o total por barra inteira não sai para eles),
+  `colunas_sem_destino_no_layout_unico`. O código repetido segue a regra de 20/10/2026 (fica a primeira, aviso em voz alta se os valores diferem).
+- **O bloco tributário do #208 vale igual** (`conferirBlocoDoItem`, compartilhado pelos dois layouts). **Medido pelo dono do produto no arquivo de
+  PERSIANAS (76 itens):** `credito_pct = 21,25` em todas as linhas; IPI creditável 6,5 em 38, 3,25 em 4, 0 em 8 e vazio em 26 → com a regra do #208 o
+  importador reporta **42 divergências e 26 "não recalculável"**, 8 sem aviso, e grava o que veio. **A regra não mudou nesta PR** (decisão dele): se o
+  fornecedor exclui o IPI do crédito, a soma do #208 precisa de decisão própria.
+- **Prova:** `src/utils/__tests__/atendimentos-ia-layout-unico.test.ts` — as fixtures PERSIANAS (76, como medido) e REFORÇO (18, 8 sem `custo_bruto`),
+  as duas formas da aba CABECALHO, cada recusa, e o layout de antes; mutações do leitor (ver o PR).

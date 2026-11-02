@@ -60,5 +60,17 @@ export function textoDoAviso(a: Aviso): { titulo: string; texto: string } {
             return { titulo: 'Itens sem a categoria do fornecedor', texto: a.mensagem }
         case 'tabela_sem_categoria_declarada':
             return { titulo: 'Tabela sem categoria declarada', texto: a.mensagem }
+        // o bloco tributário (02/11/2026): o que veio no arquivo foi gravado; o aviso diz o recalculado ou o que faltou para recalcular
+        case 'bloco_tributario_divergente':
+            return { titulo: 'Crédito ou líquido diferente do recalculado', texto: `${ondeNaPlanilha(a)}: ${a.mensagem}.` }
+        case 'bloco_tributario_nao_recalculavel':
+            return { titulo: 'Crédito não recalculável', texto: `${ondeNaPlanilha(a)}: ${a.mensagem}.` }
+        // o layout único (02/11/2026)
+        case 'itens_sem_custo':
+            return { titulo: 'Itens sem custo', texto: a.mensagem }
+        case 'tabela_sem_valor_por_barra':
+            return { titulo: 'Itens sem valor por barra', texto: a.mensagem }
+        case 'colunas_sem_destino_no_layout_unico':
+            return { titulo: 'Colunas que o banco ainda não guarda', texto: a.mensagem }
     }
 }
