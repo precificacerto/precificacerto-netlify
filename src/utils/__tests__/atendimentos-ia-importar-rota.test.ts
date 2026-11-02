@@ -73,6 +73,8 @@ jest.mock('@/lib/atendimentos-ia/repositorio', () => {
         obterDadosDaTabela: fn('obterDadosDaTabela', () => DADOS),
         listarTipologias: fn('listarTipologias', () => TIPOLOGIAS_DO_BANCO),
         contarFormulas: fn('contarFormulas', () => 137),
+        // os itens GRAVADOS da tabela (02/11/2026): é o número com que a tela diz "não importada"
+        contarItensDaTabela: fn('contarItensDaTabela', () => 755),
         // a tabela da Wolff COM os 164 tempos de produção: se a rota voltasse a consultá-los para travar,
         // os casos da importação ficariam vermelhos
         contarTemposGravados: fn('contarTemposGravados', () => ({ total: 164, ESTIMADO: 164, IMPORTADO: 0 })),
@@ -548,11 +550,20 @@ describe('GET /tabelas/[id] — a tabela, para a tela da importação', () => {
 })
 
 describe('GET /tabelas/[id]/conteudo — o que está no banco', () => {
-    it('as tipologias ORDENADAS pela proporção de condicionais, e o total de fórmulas', async () => {
+    it('as tipologias ORDENADAS pela proporção de condicionais, o total de fórmulas e os ITENS gravados', async () => {
         const r = await chamar('GET', T, ROTA_DO_CONTEUDO)
         expect(r.status).toBe(200)
         expect(r.json.tipologias.map((t: any) => t.tipologia)).toEqual(['DP-148', 'DP-01', 'SEM'])
         expect(r.json.formulas).toBe(137)
+        // a contagem do BANCO, lida por `contarItensDaTabela` (02/11/2026: é ela que diz "não importada" na tela — a última importação não registra recusa)
+        expect(r.json.itens).toBe(755)
+        expect(repo.contarItensDaTabela).toHaveBeenCalledWith(T)
+    })
+    it('a tabela recusada ou nunca importada devolve itens 0 — número, não ausência', async () => {
+        repo.contarItensDaTabela.mockImplementation(async () => 0)
+        const r = await chamar('GET', T, ROTA_DO_CONTEUDO)
+        expect(r.status).toBe(200)
+        expect(r.json.itens).toBe(0)
     })
     it('401 sem sessão, 403 sem ser super admin', async () => {
         perfil = null

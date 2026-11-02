@@ -8,6 +8,12 @@
  * (dono do produto, 01/11/2026; migração 20261101000001) — não há mais recusa por uso; a confirmação mostra o que sai, o que fica e o aviso
  * de que a conversa da empresa PARA quando a tabela tem motor. O erro aparece dentro da própria confirmação.
  *
+ * IMPORTAR AO SALVAR (dono do produto, 02/11/2026): "Salvar tabela" com arquivo — a tabela nova, ou a edição que troca o arquivo (só possível
+ * com 0 itens) — grava o cadastro e LEVA à tela de Importação da tabela com `?importar=1`, que dispara a mesma importação do botão e mostra
+ * o resultado (contagens, avisos ou a recusa nomeada) lá, sem duplicar nada aqui. A recusa do arquivo não desfaz o cadastro: são duas chamadas,
+ * e a segunda só roda com a primeira gravada. Salvar sem trocar o arquivo (família, vigência) NÃO reimporta. Antes disso a importação era um
+ * segundo passo manual, e a tabela ficava com 0 itens sem ninguém perceber (a `Reforco_Metalico_-_Wolff.xlsx`).
+ *
  * O erro de salvar uma TABELA (nova ou edição) aparece DENTRO do modal (`erroDaTabela` → prop
  * `erro`), com o arquivo e o motivo — nunca num `message` passageiro fora dele: o modal fica
  * aberto quando a gravação falha, e aberto sem explicação manda o usuário adivinhar (20/10/2026,
@@ -23,7 +29,7 @@ import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
 import { ROUTES } from '@/constants/routes'
 import { useAuth } from '@/hooks/use-auth.hook'
-import { ROTAS_DO_CATALOGO, ROTULO_DO_MODELO, ROTULO_QUALQUER_LINHA, familiaObrigatoria, rotaDoNicho, fraseDoArquivo, type Categoria, type Familia, type FornecedorComTabelas, type Nicho, type TabelaDoFornecedor } from '@/utils/atendimentos-ia-catalogo'
+import { ROTAS_DO_CATALOGO, ROTULO_DO_MODELO, ROTULO_QUALQUER_LINHA, familiaObrigatoria, rotaDoNicho, fraseDoArquivo, telaDaImportacao, type Categoria, type Familia, type FornecedorComTabelas, type Nicho, type TabelaDoFornecedor } from '@/utils/atendimentos-ia-catalogo'
 import { chamarRota, enviarArquivo, gravarTabelaNova, type TabelaPendente } from '@/page-parts/atendimentos-ia/api'
 import { RemocaoDoCatalogo, type AlvoDaRemocao } from '@/page-parts/atendimentos-ia/remocao-do-catalogo.component'
 import { FornecedorModal, TITULO_FORNECEDOR_NAO_SALVO, type DadosDoFornecedor, type ErroDoFornecedor } from '@/page-parts/atendimentos-ia/fornecedor-modal.component'
@@ -117,10 +123,11 @@ export default function TabelasDoFornecedor() {
         setSalvando(true)
         setErroDaTabela(null)
         try {
-            await gravarTabelaNova(id, t)
+            const { id: tabelaId } = await gravarTabelaNova(id, t)
             message.success('Tabela adicionada')
             abrirTabelaNova(false)
-            await carregar()
+            // a tabela nova sempre tem arquivo: a Importação roda na tela dela (02/11/2026)
+            await router.push(telaDaImportacao(tabelaId, true))
         } catch (e) {
             setErroDaTabela((e as Error).message)
         } finally {
@@ -142,7 +149,9 @@ export default function TabelasDoFornecedor() {
             if (r.aviso) message.warning(r.aviso, 8)
             else message.success('Tabela alterada')
             editarTabela(null)
-            await carregar()
+            // arquivo trocado: a Importação roda na tela da tabela; sem troca de arquivo, nada é reimportado (02/11/2026)
+            if (t.arquivo) await router.push(telaDaImportacao(tabelaEmEdicao.id, true))
+            else await carregar()
         } catch (e) {
             setErroDaTabela((e as Error).message)
         } finally {
@@ -210,7 +219,7 @@ export default function TabelasDoFornecedor() {
                                     ? categorias.find((c) => c.chave === t.categoria_chave)?.rotulo ?? t.categoria_chave
                                     : <Typography.Text type="secondary" data-categoria-nao-informada>não informada</Typography.Text>}
                                 onVigente={(v) => marcarVigente(t, v)}
-                                onImportacao={() => router.push(`${ROUTES.SUPER_ADMIN_IA_TABELAS}/${t.id}/importacao`)}
+                                onImportacao={() => router.push(telaDaImportacao(t.id))}
                                 onEditar={() => editarTabela(t)}
                                 onRemover={() => removerTabela(t)}
                             />

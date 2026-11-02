@@ -819,3 +819,32 @@ nesta PR (um aviso diz quantas linhas vieram com valor nelas).
   fornecedor exclui o IPI do crédito, a soma do #208 precisa de decisão própria.
 - **Prova:** `src/utils/__tests__/atendimentos-ia-layout-unico.test.ts` — as fixtures PERSIANAS (76, como medido) e REFORÇO (18, 8 sem `custo_bruto`),
   as duas formas da aba CABECALHO, cada recusa, e o layout de antes; mutações do leitor (ver o PR).
+
+## Importar ao salvar — dono do produto, 02/11/2026 (sem migração)
+
+Formulação do dono do produto, registrada como está:
+
+> "Hoje 'Salvar tabela' grava o cadastro e a importação é um segundo passo manual, e por isso tabela fica com 0 itens sem ninguém perceber
+> (aconteceu com a Reforco_Metalico_-_Wolff.xlsx)." [...] "Recusa do arquivo NÃO pode desfazer o cadastro já salvo: a tabela fica salva e a
+> importação aparece como recusada, nomeando o motivo. Salvar sem trocar o arquivo (só família ou vigência) NÃO reimporta. O botão Importar
+> continua existindo." E as respostas dele: o resultado aparece na **tela de Importação** (sem duplicar na página do fornecedor); o
+> **credenciamento no nicho NÃO importa** ao salvar (N tabelas × 90 s de `maxDuration`); o **cartão** mostra "não importada" com 0 itens;
+> "nunca deixe a tela em estado de sucesso sem itens gravados".
+
+- **Medido antes (02/11/2026):** o arquivo já está no Storage ao salvar, nos dois casos (a tela envia pela URL assinada antes do POST/PATCH, e
+  as rotas recusam se o objeto não estiver lá); a troca de arquivo na edição só passa com 0 itens (trava de 29/10); a função
+  `importar_conteudo_da_tabela` apaga e regrava os itens e o conteúdo do motor por `tabela_id`; e a importação **recusada não deixa registro**
+  (`orcamentista_importacao` só recebe linha no sucesso) — é por isso que a Reforço ficou com 0 itens em silêncio.
+- **O caminho:** "Salvar tabela" com arquivo — a tabela nova, ou a edição que troca o arquivo — grava e **leva** à tela de Importação da tabela
+  com `?importar=1` (`telaDaImportacao(id, true)`); a tela **dispara a mesma importação do botão, uma vez**, tira o parâmetro da URL (recarregar
+  não reimporta) e mostra o resultado como sempre. São duas chamadas: a recusa da segunda não toca na primeira. Sem troca de arquivo, a
+  edição fica na página e nada é reimportado.
+- **"Não importada" é contagem do banco, não da última importação:** `TabelaDoFornecedor.itens` (lista do fornecedor) e `itens` em `/conteudo`
+  vêm de `contarItensDaTabela`. O cartão com 0 itens diz "Não importada: nenhum item de preço gravado." abaixo do nome, com "Importar agora"
+  (cobre o credenciamento e qualquer caminho futuro que grave sem importar); com itens, nada aparece (é estado, não a oitava informação). A tela
+  de Importação mostra o aviso com o motivo — a recusa (inclusive o 504 do limite de tempo), a importação que não deixou item, ou "nunca" — e
+  **relê o banco também na recusa**, para nunca afirmar sucesso sem item gravado. Sem a contagem (rota de antes), nada é dito
+  (`ausente-vs-falso.md`).
+- **Prova:** `src/utils/__tests__/atendimentos-ia-importar-ao-salvar.test.tsx` (os três caminhos da página do fornecedor, o disparo único, a
+  recusa, o 504, os três motivos, o cartão, e o credenciamento que NÃO importa).
+

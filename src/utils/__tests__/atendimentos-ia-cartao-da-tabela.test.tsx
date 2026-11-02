@@ -12,6 +12,9 @@
  *       cartões nunca pede mais que a largura da tela;
  *   (e) "Subido em" com data e hora, `dd/mm/aaaa hh:mm` (dono do produto, 02/11/2026: "exato momento");
  *   (f) na página, a grade de colunas saiu: um cartão por tabela, nenhuma <table>.
+ *
+ * Desde 02/11/2026 (importar ao salvar) o cartão da tabela com 0 itens gravados diz "não importada" abaixo do nome — é ESTADO, não uma
+ * oitava informação, e a tabela com itens (a deste teste, 735) não mostra nada: `atendimentos-ia-importar-ao-salvar.test.tsx` (7).
  */
 import React from 'react'
 import { act } from 'react'
@@ -41,7 +44,7 @@ const AS_SETE = ['Motor', 'Família', 'Categoria', 'Vigente', 'Vigência (nota)'
 const TABELA: TabelaDoFornecedor = {
     id: '21acfa75-e4e7-4de6-9b96-cdd95525467d', fornecedor_id: 'f1', arquivo_nome: 'Tabela_Wolff_Perfis_PVC_com_um_nome_bem_comprido_que_nao_cabe.xlsx',
     arquivo_path: 'f1/arquivo/t.xlsx', motor_nome: null, motor_path: null, vigencia: 'desde 01/11/2026', familia: 'PVC', categoria_chave: 'PERFIL', vigente: true,
-    criado_em: new Date(2026, 9, 29, 16, 26, 10).toISOString(), arquivo_em: new Date(2026, 10, 1, 18, 8, 19).toISOString(), contas_usando: ['Esquadrias De Paula', 'Marcenaria Silva'],
+    criado_em: new Date(2026, 9, 29, 16, 26, 10).toISOString(), arquivo_em: new Date(2026, 10, 1, 18, 8, 19).toISOString(), contas_usando: ['Esquadrias De Paula', 'Marcenaria Silva'], itens: 735,
 }
 
 const montadas: { root: ReturnType<typeof createRoot>; host: HTMLElement }[] = []
