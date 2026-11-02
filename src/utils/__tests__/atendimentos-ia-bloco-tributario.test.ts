@@ -121,7 +121,7 @@ describe('(4) DIVERGÊNCIA do líquido: grava o que veio e reporta item a item',
     })
 
     it('o IPI NÃO creditável no lugar do creditável: sai do crédito (12 + 9,25 + 1 + 0,9 = 23,15%), e o arquivo que somou o IPI diverge', async () => {
-        const semIpi = { ...QUE_FECHA, cred_ipi_pct: null, nc_ipi_pct: 5 }
+        const semIpi = { ...QUE_FECHA, cred_ipi_pct: null as number | null, nc_ipi_pct: 5 }
         const fecha = await lida([SECAO, cabecalho(), item('D7', { ...semIpi, credito_pct: 23.15, credito_valor: 46.3, custo_liquido: 153.7 })])
         expect(fecha.avisos.filter((a) => a.tipo.startsWith('bloco_tributario'))).toEqual([])
         const somou = await lida([SECAO, cabecalho(), item('D8', semIpi)])
