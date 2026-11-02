@@ -26,6 +26,7 @@ import { createRoot } from 'react-dom/client'
 import { ROUTES } from '@/constants/routes'
 import { FRASE_DO_LIMITE_DA_ROTA } from '@/page-parts/atendimentos-ia/api'
 import { PARAMETRO_IMPORTAR_AO_ABRIR, ROTAS_DO_CATALOGO, telaDaImportacao, type FornecedorComTabelas, type TabelaDoFornecedor } from '@/utils/atendimentos-ia-catalogo'
+import type { Aviso } from '@/utils/atendimentos-ia-importacao'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 Object.defineProperty(window, 'matchMedia', {
@@ -62,8 +63,8 @@ const fornecedor = (tabelas: TabelaDoFornecedor[]): FornecedorComTabelas => ({
     id: 'f1', nome: 'Wolf Perfis', nicho_id: 'n1', nicho_nome: 'Esquadrias', modelo: 'FABRICACAO', tabelas: tabelas.length, contas_usando: [],
     categorias_das_tabelas: [], familias_do_perfil: [] as string[], tabelas_da_lista: tabelas,
 })
-const DADOS = { id: T, fornecedor_id: 'f1', fornecedor_nome: 'Wolf Perfis', arquivo_nome: XLSX, motor_nome: null, vigencia: null, categoria_chave: 'REFORCO', categoria_rotulo: 'Reforço' }
-const ULTIMA = { id: 'imp-9', tabela_id: T, importado_em: '2026-11-02T15:30:00Z', importado_por: 'u-super', importado_por_nome: 'Cristiano', itens: 0, regras: 0, tipologias: 0, cruzam: 0, nao_cruzam: 0, normalizados: 0, avisos: [] }
+const DADOS = { id: T, fornecedor_id: 'f1', fornecedor_nome: 'Wolf Perfis', arquivo_nome: XLSX, motor_nome: null as string | null, vigencia: null as string | null, categoria_chave: 'REFORCO', categoria_rotulo: 'Reforço' }
+const ULTIMA = { id: 'imp-9', tabela_id: T, importado_em: '2026-11-02T15:30:00Z', importado_por: 'u-super', importado_por_nome: 'Cristiano', itens: 0, regras: 0, tipologias: 0, cruzam: 0, nao_cruzam: 0, normalizados: 0, avisos: [] as Aviso[] }
 
 let respostas: Record<string, Array<{ status: number; body: unknown }>> = {}
 const pedidos: string[] = []
