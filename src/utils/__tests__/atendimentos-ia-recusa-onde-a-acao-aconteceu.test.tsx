@@ -150,7 +150,7 @@ describe('na página de UM fornecedor', () => {
         } }
         respostas[`POST ${ROTA_DA_REMOCAO}`] = { status: 504, body: { error: 'A remoção passou do tempo e foi desfeita inteira: nada foi removido. Tente de novo.' } }
         const host = await montar(<PaginaDoFornecedor />)
-        await clicar(botao(host.querySelector('tbody')!, 'Remover'))
+        await clicar(botao(host.querySelector('[data-tabelas-do-fornecedor]')!, 'Remover'))
 
         expect(pedidos).toContain(`GET ${rotaDoArrasto('tabela', 't1')}`)
         expect(pedidos.filter((p) => p.startsWith('POST ') || p.startsWith('DELETE '))).toEqual([])
@@ -175,7 +175,7 @@ describe('na página de UM fornecedor', () => {
         const host = await montar(<PaginaDoFornecedor />)
         const lidas = () => pedidos.filter((p) => p === `GET ${ROTAS_DO_CATALOGO.fornecedor('f1')}`).length
         const antes = lidas()
-        await clicar(botao(host.querySelector('tbody')!, 'Remover'))
+        await clicar(botao(host.querySelector('[data-tabelas-do-fornecedor]')!, 'Remover'))
         await clicar(modal()!.querySelector('[data-confirmo-o-arrasto] input') as HTMLElement)
         await clicar(botao(modal()!, 'Remover'))
 

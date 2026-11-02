@@ -342,7 +342,7 @@ describe('(6) a linha da tabela, no fornecedor, leva à importação', () => {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const PaginaDoFornecedor = require('@/pages/super-admin/atendimentos-ia/fornecedores/[id]').default as React.ComponentType
         const host = await montar(<PaginaDoFornecedor />)
-        await clicar(botao(host.querySelector('tbody')!, 'Importação'))
+        await clicar(botao(host.querySelector('[data-tabelas-do-fornecedor]')!, 'Importação'))
         expect(pushes).toEqual([`${ROUTES.SUPER_ADMIN_IA_TABELAS}/${T}/importacao`])
     })
 })

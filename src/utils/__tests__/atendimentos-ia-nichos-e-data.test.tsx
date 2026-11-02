@@ -11,7 +11,8 @@
  *   (d) na lista de tabelas do fornecedor, a coluna "Subido em" é alinhada à direita, no mesmo
  *       estilo;
  *   (e) "Subido em" é o momento do ARQUIVO ATUAL (`arquivo_em`), não o da linha (`criado_em`) — dono do produto, 01/11/2026; migração
- *       20261101000002: a 21acfa75 foi criada em 29/10 e teve o arquivo trocado em 01/11, e a tela mostrava 29/10.
+ *       20261101000002: a 21acfa75 foi criada em 29/10 e teve o arquivo trocado em 01/11, e a tela mostrava 29/10. Desde 02/11/2026, com a hora
+ *       ("dd/mm/aaaa hh:mm") e numa linha do cartão da tabela.
  */
 import React from 'react'
 import { act } from 'react'
@@ -112,30 +113,32 @@ describe('a data na borda direita', () => {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const Pagina = require('@/pages/super-admin/atendimentos-ia/fornecedores/[id]').default as React.ComponentType
         const host = await montar(<Pagina />)
-        const celula = host.querySelector('[data-coluna="subido-em"]') as HTMLElement
+        const celula = host.querySelector('[data-campo="subido-em"]') as HTMLElement
         expect(celula).not.toBeNull()
         expect(celula.style.fontVariantNumeric).toBe('tabular-nums')
-        const td = celula.closest('td') as HTMLElement
-        expect(td.style.textAlign).toBe('right')
+        // desde 02/11/2026 é uma LINHA do cartão: o valor fica à direita do rótulo
+        const valor = celula.closest('[data-valor]') as HTMLElement
+        expect(valor.style.textAlign).toBe('right')
+        expect((valor.parentElement!.querySelector('[data-rotulo]') as HTMLElement).textContent).toBe('Subido em')
     })
 
-    it('(e) "Subido em" mostra arquivo_em (o arquivo trocado em 01/11), não criado_em (a linha de 29/10)', async () => {
+    it('(e) "Subido em" mostra arquivo_em (o arquivo trocado em 01/11), não criado_em (a linha de 29/10), com data e hora', async () => {
         const fornecedor: FornecedorComTabelas = {
             id: 'f1', nome: 'Wolf Perfis', nicho_id: 'n0', nicho_nome: 'Esquadrias', modelo: 'FABRICACAO', tabelas: 1, contas_usando: [], categorias_das_tabelas: ['PERFIL'], familias_do_perfil: ['PVC'],
             tabelas_da_lista: [{ id: '21acfa75-e4e7-4de6-9b96-cdd95525467d', fornecedor_id: 'f1', arquivo_nome: 'Tabela_Wolff_Perfis_PVC.xlsx', arquivo_path: 'f1/arquivo/t.xlsx',
                 motor_nome: null, motor_path: null, vigencia: null, familia: 'PVC', categoria_chave: 'PERFIL', vigente: false,
-                criado_em: '2026-10-29T19:26:10.322Z', arquivo_em: '2026-11-01T21:08:19.337Z', contas_usando: [] }],
+                // no fuso de quem roda o teste: o esperado não depende do fuso da máquina
+                criado_em: new Date(2026, 9, 29, 16, 26, 10).toISOString(), arquivo_em: new Date(2026, 10, 1, 18, 8, 19).toISOString(), contas_usando: [] }],
         }
         const respostas: Record<string, unknown> = { [ROTAS_DO_CATALOGO.fornecedor('f1')]: fornecedor, [ROTAS_DO_CATALOGO.nichos]: [], [ROTAS_DO_CATALOGO.familias]: [{ chave: 'PVC', rotulo: 'PVC', ordem: 1 }], [ROTAS_DO_CATALOGO.categorias]: [{ chave: 'PERFIL', rotulo: 'Perfil', ordem: 1 }] }
         ;(globalThis as { fetch: unknown }).fetch = jest.fn(async (url: string) => ({ ok: true, status: 200, json: async () => respostas[url] }) as Response)
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const Pagina = require('@/pages/super-admin/atendimentos-ia/fornecedores/[id]').default as React.ComponentType
         const host = await montar(<Pagina />)
-        const celula = host.querySelector('[data-coluna="subido-em"]') as HTMLElement
-        const doArquivo = new Date('2026-11-01T21:08:19.337Z').toLocaleDateString('pt-BR')
-        const daLinha = new Date('2026-10-29T19:26:10.322Z').toLocaleDateString('pt-BR')
-        expect(doArquivo).not.toBe(daLinha) // o contraste: as duas datas são outras na tela
-        expect(celula.textContent).toBe(doArquivo)
+        const celula = host.querySelector('[data-campo="subido-em"]') as HTMLElement
+        // o momento do ARQUIVO, com a hora (dono do produto, 02/11/2026: "dd/mm/aaaa hh:mm"); não o dia da linha
+        expect(celula.textContent).toBe('01/11/2026 18:08')
+        expect(celula.textContent).not.toContain('29/10/2026')
     })
 
     it('(e) o repositório pede arquivo_em junto, e a migração 20261101000002 a cria', () => {

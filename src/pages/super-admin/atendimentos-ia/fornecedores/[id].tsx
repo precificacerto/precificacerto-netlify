@@ -1,8 +1,9 @@
 /**
  * Atendimentos I.A. → Fornecedores e tabelas → UM fornecedor (EPIC §5.6). Só o super admin.
  *
- * As tabelas: Arquivo · Motor · Vigência · Subido em · Contas usando, com Editar e Remover; e
- * "+ Nova tabela", "Editar fornecedor" (nome e nicho) e "Excluir fornecedor". Tudo pelas rotas.
+ * As tabelas, UM CARTÃO POR TABELA (dono do produto, 02/11/2026: "as colunas se tornarem linhas"; `CartaoDaTabela`): o arquivo no topo; motor,
+ * família, categoria, vigente, vigência, subido em e contas usando, cada um numa linha; Importação, Editar e Remover no rodapé. E "+ Nova tabela",
+ * "Editar fornecedor" (nome e nicho) e "Excluir fornecedor". Tudo pelas rotas.
  * Remover o fornecedor e remover a TABELA abrem a confirmação do arrasto (`RemocaoDoCatalogo`): a tabela entrou na soberania do catálogo
  * (dono do produto, 01/11/2026; migração 20261101000001) — não há mais recusa por uso; a confirmação mostra o que sai, o que fica e o aviso
  * de que a conversa da empresa PARA quando a tabela tem motor. O erro aparece dentro da própria confirmação.
@@ -16,7 +17,7 @@
  */
 import React, { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/router'
-import { Alert, Button, Empty, Space, Switch, Table, Tag, Typography, message } from 'antd'
+import { Alert, Button, Empty, Space, Spin, Tag, Typography, message } from 'antd'
 import { ArrowLeftOutlined, PlusOutlined } from '@ant-design/icons'
 import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
@@ -27,9 +28,7 @@ import { chamarRota, enviarArquivo, gravarTabelaNova, type TabelaPendente } from
 import { RemocaoDoCatalogo, type AlvoDaRemocao } from '@/page-parts/atendimentos-ia/remocao-do-catalogo.component'
 import { FornecedorModal, TITULO_FORNECEDOR_NAO_SALVO, type DadosDoFornecedor, type ErroDoFornecedor } from '@/page-parts/atendimentos-ia/fornecedor-modal.component'
 import { TabelaModal } from '@/page-parts/atendimentos-ia/tabela-modal.component'
-import { ESTILO_DA_DATA } from '@/page-parts/atendimentos-ia/linha-da-tabela.component'
-
-const dataBR = (iso: string) => new Date(iso).toLocaleDateString('pt-BR')
+import { CartaoDaTabela } from '@/page-parts/atendimentos-ia/cartao-da-tabela.component'
 
 export default function TabelasDoFornecedor() {
     const router = useRouter()
@@ -193,53 +192,29 @@ export default function TabelasDoFornecedor() {
                         <Alert type="error" showIcon closable onClose={() => setErroDaVigente(null)} style={{ marginBottom: 12 }}
                             message="A marca de vigente não foi gravada." description={erroDaVigente} data-erro-da-vigente />
                     )}
-                    <div className="pc-card--table">
-                        <Table<TabelaDoFornecedor>
-                            rowKey="id"
-                            loading={fornecedor === null}
-                            dataSource={fornecedor?.tabelas_da_lista ?? []}
-                            pagination={false}
-                            locale={{ emptyText: <Empty description="Nenhuma tabela. Use “Nova tabela”." /> }}
-                            columns={[
-                                { title: 'Arquivo', dataIndex: 'arquivo_nome' },
-                                { title: 'Motor', render: (_, t) => t.motor_nome ?? <Typography.Text type="secondary" data-sem-motor>sem motor (preço puro)</Typography.Text> },
-                                {
-                                    title: 'Família',
-                                    render: (_, t) => (t.familia
-                                        ? familias.find((f) => f.chave === t.familia)?.rotulo ?? t.familia
-                                        // fora do Perfil, sem família é escolha: a tabela serve qualquer linha (28/10/2026)
-                                        : t.categoria_chave && !familiaObrigatoria(t.categoria_chave)
-                                            ? <Typography.Text type="secondary" data-qualquer-linha>{ROTULO_QUALQUER_LINHA}</Typography.Text>
-                                            : <Typography.Text type="secondary" data-familia-nao-informada>não informada</Typography.Text>),
-                                },
-                                {
-                                    title: 'Categoria',
-                                    render: (_, t) => (t.categoria_chave
-                                        ? categorias.find((c) => c.chave === t.categoria_chave)?.rotulo ?? t.categoria_chave
-                                        : <Typography.Text type="secondary" data-categoria-nao-informada>não informada</Typography.Text>),
-                                },
-                                // a VIGENTE é a marca que decide o que levantamento novo usa (26/10/2026); a Vigência ao lado é só a nota do consultor
-                                {
-                                    title: 'Vigente',
-                                    render: (_, t) => <Switch size="small" checked={t.vigente} onChange={(v) => marcarVigente(t, v)} data-vigente={t.id} aria-label={`Vigente: ${t.arquivo_nome}`} />,
-                                },
-                                { title: 'Vigência (nota)', render: (_, t) => t.vigencia ?? <Typography.Text type="secondary">—</Typography.Text> },
-                                // A data na borda direita, em `tabular-nums` — o mesmo estilo da lista do credenciamento.
-                                { title: 'Subido em', align: 'right', render: (_, t) => <span style={ESTILO_DA_DATA} data-coluna="subido-em">{dataBR(t.arquivo_em)}</span> },
-                                { title: 'Contas usando', render: (_, t) => (t.contas_usando.length ? t.contas_usando.join(', ') : <Typography.Text type="secondary">—</Typography.Text>) },
-                                {
-                                    title: '',
-                                    align: 'right',
-                                    render: (_, t) => (
-                                        <Space>
-                                            <Button size="small" onClick={() => router.push(`${ROUTES.SUPER_ADMIN_IA_TABELAS}/${t.id}/importacao`)}>Importação</Button>
-                                            <Button size="small" onClick={() => editarTabela(t)}>Editar</Button>
-                                            <Button size="small" danger onClick={() => removerTabela(t)} data-remover-tabela={t.id}>Remover</Button>
-                                        </Space>
-                                    ),
-                                },
-                            ]}
-                        />
+                    {/* os cartões empilham; em janela estreita cada um ocupa a largura, e o texto quebra dentro dele (02/11/2026) */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 22rem), 1fr))', gap: 12 }} data-tabelas-do-fornecedor>
+                        {fornecedor === null && <Spin />}
+                        {fornecedor !== null && fornecedor.tabelas_da_lista.length === 0 && <Empty description="Nenhuma tabela. Use “Nova tabela”." />}
+                        {(fornecedor?.tabelas_da_lista ?? []).map((t) => (
+                            <CartaoDaTabela
+                                key={t.id}
+                                tabela={t}
+                                familia={t.familia
+                                    ? familias.find((f) => f.chave === t.familia)?.rotulo ?? t.familia
+                                    // fora do Perfil, sem família é escolha: a tabela serve qualquer linha (28/10/2026)
+                                    : t.categoria_chave && !familiaObrigatoria(t.categoria_chave)
+                                        ? <Typography.Text type="secondary" data-qualquer-linha>{ROTULO_QUALQUER_LINHA}</Typography.Text>
+                                        : <Typography.Text type="secondary" data-familia-nao-informada>não informada</Typography.Text>}
+                                categoria={t.categoria_chave
+                                    ? categorias.find((c) => c.chave === t.categoria_chave)?.rotulo ?? t.categoria_chave
+                                    : <Typography.Text type="secondary" data-categoria-nao-informada>não informada</Typography.Text>}
+                                onVigente={(v) => marcarVigente(t, v)}
+                                onImportacao={() => router.push(`${ROUTES.SUPER_ADMIN_IA_TABELAS}/${t.id}/importacao`)}
+                                onEditar={() => editarTabela(t)}
+                                onRemover={() => removerTabela(t)}
+                            />
+                        ))}
                     </div>
                 </>
             )}

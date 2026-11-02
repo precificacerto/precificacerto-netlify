@@ -195,7 +195,7 @@ describe('(5) a tela do fornecedor: a tabela fora do Perfil sem família serve q
         respostas[`GET ${ROTAS_DO_CATALOGO.categorias}`] = { status: 200, body: [{ chave: 'PERFIL', rotulo: 'Perfil', ordem: 1 }, { chave: 'FERRAGENS', rotulo: 'Ferragens', ordem: 4 }] }
         respostas[`PATCH ${ROTAS_DO_CATALOGO.tabela('t-ferr2')}`] = { status: 200, body: { ok: true } }
     })
-    const linhaDa = (host: ParentNode, arquivo: string) => Array.from(host.querySelectorAll('tr')).find((tr) => tr.textContent?.includes(arquivo)) as HTMLElement
+    const linhaDa = (host: ParentNode, arquivo: string) => Array.from(host.querySelectorAll('[data-cartao-da-tabela]')).find((c) => c.querySelector('[data-arquivo-do-cartao]')?.textContent === arquivo) as HTMLElement
 
     it('a ferragem sem família diz "Qualquer linha"; a tabela de antes, sem categoria e sem família, continua "não informada"', async () => {
         const host = await montar()
