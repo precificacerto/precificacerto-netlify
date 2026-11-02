@@ -759,3 +759,28 @@ família com motores diferentes na mesma etapa é **erro de configuração**.
   dos testes. Com o PR D, a DP-02 da De Paula **recusa nomeando 1023, 8432 e 8433**: os três estão no motor e em nenhuma tabela de preço do catálogo
   (o portão `(1p)` de `levantamento-da-conversa.test.ts` reproduz isso).
 
+
+## O bloco tributário do item da tabela — dono do produto, 02/11/2026 (migração `20261102000001`, PENDENTE até o dono do produto aplicar)
+
+Formulação do dono do produto, registrada como está:
+
+> "Hoje orcamentista_tabela_item só guarda ipi e aliquota_interna_pct. Precisa guardar os dois blocos [...] NULL significa 'o fornecedor não
+> informou'. 0 significa 'alíquota zero'. Não use DEFAULT 0, não use COALESCE para tratar NULL como 0 em lugar nenhum. [...] Nenhuma coluna
+> gerada: custo_liquido é o que veio do arquivo, não um cálculo do banco."
+
+- **As 12 colunas** (numeric, NULL, sem default): o bloco creditável (`cred_icms_pct`, `cred_pis_cofins_pct`, `cred_ibs_pct`, `cred_cbs_pct`,
+  `cred_ipi_pct`), o não creditável (`nc_ipi_pct`, `nc_icms_st_pct`, `nc_difal_pct`, `nc_is_pct`) e o resultado (`credito_pct`, `credito_valor`,
+  `custo_liquido`). CHECKs: `orcamentista_tabela_item_ipi_de_um_lado` e `orcamentista_tabela_item_percentual_na_faixa` (0 a 100; as duas em R$ fora).
+- **A função `importar_conteudo_da_tabela` muda na mesma migração** (decisão do dono do produto, 02/11/2026): ela apaga e regrava os itens com
+  lista de colunas fixa, e sem a mudança as 12 nunca chegariam ao banco — e cada reimportação as apagaria (`tabela-que-a-importacao-apaga.md`,
+  sinais 1 e 2). Guarda pelo md5 do corpo medido em produção (`c412c59f…`, o da `20261025000004`).
+- **O importador** (`src/utils/atendimentos-ia-bloco-tributario.ts` e `lerPreco`) lê as 12 **pelo cabeçalho de cada seção**, com o nome exato; vazio é
+  NULL, 0 é 0; texto, data ou erro do Excel **recusam a importação inteira** nomeando cada célula; os dois IPIs e o percentual fora de 0..100 são
+  recusados antes de gravar. **O recálculo** (respostas do dono do produto, 02/11/2026): bruto = `custo`; `credito_pct` = soma do creditável;
+  `credito_valor` = custo × pct ÷ 100; `custo_liquido` = custo − crédito; os não creditáveis não entram; o IPI vai pelo par (creditável, ou vazio com o
+  não creditável preenchido) e os outros quatro são exigidos. Diferença acima de 0,01 é **divergência**: grava o que veio e reporta item a item
+  (`bloco_tributario_divergente`); falta de dado é `bloco_tributario_nao_recalculavel`, nomeando o que falta. Resultado vazio no arquivo fica vazio.
+- **O cálculo do orçamento e a conversa NÃO leem estas colunas** (o pedido: "só gravação e leitura").
+- **Prova:** `scripts/harness/bloco-tributario/` (12 casos e 2 contrastes; 31 de 32 mutações mortas — a sobrevivente, o REVOKE só de PUBLIC na passada
+  sem a verificação, não muda nada em produção, porque o `CREATE OR REPLACE` preserva o ACL da função que já existe) e
+  `src/utils/__tests__/atendimentos-ia-bloco-tributario.test.ts` (23 mutações do importador, todas mortas).

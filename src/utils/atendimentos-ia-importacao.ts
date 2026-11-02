@@ -94,8 +94,11 @@ const COL_MOTOR = {
 const COL_FORMULAS_DA_LINHA = { linha_original: 1, variavel: 2, descricao: 3, formula: 4, formula_em_lh: 5, pct_padrao: 7 } as const
 
 // ── O que sai ──────────────────────────────────────────────────────────────────────────────
-/** Uma linha de `orcamentista_tabela_item`, sem `id` e `tabela_id`. A categoria vem em `CategoriaDoFornecedor`. */
-export type ItemLido = CategoriaDoFornecedor & {
+/**
+ * Uma linha de `orcamentista_tabela_item`, sem `id` e `tabela_id`. A categoria vem em `CategoriaDoFornecedor`; as 12 colunas do bloco tributário
+ * (`20261102000001`), em `BlocoTributario` — NULL quando o arquivo (ou a seção) não as traz.
+ */
+export type ItemLido = CategoriaDoFornecedor & BlocoTributario & {
     codigo: string
     descricao: string | null
     medida_barra_m: number | null
@@ -166,6 +169,9 @@ export type Aviso =
     | { tipo: 'tipologia_condicional_sem_variavel'; tipologia: string; n_condicionais: number; exemplo: string; mensagem: string }
     | { tipo: 'itens_sem_categoria_do_fornecedor'; itens: number; mensagem: string }
     | { tipo: 'tabela_sem_categoria_declarada'; mensagem: string }
+    // o bloco tributário (dono do produto, 02/11/2026): o recálculo que diverge do arquivo, item a item, e o que não pôde ser recalculado
+    | { tipo: 'bloco_tributario_divergente'; aba: string; codigo: string; linha: number; divergencias: DivergenciaDoBloco[]; mensagem: string }
+    | { tipo: 'bloco_tributario_nao_recalculavel'; aba: string; codigo: string; linha: number; faltam: string[]; mensagem: string }
 
 export interface Contagens {
     itens: number
@@ -188,6 +194,11 @@ export interface ArquivoDaImportacao { nome: string; bytes: Uint8Array }
 
 // ── O conversor ÚNICO de célula: mora em `atendimentos-ia-importacao-celula.ts` ─────────────────
 import { valorDaCelula, type ValorLido } from '@/utils/atendimentos-ia-importacao-celula'
+import {
+    COLUNAS_DO_BLOCO_TRIBUTARIO, blocoVazio, divergenciasDoBloco, foraDaRegraDoBloco, fraseDaDivergenciaDoBloco, fraseDasCelulasInvalidasDoBloco,
+    fraseDoBlocoNaoRecalculavel, fraseDosItensForaDaRegraDoBloco, recalcularBloco,
+    type BlocoTributario, type CelulaInvalidaDoBloco, type ColunaDoBlocoTributario, type DivergenciaDoBloco, type ItemForaDaRegraDoBloco,
+} from '@/utils/atendimentos-ia-bloco-tributario'
 export { valorDaCelula, type ValorLido }
 
 // ── Normalizações ──────────────────────────────────────────────────────────────────────────
@@ -273,7 +284,48 @@ class Leitor {
     }
 }
 
-interface Secao { titulo: string | null; aliquota: number | null; vendidoPor: 'barra' | 'unidade' | null }
+interface Secao {
+    titulo: string | null; aliquota: number | null; vendidoPor: 'barra' | 'unidade' | null
+    /** As colunas do bloco tributário que o cabeçalho DESTA seção traz, pelo nome exato: coluna do banco → coluna do arquivo (1-based). */
+    bloco: Partial<Record<ColunaDoBlocoTributario, number>>
+}
+
+/**
+ * O bloco tributário pelo CABEÇALHO (dono do produto, 02/11/2026: "pelo cabeçalho, com os nomes exatos"): a célula do cabeçalho da seção, sem os
+ * espaços das pontas, igual ao nome da coluna — sem trocar caixa nem acento. O mesmo nome duas vezes no mesmo cabeçalho é ambíguo: vai para `repetidas`.
+ */
+function blocoDoCabecalho(ws: ExcelJS.Worksheet, linhaDoCabecalho: number): { bloco: Secao['bloco']; repetidas: string[] } {
+    const row = ws.getRow(linhaDoCabecalho)
+    const bloco: Secao['bloco'] = {}
+    const repetidas: string[] = []
+    const nomes = new Set<string>(COLUNAS_DO_BLOCO_TRIBUTARIO)
+    for (let c = 1; c <= row.cellCount; c++) {
+        const v = valorDaCelula(row.getCell(c).value).valor
+        if (typeof v !== 'string' || !nomes.has(v.trim())) continue
+        const nome = v.trim() as ColunaDoBlocoTributario
+        if (bloco[nome] !== undefined) repetidas.push(nome)
+        else bloco[nome] = c
+    }
+    return { bloco, repetidas }
+}
+
+/**
+ * Uma célula do bloco tributário: vazia → NULL (não informado); número → o número, 0 incluído; texto numérico do jeito brasileiro ("12,5") → o
+ * número, como as outras colunas numéricas do importador; QUALQUER outra coisa (texto, data, erro do Excel) → inválida, para a recusa nomear.
+ */
+function celulaDoBloco(ws: ExcelJS.Worksheet, linha: number, coluna: number): { valor: number | null } | { invalida: string; motivo: string } {
+    const { valor, erro } = valorDaCelula(ws.getRow(linha).getCell(coluna).value)
+    if (erro) return { invalida: String(valor ?? ''), motivo: erro }
+    if (valor === null) return { valor: null }
+    if (typeof valor === 'number') return Number.isFinite(valor) ? { valor } : { invalida: String(valor), motivo: 'número inválido' }
+    if (typeof valor === 'string') {
+        const t = valor.trim()
+        if (/^-?\d{1,3}(\.\d{3})*(,\d+)?$|^-?\d+([.,]\d+)?$/.test(t)) return { valor: Number(t.includes(',') ? t.replace(/\./g, '').replace(',', '.') : t) }
+        return { invalida: valor, motivo: 'texto' }
+    }
+    if (valor instanceof Date) return { invalida: valor.toISOString().slice(0, 10), motivo: 'data' }
+    return { invalida: String(valor), motivo: 'não é número' }
+}
 
 function secaoDoCabecalho(l: Leitor, aba: string, linhaDoCabecalho: number): Secao {
     const titulo = linhaDoCabecalho > 1 ? l.primeiroTexto(linhaDoCabecalho - 1) : null
@@ -286,12 +338,15 @@ function secaoDoCabecalho(l: Leitor, aba: string, linhaDoCabecalho: number): Sec
     }
     const todos = rotulos.join(' ')
     const vendidoPor = /VALOR\s+(UNIT|TOTAL)/i.test(todos) ? 'unidade' : /BARRA/i.test(todos) ? 'barra' : null
-    return { titulo, aliquota, vendidoPor }
+    return { titulo, aliquota, vendidoPor, bloco: {} }
 }
 
 const valoresDoItem = (i: ItemLido) => [i.valor_metro_interno, i.valor_metro_12, i.valor_barra_interno, i.valor_barra_12, i.aliquota_interna_pct]
 
-function lerPreco(ws: ExcelJS.Worksheet): { itens: ItemLido[]; avisos: Aviso[]; normalizados: number } {
+/** A leitura da aba de preço: os itens, os avisos, e as recusas do bloco tributário (que impedem a gravação). */
+type LeituraDoPreco = { itens: ItemLido[]; avisos: Aviso[]; normalizados: number; recusas: string[] }
+
+function lerPreco(ws: ExcelJS.Worksheet): LeituraDoPreco {
     const aba = ABAS_DA_IMPORTACAO.preco
     const l = new Leitor(aba, ws)
     const ultima = ws.rowCount
@@ -301,9 +356,17 @@ function lerPreco(ws: ExcelJS.Worksheet): { itens: ItemLido[]; avisos: Aviso[]; 
 
     const itens: ItemLido[] = []
     const primeiraLinha = new Map<string, { linha: number; item: ItemLido }>()
-    let secao: Secao = { titulo: null, aliquota: null, vendidoPor: null }
+    const invalidas: CelulaInvalidaDoBloco[] = []
+    const foraDaRegra: ItemForaDaRegraDoBloco[] = []
+    const repetidasNoCabecalho: string[] = []
+    let secao: Secao = { titulo: null, aliquota: null, vendidoPor: null, bloco: {} }
     for (let r = 1; r <= ultima; r++) {
-        if (cabecalhos.has(r)) { secao = secaoDoCabecalho(l, aba, r); continue }
+        if (cabecalhos.has(r)) {
+            const doCabecalho = blocoDoCabecalho(ws, r)
+            repetidasNoCabecalho.push(...doCabecalho.repetidas.map((c) => `linha ${r}: ${c}`))
+            secao = { ...secaoDoCabecalho(l, aba, r), bloco: doCabecalho.bloco }
+            continue
+        }
         if (titulos.has(r) || l.linhaVazia(r)) continue
         const codigo = l.codigo(r, COL_PRECO.codigo)
         if (codigo === null) continue
@@ -325,7 +388,9 @@ function lerPreco(ws: ExcelJS.Worksheet): { itens: ItemLido[]; avisos: Aviso[]; 
             valor_metro_12: l.numero(r, COL_PRECO.valor_metro_12),
             valor_barra_interno: l.numero(r, COL_PRECO.valor_barra_interno),
             valor_barra_12: l.numero(r, COL_PRECO.valor_barra_12),
+            ...blocoDaLinha(r),
         }
+        conferirBloco(r, item)
         const antes = primeiraLinha.get(codigo)
         if (!antes) { primeiraLinha.set(codigo, { linha: r, item }); itens.push(item); continue }
         // Código repetido: fica a PRIMEIRA. Decisão da sessão de verificação, 20/10/2026, que o dono
@@ -340,7 +405,41 @@ function lerPreco(ws: ExcelJS.Worksheet): { itens: ItemLido[]; avisos: Aviso[]; 
                 : `VALORES DIFERENTES — código ${codigo} repetido (linhas ${antes.linha} e ${r}) com preços diferentes. Ficou a primeira; a decisão volta para o dono do produto.`,
         })
     }
-    return { itens, avisos: l.avisos, normalizados: l.normalizados }
+    const recusas: string[] = []
+    if (repetidasNoCabecalho.length) recusas.push(`A aba "${aba}" tem coluna do bloco tributário repetida no mesmo cabeçalho (${repetidasNoCabecalho.join('; ')}): não sei qual ler. Nada foi gravado.`)
+    if (invalidas.length) recusas.push(fraseDasCelulasInvalidasDoBloco(aba, invalidas))
+    if (foraDaRegra.length) recusas.push(fraseDosItensForaDaRegraDoBloco(aba, foraDaRegra))
+    return { itens, avisos: l.avisos, normalizados: l.normalizados, recusas }
+
+    /** As 12 da linha: as que a seção traz pelo cabeçalho; as outras, NULL (não informado). */
+    function blocoDaLinha(linha: number): BlocoTributario {
+        const b = blocoVazio()
+        for (const coluna of COLUNAS_DO_BLOCO_TRIBUTARIO) {
+            const c = secao.bloco[coluna]
+            if (c === undefined) continue
+            const lida = celulaDoBloco(ws, linha, c)
+            if ('invalida' in lida) invalidas.push({ linha, coluna, valor: lida.invalida, motivo: lida.motivo })
+            else b[coluna] = lida.valor
+        }
+        return b
+    }
+
+    /** As regras do banco (antes de gravar, para nomear o item), e o recálculo do resultado contra o que veio. */
+    function conferirBloco(linha: number, item: ItemLido) {
+        for (const motivo of foraDaRegraDoBloco(item)) foraDaRegra.push({ codigo: item.codigo, linha, motivo })
+        if (COLUNAS_DO_BLOCO_TRIBUTARIO.every((c) => item[c] === null)) return
+        const resultado = [item.credito_pct, item.credito_valor, item.custo_liquido]
+        const recalculo = recalcularBloco(item.custo, item)
+        if (recalculo.ok === false) {
+            // sem resultado no arquivo não há o que comparar; com ele, o item é reportado — nada é preenchido com 0
+            if (resultado.some((v) => v !== null)) {
+                l.avisos.push({ tipo: 'bloco_tributario_nao_recalculavel', aba, codigo: item.codigo, linha, faltam: recalculo.faltam, mensagem: fraseDoBlocoNaoRecalculavel(item.codigo, linha, recalculo.faltam) })
+            }
+            return
+        }
+        const ds = divergenciasDoBloco(item, recalculo)
+        if (ds.length) l.avisos.push({ tipo: 'bloco_tributario_divergente', aba, codigo: item.codigo, linha, divergencias: ds, mensagem: fraseDaDivergenciaDoBloco(item.codigo, linha, ds) })
+    }
 }
 
 function lerMotor(ws: ExcelJS.Worksheet): { regras: RegraLida[]; avisos: Aviso[]; normalizados: number } {
@@ -528,6 +627,7 @@ export async function lerArquivosDaImportacao(arquivos: { tabela: ArquivoDaImpor
     // payload da função as exige todas) e o cruzamento não existe: não há motor para cruzar. Quem tem motor lê como sempre, abaixo.
     if (arquivos.motor === null) {
         const soPreco = lerPreco(wsPreco)
+        if (soPreco.recusas.length) return { ok: false, erro: fraseDoArquivo(arquivos.tabela.nome, soPreco.recusas.join(' ')) }
         return {
             ok: true,
             itens: soPreco.itens,
@@ -544,6 +644,7 @@ export async function lerArquivosDaImportacao(arquivos: { tabela: ArquivoDaImpor
     const { motor, formulasDaLinha, resumo, abasDoMotor } = doMotor
 
     const preco = lerPreco(wsPreco)
+    if (preco.recusas.length) return { ok: false, erro: fraseDoArquivo(arquivos.tabela.nome, preco.recusas.join(' ')) }
     const codigosDoPreco = new Set(preco.itens.map((i) => i.codigo))
     const codigosDoMotor = [...new Set(motor.regras.map((r) => r.codigo))]
     const semPreco = codigosDoMotor.filter((c) => !codigosDoPreco.has(c))
