@@ -76,11 +76,12 @@ export interface TabelaPendente { arquivo: File | null; vigencia: string; famili
  * Toda falha nomeia UM arquivo, uma vez: o envio, pelo arquivo enviado (`enviarArquivo`); a
  * gravação, pela tabela (`fraseDaTabela`). Quem chama não acrescenta nome.
  */
-export async function gravarTabelaNova(fornecedorId: string, t: TabelaPendente): Promise<void> {
+export async function gravarTabelaNova(fornecedorId: string, t: TabelaPendente): Promise<{ id: string }> {
     const arquivo = await enviarArquivo(fornecedorId, 'arquivo', t.arquivo as File)
     // a tabela é só preço (28/10/2026): o motor entra pela etapa da família, não por aqui
     try {
-        await chamarRota(ROTAS_DO_CATALOGO.tabelas, 'POST', {
+        // o id volta para quem salva levar à Importação (02/11/2026: importar ao salvar)
+        return await chamarRota<{ id: string }>(ROTAS_DO_CATALOGO.tabelas, 'POST', {
             fornecedor_id: fornecedorId,
             arquivo_path: arquivo.path, arquivo_nome: arquivo.nome,
             vigencia: t.vigencia,

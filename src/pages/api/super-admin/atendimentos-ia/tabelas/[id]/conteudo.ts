@@ -1,6 +1,7 @@
 /**
  * GET /api/super-admin/atendimentos-ia/tabelas/[id]/conteudo — o que a importação gravou para a
- * tabela: as tipologias e o total de fórmulas da linha.
+ * tabela: as tipologias, o total de fórmulas da linha e os ITENS de preço gravados (`itens`, 02/11/2026: é com ele que a tela diz
+ * "não importada" — a contagem do banco, não a da última importação, porque a importação recusada não deixa registro).
  *
  * ══════════════════════════════════════════════════════════════════════════════════════════
  * REGRA INVIOLÁVEL: a tela mostra apenas o nome da conta e a configuração do Atendimentos I.A.
@@ -13,7 +14,7 @@
  */
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { requireSuperAdmin } from '@/lib/get-caller-tenant'
-import { contarFormulas, falhaInterna, listarTipologias, obterArquivosDaTabela } from '@/lib/atendimentos-ia/repositorio'
+import { contarFormulas, contarItensDaTabela, falhaInterna, listarTipologias, obterArquivosDaTabela } from '@/lib/atendimentos-ia/repositorio'
 import { ehUuid } from '@/utils/atendimentos-ia-catalogo'
 import { ordenarPorProporcaoDeCondicionais } from '@/utils/atendimentos-ia-importacao-apresentacao'
 
@@ -28,8 +29,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   try {
     if (!(await obterArquivosDaTabela(id))) return res.status(404).json({ error: 'Tabela não encontrada.' })
-    const [tipologias, formulas] = await Promise.all([listarTipologias(id), contarFormulas(id)])
-    return res.status(200).json({ tipologias: ordenarPorProporcaoDeCondicionais(tipologias), formulas })
+    const [tipologias, formulas, itens] = await Promise.all([listarTipologias(id), contarFormulas(id), contarItensDaTabela(id)])
+    return res.status(200).json({ tipologias: ordenarPorProporcaoDeCondicionais(tipologias), formulas, itens })
   } catch (e) {
     return falhaInterna(res, 'conteúdo da tabela', e, 'Não foi possível ler o conteúdo da tabela.')
   }

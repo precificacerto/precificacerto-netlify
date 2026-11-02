@@ -16,9 +16,18 @@
  * recusa, e a contagem divergente com os dois números lado a lado. A recusa aparece onde a ação
  * aconteceu (cabeçalho de `EXTENSOES_ACEITAS`).
  *
+ * IMPORTAR AO SALVAR (dono do produto, 02/11/2026): "Salvar tabela" com arquivo chega aqui com `?importar=1`, e a tela DISPARA a mesma
+ * importação que o botão dispara — uma vez, e o parâmetro sai da URL em seguida, para o recarregar não reimportar. O resultado aparece
+ * como sempre; a recusa do arquivo não toca no cadastro, que já estava salvo.
+ *
+ * "NÃO IMPORTADA" (mesma decisão): a tabela com 0 itens GRAVADOS (a contagem do banco, em `/conteudo`) diz isso num aviso, com o motivo quando
+ * há — a recusa da importação, ou a importação que não deixou item. A tela NUNCA fica em estado de sucesso sem itens gravados: se a rota
+ * estourou o tempo (504) ou recusou, o estado é lido do banco de novo e o aviso aparece. Antes da primeira leitura do conteúdo não há
+ * contagem, e nada é dito (`ausente-vs-falso.md`).
+ *
  * Tudo pelas rotas, nada pelo cliente do Supabase (`atendimentos-ia-a-tela-nao-fala-com-o-banco`).
  */
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/router'
 import { Alert, Button, Card, Empty, List, Space, Table, Tag, Typography } from 'antd'
 import { ArrowLeftOutlined } from '@ant-design/icons'
@@ -26,7 +35,7 @@ import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
 import { ROUTES } from '@/constants/routes'
 import { useAuth } from '@/hooks/use-auth.hook'
-import { ROTAS_DO_CATALOGO, arquivoImportavel, extensaoDoArquivo, fraseDoArquivoNaoImportavel } from '@/utils/atendimentos-ia-catalogo'
+import { PARAMETRO_IMPORTAR_AO_ABRIR, ROTAS_DO_CATALOGO, arquivoImportavel, extensaoDoArquivo, fraseDoArquivoNaoImportavel, telaDaImportacao } from '@/utils/atendimentos-ia-catalogo'
 import type { Aviso, ContagensDaGravacao, TipologiaLida } from '@/utils/atendimentos-ia-importacao'
 import { quandoFoiImportado, textoDoAviso } from '@/utils/atendimentos-ia-importacao-apresentacao'
 import { ErroDaRota, chamarRota } from '@/page-parts/atendimentos-ia/api'
@@ -44,10 +53,17 @@ interface UltimaImportacao {
     normalizados: number
     avisos: Aviso[]
 }
-interface Conteudo { formulas: number; tipologias: TipologiaLida[] }
+/** `itens` são os de preço GRAVADOS no banco (02/11/2026) — é com eles que a tela diz "não importada". */
+interface Conteudo { formulas: number; tipologias: TipologiaLida[]; itens: number }
 interface ErroDaImportacao { motivo: string; divergencia: { enviado: ContagensDaGravacao; gravado: ContagensDaGravacao } | null }
 
 const num = (x: number) => x.toLocaleString('pt-BR')
+export const TITULO_DA_TABELA_NAO_IMPORTADA = 'Tabela não importada: nenhum item de preço gravado.'
+export const MOTIVO_DA_NAO_IMPORTADA = {
+    recusada: 'A importação foi recusada — o motivo está no aviso acima. O cadastro da tabela ficou salvo; corrija o arquivo e importe de novo.',
+    sem_itens: 'A última importação não deixou item de preço gravado. Confira o arquivo e importe de novo.',
+    nunca: 'Esta tabela ainda não foi importada. Use "Importar" para gravar os itens do arquivo.',
+} as const
 const ROTULO_DA_CONTAGEM: Record<keyof ContagensDaGravacao, string> = { itens: 'Itens de preço', regras: 'Regras do motor', tipologias: 'Tipologias', formulas: 'Fórmulas da linha' }
 
 function Contagem({ chave, rotulo, valor }: { chave: string; rotulo: string; valor: number }) {
@@ -71,6 +87,9 @@ export default function ImportacaoDaTabela() {
     const [erroAoLer, setErroAoLer] = useState<string | null>(null)
     const [erroDaImportacao, setErroDaImportacao] = useState<ErroDaImportacao | null>(null)
     const [importando, setImportando] = useState(false)
+    /** O disparo automático (`?importar=1`) acontece UMA vez por abertura — nem o recarregar da lista nem o efeito repetido o repetem. */
+    const disparou = useRef(false)
+    const importarAoAbrir = router.query[PARAMETRO_IMPORTAR_AO_ABRIR] !== undefined
 
     const carregar = useCallback(async () => {
         if (!id) return
@@ -91,6 +110,16 @@ export default function ImportacaoDaTabela() {
 
     useEffect(() => { if (ehSuperAdmin) carregar() }, [ehSuperAdmin, carregar])
 
+    // IMPORTAR AO SALVAR: chegou com `?importar=1` → dispara a mesma importação do botão, uma vez, e tira o parâmetro da URL
+    useEffect(() => {
+        if (!ehSuperAdmin || !id || !importarAoAbrir || disparou.current) return
+        disparou.current = true
+        router.replace(telaDaImportacao(id), undefined, { shallow: true })
+        importar()
+    // `importar` é função do componente, estável por fechar sobre `id`; o disparo é guardado por `disparou`
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [ehSuperAdmin, id, importarAoAbrir])
+
     if (currentUser && !ehSuperAdmin) {
         router.replace(ROUTES.DASHBOARD)
         return null
@@ -103,7 +132,6 @@ export default function ImportacaoDaTabela() {
         setErroDaImportacao(null)
         try {
             await chamarRota(ROTAS_DO_CATALOGO.importacao(id), 'POST')
-            await carregar()
         } catch (e) {
             const corpo = (e instanceof ErroDaRota ? e.corpo : null) as { enviado?: ContagensDaGravacao; gravado?: ContagensDaGravacao } | null
             setErroDaImportacao({
@@ -111,9 +139,15 @@ export default function ImportacaoDaTabela() {
                 divergencia: corpo?.enviado && corpo?.gravado ? { enviado: corpo.enviado, gravado: corpo.gravado } : null,
             })
         } finally {
+            // o estado volta do BANCO também na recusa e no 504 (02/11/2026): a tela nunca afirma sucesso sem itens gravados
+            await carregar()
             setImportando(false)
         }
     }
+
+    // "não importada" = 0 itens GRAVADOS, lidos do banco; sem a leitura do conteúdo não há contagem, e nada é dito
+    const naoImportada = conteudo !== null && conteudo.itens === 0 && !importando
+    const motivoDaNaoImportada = erroDaImportacao ? MOTIVO_DA_NAO_IMPORTADA.recusada : ultima ? MOTIVO_DA_NAO_IMPORTADA.sem_itens : MOTIVO_DA_NAO_IMPORTADA.nunca
 
     const voltar = () => router.push(tabela ? `${ROUTES.SUPER_ADMIN_IA_FORNECEDORES}/${tabela.fornecedor_id}` : ROUTES.SUPER_ADMIN_IA_FORNECEDORES)
 
@@ -162,6 +196,10 @@ export default function ImportacaoDaTabela() {
                                 </>
                             }
                         />
+                    )}
+
+                    {naoImportada && (
+                        <Alert type="warning" showIcon message={TITULO_DA_TABELA_NAO_IMPORTADA} description={motivoDaNaoImportada} data-nao-importada={erroDaImportacao ? 'recusada' : ultima ? 'sem-itens' : 'nunca'} />
                     )}
 
                     <Card size="small" title="Arquivos">
