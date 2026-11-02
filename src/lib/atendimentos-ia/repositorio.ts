@@ -19,6 +19,7 @@ import { supabaseAdmin } from '@/supabase/admin'
 import {
     BUCKET_DO_CATALOGO,
     type Categoria,
+    type CategoriaDoCatalogo,
     type ContaLigada,
     type CorpoDaTabela,
     type Familia,
@@ -235,10 +236,39 @@ export const medirArrastoDoCatalogo = (a: { tipo: string; chave: string }) => rp
 export const removerDoCatalogo = (a: { por: string; tipo: string; chave: string; assinatura: string }) =>
     rpc('superadmin_remover_do_catalogo', { p_por: a.por, p_tipo: a.tipo, p_chave: a.chave, p_assinatura: a.assinatura })
 
-// ── Categorias (migração 20261027000005) ─────────────────────────────────────────────────────
-/** O catálogo das categorias da plataforma, SEM ordem — quem ordena é a rota. Só leitura: a lista é da plataforma. */
+// ── Categorias (migração 20261027000005; a aba, 20261102000002) ──────────────────────────────
+/** O catálogo das categorias da plataforma, SEM ordem — quem ordena é a rota. */
 export async function listarCategorias(): Promise<Categoria[]> {
     return q(db().from('orcamentista_categoria_catalogo').select('chave, rotulo, ordem'))
+}
+/** `superadmin_criar_categoria` (20261102000002): a chave derivada do nome, a ordem no fim, o log. */
+export const criarCategoria = (a: { por: string; chave: string; rotulo: string }) =>
+    rpc('superadmin_criar_categoria', { p_por: a.por, p_chave: a.chave, p_rotulo: a.rotulo })
+/** `superadmin_editar_categoria` (20261102000002): SÓ o rótulo — a chave não se renomeia (decisão 1, 02/11/2026). */
+export const editarCategoria = (a: { por: string; chave: string; rotulo: string }) =>
+    rpc('superadmin_editar_categoria', { p_por: a.por, p_chave: a.chave, p_rotulo: a.rotulo })
+/**
+ * QUEM USA cada categoria, para a aba: as tabelas e os motores do catálogo com a categoria, as famílias que a declaram como ramificação e as
+ * EMPRESAS com a categoria na base de conhecimento (`orcamentista_mp_categoria`). É leitura de contagem; o arrasto de verdade é a medição da remoção.
+ */
+export async function usosDasCategorias(): Promise<Map<string, CategoriaDoCatalogo['usos']>> {
+    const [tabelas, motores, ramos, contas] = await Promise.all([
+        q(db().from('orcamentista_tabela').select('categoria_chave')) as Promise<Array<{ categoria_chave: string | null }>>,
+        q(db().from('orcamentista_motor').select('categoria_chave')) as Promise<Array<{ categoria_chave: string | null }>>,
+        q(db().from('orcamentista_familia_ramificacao').select('familia, categoria_chave, ordem')) as Promise<Array<{ familia: string; categoria_chave: string; ordem: number }>>,
+        q(db().from('orcamentista_mp_categoria').select('categoria_chave, tenant_id')) as Promise<Array<{ categoria_chave: string; tenant_id: string }>>,
+    ])
+    const tenants = [...new Set(contas.map((c) => c.tenant_id))]
+    const nomes = new Map<string, string>()
+    if (tenants.length > 0) for (const t of await q(db().from('tenants').select('id, name').in('id', tenants)) as Array<{ id: string; name: string | null }>) nomes.set(t.id, t.name || '(sem nome)')
+    const usos = new Map<string, CategoriaDoCatalogo['usos']>()
+    const de = (chave: string) => { const u = usos.get(chave) ?? { tabelas: 0, motores: 0, familias: [], empresas: [] }; usos.set(chave, u); return u }
+    for (const t of tabelas) if (t.categoria_chave) de(t.categoria_chave).tabelas += 1
+    for (const m of motores) if (m.categoria_chave) de(m.categoria_chave).motores += 1
+    for (const r of ramos) { const u = de(r.categoria_chave); if (!u.familias.includes(r.familia)) u.familias.push(r.familia) }
+    for (const c of contas) { const u = de(c.categoria_chave); const n = nomes.get(c.tenant_id) ?? '(sem nome)'; if (!u.empresas.includes(n)) u.empresas.push(n) }
+    for (const u of usos.values()) { u.familias.sort((a, b) => a.localeCompare(b, 'pt-BR')); u.empresas.sort((a, b) => a.localeCompare(b, 'pt-BR')) }
+    return usos
 }
 
 // ── Tabelas ────────────────────────────────────────────────────────────────────────────────

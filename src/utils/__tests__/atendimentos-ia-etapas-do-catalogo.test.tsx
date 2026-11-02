@@ -426,7 +426,8 @@ describe('(6) a tela do catálogo de etapas', () => {
 
 describe('(7) a página do nicho tem a quarta aba', () => {
     it('Etapas vem depois de Motores, com o nome "Etapas", e a URL a abre', () => {
-        expect(ABAS_DO_NICHO).toEqual(['familias', 'fornecedores', 'motores', 'etapas'])
+        // 'categorias' logo depois de Famílias: dono do produto, 02/11/2026 (migração 20261102000002)
+        expect(ABAS_DO_NICHO).toEqual(['familias', 'categorias', 'fornecedores', 'motores', 'etapas'])
         expect(ROTULO_DA_ABA_DO_NICHO.etapas).toBe('Etapas')
         expect(abaDoNicho('etapas')).toBe('etapas')
         expect(rotaDoNicho('n-1', 'etapas')).toBe('/super-admin/atendimentos-ia/catalogo/n-1?aba=etapas')

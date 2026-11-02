@@ -3,7 +3,9 @@
  * motor e etapa do catálogo — e a tabela de fornecedor, a quinta raiz (dono do produto, 01/11/2026; migração 20261101000001; o DELETE de
  * `tabelas/[id]` saiu, 405):
  *
- * GET  /api/super-admin/atendimentos-ia/catalogo/remover?tipo=<familia|fornecedor|motor|etapa|tabela>&chave=<chave da família ou uuid>
+ * GET  /api/super-admin/atendimentos-ia/catalogo/remover?tipo=<familia|fornecedor|motor|etapa|tabela|categoria>&chave=<chave da família ou da categoria, ou uuid>
+ *      A CATEGORIA é a sexta raiz (dono do produto, 02/11/2026; migração 20261102000002): o arrasto nomeia cada empresa (`empresas`), e as quatro
+ *      estruturais voltam com o impedimento `categoria_estrutural` (a função recusa com 23514 → 409 com a frase).
  *      MEDE o arrasto, SEM APAGAR NADA (`superadmin_arrasto_do_catalogo`): por passo, a quantidade e até dez nomes ("e mais N"); o que FICA;
  *      os avisos (a conversa que PARA quando sai uma tabela com motor — decisão 4; a renumeração das etapas); os impedimentos; a assinatura.
  * POST `{ tipo, chave, assinatura, confirmo: true }` — REMOVE, só com a confirmação explícita e a assinatura do que foi mostrado
@@ -64,11 +66,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 return recusa(res, e2, 'arrasto POST (medir de novo)', ARRASTO_MUDOU)
             }
         }
-        if (codigo === '23505') {
+        // 23505: o impedimento da família (vigentes sem família); 23514: a categoria ESTRUTURAL (decisão 3, 02/11/2026). Os dois voltam medidos de novo
+        if (codigo === '23505' || codigo === '23514') {
             try {
                 const novo = lerArrasto(await medirArrastoDoCatalogo({ tipo, chave }))
                 const frases = novo?.impedimentos.map(fraseDoImpedimento) ?? []
-                return res.status(409).json({ error: frases.length > 0 ? `Nada foi removido. ${frases.join(' ')}` : 'Nada foi removido: o banco recusou por um conflito de unicidade.', arrasto: novo })
+                return res.status(409).json({ error: frases.length > 0 ? `Nada foi removido. ${frases.join(' ')}` : 'Nada foi removido: o banco recusou por uma regra dele.', arrasto: novo })
             } catch (e2) {
                 return recusa(res, e2, 'arrasto POST (impedimento)', 'Nada foi removido: a remoção está impedida.')
             }
