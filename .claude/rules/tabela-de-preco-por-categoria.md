@@ -760,6 +760,57 @@ família com motores diferentes na mesma etapa é **erro de configuração**.
   (o portão `(1p)` de `levantamento-da-conversa.test.ts` reproduz isso).
 
 
+## A categoria ganha tela: criar, renomear e remover, a sexta raiz da soberania — dono do produto, 02/11/2026 (migração `20261102000002`, PENDENTE até o dono do produto aplicar; pressupõe a `20261031000003` e a `20261101000001`)
+
+Formulação do dono do produto, registrada como está:
+
+> "Hoje as categorias (orcamentista_categoria_catalogo: PERFIL, PERSIANAS, REFORCO, FERRAGENS, ACESSORIOS_VEDACAO, VIDRO, INSTALACAO) não têm tela
+> [...] Quero criar, renomear e remover categoria, como já faço com etapa." E: "a aba Categorias fica logo DEPOIS de Famílias, ou seja, a ordem das
+> abas do catálogo passa a ser: Famílias, Categorias, Fornecedores, Motores, Etapas."
+
+**As três decisões do dono do produto, registradas como foram ditas:**
+
+1. > "SIM — renomear é só o rótulo; a chave é imutável, como na família. A tela deve dizer isso quando o usuário tentar editar a chave."
+   A chave nasce derivada do nome (`chaveDaCategoria`, a mesma regra da família: maiúscula, sem acento, `_`, até 40) e aparece antes de salvar;
+   `superadmin_editar_categoria(p_por, p_chave, p_rotulo)` só recebe o rótulo; `chave` no corpo do POST ou do PATCH é recusa com a frase
+   `CHAVE_DA_CATEGORIA_NAO_MUDA`; na tela, a chave aparece travada e tocá-la mostra a frase. A estrutural também renomeia — dela só a remoção é recusada.
+2. > "ARRASTA, como nas outras raízes. A remoção leva mp_categoria e o que pende dela, mas o arrasto tem de listar isso NOMEANDO CADA EMPRESA e a
+   > contagem por empresa antes de confirmar, e a remoção recusa se a assinatura mudou. Configuração de conta não é documento de cliente, então a trava C
+   > não se aplica; o que protege aqui é o arrasto declarado. Nunca apague sem exibir a lista."
+   O tipo `categoria` entra em `orcamentista_arrasto_passos` com **43 passos**: o item de levantamento perde o motor e a tabela (documento de cliente —
+   a trava C continua valendo para ele); a etapa de conta fica sem motor; o conteúdo dos motores e das tabelas da categoria, as importações, os itens, a
+   `conta_tabela`, as ligações, os motores e as tabelas saem; depois **a base de conhecimento das contas** — `mp_categoria_fornecedor`, `mp_vidro`,
+   `mp_ferragem`, `mp_instalacao`, `mp_categoria` (filtradas pela categoria da família de conta, cada linha nomeando a empresa) —, os
+   `categoria_campo`, as `familia_ramificacao` e a linha do catálogo. A medição devolve a chave nova **`empresas`**: por tenant, a empresa e a contagem de
+   categorias de conta, fornecedores escolhidos, vidros, ferragens e instalações que saem — a lista inteira, não dez nomes —, e a confirmação a mostra
+   em "Por empresa" antes da caixa. Nos outros cinco tipos, `empresas` é `[]`. A assinatura, a trava da linha, a conferência por passo e a conta das
+   tabelas contra cascatas são as da `20261031000003`.
+3. > "SIM — PERFIL, VIDRO, FERRAGENS e INSTALACAO têm remoção RECUSADA nesta PR, com motivo nomeado dizendo que são estruturais no código e no banco.
+   > Mudança de código para destravá-las fica para outra PR. Criar categoria nova e remover categoria não estrutural é livre."
+   `orcamentista_categorias_estruturais()` devolve as quatro; a medição delas traz o impedimento `categoria_estrutural`, e `superadmin_remover_do_catalogo`
+   recusa com **23514** (`check_violation`) e a frase "a categoria X e estrutural: o codigo e o banco dependem da chave dela (CHECKs e funcoes). Nada foi
+   removido." — a rota trata o 23514 como o 23505: 409 com a frase, medida de novo. Na tela, o Remover delas vem desligado, com o motivo. **Por que são
+   estruturais (medido em 02/11/2026):** no código, `CATEGORIA_QUE_EXIGE_FAMILIA = 'PERFIL'`, `CAMPO_DA_LINHA` (`arvore.ts`), `repositorio.ts:175`,
+   `levantamento-da-conversa.ts:148,454`; no banco, as CHECKs `orcamentista_tabela_familia_no_perfil`, `mp_vidro_categoria_vidro`,
+   `mp_ferragem_categoria_ferragens`, `mp_instalacao_categoria_instalacao`, as funções `superadmin_gravar_mp_vidros/ferragens/instalacao` e a
+   `orcamentista_arrasto_conjuntos` (a tabela de PERFIL da família). `CATEGORIAS_ESTRUTURAIS` no código é conferida contra a função da migração pelo teste.
+
+**O que mais a migração faz:** as CHECKs `orcamentista_categoria_catalogo_chave_forma` (`^[A-Z][A-Z0-9_]{0,39}$`) e `_rotulo_forma` (aparado, 1 a 60),
+com guarda que aborta nomeando a linha que fugir da forma; `superadmin_criar_categoria(p_por, p_chave, p_rotulo)` (ordem = última + 1 sob trava de
+aviso; chave e nome repetidos sem caixa são recusa 22023; log com tenant nulo); o fecho do arrasto passa a conhecer `orcamentista_mp_categoria` e
+`orcamentista_categoria_campo`; a guarda confere por md5 os cinco corpos do arrasto como estão em produção, e a verificação aborta se os passos dos cinco
+tipos de antes mudarem, se os 43 da categoria não forem os esperados na ordem, se um documento de cliente sair, ou se uma FK mudar.
+
+**A tela:** `categorias-do-catalogo.component.tsx`, na aba Categorias do nicho; GET `/categorias` continua a lista leve do modal de tabela e ganha
+`estrutural`; `?usos=1` traz quem usa (tabelas, motores, famílias, empresas); POST cria; PATCH `/categorias/[chave]` renomeia; remover é a rota
+`catalogo/remover` com `tipo=categoria`. O catálogo é GLOBAL, como famílias e etapas (a mesma dívida do nicho).
+
+**Prova:** `scripts/harness/categorias-do-catalogo/` — a base da tabela-soberana + o privilégio padrão + a `20261101000002` + a `20261102000001` + o
+catálogo de campos como em produção (`09_estado.sql`) + a tabela de persianas (`09_persianas.sql`), a migração duas vezes, 14 casos (os 43 passos, a
+medição por empresa, as quatro estruturais recusadas, a remoção de PERSIANAS e de REFORCO com o log linha a linha e as outras intactas, a assinatura,
+a categoria com motor e etapa, criar e editar com cada recusa, as CHECKs), a regressão dos 22 + 8 casos das duas migrações de antes, 4 corridas, 3
+guardas e 30 mutações nas duas passadas (a mutação do GRANT da remoção era equivalente — o CREATE OR REPLACE preserva a ACL — e foi trocada; está anotada no `mutacoes.py`).
+
 ## O bloco tributário do item da tabela — dono do produto, 02/11/2026 (migração `20261102000001`, PENDENTE até o dono do produto aplicar)
 
 Formulação do dono do produto, registrada como está:

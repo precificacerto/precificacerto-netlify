@@ -14,21 +14,23 @@
  * Este módulo é puro: os tipos da resposta, a leitura do corpo, a leitura da resposta (forma errada é ERRO, nunca arrasto vazio —
  * `ausente-vs-falso.md`) e as frases, com acento, do que a função devolve como dado.
  */
-import { ehChaveDeFamilia, ehUuid, type Leitura } from '@/utils/atendimentos-ia-catalogo'
+import { ehChaveDeCategoria, ehChaveDeFamilia, ehUuid, fraseDaCategoriaEstrutural, type Leitura } from '@/utils/atendimentos-ia-catalogo'
 
 // 'tabela' (dono do produto, 01/11/2026; migração 20261101000001): a tabela de fornecedor é a quinta raiz — "Se for excluído, deve ser excluído".
-export const TIPOS_DE_REMOCAO = ['familia', 'fornecedor', 'motor', 'etapa', 'tabela'] as const
+// 'categoria' (dono do produto, 02/11/2026; migração 20261102000002): a sexta raiz — "ARRASTA, como nas outras raízes", nomeando cada empresa.
+export const TIPOS_DE_REMOCAO = ['familia', 'fornecedor', 'motor', 'etapa', 'tabela', 'categoria'] as const
 export type TipoDeRemocao = (typeof TIPOS_DE_REMOCAO)[number]
 export const ehTipoDeRemocao = (v: unknown): v is TipoDeRemocao => typeof v === 'string' && (TIPOS_DE_REMOCAO as readonly string[]).includes(v)
 
 /** O nome do que se remove, para o título da confirmação. */
-export const NOME_DO_TIPO: Record<TipoDeRemocao, string> = { familia: 'a família', fornecedor: 'o fornecedor', motor: 'o motor', etapa: 'a etapa do catálogo', tabela: 'a tabela' }
+export const NOME_DO_TIPO: Record<TipoDeRemocao, string> = { familia: 'a família', fornecedor: 'o fornecedor', motor: 'o motor', etapa: 'a etapa do catálogo', tabela: 'a tabela', categoria: 'a categoria' }
 
 export const ROTA_DA_REMOCAO = '/api/super-admin/atendimentos-ia/catalogo/remover'
 export const rotaDoArrasto = (tipo: TipoDeRemocao, chave: string) => `${ROTA_DA_REMOCAO}?tipo=${tipo}&chave=${encodeURIComponent(chave)}`
 
-/** A chave de cada tipo: a família é a CHAVE do catálogo (texto); os outros quatro, o uuid da linha. */
-export const chaveDaRemocaoValida = (tipo: TipoDeRemocao, chave: unknown): chave is string => (tipo === 'familia' ? ehChaveDeFamilia(chave) : ehUuid(chave))
+/** A chave de cada tipo: a família e a categoria são a CHAVE do catálogo (texto); os outros quatro, o uuid da linha. */
+export const chaveDaRemocaoValida = (tipo: TipoDeRemocao, chave: unknown): chave is string =>
+    tipo === 'familia' ? ehChaveDeFamilia(chave) : tipo === 'categoria' ? ehChaveDeCategoria(chave) : ehUuid(chave)
 
 export interface PassoDoArrasto {
     passo: number
@@ -43,7 +45,12 @@ export interface FicaNoArrasto { rotulo: string; quantidade: number; nomes: stri
 export type AvisoDoArrasto =
     | { tipo: 'conversa_para'; tabela_id: string; arquivo: string; empresas: string[] }
     | { tipo: 'renumeracao' }
-export interface ImpedimentoDoArrasto { tipo: 'vigentes_sem_familia'; fornecedor: string; categoria: string | null; tabelas: Array<{ id: string; arquivo: string }> }
+export type ImpedimentoDoArrasto =
+    | { tipo: 'vigentes_sem_familia'; fornecedor: string; categoria: string | null; tabelas: Array<{ id: string; arquivo: string }> }
+    // decisão 3 (02/11/2026): as quatro estruturais não saem por aqui
+    | { tipo: 'categoria_estrutural'; categoria: string }
+/** Decisão 2 (02/11/2026): na categoria, CADA EMPRESA cuja base de conhecimento sai, com a contagem do que sai dela — a lista inteira, não dez nomes. */
+export interface EmpresaNoArrasto { empresa: string; categorias: number; fornecedores: number; vidros: number; ferragens: number; instalacao: number }
 export interface Arrasto {
     tipo: TipoDeRemocao
     chave: string
@@ -52,6 +59,8 @@ export interface Arrasto {
     ficam: FicaNoArrasto[]
     avisos: AvisoDoArrasto[]
     impedimentos: ImpedimentoDoArrasto[]
+    /** Só a categoria preenche; as funções de antes da 20261102000002 não mandam a chave, e a leitura a completa com `[]`. */
+    empresas: EmpresaNoArrasto[]
     sai: number
     perde_o_vinculo: number
     assinatura: string
@@ -69,9 +78,13 @@ function ehAviso(v: unknown): v is AvisoDoArrasto {
     return v.tipo === 'conversa_para' && ehUuid(v.tabela_id) && ehTexto(v.arquivo) && ehListaDeTextos(v.empresas)
 }
 function ehImpedimento(v: unknown): v is ImpedimentoDoArrasto {
-    return ehObjeto(v) && v.tipo === 'vigentes_sem_familia' && ehTexto(v.fornecedor) && (v.categoria === null || ehTexto(v.categoria))
+    if (!ehObjeto(v)) return false
+    if (v.tipo === 'categoria_estrutural') return ehTexto(v.categoria)
+    return v.tipo === 'vigentes_sem_familia' && ehTexto(v.fornecedor) && (v.categoria === null || ehTexto(v.categoria))
         && Array.isArray(v.tabelas) && v.tabelas.every((t) => ehObjeto(t) && ehUuid(t.id) && ehTexto(t.arquivo))
 }
+const ehEmpresa = (v: unknown): v is EmpresaNoArrasto =>
+    ehObjeto(v) && ehTexto(v.empresa) && ehInteiro(v.categorias) && ehInteiro(v.fornecedores) && ehInteiro(v.vidros) && ehInteiro(v.ferragens) && ehInteiro(v.instalacao)
 
 /** A resposta da medição, conferida campo a campo. Forma errada é `null` — quem chama mostra ERRO, nunca um arrasto vazio. */
 export function lerArrasto(v: unknown): Arrasto | null {
@@ -81,13 +94,16 @@ export function lerArrasto(v: unknown): Arrasto | null {
         && ehTexto((p as Record<string, unknown>).tabela) && ['sai', 'perde_o_vinculo'].includes((p as Record<string, unknown>).acao as string))) return null
     if (!Array.isArray(v.ficam) || !v.ficam.every(ehNomeado)) return null
     if (!Array.isArray(v.avisos) || !v.avisos.every(ehAviso) || !Array.isArray(v.impedimentos) || !v.impedimentos.every(ehImpedimento)) return null
-    return v as unknown as Arrasto
+    // `empresas` ausente é a função de antes (nenhuma empresa a nomear); presente, tem de ter a forma — a categoria nomeia cada uma
+    if (v.empresas !== undefined && (!Array.isArray(v.empresas) || !v.empresas.every(ehEmpresa))) return null
+    if (v.tipo === 'categoria' && !Array.isArray(v.empresas)) return null
+    return { ...(v as unknown as Arrasto), empresas: (v.empresas as EmpresaNoArrasto[] | undefined) ?? [] }
 }
 
 // ── O pedido de remoção ─────────────────────────────────────────────────────────────────────
 export const CONFIRMACAO_OBRIGATORIA = 'A remoção só acontece com a confirmação explícita de quem leu o que sai (confirmo: true).'
 export const ASSINATURA_OBRIGATORIA = 'Falta a assinatura do arrasto mostrado: meça de novo antes de remover.'
-export const TIPO_DESCONHECIDO = 'Tipo de remoção desconhecido: só família, fornecedor, motor ou etapa.'
+export const TIPO_DESCONHECIDO = 'Tipo de remoção desconhecido: só família, categoria, fornecedor, motor, etapa ou tabela.'
 export const CHAVE_INVALIDA = 'O item do catálogo a remover não foi informado, ou não tem a forma do tipo.'
 
 export interface PedidoDeRemocao { tipo: TipoDeRemocao; chave: string; assinatura: string }
@@ -127,6 +143,13 @@ const ROTULO: Record<string, string> = {
     'orcamentista_familia_catalogo:sai': 'família do catálogo',
     'orcamentista_mp_categoria_fornecedor:sai': 'fornecedor escolhido por conta',
     'orcamentista_fornecedor:sai': 'fornecedor',
+    // a categoria, a sexta raiz (02/11/2026): a base de conhecimento das contas sai com ela
+    'orcamentista_mp_vidro:sai': 'vidro da conta',
+    'orcamentista_mp_ferragem:sai': 'ferragem da conta',
+    'orcamentista_mp_instalacao:sai': 'instalação da conta',
+    'orcamentista_mp_categoria:sai': 'categoria da família de conta, com os dados',
+    'orcamentista_categoria_campo:sai': 'campo da categoria',
+    'orcamentista_categoria_catalogo:sai': 'categoria do catálogo',
 }
 export function rotuloDoPasso(p: Pick<PassoDoArrasto, 'tabela' | 'acao' | 'rotulo'>): string {
     const conhecido = ROTULO[`${p.tabela}:${p.acao}`]
@@ -165,8 +188,12 @@ export function fraseDoAviso(a: AvisoDoArrasto): string {
         + 'Este aviso sai quando a conversa passar a ler o motor pelo catálogo (PR D).'
 }
 
-/** O impedimento: não é uso, é o conflito que o banco recusaria no meio — duas tabelas vigentes do mesmo fornecedor e categoria ficariam sem família. */
+/**
+ * O impedimento: não é uso. Na família, é o conflito que o banco recusaria no meio — duas tabelas vigentes do mesmo fornecedor e categoria ficariam
+ * sem família. Na categoria, é a decisão 3: a estrutural não sai por aqui.
+ */
 export function fraseDoImpedimento(i: ImpedimentoDoArrasto): string {
+    if (i.tipo === 'categoria_estrutural') return fraseDaCategoriaEstrutural(i.categoria)
     const tabelas = i.tabelas.map((t) => `${t.arquivo} (${t.id.slice(0, 8)})`).join(', ')
     return `As tabelas ${tabelas} ficariam vigentes juntas, sem família (fornecedor ${i.fornecedor}, categoria ${i.categoria ?? 'sem categoria'}): `
         + 'arquive ou tire a vigência de uma delas antes de remover a família.'
@@ -177,6 +204,18 @@ export function resumoDoArrasto(a: Pick<Arrasto, 'sai' | 'perde_o_vinculo'>): st
     const partes = [`Sai: ${a.sai.toLocaleString('pt-BR')} linha(s).`]
     if (a.perde_o_vinculo > 0) partes.push(`Fica e perde o vínculo: ${a.perde_o_vinculo.toLocaleString('pt-BR')} linha(s).`)
     return partes.join(' ')
+}
+
+/** Decisão 2: a linha de cada empresa — `Esquadrias De Paula Ltda: 1 categoria da família de conta, 1 fornecedor escolhido, 4 vidros`. Só o que não é zero. */
+export function fraseDaEmpresa(e: EmpresaNoArrasto): string {
+    const partes: string[] = []
+    const n = (q: number, um: string, varios: string) => { if (q > 0) partes.push(`${q.toLocaleString('pt-BR')} ${q === 1 ? um : varios}`) }
+    n(e.categorias, 'categoria da família de conta', 'categorias de família de conta')
+    n(e.fornecedores, 'fornecedor escolhido', 'fornecedores escolhidos')
+    n(e.vidros, 'vidro', 'vidros')
+    n(e.ferragens, 'ferragem', 'ferragens')
+    n(e.instalacao, 'instalação', 'instalações')
+    return `${e.empresa}: ${partes.length > 0 ? partes.join(', ') : 'nada'}`
 }
 
 export const CONFIRMO_O_ARRASTO = 'Li o que sai e o que perde o vínculo, e confirmo a remoção.'

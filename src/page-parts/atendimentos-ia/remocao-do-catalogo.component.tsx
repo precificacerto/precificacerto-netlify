@@ -7,12 +7,14 @@
  * conversa de uma empresa PARA quando sai uma tabela com motor (decisão 4; sai quando o PR D entrar) — e os IMPEDIMENTOS. O botão Remover só
  * acende com a caixa de confirmação marcada e sem impedimento. Se o arrasto mudar entre a medição e o clique, a rota recusa (409) com o NOVO, a
  * tela o mostra e pede a confirmação de novo. A falha de leitura aparece como ERRO, nunca como arrasto vazio (`ausente-vs-falso.md`).
+ * A CATEGORIA (02/11/2026, decisão 2): a base de conhecimento das contas sai com ela, e a confirmação lista CADA EMPRESA com a contagem do que
+ * sai dela — a lista inteira, antes da caixa. "Nunca apague sem exibir a lista."
  */
 import React, { useCallback, useEffect, useState } from 'react'
 import { Alert, Checkbox, Modal, Space, Spin, Typography } from 'antd'
 import { ErroDaRota, chamarRota } from '@/page-parts/atendimentos-ia/api'
 import {
-    CONFIRMO_O_ARRASTO, ROTA_DA_REMOCAO, fraseDoAviso, fraseDoImpedimento, lerArrasto, nomesComOResto, passosQueMexem, resumoDoArrasto, rotaDoArrasto,
+    CONFIRMO_O_ARRASTO, ROTA_DA_REMOCAO, fraseDaEmpresa, fraseDoAviso, fraseDoImpedimento, lerArrasto, nomesComOResto, passosQueMexem, resumoDoArrasto, rotaDoArrasto,
     rotuloDoPasso, rotuloDoQueFica, tituloDaRemocao, type Arrasto, type PassoDoArrasto, type TipoDeRemocao,
 } from '@/utils/atendimentos-ia-remocao'
 
@@ -95,6 +97,12 @@ export function RemocaoDoCatalogo({ alvo, onFechar, onRemovido }: Props) {
                             <div data-o-que-perde-o-vinculo>
                                 <Typography.Text strong>Fica, e perde o vínculo:</Typography.Text>
                                 <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>{perde.map((p) => <Passo key={p.passo} p={p} />)}</ul>
+                            </div>
+                        )}
+                        {arrasto.empresas.length > 0 && (
+                            <div data-por-empresa>
+                                <Typography.Text strong>Por empresa (a base de conhecimento que sai de cada conta):</Typography.Text>
+                                <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>{arrasto.empresas.map((e) => <li key={e.empresa} data-empresa-no-arrasto={e.empresa}>{fraseDaEmpresa(e)}</li>)}</ul>
                             </div>
                         )}
                         {arrasto.ficam.length > 0 && (

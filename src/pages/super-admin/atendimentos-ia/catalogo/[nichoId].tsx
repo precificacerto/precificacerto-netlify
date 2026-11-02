@@ -2,9 +2,10 @@
  * Atendimentos I.A. → CATÁLOGO → UM NICHO. Só o super admin.
  *
  * O NICHO É O CONTAINER (dono do produto, 29/10/2026, opção A): famílias, fornecedores e motores vivem DENTRO do nicho — abrindo
- * "Esquadrias" é que se cria, edita e remove os três. A página tem quatro abas, nesta ordem: FAMÍLIAS → FORNECEDORES → MOTORES → ETAPAS (a ordem do
- * Catálogo de 28/10/2026: a família define as categorias, o fornecedor usa as categorias, o motor escolhe o fornecedor; a ETAPA, ao lado de Motores,
- * é o item que a conta seleciona — 31/10/2026, migração 20261031000002). A aba vem da URL
+ * "Esquadrias" é que se cria, edita e remove os três. A página tem cinco abas, nesta ordem: FAMÍLIAS → CATEGORIAS → FORNECEDORES → MOTORES → ETAPAS
+ * (a ordem do Catálogo de 28/10/2026: a família define as categorias, o fornecedor usa as categorias, o motor escolhe o fornecedor; a ETAPA, ao lado
+ * de Motores, é o item que a conta seleciona — 31/10/2026, migração 20261031000002; a CATEGORIA logo depois de Famílias — dono do produto,
+ * 02/11/2026, migração 20261102000002). A aba vem da URL
  * (`?aba=`), para o link "cadastrar motor no catálogo" da etapa cair direto nos motores do nicho da conta.
  *
  * O QUE É DO NICHO, E O QUE NÃO É:
@@ -14,6 +15,7 @@
  *     além da PVC Wolf — dívida registrada em `tabela-de-preco-por-categoria.md`). A aba diz isso, para ninguém achar que acrescentar uma
  *     família aqui a deixa só neste nicho.
  *   - ETAPAS: GLOBAIS também, como as famílias (a mesma dívida). O nome, a ação e as abas do motor que a etapa carrega; a conta escolhe o item.
+ *   - CATEGORIAS: GLOBAIS também. Criar, renomear (só o nome; a chave não muda) e remover (o arrasto nomeia cada empresa; as estruturais recusadas).
  *
  * TUDO PELAS ROTAS (`ROTAS_DO_CATALOGO`), nada pelo cliente do Supabase: as tabelas não dão privilégio ao navegador, e uma lista lida por ele
  * chegaria VAZIA, dizendo "nenhum fornecedor" sobre um dado que ninguém leu. Falha de leitura aparece como ERRO, nunca como lista vazia
@@ -42,6 +44,7 @@ import { FornecedorModal, TITULO_FORNECEDOR_NAO_CREDENCIADO, type DadosDoFornece
 import { FamiliasCard, type DadosDaFamilia } from '@/page-parts/atendimentos-ia/familias.component'
 import { MotoresDoCatalogo } from '@/page-parts/atendimentos-ia/motores-do-catalogo.component'
 import { EtapasDoCatalogo } from '@/page-parts/atendimentos-ia/etapas-do-catalogo.component'
+import { CategoriasDoCatalogo } from '@/page-parts/atendimentos-ia/categorias-do-catalogo.component'
 
 export default function NichoDoCatalogo() {
     const router = useRouter()
@@ -140,6 +143,8 @@ export default function NichoDoCatalogo() {
                 <FamiliasCard familias={familias} categorias={categorias} onCriar={criarFamilia} onEditar={editarFamilia} onRemovida={familiaRemovida} />
             </div>
         ),
+        // a aba relê o catálogo ao gravar; a página relê o dela (as categorias do modal de tabela e das famílias) junto
+        categorias: <div data-aba-categorias><CategoriasDoCatalogo /></div>,
         fornecedores: (
             <div data-aba-fornecedores>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '4px 0 12px' }} data-secao-fornecedores>
@@ -202,7 +207,7 @@ export default function NichoDoCatalogo() {
             ) : nicho === null ? null : (
                 <div data-pagina-do-nicho={nicho.id}>
                     <Typography.Paragraph type="secondary" style={{ marginBottom: 4 }}>
-                        <Tag>{ROTULO_DO_MODELO[nicho.modelo]}</Tag> Famílias, fornecedores, motores e etapas do nicho {nicho.nome}.
+                        <Tag>{ROTULO_DO_MODELO[nicho.modelo]}</Tag> Famílias, categorias, fornecedores, motores e etapas do nicho {nicho.nome}.
                     </Typography.Paragraph>
                     <Tabs activeKey={aba} onChange={trocarAba}
                         items={ABAS_DO_NICHO.map((a) => ({ key: a, label: ROTULO_DA_ABA_DO_NICHO[a], children: conteudo[a] }))} />

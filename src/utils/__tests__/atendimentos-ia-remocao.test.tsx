@@ -42,7 +42,7 @@ const W = '44c5c0fe-a0d3-4aab-802d-20a6eff3f654'
 const T1 = '72366020-57c9-489f-9385-397b7fa3dedb'
 const A = 'a'.repeat(32)
 const arrasto = (o: Partial<Arrasto> = {}): Arrasto => ({
-    tipo: 'fornecedor', chave: W, nome: 'Wolf Perfis', sai: 3, perde_o_vinculo: 1, assinatura: A, ficam: [], avisos: [], impedimentos: [],
+    tipo: 'fornecedor', chave: W, nome: 'Wolf Perfis', sai: 3, perde_o_vinculo: 1, assinatura: A, ficam: [], avisos: [], impedimentos: [], empresas: [],
     passos: [
         { passo: 1, tabela: 'orcamentista_levantamento_item', acao: 'perde_o_vinculo', rotulo: 'item de levantamento (documento de cliente)', quantidade: 1, nomes: ['De Paula / levantamento 1e000000 / item 1'], mais: 0 },
         { passo: 2, tabela: 'orcamentista_motor_regra', acao: 'sai', rotulo: 'conteudo de motor da tabela', quantidade: 12, nomes: ['R1', 'R2'], mais: 2 },
@@ -314,12 +314,12 @@ describe('(7) o que liga o código à migração 20261101000001 — a tabela, a 
     const MIG = fs.readFileSync(path.join(__dirname, '../../../supabase/migrations/20261101000001_tabela_na_soberania.sql'), 'utf8')
     const ROTULOS = fs.readFileSync(path.join(__dirname, '../atendimentos-ia-remocao.ts'), 'utf8')
 
-    it('os tipos que a tela manda são os que a função aceita: a etapa à parte e os quatro da lista', () => {
+    it('os tipos que a tela manda são os que a função aceita: a etapa à parte e os quatro da lista (a categoria veio depois, na 20261102000002 — bloco 8)', () => {
         expect(MIG).toContain("IF p_tipo = 'etapa' THEN")
         const lista = /IF p_tipo NOT IN \(([^)]*)\) THEN/.exec(MIG)
         expect(lista).not.toBeNull()
         const daFuncao = ['etapa', ...[...lista![1].matchAll(/'([a-z]+)'/g)].map((m) => m[1])].sort()
-        expect([...TIPOS_DE_REMOCAO].sort()).toEqual(daFuncao)
+        expect([...TIPOS_DE_REMOCAO].filter((t) => t !== 'categoria').sort()).toEqual(daFuncao)
     })
     it('o conjunto da tabela é a própria tabela, e nenhum motor', () => {
         expect(MIG).toContain("ELSIF p_tipo = 'tabela' THEN")
@@ -332,5 +332,58 @@ describe('(7) o que liga o código à migração 20261101000001 — a tabela, a 
     })
     it('o título da confirmação nomeia a tabela', () => {
         expect(tituloDaRemocao('tabela', 'Perfis_de_PVC_-_Wolff.xlsx')).toBe('Remover a tabela "Perfis_de_PVC_-_Wolff.xlsx"?')
+    })
+})
+
+describe('(8) o que liga o código à migração 20261102000002 — a categoria, a sexta raiz (02/11/2026)', () => {
+    const MIG = fs.readFileSync(path.join(__dirname, '../../../supabase/migrations/20261102000002_categorias_do_catalogo.sql'), 'utf8')
+    const ROTULOS = fs.readFileSync(path.join(__dirname, '../atendimentos-ia-remocao.ts'), 'utf8')
+
+    it('os tipos que a tela manda são os que a função aceita: a etapa à parte e os cinco da lista', () => {
+        const lista = /IF p_tipo NOT IN \(([^)]*)\) THEN/.exec(MIG)
+        expect(lista).not.toBeNull()
+        const daFuncao = ['etapa', ...[...lista![1].matchAll(/'([a-z]+)'/g)].map((m) => m[1])].sort()
+        expect([...TIPOS_DE_REMOCAO].sort()).toEqual(daFuncao)
+    })
+    it('a chave da categoria é a chave do catálogo (texto), como a da família', () => {
+        expect(MIG).toContain("p_tipo NOT IN ('familia', 'categoria') AND p_chave !~*")
+        expect(lerPedidoDeRemocao({ tipo: 'categoria', chave: 'PERSIANAS', assinatura: A, confirmo: true })).toEqual({ ok: true, corpo: { tipo: 'categoria', chave: 'PERSIANAS', assinatura: A } })
+        expect(lerPedidoDeRemocao({ tipo: 'categoria', chave: 'persianas', assinatura: A, confirmo: true })).toEqual({ ok: false, erro: CHAVE_INVALIDA })
+        expect(lerPedidoDeRemocao({ tipo: 'categoria', chave: W, assinatura: A, confirmo: true })).toEqual({ ok: false, erro: CHAVE_INVALIDA })
+    })
+    it('cada tabela que um passo alcança tem rótulo com acento na tela (a base de conhecimento das contas entra aqui)', () => {
+        const tabelas = [...new Set([...MIG.matchAll(/'t', '(orcamentista_[a-z_]+)'/g)].map((m) => m[1]))]
+        expect(tabelas).toEqual(expect.arrayContaining(['orcamentista_mp_vidro', 'orcamentista_mp_ferragem', 'orcamentista_mp_instalacao', 'orcamentista_mp_categoria', 'orcamentista_categoria_campo', 'orcamentista_categoria_catalogo']))
+        expect(tabelas.filter((t) => !ROTULOS.includes(`'${t}:`))).toEqual([])
+    })
+    it('DECISÃO 2: a função escreve `empresas` com a contagem por empresa, e a leitura exige a chave na categoria (nos outros tipos, ausente vira [])', () => {
+        for (const c of ["'empresa', e.nome", "'categorias', e.c", "'fornecedores', e.f", "'vidros', e.v", "'ferragens', e.fe", "'instalacao', e.i", "'empresas', v_empresas"]) expect(MIG).toContain(c)
+        const e = { empresa: 'Esquadrias De Paula Ltda', categorias: 1, fornecedores: 0, vidros: 4, ferragens: 0, instalacao: 0 }
+        expect(lerArrasto({ ...arrasto(), tipo: 'categoria', chave: 'VIDRO', empresas: [e] })!.empresas).toEqual([e])
+        expect(lerArrasto({ ...arrasto(), tipo: 'categoria', chave: 'VIDRO', empresas: undefined })).toBeNull()
+        expect(lerArrasto({ ...arrasto(), tipo: 'categoria', chave: 'VIDRO', empresas: [{ empresa: 'x' }] })).toBeNull()
+        const semAChave = { ...arrasto() } as Record<string, unknown>
+        delete semAChave.empresas
+        expect(lerArrasto(semAChave)!.empresas).toEqual([])
+    })
+    it('DECISÃO 3: o impedimento `categoria_estrutural` é o que a função escreve, a tela o lê e a frase nomeia o motivo; a função recusa com 23514', () => {
+        expect(MIG).toContain("'tipo', 'categoria_estrutural'")
+        expect(MIG).toContain("USING ERRCODE = 'check_violation'")
+        const imp = { tipo: 'categoria_estrutural' as const, categoria: 'VIDRO' }
+        expect(lerArrasto({ ...arrasto(), tipo: 'categoria', chave: 'VIDRO', empresas: [], impedimentos: [imp] })!.impedimentos).toEqual([imp])
+        expect(lerArrasto({ ...arrasto(), impedimentos: [{ tipo: 'categoria_estrutural' }] })).toBeNull()
+        expect(fraseDoImpedimento(imp)).toContain('A categoria VIDRO é estrutural: o código e o banco dependem da chave dela')
+    })
+    it('a rota trata o 23514 (estrutural) como impedimento: 409 com a frase, medida de novo', async () => {
+        const imp = { tipo: 'categoria_estrutural' as const, categoria: 'VIDRO' }
+        repo.removerDoCatalogo.mockRejectedValueOnce(new ErroDoBanco({ code: '23514', message: 'a categoria VIDRO e estrutural' }))
+        repo.medirArrastoDoCatalogo.mockResolvedValueOnce(arrasto({ tipo: 'categoria', chave: 'VIDRO', nome: 'Vidro', impedimentos: [imp] }))
+        const r = await chamar('POST', {}, { ...PEDIDO, tipo: 'categoria', chave: 'VIDRO' })
+        expect(r.status).toBe(409)
+        expect(r.json.error).toBe(`Nada foi removido. ${fraseDoImpedimento(imp)}`)
+        expect(r.json.arrasto.impedimentos).toEqual([imp])
+    })
+    it('o título da confirmação nomeia a categoria', () => {
+        expect(tituloDaRemocao('categoria', 'Persianas')).toBe('Remover a categoria "Persianas"?')
     })
 })

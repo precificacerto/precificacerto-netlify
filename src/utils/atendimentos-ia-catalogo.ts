@@ -168,10 +168,13 @@ export function fraseDoModeloSemFornecedor(m: ModeloSemFornecedor): string {
 export const AVISO_DO_CATALOGO = 'Nada aqui pertence a um cliente — são tabelas do fornecedor.'
 
 // ── O nicho é o CONTAINER (dono do produto, 29/10/2026, opção A) ─────────────────────────────
-/** As abas da página do nicho, nesta ordem: famílias, fornecedores e motores vivem DENTRO do nicho. */
-export const ABAS_DO_NICHO = ['familias', 'fornecedores', 'motores', 'etapas'] as const
+/**
+ * As abas da página do nicho, nesta ordem: famílias, CATEGORIAS (dono do produto, 02/11/2026: "a aba Categorias fica logo DEPOIS de Famílias"),
+ * fornecedores e motores vivem DENTRO do nicho; etapas ao lado.
+ */
+export const ABAS_DO_NICHO = ['familias', 'categorias', 'fornecedores', 'motores', 'etapas'] as const
 export type AbaDoNicho = (typeof ABAS_DO_NICHO)[number]
-export const ROTULO_DA_ABA_DO_NICHO: Record<AbaDoNicho, string> = { familias: 'Famílias', fornecedores: 'Fornecedores', motores: 'Motores', etapas: 'Etapas' }
+export const ROTULO_DA_ABA_DO_NICHO: Record<AbaDoNicho, string> = { familias: 'Famílias', categorias: 'Categorias', fornecedores: 'Fornecedores', motores: 'Motores', etapas: 'Etapas' }
 /** A aba pedida na URL, ou a primeira — o que não é aba vira a primeira, nunca uma aba vazia. */
 export const abaDoNicho = (v: unknown): AbaDoNicho => (ABAS_DO_NICHO as readonly unknown[]).includes(v) ? (v as AbaDoNicho) : 'familias'
 /** O endereço da página de um nicho, opcionalmente já numa aba. */
@@ -266,9 +269,57 @@ export interface Categoria { chave: string; rotulo: string; ordem: number }
 
 export const MENSAGEM_CATEGORIA_OBRIGATORIA = 'Escolha a categoria da tabela.'
 export const fraseDaCategoriaDesconhecida = (chave: string) => `A categoria "${chave}" não está na lista de categorias.`
-/** A forma da chave: a das chaves do catálogo (PERFIL, ACESSORIOS_VEDACAO…). A lista é conferida pela rota. */
+/** A forma da chave: a das chaves do catálogo (PERFIL, ACESSORIOS_VEDACAO…), a mesma da CHECK `orcamentista_categoria_catalogo_chave_forma` (20261102000002). */
 const FORMA_DA_CHAVE_DA_CATEGORIA = /^[A-Z][A-Z0-9_]{0,39}$/
 export const ehChaveDeCategoria = (v: unknown): v is string => typeof v === 'string' && FORMA_DA_CHAVE_DA_CATEGORIA.test(v)
+
+// ── A ABA CATEGORIAS: criar, renomear e remover (dono do produto, 02/11/2026; migração 20261102000002) ──────────────
+/**
+ * "Hoje as categorias não têm tela. Quero criar, renomear e remover categoria, como já faço com etapa." As três decisões do dono do produto:
+ *   1. RENOMEAR É SÓ O RÓTULO: a chave é imutável, como na família (é o que as chaves estrangeiras, as CHECKs e o código citam). A tela diz isso
+ *      quando o usuário tenta editar a chave (`CHAVE_DA_CATEGORIA_NAO_MUDA`).
+ *   2. REMOVER ARRASTA, como nas outras raízes: leva as tabelas e os motores da categoria, a base de conhecimento das contas (categoria da família
+ *      de conta, fornecedor escolhido, vidros, ferragens, instalação), os campos e as ramificações — e o arrasto NOMEIA CADA EMPRESA com a contagem
+ *      por empresa antes de confirmar (`Arrasto.empresas`). Configuração de conta não é documento de cliente; a trava C não se aplica.
+ *   3. AS QUATRO ESTRUTURAIS têm remoção RECUSADA nesta PR, com motivo nomeado: o código (`CATEGORIA_QUE_EXIGE_FAMILIA`, o campo `linha`, o
+ *      levantamento) e o banco (as CHECKs `orcamentista_tabela_familia_no_perfil`, `mp_vidro_categoria_vidro`, `mp_ferragem_categoria_ferragens`,
+ *      `mp_instalacao_categoria_instalacao` e as funções `superadmin_gravar_mp_*`) dependem da chave. Destravá-las é outra PR.
+ * A chave da categoria nova é derivada do rótulo, como a da família. O rótulo tem o limite da CHECK `orcamentista_categoria_catalogo_rotulo_forma`.
+ */
+export const CATEGORIAS_ESTRUTURAIS = ['PERFIL', 'VIDRO', 'FERRAGENS', 'INSTALACAO'] as const
+export const ehCategoriaEstrutural = (chave: string) => (CATEGORIAS_ESTRUTURAIS as readonly string[]).includes(chave)
+export const LIMITE_DO_ROTULO_DA_CATEGORIA = 60
+export const CHAVE_DA_CATEGORIA_NAO_MUDA = 'A chave da categoria não se renomeia: é ela que as tabelas, os motores, as famílias e as contas citam. Só o nome muda.'
+export const fraseDaCategoriaEstrutural = (chave: string) =>
+    `A categoria ${chave} é estrutural: o código e o banco dependem da chave dela (CHECKs e funções). A remoção dela fica para outra alteração. Nada foi removido.`
+export const fraseDaCategoriaComNomeRepetido = (rotulo: string) => `Já há uma categoria chamada "${rotulo}" no catálogo.`
+export const CATEGORIA_QUE_NAO_MUDOU = 'Nada mudou: o nome é o de agora.'
+export const CATEGORIA_INEXISTENTE = 'Categoria não encontrada.'
+export const AVISO_DA_CATEGORIA_GLOBAL =
+    'As categorias são da plataforma, não do nicho: a lista é a mesma em todos os nichos. A chave é derivada do nome na criação e não muda; '
+    + 'o nome pode ser alterado. Remover uma categoria leva as tabelas, os motores e a base de conhecimento das contas que a usam: a confirmação mostra tudo, por empresa.'
+/** A chave da categoria pelo rótulo: maiúscula, sem acento, palavras unidas por "_", até 40. Sem letra no começo, null. */
+export function chaveDaCategoria(rotulo: string): string | null {
+    const chave = rotulo.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase()
+        .replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40).replace(/_+$/, '')
+    return ehChaveDeCategoria(chave) ? chave : null
+}
+/** A categoria como a aba a mostra: o catálogo, QUEM USA (contagens) e se é estrutural (remoção recusada). */
+export interface CategoriaDoCatalogo extends Categoria {
+    estrutural: boolean
+    usos: { tabelas: number; motores: number; familias: string[]; empresas: string[] }
+}
+export const ROTA_DAS_CATEGORIAS = '/api/super-admin/atendimentos-ia/categorias'
+export const rotaDaCategoria = (chave: string) => `${ROTA_DAS_CATEGORIAS}/${encodeURIComponent(chave)}`
+/** O resumo de quem usa, para a lista: `2 tabelas · 1 motor · família PVC · 1 empresa`; sem uso, vazio. */
+export function usoDaCategoria(u: CategoriaDoCatalogo['usos']): string {
+    const partes: string[] = []
+    if (u.tabelas > 0) partes.push(`${u.tabelas} ${u.tabelas === 1 ? 'tabela' : 'tabelas'}`)
+    if (u.motores > 0) partes.push(`${u.motores} ${u.motores === 1 ? 'motor' : 'motores'}`)
+    if (u.familias.length > 0) partes.push(`${u.familias.length === 1 ? 'família' : 'famílias'} ${u.familias.join(', ')}`)
+    if (u.empresas.length > 0) partes.push(`${u.empresas.length} ${u.empresas.length === 1 ? 'empresa' : 'empresas'}`)
+    return partes.join(' · ')
+}
 
 const mensagemDoErro = (e: unknown): string => (e as { message?: string } | null)?.message ?? ''
 /** O 23503 é o da FK da categoria da tabela (`orcamentista_tabela_categoria_fkey`), e não o da família nem o do fornecedor. */
@@ -458,6 +509,35 @@ export function lerEdicaoDaFamilia(body: unknown): Leitura<{ rotulo: string; ram
     const ramificacoes = lerRamificacoes(b.ramificacoes)
     if (ramificacoes.ok === false) return ramificacoes
     return { ok: true, corpo: { rotulo: rotulo.corpo, ramificacoes: ramificacoes.corpo } }
+}
+
+function lerRotuloDaCategoria(v: unknown): Leitura<string> {
+    const rotulo = textoAparado(v)
+    if (!rotulo) return { ok: false, erro: 'Escreva o nome da categoria.' }
+    if (rotulo.length > LIMITE_DO_ROTULO_DA_CATEGORIA) return { ok: false, erro: `O nome da categoria tem ${rotulo.length} caracteres; o limite é ${LIMITE_DO_ROTULO_DA_CATEGORIA}.` }
+    return { ok: true, corpo: rotulo }
+}
+/** A categoria nova: `{ rotulo }`, aparado, e a chave derivada dele. Campo a mais é erro — a chave NÃO vem do corpo (decisão 1). */
+export function lerCategoriaNova(body: unknown): Leitura<{ rotulo: string; chave: string }> {
+    const b = obj(body)
+    const extra = Object.keys(b).filter((k) => k !== 'rotulo')
+    if (extra.includes('chave')) return { ok: false, erro: CHAVE_DA_CATEGORIA_NAO_MUDA }
+    if (extra.length > 0) return { ok: false, erro: `Campo desconhecido no corpo: ${extra.join(', ')} (só rotulo).` }
+    const rotulo = lerRotuloDaCategoria(b.rotulo)
+    if (rotulo.ok === false) return rotulo
+    const chave = chaveDaCategoria(rotulo.corpo)
+    if (!chave) return { ok: false, erro: 'O nome da categoria precisa começar por uma letra.' }
+    return { ok: true, corpo: { rotulo: rotulo.corpo, chave } }
+}
+/** A edição da categoria: `{ rotulo }` e nada mais. Mandar `chave` é a recusa nomeada da decisão 1. */
+export function lerEdicaoDaCategoria(body: unknown): Leitura<{ rotulo: string }> {
+    const b = obj(body)
+    const extra = Object.keys(b).filter((k) => k !== 'rotulo')
+    if (extra.includes('chave')) return { ok: false, erro: CHAVE_DA_CATEGORIA_NAO_MUDA }
+    if (extra.length > 0) return { ok: false, erro: `Campo desconhecido no corpo: ${extra.join(', ')} (só rotulo).` }
+    const rotulo = lerRotuloDaCategoria(b.rotulo)
+    if (rotulo.ok === false) return rotulo
+    return { ok: true, corpo: { rotulo: rotulo.corpo } }
 }
 
 /** "Nada mudou": o nome (aparado) e as ramificações (na ordem) são os de agora. */

@@ -167,7 +167,7 @@ describe('na página de UM fornecedor', () => {
 
     it('(A2) tabela removida: a página RECARREGA a lista e fica (remover o fornecedor é que volta)', async () => {
         const arrasto: Arrasto = {
-            tipo: 'tabela', chave: 't1', nome: 'Wolf Perfis / tabela-antiga.xlsx (t1)', sai: 1, perde_o_vinculo: 0, assinatura: 'a'.repeat(32), ficam: [], impedimentos: [], avisos: [],
+            tipo: 'tabela', chave: 't1', nome: 'Wolf Perfis / tabela-antiga.xlsx (t1)', sai: 1, perde_o_vinculo: 0, assinatura: 'a'.repeat(32), ficam: [], impedimentos: [], avisos: [], empresas: [],
             passos: [{ passo: 1, tabela: 'orcamentista_tabela', acao: 'sai', rotulo: 'tabela', quantidade: 1, nomes: ['tabela-antiga.xlsx'], mais: 0 }],
         }
         respostas[`GET ${rotaDoArrasto('tabela', 't1')}`] = { status: 200, body: arrasto }
