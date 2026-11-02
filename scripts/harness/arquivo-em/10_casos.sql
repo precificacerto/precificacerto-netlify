@@ -16,23 +16,24 @@ create or replace function pg_temp.em(p_id text) returns timestamptz language sq
 create or replace function pg_temp.semeio() returns setof public.superadmin_alteracao_log language sql as $$
   select * from public.superadmin_alteracao_log l where l.tabela = 'orcamentista_tabela' and l.antes ->> 'migracao' = '20261101000002_arquivo_em_da_tabela' $$;
 
--- CASO 1: o semeio — as três de produção com arquivo_em = criado_em, exatos; UM log por linha (a segunda aplicação não logou), sem tenant e sem autor,
--- o antes sem arquivo_em, o depois com ele, e a origem dita
+-- CASO 1: o semeio (dono do produto, 02/11/2026) — o envio do objeto no Storage quando ele existe (a 21acfa75 com 01/11 21:08:19, a IMAB com
+-- 28/10 16:24:39, e não o objeto de mesmo nome no outro bucket), o criado_em só sem objeto (a Estrela); UM log por linha (a segunda aplicação não
+-- logou), sem tenant e sem autor, o antes sem arquivo_em, o depois com ele, e a origem que diz qual dos dois
 do $c$ declare n int; begin
-  if pg_temp.em(pg_temp.k('T2')) is distinct from '2026-10-29 19:26:10.322233+00'::timestamptz
-     or pg_temp.em(pg_temp.k('TF')) is distinct from '2026-10-28 16:24:41.563921+00'::timestamptz
+  if pg_temp.em(pg_temp.k('T2')) is distinct from '2026-11-01 21:08:19.337432+00'::timestamptz
+     or pg_temp.em(pg_temp.k('TF')) is distinct from '2026-10-28 16:24:39.442187+00'::timestamptz
      or pg_temp.em(pg_temp.k('TE')) is distinct from '2026-10-25 18:56:49.619728+00'::timestamptz then
-    raise exception 'FALHOU caso 1: arquivo_em semeado diferente de criado_em: %', (select jsonb_agg(jsonb_build_object(id, arquivo_em)) from public.orcamentista_tabela);
+    raise exception 'FALHOU caso 1: arquivo_em semeado: %', (select jsonb_agg(jsonb_build_object(id, arquivo_em)) from public.orcamentista_tabela);
   end if;
   select count(*) into n from pg_temp.semeio() l
    where l.tenant_id is null and l.por is null and not (l.antes -> 'orcamentista_tabela' ? 'arquivo_em')
-     and (l.depois -> 'orcamentista_tabela' ->> 'arquivo_em')::timestamptz = (l.antes -> 'orcamentista_tabela' ->> 'criado_em')::timestamptz
-     and l.depois ->> 'origem_de_arquivo_em' like 'criado_em:%';
+     and (l.depois -> 'orcamentista_tabela' ->> 'arquivo_em')::timestamptz = pg_temp.em(l.chave)
+     and l.depois ->> 'origem_de_arquivo_em' like case when l.chave = pg_temp.k('TE') then 'criado_em:%' else 'storage.objects.created_at:%' end;
   if n is distinct from 3 or (select count(*) from pg_temp.semeio()) is distinct from 3::bigint
      or (select count(distinct chave) from pg_temp.semeio()) is distinct from 3::bigint then
     raise exception 'FALHOU caso 1: o log do semeio: % na forma, % no total', n, (select count(*) from pg_temp.semeio());
   end if;
-  raise notice 'ok: caso 1 — as 3 de producao semeadas com criado_em, um log por linha (a 2a aplicacao nao logou)';
+  raise notice 'ok: caso 1 — semeio pelo Storage (21acfa75 01/11 21:08:19, IMAB 28/10 16:24:39), criado_em so sem objeto (Estrela); um log por linha';
 end $c$;
 
 -- CASO 2: a TROCA de arquivo (o UPDATE que o PATCH faz): arquivo_em vira o instante da troca; criado_em não muda

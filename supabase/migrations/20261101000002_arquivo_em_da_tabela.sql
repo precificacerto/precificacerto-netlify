@@ -1,7 +1,7 @@
 -- ╔══════════════════════════════════════════════════════════════════════════════════════════════════════════════════╗
 -- ║ 20261101000002 — "SUBIDO EM" É O MOMENTO DO ARQUIVO, NÃO O DA LINHA (dono do produto, 01/11/2026)                   ║
 -- ║                                                                                                                      ║
--- ║ PENDENTE ATÉ O DONO DO PRODUTO APLICAR. Não pressupõe migração nova: só a orcamentista_tabela com criado_em.         ║
+-- ║ PENDENTE ATÉ O DONO DO PRODUTO APLICAR. Não pressupõe migração nova: a orcamentista_tabela e o storage.objects.      ║
 -- ║ SEM ELA O CÓDIGO QUEBRA: a lista de tabelas do fornecedor passa a ler `arquivo_em`, e a leitura falha sem a coluna.  ║
 -- ╚══════════════════════════════════════════════════════════════════════════════════════════════════════════════════╝
 --
@@ -14,9 +14,12 @@
 --
 -- O QUE ESTA MIGRAÇÃO FAZ:
 --   1. `arquivo_em timestamptz NOT NULL DEFAULT now()` — o momento em que o arquivo de preço ATUAL da tabela entrou;
---   2. SEMEIA as linhas de hoje com `criado_em` (decisão do dono do produto: "é a melhor aproximação que existe") e LOGA cada uma no
---      `superadmin_alteracao_log` (a linha antes, a linha depois, a migração e a origem do valor). Linha já semeada não é tocada de novo:
---      reaplicar é inofensivo e não loga;
+--   2. SEMEIA as linhas de hoje com O MOMENTO EXATO quando ele existe — o envio do objeto do arquivo ATUAL no Storage
+--      (`storage.objects.created_at`, bucket `atendimentos-ia`, nome = `arquivo_path`) — e com `criado_em` só como reserva, para a tabela cujo
+--      objeto não está lá (decisão do dono do produto, 02/11/2026: "Use a data do objeto no Storage quando ela existir; `criado_em` só como
+--      reserva"). Medido em 02/11/2026: a 21acfa75 fica com 01/11 21:08:19 UTC (o arquivo trocado), a fe2c6667 com 28/10 16:24:39 (o envio,
+--      2 s antes da linha), e a Estrela (arquivo_path vazio, sem objeto) com o criado_em. LOGA cada uma no `superadmin_alteracao_log` (a linha
+--      antes, a linha depois, a migração e a origem do valor). Linha já semeada não é tocada de novo: reaplicar é inofensivo e não loga;
 --   3. o GATILHO `orcamentista_tabela_arquivo_em` mantém o fato no banco, por qualquer caminho:
 --        - na criação, `arquivo_em` = `criado_em` (o arquivo entra com a linha);
 --        - na troca de `arquivo_path`, `arquivo_em` = now() (o instante da troca, na transação);
@@ -31,7 +34,7 @@ BEGIN;
 ALTER TABLE public.orcamentista_tabela ADD COLUMN IF NOT EXISTS arquivo_em timestamptz;
 
 -- as linhas semeadas NESTA execucao (a verificacao confere estas, e so estas)
-CREATE TEMP TABLE _arquivo_em_semeadas (id uuid PRIMARY KEY) ON COMMIT DROP;
+CREATE TEMP TABLE _arquivo_em_semeadas (id uuid PRIMARY KEY, do_objeto timestamptz) ON COMMIT DROP;
 
 -- 2. o semeio, logado linha a linha (só as que ainda não têm o valor)
 DO $semeia$
@@ -39,18 +42,22 @@ DECLARE
   v_t record;
   v_n integer := 0;
 BEGIN
-  FOR v_t IN SELECT t.id, to_jsonb(t) - 'arquivo_em' AS antes FROM public.orcamentista_tabela t WHERE t.arquivo_em IS NULL ORDER BY t.criado_em, t.id FOR UPDATE LOOP
-    UPDATE public.orcamentista_tabela SET arquivo_em = criado_em WHERE id = v_t.id;
-    INSERT INTO _arquivo_em_semeadas (id) VALUES (v_t.id);
+  FOR v_t IN SELECT t.id, to_jsonb(t) - 'arquivo_em' AS antes, t.criado_em,
+                    (SELECT o.created_at FROM storage.objects o WHERE o.bucket_id = 'atendimentos-ia' AND o.name = t.arquivo_path) AS do_objeto
+               FROM public.orcamentista_tabela t WHERE t.arquivo_em IS NULL ORDER BY t.criado_em, t.id FOR UPDATE OF t LOOP
+    UPDATE public.orcamentista_tabela SET arquivo_em = coalesce(v_t.do_objeto, v_t.criado_em) WHERE id = v_t.id;
+    INSERT INTO _arquivo_em_semeadas (id, do_objeto) VALUES (v_t.id, v_t.do_objeto);
     INSERT INTO public.superadmin_alteracao_log (tenant_id, tabela, chave, antes, depois, por)
     VALUES (NULL, 'orcamentista_tabela', v_t.id::text,
             jsonb_build_object('orcamentista_tabela', v_t.antes, 'migracao', '20261101000002_arquivo_em_da_tabela'),
             jsonb_build_object('orcamentista_tabela', (SELECT to_jsonb(x) FROM public.orcamentista_tabela x WHERE x.id = v_t.id),
-                               'origem_de_arquivo_em', 'criado_em: a troca de arquivo nao gravava data; e a melhor aproximacao (dono do produto, 01/11/2026)'),
+                               'origem_de_arquivo_em', CASE WHEN v_t.do_objeto IS NOT NULL
+                                 THEN 'storage.objects.created_at: o envio do objeto do arquivo atual (dono do produto, 02/11/2026)'
+                                 ELSE 'criado_em: o objeto do arquivo nao esta no Storage; reserva (dono do produto, 02/11/2026)' END),
             NULL);
     v_n := v_n + 1;
   END LOOP;
-  RAISE NOTICE 'arquivo_em semeado com criado_em: % linha(s)', v_n;
+  RAISE NOTICE 'arquivo_em semeado: % linha(s)', v_n;
 END
 $semeia$;
 
@@ -58,7 +65,7 @@ ALTER TABLE public.orcamentista_tabela ALTER COLUMN arquivo_em SET DEFAULT now()
 ALTER TABLE public.orcamentista_tabela ALTER COLUMN arquivo_em SET NOT NULL;
 
 COMMENT ON COLUMN public.orcamentista_tabela.arquivo_em IS
-  'O momento em que o arquivo de preco ATUAL entrou ("Subido em"): criado_em na criacao, now() a cada troca de arquivo_path; nao se escreve a mao (gatilho orcamentista_tabela_arquivo_em). As linhas de antes de 01/11/2026 foram semeadas com criado_em (migracao 20261101000002).';
+  'O momento em que o arquivo de preco ATUAL entrou ("Subido em"): criado_em na criacao, now() a cada troca de arquivo_path; nao se escreve a mao (gatilho orcamentista_tabela_arquivo_em). As linhas de antes de 02/11/2026 foram semeadas com o envio do objeto no Storage, ou com criado_em sem objeto (migracao 20261101000002).';
 
 -- 3. o gatilho
 CREATE OR REPLACE FUNCTION public.orcamentista_tabela_arquivo_em() RETURNS trigger
@@ -93,16 +100,18 @@ BEGIN
                    AND column_name = 'arquivo_em' AND data_type = 'timestamp with time zone' AND is_nullable = 'NO' AND column_default = 'now()') THEN
     RAISE EXCEPTION 'verificacao 1: orcamentista_tabela.arquivo_em ausente ou com outra forma. Nada foi alterado.';
   END IF;
-  -- (2) cada linha semeada nesta execucao: arquivo_em = criado_em, e UMA linha de log desta migracao com o antes sem arquivo_em e o depois com ele
+  -- (2) cada linha semeada nesta execucao: arquivo_em = o envio do objeto (ou criado_em, sem objeto), e UMA linha de log desta migracao com o antes
+  --     sem arquivo_em, o depois com ele e a origem que diz qual dos dois
   SELECT count(*) INTO v_n FROM _arquivo_em_semeadas s JOIN public.orcamentista_tabela t ON t.id = s.id
-   WHERE t.arquivo_em IS DISTINCT FROM t.criado_em
+   WHERE t.arquivo_em IS DISTINCT FROM coalesce(s.do_objeto, t.criado_em)
       OR (SELECT count(*) FROM public.superadmin_alteracao_log l
            WHERE l.tabela = 'orcamentista_tabela' AND l.chave = t.id::text AND l.antes ->> 'migracao' = '20261101000002_arquivo_em_da_tabela'
              AND l.tenant_id IS NULL AND l.por IS NULL
              AND NOT (l.antes -> 'orcamentista_tabela' ? 'arquivo_em')
-             AND (l.depois -> 'orcamentista_tabela' ->> 'arquivo_em')::timestamptz = t.criado_em) <> 1;
+             AND (l.depois -> 'orcamentista_tabela' ->> 'arquivo_em')::timestamptz = t.arquivo_em
+             AND l.depois ->> 'origem_de_arquivo_em' LIKE CASE WHEN s.do_objeto IS NOT NULL THEN 'storage.objects.created_at:%' ELSE 'criado_em:%' END) <> 1;
   IF v_n > 0 THEN
-    RAISE EXCEPTION 'verificacao 2: % linha(s) semeada(s) sem arquivo_em = criado_em ou sem exatamente um log do semeio. Nada foi alterado.', v_n;
+    RAISE EXCEPTION 'verificacao 2: % linha(s) semeada(s) com outro arquivo_em ou sem exatamente um log do semeio. Nada foi alterado.', v_n;
   END IF;
   -- (3) a funcao: search_path fixo, fechada ao publico
   IF NOT EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
