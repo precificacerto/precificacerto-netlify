@@ -16,7 +16,8 @@
 import ExcelJS from 'exceljs'
 
 import {
-    ABAS_DA_IMPORTACAO, ABAS_DO_LAYOUT_UNICO, CAMPOS_DO_CABECALHO_UNICO, COLUNAS_DO_LAYOUT_UNICO, COLUNAS_SEM_DESTINO_DO_LAYOUT_UNICO,
+    ABAS_DA_IMPORTACAO, ABAS_DO_LAYOUT_UNICO, CAMPOS_DO_CABECALHO_UNICO, COLUNA_DA_CATEGORIA_DO_FORNECEDOR, COLUNAS_DO_LAYOUT_UNICO,
+    COLUNAS_SEM_DESTINO_DO_LAYOUT_UNICO,
     FRASE_DO_CABECALHO_DOS_ITENS_NAO_RECONHECIVEL, lerArquivosDaImportacao, montarPayloadDaImportacao,
     type Aviso, type ColunaDoLayoutUnico, type ResultadoDaLeitura,
 } from '@/utils/atendimentos-ia-importacao'
@@ -69,7 +70,7 @@ function persiana(k: number, grupo: 'caixa' | 'guia' | 'pvc' | 'zero' | 'vazio')
     const credito_valor = arred(custo * 0.2125)
     const cred_ipi_pct = grupo === 'caixa' || grupo === 'guia' ? 6.5 : grupo === 'pvc' ? 3.25 : grupo === 'zero' ? 0 : null
     return {
-        codigo: `PS-${String(k).padStart(3, '0')}`, descricao: `${grupo.toUpperCase()} ${k}`, secao: 'PERSIANAS', segmento: 'Persianas',
+        codigo: `PS-${String(k).padStart(3, '0')}`, descricao: `${grupo.toUpperCase()} ${k}`, secao: 'PERSIANAS', [COLUNA_DA_CATEGORIA_DO_FORNECEDOR]: 'Persianas',
         linha: null, cor: null, codigo_wvetro: null, unidade: grupo === 'guia' ? 'MT' : 'PC',
         vendido_por: grupo === 'guia' ? 'barra' : 'unidade', medida_barra_m: grupo === 'guia' ? 6 : null, peso_kg_por_m: grupo === 'guia' ? 0.8 : null,
         multiplo_compra: null, custo_bruto: custo, valor_metro: grupo === 'guia' ? arred(custo / 6) : null, valor_kg: null,
@@ -96,18 +97,18 @@ describe('PERSIANAS da Wolff — o caso completo do layout único', () => {
         expect(avisosDo(r, 'codigo_repetido')).toEqual([])
     })
 
-    it('o mapa: custo_bruto → custo, valor_metro → valor_metro_interno, peso_kg_por_m → peso, segmento → segmento; o resto NULL', async () => {
+    it('o mapa: custo_bruto → custo, valor_metro → valor_metro_interno, peso_kg_por_m → peso, a categoria do fornecedor → a coluna dela; o resto NULL', async () => {
         const r = await lida(arquivoDePersianas())
         const guia = r.itens.find((i) => i.codigo === 'PS-021')!
         expect(guia).toMatchObject({
-            descricao: 'GUIA 21', secao: 'PERSIANAS', segmento: 'Persianas', unidade: 'MT', vendido_por: 'barra', medida_barra_m: 6, peso: 0.8,
+            descricao: 'GUIA 21', secao: 'PERSIANAS', [COLUNA_DA_CATEGORIA_DO_FORNECEDOR]: 'Persianas', unidade: 'MT', vendido_por: 'barra', medida_barra_m: 6, peso: 0.8,
             custo: 257.5, valor_metro_interno: arred(257.5 / 6), ncm: '7610.10.00',
             cred_icms_pct: 12, cred_pis_cofins_pct: 9.25, cred_ibs_pct: 0, cred_cbs_pct: 0, cred_ipi_pct: 6.5,
             nc_ipi_pct: null, nc_icms_st_pct: null, nc_difal_pct: null, nc_is_pct: null,
             // sem coluna no layout: a alíquota do rótulo, o ipi antigo, o pacote e as de 12%
             aliquota_interna_pct: null, ipi: null, pacote: null, valor_metro_12: null, valor_barra_12: null,
         })
-        // a categoria da TABELA não vem do arquivo: só o `segmento` do item
+        // a categoria da TABELA não vem do arquivo: só a coluna `orcamentista_tabela_item.segmento` do item
         expect(Object.keys(guia)).not.toContain('categoria')
     })
 
@@ -175,7 +176,7 @@ describe('PERSIANAS da Wolff — o caso completo do layout único', () => {
         const p = montarPayloadDaImportacao(r, null) as { itens: Array<Record<string, unknown>> }
         expect(p.itens).toHaveLength(76)
         for (const c of COLUNAS_DO_BLOCO_TRIBUTARIO) expect(c in p.itens[0]).toBe(true)
-        for (const c of ['custo', 'valor_metro_interno', 'valor_barra_interno', 'peso', 'segmento', 'aliquota_interna_pct']) expect(c in p.itens[0]).toBe(true)
+        for (const c of ['custo', 'valor_metro_interno', 'valor_barra_interno', 'peso', COLUNA_DA_CATEGORIA_DO_FORNECEDOR, 'aliquota_interna_pct']) expect(c in p.itens[0]).toBe(true)
         for (const c of ['custo_bruto', 'valor_metro', 'peso_kg_por_m', ...COLUNAS_SEM_DESTINO_DO_LAYOUT_UNICO]) expect(c in p.itens[0]).toBe(false)
     })
 })
@@ -187,7 +188,7 @@ function reforco(k: number): Linha {
     const custo = semCusto ? null : 50 + k * 3.25
     const credito_valor = custo === null ? null : arred(custo * 0.2125)
     return {
-        codigo: `RF-${String(k).padStart(2, '0')}`, descricao: `REFORÇO ${k}`, secao: 'REFORÇO METÁLICO', segmento: 'Reforço', linha: null, cor: null, codigo_wvetro: null,
+        codigo: `RF-${String(k).padStart(2, '0')}`, descricao: `REFORÇO ${k}`, secao: 'REFORÇO METÁLICO', [COLUNA_DA_CATEGORIA_DO_FORNECEDOR]: 'Reforço', linha: null, cor: null, codigo_wvetro: null,
         unidade: 'BR', vendido_por: 'barra', medida_barra_m: 6, peso_kg_por_m: 1.2, multiplo_compra: null, custo_bruto: custo, valor_metro: custo === null ? null : arred(custo / 6), valor_kg: null,
         cred_icms_pct: 12, cred_pis_cofins_pct: 9.25, cred_ibs_pct: 0, cred_cbs_pct: 0, cred_ipi_pct: null,
         nc_ipi_pct: 3.25, nc_icms_st_pct: null, nc_difal_pct: null, nc_is_pct: null, ncm: '7216.61.00',
@@ -337,7 +338,7 @@ describe('o layout de antes continua valendo', () => {
         const r = await lida({ [ABAS_DA_IMPORTACAO.preco]: [{ 1: 'PERFIS' }, cabecalhoAntigo, itemAntigo] })
         expect(r.layout).toBe('por_posicao')
         expect(r.cabecalho).toBeNull()
-        expect(r.itens[0]).toMatchObject({ codigo: 'A1', custo: 50, valor_metro_interno: 10, valor_barra_interno: 60, aliquota_interna_pct: 18, vendido_por: 'barra', ipi: 5, segmento: 'PVC' })
+        expect(r.itens[0]).toMatchObject({ codigo: 'A1', custo: 50, valor_metro_interno: 10, valor_barra_interno: 60, aliquota_interna_pct: 18, vendido_por: 'barra', ipi: 5, [COLUNA_DA_CATEGORIA_DO_FORNECEDOR]: 'PVC' })
     })
 
     it('a aba ITENS vence: com as duas abas no mesmo arquivo, o caminho é o layout único', async () => {

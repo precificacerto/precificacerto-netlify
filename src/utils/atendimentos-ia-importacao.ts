@@ -472,7 +472,7 @@ export type CabecalhoDoLayoutUnico = Record<(typeof CAMPOS_DO_CABECALHO_UNICO)[n
 export type LayoutDaTabela = 'unico' | 'por_posicao'
 /** As 28 colunas, na ordem do pedido, com os nomes EXATOS do cabeçalho. */
 export const COLUNAS_DO_LAYOUT_UNICO = [
-    'codigo', 'descricao', 'secao', 'segmento', 'linha', 'cor', 'codigo_wvetro', 'unidade', 'vendido_por',
+    'codigo', 'descricao', 'secao', COLUNA_DA_CATEGORIA_DO_FORNECEDOR, 'linha', 'cor', 'codigo_wvetro', 'unidade', 'vendido_por',
     'medida_barra_m', 'peso_kg_por_m', 'multiplo_compra', 'custo_bruto', 'valor_metro', 'valor_kg',
     'cred_icms_pct', 'cred_pis_cofins_pct', 'cred_ibs_pct', 'cred_cbs_pct', 'cred_ipi_pct',
     'nc_ipi_pct', 'nc_icms_st_pct', 'nc_difal_pct', 'nc_is_pct', 'ncm', 'credito_pct', 'credito_valor', 'custo_liquido',
@@ -594,8 +594,9 @@ function lerItensDoLayoutUnico(ws: ExcelJS.Worksheet): LeituraDoPreco {
             // sem coluna no layout único: a coluna antiga `ipi` (o IPI agora é cred_ipi_pct/nc_ipi_pct), o pacote e as de 12%
             ipi: null,
             pacote: null,
-            // "segmento" do arquivo vai para a coluna `segmento` do item (a coluna 11 de antes); a categoria da TABELA é a do cadastro, não do arquivo
-            [COLUNA_DA_CATEGORIA_DO_FORNECEDOR]: texto('segmento'),
+            // a coluna do arquivo com o nome de `COLUNA_DA_CATEGORIA_DO_FORNECEDOR` vai para `orcamentista_tabela_item.segmento` (a coluna 11 de antes);
+            // a categoria da TABELA é a do cadastro, não do arquivo
+            [COLUNA_DA_CATEGORIA_DO_FORNECEDOR]: texto(COLUNA_DA_CATEGORIA_DO_FORNECEDOR),
             custo,
             secao: texto('secao'),
             // o layout único não tem o rótulo "18%" de onde a alíquota saía; nada no cálculo nem na conversa a lê (medido em 02/11/2026)
