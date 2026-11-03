@@ -909,3 +909,51 @@ Formulação do dono do produto, registrada como está:
 - **Prova:** `src/utils/__tests__/atendimentos-ia-importar-ao-salvar.test.tsx` (os três caminhos da página do fornecedor, o disparo único, a
   recusa, o 504, os três motivos, o cartão, e o credenciamento que NÃO importa).
 
+
+## A categoria da família chega na conta — dono do produto, 02/11/2026 (migração `20261103000001`, PENDENTE até o dono do produto aplicar; pressupõe a `20261102000002`)
+
+**O defeito, medido em produção em 02/11/2026 (só leitura):** a VEDACAO foi criada às 23:23:09 UTC e marcada na ramificação da PVC às 23:34:30, e
+`orcamentista_mp_categoria` da De Paula não ganhou a linha dela. Gravar a matéria-prima "Esquadrias de PVC WOLF" (`79d764fe…`) recusava com
+"categoria VEDACAO: categoria inexistente nesta empresa" — a recusa é do banco (`superadmin_gravar_arvore`, `20261023000004_gravar_arvore.sql:239-243`),
+não do TS. **Só três lugares criavam a linha:** a matéria-prima NOVA (`superadmin_gravar_materia_prima`, catálogo inteiro, config NULL), o upsert da
+categoria (`superadmin_gravar_mp_categoria`) e o preenchimento único da `20261024000004`. Marcar categoria na ramificação (`superadmin_editar_familia`) e
+trocar a família de uma matéria-prima não criavam nada.
+
+Decisões do dono do produto, registradas como foram ditas:
+
+> 1. "DESMARCAR: mantém a regra de 27/10 — nada que está gravado some da tela. A categoria desmarcada SEM dado some; a desmarcada COM dado continua
+>    aparecendo, marcada 'fora da família'. Não mude esse comportamento nesta PR."
+> 2. "COBRE OS TRÊS CAMINHOS: marcar categoria na ramificação, criar matéria-prima e trocar a matéria-prima de família — todos passam a garantir a linha
+>    de mp_categoria das categorias daquela família, com ON CONFLICT DO NOTHING. NÃO mude o que a matéria-prima nova já faz hoje (ganhar as linhas do
+>    catálogo inteiro): só acrescente a garantia, para não mexer no que já funciona."
+> 3. "config NULL, como você propôs. Nunca {}."
+> 4. "PREENCHER A FALTA DE HOJE: sim, inclua o INSERT da VEDACAO da De Paula na migração, nos moldes da 20261024000004. Escreva no cabeçalho da
+>    migração, em destaque, que ela grava dado de conta, quantas linhas e de qual empresa."
+> 5. "Guarda por md5 de editar_familia (2553cf7c…) e criar_familia (aa90f740…), como você propôs."
+>
+> E: "Nenhum dado de conta é apagado nesta PR."
+
+- **A regra, num lugar só:** `orcamentista_garantir_categorias_da_familia(p_por, p_familia, p_materia_prima, p_origem)` — para cada matéria-prima da
+  família (ou só a dada), uma linha por categoria de `orcamentista_familia_ramificacao`, `config` NULL, `ON CONFLICT (materia_prima_id, categoria_chave)
+  DO NOTHING`; cada linha CRIADA vai ao `superadmin_alteracao_log` com o tenant dela, a família e a origem (`ramificacao`, `troca_de_familia`,
+  `materia_prima_nova`); devolve quantas criou. **Fechada:** não é SECURITY DEFINER e não tem grant a ninguém (nem `service_role`); só as quatro
+  funções SECURITY DEFINER a chamam.
+- **As quatro chamam a auxiliar, com o corpo de produção intacto** (o `montar_migracao.py` prova pelo diff que só se acrescentaram linhas):
+  `superadmin_editar_familia` e `superadmin_criar_familia` depois de regravar as ramificações; `superadmin_definir_familia_da_materia_prima` quando a
+  família muda; `superadmin_gravar_materia_prima` na matéria-prima nova ou quando a gravação muda a família. **Em `criar_familia` a garantia é sempre
+  vazia** (a FK `orcamentista_materia_prima_familia_fkey` impede matéria-prima de apontar família que ainda não existe) — fica pela coerência.
+- **Desmarcar não apaga nada**; remarcar não duplica (o `ON CONFLICT`). A tela não mudou.
+- **Sem trava própria na auxiliar:** a marcação e a troca de família já se enfileiram na linha da família (`FOR UPDATE` de `superadmin_editar_familia`
+  contra o `FOR KEY SHARE` que a FK toma ao gravar `orcamentista_materia_prima.familia`). A trava de aviso que a primeira versão tinha era redundante e
+  saiu; as duas corridas do harness provam as duas ordens.
+- **O preenchimento grava dado de conta: 1 linha**, a VEDACAO da De Paula (tenant `20e08592…`, matéria-prima `79d764fe…`), config NULL,
+  `atualizado_por` NULL, logada com a origem `preenchimento 20261103000001`. A guarda **aborta** se faltar qualquer outra linha na hora de aplicar — o
+  cabeçalho nunca diz menos do que a migração grava.
+- **A guarda** confere os quatro corpos pelo md5 sem `\r` (`aa90f740…` criar, `2553cf7c…` editar, `e7e49ec7…` definir, `49ffa56e…` gravar), cada um pela
+  assinatura de entrada (`to_regprocedure`), aceita os corpos desta migração na reaplicação, e nomeia o banco, o usuário e o que difere — a lição da
+  `20261102000002` colada no projeto errado. Linhas novas dentro dos corpos `$fn$` em ASCII. REVOKE de `PUBLIC, anon, authenticated` (o privilégio
+  padrão de produção).
+- **Prova:** `scripts/harness/garantia-da-categoria-na-conta/` — a base da `categorias-do-catalogo` com os corpos de produção e o estado de
+  `orcamentista_mp_categoria` como em produção (`09_estado.sql`: a VEDACAO criada e marcada pelas funções antigas, a falta reproduzida), a migração duas
+  vezes, 11 casos, 2 corridas, 4 guardas (a 4ª num banco vazio) — 17 de 17 —, e 22 mutações nas duas passadas (`mutacoes.py`, com as duas equivalentes
+  anotadas).
