@@ -141,6 +141,13 @@ const estado = {
     updateNaoAtinge: null as string | null,
     /** a tabela cujo DELETE não atinge linha nenhuma (R1 no delete do agrupamento) */
     deleteNaoAtinge: null as string | null,
+    /** O SEGUNDO pedido ao modelo (03/11/2026): a REDAÇÃO do rascunho, sem ferramenta — cada um, com o rascunho que foi. */
+    redacoes: [] as Array<{ rascunho: string; corpo: Record<string, unknown> }>,
+    /**
+     * O que o modelo falso devolve ao pedido de redação: por padrão o PRÓPRIO rascunho (a resposta fica a de sempre); uma função
+     * devolve outro texto (ou null, para a resposta sem bloco de texto); 'lanca' derruba o fetch; um número é o status de erro.
+     */
+    redacao: null as null | 'lanca' | number | ((rascunho: string, corpo: Record<string, unknown>) => string | null),
 }
 
 function montar() {
@@ -202,16 +209,26 @@ function montar() {
     estado.updateNaoAtinge = null
     estado.deleteNaoAtinge = null
     estado.checkAntigo = false
+    estado.redacoes = []
+    estado.redacao = null
 }
 
 /** As UNIQUE da migração 20261025000003 que importam aqui, para o banco falso recusar como o real. */
 function violaUnica(tabela: string, nova: Linha, linhas: Linha[]): boolean {
+    // a UNIQUE parcial da ENTRADA (tenant_id, wuzapi_mensagem_id) WHERE direcao = 'entrada' AND wuzapi_mensagem_id IS NOT NULL
+    if (tabela === 'orcamentista_mensagem') {
+        return nova.direcao === 'entrada' && nova.wuzapi_mensagem_id != null
+            && linhas.some((l) => l.tenant_id === nova.tenant_id && l.direcao === 'entrada' && l.wuzapi_mensagem_id === nova.wuzapi_mensagem_id)
+    }
     if (tabela !== 'orcamentista_levantamento') return false
     return linhas.some((l) => l.tenant_id === nova.tenant_id && l.remetente_id === nova.remetente_id
         && (l.nome_normalizado === nova.nome_normalizado || (l.estado === 'EM_MONTAGEM' && nova.estado === 'EM_MONTAGEM')))
 }
 
 let sequencia = 0
+/** O instante em que a suíte começou: as mensagens da conversa gravada são carimbadas na última hora, em ordem. */
+const INICIO_DO_TESTE = Date.now()
+const DA_CONVERSA_GRAVADA = new Set(['orcamentista_conversa', 'orcamentista_mensagem'])
 jest.mock('@/supabase/admin', () => ({
     supabaseAdmin: {
         from: (tabela: string) => {
@@ -255,10 +272,15 @@ jest.mock('@/supabase/admin', () => ({
             }
             q.contains = (c: string, vs: unknown[]) => { predicados.push((l) => Array.isArray(l[c]) && vs.every((v) => (l[c] as unknown[]).includes(v))); return q }
             q.range = (de: number, ate: number) => { faixa = [de, ate]; return q }
-            q.eq = (c: string, v: unknown) => { filtros.push([c, v]); return q }
+            // `.gte(c, v)` como o PostgREST, na forma ISO das datas (a janela do histórico)
+            q.gte = (c: string, v: unknown) => { predicados.push((l) => String(l[c]) >= String(v)); return q }
+            // filtrar por coluna que a tabela não tem é 42703, como o PostgREST (a migração pendente)
+            q.eq = (c: string, v: unknown) => { filtros.push([c, v]); if (estado.colunasAusentes.has(`${tabela}.${c}`)) colunaQueFalta = c; return q }
             q.order = (c: string, o?: { ascending?: boolean }) => { ordem.push({ coluna: c, asc: o?.ascending !== false }); return q }
             q.limit = (n: number) => { limite = n; return q }
-            q.maybeSingle = async () => (estado.ausentes.has(tabela) ? ausente() : { data: ler().map(projetar)[0] ?? null, error: null })
+            q.maybeSingle = async () => (estado.ausentes.has(tabela) ? ausente()
+                : colunaQueFalta ? { data: null, error: { code: '42703', message: `column ${tabela}.${colunaQueFalta} does not exist` } }
+                    : { data: ler().map(projetar)[0] ?? null, error: null })
             q.update = (carga: Linha) => { atualizacao = carga; return q }
             q.then = (ok: (v: unknown) => unknown, erro?: (e: unknown) => unknown) => {
                 if (atualizacao) {
@@ -281,9 +303,14 @@ jest.mock('@/supabase/admin', () => ({
                 const novas: Linha[] = []
                 let erro: { code: string; message: string } | null = null
                 for (const c of Array.isArray(carga) ? carga : [carga]) {
+                    // gravar numa coluna que a tabela não tem é PGRST204, como o PostgREST (a migração pendente)
+                    const semColuna = Object.keys(c).find((k) => estado.colunasAusentes.has(`${tabela}.${k}`))
+                    if (semColuna) { erro = { code: 'PGRST204', message: `Could not find the '${semColuna}' column of '${tabela}' in the schema cache` }; break }
                     if (violaUnica(tabela, c, linhas)) { erro = { code: '23505', message: 'duplicate key value violates unique constraint' }; break }
                     sequencia += 1
-                    const nova: Linha = { id: `${tabela}-${sequencia}`, criado_em: new Date(Date.UTC(2026, 9, 25, 1, 0, sequencia)).toISOString(), ...c }
+                    // a conversa gravada é carimbada AGORA (a janela do histórico é de 24 h); o resto, numa data fixa de 25/10/2026
+                    const criadoEm = DA_CONVERSA_GRAVADA.has(tabela) ? new Date(INICIO_DO_TESTE - 3_600_000 + sequencia * 1000) : new Date(Date.UTC(2026, 9, 25, 1, 0, sequencia))
+                    const nova: Linha = { id: `${tabela}-${sequencia}`, criado_em: criadoEm.toISOString(), ...c }
                     linhas.push(nova)
                     novas.push(nova)
                 }
@@ -383,6 +410,8 @@ async function chamar(texto: string, opcoes: { id?: string; senderAlt?: string }
 }
 
 const enviados = () => estado.envios.map((e) => String(e.corpo.Body))
+/** As escritas fora da CONVERSA GRAVADA (03/11/2026): toda mensagem grava a entrada e a saída; "nada gravado" é sobre o resto. */
+const escritasNoEstado = () => estado.escritas.filter((e) => !DA_CONVERSA_GRAVADA.has(e.tabela))
 const ultimoEnviado = () => enviados()[enviados().length - 1]
 const levantamentos = () => estado.db.orcamentista_levantamento ?? []
 const itensDe = (id: unknown) => (estado.db.orcamentista_levantamento_item ?? []).filter((i) => i.levantamento_id === id).sort((a, b) => Number(a.ordem) - Number(b.ordem))
@@ -424,6 +453,16 @@ beforeEach(() => {
     ;(globalThis as { fetch: unknown }).fetch = jest.fn(async (url: string, init?: { headers?: Record<string, string>; body?: string }) => {
         const corpo = init?.body ? JSON.parse(init.body) : {}
         const headers = init?.headers ?? {}
+        if (url === ANTHROPIC && !corpo.tools) {
+            // o SEGUNDO pedido (03/11/2026): a redação do rascunho, sem ferramenta. Por padrão devolve o próprio rascunho
+            const mensagens = corpo.messages as Array<{ role: string; content: string }>
+            const rascunho = String(mensagens[mensagens.length - 1].content).replace(/^RASCUNHO:\n/, '')
+            estado.redacoes.push({ rascunho, corpo })
+            if (estado.redacao === 'lanca') throw new Error('fetch failed')
+            if (typeof estado.redacao === 'number') return { ok: false, status: estado.redacao, json: async () => ({ error: { type: 'api_error' } }) }
+            const texto = estado.redacao ? estado.redacao(rascunho, corpo) : rascunho
+            return { ok: true, status: 200, json: async () => ({ id: 'msg_redacao', type: 'message', role: 'assistant', stop_reason: 'end_turn', content: texto === null ? [] : [{ type: 'text', text: texto }], usage: { input_tokens: 80, output_tokens: 40 } }) }
+        }
         if (url === ANTHROPIC) {
             estado.chamadasDaLlm.push({ headers, corpo })
             const pelo = estado.respostaPeloPrompt
@@ -436,7 +475,9 @@ beforeEach(() => {
                 const input = { nome: pelo.nome, itens: [] as Linha[], ...('escolhas' in props ? { escolhas: [escolha] } : { escolha }) }
                 return { ok: true, status: 200, json: async () => ({ ...respostaComFerramenta({}), content: [{ type: 'tool_use', id: 't', name: conversa.NOME_DA_FERRAMENTA, input }] }) }
             }
-            const pelaMensagem = estado.llmPeloPrompt?.(String((corpo.messages as Array<{ content: unknown }>)[0].content), String(corpo.system))
+            // a mensagem desta vez é a ÚLTIMA (o histórico vem antes, 03/11/2026)
+            const mensagens = corpo.messages as Array<{ content: unknown }>
+            const pelaMensagem = estado.llmPeloPrompt?.(String(mensagens[mensagens.length - 1].content), String(corpo.system))
             if (pelaMensagem) return { ok: true, status: 200, json: async () => respostaComFerramenta(pelaMensagem) }
             const proxima = estado.respostasDaLlm.shift() ?? { status: 200, corpo: respostaComFerramenta({}) }
             if (proxima === 'lanca') throw new Error('fetch failed')
@@ -636,26 +677,63 @@ describe('(2) o roteamento por nome', () => {
     })
 })
 
-describe('(3) o estado mora no levantamento: NADA em mensagem, conversa ou pré-definição', () => {
-    it('os pedidos do teste que vale não escrevem uma linha em orcamentista_mensagem, _conversa ou _pre_definicao', async () => {
+describe('(3) o estado mora no levantamento; a CONVERSA é gravada como histórico e idempotência (03/11/2026, revoga a decisão 4)', () => {
+    const mensagens = () => (estado.db.orcamentista_mensagem ?? []) as Array<Linha & { direcao: string; texto: string }>
+
+    it('o estado: só levantamento, item e pergunta em aberto; nada em orcamentista_pre_definicao', async () => {
         await fecharDp02('Casa do João')
         llmResponde({ nome: 'casa do joao', alteracao: true, itens: [{ altura_mm: 1200 }] })
         await chamar('casa do joao, trocar a altura para 1200')
-        const tocadas = new Set(estado.escritas.map((e) => e.tabela))
+        const tocadas = new Set(escritasNoEstado().map((e) => e.tabela))
         // a pergunta em aberto (o apanhado que espera o "sim") é estado, não mensagem: decisão de 26/10/2026
         expect([...tocadas].sort()).toEqual(['orcamentista_levantamento', 'orcamentista_levantamento_item', 'orcamentista_pergunta_em_aberto'])
-        expect(estado.db.orcamentista_mensagem).toEqual([])
-        expect(estado.db.orcamentista_conversa).toEqual([])
         expect(estado.db.orcamentista_pre_definicao).toEqual([])
     })
 
-    it('a LLM recebe SÓ a mensagem desta vez — não há histórico — e, em montagem, a pergunta em aberto no prompt', async () => {
+    it('a CONVERSA GRAVADA: uma conversa por remetente no tenant, a entrada com o texto e o Info.ID, a saída com o texto ENVIADO, responde_a e o id do envio', async () => {
+        await abrirSemVidro('Casa do João')
+        llmResponde({ itens: [{ vidro: 'Temperado 5mm' }] })
+        await chamar('temperado 5mm', { id: 'WA_SEGUNDA' })
+        expect(estado.db.orcamentista_conversa).toEqual([expect.objectContaining({ tenant_id: TENANT, remetente_id: VENDEDOR, telefone: TELEFONE_DO_WEBHOOK })])
+        const conversaId = estado.db.orcamentista_conversa[0].id
+        const m = mensagens()
+        expect(m.map((x) => [x.direcao, x.texto])).toEqual([
+            ['entrada', 'Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco'],
+            ['saida', PERGUNTA_DO_VIDRO],
+            ['entrada', 'temperado 5mm'],
+            ['saida', enviados()[1]],
+        ])
+        for (const x of m) expect(x).toEqual(expect.objectContaining({ tenant_id: TENANT, conversa_id: conversaId }))
+        expect(m[2].wuzapi_mensagem_id).toBe('WA_SEGUNDA')
+        // a saída responde à entrada e leva o id do envio que o WUZAPI devolveu
+        expect(m[1]).toEqual(expect.objectContaining({ responde_a: m[0].id, wuzapi_mensagem_id: 'WAMID_SAIDA' }))
+        expect(m[3]).toEqual(expect.objectContaining({ responde_a: m[2].id, wuzapi_mensagem_id: 'WAMID_SAIDA' }))
+        expect(linhaIa().pop()).toMatch(/ gravacao=sim(\s|$)/)
+    })
+
+    it('a LLM recebe o HISTÓRICO da conversa antes da mensagem desta vez — e, em montagem, a pergunta em aberto no prompt', async () => {
         await abrirSemVidro('Casa do João')
         llmResponde({ itens: [{ vidro: 'Temperado 5mm' }] })
         await chamar('temperado 5mm')
         const segunda = estado.chamadasDaLlm[1].corpo
-        expect(segunda.messages).toEqual([{ role: 'user', content: 'temperado 5mm' }])
+        expect(segunda.messages).toEqual([
+            { role: 'user', content: 'Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco' },
+            { role: 'assistant', content: PERGUNTA_DO_VIDRO },
+            { role: 'user', content: 'temperado 5mm' },
+        ])
         expect(String(segunda.system)).toContain(`Pergunta em aberto: ${PERGUNTA_DO_VIDRO}`)
+        expect(linhaIa().pop()).toMatch(/ historico=2(\s|$)/)
+    })
+
+    it('a conversa de OUTRO remetente não entra no histórico deste; a de outro tenant, nunca', async () => {
+        await abrirSemVidro('Casa do João')
+        estado.db.orcamentista_conversa.push({ id: 'de-fora', tenant_id: 'outro-tenant', remetente_id: VENDEDOR, telefone: TELEFONE_DO_WEBHOOK, criado_em: '2026-10-25T01:00:00.000Z' })
+        estado.db.orcamentista_mensagem.push({ id: 'm-fora', tenant_id: 'outro-tenant', conversa_id: 'de-fora', direcao: 'entrada', texto: 'segredo de outra empresa', criado_em: new Date().toISOString() })
+        llmResponde({ nome: 'Obra Centro', itens: [{ ...DP02 }] }, )
+        await chamar('Obra Centro: DP-02 1200 x 1000 branco temperado 5mm', { senderAlt: TELEFONE_DO_OUTRO })
+        const doOutro = estado.chamadasDaLlm[1].corpo.messages as Array<{ content: string }>
+        expect(doOutro).toHaveLength(1)
+        expect(JSON.stringify(estado.chamadasDaLlm.map((c) => c.corpo))).not.toContain('segredo de outra empresa')
     })
 
     it('a LLM não escolhe tenant nem remetente: as chaves propostas são ignoradas', async () => {
@@ -686,8 +764,8 @@ describe('(4) a lista: a tipologia e a cor só da lista, exatas', () => {
         await chamar('Levantamento Casa do João: janela de correr 1200 x 1000 Branco temperado 5mm')
         const item = itensDe(levantamentos()[0].id)[0]
         expect([item.tipologia, item.cor_perfil]).toEqual([null, null])
-        // a pergunta da tipologia é em linguagem de obra (03/11/2026), nunca "Qual a tipologia das esquadrias?"
-        expect(ultimoEnviado()).toBe(PERGUNTAS_DA_TIPOLOGIA[0])
+        // a pergunta da tipologia é em linguagem de obra (03/11/2026), nunca "Qual a tipologia das esquadrias?" — e a cor, que também falta, vai JUNTO
+        expect(ultimoEnviado()).toBe(`${PERGUNTAS_DA_TIPOLOGIA[0]} E me diga a cor do perfil.`)
     })
 
     it('SEM LISTA de tipologias (a tabela não carregada): a conversa diz o que falta, sem chamar a LLM', async () => {
@@ -802,34 +880,34 @@ describe('(6b) R1 e R2: nenhum update falha em silêncio, e a pergunta respondid
 
     it('R2: a resposta que não muda nada, com a pergunta em aberto, NÃO devolve a mesma pergunta: diz que não registrou — e nada é gravado', async () => {
         await abrirSemVidro('Casa do João')
-        const escritasAntes = estado.escritas.length
+        const escritasAntes = escritasNoEstado().length
         llmResponde({ itens: [] })
         await chamar('hmm, sei lá')
         expect(ultimoEnviado()).toBe(conversa.fraseDeNaoRegistrei(PERGUNTA_DO_VIDRO))
         expect(ultimoEnviado()).not.toBe(PERGUNTA_DO_VIDRO)
-        expect(estado.escritas.length).toBe(escritasAntes)
+        expect(escritasNoEstado().length).toBe(escritasAntes)
         expect(linhaIa().pop()).toContain('desfecho=nao-avancou')
     })
 
     it('R2: numa alteração, o que foi proposto e não vale aparece — nada alterado, nada gravado', async () => {
         await fecharDp02('Casa do João')
-        const escritasAntes = estado.escritas.length
+        const escritasAntes = escritasNoEstado().length
         llmResponde({ nome: 'casa do joao', alteracao: true, itens: [{ cor_perfil: 'Azul Piscina' }] })
         await chamar('casa do joao, troca a cor para azul piscina')
         expect(ultimoEnviado()).toBe(conversa.fraseDeNaoApliquei('Casa do João'))
-        expect(estado.escritas.length).toBe(escritasAntes)
+        expect(escritasNoEstado().length).toBe(escritasAntes)
     })
 
     it('mandar só o nome refaz a conta e NÃO toca o banco: o rastro (atualizado_em) é só de mudança', async () => {
         await fecharDp02('Casa do João')
-        const escritasAntes = estado.escritas.length
+        const escritasAntes = escritasNoEstado().length
         llmResponde({ nome: 'Casa do João' })
         await chamar('Casa do João')
         // a conta refeita é o apanhado de novo: ele grava SÓ a pergunta que espera o "sim", nunca o levantamento
         expect(ultimoEnviado().startsWith('Apanhado do levantamento “Casa do João”:')).toBe(true)
-        expect(estado.escritas.slice(escritasAntes).map((e) => [e.tabela, e.op])).toEqual([['orcamentista_pergunta_em_aberto', 'upsert']])
+        expect(escritasNoEstado().slice(escritasAntes).map((e) => [e.tabela, e.op])).toEqual([['orcamentista_pergunta_em_aberto', 'upsert']])
         expect(await confirmarApanhado()).toBe(LEVANTAMENTO_CASA_DO_JOAO)
-        expect(estado.escritas.slice(escritasAntes).filter((e) => e.tabela.startsWith('orcamentista_levantamento'))).toEqual([])
+        expect(escritasNoEstado().slice(escritasAntes).filter((e) => e.tabela.startsWith('orcamentista_levantamento'))).toEqual([])
     })
 })
 
@@ -981,7 +1059,7 @@ describe('(10) saldo, erro e a janela do 4xx — mascarada, cortada, e só no 4x
         const r = await chamar('Levantamento Casa do João')
         expect(r.status).toBe(200)
         expect(enviados()).toEqual([conversa.FALHA_DA_IA])
-        expect(estado.escritas).toEqual([])
+        expect(escritasNoEstado()).toEqual([])
     })
 
     it('400 → a linha [IA] leva a mensagem, que nomeia o CAMPO malformado', async () => {
@@ -1084,11 +1162,11 @@ describe('(12) decisão 2, revista: quem altera — o criador, ou o admin da emp
     it('6. outro vendedor SEM admin tenta alterar pelo nome → "não encontrei um levantamento seu", nada gravado — a MESMA frase de quando o levantamento não existe', async () => {
         await fecharDp02('Casa do João')
         const itensAntes = JSON.stringify(estado.db.orcamentista_levantamento_item)
-        const escritasAntes = estado.escritas.length
+        const escritasAntes = escritasNoEstado().length
         await alterarAltura('casa do joao', doOutro)
         const comOutroDono = ultimoEnviado()
         expect(comOutroDono).toBe(conversa.fraseDeNaoEncontrei('casa do joao'))
-        expect(estado.escritas.length).toBe(escritasAntes)
+        expect(escritasNoEstado().length).toBe(escritasAntes)
         expect(JSON.stringify(estado.db.orcamentista_levantamento_item)).toBe(itensAntes)
 
         // o contraste que prova que não vaza: ninguém tem "Casa do João", e a resposta é IDÊNTICA
@@ -1967,13 +2045,13 @@ describe('(22) a tipologia se pergunta em linguagem de obra, e a resposta que n�
 
     it('a resposta que não coube, sem pergunta da IA: OUTRA forma de obra — nunca a mesma pergunta, nunca o "Não consegui registrar"', async () => {
         await abrirSemTipologia()
-        const escritasAntes = estado.escritas.length
+        const escritasAntes = escritasNoEstado().length
         llmResponde({ itens: [] })
         await chamar('é aquela de sempre')
         expect(PERGUNTAS_DA_TIPOLOGIA.slice(1)).toContain(ultimoEnviado())
         expect(ultimoEnviado()).not.toBe(PERGUNTAS_DA_TIPOLOGIA[0])
         expect(ultimoEnviado()).not.toBe(conversa.fraseDeNaoRegistrei(PERGUNTAS_DA_TIPOLOGIA[0]))
-        expect(estado.escritas.length).toBe(escritasAntes)
+        expect(escritasNoEstado().length).toBe(escritasAntes)
         expect(linhaIa().pop()).toContain('desfecho=nao-avancou')
     })
 
@@ -2283,7 +2361,8 @@ describe('(24) porta não é janela, quantidade padrão 1, os limites e o agrupa
         llmResponde({ cliente: 'Ana', itens: [{ ...DP02, vidro: undefined }, { ...DP02, vidro: undefined }] })
         await chamar('Cliente: Ana. DP-02 1200 x 1000 branco; outra DP-02 1200 x 1000 branco')
         expect(itensDe(levantamentos()[0].id)).toHaveLength(2)
-        expect(ultimoEnviado()).toBe(`Esquadria 1: ${PERGUNTA_DO_VIDRO}`)
+        // UMA pergunta com as duas pendências (03/11/2026): uma linha por esquadria
+        expect(ultimoEnviado()).toBe(`Esquadria 1: ${PERGUNTA_DO_VIDRO}\nEsquadria 2: ${PERGUNTA_DO_VIDRO}`)
     })
 
     it('O AGRUPAMENTO com uma gravada: a alteração que iguala a esquadria 2 à 1 funde as duas — a linha gravada da 2 sai por DELETE conferido', async () => {

@@ -40,11 +40,14 @@
  * o log registra a ambiguidade (sem o telefone). A tentativa guarda o número como ele CHEGOU, e é
  * esse número que a conversa recebe — é para ele que a resposta volta.
  *
- * ══ AUTORIZADO: NADA É GRAVADO AQUI (decisão 4 do dono do produto, 25/10/2026) ══
- * A rota não grava o texto, nem cria conversa: nenhuma linha nova em `orcamentista_conversa` ou
- * `orcamentista_mensagem` — o estado mora no levantamento, e a identidade é o remetente. O que já
- * existe nessas tabelas fica como está. A consequência, conhecida e aceita: sem a linha da mensagem,
- * o reenvio do WUZAPI (o mesmo `Info.ID`) não é mais reconhecido, e é conduzido de novo.
+ * ══ AUTORIZADO: A CONVERSA É GRAVADA (dono do produto, 03/11/2026; revoga a decisão 4 de 25/10/2026) ══
+ * A rota acha (ou cria) a conversa do remetente em `orcamentista_conversa` — a mais recente por (tenant,
+ * remetente) — e grava a ENTRADA em `orcamentista_mensagem` com o texto e o `Info.ID` (`conversa-gravada.ts`).
+ * O mesmo `Info.ID` já gravado no tenant (a UNIQUE parcial) é o reenvio do WUZAPI: a entrada de antes vai à
+ * conversa marcada `repetida`, e é ela que decide — 200 sem conduzir quando a resposta já saiu, o reenvio do
+ * texto gravado quando o primeiro envio falhou, a condução de novo só quando a primeira morreu. A SAÍDA é
+ * gravada pela conversa, com `responde_a` (migração 20261103000003). Nada sai do tenant: toda linha leva o
+ * `tenant_id`. O estado do levantamento continua no levantamento; a conversa gravada é histórico e idempotência.
  *
  * ══ O LOG ══
  * Uma linha `[INBOUND]` por chamada, em `console.error` (o log da Vercel deste projeto só exibe
@@ -58,6 +61,7 @@ import { supabaseAdmin } from '@/supabase/admin'
 import { telefoneDoRemetente, textoDaMensagem } from '@/lib/atendimentos-ia/payload-wuzapi'
 import { telefoneNormalizado } from '@/lib/atendimentos-ia/telefone-normalizado'
 import { conduzirMensagem } from '@/lib/atendimentos-ia/conversa-da-ia'
+import { conversaDoRemetente, gravarEntrada } from '@/lib/atendimentos-ia/conversa-gravada'
 
 /** A conversa chama a LLM e o WUZAPI dentro da requisição: o limite é declarado, não herdado. */
 export const config = { maxDuration: 60 }
@@ -68,13 +72,15 @@ const FORMATO_DO_SEGREDO = /^[0-9a-f]{32,64}$/
 const CANAL_DO_ORCAMENTISTA = 'ORCAMENTISTA'
 const VIOLACAO_DE_UNICIDADE = '23505'
 
-type Rastro = { chaves: string; canal: string; conexao: boolean; autorizado: boolean | null; ambiguidade: number; id: string; desfecho: string }
+type Rastro = { chaves: string; canal: string; conexao: boolean; autorizado: boolean | null; ambiguidade: number; id: string; repetida: boolean | null; desfecho: string }
 
 function anotar(r: Rastro) {
     const autorizado = r.autorizado === null ? '-' : r.autorizado ? 'sim' : 'nao'
     // a ambiguidade sai como CONTAGEM — nunca o telefone
     const ambiguidade = r.ambiguidade > 0 ? ` ambiguidade=${r.ambiguidade}` : ''
-    console.error(`${PREFIXO_DO_LOG_DE_ENTRADA} chaves=${r.chaves} canal=${r.canal} conexao=${r.conexao ? 'sim' : 'nao'} autorizado=${autorizado}${ambiguidade} id=${r.id} desfecho=${r.desfecho}`)
+    // a entrada já estava gravada (o reenvio do WUZAPI): só quando a mensagem chegou a ser gravada
+    const repetida = r.repetida === null ? '' : ` repetida=${r.repetida ? 'sim' : 'nao'}`
+    console.error(`${PREFIXO_DO_LOG_DE_ENTRADA} chaves=${r.chaves} canal=${r.canal} conexao=${r.conexao ? 'sim' : 'nao'} autorizado=${autorizado}${ambiguidade} id=${r.id}${repetida} desfecho=${r.desfecho}`)
 }
 
 /** O corpo como objeto — o parser do Next entrega JSON já lido; texto cru é lido aqui. */
@@ -98,7 +104,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const corpo = corpoDe(req)
     const event = (corpo.event && typeof corpo.event === 'object' ? corpo.event : {}) as Record<string, unknown>
     const info = (event.Info && typeof event.Info === 'object' ? event.Info : {}) as Record<string, unknown>
-    const rastro: Rastro = { chaves: Object.keys(corpo).sort().join(',') || '-', canal: '-', conexao: false, autorizado: null, ambiguidade: 0, id: idSeguro(info.ID), desfecho: '' }
+    const rastro: Rastro = { chaves: Object.keys(corpo).sort().join(',') || '-', canal: '-', conexao: false, autorizado: null, ambiguidade: 0, id: idSeguro(info.ID), repetida: null, desfecho: '' }
     const fim = (status: number, desfecho: string) => {
         rastro.desfecho = desfecho
         anotar(rastro)
@@ -159,9 +165,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             return fim(200, rastro.ambiguidade > 0 ? 'tentativa-por-ambiguidade' : 'tentativa-desconhecida')
         }
 
+        // A CONVERSA GRAVADA (03/11/2026): a conversa do remetente e a entrada, com o Info.ID — o reenvio é reconhecido aqui
+        const conversaId = await conversaDoRemetente(tenantId, remetenteId, telefone)
+        const entrada = await gravarEntrada(tenantId, conversaId, texto, mensagemId)
+        rastro.repetida = entrada.repetida
+
         // A CONVERSA. Ela nunca lança: o 200 sai de qualquer jeito. O token da conexão é o do envio;
         // não vai para log nenhum.
-        await conduzirMensagem({ tenantId, remetenteId, telefone, texto, wuzapiToken: (conexao as { wuzapi_token: string }).wuzapi_token })
+        await conduzirMensagem({ tenantId, remetenteId, telefone, texto, wuzapiToken: (conexao as { wuzapi_token: string }).wuzapi_token, conversaId: entrada.conversaId, entrada })
         return fim(200, 'conduzida')
     } catch (e) {
         // Sem o token nem o texto: as mensagens acima só levam o nome da tabela e o erro do banco.

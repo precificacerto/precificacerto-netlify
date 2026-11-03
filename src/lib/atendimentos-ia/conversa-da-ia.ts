@@ -3,9 +3,10 @@
  *
  * ══ A ARQUITETURA (dono do produto, 25/10/2026) ══
  * O LEVANTAMENTO é a entidade (`orcamentista_levantamento` e `_item`, migração 20261025000003), de UM
- * remetente, achado pelo nome. A conversa deixa de ser identidade de qualquer coisa: nada é gravado em
- * `orcamentista_conversa`, `orcamentista_mensagem` nem `orcamentista_pre_definicao` (decisão 4). A LLM
- * recebe SÓ a mensagem desta vez; o que ela precisa saber do passado vai no prompt, lido do levantamento.
+ * remetente, achado pelo nome. A conversa não é identidade de nada: o ESTADO mora no levantamento e na pergunta em aberto, e
+ * nada se grava em `orcamentista_pre_definicao`. A decisão 4 (nada em `orcamentista_conversa` nem em `orcamentista_mensagem`)
+ * foi REVOGADA em 03/11/2026: a conversa é GRAVADA, dentro do tenant, como HISTÓRICO para o modelo e para a IDEMPOTÊNCIA do
+ * reenvio — ver "A CONVERSA GRAVADA" abaixo.
  *
  * ══ A PERGUNTA EM ABERTO do roteamento pelo nome (dono do produto, 26/10/2026; `pergunta-em-aberto.ts`) ══
  * Fora da montagem, a pergunta que a conversa fez (nome parecido, nome que falta, confirmação do acréscimo)
@@ -87,10 +88,16 @@
  *   - remetente autorizado SEMPRE recebe resposta: falta de chave, de saldo, erro da LLM ou do banco
  *     viram uma frase que diz o que falhou. Silêncio só quando o próprio envio falha.
  *
- * ══ O QUE SE PERDEU, por decisão (dono do produto, 25/10/2026) ══
- * Sem a linha da mensagem, o reenvio do WUZAPI não é mais reconhecido: o mesmo `Info.ID` é conduzido
- * de novo. Com o levantamento em montagem a resposta repetida cai na mesma pergunta; depois de
- * COMPLETO, o reenvio de uma alteração a refaz com os mesmos números.
+ * ══ A CONVERSA GRAVADA E A CONVERSA SEM FORMULÁRIO (dono do produto, 03/11/2026; `conversa-gravada.ts`, `redacao-da-resposta.ts`) ══
+ * A rota grava a entrada (com o `Info.ID`) e a conversa grava a saída depois de enviada, com `responde_a` e o id do envio. O
+ * modelo recebe as ÚLTIMAS MENSAGENS da conversa (20, 24 horas, 6.000 caracteres; o formal com preço vira "[levantamento formal
+ * enviado]"; saída acima de 600 caracteres entra cortada): "nunca mandar dinheiro ao modelo" é inviolável. O reenvio do WUZAPI
+ * de uma entrada já respondida é 200 sem conduzir nem reenviar; só se reenvia a saída cujo primeiro envio falhou de fato; sem
+ * saída e com a entrada mais velha que a janela da rota, a mensagem é conduzida de novo. UMA pergunta por turno cobre TODAS as
+ * pendências (`pendenciasDoLevantamento`, `perguntaDasPendencias`). As frases fixas de pergunta e confirmação são REDIGIDAS pelo
+ * modelo (`falar`): o rascunho é a frase de sempre, o código valida números, nomes, caixa alta, dinheiro e código de fornecedor,
+ * e manda o rascunho quando a redação não passa; a mesma resposta nunca sai duas vezes seguidas. Ficam fixas as falhas, as faltas
+ * de configuração, o apanhado e o levantamento formal. A personalidade está no prompt base.
  *
  * ══ O CONTEXTO DO ATENDIMENTO (dono do produto, 26/10/2026; `contexto-do-atendimento.ts`) ══
  * "O PROMPT MANDA EM QUANDO E EM QUE FORMA. O CÓDIGO MANDA EM DE ONDE VEM O NÚMERO." Com contexto gravado, ele
@@ -158,9 +165,11 @@ import {
     type CandidatoDeTipologia,
 } from '@/lib/atendimentos-ia/levantamento-da-conversa'
 import { agruparIguais,
-    CAMPOS_DA_ESQUADRIA, aplicarProposta, familiaDaEsquadria, itemVazio, perguntaDaPendencia, proximaPendencia, resolverFamilias,
+    CAMPOS_DA_ESQUADRIA, aplicarProposta, familiaDaEsquadria, itemVazio, pendenciasDoLevantamento, perguntaDasPendencias, resolverFamilias,
     type DefinicaoDaTipologia, type ItemDoLevantamento, type Pendencia,
 } from '@/lib/atendimentos-ia/levantamento-em-montagem'
+import { JANELA_EM_VOO_MS, gravarSaida, lerHistorico, marcarEnvio, saidaDaEntrada, type Entrada, type MensagemDoHistorico } from '@/lib/atendimentos-ia/conversa-gravada'
+import { CODIGO_DE_FORNECEDOR, redigir, type MotivoDaRedacao, type Redacao } from '@/lib/atendimentos-ia/redacao-da-resposta'
 import type { VariaveisDaTipologia } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import { compararNome, formaComparavel, nomeDaMensagem, nomeDoCliente, nomeSemPrefixo, normalizarNome } from '@/lib/atendimentos-ia/nome-do-levantamento'
 import { PERGUNTAS_DA_TIPOLOGIA } from '@/lib/atendimentos-ia/pre-definicao'
@@ -188,6 +197,8 @@ export type DesfechoDaIa =
     | 'sem-nome' | 'nome-parecido' | 'nome-existe' | 'qual-esquadria' | 'nao-encontrado' | 'qual-vendedor' | 'alteracao-incompleta'
     | 'nao-avancou' | 'confirmar-acrescimo' | 'confirmar-resgate' | 'nao-acrescentou' | 'apanhado' | 'nao-confirmou'
     | 'perguntou' | 'sem-cores' | 'levantou' | 'recusou' | 'envio-falhou' | 'erro' | 'nenhuma-cabe'
+    /** O reenvio do WUZAPI de uma entrada já respondida (200 sem conduzir), e o reenvio da saída cujo primeiro envio falhou (03/11/2026). */
+    | 'repetida' | 'reenviada'
 
 export type Rota = 'MONTAGEM' | 'NOVO' | 'ALTERACAO' | 'ALTERACAO_ADMIN' | 'SEM_NOME' | 'PARECIDO' | 'RESGATE' | 'NOME_EXISTE' | 'NAO_ENCONTRADO' | 'QUAL_VENDEDOR' | '-'
 /**
@@ -213,6 +224,12 @@ type Rastro = {
     fundidos: number
     /** Quantas esquadrias da mensagem eram reenvio idêntico de uma já retida na pergunta em aberto (03/11/2026). */
     reenviadas: number
+    /** Quantas mensagens da conversa foram ao modelo (03/11/2026); '-' sem chamada. */
+    historico: number | '-'
+    /** A gravação da saída: `sim`, `sem_migracao` (sem a coluna responde_a) ou `falhou` (a resposta já tinha saído; só o log). */
+    gravacao: 'sim' | 'sem_migracao' | 'falhou' | '-'
+    /** O que aconteceu com a redação pelo modelo (03/11/2026); '-' quando a resposta não passou por ela. */
+    redacao: MotivoDaRedacao | '-'
 }
 const FALA_NO_LOG: Record<FalaLida['motivo'], string> = { usada: 'usada', ausente: 'ausente', numero: 'descartada_numero', longa: 'descartada_longa' }
 
@@ -223,6 +240,7 @@ function anotar(r: Rastro, desfecho: DesfechoDaIa, detalhe = '') {
     // o contexto e a fala: o ESTADO, nunca o texto
     const contexto = (r.contexto === '-' ? '' : ` contexto=${r.contexto}${r.fala === '-' ? '' : ` fala=${FALA_NO_LOG[r.fala]}`}`)
         + (r.instrucoes === '-' ? '' : ` instrucoes=${r.instrucoes}`) + (r.fundidos > 0 ? ` agrupados=${r.fundidos}` : '') + (r.reenviadas > 0 ? ` reenviadas=${r.reenviadas}` : '')
+        + (r.historico === '-' ? '' : ` historico=${r.historico}`) + (r.gravacao === '-' ? '' : ` gravacao=${r.gravacao}`) + (r.redacao === '-' ? '' : ` redacao=${r.redacao}`)
     console.error(`${PREFIXO_DO_LOG_DA_IA} levantamento=${r.levantamento} rota=${r.rota} propostos=${r.propostos} descartados=${r.descartados} enviou=${r.enviou ? 'sim' : 'nao'} desfecho=${desfecho}${admin} nome=${r.nome} aberta=${r.aberta}${contexto}${ia}${detalhe ? ` ${detalhe}` : ''}`)
 }
 
@@ -295,9 +313,11 @@ export const fraseDaAlteracaoIncompleta = (nome: string, vendedor: string, pergu
 /** A confirmação do arremate, no começo da resposta com o levantamento. */
 export const FRASE_ARREMATE_PADRAO = 'Considerando guarnição e arremate padrão, certo!'
 export const FRASE_ARREMATE_ESCOLHIDO = 'Considerando o arremate que você pediu, e o padrão no que não foi dito, certo!'
-/** R2: a mensagem não mudou nada — a resposta diz isso, em vez de repetir a pergunta como se nada fosse. */
-export const fraseDeNaoRegistrei = (pergunta: string) =>
-    `Não consegui registrar a sua resposta. A pergunta continua: ${pergunta} Responda em palavras, como está escrito acima.`
+/**
+ * R2: a mensagem não mudou nada — a resposta diz isso, em vez de repetir a pergunta como se nada fosse. Sem "Não consegui registrar" e
+ * sem mandar responder numa forma ditada (dono do produto, 03/11/2026); o modelo a redige em outras palavras (`falar`).
+ */
+export const fraseDeNaoRegistrei = (pergunta: string) => `Essa resposta não me deu o que falta. ${pergunta}`
 export const fraseDeNaoApliquei = (nome: string) =>
     `Não consegui aplicar o que você pediu no levantamento “${nome}”: o que entendi não é um valor aceito (por exemplo, uma cor, tipologia ou arremate fora da lista). Nada foi alterado. Diga de novo o que muda.`
 const milhar = (n: unknown) => (typeof n === 'number' ? new Intl.NumberFormat('pt-BR').format(n) : '?')
@@ -432,7 +452,8 @@ function sistema(c: ContextoDoPrompt): string {
         '',
         'Você conversa pelo WhatsApp com um VENDEDOR de uma empresa de esquadrias e anota LEVANTAMENTOS.',
         'Cada levantamento tem um NOME dado pelo vendedor (ex.: "Levantamento Casa do João") e uma ou mais esquadrias.',
-        'O vendedor já sabe o que a empresa vende: você só anota. Você recebe SÓ a mensagem desta vez.',
+        'O vendedor já sabe o que a empresa vende: você só anota.',
+        'Você recebe as últimas mensagens da conversa (até 24 horas): a ÚLTIMA é a desta vez, e é dela que saem os campos. As anteriores dizem o que já foi combinado: use-as para entender referências ("a mesma cor", "igual à primeira") e para NUNCA perguntar de novo o que o vendedor já disse.',
         '',
         'Os campos de cada esquadria: tipologia; largura_mm; altura_mm; quantidade; cor_perfil; vidro.',
         'Medidas em milímetros, inteiras: se o vendedor disser em metros ou centímetros, converta.',
@@ -447,7 +468,7 @@ function sistema(c: ContextoDoPrompt): string {
         '- vendedor: só quando a mensagem diz de qual VENDEDOR é o levantamento; copie o nome como foi escrito. Senão, omita.',
         '- Pergunta em aberto (quando houver, no fim): a mensagem pode ser a RESPOSTA a ela. Se o vendedor responde com um levantamento que a pergunta cita ("é o mesmo", "é esse"), ponha em `nome` o nome dele escrito como na pergunta. Se a mensagem é só o nome de um levantamento, é o nome do levantamento.',
         '- confirma: só quando a pergunta em aberto pede confirmação — true se ele confirmou ("sim", "pode", "confirmo"), false se negou. Senão, omita.',
-        '- itens: só o que foi dito NESTA mensagem. Numa alteração, só os campos que mudam. Não invente, não deduza.',
+        '- itens: as esquadrias desta mensagem, com os campos que ela diz. Um campo vale também quando o vendedor o deu para todas numa mensagem anterior ("todas brancas") ou se referiu a ele ("a mesma cor"). Numa alteração, só os campos que mudam. Não invente, não deduza.',
         '- cor_perfil: EXATAMENTE uma das cores da empresa (lista do fim), escrita como está. Se for outra cor, ou se houver dúvida, NÃO preencha.',
         '- tipologia: o CÓDIGO (ex.: DP-02) de UMA das tipologias da lista do fim, escolhida pela descrição. NUNCA invente código nem preencha com as palavras do vendedor. Se cabe em mais de uma, NÃO preencha: em `pergunta`, pergunte qual é, citando a descrição INTEIRA de cada uma, sem o código. Se ainda não dá para concluir, NÃO preencha: em `pergunta`, pergunte em linguagem de obra o que falta para você concluir (janela ou porta, como abre, quantas folhas, persiana) — nunca "qual a tipologia".',
         '- abertura: a PALAVRA que o vendedor usou para a esquadria — "porta" (também "porta-janela" e "porta janela") ou "janela". Só se ele a escreveu; senão, omita. Porta NUNCA vira tipologia cuja descrição começa com JANELA, e janela NUNCA vira PORTA; maxim-ar e fixo servem às duas.',
@@ -502,7 +523,7 @@ function mensagemParaOLog(mensagem: unknown, chave: string): string {
 
 const tokens = (v: unknown) => (typeof v === 'number' && Number.isInteger(v) && v >= 0 ? v : null)
 
-async function chamarLlm(chave: string, mensagem: string, contexto: ContextoDoPrompt, medida: MedidaDaIa): Promise<ResultadoDaLlm> {
+async function chamarLlm(chave: string, mensagem: string, contexto: ContextoDoPrompt, medida: MedidaDaIa, historico: readonly MensagemDoHistorico[]): Promise<ResultadoDaLlm> {
     const inicio = Date.now()
     let r: Response
     try {
@@ -520,7 +541,8 @@ async function chamarLlm(chave: string, mensagem: string, contexto: ContextoDoPr
                 // a `fala` vale para toda empresa (03/11/2026); o filtro de número continua derrubando a que traz número
                 tools: [FERRAMENTA_COM_FALA],
                 tool_choice: { type: 'auto' },
-                messages: [{ role: 'user', content: mensagem }],
+                // o HISTÓRICO da conversa (03/11/2026): as últimas mensagens, já sem dinheiro e cortadas; a desta vez por último
+                messages: [...historico, { role: 'user', content: mensagem }],
             }),
         })
     } catch (e) {
@@ -719,20 +741,21 @@ async function enviarTexto(token: string, telefone: string, texto: string): Prom
     }
 }
 
-/** A pergunta da pendência; o texto da LLM só quando é sobre o MESMO campo que o código decidiu. */
-/** Um código de fornecedor no texto ("BZ0010", "IL50", "SF66"): o que chega ao vendedor não o traz. */
-const CODIGO_DE_FORNECEDOR = /\b[A-Z]{1,5}\d{2,}\b/
-
-function perguntaPara(p: Pendencia, nItens: number, proposta: Record<string, unknown>): string {
-    const fixa = perguntaDaPendencia(p, nItens)
-    if (!('campo' in p)) return fixa
+/**
+ * A pergunta com TODAS as pendências (03/11/2026); o texto da LLM só quando é sobre o MESMO campo que o código pôs em primeiro, e aí
+ * ele entra no lugar da pergunta fixa daquele campo — o resto do que falta vem junto.
+ */
+function perguntaPara(ps: readonly Pendencia[], nItens: number, proposta: Record<string, unknown>): string {
+    const fixa = perguntaDasPendencias(ps, nItens)
+    const p = ps[0]
+    if (!p || !('campo' in p)) return fixa
     const q = proposta.pergunta && typeof proposta.pergunta === 'object' ? (proposta.pergunta as { campo?: unknown; texto?: unknown }) : {}
     const t = typeof q.texto === 'string' ? q.texto.trim() : ''
     // o que chega ao vendedor não traz código de fornecedor (26/10/2026): a reformulação que traz vai para a fixa
     if (q.campo !== p.campo || t === '' || t.length > 500 || CODIGO_DE_FORNECEDOR.test(t)) return fixa
     // a reformulação que traz DINHEIRO também vai para a fixa: o número é do código (para toda empresa, desde o prompt base)
     if (temDinheiro(t)) return fixa
-    return nItens > 1 ? `Esquadria ${p.ordem}: ${t}` : t
+    return perguntaDasPendencias(ps, nItens, t)
 }
 
 // ── A PERGUNTA EM ABERTO DO ROTEAMENTO PELO NOME (`pergunta-em-aberto.ts`) ──────────────────
@@ -800,24 +823,76 @@ function opcaoDaLista<L>(opcao: unknown, lista: readonly L[]): L | null {
 }
 
 // ── A CONVERSA ──────────────────────────────────────────────────────────────────────────────
-export type Interlocutor = { tenantId: string; remetenteId: string; telefone: string; texto: string; wuzapiToken: string }
+export type Interlocutor = {
+    tenantId: string; remetenteId: string; telefone: string; texto: string; wuzapiToken: string
+    /** A conversa gravada (03/11/2026): a conversa do remetente e a entrada desta mensagem, já gravada pela rota. */
+    conversaId: string
+    entrada: Entrada
+}
 
 /** Conduz uma mensagem do vendedor. NUNCA lança: toda falha vira uma linha `[IA]`. */
 export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
-    const rastro: Rastro = { levantamento: '-', rota: '-', propostos: 0, descartados: 0, enviou: false, admin: null, nome: '-', aberta: '-', ia: { ms: null, entrada: null, saida: null }, contexto: '-', fala: '-', instrucoes: '-', fundidos: 0, reenviadas: 0 }
+    const rastro: Rastro = {
+        levantamento: '-', rota: '-', propostos: 0, descartados: 0, enviou: false, admin: null, nome: '-', aberta: '-', ia: { ms: null, entrada: null, saida: null },
+        contexto: '-', fala: '-', instrucoes: '-', fundidos: 0, reenviadas: 0, historico: '-', gravacao: '-', redacao: '-',
+    }
     const fim = (desfecho: DesfechoDaIa, detalhe = ''): DesfechoDaIa => { anotar(rastro, desfecho, detalhe); return desfecho }
     // a fala da IA, já filtrada: abre a resposta do código. Sem contexto, ou com o filtro disparado, não há
     let abertura: string | null = null
-    const responder = async (textoDaResposta: string, desfecho: DesfechoDaIa, detalhe = ''): Promise<DesfechoDaIa> => {
-        const envio = await enviarTexto(c.wuzapiToken, c.telefone, abertura ? `${abertura}\n\n${textoDaResposta}` : textoDaResposta)
+    // o histórico da conversa (03/11/2026): lido antes da IA; a última saída é com o que a resposta de agora não pode coincidir
+    let historico: MensagemDoHistorico[] = []
+    let ultimaSaida: string | null = null
+    let blocoDaEmpresa: string | null = null
+    /** A saída é GRAVADA depois de enviada, com o id do envio (ou nulo, quando falhou). A gravação nunca derruba a resposta: só o log. */
+    const gravar = async (texto: string, idDoEnvio: string | null) => {
+        try {
+            rastro.gravacao = (await gravarSaida(c.tenantId, c.conversaId, c.entrada.id, texto, idDoEnvio)) === 'gravada' ? 'sim' : 'sem_migracao'
+        } catch (e) {
+            rastro.gravacao = 'falhou'
+            console.error(`${PREFIXO_DO_LOG_DA_IA} a saida nao foi gravada: ${e instanceof Error ? e.message : 'erro desconhecido'}`)
+        }
+    }
+    const responder = async (textoDaResposta: string, desfecho: DesfechoDaIa, detalhe = '', comAbertura = true): Promise<DesfechoDaIa> => {
+        const texto = comAbertura && abertura ? `${abertura}\n\n${textoDaResposta}` : textoDaResposta
+        const envio = await enviarTexto(c.wuzapiToken, c.telefone, texto)
+        await gravar(texto, envio.ok ? envio.id : null)
         if (!envio.ok) return fim('envio-falhou', `status_envio=${envio.status ?? 'sem resposta'}${detalhe ? ` ${detalhe}` : ''}`)
         rastro.enviou = true
         return fim(desfecho, detalhe)
+    }
+    /**
+     * A frase do MODELO (03/11/2026): o rascunho é a frase fixa de sempre, com o conteúdo obrigatório; o modelo a redige com a
+     * personalidade e o histórico; o código valida (`redacaoValida`) e, se não passar, manda o rascunho. A redação já é a resposta
+     * inteira: a `fala` não a antecede. A mesma resposta nunca sai duas vezes seguidas: a igual à última saída cai na validação.
+     */
+    const falar = async (rascunho: string, desfecho: DesfechoDaIa, detalhe = ''): Promise<DesfechoDaIa> => {
+        const chave = process.env.ANTHROPIC_API_KEY
+        const r: Redacao = chave ? await redigir(chave, rascunho, { blocoDaEmpresa, historico, ultimaSaida }) : { texto: null, motivo: 'erro' }
+        rastro.redacao = r.motivo
+        if (r.texto !== null) return await responder(r.texto, desfecho, detalhe, false)
+        return await responder(rascunho, desfecho, `${detalhe}${ultimaSaida !== null && rascunho === ultimaSaida ? `${detalhe ? ' ' : ''}repetida=sim` : ''}`)
     }
     // em que ponto a falha aconteceu decide a frase: antes de gravar, ao gravar, ou depois
     let gravando = false
     let gravado = false
     try {
+        // O REENVIO DO WUZAPI (03/11/2026): a entrada já estava gravada. Com a saída enviada, 200 sem conduzir nem reenviar; com a saída
+        // sem id de envio (o envio falhou de fato), só o reenvio do texto gravado; sem saída, em voo (a primeira ainda roda) não se faz
+        // nada — e mais velha que a janela, a primeira morreu, e a mensagem é conduzida de novo
+        if (c.entrada.repetida) {
+            const saida = await saidaDaEntrada(c.tenantId, c.entrada.id)
+            if (saida === 'sem_migracao') return fim('repetida', 'gravacao=sem_migracao')
+            if (saida && saida.enviada) return fim('repetida')
+            if (saida) {
+                const envio = await enviarTexto(c.wuzapiToken, c.telefone, saida.texto)
+                if (!envio.ok) return fim('envio-falhou', `status_envio=${envio.status ?? 'sem resposta'} reenvio=sim`)
+                rastro.enviou = true
+                if (envio.id) await marcarEnvio(c.tenantId, saida.id, envio.id)
+                return fim('reenviada')
+            }
+            const idade = Date.now() - new Date(c.entrada.criadoEm).getTime()
+            if (idade < JANELA_EM_VOO_MS) return fim('repetida', 'em_voo=sim')
+        }
         const chave = process.env.ANTHROPIC_API_KEY
         if (!chave) return await responder(FALHA_SEM_CHAVE, 'sem-chave')
 
@@ -841,7 +916,9 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
 
         const [emMontagem] = await lerLevantamentos(c.tenantId, c.remetenteId, true)
         const itensDaMontagem = emMontagem ? await lerItens(c.tenantId, emMontagem.id) : []
-        const pendenciaAberta = emMontagem ? proximaPendencia(itensDaMontagem, definicao, doCodigo) : null
+        // TODAS as pendências da montagem (03/11/2026): a pergunta em aberto é uma só, e cobre todas
+        const pendenciasAbertas = emMontagem ? pendenciasDoLevantamento(itensDaMontagem, definicao, doCodigo) : []
+        const pendenciaAberta = pendenciasAbertas[0] ?? null
         // a pergunta em aberto do roteamento pelo nome: só fora da montagem, que guarda a sua no levantamento
         const lida = emMontagem ? null : await lerPerguntaEmAberto(c.tenantId, c.remetenteId)
         rastro.aberta = lida === 'ausente' ? 'ausente' : lida ? lida.pergunta : '-'
@@ -862,6 +939,12 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         // o contexto da empresa: vazio (ou a tabela ausente) é o pedido de hoje
         const contexto = await lerContextoDoAtendimento(c.tenantId)
         rastro.contexto = contexto.estado
+        blocoDaEmpresa = contexto.texto === null ? null : blocoDoContexto(contexto.texto).join('\n')
+        // o histórico da conversa (03/11/2026): as últimas mensagens, sem dinheiro, e a última saída como foi enviada
+        const lido = await lerHistorico(c.tenantId, c.conversaId, c.entrada.id)
+        historico = lido.mensagens
+        ultimaSaida = lido.ultimaSaida
+        rastro.historico = historico.length
         // a instrução de cada categoria preenchida (03/11/2026)
         const instrucoes: InstrucoesLidas = await lerInstrucoesDaEmpresa(c.tenantId)
         rastro.instrucoes = instrucoes.estado === 'sem_migracao' ? 'sem_migracao' : String(instrucoes.instrucoes.length)
@@ -869,9 +952,9 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             contexto: contexto.texto, instrucoes: instrucoes.instrucoes,
             candidatos: candidatosDoPrompt, variasFamilias, cores, escolhasPorTipologia,
             montagem: emMontagem ? { nome: emMontagem.nome, itens: itensDaMontagem.map(camposParaOPrompt) } : null,
-            perguntaEmAberto: pendenciaAberta ? perguntaDaPendencia(pendenciaAberta, itensDaMontagem.length) : aberta?.paraOPrompt ?? aberta?.texto ?? null,
+            perguntaEmAberto: pendenciaAberta ? perguntaDasPendencias(pendenciasAbertas, itensDaMontagem.length) : aberta?.paraOPrompt ?? aberta?.texto ?? null,
             hoje: !pendenciaAberta && aberta && ehResgate(aberta.p) ? dataBR(new Date().toISOString()) : null,
-        }, rastro.ia)
+        }, rastro.ia, historico)
         if (resposta.tipo !== 'ok') {
             // DEFEITO 3: o vendedor sempre fica sabendo — sem detalhe técnico
             const frase = resposta.tipo === 'sem-saldo' ? FALHA_SEM_SALDO : resposta.tipo === 'recusa' ? FALHA_RECUSA : FALHA_DA_IA
@@ -905,14 +988,14 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         const perguntar = async (p: PerguntaEmAberto, textoDaPergunta: string, desfecho: DesfechoDaIa): Promise<DesfechoDaIa> => {
             if (guardaPergunta) await gravarPerguntaEmAberto(c.tenantId, c.remetenteId, p)
             const repetida = aberta !== null && aberta.texto === textoDaPergunta
-            if (!repetida) return await responder(textoDaPergunta, desfecho)
+            if (!repetida) return await falar(textoDaPergunta, desfecho)
             // a pergunta repetida vai em OUTRAS palavras — nunca "Não consegui registrar a sua resposta" (dono do produto, 03/11/2026)
-            if (p.pergunta === 'SEM_NOME') return await responder(outraPergunta(OUTRAS_PERGUNTAS_DO_NOME, c.texto), 'nao-avancou')
-            if (p.pergunta === 'NOME_PARECIDO' && p.nome && aberta) return await responder(fraseDoResgateEmOutrasPalavras(p.nome, aberta.citados), 'nao-avancou')
+            if (p.pergunta === 'SEM_NOME') return await falar(outraPergunta(OUTRAS_PERGUNTAS_DO_NOME, c.texto), 'nao-avancou')
+            if (p.pergunta === 'NOME_PARECIDO' && p.nome && aberta) return await falar(fraseDoResgateEmOutrasPalavras(p.nome, aberta.citados), 'nao-avancou')
             if (p.pergunta === 'CONFIRMAR_ACRESCIMO' && aberta?.citados[0]) {
-                return await responder(p.nome !== null ? fraseDeConfirmarResgateEmOutrasPalavras(aberta.citados[0]) : fraseDeConfirmarAcrescimoEmOutrasPalavras(aberta.citados[0].nome), 'nao-avancou')
+                return await falar(p.nome !== null ? fraseDeConfirmarResgateEmOutrasPalavras(aberta.citados[0]) : fraseDeConfirmarAcrescimoEmOutrasPalavras(aberta.citados[0].nome), 'nao-avancou')
             }
-            return await responder(fraseDeNaoRegistrei(textoDaPergunta), 'nao-avancou')
+            return await falar(fraseDeNaoRegistrei(textoDaPergunta), 'nao-avancou')
         }
 
         // ── a rota ──
@@ -940,10 +1023,10 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
                 if (deOutro) {
                     // a permissão é conferida de novo: quem deixou de ser admin não alcança o levantamento do outro
                     rastro.admin = await permissaoDoRemetente(c.tenantId, c.remetenteId)
-                    if ('motivo' in rastro.admin) { rastro.rota = 'NAO_ENCONTRADO'; return await responder(fraseDeNaoEncontrei(doApanhado.nome), 'nao-encontrado') }
+                    if ('motivo' in rastro.admin) { rastro.rota = 'NAO_ENCONTRADO'; return await falar(fraseDeNaoEncontrei(doApanhado.nome), 'nao-encontrado') }
                 }
                 rastro.rota = deOutro ? 'ALTERACAO_ADMIN' : 'ALTERACAO'
-                if (lido === null && confirma === false) return await responder(fraseDoApanhadoNaoConfirmado(doApanhado.nome), 'nao-confirmou')
+                if (lido === null && confirma === false) return await falar(fraseDoApanhadoNaoConfirmado(doApanhado.nome), 'nao-confirmou')
                 const vendedor = deOutro ? (await nomesDosVendedores(c.tenantId, [doApanhado.remetente_id])).get(doApanhado.remetente_id) ?? VENDEDOR_SEM_NOME : null
                 alvo = { id: doApanhado.id, nome: doApanhado.nome, estado: doApanhado.estado, donoId: doApanhado.remetente_id, vendedor, itens: await lerItens(c.tenantId, doApanhado.id) }
                 nome = doApanhado.nome
@@ -1004,7 +1087,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
                     else {
                         rastro.rota = 'SEM_NOME'
                         if (guardaPergunta) await gravarPerguntaEmAberto(c.tenantId, c.remetenteId, { pergunta: 'SEM_NOME', nome: null, levantamentos: [], itens: emEspera })
-                        return await responder(fraseDoAcrescimoRecusado(citado.nome), 'nao-acrescentou')
+                        return await falar(fraseDoAcrescimoRecusado(citado.nome), 'nao-acrescentou')
                     }
                 }
                 if (lido === null) {
@@ -1015,7 +1098,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
                 const novo = proposta.novo === true
                 if ('existente' in comparacao) {
                     rastro.levantamento = comparacao.existente.id
-                    if (novo) { rastro.rota = 'NOME_EXISTE'; return await responder(fraseDoNomeQueJaExiste(comparacao.existente.nome), 'nome-existe') }
+                    if (novo) { rastro.rota = 'NOME_EXISTE'; return await falar(fraseDoNomeQueJaExiste(comparacao.existente.nome), 'nome-existe') }
                     rastro.rota = 'ALTERACAO'
                     alvo = { id: comparacao.existente.id, nome: comparacao.existente.nome, estado: comparacao.existente.estado, donoId: c.remetenteId, vendedor: null, itens: await lerItens(c.tenantId, comparacao.existente.id) }
                     nome = comparacao.existente.nome
@@ -1030,9 +1113,9 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
                 } else if (proposta.alteracao === true && !novo) {
                     // pedido de alteração de um nome que não é do remetente: só o admin vai além
                     rastro.admin = await permissaoDoRemetente(c.tenantId, c.remetenteId)
-                    if ('motivo' in rastro.admin) { rastro.rota = 'NAO_ENCONTRADO'; return await responder(fraseDeNaoEncontrei(lido), 'nao-encontrado') }
+                    if ('motivo' in rastro.admin) { rastro.rota = 'NAO_ENCONTRADO'; return await falar(fraseDeNaoEncontrei(lido), 'nao-encontrado') }
                     const daEmpresa = await lerLevantamentosDaEmpresaPeloNome(c.tenantId, lido)
-                    if (daEmpresa.length === 0) { rastro.rota = 'NAO_ENCONTRADO'; return await responder(fraseDeNaoEncontreiNaEmpresa(lido), 'nao-encontrado') }
+                    if (daEmpresa.length === 0) { rastro.rota = 'NAO_ENCONTRADO'; return await falar(fraseDeNaoEncontreiNaEmpresa(lido), 'nao-encontrado') }
                     const nomes = await nomesDosVendedores(c.tenantId, [...new Set(daEmpresa.map((l) => l.remetente_id))])
                     // o vendedor dito só vale se estiver no texto, e casa pelo nome inteiro, sem caixa e sem acento
                     const vendedorLido = nomeDaMensagem(proposta.vendedor, c.texto)
@@ -1041,7 +1124,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
                     // um vendedor dito que não é dono de nenhum também pergunta: não se cai no único que existe
                     if (doVendedor.length !== 1 && (daEmpresa.length > 1 || vendedorLido !== null)) {
                         rastro.rota = 'QUAL_VENDEDOR'
-                        return await responder(fraseDeQualVendedor(lido, daEmpresa.map((l) => nomes.get(l.remetente_id) ?? VENDEDOR_SEM_NOME)), 'qual-vendedor')
+                        return await falar(fraseDeQualVendedor(lido, daEmpresa.map((l) => nomes.get(l.remetente_id) ?? VENDEDOR_SEM_NOME)), 'qual-vendedor')
                     }
                     const escolhido = doVendedor.length === 1 ? doVendedor[0] : daEmpresa[0]
                     rastro.rota = 'ALTERACAO_ADMIN'
@@ -1070,7 +1153,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         rastro.fundidos = agrupamento.fundidos
         rastro.propostos = aplicada.propostos
         rastro.descartados = aplicada.descartados
-        if (aplicada.semEsquadria && alvo) return await responder(fraseDeQualEsquadria(nome, alvo.itens.length), 'qual-esquadria')
+        if (aplicada.semEsquadria && alvo) return await falar(fraseDeQualEsquadria(nome, alvo.itens.length), 'qual-esquadria')
         const nadaMudou = alvo !== null && mesmosItens(alvo.itens, aplicada.itens)
         // "Confirma antes" (dono do produto, 26/10/2026): a esquadria que esperava o vendedor dizer o levantamento
         // só entra num que JÁ EXISTE com o "sim" dele à pergunta que citou aquele levantamento
@@ -1083,24 +1166,24 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         }
         // R2: com uma pergunta em aberto, a resposta que não mudou nada é ERRO e aparece — nunca a mesma pergunta de novo
         if (nadaMudou && rastro.rota === 'MONTAGEM' && pendenciaAberta) {
+            const n = itensDaMontagem.length
             // a TIPOLOGIA não volta igual (03/11/2026): a reformulação da IA, ou outra forma de obra — nunca o "não registrei"
             if (pendenciaAberta.tipo === 'CAMPO' && pendenciaAberta.campo === 'tipologia') {
-                const n = itensDaMontagem.length
-                const fixa = perguntaDaPendencia(pendenciaAberta, n)
-                const daIa = perguntaPara(pendenciaAberta, n, proposta)
-                const outra = outraPergunta(PERGUNTAS_DA_TIPOLOGIA.slice(1), c.texto)
-                return await responder(daIa !== fixa ? daIa : n > 1 ? `Esquadria ${pendenciaAberta.ordem}: ${outra}` : outra, 'nao-avancou')
+                const fixa = perguntaDasPendencias(pendenciasAbertas, n)
+                const daIa = perguntaPara(pendenciasAbertas, n, proposta)
+                return await falar(daIa !== fixa ? daIa : perguntaDasPendencias(pendenciasAbertas, n, outraPergunta(PERGUNTAS_DA_TIPOLOGIA.slice(1), c.texto)), 'nao-avancou')
             }
-            return await responder(fraseDeNaoRegistrei(perguntaDaPendencia(pendenciaAberta, itensDaMontagem.length)), 'nao-avancou')
+            return await falar(fraseDeNaoRegistrei(perguntaDasPendencias(pendenciasAbertas, n)), 'nao-avancou')
         }
         // numa alteração, o que foi proposto e não valeu também aparece; sem proposta nenhuma, a conta é refeita
-        if (nadaMudou && aplicada.propostos > 0) return await responder(fraseDeNaoApliquei(nome), 'nao-avancou')
+        if (nadaMudou && aplicada.propostos > 0) return await falar(fraseDeNaoApliquei(nome), 'nao-avancou')
 
         // ── grava, e SÓ DEPOIS responde: o trajeto inteiro, a partir do que ficou gravado ──
-        const pendencia = proximaPendencia(aplicada.itens, definicao, doCodigo)
+        const pendencias = pendenciasDoLevantamento(aplicada.itens, definicao, doCodigo)
+        const pendencia = pendencias[0] ?? null
         // o admin não monta levantamento de outro: com pendência, nada é gravado e a resposta diz o que falta
         if (pendencia && alvo && alvo.donoId !== c.remetenteId) {
-            return await responder(fraseDaAlteracaoIncompleta(nome, alvo.vendedor ?? VENDEDOR_SEM_NOME, perguntaDaPendencia(pendencia, aplicada.itens.length)), 'alteracao-incompleta')
+            return await falar(fraseDaAlteracaoIncompleta(nome, alvo.vendedor ?? VENDEDOR_SEM_NOME, perguntaDasPendencias(pendencias, aplicada.itens.length)), 'alteracao-incompleta')
         }
         const estado = pendencia ? EM_MONTAGEM : COMPLETO
         // a pergunta em aberto se resolveu: apagada ANTES de gravar — se o apagar falhar, nada foi gravado, e a
@@ -1120,13 +1203,14 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             if (recusa) {
                 const comEsquadria = (frase: string) => (aplicada.itens.length > 1 ? `Esquadria ${recusa.ordem}: ${frase}` : frase)
                 if (recusa.motivo === 'LIMITES') {
-                    return await responder(comEsquadria(fraseDeNenhumaTipologiaCabe(recusa.medidas, filtrarPorAbertura(tabela.candidatos, recusa.abertura), recusa.abertura)), 'nenhuma-cabe')
+                    return await falar(comEsquadria(fraseDeNenhumaTipologiaCabe(recusa.medidas, filtrarPorAbertura(tabela.candidatos, recusa.abertura), recusa.abertura)), 'nenhuma-cabe')
                 }
-                if (recusa.abertura !== null) return await responder(comEsquadria(fraseDaAberturaRecusada(recusa.abertura)), 'perguntou')
+                if (recusa.abertura !== null) return await falar(comEsquadria(fraseDaAberturaRecusada(recusa.abertura)), 'perguntou')
             }
             // sem lista de cores na base, perguntar a cor não leva a lugar nenhum: a conversa diz o que falta
             if ('campo' in pendencia && pendencia.campo === 'cor_perfil' && cores.length === 0) return await responder(FRASE_SEM_CORES, 'sem-cores')
-            return await responder(perguntaPara(pendencia, aplicada.itens.length, proposta), 'perguntou')
+            // UMA pergunta com TUDO o que falta (03/11/2026), redigida pelo modelo
+            return await falar(perguntaPara(pendencias, aplicada.itens.length, proposta), 'perguntou')
         }
         // O APANHADO (dono do produto, 26/10/2026): a primeira resposta é conversa, não orçamento. O levantamento
         // formal, com o preço, só sai com o "sim" do vendedor à pergunta que citou ESTE levantamento. Sem exceção:
@@ -1139,7 +1223,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             if (guardada) {
                 // R2: o mesmo apanhado de novo, sem mudar nada, diz que não registrou
                 const repetido = aberta !== null && aberta.texto === apanhado
-                return await responder(repetido ? fraseDeNaoRegistrei(apanhado) : apanhado, repetido ? 'nao-avancou' : 'apanhado')
+                return repetido ? await falar(fraseDeNaoRegistrei(apanhado), 'nao-avancou') : await responder(apanhado, 'apanhado')
             }
             // sem a tabela ou sem o valor na CHECK (migração 20261026000003 pendente): o formal, como antes
             semApanhado = 'apanhado=sem_migracao'
