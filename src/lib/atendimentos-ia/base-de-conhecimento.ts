@@ -334,23 +334,18 @@ export function lerCorpoDaFamiliaDaMateriaPrima(corpo: unknown): { materia_prima
     return { materia_prima: typeof b.materia_prima === 'string' ? b.materia_prima : '', familia: typeof b.familia === 'string' ? b.familia.trim() : null, erros }
 }
 
-// ── OS CAMPOS DA CATEGORIA QUE SAÍRAM DA TELA E DA GRAVAÇÃO (dono do produto, 30/10/2026) ─────────────────────
+// ── OS CAMPOS DA CATEGORIA: SÓ cores E serra_mm FICAM (dono do produto, 03/11/2026; antes, 30/10/2026) ──────────────
 /**
- * "Eu quero remover também essas indicações aqui de maior usabilidade. [...] a gente já vai estar tendo as informações da tipologia." Saem da tela e
- * da gravação; a LINHA de `orcamentista_categoria_campo` e o valor gravado em `orcamentista_mp_categoria.config` FICAM (a gravação faz merge: chave
- * ausente não é tocada). Apagar a definição ou o valor é migração à parte, depois da decisão do dono do produto.
- *
- * Medido em 31/10/2026, antes de tirar: nenhum código fora da base de conhecimento lê estas cinco chaves (a barra vem da tabela de preço, `medida_barra_m`).
- * `cores` e `serra_mm`, do mesmo bloco, NÃO estão aqui: o cálculo da conversa as lê do `config` (`lerCoresDaEmpresa`, `lerSerra` em
- * `levantamento-da-conversa.ts`), e tirá-las da tela deixaria o cálculo dependendo de um valor que ninguém mais consegue editar — a decisão de
- * onde elas passam a vir está com o dono do produto.
+ * "CAMPOS DA CATEGORIA VIRAM UM CAMPO DE INSTRUÇÃO." Os campos estruturados das categorias saíram da tela e da gravação, e a migração
+ * `20261103000002` apagou as definições e o valor gravado. FICAM só os dois que o cálculo lê, como exceção — "número que o cálculo usa não pode
+ * sair de texto livre": `cores` (a lista que valida a cor da esquadria e escolhe a variante no motor, `lerCoresDaEmpresa`) e `serra_mm` (o
+ * desconto da serra no agrupador de barras, `lerSerra`), os dois do PERFIL. Toda outra chave de `config` é recusa nomeada AQUI, antes da função.
+ * (Em 30/10/2026 a lista era a inversa: cinco chaves do Perfil fora da tela; a de agora é a que fica, e tudo o mais sai.)
  */
-export const CAMPOS_FORA_DA_TELA: Readonly<Record<string, readonly string[]>> = {
-    PERFIL: ['linha', 'cor_predominante', 'barra_mm', 'solda', 'criterio_custo_barra'],
-}
-export const campoForaDaTela = (categoria: string, chave: string) => (CAMPOS_FORA_DA_TELA[categoria] ?? []).includes(chave)
+export const CAMPOS_QUE_FICAM: Readonly<Record<string, readonly string[]>> = { PERFIL: ['cores', 'serra_mm'] }
+export const campoForaDaTela = (categoria: string, chave: string) => !(CAMPOS_QUE_FICAM[categoria] ?? []).includes(chave)
 export const fraseDoCampoForaDaTela = (chave: string) =>
-    `o campo "${chave}" saiu da base de conhecimento: o motor da família já traz essa informação. O valor gravado fica, sem tela.`
+    `o campo "${chave}" saiu da base de conhecimento: o que a categoria precisa dizer vai na instrução dela (texto livre). Ficam só as cores e a serra do Perfil.`
 
 /** As chaves do `config` que saíram da tela e da gravação: erro nomeado para cada uma (a rota recusa antes da função). */
 export function errosDosCamposForaDaTela(categoria: string, config: unknown): ErroNomeado[] {
@@ -358,10 +353,39 @@ export function errosDosCamposForaDaTela(categoria: string, config: unknown): Er
     return Object.keys(config).filter((k) => campoForaDaTela(categoria, k)).map((k) => ({ campo: `config.${k}`, mensagem: fraseDoCampoForaDaTela(k) }))
 }
 
-/** O mesmo, na árvore do PUT /arvore: cada categoria de cada matéria-prima, com o caminho do campo (a árvore vai à função como veio). */
+// ── A INSTRUÇÃO DA CATEGORIA (dono do produto, 03/11/2026; coluna `orcamentista_mp_categoria.instrucao`, migração `20261103000002`) ──
+/**
+ * UM campo de texto livre por categoria, que a conversa manda ao modelo identificado pela categoria ("dúvida de vidro -> lê a instrução de VIDRO
+ * -> busca o preço na tabela do fornecedor"). Até 1.500 caracteres, contados como o banco conta (`char_length`, pontos de código) — a CHECK
+ * `orcamentista_mp_categoria_instrucao_forma` e a função `superadmin_gravar_instrucao_da_categoria` dizem o mesmo. Sem as pontas; vazio é NULL
+ * ("não informada", nunca texto vazio).
+ */
+export const LIMITE_DA_INSTRUCAO = 1500
+export const caracteresDaInstrucao = (texto: string) => [...texto].length
+export const fraseDoLimiteDaInstrucao = (n: number) =>
+    `a instrução tem ${n.toLocaleString('pt-BR')} caracteres; o limite é ${LIMITE_DA_INSTRUCAO.toLocaleString('pt-BR')}`
+/** As listas de vidro, ferragem e acabamento saíram da tela (03/11/2026): a árvore que ainda as manda é recusa nomeada, antes da função. */
+export const LISTAS_QUE_SAIRAM = ['vidros', 'ferragens', 'instalacao'] as const
+export const fraseDaListaQueSaiu = (lista: string) =>
+    `a lista "${lista}" saiu da base de conhecimento: o que a categoria precisa dizer vai na instrução dela (texto livre).`
+
+/** A instrução de uma categoria na árvore: texto ou null, até o limite depois de aparar. */
+function errosDaInstrucao(valor: unknown): string[] {
+    if (valor === null) return []
+    if (typeof valor !== 'string') return ['a instrução é um texto']
+    const n = caracteresDaInstrucao(valor.trim())
+    return n > LIMITE_DA_INSTRUCAO ? [fraseDoLimiteDaInstrucao(n)] : []
+}
+
 export function errosDosCamposForaDaTelaNaArvore(arvore: unknown): ErroNomeado[] {
     if (!ehObjeto(arvore) || !Array.isArray(arvore.materias_primas)) return []
-    return arvore.materias_primas.flatMap((mp, i) => (!ehObjeto(mp) || !Array.isArray(mp.categorias) ? [] : mp.categorias.flatMap((c, j) =>
-        (!ehObjeto(c) || typeof c.categoria_chave !== 'string' ? [] : errosDosCamposForaDaTela(c.categoria_chave, c.config)
-            .map((e) => ({ ...e, campo: `arvore.materias_primas[${i}].categorias[${j}].${e.campo}` }))))))
+    return arvore.materias_primas.flatMap((mp, i) => (!ehObjeto(mp) || !Array.isArray(mp.categorias) ? [] : mp.categorias.flatMap((c, j) => {
+        if (!ehObjeto(c) || typeof c.categoria_chave !== 'string') return []
+        const caminho = `arvore.materias_primas[${i}].categorias[${j}]`
+        return [
+            ...errosDosCamposForaDaTela(c.categoria_chave, c.config).map((e) => ({ ...e, campo: `${caminho}.${e.campo}` })),
+            ...LISTAS_QUE_SAIRAM.filter((l) => l in c).map((l) => ({ campo: `${caminho}.${l}`, mensagem: fraseDaListaQueSaiu(l) })),
+            ...('instrucao' in c ? errosDaInstrucao(c.instrucao).map((mensagem) => ({ campo: `${caminho}.instrucao`, mensagem })) : []),
+        ]
+    })))
 }

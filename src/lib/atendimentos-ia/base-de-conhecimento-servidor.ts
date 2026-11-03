@@ -318,13 +318,11 @@ export function categoriasDasTabelas(tabelas: ReadonlyArray<{ categoria_chave?: 
     return { categorias_das_tabelas: [...chaves].sort(), tabelas_sem_categoria: semCategoria }
 }
 
-/** A lista que pendura em cada categoria, além dos fornecedores — e só nela. */
-const LISTA_DA_CATEGORIA: Record<string, string> = { VIDRO: 'vidros', FERRAGENS: 'ferragens', INSTALACAO: 'instalacao' }
-
 /**
  * A árvore inteira de uma empresa, numa resposta só. As linhas saem ESPALHADAS como o banco as
- * devolve: nenhum null vira false, vazio ou default — `config` null é "não configurado", `usa` null
- * é "não informado", e `onde_predomina` vazio não é o mesmo que null. A ordem é feita aqui.
+ * devolve: nenhum null vira false, vazio ou default — `config` null é "não configurado" e `instrucao` null é
+ * "não informada". A ordem é feita aqui. As listas de vidro, ferragem e acabamento saíram da tela em 03/11/2026
+ * (migração `20261103000002`, que as esvaziou): não são mais lidas.
  */
 export async function lerArvoreDaEmpresa(tenantId: string) {
     const nicho = await nichoDaEmpresa(tenantId)
@@ -353,11 +351,6 @@ export async function lerArvoreDaEmpresa(tenantId: string) {
     const materiasPrimas = (await doTenant('orcamentista_materia_prima')).sort(porOrdem)
     const categorias = await doTenant('orcamentista_mp_categoria')
     const fornecedores = (await doTenant('orcamentista_mp_categoria_fornecedor')).sort(porOrdem)
-    const listas: Record<string, Linha[]> = {
-        vidros: (await doTenant('orcamentista_mp_vidro')).sort(porOrdem),
-        ferragens: (await doTenant('orcamentista_mp_ferragem')).sort(porOrdem),
-        instalacao: (await doTenant('orcamentista_mp_instalacao')).sort(porTexto('produto')),
-    }
 
     // o nome de quem está gravado, MESMO fora do nicho atual: a linha existe e precisa ser lida
     const idsCitados = [...new Set(fornecedores.map((f) => String(f.fornecedor_id)))]
@@ -378,14 +371,10 @@ export async function lerArvoreDaEmpresa(tenantId: string) {
             categorias: categorias
                 .filter((c) => c.materia_prima_id === mp.id)
                 .sort((a, b) => (posicaoNoCatalogo.get(String(a.categoria_chave)) ?? 0) - (posicaoNoCatalogo.get(String(b.categoria_chave)) ?? 0))
-                .map((c) => {
-                    const lista = LISTA_DA_CATEGORIA[String(c.categoria_chave)]
-                    return {
-                        ...c,
-                        fornecedores: daCategoria(fornecedores, c.id).map((f) => ({ ...f, nome_do_fornecedor: nomes[String(f.fornecedor_id)] ?? null })),
-                        ...(lista ? { [lista]: daCategoria(listas[lista], c.id) } : {}),
-                    }
-                }),
+                .map((c) => ({
+                    ...c,
+                    fornecedores: daCategoria(fornecedores, c.id).map((f) => ({ ...f, nome_do_fornecedor: nomes[String(f.fornecedor_id)] ?? null })),
+                })),
         })),
     }
 }

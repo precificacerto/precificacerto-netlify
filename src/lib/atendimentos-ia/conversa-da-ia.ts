@@ -108,6 +108,11 @@
  * (`PERGUNTAS_DA_TIPOLOGIA`), o nome sai do cliente (`nomeDoCliente`), e a resposta que não coube na tipologia ou no nome
  * vira a pergunta em OUTRAS palavras (`outraPergunta`) — nunca o "Não consegui registrar" com a mesma frase.
  *
+ * ══ A INSTRUÇÃO DE CADA CATEGORIA (dono do produto, 03/11/2026; `instrucoes-da-categoria.ts`) ══
+ * O texto livre que o consultor escreve em cada categoria da base de conhecimento vai ao sistema, depois das listas e antes do contexto da
+ * empresa, identificado pela categoria — SÓ as categorias com instrução preenchida. A linha [IA] diz quantas (`instrucoes=N`), ou
+ * `instrucoes=sem_migracao` antes da coluna existir.
+ *
  * ══ NUNCA LANÇA ══
  * Quem chama responde 200 ao WUZAPI aconteça o que acontecer: um erro da LLM não pode virar reenvio em
  * laço. Toda falha vira uma linha `[IA]` e uma frase ao vendedor que diz o que falhou, sem detalhe técnico.
@@ -139,6 +144,7 @@ import { compararNome, nomeDaMensagem, nomeDoCliente, normalizarNome } from '@/l
 import { PERGUNTAS_DA_TIPOLOGIA } from '@/lib/atendimentos-ia/pre-definicao'
 import { PROMPT_BASE } from '@/utils/atendimentos-ia-prompt-base'
 import { LIMITE_DA_FALA } from '@/utils/atendimentos-ia-contexto'
+import { blocoDasInstrucoes, lerInstrucoesDaEmpresa, type InstrucaoDaCategoria, type InstrucoesLidas } from '@/lib/atendimentos-ia/instrucoes-da-categoria'
 import { escolhasParaOPrompt, opcoesDeArremateNoPrompt, lerEscolhasDoItem, lerEscolhasGravadas, temEscolhaDoVendedor } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import { permissaoDoRemetente, type Permissao } from '@/lib/atendimentos-ia/permissao-do-remetente'
 import { fraseDoApanhado } from '@/lib/atendimentos-ia/apanhado'
@@ -178,6 +184,8 @@ type Rastro = {
     levantamento: string; rota: Rota; propostos: number; descartados: number; enviou: boolean; admin: Permissao | null
     nome: MarcaDoNome; aberta: CodigoDaPergunta | 'ausente' | '-'; ia: MedidaDaIa
     contexto: ContextoLido['estado'] | '-'; fala: FalaLida['motivo'] | '-'
+    /** Quantas instruções de categoria foram ao sistema, ou `sem_migracao`; '-' quando não houve chamada à IA. */
+    instrucoes: string
 }
 const FALA_NO_LOG: Record<FalaLida['motivo'], string> = { usada: 'usada', ausente: 'ausente', numero: 'descartada_numero', longa: 'descartada_longa' }
 
@@ -186,7 +194,8 @@ function anotar(r: Rastro, desfecho: DesfechoDaIa, detalhe = '') {
     const admin = r.admin === null ? '' : 'motivo' in r.admin ? ` admin=nao motivo_admin=${r.admin.motivo}` : ' admin=sim'
     const ia = r.ia.ms === null ? '' : ` ia_ms=${r.ia.ms} ia_entrada=${r.ia.entrada ?? '-'} ia_saida=${r.ia.saida ?? '-'}`
     // o contexto e a fala: o ESTADO, nunca o texto
-    const contexto = r.contexto === '-' ? '' : ` contexto=${r.contexto}${r.fala === '-' ? '' : ` fala=${FALA_NO_LOG[r.fala]}`}`
+    const contexto = (r.contexto === '-' ? '' : ` contexto=${r.contexto}${r.fala === '-' ? '' : ` fala=${FALA_NO_LOG[r.fala]}`}`)
+        + (r.instrucoes === '-' ? '' : ` instrucoes=${r.instrucoes}`)
     console.error(`${PREFIXO_DO_LOG_DA_IA} levantamento=${r.levantamento} rota=${r.rota} propostos=${r.propostos} descartados=${r.descartados} enviou=${r.enviou ? 'sim' : 'nao'} desfecho=${desfecho}${admin} nome=${r.nome} aberta=${r.aberta}${contexto}${ia}${detalhe ? ` ${detalhe}` : ''}`)
 }
 
@@ -346,6 +355,8 @@ type ContextoDoPrompt = {
     perguntaEmAberto: string | null
     /** As escolhas de arremate de cada tipologia com as abas: código e números, só para a LLM. */
     escolhasPorTipologia: Array<{ tipologia: string; linhas: string[] }>
+    /** As instruções das categorias PREENCHIDAS (03/11/2026); vazia, nenhuma seção. */
+    instrucoes: readonly InstrucaoDaCategoria[]
 }
 
 function sistema(c: ContextoDoPrompt): string {
@@ -390,6 +401,8 @@ function sistema(c: ContextoDoPrompt): string {
         '',
         'Escolhas de arremate (USO INTERNO — código = descrição: número = opção). Cada linha de opções vai UMA vez, com o número entre colchetes; a tipologia diz quais usa:',
         ...opcoesDeArremateNoPrompt(c.escolhasPorTipologia),
+        // a instrução de cada categoria preenchida (03/11/2026): nenhuma linha quando não há
+        ...(c.instrucoes.length ? ['', ...blocoDasInstrucoes(c.instrucoes)] : []),
     ].join('\n')
     // o contexto da empresa vai no FIM, DEPOIS do base: o que vem antes é o mesmo para toda empresa
     return c.contexto === null ? doProduto : `${doProduto}\n\n${blocoDoContexto(c.contexto).join('\n')}`
@@ -689,7 +702,7 @@ export type Interlocutor = { tenantId: string; remetenteId: string; telefone: st
 
 /** Conduz uma mensagem do vendedor. NUNCA lança: toda falha vira uma linha `[IA]`. */
 export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
-    const rastro: Rastro = { levantamento: '-', rota: '-', propostos: 0, descartados: 0, enviou: false, admin: null, nome: '-', aberta: '-', ia: { ms: null, entrada: null, saida: null }, contexto: '-', fala: '-' }
+    const rastro: Rastro = { levantamento: '-', rota: '-', propostos: 0, descartados: 0, enviou: false, admin: null, nome: '-', aberta: '-', ia: { ms: null, entrada: null, saida: null }, contexto: '-', fala: '-', instrucoes: '-' }
     const fim = (desfecho: DesfechoDaIa, detalhe = ''): DesfechoDaIa => { anotar(rastro, desfecho, detalhe); return desfecho }
     // a fala da IA, já filtrada: abre a resposta do código. Sem contexto, ou com o filtro disparado, não há
     let abertura: string | null = null
@@ -744,8 +757,11 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         // o contexto da empresa: vazio (ou a tabela ausente) é o pedido de hoje
         const contexto = await lerContextoDoAtendimento(c.tenantId)
         rastro.contexto = contexto.estado
+        // a instrução de cada categoria preenchida (03/11/2026)
+        const instrucoes: InstrucoesLidas = await lerInstrucoesDaEmpresa(c.tenantId)
+        rastro.instrucoes = instrucoes.estado === 'sem_migracao' ? 'sem_migracao' : String(instrucoes.instrucoes.length)
         const resposta = await chamarLlm(chave, c.texto, {
-            contexto: contexto.texto,
+            contexto: contexto.texto, instrucoes: instrucoes.instrucoes,
             candidatos: tabela.candidatos, variasFamilias, cores, escolhasPorTipologia,
             montagem: emMontagem ? { nome: emMontagem.nome, itens: itensDaMontagem.map(camposParaOPrompt) } : null,
             perguntaEmAberto: pendenciaAberta ? perguntaDaPendencia(pendenciaAberta, itensDaMontagem.length) : aberta?.texto ?? null,

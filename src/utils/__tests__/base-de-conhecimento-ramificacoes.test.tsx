@@ -113,15 +113,14 @@ describe('(1)(2)(3)(4) as categorias da matéria-prima: as ramificações da fam
         expect(categoriasForaDaFamilia(arvore().catalogo, null, ['FERRAGENS'])).toEqual([])
     })
 
-    it('"tem conteúdo": config, fornecedor ou item de lista — a categoria vazia não conta', () => {
+    it('"tem conteúdo": config, fornecedor ou instrução — a categoria vazia não conta; as listas saíram (03/11/2026) e não contam mais', () => {
         const base = cat('m', 'PERFIL') as never
         expect(categoriaTemConteudo(base)).toBe(false)
         expect(categoriaTemConteudo({ ...(base as object), config: {} } as never)).toBe(true)
         expect(categoriaTemConteudo({ ...(base as object), fornecedores: [{}] } as never)).toBe(true)
-        expect(categoriaTemConteudo({ ...(base as object), vidros: [{}] } as never)).toBe(true)
-        expect(categoriaTemConteudo({ ...(base as object), ferragens: [{}] } as never)).toBe(true)
-        expect(categoriaTemConteudo({ ...(base as object), instalacao: [{}] } as never)).toBe(true)
-        expect(categoriaTemConteudo({ ...(base as object), vidros: [] } as never)).toBe(false)
+        expect(categoriaTemConteudo({ ...(base as object), instrucao: 'Dúvida de vidro: consulte a tabela.' } as never)).toBe(true)
+        expect(categoriaTemConteudo({ ...(base as object), instrucao: null } as never)).toBe(false)
+        expect(categoriaTemConteudo({ ...(base as object), vidros: [{}] } as never)).toBe(false)
     })
 })
 

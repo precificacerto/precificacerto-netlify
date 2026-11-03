@@ -6,8 +6,8 @@
  * false grava false. Ela confere a chave e o tipo contra `orcamentista_categoria_campo` e que a
  * matéria-prima é desta empresa — a rota não repete nada disso. `por` no corpo é erro.
  *
- * Os campos que saíram da tela e da gravação (`CAMPOS_FORA_DA_TELA`, dono do produto, 30/10/2026: Linha, Cor predominante, Barra, Solda e Custo das
- * barras, na categoria Perfil) são recusa nomeada AQUI, antes da função: a definição no catálogo de campos e o valor gravado ficam, sem tela.
+ * Desde 03/11/2026 (migração `20261103000002`), toda chave fora de `CAMPOS_QUE_FICAM` (só as cores e a serra do Perfil) é recusa nomeada AQUI,
+ * antes da função: o que a categoria precisa dizer vai na instrução dela, gravada pela árvore.
  *
  * O portão está em `src/lib/atendimentos-ia/base-de-conhecimento-servidor.ts`.
  */

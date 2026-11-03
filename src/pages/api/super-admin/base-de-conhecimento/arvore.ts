@@ -2,21 +2,22 @@
  * /api/super-admin/base-de-conhecimento/arvore?tenant=<uuid> — a base de conhecimento em TRÊS
  * NÍVEIS de uma empresa, inteira.
  *
- *   GET → numa resposta só: matérias-primas → as 6 categorias (config incluído, NULL preservado) →
- *         fornecedores (com `principal`), vidros, ferragens e instalação; o catálogo de categorias e
+ *   GET → numa resposta só: matérias-primas → as categorias (config e instrução incluídos, NULL preservado) →
+ *         fornecedores (com `principal`); o catálogo de categorias e
  *         campos; e os fornecedores do NICHO da empresa. LEITURA pelo cliente service_role, tabela a
  *         tabela e filtrada pelo tenant, como o GET da base (`index.ts`): não existe função de
  *         leitura. As tabelas não têm GRANT para anon/authenticated.
  *
  *   PUT → `superadmin_gravar_arvore` (migração `20261023000004`), numa transação só.
  *         corpo: { arvore: { materias_primas?: [{ nome, categorias?: [{ categoria_chave, config?,
- *                  fornecedores?, vidros?, ferragens?, instalacao? }] }], remover?: [uuid] } }
+ *                  fornecedores?, instrucao? }] }], remover?: [uuid] } }
  *         1:1, sem lógica própria: a árvore vai à função como veio — ausente não mexe, lista vazia
  *         esvazia, e quem decide é ela. Falha em qualquer nó desfaz TUDO. O autor é o usuário da
  *         sessão; `por` no corpo é erro. Os erros vêm com a mensagem dela, que traz o CAMINHO
  *         (matéria-prima e categoria), nos quatro códigos (42501, P0002, 22023, 23503).
  *
- *         Os campos que saíram da tela e da gravação (`CAMPOS_FORA_DA_TELA`, 30/10/2026) são recusa nomeada AQUI, com o caminho, antes da função.
+ *         São recusa nomeada AQUI, com o caminho, antes da função (03/11/2026): toda chave de `config` fora de `CAMPOS_QUE_FICAM` (só cores e
+ *         serra do Perfil), as listas `vidros`, `ferragens` e `instalacao`, e a `instrucao` que não é texto ou passa de 1.500 caracteres.
  *
  * O portão está em `src/lib/atendimentos-ia/base-de-conhecimento-servidor.ts`.
  */

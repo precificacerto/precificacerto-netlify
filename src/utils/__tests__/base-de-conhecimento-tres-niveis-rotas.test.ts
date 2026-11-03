@@ -224,19 +224,20 @@ const CADA_ESCRITA: Caso[] = [
         { p_tenant: T_A, p_materia_prima: MP_PVC, p_categoria: 'PERFIL', p_corpo: { serra_mm: 5 } }],
     ['fornecedores', 'PUT', { tenant: T_A, mp_categoria: C_PVC_PERFIL }, { fornecedores: [{ fornecedor_id: F_WOLFF, principal: true }] }, 'superadmin_gravar_mp_fornecedores',
         { p_tenant: T_A, p_mp_categoria: C_PVC_PERFIL, p_lista: [{ fornecedor_id: F_WOLFF, principal: true }] }],
-    ['vidros', 'PUT', { tenant: T_A, mp_categoria: C_PVC_VIDRO }, { vidros: [{ descricao: 'Incolor 4 mm' }] }, 'superadmin_gravar_mp_vidros',
-        { p_tenant: T_A, p_mp_categoria: C_PVC_VIDRO, p_lista: [{ descricao: 'Incolor 4 mm' }] }],
-    ['ferragens', 'PUT', { tenant: T_A, mp_categoria: cat(MP_PVC, 'FERRAGENS') }, { ferragens: [{ tipologia: 'JVC', referencia: 'F-1' }] }, 'superadmin_gravar_mp_ferragens',
-        { p_tenant: T_A, p_mp_categoria: cat(MP_PVC, 'FERRAGENS'), p_lista: [{ tipologia: 'JVC', referencia: 'F-1' }] }],
-    ['instalacao', 'PUT', { tenant: T_A, mp_categoria: C_PVC_INSTALACAO }, { instalacao: [{ produto: 'CONTRAMARCO' }] }, 'superadmin_gravar_mp_instalacao',
-        { p_tenant: T_A, p_mp_categoria: C_PVC_INSTALACAO, p_lista: [{ produto: 'CONTRAMARCO' }] }],
     ['materiaPrima', 'DELETE', { tenant: T_A, materia_prima: MP_PVC }, undefined, 'superadmin_remover_materia_prima', { p_tenant: T_A, p_materia_prima: MP_PVC }],
     ['familiaDaMateriaPrima', 'PUT', { tenant: T_A }, { materia_prima: MP_PVC, familia: 'PVC' }, 'superadmin_definir_familia_da_materia_prima', { p_tenant: T_A, p_materia_prima: MP_PVC, p_familia: 'PVC' }],
     ['arvore', 'PUT', { tenant: T_A }, { arvore: { materias_primas: [{ nome: 'PVC' }] } }, 'superadmin_gravar_arvore', { p_tenant: T_A, p_arvore: { materias_primas: [{ nome: 'PVC' }] } }],
 ]
+/** As três rotas das listas que SAÍRAM (03/11/2026, migração 20261103000002): 410 com a frase para o super admin, sem chamar função. */
+const LISTAS_QUE_SAIRAM: Array<[keyof typeof ROTAS, Linha, unknown]> = [
+    ['vidros', { tenant: T_A, mp_categoria: C_PVC_VIDRO }, { vidros: [{ descricao: 'Incolor 4 mm' }] }],
+    ['ferragens', { tenant: T_A, mp_categoria: cat(MP_PVC, 'FERRAGENS') }, { ferragens: [{ tipologia: 'JVC', referencia: 'F-1' }] }],
+    ['instalacao', { tenant: T_A, mp_categoria: C_PVC_INSTALACAO }, { instalacao: [{ produto: 'CONTRAMARCO' }] }],
+]
 const CADA_ROTA: Array<[keyof typeof ROTAS, string, Linha, unknown]> = [
     ['arvore', 'GET', { tenant: T_A }, undefined],
     ...CADA_ESCRITA.map(([r, m, q, b]): [keyof typeof ROTAS, string, Linha, unknown] => [r, m, q, b]),
+    ...LISTAS_QUE_SAIRAM.map(([r, q, b]): [keyof typeof ROTAS, string, Linha, unknown] => [r, 'PUT', q, b]),
 ]
 
 // ═══════════════════════════════════════════════════════════════════════════════════════
@@ -260,8 +261,19 @@ describe('(1) o portão: quem não é super admin recebe 404 — e nenhuma chama
     })
 })
 
+describe('(1b) as listas de vidro, ferragem e acabamento SAÍRAM (03/11/2026): 410 com a frase, e nenhuma chamada', () => {
+    it.each(LISTAS_QUE_SAIRAM)('%s PUT do super admin → 410, a frase da lista que saiu, e a função não é chamada', async (r, query, body) => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { fraseDaListaQueSaiu } = require('@/lib/atendimentos-ia/base-de-conhecimento') as typeof import('@/lib/atendimentos-ia/base-de-conhecimento')
+        const resp = await chamar(r, 'PUT', query, body)
+        expect(resp.status).toBe(410)
+        expect(resp.json).toEqual({ error: fraseDaListaQueSaiu(r) })
+        nenhumaEscrita()
+    })
+})
+
 describe('(2) o tenant e os ids vêm do QUERY STRING: uuid e existente, senão 404 — sem chamada', () => {
-    it.each(CADA_ROTA)('%s %s com tenant inexistente → 404', async (r, metodo, query, body) => {
+    it.each(CADA_ROTA.filter(([r]) => !LISTAS_QUE_SAIRAM.some(([l]) => l === r)))('%s %s com tenant inexistente → 404', async (r, metodo, query, body) => {
         expect((await chamar(r, metodo, { ...query, tenant: T_INEXISTENTE }, body)).status).toBe(404)
         nenhumaEscrita()
     })
@@ -323,27 +335,21 @@ describe('(4) 1:1 — cada rota chama UMA função, com o corpo como veio', () =
         expect(resp.json).toEqual({ depois: { orcamentista_x: [{ a: null, b: false }] } })
     })
 
-    it('instalação: usa null, usa false e usa ausente chegam à função como vieram — nenhum colapsa', async () => {
-        const lista = [{ produto: 'CONTRAMARCO', usa: null }, { produto: 'ARREMATE_INTERNO', usa: false }, { produto: 'ARREMATE_EXTERNO', referencia: 'AE-1' }]
-        await chamar('instalacao', 'PUT', { tenant: T_A, mp_categoria: C_PVC_INSTALACAO }, { instalacao: lista })
-        const enviada = estado.rpcs[0].args.p_lista
-        expect(enviada).toEqual(lista)
-        expect(enviada[0]).toHaveProperty('usa', null)
-        expect(enviada[1]).toHaveProperty('usa', false)
-        expect('usa' in enviada[2]).toBe(false)
+    it('categoria: chave com null vai null (limpar), chave ausente não vai — com as duas que ficam no Perfil', async () => {
+        await chamar('categoria', 'PUT', { tenant: T_A, materia_prima: MP_PVC, categoria: 'PERFIL' }, { config: { serra_mm: 5, cores: null } })
+        expect(estado.rpcs[0].args.p_corpo).toEqual({ serra_mm: 5, cores: null })
+        expect(Object.keys(estado.rpcs[0].args.p_corpo)).toEqual(['serra_mm', 'cores'])
     })
 
-    it('categoria: chave com null vai null (limpar), chave ausente não vai, false vai false', async () => {
-        await chamar('categoria', 'PUT', { tenant: T_A, materia_prima: MP_PVC, categoria: 'REFORCO' }, { config: { usa: false, material: null } })
-        expect(estado.rpcs[0].args.p_corpo).toEqual({ usa: false, material: null })
-        expect(Object.keys(estado.rpcs[0].args.p_corpo)).toEqual(['usa', 'material'])
-    })
-
-    it('vidros: onde_predomina vazio vai vazio, ausente fica ausente', async () => {
-        const lista = [{ descricao: 'Fumê', onde_predomina: [] as string[] }, { descricao: 'Bronze' }]
-        await chamar('vidros', 'PUT', { tenant: T_A, mp_categoria: C_PVC_VIDRO }, { vidros: lista })
-        expect(estado.rpcs[0].args.p_lista).toEqual(lista)
-        expect('onde_predomina' in estado.rpcs[0].args.p_lista[1]).toBe(false)
+    it('categoria: chave fora das que ficam (03/11/2026: só cores e serra do Perfil) → 400 nomeado, e nenhuma chamada', async () => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { fraseDoCampoForaDaTela } = require('@/lib/atendimentos-ia/base-de-conhecimento') as typeof import('@/lib/atendimentos-ia/base-de-conhecimento')
+        const r = await chamar('categoria', 'PUT', { tenant: T_A, materia_prima: MP_PVC, categoria: 'REFORCO' }, { config: { usa: false } })
+        expect(r.status).toBe(400)
+        expect(r.json.erros).toEqual([{ campo: 'config.usa', mensagem: fraseDoCampoForaDaTela('usa') }])
+        const r2 = await chamar('categoria', 'PUT', { tenant: T_A, materia_prima: MP_PVC, categoria: 'PERFIL' }, { config: { linha: 'Suprema' } })
+        expect(r2.status).toBe(400)
+        nenhumaEscrita()
     })
 
     it('a rota não acrescenta ordem: a ordem é a posição, e quem decide é a função', async () => {
@@ -371,9 +377,9 @@ describe('(5) o erro da FUNÇÃO vira status com a mensagem dela — só nos qua
         ['formato (22P02)', '22P02', 400],
         ['qualquer outro (XX000)', 'XX000', 500],
     ])('%s, código %s → %i, com frase fixa — o texto do banco NÃO vai', async (_n, code, status) => {
-        const texto = 'new row for relation "orcamentista_mp_instalacao" violates check constraint "x_y_z"'
+        const texto = 'new row for relation "orcamentista_mp_categoria_fornecedor" violates check constraint "x_y_z"'
         estado.respostaDoRpc = { data: null, error: { code, message: texto } }
-        const r = await chamar('instalacao', 'PUT', { tenant: T_A, mp_categoria: C_PVC_INSTALACAO }, { instalacao: [{ produto: 'ARREMATE_EXTERNO', usa: true }] })
+        const r = await chamar('fornecedores', 'PUT', { tenant: T_A, mp_categoria: C_PVC_PERFIL }, { fornecedores: [{ fornecedor_id: F_WOLFF, principal: true }] })
         expect(r.status).toBe(status)
         // contra o VALOR, não contra o JSON serializado: as aspas do texto viram \" no stringify, e um
         // `not.toContain(texto)` sobre ele seria verde por construção (medido: a mutação passava)
@@ -383,10 +389,10 @@ describe('(5) o erro da FUNÇÃO vira status com a mensagem dela — só nos qua
     })
 
     it('o log da Vercel leva a função e o código — e não a mensagem nem o corpo', async () => {
-        estado.respostaDoRpc = { data: null, error: { code: '22023', message: 'campo(s) desconhecido(s) nos vidros: segredo' } }
-        await chamar('vidros', 'PUT', { tenant: T_A, mp_categoria: C_PVC_VIDRO }, { vidros: [{ descricao: 'Incolor', segredo: 'xyz-123' }] })
+        estado.respostaDoRpc = { data: null, error: { code: '22023', message: 'campo(s) desconhecido(s) nos fornecedores: segredo' } }
+        await chamar('fornecedores', 'PUT', { tenant: T_A, mp_categoria: C_PVC_PERFIL }, { fornecedores: [{ fornecedor_id: F_WOLFF, principal: true, segredo: 'xyz-123' }] })
         const log = silencio.mock.calls.map((c) => c.join(' ')).join('\n')
-        expect(log).toMatch(/\[BASE-DE-CONHECIMENTO\].*superadmin_gravar_mp_vidros.*22023/)
+        expect(log).toMatch(/\[BASE-DE-CONHECIMENTO\].*superadmin_gravar_mp_fornecedores.*22023/)
         expect(log).not.toContain('xyz-123')
         expect(log).not.toContain('campo(s) desconhecido(s)')
     })
@@ -399,12 +405,11 @@ describe('(6) GET — a árvore inteira da empresa, numa resposta só', () => {
         estado.db.orcamentista_mp_categoria_fornecedor.push(
             { id: 'r2', tenant_id: T_A, mp_categoria_id: C_PVC_PERFIL, fornecedor_id: F_ALCOA, principal: false, ordem: 2 },
             { id: 'r1', tenant_id: T_A, mp_categoria_id: C_PVC_PERFIL, fornecedor_id: F_WOLFF, principal: true, ordem: 1 })
+        // a instrução (03/11/2026): texto na de VIDRO, null na de INSTALACAO — e uma linha esquecida nas tabelas que saíram, que o GET não lê mais
+        estado.db.orcamentista_mp_categoria = estado.db.orcamentista_mp_categoria.map((c) =>
+            (c.id === C_PVC_VIDRO ? { ...c, instrucao: 'Temperado acima de 1,5 m².' } : c.id === C_PVC_INSTALACAO ? { ...c, instrucao: null } : c))
         estado.db.orcamentista_mp_vidro.push(
-            { id: 'v1', tenant_id: T_A, mp_categoria_id: C_PVC_VIDRO, categoria_chave: 'VIDRO', descricao: 'Fumê', referencia: null, onde_predomina: [], ordem: 1 },
-            { id: 'v2', tenant_id: T_A, mp_categoria_id: C_PVC_VIDRO, categoria_chave: 'VIDRO', descricao: 'Bronze', referencia: null, onde_predomina: null, ordem: 2 })
-        estado.db.orcamentista_mp_instalacao.push(
-            { id: 'i1', tenant_id: T_A, mp_categoria_id: C_PVC_INSTALACAO, categoria_chave: 'INSTALACAO', produto: 'CONTRAMARCO', usa: null, referencia: null, descricao: null, medida: null, folga_x: null, folga_y: null },
-            { id: 'i2', tenant_id: T_A, mp_categoria_id: C_PVC_INSTALACAO, categoria_chave: 'INSTALACAO', produto: 'ARREMATE_INTERNO', usa: false, referencia: null, descricao: null, medida: null, folga_x: null, folga_y: null })
+            { id: 'v1', tenant_id: T_A, mp_categoria_id: C_PVC_VIDRO, categoria_chave: 'VIDRO', descricao: 'Fumê', referencia: null, onde_predomina: [], ordem: 1 })
     })
     const mp = (j: any, nome: string) => j.materias_primas.find((m: Linha) => m.nome === nome)
     const categoria = (j: any, nome: string, chave: string) => mp(j, nome).categorias.find((c: Linha) => c.categoria_chave === chave)
@@ -431,17 +436,11 @@ describe('(6) GET — a árvore inteira da empresa, numa resposta só', () => {
         expect(categoria(r.json, 'PVC', 'PERFIL').config).toEqual({ linha: 'Suprema', solda: null })
     })
 
-    it('usa NULL e usa false chegam DISTINTOS no JSON', async () => {
+    it('a instrução chega como está: o texto, e null continua null e presente', async () => {
         const r = await chamar('arvore', 'GET', { tenant: T_A })
-        const inst = categoria(r.json, 'PVC', 'INSTALACAO').instalacao
-        expect(inst.find((i: Linha) => i.produto === 'CONTRAMARCO').usa).toBeNull()
-        expect(inst.find((i: Linha) => i.produto === 'ARREMATE_INTERNO').usa).toBe(false)
-    })
-
-    it('onde_predomina vazio e NULL chegam distintos', async () => {
-        const r = await chamar('arvore', 'GET', { tenant: T_A })
-        const vidros = categoria(r.json, 'PVC', 'VIDRO').vidros
-        expect(vidros.map((v: Linha) => [v.descricao, v.onde_predomina])).toEqual([['Fumê', []], ['Bronze', null]])
+        expect(categoria(r.json, 'PVC', 'VIDRO').instrucao).toBe('Temperado acima de 1,5 m².')
+        expect('instrucao' in categoria(r.json, 'PVC', 'INSTALACAO')).toBe(true)
+        expect(categoria(r.json, 'PVC', 'INSTALACAO').instrucao).toBeNull()
     })
 
     it('os fornecedores da categoria, na ordem, com o principal e o nome', async () => {
@@ -450,13 +449,11 @@ describe('(6) GET — a árvore inteira da empresa, numa resposta só', () => {
             .toEqual([[F_WOLFF, true, 'Wolff'], [F_ALCOA, false, 'Alcoa']])
     })
 
-    it('a lista só existe na categoria a que pertence: vidros só em VIDRO, ferragens só em FERRAGENS, instalação só em INSTALACAO', async () => {
+    it('as listas que saíram (03/11/2026) não voltam no GET: nenhuma categoria traz vidros, ferragens ou instalação — nem com linha esquecida na tabela', async () => {
         const r = await chamar('arvore', 'GET', { tenant: T_A })
         for (const c of mp(r.json, 'PVC').categorias) {
             expect('fornecedores' in c).toBe(true)
-            expect('vidros' in c).toBe(c.categoria_chave === 'VIDRO')
-            expect('ferragens' in c).toBe(c.categoria_chave === 'FERRAGENS')
-            expect('instalacao' in c).toBe(c.categoria_chave === 'INSTALACAO')
+            for (const l of ['vidros', 'ferragens', 'instalacao']) expect(l in c).toBe(false)
         }
     })
 
@@ -597,9 +594,9 @@ describe('(6b) PUT /arvore — 1:1 com superadmin_gravar_arvore (migração 2026
             {
                 nome: 'PVC',
                 categorias: [
-                    { categoria_chave: 'PERFIL', config: { cores: ['BRANCO'], serra_mm: null as number | null, reforco: false }, fornecedores: [] as Linha[] },
-                    { categoria_chave: 'VIDRO', vidros: [{ descricao: 'Fumê', onde_predomina: [] as string[] }, { descricao: 'Bronze' }] },
-                    { categoria_chave: 'INSTALACAO', instalacao: [{ produto: 'CONTRAMARCO', usa: null }, { produto: 'ARREMATE_INTERNO', usa: false }] },
+                    { categoria_chave: 'PERFIL', config: { cores: [] as string[], serra_mm: null as number | null }, fornecedores: [] as Linha[] },
+                    { categoria_chave: 'VIDRO', instrucao: 'Temperado acima de 1,5 m².' },
+                    { categoria_chave: 'INSTALACAO', instrucao: null },
                 ],
             },
             { nome: 'Aço' },
@@ -613,12 +610,45 @@ describe('(6b) PUT /arvore — 1:1 com superadmin_gravar_arvore (migração 2026
         const enviada = estado.rpcs[0].args.p_arvore
         const [perfil, vidro, instalacao] = enviada.materias_primas[0].categorias
         expect(perfil.config).toHaveProperty('serra_mm', null)
-        expect(perfil.config).toHaveProperty('reforco', false)
+        expect(perfil.config.cores).toEqual([])
         expect(perfil.fornecedores).toEqual([])
-        expect(vidro.vidros[0].onde_predomina).toEqual([])
-        expect('onde_predomina' in vidro.vidros[1]).toBe(false)
-        expect(instalacao.instalacao.map((i: Linha) => i.usa)).toEqual([null, false])
+        expect(vidro.instrucao).toBe('Temperado acima de 1,5 m².')
+        expect(instalacao).toHaveProperty('instrucao', null)
         expect('categorias' in enviada.materias_primas[1]).toBe(false)
+    })
+
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const B = () => require('@/lib/atendimentos-ia/base-de-conhecimento') as typeof import('@/lib/atendimentos-ia/base-de-conhecimento')
+    const umaCategoria = (c: Linha) => ({ arvore: { materias_primas: [{ nome: 'PVC', categorias: [{ categoria_chave: 'VIDRO', ...c }] }] } })
+    const CAMINHO = 'arvore.materias_primas[0].categorias[0]'
+
+    it.each(['vidros', 'ferragens', 'instalacao'])('a árvore que ainda manda a lista "%s" → 400 nomeado com o caminho, e nenhuma chamada', async (lista) => {
+        const r = await chamar('arvore', 'PUT', { tenant: T_A }, umaCategoria({ [lista]: [] }))
+        expect(r.status).toBe(400)
+        expect(r.json.erros).toEqual([{ campo: `${CAMINHO}.${lista}`, mensagem: B().fraseDaListaQueSaiu(lista) }])
+        nenhumaEscrita()
+    })
+
+    it('a árvore com chave de config fora das que ficam → 400 nomeado; cores e serra do Perfil passam', async () => {
+        const r = await chamar('arvore', 'PUT', { tenant: T_A }, umaCategoria({ categoria_chave: 'REFORCO', config: { usa: true } }))
+        expect(r.status).toBe(400)
+        expect(r.json.erros).toEqual([{ campo: `${CAMINHO}.config.usa`, mensagem: B().fraseDoCampoForaDaTela('usa') }])
+        nenhumaEscrita()
+        expect((await chamar('arvore', 'PUT', { tenant: T_A }, umaCategoria({ categoria_chave: 'PERFIL', config: { cores: ['BRANCO'], serra_mm: 5 } }))).status).toBe(200)
+    })
+
+    it('a instrução: até 1.500 caracteres (contados como o banco, depois de aparar) passa como veio; acima, ou que não é texto, é 400 nomeado', async () => {
+        const cheia = `  ${'é'.repeat(1500)}  `
+        expect((await chamar('arvore', 'PUT', { tenant: T_A }, umaCategoria({ instrucao: cheia }))).status).toBe(200)
+        expect(estado.rpcs[0].args.p_arvore.materias_primas[0].categorias[0].instrucao).toBe(cheia)
+        estado.rpcs.length = 0
+        const r = await chamar('arvore', 'PUT', { tenant: T_A }, umaCategoria({ instrucao: '😀'.repeat(1501) }))
+        expect(r.status).toBe(400)
+        expect(r.json.erros).toEqual([{ campo: `${CAMINHO}.instrucao`, mensagem: B().fraseDoLimiteDaInstrucao(1501) }])
+        const r2 = await chamar('arvore', 'PUT', { tenant: T_A }, umaCategoria({ instrucao: 42 }))
+        expect(r2.status).toBe(400)
+        expect(r2.json.erros).toEqual([{ campo: `${CAMINHO}.instrucao`, mensagem: 'a instrução é um texto' }])
+        nenhumaEscrita()
     })
 
     it.each([
@@ -658,13 +688,16 @@ describe('(6b) PUT /arvore — 1:1 com superadmin_gravar_arvore (migração 2026
     })
 })
 
-describe('(6c) os campos que SAÍRAM da tela e da gravação (30/10/2026): recusa nomeada antes da função, nas duas rotas que gravam o config', () => {
-    const FORA = ['linha', 'cor_predominante', 'barra_mm', 'solda', 'criterio_custo_barra'] as const
+describe('(6c) os campos que SAÍRAM da tela e da gravação (30/10/2026; desde 03/11/2026 ficam só cores e serra do Perfil): recusa nomeada antes da função, nas duas rotas que gravam o config', () => {
+    // as onze chaves que a migração 20261103000002 apaga, escritas aqui e não lidas da constante
+    const FORA = [['PERFIL', 'linha'], ['PERFIL', 'cor_predominante'], ['PERFIL', 'barra_mm'], ['PERFIL', 'solda'], ['PERFIL', 'criterio_custo_barra'],
+        ['REFORCO', 'usa'], ['REFORCO', 'material'], ['REFORCO', 'par_inox_referencia'],
+        ['ACESSORIOS_VEDACAO', 'cor_por_perfil'], ['ACESSORIOS_VEDACAO', 'modelo_interlock'], ['ACESSORIOS_VEDACAO', 'vedacao']] as const
 
-    it.each(FORA)('PUT /categoria com PERFIL.%s: 400 que nomeia o campo e diz que o motor traz — a função NÃO é chamada', async (chave) => {
-        const r = await chamar('categoria', 'PUT', { tenant: T_A, materia_prima: MP_PVC, categoria: 'PERFIL' }, { config: { serra_mm: 5, [chave]: null } })
+    it.each(FORA)('PUT /categoria com %s.%s: 400 que nomeia o campo e manda para a instrução — a função NÃO é chamada', async (categoria, chave) => {
+        const r = await chamar('categoria', 'PUT', { tenant: T_A, materia_prima: MP_PVC, categoria }, { config: { [chave]: null } })
         expect(r.status).toBe(400)
-        expect(r.json.erros).toEqual([{ campo: `config.${chave}`, mensagem: `o campo "${chave}" saiu da base de conhecimento: o motor da família já traz essa informação. O valor gravado fica, sem tela.` }])
+        expect(r.json.erros).toEqual([{ campo: `config.${chave}`, mensagem: `o campo "${chave}" saiu da base de conhecimento: o que a categoria precisa dizer vai na instrução dela (texto livre). Ficam só as cores e a serra do Perfil.` }])
         nenhumaEscrita()
     })
 
@@ -681,12 +714,12 @@ describe('(6c) os campos que SAÍRAM da tela e da gravação (30/10/2026): recus
         nenhumaEscrita()
     })
 
-    it('FICAM: cores e serra_mm (o cálculo da conversa as lê), e a mesma chave em OUTRA categoria não é recusada', async () => {
+    it('FICAM só cores e serra_mm, e só no PERFIL (o cálculo da conversa as lê): em outra categoria, a mesma chave é recusada', async () => {
         const r = await chamar('categoria', 'PUT', { tenant: T_A, materia_prima: MP_PVC, categoria: 'PERFIL' }, { config: { cores: ['BRANCO'], serra_mm: 5 } })
         expect(r.status).toBe(200)
-        const r2 = await chamar('categoria', 'PUT', { tenant: T_A, materia_prima: MP_PVC, categoria: 'REFORCO' }, { config: { linha: 'x' } })
-        expect(r2.status).toBe(200)
-        expect(estado.rpcs.map((x) => x.nome)).toEqual(['superadmin_gravar_mp_categoria', 'superadmin_gravar_mp_categoria'])
+        const r2 = await chamar('categoria', 'PUT', { tenant: T_A, materia_prima: MP_PVC, categoria: 'REFORCO' }, { config: { serra_mm: 5 } })
+        expect(r2.status).toBe(400)
+        expect(estado.rpcs.map((x) => x.nome)).toEqual(['superadmin_gravar_mp_categoria'])
     })
 })
 
@@ -696,9 +729,6 @@ describe('(7) métodos', () => {
         ['materiaPrima', 'GET', { tenant: T_A }],
         ['categoria', 'DELETE', { tenant: T_A, materia_prima: MP_PVC, categoria: 'PERFIL' }],
         ['fornecedores', 'POST', { tenant: T_A, mp_categoria: C_PVC_PERFIL }],
-        ['vidros', 'GET', { tenant: T_A, mp_categoria: C_PVC_VIDRO }],
-        ['ferragens', 'DELETE', { tenant: T_A, mp_categoria: C_PVC_VIDRO }],
-        ['instalacao', 'POST', { tenant: T_A, mp_categoria: C_PVC_INSTALACAO }],
     ] as const)('%s %s → 405, depois do portão', async (r, metodo, query) => {
         expect((await chamar(r, metodo, query)).status).toBe(405)
         nenhumaEscrita()
@@ -706,7 +736,7 @@ describe('(7) métodos', () => {
 
     it('método errado de quem NÃO é super admin → 404 (o portão vem antes do 405)', async () => {
         estado.usuario = COMUM
-        expect((await chamar('vidros', 'GET', { tenant: T_A, mp_categoria: C_PVC_VIDRO })).status).toBe(404)
+        expect((await chamar('fornecedores', 'GET', { tenant: T_A, mp_categoria: C_PVC_PERFIL })).status).toBe(404)
     })
 })
 
