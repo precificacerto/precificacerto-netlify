@@ -301,23 +301,71 @@ export type Pendencia =
     | { tipo: 'ESCOLHA'; ordem: number; pendente: EscolhaPendente }
 
 /**
- * A primeira coisa que falta: esquadria por esquadria, a tipologia, DE QUAL FAMÍLIA ela é (quando o
- * código está no motor de mais de uma), os outros campos, e depois as escolhas.
+ * TODAS as pendências (dono do produto, 03/11/2026: "uma pergunta por turno que cubra TODAS as pendências do momento"), esquadria por
+ * esquadria, na ordem: sem a tipologia, os campos vazios (a família e as escolhas dependem dela); com ela, DE QUAL FAMÍLIA (quando o
+ * código está no motor de mais de uma), os outros campos vazios, e as escolhas que o vendedor PEDIU (o `null`; senão vale o Padrão).
  */
-export function proximaPendencia(itens: readonly ItemDoLevantamento[], definicao: DefinicaoDaTipologia, familiasDoCodigo: FamiliasDoCodigo): Pendencia | null {
+export function pendenciasDoLevantamento(itens: readonly ItemDoLevantamento[], definicao: DefinicaoDaTipologia, familiasDoCodigo: FamiliasDoCodigo): Pendencia[] {
+    const todas: Pendencia[] = []
     for (const item of [...itens].sort((a, b) => a.ordem - b.ordem)) {
-        const campo = CAMPOS_DA_ESQUADRIA.find((c) => vazio(item[c]))
-        if (campo === 'tipologia') return { tipo: 'CAMPO', ordem: item.ordem, campo }
-        const familia = familiaDaEsquadria(item, familiasDoCodigo)
-        if (familia && 'opcoes' in familia) return { tipo: 'FAMILIA', ordem: item.ordem, tipologia: String(item.tipologia), opcoes: familia.opcoes }
-        if (campo) return { tipo: 'CAMPO', ordem: item.ordem, campo }
-        // a escolha só é pendência quando o vendedor PEDIU as opções (o `null`); senão vale o Padrão
+        const faltam = CAMPOS_DA_ESQUADRIA.filter((c) => vazio(item[c]))
+        if (!faltam.includes('tipologia')) {
+            const familia = familiaDaEsquadria(item, familiasDoCodigo)
+            if (familia && 'opcoes' in familia) todas.push({ tipo: 'FAMILIA', ordem: item.ordem, tipologia: String(item.tipologia), opcoes: familia.opcoes })
+        }
+        for (const campo of faltam) todas.push({ tipo: 'CAMPO', ordem: item.ordem, campo })
+        if (faltam.includes('tipologia')) continue
         const def = definicao(item)
-        const pedida = def ? Object.entries(item.escolhas ?? {}).find(([, v]) => v === null)?.[0] : undefined
-        const pendente = def && pedida ? escolhaPedida(def, pedida) : null
-        if (pendente) return { tipo: 'ESCOLHA', ordem: item.ordem, pendente }
+        if (!def) continue
+        for (const [variavel, v] of Object.entries(item.escolhas ?? {})) {
+            const pendente = v === null ? escolhaPedida(def, variavel) : null
+            if (pendente) todas.push({ tipo: 'ESCOLHA', ordem: item.ordem, pendente })
+        }
     }
-    return null
+    return todas
+}
+
+/** A primeira coisa que falta — a primeira de `pendenciasDoLevantamento`. */
+export function proximaPendencia(itens: readonly ItemDoLevantamento[], definicao: DefinicaoDaTipologia, familiasDoCodigo: FamiliasDoCodigo): Pendencia | null {
+    return pendenciasDoLevantamento(itens, definicao, familiasDoCodigo)[0] ?? null
+}
+
+/** Como cada campo é pedido quando vai junto com outros ("me diga a largura (em mm), a cor do perfil e o vidro"). */
+const NOME_DO_CAMPO: Record<CampoDaEsquadria, string> = {
+    tipologia: 'o tipo de esquadria', largura_mm: 'a largura (em mm)', altura_mm: 'a altura (em mm)', quantidade: 'quantas unidades', cor_perfil: 'a cor do perfil', vidro: 'o vidro',
+}
+const eLista = (xs: readonly string[]) => (xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} e ${xs[xs.length - 1]}`)
+
+/**
+ * UMA pergunta com TODAS as pendências (03/11/2026): por esquadria, numa linha ("Esquadria 1: … \nEsquadria 2: …" quando há mais de
+ * uma), os campos que faltam juntos, a família e as escolhas pedidas. Com uma pendência só, a pergunta fixa de sempre. `cabecaDaIa`
+ * é a pergunta que a IA reformulou para o CAMPO da primeira pendência (duas tipologias possíveis, linguagem de obra): entra no
+ * lugar da fixa daquele campo, e o resto vem junto.
+ */
+export function perguntaDasPendencias(ps: readonly Pendencia[], nItens: number, cabecaDaIa: string | null = null): string {
+    if (ps.length === 0) return ''
+    const primeira = ps[0]
+    if (ps.length === 1 && cabecaDaIa === null) return perguntaDaPendencia(primeira, nItens)
+    const porEsquadria = new Map<number, Pendencia[]>()
+    for (const p of ps) porEsquadria.set(p.ordem, [...(porEsquadria.get(p.ordem) ?? []), p])
+    const linhas = [...porEsquadria.entries()].map(([ordem, lista]) => {
+        const campos = lista.flatMap((p) => (p.tipo === 'CAMPO' ? [p.campo] : []))
+        const daIa = cabecaDaIa !== null && primeira.tipo === 'CAMPO' && primeira.ordem === ordem ? primeira.campo : null
+        const cabecaDe = daIa ?? (campos.includes('tipologia') ? 'tipologia' : null)
+        const cabeca = daIa !== null ? cabecaDaIa : cabecaDe === 'tipologia' ? PERGUNTA_DO_CAMPO.tipologia : null
+        const outros = campos.filter((c) => c !== cabecaDe)
+        const partes: string[] = []
+        if (cabeca !== null) partes.push(outros.length ? `${cabeca} E me diga ${eLista(outros.map((c) => NOME_DO_CAMPO[c]))}.` : cabeca)
+        else if (outros.length === 1) partes.push(PERGUNTA_DO_CAMPO[outros[0]])
+        else if (outros.length > 1) partes.push(`Me diga ${eLista(outros.map((c) => NOME_DO_CAMPO[c]))}.`)
+        for (const p of lista) {
+            if (p.tipo === 'FAMILIA') partes.push(fraseDeQualFamilia(p.tipologia, p.opcoes))
+            if (p.tipo === 'ESCOLHA') partes.push(perguntaDaEscolha(p.pendente))
+        }
+        const texto = partes.join(' ')
+        return nItens > 1 ? `Esquadria ${ordem}: ${texto}` : texto
+    })
+    return linhas.join('\n')
 }
 
 /** A pergunta FIXA da pendência; com mais de uma esquadria, diz de qual. */
