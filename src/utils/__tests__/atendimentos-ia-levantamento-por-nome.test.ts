@@ -1821,6 +1821,8 @@ describe('(20) o CONTEXTO DO ATENDIMENTO: o prompt manda em quando e em que form
 describe('(21) o PROMPT BASE abre o sistema de toda empresa, e o contexto da empresa vem depois', () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { PROMPT_BASE } = require('@/utils/atendimentos-ia-prompt-base') as typeof import('@/utils/atendimentos-ia-prompt-base')
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { blocoDoContexto } = require('@/lib/atendimentos-ia/contexto-do-atendimento') as typeof import('@/lib/atendimentos-ia/contexto-do-atendimento')
     const sistemaDe = (i = 0) => String(estado.chamadasDaLlm[i].corpo.system)
 
     it('o pedido traz as seis regras e as duas etapas, como o dono do produto as listou', () => {
@@ -1839,7 +1841,7 @@ describe('(21) o PROMPT BASE abre o sistema de toda empresa, e o contexto da emp
     it('SEM contexto: o sistema COMEÇA pelo base, e não há bloco da empresa', async () => {
         await chamar('oi')
         expect(sistemaDe().startsWith(`${PROMPT_BASE}\n\n`)).toBe(true)
-        expect(sistemaDe()).not.toContain(require('@/lib/atendimentos-ia/contexto-do-atendimento').blocoDoContexto('x')[0])
+        expect(sistemaDe()).not.toContain(blocoDoContexto('x')[0])
     })
 
     it('COM contexto: o base primeiro, o contexto da empresa por último — e a precedência dita nos dois', async () => {
