@@ -106,3 +106,26 @@ describe('(3) nomeDaMensagem — o nome que a IA leu tem de estar no texto do ve
         expect(N().nomeDaMensagem('  Obra Centro  ', 'Levantamento Obra Centro')).toBe('Obra Centro')
     })
 })
+
+describe('(4) nomeDoCliente — o nome do levantamento sai do cliente que está no texto (dono do produto, 03/11/2026)', () => {
+    const texto = 'Cliente: Geronimo Silva. DP-02 1200 x 1000'
+    it('o cliente no texto vira "Levantamento <cliente>"', () => {
+        expect(N().nomeDoCliente({ cliente: 'Geronimo Silva' }, texto)).toBe('Levantamento Geronimo Silva')
+        expect(N().nomeDoCliente({ cliente: 'geronimo silva' }, texto)).toBe('Levantamento geronimo silva')
+    })
+    it('o "Levantamento <cliente>" que a IA já escreveu no nome vale com o cliente no texto, sem prefixo dobrado', () => {
+        expect(N().nomeDoCliente({ nome: 'Levantamento Geronimo Silva' }, texto)).toBe('Levantamento Geronimo Silva')
+        expect(N().nomeDoCliente({ cliente: 'Levantamento Geronimo Silva' }, 'levantamento geronimo silva')).toBe('Levantamento Geronimo Silva')
+    })
+    it('o cliente fora do texto, sem letra ou vazio não vale', () => {
+        expect(N().nomeDoCliente({ cliente: 'Maria Souza' }, texto)).toBeNull()
+        expect(N().nomeDoCliente({ nome: 'Levantamento Maria Souza' }, texto)).toBeNull()
+        expect(N().nomeDoCliente({ cliente: '12' }, 'cliente 12, DP-02')).toBeNull()
+        expect(N().nomeDoCliente({ cliente: 'a' }, texto)).toBeNull()
+        expect(N().nomeDoCliente({ cliente: '  ' }, texto)).toBeNull()
+        expect(N().nomeDoCliente({}, texto)).toBeNull()
+    })
+    it('o nome que não começa com "Levantamento" não é tomado como cliente', () => {
+        expect(N().nomeDoCliente({ nome: 'Casa do Geronimo' }, 'Cliente: Geronimo')).toBeNull()
+    })
+})
