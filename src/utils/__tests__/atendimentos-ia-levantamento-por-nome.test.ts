@@ -2942,7 +2942,7 @@ describe('(28) as frases do modelo: a redação validada, o rascunho quando não
         ['traz código de fornecedor', () => 'Esquadria 2: qual o vidro? Vai com BZ0010.', 'codigo'],
         ['é longa demais', () => `Esquadria 2: ${'qual o vidro? '.repeat(60)}`, 'longa'],
         ['vem vazia', () => '   ', 'vazia'],
-        ['não vem (sem bloco de texto)', () => null, 'ausente'],
+        ['não vem (sem bloco de texto)', (): string | null => null, 'ausente'],
     ])('a redação que %s cai, e sai o rascunho — o log diz o motivo', async (_n, redacao, motivo) => {
         llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, vidro: undefined }, { ...DP02, largura_mm: 800, vidro: undefined }] })
         estado.redacao = redacao
@@ -2993,10 +2993,11 @@ describe('(28) as frases do modelo: a redação validada, o rascunho quando não
     })
 
     it('o rascunho com DINHEIRO nunca vai ao modelo (defesa): o pedido não acontece', async () => {
-        const fetchAntes = (globalThis as { fetch: jest.Mock }).fetch.mock.calls.length
+        const espiao = (globalThis as unknown as { fetch: jest.Mock }).fetch
+        const fetchAntes = espiao.mock.calls.length
         const r = await R().redigir(CHAVE, 'Fica R$ 1.000,00.', { blocoDaEmpresa: null, historico: [], mensagem: 'quanto fica?', ultimaSaida: null })
         expect(r).toEqual({ texto: null, motivo: 'rascunho_com_dinheiro' })
-        expect((globalThis as { fetch: jest.Mock }).fetch.mock.calls.length).toBe(fetchAntes)
+        expect(espiao.mock.calls.length).toBe(fetchAntes)
     })
 
     it('redacaoValida, pura: números com e sem ponto de milhar, nomes entre aspas, caixa alta e a lista numerada são o conteúdo obrigatório', () => {
