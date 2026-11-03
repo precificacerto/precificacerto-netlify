@@ -1034,3 +1034,74 @@ A migração foi remontada antes de qualquer aplicação (o md5 abaixo é o do a
   mortas (a tabela está no PR).
 - **A migração:** `supabase/migrations/20261103000002_instrucao_da_categoria.sql`, md5 `ccc508e65ec77239794ef975c238e35b`, 559 linhas, 41065 bytes, LF.
 
+
+## Porta não é janela, quantidade não dita é 1, os limites do motor e o agrupamento — dono do produto, 03/11/2026 (sem migração)
+
+**O caso que originou:** levantamento "Geronimo Silva", 03/11/2026. "Janela de correr 1,50x1,20" e "porta janela 2,50x2,40" saíram **as três como
+DP-02** ("JANELA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 42"), a IA **perguntou a quantidade** e **repetiu dois itens idênticos**.
+
+**Medido antes de escrever (Fase 1, sem alterar nada):** a lista ao modelo levava só `código | descrição | tipo` (`levantamento-da-conversa.ts`); a
+tipologia era decidida pela IA e validada **só por pertencer à lista** (`aplicarProposta`); os limites só apareciam como aviso `LIMITE` **depois** da
+escolha (`avaliador-de-formulas.ts`); a quantidade não tinha padrão; não havia agrupamento. No motor da De Paula (164 tipologias): **91** descrições
+começam com PORTA, **50** com JANELA, **15** MAXIM-AR, **8** FIXO; `alt_min/alt_max` em 130, `larg_min` em 8; **as faixas de altura de porta (464 a 3288)
+e de janela (388 a 2644) se sobrepõem** — a altura NÃO separa porta de janela. DP-02: largura sem limite, altura 388 a 2439.
+
+**As decisões, registradas como foram ditas:**
+
+1. > "PORTA × JANELA: o descarte usa a DESCRIÇÃO (primeira palavra). 'porta', 'porta-janela' e 'porta janela' do vendedor descartam toda tipologia cuja
+   > descrição começa com JANELA; 'janela' descarta as que começam com PORTA. MAXIM-AR e FIXO NÃO entram nessa regra — não são descartados por ela, só
+   > pelos limites. O descarte é no código, antes de o modelo escolher, e a lista enviada ao modelo já vai filtrada."
+2. > "LIMITES: NULL nunca descarta — ausente não é zero, e nunca invente limite. Quando o item fica fora de todas as faixas, não escolha a mais próxima:
+   > frase própria, nomeando a medida do item e a faixa das tipologias que sobraram, pedindo ao vendedor que confirme a medida ou diga a tipologia. O
+   > aviso LIMITE do cálculo continua existindo para o que passar."
+3. > "AMBIENTE: não crie campo nenhum. Agrupe por tipologia + medidas + variáveis (escolhas), que é o que existe hoje. Deixe o código preparado para o
+   > ambiente entrar como mais um critério quando existir, mas não o invente agora."
+4. > "quantidade não dita é 1 (sem perguntar), a lista ao modelo leva descrição e limites além do código, e o agrupamento soma as unidades. Nenhuma
+   > migração. Abra PR, NÃO faça merge."
+
+E as três respostas às perguntas do assistente: a palavra do vendedor chega **por item, pelo campo `abertura` da ferramenta** (a IA classifica a
+palavra, não escolhe; o código filtra pela mensagem quando ela traz uma só das palavras e **sempre confere por item**); **cor e vidro também entram
+na chave** do agrupamento; **só itens completos** se fundem, ao gravar.
+
+**O que está implementado (`tipologias-candidatas.ts`, puro; `levantamento-em-montagem.ts`; `conversa-da-ia.ts`; `levantamento-da-conversa.ts`;
+`atendimentos-ia-prompt-base.ts`):**
+
+- **A lista ao modelo** é `código | descrição | tipo | limites de largura | limites de altura` (+ família e fornecedor quando há mais de uma família).
+  Limite que o arquivo não traz vai como **"sem limite no arquivo"** — nunca zero (`ausente-vs-falso.md`); os unilaterais vão como "mín X"/"máx X".
+  O select da Detalhe passou a trazer `larg_min_mm, larg_max_mm, alt_min_mm, alt_max_mm`, lidos com `numeroOuNulo`.
+- **A abertura.** `palavrasDeAbertura` resolve "porta janela"/"porta-janela" como PORTA antes de procurar "janela"; `aberturaDita` é a palavra da
+  mensagem quando ela traz **uma só** (as duas, fora de "porta janela", ou nenhuma, é null); `aberturaDaDescricao` é a **primeira palavra** da
+  descrição, PORTA ou JANELA, e tudo o mais (MAXIM-AR, FIXO, PORTAL…) não declara. **A lista enviada ao modelo já vai filtrada** pela abertura da
+  mensagem (`filtrarPorAbertura`). No item, `aberturaDoItem` aceita o campo `abertura` da ferramenta **só se a palavra está na mensagem** (a IA não
+  inventa); senão vale a da mensagem. Em `aplicarProposta`, **antes** de a tipologia entrar no item, nenhuma candidata do código compatível com a
+  abertura descarta a tipologia (`descartados += 1`, recusa `ABERTURA`); a resposta é `fraseDaAberturaRecusada` (em linguagem de obra, sem código).
+- **Os limites.** `cabeNosLimites`: NULL nunca descarta, e só a medida dita é conferida. Depois de a proposta entrar, com tipologia e alguma medida, se
+  **nenhuma** candidata do código cabe, a tipologia, as escolhas, a família e o motor saem (as medidas ficam), recusa `LIMITES`, desfecho
+  `nenhuma-cabe`; a resposta é `fraseDeNenhumaTipologiaCabe`: a medida do item e a faixa (do menor mínimo ao maior máximo) das que **sobraram depois do
+  filtro porta × janela**, por medida, dizendo que **a tipologia sem limite no arquivo não conta**, mais o pedido de confirmar a medida ou descrever a
+  esquadria. Nunca "a mais próxima". O aviso `LIMITE` do avaliador continua para o que passa.
+- **Quantidade não dita é 1:** no fim de `aplicarProposta`, o item que já diz alguma coisa e não diz quantas recebe 1 — a pergunta "Quantas unidades?"
+  não sai mais por falta dela. O prompt base ganhou "Quantidade não dita é 1: assuma e não pergunte quantas." em O QUE JÁ ESTÁ DEFINIDO, e duas regras
+  de NUNCA (porta × janela; a tipologia em que a medida não cabe).
+- **O agrupamento** (`agruparIguais`, chamado depois de `resolverFamilias` e antes de gravar): `CRITERIOS_DO_AGRUPAMENTO = tipologia, largura_mm,
+  altura_mm, cor_perfil, vidro, familia, motor_id` + as escolhas (ordenadas) — **o ambiente entra nessa lista quando existir, e hoje não existe**. Só o
+  item **completo** (tudo dito menos a quantidade, família resolvida) se funde; o primeiro fica com as unidades somadas (não dita conta 1), os outros
+  saem, a numeração volta a 1..N. A linha [IA] diz `agrupados=N` quando N > 0. **A escolha dita numa mensagem de duas esquadrias vai só à primeira
+  (a padrão), e aí as variáveis diferem: com razão, não se fundem.**
+- **O único DELETE da conversa fora da pergunta em aberto:** `gravarLevantamento` apaga a linha gravada cuja `ordem` não voltou (a que se fundiu), por
+  id, com tenant e levantamento conferidos, e **confere a contagem atingida** (R1) — como o update. `tabela-que-a-importacao-apaga.md` não se aplica: o
+  processo não apaga e regrava a tabela; apaga a linha que deixou de existir, e a que fica é atualizada por `ordem`, coluna a coluna.
+- **A ferramenta** ganhou `abertura: enum ['porta','janela']` (opcional; o esquema strict continua em até 16 uniões e 24 opcionais).
+
+**DÍVIDA registrada em 03/11/2026:** a palavra "porta"/"janela" **só vale na mensagem em que foi dita** — não é gravada no item e não persiste entre
+turnos. Na mensagem seguinte ("é de correr, 6 folhas"), a tipologia que a IA propõe é conferida só pelos limites; se ela voltar a propor uma JANELA
+para a porta, o código não a descarta. Persistir a abertura exigiria coluna no item (migração), que o dono do produto não pediu.
+
+**Prova:** `tipologias-candidatas.test.ts` (52 casos: as palavras, a descrição, o filtro, os limites com NULL, a linha do prompt, as frases, o
+agrupamento critério a critério); bloco (24) de `atendimentos-ia-levantamento-por-nome.test.ts` (o caso do Geronimo de ponta a ponta, a lista filtrada
+por palavra da mensagem, a `abertura` inventada que não vale, o maxim-ar que fica, 2500 de altura na DP-02, 5000 de largura que passa, a alteração que
+tira a tipologia gravada, a quantidade 1 sem pergunta, o agrupamento com o DELETE conferido); bloco (L) de `levantamento-em-montagem.test.ts` (duas
+candidatas do mesmo código: basta uma caber); e **52 mutações do código, 52 mortas** (15 no módulo puro, 17 em `aplicarProposta` e no agrupamento, 12 na
+conversa, 2 no leitor da Detalhe, 3 no prompt — a tabela está no PR). Três sobreviveram na primeira passada e ganharam teste próprio: `some`→`every`
+nos limites (uma candidata cabendo basta), as escolhas que ficavam quando a tipologia caía pelos limites, e o DELETE do agrupamento sem conferir a
+contagem atingida.

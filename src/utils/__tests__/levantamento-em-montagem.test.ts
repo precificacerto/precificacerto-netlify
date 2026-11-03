@@ -34,7 +34,11 @@ function dp02() {
 const definicao = (e: { tipologia: string | null }) => (e.tipologia === 'DP-02' ? dp02() : null)
 /** Uma família só, com as duas tipologias no motor dela: o caso de hoje em produção. Várias famílias: bloco (V). */
 const familiaUnica = (c: string) => (TIPOLOGIAS.includes(c) ? [{ familia: 'PVC', rotulo: 'PVC', fornecedor: 'Wolff', motorId: 'motor-unico' }] : [])
-const ctx = (ordemPadrao: number | null) => ({ tipologias: TIPOLOGIAS, cores: CORES, ordemPadrao, definicao, familiasDoCodigo: familiaUnica })
+// as candidatas sem descrição e sem limite (03/11/2026): nestes casos nada é descartado por abertura nem por medida — isso é o teste de `tipologias-candidatas`
+type Candidato = import('@/lib/atendimentos-ia/tipologias-candidatas').CandidatoParaAProposta
+type Abertura = import('@/lib/atendimentos-ia/tipologias-candidatas').Abertura
+const candidatos = (codigos: readonly string[]): Candidato[] => codigos.map((tipologia) => ({ tipologia, descricao: null as string | null, larg_min_mm: null as number | null, larg_max_mm: null as number | null, alt_min_mm: null as number | null, alt_max_mm: null as number | null }))
+const ctx = (ordemPadrao: number | null) => ({ candidatos: candidatos(TIPOLOGIAS), aberturaDaMensagem: null as Abertura | null, aberturasDitas: new Set<'porta' | 'janela'>(), cores: CORES, ordemPadrao, definicao, familiasDoCodigo: familiaUnica })
 const COMPLETO_SEM_ESCOLHAS = { ordem: 1, tipologia: 'DP-02', largura_mm: 1200, altura_mm: 1000, quantidade: 1, cor_perfil: 'BRANCO', vidro: 'Temperado 5mm', escolhas: null as Record<string, number> | null, familia: 'PVC' as string | null, motor_id: 'motor-unico' as string | null }
 
 describe('(1) a proposta preenche, e o que não valida é descartado', () => {
@@ -59,7 +63,8 @@ describe('(1) a proposta preenche, e o que não valida é descartado', () => {
 
     it('chaves que não são campo da esquadria (tenant_id, levantamento_id) são ignoradas, sem contar', () => {
         const r = L().aplicarProposta([L().itemVazio(1)], { itens: [{ tenant_id: 'outro', levantamento_id: 'x', largura_mm: 1200 }] }, ctx(1))
-        expect(r.itens[0]).toEqual({ ...L().itemVazio(1), largura_mm: 1200 })
+        // a quantidade não dita é 1 (03/11/2026): a esquadria que já diz algo (a largura) nasce com 1 unidade, sem perguntar
+        expect(r.itens[0]).toEqual({ ...L().itemVazio(1), largura_mm: 1200, quantidade: 1 })
         expect([r.propostos, r.descartados]).toEqual([1, 0])
     })
 })
@@ -193,7 +198,7 @@ describe('(V) várias famílias: a tipologia no motor de mais de uma, a pergunta
     const familiasDoCodigo = (c: string) => (c === 'DP-02' ? [PVC, ALU] : c === 'DP-01' ? [PVC] : [])
     // as abas da DP-02 só no motor do PVC: a definição depende da FAMÍLIA da esquadria, não só do código
     const def = (i: { tipologia: string | null; familia: string | null }) => (i.tipologia === 'DP-02' && i.familia === 'PVC' ? dp02() : null)
-    const ctxV = (ordemPadrao: number | null) => ({ tipologias: TIPOLOGIAS, cores: CORES, ordemPadrao, definicao: def, familiasDoCodigo })
+    const ctxV = (ordemPadrao: number | null) => ({ candidatos: candidatos(TIPOLOGIAS), aberturaDaMensagem: null as Abertura | null, aberturasDitas: new Set<'porta' | 'janela'>(), cores: CORES, ordemPadrao, definicao: def, familiasDoCodigo })
     const COMPLETA = { tipologia: 'DP-02', largura_mm: 1200, altura_mm: 1000, quantidade: 1, cor_perfil: 'BRANCO', vidro: 'Temperado 5mm' }
 
     it('o código em DUAS famílias: a esquadria fica sem família e sem motor, e a pendência é de qual família — as duas, em ordem, nunca "a primeira"', () => {
@@ -272,5 +277,29 @@ describe('(V) várias famílias: a tipologia no motor de mais de uma, a pergunta
         expect(L().resolverFamilias(itens, familiasDoCodigo).map((i) => [i.familia, i.motor_id])).toEqual([
             ['PVC', 'motor-wolf'], [null, null], ['ALUMINIO', 'motor-sul'], [null, null],
         ])
+    })
+})
+
+describe('(L) os limites com DUAS candidatas do mesmo código (duas famílias): basta UMA caber', () => {
+    const PVC = { familia: 'PVC', rotulo: 'PVC', fornecedor: 'Wolff', motorId: 'motor-wolf' }
+    const ALU = { familia: 'ALUMINIO', rotulo: 'Alumínio Sul', fornecedor: 'Perfis Sul', motorId: 'motor-sul' }
+    const duas = (altMaxPvc: number, altMaxAlu: number): Candidato[] => [
+        { tipologia: 'DP-02', descricao: 'JANELA DE CORRER', larg_min_mm: null as number | null, larg_max_mm: null as number | null, alt_min_mm: 388, alt_max_mm: altMaxPvc },
+        { tipologia: 'DP-02', descricao: 'JANELA DE CORRER', larg_min_mm: null as number | null, larg_max_mm: null as number | null, alt_min_mm: 388, alt_max_mm: altMaxAlu },
+    ]
+    const ctxL = (cands: Candidato[]) => ({ candidatos: cands, aberturaDaMensagem: null as Abertura | null, aberturasDitas: new Set<'porta' | 'janela'>(), cores: CORES, ordemPadrao: 1, definicao, familiasDoCodigo: (c: string) => (c === 'DP-02' ? [PVC, ALU] : []) })
+
+    it('2.500 de altura cabe só na do alumínio (3.000): a tipologia FICA — a família é a pergunta seguinte, não o descarte', () => {
+        const r = L().aplicarProposta([L().itemVazio(1)], { itens: [{ tipologia: 'DP-02', largura_mm: 1200, altura_mm: 2500 }] }, ctxL(duas(2439, 3000)))
+        expect(r.itens[0]).toEqual(expect.objectContaining({ tipologia: 'DP-02', altura_mm: 2500, familia: null }))
+        expect(r.recusas).toEqual([])
+        expect(r.descartados).toBe(0)
+    })
+
+    it('2.500 de altura não cabe em nenhuma das duas (2.439 e 2.400): a tipologia cai, com a recusa LIMITES', () => {
+        const r = L().aplicarProposta([L().itemVazio(1)], { itens: [{ tipologia: 'DP-02', largura_mm: 1200, altura_mm: 2500 }] }, ctxL(duas(2439, 2400)))
+        expect(r.itens[0]).toEqual(expect.objectContaining({ tipologia: null, altura_mm: 2500, largura_mm: 1200 }))
+        expect(r.recusas).toEqual([{ ordem: 1, motivo: 'LIMITES', tipologia: 'DP-02', abertura: null, medidas: { largura_mm: 1200, altura_mm: 2500 } }])
+        expect(r.descartados).toBe(1)
     })
 })
