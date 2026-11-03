@@ -148,6 +148,8 @@ const estado = {
      * devolve outro texto (ou null, para a resposta sem bloco de texto); 'lanca' derruba o fetch; um número é o status de erro.
      */
     redacao: null as null | 'lanca' | number | ((rascunho: string, corpo: Record<string, unknown>) => string | null),
+    /** O insert da SAÍDA em orcamentista_mensagem falha (um erro do banco que não é coluna ausente): a resposta já saiu; só o log. */
+    falhaAoGravarSaida: false,
 }
 
 function montar() {
@@ -211,6 +213,7 @@ function montar() {
     estado.checkAntigo = false
     estado.redacoes = []
     estado.redacao = null
+    estado.falhaAoGravarSaida = false
 }
 
 /** As UNIQUE da migração 20261025000003 que importam aqui, para o banco falso recusar como o real. */
@@ -306,6 +309,7 @@ jest.mock('@/supabase/admin', () => ({
                     // gravar numa coluna que a tabela não tem é PGRST204, como o PostgREST (a migração pendente)
                     const semColuna = Object.keys(c).find((k) => estado.colunasAusentes.has(`${tabela}.${k}`))
                     if (semColuna) { erro = { code: 'PGRST204', message: `Could not find the '${semColuna}' column of '${tabela}' in the schema cache` }; break }
+                    if (estado.falhaAoGravarSaida && tabela === 'orcamentista_mensagem' && c.direcao === 'saida') { erro = { code: '42501', message: 'falha simulada ao gravar a saida' }; break }
                     if (violaUnica(tabela, c, linhas)) { erro = { code: '23505', message: 'duplicate key value violates unique constraint' }; break }
                     sequencia += 1
                     // a conversa gravada é carimbada AGORA (a janela do histórico é de 24 h); o resto, numa data fixa de 25/10/2026
@@ -456,7 +460,7 @@ beforeEach(() => {
         if (url === ANTHROPIC && !corpo.tools) {
             // o SEGUNDO pedido (03/11/2026): a redação do rascunho, sem ferramenta. Por padrão devolve o próprio rascunho
             const mensagens = corpo.messages as Array<{ role: string; content: string }>
-            const rascunho = String(mensagens[mensagens.length - 1].content).replace(/^RASCUNHO:\n/, '')
+            const rascunho = String(mensagens[mensagens.length - 1].content).split('\nRASCUNHO:\n').slice(1).join('\nRASCUNHO:\n')
             estado.redacoes.push({ rascunho, corpo })
             if (estado.redacao === 'lanca') throw new Error('fetch failed')
             if (typeof estado.redacao === 'number') return { ok: false, status: estado.redacao, json: async () => ({ error: { type: 'api_error' } }) }
@@ -1988,6 +1992,30 @@ describe('(21) o PROMPT BASE abre o sistema de toda empresa, e o contexto da emp
         ]) expect(PROMPT_BASE).toContain(regra)
     })
 
+    it('a PERSONALIDADE (03/11/2026, "a conversa sai do modo formulário") está no base, com as frases do dono do produto, ANTES das duas etapas', () => {
+        for (const frase of [
+            'VOCÊ É A SECRETÁRIA ORÇAMENTISTA DA EMPRESA.',
+            'não como formulário',
+            'sem "Anotado", "Perfeito", "Entendido", "Obrigado pela informação"',
+            'Fale menos e resolva mais.',
+            'LEIA A CONVERSA INTEIRA, NÃO SÓ A ÚLTIMA MENSAGEM.',
+            'O que o vendedor já informou, você NUNCA pergunta de novo — nem para confirmar.',
+            '("todas brancas") vale para todas; não pergunte item por item.',
+            'PERGUNTE UMA VEZ SÓ, E SÓ O QUE FALTA.',
+            'Nunca um campo por mensagem.',
+            'Nunca mande o vendedor responder numa forma ditada ("responda: novo X", "responda em palavras").',
+            'nunca repita a mesma frase.',
+            'CONFIRME POUCO.',
+            'quando houver duas tipologias possíveis. Fora disso, registre e siga.',
+            'CONSULTE ANTES DE DIZER QUE NÃO TEM.',
+            'nunca transfira ao vendedor um limite do sistema.',
+            'O vendedor não tem que aprender a falar com o sistema. É você que entende como ele fala.',
+        ]) expect(PROMPT_BASE).toContain(frase)
+        expect(PROMPT_BASE.indexOf('VOCÊ É A SECRETÁRIA ORÇAMENTISTA')).toBeLessThan(PROMPT_BASE.indexOf('AS DUAS ETAPAS'))
+        // as regras de NUNCA ficaram: a personalidade se somou a elas
+        expect(PROMPT_BASE.match(/^- NUNCA /gm)).toHaveLength(6)
+    })
+
     it('SEM contexto: o sistema COMEÇA pelo base, e não há bloco da empresa', async () => {
         await chamar('oi')
         expect(sistemaDe().startsWith(`${PROMPT_BASE}\n\n`)).toBe(true)
@@ -2688,5 +2716,283 @@ describe('(25) o resgate do levantamento antigo e o contexto que não se perde (
         expect(r.itens).toEqual([{ ...JANELA }, { ...PORTA }, { ordem: 1, familia: 'PVC' }, 'lixo'])
         expect(juntarEsquadrias([], [{ ...JANELA }])).toEqual({ itens: [{ ...JANELA }], reenviadas: 0 })
         expect(juntarEsquadrias([{ ...JANELA }], [])).toEqual({ itens: [{ ...JANELA }], reenviadas: 0 })
+    })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+/**
+ * (26) O REENVIO DO WUZAPI (dono do produto, 03/11/2026): "a mesma mensagem nunca é conduzida duas vezes, e o reenvio devolve a resposta já
+ * dada. NÃO reenvie no WhatsApp o que o vendedor já recebeu. Reenvio reconhecido responde 200 e não conduz de novo; só envia quando o
+ * primeiro envio falhou de fato." O caso real: 03/11, 18:26:38 e 18:27:51, o mesmo Info.ID 3EB06E260E4D8D4FA0E8E5 conduzido duas vezes.
+ */
+describe('(26) o reenvio do WUZAPI: 200 sem conduzir; o reenvio só quando o envio falhou de fato', () => {
+    const mensagens = () => (estado.db.orcamentista_mensagem ?? []) as Array<Linha & { direcao: string }>
+    const ID = '3EB06E260E4D8D4FA0E8E5'
+
+    it('a mesma mensagem duas vezes, a primeira respondida: a segunda não chama a IA, não envia nada, e o log diz repetida', async () => {
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, vidro: undefined }] })
+        await chamar('Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco', { id: ID })
+        expect(enviados()).toEqual([PERGUNTA_DO_VIDRO])
+        const r = await chamar('Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco', { id: ID })
+        expect(r.status).toBe(200)
+        expect(enviados()).toEqual([PERGUNTA_DO_VIDRO])
+        expect(estado.chamadasDaLlm).toHaveLength(1)
+        expect(mensagens().map((m) => m.direcao)).toEqual(['entrada', 'saida'])
+        expect(linhaIa().pop()).toContain('desfecho=repetida')
+    })
+
+    it('o primeiro envio FALHOU (a saída ficou sem id de envio): o reenvio manda o texto gravado, sem chamar a IA, e a saída ganha o id', async () => {
+        estado.envioStatus = 500
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, vidro: undefined }] })
+        await chamar('Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco', { id: ID })
+        expect(linhaIa().pop()).toContain('desfecho=envio-falhou')
+        expect(mensagens()[1]).toEqual(expect.objectContaining({ direcao: 'saida', texto: PERGUNTA_DO_VIDRO, wuzapi_mensagem_id: null }))
+        estado.envioStatus = 200
+        await chamar('Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco', { id: ID })
+        expect(enviados()).toEqual([PERGUNTA_DO_VIDRO, PERGUNTA_DO_VIDRO])
+        expect(estado.chamadasDaLlm).toHaveLength(1)
+        expect(mensagens()[1]).toEqual(expect.objectContaining({ direcao: 'saida', wuzapi_mensagem_id: 'WAMID_SAIDA' }))
+        expect(linhaIa().pop()).toContain('desfecho=reenviada')
+    })
+
+    it('sem saída e a entrada EM VOO (a primeira ainda roda): nada é feito — nem IA, nem envio', async () => {
+        estado.db.orcamentista_conversa = [{ id: 'c1', tenant_id: TENANT, remetente_id: VENDEDOR, telefone: TELEFONE_DO_WEBHOOK, criado_em: new Date().toISOString() }]
+        estado.db.orcamentista_mensagem = [{ id: 'e1', tenant_id: TENANT, conversa_id: 'c1', direcao: 'entrada', texto: 'oi', wuzapi_mensagem_id: ID, criado_em: new Date(Date.now() - 5_000).toISOString() }]
+        await chamar('oi', { id: ID })
+        expect(enviados()).toEqual([])
+        expect(estado.chamadasDaLlm).toHaveLength(0)
+        expect(linhaIa().pop()).toMatch(/desfecho=repetida .*em_voo=sim/)
+    })
+
+    it('sem saída e a entrada mais velha que a janela (a primeira condução morreu): a mensagem é conduzida de novo, e a saída responde à entrada de antes', async () => {
+        estado.db.orcamentista_conversa = [{ id: 'c1', tenant_id: TENANT, remetente_id: VENDEDOR, telefone: TELEFONE_DO_WEBHOOK, criado_em: new Date().toISOString() }]
+        estado.db.orcamentista_mensagem = [{ id: 'e1', tenant_id: TENANT, conversa_id: 'c1', direcao: 'entrada', texto: 'oi', wuzapi_mensagem_id: ID, criado_em: new Date(Date.now() - 61_000).toISOString() }]
+        llmResponde({})
+        await chamar('oi', { id: ID })
+        expect(enviados()).toEqual([conversa.FRASE_SEM_NOME])
+        expect(mensagens()).toHaveLength(2)
+        expect(mensagens()[1]).toEqual(expect.objectContaining({ direcao: 'saida', responde_a: 'e1' }))
+    })
+
+    it('SEM A MIGRAÇÃO (responde_a não existe): a saída é gravada sem a coluna, o log diz gravacao=sem_migracao, e o reenvio é 200 sem conduzir nem reenviar', async () => {
+        estado.colunasAusentes.add('orcamentista_mensagem.responde_a')
+        llmResponde({})
+        await chamar('oi', { id: ID })
+        expect(enviados()).toEqual([conversa.FRASE_SEM_NOME])
+        expect(mensagens()[1]).toEqual(expect.objectContaining({ direcao: 'saida', texto: conversa.FRASE_SEM_NOME }))
+        expect('responde_a' in mensagens()[1]).toBe(false)
+        expect(linhaIa().pop()).toMatch(/ gravacao=sem_migracao(\s|$)/)
+        await chamar('oi', { id: ID })
+        expect(enviados()).toEqual([conversa.FRASE_SEM_NOME])
+        expect(estado.chamadasDaLlm).toHaveLength(1)
+        expect(linhaIa().pop()).toMatch(/desfecho=repetida .*gravacao=sem_migracao/)
+    })
+
+    it('a gravação da saída FALHA depois do envio: o vendedor já recebeu, nada é reenviado, e o log diz gravacao=falhou', async () => {
+        estado.falhaAoGravarSaida = true
+        llmResponde({})
+        await chamar('oi')
+        expect(enviados()).toEqual([conversa.FRASE_SEM_NOME])
+        expect(mensagens().map((m) => m.direcao)).toEqual(['entrada'])
+        expect(linhaIa().pop()).toMatch(/desfecho=sem-nome .* gravacao=falhou(\s|$)/)
+        expect(erros.some((l) => l.startsWith('[IA] a saida nao foi gravada: orcamentista_mensagem:'))).toBe(true)
+    })
+
+    it('o texto da saída gravada é o que foi ENVIADO, com a fala da IA na frente', async () => {
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02 }], escolhas: ESCOLHAS_QUE_FECHAM, fala: 'Bora anotar.' })
+        await chamar('Levantamento Casa do João: DP-02 1200 x 1000 branco temperado 5mm, sem arremate interno, externo com folga de 50')
+        expect(ultimoEnviado().startsWith('Bora anotar.\n\nApanhado do levantamento')).toBe(true)
+        expect(mensagens()[1].texto).toBe(ultimoEnviado())
+    })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+/**
+ * (27) O HISTÓRICO (dono do produto, 03/11/2026): "20 mensagens, 24 horas, teto de 6.000 caracteres. O levantamento formal com preços NÃO entra —
+ * vira '[levantamento formal enviado]'. Saída acima de 600 caracteres entra cortada. Essa regra de nunca mandar dinheiro ao modelo é inviolável."
+ */
+describe('(27) o histórico ao modelo: 20 mensagens, 24 horas, 6.000 caracteres, sem dinheiro', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const G = () => require('@/lib/atendimentos-ia/conversa-gravada') as typeof import('@/lib/atendimentos-ia/conversa-gravada')
+    const linha = (direcao: 'entrada' | 'saida', texto: string) => ({ direcao, texto })
+
+    it('as constantes são as da decisão', () => {
+        expect([G().MENSAGENS_DO_HISTORICO, G().HORAS_DO_HISTORICO, G().CARACTERES_DO_HISTORICO, G().CORTE_DA_SAIDA, G().MARCA_DO_FORMAL])
+            .toEqual([20, 24, 6000, 600, '[levantamento formal enviado]'])
+        expect(G().JANELA_EM_VOO_MS).toBe(60_000)
+    })
+
+    it('a saída com DINHEIRO vira a marca do formal; a saída longa é cortada em 600 com reticência; a entrada vai inteira', () => {
+        const longa = 'x'.repeat(650)
+        const h = G().montarHistorico([linha('saida', longa), linha('saida', 'Total por barra inteira: R$ 1.419,39.'), linha('entrada', 'y'.repeat(650))].reverse().reverse())
+        // da mais nova para a mais velha na entrada; da mais velha para a mais nova na saída
+        expect(h.map((m) => m.role)).toEqual(['user', 'assistant'])
+        expect(h[0].content).toBe('y'.repeat(650))
+        expect(h[1].content).toBe(`${'[levantamento formal enviado]'}\n\n${'x'.repeat(600)}…`)
+        expect(h[1].content).not.toContain('R$')
+    })
+
+    it('"mil reais" por extenso também é dinheiro: vira a marca', () => {
+        const h = G().montarHistorico([linha('saida', 'fica em torno de mil reais'), linha('entrada', 'quanto custa?')])
+        expect(h).toEqual([{ role: 'user', content: 'quanto custa?' }, { role: 'assistant', content: '[levantamento formal enviado]' }])
+    })
+
+    it('o teto de 6.000 caracteres descarta as mais VELHAS; as 20 mais novas no máximo', () => {
+        // entradas (a saída seria cortada em 600): 4 × 1.500 = 6.000 cabem; a quinta, a mais velha, não
+        const grandes = Array.from({ length: 5 }, (_, k) => linha('entrada', `${k}`.repeat(1500)))
+        const h = G().montarHistorico(grandes)
+        expect(h).toHaveLength(1)
+        expect(h[0].content.split('\n\n').map((x) => x[0])).toEqual(['3', '2', '1', '0'])
+        const muitas = Array.from({ length: 25 }, (_, k) => linha(k % 2 ? 'saida' : 'entrada', `m${k}`))
+        const h2 = G().montarHistorico(muitas)
+        const texto = h2.map((m) => m.content).join(' ')
+        // as 20 mais novas são m0..m19; m19 é uma saída que ficaria na frente, e cai (o histórico começa em user): sobram m18..m0
+        expect(texto).not.toContain('m20')
+        expect(texto).not.toContain('m19')
+        expect(texto).toContain('m18')
+        expect(h2[0].role).toBe('user')
+    })
+
+    it('começa em user (a assistant que sobrou na frente cai), papéis seguidos iguais viram uma mensagem, texto nulo não entra', () => {
+        const h = G().montarHistorico([linha('entrada', 'c'), linha('entrada', 'b'), linha('saida', 'resposta'), { direcao: 'entrada', texto: null }, linha('saida', 'velha')])
+        expect(h).toEqual([{ role: 'assistant', content: 'resposta' }, { role: 'user', content: 'b\n\nc' }].slice(1).length ? [{ role: 'user', content: 'b\n\nc' }] : [])
+    })
+
+    it('na conversa: o formal com preço já enviado chega ao modelo como a marca; a mensagem de mais de 24 h não chega', async () => {
+        await fecharDp02('Casa do João')
+        estado.db.orcamentista_mensagem.push({ id: 'velha', tenant_id: TENANT, conversa_id: estado.db.orcamentista_conversa[0].id, direcao: 'entrada', texto: 'de anteontem', criado_em: new Date(Date.now() - 25 * 3_600_000).toISOString() })
+        llmResponde({})
+        await chamar('oi')
+        const m = estado.chamadasDaLlm[2].corpo.messages as Array<{ role: string; content: string }>
+        expect(m[m.length - 1]).toEqual({ role: 'user', content: 'oi' })
+        expect(m.some((x) => x.content === '[levantamento formal enviado]')).toBe(true)
+        expect(JSON.stringify(m)).not.toContain('R$')
+        expect(JSON.stringify(m)).not.toContain('de anteontem')
+        expect(linhaIa().pop()).toMatch(/ historico=4(\s|$)/)
+    })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+/**
+ * (28) AS FRASES DO MODELO (dono do produto, 03/11/2026): "As frases fixas viram frases do modelo, mantendo o conteúdo obrigatório (o que falta,
+ * de qual esquadria). O código continua validando a resposta; só o texto deixa de ser fixo. [...] a mesma resposta nunca sai duas vezes
+ * seguidas." O modelo falso devolve o próprio rascunho por padrão (é o que mantém os testes das frases fixas valendo); aqui ele devolve outra coisa.
+ */
+describe('(28) as frases do modelo: a redação validada, o rascunho quando não passa, e nunca a mesma resposta duas vezes seguidas', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const R = () => require('@/lib/atendimentos-ia/redacao-da-resposta') as typeof import('@/lib/atendimentos-ia/redacao-da-resposta')
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { PROMPT_BASE } = require('@/utils/atendimentos-ia-prompt-base') as typeof import('@/utils/atendimentos-ia-prompt-base')
+
+    it('a redação válida é o que o vendedor recebe; o pedido é SEM ferramenta, com o prompt base e a tarefa no sistema, o histórico e o rascunho por último', async () => {
+        estado.redacao = () => 'De quem é essa obra? Me diga o nome do cliente.'
+        llmResponde({})
+        await chamar('oi')
+        expect(enviados()).toEqual(['De quem é essa obra? Me diga o nome do cliente.'])
+        expect(estado.redacoes).toHaveLength(1)
+        const [{ rascunho, corpo }] = estado.redacoes
+        expect(rascunho).toBe(conversa.FRASE_SEM_NOME)
+        expect(corpo.tools).toBeUndefined()
+        expect(String(corpo.system).startsWith(`${PROMPT_BASE}\n\n${R().INSTRUCAO_DA_REDACAO}`)).toBe(true)
+        expect(corpo.max_tokens).toBe(400)
+        expect(corpo.messages).toEqual([{ role: 'user', content: `MENSAGEM DO VENDEDOR:\noi\n\nRASCUNHO:\n${conversa.FRASE_SEM_NOME}` }])
+        expect(R().pedidoDaRedacao('oi', 'x')).toBe('MENSAGEM DO VENDEDOR:\noi\n\nRASCUNHO:\nx')
+        expect(linhaIa().pop()).toMatch(/ redacao=usada(\s|$)/)
+        // a saída gravada é a redação, como enviada
+        expect(estado.db.orcamentista_mensagem[1].texto).toBe('De quem é essa obra? Me diga o nome do cliente.')
+    })
+
+    it('com o contexto da empresa: o bloco dela vai no FIM do sistema da redação; o histórico vai antes do rascunho', async () => {
+        estado.db.orcamentista_contexto_do_atendimento = [{ tenant_id: TENANT, texto: 'Somos a Esquadrias Exemplo. Tom informal.' }]
+        await abrirSemVidro('Casa do João')
+        llmResponde({ itens: [] })
+        await chamar('hmm')
+        const { corpo } = estado.redacoes[estado.redacoes.length - 1]
+        expect(String(corpo.system).endsWith('Somos a Esquadrias Exemplo. Tom informal.\nCONTEXTO DA EMPRESA>>>')).toBe(true)
+        expect(corpo.messages).toEqual([
+            { role: 'user', content: 'Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco' },
+            { role: 'assistant', content: PERGUNTA_DO_VIDRO },
+            { role: 'user', content: `MENSAGEM DO VENDEDOR:\nhmm\n\nRASCUNHO:\n${conversa.fraseDeNaoRegistrei(PERGUNTA_DO_VIDRO)}` },
+        ])
+    })
+
+    it.each([
+        ['perde o conteúdo (o número da esquadria)', () => 'Qual o vidro?', 'sem_conteudo'],
+        ['traz DINHEIRO', () => 'Esquadria 2: qual o vidro? Fica uns R$ 300.', 'dinheiro'],
+        ['traz código de fornecedor', () => 'Esquadria 2: qual o vidro? Vai com BZ0010.', 'codigo'],
+        ['é longa demais', () => `Esquadria 2: ${'qual o vidro? '.repeat(60)}`, 'longa'],
+        ['vem vazia', () => '   ', 'vazia'],
+        ['não vem (sem bloco de texto)', () => null, 'ausente'],
+    ])('a redação que %s cai, e sai o rascunho — o log diz o motivo', async (_n, redacao, motivo) => {
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, vidro: undefined }, { ...DP02, largura_mm: 800, vidro: undefined }] })
+        estado.redacao = redacao
+        await chamar('Levantamento Casa do João: DP-02 1200 x 1000 branco; outra DP-02 800 x 1000 branco')
+        expect(ultimoEnviado()).toBe(`Esquadria 1: ${PERGUNTA_DO_VIDRO}\nEsquadria 2: ${PERGUNTA_DO_VIDRO}`)
+        expect(linhaIa().pop()).toMatch(new RegExp(` redacao=${motivo}(\\s|$)`))
+    })
+
+    it.each([['erro HTTP', 500 as const], ['exceção de rede', 'lanca' as const]])('%s no pedido de redação: sai o rascunho, redacao=erro', async (_n, falha) => {
+        estado.redacao = falha
+        llmResponde({})
+        await chamar('oi')
+        expect(enviados()).toEqual([conversa.FRASE_SEM_NOME])
+        expect(linhaIa().pop()).toMatch(/ redacao=erro(\s|$)/)
+    })
+
+    it('a redação IGUAL à última resposta enviada cai (repetida), e sai o rascunho — que é outro', async () => {
+        await abrirSemVidro('Casa do João')
+        expect(ultimoEnviado()).toBe(PERGUNTA_DO_VIDRO)
+        estado.redacao = () => PERGUNTA_DO_VIDRO
+        llmResponde({ itens: [] })
+        await chamar('hmm')
+        expect(ultimoEnviado()).toBe(conversa.fraseDeNaoRegistrei(PERGUNTA_DO_VIDRO))
+        expect(ultimoEnviado()).not.toBe(enviados()[0])
+        expect(linhaIa().pop()).toMatch(/ redacao=repetida(\s|$)/)
+    })
+
+    it('a redação é a resposta inteira: a fala da IA NÃO a antecede; no rascunho (a redação caiu), a fala abre como sempre', async () => {
+        estado.redacao = () => 'Me diga o cliente dessa obra.'
+        llmResponde({ fala: 'Opa, bora.' })
+        await chamar('oi')
+        expect(ultimoEnviado()).toBe('Me diga o cliente dessa obra.')
+        estado.redacao = () => null
+        llmResponde({ fala: 'Opa, bora.' })
+        await chamar('oi de novo')
+        expect(ultimoEnviado()).toBe(`Opa, bora.\n\n${conversa.outraPergunta(conversa.OUTRAS_PERGUNTAS_DO_NOME, 'oi de novo')}`)
+    })
+
+    it('o APANHADO, o levantamento FORMAL e as FALHAS não passam pela redação: nenhum segundo pedido', async () => {
+        estado.redacao = () => 'nunca'
+        expect(await fecharDp02('Casa do João')).toBe(LEVANTAMENTO_CASA_DO_JOAO)
+        expect(estado.redacoes).toEqual([])
+        estado.respostasDaLlm.push('lanca')
+        await chamar('oi')
+        expect(ultimoEnviado()).toBe(conversa.FALHA_DA_IA)
+        expect(estado.redacoes).toEqual([])
+        expect(linhaIa().pop()).not.toContain('redacao=')
+    })
+
+    it('o rascunho com DINHEIRO nunca vai ao modelo (defesa): o pedido não acontece', async () => {
+        const fetchAntes = (globalThis as { fetch: jest.Mock }).fetch.mock.calls.length
+        const r = await R().redigir(CHAVE, 'Fica R$ 1.000,00.', { blocoDaEmpresa: null, historico: [], mensagem: 'quanto fica?', ultimaSaida: null })
+        expect(r).toEqual({ texto: null, motivo: 'rascunho_com_dinheiro' })
+        expect((globalThis as { fetch: jest.Mock }).fetch.mock.calls.length).toBe(fetchAntes)
+    })
+
+    it('redacaoValida, pura: números com e sem ponto de milhar, nomes entre aspas, caixa alta e a lista numerada são o conteúdo obrigatório', () => {
+        const rascunho = 'Pelo que você escreveu (“Geronimo”), pode ser um destes levantamentos:\n1) Geronimo Silva — 01/11/2026, completo\n2) Geronimo Souza — 31/10/2026, em montagem\nÉ algum deles? DP-02 de 1.200 mm.'
+        const ok = 'Tem dois Geronimos aqui, para o pedido do “Geronimo” (a DP-02 de 1200 mm): 1) Geronimo Silva, de 01/11/2026, completo; 2) Geronimo Souza, de 31/10/2026, em montagem. Qual deles?'
+        expect(R().redacaoValida(ok, rascunho, null)).toEqual({ texto: ok, motivo: 'usada' })
+        expect(R().redacaoValida(ok.replace('Souza', 'Sousa'), rascunho, null).motivo).toBe('sem_conteudo')
+        expect(R().redacaoValida(ok.replace('31/10/2026', '30/10/2026'), rascunho, null).motivo).toBe('sem_conteudo')
+        expect(R().redacaoValida(ok.replace('DP-02', 'a de correr'), rascunho, null).motivo).toBe('sem_conteudo')
+        // o nome entre aspas: "Casa do João" tem de estar na redação
+        expect(R().redacaoValida('Esse já existe. Quer alterar? Se for outro cliente, me diga o nome.', conversa.fraseDoNomeQueJaExiste('Casa do João'), null).motivo).toBe('sem_conteudo')
+        expect(R().redacaoValida('O Casa do João já existe. Quer alterar? Se for outro cliente, me diga o nome.', conversa.fraseDoNomeQueJaExiste('Casa do João'), null).motivo).toBe('usada')
+        expect(R().redacaoValida(ok, rascunho, ok).motivo).toBe('repetida')
+        expect(R().redacaoValida(`${ok} `, rascunho, ok).motivo).toBe('repetida')
+        expect(R().mantemOConteudo('qual o vidro da esquadria 2?', 'Esquadria 2: Qual o vidro?')).toBe(true)
+        expect(R().mantemOConteudo('qual o vidro?', 'Esquadria 2: Qual o vidro?')).toBe(false)
+        expect(R().LIMITE_DA_REDACAO).toBe(700)
     })
 })

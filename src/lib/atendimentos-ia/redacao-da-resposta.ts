@@ -27,7 +27,7 @@ export const LIMITE_DA_REDACAO = 700
 export const CODIGO_DE_FORNECEDOR = /\b[A-Z]{1,5}\d{2,}\b/
 
 export const INSTRUCAO_DA_REDACAO = [
-    'TAREFA: reescreva o RASCUNHO abaixo como você, a secretária orçamentista, diria ao vendedor pelo WhatsApp. O rascunho é o que o sistema decidiu dizer; você decide só a forma.',
+    'TAREFA: reescreva o RASCUNHO abaixo como você, a secretária orçamentista, diria ao vendedor pelo WhatsApp, em resposta à MENSAGEM DO VENDEDOR. O rascunho é o que o sistema decidiu dizer; você decide só a forma.',
     '- Mantenha TODO o conteúdo do rascunho: o que falta, de qual esquadria, os nomes entre aspas, os números, as datas e cada opção listada. Não acrescente informação, não faça pergunta nova, não responda por ele.',
     '- Frases curtas, linguagem de obra, sem emoji, sem introdução, sem "Anotado", "Perfeito", "Entendido". Nunca mande o vendedor responder numa forma ditada.',
     '- Nunca escreva valor, preço, percentual ou código de fornecedor.',
@@ -70,8 +70,13 @@ export type ContextoDaRedacao = {
     /** O contexto da empresa (o tom dela), quando houver — já na moldura que o sistema usa. */
     blocoDaEmpresa: string | null
     historico: readonly MensagemDoHistorico[]
+    /** A mensagem do vendedor desta vez: é a ela que a resposta responde. */
+    mensagem: string
     ultimaSaida: string | null
 }
+
+/** O pedido ao modelo: a mensagem do vendedor e o rascunho, numa mensagem só, depois do histórico. */
+export const pedidoDaRedacao = (mensagem: string, rascunho: string) => `MENSAGEM DO VENDEDOR:\n${mensagem}\n\nRASCUNHO:\n${rascunho}`
 
 /** O sistema do pedido de redação: o prompt base (com a personalidade), a tarefa, e o contexto da empresa no fim. */
 export function sistemaDaRedacao(blocoDaEmpresa: string | null): string {
@@ -90,7 +95,7 @@ export async function redigir(chave: string, rascunho: string, c: ContextoDaReda
                 max_tokens: 400,
                 output_config: { effort: 'low' },
                 system: sistemaDaRedacao(c.blocoDaEmpresa),
-                messages: [...c.historico, { role: 'user', content: `RASCUNHO:\n${rascunho}` }],
+                messages: [...c.historico, { role: 'user', content: pedidoDaRedacao(c.mensagem, rascunho) }],
             }),
         })
         if (!r.ok) return { texto: null, motivo: 'erro' }

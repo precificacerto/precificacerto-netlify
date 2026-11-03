@@ -303,3 +303,74 @@ describe('(L) os limites com DUAS candidatas do mesmo código (duas famílias): 
         expect(r.descartados).toBe(1)
     })
 })
+
+/**
+ * (VI) TODAS AS PENDÊNCIAS NUMA PERGUNTA (dono do produto, 03/11/2026, "a conversa sai do modo formulário"): "uma pergunta por turno que
+ * cubra TODAS as pendências do momento, não um campo por mensagem". `pendenciasDoLevantamento` lista todas, na ordem de sempre (a primeira é
+ * a `proximaPendencia`); `perguntaDasPendencias` as junta numa pergunta — com uma só, a fixa de sempre.
+ */
+describe('(VI) todas as pendências, e a pergunta que as cobre de uma vez', () => {
+    const vazia = (ordem: number) => L().itemVazio(ordem)
+
+    it('lista TODAS, esquadria por esquadria: os campos vazios, depois as escolhas pedidas; a primeira é a proximaPendencia', () => {
+        const itens = [{ ...COMPLETO_SEM_ESCOLHAS, vidro: null, escolhas: { ARI: null } }, { ...vazia(2), tipologia: 'DP-02', cor_perfil: 'BRANCO' }]
+        const ps = L().pendenciasDoLevantamento(itens, definicao, familiaUnica)
+        expect(ps.map((p) => [p.tipo, p.ordem, p.tipo === 'CAMPO' ? p.campo : p.tipo === 'ESCOLHA' ? p.pendente.variavel : p.tipologia])).toEqual([
+            ['CAMPO', 1, 'vidro'], ['ESCOLHA', 1, 'ARI'],
+            ['CAMPO', 2, 'largura_mm'], ['CAMPO', 2, 'altura_mm'], ['CAMPO', 2, 'quantidade'], ['CAMPO', 2, 'vidro'],
+        ])
+        expect(L().proximaPendencia(itens, definicao, familiaUnica)).toEqual(ps[0])
+    })
+
+    it('sem a tipologia, só os campos: a família e as escolhas dependem dela', () => {
+        const ps = L().pendenciasDoLevantamento([{ ...vazia(1), largura_mm: 1200, escolhas: { ARI: null } }], definicao, familiaUnica)
+        expect(ps.map((p) => (p.tipo === 'CAMPO' ? p.campo : p.tipo))).toEqual(['tipologia', 'altura_mm', 'quantidade', 'cor_perfil', 'vidro'])
+    })
+
+    it('nada pendente: lista vazia, pergunta vazia', () => {
+        expect(L().pendenciasDoLevantamento([COMPLETO_SEM_ESCOLHAS], definicao, familiaUnica)).toEqual([])
+        expect(L().perguntaDasPendencias([], 1)).toBe('')
+    })
+
+    it('UMA pendência: a pergunta fixa de sempre, com "Esquadria N:" só com mais de uma esquadria', () => {
+        const p = { tipo: 'CAMPO' as const, ordem: 1, campo: 'vidro' as const }
+        expect(L().perguntaDasPendencias([p], 1)).toBe('Qual o vidro?')
+        expect(L().perguntaDasPendencias([p], 2)).toBe('Esquadria 1: Qual o vidro?')
+    })
+
+    it('vários campos da mesma esquadria: uma frase com todos', () => {
+        const ps = L().pendenciasDoLevantamento([{ ...vazia(1), tipologia: 'DP-02', quantidade: 1 }], definicao, familiaUnica)
+        expect(L().perguntaDasPendencias(ps, 1)).toBe('Me diga a largura (em mm), a altura (em mm), a cor do perfil e o vidro.')
+    })
+
+    it('a tipologia e mais campos: a pergunta de obra, e o resto junto', () => {
+        const ps = L().pendenciasDoLevantamento([{ ...vazia(1), largura_mm: 1200, altura_mm: 1000, quantidade: 1, vidro: 'Temperado 5mm' }], definicao, familiaUnica)
+        expect(L().perguntaDasPendencias(ps, 1)).toBe('É janela ou porta? Abre de correr, de abrir ou maxim-ar? Tem persiana? E me diga a cor do perfil.')
+    })
+
+    it('duas esquadrias: uma linha por esquadria, cada uma com o que lhe falta', () => {
+        const ps = L().pendenciasDoLevantamento([{ ...COMPLETO_SEM_ESCOLHAS, vidro: null }, { ...vazia(2), tipologia: 'DP-02', quantidade: 1, cor_perfil: 'BRANCO', vidro: 'Temperado 5mm' }], definicao, familiaUnica)
+        expect(L().perguntaDasPendencias(ps, 2)).toBe('Esquadria 1: Qual o vidro?\nEsquadria 2: Me diga a largura (em mm) e a altura (em mm).')
+    })
+
+    it('o campo e a escolha pedida da mesma esquadria vão juntos', () => {
+        const ps = L().pendenciasDoLevantamento([{ ...COMPLETO_SEM_ESCOLHAS, vidro: null, escolhas: { ARI: null } }], definicao, familiaUnica)
+        expect(L().perguntaDasPendencias(ps, 1)).toBe('Qual o vidro? Para arremate interno, as opções são: arremate de 65 mm; arremate de 70 mm; arremate de 20 mm; sem arremate interno. Qual você quer?')
+    })
+
+    it('a família e os campos: a pergunta da família vem depois dos campos da esquadria', () => {
+        const PVC = { familia: 'PVC', rotulo: 'PVC Wolf', fornecedor: 'Wolff', motorId: 'motor-wolf' }
+        const ALU = { familia: 'ALUMINIO', rotulo: 'Alumínio Sul', fornecedor: 'Perfis Sul', motorId: 'motor-sul' }
+        const duas = (c: string) => (c === 'DP-02' ? [PVC, ALU] : [])
+        const ps = L().pendenciasDoLevantamento([{ ...vazia(1), tipologia: 'DP-02', largura_mm: 1200, altura_mm: 1000, quantidade: 1, cor_perfil: 'BRANCO' }], () => null, duas)
+        expect(ps.map((p) => p.tipo)).toEqual(['FAMILIA', 'CAMPO'])
+        expect(L().perguntaDasPendencias(ps, 1)).toBe('Qual o vidro? A DP-02 está em 2 famílias da sua empresa: Alumínio Sul ou PVC Wolf. De qual família é?')
+    })
+
+    it('a cabeça da IA entra no lugar da pergunta fixa do PRIMEIRO campo, e o resto vem junto', () => {
+        const ps = L().pendenciasDoLevantamento([{ ...vazia(1), largura_mm: 1200, altura_mm: 1000, quantidade: 1, vidro: 'Temperado 5mm' }], definicao, familiaUnica)
+        expect(L().perguntaDasPendencias(ps, 1, 'Ela tem persiana integrada?')).toBe('Ela tem persiana integrada? E me diga a cor do perfil.')
+        const so = [{ tipo: 'CAMPO' as const, ordem: 2, campo: 'vidro' as const }]
+        expect(L().perguntaDasPendencias(so, 2, 'Que vidro vai nela?')).toBe('Esquadria 2: Que vidro vai nela?')
+    })
+})

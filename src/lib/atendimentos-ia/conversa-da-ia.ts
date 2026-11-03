@@ -867,7 +867,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
      */
     const falar = async (rascunho: string, desfecho: DesfechoDaIa, detalhe = ''): Promise<DesfechoDaIa> => {
         const chave = process.env.ANTHROPIC_API_KEY
-        const r: Redacao = chave ? await redigir(chave, rascunho, { blocoDaEmpresa, historico, ultimaSaida }) : { texto: null, motivo: 'erro' }
+        const r: Redacao = chave ? await redigir(chave, rascunho, { blocoDaEmpresa, historico, mensagem: c.texto, ultimaSaida }) : { texto: null, motivo: 'erro' }
         rastro.redacao = r.motivo
         if (r.texto !== null) return await responder(r.texto, desfecho, detalhe, false)
         return await responder(rascunho, desfecho, `${detalhe}${ultimaSaida !== null && rascunho === ultimaSaida ? `${detalhe ? ' ' : ''}repetida=sim` : ''}`)
