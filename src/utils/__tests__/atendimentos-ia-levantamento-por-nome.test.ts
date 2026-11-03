@@ -731,7 +731,8 @@ describe('(3) o estado mora no levantamento; a CONVERSA é gravada como históri
 
     it('a conversa de OUTRO remetente não entra no histórico deste; a de outro tenant, nunca', async () => {
         await abrirSemVidro('Casa do João')
-        estado.db.orcamentista_conversa.push({ id: 'de-fora', tenant_id: 'outro-tenant', remetente_id: VENDEDOR, telefone: TELEFONE_DO_WEBHOOK, criado_em: '2026-10-25T01:00:00.000Z' })
+        // a de fora é a MAIS NOVA: se a busca não levasse o tenant, seria ela a escolhida
+        estado.db.orcamentista_conversa.push({ id: 'de-fora', tenant_id: 'outro-tenant', remetente_id: VENDEDOR, telefone: TELEFONE_DO_WEBHOOK, criado_em: new Date(Date.now() + 60_000).toISOString() })
         estado.db.orcamentista_mensagem.push({ id: 'm-fora', tenant_id: 'outro-tenant', conversa_id: 'de-fora', direcao: 'entrada', texto: 'segredo de outra empresa', criado_em: new Date().toISOString() })
         llmResponde({ nome: 'Obra Centro', itens: [{ ...DP02 }] }, )
         await chamar('Obra Centro: DP-02 1200 x 1000 branco temperado 5mm', { senderAlt: TELEFONE_DO_OUTRO })
@@ -2391,6 +2392,11 @@ describe('(24) porta não é janela, quantidade padrão 1, os limites e o agrupa
         expect(itensDe(levantamentos()[0].id)).toHaveLength(2)
         // UMA pergunta com as duas pendências (03/11/2026): uma linha por esquadria
         expect(ultimoEnviado()).toBe(`Esquadria 1: ${PERGUNTA_DO_VIDRO}\nEsquadria 2: ${PERGUNTA_DO_VIDRO}`)
+        // e é essa pergunta inteira que vai ao prompt como a pergunta em aberto, e que volta (em outras palavras) quando a resposta não dá nada
+        llmResponde({ itens: [] })
+        await chamar('hmm')
+        expect(String(estado.chamadasDaLlm[1].corpo.system)).toContain(`Pergunta em aberto: Esquadria 1: ${PERGUNTA_DO_VIDRO}\nEsquadria 2: ${PERGUNTA_DO_VIDRO}`)
+        expect(ultimoEnviado()).toBe(conversa.fraseDeNaoRegistrei(`Esquadria 1: ${PERGUNTA_DO_VIDRO}\nEsquadria 2: ${PERGUNTA_DO_VIDRO}`))
     })
 
     it('O AGRUPAMENTO com uma gravada: a alteração que iguala a esquadria 2 à 1 funde as duas — a linha gravada da 2 sai por DELETE conferido', async () => {
@@ -2772,6 +2778,20 @@ describe('(26) o reenvio do WUZAPI: 200 sem conduzir; o reenvio só quando o env
         expect(enviados()).toEqual([conversa.FRASE_SEM_NOME])
         expect(mensagens()).toHaveLength(2)
         expect(mensagens()[1]).toEqual(expect.objectContaining({ direcao: 'saida', responde_a: 'e1' }))
+    })
+
+    it('a saída de OUTRA entrada não é a resposta desta: a entrada velha sem saída própria é conduzida de novo', async () => {
+        estado.db.orcamentista_conversa = [{ id: 'c1', tenant_id: TENANT, remetente_id: VENDEDOR, telefone: TELEFONE_DO_WEBHOOK, criado_em: new Date().toISOString() }]
+        estado.db.orcamentista_mensagem = [
+            { id: 'e1', tenant_id: TENANT, conversa_id: 'c1', direcao: 'entrada', texto: 'oi', wuzapi_mensagem_id: ID, criado_em: new Date(Date.now() - 120_000).toISOString() },
+            { id: 'e2', tenant_id: TENANT, conversa_id: 'c1', direcao: 'entrada', texto: 'outra', wuzapi_mensagem_id: 'OUTRO', criado_em: new Date(Date.now() - 90_000).toISOString() },
+            { id: 's2', tenant_id: TENANT, conversa_id: 'c1', direcao: 'saida', texto: 'resposta da outra', wuzapi_mensagem_id: 'WA_S2', responde_a: 'e2', criado_em: new Date(Date.now() - 80_000).toISOString() },
+        ]
+        llmResponde({})
+        await chamar('oi', { id: ID })
+        expect(estado.chamadasDaLlm).toHaveLength(1)
+        expect(enviados()).toEqual([conversa.FRASE_SEM_NOME])
+        expect(enviados()).not.toContain('resposta da outra')
     })
 
     it('SEM A MIGRAÇÃO (responde_a não existe): a saída é gravada sem a coluna, o log diz gravacao=sem_migracao, e o reenvio é 200 sem conduzir nem reenviar', async () => {

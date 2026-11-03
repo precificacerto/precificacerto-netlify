@@ -1191,3 +1191,88 @@ prefixo no apanhado), (5) e (6) de `nome-do-levantamento.test.ts`, e os blocos (
 (`mutacoes-resgate.py`); seis sobreviveram na primeira passada e ganharam teste próprio (o PARECIDO por distância com o prefixo do gravado, o nome da
 pergunta com o prefixo, o escolhido que sumiu, a ordem gravada da confirmação, a busca do admin pelo nome legado, o apanhado de outro vendedor
 confirmado com o prefixo).
+
+## A conversa sai do modo formulário, e volta a ser gravada — dono do produto, 03/11/2026 (migração `20261103000003`, PENDENTE até o dono do produto aplicar; pressupõe a `20261022000001`)
+
+**O caso que originou** (De Paula, 03/11/2026, 18:26 a 18:36 UTC, medido nos logs `[INBOUND]` e `[IA]`): o mesmo `Info.ID` `3EB06E260E4D8D4FA0E8E5`
+chegou às 18:26:38 e às 18:27:51 (o reenvio do WUZAPI; a primeira levou `ia_ms=21200`) e foi conduzido DUAS vezes — a segunda caiu em
+`nao-avancou`; depois, cinco `SEM_NOME nao-avancou` seguidos, com só duas variantes em `OUTRAS_PERGUNTAS_DO_NOME`, repetiram a mesma frase. E a
+pergunta de arremate perguntava um campo por mensagem.
+
+**Medido antes (Fase 1):** 69 de 168 testes da suíte afirmavam frase fixa (49 exatos); `proximaPendencia` devolvia UMA pendência e a pergunta era
+"Esquadria N: <campo>"; a `fala` era a única frase do modelo e exigia um só pedido por turno; a duplicata era o reenvio do WUZAPI sem idempotência
+(a decisão 4 de 25/10 tirou a linha da mensagem); a conversa não era gravada desde 25/10 (`inbound.ts` sem o insert, `conversa-da-ia.ts` sem o
+`lerHistorico`); as duas tabelas serviam como estavam, menos a ligação saída → entrada; 1 conversa e 12 mensagens de 22/10 em produção.
+
+**As decisões, registradas como foram ditas:**
+
+1. > "PARTE 1 — PERSONALIDADE NO PROMPT BASE: VOCÊ É A SECRETÁRIA ORÇAMENTISTA DA EMPRESA. [...] LEIA A CONVERSA INTEIRA, NÃO SÓ A ÚLTIMA MENSAGEM.
+   > [...] PERGUNTE UMA VEZ SÓ, E SÓ O QUE FALTA. [...] CONFIRME POUCO. [...] CONSULTE ANTES DE DIZER QUE NÃO TEM. [...] O vendedor não tem que
+   > aprender a falar com o sistema. É você que entende como ele fala." (O texto inteiro, verbatim, está em `atendimentos-ia-prompt-base.ts`.)
+2. > "Uma pergunta por turno que cubra TODAS as pendências do momento, não um campo por mensagem. As frases fixas viram frases do modelo, mantendo
+   > o conteúdo obrigatório (o que falta, de qual esquadria). O código continua validando a resposta; só o texto deixa de ser fixo. A mesma mensagem
+   > nunca é processada duas vezes, e a mesma resposta nunca sai duas vezes seguidas."
+3. > "CORREÇÃO DA DECISÃO: a conversa VOLTA a ser gravada. A decisão 4 fica REVOGADA pelo dono do produto em 03/11. Nova regra: a conversa do
+   > vendedor com o agente é gravada, dentro do tenant, e serve para dois fins: 1. HISTÓRICO [...] 2. IDEMPOTÊNCIA [...] Nada sai do tenant, nunca.
+   > Nenhuma empresa vê a conversa de outra."
+4. > "MIGRAÇÃO SIM: coluna responde_a uuid nula em orcamentista_mensagem, FK para a própria tabela, e o índice em orcamentista_conversa (tenant_id,
+   > remetente_id). [...] Nasce PENDENTE: caminho e md5 com LF, eu leio antes."
+5. > "HISTÓRICO: 20 mensagens, 24 horas, teto de 6.000 caracteres [...]. O levantamento formal com preços NÃO entra — vira '[levantamento formal
+   > enviado]'. Saída acima de 600 caracteres entra cortada. Essa regra de nunca mandar dinheiro ao modelo é inviolável."
+6. > "RETENÇÃO: 12 meses, e o cron fica para PR própria depois desta. Nesta PR nada expira e nada é apagado."
+7. > "NÃO reenvie no WhatsApp o que o vendedor já recebeu. Reenvio reconhecido responde 200 e não conduz de novo; só envia quando o primeiro envio
+   > falhou de fato."
+
+**A migração `20261103000003_responde_a_na_mensagem.sql`** (`responde_a uuid NULL`, FK `orcamentista_mensagem(id) ON DELETE SET NULL`, índice parcial
+`orcamentista_mensagem_responde_a_idx`, e `orcamentista_conversa_remetente_idx (tenant_id, remetente_id, criado_em DESC)` IF NOT EXISTS). **Medido em
+03/11/2026 às 19h UTC: o índice da conversa JÁ EXISTE em produção com essa definição exata** — a Fase 1 dizia que não existia; a fonte primária
+desmentiu (`estado-relatado-vs-real.md`). A migração o cria IF NOT EXISTS e a verificação confere a forma: o de mesmo nome e outra forma aborta.
+Harness em `scripts/harness/conversa-gravada/` (as duas tabelas como em produção, 12 mensagens sintéticas, a migração duas vezes, 6 casos, 4
+contrastes; 12 mutações mortas nas duas passadas).
+
+**O que está implementado (`conversa-gravada.ts`, `redacao-da-resposta.ts`, `inbound.ts`, `conversa-da-ia.ts`, `levantamento-em-montagem.ts`,
+`atendimentos-ia-prompt-base.ts`):**
+
+- **A gravação.** A rota acha a conversa do remetente (a mais recente por tenant e remetente) ou cria uma, e grava a ENTRADA com o texto e o `Info.ID`
+  ANTES de conduzir; a conversa grava a SAÍDA DEPOIS de enviada — o texto como foi enviado (com a `fala` na frente), `responde_a` = a entrada, e o id
+  do envio (nulo quando o envio falhou). A gravação da saída nunca derruba a resposta já enviada: falha vira `gravacao=falhou` no log. Toda leitura e
+  escrita leva o `tenant_id`.
+- **A idempotência.** O `Info.ID` repetido no tenant (23505 na UNIQUE parcial) devolve a entrada de antes, `repetida`, e a conversa decide: saída com id
+  de envio → `desfecho=repetida`, nada enviado, IA não chamada; saída sem id (o envio falhou de fato) → só o reenvio do texto gravado, e a saída ganha
+  o id (`reenviada`); sem saída e a entrada mais nova que `JANELA_EM_VOO_MS` (60 s, o `maxDuration` da rota) → nada (`em_voo=sim`); sem saída e mais
+  velha → a primeira condução morreu, e a mensagem é conduzida de novo. Sem `Info.ID` não há reconhecimento. A UNIQUE que bate e não acha a linha
+  (uma corrida) é 500: o WUZAPI reenvia e a próxima acha.
+- **O histórico.** `lerHistorico`: as últimas 20 mensagens da conversa das últimas 24 h (sem a entrada desta vez), teto de 6.000 caracteres descartando
+  as mais velhas; a saída com DINHEIRO (`temDinheiro`) vira "[levantamento formal enviado]" — decidido pelo texto, nunca pelo desfecho —, a saída acima
+  de 600 caracteres entra cortada com reticência, a entrada vai como veio; começa em `user`, papéis seguidos iguais viram uma mensagem. Vai em `messages`
+  antes da mensagem desta vez (`historico=N` no log). O prompt diz ao modelo que a ÚLTIMA é a desta vez e que as anteriores servem para entender
+  referências e NUNCA perguntar de novo; `itens` passou a aceitar o campo que o vendedor deu para todas ou a que se referiu numa mensagem anterior.
+- **As pendências juntas.** `pendenciasDoLevantamento` lista TODAS (esquadria por esquadria: sem a tipologia, os campos; com ela, a família, os campos
+  e as escolhas pedidas); `proximaPendencia` é a primeira. `perguntaDasPendencias` as junta: uma linha por esquadria ("Esquadria 1: … \nEsquadria 2:
+  …"), os campos numa frase ("Me diga a largura (em mm), a cor do perfil e o vidro."; a tipologia em linguagem de obra "E me diga …"), a família e as
+  escolhas na mesma linha; com UMA pendência, a fixa de sempre. A reformulação da IA entra no lugar da fixa do primeiro campo. Vai ao prompt como a
+  pergunta em aberto, à pergunta final, ao R2 da montagem e à alteração incompleta.
+- **As frases do modelo.** `falar(rascunho)`: um SEGUNDO pedido ao modelo, sem ferramenta, com o prompt base (a personalidade), a tarefa
+  (`INSTRUCAO_DA_REDACAO`), o contexto da empresa no fim, o histórico, a mensagem do vendedor e o RASCUNHO (a frase fixa de sempre). O código valida
+  (`redacaoValida`): não vazia, até 700 caracteres, TODO número do rascunho presente (1.200 = 1200), TODO nome entre “aspas”, TODO código em CAIXA ALTA
+  (DP-02, BRANCO), TODO nome da lista numerada do resgate, sem dinheiro, sem código de fornecedor, e DIFERENTE da última saída enviada; o que não passa
+  manda o rascunho (`redacao=<motivo>` no log). O rascunho com dinheiro não vai ao modelo (defesa). A redação é a resposta inteira (a `fala` não a
+  antecede). **Passam por `falar`:** as perguntas e confirmações (o nome, o resgate, o acréscimo, a pendência, a esquadria, o vendedor, o não encontrei,
+  o nome que existe, a alteração incompleta, o apanhado não confirmado, o acréscimo recusado, o não apliquei, nenhuma cabe, a abertura recusada, os
+  "não registrei"). **Ficam fixas:** as falhas (`FALHA_*`), as faltas de configuração, `FRASE_SEM_CORES`, o APANHADO e o levantamento FORMAL.
+  `fraseDeNaoRegistrei` perdeu o "Não consegui registrar" e o "Responda em palavras". **Limite conhecido:** a validação confere números, aspas, caixa
+  alta e a lista; a lista de opções de arremate por extenso ("sem arremate interno") fica por conta do modelo, instruído a manter tudo.
+- **Nunca a mesma resposta duas vezes seguidas.** A redação igual à última saída cai (`repetida`) e sai o rascunho; o rascunho que também for igual sai
+  com `repetida=sim` no log — os caminhos de pergunta já têm a forma "em outras palavras", e o caso não apareceu em teste nem em produção.
+- **Sem a migração** (a coluna não existe): a saída é gravada sem `responde_a` (`gravacao=sem_migracao`), e o reenvio de uma entrada já gravada é 200
+  sem conduzir nem reenviar — o comportamento de antes de 25/10/2026.
+- **A personalidade** entrou no prompt base, verbatim, antes de "AS DUAS ETAPAS"; as seis regras de NUNCA ficaram. A tela do agente a mostra.
+
+**Custo por turno:** uma chamada a mais ao modelo nas respostas de pergunta e confirmação (400 tokens de saída no máximo, `effort: low`), e o histórico
+de até 6.000 caracteres na entrada das duas. A fixture `pedidos-a-ia-sem-contexto.json` foi regravada (o prompt mudou de propósito).
+
+**Fica para o dono do produto:** o cron de retenção de 12 meses (PR própria); a leitura da conversa gravada na tela do super admin, se quiser.
+
+**Prova:** os blocos (3), (26), (27), (28) e o (21) ampliado de `atendimentos-ia-levantamento-por-nome.test.ts`; (6) e (7) de
+`atendimentos-ia-inbound.test.ts` reescritos para a gravação e o reenvio; (VI) de `levantamento-em-montagem.test.ts`; a fixture regravada; o harness da
+migração; e as mutações do código (`mutacoes-conversa.py`, o resultado no PR).
