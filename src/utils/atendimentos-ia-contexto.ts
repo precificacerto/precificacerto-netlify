@@ -11,7 +11,8 @@
  * conta: `char_length` conta pontos de código, e o `length` do JavaScript conta unidades UTF-16 (um emoji
  * vale dois). Por isso `contarCaracteres`, e não `.length`.
  *
- * VAZIO É O PADRÃO: sem contexto, a conversa é exatamente a de hoje. Nenhum texto padrão mora no código.
+ * VAZIO: a conversa segue só com o PROMPT BASE do produto (`atendimentos-ia-prompt-base.ts`, 03/11/2026), que vale para toda
+ * empresa e vem ANTES deste contexto. O contexto é para o que é da empresa: nome, tom, exceções.
  */
 export const LIMITE_DO_CONTEXTO = 4000
 export const LIMITE_DA_FALA = 600
@@ -22,10 +23,13 @@ export const contarCaracteres = (texto: string) => [...texto].length
 const milhar = (n: number) => n.toLocaleString('pt-BR')
 export const fraseDoLimiteDoContexto = (n: number) =>
     `O contexto tem ${milhar(n)} caracteres; o limite é ${milhar(LIMITE_DO_CONTEXTO)}. Encurte antes de salvar.`
-export const AVISO_DO_CONTEXTO_VAZIO = 'Vazio é o padrão: sem contexto, a conversa segue exatamente como hoje.'
+export const AVISO_DO_CONTEXTO_VAZIO = 'Vazio: a conversa segue só com o prompt base do produto, acima.'
 export const A_LINHA_DAS_CAMADAS =
-    'O contexto manda em QUANDO e EM QUE FORMA a conversa acontece — etapas, ordem, confirmações, tom e jargão. Ele NÃO decide número: '
+    'O contexto manda em QUANDO e EM QUE FORMA a conversa acontece — o nome da empresa, o tom, o jargão e as exceções dela. Ele NÃO decide número: '
     + 'todo valor sai do cálculo, e faltando preço a resposta é a recusa nomeada.'
+/** Dito na tela, acima do campo: o base já vale, e o campo vem depois dele (03/11/2026). */
+export const AVISO_DO_PROMPT_BASE =
+    'Já vale para toda empresa, antes do contexto abaixo — não copie no campo. Em conflito, as regras de NUNCA do base vencem; no resto, vence o contexto da empresa.'
 
 export const rotaDoContexto = (tenantId: string) => `/api/super-admin/base-de-conhecimento/contexto?tenant=${tenantId}`
 

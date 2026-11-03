@@ -42,12 +42,27 @@ export const EM_COLETA = 'EM_COLETA'
 export const COMPLETA = 'COMPLETA'
 
 /**
+ * A TIPOLOGIA SE PERGUNTA EM LINGUAGEM DE OBRA (dono do produto, 03/11/2026): "o código NUNCA manda 'Qual a tipologia
+ * das esquadrias?'. Quando a tipologia está vazia, a pergunta é em linguagem de obra (janela ou porta? correr, abrir ou
+ * maxim-ar? tem persiana?) e quem conclui a tipologia é o agente. O vendedor não conhece os códigos."
+ *
+ * A primeira é a da pendência. As outras são a REFORMULAÇÃO, quando a resposta do vendedor não coube no campo e a IA
+ * não trouxe uma pergunta dela: "reformule a pergunta em outras palavras em vez de repetir" — nunca o "Não consegui
+ * registrar a sua resposta" com a mesma frase (`conversa-da-ia.ts`, `outraPergunta`).
+ */
+export const PERGUNTAS_DA_TIPOLOGIA = [
+    'É janela ou porta? Abre de correr, de abrir ou maxim-ar? Tem persiana?',
+    'Me descreva a esquadria como ela é na obra: janela ou porta, como abre (correr, abrir, maxim-ar, pivotante ou fixa) e se tem persiana, bandeira ou peitoril fixo.',
+    'Para eu achar a esquadria certa: quantas folhas abrem, ela corre ou gira, e tem persiana ou bandeira?',
+] as const
+
+/**
  * A pergunta FIXA de cada campo — usada quando a LLM não traz uma pergunta para o campo certo.
  * ABERTA e sem lista de opções: quem responde é o vendedor, que já sabe o que a empresa vende. E
- * nada dos padrões da empresa.
+ * nada dos padrões da empresa. A da tipologia é a de obra, acima.
  */
 export const PERGUNTA_DO_CAMPO: Record<CampoDaPreDefinicao, string> = {
-    tipologia: 'Qual a tipologia das esquadrias?',
+    tipologia: PERGUNTAS_DA_TIPOLOGIA[0],
     largura_mm: 'Qual a largura, em milímetros?',
     altura_mm: 'Qual a altura, em milímetros?',
     quantidade: 'Quantas unidades?',

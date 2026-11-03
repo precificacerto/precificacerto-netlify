@@ -94,11 +94,19 @@
  *
  * ══ O CONTEXTO DO ATENDIMENTO (dono do produto, 26/10/2026; `contexto-do-atendimento.ts`) ══
  * "O PROMPT MANDA EM QUANDO E EM QUE FORMA. O CÓDIGO MANDA EM DE ONDE VEM O NÚMERO." Com contexto gravado, ele
- * vai num bloco no FIM do sistema, e a ferramenta ganha a `fala`: uma frase da IA que ABRE a resposta do
+ * vai num bloco no FIM do sistema. A ferramenta tem a `fala`: uma frase da IA que ABRE a resposta do
  * código — até 600 caracteres, sem número em forma nenhuma; filtro disparado, a fala cai e a resposta é a do
- * código, sozinha. O texto que a IA reformula numa pergunta também cai se trouxer DINHEIRO. Sem contexto, o
- * pedido e a resposta são os de hoje, byte a byte. Nenhum número da resposta sai da IA, e o caminho —
- * apanhado, "sim", levantamento — continua decidido pelo código.
+ * código, sozinha. O texto que a IA reformula numa pergunta também cai se trouxer DINHEIRO. Nenhum número da
+ * resposta sai da IA, e o caminho — apanhado, "sim", levantamento — continua decidido pelo código.
+ *
+ * ══ O PROMPT BASE DO PRODUTO (dono do produto, 03/11/2026; `atendimentos-ia-prompt-base.ts`) ══
+ * A regra do PRODUTO mora no código e abre o sistema de TODA empresa: as duas etapas, nunca valor nem percentual,
+ * a tipologia é trabalho do agente, o nome é o do cliente, de correr sem folhas ditas é 2 folhas em 2 trilhos, nunca
+ * assumir medida, ler a mensagem inteira. O contexto da empresa vem DEPOIS, e em conflito "o base vence nas regras de
+ * 'nunca' e a empresa vence no resto". Desde então a `fala` e o filtro de dinheiro da pergunta reformulada valem para
+ * toda empresa — com ou sem contexto. E o código cumpre o que o base diz: a tipologia se pergunta em linguagem de obra
+ * (`PERGUNTAS_DA_TIPOLOGIA`), o nome sai do cliente (`nomeDoCliente`), e a resposta que não coube na tipologia ou no nome
+ * vira a pergunta em OUTRAS palavras (`outraPergunta`) — nunca o "Não consegui registrar" com a mesma frase.
  *
  * ══ NUNCA LANÇA ══
  * Quem chama responde 200 ao WUZAPI aconteça o que acontecer: um erro da LLM não pode virar reenvio em
@@ -127,7 +135,10 @@ import {
     type DefinicaoDaTipologia, type ItemDoLevantamento, type Pendencia,
 } from '@/lib/atendimentos-ia/levantamento-em-montagem'
 import type { VariaveisDaTipologia } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
-import { compararNome, nomeDaMensagem, normalizarNome } from '@/lib/atendimentos-ia/nome-do-levantamento'
+import { compararNome, nomeDaMensagem, nomeDoCliente, normalizarNome } from '@/lib/atendimentos-ia/nome-do-levantamento'
+import { PERGUNTAS_DA_TIPOLOGIA } from '@/lib/atendimentos-ia/pre-definicao'
+import { PROMPT_BASE } from '@/utils/atendimentos-ia-prompt-base'
+import { LIMITE_DA_FALA } from '@/utils/atendimentos-ia-contexto'
 import { escolhasParaOPrompt, opcoesDeArremateNoPrompt, lerEscolhasDoItem, lerEscolhasGravadas, temEscolhaDoVendedor } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import { permissaoDoRemetente, type Permissao } from '@/lib/atendimentos-ia/permissao-do-remetente'
 import { fraseDoApanhado } from '@/lib/atendimentos-ia/apanhado'
@@ -153,9 +164,10 @@ export type Rota = 'MONTAGEM' | 'NOVO' | 'ALTERACAO' | 'ALTERACAO_ADMIN' | 'SEM_
 /**
  * Como o nome foi lido — NUNCA o nome em si (dono do produto, 26/10/2026): `veio` (está no texto),
  * `faltou` (a IA não leu nenhum), `fora_do_texto` (a IA leu um que não está no texto, e ele não vale),
- * `da_pergunta` (não está no texto, mas é um dos que a pergunta em aberto citou).
+ * `da_pergunta` (não está no texto, mas é um dos que a pergunta em aberto citou), `do_cliente` (o nome saiu do
+ * cliente que está no texto: "Levantamento <cliente>", 03/11/2026).
  */
-type MarcaDoNome = '-' | 'veio' | 'faltou' | 'fora_do_texto' | 'da_pergunta'
+type MarcaDoNome = '-' | 'veio' | 'faltou' | 'fora_do_texto' | 'da_pergunta' | 'do_cliente'
 /**
  * A chamada à IA, medida (dono do produto, 26/10/2026): o tempo, do envio do pedido à resposta lida, e os tokens de
  * entrada e de saída que a própria API devolve em `usage`. SÓ NÚMERO — nunca o texto do pedido nem o da resposta.
@@ -179,7 +191,24 @@ function anotar(r: Rastro, desfecho: DesfechoDaIa, detalhe = '') {
 }
 
 // ── As frases fixas do roteamento ───────────────────────────────────────────────────────────
-export const FRASE_SEM_NOME = 'Para eu anotar, me diga o nome do levantamento — por exemplo: Levantamento Casa do João. Se for sobre um levantamento que você já fez, escreva o nome dele como da primeira vez.'
+/** Sem nome e sem cliente em lugar nenhum: pergunta o CLIENTE, que é o nome do levantamento (03/11/2026). */
+export const FRASE_SEM_NOME = 'Para eu anotar, me diga o nome do cliente — por exemplo: Cliente João Silva. Se for sobre um levantamento que você já fez, escreva o nome dele como da primeira vez.'
+/** A mesma pergunta em OUTRAS palavras, quando a resposta não trouxe o cliente: nunca a mesma frase de novo. */
+export const OUTRAS_PERGUNTAS_DO_NOME = [
+    'Ainda não tenho o cliente deste levantamento. Mande o nome do cliente, por exemplo: Cliente Maria Souza.',
+    'De quem é esta obra? Escreva o nome do cliente (por exemplo: Cliente Pedro Lima) ou o nome de um levantamento que você já fez.',
+] as const
+/**
+ * A reformulação quando a resposta do vendedor não coube no campo (dono do produto, 03/11/2026): "reformule a pergunta em
+ * outras palavras em vez de repetir". Uma das OUTRAS formas — nenhuma delas é a pergunta de sempre —, escolhida pela
+ * mensagem: sem guardar estado (nenhuma migração nesta mudança), duas mensagens diferentes tendem a receber formas
+ * diferentes. LIMITE CONHECIDO: duas reformulações seguidas podem cair na mesma forma; a pergunta de sempre nunca volta.
+ */
+export function outraPergunta(outras: readonly string[], mensagem: string): string {
+    let h = 0
+    for (const ch of normalizarNome(mensagem)) h = (h * 31 + (ch.codePointAt(0) ?? 0)) >>> 0
+    return outras[h % outras.length]
+}
 const listaDeNomes = (nomes: string[]) => nomes.map((n) => `“${n}”`).join(', ')
 export const fraseDoNomeParecido = (nome: string, existentes: string[]) =>
     `Você já tem ${existentes.length > 1 ? 'levantamentos com nome parecido' : 'um levantamento com nome parecido'}: ${listaDeNomes(existentes)}. `
@@ -243,7 +272,7 @@ const VENDEDOR_SEM_NOME = '(vendedor sem nome cadastrado)'
  * O que NÃO foi dito é OMITIDO, não `null`: os campos são opcionais e de tipo simples, sem união.
  * "Schema complexity limits" (https://platform.claude.com/docs/en/build-with-claude/structured-outputs):
  * somando os esquemas `strict` da requisição, no máximo 16 parâmetros com união e 24 opcionais. Este tem
- * 0 uniões e 19 opcionais — o portão (8) conta o esquema enviado.
+ * 0 uniões e 20 opcionais (o `cliente` entrou em 03/11/2026) — o portão (8) conta o esquema enviado.
  */
 const texto = { type: 'string' }
 const inteiro = { type: 'integer' }
@@ -257,6 +286,7 @@ export const FERRAMENTA = {
         required: ['itens'],
         properties: {
             nome: { ...texto, description: 'O nome do levantamento, copiado INTEIRO como o vendedor o escreveu NESTA mensagem. Omita se ele não escreveu.' },
+            cliente: { ...texto, description: 'O nome do CLIENTE, copiado como o vendedor o escreveu NESTA mensagem (ex.: "Cliente: Geronimo Silva" → Geronimo Silva). O levantamento passa a se chamar "Levantamento <cliente>". Omita se ele não escreveu.' },
             novo: { type: 'boolean', description: 'true SÓ quando o vendedor disse explicitamente que é um levantamento novo.' },
             alteracao: { type: 'boolean', description: 'true quando o vendedor pede para MUDAR um levantamento que já existe (troca, muda, altera, corrige).' },
             vendedor: { ...texto, description: 'O nome do VENDEDOR dono do levantamento, copiado como foi escrito NESTA mensagem. Omita se não foi escrito.' },
@@ -288,7 +318,7 @@ export const FERRAMENTA = {
             pergunta: {
                 type: 'object',
                 additionalProperties: false,
-                description: 'Só quando a pergunta em aberto é sobre um CAMPO e você precisa reformulá-la (ex.: duas tipologias possíveis).',
+                description: 'Só quando a pergunta em aberto é sobre um CAMPO e você precisa reformulá-la: duas tipologias possíveis, ou a tipologia que ainda não dá para concluir — então pergunte em linguagem de obra o que falta (janela ou porta, como abre, quantas folhas, persiana), nunca "qual a tipologia".',
                 properties: { campo: { type: 'string', enum: [...CAMPOS_DA_ESQUADRIA] }, texto },
             },
         },
@@ -296,8 +326,9 @@ export const FERRAMENTA = {
 }
 
 /**
- * Com contexto da empresa, a mesma ferramenta e mais a `fala` (20 opcionais, dentro dos 24). Sem contexto, a de
- * hoje: a IA nem é convidada a falar.
+ * A ferramenta ENVIADA: a de cima e mais a `fala` (21 opcionais, dentro dos 24). Desde o prompt base (03/11/2026) ela vale
+ * para TODA empresa — "a frase de abertura passa a valer para TODA empresa, já que todas terão o base. Mantenha o filtro
+ * que derruba qualquer frase com número." Antes, só com contexto.
  */
 export const FERRAMENTA_COM_FALA = {
     ...FERRAMENTA,
@@ -305,7 +336,7 @@ export const FERRAMENTA_COM_FALA = {
 }
 
 type ContextoDoPrompt = {
-    /** O contexto da empresa, ou null — e null é o pedido de hoje, byte a byte. */
+    /** O contexto da empresa, ou null — e null é o prompt base sozinho, sem o bloco da empresa. */
     contexto: string | null
     candidatos: readonly CandidatoDeTipologia[]
     /** A conta tem mais de uma família: cada linha diz a família (e o fornecedor do motor), e a regra da família entra. */
@@ -318,7 +349,10 @@ type ContextoDoPrompt = {
 }
 
 function sistema(c: ContextoDoPrompt): string {
-    const deHoje = [
+    const doProduto = [
+        // o PROMPT BASE abre o sistema de toda empresa (03/11/2026); o contexto da empresa vai no FIM
+        PROMPT_BASE,
+        '',
         'Você conversa pelo WhatsApp com um VENDEDOR de uma empresa de esquadrias e anota LEVANTAMENTOS.',
         'Cada levantamento tem um NOME dado pelo vendedor (ex.: "Levantamento Casa do João") e uma ou mais esquadrias.',
         'O vendedor já sabe o que a empresa vende: você só anota. Você recebe SÓ a mensagem desta vez.',
@@ -328,18 +362,20 @@ function sistema(c: ContextoDoPrompt): string {
         '',
         'Regras:',
         '- nome: copie o nome do levantamento INTEIRO, como o vendedor escreveu nesta mensagem. Não complete, não corrija, não encurte. Se ele não escreveu um nome, omita.',
+        '- cliente: o nome do CLIENTE, copiado como o vendedor escreveu nesta mensagem ("Cliente: Geronimo Silva", "obra do Geronimo Silva" → Geronimo Silva). O levantamento passa a ser "Levantamento <cliente>": com o cliente dito, não pergunte o nome. Se a pergunta em aberto pede o cliente e a mensagem é só um nome de pessoa, é o cliente. Se ele não escreveu, omita.',
         '- novo: true SÓ quando o vendedor disse que é um levantamento novo ("novo ..."). Senão, omita.',
         '- alteracao: true quando ele pede para MUDAR um levantamento que já existe ("troca a altura", "muda a cor", "corrige"). Senão, omita.',
         '- vendedor: só quando a mensagem diz de qual VENDEDOR é o levantamento; copie o nome como foi escrito. Senão, omita.',
-        '- Pergunta em aberto (quando houver, no fim): a mensagem pode ser a RESPOSTA a ela. Se o vendedor responde com um levantamento que a pergunta cita ("é o mesmo", "é esse"), ponha em `nome` o nome dele escrito como na pergunta. Se a mensagem é só um nome, é o nome do levantamento.',
+        '- Pergunta em aberto (quando houver, no fim): a mensagem pode ser a RESPOSTA a ela. Se o vendedor responde com um levantamento que a pergunta cita ("é o mesmo", "é esse"), ponha em `nome` o nome dele escrito como na pergunta. Se a mensagem é só o nome de um levantamento, é o nome do levantamento.',
         '- confirma: só quando a pergunta em aberto pede confirmação — true se ele confirmou ("sim", "pode", "confirmo"), false se negou. Senão, omita.',
         '- itens: só o que foi dito NESTA mensagem. Numa alteração, só os campos que mudam. Não invente, não deduza.',
         '- cor_perfil: EXATAMENTE uma das cores da empresa (lista do fim), escrita como está. Se for outra cor, ou se houver dúvida, NÃO preencha.',
-        '- tipologia: o CÓDIGO (ex.: DP-02) de UMA das tipologias da lista do fim, escolhida pela descrição. NUNCA invente código nem preencha com as palavras do vendedor. Se cabe em mais de uma, NÃO preencha: em `pergunta`, pergunte qual é, citando a descrição INTEIRA de cada uma, sem o código.',
+        '- tipologia: o CÓDIGO (ex.: DP-02) de UMA das tipologias da lista do fim, escolhida pela descrição. NUNCA invente código nem preencha com as palavras do vendedor. Se cabe em mais de uma, NÃO preencha: em `pergunta`, pergunte qual é, citando a descrição INTEIRA de cada uma, sem o código. Se ainda não dá para concluir, NÃO preencha: em `pergunta`, pergunte em linguagem de obra o que falta para você concluir (janela ou porta, como abre, quantas folhas, persiana) — nunca "qual a tipologia".',
         '- ARREMATE e GUARNIÇÃO: NÃO pergunte. O padrão da tipologia já vale sem ninguém dizer. NUNCA escolha sozinho: em `escolhas`, só o arremate que o vendedor DISSE, em palavras, com o código da variável e o número da opção que corresponde (lista do fim). Se ele pedir para ver as opções, ou quiser trocar sem dizer por qual, ponha o código da variável em `opcoes_de`.',
         ...(c.variasFamilias ? ['- familia e fornecedor: a mesma tipologia pode estar no motor de mais de uma família da empresa. SÓ o que o vendedor disse — a família, o fornecedor, ou os dois —, escrito EXATAMENTE como está na lista. NUNCA escolha sozinho.'] : []),
         '- Os códigos das variáveis (ex.: ARI), os números das opções e os códigos de fornecedor (ex.: BZ0010) são INTERNOS: nunca os escreva em `pergunta`.',
         '- NUNCA pergunte nada sobre os padrões da empresa.',
+        `- fala: uma frase sua para abrir a resposta, no tom da empresa (o contexto dela, quando houver), até ${LIMITE_DA_FALA} caracteres. SEM número nenhum — nem em algarismo, nem por extenso, nem valor em reais. Se não tiver o que dizer, omita.`,
         `- Responda SEMPRE chamando a ferramenta ${NOME_DA_FERRAMENTA}, uma vez.`,
         '',
         c.montagem
@@ -355,8 +391,8 @@ function sistema(c: ContextoDoPrompt): string {
         'Escolhas de arremate (USO INTERNO — código = descrição: número = opção). Cada linha de opções vai UMA vez, com o número entre colchetes; a tipologia diz quais usa:',
         ...opcoesDeArremateNoPrompt(c.escolhasPorTipologia),
     ].join('\n')
-    // o contexto vai no FIM: o que vem antes é o pedido de hoje, intacto
-    return c.contexto === null ? deHoje : `${deHoje}\n\n${blocoDoContexto(c.contexto).join('\n')}`
+    // o contexto da empresa vai no FIM, DEPOIS do base: o que vem antes é o mesmo para toda empresa
+    return c.contexto === null ? doProduto : `${doProduto}\n\n${blocoDoContexto(c.contexto).join('\n')}`
 }
 
 // ── A LLM ───────────────────────────────────────────────────────────────────────────────────
@@ -394,7 +430,8 @@ async function chamarLlm(chave: string, mensagem: string, contexto: ContextoDoPr
                 // extração curta de uma mensagem de chat: o raciocínio fica no mínimo
                 output_config: { effort: 'low' },
                 system: sistema(contexto),
-                tools: [contexto.contexto === null ? FERRAMENTA : FERRAMENTA_COM_FALA],
+                // a `fala` vale para toda empresa (03/11/2026); o filtro de número continua derrubando a que traz número
+                tools: [FERRAMENTA_COM_FALA],
                 tool_choice: { type: 'auto' },
                 messages: [{ role: 'user', content: mensagem }],
             }),
@@ -587,15 +624,15 @@ async function enviarTexto(token: string, telefone: string, texto: string): Prom
 /** Um código de fornecedor no texto ("BZ0010", "IL50", "SF66"): o que chega ao vendedor não o traz. */
 const CODIGO_DE_FORNECEDOR = /\b[A-Z]{1,5}\d{2,}\b/
 
-function perguntaPara(p: Pendencia, nItens: number, proposta: Record<string, unknown>, comContexto: boolean): string {
+function perguntaPara(p: Pendencia, nItens: number, proposta: Record<string, unknown>): string {
     const fixa = perguntaDaPendencia(p, nItens)
     if (!('campo' in p)) return fixa
     const q = proposta.pergunta && typeof proposta.pergunta === 'object' ? (proposta.pergunta as { campo?: unknown; texto?: unknown }) : {}
     const t = typeof q.texto === 'string' ? q.texto.trim() : ''
     // o que chega ao vendedor não traz código de fornecedor (26/10/2026): a reformulação que traz vai para a fixa
     if (q.campo !== p.campo || t === '' || t.length > 500 || CODIGO_DE_FORNECEDOR.test(t)) return fixa
-    // com contexto da empresa, a reformulação que traz DINHEIRO também vai para a fixa: o número é do código
-    if (comContexto && temDinheiro(t)) return fixa
+    // a reformulação que traz DINHEIRO também vai para a fixa: o número é do código (para toda empresa, desde o prompt base)
+    if (temDinheiro(t)) return fixa
     return nItens > 1 ? `Esquadria ${p.ordem}: ${t}` : t
 }
 
@@ -640,9 +677,11 @@ function nomeDaPergunta(nome: unknown, aberta: PerguntaRefeita): string | null {
     return aberta.p.nome && normalizarNome(aberta.p.nome) === forma ? aberta.p.nome : null
 }
 
-function marcaDoNome(nome: unknown, noTexto: string | null, naPergunta: string | null): MarcaDoNome {
-    if (typeof nome !== 'string' || !nome.trim()) return 'faltou'
-    return noTexto !== null ? 'veio' : naPergunta !== null ? 'da_pergunta' : 'fora_do_texto'
+function marcaDoNome(nome: unknown, noTexto: string | null, naPergunta: string | null, doCliente: string | null): MarcaDoNome {
+    if (noTexto !== null) return 'veio'
+    if (naPergunta !== null) return 'da_pergunta'
+    if (doCliente !== null) return 'do_cliente'
+    return typeof nome !== 'string' || !nome.trim() ? 'faltou' : 'fora_do_texto'
 }
 
 // ── A CONVERSA ──────────────────────────────────────────────────────────────────────────────
@@ -717,11 +756,10 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             return await responder(frase, resposta.tipo, resposta.detalhe)
         }
         const proposta = resposta.proposta
-        if (contexto.texto !== null) {
-            const fala = falaValida(proposta.fala)
-            rastro.fala = fala.motivo
-            abertura = fala.fala
-        }
+        // a fala abre a resposta de TODA empresa (03/11/2026), filtrada: a que traz número cai
+        const fala = falaValida(proposta.fala)
+        rastro.fala = fala.motivo
+        abertura = fala.fala
         const confirma = proposta.confirma === true ? true : proposta.confirma === false ? false : null
         // a proposta que espera resposta entra quando ESTA mensagem não trouxe esquadria
         const daMensagem = esquadriasDaProposta(proposta)
@@ -742,7 +780,10 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         const perguntar = async (p: PerguntaEmAberto, textoDaPergunta: string, desfecho: DesfechoDaIa): Promise<DesfechoDaIa> => {
             if (guardaPergunta) await gravarPerguntaEmAberto(c.tenantId, c.remetenteId, p)
             const repetida = aberta !== null && aberta.texto === textoDaPergunta
-            return await responder(repetida ? fraseDeNaoRegistrei(textoDaPergunta) : textoDaPergunta, repetida ? 'nao-avancou' : desfecho)
+            if (!repetida) return await responder(textoDaPergunta, desfecho)
+            // o nome que não veio: a pergunta em OUTRAS palavras, nunca o "não registrei" com a mesma frase (03/11/2026)
+            if (p.pergunta === 'SEM_NOME') return await responder(outraPergunta(OUTRAS_PERGUNTAS_DO_NOME, c.texto), 'nao-avancou')
+            return await responder(fraseDeNaoRegistrei(textoDaPergunta), 'nao-avancou')
         }
 
         // ── a rota ──
@@ -755,8 +796,10 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         } else {
             const noTexto = nomeDaMensagem(proposta.nome, c.texto)
             const naPergunta = noTexto === null && aberta ? nomeDaPergunta(proposta.nome, aberta) : null
-            rastro.nome = marcaDoNome(proposta.nome, noTexto, naPergunta)
-            let lido = noTexto ?? naPergunta
+            // sem nome dito, o do CLIENTE que está no texto (03/11/2026): "Cliente: Geronimo Silva" é "Levantamento Geronimo Silva"
+            const doCliente = noTexto === null && naPergunta === null ? nomeDoCliente(proposta, c.texto) : null
+            rastro.nome = marcaDoNome(proposta.nome, noTexto, naPergunta, doCliente)
+            let lido = noTexto ?? naPergunta ?? doCliente
             // O APANHADO espera o "sim": a resposta sem nome — ou com o nome dele — é sobre o levantamento que ele
             // citou, achado pelo id, de qualquer vendedor. "sim" ou "não" confirmam; o resto ("a largura é 1500") é
             // alteração DELE, e entra no apanhado. O admin que alterou o de outro também passa por aqui (26/10/2026)
@@ -854,6 +897,14 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         }
         // R2: com uma pergunta em aberto, a resposta que não mudou nada é ERRO e aparece — nunca a mesma pergunta de novo
         if (nadaMudou && rastro.rota === 'MONTAGEM' && pendenciaAberta) {
+            // a TIPOLOGIA não volta igual (03/11/2026): a reformulação da IA, ou outra forma de obra — nunca o "não registrei"
+            if (pendenciaAberta.tipo === 'CAMPO' && pendenciaAberta.campo === 'tipologia') {
+                const n = itensDaMontagem.length
+                const fixa = perguntaDaPendencia(pendenciaAberta, n)
+                const daIa = perguntaPara(pendenciaAberta, n, proposta)
+                const outra = outraPergunta(PERGUNTAS_DA_TIPOLOGIA.slice(1), c.texto)
+                return await responder(daIa !== fixa ? daIa : n > 1 ? `Esquadria ${pendenciaAberta.ordem}: ${outra}` : outra, 'nao-avancou')
+            }
             return await responder(fraseDeNaoRegistrei(perguntaDaPendencia(pendenciaAberta, itensDaMontagem.length)), 'nao-avancou')
         }
         // numa alteração, o que foi proposto e não valeu também aparece; sem proposta nenhuma, a conta é refeita
@@ -879,7 +930,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         if (pendencia) {
             // sem lista de cores na base, perguntar a cor não leva a lugar nenhum: a conversa diz o que falta
             if ('campo' in pendencia && pendencia.campo === 'cor_perfil' && cores.length === 0) return await responder(FRASE_SEM_CORES, 'sem-cores')
-            return await responder(perguntaPara(pendencia, aplicada.itens.length, proposta, contexto.texto !== null), 'perguntou')
+            return await responder(perguntaPara(pendencia, aplicada.itens.length, proposta), 'perguntou')
         }
         // O APANHADO (dono do produto, 26/10/2026): a primeira resposta é conversa, não orçamento. O levantamento
         // formal, com o preço, só sai com o "sim" do vendedor à pergunta que citou ESTE levantamento. Sem exceção:
