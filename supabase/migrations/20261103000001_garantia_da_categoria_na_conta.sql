@@ -19,7 +19,7 @@
 -- ║ A linha é logada em superadmin_alteracao_log (tenant da De Paula, origem "preenchimento 20261103000001").
 -- ║ A GUARDA ABORTA se, na hora de aplicar, faltar qualquer OUTRA linha (outra empresa, outra matéria-prima ou outra categoria): este
 -- ║ cabeçalho nunca diz menos do que a migração grava. Se a linha da VEDACAO já existir, o INSERT não grava nada (ON CONFLICT DO NOTHING).
--- ║ Nenhuma linha de conta é APAGADA nem ALTERADA, nesta migração ou pelas funções que ela troca.
+-- ║ Nenhuma linha de orcamentista_mp_categoria é APAGADA nem ALTERADA, nesta migração ou pela garantia que ela acrescenta às quatro funções.
 -- ╚══════════════════════════════════════════════════════════════════════════════════════
 --
 -- Decisões do dono do produto (02/11/2026), registradas como foram ditas:
@@ -49,10 +49,12 @@
 --      é sempre parte do catálogo).
 --   C. O PREENCHIMENTO da falta de hoje (o quadro acima).
 --
--- O QUE NÃO FAZ: não apaga nem altera linha de conta; não muda a tela nem a regra de 27/10; não troca FK, CHECK ou grant das quatro funções.
+-- O QUE NÃO FAZ: não apaga nem altera linha de orcamentista_mp_categoria; não muda a tela nem a regra de 27/10; não troca FK, CHECK ou grant das
+-- quatro funções; não muda nada do que as quatro já faziam (o script de montagem prova que nenhuma linha de produção saiu ou mudou).
 -- GUARDA (aborta): os quatro corpos são os de produção (md5), cada um achado pela assinatura de entrada; a falta de hoje é só a da VEDACAO da
 -- De Paula. VERIFICAÇÃO (aborta): nenhuma matéria-prima com família fica sem a linha de uma categoria declarada; a auxiliar é fechada e não é
--- SECURITY DEFINER; as quatro continuam SECURITY DEFINER, com search_path fixo e o mesmo grant; nenhuma linha de conta foi apagada.
+-- SECURITY DEFINER; as quatro continuam SECURITY DEFINER, com search_path fixo e o mesmo grant; nenhuma linha de orcamentista_mp_categoria foi
+-- apagada ou alterada, e a única nova é a da VEDACAO da De Paula.
 -- ════════════════════════════════════════════════════════════════════════════════════════
 BEGIN;
 
