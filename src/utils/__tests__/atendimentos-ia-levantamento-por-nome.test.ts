@@ -117,6 +117,8 @@ const estado = {
     envioStatus: 200,
     envios: [] as Array<{ corpo: Record<string, unknown> }>,
     ausentes: new Set<string>(),
+    /** "tabela.coluna" que o banco falso não tem: ler a coluna é 42703, como o PostgREST antes da migração que a cria. */
+    colunasAusentes: new Set<string>(),
     /** A CHECK de `pergunta` como era antes da migração do apanhado: o valor novo é recusado com 23514. */
     checkAntigo: false,
     /**
@@ -187,6 +189,7 @@ function montar() {
     estado.envioStatus = 200
     estado.envios = []
     estado.ausentes = new Set()
+    estado.colunasAusentes = new Set()
     estado.respostaPeloPrompt = null
     estado.llmPeloPrompt = null
     estado.updateNaoAtinge = null
@@ -212,6 +215,7 @@ jest.mock('@/supabase/admin', () => ({
             let limite: number | null = null
             let atualizacao: Linha | null = null
             let colunas: string[] | null = null
+            let colunaQueFalta: string | null = null
             // `.update(...).select(...)`: o PostgREST devolve as linhas que o update atingiu
             let devolveAtingidas = false
             const projetar = (l: Linha): Linha => (colunas ? Object.fromEntries(colunas.filter((c) => c in l).map((c) => [c, l[c]])) : l)
@@ -232,9 +236,15 @@ jest.mock('@/supabase/admin', () => ({
                 if (atualizacao) devolveAtingidas = true
                 contar = o?.count === 'exact'
                 colunas = c && /^[a-z_0-9,\s]+$/i.test(c) ? c.split(',').map((x) => x.trim()).filter(Boolean) : null
+                colunaQueFalta = (colunas ?? []).find((x) => estado.colunasAusentes.has(`${tabela}.${x}`)) ?? null
                 return q
             }
             q.in = (c: string, vs: unknown[]) => { predicados.push((l) => vs.includes(l[c])); return q }
+            // `.not(c, 'is', null)`, como o PostgREST: só as linhas com a coluna preenchida (a coluna ausente da fixture é null)
+            q.not = (c: string, op: string, v: unknown) => {
+                if (op !== 'is' || v !== null) throw new Error(`o banco falso só conhece .not(c, 'is', null), e veio ${op} ${String(v)}`)
+                predicados.push((l) => l[c] !== null && l[c] !== undefined); return q
+            }
             q.contains = (c: string, vs: unknown[]) => { predicados.push((l) => Array.isArray(l[c]) && vs.every((v) => (l[c] as unknown[]).includes(v))); return q }
             q.range = (de: number, ate: number) => { faixa = [de, ate]; return q }
             q.eq = (c: string, v: unknown) => { filtros.push([c, v]); return q }
@@ -250,6 +260,7 @@ jest.mock('@/supabase/admin', () => ({
                     return Promise.resolve({ data: devolveAtingidas ? atingidas.map(projetar) : null, error: null }).then(ok, erro)
                 }
                 if (estado.ausentes.has(tabela)) return Promise.resolve(ausente()).then(ok, erro)
+                if (colunaQueFalta) return Promise.resolve({ data: null, error: { code: '42703', message: `column ${tabela}.${colunaQueFalta} does not exist` } }).then(ok, erro)
                 // como o PostgREST: ordenar por coluna que a tabela não tem é erro, não lista desordenada
                 const semColuna = ordem.find(({ coluna }) => (estado.db[tabela] ?? []).filter(casa).some((l) => !(coluna in l)))
                 if (semColuna) return Promise.resolve({ data: null, error: { code: '42703', message: `column ${tabela}.${semColuna.coluna} does not exist` } }).then(ok, erro)
@@ -1980,5 +1991,94 @@ describe('(23) o nome do levantamento é o do cliente', () => {
         await chamar('Geronimo Silva')
         expect(levantamentos().map((l) => l.nome)).toEqual(['Levantamento Geronimo Silva'])
         expect(itensDe(levantamentos()[0].id)).toEqual([expect.objectContaining({ ordem: 1, ...DP02 })])
+    })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// (14) A INSTRUÇÃO DE CADA CATEGORIA no sistema — dono do produto, 03/11/2026: "A instrução de cada categoria entra no prompt junto com
+// a base de conhecimento, identificada pela categoria, para o agente consultar. Escrita e sem efeito não serve." E: "No prompt, mande só
+// as categorias que TÊM instrução preenchida. Categoria com instrução vazia não gera seção nenhuma."
+// ═══════════════════════════════════════════════════════════════════════════════════════
+describe('(14) a instrução de cada categoria vai ao sistema — só as preenchidas, identificadas pela categoria', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { CABECALHO_DAS_INSTRUCOES, blocoDasInstrucoes } = require('@/lib/atendimentos-ia/instrucoes-da-categoria') as typeof import('@/lib/atendimentos-ia/instrucoes-da-categoria')
+    const CATALOGO = [
+        { chave: 'PERFIL', rotulo: 'Perfil', ordem: 1 }, { chave: 'REFORCO', rotulo: 'Reforço metálico', ordem: 3 },
+        { chave: 'FERRAGENS', rotulo: 'Ferragens', ordem: 4 }, { chave: 'VIDRO', rotulo: 'Vidro', ordem: 6 },
+    ]
+    const DO_VIDRO = 'Dúvida de vidro: busque o preço na tabela da Estrela, pela espessura.'
+    const DO_PERFIL = 'Perfil: a cor sai da lista de cores; nunca troque pela parecida.'
+    function comInstrucoes(linhas: Array<{ chave: string; instrucao: unknown; mp?: string; tenant?: string }>) {
+        estado.db.orcamentista_categoria_catalogo = CATALOGO.map((c) => ({ ...c }))
+        estado.db.orcamentista_materia_prima = [{ id: 'mp-pvc', tenant_id: TENANT, nome: 'Esquadrias de PVC', familia: 'PVC', ordem: 1 }]
+        estado.db.orcamentista_mp_categoria = [
+            { id: 'c-perfil', tenant_id: TENANT, materia_prima_id: 'mp-pvc', categoria_chave: 'PERFIL', config: { serra_mm: 5, cores: ['BRANCO'] }, instrucao: null },
+            ...linhas.map((l, k) => ({ id: `c-${k}`, tenant_id: l.tenant ?? TENANT, materia_prima_id: l.mp ?? 'mp-pvc', categoria_chave: l.chave, config: null as Linha | null, instrucao: l.instrucao })),
+        ]
+    }
+    const sistemaEnviado = () => String(estado.chamadasDaLlm[0].corpo.system)
+
+    it('sem instrução preenchida (o estado de produção hoje): nenhuma seção, nem o cabeçalho — e a linha [IA] diz instrucoes=0', async () => {
+        await chamar('oi')
+        expect(sistemaEnviado()).not.toContain(CABECALHO_DAS_INSTRUCOES)
+        expect(linhaIa()[0]).toMatch(/ instrucoes=0(\s|$)/)
+    })
+
+    it('as preenchidas vão, na ordem do catálogo, cada uma com "[Rótulo (CHAVE)]" e o texto; a vazia, a só-espaço e a nula NÃO geram seção', async () => {
+        comInstrucoes([
+            { chave: 'VIDRO', instrucao: DO_VIDRO }, { chave: 'FERRAGENS', instrucao: '' }, { chave: 'REFORCO', instrucao: '   ' },
+        ])
+        // o PERFIL vai para o FIM das linhas do banco: a ordem da seção tem de ser a do catálogo, não a da leitura
+        const [perfil, ...resto] = estado.db.orcamentista_mp_categoria
+        estado.db.orcamentista_mp_categoria = [...resto, { ...perfil, instrucao: DO_PERFIL }]
+        await chamar('oi')
+        const linhas = sistemaEnviado().split('\n')
+        const i = linhas.indexOf(CABECALHO_DAS_INSTRUCOES)
+        expect(i).toBeGreaterThan(-1)
+        expect(linhas.slice(i + 1, i + 5)).toEqual(['[Perfil (PERFIL)]', DO_PERFIL, '[Vidro (VIDRO)]', DO_VIDRO])
+        expect(sistemaEnviado()).not.toContain('(FERRAGENS)]')
+        expect(sistemaEnviado()).not.toContain('(REFORCO)]')
+        expect(linhaIa()[0]).toMatch(/ instrucoes=2(\s|$)/)
+    })
+
+    it('a seção vem DEPOIS da base de conhecimento (as escolhas de arremate), e o cabeçalho diz que ela não manda em número', async () => {
+        comInstrucoes([{ chave: 'VIDRO', instrucao: DO_VIDRO }])
+        await chamar('oi')
+        const s = sistemaEnviado()
+        expect(s.indexOf(CABECALHO_DAS_INSTRUCOES)).toBeGreaterThan(s.indexOf('Escolhas de arremate (USO INTERNO'))
+        expect(CABECALHO_DAS_INSTRUCOES).toContain('NÃO mandam em número')
+    })
+
+    it('com instrução em duas matérias-primas da conta, cada seção diz de qual é', async () => {
+        comInstrucoes([{ chave: 'VIDRO', instrucao: DO_VIDRO }, { chave: 'VIDRO', instrucao: 'Vidro do alumínio: só laminado.', mp: 'mp-alu' }])
+        estado.db.orcamentista_materia_prima.push({ id: 'mp-alu', tenant_id: TENANT, nome: 'Esquadrias de Alumínio', familia: null, ordem: 2 })
+        await chamar('oi')
+        expect(sistemaEnviado()).toContain(`[Vidro (VIDRO) — Esquadrias de PVC]\n${DO_VIDRO}`)
+        expect(sistemaEnviado()).toContain('[Vidro (VIDRO) — Esquadrias de Alumínio]\nVidro do alumínio: só laminado.')
+    })
+
+    it('a instrução de OUTRA empresa não vai', async () => {
+        comInstrucoes([{ chave: 'VIDRO', instrucao: 'Instrução da outra empresa.', tenant: 'outra-empresa' }])
+        await chamar('oi')
+        expect(sistemaEnviado()).not.toContain('Instrução da outra empresa.')
+        expect(sistemaEnviado()).not.toContain(CABECALHO_DAS_INSTRUCOES)
+    })
+
+    it('SEM A MIGRAÇÃO (a coluna não existe, 42703): nenhuma seção, a conversa segue, e a linha [IA] diz instrucoes=sem_migracao', async () => {
+        estado.colunasAusentes.add('orcamentista_mp_categoria.instrucao')
+        await chamar('oi')
+        expect(estado.chamadasDaLlm).toHaveLength(1)
+        expect(sistemaEnviado()).not.toContain(CABECALHO_DAS_INSTRUCOES)
+        expect(linhaIa()[0]).toMatch(/ instrucoes=sem_migracao(\s|$)/)
+    })
+
+    it('o texto da instrução não vai ao log — só a contagem', async () => {
+        comInstrucoes([{ chave: 'VIDRO', instrucao: DO_VIDRO }])
+        await chamar('oi')
+        expect(erros.join('\n')).not.toContain(DO_VIDRO)
+    })
+
+    it('blocoDasInstrucoes de nada é nada: nenhuma linha, nem o cabeçalho', () => {
+        expect(blocoDasInstrucoes([])).toEqual([])
     })
 })

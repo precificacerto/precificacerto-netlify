@@ -1,9 +1,10 @@
 /**
  * O cartão "Matérias-primas e seus fornecedores" — o miolo dos TRÊS NÍVEIS da base de conhecimento,
  * na maquete aprovada pelo dono do produto: um bloco por matéria-prima; dentro dele as seis
- * categorias, na ordem do catálogo, cada uma com os fornecedores (o primeiro é o principal) e o corpo
- * que a categoria pede — a grade de campos do catálogo, ou a tabela de vidros, de ferragens ou de
- * instalação.
+ * categorias, na ordem do catálogo, cada uma com os fornecedores (o primeiro é o principal), a INSTRUÇÃO
+ * (texto livre, até 1.500 caracteres, que o agente consulta quando tem dúvida da categoria) e, só no Perfil,
+ * as cores e a serra (dono do produto, 03/11/2026: "a tela de cada categoria fica com: o campo de instrução
+ * para todas, mais cores e serra_mm só no Perfil"). As tabelas de vidros, ferragens e acabamentos saíram.
  *
  * O componente só DESENHA e EDITA o formulário. A árvore do PUT, as regras da função e a leitura do
  * `depois` estão em `arvore.ts`; o botão é o único da tela, no topo (`base-de-conhecimento.component`).
@@ -32,17 +33,16 @@ import React from 'react'
 import { Alert, AutoComplete, Button, Card, Input, InputNumber, Radio, Select, Space, Tag, Typography } from 'antd'
 import type { ErroNomeado } from '@/lib/atendimentos-ia/base-de-conhecimento'
 import { ROTULO_DOS_TRES_ESTADOS, deTresEstados, paraTresEstados, type Par, type TresEstados } from '@/page-parts/atendimentos-ia/base-de-conhecimento/formulario'
+import { LIMITE_DA_INSTRUCAO, caracteresDaInstrucao } from '@/lib/atendimentos-ia/base-de-conhecimento'
 import {
-    ADICIONAR_FERRAGEM, ADICIONAR_MATERIA_PRIMA, ADICIONAR_VIDRO, CAMPO_DA_LINHA, EM_BRANCO_DA_OPCAO, LISTA_DA_CATEGORIA, NOVO_FORNECEDOR, POSICOES_DA_FERRAGEM, PRODUTOS_DA_INSTALACAO,
-    ROTULO_DA_POSICAO, ROTULO_DO_PRODUTO, SEM_PRINCIPAL_DO_PERFIL, TITULO_DO_CARTAO,
+    ADICIONAR_MATERIA_PRIMA, AJUDA_DA_INSTRUCAO, CAMPO_DA_LINHA, EM_BRANCO_DA_OPCAO, NOVO_FORNECEDOR, ROTULO_DA_INSTRUCAO, SEM_PRINCIPAL_DO_PERFIL, TITULO_DO_CARTAO,
     FAMILIA_COM_PENDENCIA, FAMILIA_DEPOIS_DE_SALVAR, fraseDasInstanciasIguais, instanciasIguais, SEM_FAMILIA_NA_MATERIA_PRIMA, categoriasForaDaFamilia, familiaDeclaraRamificacao, fraseCategoriaForaDaFamilia, fraseFamiliaSemRamificacao,
     AVISO_DO_FILTRO_DE_FORNECEDOR, SEM_TABELA_DESTA_CATEGORIA, fornecedoresComTabelaDaCategoria, fornecedoresComTabelaSemCategoria, fraseDaListaDeFornecedoresVazia,
     camposDa, desfazerRemocao, estadoDaLinha, fraseLinhaForaDaTabela, REMOVER_FAMILIA, fraseLinhaSemFormula, fraseSemTabelaEmUso,
-    fraseTabelaSemLinha, nomeDoFornecedor, novaMateriaPrima, novoLocal, ondeEstaOErro, origemDaLinha, tipoConhecido,
-    type ArvoreLida, type CategoriaDoFormulario, type EstadoDaArvore, type ItemDaLista, type MateriaPrimaDoFormulario, type TipoDoCampo,
+    fraseTabelaSemLinha, nomeDoFornecedor, novaMateriaPrima, ondeEstaOErro, origemDaLinha, tipoConhecido,
+    type ArvoreLida, type CategoriaDoFormulario, type EstadoDaArvore, type MateriaPrimaDoFormulario, type TipoDoCampo,
 } from '@/page-parts/atendimentos-ia/base-de-conhecimento/arvore'
 
-type Linha = Record<string, unknown>
 type Mudar = (f: (e: EstadoDaArvore) => EstadoDaArvore) => void
 
 // ── O controle de um campo, pelo TIPO do catálogo ─────────────────────────────────────────────
@@ -182,106 +182,20 @@ function Fornecedores({ c, arvore, mudar }: { c: CategoriaDoFormulario; arvore: 
     )
 }
 
-const celula: React.CSSProperties = { padding: '4px 6px', verticalAlign: 'top' }
-
-function TabelaDeVidros({ c, mudar, prefixo }: { c: CategoriaDoFormulario; prefixo: string; mudar: (f: (c: CategoriaDoFormulario) => CategoriaDoFormulario) => void }) {
-    const trocar = (local: string, campo: string, v: unknown) => mudar((x) => ({ ...x, vidros: x.vidros.map((it) => (it.local === local ? { ...it, valores: { ...it.valores, [campo]: v } } : it)) }))
+/** A instrução da categoria: texto livre, com o contador contado como o banco conta; acima do limite o salvar segura a árvore (`arvore.ts`). */
+function InstrucaoDaCategoria({ c, mudar, rotuloDaCategoria }: { c: CategoriaDoFormulario; rotuloDaCategoria: string; mudar: (f: (c: CategoriaDoFormulario) => CategoriaDoFormulario) => void }) {
+    const n = caracteresDaInstrucao(c.instrucao.trim())
+    const passou = n > LIMITE_DA_INSTRUCAO
     return (
-        <>
-            <table data-tabela="vidros" style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead><tr><th style={celula}>Vidro</th><th style={celula}>Referência</th><th style={celula}>Onde predomina</th><th style={celula}></th></tr></thead>
-                <tbody>
-                    {c.vidros.map((it, i) => (
-                        <tr key={it.local} data-vidro={i}>
-                            <td style={celula} data-coluna="descricao">
-                                {it.gravado ? <Typography.Text>{String(it.gravado.descricao)}</Typography.Text>
-                                    : <Input aria-label="Vidro" value={typeof it.valores.descricao === 'string' ? it.valores.descricao : ''} onChange={(e) => trocar(it.local, 'descricao', e.target.value)} />}
-                            </td>
-                            <td style={celula} data-coluna="referencia">
-                                <Input allowClear aria-label="Referência do vidro" value={typeof it.valores.referencia === 'string' ? it.valores.referencia : ''} onChange={(e) => trocar(it.local, 'referencia', e.target.value)} />
-                            </td>
-                            <td style={celula} data-coluna="onde_predomina">
-                                <ControleDoTipo tipo="lista_texto" nome={`${prefixo}.${it.local}.onde_predomina`} rotulo="Onde predomina" valor={it.valores.onde_predomina} mudar={(v) => trocar(it.local, 'onde_predomina', v)} />
-                            </td>
-                            <td style={celula}><Button onClick={() => mudar((x) => ({ ...x, vidros: x.vidros.filter((y) => y.local !== it.local) }))}>Remover</Button></td>
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
-            <Button style={{ marginTop: 8 }} onClick={() => mudar((x) => ({ ...x, vidros: [...x.vidros, { local: novoLocal(), gravado: null, valores: { descricao: '', referencia: null, onde_predomina: null } }] }))}>{ADICIONAR_VIDRO}</Button>
-        </>
-    )
-}
-
-function TabelaDeFerragens({ c, mudar }: { c: CategoriaDoFormulario; mudar: (f: (c: CategoriaDoFormulario) => CategoriaDoFormulario) => void }) {
-    const trocar = (local: string, campo: string, v: unknown) => mudar((x) => ({ ...x, ferragens: x.ferragens.map((it) => (it.local === local ? { ...it, valores: { ...it.valores, [campo]: v } } : it)) }))
-    const texto = (it: ItemDaLista, campo: string, rotulo: string) => (
-        <Input aria-label={rotulo} value={typeof it.valores[campo] === 'string' ? (it.valores[campo] as string) : ''} onChange={(e) => trocar(it.local, campo, e.target.value)} />
-    )
-    return (
-        <>
-            <table data-tabela="ferragens" style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead><tr><th style={celula}>Tipologia</th><th style={celula}>Posição</th><th style={celula}>Referência</th><th style={celula}>Descrição</th><th style={celula}>Cor</th><th style={celula}>Par em inox</th><th style={celula}></th></tr></thead>
-                <tbody>
-                    {c.ferragens.map((it, i) => (
-                        <tr key={it.local} data-ferragem={i}>
-                            <td style={celula} data-coluna="tipologia">{texto(it, 'tipologia', 'Tipologia')}</td>
-                            <td style={celula} data-coluna="posicao">
-                                <Select allowClear aria-label="Posição" placeholder="Não informada" style={{ minWidth: 120 }} value={(it.valores.posicao as string | null) ?? undefined}
-                                    onChange={(v: string | undefined) => trocar(it.local, 'posicao', v ?? null)}
-                                    options={POSICOES_DA_FERRAGEM.map((p) => ({ value: p, label: ROTULO_DA_POSICAO[p] }))} />
-                            </td>
-                            <td style={celula} data-coluna="referencia">
-                                {it.gravado ? <Typography.Text>{String(it.gravado.referencia)}</Typography.Text> : texto(it, 'referencia', 'Referência')}
-                            </td>
-                            <td style={celula} data-coluna="descricao">{texto(it, 'descricao', 'Descrição')}</td>
-                            <td style={celula} data-coluna="cor">{texto(it, 'cor', 'Cor')}</td>
-                            <td style={celula} data-coluna="par_inox_referencia">{texto(it, 'par_inox_referencia', 'Par em inox')}</td>
-                            <td style={celula}><Button onClick={() => mudar((x) => ({ ...x, ferragens: x.ferragens.filter((y) => y.local !== it.local) }))}>Remover</Button></td>
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
-            <Button style={{ marginTop: 8 }} onClick={() => mudar((x) => ({
-                ...x, ferragens: [...x.ferragens, { local: novoLocal(), gravado: null, valores: { referencia: '', tipologia: '', posicao: null, descricao: '', cor: '', par_inox_referencia: null } }],
-            }))}>{ADICIONAR_FERRAGEM}</Button>
-        </>
-    )
-}
-
-function TabelaDeInstalacao({ c, mudar, prefixo }: { c: CategoriaDoFormulario; prefixo: string; mudar: (f: (c: CategoriaDoFormulario) => CategoriaDoFormulario) => void }) {
-    const trocar = (p: string, campo: string, v: unknown) => mudar((x) => ({ ...x, instalacao: { ...x.instalacao, [p]: { ...x.instalacao[p], [campo]: v } } }))
-    const texto = (p: string, v: Linha, campo: string, rotulo: string) => (
-        <Input allowClear aria-label={rotulo} value={typeof v[campo] === 'string' ? (v[campo] as string) : ''} onChange={(e) => trocar(p, campo, e.target.value)} />
-    )
-    const numero = (p: string, v: Linha, campo: string, rotulo: string) => (
-        <InputNumber aria-label={rotulo} placeholder={rotulo} precision={0} style={{ width: 100 }} value={typeof v[campo] === 'number' ? (v[campo] as number) : null}
-            onChange={(n) => trocar(p, campo, typeof n === 'number' ? n : null)} />
-    )
-    return (
-        <table data-tabela="instalacao" style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead><tr><th style={celula}>Produto</th><th style={celula}>Usa?</th><th style={celula}>Referência</th><th style={celula}>Descrição</th><th style={celula}>Medida/folga</th></tr></thead>
-            <tbody>
-                {PRODUTOS_DA_INSTALACAO.map((p) => {
-                    const v = c.instalacao[p]
-                    return (
-                        <tr key={p} data-produto={p}>
-                            <td style={celula}>{ROTULO_DO_PRODUTO[p]}</td>
-                            <td style={celula} data-coluna="usa"><TresEstadosDoCampo nome={`${prefixo}.${p}.usa`} rotulo={`Usa ${ROTULO_DO_PRODUTO[p]}`} valor={v.usa} mudar={(x) => trocar(p, 'usa', x)} /></td>
-                            <td style={celula} data-coluna="referencia">{texto(p, v, 'referencia', 'Referência')}</td>
-                            <td style={celula} data-coluna="descricao">{texto(p, v, 'descricao', 'Descrição')}</td>
-                            <td style={celula} data-coluna="medida">
-                                <Space size={4} wrap>
-                                    {texto(p, v, 'medida', 'Medida')}
-                                    {numero(p, v, 'folga_x', 'Folga X (mm)')}
-                                    {numero(p, v, 'folga_y', 'Folga Y (mm)')}
-                                </Space>
-                            </td>
-                        </tr>
-                    )
-                })}
-            </tbody>
-        </table>
+        <div data-instrucao={c.chave} style={{ marginBottom: 12 }}>
+            <Typography.Text strong style={{ display: 'block', marginBottom: 4 }}>{ROTULO_DA_INSTRUCAO}</Typography.Text>
+            <Typography.Text type="secondary" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>{AJUDA_DA_INSTRUCAO}</Typography.Text>
+            <Input.TextArea aria-label={`${ROTULO_DA_INSTRUCAO} de ${rotuloDaCategoria}`} autoSize={{ minRows: 3, maxRows: 12 }} value={c.instrucao}
+                onChange={(e) => { const v = e.target.value; mudar((x) => ({ ...x, instrucao: v })) }} />
+            <Typography.Text type={passou ? 'danger' : 'secondary'} style={{ fontSize: 12 }} data-contador-da-instrucao>
+                {`${n.toLocaleString('pt-BR')} / ${LIMITE_DA_INSTRUCAO.toLocaleString('pt-BR')}`}
+            </Typography.Text>
+        </div>
     )
 }
 
@@ -289,7 +203,6 @@ function CartaoDaCategoria({ c, arvore, mudar, erro, prefixo }: {
     c: CategoriaDoFormulario; arvore: ArvoreLida; prefixo: string; mudar: (f: (c: CategoriaDoFormulario) => CategoriaDoFormulario) => void; erro: string | null
 }) {
     const doCatalogo = arvore.catalogo.categorias.find((k) => k.chave === c.chave)
-    const lista = LISTA_DA_CATEGORIA[c.chave]
     // o campo de tipo que esta tela não conhece não aparece (`tipoConhecido`, em arvore.ts)
     const campos = camposDa(arvore.catalogo, c.chave).filter((x) => tipoConhecido(x.tipo))
     return (
@@ -297,6 +210,7 @@ function CartaoDaCategoria({ c, arvore, mudar, erro, prefixo }: {
             title={<span data-titulo-da-categoria>{`${doCatalogo?.ordem ?? '?'} · ${doCatalogo?.rotulo ?? c.chave}`}</span>}>
             {erro && <div data-erro-da-arvore style={{ marginBottom: 12 }}><Alert type="error" showIcon message={erro} /></div>}
             <Fornecedores c={c} arvore={arvore} mudar={mudar} />
+            <InstrucaoDaCategoria c={c} mudar={mudar} rotuloDaCategoria={doCatalogo?.rotulo ?? c.chave} />
             {campos.length > 0 && (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 }}>
                     {campos.map((x) => (
@@ -309,9 +223,6 @@ function CartaoDaCategoria({ c, arvore, mudar, erro, prefixo }: {
                     ))}
                 </div>
             )}
-            {lista === 'vidros' && <TabelaDeVidros c={c} mudar={mudar} prefixo={`${prefixo}.${c.chave}`} />}
-            {lista === 'ferragens' && <TabelaDeFerragens c={c} mudar={mudar} />}
-            {lista === 'instalacao' && <TabelaDeInstalacao c={c} mudar={mudar} prefixo={`${prefixo}.${c.chave}`} />}
         </Card>
     )
 }

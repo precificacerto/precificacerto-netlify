@@ -957,3 +957,80 @@ Decisões do dono do produto, registradas como foram ditas:
   `orcamentista_mp_categoria` como em produção (`09_estado.sql`: a VEDACAO criada e marcada pelas funções antigas, a falta reproduzida), a migração duas
   vezes, 11 casos, 2 corridas, 4 guardas (a 4ª num banco vazio) — 17 de 17 —, e 22 mutações nas duas passadas (`mutacoes.py`, com as duas equivalentes
   anotadas).
+
+## Os campos da categoria viram UM campo de INSTRUÇÃO — dono do produto, 03/11/2026 (migração `20261103000002`, PENDENTE até o dono do produto aplicar; pressupõe a `20261023000004` e a `20261103000001`)
+
+Formulação do dono do produto, registrada como está:
+
+> "Quero no lugar disso UM campo de instrução em texto livre por categoria, que o agente consulta quando tem dúvida daquela categoria ('dúvida de
+> vidro -> lê a instrução de VIDRO -> busca o preço na tabela do fornecedor')." E: "A instrução de cada categoria entra no prompt junto com a base de
+> conhecimento, identificada pela categoria, para o agente consultar. Escrita e sem efeito não serve." E: "Os campos estruturados saem da tela e o
+> conteúdo da De Paula é apagado — autorizado por mim hoje, 03/11. A migração tem que imprimir no log o que apagou, por categoria."
+
+**As cinco decisões, registradas como foram ditas:**
+
+1. > "cores e serra_mm FICAM estruturados, como exceção, e só eles. Concordo com o motivo: número que o cálculo usa não pode sair de texto livre."
+2. > "Coluna instrucao text em orcamentista_mp_categoria, com CHECK de até 1.500 caracteres. Não use chave dentro de config."
+3. > "A migração apaga a config das três categorias (PERFIL perde só as chaves que saem), as 4+4+3 linhas das tabelas e as definições do catálogo de
+   > campos que saem. As tabelas e as funções FICAM, vazias e sem tela — a remoção delas é uma PR à parte, depois, se eu pedir. Imprima no log o que
+   > apagou, por categoria."
+4. > "No prompt, mande só as categorias que TÊM instrução preenchida. Categoria com instrução vazia não gera seção nenhuma — não quero pagar 12.000
+   > caracteres por bloco vazio."
+5. > "Depois desta PR, a tela de cada categoria fica com: o campo de instrução para todas, mais cores e serra_mm só no Perfil."
+
+**CORREÇÃO do dono do produto, 03/11/2026, antes de aplicar (a migração ainda era PENDENTE):**
+
+> "PARE antes de eu aplicar a 20261103000002: cor_predominante não pode sair. [...] cor_predominante é a fonte da cor padrão [...] ('cor não dita =
+> config.cor_predominante da categoria Perfil'). Apagá-la deixa a conversa sem cor padrão e sem lista de cores. Corrija: cor_predominante FICA
+> estruturada, junto com cores e serra_mm. Saem só linha, barra_mm, solda e criterio_custo_barra."
+
+A migração foi remontada antes de qualquer aplicação (o md5 abaixo é o do arquivo corrigido); a tela do Perfil mostra os três.
+
+- **A MIGRAÇÃO APAGA DADO DE CONTA** (a De Paula, tenant `20e08592…`, matéria-prima `79d764fe…`), medido em 03/11/2026 e escrito no cabeçalho: da config do
+  PERFIL as chaves `linha`, `barra_mm`, `solda` e `criterio_custo_barra` (ficam `cores`, `cor_predominante` e `serra_mm`); a config inteira do REFORCO
+  (`usa`, `material`, `par_inox_referencia`) e dos ACESSORIOS_VEDACAO (`vedacao`, `cor_por_perfil`, `modelo_interlock`), que viram NULL (nunca `{}`);
+  as 4 linhas de `orcamentista_mp_vidro`, as 4 de `_mp_ferragem` e as 3 de `_mp_instalacao`, pelos ids; e as 10 definições de
+  `orcamentista_categoria_campo` que saem (ficam `PERFIL.cores`, `PERFIL.cor_predominante` e `PERFIL.serra_mm`). **Cada remoção tem a sua linha no `superadmin_alteracao_log`**
+  (a linha inteira em `antes`, marcada `remocao = 20261103000002`, com o tenant de quem era; a definição é global, tenant NULL) **e um `RAISE NOTICE` por
+  categoria**; reaplicar não apaga nem loga de novo. **A guarda aborta se houver o que apagar fora do medido** — uma linha a mais, uma config com chave
+  que sai em outra matéria-prima ou empresa, uma definição a mais no catálogo —, nomeando-o: o cabeçalho nunca diz menos do que a migração apaga.
+- **A coluna** `orcamentista_mp_categoria.instrucao text`, nula = não informada; a CHECK `orcamentista_mp_categoria_instrucao_forma` exige 1 a 1.500
+  caracteres (`char_length`, não bytes) e sem espaço nas pontas — vazio não existe, é NULL (`ausente-vs-falso.md`).
+- **A função nova** `superadmin_gravar_instrucao_da_categoria(p_tenant, p_por, p_mp_categoria, p_instrucao jsonb)`: super admin; a categoria tem de ser
+  da empresa (a de outra empresa e a inexistente recebem a MESMA frase); texto ou null; apara; vazio e só espaço limpam; acima de 1.500 recusa nomeando o
+  número; a mesma instrução não grava nem loga; a mudança grava `atualizado_por` e loga com `campo = instrucao`. **`superadmin_gravar_arvore` ganha a chave
+  `instrucao`** no mesmo bloco da categoria (o erro sai com o caminho, "materia-prima X, categoria Y, instrucao: …", e a árvore inteira se desfaz); a
+  guarda confere o corpo de produção da árvore pelo md5 (`d1165c55…`, o da `20261023000004`) e aceita o desta na reaplicação. **Decisão do dono do produto:
+  o corpo da árvore passou todo a ASCII** (os comentários perderam os acentos; o `montar_migracao.py` prova pelo diff que só comentários mudaram e que o
+  acréscimo são a chave e o bloco de 5 linhas) — a colagem pelo SQL Editor no Windows reescreve o que não é ASCII, e o `prosrc` é o artefato
+  (`migracao.md`, Parte III).
+- **`superadmin_gravar_mp_categoria` não muda e preserva a instrução** (é upsert só de config); como ela valida as chaves contra o catálogo de campos,
+  **o banco passa a recusar `linha`, `usa`, `solda`… nomeando a chave** — o banco e a rota dizem o mesmo.
+- **No código:** `CAMPOS_QUE_FICAM = { PERFIL: ['cores', 'cor_predominante', 'serra_mm'] }` substitui `CAMPOS_FORA_DA_TELA` (lista fechada: um campo NOVO no catálogo NÃO
+  aparece na tela); a tela mostra, em toda categoria, fornecedores + a instrução (contador "N / 1.500", contado como o banco conta, em vermelho acima
+  do limite, e o salvar segura a árvore na tela) e, só no Perfil, cores, cor predominante e serra; as tabelas de vidro, ferragem e acabamento saíram da tela e do corpo;
+  as rotas `/vidros`, `/ferragens` e `/instalacao` respondem **410** com `fraseDaListaQueSaiu`; a árvore recusa as três listas e toda chave de config
+  fora dos que ficam, antes da função. A tela manda `instrucao` só se mudou (aparada; vazia é null); o `depois` sem a chave (rota de antes da
+  migração) mantém a que a tela tinha.
+- **No prompt** (`instrucoes-da-categoria.ts`): `lerInstrucoesDaEmpresa` lê só as preenchidas (`.not('instrucao', 'is', null)` e, em JS, descarta o só
+  espaço); a seção entra no `sistema()` depois das escolhas de arremate e antes do contexto da empresa, com o cabeçalho que diz que a instrução NÃO
+  manda em número e que as regras de NUNCA do prompt base valem acima dela; cada seção é `[Rótulo (CHAVE)]` e, quando mais de uma matéria-prima da
+  conta tem instrução, ` — <matéria-prima>`; na ordem do catálogo. **Sem instrução preenchida, nenhuma linha** (nem o cabeçalho). Antes da migração a
+  coluna não existe: 42703/PGRST204 viram `sem_migracao`, a conversa segue sem a seção e a linha [IA] diz `instrucoes=sem_migracao`; com a coluna,
+  `instrucoes=N`. O texto nunca vai ao log.
+- **REGISTRO, não defeito:** a função da árvore **ainda aceita** `vidros`, `ferragens` e `instalacao` (as tabelas e as funções ficam, por decisão);
+  quem barra é a rota. O caso 10 do harness prova isso de propósito, para a remoção futura saber o que muda.
+- **ACHADO da medição (Fase 1), com o dono do produto:** a De Paula tem `cores = null` no PERFIL — a conversa para na cor (`FRASE_SEM_CORES`) até alguém
+  preencher as cores. Não é desta PR.
+- **DÍVIDAS registradas em 03/11/2026:** (a) o combobox de Linha (`CAMPO_DA_LINHA`, `LinhaDaTabela`, os avisos "sem fórmula"/"fora da tabela" e as
+  consultas de `linhas_por_fornecedor` no GET da árvore) ficou sem definição que o use — a tela nunca o monta; sai numa PR de limpeza; (b)
+  `orcamentista_familia_etapa.instrucao` continua NÃO chegando ao modelo (a conversa executa o fluxo fixo) — a instrução da etapa é outro caminho, a
+  decidir.
+- **Prova:** `scripts/harness/instrucao-da-categoria/` — a base da garantia (`20261103000001` aplicada, com o privilégio padrão de produção) + os seis
+  corpos de PRODUÇÃO das funções da base de conhecimento (md5 conferido) + as três tabelas na estrutura de produção (`pg_constraint` e `pg_indexes`,
+  inclusive o índice único de expressão dos vidros) + o conteúdo medido da De Paula; a migração duas vezes; 10 casos, 3 corridas (instrução × config
+  na mesma categoria, nas duas ordens; duas instruções), 7 guardas (corpo diferente, linha/config/definição fora do medido, função nova com outro corpo,
+  coluna com outro tipo, banco vazio) e 29 mutações nas duas passadas (`mutacoes.py`). No código: 11 mutações da tela e 10 do leitor/prompt, todas
+  mortas (a tabela está no PR).
+- **A migração:** `supabase/migrations/20261103000002_instrucao_da_categoria.sql`, md5 `ccc508e65ec77239794ef975c238e35b`, 559 linhas, 41065 bytes, LF.
+

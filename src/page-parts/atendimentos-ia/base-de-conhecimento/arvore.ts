@@ -11,8 +11,9 @@
  *     barrado AQUI (`fraseRemoverEGravar`), antes de a função recusar com 400;
  *   - `ordem` nunca vai no corpo;
  *   - dentro de cada categoria, SÓ O QUE MUDOU: o `config` só com as chaves mudadas (null limpa, false
- *     é "não", a chave AUSENTE não mexe); uma lista só vai se mudou, e então INTEIRA — o item que não
- *     vier sai —, com o item gravado levando só a sua chave e o que mudou nele;
+ *     é "não", a chave AUSENTE não mexe); a `instrucao` só se mudou (aparada; vazia é null, que limpa);
+ *   - DESDE 03/11/2026 (migração `20261103000002`) a categoria tem a INSTRUÇÃO (texto livre, até 1.500) e, de campo estruturado, só as
+ *     cores, a cor predominante e a serra do Perfil (`CAMPOS_QUE_FICAM`); as listas de vidro, ferragem e acabamento saíram da tela e do corpo;
  *   - a matéria-prima é endereçada pelo NOME, e o nome da gravada não se edita: a chave é
  *     `lower(nome)`, a função 1 recusa `id`, e não existe renomear (um nome novo é outra).
  *
@@ -22,7 +23,7 @@
  * aqui: um campo novo no catálogo aparece na tela sem mudar a tela. O que está escrito são os três
  * domínios que o banco ENUMERA por CHECK, e que não têm catálogo — ver cada constante.
  */
-import { campoForaDaTela, type ErroNomeado } from '@/lib/atendimentos-ia/base-de-conhecimento'
+import { LIMITE_DA_INSTRUCAO, caracteresDaInstrucao, campoForaDaTela, fraseDoLimiteDaInstrucao, type ErroNomeado } from '@/lib/atendimentos-ia/base-de-conhecimento'
 import { TITULO_DO_BLOCO, mapaDosPares, mesmoValor, paresDoMapa, type Par } from '@/page-parts/atendimentos-ia/base-de-conhecimento/formulario'
 
 type Linha = Record<string, unknown>
@@ -41,10 +42,8 @@ export type CategoriaDoCatalogo = { chave: string; ordem: number; rotulo: string
 /** `opcoes` só vem no tipo 'opcao' (20261024000002); antes da migração a coluna nem existe. */
 export type CampoDoCatalogo = { categoria_chave: string; chave: string; tipo: TipoDoCampo; rotulo: string; ordem: number; opcoes?: string[] | null }
 export type FornecedorGravado = Linha & { fornecedor_id: string; principal: boolean; ordem: number; nome_do_fornecedor?: string | null }
-export type CategoriaLida = Linha & {
-    id: string; categoria_chave: string; config: Linha | null; fornecedores: FornecedorGravado[]
-    vidros?: Linha[]; ferragens?: Linha[]; instalacao?: Linha[]
-}
+/** `instrucao` só existe depois da `20261103000002`: ausente é null ("não informada"). */
+export type CategoriaLida = Linha & { id: string; categoria_chave: string; config: Linha | null; fornecedores: FornecedorGravado[]; instrucao?: string | null }
 export type MateriaPrimaLida = Linha & { id: string; nome: string; ordem: number; familia?: string | null; categorias: CategoriaLida[] }
 /** As famílias da lista e as ramificações que cada uma declara (`orcamentista_familia_ramificacao`), na ordem dela. */
 export type FamiliaDoCatalogo = { chave: string; rotulo: string; ordem: number }
@@ -63,8 +62,6 @@ export type ArvoreLida = {
 // ── Os textos da tela ──────────────────────────────────────────────────────────────────────
 export const TITULO_DO_CARTAO = TITULO_DO_BLOCO.materias
 export const ADICIONAR_MATERIA_PRIMA = '+ Adicionar matéria-prima'
-export const ADICIONAR_VIDRO = '+ Adicionar vidro'
-export const ADICIONAR_FERRAGEM = '+ Adicionar ferragem'
 export const NOVO_FORNECEDOR = '+ fornecedor'
 export const AVISO_DO_FILTRO_DE_FORNECEDOR = 'Só aparecem para escolher os fornecedores que têm tabela desta categoria.'
 export const SEM_TABELA_DESTA_CATEGORIA = 'sem tabela desta categoria'
@@ -124,7 +121,6 @@ export const fraseDasInstanciasIguais = (nomes: readonly string[], tipo: string)
 export const FAMILIA_COM_PENDENCIA = 'Salve as alterações antes de trocar a família: a tela é relida.'
 export const fraseRemoverEGravar = (nome: string) =>
     `"${nome}" está marcada para remoção neste salvar: desfaça a remoção ou use outro nome — remover e gravar a mesma matéria-prima no mesmo salvar é recusado.`
-export const USA_SEM_REFERENCIA = 'com "Usa?" em Sim, a referência é obrigatória'
 /** A opção de deixar o campo 'opcao' em branco: NULL = ainda não configurado, nunca uma escolha por omissão. */
 export const EM_BRANCO_DA_OPCAO = 'Em branco — ainda não configurado'
 
@@ -151,34 +147,17 @@ export const fraseLinhaForaDaTabela = (linha: string, fornecedor: string) => `A 
 export const fraseLinhaSemFormula = (linha: string, fornecedor: string) =>
     `A tabela em uso de ${fornecedor} tem regras para a linha "${linha}" e nenhuma fórmula dimensional: essa linha não dimensiona. O conserto é na tabela importada.`
 
-// ── Os domínios que o banco ENUMERA por CHECK, e que não têm catálogo ─────────────────────────
-/** A lista de cada categoria — a mesma de `LISTA_DA_CATEGORIA` no servidor e da `superadmin_gravar_arvore`. */
-export const LISTA_DA_CATEGORIA: Readonly<Record<string, 'vidros' | 'ferragens' | 'instalacao'>> = { VIDRO: 'vidros', FERRAGENS: 'ferragens', INSTALACAO: 'instalacao' }
-/** CHECK `orcamentista_mp_instalacao_produto_valido` (migração 20261023000002). Uma linha por produto. */
-export const PRODUTOS_DA_INSTALACAO = ['ARREMATE_INTERNO', 'ARREMATE_EXTERNO', 'CONTRAMARCO'] as const
-export const ROTULO_DO_PRODUTO: Record<typeof PRODUTOS_DA_INSTALACAO[number], string> = {
-    ARREMATE_INTERNO: 'Arremate interno', ARREMATE_EXTERNO: 'Arremate externo', CONTRAMARCO: 'Contramarco',
-}
-/** CHECK `orcamentista_mp_ferragem_posicao_valida` (migração 20261023000002). Interna e externa são DUAS linhas. */
-export const POSICOES_DA_FERRAGEM = ['INTERNA', 'EXTERNA'] as const
-export const ROTULO_DA_POSICAO: Record<typeof POSICOES_DA_FERRAGEM[number], string> = { INTERNA: 'Interna', EXTERNA: 'Externa' }
-
-/** Os campos de cada lista que a tela edita, e o tipo deles (as colunas de 20261023000002). A CHAVE vem primeiro. */
-const CAMPOS_DA_LISTA = {
-    vidros: { chave: 'descricao', campos: { descricao: 'texto', referencia: 'texto', onde_predomina: 'lista_texto' } },
-    // o par em inox é de onde depende a regra de obra litorânea: sem ele o sistema recusa orçar
-    ferragens: { chave: 'referencia', campos: { referencia: 'texto', tipologia: 'texto', posicao: 'texto', descricao: 'texto', cor: 'texto', par_inox_referencia: 'texto' } },
-} as const satisfies Record<string, { chave: string; campos: Record<string, TipoDoCampo> }>
-const CAMPOS_DA_INSTALACAO: Record<string, TipoDoCampo> = {
-    usa: 'booleano', referencia: 'texto', descricao: 'texto', medida: 'texto', folga_x: 'inteiro', folga_y: 'inteiro',
-}
+// ── A instrução da categoria, na tela ────────────────────────────────────────────────────────
+export const ROTULO_DA_INSTRUCAO = 'Instrução'
+export const AJUDA_DA_INSTRUCAO =
+    'Texto livre que o agente consulta quando tem dúvida desta categoria (ex.: dúvida de vidro: lê a instrução de Vidro e busca o preço na tabela do fornecedor). Vazia, não vai ao agente.'
 
 // ── O catálogo, em ordem ───────────────────────────────────────────────────────────────────
 export const categoriasEmOrdem = (c: ArvoreLida['catalogo']) => [...c.categorias].sort((a, b) => a.ordem - b.ordem)
 
-/** A categoria tem algo gravado? Config, fornecedor ou item de lista. */
+/** A categoria tem algo gravado? Config, fornecedor ou instrução. */
 export const categoriaTemConteudo = (c: CategoriaLida): boolean =>
-    c.config !== null || c.fornecedores.length > 0 || (c.vidros?.length ?? 0) > 0 || (c.ferragens?.length ?? 0) > 0 || (c.instalacao?.length ?? 0) > 0
+    c.config !== null || c.fornecedores.length > 0 || (c.instrucao ?? null) !== null
 
 /**
  * AS CATEGORIAS QUE A MATÉRIA-PRIMA MOSTRA (dono do produto, 27/10/2026): as RAMIFICAÇÕES da família dela, na
@@ -207,8 +186,8 @@ export function categoriasForaDaFamilia(catalogo: ArvoreLida['catalogo'], famili
 /** A família declara alguma ramificação? */
 export const familiaDeclaraRamificacao = (catalogo: ArvoreLida['catalogo'], familia: string) => (catalogo.ramificacoes ?? []).some((r) => r.familia === familia)
 /**
- * Os campos da categoria que a tela mostra, edita e manda — sem os que saíram da tela e da gravação (`CAMPOS_FORA_DA_TELA`, 30/10/2026): fora daqui,
- * eles não entram no formulário nem no corpo, e o valor gravado fica como está (a gravação faz merge).
+ * Os campos da categoria que a tela mostra, edita e manda — SÓ os que ficam (`CAMPOS_QUE_FICAM`, 03/11/2026: cores, cor predominante e serra do Perfil), mesmo que o
+ * catálogo ainda traga outros (antes da migração `20261103000002`): fora daqui, eles não entram no formulário nem no corpo.
  */
 export const camposDa = (c: ArvoreLida['catalogo'], chave: string) =>
     c.campos.filter((x) => x.categoria_chave === chave && !campoForaDaTela(chave, x.chave)).sort((a, b) => a.ordem - b.ordem)
@@ -256,15 +235,13 @@ function igual(tipo: TipoDoCampo, normalizado: unknown, gravado: unknown): boole
 }
 
 // ── O formulário ───────────────────────────────────────────────────────────────────────────
-export type ItemDaLista = { local: string; gravado: Linha | null; valores: Linha }
 export type CategoriaDoFormulario = {
     chave: string
     gravada: CategoriaLida | null
     config: Linha
     fornecedores: { ids: string[]; principal: string | null }
-    vidros: ItemDaLista[]
-    ferragens: ItemDaLista[]
-    instalacao: Record<string, Linha>
+    /** O texto como está no campo; '' é "sem instrução". */
+    instrucao: string
 }
 export type MateriaPrimaDoFormulario = { local: string; id: string | null; nome: string; familia: string | null; categorias: CategoriaDoFormulario[] }
 export type EstadoDaArvore = { materias: MateriaPrimaDoFormulario[]; removidas: Array<{ id: string; nome: string }> }
@@ -274,13 +251,6 @@ export const novoLocal = () => `a${++proximo}`
 
 const porOrdem = (a: Linha, b: Linha) => Number(a.ordem) - Number(b.ordem)
 
-function itensDaLista(lista: 'vidros' | 'ferragens', gravados: Linha[] | undefined): ItemDaLista[] {
-    const campos = Object.keys(CAMPOS_DA_LISTA[lista].campos)
-    return [...(gravados ?? [])].sort(porOrdem).map((g) => ({
-        local: novoLocal(), gravado: g, valores: Object.fromEntries(campos.map((c) => [c, doFormulario((CAMPOS_DA_LISTA[lista].campos as Record<string, TipoDoCampo>)[c], g[c])])),
-    }))
-}
-
 export function categoriaDoFormulario(catalogo: ArvoreLida['catalogo'], chave: string, gravada: CategoriaLida | null): CategoriaDoFormulario {
     const config = gravada?.config ?? null
     const fornecedores = [...(gravada?.fornecedores ?? [])].sort(porOrdem)
@@ -289,12 +259,7 @@ export function categoriaDoFormulario(catalogo: ArvoreLida['catalogo'], chave: s
         gravada,
         config: Object.fromEntries(camposDa(catalogo, chave).map((c) => [c.chave, doFormulario(c.tipo, config ? config[c.chave] : null)])),
         fornecedores: { ids: fornecedores.map((f) => f.fornecedor_id), principal: fornecedores.find((f) => f.principal)?.fornecedor_id ?? null },
-        vidros: itensDaLista('vidros', gravada?.vidros),
-        ferragens: itensDaLista('ferragens', gravada?.ferragens),
-        instalacao: Object.fromEntries(PRODUTOS_DA_INSTALACAO.map((p) => {
-            const g = (gravada?.instalacao ?? []).find((x) => x.produto === p) ?? null
-            return [p, Object.fromEntries(Object.keys(CAMPOS_DA_INSTALACAO).map((c) => [c, g ? g[c] ?? null : null]))]
-        })),
+        instrucao: gravada?.instrucao ?? '',
     }
 }
 
@@ -378,41 +343,6 @@ function mudados(campos: Record<string, TipoDoCampo>, gravado: Linha | null, val
     return corpo
 }
 
-function corpoDaLista(lista: 'vidros' | 'ferragens', itens: ItemDaLista[], gravados: Linha[], erros: string[]): Linha[] | null {
-    const { chave, campos } = CAMPOS_DA_LISTA[lista]
-    const doItem = Object.fromEntries(Object.entries(campos).filter(([c]) => c !== chave)) as Record<string, TipoDoCampo>
-    const vistos = new Set<string>()
-    let mudou = itens.length !== gravados.length || itens.some((it, i) => it.gravado !== gravados[i])
-    const corpo = itens.map((it) => {
-        const k = normalizar('texto', it.gravado ? it.gravado[chave] : it.valores[chave]).valor as string | null
-        if (k === null) erros.push(lista === 'vidros' ? 'vidro sem descrição' : 'ferragem sem referência')
-        else if (vistos.has(k.toLowerCase())) erros.push(`${lista === 'vidros' ? 'vidro' : 'referência'} repetido(a): ${k}`)
-        else vistos.add(k.toLowerCase())
-        if (lista === 'ferragens' && !it.gravado && normalizar('texto', it.valores.tipologia).valor === null) erros.push(`ferragem ${k ?? ''} sem tipologia`)
-        const resto = mudados(doItem, it.gravado, it.valores, erros, '')
-        if (Object.keys(resto).length) mudou = true
-        return { [chave]: k, ...resto }
-    })
-    return mudou ? corpo : null
-}
-
-function corpoDaInstalacao(c: CategoriaDoFormulario, erros: string[], rotulo: string): Linha[] | null {
-    const gravados = c.gravada?.instalacao ?? []
-    let mudou = false
-    const itens: Linha[] = []
-    for (const p of PRODUTOS_DA_INSTALACAO) {
-        const g = gravados.find((x) => x.produto === p) ?? null
-        const v = c.instalacao[p]
-        const corpo = mudados(CAMPOS_DA_INSTALACAO, g, v, erros, `${ROTULO_DO_PRODUTO[p]} · `)
-        if (Object.keys(corpo).length) mudou = true
-        const resultante = { ...(g ?? {}), ...corpo }
-        if (resultante.usa === true && (resultante.referencia === null || resultante.referencia === undefined)) erros.push(`${rotulo} · ${ROTULO_DO_PRODUTO[p]}: ${USA_SEM_REFERENCIA}`)
-        // o produto GRAVADO vai sempre (fora da lista ele sairia); o novo, só se tiver alguma coisa
-        if (g || Object.keys(corpo).length) itens.push({ produto: p, ...corpo })
-    }
-    return mudou ? itens : null
-}
-
 function corpoDaCategoria(catalogo: ArvoreLida['catalogo'], c: CategoriaDoFormulario): DaCategoria {
     const rotulo = catalogo.categorias.find((k) => k.chave === c.chave)?.rotulo ?? c.chave
     const erros: string[] = []
@@ -433,16 +363,13 @@ function corpoDaCategoria(catalogo: ArvoreLida['catalogo'], c: CategoriaDoFormul
         contagem += 1
     }
 
-    const lista = LISTA_DA_CATEGORIA[c.chave]
-    if (lista === 'vidros' || lista === 'ferragens') {
-        const errosDaLista: string[] = []
-        const corpo = corpoDaLista(lista, c[lista], [...((c.gravada?.[lista] as Linha[] | undefined) ?? [])].sort(porOrdem), errosDaLista)
-        erros.push(...errosDaLista.map((e) => `${rotulo} · ${e}`))
-        if (corpo) { item[lista] = corpo; contagem += 1 }
-    }
-    if (lista === 'instalacao') {
-        const corpo = corpoDaInstalacao(c, erros, rotulo)
-        if (corpo) { item.instalacao = corpo; contagem += 1 }
+    // a instrução: aparada; vazia é null (limpa); só vai se mudou; acima do limite segura a árvore na tela
+    const instrucao = c.instrucao.trim() === '' ? null : c.instrucao.trim()
+    if (instrucao !== (c.gravada?.instrucao ?? null)) {
+        contagem += 1
+        const n = instrucao === null ? 0 : caracteresDaInstrucao(instrucao)
+        if (n > LIMITE_DA_INSTRUCAO) erros.push(`${rotulo} · ${fraseDoLimiteDaInstrucao(n)}`)
+        else item.instrucao = instrucao
     }
     return { item: Object.keys(item).length > 1 ? item : null, contagem, erros }
 }
@@ -512,17 +439,16 @@ export function arvoreDoDepois(depois: Record<string, Linha[] | null | undefined
             categorias: (depois.orcamentista_mp_categoria ?? [])
                 .filter((c) => c.materia_prima_id === m.id)
                 .sort((a, b) => (posicao.get(String(a.categoria_chave)) ?? 0) - (posicao.get(String(b.categoria_chave)) ?? 0))
-                .map((c) => {
-                    const lista = LISTA_DA_CATEGORIA[String(c.categoria_chave)]
-                    const tabela = { vidros: 'orcamentista_mp_vidro', ferragens: 'orcamentista_mp_ferragem', instalacao: 'orcamentista_mp_instalacao' }
-                    return {
-                        ...c,
-                        id: String(c.id), categoria_chave: String(c.categoria_chave), config: (c.config as Linha | null) ?? null,
-                        fornecedores: daCategoria('orcamentista_mp_categoria_fornecedor', c.id).sort(porOrdem)
-                            .map((f) => ({ ...f, fornecedor_id: String(f.fornecedor_id), principal: f.principal === true, ordem: Number(f.ordem), nome_do_fornecedor: nomes.get(String(f.fornecedor_id)) ?? null })),
-                        ...(lista ? { [lista]: daCategoria(tabela[lista], c.id) } : {}),
-                    }
-                }),
+                .map((c) => ({
+                    ...c,
+                    id: String(c.id), categoria_chave: String(c.categoria_chave), config: (c.config as Linha | null) ?? null,
+                    // a instrução ausente no `depois` (rota de antes da 20261103000002) vale a que a tela tinha — nunca "vazia" por esquecimento
+                    instrucao: c.instrucao === undefined
+                        ? (anterior.materias_primas.find((x) => x.id === String(m.id))?.categorias.find((k) => k.id === String(c.id))?.instrucao ?? null)
+                        : (typeof c.instrucao === 'string' ? c.instrucao : null),
+                    fornecedores: daCategoria('orcamentista_mp_categoria_fornecedor', c.id).sort(porOrdem)
+                        .map((f) => ({ ...f, fornecedor_id: String(f.fornecedor_id), principal: f.principal === true, ordem: Number(f.ordem), nome_do_fornecedor: nomes.get(String(f.fornecedor_id)) ?? null })),
+                })),
         })),
     }
 }
