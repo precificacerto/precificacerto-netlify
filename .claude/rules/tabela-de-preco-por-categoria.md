@@ -958,7 +958,7 @@ Decisões do dono do produto, registradas como foram ditas:
   vezes, 11 casos, 2 corridas, 4 guardas (a 4ª num banco vazio) — 17 de 17 —, e 22 mutações nas duas passadas (`mutacoes.py`, com as duas equivalentes
   anotadas).
 
-## Os campos da categoria viram UM campo de INSTRUÇÃO — dono do produto, 03/11/2026 (migração `20261103000002`, PENDENTE até o dono do produto aplicar; pressupõe a `20261023000004` e a `20261103000001`)
+## Os campos da categoria viram UM campo de INSTRUÇÃO — dono do produto, 03/11/2026 (migração `20261103000002`, aplicada e conferida em produção em 03/11/2026 às 13:23:48 UTC, antes do merge do #214 às 13:25:50; pressupõe a `20261023000004` e a `20261103000001`)
 
 Formulação do dono do produto, registrada como está:
 
@@ -1032,5 +1032,11 @@ A migração foi remontada antes de qualquer aplicação (o md5 abaixo é o do a
   na mesma categoria, nas duas ordens; duas instruções), 7 guardas (corpo diferente, linha/config/definição fora do medido, função nova com outro corpo,
   coluna com outro tipo, banco vazio) e 29 mutações nas duas passadas (`mutacoes.py`). No código: 11 mutações da tela e 10 do leitor/prompt, todas
   mortas (a tabela está no PR).
-- **A migração:** `supabase/migrations/20261103000002_instrucao_da_categoria.sql`, md5 `ccc508e65ec77239794ef975c238e35b`, 559 linhas, 41065 bytes, LF.
+- **A migração:** `supabase/migrations/20261103000002_instrucao_da_categoria.sql`, md5 `cb4f26b012eee5e1ced235dcb4ca14cf`, 563 linhas, 41.725 bytes, LF (a versão anterior, `ccc508e6…`, apagava `cor_predominante` e nunca foi aplicada).
+- **Aplicação conferida por consulta (03/11/2026, só leitura):** a coluna `instrucao text` existe; `superadmin_gravar_arvore` em produção tem o corpo
+  desta migração (md5 `bbac1a84f0a102b4d37d90295a5b3fa9`) e `superadmin_gravar_instrucao_da_categoria` o seu (`95e5b34e09888a05071a86cea3b55a31`) —
+  nenhum `\r` e nada fora do ASCII entrou no `prosrc`; as três tabelas vazias; o catálogo de campos é `PERFIL.cor_predominante, PERFIL.cores,
+  PERFIL.serra_mm`; a config do PERFIL da De Paula é `{"cores": null, "cor_predominante": "BRANCO", "serra_mm": 5}`; 24 linhas de log com a marca
+  `remocao = 20261103000002`, todas às 13:23:48 UTC. A ordem da Parte I de `migracao.md` foi cumprida: aplicada 2 min antes do merge. Como as
+  demais aplicadas pelo SQL Editor, não há linha em `supabase_migrations.schema_migrations` (ver `migracao.md`, Parte II).
 
