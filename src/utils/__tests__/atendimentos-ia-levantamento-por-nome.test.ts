@@ -387,6 +387,9 @@ const ultimoEnviado = () => enviados()[enviados().length - 1]
 const levantamentos = () => estado.db.orcamentista_levantamento ?? []
 const itensDe = (id: unknown) => (estado.db.orcamentista_levantamento_item ?? []).filter((i) => i.levantamento_id === id).sort((a, b) => Number(a.ordem) - Number(b.ordem))
 const linhaIa = () => erros.filter((l) => l.startsWith('[IA]'))
+/** A opção do resgate como a conversa a monta: o nome, a data de criação e o estado da linha gravada. */
+const opcao = (l: Linha) => ({ id: String(l.id), nome: String(l.nome), criado_em: String(l.criado_em), estado: String(l.estado) })
+const opcoesDe = (...nomes: string[]) => nomes.map((n) => opcao(levantamentos().find((l) => l.nome === n) as Linha))
 
 /** As escolhas em palavras que fazem a DP-02 fechar em branco: "sem arremate interno" e "externo com folga de 50". */
 const ESCOLHAS_QUE_FECHAM = [{ variavel: 'ARI', opcao: 4 }, { variavel: 'MAE', opcao: 2 }]
@@ -531,8 +534,8 @@ describe('(1) O TESTE QUE VALE: pedidos seguidos do MESMO telefone, todos respon
         const itensAntes = JSON.stringify(estado.db.orcamentista_levantamento_item)
         llmResponde({ nome: 'Casa do João 2', itens: [{ ...DP02 }] })
         await chamar('Levantamento Casa do João 2: DP-02 1200 x 1000 branco temperado 5mm')
-        expect(ultimoEnviado()).toBe(conversa.fraseDoNomeParecido('Casa do João 2', ['Casa do João']))
-        expect(ultimoEnviado()).toContain('“Casa do João”')
+        expect(ultimoEnviado()).toBe(conversa.fraseDoNomeParecido('Casa do João 2', opcoesDe('Casa do João')))
+        expect(ultimoEnviado()).toContain('1) Casa do João')
         expect(levantamentos()).toHaveLength(1)
         expect(JSON.stringify(estado.db.orcamentista_levantamento_item)).toBe(itensAntes)
     })
@@ -1046,6 +1049,31 @@ describe('(12) decisão 2, revista: quem altera — o criador, ou o admin da emp
     }
     const alturaDe = (remetenteId: string) => itensDe(levantamentos().find((l) => l.remetente_id === remetenteId)?.id)[0]?.altura_mm
 
+    it('7d. o ADMIN acha o levantamento de OUTRO vendedor gravado COM o prefixo de antes ("Levantamento Casa do João") pelo nome puro (03/11/2026)', async () => {
+        await fecharDp02('Casa do João')
+        const casa = levantamentos()[0]
+        casa.nome = 'Levantamento Casa do João'
+        casa.nome_normalizado = 'levantamento casa do joao'
+        comPapel(OUTRO_VENDEDOR, 'admin')
+        await alterarAltura('casa do joao', doOutro)
+        expect(ultimoEnviado().startsWith('Apanhado do levantamento “Levantamento Casa do João”:')).toBe(true)
+        await confirmarApanhado(doOutro)
+        expect(levantamentos()).toHaveLength(1)
+        expect(alturaDe(VENDEDOR)).toBe(1200)
+    })
+
+    it('7e. o ADMIN confirma o apanhado de OUTRO vendedor dizendo o nome COM o prefixo ("sim, Levantamento Casa do João"): é o apanhado dele, não um levantamento novo do admin', async () => {
+        await fecharDp02('Casa do João')
+        comPapel(OUTRO_VENDEDOR, 'admin')
+        await alterarAltura('casa do joao', doOutro)
+        expect(ultimoEnviado().startsWith('Apanhado do levantamento “Casa do João”:')).toBe(true)
+        llmResponde({ nome: 'Levantamento Casa do João', confirma: true })
+        await chamar('sim, Levantamento Casa do João', doOutro)
+        expect(levantamentos()).toHaveLength(1)
+        expect(levantamentos()[0]).toEqual(expect.objectContaining({ remetente_id: VENDEDOR, nome: 'Casa do João', estado: 'COMPLETO' }))
+        expect(ultimoEnviado()).toMatch(/Total por consumo real \(perfis \+ mão de obra\): R\$ [\d.]+,\d{2}\./)
+    })
+
     it('5. o CRIADOR altera o próprio levantamento — permitido (o remetente de teste NÃO é admin: employees.user_id nulo)', async () => {
         await fecharDp02('Casa do João')
         await alterarAltura('casa do joao')
@@ -1237,9 +1265,10 @@ describe('(15) DEFEITO de 26/10/2026 (b0465e57, print do dono do produto): o nom
         estado.db.orcamentista_levantamento_item.push({ id: 'item-2', tenant_id: TENANT, levantamento_id: casa.id, ordem: 2, ...DP02, escolhas: null })
         const antes = enviados().length
         estado.llmPeloPrompt = (mensagem, sistema) => {
-            if (mensagem === MSG_1) return { nome: 'Levantamento Casa do João', itens: [{ ...DP02 }] }
-            // com a pergunta "é NOVO?" em aberto no prompt, "é o mesmo" aponta o levantamento citado nela
-            if (mensagem === 'é o mesmo') return fala(sistema, 'é um levantamento NOVO?') && fala(sistema, 'Casa do João') ? { nome: 'Casa do João' } : {}
+            // desde 03/11/2026 "Levantamento Casa do João" é IGUAL a "Casa do João" (o prefixo não conta); o nome PARECIDO do print é "Casa do João 2"
+            if (mensagem === MSG_1) return { nome: 'Casa do João 2', itens: [{ ...DP02 }] }
+            // com a lista do resgate em aberto no prompt, "é o mesmo" aponta o levantamento citado nela
+            if (mensagem === 'é o mesmo') return fala(sistema, 'pode ser este levantamento') && fala(sistema, 'Casa do João') ? { nome: 'Casa do João' } : {}
             // com uma pergunta em aberto no prompt, a mensagem que é só um nome É o nome (a regra do prompt). Antes
             // da decisão "Confirma antes" (26/10/2026) a pergunta aqui era a do nome; agora é a da confirmação
             if (mensagem === 'João medeiros') return fala(sistema, 'Pergunta em aberto:') ? { nome: 'João medeiros' } : {}
@@ -1252,7 +1281,7 @@ describe('(15) DEFEITO de 26/10/2026 (b0465e57, print do dono do produto): o nom
 
     it('a primeira resposta é a de antes: nome parecido, pergunta se é NOVO', async () => {
         const { respostas } = await oPrintInteiro()
-        expect(respostas[0]).toBe(conversa.fraseDoNomeParecido('Levantamento Casa do João', ['Casa do João']))
+        expect(respostas[0]).toBe(conversa.fraseDoNomeParecido('Casa do João 2', opcoesDe('Casa do João')))
     })
 
     it('(a) "é o mesmo" RESOLVE a ambiguidade: a pergunta do nome NÃO volta', async () => {
@@ -1283,7 +1312,7 @@ describe('(16) a PERGUNTA EM ABERTO do roteamento pelo nome (20261026000002): gu
     // Decisão do dono do produto, 26/10/2026: "nunca o texto da mensagem, só a pergunta feita, os levantamentos
     // citados e a proposta que espera resposta, apagada quando resolve." E "Confirma antes": a esquadria que veio
     // antes de o vendedor dizer o levantamento só entra num que já existe com o "sim" dele.
-    const MSG_1 = 'Levantamento Casa do João — janela de correr 2 folhas móveis Europa 42, 1200 x 1000 mm, 1 unidade, perfil branco, vidro 5mm.'
+    const MSG_1 = 'Levantamento Casa do João 2 — janela de correr 2 folhas móveis Europa 42, 1200 x 1000 mm, 1 unidade, perfil branco, vidro 5mm.'
     const fala = (sistema: string, trecho: string) => sistema.includes(trecho)
     const perguntas = () => estado.db.orcamentista_pergunta_em_aberto ?? []
     const escritasNaPergunta = () => estado.escritas.filter((e) => e.tabela === 'orcamentista_pergunta_em_aberto')
@@ -1292,8 +1321,8 @@ describe('(16) a PERGUNTA EM ABERTO do roteamento pelo nome (20261026000002): gu
     async function preparar(extra: (mensagem: string, sistema: string) => Proposta | null = () => null) {
         await fecharDp02('Casa do João')
         estado.llmPeloPrompt = (mensagem, sistema) => {
-            if (mensagem === MSG_1) return { nome: 'Levantamento Casa do João', itens: [{ ...DP02 }] }
-            if (mensagem === 'é o mesmo') return fala(sistema, 'é um levantamento NOVO?') ? { nome: 'Casa do João' } : {}
+            if (mensagem === MSG_1) return { nome: 'Casa do João 2', itens: [{ ...DP02 }] }
+            if (mensagem === 'é o mesmo') return fala(sistema, 'pode ser este levantamento') ? { nome: 'Casa do João' } : {}
             return extra(mensagem, sistema)
         }
         return levantamentos()[0]
@@ -1306,7 +1335,7 @@ describe('(16) a PERGUNTA EM ABERTO do roteamento pelo nome (20261026000002): gu
         const { criado_em, ...linha } = perguntas()[0]
         expect(typeof criado_em).toBe('string')
         expect(linha).toEqual({
-            tenant_id: TENANT, remetente_id: VENDEDOR, pergunta: 'NOME_PARECIDO', nome: 'Levantamento Casa do João',
+            tenant_id: TENANT, remetente_id: VENDEDOR, pergunta: 'NOME_PARECIDO', nome: 'Casa do João 2',
             levantamentos: [casa.id], itens: [{ ...DP02 }],
         })
     })
@@ -1372,10 +1401,12 @@ describe('(16) a PERGUNTA EM ABERTO do roteamento pelo nome (20261026000002): gu
     it('R2 no PARECIDO: o mesmo nome parecido de novo não repete a pergunta como se nada fosse', async () => {
         await preparar()
         await chamar(MSG_1)
-        const pergunta = conversa.fraseDoNomeParecido('Levantamento Casa do João', ['Casa do João'])
+        const pergunta = conversa.fraseDoNomeParecido('Casa do João 2', opcoesDe('Casa do João'))
         expect(ultimoEnviado()).toBe(pergunta)
         await chamar(MSG_1)
-        expect(ultimoEnviado()).toBe(conversa.fraseDeNaoRegistrei(pergunta))
+        // em OUTRAS palavras, com a mesma lista — nunca "Não consegui registrar" (dono do produto, 03/11/2026)
+        expect(ultimoEnviado()).toBe(conversa.fraseDoResgateEmOutrasPalavras('Casa do João 2', opcoesDe('Casa do João')))
+        expect(ultimoEnviado()).not.toContain('Não consegui registrar')
     })
 
     it('a pergunta vai ao prompt; a que cita um levantamento que não existe mais NÃO vai, e o nome fora do texto não é aceito', async () => {
@@ -1384,8 +1415,8 @@ describe('(16) a PERGUNTA EM ABERTO do roteamento pelo nome (20261026000002): gu
         await chamar(MSG_1)
         await chamar('oi')
         // com o levantamento citado existindo, a pergunta está no prompt
-        expect(prompts[0]).toContain(`Pergunta em aberto: ${conversa.fraseDoNomeParecido('Levantamento Casa do João', ['Casa do João'])}`)
-        estado.db.orcamentista_pergunta_em_aberto = [{ ...perguntas()[0], pergunta: 'NOME_PARECIDO', nome: 'Levantamento Casa do João', levantamentos: ['levantamento-que-sumiu'] }]
+        expect(prompts[0]).toContain(`Pergunta em aberto: ${conversa.fraseDoNomeParecido('Casa do João 2', opcoesDe('Casa do João'))}`)
+        estado.db.orcamentista_pergunta_em_aberto = [{ ...perguntas()[0], pergunta: 'NOME_PARECIDO', nome: 'Casa do João 2', levantamentos: ['levantamento-que-sumiu'] }]
         await chamar('oi')
         expect(prompts[1]).not.toContain('Pergunta em aberto:')
         expect(ultimoEnviado()).toBe(conversa.FRASE_SEM_NOME)
@@ -1396,7 +1427,7 @@ describe('(16) a PERGUNTA EM ABERTO do roteamento pelo nome (20261026000002): gu
         estado.ausentes.add('orcamentista_pergunta_em_aberto')
         const antes = escritasNaPergunta().length
         await chamar(MSG_1)
-        expect(ultimoEnviado()).toBe(conversa.fraseDoNomeParecido('Levantamento Casa do João', ['Casa do João']))
+        expect(ultimoEnviado()).toBe(conversa.fraseDoNomeParecido('Casa do João 2', opcoesDe('Casa do João')))
         await chamar('é o mesmo')
         // sem a pergunta guardada, o prompt não a tem: é o comportamento de antes, com o laço de 26/10
         expect(ultimoEnviado()).toBe(conversa.FRASE_SEM_NOME)
@@ -1412,7 +1443,7 @@ describe('(16) a PERGUNTA EM ABERTO do roteamento pelo nome (20261026000002): gu
         await chamar('oi')
         const marcas = linhaIa().slice(-4).map((l) => /\bnome=(\S+)/.exec(l)?.[1])
         expect(marcas).toEqual(['veio', 'da_pergunta', 'fora_do_texto', 'faltou'])
-        for (const l of linhaIa()) for (const nome of ['Casa do João', 'Levantamento Casa do João', 'Casa Verde']) expect(l.includes(nome)).toBe(false)
+        for (const l of linhaIa()) for (const nome of ['Casa do João', 'Casa do João 2', 'Casa Verde']) expect(l.includes(nome)).toBe(false)
     })
 })
 
@@ -1872,7 +1903,7 @@ describe('(21) o PROMPT BASE abre o sistema de toda empresa, e o contexto da emp
             'AS DUAS ETAPAS', 'LEVANTAMENTO', 'PERFIS E MATERIAIS',
             'NUNCA escreva valor nem percentual',
             'NUNCA pergunte "qual a tipologia"', 'identificar a tipologia é trabalho SEU',
-            '"Cliente: Geronimo Silva" é o levantamento "Levantamento Geronimo Silva"',
+            '"Cliente: Geronimo Silva" é o levantamento "Geronimo Silva"',
             'de correr sem o número de folhas dito é de 2 folhas em 2 trilhos',
             'NUNCA assuma medida que falta',
             'NUNCA pergunte antes de ler a mensagem inteira do vendedor',
@@ -1972,24 +2003,25 @@ describe('(22) a tipologia se pergunta em linguagem de obra, e a resposta que n�
 // ═══════════════════════════════════════════════════════════════════════════════════════════
 /**
  * (23) O NOME SAI DO CLIENTE (dono do produto, 03/11/2026): "'Cliente: Geronimo Silva' basta para o nome ser 'Levantamento
- * Geronimo Silva', sem perguntar. Só pergunte quando não houver cliente em lugar nenhum da conversa."
+ * Geronimo Silva', sem perguntar. Só pergunte quando não houver cliente em lugar nenhum da conversa." E, no mesmo dia, o prefixo
+ * SAIU: "O nome do levantamento é o nome do cliente, puro: 'Geronimo Silva'."
  */
 describe('(23) o nome do levantamento é o do cliente', () => {
     const MSG = 'Cliente: Geronimo Silva. DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm'
 
-    it('"Cliente: Geronimo Silva" cria o "Levantamento Geronimo Silva", sem perguntar o nome — e o log diz nome=do_cliente', async () => {
+    it('"Cliente: Geronimo Silva" cria o "Geronimo Silva" — puro, sem o prefixo —, sem perguntar o nome; e o log diz nome=do_cliente', async () => {
         llmResponde({ cliente: 'Geronimo Silva', itens: [{ ...DP02 }], escolhas: ESCOLHAS_QUE_FECHAM })
         await chamar(MSG)
-        expect(levantamentos().map((l) => l.nome)).toEqual(['Levantamento Geronimo Silva'])
+        expect(levantamentos().map((l) => l.nome)).toEqual(['Geronimo Silva'])
         expect(enviados()).not.toContain(conversa.FRASE_SEM_NOME)
-        expect(ultimoEnviado().startsWith('Apanhado do levantamento “Levantamento Geronimo Silva”:')).toBe(true)
+        expect(ultimoEnviado().startsWith('Apanhado do levantamento “Geronimo Silva”:')).toBe(true)
         expect(linhaIa().pop()).toContain(' nome=do_cliente ')
     })
 
-    it('a IA que já escreveu "Levantamento <cliente>" no nome, com o cliente no texto: vale igual', async () => {
+    it('a IA que escreveu "Levantamento <cliente>" no nome, com o cliente no texto: vale igual, e o prefixo cai', async () => {
         llmResponde({ nome: 'Levantamento Geronimo Silva', itens: [{ ...DP02 }], escolhas: ESCOLHAS_QUE_FECHAM })
         await chamar(MSG)
-        expect(levantamentos().map((l) => l.nome)).toEqual(['Levantamento Geronimo Silva'])
+        expect(levantamentos().map((l) => l.nome)).toEqual(['Geronimo Silva'])
     })
 
     it('o cliente que NÃO está no texto é inventado: pergunta o cliente, e não cria nada', async () => {
@@ -2003,7 +2035,8 @@ describe('(23) o nome do levantamento é o do cliente', () => {
     it('o nome dito vence o cliente; e o cliente de um levantamento que já existe é ALTERAÇÃO dele', async () => {
         llmResponde({ nome: 'Levantamento Obra Centro', cliente: 'Geronimo Silva', itens: [{ ...DP02 }], escolhas: ESCOLHAS_QUE_FECHAM })
         await chamar(`Levantamento Obra Centro. ${MSG}`)
-        expect(levantamentos().map((l) => l.nome)).toEqual(['Levantamento Obra Centro'])
+        // o nome dito com o prefixo é gravado sem ele (03/11/2026)
+        expect(levantamentos().map((l) => l.nome)).toEqual(['Obra Centro'])
         montar()
         llmResponde({ cliente: 'Geronimo Silva', itens: [{ ...DP02 }], escolhas: ESCOLHAS_QUE_FECHAM })
         await chamar(MSG)
@@ -2019,7 +2052,7 @@ describe('(23) o nome do levantamento é o do cliente', () => {
         expect(ultimoEnviado()).toBe(conversa.FRASE_SEM_NOME)
         llmResponde({ cliente: 'Geronimo Silva' })
         await chamar('Geronimo Silva')
-        expect(levantamentos().map((l) => l.nome)).toEqual(['Levantamento Geronimo Silva'])
+        expect(levantamentos().map((l) => l.nome)).toEqual(['Geronimo Silva'])
         expect(itensDe(levantamentos()[0].id)).toEqual([expect.objectContaining({ ordem: 1, ...DP02 })])
     })
 })
@@ -2157,7 +2190,7 @@ describe('(24) porta não é janela, quantidade padrão 1, os limites e o agrupa
         ] })
         await chamar(GERONIMO)
         expect(ultimoEnviado()).toBe(`Esquadria 2: ${TC.fraseDaAberturaRecusada('porta')}`)
-        expect(levantamentos()[0].nome).toBe('Levantamento Geronimo Silva')
+        expect(levantamentos()[0].nome).toBe('Geronimo Silva')
         expect(item(0)).toEqual(expect.objectContaining({ tipologia: 'DP-02', largura_mm: 1500, altura_mm: 1200, quantidade: 1 }))
         expect(item(1)).toEqual(expect.objectContaining({ tipologia: null, largura_mm: 2500, altura_mm: 2400, quantidade: 1, cor_perfil: 'BRANCO' }))
         expect(enviados().join('\n')).not.toContain(PERGUNTA_DO_CAMPO.quantidade)
@@ -2281,5 +2314,300 @@ describe('(24) porta não é janela, quantidade padrão 1, os limites e o agrupa
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { PROMPT_BASE } = require('@/utils/atendimentos-ia-prompt-base') as typeof import('@/utils/atendimentos-ia-prompt-base')
         for (const regra of ['NUNCA troque porta por janela', 'NUNCA escolha tipologia em que a medida dita não cabe', 'Quantidade não dita é 1: assuma e não pergunte quantas.']) expect(PROMPT_BASE).toContain(regra)
+    })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+/**
+ * (25) O RESGATE DO LEVANTAMENTO ANTIGO E O CONTEXTO QUE NÃO SE PERDE (dono do produto, 03/11/2026). O caso real da De Paula (16:30 a 16:34 UTC):
+ * "Cliente: Geronimo Silva" com duas esquadrias caiu em NOME PARECIDO (o prefixo "Levantamento" do nome do cliente contra o "Geronimo Silva"
+ * gravado), "Geison Silva novo" não virou nome (a IA só mandou `novo`), e as esquadrias ficaram retidas numa pergunta que a resposta não citava.
+ * As decisões: o prefixo sai e a comparação o ignora; as retidas nunca se perdem; o nome vem em resposta livre; o resgate é conversa — até 3,
+ * numerados, do mais recente ao mais antigo, com data e estado; o vendedor responde do jeito dele, o código confirma numa frase curta e segue.
+ */
+describe('(25) o resgate do levantamento antigo e o contexto que não se perde (03/11/2026)', () => {
+    const JANELA = { tipologia: 'DP-02', largura_mm: 1500, altura_mm: 1200, vidro: 'Vidro comum 4 mm' }
+    const PORTA = { tipologia: 'DP-100', largura_mm: 2500, altura_mm: 2400, vidro: 'Vidro comum 8 mm' }
+    const MSG_GERONIMO = 'Janela de correr 1,50x1,20 vidro 4mm / porta janela 2,50x2,40 vidro 8mm / Cliente: Geronimo Silva'
+    const perguntas = () => estado.db.orcamentista_pergunta_em_aberto ?? []
+    const porNome = (n: string) => levantamentos().find((l) => l.nome === n) as Linha
+    const TOM_PROIBIDO = /responda: |exatamente como|Não consegui registrar/
+
+    /** Quatro levantamentos "Geronimo …", COMPLETOS, do mais antigo ao mais recente: Silva, Souza, Lima, Costa. */
+    async function quatroGeronimos() {
+        for (const n of ['Geronimo Silva', 'Geronimo Souza', 'Geronimo Lima', 'Geronimo Costa']) await fecharDp02(n)
+        expect(levantamentos()).toHaveLength(4)
+    }
+    /** "Cliente: Geronimo" com uma esquadria: PARECIDO com os quatro — a lista do resgate. */
+    async function abrirAListaDoResgate() {
+        llmResponde({ cliente: 'Geronimo', itens: [{ ...JANELA }] })
+        await chamar('Cliente: Geronimo. Janela de correr 1,50x1,20 vidro 4mm')
+    }
+
+    it('DECISÃO 1 — o caso real: "Cliente: Geronimo Silva" com o "Geronimo Silva" já gravado é IGUAL, não parecido: as esquadrias entram nele, sem pergunta de nome', async () => {
+        await fecharDp02('Geronimo Silva')
+        llmResponde({ cliente: 'Geronimo Silva', itens: [{ ...JANELA, abertura: 'janela' }, { ...PORTA, abertura: 'porta' }] })
+        await chamar(MSG_GERONIMO)
+        expect(levantamentos().map((l) => l.nome)).toEqual(['Geronimo Silva'])
+        expect(itensDe(levantamentos()[0].id)).toHaveLength(3)
+        expect(enviados().some((e) => e.includes('pode ser'))).toBe(false)
+        expect(linhaIa().pop()).toMatch(/ rota=ALTERACAO .* nome=do_cliente /)
+    })
+
+    it('DECISÃO 1 — o levantamento de antes, gravado COM o prefixo, é IGUAL ao nome do cliente sem ele; e nenhum nome novo ganha o prefixo', async () => {
+        await fecharDp02('Casa do João')
+        const casa = levantamentos()[0]
+        casa.nome = 'Levantamento Casa do João'
+        casa.nome_normalizado = 'levantamento casa do joao'
+        llmResponde({ cliente: 'Casa do João', alteracao: true, itens: [{ altura_mm: 1300 }] })
+        await chamar('Cliente: Casa do João, troca a altura para 1300')
+        expect(levantamentos()).toHaveLength(1)
+        expect(itensDe(casa.id)[0].altura_mm).toBe(1300)
+        montar()
+        llmResponde({ nome: 'Levantamento Sítio Verde', itens: [{ ...DP02 }], escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar('Levantamento Sítio Verde: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50')
+        expect(levantamentos().map((l) => [l.nome, l.nome_normalizado])).toEqual([['Sítio Verde', 'sitio verde']])
+    })
+
+    it('DECISÃO 4 — a lista do resgate: no máximo 3, do mais recente ao mais antigo, cada um com data e estado; a ordem gravada é a numeração', async () => {
+        await quatroGeronimos()
+        await abrirAListaDoResgate()
+        const esperadas = opcoesDe('Geronimo Costa', 'Geronimo Lima', 'Geronimo Souza')
+        expect(ultimoEnviado()).toBe(conversa.fraseDoNomeParecido('Geronimo', esperadas))
+        expect(ultimoEnviado()).toContain('1) Geronimo Costa — 24/10/2026, completo')
+        expect(ultimoEnviado()).toContain('3) Geronimo Souza — 24/10/2026, completo')
+        expect(ultimoEnviado()).not.toContain('Geronimo Silva')
+        expect(ultimoEnviado()).not.toMatch(TOM_PROIBIDO)
+        expect(perguntas()).toEqual([expect.objectContaining({ pergunta: 'NOME_PARECIDO', nome: 'Geronimo', levantamentos: esperadas.map((o) => o.id), itens: [{ ...JANELA }] })])
+        expect(levantamentos()).toHaveLength(4)
+    })
+
+    it('"o primeiro" → a IA aponta a opção 1 → o código CONFIRMA numa frase curta; "sim" segue e as esquadrias retidas entram — sem segunda confirmação', async () => {
+        await quatroGeronimos()
+        await abrirAListaDoResgate()
+        const costa = porNome('Geronimo Costa')
+        llmResponde({ opcao: 1 })
+        await chamar('o primeiro')
+        expect(ultimoEnviado()).toBe(conversa.fraseDeConfirmarResgate(opcao(costa)))
+        expect(ultimoEnviado()).toBe('Então é o “Geronimo Costa”, de 24/10/2026, certo?')
+        expect(perguntas()).toEqual([expect.objectContaining({ pergunta: 'CONFIRMAR_ACRESCIMO', nome: 'Geronimo', levantamentos: [costa.id, porNome('Geronimo Lima').id, porNome('Geronimo Souza').id], itens: [{ ...JANELA }] })])
+        expect(linhaIa().pop()).toMatch(/ rota=RESGATE .*desfecho=confirmar-resgate nome=da_pergunta /)
+        expect(itensDe(costa.id)).toHaveLength(1)
+        llmResponde({ confirma: true })
+        await chamar('sim')
+        expect(itensDe(costa.id)).toHaveLength(2)
+        expect(itensDe(costa.id)[1]).toEqual(expect.objectContaining({ ordem: 2, ...JANELA }))
+        expect(enviados().filter((e) => e.startsWith('Vou acrescentar'))).toEqual([])
+        // a janela retida não tinha cor: o levantamento fica em montagem, a pergunta do resgate se resolveu, e a conversa segue na cor
+        expect(perguntas()).toEqual([])
+        expect(porNome('Geronimo Costa').estado).toBe('EM_MONTAGEM')
+        expect(ultimoEnviado()).toContain(PERGUNTA_DO_CAMPO.cor_perfil)
+    })
+
+    it('"é o do Lima": a IA manda a opção E o nome parecido ("Lima") — a opção vence, e a confirmação é do Lima', async () => {
+        await quatroGeronimos()
+        await abrirAListaDoResgate()
+        llmResponde({ opcao: 2, nome: 'Lima' })
+        await chamar('é o do Lima')
+        expect(ultimoEnviado()).toBe(conversa.fraseDeConfirmarResgate(opcao(porNome('Geronimo Lima'))))
+    })
+
+    it('com a confirmação em aberto, a IA recebe a lista de novo e a data de hoje — "não, é o de ontem" tem a que se referir', async () => {
+        await quatroGeronimos()
+        await abrirAListaDoResgate()
+        llmResponde({ opcao: 1 })
+        await chamar('o primeiro')
+        const prompts: string[] = []
+        estado.llmPeloPrompt = (_m, sistema) => { prompts.push(sistema); return { confirma: true } }
+        await chamar('sim')
+        expect(prompts[0]).toContain(`Hoje é ${conversa.dataBR(new Date().toISOString())}.`)
+        expect(prompts[0]).toContain('Pergunta em aberto: Então é o “Geronimo Costa”, de 24/10/2026, certo? (Os levantamentos parecidos com “Geronimo” eram: 1) Geronimo Costa — 24/10/2026, completo; 2) Geronimo Lima — 24/10/2026, completo; 3) Geronimo Souza — 24/10/2026, completo.)')
+        // sem resgate em aberto, a data não vai (o pedido sem contexto continua o da fixture)
+        montar()
+        const prompts2: string[] = []
+        estado.llmPeloPrompt = (_m, sistema) => { prompts2.push(sistema); return {} }
+        await chamar('oi')
+        expect(prompts2[0]).not.toContain('Hoje é')
+    })
+
+    it('"não" à confirmação: a lista volta sem o recusado; "o 2" aponta na lista NOVA; e, sem sobrar nenhum, pergunta o cliente novo', async () => {
+        await quatroGeronimos()
+        await abrirAListaDoResgate()
+        llmResponde({ opcao: 1 })
+        await chamar('o primeiro')
+        llmResponde({ confirma: false })
+        await chamar('não')
+        const costa = opcao(porNome('Geronimo Costa'))
+        const outras = opcoesDe('Geronimo Lima', 'Geronimo Souza')
+        expect(ultimoEnviado()).toBe(conversa.fraseDoResgateRecusado(costa, outras))
+        expect(ultimoEnviado()).toContain('1) Geronimo Lima')
+        expect(perguntas()).toEqual([expect.objectContaining({ pergunta: 'NOME_PARECIDO', nome: 'Geronimo', levantamentos: outras.map((o) => o.id), itens: [{ ...JANELA }] })])
+        llmResponde({ opcao: 2 })
+        await chamar('o 2')
+        expect(ultimoEnviado()).toBe(conversa.fraseDeConfirmarResgate(opcao(porNome('Geronimo Souza'))))
+        // com uma só na lista, o "não" leva ao cliente novo
+        montar()
+        await fecharDp02('Geronimo Silva')
+        await abrirAListaDoResgate()
+        llmResponde({ opcao: 1 })
+        await chamar('esse')
+        llmResponde({ confirma: false })
+        await chamar('não')
+        expect(ultimoEnviado()).toBe(conversa.fraseDoResgateRecusado(opcao(porNome('Geronimo Silva')), []))
+        expect(perguntas()).toEqual([expect.objectContaining({ pergunta: 'SEM_NOME', itens: [{ ...JANELA }] })])
+    })
+
+    it('DECISÃO 3 — "Geison Silva novo" com a lista em aberto: o nome vem em resposta livre, e o levantamento novo nasce com as esquadrias retidas', async () => {
+        await quatroGeronimos()
+        await abrirAListaDoResgate()
+        llmResponde({ nome: 'Geison Silva', novo: true })
+        await chamar('Geison Silva novo')
+        const geison = porNome('Geison Silva')
+        expect(geison).toBeDefined()
+        expect(itensDe(geison.id)).toEqual([expect.objectContaining({ ordem: 1, ...JANELA })])
+        expect(linhaIa().pop()).toMatch(/ rota=NOVO .* nome=veio /)
+        expect(enviados().filter((e) => e === conversa.FRASE_SEM_NOME)).toEqual([])
+    })
+
+    it('DECISÃO 3 — as palavras do nome no texto bastam, em qualquer ordem e forma: "é o Geison Silva" e "novo: Geison Silva"; o nome que não está no texto continua inventado', async () => {
+        llmResponde({ itens: [{ ...JANELA }] })
+        await chamar('Janela de correr 1,50x1,20 vidro 4mm')
+        expect(ultimoEnviado()).toBe(conversa.FRASE_SEM_NOME)
+        llmResponde({ cliente: 'Geison Silva' })
+        await chamar('é o Geison Silva')
+        expect(porNome('Geison Silva')).toBeDefined()
+        montar()
+        llmResponde({ itens: [{ ...JANELA }] })
+        await chamar('Janela de correr 1,50x1,20 vidro 4mm')
+        llmResponde({ nome: 'Geison Silva', novo: true })
+        await chamar('novo: Geison Silva')
+        expect(porNome('Geison Silva')).toBeDefined()
+        montar()
+        llmResponde({ itens: [{ ...JANELA }] })
+        await chamar('Janela de correr 1,50x1,20 vidro 4mm')
+        llmResponde({ cliente: 'Maria Souza' })
+        await chamar('é o Geison Silva')
+        expect(levantamentos()).toEqual([])
+        expect(ultimoEnviado()).not.toBe(conversa.FRASE_SEM_NOME)
+        expect(conversa.OUTRAS_PERGUNTAS_DO_NOME).toContain(ultimoEnviado())
+    })
+
+    it('DECISÃO 2 — as retidas NUNCA se perdem: a resposta com o nome E uma esquadria nova grava as retidas MAIS a nova', async () => {
+        llmResponde({ itens: [{ ...JANELA }, { ...PORTA }] })
+        await chamar('Janela de correr 1,50x1,20 vidro 4mm / porta janela 2,50x2,40 vidro 8mm')
+        expect(perguntas()).toEqual([expect.objectContaining({ pergunta: 'SEM_NOME', itens: [{ ...JANELA }, { ...PORTA }] })])
+        llmResponde({ cliente: 'Geison Silva', itens: [{ tipologia: 'DP-01', largura_mm: 600, altura_mm: 600 }] })
+        await chamar('Cliente: Geison Silva, e mais um maxim-ar 600x600')
+        const geison = porNome('Geison Silva')
+        expect(itensDe(geison.id).map((i) => [i.ordem, i.tipologia, i.largura_mm])).toEqual([[1, 'DP-02', 1500], [2, 'DP-100', 2500], [3, 'DP-01', 600]])
+        expect(perguntas().filter((q) => q.pergunta === 'SEM_NOME')).toEqual([])
+    })
+
+    it('DECISÃO 2 — o caso real da mensagem 3: as mesmas duas esquadrias reenviadas com a pergunta aberta contam UMA vez, e o log diz reenviadas=2', async () => {
+        llmResponde({ itens: [{ ...JANELA }, { ...PORTA }] })
+        await chamar('Janela de correr 1,50x1,20 vidro 4mm / porta janela 2,50x2,40 vidro 8mm')
+        llmResponde({ itens: [{ ...JANELA }, { ...PORTA }] })
+        await chamar('Janela de correr 1,50x1,20 vidro 4mm / porta janela 2,50x2,40 vidro 8mm')
+        expect(perguntas()).toEqual([expect.objectContaining({ pergunta: 'SEM_NOME', itens: [{ ...JANELA }, { ...PORTA }] })])
+        expect(linhaIa().pop()).toMatch(/ reenviadas=2(\s|$)/)
+        // a que difere num campo acumula
+        llmResponde({ itens: [{ ...JANELA, vidro: 'Vidro comum 6 mm' }] })
+        await chamar('a janela é vidro 6mm')
+        expect(perguntas()[0].itens).toEqual([{ ...JANELA }, { ...PORTA }, { ...JANELA, vidro: 'Vidro comum 6 mm' }])
+        expect(linhaIa().pop()).not.toContain('reenviadas=')
+    })
+
+    it('TOM — a resposta que não aponta nenhum devolve a lista em outras palavras; a confirmação repetida também; nunca "Não consegui registrar" nem forma ditada', async () => {
+        await quatroGeronimos()
+        await abrirAListaDoResgate()
+        const lista = opcoesDe('Geronimo Costa', 'Geronimo Lima', 'Geronimo Souza')
+        llmResponde({})
+        await chamar('hmm')
+        expect(ultimoEnviado()).toBe(conversa.fraseDoResgateEmOutrasPalavras('Geronimo', lista))
+        llmResponde({ opcao: 1 })
+        await chamar('o primeiro')
+        llmResponde({})
+        await chamar('?')
+        expect(ultimoEnviado()).toBe(conversa.fraseDeConfirmarResgateEmOutrasPalavras(opcao(porNome('Geronimo Costa'))))
+        for (const e of enviados()) expect(e).not.toMatch(TOM_PROIBIDO)
+        for (const f of [conversa.FRASE_SEM_NOME, conversa.fraseDeNaoEncontrei('X'), conversa.fraseDeNaoEncontreiNaEmpresa('X'), conversa.fraseDoNomeQueJaExiste('X'), conversa.fraseDeConfirmarAcrescimoEmOutrasPalavras('X')]) expect(f).not.toMatch(TOM_PROIBIDO)
+    })
+
+    it('a `opcao` fora da lista não aponta nada: com a lista em aberto, volta a lista em outras palavras — nada é gravado', async () => {
+        await quatroGeronimos()
+        await abrirAListaDoResgate()
+        llmResponde({ opcao: 7 })
+        await chamar('o sétimo')
+        expect(ultimoEnviado()).toBe(conversa.fraseDoResgateEmOutrasPalavras('Geronimo', opcoesDe('Geronimo Costa', 'Geronimo Lima', 'Geronimo Souza')))
+        expect(levantamentos()).toHaveLength(4)
+        expect(levantamentos().every((l) => itensDe(l.id).length === 1)).toBe(true)
+    })
+
+    it('o nome EXATO de um da lista, dito pelo vendedor, segue como antes (confirmação do acréscimo), sem passar pela confirmação do resgate', async () => {
+        await quatroGeronimos()
+        await abrirAListaDoResgate()
+        llmResponde({ nome: 'Geronimo Lima' })
+        await chamar('Geronimo Lima')
+        expect(ultimoEnviado()).toBe(conversa.fraseDeConfirmarAcrescimo('Geronimo Lima', 1, [{ ...JANELA }]))
+    })
+
+    it('"é o do Lima" grava a confirmação com o ESCOLHIDO primeiro e os outros depois — é o que a confirmação relê', async () => {
+        await quatroGeronimos()
+        await abrirAListaDoResgate()
+        llmResponde({ opcao: 2 })
+        await chamar('é o do Lima')
+        expect(perguntas()).toEqual([expect.objectContaining({ pergunta: 'CONFIRMAR_ACRESCIMO', nome: 'Geronimo', levantamentos: [porNome('Geronimo Lima').id, porNome('Geronimo Costa').id, porNome('Geronimo Souza').id] })])
+        llmResponde({ confirma: true })
+        await chamar('sim')
+        expect(itensDe(porNome('Geronimo Lima').id)).toHaveLength(2)
+        expect(itensDe(porNome('Geronimo Costa').id)).toHaveLength(1)
+    })
+
+    it('o escolhido da confirmação que sumiu do banco: a pergunta não vale mais, e o "sim" não cai no citado seguinte', async () => {
+        await quatroGeronimos()
+        await abrirAListaDoResgate()
+        llmResponde({ opcao: 1 })
+        await chamar('o primeiro')
+        const costa = porNome('Geronimo Costa')
+        estado.db.orcamentista_levantamento = levantamentos().filter((l) => l.id !== costa.id)
+        llmResponde({ confirma: true })
+        await chamar('sim')
+        expect(levantamentos().every((l) => itensDe(l.id).length === 1)).toBe(true)
+        expect(ultimoEnviado()).toBe(conversa.FRASE_SEM_NOME)
+    })
+
+    it('a resposta "é o mesmo" aponta o citado da lista gravado COM o prefixo de antes, pelo nome puro (o prefixo não conta na pergunta)', async () => {
+        await fecharDp02('Casa do João')
+        const casa = levantamentos()[0]
+        casa.nome = 'Levantamento Casa do João'
+        casa.nome_normalizado = 'levantamento casa do joao'
+        llmResponde({ nome: 'Casa do João 2', itens: [{ ...DP02 }] })
+        await chamar('Levantamento Casa do João 2: DP-02 1200 x 1000 branco temperado 5mm')
+        expect(ultimoEnviado()).toBe(conversa.fraseDoNomeParecido('Casa do João 2', opcoesDe('Levantamento Casa do João')))
+        llmResponde({ nome: 'Casa do João' })
+        await chamar('é o mesmo')
+        expect(ultimoEnviado()).toBe(conversa.fraseDeConfirmarAcrescimo('Levantamento Casa do João', 1, [{ ...DP02 }]))
+        expect(linhaIa().pop()).toContain(' nome=da_pergunta ')
+    })
+
+    it('o apanhado em aberto: "sim, Levantamento Geronimo Silva" (com o prefixo) é o "sim" do apanhado do Geronimo Silva — vem o formal, com preço', async () => {
+        llmResponde({ cliente: 'Geronimo Silva', itens: [{ ...DP02 }], escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar('Cliente: Geronimo Silva. DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50')
+        expect(ultimoEnviado().startsWith('Apanhado do levantamento “Geronimo Silva”:')).toBe(true)
+        llmResponde({ nome: 'Levantamento Geronimo Silva', confirma: true })
+        await chamar('sim, Levantamento Geronimo Silva')
+        expect(ultimoEnviado()).toMatch(/Total por barra inteira \(perfis \+ mão de obra\): R\$ [\d.]+,\d{2}\./)
+        expect(levantamentos()).toHaveLength(1)
+        expect(perguntas()).toEqual([])
+    })
+
+    it('juntarEsquadrias, pura: retidas primeiro, a idêntica conta uma vez, a que difere ou sem campos de esquadria fica', () => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { juntarEsquadrias } = require('@/lib/atendimentos-ia/pergunta-em-aberto') as typeof import('@/lib/atendimentos-ia/pergunta-em-aberto')
+        const r = juntarEsquadrias([{ ...JANELA }], [{ ...JANELA, ordem: 2, abertura: 'janela' }, { ...PORTA }, { ordem: 1, familia: 'PVC' }, 'lixo'])
+        expect(r.reenviadas).toBe(1)
+        expect(r.itens).toEqual([{ ...JANELA }, { ...PORTA }, { ordem: 1, familia: 'PVC' }, 'lixo'])
+        expect(juntarEsquadrias([], [{ ...JANELA }])).toEqual({ itens: [{ ...JANELA }], reenviadas: 0 })
+        expect(juntarEsquadrias([{ ...JANELA }], [])).toEqual({ itens: [{ ...JANELA }], reenviadas: 0 })
     })
 })

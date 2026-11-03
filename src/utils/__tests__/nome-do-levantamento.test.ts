@@ -109,13 +109,13 @@ describe('(3) nomeDaMensagem — o nome que a IA leu tem de estar no texto do ve
 
 describe('(4) nomeDoCliente — o nome do levantamento sai do cliente que está no texto (dono do produto, 03/11/2026)', () => {
     const texto = 'Cliente: Geronimo Silva. DP-02 1200 x 1000'
-    it('o cliente no texto vira "Levantamento <cliente>"', () => {
-        expect(N().nomeDoCliente({ cliente: 'Geronimo Silva' }, texto)).toBe('Levantamento Geronimo Silva')
-        expect(N().nomeDoCliente({ cliente: 'geronimo silva' }, texto)).toBe('Levantamento geronimo silva')
+    it('o cliente no texto é o nome, PURO — o prefixo "Levantamento" saiu (dono do produto, 03/11/2026)', () => {
+        expect(N().nomeDoCliente({ cliente: 'Geronimo Silva' }, texto)).toBe('Geronimo Silva')
+        expect(N().nomeDoCliente({ cliente: 'geronimo silva' }, texto)).toBe('geronimo silva')
     })
-    it('o "Levantamento <cliente>" que a IA já escreveu no nome vale com o cliente no texto, sem prefixo dobrado', () => {
-        expect(N().nomeDoCliente({ nome: 'Levantamento Geronimo Silva' }, texto)).toBe('Levantamento Geronimo Silva')
-        expect(N().nomeDoCliente({ cliente: 'Levantamento Geronimo Silva' }, 'levantamento geronimo silva')).toBe('Levantamento Geronimo Silva')
+    it('o "Levantamento <cliente>" que a IA escreveu no nome vale com o cliente no texto, e o prefixo cai', () => {
+        expect(N().nomeDoCliente({ nome: 'Levantamento Geronimo Silva' }, texto)).toBe('Geronimo Silva')
+        expect(N().nomeDoCliente({ cliente: 'Levantamento Geronimo Silva' }, 'levantamento geronimo silva')).toBe('Geronimo Silva')
     })
     it('o cliente fora do texto, sem letra ou vazio não vale', () => {
         expect(N().nomeDoCliente({ cliente: 'Maria Souza' }, texto)).toBeNull()
@@ -127,5 +127,50 @@ describe('(4) nomeDoCliente — o nome do levantamento sai do cliente que está 
     })
     it('o nome que não começa com "Levantamento" não é tomado como cliente', () => {
         expect(N().nomeDoCliente({ nome: 'Casa do Geronimo' }, 'Cliente: Geronimo')).toBeNull()
+    })
+})
+
+describe('(5) o prefixo "Levantamento" saiu (dono do produto, 03/11/2026): a comparação o ignora nos dois lados, e ele não se grava mais', () => {
+    it.each([
+        ['Levantamento Geronimo Silva', 'geronimo silva'],
+        ['levantamento   Geronimo Silva', 'geronimo silva'],
+        ['Geronimo Silva', 'geronimo silva'],
+        ['Levantamentos do Geronimo', 'levantamentos do geronimo'],
+        ['Levantamento', 'levantamento'],
+    ])('formaComparavel("%s") = "%s"', (nome, esperada) => {
+        expect(N().formaComparavel(nome)).toBe(esperada)
+    })
+
+    it('nomeSemPrefixo tira o prefixo do que se grava, e deixa o resto como o vendedor escreveu', () => {
+        expect(N().nomeSemPrefixo('Levantamento Geronimo Silva')).toBe('Geronimo Silva')
+        expect(N().nomeSemPrefixo('  Casa do João ')).toBe('Casa do João')
+        expect(N().nomeSemPrefixo('Levantamentos do Geronimo')).toBe('Levantamentos do Geronimo')
+    })
+
+    it('o caso real: "Levantamento Geronimo Silva" (o nome do cliente de antes) é IGUAL ao "Geronimo Silva" gravado — e vice-versa', () => {
+        const gravadoSem = [{ id: 'g', nome: 'Geronimo Silva', nome_normalizado: 'geronimo silva' }]
+        const gravadoCom = [{ id: 'g', nome: 'Levantamento Geronimo Silva', nome_normalizado: 'levantamento geronimo silva' }]
+        expect(N().compararNome('Levantamento Geronimo Silva', gravadoSem)).toEqual({ tipo: 'IGUAL', existente: gravadoSem[0] })
+        expect(N().compararNome('Geronimo Silva', gravadoCom)).toEqual({ tipo: 'IGUAL', existente: gravadoCom[0] })
+        expect(N().compararNome('Geronimo', gravadoCom)).toEqual({ tipo: 'PARECIDO', existentes: [gravadoCom[0]] })
+        // o PARECIDO por distância também ignora o prefixo do gravado: "Geronimo Silvo" está a 1 de "geronimo silva", não a 14 de "levantamento geronimo silva"
+        expect(N().compararNome('Geronimo Silvo', gravadoCom)).toEqual({ tipo: 'PARECIDO', existentes: [gravadoCom[0]] })
+    })
+})
+
+describe('(6) palavrasNoTexto (dono do produto, 03/11/2026): a IA extrai o nome, o código confere que as PALAVRAS estão no texto', () => {
+    it.each([
+        ['Geison Silva', 'Geison Silva novo', true],
+        ['Geison Silva', 'é o Geison Silva', true],
+        ['Geison Silva', 'novo: Geison Silva', true],
+        ['Geison Silva', 'Silva, Geison', true],
+        ['Casa do João', 'Levantamento Casa do João: DP-02 1200x1000', true],
+        ['Geison Silva', 'Geisonaldo Silva', false],
+        ['Geison Silva', 'Geison', false],
+        ['Maria Souza', 'é o Geison Silva', false],
+        ['', 'qualquer coisa', false],
+    ])('"%s" em "%s" → %s', (nome, texto, esperado) => {
+        expect(N().palavrasNoTexto(nome, texto)).toBe(esperado)
+        expect(N().nomeDaMensagem(nome, texto)).toBe(esperado ? nome : null)
     })
 })
