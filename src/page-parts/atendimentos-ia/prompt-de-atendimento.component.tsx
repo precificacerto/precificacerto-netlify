@@ -3,8 +3,9 @@
  * 4.000 caracteres, uma linha por empresa, gravado pela função com log (`superadmin_gravar_contexto_do_atendimento`).
  *
  * A LINHA QUE SEPARA AS CAMADAS, dita no próprio bloco: o contexto manda em QUANDO e EM QUE FORMA; o número é
- * do código. VAZIO É O PADRÃO: o campo vazio é o padrão, e a conversa segue como hoje — o bloco diz isso, e
- * nenhum texto é posto no campo por ele.
+ * do código. O PROMPT BASE DO PRODUTO (03/11/2026) aparece ACIMA do campo, em leitura — "para a pessoa saber o que já
+ * está valendo e não copiar de novo" —, e é o mesmo texto que abre o sistema da conversa (`PROMPT_BASE`). Com o campo
+ * vazio, a conversa segue só com o base; nenhum texto é posto no campo pelo bloco.
  *
  * O limite é contado como o banco conta (`contarCaracteres`, pontos de código): acima dele, o salvar não sai e a
  * frase diz quantos. Falha de leitura é ERRO, nunca um campo vazio que alguém salvaria por cima do gravado.
@@ -13,8 +14,9 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { Alert, Button, Input, Space, Typography, message } from 'antd'
 import { chamarRota } from '@/page-parts/atendimentos-ia/api'
+import { PROMPT_BASE, TITULO_DO_PROMPT_BASE } from '@/utils/atendimentos-ia-prompt-base'
 import {
-    AVISO_DO_CONTEXTO_VAZIO, A_LINHA_DAS_CAMADAS, LIMITE_DO_CONTEXTO, contarCaracteres, fraseDoLimiteDoContexto, rotaDoContexto,
+    AVISO_DO_CONTEXTO_VAZIO, AVISO_DO_PROMPT_BASE, A_LINHA_DAS_CAMADAS, LIMITE_DO_CONTEXTO, contarCaracteres, fraseDoLimiteDoContexto, rotaDoContexto,
     type ContextoGravado,
 } from '@/utils/atendimentos-ia-contexto'
 
@@ -58,6 +60,21 @@ export function PromptDeAtendimento({ tenantId }: { tenantId: string }) {
 
     return (
         <div data-grupo="contexto-do-atendimento">
+            {/* o base aparece sempre, também quando a leitura do contexto falha: ele não depende dela */}
+            <section data-prompt-base aria-label={`${TITULO_DO_PROMPT_BASE} (somente leitura)`} style={{ marginBottom: 16 }}>
+                <Typography.Text strong>{TITULO_DO_PROMPT_BASE}</Typography.Text>
+                <Typography.Paragraph type="secondary" style={{ fontSize: 12, margin: '4px 0 8px' }}>{AVISO_DO_PROMPT_BASE}</Typography.Paragraph>
+                <pre
+                    data-texto-do-prompt-base
+                    style={{
+                        whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', margin: 0, padding: 12, fontSize: 12, fontFamily: 'inherit',
+                        background: 'rgba(0, 0, 0, 0.03)', border: '1px solid rgba(0, 0, 0, 0.08)', borderRadius: 6, maxHeight: 360, overflowY: 'auto',
+                    }}
+                >
+                    {PROMPT_BASE}
+                </pre>
+            </section>
+            <Typography.Text strong>Contexto da empresa</Typography.Text>
             <Typography.Paragraph type="secondary" style={{ fontSize: 13 }}>{A_LINHA_DAS_CAMADAS}</Typography.Paragraph>
             {erroAoLer && <Alert type="error" showIcon message="Não foi possível ler o contexto do atendimento." description={erroAoLer} action={<Button onClick={carregar}>Tentar de novo</Button>} />}
             {!erroAoLer && gravado && (

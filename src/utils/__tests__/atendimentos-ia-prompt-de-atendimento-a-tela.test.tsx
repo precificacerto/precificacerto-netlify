@@ -147,3 +147,36 @@ describe('(5) a linha que separa as camadas', () => {
         expect(host.textContent).toContain(U().A_LINHA_DAS_CAMADAS)
     })
 })
+
+/**
+ * (6) O PROMPT BASE DO PRODUTO na tela (dono do produto, 03/11/2026): "A tela do agente passa a mostrar o prompt base em
+ * leitura, para a pessoa saber o que já está valendo e não copiar de novo." O texto mostrado é o MESMO que abre o sistema
+ * da conversa (`PROMPT_BASE`), aparece ACIMA do campo da empresa, não é editável, e não depende da leitura do contexto.
+ */
+describe('(6) o prompt base aparece em leitura, acima do campo da empresa', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const B = () => require('@/utils/atendimentos-ia-prompt-base') as typeof import('@/utils/atendimentos-ia-prompt-base')
+    const base = (host: HTMLElement) => host.querySelector('[data-prompt-base]') as HTMLElement | null
+
+    it('o texto inteiro do base, o aviso de não copiar, e nada para editar nele', async () => {
+        const host = await montar()
+        const b = base(host)
+        expect(b).not.toBeNull()
+        expect(b!.querySelector('[data-texto-do-prompt-base]')!.textContent).toBe(B().PROMPT_BASE)
+        expect(b!.textContent).toContain(U().AVISO_DO_PROMPT_BASE)
+        expect(b!.querySelectorAll('textarea, input, [contenteditable="true"]')).toHaveLength(0)
+    })
+
+    it('vem ANTES do campo da empresa, e o campo continua sendo só o texto da empresa', async () => {
+        const host = await montar()
+        // eslint-disable-next-line no-bitwise
+        expect(base(host)!.compareDocumentPosition(campo(host)) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+        expect(campo(host).value).toBe('Fale curto.')
+    })
+
+    it('com a leitura do contexto falhando, o base continua na tela', async () => {
+        respostas[`GET ${U().rotaDoContexto(CONTA)}`] = { status: 500, body: { error: 'Falha ao ler a base de conhecimento.' } }
+        const host = await montar()
+        expect(base(host)!.textContent).toContain(B().PROMPT_BASE)
+    })
+})

@@ -69,6 +69,8 @@ const DE_PARA = require('./fixtures/fixture_de-para_DP-02.json') as { regras: Li
 const DP02 = { tipologia: 'DP-02', largura_mm: 1200, altura_mm: 1000, quantidade: 1, cor_perfil: 'BRANCO', vidro: 'Temperado 5mm' }
 /** A pergunta do vidro: o campo que falta nos casos de montagem. */
 const PERGUNTA_DO_VIDRO = 'Qual o vidro?'
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { PERGUNTAS_DA_TIPOLOGIA, PERGUNTA_DO_CAMPO } = require('@/lib/atendimentos-ia/pre-definicao') as typeof import('@/lib/atendimentos-ia/pre-definicao')
 /** O que nenhuma resposta ao vendedor pode conter: o vocabulário interno do arremate e a opção numerada. */
 const VOCABULARIO_INTERNO = /\b(ARI|ARE|MAE|MAI|MTE)\b|qual opção\?|\b\d+ = /
 
@@ -645,7 +647,8 @@ describe('(4) a lista: a tipologia e a cor só da lista, exatas', () => {
         await chamar('Levantamento Casa do João: janela de correr 1200 x 1000 Branco temperado 5mm')
         const item = itensDe(levantamentos()[0].id)[0]
         expect([item.tipologia, item.cor_perfil]).toEqual([null, null])
-        expect(ultimoEnviado()).toBe('Qual a tipologia das esquadrias?')
+        // a pergunta da tipologia é em linguagem de obra (03/11/2026), nunca "Qual a tipologia das esquadrias?"
+        expect(ultimoEnviado()).toBe(PERGUNTAS_DA_TIPOLOGIA[0])
     })
 
     it('SEM LISTA de tipologias (a tabela não carregada): a conversa diz o que falta, sem chamar a LLM', async () => {
@@ -1202,7 +1205,7 @@ describe('(15) DEFEITO de 26/10/2026 (b0465e57, print do dono do produto): o nom
             // com uma pergunta em aberto no prompt, a mensagem que é só um nome É o nome (a regra do prompt). Antes
             // da decisão "Confirma antes" (26/10/2026) a pergunta aqui era a do nome; agora é a da confirmação
             if (mensagem === 'João medeiros') return fala(sistema, 'Pergunta em aberto:') ? { nome: 'João medeiros' } : {}
-            if (mensagem === 'Novo levantamento João Medeiros') return fala(sistema, 'me diga o nome do levantamento') ? { nome: 'João Medeiros', novo: true } : {}
+            if (mensagem === 'Novo levantamento João Medeiros') return fala(sistema, conversa.FRASE_SEM_NOME) ? { nome: 'João Medeiros', novo: true } : {}
             return null
         }
         for (const m of [MSG_1, 'é o mesmo', 'João medeiros', 'Novo levantamento João Medeiros']) await chamar(m)
@@ -1316,13 +1319,15 @@ describe('(16) a PERGUNTA EM ABERTO do roteamento pelo nome (20261026000002): gu
         expect(itensDe(casa.id)).toHaveLength(1)
     })
 
-    it('R2 no SEM_NOME: a pergunta do nome não sai duas vezes seguidas — a segunda diz que não registrou', async () => {
+    it('R2 no SEM_NOME: a pergunta do nome não sai duas vezes seguidas — a segunda é a MESMA pergunta em outras palavras (03/11/2026)', async () => {
         llmResponde({})
         await chamar('oi')
         expect(ultimoEnviado()).toBe(conversa.FRASE_SEM_NOME)
         llmResponde({})
         await chamar('oi de novo')
-        expect(ultimoEnviado()).toBe(conversa.fraseDeNaoRegistrei(conversa.FRASE_SEM_NOME))
+        // "nunca pode virar o loop 'Não consegui registrar a sua resposta' repetindo a mesma frase"
+        expect(conversa.OUTRAS_PERGUNTAS_DO_NOME).toContain(ultimoEnviado())
+        expect(ultimoEnviado()).not.toBe(conversa.fraseDeNaoRegistrei(conversa.FRASE_SEM_NOME))
         expect(linhaIa().pop()).toContain('desfecho=nao-avancou')
     })
 
@@ -1638,9 +1643,10 @@ describe('(19) duas famílias com o mesmo código: a conversa pergunta de qual f
 /**
  * (20) O CONTEXTO DO ATENDIMENTO (dono do produto, 26/10/2026): "O PROMPT MANDA EM QUANDO E EM QUE FORMA. O
  * CÓDIGO MANDA EM DE ONDE VEM O NÚMERO." O contexto da empresa vai ao prompt; a IA ganha a `fala` (até 600
- * caracteres, sem número em forma nenhuma), que abre a resposta do código. Vazio é o padrão: o pedido à IA é
- * EXATAMENTE o de hoje — o arquivo `fixtures/pedidos-a-ia-sem-contexto.json` foi gravado com o código ANTES
- * desta mudança. E o TESTE HOSTIL: um contexto mandando inventar preço, ignorar a recusa, pular o apanhado e
+ * caracteres, sem número em forma nenhuma), que abre a resposta do código. Vazio: o pedido à IA é o PROMPT BASE e as regras da
+ * conversa, sem o bloco da empresa — o arquivo `fixtures/pedidos-a-ia-sem-contexto.json` foi REGRAVADO em 03/11/2026 com o prompt
+ * base (decisão do dono do produto): o sistema ganhou o base no começo e as regras do cliente e da fala; a ferramenta ganhou
+ * `cliente` e `fala` (que vale para toda empresa) e a descrição nova de `pergunta`. E o TESTE HOSTIL: um contexto mandando inventar preço, ignorar a recusa, pular o apanhado e
  * dizer o valor PODE mudar a forma; NENHUM número muda, e recusa não vira estimativa.
  */
 describe('(20) o CONTEXTO DO ATENDIMENTO: o prompt manda em quando e em que forma; o código, no número', () => {
@@ -1687,23 +1693,20 @@ describe('(20) o CONTEXTO DO ATENDIMENTO: o prompt manda em quando e em que form
         ['texto vazio', () => comContexto('')],
         ['só espaços', () => comContexto('   \n  ')],
         ['a tabela ainda não existe (migração pendente)', () => { estado.ausentes.add('orcamentista_contexto_do_atendimento') }],
-    ])('VAZIO É O PADRÃO — %s: o pedido à IA é EXATAMENTE o de hoje, e a resposta também', async (_caso, preparar) => {
+    ])('VAZIO — %s: o pedido à IA é EXATAMENTE o gravado (o prompt base, sem o bloco da empresa), e a resposta também', async (_caso, preparar) => {
         preparar()
         expect(await fecharDp02('Casa do João')).toBe(LEVANTAMENTO_CASA_DO_JOAO)
         expect(estado.chamadasDaLlm.map((c) => c.corpo)).toEqual(PEDIDOS_DE_HOJE)
     })
 
-    it('com contexto: o pedido de hoje, mais o bloco do contexto no fim do sistema e a `fala` na ferramenta — e é isso que ele acrescenta', async () => {
+    it('com contexto: o pedido sem contexto, mais o bloco do contexto no FIM do sistema — e é só isso que ele acrescenta (a `fala` já é de todos)', async () => {
         comContexto(DE_PAULA)
         await fecharDp02('Casa do João')
-        const [hoje] = PEDIDOS_DE_HOJE
+        const [semContexto] = PEDIDOS_DE_HOJE
         const [agora] = estado.chamadasDaLlm.map((c) => c.corpo)
-        expect(agora.system).toBe(`${String(hoje.system)}\n\n${ctx().blocoDoContexto(DE_PAULA).join('\n')}`)
+        expect(agora.system).toBe(`${String(semContexto.system)}\n\n${ctx().blocoDoContexto(DE_PAULA).join('\n')}`)
         expect(String(agora.system)).toContain(DE_PAULA)
-        const props = (t: unknown) => (t as Array<{ input_schema: { properties: Record<string, unknown> } }>)[0].input_schema.properties
-        expect(Object.keys(props(agora.tools)).sort()).toEqual([...Object.keys(props(hoje.tools)), 'fala'].sort())
-        expect({ ...props(agora.tools), fala: undefined }).toEqual({ ...props(hoje.tools), fala: undefined })
-        expect({ ...agora, system: null, tools: null }).toEqual({ ...hoje, system: null, tools: null })
+        expect({ ...agora, system: null }).toEqual({ ...semContexto, system: null })
     })
 
     it('HOSTIL — a IA "obedece" e escreve o preço na fala ("mil reais", "R$ 1.000"): as falas caem, e o vendedor recebe EXATAMENTE o de sempre', async () => {
@@ -1748,11 +1751,15 @@ describe('(20) o CONTEXTO DO ATENDIMENTO: o prompt manda em quando e em que form
         expect(ultimoEnviado()).toBe('E o vidro, temperado ou comum?')
     })
 
-    it('SEM contexto, a pergunta reformulada é a de hoje — o filtro de dinheiro só vale com contexto', async () => {
+    it('SEM contexto, a pergunta reformulada com DINHEIRO também cai (03/11/2026): o filtro vale para toda empresa', async () => {
         montar()
         llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02, vidro: undefined }], pergunta: { campo: 'vidro', texto: 'Custa R$ 1.000. Qual o vidro?' } })
         await chamar('Levantamento Casa do Pedro: DP-02 1200 x 1000, 1 unidade, branco')
-        expect(ultimoEnviado()).toBe('Custa R$ 1.000. Qual o vidro?')
+        expect(ultimoEnviado()).toBe(PERGUNTA_DO_VIDRO)
+        montar()
+        llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02, vidro: undefined }], pergunta: { campo: 'vidro', texto: 'E o vidro, temperado ou comum?' } })
+        await chamar('Levantamento Casa do Pedro: DP-02 1200 x 1000, 1 unidade, branco')
+        expect(ultimoEnviado()).toBe('E o vidro, temperado ou comum?')
     })
 
     it('a fala acima de 600 caracteres cai inteira — não é cortada', async () => {
@@ -1760,9 +1767,11 @@ describe('(20) o CONTEXTO DO ATENDIMENTO: o prompt manda em quando e em que form
         expect(await fluxo({ contexto: DE_PAULA, falas: ['a'.repeat(601), undefined] })).toEqual(deSempre)
     })
 
-    it('SEM contexto, a fala que viesse não entra: a ferramenta nem a oferece, e a resposta é a de hoje', async () => {
+    it('SEM contexto, a fala vale (03/11/2026): a sem número abre a resposta, a com número cai — os números são os de sempre', async () => {
         const deSempre = await fluxo()
-        expect(await fluxo({ falas: ['Opa, anotei!', 'Fechado.'] })).toEqual(deSempre)
+        expect(await fluxo({ falas: ['Opa, anotei!', 'Fechado.'] })).toEqual([`Opa, anotei!\n\n${deSempre[0]}`, `Fechado.\n\n${deSempre[1]}`])
+        expect(await fluxo({ falas: ['Custa mil reais.', 'R$ 1.000, fechado.'] })).toEqual(deSempre)
+        expect(linhaIa().slice(-2).every((l) => l.includes('contexto=vazio fala=descartada_numero'))).toBe(true)
     })
 
     it('o TEXTO-PADRÃO DA ESQUADRIAS DE PAULA, como contexto da empresa: os números são os de sempre', async () => {
@@ -1800,5 +1809,176 @@ describe('(20) o CONTEXTO DO ATENDIMENTO: o prompt manda em quando e em que form
         llmResponde({ nome: 'Casa do João', itens: [{ ...DP02 }], escolhas: ESCOLHAS_QUE_FECHAM })
         await chamar(MENSAGEM)
         expect(linhaIa()[linhaIa().length - 1]).toContain('contexto=sem_migracao')
+    })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+/**
+ * (21) O PROMPT BASE DO PRODUTO (dono do produto, 03/11/2026): "Quero a regra do produto no código." Um texto só
+ * (`PROMPT_BASE`), que abre o sistema de TODA empresa; o campo da empresa vem DEPOIS; "em conflito, o base vence nas
+ * regras de 'nunca' e a empresa vence no resto".
+ */
+describe('(21) o PROMPT BASE abre o sistema de toda empresa, e o contexto da empresa vem depois', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { PROMPT_BASE } = require('@/utils/atendimentos-ia-prompt-base') as typeof import('@/utils/atendimentos-ia-prompt-base')
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { blocoDoContexto } = require('@/lib/atendimentos-ia/contexto-do-atendimento') as typeof import('@/lib/atendimentos-ia/contexto-do-atendimento')
+    const sistemaDe = (i = 0) => String(estado.chamadasDaLlm[i].corpo.system)
+
+    it('o pedido traz as seis regras e as duas etapas, como o dono do produto as listou', () => {
+        // a lista do pedido, escrita aqui e não lida da constante: o base que perder uma delas fica vermelho
+        for (const regra of [
+            'AS DUAS ETAPAS', 'LEVANTAMENTO', 'PERFIS E MATERIAIS',
+            'NUNCA escreva valor nem percentual',
+            'NUNCA pergunte "qual a tipologia"', 'identificar a tipologia é trabalho SEU',
+            '"Cliente: Geronimo Silva" é o levantamento "Levantamento Geronimo Silva"',
+            'de correr sem o número de folhas dito é de 2 folhas em 2 trilhos',
+            'NUNCA assuma medida que falta',
+            'NUNCA pergunte antes de ler a mensagem inteira do vendedor',
+        ]) expect(PROMPT_BASE).toContain(regra)
+    })
+
+    it('SEM contexto: o sistema COMEÇA pelo base, e não há bloco da empresa', async () => {
+        await chamar('oi')
+        expect(sistemaDe().startsWith(`${PROMPT_BASE}\n\n`)).toBe(true)
+        expect(sistemaDe()).not.toContain(blocoDoContexto('x')[0])
+    })
+
+    it('COM contexto: o base primeiro, o contexto da empresa por último — e a precedência dita nos dois', async () => {
+        const DA_EMPRESA = 'Somos a Esquadrias Exemplo. Tom informal.'
+        estado.db.orcamentista_contexto_do_atendimento = [{ tenant_id: TENANT, texto: DA_EMPRESA }]
+        await chamar('oi')
+        const s = sistemaDe()
+        expect(s.startsWith(`${PROMPT_BASE}\n\n`)).toBe(true)
+        expect(s.indexOf(DA_EMPRESA)).toBeGreaterThan(s.indexOf(PROMPT_BASE) + PROMPT_BASE.length)
+        expect(s.endsWith(`${DA_EMPRESA}\nCONTEXTO DA EMPRESA>>>`)).toBe(true)
+        expect(PROMPT_BASE).toContain('nas regras de NUNCA vale este bloco; no resto (nome, tom, exceções da empresa), vale o contexto da empresa')
+        expect(s).toContain('Em conflito com o PROMPT BASE DO PRODUTO (no começo): nas regras de NUNCA vale o base; no resto (nome, tom, exceções da empresa), vale este contexto.')
+    })
+
+    it('a `fala` e o `cliente` estão na ferramenta de TODA empresa, com e sem contexto', async () => {
+        const props = (i: number) => Object.keys((estado.chamadasDaLlm[i].corpo.tools as Array<{ input_schema: { properties: Record<string, unknown> } }>)[0].input_schema.properties)
+        await chamar('oi')
+        estado.db.orcamentista_contexto_do_atendimento = [{ tenant_id: TENANT, texto: 'Tom informal.' }]
+        await chamar('oi de novo')
+        for (const i of [0, 1]) expect(props(i)).toEqual(expect.arrayContaining(['fala', 'cliente']))
+    })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+/**
+ * (22) A TIPOLOGIA EM LINGUAGEM DE OBRA (dono do produto, 03/11/2026): "o código NUNCA manda 'Qual a tipologia das
+ * esquadrias?'" — e a resposta que não coube vira a pergunta em OUTRAS palavras, nunca o "Não consegui registrar".
+ */
+describe('(22) a tipologia se pergunta em linguagem de obra, e a resposta que não coube não vira laço', () => {
+    const MSG = 'Levantamento Casa do Pedro: janela 1200 x 1000, 1 unidade, branco, temperado 5mm'
+    const abrirSemTipologia = async () => {
+        llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02, tipologia: undefined }] })
+        await chamar(MSG)
+    }
+
+    it('nenhuma pergunta fixa da tipologia é "qual a tipologia": a da pendência é a primeira de obra', () => {
+        // o texto proibido é o da decisão; o que se busca são os valores que o código manda
+        for (const t of [PERGUNTA_DO_CAMPO.tipologia, ...PERGUNTAS_DA_TIPOLOGIA]) expect(t.toLowerCase()).not.toContain('qual a tipologia')
+        expect(PERGUNTA_DO_CAMPO.tipologia).toBe(PERGUNTAS_DA_TIPOLOGIA[0])
+        expect(new Set(PERGUNTAS_DA_TIPOLOGIA).size).toBe(PERGUNTAS_DA_TIPOLOGIA.length)
+    })
+
+    it('a esquadria sem tipologia: a pergunta é a de obra, e a da IA (em obra) vale quando vem', async () => {
+        await abrirSemTipologia()
+        expect(ultimoEnviado()).toBe(PERGUNTAS_DA_TIPOLOGIA[0])
+        montar()
+        llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02, tipologia: undefined }], pergunta: { campo: 'tipologia', texto: 'Ela tem persiana integrada?' } })
+        await chamar(MSG)
+        expect(ultimoEnviado()).toBe('Ela tem persiana integrada?')
+    })
+
+    it('a resposta que não coube, sem pergunta da IA: OUTRA forma de obra — nunca a mesma pergunta, nunca o "Não consegui registrar"', async () => {
+        await abrirSemTipologia()
+        const escritasAntes = estado.escritas.length
+        llmResponde({ itens: [] })
+        await chamar('é aquela de sempre')
+        expect(PERGUNTAS_DA_TIPOLOGIA.slice(1)).toContain(ultimoEnviado())
+        expect(ultimoEnviado()).not.toBe(PERGUNTAS_DA_TIPOLOGIA[0])
+        expect(ultimoEnviado()).not.toBe(conversa.fraseDeNaoRegistrei(PERGUNTAS_DA_TIPOLOGIA[0]))
+        expect(estado.escritas.length).toBe(escritasAntes)
+        expect(linhaIa().pop()).toContain('desfecho=nao-avancou')
+    })
+
+    it('a resposta que não coube, COM a pergunta da IA: vai a da IA', async () => {
+        await abrirSemTipologia()
+        llmResponde({ itens: [], pergunta: { campo: 'tipologia', texto: 'Ela corre ou abre girando?' } })
+        await chamar('é aquela de sempre')
+        expect(ultimoEnviado()).toBe('Ela corre ou abre girando?')
+    })
+
+    it('a pergunta da IA que diz "qual a tipologia" com dinheiro cai como antes; com duas esquadrias, a outra forma diz de qual', async () => {
+        llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }, { ...DP02, ordem: 2, tipologia: undefined }] })
+        await chamar('Levantamento Casa do Pedro: DP-02 1200 x 1000, 1 un, branco, temperado 5mm; e outra janela 800 x 600, 1 un, branco, temperado 5mm')
+        expect(ultimoEnviado()).toBe(`Esquadria 2: ${PERGUNTAS_DA_TIPOLOGIA[0]}`)
+        llmResponde({ itens: [], pergunta: { campo: 'tipologia', texto: 'Custa R$ 900, qual é?' } })
+        await chamar('não sei')
+        expect(PERGUNTAS_DA_TIPOLOGIA.slice(1).map((t) => `Esquadria 2: ${t}`)).toContain(ultimoEnviado())
+    })
+
+    it('as outras formas não repetem a de sempre, e a forma escolhida depende da mensagem', () => {
+        const formas = new Set(['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'].map((m) => conversa.outraPergunta(PERGUNTAS_DA_TIPOLOGIA.slice(1), m)))
+        expect(formas.size).toBe(2)
+        expect(conversa.outraPergunta(PERGUNTAS_DA_TIPOLOGIA.slice(1), 'x')).toBe(conversa.outraPergunta(PERGUNTAS_DA_TIPOLOGIA.slice(1), 'X'))
+    })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+/**
+ * (23) O NOME SAI DO CLIENTE (dono do produto, 03/11/2026): "'Cliente: Geronimo Silva' basta para o nome ser 'Levantamento
+ * Geronimo Silva', sem perguntar. Só pergunte quando não houver cliente em lugar nenhum da conversa."
+ */
+describe('(23) o nome do levantamento é o do cliente', () => {
+    const MSG = 'Cliente: Geronimo Silva. DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm'
+
+    it('"Cliente: Geronimo Silva" cria o "Levantamento Geronimo Silva", sem perguntar o nome — e o log diz nome=do_cliente', async () => {
+        llmResponde({ cliente: 'Geronimo Silva', itens: [{ ...DP02 }], escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar(MSG)
+        expect(levantamentos().map((l) => l.nome)).toEqual(['Levantamento Geronimo Silva'])
+        expect(enviados()).not.toContain(conversa.FRASE_SEM_NOME)
+        expect(ultimoEnviado().startsWith('Apanhado do levantamento “Levantamento Geronimo Silva”:')).toBe(true)
+        expect(linhaIa().pop()).toContain(' nome=do_cliente ')
+    })
+
+    it('a IA que já escreveu "Levantamento <cliente>" no nome, com o cliente no texto: vale igual', async () => {
+        llmResponde({ nome: 'Levantamento Geronimo Silva', itens: [{ ...DP02 }], escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar(MSG)
+        expect(levantamentos().map((l) => l.nome)).toEqual(['Levantamento Geronimo Silva'])
+    })
+
+    it('o cliente que NÃO está no texto é inventado: pergunta o cliente, e não cria nada', async () => {
+        llmResponde({ cliente: 'Maria Souza', itens: [{ ...DP02 }] })
+        await chamar('DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm')
+        expect(levantamentos()).toEqual([])
+        expect(ultimoEnviado()).toBe(conversa.FRASE_SEM_NOME)
+        expect(conversa.FRASE_SEM_NOME).toContain('nome do cliente')
+    })
+
+    it('o nome dito vence o cliente; e o cliente de um levantamento que já existe é ALTERAÇÃO dele', async () => {
+        llmResponde({ nome: 'Levantamento Obra Centro', cliente: 'Geronimo Silva', itens: [{ ...DP02 }], escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar(`Levantamento Obra Centro. ${MSG}`)
+        expect(levantamentos().map((l) => l.nome)).toEqual(['Levantamento Obra Centro'])
+        montar()
+        llmResponde({ cliente: 'Geronimo Silva', itens: [{ ...DP02 }], escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar(MSG)
+        llmResponde({ cliente: 'geronimo silva', alteracao: true, itens: [{ altura_mm: 1100 }] })
+        await chamar('cliente geronimo silva, troca a altura para 1100')
+        expect(levantamentos()).toHaveLength(1)
+        expect(itensDe(levantamentos()[0].id)[0].altura_mm).toBe(1100)
+    })
+
+    it('a resposta à pergunta do cliente que é só o nome da pessoa: o cliente', async () => {
+        llmResponde({ itens: [{ ...DP02 }] })
+        await chamar('DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm')
+        expect(ultimoEnviado()).toBe(conversa.FRASE_SEM_NOME)
+        llmResponde({ cliente: 'Geronimo Silva' })
+        await chamar('Geronimo Silva')
+        expect(levantamentos().map((l) => l.nome)).toEqual(['Levantamento Geronimo Silva'])
+        expect(itensDe(levantamentos()[0].id)).toEqual([expect.objectContaining({ ordem: 1, ...DP02 })])
     })
 })
