@@ -2970,6 +2970,17 @@ describe('(28) as frases do modelo: a redação validada, o rascunho quando não
         expect(linhaIa().pop()).toMatch(/ redacao=repetida(\s|$)/)
     })
 
+    it('a "última resposta" é a última SAÍDA, não a última linha: uma entrada sem resposta no meio não a esconde', async () => {
+        await abrirSemVidro('Casa do João')
+        // uma entrada que ficou sem saída (a condução morreu), mais nova que a pergunta do vidro
+        estado.db.orcamentista_mensagem.push({ id: 'solta', tenant_id: TENANT, conversa_id: estado.db.orcamentista_conversa[0].id, direcao: 'entrada', texto: 'x', wuzapi_mensagem_id: 'SOLTA', criado_em: new Date().toISOString() })
+        estado.redacao = () => PERGUNTA_DO_VIDRO
+        llmResponde({ itens: [] })
+        await chamar('hmm')
+        expect(ultimoEnviado()).not.toBe(PERGUNTA_DO_VIDRO)
+        expect(linhaIa().pop()).toMatch(/ redacao=repetida(\s|$)/)
+    })
+
     it('a redação é a resposta inteira: a fala da IA NÃO a antecede; no rascunho (a redação caiu), a fala abre como sempre', async () => {
         estado.redacao = () => 'Me diga o cliente dessa obra.'
         llmResponde({ fala: 'Opa, bora.' })
