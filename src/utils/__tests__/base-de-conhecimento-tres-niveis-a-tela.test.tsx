@@ -15,7 +15,7 @@
  *   (8) remover e gravar a mesma matéria-prima no mesmo salvar é barrado NA TELA;
  *   (9) depois do salvar, a tela se redesenha pelo `depois` que a rota devolveu;
  *  (10) DESDE 03/11/2026 (dono do produto: "CAMPOS DA CATEGORIA VIRAM UM CAMPO DE INSTRUÇÃO"): de campo estruturado, a tela
- *       mostra SÓ as cores e a serra do Perfil — mesmo com as outras definições no catálogo (a tela pode ir antes da migração) —,
+ *       mostra SÓ as cores, a cor predominante e a serra do Perfil — mesmo com as outras definições no catálogo (a tela pode ir antes da migração) —,
  *       e as listas de vidro, ferragem e acabamento não existem mais;
  *  (13) a INSTRUÇÃO de cada categoria: o campo em todas, o gravado, o corpo (aparada, vazia é null, a não tocada AUSENTE), o
  *       limite de 1.500 contado como o banco conta, e o round-trip pelo `depois`.
@@ -522,25 +522,32 @@ describe('(9) depois do salvar, a tela é o que o BANCO gravou', () => {
     })
 })
 
-describe('(10) de campo estruturado, SÓ as cores e a serra do Perfil (03/11/2026) — e nenhuma lista', () => {
-    it('a lista que fica é a do dono do produto: cores e serra_mm, só no PERFIL', () => {
-        // escrita aqui, não lida da constante: "cores e serra_mm FICAM estruturados, como exceção, e só eles"
-        expect(CAMPOS_QUE_FICAM).toEqual({ PERFIL: ['cores', 'serra_mm'] })
+describe('(10) de campo estruturado, SÓ as cores, a cor predominante e a serra do Perfil (03/11/2026) — e nenhuma lista', () => {
+    it('a lista que fica é a do dono do produto: cores, cor_predominante e serra_mm, só no PERFIL', () => {
+        // escrita aqui, não lida da constante: "cores e serra_mm FICAM estruturados, como exceção, e só eles" + a correção "cor_predominante não pode sair"
+        expect(CAMPOS_QUE_FICAM).toEqual({ PERFIL: ['cores', 'cor_predominante', 'serra_mm'] })
     })
 
-    it('com as 13 definições ainda no catálogo (a tela pode ir antes da migração), a GRAVADA e a NOVA mostram no PERFIL só cores e serra, e nada nas outras', async () => {
+    it('com as 13 definições ainda no catálogo (a tela pode ir antes da migração), a GRAVADA e a NOVA mostram no PERFIL só cor predominante, cores e serra (na ordem do catálogo), e nada nas outras', async () => {
         const host = await montar()
         const naTela = (i: number, chave: string) => Array.from(cat(host, i, chave).querySelectorAll('[data-campo]')).map((c) => c.getAttribute('data-campo'))
-        expect(naTela(0, 'PERFIL')).toEqual(['PERFIL.cores', 'PERFIL.serra_mm'])
+        expect(naTela(0, 'PERFIL')).toEqual(['PERFIL.cor_predominante', 'PERFIL.cores', 'PERFIL.serra_mm'])
         for (const chave of ORDEM_DO_CATALOGO.filter((k) => k !== 'PERFIL')) expect(naTela(0, chave)).toEqual([])
         expect(cat(host, 0, 'PERFIL').textContent).not.toContain('Suprema')
         expect(cat(host, 0, 'PERFIL').textContent).not.toContain('nota gravada')
         await clicar(botao(cartao(host), A().ADICIONAR_MATERIA_PRIMA))
-        expect(naTela(1, 'PERFIL')).toEqual(['PERFIL.cores', 'PERFIL.serra_mm'])
+        expect(naTela(1, 'PERFIL')).toEqual(['PERFIL.cor_predominante', 'PERFIL.cores', 'PERFIL.serra_mm'])
         for (const chave of ORDEM_DO_CATALOGO.filter((k) => k !== 'PERFIL')) expect(naTela(1, chave)).toEqual([])
     })
 
-    it('o gravado das duas aparece: as cores como etiquetas, a serra como número', async () => {
+    it('o gravado dos três aparece: as cores como etiquetas, a serra como número, a cor predominante NULL como texto vazio', async () => {
+        const host0 = await montar()
+        expect(entrada(campo(cat(host0, 0, 'PERFIL'), 'PERFIL.cor_predominante'))!.value).toBe('')
+        await digitar(entrada(campo(cat(host0, 0, 'PERFIL'), 'PERFIL.cor_predominante')), 'Branco')
+        await salvar(host0)
+        expect(configDoPerfilEnviado()).toEqual({ cor_predominante: 'Branco' })
+        while (montadas.length) { const m = montadas.pop()!; act(() => { m.root.unmount() }); m.host.remove() }
+        pedidos.length = 0
         const host = await montar()
         const etiquetas = Array.from(campo(cat(host, 0, 'PERFIL'), 'PERFIL.cores')!.querySelectorAll('.ant-select-selection-item')).map((e) => (e.textContent || '').trim())
         expect(etiquetas).toEqual(['Branco'])

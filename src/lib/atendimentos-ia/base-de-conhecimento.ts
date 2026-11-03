@@ -334,18 +334,20 @@ export function lerCorpoDaFamiliaDaMateriaPrima(corpo: unknown): { materia_prima
     return { materia_prima: typeof b.materia_prima === 'string' ? b.materia_prima : '', familia: typeof b.familia === 'string' ? b.familia.trim() : null, erros }
 }
 
-// ── OS CAMPOS DA CATEGORIA: SÓ cores E serra_mm FICAM (dono do produto, 03/11/2026; antes, 30/10/2026) ──────────────
+// ── OS CAMPOS DA CATEGORIA: SÓ cores, cor_predominante E serra_mm FICAM (dono do produto, 03/11/2026; antes, 30/10/2026) ──────
 /**
  * "CAMPOS DA CATEGORIA VIRAM UM CAMPO DE INSTRUÇÃO." Os campos estruturados das categorias saíram da tela e da gravação, e a migração
- * `20261103000002` apagou as definições e o valor gravado. FICAM só os dois que o cálculo lê, como exceção — "número que o cálculo usa não pode
- * sair de texto livre": `cores` (a lista que valida a cor da esquadria e escolhe a variante no motor, `lerCoresDaEmpresa`) e `serra_mm` (o
- * desconto da serra no agrupador de barras, `lerSerra`), os dois do PERFIL. Toda outra chave de `config` é recusa nomeada AQUI, antes da função.
+ * `20261103000002` apagou as definições e o valor gravado. FICAM só os que o cálculo lê, como exceção — "número que o cálculo usa não pode
+ * sair de texto livre": `cores` (a lista que valida a cor da esquadria e escolhe a variante no motor, `lerCoresDaEmpresa`), `serra_mm` (o
+ * desconto da serra no agrupador de barras, `lerSerra`) e `cor_predominante` (CORREÇÃO do dono do produto, 03/11/2026, antes de aplicar: "é a
+ * fonte da cor padrão — cor não dita = config.cor_predominante da categoria Perfil"; apagá-la deixaria a conversa sem cor padrão), os três do
+ * PERFIL. Toda outra chave de `config` é recusa nomeada AQUI, antes da função.
  * (Em 30/10/2026 a lista era a inversa: cinco chaves do Perfil fora da tela; a de agora é a que fica, e tudo o mais sai.)
  */
-export const CAMPOS_QUE_FICAM: Readonly<Record<string, readonly string[]>> = { PERFIL: ['cores', 'serra_mm'] }
+export const CAMPOS_QUE_FICAM: Readonly<Record<string, readonly string[]>> = { PERFIL: ['cores', 'cor_predominante', 'serra_mm'] }
 export const campoForaDaTela = (categoria: string, chave: string) => !(CAMPOS_QUE_FICAM[categoria] ?? []).includes(chave)
 export const fraseDoCampoForaDaTela = (chave: string) =>
-    `o campo "${chave}" saiu da base de conhecimento: o que a categoria precisa dizer vai na instrução dela (texto livre). Ficam só as cores e a serra do Perfil.`
+    `o campo "${chave}" saiu da base de conhecimento: o que a categoria precisa dizer vai na instrução dela (texto livre). Ficam só as cores, a cor predominante e a serra do Perfil.`
 
 /** As chaves do `config` que saíram da tela e da gravação: erro nomeado para cada uma (a rota recusa antes da função). */
 export function errosDosCamposForaDaTela(categoria: string, config: unknown): ErroNomeado[] {

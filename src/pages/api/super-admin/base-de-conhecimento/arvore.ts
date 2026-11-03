@@ -16,8 +16,8 @@
  *         sessão; `por` no corpo é erro. Os erros vêm com a mensagem dela, que traz o CAMINHO
  *         (matéria-prima e categoria), nos quatro códigos (42501, P0002, 22023, 23503).
  *
- *         São recusa nomeada AQUI, com o caminho, antes da função (03/11/2026): toda chave de `config` fora de `CAMPOS_QUE_FICAM` (só cores e
- *         serra do Perfil), as listas `vidros`, `ferragens` e `instalacao`, e a `instrucao` que não é texto ou passa de 1.500 caracteres.
+ *         São recusa nomeada AQUI, com o caminho, antes da função (03/11/2026): toda chave de `config` fora de `CAMPOS_QUE_FICAM` (só cores,
+ *         cor predominante e serra do Perfil), as listas `vidros`, `ferragens` e `instalacao`, e a `instrucao` que não é texto ou passa de 1.500 caracteres.
  *
  * O portão está em `src/lib/atendimentos-ia/base-de-conhecimento-servidor.ts`.
  */

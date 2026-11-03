@@ -13,14 +13,14 @@
 -- ║ ⚠️  ESTA MIGRAÇÃO APAGA DADO DE CONTA — autorizado pelo dono do produto em 03/11/2026.
 -- ║ Tudo da empresa Esquadrias De Paula Ltda (tenant 20e08592-f957-4e72-b7eb-251387e34eb9), matéria-prima "Esquadrias de PVC WOLF"
 -- ║ (79d764fe-4acd-43e2-bed9-38e20667ca3d), como medido em 03/11/2026 (o conteúdo inteiro está no relatório da Fase 1 e no PR):
--- ║   PERFIL             — saem da config as chaves linha, cor_predominante, barra_mm, solda, criterio_custo_barra (ficam cores e serra_mm);
+-- ║   PERFIL             — saem da config as chaves linha, barra_mm, solda, criterio_custo_barra (ficam cores, cor_predominante e serra_mm);
 -- ║   REFORCO            — a config inteira (usa, material, par_inox_referencia) vira NULL;
 -- ║   ACESSORIOS_VEDACAO — a config inteira (cor_por_perfil, modelo_interlock, vedacao) vira NULL;
 -- ║   VIDRO              — as 4 linhas de orcamentista_mp_vidro;
 -- ║   FERRAGENS          — as 4 linhas de orcamentista_mp_ferragem;
 -- ║   INSTALACAO         — as 3 linhas de orcamentista_mp_instalacao.
--- ║ E apaga do catálogo GLOBAL de campos (orcamentista_categoria_campo) as 11 definições que saem: PERFIL linha, cor_predominante, barra_mm,
--- ║ solda, criterio_custo_barra; REFORCO usa, material, par_inox_referencia; ACESSORIOS_VEDACAO cor_por_perfil, modelo_interlock, vedacao.
+-- ║ E apaga do catálogo GLOBAL de campos (orcamentista_categoria_campo) as 10 definições que saem: PERFIL linha, barra_mm, solda,
+-- ║ criterio_custo_barra; REFORCO usa, material, par_inox_referencia; ACESSORIOS_VEDACAO cor_por_perfil, modelo_interlock, vedacao.
 -- ║ CADA linha apagada ou alterada vai ao superadmin_alteracao_log (o antes inteiro; a marca 'remocao': '20261103000002') e ao log da aplicação
 -- ║ (RAISE NOTICE), POR CATEGORIA, com o conteúdo. A GUARDA ABORTA se houver, na hora de aplicar, qualquer linha ou chave a apagar que não seja
 -- ║ uma das medidas (outro id, outra empresa, outra matéria-prima, outra definição): esta migração nunca apaga mais do que este quadro diz.
@@ -29,11 +29,14 @@
 --
 -- Decisões do dono do produto (03/11/2026), registradas como foram ditas:
 --   1. "cores e serra_mm FICAM estruturados, como exceção, e só eles. [...] número que o cálculo usa não pode sair de texto livre."
+--      CORREÇÃO do dono do produto, 03/11/2026, antes de aplicar: "cor_predominante não pode sair" — é a fonte da cor padrão da conversa
+--      ("cor não dita = config.cor_predominante da categoria Perfil"). FICA estruturada, com cores e serra_mm. Saem só linha, barra_mm,
+--      solda e criterio_custo_barra.
 --   2. "Coluna instrucao text em orcamentista_mp_categoria, com CHECK de até 1.500 caracteres. Não use chave dentro de config."
 --   3. "A migração apaga a config das três categorias (PERFIL perde só as chaves que saem), as 4+4+3 linhas das tabelas e as definições do
 --      catálogo de campos que saem. As tabelas e as funções FICAM, vazias e sem tela [...]. Imprima no log o que apagou, por categoria."
 --   4. "No prompt, mande só as categorias que TÊM instrução preenchida." (é do código da conversa, não desta migração)
---   5. "a tela de cada categoria fica com: o campo de instrução para todas, mais cores e serra_mm só no Perfil." (é do código da tela)
+--   5. "a tela de cada categoria fica com: o campo de instrução para todas, mais cores e serra_mm só no Perfil." (é do código da tela; com a correção, cores, cor_predominante e serra_mm)
 --   E, perguntado: superadmin_gravar_arvore muda para gravar a instrução no MESMO salvar, numa transação só, com o CORPO TODO EM ASCII.
 --
 -- O QUE FAZ:
@@ -54,7 +57,7 @@
 -- GUARDA (aborta): o corpo da gravação da árvore é o de produção (md5 sem \r), achado pela assinatura de entrada; a função nova e a coluna não
 -- existem, ou são as desta; o que se apaga é só o medido. VERIFICAÇÃO (aborta): a coluna e a CHECK; as duas funções SECURITY DEFINER, com
 -- search_path fixo, só do service_role e com o corpo em ASCII; a árvore chama a nova e aceita a chave; nada do medido sobrou; ficaram
--- cores e serra_mm com o valor de antes; o catálogo de campos é só PERFIL.cores e PERFIL.serra_mm; cada remoção tem a sua linha de log; e
+-- cores, cor_predominante e serra_mm com o valor de antes; o catálogo de campos é só PERFIL.cores, PERFIL.cor_predominante e PERFIL.serra_mm; cada remoção tem a sua linha de log; e
 -- nenhuma outra linha de orcamentista_mp_categoria mudou.
 -- ════════════════════════════════════════════════════════════════════════════════════════
 BEGIN;
@@ -114,7 +117,7 @@ BEGIN
     UNION ALL
     SELECT format('config de %s da materia-prima %s (empresa %s)', c.categoria_chave, c.materia_prima_id, c.tenant_id)
       FROM public.orcamentista_mp_categoria c
-     WHERE c.config ?| ARRAY['linha', 'cor_predominante', 'barra_mm', 'solda', 'criterio_custo_barra', 'usa', 'material', 'par_inox_referencia',
+     WHERE c.config ?| ARRAY['linha', 'barra_mm', 'solda', 'criterio_custo_barra', 'usa', 'material', 'par_inox_referencia',
                              'cor_por_perfil', 'modelo_interlock', 'vedacao']
        AND NOT (c.tenant_id = '20e08592-f957-4e72-b7eb-251387e34eb9' AND c.materia_prima_id = '79d764fe-4acd-43e2-bed9-38e20667ca3d'
                 AND c.categoria_chave IN ('PERFIL', 'REFORCO', 'ACESSORIOS_VEDACAO'))
@@ -172,13 +175,13 @@ DECLARE
   v_sai     text[];
   c_marca   CONSTANT text := '20261103000002';
 BEGIN
-  -- as tres categorias com config: PERFIL perde as cinco chaves; REFORCO e ACESSORIOS_VEDACAO perdem todas (a config vazia vira NULL)
+  -- as tres categorias com config: PERFIL perde as quatro chaves; REFORCO e ACESSORIOS_VEDACAO perdem todas (a config vazia vira NULL)
   FOR r IN SELECT c.* FROM public.orcamentista_mp_categoria c
-            WHERE c.config ?| ARRAY['linha', 'cor_predominante', 'barra_mm', 'solda', 'criterio_custo_barra', 'usa', 'material',
+            WHERE c.config ?| ARRAY['linha', 'barra_mm', 'solda', 'criterio_custo_barra', 'usa', 'material',
                                     'par_inox_referencia', 'cor_por_perfil', 'modelo_interlock', 'vedacao']
             ORDER BY c.categoria_chave FOR UPDATE LOOP
     v_sai := CASE r.categoria_chave
-               WHEN 'PERFIL' THEN ARRAY['linha', 'cor_predominante', 'barra_mm', 'solda', 'criterio_custo_barra']
+               WHEN 'PERFIL' THEN ARRAY['linha', 'barra_mm', 'solda', 'criterio_custo_barra']
                ELSE ARRAY['usa', 'material', 'par_inox_referencia', 'cor_por_perfil', 'modelo_interlock', 'vedacao'] END;
     v_antes := to_jsonb(r);
     UPDATE public.orcamentista_mp_categoria c SET config = nullif(c.config - v_sai, '{}'::jsonb), atualizado_por = NULL, atualizado_em = now()
@@ -218,9 +221,9 @@ BEGIN
   END LOOP;
   RAISE NOTICE '20261103000002, categoria INSTALACAO: % linha(s) de orcamentista_mp_instalacao', v_n;
 
-  -- as definicoes que saem do catalogo GLOBAL de campos (a guarda provou que sao so as 11 medidas)
+  -- as definicoes que saem do catalogo GLOBAL de campos (a guarda provou que sao so as 10 medidas)
   FOR r IN DELETE FROM public.orcamentista_categoria_campo d
-            WHERE NOT ((d.categoria_chave, d.chave) IN (('PERFIL', 'cores'), ('PERFIL', 'serra_mm')))
+            WHERE NOT ((d.categoria_chave, d.chave) IN (('PERFIL', 'cores'), ('PERFIL', 'cor_predominante'), ('PERFIL', 'serra_mm')))
             RETURNING d.* LOOP
     INSERT INTO public.superadmin_alteracao_log (tenant_id, tabela, chave, antes, depois, por)
     VALUES (NULL, 'orcamentista_categoria_campo', r.categoria_chave || '.' || r.chave,
@@ -270,30 +273,31 @@ BEGIN
   IF EXISTS (SELECT 1 FROM public.orcamentista_mp_vidro) OR EXISTS (SELECT 1 FROM public.orcamentista_mp_ferragem)
      OR EXISTS (SELECT 1 FROM public.orcamentista_mp_instalacao)
      OR EXISTS (SELECT 1 FROM public.orcamentista_mp_categoria c
-                 WHERE c.config ?| ARRAY['linha', 'cor_predominante', 'barra_mm', 'solda', 'criterio_custo_barra', 'usa', 'material',
+                 WHERE c.config ?| ARRAY['linha', 'barra_mm', 'solda', 'criterio_custo_barra', 'usa', 'material',
                                          'par_inox_referencia', 'cor_por_perfil', 'modelo_interlock', 'vedacao']) THEN
     RAISE EXCEPTION 'verificacao 3: sobrou linha ou chave que devia ter saido';
   END IF;
-  -- (4) cores e serra_mm com o valor de antes; e nenhuma outra linha mudou (nem a config das outras categorias, nem o resto das tres)
+  -- (4) cores, cor_predominante e serra_mm com o valor de antes; e nenhuma outra linha mudou (nem a config das outras categorias, nem o resto das tres)
   SELECT string_agg(a.categoria_chave || ' ' || a.id, ', ') INTO v_fora
     FROM _instrucao_antes a LEFT JOIN public.orcamentista_mp_categoria c ON c.id = a.id
    WHERE c.id IS NULL
       OR a.resto <> md5((to_jsonb(c) - 'config' - 'instrucao' - 'atualizado_por' - 'atualizado_em')::text)
       OR (a.categoria_chave NOT IN ('PERFIL', 'REFORCO', 'ACESSORIOS_VEDACAO') AND c.config IS DISTINCT FROM a.config)
       OR (a.categoria_chave = 'PERFIL' AND (c.config -> 'cores' IS DISTINCT FROM a.config -> 'cores'
+                                            OR c.config -> 'cor_predominante' IS DISTINCT FROM a.config -> 'cor_predominante'
                                             OR c.config -> 'serra_mm' IS DISTINCT FROM a.config -> 'serra_mm'
-                                            OR coalesce(c.config, '{}'::jsonb) - ARRAY['cores', 'serra_mm'] <> '{}'::jsonb))
+                                            OR coalesce(c.config, '{}'::jsonb) - ARRAY['cores', 'cor_predominante', 'serra_mm'] <> '{}'::jsonb))
       OR (a.categoria_chave IN ('REFORCO', 'ACESSORIOS_VEDACAO') AND c.config IS NOT NULL
           AND c.config IS DISTINCT FROM nullif(a.config - ARRAY['usa', 'material', 'par_inox_referencia', 'cor_por_perfil', 'modelo_interlock', 'vedacao'], '{}'::jsonb));
   IF v_fora IS NOT NULL OR (SELECT count(*) FROM _instrucao_antes) <> (SELECT count(*) FROM public.orcamentista_mp_categoria) THEN
     RAISE EXCEPTION 'verificacao 4: orcamentista_mp_categoria mudou fora do que esta migracao faz: %', coalesce(v_fora, 'contagem');
   END IF;
-  -- (5) o catalogo de campos e so cores e serra_mm do Perfil
-  SELECT string_agg(categoria_chave || '.' || chave, ', ' ORDER BY categoria_chave, chave) INTO v_fora FROM public.orcamentista_categoria_campo;
-  IF v_fora IS DISTINCT FROM 'PERFIL.cores, PERFIL.serra_mm' THEN
-    RAISE EXCEPTION 'verificacao 5: o catalogo de campos nao e so PERFIL.cores e PERFIL.serra_mm: %', v_fora;
+  -- (5) o catalogo de campos e so cores, cor_predominante e serra_mm do Perfil (a ordem em "C": o collation do banco nao decide)
+  SELECT string_agg(categoria_chave || '.' || chave, ', ' ORDER BY categoria_chave COLLATE "C", chave COLLATE "C") INTO v_fora FROM public.orcamentista_categoria_campo;
+  IF v_fora IS DISTINCT FROM 'PERFIL.cor_predominante, PERFIL.cores, PERFIL.serra_mm' THEN
+    RAISE EXCEPTION 'verificacao 5: o catalogo de campos nao e so PERFIL.cor_predominante, PERFIL.cores e PERFIL.serra_mm: %', v_fora;
   END IF;
-  -- (6) cada remocao tem a sua linha de log (as 11 linhas, as configs e as 11 definicoes; reaplicar nao loga de novo)
+  -- (6) cada remocao tem a sua linha de log (as 11 linhas, as configs e as 10 definicoes; reaplicar nao loga de novo)
   IF (SELECT count(*) FROM public.superadmin_alteracao_log WHERE antes ->> 'remocao' = '20261103000002' AND tabela IN ('orcamentista_mp_vidro', 'orcamentista_mp_ferragem', 'orcamentista_mp_instalacao'))
        <> (SELECT count(DISTINCT chave) FROM public.superadmin_alteracao_log WHERE antes ->> 'remocao' = '20261103000002' AND tabela IN ('orcamentista_mp_vidro', 'orcamentista_mp_ferragem', 'orcamentista_mp_instalacao'))
      OR (SELECT count(*) FROM public.superadmin_alteracao_log WHERE antes ->> 'remocao' = '20261103000002' AND tabela = 'orcamentista_categoria_campo')

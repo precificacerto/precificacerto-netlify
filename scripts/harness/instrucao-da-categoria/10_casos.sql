@@ -42,17 +42,17 @@ begin
   raise exception 'esperava a recusa "%", e passou', frase;
 end $$;
 
--- CASO 1: o que a migração APAGOU e o que FICOU — PERFIL só com cores e serra_mm (os valores de antes), REFORCO e ACESSORIOS com config NULL
--- (nunca {}), a autoria anulada nas três; as três tabelas vazias; o catálogo de campos só com PERFIL.cores e PERFIL.serra_mm; as outras cinco
+-- CASO 1: o que a migração APAGOU e o que FICOU — PERFIL só com cores, cor_predominante e serra_mm (os valores de antes), REFORCO e ACESSORIOS com
+-- config NULL (nunca {}), a autoria anulada nas três; as três tabelas vazias; o catálogo de campos só com os três do Perfil; as outras cinco
 -- categorias da conta intactas; a coluna nova NULL em todas; e as três tabelas e as três funções AINDA EXISTEM (decisão: ficam, vazias e sem tela)
 do $c$ begin
-  if pg_temp.cfg('PERFIL') is distinct from '{"cores": null, "serra_mm": 5}'::jsonb then raise exception 'FALHOU caso 1: PERFIL %', pg_temp.cfg('PERFIL'); end if;
+  if pg_temp.cfg('PERFIL') is distinct from '{"cores": null, "cor_predominante": "BRANCO", "serra_mm": 5}'::jsonb then raise exception 'FALHOU caso 1: PERFIL %', pg_temp.cfg('PERFIL'); end if;
   if pg_temp.cfg('REFORCO') is not null or pg_temp.cfg('ACESSORIOS_VEDACAO') is not null then raise exception 'FALHOU caso 1: REFORCO % ACESSORIOS %', pg_temp.cfg('REFORCO'), pg_temp.cfg('ACESSORIOS_VEDACAO'); end if;
   if exists (select 1 from public.orcamentista_mp_categoria where id in (pg_temp.cat('PERFIL'), pg_temp.cat('REFORCO'), pg_temp.cat('ACESSORIOS_VEDACAO')) and atualizado_por is not null) then
     raise exception 'FALHOU caso 1: a autoria das tres nao foi anulada'; end if;
   if exists (select 1 from public.orcamentista_mp_vidro) or exists (select 1 from public.orcamentista_mp_ferragem) or exists (select 1 from public.orcamentista_mp_instalacao) then
     raise exception 'FALHOU caso 1: sobrou linha nas tres tabelas'; end if;
-  if (select string_agg(categoria_chave || '.' || chave, ',' order by categoria_chave, chave) from public.orcamentista_categoria_campo) is distinct from 'PERFIL.cores,PERFIL.serra_mm' then
+  if (select string_agg(categoria_chave || '.' || chave, ',' order by categoria_chave collate "C", chave collate "C") from public.orcamentista_categoria_campo) is distinct from 'PERFIL.cor_predominante,PERFIL.cores,PERFIL.serra_mm' then
     raise exception 'FALHOU caso 1: o catalogo de campos %', (select string_agg(categoria_chave || '.' || chave, ',') from public.orcamentista_categoria_campo); end if;
   if (select count(*) from public.orcamentista_mp_categoria) is distinct from 8 or exists (select 1 from public.orcamentista_mp_categoria where instrucao is not null)
      or exists (select 1 from public.orcamentista_mp_categoria where categoria_chave not in ('PERFIL', 'REFORCO', 'ACESSORIOS_VEDACAO') and config is not null) then
@@ -60,18 +60,18 @@ do $c$ begin
   if (select count(*) from pg_proc where proname in ('superadmin_gravar_mp_vidros', 'superadmin_gravar_mp_ferragens', 'superadmin_gravar_mp_instalacao')) is distinct from 3
      or (select count(*) from pg_tables where schemaname = 'public' and tablename in ('orcamentista_mp_vidro', 'orcamentista_mp_ferragem', 'orcamentista_mp_instalacao')) is distinct from 3 then
     raise exception 'FALHOU caso 1: as tabelas ou as funcoes das listas sumiram (a remocao delas e outra PR)'; end if;
-  raise notice 'ok: caso 1 — apagou so o medido: PERFIL fica {cores, serra_mm}, REFORCO e ACESSORIOS viram NULL, autoria anulada, 3 tabelas vazias, catalogo so cores e serra; o resto da conta e as tabelas/funcoes ficam';
+  raise notice 'ok: caso 1 — apagou so o medido: PERFIL fica {cores, cor_predominante, serra_mm}, REFORCO e ACESSORIOS viram NULL, autoria anulada, 3 tabelas vazias, catalogo so cores e serra; o resto da conta e as tabelas/funcoes ficam';
 end $c$;
 
 -- CASO 2: o LOG da remoção, linha a linha, com o tenant de quem era, e uma vez só (a migração rodou duas vezes): as 3 configs (antes com as chaves,
--- depois sem), as 4 + 4 + 3 linhas pelos ids de produção (a linha inteira no antes, depois nulo), as 11 definições (tenant NULL, chave CATEGORIA.campo)
+-- depois sem), as 4 + 4 + 3 linhas pelos ids de produção (a linha inteira no antes, depois nulo), as 10 definições (tenant NULL, chave CATEGORIA.campo)
 do $c$ declare v jsonb; begin
   if (select count(*) from pg_temp.removidos('orcamentista_mp_categoria')) is distinct from 3 then raise exception 'FALHOU caso 2: % linhas de config', (select count(*) from pg_temp.removidos('orcamentista_mp_categoria')); end if;
   select antes into v from pg_temp.removidos('orcamentista_mp_categoria') where chave = pg_temp.cat('PERFIL')::text;
   if v -> 'orcamentista_mp_categoria' -> 'config' ->> 'linha' is distinct from 'EUROPA 42' or v -> 'orcamentista_mp_categoria' -> 'config' ->> 'solda' is null
      or v -> 'orcamentista_mp_categoria' ->> 'atualizado_por' is distinct from pg_temp.k('SA') then raise exception 'FALHOU caso 2: o antes do PERFIL %', v; end if;
   select depois into v from pg_temp.removidos('orcamentista_mp_categoria') where chave = pg_temp.cat('PERFIL')::text;
-  if v -> 'orcamentista_mp_categoria' -> 'config' is distinct from '{"cores": null, "serra_mm": 5}'::jsonb then raise exception 'FALHOU caso 2: o depois do PERFIL %', v; end if;
+  if v -> 'orcamentista_mp_categoria' -> 'config' is distinct from '{"cores": null, "cor_predominante": "BRANCO", "serra_mm": 5}'::jsonb then raise exception 'FALHOU caso 2: o depois do PERFIL %', v; end if;
   select depois into v from pg_temp.removidos('orcamentista_mp_categoria') where chave = pg_temp.cat('ACESSORIOS_VEDACAO')::text;
   if v -> 'orcamentista_mp_categoria' -> 'config' is distinct from 'null'::jsonb then raise exception 'FALHOU caso 2: o depois dos ACESSORIOS %', v; end if;
   if exists (select 1 from pg_temp.removidos('orcamentista_mp_categoria') where tenant_id is distinct from pg_temp.k('DP')::uuid or por is not null) then raise exception 'FALHOU caso 2: o tenant ou o autor das configs'; end if;
@@ -86,12 +86,12 @@ do $c$ declare v jsonb; begin
   select antes into v from pg_temp.removidos('orcamentista_mp_ferragem') where chave = 'a44f1154-cce5-4777-8c1e-dbd282e2ec18';
   if v -> 'orcamentista_mp_ferragem' ->> 'referencia' is distinct from 'PROV-CR-2F' or v -> 'orcamentista_mp_ferragem' ->> 'posicao' is distinct from 'INTERNA' then raise exception 'FALHOU caso 2: a linha inteira da ferragem %', v; end if;
   if (select string_agg(chave, ',' order by chave collate "C") from pg_temp.removidos('orcamentista_categoria_campo'))
-     is distinct from 'ACESSORIOS_VEDACAO.cor_por_perfil,ACESSORIOS_VEDACAO.modelo_interlock,ACESSORIOS_VEDACAO.vedacao,PERFIL.barra_mm,PERFIL.cor_predominante,PERFIL.criterio_custo_barra,PERFIL.linha,PERFIL.solda,REFORCO.material,REFORCO.par_inox_referencia,REFORCO.usa' then
+     is distinct from 'ACESSORIOS_VEDACAO.cor_por_perfil,ACESSORIOS_VEDACAO.modelo_interlock,ACESSORIOS_VEDACAO.vedacao,PERFIL.barra_mm,PERFIL.criterio_custo_barra,PERFIL.linha,PERFIL.solda,REFORCO.material,REFORCO.par_inox_referencia,REFORCO.usa' then
     raise exception 'FALHOU caso 2: as definicoes %', (select string_agg(chave, ',') from pg_temp.removidos('orcamentista_categoria_campo')); end if;
   if exists (select 1 from pg_temp.removidos('orcamentista_categoria_campo') where tenant_id is not null or depois is not null) then raise exception 'FALHOU caso 2: a definicao e global: tenant NULL'; end if;
-  if (select count(*) from public.superadmin_alteracao_log where antes ->> 'remocao' = '20261103000002') is distinct from 25 then
-    raise exception 'FALHOU caso 2: % linhas com a marca (esperava 3 + 11 + 11)', (select count(*) from public.superadmin_alteracao_log where antes ->> 'remocao' = '20261103000002'); end if;
-  raise notice 'ok: caso 2 — o log: 3 configs (antes com as chaves, depois sem), 11 linhas pelos ids de producao, 11 definicoes com tenant NULL; 25 linhas, uma vez so apesar das duas aplicacoes';
+  if (select count(*) from public.superadmin_alteracao_log where antes ->> 'remocao' = '20261103000002') is distinct from 24 then
+    raise exception 'FALHOU caso 2: % linhas com a marca (esperava 3 + 11 + 10)', (select count(*) from public.superadmin_alteracao_log where antes ->> 'remocao' = '20261103000002'); end if;
+  raise notice 'ok: caso 2 — o log: 3 configs (antes com as chaves, depois sem), 11 linhas pelos ids de producao, 10 definicoes com tenant NULL; 24 linhas, uma vez so apesar das duas aplicacoes';
 end $c$;
 
 -- CASO 3: a CHECK da coluna — vazia, com espaço nas pontas e com 1.501 caracteres são recusadas; 1.500 caracteres multibyte passam (char_length, não bytes)
@@ -148,7 +148,7 @@ do $c$ declare r jsonb; t0 timestamptz; texto text := 'Dúvida de vidro: tabela 
   r := pg_temp.grava(pg_temp.k('DP'), pg_temp.k('SA'), pg_temp.cat('REFORCO'), to_jsonb('ç' || chr(128512) || repeat('a', 1498)));
   if char_length(pg_temp.instr('REFORCO')) is distinct from 1500 then raise exception 'FALHOU caso 5: 1500 multibyte %', char_length(pg_temp.instr('REFORCO')); end if;
   r := pg_temp.grava(pg_temp.k('DP'), pg_temp.k('SA'), pg_temp.cat('PERFIL'), to_jsonb('Perfil: a cor sai da lista.'::text));
-  if pg_temp.cfg('PERFIL') is distinct from '{"cores": null, "serra_mm": 5}'::jsonb or pg_temp.instr('PERFIL') is distinct from 'Perfil: a cor sai da lista.' then raise exception 'FALHOU caso 5: a instrucao do PERFIL mexeu na config'; end if;
+  if pg_temp.cfg('PERFIL') is distinct from '{"cores": null, "cor_predominante": "BRANCO", "serra_mm": 5}'::jsonb or pg_temp.instr('PERFIL') is distinct from 'Perfil: a cor sai da lista.' then raise exception 'FALHOU caso 5: a instrucao do PERFIL mexeu na config'; end if;
   raise notice 'ok: caso 5 — grava aparada, com autor e log; a mesma nao grava nem loga; vazia/so espaco limpam (NULL, logado); null sobre NULL nada; 1500 multibyte passa; a config do PERFIL fica';
   raise exception 'P0099' using errcode = 'P0099';
 exception when sqlstate 'P0099' then null; end $c$;
@@ -182,12 +182,16 @@ exception when sqlstate 'P0099' then null; end $c$;
 do $c$ declare v text; begin
   perform pg_temp.grava(pg_temp.k('DP'), pg_temp.k('SA'), pg_temp.cat('PERFIL'), '"Perfil."');
   perform public.superadmin_gravar_mp_categoria(pg_temp.k('DP')::uuid, pg_temp.k('SA')::uuid, pg_temp.k('MP')::uuid, 'PERFIL', '{"serra_mm": 8}');
-  if pg_temp.instr('PERFIL') is distinct from 'Perfil.' or pg_temp.cfg('PERFIL') is distinct from '{"cores": null, "serra_mm": 8}'::jsonb then raise exception 'FALHOU caso 7: % %', pg_temp.instr('PERFIL'), pg_temp.cfg('PERFIL'); end if;
+  if pg_temp.instr('PERFIL') is distinct from 'Perfil.' or pg_temp.cfg('PERFIL') is distinct from '{"cores": null, "cor_predominante": "BRANCO", "serra_mm": 8}'::jsonb then raise exception 'FALHOU caso 7: % %', pg_temp.instr('PERFIL'), pg_temp.cfg('PERFIL'); end if;
   v := pg_temp.recusa(format('select public.superadmin_gravar_mp_categoria(%L, %L, %L, %L, %L::jsonb)', pg_temp.k('DP'), pg_temp.k('SA'), pg_temp.k('MP'), 'PERFIL', '{"linha": "EUROPA 42"}'), 'chave(s) fora do catalogo de PERFIL: linha');
   v := pg_temp.recusa(format('select public.superadmin_gravar_mp_categoria(%L, %L, %L, %L, %L::jsonb)', pg_temp.k('DP'), pg_temp.k('SA'), pg_temp.k('MP'), 'REFORCO', '{"usa": true}'), 'chave(s) fora do catalogo de REFORCO: usa');
   v := pg_temp.recusa(format('select pg_temp.arvore(%L::jsonb)', '[{"categoria_chave": "PERFIL", "config": {"solda": "45/45"}}]'), 'materia-prima Esquadrias de PVC WOLF, categoria PERFIL, config: chave(s) fora do catalogo de PERFIL: solda');
-  if pg_temp.instr('PERFIL') is distinct from 'Perfil.' or pg_temp.cfg('PERFIL') is distinct from '{"cores": null, "serra_mm": 8}'::jsonb then raise exception 'FALHOU caso 7: a recusa mexeu'; end if;
-  raise notice 'ok: caso 7 — gravar a config preserva a instrucao; o banco recusa nomeando a chave que saiu do catalogo (linha, usa, solda), pela funcao e pela arvore';
+  if pg_temp.instr('PERFIL') is distinct from 'Perfil.' or pg_temp.cfg('PERFIL') is distinct from '{"cores": null, "cor_predominante": "BRANCO", "serra_mm": 8}'::jsonb then raise exception 'FALHOU caso 7: a recusa mexeu'; end if;
+  -- cor_predominante FICA (correcao do dono do produto, 03/11/2026): o banco a aceita, como cores e serra_mm
+  perform public.superadmin_gravar_mp_categoria(pg_temp.k('DP')::uuid, pg_temp.k('SA')::uuid, pg_temp.k('MP')::uuid, 'PERFIL', '{"cor_predominante": "PRETO", "cores": ["PRETO", "BRANCO"]}');
+  if pg_temp.cfg('PERFIL') is distinct from '{"cores": ["PRETO", "BRANCO"], "cor_predominante": "PRETO", "serra_mm": 8}'::jsonb or pg_temp.instr('PERFIL') is distinct from 'Perfil.' then
+    raise exception 'FALHOU caso 7: cor_predominante/cores nao gravaram %', pg_temp.cfg('PERFIL'); end if;
+  raise notice 'ok: caso 7 — gravar a config preserva a instrucao; o banco recusa nomeando a chave que saiu do catalogo (linha, usa, solda) e aceita cores, cor_predominante e serra_mm';
   raise exception 'P0099' using errcode = 'P0099';
 exception when sqlstate 'P0099' then null; end $c$;
 

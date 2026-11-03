@@ -978,11 +978,19 @@ Formulação do dono do produto, registrada como está:
    > caracteres por bloco vazio."
 5. > "Depois desta PR, a tela de cada categoria fica com: o campo de instrução para todas, mais cores e serra_mm só no Perfil."
 
+**CORREÇÃO do dono do produto, 03/11/2026, antes de aplicar (a migração ainda era PENDENTE):**
+
+> "PARE antes de eu aplicar a 20261103000002: cor_predominante não pode sair. [...] cor_predominante é a fonte da cor padrão [...] ('cor não dita =
+> config.cor_predominante da categoria Perfil'). Apagá-la deixa a conversa sem cor padrão e sem lista de cores. Corrija: cor_predominante FICA
+> estruturada, junto com cores e serra_mm. Saem só linha, barra_mm, solda e criterio_custo_barra."
+
+A migração foi remontada antes de qualquer aplicação (o md5 abaixo é o do arquivo corrigido); a tela do Perfil mostra os três.
+
 - **A MIGRAÇÃO APAGA DADO DE CONTA** (a De Paula, tenant `20e08592…`, matéria-prima `79d764fe…`), medido em 03/11/2026 e escrito no cabeçalho: da config do
-  PERFIL as chaves `linha`, `cor_predominante`, `barra_mm`, `solda` e `criterio_custo_barra` (ficam `cores` e `serra_mm`); a config inteira do REFORCO
+  PERFIL as chaves `linha`, `barra_mm`, `solda` e `criterio_custo_barra` (ficam `cores`, `cor_predominante` e `serra_mm`); a config inteira do REFORCO
   (`usa`, `material`, `par_inox_referencia`) e dos ACESSORIOS_VEDACAO (`vedacao`, `cor_por_perfil`, `modelo_interlock`), que viram NULL (nunca `{}`);
-  as 4 linhas de `orcamentista_mp_vidro`, as 4 de `_mp_ferragem` e as 3 de `_mp_instalacao`, pelos ids; e as 11 definições de
-  `orcamentista_categoria_campo` que saem (ficam `PERFIL.cores` e `PERFIL.serra_mm`). **Cada remoção tem a sua linha no `superadmin_alteracao_log`**
+  as 4 linhas de `orcamentista_mp_vidro`, as 4 de `_mp_ferragem` e as 3 de `_mp_instalacao`, pelos ids; e as 10 definições de
+  `orcamentista_categoria_campo` que saem (ficam `PERFIL.cores`, `PERFIL.cor_predominante` e `PERFIL.serra_mm`). **Cada remoção tem a sua linha no `superadmin_alteracao_log`**
   (a linha inteira em `antes`, marcada `remocao = 20261103000002`, com o tenant de quem era; a definição é global, tenant NULL) **e um `RAISE NOTICE` por
   categoria**; reaplicar não apaga nem loga de novo. **A guarda aborta se houver o que apagar fora do medido** — uma linha a mais, uma config com chave
   que sai em outra matéria-prima ou empresa, uma definição a mais no catálogo —, nomeando-o: o cabeçalho nunca diz menos do que a migração apaga.
@@ -998,9 +1006,9 @@ Formulação do dono do produto, registrada como está:
   (`migracao.md`, Parte III).
 - **`superadmin_gravar_mp_categoria` não muda e preserva a instrução** (é upsert só de config); como ela valida as chaves contra o catálogo de campos,
   **o banco passa a recusar `linha`, `usa`, `solda`… nomeando a chave** — o banco e a rota dizem o mesmo.
-- **No código:** `CAMPOS_QUE_FICAM = { PERFIL: ['cores', 'serra_mm'] }` substitui `CAMPOS_FORA_DA_TELA` (lista fechada: um campo NOVO no catálogo NÃO
+- **No código:** `CAMPOS_QUE_FICAM = { PERFIL: ['cores', 'cor_predominante', 'serra_mm'] }` substitui `CAMPOS_FORA_DA_TELA` (lista fechada: um campo NOVO no catálogo NÃO
   aparece na tela); a tela mostra, em toda categoria, fornecedores + a instrução (contador "N / 1.500", contado como o banco conta, em vermelho acima
-  do limite, e o salvar segura a árvore na tela) e, só no Perfil, cores e serra; as tabelas de vidro, ferragem e acabamento saíram da tela e do corpo;
+  do limite, e o salvar segura a árvore na tela) e, só no Perfil, cores, cor predominante e serra; as tabelas de vidro, ferragem e acabamento saíram da tela e do corpo;
   as rotas `/vidros`, `/ferragens` e `/instalacao` respondem **410** com `fraseDaListaQueSaiu`; a árvore recusa as três listas e toda chave de config
   fora dos que ficam, antes da função. A tela manda `instrucao` só se mudou (aparada; vazia é null); o `depois` sem a chave (rota de antes da
   migração) mantém a que a tela tinha.
@@ -1022,7 +1030,7 @@ Formulação do dono do produto, registrada como está:
   corpos de PRODUÇÃO das funções da base de conhecimento (md5 conferido) + as três tabelas na estrutura de produção (`pg_constraint` e `pg_indexes`,
   inclusive o índice único de expressão dos vidros) + o conteúdo medido da De Paula; a migração duas vezes; 10 casos, 3 corridas (instrução × config
   na mesma categoria, nas duas ordens; duas instruções), 7 guardas (corpo diferente, linha/config/definição fora do medido, função nova com outro corpo,
-  coluna com outro tipo, banco vazio) e 27 mutações nas duas passadas (`mutacoes.py`). No código: 11 mutações da tela e 10 do leitor/prompt, todas
+  coluna com outro tipo, banco vazio) e 29 mutações nas duas passadas (`mutacoes.py`). No código: 11 mutações da tela e 10 do leitor/prompt, todas
   mortas (a tabela está no PR).
 - **A migração:** `supabase/migrations/20261103000002_instrucao_da_categoria.sql`, md5 `ccc508e65ec77239794ef975c238e35b`, 559 linhas, 41065 bytes, LF.
 

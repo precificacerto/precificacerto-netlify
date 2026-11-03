@@ -6,7 +6,8 @@ P=$1; D=$2; C=${D}_corrida
 SA=e0000000-0000-0000-0000-000000000001; DP=20e08592-f957-4e72-b7eb-251387e34eb9; MP=79d764fe-4acd-43e2-bed9-38e20667ca3d
 nova() { $P -c "drop database if exists $C" >/dev/null 2>&1; $P -c "create database $C template $D" >/dev/null; CAT=$($P -d $C -At -c "select id from orcamentista_mp_categoria where materia_prima_id = '$MP' and categoria_chave = 'PERFIL'"); }
 INSTR1="select public.superadmin_gravar_instrucao_da_categoria('$DP', '$SA', '$CAT', '\"primeira\"')"
-estado() { $P -d $C -At -c "select instrucao || '|' || config::text from orcamentista_mp_categoria where id = '$CAT'"; }
+# a config comparada como jsonb (o texto reordena as chaves): 'primeira|true' e o esperado
+estado() { $P -d $C -At -c "select instrucao || '|' || (config = '{\"cores\": null, \"cor_predominante\": \"BRANCO\", \"serra_mm\": 9}'::jsonb)::text from orcamentista_mp_categoria where id = '$CAT'"; }
 
 # CORRIDA 1: a instrução (transação aberta) e, em paralelo, a config pela gravar_mp_categoria: a config espera, e ficam as duas
 nova
@@ -14,7 +15,7 @@ INSTR1="select public.superadmin_gravar_instrucao_da_categoria('$DP', '$SA', '$C
 ( $P -d $C -At -c "begin; $INSTR1; select pg_sleep(2); commit;" >/dev/null 2>&1 ) &
 sleep 0.7
 OUT=$($P -d $C -At -c "select public.superadmin_gravar_mp_categoria('$DP', '$SA', '$MP', 'PERFIL', '{\"serra_mm\": 9}')" 2>&1 >/dev/null); wait
-if [ -z "$OUT" ] && [ "$(estado)" = 'primeira|{"cores": null, "serra_mm": 9}' ]; then echo "NOTICE:  ok: corrida 1 — instrucao e config na mesma categoria, em paralelo: ficam as duas"
+if [ -z "$OUT" ] && [ "$(estado)" = 'primeira|true' ]; then echo "NOTICE:  ok: corrida 1 — instrucao e config na mesma categoria, em paralelo: ficam as duas"
 else echo "ERROR:  FALHOU corrida 1: $OUT $(estado)"; fi
 
 # CORRIDA 2: a config (transação aberta) e, em paralelo, a instrução: a instrução espera, e ficam as duas; um log de cada
@@ -24,7 +25,7 @@ INSTR1="select public.superadmin_gravar_instrucao_da_categoria('$DP', '$SA', '$C
 sleep 0.7
 OUT=$($P -d $C -At -c "$INSTR1" 2>&1 >/dev/null); wait
 N=$($P -d $C -At -c "select count(*) from superadmin_alteracao_log where tabela = 'orcamentista_mp_categoria' and chave = '$CAT' and antes ->> 'remocao' is null")
-if [ -z "$OUT" ] && [ "$(estado)" = 'primeira|{"cores": null, "serra_mm": 9}' ] && [ "$N" = "2" ]; then echo "NOTICE:  ok: corrida 2 — config e instrucao na mesma categoria, na outra ordem: ficam as duas, um log de cada"
+if [ -z "$OUT" ] && [ "$(estado)" = 'primeira|true' ] && [ "$N" = "2" ]; then echo "NOTICE:  ok: corrida 2 — config e instrucao na mesma categoria, na outra ordem: ficam as duas, um log de cada"
 else echo "ERROR:  FALHOU corrida 2: $OUT $(estado) logs=$N"; fi
 
 # CORRIDA 3: duas instruções na mesma categoria: a segunda espera a primeira e vence; dois logs, o segundo com o antes = a primeira

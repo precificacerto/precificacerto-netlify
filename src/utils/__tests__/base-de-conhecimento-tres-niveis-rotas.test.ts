@@ -688,16 +688,16 @@ describe('(6b) PUT /arvore — 1:1 com superadmin_gravar_arvore (migração 2026
     })
 })
 
-describe('(6c) os campos que SAÍRAM da tela e da gravação (30/10/2026; desde 03/11/2026 ficam só cores e serra do Perfil): recusa nomeada antes da função, nas duas rotas que gravam o config', () => {
-    // as onze chaves que a migração 20261103000002 apaga, escritas aqui e não lidas da constante
-    const FORA = [['PERFIL', 'linha'], ['PERFIL', 'cor_predominante'], ['PERFIL', 'barra_mm'], ['PERFIL', 'solda'], ['PERFIL', 'criterio_custo_barra'],
+describe('(6c) os campos que SAÍRAM da tela e da gravação (30/10/2026; desde 03/11/2026 ficam só cores, cor predominante e serra do Perfil): recusa nomeada antes da função, nas duas rotas que gravam o config', () => {
+    // as dez chaves que a migração 20261103000002 apaga, escritas aqui e não lidas da constante (cor_predominante FICA: correção do dono do produto)
+    const FORA = [['PERFIL', 'linha'], ['PERFIL', 'barra_mm'], ['PERFIL', 'solda'], ['PERFIL', 'criterio_custo_barra'],
         ['REFORCO', 'usa'], ['REFORCO', 'material'], ['REFORCO', 'par_inox_referencia'],
         ['ACESSORIOS_VEDACAO', 'cor_por_perfil'], ['ACESSORIOS_VEDACAO', 'modelo_interlock'], ['ACESSORIOS_VEDACAO', 'vedacao']] as const
 
     it.each(FORA)('PUT /categoria com %s.%s: 400 que nomeia o campo e manda para a instrução — a função NÃO é chamada', async (categoria, chave) => {
         const r = await chamar('categoria', 'PUT', { tenant: T_A, materia_prima: MP_PVC, categoria }, { config: { [chave]: null } })
         expect(r.status).toBe(400)
-        expect(r.json.erros).toEqual([{ campo: `config.${chave}`, mensagem: `o campo "${chave}" saiu da base de conhecimento: o que a categoria precisa dizer vai na instrução dela (texto livre). Ficam só as cores e a serra do Perfil.` }])
+        expect(r.json.erros).toEqual([{ campo: `config.${chave}`, mensagem: `o campo "${chave}" saiu da base de conhecimento: o que a categoria precisa dizer vai na instrução dela (texto livre). Ficam só as cores, a cor predominante e a serra do Perfil.` }])
         nenhumaEscrita()
     })
 
@@ -714,8 +714,8 @@ describe('(6c) os campos que SAÍRAM da tela e da gravação (30/10/2026; desde 
         nenhumaEscrita()
     })
 
-    it('FICAM só cores e serra_mm, e só no PERFIL (o cálculo da conversa as lê): em outra categoria, a mesma chave é recusada', async () => {
-        const r = await chamar('categoria', 'PUT', { tenant: T_A, materia_prima: MP_PVC, categoria: 'PERFIL' }, { config: { cores: ['BRANCO'], serra_mm: 5 } })
+    it('FICAM só cores, cor_predominante e serra_mm, e só no PERFIL (o cálculo da conversa as lê): em outra categoria, a mesma chave é recusada', async () => {
+        const r = await chamar('categoria', 'PUT', { tenant: T_A, materia_prima: MP_PVC, categoria: 'PERFIL' }, { config: { cores: ['BRANCO'], cor_predominante: 'BRANCO', serra_mm: 5 } })
         expect(r.status).toBe(200)
         const r2 = await chamar('categoria', 'PUT', { tenant: T_A, materia_prima: MP_PVC, categoria: 'REFORCO' }, { config: { serra_mm: 5 } })
         expect(r2.status).toBe(400)

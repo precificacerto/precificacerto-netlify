@@ -13,7 +13,7 @@
  *   - dentro de cada categoria, SÓ O QUE MUDOU: o `config` só com as chaves mudadas (null limpa, false
  *     é "não", a chave AUSENTE não mexe); a `instrucao` só se mudou (aparada; vazia é null, que limpa);
  *   - DESDE 03/11/2026 (migração `20261103000002`) a categoria tem a INSTRUÇÃO (texto livre, até 1.500) e, de campo estruturado, só as
- *     cores e a serra do Perfil (`CAMPOS_QUE_FICAM`); as listas de vidro, ferragem e acabamento saíram da tela e do corpo;
+ *     cores, a cor predominante e a serra do Perfil (`CAMPOS_QUE_FICAM`); as listas de vidro, ferragem e acabamento saíram da tela e do corpo;
  *   - a matéria-prima é endereçada pelo NOME, e o nome da gravada não se edita: a chave é
  *     `lower(nome)`, a função 1 recusa `id`, e não existe renomear (um nome novo é outra).
  *
@@ -186,7 +186,7 @@ export function categoriasForaDaFamilia(catalogo: ArvoreLida['catalogo'], famili
 /** A família declara alguma ramificação? */
 export const familiaDeclaraRamificacao = (catalogo: ArvoreLida['catalogo'], familia: string) => (catalogo.ramificacoes ?? []).some((r) => r.familia === familia)
 /**
- * Os campos da categoria que a tela mostra, edita e manda — SÓ os que ficam (`CAMPOS_QUE_FICAM`, 03/11/2026: cores e serra do Perfil), mesmo que o
+ * Os campos da categoria que a tela mostra, edita e manda — SÓ os que ficam (`CAMPOS_QUE_FICAM`, 03/11/2026: cores, cor predominante e serra do Perfil), mesmo que o
  * catálogo ainda traga outros (antes da migração `20261103000002`): fora daqui, eles não entram no formulário nem no corpo.
  */
 export const camposDa = (c: ArvoreLida['catalogo'], chave: string) =>
