@@ -99,6 +99,7 @@
  *
  * Portão: `src/utils/__tests__/levantamento-da-conversa.test.ts`.
  */
+import { limitesNoPrompt, numeroOuNulo } from '@/lib/atendimentos-ia/tipologias-candidatas'
 import { supabaseAdmin } from '@/supabase/admin'
 import { COLUNAS_LIDAS, lerTipologia, variaveisDaAba, type AbasDoMotor, type AvisoDoAvaliador, type Tipologia } from '@/lib/atendimentos-ia/avaliador-de-formulas'
 import { descreverArremate, escolhasComPadrao, lerEscolhasGravadas, traduzirVocabulario, type VariaveisDaTipologia } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
@@ -115,7 +116,11 @@ export { FRASE_SEM_LISTA_DE_TIPOLOGIAS }
 
 // ── As famílias da empresa e as tipologias candidatas ───────────────────────────────────────
 /** Uma tipologia que a IA pode escolher: do motor do LEVANTAMENTO (etapa 1) de uma família da conta. */
-export type CandidatoDeTipologia = { tipologia: string; descricao: string | null; tipo: string | null; familia: string; rotulo: string; fornecedor: string }
+export type CandidatoDeTipologia = {
+    tipologia: string; descricao: string | null; tipo: string | null; familia: string; rotulo: string; fornecedor: string
+    /** Os limites da Detalhe do motor (03/11/2026): NULL = o arquivo não traz, e nunca descarta. */
+    larg_min_mm: number | null; larg_max_mm: number | null; alt_min_mm: number | null; alt_max_mm: number | null
+}
 /** Uma família da conta, com os motores das etapas e as tabelas de PREÇO que valem para ela. */
 export type FamiliaLigada = FonteDaFamilia & { tabelasDePreco: string[] }
 export type FamiliasDaEmpresaLidas = { ok: true; familias: FamiliaLigada[]; candidatos: CandidatoDeTipologia[] }
@@ -163,13 +168,18 @@ export async function lerFamiliasDaEmpresa(tenantId: string): Promise<FamiliasDa
     const candidatos: CandidatoDeTipologia[] = []
     for (const f of familias) {
         const { data, error: erroDaLista } = await supabaseAdmin
-            .from('orcamentista_motor_tipologia_detalhe').select('tipologia, descricao, tipo').eq('motor_id', f.levantamento.id)
+            .from('orcamentista_motor_tipologia_detalhe').select('tipologia, descricao, tipo, larg_min_mm, larg_max_mm, alt_min_mm, alt_max_mm').eq('motor_id', f.levantamento.id)
         if (erroDaLista) return { ok: false, motivo: 'SEM_LISTA_DE_TIPOLOGIAS', frase: FRASE_SEM_LISTA_DE_TIPOLOGIAS, detalhe: `codigo=${erroDaLista.code ?? '-'}` }
-        const doMotor = ((data ?? []) as Array<{ tipologia: unknown; descricao: string | null; tipo: string | null }>)
-            .filter((c): c is { tipologia: string; descricao: string | null; tipo: string | null } => typeof c.tipologia === 'string' && c.tipologia !== '')
+        type LinhaDaDetalhe = { tipologia: unknown; descricao: string | null; tipo: string | null; larg_min_mm?: unknown; larg_max_mm?: unknown; alt_min_mm?: unknown; alt_max_mm?: unknown }
+        const doMotor = ((data ?? []) as LinhaDaDetalhe[])
+            .filter((c): c is LinhaDaDetalhe & { tipologia: string } => typeof c.tipologia === 'string' && c.tipologia !== '')
         // um motor sem lista não segue em silêncio: as outras famílias sozinhas esconderiam as tipologias dele
         if (doMotor.length === 0) return { ok: false, motivo: 'SEM_LISTA_DE_TIPOLOGIAS', frase: fraseSemListaDoMotor(f.levantamento.nome, f.rotulo), detalhe: 'linhas=0' }
-        candidatos.push(...doMotor.map((c) => ({ tipologia: c.tipologia, descricao: c.descricao, tipo: c.tipo, familia: f.familia, rotulo: f.rotulo, fornecedor: f.fornecedor })))
+        // os limites como estão na Detalhe: o que não é número é NULL (ausente não é zero — `tipologias-candidatas.ts`)
+        candidatos.push(...doMotor.map((c) => ({
+            tipologia: c.tipologia, descricao: c.descricao, tipo: c.tipo, familia: f.familia, rotulo: f.rotulo, fornecedor: f.fornecedor,
+            larg_min_mm: numeroOuNulo(c.larg_min_mm), larg_max_mm: numeroOuNulo(c.larg_max_mm), alt_min_mm: numeroOuNulo(c.alt_min_mm), alt_max_mm: numeroOuNulo(c.alt_max_mm),
+        })))
     }
     return { ok: true, familias, candidatos: candidatos.sort(porCodigoEFamilia) }
 }
@@ -181,11 +191,12 @@ export const familiasDoCodigo = (t: FamiliasDaEmpresaLidas): FamiliasDoCodigo =>
     }))
 
 /**
- * A linha do candidato no prompt: código, descrição inteira e tipo — e a família (e o fornecedor do motor) quando a conta tem mais
- * de uma família (com uma só, a linha é a de sempre). Ausente não vira texto inventado.
+ * A linha do candidato no prompt: código, descrição inteira, tipo e os LIMITES de largura e altura (03/11/2026: "a lista de tipologias
+ * enviada ao modelo tem de levar a descrição e os limites, não só o código") — e a família (e o fornecedor do motor) quando a conta tem
+ * mais de uma família (com uma só, a linha é a de sempre). Ausente não vira texto inventado: "sem limite no arquivo".
  */
 export const linhaDoCandidato = (c: CandidatoDeTipologia, comFamilia: boolean) =>
-    `${c.tipologia} | ${c.descricao ?? '(sem descrição no arquivo)'} | ${c.tipo ?? '(sem tipo no arquivo)'}`
+    `${c.tipologia} | ${c.descricao ?? '(sem descrição no arquivo)'} | ${c.tipo ?? '(sem tipo no arquivo)'} | ${limitesNoPrompt(c)}`
     + (comFamilia ? ` | família: ${c.rotulo} | fornecedor: ${c.fornecedor}` : '')
 
 /** A tabela ainda não existe no banco (migração não aplicada): é falta nomeada, não erro. */

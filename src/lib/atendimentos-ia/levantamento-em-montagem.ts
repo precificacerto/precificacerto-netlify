@@ -35,6 +35,7 @@
 import { PERGUNTA_DO_CAMPO, valorValido } from '@/lib/atendimentos-ia/pre-definicao'
 import { escolhaPedida, lerEscolhasGravadas, perguntaDaEscolha, validarEscolha, type EscolhaPendente, type VariaveisDaTipologia } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import { normalizarNome } from '@/lib/atendimentos-ia/nome-do-levantamento'
+import { aberturaCompativel, aberturaDoItem, cabeNosLimites, type Abertura, type CandidatoParaAProposta, type Medidas } from '@/lib/atendimentos-ia/tipologias-candidatas'
 
 /** Os campos de uma esquadria, na ordem em que são perguntados. */
 export const CAMPOS_DA_ESQUADRIA = ['tipologia', 'largura_mm', 'altura_mm', 'quantidade', 'cor_perfil', 'vidro'] as const
@@ -115,7 +116,11 @@ export function fraseDeQualFamilia(tipologia: string, opcoes: readonly OpcaoDeFa
 }
 
 export type ContextoDaProposta = {
-    tipologias: readonly string[]
+    /** As tipologias candidatas, com a descrição (a abertura) e os limites: a lista de códigos é derivada delas (03/11/2026). */
+    candidatos: readonly CandidatoParaAProposta[]
+    /** A abertura que a MENSAGEM inteira diz (uma só das palavras), e as palavras que ela traz — o `abertura` de cada item só vale se dito. */
+    aberturaDaMensagem: Abertura | null
+    aberturasDitas: ReadonlySet<Abertura>
     cores: readonly string[]
     /** A esquadria que recebe o que vier sem ordem e sem tipologia; null quando não há como saber. */
     ordemPadrao: number | null
@@ -129,7 +134,16 @@ export type ResultadoDaProposta = {
     descartados: number
     /** Veio valor sem ordem nem tipologia, e não há esquadria padrão: nada foi aplicado dele. */
     semEsquadria: boolean
+    /** As tipologias que o CÓDIGO descartou (03/11/2026): pela abertura dita (porta × janela) ou pelos limites do motor. */
+    recusas: RecusaDaTipologia[]
 }
+
+/**
+ * PORTA NÃO É JANELA e OS LIMITES (dono do produto, 03/11/2026 — `tipologias-candidatas.ts`): a tipologia proposta cai, no código, quando a
+ * descrição dela contradiz a palavra do vendedor (ABERTURA) ou quando nenhuma candidata do código cabe a medida dita (LIMITES). A conversa
+ * usa a recusa para a frase ao vendedor; o item fica sem tipologia, com as medidas.
+ */
+export type RecusaDaTipologia = { ordem: number; motivo: 'ABERTURA' | 'LIMITES'; tipologia: string; abertura: Abertura | null; medidas: Medidas }
 
 const vazio = (v: unknown) => v === null || v === undefined
 const ordemValida = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 1
@@ -140,6 +154,9 @@ export function aplicarProposta(atuais: readonly ItemDoLevantamento[], proposta:
     let propostos = 0
     let descartados = 0
     let semEsquadria = false
+    const recusas: RecusaDaTipologia[] = []
+    const tipologias = [...new Set(ctx.candidatos.map((c) => c.tipologia))]
+    const candidatasDoCodigo = (codigo: string) => ctx.candidatos.filter((c) => c.tipologia === codigo)
     const p = (proposta && typeof proposta === 'object' ? proposta : {}) as { itens?: unknown; escolhas?: unknown; opcoes_de?: unknown }
     const proxima = () => (itens.length ? Math.max(...itens.map((i) => i.ordem)) + 1 : 1)
 
@@ -150,7 +167,7 @@ export function aplicarProposta(atuais: readonly ItemDoLevantamento[], proposta:
         for (const campo of CAMPOS_DA_ESQUADRIA) {
             if (vazio(b[campo])) continue
             propostos += 1
-            const v = valorValido(campo, b[campo], ctx.tipologias, ctx.cores)
+            const v = valorValido(campo, b[campo], tipologias, ctx.cores)
             if (v === undefined) descartados += 1
             else validos[campo] = v
         }
@@ -173,6 +190,16 @@ export function aplicarProposta(atuais: readonly ItemDoLevantamento[], proposta:
         }
         if (!alvo) { semEsquadria = true; continue }
 
+        // PORTA × JANELA (decisão 1): a palavra do vendedor — a do item, se ele a escreveu, senão a da mensagem — contra a PRIMEIRA palavra
+        // da descrição; nenhuma candidata do código compatível descarta a tipologia proposta. Maxim-ar e fixo não declaram, e passam.
+        const abertura = aberturaDoItem(b.abertura, ctx.aberturasDitas, ctx.aberturaDaMensagem)
+        if (validos.tipologia !== undefined && abertura !== null && !candidatasDoCodigo(String(validos.tipologia)).some((c) => aberturaCompativel(c.descricao, abertura))) {
+            descartados += 1
+            recusas.push({ ordem: alvo.ordem, motivo: 'ABERTURA', tipologia: String(validos.tipologia), abertura, medidas: { largura_mm: alvo.largura_mm, altura_mm: alvo.altura_mm } })
+            delete validos.tipologia
+        }
+        const tipologiaProposta = validos.tipologia !== undefined
+
         if (validos.tipologia !== undefined && validos.tipologia !== alvo.tipologia) {
             // as escolhas e a família são da tipologia: a família é a ÚNICA cujo motor tem o código, ou nenhuma (pergunta)
             const opcoes = ctx.familiasDoCodigo(String(validos.tipologia))
@@ -181,6 +208,19 @@ export function aplicarProposta(atuais: readonly ItemDoLevantamento[], proposta:
             alvo.motor_id = opcoes.length === 1 ? opcoes[0].motorId : null
         }
         Object.assign(alvo, validos)
+        // OS LIMITES (decisão 2): com tipologia e alguma medida no item, se NENHUMA candidata do código cabe, a tipologia sai — nunca "a mais
+        // próxima"; NULL no limite nunca descarta. As medidas ficam; a conversa diz a faixa das que sobraram.
+        if (alvo.tipologia !== null && (alvo.largura_mm !== null || alvo.altura_mm !== null)) {
+            const candidatas = candidatasDoCodigo(alvo.tipologia)
+            if (candidatas.length > 0 && !candidatas.some((c) => cabeNosLimites(c, alvo))) {
+                if (tipologiaProposta) descartados += 1
+                recusas.push({ ordem: alvo.ordem, motivo: 'LIMITES', tipologia: alvo.tipologia, abertura, medidas: { largura_mm: alvo.largura_mm, altura_mm: alvo.altura_mm } })
+                alvo.tipologia = null
+                alvo.escolhas = null
+                alvo.familia = null
+                alvo.motor_id = null
+            }
+        }
         if (fornecedor !== null || familia !== null) {
             // a resposta à pergunta de qual família: a família dita (o rótulo ou a chave) e/ou o fornecedor do motor apontam UMA
             // das famílias DAQUELA tipologia; o que aponta duas, ou nenhuma, não vale
@@ -216,7 +256,43 @@ export function aplicarProposta(atuais: readonly ItemDoLevantamento[], proposta:
         if (!alvo || !definicao || typeof variavel !== 'string' || escolhaPedida(definicao, variavel) === null) { descartados += 1; continue }
         alvo.escolhas = { ...(alvo.escolhas ?? {}), [variavel]: null }
     }
-    return { itens, propostos, descartados, semEsquadria }
+    // QUANTIDADE NÃO DITA É 1 (dono do produto, 03/11/2026): a esquadria que já diz alguma coisa e não diz quantas é uma — sem perguntar
+    for (const i of itens) if (i.quantidade === null && CAMPOS_DA_ESQUADRIA.some((c) => c !== 'quantidade' && !vazio(i[c]))) i.quantidade = 1
+    return { itens, propostos, descartados, semEsquadria, recusas }
+}
+
+// ── O AGRUPAMENTO (dono do produto, 03/11/2026) ─────────────────────────────────────────────
+/**
+ * "Mesma tipologia + mesmas medidas + mesmas variáveis + mesmo ambiente = UM item com a quantidade somada." Hoje a esquadria não tem
+ * ambiente — "não crie campo nenhum [...] deixe o código preparado para o ambiente entrar como mais um critério quando existir": quando ele
+ * existir, entra NESTA lista. A cor do perfil e o vidro também entram (decisão do dono do produto, 03/11/2026): itens iguais em tudo menos na
+ * cor ou no vidro continuam dois — nada dito pelo vendedor se perde.
+ */
+export const CRITERIOS_DO_AGRUPAMENTO = ['tipologia', 'largura_mm', 'altura_mm', 'cor_perfil', 'vidro', 'familia', 'motor_id'] as const
+/** Só o item COMPLETO se funde (03/11/2026): tudo dito, menos a quantidade; e com a família resolvida. O que ainda vai receber um vidro não se junta. */
+export const itemCompleto = (i: ItemDoLevantamento): boolean =>
+    CAMPOS_DA_ESQUADRIA.every((c) => c === 'quantidade' || !vazio(i[c])) && i.familia !== null
+const chaveDoAgrupamento = (i: ItemDoLevantamento): string =>
+    JSON.stringify([...CRITERIOS_DO_AGRUPAMENTO.map((c) => i[c]), Object.entries(i.escolhas ?? {}).sort(([a], [b]) => a.localeCompare(b))])
+
+/**
+ * Funde os itens completos e iguais: o primeiro fica, com as unidades somadas (quantidade não dita conta 1); os outros saem; a numeração
+ * volta a 1..N na ordem em que estavam. Devolve uma cópia e quantos itens se fundiram.
+ */
+export function agruparIguais(itens: readonly ItemDoLevantamento[]): { itens: ItemDoLevantamento[]; fundidos: number } {
+    const saida: ItemDoLevantamento[] = []
+    const porChave = new Map<string, ItemDoLevantamento>()
+    let fundidos = 0
+    for (const original of [...itens].sort((a, b) => a.ordem - b.ordem)) {
+        const i = { ...original, escolhas: original.escolhas ? { ...original.escolhas } : null }
+        if (!itemCompleto(i)) { saida.push(i); continue }
+        const chave = chaveDoAgrupamento(i)
+        const igual = porChave.get(chave)
+        if (!igual) { porChave.set(chave, i); saida.push(i); continue }
+        igual.quantidade = (igual.quantidade ?? 1) + (i.quantidade ?? 1)
+        fundidos += 1
+    }
+    return { itens: saida.map((i, k) => ({ ...i, ordem: k + 1 })), fundidos }
 }
 
 export type Pendencia =

@@ -1040,3 +1040,154 @@ A migração foi remontada antes de qualquer aplicação (o md5 abaixo é o do a
   `remocao = 20261103000002`, todas às 13:23:48 UTC. A ordem da Parte I de `migracao.md` foi cumprida: aplicada 2 min antes do merge. Como as
   demais aplicadas pelo SQL Editor, não há linha em `supabase_migrations.schema_migrations` (ver `migracao.md`, Parte II).
 
+
+## Porta não é janela, quantidade não dita é 1, os limites do motor e o agrupamento — dono do produto, 03/11/2026 (sem migração)
+
+**O caso que originou:** levantamento "Geronimo Silva", 03/11/2026. "Janela de correr 1,50x1,20" e "porta janela 2,50x2,40" saíram **as três como
+DP-02** ("JANELA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 42"), a IA **perguntou a quantidade** e **repetiu dois itens idênticos**.
+
+**Medido antes de escrever (Fase 1, sem alterar nada):** a lista ao modelo levava só `código | descrição | tipo` (`levantamento-da-conversa.ts`); a
+tipologia era decidida pela IA e validada **só por pertencer à lista** (`aplicarProposta`); os limites só apareciam como aviso `LIMITE` **depois** da
+escolha (`avaliador-de-formulas.ts`); a quantidade não tinha padrão; não havia agrupamento. No motor da De Paula (164 tipologias): **91** descrições
+começam com PORTA, **50** com JANELA, **15** MAXIM-AR, **8** FIXO; `alt_min/alt_max` em 130, `larg_min` em 8; **as faixas de altura de porta (464 a 3288)
+e de janela (388 a 2644) se sobrepõem** — a altura NÃO separa porta de janela. DP-02: largura sem limite, altura 388 a 2439.
+
+**As decisões, registradas como foram ditas:**
+
+1. > "PORTA × JANELA: o descarte usa a DESCRIÇÃO (primeira palavra). 'porta', 'porta-janela' e 'porta janela' do vendedor descartam toda tipologia cuja
+   > descrição começa com JANELA; 'janela' descarta as que começam com PORTA. MAXIM-AR e FIXO NÃO entram nessa regra — não são descartados por ela, só
+   > pelos limites. O descarte é no código, antes de o modelo escolher, e a lista enviada ao modelo já vai filtrada."
+2. > "LIMITES: NULL nunca descarta — ausente não é zero, e nunca invente limite. Quando o item fica fora de todas as faixas, não escolha a mais próxima:
+   > frase própria, nomeando a medida do item e a faixa das tipologias que sobraram, pedindo ao vendedor que confirme a medida ou diga a tipologia. O
+   > aviso LIMITE do cálculo continua existindo para o que passar."
+3. > "AMBIENTE: não crie campo nenhum. Agrupe por tipologia + medidas + variáveis (escolhas), que é o que existe hoje. Deixe o código preparado para o
+   > ambiente entrar como mais um critério quando existir, mas não o invente agora."
+4. > "quantidade não dita é 1 (sem perguntar), a lista ao modelo leva descrição e limites além do código, e o agrupamento soma as unidades. Nenhuma
+   > migração. Abra PR, NÃO faça merge."
+
+E as três respostas às perguntas do assistente: a palavra do vendedor chega **por item, pelo campo `abertura` da ferramenta** (a IA classifica a
+palavra, não escolhe; o código filtra pela mensagem quando ela traz uma só das palavras e **sempre confere por item**); **cor e vidro também entram
+na chave** do agrupamento; **só itens completos** se fundem, ao gravar.
+
+**O que está implementado (`tipologias-candidatas.ts`, puro; `levantamento-em-montagem.ts`; `conversa-da-ia.ts`; `levantamento-da-conversa.ts`;
+`atendimentos-ia-prompt-base.ts`):**
+
+- **A lista ao modelo** é `código | descrição | tipo | limites de largura | limites de altura` (+ família e fornecedor quando há mais de uma família).
+  Limite que o arquivo não traz vai como **"sem limite no arquivo"** — nunca zero (`ausente-vs-falso.md`); os unilaterais vão como "mín X"/"máx X".
+  O select da Detalhe passou a trazer `larg_min_mm, larg_max_mm, alt_min_mm, alt_max_mm`, lidos com `numeroOuNulo`.
+- **A abertura.** `palavrasDeAbertura` resolve "porta janela"/"porta-janela" como PORTA antes de procurar "janela"; `aberturaDita` é a palavra da
+  mensagem quando ela traz **uma só** (as duas, fora de "porta janela", ou nenhuma, é null); `aberturaDaDescricao` é a **primeira palavra** da
+  descrição, PORTA ou JANELA, e tudo o mais (MAXIM-AR, FIXO, PORTAL…) não declara. **A lista enviada ao modelo já vai filtrada** pela abertura da
+  mensagem (`filtrarPorAbertura`). No item, `aberturaDoItem` aceita o campo `abertura` da ferramenta **só se a palavra está na mensagem** (a IA não
+  inventa); senão vale a da mensagem. Em `aplicarProposta`, **antes** de a tipologia entrar no item, nenhuma candidata do código compatível com a
+  abertura descarta a tipologia (`descartados += 1`, recusa `ABERTURA`); a resposta é `fraseDaAberturaRecusada` (em linguagem de obra, sem código).
+- **Os limites.** `cabeNosLimites`: NULL nunca descarta, e só a medida dita é conferida. Depois de a proposta entrar, com tipologia e alguma medida, se
+  **nenhuma** candidata do código cabe, a tipologia, as escolhas, a família e o motor saem (as medidas ficam), recusa `LIMITES`, desfecho
+  `nenhuma-cabe`; a resposta é `fraseDeNenhumaTipologiaCabe`: a medida do item e a faixa (do menor mínimo ao maior máximo) das que **sobraram depois do
+  filtro porta × janela**, por medida, dizendo que **a tipologia sem limite no arquivo não conta**, mais o pedido de confirmar a medida ou descrever a
+  esquadria. Nunca "a mais próxima". O aviso `LIMITE` do avaliador continua para o que passa.
+- **Quantidade não dita é 1:** no fim de `aplicarProposta`, o item que já diz alguma coisa e não diz quantas recebe 1 — a pergunta "Quantas unidades?"
+  não sai mais por falta dela. O prompt base ganhou "Quantidade não dita é 1: assuma e não pergunte quantas." em O QUE JÁ ESTÁ DEFINIDO, e duas regras
+  de NUNCA (porta × janela; a tipologia em que a medida não cabe).
+- **O agrupamento** (`agruparIguais`, chamado depois de `resolverFamilias` e antes de gravar): `CRITERIOS_DO_AGRUPAMENTO = tipologia, largura_mm,
+  altura_mm, cor_perfil, vidro, familia, motor_id` + as escolhas (ordenadas) — **o ambiente entra nessa lista quando existir, e hoje não existe**. Só o
+  item **completo** (tudo dito menos a quantidade, família resolvida) se funde; o primeiro fica com as unidades somadas (não dita conta 1), os outros
+  saem, a numeração volta a 1..N. A linha [IA] diz `agrupados=N` quando N > 0. **A escolha dita numa mensagem de duas esquadrias vai só à primeira
+  (a padrão), e aí as variáveis diferem: com razão, não se fundem.**
+- **O único DELETE da conversa fora da pergunta em aberto:** `gravarLevantamento` apaga a linha gravada cuja `ordem` não voltou (a que se fundiu), por
+  id, com tenant e levantamento conferidos, e **confere a contagem atingida** (R1) — como o update. `tabela-que-a-importacao-apaga.md` não se aplica: o
+  processo não apaga e regrava a tabela; apaga a linha que deixou de existir, e a que fica é atualizada por `ordem`, coluna a coluna.
+- **A ferramenta** ganhou `abertura: enum ['porta','janela']` (opcional; o esquema strict continua em até 16 uniões e 24 opcionais).
+
+**DÍVIDA registrada em 03/11/2026:** a palavra "porta"/"janela" **só vale na mensagem em que foi dita** — não é gravada no item e não persiste entre
+turnos. Na mensagem seguinte ("é de correr, 6 folhas"), a tipologia que a IA propõe é conferida só pelos limites; se ela voltar a propor uma JANELA
+para a porta, o código não a descarta. Persistir a abertura exigiria coluna no item (migração), que o dono do produto não pediu.
+
+**Prova:** `tipologias-candidatas.test.ts` (52 casos: as palavras, a descrição, o filtro, os limites com NULL, a linha do prompt, as frases, o
+agrupamento critério a critério); bloco (24) de `atendimentos-ia-levantamento-por-nome.test.ts` (o caso do Geronimo de ponta a ponta, a lista filtrada
+por palavra da mensagem, a `abertura` inventada que não vale, o maxim-ar que fica, 2500 de altura na DP-02, 5000 de largura que passa, a alteração que
+tira a tipologia gravada, a quantidade 1 sem pergunta, o agrupamento com o DELETE conferido); bloco (L) de `levantamento-em-montagem.test.ts` (duas
+candidatas do mesmo código: basta uma caber); e **52 mutações do código, 52 mortas** (15 no módulo puro, 17 em `aplicarProposta` e no agrupamento, 12 na
+conversa, 2 no leitor da Detalhe, 3 no prompt — a tabela está no PR). Três sobreviveram na primeira passada e ganharam teste próprio: `some`→`every`
+nos limites (uma candidata cabendo basta), as escolhas que ficavam quando a tipologia caía pelos limites, e o DELETE do agrupamento sem conferir a
+contagem atingida.
+
+## O resgate do levantamento antigo e o contexto que não se perde — dono do produto, 03/11/2026 (sem migração)
+
+**O caso que originou** (De Paula, 03/11/2026, 16:30 a 16:34 UTC, medido nos logs `[IA]` de produção e na pergunta em aberto gravada):
+"Janela de correr 1,50x1,20 vidro 4mm / porta janela 2,50x2,40 vidro 8mm / Cliente: Geronimo Silva" caiu em `rota=PARECIDO nome=do_cliente`; "Geison
+Silva novo" deu `rota=SEM_NOME nome=faltou aberta=NOME_PARECIDO` (a IA mandou só `novo`); o reenvio das esquadrias deu `SEM_NOME nome=faltou
+aberta=SEM_NOME desfecho=nao-avancou`. As duas esquadrias estavam retidas em `orcamentista_pergunta_em_aberto` (SEM_NOME, 2 itens), não perdidas — mas
+nada se grava sem nome, e a resposta não dizia que as tinha anotado.
+
+**Medido antes (Fase 1):** o nome só existia se a IA o devolvesse e ele estivesse no texto como trecho contíguo (`nomeDaMensagem`); o cliente ganhava o
+prefixo "Levantamento" (`nomeDoLevantamentoDoCliente`), e o levantamento existente "Geronimo Silva" não o tinha — "levantamento geronimo silva" contém
+"geronimo silva": PARECIDO, nunca IGUAL; `emEspera` era OU as retidas OU as da mensagem (`daPergunta = daMensagem.length === 0 && …`), de modo que a
+resposta com nome e uma esquadria nova apagaria as retidas em silêncio; a frase do parecido listava todos, só o nome, e ditava a forma da resposta
+("responda: novo X", "escreva o nome exatamente como ele está").
+
+**As decisões, registradas como foram ditas:**
+
+1. > "O PREFIXO 'Levantamento' SAI. O nome do levantamento é o nome do cliente, puro: 'Geronimo Silva', não 'Levantamento Geronimo Silva'. [...] Os
+   > levantamentos que já existem com o prefixo continuam como estão; a comparação deve ignorar o prefixo nos dois lados, para que 'Levantamento
+   > Geronimo Silva' e 'Geronimo Silva' sejam IGUAIS."
+2. > "AS ESQUADRIAS RETIDAS NUNCA SE PERDEM. emEspera passa a ACUMULAR: o que já estava guardado na pergunta em aberto mais o que vem na mensagem nova.
+   > [...] apagaria esquadria em silêncio — trate como prioridade igual ao resto."
+3. > "NOME VINDO DE RESPOSTA LIVRE: quando há pergunta de nome em aberto, a mensagem do vendedor pode trazer o nome em qualquer forma ('Geison Silva
+   > novo', 'é o Geison Silva', 'novo: Geison Silva'). A IA extrai o nome e o código confere que as palavras estão no texto — nunca exija a forma
+   > ditada pela pergunta."
+4. > "RESGATE: no máximo 3 opções, numeradas, em ordem decrescente de data, cada uma com a data e o estado. O vendedor responde pelo número ou diz
+   > 'novo <nome>'. Nunca exija o nome exato." E o acréscimo: "o resgate é conversa, não formulário. [...] Ele responde do jeito dele ('é o do
+   > Geronimo', 'o primeiro', 'o de ontem'). Entenda e CONFIRME em uma frase curta — 'Então é o Geronimo Silva, de 01/11, certo?' — e siga quando
+   > ele confirmar. [...] TOM: fale como uma secretária de orçamentos experiente — direta, cordial, sem formulário, sem repetir frase pronta, sem
+   > 'Não consegui registrar a sua resposta'. Nunca mande o vendedor responder numa forma ditada."
+5. > "Endereço e cidade: só o custo no relatório, não faça."
+
+**O que está implementado (`nome-do-levantamento.ts`, `pergunta-em-aberto.ts`, `conversa-da-ia.ts`, `atendimentos-ia-prompt-base.ts`):**
+
+- **O prefixo.** `formaComparavel(nome)` = normalizada sem o "levantamento " inicial, usada nos DOIS lados de `compararNome` (IGUAL e PARECIDO), em
+  `nomeDaPergunta`, na comparação com o levantamento do apanhado e na busca do admin pelo nome (`.in('nome_normalizado', [forma, 'levantamento ' + forma])`).
+  `nomeSemPrefixo` tira o prefixo do que se grava (o cliente e o nome dito "Levantamento X"); `nome_normalizado` continua sendo `normalizarNome(nome)`
+  da linha gravada. Nenhuma linha existente é tocada.
+- **As retidas.** `juntarEsquadrias(retidas, novas)`: as da pergunta em aberto primeiro, depois as da mensagem; a da mensagem IDÊNTICA a uma retida (os
+  campos da esquadria iguais) é a mesma reenviada e conta uma vez (`reenviadas=N` no log); a que difere em um campo acumula. **Decisão do assistente,
+  relatada no PR:** o reenvio idêntico conta uma vez porque foi o caso real (a mensagem 3 remandou as mesmas duas); quem quiser "mais uma igual" na
+  resposta ao nome diz a quantidade. `daPergunta` passou a ser "há retidas" (a confirmação do acréscimo continua valendo para elas).
+- **O nome livre.** `nomeDaMensagem` confere pelas PALAVRAS (letras e números; a pontuação colada não conta; a ordem não importa), não pelo trecho
+  contíguo: "Geison Silva" vale em "Geison Silva novo", "é o Geison Silva", "novo: Geison Silva"; "Geisonaldo Silva" e "Maria Souza" não. O prompt diz à
+  IA que, com a pergunta do nome em aberto, o nome vem de qualquer forma.
+- **O resgate.** `opcoesDeResgate`: do mais recente ao mais antigo por `criado_em`, no máximo `LIMITE_DO_RESGATE = 3`; a frase numera e diz a data
+  (dd/mm/aaaa, fuso `America/Sao_Paulo`) e o estado por extenso ("em montagem"/"completo"); a ordem gravada em `levantamentos` É a numeração. A
+  ferramenta ganhou `opcao` (inteiro): a IA traduz "o primeiro", "o 2", "é o do Geronimo", "o de ontem" no número da lista (o prompt leva "Hoje é
+  dd/mm/aaaa" enquanto a lista ou a confirmação está em aberta). O código então **confirma numa frase curta** (`fraseDeConfirmarResgate`: "Então é o
+  “Geronimo Costa”, de 24/10/2026, certo?") e grava a confirmação como **CONFIRMAR_ACRESCIMO COM `nome`** — a CHECK de `pergunta` em produção
+  (`20261026000003`) só aceita os quatro códigos e nenhuma migração foi pedida —, com o escolhido primeiro em `levantamentos` e os outros depois; ao
+  prompt vai a confirmação mais a lista ("não, é o segundo" tem a que se referir). "sim" segue: as retidas entram no escolhido sem uma segunda
+  confirmação; "não" devolve a lista sem o recusado (ou pergunta o cliente novo, se não sobrou nenhum); outra `opcao` troca o escolhido; a `opcao`
+  fora da lista não aponta nada. Com a lista em aberto, a `opcao` vence um nome PARECIDO que a IA também tenha lido ("é o do Lima" → nome "Lima" +
+  opcao 2 → a confirmação do Lima); o nome EXATO de um da lista segue como antes (a confirmação do acréscimo); "novo <nome>" cria. O escolhido que sumiu
+  do banco invalida a confirmação (nunca cai no citado seguinte).
+- **O tom.** Saíram "responda: novo X", "escreva o nome exatamente como ele está" e, no roteamento pelo nome, o "Não consegui registrar a sua resposta":
+  a pergunta repetida volta em OUTRAS palavras (`fraseDoResgateEmOutrasPalavras`, `fraseDeConfirmarResgateEmOutrasPalavras`,
+  `fraseDeConfirmarAcrescimoEmOutrasPalavras`, as `OUTRAS_PERGUNTAS_DO_NOME`). **Não mudou, de propósito:** o "não registrei" da pendência EM MONTAGEM
+  (a pergunta de campo repetida) e o do apanhado repetido — são outro caminho; se o dono do produto quiser o mesmo tom lá, é PR própria.
+- **A ferramenta** ficou em 23 opcionais (o limite do strict é 24): `variavel` e `opcao` da escolha viraram obrigatórios para abrir lugar à `opcao` do
+  resgate — a escolha sem um deles já era descartada.
+
+**Endereço e cidade do cliente — o custo, não feito (decisão 5):** não existem em `orcamentista_levantamento` (id, tenant_id, remetente_id, nome,
+nome_normalizado, estado, criado_em, atualizado_em — medido em 03/11/2026). Tê-los custa: (a) **migração** com duas colunas nulas (`endereco text`,
+`cidade text`, CHECK de forma, sem default) e a guarda de costume; (b) **a conversa**: dois campos na ferramenta (hoje em 23 de 24 opcionais — teria
+de abrir lugar: `pergunta.campo/texto` obrigatórios, ou o endereço num só campo), a regra no prompt, a leitura conferida no texto (como o nome), a
+gravação no insert/update do levantamento e a coleta sem virar interrogatório (só quando o vendedor disser; nunca perguntar por padrão, ou a
+secretária vira formulário); (c) **a lista do resgate** mostrando a cidade quando houver (o que mais distingue dois "Geronimo Silva"); (d) **a tela**
+do levantamento no super admin, se houver leitura lá; (e) testes, mutações e a fixture do pedido à IA. Estimativa: uma PR do tamanho desta, com
+migração PENDENTE.
+
+**Prova:** bloco (25) de `atendimentos-ia-levantamento-por-nome.test.ts` (o caso real como IGUAL; o legado com prefixo; a lista de 3 em ordem com
+data e estado; "o primeiro" → confirmação → "sim" sem segunda confirmação; "é o do Lima" com a opção vencendo o nome; a lista e a data de hoje no
+prompt da confirmação; "não" com e sem sobra; "Geison Silva novo"; as palavras no texto em qualquer forma; as retidas mais a nova; o reenvio idêntico;
+o tom; a opção fora da lista; o nome exato; o escolhido que sumiu; `juntarEsquadrias` pura), 7d e 7e em (12) (o admin com o nome legado e com o
+prefixo no apanhado), (5) e (6) de `nome-do-levantamento.test.ts`, e os blocos (15), (16), (23) reescritos para as decisões. **36 mutações, 36 mortas**
+(`mutacoes-resgate.py`); seis sobreviveram na primeira passada e ganharam teste próprio (o PARECIDO por distância com o prefixo do gravado, o nome da
+pergunta com o prefixo, o escolhido que sumiu, a ordem gravada da confirmação, a busca do admin pelo nome legado, o apanhado de outro vendedor
+confirmado com o prefixo).

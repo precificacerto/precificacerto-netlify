@@ -113,6 +113,28 @@
  * empresa, identificado pela categoria — SÓ as categorias com instrução preenchida. A linha [IA] diz quantas (`instrucoes=N`), ou
  * `instrucoes=sem_migracao` antes da coluna existir.
  *
+ * ══ PORTA NÃO É JANELA, QUANTIDADE PADRÃO 1, OS LIMITES E O AGRUPAMENTO (dono do produto, 03/11/2026; `tipologias-candidatas.ts`) ══
+ * A lista de tipologias vai ao modelo com a descrição e os LIMITES, e já filtrada pela palavra da mensagem (porta × janela) quando ela traz uma
+ * só; a IA classifica a palavra de cada item em `abertura`; o CÓDIGO descarta a tipologia que contradiz a palavra ou que não cabe a medida
+ * (`aplicarProposta`, que devolve as `recusas`), e a resposta nomeia a medida e a faixa das que sobraram — nunca "a mais próxima". Quantidade
+ * não dita é 1, sem perguntar. Itens completos e iguais (tipologia, medidas, escolhas, cor, vidro) viram um, com as unidades somadas
+ * (`agruparIguais`); a linha gravada que se fundiu sai por DELETE conferido.
+ *
+ * ══ O RESGATE DO LEVANTAMENTO ANTIGO E O CONTEXTO QUE NÃO SE PERDE (dono do produto, 03/11/2026) ══
+ * O caso real (De Paula, 03/11, 16:30 a 16:34 UTC): "Cliente: Geronimo Silva" caiu em NOME PARECIDO porque o nome do cliente ganhava o prefixo
+ * "Levantamento" e o levantamento existente não o tinha; "Geison Silva novo" não virou nome (a IA só mandou `novo`), e as esquadrias da mensagem
+ * ficaram retidas numa pergunta que a resposta não citava. As decisões:
+ *   1. o prefixo "Levantamento" SAI: o nome é o do cliente, puro; a comparação ignora o prefixo nos dois lados (`formaComparavel`);
+ *   2. as esquadrias retidas NUNCA se perdem: `emEspera` ACUMULA as da pergunta em aberto e as da mensagem nova (`juntarEsquadrias`; a reenviada
+ *      idêntica conta uma vez);
+ *   3. o nome vem em resposta LIVRE ("Geison Silva novo", "é o Geison Silva"): a IA extrai, e o código confere que as PALAVRAS estão no texto;
+ *   4. o RESGATE é conversa: até 3 levantamentos parecidos, numerados, do mais recente ao mais antigo, com data e estado; o vendedor responde do
+ *      jeito dele ("o primeiro", "é o do Geronimo", "o de ontem" → `opcao`), o código CONFIRMA numa frase curta ("Então é o Geronimo Silva, de
+ *      01/11, certo?") e segue com o "sim"; "não" devolve a lista; "novo <nome>" cria. Nunca se exige o nome exato nem uma forma ditada.
+ *   A confirmação do resgate é gravada como CONFIRMAR_ACRESCIMO COM `nome` (a CHECK de `pergunta` em produção não aceita outro código, e
+ *   nenhuma migração foi pedida); o escolhido vai primeiro em `levantamentos`, os outros depois. A pergunta repetida, no roteamento pelo nome,
+ *   volta em OUTRA forma — nunca "Não consegui registrar a sua resposta".
+ *
  * ══ NUNCA LANÇA ══
  * Quem chama responde 200 ao WUZAPI aconteça o que acontecer: um erro da LLM não pode virar reenvio em
  * laço. Toda falha vira uma linha `[IA]` e uma frase ao vendedor que diz o que falhou, sem detalhe técnico.
@@ -135,21 +157,22 @@ import {
     FRASE_SEM_CORES, familiasDoCodigo, lerCoresDaEmpresa, lerFamiliasDaEmpresa, linhaDoCandidato, lerVariaveisDasTipologias, mensagemDoLevantamento,
     type CandidatoDeTipologia,
 } from '@/lib/atendimentos-ia/levantamento-da-conversa'
-import {
+import { agruparIguais,
     CAMPOS_DA_ESQUADRIA, aplicarProposta, familiaDaEsquadria, itemVazio, perguntaDaPendencia, proximaPendencia, resolverFamilias,
     type DefinicaoDaTipologia, type ItemDoLevantamento, type Pendencia,
 } from '@/lib/atendimentos-ia/levantamento-em-montagem'
 import type { VariaveisDaTipologia } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
-import { compararNome, nomeDaMensagem, nomeDoCliente, normalizarNome } from '@/lib/atendimentos-ia/nome-do-levantamento'
+import { compararNome, formaComparavel, nomeDaMensagem, nomeDoCliente, nomeSemPrefixo, normalizarNome } from '@/lib/atendimentos-ia/nome-do-levantamento'
 import { PERGUNTAS_DA_TIPOLOGIA } from '@/lib/atendimentos-ia/pre-definicao'
 import { PROMPT_BASE } from '@/utils/atendimentos-ia-prompt-base'
 import { LIMITE_DA_FALA } from '@/utils/atendimentos-ia-contexto'
 import { blocoDasInstrucoes, lerInstrucoesDaEmpresa, type InstrucaoDaCategoria, type InstrucoesLidas } from '@/lib/atendimentos-ia/instrucoes-da-categoria'
+import { aberturaDita, filtrarPorAbertura, fraseDaAberturaRecusada, fraseDeNenhumaTipologiaCabe, palavrasDeAbertura } from '@/lib/atendimentos-ia/tipologias-candidatas'
 import { escolhasParaOPrompt, opcoesDeArremateNoPrompt, lerEscolhasDoItem, lerEscolhasGravadas, temEscolhaDoVendedor } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import { permissaoDoRemetente, type Permissao } from '@/lib/atendimentos-ia/permissao-do-remetente'
 import { fraseDoApanhado } from '@/lib/atendimentos-ia/apanhado'
 import {
-    apagarPerguntaEmAberto, esquadriasDaProposta, gravarPerguntaEmAberto, lerPerguntaEmAberto,
+    apagarPerguntaEmAberto, esquadriasDaProposta, gravarPerguntaEmAberto, juntarEsquadrias, lerPerguntaEmAberto,
     type CodigoDaPergunta, type EsquadriaProposta, type PerguntaEmAberto,
 } from '@/lib/atendimentos-ia/pergunta-em-aberto'
 import { DESCRICAO_DA_FALA, blocoDoContexto, falaValida, lerContextoDoAtendimento, temDinheiro, type ContextoLido, type FalaLida } from '@/lib/atendimentos-ia/contexto-do-atendimento'
@@ -163,15 +186,15 @@ const wuzapi = () => (process.env.WUZAPI_BASE_URL || 'https://usapi.adabtech.sho
 export type DesfechoDaIa =
     | 'sem-chave' | 'sem-saldo' | 'erro-da-llm' | 'recusa' | 'sem-proposta' | 'sem-tipologias'
     | 'sem-nome' | 'nome-parecido' | 'nome-existe' | 'qual-esquadria' | 'nao-encontrado' | 'qual-vendedor' | 'alteracao-incompleta'
-    | 'nao-avancou' | 'confirmar-acrescimo' | 'nao-acrescentou' | 'apanhado' | 'nao-confirmou'
-    | 'perguntou' | 'sem-cores' | 'levantou' | 'recusou' | 'envio-falhou' | 'erro'
+    | 'nao-avancou' | 'confirmar-acrescimo' | 'confirmar-resgate' | 'nao-acrescentou' | 'apanhado' | 'nao-confirmou'
+    | 'perguntou' | 'sem-cores' | 'levantou' | 'recusou' | 'envio-falhou' | 'erro' | 'nenhuma-cabe'
 
-export type Rota = 'MONTAGEM' | 'NOVO' | 'ALTERACAO' | 'ALTERACAO_ADMIN' | 'SEM_NOME' | 'PARECIDO' | 'NOME_EXISTE' | 'NAO_ENCONTRADO' | 'QUAL_VENDEDOR' | '-'
+export type Rota = 'MONTAGEM' | 'NOVO' | 'ALTERACAO' | 'ALTERACAO_ADMIN' | 'SEM_NOME' | 'PARECIDO' | 'RESGATE' | 'NOME_EXISTE' | 'NAO_ENCONTRADO' | 'QUAL_VENDEDOR' | '-'
 /**
  * Como o nome foi lido — NUNCA o nome em si (dono do produto, 26/10/2026): `veio` (está no texto),
  * `faltou` (a IA não leu nenhum), `fora_do_texto` (a IA leu um que não está no texto, e ele não vale),
  * `da_pergunta` (não está no texto, mas é um dos que a pergunta em aberto citou), `do_cliente` (o nome saiu do
- * cliente que está no texto: "Levantamento <cliente>", 03/11/2026).
+ * cliente que está no texto, 03/11/2026).
  */
 type MarcaDoNome = '-' | 'veio' | 'faltou' | 'fora_do_texto' | 'da_pergunta' | 'do_cliente'
 /**
@@ -186,6 +209,10 @@ type Rastro = {
     contexto: ContextoLido['estado'] | '-'; fala: FalaLida['motivo'] | '-'
     /** Quantas instruções de categoria foram ao sistema, ou `sem_migracao`; '-' quando não houve chamada à IA. */
     instrucoes: string
+    /** Quantos itens iguais se fundiram nesta mensagem (03/11/2026). */
+    fundidos: number
+    /** Quantas esquadrias da mensagem eram reenvio idêntico de uma já retida na pergunta em aberto (03/11/2026). */
+    reenviadas: number
 }
 const FALA_NO_LOG: Record<FalaLida['motivo'], string> = { usada: 'usada', ausente: 'ausente', numero: 'descartada_numero', longa: 'descartada_longa' }
 
@@ -195,13 +222,13 @@ function anotar(r: Rastro, desfecho: DesfechoDaIa, detalhe = '') {
     const ia = r.ia.ms === null ? '' : ` ia_ms=${r.ia.ms} ia_entrada=${r.ia.entrada ?? '-'} ia_saida=${r.ia.saida ?? '-'}`
     // o contexto e a fala: o ESTADO, nunca o texto
     const contexto = (r.contexto === '-' ? '' : ` contexto=${r.contexto}${r.fala === '-' ? '' : ` fala=${FALA_NO_LOG[r.fala]}`}`)
-        + (r.instrucoes === '-' ? '' : ` instrucoes=${r.instrucoes}`)
+        + (r.instrucoes === '-' ? '' : ` instrucoes=${r.instrucoes}`) + (r.fundidos > 0 ? ` agrupados=${r.fundidos}` : '') + (r.reenviadas > 0 ? ` reenviadas=${r.reenviadas}` : '')
     console.error(`${PREFIXO_DO_LOG_DA_IA} levantamento=${r.levantamento} rota=${r.rota} propostos=${r.propostos} descartados=${r.descartados} enviou=${r.enviou ? 'sim' : 'nao'} desfecho=${desfecho}${admin} nome=${r.nome} aberta=${r.aberta}${contexto}${ia}${detalhe ? ` ${detalhe}` : ''}`)
 }
 
 // ── As frases fixas do roteamento ───────────────────────────────────────────────────────────
 /** Sem nome e sem cliente em lugar nenhum: pergunta o CLIENTE, que é o nome do levantamento (03/11/2026). */
-export const FRASE_SEM_NOME = 'Para eu anotar, me diga o nome do cliente — por exemplo: Cliente João Silva. Se for sobre um levantamento que você já fez, escreva o nome dele como da primeira vez.'
+export const FRASE_SEM_NOME = 'Para eu anotar, me diga o nome do cliente — por exemplo: Cliente João Silva. Se for sobre um levantamento que você já fez, me diga de quem é.'
 /** A mesma pergunta em OUTRAS palavras, quando a resposta não trouxe o cliente: nunca a mesma frase de novo. */
 export const OUTRAS_PERGUNTAS_DO_NOME = [
     'Ainda não tenho o cliente deste levantamento. Mande o nome do cliente, por exemplo: Cliente Maria Souza.',
@@ -218,19 +245,49 @@ export function outraPergunta(outras: readonly string[], mensagem: string): stri
     for (const ch of normalizarNome(mensagem)) h = (h * 31 + (ch.codePointAt(0) ?? 0)) >>> 0
     return outras[h % outras.length]
 }
-const listaDeNomes = (nomes: string[]) => nomes.map((n) => `“${n}”`).join(', ')
-export const fraseDoNomeParecido = (nome: string, existentes: string[]) =>
-    `Você já tem ${existentes.length > 1 ? 'levantamentos com nome parecido' : 'um levantamento com nome parecido'}: ${listaDeNomes(existentes)}. `
-    + `“${nome}” é um levantamento NOVO? Se for, responda: novo ${nome}. Se for sobre ${existentes.length > 1 ? 'um dos que já existem' : 'o que já existe'}, escreva o nome exatamente como ele está.`
+// ── O RESGATE (dono do produto, 03/11/2026): conversa, não formulário ──
+/** O que a lista do resgate mostra de cada levantamento: o nome, a data (de criação, no fuso do Brasil) e o estado. */
+export type OpcaoDeResgate = { id?: string; nome: string; criado_em: string; estado: string }
+export const LIMITE_DO_RESGATE = 3
+const FUSO_DO_VENDEDOR = 'America/Sao_Paulo'
+/** dd/mm/aaaa no fuso do vendedor; uma data que não se lê sai como "data não lida", nunca como hoje. */
+export function dataBR(iso: string): string {
+    const d = new Date(iso)
+    return Number.isNaN(d.getTime()) ? 'data não lida' : new Intl.DateTimeFormat('pt-BR', { timeZone: FUSO_DO_VENDEDOR, day: '2-digit', month: '2-digit', year: 'numeric' }).format(d)
+}
+export const estadoPorExtenso = (estado: string) => (estado === EM_MONTAGEM ? 'em montagem' : estado === COMPLETO ? 'completo' : estado.toLowerCase())
+/** As opções do resgate: do mais recente ao mais antigo, no máximo LIMITE_DO_RESGATE. */
+export function opcoesDeResgate<L extends OpcaoDeResgate>(existentes: readonly L[]): L[] {
+    return [...existentes].sort((a, b) => (a.criado_em < b.criado_em ? 1 : a.criado_em > b.criado_em ? -1 : 0)).slice(0, LIMITE_DO_RESGATE)
+}
+const linhaDoResgate = (o: OpcaoDeResgate, k: number) => `${k + 1}) ${o.nome} — ${dataBR(o.criado_em)}, ${estadoPorExtenso(o.estado)}`
+const listaDoResgate = (opcoes: readonly OpcaoDeResgate[]) => opcoes.map(linhaDoResgate).join('\n')
+/** A lista numerada; o vendedor responde do jeito dele, e se for novo diz o nome. Nunca "responda: novo X" nem "escreva o nome exatamente". */
+export const fraseDoNomeParecido = (nome: string, opcoes: readonly OpcaoDeResgate[]) =>
+    `Pelo que você escreveu (“${nome}”), pode ser ${opcoes.length > 1 ? 'um destes levantamentos' : 'este levantamento'}:\n${listaDoResgate(opcoes)}\n`
+    + `${opcoes.length > 1 ? 'É algum deles? Me diga qual.' : 'É esse?'} Se for um cliente novo, me diga o nome dele que eu começo.`
+/** A mesma lista, em outras palavras — quando a resposta não disse qual é (R2, sem "Não consegui registrar"). */
+export const fraseDoResgateEmOutrasPalavras = (nome: string, opcoes: readonly OpcaoDeResgate[]) =>
+    `Ainda não entendi de qual levantamento é (“${nome}”). Olha de novo:\n${listaDoResgate(opcoes)}\n`
+    + `Pode me dizer o número, o nome do cliente ou a data. Se não for nenhum, me diga o nome do cliente novo.`
+/** A confirmação do resgate: uma frase curta, e a conversa segue com o "sim". */
+export const fraseDeConfirmarResgate = (o: OpcaoDeResgate) => `Então é o “${o.nome}”, de ${dataBR(o.criado_em)}, certo?`
+export const fraseDeConfirmarResgateEmOutrasPalavras = (o: OpcaoDeResgate) =>
+    `Só para eu ter certeza: estamos falando do “${o.nome}”, de ${dataBR(o.criado_em)}? Me responde sim ou não.`
+/** O "não" à confirmação: a lista volta sem o recusado; sem sobrar nenhum, pergunta o cliente novo. */
+export const fraseDoResgateRecusado = (recusado: OpcaoDeResgate, outras: readonly OpcaoDeResgate[]) =>
+    outras.length
+        ? `Certo, não é o “${recusado.nome}”. Então é qual destes?\n${listaDoResgate(outras)}\nOu, se for um cliente novo, me diga o nome dele.`
+        : `Certo, não é o “${recusado.nome}”. Então é um cliente novo? Me diga o nome dele que eu começo.`
 export const fraseDoNomeQueJaExiste = (nome: string) =>
-    `Já existe o levantamento “${nome}”. Para alterá-lo, escreva o nome dele e o que muda; para um novo, use outro nome.`
+    `Já tenho um levantamento “${nome}”. Quer alterar esse? Me diga o que muda. Se for outro cliente, me diga o nome dele.`
 export const fraseDeQualEsquadria = (nome: string, nItens: number) =>
     `O levantamento “${nome}” tem ${nItens} esquadrias. Qual delas muda? Diga o número (de 1 a ${nItens}) e o que muda.`
 /** Para quem não é admin: a MESMA frase exista ou não o levantamento de outro vendedor. */
 export const fraseDeNaoEncontrei = (nome: string) =>
-    `Não encontrei um levantamento seu com esse nome: “${nome}”. Confira o nome; para começar um novo, escreva: novo ${nome}.`
+    `Não achei um levantamento seu com o nome “${nome}”. Se for um cliente novo, me diga o nome dele que eu começo; se já existe, me diga de quem é.`
 export const fraseDeNaoEncontreiNaEmpresa = (nome: string) =>
-    `Não encontrei um levantamento com esse nome na empresa: “${nome}”. Confira o nome; para começar um novo, escreva: novo ${nome}.`
+    `Não achei um levantamento com o nome “${nome}” na empresa. Se for um cliente novo, me diga o nome dele que eu começo; se já existe, me diga de quem é.`
 export const fraseDeQualVendedor = (nome: string, vendedores: string[]) =>
     `O levantamento “${nome}” existe para mais de um vendedor: ${vendedores.join(', ')}. De qual vendedor é? Escreva o nome do levantamento, o do vendedor e o que muda.`
 export const fraseDaAlteracaoIncompleta = (nome: string, vendedor: string, pergunta: string) =>
@@ -259,6 +316,9 @@ export const esquadriaPorExtenso = (e: Record<string, unknown>) => [
 export const fraseDeConfirmarAcrescimo = (nome: string, nExistentes: number, esquadrias: Array<Record<string, unknown>>) =>
     `Vou acrescentar ao levantamento “${nome}”, que tem ${nExistentes} esquadria(s), ${esquadrias.length > 1 ? `estas ${esquadrias.length} esquadrias` : 'esta esquadria'}: `
     + `${esquadrias.map(esquadriaPorExtenso).join('; ')}. Confirma? Responda sim para acrescentar, ou diga o nome de outro levantamento.`
+/** A mesma confirmação em outras palavras (R2 no roteamento pelo nome, sem "Não consegui registrar"). */
+export const fraseDeConfirmarAcrescimoEmOutrasPalavras = (nome: string) =>
+    `Para eu acrescentar ao “${nome}”, preciso do seu sim. Se for de outro levantamento, me diga de qual.`
 /** O "não" ao apanhado: nada de preço, e a conversa pede o que muda. A pergunta continua em aberto. */
 export const fraseDoApanhadoNaoConfirmado = (nome: string) =>
     `Certo, o levantamento “${nome}” não foi confirmado. Diga o que muda — medida, vidro ou quantidade — e eu refaço o apanhado.`
@@ -281,7 +341,7 @@ const VENDEDOR_SEM_NOME = '(vendedor sem nome cadastrado)'
  * O que NÃO foi dito é OMITIDO, não `null`: os campos são opcionais e de tipo simples, sem união.
  * "Schema complexity limits" (https://platform.claude.com/docs/en/build-with-claude/structured-outputs):
  * somando os esquemas `strict` da requisição, no máximo 16 parâmetros com união e 24 opcionais. Este tem
- * 0 uniões e 20 opcionais (o `cliente` entrou em 03/11/2026) — o portão (8) conta o esquema enviado.
+ * 0 uniões e 23 opcionais (o `cliente` e a `opcao` entraram em 03/11/2026; `variavel` e `opcao` da escolha viraram obrigatórios) — o portão (8) conta o esquema enviado.
  */
 const texto = { type: 'string' }
 const inteiro = { type: 'integer' }
@@ -294,9 +354,10 @@ export const FERRAMENTA = {
         additionalProperties: false,
         required: ['itens'],
         properties: {
-            nome: { ...texto, description: 'O nome do levantamento, copiado INTEIRO como o vendedor o escreveu NESTA mensagem. Omita se ele não escreveu.' },
-            cliente: { ...texto, description: 'O nome do CLIENTE, copiado como o vendedor o escreveu NESTA mensagem (ex.: "Cliente: Geronimo Silva" → Geronimo Silva). O levantamento passa a se chamar "Levantamento <cliente>". Omita se ele não escreveu.' },
+            nome: { ...texto, description: 'O nome do levantamento, copiado INTEIRO como o vendedor o escreveu NESTA mensagem. Com a pergunta do nome em aberto, o nome que ele respondeu de qualquer jeito ("Geison Silva novo" → Geison Silva). Omita se ele não escreveu.' },
+            cliente: { ...texto, description: 'O nome do CLIENTE, copiado como o vendedor o escreveu NESTA mensagem (ex.: "Cliente: Geronimo Silva" → Geronimo Silva). O nome do levantamento é o nome do cliente, puro. Omita se ele não escreveu.' },
             novo: { type: 'boolean', description: 'true SÓ quando o vendedor disse explicitamente que é um levantamento novo.' },
+            opcao: { ...inteiro, description: 'Quando a pergunta em aberto lista levantamentos numerados e o vendedor escolheu um deles — pelo número ("o 2"), pela ordem ("o primeiro", "o último"), pelo nome ("é o do Geronimo") ou pela data ("o de ontem") —, o número dele na lista. Senão, omita.' },
             alteracao: { type: 'boolean', description: 'true quando o vendedor pede para MUDAR um levantamento que já existe (troca, muda, altera, corrige).' },
             vendedor: { ...texto, description: 'O nome do VENDEDOR dono do levantamento, copiado como foi escrito NESTA mensagem. Omita se não foi escrito.' },
             confirma: { type: 'boolean', description: 'Só quando a pergunta em aberto pede confirmação: true se o vendedor confirmou, false se negou. Senão, omita.' },
@@ -309,6 +370,7 @@ export const FERRAMENTA = {
                     properties: {
                         ordem: { ...inteiro, description: 'O número da esquadria, SÓ quando o vendedor disse qual é.' },
                         tipologia: texto, largura_mm: inteiro, altura_mm: inteiro, quantidade: inteiro, cor_perfil: texto, vidro: texto,
+                        abertura: { type: 'string', enum: ['porta', 'janela'], description: 'A PALAVRA que o vendedor usou para esta esquadria: "porta" (também porta-janela e porta janela) ou "janela". SÓ se ele a escreveu; senão, omita.' },
                         fornecedor: { ...texto, description: 'O nome do FORNECEDOR como está na lista, SÓ quando o vendedor disse de qual fornecedor é a tipologia.' },
                         familia: { ...texto, description: 'A FAMÍLIA (ex.: PVC, Alumínio) como está na lista, SÓ quando o vendedor disse de qual família é a tipologia.' },
                     },
@@ -317,7 +379,9 @@ export const FERRAMENTA = {
             escolhas: {
                 type: 'array',
                 description: 'Só o arremate que o vendedor disse NESTA mensagem, em palavras: o CÓDIGO da variável e o NÚMERO da opção que corresponde. Vazio se ele não disse.',
-                items: { type: 'object', additionalProperties: false, properties: { variavel: texto, opcao: inteiro } },
+                // os dois são obrigatórios na escolha (03/11/2026): a escolha sem um deles era descartada de qualquer jeito, e o limite de 24
+                // opcionais do strict precisava de lugar para a `opcao` do resgate
+                items: { type: 'object', additionalProperties: false, required: ['variavel', 'opcao'], properties: { variavel: texto, opcao: inteiro } },
             },
             opcoes_de: {
                 type: 'array',
@@ -353,6 +417,8 @@ type ContextoDoPrompt = {
     cores: readonly string[]
     montagem: { nome: string; itens: Array<Omit<ItemDoLevantamento, 'familia' | 'motor_id'>> } | null
     perguntaEmAberto: string | null
+    /** A data de hoje (dd/mm/aaaa), só quando a pergunta em aberto lista levantamentos com data: "o de ontem" precisa dela. */
+    hoje: string | null
     /** As escolhas de arremate de cada tipologia com as abas: código e números, só para a LLM. */
     escolhasPorTipologia: Array<{ tipologia: string; linhas: string[] }>
     /** As instruções das categorias PREENCHIDAS (03/11/2026); vazia, nenhuma seção. */
@@ -373,7 +439,9 @@ function sistema(c: ContextoDoPrompt): string {
         '',
         'Regras:',
         '- nome: copie o nome do levantamento INTEIRO, como o vendedor escreveu nesta mensagem. Não complete, não corrija, não encurte. Se ele não escreveu um nome, omita.',
-        '- cliente: o nome do CLIENTE, copiado como o vendedor escreveu nesta mensagem ("Cliente: Geronimo Silva", "obra do Geronimo Silva" → Geronimo Silva). O levantamento passa a ser "Levantamento <cliente>": com o cliente dito, não pergunte o nome. Se a pergunta em aberto pede o cliente e a mensagem é só um nome de pessoa, é o cliente. Se ele não escreveu, omita.',
+        '- cliente: o nome do CLIENTE, copiado como o vendedor escreveu nesta mensagem ("Cliente: Geronimo Silva", "obra do Geronimo Silva" → Geronimo Silva). O nome do levantamento é o nome do cliente, puro: com o cliente dito, não pergunte o nome. Se a pergunta em aberto pede o cliente e a mensagem é só um nome de pessoa, é o cliente. Se ele não escreveu, omita.',
+        '- Com a pergunta do nome em aberto (o nome do cliente, ou a lista de levantamentos parecidos), o vendedor responde do jeito dele, e o nome vem de qualquer forma: "Geison Silva novo", "é o Geison Silva", "novo: Geison Silva" → nome Geison Silva (e novo: true quando ele disse novo). Nunca espere uma forma fixa.',
+        '- opcao: quando a pergunta em aberto lista levantamentos numerados e ele escolheu um — "o 2", "o primeiro", "o último", "é o do Geronimo", "o de ontem" (compare com as datas da lista e com a data de hoje) —, o número dele na lista. Senão, omita.',
         '- novo: true SÓ quando o vendedor disse que é um levantamento novo ("novo ..."). Senão, omita.',
         '- alteracao: true quando ele pede para MUDAR um levantamento que já existe ("troca a altura", "muda a cor", "corrige"). Senão, omita.',
         '- vendedor: só quando a mensagem diz de qual VENDEDOR é o levantamento; copie o nome como foi escrito. Senão, omita.',
@@ -382,6 +450,9 @@ function sistema(c: ContextoDoPrompt): string {
         '- itens: só o que foi dito NESTA mensagem. Numa alteração, só os campos que mudam. Não invente, não deduza.',
         '- cor_perfil: EXATAMENTE uma das cores da empresa (lista do fim), escrita como está. Se for outra cor, ou se houver dúvida, NÃO preencha.',
         '- tipologia: o CÓDIGO (ex.: DP-02) de UMA das tipologias da lista do fim, escolhida pela descrição. NUNCA invente código nem preencha com as palavras do vendedor. Se cabe em mais de uma, NÃO preencha: em `pergunta`, pergunte qual é, citando a descrição INTEIRA de cada uma, sem o código. Se ainda não dá para concluir, NÃO preencha: em `pergunta`, pergunte em linguagem de obra o que falta para você concluir (janela ou porta, como abre, quantas folhas, persiana) — nunca "qual a tipologia".',
+        '- abertura: a PALAVRA que o vendedor usou para a esquadria — "porta" (também "porta-janela" e "porta janela") ou "janela". Só se ele a escreveu; senão, omita. Porta NUNCA vira tipologia cuja descrição começa com JANELA, e janela NUNCA vira PORTA; maxim-ar e fixo servem às duas.',
+        '- Os limites de cada tipologia estão na lista (largura e altura): a medida dita fora da faixa DESCARTA a tipologia; "sem limite no arquivo" não descarta. Se nenhuma cabe, NÃO escolha a mais próxima: deixe a tipologia vazia e diga em `pergunta` que nenhuma cabe.',
+        '- quantidade: só a dita. Não dita é 1 — NUNCA pergunte quantas.',
         '- ARREMATE e GUARNIÇÃO: NÃO pergunte. O padrão da tipologia já vale sem ninguém dizer. NUNCA escolha sozinho: em `escolhas`, só o arremate que o vendedor DISSE, em palavras, com o código da variável e o número da opção que corresponde (lista do fim). Se ele pedir para ver as opções, ou quiser trocar sem dizer por qual, ponha o código da variável em `opcoes_de`.',
         ...(c.variasFamilias ? ['- familia e fornecedor: a mesma tipologia pode estar no motor de mais de uma família da empresa. SÓ o que o vendedor disse — a família, o fornecedor, ou os dois —, escrito EXATAMENTE como está na lista. NUNCA escolha sozinho.'] : []),
         '- Os códigos das variáveis (ex.: ARI), os números das opções e os códigos de fornecedor (ex.: BZ0010) são INTERNOS: nunca os escreva em `pergunta`.',
@@ -392,9 +463,12 @@ function sistema(c: ContextoDoPrompt): string {
         c.montagem
             ? `Levantamento em montagem: “${c.montagem.nome}”, esquadrias (null = ainda não dito): ${JSON.stringify(c.montagem.itens)}`
             : 'Levantamento em montagem: nenhum.',
+        ...(c.hoje ? [`Hoje é ${c.hoje}.`] : []),
         ...(c.perguntaEmAberto ? [`Pergunta em aberto: ${c.perguntaEmAberto}`] : []),
         '',
-        c.variasFamilias ? 'Tipologias dos motores das famílias da empresa (código | descrição | tipo | família | fornecedor):' : 'Tipologias do motor da família da empresa (código | descrição | tipo):',
+        c.variasFamilias
+            ? 'Tipologias dos motores das famílias da empresa (código | descrição | tipo | limites de largura | limites de altura | família | fornecedor):'
+            : 'Tipologias do motor da família da empresa (código | descrição | tipo | limites de largura | limites de altura):',
         ...(c.candidatos.length ? c.candidatos.map((x) => linhaDoCandidato(x, c.variasFamilias)) : ['(nenhuma)']),
         '',
         `Cores da empresa (cor_perfil, escreva EXATAMENTE uma delas): ${c.cores.length ? c.cores.join(', ') : '(nenhuma)'}`,
@@ -472,14 +546,14 @@ async function chamarLlm(chave: string, mensagem: string, contexto: ContextoDoPr
 }
 
 // ── O BANCO ─────────────────────────────────────────────────────────────────────────────────
-type Levantamento = { id: string; nome: string; nome_normalizado: string; estado: string }
+type Levantamento = { id: string; nome: string; nome_normalizado: string; estado: string; criado_em: string }
 type ItemGravado = ItemDoLevantamento & { id: string }
 // a família e o motor do cálculo (PR D): `tabela_id` não é lido nem escrito pela conversa desde então
 const COLUNAS_DO_ITEM = `id, ordem, ${CAMPOS_DA_ESQUADRIA.join(', ')}, escolhas, familia, motor_id`
 
 /** Os levantamentos do remetente — só dele, no tenant dele (decisão 2). */
 async function lerLevantamentos(tenantId: string, remetenteId: string, soEmMontagem: boolean): Promise<Levantamento[]> {
-    let q = supabaseAdmin.from('orcamentista_levantamento').select('id, nome, nome_normalizado, estado')
+    let q = supabaseAdmin.from('orcamentista_levantamento').select('id, nome, nome_normalizado, estado, criado_em')
         .eq('tenant_id', tenantId).eq('remetente_id', remetenteId)
     if (soEmMontagem) q = q.eq('estado', EM_MONTAGEM)
     const { data, error } = await q.order('criado_em', { ascending: true })
@@ -489,17 +563,20 @@ async function lerLevantamentos(tenantId: string, remetenteId: string, soEmMonta
 
 type LevantamentoDaEmpresa = Levantamento & { remetente_id: string }
 
-/** Os levantamentos da empresa com ESTE nome, de qualquer vendedor — só para o admin. */
-async function lerLevantamentosDaEmpresaPeloNome(tenantId: string, nomeNormalizado: string): Promise<LevantamentoDaEmpresa[]> {
-    const { data, error } = await supabaseAdmin.from('orcamentista_levantamento').select('id, nome, nome_normalizado, estado, remetente_id')
-        .eq('tenant_id', tenantId).eq('nome_normalizado', nomeNormalizado).order('criado_em', { ascending: true })
+/** As formas gravadas que valem por ESTE nome: a comparável e a com o prefixo de antes (03/11/2026). */
+const formasGravadasDoNome = (nome: string) => [formaComparavel(nome), `levantamento ${formaComparavel(nome)}`]
+
+/** Os levantamentos da empresa com ESTE nome (com ou sem o prefixo de antes), de qualquer vendedor — só para o admin. */
+async function lerLevantamentosDaEmpresaPeloNome(tenantId: string, nome: string): Promise<LevantamentoDaEmpresa[]> {
+    const { data, error } = await supabaseAdmin.from('orcamentista_levantamento').select('id, nome, nome_normalizado, estado, remetente_id, criado_em')
+        .eq('tenant_id', tenantId).in('nome_normalizado', formasGravadasDoNome(nome)).order('criado_em', { ascending: true })
     if (error) throw new Error(`orcamentista_levantamento: ${error.message}`)
     return (data ?? []) as LevantamentoDaEmpresa[]
 }
 
 /** Um levantamento da empresa pelo id, de qualquer vendedor: o da pergunta em aberto do apanhado. */
 async function lerLevantamentoDaEmpresa(tenantId: string, id: string): Promise<LevantamentoDaEmpresa | null> {
-    const { data, error } = await supabaseAdmin.from('orcamentista_levantamento').select('id, nome, nome_normalizado, estado, remetente_id')
+    const { data, error } = await supabaseAdmin.from('orcamentista_levantamento').select('id, nome, nome_normalizado, estado, remetente_id, criado_em')
         .eq('tenant_id', tenantId).eq('id', id).maybeSingle()
     if (error) throw new Error(`orcamentista_levantamento: ${error.message}`)
     return (data ?? null) as LevantamentoDaEmpresa | null
@@ -608,6 +685,15 @@ async function gravarLevantamento(
         const { error } = await supabaseAdmin.from('orcamentista_levantamento_item').insert(novos)
         if (error) throw new ErroAoGravar(`orcamentista_levantamento_item: ${error.message}`)
     }
+    // o AGRUPAMENTO (03/11/2026) pode fundir uma esquadria gravada em outra: a linha que não voltou sai — e o DELETE confere quantas
+    // atingiu (R1), como o update. É o único DELETE da conversa fora da pergunta em aberto.
+    const sumiram = antes.filter((a) => !itens.some((i) => i.ordem === a.ordem))
+    if (sumiram.length) {
+        const { data: apagados, error } = await supabaseAdmin.from('orcamentista_levantamento_item').delete()
+            .in('id', sumiram.map((a) => a.id)).eq('tenant_id', tenantId).eq('levantamento_id', id).select('id')
+        if (error) throw new ErroAoGravar(`orcamentista_levantamento_item: ${error.message}`)
+        if ((apagados ?? []).length !== sumiram.length) throw new ErroAoGravar(`orcamentista_levantamento_item: o delete atingiu ${(apagados ?? []).length} linha(s), e devia atingir ${sumiram.length}`)
+    }
     return id
 }
 
@@ -653,6 +739,8 @@ function perguntaPara(p: Pendencia, nItens: number, proposta: Record<string, unk
 /** A pergunta guardada, com os levantamentos que ela cita relidos e o texto refeito pelo código. */
 type PerguntaRefeita = {
     p: PerguntaEmAberto; citados: Levantamento[]; texto: string
+    /** O que vai ao prompt no lugar de `texto`, quando a IA precisa de mais do que o vendedor viu (a lista do resgate, na confirmação). */
+    paraOPrompt?: string
     /** Na CONFIRMAR_APANHADO: o levantamento do apanhado, com o dono — o admin confirma o de outro vendedor. */
     doApanhado?: LevantamentoDaEmpresa
 }
@@ -667,7 +755,14 @@ async function refazerPergunta(
     const citados = p.levantamentos.map((id) => doRemetente.find((l) => l.id === id)).filter((l): l is Levantamento => !!l)
     if (p.pergunta === 'SEM_NOME') return { p, citados, texto: FRASE_SEM_NOME }
     if (p.pergunta !== 'CONFIRMAR_APANHADO' && citados.length === 0) return null
-    if (p.pergunta === 'NOME_PARECIDO') return p.nome ? { p, citados, texto: fraseDoNomeParecido(p.nome, citados.map((l) => l.nome)) } : null
+    if (p.pergunta === 'NOME_PARECIDO') return p.nome ? { p, citados: opcoesDeResgate(citados), texto: fraseDoNomeParecido(p.nome, opcoesDeResgate(citados)) } : null
+    // a CONFIRMAÇÃO DO RESGATE (03/11/2026): CONFIRMAR_ACRESCIMO com nome; o escolhido é o primeiro citado — se ele sumiu, a pergunta não vale mais
+    if (p.pergunta === 'CONFIRMAR_ACRESCIMO' && p.nome !== null) {
+        const escolhido = citados.find((l) => l.id === p.levantamentos[0])
+        if (!escolhido) return null
+        const lista = opcoesDeResgate(citados)
+        return { p, citados: [escolhido, ...lista.filter((l) => l.id !== escolhido.id)], texto: fraseDeConfirmarResgate(escolhido), paraOPrompt: `${fraseDeConfirmarResgate(escolhido)} (Os levantamentos parecidos com “${p.nome}” eram: ${lista.map(linhaDoResgate).join('; ')}.)` }
+    }
     // o apanhado é refeito do levantamento como está gravado: é ele que espera o "sim". Achado pelo id na
     // EMPRESA, e não entre os do remetente: o admin que alterou o de outro vendedor também confirma (26/10/2026)
     if (p.pergunta === 'CONFIRMAR_APANHADO') {
@@ -684,10 +779,10 @@ async function refazerPergunta(
 /** O nome que não está no texto vale SÓ se for um dos que a pergunta em aberto citou ("é o mesmo"). */
 function nomeDaPergunta(nome: unknown, aberta: PerguntaRefeita): string | null {
     if (typeof nome !== 'string' || !nome.trim()) return null
-    const forma = normalizarNome(nome)
-    const citado = aberta.citados.find((l) => l.nome_normalizado === forma)
+    const forma = formaComparavel(nome)
+    const citado = aberta.citados.find((l) => formaComparavel(l.nome_normalizado) === forma)
     if (citado) return citado.nome
-    return aberta.p.nome && normalizarNome(aberta.p.nome) === forma ? aberta.p.nome : null
+    return aberta.p.nome && formaComparavel(aberta.p.nome) === forma ? aberta.p.nome : null
 }
 
 function marcaDoNome(nome: unknown, noTexto: string | null, naPergunta: string | null, doCliente: string | null): MarcaDoNome {
@@ -697,12 +792,19 @@ function marcaDoNome(nome: unknown, noTexto: string | null, naPergunta: string |
     return typeof nome !== 'string' || !nome.trim() ? 'faltou' : 'fora_do_texto'
 }
 
+/** A pergunta em aberto é do resgate: a lista (NOME_PARECIDO) ou a confirmação dela (CONFIRMAR_ACRESCIMO com nome). */
+const ehResgate = (p: PerguntaEmAberto) => p.pergunta === 'NOME_PARECIDO' || (p.pergunta === 'CONFIRMAR_ACRESCIMO' && p.nome !== null)
+/** O levantamento que a `opcao` da ferramenta aponta na lista numerada: um inteiro de 1 a N; o resto não aponta nada. */
+function opcaoDaLista<L>(opcao: unknown, lista: readonly L[]): L | null {
+    return typeof opcao === 'number' && Number.isInteger(opcao) && opcao >= 1 && opcao <= lista.length ? lista[opcao - 1] : null
+}
+
 // ── A CONVERSA ──────────────────────────────────────────────────────────────────────────────
 export type Interlocutor = { tenantId: string; remetenteId: string; telefone: string; texto: string; wuzapiToken: string }
 
 /** Conduz uma mensagem do vendedor. NUNCA lança: toda falha vira uma linha `[IA]`. */
 export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
-    const rastro: Rastro = { levantamento: '-', rota: '-', propostos: 0, descartados: 0, enviou: false, admin: null, nome: '-', aberta: '-', ia: { ms: null, entrada: null, saida: null }, contexto: '-', fala: '-', instrucoes: '-' }
+    const rastro: Rastro = { levantamento: '-', rota: '-', propostos: 0, descartados: 0, enviou: false, admin: null, nome: '-', aberta: '-', ia: { ms: null, entrada: null, saida: null }, contexto: '-', fala: '-', instrucoes: '-', fundidos: 0, reenviadas: 0 }
     const fim = (desfecho: DesfechoDaIa, detalhe = ''): DesfechoDaIa => { anotar(rastro, desfecho, detalhe); return desfecho }
     // a fala da IA, já filtrada: abre a resposta do código. Sem contexto, ou com o filtro disparado, não há
     let abertura: string | null = null
@@ -749,6 +851,9 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         const doRemetente = temLinha ? await lerLevantamentos(c.tenantId, c.remetenteId, false) : null
         const aberta = temLinha && doRemetente ? await refazerPergunta(c.tenantId, lida, doRemetente, definicao) : null
 
+        // PORTA × JANELA (03/11/2026): a mensagem que traz UMA das palavras já recebe a lista filtrada; as duas, ou nenhuma, a lista inteira
+        const aberturaDaMensagem = aberturaDita(c.texto)
+        const candidatosDoPrompt = filtrarPorAbertura(tabela.candidatos, aberturaDaMensagem)
         const escolhasPorTipologia = tabela.candidatos.flatMap((x) => {
             const def = definicao({ tipologia: x.tipologia, familia: x.familia })
             const linhas = def ? escolhasParaOPrompt(def) : []
@@ -762,9 +867,10 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         rastro.instrucoes = instrucoes.estado === 'sem_migracao' ? 'sem_migracao' : String(instrucoes.instrucoes.length)
         const resposta = await chamarLlm(chave, c.texto, {
             contexto: contexto.texto, instrucoes: instrucoes.instrucoes,
-            candidatos: tabela.candidatos, variasFamilias, cores, escolhasPorTipologia,
+            candidatos: candidatosDoPrompt, variasFamilias, cores, escolhasPorTipologia,
             montagem: emMontagem ? { nome: emMontagem.nome, itens: itensDaMontagem.map(camposParaOPrompt) } : null,
-            perguntaEmAberto: pendenciaAberta ? perguntaDaPendencia(pendenciaAberta, itensDaMontagem.length) : aberta?.texto ?? null,
+            perguntaEmAberto: pendenciaAberta ? perguntaDaPendencia(pendenciaAberta, itensDaMontagem.length) : aberta?.paraOPrompt ?? aberta?.texto ?? null,
+            hoje: !pendenciaAberta && aberta && ehResgate(aberta.p) ? dataBR(new Date().toISOString()) : null,
         }, rastro.ia)
         if (resposta.tipo !== 'ok') {
             // DEFEITO 3: o vendedor sempre fica sabendo — sem detalhe técnico
@@ -777,10 +883,6 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         rastro.fala = fala.motivo
         abertura = fala.fala
         const confirma = proposta.confirma === true ? true : proposta.confirma === false ? false : null
-        // a proposta que espera resposta entra quando ESTA mensagem não trouxe esquadria
-        const daMensagem = esquadriasDaProposta(proposta)
-        const daPergunta = daMensagem.length === 0 && aberta !== null && aberta.p.itens.length > 0
-        const emEspera: EsquadriaProposta[] = daPergunta && aberta ? aberta.p.itens : daMensagem
         // o fornecedor e a família que o vendedor NÃO disse saem da proposta: a pergunta de qual família não se responde pela IA
         const semFornecedorInventado = (itens: unknown) => (Array.isArray(itens) ? itens.map((i) => {
             if (!i || typeof i !== 'object') return i
@@ -788,7 +890,14 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             for (const k of ['fornecedor', 'familia']) if (k in item && !ditoNaMensagem(item[k], c.texto)) item[k] = undefined
             return item
         }) : itens)
-        const efetiva = daPergunta ? { ...proposta, itens: emEspera } : { ...proposta, itens: semFornecedorInventado(proposta.itens) }
+        // AS ESQUADRIAS RETIDAS NUNCA SE PERDEM (03/11/2026): as da pergunta em aberto MAIS as desta mensagem; a reenviada idêntica conta uma vez
+        const retidas: EsquadriaProposta[] = aberta?.p.itens ?? []
+        const daMensagemBrutas = semFornecedorInventado(proposta.itens)
+        const juncao = juntarEsquadrias(retidas, Array.isArray(daMensagemBrutas) ? daMensagemBrutas : [])
+        rastro.reenviadas = juncao.reenviadas
+        const daPergunta = retidas.length > 0
+        const emEspera: EsquadriaProposta[] = esquadriasDaProposta({ itens: juncao.itens })
+        const efetiva = { ...proposta, itens: juncao.itens }
         /**
          * R2 em TODO caminho que pergunta: guarda a pergunta (com o que espera resposta) e, se ela é a MESMA
          * que estava em aberto, a resposta diz que não registrou — nunca a mesma pergunta como se nada fosse.
@@ -797,8 +906,12 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             if (guardaPergunta) await gravarPerguntaEmAberto(c.tenantId, c.remetenteId, p)
             const repetida = aberta !== null && aberta.texto === textoDaPergunta
             if (!repetida) return await responder(textoDaPergunta, desfecho)
-            // o nome que não veio: a pergunta em OUTRAS palavras, nunca o "não registrei" com a mesma frase (03/11/2026)
+            // a pergunta repetida vai em OUTRAS palavras — nunca "Não consegui registrar a sua resposta" (dono do produto, 03/11/2026)
             if (p.pergunta === 'SEM_NOME') return await responder(outraPergunta(OUTRAS_PERGUNTAS_DO_NOME, c.texto), 'nao-avancou')
+            if (p.pergunta === 'NOME_PARECIDO' && p.nome && aberta) return await responder(fraseDoResgateEmOutrasPalavras(p.nome, aberta.citados), 'nao-avancou')
+            if (p.pergunta === 'CONFIRMAR_ACRESCIMO' && aberta?.citados[0]) {
+                return await responder(p.nome !== null ? fraseDeConfirmarResgateEmOutrasPalavras(aberta.citados[0]) : fraseDeConfirmarAcrescimoEmOutrasPalavras(aberta.citados[0].nome), 'nao-avancou')
+            }
             return await responder(fraseDeNaoRegistrei(textoDaPergunta), 'nao-avancou')
         }
 
@@ -820,7 +933,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             // citou, achado pelo id, de qualquer vendedor. "sim" ou "não" confirmam; o resto ("a largura é 1500") é
             // alteração DELE, e entra no apanhado. O admin que alterou o de outro também passa por aqui (26/10/2026)
             const doApanhado = aberta?.p.pergunta === 'CONFIRMAR_APANHADO' ? aberta.doApanhado : undefined
-            if (doApanhado && (lido === null || normalizarNome(lido) === doApanhado.nome_normalizado)) {
+            if (doApanhado && (lido === null || formaComparavel(lido) === formaComparavel(doApanhado.nome_normalizado))) {
                 if (lido === null) rastro.nome = 'da_pergunta'
                 rastro.levantamento = doApanhado.id
                 const deOutro = doApanhado.remetente_id !== c.remetenteId
@@ -835,8 +948,57 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
                 alvo = { id: doApanhado.id, nome: doApanhado.nome, estado: doApanhado.estado, donoId: doApanhado.remetente_id, vendedor, itens: await lerItens(c.tenantId, doApanhado.id) }
                 nome = doApanhado.nome
             } else {
+                // O RESGATE (03/11/2026): a lista está em aberto, e a escolha veio por `opcao` ("o primeiro", "é o do Geronimo", "o de ontem")
+                // ou a confirmação dela está em aberto. A escolha vale sobre um nome PARECIDO que a IA também tenha lido; "novo" vence tudo.
+                const resgate = aberta && ehResgate(aberta.p) ? aberta : null
+                if (resgate && proposta.novo !== true) {
+                    const lista = resgate.p.pergunta === 'NOME_PARECIDO' ? resgate.citados : opcoesDeResgate(resgate.citados)
+                    const escolhidoAntes = resgate.p.pergunta === 'CONFIRMAR_ACRESCIMO' ? resgate.citados[0] : null
+                    const porOpcao = opcaoDaLista(proposta.opcao, lista)
+                    const igualAoLido = lido !== null ? lista.find((l) => formaComparavel(l.nome_normalizado) === formaComparavel(lido as string)) ?? null : null
+                    const confirmaOEscolhido = escolhidoAntes !== null && lido === null && confirma === true
+                    if (confirmaOEscolhido) {
+                        lido = escolhidoAntes.nome
+                        rastro.nome = 'da_pergunta'
+                    } else if (porOpcao && (!igualAoLido || igualAoLido.id !== porOpcao.id)) {
+                        // a escolha de UM da lista: confirma antes de seguir — a não ser que ele escolheu de novo o que já esperava o "sim"
+                        if (escolhidoAntes && porOpcao.id === escolhidoAntes.id && confirma !== false) {
+                            lido = escolhidoAntes.nome
+                            rastro.nome = 'da_pergunta'
+                        } else {
+                            rastro.nome = 'da_pergunta'
+                            rastro.rota = 'RESGATE'
+                            return await perguntar(
+                                { pergunta: 'CONFIRMAR_ACRESCIMO', nome: resgate.p.nome, levantamentos: [porOpcao.id, ...lista.filter((l) => l.id !== porOpcao.id).map((l) => l.id)], itens: emEspera },
+                                fraseDeConfirmarResgate(porOpcao), 'confirmar-resgate',
+                            )
+                        }
+                    } else if (resgate.p.pergunta === 'NOME_PARECIDO' && lido === null && resgate.p.nome !== null) {
+                        // a resposta que não apontou nenhum nem trouxe nome: a lista de novo — em outras palavras, pelo R2 de `perguntar`
+                        rastro.rota = 'PARECIDO'
+                        return await perguntar(
+                            { pergunta: 'NOME_PARECIDO', nome: resgate.p.nome, levantamentos: lista.map((l) => l.id), itens: emEspera },
+                            fraseDoNomeParecido(resgate.p.nome, lista), 'nome-parecido',
+                        )
+                    } else if (escolhidoAntes && lido === null && confirma === null) {
+                        // nem sim, nem não, nem outro da lista: a mesma confirmação — em outras palavras, pelo R2 de `perguntar`
+                        rastro.rota = 'RESGATE'
+                        return await perguntar(
+                            { pergunta: 'CONFIRMAR_ACRESCIMO', nome: resgate.p.nome, levantamentos: resgate.p.levantamentos, itens: emEspera },
+                            fraseDeConfirmarResgate(escolhidoAntes), 'confirmar-resgate',
+                        )
+                    } else if (escolhidoAntes && lido === null && confirma === false) {
+                        // "não" à confirmação: a lista volta, sem o recusado; sem sobrar nenhum, o cliente novo
+                        const outras = lista.filter((l) => l.id !== escolhidoAntes.id)
+                        rastro.rota = 'PARECIDO'
+                        const p: PerguntaEmAberto = outras.length
+                            ? { pergunta: 'NOME_PARECIDO', nome: resgate.p.nome, levantamentos: outras.map((l) => l.id), itens: emEspera }
+                            : { pergunta: 'SEM_NOME', nome: null, levantamentos: [], itens: emEspera }
+                        return await perguntar(p, fraseDoResgateRecusado(escolhidoAntes, outras), outras.length ? 'nome-parecido' : 'sem-nome')
+                    }
+                }
                 // "sim" ou "não" à confirmação do acréscimo, sem nome: é sobre o levantamento que ela citou
-                if (lido === null && aberta?.p.pergunta === 'CONFIRMAR_ACRESCIMO' && confirma !== null) {
+                if (lido === null && aberta?.p.pergunta === 'CONFIRMAR_ACRESCIMO' && aberta.p.nome === null && confirma !== null) {
                     const citado = aberta.citados[0]
                     if (confirma) lido = citado.nome
                     else {
@@ -858,16 +1020,18 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
                     alvo = { id: comparacao.existente.id, nome: comparacao.existente.nome, estado: comparacao.existente.estado, donoId: c.remetenteId, vendedor: null, itens: await lerItens(c.tenantId, comparacao.existente.id) }
                     nome = comparacao.existente.nome
                 } else if ('existentes' in comparacao && !novo) {
+                    // O RESGATE (03/11/2026): até 3, do mais recente ao mais antigo, com data e estado; a ordem gravada é a numeração
                     rastro.rota = 'PARECIDO'
+                    const opcoes = opcoesDeResgate(comparacao.existentes)
                     return await perguntar(
-                        { pergunta: 'NOME_PARECIDO', nome: lido, levantamentos: comparacao.existentes.map((l) => l.id), itens: emEspera },
-                        fraseDoNomeParecido(lido, comparacao.existentes.map((l) => l.nome)), 'nome-parecido',
+                        { pergunta: 'NOME_PARECIDO', nome: lido, levantamentos: opcoes.map((l) => l.id), itens: emEspera },
+                        fraseDoNomeParecido(lido, opcoes), 'nome-parecido',
                     )
                 } else if (proposta.alteracao === true && !novo) {
                     // pedido de alteração de um nome que não é do remetente: só o admin vai além
                     rastro.admin = await permissaoDoRemetente(c.tenantId, c.remetenteId)
                     if ('motivo' in rastro.admin) { rastro.rota = 'NAO_ENCONTRADO'; return await responder(fraseDeNaoEncontrei(lido), 'nao-encontrado') }
-                    const daEmpresa = await lerLevantamentosDaEmpresaPeloNome(c.tenantId, normalizarNome(lido))
+                    const daEmpresa = await lerLevantamentosDaEmpresaPeloNome(c.tenantId, lido)
                     if (daEmpresa.length === 0) { rastro.rota = 'NAO_ENCONTRADO'; return await responder(fraseDeNaoEncontreiNaEmpresa(lido), 'nao-encontrado') }
                     const nomes = await nomesDosVendedores(c.tenantId, [...new Set(daEmpresa.map((l) => l.remetente_id))])
                     // o vendedor dito só vale se estiver no texto, e casa pelo nome inteiro, sem caixa e sem acento
@@ -885,7 +1049,8 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
                     nome = escolhido.nome
                 } else {
                     rastro.rota = 'NOVO'
-                    nome = lido
+                    // o prefixo "Levantamento" não se grava mais (03/11/2026): o nome é o do cliente, puro
+                    nome = nomeSemPrefixo(lido)
                 }
             }
         }
@@ -895,9 +1060,14 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         const atuais = alvo ? alvo.itens : [itemVazio(1)]
         const ordemPadrao = rastro.rota === 'MONTAGEM' ? pendenciaAberta?.ordem ?? (atuais.length === 1 ? atuais[0].ordem : null)
             : atuais.length === 1 ? atuais[0].ordem : null
-        const proposta_ = aplicarProposta(atuais, efetiva, { tipologias: [...new Set(tabela.candidatos.map((x) => x.tipologia))], cores, ordemPadrao, definicao, familiasDoCodigo: doCodigo })
-        // a família e o motor de cada esquadria, como ficam gravados: a resolvida e o motor do cálculo dela HOJE (PR D)
-        const aplicada = { ...proposta_, itens: resolverFamilias(proposta_.itens, doCodigo) }
+        const proposta_ = aplicarProposta(atuais, efetiva, {
+            candidatos: tabela.candidatos, aberturaDaMensagem, aberturasDitas: palavrasDeAbertura(c.texto), cores, ordemPadrao, definicao, familiasDoCodigo: doCodigo,
+        })
+        // a família e o motor de cada esquadria, como ficam gravados: a resolvida e o motor do cálculo dela HOJE (PR D); e o AGRUPAMENTO
+        // (03/11/2026): os itens completos e iguais viram um, com as unidades somadas
+        const agrupamento = agruparIguais(resolverFamilias(proposta_.itens, doCodigo))
+        const aplicada = { ...proposta_, itens: agrupamento.itens }
+        rastro.fundidos = agrupamento.fundidos
         rastro.propostos = aplicada.propostos
         rastro.descartados = aplicada.descartados
         if (aplicada.semEsquadria && alvo) return await responder(fraseDeQualEsquadria(nome, alvo.itens.length), 'qual-esquadria')
@@ -944,6 +1114,16 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         }
         gravado = true
         if (pendencia) {
+            // a tipologia que o CÓDIGO descartou (03/11/2026) tem frase própria: nenhuma cabe (a medida e a faixa das que sobraram), ou a
+            // palavra do vendedor contradita — antes de qualquer outra pendência, para a razão não se perder
+            const recusa = aplicada.recusas[0]
+            if (recusa) {
+                const comEsquadria = (frase: string) => (aplicada.itens.length > 1 ? `Esquadria ${recusa.ordem}: ${frase}` : frase)
+                if (recusa.motivo === 'LIMITES') {
+                    return await responder(comEsquadria(fraseDeNenhumaTipologiaCabe(recusa.medidas, filtrarPorAbertura(tabela.candidatos, recusa.abertura), recusa.abertura)), 'nenhuma-cabe')
+                }
+                if (recusa.abertura !== null) return await responder(comEsquadria(fraseDaAberturaRecusada(recusa.abertura)), 'perguntou')
+            }
             // sem lista de cores na base, perguntar a cor não leva a lugar nenhum: a conversa diz o que falta
             if ('campo' in pendencia && pendencia.campo === 'cor_perfil' && cores.length === 0) return await responder(FRASE_SEM_CORES, 'sem-cores')
             return await responder(perguntaPara(pendencia, aplicada.itens.length, proposta), 'perguntou')
