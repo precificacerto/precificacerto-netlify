@@ -957,3 +957,21 @@ Decisões do dono do produto, registradas como foram ditas:
   `orcamentista_mp_categoria` como em produção (`09_estado.sql`: a VEDACAO criada e marcada pelas funções antigas, a falta reproduzida), a migração duas
   vezes, 11 casos, 2 corridas, 4 guardas (a 4ª num banco vazio) — 17 de 17 —, e 22 mutações nas duas passadas (`mutacoes.py`, com as duas equivalentes
   anotadas).
+
+**Aplicada em 03/11/2026 às 00:45:02 UTC (o log do preenchimento), antes do merge do #212 (00:46). Conferido por consulta:** a VEDACAO da De Paula
+existe com `config` NULL e `atualizado_por` NULL, logada uma vez; nenhuma falta; a auxiliar (`974d5ff4…`), `criar_familia` (`aa798afd…`),
+`editar_familia` (`74341b18…`) e `definir_familia_da_materia_prima` (`6eb8c7ae…`) têm o corpo do arquivo. **`superadmin_gravar_materia_prima` NÃO:**
+o md5 em produção é **`91e4dd64e95962c1941e874512302173`**, e não o `eef66de2…` do arquivo. Medido: as 99 linhas batem, as 96 sem caractere fora do
+ASCII têm o mesmo md5 nos dois lados (`ae7e6d56…`), e as 3 que diferem são **comentário** (linhas 62, 67 e 91 do corpo: "o id é o de antes…",
+"matéria-prima NOVA…", "o LOG, por último…") com os acentos corrompidos pela colagem no Windows (`é` → `├®`, `—` → `ÔÇö`). **O que executa é
+idêntico.** As 3 linhas vieram do corpo de produção, que estava com os acentos certos, e foram mantidas de propósito (nenhuma linha de produção
+mudou). A regra das linhas novas em ASCII (`20261102000002`) não bastou: **o corpo inteiro passa pela colagem, e qualquer linha não ASCII dele —
+nova ou antiga — vira outro texto em `prosrc`.**
+
+Consequências:
+- **Reaplicar a `20261103000001` aborta na guarda** (o corpo de `gravar_materia_prima` não é nem o esperado nem o desta). Nada a fazer: ela já está
+  aplicada, e a guarda abortar é o comportamento certo.
+- **A próxima migração que guardar `superadmin_gravar_materia_prima` espera `91e4dd64…`** (md5 sem `\r`), o corpo de produção de hoje.
+- **Daqui em diante, antes de entregar uma migração que redefine função, confira se o CORPO INTEIRO é ASCII** (não só as linhas novas). Se uma linha
+  antiga não for, ou ela vira ASCII na migração (é mudança de comentário, dita no cabeçalho), ou a guarda de reaplicação aceita também o md5 da colagem.
+  A escolha é do dono do produto.
