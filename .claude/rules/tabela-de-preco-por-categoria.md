@@ -1105,3 +1105,83 @@ candidatas do mesmo código: basta uma caber); e **52 mutações do código, 52 
 conversa, 2 no leitor da Detalhe, 3 no prompt — a tabela está no PR). Três sobreviveram na primeira passada e ganharam teste próprio: `some`→`every`
 nos limites (uma candidata cabendo basta), as escolhas que ficavam quando a tipologia caía pelos limites, e o DELETE do agrupamento sem conferir a
 contagem atingida.
+
+## O resgate do levantamento antigo e o contexto que não se perde — dono do produto, 03/11/2026 (sem migração)
+
+**O caso que originou** (De Paula, 03/11/2026, 16:30 a 16:34 UTC, medido nos logs `[IA]` de produção e na pergunta em aberto gravada):
+"Janela de correr 1,50x1,20 vidro 4mm / porta janela 2,50x2,40 vidro 8mm / Cliente: Geronimo Silva" caiu em `rota=PARECIDO nome=do_cliente`; "Geison
+Silva novo" deu `rota=SEM_NOME nome=faltou aberta=NOME_PARECIDO` (a IA mandou só `novo`); o reenvio das esquadrias deu `SEM_NOME nome=faltou
+aberta=SEM_NOME desfecho=nao-avancou`. As duas esquadrias estavam retidas em `orcamentista_pergunta_em_aberto` (SEM_NOME, 2 itens), não perdidas — mas
+nada se grava sem nome, e a resposta não dizia que as tinha anotado.
+
+**Medido antes (Fase 1):** o nome só existia se a IA o devolvesse e ele estivesse no texto como trecho contíguo (`nomeDaMensagem`); o cliente ganhava o
+prefixo "Levantamento" (`nomeDoLevantamentoDoCliente`), e o levantamento existente "Geronimo Silva" não o tinha — "levantamento geronimo silva" contém
+"geronimo silva": PARECIDO, nunca IGUAL; `emEspera` era OU as retidas OU as da mensagem (`daPergunta = daMensagem.length === 0 && …`), de modo que a
+resposta com nome e uma esquadria nova apagaria as retidas em silêncio; a frase do parecido listava todos, só o nome, e ditava a forma da resposta
+("responda: novo X", "escreva o nome exatamente como ele está").
+
+**As decisões, registradas como foram ditas:**
+
+1. > "O PREFIXO 'Levantamento' SAI. O nome do levantamento é o nome do cliente, puro: 'Geronimo Silva', não 'Levantamento Geronimo Silva'. [...] Os
+   > levantamentos que já existem com o prefixo continuam como estão; a comparação deve ignorar o prefixo nos dois lados, para que 'Levantamento
+   > Geronimo Silva' e 'Geronimo Silva' sejam IGUAIS."
+2. > "AS ESQUADRIAS RETIDAS NUNCA SE PERDEM. emEspera passa a ACUMULAR: o que já estava guardado na pergunta em aberto mais o que vem na mensagem nova.
+   > [...] apagaria esquadria em silêncio — trate como prioridade igual ao resto."
+3. > "NOME VINDO DE RESPOSTA LIVRE: quando há pergunta de nome em aberto, a mensagem do vendedor pode trazer o nome em qualquer forma ('Geison Silva
+   > novo', 'é o Geison Silva', 'novo: Geison Silva'). A IA extrai o nome e o código confere que as palavras estão no texto — nunca exija a forma
+   > ditada pela pergunta."
+4. > "RESGATE: no máximo 3 opções, numeradas, em ordem decrescente de data, cada uma com a data e o estado. O vendedor responde pelo número ou diz
+   > 'novo <nome>'. Nunca exija o nome exato." E o acréscimo: "o resgate é conversa, não formulário. [...] Ele responde do jeito dele ('é o do
+   > Geronimo', 'o primeiro', 'o de ontem'). Entenda e CONFIRME em uma frase curta — 'Então é o Geronimo Silva, de 01/11, certo?' — e siga quando
+   > ele confirmar. [...] TOM: fale como uma secretária de orçamentos experiente — direta, cordial, sem formulário, sem repetir frase pronta, sem
+   > 'Não consegui registrar a sua resposta'. Nunca mande o vendedor responder numa forma ditada."
+5. > "Endereço e cidade: só o custo no relatório, não faça."
+
+**O que está implementado (`nome-do-levantamento.ts`, `pergunta-em-aberto.ts`, `conversa-da-ia.ts`, `atendimentos-ia-prompt-base.ts`):**
+
+- **O prefixo.** `formaComparavel(nome)` = normalizada sem o "levantamento " inicial, usada nos DOIS lados de `compararNome` (IGUAL e PARECIDO), em
+  `nomeDaPergunta`, na comparação com o levantamento do apanhado e na busca do admin pelo nome (`.in('nome_normalizado', [forma, 'levantamento ' + forma])`).
+  `nomeSemPrefixo` tira o prefixo do que se grava (o cliente e o nome dito "Levantamento X"); `nome_normalizado` continua sendo `normalizarNome(nome)`
+  da linha gravada. Nenhuma linha existente é tocada.
+- **As retidas.** `juntarEsquadrias(retidas, novas)`: as da pergunta em aberto primeiro, depois as da mensagem; a da mensagem IDÊNTICA a uma retida (os
+  campos da esquadria iguais) é a mesma reenviada e conta uma vez (`reenviadas=N` no log); a que difere em um campo acumula. **Decisão do assistente,
+  relatada no PR:** o reenvio idêntico conta uma vez porque foi o caso real (a mensagem 3 remandou as mesmas duas); quem quiser "mais uma igual" na
+  resposta ao nome diz a quantidade. `daPergunta` passou a ser "há retidas" (a confirmação do acréscimo continua valendo para elas).
+- **O nome livre.** `nomeDaMensagem` confere pelas PALAVRAS (letras e números; a pontuação colada não conta; a ordem não importa), não pelo trecho
+  contíguo: "Geison Silva" vale em "Geison Silva novo", "é o Geison Silva", "novo: Geison Silva"; "Geisonaldo Silva" e "Maria Souza" não. O prompt diz à
+  IA que, com a pergunta do nome em aberto, o nome vem de qualquer forma.
+- **O resgate.** `opcoesDeResgate`: do mais recente ao mais antigo por `criado_em`, no máximo `LIMITE_DO_RESGATE = 3`; a frase numera e diz a data
+  (dd/mm/aaaa, fuso `America/Sao_Paulo`) e o estado por extenso ("em montagem"/"completo"); a ordem gravada em `levantamentos` É a numeração. A
+  ferramenta ganhou `opcao` (inteiro): a IA traduz "o primeiro", "o 2", "é o do Geronimo", "o de ontem" no número da lista (o prompt leva "Hoje é
+  dd/mm/aaaa" enquanto a lista ou a confirmação está em aberta). O código então **confirma numa frase curta** (`fraseDeConfirmarResgate`: "Então é o
+  “Geronimo Costa”, de 24/10/2026, certo?") e grava a confirmação como **CONFIRMAR_ACRESCIMO COM `nome`** — a CHECK de `pergunta` em produção
+  (`20261026000003`) só aceita os quatro códigos e nenhuma migração foi pedida —, com o escolhido primeiro em `levantamentos` e os outros depois; ao
+  prompt vai a confirmação mais a lista ("não, é o segundo" tem a que se referir). "sim" segue: as retidas entram no escolhido sem uma segunda
+  confirmação; "não" devolve a lista sem o recusado (ou pergunta o cliente novo, se não sobrou nenhum); outra `opcao` troca o escolhido; a `opcao`
+  fora da lista não aponta nada. Com a lista em aberto, a `opcao` vence um nome PARECIDO que a IA também tenha lido ("é o do Lima" → nome "Lima" +
+  opcao 2 → a confirmação do Lima); o nome EXATO de um da lista segue como antes (a confirmação do acréscimo); "novo <nome>" cria. O escolhido que sumiu
+  do banco invalida a confirmação (nunca cai no citado seguinte).
+- **O tom.** Saíram "responda: novo X", "escreva o nome exatamente como ele está" e, no roteamento pelo nome, o "Não consegui registrar a sua resposta":
+  a pergunta repetida volta em OUTRAS palavras (`fraseDoResgateEmOutrasPalavras`, `fraseDeConfirmarResgateEmOutrasPalavras`,
+  `fraseDeConfirmarAcrescimoEmOutrasPalavras`, as `OUTRAS_PERGUNTAS_DO_NOME`). **Não mudou, de propósito:** o "não registrei" da pendência EM MONTAGEM
+  (a pergunta de campo repetida) e o do apanhado repetido — são outro caminho; se o dono do produto quiser o mesmo tom lá, é PR própria.
+- **A ferramenta** ficou em 23 opcionais (o limite do strict é 24): `variavel` e `opcao` da escolha viraram obrigatórios para abrir lugar à `opcao` do
+  resgate — a escolha sem um deles já era descartada.
+
+**Endereço e cidade do cliente — o custo, não feito (decisão 5):** não existem em `orcamentista_levantamento` (id, tenant_id, remetente_id, nome,
+nome_normalizado, estado, criado_em, atualizado_em — medido em 03/11/2026). Tê-los custa: (a) **migração** com duas colunas nulas (`endereco text`,
+`cidade text`, CHECK de forma, sem default) e a guarda de costume; (b) **a conversa**: dois campos na ferramenta (hoje em 23 de 24 opcionais — teria
+de abrir lugar: `pergunta.campo/texto` obrigatórios, ou o endereço num só campo), a regra no prompt, a leitura conferida no texto (como o nome), a
+gravação no insert/update do levantamento e a coleta sem virar interrogatório (só quando o vendedor disser; nunca perguntar por padrão, ou a
+secretária vira formulário); (c) **a lista do resgate** mostrando a cidade quando houver (o que mais distingue dois "Geronimo Silva"); (d) **a tela**
+do levantamento no super admin, se houver leitura lá; (e) testes, mutações e a fixture do pedido à IA. Estimativa: uma PR do tamanho desta, com
+migração PENDENTE.
+
+**Prova:** bloco (25) de `atendimentos-ia-levantamento-por-nome.test.ts` (o caso real como IGUAL; o legado com prefixo; a lista de 3 em ordem com
+data e estado; "o primeiro" → confirmação → "sim" sem segunda confirmação; "é o do Lima" com a opção vencendo o nome; a lista e a data de hoje no
+prompt da confirmação; "não" com e sem sobra; "Geison Silva novo"; as palavras no texto em qualquer forma; as retidas mais a nova; o reenvio idêntico;
+o tom; a opção fora da lista; o nome exato; o escolhido que sumiu; `juntarEsquadrias` pura), 7d e 7e em (12) (o admin com o nome legado e com o
+prefixo no apanhado), (5) e (6) de `nome-do-levantamento.test.ts`, e os blocos (15), (16), (23) reescritos para as decisões. **36 mutações, 36 mortas**
+(`mutacoes-resgate.py`); seis sobreviveram na primeira passada e ganharam teste próprio (o PARECIDO por distância com o prefixo do gravado, o nome da
+pergunta com o prefixo, o escolhido que sumiu, a ordem gravada da confirmação, a busca do admin pelo nome legado, o apanhado de outro vendedor
+confirmado com o prefixo).

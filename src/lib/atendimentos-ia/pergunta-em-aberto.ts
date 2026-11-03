@@ -29,9 +29,13 @@ export type EsquadriaProposta = Record<string, unknown>
 
 export type PerguntaEmAberto = {
     pergunta: CodigoDaPergunta
-    /** O nome que a pergunta cita (o lido, na NOME_PARECIDO); nulo nas outras. */
+    /**
+     * O nome que a pergunta cita: o lido, na NOME_PARECIDO e na confirmação do RESGATE (03/11/2026) — que é uma CONFIRMAR_ACRESCIMO
+     * COM nome, porque a CHECK de `pergunta` em produção (20261026000003) não aceita outro código e nenhuma migração foi pedida.
+     * Nulo nas outras.
+     */
     nome: string | null
-    /** Os levantamentos citados na pergunta. */
+    /** Os levantamentos citados na pergunta. No resgate, em ordem decrescente de data (a numeração da lista); na confirmação, o escolhido primeiro. */
     levantamentos: string[]
     itens: EsquadriaProposta[]
 }
@@ -92,4 +96,26 @@ export async function gravarPerguntaEmAberto(tenantId: string, remetenteId: stri
 export async function apagarPerguntaEmAberto(tenantId: string, remetenteId: string): Promise<void> {
     const { error } = await supabaseAdmin.from(TABELA_DA_PERGUNTA).delete().eq('tenant_id', tenantId).eq('remetente_id', remetenteId)
     if (error) throw new Error(`${TABELA_DA_PERGUNTA}: ${error.message}`)
+}
+
+/** A forma pela qual duas esquadrias propostas se comparam: os campos da esquadria, em ordem fixa. */
+const formaDaEsquadria = (e: EsquadriaProposta) => JSON.stringify(CAMPOS_DA_ESQUADRIA.map((c) => [c, e[c] ?? null]))
+
+/**
+ * AS ESQUADRIAS RETIDAS NUNCA SE PERDEM (dono do produto, 03/11/2026): o que já estava guardado na pergunta em aberto mais o que
+ * vem na mensagem nova. A da mensagem nova IDÊNTICA a uma retida (os mesmos campos da esquadria) é a MESMA esquadria reenviada — o
+ * caso real de 03/11, em que o vendedor remandou as duas enquanto a pergunta do nome estava aberta —, e conta uma vez; a que difere
+ * em algum campo acumula. As retidas vêm primeiro (chegaram antes); as novas ficam como a IA as propôs (com `ordem`, família…).
+ */
+export function juntarEsquadrias(retidas: readonly EsquadriaProposta[], novas: readonly unknown[]): { itens: unknown[]; reenviadas: number } {
+    const formas = new Set(retidas.map(formaDaEsquadria))
+    let reenviadas = 0
+    const ficam = novas.filter((bruto) => {
+        if (!bruto || typeof bruto !== 'object') return true
+        const campos = esquadriasDaProposta({ itens: [bruto] })[0]
+        if (!campos || !formas.has(formaDaEsquadria(campos))) return true
+        reenviadas += 1
+        return false
+    })
+    return { itens: [...retidas, ...ficam], reenviadas }
 }

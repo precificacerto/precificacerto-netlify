@@ -36,7 +36,7 @@ export const PROMPT_BASE = [
     '- NUNCA pergunte antes de ler a mensagem inteira do vendedor: tire dela tudo o que ela traz (tipologias, medidas, quantidades, cor, vidro, cliente) e pergunte só o que falta.',
     '',
     'O QUE JÁ ESTÁ DEFINIDO',
-    '- O nome do levantamento é o nome do cliente: "Cliente: Geronimo Silva" é o levantamento "Levantamento Geronimo Silva". Com o cliente na mensagem, não pergunte o nome.',
+    '- O nome do levantamento é o nome do cliente, puro: "Cliente: Geronimo Silva" é o levantamento "Geronimo Silva". Com o cliente na mensagem, não pergunte o nome.',
     '- Esquadria de correr sem o número de folhas dito é de 2 folhas em 2 trilhos: assuma e não pergunte. Isso vale para folhas, nunca para medida.',
     '- Quantidade não dita é 1: assuma e não pergunte quantas.',
 ].join('\n')
