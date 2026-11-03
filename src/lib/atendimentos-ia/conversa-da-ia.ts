@@ -113,6 +113,13 @@
  * empresa, identificado pela categoria — SÓ as categorias com instrução preenchida. A linha [IA] diz quantas (`instrucoes=N`), ou
  * `instrucoes=sem_migracao` antes da coluna existir.
  *
+ * ══ PORTA NÃO É JANELA, QUANTIDADE PADRÃO 1, OS LIMITES E O AGRUPAMENTO (dono do produto, 03/11/2026; `tipologias-candidatas.ts`) ══
+ * A lista de tipologias vai ao modelo com a descrição e os LIMITES, e já filtrada pela palavra da mensagem (porta × janela) quando ela traz uma
+ * só; a IA classifica a palavra de cada item em `abertura`; o CÓDIGO descarta a tipologia que contradiz a palavra ou que não cabe a medida
+ * (`aplicarProposta`, que devolve as `recusas`), e a resposta nomeia a medida e a faixa das que sobraram — nunca "a mais próxima". Quantidade
+ * não dita é 1, sem perguntar. Itens completos e iguais (tipologia, medidas, escolhas, cor, vidro) viram um, com as unidades somadas
+ * (`agruparIguais`); a linha gravada que se fundiu sai por DELETE conferido.
+ *
  * ══ NUNCA LANÇA ══
  * Quem chama responde 200 ao WUZAPI aconteça o que acontecer: um erro da LLM não pode virar reenvio em
  * laço. Toda falha vira uma linha `[IA]` e uma frase ao vendedor que diz o que falhou, sem detalhe técnico.
@@ -135,7 +142,7 @@ import {
     FRASE_SEM_CORES, familiasDoCodigo, lerCoresDaEmpresa, lerFamiliasDaEmpresa, linhaDoCandidato, lerVariaveisDasTipologias, mensagemDoLevantamento,
     type CandidatoDeTipologia,
 } from '@/lib/atendimentos-ia/levantamento-da-conversa'
-import {
+import { agruparIguais,
     CAMPOS_DA_ESQUADRIA, aplicarProposta, familiaDaEsquadria, itemVazio, perguntaDaPendencia, proximaPendencia, resolverFamilias,
     type DefinicaoDaTipologia, type ItemDoLevantamento, type Pendencia,
 } from '@/lib/atendimentos-ia/levantamento-em-montagem'
@@ -145,6 +152,7 @@ import { PERGUNTAS_DA_TIPOLOGIA } from '@/lib/atendimentos-ia/pre-definicao'
 import { PROMPT_BASE } from '@/utils/atendimentos-ia-prompt-base'
 import { LIMITE_DA_FALA } from '@/utils/atendimentos-ia-contexto'
 import { blocoDasInstrucoes, lerInstrucoesDaEmpresa, type InstrucaoDaCategoria, type InstrucoesLidas } from '@/lib/atendimentos-ia/instrucoes-da-categoria'
+import { aberturaDita, filtrarPorAbertura, fraseDaAberturaRecusada, fraseDeNenhumaTipologiaCabe, palavrasDeAbertura } from '@/lib/atendimentos-ia/tipologias-candidatas'
 import { escolhasParaOPrompt, opcoesDeArremateNoPrompt, lerEscolhasDoItem, lerEscolhasGravadas, temEscolhaDoVendedor } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import { permissaoDoRemetente, type Permissao } from '@/lib/atendimentos-ia/permissao-do-remetente'
 import { fraseDoApanhado } from '@/lib/atendimentos-ia/apanhado'
@@ -164,7 +172,7 @@ export type DesfechoDaIa =
     | 'sem-chave' | 'sem-saldo' | 'erro-da-llm' | 'recusa' | 'sem-proposta' | 'sem-tipologias'
     | 'sem-nome' | 'nome-parecido' | 'nome-existe' | 'qual-esquadria' | 'nao-encontrado' | 'qual-vendedor' | 'alteracao-incompleta'
     | 'nao-avancou' | 'confirmar-acrescimo' | 'nao-acrescentou' | 'apanhado' | 'nao-confirmou'
-    | 'perguntou' | 'sem-cores' | 'levantou' | 'recusou' | 'envio-falhou' | 'erro'
+    | 'perguntou' | 'sem-cores' | 'levantou' | 'recusou' | 'envio-falhou' | 'erro' | 'nenhuma-cabe'
 
 export type Rota = 'MONTAGEM' | 'NOVO' | 'ALTERACAO' | 'ALTERACAO_ADMIN' | 'SEM_NOME' | 'PARECIDO' | 'NOME_EXISTE' | 'NAO_ENCONTRADO' | 'QUAL_VENDEDOR' | '-'
 /**
@@ -186,6 +194,8 @@ type Rastro = {
     contexto: ContextoLido['estado'] | '-'; fala: FalaLida['motivo'] | '-'
     /** Quantas instruções de categoria foram ao sistema, ou `sem_migracao`; '-' quando não houve chamada à IA. */
     instrucoes: string
+    /** Quantos itens iguais se fundiram nesta mensagem (03/11/2026). */
+    fundidos: number
 }
 const FALA_NO_LOG: Record<FalaLida['motivo'], string> = { usada: 'usada', ausente: 'ausente', numero: 'descartada_numero', longa: 'descartada_longa' }
 
@@ -195,7 +205,7 @@ function anotar(r: Rastro, desfecho: DesfechoDaIa, detalhe = '') {
     const ia = r.ia.ms === null ? '' : ` ia_ms=${r.ia.ms} ia_entrada=${r.ia.entrada ?? '-'} ia_saida=${r.ia.saida ?? '-'}`
     // o contexto e a fala: o ESTADO, nunca o texto
     const contexto = (r.contexto === '-' ? '' : ` contexto=${r.contexto}${r.fala === '-' ? '' : ` fala=${FALA_NO_LOG[r.fala]}`}`)
-        + (r.instrucoes === '-' ? '' : ` instrucoes=${r.instrucoes}`)
+        + (r.instrucoes === '-' ? '' : ` instrucoes=${r.instrucoes}`) + (r.fundidos > 0 ? ` agrupados=${r.fundidos}` : '')
     console.error(`${PREFIXO_DO_LOG_DA_IA} levantamento=${r.levantamento} rota=${r.rota} propostos=${r.propostos} descartados=${r.descartados} enviou=${r.enviou ? 'sim' : 'nao'} desfecho=${desfecho}${admin} nome=${r.nome} aberta=${r.aberta}${contexto}${ia}${detalhe ? ` ${detalhe}` : ''}`)
 }
 
@@ -309,6 +319,7 @@ export const FERRAMENTA = {
                     properties: {
                         ordem: { ...inteiro, description: 'O número da esquadria, SÓ quando o vendedor disse qual é.' },
                         tipologia: texto, largura_mm: inteiro, altura_mm: inteiro, quantidade: inteiro, cor_perfil: texto, vidro: texto,
+                        abertura: { type: 'string', enum: ['porta', 'janela'], description: 'A PALAVRA que o vendedor usou para esta esquadria: "porta" (também porta-janela e porta janela) ou "janela". SÓ se ele a escreveu; senão, omita.' },
                         fornecedor: { ...texto, description: 'O nome do FORNECEDOR como está na lista, SÓ quando o vendedor disse de qual fornecedor é a tipologia.' },
                         familia: { ...texto, description: 'A FAMÍLIA (ex.: PVC, Alumínio) como está na lista, SÓ quando o vendedor disse de qual família é a tipologia.' },
                     },
@@ -382,6 +393,9 @@ function sistema(c: ContextoDoPrompt): string {
         '- itens: só o que foi dito NESTA mensagem. Numa alteração, só os campos que mudam. Não invente, não deduza.',
         '- cor_perfil: EXATAMENTE uma das cores da empresa (lista do fim), escrita como está. Se for outra cor, ou se houver dúvida, NÃO preencha.',
         '- tipologia: o CÓDIGO (ex.: DP-02) de UMA das tipologias da lista do fim, escolhida pela descrição. NUNCA invente código nem preencha com as palavras do vendedor. Se cabe em mais de uma, NÃO preencha: em `pergunta`, pergunte qual é, citando a descrição INTEIRA de cada uma, sem o código. Se ainda não dá para concluir, NÃO preencha: em `pergunta`, pergunte em linguagem de obra o que falta para você concluir (janela ou porta, como abre, quantas folhas, persiana) — nunca "qual a tipologia".',
+        '- abertura: a PALAVRA que o vendedor usou para a esquadria — "porta" (também "porta-janela" e "porta janela") ou "janela". Só se ele a escreveu; senão, omita. Porta NUNCA vira tipologia cuja descrição começa com JANELA, e janela NUNCA vira PORTA; maxim-ar e fixo servem às duas.',
+        '- Os limites de cada tipologia estão na lista (largura e altura): a medida dita fora da faixa DESCARTA a tipologia; "sem limite no arquivo" não descarta. Se nenhuma cabe, NÃO escolha a mais próxima: deixe a tipologia vazia e diga em `pergunta` que nenhuma cabe.',
+        '- quantidade: só a dita. Não dita é 1 — NUNCA pergunte quantas.',
         '- ARREMATE e GUARNIÇÃO: NÃO pergunte. O padrão da tipologia já vale sem ninguém dizer. NUNCA escolha sozinho: em `escolhas`, só o arremate que o vendedor DISSE, em palavras, com o código da variável e o número da opção que corresponde (lista do fim). Se ele pedir para ver as opções, ou quiser trocar sem dizer por qual, ponha o código da variável em `opcoes_de`.',
         ...(c.variasFamilias ? ['- familia e fornecedor: a mesma tipologia pode estar no motor de mais de uma família da empresa. SÓ o que o vendedor disse — a família, o fornecedor, ou os dois —, escrito EXATAMENTE como está na lista. NUNCA escolha sozinho.'] : []),
         '- Os códigos das variáveis (ex.: ARI), os números das opções e os códigos de fornecedor (ex.: BZ0010) são INTERNOS: nunca os escreva em `pergunta`.',
@@ -394,7 +408,9 @@ function sistema(c: ContextoDoPrompt): string {
             : 'Levantamento em montagem: nenhum.',
         ...(c.perguntaEmAberto ? [`Pergunta em aberto: ${c.perguntaEmAberto}`] : []),
         '',
-        c.variasFamilias ? 'Tipologias dos motores das famílias da empresa (código | descrição | tipo | família | fornecedor):' : 'Tipologias do motor da família da empresa (código | descrição | tipo):',
+        c.variasFamilias
+            ? 'Tipologias dos motores das famílias da empresa (código | descrição | tipo | limites de largura | limites de altura | família | fornecedor):'
+            : 'Tipologias do motor da família da empresa (código | descrição | tipo | limites de largura | limites de altura):',
         ...(c.candidatos.length ? c.candidatos.map((x) => linhaDoCandidato(x, c.variasFamilias)) : ['(nenhuma)']),
         '',
         `Cores da empresa (cor_perfil, escreva EXATAMENTE uma delas): ${c.cores.length ? c.cores.join(', ') : '(nenhuma)'}`,
@@ -608,6 +624,15 @@ async function gravarLevantamento(
         const { error } = await supabaseAdmin.from('orcamentista_levantamento_item').insert(novos)
         if (error) throw new ErroAoGravar(`orcamentista_levantamento_item: ${error.message}`)
     }
+    // o AGRUPAMENTO (03/11/2026) pode fundir uma esquadria gravada em outra: a linha que não voltou sai — e o DELETE confere quantas
+    // atingiu (R1), como o update. É o único DELETE da conversa fora da pergunta em aberto.
+    const sumiram = antes.filter((a) => !itens.some((i) => i.ordem === a.ordem))
+    if (sumiram.length) {
+        const { data: apagados, error } = await supabaseAdmin.from('orcamentista_levantamento_item').delete()
+            .in('id', sumiram.map((a) => a.id)).eq('tenant_id', tenantId).eq('levantamento_id', id).select('id')
+        if (error) throw new ErroAoGravar(`orcamentista_levantamento_item: ${error.message}`)
+        if ((apagados ?? []).length !== sumiram.length) throw new ErroAoGravar(`orcamentista_levantamento_item: o delete atingiu ${(apagados ?? []).length} linha(s), e devia atingir ${sumiram.length}`)
+    }
     return id
 }
 
@@ -702,7 +727,7 @@ export type Interlocutor = { tenantId: string; remetenteId: string; telefone: st
 
 /** Conduz uma mensagem do vendedor. NUNCA lança: toda falha vira uma linha `[IA]`. */
 export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
-    const rastro: Rastro = { levantamento: '-', rota: '-', propostos: 0, descartados: 0, enviou: false, admin: null, nome: '-', aberta: '-', ia: { ms: null, entrada: null, saida: null }, contexto: '-', fala: '-', instrucoes: '-' }
+    const rastro: Rastro = { levantamento: '-', rota: '-', propostos: 0, descartados: 0, enviou: false, admin: null, nome: '-', aberta: '-', ia: { ms: null, entrada: null, saida: null }, contexto: '-', fala: '-', instrucoes: '-', fundidos: 0 }
     const fim = (desfecho: DesfechoDaIa, detalhe = ''): DesfechoDaIa => { anotar(rastro, desfecho, detalhe); return desfecho }
     // a fala da IA, já filtrada: abre a resposta do código. Sem contexto, ou com o filtro disparado, não há
     let abertura: string | null = null
@@ -749,6 +774,9 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         const doRemetente = temLinha ? await lerLevantamentos(c.tenantId, c.remetenteId, false) : null
         const aberta = temLinha && doRemetente ? await refazerPergunta(c.tenantId, lida, doRemetente, definicao) : null
 
+        // PORTA × JANELA (03/11/2026): a mensagem que traz UMA das palavras já recebe a lista filtrada; as duas, ou nenhuma, a lista inteira
+        const aberturaDaMensagem = aberturaDita(c.texto)
+        const candidatosDoPrompt = filtrarPorAbertura(tabela.candidatos, aberturaDaMensagem)
         const escolhasPorTipologia = tabela.candidatos.flatMap((x) => {
             const def = definicao({ tipologia: x.tipologia, familia: x.familia })
             const linhas = def ? escolhasParaOPrompt(def) : []
@@ -762,7 +790,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         rastro.instrucoes = instrucoes.estado === 'sem_migracao' ? 'sem_migracao' : String(instrucoes.instrucoes.length)
         const resposta = await chamarLlm(chave, c.texto, {
             contexto: contexto.texto, instrucoes: instrucoes.instrucoes,
-            candidatos: tabela.candidatos, variasFamilias, cores, escolhasPorTipologia,
+            candidatos: candidatosDoPrompt, variasFamilias, cores, escolhasPorTipologia,
             montagem: emMontagem ? { nome: emMontagem.nome, itens: itensDaMontagem.map(camposParaOPrompt) } : null,
             perguntaEmAberto: pendenciaAberta ? perguntaDaPendencia(pendenciaAberta, itensDaMontagem.length) : aberta?.texto ?? null,
         }, rastro.ia)
@@ -895,9 +923,14 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         const atuais = alvo ? alvo.itens : [itemVazio(1)]
         const ordemPadrao = rastro.rota === 'MONTAGEM' ? pendenciaAberta?.ordem ?? (atuais.length === 1 ? atuais[0].ordem : null)
             : atuais.length === 1 ? atuais[0].ordem : null
-        const proposta_ = aplicarProposta(atuais, efetiva, { tipologias: [...new Set(tabela.candidatos.map((x) => x.tipologia))], cores, ordemPadrao, definicao, familiasDoCodigo: doCodigo })
-        // a família e o motor de cada esquadria, como ficam gravados: a resolvida e o motor do cálculo dela HOJE (PR D)
-        const aplicada = { ...proposta_, itens: resolverFamilias(proposta_.itens, doCodigo) }
+        const proposta_ = aplicarProposta(atuais, efetiva, {
+            candidatos: tabela.candidatos, aberturaDaMensagem, aberturasDitas: palavrasDeAbertura(c.texto), cores, ordemPadrao, definicao, familiasDoCodigo: doCodigo,
+        })
+        // a família e o motor de cada esquadria, como ficam gravados: a resolvida e o motor do cálculo dela HOJE (PR D); e o AGRUPAMENTO
+        // (03/11/2026): os itens completos e iguais viram um, com as unidades somadas
+        const agrupamento = agruparIguais(resolverFamilias(proposta_.itens, doCodigo))
+        const aplicada = { ...proposta_, itens: agrupamento.itens }
+        rastro.fundidos = agrupamento.fundidos
         rastro.propostos = aplicada.propostos
         rastro.descartados = aplicada.descartados
         if (aplicada.semEsquadria && alvo) return await responder(fraseDeQualEsquadria(nome, alvo.itens.length), 'qual-esquadria')
@@ -944,6 +977,16 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         }
         gravado = true
         if (pendencia) {
+            // a tipologia que o CÓDIGO descartou (03/11/2026) tem frase própria: nenhuma cabe (a medida e a faixa das que sobraram), ou a
+            // palavra do vendedor contradita — antes de qualquer outra pendência, para a razão não se perder
+            const recusa = aplicada.recusas[0]
+            if (recusa) {
+                const comEsquadria = (frase: string) => (aplicada.itens.length > 1 ? `Esquadria ${recusa.ordem}: ${frase}` : frase)
+                if (recusa.motivo === 'LIMITES') {
+                    return await responder(comEsquadria(fraseDeNenhumaTipologiaCabe(recusa.medidas, filtrarPorAbertura(tabela.candidatos, recusa.abertura), recusa.abertura)), 'nenhuma-cabe')
+                }
+                if (recusa.abertura !== null) return await responder(comEsquadria(fraseDaAberturaRecusada(recusa.abertura)), 'perguntou')
+            }
             // sem lista de cores na base, perguntar a cor não leva a lugar nenhum: a conversa diz o que falta
             if ('campo' in pendencia && pendencia.campo === 'cor_perfil' && cores.length === 0) return await responder(FRASE_SEM_CORES, 'sem-cores')
             return await responder(perguntaPara(pendencia, aplicada.itens.length, proposta), 'perguntou')
