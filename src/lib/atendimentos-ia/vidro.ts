@@ -54,7 +54,7 @@ export function palavrasDoVidro(texto: string): string[] {
     return semAcento(texto.toLowerCase())
         .replace(/(\d),(\d)/g, '$1.$2')
         .replace(/(\d)([a-z])/g, '$1 $2').replace(/([a-z])(\d)/g, '$1 $2')
-        .split(/[^a-z0-9.+]+/).filter(Boolean)
+        .split(/[^a-z0-9.+]+/).map((p) => p.replace(/^[.+]+|[.+]+$/g, '')).filter(Boolean)
 }
 
 const ehNumero = (p: string) => /^\d+(?:\.\d+)?(?:\+\d+(?:\.\d+)?)?$/.test(p)
