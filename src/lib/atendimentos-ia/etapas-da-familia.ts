@@ -12,7 +12,7 @@
  */
 import { supabaseAdmin } from '@/supabase/admin'
 import {
-    ABAS_DA_ETAPA, ehAcaoDaEtapa, type AbaDaEtapa, type AcaoDaEtapa, type EtapaDaFamilia, type EtapaDoCatalogo, type UsoDaEtapaDoCatalogo,
+    ABAS_DA_ETAPA, ehAcaoDaEtapa, etapaLida, type AbaDaEtapa, type AcaoDaEtapa, type EtapaDaFamilia, type EtapaDoCatalogo, type UsoDaEtapaDoCatalogo,
 } from '@/utils/atendimentos-ia-etapas'
 import type { MotorDoCatalogo, UsoDoMotor } from '@/utils/atendimentos-ia-catalogo-de-motores'
 
@@ -49,10 +49,8 @@ export async function lerEtapasDaMateriaPrima(tenantId: string, materiaPrimaId: 
         const c = itens.get(String(l.etapa_catalogo_id))
         if (!c) throw new Error(`orcamentista_familia_etapa: a etapa ${l.numero} aponta o item ${String(l.etapa_catalogo_id)}, que o catálogo de etapas não devolveu`)
         const item = itemDoCatalogo(c)
-        return {
-            id: String(l.id), numero: Number(l.numero), etapa_catalogo_id: item.id, rotulo: item.nome, acao: item.acao, abas: item.abas,
-            instrucao: String(l.instrucao ?? ''), motor_id: l.motor_id == null ? null : String(l.motor_id),
-        }
+        // a mesma montagem da conversa (`motor-da-familia.ts`); a ação já conferida pelo item
+        return { ...etapaLida(l, item), acao: item.acao }
     })
     const familia = mp.familia == null ? null : String(mp.familia)
     return { familia, nome: String(mp.nome ?? ''), categoriasSemFornecedor: familia === null ? null : await categoriasSemFornecedor(tenantId, materiaPrimaId, familia), etapas }

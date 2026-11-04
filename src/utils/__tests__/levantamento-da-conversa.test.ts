@@ -21,6 +21,7 @@
  *   - os dois totais de material, a DIFERENÇA entre eles, e os dois totais com a mão de obra.
  */
 import { abasDaDP02NoBanco } from './fixtures/abas-da-DP-02-no-banco'
+import { CATALOGO_DE_ETAPAS, ITEM_DO_CALCULO, ITEM_DO_LEVANTAMENTO, etapa, etapasPadrao } from './fixtures/etapas-da-familia'
 
 type Linha = Record<string, unknown>
 
@@ -104,12 +105,9 @@ function montar() {
     banco.db = {
         // A FAMÍLIA da conta é a da base de conhecimento (PR D, 02/11/2026): a família-instância, e as etapas 1 e 2 dela com o motor
         orcamentista_materia_prima: [{ id: 'mp-pvc', tenant_id: TENANT, nome: 'Esquadrias de PVC', familia: 'PVC' }],
-        orcamentista_familia_etapa: [
-            { tenant_id: TENANT, materia_prima_id: 'mp-pvc', numero: 1, motor_id: MOTOR },
-            { tenant_id: TENANT, materia_prima_id: 'mp-pvc', numero: 2, motor_id: MOTOR },
-            // a etapa 3 não é lida pela conversa (o fluxo fixo usa a 1 e a 2)
-            { tenant_id: TENANT, materia_prima_id: 'mp-pvc', numero: 3, motor_id: null },
-        ],
+        // as ETAPAS DECLARADAS (04/11/2026): 1 levantamento (GERAR_LEVANTAMENTO) e 2 cálculo (CALCULAR_BARRAS), o mesmo motor — a De Paula
+        orcamentista_familia_etapa: etapasPadrao(TENANT, 'mp-pvc', MOTOR),
+        orcamentista_etapa_catalogo: CATALOGO_DE_ETAPAS.map((c) => ({ ...c })),
         orcamentista_motor: [{ id: MOTOR, nome: 'Motor_Wolf_PVC', fornecedor_id: 'f-wolff', arquivado_em: null }],
         // as tabelas de PREÇO da empresa são DERIVADAS (26/10/2026): a base de conhecimento vincula a Wolff no PERFIL
         orcamentista_mp_categoria_fornecedor: [{ tenant_id: TENANT, mp_categoria_id: 'c-perfil', fornecedor_id: 'f-wolff' }],
@@ -185,9 +183,15 @@ const TEXTO_QUE_FECHA = [
 
 describe('(1) a família da conta, o motor dela e as tipologias candidatas (PR D, dono do produto, 02/11/2026)', () => {
     /** A família da conta como produção a tem hoje: 1 família (PVC), as etapas 1 e 2 apontando o Motor_Wolf_PVC. */
+    const WOLF = { id: MOTOR, nome: 'Motor_Wolf_PVC' }
     const FAMILIA_DE_PAULA = {
         familia: 'PVC', rotulo: 'PVC', fornecedor: 'Wolff Perfis',
-        levantamento: { id: MOTOR, nome: 'Motor_Wolf_PVC' }, calculo: { id: MOTOR, nome: 'Motor_Wolf_PVC' }, tabelasDePreco: [TABELA],
+        // as etapas declaradas, na ordem, cada uma com o papel (o executor) que a AÇÃO dá (04/11/2026)
+        etapas: [
+            { numero: 1, rotulo: 'Apanhado e levantamento de esquadrias', acao: 'GERAR_LEVANTAMENTO', executor: 'levantamento', instrucao: '', motor: WOLF },
+            { numero: 2, rotulo: 'Relação de barras, materiais e tempo', acao: 'CALCULAR_BARRAS', executor: 'calculo', instrucao: '', motor: WOLF },
+        ],
+        levantamento: WOLF, calculo: WOLF, instrucaoDoLevantamento: null as unknown, instrucoesSemEfeito: [] as unknown[], tabelasDePreco: [TABELA],
     }
 
     it('DE PAULA — 1 família: é ela, sem perguntar; a lista vem do motor da etapa 1, POR motor_id, em ordem de código', async () => {
@@ -231,8 +235,7 @@ describe('(1) a família da conta, o motor dela e as tipologias candidatas (PR D
 
     it('duas instâncias da MESMA família com o MESMO motor: uma família só, sem perguntar', async () => {
         banco.db.orcamentista_materia_prima.push({ id: 'mp-pvc-2', tenant_id: TENANT, nome: 'PVC da obra', familia: 'PVC' })
-        banco.db.orcamentista_familia_etapa.push(
-            { tenant_id: TENANT, materia_prima_id: 'mp-pvc-2', numero: 1, motor_id: MOTOR }, { tenant_id: TENANT, materia_prima_id: 'mp-pvc-2', numero: 2, motor_id: MOTOR })
+        banco.db.orcamentista_familia_etapa.push(...etapasPadrao(TENANT, 'mp-pvc-2', MOTOR))
         const t = await M().lerFamiliasDaEmpresa(TENANT)
         if (!('candidatos' in t)) throw new Error('era para ler a lista: ' + t.frase)
         expect(t.familias).toEqual([FAMILIA_DE_PAULA])
@@ -258,25 +261,25 @@ describe('(1) a família da conta, o motor dela e as tipologias candidatas (PR D
             expect((await falta())[0]).toBe('SEM_FAMILIA')
         })
 
-        it('família SEM ETAPA cadastrada (a 2): erro nomeando a família e a etapa', async () => {
-            banco.db.orcamentista_familia_etapa = banco.db.orcamentista_familia_etapa.filter((e) => e.numero !== 2)
-            expect(await falta()).toEqual(['SEM_ETAPA', 'Falta de configuração — a família Esquadrias de PVC não tem a etapa 2 (Calcular as barras e os materiais) cadastrada: verifique o catálogo em Base de conhecimento › Etapas da família.'])
+        it('família SEM NENHUMA ETAPA cadastrada: erro nomeando a família — a frase é a da conferência única (04/11/2026)', async () => {
+            banco.db.orcamentista_familia_etapa = []
+            expect(await falta()).toEqual(['ETAPAS', 'Falta de configuração — etapa: "Esquadrias de PVC" não tem etapas. Veja a configuração: cadastre as etapas, cada uma com o seu motor.'])
         })
 
-        it('ETAPA SEM MOTOR (a 1): erro nomeando a etapa e a família', async () => {
-            banco.db.orcamentista_familia_etapa.find((e) => e.numero === 1)!.motor_id = null
-            expect(await falta()).toEqual(['ETAPA_SEM_MOTOR', 'Falta de configuração — a etapa 1 (Gerar o levantamento) da família Esquadrias de PVC não tem motor: verifique o catálogo em Base de conhecimento › Etapas da família.'])
+        it('ETAPA SEM MOTOR (a do levantamento): erro nomeando a etapa pelo número E pelo nome do catálogo', async () => {
+            banco.db.orcamentista_familia_etapa.find((e) => e.etapa_catalogo_id === ITEM_DO_LEVANTAMENTO)!.motor_id = null
+            expect(await falta()).toEqual(['ETAPAS', 'Falta de configuração — motor: a etapa 1 ("Apanhado e levantamento de esquadrias") está sem motor. Veja a configuração: escolha um motor para ela.'])
         })
 
         it('MOTOR ARQUIVADO: erro nomeando o motor', async () => {
             banco.db.orcamentista_motor[0].arquivado_em = '2026-11-01T12:00:00Z'
-            expect(await falta()).toEqual(['MOTOR_ARQUIVADO', 'Falta de configuração — o motor Motor_Wolf_PVC, da etapa 1 da família Esquadrias de PVC, está arquivado: verifique o catálogo em Catálogo › Motores.'])
+            expect(await falta()).toEqual(['MOTOR_ARQUIVADO', 'Falta de configuração — o motor Motor_Wolf_PVC, da etapa 1 ("Apanhado e levantamento de esquadrias") da família Esquadrias de PVC, está arquivado: verifique o catálogo em Catálogo › Motores.'])
         })
 
         it('MOTOR SEM CONTEÚDO importado (0 tipologias por motor_id) — com as tipologias da tabela lá: erro, e a lista por tabela_id não é lida', async () => {
             banco.db.orcamentista_motor_tipologia_detalhe = banco.db.orcamentista_motor_tipologia_detalhe.filter((l) => l.motor_id !== MOTOR)
             expect(banco.db.orcamentista_motor_tipologia_detalhe.length).toBeGreaterThan(0)
-            expect(await falta()).toEqual(['MOTOR_SEM_CONTEUDO', 'Falta de configuração — o motor Motor_Wolf_PVC, da etapa 1 da família Esquadrias de PVC, não tem tipologias importadas: verifique o catálogo em Catálogo › Motores.'])
+            expect(await falta()).toEqual(['MOTOR_SEM_CONTEUDO', 'Falta de configuração — o motor Motor_Wolf_PVC, da etapa 1 ("Apanhado e levantamento de esquadrias") da família Esquadrias de PVC, não tem tipologias importadas: verifique o catálogo em Catálogo › Motores.'])
         })
 
         it('família SEM NENHUMA TABELA VIGENTE (nenhum fornecedor vinculado): erro nomeando a família', async () => {
@@ -300,9 +303,9 @@ describe('(1) a família da conta, o motor dela e as tipologias candidatas (PR D
 
         it('duas instâncias da mesma família com MOTORES DIFERENTES na mesma etapa: erro de configuração', async () => {
             banco.db.orcamentista_materia_prima.push({ id: 'mp-pvc-2', tenant_id: TENANT, nome: 'PVC da obra', familia: 'PVC' })
-            banco.db.orcamentista_familia_etapa.push(
-                { tenant_id: TENANT, materia_prima_id: 'mp-pvc-2', numero: 1, motor_id: MOTOR }, { tenant_id: TENANT, materia_prima_id: 'mp-pvc-2', numero: 2, motor_id: 'motor-outro' })
-            expect(await falta()).toEqual(['MOTORES_DIVERGENTES', 'Falta de configuração — as famílias Esquadrias de PVC e PVC da obra (PVC) apontam motores diferentes na etapa 2: verifique o catálogo em Base de conhecimento › Etapas da família.'])
+            banco.db.orcamentista_familia_etapa.push(etapa(TENANT, 'mp-pvc-2', 1, ITEM_DO_LEVANTAMENTO, MOTOR), etapa(TENANT, 'mp-pvc-2', 2, ITEM_DO_CALCULO, 'motor-outro'))
+            // a divergência é dita pela AÇÃO (o papel), não pelo número (04/11/2026)
+            expect(await falta()).toEqual(['MOTORES_DIVERGENTES', 'Falta de configuração — as famílias Esquadrias de PVC e PVC da obra (PVC) apontam motores diferentes na etapa de cálculo: verifique o catálogo em Base de conhecimento › Etapas da família.'])
         })
 
         it('o motor com linhas na lista mas NENHUM código válido (tipologia vazia): recusa nomeando o motor e a família — não segue com lista vazia', async () => {
@@ -326,8 +329,7 @@ describe('(1) a família da conta, o motor dela e as tipologias candidatas (PR D
      */
     const comOutraFamilia = () => {
         banco.db.orcamentista_materia_prima.push({ id: 'mp-alu', tenant_id: TENANT, nome: 'Esquadrias de alumínio', familia: 'ALUMINIO' })
-        banco.db.orcamentista_familia_etapa.push(
-            { tenant_id: TENANT, materia_prima_id: 'mp-alu', numero: 1, motor_id: MOTOR_SUL }, { tenant_id: TENANT, materia_prima_id: 'mp-alu', numero: 2, motor_id: MOTOR_SUL })
+        banco.db.orcamentista_familia_etapa.push(...etapasPadrao(TENANT, 'mp-alu', MOTOR_SUL))
         banco.db.orcamentista_motor.push({ id: MOTOR_SUL, nome: 'Motor_Sul_ALU', fornecedor_id: 'f-sul', arquivado_em: null })
         banco.db.orcamentista_mp_categoria_fornecedor.push({ tenant_id: TENANT, mp_categoria_id: 'c-perfil', fornecedor_id: 'f-sul' })
         banco.db.orcamentista_tabela.push({ id: OUTRA, fornecedor_id: 'f-sul', arquivo_nome: 'Sul 2026.xlsx', familia: 'ALUMINIO', categoria_chave: 'PERFIL', vigente: false })
@@ -358,7 +360,7 @@ describe('(1) a família da conta, o motor dela e as tipologias candidatas (PR D
     it('a etapa 2 com OUTRO motor que a 1: a lista vem do motor da 1, e o cálculo é o motor da 2', async () => {
         banco.db.orcamentista_motor.push({ id: 'motor-calculo', nome: 'Motor_Calculo', fornecedor_id: 'f-wolff', arquivado_em: null })
         banco.db.orcamentista_motor_tipologia_detalhe.push({ tabela_id: null, motor_id: 'motor-calculo', tipologia: 'ZZ-01', descricao: 'SÓ NO DO CÁLCULO', tipo: 'Correr', ordem: null })
-        banco.db.orcamentista_familia_etapa.find((e) => e.numero === 2)!.motor_id = 'motor-calculo'
+        banco.db.orcamentista_familia_etapa.find((e) => e.etapa_catalogo_id === ITEM_DO_CALCULO)!.motor_id = 'motor-calculo'
         const t = await M().lerFamiliasDaEmpresa(TENANT)
         if (!('candidatos' in t)) throw new Error('era para ler a lista: ' + t.frase)
         expect(t.candidatos.map((c) => c.tipologia)).toEqual(['DP-01', 'DP-02'])
@@ -373,7 +375,7 @@ describe('(1) a família da conta, o motor dela e as tipologias candidatas (PR D
     it('o contraste: com as abas, as regras e o tempo da DP-02 no motor da etapa 2 (com OUTROS códigos), a conta sai com os códigos DELE', async () => {
         banco.db.orcamentista_motor.push({ id: 'motor-calculo', nome: 'Motor_Calculo', fornecedor_id: 'f-wolff', arquivado_em: null })
         banco.db.orcamentista_motor_tipologia_detalhe.push({ tabela_id: null, motor_id: 'motor-calculo', tipologia: 'ZZ-01', descricao: 'SÓ NO DO CÁLCULO', tipo: 'Correr', ordem: null })
-        banco.db.orcamentista_familia_etapa.find((e) => e.numero === 2)!.motor_id = 'motor-calculo'
+        banco.db.orcamentista_familia_etapa.find((e) => e.etapa_catalogo_id === ITEM_DO_CALCULO)!.motor_id = 'motor-calculo'
         // as abas inteiras, a Detalhe junto (o cálculo também a lê); a lista de candidatas continua a do motor da etapa 1
         for (const [tab, linhas] of Object.entries(abasDaDP02NoBanco('motor-calculo', 'motor') as Record<string, Linha[]>)) banco.db[tab] = [...(banco.db[tab] ?? []), ...linhas]
         banco.db.orcamentista_motor_tipologia.push({ tabela_id: null, motor_id: 'motor-calculo', tipologia: 'DP-02', linha: 'EUROPA 42', tempo_fabricacao_min: 999, tempo_origem: 'ESTIMADO' })
@@ -472,7 +474,129 @@ describe('(1) a família da conta, o motor dela e as tipologias candidatas (PR D
         const t = await M().lerFamiliasDaEmpresa(TENANT)
         const r = await M().mensagemDoLevantamento(TENANT, t, lev())
         expect(r.desfecho).toBe('recusou')
-        expect(r.texto).toContain('• Falta de configuração — a família Esquadrias de PVC não tem a etapa 1 (Gerar o levantamento) cadastrada: verifique o catálogo em Base de conhecimento › Etapas da família.')
+        expect(r.texto).toContain('• Falta de configuração — etapa: "Esquadrias de PVC" não tem etapas. Veja a configuração: cadastre as etapas, cada uma com o seu motor.')
+    })
+})
+
+/**
+ * (1f) AS ETAPAS DECLARADAS — A AÇÃO MANDA, O NÚMERO É SÓ ORDEM (dono do produto, 04/11/2026). O leitor da conversa lê TODAS as etapas da família com
+ * o item do catálogo de cada uma, chama `conferirEtapasParaExecutar` (a conferência única, a mesma da tela) e dá o papel pela AÇÃO: o motor da etapa com
+ * GERAR_LEVANTAMENTO dá a lista; o da etapa com CALCULAR_BARRAS calcula. Falta de etapa, etapa sem motor, ação sem executor, ação repetida ou cálculo
+ * antes do levantamento é erro NOMEADO, nunca silêncio. A família só com a etapa de levantamento só levanta.
+ */
+describe('(1f) as etapas declaradas: a ação decide o papel, e toda falta é nomeada (04/11/2026)', () => {
+    const falta = async () => { const t = await M().lerFamiliasDaEmpresa(TENANT); return 'frase' in t ? [t.motivo, t.frase] : ['LEU', ''] }
+    const lida = async () => { const t = await M().lerFamiliasDaEmpresa(TENANT); if (!('candidatos' in t)) throw new Error('era para ler: ' + t.frase); return t }
+    const motorDeCalculo = () => {
+        banco.db.orcamentista_motor.push({ id: 'motor-calculo', nome: 'Motor_Calculo', fornecedor_id: 'f-wolff', arquivado_em: null })
+        banco.db.orcamentista_motor_tipologia_detalhe.push({ tabela_id: null, motor_id: 'motor-calculo', tipologia: 'ZZ-01', descricao: 'SÓ NO DO CÁLCULO', tipo: 'Correr', ordem: null })
+    }
+
+    it('a ORDEM TROCADA (o cálculo na 1, o levantamento na 2) é falta nomeada — os motores NUNCA trocam de papel em silêncio', async () => {
+        motorDeCalculo()
+        banco.db.orcamentista_familia_etapa = [etapa(TENANT, 'mp-pvc', 1, ITEM_DO_CALCULO, 'motor-calculo'), etapa(TENANT, 'mp-pvc', 2, ITEM_DO_LEVANTAMENTO, MOTOR)]
+        expect(await falta()).toEqual(['ETAPAS',
+            'Falta de configuração — etapa: a etapa 1 ("Relação de barras, materiais e tempo") de cálculo precisa de uma etapa de levantamento antes dela. Veja a configuração: ponha antes dela uma etapa com a ação "Gerar o levantamento".'])
+    })
+
+    it('o levantamento na 2 e o cálculo na 3, com motores diferentes: a lista é a do motor da ação de levantamento, o cálculo é o da ação de cálculo — pelo número seria o contrário', async () => {
+        motorDeCalculo()
+        banco.db.orcamentista_familia_etapa = [etapa(TENANT, 'mp-pvc', 2, ITEM_DO_LEVANTAMENTO, MOTOR), etapa(TENANT, 'mp-pvc', 3, ITEM_DO_CALCULO, 'motor-calculo')]
+        const t = await lida()
+        expect(t.candidatos.map((c) => c.tipologia)).toEqual(['DP-01', 'DP-02'])
+        expect([t.familias[0].levantamento.id, t.familias[0].calculo?.id]).toEqual([MOTOR, 'motor-calculo'])
+        expect(t.familias[0].etapas.map((e) => [e.numero, e.acao, e.executor, e.motor.id])).toEqual([[2, 'GERAR_LEVANTAMENTO', 'levantamento', MOTOR], [3, 'CALCULAR_BARRAS', 'calculo', 'motor-calculo']])
+        expect(M().familiasDoCodigo(t)('DP-02')[0].motorId).toBe('motor-calculo')
+    })
+
+    it('a TERCEIRA etapa com ação sem executor (ENVIAR) é falta nomeada — antes era ignorada em silêncio', async () => {
+        banco.db.orcamentista_familia_etapa.push(etapa(TENANT, 'mp-pvc', 3, 'cat-envio', MOTOR))
+        expect(await falta()).toEqual(['ETAPAS',
+            'Falta de configuração — etapa: a etapa 3 ("Envio ao vendedor") tem a ação "Enviar ao vendedor", que o sistema ainda não executa. '
+            + 'Veja a configuração: retire a etapa, ou troque-a por uma com ação executada ("Gerar o levantamento" ou "Calcular as barras e os materiais").'])
+    })
+
+    it('a ação REPETIDA é falta nomeada', async () => {
+        banco.db.orcamentista_familia_etapa.push(etapa(TENANT, 'mp-pvc', 3, ITEM_DO_CALCULO, MOTOR))
+        expect(await falta()).toEqual(['ETAPAS', 'Falta de configuração — etapa: a ação "Calcular as barras e os materiais" está nas etapas 2 e 3; cada ação entra uma vez só. Veja a configuração: deixe uma etapa com ela.'])
+    })
+
+    it('o item do catálogo com ação fora da lista é falta nomeada, não um lançamento', async () => {
+        banco.db.orcamentista_etapa_catalogo.push({ id: 'cat-xpto', nome: 'Etapa estranha', acao: 'XPTO', abas: [], ordem: 9 })
+        banco.db.orcamentista_familia_etapa.push(etapa(TENANT, 'mp-pvc', 3, 'cat-xpto', MOTOR))
+        expect(await falta()).toEqual(['ETAPAS', 'Falta de configuração — etapa: a etapa 3 ("Etapa estranha") tem a ação "XPTO", que não é da lista. Veja a configuração: escolha para ela um item do catálogo de etapas com ação da lista.'])
+    })
+
+    it('várias faltas saem juntas, uma por linha: a etapa sem motor E a terceira sem executor', async () => {
+        banco.db.orcamentista_familia_etapa.find((e) => e.etapa_catalogo_id === ITEM_DO_CALCULO)!.motor_id = null
+        banco.db.orcamentista_familia_etapa.push(etapa(TENANT, 'mp-pvc', 3, 'cat-apanhado', MOTOR))
+        const [motivo, frase] = await falta()
+        expect(motivo).toBe('ETAPAS')
+        expect(frase.split('\n').map((l) => l.split(':')[0])).toEqual(['Falta de configuração — motor', 'Falta de configuração — etapa'])
+        expect(frase).toContain('a etapa 2 ("Relação de barras, materiais e tempo") está sem motor')
+        expect(frase).toContain('a etapa 3 ("Apanhado do pedido") tem a ação "Apanhar o que o vendedor pede"')
+    })
+
+    describe('a família SÓ com a etapa de levantamento só levanta (decisão do dono do produto, 04/11/2026)', () => {
+        beforeEach(() => { banco.db.orcamentista_familia_etapa = [etapa(TENANT, 'mp-pvc', 1, ITEM_DO_LEVANTAMENTO, MOTOR)] })
+
+        it('lê: a lista vem do motor do levantamento, o cálculo é nulo, e a esquadria fica SEM motor (ausente, não o do levantamento)', async () => {
+            const t = await lida()
+            expect(t.candidatos.map((c) => c.tipologia)).toEqual(['DP-01', 'DP-02'])
+            expect([t.familias[0].levantamento.id, t.familias[0].calculo]).toEqual([MOTOR, null])
+            expect(M().familiasDoCodigo(t)('DP-02')).toEqual([{ familia: 'PVC', rotulo: 'PVC', fornecedor: 'Wolff Perfis', motorId: null }])
+        })
+
+        it('a mensagem final traz as esquadrias como gravadas e diz que não há cálculo — nenhum número de barra, mão de obra ou preço', async () => {
+            const t = await lida()
+            const r = await M().mensagemDoLevantamento(TENANT, t, lev({ escolhas: { ARI: 4, ARE: 1, MAE: 2 } }))
+            expect(r.desfecho).toBe('levantou')
+            expect(r.texto).toBe([
+                'Levantamento “Casa do João”, perfil BRANCO.',
+                'Esquadria 1: DP-02, 1.200 x 1.000 mm, 1 unidade(s).',
+                '',
+                'Esta família não tem etapa de cálculo: as barras, a mão de obra e o preço não saem. O levantamento fica registrado como está.',
+            ].join('\n'))
+            expect(r.texto).not.toContain('R$')
+            expect(r.texto).not.toContain('Barras por código')
+            expect(r.texto).not.toContain(M().O_QUE_O_PRECO_COBRE)
+        })
+
+        it('com duas famílias, uma que calcula e uma que só levanta: o bloco de cada uma, e "o que o preço cobre" uma vez, pela que calculou', async () => {
+            banco.db.orcamentista_materia_prima.push({ id: 'mp-alu', tenant_id: TENANT, nome: 'Esquadrias de alumínio', familia: 'ALUMINIO' })
+            banco.db.orcamentista_familia_etapa.push(etapa(TENANT, 'mp-alu', 1, ITEM_DO_LEVANTAMENTO, MOTOR_SUL))
+            banco.db.orcamentista_motor.push({ id: MOTOR_SUL, nome: 'Motor_Sul_ALU', fornecedor_id: 'f-sul', arquivado_em: null })
+            banco.db.orcamentista_mp_categoria_fornecedor.push({ tenant_id: TENANT, mp_categoria_id: 'c-perfil', fornecedor_id: 'f-sul' })
+            banco.db.orcamentista_tabela.push({ id: 'tabela-sul', fornecedor_id: 'f-sul', arquivo_nome: 'Sul.xlsx', familia: 'ALUMINIO', categoria_chave: 'PERFIL', vigente: false })
+            banco.db.orcamentista_fornecedor.push({ id: 'f-sul', nome: 'Perfis Sul' })
+            banco.db.orcamentista_motor_tipologia_detalhe.push({ tabela_id: null, motor_id: MOTOR_SUL, tipologia: 'SU-07', descricao: 'PORTA PIVOTANTE | LINHA SUL', tipo: 'Porta', ordem: null })
+            // o PVC volta a calcular; só o alumínio só levanta
+            banco.db.orcamentista_familia_etapa.push(etapa(TENANT, 'mp-pvc', 2, ITEM_DO_CALCULO, MOTOR))
+            const t = await lida()
+            const r = await M().mensagemDoLevantamento(TENANT, t, {
+                nome: 'Casa do João',
+                itens: [{ ...ESQUADRIA, escolhas: { ARI: 4, ARE: 1, MAE: 2 }, familia: 'PVC' }, { ...ESQUADRIA, ordem: 2, tipologia: 'SU-07', familia: 'ALUMINIO', escolhas: null }],
+            })
+            expect(r.desfecho).toBe('levantou')
+            expect(r.texto).toContain('Família PVC — Wolff Perfis, perfil BRANCO.')
+            expect(r.texto).toContain('Família Alumínio — Perfis Sul, perfil BRANCO.\nEsquadria 2: SU-07, 1.200 x 1.000 mm, 1 unidade(s).\n\nEsta família não tem etapa de cálculo')
+            expect(r.texto.split(M().O_QUE_O_PRECO_COBRE).length - 1).toBe(1)
+        })
+    })
+
+    describe('a instrução da etapa (04/11/2026): só a da etapa que fala com o modelo tem efeito', () => {
+        it('a instrução da etapa de LEVANTAMENTO vem identificada pela etapa e pela família; a de CÁLCULO é anotada como sem efeito', async () => {
+            banco.db.orcamentista_familia_etapa.find((e) => e.etapa_catalogo_id === ITEM_DO_LEVANTAMENTO)!.instrucao = '  Pergunte o andar da obra.  '
+            banco.db.orcamentista_familia_etapa.find((e) => e.etapa_catalogo_id === ITEM_DO_CALCULO)!.instrucao = 'Some 10% de perda.'
+            const t = await lida()
+            expect(t.familias[0].instrucaoDoLevantamento).toEqual({ numero: 1, rotulo: 'Apanhado e levantamento de esquadrias', texto: 'Pergunte o andar da obra.', familia: 'PVC' })
+            expect(t.familias[0].instrucoesSemEfeito).toEqual([{ numero: 2, rotulo: 'Relação de barras, materiais e tempo', acao: 'CALCULAR_BARRAS', caracteres: 18 }])
+        })
+
+        it('sem instrução preenchida (a De Paula hoje): nulo e vazio — nenhuma seção, nenhuma anotação', async () => {
+            const t = await lida()
+            expect([t.familias[0].instrucaoDoLevantamento, t.familias[0].instrucoesSemEfeito]).toEqual([null, []])
+        })
     })
 })
 

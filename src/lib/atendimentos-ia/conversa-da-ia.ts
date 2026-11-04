@@ -42,7 +42,7 @@
  *
  * ══ VÁRIAS TABELAS (dono do produto, 26/10/2026; migração 20261026000004) ══
  * PR D (dono do produto, 02/11/2026): a lista de tipologias é a dos MOTORES das famílias da conta (a base de conhecimento → a
- * etapa 1 → o motor, `motor-da-familia.ts`); com mais de uma família, cada linha do prompt diz a família (e o fornecedor do motor).
+ * etapa com GERAR_LEVANTAMENTO → o motor, `motor-da-familia.ts`); com mais de uma família, cada linha do prompt diz a família (e o fornecedor do motor).
  * A esquadria guarda de qual família é e o motor que a calcula (`familia` e `motor_id` em `orcamentista_levantamento_item`): o
  * código no motor de uma família só, aquela; em mais de uma, a conversa PERGUNTA de qual família (`proximaPendencia`) — nunca
  * escolhe, nunca "a primeira". A resposta vem em `itens[].familia` e/ou `itens[].fornecedor`, e cada um vale só se o vendedor o
@@ -115,6 +115,15 @@
  * (`PERGUNTAS_DA_TIPOLOGIA`), o nome sai do cliente (`nomeDoCliente`), e a resposta que não coube na tipologia ou no nome
  * vira a pergunta em OUTRAS palavras (`outraPergunta`) — nunca o "Não consegui registrar" com a mesma frase.
  *
+ * ══ AS ETAPAS DECLARADAS DA FAMÍLIA (dono do produto, 04/11/2026; `motor-da-familia.ts`) ══
+ * A conversa executa o que a família DECLARA: a AÇÃO de cada etapa decide o papel (GERAR_LEVANTAMENTO = este apanhado e a gravação, com o motor dela
+ * dando as tipologias e as Variáveis; CALCULAR_BARRAS = o cálculo de `mensagemDoLevantamento`, com o motor dela), e o número é só a ORDEM. Falta de
+ * etapa, etapa sem motor, ação sem executor (APANHAR, CONFIRMAR, ENVIAR ainda não têm código), ação repetida ou cálculo antes do levantamento é ERRO
+ * NOMEADO (`conferirEtapasParaExecutar`) que a conversa responde antes de chamar o modelo — nunca silêncio, nunca o fluxo antigo. A família só com a
+ * etapa de levantamento grava e devolve as esquadrias sem cálculo. A INSTRUÇÃO da etapa corrente (a de GERAR_LEVANTAMENTO, a única que fala com o
+ * modelo) entra no sistema, identificada pela etapa, SÓ quando preenchida (`instrucao_etapa=N` no log); a escrita em etapa que não usa o modelo não
+ * tem efeito, e o log diz (`instrucao_sem_efeito=`).
+ *
  * ══ A INSTRUÇÃO DE CADA CATEGORIA (dono do produto, 03/11/2026; `instrucoes-da-categoria.ts`) ══
  * O texto livre que o consultor escreve em cada categoria da base de conhecimento vai ao sistema, depois das listas e antes do contexto da
  * empresa, identificado pela categoria — SÓ as categorias com instrução preenchida. A linha [IA] diz quantas (`instrucoes=N`), ou
@@ -177,6 +186,7 @@ import { PERGUNTAS_DA_TIPOLOGIA } from '@/lib/atendimentos-ia/pre-definicao'
 import { PROMPT_BASE } from '@/utils/atendimentos-ia-prompt-base'
 import { LIMITE_DA_FALA } from '@/utils/atendimentos-ia-contexto'
 import { blocoDasInstrucoes, lerInstrucoesDaEmpresa, type InstrucaoDaCategoria, type InstrucoesLidas } from '@/lib/atendimentos-ia/instrucoes-da-categoria'
+import { blocoDasInstrucoesDasEtapas, type InstrucaoDaEtapa } from '@/lib/atendimentos-ia/motor-da-familia'
 import { aberturaDita, filtrarPorAbertura, fraseDaAberturaRecusada, fraseDeNenhumaTipologiaCabe, palavrasDeAbertura } from '@/lib/atendimentos-ia/tipologias-candidatas'
 import { escolhasParaOPrompt, opcoesDeArremateNoPrompt, lerEscolhasDoItem, lerEscolhasGravadas, temEscolhaDoVendedor } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import { permissaoDoRemetente, type Permissao } from '@/lib/atendimentos-ia/permissao-do-remetente'
@@ -221,6 +231,10 @@ type Rastro = {
     contexto: ContextoLido['estado'] | '-'; fala: FalaLida['motivo'] | '-'
     /** Quantas instruções de categoria foram ao sistema, ou `sem_migracao`; '-' quando não houve chamada à IA. */
     instrucoes: string
+    /** Quantas instruções de etapa (a corrente, por família) foram ao sistema (04/11/2026); '-' sem chamada. */
+    instrucoesDasEtapas: number | '-'
+    /** As instruções escritas em etapas que não falam com o modelo, `numero:ACAO:caracteres` separadas por vírgula; '' quando não há. */
+    instrucoesSemEfeito: string
     /** Quantos itens iguais se fundiram nesta mensagem (03/11/2026). */
     fundidos: number
     /** Quantas esquadrias da mensagem eram reenvio idêntico de uma já retida na pergunta em aberto (03/11/2026). */
@@ -246,7 +260,9 @@ function anotar(r: Rastro, desfecho: DesfechoDaIa, detalhe = '') {
     const ia = r.ia.ms === null ? '' : ` ia_ms=${r.ia.ms} ia_entrada=${r.ia.entrada ?? '-'} ia_saida=${r.ia.saida ?? '-'}`
     // o contexto e a fala: o ESTADO, nunca o texto
     const contexto = (r.contexto === '-' ? '' : ` contexto=${r.contexto}${r.fala === '-' ? '' : ` fala=${FALA_NO_LOG[r.fala]}`}`)
-        + (r.instrucoes === '-' ? '' : ` instrucoes=${r.instrucoes}`) + (r.fundidos > 0 ? ` agrupados=${r.fundidos}` : '') + (r.reenviadas > 0 ? ` reenviadas=${r.reenviadas}` : '')
+        + (r.instrucoes === '-' ? '' : ` instrucoes=${r.instrucoes}`) + (r.instrucoesDasEtapas === '-' ? '' : ` instrucao_etapa=${r.instrucoesDasEtapas}`)
+        + (r.instrucoesSemEfeito === '' ? '' : ` instrucao_sem_efeito=${r.instrucoesSemEfeito}`)
+        + (r.fundidos > 0 ? ` agrupados=${r.fundidos}` : '') + (r.reenviadas > 0 ? ` reenviadas=${r.reenviadas}` : '')
         + (r.historico === '-' ? '' : ` historico=${r.historico}`) + (r.gravacao === '-' ? '' : ` gravacao=${r.gravacao}`) + (r.redacao === '-' ? '' : ` redacao=${r.redacao}`)
         + (r.vidrosNaoDitos > 0 ? ` vidro_nao_dito=${r.vidrosNaoDitos}` : '') + (r.vidrosPodados > 0 ? ` vidro_podado=${r.vidrosPodados}` : '') + (r.vidrosPadrao > 0 ? ` vidro_padrao=${r.vidrosPadrao}` : '')
     console.error(`${PREFIXO_DO_LOG_DA_IA} levantamento=${r.levantamento} rota=${r.rota} propostos=${r.propostos} descartados=${r.descartados} enviou=${r.enviou ? 'sim' : 'nao'} desfecho=${desfecho}${admin} nome=${r.nome} aberta=${r.aberta}${contexto}${ia}${detalhe ? ` ${detalhe}` : ''}`)
@@ -454,6 +470,8 @@ type ContextoDoPrompt = {
     escolhasPorTipologia: Array<{ tipologia: string; linhas: string[] }>
     /** As instruções das categorias PREENCHIDAS (03/11/2026); vazia, nenhuma seção. */
     instrucoes: readonly InstrucaoDaCategoria[]
+    /** A instrução da etapa CORRENTE de cada família (a de GERAR_LEVANTAMENTO), só as preenchidas (04/11/2026); vazia, nenhuma seção. */
+    instrucoesDasEtapas: readonly InstrucaoDaEtapa[]
 }
 
 function sistema(c: ContextoDoPrompt): string {
@@ -510,6 +528,8 @@ function sistema(c: ContextoDoPrompt): string {
         ...opcoesDeArremateNoPrompt(c.escolhasPorTipologia),
         // a instrução de cada categoria preenchida (03/11/2026): nenhuma linha quando não há
         ...(c.instrucoes.length ? ['', ...blocoDasInstrucoes(c.instrucoes)] : []),
+        // a instrução da etapa corrente (04/11/2026): só a da etapa que fala com o modelo, só quando preenchida — nenhuma linha quando não há
+        ...(c.instrucoesDasEtapas.length ? ['', ...blocoDasInstrucoesDasEtapas(c.instrucoesDasEtapas, c.variasFamilias)] : []),
     ].join('\n')
     // o contexto da empresa vai no FIM, DEPOIS do base: o que vem antes é o mesmo para toda empresa
     return c.contexto === null ? doProduto : `${doProduto}\n\n${blocoDoContexto(c.contexto).join('\n')}`
@@ -846,7 +866,7 @@ export type Interlocutor = {
 export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
     const rastro: Rastro = {
         levantamento: '-', rota: '-', propostos: 0, descartados: 0, enviou: false, admin: null, nome: '-', aberta: '-', ia: { ms: null, entrada: null, saida: null },
-        contexto: '-', fala: '-', instrucoes: '-', fundidos: 0, reenviadas: 0, historico: '-', gravacao: '-', redacao: '-', vidrosNaoDitos: 0, vidrosPodados: 0, vidrosPadrao: 0,
+        contexto: '-', fala: '-', instrucoes: '-', instrucoesDasEtapas: '-', instrucoesSemEfeito: '', fundidos: 0, reenviadas: 0, historico: '-', gravacao: '-', redacao: '-', vidrosNaoDitos: 0, vidrosPodados: 0, vidrosPadrao: 0,
     }
     const fim = (desfecho: DesfechoDaIa, detalhe = ''): DesfechoDaIa => { anotar(rastro, desfecho, detalhe); return desfecho }
     // a fala da IA, já filtrada: abre a resposta do código. Sem contexto, ou com o filtro disparado, não há
@@ -917,7 +937,9 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         if ('frase' in tabela) return await responder(tabela.frase, 'sem-tipologias', `motivo=${tabela.motivo}${tabela.detalhe ? ` ${tabela.detalhe}` : ''}`)
         const doCodigo = familiasDoCodigo(tabela)
         const variasFamilias = tabela.familias.length > 1
-        // as Variáveis de cada tipologia, do banco, POR FAMÍLIA: as do motor do LEVANTAMENTO dela (a etapa 1), por motor_id
+        // a instrução escrita numa etapa que não fala com o modelo não tem efeito: o log diz qual (04/11/2026)
+        rastro.instrucoesSemEfeito = tabela.familias.flatMap((f) => f.instrucoesSemEfeito.map((i) => `${i.numero}:${i.acao}:${i.caracteres}`)).join(',')
+        // as Variáveis de cada tipologia, do banco, POR FAMÍLIA: as do motor do LEVANTAMENTO dela (a etapa com GERAR_LEVANTAMENTO), por motor_id
         const variaveisPorFamilia: Record<string, Record<string, VariaveisDaTipologia>> = {}
         for (const f of tabela.familias) variaveisPorFamilia[f.familia] = await lerVariaveisDasTipologias(f.levantamento.id)
         const definicao: DefinicaoDaTipologia = (e) => {
@@ -960,8 +982,11 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         // a instrução de cada categoria preenchida (03/11/2026)
         const instrucoes: InstrucoesLidas = await lerInstrucoesDaEmpresa(c.tenantId)
         rastro.instrucoes = instrucoes.estado === 'sem_migracao' ? 'sem_migracao' : String(instrucoes.instrucoes.length)
+        // a instrução da etapa corrente de cada família (04/11/2026): só a de GERAR_LEVANTAMENTO, só preenchida
+        const instrucoesDasEtapas = tabela.familias.flatMap((f) => (f.instrucaoDoLevantamento ? [f.instrucaoDoLevantamento] : []))
+        rastro.instrucoesDasEtapas = instrucoesDasEtapas.length
         const resposta = await chamarLlm(chave, c.texto, {
-            contexto: contexto.texto, instrucoes: instrucoes.instrucoes,
+            contexto: contexto.texto, instrucoes: instrucoes.instrucoes, instrucoesDasEtapas,
             candidatos: candidatosDoPrompt, variasFamilias, cores, escolhasPorTipologia,
             montagem: emMontagem ? { nome: emMontagem.nome, itens: itensDaMontagem.map(camposParaOPrompt) } : null,
             perguntaEmAberto: pendenciaAberta ? perguntaDasPendencias(pendenciasAbertas, itensDaMontagem.length) : aberta?.paraOPrompt ?? aberta?.texto ?? null,

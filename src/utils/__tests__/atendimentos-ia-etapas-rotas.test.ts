@@ -83,10 +83,11 @@ function montar() {
             { motor_id: 'm-arq', familia: 'PVC' },
             { motor_id: 'm-alu', familia: 'ALUMINIO' },
         ],
+        // as ações são as EXECUTADAS (04/11/2026): etapa com APANHAR, CONFIRMAR ou ENVIAR é falta de configuração na conferência
         orcamentista_etapa_catalogo: [
-            { id: C_CONFIRMAR, nome: 'Confirmar', acao: 'CONFIRMAR', abas: [], ordem: 2, criado_em: '2026-10-31T00:00:00Z' },
-            { id: C_APANHAR, nome: 'Apanhar o pedido', acao: 'APANHAR', abas: ['variaveis', 'tipologias'], ordem: 1, criado_em: '2026-10-31T00:00:00Z' },
-            { id: C_OUTRA, nome: 'Da outra família PVC', acao: 'APANHAR', abas: [], ordem: 3, criado_em: '2026-10-31T00:00:00Z' },
+            { id: C_CONFIRMAR, nome: 'Confirmar', acao: 'CALCULAR_BARRAS', abas: [], ordem: 2, criado_em: '2026-10-31T00:00:00Z' },
+            { id: C_APANHAR, nome: 'Apanhar o pedido', acao: 'GERAR_LEVANTAMENTO', abas: ['variaveis', 'tipologias'], ordem: 1, criado_em: '2026-10-31T00:00:00Z' },
+            { id: C_OUTRA, nome: 'Da outra família PVC', acao: 'GERAR_LEVANTAMENTO', abas: [], ordem: 3, criado_em: '2026-10-31T00:00:00Z' },
         ],
         // a etapa da conta não tem mais rotulo, acao nem abas (saíram na 20261031000002): o nome, a ação e as abas vêm do item
         orcamentista_familia_etapa: [
@@ -230,8 +231,8 @@ describe('(1) a regra do corpo', () => {
 
 describe('(2) o rascunho da tela', () => {
     const gravadas: EtapaDaFamilia[] = [
-        { id: E1, numero: 1, etapa_catalogo_id: C_APANHAR, rotulo: 'Apanhar o pedido', acao: 'APANHAR', abas: ['tipologias', 'variaveis'], instrucao: 'a', motor_id: null },
-        { id: E2, numero: 2, etapa_catalogo_id: C_CONFIRMAR, rotulo: 'Confirmar', acao: 'CONFIRMAR', abas: [], instrucao: '', motor_id: null },
+        { id: E1, numero: 1, etapa_catalogo_id: C_APANHAR, rotulo: 'Apanhar o pedido', acao: 'GERAR_LEVANTAMENTO', abas: ['tipologias', 'variaveis'], instrucao: 'a', motor_id: null },
+        { id: E2, numero: 2, etapa_catalogo_id: C_CONFIRMAR, rotulo: 'Confirmar', acao: 'CALCULAR_BARRAS', abas: [], instrucao: '', motor_id: null },
     ]
 
     it('o rascunho sem mexer não mudou; trocar o item ou a instrução muda', () => {
@@ -340,8 +341,8 @@ describe('(3) a rota: só o super admin, e só a função grava', () => {
         expect(r.corpo.familia).toBe('PVC')
         expect(r.corpo.etapas.map((e: Linha) => [e.numero, e.rotulo])).toEqual([[1, 'Apanhar o pedido'], [2, 'Confirmar']])
         // o nome, a ação e as abas vêm do ITEM do catálogo que a etapa seleciona; o número, a instrução e o motor, da conta
-        expect(r.corpo.etapas[0]).toEqual({ id: E1, numero: 1, etapa_catalogo_id: C_APANHAR, rotulo: 'Apanhar o pedido', acao: 'APANHAR', abas: ['variaveis', 'tipologias'], instrucao: '', motor_id: M1 })
-        expect(r.corpo.etapas[1]).toEqual(expect.objectContaining({ etapa_catalogo_id: C_CONFIRMAR, rotulo: 'Confirmar', acao: 'CONFIRMAR', instrucao: 'confirme com o vendedor' }))
+        expect(r.corpo.etapas[0]).toEqual({ id: E1, numero: 1, etapa_catalogo_id: C_APANHAR, rotulo: 'Apanhar o pedido', acao: 'GERAR_LEVANTAMENTO', abas: ['variaveis', 'tipologias'], instrucao: '', motor_id: M1 })
+        expect(r.corpo.etapas[1]).toEqual(expect.objectContaining({ etapa_catalogo_id: C_CONFIRMAR, rotulo: 'Confirmar', acao: 'CALCULAR_BARRAS', instrucao: 'confirme com o vendedor' }))
         // renomear o item no catálogo muda o nome da etapa da conta (a conta não guarda cópia)
         estado.db.orcamentista_etapa_catalogo[1].nome = 'Apanhar (renomeada)'
         expect((await chamar('GET', MP)).corpo.etapas[0].rotulo).toBe('Apanhar (renomeada)')
@@ -436,7 +437,7 @@ describe('(3) a rota: só o super admin, e só a função grava', () => {
 
     it('GET: o catálogo de etapas vem junto, na ordem, sem quem usa (o combo só precisa dos itens)', async () => {
         const r = await chamar('GET', MP)
-        expect(r.corpo.catalogo.map((c: Linha) => [c.ordem, c.nome, c.acao])).toEqual([[1, 'Apanhar o pedido', 'APANHAR'], [2, 'Confirmar', 'CONFIRMAR'], [3, 'Da outra família PVC', 'APANHAR']])
+        expect(r.corpo.catalogo.map((c: Linha) => [c.ordem, c.nome, c.acao])).toEqual([[1, 'Apanhar o pedido', 'GERAR_LEVANTAMENTO'], [2, 'Confirmar', 'CALCULAR_BARRAS'], [3, 'Da outra família PVC', 'GERAR_LEVANTAMENTO']])
         expect(r.corpo.catalogo.every((c: Linha) => Array.isArray(c.usos) && c.usos.length === 0)).toBe(true)
     })
 
