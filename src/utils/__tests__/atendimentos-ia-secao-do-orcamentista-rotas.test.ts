@@ -145,7 +145,17 @@ function montar(extra: Partial<Record<string, Linha[]>> = {}) {
     estado.ops = []
     estado.papel = 'admin'
 }
-beforeEach(() => montar())
+// O WUZAPI nunca é chamado de verdade. O `GET /session/status` da rota da conexão sai pelo `fetch`,
+// e este teste o simula: 503 = "o WUZAPI não respondeu", e a rota fica com o último estado registrado.
+// Sem a simulação o teste saía à internet (`usapi.adabtech.shop`) e estourava os 5 s no CI (04/11/2026).
+const fetchSimulado = jest.fn<Promise<{ ok: boolean; status: number; json: () => Promise<unknown> }>, [unknown, unknown?]>(
+    async () => ({ ok: false, status: 503, json: async () => ({}) }),
+)
+beforeEach(() => {
+    montar()
+    fetchSimulado.mockClear()
+    ;(globalThis as unknown as { fetch: unknown }).fetch = fetchSimulado
+})
 
 describe('(1) seção desligada: 404 nas duas rotas, e nada além da configuração é lido', () => {
     it.each([
@@ -176,7 +186,13 @@ describe('(2) a trava usa o módulo orcamentista — e a célula de Conectividad
         estado.papel = 'seller'
         expect((await chamar(rotaDaSecao, 'GET')).status).toBe(403)
         expect((await chamar(rotaDoPainel, 'GET')).status).toBe(403)
-        expect((await chamar(rotaDaConexao, 'GET')).status).toBe(200)
+        const celula = await chamar(rotaDaConexao, 'GET')
+        expect(celula.status).toBe(200)
+        // O WUZAPI foi consultado UMA vez, no `/session/status`, pelo `fetch` simulado — nunca pela rede;
+        // e como ele "não respondeu", o estado é o último registrado (ativo), com o aviso.
+        expect(fetchSimulado).toHaveBeenCalledTimes(1)
+        expect(String(fetchSimulado.mock.calls[0][0])).toMatch(/\/session\/status$/)
+        expect(celula.corpo).toMatchObject({ estado: 'conectado', aviso: 'O WUZAPI não respondeu; o estado é o último registrado.' })
     })
 
     it('vendedor que vê o Orçamentista: 200 na seção e no painel', async () => {
