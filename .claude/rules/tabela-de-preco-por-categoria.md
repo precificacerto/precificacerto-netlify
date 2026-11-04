@@ -1192,7 +1192,7 @@ prefixo no apanhado), (5) e (6) de `nome-do-levantamento.test.ts`, e os blocos (
 pergunta com o prefixo, o escolhido que sumiu, a ordem gravada da confirmação, a busca do admin pelo nome legado, o apanhado de outro vendedor
 confirmado com o prefixo).
 
-## A conversa sai do modo formulário, e volta a ser gravada — dono do produto, 03/11/2026 (migração `20261103000003`, PENDENTE até o dono do produto aplicar; pressupõe a `20261022000001`)
+## A conversa sai do modo formulário, e volta a ser gravada — dono do produto, 03/11/2026 (migração `20261103000003`, aplicada e conferida em produção em 03/11/2026, DEPOIS do merge do #218 às 20:56 UTC; pressupõe a `20261022000001`)
 
 **O caso que originou** (De Paula, 03/11/2026, 18:26 a 18:36 UTC, medido nos logs `[INBOUND]` e `[IA]`): o mesmo `Info.ID` `3EB06E260E4D8D4FA0E8E5`
 chegou às 18:26:38 e às 18:27:51 (o reenvio do WUZAPI; a primeira levou `ia_ms=21200`) e foi conduzido DUAS vezes — a segunda caiu em
@@ -1223,12 +1223,22 @@ pergunta de arremate perguntava um campo por mensagem.
 7. > "NÃO reenvie no WhatsApp o que o vendedor já recebeu. Reenvio reconhecido responde 200 e não conduz de novo; só envia quando o primeiro envio
    > falhou de fato."
 
-**A migração `20261103000003_responde_a_na_mensagem.sql`** (`responde_a uuid NULL`, FK `orcamentista_mensagem(id) ON DELETE SET NULL`, índice parcial
-`orcamentista_mensagem_responde_a_idx`, e `orcamentista_conversa_remetente_idx (tenant_id, remetente_id, criado_em DESC)` IF NOT EXISTS). **Medido em
-03/11/2026 às 19h UTC: o índice da conversa JÁ EXISTE em produção com essa definição exata** — a Fase 1 dizia que não existia; a fonte primária
-desmentiu (`estado-relatado-vs-real.md`). A migração o cria IF NOT EXISTS e a verificação confere a forma: o de mesmo nome e outra forma aborta.
-Harness em `scripts/harness/conversa-gravada/` (as duas tabelas como em produção, 12 mensagens sintéticas, a migração duas vezes, 6 casos, 4
-contrastes; 12 mutações mortas nas duas passadas).
+**A migração `20261103000003_responde_a_na_mensagem.sql`** (md5 `f43ba4ec10e50f2fda77c4d361213c4b`, 146 linhas, 10.115 bytes, LF; `responde_a uuid
+NULL`, FK `orcamentista_mensagem(id) ON DELETE SET NULL`, índice parcial `orcamentista_mensagem_responde_a_idx`, e `orcamentista_conversa_remetente_idx
+(tenant_id, remetente_id, criado_em DESC)` IF NOT EXISTS). **Medido em 03/11/2026 às 19h UTC: o índice da conversa JÁ EXISTE em produção com essa
+definição exata** — a Fase 1 dizia que não existia; a fonte primária desmentiu (`estado-relatado-vs-real.md`). A migração o cria IF NOT EXISTS e a
+verificação confere a forma: o de mesmo nome e outra forma aborta. Harness em `scripts/harness/conversa-gravada/` (as duas tabelas como em produção,
+12 mensagens sintéticas, a migração duas vezes, 6 casos, 4 contrastes; 12 mutações mortas nas duas passadas).
+
+**Aplicação conferida por consulta (04/11/2026, só leitura):** `responde_a uuid`, nula, sem default, com o comentário da migração; 5 constraints na
+mensagem, a `orcamentista_mensagem_responde_a_fkey` como `FOREIGN KEY (responde_a) REFERENCES orcamentista_mensagem(id) ON DELETE SET NULL`, as 4 de
+antes intactas; 4 constraints na conversa; 8 índices nas duas tabelas — os 7 de antes com a definição de sempre e o `orcamentista_mensagem_responde_a_idx`
+parcial. 46 mensagens gravadas (21 saídas), a última às 21:20:44 UTC de 03/11, **nenhuma ainda com `responde_a`**: todas foram gravadas antes da coluna
+existir (`gravacao=sem_migracao`, o caminho previsto). Como as demais aplicadas pelo SQL Editor, não há linha em `supabase_migrations.schema_migrations`.
+**A ordem da Parte I de `migracao.md` NÃO foi cumprida desta vez:** o #218 foi mergeado às 20:56 UTC com a coluna ausente, e a migração foi aplicada
+depois (a hora exata não está no banco). Não houve dano porque o código foi escrito para degradar sem a coluna — a saída gravada sem `responde_a` e o
+reenvio do WUZAPI respondido com 200 sem conduzir nem reenviar (a defesa que não depende da ordem, Parte I) —, e a ausência estava nomeada no topo do PR.
+É a aparição 8 da classe, com a ordem invertida e o estrago reduzido a "sem reenvio da saída falhada" durante a janela.
 
 **O que está implementado (`conversa-gravada.ts`, `redacao-da-resposta.ts`, `inbound.ts`, `conversa-da-ia.ts`, `levantamento-em-montagem.ts`,
 `atendimentos-ia-prompt-base.ts`):**
