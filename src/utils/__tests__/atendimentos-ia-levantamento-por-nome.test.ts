@@ -3084,6 +3084,9 @@ describe('(29) o vidro copiado, a forma canônica e a dedupe por equivalência (
         expect(eq(JANELA, { tipologia: 'DP-100', quantidade: 2 })).toBe(false)
         expect(eq(JANELA, { quantidade: 2 })).toBe(false)
         expect(eq({ vidro: 'vidro 4mm' }, { vidro: 'vidro 4 mm', quantidade: 3 })).toBe(true)
+        // a quantidade NÃO é identidade: a mesma esquadria dita com 1 e depois com 3 unidades é a mesma, e a fusão fica com 3
+        expect(eq({ ...JANELA, quantidade: 1 }, { ...JANELA, quantidade: 3 })).toBe(true)
+        expect(PA().fundirEsquadrias({ ...JANELA, quantidade: 1 }, { ...JANELA, quantidade: 3 }).quantidade).toBe(3)
         // a fusão: a mais completa prevalece, a quantidade dita atualiza
         expect(PA().fundirEsquadrias({ tipologia: 'DP-02', quantidade: 5 }, { ...JANELA, quantidade: 2, vidro_padrao: 'x' })).toEqual({ ...JANELA, quantidade: 2, vidro_padrao: 'x' })
         expect(PA().fundirEsquadrias(JANELA, { tipologia: 'DP-02' })).toEqual(JANELA)
