@@ -521,6 +521,12 @@ describe('(1f) as etapas declaradas: a ação decide o papel, e toda falta é no
         expect(await falta()).toEqual(['ETAPAS', 'Falta de configuração — etapa: a ação "Calcular as barras e os materiais" está nas etapas 2 e 3; cada ação entra uma vez só. Veja a configuração: deixe uma etapa com ela.'])
     })
 
+    it('duas instâncias da MESMA família que não declaram as MESMAS etapas (uma só levanta, a outra calcula): não escolho — falta nomeada', async () => {
+        banco.db.orcamentista_materia_prima.push({ id: 'mp-pvc-2', tenant_id: TENANT, nome: 'PVC da obra', familia: 'PVC' })
+        banco.db.orcamentista_familia_etapa.push(etapa(TENANT, 'mp-pvc-2', 1, ITEM_DO_LEVANTAMENTO, MOTOR))
+        expect(await falta()).toEqual(['MOTORES_DIVERGENTES', 'Falta de configuração — as famílias Esquadrias de PVC e PVC da obra (PVC) não declaram as mesmas etapas: verifique o catálogo em Base de conhecimento › Etapas da família.'])
+    })
+
     it('o item do catálogo com ação fora da lista é falta nomeada, não um lançamento', async () => {
         banco.db.orcamentista_etapa_catalogo.push({ id: 'cat-xpto', nome: 'Etapa estranha', acao: 'XPTO', abas: [], ordem: 9 })
         banco.db.orcamentista_familia_etapa.push(etapa(TENANT, 'mp-pvc', 3, 'cat-xpto', MOTOR))
@@ -581,6 +587,25 @@ describe('(1f) as etapas declaradas: a ação decide o papel, e toda falta é no
             expect(r.texto).toContain('Família PVC — Wolff Perfis, perfil BRANCO.')
             expect(r.texto).toContain('Família Alumínio — Perfis Sul, perfil BRANCO.\nEsquadria 2: SU-07, 1.200 x 1.000 mm, 1 unidade(s).\n\nEsta família não tem etapa de cálculo')
             expect(r.texto.split(M().O_QUE_O_PRECO_COBRE).length - 1).toBe(1)
+        })
+
+        it('com duas famílias que SÓ levantam: dois blocos sem número e NENHUM "o que o preço cobre" — não há preço a cobrir', async () => {
+            banco.db.orcamentista_materia_prima.push({ id: 'mp-alu', tenant_id: TENANT, nome: 'Esquadrias de alumínio', familia: 'ALUMINIO' })
+            banco.db.orcamentista_familia_etapa.push(etapa(TENANT, 'mp-alu', 1, ITEM_DO_LEVANTAMENTO, MOTOR_SUL))
+            banco.db.orcamentista_motor.push({ id: MOTOR_SUL, nome: 'Motor_Sul_ALU', fornecedor_id: 'f-sul', arquivado_em: null })
+            banco.db.orcamentista_mp_categoria_fornecedor.push({ tenant_id: TENANT, mp_categoria_id: 'c-perfil', fornecedor_id: 'f-sul' })
+            banco.db.orcamentista_tabela.push({ id: 'tabela-sul', fornecedor_id: 'f-sul', arquivo_nome: 'Sul.xlsx', familia: 'ALUMINIO', categoria_chave: 'PERFIL', vigente: false })
+            banco.db.orcamentista_fornecedor.push({ id: 'f-sul', nome: 'Perfis Sul' })
+            banco.db.orcamentista_motor_tipologia_detalhe.push({ tabela_id: null, motor_id: MOTOR_SUL, tipologia: 'SU-07', descricao: 'PORTA PIVOTANTE | LINHA SUL', tipo: 'Porta', ordem: null })
+            const t = await lida()
+            const r = await M().mensagemDoLevantamento(TENANT, t, {
+                nome: 'Casa do João',
+                itens: [{ ...ESQUADRIA, escolhas: null, familia: 'PVC' }, { ...ESQUADRIA, ordem: 2, tipologia: 'SU-07', familia: 'ALUMINIO', escolhas: null }],
+            })
+            expect(r.desfecho).toBe('levantou')
+            expect(r.texto.split('Esta família não tem etapa de cálculo').length - 1).toBe(2)
+            expect(r.texto).not.toContain(M().O_QUE_O_PRECO_COBRE)
+            expect(r.texto).not.toContain('R$')
         })
     })
 
