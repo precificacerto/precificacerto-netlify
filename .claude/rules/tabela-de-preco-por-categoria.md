@@ -1351,3 +1351,65 @@ unidades"), e a conversa só ofereceu acrescentar; o levantamento "Geronimo Silv
 `atendimentos-ia-levantamento-por-nome.test.ts` (os 10 itens → 4; a equivalência pura; duas novas na mesma mensagem; o caso real em cinco turnos → 2;
 o completado é podado e gravado sem perguntar; cai inteiro só sem nada na mensagem; o podado funde com o retido; o padrão uma vez; o padrão na
 retida; o prompt e a ferramenta); a fixture dos pedidos regravada; e as mutações do código (`mutacoes-vidro.py`, o resultado no PR).
+
+## A conversa executa as ETAPAS DECLARADAS da família: a ação manda, o número é só ordem — dono do produto, 04/11/2026 (sem migração)
+
+**O que estava medido (Fase 1, 04/11/2026):** a conversa não percorria etapas; fazia duas leituras pelo NÚMERO em `motor-da-familia.ts` (1 =
+levantamento, 2 = cálculo, com nomes fixos no código), a terceira etapa era ignorada em silêncio, a ação do catálogo não era lida em ponto nenhum
+da conversa, e `conferirEtapasParaExecutar` só era chamada pela tela. Com a ordem trocada no catálogo (1 = CALCULAR_BARRAS, 2 = GERAR_LEVANTAMENTO),
+os motores trocavam de papel em silêncio. `orcamentista_familia_etapa.instrucao` não chegava ao modelo. Em produção: só a De Paula tem família com
+etapas (2, as duas com motor, instrução vazia); o catálogo tem 2 itens (GERAR_LEVANTAMENTO e CALCULAR_BARRAS), nenhum com APANHAR, CONFIRMAR ou ENVIAR.
+
+**As decisões, registradas como foram ditas:**
+
+1. > "A AÇÃO manda, o número é só ORDEM. Nunca mais leia a etapa por número para decidir o papel: quem executa levantamento é a etapa com
+   > GERAR_LEVANTAMENTO, quem calcula é a com CALCULAR_BARRAS, onde quer que estejam na ordem. Se o papel vier pelo número, trocar a ordem no
+   > catálogo troca os motores em silêncio — foi o que você mediu, e é inaceitável num número que vira preço."
+2. > "UNIFIQUE O VOCABULÁRIO: a conversa passa a chamar conferirEtapasParaExecutar, e a conferência por número de lerMotoresDaConta sai. Duas listas
+   > de frases de falta para a mesma coisa é como elas se tornam divergentes. Acrescente a essa função o que faltar: ação repetida, ação desconhecida
+   > e ação sem executor."
+3. > "AÇÃO SEM EXECUTOR: APANHAR, CONFIRMAR e ENVIAR existem no catálogo e não têm código. Etapa com uma delas vira erro nomeado dizendo que a ação
+   > ainda não é executada pelo sistema — nunca ignorada em silêncio, que é o que acontece hoje com a terceira etapa."
+4. > "CÁLCULO SEM LEVANTAMENTO: erro nomeado ('a etapa de cálculo precisa de uma etapa de levantamento antes dela'). Não invente fonte de esquadrias."
+   E, à pergunta do assistente, a família SÓ com a etapa de levantamento: **"Envia o levantamento sem cálculo"** — a conversa apanha, confirma, grava e
+   manda ao vendedor a relação das esquadrias, sem barras, sem mão de obra e sem preço.
+5. > "INSTRUÇÃO DA ETAPA: mande ao modelo apenas a instrução da ETAPA CORRENTE, nunca a de todas — +8.080 caracteres por chamada é caro demais e a maior
+   > parte seria irrelevante no turno. Etapa cujo executor não usa o modelo (CALCULAR_BARRAS) não manda instrução nenhuma; se houver instrução preenchida
+   > numa etapa dessas, diga isso no relatório e me avise, porque é configuração que o super admin escreveu achando que teria efeito."
+6. > "PROVA DE NÃO-REGRESSÃO: a fixture dos pedidos da De Paula tem de sair byte a byte igual."
+
+**O que está implementado (`atendimentos-ia-etapas.ts`, `motor-da-familia.ts`, `levantamento-da-conversa.ts`, `levantamento-em-montagem.ts`,
+`conversa-da-ia.ts`, `etapas-da-familia.ts`):**
+
+- **O executor é da AÇÃO** (`EXECUTOR_DA_ACAO`: GERAR_LEVANTAMENTO → levantamento, CALCULAR_BARRAS → cálculo, as outras três → `null`). `lerMotoresDaConta`
+  lê TODAS as etapas da família com o item do catálogo de cada uma (`etapaLida`, a montagem única da tela e da conversa), chama
+  `conferirEtapasParaExecutar` com `categoriasSemFornecedor: null` (não conferido: o fornecedor por categoria continua sendo conferência do PREÇO, em
+  `levantamento-da-conversa.ts`; conferi-lo aqui recusaria a De Paula, que tem cinco categorias sem fornecedor por desenho desde 31/10), e dá o papel
+  pela ação. `FonteDaFamilia` passou a ter `etapas` (na ordem, com ação, executor, instrução e motor), `levantamento`, `calculo` (**nulo quando a
+  família só levanta**), `instrucaoDoLevantamento` e `instrucoesSemEfeito`. Saíram `ETAPA_DO_LEVANTAMENTO`, `ETAPA_DO_CALCULO`, os nomes fixos e as
+  frases por número; as faltas do motor (arquivado, sem conteúdo) dizem a etapa pelo número E pelo nome do catálogo; a divergência entre duas
+  instâncias da mesma família é por AÇÃO (e as instâncias que não declaram as mesmas etapas também divergem).
+- **A conferência única** ganhou: ação fora da lista (nunca um lançamento), ação SEM EXECUTOR (a frase nomeia a ação e as duas executadas), ação
+  REPETIDA (as etapas em que está), e CÁLCULO SEM LEVANTAMENTO antes dele (pelo número, que é a ordem). A ordem das frases: família → etapa → motor →
+  ação → fornecedor. A conversa responde as faltas (uma por linha) antes de chamar o modelo, `motivo=ETAPAS` no log; a tela mostra as mesmas frases.
+- **A família só com GERAR_LEVANTAMENTO:** a lista e as Variáveis vêm do motor dela; a esquadria grava `familia` e fica **sem motor** (`motor_id`
+  nulo: ausente, não o motor de outro papel); a mensagem final é o cabeçalho e as esquadrias mais "Esta família não tem etapa de cálculo: as barras,
+  a mão de obra e o preço não saem. O levantamento fica registrado como está." — sem R$ e sem "o que o preço cobre". Com várias famílias, o bloco de
+  cada uma, e "o que o preço cobre" só se alguma calculou.
+- **A instrução da etapa corrente:** só a da etapa com GERAR_LEVANTAMENTO (a única que fala com o modelo), só quando preenchida, no fim do sistema,
+  depois das instruções de categoria e antes do contexto da empresa: o cabeçalho (`CABECALHO_DA_INSTRUCAO_DA_ETAPA`: não manda em número; as regras de
+  NUNCA valem acima) e `[Etapa N — <nome do catálogo>]` (`— família X` quando há mais de uma), uma por família. A linha [IA] diz `instrucao_etapa=N`.
+  A instrução escrita numa etapa que não usa o modelo não vai: a linha [IA] diz `instrucao_sem_efeito=<número>:<AÇÃO>:<caracteres>`. **Medido em
+  produção em 04/11/2026: nenhuma instrução preenchida** (0 caracteres nas duas etapas da De Paula) — nada a avisar hoje. Sem instrução, o sistema é
+  byte a byte o de antes (a fixture `pedidos-a-ia-sem-contexto.json` não foi regravada).
+- **O que NÃO mudou:** a redação da resposta (`redacao-da-resposta.ts`) não recebe a instrução da etapa — ela recebe o contexto da empresa, que é tom;
+  a instrução é da coleta. A conferência de fornecedor por categoria continua só no preço. Nenhuma migração.
+
+**Prova:** `atendimentos-ia-familia-pronta.test.ts` (a conferência: o mapa dos executores, a ordem que não decide, só levantamento passa e só cálculo
+não, cada ação sem executor, a ação fora da lista, a repetida, as faltas juntas na ordem); bloco (1f) de `levantamento-da-conversa.test.ts` (a ordem
+trocada é falta; o levantamento na 2 e o cálculo na 3 com motores diferentes dão o papel pela ação; a terceira etapa com ENVIAR é falta; a repetida; a
+ação fora da lista; várias faltas juntas; a família só com levantamento — a leitura, a mensagem sem cálculo, duas famílias com uma que só levanta; a
+instrução do levantamento e a sem efeito); bloco (30) de `atendimentos-ia-levantamento-por-nome.test.ts` (a falta antes do modelo com `motivo=ETAPAS`;
+a ordem trocada; o formal sem cálculo de ponta a ponta com a esquadria sem motor; a instrução no sistema e `instrucao_etapa=1`; a de cálculo fora do
+sistema e `instrucao_sem_efeito=2:CALCULAR_BARRAS:39`; sem instrução, o sistema de sempre; duas famílias, cada instrução com a família); a fixture dos
+pedidos INALTERADA; e as mutações do código (`mutacoes-etapas.py`, o resultado no PR).

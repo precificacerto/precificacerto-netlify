@@ -29,6 +29,7 @@
 import fs from 'fs'
 import path from 'path'
 import type { NextApiRequest, NextApiResponse } from 'next'
+import { CATALOGO_DE_ETAPAS, etapasPadrao } from './fixtures/etapas-da-familia'
 
 type Linha = Record<string, any>
 
@@ -93,7 +94,8 @@ function montar() {
         ],
         // a família da De Paula na base de conhecimento, e as etapas 1 e 2 com o motor
         orcamentista_materia_prima: [{ id: 'mp-4eb9', tenant_id: PAULA, nome: 'Esquadrias de PVC', familia: 'PVC' }],
-        orcamentista_familia_etapa: [1, 2].map((numero) => ({ tenant_id: PAULA, materia_prima_id: 'mp-4eb9', numero, motor_id: M_WOLFF })),
+        orcamentista_familia_etapa: etapasPadrao(PAULA, 'mp-4eb9', M_WOLFF),
+        orcamentista_etapa_catalogo: CATALOGO_DE_ETAPAS.map((c) => ({ ...c })),
         orcamentista_motor: [{ id: M_WOLFF, nome: 'Motor_Wolf_PVC', fornecedor_id: F_WOLFF, arquivado_em: null }],
         orcamentista_mp_categoria: [
             categoria('c-perfil', PAULA, 'PERFIL'), categoria('c-vidro', PAULA, 'VIDRO'), categoria('c-ferragem', PAULA, 'FERRAGENS'),
@@ -276,7 +278,7 @@ describe('(2) a conversa: o motor vem da família; as tabelas da família são o
 
     it('De Paula: a lista é a do MOTOR da família (por motor_id), e o preço é a Wolff (PVC) e a Estrela (qualquer linha) — a lista parada por tabela_id não entra', async () => {
         const t = await lida()
-        expect(t.familias.map((f) => [f.familia, f.levantamento.id, f.calculo.id])).toEqual([['PVC', M_WOLFF, M_WOLFF]])
+        expect(t.familias.map((f) => [f.familia, f.levantamento.id, f.calculo?.id])).toEqual([['PVC', M_WOLFF, M_WOLFF]])
         expect(t.candidatos.map((c) => c.tipologia)).toEqual(['DP-01', 'DP-02'])
         expect(await precos()).toEqual([T_ESTRELA, T_WOLFF].sort())
         naoTocouAContaTabela()

@@ -27,8 +27,10 @@
  *
  * ══ O MOTOR VEM DA FAMÍLIA; A TABELA É SÓ PREÇO (PR D, dono do produto, 02/11/2026) ══
  * A família é a da base de conhecimento da conta (`orcamentista_materia_prima.familia`); o motor é o das etapas dela
- * (`motor-da-familia.ts`): a etapa 1 dá a lista de tipologias e as Variáveis, a etapa 2 dá as abas, as regras, as fórmulas da
- * linha e o tempo. TODA leitura do motor é por `motor_id`; nenhuma volta a ler o motor por `tabela_id`. O PREÇO é o das tabelas que
+ * (`motor-da-familia.ts`), PELA AÇÃO (dono do produto, 04/11/2026): a etapa com GERAR_LEVANTAMENTO dá a lista de tipologias e as
+ * Variáveis, a etapa com CALCULAR_BARRAS dá as abas, as regras, as fórmulas da linha e o tempo — onde quer que estejam na ordem.
+ * A família SEM etapa de cálculo só levanta: a mensagem final traz as esquadrias como gravadas, sem barras, mão de obra nem preço
+ * (`fraseDoLevantamentoSemCalculo`). TODA leitura do motor é por `motor_id`; nenhuma volta a ler o motor por `tabela_id`. O PREÇO é o das tabelas que
  * valem da família — as dos fornecedores que a base de conhecimento vincula, com a família da conta ou sem família ("qualquer
  * linha"), de todas as categorias —, lido por `tabela_id` (`lerItens`). Falta de configuração é erro que nomeia a falta, nunca
  * fallback. O que vem abaixo, sobre a tabela "com motor", é a história de antes do PR D: o critério de qual tabela VALE (a única
@@ -115,7 +117,7 @@ import { FRASE_SEM_LISTA_DE_TIPOLOGIAS, SECAO_DOS_FORNECEDORES, fraseDeFalta, le
 export { FRASE_SEM_LISTA_DE_TIPOLOGIAS }
 
 // ── As famílias da empresa e as tipologias candidatas ───────────────────────────────────────
-/** Uma tipologia que a IA pode escolher: do motor do LEVANTAMENTO (etapa 1) de uma família da conta. */
+/** Uma tipologia que a IA pode escolher: do motor do LEVANTAMENTO (a etapa com GERAR_LEVANTAMENTO) de uma família da conta. */
 export type CandidatoDeTipologia = {
     tipologia: string; descricao: string | null; tipo: string | null; familia: string; rotulo: string; fornecedor: string
     /** Os limites da Detalhe do motor (03/11/2026): NULL = o arquivo não traz, e nunca descarta. */
@@ -164,7 +166,7 @@ export async function lerFamiliasDaEmpresa(tenantId: string): Promise<FamiliasDa
         familias.push({ ...f, tabelasDePreco: valem })
     }
 
-    // as tipologias: do motor do LEVANTAMENTO (etapa 1) de cada família, por motor_id
+    // as tipologias: do motor do LEVANTAMENTO (a etapa com GERAR_LEVANTAMENTO) de cada família, por motor_id
     const candidatos: CandidatoDeTipologia[] = []
     for (const f of familias) {
         const { data, error: erroDaLista } = await supabaseAdmin
@@ -184,10 +186,13 @@ export async function lerFamiliasDaEmpresa(tenantId: string): Promise<FamiliasDa
     return { ok: true, familias, candidatos: candidatos.sort(porCodigoEFamilia) }
 }
 
-/** As famílias da conta cujo motor tem o código, na ordem do rótulo — com o motor do CÁLCULO de cada uma (o que a esquadria grava). */
+/**
+ * As famílias da conta cujo motor tem o código, na ordem do rótulo — com o motor do CÁLCULO de cada uma (o que a esquadria grava); null quando a
+ * família não tem etapa de cálculo (a esquadria fica sem motor: ausente, não um motor de outro papel — `ausente-vs-falso.md`).
+ */
 export const familiasDoCodigo = (t: FamiliasDaEmpresaLidas): FamiliasDoCodigo => (codigo: string) =>
     t.candidatos.filter((c) => c.tipologia === codigo).map((c): FamiliaDoCodigo => ({
-        familia: c.familia, rotulo: c.rotulo, fornecedor: c.fornecedor, motorId: t.familias.find((f) => f.familia === c.familia)!.calculo.id,
+        familia: c.familia, rotulo: c.rotulo, fornecedor: c.fornecedor, motorId: t.familias.find((f) => f.familia === c.familia)!.calculo?.id ?? null,
     }))
 
 /**
@@ -610,6 +615,15 @@ export function fraseDoLevantamento(
     return linhas.join('\n')
 }
 
+/**
+ * A família SEM ETAPA DE CÁLCULO (dono do produto, 04/11/2026): o levantamento sai como foi gravado — as esquadrias —, sem barras, sem mão de
+ * obra e sem preço, e diz por quê. Nada é estimado no lugar do cálculo que não existe.
+ */
+export const SEM_ETAPA_DE_CALCULO = 'Esta família não tem etapa de cálculo: as barras, a mão de obra e o preço não saem. O levantamento fica registrado como está.'
+export function fraseDoLevantamentoSemCalculo(d: DadosDoLevantamento, bloco: { titulo: string } | null = null): string {
+    return [`${bloco ? bloco.titulo : maiuscula(cabecalho(d))}.`, ...linhasDasEsquadrias(d), '', SEM_ETAPA_DE_CALCULO].join('\n')
+}
+
 /** "Esquadria 1 (DP-02): " — com uma esquadria só, o vendedor sabe qual é, e o prefixo sai. */
 const semPrefixoDaEsquadria = (m: string) => m.replace(/^Esquadrias? [\d, e]+(?: \([^)]*\))?: /, '')
 const maiuscula = (t: string) => t.charAt(0).toUpperCase() + t.slice(1)
@@ -679,7 +693,10 @@ export async function mensagemDoLevantamento(
     })
     const varias = grupos.length > 1
     const calculos: CalculoDaFamilia[] = []
-    for (const g of grupos) calculos.push(await calcularFamilia(tenantId, g.familia, lev, d, g.indices))
+    for (const g of grupos) {
+        // a família sem etapa de cálculo só levanta: nada se calcula, e a mensagem diz isso (04/11/2026)
+        calculos.push(g.familia.calculo === null ? semCalculo(lev, d, g.indices) : await calcularFamilia(tenantId, g.familia, g.familia.calculo.id, lev, d, g.indices))
+    }
     const rotulos = calculos.flatMap((c) => c.rotulos)
     // o rótulo do fallback vai em TODA resposta, a que fecha e a que recusa
     const rotulado = (r: LevantamentoDaConversa): LevantamentoDaConversa => (rotulos.length ? { ...r, texto: `${r.texto}\n\n${rotulos.join('\n')}` } : r)
@@ -687,35 +704,51 @@ export async function mensagemDoLevantamento(
     const recusadas = calculos.flatMap((c, k) => ('faltas' in c ? c.faltas.map((x) => (varias ? `${nomeDaFamilia(grupos[k].familia)}: ${x}` : x)) : []))
     if (recusadas.length) return rotulado(recusa(recusadas))
 
-    const fechados = calculos as Array<Extract<CalculoDaFamilia, { r: unknown }>>
-    if (!varias) return rotulado({ texto: fraseDoLevantamento(fechados[0].d, fechados[0].r, fechados[0].maos), desfecho: 'levantou' })
-    const blocos = fechados.map((c, k) => fraseDoLevantamento(c.d, c.r, c.maos, { titulo: `${nomeDaFamilia(grupos[k].familia)}, perfil ${c.d.cor}`, cobertura: false, numerar: true }))
+    const fechados = calculos as Array<Exclude<CalculoDaFamilia, { faltas: unknown }>>
+    const textoDe = (c: (typeof fechados)[number], bloco: { titulo: string; cobertura: false; numerar: true } | null) =>
+        ('semCalculo' in c ? fraseDoLevantamentoSemCalculo(c.d, bloco) : fraseDoLevantamento(c.d, c.r, c.maos, bloco))
+    if (!varias) return rotulado({ texto: textoDe(fechados[0], null), desfecho: 'levantou' })
+    const blocos = fechados.map((c, k) => textoDe(c, { titulo: `${nomeDaFamilia(grupos[k].familia)}, perfil ${c.d.cor}`, cobertura: false, numerar: true }))
+    // "o que o preço cobre" só quando alguma família calculou: sem preço nenhum na mensagem, não há o que cobrir
+    const algumaCalculou = fechados.some((c) => !('semCalculo' in c))
     const texto = [
         `Levantamento “${lev.nome}”: ${grupos.length} famílias, cada uma calculada com o motor e as tabelas de preço dela — as barras de uma não entram na otimização da outra.`,
-        '', blocos.join('\n\n'), '', O_QUE_O_PRECO_COBRE,
+        '', blocos.join('\n\n'), ...(algumaCalculou ? ['', O_QUE_O_PRECO_COBRE] : []),
     ].join('\n')
     return rotulado({ texto, desfecho: 'levantou' })
 }
 
 type CalculoDaFamilia =
     | { d: DadosDoLevantamento; r: Extract<ResultadoDoLevantamento, { ok: true }>; maos: MaoDeObra[]; rotulos: string[] }
+    | { semCalculo: true; d: DadosDoLevantamento; rotulos: string[] }
     | { faltas: string[]; rotulos: string[] }
+
+/** As esquadrias de um grupo (uma família) como o bloco da mensagem as recebe: as MESMAS de `d`, com a cor do grupo. */
+function dadosDoGrupo(lev: { nome: string; itens: EsquadriaGravada[] }, d: DadosDoLevantamento, indices: number[]): { dg: DadosDoLevantamento; itensDoGrupo: EsquadriaGravada[]; cores: string[] } {
+    const itensDoGrupo = indices.map((i) => lev.itens[i])
+    const corDe = (e: EsquadriaGravada) => (typeof e.cor_perfil === 'string' && e.cor_perfil !== '' ? e.cor_perfil : null)
+    const cores = [...new Set(itensDoGrupo.map(corDe).filter((c): c is string => c !== null))]
+    return { dg: { nome: d.nome, cor: cores.length === 1 ? cores[0] : '(cores diferentes)', esquadrias: indices.map((i) => d.esquadrias[i]) }, itensDoGrupo, cores }
+}
+
+/** A família sem etapa de cálculo: as esquadrias do grupo, e nenhum número. */
+const semCalculo = (lev: { nome: string; itens: EsquadriaGravada[] }, d: DadosDoLevantamento, indices: number[]): CalculoDaFamilia =>
+    ({ semCalculo: true, d: dadosDoGrupo(lev, d, indices).dg, rotulos: [] })
 
 /** "Esquadria 1" do grupo vira o número dela no levantamento ("Esquadria 3"). */
 const renumerar = (m: string, numeros: readonly number[]) =>
     m.replace(/^(Esquadrias? )([\d, e]+)/, (_t, p: string, lista: string) => p + lista.replace(/\d+/g, (n) => String(numeros[Number(n) - 1] ?? n)))
 
 /**
- * O cálculo de UMA família: as esquadrias dela, com o MOTOR do cálculo dela (a etapa 2: as abas, as regras e o tempo, por
- * `motor_id`) e o PREÇO das tabelas que valem para ela (por `tabela_id`) — a otimização de barras e a mão de obra. `d` é o
+ * O cálculo de UMA família: as esquadrias dela, com o MOTOR do cálculo dela (a etapa com CALCULAR_BARRAS: as abas, as regras e o tempo,
+ * por `motor_id`) e o PREÇO das tabelas que valem para ela (por `tabela_id`) — a otimização de barras e a mão de obra. `d` é o
  * levantamento inteiro: as esquadrias do grupo são as MESMAS de `d` (a descrição do arremate escrita aqui aparece também na recusa).
  */
-async function calcularFamilia(tenantId: string, familia: FamiliaLigada, lev: { nome: string; itens: EsquadriaGravada[] }, d: DadosDoLevantamento, indices: number[]): Promise<CalculoDaFamilia> {
-    const motorId = familia.calculo.id
-    const itensDoGrupo = indices.map((i) => lev.itens[i])
+async function calcularFamilia(
+    tenantId: string, familia: FamiliaLigada, motorId: string, lev: { nome: string; itens: EsquadriaGravada[] }, d: DadosDoLevantamento, indices: number[],
+): Promise<CalculoDaFamilia> {
+    const { dg, itensDoGrupo, cores } = dadosDoGrupo(lev, d, indices)
     const corDe = (e: EsquadriaGravada) => (typeof e.cor_perfil === 'string' && e.cor_perfil !== '' ? e.cor_perfil : null)
-    const cores = [...new Set(itensDoGrupo.map(corDe).filter((c): c is string => c !== null))]
-    const dg: DadosDoLevantamento = { nome: d.nome, cor: cores.length === 1 ? cores[0] : '(cores diferentes)', esquadrias: indices.map((i) => d.esquadrias[i]) }
     const faltas: string[] = []
     if (cores.length > 1) {
         const porEsquadria = dg.esquadrias.map((e, k) => `esquadria ${e.numero}: ${corDe(itensDoGrupo[k])}`).join('; ')

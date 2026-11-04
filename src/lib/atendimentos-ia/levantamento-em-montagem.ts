@@ -18,7 +18,7 @@
  *
  * VÁRIAS FAMÍLIAS (PR D, dono do produto, 02/11/2026): a tipologia vem do MOTOR de uma família da conta (a base de
  * conhecimento → a etapa 1 → o motor), não mais de uma tabela de fornecedor. A esquadria guarda de qual família é (`familia`, a
- * chave do catálogo) e o motor que a calcula (`motor_id`, o da etapa 2 da família), como a regra do projeto pede: "cada item diz
+ * chave do catálogo) e o motor que a calcula (`motor_id`, o da etapa com CALCULAR_BARRAS da família), como a regra do projeto pede: "cada item diz
  * a sua". O código numa família só: a esquadria leva aquela. Em mais de uma: a esquadria fica sem família, e a pendência
  * seguinte, logo depois da tipologia, é DE QUAL FAMÍLIA — pelo rótulo do catálogo. Nunca escolhe, nunca "a primeira". A
  * resposta vem em `itens[].familia` (o rótulo ou a chave) e/ou `itens[].fornecedor` (o do motor da família), e vale só se
@@ -69,7 +69,8 @@ export type TipologiaNaFamilia = { tipologia: string | null; familia: string | n
 export type DefinicaoDaTipologia = (esquadria: TipologiaNaFamilia) => VariaveisDaTipologia | null
 
 /** Uma família da conta cujo motor tem o código: a chave, o rótulo, o fornecedor do motor e o motor do cálculo (o que a esquadria grava). */
-export type FamiliaDoCodigo = { familia: string; rotulo: string; fornecedor: string; motorId: string }
+/** `motorId` é o motor do CÁLCULO da família (a etapa com CALCULAR_BARRAS); null quando a família só levanta (04/11/2026). */
+export type FamiliaDoCodigo = { familia: string; rotulo: string; fornecedor: string; motorId: string | null }
 /** Uma opção da pergunta de qual família: o que o vendedor reconhece — o rótulo da família (e o fornecedor do motor dela). */
 export type OpcaoDeFamilia = { rotulo: string; fornecedor: string }
 /** As famílias da conta cujo motor tem o código, na ordem do rótulo. */
@@ -95,7 +96,7 @@ export function familiaDaEsquadria(e: TipologiaNaFamilia, familiasDoCodigo: Fami
 
 /**
  * A família e o motor de cada esquadria, como ficam gravados (`orcamentista_levantamento_item.familia` e `motor_id`): a família
- * resolvida e o motor do CÁLCULO dela (o da etapa 2, hoje). Sem família resolvida (sem tipologia, código em nenhuma, ou em mais de
+ * resolvida e o motor do CÁLCULO dela (o da etapa com CALCULAR_BARRAS; nulo quando a família só levanta). Sem família resolvida (sem tipologia, código em nenhuma, ou em mais de
  * uma — a pergunta), os dois ficam nulos: nada é escolhido.
  */
 export function resolverFamilias(itens: readonly ItemDoLevantamento[], familiasDoCodigo: FamiliasDoCodigo): ItemDoLevantamento[] {

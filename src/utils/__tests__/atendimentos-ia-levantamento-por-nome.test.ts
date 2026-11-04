@@ -40,6 +40,7 @@ import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { abasDaDP02NoBanco } from './fixtures/abas-da-DP-02-no-banco'
+import { CATALOGO_DE_ETAPAS, ITEM_DO_CALCULO, ITEM_DO_LEVANTAMENTO, etapa, etapasPadrao } from './fixtures/etapas-da-familia'
 
 type Linha = Record<string, unknown>
 
@@ -177,7 +178,8 @@ function montar() {
         orcamentista_pergunta_em_aberto: [],
         // a FAMÍLIA da conta é a da base de conhecimento, e o motor vem das etapas 1 e 2 dela (PR D, 02/11/2026)
         orcamentista_materia_prima: [{ id: 'mp-pvc', tenant_id: TENANT, nome: 'Esquadrias de PVC', familia: 'PVC' }],
-        orcamentista_familia_etapa: [1, 2].map((numero) => ({ tenant_id: TENANT, materia_prima_id: 'mp-pvc', numero, motor_id: MOTOR })),
+        orcamentista_familia_etapa: etapasPadrao(TENANT, 'mp-pvc', MOTOR),
+        orcamentista_etapa_catalogo: CATALOGO_DE_ETAPAS.map((c) => ({ ...c })),
         orcamentista_motor: [{ id: MOTOR, nome: 'Motor_Wolf_PVC', fornecedor_id: 'f-wolff', arquivado_em: null }],
         // as tabelas de PREÇO da empresa são DERIVADAS (26/10/2026): a base de conhecimento vincula a Wolff no PERFIL
         orcamentista_mp_categoria_fornecedor: [{ tenant_id: TENANT, mp_categoria_id: 'c-perfil', fornecedor_id: 'f-wolff' }],
@@ -1707,7 +1709,7 @@ describe('(19) duas famílias com o mesmo código: a conversa pergunta de qual f
     const SUL = 'tabela-perfis-sul'
     beforeEach(() => {
         estado.db.orcamentista_materia_prima.push({ id: 'mp-alu', tenant_id: TENANT, nome: 'Esquadrias de alumínio', familia: 'ALUMINIO' })
-        estado.db.orcamentista_familia_etapa.push(...[1, 2].map((numero) => ({ tenant_id: TENANT, materia_prima_id: 'mp-alu', numero, motor_id: MOTOR_SUL })))
+        estado.db.orcamentista_familia_etapa.push(...etapasPadrao(TENANT, 'mp-alu', MOTOR_SUL))
         estado.db.orcamentista_motor.push({ id: MOTOR_SUL, nome: 'Motor_Sul_ALU', fornecedor_id: 'f-sul', arquivado_em: null })
         estado.db.orcamentista_mp_categoria_fornecedor.push({ tenant_id: TENANT, mp_categoria_id: 'c-perfil', fornecedor_id: 'f-sul' })
         estado.db.orcamentista_tabela.push({ id: SUL, fornecedor_id: 'f-sul', arquivo_nome: 'Sul 2026.xlsx', familia: 'ALUMINIO', categoria_chave: 'PERFIL', vigente: false })
@@ -1778,7 +1780,7 @@ describe('(19) duas famílias com o mesmo código: a conversa pergunta de qual f
         // o super admin aponta outro motor na etapa 2 do PVC (com conteúdo, para não ser falta de configuração)
         estado.db.orcamentista_motor.push({ id: 'motor-novo', nome: 'Motor_Wolf_PVC_2027', fornecedor_id: 'f-wolff', arquivado_em: null })
         estado.db.orcamentista_motor_tipologia_detalhe.push({ tabela_id: null, motor_id: 'motor-novo', tipologia: 'DP-02', descricao: 'NOVO', tipo: 'Correr' })
-        estado.db.orcamentista_familia_etapa.find((e) => e.materia_prima_id === 'mp-pvc' && e.numero === 2)!.motor_id = 'motor-novo'
+        estado.db.orcamentista_familia_etapa.find((e) => e.materia_prima_id === 'mp-pvc' && e.etapa_catalogo_id === ITEM_DO_CALCULO)!.motor_id = 'motor-novo'
         llmResponde({ itens: [{ ordem: 1, quantidade: 2 }] })
         await chamar('são 2 unidades')
         expect(itensDe(levantamentos()[0].id).map((i) => i.quantidade)).toEqual([2])
@@ -3197,5 +3199,103 @@ describe('(29) o vidro copiado, a forma canônica e a dedupe por equivalência (
         const props = (estado.chamadasDaLlm[0].corpo.tools as Array<{ input_schema: { properties: { itens: { items: { properties: Record<string, { description?: string }> } } } } }>)[0].input_schema.properties.itens.items.properties
         expect(props.vidro.description).toContain('sem acrescentar')
         expect(props.vidro_padrao.description).toContain('NÃO disse o vidro')
+    })
+})
+
+/**
+ * (30) AS ETAPAS DECLARADAS NA CONVERSA (dono do produto, 04/11/2026): a ação decide o papel, a falta é erro nomeado ANTES do modelo, a família só com
+ * a etapa de levantamento grava e devolve as esquadrias sem cálculo, e a instrução da etapa CORRENTE (a de GERAR_LEVANTAMENTO) vai ao sistema só quando
+ * preenchida — a de CALCULAR_BARRAS não vai, e o log diz.
+ */
+describe('(30) as etapas declaradas na conversa: a ação manda, a falta é nomeada, a instrução da etapa corrente', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { CABECALHO_DA_INSTRUCAO_DA_ETAPA } = require('@/lib/atendimentos-ia/motor-da-familia') as typeof import('@/lib/atendimentos-ia/motor-da-familia')
+    const daEtapa = (item: string) => estado.db.orcamentista_familia_etapa.find((e) => e.materia_prima_id === 'mp-pvc' && e.etapa_catalogo_id === item)!
+
+    it('a TERCEIRA etapa com ação sem executor: a conversa responde a falta nomeada SEM chamar o modelo, e a linha [IA] diz motivo=ETAPAS', async () => {
+        estado.db.orcamentista_familia_etapa.push(etapa(TENANT, 'mp-pvc', 3, 'cat-envio', MOTOR))
+        await chamar('Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm')
+        expect(ultimoEnviado()).toBe('Falta de configuração — etapa: a etapa 3 ("Envio ao vendedor") tem a ação "Enviar ao vendedor", que o sistema ainda não executa. '
+            + 'Veja a configuração: retire a etapa, ou troque-a por uma com ação executada ("Gerar o levantamento" ou "Calcular as barras e os materiais").')
+        expect(estado.chamadasDaLlm).toHaveLength(0)
+        expect(linhaIa()[0]).toContain('desfecho=sem-tipologias ')
+        expect(linhaIa()[0]).toContain(' motivo=ETAPAS materia_prima=mp-pvc erros=1')
+    })
+
+    it('a ordem trocada (cálculo na 1, levantamento na 2) é falta nomeada antes do modelo — nunca os motores trocados em silêncio', async () => {
+        estado.db.orcamentista_familia_etapa = [etapa(TENANT, 'mp-pvc', 1, ITEM_DO_CALCULO, MOTOR), etapa(TENANT, 'mp-pvc', 2, ITEM_DO_LEVANTAMENTO, MOTOR)]
+        await chamar('Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm')
+        expect(ultimoEnviado()).toContain('de cálculo precisa de uma etapa de levantamento antes dela')
+        expect(estado.chamadasDaLlm).toHaveLength(0)
+    })
+
+    it('a família SÓ com a etapa de levantamento: o apanhado, o "sim", e o formal SEM cálculo — a esquadria grava a família e fica sem motor', async () => {
+        estado.db.orcamentista_familia_etapa = [etapa(TENANT, 'mp-pvc', 1, ITEM_DO_LEVANTAMENTO, MOTOR)]
+        const formal = await fecharDp02('Casa do João')
+        expect(formal).toBe([
+            'Considerando o arremate que você pediu, e o padrão no que não foi dito, certo!',
+            '',
+            'Levantamento “Casa do João”, perfil BRANCO.',
+            'Esquadria 1: DP-02, 1.200 x 1.000 mm, 1 unidade(s).',
+            '',
+            'Esta família não tem etapa de cálculo: as barras, a mão de obra e o preço não saem. O levantamento fica registrado como está.',
+        ].join('\n'))
+        expect(formal).not.toContain('R$')
+        const [l] = levantamentos()
+        expect(l.estado).toBe('COMPLETO')
+        expect(itensDe(l.id).map((i) => [i.familia, i.motor_id, i.motor_familia_exigida])).toEqual([['PVC', null, null]])
+        expect(linhaIa()[linhaIa().length - 1]).toContain('desfecho=levantou')
+    })
+
+    it('a INSTRUÇÃO da etapa de levantamento vai ao sistema, identificada pela etapa, depois das instruções de categoria; a linha [IA] diz instrucao_etapa=1', async () => {
+        daEtapa(ITEM_DO_LEVANTAMENTO).instrucao = 'Pergunte sempre o andar da obra antes de fechar.'
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02 }] })
+        await chamar('Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm')
+        const sistema = String(estado.chamadasDaLlm[0].corpo.system)
+        expect(sistema).toContain(`\n\n${CABECALHO_DA_INSTRUCAO_DA_ETAPA}\n[Etapa 1 — Apanhado e levantamento de esquadrias]\nPergunte sempre o andar da obra antes de fechar.`)
+        expect(sistema.endsWith('Pergunte sempre o andar da obra antes de fechar.')).toBe(true)
+        // só UMA vez, e sem a família (uma família só)
+        expect(sistema.split('[Etapa 1 — ').length - 1).toBe(1)
+        expect(sistema).not.toContain('— família PVC]')
+        expect(linhaIa()[0]).toContain(' instrucao_etapa=1 ')
+        expect(linhaIa()[0]).not.toContain('instrucao_sem_efeito')
+    })
+
+    it('a instrução da etapa de CÁLCULO não vai ao modelo (o cálculo é código): nenhuma seção, e a linha [IA] anota instrucao_sem_efeito', async () => {
+        daEtapa(ITEM_DO_CALCULO).instrucao = 'Some dez por cento de perda nas barras.'
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02 }] })
+        await chamar('Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm')
+        const sistema = String(estado.chamadasDaLlm[0].corpo.system)
+        expect(sistema).not.toContain('Some dez por cento')
+        expect(sistema).not.toContain(CABECALHO_DA_INSTRUCAO_DA_ETAPA)
+        expect(linhaIa()[0]).toContain(' instrucao_etapa=0 ')
+        expect(linhaIa()[0]).toContain(' instrucao_sem_efeito=2:CALCULAR_BARRAS:39 ')
+    })
+
+    it('sem instrução preenchida (a De Paula hoje): nenhuma seção, nenhuma anotação — o sistema é o de sempre', async () => {
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02 }] })
+        await chamar('Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm')
+        const sistema = String(estado.chamadasDaLlm[0].corpo.system)
+        expect(sistema).not.toContain('[Etapa ')
+        expect(sistema).not.toContain(CABECALHO_DA_INSTRUCAO_DA_ETAPA)
+        expect(linhaIa()[0]).toContain(' instrucao_etapa=0 ')
+        expect(linhaIa()[0]).not.toContain('instrucao_sem_efeito')
+    })
+
+    it('com duas famílias, a instrução de cada levantamento diz a família', async () => {
+        estado.db.orcamentista_materia_prima.push({ id: 'mp-alu', tenant_id: TENANT, nome: 'Esquadrias de alumínio', familia: 'ALUMINIO' })
+        estado.db.orcamentista_familia_etapa.push(etapa(TENANT, 'mp-alu', 1, ITEM_DO_LEVANTAMENTO, 'motor-sul', 'Alumínio: pergunte a linha.'), etapa(TENANT, 'mp-alu', 2, ITEM_DO_CALCULO, 'motor-sul'))
+        estado.db.orcamentista_motor.push({ id: 'motor-sul', nome: 'Motor_Sul_ALU', fornecedor_id: 'f-sul', arquivado_em: null })
+        estado.db.orcamentista_mp_categoria_fornecedor.push({ tenant_id: TENANT, mp_categoria_id: 'c-perfil', fornecedor_id: 'f-sul' })
+        estado.db.orcamentista_tabela.push({ id: 'tabela-sul', fornecedor_id: 'f-sul', arquivo_nome: 'Sul 2026.xlsx', familia: 'ALUMINIO', categoria_chave: 'PERFIL', vigente: false })
+        estado.db.orcamentista_fornecedor.push({ id: 'f-sul', nome: 'Perfis Sul' })
+        estado.db.orcamentista_motor_tipologia_detalhe.push({ tabela_id: null, motor_id: 'motor-sul', tipologia: 'SU-07', descricao: 'PORTA PIVOTANTE | LINHA SUL', tipo: 'Porta' })
+        daEtapa(ITEM_DO_LEVANTAMENTO).instrucao = 'PVC: pergunte o andar.'
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02 }] })
+        await chamar('Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm')
+        const sistema = String(estado.chamadasDaLlm[0].corpo.system)
+        expect(sistema).toContain('[Etapa 1 — Apanhado e levantamento de esquadrias — família Alumínio]\nAlumínio: pergunte a linha.')
+        expect(sistema).toContain('[Etapa 1 — Apanhado e levantamento de esquadrias — família PVC]\nPVC: pergunte o andar.')
+        expect(linhaIa()[0]).toContain(' instrucao_etapa=2 ')
     })
 })

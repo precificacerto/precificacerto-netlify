@@ -36,6 +36,29 @@ export const ROTULO_DA_ACAO: Record<AcaoDaEtapa, string> = {
 
 export const ehAcaoDaEtapa = (v: unknown): v is AcaoDaEtapa => typeof v === 'string' && (ACOES_DA_ETAPA as readonly string[]).includes(v)
 
+// ── QUEM EXECUTA CADA AÇÃO (dono do produto, 04/11/2026) ──────────────────────────────────────────────────
+/**
+ * A AÇÃO MANDA; O NÚMERO É SÓ ORDEM. "Quem executa levantamento é a etapa com GERAR_LEVANTAMENTO, quem calcula é a com CALCULAR_BARRAS, onde quer
+ * que estejam na ordem. Se o papel vier pelo número, trocar a ordem no catálogo troca os motores em silêncio — inaceitável num número que vira
+ * preço." `null` = o sistema AINDA NÃO EXECUTA a ação: a etapa com ela é falta de configuração nomeada, nunca ignorada em silêncio (até
+ * 04/11/2026 a terceira etapa era ignorada). Acrescentar um executor é acrescentar código que o execute, e trocar o `null` aqui.
+ */
+export type ExecutorDaEtapa = 'levantamento' | 'calculo'
+export const EXECUTOR_DA_ACAO: Record<AcaoDaEtapa, ExecutorDaEtapa | null> = {
+    APANHAR: null,
+    CONFIRMAR: null,
+    GERAR_LEVANTAMENTO: 'levantamento',
+    CALCULAR_BARRAS: 'calculo',
+    ENVIAR: null,
+}
+/** As ações que o sistema executa hoje, na ordem da lista. */
+export const ACOES_EXECUTADAS: readonly AcaoDaEtapa[] = ACOES_DA_ETAPA.filter((a) => EXECUTOR_DA_ACAO[a] !== null)
+/**
+ * A única ação cujo executor fala com o modelo: só a instrução DELA entra no prompt — "apenas a instrução da ETAPA CORRENTE, nunca a de todas"
+ * (dono do produto, 04/11/2026). A instrução escrita numa etapa cujo executor não usa o modelo (CALCULAR_BARRAS) não tem efeito, e isso é dito.
+ */
+export const ACAO_QUE_USA_O_MODELO: AcaoDaEtapa = 'GERAR_LEVANTAMENTO'
+
 /**
  * As abas da PLANILHA que uma etapa pode carregar: as contagens do bloco Motor, sem os itens de preço — o preço é
  * da tabela do fornecedor (`orcamentista_tabela_item`), não do motor. Vêm de `CONTAGENS_DO_MOTOR`: nenhuma lista
@@ -158,6 +181,21 @@ export interface EtapaDaFamilia {
     instrucao: string
     /** O motor (planilha de `orcamentista_motor`) desta etapa; null = ainda não aponta nenhum (20261027000006). */
     motor_id: string | null
+}
+
+/** A etapa como sai do banco ANTES de a ação ser conferida: a ação é o texto gravado no item do catálogo (a conferência é que diz se é da lista). */
+export type EtapaConferivel = Omit<EtapaDaFamilia, 'acao'> & { acao: string }
+
+/**
+ * Uma etapa da conta montada da linha gravada e do item do catálogo que ela seleciona — a MESMA montagem para a tela (`etapas-da-familia.ts`) e
+ * para a conversa (`motor-da-familia.ts`), para um campo novo chegar às duas (`copia-divergente.md`). A ação vem como está; quem lê confere.
+ */
+export function etapaLida(l: Record<string, unknown>, item: Record<string, unknown>): EtapaConferivel {
+    const abas = ((item.abas ?? []) as unknown[]).filter((a): a is AbaDaEtapa => typeof a === 'string' && (ABAS_DA_ETAPA as readonly string[]).includes(a))
+    return {
+        id: String(l.id), numero: Number(l.numero), etapa_catalogo_id: String(item.id), rotulo: String(item.nome), acao: String(item.acao), abas,
+        instrucao: String(l.instrucao ?? ''), motor_id: l.motor_id == null ? null : String(l.motor_id),
+    }
 }
 
 /** Uma etapa como a tela a manda: sem `numero` — a POSIÇÃO na lista é o número. Sem `id`, é etapa nova. O nome, a ação e as abas vêm do catálogo. */
@@ -330,15 +368,45 @@ export const fraseDaFaltaDeMotor = (e: Pick<EtapaSemMotor, 'numero' | 'rotulo'>)
 export const fraseDaCategoriaSemFornecedor = (nome: string, categoria: string) =>
     `${PREFIXO_DA_FALTA} — fornecedor: a categoria ${categoria} de "${nome}" está sem fornecedor. Veja a configuração: escolha o fornecedor da categoria ${categoria} na base de conhecimento da empresa.`
 
+/** "1 e 3", "1, 2 e 4". */
+const numerosDitos = (ns: readonly number[]) => (ns.length <= 1 ? ns.join('') : `${ns.slice(0, -1).join(', ')} e ${ns[ns.length - 1]}`)
+
+// AS FALTAS DA AÇÃO (dono do produto, 04/11/2026): desconhecida, sem executor, repetida, e o cálculo sem levantamento antes dele
+export const fraseDaAcaoDesconhecida = (e: Pick<EtapaSemMotor, 'numero' | 'rotulo'>, acao: string) =>
+    `${PREFIXO_DA_FALTA} — etapa: a etapa ${e.numero} ("${e.rotulo}") tem a ação "${acao}", que não é da lista. Veja a configuração: escolha para ela um item do catálogo de etapas com ação da lista.`
+export const fraseDaAcaoSemExecutor = (e: Pick<EtapaSemMotor, 'numero' | 'rotulo'>, acao: AcaoDaEtapa) =>
+    `${PREFIXO_DA_FALTA} — etapa: a etapa ${e.numero} ("${e.rotulo}") tem a ação "${ROTULO_DA_ACAO[acao]}", que o sistema ainda não executa. `
+    + `Veja a configuração: retire a etapa, ou troque-a por uma com ação executada (${ACOES_EXECUTADAS.map((a) => `"${ROTULO_DA_ACAO[a]}"`).join(' ou ')}).`
+export const fraseDaAcaoRepetida = (acao: AcaoDaEtapa, numeros: readonly number[]) =>
+    `${PREFIXO_DA_FALTA} — etapa: a ação "${ROTULO_DA_ACAO[acao]}" está nas etapas ${numerosDitos(numeros)}; cada ação entra uma vez só. Veja a configuração: deixe uma etapa com ela.`
+export const fraseDoCalculoSemLevantamento = (e: Pick<EtapaSemMotor, 'numero' | 'rotulo'>) =>
+    `${PREFIXO_DA_FALTA} — etapa: a etapa ${e.numero} ("${e.rotulo}") de cálculo precisa de uma etapa de levantamento antes dela. `
+    + `Veja a configuração: ponha antes dela uma etapa com a ação "${ROTULO_DA_ACAO.GERAR_LEVANTAMENTO}".`
+
 /**
- * A conferência antes de executar: a família só calcula com tipo, com etapas, com TODAS as etapas com motor e com fornecedor em TODAS as categorias dela.
- * A recusa nomeia CADA falta (uma frase por falta, na ordem família → etapa → motor → fornecedor), para quem lê saber onde repor sem tentar de novo.
+ * A conferência antes de executar: a família só executa com tipo, com etapas, com TODAS as etapas com motor, com toda ação da lista e com executor,
+ * cada ação uma vez só, o cálculo depois de um levantamento, e com fornecedor em TODAS as categorias dela (quando conferido). A recusa nomeia CADA
+ * falta (uma frase por falta, na ordem família → etapa → motor → ação → fornecedor), para quem lê saber onde repor sem tentar de novo.
+ *
+ * É A conferência da conversa (dono do produto, 04/11/2026: "a conversa passa a chamar `conferirEtapasParaExecutar`, e a conferência por número
+ * sai. Duas listas de frases de falta para a mesma coisa é como elas se tornam divergentes"); a tela da base de conhecimento mostra as mesmas frases.
  */
-export function conferirEtapasParaExecutar(etapas: readonly EtapaDaFamilia[], contexto?: ContextoDaExecucao): { ok: true } | { ok: false; erros: string[] } {
+export function conferirEtapasParaExecutar(etapas: readonly EtapaConferivel[], contexto?: ContextoDaExecucao): { ok: true } | { ok: false; erros: string[] } {
     const erros: string[] = []
     if (contexto && contexto.familia === null) erros.push(fraseDaFamiliaSemTipo(contexto.nome))
     if (etapas.length === 0) erros.push(fraseDaFaltaDeEtapas(contexto?.nome ?? null))
     erros.push(...etapasSemMotor(etapas).map(fraseDaFaltaDeMotor))
+    // a ação: a ordem é a do número, e o papel é o da ação — nunca o contrário
+    const naOrdem = [...etapas].sort((a, b) => a.numero - b.numero)
+    for (const e of naOrdem) if (!ehAcaoDaEtapa(e.acao)) erros.push(fraseDaAcaoDesconhecida(e, e.acao))
+    for (const e of naOrdem) if (ehAcaoDaEtapa(e.acao) && EXECUTOR_DA_ACAO[e.acao] === null) erros.push(fraseDaAcaoSemExecutor(e, e.acao))
+    for (const acao of ACOES_DA_ETAPA) {
+        const com = naOrdem.filter((e) => e.acao === acao)
+        if (com.length > 1) erros.push(fraseDaAcaoRepetida(acao, com.map((e) => e.numero)))
+    }
+    for (const e of naOrdem) {
+        if (e.acao === 'CALCULAR_BARRAS' && !naOrdem.some((l) => l.acao === 'GERAR_LEVANTAMENTO' && l.numero < e.numero)) erros.push(fraseDoCalculoSemLevantamento(e))
+    }
     if (contexto && contexto.familia !== null) erros.push(...(contexto.categoriasSemFornecedor ?? []).map((c) => fraseDaCategoriaSemFornecedor(contexto.nome, c.rotulo)))
     return erros.length === 0 ? { ok: true } : { ok: false, erros }
 }
