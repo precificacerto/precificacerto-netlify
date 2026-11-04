@@ -33,6 +33,7 @@
  * Portão: `src/utils/__tests__/levantamento-em-montagem.test.ts`.
  */
 import { PERGUNTA_DO_CAMPO, valorValido } from '@/lib/atendimentos-ia/pre-definicao'
+import { formaCanonicaDoVidro } from '@/lib/atendimentos-ia/vidro'
 import { escolhaPedida, lerEscolhasGravadas, perguntaDaEscolha, validarEscolha, type EscolhaPendente, type VariaveisDaTipologia } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import { normalizarNome } from '@/lib/atendimentos-ia/nome-do-levantamento'
 import { aberturaCompativel, aberturaDoItem, cabeNosLimites, type Abertura, type CandidatoParaAProposta, type Medidas } from '@/lib/atendimentos-ia/tipologias-candidatas'
@@ -136,6 +137,8 @@ export type ResultadoDaProposta = {
     semEsquadria: boolean
     /** As tipologias que o CÓDIGO descartou (03/11/2026): pela abertura dita (porta × janela) ou pelos limites do motor. */
     recusas: RecusaDaTipologia[]
+    /** Quantas esquadrias receberam o vidro PADRÃO da instrução (04/11/2026): só a que ficou sem vidro, uma vez. */
+    vidrosPadrao: number
 }
 
 /**
@@ -154,6 +157,7 @@ export function aplicarProposta(atuais: readonly ItemDoLevantamento[], proposta:
     let propostos = 0
     let descartados = 0
     let semEsquadria = false
+    let vidrosPadrao = 0
     const recusas: RecusaDaTipologia[] = []
     const tipologias = [...new Set(ctx.candidatos.map((c) => c.tipologia))]
     const candidatasDoCodigo = (codigo: string) => ctx.candidatos.filter((c) => c.tipologia === codigo)
@@ -221,6 +225,11 @@ export function aplicarProposta(atuais: readonly ItemDoLevantamento[], proposta:
                 alvo.motor_id = null
             }
         }
+        // O VIDRO PADRÃO (dono do produto, 04/11/2026): "a instrução de VIDRO só entra quando o vendedor NÃO disse vidro nenhum para aquela
+        // esquadria — e, nesse caso, entra UMA vez, fica gravada e não muda nos turnos seguintes". O dito (`vidro`) sempre vence; o padrão
+        // só preenche a esquadria que ficou sem vidro, e nunca sobrescreve
+        const padrao = valorValido('vidro', b.vidro_padrao, tipologias, ctx.cores)
+        if (alvo.vidro === null && padrao !== undefined) { alvo.vidro = padrao as string; vidrosPadrao += 1 }
         if (fornecedor !== null || familia !== null) {
             // a resposta à pergunta de qual família: a família dita (o rótulo ou a chave) e/ou o fornecedor do motor apontam UMA
             // das famílias DAQUELA tipologia; o que aponta duas, ou nenhuma, não vale
@@ -258,7 +267,7 @@ export function aplicarProposta(atuais: readonly ItemDoLevantamento[], proposta:
     }
     // QUANTIDADE NÃO DITA É 1 (dono do produto, 03/11/2026): a esquadria que já diz alguma coisa e não diz quantas é uma — sem perguntar
     for (const i of itens) if (i.quantidade === null && CAMPOS_DA_ESQUADRIA.some((c) => c !== 'quantidade' && !vazio(i[c]))) i.quantidade = 1
-    return { itens, propostos, descartados, semEsquadria, recusas }
+    return { itens, propostos, descartados, semEsquadria, recusas, vidrosPadrao }
 }
 
 // ── O AGRUPAMENTO (dono do produto, 03/11/2026) ─────────────────────────────────────────────
@@ -272,8 +281,9 @@ export const CRITERIOS_DO_AGRUPAMENTO = ['tipologia', 'largura_mm', 'altura_mm',
 /** Só o item COMPLETO se funde (03/11/2026): tudo dito, menos a quantidade; e com a família resolvida. O que ainda vai receber um vidro não se junta. */
 export const itemCompleto = (i: ItemDoLevantamento): boolean =>
     CAMPOS_DA_ESQUADRIA.every((c) => c === 'quantidade' || !vazio(i[c])) && i.familia !== null
+// o vidro entra pela FORMA CANÔNICA (04/11/2026): "vidro 4mm" e "4 mm vidro" são o mesmo vidro; o texto que o vendedor disse continua gravado
 const chaveDoAgrupamento = (i: ItemDoLevantamento): string =>
-    JSON.stringify([...CRITERIOS_DO_AGRUPAMENTO.map((c) => i[c]), Object.entries(i.escolhas ?? {}).sort(([a], [b]) => a.localeCompare(b))])
+    JSON.stringify([...CRITERIOS_DO_AGRUPAMENTO.map((c) => (c === 'vidro' ? formaCanonicaDoVidro(i.vidro) || i.vidro : i[c])), Object.entries(i.escolhas ?? {}).sort(([a], [b]) => a.localeCompare(b))])
 
 /**
  * Funde os itens completos e iguais: o primeiro fica, com as unidades somadas (quantidade não dita conta 1); os outros saem; a numeração

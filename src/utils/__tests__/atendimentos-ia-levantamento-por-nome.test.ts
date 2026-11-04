@@ -1025,7 +1025,8 @@ describe('(9) o contrato da chamada à Anthropic', () => {
         expect(item.additionalProperties).toBe(false)
         // `fornecedor`: a resposta à pergunta de qual fornecedor, com mais de uma tabela (26/10/2026)
         // `abertura` (03/11/2026): a palavra do vendedor por esquadria — porta ou janela, só essas duas
-        expect(Object.keys(item.properties).sort()).toEqual(['abertura', 'altura_mm', 'cor_perfil', 'familia', 'fornecedor', 'largura_mm', 'ordem', 'quantidade', 'tipologia', 'vidro'])
+        // `vidro_padrao` (04/11/2026): o padrão da instrução, só quando o vendedor não disse o vidro
+        expect(Object.keys(item.properties).sort()).toEqual(['abertura', 'altura_mm', 'cor_perfil', 'familia', 'fornecedor', 'largura_mm', 'ordem', 'quantidade', 'tipologia', 'vidro', 'vidro_padrao'])
         for (const k of ['ordem', 'largura_mm', 'altura_mm', 'quantidade']) expect(item.properties[k].type).toBe('integer')
         expect(item.properties.tipologia.type).toBe('string')
         expect(item.properties.abertura).toEqual(expect.objectContaining({ type: 'string', enum: ['porta', 'janela'] }))
@@ -1338,7 +1339,8 @@ describe('(15) DEFEITO de 26/10/2026 (b0465e57, print do dono do produto): o nom
     //   - sem nada no prompt sobre a pergunta anterior, "é o mesmo", "João medeiros" e "Novo levantamento João
     //     Medeiros" não trazem nome que ela possa ler (foi o medido: propostos=0 nas três);
     //   - com a pergunta em aberto no prompt, ela responde o que o vendedor quis dizer.
-    const MSG_1 = 'Levantamento Casa do João — janela de correr 2 folhas móveis Europa 42, 1200 x 1000 mm, 1 unidade, perfil branco, vidro 5mm, entrega em Montenegro, casa.'
+    // o vidro na mensagem como a IA o copia (04/11/2026: copiado, nunca completado)
+    const MSG_1 = 'Levantamento Casa do João — janela de correr 2 folhas móveis Europa 42, 1200 x 1000 mm, 1 unidade, perfil branco, vidro temperado 5mm, entrega em Montenegro, casa.'
     const fala = (sistema: string, trecho: string) => sistema.toLowerCase().includes(trecho.toLowerCase())
 
     async function oPrintInteiro() {
@@ -1395,7 +1397,7 @@ describe('(16) a PERGUNTA EM ABERTO do roteamento pelo nome (20261026000002): gu
     // Decisão do dono do produto, 26/10/2026: "nunca o texto da mensagem, só a pergunta feita, os levantamentos
     // citados e a proposta que espera resposta, apagada quando resolve." E "Confirma antes": a esquadria que veio
     // antes de o vendedor dizer o levantamento só entra num que já existe com o "sim" dele.
-    const MSG_1 = 'Levantamento Casa do João 2 — janela de correr 2 folhas móveis Europa 42, 1200 x 1000 mm, 1 unidade, perfil branco, vidro 5mm.'
+    const MSG_1 = 'Levantamento Casa do João 2 — janela de correr 2 folhas móveis Europa 42, 1200 x 1000 mm, 1 unidade, perfil branco, vidro temperado 5mm.'
     const fala = (sistema: string, trecho: string) => sistema.includes(trecho)
     const perguntas = () => estado.db.orcamentista_pergunta_em_aberto ?? []
     const escritasNaPergunta = () => estado.escritas.filter((e) => e.tabela === 'orcamentista_pergunta_em_aberto')
@@ -1553,9 +1555,9 @@ describe('(17) O APANHADO (dono do produto, 26/10/2026): a primeira resposta é 
     /** Os códigos de fornecedor que a DP-02 usa: os do de-para (WVetro e interno) e os das opções de arremate. */
     const CODIGOS = [...new Set([...(DE_PARA.itens as Linha[]).map((i) => String(i.codigo)), ...(DE_PARA.regras as Linha[]).map((r) => String(r.codigo_wvetro).replace('/WOLFF', ''))])]
         .filter((c) => c.length >= 4)
-    const pedir = async (itens: Linha[] = [{ ...DP02 }], escolhas: Linha[] = []) => {
+    const pedir = async (itens: Linha[] = [{ ...DP02 }], escolhas: Linha[] = [], mensagem = 'Levantamento Casa do Pedro: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm') => {
         llmResponde({ nome: 'Casa do Pedro', itens, escolhas })
-        await chamar('Levantamento Casa do Pedro: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm')
+        await chamar(mensagem)
         return ultimoEnviado()
     }
     const confirmar = async () => { llmResponde({ confirma: true }); await chamar('sim'); return ultimoEnviado() }
@@ -1584,7 +1586,8 @@ describe('(17) O APANHADO (dono do produto, 26/10/2026): a primeira resposta é 
     })
 
     it('DUAS esquadrias diferentes: uma linha cada, e o pé diz UMA vez o que é comum (a cor não se repete nas linhas)', async () => {
-        const apanhado = await pedir([{ ...DP02 }, { ...DP02, largura_mm: 1500, quantidade: 3, vidro: 'Laminado 8mm' }])
+        const apanhado = await pedir([{ ...DP02 }, { ...DP02, largura_mm: 1500, quantidade: 3, vidro: 'Laminado 8mm' }], [],
+            'Levantamento Casa do Pedro: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm; outra DP-02 1500 x 1000, 3 unidades, branco, laminado 8mm')
         expect(apanhado).toBe([
             'Apanhado do levantamento “Casa do Pedro”:',
             'Esquadria 1: DP-02, 1 unidade(s), 1.200 x 1.000 mm, vidro Temperado 5mm.',
@@ -2439,8 +2442,9 @@ describe('(24) porta não é janela, quantidade padrão 1, os limites e o agrupa
  * numerados, do mais recente ao mais antigo, com data e estado; o vendedor responde do jeito dele, o código confirma numa frase curta e segue.
  */
 describe('(25) o resgate do levantamento antigo e o contexto que não se perde (03/11/2026)', () => {
-    const JANELA = { tipologia: 'DP-02', largura_mm: 1500, altura_mm: 1200, vidro: 'Vidro comum 4 mm' }
-    const PORTA = { tipologia: 'DP-100', largura_mm: 2500, altura_mm: 2400, vidro: 'Vidro comum 8 mm' }
+    // o vidro COPIADO como o vendedor disse (04/11/2026): "vidro 4mm", não "Vidro comum 4 mm"
+    const JANELA = { tipologia: 'DP-02', largura_mm: 1500, altura_mm: 1200, vidro: 'vidro 4mm' }
+    const PORTA = { tipologia: 'DP-100', largura_mm: 2500, altura_mm: 2400, vidro: 'vidro 8mm' }
     const MSG_GERONIMO = 'Janela de correr 1,50x1,20 vidro 4mm / porta janela 2,50x2,40 vidro 8mm / Cliente: Geronimo Silva'
     const perguntas = () => estado.db.orcamentista_pergunta_em_aberto ?? []
     const porNome = (n: string) => levantamentos().find((l) => l.nome === n) as Linha
@@ -2624,9 +2628,9 @@ describe('(25) o resgate do levantamento antigo e o contexto que não se perde (
         expect(perguntas()).toEqual([expect.objectContaining({ pergunta: 'SEM_NOME', itens: [{ ...JANELA }, { ...PORTA }] })])
         expect(linhaIa().pop()).toMatch(/ reenviadas=2(\s|$)/)
         // a que difere num campo acumula
-        llmResponde({ itens: [{ ...JANELA, vidro: 'Vidro comum 6 mm' }] })
+        llmResponde({ itens: [{ ...JANELA, vidro: 'vidro 6mm' }] })
         await chamar('a janela é vidro 6mm')
-        expect(perguntas()[0].itens).toEqual([{ ...JANELA }, { ...PORTA }, { ...JANELA, vidro: 'Vidro comum 6 mm' }])
+        expect(perguntas()[0].itens).toEqual([{ ...JANELA }, { ...PORTA }, { ...JANELA, vidro: 'vidro 6mm' }])
         expect(linhaIa().pop()).not.toContain('reenviadas=')
     })
 
