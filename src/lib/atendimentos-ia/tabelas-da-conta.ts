@@ -70,8 +70,11 @@ const porTexto = (a: string, b: string) => a.localeCompare(b, 'pt-BR')
 
 /** fornecedor → as categorias pelas quais ESTA conta o vincula. */
 async function vinculosDaConta(tenantId: string): Promise<Map<string, string[]>> {
-    const categorias = await ler('orcamentista_mp_categoria', db().from('orcamentista_mp_categoria').select('id, categoria_chave').eq('tenant_id', tenantId))
-    const vinculos = await ler('orcamentista_mp_categoria_fornecedor', db().from('orcamentista_mp_categoria_fornecedor').select('mp_categoria_id, fornecedor_id').eq('tenant_id', tenantId))
+    // as duas só dependem da conta: vão juntas (04/11/2026)
+    const [categorias, vinculos] = await Promise.all([
+        ler('orcamentista_mp_categoria', db().from('orcamentista_mp_categoria').select('id, categoria_chave').eq('tenant_id', tenantId)),
+        ler('orcamentista_mp_categoria_fornecedor', db().from('orcamentista_mp_categoria_fornecedor').select('mp_categoria_id, fornecedor_id').eq('tenant_id', tenantId)),
+    ])
     const chaveDa = new Map(categorias.map((c) => [String(c.id), String(c.categoria_chave)]))
     const porFornecedor = new Map<string, Set<string>>()
     for (const v of vinculos) {
@@ -89,11 +92,14 @@ export async function derivarTabelasDaConta(tenantId: string): Promise<Derivacao
     const fIds = [...vinculos.keys()]
     if (fIds.length === 0) return { tabelas: [], fornecedoresSemTabela: [], paresSemVigente: [] }
 
-    const fornecedores = await ler('orcamentista_fornecedor', db().from('orcamentista_fornecedor').select('id, nome').in('id', fIds))
+    // os fornecedores, as tabelas deles e o catálogo de famílias só dependem dos vínculos: vão juntos (04/11/2026)
+    const [fornecedores, linhas, catalogo] = await Promise.all([
+        ler('orcamentista_fornecedor', db().from('orcamentista_fornecedor').select('id, nome').in('id', fIds)),
+        ler('orcamentista_tabela', db().from('orcamentista_tabela').select('id, fornecedor_id, arquivo_nome, familia, categoria_chave, vigente').in('fornecedor_id', fIds)),
+        ler('orcamentista_familia_catalogo', db().from('orcamentista_familia_catalogo').select('chave, rotulo')),
+    ])
     const nomeDo = new Map(fornecedores.map((f) => [String(f.id), (f.nome as string | null)?.trim() || FORNECEDOR_SEM_NOME]))
     const nome = (id: string) => nomeDo.get(id) ?? FORNECEDOR_SEM_NOME
-    const linhas = await ler('orcamentista_tabela', db().from('orcamentista_tabela').select('id, fornecedor_id, arquivo_nome, familia, categoria_chave, vigente').in('fornecedor_id', fIds))
-    const catalogo = await ler('orcamentista_familia_catalogo', db().from('orcamentista_familia_catalogo').select('chave, rotulo'))
     const rotuloDa = new Map(catalogo.map((f) => [String(f.chave), String(f.rotulo)]))
 
     // o grupo (fornecedor, família, categoria): a família e a categoria sem informar também são um grupo

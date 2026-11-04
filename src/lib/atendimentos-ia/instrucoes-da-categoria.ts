@@ -39,9 +39,12 @@ export async function lerInstrucoesDaEmpresa(tenantId: string): Promise<Instruco
         .filter((l) => typeof l.instrucao === 'string' && l.instrucao.trim() !== '')
     if (linhas.length === 0) return { instrucoes: [], estado: 'vazio' }
 
-    const { data: catalogo, error: e1 } = await supabaseAdmin.from('orcamentista_categoria_catalogo').select('chave, rotulo, ordem')
+    // as duas leituras só dependem da conta: vão juntas (04/11/2026)
+    const [{ data: catalogo, error: e1 }, { data: materias, error: e2 }] = await Promise.all([
+        supabaseAdmin.from('orcamentista_categoria_catalogo').select('chave, rotulo, ordem'),
+        supabaseAdmin.from('orcamentista_materia_prima').select('id, nome, ordem').eq('tenant_id', tenantId),
+    ])
     if (e1) throw new Error(`orcamentista_categoria_catalogo: ${e1.message}`)
-    const { data: materias, error: e2 } = await supabaseAdmin.from('orcamentista_materia_prima').select('id, nome, ordem').eq('tenant_id', tenantId)
     if (e2) throw new Error(`orcamentista_materia_prima: ${e2.message}`)
     const daCategoria = new Map(((catalogo ?? []) as Array<{ chave: string; rotulo: string; ordem: number }>).map((k) => [k.chave, k]))
     const daMateria = new Map(((materias ?? []) as Array<{ id: string; nome: string; ordem: number }>).map((m) => [m.id, m]))

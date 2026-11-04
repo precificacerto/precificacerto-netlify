@@ -151,6 +151,15 @@ const estado = {
     redacao: null as null | 'lanca' | number | ((rascunho: string, corpo: Record<string, unknown>) => string | null),
     /** O insert da SAÍDA em orcamentista_mensagem falha (um erro do banco que não é coluna ausente): a resposta já saiu; só o log. */
     falhaAoGravarSaida: false,
+    /** O banco falso por ONDAS (04/11/2026): cada leitura fica pendente até o teste liberar a onda; conta quantas idas ao banco são em SÉRIE. */
+    porOndas: false,
+    pendentes: [] as Array<{ tabela: string; liberar: () => void }>,
+    /** O que PENDURA (04/11/2026): a chamada que nunca volta, até o `signal` do prazo abortar. */
+    llmPendura: false,
+    redacaoPendura: false,
+    envioPendura: false,
+    /** Avisa o teste de que a chamada pendurada está em curso (o prazo já foi armado). */
+    aoPendurar: null as null | (() => void),
 }
 
 function montar() {
@@ -216,6 +225,12 @@ function montar() {
     estado.redacoes = []
     estado.redacao = null
     estado.falhaAoGravarSaida = false
+    estado.porOndas = false
+    estado.pendentes = []
+    estado.llmPendura = false
+    estado.redacaoPendura = false
+    estado.envioPendura = false
+    estado.aoPendurar = null
 }
 
 /** As UNIQUE da migração 20261025000003 que importam aqui, para o banco falso recusar como o real. */
@@ -233,6 +248,8 @@ function violaUnica(tabela: string, nova: Linha, linhas: Linha[]): boolean {
 let sequencia = 0
 /** O instante em que a suíte começou: as mensagens da conversa gravada são carimbadas na última hora, em ordem. */
 const INICIO_DO_TESTE = Date.now()
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const JANELA_EM_VOO_MS = (require('@/lib/atendimentos-ia/conversa-gravada') as typeof import('@/lib/atendimentos-ia/conversa-gravada')).JANELA_EM_VOO_MS
 const DA_CONVERSA_GRAVADA = new Set(['orcamentista_conversa', 'orcamentista_mensagem'])
 jest.mock('@/supabase/admin', () => ({
     supabaseAdmin: {
@@ -283,7 +300,9 @@ jest.mock('@/supabase/admin', () => ({
             q.eq = (c: string, v: unknown) => { filtros.push([c, v]); if (estado.colunasAusentes.has(`${tabela}.${c}`)) colunaQueFalta = c; return q }
             q.order = (c: string, o?: { ascending?: boolean }) => { ordem.push({ coluna: c, asc: o?.ascending !== false }); return q }
             q.limit = (n: number) => { limite = n; return q }
-            q.maybeSingle = async () => (estado.ausentes.has(tabela) ? ausente()
+            // por ONDAS (04/11/2026): a leitura só resolve quando o teste libera a onda — assim se conta quantas idas ao banco são em série
+            const naOnda = <T,>(r: T): Promise<T> => (estado.porOndas ? new Promise<void>((res) => estado.pendentes.push({ tabela, liberar: res })).then(() => r) : Promise.resolve(r))
+            q.maybeSingle = () => naOnda(estado.ausentes.has(tabela) ? ausente()
                 : colunaQueFalta ? { data: null, error: { code: '42703', message: `column ${tabela}.${colunaQueFalta} does not exist` } }
                     : { data: ler().map(projetar)[0] ?? null, error: null })
             q.update = (carga: Linha) => { atualizacao = carga; return q }
@@ -294,13 +313,13 @@ jest.mock('@/supabase/admin', () => ({
                     for (const l of atingidas) Object.assign(l, atualizacao)
                     return Promise.resolve({ data: devolveAtingidas ? atingidas.map(projetar) : null, error: null }).then(ok, erro)
                 }
-                if (estado.ausentes.has(tabela)) return Promise.resolve(ausente()).then(ok, erro)
-                if (colunaQueFalta) return Promise.resolve({ data: null, error: { code: '42703', message: `column ${tabela}.${colunaQueFalta} does not exist` } }).then(ok, erro)
+                if (estado.ausentes.has(tabela)) return naOnda(ausente()).then(ok, erro)
+                if (colunaQueFalta) return naOnda({ data: null, error: { code: '42703', message: `column ${tabela}.${colunaQueFalta} does not exist` } }).then(ok, erro)
                 // como o PostgREST: ordenar por coluna que a tabela não tem é erro, não lista desordenada
                 const semColuna = ordem.find(({ coluna }) => (estado.db[tabela] ?? []).filter(casa).some((l) => !(coluna in l)))
-                if (semColuna) return Promise.resolve({ data: null, error: { code: '42703', message: `column ${tabela}.${semColuna.coluna} does not exist` } }).then(ok, erro)
+                if (semColuna) return naOnda({ data: null, error: { code: '42703', message: `column ${tabela}.${semColuna.coluna} does not exist` } }).then(ok, erro)
                 const total = (estado.db[tabela] ?? []).filter(casa).length
-                return Promise.resolve({ data: ler().map(projetar), error: null, ...(contar ? { count: total } : {}) }).then(ok, erro)
+                return naOnda({ data: ler().map(projetar), error: null, ...(contar ? { count: total } : {}) }).then(ok, erro)
             }
             q.insert = (carga: Linha | Linha[]) => {
                 estado.escritas.push({ tabela, op: 'insert', carga })
@@ -456,9 +475,18 @@ let espioes: jest.SpyInstance[] = []
 beforeEach(() => {
     montar()
     process.env.ANTHROPIC_API_KEY = CHAVE
-    ;(globalThis as { fetch: unknown }).fetch = jest.fn(async (url: string, init?: { headers?: Record<string, string>; body?: string }) => {
+    ;(globalThis as { fetch: unknown }).fetch = jest.fn(async (url: string, init?: { headers?: Record<string, string>; body?: string; signal?: AbortSignal }) => {
         const corpo = init?.body ? JSON.parse(init.body) : {}
         const headers = init?.headers ?? {}
+        // a chamada que PENDURA (04/11/2026): como o `fetch` real, só volta — rejeitando com AbortError — quando o `signal` abortar.
+        // Sem `signal` nenhum, pendura para sempre: é o que acontecia em produção
+        const pendurar = () => new Promise<never>((_, reject) => {
+            init?.signal?.addEventListener('abort', () => reject(new DOMException('This operation was aborted', 'AbortError')))
+            estado.aoPendurar?.()
+        })
+        if (url === ANTHROPIC && !corpo.tools && estado.redacaoPendura) return pendurar()
+        if (url === ANTHROPIC && corpo.tools && estado.llmPendura) { estado.chamadasDaLlm.push({ headers, corpo }); return pendurar() }
+        if (url.endsWith('/chat/send/text') && estado.envioPendura) return pendurar()
         if (url === ANTHROPIC && !corpo.tools) {
             // o SEGUNDO pedido (03/11/2026): a redação do rascunho, sem ferramenta. Por padrão devolve o próprio rascunho
             const mensagens = corpo.messages as Array<{ role: string; content: string }>
@@ -2778,7 +2806,7 @@ describe('(26) o reenvio do WUZAPI: 200 sem conduzir; o reenvio só quando o env
 
     it('sem saída e a entrada mais velha que a janela (a primeira condução morreu): a mensagem é conduzida de novo, e a saída responde à entrada de antes', async () => {
         estado.db.orcamentista_conversa = [{ id: 'c1', tenant_id: TENANT, remetente_id: VENDEDOR, telefone: TELEFONE_DO_WEBHOOK, criado_em: new Date().toISOString() }]
-        estado.db.orcamentista_mensagem = [{ id: 'e1', tenant_id: TENANT, conversa_id: 'c1', direcao: 'entrada', texto: 'oi', wuzapi_mensagem_id: ID, criado_em: new Date(Date.now() - 61_000).toISOString() }]
+        estado.db.orcamentista_mensagem = [{ id: 'e1', tenant_id: TENANT, conversa_id: 'c1', direcao: 'entrada', texto: 'oi', wuzapi_mensagem_id: ID, criado_em: new Date(Date.now() - (JANELA_EM_VOO_MS + 1_000)).toISOString() }]
         llmResponde({})
         await chamar('oi', { id: ID })
         expect(enviados()).toEqual([conversa.FRASE_SEM_NOME])
@@ -2789,9 +2817,9 @@ describe('(26) o reenvio do WUZAPI: 200 sem conduzir; o reenvio só quando o env
     it('a saída de OUTRA entrada não é a resposta desta: a entrada velha sem saída própria é conduzida de novo', async () => {
         estado.db.orcamentista_conversa = [{ id: 'c1', tenant_id: TENANT, remetente_id: VENDEDOR, telefone: TELEFONE_DO_WEBHOOK, criado_em: new Date().toISOString() }]
         estado.db.orcamentista_mensagem = [
-            { id: 'e1', tenant_id: TENANT, conversa_id: 'c1', direcao: 'entrada', texto: 'oi', wuzapi_mensagem_id: ID, criado_em: new Date(Date.now() - 120_000).toISOString() },
-            { id: 'e2', tenant_id: TENANT, conversa_id: 'c1', direcao: 'entrada', texto: 'outra', wuzapi_mensagem_id: 'OUTRO', criado_em: new Date(Date.now() - 90_000).toISOString() },
-            { id: 's2', tenant_id: TENANT, conversa_id: 'c1', direcao: 'saida', texto: 'resposta da outra', wuzapi_mensagem_id: 'WA_S2', responde_a: 'e2', criado_em: new Date(Date.now() - 80_000).toISOString() },
+            { id: 'e1', tenant_id: TENANT, conversa_id: 'c1', direcao: 'entrada', texto: 'oi', wuzapi_mensagem_id: ID, criado_em: new Date(Date.now() - (JANELA_EM_VOO_MS + 60_000)).toISOString() },
+            { id: 'e2', tenant_id: TENANT, conversa_id: 'c1', direcao: 'entrada', texto: 'outra', wuzapi_mensagem_id: 'OUTRO', criado_em: new Date(Date.now() - (JANELA_EM_VOO_MS + 30_000)).toISOString() },
+            { id: 's2', tenant_id: TENANT, conversa_id: 'c1', direcao: 'saida', texto: 'resposta da outra', wuzapi_mensagem_id: 'WA_S2', responde_a: 'e2', criado_em: new Date(Date.now() - (JANELA_EM_VOO_MS + 20_000)).toISOString() },
         ]
         llmResponde({})
         await chamar('oi', { id: ID })
@@ -2845,7 +2873,11 @@ describe('(27) o histórico ao modelo: 20 mensagens, 24 horas, 6.000 caracteres,
     it('as constantes são as da decisão', () => {
         expect([G().MENSAGENS_DO_HISTORICO, G().HORAS_DO_HISTORICO, G().CARACTERES_DO_HISTORICO, G().CORTE_DA_SAIDA, G().MARCA_DO_FORMAL])
             .toEqual([20, 24, 6000, 600, '[levantamento formal enviado]'])
-        expect(G().JANELA_EM_VOO_MS).toBe(60_000)
+        // a janela em voo é o maxDuration da rota (04/11/2026: 300 s), e os dois andam juntos — menor que ele, uma reentrega conduziria em dobro
+        expect(G().JANELA_EM_VOO_MS).toBe(300_000)
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { config } = require('@/pages/api/atendimentos-ia/inbound') as { config: { maxDuration: number } }
+        expect(G().JANELA_EM_VOO_MS).toBe(config.maxDuration * 1000)
     })
 
     it('a saída com DINHEIRO vira a marca do formal; a saída longa é cortada em 600 com reticência; a entrada vai inteira', () => {
@@ -3297,5 +3329,206 @@ describe('(30) as etapas declaradas na conversa: a ação manda, a falta é nome
         expect(sistema).toContain('[Etapa 1 — Apanhado e levantamento de esquadrias — família Alumínio]\nAlumínio: pergunte a linha.')
         expect(sistema).toContain('[Etapa 1 — Apanhado e levantamento de esquadrias — família PVC]\nPVC: pergunte o andar.')
         expect(linhaIa()[0]).toContain(' instrucao_etapa=2 ')
+    })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+/**
+ * (31) OS PRAZOS DAS CHAMADAS EXTERNAS (dono do produto, 04/11/2026): "hoje ela não tem limite e o turno inteiro morre em silêncio".
+ * Medido em 04/11: a 1ª chamada ao modelo passou de 49 s e a Vercel matou a função aos 60 s, sem linha [IA] e sem resposta ao vendedor.
+ * 1ª chamada 45 s → a falha nomeada ao vendedor e a linha [IA] ANTES do fim do turno; redação 15 s → cai para o rascunho e segue;
+ * envio 30 s → o turno termina com log e a saída gravada sem id. O critério de aceitação: NENHUM caminho termina sem resposta ao vendedor.
+ */
+describe('(31) os prazos das chamadas externas: 45 s no modelo, 15 s na redação, 30 s no envio — nenhum caminho termina sem resposta', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const R = () => require('@/lib/atendimentos-ia/redacao-da-resposta') as typeof import('@/lib/atendimentos-ia/redacao-da-resposta')
+    const PRAZO_DO_MODELO = 45_000
+    const PRAZO_DA_REDACAO = 15_000
+    const PRAZO_DO_ENVIO = 30_000
+    /** Deixa as promessas em curso andarem (o banco falso e o fetch são microtarefas) sem avançar o relógio. */
+    const drenar = async () => { for (let i = 0; i < 40; i++) await Promise.resolve() }
+    const avancar = async (ms: number) => { jest.advanceTimersByTime(ms); await drenar() }
+    /**
+     * Arma o relógio fingido, dispara o turno e espera a chamada pendurada estar em curso (o prazo já armado). O turno volta
+     * EMBRULHADO: uma função async que devolvesse a promessa a adotaria, e o `await` esperaria o turno inteiro — que só termina
+     * quando o relógio avança.
+     */
+    async function turnoPendurado(preparar: () => void, texto: string): Promise<{ turno: Promise<{ status: number }> }> {
+        jest.useFakeTimers({ doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate'] })
+        const armado = new Promise<void>((res) => { estado.aoPendurar = res })
+        preparar()
+        const turno = chamar(texto)
+        await armado
+        return { turno }
+    }
+    const mensagens = () => (estado.db.orcamentista_mensagem ?? []) as Array<Linha & { direcao: string; texto: string }>
+    afterEach(() => { jest.useRealTimers() })
+
+    it('as constantes são as da decisão, e a soma dos três prazos mais as leituras cabe com folga no maxDuration da rota', () => {
+        expect([conversa.PRAZO_DA_PRIMEIRA_CHAMADA_MS, R().PRAZO_DA_REDACAO_MS, conversa.PRAZO_DO_ENVIO_MS]).toEqual([PRAZO_DO_MODELO, PRAZO_DA_REDACAO, PRAZO_DO_ENVIO])
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { config } = require('@/pages/api/atendimentos-ia/inbound') as { config: { maxDuration: number } }
+        // os três prazos, a saída gravada e as leituras medidas (até 11 s em série em 04/11/2026) somam menos da metade do limite da função
+        expect(PRAZO_DO_MODELO + PRAZO_DA_REDACAO + PRAZO_DO_ENVIO + 11_000).toBeLessThan((config.maxDuration * 1000) / 2)
+    })
+
+    it('a 1ª chamada ao modelo não volta: aos 45 s ela é abortada, o vendedor recebe a falha nomeada, nada é gravado, e a linha [IA] sai ANTES do envio, com o motivo', async () => {
+        const { turno } = await turnoPendurado(() => { estado.llmPendura = true }, 'Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm')
+        // um milissegundo antes do prazo, nada aconteceu: a chamada continua em voo
+        await avancar(PRAZO_DO_MODELO - 1)
+        expect(enviados()).toEqual([])
+        expect(linhaIa()).toEqual([])
+        await avancar(1)
+        expect((await turno).status).toBe(200)
+        expect(enviados()).toEqual([conversa.FALHA_PRAZO_DA_IA])
+        expect(conversa.FALHA_PRAZO_DA_IA).toContain('me mande de novo')
+        expect(escritasNoEstado()).toEqual([])
+        // a linha do estouro sai ANTES do envio (se a função morrer depois, o motivo já está no log); a de sempre sai no fim, com o envio
+        const [noEstouro, noFim] = linhaIa()
+        expect(noEstouro).toMatch(/enviou=nao desfecho=prazo-esgotado/)
+        expect(noEstouro).toContain(`limite_ms=${PRAZO_DO_MODELO}`)
+        expect(noEstouro).toContain('antes_do_envio=sim')
+        expect(noEstouro).toContain(`ia_ms=${PRAZO_DO_MODELO} ia_entrada=- ia_saida=-`)
+        expect(noFim).toMatch(/enviou=sim desfecho=prazo-esgotado/)
+        expect(linhaIa()).toHaveLength(2)
+        // a saída é gravada como qualquer resposta: o reenvio do WUZAPI acha a resposta e não conduz de novo
+        expect(mensagens()[1]).toEqual(expect.objectContaining({ direcao: 'saida', texto: conversa.FALHA_PRAZO_DA_IA, wuzapi_mensagem_id: 'WAMID_SAIDA' }))
+    })
+
+    it('o contraste: a falha de rede na 1ª chamada continua sendo FALHA_DA_IA (erro-da-llm), não a do prazo', async () => {
+        estado.respostasDaLlm.push('lanca')
+        await chamar('oi')
+        expect(enviados()).toEqual([conversa.FALHA_DA_IA])
+        expect(linhaIa()).toHaveLength(1)
+        expect(linhaIa()[0]).toContain('desfecho=erro-da-llm')
+    })
+
+    it('a redação não volta: aos 15 s cai para a frase de reserva e o turno segue — redacao=prazo no log, uma resposta só', async () => {
+        const { turno } = await turnoPendurado(() => { estado.redacaoPendura = true }, 'oi')
+        await avancar(PRAZO_DA_REDACAO - 1)
+        expect(enviados()).toEqual([])
+        await avancar(1)
+        expect((await turno).status).toBe(200)
+        expect(enviados()).toEqual([conversa.FRASE_SEM_NOME])
+        expect(linhaIa()).toHaveLength(1)
+        expect(linhaIa()[0]).toContain('desfecho=sem-nome')
+        expect(linhaIa()[0]).toContain('redacao=prazo')
+    })
+
+    it('o envio ao WUZAPI não volta: aos 30 s é abortado, o turno termina com desfecho=envio-falhou status_envio=prazo_esgotado e a saída fica gravada sem id de envio', async () => {
+        const { turno } = await turnoPendurado(() => { estado.envioPendura = true }, 'oi')
+        await avancar(PRAZO_DO_ENVIO - 1)
+        expect(linhaIa()).toEqual([])
+        await avancar(1)
+        expect((await turno).status).toBe(200)
+        expect(linhaIa()).toHaveLength(1)
+        expect(linhaIa()[0]).toContain('desfecho=envio-falhou')
+        expect(linhaIa()[0]).toContain('status_envio=prazo_esgotado')
+        // sem id de envio: o reenvio do WUZAPI reenvia o texto gravado (a regra de 03/11/2026)
+        expect(mensagens()[1]).toEqual(expect.objectContaining({ direcao: 'saida', texto: conversa.FRASE_SEM_NOME, wuzapi_mensagem_id: null }))
+    })
+
+    it('a chamada que volta a tempo não é abortada depois: o despertador é limpo, e nenhum timer sobra', async () => {
+        jest.useFakeTimers({ doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate'] })
+        llmResponde({})
+        const turno = chamar('oi')
+        await drenar()
+        expect((await turno).status).toBe(200)
+        expect(enviados()).toEqual([conversa.FRASE_SEM_NOME])
+        expect(jest.getTimerCount()).toBe(0)
+    })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+/**
+ * (32) AS LEITURAS ANTES DO MODELO VÃO EM ONDAS (dono do produto, 04/11/2026): "as 24 leituras em série viram paralelas". Medido em
+ * produção: 24 idas ao banco em série antes do modelo, 5,4 a 8,4 s por turno. O banco falso por ONDAS conta quantas idas são em série:
+ * cada onda é o conjunto de leituras pendentes ao mesmo tempo, liberadas juntas.
+ */
+describe('(32) as leituras antes do modelo vão em ondas: o que não depende de outra leitura vai junto', () => {
+    const drenar = async () => { for (let i = 0; i < 30; i++) await new Promise<void>((r) => setImmediate(r)) }
+    /** Libera onda a onda até `parar()`; devolve, por onda, as TABELAS lidas juntas. */
+    async function ondasAte(parar: () => boolean): Promise<string[][]> {
+        const ondas: string[][] = []
+        for (let i = 0; i < 200; i++) {
+            await drenar()
+            if (parar()) break
+            const lote = estado.pendentes.splice(0)
+            if (lote.length === 0) break
+            ondas.push(lote.map((p) => p.tabela).sort())
+            for (const p of lote) p.liberar()
+        }
+        estado.porOndas = false
+        for (const p of estado.pendentes.splice(0)) p.liberar()
+        return ondas
+    }
+    const interlocutor = (texto: string) => ({
+        tenantId: TENANT, remetenteId: VENDEDOR, telefone: TELEFONE_DO_WEBHOOK, texto, wuzapiToken: TOKEN, conversaId: 'c1',
+        entrada: { conversaId: 'c1', id: 'e1', criadoEm: new Date().toISOString(), repetida: false },
+    })
+
+    /** As cinco primeiras ondas de toda mensagem: a conta e a conversa; o catálogo da família; os itens e os motores das etapas; a contagem e o fornecedor; a lista de tipologias. */
+    const ONDAS_DA_FAMILIA = [
+        ['orcamentista_contexto_do_atendimento', 'orcamentista_levantamento', 'orcamentista_materia_prima', 'orcamentista_mensagem', 'orcamentista_mp_categoria', 'orcamentista_mp_categoria', 'orcamentista_mp_categoria', 'orcamentista_mp_categoria_fornecedor'],
+        ['orcamentista_familia_catalogo', 'orcamentista_familia_catalogo', 'orcamentista_familia_etapa', 'orcamentista_fornecedor', 'orcamentista_tabela'],
+        ['orcamentista_etapa_catalogo', 'orcamentista_motor'],
+        ['orcamentista_fornecedor', 'orcamentista_motor_tipologia_detalhe'],
+        ['orcamentista_motor_tipologia_detalhe'],
+    ]
+
+    it('a primeira mensagem de uma sessão: 6 idas ao banco em série antes do modelo (a main de 04/11/2026 dava 22), cada onda com o que não depende de outra leitura', async () => {
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02 }] })
+        estado.porOndas = true
+        const turno = conversa.conduzirMensagem(interlocutor('Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm'))
+        const ondas = await ondasAte(() => estado.chamadasDaLlm.length > 0)
+        await turno
+        expect(estado.chamadasDaLlm).toHaveLength(1)
+        expect(enviados()).toHaveLength(1)
+        // a lista inteira, onda a onda: a conta, a conversa, as instruções e o PREÇO (tabelas-da-conta) vão com a primeira leitura do motor;
+        // a última onda é a das Variáveis com a pergunta em aberto. Paralelo não é pular: são as mesmas 20 leituras de antes
+        expect(ondas).toEqual([...ONDAS_DA_FAMILIA, ['orcamentista_motor_variavel', 'orcamentista_pergunta_em_aberto']])
+    })
+
+    it('com instrução de categoria preenchida: o catálogo de categorias e as matérias-primas das instruções vão juntos, na segunda onda', async () => {
+        ;(estado.db.orcamentista_mp_categoria as Linha[])[0].instrucao = 'Vidro: confira a espessura.'
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02 }] })
+        estado.porOndas = true
+        const turno = conversa.conduzirMensagem(interlocutor('Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm'))
+        const ondas = await ondasAte(() => estado.chamadasDaLlm.length > 0)
+        await turno
+        expect(estado.chamadasDaLlm).toHaveLength(1)
+        expect(ondas).toHaveLength(6)
+        expect(ondas[1]).toEqual([...ONDAS_DA_FAMILIA[1], 'orcamentista_categoria_catalogo', 'orcamentista_materia_prima'].sort())
+    })
+
+    it('a mensagem seguinte, com a montagem aberta: os itens da montagem vão na última onda com as Variáveis, e a pergunta em aberto não é lida', async () => {
+        await abrirSemVidro('Casa do João')
+        estado.chamadasDaLlm = []
+        llmResponde({ itens: [{ vidro: 'Temperado 5mm' }] })
+        estado.porOndas = true
+        const turno = conversa.conduzirMensagem(interlocutor('temperado 5mm'))
+        const ondas = await ondasAte(() => estado.chamadasDaLlm.length > 0)
+        await turno
+        expect(estado.chamadasDaLlm).toHaveLength(1)
+        expect(ondas).toEqual([...ONDAS_DA_FAMILIA, ['orcamentista_levantamento_item', 'orcamentista_motor_variavel']])
+    })
+
+    it('a aba de Variáveis com mais de 1.000 linhas: a primeira página dá a contagem e as demais vão JUNTAS, e nenhuma linha se perde nem se repete', async () => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const L = require('@/lib/atendimentos-ia/levantamento-da-conversa') as typeof import('@/lib/atendimentos-ia/levantamento-da-conversa')
+        const antes = Object.keys(await L.lerVariaveisDasTipologias(MOTOR)).length
+        const modelo = (estado.db.orcamentista_motor_variavel as Linha[])[0]
+        const NOVAS = 2_500
+        for (let i = 0; i < NOVAS; i++) (estado.db.orcamentista_motor_variavel as Linha[]).push({ ...modelo, id: `v-nova-${i}`, tipologia: `ZZ-${String(i).padStart(4, '0')}`, ordem: 1 })
+        const total = (estado.db.orcamentista_motor_variavel as Linha[]).filter((l) => l.motor_id === MOTOR).length
+        const paginas = Math.ceil(total / 1000)
+        expect(paginas).toBeGreaterThanOrEqual(3)
+        estado.porOndas = true
+        let pronto = false
+        const leitura = L.lerVariaveisDasTipologias(MOTOR).then((r) => { pronto = true; return r })
+        const ondas = await ondasAte(() => pronto)
+        // uma onda para a primeira página (a contagem), UMA para todas as outras
+        expect(ondas.map((o) => o.length)).toEqual([1, paginas - 1])
+        expect(Object.keys(await leitura)).toHaveLength(antes + NOVAS)
     })
 })

@@ -425,9 +425,14 @@ describe('(6) remetente autorizado: a conversa é gravada (03/11/2026) e conduzi
         expect(mockConducoes).toEqual([expect.objectContaining({ texto: 'Com link' })])
     })
 
-    it('a rota de entrada DECLARA o limite da função (a LLM roda dentro da requisição)', () => {
+    it('a rota de entrada DECLARA o limite da função (a LLM roda dentro da requisição): 300 s, e a janela em voo da conversa gravada é o mesmo número', () => {
+        // 04/11/2026: aos 60 s a Vercel matou um turno cuja 1ª chamada ao modelo passou de 49 s, sem log e sem resposta ao vendedor
         // eslint-disable-next-line @typescript-eslint/no-require-imports
-        expect((require('@/pages/api/atendimentos-ia/inbound') as { config: { maxDuration: number } }).config.maxDuration).toBe(60)
+        const { config } = require('@/pages/api/atendimentos-ia/inbound') as { config: { maxDuration: number } }
+        expect(config.maxDuration).toBe(300)
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { JANELA_EM_VOO_MS } = require('@/lib/atendimentos-ia/conversa-gravada') as typeof import('@/lib/atendimentos-ia/conversa-gravada')
+        expect(JANELA_EM_VOO_MS).toBe(config.maxDuration * 1000)
     })
 })
 

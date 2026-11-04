@@ -18,6 +18,7 @@
  * nasce no modelo: todos vêm do rascunho, e o que não estiver nele cai na validação.
  */
 import { MODELO_PADRAO_DA_IA, URL_DA_API_ANTHROPIC, VERSAO_DA_API_ANTHROPIC } from '@/lib/atendimentos-ia/modelo-da-ia'
+import { prazo } from '@/lib/atendimentos-ia/prazo'
 import { temDinheiro } from '@/lib/atendimentos-ia/contexto-do-atendimento'
 import { PROMPT_BASE } from '@/utils/atendimentos-ia-prompt-base'
 import type { MensagemDoHistorico } from '@/lib/atendimentos-ia/conversa-gravada'
@@ -35,7 +36,9 @@ export const INSTRUCAO_DA_REDACAO = [
     '- Responda SÓ com o texto final, sem título, sem aspas em volta e sem comentário.',
 ].join('\n')
 
-export type MotivoDaRedacao = 'usada' | 'ausente' | 'vazia' | 'longa' | 'sem_conteudo' | 'dinheiro' | 'codigo' | 'repetida' | 'erro' | 'rascunho_com_dinheiro'
+export type MotivoDaRedacao = 'usada' | 'ausente' | 'vazia' | 'longa' | 'sem_conteudo' | 'dinheiro' | 'codigo' | 'repetida' | 'erro' | 'rascunho_com_dinheiro' | 'prazo'
+/** O PRAZO da redação (dono do produto, 04/11/2026): 15 s. "Estourou, cai para a frase de reserva e segue — redação é luxo, nunca pode derrubar o turno." */
+export const PRAZO_DA_REDACAO_MS = 15_000
 export type Redacao = { texto: string; motivo: 'usada' } | { texto: null; motivo: Exclude<MotivoDaRedacao, 'usada'> }
 
 const semMilhar = (t: string) => t.replace(/(\d)\.(?=\d{3}\b)/g, '$1')
@@ -86,10 +89,12 @@ export function sistemaDaRedacao(blocoDaEmpresa: string | null): string {
 /** Pede ao modelo a redação do rascunho e a valida. Nunca lança: toda falha é um motivo, e quem chama manda o rascunho. */
 export async function redigir(chave: string, rascunho: string, c: ContextoDaRedacao): Promise<Redacao> {
     if (temDinheiro(rascunho)) return { texto: null, motivo: 'rascunho_com_dinheiro' }
+    const limite = prazo(PRAZO_DA_REDACAO_MS)
     try {
         const r = await fetch(URL_DA_API_ANTHROPIC, {
             method: 'POST',
             headers: { 'content-type': 'application/json', 'x-api-key': chave, 'anthropic-version': VERSAO_DA_API_ANTHROPIC },
+            signal: limite.signal,
             body: JSON.stringify({
                 model: MODELO_PADRAO_DA_IA,
                 max_tokens: 400,
@@ -103,6 +108,9 @@ export async function redigir(chave: string, rascunho: string, c: ContextoDaReda
         const bloco = Array.isArray(corpo?.content) ? corpo.content.find((b) => b.type === 'text') : undefined
         return redacaoValida(bloco?.text, rascunho, c.ultimaSaida)
     } catch {
-        return { texto: null, motivo: 'erro' }
+        // o prazo estourado é um motivo próprio no log; a falha de rede continua `erro`. Os dois mandam o rascunho
+        return { texto: null, motivo: limite.estourou() ? 'prazo' : 'erro' }
+    } finally {
+        limite.limpar()
     }
 }

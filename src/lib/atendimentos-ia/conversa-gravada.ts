@@ -29,8 +29,11 @@ export const HORAS_DO_HISTORICO = 24
 export const CARACTERES_DO_HISTORICO = 6000
 export const CORTE_DA_SAIDA = 600
 export const MARCA_DO_FORMAL = '[levantamento formal enviado]'
-/** O limite da rota de entrada (`inbound.ts`, `maxDuration: 60`): depois dele, a primeira condução não está mais em voo. */
-export const JANELA_EM_VOO_MS = 60_000
+/**
+ * O limite da rota de entrada (`inbound.ts`, `maxDuration: 300`, 04/11/2026): depois dele, a primeira condução não está mais em voo.
+ * Os dois números andam juntos (há portão): menor que o limite, uma reentrega conduziria em dobro enquanto a primeira ainda roda.
+ */
+export const JANELA_EM_VOO_MS = 300_000
 
 const VIOLACAO_DE_UNICIDADE = '23505'
 /** A coluna ainda não existe (migração pendente): o PostgREST diz 42703 (coluna) ou PGRST204. */
