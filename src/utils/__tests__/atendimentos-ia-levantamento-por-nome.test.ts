@@ -3130,17 +3130,36 @@ describe('(29) o vidro copiado, a forma canônica e a dedupe por equivalência (
         expect(ultimoEnviado()).toBe(conversa.fraseDeConfirmarAcrescimoEmOutrasPalavras('Geronimo Silva'))
     })
 
-    it('VIDRO COPIADO, NUNCA COMPLETADO: o vidro que o modelo completou ("Vidro comum 4 mm" sobre "vidro 4mm") cai, a esquadria fica sem vidro, e o log diz vidro_nao_dito', async () => {
-        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, vidro: 'Vidro comum 4 mm' }] })
-        await chamar('Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco, vidro 4mm')
+    it('VIDRO COPIADO, NUNCA COMPLETADO — "pode, não derrube": "Vidro comum 4 mm" sobre "vidro 4mm" fica "vidro 4 mm", gravado; o vendedor não é perguntado pelo vidro que já disse', async () => {
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, vidro: 'Vidro comum 4 mm' }], escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar('Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco, vidro 4mm, sem arremate interno, arremate externo com folga de 50')
+        expect(itensDe(levantamentos()[0].id)[0].vidro).toBe('vidro 4 mm')
+        expect(ultimoEnviado().startsWith('Apanhado do levantamento')).toBe(true)
+        expect(ultimoEnviado()).toContain('vidro vidro 4 mm')
+        expect(ultimoEnviado()).not.toContain('comum')
+        expect(linhaIa().pop()).toMatch(/ vidro_podado=1(\s|$)/)
+    })
+
+    it('cai INTEIRO só quando NADA do vidro está na mensagem: "incolor comum" sem vidro dito deixa a esquadria sem vidro, e o log diz vidro_nao_dito', async () => {
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, vidro: 'incolor comum' }] })
+        await chamar('Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco')
         expect(itensDe(levantamentos()[0].id)[0].vidro).toBeNull()
         expect(ultimoEnviado()).toBe(PERGUNTA_DO_VIDRO)
         expect(linhaIa().pop()).toMatch(/ vidro_nao_dito=1(\s|$)/)
-        // o copiado entra, com a caixa e o espaço que a IA escreveu
+        // o copiado entra, com a caixa e o espaço que a IA escreveu, sem poda e sem log
         llmResponde({ itens: [{ vidro: 'Vidro 4 mm' }] })
         await chamar('vidro 4mm')
         expect(itensDe(levantamentos()[0].id)[0].vidro).toBe('Vidro 4 mm')
-        expect(linhaIa().pop()).not.toContain('vidro_nao_dito=')
+        expect(linhaIa().pop()).not.toMatch(/vidro_nao_dito=|vidro_podado=/)
+    })
+
+    it('o caso real com o modelo completando: "incolor temperado 8 mm" sobre "vidro 8mm" entra na espera como "8 mm", e funde com o "vidro 8mm" retido', async () => {
+        llmResponde({ itens: [{ ...PORTA }] })
+        await chamar('porta janela 2,50×2,40 vidro 8mm')
+        llmResponde({ itens: [{ ...PORTA, vidro: 'incolor temperado 8 mm' }] })
+        await chamar('porta janela 2,50×2,40 vidro 8mm')
+        expect(perguntas()[0].itens).toEqual([{ ...PORTA }])
+        expect(linhaIa().pop()).toMatch(/ reenviadas=1 .*vidro_podado=1(\s|$)/)
     })
 
     it('O PADRÃO DA INSTRUÇÃO entra UMA vez, na esquadria que ficou sem vidro, fica gravado e não muda no turno seguinte', async () => {

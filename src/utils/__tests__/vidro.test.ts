@@ -56,8 +56,34 @@ describe('(1) a forma canônica: espessura + têmpera + cor, numa ordem só, só
     })
 })
 
-describe('(2) vidroDito: toda palavra do vidro proposto está na mensagem — o completado pelo modelo cai', () => {
+describe('(2) vidroPodado: fica o que está na mensagem, cai a palavra que o modelo completou; cai inteiro só quando nada está ("pode, não derrube")', () => {
     const MSG = 'Janela de correr 1,50×1,20 vidro 4mm / porta janela 2,50×2,40 vidro 8mm / Cliente: Geronimo Silva'
+
+    it('"incolor temperado 8 mm" sobre "vidro 8mm" vira "8 mm", não vazio; "Vidro comum 4 mm" vira "vidro 4 mm"; o enchimento acompanha o que ficou', () => {
+        expect(V().vidroPodado('incolor temperado 8 mm', MSG)).toBe('8 mm')
+        expect(V().vidroPodado('incolor 8 mm temperado', MSG)).toBe('8 mm')
+        expect(V().vidroPodado('Vidro comum 4 mm', MSG)).toBe('vidro 4 mm')
+        expect(V().vidroPodado('incolor comum 4 mm', MSG)).toBe('4 mm')
+        expect(V().vidroPodado('vidro comum de 4mm', MSG)).toBe('vidro de 4 mm')
+        // a palavra completada colada ao número também cai, e o número fica
+        expect(V().vidroPodado('temperado/8mm', MSG)).toBe('8 mm')
+    })
+
+    it('o que já estava todo na mensagem volta igual (aparado); só cai inteiro quando NADA do vidro está na mensagem', () => {
+        expect(V().vidroPodado('vidro 4mm', MSG)).toBe('vidro 4mm')
+        expect(V().vidroPodado('  Vidro 8 mm ', MSG)).toBe('Vidro 8 mm')
+        expect(V().vidroPodado('incolor comum', MSG)).toBeNull()
+        expect(V().vidroPodado('temperado 10 mm', MSG)).toBeNull()
+        expect(V().vidroPodado('vidro', MSG)).toBeNull()
+        expect(V().vidroPodado('', MSG)).toBeNull()
+        expect(V().vidroPodado(4, MSG)).toBeNull()
+    })
+
+    it('o número vale pelo valor e a palavra sem caixa e sem acento: "4.0 mm" fica, "FUMÊ" fica se a mensagem diz fumê', () => {
+        expect(V().vidroPodado('vidro 4.0 mm', 'vidro 4mm')).toBe('vidro 4.0 mm')
+        expect(V().vidroPodado('fume 6 mm liso', 'vidro FUMÊ 6mm')).toBe('fume 6 mm')
+        expect(V().vidroPodado('vidro 5mm', 'vidro 4mm')).toBeNull()
+    })
 
     it('o copiado passa: "vidro 4mm", "vidro 4 mm", "4mm", "Vidro 8mm"', () => {
         for (const v of ['vidro 4mm', 'vidro 4 mm', '4mm', 'Vidro 8mm', '8 mm']) expect(V().vidroDito(v, MSG)).toBe(true)

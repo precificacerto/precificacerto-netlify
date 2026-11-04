@@ -1316,16 +1316,19 @@ itens com `quantidade` vinda do histórico eram "outra esquadria".
 4. > "(b) fica para depois: quando a empresa tiver tabela de preço da categoria VIDRO, a lista do fornecedor pode entrar como referência ao
    > modelo. Não faça agora."
 5. > "Não reviva orcamentista_mp_vidro. A decisão de 03/11 continua de pé."
+6. O ajuste antes do merge do #220: > "pode, não derrube. Quando o vidro proposto tem parte na mensagem e parte completada pelo modelo, PODE o que não
+   > está na mensagem e fique com o que está. 'incolor temperado 8 mm' com a mensagem dizendo só 'vidro 8mm' vira '8 mm', não vira vazio. Só cai
+   > inteiro quando NADA do vidro está na mensagem. O vendedor nunca pode ser perguntado por um vidro que ele já disse."
 
 **O que está implementado (`vidro.ts` novo, `pergunta-em-aberto.ts`, `levantamento-em-montagem.ts`, `conversa-da-ia.ts`):**
 
-- **Copiado, nunca completado.** O prompt ganhou a regra do `vidro` (copiar como escrito; nunca têmpera, cor ou palavra da instrução) e a
-  ferramenta ganhou `vidro_padrao` (24 opcionais, o limite do strict). No código, `vidroDito(proposto, mensagem)`: toda palavra do vidro proposto
-  (fora o enchimento "vidro", "de", "mm"…) está na mensagem, os números pelo valor; o que não está **cai** antes de entrar na espera ou no levantamento
-  (`vidro_nao_dito=N` no log). O `vidro_padrao` só preenche a esquadria que ficou sem vidro, uma vez, e nunca sobrescreve (`vidro_padrao=N`);
-  viaja com a esquadria retida e entra quando o levantamento nasce. **Limite conhecido:** se o modelo completar o vidro ("Vidro comum 4 mm" sobre
-  "vidro 4mm"), o completado cai e a esquadria fica sem vidro — a conversa pergunta o vidro que o vendedor já disse. É o custo de nunca aceitar o
-  inventado; a regra no prompt existe para isso ser raro.
+- **Copiado, nunca completado — e podado, não derrubado.** O prompt ganhou a regra do `vidro` (copiar como escrito; nunca têmpera, cor ou palavra
+  da instrução) e a ferramenta ganhou `vidro_padrao` (24 opcionais, o limite do strict). No código, `vidroPodado(proposto, mensagem)`: palavra por
+  palavra do vidro proposto, fica a que está na mensagem (os números pelo valor; o enchimento "vidro", "de", "mm" acompanha) e **cai a que o modelo
+  completou** — "incolor temperado 8 mm" sobre "vidro 8mm" vira "8 mm", "Vidro comum 4 mm" sobre "vidro 4mm" vira "vidro 4 mm" (`vidro_podado=N` no
+  log); só cai INTEIRO quando nada do vidro está na mensagem (`vidro_nao_dito=N`). O vendedor nunca é perguntado por um vidro que já disse. O
+  `vidro_padrao` só preenche a esquadria que ficou sem vidro, uma vez, e nunca sobrescreve (`vidro_padrao=N`); viaja com a esquadria retida e entra
+  quando o levantamento nasce.
 - **A forma canônica.** `formaCanonicaDoVidro`: "<têmpera> <cor> <espessura> mm <resto…>", só com o que foi dito; sinônimos (liso = comum,
   temp. = temperado, fumê = cinza, mini boreal = boreal, jateado = acidato); "3+3" é laminado por construção; o que não é espessura, têmpera nem cor
   fica no resto e distingue. As seis grafias do caso viram quatro formas: as permutações fundem; "comum" não vira "temperado", "com cor" não vira
@@ -1343,7 +1346,8 @@ itens com `quantidade` vinda do histórico eram "outra esquadria".
 **Observação fora do escopo, só registro:** no laço daquela conversa o vendedor queria o levantamento existente ("não acrescenta, são só 3
 unidades"), e a conversa só ofereceu acrescentar; o levantamento "Geronimo Silva" tem a porta 2.500 x 2.400 gravada como DP-02 (de antes do #215).
 
-**Prova:** `vidro.test.ts` (a forma canônica, os sinônimos, o laminado, o resto, `vidroDito`); (VII) de `levantamento-em-montagem.test.ts` (o
-padrão uma vez, nunca sobrescreve, o agrupamento canônico); (29) de `atendimentos-ia-levantamento-por-nome.test.ts` (os 10 itens → 4; a equivalência
-pura; duas novas na mesma mensagem; o caso real em cinco turnos → 2; o vidro completado cai; o padrão uma vez; o padrão na retida; o prompt e a
-ferramenta); a fixture dos pedidos regravada; e as mutações do código (`mutacoes-vidro.py`, o resultado no PR).
+**Prova:** `vidro.test.ts` (a forma canônica, os sinônimos, o laminado, o resto, `vidroPodado`: a poda, o que volta igual, o que cai inteiro);
+(VII) de `levantamento-em-montagem.test.ts` (o padrão uma vez, nunca sobrescreve, o agrupamento canônico); (29) de
+`atendimentos-ia-levantamento-por-nome.test.ts` (os 10 itens → 4; a equivalência pura; duas novas na mesma mensagem; o caso real em cinco turnos → 2;
+o completado é podado e gravado sem perguntar; cai inteiro só sem nada na mensagem; o podado funde com o retido; o padrão uma vez; o padrão na
+retida; o prompt e a ferramenta); a fixture dos pedidos regravada; e as mutações do código (`mutacoes-vidro.py`, o resultado no PR).

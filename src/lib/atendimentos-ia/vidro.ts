@@ -9,8 +9,10 @@
  * As regras, como foram ditas:
  *   1. "VIDRO COPIADO, NUNCA COMPLETADO. O vidro do item é o que o vendedor disse, literal. [...] A instrução de VIDRO só entra quando o
  *      vendedor NÃO disse vidro nenhum para aquela esquadria — e, nesse caso, entra UMA vez, fica gravada e não muda nos turnos seguintes."
- *      → `vidroDito(proposto, mensagem)`: toda palavra do vidro proposto (fora "vidro", "de", "mm"…) está na mensagem; o que não está cai.
- *        O padrão da instrução vem em `vidro_padrao`, e o código só o aplica à esquadria que ficou sem vidro (`aplicarProposta`).
+ *      → `vidroPodado(proposto, mensagem)` (ajuste do dono do produto, 04/11/2026: "pode, não derrube"): fica o que está na mensagem, cai a
+ *        palavra que o modelo completou — "incolor temperado 8 mm" sobre "vidro 8mm" vira "8 mm"; só cai INTEIRO quando nada do vidro está na
+ *        mensagem. "O vendedor nunca pode ser perguntado por um vidro que ele já disse." O padrão da instrução vem em `vidro_padrao`, e o código
+ *        só o aplica à esquadria que ficou sem vidro (`aplicarProposta`).
  *   2. "FORMA CANÔNICA: vidroCanonico(texto) -> espessura + têmpera + cor, numa ordem só. Serve para COMPARAR (dedupe e agrupamento); o texto
  *      que o vendedor disse continua sendo o que se grava e o que aparece. A regra nunca inventa o que não foi dito: '8 mm' não funde com
  *      'temperado 8 mm'." → `formaCanonicaDoVidro`: "<têmpera> <cor> <espessura> mm <resto…>", só com o que foi dito.
@@ -88,13 +90,22 @@ export const mesmoVidro = (a: unknown, b: unknown) => {
     return fa !== '' && fa === formaCanonicaDoVidro(b)
 }
 
+const chave = (p: string) => (ehNumero(p) ? numeroNormal(p) : p)
+
 /**
- * O vidro proposto foi DITO na mensagem: toda palavra dele (fora o enchimento) está na mensagem — os números pelo valor ("4mm" = "4 mm").
- * "Vidro comum 4 mm" sobre "vidro 4mm" não foi dito: "comum" veio de fora. Um vidro sem palavra nenhuma não foi dito.
+ * O vidro proposto PODADO ao que a mensagem diz ("pode, não derrube"): palavra por palavra, fica a que está na mensagem (os números pelo valor:
+ * "4mm" = "4 mm") e cai a que o modelo completou; o enchimento ("vidro", "mm", "de") acompanha o que ficou. Devolve o texto como veio quando nada
+ * caiu; o podado, em minúsculas e sem acento, quando algo caiu — "incolor temperado 8 mm" sobre "vidro 8mm" → "8 mm", "Vidro comum 4 mm" sobre
+ * "vidro 4mm" → "vidro 4 mm"; ou null quando NADA do vidro está na mensagem (então cai inteiro).
  */
-export function vidroDito(proposto: unknown, mensagem: string): boolean {
-    if (typeof proposto !== 'string') return false
-    const daMensagem = new Set(palavrasDoVidro(mensagem).map((p) => (ehNumero(p) ? numeroNormal(p) : p)))
-    const palavras = palavrasDoVidro(proposto).filter((p) => !ENCHIMENTO.has(p))
-    return palavras.length > 0 && palavras.every((p) => daMensagem.has(ehNumero(p) ? numeroNormal(p) : p))
+export function vidroPodado(proposto: unknown, mensagem: string): string | null {
+    if (typeof proposto !== 'string') return null
+    const daMensagem = new Set(palavrasDoVidro(mensagem).map(chave))
+    const palavras = palavrasDoVidro(proposto)
+    const ficam = palavras.filter((p) => ENCHIMENTO.has(p) || daMensagem.has(chave(p)))
+    if (!ficam.some((p) => !ENCHIMENTO.has(p))) return null
+    return ficam.length === palavras.length ? proposto.trim() : ficam.join(' ')
 }
+
+/** O vidro proposto foi DITO INTEIRO na mensagem: nada a podar. */
+export const vidroDito = (proposto: unknown, mensagem: string): boolean => typeof proposto === 'string' && vidroPodado(proposto, mensagem) === proposto.trim()

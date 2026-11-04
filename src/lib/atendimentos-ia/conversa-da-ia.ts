@@ -170,7 +170,7 @@ import { agruparIguais,
 } from '@/lib/atendimentos-ia/levantamento-em-montagem'
 import { JANELA_EM_VOO_MS, gravarSaida, lerHistorico, marcarEnvio, saidaDaEntrada, type Entrada, type MensagemDoHistorico } from '@/lib/atendimentos-ia/conversa-gravada'
 import { CODIGO_DE_FORNECEDOR, redigir, type MotivoDaRedacao, type Redacao } from '@/lib/atendimentos-ia/redacao-da-resposta'
-import { vidroDito } from '@/lib/atendimentos-ia/vidro'
+import { vidroPodado } from '@/lib/atendimentos-ia/vidro'
 import type { VariaveisDaTipologia } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import { compararNome, formaComparavel, nomeDaMensagem, nomeDoCliente, nomeSemPrefixo, normalizarNome } from '@/lib/atendimentos-ia/nome-do-levantamento'
 import { PERGUNTAS_DA_TIPOLOGIA } from '@/lib/atendimentos-ia/pre-definicao'
@@ -231,8 +231,10 @@ type Rastro = {
     gravacao: 'sim' | 'sem_migracao' | 'falhou' | '-'
     /** O que aconteceu com a redação pelo modelo (03/11/2026); '-' quando a resposta não passou por ela. */
     redacao: MotivoDaRedacao | '-'
-    /** Vidros propostos que o vendedor NÃO disse nesta mensagem, e caíram (04/11/2026). */
+    /** Vidros propostos de que NADA estava na mensagem, e caíram inteiros (04/11/2026). */
     vidrosNaoDitos: number
+    /** Vidros propostos PODADOS ao que a mensagem diz — a parte completada pelo modelo caiu, o dito ficou (04/11/2026, "pode, não derrube"). */
+    vidrosPodados: number
     /** Esquadrias que receberam o vidro padrão da instrução (04/11/2026). */
     vidrosPadrao: number
 }
@@ -246,7 +248,7 @@ function anotar(r: Rastro, desfecho: DesfechoDaIa, detalhe = '') {
     const contexto = (r.contexto === '-' ? '' : ` contexto=${r.contexto}${r.fala === '-' ? '' : ` fala=${FALA_NO_LOG[r.fala]}`}`)
         + (r.instrucoes === '-' ? '' : ` instrucoes=${r.instrucoes}`) + (r.fundidos > 0 ? ` agrupados=${r.fundidos}` : '') + (r.reenviadas > 0 ? ` reenviadas=${r.reenviadas}` : '')
         + (r.historico === '-' ? '' : ` historico=${r.historico}`) + (r.gravacao === '-' ? '' : ` gravacao=${r.gravacao}`) + (r.redacao === '-' ? '' : ` redacao=${r.redacao}`)
-        + (r.vidrosNaoDitos > 0 ? ` vidro_nao_dito=${r.vidrosNaoDitos}` : '') + (r.vidrosPadrao > 0 ? ` vidro_padrao=${r.vidrosPadrao}` : '')
+        + (r.vidrosNaoDitos > 0 ? ` vidro_nao_dito=${r.vidrosNaoDitos}` : '') + (r.vidrosPodados > 0 ? ` vidro_podado=${r.vidrosPodados}` : '') + (r.vidrosPadrao > 0 ? ` vidro_padrao=${r.vidrosPadrao}` : '')
     console.error(`${PREFIXO_DO_LOG_DA_IA} levantamento=${r.levantamento} rota=${r.rota} propostos=${r.propostos} descartados=${r.descartados} enviou=${r.enviou ? 'sim' : 'nao'} desfecho=${desfecho}${admin} nome=${r.nome} aberta=${r.aberta}${contexto}${ia}${detalhe ? ` ${detalhe}` : ''}`)
 }
 
@@ -844,7 +846,7 @@ export type Interlocutor = {
 export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
     const rastro: Rastro = {
         levantamento: '-', rota: '-', propostos: 0, descartados: 0, enviou: false, admin: null, nome: '-', aberta: '-', ia: { ms: null, entrada: null, saida: null },
-        contexto: '-', fala: '-', instrucoes: '-', fundidos: 0, reenviadas: 0, historico: '-', gravacao: '-', redacao: '-', vidrosNaoDitos: 0, vidrosPadrao: 0,
+        contexto: '-', fala: '-', instrucoes: '-', fundidos: 0, reenviadas: 0, historico: '-', gravacao: '-', redacao: '-', vidrosNaoDitos: 0, vidrosPodados: 0, vidrosPadrao: 0,
     }
     const fim = (desfecho: DesfechoDaIa, detalhe = ''): DesfechoDaIa => { anotar(rastro, desfecho, detalhe); return desfecho }
     // a fala da IA, já filtrada: abre a resposta do código. Sem contexto, ou com o filtro disparado, não há
@@ -977,12 +979,17 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         abertura = fala.fala
         const confirma = proposta.confirma === true ? true : proposta.confirma === false ? false : null
         // o fornecedor e a família que o vendedor NÃO disse saem da proposta: a pergunta de qual família não se responde pela IA.
-        // O VIDRO também (04/11/2026): "copiado, nunca completado" — o vidro cuja palavra não está na mensagem veio da instrução, e cai
+        // O VIDRO também (04/11/2026): "copiado, nunca completado" — a palavra que não está na mensagem veio da instrução e cai; o que está fica
+        // ("pode, não derrube": "incolor temperado 8 mm" sobre "vidro 8mm" vira "8 mm"); cai inteiro só quando NADA do vidro está na mensagem
         const semFornecedorInventado = (itens: unknown) => (Array.isArray(itens) ? itens.map((i) => {
             if (!i || typeof i !== 'object') return i
             const item = { ...(i as Record<string, unknown>) }
             for (const k of ['fornecedor', 'familia']) if (k in item && !ditoNaMensagem(item[k], c.texto)) item[k] = undefined
-            if (item.vidro !== undefined && item.vidro !== null && !vidroDito(item.vidro, c.texto)) { item.vidro = undefined; rastro.vidrosNaoDitos += 1 }
+            if (item.vidro !== undefined && item.vidro !== null) {
+                const podado = vidroPodado(item.vidro, c.texto)
+                if (podado === null) { item.vidro = undefined; rastro.vidrosNaoDitos += 1 }
+                else if (podado !== String(item.vidro).trim()) { item.vidro = podado; rastro.vidrosPodados += 1 }
+            }
             return item
         }) : itens)
         // AS ESQUADRIAS RETIDAS NUNCA SE PERDEM (03/11/2026): as da pergunta em aberto MAIS as desta mensagem; a reenviada idêntica conta uma vez
