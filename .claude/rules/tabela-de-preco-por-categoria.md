@@ -1286,3 +1286,68 @@ de até 6.000 caracteres na entrada das duas. A fixture `pedidos-a-ia-sem-contex
 **Prova:** os blocos (3), (26), (27), (28) e o (21) ampliado de `atendimentos-ia-levantamento-por-nome.test.ts`; (6) e (7) de
 `atendimentos-ia-inbound.test.ts` reescritos para a gravação e o reenvio; (VI) de `levantamento-em-montagem.test.ts`; a fixture regravada; o harness da
 migração; e as mutações do código (`mutacoes-conversa.py`, o resultado no PR).
+
+## O vidro copiado, nunca completado; a forma canônica; a dedupe por equivalência — dono do produto, 04/11/2026 (sem migração)
+
+**O caso que originou** (De Paula, 03/11/2026, 21:09 a 21:20 UTC, medido nas mensagens gravadas e na pergunta em aberto): o vendedor escreveu
+"vidro 4mm" e "vidro 8mm" em todas as mensagens; o modelo devolveu seis grafias — "Vidro comum 4 mm", "incolor comum 4 mm", "incolor 4 mm
+comum", "Vidro comum 8 mm", "incolor temperado 8 mm", "incolor 8 mm temperado" —, completadas a partir da instrução da categoria VIDRO que vai ao
+sistema ("Padrão: incolor 4 mm comum em janela; 8 mm temperado em porta…"); "8 mm" saiu como "comum" num turno e "temperado" noutro. A pergunta em
+aberto acabou com **10 itens para 2 esquadrias**, e a confirmação dizia "juntaria mais 10".
+
+**Medido antes (Fase 1):** o vidro caía no `default` de `valorValido` (`pre-definicao.ts`): qualquer texto não vazio, contra nada; o prompt não
+tinha regra para `vidro`; o único consumo estruturado era `espessuraDoVidro` (o número seguido de "mm", para o baguete). A conversa **nunca** leu
+`orcamentista_mp_vidro` — a lista (4 linhas: "Incolor 4 mm comum", "Mini boreal 4 mm", "Incolor 8 mm temperado", "Incolor 10 mm temperado") existia só
+na tela e foi apagada pela `20261103000002`; restaram a instrução de texto (482 caracteres) e a tabela de preço VIDRO da Estrela (21 itens em caixa
+alta). **A dedupe não veio só do vidro:** `juntarEsquadrias` comparava os 6 campos exatamente — "2 uni - DP-02" (só tipologia e quantidade) e os
+itens com `quantidade` vinda do histórico eram "outra esquadria".
+
+**As decisões, registradas como foram ditas (opção c):**
+
+1. > "VIDRO COPIADO, NUNCA COMPLETADO. O vidro do item é o que o vendedor disse, literal. O modelo não acrescenta têmpera, cor nem nada vindo da
+   > instrução da categoria. A instrução de VIDRO só entra quando o vendedor NÃO disse vidro nenhum para aquela esquadria — e, nesse caso, entra
+   > UMA vez, fica gravada e não muda nos turnos seguintes. 'vidro 8mm' nunca pode sair como 'comum' num turno e 'temperado' noutro: isso troca o
+   > produto e o preço."
+2. > "FORMA CANÔNICA (c): vidroCanonico(texto) -> espessura + têmpera + cor, numa ordem só. Serve para COMPARAR (dedupe e agrupamento); o texto que
+   > o vendedor disse continua sendo o que se grava e o que aparece. A regra nunca inventa o que não foi dito: '8 mm' não funde com 'temperado 8 mm'."
+3. > "DEDUPE POR EQUIVALÊNCIA, não por igualdade de 6 campos: campo ausente num dos lados não impede a dedupe [...]; quantidade sai da comparação:
+   > ela é somada ou atualizada, não é identidade; '2 uni - DP-02' sobre um DP-02 já retido é a MESMA esquadria com a quantidade dita, nunca uma
+   > esquadria nova. Com isso, os 10 itens daquele caso teriam sido 2. Use esse caso como teste."
+4. > "(b) fica para depois: quando a empresa tiver tabela de preço da categoria VIDRO, a lista do fornecedor pode entrar como referência ao
+   > modelo. Não faça agora."
+5. > "Não reviva orcamentista_mp_vidro. A decisão de 03/11 continua de pé."
+6. O ajuste antes do merge do #220: > "pode, não derrube. Quando o vidro proposto tem parte na mensagem e parte completada pelo modelo, PODE o que não
+   > está na mensagem e fique com o que está. 'incolor temperado 8 mm' com a mensagem dizendo só 'vidro 8mm' vira '8 mm', não vira vazio. Só cai
+   > inteiro quando NADA do vidro está na mensagem. O vendedor nunca pode ser perguntado por um vidro que ele já disse."
+
+**O que está implementado (`vidro.ts` novo, `pergunta-em-aberto.ts`, `levantamento-em-montagem.ts`, `conversa-da-ia.ts`):**
+
+- **Copiado, nunca completado — e podado, não derrubado.** O prompt ganhou a regra do `vidro` (copiar como escrito; nunca têmpera, cor ou palavra
+  da instrução) e a ferramenta ganhou `vidro_padrao` (24 opcionais, o limite do strict). No código, `vidroPodado(proposto, mensagem)`: palavra por
+  palavra do vidro proposto, fica a que está na mensagem (os números pelo valor; o enchimento "vidro", "de", "mm" acompanha) e **cai a que o modelo
+  completou** — "incolor temperado 8 mm" sobre "vidro 8mm" vira "8 mm", "Vidro comum 4 mm" sobre "vidro 4mm" vira "vidro 4 mm" (`vidro_podado=N` no
+  log); só cai INTEIRO quando nada do vidro está na mensagem (`vidro_nao_dito=N`). O vendedor nunca é perguntado por um vidro que já disse. O
+  `vidro_padrao` só preenche a esquadria que ficou sem vidro, uma vez, e nunca sobrescreve (`vidro_padrao=N`); viaja com a esquadria retida e entra
+  quando o levantamento nasce.
+- **A forma canônica.** `formaCanonicaDoVidro`: "<têmpera> <cor> <espessura> mm <resto…>", só com o que foi dito; sinônimos (liso = comum,
+  temp. = temperado, fumê = cinza, mini boreal = boreal, jateado = acidato); "3+3" é laminado por construção; o que não é espessura, têmpera nem cor
+  fica no resto e distingue. As seis grafias do caso viram quatro formas: as permutações fundem; "comum" não vira "temperado", "com cor" não vira
+  "sem cor". O texto gravado e exibido continua o do vendedor.
+- **A equivalência.** `esquadriasEquivalentes`: nenhum campo de identidade (tipologia, medidas, cor, vidro — a quantidade NÃO) presente nos dois
+  lados difere, e pelo menos um coincide; o vidro pela forma canônica. `fundirEsquadrias`: a mais completa prevalece (o que a retida não tinha vem da
+  nova), a quantidade dita atualiza. `juntarEsquadrias` funde a nova equivalente a uma retida (só contra as RETIDAS: duas novas iguais na mesma
+  mensagem são duas, e é o agrupamento que soma); a que equivale a mais de uma retida se funde na primeira. O agrupamento dos gravados compara o
+  vidro pela forma canônica.
+- **O caso como teste, nas duas leituras:** os 10 itens COMO ESTAVAM, pela equivalência, viram **4** — a regra não inventa: "comum 8 mm" e
+  "temperado 8 mm" são produtos diferentes, e o modelo já os tinha completado. Os **2** saem com a regra 1 valendo desde a primeira mensagem: o replay
+  dos cinco turnos do vendedor, com o vidro copiado, termina com duas esquadrias (2 e 1 unidades) na confirmação.
+
+**Não feito, por decisão:** a lista do fornecedor como referência ao modelo (decisão 4); `orcamentista_mp_vidro` continua vazia (decisão 5).
+**Observação fora do escopo, só registro:** no laço daquela conversa o vendedor queria o levantamento existente ("não acrescenta, são só 3
+unidades"), e a conversa só ofereceu acrescentar; o levantamento "Geronimo Silva" tem a porta 2.500 x 2.400 gravada como DP-02 (de antes do #215).
+
+**Prova:** `vidro.test.ts` (a forma canônica, os sinônimos, o laminado, o resto, `vidroPodado`: a poda, o que volta igual, o que cai inteiro);
+(VII) de `levantamento-em-montagem.test.ts` (o padrão uma vez, nunca sobrescreve, o agrupamento canônico); (29) de
+`atendimentos-ia-levantamento-por-nome.test.ts` (os 10 itens → 4; a equivalência pura; duas novas na mesma mensagem; o caso real em cinco turnos → 2;
+o completado é podado e gravado sem perguntar; cai inteiro só sem nada na mensagem; o podado funde com o retido; o padrão uma vez; o padrão na
+retida; o prompt e a ferramenta); a fixture dos pedidos regravada; e as mutações do código (`mutacoes-vidro.py`, o resultado no PR).

@@ -1025,7 +1025,8 @@ describe('(9) o contrato da chamada à Anthropic', () => {
         expect(item.additionalProperties).toBe(false)
         // `fornecedor`: a resposta à pergunta de qual fornecedor, com mais de uma tabela (26/10/2026)
         // `abertura` (03/11/2026): a palavra do vendedor por esquadria — porta ou janela, só essas duas
-        expect(Object.keys(item.properties).sort()).toEqual(['abertura', 'altura_mm', 'cor_perfil', 'familia', 'fornecedor', 'largura_mm', 'ordem', 'quantidade', 'tipologia', 'vidro'])
+        // `vidro_padrao` (04/11/2026): o padrão da instrução, só quando o vendedor não disse o vidro
+        expect(Object.keys(item.properties).sort()).toEqual(['abertura', 'altura_mm', 'cor_perfil', 'familia', 'fornecedor', 'largura_mm', 'ordem', 'quantidade', 'tipologia', 'vidro', 'vidro_padrao'])
         for (const k of ['ordem', 'largura_mm', 'altura_mm', 'quantidade']) expect(item.properties[k].type).toBe('integer')
         expect(item.properties.tipologia.type).toBe('string')
         expect(item.properties.abertura).toEqual(expect.objectContaining({ type: 'string', enum: ['porta', 'janela'] }))
@@ -1338,7 +1339,8 @@ describe('(15) DEFEITO de 26/10/2026 (b0465e57, print do dono do produto): o nom
     //   - sem nada no prompt sobre a pergunta anterior, "é o mesmo", "João medeiros" e "Novo levantamento João
     //     Medeiros" não trazem nome que ela possa ler (foi o medido: propostos=0 nas três);
     //   - com a pergunta em aberto no prompt, ela responde o que o vendedor quis dizer.
-    const MSG_1 = 'Levantamento Casa do João — janela de correr 2 folhas móveis Europa 42, 1200 x 1000 mm, 1 unidade, perfil branco, vidro 5mm, entrega em Montenegro, casa.'
+    // o vidro na mensagem como a IA o copia (04/11/2026: copiado, nunca completado)
+    const MSG_1 = 'Levantamento Casa do João — janela de correr 2 folhas móveis Europa 42, 1200 x 1000 mm, 1 unidade, perfil branco, vidro temperado 5mm, entrega em Montenegro, casa.'
     const fala = (sistema: string, trecho: string) => sistema.toLowerCase().includes(trecho.toLowerCase())
 
     async function oPrintInteiro() {
@@ -1395,7 +1397,7 @@ describe('(16) a PERGUNTA EM ABERTO do roteamento pelo nome (20261026000002): gu
     // Decisão do dono do produto, 26/10/2026: "nunca o texto da mensagem, só a pergunta feita, os levantamentos
     // citados e a proposta que espera resposta, apagada quando resolve." E "Confirma antes": a esquadria que veio
     // antes de o vendedor dizer o levantamento só entra num que já existe com o "sim" dele.
-    const MSG_1 = 'Levantamento Casa do João 2 — janela de correr 2 folhas móveis Europa 42, 1200 x 1000 mm, 1 unidade, perfil branco, vidro 5mm.'
+    const MSG_1 = 'Levantamento Casa do João 2 — janela de correr 2 folhas móveis Europa 42, 1200 x 1000 mm, 1 unidade, perfil branco, vidro temperado 5mm.'
     const fala = (sistema: string, trecho: string) => sistema.includes(trecho)
     const perguntas = () => estado.db.orcamentista_pergunta_em_aberto ?? []
     const escritasNaPergunta = () => estado.escritas.filter((e) => e.tabela === 'orcamentista_pergunta_em_aberto')
@@ -1553,9 +1555,9 @@ describe('(17) O APANHADO (dono do produto, 26/10/2026): a primeira resposta é 
     /** Os códigos de fornecedor que a DP-02 usa: os do de-para (WVetro e interno) e os das opções de arremate. */
     const CODIGOS = [...new Set([...(DE_PARA.itens as Linha[]).map((i) => String(i.codigo)), ...(DE_PARA.regras as Linha[]).map((r) => String(r.codigo_wvetro).replace('/WOLFF', ''))])]
         .filter((c) => c.length >= 4)
-    const pedir = async (itens: Linha[] = [{ ...DP02 }], escolhas: Linha[] = []) => {
+    const pedir = async (itens: Linha[] = [{ ...DP02 }], escolhas: Linha[] = [], mensagem = 'Levantamento Casa do Pedro: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm') => {
         llmResponde({ nome: 'Casa do Pedro', itens, escolhas })
-        await chamar('Levantamento Casa do Pedro: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm')
+        await chamar(mensagem)
         return ultimoEnviado()
     }
     const confirmar = async () => { llmResponde({ confirma: true }); await chamar('sim'); return ultimoEnviado() }
@@ -1584,7 +1586,8 @@ describe('(17) O APANHADO (dono do produto, 26/10/2026): a primeira resposta é 
     })
 
     it('DUAS esquadrias diferentes: uma linha cada, e o pé diz UMA vez o que é comum (a cor não se repete nas linhas)', async () => {
-        const apanhado = await pedir([{ ...DP02 }, { ...DP02, largura_mm: 1500, quantidade: 3, vidro: 'Laminado 8mm' }])
+        const apanhado = await pedir([{ ...DP02 }, { ...DP02, largura_mm: 1500, quantidade: 3, vidro: 'Laminado 8mm' }], [],
+            'Levantamento Casa do Pedro: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm; outra DP-02 1500 x 1000, 3 unidades, branco, laminado 8mm')
         expect(apanhado).toBe([
             'Apanhado do levantamento “Casa do Pedro”:',
             'Esquadria 1: DP-02, 1 unidade(s), 1.200 x 1.000 mm, vidro Temperado 5mm.',
@@ -2439,8 +2442,9 @@ describe('(24) porta não é janela, quantidade padrão 1, os limites e o agrupa
  * numerados, do mais recente ao mais antigo, com data e estado; o vendedor responde do jeito dele, o código confirma numa frase curta e segue.
  */
 describe('(25) o resgate do levantamento antigo e o contexto que não se perde (03/11/2026)', () => {
-    const JANELA = { tipologia: 'DP-02', largura_mm: 1500, altura_mm: 1200, vidro: 'Vidro comum 4 mm' }
-    const PORTA = { tipologia: 'DP-100', largura_mm: 2500, altura_mm: 2400, vidro: 'Vidro comum 8 mm' }
+    // o vidro COPIADO como o vendedor disse (04/11/2026): "vidro 4mm", não "Vidro comum 4 mm"
+    const JANELA = { tipologia: 'DP-02', largura_mm: 1500, altura_mm: 1200, vidro: 'vidro 4mm' }
+    const PORTA = { tipologia: 'DP-100', largura_mm: 2500, altura_mm: 2400, vidro: 'vidro 8mm' }
     const MSG_GERONIMO = 'Janela de correr 1,50x1,20 vidro 4mm / porta janela 2,50x2,40 vidro 8mm / Cliente: Geronimo Silva'
     const perguntas = () => estado.db.orcamentista_pergunta_em_aberto ?? []
     const porNome = (n: string) => levantamentos().find((l) => l.nome === n) as Linha
@@ -2624,9 +2628,9 @@ describe('(25) o resgate do levantamento antigo e o contexto que não se perde (
         expect(perguntas()).toEqual([expect.objectContaining({ pergunta: 'SEM_NOME', itens: [{ ...JANELA }, { ...PORTA }] })])
         expect(linhaIa().pop()).toMatch(/ reenviadas=2(\s|$)/)
         // a que difere num campo acumula
-        llmResponde({ itens: [{ ...JANELA, vidro: 'Vidro comum 6 mm' }] })
+        llmResponde({ itens: [{ ...JANELA, vidro: 'vidro 6mm' }] })
         await chamar('a janela é vidro 6mm')
-        expect(perguntas()[0].itens).toEqual([{ ...JANELA }, { ...PORTA }, { ...JANELA, vidro: 'Vidro comum 6 mm' }])
+        expect(perguntas()[0].itens).toEqual([{ ...JANELA }, { ...PORTA }, { ...JANELA, vidro: 'vidro 6mm' }])
         expect(linhaIa().pop()).not.toContain('reenviadas=')
     })
 
@@ -3026,5 +3030,172 @@ describe('(28) as frases do modelo: a redação validada, o rascunho quando não
         expect(R().mantemOConteudo('qual o vidro da esquadria 2?', 'Esquadria 2: Qual o vidro?')).toBe(true)
         expect(R().mantemOConteudo('qual o vidro?', 'Esquadria 2: Qual o vidro?')).toBe(false)
         expect(R().LIMITE_DA_REDACAO).toBe(700)
+    })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+/**
+ * (29) O VIDRO SEM VOCABULÁRIO (dono do produto, 04/11/2026): o caso real da De Paula (03/11, 21:09 a 21:20 UTC) — o vendedor escreveu "vidro
+ * 4mm" e "vidro 8mm" em todas as mensagens, o modelo devolveu seis grafias completadas pela instrução de VIDRO, e a dedupe por igualdade de 6
+ * campos deixou 10 itens em espera para 2 esquadrias. As regras: VIDRO COPIADO, NUNCA COMPLETADO; a FORMA CANÔNICA para comparar; DEDUPE POR
+ * EQUIVALÊNCIA (campo ausente não impede, quantidade não é identidade, "2 uni - DP-02" é o mesmo DP-02); o padrão da instrução UMA vez.
+ */
+describe('(29) o vidro copiado, a forma canônica e a dedupe por equivalência (04/11/2026)', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const PA = () => require('@/lib/atendimentos-ia/pergunta-em-aberto') as typeof import('@/lib/atendimentos-ia/pergunta-em-aberto')
+    const perguntas = () => estado.db.orcamentista_pergunta_em_aberto ?? []
+    const JANELA = { tipologia: 'DP-02', largura_mm: 1500, altura_mm: 1200, vidro: 'vidro 4mm' }
+    const PORTA = { tipologia: 'DP-100', largura_mm: 2500, altura_mm: 2400, vidro: 'vidro 8mm' }
+    /** Os 10 itens em espera COMO ESTAVAM em produção (orcamentista_pergunta_em_aberto da De Paula, 03/11/2026 21:20 UTC). */
+    const OS_DEZ = [
+        { vidro: 'Vidro comum 4 mm', altura_mm: 1200, tipologia: 'DP-02', largura_mm: 1500 },
+        { vidro: 'Vidro comum 8 mm', altura_mm: 2400, tipologia: 'DP-39', largura_mm: 2500 },
+        { vidro: 'incolor comum 4 mm', altura_mm: 1200, tipologia: 'DP-02', largura_mm: 1500 },
+        { vidro: 'incolor temperado 8 mm', altura_mm: 2400, tipologia: 'DP-39', largura_mm: 2500 },
+        { vidro: 'incolor 4 mm comum', altura_mm: 1200, tipologia: 'DP-02', largura_mm: 1500 },
+        { vidro: 'incolor 8 mm temperado', altura_mm: 2400, tipologia: 'DP-39', largura_mm: 2500 },
+        { tipologia: 'DP-02', quantidade: 2 },
+        { tipologia: 'DP-39', quantidade: 1 },
+        { vidro: 'incolor comum 4 mm', altura_mm: 1200, tipologia: 'DP-02', largura_mm: 1500, quantidade: 2 },
+        { vidro: 'incolor temperado 8 mm', altura_mm: 2400, tipologia: 'DP-39', largura_mm: 2500, quantidade: 1 },
+    ]
+
+    it('os 10 itens COMO ESTAVAM, pela equivalência: 4 — as permutações fundem, a quantidade entra, mas "comum" não vira "temperado" nem "com cor" vira "sem cor"', () => {
+        // a regra nunca inventa: com o vidro já completado pelo modelo nos itens 3 a 6, 9 e 10, o que sobra são 4 vidros de fato distintos.
+        // Os 2 só saem com a regra 1 (vidro copiado) valendo desde a primeira mensagem — o teste seguinte
+        let acumulado: unknown[] = []
+        let reenviadas = 0
+        for (const item of OS_DEZ) { const r = PA().juntarEsquadrias(acumulado as Record<string, unknown>[], [item]); acumulado = r.itens; reenviadas += r.reenviadas }
+        expect(acumulado).toEqual([
+            { vidro: 'Vidro comum 4 mm', altura_mm: 1200, tipologia: 'DP-02', largura_mm: 1500, quantidade: 2 },
+            { vidro: 'Vidro comum 8 mm', altura_mm: 2400, tipologia: 'DP-39', largura_mm: 2500, quantidade: 1 },
+            { vidro: 'incolor comum 4 mm', altura_mm: 1200, tipologia: 'DP-02', largura_mm: 1500, quantidade: 2 },
+            { vidro: 'incolor temperado 8 mm', altura_mm: 2400, tipologia: 'DP-39', largura_mm: 2500, quantidade: 1 },
+        ])
+        expect(reenviadas).toBe(6)
+    })
+
+    it('equivalência, pura: ausente não impede; a quantidade não é identidade; "2 uni - DP-02" é o DP-02 retido; um campo presente nos dois e diferente separa; nada em comum separa', () => {
+        const eq = PA().esquadriasEquivalentes
+        expect(eq(JANELA, { tipologia: 'DP-02', quantidade: 2 })).toBe(true)
+        expect(eq(JANELA, { tipologia: 'DP-02', largura_mm: 1500, altura_mm: 1200 })).toBe(true)
+        expect(eq(JANELA, { ...JANELA, vidro: '4 mm vidro' })).toBe(true)
+        expect(eq(JANELA, { ...JANELA, vidro: 'temperado 4mm' })).toBe(false)
+        expect(eq(JANELA, { tipologia: 'DP-100', quantidade: 2 })).toBe(false)
+        expect(eq(JANELA, { quantidade: 2 })).toBe(false)
+        expect(eq({ vidro: 'vidro 4mm' }, { vidro: 'vidro 4 mm', quantidade: 3 })).toBe(true)
+        // a quantidade NÃO é identidade: a mesma esquadria dita com 1 e depois com 3 unidades é a mesma, e a fusão fica com 3
+        expect(eq({ ...JANELA, quantidade: 1 }, { ...JANELA, quantidade: 3 })).toBe(true)
+        expect(PA().fundirEsquadrias({ ...JANELA, quantidade: 1 }, { ...JANELA, quantidade: 3 }).quantidade).toBe(3)
+        // a fusão: a mais completa prevalece, a quantidade dita atualiza
+        expect(PA().fundirEsquadrias({ tipologia: 'DP-02', quantidade: 5 }, { ...JANELA, quantidade: 2, vidro_padrao: 'x' })).toEqual({ ...JANELA, quantidade: 2, vidro_padrao: 'x' })
+        expect(PA().fundirEsquadrias(JANELA, { tipologia: 'DP-02' })).toEqual(JANELA)
+    })
+
+    it('duas novas iguais na MESMA mensagem ("DP-02 …; outra DP-02 …") não se fundem na espera: são duas, e é o agrupamento que soma', () => {
+        const r = PA().juntarEsquadrias([], [{ ...JANELA }, { ...JANELA }])
+        expect(r.itens).toHaveLength(2)
+        expect(r.reenviadas).toBe(0)
+    })
+
+    it('O CASO REAL, com o vidro COPIADO desde a primeira mensagem: cinco turnos, duas esquadrias — a confirmação lista 2, com as quantidades ditas', async () => {
+        await fecharDp02('Geronimo Silva')
+        // 1. as duas esquadrias, sem nome
+        llmResponde({ itens: [{ ...JANELA }, { ...PORTA }] })
+        await chamar('Janela de correr 1,50×1,20 vidro 4mm / porta janela 2,50×2,40 vidro 8mm')
+        expect(perguntas()[0]).toEqual(expect.objectContaining({ pergunta: 'SEM_NOME', itens: [{ ...JANELA }, { ...PORTA }] }))
+        // 2. o nome, e as mesmas duas de novo
+        llmResponde({ nome: 'Geronimo Silva', itens: [{ ...JANELA }, { ...PORTA }] })
+        await chamar('Geronimo Silva')
+        expect(perguntas()[0]).toEqual(expect.objectContaining({ pergunta: 'CONFIRMAR_ACRESCIMO', itens: [{ ...JANELA }, { ...PORTA }] }))
+        expect(linhaIa().pop()).toMatch(/ reenviadas=2(\s|$)/)
+        // 3. "já disse que são do geronimo silva" — as duas de novo, sem medida nem vidro
+        llmResponde({ nome: 'Geronimo Silva', itens: [{ tipologia: 'DP-02' }, { tipologia: 'DP-100' }] })
+        await chamar('Eu ja disse que essas esquadrias são do geronimo silva')
+        expect(perguntas()[0].itens).toEqual([{ ...JANELA }, { ...PORTA }])
+        // 4. "2 uni - DP-02 / 1 uni - DP-100": a quantidade dita sobre as retidas, nunca esquadrias novas
+        llmResponde({ nome: 'Geronimo Silva', itens: [{ tipologia: 'DP-02', quantidade: 2 }, { tipologia: 'DP-100', quantidade: 1 }] })
+        await chamar('geronimo silva é o nome da obra\n2 uni - DP - 02\n1 uni - DP - 100')
+        expect(perguntas()[0].itens).toEqual([{ ...JANELA, quantidade: 2 }, { ...PORTA, quantidade: 1 }])
+        // a confirmação fala de DUAS esquadrias (não de 8), com as quantidades e o vidro como o vendedor o disse
+        expect(ultimoEnviado()).toBe(conversa.fraseDeConfirmarAcrescimo('Geronimo Silva', 1, [{ ...JANELA, quantidade: 2 }, { ...PORTA, quantidade: 1 }]))
+        expect(ultimoEnviado()).toContain('estas 2 esquadrias')
+        expect(ultimoEnviado()).toContain('2 unidade(s), vidro 4mm')
+        expect(ultimoEnviado()).not.toContain('comum')
+        // 5. tudo de novo, com o vidro escrito de outro jeito ("vidro 4 mm"): continuam 2, e a mesma confirmação volta em outras palavras (R2)
+        llmResponde({ cliente: 'Geronimo Silva', itens: [{ ...JANELA, vidro: 'vidro 4 mm', quantidade: 2 }, { ...PORTA, vidro: 'vidro 8 mm', quantidade: 1 }] })
+        await chamar('Cliente Geronimo Silva\nDP-02, 1.500 x 1.200 mm, vidro 4 mm\nDP-100, 2.500 x 2.400 mm, vidro 8 mm')
+        expect(perguntas()[0].itens).toEqual([{ ...JANELA, quantidade: 2 }, { ...PORTA, quantidade: 1 }])
+        expect(linhaIa().pop()).toMatch(/ reenviadas=2(\s|$)/)
+        expect(ultimoEnviado()).toBe(conversa.fraseDeConfirmarAcrescimoEmOutrasPalavras('Geronimo Silva'))
+    })
+
+    it('VIDRO COPIADO, NUNCA COMPLETADO — "pode, não derrube": "Vidro comum 4 mm" sobre "vidro 4mm" fica "vidro 4 mm", gravado; o vendedor não é perguntado pelo vidro que já disse', async () => {
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, vidro: 'Vidro comum 4 mm' }], escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar('Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco, vidro 4mm, sem arremate interno, arremate externo com folga de 50')
+        expect(itensDe(levantamentos()[0].id)[0].vidro).toBe('vidro 4 mm')
+        expect(ultimoEnviado().startsWith('Apanhado do levantamento')).toBe(true)
+        expect(ultimoEnviado()).toContain('vidro vidro 4 mm')
+        expect(ultimoEnviado()).not.toContain('comum')
+        expect(linhaIa().pop()).toMatch(/ vidro_podado=1(\s|$)/)
+    })
+
+    it('cai INTEIRO só quando NADA do vidro está na mensagem: "incolor comum" sem vidro dito deixa a esquadria sem vidro, e o log diz vidro_nao_dito', async () => {
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, vidro: 'incolor comum' }] })
+        await chamar('Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco')
+        expect(itensDe(levantamentos()[0].id)[0].vidro).toBeNull()
+        expect(ultimoEnviado()).toBe(PERGUNTA_DO_VIDRO)
+        expect(linhaIa().pop()).toMatch(/ vidro_nao_dito=1(\s|$)/)
+        // o copiado entra, com a caixa e o espaço que a IA escreveu, sem poda e sem log
+        llmResponde({ itens: [{ vidro: 'Vidro 4 mm' }] })
+        await chamar('vidro 4mm')
+        expect(itensDe(levantamentos()[0].id)[0].vidro).toBe('Vidro 4 mm')
+        expect(linhaIa().pop()).not.toMatch(/vidro_nao_dito=|vidro_podado=/)
+    })
+
+    it('o caso real com o modelo completando: "incolor temperado 8 mm" sobre "vidro 8mm" entra na espera como "8 mm", e funde com o "vidro 8mm" retido', async () => {
+        llmResponde({ itens: [{ ...PORTA }] })
+        await chamar('porta janela 2,50×2,40 vidro 8mm')
+        llmResponde({ itens: [{ ...PORTA, vidro: 'incolor temperado 8 mm' }] })
+        await chamar('porta janela 2,50×2,40 vidro 8mm')
+        expect(perguntas()[0].itens).toEqual([{ ...PORTA }])
+        expect(linhaIa().pop()).toMatch(/ reenviadas=1 .*vidro_podado=1(\s|$)/)
+    })
+
+    it('O PADRÃO DA INSTRUÇÃO entra UMA vez, na esquadria que ficou sem vidro, fica gravado e não muda no turno seguinte', async () => {
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, vidro: undefined, vidro_padrao: 'incolor 4 mm comum' }], escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar('Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco, sem arremate interno, arremate externo com folga de 50')
+        expect(itensDe(levantamentos()[0].id)[0].vidro).toBe('incolor 4 mm comum')
+        expect(linhaIa().pop()).toMatch(/ vidro_padrao=1(\s|$)/)
+        expect(ultimoEnviado()).toContain('vidro incolor 4 mm comum')
+        // o turno seguinte traz OUTRO padrão: nada muda
+        llmResponde({ nome: 'Casa do João', alteracao: true, itens: [{ ordem: 1, largura_mm: 1300, vidro_padrao: 'incolor 4 mm temperado' }] })
+        await chamar('Casa do João: largura 1300')
+        expect(itensDe(levantamentos()[0].id)[0].vidro).toBe('incolor 4 mm comum')
+        expect(linhaIa().pop()).not.toContain('vidro_padrao=')
+        // o vendedor DIZ outro vidro: o dito vence o padrão
+        llmResponde({ nome: 'Casa do João', alteracao: true, itens: [{ ordem: 1, vidro: 'temperado 8mm' }] })
+        await chamar('Casa do João: vidro temperado 8mm')
+        expect(itensDe(levantamentos()[0].id)[0].vidro).toBe('temperado 8mm')
+    })
+
+    it('a esquadria RETIDA sem vidro leva o padrão com ela, e ele entra quando o levantamento nasce — uma vez', async () => {
+        llmResponde({ itens: [{ ...JANELA, vidro: undefined, vidro_padrao: 'incolor 4 mm comum' }] })
+        await chamar('Janela de correr 1,50×1,20')
+        expect(perguntas()[0].itens).toEqual([{ ...JANELA, vidro: undefined, vidro_padrao: 'incolor 4 mm comum' }])
+        llmResponde({ nome: 'Obra Nova', novo: true, itens: [] })
+        await chamar('novo Obra Nova')
+        expect(itensDe(levantamentos()[0].id)[0].vidro).toBe('incolor 4 mm comum')
+        expect(linhaIa().pop()).toMatch(/ vidro_padrao=1(\s|$)/)
+    })
+
+    it('o prompt e a ferramenta dizem a regra: copiar o vidro, nunca completar; o padrão em vidro_padrao', async () => {
+        await chamar('oi')
+        const s = String(estado.chamadasDaLlm[0].corpo.system)
+        expect(s).toContain('- vidro: COPIE o vidro como o vendedor o escreveu nesta mensagem')
+        expect(s).toContain('NUNCA acrescente têmpera, cor ou qualquer palavra que ele não disse — nem da instrução da categoria VIDRO')
+        const props = (estado.chamadasDaLlm[0].corpo.tools as Array<{ input_schema: { properties: { itens: { items: { properties: Record<string, { description?: string }> } } } } }>)[0].input_schema.properties.itens.items.properties
+        expect(props.vidro.description).toContain('sem acrescentar')
+        expect(props.vidro_padrao.description).toContain('NÃO disse o vidro')
     })
 })

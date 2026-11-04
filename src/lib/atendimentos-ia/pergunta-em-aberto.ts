@@ -17,6 +17,7 @@
  * se grava nela. A conversa se comporta como antes dela, e a linha [IA] diz `aberta=ausente`.
  */
 import { supabaseAdmin } from '@/supabase/admin'
+import { mesmoVidro } from '@/lib/atendimentos-ia/vidro'
 import { CAMPOS_DA_ESQUADRIA } from '@/lib/atendimentos-ia/levantamento-em-montagem'
 
 export const TABELA_DA_PERGUNTA = 'orcamentista_pergunta_em_aberto'
@@ -52,8 +53,9 @@ export function esquadriasDaProposta(proposta: unknown): EsquadriaProposta[] {
     return itens.flatMap((bruto) => {
         if (!bruto || typeof bruto !== 'object') return []
         const b = bruto as Record<string, unknown>
-        const campos = Object.fromEntries(CAMPOS_DA_ESQUADRIA.filter((c) => b[c] !== undefined && b[c] !== null && b[c] !== '').map((c) => [c, b[c]]))
-        return Object.keys(campos).length ? [campos] : []
+        // o `vidro_padrao` (04/11/2026) viaja com a esquadria retida: é aplicado só quando ela fica sem vidro (`aplicarProposta`)
+        const campos = Object.fromEntries([...CAMPOS_DA_ESQUADRIA, 'vidro_padrao'].filter((c) => b[c] !== undefined && b[c] !== null && b[c] !== '').map((c) => [c, b[c]]))
+        return CAMPOS_DA_ESQUADRIA.some((c) => c in campos) ? [campos] : []
     })
 }
 
@@ -98,24 +100,56 @@ export async function apagarPerguntaEmAberto(tenantId: string, remetenteId: stri
     if (error) throw new Error(`${TABELA_DA_PERGUNTA}: ${error.message}`)
 }
 
-/** A forma pela qual duas esquadrias propostas se comparam: os campos da esquadria, em ordem fixa. */
-const formaDaEsquadria = (e: EsquadriaProposta) => JSON.stringify(CAMPOS_DA_ESQUADRIA.map((c) => [c, e[c] ?? null]))
+/** Os campos que IDENTIFICAM a esquadria: a quantidade não é identidade (04/11/2026) — é somada ou atualizada. */
+const CAMPOS_DE_IDENTIDADE = CAMPOS_DA_ESQUADRIA.filter((c) => c !== 'quantidade')
+const presente = (v: unknown) => v !== undefined && v !== null && v !== ''
 
 /**
- * AS ESQUADRIAS RETIDAS NUNCA SE PERDEM (dono do produto, 03/11/2026): o que já estava guardado na pergunta em aberto mais o que
- * vem na mensagem nova. A da mensagem nova IDÊNTICA a uma retida (os mesmos campos da esquadria) é a MESMA esquadria reenviada — o
- * caso real de 03/11, em que o vendedor remandou as duas enquanto a pergunta do nome estava aberta —, e conta uma vez; a que difere
- * em algum campo acumula. As retidas vêm primeiro (chegaram antes); as novas ficam como a IA as propôs (com `ordem`, família…).
+ * DUAS ESQUADRIAS SÃO EQUIVALENTES (dono do produto, 04/11/2026: "dedupe por equivalência, não por igualdade de 6 campos") quando nenhum
+ * campo de identidade presente nos dois lados difere — o vidro pela forma canônica (`mesmoVidro`), os outros pelo valor — e pelo menos um
+ * campo de identidade coincide. "Campo ausente num dos lados não impede a dedupe: o item com menos campos é o mesmo item, mais pobre."
+ * "2 uni - DP-02" sobre um DP-02 retido é o mesmo DP-02 com a quantidade dita. A regra nunca inventa: "8 mm" e "temperado 8 mm" diferem.
+ */
+export function esquadriasEquivalentes(a: EsquadriaProposta, b: EsquadriaProposta): boolean {
+    let coincidem = 0
+    for (const c of CAMPOS_DE_IDENTIDADE) {
+        if (!presente(a[c]) || !presente(b[c])) continue
+        const iguais = c === 'vidro' ? mesmoVidro(a[c], b[c]) : a[c] === b[c]
+        if (!iguais) return false
+        coincidem += 1
+    }
+    return coincidem > 0
+}
+
+/**
+ * Funde a nova na retida: a informação mais completa prevalece — o que a retida não tinha vem da nova (o vidro inclusive: a retida sem vidro
+ * ganha o dito agora); o que as duas têm fica o da retida (chegou antes). A quantidade dita agora ATUALIZA a de antes.
+ */
+export function fundirEsquadrias(retida: EsquadriaProposta, nova: EsquadriaProposta): EsquadriaProposta {
+    const fusao: EsquadriaProposta = { ...retida }
+    for (const c of [...CAMPOS_DA_ESQUADRIA, 'vidro_padrao']) if (!presente(fusao[c]) && presente(nova[c])) fusao[c] = nova[c]
+    if (presente(nova.quantidade)) fusao.quantidade = nova.quantidade
+    return fusao
+}
+
+/**
+ * AS ESQUADRIAS RETIDAS NUNCA SE PERDEM (dono do produto, 03/11/2026): o que já estava guardado na pergunta em aberto mais o que vem na
+ * mensagem nova. A nova EQUIVALENTE a uma retida (04/11/2026; antes, só a idêntica nos 6 campos) é a MESMA esquadria dita de novo — mais
+ * pobre, mais rica ou com a quantidade — e se funde nela, contando uma vez; a que não equivale a nenhuma acumula. Só contra as RETIDAS:
+ * duas novas iguais na MESMA mensagem ("DP-02 …; outra DP-02 …") são duas, e é o agrupamento que as soma. As retidas vêm primeiro (chegaram
+ * antes); as novas ficam como a IA as propôs (com `ordem`, família…), e a nova que equivale a mais de uma retida se funde na PRIMEIRA.
  */
 export function juntarEsquadrias(retidas: readonly EsquadriaProposta[], novas: readonly unknown[]): { itens: unknown[]; reenviadas: number } {
-    const formas = new Set(retidas.map(formaDaEsquadria))
+    const itens: unknown[] = retidas.map((r) => ({ ...r }))
     let reenviadas = 0
-    const ficam = novas.filter((bruto) => {
-        if (!bruto || typeof bruto !== 'object') return true
+    for (const bruto of novas) {
+        if (!bruto || typeof bruto !== 'object') { itens.push(bruto); continue }
         const campos = esquadriasDaProposta({ itens: [bruto] })[0]
-        if (!campos || !formas.has(formaDaEsquadria(campos))) return true
+        if (!campos) { itens.push(bruto); continue }
+        const k = itens.findIndex((i, n) => n < retidas.length && !!i && typeof i === 'object' && esquadriasEquivalentes(esquadriasDaProposta({ itens: [i] })[0] ?? {}, campos))
+        if (k < 0) { itens.push(bruto); continue }
         reenviadas += 1
-        return false
-    })
-    return { itens: [...retidas, ...ficam], reenviadas }
+        itens[k] = fundirEsquadrias(itens[k] as EsquadriaProposta, bruto as EsquadriaProposta)
+    }
+    return { itens, reenviadas }
 }
