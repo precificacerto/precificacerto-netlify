@@ -53,7 +53,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     medidas.push(await medir('https://www.cloudflare.com/cdn-cgi/trace', { method: 'GET' }))
     // a Anthropic de novo, numa segunda conexão: a primeira pode ter sido a azarada
     medidas.push(await medir('https://api.anthropic.com/v1/messages', corpoVazio))
-    const resultado = { quando: new Date().toISOString(), regiao: process.env.VERCEL_REGION ?? null, ambiente: process.env.VERCEL_ENV ?? null, node: process.version, medidas }
+    // o corpo do TAMANHO da produção (≈ 37 KB), ainda sem chave válida: se o envio do corpo travar de gru1, aparece aqui (esperado: 401 rápido)
+    const sistemaGrande = 'PROMPT DE TESTE DE REDE. '.repeat(1400)
+    const corpoGrande = JSON.stringify({ model: 'claude-sonnet-5-5', max_tokens: 20, system: [{ type: 'text', text: sistemaGrande, cache_control: { type: 'ephemeral' } }], messages: [{ role: 'user', content: 'diga ok' }] })
+    medidas.push(await medir('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'content-type': 'application/json', 'anthropic-version': '2026-10-21', 'x-api-key': 'sem-chave' }, body: corpoGrande }))
+    // COM a chave, se ela existir no ambiente de preview (o dono do produto a põe só neste branch): o pedido real, "diga ok" e o grande
+    const chave = process.env.ANTHROPIC_API_KEY
+    if (chave) {
+        const cab = { 'content-type': 'application/json', 'anthropic-version': '2026-10-21', 'x-api-key': chave }
+        medidas.push(await medir('https://api.anthropic.com/v1/messages#com-chave-diga-ok', { method: 'POST', headers: cab, body: JSON.stringify({ model: 'claude-sonnet-5-5', max_tokens: 20, messages: [{ role: 'user', content: 'diga ok' }] }) }))
+        medidas.push(await medir('https://api.anthropic.com/v1/messages#com-chave-corpo-grande', { method: 'POST', headers: cab, body: corpoGrande }))
+    }
+    const resultado = { quando: new Date().toISOString(), com_chave: Boolean(chave), tamanho_corpo_grande: corpoGrande.length, regiao: process.env.VERCEL_REGION ?? null, ambiente: process.env.VERCEL_ENV ?? null, node: process.version, medidas }
     console.error(`[SONDA-REDE] ${JSON.stringify(resultado)}`)
     res.status(200).json(resultado)
 }
