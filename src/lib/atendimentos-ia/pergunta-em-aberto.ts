@@ -15,12 +15,22 @@
  *
  * SEM A MIGRAÇÃO: a tabela ausente (PGRST205/42P01) é `'ausente'` — nenhuma pergunta em aberto, e nada
  * se grava nela. A conversa se comporta como antes dela, e a linha [IA] diz `aberta=ausente`.
+ *
+ * A PERGUNTA EXPIRA (dono do produto, 05/11/2026): "a pergunta em aberto expira em 24 h na leitura, como o histórico. Pendência presa por
+ * dois dias contamina toda mensagem nova do vendedor." Medido: a CONFIRMAR_ACRESCIMO do Geronimo (10 itens, 03/11 21:20 UTC) ficou dois dias
+ * na tabela — a linha só saía quando uma mensagem a RESOLVIA, e o vendedor nunca respondeu "sim/não" —, e a conversa do Jeison foi lida como
+ * resposta a uma confirmação de terça. A leitura mais velha que `HORAS_DA_PERGUNTA_EM_ABERTO` é `'expirada'`: nenhuma pergunta vai ao
+ * modelo, a linha [IA] diz `aberta=expirada`, e a linha velha fica no banco até a próxima pergunta a sobrescrever ou uma resolução a apagar
+ * — como o histórico, que filtra na leitura e não apaga.
  */
 import { supabaseAdmin } from '@/supabase/admin'
 import { mesmoVidro } from '@/lib/atendimentos-ia/vidro'
 import { CAMPOS_DA_ESQUADRIA } from '@/lib/atendimentos-ia/levantamento-em-montagem'
+import { HORAS_DO_HISTORICO } from '@/lib/atendimentos-ia/conversa-gravada'
 
 export const TABELA_DA_PERGUNTA = 'orcamentista_pergunta_em_aberto'
+/** A pergunta vale o mesmo tempo que o histórico da conversa (05/11/2026): 24 h, contadas de `criado_em`. */
+export const HORAS_DA_PERGUNTA_EM_ABERTO = HORAS_DO_HISTORICO
 /** CONFIRMAR_APANHADO entrou com a migração 20261026000003 (o apanhado, dono do produto, 26/10/2026). */
 export const PERGUNTAS = ['NOME_PARECIDO', 'SEM_NOME', 'CONFIRMAR_ACRESCIMO', 'CONFIRMAR_APANHADO'] as const
 export type CodigoDaPergunta = (typeof PERGUNTAS)[number]
@@ -70,14 +80,29 @@ function lerLinha(l: Record<string, unknown> | null): PerguntaEmAberto | null {
     }
 }
 
-export async function lerPerguntaEmAberto(tenantId: string, remetenteId: string): Promise<PerguntaEmAberto | null | 'ausente'> {
-    const { data, error } = await supabaseAdmin.from(TABELA_DA_PERGUNTA).select('pergunta, nome, levantamentos, itens')
+/**
+ * A pergunta EXPIROU quando `criado_em` é mais velho que `HORAS_DA_PERGUNTA_EM_ABERTO` antes de `agora` — a mesma conta do histórico
+ * (`criado_em >= agora − 24 h` fica). Uma data que não se lê NÃO expira: a idade é desconhecida, e o desconhecido não vira "velha"
+ * (`ausente-vs-falso`); a coluna é NOT NULL DEFAULT now() em produção, então esse caso é só a leitura defensiva.
+ */
+export function perguntaExpirou(criadoEm: unknown, agora: Date): boolean {
+    if (typeof criadoEm !== 'string') return false
+    const t = new Date(criadoEm).getTime()
+    if (Number.isNaN(t)) return false
+    return t < agora.getTime() - HORAS_DA_PERGUNTA_EM_ABERTO * 3_600_000
+}
+
+/** `'expirada'`: há uma linha, mas velha demais para ser a pergunta desta conversa — quem lê a trata como nenhuma pergunta. */
+export async function lerPerguntaEmAberto(tenantId: string, remetenteId: string, agora = new Date()): Promise<PerguntaEmAberto | null | 'ausente' | 'expirada'> {
+    const { data, error } = await supabaseAdmin.from(TABELA_DA_PERGUNTA).select('pergunta, nome, levantamentos, itens, criado_em')
         .eq('tenant_id', tenantId).eq('remetente_id', remetenteId).maybeSingle()
     if (error) {
         if (tabelaAusente(error)) return 'ausente'
         throw new Error(`${TABELA_DA_PERGUNTA}: ${error.message}`)
     }
-    return lerLinha(data as Record<string, unknown> | null)
+    const linha = lerLinha(data as Record<string, unknown> | null)
+    if (linha && perguntaExpirou((data as Record<string, unknown>).criado_em, agora)) return 'expirada'
+    return linha
 }
 
 /**

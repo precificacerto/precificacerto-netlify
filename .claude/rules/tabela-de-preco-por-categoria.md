@@ -1531,3 +1531,38 @@ turnos da conta com a montagem e a pergunta só no volátil; o contexto no fim d
 vazio não vira bloco); (24) com a lista enxuta e a legenda; `tipologias-candidatas.test.ts` (`limitesNoPrompt` compacto, `descricaoNoPrompt`);
 `levantamento-da-conversa.test.ts` (a `linha` lida e a linha do candidato com e sem ela); e as mutações do código (`mutacoes-prompt.py`, o resultado no
 PR). Os testes novos ficam vermelhos com o código da main (medido antes do push).
+
+## A pergunta em aberto expira em 24 h na leitura, como o histórico — dono do produto, 05/11/2026 (sem migração)
+
+**O caso que originou:** a CONFIRMAR_ACRESCIMO do Geronimo (10 itens retidos, criada em 03/11 às 21:20 UTC) ficou dois dias em
+`orcamentista_pergunta_em_aberto`, porque a linha só saía em `apagarPerguntaEmAberto`, quando uma mensagem a RESOLVIA — e o vendedor nunca
+respondeu "sim/não". Cada mensagem nova do remetente foi lida com a pergunta de terça no sistema: a conversa do Jeison foi lida como resposta
+a uma confirmação de dois dias antes. A linha foi apagada por operação autorizada em 05/11 (log em `superadmin_alteracao_log`), e o PR #226
+registrou o porquê: não havia validade, cron nem conferência de idade.
+
+**A decisão, registrada como foi dita:**
+
+> "PR própria, Nível 2, para a pergunta em aberto expirar em 24 h na leitura, como o histórico. Pendência presa por dois dias contamina toda
+> mensagem nova do vendedor, e foi o que fez a conversa do Jeison ser lida como resposta a uma confirmação de terça."
+
+**O que está implementado (`pergunta-em-aberto.ts`, `conversa-da-ia.ts`):**
+
+- **A janela é a do histórico, uma constante só:** `HORAS_DA_PERGUNTA_EM_ABERTO = HORAS_DO_HISTORICO` (24). A conta é a mesma do histórico
+  (`criado_em >= agora − 24 h` fica): `perguntaExpirou(criadoEm, agora)` é verdadeiro quando `criado_em` é mais velho que isso. **Em 24 h exatas a
+  pergunta ainda vale; 1 ms a mais expira.** Uma data que não se lê NÃO expira: a idade é desconhecida, e o desconhecido não vira "velha"
+  (`ausente-vs-falso`); em produção a coluna é `NOT NULL DEFAULT now()`, então é só a leitura defensiva.
+- **A leitura devolve `'expirada'`** (`lerPerguntaEmAberto`, que passou a selecionar `criado_em` e aceita um `agora` injetado): há uma linha, mas velha
+  demais para ser a pergunta desta conversa. Na conversa, a guarda é **uma só**: a pergunta que VALE nesta mensagem exclui `'ausente'` e `'expirada'`;
+  da expirada nada vai ao modelo (nenhum `Pergunta em aberto:` no sistema), os levantamentos que ela cita não são lidos, e a linha `[IA]` diz
+  **`aberta=expirada`** (os outros valores continuam `<código>|ausente|-`).
+- **A linha velha fica no banco até ser sobrescrita ou resolvida — como o histórico, a leitura filtra e não apaga.** A próxima pergunta a sobrescreve
+  (upsert pela chave tenant + remetente, `criado_em` de agora); a mensagem que resolve a apaga pelo caminho de sempre (`temLinha` continua
+  verdadeiro para a expirada: há uma linha). Apagar na leitura seria uma mudança que apaga algo (Nível 3) e não foi pedido.
+- **O que não muda:** a pergunta da montagem (guardada no levantamento EM_MONTAGEM) não passa por aqui; a tabela ausente continua `'ausente'`.
+
+**Prova:** bloco (35) de `atendimentos-ia-levantamento-por-nome.test.ts` — a constante igual à do histórico; `perguntaExpirou` em 24 h exatas, 1 ms a
+mais, a data do Geronimo e as datas ilegíveis; `lerPerguntaEmAberto` com a linha velha, a nova, o `agora` injetado e sem linha; a pergunta de 23 h
+lida como resposta ("é o mesmo" → confirmação, `aberta=NOME_PARECIDO`); a de 25 h NÃO lida (nada no sistema, "é o mesmo" não vira confirmação, nada
+entra no levantamento, `aberta=expirada`); a linha expirada apagada pela mensagem que resolve e substituída pela pergunta nova; a pergunta nova
+sobrescrevendo a expirada. Mutações do código (`mutacoes-expira.py`): 11 de 11 mortas, depois de unificar a guarda que estava em dois lugares (cada
+metade sozinha não mudava nada, e duas mutações sobreviviam). Cinco dos sete testes novos ficam vermelhos com o código da main; os dois que passam nele (a pergunta de 23 h vale; a pergunta nova sobrescreve a velha) descrevem o que já era assim.
