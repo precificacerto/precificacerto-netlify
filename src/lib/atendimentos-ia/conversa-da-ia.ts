@@ -179,7 +179,8 @@ import { agruparIguais,
 } from '@/lib/atendimentos-ia/levantamento-em-montagem'
 import { JANELA_EM_VOO_MS, gravarSaida, lerHistorico, marcarEnvio, saidaDaEntrada, type Entrada, type MensagemDoHistorico } from '@/lib/atendimentos-ia/conversa-gravada'
 import { prazo } from '@/lib/atendimentos-ia/prazo'
-import { MAX_TOKENS_DA_PRIMEIRA_CHAMADA, RACIOCINIO_DA_EXTRACAO, blocosDoSistema } from '@/lib/atendimentos-ia/pedido-ao-modelo'
+import { MAX_TOKENS_DA_PRIMEIRA_CHAMADA, PRAZO_ATE_OS_CABECALHOS_MS, RACIOCINIO_DA_EXTRACAO, TENTATIVAS_DA_PRIMEIRA_CHAMADA, blocosDoSistema } from '@/lib/atendimentos-ia/pedido-ao-modelo'
+import { lerFluxo } from '@/lib/atendimentos-ia/resposta-em-fluxo'
 import { CODIGO_DE_FORNECEDOR, redigir, type MotivoDaRedacao, type Redacao } from '@/lib/atendimentos-ia/redacao-da-resposta'
 import { vidroPodado } from '@/lib/atendimentos-ia/vidro'
 import type { VariaveisDaTipologia } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
@@ -236,6 +237,8 @@ type MedidaDaIa = {
     parada: string | null
     /** O cache do prefixo (05/11/2026): quantos tokens foram LIDOS do cache e quantos foram ESCRITOS nele nesta chamada. */
     cacheLido: number | null; cacheEscrito: number | null
+    /** Em fluxo (05/11/2026): ms até os cabeçalhos da tentativa que respondeu, ms até o primeiro token, quantas tentativas, e o request-id da API. */
+    cabecalhosMs: number | null; primeiroTokenMs: number | null; tentativas: number | null; requestId: string | null
 }
 type Rastro = {
     levantamento: string; rota: Rota; propostos: number; descartados: number; enviou: boolean; admin: Permissao | null
@@ -271,6 +274,7 @@ function anotar(r: Rastro, desfecho: DesfechoDaIa, detalhe = '') {
     const admin = r.admin === null ? '' : 'motivo' in r.admin ? ` admin=nao motivo_admin=${r.admin.motivo}` : ' admin=sim'
     const ia = r.ia.ms === null ? '' : ` ia_ms=${r.ia.ms} ia_entrada=${r.ia.entrada ?? '-'} ia_saida=${r.ia.saida ?? '-'}`
         + ` ia_raciocinio=${r.ia.raciocinio ?? '-'} ia_parada=${r.ia.parada ?? '-'} ia_cache_lido=${r.ia.cacheLido ?? '-'} ia_cache_escrito=${r.ia.cacheEscrito ?? '-'}`
+        + ` ia_cabecalhos_ms=${r.ia.cabecalhosMs ?? '-'} ia_primeiro_token_ms=${r.ia.primeiroTokenMs ?? '-'} ia_tentativas=${r.ia.tentativas ?? '-'} ia_request_id=${r.ia.requestId ?? '-'}`
     // o contexto e a fala: o ESTADO, nunca o texto
     const contexto = (r.contexto === '-' ? '' : ` contexto=${r.contexto}${r.fala === '-' ? '' : ` fala=${FALA_NO_LOG[r.fala]}`}`)
         + (r.instrucoes === '-' ? '' : ` instrucoes=${r.instrucoes}`) + (r.instrucoesDasEtapas === '-' ? '' : ` instrucao_etapa=${r.instrucoesDasEtapas}`)
@@ -591,41 +595,78 @@ export const PRAZO_DA_PRIMEIRA_CHAMADA_MS = 45_000
 
 async function chamarLlm(chave: string, mensagem: string, contexto: ContextoDoPrompt, medida: MedidaDaIa, historico: readonly MensagemDoHistorico[]): Promise<ResultadoDaLlm> {
     const inicio = Date.now()
+    // o prazo GERAL (45 s) vale para a chamada inteira: as tentativas e a leitura do corpo em fluxo
     const limite = prazo(PRAZO_DA_PRIMEIRA_CHAMADA_MS)
     const s = sistema(contexto)
-    let r: Response
+    const corpoDoPedido = JSON.stringify({
+        // O MODELO POR CONTA entraria aqui, junto do teto: hoje não há coluna para ele —
+        // `orcamentista_config.modelo` é o modelo de ATENDIMENTO (ver `modelo-da-ia.ts`).
+        model: MODELO_PADRAO_DA_IA,
+        // o teto é o tamanho real da ferramenta mais folga (05/11/2026): era 16.000
+        max_tokens: MAX_TOKENS_DA_PRIMEIRA_CHAMADA,
+        // extração curta de uma mensagem de chat: o raciocínio fica DESLIGADO (05/11/2026) — sem `thinking`, o Sonnet 5.5 o liga
+        thinking: RACIOCINIO_DA_EXTRACAO,
+        output_config: { effort: 'low' },
+        // EM FLUXO (05/11/2026): os cabeçalhos chegam quando a API aceita o pedido, não quando termina de gerar
+        stream: true,
+        // o sistema em dois blocos: o estável marcado para o cache, o volátil depois (05/11/2026)
+        system: blocosDoSistema(s.estavel, s.volatil),
+        // a `fala` vale para toda empresa (03/11/2026); o filtro de número continua derrubando a que traz número
+        tools: [FERRAMENTA_COM_FALA],
+        tool_choice: { type: 'auto' },
+        // o HISTÓRICO da conversa (03/11/2026): as últimas mensagens, já sem dinheiro e cortadas; a desta vez por último
+        messages: [...historico, { role: 'user', content: mensagem }],
+    })
+    let r: Response | null = null
     let corpo: Record<string, unknown> | null
-    try {
-        r = await fetch(URL_DA_API_ANTHROPIC, {
-            method: 'POST',
-            headers: { 'content-type': 'application/json', 'x-api-key': chave, 'anthropic-version': VERSAO_DA_API_ANTHROPIC },
-            // o prazo vale para a conexão E para a leitura do corpo
-            signal: limite.signal,
-            body: JSON.stringify({
-                // O MODELO POR CONTA entraria aqui, junto do teto: hoje não há coluna para ele —
-                // `orcamentista_config.modelo` é o modelo de ATENDIMENTO (ver `modelo-da-ia.ts`).
-                model: MODELO_PADRAO_DA_IA,
-                // o teto é o tamanho real da ferramenta mais folga (05/11/2026): era 16.000
-                max_tokens: MAX_TOKENS_DA_PRIMEIRA_CHAMADA,
-                // extração curta de uma mensagem de chat: o raciocínio fica DESLIGADO (05/11/2026) — sem `thinking`, o Sonnet 5.5 o liga
-                thinking: RACIOCINIO_DA_EXTRACAO,
-                output_config: { effort: 'low' },
-                // o sistema em dois blocos: o estável marcado para o cache, o volátil depois (05/11/2026)
-                system: blocosDoSistema(s.estavel, s.volatil),
-                // a `fala` vale para toda empresa (03/11/2026); o filtro de número continua derrubando a que traz número
-                tools: [FERRAMENTA_COM_FALA],
-                tool_choice: { type: 'auto' },
-                // o HISTÓRICO da conversa (03/11/2026): as últimas mensagens, já sem dinheiro e cortadas; a desta vez por último
-                messages: [...historico, { role: 'user', content: mensagem }],
-            }),
-        })
-        // o corpo que não é JSON é um erro da API, não uma exceção: segue nulo e o status decide
+    // ATÉ OS CABEÇALHOS: 10 s por tentativa, duas tentativas (05/11/2026). O abort da primeira derruba o socket dela; a segunda abre outro
+    for (let tentativa = 1; tentativa <= TENTATIVAS_DA_PRIMEIRA_CHAMADA; tentativa++) {
+        medida.tentativas = tentativa
+        const cabecalhos = prazo(PRAZO_ATE_OS_CABECALHOS_MS)
+        try {
+            r = await fetch(URL_DA_API_ANTHROPIC, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json', 'x-api-key': chave, 'anthropic-version': VERSAO_DA_API_ANTHROPIC },
+                // o prazo geral vale para a conexão E para a leitura do corpo; o dos cabeçalhos só até a resposta começar
+                signal: AbortSignal.any([limite.signal, cabecalhos.signal]),
+                body: corpoDoPedido,
+            })
+            cabecalhos.limpar()
+            break
+        } catch (e) {
+            cabecalhos.limpar()
+            if (limite.estourou()) { medida.ms = Date.now() - inicio; limite.limpar(); return { tipo: 'prazo-esgotado', detalhe: `limite_ms=${PRAZO_DA_PRIMEIRA_CHAMADA_MS} tentativas=${tentativa}` } }
+            if (cabecalhos.estourou()) {
+                if (tentativa < TENTATIVAS_DA_PRIMEIRA_CHAMADA) continue
+                medida.ms = Date.now() - inicio; limite.limpar()
+                return { tipo: 'prazo-esgotado', detalhe: `limite_ms=${PRAZO_DA_PRIMEIRA_CHAMADA_MS} sem_cabecalhos_ms=${PRAZO_ATE_OS_CABECALHOS_MS} tentativas=${tentativa}` }
+            }
+            medida.ms = Date.now() - inicio; limite.limpar()
+            return { tipo: 'erro-da-llm', detalhe: `excecao=${e instanceof Error ? e.name : 'desconhecida'} tentativas=${tentativa}` }
+        }
+    }
+    if (!r) { limite.limpar(); return { tipo: 'erro-da-llm', detalhe: 'sem-resposta' } }
+    medida.cabecalhosMs = Date.now() - inicio
+    medida.requestId = r.headers.get('request-id')
+    if (!r.ok) {
+        // o erro da API vem em JSON mesmo com stream pedido; o corpo que não é JSON segue nulo e o status decide
         corpo = (await r.json().catch((): null => null)) as Record<string, unknown> | null
-    } catch (e) {
-        medida.ms = Date.now() - inicio
-        limite.limpar()
-        if (limite.estourou()) return { tipo: 'prazo-esgotado', detalhe: `limite_ms=${PRAZO_DA_PRIMEIRA_CHAMADA_MS}` }
-        return { tipo: 'erro-da-llm', detalhe: `excecao=${e instanceof Error ? e.name : 'desconhecida'}` }
+    } else {
+        try {
+            const lido = await lerFluxo(r.body, inicio)
+            medida.primeiroTokenMs = lido.primeiroTokenMs
+            if (lido.mensagem.erro) {
+                medida.ms = Date.now() - inicio; limite.limpar()
+                const tipoDoErro = lido.mensagem.erro.type
+                return { tipo: 'erro-da-llm', detalhe: `fluxo=erro tipo=${typeof tipoDoErro === 'string' ? tipoDoErro : '-'}` }
+            }
+            corpo = { stop_reason: lido.mensagem.stop_reason, usage: lido.mensagem.usage, content: lido.mensagem.content }
+        } catch {
+            medida.ms = Date.now() - inicio
+            limite.limpar()
+            if (limite.estourou()) return { tipo: 'prazo-esgotado', detalhe: `limite_ms=${PRAZO_DA_PRIMEIRA_CHAMADA_MS} cabecalhos_ms=${medida.cabecalhosMs} corpo=interrompido` }
+            return { tipo: 'erro-da-llm', detalhe: 'fluxo=interrompido' }
+        }
     }
     limite.limpar()
     medida.ms = Date.now() - inicio
@@ -929,7 +970,7 @@ export type Interlocutor = {
 /** Conduz uma mensagem do vendedor. NUNCA lança: toda falha vira uma linha `[IA]`. */
 export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
     const rastro: Rastro = {
-        levantamento: '-', rota: '-', propostos: 0, descartados: 0, enviou: false, admin: null, nome: '-', aberta: '-', ia: { ms: null, entrada: null, saida: null, raciocinio: null, parada: null, cacheLido: null, cacheEscrito: null },
+        levantamento: '-', rota: '-', propostos: 0, descartados: 0, enviou: false, admin: null, nome: '-', aberta: '-', ia: { ms: null, entrada: null, saida: null, raciocinio: null, parada: null, cacheLido: null, cacheEscrito: null, cabecalhosMs: null, primeiroTokenMs: null, tentativas: null, requestId: null },
         contexto: '-', fala: '-', instrucoes: '-', instrucoesDasEtapas: '-', instrucoesSemEfeito: '', fundidos: 0, reenviadas: 0, historico: '-', gravacao: '-', redacao: '-', vidrosNaoDitos: 0, vidrosPodados: 0, vidrosPadrao: 0,
     }
     const fim = (desfecho: DesfechoDaIa, detalhe = ''): DesfechoDaIa => { anotar(rastro, desfecho, detalhe); return desfecho }

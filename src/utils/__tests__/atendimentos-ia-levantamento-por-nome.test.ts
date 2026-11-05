@@ -156,7 +156,12 @@ const estado = {
     porOndas: false,
     pendentes: [] as Array<{ tabela: string; liberar: () => void }>,
     /** O que PENDURA (04/11/2026): a chamada que nunca volta, até o `signal` do prazo abortar. */
-    llmPendura: false,
+    llmPendura: false as boolean | number,
+    /** O corpo em fluxo que NÃO termina (05/11/2026): os cabeçalhos chegam, os eventos não — até o abort. */
+    corpoPendura: false,
+    /** O evento `error` no meio do fluxo (05/11/2026). */
+    fluxoComErro: null as null | { type: string; message: string },
+    requestIds: 0,
     redacaoPendura: false,
     envioPendura: false,
     /** Avisa o teste de que a chamada pendurada está em curso (o prazo já foi armado). */
@@ -229,6 +234,9 @@ function montar() {
     estado.porOndas = false
     estado.pendentes = []
     estado.llmPendura = false
+    estado.corpoPendura = false
+    estado.fluxoComErro = null
+    estado.requestIds = 0
     estado.redacaoPendura = false
     estado.envioPendura = false
     estado.aoPendurar = null
@@ -417,6 +425,52 @@ function respostaComFerramenta(p: Proposta) {
 }
 const llmResponde = (p: Proposta) => { estado.respostasDaLlm.push({ status: 200, corpo: respostaComFerramenta(p) }) }
 
+/** A mensagem JSON como a API a manda EM FLUXO (05/11/2026): os eventos SSE, com o JSON da ferramenta picado em pedaços. */
+function comoFluxo(m: Record<string, unknown>): string {
+    const ev = (tipo: string, dado: Record<string, unknown>) => `event: ${tipo}\ndata: ${JSON.stringify({ type: tipo, ...dado })}\n\n`
+    const usage = (m.usage ?? {}) as Record<string, unknown>
+    const { output_tokens, output_tokens_details, ...entrada } = usage
+    let sse = ev('message_start', { message: { id: 'msg_fluxo', type: 'message', role: 'assistant', content: [], usage: { ...entrada, output_tokens: 1 } } })
+    const blocos = Array.isArray(m.content) ? (m.content as Array<Record<string, unknown>>) : []
+    blocos.forEach((b, index) => {
+        if (b.type === 'tool_use') {
+            sse += ev('content_block_start', { index, content_block: { type: 'tool_use', id: b.id ?? 't', name: b.name, input: {} } })
+            const json = JSON.stringify(b.input ?? {})
+            // picado em pedaços de 17 caracteres: nenhum pedaço é JSON válido sozinho
+            for (let k = 0; k < json.length; k += 17) sse += ev('content_block_delta', { index, delta: { type: 'input_json_delta', partial_json: json.slice(k, k + 17) } })
+        } else if (b.type === 'text') {
+            sse += ev('content_block_start', { index, content_block: { type: 'text', text: '' } })
+            sse += ev('content_block_delta', { index, delta: { type: 'text_delta', text: String(b.text ?? '') } })
+        }
+        sse += ev('content_block_stop', { index })
+    })
+    if (estado.fluxoComErro) sse += ev('error', { error: estado.fluxoComErro })
+    sse += ev('message_delta', { delta: { stop_reason: m.stop_reason ?? 'end_turn', stop_sequence: null }, usage: { output_tokens: output_tokens ?? 1, ...(output_tokens_details ? { output_tokens_details } : {}) } })
+    sse += ev('message_stop', {})
+    return sse
+}
+
+/** A Response da 1ª chamada como o fetch real a devolve: SSE quando 2xx e `stream` pedido; JSON nos erros. */
+function respostaDaLlm(status: number, corpo: unknown, init?: { body?: string; signal?: AbortSignal }): Response | { ok: boolean; status: number; json: () => Promise<unknown> } {
+    const pedido = init?.body ? (JSON.parse(init.body) as { stream?: unknown }) : {}
+    estado.requestIds += 1
+    const headers = { 'request-id': `req_teste_${estado.requestIds}`, 'content-type': status >= 200 && status < 300 && pedido.stream === true ? 'text/event-stream' : 'application/json' }
+    if (!(status >= 200 && status < 300) || pedido.stream !== true) return new Response(JSON.stringify(corpo), { status, headers })
+    if (estado.corpoPendura) {
+        // os cabeçalhos chegam, o corpo nunca termina: só o abort do signal o derruba
+        const codificador = new TextEncoder()
+        const fluxo = new ReadableStream<Uint8Array>({
+            start(c) {
+                c.enqueue(codificador.encode(comoFluxo(corpo as Record<string, unknown>).split('\n\n')[0] + '\n\n'))
+                init?.signal?.addEventListener('abort', () => c.error(new DOMException('This operation was aborted', 'AbortError')))
+                estado.aoPendurar?.()
+            },
+        })
+        return new Response(fluxo, { status, headers })
+    }
+    return new Response(comoFluxo(corpo as Record<string, unknown>), { status, headers })
+}
+
 async function chamar(texto: string, opcoes: { id?: string; senderAlt?: string } = {}) {
     const saida = { status: 0 }
     const res = { status(n: number) { saida.status = n; return res }, json() { return res }, end() { return res }, setHeader() { return res } } as unknown as NextApiResponse
@@ -488,7 +542,10 @@ beforeEach(() => {
             estado.aoPendurar?.()
         })
         if (url === ANTHROPIC && !corpo.tools && estado.redacaoPendura) return pendurar()
-        if (url === ANTHROPIC && corpo.tools && estado.llmPendura) { estado.chamadasDaLlm.push({ headers, corpo }); return pendurar() }
+        if (url === ANTHROPIC && corpo.tools && estado.llmPendura) {
+            // `true` pendura sempre; um número pendura só as N primeiras tentativas (a repetição em conexão nova responde, abaixo)
+            if (estado.llmPendura === true || estado.chamadasDaLlm.length + 1 <= estado.llmPendura) { estado.chamadasDaLlm.push({ headers, corpo }); return pendurar() }
+        }
         if (url.endsWith('/chat/send/text') && estado.envioPendura) return pendurar()
         if (url === ANTHROPIC && !corpo.tools) {
             // o SEGUNDO pedido (03/11/2026): a redação do rascunho, sem ferramenta. Por padrão devolve o próprio rascunho
@@ -510,15 +567,15 @@ beforeEach(() => {
                 const opcao = Number(new RegExp(`(\\d+)\\s*=\\s*${pelo.opcaoDescrita}`).exec(sistema)?.[1] ?? NaN)
                 const escolha = { variavel: codigo, opcao: Number.isFinite(opcao) ? opcao : 0 }
                 const input = { nome: pelo.nome, itens: [] as Linha[], ...('escolhas' in props ? { escolhas: [escolha] } : { escolha }) }
-                return { ok: true, status: 200, json: async () => ({ ...respostaComFerramenta({}), content: [{ type: 'tool_use', id: 't', name: conversa.NOME_DA_FERRAMENTA, input }] }) }
+                return respostaDaLlm(200, { ...respostaComFerramenta({}), content: [{ type: 'tool_use', id: 't', name: conversa.NOME_DA_FERRAMENTA, input }] }, init)
             }
             // a mensagem desta vez é a ÚLTIMA (o histórico vem antes, 03/11/2026)
             const mensagens = corpo.messages as Array<{ content: unknown }>
             const pelaMensagem = estado.llmPeloPrompt?.(String(mensagens[mensagens.length - 1].content), textoDoSistema(corpo.system))
-            if (pelaMensagem) return { ok: true, status: 200, json: async () => respostaComFerramenta(pelaMensagem) }
+            if (pelaMensagem) return respostaDaLlm(200, respostaComFerramenta(pelaMensagem), init)
             const proxima = estado.respostasDaLlm.shift() ?? { status: 200, corpo: respostaComFerramenta({}) }
             if (proxima === 'lanca') throw new Error('fetch failed')
-            return { ok: proxima.status >= 200 && proxima.status < 300, status: proxima.status, json: async () => proxima.corpo }
+            return respostaDaLlm(proxima.status, proxima.corpo, init)
         }
         if (url.endsWith('/chat/send/text')) {
             estado.envios.push({ corpo })
@@ -3366,6 +3423,8 @@ describe('(31) os prazos das chamadas externas: 45 s no modelo, 15 s na redaçã
     /** Deixa as promessas em curso andarem (o banco falso e o fetch são microtarefas) sem avançar o relógio. */
     const drenar = async () => { for (let i = 0; i < 40; i++) await Promise.resolve() }
     const avancar = async (ms: number) => { jest.advanceTimersByTime(ms); await drenar() }
+    /** Deixa as macrotarefas andarem (o setImmediate não é fingido): a repetição em conexão nova precisa de algumas voltas. */
+    const drenarDeVerdade = async () => { for (let i = 0; i < 20; i++) await new Promise<void>((r) => setImmediate(r)) }
     /**
      * Arma o relógio fingido, dispara o turno e espera a chamada pendurada estar em curso (o prazo já armado). O turno volta
      * EMBRULHADO: uma função async que devolvesse a promessa a adotaria, e o `await` esperaria o turno inteiro — que só termina
@@ -3390,12 +3449,21 @@ describe('(31) os prazos das chamadas externas: 45 s no modelo, 15 s na redaçã
         expect(PRAZO_DO_MODELO + PRAZO_DA_REDACAO + PRAZO_DO_ENVIO + 11_000).toBeLessThan((config.maxDuration * 1000) / 2)
     })
 
-    it('a 1ª chamada ao modelo não volta: aos 45 s ela é abortada, o vendedor recebe a falha nomeada, nada é gravado, e a linha [IA] sai ANTES do envio, com o motivo', async () => {
+    it('a 1ª chamada ao modelo não volta: sem cabeçalhos em 10 s ela é repetida UMA vez, e aos 20 s (10 + 10) é abortada — o vendedor recebe a falha nomeada, nada é gravado, e a linha [IA] sai ANTES do envio, com o motivo', async () => {
         const { turno } = await turnoPendurado(() => { estado.llmPendura = true }, 'Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm')
-        // um milissegundo antes do prazo, nada aconteceu: a chamada continua em voo
-        await avancar(PRAZO_DO_MODELO - 1)
+        const ATE_OS_CABECALHOS = 10_000
+        // um milissegundo antes do prazo dos cabeçalhos, uma tentativa só, em voo
+        await avancar(ATE_OS_CABECALHOS - 1)
+        expect(estado.chamadasDaLlm).toHaveLength(1)
+        await avancar(1)
+        await drenarDeVerdade()
+        // a repetição em conexão nova: a segunda tentativa está em voo, nada foi enviado
+        expect(estado.chamadasDaLlm).toHaveLength(2)
         expect(enviados()).toEqual([])
         expect(linhaIa()).toEqual([])
+        await avancar(ATE_OS_CABECALHOS - 1)
+        await drenarDeVerdade()
+        expect(enviados()).toEqual([])
         await avancar(1)
         expect((await turno).status).toBe(200)
         expect(enviados()).toEqual([conversa.FALHA_PRAZO_DA_IA])
@@ -3404,9 +3472,10 @@ describe('(31) os prazos das chamadas externas: 45 s no modelo, 15 s na redaçã
         // a linha do estouro sai ANTES do envio (se a função morrer depois, o motivo já está no log); a de sempre sai no fim, com o envio
         const [noEstouro, noFim] = linhaIa()
         expect(noEstouro).toMatch(/enviou=nao desfecho=prazo-esgotado/)
-        expect(noEstouro).toContain(`limite_ms=${PRAZO_DO_MODELO}`)
+        expect(noEstouro).toContain(`limite_ms=${PRAZO_DO_MODELO} sem_cabecalhos_ms=${ATE_OS_CABECALHOS} tentativas=2`)
         expect(noEstouro).toContain('antes_do_envio=sim')
-        expect(noEstouro).toContain(`ia_ms=${PRAZO_DO_MODELO} ia_entrada=- ia_saida=-`)
+        expect(noEstouro).toContain(`ia_ms=${2 * ATE_OS_CABECALHOS} ia_entrada=- ia_saida=-`)
+        expect(noEstouro).toContain('ia_cabecalhos_ms=- ia_primeiro_token_ms=- ia_tentativas=2 ia_request_id=-')
         expect(noFim).toMatch(/enviou=sim desfecho=prazo-esgotado/)
         expect(linhaIa()).toHaveLength(2)
         // a saída é gravada como qualquer resposta: o reenvio do WUZAPI acha a resposta e não conduz de novo
@@ -3789,5 +3858,145 @@ describe('(35) a pergunta em aberto expira em 24 h na leitura, como o histórico
         expect(perguntas()[0].pergunta).toBe('NOME_PARECIDO')
         expect(String(perguntas()[0].criado_em) > criadoVelho).toBe(true)
         expect(await PA().lerPerguntaEmAberto(TENANT, VENDEDOR)).toEqual(expect.objectContaining({ pergunta: 'NOME_PARECIDO' }))
+    })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+/**
+ * (36) A 1ª CHAMADA EM FLUXO (dono do produto, 05/11/2026): "stream: true, prazo de 10 s até os cabeçalhos, UMA repetição em conexão nova,
+ * e a linha [IA] com ia_primeiro_token_ms e o request-id. Isso é a mitigação que nos tira do escuro: hoje a gente espera 45 s para
+ * descobrir que nada veio." Medido de dentro da Vercel (gru1): os cabeçalhos do pedido real chegam em 1,5 s; a resposta inteira, em 6 s.
+ */
+describe('(36) a 1ª chamada em fluxo: stream, 10 s até os cabeçalhos, uma repetição, e a linha [IA] diz cabeçalhos, primeiro token, tentativas e request-id', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const P = () => require('@/lib/atendimentos-ia/pedido-ao-modelo') as typeof import('@/lib/atendimentos-ia/pedido-ao-modelo')
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const F = () => require('@/lib/atendimentos-ia/resposta-em-fluxo') as typeof import('@/lib/atendimentos-ia/resposta-em-fluxo')
+    const drenar = async () => { for (let i = 0; i < 40; i++) await Promise.resolve() }
+    const drenarDeVerdade = async () => { for (let i = 0; i < 20; i++) await new Promise<void>((r) => setImmediate(r)) }
+    const avancar = async (ms: number) => { jest.advanceTimersByTime(ms); await drenar(); await drenarDeVerdade() }
+    async function turnoPendurado(preparar: () => void, texto: string): Promise<{ turno: Promise<{ status: number }> }> {
+        jest.useFakeTimers({ doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate'] })
+        const armado = new Promise<void>((res) => { estado.aoPendurar = res })
+        preparar()
+        const turno = chamar(texto)
+        await armado
+        return { turno }
+    }
+    const ultimaLinhaIa = () => linhaIa()[linhaIa().length - 1]
+    afterEach(() => { jest.useRealTimers() })
+
+    it('as constantes da decisão: 10 s até os cabeçalhos, 2 tentativas, e as duas tentativas cabem dentro do prazo geral de 45 s', () => {
+        expect(P().PRAZO_ATE_OS_CABECALHOS_MS).toBe(10_000)
+        expect(P().TENTATIVAS_DA_PRIMEIRA_CHAMADA).toBe(2)
+        expect(P().PRAZO_ATE_OS_CABECALHOS_MS * P().TENTATIVAS_DA_PRIMEIRA_CHAMADA).toBeLessThan(conversa.PRAZO_DA_PRIMEIRA_CHAMADA_MS)
+    })
+
+    it('o pedido vai com stream: true, e o resto do corpo é o de antes', async () => {
+        llmResponde({})
+        await chamar('oi')
+        const [{ corpo }] = estado.chamadasDaLlm
+        expect(corpo.stream).toBe(true)
+        expect(corpo.max_tokens).toBe(2000)
+        expect(corpo.thinking).toEqual({ type: 'between_tools' })
+        // a redação continua sem fluxo
+        expect(estado.redacoes[0].corpo.stream).toBeUndefined()
+    })
+
+    it('a resposta em fluxo é montada: o JSON da ferramenta picado em pedaços vira a proposta, o usage do message_start e do message_delta se somam, e a linha [IA] diz tudo', async () => {
+        estado.respostasDaLlm.push({ status: 200, corpo: { ...respostaComFerramenta({ nome: 'Casa do João', itens: [{ ...DP02 }] }), usage: { input_tokens: 21551, cache_read_input_tokens: 21377, cache_creation_input_tokens: 0, output_tokens: 478, output_tokens_details: { thinking_tokens: 0 } } } })
+        await chamar('Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm')
+        expect(levantamentos().map((l) => l.nome)).toEqual(['Casa do João'])
+        expect(itensDe(levantamentos()[0].id)).toHaveLength(1)
+        const linha = ultimaLinhaIa()
+        expect(linha).toContain(' ia_entrada=21551 ia_saida=478 ia_raciocinio=0 ia_parada=tool_use ia_cache_lido=21377 ia_cache_escrito=0')
+        expect(linha).toMatch(/ ia_cabecalhos_ms=\d+ ia_primeiro_token_ms=\d+ ia_tentativas=1 ia_request_id=req_teste_\d+/)
+    })
+
+    it('lerFluxo: os eventos em pedaços arbitrários (um evento cortado no meio do chunk) montam a mesma mensagem; sem eventos, mensagem vazia', async () => {
+        const sse = comoFluxo({ ...respostaComFerramenta({ nome: 'X', itens: [{ ...DP02 }] }), usage: { input_tokens: 10, output_tokens: 7 } })
+        const codificador = new TextEncoder()
+        const pedacos = [sse.slice(0, 101), sse.slice(101, 350), sse.slice(350)]
+        const corpo = new ReadableStream<Uint8Array>({ start(c) { for (const p of pedacos) c.enqueue(codificador.encode(p)); c.close() } })
+        let relogio = 1000
+        const lido = await F().lerFluxo(corpo, 1000, () => (relogio += 7))
+        expect(lido.mensagem.stop_reason).toBe('tool_use')
+        expect(lido.mensagem.usage).toEqual({ input_tokens: 10, output_tokens: 7 })
+        const ferramenta = lido.mensagem.content.find((b) => b.type === 'tool_use') as { name: string; input: { nome: string; itens: unknown[] } }
+        expect(ferramenta.name).toBe(conversa.NOME_DA_FERRAMENTA)
+        expect(ferramenta.input.nome).toBe('X')
+        expect(ferramenta.input.itens).toHaveLength(1)
+        expect(lido.primeiroTokenMs).toBeGreaterThan(0)
+        expect(lido.eventos).toBeGreaterThan(4)
+        // o fluxo que termina sem a linha em branco final (o último evento é o message_delta, cru): o stop_reason é lido mesmo assim
+        const semFimDeLinha = sse.slice(0, sse.lastIndexOf('event: message_stop')).trimEnd()
+        expect(semFimDeLinha.endsWith('}')).toBe(true)
+        const truncado = await F().lerFluxo(new ReadableStream<Uint8Array>({ start(c) { c.enqueue(codificador.encode(semFimDeLinha)); c.close() } }), 0)
+        expect(truncado.mensagem.stop_reason).toBe('tool_use')
+        expect(truncado.mensagem.usage).toEqual({ input_tokens: 10, output_tokens: 7 })
+        const vazio = await F().lerFluxo(new ReadableStream<Uint8Array>({ start(c) { c.enqueue(new TextEncoder().encode('{"não":"é sse"}')); c.close() } }), 0)
+        expect(vazio.mensagem).toEqual({ stop_reason: null, usage: null, content: [], erro: null })
+        expect(vazio.primeiroTokenMs).toBeNull()
+        expect((await F().lerFluxo(null, 0)).mensagem.content).toEqual([])
+    })
+
+    it('a primeira tentativa não traz cabeçalhos em 10 s: é abortada e a REPETIÇÃO, em conexão nova, responde — o turno segue normal, com ia_tentativas=2', async () => {
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02 }] })
+        const { turno } = await turnoPendurado(() => { estado.llmPendura = 1 }, 'Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm')
+        await avancar(9_999)
+        expect(estado.chamadasDaLlm).toHaveLength(1)
+        await avancar(1)
+        expect((await turno).status).toBe(200)
+        expect(estado.chamadasDaLlm).toHaveLength(2)
+        expect(levantamentos().map((l) => l.nome)).toEqual(['Casa do João'])
+        expect(enviados()).toHaveLength(1)
+        expect(enviados()[0]).not.toBe(conversa.FALHA_PRAZO_DA_IA)
+        expect(ultimaLinhaIa()).toContain('ia_tentativas=2 ia_request_id=req_teste_')
+        expect(ultimaLinhaIa()).toMatch(/ia_cabecalhos_ms=\d+/)
+        // a repetição foi um pedido NOVO e igual: não há socket a reaproveitar depois do abort
+        expect(estado.chamadasDaLlm[1].corpo).toEqual(estado.chamadasDaLlm[0].corpo)
+    })
+
+    it('os cabeçalhos chegam, mas o corpo em fluxo não termina: o prazo GERAL de 45 s derruba a leitura — prazo-esgotado com os cabeçalhos medidos', async () => {
+        const { turno } = await turnoPendurado(() => { estado.corpoPendura = true }, 'Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm')
+        await avancar(44_999)
+        expect(enviados()).toEqual([])
+        await avancar(1)
+        expect((await turno).status).toBe(200)
+        expect(enviados()).toEqual([conversa.FALHA_PRAZO_DA_IA])
+        expect(escritasNoEstado()).toEqual([])
+        const [noEstouro] = linhaIa()
+        expect(noEstouro).toContain('desfecho=prazo-esgotado')
+        expect(noEstouro).toContain('limite_ms=45000 cabecalhos_ms=')
+        expect(noEstouro).toContain('corpo=interrompido')
+        expect(noEstouro).toMatch(/ia_ms=45000 .* ia_cabecalhos_ms=\d+ ia_primeiro_token_ms=- ia_tentativas=1 ia_request_id=req_teste_\d+/)
+    })
+
+    it('o evento error no meio do fluxo é a falha da IA (erro-da-llm), com o tipo no log — nunca uma proposta pela metade', async () => {
+        estado.fluxoComErro = { type: 'overloaded_error', message: 'Overloaded' }
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02 }] })
+        await chamar('Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm')
+        expect(enviados()).toEqual([conversa.FALHA_DA_IA])
+        expect(levantamentos()).toEqual([])
+        expect(ultimaLinhaIa()).toContain('desfecho=erro-da-llm')
+        expect(ultimaLinhaIa()).toContain('fluxo=erro tipo=overloaded_error')
+    })
+
+    it('o erro HTTP com stream pedido continua vindo em JSON e é tratado como antes: status e tipo no log, a frase de sempre ao vendedor', async () => {
+        estado.respostasDaLlm.push({ status: 529, corpo: { type: 'error', error: { type: 'overloaded_error', message: 'Overloaded' } } })
+        await chamar('oi')
+        expect(enviados()).toEqual([conversa.FALHA_DA_IA])
+        expect(ultimaLinhaIa()).toContain('desfecho=erro-da-llm')
+        expect(ultimaLinhaIa()).toContain('status=529 tipo=overloaded_error')
+        expect(ultimaLinhaIa()).toMatch(/ia_cabecalhos_ms=\d+ ia_primeiro_token_ms=- ia_tentativas=1 ia_request_id=req_teste_\d+/)
+    })
+
+    it('a chamada que responde a tempo não deixa timer: os dois despertadores (geral e dos cabeçalhos) são limpos', async () => {
+        jest.useFakeTimers({ doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate'] })
+        llmResponde({})
+        const turno = chamar('oi')
+        await drenar(); await drenarDeVerdade()
+        expect((await turno).status).toBe(200)
+        expect(jest.getTimerCount()).toBe(0)
     })
 })

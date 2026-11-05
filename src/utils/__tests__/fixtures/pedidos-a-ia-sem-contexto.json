@@ -8,6 +8,7 @@
   "output_config": {
    "effort": "low"
   },
+  "stream": true,
   "system": [
    {
     "type": "text",
@@ -189,6 +190,7 @@
   "output_config": {
    "effort": "low"
   },
+  "stream": true,
   "system": [
    {
     "type": "text",
