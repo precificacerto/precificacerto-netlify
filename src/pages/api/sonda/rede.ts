@@ -77,6 +77,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (process.env.VERCEL_ENV === 'production') return res.status(404).end()
     const corpoVazio = { method: 'POST', headers: { 'content-type': 'application/json', 'anthropic-version': '2026-10-21' }, body: '{}' } as const
     const medidas: Medida[] = []
+    const ferramenta: Array<Record<string, unknown>> = []
     const accept_encoding = await ecoDoAcceptEncoding()
     medidas.push(await medir('https://www.cloudflare.com/', { method: 'GET' }))
     // em série, de propósito: cada alvo numa conexão própria, sem concorrência entre eles
@@ -104,8 +105,38 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         medidas.push(await medir('https://api.anthropic.com/v1/messages#real-sem-stream', { method: 'POST', headers: cab, body: JSON.stringify(real) }))
         medidas.push(await medir('https://api.anthropic.com/v1/messages#real-com-stream', { method: 'POST', headers: cab, body: JSON.stringify({ ...real, stream: true }) }))
         medidas.push(await medir('https://api.anthropic.com/v1/messages#real-sem-stream-de-novo', { method: 'POST', headers: cab, body: JSON.stringify(real) }))
+        // OS CINCO TURNOS DO JORGE KOSS (05/11 14:04-14:08): o que o modelo devolve na ferramenta (nome, cliente, novo, itens, escolhas), com o
+        // histórico e o volátil de cada turno reconstruídos das mensagens gravadas. Só a entrada da ferramenta é devolvida — nunca o texto do modelo.
+        const T1 = 'quero orçamento\n1 Porta janelas de correr 2 folhas com vidro comum 6 mm incolor 2,50 x 2,20\n1 janela maxim ar, mini boreal 60 x60\n\nJorge Koss, porto alegre'
+        const S1 = 'Qual o nome do cliente desse orçamento? Se for de um levantamento que você já fez, me diga de quem é.'
+        const T2 = 'Nome é Jorge Koss'
+        const S2 = 'Jorge Koss já veio na mensagem anterior, mas não consegui vincular como cliente. Me diga de novo só o nome da obra, ou o nome de um levantamento que você já tenha feito, e eu sigo com a lista.'
+        const T3 = 'Levantamento novo em nome de Jorge Koss'
+        const S3 = 'Jorge Koss, levantamento novo. Para montar a lista, preciso saber de cada esquadria:\n\n- É janela ou porta?\n- Abre de correr, de abrir ou maxim-ar?\n- Tem persiana?\n- Largura e altura em mm.\n- Cor do perfil e vidro.'
+        const T4 = '1 Porta janelas de correr 2 folhas com vidro comum 6 mm incolor 2,50 x 2,20\n1 janela maxim ar, mini boreal 60 x60'
+        const S4 = 'Preciso só de duas coisas para fechar a lista:\n\n- Cor do perfil (vale para as duas esquadrias).\n- Vidro da maxim-ar mini boreal 60 x 60: é o mesmo comum incolor, ou outro?\n\nSe a porta-janela de correr tem persiana, bandeira ou peitoril fixo, me avise. Se não tem, sigo assim.'
+        const T5 = 'Branco\nVidro Comum'
+        const SEM_NOME = 'Para eu anotar, me diga o nome do cliente — por exemplo: Cliente João Silva. Se for sobre um levantamento que você já fez, me diga de quem é.'
+        const MONTAGEM_VAZIA = 'Levantamento em montagem: “Jorge Koss”, esquadrias (null = ainda não dito): [{"ordem":1,"tipologia":null,"largura_mm":null,"altura_mm":null,"quantidade":1,"cor_perfil":null,"vidro":null}]'
+        const turnos: Array<{ nome: string; volatil: string; messages: Array<{ role: string; content: string }> }> = [
+            { nome: 'T1', volatil: 'Levantamento em montagem: nenhum.', messages: [{ role: 'user', content: T1 }] },
+            { nome: 'T2', volatil: `Levantamento em montagem: nenhum.\nPergunta em aberto: ${SEM_NOME}`, messages: [{ role: 'user', content: T1 }, { role: 'assistant', content: S1 }, { role: 'user', content: T2 }] },
+            { nome: 'T3', volatil: `Levantamento em montagem: nenhum.\nPergunta em aberto: ${SEM_NOME}`, messages: [{ role: 'user', content: T1 }, { role: 'assistant', content: S1 }, { role: 'user', content: T2 }, { role: 'assistant', content: S2 }, { role: 'user', content: T3 }] },
+            { nome: 'T4', volatil: `${MONTAGEM_VAZIA}\nPergunta em aberto: ${S3}`, messages: [{ role: 'user', content: T1 }, { role: 'assistant', content: S1 }, { role: 'user', content: T2 }, { role: 'assistant', content: S2 }, { role: 'user', content: T3 }, { role: 'assistant', content: S3 }, { role: 'user', content: T4 }] },
+            { nome: 'T5', volatil: `${MONTAGEM_VAZIA}\nPergunta em aberto: ${S4}`, messages: [{ role: 'user', content: T1 }, { role: 'assistant', content: S1 }, { role: 'user', content: T2 }, { role: 'assistant', content: S2 }, { role: 'user', content: T3 }, { role: 'assistant', content: S3 }, { role: 'user', content: T4 }, { role: 'assistant', content: S4 }, { role: 'user', content: T5 }] },
+        ]
+        for (const t of turnos) {
+            const pedido = { ...real, system: [{ type: 'text', text: SISTEMA_ESTAVEL, cache_control: { type: 'ephemeral' } }, { type: 'text', text: t.volatil }], messages: t.messages }
+            const r2 = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: cab, body: JSON.stringify(pedido) })
+            const j = (await r2.json().catch((): null => null)) as { stop_reason?: unknown; usage?: { output_tokens?: unknown }; content?: Array<{ type?: unknown; name?: unknown; input?: unknown }> } | null
+            const chamada = j?.content?.find((b) => b.type === 'tool_use')
+            const entrada = (chamada?.input ?? null) as Record<string, unknown> | null
+            const { fala: _fala, ...semFala } = entrada ?? {}
+            void _fala
+            ferramenta.push({ turno: t.nome, status: r2.status, stop_reason: j?.stop_reason ?? null, output_tokens: j?.usage?.output_tokens ?? null, entrada: entrada ? semFala : null })
+        }
     }
-    const resultado = { quando: new Date().toISOString(), accept_encoding, com_chave: Boolean(chave), tamanho_corpo_grande: corpoGrande.length, regiao: process.env.VERCEL_REGION ?? null, ambiente: process.env.VERCEL_ENV ?? null, node: process.version, medidas }
+    const resultado = { quando: new Date().toISOString(), ferramenta, accept_encoding, com_chave: Boolean(chave), tamanho_corpo_grande: corpoGrande.length, regiao: process.env.VERCEL_REGION ?? null, ambiente: process.env.VERCEL_ENV ?? null, node: process.version, medidas }
     console.error(`[SONDA-REDE] ${JSON.stringify(resultado)}`)
     res.status(200).json(resultado)
 }
