@@ -1044,7 +1044,13 @@ describe('(7) o log [IA]: o levantamento e o desfecho — nunca a chave, o telef
     })
 })
 
-describe('(8) o esquema da ferramenta cabe nos limites do strict', () => {
+/**
+ * (8) A FERRAMENTA NÃO VAI STRICT (dono do produto, 05/11/2026). Foi strict até o #228, dentro dos limites da API (16 uniões, 24 opcionais); com o
+ * 24º opcional (`vidro_padrao`, 04/11/2026) a gramática deixou de compilar sem `thinking` (45–50 s, `400 Schema is too complex`) e, com
+ * `between_tools`, compilava e degenerava a saída (nenhum campo da esquadria). O portão agora confere a AUSÊNCIA do strict; a contagem fica
+ * como medida (o esquema continua com 0 uniões e 24 opcionais), para quem acrescentar um campo saber onde está.
+ */
+describe('(8) a ferramenta NÃO vai strict; o esquema continua restrito por additionalProperties', () => {
     function contar(esquema: unknown, caminho = ''): { unioes: number; opcionais: number } {
         let unioes = 0
         let opcionais = 0
@@ -1062,14 +1068,15 @@ describe('(8) o esquema da ferramenta cabe nos limites do strict', () => {
         return { unioes, opcionais }
     }
 
-    it('o esquema ENVIADO: até 16 uniões, até 24 opcionais, uma ferramenta strict', async () => {
+    it('o esquema ENVIADO: UMA ferramenta, SEM `strict` (nem true nem false: o campo não vai), e a medida de hoje — 0 uniões, 24 opcionais', async () => {
         await chamar('oi')
-        const tools = estado.chamadasDaLlm[0].corpo.tools as Array<{ strict: boolean; input_schema: unknown }>
+        const tools = estado.chamadasDaLlm[0].corpo.tools as Array<Record<string, unknown>>
         expect(tools).toHaveLength(1)
-        expect(tools[0].strict).toBe(true)
+        expect(tools[0]).not.toHaveProperty('strict')
+        expect(JSON.stringify(estado.chamadasDaLlm[0].corpo)).not.toContain('"strict"')
         const { unioes, opcionais } = contar(tools[0].input_schema)
-        expect(unioes).toBeLessThanOrEqual(16)
-        expect(opcionais).toBeLessThanOrEqual(24)
+        expect(unioes).toBe(0)
+        expect(opcionais).toBe(24)
     })
 })
 
@@ -1093,11 +1100,11 @@ describe('(9) o contrato da chamada à Anthropic', () => {
         expect(c.corpo.model).not.toBe('FABRICACAO')
     })
 
-    it('UMA ferramenta strict, tool_choice auto (o forçado é 400 neste modelo), e nada de temperature/top_p/top_k', async () => {
+    it('UMA ferramenta, sem strict (05/11/2026), tool_choice auto (o forçado é 400 neste modelo), e nada de temperature/top_p/top_k', async () => {
         await chamar('oi')
         const corpo = estado.chamadasDaLlm[0].corpo
         const tools = corpo.tools as Array<Record<string, unknown>>
-        expect(tools.map((t) => [t.name, t.strict])).toEqual([[conversa.NOME_DA_FERRAMENTA, true]])
+        expect(tools.map((t) => [t.name, 'strict' in t])).toEqual([[conversa.NOME_DA_FERRAMENTA, false]])
         expect(corpo.tool_choice).toEqual({ type: 'auto' })
         for (const k of ['temperature', 'top_p', 'top_k']) expect(corpo).not.toHaveProperty(k)
     })
@@ -2387,10 +2394,12 @@ describe('(24) porta não é janela, quantidade padrão 1, os limites e o agrupa
         ['porta', 'Cliente: Ana. Uma porta 2500 x 2400', [LINHA_DP100, LINHA_DP01], [LINHA_DP02]],
         ['porta-janela', 'Cliente: Ana. Porta-janela 2500 x 2400', [LINHA_DP100, LINHA_DP01], [LINHA_DP02]],
         ['porta janela (duas palavras)', 'Cliente: Ana. porta janela 2500 x 2400', [LINHA_DP100, LINHA_DP01], [LINHA_DP02]],
-        ['janela', 'Cliente: Ana. Janela de correr 1500 x 1200', [LINHA_DP02, LINHA_DP01], [LINHA_DP100]],
-        ['as duas palavras (fora de "porta janela")', GERONIMO, [LINHA_DP02, LINHA_DP100, LINHA_DP01], []],
-        ['nenhuma das palavras', 'Cliente: Ana. Esquadria de correr 1500 x 1200', [LINHA_DP02, LINHA_DP100, LINHA_DP01], []],
-    ])('a mensagem com %s: a lista já vai filtrada — maxim-ar fica sempre', async (_caso, mensagem, ficam, saem) => {
+        // pelo ACUMULADO (05/11/2026) o TIPO do motor também filtra: "janela de correr" é janela ∧ Correr, e a maxim-ar sai
+        ['janela', 'Cliente: Ana. Janela de correr 1500 x 1200', [LINHA_DP02], [LINHA_DP100, LINHA_DP01]],
+        ['as duas palavras (fora de "porta janela") e "correr"', GERONIMO, [LINHA_DP02, LINHA_DP100], [LINHA_DP01]],
+        ['nenhuma das palavras, mas "correr"', 'Cliente: Ana. Esquadria de correr 1500 x 1200', [LINHA_DP02, LINHA_DP100], [LINHA_DP01]],
+        ['nenhuma palavra e nenhum tipo', 'Cliente: Ana. Esquadria 1500 x 1200', [LINHA_DP02, LINHA_DP100, LINHA_DP01], []],
+    ])('a mensagem com %s: a lista já vai filtrada — a maxim-ar fica quando nenhum tipo é dito', async (_caso, mensagem, ficam, saem) => {
         await chamar(mensagem)
         for (const l of ficam) expect(sistemaDe()).toContain(l)
         for (const l of saem) expect(sistemaDe()).not.toContain(l)
@@ -3626,16 +3635,17 @@ describe('(32) as leituras antes do modelo vão em ondas: o que não depende de 
  * real da ferramenta mais folga. Registre stop_reason e os tokens de raciocínio na linha [IA] — sem isso a gente continua adivinhando entre
  * 'API lenta' e 'o modelo está pensando demais'." Medido: 21 turnos com 86 a 574 tokens de saída; quatro primeiras mensagens passaram de 45 s.
  */
-describe('(33) o pedido ao modelo: raciocínio desligado, teto de saída, e a linha [IA] diz stop_reason, raciocínio e cache', () => {
+describe('(33) o pedido ao modelo: SEM thinking (o between_tools do #226 saiu em 05/11/2026), teto de saída, e a linha [IA] diz stop_reason, raciocínio e cache', () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const P = () => require('@/lib/atendimentos-ia/pedido-ao-modelo') as typeof import('@/lib/atendimentos-ia/pedido-ao-modelo')
     const MAIOR_SAIDA_MEDIDA = 574
 
-    it('a 1ª chamada vai com thinking between_tools (o Sonnet 5.5 recusa disabled), effort low, e o teto de 2.000 — mais de três vezes a maior saída medida', async () => {
+    it('a 1ª chamada vai SEM `thinking` (medido 05/11/2026: 3,7 s e ~400 tokens contra 7 s e ~700 com between_tools), effort low, e o teto de 2.000 — mais de três vezes a maior saída medida', async () => {
         llmResponde({})
         await chamar('oi')
         const [{ corpo }] = estado.chamadasDaLlm
-        expect(corpo.thinking).toEqual({ type: 'between_tools' })
+        expect(corpo).not.toHaveProperty('thinking')
+        expect(JSON.stringify(corpo)).not.toContain('between_tools')
         expect(corpo.output_config).toEqual({ effort: 'low' })
         expect(corpo.max_tokens).toBe(2000)
         expect(P().MAX_TOKENS_DA_PRIMEIRA_CHAMADA).toBe(2000)
@@ -3718,13 +3728,14 @@ describe('(34) o sistema em dois blocos: o estável marcado para o cache, o vol�
         expect(blocos(0)[1].text).not.toContain('Esquadrias Exemplo')
     })
 
-    it('a lista filtrada por porta/janela muda o estável: são até três variantes do cache por conta (inteira, só porta, só janela), e isso está dito', async () => {
+    it('a lista filtrada muda o estável: cada lista distinta é uma variante do cache (a inteira, a só de janela, a só de porta…), e isso está dito', async () => {
+        // três conversas (três vendedores): pelo ACUMULADO (05/11/2026), a terceira mensagem de um mesmo vendedor somaria a janela e a porta
         llmResponde({})
         await chamar('oi')
         llmResponde({})
-        await chamar('uma janela de correr')
+        await chamar('uma janela de correr', { senderAlt: TELEFONE_DO_OUTRO })
         llmResponde({})
-        await chamar('uma porta de correr')
+        await chamar('uma porta de correr', { senderAlt: TELEFONE_DO_TERCEIRO })
         const [inteira, janela, porta] = [0, 1, 2].map((k) => blocos(k)[0].text)
         expect(inteira).toContain('\nDP-100 | PORTA DE CORRER')
         expect(janela).not.toContain('\nDP-100 | PORTA DE CORRER')
@@ -3898,7 +3909,7 @@ describe('(36) a 1ª chamada em fluxo: stream, 10 s até os cabeçalhos, uma rep
         const [{ corpo }] = estado.chamadasDaLlm
         expect(corpo.stream).toBe(true)
         expect(corpo.max_tokens).toBe(2000)
-        expect(corpo.thinking).toEqual({ type: 'between_tools' })
+        expect(corpo).not.toHaveProperty('thinking')
         // a redação continua sem fluxo
         expect(estado.redacoes[0].corpo.stream).toBeUndefined()
     })
@@ -3998,5 +4009,235 @@ describe('(36) a 1ª chamada em fluxo: stream, 10 s até os cabeçalhos, uma rep
         await drenar(); await drenarDeVerdade()
         expect((await turno).status).toBe(200)
         expect(jest.getTimerCount()).toBe(0)
+    })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+/**
+ * (37) O CASO DO JORGE KOSS (05/11/2026, 14:04–14:08 UTC) e a lista pelo ACUMULADO (dono do produto, 05/11/2026).
+ *
+ * Em produção, os cinco turnos foram `propostos=0, 0, 1, 0, 0`: a ferramenta `strict` devolvia itens só com `abertura` e uma `familia`
+ * inventada, as esquadrias se perdiam na saída do modelo, o cliente não vinculava e a conversa voltou a pedir a descrição completa. Sem
+ * `strict`, o modelo devolve o cliente e as duas esquadrias com medida, quantidade e vidro (as respostas abaixo são as que ele deu na
+ * repetição dos turnos com o corpo da produção sem strict). O que este bloco prova: (a) o cliente vincula no PRIMEIRO turno e as duas
+ * esquadrias ficam gravadas; (b) a lista reenviada não perde nem duplica nada; (c) ao fim, as DUAS esquadrias completas; (d) a lista do
+ * prompt pelo acumulado: "correr" e "maxim ar" do turno 1 filtram os turnos seguintes, que não trazem palavra nenhuma; (e) a rede de
+ * segurança; (f) `itens_sem_campos` no log quando o modelo devolve o que devolvia.
+ */
+describe('(37) Jorge Koss: o cliente no primeiro turno, as duas esquadrias até o fim, e a lista do prompt pelo acumulado da conversa', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const TC = require('@/lib/atendimentos-ia/tipologias-candidatas') as typeof import('@/lib/atendimentos-ia/tipologias-candidatas')
+    const sistemaDe = (k: number) => textoDoSistema(estado.chamadasDaLlm[k].corpo.system)
+    const T1 = 'quero orçamento\n1 Porta janelas de correr 2 folhas com vidro comum 6 mm incolor 2,50 x 2,20\n1 janela maxim ar, mini boreal 60 x60\n\nJorge Koss, porto alegre'
+    const LISTA_REENVIADA = '1 Porta janelas de correr 2 folhas com vidro comum 6 mm incolor 2,50 x 2,20\n1 janela maxim ar, mini boreal 60 x60'
+    const PORTA = { abertura: 'porta', largura_mm: 2500, altura_mm: 2200, quantidade: 1, vidro: 'vidro comum 6 mm incolor' }
+    const JANELA = { abertura: 'janela', largura_mm: 600, altura_mm: 600, quantidade: 1, vidro: 'mini boreal' }
+    const DP100 = '\nDP-100 | PORTA DE CORRER'
+    const DP02 = '\nDP-02 | JANELA DE CORRER'
+    const DP01 = '\nDP-01 | MAXIM-AR'
+    const itens = () => itensDe(levantamentos()[0].id)
+
+    it('os cinco turnos: o cliente vincula no PRIMEIRO, as duas esquadrias ficam gravadas, a lista reenviada não perde nem duplica, e ao fim as DUAS estão completas', async () => {
+        // T1 — o que o modelo devolve sem strict: o cliente e as duas esquadrias, sem a tipologia (ele pergunta qual é)
+        llmResponde({ cliente: 'Jorge Koss', itens: [{ ...PORTA }, { ...JANELA }], pergunta: { campo: 'tipologia', texto: 'A porta de correr tem trilho embutido? A maxim-ar é um módulo só?' } })
+        await chamar(T1)
+        expect(levantamentos().map((l) => [l.nome, l.estado])).toEqual([['Jorge Koss', 'EM_MONTAGEM']])
+        expect(linhaIa()[0]).toContain('rota=NOVO')
+        expect(linhaIa()[0]).toContain('nome=do_cliente')
+        expect(itens()).toHaveLength(2)
+        expect(itens()[0]).toEqual(expect.objectContaining({ ordem: 1, tipologia: null, largura_mm: 2500, altura_mm: 2200, quantidade: 1, vidro: 'vidro comum 6 mm incolor', cor_perfil: null }))
+        expect(itens()[1]).toEqual(expect.objectContaining({ ordem: 2, tipologia: null, largura_mm: 600, altura_mm: 600, quantidade: 1, vidro: 'mini boreal', cor_perfil: null }))
+        // a resposta pergunta a tipologia (a pergunta do modelo, que não traz código nem número), nunca a descrição completa de novo
+        expect(ultimoEnviado()).toContain('A porta de correr tem trilho embutido?')
+
+        // T2 — o vendedor reenvia a lista inteira (como fez em produção): nada se perde, nada duplica
+        llmResponde({ itens: [{ ordem: 1, ...PORTA }, { ordem: 2, ...JANELA }] })
+        await chamar(LISTA_REENVIADA)
+        expect(itens()).toHaveLength(2)
+        expect(itens().map((i) => [i.largura_mm, i.altura_mm, i.vidro])).toEqual([[2500, 2200, 'vidro comum 6 mm incolor'], [600, 600, 'mini boreal']])
+        expect(linhaIa()[1]).toContain('rota=MONTAGEM')
+        expect(linhaIa()[1]).toContain('desfecho=nao-avancou')
+
+        // T3 — "Branco": a cor das duas
+        llmResponde({ itens: [{ ordem: 1, cor_perfil: 'BRANCO' }, { ordem: 2, cor_perfil: 'BRANCO' }] })
+        await chamar('Branco')
+        expect(itens().map((i) => i.cor_perfil)).toEqual(['BRANCO', 'BRANCO'])
+        expect(itens().map((i) => i.vidro)).toEqual(['vidro comum 6 mm incolor', 'mini boreal'])
+
+        // T4 — as tipologias, em linguagem de obra; o modelo escolhe o código da lista
+        llmResponde({ itens: [{ ordem: 1, tipologia: 'DP-100' }, { ordem: 2, tipologia: 'DP-01' }] })
+        await chamar('a porta é a de correr com trilho embutido, 6 folhas; a janela é a maxim-ar design')
+        expect(itens().map((i) => i.tipologia)).toEqual(['DP-100', 'DP-01'])
+        const completa = (i: Linha) => ['tipologia', 'largura_mm', 'altura_mm', 'quantidade', 'cor_perfil', 'vidro'].every((c) => i[c] !== null && i[c] !== undefined)
+        expect(itens().every(completa)).toBe(true)
+        expect(ultimoEnviado().startsWith('Apanhado do levantamento')).toBe(true)
+
+        // T5 — "sim": o apanhado confirmado; as duas esquadrias continuam completas e gravadas
+        llmResponde({ confirma: true })
+        await chamar('sim')
+        expect(levantamentos().map((l) => l.nome)).toEqual(['Jorge Koss'])
+        expect(itens()).toHaveLength(2)
+        expect(itens().every(completa)).toBe(true)
+        expect(itens().map((i) => [i.tipologia, i.largura_mm, i.altura_mm, i.quantidade, i.cor_perfil, i.vidro])).toEqual([
+            ['DP-100', 2500, 2200, 1, 'BRANCO', 'vidro comum 6 mm incolor'],
+            ['DP-01', 600, 600, 1, 'BRANCO', 'mini boreal'],
+        ])
+        // R2 em todos os turnos: nenhuma resposta repetiu a anterior — o vendedor nunca recebeu a mesma pergunta duas vezes
+        expect(new Set(enviados()).size).toBe(enviados().length)
+        expect(enviados()).toHaveLength(5)
+    })
+
+    it('a lista do prompt pelo ACUMULADO: "correr" e "maxim ar" do turno 1 filtram os turnos seguintes, que não trazem palavra nenhuma — e a linha [IA] diz lista= e trechos=', async () => {
+        llmResponde({ cliente: 'Jorge Koss', itens: [{ ...PORTA }, { ...JANELA }] })
+        await chamar(T1)
+        // T1: dois trechos — "porta … de correr" (DP-100) e "janela maxim ar" (DP-01); a JANELA DE CORRER (DP-02) não serve a nenhum
+        expect(sistemaDe(0)).toContain(DP100)
+        expect(sistemaDe(0)).toContain(DP01)
+        expect(sistemaDe(0)).not.toContain(DP02)
+        expect(linhaIa()[0]).toMatch(/ lista=2\/3 trechos=2(\s|$)/)
+        expect(linhaIa()[0]).not.toContain('trechos_sem_candidata')
+        // T2 "Branco": sem palavra nenhuma — HOJE a lista iria inteira; pelo acumulado, continua a mesma
+        llmResponde({ itens: [{ ordem: 1, cor_perfil: 'BRANCO' }, { ordem: 2, cor_perfil: 'BRANCO' }] })
+        await chamar('Branco')
+        expect(sistemaDe(1)).toContain(DP100)
+        expect(sistemaDe(1)).toContain(DP01)
+        expect(sistemaDe(1)).not.toContain(DP02)
+        expect(linhaIa()[1]).toMatch(/ lista=2\/3 trechos=2(\s|$)/)
+        // a validação continua contra a lista INTEIRA: a DP-02, fora da lista do prompt, ainda é um código válido
+        llmResponde({ itens: [{ ordem: 2, tipologia: 'DP-02', largura_mm: 1200, altura_mm: 1000 }] })
+        await chamar('a janela é a de correr de 2 folhas, 1200 x 1000')
+        expect(itensDe(levantamentos()[0].id)[1].tipologia).toBe('DP-02')
+        expect(linhaIa()[2]).toContain('descartados=0')
+    })
+
+    it('sem palavra nenhuma na conversa inteira, a lista vai inteira e a linha diz trechos=0; a palavra do turno sozinha filtra como antes', async () => {
+        llmResponde({})
+        await chamar('oi')
+        for (const l of [DP100, DP02, DP01]) expect(sistemaDe(0)).toContain(l)
+        expect(linhaIa()[0]).toMatch(/ lista=3\/3 trechos=0(\s|$)/)
+        llmResponde({})
+        await chamar('uma porta de correr')
+        expect(sistemaDe(1)).toContain(DP100)
+        expect(sistemaDe(1)).not.toContain(DP02)
+        expect(sistemaDe(1)).not.toContain(DP01)
+        expect(linhaIa()[1]).toMatch(/ lista=1\/3 trechos=1(\s|$)/)
+    })
+
+    it('A REDE DE SEGURANÇA: o trecho para o qual nenhuma tipologia sobra traz a lista inteira, e a linha diz trechos_sem_candidata=', async () => {
+        // o motor ganha uma JANELA de giro: "porta de giro" é um tipo que existe, mas nenhuma PORTA é dele — nenhuma sobra, a lista vai inteira
+        estado.db.orcamentista_motor_tipologia_detalhe.push({ tabela_id: null, motor_id: MOTOR, tipologia: 'DP-113', descricao: 'JANELA DE GIRO 01 FOLHA | EUROPA 60', tipo: 'Giro / Abrir', linha: 'PVC WOLFF EUROPA 60' })
+        llmResponde({})
+        await chamar('uma porta de giro 800 x 2100')
+        for (const l of [DP100, DP02, DP01, '\nDP-113 | JANELA DE GIRO']) expect(sistemaDe(0)).toContain(l)
+        expect(linhaIa()[0]).toMatch(/ lista=4\/4 trechos=1 trechos_sem_candidata=1(\s|$)/)
+        // a palavra que o motor NÃO tem como tipo ("pivotante", "basculante") não é tipo: o trecho é só a abertura, e a lista é a dela
+        llmResponde({})
+        await chamar('uma janela basculante 600 x 600', { senderAlt: TELEFONE_DO_OUTRO })
+        expect(sistemaDe(1)).toContain(DP02)
+        expect(sistemaDe(1)).toContain(DP01)
+        expect(sistemaDe(1)).toContain('\nDP-113 | JANELA DE GIRO')
+        expect(sistemaDe(1)).not.toContain(DP100)
+        expect(linhaIa()[1]).toMatch(/ lista=3\/4 trechos=1(\s|$)/)
+        expect(linhaIa()[1]).not.toContain('trechos_sem_candidata')
+    })
+
+    it('a SEGUNDA esquadria sem número e sem tipologia não cai em cima da primeira: "Branco" para duas sem cor vai nas duas, sem criar uma terceira', async () => {
+        llmResponde({ cliente: 'Jorge Koss', itens: [{ ...PORTA }, { ...JANELA }] })
+        await chamar(T1)
+        expect(itens()).toHaveLength(2)
+        // as duas sem número: a primeira vai na esquadria padrão (a da pendência), a segunda na outra sem cor — nunca numa esquadria nova
+        llmResponde({ itens: [{ cor_perfil: 'BRANCO' }, { cor_perfil: 'BRANCO' }] })
+        await chamar('Branco')
+        expect(itens().map((i) => [i.ordem, i.cor_perfil])).toEqual([[1, 'BRANCO'], [2, 'BRANCO']])
+        // repetido com as duas já brancas: a segunda cor vai na outra esquadria (qualquer não tocada), nunca numa terceira
+        llmResponde({ itens: [{ cor_perfil: 'BRANCO' }, { cor_perfil: 'BRANCO' }] })
+        await chamar('as duas brancas')
+        expect(itens().map((i) => [i.ordem, i.cor_perfil])).toEqual([[1, 'BRANCO'], [2, 'BRANCO']])
+        // a preferência é a esquadria que NÃO tem o campo: com três (a 2ª já branca), as duas cores vão na 1ª e na 3ª — e nenhuma 4ª nasce
+        llmResponde({ cliente: 'Ana', itens: [{ ordem: 1, ...PORTA }, { ordem: 2, ...JANELA, cor_perfil: 'BRANCO' }, { ordem: 3, ...PORTA, largura_mm: 2000 }] })
+        await chamar(`Cliente: Ana. ${LISTA_REENVIADA}\n1 porta de correr branca 2,00 x 2,20`, { senderAlt: TELEFONE_DO_OUTRO })
+        const daAna = () => itensDe(levantamentos().find((l) => l.nome === 'Ana')!.id)
+        expect(daAna().map((i) => i.cor_perfil)).toEqual([null, 'BRANCO', null])
+        llmResponde({ itens: [{ cor_perfil: 'BRANCO' }, { cor_perfil: 'BRANCO' }] })
+        await chamar('Branco', { senderAlt: TELEFONE_DO_OUTRO })
+        expect(daAna().map((i) => [i.ordem, i.cor_perfil])).toEqual([[1, 'BRANCO'], [2, 'BRANCO'], [3, 'BRANCO']])
+    })
+
+    it('o que a produção devolvia (itens só com abertura e família): nada entra em lugar nenhum, e a linha [IA] diz itens_sem_campos=', async () => {
+        llmResponde({ itens: [{ abertura: 'porta', familia: 'x' }, { abertura: 'janela', familia: 'PVC / Alumínio ignorado' }] })
+        await chamar(T1)
+        expect(levantamentos()).toEqual([])
+        expect(linhaIa()[0]).toContain('rota=SEM_NOME')
+        expect(linhaIa()[0]).toMatch(/ itens_sem_campos=2(\s|$)/)
+        // o item com algum campo não conta
+        llmResponde({ cliente: 'Jorge Koss', itens: [{ abertura: 'porta', familia: 'x' }, { ...JANELA }] })
+        await chamar(T1)
+        expect(linhaIa()[1]).toMatch(/ itens_sem_campos=1(\s|$)/)
+        llmResponde({ itens: [{ ordem: 1, cor_perfil: 'BRANCO' }] })
+        await chamar('Branco')
+        expect(linhaIa()[2]).not.toContain('itens_sem_campos')
+    })
+
+    describe('as funções do filtro', () => {
+        const C = (tipologia: string, descricao: string, tipo: string | null) => ({ tipologia, descricao, tipo })
+        const LISTA = [
+            C('A', 'JANELA DE CORRER 02 FOLHAS', 'Correr'), C('B', 'PORTA DE CORRER 06 FOLHAS', 'Correr'), C('C', 'MAXIM-AR 01 MÓDULO', 'Maxim-ar'),
+            C('D', 'PORTA DE GIRO 01 FOLHA', 'Giro / Abrir'), C('E', 'JANELA OSCILO BATENTE', 'Oscilo-batente'), C('F', 'FIXO', 'Fixo'),
+            C('G', 'PORTA OSCILO BATENTE + GIRO 02 FOLHAS', 'Oscilo-batente'), C('H', 'PORTA SEM TIPO NO ARQUIVO', null),
+        ]
+        const TIPOS = ['Correr', 'Maxim-ar', 'Giro / Abrir', 'Oscilo-batente', 'Fixo']
+        const codigos = (textos: string[]) => TC.filtrarPeloAcumulado(LISTA, textos).candidatos.map((c) => c.tipologia)
+
+        it('as palavras do tipo: 3 letras ou mais, sem acento — "Giro / Abrir" são duas alternativas, "Maxim-ar" é só "maxim"', () => {
+            expect(TC.palavrasDoTipo('Giro / Abrir')).toEqual(['giro', 'abrir'])
+            expect(TC.palavrasDoTipo('Maxim-ar')).toEqual(['maxim'])
+            expect(TC.palavrasDoTipo('Oscilo-batente')).toEqual(['oscilo', 'batente'])
+        })
+
+        it('os tipos ditos: pelo começo da palavra, sem acento e sem caixa — maxim ar, maxim-ar e maximar; de giro ou de abrir; basculante não é nenhum', () => {
+            for (const t of ['janela maxim ar', 'Maxim-Ar', 'uma maximar']) expect([...TC.tiposDitos(t, TIPOS)]).toEqual(['Maxim-ar'])
+            expect([...TC.tiposDitos('porta de giro', TIPOS)]).toEqual(['Giro / Abrir'])
+            expect([...TC.tiposDitos('janela de abrir', TIPOS)]).toEqual(['Giro / Abrir'])
+            expect([...TC.tiposDitos('oscilo-batente', TIPOS)]).toEqual(['Oscilo-batente'])
+            expect([...TC.tiposDitos('vidros fixos', TIPOS)]).toEqual(['Fixo'])
+            for (const t of ['basculante', 'projetante', 'tombar', 'Jorge Koss, porto alegre', '']) expect(TC.tiposDitos(t, TIPOS).size).toBe(0)
+            // "corre" não é "correr" pelo começo? É: a palavra do tipo começa a do texto, não o contrário
+            expect(TC.tiposDitos('corre', TIPOS).size).toBe(0)
+        })
+
+        it('os trechos: uma linha de uma mensagem do vendedor que diz a abertura ou um tipo; a linha sem nada não conta', () => {
+            const trechos = TC.trechosDoAcumulado(['quero orçamento\n1 Porta janelas de correr 2 folhas\n1 janela maxim ar\n\nJorge Koss, porto alegre', 'Branco'], TIPOS)
+            expect(trechos.map((t) => [t.abertura, [...t.tipos]])).toEqual([['porta', ['Correr']], ['janela', ['Maxim-ar']]])
+            // as duas palavras na MESMA linha (fora de "porta janela"): a abertura é nula, o tipo filtra sozinho
+            expect(TC.trechosDoAcumulado(['uma porta e uma janela de correr'], TIPOS).map((t) => [t.abertura, [...t.tipos]])).toEqual([[null, ['Correr']]])
+            expect(TC.trechosDoAcumulado(['oi', ''], TIPOS)).toEqual([])
+        })
+
+        it('a lista por trecho é a UNIÃO: porta ∧ Correr mais janela ∧ Maxim-ar; a sem tipo no arquivo passa pelo filtro do tipo; sem trecho, inteira', () => {
+            // porta ∧ Correr → B e H (a H é porta e não tem tipo: passa); janela ∧ Maxim-ar → C (não declara abertura, e é Maxim-ar)
+            expect(codigos(['1 Porta janelas de correr\n1 janela maxim ar'])).toEqual(['B', 'C', 'H'])
+            expect(codigos(['uma porta de giro'])).toEqual(['D', 'H'])
+            expect(TC.filtrarPeloAcumulado(LISTA, ['oi']).candidatos.map((c) => c.tipologia)).toEqual(['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'])
+            expect(TC.filtrarPeloAcumulado(LISTA, ['oi'])).toEqual(expect.objectContaining({ trechos: 0, semCandidata: 0 }))
+            // só a abertura: como o filtro de antes (a maxim-ar e a fixo não declaram e passam)
+            expect(codigos(['uma porta'])).toEqual(['B', 'C', 'D', 'F', 'G', 'H'])
+            // a ordem da lista original é mantida
+            expect(codigos(['janela maxim ar\nporta de correr'])).toEqual(['B', 'C', 'H'])
+        })
+
+        it('a rede de segurança: o trecho sem candidata traz a lista inteira — e o LIMITE registrado: "porta de giro" não traz a G (Oscilo-batente + GIRO) enquanto sobrar a D', () => {
+            // "janela de giro": nenhuma JANELA é Giro / Abrir aqui (a C e a F não são do tipo; a H é porta) → lista inteira, nunca vazia, nunca uma recusa
+            const r = TC.filtrarPeloAcumulado(LISTA, ['janela de giro 800 x 2100'])
+            expect(r.candidatos).toHaveLength(8)
+            expect(r).toEqual(expect.objectContaining({ trechos: 1, semCandidata: 1 }))
+            // a palavra que não é tipo do motor ("basculante", "pivotante") não filtra: o trecho é só a abertura, e a lista é a dela
+            expect(codigos(['janela basculante 600 x 600'])).toEqual(['A', 'C', 'E', 'F'])
+            expect(codigos(['porta pivotante'])).toEqual(['B', 'C', 'D', 'F', 'G', 'H'])
+            // o LIMITE: a G (PORTA OSCILO BATENTE + GIRO, tipo Oscilo-batente) não vem com "porta de giro" enquanto a D sobrar
+            expect(codigos(['porta de giro'])).toEqual(['D', 'H'])
+            // dois trechos, um deles sem candidata: a lista inteira (o trecho sem candidata manda)
+            expect(TC.filtrarPeloAcumulado(LISTA, ['janela de giro\nporta de correr'])).toEqual(expect.objectContaining({ trechos: 2, semCandidata: 1 }))
+            expect(codigos(['janela de giro\nporta de correr'])).toHaveLength(8)
+        })
     })
 })

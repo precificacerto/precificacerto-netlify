@@ -2,18 +2,13 @@
  * O PEDIDO AO MODELO — o que as duas chamadas da conversa mandam além do texto (dono do produto, 05/11/2026).
  *
  * O caso que originou: em 04/11 e 05/11 quatro primeiras mensagens de sessão passaram de 45 s na 1ª chamada, e a medição dos 21 turnos que
- * voltaram mostrou que o tempo NÃO acompanha o tamanho da entrada (25,8 a 28,9 mil tokens, r = +0,09) e acompanha o da saída (r = +0,87); os
- * dois turnos lentos que voltaram geraram a 15 e 20 tokens/s contra 35 a 110 nos normais. Duas hipóteses cabiam nos dados: a API lenta, ou
- * o raciocínio adaptativo (a chamada ia sem `thinking`, que no Sonnet 5.5 liga o raciocínio) pensando milhares de tokens antes da ferramenta.
- * Este módulo desliga o raciocínio na 1ª chamada, limita a saída ao tamanho real da ferramenta mais folga, e marca o prefixo estável do
- * sistema para o cache — e a linha [IA] passa a dizer `stop_reason`, os tokens de raciocínio e os do cache, para a gente parar de adivinhar.
+ * voltaram mostrou que o tempo NÃO acompanha o tamanho da entrada (25,8 a 28,9 mil tokens, r = +0,09) e acompanha o da saída (r = +0,87).
+ * A primeira resposta (#226) desligou o raciocínio com `thinking: between_tools`, limitou a saída ao tamanho real da ferramenta e marcou o
+ * prefixo estável para o cache. A causa, medida depois (05/11, caso Jorge Koss): a ferramenta `strict: true` com 24 opcionais — o limite da
+ * API — não compilava sem `thinking` (45 a 50 s e `400 Schema is too complex`) e, com `between_tools`, compilava e DEGENERAVA a saída (nenhum
+ * campo da esquadria). O `strict` saiu (`conversa-da-ia.ts`, a ferramenta) e o `between_tools` também: sem os dois, 3,7 s e ~400 tokens de
+ * saída, contra 7 s e ~700 com o `between_tools`. Ficam o teto, o cache e a linha [IA] com `stop_reason`, raciocínio e cache.
  */
-
-/**
- * O RACIOCÍNIO da 1ª chamada, DESLIGADO: no Sonnet 5.5 `disabled` é recusado (400); `between_tools` é o jeito de não pensar antes da
- * ferramenta, aceito com `effort` até `high`. A 1ª chamada é uma extração curta: a ferramenta, uma vez.
- */
-export const RACIOCINIO_DA_EXTRACAO = { type: 'between_tools' } as const
 
 /**
  * O TETO DE SAÍDA da 1ª chamada: a resposta é UMA chamada da ferramenta. Medido nos 21 turnos de produção (03/11/2026): 86 a 574 tokens de saída.

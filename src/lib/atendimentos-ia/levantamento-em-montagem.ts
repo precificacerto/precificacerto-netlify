@@ -164,6 +164,8 @@ export function aplicarProposta(atuais: readonly ItemDoLevantamento[], proposta:
     const candidatasDoCodigo = (codigo: string) => ctx.candidatos.filter((c) => c.tipologia === codigo)
     const p = (proposta && typeof proposta === 'object' ? proposta : {}) as { itens?: unknown; escolhas?: unknown; opcoes_de?: unknown }
     const proxima = () => (itens.length ? Math.max(...itens.map((i) => i.ordem)) + 1 : 1)
+    // as esquadrias que JÁ receberam algo desta proposta (05/11/2026): a segunda sem número e sem tipologia não cai em cima da primeira
+    const tocadas = new Set<number>()
 
     for (const bruto of Array.isArray(p.itens) ? p.itens : []) {
         if (!bruto || typeof bruto !== 'object') continue
@@ -188,12 +190,21 @@ export function aplicarProposta(atuais: readonly ItemDoLevantamento[], proposta:
         } else if (validos.tipologia !== undefined) {
             alvo = itens.find((i) => i.tipologia === null)
             if (!alvo) { alvo = itemVazio(proxima()); itens.push(alvo) }
-        } else if (ctx.ordemPadrao !== null) {
-            alvo = itens.find((i) => i.ordem === ctx.ordemPadrao)
-        } else if (itens.length === 1) {
-            alvo = itens[0]
+        } else if (ctx.ordemPadrao !== null || itens.length === 1) {
+            const padrao = itens.find((i) => i.ordem === (ctx.ordemPadrao ?? itens[0].ordem))
+            if (padrao && !tocadas.has(padrao.ordem)) alvo = padrao
+            else {
+                // O CASO DO JORGE KOSS (05/11/2026): "1 porta de correr 2,50 x 2,20" e "1 janela maxim ar 60 x 60" na mesma mensagem, as duas sem
+                // número e sem tipologia (o modelo pergunta qual é) — a segunda caía na mesma esquadria padrão e SOBRESCREVIA a primeira. A
+                // segunda vai para a esquadria ainda não tocada: a que não tem NENHUM dos campos propostos primeiro (a resposta "Branco" para
+                // duas esquadrias sem cor vai nas duas sem cor), senão qualquer não tocada; só sem nenhuma não tocada vira uma esquadria nova
+                const campos = Object.keys(validos) as CampoDaEsquadria[]
+                alvo = itens.find((i) => !tocadas.has(i.ordem) && campos.every((k) => vazio(i[k]))) ?? itens.find((i) => !tocadas.has(i.ordem))
+                if (!alvo) { alvo = itemVazio(proxima()); itens.push(alvo) }
+            }
         }
         if (!alvo) { semEsquadria = true; continue }
+        tocadas.add(alvo.ordem)
 
         // PORTA × JANELA (decisão 1): a palavra do vendedor — a do item, se ele a escreveu, senão a da mensagem — contra a PRIMEIRA palavra
         // da descrição; nenhuma candidata do código compatível descarta a tipologia proposta. Maxim-ar e fixo não declaram, e passam.
