@@ -1413,3 +1413,61 @@ instrução do levantamento e a sem efeito); bloco (30) de `atendimentos-ia-leva
 a ordem trocada; o formal sem cálculo de ponta a ponta com a esquadria sem motor; a instrução no sistema e `instrucao_etapa=1`; a de cálculo fora do
 sistema e `instrucao_sem_efeito=2:CALCULAR_BARRAS:39`; sem instrução, o sistema de sempre; duas famílias, cada instrução com a família); a fixture dos
 pedidos INALTERADA; e as mutações do código (`mutacoes-etapas.py`, o resultado no PR).
+
+## O turno da conversa tem prazo: 300 s na rota, 45/15/30 s nas chamadas, e as leituras vão em ondas — dono do produto, 04/11/2026 (sem migração)
+
+**O caso que originou** (De Paula, 04/11/2026, 20:11:50 UTC, medido nos logs da Vercel e do PostgREST): a primeira mensagem de uma sessão, com três
+esquadrias e o cliente, entrou numa função recém-publicada; a rota leu o banco por 10,5 s (5 chamadas da rota + 24 da conversa, **em série**), chamou o
+modelo às 20:12:02 e a chamada **não voltou em 49 s**; a Vercel matou a função aos 60 s (`Vercel Runtime Timeout Error`), **sem linha `[IA]`** (ela só
+saía no fim do turno) e sem resposta ao vendedor. O WUZAPI reentregou aos 60 s e caiu em "em voo" (a entrada tinha 58,5 s, a janela era 60 s): o 200
+calou o reenvio que, em 03/11, tinha salvado as duas outras mensagens mortas aos 60 s (16:31 e 18:25, com duplicatas). **Três turnos mortos em três
+dias, todos a primeira mensagem de uma sessão.** No turno normal (17 turnos de 03/11, 12,1 a 22,8 s) o banco em série custava mais que o modelo
+(5,4 a 8,4 s contra 2,2 a 7,4 s).
+
+**As decisões, registradas como foram ditas:**
+
+> 1. "maxDuration da rota inbound para 300, e JANELA_EM_VOO_MS acompanhando."
+> 2. "TIMEOUT NA CHAMADA AO MODELO, que é o defeito de fundo: hoje ela não tem limite e o turno inteiro morre em silêncio. 1ª chamada: 45 s. Estourou,
+>    o vendedor recebe uma falha nomeada ('não consegui processar agora, me mande de novo'), e a linha [IA] é escrita ANTES do fim do turno, com o motivo.
+>    2ª chamada (redação): 15 s. Estourou, cai para a frase de reserva e segue — redação é luxo, nunca pode derrubar o turno. Nenhum caminho pode
+>    terminar sem resposta ao vendedor. Esse é o critério de aceitação."
+> 4. "As 24 leituras em série viram paralelas (ou cache). 5 a 8 s por turno é o ganho mais barato que temos."
+> "O item 3 (200 adiantado) NÃO entra agora. [...] Enquanto o reenvio do WUZAPI for a nossa rede, não vamos cortá-la."
+
+**O que está implementado (`prazo.ts` novo, `conversa-da-ia.ts`, `redacao-da-resposta.ts`, `levantamento-da-conversa.ts`, `motor-da-familia.ts`,
+`tabelas-da-conta.ts`, `instrucoes-da-categoria.ts`, `conversa-gravada.ts`, `inbound.ts`):**
+
+- **A rota declara 300 s** (`inbound.ts`) e **`JANELA_EM_VOO_MS` é 300 s**: os dois andam juntos, com portão nos dois testes (a janela menor que o limite
+  conduziria em dobro uma reentrega enquanto a primeira ainda roda). O plano aceita 300: as rotas do super admin já declaram 90 e fazem build, o que
+  exclui Hobby sem Fluid compute (teto 60); com Fluid, Hobby e Pro aceitam 300. A API da Vercel não devolve o plano; a prova é o build do preview.
+- **O prazo** (`prazo(ms)`): um `AbortController` com `setTimeout` — não `AbortSignal.timeout`, porque é com o relógio fingido do Jest que os testes
+  adiantam o tempo. O `signal` vai ao `fetch` (interrompe a conexão E a leitura do corpo); `estourou()` distingue o prazo da falha de rede; `limpar()`
+  cancela o despertador quando a chamada volta (há portão: nenhum timer sobra).
+  - **1ª chamada, 45 s** (`PRAZO_DA_PRIMEIRA_CHAMADA_MS`): estourada, `chamarLlm` devolve `prazo-esgotado`, a linha `[IA]` sai **no instante**
+    (`enviou=nao desfecho=prazo-esgotado limite_ms=45000 antes_do_envio=sim ia_ms=45000`), o vendedor recebe `FALHA_PRAZO_DA_IA` (fixa, não passa pela
+    redação), nada é gravado, e a linha de sempre sai no fim (`enviou=sim`). A falha de rede continua `FALHA_DA_IA`.
+  - **Redação, 15 s** (`PRAZO_DA_REDACAO_MS`): estourada, `redigir` devolve `motivo: 'prazo'` e o rascunho sai (`redacao=prazo` no log).
+  - **Envio ao WUZAPI, 30 s** (`PRAZO_DO_ENVIO_MS`, leitura do assistente dentro do critério "nenhum caminho termina sem resposta"): estourado, o turno
+    termina com `desfecho=envio-falhou status_envio=prazo_esgotado` e a saída fica gravada sem id de envio — o reenvio do WUZAPI reenvia o texto
+    gravado (a regra de 03/11). Os três prazos mais as leituras cabem em menos da metade dos 300 s (há portão).
+- **As leituras em ondas** (medido no banco falso por ondas, bloco (32) do teste): **6 idas ao banco em série antes do modelo, eram 22.** Onda 1: a conta
+  e a conversa (famílias, categorias e vínculos do preço, cores, levantamento em montagem, contexto, histórico, instruções); onda 2: o catálogo de
+  famílias, as etapas, os fornecedores, as tabelas (e, com instrução preenchida, o catálogo de categorias e as matérias-primas); onda 3: os itens do
+  catálogo de etapas e os motores; onda 4: a contagem de tipologias e os fornecedores dos motores; onda 5: a lista de tipologias; onda 6: as Variáveis
+  (por família) com a pergunta em aberto, ou com os itens da montagem. **A ordem das RESPOSTAS não mudou**: a primeira falta continua sendo a resposta,
+  na ordem de antes (família → etapas → motor → preço), e o motor passou a ser lido antes da conferência das etapas de propósito (a leitura que ela
+  recusaria não custa nada; a resposta é a frase da conferência). **A paginação** (`lerTudo`): a primeira página traz a contagem exata e as demais vão
+  JUNTAS — a ordem total das abas é o que garante que páginas em paralelo não se sobrepõem nem deixam buraco; a contagem lida contra a exata continua.
+- **O que mudou de efeito, e é da decisão:** quando a leitura da família recusa (uma falta nomeada) e OUTRA leitura da primeira onda lança (um erro do
+  banco), a resposta passa a ser `FALHA_DO_BANCO_ANTES` em vez da frase da falta — antes, as outras leituras nem aconteciam. Nenhum teste cobre esse
+  cruzamento, e em produção não há leitura da primeira onda que lance com a conta configurada.
+- **Não feito, por decisão:** o 200 adiantado ao WUZAPI (`waitUntil`) — fica para PR própria, depois de uma semana de produção sem turno morto sem
+  resposta. **Não feito, por escopo:** o cache do prompt (26 a 29 mil tokens de entrada por chamada, sem `cache_control`); o custo de reduzir isso está
+  no PR.
+
+**Prova:** `prazo.test.ts` (o prazo dispara nele, não antes; `limpar` cancela; o ouvinte de abort); bloco (31) de
+`atendimentos-ia-levantamento-por-nome.test.ts` (as constantes e a folga no maxDuration; a 1ª chamada pendurada aos 45 s com a linha antes do envio, a
+frase, nada gravado e a saída gravada; o contraste da falha de rede; a redação pendurada aos 15 s; o envio pendurado aos 30 s; nenhum timer sobra); bloco
+(32) (as 6 ondas exatas da primeira mensagem, a onda com instrução, a montagem, a paginação com 2.500 linhas: `[1, N−1]` e nenhuma linha a menos); (27)
+e (6) do inbound (a paridade janela × maxDuration); e as mutações do código (`mutacoes-prazo.py`, o resultado no PR). Os dez testes novos ficam
+vermelhos com o código da main (medido antes do push).

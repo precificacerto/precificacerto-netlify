@@ -63,8 +63,13 @@ import { telefoneNormalizado } from '@/lib/atendimentos-ia/telefone-normalizado'
 import { conduzirMensagem } from '@/lib/atendimentos-ia/conversa-da-ia'
 import { conversaDoRemetente, gravarEntrada } from '@/lib/atendimentos-ia/conversa-gravada'
 
-/** A conversa chama a LLM e o WUZAPI dentro da requisição: o limite é declarado, não herdado. */
-export const config = { maxDuration: 60 }
+/**
+ * A conversa chama a LLM e o WUZAPI dentro da requisição: o limite é declarado, não herdado. 300 s (dono do produto, 04/11/2026):
+ * aos 60 s a Vercel matou um turno cuja 1ª chamada ao modelo passou de 49 s, sem log e sem resposta ao vendedor. Com os prazos de
+ * cada chamada (45 s no modelo, 15 s na redação, 30 s no envio) o turno nunca chega perto; a janela em voo da conversa gravada
+ * (`JANELA_EM_VOO_MS`) acompanha este número, e há portão disso.
+ */
+export const config = { maxDuration: 300 }
 
 export const PREFIXO_DO_LOG_DE_ENTRADA = '[INBOUND]'
 /** O formato de `whatsapp_conexao.webhook_segredo` — o mesmo do CHECK da coluna. */

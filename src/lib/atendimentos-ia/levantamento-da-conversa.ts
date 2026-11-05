@@ -147,11 +147,11 @@ const porCodigoEFamilia = (a: CandidatoDeTipologia, b: CandidatoDeTipologia) =>
  * que valem para cada uma; e as tipologias candidatas, do motor do levantamento de cada família. A primeira falta é a resposta.
  */
 export async function lerFamiliasDaEmpresa(tenantId: string): Promise<FamiliasDaEmpresa> {
-    const motores = await lerMotoresDaConta(tenantId)
+    // o motor das etapas e o PREÇO (as tabelas dos fornecedores que a base de conhecimento vincula, `tabelas-da-conta.ts`) só dependem da
+    // conta: vão juntos (04/11/2026). A primeira falta continua sendo a do motor
+    const [motores, derivacao] = await Promise.all([lerMotoresDaConta(tenantId), derivarTabelasDaConta(tenantId)])
     if (motores.ok === false) return { ok: false, motivo: motores.motivo, frase: motores.frase, detalhe: motores.detalhe }
 
-    // o PREÇO: as tabelas dos fornecedores que a base de conhecimento vincula (`tabelas-da-conta.ts`), e qual vale
-    const derivacao = await derivarTabelasDaConta(tenantId)
     const perfilSemTabela = derivacao.fornecedoresSemTabela.find((f) => f.categorias.includes('PERFIL'))
     if (perfilSemTabela) return { ok: false, motivo: 'PERFIL_SEM_TABELA', frase: fraseDoPerfilSemTabela(perfilSemTabela.fornecedor), detalhe: '' }
     const familias: FamiliaLigada[] = []
@@ -168,9 +168,11 @@ export async function lerFamiliasDaEmpresa(tenantId: string): Promise<FamiliasDa
 
     // as tipologias: do motor do LEVANTAMENTO (a etapa com GERAR_LEVANTAMENTO) de cada família, por motor_id
     const candidatos: CandidatoDeTipologia[] = []
-    for (const f of familias) {
-        const { data, error: erroDaLista } = await supabaseAdmin
-            .from('orcamentista_motor_tipologia_detalhe').select('tipologia, descricao, tipo, larg_min_mm, larg_max_mm, alt_min_mm, alt_max_mm').eq('motor_id', f.levantamento.id)
+    // a lista de cada família é lida junto com as outras (04/11/2026); a primeira falta, na ordem das famílias, continua sendo a resposta
+    const listas = await Promise.all(familias.map((f) => supabaseAdmin
+        .from('orcamentista_motor_tipologia_detalhe').select('tipologia, descricao, tipo, larg_min_mm, larg_max_mm, alt_min_mm, alt_max_mm').eq('motor_id', f.levantamento.id)))
+    for (const [i, f] of familias.entries()) {
+        const { data, error: erroDaLista } = listas[i]
         if (erroDaLista) return { ok: false, motivo: 'SEM_LISTA_DE_TIPOLOGIAS', frase: FRASE_SEM_LISTA_DE_TIPOLOGIAS, detalhe: `codigo=${erroDaLista.code ?? '-'}` }
         type LinhaDaDetalhe = { tipologia: unknown; descricao: string | null; tipo: string | null; larg_min_mm?: unknown; larg_max_mm?: unknown; alt_min_mm?: unknown; alt_max_mm?: unknown }
         const doMotor = ((data ?? []) as LinhaDaDetalhe[])
@@ -329,9 +331,7 @@ const ORDEM_POR_ID = ['id'] as const
 
 /** TODAS as linhas do motor (`motor_id`; e, se pedido, só dos valores de uma coluna), página a página, com a contagem conferida. */
 async function lerTudo(tabela: string, motorId: string, ordem: readonly string[], recorte?: { coluna: string; valores: readonly string[] }): Promise<Leitura> {
-    const linhas: Array<Record<string, unknown>> = []
-    let total: number | null = null
-    for (let de = 0; total === null || de < total; de += PAGINA) {
+    const pagina = async (de: number): Promise<{ linhas: Array<Record<string, unknown>>; total: number } | { ausente: true }> => {
         let q = supabaseAdmin.from(tabela).select('*', { count: 'exact' }).eq('motor_id', motorId)
         if (recorte) q = q.in(recorte.coluna, [...recorte.valores])
         for (const c of ordem) q = q.order(c, { ascending: true })
@@ -341,10 +341,20 @@ async function lerTudo(tabela: string, motorId: string, ordem: readonly string[]
             throw new Error(`${tabela}: ${error.message}`)
         }
         if (typeof count !== 'number') throw new Error(`${tabela}: a contagem exata não veio`)
-        total = count
-        const pagina = (data ?? []) as Array<Record<string, unknown>>
-        linhas.push(...pagina)
-        if (pagina.length === 0) break
+        return { linhas: (data ?? []) as Array<Record<string, unknown>>, total: count }
+    }
+    // a primeira página traz a contagem exata; as demais são pedidas JUNTAS (04/11/2026: as 4 páginas das Variáveis em série custavam
+    // ~2 s por turno). A ordem total (`ordem`) é o que garante que páginas pedidas em paralelo não se sobrepõem nem deixam buraco
+    const primeira = await pagina(0)
+    if ('ausente' in primeira) return primeira
+    const total = primeira.total
+    const inicios: number[] = []
+    for (let de = PAGINA; de < total; de += PAGINA) inicios.push(de)
+    const demais = await Promise.all(inicios.map(pagina))
+    const linhas = [...primeira.linhas]
+    for (const p of demais) {
+        if ('ausente' in p) return p
+        linhas.push(...p.linhas)
     }
     if (linhas.length !== total) throw new Error(`${tabela}: ${linhas.length} linhas lidas de ${total}`)
     return { linhas }

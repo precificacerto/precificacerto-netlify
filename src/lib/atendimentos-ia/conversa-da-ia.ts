@@ -178,6 +178,7 @@ import { agruparIguais,
     type DefinicaoDaTipologia, type ItemDoLevantamento, type Pendencia,
 } from '@/lib/atendimentos-ia/levantamento-em-montagem'
 import { JANELA_EM_VOO_MS, gravarSaida, lerHistorico, marcarEnvio, saidaDaEntrada, type Entrada, type MensagemDoHistorico } from '@/lib/atendimentos-ia/conversa-gravada'
+import { prazo } from '@/lib/atendimentos-ia/prazo'
 import { CODIGO_DE_FORNECEDOR, redigir, type MotivoDaRedacao, type Redacao } from '@/lib/atendimentos-ia/redacao-da-resposta'
 import { vidroPodado } from '@/lib/atendimentos-ia/vidro'
 import type { VariaveisDaTipologia } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
@@ -185,7 +186,7 @@ import { compararNome, formaComparavel, nomeDaMensagem, nomeDoCliente, nomeSemPr
 import { PERGUNTAS_DA_TIPOLOGIA } from '@/lib/atendimentos-ia/pre-definicao'
 import { PROMPT_BASE } from '@/utils/atendimentos-ia-prompt-base'
 import { LIMITE_DA_FALA } from '@/utils/atendimentos-ia-contexto'
-import { blocoDasInstrucoes, lerInstrucoesDaEmpresa, type InstrucaoDaCategoria, type InstrucoesLidas } from '@/lib/atendimentos-ia/instrucoes-da-categoria'
+import { blocoDasInstrucoes, lerInstrucoesDaEmpresa, type InstrucaoDaCategoria } from '@/lib/atendimentos-ia/instrucoes-da-categoria'
 import { blocoDasInstrucoesDasEtapas, type InstrucaoDaEtapa } from '@/lib/atendimentos-ia/motor-da-familia'
 import { aberturaDita, filtrarPorAbertura, fraseDaAberturaRecusada, fraseDeNenhumaTipologiaCabe, palavrasDeAbertura } from '@/lib/atendimentos-ia/tipologias-candidatas'
 import { escolhasParaOPrompt, opcoesDeArremateNoPrompt, lerEscolhasDoItem, lerEscolhasGravadas, temEscolhaDoVendedor } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
@@ -205,6 +206,8 @@ const wuzapi = () => (process.env.WUZAPI_BASE_URL || 'https://usapi.adabtech.sho
 
 export type DesfechoDaIa =
     | 'sem-chave' | 'sem-saldo' | 'erro-da-llm' | 'recusa' | 'sem-proposta' | 'sem-tipologias'
+    /** A 1ª chamada ao modelo não voltou no prazo (04/11/2026): a linha sai no instante do estouro E no fim do turno. */
+    | 'prazo-esgotado'
     | 'sem-nome' | 'nome-parecido' | 'nome-existe' | 'qual-esquadria' | 'nao-encontrado' | 'qual-vendedor' | 'alteracao-incompleta'
     | 'nao-avancou' | 'confirmar-acrescimo' | 'confirmar-resgate' | 'nao-acrescentou' | 'apanhado' | 'nao-confirmou'
     | 'perguntou' | 'sem-cores' | 'levantou' | 'recusou' | 'envio-falhou' | 'erro' | 'nenhuma-cabe'
@@ -372,6 +375,8 @@ export const fraseDoAcrescimoRecusado = (nome: string) =>
 export const FALHA_SEM_CHAVE = 'Não consegui processar a sua mensagem: o atendimento por IA está sem a chave de acesso configurada. Avise o administrador.'
 export const FALHA_SEM_SALDO = 'Não consegui processar a sua mensagem: a conta do serviço de IA está sem saldo de créditos. Avise o administrador.'
 export const FALHA_DA_IA = 'Não consegui processar a sua mensagem: o serviço de IA não respondeu. Nada foi gravado; mande de novo em alguns minutos.'
+/** O prazo da 1ª chamada estourou (dono do produto, 04/11/2026: "não consegui processar agora, me mande de novo"). */
+export const FALHA_PRAZO_DA_IA = 'Não consegui processar a sua mensagem agora: o serviço de IA demorou demais para responder. Nada foi gravado; me mande de novo.'
 export const FALHA_RECUSA = 'Não consegui processar a sua mensagem: o serviço de IA recusou o conteúdo. Nada foi gravado; reescreva a mensagem.'
 export const FALHA_DO_BANCO_ANTES = 'Não consegui processar a sua mensagem: houve um erro ao ler o levantamento. Nada foi gravado; mande de novo.'
 export const FALHA_DO_BANCO_AO_GRAVAR = 'Não consegui concluir: houve um erro ao gravar o levantamento, e ele pode não ter sido gravado por inteiro. Mande de novo o nome do levantamento e o que muda.'
@@ -538,7 +543,7 @@ function sistema(c: ContextoDoPrompt): string {
 // ── A LLM ───────────────────────────────────────────────────────────────────────────────────
 type ResultadoDaLlm =
     | { tipo: 'ok'; proposta: Record<string, unknown> }
-    | { tipo: 'sem-saldo' | 'erro-da-llm' | 'recusa' | 'sem-proposta'; detalhe: string }
+    | { tipo: 'sem-saldo' | 'erro-da-llm' | 'recusa' | 'sem-proposta' | 'prazo-esgotado'; detalhe: string }
 
 /** Sem saldo: 402 `billing_error`, ou o 400 com "credit balance" que a API também já devolveu. */
 function ehSemSaldo(status: number, erro: { type?: unknown; message?: unknown } | undefined): boolean {
@@ -555,13 +560,24 @@ function mensagemParaOLog(mensagem: unknown, chave: string): string {
 
 const tokens = (v: unknown) => (typeof v === 'number' && Number.isInteger(v) && v >= 0 ? v : null)
 
+/**
+ * O PRAZO da 1ª chamada (dono do produto, 04/11/2026): 45 s. Medido em 03/11: 2,2 a 7,4 s nas mensagens seguintes, 11,8 e 21,2 s na
+ * primeira mensagem de uma sessão; em 04/11 uma delas passou de 49 s e a função morreu aos 60 s. Estourado, o vendedor recebe
+ * `FALHA_PRAZO_DA_IA` e a linha `[IA]` sai ANTES do fim do turno, com o motivo.
+ */
+export const PRAZO_DA_PRIMEIRA_CHAMADA_MS = 45_000
+
 async function chamarLlm(chave: string, mensagem: string, contexto: ContextoDoPrompt, medida: MedidaDaIa, historico: readonly MensagemDoHistorico[]): Promise<ResultadoDaLlm> {
     const inicio = Date.now()
+    const limite = prazo(PRAZO_DA_PRIMEIRA_CHAMADA_MS)
     let r: Response
+    let corpo: Record<string, unknown> | null
     try {
         r = await fetch(URL_DA_API_ANTHROPIC, {
             method: 'POST',
             headers: { 'content-type': 'application/json', 'x-api-key': chave, 'anthropic-version': VERSAO_DA_API_ANTHROPIC },
+            // o prazo vale para a conexão E para a leitura do corpo
+            signal: limite.signal,
             body: JSON.stringify({
                 // O MODELO POR CONTA entraria aqui, junto do teto: hoje não há coluna para ele —
                 // `orcamentista_config.modelo` é o modelo de ATENDIMENTO (ver `modelo-da-ia.ts`).
@@ -577,11 +593,15 @@ async function chamarLlm(chave: string, mensagem: string, contexto: ContextoDoPr
                 messages: [...historico, { role: 'user', content: mensagem }],
             }),
         })
+        // o corpo que não é JSON é um erro da API, não uma exceção: segue nulo e o status decide
+        corpo = (await r.json().catch((): null => null)) as Record<string, unknown> | null
     } catch (e) {
         medida.ms = Date.now() - inicio
+        limite.limpar()
+        if (limite.estourou()) return { tipo: 'prazo-esgotado', detalhe: `limite_ms=${PRAZO_DA_PRIMEIRA_CHAMADA_MS}` }
         return { tipo: 'erro-da-llm', detalhe: `excecao=${e instanceof Error ? e.name : 'desconhecida'}` }
     }
-    const corpo = (await r.json().catch((): null => null)) as Record<string, unknown> | null
+    limite.limpar()
     medida.ms = Date.now() - inicio
     const uso = (corpo?.usage ?? null) as { input_tokens?: unknown; output_tokens?: unknown } | null
     medida.entrada = tokens(uso?.input_tokens)
@@ -758,18 +778,28 @@ async function gravarLevantamento(
  * número como o WhatsApp o entregou (a parte de usuário do JID), sem variantes: ele já é o do
  * WhatsApp.
  */
-async function enviarTexto(token: string, telefone: string, texto: string): Promise<{ ok: boolean; id: string | null; status: number | null }> {
+/** O PRAZO do envio ao WUZAPI (04/11/2026): o envio que não volta não pode segurar o turno até a Vercel o matar sem log. */
+export const PRAZO_DO_ENVIO_MS = 30_000
+type Envio = { ok: boolean; id: string | null; status: number | null; prazoEsgotado: boolean }
+/** O que o log diz do envio que falhou: o status HTTP, `prazo_esgotado`, ou `sem resposta` (a falha de rede). */
+const statusDoEnvio = (e: Envio) => (e.status !== null ? String(e.status) : e.prazoEsgotado ? 'prazo_esgotado' : 'sem resposta')
+
+async function enviarTexto(token: string, telefone: string, texto: string): Promise<Envio> {
+    const limite = prazo(PRAZO_DO_ENVIO_MS)
     try {
         const r = await fetch(`${wuzapi()}/chat/send/text`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', token },
+            signal: limite.signal,
             body: JSON.stringify({ Phone: telefone, Body: texto }),
         })
         const corpo = (await r.json().catch((): null => null)) as { data?: { Id?: unknown } } | null
         const id = typeof corpo?.data?.Id === 'string' ? corpo.data.Id : null
-        return { ok: r.ok, id, status: r.status }
+        return { ok: r.ok, id, status: r.status, prazoEsgotado: false }
     } catch {
-        return { ok: false, id: null, status: null }
+        return { ok: false, id: null, status: null, prazoEsgotado: limite.estourou() }
+    } finally {
+        limite.limpar()
     }
 }
 
@@ -888,7 +918,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         const texto = comAbertura && abertura ? `${abertura}\n\n${textoDaResposta}` : textoDaResposta
         const envio = await enviarTexto(c.wuzapiToken, c.telefone, texto)
         await gravar(texto, envio.ok ? envio.id : null)
-        if (!envio.ok) return fim('envio-falhou', `status_envio=${envio.status ?? 'sem resposta'}${detalhe ? ` ${detalhe}` : ''}`)
+        if (!envio.ok) return fim('envio-falhou', `status_envio=${statusDoEnvio(envio)}${detalhe ? ` ${detalhe}` : ''}`)
         rastro.enviou = true
         return fim(desfecho, detalhe)
     }
@@ -917,7 +947,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             if (saida && saida.enviada) return fim('repetida')
             if (saida) {
                 const envio = await enviarTexto(c.wuzapiToken, c.telefone, saida.texto)
-                if (!envio.ok) return fim('envio-falhou', `status_envio=${envio.status ?? 'sem resposta'} reenvio=sim`)
+                if (!envio.ok) return fim('envio-falhou', `status_envio=${statusDoEnvio(envio)} reenvio=sim`)
                 rastro.enviou = true
                 if (envio.id) await marcarEnvio(c.tenantId, saida.id, envio.id)
                 return fim('reenviada')
@@ -933,33 +963,52 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         // Sem a lista de tipologias não há de onde a IA escolher, nem com o que calcular: a conversa
         // diz o que falta, sem chamar a LLM.
         // a falta de configuração (família, etapa, motor, tabela de preço) volta com a frase que a nomeia (PR D)
-        const tabela = await lerFamiliasDaEmpresa(c.tenantId)
+        // AS LEITURAS INDEPENDENTES VÃO JUNTAS (dono do produto, 04/11/2026): medido em produção, as 24 leituras em série antes do modelo
+        // custavam 5 a 8 s por turno. Primeira onda: o que só depende da conta e da conversa. A ordem das RESPOSTAS continua a de antes.
+        const [tabela, cores, emMontagemLidos, contexto, lido, instrucoes] = await Promise.all([
+            lerFamiliasDaEmpresa(c.tenantId),
+            lerCoresDaEmpresa(c.tenantId),
+            lerLevantamentos(c.tenantId, c.remetenteId, true),
+            // o contexto da empresa: vazio (ou a tabela ausente) é o pedido de hoje
+            lerContextoDoAtendimento(c.tenantId),
+            // o histórico da conversa (03/11/2026): as últimas mensagens, sem dinheiro, e a última saída como foi enviada
+            lerHistorico(c.tenantId, c.conversaId, c.entrada.id),
+            // a instrução de cada categoria preenchida (03/11/2026)
+            lerInstrucoesDaEmpresa(c.tenantId),
+        ] as const)
         if ('frase' in tabela) return await responder(tabela.frase, 'sem-tipologias', `motivo=${tabela.motivo}${tabela.detalhe ? ` ${tabela.detalhe}` : ''}`)
         const doCodigo = familiasDoCodigo(tabela)
         const variasFamilias = tabela.familias.length > 1
         // a instrução escrita numa etapa que não fala com o modelo não tem efeito: o log diz qual (04/11/2026)
         rastro.instrucoesSemEfeito = tabela.familias.flatMap((f) => f.instrucoesSemEfeito.map((i) => `${i.numero}:${i.acao}:${i.caracteres}`)).join(',')
-        // as Variáveis de cada tipologia, do banco, POR FAMÍLIA: as do motor do LEVANTAMENTO dela (a etapa com GERAR_LEVANTAMENTO), por motor_id
-        const variaveisPorFamilia: Record<string, Record<string, VariaveisDaTipologia>> = {}
-        for (const f of tabela.familias) variaveisPorFamilia[f.familia] = await lerVariaveisDasTipologias(f.levantamento.id)
+        const [emMontagem] = emMontagemLidos
+        // Segunda onda: o que depende da família ou da montagem. As Variáveis de cada tipologia, POR FAMÍLIA, do motor do LEVANTAMENTO dela
+        // (a etapa com GERAR_LEVANTAMENTO), por motor_id; os itens da montagem; e a pergunta em aberto do roteamento pelo nome — só fora da
+        // montagem, que guarda a sua no levantamento — com os levantamentos do remetente que ela cita
+        const [variaveisLidas, itensDaMontagem, pergunta] = await Promise.all([
+            Promise.all(tabela.familias.map(async (f) => [f.familia, await lerVariaveisDasTipologias(f.levantamento.id)] as const)),
+            emMontagem ? lerItens(c.tenantId, emMontagem.id) : Promise.resolve([] as ItemGravado[]),
+            emMontagem ? Promise.resolve(null) : (async (): Promise<{ lida: PerguntaEmAberto | null | 'ausente'; doRemetente: Levantamento[] | null }> => {
+                const lida = await lerPerguntaEmAberto(c.tenantId, c.remetenteId)
+                const doRemetente = lida !== null && lida !== 'ausente' ? await lerLevantamentos(c.tenantId, c.remetenteId, false) : null
+                return { lida, doRemetente }
+            })(),
+        ] as const)
+        const variaveisPorFamilia: Record<string, Record<string, VariaveisDaTipologia>> = Object.fromEntries(variaveisLidas)
         const definicao: DefinicaoDaTipologia = (e) => {
             const daEsquadria = familiaDaEsquadria(e, doCodigo)
             return e.tipologia !== null && daEsquadria && 'familia' in daEsquadria ? variaveisPorFamilia[daEsquadria.familia]?.[e.tipologia] ?? null : null
         }
-        const cores = await lerCoresDaEmpresa(c.tenantId)
 
-        const [emMontagem] = await lerLevantamentos(c.tenantId, c.remetenteId, true)
-        const itensDaMontagem = emMontagem ? await lerItens(c.tenantId, emMontagem.id) : []
         // TODAS as pendências da montagem (03/11/2026): a pergunta em aberto é uma só, e cobre todas
         const pendenciasAbertas = emMontagem ? pendenciasDoLevantamento(itensDaMontagem, definicao, doCodigo) : []
         const pendenciaAberta = pendenciasAbertas[0] ?? null
-        // a pergunta em aberto do roteamento pelo nome: só fora da montagem, que guarda a sua no levantamento
-        const lida = emMontagem ? null : await lerPerguntaEmAberto(c.tenantId, c.remetenteId)
+        const lida = pergunta?.lida ?? null
         rastro.aberta = lida === 'ausente' ? 'ausente' : lida ? lida.pergunta : '-'
         // sem a tabela (migração pendente), nada se grava nela; com a linha lá, ela é apagada quando se resolve
         const guardaPergunta = lida !== 'ausente'
         const temLinha = lida !== null && lida !== 'ausente'
-        const doRemetente = temLinha ? await lerLevantamentos(c.tenantId, c.remetenteId, false) : null
+        const doRemetente: Levantamento[] | null = pergunta?.doRemetente ?? null
         const aberta = temLinha && doRemetente ? await refazerPergunta(c.tenantId, lida, doRemetente, definicao) : null
 
         // PORTA × JANELA (03/11/2026): a mensagem que traz UMA das palavras já recebe a lista filtrada; as duas, ou nenhuma, a lista inteira
@@ -970,17 +1019,12 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             const linhas = def ? escolhasParaOPrompt(def) : []
             return linhas.length ? [{ tipologia: variasFamilias ? `${x.tipologia} de ${x.rotulo}` : x.tipologia, linhas }] : []
         })
-        // o contexto da empresa: vazio (ou a tabela ausente) é o pedido de hoje
-        const contexto = await lerContextoDoAtendimento(c.tenantId)
+        // o contexto, o histórico e as instruções já lidos na primeira onda: o rastro só os anota com a lista de tipologias em mãos
         rastro.contexto = contexto.estado
         blocoDaEmpresa = contexto.texto === null ? null : blocoDoContexto(contexto.texto).join('\n')
-        // o histórico da conversa (03/11/2026): as últimas mensagens, sem dinheiro, e a última saída como foi enviada
-        const lido = await lerHistorico(c.tenantId, c.conversaId, c.entrada.id)
         historico = lido.mensagens
         ultimaSaida = lido.ultimaSaida
         rastro.historico = historico.length
-        // a instrução de cada categoria preenchida (03/11/2026)
-        const instrucoes: InstrucoesLidas = await lerInstrucoesDaEmpresa(c.tenantId)
         rastro.instrucoes = instrucoes.estado === 'sem_migracao' ? 'sem_migracao' : String(instrucoes.instrucoes.length)
         // a instrução da etapa corrente de cada família (04/11/2026): só a de GERAR_LEVANTAMENTO, só preenchida
         const instrucoesDasEtapas = tabela.familias.flatMap((f) => (f.instrucaoDoLevantamento ? [f.instrucaoDoLevantamento] : []))
@@ -993,8 +1037,10 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             hoje: !pendenciaAberta && aberta && ehResgate(aberta.p) ? dataBR(new Date().toISOString()) : null,
         }, rastro.ia, historico)
         if (resposta.tipo !== 'ok') {
+            // o prazo estourou (04/11/2026): a linha [IA] sai AGORA, antes de qualquer envio — se a função morrer depois, o motivo já está no log
+            if (resposta.tipo === 'prazo-esgotado') anotar(rastro, 'prazo-esgotado', `${resposta.detalhe} antes_do_envio=sim`)
             // DEFEITO 3: o vendedor sempre fica sabendo — sem detalhe técnico
-            const frase = resposta.tipo === 'sem-saldo' ? FALHA_SEM_SALDO : resposta.tipo === 'recusa' ? FALHA_RECUSA : FALHA_DA_IA
+            const frase = resposta.tipo === 'sem-saldo' ? FALHA_SEM_SALDO : resposta.tipo === 'recusa' ? FALHA_RECUSA : resposta.tipo === 'prazo-esgotado' ? FALHA_PRAZO_DA_IA : FALHA_DA_IA
             return await responder(frase, resposta.tipo, resposta.detalhe)
         }
         const proposta = resposta.proposta

@@ -135,19 +135,26 @@ export async function lerMotoresDaConta(tenantId: string): Promise<MotoresDaCont
     if (instancias.length === 0) return { ok: false, motivo: 'SEM_FAMILIA', frase: FRASE_SEM_FAMILIA, detalhe: '' }
 
     const chaves = [...new Set(instancias.map((m) => String(m.familia)))]
-    const catalogo = await ler('orcamentista_familia_catalogo', db().from('orcamentista_familia_catalogo').select('chave, rotulo').in('chave', chaves))
+    // o catálogo de famílias e TODAS as etapas das instâncias só dependem das instâncias: vão juntos (04/11/2026)
+    const [catalogo, linhas] = await Promise.all([
+        ler('orcamentista_familia_catalogo', db().from('orcamentista_familia_catalogo').select('chave, rotulo').in('chave', chaves)),
+        ler('orcamentista_familia_etapa', db().from('orcamentista_familia_etapa')
+            .select('id, materia_prima_id, numero, etapa_catalogo_id, instrucao, motor_id').eq('tenant_id', tenantId).in('materia_prima_id', instancias.map((m) => String(m.id)))),
+    ])
     const rotuloDa = new Map(catalogo.map((f) => [String(f.chave), String(f.rotulo)]))
     const rotulo = (chave: string) => rotuloDa.get(chave) ?? chave
     const nomeDa = (m: Linha) => (typeof m.nome === 'string' && m.nome.trim() !== '' ? m.nome.trim() : rotulo(String(m.familia)))
 
-    // TODAS as etapas das instâncias, com o item do catálogo de cada uma (nome, ação, abas)
-    const linhas = await ler('orcamentista_familia_etapa', db().from('orcamentista_familia_etapa')
-        .select('id, materia_prima_id, numero, etapa_catalogo_id, instrucao, motor_id').eq('tenant_id', tenantId).in('materia_prima_id', instancias.map((m) => String(m.id))))
+    // o item do catálogo de cada etapa (nome, ação, abas) e os motores que as etapas apontam só dependem das etapas: vão juntos. O motor é
+    // lido ANTES da conferência de propósito: a leitura que ela recusaria (etapa sem motor fica fora da lista) não custa nada, e a resposta
+    // continua sendo a frase da conferência
     const idsDosItens = [...new Set(linhas.map((l) => String(l.etapa_catalogo_id)))]
-    const itens = new Map<string, Linha>()
-    if (idsDosItens.length > 0) {
-        for (const c of await ler('orcamentista_etapa_catalogo', db().from('orcamentista_etapa_catalogo').select('id, nome, acao, abas').in('id', idsDosItens))) itens.set(String(c.id), c)
-    }
+    const idsDosMotores = [...new Set(linhas.map((l) => l.motor_id).filter((id): id is string => typeof id === 'string' && id !== ''))]
+    const [itensLidos, motores] = await Promise.all([
+        idsDosItens.length > 0 ? ler('orcamentista_etapa_catalogo', db().from('orcamentista_etapa_catalogo').select('id, nome, acao, abas').in('id', idsDosItens)) : Promise.resolve([] as Linha[]),
+        idsDosMotores.length > 0 ? ler('orcamentista_motor', db().from('orcamentista_motor').select('id, nome, fornecedor_id, arquivado_em').in('id', idsDosMotores)) : Promise.resolve([] as Linha[]),
+    ])
+    const itens = new Map<string, Linha>(itensLidos.map((c) => [String(c.id), c]))
     const etapasDe = (m: Linha): EtapaConferivel[] => linhas.filter((l) => String(l.materia_prima_id) === String(m.id)).map((l) => {
         // a FK (RESTRICT, NOT NULL) garante o item; se ele não vier, é erro — nunca uma etapa sem nome
         const item = itens.get(String(l.etapa_catalogo_id))
@@ -181,11 +188,15 @@ export async function lerMotoresDaConta(tenantId: string): Promise<MotoresDaCont
             }
         }
     }
-    // 3. os motores: não arquivados e com conteúdo importado por motor_id
-    const ids = [...new Set(linhas.map((e) => String(e.motor_id)))]
-    const motores = await ler('orcamentista_motor', db().from('orcamentista_motor').select('id, nome, fornecedor_id, arquivado_em').in('id', ids))
+    // 3. os motores: não arquivados e com conteúdo importado por motor_id. A contagem de cada motor e os fornecedores deles só dependem dos
+    // motores lidos: vão juntos (04/11/2026); a ordem das RECUSAS continua a de antes (instância a instância, etapa a etapa)
     const motorDe = new Map(motores.map((x) => [String(x.id), x]))
-    const conteudo = new Map<string, number | { erro: string }>()
+    const fIds = [...new Set(motores.map((x) => String(x.fornecedor_id ?? '')).filter((x) => x !== ''))]
+    const [contagens, fornecedores] = await Promise.all([
+        Promise.all(idsDosMotores.map(async (id) => [id, await contarTipologiasDoMotor(id)] as const)),
+        fIds.length ? ler('orcamentista_fornecedor', db().from('orcamentista_fornecedor').select('id, nome').in('id', fIds)) : Promise.resolve([] as Linha[]),
+    ])
+    const conteudo = new Map<string, number | { erro: string }>(contagens)
     for (const m of instancias) {
         for (const e of conferidas.get(String(m.id))!) {
             const id = String(e.motor_id)
@@ -193,15 +204,13 @@ export async function lerMotoresDaConta(tenantId: string): Promise<MotoresDaCont
             const nomeDoMotor = String(motor?.nome ?? id)
             if (!motor) throw new Error(`orcamentista_motor: o motor ${id} da etapa ${e.numero} não veio`)
             if (motor.arquivado_em != null) return { ok: false, motivo: 'MOTOR_ARQUIVADO', frase: fraseDoMotorArquivado(nomeDoMotor, nomeDa(m), e), detalhe: `motor=${id}` }
-            if (!conteudo.has(id)) conteudo.set(id, await contarTipologiasDoMotor(id))
-            const tipologias = conteudo.get(id)!
+            const tipologias = conteudo.get(id)
+            if (tipologias === undefined) throw new Error(`orcamentista_motor_tipologia_detalhe: a contagem do motor ${id} não veio`)
             if (typeof tipologias === 'object') return { ok: false, motivo: 'SEM_LISTA_DE_TIPOLOGIAS', frase: FRASE_SEM_LISTA_DE_TIPOLOGIAS, detalhe: `codigo=${tipologias.erro}` }
             if (tipologias === 0) return { ok: false, motivo: 'MOTOR_SEM_CONTEUDO', frase: fraseDoMotorSemConteudo(nomeDoMotor, nomeDa(m), e), detalhe: `motor=${id}` }
         }
     }
 
-    const fIds = [...new Set(motores.map((x) => String(x.fornecedor_id ?? '')).filter((x) => x !== ''))]
-    const fornecedores = fIds.length ? await ler('orcamentista_fornecedor', db().from('orcamentista_fornecedor').select('id, nome').in('id', fIds)) : []
     const nomeDoFornecedor = new Map(fornecedores.map((f) => [String(f.id), String(f.nome ?? '').trim()]))
     const familias: FonteDaFamilia[] = chaves.map((chave) => {
         const m = instancias.find((x) => String(x.familia) === chave)!
