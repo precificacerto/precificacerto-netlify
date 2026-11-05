@@ -146,7 +146,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             try {
                 r2 = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: cab, body: JSON.stringify(pedido), signal: AbortSignal.timeout(50_000) })
             } catch (e) {
-                ferramenta.push({ turno: t.nome, variante, status: null, ms: Date.now() - t0, interrompido: true, erro: e instanceof Error ? e.name : String(e) })
+                ferramenta.push({ turno: t.nome, variante, status: null, request_id: null, ms: Date.now() - t0, interrompido: true, erro: e instanceof Error ? e.name : String(e) })
                 continue
             }
             const j = (await r2.json().catch((): null => null)) as { stop_reason?: unknown; usage?: { output_tokens?: unknown; output_tokens_details?: unknown }; error?: { type?: unknown; message?: unknown }; content?: Array<{ type?: unknown; name?: unknown; input?: unknown }> } | null
@@ -155,7 +155,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             const entrada = (chamada?.input ?? null) as Record<string, unknown> | null
             const { fala: _fala, ...semFala } = entrada ?? {}
             void _fala
-            ferramenta.push({ turno: t.nome, variante, status: r2.status, ms, stop_reason: j?.stop_reason ?? null, output_tokens: j?.usage?.output_tokens ?? null, saida_detalhe: j?.usage?.output_tokens_details ?? null, erro: j?.error ? { type: j.error.type ?? null, message: typeof j.error.message === 'string' ? j.error.message.slice(0, 300) : null } : null, entrada: entrada ? semFala : null })
+            ferramenta.push({ turno: t.nome, variante, status: r2.status, request_id: r2.headers.get('request-id'), ms, stop_reason: j?.stop_reason ?? null, output_tokens: j?.usage?.output_tokens ?? null, saida_detalhe: j?.usage?.output_tokens_details ?? null, erro: j?.error ? { type: j.error.type ?? null, message: typeof j.error.message === 'string' ? j.error.message.slice(0, 300) : null } : null, entrada: entrada ? semFala : null })
         }
     }
     const resultado = { quando: new Date().toISOString(), ferramenta, accept_encoding, com_chave: Boolean(chave), tamanho_corpo_grande: corpoGrande.length, regiao: process.env.VERCEL_REGION ?? null, ambiente: process.env.VERCEL_ENV ?? null, node: process.version, medidas }
