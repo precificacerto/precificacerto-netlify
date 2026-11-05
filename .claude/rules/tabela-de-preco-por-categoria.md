@@ -1507,8 +1507,8 @@ curta — e a linha `[IA]` não dizia `stop_reason` nem os tokens de raciocínio
   `Hoje é`, `Pergunta em aberto` — depois dele, sem marca. A ordem do pedido é tools → system → messages, então a ferramenta entra no prefixo cacheado.
   O estável é **byte a byte o mesmo entre os turnos da mesma conta** (há portão), enquanto o catálogo, a base de conhecimento e as instruções não mudam.
   A redação vai num bloco só, marcado: o sistema dela é todo da conta. O TTL do cache é 5 min, renovado a cada leitura; os turnos de uma sessão distam
-  30 a 60 s. **O filtro porta/janela muda o estável**: são até três variantes por conta (lista inteira, só porta, só janela), cada uma aquece no primeiro
-  uso; está dito no teste e aceito.
+  30 a 60 s. **A lista filtrada muda o estável**: cada lista distinta é uma variante do cache (desde 05/11/2026 a lista é pelo acumulado da conversa,
+  então as variantes são por conversa, não três por conta), cada uma aquece no primeiro uso; está dito no teste e aceito.
 - **A lista enxuta** (−40 % em produção: 25.306 → 15.268 caracteres nas 164 linhas da De Paula), sem perder informação:
   - a descrição perde o último segmento `| …` quando ele é a LINHA de produto, que o motor já traz numa coluna própria (`descricaoNoPrompt`:
     "JANELA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 42" com linha "PVC WOLFF EUROPA 42" → "JANELA DE CORRER 02 FOLHAS MÓVEIS"). Medido: as 164 descrições
@@ -1609,3 +1609,62 @@ eventos cortados entre chunks, corpo que não é SSE e corpo nulo; a primeira te
 nenhum timer sobra); (31) ajustado — a 1ª chamada pendurada cai aos 20 s (10 + 10), não aos 45. O fake do `fetch` dos testes devolve a 1ª chamada
 como a API devolve: SSE quando 2xx e `stream` pedido (`comoFluxo`), JSON nos erros, com `request-id`. A fixture `pedidos-a-ia-sem-contexto.json`
 foi regravada (`stream: true`). Mutações do código (`mutacoes-fluxo.py`, o resultado no PR). Os testes novos ficam vermelhos com o código da main.
+
+## O caso do Jorge Koss: a ferramenta sem `strict`, sem `thinking`, a lista pelo acumulado, e a segunda esquadria sem número — dono do produto, 05/11/2026 (sem migração)
+
+**O caso que originou (05/11, 14:04–14:08 UTC, cinco turnos):** "quero orçamento / 1 Porta janelas de correr 2 folhas com vidro comum 6 mm incolor
+2,50 x 2,20 / 1 janela maxim ar, mini boreal 60 x60 / Jorge Koss, porto alegre" → a conversa perguntou o cliente; "Nome é Jorge Koss" → "não consegui
+vincular"; "Levantamento novo em nome de Jorge Koss" → criou o levantamento com UMA esquadria vazia e pediu a descrição completa; a lista reenviada e
+"Branco / Vidro Comum" → `propostos=0`, a mesma pergunta em outras palavras. As linhas `[IA]`: `propostos=0, 0, 1, 0, 0`, `nome=faltou` nos dois
+primeiros. O princípio ferido: **o vendedor nunca informa a mesma coisa duas vezes.**
+
+**A medição (sonda em preview, de gru1, com o corpo exato da produção e o histórico reconstruído):** a ferramenta `strict: true` devolvia, em 8 de 8
+repetições, itens só com `abertura` e uma `familia` inventada (`"x"`, `"PVC / Alumínio ignorado"`), sem tipologia, medida, quantidade, cor ou vidro —
+é o que `esquadriasDaProposta` descarta, então `emEspera` ficava vazio, o cliente não vinha e as esquadrias se perdiam NA SAÍDA DO MODELO (a junção
+das retidas e `aplicarProposta` estavam certas). Sem `thinking` (o corpo de antes do #226), a API ficava 45 a 50 s sem responder e devolveu
+`400 "Schema is too complex."` — o travamento de 04/11 20:11 a 05/11 02:41 começou no primeiro turno depois do #220, que pôs o `vidro_padrao` como
+24º opcional, exatamente o limite documentado; a documentação diz que a gramática é compilada no primeiro uso, com timeout de 180 s e cache de 24 h.
+A MESMA ferramenta sem `strict` extraiu o cliente e as duas esquadrias em 4 de 4 (3,7 a 8 s). Antes do #220 (03/11 21:09–21:20, 23 opcionais, sem
+`thinking`), a produção respondia em 2 a 7 s com `propostos=8, 24, 28, 38`.
+
+**A decisão, registrada como foi dita:**
+
+> "1. TIRE strict: true. A validação já é nossa (valorValido, nomeDaMensagem, aberturaDoItem, podas). 2. OMITA o thinking, voltando ao que era
+> antes do #226: 3,7 s e ~400 tokens contra 7 s e ~700. Mantenha max_tokens 2000 e o cache. 3. itens_sem_campos=N no log. 4. Filtros 6 a 8 pelo
+> acumulado, por esquadria, com a lista inteira quando nenhuma candidata sobrar. 5. Teste obrigatório: os cinco turnos do Jorge Koss têm de
+> terminar com as DUAS esquadrias completas e o cliente vinculado no primeiro turno."
+
+**O que está implementado:**
+
+- **A ferramenta vai SEM `strict`** (`conversa-da-ia.ts`, `FERRAMENTA`): o esquema continua com `additionalProperties: false` e os tipos de cada campo;
+  a validação da entrada é a de sempre (`valorValido`, `nomeDaMensagem`, `aberturaDoItem`, as podas de vidro e fornecedor). O portão (8) passou a
+  conferir a AUSÊNCIA do `strict` e registra a medida (0 uniões, 24 opcionais).
+- **A 1ª chamada vai SEM `thinking`** (`chamarLlm`): o `between_tools` do #226 saiu; `RACIOCINIO_DA_EXTRACAO` foi removida de `pedido-ao-modelo.ts`.
+  Ficam o `effort: low`, o teto de 2.000, o fluxo, o cache e a linha `[IA]` com `ia_raciocinio` (que agora pode trazer tokens de raciocínio adaptativo:
+  medido 0 a 618 na repetição dos turnos).
+- **A lista do prompt pelo ACUMULADO** (`tipologias-candidatas.ts`: `filtrarPeloAcumulado`, `trechosDoAcumulado`, `tiposDitos`, `palavrasDoTipo`,
+  `serveAoTrecho`): o acumulado são as mensagens do VENDEDOR no histórico de 24 h mais a desta vez; cada LINHA é um trecho; o trecho que diz porta ou
+  janela (uma só das palavras) ou um TIPO do motor (a coluna `tipo` da Detalhe, lida como dado: alguma palavra do tipo com 3 letras ou mais começa uma
+  palavra do trecho — "maxim" casa maxim ar, maxim-ar e maximar; "giro" ou "abrir" casam "Giro / Abrir") filtra; a lista é a UNIÃO do que serve a cada
+  trecho (compatível com a abertura E do tipo dito; a tipologia sem tipo no arquivo passa). **A rede de segurança:** o trecho para o qual nenhuma
+  tipologia sobra traz a lista INTEIRA; a palavra que não é tipo do motor ("basculante", "projetante", "tombar") não filtra. Sem trecho, lista inteira.
+  Só a lista do PROMPT é filtrada: `aplicarProposta` valida contra a lista inteira, e a recusa porta × janela continua pela palavra DESTA mensagem.
+  Medido na De Paula (164) nos cinco turnos: hoje 164 em todos; pelo acumulado 87 em todos (−47 %). **Limite registrado:** `DP-167 PORTA OSCILO
+  BATENTE + GIRO` tem tipo Oscilo-batente e não vem com "porta de giro" enquanto sobrar alguma porta de giro.
+- **A linha `[IA]` ganhou** `lista=enviadas/total trechos=N` (sempre que houve chamada), `trechos_sem_candidata=N` (só quando > 0) e
+  `itens_sem_campos=N` (só quando > 0: itens que o modelo devolveu sem nenhum campo da esquadria — foi assim que as do Jorge Koss se perderam).
+- **A segunda esquadria sem número e sem tipologia não cai em cima da primeira** (`aplicarProposta`, `levantamento-em-montagem.ts`): o teste dos cinco
+  turnos revelou que duas esquadrias na mesma proposta, sem `ordem` e sem `tipologia` (o modelo pergunta qual é), iam AMBAS para a esquadria padrão e
+  a segunda sobrescrevia a primeira — a resposta ao item 4 da medição ("alguma validação SUBSTITUI?") é sim, neste caso. Agora a proposta marca as
+  esquadrias que já tocou: a seguinte vai para a esquadria ainda não tocada que não tem nenhum dos campos propostos ("Branco" para duas esquadrias
+  sem cor vai nas duas sem cor), senão para qualquer não tocada, e só sem nenhuma não tocada vira uma esquadria nova (as duas do Jorge Koss no
+  primeiro turno). Com `ordem` dita ou com tipologia, nada mudou.
+
+**Prova:** bloco (37) de `atendimentos-ia-levantamento-por-nome.test.ts` — os cinco turnos (o cliente vincula no PRIMEIRO, `rota=NOVO nome=do_cliente`,
+as duas esquadrias gravadas com medida, quantidade e vidro; a lista reenviada não perde nem duplica; "Branco" nas duas; as tipologias; o apanhado e o
+"sim" com as DUAS completas; nenhuma resposta repetida); a lista pelo acumulado nos turnos sem palavra (`lista=2/3 trechos=2`) e a validação contra a
+lista inteira; sem palavra nenhuma, `lista=3/3 trechos=0`; a rede de segurança (`trechos_sem_candidata=1`) e a palavra que não é tipo; `itens_sem_campos`
+com a saída que a produção devolvia; as funções do filtro (palavras do tipo, tipos ditos, trechos, união, ordem, a sem tipo, o limite da DP-167).
+Ajustados: (8) e (9) (sem strict), (33) e (36) (sem thinking), (34) (variantes por conversa). A fixture `pedidos-a-ia-sem-contexto.json` foi regravada
+(sem `strict`, sem `thinking`). Os testes novos ficam vermelhos com o código da main. Mutações do código (`mutacoes-koss.py`, o resultado no PR).
+

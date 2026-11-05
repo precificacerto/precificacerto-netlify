@@ -65,7 +65,7 @@
  * o que falta mandar junto.
  *
  * ══ A REGRA QUE NÃO SE NEGOCIA: a LLM PROPÕE, o código VALIDA e GRAVA ══
- * Saída estruturada: uma ferramenta `strict`; `tool_choice` é `auto` porque o forçado é recusado com
+ * Saída estruturada: uma ferramenta (SEM `strict` desde 05/11/2026 — ver a ferramenta); `tool_choice` é `auto` porque o forçado é recusado com
  * 400 pelo `claude-sonnet-5-5` — e sem a chamada, nada é gravado nem enviado. Cada valor passa por
  * `aplicarProposta` (`levantamento-em-montagem.ts`): a tipologia e a cor só das listas, exatas; a
  * LLM não escolhe tenant nem remetente. A PRÓXIMA pergunta é decidida pelo código
@@ -179,7 +179,7 @@ import { agruparIguais,
 } from '@/lib/atendimentos-ia/levantamento-em-montagem'
 import { JANELA_EM_VOO_MS, gravarSaida, lerHistorico, marcarEnvio, saidaDaEntrada, type Entrada, type MensagemDoHistorico } from '@/lib/atendimentos-ia/conversa-gravada'
 import { prazo } from '@/lib/atendimentos-ia/prazo'
-import { MAX_TOKENS_DA_PRIMEIRA_CHAMADA, PRAZO_ATE_OS_CABECALHOS_MS, RACIOCINIO_DA_EXTRACAO, TENTATIVAS_DA_PRIMEIRA_CHAMADA, blocosDoSistema } from '@/lib/atendimentos-ia/pedido-ao-modelo'
+import { MAX_TOKENS_DA_PRIMEIRA_CHAMADA, PRAZO_ATE_OS_CABECALHOS_MS, TENTATIVAS_DA_PRIMEIRA_CHAMADA, blocosDoSistema } from '@/lib/atendimentos-ia/pedido-ao-modelo'
 import { lerFluxo } from '@/lib/atendimentos-ia/resposta-em-fluxo'
 import { CODIGO_DE_FORNECEDOR, redigir, type MotivoDaRedacao, type Redacao } from '@/lib/atendimentos-ia/redacao-da-resposta'
 import { vidroPodado } from '@/lib/atendimentos-ia/vidro'
@@ -190,7 +190,7 @@ import { PROMPT_BASE } from '@/utils/atendimentos-ia-prompt-base'
 import { LIMITE_DA_FALA } from '@/utils/atendimentos-ia-contexto'
 import { blocoDasInstrucoes, lerInstrucoesDaEmpresa, type InstrucaoDaCategoria } from '@/lib/atendimentos-ia/instrucoes-da-categoria'
 import { blocoDasInstrucoesDasEtapas, type InstrucaoDaEtapa } from '@/lib/atendimentos-ia/motor-da-familia'
-import { aberturaDita, filtrarPorAbertura, fraseDaAberturaRecusada, fraseDeNenhumaTipologiaCabe, palavrasDeAbertura } from '@/lib/atendimentos-ia/tipologias-candidatas'
+import { aberturaDita, filtrarPeloAcumulado, filtrarPorAbertura, fraseDaAberturaRecusada, fraseDeNenhumaTipologiaCabe, palavrasDeAbertura } from '@/lib/atendimentos-ia/tipologias-candidatas'
 import { escolhasParaOPrompt, opcoesDeArremateNoPrompt, lerEscolhasDoItem, lerEscolhasGravadas, temEscolhaDoVendedor } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import { permissaoDoRemetente, type Permissao } from '@/lib/atendimentos-ia/permissao-do-remetente'
 import { fraseDoApanhado } from '@/lib/atendimentos-ia/apanhado'
@@ -266,6 +266,13 @@ type Rastro = {
     vidrosPodados: number
     /** Esquadrias que receberam o vidro padrão da instrução (04/11/2026). */
     vidrosPadrao: number
+    /** A lista do prompt pelo ACUMULADO (05/11/2026): `enviadas/total` e quantos trechos filtraram; '-' sem chamada. */
+    lista: string
+    trechos: number
+    /** Trechos para os quais nenhuma tipologia sobrou e trouxeram a lista inteira (a rede de segurança). */
+    trechosSemCandidata: number
+    /** Itens que o modelo devolveu SEM nenhum campo da esquadria (05/11/2026): foi assim que as esquadrias do Jorge Koss se perderam. */
+    itensSemCampos: number
 }
 const FALA_NO_LOG: Record<FalaLida['motivo'], string> = { usada: 'usada', ausente: 'ausente', numero: 'descartada_numero', longa: 'descartada_longa' }
 
@@ -282,6 +289,9 @@ function anotar(r: Rastro, desfecho: DesfechoDaIa, detalhe = '') {
         + (r.fundidos > 0 ? ` agrupados=${r.fundidos}` : '') + (r.reenviadas > 0 ? ` reenviadas=${r.reenviadas}` : '')
         + (r.historico === '-' ? '' : ` historico=${r.historico}`) + (r.gravacao === '-' ? '' : ` gravacao=${r.gravacao}`) + (r.redacao === '-' ? '' : ` redacao=${r.redacao}`)
         + (r.vidrosNaoDitos > 0 ? ` vidro_nao_dito=${r.vidrosNaoDitos}` : '') + (r.vidrosPodados > 0 ? ` vidro_podado=${r.vidrosPodados}` : '') + (r.vidrosPadrao > 0 ? ` vidro_padrao=${r.vidrosPadrao}` : '')
+        // a lista pelo acumulado e os itens vazios (05/11/2026): só números
+        + (r.lista === '-' ? '' : ` lista=${r.lista} trechos=${r.trechos}`) + (r.trechosSemCandidata > 0 ? ` trechos_sem_candidata=${r.trechosSemCandidata}` : '')
+        + (r.itensSemCampos > 0 ? ` itens_sem_campos=${r.itensSemCampos}` : '')
     console.error(`${PREFIXO_DO_LOG_DA_IA} levantamento=${r.levantamento} rota=${r.rota} propostos=${r.propostos} descartados=${r.descartados} enviou=${r.enviou ? 'sim' : 'nao'} desfecho=${desfecho}${admin} nome=${r.nome} aberta=${r.aberta}${contexto}${ia}${detalhe ? ` ${detalhe}` : ''}`)
 }
 
@@ -402,17 +412,20 @@ const VENDEDOR_SEM_NOME = '(vendedor sem nome cadastrado)'
 // ── A FERRAMENTA — a saída estruturada ──────────────────────────────────────────────────────
 /**
  * O que NÃO foi dito é OMITIDO, não `null`: os campos são opcionais e de tipo simples, sem união.
- * "Schema complexity limits" (https://platform.claude.com/docs/en/build-with-claude/structured-outputs):
- * somando os esquemas `strict` da requisição, no máximo 16 parâmetros com união e 24 opcionais. Este tem
- * 0 uniões e 24 opcionais (o `cliente` e a `opcao` entraram em 03/11/2026; `variavel` e `opcao` da escolha viraram obrigatórios; o `vidro_padrao`
- * entrou em 04/11/2026 e ocupou a última vaga) — o portão (8) conta o esquema enviado.
+ *
+ * SEM `strict` (dono do produto, 05/11/2026). A ferramenta foi `strict: true` até aqui, dentro dos "Schema complexity limits" da API
+ * (16 uniões, 24 opcionais somando os esquemas strict do pedido); o `vidro_padrao` (04/11/2026) foi o 24º opcional. O que se mediu com o
+ * esquema NO limite: sem `thinking`, a API ficou 45 a 50 s sem responder e devolveu `400 Schema is too complex` — o travamento de 04/11 20:11
+ * a 05/11 02:41 em produção; com `thinking: between_tools`, respondeu em 5 s mas a ferramenta veio SEM tipologia, medida, quantidade, cor
+ * ou vidro (só `abertura` e uma `familia` inventada), 8 de 8 repetições e os cinco turnos do Jorge Koss (`propostos=0, 0, 1, 0, 0`). A MESMA
+ * ferramenta sem `strict` extraiu tudo em 3,7 a 7 s. A validação da entrada já é nossa (`valorValido`, `nomeDaMensagem`, `aberturaDoItem`,
+ * as podas de vidro e fornecedor): o `strict` só forçava a gramática. O portão (8) confere que a ferramenta NÃO vai strict.
  */
 const texto = { type: 'string' }
 const inteiro = { type: 'integer' }
 export const FERRAMENTA = {
     name: NOME_DA_FERRAMENTA,
     description: 'Registra o que o vendedor disse nesta mensagem. Chame SEMPRE, uma vez por resposta.',
-    strict: true,
     input_schema: {
         type: 'object',
         additionalProperties: false,
@@ -445,8 +458,8 @@ export const FERRAMENTA = {
             escolhas: {
                 type: 'array',
                 description: 'Só o arremate que o vendedor disse NESTA mensagem, em palavras: o CÓDIGO da variável e o NÚMERO da opção que corresponde. Vazio se ele não disse.',
-                // os dois são obrigatórios na escolha (03/11/2026): a escolha sem um deles era descartada de qualquer jeito, e o limite de 24
-                // opcionais do strict precisava de lugar para a `opcao` do resgate
+                // os dois são obrigatórios na escolha (03/11/2026): a escolha sem um deles era descartada de qualquer jeito (e, enquanto a
+                // ferramenta foi strict, o limite de 24 opcionais precisava de lugar para a `opcao` do resgate)
                 items: { type: 'object', additionalProperties: false, required: ['variavel', 'opcao'], properties: { variavel: texto, opcao: inteiro } },
             },
             opcoes_de: {
@@ -604,8 +617,8 @@ async function chamarLlm(chave: string, mensagem: string, contexto: ContextoDoPr
         model: MODELO_PADRAO_DA_IA,
         // o teto é o tamanho real da ferramenta mais folga (05/11/2026): era 16.000
         max_tokens: MAX_TOKENS_DA_PRIMEIRA_CHAMADA,
-        // extração curta de uma mensagem de chat: o raciocínio fica DESLIGADO (05/11/2026) — sem `thinking`, o Sonnet 5.5 o liga
-        thinking: RACIOCINIO_DA_EXTRACAO,
+        // SEM `thinking` (dono do produto, 05/11/2026): o `between_tools` do #226 saiu — medido com a ferramenta sem strict, a chamada sem o
+        // parâmetro respondeu em 3,7 s com ~400 tokens de saída, contra 7 s e ~700 com ele. O `effort` low fica; o teto e o cache também
         output_config: { effort: 'low' },
         // EM FLUXO (05/11/2026): os cabeçalhos chegam quando a API aceita o pedido, não quando termina de gerar
         stream: true,
@@ -971,7 +984,7 @@ export type Interlocutor = {
 export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
     const rastro: Rastro = {
         levantamento: '-', rota: '-', propostos: 0, descartados: 0, enviou: false, admin: null, nome: '-', aberta: '-', ia: { ms: null, entrada: null, saida: null, raciocinio: null, parada: null, cacheLido: null, cacheEscrito: null, cabecalhosMs: null, primeiroTokenMs: null, tentativas: null, requestId: null },
-        contexto: '-', fala: '-', instrucoes: '-', instrucoesDasEtapas: '-', instrucoesSemEfeito: '', fundidos: 0, reenviadas: 0, historico: '-', gravacao: '-', redacao: '-', vidrosNaoDitos: 0, vidrosPodados: 0, vidrosPadrao: 0,
+        contexto: '-', fala: '-', instrucoes: '-', instrucoesDasEtapas: '-', instrucoesSemEfeito: '', fundidos: 0, reenviadas: 0, historico: '-', gravacao: '-', redacao: '-', vidrosNaoDitos: 0, vidrosPodados: 0, vidrosPadrao: 0, lista: '-', trechos: 0, trechosSemCandidata: 0, itensSemCampos: 0,
     }
     const fim = (desfecho: DesfechoDaIa, detalhe = ''): DesfechoDaIa => { anotar(rastro, desfecho, detalhe); return desfecho }
     // a fala da IA, já filtrada: abre a resposta do código. Sem contexto, ou com o filtro disparado, não há
@@ -1090,9 +1103,17 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         const doRemetente: Levantamento[] | null = pergunta?.doRemetente ?? null
         const aberta = valida && doRemetente ? await refazerPergunta(c.tenantId, valida, doRemetente, definicao) : null
 
-        // PORTA × JANELA (03/11/2026): a mensagem que traz UMA das palavras já recebe a lista filtrada; as duas, ou nenhuma, a lista inteira
+        // PORTA × JANELA (03/11/2026): a palavra DESTA mensagem continua valendo para a recusa da tipologia proposta (`aplicarProposta`)
         const aberturaDaMensagem = aberturaDita(c.texto)
-        const candidatosDoPrompt = filtrarPorAbertura(tabela.candidatos, aberturaDaMensagem)
+        // A LISTA PELO ACUMULADO (dono do produto, 05/11/2026): as mensagens do vendedor na conversa mais esta, trecho a trecho — porta ou
+        // janela E o tipo do motor (correr, maxim-ar, giro…); o trecho sem candidata traz a lista inteira. Só a lista do prompt: a validação
+        // da tipologia proposta continua contra a lista inteira (`tipologias-candidatas.ts`)
+        const acumulado = [...lido.mensagens.filter((m) => m.role === 'user').map((m) => m.content), c.texto]
+        const filtro = filtrarPeloAcumulado(tabela.candidatos, acumulado)
+        const candidatosDoPrompt = filtro.candidatos
+        rastro.lista = `${candidatosDoPrompt.length}/${tabela.candidatos.length}`
+        rastro.trechos = filtro.trechos
+        rastro.trechosSemCandidata = filtro.semCandidata
         const escolhasPorTipologia = tabela.candidatos.flatMap((x) => {
             const def = definicao({ tipologia: x.tipologia, familia: x.familia })
             const linhas = def ? escolhasParaOPrompt(def) : []
@@ -1145,6 +1166,8 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         // AS ESQUADRIAS RETIDAS NUNCA SE PERDEM (03/11/2026): as da pergunta em aberto MAIS as desta mensagem; a reenviada idêntica conta uma vez
         const retidas: EsquadriaProposta[] = aberta?.p.itens ?? []
         const daMensagemBrutas = semFornecedorInventado(proposta.itens)
+        // o item que o modelo devolve SEM nenhum campo da esquadria (05/11/2026) não entra em lugar nenhum — e a linha [IA] passa a dizer quantos
+        rastro.itensSemCampos = Array.isArray(daMensagemBrutas) ? daMensagemBrutas.filter((i) => !!i && typeof i === 'object' && esquadriasDaProposta({ itens: [i] }).length === 0).length : 0
         const juncao = juntarEsquadrias(retidas, Array.isArray(daMensagemBrutas) ? daMensagemBrutas : [])
         rastro.reenviadas = juncao.reenviadas
         const daPergunta = retidas.length > 0

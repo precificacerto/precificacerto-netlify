@@ -143,3 +143,85 @@ export function fraseDaAberturaRecusada(dita: Abertura): string {
         ? 'Entendi que é uma PORTA, e a tipologia que coube era de janela: descartei. Para achar a porta certa: como ela abre (correr, abrir ou pivotante), quantas folhas, e tem bandeira ou persiana?'
         : 'Entendi que é uma JANELA, e a tipologia que coube era de porta: descartei. Para achar a janela certa: como ela abre (correr, abrir ou maxim-ar), quantas folhas, e tem persiana?'
 }
+
+// ── O FILTRO PELO ACUMULADO (dono do produto, 05/11/2026) ──────────────────────────────────────
+/**
+ * O CASO QUE ORIGINOU (Jorge Koss, 05/11/2026, 14:04–14:08): "correr" e "maxim-ar" vieram no primeiro turno; os turnos seguintes
+ * ("Nome é Jorge Koss", "Branco / Vidro Comum") não traziam palavra nenhuma, e a lista ia inteira (164 linhas) em todos os cinco. A decisão:
+ *
+ * > "filtro porta/janela lendo o ACUMULADO da conversa (esquadrias em espera + histórico) em vez de só o texto do turno. Com o acumulado,
+ * > filtro por ABERTURA (correr, maxim-ar, abrir, giro, pivotante, fixo) pela coluna `tipo` do motor, COM rede de segurança obrigatória:
+ * > se nenhuma candidata sobrar para alguma esquadria, refazer com a lista inteira em vez de recusar."
+ *
+ * O ACUMULADO são as mensagens do VENDEDOR na conversa (as do histórico de 24 h, que é de onde as esquadrias em espera vieram) mais a desta
+ * vez. Cada LINHA de cada mensagem é um TRECHO: a esquadria do vendedor costuma ser uma linha ("1 Porta janelas de correr 2 folhas…",
+ * "1 janela maxim ar, mini boreal 60 x60"). O trecho que diz porta ou janela (uma só das palavras) ou um TIPO do motor entra no filtro; o que
+ * não diz nada não filtra. Por trecho, ficam as tipologias compatíveis com a abertura (`aberturaCompativel`) E do tipo dito; a lista enviada é
+ * a UNIÃO dos trechos. A REDE DE SEGURANÇA: o trecho para o qual NENHUMA tipologia sobra ("basculante", "projetante", um tipo que o motor não
+ * tem com aquela abertura) traz a lista INTEIRA — o filtro nunca esconde a tipologia certa por não entender a palavra. Sem trecho nenhum, a
+ * lista vai inteira, como antes.
+ *
+ * O TIPO é a coluna `tipo` da Detalhe do motor, lido como dado (De Paula: Correr, Giro / Abrir, Maxim-ar, Oscilo-batente, Fixo, Pivotante),
+ * não um mapa escrito à mão: o tipo é dito quando ALGUMA palavra dele (3 letras ou mais, sem acento) começa uma palavra do trecho — "maxim"
+ * casa "maxim ar", "maxim-ar" e "maximar"; "giro" ou "abrir" casam o tipo "Giro / Abrir"; "oscilo" casa "oscilo-batente". A tipologia SEM tipo
+ * no arquivo passa pelo filtro do tipo (ausente não é diferente — `ausente-vs-falso`). Só a lista do PROMPT é filtrada: a validação da
+ * tipologia proposta (`aplicarProposta`) continua contra a lista inteira.
+ *
+ * LIMITE CONHECIDO, registrado: `DP-167 PORTA OSCILO BATENTE + GIRO` tem tipo Oscilo-batente; "porta de giro" não a traz enquanto sobrar
+ * alguma porta de giro. Medido na De Paula (164 tipologias) nos cinco turnos do Jorge Koss: lista inteira hoje em todos; só porta/janela pelo
+ * acumulado, 164 (as duas palavras); pelo tipo, 124; por trecho (porta ∧ Correr ∪ janela ∧ Maxim-ar), 87.
+ */
+export type TrechoDoAcumulado = { abertura: Abertura | null; tipos: ReadonlySet<string> }
+
+/** As palavras de um tipo do motor que contam: 3 letras ou mais, sem acento e sem caixa ("Giro / Abrir" → giro, abrir; "Maxim-ar" → maxim). */
+export const palavrasDoTipo = (tipo: string): string[] => semAcento(tipo).split(/[^a-z]+/).filter((p) => p.length >= 3)
+
+/** Os tipos do motor que o texto diz: alguma palavra do tipo começa uma palavra do texto. */
+export function tiposDitos(texto: string, tipos: readonly string[]): Set<string> {
+    const t = semAcento(texto)
+    const ditos = new Set<string>()
+    for (const tipo of tipos) {
+        if (palavrasDoTipo(tipo).some((p) => new RegExp(`\\b${p}`).test(t))) ditos.add(tipo)
+    }
+    return ditos
+}
+
+/** Os trechos do acumulado: uma linha de uma mensagem do vendedor que diz a abertura (uma só das palavras) ou um tipo do motor. */
+export function trechosDoAcumulado(textos: readonly string[], tipos: readonly string[]): TrechoDoAcumulado[] {
+    const trechos: TrechoDoAcumulado[] = []
+    for (const texto of textos) {
+        for (const linha of texto.split('\n')) {
+            const abertura = aberturaDita(linha)
+            const ditos = tiposDitos(linha, tipos)
+            if (abertura !== null || ditos.size > 0) trechos.push({ abertura, tipos: ditos })
+        }
+    }
+    return trechos
+}
+
+export type ListaFiltrada<C> = {
+    candidatos: C[]
+    /** Quantos trechos do acumulado filtraram. 0 = a lista foi inteira. */
+    trechos: number
+    /** Quantos trechos ficaram sem tipologia nenhuma e trouxeram a lista inteira (a rede de segurança). */
+    semCandidata: number
+}
+
+/** A tipologia serve ao trecho: compatível com a abertura dita, e do tipo dito (a sem tipo no arquivo passa). */
+export const serveAoTrecho = <C extends { descricao: string | null; tipo: string | null }>(c: C, t: TrechoDoAcumulado): boolean =>
+    aberturaCompativel(c.descricao, t.abertura) && (t.tipos.size === 0 || c.tipo === null || t.tipos.has(c.tipo))
+
+/** A lista do prompt pelo acumulado: a união do que serve a cada trecho; o trecho sem candidata traz a lista inteira; sem trecho, inteira. */
+export function filtrarPeloAcumulado<C extends { descricao: string | null; tipo: string | null }>(candidatos: readonly C[], textos: readonly string[]): ListaFiltrada<C> {
+    const tipos = [...new Set(candidatos.map((c) => c.tipo).filter((t): t is string => typeof t === 'string' && t.trim() !== ''))]
+    const trechos = trechosDoAcumulado(textos, tipos)
+    if (trechos.length === 0) return { candidatos: [...candidatos], trechos: 0, semCandidata: 0 }
+    const ficam = new Set<C>()
+    let semCandidata = 0
+    for (const t of trechos) {
+        const servem = candidatos.filter((c) => serveAoTrecho(c, t))
+        if (servem.length === 0) { semCandidata += 1; for (const c of candidatos) ficam.add(c); continue }
+        for (const c of servem) ficam.add(c)
+    }
+    return { candidatos: candidatos.filter((c) => ficam.has(c)), trechos: trechos.length, semCandidata }
+}
