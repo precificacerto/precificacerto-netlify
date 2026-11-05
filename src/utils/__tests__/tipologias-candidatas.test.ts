@@ -5,7 +5,7 @@
  */
 import {
     PEDIDO_DE_CONFIRMAR_A_MEDIDA, aberturaCompativel, aberturaDaDescricao, aberturaDita, aberturaDoItem, cabeNosLimites, filtrarPorAbertura,
-    fraseDaAberturaRecusada, fraseDeNenhumaTipologiaCabe, limitesNoPrompt, numeroOuNulo, palavrasDeAbertura, type CandidatoParaAProposta,
+    descricaoNoPrompt, fraseDaAberturaRecusada, fraseDeNenhumaTipologiaCabe, limitesNoPrompt, numeroOuNulo, palavrasDeAbertura, type CandidatoParaAProposta,
 } from '@/lib/atendimentos-ia/tipologias-candidatas'
 import { CRITERIOS_DO_AGRUPAMENTO, agruparIguais, itemCompleto, itemVazio, type ItemDoLevantamento } from '@/lib/atendimentos-ia/levantamento-em-montagem'
 
@@ -100,11 +100,26 @@ describe('os limites: NULL nunca descarta, e só a medida dita é conferida', ()
         for (const v of ['388', NaN, Infinity, null, undefined, {}]) expect(numeroOuNulo(v)).toBeNull()
     })
 
-    it('a linha do prompt: faixa, "sem limite no arquivo", e os unilaterais mín/máx — em pt-BR com milhar', () => {
-        expect(limitesNoPrompt(DP02)).toBe('largura sem limite no arquivo | altura 388 mm a 2.439 mm')
-        expect(limitesNoPrompt(DP01)).toBe('largura sem limite no arquivo | altura sem limite no arquivo')
-        expect(limitesNoPrompt(FIXO)).toBe('largura mín 300 mm | altura máx 2.000 mm')
-        expect(limitesNoPrompt(DP100)).toBe('largura sem limite no arquivo | altura 1.736 mm a 3.036 mm')
+    it('os limites na linha do prompt, COMPACTOS (05/11/2026): a faixa, os unilaterais ≥/≤, e NADA quando o arquivo não traz — nunca zero', () => {
+        expect(limitesNoPrompt(DP02)).toBe('A 388-2439')
+        expect(limitesNoPrompt(DP01)).toBe('')
+        expect(limitesNoPrompt(FIXO)).toBe('L ≥300 A ≤2000')
+        expect(limitesNoPrompt(DP100)).toBe('A 1736-3036')
+        expect(limitesNoPrompt({ larg_min_mm: 905, larg_max_mm: 1384, alt_min_mm: 464, alt_max_mm: 2054 })).toBe('L 905-1384 A 464-2054')
+        expect(limitesNoPrompt({ larg_min_mm: null, larg_max_mm: 1384, alt_min_mm: 0, alt_max_mm: null })).toBe('L ≤1384 A ≥0')
+    })
+
+    it('a descrição no prompt perde o ÚLTIMO segmento só quando ele é a linha de produto da Detalhe; o resto fica como está', () => {
+        expect(descricaoNoPrompt('JANELA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 42', 'PVC WOLFF EUROPA 42')).toBe('JANELA DE CORRER 02 FOLHAS MÓVEIS')
+        expect(descricaoNoPrompt('MAXIM-AR COM "N" MÓDULOS | PERFIL MODULAÇÃO | EUROPA 60', 'PVC WOLFF EUROPA 60')).toBe('MAXIM-AR COM "N" MÓDULOS | PERFIL MODULAÇÃO')
+        // sem acento e sem caixa: "Europa 42" casa com "EUROPA 42"
+        expect(descricaoNoPrompt('JANELA | Europa 42', 'pvc wolff EUROPA 42')).toBe('JANELA')
+        // o segmento que NÃO está na linha fica; sem linha na Detalhe nada sai; sem "|" nada sai; a descrição nula continua nula
+        expect(descricaoNoPrompt('JANELA DE CORRER 02 FOLHAS | LINHA SUL', 'PVC WOLFF EUROPA 42')).toBe('JANELA DE CORRER 02 FOLHAS | LINHA SUL')
+        expect(descricaoNoPrompt('JANELA DE CORRER 02 FOLHAS | LINHA SUL', null)).toBe('JANELA DE CORRER 02 FOLHAS | LINHA SUL')
+        expect(descricaoNoPrompt('EUROPA 42', 'PVC WOLFF EUROPA 42')).toBe('EUROPA 42')
+        expect(descricaoNoPrompt('JANELA |', 'PVC WOLFF EUROPA 42')).toBe('JANELA |')
+        expect(descricaoNoPrompt(null, 'PVC WOLFF EUROPA 42')).toBeNull()
     })
 })
 

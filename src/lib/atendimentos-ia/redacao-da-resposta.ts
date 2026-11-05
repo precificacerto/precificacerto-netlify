@@ -19,6 +19,7 @@
  */
 import { MODELO_PADRAO_DA_IA, URL_DA_API_ANTHROPIC, VERSAO_DA_API_ANTHROPIC } from '@/lib/atendimentos-ia/modelo-da-ia'
 import { prazo } from '@/lib/atendimentos-ia/prazo'
+import { blocosDoSistema } from '@/lib/atendimentos-ia/pedido-ao-modelo'
 import { temDinheiro } from '@/lib/atendimentos-ia/contexto-do-atendimento'
 import { PROMPT_BASE } from '@/utils/atendimentos-ia-prompt-base'
 import type { MensagemDoHistorico } from '@/lib/atendimentos-ia/conversa-gravada'
@@ -99,7 +100,8 @@ export async function redigir(chave: string, rascunho: string, c: ContextoDaReda
                 model: MODELO_PADRAO_DA_IA,
                 max_tokens: 400,
                 output_config: { effort: 'low' },
-                system: sistemaDaRedacao(c.blocoDaEmpresa),
+                // o sistema da redação é todo estável por conta: um bloco só, marcado para o cache (05/11/2026)
+                system: blocosDoSistema(sistemaDaRedacao(c.blocoDaEmpresa)),
                 messages: [...c.historico, { role: 'user', content: pedidoDaRedacao(c.mensagem, rascunho) }],
             }),
         })

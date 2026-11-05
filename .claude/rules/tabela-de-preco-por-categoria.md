@@ -1471,3 +1471,63 @@ frase, nada gravado e a saída gravada; o contraste da falha de rede; a redaçã
 (32) (as 6 ondas exatas da primeira mensagem, a onda com instrução, a montagem, a paginação com 2.500 linhas: `[1, N−1]` e nenhuma linha a menos); (27)
 e (6) do inbound (a paridade janela × maxDuration); e as mutações do código (`mutacoes-prazo.py`, o resultado no PR). Os dez testes novos ficam
 vermelhos com o código da main (medido antes do push).
+
+## O pedido ao modelo: raciocínio desligado, teto de saída, lista enxuta e o prefixo cacheado — dono do produto, 05/11/2026 (sem migração)
+
+**O caso que originou** (De Paula, 04/11/2026, 21:33 UTC, e três outras primeiras mensagens de sessão em 03 e 04/11): o prazo de 45 s funcionou
+(`ia_ms=45001`, a linha `[IA]` saiu antes do envio, o vendedor recebeu a falha nomeada), mas a 1ª chamada continuou estourando. Medido nos 21 turnos
+que voltaram (03 e 04/11): a entrada vai de 25,8 a 28,9 mil tokens, **estreita demais para explicar** a diferença entre 2 s e 45 s (r(ms, entrada) = +0,09
+sem os dois lentos); o tempo acompanha a SAÍDA (r = +0,87) e, nos dois turnos lentos que voltaram, o modelo gerou a 15 e 20 tokens/s contra 35 a 110
+nos normais. O Gabriel mandou só "janela" (73 linhas na lista, não 164) e morreu duas vezes: **o tamanho da lista não é o que mata.** A chamada ia sem
+`thinking` (no Sonnet 5.5 isso liga o raciocínio adaptativo) e com `max_tokens: 16000` — folga para um raciocínio que não deveria existir numa extração
+curta — e a linha `[IA]` não dizia `stop_reason` nem os tokens de raciocínio: dava para adivinhar entre "API lenta" e "o modelo pensou demais", não para saber.
+
+**As decisões, registradas como foram ditas:**
+
+> 1. "Desligue o raciocínio adaptativo na 1ª chamada e baixe max_tokens para o tamanho real da ferramenta mais folga. Registre stop_reason e os tokens de
+>    raciocínio na linha [IA]."
+> 2. "Lista enxuta (-40%), volátil no fim do sistema e cache_control no prefixo. Regrave a fixture."
+> 3. (operação, não código) "APAGUE a linha de orcamentista_pergunta_em_aberto desse remetente, com log do que havia. [...] O levantamento 'Geronimo Silva'
+>    e seus 3 itens FICAM; só a pendência travada sai. E me diga, no relatório, o que faz uma pergunta em aberto ficar presa dois dias: ela deveria expirar,
+>    e não expira."
+
+**O que está implementado (`pedido-ao-modelo.ts` novo, `conversa-da-ia.ts`, `redacao-da-resposta.ts`, `tipologias-candidatas.ts`,
+`levantamento-da-conversa.ts`):**
+
+- **O raciocínio da 1ª chamada, desligado** (`RACIOCINIO_DA_EXTRACAO = { type: 'between_tools' }`): no Sonnet 5.5 `disabled` é recusado (400);
+  `between_tools` é o jeito de não pensar antes da ferramenta, aceito com `effort` até `high` (a chamada vai com `low`). A redação não muda.
+- **O teto de saída, 2.000** (`MAX_TOKENS_DA_PRIMEIRA_CHAMADA`): a resposta é UMA chamada da ferramenta; medido nos 21 turnos, 86 a 574 tokens de saída.
+  2.000 é mais de três vezes o maior medido (há portão) e cabe a mensagem de dez esquadrias. O que passar disso pára em `max_tokens` sem a ferramenta,
+  vira `desfecho=sem-proposta stop_reason=max_tokens`, o vendedor recebe `FALHA_DA_IA` e nada é gravado — e a linha diz `ia_parada=max_tokens`.
+- **A linha `[IA]` ganhou quatro campos**, logo depois de `ia_saida`: `ia_raciocinio` (`usage.output_tokens_details.thinking_tokens`), `ia_parada`
+  (`stop_reason`), `ia_cache_lido` e `ia_cache_escrito` (`cache_read_input_tokens`, `cache_creation_input_tokens`). **`-` quando a API não traz o
+  campo, nunca zero** (`ausente-vs-falso.md`).
+- **O sistema em dois blocos** (`blocosDoSistema`): o ESTÁVEL — prompt base, regras, a lista de tipologias, as cores, as escolhas de arremate, as instruções
+  de categoria e de etapa e, no fim, o contexto da empresa — com `cache_control: { type: 'ephemeral' }`; e o VOLÁTIL — `Levantamento em montagem`,
+  `Hoje é`, `Pergunta em aberto` — depois dele, sem marca. A ordem do pedido é tools → system → messages, então a ferramenta entra no prefixo cacheado.
+  O estável é **byte a byte o mesmo entre os turnos da mesma conta** (há portão), enquanto o catálogo, a base de conhecimento e as instruções não mudam.
+  A redação vai num bloco só, marcado: o sistema dela é todo da conta. O TTL do cache é 5 min, renovado a cada leitura; os turnos de uma sessão distam
+  30 a 60 s. **O filtro porta/janela muda o estável**: são até três variantes por conta (lista inteira, só porta, só janela), cada uma aquece no primeiro
+  uso; está dito no teste e aceito.
+- **A lista enxuta** (−40 % em produção: 25.306 → 15.268 caracteres nas 164 linhas da De Paula), sem perder informação:
+  - a descrição perde o último segmento `| …` quando ele é a LINHA de produto, que o motor já traz numa coluna própria (`descricaoNoPrompt`:
+    "JANELA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 42" com linha "PVC WOLFF EUROPA 42" → "JANELA DE CORRER 02 FOLHAS MÓVEIS"). Medido: as 164 descrições
+    terminam no nome da linha, e as 163 distintas continuam 163 distintas sem o sufixo (o único par DP-017/DP-18 já era igual com ele). A comparação é
+    sem acento e sem caixa; sem `|`, sem linha ou com o segmento fora da linha, a descrição vai inteira. O `CandidatoDeTipologia` ganhou `linha`.
+  - os limites vão compactos (`limiteCompacto`): `A 388-2439` é a faixa, `L ≥300` só o mínimo, `A ≤2000` só o máximo; **sem L ou sem A, nada sai**, e o
+    cabeçalho da lista traz a legenda uma vez (`LEGENDA_DOS_LIMITES`: "sem L ou sem A, o arquivo não traz o limite"). A frase ao vendedor ("sem limite no
+    arquivo") continua a mesma na conferência; só o prompt mudou de língua, e a regra do prompt fala a mesma ("a medida que a lista não limita (sem L ou
+    sem A) não descarta").
+- **A fixture `pedidos-a-ia-sem-contexto.json` foi regravada** (mudança deliberada do pedido: `thinking`, `max_tokens`, os blocos).
+
+**O que NÃO está feito, e por quê:** a pergunta em aberto **não expira** — não há coluna de validade, cron nem conferência de idade em
+`pergunta-em-aberto.ts`; a linha só sai em `apagarPerguntaEmAberto`, quando uma mensagem a resolve. Foi assim que a CONFIRMAR_ACRESCIMO do Geronimo
+(10 itens retidos, criada em 03/11 às 21:20) ficou dois dias presa: o vendedor nunca respondeu "sim/não". A linha foi apagada por operação autorizada
+em 05/11, com o que havia gravado em `superadmin_alteracao_log`. Expirar por idade na leitura (24 h, como o histórico) é proposta no PR, não decisão.
+
+**Prova:** bloco (33) de `atendimentos-ia-levantamento-por-nome.test.ts` (o `thinking`, o `effort`, o teto e a relação com a maior saída medida; os
+quatro campos novos quando o `usage` traz e `-` quando não; o corte em `max_tokens`); bloco (34) (os dois blocos e a marca; o estável igual entre dois
+turnos da conta com a montagem e a pergunta só no volátil; o contexto no fim do estável; as três variantes do filtro; a redação num bloco só; o volátil
+vazio não vira bloco); (24) com a lista enxuta e a legenda; `tipologias-candidatas.test.ts` (`limitesNoPrompt` compacto, `descricaoNoPrompt`);
+`levantamento-da-conversa.test.ts` (a `linha` lida e a linha do candidato com e sem ela); e as mutações do código (`mutacoes-prompt.py`, o resultado no
+PR). Os testes novos ficam vermelhos com o código da main (medido antes do push).

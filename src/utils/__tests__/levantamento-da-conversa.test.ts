@@ -199,8 +199,9 @@ describe('(1) a família da conta, o motor dela e as tipologias candidatas (PR D
         if (!('candidatos' in t)) throw new Error('era para ler a lista: ' + t.frase)
         expect(t.familias).toEqual([FAMILIA_DE_PAULA])
         expect(t.candidatos.map((c) => c.tipologia)).toEqual(['DP-01', 'DP-02'])
-        // desde 03/11/2026 a linha leva os limites do motor; o que o arquivo não traz é "sem limite no arquivo", nunca zero
-        expect(M().linhaDoCandidato(t.candidatos[1], false)).toBe('DP-02 | JANELA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 42 | Correr | largura sem limite no arquivo | altura 388 mm a 2.439 mm')
+        // desde 03/11/2026 a linha leva os limites do motor; desde 05/11/2026 ENXUTA: a linha de produto sai da descrição (a Detalhe a traz) e o limite é compacto
+        expect(t.candidatos[1].linha).toBe('PVC WOLFF EUROPA 42')
+        expect(M().linhaDoCandidato(t.candidatos[1], false)).toBe('DP-02 | JANELA DE CORRER 02 FOLHAS MÓVEIS | Correr | A 388-2439')
         expect(M().familiasDoCodigo(t)('DP-02')).toEqual([{ familia: 'PVC', rotulo: 'PVC', fornecedor: 'Wolff Perfis', motorId: MOTOR }])
     })
 
@@ -349,8 +350,10 @@ describe('(1) a família da conta, o motor dela e as tipologias candidatas (PR D
         ])
         expect(t.candidatos.map((c) => [c.tipologia, c.familia])).toEqual([['DP-01', 'PVC'], ['DP-02', 'ALUMINIO'], ['DP-02', 'PVC'], ['SU-07', 'ALUMINIO']])
         // com mais de uma família, a linha do prompt diz a família e o fornecedor; com uma só, é a de sempre
-        expect(M().linhaDoCandidato(t.candidatos[1], true)).toBe('DP-02 | JANELA DE CORRER 02 FOLHAS | LINHA SUL | Correr | largura sem limite no arquivo | altura sem limite no arquivo | família: Alumínio | fornecedor: Perfis Sul')
-        expect(M().linhaDoCandidato(t.candidatos[1], false)).toBe('DP-02 | JANELA DE CORRER 02 FOLHAS | LINHA SUL | Correr | largura sem limite no arquivo | altura sem limite no arquivo')
+        // a Detalhe do Sul não traz a linha: a descrição fica inteira; sem limite no arquivo, nenhum segmento de limites (05/11/2026)
+        expect(t.candidatos[1].linha).toBeNull()
+        expect(M().linhaDoCandidato(t.candidatos[1], true)).toBe('DP-02 | JANELA DE CORRER 02 FOLHAS | LINHA SUL | Correr | família: Alumínio | fornecedor: Perfis Sul')
+        expect(M().linhaDoCandidato(t.candidatos[1], false)).toBe('DP-02 | JANELA DE CORRER 02 FOLHAS | LINHA SUL | Correr')
         expect(M().familiasDoCodigo(t)('DP-02')).toEqual([
             { familia: 'ALUMINIO', rotulo: 'Alumínio', fornecedor: 'Perfis Sul', motorId: MOTOR_SUL }, { familia: 'PVC', rotulo: 'PVC', fornecedor: 'Wolff Perfis', motorId: MOTOR },
         ])
