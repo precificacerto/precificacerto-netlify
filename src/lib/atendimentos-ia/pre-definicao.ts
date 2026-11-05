@@ -57,6 +57,36 @@ export const PERGUNTAS_DA_TIPOLOGIA = [
 ] as const
 
 /**
+ * O QUE O ACUMULADO JÁ DIZ (dono do produto, 05/11/2026): "se o vendedor já disse 'janela maxim ar', não pergunte 'é janela ou porta? abre de
+ * correr?'". A pergunta fixa da tipologia tira o que a conversa já tem — a ABERTURA (janela/porta) e o TIPO (correr, abrir, maxim-ar…) — e fica
+ * com o que distingue as tipologias que sobraram: folhas, persiana, bandeira, peitoril fixo. Sem nada dito, as três formas de sempre.
+ */
+export type JaDito = { abertura: boolean; tipo: boolean }
+export const NADA_DITO: JaDito = { abertura: false, tipo: false }
+const PERGUNTAS_COM_ABERTURA_DITA = [
+    'Abre de correr, de abrir ou maxim-ar? Tem persiana?',
+    'Como ela abre (correr, abrir, maxim-ar, pivotante ou fixa), e tem persiana, bandeira ou peitoril fixo?',
+    'Para eu achar a esquadria certa: quantas folhas abrem, ela corre ou gira, e tem persiana ou bandeira?',
+] as const
+const PERGUNTAS_COM_TIPO_DITO = [
+    'É janela ou porta? Tem persiana?',
+    'É janela ou porta, e tem persiana, bandeira ou peitoril fixo?',
+    'Para eu achar a esquadria certa: é janela ou porta, quantas folhas, e tem persiana ou bandeira?',
+] as const
+const PERGUNTAS_COM_TUDO_DITO = [
+    'Quantas folhas? Tem persiana, bandeira ou peitoril fixo?',
+    'Me diga o que ela tem além do padrão: quantas folhas, e se tem persiana, bandeira ou peitoril fixo.',
+    'Para eu achar a esquadria certa: quantas folhas, e tem persiana ou bandeira?',
+] as const
+/** As formas da pergunta da tipologia para o que já foi dito: a primeira é a fixa, as outras são as reformulações. */
+export function perguntasDaTipologia(jaDito: JaDito = NADA_DITO): readonly string[] {
+    if (jaDito.abertura && jaDito.tipo) return PERGUNTAS_COM_TUDO_DITO
+    if (jaDito.abertura) return PERGUNTAS_COM_ABERTURA_DITA
+    if (jaDito.tipo) return PERGUNTAS_COM_TIPO_DITO
+    return PERGUNTAS_DA_TIPOLOGIA
+}
+
+/**
  * A pergunta FIXA de cada campo — usada quando a LLM não traz uma pergunta para o campo certo.
  * ABERTA e sem lista de opções: quem responde é o vendedor, que já sabe o que a empresa vende. E
  * nada dos padrões da empresa. A da tipologia é a de obra, acima.

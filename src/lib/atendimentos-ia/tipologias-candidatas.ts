@@ -171,7 +171,7 @@ export function fraseDaAberturaRecusada(dita: Abertura): string {
  * alguma porta de giro. Medido na De Paula (164 tipologias) nos cinco turnos do Jorge Koss: lista inteira hoje em todos; só porta/janela pelo
  * acumulado, 164 (as duas palavras); pelo tipo, 124; por trecho (porta ∧ Correr ∪ janela ∧ Maxim-ar), 87.
  */
-export type TrechoDoAcumulado = { abertura: Abertura | null; tipos: ReadonlySet<string> }
+export type TrechoDoAcumulado = { abertura: Abertura | null; tipos: ReadonlySet<string>; texto: string }
 
 /** As palavras de um tipo do motor que contam: 3 letras ou mais, sem acento e sem caixa ("Giro / Abrir" → giro, abrir; "Maxim-ar" → maxim). */
 export const palavrasDoTipo = (tipo: string): string[] => semAcento(tipo).split(/[^a-z]+/).filter((p) => p.length >= 3)
@@ -193,7 +193,7 @@ export function trechosDoAcumulado(textos: readonly string[], tipos: readonly st
         for (const linha of texto.split('\n')) {
             const abertura = aberturaDita(linha)
             const ditos = tiposDitos(linha, tipos)
-            if (abertura !== null || ditos.size > 0) trechos.push({ abertura, tipos: ditos })
+            if (abertura !== null || ditos.size > 0) trechos.push({ abertura, tipos: ditos, texto: linha })
         }
     }
     return trechos
@@ -205,6 +205,10 @@ export type ListaFiltrada<C> = {
     trechos: number
     /** Quantos trechos ficaram sem tipologia nenhuma e trouxeram a lista inteira (a rede de segurança). */
     semCandidata: number
+    /** O que o acumulado já diz (05/11/2026): alguma abertura (janela/porta) e algum tipo do motor — a pergunta da tipologia não repete isso. */
+    jaDito: { abertura: boolean; tipo: boolean }
+    /** Os trechos, para quem decide a tipologia padrão por esquadria. */
+    lidos: TrechoDoAcumulado[]
 }
 
 /** A tipologia serve ao trecho: compatível com a abertura dita, e do tipo dito (a sem tipo no arquivo passa). */
@@ -215,7 +219,8 @@ export const serveAoTrecho = <C extends { descricao: string | null; tipo: string
 export function filtrarPeloAcumulado<C extends { descricao: string | null; tipo: string | null }>(candidatos: readonly C[], textos: readonly string[]): ListaFiltrada<C> {
     const tipos = [...new Set(candidatos.map((c) => c.tipo).filter((t): t is string => typeof t === 'string' && t.trim() !== ''))]
     const trechos = trechosDoAcumulado(textos, tipos)
-    if (trechos.length === 0) return { candidatos: [...candidatos], trechos: 0, semCandidata: 0 }
+    const jaDito = { abertura: trechos.some((t) => t.abertura !== null), tipo: trechos.some((t) => t.tipos.size > 0) }
+    if (trechos.length === 0) return { candidatos: [...candidatos], trechos: 0, semCandidata: 0, jaDito, lidos: trechos }
     const ficam = new Set<C>()
     let semCandidata = 0
     for (const t of trechos) {
@@ -223,5 +228,5 @@ export function filtrarPeloAcumulado<C extends { descricao: string | null; tipo:
         if (servem.length === 0) { semCandidata += 1; for (const c of candidatos) ficam.add(c); continue }
         for (const c of servem) ficam.add(c)
     }
-    return { candidatos: candidatos.filter((c) => ficam.has(c)), trechos: trechos.length, semCandidata }
+    return { candidatos: candidatos.filter((c) => ficam.has(c)), trechos: trechos.length, semCandidata, jaDito, lidos: trechos }
 }

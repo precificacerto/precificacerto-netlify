@@ -115,6 +115,7 @@ import { abaDeclarada, abaDoBanco } from '@/utils/atendimentos-ia-abas-do-motor'
 import { derivarTabelasDaConta } from '@/lib/atendimentos-ia/tabelas-da-conta'
 import { FRASE_SEM_LISTA_DE_TIPOLOGIAS, SECAO_DOS_FORNECEDORES, fraseDeFalta, lerMotoresDaConta, type FonteDaFamilia, type MotivoDaFalta } from '@/lib/atendimentos-ia/motor-da-familia'
 export { FRASE_SEM_LISTA_DE_TIPOLOGIAS }
+import { normalizarNome } from '@/lib/atendimentos-ia/nome-do-levantamento'
 
 // ── As famílias da empresa e as tipologias candidatas ───────────────────────────────────────
 /** Uma tipologia que a IA pode escolher: do motor do LEVANTAMENTO (a etapa com GERAR_LEVANTAMENTO) de uma família da conta. */
@@ -497,12 +498,31 @@ export const FRASE_SEM_CORES = 'Ainda não consigo anotar a cor do perfil: a bas
  * validada, e é com elas que o motor é lido.
  */
 export async function lerCoresDaEmpresa(tenantId: string): Promise<string[]> {
+    return (await lerPerfilDaEmpresa(tenantId)).cores
+}
+
+/** As cores do Perfil e a cor PREDOMINANTE da base, já na forma da lista (05/11/2026). */
+export type PerfilDaEmpresa = { cores: string[]; corPredominante: string | null }
+
+/**
+ * A COR NÃO DITA É A PREDOMINANTE (dono do produto, 05/11/2026): "cor não dita = cor_predominante da categoria Perfil, comparada SEM CAIXA
+ * contra a lista e gravada como está na lista ('BRANCO' cadastrado tem de casar com 'Branco' da lista). Nunca pergunte cor quando houver
+ * predominante." A predominante que não está na lista (nem sem caixa e sem acento) é como se não houvesse: a cor que o motor não tem não
+ * vira padrão em silêncio. Com mais de uma configuração de Perfil, vale a primeira predominante que casa.
+ */
+export async function lerPerfilDaEmpresa(tenantId: string): Promise<PerfilDaEmpresa> {
     const cores: string[] = []
+    let corPredominante: string | null = null
     for (const config of await lerConfigsDoPerfil(tenantId)) {
         const lista = Array.isArray(config.cores) ? config.cores : []
         for (const c of lista) if (typeof c === 'string' && c !== '' && !cores.includes(c)) cores.push(c)
+        const predominante = typeof config.cor_predominante === 'string' ? config.cor_predominante.trim() : ''
+        if (corPredominante === null && predominante !== '') {
+            const naLista = lista.find((c): c is string => typeof c === 'string' && normalizarNome(c) === normalizarNome(predominante))
+            if (naLista !== undefined) corPredominante = naLista
+        }
     }
-    return cores
+    return { cores, corPredominante }
 }
 
 /** A serra da base de conhecimento, categoria PERFIL. Um valor só — ou a frase do que falta. */

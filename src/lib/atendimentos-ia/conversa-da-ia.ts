@@ -19,8 +19,11 @@
  * conversa é a de antes, e a linha [IA] diz `aberta=ausente`.
  *
  * ══ O ROTEAMENTO, nesta ordem ══
- *   - o remetente tem um levantamento EM_MONTAGEM → a mensagem continua nele, com a pergunta em aberto
- *     no prompt. É isso que faz o "4" de uma pergunta de arremate cair no lugar;
+ *   - o remetente tem um levantamento EM_MONTAGEM, tocado há menos de 24 h (havendo vários, o mais recentemente tocado — a migração
+ *     20261105000001 derrubou o "um por remetente") → a mensagem continua nele, com a pergunta em aberto
+ *     no prompt. É isso que faz o "4" de uma pergunta de arremate cair no lugar. SALVO (05/11/2026) quando a mensagem traz um
+ *     cliente/nome DIFERENTE do levantamento em montagem, ou pede "novo": aí ela sai da montagem e segue o roteamento pelo nome;
+ *     a montagem com mais de 24 h sem toque não captura mais a mensagem (`montagemExpirou`);
  *   - senão, o NOME que a IA leu, SÓ se estiver no texto do vendedor (`nomeDaMensagem`):
  *       ausente → pergunta o nome, e não cria nada;
  *       IGUAL a um dele (sem caixa e sem acento, `compararNome`) → ALTERAÇÃO: sobrescreve (decisão 3)
@@ -170,7 +173,7 @@ import { supabaseAdmin } from '@/supabase/admin'
 import { MODELO_PADRAO_DA_IA, URL_DA_API_ANTHROPIC, VERSAO_DA_API_ANTHROPIC } from '@/lib/atendimentos-ia/modelo-da-ia'
 import { paraOLog } from '@/utils/atendimentos-ia-mascara-do-log'
 import {
-    FRASE_SEM_CORES, familiasDoCodigo, lerCoresDaEmpresa, lerFamiliasDaEmpresa, linhaDoCandidato, lerVariaveisDasTipologias, mensagemDoLevantamento,
+    FRASE_SEM_CORES, familiasDoCodigo, lerPerfilDaEmpresa, lerFamiliasDaEmpresa, linhaDoCandidato, lerVariaveisDasTipologias, mensagemDoLevantamento,
     type CandidatoDeTipologia,
 } from '@/lib/atendimentos-ia/levantamento-da-conversa'
 import { agruparIguais,
@@ -185,7 +188,8 @@ import { CODIGO_DE_FORNECEDOR, redigir, type MotivoDaRedacao, type Redacao } fro
 import { vidroPodado } from '@/lib/atendimentos-ia/vidro'
 import type { VariaveisDaTipologia } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import { compararNome, formaComparavel, nomeDaMensagem, nomeDoCliente, nomeSemPrefixo, normalizarNome } from '@/lib/atendimentos-ia/nome-do-levantamento'
-import { PERGUNTAS_DA_TIPOLOGIA } from '@/lib/atendimentos-ia/pre-definicao'
+import { perguntasDaTipologia, type JaDito } from '@/lib/atendimentos-ia/pre-definicao'
+import { tipologiaPadrao } from '@/lib/atendimentos-ia/tipologia-padrao'
 import { PROMPT_BASE } from '@/utils/atendimentos-ia-prompt-base'
 import { LIMITE_DA_FALA } from '@/utils/atendimentos-ia-contexto'
 import { blocoDasInstrucoes, lerInstrucoesDaEmpresa, type InstrucaoDaCategoria } from '@/lib/atendimentos-ia/instrucoes-da-categoria'
@@ -195,7 +199,7 @@ import { escolhasParaOPrompt, opcoesDeArremateNoPrompt, lerEscolhasDoItem, lerEs
 import { permissaoDoRemetente, type Permissao } from '@/lib/atendimentos-ia/permissao-do-remetente'
 import { fraseDoApanhado } from '@/lib/atendimentos-ia/apanhado'
 import {
-    apagarPerguntaEmAberto, esquadriasDaProposta, gravarPerguntaEmAberto, juntarEsquadrias, lerPerguntaEmAberto,
+    apagarPerguntaEmAberto, esquadriasDaProposta, gravarPerguntaEmAberto, juntarEsquadrias, lerPerguntaEmAberto, montagemExpirou,
     type CodigoDaPergunta, type EsquadriaProposta, type PerguntaEmAberto,
 } from '@/lib/atendimentos-ia/pergunta-em-aberto'
 import { DESCRICAO_DA_FALA, blocoDoContexto, falaValida, lerContextoDoAtendimento, temDinheiro, type ContextoLido, type FalaLida } from '@/lib/atendimentos-ia/contexto-do-atendimento'
@@ -273,6 +277,12 @@ type Rastro = {
     trechosSemCandidata: number
     /** Itens que o modelo devolveu SEM nenhum campo da esquadria (05/11/2026): foi assim que as esquadrias do Jorge Koss se perderam. */
     itensSemCampos: number
+    /** A montagem (05/11/2026): `expirada` (mais de 24 h sem toque, não captura a mensagem), `outro_cliente` ou `novo` (a mensagem saiu dela). */
+    montagem: '-' | 'expirada' | 'outro_cliente' | 'novo'
+    /** Esquadrias que receberam a cor PREDOMINANTE da base por não ter cor dita (05/11/2026). */
+    coresPadrao: number
+    /** Esquadrias que receberam a tipologia PADRÃO do código — de correr, 2 folhas, lisa (05/11/2026). */
+    tipologiasPadrao: number
 }
 const FALA_NO_LOG: Record<FalaLida['motivo'], string> = { usada: 'usada', ausente: 'ausente', numero: 'descartada_numero', longa: 'descartada_longa' }
 
@@ -292,6 +302,8 @@ function anotar(r: Rastro, desfecho: DesfechoDaIa, detalhe = '') {
         // a lista pelo acumulado e os itens vazios (05/11/2026): só números
         + (r.lista === '-' ? '' : ` lista=${r.lista} trechos=${r.trechos}`) + (r.trechosSemCandidata > 0 ? ` trechos_sem_candidata=${r.trechosSemCandidata}` : '')
         + (r.itensSemCampos > 0 ? ` itens_sem_campos=${r.itensSemCampos}` : '')
+        // a montagem e os padrões (05/11/2026)
+        + (r.montagem === '-' ? '' : ` montagem=${r.montagem}`) + (r.coresPadrao > 0 ? ` cor_padrao=${r.coresPadrao}` : '') + (r.tipologiasPadrao > 0 ? ` tipologia_padrao=${r.tipologiasPadrao}` : '')
     console.error(`${PREFIXO_DO_LOG_DA_IA} levantamento=${r.levantamento} rota=${r.rota} propostos=${r.propostos} descartados=${r.descartados} enviou=${r.enviou ? 'sim' : 'nao'} desfecho=${desfecho}${admin} nome=${r.nome} aberta=${r.aberta}${contexto}${ia}${detalhe ? ` ${detalhe}` : ''}`)
 }
 
@@ -708,14 +720,14 @@ async function chamarLlm(chave: string, mensagem: string, contexto: ContextoDoPr
 }
 
 // ── O BANCO ─────────────────────────────────────────────────────────────────────────────────
-type Levantamento = { id: string; nome: string; nome_normalizado: string; estado: string; criado_em: string }
+type Levantamento = { id: string; nome: string; nome_normalizado: string; estado: string; criado_em: string; atualizado_em: string | null }
 type ItemGravado = ItemDoLevantamento & { id: string }
 // a família e o motor do cálculo (PR D): `tabela_id` não é lido nem escrito pela conversa desde então
 const COLUNAS_DO_ITEM = `id, ordem, ${CAMPOS_DA_ESQUADRIA.join(', ')}, escolhas, familia, motor_id`
 
 /** Os levantamentos do remetente — só dele, no tenant dele (decisão 2). */
 async function lerLevantamentos(tenantId: string, remetenteId: string, soEmMontagem: boolean): Promise<Levantamento[]> {
-    let q = supabaseAdmin.from('orcamentista_levantamento').select('id, nome, nome_normalizado, estado, criado_em')
+    let q = supabaseAdmin.from('orcamentista_levantamento').select('id, nome, nome_normalizado, estado, criado_em, atualizado_em')
         .eq('tenant_id', tenantId).eq('remetente_id', remetenteId)
     if (soEmMontagem) q = q.eq('estado', EM_MONTAGEM)
     const { data, error } = await q.order('criado_em', { ascending: true })
@@ -895,8 +907,8 @@ async function enviarTexto(token: string, telefone: string, texto: string): Prom
  * A pergunta com TODAS as pendências (03/11/2026); o texto da LLM só quando é sobre o MESMO campo que o código pôs em primeiro, e aí
  * ele entra no lugar da pergunta fixa daquele campo — o resto do que falta vem junto.
  */
-function perguntaPara(ps: readonly Pendencia[], nItens: number, proposta: Record<string, unknown>): string {
-    const fixa = perguntaDasPendencias(ps, nItens)
+function perguntaPara(ps: readonly Pendencia[], nItens: number, proposta: Record<string, unknown>, jaDito?: JaDito): string {
+    const fixa = perguntaDasPendencias(ps, nItens, null, jaDito)
     const p = ps[0]
     if (!p || !('campo' in p)) return fixa
     const q = proposta.pergunta && typeof proposta.pergunta === 'object' ? (proposta.pergunta as { campo?: unknown; texto?: unknown }) : {}
@@ -905,7 +917,7 @@ function perguntaPara(ps: readonly Pendencia[], nItens: number, proposta: Record
     if (q.campo !== p.campo || t === '' || t.length > 500 || CODIGO_DE_FORNECEDOR.test(t)) return fixa
     // a reformulação que traz DINHEIRO também vai para a fixa: o número é do código (para toda empresa, desde o prompt base)
     if (temDinheiro(t)) return fixa
-    return perguntaDasPendencias(ps, nItens, t)
+    return perguntaDasPendencias(ps, nItens, t, jaDito)
 }
 
 // ── A PERGUNTA EM ABERTO DO ROTEAMENTO PELO NOME (`pergunta-em-aberto.ts`) ──────────────────
@@ -984,7 +996,7 @@ export type Interlocutor = {
 export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
     const rastro: Rastro = {
         levantamento: '-', rota: '-', propostos: 0, descartados: 0, enviou: false, admin: null, nome: '-', aberta: '-', ia: { ms: null, entrada: null, saida: null, raciocinio: null, parada: null, cacheLido: null, cacheEscrito: null, cabecalhosMs: null, primeiroTokenMs: null, tentativas: null, requestId: null },
-        contexto: '-', fala: '-', instrucoes: '-', instrucoesDasEtapas: '-', instrucoesSemEfeito: '', fundidos: 0, reenviadas: 0, historico: '-', gravacao: '-', redacao: '-', vidrosNaoDitos: 0, vidrosPodados: 0, vidrosPadrao: 0, lista: '-', trechos: 0, trechosSemCandidata: 0, itensSemCampos: 0,
+        contexto: '-', fala: '-', instrucoes: '-', instrucoesDasEtapas: '-', instrucoesSemEfeito: '', fundidos: 0, reenviadas: 0, historico: '-', gravacao: '-', redacao: '-', vidrosNaoDitos: 0, vidrosPodados: 0, vidrosPadrao: 0, lista: '-', trechos: 0, trechosSemCandidata: 0, itensSemCampos: 0, montagem: '-', coresPadrao: 0, tipologiasPadrao: 0,
     }
     const fim = (desfecho: DesfechoDaIa, detalhe = ''): DesfechoDaIa => { anotar(rastro, desfecho, detalhe); return desfecho }
     // a fala da IA, já filtrada: abre a resposta do código. Sem contexto, ou com o filtro disparado, não há
@@ -1053,9 +1065,10 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         // a falta de configuração (família, etapa, motor, tabela de preço) volta com a frase que a nomeia (PR D)
         // AS LEITURAS INDEPENDENTES VÃO JUNTAS (dono do produto, 04/11/2026): medido em produção, as 24 leituras em série antes do modelo
         // custavam 5 a 8 s por turno. Primeira onda: o que só depende da conta e da conversa. A ordem das RESPOSTAS continua a de antes.
-        const [tabela, cores, emMontagemLidos, contexto, lido, instrucoes] = await Promise.all([
+        const [tabela, perfil, emMontagemLidos, contexto, lido, instrucoes] = await Promise.all([
             lerFamiliasDaEmpresa(c.tenantId),
-            lerCoresDaEmpresa(c.tenantId),
+            // as cores do Perfil e a cor PREDOMINANTE da base (05/11/2026): a cor não dita é ela
+            lerPerfilDaEmpresa(c.tenantId),
             lerLevantamentos(c.tenantId, c.remetenteId, true),
             // o contexto da empresa: vazio (ou a tabela ausente) é o pedido de hoje
             lerContextoDoAtendimento(c.tenantId),
@@ -1069,14 +1082,24 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         const variasFamilias = tabela.familias.length > 1
         // a instrução escrita numa etapa que não fala com o modelo não tem efeito: o log diz qual (04/11/2026)
         rastro.instrucoesSemEfeito = tabela.familias.flatMap((f) => f.instrucoesSemEfeito.map((i) => `${i.numero}:${i.acao}:${i.caracteres}`)).join(',')
-        const [emMontagem] = emMontagemLidos
+        const cores = perfil.cores
+        const corPredominante = perfil.corPredominante
+        // A MONTAGEM EXPIRA EM 24 H (dono do produto, 05/11/2026), como a pergunta em aberto: a que ficou mais de 24 h sem toque não captura
+        // a mensagem de hoje — fica no banco como está, alcançável pelo nome. A linha [IA] diz `montagem=expirada`
+        // Pode haver VÁRIAS em montagem do mesmo remetente (20261105000001): a mensagem sem nome cai na mais recentemente tocada
+        const agora = new Date()
+        const toque = (l: Levantamento) => Date.parse(l.atualizado_em ?? l.criado_em) || 0
+        const montagensVivas = emMontagemLidos.filter((l) => !montagemExpirou(l.atualizado_em, l.criado_em, agora)).sort((a, b) => toque(b) - toque(a))
+        if (emMontagemLidos.length > 0 && montagensVivas.length === 0) rastro.montagem = 'expirada'
+        const [emMontagem] = montagensVivas
         // Segunda onda: o que depende da família ou da montagem. As Variáveis de cada tipologia, POR FAMÍLIA, do motor do LEVANTAMENTO dela
         // (a etapa com GERAR_LEVANTAMENTO), por motor_id; os itens da montagem; e a pergunta em aberto do roteamento pelo nome — só fora da
         // montagem, que guarda a sua no levantamento — com os levantamentos do remetente que ela cita
         const [variaveisLidas, itensDaMontagem, pergunta] = await Promise.all([
             Promise.all(tabela.familias.map(async (f) => [f.familia, await lerVariaveisDasTipologias(f.levantamento.id)] as const)),
             emMontagem ? lerItens(c.tenantId, emMontagem.id) : Promise.resolve([] as ItemGravado[]),
-            emMontagem ? Promise.resolve(null) : (async (): Promise<{ lida: PerguntaEmAberto | null | 'ausente' | 'expirada'; valida: PerguntaEmAberto | null; doRemetente: Levantamento[] | null }> => {
+            // lida também na montagem (05/11/2026): a mensagem que traz OUTRO cliente, ou "novo", sai da montagem e aí a pergunta vale
+            (async (): Promise<{ lida: PerguntaEmAberto | null | 'ausente' | 'expirada'; valida: PerguntaEmAberto | null; doRemetente: Levantamento[] | null }> => {
                 const lida = await lerPerguntaEmAberto(c.tenantId, c.remetenteId)
                 // a pergunta que VALE nesta mensagem — a guarda única: a 'ausente' não existe, e a 'expirada' (mais de 24 h, 05/11/2026) é como
                 // se não houvesse; nada dela vai ao modelo, e os levantamentos que ela cita não são lidos
@@ -1095,13 +1118,18 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         const pendenciasAbertas = emMontagem ? pendenciasDoLevantamento(itensDaMontagem, definicao, doCodigo) : []
         const pendenciaAberta = pendenciasAbertas[0] ?? null
         const lida = pergunta?.lida ?? null
-        rastro.aberta = lida === 'ausente' || lida === 'expirada' ? lida : lida ? lida.pergunta : '-'
+        const marcaDaAberta: Rastro['aberta'] = lida === 'ausente' || lida === 'expirada' ? lida : lida ? lida.pergunta : '-'
         // sem a tabela (migração pendente), nada se grava nela; com a linha lá (válida OU expirada), ela é apagada quando se resolve
-        const guardaPergunta = lida !== 'ausente'
-        const temLinha = lida !== null && lida !== 'ausente'
+        const guardaLida = lida !== 'ausente'
+        const temLinhaLida = lida !== null && lida !== 'ausente'
         const valida = pergunta?.valida ?? null
         const doRemetente: Levantamento[] | null = pergunta?.doRemetente ?? null
-        const aberta = valida && doRemetente ? await refazerPergunta(c.tenantId, valida, doRemetente, definicao) : null
+        const abertaLida = valida && doRemetente ? await refazerPergunta(c.tenantId, valida, doRemetente, definicao) : null
+        // NA MONTAGEM a pergunta do roteamento não vale (ela guarda a sua no levantamento) — até a mensagem sair da montagem (abaixo)
+        let aberta = emMontagem ? null : abertaLida
+        let guardaPergunta = emMontagem ? false : guardaLida
+        let temLinha = emMontagem ? false : temLinhaLida
+        rastro.aberta = emMontagem ? '-' : marcaDaAberta
 
         // PORTA × JANELA (03/11/2026): a palavra DESTA mensagem continua valendo para a recusa da tipologia proposta (`aplicarProposta`)
         const aberturaDaMensagem = aberturaDita(c.texto)
@@ -1133,7 +1161,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             contexto: contexto.texto, instrucoes: instrucoes.instrucoes, instrucoesDasEtapas,
             candidatos: candidatosDoPrompt, variasFamilias, cores, escolhasPorTipologia,
             montagem: emMontagem ? { nome: emMontagem.nome, itens: itensDaMontagem.map(camposParaOPrompt) } : null,
-            perguntaEmAberto: pendenciaAberta ? perguntaDasPendencias(pendenciasAbertas, itensDaMontagem.length) : aberta?.paraOPrompt ?? aberta?.texto ?? null,
+            perguntaEmAberto: pendenciaAberta ? perguntaDasPendencias(pendenciasAbertas, itensDaMontagem.length, null, filtro.jaDito) : aberta?.paraOPrompt ?? aberta?.texto ?? null,
             hoje: !pendenciaAberta && aberta && ehResgate(aberta.p) ? dataBR(new Date().toISOString()) : null,
         }, rastro.ia, historico)
         if (resposta.tipo !== 'ok') {
@@ -1144,6 +1172,20 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             return await responder(frase, resposta.tipo, resposta.detalhe)
         }
         const proposta = resposta.proposta
+        // A MONTAGEM NÃO ABSORVE OUTRO CLIENTE (dono do produto, 05/11/2026): "Cliente: Maria Cristina" virou levantamento "Jorge Koss" porque
+        // a rota MONTAGEM decidia antes de ler o nome. Agora o nome/cliente da mensagem é lido também aqui: um cliente DIFERENTE do levantamento
+        // em montagem, ou o pedido de "novo", tira a mensagem da montagem e ela segue o roteamento pelo nome (novo, ou o existente que ela cita)
+        const nomeNaMensagem = nomeDaMensagem(proposta.nome, c.texto) ?? nomeDoCliente(proposta, c.texto)
+        const outroCliente = emMontagem !== undefined && nomeNaMensagem !== null && normalizarNome(nomeSemPrefixo(nomeNaMensagem)) !== normalizarNome(emMontagem.nome)
+        const pedeNovo = emMontagem !== undefined && proposta.novo === true
+        const saiDaMontagem = outroCliente || pedeNovo
+        if (saiDaMontagem) {
+            rastro.montagem = pedeNovo ? 'novo' : 'outro_cliente'
+            aberta = abertaLida
+            guardaPergunta = guardaLida
+            temLinha = temLinhaLida
+            rastro.aberta = marcaDaAberta
+        }
         // a fala abre a resposta de TODA empresa (03/11/2026), filtrada: a que traz número cai
         const fala = falaValida(proposta.fala)
         rastro.fala = fala.motivo
@@ -1193,7 +1235,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         // ── a rota ──
         let alvo: { id: string; nome: string; estado: string; donoId: string; vendedor: string | null; itens: ItemGravado[] } | null = null
         let nome: string
-        if (emMontagem) {
+        if (emMontagem && !saiDaMontagem) {
             rastro.rota = 'MONTAGEM'
             alvo = { id: emMontagem.id, nome: emMontagem.nome, estado: emMontagem.estado, donoId: c.remetenteId, vendedor: null, itens: itensDaMontagem }
             nome = emMontagem.nome
@@ -1338,6 +1380,17 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         const proposta_ = aplicarProposta(atuais, efetiva, {
             candidatos: tabela.candidatos, aberturaDaMensagem, aberturasDitas: palavrasDeAbertura(c.texto), cores, ordemPadrao, definicao, familiasDoCodigo: doCodigo,
         })
+        // OS PADRÕES DO CÓDIGO (dono do produto, 05/11/2026), na esquadria que diz alguma coisa: a TIPOLOGIA padrão — de correr, 2 folhas, lisa —
+        // quando o acumulado não indica nada fora do padrão (`tipologia-padrao.ts`); e a COR não dita = a predominante da base
+        const dizAlgo = (i: ItemDoLevantamento) => (['tipologia', 'largura_mm', 'altura_mm', 'vidro'] as const).some((k) => i[k] !== null && i[k] !== undefined)
+        for (const item of proposta_.itens) {
+            if (!dizAlgo(item)) continue
+            if (item.tipologia === null) {
+                const padrao = tipologiaPadrao(item, proposta_.aberturas[item.ordem] ?? null, filtro.lidos, tabela.candidatos)
+                if ('tipologia' in padrao) { item.tipologia = padrao.tipologia; rastro.tipologiasPadrao += 1 }
+            }
+            if (item.cor_perfil === null && corPredominante !== null) { item.cor_perfil = corPredominante; rastro.coresPadrao += 1 }
+        }
         // a família e o motor de cada esquadria, como ficam gravados: a resolvida e o motor do cálculo dela HOJE (PR D); e o AGRUPAMENTO
         // (03/11/2026): os itens completos e iguais viram um, com as unidades somadas
         const agrupamento = agruparIguais(resolverFamilias(proposta_.itens, doCodigo))
@@ -1362,11 +1415,11 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             const n = itensDaMontagem.length
             // a TIPOLOGIA não volta igual (03/11/2026): a reformulação da IA, ou outra forma de obra — nunca o "não registrei"
             if (pendenciaAberta.tipo === 'CAMPO' && pendenciaAberta.campo === 'tipologia') {
-                const fixa = perguntaDasPendencias(pendenciasAbertas, n)
-                const daIa = perguntaPara(pendenciasAbertas, n, proposta)
-                return await falar(daIa !== fixa ? daIa : perguntaDasPendencias(pendenciasAbertas, n, outraPergunta(PERGUNTAS_DA_TIPOLOGIA.slice(1), c.texto)), 'nao-avancou')
+                const fixa = perguntaDasPendencias(pendenciasAbertas, n, null, filtro.jaDito)
+                const daIa = perguntaPara(pendenciasAbertas, n, proposta, filtro.jaDito)
+                return await falar(daIa !== fixa ? daIa : perguntaDasPendencias(pendenciasAbertas, n, outraPergunta(perguntasDaTipologia(filtro.jaDito).slice(1), c.texto), filtro.jaDito), 'nao-avancou')
             }
-            return await falar(fraseDeNaoRegistrei(perguntaDasPendencias(pendenciasAbertas, n)), 'nao-avancou')
+            return await falar(fraseDeNaoRegistrei(perguntaDasPendencias(pendenciasAbertas, n, null, filtro.jaDito)), 'nao-avancou')
         }
         // numa alteração, o que foi proposto e não valeu também aparece; sem proposta nenhuma, a conta é refeita
         if (nadaMudou && aplicada.propostos > 0) return await falar(fraseDeNaoApliquei(nome), 'nao-avancou')
@@ -1376,7 +1429,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         const pendencia = pendencias[0] ?? null
         // o admin não monta levantamento de outro: com pendência, nada é gravado e a resposta diz o que falta
         if (pendencia && alvo && alvo.donoId !== c.remetenteId) {
-            return await falar(fraseDaAlteracaoIncompleta(nome, alvo.vendedor ?? VENDEDOR_SEM_NOME, perguntaDasPendencias(pendencias, aplicada.itens.length)), 'alteracao-incompleta')
+            return await falar(fraseDaAlteracaoIncompleta(nome, alvo.vendedor ?? VENDEDOR_SEM_NOME, perguntaDasPendencias(pendencias, aplicada.itens.length, null, filtro.jaDito)), 'alteracao-incompleta')
         }
         const estado = pendencia ? EM_MONTAGEM : COMPLETO
         // a pergunta em aberto se resolveu: apagada ANTES de gravar — se o apagar falhar, nada foi gravado, e a
@@ -1403,7 +1456,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             // sem lista de cores na base, perguntar a cor não leva a lugar nenhum: a conversa diz o que falta
             if ('campo' in pendencia && pendencia.campo === 'cor_perfil' && cores.length === 0) return await responder(FRASE_SEM_CORES, 'sem-cores')
             // UMA pergunta com TUDO o que falta (03/11/2026), redigida pelo modelo
-            return await falar(perguntaPara(pendencias, aplicada.itens.length, proposta), 'perguntou')
+            return await falar(perguntaPara(pendencias, aplicada.itens.length, proposta, filtro.jaDito), 'perguntou')
         }
         // O APANHADO (dono do produto, 26/10/2026): a primeira resposta é conversa, não orçamento. O levantamento
         // formal, com o preço, só sai com o "sim" do vendedor à pergunta que citou ESTE levantamento. Sem exceção:
