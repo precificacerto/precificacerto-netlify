@@ -4064,7 +4064,9 @@ describe('(37) Jorge Koss: o cliente no primeiro turno, as duas esquadrias até 
         expect(linhaIa()[0]).toContain('nome=do_cliente')
         expect(itens()).toHaveLength(2)
         expect(itens()[0]).toEqual(expect.objectContaining({ ordem: 1, tipologia: null, largura_mm: 2500, altura_mm: 2200, quantidade: 1, vidro: 'vidro comum 6 mm incolor', cor_perfil: null }))
-        expect(itens()[1]).toEqual(expect.objectContaining({ ordem: 2, tipologia: null, largura_mm: 600, altura_mm: 600, quantidade: 1, vidro: 'mini boreal', cor_perfil: null }))
+        // a "janela maxim ar" já sai com a maxim-ar PADRÃO (DP-01, dono do produto, 05/11/2026): só a porta fica sem tipologia
+        expect(itens()[1]).toEqual(expect.objectContaining({ ordem: 2, tipologia: 'DP-01', largura_mm: 600, altura_mm: 600, quantidade: 1, vidro: 'mini boreal', cor_perfil: null }))
+        expect(linhaIa()[0]).toMatch(/ tipologia_padrao=1(\s|$)/)
         // a resposta pergunta a tipologia (a pergunta do modelo, que não traz código nem número), nunca a descrição completa de novo
         expect(ultimoEnviado()).toContain('A porta de correr tem trilho embutido?')
 
@@ -4470,9 +4472,9 @@ describe('(38) Maria Cristina: a montagem não absorve outro cliente, expira em 
             for (const j of [{ abertura: true, tipo: false }, { abertura: false, tipo: true }, { abertura: true, tipo: true }]) expect(new Set(perguntasDaTipologia(j)).size).toBe(3)
         })
 
-        it('"janela maxim ar 60 x 60" sem tipologia: a pergunta fixa é só o que distingue (folhas, persiana, bandeira, peitoril) — nunca "é janela ou porta? abre de correr?"', async () => {
+        it('"janela maxim ar com bandeira 60 x 60" (fora do padrão da maxim-ar): a pergunta fixa é só o que distingue (folhas, persiana, bandeira, peitoril) — nunca "é janela ou porta? abre de correr?"', async () => {
             llmResponde({ cliente: 'Ana', itens: [{ ...JANELA }] })
-            await chamar('Cliente: Ana. 1 janela maxim ar, mini boreal 60 x60')
+            await chamar('Cliente: Ana. 1 janela maxim ar com bandeira, mini boreal 60 x60')
             expect(ultimoEnviado()).toBe(`${perguntasDaTipologia({ abertura: true, tipo: true })[0]} E me diga a cor do perfil.`)
             expect(ultimoEnviado()).not.toContain('É janela ou porta?')
             expect(ultimoEnviado()).not.toContain('Abre de correr')
@@ -4551,6 +4553,37 @@ describe('(38) Maria Cristina: a montagem não absorve outro cliente, expira em 
             expect(itens('Bia')[0].tipologia).toBeNull()
         })
 
+        it('A MAXIM-AR PADRÃO (dono do produto, 05/11/2026): "janela maxim ar" sem tipologia é a DP-01 (linha DESIGN), e o log diz tipologia_padrao=', async () => {
+            for (const [k, [nome, texto]] of ([['Ana', 'Cliente: Ana. 1 janela maxim ar, mini boreal 60 x60'], ['Bia', 'Cliente: Bia. janela maxim-ar 600 x 600'], ['Caio', 'Cliente: Caio. uma janela maximar de 1 folha 600 x 600']] as const).entries()) {
+                llmResponde({ cliente: nome, itens: [{ ...JANELA }] })
+                await chamar(texto, { senderAlt: [TELEFONE_DO_WEBHOOK, TELEFONE_DO_OUTRO, TELEFONE_DO_TERCEIRO][k] })
+                expect(itens(nome)[0].tipologia).toBe('DP-01')
+                expect(linhaIa().pop()).toMatch(/ tipologia_padrao=1(\s|$)/)
+            }
+            // a tipologia já está: a pergunta de tipologia não sai (só a cor, que falta)
+            expect(ultimoEnviado()).toBe(PERGUNTA_DO_CAMPO.cor_perfil)
+        })
+
+        it('o que tira o padrão da maxim-ar: bandeira, peitoril, módulos, travessa, persiana, 2 folhas, outro tipo junto — e a janela sem tipo continua sem padrão', async () => {
+            const casos = ['janela maxim ar com bandeira fixa 600 x 600', 'janela maxim ar com peitoril 600 x 600', 'janela maxim ar 2 módulos 600 x 600', 'janela maxim ar com travessa 600 x 600', 'janela maxim ar com persiana 600 x 600', 'janela maxim ar 2 folhas 600 x 600', 'janela maxim ar de correr 600 x 600', 'janela 600 x 600']
+            for (const [k, texto] of casos.entries()) {
+                montar()
+                const nome = `Cliente ${k + 1}`
+                llmResponde({ cliente: nome, itens: [{ ...JANELA }] })
+                await chamar(`Cliente: ${nome}. ${texto}`)
+                expect([texto, itens(nome)[0].tipologia]).toEqual([texto, null])
+                expect(linhaIa().pop()).not.toContain('tipologia_padrao=')
+            }
+        })
+
+        it('sem a DP-01 no motor da empresa, a maxim-ar não tem padrão — nunca "a maxim-ar mais parecida"', async () => {
+            estado.db.orcamentista_motor_tipologia_detalhe = estado.db.orcamentista_motor_tipologia_detalhe.filter((d) => d.tipologia !== 'DP-01')
+            estado.db.orcamentista_motor_tipologia_detalhe.push({ tabela_id: null, motor_id: MOTOR, tipologia: 'DP-128', descricao: 'MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL | PERFIL MODULAÇÃO | EUROPA 60', tipo: 'Maxim-ar', linha: 'PVC WOLFF EUROPA 60' })
+            llmResponde({ cliente: 'Ana', itens: [{ ...JANELA }] })
+            await chamar('Cliente: Ana. 1 janela maxim ar 600 x 600')
+            expect(itens('Ana')[0].tipologia).toBeNull()
+        })
+
         it('as funções: folhasDitas, FORA_DO_PADRAO e tipologiaPadrao com os motivos nomeados', () => {
             const { folhasDitas, FORA_DO_PADRAO, tipologiaPadrao } = TP()
             expect([folhasDitas('porta de correr 2 folhas'), folhasDitas('duas folhas'), folhasDitas('3 FOLHAS'), folhasDitas('com 2 caixilhos'), folhasDitas('porta de correr'), folhasDitas('uma folha movel')]).toEqual([2, 2, 3, 2, null, 1])
@@ -4573,14 +4606,31 @@ describe('(38) Maria Cristina: a montagem não absorve outro cliente, expira em 
             expect(tipologiaPadrao(item, 'porta', [trecho('porta de correr', 'porta', ['Correr'])], candidatos.filter((c) => c.tipologia !== 'DP-39'))).toEqual({ motivo: 'CANDIDATAS' })
             expect(tipologiaPadrao({ ...item, altura_mm: 1500 }, 'porta', [trecho('porta de correr', 'porta', ['Correr'])], candidatos)).toEqual({ motivo: 'LIMITES' })
             expect(tipologiaPadrao({ ...item, largura_mm: 1200, altura_mm: 1000 }, 'janela', [trecho('janela de correr', 'janela', ['Correr'])], candidatos)).toEqual({ tipologia: 'DP-02' })
+            // a maxim-ar: DP-01, com os mesmos motivos nomeados
+            const janela = { ...item, largura_mm: 600, altura_mm: 600 }
+            const comLimite = candidatos.map((c) => (c.tipologia === 'DP-01' ? { ...c, alt_min_mm: 352, alt_max_mm: 1152 } : c))
+            expect(TP().PADRAO_DA_MAXIM_AR).toBe('DP-01')
+            expect(tipologiaPadrao(janela, 'janela', [trecho('1 janela maxim ar 60 x60', 'janela', ['Maxim-ar'])], comLimite)).toEqual({ tipologia: 'DP-01' })
+            expect(tipologiaPadrao(janela, 'janela', [trecho('janela maxim ar 1 folha', 'janela', ['Maxim-ar'])], comLimite)).toEqual({ tipologia: 'DP-01' })
+            expect(tipologiaPadrao(janela, 'janela', [trecho('janela maxim ar 2 folhas', 'janela', ['Maxim-ar'])], comLimite)).toEqual({ motivo: 'FOLHAS_DITAS' })
+            expect(tipologiaPadrao(janela, 'janela', [trecho('janela maxim ar com bandeira', 'janela', ['Maxim-ar'])], comLimite)).toEqual({ motivo: 'FORA_DO_PADRAO' })
+            expect(tipologiaPadrao(janela, 'janela', [trecho('janela maxim ar', 'janela', ['Maxim-ar'])], comLimite.filter((c) => c.tipologia !== 'DP-01'))).toEqual({ motivo: 'CANDIDATAS' })
+            expect(tipologiaPadrao({ ...janela, altura_mm: 1500 }, 'janela', [trecho('janela maxim ar', 'janela', ['Maxim-ar'])], comLimite)).toEqual({ motivo: 'LIMITES' })
+            // a maxim-ar junto com outro tipo no trecho, ou na palavra porta, não é o padrão da maxim-ar
+            expect(tipologiaPadrao(janela, 'janela', [trecho('janela maxim ar de correr', 'janela', ['Maxim-ar', 'Correr'])], comLimite)).toEqual({ motivo: 'TIPO_NAO_E_CORRER' })
+            expect(tipologiaPadrao(janela, 'porta', [trecho('porta maxim ar', 'porta', ['Maxim-ar'])], comLimite)).toEqual({ motivo: 'TIPO_NAO_E_CORRER' })
+            const { FORA_DA_MAXIM_AR } = TP()
+            for (const t of ['bandeira', 'peitoril', '2 modulos', 'travessa', '02 modulos verticais', 'coluna', 'persiana', 'tela', 'fixo', 'de correr', 'de abrir']) expect([t, FORA_DA_MAXIM_AR.test(t)]).toEqual([t, true])
+            for (const t of ['1 janela maxim ar, mini boreal 60 x60', 'janela maxim-ar 600 x 600', 'maximar branca']) expect([t, FORA_DA_MAXIM_AR.test(t)]).toEqual([t, false])
         })
     })
 
-    it('O CASO REAL FECHADO num turno: com a porta lisa no motor e a predominante cadastrada, "Cliente: Maria Cristina" sai da montagem do Jorge Koss, a porta é a DP-39 pelo padrão, a cor é Branco pelo padrão, e a maxim-ar escolhida pelo modelo fecha o apanhado DELA', async () => {
+    it('O CASO REAL FECHADO num turno: com a porta lisa no motor e a predominante cadastrada, "Cliente: Maria Cristina" sai da montagem do Jorge Koss, a porta é a DP-39 e a maxim-ar a DP-01 pelo padrão, a cor é Branco pelo padrão, e o apanhado DELA sai', async () => {
         comPortaLisa()
         comPredominante('BRANCO')
         await abrirSemVidro('Jorge Koss')
-        llmResponde({ cliente: 'Maria Cristina', itens: [{ ...PORTA }, { ...JANELA, tipologia: 'DP-01' }] })
+        // o modelo não diz tipologia nenhuma: a porta é a DP-39 e a maxim-ar a DP-01, as duas pelo padrão do código
+        llmResponde({ cliente: 'Maria Cristina', itens: [{ ...PORTA }, { ...JANELA }] })
         await chamar(MARIA)
         expect(levantamentos().map((l) => [l.nome, l.estado])).toEqual([['Jorge Koss', 'EM_MONTAGEM'], ['Maria Cristina', 'COMPLETO']])
         expect(itens('Maria Cristina').map((i) => [i.tipologia, i.cor_perfil, i.largura_mm, i.altura_mm, i.vidro])).toEqual([['DP-39', 'Branco', 2500, 2200, 'vidro comum 6 mm incolor'], ['DP-01', 'Branco', 600, 600, 'mini boreal']])
@@ -4588,7 +4638,7 @@ describe('(38) Maria Cristina: a montagem não absorve outro cliente, expira em 
         const linha = linhaIa().pop() as string
         expect(linha).toMatch(/ montagem=outro_cliente(\s|$)/)
         expect(linha).toMatch(/ cor_padrao=2(\s|$)/)
-        expect(linha).toMatch(/ tipologia_padrao=1(\s|$)/)
+        expect(linha).toMatch(/ tipologia_padrao=2(\s|$)/)
         expect(enviados()).toHaveLength(2)
     })
 })

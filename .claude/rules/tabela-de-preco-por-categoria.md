@@ -1676,8 +1676,8 @@ Ajustados: (8) e (9) (sem strict), (33) e (36) (sem thinking), (34) (variantes p
 esquadrias no levantamento "Jorge Koss", aberto duas horas antes e ainda EM_MONTAGEM, porque a rota MONTAGEM vinha ANTES do nome e a montagem não
 expirava; (B) perguntou a cor do perfil com `cor_predominante "BRANCO"` cadastrada na categoria Perfil; perguntou "É janela ou porta? Abre de correr…"
 de uma "janela maxim ar"; e deixou a porta de correr lisa à espera de o modelo escolher entre as doze portas de correr. (C) O cálculo não fecha por
-dado do motor (`N` sem Padrão na DP-01; `ARRP`/`ARR` indefinidos em 242 linhas) — **parado até o dono do produto responder**; o padrão da
-**maxim-ar** também espera o código que ele vai nomear.
+dado do motor (`N` sem Padrão na DP-01; `ARRP`/`ARR` indefinidos em 242 linhas) — **parado até o dono do produto responder**. O padrão da
+**maxim-ar** foi nomeado no mesmo dia (DP-01) e está implementado abaixo.
 
 **A decisão, registrada como foi dita:**
 
@@ -1725,6 +1725,13 @@ E, perguntado sobre o índice único "um EM_MONTAGEM por remetente" (da `2026102
   nomeados (`SEM_ABERTURA | SEM_TRECHO | TIPO_NAO_E_CORRER | JANELA_SEM_TIPO | FOLHAS_DITAS | FORA_DO_PADRAO | CANDIDATAS | LIMITES`). O log diz
   `tipologia_padrao=N`. Na De Paula, as lisas são a DP-02 (janela, EUROPA 42) e a DP-39 (porta, EUROPA 42) — e a DP-239 (porta, EUROPA 60) só existe
   no teste de contraste.
+- **B) A maxim-ar padrão** (dono do produto, 05/11/2026, registrado como foi dito: "o padrão da maxim-ar está decidido: DP-01 (linha DESIGN), que é
+  o modelo mais usado. Pode implementar na mesma PR do B."): a janela cujo trecho no acumulado diz SÓ o tipo maxim-ar é a `PADRAO_DA_MAXIM_AR = 'DP-01'`
+  quando nada está fora do padrão dela (`FORA_DA_MAXIM_AR`: persiana, veneziana, bandeira, peitoril, trilho, tela, módulos, travessa, vertical,
+  coluna, divisão, fixo, vidro duplo e qualquer outro tipo — correr, abrir, giro, pivotante, oscilo…), não diz mais de uma folha, a DP-01 está no motor
+  da empresa e a medida cabe nos limites dela. A maxim-ar com outro tipo no mesmo trecho, ou com a palavra "porta", não tem padrão. **Sem a DP-01 no
+  motor, nenhum padrão** — nunca a primeira maxim-ar da lista. Medido em 05/11/2026: são 15 maxim-ar no motor da De Paula; a DP-01 é a única da linha
+  DESIGN, alt 352 a 1.152, largura sem limite. **O cálculo da DP-01 continua dependendo de `N`** (sem padrão na aba Variáveis) — é o item C, parado.
 - **A esquadria COM tipologia e sem número vai na primeira sem tipologia que a proposta ainda não tocou** (`aplicarProposta`): no caso real, a maxim-ar
   DP-01 caía em cima da porta sem tipologia da mesma mensagem — o irmão do defeito do Jorge Koss (#229), agora para o ramo com tipologia.
 

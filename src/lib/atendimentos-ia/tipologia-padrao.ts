@@ -18,6 +18,11 @@
  *     MÓVEIS" lisa (De Paula: DP-39 e DP-02). Duas ou nenhuma (duas linhas de produto, por exemplo) → sem padrão, o modelo pergunta;
  *   - a medida dita tem de caber nos limites da candidata (`cabeNosLimites`); fora deles, sem padrão — nunca "a mais próxima".
  * A família e o motor seguem o caminho de sempre (`resolverFamilias`); a validação da tipologia proposta pelo modelo não muda.
+ *
+ * O PADRÃO DA MAXIM-AR (dono do produto, 05/11/2026): "DP-01 (linha DESIGN), que é o modelo mais usado." A janela cujo trecho diz SÓ o
+ * tipo maxim-ar, sem nada fora do padrão (persiana, bandeira, peitoril, tela, módulos, travessa, coluna, fixo, outro tipo…) e sem mais de
+ * uma folha, é a DP-01 — se a DP-01 está no motor da empresa e a medida cabe nos limites dela. O código é o que o dono do produto nomeou;
+ * o motor que não o tiver não tem padrão de maxim-ar (nunca "a maxim-ar mais parecida"). A janela sem tipo continua sem padrão.
  */
 import type { CandidatoDeTipologia } from '@/lib/atendimentos-ia/levantamento-da-conversa'
 import type { ItemDoLevantamento } from '@/lib/atendimentos-ia/levantamento-em-montagem'
@@ -27,6 +32,15 @@ const semAcento = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, 
 
 /** O que tira a esquadria do padrão: qualquer uma destas palavras no trecho dela. */
 export const FORA_DO_PADRAO = /\b(persianas?|venezianas?|bandeiras?|peitoril|peitoris|trilhos?|embutid\w*|alumini\w*|telas?|modulos?|divis\w*|fix[oa]s?|vidro duplo|pivotante|oscilo\w*|basculante|projetante|abrir|giro|maxim\w*|guilhotina|camar[ao]o|sanfona\w*)\b/
+
+/**
+ * O que tira a MAXIM-AR do padrão: as variantes do motor (bandeira, peitoril, módulos, travessa, coluna…) e qualquer outro tipo dito no
+ * trecho. "maxim" não está aqui: é o tipo do padrão.
+ */
+export const FORA_DA_MAXIM_AR = /\b(persianas?|venezianas?|bandeiras?|peitoril|peitoris|trilhos?|embutid\w*|alumini\w*|telas?|modul\w*|travessas?|vertica\w*|colunas?|divis\w*|fix[oa]s?|vidro duplo|pivotante|oscilo\w*|basculante|projetante|abrir|giro|correr|guilhotina|camar[ao]o|sanfona\w*)\b/
+
+/** O código da maxim-ar padrão, nomeado pelo dono do produto em 05/11/2026 (linha DESIGN). */
+export const PADRAO_DA_MAXIM_AR = 'DP-01'
 
 const NUMEROS: Record<string, number> = { um: 1, uma: 1, dois: 2, duas: 2, tres: 3, quatro: 4, cinco: 5, seis: 6 }
 /** As folhas (ou caixilhos — "o vendedor fala em caixilho para folha") ditas no trecho: o número, ou null quando não há. */
@@ -50,6 +64,8 @@ export function tipologiaPadrao(item: ItemDoLevantamento, abertura: Abertura | n
     const dela = trechos.filter((t) => t.abertura === abertura)
     if (dela.length === 0) return { motivo: 'SEM_TRECHO' }
     const tipos = new Set(dela.flatMap((t) => [...t.tipos]))
+    const maximAr = [...tipos].some((t) => /maxim/.test(semAcento(t)))
+    if (maximAr && abertura === 'janela' && tipos.size === 1) return padraoDaMaximAr(item, dela, candidatos)
     const correr = [...tipos].some((t) => /correr/.test(semAcento(t)))
     if (tipos.size > 0 && (!correr || tipos.size > 1)) return { motivo: 'TIPO_NAO_E_CORRER' }
     if (abertura === 'janela' && !correr) return { motivo: 'JANELA_SEM_TIPO' }
@@ -60,4 +76,15 @@ export function tipologiaPadrao(item: ItemDoLevantamento, abertura: Abertura | n
     if (lisas.length !== 1) return { motivo: 'CANDIDATAS' }
     if (!cabeNosLimites(lisas[0], item)) return { motivo: 'LIMITES' }
     return { tipologia: lisas[0].tipologia }
+}
+
+/** A maxim-ar padrão (DP-01), ou o motivo de não haver — o trecho já é de janela e só diz o tipo maxim-ar. */
+function padraoDaMaximAr(item: ItemDoLevantamento, dela: readonly TrechoDoAcumulado[], candidatos: readonly CandidatoDeTipologia[]): DecisaoDoPadrao {
+    const folhas = dela.map((t) => folhasDitas(t.texto)).filter((n): n is number => n !== null)
+    if (folhas.some((n) => n > 1)) return { motivo: 'FOLHAS_DITAS' }
+    if (dela.some((t) => FORA_DA_MAXIM_AR.test(semAcento(t.texto)))) return { motivo: 'FORA_DO_PADRAO' }
+    const dp01 = candidatos.filter((c) => c.tipologia === PADRAO_DA_MAXIM_AR)
+    if (dp01.length === 0) return { motivo: 'CANDIDATAS' }
+    if (!dp01.some((c) => cabeNosLimites(c, item))) return { motivo: 'LIMITES' }
+    return { tipologia: PADRAO_DA_MAXIM_AR }
 }

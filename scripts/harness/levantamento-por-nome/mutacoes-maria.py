@@ -55,6 +55,20 @@ M = [
  ('M20', 'a conversa não aplica o padrão', CV, [("if ('tipologia' in padrao) { item.tipologia = padrao.tipologia; rastro.tipologiasPadrao += 1 }", "if (false) { item.tipologia = padrao.tipologia; rastro.tipologiasPadrao += 1 }")], 'porta de correr sem folhas ditas, sem nada fora do padrão'),
  # a esquadria com tipologia e sem número
  ('M21', 'a esquadria com tipologia cai na primeira sem tipologia, tocada ou não', LM, [("alvo = itens.find((i) => i.tipologia === null && !tocadas.has(i.ordem))", "alvo = itens.find((i) => i.tipologia === null)")], 'O CASO REAL FECHADO num turno'),
+ # a maxim-ar padrão (DP-01, dono do produto, 05/11/2026)
+ ('M22', 'a maxim-ar não tem padrão', TP, [("if (maximAr && abertura === 'janela' && tipos.size === 1) return padraoDaMaximAr(item, dela, candidatos)", "")], 'A MAXIM-AR PADRÃO'),
+ ('M23', 'a maxim-ar com outro tipo no trecho ganha o padrão', TP, [("if (maximAr && abertura === 'janela' && tipos.size === 1)", "if (maximAr && abertura === 'janela')")], 'tipologiaPadrao com os motivos nomeados'),
+ ('M24', 'bandeira/módulos/travessa não tiram o padrão da maxim-ar', TP, [("if (dela.some((t) => FORA_DA_MAXIM_AR.test(semAcento(t.texto)))) return { motivo: 'FORA_DO_PADRAO' }", "")], 'o que tira o padrão da maxim-ar'),
+ ('M25', '2 folhas não tiram o padrão da maxim-ar', TP, [("if (folhas.some((n) => n > 1)) return { motivo: 'FOLHAS_DITAS' }", "")], 'o que tira o padrão da maxim-ar'),
+ ('M26', 'sem a DP-01, a maxim-ar escolhe a primeira maxim-ar do motor', TP, [("const dp01 = candidatos.filter((c) => c.tipologia === PADRAO_DA_MAXIM_AR)
+    if (dp01.length === 0) return { motivo: 'CANDIDATAS' }
+    if (!dp01.some((c) => cabeNosLimites(c, item))) return { motivo: 'LIMITES' }
+    return { tipologia: PADRAO_DA_MAXIM_AR }", "const dp01 = candidatos.filter((c) => /maxim/i.test(c.tipo ?? ''))
+    if (dp01.length === 0) return { motivo: 'CANDIDATAS' }
+    if (!dp01.some((c) => cabeNosLimites(c, item))) return { motivo: 'LIMITES' }
+    return { tipologia: dp01[0].tipologia }")], 'nunca "a maxim-ar mais parecida"'),
+ ('M27', 'a maxim-ar fora dos limites ganha o padrão', TP, [("if (!dp01.some((c) => cabeNosLimites(c, item))) return { motivo: 'LIMITES' }", "")], 'tipologiaPadrao com os motivos nomeados'),
+ ('M28', 'a maxim-ar na palavra "porta" ganha o padrão', TP, [("if (maximAr && abertura === 'janela' && tipos.size === 1)", "if (maximAr && tipos.size === 1)")], 'tipologiaPadrao com os motivos nomeados'),
  ('M0', 'CONTROLE: nada muda', CV, []),
 ]
 
