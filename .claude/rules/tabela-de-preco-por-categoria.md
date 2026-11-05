@@ -1743,3 +1743,30 @@ nenhum nome continuam; "novo" sem nome; outro nome existente → ALTERAÇÃO; 25
 em quatro formas; `perguntasDaTipologia` nas quatro combinações e na conversa; a tipologia padrão e cada motivo; `folhasDitas` e `FORA_DO_PADRAO`); os
 blocos (2), (4), (22) e (32) ajustados à regra nova; o banco falso sem o índice (`violaUnica`) e carimbando `atualizado_em` no INSERT, como em produção.
 Mutações do código em `scripts/harness/levantamento-por-nome/mutacoes-maria.py`.
+
+## A observabilidade por etapa: cinco linhas por turno, o que entrou, o que saiu e o que faltou — dono do produto, 06/11/2026 (sem migração)
+
+Formulação do dono do produto, registrada como está:
+
+> "Cada etapa do atendimento tem de dizer, no log, o que recebeu, o que fez e o que faltou — para a gente saber em qual delas o erro ocorreu,
+> sem adivinhar." E, na autorização: "Nível 2, só log, sem mexer no fluxo. Uma linha por etapa, com entrada, resultado e falta."
+
+- **As cinco linhas** saem juntas na saída única do turno (`anotar`, `conversa-da-ia.ts`), logo depois da `[IA]`, sempre na ordem; a etapa que o
+  turno não alcançou diz `nao_chegou` (o apanhado ainda sem o "sim" não chega ao cálculo; o turno sem nome não chega ao casar):
+  - `[ETAPA 1 coletar] historico= retidas= esquadrias= campos= itens_sem_campos= faltou=e1:vidro,…` — o que a mensagem e as esquadrias retidas
+    trouxeram; `faltou` é o que ainda não foi dito, por esquadria (a quantidade não dita é 1 e não conta). Com a IA falhando: `ia=<desfecho> faltou=ia`.
+  - `[ETAPA 2 casar] lista= trechos= propostos= descartados= escolhidas=e1:DP-39,… padrao=e1:DP-39 recusadas=e1:ABERTURA:DP-100 sem_tipologia=` —
+    o casamento com o catálogo e o motor: o que valeu, o que o CÓDIGO pôs pelo padrão e o que ele descartou.
+  - `[ETAPA 3 montar] rota= esquadrias= agrupadas= pendencias= gravadas= estado= faltou=e1:cor,e2:escolha:ARI,e3:familia` — a mesma lista de
+    pendências que a pergunta cobre, e o que se gravou.
+  - `[ETAPA 4 calcular] esquadrias= pecas= barras= codigos= sem_preco= mao_de_obra=ok|falta|sem_calculo desfecho= faltou=e1:VARIAVEL_SEM_VALOR:AT,SEM_PRECO:1023,…`
+    — o resumo que `mensagemDoLevantamento` passa a devolver em `etapa` (`ResumoDoCalculo`): peças pela quantidade cortada, barras compradas, códigos
+    distintos; a falta é `e<n>:<MOTIVO>[:<variável, código ou perfil>]`. A recusa do avaliador no levantamento de barras passou a carregar a
+    `variavel` onde nasceu (`RecusaDoLevantamento.variavel`, opcional).
+  - `[ETAPA 5 responder] desfecho= enviou= redacao= gravacao=`.
+- **SÓ LOG.** O texto, o desfecho e o preço não mudam: os testes do cálculo comparam o texto e o desfecho exatos, como antes, e o resumo à parte.
+  Só contagens e códigos — nunca o texto do vendedor, o telefone, a chave ou valor em reais (o caso (39) confere).
+- **Prova:** bloco (39) de `atendimentos-ia-levantamento-por-nome.test.ts` (o apanhado, o "sim", a pergunta, o padrão e a recusa, a IA que falha, o
+  turno sem nome, cinco por turno); o resumo em `levantamento-da-conversa.test.ts`; a variável em `levantamento-de-barras.test.ts`; mutações em
+  `scripts/harness/levantamento-por-nome/mutacoes-etapas.py`.
+

@@ -244,7 +244,25 @@ type MedidaDaIa = {
     /** Em fluxo (05/11/2026): ms até os cabeçalhos da tentativa que respondeu, ms até o primeiro token, quantas tentativas, e o request-id da API. */
     cabecalhosMs: number | null; primeiroTokenMs: number | null; tentativas: number | null; requestId: string | null
 }
+/**
+ * A OBSERVABILIDADE POR ETAPA (dono do produto, 06/11/2026): "cada etapa do atendimento tem de dizer, no log, o que recebeu, o que fez e o
+ * que faltou — para a gente saber em qual delas o erro ocorreu, sem adivinhar." SÓ LOG: as linhas são montadas ao longo do turno e saem
+ * juntas, na saída única (`anotar`), logo depois da linha [IA]; a etapa que o turno não alcançou sai `nao_chegou`. Só contagens e
+ * códigos (esquadria `e1`, campo, tipologia, motivo, variável) — nunca texto do vendedor, telefone, chave ou valor em reais.
+ */
+export const PREFIXO_DO_LOG_DA_ETAPA = '[ETAPA'
+export type EtapasDoTurno = { coletar: string | null; casar: string | null; montar: string | null; calcular: string | null }
+const ETAPAS_DO_LOG = [[1, 'coletar'], [2, 'casar'], [3, 'montar'], [4, 'calcular']] as const
+/** Uma lista no log: vazia é `-`; longa é cortada e contada, nunca calada. */
+const listaNoLog = (xs: readonly string[], max = 12) => (xs.length === 0 ? '-' : xs.length <= max ? xs.join(',') : `${xs.slice(0, max).join(',')},+${xs.length - max}`)
+/** O campo da esquadria no log, curto. */
+const CAMPO_NO_LOG: Record<string, string> = { tipologia: 'tipologia', largura_mm: 'largura', altura_mm: 'altura', quantidade: 'quantidade', cor_perfil: 'cor', vidro: 'vidro' }
+const campoNoLog = (campo: string) => CAMPO_NO_LOG[campo] ?? campo
+const nuloNoLog = (v: number | string | null | undefined) => (v === null || v === undefined ? '-' : String(v))
+
 type Rastro = {
+    /** As linhas por etapa (06/11/2026); `null` = a etapa não foi alcançada neste turno. */
+    etapas: EtapasDoTurno
     levantamento: string; rota: Rota; propostos: number; descartados: number; enviou: boolean; admin: Permissao | null
     nome: MarcaDoNome; aberta: CodigoDaPergunta | 'ausente' | 'expirada' | '-'; ia: MedidaDaIa
     contexto: ContextoLido['estado'] | '-'; fala: FalaLida['motivo'] | '-'
@@ -305,6 +323,9 @@ function anotar(r: Rastro, desfecho: DesfechoDaIa, detalhe = '') {
         // a montagem e os padrões (05/11/2026)
         + (r.montagem === '-' ? '' : ` montagem=${r.montagem}`) + (r.coresPadrao > 0 ? ` cor_padrao=${r.coresPadrao}` : '') + (r.tipologiasPadrao > 0 ? ` tipologia_padrao=${r.tipologiasPadrao}` : '')
     console.error(`${PREFIXO_DO_LOG_DA_IA} levantamento=${r.levantamento} rota=${r.rota} propostos=${r.propostos} descartados=${r.descartados} enviou=${r.enviou ? 'sim' : 'nao'} desfecho=${desfecho}${admin} nome=${r.nome} aberta=${r.aberta}${contexto}${ia}${detalhe ? ` ${detalhe}` : ''}`)
+    // as linhas por etapa (06/11/2026), na ordem do turno; a última é a resposta, que todo turno tem
+    for (const [n, nome] of ETAPAS_DO_LOG) console.error(`${PREFIXO_DO_LOG_DA_ETAPA} ${n} ${nome}] ${r.etapas[nome] ?? 'nao_chegou'}`)
+    console.error(`${PREFIXO_DO_LOG_DA_ETAPA} 5 responder] desfecho=${desfecho} enviou=${r.enviou ? 'sim' : 'nao'} redacao=${r.redacao} gravacao=${r.gravacao}`)
 }
 
 // ── As frases fixas do roteamento ───────────────────────────────────────────────────────────
@@ -995,6 +1016,7 @@ export type Interlocutor = {
 /** Conduz uma mensagem do vendedor. NUNCA lança: toda falha vira uma linha `[IA]`. */
 export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
     const rastro: Rastro = {
+        etapas: { coletar: null, casar: null, montar: null, calcular: null },
         levantamento: '-', rota: '-', propostos: 0, descartados: 0, enviou: false, admin: null, nome: '-', aberta: '-', ia: { ms: null, entrada: null, saida: null, raciocinio: null, parada: null, cacheLido: null, cacheEscrito: null, cabecalhosMs: null, primeiroTokenMs: null, tentativas: null, requestId: null },
         contexto: '-', fala: '-', instrucoes: '-', instrucoesDasEtapas: '-', instrucoesSemEfeito: '', fundidos: 0, reenviadas: 0, historico: '-', gravacao: '-', redacao: '-', vidrosNaoDitos: 0, vidrosPodados: 0, vidrosPadrao: 0, lista: '-', trechos: 0, trechosSemCandidata: 0, itensSemCampos: 0, montagem: '-', coresPadrao: 0, tipologiasPadrao: 0,
     }
@@ -1165,6 +1187,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             hoje: !pendenciaAberta && aberta && ehResgate(aberta.p) ? dataBR(new Date().toISOString()) : null,
         }, rastro.ia, historico)
         if (resposta.tipo !== 'ok') {
+            rastro.etapas.coletar = `historico=${rastro.historico} ia=${resposta.tipo} faltou=ia`
             // o prazo estourou (04/11/2026): a linha [IA] sai AGORA, antes de qualquer envio — se a função morrer depois, o motivo já está no log
             if (resposta.tipo === 'prazo-esgotado') anotar(rastro, 'prazo-esgotado', `${resposta.detalhe} antes_do_envio=sim`)
             // DEFEITO 3: o vendedor sempre fica sabendo — sem detalhe técnico
@@ -1214,6 +1237,15 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         rastro.reenviadas = juncao.reenviadas
         const daPergunta = retidas.length > 0
         const emEspera: EsquadriaProposta[] = esquadriasDaProposta({ itens: juncao.itens })
+        {
+            // ETAPA 1 (06/11/2026): o que veio da conversa — as esquadrias desta mensagem e as retidas, quantos campos disseram, e o que
+            // ainda não foi dito (a quantidade não dita é 1 e não conta como falta)
+            const daMensagem = esquadriasDaProposta({ itens: Array.isArray(daMensagemBrutas) ? daMensagemBrutas : [] })
+            const ditos = (e: EsquadriaProposta) => CAMPOS_DA_ESQUADRIA.filter((k) => e[k] !== null && e[k] !== undefined)
+            const naoDitos = emEspera.flatMap((e, i) => CAMPOS_DA_ESQUADRIA.filter((k) => k !== 'quantidade' && (e[k] === null || e[k] === undefined)).map((k) => `e${i + 1}:${campoNoLog(k)}`))
+            rastro.etapas.coletar = `historico=${rastro.historico} retidas=${retidas.length} esquadrias=${daMensagem.length} campos=${daMensagem.reduce((t, e) => t + ditos(e).length, 0)}`
+                + ` itens_sem_campos=${rastro.itensSemCampos} faltou=${listaNoLog(naoDitos)}`
+        }
         const efetiva = { ...proposta, itens: juncao.itens }
         /**
          * R2 em TODO caminho que pergunta: guarda a pergunta (com o que espera resposta) e, se ela é a MESMA
@@ -1383,11 +1415,12 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         // OS PADRÕES DO CÓDIGO (dono do produto, 05/11/2026), na esquadria que diz alguma coisa: a TIPOLOGIA padrão — de correr, 2 folhas, lisa —
         // quando o acumulado não indica nada fora do padrão (`tipologia-padrao.ts`); e a COR não dita = a predominante da base
         const dizAlgo = (i: ItemDoLevantamento) => (['tipologia', 'largura_mm', 'altura_mm', 'vidro'] as const).some((k) => i[k] !== null && i[k] !== undefined)
+        const tipologiasDoPadrao: string[] = []
         for (const item of proposta_.itens) {
             if (!dizAlgo(item)) continue
             if (item.tipologia === null) {
                 const padrao = tipologiaPadrao(item, proposta_.aberturas[item.ordem] ?? null, filtro.lidos, tabela.candidatos)
-                if ('tipologia' in padrao) { item.tipologia = padrao.tipologia; rastro.tipologiasPadrao += 1 }
+                if ('tipologia' in padrao) { item.tipologia = padrao.tipologia; rastro.tipologiasPadrao += 1; tipologiasDoPadrao.push(`e${item.ordem}:${padrao.tipologia}`) }
             }
             if (item.cor_perfil === null && corPredominante !== null) { item.cor_perfil = corPredominante; rastro.coresPadrao += 1 }
         }
@@ -1399,6 +1432,11 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         rastro.vidrosPadrao = aplicada.vidrosPadrao
         rastro.propostos = aplicada.propostos
         rastro.descartados = aplicada.descartados
+        // ETAPA 2 (06/11/2026): o casamento com o catálogo e o motor — a lista enviada, o que valeu, o que o código pôs e o que descartou
+        rastro.etapas.casar = `lista=${rastro.lista} trechos=${rastro.trechos} propostos=${aplicada.propostos} descartados=${aplicada.descartados}`
+            + ` escolhidas=${listaNoLog(aplicada.itens.filter((i) => i.tipologia !== null).map((i) => `e${i.ordem}:${i.tipologia}`))}`
+            + ` padrao=${listaNoLog(tipologiasDoPadrao)} recusadas=${listaNoLog(aplicada.recusas.map((x) => `e${x.ordem}:${x.motivo}:${x.tipologia}`))}`
+            + ` sem_tipologia=${aplicada.itens.filter((i) => i.tipologia === null).length}`
         if (aplicada.semEsquadria && alvo) return await falar(fraseDeQualEsquadria(nome, alvo.itens.length), 'qual-esquadria')
         const nadaMudou = alvo !== null && mesmosItens(alvo.itens, aplicada.itens)
         // "Confirma antes" (dono do produto, 26/10/2026): a esquadria que esperava o vendedor dizer o levantamento
@@ -1427,6 +1465,11 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         // ── grava, e SÓ DEPOIS responde: o trajeto inteiro, a partir do que ficou gravado ──
         const pendencias = pendenciasDoLevantamento(aplicada.itens, definicao, doCodigo)
         const pendencia = pendencias[0] ?? null
+        // ETAPA 3 (06/11/2026): a montagem — a rota, as esquadrias, o que ainda falta (a mesma lista que a pergunta cobre) e o que se gravou
+        const faltaNaMontagem = pendencias.map((p) => (p.tipo === 'CAMPO' ? `e${p.ordem}:${campoNoLog(p.campo)}` : p.tipo === 'FAMILIA' ? `e${p.ordem}:familia` : `e${p.ordem}:escolha:${p.pendente.variavel}`))
+        const montagemNoLog = (gravadas: number) => `rota=${rastro.rota} esquadrias=${aplicada.itens.length} agrupadas=${agrupamento.fundidos} pendencias=${pendencias.length}`
+            + ` gravadas=${gravadas} estado=${gravadas > 0 ? (pendencia ? EM_MONTAGEM : COMPLETO) : '-'} faltou=${listaNoLog(faltaNaMontagem)}`
+        rastro.etapas.montar = montagemNoLog(0)
         // o admin não monta levantamento de outro: com pendência, nada é gravado e a resposta diz o que falta
         if (pendencia && alvo && alvo.donoId !== c.remetenteId) {
             return await falar(fraseDaAlteracaoIncompleta(nome, alvo.vendedor ?? VENDEDOR_SEM_NOME, perguntaDasPendencias(pendencias, aplicada.itens.length, null, filtro.jaDito)), 'alteracao-incompleta')
@@ -1442,6 +1485,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             gravando = false
         }
         gravado = true
+        rastro.etapas.montar = montagemNoLog(aplicada.itens.length)
         if (pendencia) {
             // a tipologia que o CÓDIGO descartou (03/11/2026) tem frase própria: nenhuma cabe (a medida e a faixa das que sobraram), ou a
             // palavra do vendedor contradita — antes de qualquer outra pendência, para a razão não se perder
@@ -1475,6 +1519,12 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             semApanhado = 'apanhado=sem_migracao'
         }
         const levantamento = await mensagemDoLevantamento(c.tenantId, tabela, { nome, itens: aplicada.itens })
+        // ETAPA 4 (06/11/2026): o cálculo — o que foi cortado e comprado, e o que impediu (o motivo e a variável ou o código de onde nasceu)
+        if (levantamento.etapa) {
+            const e = levantamento.etapa
+            rastro.etapas.calcular = `esquadrias=${e.esquadrias} pecas=${nuloNoLog(e.pecas)} barras=${nuloNoLog(e.barras)} codigos=${nuloNoLog(e.codigos)}`
+                + ` sem_preco=${nuloNoLog(e.semPreco)} mao_de_obra=${nuloNoLog(e.maoDeObra)} desfecho=${levantamento.desfecho} faltou=${listaNoLog(e.faltou)}`
+        }
         // a confirmação do arremate abre a resposta, quando alguma esquadria tem arremate a considerar
         const temArremate = aplicada.itens.some((i) => definicao(i) !== null)
         const escolhido = aplicada.itens.some((i) => temEscolhaDoVendedor(lerEscolhasGravadas(i.escolhas)))

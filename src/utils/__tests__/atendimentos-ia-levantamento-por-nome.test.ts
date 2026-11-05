@@ -4644,3 +4644,85 @@ describe('(38) Maria Cristina: a montagem não absorve outro cliente, expira em 
         expect(enviados()).toHaveLength(2)
     })
 })
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+/**
+ * (39) A OBSERVABILIDADE POR ETAPA (dono do produto, 06/11/2026): "cada etapa do atendimento tem de dizer, no log, o que recebeu, o que fez
+ * e o que faltou — para a gente saber em qual delas o erro ocorreu, sem adivinhar." Cinco linhas por turno, depois da [IA], na ordem;
+ * a etapa não alcançada diz `nao_chegou`. Só contagens e códigos: nunca o texto do vendedor, o telefone ou a chave.
+ */
+describe('(39) observabilidade por etapa: coletar, casar, montar, calcular e responder — uma linha cada', () => {
+    const linhasDaEtapa = () => erros.filter((l) => l.startsWith(conversa.PREFIXO_DO_LOG_DA_ETAPA))
+    /** As cinco linhas do ÚLTIMO turno, pelo número da etapa. */
+    const doTurno = () => {
+        const ultimas = linhasDaEtapa().slice(-5)
+        expect(ultimas.map((l) => /^\[ETAPA (\d) (\w+)\]/.exec(l)?.slice(1).join(' '))).toEqual(['1 coletar', '2 casar', '3 montar', '4 calcular', '5 responder'])
+        return ultimas
+    }
+
+    it('o apanhado: coleta, casa, monta e grava; o cálculo NÃO chega (falta o "sim"); a resposta é o apanhado', async () => {
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02 }], escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar('Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50')
+        const [coletar, casar, montar, calcular, responder] = doTurno()
+        expect(coletar).toBe('[ETAPA 1 coletar] historico=0 retidas=0 esquadrias=1 campos=6 itens_sem_campos=0 faltou=-')
+        expect(casar).toMatch(/^\[ETAPA 2 casar\] lista=\d+\/\d+ trechos=\d+ propostos=8 descartados=0 escolhidas=e1:DP-02 padrao=- recusadas=- sem_tipologia=0$/)
+        expect(montar).toBe('[ETAPA 3 montar] rota=NOVO esquadrias=1 agrupadas=0 pendencias=0 gravadas=1 estado=COMPLETO faltou=-')
+        expect(calcular).toBe('[ETAPA 4 calcular] nao_chegou')
+        expect(responder).toBe('[ETAPA 5 responder] desfecho=apanhado enviou=sim redacao=- gravacao=sim')
+        // depois da [IA] do mesmo turno, nunca antes
+        expect(erros.indexOf(coletar)).toBeGreaterThan(erros.indexOf(linhaIa()[0]))
+    })
+
+    it('o "sim": o cálculo diz o que cortou, comprou e o que ficou sem preço ou sem mão de obra — e o desfecho', async () => {
+        await fecharDp02('Casa do João')
+        const calcular = doTurno()[3]
+        expect(calcular).toMatch(/^\[ETAPA 4 calcular\] esquadrias=1 pecas=\d+ barras=\d+ codigos=\d+ sem_preco=\d+ mao_de_obra=(ok|falta) desfecho=levantou faltou=/)
+        const [, pecas, barras] = /pecas=(\d+) barras=(\d+)/.exec(calcular) ?? []
+        expect(Number(pecas)).toBeGreaterThan(0)
+        expect(Number(barras)).toBeGreaterThan(0)
+    })
+
+    it('a pergunta: a montagem diz o que falta, por esquadria e campo; o cálculo não chega', async () => {
+        await abrirSemVidro('Casa do Pedro')
+        const [coletar, , montar, calcular, responder] = doTurno()
+        expect(coletar).toMatch(/ faltou=e1:vidro$/)
+        expect(montar).toBe('[ETAPA 3 montar] rota=NOVO esquadrias=1 agrupadas=0 pendencias=1 gravadas=1 estado=EM_MONTAGEM faltou=e1:vidro')
+        expect(calcular).toBe('[ETAPA 4 calcular] nao_chegou')
+        expect(responder).toMatch(/^\[ETAPA 5 responder\] desfecho=perguntou enviou=sim /)
+    })
+
+    it('a tipologia PADRÃO e a recusa do código aparecem no casar, com a esquadria', async () => {
+        llmResponde({ cliente: 'Ana', itens: [{ abertura: 'janela', largura_mm: 1200, altura_mm: 1000, quantidade: 1, vidro: 'temperado 5mm' }] })
+        await chamar('Cliente: Ana. janela de correr 1200 x 1000, temperado 5mm')
+        expect(doTurno()[1]).toMatch(/ escolhidas=e1:DP-02 padrao=e1:DP-02 recusadas=- sem_tipologia=0$/)
+        llmResponde({ cliente: 'Bia', itens: [{ ...DP02, tipologia: 'DP-100', abertura: 'janela' }] })
+        await chamar('Cliente: Bia. janela DP-100 1200 x 1000, branco, temperado 5mm', { senderAlt: TELEFONE_DO_OUTRO })
+        expect(doTurno()[1]).toMatch(/ recusadas=e1:ABERTURA:DP-100 /)
+    })
+
+    it('a IA que falha: a coleta diz o motivo, e as etapas seguintes não chegam', async () => {
+        estado.respostasDaLlm.push({ status: 400, corpo: { type: 'error', error: { type: 'invalid_request_error', message: 'max_tokens: invalid' } } })
+        await chamar('oi')
+        const [coletar, casar, montar, calcular] = doTurno()
+        expect(coletar).toMatch(/^\[ETAPA 1 coletar\] historico=\d+ ia=\S+ faltou=ia$/)
+        expect([casar, montar, calcular]).toEqual(['[ETAPA 2 casar] nao_chegou', '[ETAPA 3 montar] nao_chegou', '[ETAPA 4 calcular] nao_chegou'])
+    })
+
+    it('o roteamento que para antes (sem nome): coleta sim, casar/montar/calcular não chegam; e nada sai do vendedor — texto, telefone, chave', async () => {
+        const MSG = 'janela de correr 1200 x 1000, temperado 5mm, quero pra amanhã'
+        llmResponde({ itens: [{ ...DP02 }] })
+        await chamar(MSG)
+        const linhas = doTurno()
+        expect(linhas.slice(1, 4)).toEqual(['[ETAPA 2 casar] nao_chegou', '[ETAPA 3 montar] nao_chegou', '[ETAPA 4 calcular] nao_chegou'])
+        const tudo = linhasDaEtapa().join('\n')
+        for (const proibido of [MSG, 'amanhã', TELEFONE_DO_WEBHOOK, CHAVE]) expect(tudo).not.toContain(proibido)
+    })
+
+    it('todo turno tem as cinco, uma vez cada — mesmo o que não muda nada', async () => {
+        await fecharDp02('Casa do João')
+        const antes = linhasDaEtapa().length
+        llmResponde({ itens: [] })
+        await chamar('oi')
+        expect(linhasDaEtapa().length - antes).toBe(5)
+    })
+})

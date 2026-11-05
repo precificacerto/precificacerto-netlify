@@ -164,6 +164,17 @@ describe('(2) a QUANTIDADE da esquadria', () => {
         expect(vezesDois.esquadrias[0].pecas.find((p) => p.perfil === 'SF66/WOLFF')!.quantidade_por_esquadria).toBe(4)
     })
 
+    it('a recusa do AVALIADOR carrega a VARIÁVEL onde nasceu (06/11/2026, para o log por etapa); a recusa que não é de variável não tem a chave', () => {
+        const t = dp02()
+        const semX = { ...t, variaveis: t.variaveis.map((v) => (v.variavel === 'X' ? { ...v, padrao: null } : v)) }
+        const r = recusado([esquadria()], { tipologias: { 'DP-02': semX } })
+        const doAvaliador = r.recusas.filter((x) => x.origem === 'AVALIADOR')
+        expect(doAvaliador.length).toBeGreaterThan(0)
+        for (const x of doAvaliador) expect([x.motivo, x.variavel]).toEqual(['VARIAVEL_SEM_VALOR', 'X'])
+        const q = recusado([esquadria({ quantidade: 0 })])
+        expect(q.recusas.every((x) => !('variavel' in x))).toBe(true)
+    })
+
     it('a QUANTIDADE DA ESQUADRIA inválida (0, 1,5, −1) é recusada', () => {
         for (const q of [0, 1.5, -1]) {
             const r = recusado([esquadria({ quantidade: q })])

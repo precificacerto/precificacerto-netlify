@@ -134,6 +134,8 @@ export type RecusaDoLevantamento = {
     esquadrias: number[]
     tipologia?: string
     perfil?: string
+    /** A variável do motor onde a falta do AVALIADOR nasceu (06/11/2026, para o log por etapa): `AT`, `N`… Ausente quando não há. */
+    variavel?: string
     cor?: string
     codigo?: string
     candidatos?: CandidatoDoCodigo[]
@@ -264,7 +266,7 @@ export function levantarBarras(entrada: EntradaDoLevantamento): ResultadoDoLevan
         const r = avaliarTipologia({ tipologia, L_mm: e.L_mm, H_mm: e.H_mm, escolhas: e.escolhas, espessura_vidro_mm: e.espessura_vidro_mm })
         if ('recusas' in r) {
             for (const x of r.recusas) {
-                parciais.push({ origem: 'AVALIADOR', motivo: x.motivo, tipologia: e.tipologia, perfil: x.perfil, esquadria: indice, comTipologia: true, texto: x.mensagem })
+                parciais.push({ origem: 'AVALIADOR', motivo: x.motivo, tipologia: e.tipologia, perfil: x.perfil, ...(x.variavel !== undefined ? { variavel: x.variavel } : {}), esquadria: indice, comTipologia: true, texto: x.mensagem })
             }
             return
         }
