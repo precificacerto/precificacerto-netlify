@@ -44,7 +44,7 @@ M = [
  ('M11', 'a predominante entra na esquadria que não diz nada', CV, [("            if (!dizAlgo(item)) continue\n", "")], 'o item vazio não ganha cor'),
  # B — a pergunta fixa pelo já dito
  ('M12', 'a pergunta fixa ignora o já dito (sempre "É janela ou porta?")', PD, [("if (jaDito.abertura && jaDito.tipo) return PERGUNTAS_COM_TUDO_DITO", "if (false) return PERGUNTAS_COM_TUDO_DITO"), ("if (jaDito.abertura) return PERGUNTAS_COM_ABERTURA_DITA", "if (false) return PERGUNTAS_COM_ABERTURA_DITA"), ("if (jaDito.tipo) return PERGUNTAS_COM_TIPO_DITO", "if (false) return PERGUNTAS_COM_TIPO_DITO")], '"janela maxim ar 60 x 60" sem tipologia'),
- ('M13', 'a conversa não passa o já dito às pendências', CV, [("perguntaDasPendencias(pendencias, nItens, null, filtro.jaDito)", "perguntaDasPendencias(pendencias, nItens, null)")], 'a pergunta é a de obra SEM o "janela ou porta"'),
+ ('M13', 'a conversa não passa o já dito às pendências', CV, [("return await falar(perguntaPara(pendencias, aplicada.itens.length, proposta, filtro.jaDito), 'perguntou')", "return await falar(perguntaPara(pendencias, aplicada.itens.length, proposta), 'perguntou')")], 'a pergunta é a de obra SEM o "janela ou porta"'),
  # B — a tipologia padrão no código
  ('M14', 'folhas ditas ≠ 2 não tiram o padrão', TP, [("if (folhas.some((n) => n !== 2)) return { motivo: 'FOLHAS_DITAS' }", "if (false) return { motivo: 'FOLHAS_DITAS' }")], 'o que tira o padrão'),
  ('M15', 'persiana/bandeira/trilho não tiram o padrão', TP, [("if (dela.some((t) => FORA_DO_PADRAO.test(semAcento(t.texto)))) return { motivo: 'FORA_DO_PADRAO' }", "if (false) return { motivo: 'FORA_DO_PADRAO' }")], 'o que tira o padrão'),

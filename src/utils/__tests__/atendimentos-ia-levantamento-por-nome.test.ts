@@ -4304,8 +4304,14 @@ describe('(38) Maria Cristina: a montagem não absorve outro cliente, expira em 
 
         it('o MESMO nome do levantamento em montagem continua nele; a mensagem sem nome nenhum também', async () => {
             await abrirSemVidro('Jorge Koss')
-            llmResponde({ nome: 'Jorge Koss', itens: [{ vidro: 'Temperado 5mm' }] })
-            await chamar('Jorge Koss: vidro temperado 5mm')
+            // o mesmo nome em OUTRA caixa e com o prefixo ("levantamento JORGE KOSS") é o mesmo nome: continua na montagem
+            llmResponde({ nome: 'JORGE KOSS', itens: [{ quantidade: 2 }] })
+            await chamar('levantamento JORGE KOSS: são 2 unidades')
+            expect(levantamentos()).toHaveLength(1)
+            expect(itens('Jorge Koss')[0].quantidade).toBe(2)
+            expect(linhaIa().pop()).toContain('rota=MONTAGEM')
+            llmResponde({ nome: 'jorge koss', itens: [{ vidro: 'Temperado 5mm' }] })
+            await chamar('jorge koss: vidro temperado 5mm')
             expect(levantamentos()).toHaveLength(1)
             expect(itens('Jorge Koss')[0].vidro).toBe('Temperado 5mm')
             expect(linhaIa().pop()).toContain('rota=MONTAGEM')
@@ -4375,18 +4381,22 @@ describe('(38) Maria Cristina: a montagem não absorve outro cliente, expira em 
             // o Jorge Koss foi tocado DEPOIS (o vendedor voltou a ele pelo nome há 1 min); a Maria, há 2 h
             porNome('Maria Cristina').atualizado_em = new Date(Date.now() - 2 * HORA).toISOString()
             porNome('Jorge Koss').atualizado_em = new Date(Date.now() - 60_000).toISOString()
-            llmResponde({ itens: [{ vidro: 'Temperado 5mm' }] })
-            await chamar('temperado 5mm')
+            // "2 unidades" não fecha o Jorge Koss (falta o vidro): ele continua EM_MONTAGEM, e a próxima mensagem pode ir em qualquer dos dois
+            llmResponde({ itens: [{ quantidade: 2 }] })
+            await chamar('são 2 unidades')
             expect(linhaIa().pop()).toContain(`rota=MONTAGEM`)
             expect(linhaIa().pop()).toContain(`levantamento=${porNome('Jorge Koss').id}`)
-            expect(itens('Jorge Koss')[0].vidro).toBe('Temperado 5mm')
-            expect(itens('Maria Cristina')[0].vidro).toBe('vidro comum 6 mm incolor')
-            // agora a Maria é a mais recente: a próxima sem nome vai nela
-            porNome('Maria Cristina').atualizado_em = new Date().toISOString()
+            expect(itens('Jorge Koss')[0].quantidade).toBe(2)
+            expect(itens('Maria Cristina')[0].quantidade).toBe(1)
+            expect(levantamentos().map((l) => l.estado)).toEqual(['EM_MONTAGEM', 'EM_MONTAGEM'])
+            // agora a Maria é a mais recente: a próxima sem nome vai NELA, embora o Jorge Koss seja o mais antigo e também esteja em montagem
+            porNome('Maria Cristina').atualizado_em = new Date(Date.now() + 1000).toISOString()
             llmResponde({ itens: [{ cor_perfil: 'BRANCO' }] })
             await chamar('branco')
             expect(linhaIa().pop()).toContain(`levantamento=${porNome('Maria Cristina').id}`)
             expect(itens('Maria Cristina')[0].cor_perfil).toBe('BRANCO')
+            expect(itens('Jorge Koss')[0].cor_perfil).toBe('BRANCO')
+            expect(itens('Jorge Koss')[0].vidro).toBeNull()
         })
 
         it('a montagem sem atualizado_em expira pelo criado_em (ausente não é "agora")', () => {
