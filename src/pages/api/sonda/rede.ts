@@ -26,7 +26,7 @@ type Medida = {
 
 async function medir(alvo: string, init: RequestInit): Promise<Medida> {
     const host = new URL(alvo).hostname
-    const ip = await lookup(host).then((r) => r.address).catch(() => null)
+    const ip: string | null = await lookup(host).then((r): string => r.address).catch((): null => null)
     const controlador = new AbortController()
     const despertador = setTimeout(() => controlador.abort(), PRAZO_MS)
     const inicio = Date.now()
