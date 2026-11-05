@@ -79,14 +79,34 @@ export function cabeNosLimites(l: Limites, m: Medidas): boolean {
 }
 
 const mm = (n: number) => `${new Intl.NumberFormat('pt-BR').format(n)} mm`
-const faixaNoPrompt = (nome: string, min: number | null, max: number | null): string => {
-    if (min === null && max === null) return `${nome} sem limite no arquivo`
-    if (min !== null && max !== null) return `${nome} ${mm(min)} a ${mm(max)}`
-    return min !== null ? `${nome} mín ${mm(min)}` : `${nome} máx ${mm(max as number)}`
+/**
+ * Um limite na linha do prompt, COMPACTO (dono do produto, 05/11/2026: a lista enxuta): "A 388-2439", "L ≥300", "A ≤2000"; e NADA quando o
+ * arquivo não traz — o cabeçalho da lista diz que a medida sem L ou sem A não tem limite. Medido na De Paula: só 8 das 164 tipologias têm
+ * limite de largura, e "largura sem limite no arquivo" se repetia 156 vezes; os limites eram 9.926 dos 25.306 caracteres da lista.
+ */
+const limiteCompacto = (sigla: 'L' | 'A', min: number | null, max: number | null): string | null => {
+    if (min === null && max === null) return null
+    if (min !== null && max !== null) return `${sigla} ${min}-${max}`
+    return min !== null ? `${sigla} ≥${min}` : `${sigla} ≤${max as number}`
 }
-/** Os limites como vão ao modelo, na linha da tipologia: "largura sem limite no arquivo | altura 388 mm a 2.439 mm". */
+/** Os limites como vão ao modelo, na linha da tipologia: "A 388-2439", "L 905-1384 A 464-2054", ou vazio quando o arquivo não traz nenhum. */
 export const limitesNoPrompt = (l: Limites): string =>
-    `${faixaNoPrompt('largura', l.larg_min_mm, l.larg_max_mm)} | ${faixaNoPrompt('altura', l.alt_min_mm, l.alt_max_mm)}`
+    [limiteCompacto('L', l.larg_min_mm, l.larg_max_mm), limiteCompacto('A', l.alt_min_mm, l.alt_max_mm)].filter((x): x is string => x !== null).join(' ')
+
+/**
+ * A descrição como vai ao modelo: SEM o último trecho quando ele é a LINHA de produto, que já vem numa coluna própria do motor ("JANELA DE
+ * CORRER 02 FOLHAS MÓVEIS | EUROPA 42" com linha "PVC WOLFF EUROPA 42" → "JANELA DE CORRER 02 FOLHAS MÓVEIS"). Medido na De Paula: as 164
+ * descrições terminam no nome da linha (1.473 caracteres), e sem ele continuam 163 distintas — as mesmas 163 de antes. O trecho que não está
+ * na linha fica: nada é tirado por posição.
+ */
+export function descricaoNoPrompt(descricao: string | null, linha: string | null): string | null {
+    if (descricao === null) return null
+    const partes = descricao.split('|').map((p) => p.trim())
+    if (partes.length < 2 || linha === null) return descricao
+    const ultima = partes[partes.length - 1]
+    if (ultima === '' || !semAcento(linha).includes(semAcento(ultima))) return descricao
+    return partes.slice(0, -1).join(' | ')
+}
 
 const descricaoDaAbertura = (a: Abertura | null) => (a === 'porta' ? 'de porta' : a === 'janela' ? 'de janela' : 'do motor')
 const medidaDita = (m: Medidas): string =>

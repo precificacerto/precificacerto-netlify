@@ -179,6 +179,7 @@ import { agruparIguais,
 } from '@/lib/atendimentos-ia/levantamento-em-montagem'
 import { JANELA_EM_VOO_MS, gravarSaida, lerHistorico, marcarEnvio, saidaDaEntrada, type Entrada, type MensagemDoHistorico } from '@/lib/atendimentos-ia/conversa-gravada'
 import { prazo } from '@/lib/atendimentos-ia/prazo'
+import { MAX_TOKENS_DA_PRIMEIRA_CHAMADA, RACIOCINIO_DA_EXTRACAO, blocosDoSistema } from '@/lib/atendimentos-ia/pedido-ao-modelo'
 import { CODIGO_DE_FORNECEDOR, redigir, type MotivoDaRedacao, type Redacao } from '@/lib/atendimentos-ia/redacao-da-resposta'
 import { vidroPodado } from '@/lib/atendimentos-ia/vidro'
 import type { VariaveisDaTipologia } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
@@ -227,7 +228,15 @@ type MarcaDoNome = '-' | 'veio' | 'faltou' | 'fora_do_texto' | 'da_pergunta' | '
  * entrada e de saída que a própria API devolve em `usage`. SÓ NÚMERO — nunca o texto do pedido nem o da resposta.
  * Sem `usage` (um erro da API), o token é null, que vai ao log como "-", nunca zero. Sem chamada, `ms` é null.
  */
-type MedidaDaIa = { ms: number | null; entrada: number | null; saida: number | null }
+type MedidaDaIa = {
+    ms: number | null; entrada: number | null; saida: number | null
+    /** Os tokens de RACIOCÍNIO dentro da saída (`usage.output_tokens_details.thinking_tokens`, 05/11/2026): '-' quando a API não os dá. */
+    raciocinio: number | null
+    /** O `stop_reason` da resposta (05/11/2026): `tool_use` é o esperado; `max_tokens` diz que o teto de saída cortou. */
+    parada: string | null
+    /** O cache do prefixo (05/11/2026): quantos tokens foram LIDOS do cache e quantos foram ESCRITOS nele nesta chamada. */
+    cacheLido: number | null; cacheEscrito: number | null
+}
 type Rastro = {
     levantamento: string; rota: Rota; propostos: number; descartados: number; enviou: boolean; admin: Permissao | null
     nome: MarcaDoNome; aberta: CodigoDaPergunta | 'ausente' | '-'; ia: MedidaDaIa
@@ -261,6 +270,7 @@ function anotar(r: Rastro, desfecho: DesfechoDaIa, detalhe = '') {
     // a permissão só aparece quando foi consultada; o motivo é um código, nunca um nome
     const admin = r.admin === null ? '' : 'motivo' in r.admin ? ` admin=nao motivo_admin=${r.admin.motivo}` : ' admin=sim'
     const ia = r.ia.ms === null ? '' : ` ia_ms=${r.ia.ms} ia_entrada=${r.ia.entrada ?? '-'} ia_saida=${r.ia.saida ?? '-'}`
+        + ` ia_raciocinio=${r.ia.raciocinio ?? '-'} ia_parada=${r.ia.parada ?? '-'} ia_cache_lido=${r.ia.cacheLido ?? '-'} ia_cache_escrito=${r.ia.cacheEscrito ?? '-'}`
     // o contexto e a fala: o ESTADO, nunca o texto
     const contexto = (r.contexto === '-' ? '' : ` contexto=${r.contexto}${r.fala === '-' ? '' : ` fala=${FALA_NO_LOG[r.fala]}`}`)
         + (r.instrucoes === '-' ? '' : ` instrucoes=${r.instrucoes}`) + (r.instrucoesDasEtapas === '-' ? '' : ` instrucao_etapa=${r.instrucoesDasEtapas}`)
@@ -479,7 +489,15 @@ type ContextoDoPrompt = {
     instrucoesDasEtapas: readonly InstrucaoDaEtapa[]
 }
 
-function sistema(c: ContextoDoPrompt): string {
+/** Como o modelo lê os limites compactos da lista (05/11/2026): a sigla, a faixa, os unilaterais, e o que a ausência quer dizer. */
+export const LEGENDA_DOS_LIMITES = 'limites em mm: L largura, A altura; "A 388-2439" é a faixa, "≥" só o mínimo, "≤" só o máximo; sem L ou sem A, o arquivo não traz o limite'
+export type SistemaDoPedido = { estavel: string; volatil: string }
+/**
+ * O sistema em DOIS blocos (05/11/2026): o ESTÁVEL — igual entre as chamadas da mesma conta enquanto o catálogo e a base de conhecimento não
+ * mudam: o prompt base, as regras, a lista de tipologias, as cores, as escolhas, as instruções e o contexto da empresa — e o VOLÁTIL, que muda
+ * a cada mensagem: a montagem, a data e a pergunta em aberto. O estável vai marcado para o cache; o volátil vem depois dele.
+ */
+function sistema(c: ContextoDoPrompt): SistemaDoPedido {
     const doProduto = [
         // o PROMPT BASE abre o sistema de toda empresa (03/11/2026); o contexto da empresa vai no FIM
         PROMPT_BASE,
@@ -503,28 +521,23 @@ function sistema(c: ContextoDoPrompt): string {
         '- Pergunta em aberto (quando houver, no fim): a mensagem pode ser a RESPOSTA a ela. Se o vendedor responde com um levantamento que a pergunta cita ("é o mesmo", "é esse"), ponha em `nome` o nome dele escrito como na pergunta. Se a mensagem é só o nome de um levantamento, é o nome do levantamento.',
         '- confirma: só quando a pergunta em aberto pede confirmação — true se ele confirmou ("sim", "pode", "confirmo"), false se negou. Senão, omita.',
         '- itens: as esquadrias desta mensagem, com os campos que ela diz. Um campo vale também quando o vendedor o deu para todas numa mensagem anterior ("todas brancas") ou se referiu a ele ("a mesma cor"). Numa alteração, só os campos que mudam. Não invente, não deduza.',
-        '- cor_perfil: EXATAMENTE uma das cores da empresa (lista do fim), escrita como está. Se for outra cor, ou se houver dúvida, NÃO preencha.',
+        '- cor_perfil: EXATAMENTE uma das cores da empresa (lista abaixo), escrita como está. Se for outra cor, ou se houver dúvida, NÃO preencha.',
         '- vidro: COPIE o vidro como o vendedor o escreveu nesta mensagem ("vidro 4mm" → vidro 4mm; "temperado 8mm" → temperado 8mm). NUNCA acrescente têmpera, cor ou qualquer palavra que ele não disse — nem da instrução da categoria VIDRO: "8mm" não vira "comum 8 mm" nem "temperado 8 mm". Se ele NÃO disse o vidro desta esquadria e a instrução de VIDRO define um padrão para ela, ponha o padrão em vidro_padrao, copiado da instrução; senão, omita os dois.',
-        '- tipologia: o CÓDIGO (ex.: DP-02) de UMA das tipologias da lista do fim, escolhida pela descrição. NUNCA invente código nem preencha com as palavras do vendedor. Se cabe em mais de uma, NÃO preencha: em `pergunta`, pergunte qual é, citando a descrição INTEIRA de cada uma, sem o código. Se ainda não dá para concluir, NÃO preencha: em `pergunta`, pergunte em linguagem de obra o que falta para você concluir (janela ou porta, como abre, quantas folhas, persiana) — nunca "qual a tipologia".',
+        '- tipologia: o CÓDIGO (ex.: DP-02) de UMA das tipologias da lista abaixo, escolhida pela descrição. NUNCA invente código nem preencha com as palavras do vendedor. Se cabe em mais de uma, NÃO preencha: em `pergunta`, pergunte qual é, citando a descrição INTEIRA de cada uma, sem o código. Se ainda não dá para concluir, NÃO preencha: em `pergunta`, pergunte em linguagem de obra o que falta para você concluir (janela ou porta, como abre, quantas folhas, persiana) — nunca "qual a tipologia".',
         '- abertura: a PALAVRA que o vendedor usou para a esquadria — "porta" (também "porta-janela" e "porta janela") ou "janela". Só se ele a escreveu; senão, omita. Porta NUNCA vira tipologia cuja descrição começa com JANELA, e janela NUNCA vira PORTA; maxim-ar e fixo servem às duas.',
-        '- Os limites de cada tipologia estão na lista (largura e altura): a medida dita fora da faixa DESCARTA a tipologia; "sem limite no arquivo" não descarta. Se nenhuma cabe, NÃO escolha a mais próxima: deixe a tipologia vazia e diga em `pergunta` que nenhuma cabe.',
+        '- Os limites de cada tipologia estão na lista (largura e altura): a medida dita fora da faixa DESCARTA a tipologia; a medida que a lista não limita (sem L ou sem A) não descarta. Se nenhuma cabe, NÃO escolha a mais próxima: deixe a tipologia vazia e diga em `pergunta` que nenhuma cabe.',
         '- quantidade: só a dita. Não dita é 1 — NUNCA pergunte quantas.',
-        '- ARREMATE e GUARNIÇÃO: NÃO pergunte. O padrão da tipologia já vale sem ninguém dizer. NUNCA escolha sozinho: em `escolhas`, só o arremate que o vendedor DISSE, em palavras, com o código da variável e o número da opção que corresponde (lista do fim). Se ele pedir para ver as opções, ou quiser trocar sem dizer por qual, ponha o código da variável em `opcoes_de`.',
+        '- ARREMATE e GUARNIÇÃO: NÃO pergunte. O padrão da tipologia já vale sem ninguém dizer. NUNCA escolha sozinho: em `escolhas`, só o arremate que o vendedor DISSE, em palavras, com o código da variável e o número da opção que corresponde (lista abaixo). Se ele pedir para ver as opções, ou quiser trocar sem dizer por qual, ponha o código da variável em `opcoes_de`.',
         ...(c.variasFamilias ? ['- familia e fornecedor: a mesma tipologia pode estar no motor de mais de uma família da empresa. SÓ o que o vendedor disse — a família, o fornecedor, ou os dois —, escrito EXATAMENTE como está na lista. NUNCA escolha sozinho.'] : []),
         '- Os códigos das variáveis (ex.: ARI), os números das opções e os códigos de fornecedor (ex.: BZ0010) são INTERNOS: nunca os escreva em `pergunta`.',
         '- NUNCA pergunte nada sobre os padrões da empresa.',
         `- fala: uma frase sua para abrir a resposta, no tom da empresa (o contexto dela, quando houver), até ${LIMITE_DA_FALA} caracteres. SEM número nenhum — nem em algarismo, nem por extenso, nem valor em reais. Se não tiver o que dizer, omita.`,
         `- Responda SEMPRE chamando a ferramenta ${NOME_DA_FERRAMENTA}, uma vez.`,
         '',
-        c.montagem
-            ? `Levantamento em montagem: “${c.montagem.nome}”, esquadrias (null = ainda não dito): ${JSON.stringify(c.montagem.itens)}`
-            : 'Levantamento em montagem: nenhum.',
-        ...(c.hoje ? [`Hoje é ${c.hoje}.`] : []),
-        ...(c.perguntaEmAberto ? [`Pergunta em aberto: ${c.perguntaEmAberto}`] : []),
-        '',
+        // a lista ENXUTA (05/11/2026): a descrição sem a linha de produto no fim, e os limites compactos — o cabeçalho diz como lê-los
         c.variasFamilias
-            ? 'Tipologias dos motores das famílias da empresa (código | descrição | tipo | limites de largura | limites de altura | família | fornecedor):'
-            : 'Tipologias do motor da família da empresa (código | descrição | tipo | limites de largura | limites de altura):',
+            ? `Tipologias dos motores das famílias da empresa (código | descrição | tipo | ${LEGENDA_DOS_LIMITES} | família | fornecedor):`
+            : `Tipologias do motor da família da empresa (código | descrição | tipo | ${LEGENDA_DOS_LIMITES}):`,
         ...(c.candidatos.length ? c.candidatos.map((x) => linhaDoCandidato(x, c.variasFamilias)) : ['(nenhuma)']),
         '',
         `Cores da empresa (cor_perfil, escreva EXATAMENTE uma delas): ${c.cores.length ? c.cores.join(', ') : '(nenhuma)'}`,
@@ -536,8 +549,17 @@ function sistema(c: ContextoDoPrompt): string {
         // a instrução da etapa corrente (04/11/2026): só a da etapa que fala com o modelo, só quando preenchida — nenhuma linha quando não há
         ...(c.instrucoesDasEtapas.length ? ['', ...blocoDasInstrucoesDasEtapas(c.instrucoesDasEtapas, c.variasFamilias)] : []),
     ].join('\n')
-    // o contexto da empresa vai no FIM, DEPOIS do base: o que vem antes é o mesmo para toda empresa
-    return c.contexto === null ? doProduto : `${doProduto}\n\n${blocoDoContexto(c.contexto).join('\n')}`
+    // o contexto da empresa vai no FIM do estável, DEPOIS do base: o que vem antes é o mesmo para toda empresa
+    const estavel = c.contexto === null ? doProduto : `${doProduto}\n\n${blocoDoContexto(c.contexto).join('\n')}`
+    // o VOLÁTIL (05/11/2026): o que muda a cada mensagem vem por último, fora do prefixo cacheado — a regra "Pergunta em aberto (quando houver, no fim)" é literal
+    const volatil = [
+        c.montagem
+            ? `Levantamento em montagem: “${c.montagem.nome}”, esquadrias (null = ainda não dito): ${JSON.stringify(c.montagem.itens)}`
+            : 'Levantamento em montagem: nenhum.',
+        ...(c.hoje ? [`Hoje é ${c.hoje}.`] : []),
+        ...(c.perguntaEmAberto ? [`Pergunta em aberto: ${c.perguntaEmAberto}`] : []),
+    ].join('\n')
+    return { estavel, volatil }
 }
 
 // ── A LLM ───────────────────────────────────────────────────────────────────────────────────
@@ -570,6 +592,7 @@ export const PRAZO_DA_PRIMEIRA_CHAMADA_MS = 45_000
 async function chamarLlm(chave: string, mensagem: string, contexto: ContextoDoPrompt, medida: MedidaDaIa, historico: readonly MensagemDoHistorico[]): Promise<ResultadoDaLlm> {
     const inicio = Date.now()
     const limite = prazo(PRAZO_DA_PRIMEIRA_CHAMADA_MS)
+    const s = sistema(contexto)
     let r: Response
     let corpo: Record<string, unknown> | null
     try {
@@ -582,10 +605,13 @@ async function chamarLlm(chave: string, mensagem: string, contexto: ContextoDoPr
                 // O MODELO POR CONTA entraria aqui, junto do teto: hoje não há coluna para ele —
                 // `orcamentista_config.modelo` é o modelo de ATENDIMENTO (ver `modelo-da-ia.ts`).
                 model: MODELO_PADRAO_DA_IA,
-                max_tokens: 16000,
-                // extração curta de uma mensagem de chat: o raciocínio fica no mínimo
+                // o teto é o tamanho real da ferramenta mais folga (05/11/2026): era 16.000
+                max_tokens: MAX_TOKENS_DA_PRIMEIRA_CHAMADA,
+                // extração curta de uma mensagem de chat: o raciocínio fica DESLIGADO (05/11/2026) — sem `thinking`, o Sonnet 5.5 o liga
+                thinking: RACIOCINIO_DA_EXTRACAO,
                 output_config: { effort: 'low' },
-                system: sistema(contexto),
+                // o sistema em dois blocos: o estável marcado para o cache, o volátil depois (05/11/2026)
+                system: blocosDoSistema(s.estavel, s.volatil),
                 // a `fala` vale para toda empresa (03/11/2026); o filtro de número continua derrubando a que traz número
                 tools: [FERRAMENTA_COM_FALA],
                 tool_choice: { type: 'auto' },
@@ -603,9 +629,17 @@ async function chamarLlm(chave: string, mensagem: string, contexto: ContextoDoPr
     }
     limite.limpar()
     medida.ms = Date.now() - inicio
-    const uso = (corpo?.usage ?? null) as { input_tokens?: unknown; output_tokens?: unknown } | null
+    const uso = (corpo?.usage ?? null) as {
+        input_tokens?: unknown; output_tokens?: unknown; cache_read_input_tokens?: unknown; cache_creation_input_tokens?: unknown
+        output_tokens_details?: { thinking_tokens?: unknown } | null
+    } | null
     medida.entrada = tokens(uso?.input_tokens)
     medida.saida = tokens(uso?.output_tokens)
+    // o que a gente precisava para parar de adivinhar (05/11/2026): o raciocínio dentro da saída, o motivo da parada e o cache
+    medida.raciocinio = tokens(uso?.output_tokens_details?.thinking_tokens)
+    medida.cacheLido = tokens(uso?.cache_read_input_tokens)
+    medida.cacheEscrito = tokens(uso?.cache_creation_input_tokens)
+    medida.parada = typeof corpo?.stop_reason === 'string' ? corpo.stop_reason : null
     if (!r.ok) {
         const erro = (corpo?.error ?? undefined) as { type?: unknown; message?: unknown } | undefined
         const janela = r.status >= 400 && r.status < 500 ? ` mensagem="${mensagemParaOLog(erro?.message, chave)}"` : ''
@@ -895,7 +929,7 @@ export type Interlocutor = {
 /** Conduz uma mensagem do vendedor. NUNCA lança: toda falha vira uma linha `[IA]`. */
 export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
     const rastro: Rastro = {
-        levantamento: '-', rota: '-', propostos: 0, descartados: 0, enviou: false, admin: null, nome: '-', aberta: '-', ia: { ms: null, entrada: null, saida: null },
+        levantamento: '-', rota: '-', propostos: 0, descartados: 0, enviou: false, admin: null, nome: '-', aberta: '-', ia: { ms: null, entrada: null, saida: null, raciocinio: null, parada: null, cacheLido: null, cacheEscrito: null },
         contexto: '-', fala: '-', instrucoes: '-', instrucoesDasEtapas: '-', instrucoesSemEfeito: '', fundidos: 0, reenviadas: 0, historico: '-', gravacao: '-', redacao: '-', vidrosNaoDitos: 0, vidrosPodados: 0, vidrosPadrao: 0,
     }
     const fim = (desfecho: DesfechoDaIa, detalhe = ''): DesfechoDaIa => { anotar(rastro, desfecho, detalhe); return desfecho }

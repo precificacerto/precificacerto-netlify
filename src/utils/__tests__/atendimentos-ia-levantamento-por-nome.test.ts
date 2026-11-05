@@ -61,10 +61,11 @@ const TABELA = '72366020-57c9-489f-9385-397b7fa3dedb'
 /** O motor da família PVC da conta: as etapas 1 e 2 o apontam, e o conteúdo dele está por motor_id (a forma de produção). */
 const MOTOR = '9a233c55-f377-45d3-b2ae-b1a740a98e44'
 const CANDIDATAS = [
-    { tabela_id: null as string | null, motor_id: MOTOR, tipologia: 'DP-01', descricao: 'MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL | DESIGN', tipo: 'Maxim-ar', ordem: null as number | null },
-    { tabela_id: null as string | null, motor_id: MOTOR, tipologia: 'DP-02', descricao: 'JANELA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 42', tipo: 'Correr' },
+    // a `linha` é a da Detalhe de produção ("PVC WOLFF EUROPA 42"): a lista enxuta tira da descrição o sufixo que ela já contém (05/11/2026)
+    { tabela_id: null as string | null, motor_id: MOTOR, tipologia: 'DP-01', descricao: 'MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL | DESIGN', tipo: 'Maxim-ar', linha: 'PVC WOLFF DESIGN', ordem: null as number | null },
+    { tabela_id: null as string | null, motor_id: MOTOR, tipologia: 'DP-02', descricao: 'JANELA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 42', tipo: 'Correr', linha: 'PVC WOLFF EUROPA 42' },
     // uma PORTA do motor da De Paula, com os limites como estão em produção (03/11/2026): altura 1736 a 3036, largura sem limite no arquivo
-    { tabela_id: null as string | null, motor_id: MOTOR, tipologia: 'DP-100', descricao: 'PORTA DE CORRER 06 FOLHAS MÓVEIS | 04 VIDROS - 02 TELAS | TRILHO PVC EMBUTIDO | EUROPA 42', tipo: 'Correr',
+    { tabela_id: null as string | null, motor_id: MOTOR, tipologia: 'DP-100', descricao: 'PORTA DE CORRER 06 FOLHAS MÓVEIS | 04 VIDROS - 02 TELAS | TRILHO PVC EMBUTIDO | EUROPA 42', tipo: 'Correr', linha: 'PVC WOLFF EUROPA 42',
         larg_min_mm: null as number | null, larg_max_mm: null as number | null, alt_min_mm: 1736, alt_max_mm: 3036 },
 ]
 /* eslint-disable @typescript-eslint/no-require-imports */
@@ -402,6 +403,8 @@ const rota = require('@/pages/api/atendimentos-ia/inbound').default as (req: Nex
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const conversa = require('@/lib/atendimentos-ia/conversa-da-ia') as typeof import('@/lib/atendimentos-ia/conversa-da-ia')
 // eslint-disable-next-line @typescript-eslint/no-require-imports
+const { textoDoSistema } = require('@/lib/atendimentos-ia/pedido-ao-modelo') as typeof import('@/lib/atendimentos-ia/pedido-ao-modelo')
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const { formatarReais } = require('@/lib/atendimentos-ia/levantamento-de-barras') as typeof import('@/lib/atendimentos-ia/levantamento-de-barras')
 
 type Proposta = { nome?: string; novo?: boolean; itens?: Linha[]; escolhas?: Linha[]; opcoes_de?: string[]; pergunta?: { campo?: string; texto: string } } & Linha
@@ -501,7 +504,7 @@ beforeEach(() => {
             estado.chamadasDaLlm.push({ headers, corpo })
             const pelo = estado.respostaPeloPrompt
             if (pelo) {
-                const sistema = String(corpo.system)
+                const sistema = textoDoSistema(corpo.system)
                 const props = (corpo.tools as Array<{ input_schema: { properties: Record<string, unknown> } }>)[0].input_schema.properties
                 const codigo = new RegExp(`\\b([A-Z]{2,5})\\s*[=:]\\s*${pelo.variavelDescrita}\\b`).exec(sistema)?.[1] ?? pelo.variavelDescrita
                 const opcao = Number(new RegExp(`(\\d+)\\s*=\\s*${pelo.opcaoDescrita}`).exec(sistema)?.[1] ?? NaN)
@@ -511,7 +514,7 @@ beforeEach(() => {
             }
             // a mensagem desta vez é a ÚLTIMA (o histórico vem antes, 03/11/2026)
             const mensagens = corpo.messages as Array<{ content: unknown }>
-            const pelaMensagem = estado.llmPeloPrompt?.(String(mensagens[mensagens.length - 1].content), String(corpo.system))
+            const pelaMensagem = estado.llmPeloPrompt?.(String(mensagens[mensagens.length - 1].content), textoDoSistema(corpo.system))
             if (pelaMensagem) return { ok: true, status: 200, json: async () => respostaComFerramenta(pelaMensagem) }
             const proxima = estado.respostasDaLlm.shift() ?? { status: 200, corpo: respostaComFerramenta({}) }
             if (proxima === 'lanca') throw new Error('fetch failed')
@@ -628,7 +631,7 @@ describe('(1c) o arremate só é perguntado quando o vendedor PEDE outro — e a
         estado.respostaPeloPrompt = { variavelDescrita: 'ARREMATE EXTERNO', opcaoDescrita: 'SEM ARREMATE EXTERNO', nome: '' }
         await chamar('sem arremate externo')
         // a pergunta em aberto foi RELIDA do item (o null da variável) e foi ao prompt: é o que dá sentido à resposta sem nome
-        expect(String(estado.chamadasDaLlm[estado.chamadasDaLlm.length - 1].corpo.system))
+        expect(textoDoSistema(estado.chamadasDaLlm[estado.chamadasDaLlm.length - 1].corpo.system))
             .toContain('Pergunta em aberto: Para arremate externo, as opções são: arremate de 20 mm; sem arremate externo. Qual você quer?')
         expect(itensDe(levantamentos()[0].id)[0].escolhas).toEqual({ ARI: 4, MAE: 2, ARE: 2 })
         expect(levantamentos()[0].estado).toBe('COMPLETO')
@@ -755,7 +758,7 @@ describe('(3) o estado mora no levantamento; a CONVERSA é gravada como históri
             { role: 'assistant', content: PERGUNTA_DO_VIDRO },
             { role: 'user', content: 'temperado 5mm' },
         ])
-        expect(String(segunda.system)).toContain(`Pergunta em aberto: ${PERGUNTA_DO_VIDRO}`)
+        expect(textoDoSistema(segunda.system)).toContain(`Pergunta em aberto: ${PERGUNTA_DO_VIDRO}`)
         expect(linhaIa().pop()).toMatch(/ historico=2(\s|$)/)
     })
 
@@ -782,8 +785,10 @@ describe('(3) o estado mora no levantamento; a CONVERSA é gravada como históri
 describe('(4) a lista: a tipologia e a cor só da lista, exatas', () => {
     it('as tipologias, as cores e as escolhas de arremate (internas, com o código) vão ao prompt', async () => {
         await chamar('oi')
-        const sistema = String(estado.chamadasDaLlm[0].corpo.system)
-        expect(sistema).toContain('DP-02 | JANELA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 42 | Correr')
+        const sistema = textoDoSistema(estado.chamadasDaLlm[0].corpo.system)
+        // a lista enxuta (05/11/2026): sem o sufixo da linha ("| EUROPA 42"), que a coluna `linha` já diz, e com o limite compacto
+        expect(sistema).toContain('DP-02 | JANELA DE CORRER 02 FOLHAS MÓVEIS | Correr | A 388-2439')
+        expect(sistema).not.toContain('| EUROPA 42 |')
         expect(sistema).toContain('Cores da empresa (cor_perfil, escreva EXATAMENTE uma delas): BRANCO')
         // sem o código e o número no prompt, a LLM não tem como registrar a escolha — o defeito 1
         expect(sistema).toContain('ARI = ARREMATE INTERNO: 1 = BZ0006 - ARREMATE 65MM; 2 = BZ1770 - ARREMATE 70MM; 3 = BZ0010 - ARREMATE 20MM; 4 = SEM ARREMATE INTERNO')
@@ -1142,7 +1147,7 @@ describe('(11) a lista de cores é a DESTA empresa', () => {
         llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, cor_perfil: 'AZUL' }] })
         await chamar('Levantamento Casa do João: DP-02 1200 x 1000 azul temperado 5mm')
         expect(itensDe(levantamentos()[0].id)[0].cor_perfil).toBeNull()
-        expect(String(estado.chamadasDaLlm[0].corpo.system)).not.toContain('AZUL')
+        expect(textoDoSistema(estado.chamadasDaLlm[0].corpo.system)).not.toContain('AZUL')
     })
 })
 
@@ -1755,10 +1760,11 @@ describe('(19) duas famílias com o mesmo código: a conversa pergunta de qual f
         expect(l.estado).toBe('EM_MONTAGEM')
         expect(gravado()).toEqual([[null, null, null, false]])
         // o prompt deu à IA as duas linhas, cada uma com a família e o fornecedor do motor
-        const sistema = String(estado.chamadasDaLlm[0].corpo.system)
+        const sistema = textoDoSistema(estado.chamadasDaLlm[0].corpo.system)
         // com os limites (03/11/2026): a do motor Sul não tem limite no arquivo; a DP-02 da Wolff tem a altura (388 a 2.439 mm) e não a largura
-        expect(sistema).toContain('DP-02 | JANELA DE CORRER 02 FOLHAS | LINHA SUL | Correr | largura sem limite no arquivo | altura sem limite no arquivo | família: Alumínio | fornecedor: Perfis Sul')
-        expect(sistema).toContain('DP-02 | JANELA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 42 | Correr | largura sem limite no arquivo | altura 388 mm a 2.439 mm | família: PVC | fornecedor: Wolff Perfis')
+        // a lista enxuta (05/11/2026): sem limite no arquivo = sem o trecho; a linha de produto sai da descrição só quando a Detalhe a traz (a do Sul não traz)
+        expect(sistema).toContain('DP-02 | JANELA DE CORRER 02 FOLHAS | LINHA SUL | Correr | família: Alumínio | fornecedor: Perfis Sul')
+        expect(sistema).toContain('DP-02 | JANELA DE CORRER 02 FOLHAS MÓVEIS | Correr | A 388-2439 | família: PVC | fornecedor: Wolff Perfis')
     })
 
     it('a resposta "é a de PVC": a esquadria grava a família e o motor do PVC, e a conversa segue para o apanhado', async () => {
@@ -1767,7 +1773,7 @@ describe('(19) duas famílias com o mesmo código: a conversa pergunta de qual f
         llmResponde({ itens: [{ familia: 'PVC' }] })
         await chamar('é a de PVC')
         // a esquadria em montagem vai ao prompt SEM a família e o motor gravados: são internos; a família a IA vê na lista
-        const segundo = String(estado.chamadasDaLlm[1].corpo.system)
+        const segundo = textoDoSistema(estado.chamadasDaLlm[1].corpo.system)
         expect(segundo).toContain('Levantamento em montagem: “Casa do Pedro”')
         expect(segundo.includes('motor_id')).toBe(false)
         expect(segundo.includes('motor_familia_exigida')).toBe(false)
@@ -1892,8 +1898,12 @@ describe('(20) o CONTEXTO DO ATENDIMENTO: o prompt manda em quando e em que form
         await fecharDp02('Casa do João')
         const [semContexto] = PEDIDOS_DE_HOJE
         const [agora] = estado.chamadasDaLlm.map((c) => c.corpo)
-        expect(agora.system).toBe(`${String(semContexto.system)}\n\n${ctx().blocoDoContexto(DE_PAULA).join('\n')}`)
-        expect(String(agora.system)).toContain(DE_PAULA)
+        // o contexto entra no FIM do bloco ESTÁVEL (antes do volátil), e o volátil é o mesmo (05/11/2026)
+        const [estavelSem, volatilSem] = semContexto.system as Array<{ text: string }>
+        const [estavelAgora, volatilAgora] = agora.system as Array<{ text: string }>
+        expect(estavelAgora.text).toBe(`${estavelSem.text}\n\n${ctx().blocoDoContexto(DE_PAULA).join('\n')}`)
+        expect(volatilAgora).toEqual(volatilSem)
+        expect(textoDoSistema(agora.system)).toContain(DE_PAULA)
         expect({ ...agora, system: null }).toEqual({ ...semContexto, system: null })
     })
 
@@ -2011,7 +2021,9 @@ describe('(21) o PROMPT BASE abre o sistema de toda empresa, e o contexto da emp
     const { PROMPT_BASE } = require('@/utils/atendimentos-ia-prompt-base') as typeof import('@/utils/atendimentos-ia-prompt-base')
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { blocoDoContexto } = require('@/lib/atendimentos-ia/contexto-do-atendimento') as typeof import('@/lib/atendimentos-ia/contexto-do-atendimento')
-    const sistemaDe = (i = 0) => String(estado.chamadasDaLlm[i].corpo.system)
+    const sistemaDe = (i = 0) => textoDoSistema(estado.chamadasDaLlm[i].corpo.system)
+    // o bloco ESTÁVEL do sistema (05/11/2026): o contexto da empresa fecha ESSE bloco; o volátil (montagem, data) vem depois dele
+    const estavelDe = (i = 0) => (estado.chamadasDaLlm[i].corpo.system as Array<{ text: string }>)[0].text
 
     it('o pedido traz as seis regras e as duas etapas, como o dono do produto as listou', () => {
         // a lista do pedido, escrita aqui e não lida da constante: o base que perder uma delas fica vermelho
@@ -2063,7 +2075,7 @@ describe('(21) o PROMPT BASE abre o sistema de toda empresa, e o contexto da emp
         const s = sistemaDe()
         expect(s.startsWith(`${PROMPT_BASE}\n\n`)).toBe(true)
         expect(s.indexOf(DA_EMPRESA)).toBeGreaterThan(s.indexOf(PROMPT_BASE) + PROMPT_BASE.length)
-        expect(s.endsWith(`${DA_EMPRESA}\nCONTEXTO DA EMPRESA>>>`)).toBe(true)
+        expect(estavelDe().endsWith(`${DA_EMPRESA}\nCONTEXTO DA EMPRESA>>>`)).toBe(true)
         expect(PROMPT_BASE).toContain('nas regras de NUNCA vale este bloco; no resto (nome, tom, exceções da empresa), vale o contexto da empresa')
         expect(s).toContain('Em conflito com o PROMPT BASE DO PRODUTO (no começo): nas regras de NUNCA vale o base; no resto (nome, tom, exceções da empresa), vale este contexto.')
     })
@@ -2219,7 +2231,7 @@ describe('(14) a instrução de cada categoria vai ao sistema — só as preench
             ...linhas.map((l, k) => ({ id: `c-${k}`, tenant_id: l.tenant ?? TENANT, materia_prima_id: l.mp ?? 'mp-pvc', categoria_chave: l.chave, config: null as Linha | null, instrucao: l.instrucao })),
         ]
     }
-    const sistemaEnviado = () => String(estado.chamadasDaLlm[0].corpo.system)
+    const sistemaEnviado = () => textoDoSistema(estado.chamadasDaLlm[0].corpo.system)
 
     it('sem instrução preenchida (o estado de produção hoje): nenhuma seção, nem o cabeçalho — e a linha [IA] diz instrucoes=0', async () => {
         await chamar('oi')
@@ -2296,17 +2308,22 @@ describe('(14) a instrução de cada categoria vai ao sistema — só as preench
 describe('(24) porta não é janela, quantidade padrão 1, os limites e o agrupamento (03/11/2026)', () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const TC = require('@/lib/atendimentos-ia/tipologias-candidatas') as typeof import('@/lib/atendimentos-ia/tipologias-candidatas')
-    const sistemaDe = (k = 0) => String(estado.chamadasDaLlm[k].corpo.system)
-    const LINHA_DP02 = 'DP-02 | JANELA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 42 | Correr | largura sem limite no arquivo | altura 388 mm a 2.439 mm'
-    const LINHA_DP100 = 'DP-100 | PORTA DE CORRER 06 FOLHAS MÓVEIS | 04 VIDROS - 02 TELAS | TRILHO PVC EMBUTIDO | EUROPA 42 | Correr | largura sem limite no arquivo | altura 1.736 mm a 3.036 mm'
-    const LINHA_DP01 = 'DP-01 | MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL | DESIGN | Maxim-ar | largura sem limite no arquivo | altura sem limite no arquivo'
+    const sistemaDe = (k = 0) => textoDoSistema(estado.chamadasDaLlm[k].corpo.system)
+    // a lista ENXUTA (05/11/2026): a linha de produto sai do fim da descrição, os limites vão compactos, e o que o arquivo não traz não vira texto
+    const LINHA_DP02 = 'DP-02 | JANELA DE CORRER 02 FOLHAS MÓVEIS | Correr | A 388-2439'
+    const LINHA_DP100 = 'DP-100 | PORTA DE CORRER 06 FOLHAS MÓVEIS | 04 VIDROS - 02 TELAS | TRILHO PVC EMBUTIDO | Correr | A 1736-3036'
+    const LINHA_DP01 = 'DP-01 | MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL | Maxim-ar'
     const GERONIMO = 'Cliente: Geronimo Silva. Janela de correr 1,50x1,20 e porta janela 2,50x2,40, branco, temperado 5mm'
     const item = (k: number) => itensDe(levantamentos()[0].id)[k]
 
-    it('a lista ao modelo leva código, descrição, tipo e os LIMITES — e "sem limite no arquivo" onde o motor não traz (nunca zero)', async () => {
+    it('a lista ao modelo leva código, descrição, tipo e os LIMITES compactos — e o cabeçalho diz que a medida sem L ou sem A não tem limite (nunca zero)', async () => {
         await chamar('oi')
-        expect(sistemaDe()).toContain('(código | descrição | tipo | limites de largura | limites de altura):')
-        for (const linha of [LINHA_DP02, LINHA_DP100, LINHA_DP01]) expect(sistemaDe()).toContain(linha)
+        expect(sistemaDe()).toContain(`(código | descrição | tipo | ${conversa.LEGENDA_DOS_LIMITES}):`)
+        expect(conversa.LEGENDA_DOS_LIMITES).toContain('sem L ou sem A, o arquivo não traz o limite')
+        for (const linha of [LINHA_DP02, LINHA_DP100, LINHA_DP01]) expect(sistemaDe()).toContain(`\n${linha}\n`)
+        // a regra do prompt fala a mesma língua da lista
+        expect(sistemaDe()).toContain('a medida que a lista não limita (sem L ou sem A) não descarta')
+        expect(sistemaDe()).not.toContain('sem limite no arquivo')
     })
 
     it.each([
@@ -2428,7 +2445,7 @@ describe('(24) porta não é janela, quantidade padrão 1, os limites e o agrupa
         // e é essa pergunta inteira que vai ao prompt como a pergunta em aberto, e que volta (em outras palavras) quando a resposta não dá nada
         llmResponde({ itens: [] })
         await chamar('hmm')
-        expect(String(estado.chamadasDaLlm[1].corpo.system)).toContain(`Pergunta em aberto: Esquadria 1: ${PERGUNTA_DO_VIDRO}\nEsquadria 2: ${PERGUNTA_DO_VIDRO}`)
+        expect(textoDoSistema(estado.chamadasDaLlm[1].corpo.system)).toContain(`Pergunta em aberto: Esquadria 1: ${PERGUNTA_DO_VIDRO}\nEsquadria 2: ${PERGUNTA_DO_VIDRO}`)
         expect(ultimoEnviado()).toBe(conversa.fraseDeNaoRegistrei(`Esquadria 1: ${PERGUNTA_DO_VIDRO}\nEsquadria 2: ${PERGUNTA_DO_VIDRO}`))
     })
 
@@ -2951,7 +2968,7 @@ describe('(28) as frases do modelo: a redação validada, o rascunho quando não
         const [{ rascunho, corpo }] = estado.redacoes
         expect(rascunho).toBe(conversa.FRASE_SEM_NOME)
         expect(corpo.tools).toBeUndefined()
-        expect(String(corpo.system).startsWith(`${PROMPT_BASE}\n\n${R().INSTRUCAO_DA_REDACAO}`)).toBe(true)
+        expect(textoDoSistema(corpo.system).startsWith(`${PROMPT_BASE}\n\n${R().INSTRUCAO_DA_REDACAO}`)).toBe(true)
         expect(corpo.max_tokens).toBe(400)
         expect(corpo.messages).toEqual([{ role: 'user', content: `MENSAGEM DO VENDEDOR:\noi\n\nRASCUNHO:\n${conversa.FRASE_SEM_NOME}` }])
         expect(R().pedidoDaRedacao('oi', 'x')).toBe('MENSAGEM DO VENDEDOR:\noi\n\nRASCUNHO:\nx')
@@ -2966,7 +2983,7 @@ describe('(28) as frases do modelo: a redação validada, o rascunho quando não
         llmResponde({ itens: [] })
         await chamar('hmm')
         const { corpo } = estado.redacoes[estado.redacoes.length - 1]
-        expect(String(corpo.system).endsWith('Somos a Esquadrias Exemplo. Tom informal.\nCONTEXTO DA EMPRESA>>>')).toBe(true)
+        expect(textoDoSistema(corpo.system).endsWith('Somos a Esquadrias Exemplo. Tom informal.\nCONTEXTO DA EMPRESA>>>')).toBe(true)
         expect(corpo.messages).toEqual([
             { role: 'user', content: 'Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco' },
             { role: 'assistant', content: PERGUNTA_DO_VIDRO },
@@ -3225,7 +3242,7 @@ describe('(29) o vidro copiado, a forma canônica e a dedupe por equivalência (
 
     it('o prompt e a ferramenta dizem a regra: copiar o vidro, nunca completar; o padrão em vidro_padrao', async () => {
         await chamar('oi')
-        const s = String(estado.chamadasDaLlm[0].corpo.system)
+        const s = textoDoSistema(estado.chamadasDaLlm[0].corpo.system)
         expect(s).toContain('- vidro: COPIE o vidro como o vendedor o escreveu nesta mensagem')
         expect(s).toContain('NUNCA acrescente têmpera, cor ou qualquer palavra que ele não disse — nem da instrução da categoria VIDRO')
         const props = (estado.chamadasDaLlm[0].corpo.tools as Array<{ input_schema: { properties: { itens: { items: { properties: Record<string, { description?: string }> } } } } }>)[0].input_schema.properties.itens.items.properties
@@ -3283,9 +3300,10 @@ describe('(30) as etapas declaradas na conversa: a ação manda, a falta é nome
         daEtapa(ITEM_DO_LEVANTAMENTO).instrucao = 'Pergunte sempre o andar da obra antes de fechar.'
         llmResponde({ nome: 'Casa do João', itens: [{ ...DP02 }] })
         await chamar('Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm')
-        const sistema = String(estado.chamadasDaLlm[0].corpo.system)
+        const sistema = textoDoSistema(estado.chamadasDaLlm[0].corpo.system)
         expect(sistema).toContain(`\n\n${CABECALHO_DA_INSTRUCAO_DA_ETAPA}\n[Etapa 1 — Apanhado e levantamento de esquadrias]\nPergunte sempre o andar da obra antes de fechar.`)
-        expect(sistema.endsWith('Pergunte sempre o andar da obra antes de fechar.')).toBe(true)
+        // a instrução fecha o bloco ESTÁVEL (é da conta); o volátil (montagem, data) vem num segundo bloco (05/11/2026)
+        expect((estado.chamadasDaLlm[0].corpo.system as Array<{ text: string }>)[0].text.endsWith('Pergunte sempre o andar da obra antes de fechar.')).toBe(true)
         // só UMA vez, e sem a família (uma família só)
         expect(sistema.split('[Etapa 1 — ').length - 1).toBe(1)
         expect(sistema).not.toContain('— família PVC]')
@@ -3297,7 +3315,7 @@ describe('(30) as etapas declaradas na conversa: a ação manda, a falta é nome
         daEtapa(ITEM_DO_CALCULO).instrucao = 'Some dez por cento de perda nas barras.'
         llmResponde({ nome: 'Casa do João', itens: [{ ...DP02 }] })
         await chamar('Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm')
-        const sistema = String(estado.chamadasDaLlm[0].corpo.system)
+        const sistema = textoDoSistema(estado.chamadasDaLlm[0].corpo.system)
         expect(sistema).not.toContain('Some dez por cento')
         expect(sistema).not.toContain(CABECALHO_DA_INSTRUCAO_DA_ETAPA)
         expect(linhaIa()[0]).toContain(' instrucao_etapa=0 ')
@@ -3307,7 +3325,7 @@ describe('(30) as etapas declaradas na conversa: a ação manda, a falta é nome
     it('sem instrução preenchida (a De Paula hoje): nenhuma seção, nenhuma anotação — o sistema é o de sempre', async () => {
         llmResponde({ nome: 'Casa do João', itens: [{ ...DP02 }] })
         await chamar('Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm')
-        const sistema = String(estado.chamadasDaLlm[0].corpo.system)
+        const sistema = textoDoSistema(estado.chamadasDaLlm[0].corpo.system)
         expect(sistema).not.toContain('[Etapa ')
         expect(sistema).not.toContain(CABECALHO_DA_INSTRUCAO_DA_ETAPA)
         expect(linhaIa()[0]).toContain(' instrucao_etapa=0 ')
@@ -3325,7 +3343,7 @@ describe('(30) as etapas declaradas na conversa: a ação manda, a falta é nome
         daEtapa(ITEM_DO_LEVANTAMENTO).instrucao = 'PVC: pergunte o andar.'
         llmResponde({ nome: 'Casa do João', itens: [{ ...DP02 }] })
         await chamar('Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm')
-        const sistema = String(estado.chamadasDaLlm[0].corpo.system)
+        const sistema = textoDoSistema(estado.chamadasDaLlm[0].corpo.system)
         expect(sistema).toContain('[Etapa 1 — Apanhado e levantamento de esquadrias — família Alumínio]\nAlumínio: pergunte a linha.')
         expect(sistema).toContain('[Etapa 1 — Apanhado e levantamento de esquadrias — família PVC]\nPVC: pergunte o andar.')
         expect(linhaIa()[0]).toContain(' instrucao_etapa=2 ')
@@ -3530,5 +3548,137 @@ describe('(32) as leituras antes do modelo vão em ondas: o que não depende de 
         // uma onda para a primeira página (a contagem), UMA para todas as outras
         expect(ondas.map((o) => o.length)).toEqual([1, paginas - 1])
         expect(Object.keys(await leitura)).toHaveLength(antes + NOVAS)
+    })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+/**
+ * (33) O PEDIDO AO MODELO (dono do produto, 05/11/2026): "Desligue o raciocínio adaptativo na 1ª chamada e baixe max_tokens para o tamanho
+ * real da ferramenta mais folga. Registre stop_reason e os tokens de raciocínio na linha [IA] — sem isso a gente continua adivinhando entre
+ * 'API lenta' e 'o modelo está pensando demais'." Medido: 21 turnos com 86 a 574 tokens de saída; quatro primeiras mensagens passaram de 45 s.
+ */
+describe('(33) o pedido ao modelo: raciocínio desligado, teto de saída, e a linha [IA] diz stop_reason, raciocínio e cache', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const P = () => require('@/lib/atendimentos-ia/pedido-ao-modelo') as typeof import('@/lib/atendimentos-ia/pedido-ao-modelo')
+    const MAIOR_SAIDA_MEDIDA = 574
+
+    it('a 1ª chamada vai com thinking between_tools (o Sonnet 5.5 recusa disabled), effort low, e o teto de 2.000 — mais de três vezes a maior saída medida', async () => {
+        llmResponde({})
+        await chamar('oi')
+        const [{ corpo }] = estado.chamadasDaLlm
+        expect(corpo.thinking).toEqual({ type: 'between_tools' })
+        expect(corpo.output_config).toEqual({ effort: 'low' })
+        expect(corpo.max_tokens).toBe(2000)
+        expect(P().MAX_TOKENS_DA_PRIMEIRA_CHAMADA).toBe(2000)
+        expect(P().MAX_TOKENS_DA_PRIMEIRA_CHAMADA).toBeGreaterThanOrEqual(MAIOR_SAIDA_MEDIDA * 3)
+        // a redação não mudou de teto
+        expect(estado.redacoes[0].corpo.max_tokens).toBe(400)
+    })
+
+    it('a linha [IA] diz os tokens de raciocínio, o stop_reason e o cache quando a API os devolve', async () => {
+        estado.respostasDaLlm.push({
+            status: 200,
+            corpo: { ...respostaComFerramenta({}), usage: { input_tokens: 27000, output_tokens: 150, output_tokens_details: { thinking_tokens: 37 }, cache_read_input_tokens: 25000, cache_creation_input_tokens: 0 } },
+        })
+        await chamar('oi')
+        expect(linhaIa()[0]).toContain(' ia_ms=')
+        expect(linhaIa()[0]).toContain(' ia_entrada=27000 ia_saida=150 ia_raciocinio=37 ia_parada=tool_use ia_cache_lido=25000 ia_cache_escrito=0')
+    })
+
+    it('sem os detalhes no usage: raciocínio e cache saem como "-", nunca zero; o stop_reason sai como veio', async () => {
+        llmResponde({})
+        await chamar('oi')
+        expect(linhaIa()[0]).toContain(' ia_entrada=100 ia_saida=50 ia_raciocinio=- ia_parada=tool_use ia_cache_lido=- ia_cache_escrito=-')
+    })
+
+    it('o teto cortou (stop_reason max_tokens, sem a ferramenta): a falha da IA ao vendedor, nada gravado, e a linha diz ia_parada=max_tokens', async () => {
+        estado.respostasDaLlm.push({ status: 200, corpo: { ...respostaComFerramenta({}), stop_reason: 'max_tokens', content: [{ type: 'text', text: 'Vou anotar' }] } })
+        await chamar('Levantamento Casa do João: DP-02 1200 x 1000')
+        expect(enviados()).toEqual([conversa.FALHA_DA_IA])
+        expect(escritasNoEstado()).toEqual([])
+        expect(linhaIa()[0]).toContain('desfecho=sem-proposta')
+        expect(linhaIa()[0]).toContain(' ia_parada=max_tokens')
+        expect(linhaIa()[0]).toContain('stop_reason=max_tokens')
+    })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+/**
+ * (34) O SISTEMA EM DOIS BLOCOS (dono do produto, 05/11/2026): "Lista enxuta (-40%), volátil no fim do sistema e cache_control no prefixo."
+ * O estável é o mesmo entre as chamadas da mesma conta; o volátil (montagem, data, pergunta em aberto) vem depois dele, fora do cache.
+ */
+describe('(34) o sistema em dois blocos: o estável marcado para o cache, o volátil no fim — e o estável é o mesmo entre os turnos da conta', () => {
+    type Bloco = { type: string; text: string; cache_control?: { type: string } }
+    const blocos = (k: number) => estado.chamadasDaLlm[k].corpo.system as Bloco[]
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { PROMPT_BASE } = require('@/utils/atendimentos-ia-prompt-base') as typeof import('@/utils/atendimentos-ia-prompt-base')
+
+    it('dois blocos: o primeiro com cache_control ephemeral e tudo o que é da conta; o segundo sem marca, começando na montagem', async () => {
+        llmResponde({})
+        await chamar('oi')
+        const [estavel, volatil, ...resto] = blocos(0)
+        expect(resto).toEqual([])
+        expect(estavel.type).toBe('text')
+        expect(estavel.cache_control).toEqual({ type: 'ephemeral' })
+        expect(volatil.cache_control).toBeUndefined()
+        expect(estavel.text.startsWith(PROMPT_BASE)).toBe(true)
+        for (const trecho of ['Tipologias do motor da família da empresa', 'Cores da empresa', 'Escolhas de arremate']) expect(estavel.text).toContain(trecho)
+        expect(volatil.text).toBe('Levantamento em montagem: nenhum.')
+        // a regra do prompt continua literal: a pergunta em aberto vem no fim
+        expect(estavel.text).toContain('Pergunta em aberto (quando houver, no fim)')
+    })
+
+    it('o bloco estável é BYTE A BYTE o mesmo entre a primeira mensagem e a seguinte, com a montagem e a pergunta do vidro só no volátil', async () => {
+        await abrirSemVidro('Casa do João')
+        llmResponde({ itens: [{ vidro: 'Temperado 5mm' }] })
+        await chamar('temperado 5mm')
+        expect(estado.chamadasDaLlm).toHaveLength(2)
+        expect(blocos(1)[0]).toEqual(blocos(0)[0])
+        expect(blocos(0)[1].text).toBe('Levantamento em montagem: nenhum.')
+        expect(blocos(1)[1].text).toContain('Levantamento em montagem: “Casa do João”')
+        expect(blocos(1)[1].text).toContain(`Pergunta em aberto: ${PERGUNTA_DO_VIDRO}`)
+        // nada do volátil vaza para o estável
+        for (const k of [0, 1]) expect(blocos(k)[0].text).not.toContain('Levantamento em montagem')
+    })
+
+    it('o contexto da empresa entra no FIM do estável (é da conta), não no volátil', async () => {
+        estado.db.orcamentista_contexto_do_atendimento = [{ tenant_id: TENANT, texto: 'Somos a Esquadrias Exemplo. Tom informal.' }]
+        llmResponde({})
+        await chamar('oi')
+        expect(blocos(0)[0].text.endsWith('Somos a Esquadrias Exemplo. Tom informal.\nCONTEXTO DA EMPRESA>>>')).toBe(true)
+        expect(blocos(0)[1].text).not.toContain('Esquadrias Exemplo')
+    })
+
+    it('a lista filtrada por porta/janela muda o estável: são até três variantes do cache por conta (inteira, só porta, só janela), e isso está dito', async () => {
+        llmResponde({})
+        await chamar('oi')
+        llmResponde({})
+        await chamar('uma janela de correr')
+        llmResponde({})
+        await chamar('uma porta de correr')
+        const [inteira, janela, porta] = [0, 1, 2].map((k) => blocos(k)[0].text)
+        expect(inteira).toContain('\nDP-100 | PORTA DE CORRER')
+        expect(janela).not.toContain('\nDP-100 | PORTA DE CORRER')
+        expect(porta).not.toContain('\nDP-02 | JANELA DE CORRER')
+        expect(new Set([inteira, janela, porta]).size).toBe(3)
+    })
+
+    it('blocosDoSistema: o volátil vazio ou nulo NÃO vira bloco (a API recusa texto vazio); o preenchido vira o segundo, sem marca', () => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { blocosDoSistema } = require('@/lib/atendimentos-ia/pedido-ao-modelo') as typeof import('@/lib/atendimentos-ia/pedido-ao-modelo')
+        expect(blocosDoSistema('estável', '')).toEqual([{ type: 'text', text: 'estável', cache_control: { type: 'ephemeral' } }])
+        expect(blocosDoSistema('estável', null)).toEqual([{ type: 'text', text: 'estável', cache_control: { type: 'ephemeral' } }])
+        expect(blocosDoSistema('estável')).toEqual([{ type: 'text', text: 'estável', cache_control: { type: 'ephemeral' } }])
+        expect(blocosDoSistema('estável', 'volátil')).toEqual([{ type: 'text', text: 'estável', cache_control: { type: 'ephemeral' } }, { type: 'text', text: 'volátil' }])
+    })
+
+    it('a redação vai num bloco só, marcado para o cache: o sistema dela é todo da conta', async () => {
+        llmResponde({})
+        await chamar('oi')
+        const [{ corpo }] = estado.redacoes
+        const sistema = corpo.system as Bloco[]
+        expect(sistema).toHaveLength(1)
+        expect(sistema[0].cache_control).toEqual({ type: 'ephemeral' })
+        expect(sistema[0].text.startsWith(PROMPT_BASE)).toBe(true)
     })
 })
