@@ -92,6 +92,14 @@ export function perguntaExpirou(criadoEm: unknown, agora: Date): boolean {
     return t < agora.getTime() - HORAS_DA_PERGUNTA_EM_ABERTO * 3_600_000
 }
 
+/**
+ * A MONTAGEM EXPIRA COMO A PERGUNTA (dono do produto, 05/11/2026): o levantamento EM_MONTAGEM que ficou mais de 24 h sem ser tocado
+ * (`atualizado_em`, ou `criado_em` sem ele) não é mais a montagem desta conversa — o caso real: o "Jorge Koss" aberto às 14:06 absorveu a
+ * "Cliente: Maria Cristina" das 16:26. A linha fica no banco como está (EM_MONTAGEM, alcançável pelo nome); só deixa de capturar a mensagem.
+ */
+export const montagemExpirou = (atualizadoEm: unknown, criadoEm: unknown, agora: Date): boolean =>
+    perguntaExpirou(typeof atualizadoEm === 'string' && atualizadoEm !== '' ? atualizadoEm : criadoEm, agora)
+
 /** `'expirada'`: há uma linha, mas velha demais para ser a pergunta desta conversa — quem lê a trata como nenhuma pergunta. */
 export async function lerPerguntaEmAberto(tenantId: string, remetenteId: string, agora = new Date()): Promise<PerguntaEmAberto | null | 'ausente' | 'expirada'> {
     const { data, error } = await supabaseAdmin.from(TABELA_DA_PERGUNTA).select('pergunta, nome, levantamentos, itens, criado_em')

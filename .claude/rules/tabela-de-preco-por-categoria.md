@@ -1668,3 +1668,78 @@ com a saída que a produção devolvia; as funções do filtro (palavras do tipo
 Ajustados: (8) e (9) (sem strict), (33) e (36) (sem thinking), (34) (variantes por conversa). A fixture `pedidos-a-ia-sem-contexto.json` foi regravada
 (sem `strict`, sem `thinking`). Os testes novos ficam vermelhos com o código da main. Mutações do código (`mutacoes-koss.py`, o resultado no PR).
 
+
+## O caso da Maria Cristina: a montagem não absorve outro cliente e expira em 24 h; a cor predominante, a pergunta pelo já dito e a tipologia padrão no código — dono do produto, 05/11/2026 (migração `20261105000001`, PENDENTE)
+
+**O caso real (05/11/2026, 16:26–16:29 UTC, De Paula).** O vendedor mandou "quero orçamento / 1 Porta janelas de correr 2 folhas com vidro comum
+6 mm incolor 2,50 x 2,20 / 1 janela maxim ar, mini boreal 60 x60 / Cliente: Maria Cristina / Local: Porto Alegre". A conversa (A) gravou as duas
+esquadrias no levantamento "Jorge Koss", aberto duas horas antes e ainda EM_MONTAGEM, porque a rota MONTAGEM vinha ANTES do nome e a montagem não
+expirava; (B) perguntou a cor do perfil com `cor_predominante "BRANCO"` cadastrada na categoria Perfil; perguntou "É janela ou porta? Abre de correr…"
+de uma "janela maxim ar"; e deixou a porta de correr lisa à espera de o modelo escolher entre as doze portas de correr. (C) O cálculo não fecha por
+dado do motor (`N` sem Padrão na DP-01; `ARRP`/`ARR` indefinidos em 242 linhas) — **parado até o dono do produto responder**. O padrão da
+**maxim-ar** foi nomeado no mesmo dia (DP-01) e está implementado abaixo.
+
+**A decisão, registrada como foi dita:**
+
+> "A) Em MONTAGEM, leia cliente/nome/novo da mensagem. Cliente diferente do levantamento em montagem, ou 'novo', abre levantamento NOVO em vez de
+> absorver. Expire a montagem em 24 h, como a pergunta em aberto, com registro. B) Cor não dita = cor_predominante da categoria Perfil, comparada SEM
+> CAIXA contra a lista e gravada como está na lista ('BRANCO' cadastrado tem de casar com 'Branco' da lista). Nunca pergunte cor quando houver
+> predominante. A pergunta fixa da tipologia para de perguntar o que o acumulado já diz: se o vendedor já disse 'janela maxim ar', não pergunte 'é
+> janela ou porta? abre de correr?'. Padrão no CÓDIGO, não no modelo: correr sem folhas ditas = 2 folhas; porta sem informação = 2 folhas."
+
+E, perguntado sobre o índice único "um EM_MONTAGEM por remetente" (da `20261025000003`), que impede a decisão A: **"Migração: derrubar o índice"**
+(05/11/2026). Descartados: um estado ABANDONADO (mais código, e o índice ficaria), fechar o antigo como COMPLETO (mentiria) e recuar na decisão A.
+
+**O que está implementado:**
+
+- **A migração `20261105000001_varias_montagens_por_remetente.sql`** (PENDENTE; md5 no PR): `DROP INDEX IF EXISTS orcamentista_levantamento_um_em_montagem`,
+  só isso. Guarda: a tabela existe e, se o índice existe, tem a definição medida em produção (outra definição aborta). Verificação: o índice não existe
+  mais; as 6 constraints e os 3 outros índices como medidos (`nome_key` e o CHECK do estado NÃO mudam); o comentário da tabela registra. **Sem ela o
+  código do PR quebra no caso que corrige**: a mensagem que sai da montagem cria um segundo EM_MONTAGEM e o INSERT cai em 23505 ("Não consegui concluir:
+  houve um erro ao gravar o levantamento"; `desfecho=erro motivo="orcamentista_levantamento: duplicate key…"`). Harness em `scripts/harness/varias-montagens/`
+  (11 casos, 7 mutações vermelhas, V6 limite declarado, M0 verde).
+- **A) A montagem lê a mensagem** (`conversa-da-ia.ts`): a pergunta em aberto é lida SEMPRE (antes, só fora da montagem); depois da 1ª chamada, o nome na
+  mensagem (`nomeDaMensagem` ou `nomeDoCliente`) diferente do nome da montagem (`normalizarNome` dos dois, sem o prefixo "Levantamento"), ou `novo: true`,
+  tira a mensagem da montagem (`saiDaMontagem`): ela segue o roteamento pelo nome com a pergunta em aberto que houver, e o log diz `montagem=outro_cliente`
+  ou `montagem=novo`. O levantamento em montagem **não é tocado**. O mesmo nome, ou nenhum nome e nenhum "novo", continua na montagem como antes.
+- **A) A montagem expira em 24 h** (`pergunta-em-aberto.ts`: `montagemExpirou(atualizado_em, criado_em, agora)`, o mesmo prazo da pergunta em aberto;
+  `atualizado_em` vazio ou nulo cai no `criado_em` — ausente não é "agora"): a montagem sem toque há mais de 24 h não captura a mensagem; fica no banco
+  como está (EM_MONTAGEM, alcançável pelo nome), e o log diz `montagem=expirada`. `lerLevantamentos` passou a ler `atualizado_em`. Havendo VÁRIAS vivas
+  (a migração), a mensagem sem nome cai na **mais recentemente tocada**.
+- **B) A cor predominante** (`levantamento-da-conversa.ts`: `lerPerfilDaEmpresa(tenantId) → { cores, corPredominante }`; `lerCoresDaEmpresa` delega): o
+  `cor_predominante` da categoria PERFIL é casado por `normalizarNome` contra a lista `cores` e devolvido **como está na lista** ("BRANCO" → "Branco");
+  fora da lista, ou sem lista, é nulo (nunca uma cor inventada). Na conversa, a esquadria que diz alguma coisa e ficou sem `cor_perfil` recebe a
+  predominante **antes das pendências**: a cor nunca é perguntada quando há predominante; a cor dita vence. O log diz `cor_padrao=N`.
+- **B) A pergunta fixa pelo já dito** (`pre-definicao.ts`: `perguntasDaTipologia(jaDito)`, `JaDito = { abertura, tipo }`, `NADA_DITO`): três conjuntos de
+  três perguntas — abertura dita (sem "É janela ou porta?"), tipo dito (sem "Abre de correr…"), os dois ditos (só folhas, persiana, bandeira, peitoril);
+  nada dito, as `PERGUNTAS_DA_TIPOLOGIA` de sempre. `filtrarPeloAcumulado` devolve `jaDito` (algum trecho do acumulado com abertura / com tipo do motor)
+  e `lidos` (os trechos com o texto). `perguntaDasPendencias` e `perguntaDaPendencia` recebem o `jaDito`; as alternativas da pergunta repetida vêm do
+  mesmo conjunto.
+- **B) A tipologia padrão no código** (`tipologia-padrao.ts`, puro: `tipologiaPadrao(item, abertura, trechos, candidatos)`): a esquadria que ficou sem
+  tipologia válida ganha a **de correr LISA de 2 folhas** da abertura dela quando: a abertura é dita; o trecho dela no acumulado diz "correr" (tipo do
+  motor) ou, sendo PORTA, não diz tipo nenhum ("porta sem informação = 2 folhas"); as folhas ditas (`folhasDitas`: número ou palavra + folhas/caixilhos)
+  são 2 ou nenhuma; nada no trecho está fora do padrão (`FORA_DO_PADRAO`: persiana, veneziana, bandeira, peitoril, trilho, embutido, alumínio, tela,
+  módulo, divisão, fixo, vidro duplo, pivotante, oscilo, basculante, projetante, abrir, giro, maxim, guilhotina, camarão, sanfona); há **exatamente uma**
+  candidata cuja descrição no prompt é `PORTA|JANELA DE CORRER 02 FOLHAS MÓVEIS` + linha (duas linhas = nenhuma: não se escolhe por nós); e a medida cabe
+  nos limites dela (fora, nada — nunca "a mais próxima"). Janela sem tipo dito NÃO tem padrão (pode ser maxim-ar, de abrir…). Os motivos da recusa são
+  nomeados (`SEM_ABERTURA | SEM_TRECHO | TIPO_NAO_E_CORRER | JANELA_SEM_TIPO | FOLHAS_DITAS | FORA_DO_PADRAO | CANDIDATAS | LIMITES`). O log diz
+  `tipologia_padrao=N`. Na De Paula, as lisas são a DP-02 (janela, EUROPA 42) e a DP-39 (porta, EUROPA 42) — e a DP-239 (porta, EUROPA 60) só existe
+  no teste de contraste.
+- **B) A maxim-ar padrão** (dono do produto, 05/11/2026, registrado como foi dito: "o padrão da maxim-ar está decidido: DP-01 (linha DESIGN), que é
+  o modelo mais usado. Pode implementar na mesma PR do B."): a janela cujo trecho no acumulado diz SÓ o tipo maxim-ar é a `PADRAO_DA_MAXIM_AR = 'DP-01'`
+  quando nada está fora do padrão dela (`FORA_DA_MAXIM_AR`: persiana, veneziana, bandeira, peitoril, trilho, tela, módulos, travessa, vertical,
+  coluna, divisão, fixo, vidro duplo e qualquer outro tipo — correr, abrir, giro, pivotante, oscilo…), não diz mais de uma folha, a DP-01 está no motor
+  da empresa e a medida cabe nos limites dela. A maxim-ar com outro tipo no mesmo trecho, ou com a palavra "porta", não tem padrão. **Sem a DP-01 no
+  motor, nenhum padrão** — nunca a primeira maxim-ar da lista. Medido em 05/11/2026: são 15 maxim-ar no motor da De Paula; a DP-01 é a única da linha
+  DESIGN, alt 352 a 1.152, largura sem limite. **O cálculo da DP-01 continua dependendo de `N`** (sem padrão na aba Variáveis) — é o item C, parado.
+- **A esquadria COM tipologia e sem número vai na primeira sem tipologia que a proposta ainda não tocou** (`aplicarProposta`): no caso real, a maxim-ar
+  DP-01 caía em cima da porta sem tipologia da mesma mensagem — o irmão do defeito do Jorge Koss (#229), agora para o ramo com tipologia.
+
+**O que não muda:** a validação da tipologia e da cor contra a lista inteira; a recusa porta × janela; o `nome_key` (um nome por remetente) e o CHECK do
+estado; a pergunta em aberto fora da montagem; a ordem das respostas às pendências.
+
+**Testes:** bloco (38) de `atendimentos-ia-levantamento-por-nome.test.ts` (o caso real em dois níveis — a montagem sai e o turno fecha; mesmo nome e
+nenhum nome continuam; "novo" sem nome; outro nome existente → ALTERAÇÃO; 25 h expira e 23 h não; duas montagens vivas → a mais tocada; a predominante
+em quatro formas; `perguntasDaTipologia` nas quatro combinações e na conversa; a tipologia padrão e cada motivo; `folhasDitas` e `FORA_DO_PADRAO`); os
+blocos (2), (4), (22) e (32) ajustados à regra nova; o banco falso sem o índice (`violaUnica`) e carimbando `atualizado_em` no INSERT, como em produção.
+Mutações do código em `scripts/harness/levantamento-por-nome/mutacoes-maria.py`.

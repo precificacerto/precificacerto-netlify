@@ -32,7 +32,7 @@
  *
  * Portão: `src/utils/__tests__/levantamento-em-montagem.test.ts`.
  */
-import { PERGUNTA_DO_CAMPO, valorValido } from '@/lib/atendimentos-ia/pre-definicao'
+import { NADA_DITO, PERGUNTA_DO_CAMPO, perguntasDaTipologia, valorValido, type JaDito } from '@/lib/atendimentos-ia/pre-definicao'
 import { formaCanonicaDoVidro } from '@/lib/atendimentos-ia/vidro'
 import { escolhaPedida, lerEscolhasGravadas, perguntaDaEscolha, validarEscolha, type EscolhaPendente, type VariaveisDaTipologia } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import { normalizarNome } from '@/lib/atendimentos-ia/nome-do-levantamento'
@@ -140,6 +140,8 @@ export type ResultadoDaProposta = {
     recusas: RecusaDaTipologia[]
     /** Quantas esquadrias receberam o vidro PADRÃO da instrução (04/11/2026): só a que ficou sem vidro, uma vez. */
     vidrosPadrao: number
+    /** A ABERTURA de cada esquadria tocada nesta proposta (05/11/2026), pela palavra do vendedor — para a tipologia padrão decidir. */
+    aberturas: Record<number, Abertura | null>
 }
 
 /**
@@ -160,6 +162,7 @@ export function aplicarProposta(atuais: readonly ItemDoLevantamento[], proposta:
     let semEsquadria = false
     let vidrosPadrao = 0
     const recusas: RecusaDaTipologia[] = []
+    const aberturas: Record<number, Abertura | null> = {}
     const tipologias = [...new Set(ctx.candidatos.map((c) => c.tipologia))]
     const candidatasDoCodigo = (codigo: string) => ctx.candidatos.filter((c) => c.tipologia === codigo)
     const p = (proposta && typeof proposta === 'object' ? proposta : {}) as { itens?: unknown; escolhas?: unknown; opcoes_de?: unknown }
@@ -188,7 +191,9 @@ export function aplicarProposta(atuais: readonly ItemDoLevantamento[], proposta:
             alvo = itens.find((i) => i.ordem === b.ordem)
             if (!alvo) { alvo = itemVazio(proxima()); itens.push(alvo) }
         } else if (validos.tipologia !== undefined) {
-            alvo = itens.find((i) => i.tipologia === null)
+            // a esquadria com tipologia vai na primeira SEM tipologia que esta proposta ainda não tocou (05/11/2026, o caso da Maria Cristina:
+            // "1 porta de correr" sem tipologia e "1 janela maxim ar" DP-01 na mesma mensagem — a maxim-ar caía em cima da porta)
+            alvo = itens.find((i) => i.tipologia === null && !tocadas.has(i.ordem))
             if (!alvo) { alvo = itemVazio(proxima()); itens.push(alvo) }
         } else if (ctx.ordemPadrao !== null || itens.length === 1) {
             const padrao = itens.find((i) => i.ordem === (ctx.ordemPadrao ?? itens[0].ordem))
@@ -209,6 +214,7 @@ export function aplicarProposta(atuais: readonly ItemDoLevantamento[], proposta:
         // PORTA × JANELA (decisão 1): a palavra do vendedor — a do item, se ele a escreveu, senão a da mensagem — contra a PRIMEIRA palavra
         // da descrição; nenhuma candidata do código compatível descarta a tipologia proposta. Maxim-ar e fixo não declaram, e passam.
         const abertura = aberturaDoItem(b.abertura, ctx.aberturasDitas, ctx.aberturaDaMensagem)
+        aberturas[alvo.ordem] = abertura
         if (validos.tipologia !== undefined && abertura !== null && !candidatasDoCodigo(String(validos.tipologia)).some((c) => aberturaCompativel(c.descricao, abertura))) {
             descartados += 1
             recusas.push({ ordem: alvo.ordem, motivo: 'ABERTURA', tipologia: String(validos.tipologia), abertura, medidas: { largura_mm: alvo.largura_mm, altura_mm: alvo.altura_mm } })
@@ -279,7 +285,7 @@ export function aplicarProposta(atuais: readonly ItemDoLevantamento[], proposta:
     }
     // QUANTIDADE NÃO DITA É 1 (dono do produto, 03/11/2026): a esquadria que já diz alguma coisa e não diz quantas é uma — sem perguntar
     for (const i of itens) if (i.quantidade === null && CAMPOS_DA_ESQUADRIA.some((c) => c !== 'quantidade' && !vazio(i[c]))) i.quantidade = 1
-    return { itens, propostos, descartados, semEsquadria, recusas, vidrosPadrao }
+    return { itens, propostos, descartados, semEsquadria, recusas, vidrosPadrao, aberturas }
 }
 
 // ── O AGRUPAMENTO (dono do produto, 03/11/2026) ─────────────────────────────────────────────
@@ -364,17 +370,18 @@ const eLista = (xs: readonly string[]) => (xs.length <= 1 ? xs.join('') : `${xs.
  * é a pergunta que a IA reformulou para o CAMPO da primeira pendência (duas tipologias possíveis, linguagem de obra): entra no
  * lugar da fixa daquele campo, e o resto vem junto.
  */
-export function perguntaDasPendencias(ps: readonly Pendencia[], nItens: number, cabecaDaIa: string | null = null): string {
+export function perguntaDasPendencias(ps: readonly Pendencia[], nItens: number, cabecaDaIa: string | null = null, jaDito: JaDito = NADA_DITO): string {
     if (ps.length === 0) return ''
     const primeira = ps[0]
-    if (ps.length === 1 && cabecaDaIa === null) return perguntaDaPendencia(primeira, nItens)
+    if (ps.length === 1 && cabecaDaIa === null) return perguntaDaPendencia(primeira, nItens, jaDito)
     const porEsquadria = new Map<number, Pendencia[]>()
     for (const p of ps) porEsquadria.set(p.ordem, [...(porEsquadria.get(p.ordem) ?? []), p])
     const linhas = [...porEsquadria.entries()].map(([ordem, lista]) => {
         const campos = lista.flatMap((p) => (p.tipo === 'CAMPO' ? [p.campo] : []))
         const daIa = cabecaDaIa !== null && primeira.tipo === 'CAMPO' && primeira.ordem === ordem ? primeira.campo : null
         const cabecaDe = daIa ?? (campos.includes('tipologia') ? 'tipologia' : null)
-        const cabeca = daIa !== null ? cabecaDaIa : cabecaDe === 'tipologia' ? PERGUNTA_DO_CAMPO.tipologia : null
+        // a pergunta da tipologia não repete o que o acumulado já diz (05/11/2026)
+        const cabeca = daIa !== null ? cabecaDaIa : cabecaDe === 'tipologia' ? perguntasDaTipologia(jaDito)[0] : null
         const outros = campos.filter((c) => c !== cabecaDe)
         const partes: string[] = []
         if (cabeca !== null) partes.push(outros.length ? `${cabeca} E me diga ${eLista(outros.map((c) => NOME_DO_CAMPO[c]))}.` : cabeca)
@@ -391,8 +398,8 @@ export function perguntaDasPendencias(ps: readonly Pendencia[], nItens: number, 
 }
 
 /** A pergunta FIXA da pendência; com mais de uma esquadria, diz de qual. */
-export function perguntaDaPendencia(p: Pendencia, nItens: number): string {
-    const pergunta = p.tipo === 'CAMPO' ? PERGUNTA_DO_CAMPO[p.campo]
+export function perguntaDaPendencia(p: Pendencia, nItens: number, jaDito: JaDito = NADA_DITO): string {
+    const pergunta = p.tipo === 'CAMPO' ? (p.campo === 'tipologia' ? perguntasDaTipologia(jaDito)[0] : PERGUNTA_DO_CAMPO[p.campo])
         : p.tipo === 'FAMILIA' ? fraseDeQualFamilia(p.tipologia, p.opcoes)
             : perguntaDaEscolha(p.pendente)
     return nItens > 1 ? `Esquadria ${p.ordem}: ${pergunta}` : pergunta
