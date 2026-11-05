@@ -1762,7 +1762,7 @@ describe('(19) duas famílias com o mesmo código: a conversa pergunta de qual f
         // o prompt deu à IA as duas linhas, cada uma com a família e o fornecedor do motor
         const sistema = textoDoSistema(estado.chamadasDaLlm[0].corpo.system)
         // com os limites (03/11/2026): a do motor Sul não tem limite no arquivo; a DP-02 da Wolff tem a altura (388 a 2.439 mm) e não a largura
-        // a lista enxuta (05/11/2026): sem limite no arquivo = sem o segmento; a linha de produto sai da descrição só quando a Detalhe a traz (a do Sul não traz)
+        // a lista enxuta (05/11/2026): sem limite no arquivo = sem o trecho; a linha de produto sai da descrição só quando a Detalhe a traz (a do Sul não traz)
         expect(sistema).toContain('DP-02 | JANELA DE CORRER 02 FOLHAS | LINHA SUL | Correr | família: Alumínio | fornecedor: Perfis Sul')
         expect(sistema).toContain('DP-02 | JANELA DE CORRER 02 FOLHAS MÓVEIS | Correr | A 388-2439 | família: PVC | fornecedor: Wolff Perfis')
     })

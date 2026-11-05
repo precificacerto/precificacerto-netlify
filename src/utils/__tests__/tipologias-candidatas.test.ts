@@ -109,12 +109,12 @@ describe('os limites: NULL nunca descarta, e só a medida dita é conferida', ()
         expect(limitesNoPrompt({ larg_min_mm: null, larg_max_mm: 1384, alt_min_mm: 0, alt_max_mm: null })).toBe('L ≤1384 A ≥0')
     })
 
-    it('a descrição no prompt perde o ÚLTIMO segmento só quando ele é a linha de produto da Detalhe; o resto fica como está', () => {
+    it('a descrição no prompt perde o ÚLTIMO trecho só quando ele é a linha de produto da Detalhe; o resto fica como está', () => {
         expect(descricaoNoPrompt('JANELA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 42', 'PVC WOLFF EUROPA 42')).toBe('JANELA DE CORRER 02 FOLHAS MÓVEIS')
         expect(descricaoNoPrompt('MAXIM-AR COM "N" MÓDULOS | PERFIL MODULAÇÃO | EUROPA 60', 'PVC WOLFF EUROPA 60')).toBe('MAXIM-AR COM "N" MÓDULOS | PERFIL MODULAÇÃO')
         // sem acento e sem caixa: "Europa 42" casa com "EUROPA 42"
         expect(descricaoNoPrompt('JANELA | Europa 42', 'pvc wolff EUROPA 42')).toBe('JANELA')
-        // o segmento que NÃO está na linha fica; sem linha na Detalhe nada sai; sem "|" nada sai; a descrição nula continua nula
+        // o trecho que NÃO está na linha fica; sem linha na Detalhe nada sai; sem "|" nada sai; a descrição nula continua nula
         expect(descricaoNoPrompt('JANELA DE CORRER 02 FOLHAS | LINHA SUL', 'PVC WOLFF EUROPA 42')).toBe('JANELA DE CORRER 02 FOLHAS | LINHA SUL')
         expect(descricaoNoPrompt('JANELA DE CORRER 02 FOLHAS | LINHA SUL', null)).toBe('JANELA DE CORRER 02 FOLHAS | LINHA SUL')
         expect(descricaoNoPrompt('EUROPA 42', 'PVC WOLFF EUROPA 42')).toBe('EUROPA 42')

@@ -94,9 +94,9 @@ export const limitesNoPrompt = (l: Limites): string =>
     [limiteCompacto('L', l.larg_min_mm, l.larg_max_mm), limiteCompacto('A', l.alt_min_mm, l.alt_max_mm)].filter((x): x is string => x !== null).join(' ')
 
 /**
- * A descrição como vai ao modelo: SEM o último segmento quando ele é a LINHA de produto, que já vem numa coluna própria do motor ("JANELA DE
+ * A descrição como vai ao modelo: SEM o último trecho quando ele é a LINHA de produto, que já vem numa coluna própria do motor ("JANELA DE
  * CORRER 02 FOLHAS MÓVEIS | EUROPA 42" com linha "PVC WOLFF EUROPA 42" → "JANELA DE CORRER 02 FOLHAS MÓVEIS"). Medido na De Paula: as 164
- * descrições terminam no nome da linha (1.473 caracteres), e sem ele continuam 163 distintas — as mesmas 163 de antes. O segmento que não está
+ * descrições terminam no nome da linha (1.473 caracteres), e sem ele continuam 163 distintas — as mesmas 163 de antes. O trecho que não está
  * na linha fica: nada é tirado por posição.
  */
 export function descricaoNoPrompt(descricao: string | null, linha: string | null): string | null {

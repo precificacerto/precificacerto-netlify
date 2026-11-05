@@ -350,7 +350,7 @@ describe('(1) a família da conta, o motor dela e as tipologias candidatas (PR D
         ])
         expect(t.candidatos.map((c) => [c.tipologia, c.familia])).toEqual([['DP-01', 'PVC'], ['DP-02', 'ALUMINIO'], ['DP-02', 'PVC'], ['SU-07', 'ALUMINIO']])
         // com mais de uma família, a linha do prompt diz a família e o fornecedor; com uma só, é a de sempre
-        // a Detalhe do Sul não traz a linha: a descrição fica inteira; sem limite no arquivo, nenhum segmento de limites (05/11/2026)
+        // a Detalhe do Sul não traz a linha: a descrição fica inteira; sem limite no arquivo, nenhum trecho de limites (05/11/2026)
         expect(t.candidatos[1].linha).toBeNull()
         expect(M().linhaDoCandidato(t.candidatos[1], true)).toBe('DP-02 | JANELA DE CORRER 02 FOLHAS | LINHA SUL | Correr | família: Alumínio | fornecedor: Perfis Sul')
         expect(M().linhaDoCandidato(t.candidatos[1], false)).toBe('DP-02 | JANELA DE CORRER 02 FOLHAS | LINHA SUL | Correr')
