@@ -79,32 +79,34 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const medidas: Medida[] = []
     const ferramenta: Array<Record<string, unknown>> = []
     const accept_encoding = await ecoDoAcceptEncoding()
-    medidas.push(await medir('https://www.cloudflare.com/', { method: 'GET' }))
+    const apenasKoss = req.query.apenas === 'koss'
+    const turnoPedido = typeof req.query.turno === 'string' ? req.query.turno : null
+    if (!apenasKoss) medidas.push(await medir('https://www.cloudflare.com/', { method: 'GET' }))
     // em série, de propósito: cada alvo numa conexão própria, sem concorrência entre eles
-    medidas.push(await medir('https://api.anthropic.com/v1/messages', corpoVazio))
-    medidas.push(await medir('https://api.openai.com/v1/models', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }))
-    medidas.push(await medir('https://www.cloudflare.com/cdn-cgi/trace', { method: 'GET' }))
+    if (!apenasKoss) medidas.push(await medir('https://api.anthropic.com/v1/messages', corpoVazio))
+    if (!apenasKoss) medidas.push(await medir('https://api.openai.com/v1/models', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }))
+    if (!apenasKoss) medidas.push(await medir('https://www.cloudflare.com/cdn-cgi/trace', { method: 'GET' }))
     // a Anthropic de novo, numa segunda conexão: a primeira pode ter sido a azarada
-    medidas.push(await medir('https://api.anthropic.com/v1/messages', corpoVazio))
+    if (!apenasKoss) medidas.push(await medir('https://api.anthropic.com/v1/messages', corpoVazio))
     // o corpo do TAMANHO da produção (≈ 37 KB), ainda sem chave válida: se o envio do corpo travar de gru1, aparece aqui (esperado: 401 rápido)
     const sistemaGrande = 'PROMPT DE TESTE DE REDE. '.repeat(1400)
     const corpoGrande = JSON.stringify({ model: 'claude-sonnet-5-5', max_tokens: 20, system: [{ type: 'text', text: sistemaGrande, cache_control: { type: 'ephemeral' } }], messages: [{ role: 'user', content: 'diga ok' }] })
-    medidas.push(await medir('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'content-type': 'application/json', 'anthropic-version': '2026-10-21', 'x-api-key': 'sem-chave' }, body: corpoGrande }))
+    if (!apenasKoss) medidas.push(await medir('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'content-type': 'application/json', 'anthropic-version': '2026-10-21', 'x-api-key': 'sem-chave' }, body: corpoGrande }))
     // COM a chave, se ela existir no ambiente de preview (o dono do produto a põe só neste branch): o pedido real, "diga ok" e o grande
     const chave = process.env.ANTHROPIC_API_KEY
     if (chave) {
         const cab = { 'content-type': 'application/json', 'anthropic-version': '2026-10-21', 'x-api-key': chave }
-        medidas.push(await medir('https://api.anthropic.com/v1/messages#com-chave-diga-ok', { method: 'POST', headers: cab, body: JSON.stringify({ model: 'claude-sonnet-5-5', max_tokens: 20, messages: [{ role: 'user', content: 'diga ok' }] }) }))
-        medidas.push(await medir('https://api.anthropic.com/v1/messages#com-chave-corpo-grande', { method: 'POST', headers: cab, body: corpoGrande }))
+        if (!apenasKoss) medidas.push(await medir('https://api.anthropic.com/v1/messages#com-chave-diga-ok', { method: 'POST', headers: cab, body: JSON.stringify({ model: 'claude-sonnet-5-5', max_tokens: 20, messages: [{ role: 'user', content: 'diga ok' }] }) }))
+        if (!apenasKoss) medidas.push(await medir('https://api.anthropic.com/v1/messages#com-chave-corpo-grande', { method: 'POST', headers: cab, body: corpoGrande }))
         // o corpo REAL da produção: sistema em dois blocos com cache_control, ferramenta, thinking between_tools, effort low, a mensagem do Jeison
         const real = {
             model: 'claude-sonnet-5-5', max_tokens: 2000, thinking: { type: 'between_tools' }, output_config: { effort: 'low' },
             system: [{ type: 'text', text: SISTEMA_ESTAVEL, cache_control: { type: 'ephemeral' } }, { type: 'text', text: 'Levantamento em montagem: nenhum.' }],
             tools: FERRAMENTAS, tool_choice: { type: 'auto' }, messages: [{ role: 'user', content: MENSAGEM_REAL }],
         }
-        medidas.push(await medir('https://api.anthropic.com/v1/messages#real-sem-stream', { method: 'POST', headers: cab, body: JSON.stringify(real) }))
-        medidas.push(await medir('https://api.anthropic.com/v1/messages#real-com-stream', { method: 'POST', headers: cab, body: JSON.stringify({ ...real, stream: true }) }))
-        medidas.push(await medir('https://api.anthropic.com/v1/messages#real-sem-stream-de-novo', { method: 'POST', headers: cab, body: JSON.stringify(real) }))
+        if (!apenasKoss) medidas.push(await medir('https://api.anthropic.com/v1/messages#real-sem-stream', { method: 'POST', headers: cab, body: JSON.stringify(real) }))
+        if (!apenasKoss) medidas.push(await medir('https://api.anthropic.com/v1/messages#real-com-stream', { method: 'POST', headers: cab, body: JSON.stringify({ ...real, stream: true }) }))
+        if (!apenasKoss) medidas.push(await medir('https://api.anthropic.com/v1/messages#real-sem-stream-de-novo', { method: 'POST', headers: cab, body: JSON.stringify(real) }))
         // OS CINCO TURNOS DO JORGE KOSS (05/11 14:04-14:08): o que o modelo devolve na ferramenta (nome, cliente, novo, itens, escolhas), com o
         // histórico e o volátil de cada turno reconstruídos das mensagens gravadas. Só a entrada da ferramenta é devolvida — nunca o texto do modelo.
         const T1 = 'quero orçamento\n1 Porta janelas de correr 2 folhas com vidro comum 6 mm incolor 2,50 x 2,20\n1 janela maxim ar, mini boreal 60 x60\n\nJorge Koss, porto alegre'
@@ -125,7 +127,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             { nome: 'T4', volatil: `${MONTAGEM_VAZIA}\nPergunta em aberto: ${S3}`, messages: [{ role: 'user', content: T1 }, { role: 'assistant', content: S1 }, { role: 'user', content: T2 }, { role: 'assistant', content: S2 }, { role: 'user', content: T3 }, { role: 'assistant', content: S3 }, { role: 'user', content: T4 }] },
             { nome: 'T5', volatil: `${MONTAGEM_VAZIA}\nPergunta em aberto: ${S4}`, messages: [{ role: 'user', content: T1 }, { role: 'assistant', content: S1 }, { role: 'user', content: T2 }, { role: 'assistant', content: S2 }, { role: 'user', content: T3 }, { role: 'assistant', content: S3 }, { role: 'user', content: T4 }, { role: 'assistant', content: S4 }, { role: 'user', content: T5 }] },
         ]
-        for (const t of turnos) {
+        for (const t of turnos.filter((t) => turnoPedido === null || t.nome === turnoPedido)) {
             const pedido = { ...real, system: [{ type: 'text', text: SISTEMA_ESTAVEL, cache_control: { type: 'ephemeral' } }, { type: 'text', text: t.volatil }], messages: t.messages }
             const r2 = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: cab, body: JSON.stringify(pedido) })
             const j = (await r2.json().catch((): null => null)) as { stop_reason?: unknown; usage?: { output_tokens?: unknown }; content?: Array<{ type?: unknown; name?: unknown; input?: unknown }> } | null
