@@ -158,7 +158,7 @@
  * ══ O LOG ══
  * Uma linha `[IA]` em `console.error`: o id do levantamento, a rota, propostos, descartados, se
  * enviou, o desfecho, COMO o nome foi lido (`nome=veio|faltou|fora_do_texto|da_pergunta`), a pergunta
- * em aberto lida (`aberta=<código>|ausente|-`), o contexto (`contexto=sim|vazio|sem_migracao`) e, com ele, o que
+ * em aberto lida (`aberta=<código>|ausente|expirada|-`; `expirada` é a linha com mais de 24 h, ignorada), o contexto (`contexto=sim|vazio|sem_migracao`) e, com ele, o que
  * aconteceu com a fala (`fala=usada|ausente|descartada_numero|descartada_longa`) e, quando houve chamada à IA, o tempo dela e os tokens de
  * entrada e saída que a API devolve (`ia_ms=`, `ia_entrada=`, `ia_saida=`; "-" quando a API não os deu). NUNCA a chave, o telefone, o texto, o nome do
  * levantamento ou a pergunta. Num
@@ -239,7 +239,7 @@ type MedidaDaIa = {
 }
 type Rastro = {
     levantamento: string; rota: Rota; propostos: number; descartados: number; enviou: boolean; admin: Permissao | null
-    nome: MarcaDoNome; aberta: CodigoDaPergunta | 'ausente' | '-'; ia: MedidaDaIa
+    nome: MarcaDoNome; aberta: CodigoDaPergunta | 'ausente' | 'expirada' | '-'; ia: MedidaDaIa
     contexto: ContextoLido['estado'] | '-'; fala: FalaLida['motivo'] | '-'
     /** Quantas instruções de categoria foram ao sistema, ou `sem_migracao`; '-' quando não houve chamada à IA. */
     instrucoes: string
@@ -1022,10 +1022,13 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         const [variaveisLidas, itensDaMontagem, pergunta] = await Promise.all([
             Promise.all(tabela.familias.map(async (f) => [f.familia, await lerVariaveisDasTipologias(f.levantamento.id)] as const)),
             emMontagem ? lerItens(c.tenantId, emMontagem.id) : Promise.resolve([] as ItemGravado[]),
-            emMontagem ? Promise.resolve(null) : (async (): Promise<{ lida: PerguntaEmAberto | null | 'ausente'; doRemetente: Levantamento[] | null }> => {
+            emMontagem ? Promise.resolve(null) : (async (): Promise<{ lida: PerguntaEmAberto | null | 'ausente' | 'expirada'; valida: PerguntaEmAberto | null; doRemetente: Levantamento[] | null }> => {
                 const lida = await lerPerguntaEmAberto(c.tenantId, c.remetenteId)
-                const doRemetente = lida !== null && lida !== 'ausente' ? await lerLevantamentos(c.tenantId, c.remetenteId, false) : null
-                return { lida, doRemetente }
+                // a pergunta que VALE nesta mensagem — a guarda única: a 'ausente' não existe, e a 'expirada' (mais de 24 h, 05/11/2026) é como
+                // se não houvesse; nada dela vai ao modelo, e os levantamentos que ela cita não são lidos
+                const valida = lida !== null && lida !== 'ausente' && lida !== 'expirada' ? lida : null
+                const doRemetente = valida ? await lerLevantamentos(c.tenantId, c.remetenteId, false) : null
+                return { lida, valida, doRemetente }
             })(),
         ] as const)
         const variaveisPorFamilia: Record<string, Record<string, VariaveisDaTipologia>> = Object.fromEntries(variaveisLidas)
@@ -1038,12 +1041,13 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         const pendenciasAbertas = emMontagem ? pendenciasDoLevantamento(itensDaMontagem, definicao, doCodigo) : []
         const pendenciaAberta = pendenciasAbertas[0] ?? null
         const lida = pergunta?.lida ?? null
-        rastro.aberta = lida === 'ausente' ? 'ausente' : lida ? lida.pergunta : '-'
-        // sem a tabela (migração pendente), nada se grava nela; com a linha lá, ela é apagada quando se resolve
+        rastro.aberta = lida === 'ausente' || lida === 'expirada' ? lida : lida ? lida.pergunta : '-'
+        // sem a tabela (migração pendente), nada se grava nela; com a linha lá (válida OU expirada), ela é apagada quando se resolve
         const guardaPergunta = lida !== 'ausente'
         const temLinha = lida !== null && lida !== 'ausente'
+        const valida = pergunta?.valida ?? null
         const doRemetente: Levantamento[] | null = pergunta?.doRemetente ?? null
-        const aberta = temLinha && doRemetente ? await refazerPergunta(c.tenantId, lida, doRemetente, definicao) : null
+        const aberta = valida && doRemetente ? await refazerPergunta(c.tenantId, valida, doRemetente, definicao) : null
 
         // PORTA × JANELA (03/11/2026): a mensagem que traz UMA das palavras já recebe a lista filtrada; as duas, ou nenhuma, a lista inteira
         const aberturaDaMensagem = aberturaDita(c.texto)

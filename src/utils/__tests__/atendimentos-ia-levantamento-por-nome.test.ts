@@ -3682,3 +3682,112 @@ describe('(34) o sistema em dois blocos: o estável marcado para o cache, o vol�
         expect(sistema[0].text.startsWith(PROMPT_BASE)).toBe(true)
     })
 })
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════
+/**
+ * (35) A PERGUNTA EM ABERTO EXPIRA (dono do produto, 05/11/2026): "expirar em 24 h na leitura, como o histórico. Pendência presa por dois dias
+ * contamina toda mensagem nova do vendedor, e foi o que fez a conversa do Jeison ser lida como resposta a uma confirmação de terça." Medido:
+ * a CONFIRMAR_ACRESCIMO do Geronimo (10 itens, 03/11 21:20 UTC) ficou dois dias na tabela porque a linha só saía quando uma mensagem a
+ * resolvia. A conta é a do histórico: `criado_em >= agora − 24 h` vale; mais velha é `expirada`, lida como nenhuma pergunta.
+ */
+describe('(35) a pergunta em aberto expira em 24 h na leitura, como o histórico — a linha velha não contamina a mensagem nova', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const PA = () => require('@/lib/atendimentos-ia/pergunta-em-aberto') as typeof import('@/lib/atendimentos-ia/pergunta-em-aberto')
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const CG = () => require('@/lib/atendimentos-ia/conversa-gravada') as typeof import('@/lib/atendimentos-ia/conversa-gravada')
+    const perguntas = () => estado.db.orcamentista_pergunta_em_aberto ?? []
+    const MSG_1 = 'Levantamento Casa do João 2 — janela de correr 2 folhas móveis Europa 42, 1200 x 1000 mm, 1 unidade, perfil branco, vidro temperado 5mm.'
+    const MSG_PEDRO = 'Levantamento Casa do Pedro: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm'
+    const H = 3_600_000
+    const sistemaDe = (k: number) => textoDoSistema(estado.chamadasDaLlm[k].corpo.system)
+    const ultimaLinhaIa = () => linhaIa()[linhaIa().length - 1]
+
+    /** "Casa do João" COMPLETO, a MSG_1 guarda uma NOME_PARECIDO, e a linha recebe a idade pedida. */
+    async function perguntaComIdade(ms: number) {
+        await fecharDp02('Casa do João')
+        estado.llmPeloPrompt = (mensagem, sistema) => {
+            if (mensagem === MSG_1) return { nome: 'Casa do João 2', itens: [{ ...DP02 }] }
+            if (mensagem === 'é o mesmo') return sistema.includes('pode ser este levantamento') ? { nome: 'Casa do João' } : {}
+            if (mensagem === MSG_PEDRO) return { nome: 'Casa do Pedro', itens: [{ ...DP02 }] }
+            return null
+        }
+        await chamar(MSG_1)
+        expect(perguntas()).toEqual([expect.objectContaining({ pergunta: 'NOME_PARECIDO' })])
+        perguntas()[0].criado_em = new Date(Date.now() - ms).toISOString()
+        return levantamentos()[0]
+    }
+
+    it('a janela é a do histórico: 24 h, uma constante só', () => {
+        expect(PA().HORAS_DA_PERGUNTA_EM_ABERTO).toBe(24)
+        expect(PA().HORAS_DA_PERGUNTA_EM_ABERTO).toBe(CG().HORAS_DO_HISTORICO)
+    })
+
+    it('perguntaExpirou: em 24 h exatas ainda vale (a conta do histórico é ">="); 1 ms a mais expira; a data que não se lê NÃO expira', () => {
+        const agora = new Date('2026-11-05T12:00:00.000Z')
+        expect(PA().perguntaExpirou('2026-11-04T12:00:00.000Z', agora)).toBe(false)
+        expect(PA().perguntaExpirou('2026-11-04T11:59:59.999Z', agora)).toBe(true)
+        expect(PA().perguntaExpirou('2026-11-03T21:20:40.000Z', agora)).toBe(true)
+        expect(PA().perguntaExpirou('2026-11-05T11:00:00.000Z', agora)).toBe(false)
+        for (const semData of ['lixo', '', null, undefined, 12345]) expect(PA().perguntaExpirou(semData, agora)).toBe(false)
+    })
+
+    it('lerPerguntaEmAberto devolve "expirada" para a linha velha, a pergunta para a nova, e null sem linha — e lê criado_em', async () => {
+        await perguntaComIdade(25 * H)
+        expect(await PA().lerPerguntaEmAberto(TENANT, VENDEDOR)).toBe('expirada')
+        perguntas()[0].criado_em = new Date(Date.now() - 23 * H).toISOString()
+        expect(await PA().lerPerguntaEmAberto(TENANT, VENDEDOR)).toEqual(expect.objectContaining({ pergunta: 'NOME_PARECIDO', nome: 'Casa do João 2' }))
+        // o `agora` injetado: a mesma linha, lida "amanhã", está expirada
+        expect(await PA().lerPerguntaEmAberto(TENANT, VENDEDOR, new Date(Date.now() + 2 * H))).toBe('expirada')
+        estado.db.orcamentista_pergunta_em_aberto = []
+        expect(await PA().lerPerguntaEmAberto(TENANT, VENDEDOR)).toBeNull()
+    })
+
+    it('a pergunta de 23 h ainda vale: "é o mesmo" é lido como resposta a ela (a confirmação sai), e a linha [IA] diz aberta=NOME_PARECIDO', async () => {
+        await perguntaComIdade(23 * H)
+        await chamar('é o mesmo')
+        expect(sistemaDe(estado.chamadasDaLlm.length - 1)).toContain('Pergunta em aberto:')
+        expect(ultimoEnviado()).toBe(conversa.fraseDeConfirmarAcrescimo('Casa do João', 1, [{ ...DP02 }]))
+        expect(ultimaLinhaIa()).toContain(' aberta=NOME_PARECIDO ')
+    })
+
+    it('a pergunta de 25 h EXPIROU: nada dela vai ao modelo, "é o mesmo" NÃO é lido como resposta a ela, nada entra no "Casa do João", e a linha [IA] diz aberta=expirada', async () => {
+        const casa = await perguntaComIdade(25 * H)
+        const antes = enviados().length
+        await chamar('é o mesmo')
+        const sistema = sistemaDe(estado.chamadasDaLlm.length - 1)
+        expect(sistema).not.toContain('Pergunta em aberto:')
+        expect(sistema).not.toContain('Casa do João 2')
+        expect(enviados()).toHaveLength(antes + 1)
+        expect(ultimoEnviado()).not.toBe(conversa.fraseDeConfirmarAcrescimo('Casa do João', 1, [{ ...DP02 }]))
+        expect(itensDe(casa.id)).toHaveLength(1)
+        expect(ultimaLinhaIa()).toContain(' aberta=expirada ')
+    })
+
+    it('a linha expirada fica no banco até ser sobrescrita ou resolvida — como o histórico, a leitura filtra e não apaga; a mensagem que resolve a apaga', async () => {
+        const casa = await perguntaComIdade(25 * H)
+        const velha = { ...perguntas()[0] }
+        const apagadas = () => estado.escritas.filter((e) => e.tabela === 'orcamentista_pergunta_em_aberto' && e.op === 'delete').length
+        const apagadasAntes = apagadas()
+        await chamar(MSG_PEDRO)
+        // o levantamento novo nasceu, o antigo não mudou, e a linha velha saiu pelo caminho de sempre (apagada antes de gravar)
+        expect(levantamentos().map((l) => l.nome).sort()).toEqual(['Casa do João', 'Casa do Pedro'])
+        expect(itensDe(casa.id)).toHaveLength(1)
+        expect(apagadas()).toBe(apagadasAntes + 1)
+        // o que ficou é a pergunta DESTA mensagem (a confirmação do apanhado do Pedro), nova — não a NOME_PARECIDO de 25 h atrás
+        expect(perguntas()).toEqual([expect.objectContaining({ pergunta: 'CONFIRMAR_APANHADO' })])
+        expect(String(perguntas()[0].criado_em) > String(velha.criado_em)).toBe(true)
+        expect(velha.pergunta).toBe('NOME_PARECIDO')
+        expect(ultimaLinhaIa()).toContain(' aberta=expirada ')
+    })
+
+    it('a expirada não impede uma pergunta nova: o upsert sobrescreve a linha velha com criado_em de agora', async () => {
+        await perguntaComIdade(25 * H)
+        const criadoVelho = String(perguntas()[0].criado_em)
+        estado.llmPeloPrompt = (mensagem) => (mensagem === MSG_1 ? { nome: 'Casa do João 2', itens: [{ ...DP02 }] } : null)
+        await chamar(MSG_1)
+        expect(perguntas()).toHaveLength(1)
+        expect(perguntas()[0].pergunta).toBe('NOME_PARECIDO')
+        expect(String(perguntas()[0].criado_em) > criadoVelho).toBe(true)
+        expect(await PA().lerPerguntaEmAberto(TENANT, VENDEDOR)).toEqual(expect.objectContaining({ pergunta: 'NOME_PARECIDO' }))
+    })
+})
