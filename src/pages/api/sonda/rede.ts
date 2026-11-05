@@ -131,7 +131,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             // VARIANTES (medição, 05/11): ?variante=sem-effort tira o output_config; sem-thinking tira o thinking; ambos tira os dois
             const variante = typeof req.query.variante === 'string' ? req.query.variante : null
             const { thinking: _thinking, output_config: _effort, ...semOsDois } = real
-            const base = variante === 'ambos' ? semOsDois : variante === 'sem-effort' ? { ...semOsDois, thinking: _thinking } : variante === 'sem-thinking' ? { ...semOsDois, output_config: _effort } : real
+            // sem-strict: a MESMA ferramenta sem `strict: true` (a saída deixa de ser forçada pela gramática); sem-strict-sem-thinking: e sem o thinking
+            const semStrict = (FERRAMENTAS as Array<Record<string, unknown>>).map(({ strict: _s, ...f }) => { void _s; return f })
+            const base = variante === 'ambos' ? semOsDois
+                : variante === 'sem-effort' ? { ...semOsDois, thinking: _thinking }
+                : variante === 'sem-thinking' ? { ...semOsDois, output_config: _effort }
+                : variante === 'sem-strict' ? { ...real, tools: semStrict }
+                : variante === 'sem-strict-sem-thinking' ? { ...semOsDois, output_config: _effort, tools: semStrict }
+                : real
             const pedido = { ...base, system: [{ type: 'text', text: SISTEMA_ESTAVEL, cache_control: { type: 'ephemeral' } }, { type: 'text', text: t.volatil }], messages: t.messages }
             // tempo e aborto em 50 s (a leitura pelo painel tem 60 s): a variante que não responde aparece como interrompida, com o tempo
             const t0 = Date.now()
