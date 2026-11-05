@@ -128,14 +128,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             { nome: 'T5', volatil: `${MONTAGEM_VAZIA}\nPergunta em aberto: ${S4}`, messages: [{ role: 'user', content: T1 }, { role: 'assistant', content: S1 }, { role: 'user', content: T2 }, { role: 'assistant', content: S2 }, { role: 'user', content: T3 }, { role: 'assistant', content: S3 }, { role: 'user', content: T4 }, { role: 'assistant', content: S4 }, { role: 'user', content: T5 }] },
         ]
         for (const t of turnos.filter((t) => turnoPedido === null || t.nome === turnoPedido)) {
-            const pedido = { ...real, system: [{ type: 'text', text: SISTEMA_ESTAVEL, cache_control: { type: 'ephemeral' } }, { type: 'text', text: t.volatil }], messages: t.messages }
+            // VARIANTES (medição, 05/11): ?variante=sem-effort tira o output_config; sem-thinking tira o thinking; ambos tira os dois
+            const variante = typeof req.query.variante === 'string' ? req.query.variante : null
+            const { thinking: _thinking, output_config: _effort, ...semOsDois } = real
+            const base = variante === 'ambos' ? semOsDois : variante === 'sem-effort' ? { ...semOsDois, thinking: _thinking } : variante === 'sem-thinking' ? { ...semOsDois, output_config: _effort } : real
+            const pedido = { ...base, system: [{ type: 'text', text: SISTEMA_ESTAVEL, cache_control: { type: 'ephemeral' } }, { type: 'text', text: t.volatil }], messages: t.messages }
             const r2 = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: cab, body: JSON.stringify(pedido) })
             const j = (await r2.json().catch((): null => null)) as { stop_reason?: unknown; usage?: { output_tokens?: unknown }; content?: Array<{ type?: unknown; name?: unknown; input?: unknown }> } | null
             const chamada = j?.content?.find((b) => b.type === 'tool_use')
             const entrada = (chamada?.input ?? null) as Record<string, unknown> | null
             const { fala: _fala, ...semFala } = entrada ?? {}
             void _fala
-            ferramenta.push({ turno: t.nome, status: r2.status, stop_reason: j?.stop_reason ?? null, output_tokens: j?.usage?.output_tokens ?? null, entrada: entrada ? semFala : null })
+            ferramenta.push({ turno: t.nome, variante, status: r2.status, stop_reason: j?.stop_reason ?? null, output_tokens: j?.usage?.output_tokens ?? null, entrada: entrada ? semFala : null })
         }
     }
     const resultado = { quando: new Date().toISOString(), ferramenta, accept_encoding, com_chave: Boolean(chave), tamanho_corpo_grande: corpoGrande.length, regiao: process.env.VERCEL_REGION ?? null, ambiente: process.env.VERCEL_ENV ?? null, node: process.version, medidas }
