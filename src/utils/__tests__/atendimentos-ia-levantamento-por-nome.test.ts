@@ -4560,8 +4560,10 @@ describe('(38) Maria Cristina: a montagem não absorve outro cliente, expira em 
                 expect(itens(nome)[0].tipologia).toBe('DP-01')
                 expect(linhaIa().pop()).toMatch(/ tipologia_padrao=1(\s|$)/)
             }
-            // a tipologia já está: a pergunta de tipologia não sai (só a cor, que falta)
-            expect(ultimoEnviado()).toBe(PERGUNTA_DO_CAMPO.cor_perfil)
+            // a tipologia já está: nenhuma pergunta de tipologia sai (as frases vêm da função, nos quatro conjuntos); só o que falta (cor e vidro)
+            const todas = [false, true].flatMap((abertura) => [false, true].flatMap((tipo) => [...perguntasDaTipologia({ abertura, tipo })]))
+            for (const t of todas) expect(ultimoEnviado()).not.toContain(t)
+            expect(ultimoEnviado()).toContain('cor do perfil')
         })
 
         it('o que tira o padrão da maxim-ar: bandeira, peitoril, módulos, travessa, persiana, 2 folhas, outro tipo junto — e a janela sem tipo continua sem padrão', async () => {
