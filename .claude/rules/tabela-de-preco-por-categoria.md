@@ -1566,3 +1566,46 @@ lida como resposta ("é o mesmo" → confirmação, `aberta=NOME_PARECIDO`); a d
 entra no levantamento, `aberta=expirada`); a linha expirada apagada pela mensagem que resolve e substituída pela pergunta nova; a pergunta nova
 sobrescrevendo a expirada. Mutações do código (`mutacoes-expira.py`): 11 de 11 mortas, depois de unificar a guarda que estava em dois lugares (cada
 metade sozinha não mudava nada, e duas mutações sobreviviam). Cinco dos sete testes novos ficam vermelhos com o código da main; os dois que passam nele (a pergunta de 23 h vale; a pergunta nova sobrescreve a velha) descrevem o que já era assim.
+
+## A 1ª chamada em fluxo: 10 s até os cabeçalhos, uma repetição em conexão nova, e o request-id no log — dono do produto, 05/11/2026 (sem migração)
+
+**O caso que originou:** de 04/11 20:11 a 05/11 02:41, as cinco chamadas ao modelo feitas da função em produção (gru1) não receberam
+cabeçalho nenhum — duas morreram aos 60 s da Vercel, três no prazo de 45 s do #225 — e a linha `[IA]` saía toda com `-`: sem `usage`,
+sem `stop_reason`, sem request-id. Enquanto isso, a sonda da máquina do dono do produto respondia em 6 s ao mesmo pedido, e a sonda de rede em
+preview, de dentro de gru1 e com a mesma chave, respondia ao corpo real em 6,8 s sem fluxo e em 1,5 s até o primeiro byte com fluxo. Sem fluxo,
+a API só devolve os cabeçalhos quando a geração termina: 45 s sem nada não distinguia fila, geração lenta e pedido perdido.
+
+**A decisão, registrada como foi dita:**
+
+> "STREAMING COM PRAZO CURTO ATÉ OS CABEÇALHOS — autorizado como PR própria, Nível 3: stream: true, prazo de 10 s até os cabeçalhos, UMA
+> repetição em conexão nova, e a linha [IA] com ia_primeiro_token_ms e o request-id. Isso é a mitigação que nos tira do escuro: hoje a gente
+> espera 45 s para descobrir que nada veio."
+
+**O que está implementado (`resposta-em-fluxo.ts` novo, `pedido-ao-modelo.ts`, `conversa-da-ia.ts`):**
+
+- **O pedido vai com `stream: true`.** O resto do corpo não muda (modelo, teto, raciocínio desligado, dois blocos, ferramenta, histórico). A
+  redação continua sem fluxo.
+- **Dois prazos.** O GERAL continua 45 s (`PRAZO_DA_PRIMEIRA_CHAMADA_MS`) e cobre a chamada inteira, tentativas e leitura do corpo. O dos
+  CABEÇALHOS é 10 s por tentativa (`PRAZO_ATE_OS_CABECALHOS_MS`), com `TENTATIVAS_DA_PRIMEIRA_CHAMADA = 2`: os dois vão juntos ao `fetch` por
+  `AbortSignal.any`. Sem cabeçalho em 10 s, a tentativa é abortada — o abort derruba o socket dela — e a segunda abre outra conexão com o mesmo
+  pedido. A segunda sem cabeçalho é `prazo-esgotado` aos 20 s, com `sem_cabecalhos_ms=10000 tentativas=2`; a frase ao vendedor é a de sempre
+  (`FALHA_PRAZO_DA_IA`), a linha `[IA]` sai antes do envio, nada é gravado. A falha de rede continua `erro-da-llm`, com `tentativas=N`.
+- **A resposta em fluxo é montada na forma de antes** (`lerFluxo`): `message_start` traz o `usage` de entrada e do cache; `content_block_start`,
+  `content_block_delta` (`text_delta`, `input_json_delta` acumulado em pedaços) e `content_block_stop` montam os blocos; `message_delta` traz
+  `stop_reason` e o `usage` de saída, somado ao de entrada; `message_stop` encerra. Quem decide sobre a proposta (`tool_use`, `sem-proposta`,
+  `recusa`, `max_tokens`) não mudou. O evento `error` no meio do fluxo é `erro-da-llm` com `fluxo=erro tipo=<tipo>`, nunca uma proposta pela
+  metade. Cabeçalhos que chegam e corpo que não termina caem no prazo geral: `prazo-esgotado … cabecalhos_ms=N corpo=interrompido`. O erro
+  HTTP com fluxo pedido vem em JSON e é tratado como antes (status, tipo, saldo).
+- **A linha `[IA]` ganhou quatro campos**, depois dos do cache: `ia_cabecalhos_ms` (ms até os cabeçalhos da tentativa que respondeu),
+  `ia_primeiro_token_ms` (ms até o primeiro `content_block_delta`), `ia_tentativas` e `ia_request_id` (o cabeçalho `request-id` da API, o que a
+  Anthropic rastreia). `-` quando não houve (`ausente-vs-falso`). Lidos juntos: cabeçalhos tarde é fila ou pedido perdido; primeiro token cedo
+  e fim tarde é geração lenta.
+- **O que não muda:** a redação (15 s, sem fluxo), o envio (30 s), a janela em voo, o `maxDuration` 300.
+
+**Prova:** bloco (36) de `atendimentos-ia-levantamento-por-nome.test.ts` (as constantes e a soma dentro do prazo geral; `stream: true` no pedido
+e não na redação; a resposta em fluxo montada com o JSON da ferramenta picado, o `usage` somado e os quatro campos no log; `lerFluxo` com
+eventos cortados entre chunks, corpo que não é SSE e corpo nulo; a primeira tentativa sem cabeçalhos aos 10 s e a repetição que responde,
+`ia_tentativas=2`, mesmo pedido; cabeçalhos que chegam e corpo que não termina, prazo geral aos 45 s; o evento `error`; o erro HTTP com fluxo;
+nenhum timer sobra); (31) ajustado — a 1ª chamada pendurada cai aos 20 s (10 + 10), não aos 45. O fake do `fetch` dos testes devolve a 1ª chamada
+como a API devolve: SSE quando 2xx e `stream` pedido (`comoFluxo`), JSON nos erros, com `request-id`. A fixture `pedidos-a-ia-sem-contexto.json`
+foi regravada (`stream: true`). Mutações do código (`mutacoes-fluxo.py`, o resultado no PR). Os testes novos ficam vermelhos com o código da main.

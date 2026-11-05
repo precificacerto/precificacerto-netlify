@@ -28,6 +28,14 @@ export const MAX_TOKENS_DA_PRIMEIRA_CHAMADA = 2_000
  */
 export const CACHE_DO_PREFIXO = { type: 'ephemeral' } as const
 
+/**
+ * O PRAZO ATÉ OS CABEÇALHOS da 1ª chamada, em fluxo (dono do produto, 05/11/2026): "10 s até os cabeçalhos, UMA repetição em conexão
+ * nova". Medido de dentro da Vercel (gru1) e de fora: os cabeçalhos do pedido real chegam em 1,5 s. Sem cabeçalho em 10 s, a tentativa
+ * é abortada — o abort derruba o socket dela — e a segunda abre outra conexão. A segunda sem cabeçalho é o prazo esgotado.
+ */
+export const PRAZO_ATE_OS_CABECALHOS_MS = 10_000
+export const TENTATIVAS_DA_PRIMEIRA_CHAMADA = 2
+
 export type BlocoDoSistema = { type: 'text'; text: string; cache_control?: typeof CACHE_DO_PREFIXO }
 
 /**
