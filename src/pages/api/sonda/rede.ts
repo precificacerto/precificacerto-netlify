@@ -8,6 +8,7 @@
  */
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { lookup } from 'node:dns/promises'
+import { FERRAMENTAS, MENSAGEM_REAL, SISTEMA_ESTAVEL } from './corpo-real'
 
 export const config = { maxDuration: 60 }
 
@@ -23,7 +24,21 @@ type Medida = {
     cf_ray: string | null
     content_encoding: string | null
     corpo_chars: number | null
+    resumo: string | null
     erro: string | null
+}
+
+/** stop_reason e usage de uma resposta JSON da API; nos SSE, o último message_delta. Nunca o conteúdo. */
+function resumir(texto: string | null): string | null {
+    if (!texto) return null
+    try {
+        const j = JSON.parse(texto) as { stop_reason?: unknown; usage?: unknown; error?: { type?: unknown } }
+        return JSON.stringify({ stop_reason: j.stop_reason ?? null, usage: j.usage ?? null, erro: j.error?.type ?? null })
+    } catch {
+        const eventos = texto.split('\n').filter((l) => l.startsWith('data:'))
+        const ultimo = [...eventos].reverse().find((l) => l.includes('message_delta'))
+        return `sse: ${eventos.length} eventos; ${ultimo ? ultimo.slice(5, 300) : 'sem message_delta'}`
+    }
 }
 
 async function medir(alvo: string, init: RequestInit): Promise<Medida> {
@@ -37,10 +52,10 @@ async function medir(alvo: string, init: RequestInit): Promise<Medida> {
         const cabecalhos = Date.now() - inicio
         // o corpo é lido até o fim DENTRO do prazo: se os cabeçalhos chegam e o corpo não termina, aparece como estouro com cabecalhos_ms preenchido
         const texto = await r.text().catch((): null => null)
-        return { alvo, ip, status: r.status, cabecalhos_ms: cabecalhos, fim_ms: Date.now() - inicio, request_id: r.headers.get('request-id'), cf_ray: r.headers.get('cf-ray'), content_encoding: r.headers.get('content-encoding'), corpo_chars: texto === null ? null : texto.length, erro: texto === null ? (controlador.signal.aborted ? `cabeçalhos em ${cabecalhos} ms, corpo não terminou em ${PRAZO_MS} ms` : 'corpo não lido') : null }
+        return { alvo, ip, status: r.status, cabecalhos_ms: cabecalhos, fim_ms: Date.now() - inicio, request_id: r.headers.get('request-id'), cf_ray: r.headers.get('cf-ray'), content_encoding: r.headers.get('content-encoding'), corpo_chars: texto === null ? null : texto.length, resumo: resumir(texto), erro: texto === null ? (controlador.signal.aborted ? `cabeçalhos em ${cabecalhos} ms, corpo não terminou em ${PRAZO_MS} ms` : 'corpo não lido') : null }
     } catch (e) {
         const estourou = controlador.signal.aborted
-        return { alvo, ip, status: null, cabecalhos_ms: null, fim_ms: Date.now() - inicio, request_id: null, cf_ray: null, content_encoding: null, corpo_chars: null, erro: estourou ? `sem cabeçalhos em ${PRAZO_MS} ms` : `${e instanceof Error ? e.name : 'erro'}: ${e instanceof Error ? e.message : String(e)}` }
+        return { alvo, ip, status: null, cabecalhos_ms: null, fim_ms: Date.now() - inicio, request_id: null, cf_ray: null, content_encoding: null, corpo_chars: null, resumo: null, erro: estourou ? `sem cabeçalhos em ${PRAZO_MS} ms` : `${e instanceof Error ? e.name : 'erro'}: ${e instanceof Error ? e.message : String(e)}` }
     } finally {
         clearTimeout(despertador)
     }
@@ -80,6 +95,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const cab = { 'content-type': 'application/json', 'anthropic-version': '2026-10-21', 'x-api-key': chave }
         medidas.push(await medir('https://api.anthropic.com/v1/messages#com-chave-diga-ok', { method: 'POST', headers: cab, body: JSON.stringify({ model: 'claude-sonnet-5-5', max_tokens: 20, messages: [{ role: 'user', content: 'diga ok' }] }) }))
         medidas.push(await medir('https://api.anthropic.com/v1/messages#com-chave-corpo-grande', { method: 'POST', headers: cab, body: corpoGrande }))
+        // o corpo REAL da produção: sistema em dois blocos com cache_control, ferramenta, thinking between_tools, effort low, a mensagem do Jeison
+        const real = {
+            model: 'claude-sonnet-5-5', max_tokens: 2000, thinking: { type: 'between_tools' }, output_config: { effort: 'low' },
+            system: [{ type: 'text', text: SISTEMA_ESTAVEL, cache_control: { type: 'ephemeral' } }, { type: 'text', text: 'Levantamento em montagem: nenhum.' }],
+            tools: FERRAMENTAS, tool_choice: { type: 'auto' }, messages: [{ role: 'user', content: MENSAGEM_REAL }],
+        }
+        medidas.push(await medir('https://api.anthropic.com/v1/messages#real-sem-stream', { method: 'POST', headers: cab, body: JSON.stringify(real) }))
+        medidas.push(await medir('https://api.anthropic.com/v1/messages#real-com-stream', { method: 'POST', headers: cab, body: JSON.stringify({ ...real, stream: true }) }))
+        medidas.push(await medir('https://api.anthropic.com/v1/messages#real-sem-stream-de-novo', { method: 'POST', headers: cab, body: JSON.stringify(real) }))
     }
     const resultado = { quando: new Date().toISOString(), accept_encoding, com_chave: Boolean(chave), tamanho_corpo_grande: corpoGrande.length, regiao: process.env.VERCEL_REGION ?? null, ambiente: process.env.VERCEL_ENV ?? null, node: process.version, medidas }
     console.error(`[SONDA-REDE] ${JSON.stringify(resultado)}`)
