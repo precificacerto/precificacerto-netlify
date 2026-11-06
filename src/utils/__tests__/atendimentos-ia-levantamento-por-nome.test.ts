@@ -3270,7 +3270,8 @@ describe('(29) o vidro copiado, a forma canônica e a dedupe por equivalência (
         await chamar('Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco, vidro 4mm, sem arremate interno, arremate externo com folga de 50')
         expect(itensDe(levantamentos()[0].id)[0].vidro).toBe('vidro 4 mm')
         expect(ultimoEnviado().startsWith('Apanhado do levantamento')).toBe(true)
-        expect(ultimoEnviado()).toContain('vidro vidro 4 mm')
+        // o rótulo "vidro" uma vez só (06/11/2026): este teste afirmava "vidro vidro 4 mm" — o defeito, fixado aqui em 04/11
+        expect(linhaDa(ultimoEnviado(), 'Esquadria 1:')).toBe('Esquadria 1: DP-02, 1 unidade(s), 1.200 x 1.000 mm, vidro 4 mm.')
         expect(ultimoEnviado()).not.toContain('comum')
         expect(linhaIa().pop()).toMatch(/ vidro_podado=1(\s|$)/)
     })
@@ -4666,7 +4667,7 @@ describe('(39) observabilidade por etapa: coletar, casar, montar, calcular e res
         const [coletar, casar, montar, calcular, responder] = doTurno()
         expect(coletar).toBe('[ETAPA 1 coletar] historico=0 retidas=0 esquadrias=1 campos=6 itens_sem_campos=0 faltou=-')
         expect(casar).toMatch(/^\[ETAPA 2 casar\] lista=\d+\/\d+ trechos=\d+ propostos=8 descartados=0 escolhidas=e1:DP-02 padrao=- recusadas=- sem_tipologia=0$/)
-        expect(montar).toBe('[ETAPA 3 montar] rota=NOVO esquadrias=1 agrupadas=0 pendencias=0 gravadas=1 estado=COMPLETO faltou=-')
+        expect(montar).toBe('[ETAPA 3 montar] rota=NOVO esquadrias=1 agrupadas=0 caminhos=e1:GRAVADA_NOVA pendencias=0 gravadas=1 estado=COMPLETO faltou=-')
         expect(calcular).toBe('[ETAPA 4 calcular] nao_chegou')
         expect(responder).toBe('[ETAPA 5 responder] desfecho=apanhado enviou=sim redacao=- gravacao=sim')
         // depois da [IA] do mesmo turno, nunca antes
@@ -4686,7 +4687,7 @@ describe('(39) observabilidade por etapa: coletar, casar, montar, calcular e res
         await abrirSemVidro('Casa do Pedro')
         const [coletar, , montar, calcular, responder] = doTurno()
         expect(coletar).toMatch(/ faltou=e1:vidro$/)
-        expect(montar).toBe('[ETAPA 3 montar] rota=NOVO esquadrias=1 agrupadas=0 pendencias=1 gravadas=1 estado=EM_MONTAGEM faltou=e1:vidro')
+        expect(montar).toBe('[ETAPA 3 montar] rota=NOVO esquadrias=1 agrupadas=0 caminhos=e1:GRAVADA_NOVA pendencias=1 gravadas=1 estado=EM_MONTAGEM faltou=e1:vidro')
         expect(calcular).toBe('[ETAPA 4 calcular] nao_chegou')
         expect(responder).toMatch(/^\[ETAPA 5 responder\] desfecho=perguntou enviou=sim /)
     })
@@ -4724,5 +4725,151 @@ describe('(39) observabilidade por etapa: coletar, casar, montar, calcular e res
         llmResponde({ itens: [] })
         await chamar('oi')
         expect(linhasDaEtapa().length - antes).toBe(5)
+    })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+/**
+ * (40) OS DOIS DEFEITOS MEDIDOS DE 06/11/2026 (dono do produto):
+ *   1. "1 Porta janelas de correr 2 folhas" e "1 janela maxim ar" saíram "2 unidade(s)" nas duas. MEDIDO: às 12:53 UTC a mensagem foi
+ *      reenviada inteira ao "Maria Cristina", que já tinha DP-39 ×1 e DP-01 ×1; a rota foi ALTERACAO, as duas esquadrias entraram de novo e o
+ *      agrupamento SOMOU (`agrupados=2`). A regra: "Mesma esquadria, quantidade dita. A quantidade dita SUBSTITUI, nunca soma. Para acrescentar
+ *      mais uma igual, o vendedor diz o total ("2 portas"). Não reconheça "mais" nem nenhuma outra palavra para decidir somar." E o log diz, por
+ *      esquadria, o caminho: GRAVADA_NOVA, SUBSTITUIU_QUANTIDADE ou IGNORADA_IGUAL.
+ *   2. Saiu "vidro vidro comum 6 mm incolor": o rótulo na frente de um valor que já traz o rótulo.
+ */
+describe('(40) o reenvio da mesma esquadria: a quantidade dita substitui, nunca soma; e o vidro com o rótulo uma vez', () => {
+    // a mensagem EXATA de 06/11/2026, 12:53 UTC
+    const MARIA = 'quero orçamento\n1 Porta janelas de correr 2 folhas com vidro comum 6 mm incolor 2,50 x 2,20\n1 janela maxim ar, mini boreal 60 x60\n\nCliente: Maria Cristina\nLocal: Porto Alegre'
+    // o que o modelo devolveu no reenvio: as duas esquadrias inteiras, com as tipologias já conhecidas (propostos=12)
+    const PORTA = { tipologia: 'DP-39', abertura: 'porta', largura_mm: 2500, altura_mm: 2200, quantidade: 1, vidro: 'vidro comum 6 mm incolor' }
+    const JANELA = { tipologia: 'DP-01', abertura: 'janela', largura_mm: 600, altura_mm: 600, quantidade: 1, vidro: 'mini boreal' }
+    const maria = () => levantamentos().find((l) => l.nome === 'Maria Cristina') as Linha
+    const quantidades = () => itensDe(maria().id).map((i) => [i.tipologia, i.quantidade])
+    const preparar = () => {
+        estado.db.orcamentista_motor_tipologia_detalhe.push({ tabela_id: null, motor_id: MOTOR, tipologia: 'DP-39', descricao: 'PORTA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 42', tipo: 'Correr', linha: 'PVC WOLFF EUROPA 42', alt_min_mm: 1736, alt_max_mm: 3036 })
+        estado.db.orcamentista_mp_categoria = [{ id: 'c-perfil', tenant_id: TENANT, categoria_chave: 'PERFIL', config: { serra_mm: 5, cores: ['Branco', 'Preto'], cor_predominante: 'BRANCO' } }]
+    }
+    /** O "Maria Cristina" COMPLETO com DP-39 ×1 e DP-01 ×1, e sem pergunta em aberto — o estado de 06/11/2026 antes das 12:53 (`aberta=-`). */
+    async function mariaGravada() {
+        preparar()
+        llmResponde({ cliente: 'Maria Cristina', itens: [{ ...PORTA }, { ...JANELA }] })
+        await chamar(MARIA)
+        estado.db.orcamentista_pergunta_em_aberto = []
+        expect(quantidades()).toEqual([['DP-39', 1], ['DP-01', 1]])
+    }
+    const fotoDosItens = () => itensDe(maria().id).map((i) => JSON.stringify(i))
+
+    it('(a) O CASO REAL: a mensagem de 06/11 12:53 reenviada inteira — o levantamento continua com DP-39 ×1 e DP-01 ×1, não 2; o apanhado diz 1 e 1; o log diz o caminho de cada uma', async () => {
+        await mariaGravada()
+        const antes = fotoDosItens()
+        llmResponde({ cliente: 'Maria Cristina', itens: [{ ...PORTA }, { ...JANELA }] })
+        await chamar(MARIA)
+        expect(quantidades()).toEqual([['DP-39', 1], ['DP-01', 1]])
+        expect(fotoDosItens()).toEqual(antes)
+        expect(linhaDa(ultimoEnviado(), 'Esquadria 1:')).toBe('Esquadria 1: DP-39, 1 unidade(s), 2.500 x 2.200 mm, vidro comum 6 mm incolor.')
+        expect(linhaDa(ultimoEnviado(), 'Esquadria 2:')).toBe('Esquadria 2: DP-01, 1 unidade(s), 600 x 600 mm, vidro mini boreal.')
+        const linha = linhaIa().pop() as string
+        expect(linha).toMatch(/ rota=ALTERACAO /)
+        expect(linha).toMatch(/ caminhos=e1:IGNORADA_IGUAL,e2:IGNORADA_IGUAL(\s|$)/)
+        expect(linha).toMatch(/ desfecho=apanhado /)
+    })
+
+    it('(b) o reenvio IDÊNTICO N vezes é idempotente: o levantamento fica igual ao de uma mensagem só — com a pergunta do apanhado em aberto ou sem ela', async () => {
+        await mariaGravada()
+        const deUmaMensagem = fotoDosItens()
+        for (let n = 0; n < 4; n++) {
+            if (n % 2 === 0) estado.db.orcamentista_pergunta_em_aberto = []
+            llmResponde({ cliente: 'Maria Cristina', itens: [{ ...PORTA }, { ...JANELA }] })
+            await chamar(MARIA)
+            expect([n, fotoDosItens()]).toEqual([n, deUmaMensagem])
+        }
+        expect(levantamentos().filter((l) => l.nome === 'Maria Cristina')).toHaveLength(1)
+    })
+
+    it('(c) "2 portas" depois de "1 porta" da mesma esquadria resulta em 2, não 3 — a quantidade dita substitui; e a que não diz quantas não mexe', async () => {
+        await mariaGravada()
+        llmResponde({ cliente: 'Maria Cristina', itens: [{ ...PORTA, quantidade: 2 }] })
+        await chamar('2 Portas janelas de correr 2 folhas com vidro comum 6 mm incolor 2,50 x 2,20\nCliente: Maria Cristina')
+        expect(quantidades()).toEqual([['DP-39', 2], ['DP-01', 1]])
+        expect(linhaIa().pop()).toMatch(/ caminhos=e1:SUBSTITUIU_QUANTIDADE(\s|$)/)
+        // a mesma porta sem quantidade dita (o 1 do padrão) não volta a 1: a gravada fica com 2
+        estado.db.orcamentista_pergunta_em_aberto = []
+        const semQuantidade: Record<string, unknown> = { ...PORTA }
+        delete semQuantidade.quantidade
+        llmResponde({ cliente: 'Maria Cristina', itens: [semQuantidade] })
+        await chamar('Porta janelas de correr 2 folhas com vidro comum 6 mm incolor 2,50 x 2,20\nCliente: Maria Cristina')
+        expect(quantidades()).toEqual([['DP-39', 2], ['DP-01', 1]])
+        expect(linhaIa().pop()).toMatch(/ caminhos=e1:IGNORADA_IGUAL(\s|$)/)
+        // e "mais 1" não soma: a palavra não decide nada — o modelo devolve a quantidade dita, 1, e ela substitui
+        estado.db.orcamentista_pergunta_em_aberto = []
+        llmResponde({ cliente: 'Maria Cristina', itens: [{ ...PORTA, quantidade: 1 }] })
+        await chamar('mais 1 Porta janelas de correr 2 folhas com vidro comum 6 mm incolor 2,50 x 2,20\nCliente: Maria Cristina')
+        expect(quantidades()).toEqual([['DP-39', 1], ['DP-01', 1]])
+    })
+
+    describe('pelo "sim" do ACRÉSCIMO (dono do produto, 06/11/2026: "o caminho de entrada não muda a regra")', () => {
+        /** A esquadria sem nome fica retida; o nome de um levantamento que existe pergunta antes de acrescentar; o "sim" acrescenta. */
+        async function peloAcrescimo(porta: Record<string, unknown>, texto: string) {
+            llmResponde({ itens: [porta] })
+            await chamar(texto)
+            expect(perguntas()).toEqual([expect.objectContaining({ pergunta: 'SEM_NOME' })])
+            llmResponde({ nome: 'Maria Cristina' })
+            await chamar('Maria Cristina')
+            expect(perguntas()).toEqual([expect.objectContaining({ pergunta: 'CONFIRMAR_ACRESCIMO', levantamentos: [maria().id] })])
+            expect(quantidades()).toEqual([['DP-39', 1], ['DP-01', 1]])
+            llmResponde({ confirma: true })
+            await chamar('sim')
+        }
+        const perguntas = () => estado.db.orcamentista_pergunta_em_aberto ?? []
+
+        it('a porta retida com "2" DITO entra pelo "sim" na gravada igual: 2, não 3 — SUBSTITUIU_QUANTIDADE', async () => {
+            await mariaGravada()
+            await peloAcrescimo({ ...PORTA, quantidade: 2 }, '2 Portas janelas de correr 2 folhas com vidro comum 6 mm incolor 2,50 x 2,20')
+            expect(quantidades()).toEqual([['DP-39', 2], ['DP-01', 1]])
+            expect(linhaIa().pop()).toMatch(/ caminhos=e1:SUBSTITUIU_QUANTIDADE(\s|$)/)
+        })
+
+        it('a porta retida SEM quantidade dita, ou com a MESMA, igual à gravada: não há o que acrescentar — a confirmação nem é perguntada, fica 1, nunca 2 — IGNORADA_IGUAL', async () => {
+            await mariaGravada()
+            const semQuantidade: Record<string, unknown> = { ...PORTA }
+            delete semQuantidade.quantidade
+            for (const [porta, texto] of [[semQuantidade, 'Porta janelas de correr 2 folhas com vidro comum 6 mm incolor 2,50 x 2,20'], [{ ...PORTA, quantidade: 1 }, '1 Porta janelas de correr 2 folhas com vidro comum 6 mm incolor 2,50 x 2,20']] as const) {
+                estado.db.orcamentista_pergunta_em_aberto = []
+                llmResponde({ itens: [porta] })
+                await chamar(texto)
+                expect(perguntas()).toEqual([expect.objectContaining({ pergunta: 'SEM_NOME' })])
+                llmResponde({ nome: 'Maria Cristina' })
+                await chamar('Maria Cristina')
+                // nada mudaria: a pergunta do acréscimo não sai, e a resposta é o apanhado do levantamento como está
+                expect(perguntas()).toEqual([expect.objectContaining({ pergunta: 'CONFIRMAR_APANHADO', levantamentos: [maria().id] })])
+                expect(quantidades()).toEqual([['DP-39', 1], ['DP-01', 1]])
+                expect(linhaIa().pop()).toMatch(/ caminhos=e1:IGNORADA_IGUAL(\s|$)/)
+            }
+        })
+    })
+
+    it('a esquadria DIFERENTE da gravada é nova (GRAVADA_NOVA), e o primeiro levantamento diz o caminho de cada uma', async () => {
+        preparar()
+        llmResponde({ cliente: 'Maria Cristina', itens: [{ ...PORTA }, { ...JANELA }] })
+        await chamar(MARIA)
+        expect(linhaIa().pop()).toMatch(/ caminhos=e1:GRAVADA_NOVA,e2:GRAVADA_NOVA(\s|$)/)
+        estado.db.orcamentista_pergunta_em_aberto = []
+        llmResponde({ cliente: 'Maria Cristina', itens: [{ ...JANELA, largura_mm: 800, altura_mm: 800 }] })
+        await chamar('1 janela maxim ar, mini boreal 80 x 80\nCliente: Maria Cristina')
+        expect(quantidades()).toEqual([['DP-39', 1], ['DP-01', 1], ['DP-01', 1]])
+        expect(linhaIa().pop()).toMatch(/ caminhos=e3:GRAVADA_NOVA(\s|$)/)
+    })
+
+    it('(2) o vidro com o rótulo UMA vez: o valor que já começa por "vidro" vai como está; o que não começa ganha o rótulo', async () => {
+        preparar()
+        llmResponde({ cliente: 'Maria Cristina', itens: [{ ...PORTA }, { ...JANELA }] })
+        await chamar(MARIA)
+        const apanhado = ultimoEnviado()
+        expect(linhaDa(apanhado, 'Esquadria 1:')).toBe('Esquadria 1: DP-39, 1 unidade(s), 2.500 x 2.200 mm, vidro comum 6 mm incolor.')
+        expect(linhaDa(apanhado, 'Esquadria 2:')).toBe('Esquadria 2: DP-01, 1 unidade(s), 600 x 600 mm, vidro mini boreal.')
+        expect(apanhado).not.toContain(`vidro ${PORTA.vidro}`)
+        // o gravado continua o que o vendedor escreveu: só o texto do apanhado não repete o rótulo
+        expect(itensDe(maria().id)[0].vidro).toBe('vidro comum 6 mm incolor')
     })
 })
