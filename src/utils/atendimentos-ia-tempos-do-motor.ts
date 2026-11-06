@@ -40,7 +40,7 @@ export type TempoLido = { tipologia: string; tempo_fabricacao_min: number; tempo
 export type TemposLidos = { ok: true; tempos: TempoLido[] } | { ok: false; erros: string[] }
 
 /** O cabeçalho reduzido: sem acento, sem caixa e com os espaços colapsados — só para ACHAR o parecido, nunca para aceitá-lo. */
-export const cabecalhoReduzido = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim()
+export const cabecalhoReduzido = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim()
 
 /** Caracteres como o banco os conta (`char_length`): por ponto de código, não por unidade UTF-16. */
 const caracteres = (s: string) => [...s].length

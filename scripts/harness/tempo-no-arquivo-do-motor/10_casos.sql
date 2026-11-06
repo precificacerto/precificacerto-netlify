@@ -47,7 +47,7 @@ $f$;
 do $$
 begin
   if (select pg_get_constraintdef(oid) from pg_constraint where conname = 'orcamentista_motor_tipologia_tempo_origem')
-     <> 'CHECK (((tempo_origem = btrim(tempo_origem)) AND ((char_length(tempo_origem) >= 1) AND (char_length(tempo_origem) <= 120))))' then
+     is distinct from 'CHECK (((tempo_origem = btrim(tempo_origem)) AND ((char_length(tempo_origem) >= 1) AND (char_length(tempo_origem) <= 120))))' then
     raise exception 'FALHOU caso T1: a CHECK'; end if;
   if exists (select to_jsonb(t) from public.orcamentista_motor_tipologia_tempo t except select to_jsonb(a) from public.h_tempos_antes_da_000001 a)
      or (select count(*) from public.orcamentista_motor_tipologia_tempo) <> (select count(*) from public.h_tempos_antes_da_000001)
@@ -68,12 +68,12 @@ begin
   begin
     r := public.h_criar(public.h_tp(3, jsonb_build_array(public.h_t('T1', 60, o), public.h_t('T2', 35, 'IMPORTADO'))));
     m := (r ->> 'motor_id')::uuid;
-    if (r ->> 'tempos')::int <> 2 or (r ->> 'detalhes')::int <> 3 then raise exception 'FALHOU caso T2: a contagem (%)', r; end if;
+    if (r ->> 'tempos')::int is distinct from 2 or (r ->> 'detalhes')::int is distinct from 3 then raise exception 'FALHOU caso T2: a contagem (%)', r; end if;
     if (select string_agg(tipologia || '=' || tempo_fabricacao_min || '|' || tempo_origem || '|' || coalesce(atualizado_por::text, '-') || '|' || coalesce(tabela_id::text, '-'), ';' order by tipologia)
           from public.orcamentista_motor_tipologia_tempo where motor_id = m)
-       <> 'T1=60|' || o || '|e0000000-0000-0000-0000-000000000001|-;T2=35|IMPORTADO|e0000000-0000-0000-0000-000000000001|-' then
+       is distinct from 'T1=60|' || o || '|e0000000-0000-0000-0000-000000000001|-;T2=35|IMPORTADO|e0000000-0000-0000-0000-000000000001|-' then
       raise exception 'FALHOU caso T2: as linhas'; end if;
-    if char_length(o) <> 85 or (select (depois ->> 'tempos')::int from public.superadmin_alteracao_log where tabela = 'orcamentista_motor' and chave = m::text and antes is null) <> 2 then
+    if char_length(o) <> 85 or (select (depois ->> 'tempos')::int from public.superadmin_alteracao_log where tabela = 'orcamentista_motor' and chave = m::text and antes is null) is distinct from 2 then
       raise exception 'FALHOU caso T2: o log'; end if;
     raise exception 'desfazer' using errcode = 'P0099';
   exception when sqlstate 'P0099' then null;
@@ -88,7 +88,7 @@ begin
   begin
     r1 := public.h_criar(public.h_tp(2, null));
     r2 := public.h_criar(public.h_tp(2, '[]'::jsonb));
-    if (r1 ->> 'tempos')::int <> 0 or (r2 ->> 'tempos')::int <> 0
+    if (r1 ->> 'tempos')::int is distinct from 0 or (r2 ->> 'tempos')::int is distinct from 0
        or exists (select 1 from public.orcamentista_motor_tipologia_tempo where motor_id in ((r1 ->> 'motor_id')::uuid, (r2 ->> 'motor_id')::uuid)) then
       raise exception 'FALHOU caso T3: % / %', r1, r2; end if;
     raise exception 'desfazer' using errcode = 'P0099';
@@ -125,7 +125,7 @@ begin
   end loop;
   if public.h_estado() <> e then raise exception 'FALHOU caso T4: algo foi gravado'; end if;
   begin
-    if (public.h_criar(public.h_tp(1, jsonb_build_array(public.h_t('T1', 2147483647, o120)))) ->> 'tempos')::int <> 1 then raise exception 'FALHOU caso T4: 120 caracteres e o maior integer'; end if;
+    if (public.h_criar(public.h_tp(1, jsonb_build_array(public.h_t('T1', 2147483647, o120)))) ->> 'tempos')::int is distinct from 1 then raise exception 'FALHOU caso T4: 120 caracteres e o maior integer'; end if;
     raise exception 'desfazer' using errcode = 'P0099';
   exception when sqlstate 'P0099' then null;
   end;
@@ -192,10 +192,10 @@ begin
     select string_agg(t::text, '|' order by t.tipologia) into antes from public.orcamentista_motor_tipologia_tempo t where t.motor_id = m;
     r := public.h_trocar(m, public.h_tp(3, jsonb_build_array(public.h_t('T1', 61, 'cronometrado em fábrica'), public.h_t('T2', 36, 'IMPORTADO'), public.h_t('T3', 90, 'IMPORTADO'))));
     novo := (r ->> 'motor_id')::uuid;
-    if (r ->> 'tempos')::int <> 3 or (r ->> 'motor_antigo')::uuid <> m
+    if (r ->> 'tempos')::int is distinct from 3 or (r ->> 'motor_antigo')::uuid is distinct from m
        or (select string_agg(tipologia || '=' || tempo_fabricacao_min || '|' || tempo_origem, ';' order by tipologia) from public.orcamentista_motor_tipologia_tempo where motor_id = novo)
-          <> 'T1=61|cronometrado em fábrica;T2=36|IMPORTADO;T3=90|IMPORTADO'
-       or (select string_agg(t::text, '|' order by t.tipologia) from public.orcamentista_motor_tipologia_tempo t where t.motor_id = m) <> antes
+          is distinct from 'T1=61|cronometrado em fábrica;T2=36|IMPORTADO;T3=90|IMPORTADO'
+       or (select string_agg(t::text, '|' order by t.tipologia) from public.orcamentista_motor_tipologia_tempo t where t.motor_id = m) is distinct from antes
        or (select arquivado_em from public.orcamentista_motor where id = m) is null then raise exception 'FALHOU caso T8: %', r; end if;
     raise exception 'desfazer' using errcode = 'P0099';
   exception when sqlstate 'P0099' then null;
@@ -210,7 +210,7 @@ begin
   begin
     m := (public.h_criar(public.h_tp(2, jsonb_build_array(public.h_t('T1', 60, 'A'), public.h_t('T2', 35, 'B')))) ->> 'motor_id')::uuid;
     r := public.h_trocar(m, public.h_tp(1, jsonb_build_array(public.h_t('T1', 60, 'A'))));
-    if (r ->> 'tempos')::int <> 1 or (select count(*) from public.orcamentista_motor_tipologia_tempo where motor_id = m) <> 2 then raise exception 'FALHOU caso T9: %', r; end if;
+    if (r ->> 'tempos')::int is distinct from 1 or (select count(*) from public.orcamentista_motor_tipologia_tempo where motor_id = m) is distinct from 2 then raise exception 'FALHOU caso T9: %', r; end if;
     raise exception 'desfazer' using errcode = 'P0099';
   exception when sqlstate 'P0099' then null;
   end;
@@ -241,7 +241,7 @@ begin
     m := (public.h_criar(public.h_tp(2, null)) ->> 'motor_id')::uuid;
     r1 := public.h_trocar(m, public.h_tp(2, null));
     r2 := public.h_trocar((r1 ->> 'motor_id')::uuid, public.h_tp(2, jsonb_build_array(public.h_t('T1', 60, 'A'), public.h_t('T2', 35, 'B'))));
-    if (r1 ->> 'tempos')::int <> 0 or (r2 ->> 'tempos')::int <> 2 then raise exception 'FALHOU caso T11: % / %', r1, r2; end if;
+    if (r1 ->> 'tempos')::int is distinct from 0 or (r2 ->> 'tempos')::int is distinct from 2 then raise exception 'FALHOU caso T11: % / %', r1, r2; end if;
     raise exception 'desfazer' using errcode = 'P0099';
   exception when sqlstate 'P0099' then null;
   end;
