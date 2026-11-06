@@ -1744,7 +1744,7 @@ em quatro formas; `perguntasDaTipologia` nas quatro combinações e na conversa;
 blocos (2), (4), (22) e (32) ajustados à regra nova; o banco falso sem o índice (`violaUnica`) e carimbando `atualizado_em` no INSERT, como em produção.
 Mutações do código em `scripts/harness/levantamento-por-nome/mutacoes-maria.py`.
 
-## A observabilidade por etapa: cinco linhas por turno, o que entrou, o que saiu e o que faltou — dono do produto, 06/11/2026 (sem migração)
+## A observabilidade por etapa: cinco linhas por turno, o que entrou, o que saiu e o que faltou — dono do produto, 05/11/2026 (sem migração)
 
 Formulação do dono do produto, registrada como está:
 
@@ -1770,3 +1770,38 @@ Formulação do dono do produto, registrada como está:
   turno sem nome, cinco por turno); o resumo em `levantamento-da-conversa.test.ts`; a variável em `levantamento-de-barras.test.ts`; mutações em
   `scripts/harness/levantamento-por-nome/mutacoes-etapas.py`.
 
+## O tempo de fabricação vem no ARQUIVO do motor — dono do produto, 05/11/2026 (migração `20261106000001`, PENDENTE até o dono do produto aplicar)
+
+Paga a dívida de 27/10/2026 ("o tempo de fabricação de cada tipologia virá na tabela das tipologias [...] tudo dentro do motor, em uma coluna
+específica"). Formulação do dono do produto, registrada como está:
+
+> "Aba "Detalhe Tipologias", cabeçalho exato: Tempo fabricação (min) — Minutos inteiros, por unidade de esquadria. — Vazio = não informado: sem linha
+> de tempo, mão de obra "não sai", nomeada. Vazio NUNCA vira 0. — Zero, negativo ou texto: recusa nomeando linha e coluna. — tempo_origem = IMPORTADO.
+> Acrescente uma coluna irmã, opcional: Origem do tempo. Quando preenchida, vai para tempo_origem no lugar de IMPORTADO [...] Vazia, usa IMPORTADO."
+> E as três decisões por pergunta: "troca de arquivo que perderia tempos é RECUSADA e nomeada; origem é texto livre de 1 a 120 caracteres, vazia vira
+> IMPORTADO; cabeçalho parecido é recusado nomeando o que achou e o que esperava." (O limite era 60; o dono do produto o subiu a 120: "a maior tem 85
+> caracteres".)
+
+- **O leitor** (`src/utils/atendimentos-ia-tempos-do-motor.ts`, chamado por `lerOMotor`): as duas colunas são OPCIONAIS e lidas pelo nome, em qualquer
+  posição; o tempo vai para `orcamentista_motor_tipologia_tempo`, não para a Detalhe (a linha da Detalhe não ganha coluna). Recusas, todas de uma vez e
+  junto com as das abas, nomeando a linha e a coluna: zero, negativo, decimal, texto (também "60"), data, fórmula sem resultado, erro do Excel, acima
+  do maior `integer`; a origem acima de 120 caracteres (contados por caractere, como `char_length`); **leitura do assistente, dita no PR:** a origem
+  preenchida numa linha SEM tempo, e o tempo numa linha sem o Código. Cabeçalho que, sem acento, caixa e espaço sobrando, é igual a um dos dois e não
+  é o exato: recusa nomeando o achado e o esperado. O padrão `IMPORTADO` mora **só no leitor** (a função exige a origem preenchida).
+- **A função** `superadmin_criar_motor` aceita a lista `tempos` (opcional: o código de antes não a manda), confere cada um (tipologia de uma linha da
+  Detalhe, sem repetir; minutos de 1 ao maior integer; a origem como a CHECK), grava por `motor_id` com o autor, loga e **devolve a contagem**. A rota
+  confere a contagem (`LISTAS_DO_MOTOR_DA_ETAPA` ganhou `tempos`): a função de antes da migração não a devolve, e a resposta é 500 com os dois lados —
+  nunca sucesso com o tempo descartado (o motor fica criado; a função já fez COMMIT).
+- **A troca de arquivo que perderia tempo é RECUSADA** (`superadmin_trocar_arquivo_do_motor`, antes de qualquer escrita, com o antigo travado): o
+  antigo tem tempo numa tipologia que o arquivo novo traz na Detalhe sem tempo — coluna ausente ou célula vazia. A recusa nomeia até dez tipologias e
+  diz quantas sobram. **Leitura do assistente, dita no PR:** a tipologia que SAIU do arquivo não conta como perda (o motor novo não a tem). Os tempos do
+  antigo ficam nele, intactos.
+- **A CHECK** `orcamentista_motor_tipologia_tempo_origem` passa de `('ESTIMADO', 'IMPORTADO')` a texto de 1 a 120 caracteres sem espaço nas pontas;
+  os dois valores de antes continuam válidos. A origem aparece ao vendedor no levantamento ("600 min por unidade (cronometrado em fábrica)").
+- **A tabela com motor colado (legado; 0 em produção em 06/11/2026)** recusa o arquivo com tempo: a importação da tabela grava por `tabela_id` e não
+  grava tempo — o tempo entra só pelo catálogo de motores.
+- **Medido em produção em 06/11/2026 (só leitura):** 1 motor (`20f66b59…`, 164 tipologias), 0 tempos; os corpos das duas funções com o md5 da
+  `20261029000005` (sem o `\r`). Como o motor de hoje não tem tempo, a primeira troca de arquivo nunca é recusada.
+- **Prova:** `scripts/harness/tempo-no-arquivo-do-motor/` (a base de `nome-do-motor-e-arquivar`, a migração duas vezes, 11 casos, 5 guardas, o
+  contraste dos corpos em CRLF; `mutacoes.py` e `mutacoes-codigo.py`); `atendimentos-ia-tempos-do-motor.test.ts`, o bloco (9) das rotas e os portões
+  de `atendimentos-ia-catalogo-de-motores.test.ts`, que passaram a ler a última migração que escreve a função.

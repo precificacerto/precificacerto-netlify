@@ -248,7 +248,7 @@ describe('(7) a função das etapas da família-instância, como a ÚLTIMA migra
         expect(funcaoH('nao_existe')).toBe('')
         expect(ultimaQueDefine('superadmin_gravar_etapas_da_materia_prima')).toBe('20261031000002_etapa_no_catalogo.sql')
         expect(ultimaQueDefine('superadmin_arquivar_motor')).toBe('20261031000002_etapa_no_catalogo.sql')
-        expect(ultimaQueDefine('superadmin_criar_motor')).toBe('20261029000005_nome_do_motor_e_arquivar_em_uso.sql')
+        expect(ultimaQueDefine('superadmin_criar_motor')).toBe('20261106000001_tempo_de_fabricacao_no_arquivo_do_motor.sql')
     })
 
     it('EXCLUIR ETAPA (30/10/2026): a que não veio na lista sai, com log por etapa e a empresa; a recusa antiga não existe mais', () => {

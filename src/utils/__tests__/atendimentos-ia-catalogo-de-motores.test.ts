@@ -37,6 +37,8 @@ type Celulas = Record<number, ExcelJS.CellValue>
 const MIGRACAO = readFileSync(join(__dirname, '../../../supabase/migrations/20261028000001_familia_instancia_e_catalogo_de_motores.sql'), 'utf8')
 const MIGRACAO_DE_N_FAMILIAS = readFileSync(join(__dirname, '../../../supabase/migrations/20261029000003_motor_para_n_familias.sql'), 'utf8')
 const MIGRACAO_DO_NOME = readFileSync(join(__dirname, '../../../supabase/migrations/20261029000005_nome_do_motor_e_arquivar_em_uso.sql'), 'utf8')
+/** A ÚLTIMA migração que escreve `superadmin_criar_motor` (o payload e as contagens devolvidas são os dela, não os da primeira). */
+const MIGRACAO_DOS_TEMPOS = readFileSync(join(__dirname, '../../../supabase/migrations/20261106000001_tempo_de_fabricacao_no_arquivo_do_motor.sql'), 'utf8')
 
 async function bytes(abas: Record<string, Array<Celulas | null>>): Promise<Uint8Array> {
     const wb = new ExcelJS.Workbook()
@@ -110,12 +112,15 @@ describe('(1) o leitor do arquivo do motor SOZINHO é o mesmo leitor da importa�
 })
 
 describe('(2) o payload é o que a função exige', () => {
-    it('as chaves do payload são EXATAMENTE as listas e objetos que a função confere na migração', async () => {
+    it('as chaves do payload são EXATAMENTE as listas e objetos que a função confere na ÚLTIMA migração que a escreve', async () => {
         // 'itens' também aparece, mas para RECUSAR (o motor da família não leva preço): não é chave exigida
-        const doSql = [...MIGRACAO.matchAll(/jsonb_typeof\(p_payload->'([a-z_]+)'\)/g)].map((m) => m[1]).filter((k) => k !== 'itens')
+        const criar = MIGRACAO_DOS_TEMPOS.slice(MIGRACAO_DOS_TEMPOS.indexOf('CREATE OR REPLACE FUNCTION public.superadmin_criar_motor('))
+        const corpo = criar.slice(0, criar.indexOf('$fn$;'))
+        const doSql = [...corpo.matchAll(/jsonb_typeof\(p_payload->'([a-z_]+)'\)/g)].map((m) => m[1]).filter((k) => k !== 'itens')
         const doTs = Object.keys(montarPayloadDoMotor(await ler()))
-        expect(doSql.length).toBeGreaterThanOrEqual(14)
+        expect(doSql.length).toBeGreaterThanOrEqual(15)
         expect([...new Set(doSql)].sort()).toEqual([...doTs].sort())
+        expect(doTs).toContain('tempos')
     })
 
     it('não leva itens de preço nem o autor (o autor vai em p_por, da sessão)', async () => {
@@ -125,11 +130,12 @@ describe('(2) o payload é o que a função exige', () => {
         expect(p.contagens).toEqual({ regras: 2, tipologias: 2, normalizados: 0 })
     })
 
-    it('as listas conferidas são as que a função DEVOLVE contadas, e são as doze (o mesmo conjunto da importação, sem itens)', () => {
-        const criar = MIGRACAO.slice(MIGRACAO.indexOf('CREATE OR REPLACE FUNCTION public.superadmin_criar_motor('))
+    it('as listas conferidas são as que a função DEVOLVE contadas: as doze da importação, sem itens, mais os TEMPOS (20261106000001)', () => {
+        const criar = MIGRACAO_DOS_TEMPOS.slice(MIGRACAO_DOS_TEMPOS.indexOf('CREATE OR REPLACE FUNCTION public.superadmin_criar_motor('))
         const devolvidas = criar.slice(criar.indexOf('RETURN jsonb_build_object(')).split('END')[0]
         for (const k of LISTAS_DO_MOTOR_DA_ETAPA) expect(devolvidas).toContain(`'${k}'`)
-        expect(LISTAS_DO_MOTOR_DA_ETAPA).toHaveLength(12)
+        expect(LISTAS_DO_MOTOR_DA_ETAPA).toHaveLength(13)
+        expect(LISTAS_DO_MOTOR_DA_ETAPA).toContain('tempos')
         expect(LISTAS_DO_MOTOR_DA_ETAPA).not.toContain('itens')
     })
 })
@@ -273,12 +279,16 @@ describe('(5) os corpos, a ordem do combo e as frases', () => {
         expect(fraseDoMotorQueNaoFoiGravado('23505')).toContain('código 23505')
     })
 
-    it('a frase do motor criado: plural certo, sem etapa apontada e sem tempo', () => {
+    it('a frase do motor criado: plural certo, sem etapa apontada, e os tempos só quando a rota os conta', () => {
         expect(fraseDoMotorCriado({ regras: 1, tipologias: 1, detalhes: 1 })).toContain('1 tipologia e 1 regra.')
         const f = fraseDoMotorCriado({ regras: 12116, tipologias: 157, detalhes: 164 })
         expect(f).toContain('164 tipologias e 12.116 regras')
         expect(f).toContain('Nenhuma etapa o aponta ainda')
-        expect(f).toContain('sem tempo')
+        // sem a contagem (a rota de antes da 20261106000001), nada é dito sobre os tempos — nem "nasce sem tempo"
+        expect(f).not.toContain('tempo')
+        expect(fraseDoMotorCriado({ regras: 12116, tipologias: 157, detalhes: 164, tempos: 164 })).toContain('164 tipologias vieram com tempo de fabricação.')
+        expect(fraseDoMotorCriado({ regras: 9, tipologias: 3, detalhes: 3, tempos: 2 })).toContain('2 tipologias vieram com tempo de fabricação; 1 sem tempo (a mão de obra delas não sai).')
+        expect(fraseDoMotorCriado({ regras: 9, tipologias: 3, detalhes: 3, tempos: 0 })).toContain('Nenhuma tipologia veio com tempo de fabricação')
     })
 })
 

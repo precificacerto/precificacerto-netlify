@@ -9,7 +9,9 @@
  * (`<fornecedor>/motor/…`), o navegador manda os bytes, e `POST motores` lê o objeto e chama `superadmin_criar_motor`, que confere o
  * MESMO prefixo. Os bytes não passam pelas rotas.
  *
- * O motor novo NASCE SEM TEMPO e sem etapa: quem o aponta é a etapa, na base de conhecimento da conta.
+ * O motor novo nasce sem etapa: quem o aponta é a etapa, na base de conhecimento da conta. O TEMPO de fabricação vem do arquivo, nas colunas
+ * "Tempo fabricação (min)" e "Origem do tempo" da aba "Detalhe Tipologias" (20261106000001, `atendimentos-ia-tempos-do-motor.ts`); a tipologia sem
+ * tempo no arquivo nasce sem tempo, e a mão de obra dela não sai.
  *
  * O MOTOR SERVE N FAMÍLIAS E UMA CATEGORIA (dono do produto, 29/10/2026; migração 20261029000003, que substitui a "família só no Perfil" da
  * 20261029000002): "A gente define, bota o arquivo do motor, a qual categoria ele pertence e para quais famílias ele atua." As famílias moram na
@@ -28,6 +30,7 @@
  * lista delas (empresa / família / número / rótulo) para a tela dizer onde repor.
  */
 import { arquivoImportavel, ehUuid, fraseDoArquivoNaoImportavel } from '@/utils/atendimentos-ia-catalogo'
+import { fraseDosTempos } from '@/utils/atendimentos-ia-tempos-do-motor'
 
 const RAIZ = '/api/super-admin/atendimentos-ia/motores'
 
@@ -193,9 +196,11 @@ export function lerCorpoDaEdicao(body: unknown): Leitura<{ motor_id: string; for
 }
 
 /** "Arquivo trocado: …" — o motor novo (com o mesmo nome), as famílias que passaram a ele e o antigo arquivado. */
-export function fraseDoArquivoTrocado(r: { tipologias: number; etapas_reapontadas: number }): string {
+export function fraseDoArquivoTrocado(r: { tipologias: number; etapas_reapontadas: number; detalhes?: number; tempos?: number }): string {
     const etapas = r.etapas_reapontadas === 0 ? 'nenhuma etapa usava o motor' : `${r.etapas_reapontadas} etapa(s) passaram ao motor novo`
-    return `Arquivo trocado: motor novo, com o mesmo nome e ${r.tipologias} tipologia(s); ${etapas}; o antigo foi arquivado, com o conteúdo intacto.`
+    const tip = r.detalhes ?? r.tipologias
+    return `Arquivo trocado: motor novo, com o mesmo nome e ${tip} tipologia(s); ${etapas}; o antigo foi arquivado, com o conteúdo intacto.`
+        + (typeof r.tempos === 'number' ? ` ${fraseDosTempos(r.tempos, tip)}` : '')
 }
 /**
  * Por que categoria e fornecedor estão travados na edição: só se editam em motor SEM USO (dono do produto, 29/10/2026). As famílias e o nome se
@@ -224,11 +229,15 @@ export function fraseDoMotorQueNaoFoiGravado(codigo: string | null): string {
     return `O motor não foi gravado. ${nada}`
 }
 
-/** O que a tela diz quando o motor foi criado: quantas tipologias e regras entraram, e a lembrança dos tempos e da etapa. */
-export function fraseDoMotorCriado(r: { regras: number; tipologias: number; detalhes?: number }): string {
+/**
+ * O que a tela diz quando o motor foi criado: quantas tipologias e regras entraram, quantas com tempo de fabricação, e a lembrança da etapa. Sem a
+ * contagem dos tempos (a rota de antes da 20261106000001), nada é dito sobre eles (`ausente-vs-falso.md`).
+ */
+export function fraseDoMotorCriado(r: { regras: number; tipologias: number; detalhes?: number; tempos?: number }): string {
     const tip = r.detalhes ?? r.tipologias
     return `Motor criado no catálogo: ${tip.toLocaleString('pt-BR')} ${tip === 1 ? 'tipologia' : 'tipologias'} e ${r.regras.toLocaleString('pt-BR')} ${r.regras === 1 ? 'regra' : 'regras'}. `
-        + 'Nenhuma etapa o aponta ainda: escolha-o na etapa da família, na base de conhecimento da conta. Os tempos de fabricação não vêm no arquivo: este motor nasce sem tempo.'
+        + (typeof r.tempos === 'number' ? `${fraseDosTempos(r.tempos, tip)} ` : '')
+        + 'Nenhuma etapa o aponta ainda: escolha-o na etapa da família, na base de conhecimento da conta.'
 }
 
 /** "Wolf · Perfil · Motor_Wolf_PVC" — como o motor aparece no combo da etapa e nas frases: pelo NOME (20261029000005), não pelo arquivo. */
