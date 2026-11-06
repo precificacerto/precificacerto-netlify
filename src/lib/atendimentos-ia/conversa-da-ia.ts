@@ -195,7 +195,7 @@ import { LIMITE_DA_FALA } from '@/utils/atendimentos-ia-contexto'
 import { blocoDasInstrucoes, lerInstrucoesDaEmpresa, type InstrucaoDaCategoria } from '@/lib/atendimentos-ia/instrucoes-da-categoria'
 import { blocoDasInstrucoesDasEtapas, type InstrucaoDaEtapa } from '@/lib/atendimentos-ia/motor-da-familia'
 import { aberturaDita, filtrarPeloAcumulado, filtrarPorAbertura, fraseDaAberturaRecusada, fraseDeNenhumaTipologiaCabe, palavrasDeAbertura } from '@/lib/atendimentos-ia/tipologias-candidatas'
-import { escolhasParaOPrompt, opcoesDeArremateNoPrompt, lerEscolhasDoItem, lerEscolhasGravadas, temEscolhaDoVendedor } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
+import { escolhasParaOPrompt, opcoesDeArremateNoPrompt, lerEscolhasDoItem, lerEscolhasGravadas, temEscolhaDoVendedor, variaveisSemPadraoNoPrompt, variaveisSemPadraoParaOPrompt } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import { permissaoDoRemetente, type Permissao } from '@/lib/atendimentos-ia/permissao-do-remetente'
 import { fraseDoApanhado } from '@/lib/atendimentos-ia/apanhado'
 import {
@@ -538,6 +538,8 @@ type ContextoDoPrompt = {
     hoje: string | null
     /** As escolhas de arremate de cada tipologia com as abas: código e números, só para a LLM. */
     escolhasPorTipologia: Array<{ tipologia: string; linhas: string[] }>
+    /** As variáveis SEM PADRÃO de cada tipologia (06/11/2026): código e descrição, só para a LLM; vazia, nenhuma seção. */
+    variaveisSemPadraoPorTipologia: Array<{ tipologia: string; linhas: string[] }>
     /** As instruções das categorias PREENCHIDAS (03/11/2026); vazia, nenhuma seção. */
     instrucoes: readonly InstrucaoDaCategoria[]
     /** A instrução da etapa CORRENTE de cada família (a de GERAR_LEVANTAMENTO), só as preenchidas (04/11/2026); vazia, nenhuma seção. */
@@ -599,6 +601,8 @@ function sistema(c: ContextoDoPrompt): SistemaDoPedido {
         '',
         'Escolhas de arremate (USO INTERNO — código = descrição: número = opção). Cada linha de opções vai UMA vez, com o número entre colchetes; a tipologia diz quais usa:',
         ...opcoesDeArremateNoPrompt(c.escolhasPorTipologia),
+        // as variáveis sem padrão (06/11/2026): só quando alguma tipologia tem — nenhuma linha quando não há
+        ...variaveisSemPadraoNoPrompt(c.variaveisSemPadraoPorTipologia),
         // a instrução de cada categoria preenchida (03/11/2026): nenhuma linha quando não há
         ...(c.instrucoes.length ? ['', ...blocoDasInstrucoes(c.instrucoes)] : []),
         // a instrução da etapa corrente (04/11/2026): só a da etapa que fala com o modelo, só quando preenchida — nenhuma linha quando não há
@@ -1174,6 +1178,11 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             const linhas = def ? escolhasParaOPrompt(def) : []
             return linhas.length ? [{ tipologia: variasFamilias ? `${x.tipologia} de ${x.rotulo}` : x.tipologia, linhas }] : []
         })
+        const variaveisSemPadraoPorTipologia = tabela.candidatos.flatMap((x) => {
+            const def = definicao({ tipologia: x.tipologia, familia: x.familia })
+            const linhas = def ? variaveisSemPadraoParaOPrompt(def) : []
+            return linhas.length ? [{ tipologia: variasFamilias ? `${x.tipologia} de ${x.rotulo}` : x.tipologia, linhas }] : []
+        })
         // o contexto, o histórico e as instruções já lidos na primeira onda: o rastro só os anota com a lista de tipologias em mãos
         rastro.contexto = contexto.estado
         blocoDaEmpresa = contexto.texto === null ? null : blocoDoContexto(contexto.texto).join('\n')
@@ -1186,7 +1195,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         rastro.instrucoesDasEtapas = instrucoesDasEtapas.length
         const resposta = await chamarLlm(chave, c.texto, {
             contexto: contexto.texto, instrucoes: instrucoes.instrucoes, instrucoesDasEtapas,
-            candidatos: candidatosDoPrompt, variasFamilias, cores, escolhasPorTipologia,
+            candidatos: candidatosDoPrompt, variasFamilias, cores, escolhasPorTipologia, variaveisSemPadraoPorTipologia,
             montagem: emMontagem ? { nome: emMontagem.nome, itens: itensDaMontagem.map(camposParaOPrompt) } : null,
             perguntaEmAberto: pendenciaAberta ? perguntaDasPendencias(pendenciasAbertas, itensDaMontagem.length, null, filtro.jaDito) : aberta?.paraOPrompt ?? aberta?.texto ?? null,
             hoje: !pendenciaAberta && aberta && ehResgate(aberta.p) ? dataBR(new Date().toISOString()) : null,
@@ -1478,7 +1487,8 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         const pendencias = pendenciasDoLevantamento(aplicada.itens, definicao, doCodigo)
         const pendencia = pendencias[0] ?? null
         // ETAPA 3 (06/11/2026): a montagem — a rota, as esquadrias, o que ainda falta (a mesma lista que a pergunta cobre) e o que se gravou
-        const faltaNaMontagem = pendencias.map((p) => (p.tipo === 'CAMPO' ? `e${p.ordem}:${campoNoLog(p.campo)}` : p.tipo === 'FAMILIA' ? `e${p.ordem}:familia` : `e${p.ordem}:escolha:${p.pendente.variavel}`))
+        const faltaNaMontagem = pendencias.map((p) => (p.tipo === 'CAMPO' ? `e${p.ordem}:${campoNoLog(p.campo)}` : p.tipo === 'FAMILIA' ? `e${p.ordem}:familia`
+            : p.tipo === 'VARIAVEL' ? `e${p.ordem}:variavel:${p.variavel.variavel}` : `e${p.ordem}:escolha:${p.pendente.variavel}`))
         const montagemNoLog = (gravadas: number) => `rota=${rastro.rota} esquadrias=${aplicada.itens.length} agrupadas=${agrupamento.fundidos} caminhos=${listaNoLog(rastro.caminhos)} pendencias=${pendencias.length}`
             + ` gravadas=${gravadas} estado=${gravadas > 0 ? (pendencia ? EM_MONTAGEM : COMPLETO) : '-'} faltou=${listaNoLog(faltaNaMontagem)}`
         rastro.etapas.montar = montagemNoLog(0)

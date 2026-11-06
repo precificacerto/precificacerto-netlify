@@ -4873,3 +4873,132 @@ describe('(40) o reenvio da mesma esquadria: a quantidade dita substitui, nunca 
         expect(itensDe(maria().id)[0].vidro).toBe('vidro comum 6 mm incolor')
     })
 })
+
+describe('(41) a variável SEM PADRÃO vira pergunta ao vendedor: lida do motor, por tipologia; nunca inventada, nunca zero, nunca de outra esquadria', () => {
+    const ABAS_POR_TIPOLOGIA = ['orcamentista_motor_formula', 'orcamentista_motor_perfil', 'orcamentista_motor_vidro', 'orcamentista_motor_baguete', 'orcamentista_motor_variavel', 'orcamentista_motor_validacao']
+    const DP04 = { ...DP02, tipologia: 'DP-04' }
+    const MSG_DP04 = 'Levantamento Obra Bandeira: DP-04 1200 x 1000, branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50'
+    const PERGUNTA_DA_BANDEIRA = 'Falta, na DP-04: altura da bandeira (em mm). Qual é o valor?'
+    const montarDoTurno = () => erros.filter((l) => l.startsWith('[ETAPA 3 montar]')).slice(-1)[0]
+    const sistemaDe = (k: number) => textoDoSistema(estado.chamadasDaLlm[k].corpo.system)
+    const itens = () => itensDe(levantamentos()[0].id)
+    /**
+     * A DP-04 do banco falso: a DP-02 copiada (as abas, as regras e o tempo), com UMA variável a mais, AF — "ALTURA DA BANDEIRA", sem Padrão e
+     * sem Opções, como as 63 linhas medidas no motor fdff3386 em 06/11/2026 —, e um perfil cortado na medida AF: sem o valor, o cálculo não sai.
+     */
+    function comDp04(padraoDaAf: string | null = null, condicaoDaAf = 'sempre', padraoDoHi: string | null = null) {
+        const db = estado.db
+        for (const t of ABAS_POR_TIPOLOGIA) {
+            db[t].push(...db[t].filter((l) => l.tipologia === 'DP-02').map((l) => ({ ...l, ...(l.id ? { id: `${String(l.id)}-dp04` } : {}), tipologia: 'DP-04' })))
+        }
+        const detalhe = db.orcamentista_motor_tipologia_detalhe.find((d) => d.tipologia === 'DP-02') as Linha
+        db.orcamentista_motor_tipologia_detalhe.push({ ...detalhe, tipologia: 'DP-04', descricao: 'JANELA DE CORRER 02 FOLHAS MÓVEIS COM BANDEIRA | EUROPA 42' })
+        const variavel = db.orcamentista_motor_variavel.find((v) => v.tipologia === 'DP-04') as Linha
+        db.orcamentista_motor_variavel.push({ ...variavel, id: 'var-dp04-af', variavel: 'AF', descricao: 'ALTURA DA BANDEIRA', padrao: padraoDaAf, min_max: null, condicao: condicaoDaAf, opcoes: null })
+        // o HI como está nas 12 tipologias de AF "(HI=1)" do motor (06/11/2026): opção única "1 = CIENTE", padrão 1, "sempre"
+        if (padraoDoHi !== null) {
+            db.orcamentista_motor_variavel.push({ ...variavel, id: 'var-dp04-hi', variavel: 'HI', descricao: 'A ALTURA TOTAL H DEVE CORRESPONDER À IMAGEM.', padrao: padraoDoHi, min_max: null, condicao: 'sempre', opcoes: '1 = CIENTE' })
+        }
+        const perfil = db.orcamentista_motor_perfil.find((p) => p.tipologia === 'DP-04' && p.condicao === 'sempre') as Linha
+        db.orcamentista_motor_perfil.push({ ...perfil, id: 'perf-dp04-af', medida: 'AF', qtd: '1', posicao: 'Altura' })
+        db.orcamentista_motor_regra = db.orcamentista_motor_regra.map((r) => ({ ...r, tipologias: [...(r.tipologias as string[]), 'DP-04'] }))
+        db.orcamentista_motor_tipologia_tempo.push({ tabela_id: null, motor_id: MOTOR, tipologia: 'DP-04', tempo_fabricacao_min: 300, tempo_origem: 'ESTIMADO' })
+    }
+    async function abrirDp04() {
+        comDp04()
+        llmResponde({ nome: 'Obra Bandeira', itens: [{ ...DP04 }], escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar(MSG_DP04)
+    }
+
+    it('DP-04 sem a altura da bandeira NÃO vira esquadria completa: fica EM_MONTAGEM, sem valor inventado, e a pergunta nomeia a variável e a esquadria', async () => {
+        await abrirDp04()
+        expect(levantamentos().map((l) => [l.nome, l.estado])).toEqual([['Obra Bandeira', 'EM_MONTAGEM']])
+        expect(itens()).toHaveLength(1)
+        // nenhum valor para AF: nem zero, nem o de outra coisa — só as escolhas de arremate ditas
+        expect(itens()[0].escolhas).toEqual({ ARI: 4, MAE: 2 })
+        expect(ultimoEnviado()).toBe(PERGUNTA_DA_BANDEIRA)
+        // o código da variável é interno: nunca vai ao vendedor
+        expect(ultimoEnviado()).not.toMatch(/\bAF\b/)
+        expect(montarDoTurno()).toBe('[ETAPA 3 montar] rota=NOVO esquadrias=1 agrupadas=0 caminhos=e1:GRAVADA_NOVA pendencias=1 gravadas=1 estado=EM_MONTAGEM faltou=e1:variavel:AF')
+    })
+
+    it('o valor dito entra na esquadria, que fica completa (o apanhado sai), e chega ao CÁLCULO: o perfil cortado em AF sai com o "sim"', async () => {
+        await abrirDp04()
+        llmResponde({ escolhas: [{ variavel: 'AF', opcao: 400 }] })
+        await chamar('a bandeira tem 400')
+        expect(itens()[0].escolhas).toEqual({ ARI: 4, MAE: 2, AF: 400 })
+        expect(levantamentos()[0].estado).toBe('COMPLETO')
+        expect(ultimoEnviado()).toMatch(/^Apanhado do levantamento/)
+        llmResponde({ confirma: true })
+        await chamar('sim')
+        expect(erros.filter((l) => l.startsWith('[ETAPA 4 calcular]')).slice(-1)[0]).toMatch(/ desfecho=levantou /)
+    })
+
+    it.each([[0], [-400], [400.5]])('o valor %p não é valor: a esquadria continua EM_MONTAGEM e a pergunta continua', async (v) => {
+        await abrirDp04()
+        llmResponde({ escolhas: [{ variavel: 'AF', opcao: v }] })
+        await chamar(`a bandeira tem ${v}`)
+        expect(itens()[0].escolhas).toEqual({ ARI: 4, MAE: 2 })
+        expect(levantamentos()[0].estado).toBe('EM_MONTAGEM')
+        // nada mudou: a resposta não diz que registrou, e volta à altura da bandeira
+        expect(ultimoEnviado()).toContain('altura da bandeira (em mm)')
+    })
+
+    it('o valor de UMA esquadria não é copiado para a outra: a segunda DP-04 continua perguntada, nomeada pelo número', async () => {
+        comDp04()
+        llmResponde({ nome: 'Obra Bandeira', itens: [{ ...DP04 }, { ...DP04, largura_mm: 1500 }], escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar('Levantamento Obra Bandeira: DP-04 1200 x 1000 e DP-04 1500 x 1000, branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50')
+        expect(montarDoTurno()).toMatch(/ faltou=e1:variavel:AF,e2:variavel:AF$/)
+        llmResponde({ escolhas: [{ variavel: 'AF', opcao: 400 }] })
+        await chamar('a bandeira da primeira tem 400')
+        expect(itens().map((i) => (i.escolhas as Record<string, unknown> | null)?.AF ?? null)).toEqual([400, null])
+        expect(levantamentos()[0].estado).toBe('EM_MONTAGEM')
+        expect(ultimoEnviado()).toContain(`Esquadria 2: ${PERGUNTA_DA_BANDEIRA}`)
+    })
+
+    it('DP-02, que não tem variável sem padrão, segue sem pergunta nenhuma — mesmo com a DP-04 no motor', async () => {
+        comDp04()
+        const resposta = await fecharDp02('Casa do João')
+        expect(levantamentos().map((l) => l.estado)).toEqual(['COMPLETO'])
+        expect(enviados().join('\n')).not.toContain('Falta, na')
+        expect(resposta).not.toContain('Falta, na')
+        expect(erros.filter((l) => l.startsWith('[ETAPA 3 montar]'))[0]).toMatch(/ pendencias=0 .* faltou=-$/)
+    })
+
+    it('a lista é a do MOTOR, não do código: com Padrão na AF, a DP-04 não pergunta nada', async () => {
+        comDp04('300')
+        llmResponde({ nome: 'Obra Bandeira', itens: [{ ...DP04 }], escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar(MSG_DP04)
+        expect(levantamentos()[0].estado).toBe('COMPLETO')
+        expect(ultimoEnviado()).toMatch(/^Apanhado do levantamento/)
+    })
+
+    it.each([['1', 'pergunta'], ['2', 'não pergunta']])('AF com a condição "(HI=1)" e HI = %s: %s — a variável de condição falsa não é perguntada e fica sem valor', async (hi, efeito) => {
+        comDp04(null, '(HI=1)', hi)
+        llmResponde({ nome: 'Obra Bandeira', itens: [{ ...DP04 }], escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar(MSG_DP04)
+        if (efeito === 'pergunta') {
+            expect(levantamentos()[0].estado).toBe('EM_MONTAGEM')
+            expect(ultimoEnviado()).toBe(PERGUNTA_DA_BANDEIRA)
+        } else {
+            expect(levantamentos()[0].estado).toBe('COMPLETO')
+            expect(ultimoEnviado()).toMatch(/^Apanhado do levantamento/)
+            expect(enviados().join('\n')).not.toContain('altura da bandeira')
+            expect(montarDoTurno()).toMatch(/ pendencias=0 .* faltou=-$/)
+        }
+        expect(itens()[0].escolhas).toEqual({ ARI: 4, MAE: 2 })
+    })
+
+    it('o prompt leva as variáveis sem padrão (código, descrição e as tipologias) só quando o motor as tem; sem elas, nenhuma linha', async () => {
+        await fecharDp02('Casa do João')
+        expect(sistemaDe(0)).not.toContain('Variáveis SEM PADRÃO')
+        comDp04()
+        llmResponde({ nome: 'Obra Bandeira', itens: [{ ...DP04 }], escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar(MSG_DP04)
+        const comFerramenta = estado.chamadasDaLlm.filter((c) => Array.isArray(c.corpo.tools))
+        const sistema = textoDoSistema(comFerramenta[comFerramenta.length - 1].corpo.system)
+        expect(sistema).toContain('Variáveis SEM PADRÃO')
+        expect(sistema).toContain('\nAF = ALTURA DA BANDEIRA: DP-04\n')
+        expect(sistema).toContain('NUNCA invente, NUNCA use zero, NUNCA copie o de outra esquadria')
+    })
+})

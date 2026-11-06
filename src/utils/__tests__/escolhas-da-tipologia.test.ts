@@ -236,3 +236,82 @@ describe('as opções de arremate no PROMPT, uma vez só (dono do produto, 26/10
         expect(E().opcoesDeArremateNoPrompt([])).toEqual(['(nenhuma)'])
     })
 })
+
+describe('(V) as variáveis SEM PADRÃO (dono do produto, 06/11/2026): lidas da aba, por tipologia — nada fixo no código', () => {
+    type Var = ReturnType<typeof dp02>['variaveis'][number]
+    const base = (): Var => ({ ...(dp02().variaveis[0] as Var) })
+    /** A DP-02 com variáveis a mais: AF sem padrão (sempre), AQ com padrão 2, AA sem padrão só quando AQ=2, AB sem padrão só quando AQ=3, OP sem padrão e COM opções. */
+    function comBandeira(extra: Partial<Var>[] = []) {
+        const t = dp02()
+        const mais: Partial<Var>[] = [
+            { variavel: 'AF', descricao: 'ALTURA DA BANDEIRA', padrao: null, condicao: 'sempre', opcoes: null },
+            { variavel: 'AQ', descricao: 'QUANTIDADE DE QUADROS', padrao: '2', condicao: 'sempre', opcoes: null },
+            { variavel: 'AA', descricao: 'ALTURA QUADRO 1', padrao: '', condicao: '(AQ=2)', opcoes: null },
+            { variavel: 'AB', descricao: 'ALTURA QUADRO 2', padrao: '  ', condicao: '(AQ=3)', opcoes: null },
+            { variavel: 'OP', descricao: 'OPÇÃO SEM PADRÃO', padrao: null, condicao: 'sempre', opcoes: '1 = UM; 2 = DOIS' },
+            ...extra,
+        ]
+        return { ...t, variaveis: [...t.variaveis, ...mais.map((m) => ({ ...base(), ...m }))] }
+    }
+    const nomes = (vs: Array<{ variavel: string }>) => vs.map((v) => v.variavel)
+
+    it('a DP-02 não tem nenhuma: todas as variáveis dela têm Padrão', () => {
+        expect(E().variaveisSemPadrao(dp02())).toEqual([])
+        expect(E().variaveisAPerguntar(dp02(), {})).toEqual([])
+        expect(E().variaveisSemPadraoParaOPrompt(dp02())).toEqual([])
+    })
+
+    it('sem padrão = Padrão vazio, nulo ou só espaço, e SEM opções (a com opções é escolha, não valor)', () => {
+        expect(nomes(E().variaveisSemPadrao(comBandeira()))).toEqual(['AF', 'AA', 'AB'])
+    })
+
+    it('a perguntar: a Condição avaliada com o Padrão numérico da aba e, por cima, o que foi dado', () => {
+        expect(nomes(E().variaveisAPerguntar(comBandeira(), {}))).toEqual(['AF', 'AA'])
+        // o vendedor disse 3 quadros: AA sai, AB entra
+        expect(nomes(E().variaveisAPerguntar(comBandeira(), { AQ: 3 }))).toEqual(['AF', 'AB'])
+        // a dada não é perguntada de novo
+        expect(nomes(E().variaveisAPerguntar(comBandeira(), { AF: 400 }))).toEqual(['AA'])
+    })
+
+    it('a Condição que não dá para avaliar (um nome que nenhuma aba define) PERGUNTA', () => {
+        const t = comBandeira([{ variavel: 'AC', descricao: 'ALTURA QUADRO 3', padrao: null, condicao: '(ZZZ=1)', opcoes: null }])
+        expect(nomes(E().variaveisAPerguntar(t, { AF: 1, AA: 1 }))).toEqual(['AC'])
+    })
+
+    it('o nome ao vendedor é a descrição, em minúscula, com "(em mm)" quando é medida — nunca o código', () => {
+        expect(E().nomeDaVariavelSemPadrao({ descricao: 'ALTURA DA BANDEIRA' })).toBe('altura da bandeira (em mm)')
+        expect(E().nomeDaVariavelSemPadrao({ descricao: 'Largura do módulo' })).toBe('largura do módulo (em mm)')
+        expect(E().nomeDaVariavelSemPadrao({ descricao: 'QUANTIDADE DE MÓDULOS' })).toBe('quantidade de módulos')
+    })
+
+    it('o valor dito vale só para variável sem padrão DESTA tipologia, e só inteiro maior que zero', () => {
+        const t = comBandeira()
+        expect(E().validarValorDaVariavel(t, { variavel: 'AF', opcao: 400 })).toEqual({ variavel: 'AF', valor: 400 })
+        for (const opcao of [0, -1, 2.5, '400', null]) expect(E().validarValorDaVariavel(t, { variavel: 'AF', opcao })).toBeNull()
+        // a de outra tipologia, a capturada e a que tem padrão não são "valor"
+        expect(E().validarValorDaVariavel(dp02(), { variavel: 'AF', opcao: 400 })).toBeNull()
+        expect(E().validarValorDaVariavel(t, { variavel: 'ARI', opcao: 4 })).toBeNull()
+        expect(E().validarValorDaVariavel(t, { variavel: 'AQ', opcao: 3 })).toBeNull()
+        expect(E().validarValorDaVariavel(t, { variavel: 'OP', opcao: 1 })).toBeNull()
+        expect(E().validarValorDaVariavel(t, null)).toBeNull()
+    })
+
+    it('a leitura do gravado: com a tipologia, o valor positivo da sem padrão entra; sem ela, só as capturadas', () => {
+        const gravado = { ARI: 4, AF: 400, AA: 0, AQ: 3, XX: 7 }
+        expect(E().lerEscolhasGravadas(gravado, comBandeira())).toEqual({ ARI: 4, AF: 400 })
+        expect(E().lerEscolhasGravadas(gravado)).toEqual({ ARI: 4 })
+        // o item relido guarda o inteiro positivo de qualquer variável: só a tipologia diz se vale
+        expect(E().lerEscolhasDoItem({ ARI: null, AF: 400, AA: 0, AB: -1, AC: 2.5, AD: '3' })).toEqual({ ARI: null, AF: 400 })
+    })
+
+    it('no prompt: cada linha UMA vez, com as tipologias que a usam; a condição entra; sem nenhuma, nenhuma linha', () => {
+        const linhas = E().variaveisSemPadraoParaOPrompt(comBandeira())
+        expect(linhas).toEqual(['AF = ALTURA DA BANDEIRA', 'AA = ALTURA QUADRO 1 (só quando (AQ=2))', 'AB = ALTURA QUADRO 2 (só quando (AQ=3))'])
+        const bloco = E().variaveisSemPadraoNoPrompt([{ tipologia: 'DP-04', linhas }, { tipologia: 'DP-05', linhas: [linhas[0]] }])
+        expect(bloco[0]).toBe('')
+        expect(bloco[1]).toMatch(/^Variáveis SEM PADRÃO /)
+        expect(bloco.slice(2)).toEqual(['AF = ALTURA DA BANDEIRA: DP-04, DP-05', 'AA = ALTURA QUADRO 1 (só quando (AQ=2)): DP-04', 'AB = ALTURA QUADRO 2 (só quando (AQ=3)): DP-04'])
+        expect(E().variaveisSemPadraoNoPrompt([])).toEqual([])
+        expect(E().variaveisSemPadraoNoPrompt([{ tipologia: 'DP-02', linhas: [] }])).toEqual([])
+    })
+})

@@ -148,27 +148,111 @@ export function validarEscolha(tipologia: VariaveisDaTipologia, escolhas: Escolh
     return { gravar: { ...escolhas, [variavel as string]: opcao as number }, propostos: 1, descartados: 0 }
 }
 
-/** O jsonb gravado → as escolhas: só as capturadas, e só número inteiro. O resto não vira escolha. */
-export function lerEscolhasGravadas(valor: unknown): Record<string, number> {
+/**
+ * O jsonb gravado → as escolhas: as capturadas e, com a tipologia, os VALORES das variáveis sem padrão dela (`variaveisSemPadrao`, 06/11/2026) —
+ * só número inteiro, e o valor só positivo. O resto não vira escolha.
+ */
+export function lerEscolhasGravadas(valor: unknown, tipologia: VariaveisDaTipologia | null = null): Record<string, number> {
     if (valor === null || typeof valor !== 'object' || Array.isArray(valor)) return {}
+    const deValor = new Set(tipologia ? variaveisSemPadrao(tipologia).map((v) => v.variavel) : [])
     const lidas: Record<string, number> = {}
     for (const [k, v] of Object.entries(valor as Record<string, unknown>)) {
-        if (capturada(k) && typeof v === 'number' && Number.isInteger(v)) lidas[k] = v
+        if (typeof v !== 'number' || !Number.isInteger(v)) continue
+        if (capturada(k) || (deValor.has(k) && v > 0)) lidas[k] = v
     }
     return lidas
 }
 
+// ── AS VARIÁVEIS SEM PADRÃO (dono do produto, 06/11/2026) ──────────────────────────────────────────────────
+/**
+ * "Quando a tipologia escolhida tiver variável sem padrão, o agente PERGUNTA o valor antes de dar a esquadria por completa — recusa nomeada,
+ * dizendo qual variável falta e de qual esquadria. Não invente valor, não use zero, não copie de outra esquadria. As variáveis COM padrão
+ * continuam como estão, sem perguntar. Leia a lista do motor, por tipologia — não deixe nada fixo no código."
+ *
+ * Medido no motor fdff3386 em 06/11/2026 (só leitura): 7 siglas sem Padrão, 63 linhas em 48 tipologias, nenhuma com Opções, todas altura.
+ * A MESMA SIGLA MUDA DE SENTIDO POR TIPOLOGIA — AF é "ALTURA DA BANDEIRA" em 20 linhas (12 com "(HI=1)", 8 "sempre") e "ALTURA DO PEITORIL" em
+ * 13; AB é "ALTURA DA BANDEIRA" em 2 e "ALTURA DO 2º QUADRO" em 6 —, por isso a pergunta sai da DESCRIÇÃO da linha, nunca da sigla. HI é
+ * opção única ("1 = CIENTE"), padrão 1: a condição "(HI=1)" é verdadeira e AF é perguntada; com HI ≠ 1 não seria. AA, AB e AC com
+ * "(AQ=2) and (AV=1)" (18 linhas) não são alcançadas: AQ tem padrão 1. Pela função, sobre os dados reais: 20 tipologias perguntam a altura
+ * da bandeira (AF), 13 a do peitoril (AF), 4 a bandeira e o peitoril (B, P), 2 a bandeira e o peitoril (AB, AP), e 9 nada. A DP-04 tem só
+ * AF bandeira ("sempre"); a DP-02, nenhuma. A variável sem padrão e COM opções não existe hoje; se aparecer, não é perguntada aqui (ela é
+ * uma escolha, e o avaliador a recusa pelo nome).
+ */
+export type VariavelSemPadrao = { variavel: string; descricao: string; condicao: string | null }
+
+/** As variáveis da aba Variáveis sem Padrão (vazio ou nulo) e sem opções, na ordem da aba. */
+export function variaveisSemPadrao(tipologia: VariaveisDaTipologia): VariavelSemPadrao[] {
+    return tipologia.variaveis
+        .filter((v) => (v.padrao ?? '').trim() === '' && !(opcoesDaVariavel(v.opcoes)?.length))
+        .map((v) => ({ variavel: v.variavel, descricao: (v.descricao ?? '').trim() || v.variavel, condicao: v.condicao }))
+}
+
+/**
+ * As variáveis sem padrão que FALTAM nesta esquadria e se aplicam: a Condição é avaliada com o Padrão numérico de cada variável da aba e, por
+ * cima, o que o vendedor já deu. A que não dá para avaliar é perguntada (como as escolhas: não perguntar por não saber seria assumir).
+ */
+export function variaveisAPerguntar(tipologia: VariaveisDaTipologia, dadas: Readonly<Record<string, number>>): VariavelSemPadrao[] {
+    const efetivas: Record<string, number> = {}
+    for (const v of tipologia.variaveis) {
+        const p = (v.padrao ?? '').trim()
+        if (/^-?\d+(\.\d+)?$/.test(p)) efetivas[v.variavel] = Number(p)
+    }
+    Object.assign(efetivas, dadas)
+    return variaveisSemPadrao(tipologia).filter((v) => dadas[v.variavel] === undefined && condicaoPede(v.condicao, efetivas))
+}
+
+/** Como a variável sem padrão é pedida: pela descrição da aba, em minúscula, e "(em mm)" quando é uma medida (altura, largura, comprimento). */
+export function nomeDaVariavelSemPadrao(v: Pick<VariavelSemPadrao, 'descricao'>): string {
+    const nome = minuscula(v.descricao)
+    return /^(altura|largura|comprimento|medida)\b/.test(nome) ? `${nome} (em mm)` : nome
+}
+
+/**
+ * O valor dito para uma variável sem padrão, proposto pela LLM como `{ variavel, opcao: <valor> }` (a ferramenta usa o mesmo par das escolhas):
+ * vale se a variável é uma das sem padrão DESTA tipologia e o valor é um inteiro maior que zero — nunca zero, nunca negativo.
+ */
+export function validarValorDaVariavel(tipologia: VariaveisDaTipologia, proposta: unknown): { variavel: string; valor: number } | null {
+    if (proposta === null || typeof proposta !== 'object') return null
+    const { variavel, opcao } = proposta as { variavel?: unknown; opcao?: unknown }
+    if (typeof variavel !== 'string' || !variaveisSemPadrao(tipologia).some((v) => v.variavel === variavel)) return null
+    if (typeof opcao !== 'number' || !Number.isInteger(opcao) || opcao <= 0) return null
+    return { variavel, valor: opcao }
+}
+
+/** As variáveis sem padrão, para o PROMPT: o código e a descrição — vocabulário interno, nunca ao vendedor. */
+export function variaveisSemPadraoParaOPrompt(tipologia: VariaveisDaTipologia): string[] {
+    return variaveisSemPadrao(tipologia).map((v) => `${v.variavel} = ${v.descricao}${v.condicao && v.condicao.trim() !== 'sempre' ? ` (só quando ${v.condicao.trim()})` : ''}`)
+}
+
+/**
+ * A seção das variáveis sem padrão no prompt: cada linha UMA vez, com as tipologias que a usam. Nenhuma tipologia com variável sem padrão,
+ * nenhuma linha (o prompt da conta que não as tem fica byte a byte igual).
+ */
+export function variaveisSemPadraoNoPrompt(porTipologia: ReadonlyArray<{ tipologia: string; linhas: readonly string[] }>): string[] {
+    const porLinha = new Map<string, string[]>()
+    for (const t of porTipologia) for (const l of t.linhas) porLinha.set(l, [...(porLinha.get(l) ?? []), t.tipologia])
+    if (porLinha.size === 0) return []
+    return [
+        '',
+        'Variáveis SEM PADRÃO (USO INTERNO — código = descrição: tipologias). A esquadria dessas tipologias só fica completa com o VALOR, dito pelo vendedor: em `escolhas`, o CÓDIGO da variável e, em `opcao`, o valor em mm, SÓ quando ele disse o número para aquela esquadria. NUNCA invente, NUNCA use zero, NUNCA copie o de outra esquadria; se ele não disse, omita — o sistema pergunta.',
+        ...[...porLinha].map(([linha, tipologias]) => `${linha}: ${tipologias.join(', ')}`),
+    ]
+}
+
 /**
  * O jsonb do item → as escolhas, PRESERVANDO o `null` de uma capturada: é a marca de que o vendedor
- * pediu para escolher aquela variável. Número inteiro é escolha; o resto não vira nada.
+ * pediu para escolher aquela variável. Número inteiro é escolha; o resto não vira nada. A variável que NÃO é capturada fica só com
+ * inteiro maior que zero: é o valor de uma variável sem padrão (06/11/2026), que só a tipologia diz se vale (`lerEscolhasGravadas`) —
+ * sem isto, o valor gravado sumiria na releitura e a esquadria voltaria a ser perguntada.
  */
 export function lerEscolhasDoItem(valor: unknown): Record<string, number | null> {
     if (valor === null || typeof valor !== 'object' || Array.isArray(valor)) return {}
     const lidas: Record<string, number | null> = {}
     for (const [k, v] of Object.entries(valor as Record<string, unknown>)) {
-        if (!capturada(k)) continue
+        const inteiro = typeof v === 'number' && Number.isInteger(v)
+        if (!capturada(k)) { if (inteiro && v > 0) lidas[k] = v; continue }
         if (v === null) lidas[k] = null
-        else if (typeof v === 'number' && Number.isInteger(v)) lidas[k] = v
+        else if (inteiro) lidas[k] = v
     }
     return lidas
 }

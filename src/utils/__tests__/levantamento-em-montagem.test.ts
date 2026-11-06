@@ -315,7 +315,7 @@ describe('(VI) todas as pendências, e a pergunta que as cobre de uma vez', () =
     it('lista TODAS, esquadria por esquadria: os campos vazios, depois as escolhas pedidas; a primeira é a proximaPendencia', () => {
         const itens = [{ ...COMPLETO_SEM_ESCOLHAS, vidro: null, escolhas: { ARI: null } }, { ...vazia(2), tipologia: 'DP-02', cor_perfil: 'BRANCO' }]
         const ps = L().pendenciasDoLevantamento(itens, definicao, familiaUnica)
-        expect(ps.map((p) => [p.tipo, p.ordem, p.tipo === 'CAMPO' ? p.campo : p.tipo === 'ESCOLHA' ? p.pendente.variavel : p.tipologia])).toEqual([
+        expect(ps.map((p) => [p.tipo, p.ordem, p.tipo === 'CAMPO' ? p.campo : p.tipo === 'ESCOLHA' ? p.pendente.variavel : p.tipo === 'FAMILIA' ? p.tipologia : p.variavel.variavel])).toEqual([
             ['CAMPO', 1, 'vidro'], ['ESCOLHA', 1, 'ARI'],
             ['CAMPO', 2, 'largura_mm'], ['CAMPO', 2, 'altura_mm'], ['CAMPO', 2, 'quantidade'], ['CAMPO', 2, 'vidro'],
         ])
@@ -416,5 +416,57 @@ describe('(VII) o vidro padrão da instrução e o agrupamento pela forma canôn
         const dois = L().agruparIguais([{ ...base, ordem: 1, vidro: 'vidro 4mm' }, { ...base, ordem: 2, vidro: 'temperado 4 mm' }])
         expect(dois.itens).toHaveLength(2)
         expect(dois.fundidos).toBe(0)
+    })
+})
+
+describe('(VIII) a variável SEM PADRÃO (06/11/2026): pendência da esquadria até o vendedor dizer o valor', () => {
+    type Def = ReturnType<typeof dp02>
+    type Var = Def['variaveis'][number]
+    /** A DP-04: a DP-02 com AF (altura da bandeira) e AM (módulos da bandeira) sem padrão. */
+    function dp04(): Def {
+        const t = dp02()
+        const base = t.variaveis[0] as Var
+        const mais: Var[] = [
+            { ...base, variavel: 'AF', descricao: 'ALTURA DA BANDEIRA', padrao: null, condicao: 'sempre', opcoes: null },
+            { ...base, variavel: 'AM', descricao: 'MÓDULOS DA BANDEIRA', padrao: '', condicao: 'sempre', opcoes: null },
+        ]
+        return { ...t, variaveis: [...t.variaveis, ...mais] }
+    }
+    const def4 = (e: { tipologia: string | null }) => (e.tipologia === 'DP-04' ? dp04() : e.tipologia === 'DP-02' ? dp02() : null)
+    const familias = (c: string) => (['DP-02', 'DP-04'].includes(c) ? [{ familia: 'PVC', rotulo: 'PVC', fornecedor: 'Wolff', motorId: 'motor-unico' }] : [])
+    const ctx4 = (ordemPadrao: number | null) => ({ ...ctx(ordemPadrao), candidatos: candidatos(['DP-02', 'DP-04']), definicao: def4, familiasDoCodigo: familias })
+    const DP04 = { ...COMPLETO_SEM_ESCOLHAS, tipologia: 'DP-04' }
+    const resumo = (ps: ReturnType<Modulo['pendenciasDoLevantamento']>) => ps.map((p) => [p.tipo, p.ordem, p.tipo === 'VARIAVEL' ? p.variavel.variavel : p.tipo])
+
+    it('a DP-04 completa nos campos tem as duas como pendência, na ordem da aba; a DP-02 não tem nenhuma', () => {
+        expect(resumo(L().pendenciasDoLevantamento([{ ...DP04 }], def4, familias))).toEqual([['VARIAVEL', 1, 'AF'], ['VARIAVEL', 1, 'AM']])
+        expect(L().pendenciasDoLevantamento([{ ...COMPLETO_SEM_ESCOLHAS }], def4, familias)).toEqual([])
+    })
+
+    it('a pergunta nomeia as variáveis (a descrição, nunca o código) e a esquadria; com duas esquadrias, o número na frente', () => {
+        const uma = L().pendenciasDoLevantamento([{ ...DP04, escolhas: { AM: 1 } }], def4, familias)
+        expect(L().perguntaDasPendencias(uma, 1)).toBe('Falta, na DP-04: altura da bandeira (em mm). Qual é o valor?')
+        const duas = L().pendenciasDoLevantamento([{ ...DP04 }, { ...DP04, ordem: 2, escolhas: { AF: 300 } }], def4, familias)
+        expect(L().perguntaDasPendencias(duas, 2)).toBe('Esquadria 1: Falta, na DP-04: altura da bandeira (em mm) e módulos da bandeira. Quais são os valores?'
+            + '\nEsquadria 2: Falta, na DP-04: módulos da bandeira. Qual é o valor?')
+    })
+
+    it('o valor dito entra na esquadria da pergunta em aberto; zero, negativo e o de variável de outra tipologia são descartados', () => {
+        const r = L().aplicarProposta([{ ...DP04 }], { escolhas: [{ variavel: 'AF', opcao: 400 }, { variavel: 'AM', opcao: 0 }] }, ctx4(1))
+        expect(r.itens[0].escolhas).toEqual({ AF: 400 })
+        expect([r.propostos, r.descartados]).toEqual([2, 1])
+        const naDp02 = L().aplicarProposta([{ ...COMPLETO_SEM_ESCOLHAS }], { escolhas: [{ variavel: 'AF', opcao: 400 }] }, ctx4(1))
+        expect(naDp02.itens[0].escolhas).toBeNull()
+        expect(naDp02.descartados).toBe(1)
+    })
+
+    it('com duas esquadrias, o valor vai SÓ à da pergunta em aberto, nunca à outra', () => {
+        const r = L().aplicarProposta([{ ...DP04 }, { ...DP04, ordem: 2 }], { escolhas: [{ variavel: 'AF', opcao: 400 }] }, ctx4(2))
+        expect(r.itens.map((i) => i.escolhas)).toEqual([null, { AF: 400 }])
+    })
+
+    it('trocar a tipologia apaga o valor: ele era da tipologia de antes', () => {
+        const r = L().aplicarProposta([{ ...DP04, escolhas: { AF: 400 } }], { itens: [{ ordem: 1, tipologia: 'DP-02' }] }, ctx4(1))
+        expect(r.itens[0].escolhas).toBeNull()
     })
 })
