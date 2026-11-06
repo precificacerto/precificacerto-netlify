@@ -1826,8 +1826,10 @@ Formulação do dono do produto, registrada como está:
   diferente é `GRAVADA_NOVA`. Duas linhas iguais da MESMA mensagem continuam somando (03/11/2026) — `SOMADA_NA_MENSAGEM` —, e o total delas é o que
   substitui a gravada. Duas gravadas que ficam iguais (uma alteração por número) somam, como antes. O reenvio idêntico, portanto, não muda nada,
   quantas vezes vier, e a resposta segue como se a mensagem tivesse vindo uma vez (não "não apliquei").
-- **Vale também para o acréscimo confirmado** (a esquadria retida que entra num levantamento existente): igual a uma gravada, substitui — nenhuma
-  palavra, nem o "sim", decide somar.
+- **Vale também para o acréscimo confirmado** — confirmado pelo dono do produto, 06/11/2026: "O caminho de entrada não muda a regra." A esquadria
+  retida que entra num levantamento existente pelo "sim", igual a uma gravada, substitui a quantidade quando a dita é outra
+  (`SUBSTITUIU_QUANTIDADE`); sem quantidade dita, ou com a mesma, nada mudaria, e a confirmação do acréscimo nem é perguntada — a resposta é o
+  apanhado do levantamento como está (`IGNORADA_IGUAL`).
 - **O log:** `caminhos=e<ordem final>:<CAMINHO>,…` na linha `[IA]` e na `[ETAPA 3 montar]`.
 - **O vidro** (`vidroNoApanhado`, `apanhado.ts`): o valor gravado que já começa por "vidro" ou "vidros" (sem caixa nem acento) vai como está; o que não
   começa ganha "vidro " na frente. O gravado continua o que o vendedor escreveu (04/11/2026). O teste de 04/11 que afirmava "vidro vidro 4 mm" fixava

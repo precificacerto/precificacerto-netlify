@@ -4808,6 +4808,47 @@ describe('(40) o reenvio da mesma esquadria: a quantidade dita substitui, nunca 
         expect(quantidades()).toEqual([['DP-39', 1], ['DP-01', 1]])
     })
 
+    describe('pelo "sim" do ACRÉSCIMO (dono do produto, 06/11/2026: "o caminho de entrada não muda a regra")', () => {
+        /** A esquadria sem nome fica retida; o nome de um levantamento que existe pergunta antes de acrescentar; o "sim" acrescenta. */
+        async function peloAcrescimo(porta: Record<string, unknown>, texto: string) {
+            llmResponde({ itens: [porta] })
+            await chamar(texto)
+            expect(perguntas()).toEqual([expect.objectContaining({ pergunta: 'SEM_NOME' })])
+            llmResponde({ nome: 'Maria Cristina' })
+            await chamar('Maria Cristina')
+            expect(perguntas()).toEqual([expect.objectContaining({ pergunta: 'CONFIRMAR_ACRESCIMO', levantamentos: [maria().id] })])
+            expect(quantidades()).toEqual([['DP-39', 1], ['DP-01', 1]])
+            llmResponde({ confirma: true })
+            await chamar('sim')
+        }
+        const perguntas = () => estado.db.orcamentista_pergunta_em_aberto ?? []
+
+        it('a porta retida com "2" DITO entra pelo "sim" na gravada igual: 2, não 3 — SUBSTITUIU_QUANTIDADE', async () => {
+            await mariaGravada()
+            await peloAcrescimo({ ...PORTA, quantidade: 2 }, '2 Portas janelas de correr 2 folhas com vidro comum 6 mm incolor 2,50 x 2,20')
+            expect(quantidades()).toEqual([['DP-39', 2], ['DP-01', 1]])
+            expect(linhaIa().pop()).toMatch(/ caminhos=e1:SUBSTITUIU_QUANTIDADE(\s|$)/)
+        })
+
+        it('a porta retida SEM quantidade dita, ou com a MESMA, igual à gravada: não há o que acrescentar — a confirmação nem é perguntada, fica 1, nunca 2 — IGNORADA_IGUAL', async () => {
+            await mariaGravada()
+            const semQuantidade: Record<string, unknown> = { ...PORTA }
+            delete semQuantidade.quantidade
+            for (const [porta, texto] of [[semQuantidade, 'Porta janelas de correr 2 folhas com vidro comum 6 mm incolor 2,50 x 2,20'], [{ ...PORTA, quantidade: 1 }, '1 Porta janelas de correr 2 folhas com vidro comum 6 mm incolor 2,50 x 2,20']] as const) {
+                estado.db.orcamentista_pergunta_em_aberto = []
+                llmResponde({ itens: [porta] })
+                await chamar(texto)
+                expect(perguntas()).toEqual([expect.objectContaining({ pergunta: 'SEM_NOME' })])
+                llmResponde({ nome: 'Maria Cristina' })
+                await chamar('Maria Cristina')
+                // nada mudaria: a pergunta do acréscimo não sai, e a resposta é o apanhado do levantamento como está
+                expect(perguntas()).toEqual([expect.objectContaining({ pergunta: 'CONFIRMAR_APANHADO', levantamentos: [maria().id] })])
+                expect(quantidades()).toEqual([['DP-39', 1], ['DP-01', 1]])
+                expect(linhaIa().pop()).toMatch(/ caminhos=e1:IGNORADA_IGUAL(\s|$)/)
+            }
+        })
+    })
+
     it('a esquadria DIFERENTE da gravada é nova (GRAVADA_NOVA), e o primeiro levantamento diz o caminho de cada uma', async () => {
         preparar()
         llmResponde({ cliente: 'Maria Cristina', itens: [{ ...PORTA }, { ...JANELA }] })
