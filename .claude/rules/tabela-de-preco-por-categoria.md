@@ -1926,11 +1926,41 @@ A4). Sai só a mensagem-resumo em texto do fim da coleta. "Não chame o arquivo 
   o que foi DITO na mensagem (a IA copia, o código confere). Os percentuais: o cadastro do vendedor é o padrão, o dito substitui, o resultado fica
   CONGELADO no levantamento; cadastro nulo e nada dito → a conversa PERGUNTA, e o levantamento fica em montagem. O responsável pela RT só vem da
   conversa; sem ele, o campo sai em branco. O vendedor é o funcionário do remetente, ou o dito (achado no cadastro DA EMPRESA pelo nome; dois com o
-  mesmo nome: nunca escolhe). Trocado o vendedor, os percentuais não ditos vêm do cadastro do novo.
-- **Decisões tomadas pelo assistente, por falta de resposta às perguntas de 06/11/2026 — o dono do produto pode trocar:** (a) a célula PERFIL leva a
-  cor do perfil e o arremate e guarnição por extenso; a ACESSÓRIO + VIDRO, "Acessórios: padrão" e o vidro como dito; (b) as pré-definições
-  consideradas são o que é IGUAL em todos os itens (a cor do perfil, o arremate e guarnição) e "Vedação: padrão"; (c) o vendedor dito pode ser
-  qualquer funcionário da empresa, achado pelo nome; (d) "conferido e confirmado por | data e hora" sai em branco, para quem confere.
+  mesmo nome: pergunta, ou recusa nomeando — ver abaixo). Trocado o vendedor, os percentuais não ditos vêm do cadastro do novo, e sem cadastro são
+  perguntados — nunca herdados do remetente.
+- **As respostas do dono do produto às perguntas de 06/11/2026, registradas como foram ditas:**
+  - **A linha do item:**
+    > "célula 1: 'PERFIL / ACESSÓRIO:' conteúdo: <cor do perfil> / <cor do acessório>, e 'padrão' no lugar da cor do acessório quando ela não foi
+    > dita [...] Ex.: 'Branco / padrão'. célula 2: 'VIDRO:' conteúdo: o vidro como o vendedor disse. O ACESSÓRIO NÃO migra para a célula do vidro,
+    > e o arremate/guarnição NÃO entra na linha do item: ele é comum à obra e sai no fecho, nas pré-definições. [...] Se a cor do perfil ou do
+    > acessório variar de um item para outro, ela aparece no item."
+
+    A cor do acessório é a opção dita da variável cuja DESCRIÇÃO começa com "COR DOS ACESSÓRIOS" (pela descrição, nunca pela sigla), por extenso e
+    sem código (`corDoAcessorio`); não dita, "padrão". **Leitura do assistente, relatada no PR:** as duas frases se encontram quando o arremate
+    VARIA entre os itens — ele não é comum (não vai ao fecho) e não entra na linha do item. Para não sumir da folha, ele sai na célula PERFIL /
+    ACESSÓRIO, depois das cores (" · arremate e guarnição: …"), **só nesse caso**.
+  - **As pré-definições consideradas:**
+    > "só o que é igual em TODOS os itens e foi informado, com 'Vedação: padrão'. O que não foi informado não aparece [...] O que varia entre itens
+    > não vai ao fecho: vai na linha do item."
+
+    O resumo do arquivo (o de comparação e o do prompt) leva as pré-definições: sem elas, trocar o arremate não mudaria o resumo e o arquivo novo
+    não sairia (R2).
+  - **O vendedor nomeado:**
+    > "Aceite qualquer funcionário da empresa cujo nome case com um só [...] o funcionário escolhido PODE NÃO TER perfil [...] o agente PERGUNTA os
+    > percentuais [...] Nunca herde os percentuais do remetente para um levantamento lançado para outra pessoa: comissão é do vendedor. Os dois
+    > 'Germano Teixeira': pergunte qual é. Mas se a pergunta não tiver como ser respondida de forma distinguível [...], recuse nomeando o problema
+    > em vez de escolher um."
+
+    O que distingue dois homônimos na conversa é o que o cadastro diz e se pode dizer ao vendedor: o **cargo**, a **situação** (ativo ou inativo) e
+    a **data do cadastro** (no fuso de São Paulo) — nunca e-mail, telefone ou documento. A pergunta numera na ordem do cadastro; o levantamento
+    fica EM MONTAGEM com o nome dito e sem o vínculo, e sem percentual; a resposta ("o ativo", "o 2") vem pela `vendedor_opcao` da ferramenta, e
+    a resposta sem a opção não escolhe. Homônimos iguais nas três coisas: recusa nomeada (`fraseDosHomonimosIndistinguiveis`). Medido em
+    06/11/2026 na De Paula: os dois Germano Teixeira são distinguíveis — 1) sem cargo, inativo, cadastrado em 08/07/2026; 2) Vendedor, ativo,
+    cadastrado em 11/08/2026 —, e nenhum tem cadastro de vendedor.
+  - **"Conferido e confirmado por | data e hora"** sai em branco, para quem confere (decisão do assistente, sem resposta; o dono do produto pode
+    trocar).
+- **A migração e o `schema_migrations`:** como as outras aplicadas pelo SQL Editor, a `20261106000002` não tem linha em
+  `supabase_migrations.schema_migrations`. "É o esperado [...] não 'conserte' isso inserindo linha à mão." (dono do produto, 06/11/2026)
 - **Prova:** `folha-do-levantamento.test.ts` (o desenho, a conferência, a paginação, o PDF e o exemplo) e `scripts/mutacoes/folha-do-levantamento.py`;
   `dados-do-levantamento.test.ts`, `arquivo-do-levantamento.test.ts`, os blocos (17) e (42) de `atendimentos-ia-levantamento-por-nome.test.ts` e
   `scripts/mutacoes/arquivo-do-levantamento-na-conversa.py`.
