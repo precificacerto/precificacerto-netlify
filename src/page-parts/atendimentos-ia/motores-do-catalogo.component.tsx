@@ -178,7 +178,7 @@ export function MotoresDoCatalogo({ fornecedores, categorias, familias }: { forn
         setErroAoTrocar(null)
         try {
             const enviado = await enviarArquivo(trocando.fornecedor_id, 'motor', arquivoNovo)
-            const r = await chamarRota<{ tipologias: number; etapas_reapontadas: number }>(ROTAS_DOS_MOTORES.trocarArquivo, 'POST', { motor_id: trocando.id, path: enviado.path, nome: enviado.nome })
+            const r = await chamarRota<{ tipologias: number; etapas_reapontadas: number; detalhes?: number; tempos?: number }>(ROTAS_DOS_MOTORES.trocarArquivo, 'POST', { motor_id: trocando.id, path: enviado.path, nome: enviado.nome })
             message.success(fraseDoArquivoTrocado(r), 8)
             setTrocando(null)
             await carregar()
@@ -214,7 +214,7 @@ export function MotoresDoCatalogo({ fornecedores, categorias, familias }: { forn
         setErroAoCriar(null)
         try {
             const enviado = await enviarArquivo(novo.fornecedor_id as string, 'motor', novo.arquivo as File)
-            const r = await chamarRota<{ regras: number; tipologias: number; detalhes?: number }>(ROTAS_DOS_MOTORES.lista, 'POST', {
+            const r = await chamarRota<{ regras: number; tipologias: number; detalhes?: number; tempos?: number }>(ROTAS_DOS_MOTORES.lista, 'POST', {
                 fornecedor_id: novo.fornecedor_id, categoria: novo.categoria, familias: naOrdemDoCatalogo(novo.familias), nome_do_motor: novo.nome.trim(),
                 path: enviado.path, nome: enviado.nome,
             })

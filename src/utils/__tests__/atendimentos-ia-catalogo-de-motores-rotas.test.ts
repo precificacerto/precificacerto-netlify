@@ -20,6 +20,7 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 import ExcelJS from 'exceljs'
 
 import { ABAS_DA_IMPORTACAO, LISTAS_DO_MOTOR_DA_ETAPA } from '@/utils/atendimentos-ia-importacao'
+import { ABA_DOS_TEMPOS, CABECALHO_DO_TEMPO } from '@/utils/atendimentos-ia-tempos-do-motor'
 import {
     FAMILIAS_DO_MOTOR_OBRIGATORIAS, FAMILIA_EM_USO_NAO_SAI_DO_MOTOR, NOME_DO_MOTOR_REPETIDO, ROTAS_DOS_MOTORES, fraseDaFamiliaForaDoCatalogo,
     fraseDaFamiliaRepetidaNoMotor,
@@ -680,5 +681,69 @@ describe('(7) POST motores/editar — só sem uso; trocar o fornecedor leva o ar
         for (const [corpo, status] of casos) expect((await editar(corpo)).status).toBe(status)
         expect(estado.copias).toEqual([])
         nenhumaEscrita()
+    })
+})
+
+describe('(9) os TEMPOS de fabricação do arquivo (20261106000001) nas duas rotas', () => {
+    /** O arquivo do motor com a coluna "Tempo fabricação (min)" na Detalhe do spec, depois da última coluna dela, e o tempo em cada linha. */
+    async function arquivoComTempos(minutos = 60): Promise<Uint8Array> {
+        const wb = new ExcelJS.Workbook()
+        const abas: Record<string, Celulas[]> = {
+            [ABAS_DA_IMPORTACAO.motor]: [{ 1: 'CÓDIGO', 14: 'TIPOLOGIAS' }, { 1: 'A1', 14: 'JC2F, JC4F' }],
+            [ABAS_DA_IMPORTACAO.formulasDaLinha]: [{ 1: 'LINHA', 2: 'VARIÁVEL' }, { 1: 'PVC EUROPA 42', 2: 'HFOL', 4: '(H-10)' }],
+            ...abasDoSpec(),
+        }
+        const det = abas[ABA_DOS_TEMPOS]
+        const col = Math.max(...det.map((l) => Math.max(...Object.keys(l).map(Number)))) + 1
+        abas[ABA_DOS_TEMPOS] = det.map((l, i) => ({ ...l, [col]: i === 0 ? CABECALHO_DO_TEMPO : minutos }))
+        for (const [nome, linhas] of Object.entries(abas)) {
+            const ws = wb.addWorksheet(nome)
+            linhas.forEach((cs, i) => { for (const [c, v] of Object.entries(cs)) ws.getRow(i + 1).getCell(Number(c)).value = v })
+        }
+        return new Uint8Array(await wb.xlsx.writeBuffer())
+    }
+
+    it('criar: o payload leva os tempos do arquivo, e a resposta devolve a contagem gravada', async () => {
+        estado.objetos.set(PATH, await arquivoComTempos())
+        estado.rpcResposta = devolveOQueRecebeu
+        const r = await motores('POST', NOVO)
+        expect(r.status).toBe(200)
+        const p = estado.rpcs[0].args.p_payload as Record<string, Array<Record<string, unknown>>>
+        expect(p.tempos.length).toBeGreaterThan(0)
+        expect(p.tempos.every((t) => t.tempo_fabricacao_min === 60 && t.tempo_origem === 'IMPORTADO')).toBe(true)
+        expect(p.tempos.map((t) => t.tipologia)).toEqual(p.detalhes.map((d) => d.tipologia))
+        expect(r.corpo.tempos).toBe(p.tempos.length)
+    })
+
+    it('criar com a FUNÇÃO DE ANTES da migração (não devolve `tempos`): 500 com os dois lados — nunca sucesso com o tempo descartado', async () => {
+        estado.objetos.set(PATH, await arquivoComTempos())
+        estado.rpcResposta = () => { const r = devolveOQueRecebeu(); const d = { ...(r.data as Record<string, unknown>) }; delete d.tempos; return { data: d, error: null } }
+        const r = await motores('POST', NOVO)
+        expect(r.status).toBe(500)
+        expect(r.corpo.error).toContain('NÃO deve ser considerado válido')
+        expect(r.corpo.gravado.tempos).toBeNull()
+        expect(r.corpo.enviado.tempos).toBeGreaterThan(0)
+    })
+
+    it('o arquivo com tempo inválido é 422 com a linha e a coluna, e a função NÃO é chamada', async () => {
+        estado.objetos.set(PATH, await arquivoComTempos(0))
+        const r = await motores('POST', NOVO)
+        expect(r.status).toBe(422)
+        expect(r.corpo.error).toContain(`coluna "${CABECALHO_DO_TEMPO}": o tempo de fabricação tem de ser maior que zero, e veio 0.`)
+        nenhumaEscrita()
+    })
+
+    it('trocar: a recusa da troca que perderia tempo vai com a mensagem da função (400); a troca aceita devolve a contagem', async () => {
+        estado.objetos.set(PATH_NOVO, await arquivoDoMotor())
+        const recusa = 'a troca perderia 2 tempo(s) de fabricacao: o motor atual tem tempo para DP-01, DP-02, e o arquivo novo traz essa(s) tipologia(s) sem tempo. Preencha o tempo delas no arquivo e envie de novo. Nada foi gravado.'
+        estado.rpcResposta = () => ({ data: null, error: { code: '22023', message: recusa } })
+        let r = await trocar({ motor_id: M_WOLF, path: PATH_NOVO, nome: 'Motor v2.xlsx' })
+        expect([r.status, r.corpo.error]).toEqual([400, recusa])
+        estado.objetos.set(PATH_NOVO, await arquivoComTempos(45))
+        estado.rpcResposta = devolveATroca
+        r = await trocar({ motor_id: M_WOLF, path: PATH_NOVO, nome: 'Motor v2.xlsx' })
+        expect(r.status).toBe(200)
+        expect(r.corpo.tempos).toBe((estado.rpcs[estado.rpcs.length - 1].args.p_payload as Record<string, unknown[]>).tempos.length)
+        expect(r.corpo.tempos).toBeGreaterThan(0)
     })
 })

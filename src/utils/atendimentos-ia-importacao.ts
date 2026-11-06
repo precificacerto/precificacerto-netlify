@@ -49,6 +49,7 @@ import ExcelJS from 'exceljs'
 
 import { arquivoImportavel, fraseDoArquivo, fraseDoArquivoNaoImportavel } from '@/utils/atendimentos-ia-catalogo'
 import { ABAS_DO_MOTOR, lerAbasDoMotor, type LinhaDoBanco } from '@/utils/atendimentos-ia-abas-do-motor'
+import { lerTemposDoDetalhe, type TempoLido } from '@/utils/atendimentos-ia-tempos-do-motor'
 
 // A declaração mora em `atendimentos-ia-importacao-celula.ts` (módulo leve, sem o `exceljs`), para a camada de
 // dados (`repositorio.ts`) ler a coluna sem carregar o leitor; daqui ela segue exportada como sempre.
@@ -786,13 +787,16 @@ async function lerOMotor(arquivo: ArquivoDaImportacao) {
 
     // as nove abas por tipologia: uma aba ou coluna que falte, um valor inválido ou uma chave repetida
     // RECUSAM a importação inteira, com todas as frases de uma vez — nada é gravado pela metade
+    // os TEMPOS (20261106000001): as duas colunas opcionais da Detalhe; as recusas deles saem junto com as das abas, de uma vez
     const abasDoMotor = lerAbasDoMotor(wbMotor)
-    if ('erros' in abasDoMotor) return { ok: false as const, erro: fraseDoArquivo(arquivo.nome, abasDoMotor.erros.join(' ')) }
+    const tempos = lerTemposDoDetalhe(wbMotor)
+    const errosDoMotor = [...('erros' in abasDoMotor ? abasDoMotor.erros : []), ...('erros' in tempos ? tempos.erros : [])]
+    if (errosDoMotor.length > 0 || 'erros' in abasDoMotor || 'erros' in tempos) return { ok: false as const, erro: fraseDoArquivo(arquivo.nome, errosDoMotor.join(' ')) }
 
     const motor = lerMotor(wsMotor)
     const formulasDaLinha = lerFormulasDaLinha(wsFormulasDaLinha)
     const resumo = resumirTipologias(motor.regras)
-    return { ok: true as const, motor, formulasDaLinha, resumo, abasDoMotor }
+    return { ok: true as const, motor, formulasDaLinha, resumo, abasDoMotor, tempos: tempos.tempos }
 }
 
 /** O que sai da leitura do arquivo do motor SOZINHO (sem tabela de preço): o payload de `superadmin_criar_motor_da_etapa`. */
@@ -801,6 +805,8 @@ export type ResultadoDoMotor =
         ok: true; regras: RegraLida[]; tipologias: TipologiaLida[]; formulas: FormulaLida[]; avisos: Aviso[]
         /** As nove abas por tipologia (`ABAS_DO_MOTOR`), pela chave do payload. */
         abas: Record<string, LinhaDoBanco[]>
+        /** Os tempos de fabricação da Detalhe (`lerTemposDoDetalhe`): só as tipologias que vieram com tempo. */
+        tempos: TempoLido[]
         contagens: { regras: number; tipologias: number; normalizados: number }
     }
     | { ok: false; erro: string }
@@ -812,13 +818,14 @@ export type ResultadoDoMotor =
 export async function lerArquivoDoMotor(arquivo: ArquivoDaImportacao): Promise<ResultadoDoMotor> {
     const lido = await lerOMotor(arquivo)
     if (lido.ok === false) return { ok: false, erro: lido.erro }
-    const { motor, formulasDaLinha, resumo, abasDoMotor } = lido
+    const { motor, formulasDaLinha, resumo, abasDoMotor, tempos } = lido
     return {
         ok: true,
         regras: motor.regras,
         tipologias: resumo.tipologias,
         formulas: formulasDaLinha.formulas,
         abas: abasDoMotor.linhas,
+        tempos,
         contagens: { regras: motor.regras.length, tipologias: resumo.tipologias.length, normalizados: motor.normalizados },
         avisos: [...motor.avisos, ...formulasDaLinha.avisos, ...resumo.avisos],
     }
@@ -850,7 +857,10 @@ export async function lerArquivosDaImportacao(arquivos: { tabela: ArquivoDaImpor
     }
     const doMotor = await lerOMotor(arquivos.motor)
     if (doMotor.ok === false) return { ok: false, erro: doMotor.erro }
-    const { motor, formulasDaLinha, resumo, abasDoMotor } = doMotor
+    const { motor, formulasDaLinha, resumo, abasDoMotor, tempos } = doMotor
+    // o motor colado na TABELA (legado; 0 tabelas com motor em produção em 06/11/2026) grava por `tabela_id` e não grava tempo: o tempo do arquivo
+    // seria descartado em silêncio. Recusa nomeada — o tempo entra pelo catálogo de motores.
+    if (tempos.length > 0) return { ok: false, erro: fraseDoArquivo(arquivos.motor.nome, fraseDosTemposNaTabela(tempos.length)) }
 
     const codigosDoPreco = new Set(preco.itens.map((i) => i.codigo))
     const codigosDoMotor = [...new Set(motor.regras.map((r) => r.codigo))]
@@ -929,11 +939,20 @@ export function conferirGravacao(
  * (o motor da família não leva preço) e sem `importado_por` (o autor vai em `p_por`, da sessão).
  */
 export function montarPayloadDoMotor(lido: Extract<ResultadoDoMotor, { ok: true }>) {
-    return { regras: lido.regras, tipologias: lido.tipologias, formulas: lido.formulas, ...lido.abas, contagens: lido.contagens, avisos: lido.avisos }
+    return { regras: lido.regras, tipologias: lido.tipologias, formulas: lido.formulas, ...lido.abas, tempos: lido.tempos, contagens: lido.contagens, avisos: lido.avisos }
 }
 
-/** As listas que a função do motor da etapa devolve contadas: as de `LISTAS_DA_GRAVACAO`, menos os itens de preço. */
-export const LISTAS_DO_MOTOR_DA_ETAPA: readonly string[] = LISTAS_DA_GRAVACAO.filter((k) => k !== 'itens')
+/**
+ * As listas que a função do motor devolve contadas: as de `LISTAS_DA_GRAVACAO`, menos os itens de preço, mais os TEMPOS (20261106000001). A função de
+ * antes da migração não devolve `tempos`: a contagem ausente é divergência, nunca acerto — o código publicado antes da migração não diz sucesso com o
+ * tempo descartado (`jsonb_to_recordset` ignora a chave que não conhece).
+ */
+export const LISTAS_DO_MOTOR_DA_ETAPA: readonly string[] = [...LISTAS_DA_GRAVACAO.filter((k) => k !== 'itens'), 'tempos']
+
+/** A recusa do motor colado na tabela que traz tempo: o tempo só entra pelo catálogo de motores. */
+export function fraseDosTemposNaTabela(n: number): string {
+    return `traz ${n} ${n === 1 ? 'tempo' : 'tempos'} de fabricação, e a importação da tabela não grava tempo: suba este arquivo pelo catálogo de motores. Nada foi gravado.`
+}
 
 /** O mesmo que `conferirGravacao`, para o motor da etapa: lista por lista, sem os itens. Diferença nunca é sucesso. */
 export function conferirGravacaoDoMotor(

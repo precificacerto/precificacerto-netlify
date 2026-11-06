@@ -2,8 +2,9 @@
  * POST /api/super-admin/atendimentos-ia/motores/trocar-arquivo — `{ motor_id, path, nome }`: TROCAR O ARQUIVO DO MOTOR é MOTOR NOVO (dono do
  * produto, 29/10/2026, opção a). A função `superadmin_trocar_arquivo_do_motor` (migração 20261029000001), numa transação só: cria o motor novo
  * (mesmo fornecedor, categoria e famílias, pela `superadmin_criar_motor`), REAPONTA as etapas do antigo para ele e ARQUIVA o antigo, com as
- * linhas intactas. Um levantamento antigo continua lendo o que leu; os tempos ficam no motor antigo. Apagar e reimportar com o mesmo id
- * (a opção b) é proibido — esta rota não apaga nada.
+ * linhas intactas. Um levantamento antigo continua lendo o que leu; os tempos do antigo ficam nele, e o novo leva os do ARQUIVO NOVO
+ * (20261106000001). A troca que perderia tempo — o antigo tem tempo numa tipologia que o arquivo novo traz sem tempo — é RECUSADA pela função,
+ * nomeando as tipologias (dono do produto, 05/11/2026). Apagar e reimportar com o mesmo id (a opção b) é proibido — esta rota não apaga nada.
  *
  * A ORDEM, e cada recusa sai ANTES do passo seguinte:
  *   1. só super admin (404 para os outros), método POST;
@@ -79,6 +80,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         etapas_reapontadas: gravado.etapas_reapontadas,
         regras: gravado.regras,
         tipologias: gravado.tipologias,
+        detalhes: gravado.detalhes,
+        tempos: gravado.tempos,
         avisos: lido.avisos,
     })
 }
