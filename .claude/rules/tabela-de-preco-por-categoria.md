@@ -1814,11 +1814,18 @@ Formulação do dono do produto, registrada como está:
 > dizendo qual variável falta e de qual esquadria. Não invente valor, não use zero, não copie de outra esquadria. As variáveis COM padrão
 > continuam como estão, sem perguntar. Leia a lista do motor, por tipologia — não deixe nada fixo no código."
 
-**Medido no motor `fdff3386` em 06/11/2026 (só leitura):** 7 variáveis sem Padrão, 63 linhas (uma por tipologia), **nenhuma com Opções**, todas
-altura — AF altura da bandeira (33 tipologias: 21 "sempre", 12 "(HI=1)" com HI padrão 1), AA, AB e AC alturas dos quadros (9, 8 e 3), B altura
-da bandeira (4), P e AP altura do peitoril (4 e 2). As 18 linhas de AA/AB/AC com a condição "(AQ=2) and (AV=1)" **não são perguntadas**: AQ tem
-padrão 1 e a condição é falsa — e a conversa não captura AQ (só ARI, ARE e MAE), então hoje elas nunca valem. A DP-04 tem só AF ("sempre"); a
-DP-02, nenhuma.
+**Medido no motor `fdff3386` em 06/11/2026 (só leitura; confirmado pelo dono do produto na planilha):** 7 siglas sem Padrão, 63 linhas em 48
+tipologias, **nenhuma com Opções**, todas altura. **A mesma sigla muda de sentido por tipologia:** AF é "ALTURA DA BANDEIRA" em 20 linhas (12 com
+"(HI=1)", 8 "sempre") e "ALTURA DO PEITORIL" em 13; AB é "ALTURA DA BANDEIRA" em 2 e "ALTURA DO 2º QUADRO" em 6. **A pergunta sai da descrição
+da linha, nunca da sigla.**
+
+- **HI** é opção única ("1 = CIENTE"), padrão 1, "sempre": nas 12 tipologias de AF "(HI=1)" a condição é verdadeira e AF é perguntada. Rodada a
+  função sobre os dados reais com HI forçado a 2 e a 0, **nenhuma das 12 pergunta AF** — a variável de condição falsa não é perguntada e fica sem
+  valor (dono do produto, 06/11/2026).
+- **AA, AB e AC com "(AQ=2) and (AV=1)"** (18 linhas) não são alcançadas: AQ tem padrão 1 nas 9 tipologias, e a conversa não captura AQ (só ARI,
+  ARE e MAE). Correto não perguntá-las (dono do produto).
+- **Pela função, sobre os dados reais das 48 tipologias:** 20 perguntam a altura da bandeira (AF), 13 a do peitoril (AF), 4 a bandeira e o
+  peitoril (B, P), 2 a bandeira e o peitoril (AB, AP), e 9 nada. A DP-04 tem só AF bandeira ("sempre"); a DP-02, nenhuma.
 
 - **A lista é do motor, por tipologia** (`variaveisSemPadrao`, `escolhas-da-tipologia.ts`): a variável da aba Variáveis com Padrão vazio, nulo ou
   só espaço **e sem Opções**. Nenhum código de variável fixo. A sem padrão COM opções não existe hoje; se aparecer, não é perguntada por aqui.
@@ -1835,10 +1842,11 @@ DP-02, nenhuma.
 - **O valor chega ao cálculo:** `lerEscolhasGravadas(escolhas, tipologia)` deixa passar o valor positivo da sem padrão daquela tipologia, e o
   avaliador o usa no lugar do Padrão que não existe. `lerEscolhasDoItem` guarda o inteiro positivo de variável não capturada — sem isso, o valor
   gravado sumia na releitura e o "sim" voltava a perguntar (achado no teste, antes do PR).
-- **O apanhado em texto não mostra o valor** (não foi pedido; a linha VARIÁVEIS é do arquivo, abaixo).
+- **O apanhado em texto não mostra o valor** — decisão do dono do produto, 06/11/2026: "não faça. O apanhado está sendo substituído pelo
+  arquivo, não vale investir nele." A linha VARIÁVEIS é do arquivo (abaixo).
 - **Prova:** bloco (41) de `atendimentos-ia-levantamento-por-nome.test.ts` (a DP-04 sem a bandeira não é completa e pergunta; o valor entra e
   chega ao cálculo pelo "sim"; 0, −400 e 400,5 não valem; o valor de uma esquadria não vai à outra; a DP-02 sem pergunta; com Padrão no motor,
-  nada é perguntado; o prompt só com a seção quando há), (VIII) de `levantamento-em-montagem.test.ts`, (V) de `escolhas-da-tipologia.test.ts`, e
+  nada é perguntado; AF "(HI=1)" com HI = 1 pergunta e com HI = 2 não pergunta; o prompt só com a seção quando há), (VIII) de `levantamento-em-montagem.test.ts`, (V) de `escolhas-da-tipologia.test.ts`, e
   `scripts/harness/variavel-sem-padrao/mutacoes.py` (20 mutações, 20 mortas).
 
 ## REGISTRADO, NÃO IMPLEMENTADO — a linha VARIÁVEIS no ARQUIVO do levantamento (especificação do PR 2, dono do produto, 06/11/2026)

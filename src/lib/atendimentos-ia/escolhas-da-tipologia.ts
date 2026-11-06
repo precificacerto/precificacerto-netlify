@@ -169,11 +169,14 @@ export function lerEscolhasGravadas(valor: unknown, tipologia: VariaveisDaTipolo
  * dizendo qual variável falta e de qual esquadria. Não invente valor, não use zero, não copie de outra esquadria. As variáveis COM padrão
  * continuam como estão, sem perguntar. Leia a lista do motor, por tipologia — não deixe nada fixo no código."
  *
- * Medido no motor fdff3386 em 06/11/2026 (só leitura): 7 variáveis sem Padrão, 63 linhas, nenhuma com Opções, todas altura — AF altura da
- * bandeira (33 tipologias; 21 "sempre", 12 "(HI=1)" com HI padrão 1), AA/AB/AC alturas dos quadros (9/8/3; as 18 de condição "(AQ=2) and
- * (AV=1)" têm AQ padrão 1, e por isso NÃO são perguntadas: a Condição é falsa; 2 linhas de AB são "sempre"), B altura da bandeira (4),
- * P e AP altura do peitoril (4 e 2). A DP-04 tem só AF ("sempre"); a DP-02, nenhuma. A variável sem padrão e COM opções não existe hoje;
- * se aparecer, não é perguntada aqui (ela é uma escolha, e o avaliador a recusa pelo nome).
+ * Medido no motor fdff3386 em 06/11/2026 (só leitura): 7 siglas sem Padrão, 63 linhas em 48 tipologias, nenhuma com Opções, todas altura.
+ * A MESMA SIGLA MUDA DE SENTIDO POR TIPOLOGIA — AF é "ALTURA DA BANDEIRA" em 20 linhas (12 com "(HI=1)", 8 "sempre") e "ALTURA DO PEITORIL" em
+ * 13; AB é "ALTURA DA BANDEIRA" em 2 e "ALTURA DO 2º QUADRO" em 6 —, por isso a pergunta sai da DESCRIÇÃO da linha, nunca da sigla. HI é
+ * opção única ("1 = CIENTE"), padrão 1: a condição "(HI=1)" é verdadeira e AF é perguntada; com HI ≠ 1 não seria. AA, AB e AC com
+ * "(AQ=2) and (AV=1)" (18 linhas) não são alcançadas: AQ tem padrão 1. Pela função, sobre os dados reais: 20 tipologias perguntam a altura
+ * da bandeira (AF), 13 a do peitoril (AF), 4 a bandeira e o peitoril (B, P), 2 a bandeira e o peitoril (AB, AP), e 9 nada. A DP-04 tem só
+ * AF bandeira ("sempre"); a DP-02, nenhuma. A variável sem padrão e COM opções não existe hoje; se aparecer, não é perguntada aqui (ela é
+ * uma escolha, e o avaliador a recusa pelo nome).
  */
 export type VariavelSemPadrao = { variavel: string; descricao: string; condicao: string | null }
 

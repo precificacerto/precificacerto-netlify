@@ -4739,7 +4739,7 @@ describe('(41) a variável SEM PADRÃO vira pergunta ao vendedor: lida do motor,
      * A DP-04 do banco falso: a DP-02 copiada (as abas, as regras e o tempo), com UMA variável a mais, AF — "ALTURA DA BANDEIRA", sem Padrão e
      * sem Opções, como as 63 linhas medidas no motor fdff3386 em 06/11/2026 —, e um perfil cortado na medida AF: sem o valor, o cálculo não sai.
      */
-    function comDp04(padraoDaAf: string | null = null) {
+    function comDp04(padraoDaAf: string | null = null, condicaoDaAf = 'sempre', padraoDoHi: string | null = null) {
         const db = estado.db
         for (const t of ABAS_POR_TIPOLOGIA) {
             db[t].push(...db[t].filter((l) => l.tipologia === 'DP-02').map((l) => ({ ...l, ...(l.id ? { id: `${String(l.id)}-dp04` } : {}), tipologia: 'DP-04' })))
@@ -4747,7 +4747,11 @@ describe('(41) a variável SEM PADRÃO vira pergunta ao vendedor: lida do motor,
         const detalhe = db.orcamentista_motor_tipologia_detalhe.find((d) => d.tipologia === 'DP-02') as Linha
         db.orcamentista_motor_tipologia_detalhe.push({ ...detalhe, tipologia: 'DP-04', descricao: 'JANELA DE CORRER 02 FOLHAS MÓVEIS COM BANDEIRA | EUROPA 42' })
         const variavel = db.orcamentista_motor_variavel.find((v) => v.tipologia === 'DP-04') as Linha
-        db.orcamentista_motor_variavel.push({ ...variavel, id: 'var-dp04-af', variavel: 'AF', descricao: 'ALTURA DA BANDEIRA', padrao: padraoDaAf, min_max: null, condicao: 'sempre', opcoes: null })
+        db.orcamentista_motor_variavel.push({ ...variavel, id: 'var-dp04-af', variavel: 'AF', descricao: 'ALTURA DA BANDEIRA', padrao: padraoDaAf, min_max: null, condicao: condicaoDaAf, opcoes: null })
+        // o HI como está nas 12 tipologias de AF "(HI=1)" do motor (06/11/2026): opção única "1 = CIENTE", padrão 1, "sempre"
+        if (padraoDoHi !== null) {
+            db.orcamentista_motor_variavel.push({ ...variavel, id: 'var-dp04-hi', variavel: 'HI', descricao: 'A ALTURA TOTAL H DEVE CORRESPONDER À IMAGEM.', padrao: padraoDoHi, min_max: null, condicao: 'sempre', opcoes: '1 = CIENTE' })
+        }
         const perfil = db.orcamentista_motor_perfil.find((p) => p.tipologia === 'DP-04' && p.condicao === 'sempre') as Linha
         db.orcamentista_motor_perfil.push({ ...perfil, id: 'perf-dp04-af', medida: 'AF', qtd: '1', posicao: 'Altura' })
         db.orcamentista_motor_regra = db.orcamentista_motor_regra.map((r) => ({ ...r, tipologias: [...(r.tipologias as string[]), 'DP-04'] }))
@@ -4820,6 +4824,22 @@ describe('(41) a variável SEM PADRÃO vira pergunta ao vendedor: lida do motor,
         await chamar(MSG_DP04)
         expect(levantamentos()[0].estado).toBe('COMPLETO')
         expect(ultimoEnviado()).toMatch(/^Apanhado do levantamento/)
+    })
+
+    it.each([['1', 'pergunta'], ['2', 'não pergunta']])('AF com a condição "(HI=1)" e HI = %s: %s — a variável de condição falsa não é perguntada e fica sem valor', async (hi, efeito) => {
+        comDp04(null, '(HI=1)', hi)
+        llmResponde({ nome: 'Obra Bandeira', itens: [{ ...DP04 }], escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar(MSG_DP04)
+        if (efeito === 'pergunta') {
+            expect(levantamentos()[0].estado).toBe('EM_MONTAGEM')
+            expect(ultimoEnviado()).toBe(PERGUNTA_DA_BANDEIRA)
+        } else {
+            expect(levantamentos()[0].estado).toBe('COMPLETO')
+            expect(ultimoEnviado()).toMatch(/^Apanhado do levantamento/)
+            expect(enviados().join('\n')).not.toContain('altura da bandeira')
+            expect(montarDoTurno()).toMatch(/ pendencias=0 .* faltou=-$/)
+        }
+        expect(itens()[0].escolhas).toEqual({ ARI: 4, MAE: 2 })
     })
 
     it('o prompt leva as variáveis sem padrão (código, descrição e as tipologias) só quando o motor as tem; sem elas, nenhuma linha', async () => {

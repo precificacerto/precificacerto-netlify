@@ -426,7 +426,7 @@ describe('(VIII) a variável SEM PADRÃO (06/11/2026): pendência da esquadria a
     function dp04(): Def {
         const t = dp02()
         const base = t.variaveis[0] as Var
-        const mais = [
+        const mais: Var[] = [
             { ...base, variavel: 'AF', descricao: 'ALTURA DA BANDEIRA', padrao: null, condicao: 'sempre', opcoes: null },
             { ...base, variavel: 'AM', descricao: 'MÓDULOS DA BANDEIRA', padrao: '', condicao: 'sempre', opcoes: null },
         ]
