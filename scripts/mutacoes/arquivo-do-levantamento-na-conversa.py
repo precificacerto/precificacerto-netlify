@@ -36,7 +36,7 @@ M = [
  ('C4 completo sem as condições', C, 'const estado = pendencia || vendedorPendente || faltamCondicoes.length ? EM_MONTAGEM : COMPLETO', 'const estado = pendencia || vendedorPendente ? EM_MONTAGEM : COMPLETO'),
  ('C5 o cadastro não é congelado', C, '{ ...colunasQueMudam, ...congelar }', '{ ...colunasQueMudam }'),
  ('C6 entre dois homônimos, o primeiro sem perguntar', C, 'const escolhido = achados.length === 1 ? achados[0] : opcaoDaLista(proposta.vendedor_opcao, achados)', 'const escolhido = achados[0]'),
- ('C7 outro vendedor mantém os percentuais do anterior', C, "                for (const k of ['comissao_percentual', 'comissao_modo', 'reserva_tecnica_percentual', 'lucro_projetado_percentual'] as const) if (!(k in dadosDaMensagem.condicoes)) colunas[k] = null\n", ''),
+ ('C7 outro vendedor mantém os percentuais do anterior', C, "            for (const k of ['comissao_percentual', 'comissao_modo', 'reserva_tecnica_percentual', 'lucro_projetado_percentual'] as const) if (!(k in dadosDaMensagem.condicoes)) colunas[k] = null\n", ''),
  ('C8 sem vendedor padrão', C, '            if (doDono.nome !== null) { colunas.vendedor_nome = doDono.nome; colunas.vendedor_employee_id = doDono.employeeId }\n', ''),
  ('C9 a pergunta das condições fora do prompt', C, ': perguntaDasCondicoesAberta ?? aberta?.paraOPrompt', ': aberta?.paraOPrompt'),
  ('C10 o resumo com percentual ao modelo', C, 'texto: resumoDoArquivo(dados), paraOPrompt: resumoDoArquivoParaOPrompt(dados) }', 'texto: resumoDoArquivo(dados) }'),
