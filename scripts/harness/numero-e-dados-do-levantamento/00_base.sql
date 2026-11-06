@@ -1,9 +1,10 @@
 -- A BASE do harness da 20261106000002: as tabelas do levantamento COMO ESTÃO EM PRODUÇÃO (medidas em 06/11/2026 — colunas, defaults,
 -- constraints, índices, RLS sem política, privilégios), o mínimo em volta para as FKs, o log, e o PRIVILÉGIO PADRÃO de produção
 -- (pg_default_acl do postgres no schema public: tabelas, sequências e funções a authenticated e service_role — medido; sem ele o harness não
--- veria o REVOKE que falta, a lição da 20261101000002). E o estado de produção em forma: os 5 levantamentos da De Paula com os ids reais e
--- 11 itens (2, 2, 3, 2, 2), com texto SINTÉTICO — o conteúdo real não sai do tenant. Mais, para os casos: uma pergunta em aberto que cita
--- um dos 5 (sai) e uma que não cita nenhum (fica), e uma segunda empresa sem levantamento.
+-- veria o REVOKE que falta, a lição da 20261101000002). E o estado de produção em forma: os 5 levantamentos da De Paula com os ids e os
+-- criado_em reais e 11 itens (2, 2, 3, 2, 2), com texto SINTÉTICO — o conteúdo real não sai do tenant. Mais, para os casos: uma segunda
+-- empresa com 2 levantamentos criados no MESMO instante (o desempate é pelo id) e um terceiro mais antigo inserido por último (a ordem é a
+-- de criado_em, não a de inserção), uma terceira empresa sem levantamento, e a FOTO de cada linha antes da migração (harness_foto).
 alter default privileges in schema public grant all on tables to authenticated, service_role;
 alter default privileges in schema public grant all on sequences to authenticated, service_role;
 alter default privileges in schema public grant execute on functions to authenticated, service_role;
@@ -84,24 +85,36 @@ alter table public.superadmin_alteracao_log enable row level security;
 revoke all on table public.orcamentista_levantamento, public.orcamentista_levantamento_item, public.orcamentista_pergunta_em_aberto,
   public.superadmin_alteracao_log from authenticated;
 
--- o estado em forma: a De Paula (o tenant real), uma segunda empresa, 3 remetentes
-insert into public.tenants (id, name) values ('20e08592-f957-4e72-b7eb-251387e34eb9', 'Empresa A (sintetica)'), ('a0000000-0000-0000-0000-000000000002', 'Empresa B (sintetica)');
+-- o estado em forma: a De Paula (o tenant real), a empresa B (3 levantamentos, dois no mesmo instante), a empresa C (nenhum)
+insert into public.tenants (id, name) values ('20e08592-f957-4e72-b7eb-251387e34eb9', 'Empresa A (sintetica)'), ('a0000000-0000-0000-0000-000000000002', 'Empresa B (sintetica)'),
+  ('a0000000-0000-0000-0000-000000000003', 'Empresa C (sintetica)');
 insert into public.orcamentista_remetente_autorizado (id, tenant_id) values
   ('4d1e0f2e-c036-44fe-ad3c-2420e2ad19d2', '20e08592-f957-4e72-b7eb-251387e34eb9'),
   ('b0000000-0000-0000-0000-000000000002', '20e08592-f957-4e72-b7eb-251387e34eb9'),
-  ('b0000000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-000000000002');
-insert into public.orcamentista_levantamento (id, tenant_id, remetente_id, nome, nome_normalizado, estado, criado_em) values
-  ('b0465e57-a829-4f81-9f3e-9ba7d00a999f', '20e08592-f957-4e72-b7eb-251387e34eb9', '4d1e0f2e-c036-44fe-ad3c-2420e2ad19d2', 'Teste 1', 'teste 1', 'COMPLETO', '2026-10-25 14:43:09+00'),
-  ('02db9513-7eda-43f0-852d-df940e781bef', '20e08592-f957-4e72-b7eb-251387e34eb9', '4d1e0f2e-c036-44fe-ad3c-2420e2ad19d2', 'Teste 2', 'teste 2', 'COMPLETO', '2026-10-26 16:33:18+00'),
-  ('cbf085d1-dfe0-4074-ad94-1d462130eee7', '20e08592-f957-4e72-b7eb-251387e34eb9', '4d1e0f2e-c036-44fe-ad3c-2420e2ad19d2', 'Teste 3', 'teste 3', 'COMPLETO', '2026-11-03 01:11:37+00'),
-  ('3181ae50-6ef7-4032-98b9-914e2dc1eb43', '20e08592-f957-4e72-b7eb-251387e34eb9', '4d1e0f2e-c036-44fe-ad3c-2420e2ad19d2', 'Teste 4', 'teste 4', 'COMPLETO', '2026-11-05 14:06:33+00'),
-  ('c8b56b73-05b3-4d4e-82d0-41ecba58b893', '20e08592-f957-4e72-b7eb-251387e34eb9', '4d1e0f2e-c036-44fe-ad3c-2420e2ad19d2', 'Teste 5', 'teste 5', 'COMPLETO', '2026-11-05 20:03:38+00');
-insert into public.orcamentista_levantamento_item (tenant_id, levantamento_id, ordem, tipologia, largura_mm, altura_mm, quantidade, cor_perfil, vidro)
-select '20e08592-f957-4e72-b7eb-251387e34eb9', l.id, k, 'DP-02', 1200, 1000, 1, 'BRANCO', 'vidro de teste'
+  ('b0000000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-000000000002'),
+  ('b0000000-0000-0000-0000-000000000004', 'a0000000-0000-0000-0000-000000000003');
+insert into public.orcamentista_levantamento (id, tenant_id, remetente_id, nome, nome_normalizado, estado, criado_em, atualizado_em) values
+  ('c8b56b73-05b3-4d4e-82d0-41ecba58b893', '20e08592-f957-4e72-b7eb-251387e34eb9', '4d1e0f2e-c036-44fe-ad3c-2420e2ad19d2', 'Maria Cristina', 'maria cristina', 'COMPLETO', '2026-11-05 20:03:38.285795+00', '2026-11-06 12:53:00+00'),
+  ('b0465e57-a829-4f81-9f3e-9ba7d00a999f', '20e08592-f957-4e72-b7eb-251387e34eb9', '4d1e0f2e-c036-44fe-ad3c-2420e2ad19d2', 'Teste 1', 'teste 1', 'COMPLETO', '2026-10-25 14:43:09.463729+00', '2026-10-25 15:00:00+00'),
+  ('3181ae50-6ef7-4032-98b9-914e2dc1eb43', '20e08592-f957-4e72-b7eb-251387e34eb9', '4d1e0f2e-c036-44fe-ad3c-2420e2ad19d2', 'Teste 4', 'teste 4', 'COMPLETO', '2026-11-05 14:06:33.49324+00', '2026-11-05 14:10:00+00'),
+  ('02db9513-7eda-43f0-852d-df940e781bef', '20e08592-f957-4e72-b7eb-251387e34eb9', '4d1e0f2e-c036-44fe-ad3c-2420e2ad19d2', 'Teste 2', 'teste 2', 'COMPLETO', '2026-10-26 16:33:18.375588+00', '2026-10-26 17:00:00+00'),
+  ('cbf085d1-dfe0-4074-ad94-1d462130eee7', '20e08592-f957-4e72-b7eb-251387e34eb9', '4d1e0f2e-c036-44fe-ad3c-2420e2ad19d2', 'Teste 3', 'teste 3', 'COMPLETO', '2026-11-03 01:11:37.343919+00', '2026-11-03 02:00:00+00'),
+  ('e0000000-0000-0000-0000-00000000000b', 'a0000000-0000-0000-0000-000000000002', 'b0000000-0000-0000-0000-000000000003', 'B mesmo instante 2', 'b mesmo instante 2', 'EM_MONTAGEM', '2026-11-01 10:00:00+00', '2026-11-01 10:00:00+00'),
+  ('e0000000-0000-0000-0000-00000000000a', 'a0000000-0000-0000-0000-000000000002', 'b0000000-0000-0000-0000-000000000003', 'B mesmo instante 1', 'b mesmo instante 1', 'EM_MONTAGEM', '2026-11-01 10:00:00+00', '2026-11-01 10:00:00+00'),
+  ('e0000000-0000-0000-0000-00000000000c', 'a0000000-0000-0000-0000-000000000002', 'b0000000-0000-0000-0000-000000000003', 'B mais antigo', 'b mais antigo', 'COMPLETO', '2026-10-20 09:00:00+00', '2026-10-20 09:00:00+00');
+insert into public.orcamentista_levantamento_item (tenant_id, levantamento_id, ordem, tipologia, largura_mm, altura_mm, quantidade, cor_perfil, vidro, escolhas)
+select '20e08592-f957-4e72-b7eb-251387e34eb9', l.id, k, 'DP-02', 1200 + k, 1000, k, 'BRANCO', 'vidro de teste ' || k, jsonb_build_object('ARI', k)
   from (values ('b0465e57-a829-4f81-9f3e-9ba7d00a999f'::uuid, 2), ('02db9513-7eda-43f0-852d-df940e781bef'::uuid, 2), ('cbf085d1-dfe0-4074-ad94-1d462130eee7'::uuid, 3),
                ('3181ae50-6ef7-4032-98b9-914e2dc1eb43'::uuid, 2), ('c8b56b73-05b3-4d4e-82d0-41ecba58b893'::uuid, 2)) as l(id, n),
        generate_series(1, l.n) as k;
+insert into public.orcamentista_levantamento_item (tenant_id, levantamento_id, ordem, tipologia, quantidade)
+  values ('a0000000-0000-0000-0000-000000000002', 'e0000000-0000-0000-0000-00000000000c', 1, 'DP-01', 1);
 insert into public.orcamentista_pergunta_em_aberto (tenant_id, remetente_id, pergunta, nome, levantamentos) values
-  ('20e08592-f957-4e72-b7eb-251387e34eb9', '4d1e0f2e-c036-44fe-ad3c-2420e2ad19d2', 'CONFIRMAR_APANHADO', 'Teste 5', array['c8b56b73-05b3-4d4e-82d0-41ecba58b893'::uuid]),
-  ('20e08592-f957-4e72-b7eb-251387e34eb9', 'b0000000-0000-0000-0000-000000000002', 'SEM_NOME', null, '{}');
+  ('20e08592-f957-4e72-b7eb-251387e34eb9', '4d1e0f2e-c036-44fe-ad3c-2420e2ad19d2', 'CONFIRMAR_APANHADO', 'Maria Cristina', array['c8b56b73-05b3-4d4e-82d0-41ecba58b893'::uuid]);
 insert into public.superadmin_alteracao_log (tenant_id, tabela, chave, antes, depois) values (null, 'outra', 'x', null, '{"a": 1}');
+
+-- a FOTO de antes: cada linha das três tabelas, inteira (o caso 1 compara, tirando só as colunas novas)
+create table public.harness_foto as
+  select 'L'::text as tabela, l.id, md5(to_jsonb(l)::text) as md5 from public.orcamentista_levantamento l
+  union all select 'I', i.id, md5(to_jsonb(i)::text) from public.orcamentista_levantamento_item i
+  union all select 'P', p.remetente_id, md5(to_jsonb(p)::text) from public.orcamentista_pergunta_em_aberto p;
