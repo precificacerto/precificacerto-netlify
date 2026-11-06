@@ -125,6 +125,9 @@ const estado = {
     chamadasDaLlm: [] as Array<{ headers: Record<string, string>; corpo: Record<string, unknown> }>,
     envioStatus: 200,
     envios: [] as Array<{ corpo: Record<string, unknown> }>,
+    /** Os DOCUMENTOS enviados pelo WUZAPI (o arquivo do levantamento, 06/11/2026) e o status que o envio deles devolve. */
+    documentos: [] as Array<{ corpo: Record<string, unknown> }>,
+    documentoStatus: 200,
     ausentes: new Set<string>(),
     /** "tabela.coluna" que o banco falso não tem: ler a coluna é 42703, como o PostgREST antes da migração que a cria. */
     colunasAusentes: new Set<string>(),
@@ -186,6 +189,12 @@ function montar() {
             { id: 'e-beltrana', tenant_id: TENANT, name: 'Beltrana Souza', user_id: null, role: 'COMMERCIAL' },
         ],
         users: [],
+        // a EMPRESA (o nome vai ao cabeçalho do arquivo) e o CADASTRO dos vendedores (o padrão dos percentuais, 06/11/2026), como em produção
+        tenants: [{ id: TENANT, name: 'Esquadrias De Teste Ltda' }],
+        orcamentista_vendedor_perfil: [
+            { tenant_id: TENANT, employee_id: 'e-cristiano', comissao_percentual: 5, comissao_modo: 'PROPORCIONAL', reserva_tecnica_percentual: 1, lucro_projetado_percentual: 10 },
+            { tenant_id: TENANT, employee_id: 'e-beltrana', comissao_percentual: 4, comissao_modo: 'CONGELADA', reserva_tecnica_percentual: 2, lucro_projetado_percentual: 12 },
+        ],
         orcamentista_tentativa_desconhecida: [],
         orcamentista_conversa: [],
         orcamentista_mensagem: [],
@@ -223,6 +232,8 @@ function montar() {
     estado.chamadasDaLlm = []
     estado.envioStatus = 200
     estado.envios = []
+    estado.documentos = []
+    estado.documentoStatus = 200
     estado.ausentes = new Set()
     estado.colunasAusentes = new Set()
     estado.respostaPeloPrompt = null
@@ -349,6 +360,11 @@ jest.mock('@/supabase/admin', () => ({
                     const criadoEm = DA_CONVERSA_GRAVADA.has(tabela) ? new Date(INICIO_DO_TESTE - 3_600_000 + sequencia * 1000) : new Date(Date.UTC(2026, 9, 25, 1, 0, sequencia))
                     // o levantamento nasce TOCADO agora (05/11/2026): `atualizado_em` é o que diz se a montagem ainda vale (24 h), como em produção
                     const tocado = tabela === 'orcamentista_levantamento' ? { atualizado_em: new Date().toISOString() } : {}
+                    // o NÚMERO do levantamento é do banco (o gatilho da 20261106000002): o próximo da empresa, nunca informado no insert
+                    if (tabela === 'orcamentista_levantamento') {
+                        if (c.numero !== undefined) { erro = { code: '22023', message: 'o numero do levantamento e dado pelo banco' }; break }
+                        Object.assign(tocado, { numero: Math.max(0, ...linhas.filter((l) => l.tenant_id === c.tenant_id).map((l) => Number(l.numero) || 0)) + 1 })
+                    }
                     const nova: Linha = { id: `${tabela}-${sequencia}`, criado_em: criadoEm.toISOString(), ...tocado, ...c }
                     linhas.push(nova)
                     novas.push(nova)
@@ -520,10 +536,27 @@ async function fecharDp02(nome: string, opcoes: { senderAlt?: string } = {}) {
  * sai com o "sim". Confirma quando a última resposta é um apanhado, e devolve a resposta seguinte.
  */
 async function confirmarApanhado(opcoes: { senderAlt?: string } = {}) {
-    if (!ultimoEnviado()?.startsWith('Apanhado do levantamento')) return ultimoEnviado()
+    if (!ehConfirmacaoDoArquivo(ultimoEnviado())) return ultimoEnviado()
     llmResponde({ confirma: true })
     await chamar('sim', opcoes)
     return ultimoEnviado()
+}
+/**
+ * O TEXTO do último arquivo enviado: as cadeias do PDF (o jsPDF escreve o texto em Latin-1, entre parênteses, sem compressão), juntas por espaço —
+ * a quebra de linha da célula vira espaço, e a frase se lê inteira.
+ */
+function textoDoArquivo(): string {
+    const doc = estado.documentos[estado.documentos.length - 1]
+    if (!doc) return ''
+    const pdf = Buffer.from(String(doc.corpo.Document).replace(/^data:[^,]*,/, ''), 'base64').toString('latin1')
+    const cadeias = [...pdf.matchAll(/\(((?:\\.|[^\\)])*)\) Tj/g)].map((m) => m[1].replace(/\\([()\\])/g, '$1'))
+    return cadeias.join(' ').replace(/\s+/g, ' ')
+}
+/** A resposta que acompanha o ARQUIVO do levantamento (06/11/2026): "Levantamento N “nome”: o arquivo está acima, para você conferir." */
+function ehConfirmacaoDoArquivo(texto: string | undefined, nome?: string): boolean {
+    if (!texto) return false
+    const m = /^Levantamento \d+ “([^”]+)”: o arquivo está acima, para você conferir\./.exec(texto.split('\n').find((l) => l.startsWith('Levantamento ')) ?? '')
+    return m !== null && (nome === undefined || m[1] === nome)
 }
 const linhaDa = (texto: string, comeco: string) => texto.split('\n').find((l) => l.startsWith(comeco))
 /** Abre um levantamento EM_MONTAGEM: a esquadria sem o vidro, e a pergunta do vidro em aberto. */
@@ -582,6 +615,12 @@ beforeEach(() => {
             if (proxima === 'lanca') throw new Error('fetch failed')
             return respostaDaLlm(proxima.status, proxima.corpo, init)
         }
+        if (url.endsWith('/chat/send/document')) {
+            // o ARQUIVO do levantamento (06/11/2026): o PDF em base64, com o nome do arquivo
+            estado.documentos.push({ corpo })
+            const ok = estado.documentoStatus >= 200 && estado.documentoStatus < 300
+            return { ok, status: estado.documentoStatus, json: async () => (ok ? { data: { Id: 'WAMID_DOCUMENTO' } } : { error: 'falhou' }) }
+        }
         if (url.endsWith('/chat/send/text')) {
             estado.envios.push({ corpo })
             const ok = estado.envioStatus >= 200 && estado.envioStatus < 300
@@ -611,7 +650,7 @@ describe('(1) O TESTE QUE VALE: pedidos seguidos do MESMO telefone, todos respon
         await chamar(ACEITE_1)
         // o apanhado (26/10/2026) é a primeira resposta; o formal sai com o "sim"
         expect(enviados()).toHaveLength(1)
-        expect(enviados()[0].startsWith('Apanhado do levantamento “Casa do Pedro”:')).toBe(true)
+        expect(ehConfirmacaoDoArquivo(enviados()[0], 'Casa do Pedro')).toBe(true)
         const r = await confirmarApanhado()
         expect(enviados()).toHaveLength(2)
         expect(r.split('\n')[0]).toBe(conversa.FRASE_ARREMATE_PADRAO)
@@ -697,7 +736,7 @@ describe('(1c) o arremate só é perguntado quando o vendedor PEDE outro — e a
             .toContain('Pergunta em aberto: Para arremate externo, as opções são: arremate de 20 mm; sem arremate externo. Qual você quer?')
         expect(itensDe(levantamentos()[0].id)[0].escolhas).toEqual({ ARI: 4, MAE: 2, ARE: 2 })
         expect(levantamentos()[0].estado).toBe('COMPLETO')
-        expect(ultimoEnviado().split('\n')).toContain('Arremate e guarnição: arremate interno: sem arremate interno; arremate externo: sem arremate externo.')
+        expect(textoDoArquivo()).toContain('Arremate e guarnição: arremate interno: sem arremate interno; arremate externo: sem arremate externo')
         estado.respostaPeloPrompt = null
         await confirmarApanhado()
         expect(ultimoEnviado()).toContain('arremate externo: SEM ARREMATE EXTERNO (como você pediu)')
@@ -726,7 +765,7 @@ describe('(2) o roteamento por nome', () => {
         llmResponde({ nome: 'Casa do João 2', novo: true, itens: [{ ...DP02 }] })
         await chamar('novo Casa do João 2: DP-02 1200 x 1000 branco temperado 5mm')
         expect(levantamentos().map((l) => l.nome)).toEqual(['Casa do João', 'Casa do João 2'])
-        expect(ultimoEnviado().split('\n')[0]).toBe('Apanhado do levantamento “Casa do João 2”:')
+        expect(ehConfirmacaoDoArquivo(ultimoEnviado(), 'Casa do João 2')).toBe(true)
         expect((await confirmarApanhado()).split('\n')[0]).toBe(conversa.FRASE_ARREMATE_PADRAO)
     })
 
@@ -913,7 +952,7 @@ describe('(5) remetente autorizado é SEMPRE respondido; silêncio só para o de
         estado.db.orcamentista_pre_definicao = [{ id: 'pd', tenant_id: TENANT, conversa_id: 'antiga', estado: 'COMPLETA', tipologia: 'janela de correr 2 folhas Europa 42' }]
         await fecharDp02('Casa do João')
         expect(enviados()).toHaveLength(2)
-        expect(enviados()[0].startsWith('Apanhado do levantamento “Casa do João”:')).toBe(true)
+        expect(ehConfirmacaoDoArquivo(enviados()[0], 'Casa do João')).toBe(true)
         expect(enviados()[1]).toBe(LEVANTAMENTO_CASA_DO_JOAO)
         expect(estado.db.orcamentista_pre_definicao).toEqual([expect.objectContaining({ id: 'pd', estado: 'COMPLETA' })])
     })
@@ -1018,7 +1057,7 @@ describe('(6b) R1 e R2: nenhum update falha em silêncio, e a pergunta respondid
         llmResponde({ nome: 'Casa do João' })
         await chamar('Casa do João')
         // a conta refeita é o apanhado de novo: ele grava SÓ a pergunta que espera o "sim", nunca o levantamento
-        expect(ultimoEnviado().startsWith('Apanhado do levantamento “Casa do João”:')).toBe(true)
+        expect(ehConfirmacaoDoArquivo(ultimoEnviado(), 'Casa do João')).toBe(true)
         expect(escritasNoEstado().slice(escritasAntes).map((e) => [e.tabela, e.op])).toEqual([['orcamentista_pergunta_em_aberto', 'upsert']])
         expect(await confirmarApanhado()).toBe(LEVANTAMENTO_CASA_DO_JOAO)
         expect(escritasNoEstado().slice(escritasAntes).filter((e) => e.tabela.startsWith('orcamentista_levantamento'))).toEqual([])
@@ -1028,7 +1067,7 @@ describe('(6b) R1 e R2: nenhum update falha em silêncio, e a pergunta respondid
 describe('(7) o log [IA]: o levantamento e o desfecho — nunca a chave, o telefone ou o texto', () => {
     it('levantamento, propostos, descartados, se enviou e o desfecho', async () => {
         await fecharDp02('Casa do João')
-        expect(linhaIa()[0]).toMatch(/^\[IA\] levantamento=\S+ rota=NOVO propostos=8 descartados=0 enviou=sim desfecho=apanhado/)
+        expect(linhaIa()[0]).toMatch(/^\[IA\] levantamento=\S+ rota=NOVO propostos=8 descartados=0 enviou=sim desfecho=arquivo/)
         expect(linhaIa()[1]).toMatch(/^\[IA\] levantamento=\S+ rota=ALTERACAO propostos=0 descartados=0 enviou=sim desfecho=levantou/)
     })
 
@@ -1085,7 +1124,9 @@ describe('(8) a ferramenta NÃO vai strict; o esquema continua restrito por addi
         return { unioes, opcionais }
     }
 
-    it('o esquema ENVIADO: UMA ferramenta, SEM `strict` (nem true nem false: o campo não vai), e a medida de hoje — 0 uniões, 24 opcionais', async () => {
+    // a medida passou de 24 a 40 opcionais em 06/11/2026: os dados do levantamento (o cliente, as condições, o vendedor, e os ambientes e a obs do
+    // item) — sem `strict`, o limite de 24 da gramática não se aplica
+    it('o esquema ENVIADO: UMA ferramenta, SEM `strict` (nem true nem false: o campo não vai), e a medida de hoje — 0 uniões, 40 opcionais', async () => {
         await chamar('oi')
         const tools = estado.chamadasDaLlm[0].corpo.tools as Array<Record<string, unknown>>
         expect(tools).toHaveLength(1)
@@ -1093,7 +1134,7 @@ describe('(8) a ferramenta NÃO vai strict; o esquema continua restrito por addi
         expect(JSON.stringify(estado.chamadasDaLlm[0].corpo)).not.toContain('"strict"')
         const { unioes, opcionais } = contar(tools[0].input_schema)
         expect(unioes).toBe(0)
-        expect(opcionais).toBe(24)
+        expect(opcionais).toBe(40)
     })
 })
 
@@ -1142,7 +1183,11 @@ describe('(9) o contrato da chamada à Anthropic', () => {
         // `fornecedor`: a resposta à pergunta de qual fornecedor, com mais de uma tabela (26/10/2026)
         // `abertura` (03/11/2026): a palavra do vendedor por esquadria — porta ou janela, só essas duas
         // `vidro_padrao` (04/11/2026): o padrão da instrução, só quando o vendedor não disse o vidro
-        expect(Object.keys(item.properties).sort()).toEqual(['abertura', 'altura_mm', 'cor_perfil', 'familia', 'fornecedor', 'largura_mm', 'ordem', 'quantidade', 'tipologia', 'vidro', 'vidro_padrao'])
+        // `ambientes` e `obs` (06/11/2026): o que vai às linhas AMBIENTES e OBS do arquivo
+        expect(Object.keys(item.properties).sort()).toEqual(['abertura', 'altura_mm', 'ambientes', 'cor_perfil', 'familia', 'fornecedor', 'largura_mm', 'obs', 'ordem', 'quantidade', 'tipologia', 'vidro', 'vidro_padrao'])
+        const ambiente = item.properties.ambientes.items as Esquema
+        expect(ambiente.additionalProperties).toBe(false)
+        expect(ambiente.properties.quantidade.type).toBe('integer')
         for (const k of ['ordem', 'largura_mm', 'altura_mm', 'quantidade']) expect(item.properties[k].type).toBe('integer')
         expect(item.properties.tipologia.type).toBe('string')
         expect(item.properties.abertura).toEqual(expect.objectContaining({ type: 'string', enum: ['porta', 'janela'] }))
@@ -1256,7 +1301,7 @@ describe('(12) decisão 2, revista: quem altera — o criador, ou o admin da emp
         casa.nome_normalizado = 'levantamento casa do joao'
         comPapel(OUTRO_VENDEDOR, 'admin')
         await alterarAltura('casa do joao', doOutro)
-        expect(ultimoEnviado().startsWith('Apanhado do levantamento “Levantamento Casa do João”:')).toBe(true)
+        expect(ehConfirmacaoDoArquivo(ultimoEnviado(), 'Levantamento Casa do João')).toBe(true)
         await confirmarApanhado(doOutro)
         expect(levantamentos()).toHaveLength(1)
         expect(alturaDe(VENDEDOR)).toBe(1200)
@@ -1266,7 +1311,7 @@ describe('(12) decisão 2, revista: quem altera — o criador, ou o admin da emp
         await fecharDp02('Casa do João')
         comPapel(OUTRO_VENDEDOR, 'admin')
         await alterarAltura('casa do joao', doOutro)
-        expect(ultimoEnviado().startsWith('Apanhado do levantamento “Casa do João”:')).toBe(true)
+        expect(ehConfirmacaoDoArquivo(ultimoEnviado(), 'Casa do João')).toBe(true)
         llmResponde({ nome: 'Levantamento Casa do João', confirma: true })
         await chamar('sim, Levantamento Casa do João', doOutro)
         expect(levantamentos()).toHaveLength(1)
@@ -1303,7 +1348,7 @@ describe('(12) decisão 2, revista: quem altera — o criador, ou o admin da emp
         levantamentos()[0].atualizado_em = 'antes-da-alteracao'
         await alterarAltura('casa do joao', doOutro)
         // "Nada é formal antes da confirmação" não tem exceção (dono do produto, 26/10/2026)
-        expect(ultimoEnviado().startsWith('Apanhado do levantamento “Casa do João”:')).toBe(true)
+        expect(ehConfirmacaoDoArquivo(ultimoEnviado(), 'Casa do João')).toBe(true)
         expect(ultimoEnviado()).not.toContain('R$')
         await confirmarApanhado(doOutro)
         expect(levantamentos()).toHaveLength(1)
@@ -1323,7 +1368,8 @@ describe('(12) decisão 2, revista: quem altera — o criador, ou o admin da emp
         await chamar('a largura é 1500', doOutro)
         expect(levantamentos()).toHaveLength(1)
         expect(itensDe(levantamentos()[0].id)[0]).toEqual(expect.objectContaining({ largura_mm: 1500, altura_mm: 1200 }))
-        expect(ultimoEnviado().split('\n')).toContain('Esquadria 1: DP-02, 1 unidade(s), 1.500 x 1.200 mm, vidro Temperado 5mm.')
+        expect(ehConfirmacaoDoArquivo(ultimoEnviado(), 'Casa do João')).toBe(true)
+        expect(textoDoArquivo()).toContain('1.500 1.200')
         const formal = await confirmarApanhado(doOutro)
         expect(linhaDa(formal, 'Esquadria 1:')).toBe('Esquadria 1: DP-02, 1.500 x 1.200 mm, 1 unidade(s).')
         expect(estado.db.orcamentista_pergunta_em_aberto).toEqual([])
@@ -1419,12 +1465,14 @@ describe('(13) DEFEITO 1, medido em produção (b0465e57, 25/10/2026): a escolha
     it('respondida a escolha do arremate interno em palavras, ela é GRAVADA no item e a mesma pergunta NÃO volta', async () => {
         llmResponde({ nome: 'Casa Teste', itens: [{ ...DP02 }] })
         await chamar('Levantamento Casa Teste: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm')
-        const antes = ultimoEnviado()
+        const antes = textoDoArquivo()
         estado.respostaPeloPrompt = { variavelDescrita: 'ARREMATE INTERNO', opcaoDescrita: 'SEM ARREMATE INTERNO', nome: 'Casa Teste' }
         await chamar('Casa Teste: sem arremate interno')
         const item = itensDe(levantamentos()[0].id)[0]
         expect(item.escolhas).toEqual(expect.objectContaining({ ARI: 4 }))
-        expect(ultimoEnviado()).not.toBe(antes)
+        // a escolha muda o ARQUIVO (o arremate por extenso), e a conversa manda o novo
+        expect(textoDoArquivo()).not.toBe(antes)
+        expect(textoDoArquivo()).toContain('arremate interno: sem arremate interno')
     })
 })
 
@@ -1649,23 +1697,12 @@ describe('(16) a PERGUNTA EM ABERTO do roteamento pelo nome (20261026000002): gu
 })
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════
-describe('(17) O APANHADO (dono do produto, 26/10/2026): a primeira resposta é conversa, não orçamento — o preço vem depois do "sim"', () => {
-    // "O APANHADO NÃO TRAZ PREÇO": o bloco técnico (barras, aproveitamento, perfis, diferença, mão de obra, os dois
-    // totais e o que o preço cobre) é o resultado do LEVANTAMENTO FORMAL, que só vem depois da confirmação.
-    // INDIVIDUAL, uma linha por esquadria: tipologia, quantidade, largura, altura e vidro. COMUM, no PÉ, SEMPRE
-    // (um formato só): cor do perfil, arremate e guarnição. Sem código de fornecedor; "Padrão" quando nada foi
-    // escolhido; o nome por extenso quando foi ("arremate interno: 20 mm"); a medida do arremate (corte) não aparece.
-    const CONFERE = 'Confere? Responda sim para eu fazer o levantamento com os preços, ou diga o que muda.'
-    const APANHADO_DO_PEDRO = [
-        'Apanhado do levantamento “Casa do Pedro”:',
-        'Esquadria 1: DP-02, 1 unidade(s), 1.200 x 1.000 mm, vidro Temperado 5mm.',
-        '',
-        'Cor do perfil: BRANCO.',
-        'Arremate e guarnição: Padrão.',
-        '',
-        CONFERE,
-    ].join('\n')
-    /** O que o bloco de preço tem e o apanhado não pode ter: os rótulos das linhas do levantamento formal. */
+describe('(17) O ARQUIVO no lugar da mensagem-resumo (dono do produto, 06/11/2026): a confirmação é sobre ele — o preço vem depois do "sim"', () => {
+    // "O que será removido é só a MENSAGEM-RESUMO EM TEXTO do fim da coleta [...], substituída pelo arquivo." O ARQUIVO (a folha A4) não traz
+    // preço: o bloco técnico (barras, aproveitamento, perfis, diferença, mão de obra, os dois totais e o que o preço cobre) continua sendo o
+    // LEVANTAMENTO FORMAL, que só vem depois do "sim". Sem código de fornecedor; "Padrão" quando nada foi escolhido; o nome por extenso quando
+    // foi ("arremate interno: 20 mm"); a medida do arremate (corte) só quando escolhida.
+    /** O que o bloco de preço tem e o arquivo não pode ter: os rótulos das linhas do levantamento formal. */
     const LINHAS_DO_PRECO = ['Barras por código:', 'Aproveitamento do levantamento:', 'Perfis por barra inteira:', 'Perfis por consumo real:',
         'Diferença entre os dois:', 'Mão de obra:', 'Total por barra inteira', 'Total por consumo real', 'O que este preço cobre:']
     /** Os códigos de fornecedor que a DP-02 usa: os do de-para (WVetro e interno) e os das opções de arremate. */
@@ -1678,17 +1715,46 @@ describe('(17) O APANHADO (dono do produto, 26/10/2026): a primeira resposta é 
     }
     const confirmar = async () => { llmResponde({ confirma: true }); await chamar('sim'); return ultimoEnviado() }
 
-    it('a PRIMEIRA resposta é o apanhado: a linha da esquadria com o vidro, o pé — e nenhum R$, nenhum código, nenhuma linha de barra', async () => {
-        const apanhado = await pedir()
-        expect(apanhado).toBe(APANHADO_DO_PEDRO)
+    it('a PRIMEIRA resposta é o ARQUIVO (um PDF) e a confirmação sobre ele — nenhuma mensagem-resumo, nenhum R$, nenhum código, nenhuma linha de barra', async () => {
+        const texto = await pedir()
+        expect(estado.documentos).toHaveLength(1)
+        expect(estado.documentos[0].corpo.FileName).toBe('Levantamento 1 - Casa do Pedro.pdf')
+        expect(String(estado.documentos[0].corpo.Document)).toMatch(/^data:application\/octet-stream;base64,JVBERi0/)
+        expect(texto).toBe('Levantamento 1 “Casa do Pedro”: o arquivo está acima, para você conferir.\n\nConfere? Responda sim para eu fazer o levantamento com os preços, ou diga o que muda.')
+        expect(enviados().some((t) => t.includes('Apanhado do levantamento'))).toBe(false)
+        const arquivo = textoDoArquivo()
+        expect(arquivo).toContain('Item 1 · DP-02')
+        expect(arquivo).toContain('JANELA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 42')
+        expect(arquivo).toContain('Cor do perfil: BRANCO · Arremate e guarnição: Padrão')
+        expect(arquivo).toContain('vidro Temperado 5mm')
         const formal = await confirmar()
-        // o controle: o que o apanhado não tem, o formal tem
-        for (const rotulo of LINHAS_DO_PRECO) { expect(formal).toContain(rotulo); expect(apanhado).not.toContain(rotulo) }
+        // o controle: o que o arquivo não tem, o formal tem
+        for (const rotulo of LINHAS_DO_PRECO) { expect(formal).toContain(rotulo); expect(arquivo).not.toContain(rotulo) }
         expect(formal).toContain('R$')
-        expect(apanhado).not.toContain('R$')
+        expect(arquivo).not.toContain('R$')
         expect(formal).toContain('BZ0010')
-        for (const c of [...CODIGOS, 'BZ0006', 'BZ0010', 'BZ1770']) expect(apanhado.includes(c)).toBe(false)
-        expect(apanhado).not.toMatch(VOCABULARIO_INTERNO)
+        for (const c of [...CODIGOS, 'BZ0006', 'BZ0010', 'BZ1770']) expect(arquivo.includes(c)).toBe(false)
+        expect(arquivo).not.toMatch(VOCABULARIO_INTERNO)
+        expect(estado.documentos).toHaveLength(1)
+    })
+
+    it('o arquivo traz o número do levantamento, a empresa, o vendedor e os percentuais do CADASTRO dele — congelados no levantamento', async () => {
+        await pedir()
+        const arquivo = textoDoArquivo()
+        expect(arquivo).toContain('Nº 1')
+        expect(arquivo).toContain('Esquadrias De Teste Ltda')
+        expect(arquivo).toContain('Cristiano Fernandes')
+        expect(arquivo).toContain('5%')
+        expect(arquivo).toContain('Modo: proporcional')
+        expect(arquivo).toContain('10%')
+        const [l] = levantamentos()
+        expect(l).toEqual(expect.objectContaining({ numero: 1, vendedor_nome: 'Cristiano Fernandes', vendedor_employee_id: 'e-cristiano', comissao_percentual: 5, comissao_modo: 'PROPORCIONAL', reserva_tecnica_percentual: 1, lucro_projetado_percentual: 10 }))
+        // congelado: o cadastro muda depois, e o arquivo de novo (a alteração) não o relê
+        estado.db.orcamentista_vendedor_perfil[0].comissao_percentual = 9
+        llmResponde({ itens: [{ largura_mm: 1500 }] })
+        await chamar('a largura é 1500')
+        expect(textoDoArquivo()).toContain('5%')
+        expect(textoDoArquivo()).not.toContain('9%')
     })
 
     it('depois do "sim", a resposta seguinte é o levantamento formal com o bloco de preço INTEIRO, como era', async () => {
@@ -1701,67 +1767,56 @@ describe('(17) O APANHADO (dono do produto, 26/10/2026): a primeira resposta é 
         expect(estado.db.orcamentista_pergunta_em_aberto).toEqual([])
     })
 
-    it('DUAS esquadrias diferentes: uma linha cada, e o pé diz UMA vez o que é comum (a cor não se repete nas linhas)', async () => {
-        const apanhado = await pedir([{ ...DP02 }, { ...DP02, largura_mm: 1500, quantidade: 3, vidro: 'Laminado 8mm' }], [],
+    it('DUAS esquadrias diferentes: um item cada no arquivo, e a cor e o arremate iguais vão às pré-definições uma vez', async () => {
+        await pedir([{ ...DP02 }, { ...DP02, largura_mm: 1500, quantidade: 3, vidro: 'Laminado 8mm' }], [],
             'Levantamento Casa do Pedro: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm; outra DP-02 1500 x 1000, 3 unidades, branco, laminado 8mm')
-        expect(apanhado).toBe([
-            'Apanhado do levantamento “Casa do Pedro”:',
-            'Esquadria 1: DP-02, 1 unidade(s), 1.200 x 1.000 mm, vidro Temperado 5mm.',
-            'Esquadria 2: DP-02, 3 unidade(s), 1.500 x 1.000 mm, vidro Laminado 8mm.',
-            '',
-            'Cor do perfil: BRANCO.',
-            'Arremate e guarnição: Padrão.',
-            '',
-            CONFERE,
-        ].join('\n'))
-        expect(apanhado.split('BRANCO').length - 1).toBe(1)
-        expect(apanhado.split('Padrão').length - 1).toBe(1)
-    })
-
-    it('UMA esquadria: o pé aparece mesmo assim — um formato só', async () => {
-        const apanhado = await pedir()
-        const linhas = apanhado.split('\n')
-        expect(linhas).toContain('Cor do perfil: BRANCO.')
-        expect(linhas).toContain('Arremate e guarnição: Padrão.')
-        expect(linhas.filter((l) => l.startsWith('Esquadria '))).toEqual(['Esquadria 1: DP-02, 1 unidade(s), 1.200 x 1.000 mm, vidro Temperado 5mm.'])
+        const arquivo = textoDoArquivo()
+        expect(arquivo).toContain('Item 1 · DP-02')
+        expect(arquivo).toContain('Item 2 · DP-02')
+        expect(arquivo).toContain('vidro Laminado 8mm')
+        expect(arquivo).toContain('Cor do perfil: BRANCO · Arremate e guarnição: Padrão · Vedação: padrão')
+        expect(arquivo).toContain('Levantamento 1 · 2 itens · 4 peças')
     })
 
     it('o ESCOLHIDO sai por extenso, sem código — a medida do arremate também (26/10: "ele não pode confirmar sem ver")', async () => {
-        const apanhado = await pedir([{ ...DP02 }], [{ variavel: 'ARI', opcao: 3 }, { variavel: 'MAE', opcao: 2 }])
-        expect(apanhado.split('\n')).toContain('Arremate e guarnição: arremate interno: 20 mm; arremate externo: Padrão; medida do arremate externo: vão + 50 mm.')
-        // o detalhe de corte e o valor entre colchetes ficam no formal; o código, em lugar nenhum do apanhado
-        expect(apanhado).not.toContain('CORTE')
-        expect(apanhado).not.toContain('[50,00]')
-        expect(apanhado).not.toContain('BZ0010')
+        await pedir([{ ...DP02 }], [{ variavel: 'ARI', opcao: 3 }, { variavel: 'MAE', opcao: 2 }])
+        const arquivo = textoDoArquivo()
+        expect(arquivo).toContain('Arremate e guarnição: arremate interno: 20 mm; arremate externo: Padrão; medida do arremate externo: vão + 50 mm')
+        expect(arquivo).not.toContain('CORTE')
+        expect(arquivo).not.toContain('[50,00]')
+        expect(arquivo).not.toContain('BZ0010')
     })
 
     it('a medida do arremate NÃO escolhida entra no "Padrão", sem detalhe', async () => {
-        const apanhado = await pedir([{ ...DP02 }], [{ variavel: 'ARI', opcao: 3 }])
-        expect(apanhado.split('\n')).toContain('Arremate e guarnição: arremate interno: 20 mm; arremate externo: Padrão.')
-        expect(apanhado.toLowerCase()).not.toContain('medida')
+        await pedir([{ ...DP02 }], [{ variavel: 'ARI', opcao: 3 }])
+        const arquivo = textoDoArquivo()
+        expect(arquivo).toContain('Arremate e guarnição: arremate interno: 20 mm; arremate externo: Padrão')
+        expect(arquivo.toLowerCase()).not.toContain('medida do arremate')
     })
 
-    it('uma alteração de medida ANTES do "sim" entra no apanhado, sem nome e sem preço; o "sim" depois traz o formal com ela', async () => {
+    it('uma alteração de medida ANTES do "sim" gera o arquivo de novo, sem nome e sem preço; o "sim" depois traz o formal com ela', async () => {
         await pedir()
         llmResponde({ itens: [{ largura_mm: 1500 }] })
         await chamar('a largura é 1500')
-        expect(ultimoEnviado()).toBe(APANHADO_DO_PEDRO.replace('1.200 x 1.000 mm', '1.500 x 1.000 mm'))
+        expect(estado.documentos).toHaveLength(2)
+        expect(ehConfirmacaoDoArquivo(ultimoEnviado(), 'Casa do Pedro')).toBe(true)
+        expect(textoDoArquivo()).toContain('1.500')
         expect(itensDe(levantamentos()[0].id)[0]).toEqual(expect.objectContaining({ largura_mm: 1500 }))
         const formal = await confirmar()
         expect(linhaDa(formal, 'Esquadria 1:')).toBe('Esquadria 1: DP-02, 1.500 x 1.000 mm, 1 unidade(s).')
         expect(formal).toContain('Perfis por barra inteira:')
     })
 
-    it('o "sim" vale só para o levantamento do apanhado: "sim" com o nome de OUTRO mostra o apanhado DELE, sem preço', async () => {
+    it('o "sim" vale só para o levantamento do arquivo: "sim" com o nome de OUTRO manda o arquivo DELE, sem preço', async () => {
         await fecharDp02('Obra Centro')
         await pedir()
         llmResponde({ nome: 'Obra Centro', confirma: true })
         await chamar('sim, Obra Centro')
-        expect(ultimoEnviado().startsWith('Apanhado do levantamento “Obra Centro”:')).toBe(true)
+        expect(ehConfirmacaoDoArquivo(ultimoEnviado(), 'Obra Centro')).toBe(true)
         expect(ultimoEnviado()).not.toContain('R$')
     })
 
-    it('"não" ao apanhado: nenhum preço, e a resposta pede o que muda', async () => {
+    it('"não" ao arquivo: nenhum preço, e a resposta pede o que muda', async () => {
         await pedir()
         llmResponde({ confirma: false })
         await chamar('não')
@@ -1769,18 +1824,27 @@ describe('(17) O APANHADO (dono do produto, 26/10/2026): a primeira resposta é 
         expect(ultimoEnviado()).not.toContain('R$')
     })
 
-    it('R2: só o nome de novo, sem mudar nada, não devolve o mesmo apanhado como se nada fosse', async () => {
+    it('R2: só o nome de novo, sem mudar nada, NÃO reenvia o mesmo arquivo — a resposta diz que nada mudou', async () => {
         await pedir()
         llmResponde({ nome: 'Casa do Pedro' })
         await chamar('Casa do Pedro')
-        expect(ultimoEnviado()).toBe(conversa.fraseDeNaoRegistrei(APANHADO_DO_PEDRO))
+        expect(ultimoEnviado()).toBe(conversa.FRASE_O_ARQUIVO_NAO_MUDOU)
+        expect(estado.documentos).toHaveLength(1)
+    })
+
+    it('o envio do arquivo falha: a resposta diz que ele não foi, e o levantamento fica gravado', async () => {
+        estado.documentoStatus = 500
+        await pedir()
+        expect(ultimoEnviado()).toBe(conversa.FALHA_NO_ENVIO_DO_ARQUIVO)
+        expect(levantamentos()).toHaveLength(1)
+        expect(linhaIa().pop()).toContain('arquivo_enviado=nao status_arquivo=500')
     })
 
     it('SEM a migração do CHECK (o valor novo recusado com 23514): a resposta é o levantamento formal, como antes', async () => {
         estado.checkAntigo = true
         const r = await pedir()
         expect(r).toContain('Perfis por barra inteira:')
-        expect(linhaIa().pop()).toContain('apanhado=sem_migracao')
+        expect(linhaIa().pop()).toContain('confirmacao=sem_migracao')
     })
 
     it('SEM a tabela da pergunta: a resposta é o levantamento formal, como antes', async () => {
@@ -1859,7 +1923,7 @@ describe('(19) duas famílias com o mesmo código: a conversa pergunta de qual f
         expect(segundo.includes('motor_id')).toBe(false)
         expect(segundo.includes('motor_familia_exigida')).toBe(false)
         expect(gravado()).toEqual([['PVC', MOTOR, 'PVC', false]])
-        expect(ultimoEnviado().startsWith('Apanhado do levantamento')).toBe(true)
+        expect(ehConfirmacaoDoArquivo(ultimoEnviado())).toBe(true)
         // e com o "sim", o levantamento formal pelo motor e pelo preço do PVC: o MESMO texto da conta com uma família só
         const comDuas = await confirmarApanhado()
         montar()
@@ -1907,7 +1971,7 @@ describe('(19) duas famílias com o mesmo código: a conversa pergunta de qual f
         estado.db.orcamentista_motor_tipologia_detalhe.push({ tabela_id: null, motor_id: MOTOR_SUL, tipologia: 'SU-07', descricao: 'PORTA PIVOTANTE | LINHA SUL', tipo: 'Porta' })
         llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }] })
         await chamar('Levantamento Casa do Pedro: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm')
-        expect(ultimoEnviado().startsWith('Apanhado do levantamento')).toBe(true)
+        expect(ehConfirmacaoDoArquivo(ultimoEnviado())).toBe(true)
         expect(gravado()).toEqual([['PVC', MOTOR, 'PVC', false]])
     })
 })
@@ -2248,7 +2312,7 @@ describe('(23) o nome do levantamento é o do cliente', () => {
         await chamar(MSG)
         expect(levantamentos().map((l) => l.nome)).toEqual(['Geronimo Silva'])
         expect(enviados()).not.toContain(conversa.FRASE_SEM_NOME)
-        expect(ultimoEnviado().startsWith('Apanhado do levantamento “Geronimo Silva”:')).toBe(true)
+        expect(ehConfirmacaoDoArquivo(ultimoEnviado(), 'Geronimo Silva')).toBe(true)
         expect(linhaIa().pop()).toContain(' nome=do_cliente ')
     })
 
@@ -2440,7 +2504,7 @@ describe('(24) porta não é janela, quantidade padrão 1, os limites e o agrupa
         llmResponde({ itens: [{ ordem: 2, tipologia: 'DP-100' }] })
         await chamar('é de correr, 6 folhas')
         expect(item(1)).toEqual(expect.objectContaining({ tipologia: 'DP-100', quantidade: 1 }))
-        expect(ultimoEnviado().startsWith('Apanhado do levantamento')).toBe(true)
+        expect(ehConfirmacaoDoArquivo(ultimoEnviado())).toBe(true)
     })
 
     it('a mensagem só com "porta" e a IA sem `abertura` no item: a palavra da mensagem basta para descartar a JANELA', async () => {
@@ -2454,7 +2518,7 @@ describe('(24) porta não é janela, quantidade padrão 1, os limites e o agrupa
         llmResponde({ cliente: 'Ana', itens: [{ ...DP02, abertura: 'porta' }], escolhas: ESCOLHAS_QUE_FECHAM })
         await chamar('Cliente: Ana. Esquadria de correr 1200 x 1000, 1 unidade, branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50')
         expect(item(0).tipologia).toBe('DP-02')
-        expect(ultimoEnviado().startsWith('Apanhado do levantamento')).toBe(true)
+        expect(ehConfirmacaoDoArquivo(ultimoEnviado())).toBe(true)
     })
 
     it('"janela" com maxim-ar (DP-01, que não declara abertura): não é descartada pela regra', async () => {
@@ -2491,7 +2555,7 @@ describe('(24) porta não é janela, quantidade padrão 1, os limites e o agrupa
         llmResponde({ cliente: 'Ana', itens: [{ ...DP02, quantidade: undefined }], escolhas: ESCOLHAS_QUE_FECHAM })
         await chamar('Cliente: Ana. DP-02 1200 x 1000, branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50')
         expect(enviados().join('\n')).not.toContain(PERGUNTA_DO_CAMPO.quantidade)
-        expect(ultimoEnviado()).toContain('1 unidade(s)')
+        expect(textoDoArquivo()).toContain('Levantamento 1 · 1 item · 1 peça ·')
         expect(item(0).quantidade).toBe(1)
         // dita, vale a dita
         montar()
@@ -2505,7 +2569,7 @@ describe('(24) porta não é janela, quantidade padrão 1, os limites e o agrupa
         llmResponde({ cliente: 'Ana', itens: [{ ...DP02 }, { ...DP02 }]  })
         await chamar('Cliente: Ana. DP-02 1200 x 1000 branco temperado 5mm; outra DP-02 1200 x 1000 branco temperado 5mm')
         expect(itensDe(levantamentos()[0].id).map((i) => [i.ordem, i.quantidade])).toEqual([[1, 2]])
-        expect(ultimoEnviado()).toContain('2 unidade(s)')
+        expect(textoDoArquivo()).toContain('Levantamento 1 · 1 item · 2 peças ·')
         expect(linhaIa()[0]).toMatch(/ agrupados=1(\s|$)/)
         montar()
         llmResponde({ cliente: 'Bia', itens: [{ ...DP02 }, { ...DP02, vidro: 'Laminado 8mm' }]  })
@@ -2841,7 +2905,7 @@ describe('(25) o resgate do levantamento antigo e o contexto que não se perde (
     it('o apanhado em aberto: "sim, Levantamento Geronimo Silva" (com o prefixo) é o "sim" do apanhado do Geronimo Silva — vem o formal, com preço', async () => {
         llmResponde({ cliente: 'Geronimo Silva', itens: [{ ...DP02 }], escolhas: ESCOLHAS_QUE_FECHAM })
         await chamar('Cliente: Geronimo Silva. DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50')
-        expect(ultimoEnviado().startsWith('Apanhado do levantamento “Geronimo Silva”:')).toBe(true)
+        expect(ehConfirmacaoDoArquivo(ultimoEnviado(), 'Geronimo Silva')).toBe(true)
         llmResponde({ nome: 'Levantamento Geronimo Silva', confirma: true })
         await chamar('sim, Levantamento Geronimo Silva')
         expect(ultimoEnviado()).toMatch(/Total por barra inteira \(perfis \+ mão de obra\): R\$ [\d.]+,\d{2}\./)
@@ -2956,7 +3020,7 @@ describe('(26) o reenvio do WUZAPI: 200 sem conduzir; o reenvio só quando o env
     it('o texto da saída gravada é o que foi ENVIADO, com a fala da IA na frente', async () => {
         llmResponde({ nome: 'Casa do João', itens: [{ ...DP02 }], escolhas: ESCOLHAS_QUE_FECHAM, fala: 'Bora anotar.' })
         await chamar('Levantamento Casa do João: DP-02 1200 x 1000 branco temperado 5mm, sem arremate interno, externo com folga de 50')
-        expect(ultimoEnviado().startsWith('Bora anotar.\n\nApanhado do levantamento')).toBe(true)
+        expect(ultimoEnviado().startsWith('Bora anotar.\n\nLevantamento ') && ehConfirmacaoDoArquivo(ultimoEnviado())).toBe(true)
         expect(mensagens()[1].texto).toBe(ultimoEnviado())
     })
 })
@@ -3269,10 +3333,11 @@ describe('(29) o vidro copiado, a forma canônica e a dedupe por equivalência (
         llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, vidro: 'Vidro comum 4 mm' }], escolhas: ESCOLHAS_QUE_FECHAM })
         await chamar('Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco, vidro 4mm, sem arremate interno, arremate externo com folga de 50')
         expect(itensDe(levantamentos()[0].id)[0].vidro).toBe('vidro 4 mm')
-        expect(ultimoEnviado().startsWith('Apanhado do levantamento')).toBe(true)
-        // o rótulo "vidro" uma vez só (06/11/2026): este teste afirmava "vidro vidro 4 mm" — o defeito, fixado aqui em 04/11
-        expect(linhaDa(ultimoEnviado(), 'Esquadria 1:')).toBe('Esquadria 1: DP-02, 1 unidade(s), 1.200 x 1.000 mm, vidro 4 mm.')
-        expect(ultimoEnviado()).not.toContain('comum')
+        expect(ehConfirmacaoDoArquivo(ultimoEnviado())).toBe(true)
+        // o rótulo "vidro" uma vez só (06/11/2026): este teste afirmava "vidro vidro 4 mm" — o defeito, fixado aqui em 04/11; agora no ARQUIVO
+        expect(textoDoArquivo()).toContain('Acessórios: padrão · vidro 4 mm')
+        expect(textoDoArquivo()).not.toContain('vidro vidro')
+        expect(textoDoArquivo()).not.toContain('comum')
         expect(linhaIa().pop()).toMatch(/ vidro_podado=1(\s|$)/)
     })
 
@@ -3303,7 +3368,7 @@ describe('(29) o vidro copiado, a forma canônica e a dedupe por equivalência (
         await chamar('Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco, sem arremate interno, arremate externo com folga de 50')
         expect(itensDe(levantamentos()[0].id)[0].vidro).toBe('incolor 4 mm comum')
         expect(linhaIa().pop()).toMatch(/ vidro_padrao=1(\s|$)/)
-        expect(ultimoEnviado()).toContain('vidro incolor 4 mm comum')
+        expect(textoDoArquivo()).toContain('vidro incolor 4 mm comum')
         // o turno seguinte traz OUTRO padrão: nada muda
         llmResponde({ nome: 'Casa do João', alteracao: true, itens: [{ ordem: 1, largura_mm: 1300, vidro_padrao: 'incolor 4 mm temperado' }] })
         await chamar('Casa do João: largura 1300')
@@ -4091,7 +4156,7 @@ describe('(37) Jorge Koss: o cliente no primeiro turno, as duas esquadrias até 
         expect(itens().map((i) => i.tipologia)).toEqual(['DP-100', 'DP-01'])
         const completa = (i: Linha) => ['tipologia', 'largura_mm', 'altura_mm', 'quantidade', 'cor_perfil', 'vidro'].every((c) => i[c] !== null && i[c] !== undefined)
         expect(itens().every(completa)).toBe(true)
-        expect(ultimoEnviado().startsWith('Apanhado do levantamento')).toBe(true)
+        expect(ehConfirmacaoDoArquivo(ultimoEnviado())).toBe(true)
 
         // T5 — "sim": o apanhado confirmado; as duas esquadrias continuam completas e gravadas
         llmResponde({ confirma: true })
@@ -4420,8 +4485,8 @@ describe('(38) Maria Cristina: a montagem não absorve outro cliente, expira em 
             llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, cor_perfil: undefined }] })
             await chamar('Levantamento Casa do João: DP-02 1200 x 1000, temperado 5mm')
             expect(itens('Casa do João')[0].cor_perfil).toBe('Branco')
-            expect(ultimoEnviado().startsWith('Apanhado do levantamento')).toBe(true)
-            expect(ultimoEnviado()).toContain('Cor do perfil: Branco')
+            expect(ehConfirmacaoDoArquivo(ultimoEnviado())).toBe(true)
+            expect(textoDoArquivo()).toContain('Cor do perfil: Branco')
             for (const e of enviados()) expect(e).not.toContain('Qual a cor do perfil?')
             expect(linhaIa().pop()).toMatch(/ cor_padrao=1(\s|$)/)
         })
@@ -4637,7 +4702,7 @@ describe('(38) Maria Cristina: a montagem não absorve outro cliente, expira em 
         await chamar(MARIA)
         expect(levantamentos().map((l) => [l.nome, l.estado])).toEqual([['Jorge Koss', 'EM_MONTAGEM'], ['Maria Cristina', 'COMPLETO']])
         expect(itens('Maria Cristina').map((i) => [i.tipologia, i.cor_perfil, i.largura_mm, i.altura_mm, i.vidro])).toEqual([['DP-39', 'Branco', 2500, 2200, 'vidro comum 6 mm incolor'], ['DP-01', 'Branco', 600, 600, 'mini boreal']])
-        expect(ultimoEnviado().startsWith('Apanhado do levantamento “Maria Cristina”')).toBe(true)
+        expect(ehConfirmacaoDoArquivo(ultimoEnviado(), 'Maria Cristina')).toBe(true)
         const linha = linhaIa().pop() as string
         expect(linha).toMatch(/ montagem=outro_cliente(\s|$)/)
         expect(linha).toMatch(/ cor_padrao=2(\s|$)/)
@@ -4669,7 +4734,7 @@ describe('(39) observabilidade por etapa: coletar, casar, montar, calcular e res
         expect(casar).toMatch(/^\[ETAPA 2 casar\] lista=\d+\/\d+ trechos=\d+ propostos=8 descartados=0 escolhidas=e1:DP-02 padrao=- recusadas=- sem_tipologia=0$/)
         expect(montar).toBe('[ETAPA 3 montar] rota=NOVO esquadrias=1 agrupadas=0 caminhos=e1:GRAVADA_NOVA pendencias=0 gravadas=1 estado=COMPLETO faltou=-')
         expect(calcular).toBe('[ETAPA 4 calcular] nao_chegou')
-        expect(responder).toBe('[ETAPA 5 responder] desfecho=apanhado enviou=sim redacao=- gravacao=sim')
+        expect(responder).toBe('[ETAPA 5 responder] desfecho=arquivo enviou=sim redacao=- gravacao=sim')
         // depois da [IA] do mesmo turno, nunca antes
         expect(erros.indexOf(coletar)).toBeGreaterThan(erros.indexOf(linhaIa()[0]))
     })
@@ -4767,12 +4832,12 @@ describe('(40) o reenvio da mesma esquadria: a quantidade dita substitui, nunca 
         await chamar(MARIA)
         expect(quantidades()).toEqual([['DP-39', 1], ['DP-01', 1]])
         expect(fotoDosItens()).toEqual(antes)
-        expect(linhaDa(ultimoEnviado(), 'Esquadria 1:')).toBe('Esquadria 1: DP-39, 1 unidade(s), 2.500 x 2.200 mm, vidro comum 6 mm incolor.')
-        expect(linhaDa(ultimoEnviado(), 'Esquadria 2:')).toBe('Esquadria 2: DP-01, 1 unidade(s), 600 x 600 mm, vidro mini boreal.')
+        // o arquivo diz 1 e 1: dois itens, duas peças
+        expect(textoDoArquivo()).toContain('Levantamento 1 · 2 itens · 2 peças ·')
         const linha = linhaIa().pop() as string
         expect(linha).toMatch(/ rota=ALTERACAO /)
         expect(linha).toMatch(/ caminhos=e1:IGNORADA_IGUAL,e2:IGNORADA_IGUAL(\s|$)/)
-        expect(linha).toMatch(/ desfecho=apanhado /)
+        expect(linha).toMatch(/ desfecho=arquivo /)
     })
 
     it('(b) o reenvio IDÊNTICO N vezes é idempotente: o levantamento fica igual ao de uma mensagem só — com a pergunta do apanhado em aberto ou sem ela', async () => {
@@ -4865,11 +4930,11 @@ describe('(40) o reenvio da mesma esquadria: a quantidade dita substitui, nunca 
         preparar()
         llmResponde({ cliente: 'Maria Cristina', itens: [{ ...PORTA }, { ...JANELA }] })
         await chamar(MARIA)
-        const apanhado = ultimoEnviado()
-        expect(linhaDa(apanhado, 'Esquadria 1:')).toBe('Esquadria 1: DP-39, 1 unidade(s), 2.500 x 2.200 mm, vidro comum 6 mm incolor.')
-        expect(linhaDa(apanhado, 'Esquadria 2:')).toBe('Esquadria 2: DP-01, 1 unidade(s), 600 x 600 mm, vidro mini boreal.')
-        expect(apanhado).not.toContain(`vidro ${PORTA.vidro}`)
-        // o gravado continua o que o vendedor escreveu: só o texto do apanhado não repete o rótulo
+        const arquivo = textoDoArquivo()
+        expect(arquivo).toContain('Acessórios: padrão · vidro comum 6 mm incolor')
+        expect(arquivo).toContain('Acessórios: padrão · vidro mini boreal')
+        expect(arquivo).not.toContain(`vidro ${PORTA.vidro}`)
+        // o gravado continua o que o vendedor escreveu: só o texto do arquivo não repete o rótulo
         expect(itensDe(maria().id)[0].vidro).toBe('vidro comum 6 mm incolor')
     })
 })
@@ -4928,7 +4993,7 @@ describe('(41) a variável SEM PADRÃO vira pergunta ao vendedor: lida do motor,
         await chamar('a bandeira tem 400')
         expect(itens()[0].escolhas).toEqual({ ARI: 4, MAE: 2, AF: 400 })
         expect(levantamentos()[0].estado).toBe('COMPLETO')
-        expect(ultimoEnviado()).toMatch(/^Apanhado do levantamento/)
+        expect(ehConfirmacaoDoArquivo(ultimoEnviado())).toBe(true)
         llmResponde({ confirma: true })
         await chamar('sim')
         expect(erros.filter((l) => l.startsWith('[ETAPA 4 calcular]')).slice(-1)[0]).toMatch(/ desfecho=levantou /)
@@ -4970,7 +5035,7 @@ describe('(41) a variável SEM PADRÃO vira pergunta ao vendedor: lida do motor,
         llmResponde({ nome: 'Obra Bandeira', itens: [{ ...DP04 }], escolhas: ESCOLHAS_QUE_FECHAM })
         await chamar(MSG_DP04)
         expect(levantamentos()[0].estado).toBe('COMPLETO')
-        expect(ultimoEnviado()).toMatch(/^Apanhado do levantamento/)
+        expect(ehConfirmacaoDoArquivo(ultimoEnviado())).toBe(true)
     })
 
     it.each([['1', 'pergunta'], ['2', 'não pergunta']])('AF com a condição "(HI=1)" e HI = %s: %s — a variável de condição falsa não é perguntada e fica sem valor', async (hi, efeito) => {
@@ -4982,7 +5047,7 @@ describe('(41) a variável SEM PADRÃO vira pergunta ao vendedor: lida do motor,
             expect(ultimoEnviado()).toBe(PERGUNTA_DA_BANDEIRA)
         } else {
             expect(levantamentos()[0].estado).toBe('COMPLETO')
-            expect(ultimoEnviado()).toMatch(/^Apanhado do levantamento/)
+            expect(ehConfirmacaoDoArquivo(ultimoEnviado())).toBe(true)
             expect(enviados().join('\n')).not.toContain('altura da bandeira')
             expect(montarDoTurno()).toMatch(/ pendencias=0 .* faltou=-$/)
         }
@@ -5000,5 +5065,110 @@ describe('(41) a variável SEM PADRÃO vira pergunta ao vendedor: lida do motor,
         expect(sistema).toContain('Variáveis SEM PADRÃO')
         expect(sistema).toContain('\nAF = ALTURA DA BANDEIRA: DP-04\n')
         expect(sistema).toContain('NUNCA invente, NUNCA use zero, NUNCA copie o de outra esquadria')
+    })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+/**
+ * (42) A COLETA DOS DADOS DO LEVANTAMENTO (dono do produto, 06/11/2026; colunas da 20261106000002): o cliente, os ambientes e a obs do item, os
+ * percentuais e o vendedor. Só vale o que foi DITO na mensagem; o CADASTRO do vendedor é o padrão dos percentuais e o dito o substitui; o
+ * resultado fica gravado no levantamento; cadastro nulo e nada dito → a conversa PERGUNTA; o responsável pela RT só vem da conversa.
+ */
+describe('(42) a coleta dos dados do levantamento: cliente, ambientes, obs, percentuais e vendedor', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const dadosDoLevantamento = require('@/lib/atendimentos-ia/dados-do-levantamento') as typeof import('@/lib/atendimentos-ia/dados-do-levantamento')
+    const MSG = 'Levantamento Casa do Pedro: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm'
+    const doOutro = { senderAlt: TELEFONE_DO_OUTRO }
+    const lev = () => levantamentos()[0]
+
+    it('os dados do cliente DITOS são gravados e vão ao arquivo; o que a IA põe e não está na mensagem cai', async () => {
+        llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }], dados_do_cliente: { telefone: '(51) 99999-1234', endereco: 'Rua das Flores, 10', edificacao: 'sobrado', email: 'pedro@exemplo.com', data_entrega: '2026-11-27', obs_obra: 'acesso pelos fundos' } })
+        await chamar(`${MSG}. Fone (51) 99999-1234, rua das flores 10, sobrado, entrega 27/11/26`)
+        expect(lev()).toEqual(expect.objectContaining({ telefone: '(51) 99999-1234', endereco: 'Rua das Flores, 10', edificacao: 'sobrado', data_entrega: '2026-11-27' }))
+        // o e-mail e a obs da obra não estavam na mensagem: não valem
+        expect(lev().email).toBeUndefined()
+        expect(lev().obs_obra).toBeUndefined()
+        const arquivo = textoDoArquivo()
+        expect(arquivo).toContain('(51) 99999-1234')
+        expect(arquivo).toContain('Rua das Flores, 10')
+        expect(arquivo).toContain('27/11/26')
+        expect(arquivo).not.toContain('pedro@exemplo.com')
+        expect(linhaIa().pop()).toMatch(/ descartados=2 /)
+    })
+
+    it('os AMBIENTES e a OBS do item: gravados e no arquivo; a soma que não fecha com a quantidade é recusa nomeada — nenhum arquivo sai', async () => {
+        llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02, quantidade: 3, ambientes: [{ ambiente: 'Quarto', quantidade: 2 }, { ambiente: 'Sala', quantidade: 1 }], obs: 'trocar a fechadura' }] })
+        await chamar('Levantamento Casa do Pedro: DP-02 1200 x 1000, 3 unidades, branco, temperado 5mm, 2 no quarto e 1 na sala, trocar a fechadura')
+        expect(itensDe(lev().id)[0]).toEqual(expect.objectContaining({ ambientes: [{ ambiente: 'Quarto', quantidade: 2 }, { ambiente: 'Sala', quantidade: 1 }], obs: 'trocar a fechadura' }))
+        expect(textoDoArquivo()).toContain('Quarto (2) · Sala (1)')
+        expect(textoDoArquivo()).toContain('trocar a fechadura')
+        // a quantidade muda para 4 e os ambientes continuam somando 3: o arquivo é recusado, nomeando
+        llmResponde({ itens: [{ ordem: 1, quantidade: 4 }] })
+        await chamar('são 4 unidades')
+        expect(ultimoEnviado()).toBe(conversa.fraseDoArquivoRecusado(['Item 1 (DP-02): a soma dos ambientes (Quarto 2 · Sala 1 = 3) não fecha com a quantidade do item (4). Corrija os ambientes ou a quantidade.']))
+        expect(estado.documentos).toHaveLength(1)
+        expect(linhaIa().pop()).toMatch(/ desfecho=arquivo-recusado /)
+    })
+
+    it('o ambiente com o MESMO nome duas vezes no item é erro de digitação: a lista cai inteira (a CHECK do banco diria o mesmo)', async () => {
+        llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02, quantidade: 2, ambientes: [{ ambiente: 'Cozinha', quantidade: 1 }, { ambiente: 'cozinha', quantidade: 1 }] }] })
+        await chamar('Levantamento Casa do Pedro: DP-02 1200 x 1000, 2 unidades, branco, temperado 5mm, 1 cozinha e 1 cozinha')
+        expect(itensDe(lev().id)[0].ambientes).toBeNull()
+    })
+
+    it('o percentual DITO substitui o cadastro, e fica gravado; o que não foi dito vem do cadastro; o número que não está na mensagem cai', async () => {
+        llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }], condicoes: { comissao_percentual: 7, lucro_projetado_percentual: 15, reserva_tecnica_responsavel: 'Arquiteta Ana' } })
+        await chamar(`${MSG}, comissão 7%, RT para a Arquiteta Ana`)
+        // o lucro 15 não foi dito: cai, e vale o do cadastro (10)
+        expect(lev()).toEqual(expect.objectContaining({ comissao_percentual: 7, comissao_modo: 'PROPORCIONAL', reserva_tecnica_percentual: 1, lucro_projetado_percentual: 10, reserva_tecnica_responsavel: 'Arquiteta Ana' }))
+        const arquivo = textoDoArquivo()
+        expect(arquivo).toContain('7%')
+        expect(arquivo).toContain('Arquiteta Ana')
+        expect(arquivo).not.toContain('15%')
+    })
+
+    it('CADASTRO NULO e nada dito: a conversa PERGUNTA (nunca zero, nunca inventa), o levantamento fica em montagem, e nenhum arquivo sai até a resposta', async () => {
+        // o OUTRO vendedor não tem funcionário: não há cadastro
+        llmResponde({ nome: 'Casa do Fulano', itens: [{ ...DP02 }] })
+        await chamar('Levantamento Casa do Fulano: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm', doOutro)
+        expect(ultimoEnviado()).toBe('Para fechar o levantamento, faltam a comissão (%), o modo da comissão (proporcional ou congelada), a reserva técnica (%) e o lucro projetado da proposta (%) do vendedor Fulano de Tal. Qual é?')
+        expect(lev()).toEqual(expect.objectContaining({ estado: 'EM_MONTAGEM', vendedor_nome: 'Fulano de Tal', vendedor_employee_id: null }))
+        // nada inventado: nenhum percentual gravado (nem zero)
+        for (const k of ['comissao_percentual', 'comissao_modo', 'reserva_tecnica_percentual', 'lucro_projetado_percentual']) expect(lev()[k]).toBeUndefined()
+        expect(estado.documentos).toHaveLength(0)
+        // a pergunta das condições é a pergunta em aberto da montagem: vai ao prompt
+        llmResponde({ condicoes: { comissao_percentual: 5, comissao_modo: 'CONGELADA', reserva_tecnica_percentual: 2, lucro_projetado_percentual: 12 } })
+        await chamar('comissão 5 congelada, RT 2, lucro 12', doOutro)
+        expect(textoDoSistema(estado.chamadasDaLlm[1].corpo.system)).toContain('Pergunta em aberto: Para fechar o levantamento, faltam a comissão (%)')
+        expect(lev()).toEqual(expect.objectContaining({ estado: 'COMPLETO', comissao_percentual: 5, comissao_modo: 'CONGELADA', reserva_tecnica_percentual: 2, lucro_projetado_percentual: 12 }))
+        expect(estado.documentos).toHaveLength(1)
+        expect(textoDoArquivo()).toContain('Modo: congelada')
+    })
+
+    it('o VENDEDOR dito (quem lança para outro): o vínculo e o nome dele, e os percentuais do cadastro DELE', async () => {
+        llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }], vendedor_do_levantamento: 'Beltrana Souza' })
+        await chamar(`${MSG}, é para a Beltrana Souza`)
+        expect(lev()).toEqual(expect.objectContaining({ vendedor_employee_id: 'e-beltrana', vendedor_nome: 'Beltrana Souza', comissao_percentual: 4, comissao_modo: 'CONGELADA', lucro_projetado_percentual: 12 }))
+        expect(textoDoArquivo()).toContain('Beltrana Souza')
+        expect(textoDoArquivo()).toContain('4%')
+    })
+
+    it('o vendedor dito que não está no cadastro: a conversa diz e nada é gravado; dois com o mesmo nome: nunca escolhe', async () => {
+        llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }], vendedor_do_levantamento: 'Zé Ninguém' })
+        await chamar(`${MSG}, é para o Zé Ninguém`)
+        expect(ultimoEnviado()).toBe(dadosDoLevantamento.fraseDoVendedorNaoAchado('Zé Ninguém'))
+        expect(levantamentos()).toHaveLength(0)
+        estado.db.employees.push({ id: 'e-beltrana-2', tenant_id: TENANT, name: 'Beltrana Souza', user_id: null, role: 'COMMERCIAL' })
+        llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }], vendedor_do_levantamento: 'Beltrana Souza' })
+        await chamar(`${MSG}, é para a Beltrana Souza`)
+        expect(ultimoEnviado()).toBe(dadosDoLevantamento.fraseDoVendedorRepetido('Beltrana Souza', 2))
+        expect(levantamentos()).toHaveLength(0)
+    })
+
+    it('o funcionário de OUTRA empresa com o mesmo nome não é achado: a busca é na empresa do levantamento', async () => {
+        estado.db.employees.push({ id: 'e-de-fora', tenant_id: 'outra-empresa', name: 'Zé de Fora', user_id: null, role: 'COMMERCIAL' })
+        llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }], vendedor_do_levantamento: 'Zé de Fora' })
+        await chamar(`${MSG}, é para o Zé de Fora`)
+        expect(ultimoEnviado()).toBe(dadosDoLevantamento.fraseDoVendedorNaoAchado('Zé de Fora'))
     })
 })

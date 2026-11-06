@@ -54,6 +54,65 @@
        "type": "string",
        "description": "O nome do VENDEDOR dono do levantamento, copiado como foi escrito NESTA mensagem. Omita se não foi escrito."
       },
+      "vendedor_do_levantamento": {
+       "type": "string",
+       "description": "Quando quem escreve LANÇA o levantamento PARA outro vendedor (\"é para o Cristiano\", \"vendedor: Cristiano\"): o nome dele, copiado como foi escrito NESTA mensagem. Omita se não foi dito."
+      },
+      "dados_do_cliente": {
+       "type": "object",
+       "additionalProperties": false,
+       "description": "Os dados do cliente e da obra, SÓ os que o vendedor escreveu NESTA mensagem, copiados. Omita o que não foi dito.",
+       "properties": {
+        "telefone": {
+         "type": "string"
+        },
+        "email": {
+         "type": "string"
+        },
+        "edificacao": {
+         "type": "string",
+         "description": "O tipo da edificação, como dito (casa, sobrado, prédio...)."
+        },
+        "endereco": {
+         "type": "string"
+        },
+        "obs_obra": {
+         "type": "string",
+         "description": "Uma observação da OBRA, copiada."
+        },
+        "data_entrega": {
+         "type": "string",
+         "description": "A data de entrega dita, como AAAA-MM-DD (o vendedor escreve 27/11/26 → 2026-11-27)."
+        }
+       }
+      },
+      "condicoes": {
+       "type": "object",
+       "additionalProperties": false,
+       "description": "As condições comerciais que o vendedor DISSE NESTA mensagem (comissão, reserva técnica, lucro). NUNCA invente, NUNCA use o cadastro: só o número dito. Omita o que não foi dito.",
+       "properties": {
+        "comissao_percentual": {
+         "type": "number"
+        },
+        "comissao_modo": {
+         "type": "string",
+         "enum": [
+          "PROPORCIONAL",
+          "CONGELADA"
+         ]
+        },
+        "reserva_tecnica_percentual": {
+         "type": "number"
+        },
+        "reserva_tecnica_responsavel": {
+         "type": "string",
+         "description": "Quem recebe a reserva técnica (o arquiteto, o decorador), copiado."
+        },
+        "lucro_projetado_percentual": {
+         "type": "number"
+        }
+       }
+      },
       "confirma": {
        "type": "boolean",
        "description": "Só quando a pergunta em aberto pede confirmação: true se o vendedor confirmou, false se negou. Senão, omita."
@@ -107,6 +166,30 @@
          "familia": {
           "type": "string",
           "description": "A FAMÍLIA (ex.: PVC, Alumínio) como está na lista, SÓ quando o vendedor disse de qual família é a tipologia."
+         },
+         "ambientes": {
+          "type": "array",
+          "description": "Os AMBIENTES desta esquadria e quantas unidades vão em cada um, SÓ como o vendedor disse NESTA mensagem (\"2 no quarto e 1 na sala\"). Nomes copiados. Omita se ele não disse.",
+          "items": {
+           "type": "object",
+           "additionalProperties": false,
+           "required": [
+            "ambiente",
+            "quantidade"
+           ],
+           "properties": {
+            "ambiente": {
+             "type": "string"
+            },
+            "quantidade": {
+             "type": "integer"
+            }
+           }
+          }
+         },
+         "obs": {
+          "type": "string",
+          "description": "Uma observação DESTA esquadria que o vendedor escreveu NESTA mensagem, copiada. Omita se não houver."
          }
         }
        }
@@ -194,7 +277,7 @@
    },
    {
     "type": "text",
-    "text": "Levantamento em montagem: nenhum.\nPergunta em aberto: Apanhado do levantamento “Casa do João”:\nEsquadria 1: DP-02, 1 unidade(s), 1.200 x 1.000 mm, vidro Temperado 5mm.\n\nCor do perfil: BRANCO.\nArremate e guarnição: arremate interno: sem arremate interno; arremate externo: Padrão; medida do arremate externo: vão + 50 mm.\n\nConfere? Responda sim para eu fazer o levantamento com os preços, ou diga o que muda."
+    "text": "Levantamento em montagem: nenhum.\nPergunta em aberto: Enviei ao vendedor o ARQUIVO do Levantamento 1 “Casa do João”, e ele está conferindo:\nItem 1: DP-02, 1 unidade(s), 1200 x 1000 mm; Cor do perfil: BRANCO · Arremate e guarnição: arremate interno: sem arremate interno; arremate externo: Padrão; medida do arremate externo: vão + 50 mm; Acessórios: padrão · vidro Temperado 5mm.\nVendedor: Cristiano Fernandes.\nConfere? Responda sim para eu fazer o levantamento com os preços, ou diga o que muda."
    }
   ],
   "tools": [
@@ -231,6 +314,65 @@
       "vendedor": {
        "type": "string",
        "description": "O nome do VENDEDOR dono do levantamento, copiado como foi escrito NESTA mensagem. Omita se não foi escrito."
+      },
+      "vendedor_do_levantamento": {
+       "type": "string",
+       "description": "Quando quem escreve LANÇA o levantamento PARA outro vendedor (\"é para o Cristiano\", \"vendedor: Cristiano\"): o nome dele, copiado como foi escrito NESTA mensagem. Omita se não foi dito."
+      },
+      "dados_do_cliente": {
+       "type": "object",
+       "additionalProperties": false,
+       "description": "Os dados do cliente e da obra, SÓ os que o vendedor escreveu NESTA mensagem, copiados. Omita o que não foi dito.",
+       "properties": {
+        "telefone": {
+         "type": "string"
+        },
+        "email": {
+         "type": "string"
+        },
+        "edificacao": {
+         "type": "string",
+         "description": "O tipo da edificação, como dito (casa, sobrado, prédio...)."
+        },
+        "endereco": {
+         "type": "string"
+        },
+        "obs_obra": {
+         "type": "string",
+         "description": "Uma observação da OBRA, copiada."
+        },
+        "data_entrega": {
+         "type": "string",
+         "description": "A data de entrega dita, como AAAA-MM-DD (o vendedor escreve 27/11/26 → 2026-11-27)."
+        }
+       }
+      },
+      "condicoes": {
+       "type": "object",
+       "additionalProperties": false,
+       "description": "As condições comerciais que o vendedor DISSE NESTA mensagem (comissão, reserva técnica, lucro). NUNCA invente, NUNCA use o cadastro: só o número dito. Omita o que não foi dito.",
+       "properties": {
+        "comissao_percentual": {
+         "type": "number"
+        },
+        "comissao_modo": {
+         "type": "string",
+         "enum": [
+          "PROPORCIONAL",
+          "CONGELADA"
+         ]
+        },
+        "reserva_tecnica_percentual": {
+         "type": "number"
+        },
+        "reserva_tecnica_responsavel": {
+         "type": "string",
+         "description": "Quem recebe a reserva técnica (o arquiteto, o decorador), copiado."
+        },
+        "lucro_projetado_percentual": {
+         "type": "number"
+        }
+       }
       },
       "confirma": {
        "type": "boolean",
@@ -285,6 +427,30 @@
          "familia": {
           "type": "string",
           "description": "A FAMÍLIA (ex.: PVC, Alumínio) como está na lista, SÓ quando o vendedor disse de qual família é a tipologia."
+         },
+         "ambientes": {
+          "type": "array",
+          "description": "Os AMBIENTES desta esquadria e quantas unidades vão em cada um, SÓ como o vendedor disse NESTA mensagem (\"2 no quarto e 1 na sala\"). Nomes copiados. Omita se ele não disse.",
+          "items": {
+           "type": "object",
+           "additionalProperties": false,
+           "required": [
+            "ambiente",
+            "quantidade"
+           ],
+           "properties": {
+            "ambiente": {
+             "type": "string"
+            },
+            "quantidade": {
+             "type": "integer"
+            }
+           }
+          }
+         },
+         "obs": {
+          "type": "string",
+          "description": "Uma observação DESTA esquadria que o vendedor escreveu NESTA mensagem, copiada. Omita se não houver."
          }
         }
        }
@@ -355,7 +521,7 @@
    },
    {
     "role": "assistant",
-    "content": "Apanhado do levantamento “Casa do João”:\nEsquadria 1: DP-02, 1 unidade(s), 1.200 x 1.000 mm, vidro Temperado 5mm.\n\nCor do perfil: BRANCO.\nArremate e guarnição: arremate interno: sem arremate interno; arremate externo: Padrão; medida do arremate externo: vão + 50 mm.\n\nConfere? Responda sim para eu fazer o levantamento com os preços, ou diga o que muda."
+    "content": "Levantamento 1 “Casa do João”: o arquivo está acima, para você conferir.\n\nConfere? Responda sim para eu fazer o levantamento com os preços, ou diga o que muda."
    },
    {
     "role": "user",

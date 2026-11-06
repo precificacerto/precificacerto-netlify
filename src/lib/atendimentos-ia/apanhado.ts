@@ -1,34 +1,21 @@
 /**
- * O APANHADO — a primeira resposta a uma solicitação (dono do produto, 26/10/2026). Função pura.
+ * O APANHADO — a COLETA (vocabulário do dono do produto, 06/11/2026): as perguntas e respostas pelas quais o agente reúne o levantamento. Função pura.
  *
- * "O APANHADO NÃO TRAZ PREÇO." O bloco técnico (barras por código, aproveitamento, perfis por barra inteira e
- * por consumo real, a diferença, a mão de obra, os dois totais e o que o preço cobre) é o resultado do
- * LEVANTAMENTO FORMAL, que só vem depois do "sim" do vendedor. "O primeiro contato é conversa, não orçamento."
+ * A MENSAGEM-RESUMO em texto do fim da coleta ("Apanhado do levantamento X: Esquadria 1: ... Confere?") SAIU em 06/11/2026: no lugar dela vai o
+ * ARQUIVO do levantamento (`folha-do-levantamento.ts`, `arquivo-do-levantamento.ts`), e a confirmação é sobre ele. O que ficou aqui são os dois
+ * formatadores que a folha usa, por extenso e sem código de fornecedor (dono do produto, 26/10/2026):
+ *   - o arremate e a guarnição: "Padrão" quando nada foi escolhido; quando o vendedor escolheu, o que ele escolheu ("arremate interno: 20 mm",
+ *     nunca "BZ0010"). A medida NÃO escolhida fica no "Padrão", sem detalhe;
+ *   - o vidro: como o vendedor o escreveu, com o rótulo "vidro" uma vez só.
  *
- * O FORMATO, um só ("um formato só, que o vendedor aprende uma vez"):
- *   - INDIVIDUAL, uma linha por esquadria: tipologia, quantidade, largura, altura e vidro;
- *   - COMUM, no PÉ, SEMPRE — mesmo com uma esquadria: a cor do perfil, o arremate e a guarnição. O que é
- *     igual em todas sai uma vez; o que difere sai por esquadria, no próprio pé;
- *   - o arremate e a guarnição — a mesma peça: o BZ0006 é "GUARNIÇÃO 65MM - ARREMATE INTERNO" em produção.
- *     "Padrão" quando nada foi escolhido; quando o vendedor escolheu, o que ele escolheu, por extenso e SEM
- *     código de fornecedor ("arremate interno: 20 mm", nunca "BZ0010"). Vale para TODAS as variáveis, a
- *     medida do arremate inclusive (dono do produto, 26/10/2026: "Se o vendedor escolheu, e a escolha muda o
- *     preço, ele não pode confirmar sem ver"). A medida NÃO escolhida fica no "Padrão", sem detalhe: o corte
- *     padrão não interessa ao vendedor conferindo.
- *
- * Portão: `src/utils/__tests__/atendimentos-ia-levantamento-por-nome.test.ts` (17) e
- * `src/utils/__tests__/apanhado.test.ts`.
+ * Portão: `src/utils/__tests__/apanhado.test.ts`.
  */
 import { escolhasDescritas, lerEscolhasGravadas, nomeDaVariavel, type VariaveisDaTipologia } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
-import type { DefinicaoDaTipologia, ItemDoLevantamento } from '@/lib/atendimentos-ia/levantamento-em-montagem'
-
-export const CONFERE_O_APANHADO = 'Confere? Responda sim para eu fazer o levantamento com os preços, ou diga o que muda.'
 
 /** A MEDIDA do arremate (o corte): só aparece quando o vendedor a escolheu. */
 export const MEDIDAS_DO_ARREMATE = ['MAE', 'MAI'] as const
 
 const minuscula = (t: string) => t.toLocaleLowerCase('pt-BR')
-const milhar = (n: number | null) => (n === null ? '?' : new Intl.NumberFormat('pt-BR').format(n))
 
 /**
  * O rótulo da opção sem o código de fornecedor e sem o valor entre colchetes, em minúscula:
@@ -46,8 +33,8 @@ export function rotuloSemCodigo(rotulo: string, descricao: string): string {
     return t
 }
 
-/** O arremate de uma esquadria, para o pé: "Padrão", ou o que o vendedor escolheu, por extenso. */
-export function arremateDoApanhado(tipologia: VariaveisDaTipologia | null, escolhas: unknown): string {
+/** O arremate de uma esquadria: "Padrão", ou o que o vendedor escolheu, por extenso. */
+export function arremateDaColeta(tipologia: VariaveisDaTipologia | null, escolhas: unknown): string {
     if (!tipologia) return 'Padrão'
     const descritas = escolhasDescritas(tipologia, lerEscolhasGravadas(escolhas))
     if (!descritas.some((e) => e.doVendedor)) return 'Padrão'
@@ -62,36 +49,8 @@ export function arremateDoApanhado(tipologia: VariaveisDaTipologia | null, escol
  * vidro é gravado como o vendedor o escreveu (04/11/2026: "copiado, nunca completado"), e às vezes o escrito já começa pela palavra "vidro": aí o
  * valor vai como está, sem o rótulo na frente. A comparação ignora caixa e acento; o valor nunca é reescrito.
  */
-export function vidroNoApanhado(vidro: string | null): string {
+export function vidroDaColeta(vidro: string | null): string {
     if (vidro === null || vidro.trim() === '') return 'vidro ?'
     const v = vidro.trim()
     return /^vidros?\b/.test(v.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()) ? v : `vidro ${v}`
-}
-
-/** A linha do pé: o valor uma vez, se é o mesmo em todas as esquadrias; senão, por esquadria. */
-function linhaDoPe(rotulo: string, valores: string[]): string {
-    const distintos = [...new Set(valores)]
-    return distintos.length === 1
-        ? `${rotulo}: ${distintos[0]}.`
-        : `${rotulo}: ${valores.map((v, i) => `esquadria ${i + 1}, ${v}`).join('; ')}.`
-}
-
-export function fraseDoApanhado(
-    nome: string,
-    itens: readonly ItemDoLevantamento[],
-    /** As abas da tipologia NA TABELA da esquadria (várias tabelas, 26/10/2026). */
-    definicao: DefinicaoDaTipologia,
-): string {
-    const ordenados = [...itens].sort((a, b) => a.ordem - b.ordem)
-    const linhas = ordenados.map((e, k) =>
-        `Esquadria ${k + 1}: ${e.tipologia ?? '?'}, ${e.quantidade ?? '?'} unidade(s), ${milhar(e.largura_mm)} x ${milhar(e.altura_mm)} mm, ${vidroNoApanhado(e.vidro)}.`)
-    return [
-        `Apanhado do levantamento “${nome}”:`,
-        ...linhas,
-        '',
-        linhaDoPe('Cor do perfil', ordenados.map((e) => e.cor_perfil ?? '?')),
-        linhaDoPe('Arremate e guarnição', ordenados.map((e) => arremateDoApanhado(definicao(e), e.escolhas))),
-        '',
-        CONFERE_O_APANHADO,
-    ].join('\n')
 }
