@@ -71,6 +71,13 @@ M = [
  ('K4 o arremate comum fora do fecho', A, "    if (arremateComum) preDefinicoes.push({ rotulo: 'Arremate e guarnição', valor: arremateComum })\n", ''),
  ('K5 o resumo sem as pré-definições (o arremate não reenvia)', A, "        `Pré-definições: ${d.preDefinicoes.map((p) => `${p.rotulo}: ${p.valor}`).join('; ')}.`,\n", ''),
  ('K6 o vidro com rótulo repetido', A, '            vidro: i.vidro,\n', "            vidro: i.vidro ? `vidro ${i.vidro}` : null,\n"),
+ ('J1 o vendedor sem a intenção dita vale', D, 'ditoComoTexto !== null && vendedorComIntencao(ditoComoTexto, mensagem) ? ditoComoTexto : null', 'ditoComoTexto'),
+ ('J2 "do Fulano" sem o "é" vira vendedor', D, 'String.raw`\\be\\s+(?:d[oa]|para|pra|pro)`', 'String.raw`\\b(?:e\\s+)?(?:d[oa]|para|pra|pro)`'),
+ ('J3 a marca "é do" esquecida', D, 'String.raw`\\be\\s+(?:d[oa]|para|pra|pro)`', 'String.raw`\\be\\s+(?:para|pra|pro)`'),
+ ('J4 a marca "vendedor" esquecida', D, '    String.raw`\\bvendedora?(?:\\s*:|\\s+e)?`,\n', ''),
+ ('J5 a marca "lança para" esquecida', D, '    String.raw`\\blanc(?:a|e|ar|ado|ada)\\s+(?:para|pra|pro)`,\n', ''),
+ ('J6 o nome casa com o começo de outra palavra', D, '${doNome}(?![a-z0-9])', '${doNome}'),
+ ('J7 a marca em qualquer lugar da mensagem', D, '`${marca}${ARTIGO}\\\\s*${doNome}(?![a-z0-9])`', '`${marca}.*${doNome}(?![a-z0-9])`'),
  ('P1 a retida perde os ambientes', P, "[...CAMPOS_DA_ESQUADRIA, 'vidro_padrao', 'ambientes', 'obs']", "[...CAMPOS_DA_ESQUADRIA, 'vidro_padrao']"),
 ]
 originais = {f: open(f, encoding='utf-8').read() for f in {m[1] for m in M}}

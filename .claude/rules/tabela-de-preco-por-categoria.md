@@ -1971,6 +1971,17 @@ A4). Sai só a mensagem-resumo em texto do fim da coleta. "Não chame o arquivo 
       Medido em 06/11/2026: nenhuma empresa tem dois ativos com o mesmo nome — a pergunta existe para o caso, e não aparece em nenhum caso real hoje.
     - **Os dois Germano reais, hoje:** "é do Germano" resolve DIRETO para o de 11/08 (`fb16777d…`), sem pergunta; nenhum dos dois tem cadastro de
       vendedor (`orcamentista_vendedor_perfil`, medido), e a conversa pergunta os percentuais — nunca os do remetente.
+    - **O CLIENTE TAMBÉM TEM NOME — só a intenção explícita troca o vendedor** (dono do produto, 06/11/2026):
+      > "A troca de vendedor só pode ser acionada por intenção EXPLÍCITA sobre o vendedor ('é do Fulano', 'o vendedor é o Fulano', 'lança para o
+      > Fulano'), nunca por um nome solto na mensagem que case com um funcionário ativo. [...] existe em produção o levantamento 'Levantamento João
+      > da Silva Ternes' — João é o CLIENTE."
+
+      Antes disto, a intenção ficava só com o modelo (a descrição do campo `vendedor_do_levantamento`), e o código conferia apenas que as palavras
+      do nome estavam na mensagem — com a busca por palavras contidas, um nome solto casaria um funcionário. Agora o CÓDIGO confere
+      (`vendedorComIntencao`, `dados-do-levantamento.ts`): o nome tem de vir LOGO DEPOIS de uma marca — "é do/da/para/pra/pro", "vendedor(a)" com
+      "é" ou ":", "lança/lançar/lançado para/pra/pro" (sem caixa e sem acento, artigo opcional). Fora delas a proposta é descartada e o vendedor
+      não muda; o nome do cliente segue para o cliente. **Limite conhecido:** "é do" é marca também quando o vendedor escreve "o levantamento é do
+      João" querendo dizer o cliente — o dono do produto definiu "é do Fulano" como intenção explícita.
     - **O levantamento já gravado não é tocado:** o vínculo e o nome congelados ficam, mesmo que o funcionário fique inativo depois. A busca só roda
       quando um vendedor é DITO, e a pergunta em aberto dos homônimos (o nome dito guardado, sem vínculo) é a única que se refaz.
   - **"Conferido e confirmado por | data e hora"** sai em branco, para quem confere (decisão do assistente, sem resposta; o dono do produto pode

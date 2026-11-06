@@ -4,7 +4,7 @@
  * E os ambientes que viajam com o item (`aplicarProposta`, `agruparIguais`): o dito substitui, a fusão soma por nome.
  */
 import {
-    ambientesDitos, condicoesComOCadastro, dataDita, descricaoDoHomonimo, emailDito, fraseDoVendedorInativo, fraseDosHomonimos, fraseDosHomonimosIndistinguiveis, homonimosDistinguiveis, nomeCasa, lerDadosDaMensagem, modoDito, percentualDito, perguntaDasCondicoes, telefoneDito, textoDito,
+    ambientesDitos, condicoesComOCadastro, dataDita, descricaoDoHomonimo, emailDito, fraseDoVendedorInativo, fraseDosHomonimos, fraseDosHomonimosIndistinguiveis, homonimosDistinguiveis, nomeCasa, vendedorComIntencao, lerDadosDaMensagem, modoDito, percentualDito, perguntaDasCondicoes, telefoneDito, textoDito,
     type CondicoesDoLevantamento,
 } from '@/lib/atendimentos-ia/dados-do-levantamento'
 import { agruparIguais, itemVazio, type ItemDoLevantamento } from '@/lib/atendimentos-ia/levantamento-em-montagem'
@@ -191,5 +191,33 @@ describe('O VENDEDOR DITO: as palavras do nome, e o que separa dois ativos — o
             'O funcionário “Germano Teixeira” está inativo no cadastro da empresa e não pode ser o vendedor de um levantamento novo. Diga outro vendedor.')
         expect(fraseDoVendedorInativo('Germano', [{ nome: 'a' }, { nome: 'b' }])).toBe(
             'Os 2 funcionários que casam com “Germano” estão inativos no cadastro da empresa e não podem ser o vendedor de um levantamento novo. Diga outro vendedor.')
+    })
+})
+
+describe('A INTENÇÃO EXPLÍCITA sobre o vendedor: o nome só é vendedor logo depois de uma marca — nunca solto (o cliente também tem nome)', () => {
+    it('as marcas: "é do/da/para/pra/pro", "vendedor(a)" com "é" ou ":", "lança para" — sem caixa e sem acento, artigo opcional', () => {
+        for (const m of ['é do Germano', 'É DO GERMANO', 'e do germano', 'o levantamento é do Germano', 'é para o Germano', 'é pra Germano', 'é pro Germano',
+            'o vendedor é o Germano', 'vendedor: Germano', 'para a vendedora Germano', 'lança para o Germano', 'lançar pro Germano', 'lançado para Germano'])
+            expect([m, vendedorComIntencao('Germano', m)]).toEqual([m, true])
+        expect(vendedorComIntencao('Beltrana Souza', 'o levantamento é da Beltrana Souza, lucro 15')).toBe(true)
+        expect(vendedorComIntencao('João', 'Levantamento X: DP-02, é do João.')).toBe(true)
+    })
+
+    it('o nome SOLTO não é vendedor: o do cliente, "levantamento do João", "o cliente é o João", o nome só citado', () => {
+        for (const m of ['Levantamento João da Silva Ternes: DP-02 1200 x 1000', 'levantamento do João: DP-02', 'o cliente é o João', 'falei com o João hoje',
+            'João, DP-02 1200 x 1000', 'é do Joãozinho', 'casa do joao',
+            // a marca vale para o nome que vem LOGO depois dela, não para um nome mais adiante na mensagem
+            'é do Germano; o cliente é o João', 'é para a obra do João'])
+            expect([m, vendedorComIntencao('João', m)]).toEqual([m, false])
+        // o nome inteiro tem de vir depois da marca, na ordem
+        expect(vendedorComIntencao('Germano Teixeira', 'é do Germano, cliente Teixeira')).toBe(false)
+        expect(vendedorComIntencao('', 'é do Germano')).toBe(false)
+    })
+
+    it('lerDadosDaMensagem: o vendedor proposto sem a intenção dita é descartado e conta como descartado; com ela, vale', () => {
+        const solto = lerDadosDaMensagem({ vendedor_do_levantamento: 'João' }, 'levantamento do João: DP-02 1200 x 1000')
+        expect(solto.vendedor).toBeNull()
+        expect([solto.propostos, solto.descartados]).toEqual([1, 1])
+        expect(lerDadosDaMensagem({ vendedor_do_levantamento: 'João' }, 'levantamento X: DP-02, é do João').vendedor).toBe('João')
     })
 })

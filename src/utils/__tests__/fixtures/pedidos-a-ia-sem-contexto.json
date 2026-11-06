@@ -60,7 +60,7 @@
       },
       "vendedor_do_levantamento": {
        "type": "string",
-       "description": "Quando quem escreve LANÇA o levantamento PARA outro vendedor (\"é para o Cristiano\", \"vendedor: Cristiano\"): o nome dele, copiado como foi escrito NESTA mensagem. Omita se não foi dito."
+       "description": "Quando quem escreve LANÇA o levantamento PARA outro vendedor, dizendo isso sobre o VENDEDOR (\"é do Cristiano\", \"é para o Cristiano\", \"o vendedor é o Cristiano\", \"vendedor: Cristiano\", \"lança para o Cristiano\"): o nome dele, copiado como foi escrito NESTA mensagem. NUNCA o nome do CLIENTE, nem um nome solto (\"levantamento do João\" é o cliente João). Omita se não foi dito."
       },
       "dados_do_cliente": {
        "type": "object",
@@ -325,7 +325,7 @@
       },
       "vendedor_do_levantamento": {
        "type": "string",
-       "description": "Quando quem escreve LANÇA o levantamento PARA outro vendedor (\"é para o Cristiano\", \"vendedor: Cristiano\"): o nome dele, copiado como foi escrito NESTA mensagem. Omita se não foi dito."
+       "description": "Quando quem escreve LANÇA o levantamento PARA outro vendedor, dizendo isso sobre o VENDEDOR (\"é do Cristiano\", \"é para o Cristiano\", \"o vendedor é o Cristiano\", \"vendedor: Cristiano\", \"lança para o Cristiano\"): o nome dele, copiado como foi escrito NESTA mensagem. NUNCA o nome do CLIENTE, nem um nome solto (\"levantamento do João\" é o cliente João). Omita se não foi dito."
       },
       "dados_do_cliente": {
        "type": "object",

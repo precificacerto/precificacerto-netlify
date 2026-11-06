@@ -5167,12 +5167,14 @@ describe('(42) a coleta dos dados do levantamento: cliente, ambientes, obs, perc
         expect(textoDoArquivo()).toContain('Modo: congelada')
     })
 
+    // os dois Germano Teixeira da De Paula, como estão no cadastro (medido em 06/11/2026)
+    const GERMANO_INATIVO = { id: '6903f13e-a74a-460e-bdfc-5ec0b698848b', tenant_id: TENANT, name: 'Germano Teixeira', position: null as string | null, is_active: false, status: 'ACTIVE', created_at: '2026-07-08T17:13:45.000842+00:00', user_id: null as string | null, role: 'COMMERCIAL' }
+    const GERMANO_ATIVO = { id: 'fb16777d-7e37-49b6-9d73-33e578e65bb7', tenant_id: TENANT, name: 'Germano Teixeira', position: 'Vendedor ', is_active: true, status: 'ACTIVE', created_at: '2026-08-11T20:17:40.984559+00:00', user_id: null as string | null, role: 'COMMERCIAL' }
+
     describe('O VENDEDOR DITO: só os ATIVOS da empresa, casados pelas palavras do nome (dono do produto, 06/11/2026)', () => {
         // os dois Germano Teixeira da De Paula, como estão no cadastro (medido em 06/11/2026): o de 08/07 com is_active = false e status = 'ACTIVE'
         // (os dois campos divergem; vale is_active), e o de 11/08 ativo, com o cargo "Vendedor " (espaço no fim: dado sujo, que não decide nada).
         // Nenhum dos dois tem cadastro de vendedor (orcamentista_vendedor_perfil)
-        const GERMANO_INATIVO = { id: '6903f13e-a74a-460e-bdfc-5ec0b698848b', tenant_id: TENANT, name: 'Germano Teixeira', position: null as string | null, is_active: false, status: 'ACTIVE', created_at: '2026-07-08T17:13:45.000842+00:00', user_id: null as string | null, role: 'COMMERCIAL' }
-        const GERMANO_ATIVO = { id: 'fb16777d-7e37-49b6-9d73-33e578e65bb7', tenant_id: TENANT, name: 'Germano Teixeira', position: 'Vendedor ', is_active: true, status: 'ACTIVE', created_at: '2026-08-11T20:17:40.984559+00:00', user_id: null as string | null, role: 'COMMERCIAL' }
         const comOsGermano = () => estado.db.employees.push({ ...GERMANO_INATIVO }, { ...GERMANO_ATIVO })
         const PERCENTUAIS_DO_GERMANO = 'Para fechar o levantamento, faltam a comissão (%), o modo da comissão (proporcional ou congelada), a reserva técnica (%) e o lucro projetado da proposta (%) do vendedor Germano Teixeira. Qual é?'
 
@@ -5285,6 +5287,43 @@ describe('(42) a coleta dos dados do levantamento: cliente, ambientes, obs, perc
             await chamar('é da Beltrana')
             expect(textoDoSistema(estado.chamadasDaLlm[1].corpo.system)).toContain(`Pergunta em aberto: ${dadosDoLevantamento.FRASE_FALTA_O_VENDEDOR}`)
             expect(lev()).toEqual(expect.objectContaining({ estado: 'COMPLETO', vendedor_employee_id: 'e-beltrana', vendedor_nome: 'Beltrana Souza', comissao_percentual: 4 }))
+        })
+    })
+
+    describe('O CLIENTE TAMBÉM TEM NOME: só a intenção EXPLÍCITA sobre o vendedor troca o vendedor (dono do produto, 06/11/2026)', () => {
+        // o caso real: em produção existe o levantamento "Levantamento João da Silva Ternes" — João é o CLIENTE. Aqui há um funcionário ATIVO
+        // chamado João (fictício): um nome solto que case com ele nunca vira troca de vendedor
+        const JOAO = { id: 'e-joao', tenant_id: TENANT, name: 'João Pereira', position: null as string | null, is_active: true, status: 'ACTIVE', created_at: '2026-06-10T12:00:00+00:00', user_id: null as string | null, role: 'COMMERCIAL' }
+        const DO_REMETENTE = { vendedor_employee_id: 'e-cristiano', vendedor_nome: 'Cristiano Fernandes', comissao_percentual: 5, lucro_projetado_percentual: 10 }
+
+        it('(a)+(c) "Levantamento João da Silva Ternes": o João é o cliente — o vendedor NÃO troca, mesmo com a IA propondo João; o nome vai ao cliente', async () => {
+            estado.db.employees.push({ ...JOAO })
+            llmResponde({ nome: 'João da Silva Ternes', itens: [{ ...DP02 }], vendedor_do_levantamento: 'João' })
+            await chamar('Levantamento João da Silva Ternes: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm')
+            expect(lev()).toEqual(expect.objectContaining({ nome: 'João da Silva Ternes', ...DO_REMETENTE }))
+            // a proposta do vendedor foi descartada, e o log diz
+            expect(linhaIa().pop()).toMatch(/descartados=[1-9]/)
+        })
+
+        it('(a)+(c) "levantamento do João": a mesma coisa — "do João" sem "é" é o cliente, não o vendedor', async () => {
+            estado.db.employees.push({ ...JOAO })
+            llmResponde({ nome: 'João', itens: [{ ...DP02 }], vendedor_do_levantamento: 'João' })
+            await chamar('levantamento do João: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm')
+            expect(lev()).toEqual(expect.objectContaining({ nome: 'João', ...DO_REMETENTE }))
+        })
+
+        it('(b)+(c) "é do Germano" no mesmo turno do cliente João: troca para o Germano ativo, e o João continua sendo o cliente', async () => {
+            estado.db.employees.push({ ...JOAO }, { ...GERMANO_INATIVO }, { ...GERMANO_ATIVO })
+            llmResponde({ nome: 'João da Silva Ternes', itens: [{ ...DP02 }], vendedor_do_levantamento: 'Germano' })
+            await chamar('Levantamento João da Silva Ternes: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm, é do Germano')
+            expect(lev()).toEqual(expect.objectContaining({ nome: 'João da Silva Ternes', vendedor_employee_id: GERMANO_ATIVO.id, vendedor_nome: 'Germano Teixeira', comissao_percentual: null }))
+        })
+
+        it('(b) "é do João" é intenção explícita: troca para o funcionário João — o cliente segue sendo o do nome do levantamento', async () => {
+            estado.db.employees.push({ ...JOAO })
+            llmResponde({ nome: 'João da Silva Ternes', itens: [{ ...DP02 }], vendedor_do_levantamento: 'João' })
+            await chamar('Levantamento João da Silva Ternes: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm, é do João')
+            expect(lev()).toEqual(expect.objectContaining({ nome: 'João da Silva Ternes', vendedor_employee_id: 'e-joao', vendedor_nome: 'João Pereira' }))
         })
     })
 

@@ -146,7 +146,9 @@ export function lerDadosDaMensagem(propostaBruta: unknown, mensagem: string): Da
     const resp = conta(k.reserva_tecnica_responsavel, textoDito(k.reserva_tecnica_responsavel, mensagem, LIMITES_DE_TEXTO.reserva_tecnica_responsavel))
     if (resp !== null) condicoes.reserva_tecnica_responsavel = resp
 
-    const vendedor = conta(p.vendedor_do_levantamento, textoDito(p.vendedor_do_levantamento, mensagem, LIMITES_DE_TEXTO.vendedor))
+    // o vendedor só vale com INTENÇÃO EXPLÍCITA sobre ele na mensagem (dono do produto, 06/11/2026): nunca um nome solto — o do cliente, por exemplo
+    const ditoComoTexto = textoDito(p.vendedor_do_levantamento, mensagem, LIMITES_DE_TEXTO.vendedor)
+    const vendedor = conta(p.vendedor_do_levantamento, ditoComoTexto !== null && vendedorComIntencao(ditoComoTexto, mensagem) ? ditoComoTexto : null)
 
     // os ambientes e a obs de cada item: validados aqui; o que não passa sai da proposta (o item continua com o resto)
     const itens = Array.isArray(p.itens) ? p.itens.map((bruto) => {
@@ -200,6 +202,34 @@ const ouLista = (xs: readonly string[]) => (xs.length <= 1 ? xs.join('') : `${xs
 /** A pergunta do que falta nas condições: nomeia cada uma e o vendedor de quem são (cadastro nulo e nada dito → pergunta). */
 export function perguntaDasCondicoes(faltam: readonly string[], vendedor: string | null): string {
     return `Para fechar o levantamento, falta${faltam.length > 1 ? 'm' : ''} ${ouLista(faltam)}${vendedor ? ` do vendedor ${vendedor}` : ''}. Qual é?`
+}
+
+/**
+ * A INTENÇÃO EXPLÍCITA SOBRE O VENDEDOR (dono do produto, 06/11/2026): "A troca de vendedor só pode ser acionada por intenção EXPLÍCITA sobre o
+ * vendedor ('é do Fulano', 'o vendedor é o Fulano', 'lança para o Fulano'), nunca por um nome solto na mensagem que case com um funcionário ativo."
+ * O cliente também tem nome — "levantamento do João", com o João cliente, nunca vira vendedor. Com a busca por palavras contidas, um nome solto
+ * casaria um funcionário; por isso o CÓDIGO confere, e não só a descrição do campo da ferramenta.
+ *
+ * O nome dito tem de vir LOGO DEPOIS de uma destas marcas (sem caixa e sem acento; o artigo é opcional):
+ *   - "é do / é da / é para / é pra / é pro" — "é do Germano", "é para a Beltrana";
+ *   - "vendedor" ou "vendedora", com "é" ou ":" opcionais — "o vendedor é o Fulano", "vendedor: Fulano", "para a vendedora Fulana";
+ *   - "lança / lance / lançar / lançado" + "para / pra / pro" — "lança para o Fulano".
+ * Fora delas, o nome não é vendedor: a proposta é descartada (conta como descartada) e o vendedor do levantamento não muda.
+ */
+const MARCAS_DE_VENDEDOR = [
+    String.raw`\be\s+(?:d[oa]|para|pra|pro)`,
+    String.raw`\bvendedora?(?:\s*:|\s+e)?`,
+    String.raw`\blanc(?:a|e|ar|ado|ada)\s+(?:para|pra|pro)`,
+]
+const ARTIGO = String.raw`(?:\s+(?:o|a))?`
+const semAcento = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+const escapar = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+export function vendedorComIntencao(nome: string, mensagem: string): boolean {
+    const palavras = semAcento(nome).split(/[^a-z0-9]+/).filter(Boolean)
+    if (!palavras.length) return false
+    const doNome = palavras.map(escapar).join(String.raw`[^a-z0-9]+`)
+    const texto = semAcento(mensagem)
+    return MARCAS_DE_VENDEDOR.some((marca) => new RegExp(`${marca}${ARTIGO}\\s*${doNome}(?![a-z0-9])`).test(texto))
 }
 
 /** A frase do vendedor dito que não está no cadastro: nunca escolhe um parecido. */

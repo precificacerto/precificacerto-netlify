@@ -491,7 +491,7 @@ export const FERRAMENTA = {
             alteracao: { type: 'boolean', description: 'true quando o vendedor pede para MUDAR um levantamento que já existe (troca, muda, altera, corrige).' },
             vendedor: { ...texto, description: 'O nome do VENDEDOR dono do levantamento, copiado como foi escrito NESTA mensagem. Omita se não foi escrito.' },
             vendedor_opcao: { ...inteiro, description: 'Quando a pergunta em aberto lista FUNCIONÁRIOS, numerados, e o vendedor escolheu um deles — pelo número, pelo nome completo ou pela data do cadastro —, o número dele na lista. Senão, omita.' },
-            vendedor_do_levantamento: { ...texto, description: 'Quando quem escreve LANÇA o levantamento PARA outro vendedor ("é para o Cristiano", "vendedor: Cristiano"): o nome dele, copiado como foi escrito NESTA mensagem. Omita se não foi dito.' },
+            vendedor_do_levantamento: { ...texto, description: 'Quando quem escreve LANÇA o levantamento PARA outro vendedor, dizendo isso sobre o VENDEDOR ("é do Cristiano", "é para o Cristiano", "o vendedor é o Cristiano", "vendedor: Cristiano", "lança para o Cristiano"): o nome dele, copiado como foi escrito NESTA mensagem. NUNCA o nome do CLIENTE, nem um nome solto ("levantamento do João" é o cliente João). Omita se não foi dito.' },
             dados_do_cliente: {
                 type: 'object',
                 additionalProperties: false,
