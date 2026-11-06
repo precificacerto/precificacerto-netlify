@@ -5165,6 +5165,15 @@ describe('(42) a coleta dos dados do levantamento: cliente, ambientes, obs, perc
         expect(levantamentos()).toHaveLength(0)
     })
 
+    it('a esquadria RETIDA (a mensagem veio sem nome) guarda os ambientes e a obs até o nome chegar — nada se perde', async () => {
+        llmResponde({ itens: [{ ...DP02, quantidade: 2, ambientes: [{ ambiente: 'Quarto', quantidade: 2 }], obs: 'sem soleira' }] })
+        await chamar('DP-02 1200 x 1000, 2 unidades, branco, temperado 5mm, as 2 no quarto, sem soleira')
+        expect(levantamentos()).toHaveLength(0)
+        llmResponde({ nome: 'Casa do Pedro' })
+        await chamar('Casa do Pedro')
+        expect(itensDe(lev().id)[0]).toEqual(expect.objectContaining({ ambientes: [{ ambiente: 'Quarto', quantidade: 2 }], obs: 'sem soleira' }))
+    })
+
     it('o funcionário de OUTRA empresa com o mesmo nome não é achado: a busca é na empresa do levantamento', async () => {
         estado.db.employees.push({ id: 'e-de-fora', tenant_id: 'outra-empresa', name: 'Zé de Fora', user_id: null, role: 'COMMERCIAL' })
         llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }], vendedor_do_levantamento: 'Zé de Fora' })

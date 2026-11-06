@@ -1882,7 +1882,7 @@ da linha, nunca da sigla.**
   nada é perguntado; AF "(HI=1)" com HI = 1 pergunta e com HI = 2 não pergunta; o prompt só com a seção quando há), (VIII) de `levantamento-em-montagem.test.ts`, (V) de `escolhas-da-tipologia.test.ts`, e
   `scripts/harness/variavel-sem-padrao/mutacoes.py` (20 mutações, 20 mortas).
 
-## REGISTRADO, NÃO IMPLEMENTADO — a linha VARIÁVEIS no ARQUIVO do levantamento (especificação do PR 2, dono do produto, 06/11/2026)
+## A linha VARIÁVEIS no ARQUIVO do levantamento (especificação do PR 2, dono do produto, 06/11/2026) — IMPLEMENTADA no gerador da folha (seção seguinte)
 
 Formulação do dono do produto, registrada como está:
 
@@ -1897,3 +1897,40 @@ Formulação do dono do produto, registrada como está:
   "(em mm)" da pergunta).
 - **A linha só existe com variável sem padrão RESPONDIDA**; a que a Condição deixou de fora não entra, e a não respondida não existe (a esquadria
   sem ela não é completa e não chega ao arquivo).
+
+## O ARQUIVO DO LEVANTAMENTO substitui a mensagem-resumo — dono do produto, 06/11/2026 (pressupõe a migração `20261106000002`, aplicada e conferida pelo dono do produto em 06/11/2026)
+
+VOCABULÁRIO, registrado como foi dito: o **APANHADO** é a COLETA (as perguntas e respostas, que continuam); o **LEVANTAMENTO** é o ARQUIVO (a folha
+A4). Sai só a mensagem-resumo em texto do fim da coleta. "Não chame o arquivo de apanhado em lugar nenhum." (O código da pergunta em aberto continua
+`CONFIRMAR_APANHADO`: é valor da CHECK do banco.)
+
+- **O gerador** (`src/lib/atendimentos-ia/folha-do-levantamento.ts`), isolado e testável sem o WhatsApp, segue a especificação normativa do dono do
+  produto (no cabeçalho do módulo): A4 retrato, cabeçalho em toda folha, cliente só na primeira, colunas com o "mm" no rótulo, faixa do item de altura
+  fixa, as linhas VARIÁVEIS (condicional) → PERFIL / ACESSÓRIO + VIDRO → AMBIENTES → OBS, o fecho e o rodapé. Confere antes de produzir (a soma dos
+  ambientes contra a quantidade do item, os percentuais, o vendedor, o símbolo de dinheiro) e recusa nomeando. A paginação (`paginar`) enche a folha
+  antes de virar, nunca parte item nem fecho. O exemplo renderizado está em `docs/levantamento/`, conferido byte a byte pelo portão.
+- **O desenho** — decisão do dono do produto, 06/11/2026: "Contorno + folhas da descrição". O contorno na proporção real; as folhas que a DESCRIÇÃO
+  do motor diz (nunca o `n_vidros`: a DP-02, de 2 folhas, tem 1); nas MAXIM-AR / FIXO com "N"/"V" módulos, o valor RESPONDIDO da variável de mesma
+  letra; a bandeira (em cima) e o peitoril (embaixo) na ALTURA DITA, pela descrição da variável (a mesma sigla muda de sentido); nada inventado.
+  Medido nas fórmulas da Wolff: os módulos horizontais ficam lado a lado (a coluna de modulação da DP-128 corre na altura com quantidade `N-1`).
+  Medido nas 164 descrições do motor `fdff3386`: 141 com folhas, 26 com BANDEIRA, 19 com PEITORIL, 15 com número de módulos, 8 só com "N"/"V".
+  **Achado, com o dono do produto:** o `N` e o `V` têm Padrão (1) e opções na aba Variáveis, e a conversa não os pergunta (não são variáveis sem
+  padrão nem escolhas capturadas). Hoje nenhum levantamento de produção tem N ou V dito — essas tipologias saem com o contorno e as faixas, sem as
+  divisões dos módulos. Capturar N e V muda o cálculo (N está nas fórmulas) e é decisão à parte.
+- **Na conversa** (`arquivo-do-levantamento.ts`, `conversa-da-ia.ts`): com o levantamento completo, `gerarArquivoDoLevantamento` monta a folha do que está
+  GRAVADO e a conversa a envia pelo WUZAPI (`/chat/send/document`), seguida da confirmação ("Levantamento N “nome”: o arquivo está acima, para você
+  conferir. Confere? ..."). O "sim" leva ao levantamento formal, como antes. O mesmo arquivo não se reenvia sem mudança (R2). A recusa do gerador
+  volta nomeada; a falha do envio do documento é dita. Ao modelo vai um RESUMO do arquivo, sem percentual (o prompt base proíbe o agente de dizer
+  valor e percentual); a comparação "nada mudou" usa o resumo COM as condições.
+- **A coleta dos dados novos** (`dados-do-levantamento.ts`): os dados do cliente, os ambientes e a obs de cada item, os percentuais e o vendedor — só
+  o que foi DITO na mensagem (a IA copia, o código confere). Os percentuais: o cadastro do vendedor é o padrão, o dito substitui, o resultado fica
+  CONGELADO no levantamento; cadastro nulo e nada dito → a conversa PERGUNTA, e o levantamento fica em montagem. O responsável pela RT só vem da
+  conversa; sem ele, o campo sai em branco. O vendedor é o funcionário do remetente, ou o dito (achado no cadastro DA EMPRESA pelo nome; dois com o
+  mesmo nome: nunca escolhe). Trocado o vendedor, os percentuais não ditos vêm do cadastro do novo.
+- **Decisões tomadas pelo assistente, por falta de resposta às perguntas de 06/11/2026 — o dono do produto pode trocar:** (a) a célula PERFIL leva a
+  cor do perfil e o arremate e guarnição por extenso; a ACESSÓRIO + VIDRO, "Acessórios: padrão" e o vidro como dito; (b) as pré-definições
+  consideradas são o que é IGUAL em todos os itens (a cor do perfil, o arremate e guarnição) e "Vedação: padrão"; (c) o vendedor dito pode ser
+  qualquer funcionário da empresa, achado pelo nome; (d) "conferido e confirmado por | data e hora" sai em branco, para quem confere.
+- **Prova:** `folha-do-levantamento.test.ts` (o desenho, a conferência, a paginação, o PDF e o exemplo) e `scripts/mutacoes/folha-do-levantamento.py`;
+  `dados-do-levantamento.test.ts`, `arquivo-do-levantamento.test.ts`, os blocos (17) e (42) de `atendimentos-ia-levantamento-por-nome.test.ts` e
+  `scripts/mutacoes/arquivo-do-levantamento-na-conversa.py`.
