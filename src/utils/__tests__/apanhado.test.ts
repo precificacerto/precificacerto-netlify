@@ -5,7 +5,7 @@
  * PORTÃO — o APANHADO (`src/lib/atendimentos-ia/apanhado.ts`), as funções puras. O caminho inteiro, pela rota,
  * está em `atendimentos-ia-levantamento-por-nome.test.ts` (17).
  */
-import { arremateDaColeta, rotuloSemCodigo, vidroDaColeta } from '@/lib/atendimentos-ia/apanhado'
+import { arremateDaColeta, rotuloSemCodigo } from '@/lib/atendimentos-ia/apanhado'
 import type { VariaveisDaTipologia } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 
 /** As opções de ARI, ARE e MAE MEDIDAS em produção em 26/10/2026, nas 161 tipologias da Wolff: todos os rótulos distintos. */
@@ -71,22 +71,5 @@ describe('arremateDaColeta', () => {
 // A MENSAGEM-RESUMO (fraseDoApanhado) SAIU em 06/11/2026: no lugar dela vai o ARQUIVO do levantamento, e o que ela dizia — o arremate por
 // extenso e o vidro com o rótulo uma vez — é conferido no arquivo (`arquivo-do-levantamento.test.ts`, `folha-do-levantamento.test.ts`).
 
-describe('o vidro na linha da esquadria: o rótulo "vidro" UMA vez (06/11/2026, saiu "vidro vidro comum 6 mm incolor")', () => {
-    it.each([
-        ['vidro comum 6 mm incolor', 'vidro comum 6 mm incolor'],
-        ['Vidro comum 6 mm incolor', 'Vidro comum 6 mm incolor'],
-        ['VÍDRO temperado 8mm', 'VÍDRO temperado 8mm'],
-        ['  vidro 4mm ', 'vidro 4mm'],
-        ['mini boreal', 'vidro mini boreal'],
-        ['temperado 8mm', 'vidro temperado 8mm'],
-        ['vidros 4mm', 'vidros 4mm'],
-        ['vidraça 4mm', 'vidro vidraça 4mm'],
-    ])('"%s" → "%s"', (gravado, linha) => {
-        expect(vidroDaColeta(gravado)).toBe(linha)
-    })
-    it('sem vidro, a interrogação de sempre', () => {
-        expect(vidroDaColeta(null)).toBe('vidro ?')
-        expect(vidroDaColeta('  ')).toBe('vidro ?')
-    })
-})
+// o VIDRO saiu daqui (06/11/2026): a célula do arquivo é "VIDRO:", e o vidro vai como o vendedor disse, sem rótulo na frente
 

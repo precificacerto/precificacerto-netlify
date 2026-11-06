@@ -5,7 +5,7 @@
  */
 // o módulo lê o banco nas funções de leitura; aqui só as puras são exercitadas
 jest.mock('@/supabase/admin', () => ({ supabaseAdmin: {} }))
-import { montarDadosDaFolha, resumoDoArquivo, resumoDoArquivoParaOPrompt, variaveisDitas, type LevantamentoDoArquivo } from '@/lib/atendimentos-ia/arquivo-do-levantamento'
+import { corDoAcessorio, montarDadosDaFolha, resumoDoArquivo, resumoDoArquivoParaOPrompt, variaveisDitas, type LevantamentoDoArquivo } from '@/lib/atendimentos-ia/arquivo-do-levantamento'
 import { desenhoDaTipologia, gerarFolhaDoLevantamento, linhaDasVariaveis } from '@/lib/atendimentos-ia/folha-do-levantamento'
 import { itemVazio, type DefinicaoDaTipologia, type ItemDoLevantamento } from '@/lib/atendimentos-ia/levantamento-em-montagem'
 import type { VariaveisDaTipologia } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
@@ -43,8 +43,24 @@ describe('o arquivo montado do que está gravado', () => {
         expect(linhaDasVariaveis(d.itens[0])).toBe('Altura da bandeira 400 mm')
         expect(desenhoDaTipologia(d.itens[0])).toEqual(expect.objectContaining({ colunas: 2, bandeira_mm: 400 }))
         expect(d.itens[0].descricao).toBe(DESCRICOES['DP-04'])
-        expect(d.itens[0].perfil).toBe('Cor do perfil: BRANCO · Arremate e guarnição: arremate interno: 20 mm')
-        expect(d.itens[0].acessorioEVidro).toBe('Acessórios: padrão · vidro 4 mm')
+        // a linha do item: "<cor do perfil> / <cor do acessório>" ("padrão" não dita) e o vidro como dito; o arremate, comum, vai ao fecho
+        expect(d.itens[0].perfilEAcessorio).toBe('BRANCO / padrão')
+        expect(d.itens[0].vidro).toBe('4 mm')
+        expect(d.preDefinicoes).toContainEqual({ rotulo: 'Arremate e guarnição', valor: 'arremate interno: 20 mm' })
+    })
+
+    it('a COR DO ACESSÓRIO dita (a variável cuja descrição é "COR DOS ACESSÓRIOS", pela descrição) sai por extenso; não dita, "padrão"', () => {
+        const comCa: DefinicaoDaTipologia = () => ({ variaveis: [{ variavel: 'CA', descricao: 'COR DOS ACESSÓRIOS', padrao: '1', condicao: 'sempre', opcoes: '1 = BRANCO; 2 = PRETO; 3 = MARROM' }] } as unknown as VariaveisDaTipologia)
+        expect(corDoAcessorio(item(1, { escolhas: { CA: 2 } }), comCa)).toBe('preto')
+        expect(corDoAcessorio(item(1, { escolhas: {} }), comCa)).toBe('padrão')
+        expect(corDoAcessorio(item(1, { escolhas: { CA: 9 } }), comCa)).toBe('padrão')
+        expect(corDoAcessorio(item(1, { escolhas: { CA: 2 } }), definicao)).toBe('padrão')
+    })
+
+    it('a cor do perfil que VARIA entre os itens aparece em cada item e não vai ao fecho; o arremate que varia vai à linha do item, nunca se perde', () => {
+        const d = montar([item(1, {}), item(2, { cor_perfil: 'PRETO', escolhas: { ARI: 3 } })])
+        expect(d.itens.map((i) => i.perfilEAcessorio)).toEqual(['BRANCO / padrão · arremate e guarnição: Padrão', 'PRETO / padrão · arremate e guarnição: arremate interno: 20 mm'])
+        expect(d.preDefinicoes).toEqual([{ rotulo: 'Vedação', valor: 'padrão' }])
     })
 
     it('a DP-02 sem variável sem padrão: a linha VARIÁVEIS não existe', () => {

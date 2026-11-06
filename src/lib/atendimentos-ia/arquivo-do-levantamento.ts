@@ -9,14 +9,16 @@
  *   - a empresa: `tenants.name`; o número, o cliente, os percentuais e o vendedor: as colunas de `orcamentista_levantamento` (20261106000002);
  *   - os itens: `orcamentista_levantamento_item` (as medidas, o vidro, a cor, as escolhas, os ambientes e a obs); a descrição e a linha da
  *     tipologia: a Detalhe do motor (os candidatos que a conversa já leu); as variáveis: a aba Variáveis da tipologia (a `definicao`);
- *   - o perfil e o vidro por extenso, sem código de fornecedor (`arremateDaColeta`, `vidroDaColeta`);
+ *   - a linha do item: "PERFIL / ACESSÓRIO:" com a cor do perfil e a do acessório ("padrão" quando não dita) e "VIDRO:" com o vidro como dito;
+ *     o arremate e a guarnição por extenso, sem código de fornecedor (`arremateDaColeta`), no fecho;
  *   - as pré-definições consideradas: o que é IGUAL em todos os itens (a cor do perfil, o arremate e guarnição), e a vedação como "padrão";
  *   - nunca material, barra, peso, corte, nem valor em reais: o contrato da folha não tem campo para eles.
  *
  * Portão: `src/utils/__tests__/arquivo-do-levantamento.test.ts` e o bloco (42) de `atendimentos-ia-levantamento-por-nome.test.ts`.
  */
 import { supabaseAdmin } from '@/supabase/admin'
-import { arremateDaColeta, vidroDaColeta } from '@/lib/atendimentos-ia/apanhado'
+import { arremateDaColeta, rotuloSemCodigo } from '@/lib/atendimentos-ia/apanhado'
+import { opcoesDaVariavel } from '@/lib/atendimentos-ia/avaliador-de-formulas'
 import { variaveisSemPadrao } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import { gerarFolhaDoLevantamento, type DadosDaFolha, type FolhaGerada, type FolhaRecusada, type ItemDaFolha, type VariavelDita } from '@/lib/atendimentos-ia/folha-do-levantamento'
 import type { DefinicaoDaTipologia, ItemDoLevantamento } from '@/lib/atendimentos-ia/levantamento-em-montagem'
@@ -76,12 +78,20 @@ export async function lerVendedorDoRemetente(tenantId: string, remetenteId: stri
     return { employeeId: null, nome: r.nome?.trim() || null }
 }
 
-/** Os funcionários da empresa com ESTE nome (sem caixa e sem acento). A conversa nunca escolhe entre dois. */
-export async function funcionariosPeloNome(tenantId: string, nome: string, normalizar: (t: string) => string): Promise<Array<{ id: string; nome: string }>> {
-    const { data, error } = await supabaseAdmin.from('employees').select('id, name').eq('tenant_id', tenantId)
+/** Um funcionário da empresa, com o que o distingue de um homônimo: o cargo, a situação e a data do cadastro. */
+export type Funcionario = { id: string; nome: string; cargo: string | null; ativo: boolean; cadastradoEm: string }
+
+/**
+ * Os funcionários da EMPRESA com ESTE nome (sem caixa e sem acento), do cadastrado primeiro ao último — a ordem da lista que a conversa numera.
+ * A conversa nunca escolhe entre dois (dono do produto, 06/11/2026).
+ */
+export async function funcionariosPeloNome(tenantId: string, nome: string, normalizar: (t: string) => string): Promise<Funcionario[]> {
+    const { data, error } = await supabaseAdmin.from('employees').select('id, name, position, is_active, created_at').eq('tenant_id', tenantId)
     if (error) throw new Error(`employees: ${error.message}`)
-    return ((data ?? []) as Array<{ id: string; name: string | null }>)
-        .filter((e) => e.name && normalizar(e.name) === normalizar(nome)).map((e) => ({ id: e.id, nome: (e.name as string).trim() }))
+    return ((data ?? []) as Array<{ id: string; name: string | null; position: string | null; is_active: boolean | null; created_at: string | null }>)
+        .filter((e) => e.name && normalizar(e.name) === normalizar(nome))
+        .map((e) => ({ id: e.id, nome: (e.name as string).trim(), cargo: e.position?.trim() || null, ativo: e.is_active !== false, cadastradoEm: String(e.created_at ?? '') }))
+        .sort((x, y) => (x.cadastradoEm < y.cadastradoEm ? -1 : x.cadastradoEm > y.cadastradoEm ? 1 : x.id.localeCompare(y.id)))
 }
 
 /** O cadastro do vendedor (o padrão dos percentuais). Sem funcionário, sem cadastro. */
@@ -113,12 +123,37 @@ export function variaveisDitas(item: Pick<ItemDoLevantamento, 'escolhas' | 'tipo
 }
 
 const unico = (xs: readonly string[]) => (new Set(xs).size === 1 ? xs[0] : null)
+const forma = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim()
+
+/**
+ * A COR DO ACESSÓRIO do item: a opção que o vendedor DISSE para a variável da aba cuja descrição é "COR DOS ACESSÓRIOS" (pela descrição, nunca
+ * pela sigla), por extenso; não dita, "padrão" — segue o padrão da casa (dono do produto, 06/11/2026: "Branco / padrão").
+ */
+export function corDoAcessorio(item: Pick<ItemDoLevantamento, 'escolhas' | 'tipologia' | 'familia'>, definicao: DefinicaoDaTipologia): string {
+    const def = definicao(item)
+    const v = def?.variaveis.find((x) => forma(x.descricao ?? '').startsWith('COR DOS ACESSORIOS'))
+    const dita = v && item.escolhas ? item.escolhas[v.variavel] : undefined
+    if (!v || typeof dita !== 'number') return 'padrão'
+    const opcao = (opcoesDaVariavel(v.opcoes) ?? []).find((o) => o.valor === dita)
+    return opcao ? rotuloSemCodigo(opcao.rotulo, v.descricao ?? '') : 'padrão'
+}
+
+/**
+ * A célula "PERFIL / ACESSÓRIO:" do item: "<cor do perfil> / <cor do acessório>". O arremate e a guarnição NÃO entram (são comuns à obra e saem
+ * no fecho) — SALVO quando variam entre os itens: então não são comuns, não vão ao fecho (o que varia vai na linha do item), e saem aqui, depois
+ * das cores. Leitura do assistente sobre as duas regras de 06/11/2026, relatada no PR.
+ */
+function perfilEAcessorio(cor: string | null, acessorio: string, arremateQueVaria: string | null): string {
+    return `${cor ?? ''} / ${acessorio}${arremateQueVaria !== null ? ` · arremate e guarnição: ${arremateQueVaria}` : ''}`
+}
 
 export function montarDadosDaFolha(a: {
     empresa: string; levantamento: LevantamentoDoArquivo; itens: readonly ItemDoLevantamento[]; definicao: DefinicaoDaTipologia; detalhe: DetalheDaTipologia; geradoEm: Date
 }): DadosDaFolha {
     const ordenados = [...a.itens].sort((x, y) => x.ordem - y.ordem)
-    const itens: ItemDaFolha[] = ordenados.map((i) => {
+    const arremates = ordenados.map((i) => arremateDaColeta(a.definicao(i), i.escolhas))
+    const arremateComum = unico(arremates)
+    const itens: ItemDaFolha[] = ordenados.map((i, k) => {
         const d = i.tipologia ? a.detalhe(i.tipologia, i.familia) : null
         // a cor como está gravada (a da lista da base, 05/11/2026): o arquivo não a reescreve
         const cor = i.cor_perfil
@@ -126,8 +161,9 @@ export function montarDadosDaFolha(a: {
             ordem: i.ordem, tipologia: i.tipologia ?? '', descricao: d?.descricao ?? i.tipologia ?? '', linha: d?.linha ?? null,
             quantidade: i.quantidade ?? 0, largura_mm: i.largura_mm ?? 0, altura_mm: i.altura_mm ?? 0,
             variaveis: variaveisDitas(i, a.definicao),
-            perfil: [cor ? `Cor do perfil: ${cor}` : null, `Arremate e guarnição: ${arremateDaColeta(a.definicao(i), i.escolhas)}`].filter(Boolean).join(' · '),
-            acessorioEVidro: `Acessórios: padrão · ${vidroDaColeta(i.vidro)}`,
+            perfilEAcessorio: perfilEAcessorio(cor, corDoAcessorio(i, a.definicao), arremateComum === null ? arremates[k] : null),
+            // o vidro COMO O VENDEDOR DISSE (04/11/2026: copiado, nunca completado), sem rótulo: o rótulo é o da célula ("VIDRO:")
+            vidro: i.vidro,
             ambientes: i.ambientes && i.ambientes.length ? i.ambientes : null,
             obs: i.obs ?? null,
         }
@@ -136,8 +172,7 @@ export function montarDadosDaFolha(a: {
     const preDefinicoes: Array<{ rotulo: string; valor: string }> = []
     const cor = unico(ordenados.map((i) => i.cor_perfil ?? ''))
     if (cor) preDefinicoes.push({ rotulo: 'Cor do perfil', valor: cor })
-    const arremate = unico(ordenados.map((i) => arremateDaColeta(a.definicao(i), i.escolhas)))
-    if (arremate) preDefinicoes.push({ rotulo: 'Arremate e guarnição', valor: arremate })
+    if (arremateComum) preDefinicoes.push({ rotulo: 'Arremate e guarnição', valor: arremateComum })
     preDefinicoes.push({ rotulo: 'Vedação', valor: 'padrão' })
     const l = a.levantamento
     return {
@@ -174,9 +209,12 @@ export function resumoDoArquivoParaOPrompt(d: DadosDaFolha): string {
         c.obsObra && `obs da obra ${c.obsObra}`, c.dataEntrega && `entrega ${c.dataEntrega}`].filter(Boolean).join('; ')
     return [
         `Enviei ao vendedor o ARQUIVO do Levantamento ${d.numero} “${c.nome}”${cliente ? ` (${cliente})` : ''}, e ele está conferindo:`,
-        ...d.itens.map((i) => `Item ${i.ordem}: ${i.tipologia}, ${i.quantidade} unidade(s), ${i.largura_mm} x ${i.altura_mm} mm; ${i.perfil ?? ''}; ${i.acessorioEVidro ?? ''}`
+        ...d.itens.map((i) => `Item ${i.ordem}: ${i.tipologia}, ${i.quantidade} unidade(s), ${i.largura_mm} x ${i.altura_mm} mm; perfil / acessório ${i.perfilEAcessorio ?? ''}; vidro ${i.vidro ?? ''}`
             + `${i.variaveis.filter((v) => v.semPadrao).map((v) => `; ${v.descricao.toLocaleLowerCase('pt-BR')} ${v.valor}`).join('')}`
             + `${i.ambientes ? `; ambientes: ${i.ambientes.map((x) => `${x.ambiente} ${x.quantidade}`).join(', ')}` : ''}${i.obs ? `; obs: ${i.obs}` : ''}.`),
+        // o que é comum à obra (a cor, o arremate e a guarnição) mora nas pré-definições: sem esta linha, trocar o arremate não mudaria o resumo,
+        // e o arquivo novo não sairia (R2)
+        `Pré-definições: ${d.preDefinicoes.map((p) => `${p.rotulo}: ${p.valor}`).join('; ')}.`,
         `Vendedor: ${d.condicoes.vendedor ?? '-'}.`,
         CONFERE_O_ARQUIVO,
     ].join('\n')

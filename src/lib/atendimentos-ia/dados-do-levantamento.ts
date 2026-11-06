@@ -202,8 +202,27 @@ export function perguntaDasCondicoes(faltam: readonly string[], vendedor: string
     return `Para fechar o levantamento, falta${faltam.length > 1 ? 'm' : ''} ${ouLista(faltam)}${vendedor ? ` do vendedor ${vendedor}` : ''}. Qual é?`
 }
 
-/** A frase do vendedor dito que não está no cadastro, ou que está mais de uma vez: nunca escolhe. */
+/** A frase do vendedor dito que não está no cadastro: nunca escolhe um parecido. */
 export const fraseDoVendedorNaoAchado = (nome: string) =>
     `Não achei o vendedor “${nome}” no cadastro da empresa. Diga o nome dele como está no cadastro.`
-export const fraseDoVendedorRepetido = (nome: string, vezes: number) =>
-    `Há ${vezes} funcionários com o nome “${nome}” no cadastro da empresa, e eu não escolho entre eles. Corrija o cadastro ou diga outro vendedor.`
+
+// ── OS HOMÔNIMOS (dono do produto, 06/11/2026) ───────────────────────────────────────────────
+/**
+ * "Os dois 'Germano Teixeira': pergunte qual é. Mas se a pergunta não tiver como ser respondida de forma distinguível (dois homônimos sem nada que
+ * os separe na conversa), recuse nomeando o problema em vez de escolher um." O que separa dois homônimos na conversa é o que o cadastro diz deles
+ * e se pode dizer ao vendedor: o CARGO, a SITUAÇÃO (ativo ou inativo) e a DATA DO CADASTRO — nunca e-mail, telefone ou documento.
+ */
+export type Homonimo = { cargo: string | null; ativo: boolean; cadastradoEm: string }
+/** O dia do cadastro no fuso da empresa (o do resgate): um cadastro às 22h de São Paulo já é o dia seguinte em UTC. */
+const dataDoCadastro = (iso: string) => {
+    const t = Date.parse(iso)
+    return Number.isFinite(t) ? new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', year: 'numeric' }).format(t) : 'sem data'
+}
+export const descricaoDoHomonimo = (h: Homonimo) => `${h.cargo ?? 'sem cargo'}, ${h.ativo ? 'ativo' : 'inativo'}, cadastrado em ${dataDoCadastro(h.cadastradoEm)}`
+/** Dá para perguntar? Só se a descrição de cada um for diferente da de todos os outros. */
+export const homonimosDistinguiveis = (hs: readonly Homonimo[]) => new Set(hs.map(descricaoDoHomonimo)).size === hs.length
+
+export const fraseDosHomonimos = (nome: string, hs: readonly Homonimo[]) =>
+    `Há ${hs.length} funcionários com o nome “${nome}” no cadastro da empresa: ${hs.map((h, k) => `${k + 1}) ${descricaoDoHomonimo(h)}`).join('; ')}. Qual deles é o vendedor deste levantamento?`
+export const fraseDosHomonimosIndistinguiveis = (nome: string, vezes: number) =>
+    `Há ${vezes} funcionários com o nome “${nome}” no cadastro da empresa, e nada no cadastro os distingue (o mesmo cargo, a mesma situação e a mesma data). Não escolho entre eles: corrija o cadastro ou diga outro vendedor.`

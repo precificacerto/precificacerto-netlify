@@ -4,7 +4,7 @@
  * E os ambientes que viajam com o item (`aplicarProposta`, `agruparIguais`): o dito substitui, a fusão soma por nome.
  */
 import {
-    ambientesDitos, condicoesComOCadastro, dataDita, emailDito, lerDadosDaMensagem, modoDito, percentualDito, perguntaDasCondicoes, telefoneDito, textoDito,
+    ambientesDitos, condicoesComOCadastro, dataDita, descricaoDoHomonimo, emailDito, fraseDosHomonimos, fraseDosHomonimosIndistinguiveis, homonimosDistinguiveis, lerDadosDaMensagem, modoDito, percentualDito, perguntaDasCondicoes, telefoneDito, textoDito,
     type CondicoesDoLevantamento,
 } from '@/lib/atendimentos-ia/dados-do-levantamento'
 import { agruparIguais, itemVazio, type ItemDoLevantamento } from '@/lib/atendimentos-ia/levantamento-em-montagem'
@@ -143,5 +143,39 @@ describe('(III) os ambientes no item da montagem: o dito substitui, a fusão som
     it('duas linhas iguais DA MESMA mensagem somam também os ambientes', () => {
         const r = agruparIguais([completo(1, { ambientes: [{ ambiente: 'Sala', quantidade: 1 }] }), completo(2, { ambientes: [{ ambiente: 'Sala', quantidade: 1 }] })])
         expect(r.itens[0]).toEqual(expect.objectContaining({ quantidade: 2, ambientes: [{ ambiente: 'Sala', quantidade: 2 }] }))
+    })
+})
+
+describe('OS HOMÔNIMOS: o que os separa é o cargo, a situação e a data do cadastro — nunca e-mail, telefone ou documento', () => {
+    // os dois Germano Teixeira da De Paula, como estão no cadastro (medido em 06/11/2026)
+    const INATIVO = { cargo: null, ativo: false, cadastradoEm: '2026-07-08T17:13:45.000842+00:00' }
+    const VENDEDOR = { cargo: 'Vendedor', ativo: true, cadastradoEm: '2026-08-11T20:17:40.984559+00:00' }
+
+    it('a descrição de cada um, e a pergunta numerada na ordem dada', () => {
+        expect(descricaoDoHomonimo(INATIVO)).toBe('sem cargo, inativo, cadastrado em 08/07/2026')
+        expect(descricaoDoHomonimo(VENDEDOR)).toBe('Vendedor, ativo, cadastrado em 11/08/2026')
+        expect(fraseDosHomonimos('Germano Teixeira', [INATIVO, VENDEDOR])).toBe(
+            'Há 2 funcionários com o nome “Germano Teixeira” no cadastro da empresa: 1) sem cargo, inativo, cadastrado em 08/07/2026; 2) Vendedor, ativo, cadastrado em 11/08/2026. Qual deles é o vendedor deste levantamento?')
+    })
+
+    it('a data é a do fuso da empresa: 23h de São Paulo é o dia seguinte em UTC, e o dia que vale é o de São Paulo', () => {
+        expect(descricaoDoHomonimo({ cargo: null, ativo: true, cadastradoEm: '2026-07-09T02:30:00+00:00' })).toBe('sem cargo, ativo, cadastrado em 08/07/2026')
+        expect(descricaoDoHomonimo({ cargo: null, ativo: true, cadastradoEm: '' })).toBe('sem cargo, ativo, cadastrado em sem data')
+    })
+
+    it('distinguíveis quando ao menos uma das três coisas difere de todos; iguais nas três, nunca', () => {
+        expect(homonimosDistinguiveis([INATIVO, VENDEDOR])).toBe(true)
+        expect(homonimosDistinguiveis([VENDEDOR, { ...VENDEDOR, ativo: false }])).toBe(true)
+        expect(homonimosDistinguiveis([VENDEDOR, { ...VENDEDOR, cargo: 'Gerente' }])).toBe(true)
+        expect(homonimosDistinguiveis([VENDEDOR, { ...VENDEDOR, cadastradoEm: '2026-08-12T20:00:00+00:00' }])).toBe(true)
+        // o mesmo dia em outra hora não separa: o vendedor não vê a hora
+        expect(homonimosDistinguiveis([VENDEDOR, { ...VENDEDOR, cadastradoEm: '2026-08-11T21:00:00+00:00' }])).toBe(false)
+        // três, dois deles iguais: não dá para perguntar
+        expect(homonimosDistinguiveis([INATIVO, VENDEDOR, { ...VENDEDOR }])).toBe(false)
+    })
+
+    it('a recusa nomeia o nome, quantos e o que falta para distinguir, e não escolhe', () => {
+        expect(fraseDosHomonimosIndistinguiveis('Beltrana Souza', 2)).toBe(
+            'Há 2 funcionários com o nome “Beltrana Souza” no cadastro da empresa, e nada no cadastro os distingue (o mesmo cargo, a mesma situação e a mesma data). Não escolho entre eles: corrija o cadastro ou diga outro vendedor.')
     })
 })

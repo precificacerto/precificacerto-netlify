@@ -1124,9 +1124,9 @@ describe('(8) a ferramenta NÃO vai strict; o esquema continua restrito por addi
         return { unioes, opcionais }
     }
 
-    // a medida passou de 24 a 40 opcionais em 06/11/2026: os dados do levantamento (o cliente, as condições, o vendedor, e os ambientes e a obs do
-    // item) — sem `strict`, o limite de 24 da gramática não se aplica
-    it('o esquema ENVIADO: UMA ferramenta, SEM `strict` (nem true nem false: o campo não vai), e a medida de hoje — 0 uniões, 40 opcionais', async () => {
+    // a medida passou de 24 a 41 opcionais em 06/11/2026: os dados do levantamento (o cliente, as condições, o vendedor e a opção entre homônimos,
+    // e os ambientes e a obs do item) — sem `strict`, o limite de 24 da gramática não se aplica
+    it('o esquema ENVIADO: UMA ferramenta, SEM `strict` (nem true nem false: o campo não vai), e a medida de hoje — 0 uniões, 41 opcionais', async () => {
         await chamar('oi')
         const tools = estado.chamadasDaLlm[0].corpo.tools as Array<Record<string, unknown>>
         expect(tools).toHaveLength(1)
@@ -1134,7 +1134,7 @@ describe('(8) a ferramenta NÃO vai strict; o esquema continua restrito por addi
         expect(JSON.stringify(estado.chamadasDaLlm[0].corpo)).not.toContain('"strict"')
         const { unioes, opcionais } = contar(tools[0].input_schema)
         expect(unioes).toBe(0)
-        expect(opcionais).toBe(40)
+        expect(opcionais).toBe(41)
     })
 })
 
@@ -1725,8 +1725,11 @@ describe('(17) O ARQUIVO no lugar da mensagem-resumo (dono do produto, 06/11/202
         const arquivo = textoDoArquivo()
         expect(arquivo).toContain('Item 1 · DP-02')
         expect(arquivo).toContain('JANELA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 42')
-        expect(arquivo).toContain('Cor do perfil: BRANCO · Arremate e guarnição: Padrão')
-        expect(arquivo).toContain('vidro Temperado 5mm')
+        // a linha do item com os rótulos do mockup: "PERFIL / ACESSÓRIO:" (cor do perfil / cor do acessório, "padrão" não dita) e "VIDRO:"
+        expect(arquivo).toContain('PERFIL / ACESSÓRIO: BRANCO / padrão VIDRO: Temperado 5mm')
+        // o arremate e a guarnição são comuns à obra: só no fecho, nas pré-definições
+        expect(arquivo.match(/Arremate e guarnição/g)).toHaveLength(1)
+        expect(arquivo).toContain('Cor do perfil: BRANCO · Arremate e guarnição: Padrão · Vedação: padrão')
         const formal = await confirmar()
         // o controle: o que o arquivo não tem, o formal tem
         for (const rotulo of LINHAS_DO_PRECO) { expect(formal).toContain(rotulo); expect(arquivo).not.toContain(rotulo) }
@@ -1773,7 +1776,7 @@ describe('(17) O ARQUIVO no lugar da mensagem-resumo (dono do produto, 06/11/202
         const arquivo = textoDoArquivo()
         expect(arquivo).toContain('Item 1 · DP-02')
         expect(arquivo).toContain('Item 2 · DP-02')
-        expect(arquivo).toContain('vidro Laminado 8mm')
+        expect(arquivo).toContain('VIDRO: Laminado 8mm')
         expect(arquivo).toContain('Cor do perfil: BRANCO · Arremate e guarnição: Padrão · Vedação: padrão')
         expect(arquivo).toContain('Levantamento 1 · 2 itens · 4 peças')
     })
@@ -3335,7 +3338,7 @@ describe('(29) o vidro copiado, a forma canônica e a dedupe por equivalência (
         expect(itensDe(levantamentos()[0].id)[0].vidro).toBe('vidro 4 mm')
         expect(ehConfirmacaoDoArquivo(ultimoEnviado())).toBe(true)
         // o rótulo "vidro" uma vez só (06/11/2026): este teste afirmava "vidro vidro 4 mm" — o defeito, fixado aqui em 04/11; agora no ARQUIVO
-        expect(textoDoArquivo()).toContain('Acessórios: padrão · vidro 4 mm')
+        expect(textoDoArquivo()).toContain('VIDRO: vidro 4 mm')
         expect(textoDoArquivo()).not.toContain('vidro vidro')
         expect(textoDoArquivo()).not.toContain('comum')
         expect(linhaIa().pop()).toMatch(/ vidro_podado=1(\s|$)/)
@@ -3368,7 +3371,7 @@ describe('(29) o vidro copiado, a forma canônica e a dedupe por equivalência (
         await chamar('Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco, sem arremate interno, arremate externo com folga de 50')
         expect(itensDe(levantamentos()[0].id)[0].vidro).toBe('incolor 4 mm comum')
         expect(linhaIa().pop()).toMatch(/ vidro_padrao=1(\s|$)/)
-        expect(textoDoArquivo()).toContain('vidro incolor 4 mm comum')
+        expect(textoDoArquivo()).toContain('VIDRO: incolor 4 mm comum')
         // o turno seguinte traz OUTRO padrão: nada muda
         llmResponde({ nome: 'Casa do João', alteracao: true, itens: [{ ordem: 1, largura_mm: 1300, vidro_padrao: 'incolor 4 mm temperado' }] })
         await chamar('Casa do João: largura 1300')
@@ -4931,8 +4934,9 @@ describe('(40) o reenvio da mesma esquadria: a quantidade dita substitui, nunca 
         llmResponde({ cliente: 'Maria Cristina', itens: [{ ...PORTA }, { ...JANELA }] })
         await chamar(MARIA)
         const arquivo = textoDoArquivo()
-        expect(arquivo).toContain('Acessórios: padrão · vidro comum 6 mm incolor')
-        expect(arquivo).toContain('Acessórios: padrão · vidro mini boreal')
+        // a célula é "VIDRO:" e o vidro vai como o vendedor disse — o rótulo "vidro" do valor não se repete
+        expect(arquivo).toContain('VIDRO: vidro comum 6 mm incolor')
+        expect(arquivo).toContain(`VIDRO: ${JANELA.vidro}`)
         expect(arquivo).not.toContain(`vidro ${PORTA.vidro}`)
         // o gravado continua o que o vendedor escreveu: só o texto do arquivo não repete o rótulo
         expect(itensDe(maria().id)[0].vidro).toBe('vidro comum 6 mm incolor')
@@ -5163,7 +5167,60 @@ describe('(42) a coleta dos dados do levantamento: cliente, ambientes, obs, perc
         expect(textoDoArquivo()).toContain('Modo: congelada')
     })
 
-    it('o vendedor dito que não está no cadastro: a conversa diz e nada é gravado; dois com o mesmo nome: nunca escolhe', async () => {
+    describe('OS DOIS GERMANO TEIXEIRA da De Paula, como estão no cadastro (medido em 06/11/2026)', () => {
+        // o de 08/07/2026: sem cargo, inativo; o de 11/08/2026: "Vendedor ", ativo — nenhum dos dois tem cadastro de vendedor (perfil)
+        const comOsGermano = () => estado.db.employees.push(
+            { id: '6903f13e-a74a-460e-bdfc-5ec0b698848b', tenant_id: TENANT, name: 'Germano Teixeira', position: null, is_active: false, created_at: '2026-07-08T17:13:45.000842+00:00', user_id: null, role: 'COMMERCIAL' },
+            { id: 'fb16777d-7e37-49b6-9d73-33e578e65bb7', tenant_id: TENANT, name: 'Germano Teixeira', position: 'Vendedor ', is_active: true, created_at: '2026-08-11T20:17:40.984559+00:00', user_id: null, role: 'COMMERCIAL' },
+        )
+        const PERGUNTA_DOS_GERMANO = 'Há 2 funcionários com o nome “Germano Teixeira” no cadastro da empresa: 1) sem cargo, inativo, cadastrado em 08/07/2026; 2) Vendedor, ativo, cadastrado em 11/08/2026. Qual deles é o vendedor deste levantamento?'
+
+        it('a conversa PERGUNTA qual é, pelo cargo, pela situação e pela data — nunca escolhe; o levantamento fica em montagem, sem vínculo e sem percentual', async () => {
+            comOsGermano()
+            llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }], vendedor_do_levantamento: 'Germano Teixeira' })
+            await chamar(`${MSG}, é para o Germano Teixeira`)
+            expect(ultimoEnviado()).toBe(PERGUNTA_DOS_GERMANO)
+            expect(lev()).toEqual(expect.objectContaining({ estado: 'EM_MONTAGEM', vendedor_nome: 'Germano Teixeira', vendedor_employee_id: null }))
+            // nunca os percentuais do remetente (o Cristiano tem cadastro) num levantamento lançado para outra pessoa
+            for (const k of ['comissao_percentual', 'comissao_modo', 'reserva_tecnica_percentual', 'lucro_projetado_percentual']) expect(lev()[k]).toBeNull()
+            expect(estado.documentos).toHaveLength(0)
+        })
+
+        it('"o ativo" → a opção 2 → o vínculo do Germano de 11/08; sem cadastro de vendedor, a conversa PERGUNTA os percentuais (nunca os do remetente)', async () => {
+            comOsGermano()
+            llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }], vendedor_do_levantamento: 'Germano Teixeira' })
+            await chamar(`${MSG}, é para o Germano Teixeira`)
+            // a pergunta dos homônimos é a pergunta em aberto da montagem
+            llmResponde({ vendedor_opcao: 2 })
+            await chamar('é o ativo')
+            expect(textoDoSistema(estado.chamadasDaLlm[1].corpo.system)).toContain(`Pergunta em aberto: ${PERGUNTA_DOS_GERMANO}`)
+            expect(lev()).toEqual(expect.objectContaining({ vendedor_employee_id: 'fb16777d-7e37-49b6-9d73-33e578e65bb7', vendedor_nome: 'Germano Teixeira', estado: 'EM_MONTAGEM' }))
+            expect(ultimoEnviado()).toBe('Para fechar o levantamento, faltam a comissão (%), o modo da comissão (proporcional ou congelada), a reserva técnica (%) e o lucro projetado da proposta (%) do vendedor Germano Teixeira. Qual é?')
+            llmResponde({ condicoes: { comissao_percentual: 3, comissao_modo: 'PROPORCIONAL', reserva_tecnica_percentual: 0, lucro_projetado_percentual: 8 } })
+            await chamar('comissão 3 proporcional, RT 0, lucro 8')
+            expect(lev()).toEqual(expect.objectContaining({ estado: 'COMPLETO', comissao_percentual: 3, reserva_tecnica_percentual: 0, lucro_projetado_percentual: 8 }))
+            expect(textoDoArquivo()).toContain('Germano Teixeira')
+        })
+
+        it('a resposta sem a opção não escolhe: a mesma pergunta, dizendo que não registrou', async () => {
+            comOsGermano()
+            llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }], vendedor_do_levantamento: 'Germano Teixeira' })
+            await chamar(`${MSG}, é para o Germano Teixeira`)
+            llmResponde({})
+            await chamar('esse aí')
+            expect(ultimoEnviado()).toBe(conversa.fraseDeNaoRegistrei(PERGUNTA_DOS_GERMANO))
+            expect(lev().vendedor_employee_id).toBeNull()
+        })
+
+        it('dito junto com a opção na mesma mensagem: resolve direto', async () => {
+            comOsGermano()
+            llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }], vendedor_do_levantamento: 'Germano Teixeira', vendedor_opcao: 1 })
+            await chamar(`${MSG}, é para o Germano Teixeira, o inativo`)
+            expect(lev().vendedor_employee_id).toBe('6903f13e-a74a-460e-bdfc-5ec0b698848b')
+        })
+    })
+
+    it('o vendedor dito que não está no cadastro: a conversa diz e nada é gravado; dois com o mesmo nome e nada que os separe: recusa nomeando', async () => {
         llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }], vendedor_do_levantamento: 'Zé Ninguém' })
         await chamar(`${MSG}, é para o Zé Ninguém`)
         expect(ultimoEnviado()).toBe(dadosDoLevantamento.fraseDoVendedorNaoAchado('Zé Ninguém'))
@@ -5171,7 +5228,7 @@ describe('(42) a coleta dos dados do levantamento: cliente, ambientes, obs, perc
         estado.db.employees.push({ id: 'e-beltrana-2', tenant_id: TENANT, name: 'Beltrana Souza', user_id: null, role: 'COMMERCIAL' })
         llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }], vendedor_do_levantamento: 'Beltrana Souza' })
         await chamar(`${MSG}, é para a Beltrana Souza`)
-        expect(ultimoEnviado()).toBe(dadosDoLevantamento.fraseDoVendedorRepetido('Beltrana Souza', 2))
+        expect(ultimoEnviado()).toBe(dadosDoLevantamento.fraseDosHomonimosIndistinguiveis('Beltrana Souza', 2))
         expect(levantamentos()).toHaveLength(0)
     })
 

@@ -2,11 +2,10 @@
  * O APANHADO — a COLETA (vocabulário do dono do produto, 06/11/2026): as perguntas e respostas pelas quais o agente reúne o levantamento. Função pura.
  *
  * A MENSAGEM-RESUMO em texto do fim da coleta ("Apanhado do levantamento X: Esquadria 1: ... Confere?") SAIU em 06/11/2026: no lugar dela vai o
- * ARQUIVO do levantamento (`folha-do-levantamento.ts`, `arquivo-do-levantamento.ts`), e a confirmação é sobre ele. O que ficou aqui são os dois
- * formatadores que a folha usa, por extenso e sem código de fornecedor (dono do produto, 26/10/2026):
+ * ARQUIVO do levantamento (`folha-do-levantamento.ts`, `arquivo-do-levantamento.ts`), e a confirmação é sobre ele. O que ficou aqui é o
+ * formatador que a folha usa, por extenso e sem código de fornecedor (dono do produto, 26/10/2026):
  *   - o arremate e a guarnição: "Padrão" quando nada foi escolhido; quando o vendedor escolheu, o que ele escolheu ("arremate interno: 20 mm",
  *     nunca "BZ0010"). A medida NÃO escolhida fica no "Padrão", sem detalhe;
- *   - o vidro: como o vendedor o escreveu, com o rótulo "vidro" uma vez só.
  *
  * Portão: `src/utils/__tests__/apanhado.test.ts`.
  */
@@ -42,15 +41,4 @@ export function arremateDaColeta(tipologia: VariaveisDaTipologia | null, escolha
         .filter((e) => e.doVendedor || !(MEDIDAS_DO_ARREMATE as readonly string[]).includes(e.variavel))
         .map((e) => `${nomeDaVariavel(e.variavel, e.descricao)}: ${e.doVendedor && e.rotulo ? rotuloSemCodigo(e.rotulo, e.descricao) : 'Padrão'}`)
         .join('; ')
-}
-
-/**
- * O VIDRO na linha da esquadria, com o rótulo "vidro" UMA vez (06/11/2026, o caso da Maria Cristina: saiu "vidro vidro comum 6 mm incolor"). O
- * vidro é gravado como o vendedor o escreveu (04/11/2026: "copiado, nunca completado"), e às vezes o escrito já começa pela palavra "vidro": aí o
- * valor vai como está, sem o rótulo na frente. A comparação ignora caixa e acento; o valor nunca é reescrito.
- */
-export function vidroDaColeta(vidro: string | null): string {
-    if (vidro === null || vidro.trim() === '') return 'vidro ?'
-    const v = vidro.trim()
-    return /^vidros?\b/.test(v.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()) ? v : `vidro ${v}`
 }

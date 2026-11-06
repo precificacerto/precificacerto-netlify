@@ -54,6 +54,10 @@
        "type": "string",
        "description": "O nome do VENDEDOR dono do levantamento, copiado como foi escrito NESTA mensagem. Omita se não foi escrito."
       },
+      "vendedor_opcao": {
+       "type": "integer",
+       "description": "Quando a pergunta em aberto lista FUNCIONÁRIOS com o mesmo nome, numerados, e o vendedor escolheu um deles — pelo número, pelo cargo, pela situação (ativo, inativo) ou pela data do cadastro —, o número dele na lista. Senão, omita."
+      },
       "vendedor_do_levantamento": {
        "type": "string",
        "description": "Quando quem escreve LANÇA o levantamento PARA outro vendedor (\"é para o Cristiano\", \"vendedor: Cristiano\"): o nome dele, copiado como foi escrito NESTA mensagem. Omita se não foi dito."
@@ -277,7 +281,7 @@
    },
    {
     "type": "text",
-    "text": "Levantamento em montagem: nenhum.\nPergunta em aberto: Enviei ao vendedor o ARQUIVO do Levantamento 1 “Casa do João”, e ele está conferindo:\nItem 1: DP-02, 1 unidade(s), 1200 x 1000 mm; Cor do perfil: BRANCO · Arremate e guarnição: arremate interno: sem arremate interno; arremate externo: Padrão; medida do arremate externo: vão + 50 mm; Acessórios: padrão · vidro Temperado 5mm.\nVendedor: Cristiano Fernandes.\nConfere? Responda sim para eu fazer o levantamento com os preços, ou diga o que muda."
+    "text": "Levantamento em montagem: nenhum.\nPergunta em aberto: Enviei ao vendedor o ARQUIVO do Levantamento 1 “Casa do João”, e ele está conferindo:\nItem 1: DP-02, 1 unidade(s), 1200 x 1000 mm; perfil / acessório BRANCO / padrão; vidro Temperado 5mm.\nPré-definições: Cor do perfil: BRANCO; Arremate e guarnição: arremate interno: sem arremate interno; arremate externo: Padrão; medida do arremate externo: vão + 50 mm; Vedação: padrão.\nVendedor: Cristiano Fernandes.\nConfere? Responda sim para eu fazer o levantamento com os preços, ou diga o que muda."
    }
   ],
   "tools": [
@@ -314,6 +318,10 @@
       "vendedor": {
        "type": "string",
        "description": "O nome do VENDEDOR dono do levantamento, copiado como foi escrito NESTA mensagem. Omita se não foi escrito."
+      },
+      "vendedor_opcao": {
+       "type": "integer",
+       "description": "Quando a pergunta em aberto lista FUNCIONÁRIOS com o mesmo nome, numerados, e o vendedor escolheu um deles — pelo número, pelo cargo, pela situação (ativo, inativo) ou pela data do cadastro —, o número dele na lista. Senão, omita."
       },
       "vendedor_do_levantamento": {
        "type": "string",
