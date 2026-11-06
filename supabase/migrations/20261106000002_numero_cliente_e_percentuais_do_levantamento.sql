@@ -366,7 +366,7 @@ BEGIN
      EXCEPT SELECT g.grantee, g.privilege_type FROM information_schema.role_table_grants g WHERE g.table_schema = 'public' AND g.table_name = 'orcamentista_levantamento_contador')) d;
   IF v_n <> 0 THEN RAISE EXCEPTION 'verificacao 4: os privilegios do contador diferem dos de orcamentista_levantamento em % linha(s). Nada foi alterado.', v_n; END IF;
 
-  -- 5. os numeros: nenhum nulo; em cada empresa, 1..N sem buraco nem repeticao entre os que existiam; o contador no proximo (o maior + 1, ou alem)
+  -- 5. os numeros: nenhum nulo; o contador de cada empresa aponta para depois do maior numero dela (a repeticao, quem barra e a UNIQUE)
   SELECT count(*) INTO v_n FROM public.orcamentista_levantamento l WHERE l.numero IS NULL;
   IF v_n > 0 THEN RAISE EXCEPTION 'verificacao 5: % levantamento(s) sem numero. Nada foi alterado.', v_n; END IF;
   SELECT string_agg(l.tenant_id::text, ', ') INTO v_falta FROM (SELECT l.tenant_id, max(l.numero) AS maior FROM public.orcamentista_levantamento l GROUP BY 1) l
