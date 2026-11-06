@@ -12,8 +12,11 @@
  *     largura e altura centradas na célula nos dois eixos.
  *   - FAIXA DO ITEM: o desenho da tipologia na PROPORÇÃO REAL de largura × altura, o código, o nome da tipologia e a linha. Toda célula de item tem a
  *     MESMA altura (`ALTURA_DA_FAIXA`), qualquer que seja a tipologia.
- *   - LINHAS POR ITEM, nesta ordem: VARIÁVEIS (só com variável sem padrão respondida: "descrição + valor", separados por " · "); PERFIL /
- *     ACESSÓRIO + VIDRO (uma linha, duas células: o respiro sob a figura fica fora da divisão, e o que resta é 50% para cada); AMBIENTES; OBS.
+ *   - LINHAS POR ITEM, nesta ordem: VARIÁVEIS (só com variável sem padrão respondida: "descrição + valor", separados por " · "); a linha de
+ *     duas células (o respiro sob a figura fica fora da divisão, e o que resta é 50% para cada) — "PERFIL / ACESSÓRIO:" com "<cor do perfil> /
+ *     <cor do acessório>" ("padrão" no lugar da cor do acessório não dita: "Branco / padrão") e "VIDRO:" com o vidro como o vendedor disse
+ *     (rótulos do mockup aprovado campo a campo, dono do produto, 06/11/2026; o arremate e a guarnição NÃO entram aqui: são comuns à obra e saem
+ *     no fecho); AMBIENTES; OBS.
  *   - NUNCA ENTRAM: perfil como material, acessório, barra, peso, corte, nem valor em reais de espécie alguma. A folha não recebe nenhum desses
  *     dados (o contrato `DadosDaFolha` não tem campo para eles), e a conferência recusa texto com símbolo de dinheiro (`SIMBOLO_DE_DINHEIRO`).
  *   - FECHO: pré-definições consideradas (só o que foi informado, corpo reduzido, sem negrito); condições comerciais — vendedor + comissão % + modo
@@ -59,10 +62,10 @@ export type ItemDaFolha = {
     largura_mm: number
     altura_mm: number
     variaveis: readonly VariavelDita[]
-    /** O texto da célula PERFIL (a cor do perfil e o arremate, por extenso). Nulo = a célula sai em branco. */
-    perfil: string | null
-    /** O texto da célula ACESSÓRIO + VIDRO. Nulo = a célula sai em branco. */
-    acessorioEVidro: string | null
+    /** A célula "PERFIL / ACESSÓRIO:": "<cor do perfil> / <cor do acessório>", com "padrão" no lugar da cor do acessório não dita. Nulo = em branco. */
+    perfilEAcessorio: string | null
+    /** A célula "VIDRO:": o vidro como o vendedor disse. Nulo = em branco. */
+    vidro: string | null
     /** Nulo = não informados: a linha AMBIENTES sai em branco (nunca um ambiente padrão). */
     ambientes: readonly AmbienteDaFolha[] | null
     obs: string | null
@@ -206,8 +209,8 @@ function textosDaFolha(d: DadosDaFolha): Array<[string, string | null]> {
     ]
     for (const i of d.itens) {
         const n = nomeDoItem(i)
-        textos.push([`${n}, a tipologia`, i.tipologia], [`${n}, a descrição`, i.descricao], [`${n}, a linha`, i.linha], [`${n}, o perfil`, i.perfil],
-            [`${n}, o acessório e vidro`, i.acessorioEVidro], [`${n}, a obs`, i.obs], ...(i.ambientes ?? []).map((a): [string, string] => [`${n}, o ambiente`, a.ambiente]),
+        textos.push([`${n}, a tipologia`, i.tipologia], [`${n}, a descrição`, i.descricao], [`${n}, a linha`, i.linha], [`${n}, o perfil e acessório`, i.perfilEAcessorio],
+            [`${n}, o vidro`, i.vidro], [`${n}, a obs`, i.obs], ...(i.ambientes ?? []).map((a): [string, string] => [`${n}, o ambiente`, a.ambiente]),
             ...i.variaveis.map((v): [string, string] => [`${n}, a variável`, v.descricao]))
     }
     return textos
@@ -374,12 +377,16 @@ function alturaDaCelula(doc: Doc, texto: string, largura: number, corpo = CORPO)
 
 const LARGURA_DAS_LINHAS = CONTEUDO - COLUNAS.fig
 
+/** Os rótulos da linha de duas células, exatamente os do mockup aprovado (dono do produto, 06/11/2026). */
+export const ROTULO_DO_PERFIL = 'PERFIL / ACESSÓRIO:'
+export const ROTULO_DO_VIDRO = 'VIDRO:'
+
 /** As linhas de um item, na ordem da especificação. A VARIÁVEIS só existe com variável sem padrão respondida. */
 function linhasDoItem(i: ItemDaFolha): Array<{ tipo: 'uma'; rotulo: string; texto: string } | { tipo: 'duas'; esquerda: [string, string]; direita: [string, string] }> {
     const variaveis = linhaDasVariaveis(i)
     return [
         ...(variaveis !== null ? [{ tipo: 'uma' as const, rotulo: 'VARIÁVEIS', texto: variaveis }] : []),
-        { tipo: 'duas' as const, esquerda: ['PERFIL', i.perfil ?? ''], direita: ['ACESSÓRIO + VIDRO', i.acessorioEVidro ?? ''] },
+        { tipo: 'duas' as const, esquerda: [ROTULO_DO_PERFIL, i.perfilEAcessorio ?? ''], direita: [ROTULO_DO_VIDRO, i.vidro ?? ''] },
         { tipo: 'uma' as const, rotulo: 'AMBIENTES', texto: linhaDosAmbientes(i) },
         { tipo: 'uma' as const, rotulo: 'OBS', texto: i.obs ?? '' },
     ]

@@ -25,7 +25,7 @@ const dita = (variavel: string, descricao: string, valor: number, semPadrao = tr
 const descricaoDe = (t: string) => (DESCRICOES as Array<[string, string]>).find(([c]) => c === t)![1]
 const item = (o: Partial<ItemDaFolha> = {}): ItemDaFolha => ({
     ordem: 1, tipologia: 'DP-02', descricao: descricaoDe('DP-02'), linha: 'PVC WOLFF EUROPA 42', quantidade: 1, largura_mm: 1500, altura_mm: 1200,
-    variaveis: [], perfil: 'Cor do perfil: branco', acessorioEVidro: 'Vidro: 4 mm', ambientes: null, obs: null, ...o,
+    variaveis: [], perfilEAcessorio: 'Branco / padrão', vidro: '4 mm', ambientes: null, obs: null, ...o,
 })
 const dados = (o: Partial<DadosDaFolha> = {}): DadosDaFolha => ({ ...FOLHA_DE_EXEMPLO, ...o })
 /** O texto do PDF (jsPDF sem compressão escreve o texto em Latin-1 nos fluxos de conteúdo). */
@@ -300,9 +300,11 @@ describe('(IV) o que a folha escreve', () => {
         expect(t).toContain('(Modo: proporcional)')
         expect(t).toContain('(Arq. Paula Exemplo)')
         expect(t).toContain('(27/11/26)')
-        // as linhas do item 2: VARIÁVEIS → PERFIL / ACESSÓRIO + VIDRO → AMBIENTES → OBS
+        // as linhas do item 2: VARIÁVEIS → PERFIL / ACESSÓRIO: | VIDRO: → AMBIENTES → OBS — os rótulos exatos do mockup aprovado
         const i2 = t.indexOf('(Item 2 · DP-04)')
-        const ordem = ['(VARIÁVEIS)', '(PERFIL)', '(ACESSÓRIO + VIDRO)', '(AMBIENTES)', '(OBS)'].map((r2) => t.indexOf(r2, i2))
+        const ordem = ['(VARIÁVEIS)', '(PERFIL / ACESSÓRIO:)', '(VIDRO:)', '(AMBIENTES)', '(OBS)'].map((r2) => t.indexOf(r2, i2))
+        expect(t).toContain('(Branco / padrão)')
+        expect(t).not.toContain('Arremate e guarnição: padrão)')
         expect(ordem.every((p) => p > i2)).toBe(true)
         expect([...ordem].sort((a, b) => a - b)).toEqual(ordem)
         // o item 1 (DP-02) não tem variável sem padrão: entre ele e o item 2 não há VARIÁVEIS
