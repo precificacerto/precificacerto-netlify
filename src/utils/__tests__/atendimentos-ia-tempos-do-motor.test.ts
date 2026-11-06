@@ -229,7 +229,7 @@ async function arquivoDoMotor(detalheComTempos: Array<Celulas | null>): Promise<
     return new Uint8Array(await wb.xlsx.writeBuffer())
 }
 type Lido = Extract<ResultadoDoMotor, { ok: true }>
-const erroDe = (r: { ok: boolean }) => (r.ok === false ? (r as { erro: string }).erro : '')
+const erroDe = (r: { ok: boolean }) => (r.ok === false ? (r as unknown as { erro: string }).erro : '')
 
 describe('(5) pelo leitor do motor, pelo payload e pela conferência', () => {
     it('o leitor do motor devolve os tempos, e o payload os leva em `tempos`', async () => {
