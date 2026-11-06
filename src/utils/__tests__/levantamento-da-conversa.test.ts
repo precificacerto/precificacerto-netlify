@@ -181,6 +181,9 @@ const TEXTO_QUE_FECHA = [
     'O que este preço cobre: os perfis (o baguete incluído), pela tabela do fornecedor, e a mão de obra. NÃO cobre o vidro nem os insumos e acessórios (ferragens, escovas, calços e outros): eles ainda não estão na base.',
 ].join('\n')
 
+/** O texto e o desfecho, exatos; o resumo do cálculo para o log (06/11/2026) é conferido nos testes dele. */
+const semEtapa = (r: { texto: string; desfecho: string; etapa?: unknown }) => ({ texto: r.texto, desfecho: r.desfecho })
+
 describe('(1) a família da conta, o motor dela e as tipologias candidatas (PR D, dono do produto, 02/11/2026)', () => {
     /** A família da conta como produção a tem hoje: 1 família (PVC), as etapas 1 e 2 apontando o Motor_Wolf_PVC. */
     const WOLF = { id: MOTOR, nome: 'Motor_Wolf_PVC' }
@@ -463,7 +466,7 @@ describe('(1) a família da conta, o motor dela e as tipologias candidatas (PR D
         comOutraFamilia()
         const t = await M().lerFamiliasDaEmpresa(TENANT)
         const r = await M().mensagemDoLevantamento(TENANT, t, lev({ escolhas: { ARI: 4, ARE: 1, MAE: 2 }, familia: 'PVC' }))
-        expect(r).toEqual({ desfecho: 'levantou', texto: TEXTO_QUE_FECHA })
+        expect(semEtapa(r)).toEqual({ desfecho: 'levantou', texto: TEXTO_QUE_FECHA })
     })
 
     it('a tipologia que nenhum motor tem: recusa nomeada', async () => {
@@ -656,7 +659,7 @@ describe('(1p) a De Paula como produção está: o motor da família, e os códi
             ['PVC', MOTOR, MOTOR, ['21acfa75-e4e7-4de6-9b96-cdd95525467d', '5f7acebf-3c91-46de-af00-57a47f8be288']],
         ])
         const r = await M().mensagemDoLevantamento(TENANT, t, lev({ escolhas: { ARI: 4, ARE: 1, MAE: 2 } }))
-        expect(r).toEqual({
+        expect(semEtapa(r)).toEqual({
             desfecho: 'recusou',
             texto: [
                 'Não consegui fechar o levantamento “Casa do João”, perfil BRANCO.',
@@ -668,6 +671,8 @@ describe('(1p) a De Paula como produção está: o motor da família, e os códi
                 '• O código 8433 (perfil 8433/WOLFF) não está na tabela de preço. Falta: o item 8433, com a barra e o valor.',
             ].join('\n'),
         })
+        // o resumo para o log (06/11/2026): os três códigos sem preço, cada um com a esquadria e o motivo
+        expect(r.etapa?.faltou).toEqual(['e1:ITEM_AUSENTE:1023', 'e1:ITEM_AUSENTE:8432', 'e1:ITEM_AUSENTE:8433'])
         // o contraste: com os três na tabela de preço da família, a mesma esquadria fecha
         banco.db.orcamentista_tabela_item.push(...DE_PARA.itens.filter((i) => ['1023', '8432', '8433'].includes(String(i.codigo))).map((i) => ({ ...i, tabela_id: '5f7acebf-3c91-46de-af00-57a47f8be288' })))
         expect((await M().mensagemDoLevantamento(TENANT, t, lev({ escolhas: { ARI: 4, ARE: 1, MAE: 2 } }))).desfecho).toBe('levantou')
@@ -782,7 +787,7 @@ describe('(5b) as ESCOLHAS gravadas chegam ao avaliador', () => {
     it('com ARI 4, ARE 1 e MAE 2 gravados, a DP-02 FECHA — e o texto é o da conta à mão, com as escolhas', async () => {
         const t = await M().lerFamiliasDaEmpresa(TENANT)
         const r = await M().mensagemDoLevantamento(TENANT, t, lev({ escolhas: { ARI: 4, ARE: 1, MAE: 2 } }))
-        expect(r).toEqual({ desfecho: 'levantou', texto: TEXTO_QUE_FECHA })
+        expect(semEtapa(r)).toEqual({ desfecho: 'levantou', texto: TEXTO_QUE_FECHA })
     })
 
     it('SEM escolhas, o PADRÃO fecha (decisões do dono do produto, 25/10/2026): MAE 1 = 0 mm, e o BZ0012 pela variante única', async () => {
@@ -829,7 +834,7 @@ describe('(6) a RECUSA chega como texto, inteira e nomeada', () => {
     it('OUTRO DP: "a tipologia DP-01 não tem as abas do motor importadas"', async () => {
         const t = await M().lerFamiliasDaEmpresa(TENANT)
         const r = await M().mensagemDoLevantamento(TENANT, t, lev({ tipologia: 'DP-01' }))
-        expect(r).toEqual({
+        expect(semEtapa(r)).toEqual({
             desfecho: 'recusou',
             // sem as abas não há variável conhecida: a linha das escolhas não aparece
             texto: 'Não consegui fechar o levantamento “Casa do João”, perfil BRANCO.\nEsquadria 1: DP-01, 1.200 x 1.000 mm, 1 unidade(s).\nFalta:\n'
@@ -916,7 +921,7 @@ describe('(8) a COR é a da pré-definição, comparada exata com a coluna cor d
     it('em BRANCO, a DP-02 fecha — e o cabeçalho diz BRANCO', async () => {
         const t = await M().lerFamiliasDaEmpresa(TENANT)
         const r = await M().mensagemDoLevantamento(TENANT, t, lev({ escolhas: { ARI: 4, ARE: 1, MAE: 2 } }))
-        expect(r).toEqual({ desfecho: 'levantou', texto: TEXTO_QUE_FECHA })
+        expect(semEtapa(r)).toEqual({ desfecho: 'levantou', texto: TEXTO_QUE_FECHA })
     })
 
     it('em PRETO TEXTURADO, a mesma esquadria é RECUSADA nomeando o perfil e a cor — nenhuma cor parecida entra', async () => {
@@ -939,6 +944,17 @@ describe('(8) a COR é a da pré-definição, comparada exata com a coluna cor d
         const r = await M().mensagemDoLevantamento(TENANT, t, lev({ cor_perfil: null, escolhas: { ARI: 4, ARE: 1, MAE: 2 } }))
         expect(r.desfecho).toBe('recusou')
         expect(r.texto).toContain('• A esquadria 1 está sem a cor do perfil.')
+        // o resumo para o log (06/11/2026): o código da falta, e nada cortado
+        expect(r.etapa).toEqual({ esquadrias: 1, pecas: null, barras: null, codigos: null, semPreco: null, maoDeObra: null, faltou: ['e1:SEM_COR'] })
+    })
+
+    it('O RESUMO DO CÁLCULO para o log por etapa (06/11/2026): o que fecha conta peças, barras, códigos e a mão de obra; nunca um valor em reais', async () => {
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
+        const r = await M().mensagemDoLevantamento(TENANT, t, lev({ cor_perfil: 'BRANCO', escolhas: { ARI: 4, ARE: 1, MAE: 2 } }))
+        expect(r.desfecho).toBe('levantou')
+        expect(r.etapa).toEqual({ esquadrias: 1, pecas: 40, barras: 9, codigos: 8, semPreco: 0, maoDeObra: 'ok', faltou: [] })
+        // só contagens e códigos: nenhum número do resumo é dinheiro
+        expect(JSON.stringify(r.etapa)).not.toMatch(/R\$|,\d{2}\b/)
     })
 
     it('as cores da empresa vêm da base de conhecimento (Perfil), juntas e sem repetição, na ordem em que aparecem', async () => {
@@ -1029,7 +1045,7 @@ describe('(10) as abas vêm do BANCO: a Fórmulas da tipologia é a fonte, a da 
         hfol.formula = `${String(hfol.formula)}-100`
         const depois = await levantar()
         const consumo = (x: string) => x.split('\n').find((l) => l.startsWith('Perfis por consumo real:'))
-        expect(antes).toEqual({ desfecho: 'levantou', texto: TEXTO_QUE_FECHA })
+        expect(semEtapa(antes)).toEqual({ desfecho: 'levantou', texto: TEXTO_QUE_FECHA })
         expect(depois.desfecho).toBe('levantou')
         expect(consumo(depois.texto)).not.toBe(consumo(antes.texto))
     })
@@ -1041,7 +1057,7 @@ describe('(10) as abas vêm do BANCO: a Fórmulas da tipologia é a fonte, a da 
         banco.db.orcamentista_motor_formula_familia = [...outraLinha, ...outraTabela, ...comoDaLinha('EUROPA 42')]
         semDaDP02('orcamentista_motor_formula')
         const r = await levantar()
-        expect(r).toEqual({ desfecho: 'levantou', texto: `${TEXTO_QUE_FECHA}\n\n${M().fraseDasFormulasDaLinha('DP-02', 'EUROPA 42')}` })
+        expect(semEtapa(r)).toEqual({ desfecho: 'levantou', texto: `${TEXTO_QUE_FECHA}\n\n${M().fraseDasFormulasDaLinha('DP-02', 'EUROPA 42')}` })
         expect(M().fraseDasFormulasDaLinha('DP-02', 'EUROPA 42')).toBe(
             'Atenção: as fórmulas da DP-02 são as da LINHA EUROPA 42 (fallback) — a tipologia não tem fórmulas próprias na aba "Fórmulas" do arquivo do fornecedor.')
     })
@@ -1049,7 +1065,7 @@ describe('(10) as abas vêm do BANCO: a Fórmulas da tipologia é a fonte, a da 
     it('COM fórmulas próprias, as da linha NÃO são lidas nem citadas — mesmo que existam', async () => {
         banco.db.orcamentista_motor_formula_familia = comoDaLinha('EUROPA 42').map((l) => ({ ...l, formula: '(L+5000)' }))
         const r = await levantar()
-        expect(r).toEqual({ desfecho: 'levantou', texto: TEXTO_QUE_FECHA })
+        expect(semEtapa(r)).toEqual({ desfecho: 'levantou', texto: TEXTO_QUE_FECHA })
     })
 
     it('a recusa também carrega o rótulo: o vendedor sabe que a conta recusada foi a das fórmulas da linha', async () => {

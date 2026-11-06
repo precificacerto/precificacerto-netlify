@@ -665,7 +665,28 @@ const semPrefixoDaEsquadria = (m: string) => m.replace(/^Esquadrias? [\d, e]+(?:
 const maiuscula = (t: string) => t.charAt(0).toUpperCase() + t.slice(1)
 
 // ── O levantamento ──────────────────────────────────────────────────────────────────────────
-export type LevantamentoDaConversa = { texto: string; desfecho: 'levantou' | 'recusou' }
+export type LevantamentoDaConversa = { texto: string; desfecho: 'levantou' | 'recusou'; etapa?: ResumoDoCalculo }
+
+/**
+ * O RESUMO DO CÁLCULO para o log por etapa (dono do produto, 06/11/2026: "cada etapa do atendimento tem de dizer, no log, o que recebeu, o
+ * que fez e o que faltou"). SÓ LOG: não muda o texto, o desfecho nem o preço. Contagens e CÓDIGOS — a esquadria (`e1`), o motivo
+ * (`VARIAVEL_SEM_VALOR`), a variável ou o código de onde ele nasceu —, nunca valor em reais, nunca texto do vendedor.
+ */
+export type ResumoDoCalculo = {
+    esquadrias: number
+    /** Peças cortadas (soma das quantidades), barras compradas e códigos distintos — nulos quando o cálculo não chegou a otimizar. */
+    pecas: number | null
+    barras: number | null
+    codigos: number | null
+    /** Códigos sem um dos valores da tabela de preço (o total afetado não sai). */
+    semPreco: number | null
+    maoDeObra: 'ok' | 'falta' | 'sem_calculo' | null
+    faltou: string[]
+}
+
+/** O que faltou, em código: `e<n>:<MOTIVO>[:<variável ou código>]`, `configuracao`, `serra`… */
+const codigoDaRecusa = (r: { motivo: string; variavel?: string; codigo?: string; perfil?: string }, esquadrias: readonly number[]) =>
+    [esquadrias.length ? esquadrias.map((n) => `e${n}`).join('+') : null, r.motivo, r.variavel ?? r.codigo ?? r.perfil ?? null].filter((x) => x !== null).join(':')
 
 /** Uma esquadria como o levantamento a guarda (`orcamentista_levantamento_item`). */
 export type EsquadriaGravada = { ordem?: unknown; tipologia: unknown; largura_mm: unknown; altura_mm: unknown; quantidade: unknown; cor_perfil: unknown; vidro: unknown; escolhas: unknown; familia: unknown }
@@ -702,11 +723,14 @@ export async function mensagemDoLevantamento(
             numero: i + 1, tipologia: String(e.tipologia), largura_mm: Number(e.largura_mm), altura_mm: Number(e.altura_mm), quantidade: Number(e.quantidade), escolhas: null as string | null,
         })),
     }
-    const recusa = (faltas: string[]): LevantamentoDaConversa => ({ texto: fraseDaRecusa(d, faltas), desfecho: 'recusou' })
-    if ('frase' in fonte) return recusa([maiuscula(fonte.frase.replace(/^Ainda não consigo escolher a tipologia: /, ''))])
+    const resumo = (faltou: string[], fechado: Partial<ResumoDoCalculo> = {}): ResumoDoCalculo =>
+        ({ esquadrias: lev.itens.length, pecas: null, barras: null, codigos: null, semPreco: null, maoDeObra: null, faltou, ...fechado })
+    const recusa = (faltas: string[], faltou: string[]): LevantamentoDaConversa => ({ texto: fraseDaRecusa(d, faltas), desfecho: 'recusou', etapa: resumo(faltou) })
+    if ('frase' in fonte) return recusa([maiuscula(fonte.frase.replace(/^Ainda não consigo escolher a tipologia: /, ''))], ['configuracao'])
 
     const faltas: string[] = []
-    lev.itens.forEach((e, i) => { if (corDe(e) === null) faltas.push(`A esquadria ${i + 1} está sem a cor do perfil.`) })
+    const faltou: string[] = []
+    lev.itens.forEach((e, i) => { if (corDe(e) === null) { faltas.push(`A esquadria ${i + 1} está sem a cor do perfil.`); faltou.push(`e${i + 1}:SEM_COR`) } })
 
     // a família de cada esquadria (PR D): a guardada, ou a única cujo motor tem o código; com o código em mais de uma sem a dita,
     // ou em nenhuma, é recusa nomeada
@@ -714,10 +738,10 @@ export async function mensagemDoLevantamento(
     const familiaDe = lev.itens.map((e) => familiaDaEsquadria(
         { tipologia: typeof e.tipologia === 'string' ? e.tipologia : null, familia: typeof e.familia === 'string' ? e.familia : null }, doCodigo))
     familiaDe.forEach((f, i) => {
-        if (f === null) faltas.push(fraseDaTipologiaForaDosMotores(i + 1, d.esquadrias[i].tipologia))
-        else if ('opcoes' in f) faltas.push(fraseDaTipologiaSemFamilia(i + 1, d.esquadrias[i].tipologia, rotulosDasOpcoes(f.opcoes)))
+        if (f === null) { faltas.push(fraseDaTipologiaForaDosMotores(i + 1, d.esquadrias[i].tipologia)); faltou.push(`e${i + 1}:FORA_DOS_MOTORES:${d.esquadrias[i].tipologia}`) }
+        else if ('opcoes' in f) { faltas.push(fraseDaTipologiaSemFamilia(i + 1, d.esquadrias[i].tipologia, rotulosDasOpcoes(f.opcoes))); faltou.push(`e${i + 1}:SEM_FAMILIA:${d.esquadrias[i].tipologia}`) }
     })
-    if (faltas.length) return recusa(faltas)
+    if (faltas.length) return recusa(faltas, faltou)
 
     // os grupos: uma família por grupo, na ordem da primeira esquadria de cada um
     const grupos: Array<{ familia: FamiliaLigada; indices: number[] }> = []
@@ -738,12 +762,24 @@ export async function mensagemDoLevantamento(
     const rotulado = (r: LevantamentoDaConversa): LevantamentoDaConversa => (rotulos.length ? { ...r, texto: `${r.texto}\n\n${rotulos.join('\n')}` } : r)
     const nomeDaFamilia = (f: FamiliaLigada) => `Família ${f.rotulo} — ${f.fornecedor}`
     const recusadas = calculos.flatMap((c, k) => ('faltas' in c ? c.faltas.map((x) => (varias ? `${nomeDaFamilia(grupos[k].familia)}: ${x}` : x)) : []))
-    if (recusadas.length) return rotulado(recusa(recusadas))
+    if (recusadas.length) return rotulado(recusa(recusadas, calculos.flatMap((c) => ('faltas' in c ? c.codigos : []))))
 
     const fechados = calculos as Array<Exclude<CalculoDaFamilia, { faltas: unknown }>>
+    // o resumo para o log: o que foi cortado, comprado e o que ficou sem preço ou sem mão de obra — nunca o valor
+    const calculados = fechados.filter((c): c is Extract<CalculoDaFamilia, { r: unknown }> => 'r' in c)
+    const soma = (f: (c: (typeof calculados)[number]) => number) => (calculados.length ? calculados.reduce((t, c) => t + f(c), 0) : null)
+    const semPreco = calculados.flatMap((c) => [...new Set(c.r.falta_para_o_total.map((x) => x.codigo))])
+    const semMao = calculados.flatMap((c) => c.maos.flatMap((m, k) => ('falta' in m ? [`e${c.d.esquadrias[k].numero}:SEM_MAO_DE_OBRA:${c.d.esquadrias[k].tipologia}`] : [])))
+    const etapa = resumo([...semPreco.map((x) => `SEM_PRECO:${x}`), ...semMao], {
+        pecas: soma((c) => c.r.esquadrias.reduce((t, e) => t + e.pecas.reduce((u, p) => u + p.quantidade, 0), 0)),
+        barras: soma((c) => c.r.total.n_barras),
+        codigos: soma((c) => c.r.por_codigo.length),
+        semPreco: calculados.length ? semPreco.length : null,
+        maoDeObra: calculados.length === 0 ? 'sem_calculo' : semMao.length ? 'falta' : 'ok',
+    })
     const textoDe = (c: (typeof fechados)[number], bloco: { titulo: string; cobertura: false; numerar: true } | null) =>
         ('semCalculo' in c ? fraseDoLevantamentoSemCalculo(c.d, bloco) : fraseDoLevantamento(c.d, c.r, c.maos, bloco))
-    if (!varias) return rotulado({ texto: textoDe(fechados[0], null), desfecho: 'levantou' })
+    if (!varias) return rotulado({ texto: textoDe(fechados[0], null), desfecho: 'levantou', etapa })
     const blocos = fechados.map((c, k) => textoDe(c, { titulo: `${nomeDaFamilia(grupos[k].familia)}, perfil ${c.d.cor}`, cobertura: false, numerar: true }))
     // "o que o preço cobre" só quando alguma família calculou: sem preço nenhum na mensagem, não há o que cobrir
     const algumaCalculou = fechados.some((c) => !('semCalculo' in c))
@@ -751,13 +787,13 @@ export async function mensagemDoLevantamento(
         `Levantamento “${lev.nome}”: ${grupos.length} famílias, cada uma calculada com o motor e as tabelas de preço dela — as barras de uma não entram na otimização da outra.`,
         '', blocos.join('\n\n'), ...(algumaCalculou ? ['', O_QUE_O_PRECO_COBRE] : []),
     ].join('\n')
-    return rotulado({ texto, desfecho: 'levantou' })
+    return rotulado({ texto, desfecho: 'levantou', etapa })
 }
 
 type CalculoDaFamilia =
     | { d: DadosDoLevantamento; r: Extract<ResultadoDoLevantamento, { ok: true }>; maos: MaoDeObra[]; rotulos: string[] }
     | { semCalculo: true; d: DadosDoLevantamento; rotulos: string[] }
-    | { faltas: string[]; rotulos: string[] }
+    | { faltas: string[]; rotulos: string[]; codigos: string[] }
 
 /** As esquadrias de um grupo (uma família) como o bloco da mensagem as recebe: as MESMAS de `d`, com a cor do grupo. */
 function dadosDoGrupo(lev: { nome: string; itens: EsquadriaGravada[] }, d: DadosDoLevantamento, indices: number[]): { dg: DadosDoLevantamento; itensDoGrupo: EsquadriaGravada[]; cores: string[] } {
@@ -786,9 +822,11 @@ async function calcularFamilia(
     const { dg, itensDoGrupo, cores } = dadosDoGrupo(lev, d, indices)
     const corDe = (e: EsquadriaGravada) => (typeof e.cor_perfil === 'string' && e.cor_perfil !== '' ? e.cor_perfil : null)
     const faltas: string[] = []
+    const codigos: string[] = []
     if (cores.length > 1) {
         const porEsquadria = dg.esquadrias.map((e, k) => `esquadria ${e.numero}: ${corDe(itensDoGrupo[k])}`).join('; ')
         faltas.push(`As esquadrias têm cores diferentes (${porEsquadria}): ainda não calculo um levantamento com cores misturadas.`)
+        codigos.push('CORES_DIFERENTES')
     }
 
     // as abas de cada tipologia, uma vez por tipologia; as escolhas descritas, uma vez por esquadria
@@ -796,12 +834,13 @@ async function calcularFamilia(
     const lidas = doBanco.lidas
     const rotulos = doBanco.rotulos
     faltas.push(...doBanco.faltas)
+    if (doBanco.faltas.length) codigos.push(`ABAS_DO_MOTOR:${doBanco.faltas.length}`)
     const escolhas = itensDoGrupo.map((e) => lerEscolhasGravadas(e.escolhas))
     dg.esquadrias.forEach((e, k) => { if (lidas[e.tipologia]) e.escolhas = descreverArremate(lidas[e.tipologia], escolhas[k]) })
-    if (faltas.length) return { faltas, rotulos }
+    if (faltas.length) return { faltas, rotulos, codigos }
 
     const serra = await lerSerra(tenantId)
-    if ('frase' in serra) return { faltas: [maiuscula(serra.frase)], rotulos }
+    if ('frase' in serra) return { faltas: [maiuscula(serra.frase)], rotulos, codigos: ['SERRA'] }
     // a mesma linha do motor pode servir a duas tipologias: o de-para entra uma vez só
     const porTrio = new Map<string, RegraDoDePara>()
     for (const t of Object.keys(lidas)) {
@@ -832,7 +871,10 @@ async function calcularFamilia(
         const numeros = dg.esquadrias.map((e) => e.numero)
         const comNumero = (m: string) => (d.esquadrias.length === 1 ? semPrefixoDaEsquadria(m)
             : dg.esquadrias.length === 1 ? `Esquadria ${numeros[0]}: ${semPrefixoDaEsquadria(m)}` : renumerar(m, numeros))
-        return { faltas: r.recusas.map((x) => maiuscula(traduzir(comNumero(x.mensagem)))), rotulos }
+        return {
+            faltas: r.recusas.map((x) => maiuscula(traduzir(comNumero(x.mensagem)))), rotulos,
+            codigos: r.recusas.map((x) => codigoDaRecusa(x, x.esquadrias.map((k) => numeros[k - 1] ?? k))),
+        }
     }
     const maos: MaoDeObra[] = []
     for (const e of dg.esquadrias) maos.push(await lerMaoDeObra(tenantId, motorId, e.tipologia, e.quantidade))
