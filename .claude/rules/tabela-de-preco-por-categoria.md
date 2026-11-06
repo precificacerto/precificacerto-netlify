@@ -1757,7 +1757,7 @@ Formulação do dono do produto, registrada como está:
     trouxeram; `faltou` é o que ainda não foi dito, por esquadria (a quantidade não dita é 1 e não conta). Com a IA falhando: `ia=<desfecho> faltou=ia`.
   - `[ETAPA 2 casar] lista= trechos= propostos= descartados= escolhidas=e1:DP-39,… padrao=e1:DP-39 recusadas=e1:ABERTURA:DP-100 sem_tipologia=` —
     o casamento com o catálogo e o motor: o que valeu, o que o CÓDIGO pôs pelo padrão e o que ele descartou.
-  - `[ETAPA 3 montar] rota= esquadrias= agrupadas= pendencias= gravadas= estado= faltou=e1:cor,e2:escolha:ARI,e3:familia` — a mesma lista de
+  - `[ETAPA 3 montar] rota= esquadrias= agrupadas= caminhos=e1:GRAVADA_NOVA,… pendencias= gravadas= estado= faltou=e1:cor,e2:escolha:ARI,e3:familia` — a mesma lista de
     pendências que a pergunta cobre, e o que se gravou.
   - `[ETAPA 4 calcular] esquadrias= pecas= barras= codigos= sem_preco= mao_de_obra=ok|falta|sem_calculo desfecho= faltou=e1:VARIAVEL_SEM_VALOR:AT,SEM_PRECO:1023,…`
     — o resumo que `mensagemDoLevantamento` passa a devolver em `etapa` (`ResumoDoCalculo`): peças pela quantidade cortada, barras compradas, códigos
@@ -1805,3 +1805,34 @@ específica"). Formulação do dono do produto, registrada como está:
 - **Prova:** `scripts/harness/tempo-no-arquivo-do-motor/` (a base de `nome-do-motor-e-arquivar`, a migração duas vezes, 11 casos, 5 guardas, o
   contraste dos corpos em CRLF; `mutacoes.py` e `mutacoes-codigo.py`); `atendimentos-ia-tempos-do-motor.test.ts`, o bloco (9) das rotas e os portões
   de `atendimentos-ia-catalogo-de-motores.test.ts`, que passaram a ler a última migração que escreve a função.
+
+## A quantidade dita SUBSTITUI, nunca soma; e o vidro com o rótulo uma vez — dono do produto, 06/11/2026 (sem migração)
+
+**O caso medido (06/11/2026, 12:53 UTC, De Paula):** a mensagem "quero orçamento / 1 Porta janelas de correr 2 folhas com vidro comum 6 mm incolor
+2,50 x 2,20 / 1 janela maxim ar, mini boreal 60 x60 / Cliente: Maria Cristina" foi reenviada inteira ao levantamento "Maria Cristina", que já tinha
+DP-39 ×1 e DP-01 ×1. A linha `[IA]` disse `rota=ALTERACAO propostos=12 agrupados=2`: as duas esquadrias entraram de novo e o agrupamento as SOMOU
+às gravadas — o apanhado saiu "2 unidade(s)" nas duas. E saiu "vidro vidro comum 6 mm incolor": o rótulo na frente de um valor que já o traz.
+
+Formulação do dono do produto, registrada como está:
+
+> "Mesma esquadria, quantidade dita. A quantidade dita SUBSTITUI, nunca soma. Para acrescentar mais uma igual, o vendedor diz o total ("2 portas").
+> Não reconheça "mais" nem nenhuma outra palavra para decidir somar." E: "registre no log, por esquadria, qual foi o caminho: GRAVADA_NOVA,
+> SUBSTITUIU_QUANTIDADE ou IGNORADA_IGUAL. O log atual só disse "agrupados=2", que é o que escondeu a causa." E, à pergunta: "Manter o 1" — a
+> quantidade não dita continua sendo 1 (03/11/2026).
+
+- **`agruparIguais(itens, origem)`** recebe quais esquadrias já estavam GRAVADAS e quais levam o 1 do padrão (`aplicarProposta` devolve
+  `quantidadesPadrao`). A esquadria da mensagem igual a uma gravada (os mesmos critérios do agrupamento, o vidro pela forma canônica) é ela mesma:
+  com outra quantidade DITA, a dita fica no lugar (`SUBSTITUIU_QUANTIDADE`); com a mesma, ou sem quantidade dita, nada muda (`IGNORADA_IGUAL`). A
+  diferente é `GRAVADA_NOVA`. Duas linhas iguais da MESMA mensagem continuam somando (03/11/2026) — `SOMADA_NA_MENSAGEM` —, e o total delas é o que
+  substitui a gravada. Duas gravadas que ficam iguais (uma alteração por número) somam, como antes. O reenvio idêntico, portanto, não muda nada,
+  quantas vezes vier, e a resposta segue como se a mensagem tivesse vindo uma vez (não "não apliquei").
+- **Vale também para o acréscimo confirmado** (a esquadria retida que entra num levantamento existente): igual a uma gravada, substitui — nenhuma
+  palavra, nem o "sim", decide somar.
+- **O log:** `caminhos=e<ordem final>:<CAMINHO>,…` na linha `[IA]` e na `[ETAPA 3 montar]`.
+- **O vidro** (`vidroNoApanhado`, `apanhado.ts`): o valor gravado que já começa por "vidro" ou "vidros" (sem caixa nem acento) vai como está; o que não
+  começa ganha "vidro " na frente. O gravado continua o que o vendedor escreveu (04/11/2026). O teste de 04/11 que afirmava "vidro vidro 4 mm" fixava
+  o defeito, e foi corrigido.
+- **A regra das retidas (04/11/2026) não muda:** `juntarEsquadrias` e o bloco (29) passam como estavam.
+- **Prova:** bloco (40) de `atendimentos-ia-levantamento-por-nome.test.ts` (a mensagem exata reenviada; o reenvio N vezes; "2 portas" depois de "1
+  porta"; a nova; o vidro), vermelho com o código de antes; o agrupamento contra a gravada em `tipologias-candidatas.test.ts`; o vidro em
+  `apanhado.test.ts`; mutações em `scripts/harness/levantamento-por-nome/mutacoes-reenvio.py` (20 de 20 mortas).
