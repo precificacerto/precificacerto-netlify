@@ -835,7 +835,8 @@ async function calcularFamilia(
     const rotulos = doBanco.rotulos
     faltas.push(...doBanco.faltas)
     if (doBanco.faltas.length) codigos.push(`ABAS_DO_MOTOR:${doBanco.faltas.length}`)
-    const escolhas = itensDoGrupo.map((e) => lerEscolhasGravadas(e.escolhas))
+    // os valores das variáveis sem padrão (06/11/2026) chegam ao avaliador pela tipologia: sem ela, só as capturadas
+    const escolhas = itensDoGrupo.map((e, k) => lerEscolhasGravadas(e.escolhas, lidas[dg.esquadrias[k].tipologia] ?? null))
     dg.esquadrias.forEach((e, k) => { if (lidas[e.tipologia]) e.escolhas = descreverArremate(lidas[e.tipologia], escolhas[k]) })
     if (faltas.length) return { faltas, rotulos, codigos }
 

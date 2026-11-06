@@ -34,7 +34,10 @@
  */
 import { NADA_DITO, PERGUNTA_DO_CAMPO, perguntasDaTipologia, valorValido, type JaDito } from '@/lib/atendimentos-ia/pre-definicao'
 import { formaCanonicaDoVidro } from '@/lib/atendimentos-ia/vidro'
-import { escolhaPedida, lerEscolhasGravadas, perguntaDaEscolha, validarEscolha, type EscolhaPendente, type VariaveisDaTipologia } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
+import {
+    escolhaPedida, lerEscolhasGravadas, nomeDaVariavelSemPadrao, perguntaDaEscolha, validarEscolha, validarValorDaVariavel, variaveisAPerguntar,
+    type EscolhaPendente, type VariaveisDaTipologia, type VariavelSemPadrao,
+} from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import { normalizarNome } from '@/lib/atendimentos-ia/nome-do-levantamento'
 import { aberturaCompativel, aberturaDoItem, cabeNosLimites, type Abertura, type CandidatoParaAProposta, type Medidas } from '@/lib/atendimentos-ia/tipologias-candidatas'
 
@@ -270,6 +273,9 @@ export function aplicarProposta(atuais: readonly ItemDoLevantamento[], proposta:
         const alvo = alvoDaEscolha(e.ordem)
         const definicao = alvo ? ctx.definicao(alvo) : null
         if (!alvo || !definicao) { propostos += 1; descartados += 1; continue }
+        // o VALOR de uma variável sem padrão da tipologia (06/11/2026): o mesmo par { variavel, opcao }, com o valor no lugar da opção
+        const valor = validarValorDaVariavel(definicao, bruta)
+        if (valor) { propostos += 1; alvo.escolhas = { ...(alvo.escolhas ?? {}), [valor.variavel]: valor.valor }; continue }
         const r = validarEscolha(definicao, lerEscolhasGravadas(alvo.escolhas), bruta)
         propostos += r.propostos
         descartados += r.descartados
@@ -327,6 +333,8 @@ export type Pendencia =
     | { tipo: 'CAMPO'; ordem: number; campo: CampoDaEsquadria }
     | { tipo: 'FAMILIA'; ordem: number; tipologia: string; opcoes: OpcaoDeFamilia[] }
     | { tipo: 'ESCOLHA'; ordem: number; pendente: EscolhaPendente }
+    /** A variável SEM PADRÃO da tipologia que o vendedor ainda não deu (06/11/2026): a esquadria não está completa sem ela. */
+    | { tipo: 'VARIAVEL'; ordem: number; tipologia: string; variavel: VariavelSemPadrao }
 
 /**
  * TODAS as pendências (dono do produto, 03/11/2026: "uma pergunta por turno que cubra TODAS as pendências do momento"), esquadria por
@@ -349,6 +357,8 @@ export function pendenciasDoLevantamento(itens: readonly ItemDoLevantamento[], d
             const pendente = v === null ? escolhaPedida(def, variavel) : null
             if (pendente) todas.push({ tipo: 'ESCOLHA', ordem: item.ordem, pendente })
         }
+        // as variáveis SEM PADRÃO da tipologia, lidas do motor (06/11/2026): perguntadas, nunca inventadas, nunca zero, nunca de outra esquadria
+        for (const variavel of variaveisAPerguntar(def, lerEscolhasGravadas(item.escolhas, def))) todas.push({ tipo: 'VARIAVEL', ordem: item.ordem, tipologia: item.tipologia as string, variavel })
     }
     return todas
 }
@@ -391,16 +401,27 @@ export function perguntaDasPendencias(ps: readonly Pendencia[], nItens: number, 
             if (p.tipo === 'FAMILIA') partes.push(fraseDeQualFamilia(p.tipologia, p.opcoes))
             if (p.tipo === 'ESCOLHA') partes.push(perguntaDaEscolha(p.pendente))
         }
+        const valores = lista.flatMap((p) => (p.tipo === 'VARIAVEL' ? [p] : []))
+        if (valores.length) partes.push(perguntaDasVariaveis(valores.map((p) => nomeDaVariavelSemPadrao(p.variavel)), valores[0].tipologia))
         const texto = partes.join(' ')
         return nItens > 1 ? `Esquadria ${ordem}: ${texto}` : texto
     })
     return linhas.join('\n')
 }
 
+/**
+ * A pergunta das variáveis sem padrão de uma esquadria, nomeando a variável (pela descrição da aba, nunca pelo código) e a esquadria (a
+ * tipologia; com mais de uma esquadria, o "Esquadria N:" vem na frente): "Falta, na DP-04: altura da bandeira (em mm). Qual é o valor?". Sem
+ * artigo: a descrição vem da aba, e o gênero dela não se deduz.
+ */
+export const perguntaDasVariaveis = (nomes: readonly string[], tipologia: string) =>
+    `Falta, na ${tipologia}: ${eLista(nomes)}. ${nomes.length === 1 ? 'Qual é o valor?' : 'Quais são os valores?'}`
+
 /** A pergunta FIXA da pendência; com mais de uma esquadria, diz de qual. */
 export function perguntaDaPendencia(p: Pendencia, nItens: number, jaDito: JaDito = NADA_DITO): string {
     const pergunta = p.tipo === 'CAMPO' ? (p.campo === 'tipologia' ? perguntasDaTipologia(jaDito)[0] : PERGUNTA_DO_CAMPO[p.campo])
         : p.tipo === 'FAMILIA' ? fraseDeQualFamilia(p.tipologia, p.opcoes)
-            : perguntaDaEscolha(p.pendente)
+            : p.tipo === 'VARIAVEL' ? perguntaDasVariaveis([nomeDaVariavelSemPadrao(p.variavel)], p.tipologia)
+                : perguntaDaEscolha(p.pendente)
     return nItens > 1 ? `Esquadria ${p.ordem}: ${pergunta}` : pergunta
 }

@@ -1805,3 +1805,54 @@ específica"). Formulação do dono do produto, registrada como está:
 - **Prova:** `scripts/harness/tempo-no-arquivo-do-motor/` (a base de `nome-do-motor-e-arquivar`, a migração duas vezes, 11 casos, 5 guardas, o
   contraste dos corpos em CRLF; `mutacoes.py` e `mutacoes-codigo.py`); `atendimentos-ia-tempos-do-motor.test.ts`, o bloco (9) das rotas e os portões
   de `atendimentos-ia-catalogo-de-motores.test.ts`, que passaram a ler a última migração que escreve a função.
+
+## A variável SEM PADRÃO vira pergunta ao vendedor — dono do produto, 06/11/2026 (sem migração)
+
+Formulação do dono do produto, registrada como está:
+
+> "Quando a tipologia escolhida tiver variável sem padrão, o agente PERGUNTA o valor antes de dar a esquadria por completa — recusa nomeada,
+> dizendo qual variável falta e de qual esquadria. Não invente valor, não use zero, não copie de outra esquadria. As variáveis COM padrão
+> continuam como estão, sem perguntar. Leia a lista do motor, por tipologia — não deixe nada fixo no código."
+
+**Medido no motor `fdff3386` em 06/11/2026 (só leitura):** 7 variáveis sem Padrão, 63 linhas (uma por tipologia), **nenhuma com Opções**, todas
+altura — AF altura da bandeira (33 tipologias: 21 "sempre", 12 "(HI=1)" com HI padrão 1), AA, AB e AC alturas dos quadros (9, 8 e 3), B altura
+da bandeira (4), P e AP altura do peitoril (4 e 2). As 18 linhas de AA/AB/AC com a condição "(AQ=2) and (AV=1)" **não são perguntadas**: AQ tem
+padrão 1 e a condição é falsa — e a conversa não captura AQ (só ARI, ARE e MAE), então hoje elas nunca valem. A DP-04 tem só AF ("sempre"); a
+DP-02, nenhuma.
+
+- **A lista é do motor, por tipologia** (`variaveisSemPadrao`, `escolhas-da-tipologia.ts`): a variável da aba Variáveis com Padrão vazio, nulo ou
+  só espaço **e sem Opções**. Nenhum código de variável fixo. A sem padrão COM opções não existe hoje; se aparecer, não é perguntada por aqui.
+- **Quando perguntar** (`variaveisAPerguntar`): a Condição avaliada com o Padrão numérico de cada variável da aba e, por cima, o que já foi dado;
+  a que não dá para avaliar é perguntada (como as escolhas: não perguntar por não saber seria assumir).
+- **A pendência** `VARIAVEL` entra em `pendenciasDoLevantamento` depois das escolhas da esquadria: sem o valor, a esquadria **não é completa**
+  (o levantamento fica `EM_MONTAGEM`, o apanhado não sai). A pergunta nomeia a variável pela descrição da aba, em minúscula, com "(em mm)" quando
+  é medida, e a esquadria pela tipologia — "Falta, na DP-04: altura da bandeira (em mm). Qual é o valor?" (com mais de uma esquadria,
+  "Esquadria N:" na frente). O código da variável nunca vai ao vendedor. A linha `[ETAPA 3 montar]` diz `faltou=e1:variavel:AF`.
+- **O valor** vem pelo mesmo par da ferramenta (`escolhas: [{ variavel, opcao }]`, com o valor em `opcao`): vale só para variável sem padrão
+  DESTA tipologia e só inteiro maior que zero (`validarValorDaVariavel`); zero, negativo, decimal e texto são descartados. Vai à esquadria da
+  pergunta em aberto (ou à única) — nunca a outra; trocar a tipologia apaga o valor. A ferramenta não mudou (a fixture dos pedidos fica byte a
+  byte igual); o prompt ganha a seção "Variáveis SEM PADRÃO" **só quando** alguma tipologia da lista tem uma.
+- **O valor chega ao cálculo:** `lerEscolhasGravadas(escolhas, tipologia)` deixa passar o valor positivo da sem padrão daquela tipologia, e o
+  avaliador o usa no lugar do Padrão que não existe. `lerEscolhasDoItem` guarda o inteiro positivo de variável não capturada — sem isso, o valor
+  gravado sumia na releitura e o "sim" voltava a perguntar (achado no teste, antes do PR).
+- **O apanhado em texto não mostra o valor** (não foi pedido; a linha VARIÁVEIS é do arquivo, abaixo).
+- **Prova:** bloco (41) de `atendimentos-ia-levantamento-por-nome.test.ts` (a DP-04 sem a bandeira não é completa e pergunta; o valor entra e
+  chega ao cálculo pelo "sim"; 0, −400 e 400,5 não valem; o valor de uma esquadria não vai à outra; a DP-02 sem pergunta; com Padrão no motor,
+  nada é perguntado; o prompt só com a seção quando há), (VIII) de `levantamento-em-montagem.test.ts`, (V) de `escolhas-da-tipologia.test.ts`, e
+  `scripts/harness/variavel-sem-padrao/mutacoes.py` (20 mutações, 20 mortas).
+
+## REGISTRADO, NÃO IMPLEMENTADO — a linha VARIÁVEIS no ARQUIVO do levantamento (especificação do PR 2, dono do produto, 06/11/2026)
+
+Formulação do dono do produto, registrada como está:
+
+> "Na folha do levantamento, cada item ganha uma linha condicional VARIÁVEIS, ACIMA da linha de perfil/acessório e vidro. Ela só existe quando a
+> tipologia tiver variável sem padrão respondida, e traz "nome da variável + valor", separados por " · " (ex.: "Altura da bandeira 400 mm ·
+> Módulos da bandeira 1"). Sem variável sem padrão, a linha não é desenhada. Ordem das linhas do item: VARIÁVEIS (condicional) → PERFIL/ACESSÓRIO
+> + VIDRO → AMBIENTES → OBS."
+
+- **Quem implementa é o PR 2** (o arquivo substitui o apanhado), mergeado junto com o PR do PDF. Até lá, nada desenha esta linha.
+- **A fonte do nome e do valor** já existe: `variaveisSemPadrao(tipologia)` dá a descrição da aba; o valor está nas escolhas gravadas do item
+  (`lerEscolhasGravadas(item.escolhas, tipologia)`). "mm" só quando a variável é medida (`nomeDaVariavelSemPadrao` usa a mesma regra para o
+  "(em mm)" da pergunta).
+- **A linha só existe com variável sem padrão RESPONDIDA**; a que a Condição deixou de fora não entra, e a não respondida não existe (a esquadria
+  sem ela não é completa e não chega ao arquivo).
