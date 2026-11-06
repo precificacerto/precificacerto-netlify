@@ -283,6 +283,6 @@ BEGIN
   ELSE RAISE EXCEPTION 'FALHOU caso 18: mesma=% outra=% inexistente=% nulo=% insert_outra=% depois=%/%/%/%', v1, v2, v3, v4, v5, r.vendedor_employee_id, r.vendedor_nome, r.tenant_id, r.numero; END IF;
 END $c$;
 
--- (sem caso) antes de o run.sh reaplicar: o último da De Paula é apagado — a reaplicação semearia o contador com o maior + 1 = 8, e ele
--- tem de ficar em 9 (o caso 16 confere que o contador nunca recua)
-delete from orcamentista_levantamento where nome = 'Obra Oito';
+-- (sem caso) antes de o run.sh reaplicar: o ÚLTIMO da De Paula (o 9) é apagado — a reaplicação semearia o contador com o maior + 1 = 9, e
+-- ele tem de ficar em 10 (o caso 16 confere que o contador nunca recua)
+delete from orcamentista_levantamento where nome = 'Obra da Secretaria';
