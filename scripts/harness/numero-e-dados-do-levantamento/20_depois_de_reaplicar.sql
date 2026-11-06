@@ -10,10 +10,10 @@ BEGIN
   SELECT string_agg(left(tenant_id::text, 2) || ':' || nome || '=' || numero, ',' ORDER BY tenant_id, numero) INTO v FROM orcamentista_levantamento;
   SELECT string_agg(left(tenant_id::text, 2) || '=' || proximo, ',' ORDER BY tenant_id) INTO v_cont FROM orcamentista_levantamento_contador;
   SELECT count(*) INTO v_log FROM superadmin_alteracao_log WHERE tabela <> 'outra';
-  IF v = '20:Teste 1=1,20:Teste 2=2,20:Teste 3=3,20:Teste 4=4,20:Maria Cristina=5,20:Obra Sete=7,'
+  IF v = '20:Teste 1=1,20:Teste 2=2,20:Teste 3=3,20:Teste 4=4,20:Maria Cristina=5,20:Obra Sete=7,20:Obra da Secretaria=9,'
          || 'a0:B mais antigo=1,a0:B mesmo instante 1=2,a0:B mesmo instante 2=3,a0:Obra B=4,a0:Obra C=1,a0:Obra C2=2'
-     AND v_cont = '20=9,a0=5,a0=3' AND v_log = 8 THEN
-    RAISE NOTICE 'ok: caso 16 — a reaplicacao nao renumera, nao recua o contador (9 com o 8 apagado; 5 e 3) e nao loga de novo';
+     AND v_cont = '20=10,a0=5,a0=3' AND v_log = 8 THEN
+    RAISE NOTICE 'ok: caso 16 — a reaplicacao nao renumera, nao recua o contador (10 com o 8 apagado; 5 e 3) e nao loga de novo';
   ELSE RAISE EXCEPTION 'FALHOU caso 16: % / contador % / log %', v, v_cont, v_log; END IF;
 END $c$;
 

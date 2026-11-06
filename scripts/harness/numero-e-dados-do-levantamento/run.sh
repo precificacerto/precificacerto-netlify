@@ -5,14 +5,14 @@
 # e uma segunda empresa com empate de criado_em (00_base.sql).
 #   D  = base + esta migração DUAS vezes -> 10_casos.sql -> a migração uma TERCEIRA vez, sobre a base usada -> 20_depois_de_reaplicar.sql;
 #   corrida 1: duas transações criam levantamento na mesma empresa ao mesmo tempo -> números diferentes, nenhum perdido;
-#   contrastes 1 a 4: as guardas, cada uma num banco próprio, abortam com a frase e NADA muda;
+#   contrastes 1 a 4 e 6: as guardas, cada uma num banco próprio, abortam com a frase e NADA muda;
 #   contraste 5: o arquivo em CRLF (a colagem pelo SQL Editor no Windows) -> o md5 sem o \r bate, e a verificação passa.
 # Uso: run.sh [arquivo da migração]. Sai 1 se faltar ok; 2 se a base abortar.
 S=$(cd "$(dirname "$0")" && pwd); R=$(cd "$S/../../.." && pwd); M=$R/supabase/migrations
 MIG=${1:-$M/20261106000002_numero_cliente_e_percentuais_do_levantamento.sql}
 P="psql -h ${PGHOST:-/tmp/harness-pg} -p ${PGPORT:-54329} -U postgres -q -X"
 D=${HARNESS_DB:-harness_numero_levantamento}
-COPIAS="${D}_k1 ${D}_g1 ${D}_g2 ${D}_g3 ${D}_g4 ${D}_g5"
+COPIAS="${D}_k1 ${D}_g1 ${D}_g2 ${D}_g3 ${D}_g4 ${D}_g5 ${D}_g6"
 for x in $D $COPIAS; do
   $P -c "drop database if exists $x" >/dev/null 2>&1; $P -c "create database $x" >/dev/null || { echo "COPIA NAO CRIADA"; exit 2; }
   [ "$x" = "${D}_g4" ] && continue   # a guarda 4 é a de um banco sem as tabelas
@@ -67,6 +67,9 @@ guarda "guarda 2" ${D}_g2 "alter table orcamentista_levantamento add column nume
 # CONTRASTE 3: a função do número já existe com outro corpo -> a guarda aborta
 guarda "guarda 3" ${D}_g3 "create function public.orcamentista_levantamento_numerar() returns trigger language plpgsql as \$\$ begin return new; end \$\$" \
   "a funcao public.orcamentista_levantamento_numerar() ja existe com outro corpo"
+# CONTRASTE 6: employees sem a UNIQUE (id, tenant_id) que a FK do vendedor usa -> a guarda aborta
+guarda "guarda 6" ${D}_g6 "alter table employees drop constraint employees_id_tenant_id_key" \
+  "dependencia ausente: employees sem a UNIQUE (id, tenant_id) que a FK do vendedor usa. Nada foi alterado."
 # CONTRASTE 4: um banco sem as tabelas (o projeto errado) -> a guarda aborta nomeando o banco
 local SAI; SAI=$($P -d ${D}_g4 -v ON_ERROR_STOP=1 -f "$MIG" 2>&1)
 if echo "$SAI" | grep -qF "ERROR:  dependencia ausente no banco ${D}_g4 (usuario postgres, 0 tabela(s) orcamentista_*)"; then

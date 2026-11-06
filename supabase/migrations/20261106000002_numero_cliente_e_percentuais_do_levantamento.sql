@@ -7,6 +7,7 @@
 -- ║ Ao aplicar fora do CLI, o `name` da migração é o nome completo deste arquivo, sem a extensão:
 -- ║ 20261106000002_numero_cliente_e_percentuais_do_levantamento.
 -- ║ NÃO APAGA NADA. Não altera função nenhuma que já exista: cria duas (o número e a forma dos ambientes) e uma tabela (o contador).
+-- ║ PRESSUPÕE a UNIQUE employees_id_tenant_id_key (id, tenant_id) de employees, que já existe (a guarda confere).
 -- ║ O código de hoje continua funcionando com ela aplicada: o número é dado pelo banco no INSERT, e as colunas novas nascem nulas.
 -- ╚══════════════════════════════════════════════════════════════════════════════════════
 --
@@ -41,6 +42,16 @@
 --     padrão e o dito na conversa o substitui (é do código, não desta migração). "comissao_modo com a mesma CHECK do perfil (PROPORCIONAL ou
 --     CONGELADA)". Os percentuais com a mesma faixa do perfil (0 a 100).
 --   - "vendedor_nome (congela quem fez; telefone troca de dono)".
+--   - "vendedor_employee_id uuid, nulável, sem DEFAULT, FK composta para employees(id, tenant_id) ON DELETE SET NULL (ou o equivalente que
+--     respeite o isolamento por empresa, como orcamentista_vendedor_perfil já faz). [...] o vendedor do levantamento pode NÃO ser quem está
+--     conversando — uma secretária lança para o vendedor, um gerente lança para a equipe. O vendedor escolhido é o que vale, e é do perfil
+--     DELE que saem comissão, RT e lucro. vendedor_nome congela o nome; vendedor_employee_id é o vínculo. Os dois são nuláveis. [...] Guarda:
+--     vendedor_employee_id, quando preenchido, tem de ser de um employee da MESMA empresa do levantamento. Não deixe isso só para o código."
+--     A FK é (vendedor_employee_id, tenant_id) -> employees(id, tenant_id): o banco recusa o funcionário de outra empresa. O ON DELETE é
+--     SET NULL (vendedor_employee_id) — só o vínculo vira nulo; um SET NULL das duas colunas anularia o tenant_id, que é NOT NULL, e o
+--     DELETE do funcionário falharia. O vendedor_nome fica (é o nome congelado). Medido em produção em 06/11/2026: employees tem a UNIQUE
+--     employees_id_tenant_id_key (id, tenant_id), a mesma que orcamentista_vendedor_perfil_employee_fkey usa; o servidor é o PostgreSQL 17.6
+--     (o SET NULL com lista de colunas existe desde o 15).
 --   - no item: "ambientes (ambiente + quantidade, vários por item)" — "jsonb no item": uma lista [{"ambiente": "...", "quantidade": N}] — e "obs".
 --     "dois ambientes com o mesmo nome no MESMO item não podem existir. "Cozinha (1) · Cozinha (2)" é erro de digitação, não dois ambientes,
 --     e quebraria a conferência da soma com a quantidade do item." O mesmo nome é comparado sem olhar a caixa ("Cozinha" e "cozinha" são um).
@@ -63,10 +74,16 @@ DECLARE
   r record;
 BEGIN
   IF to_regclass('public.orcamentista_levantamento') IS NULL OR to_regclass('public.orcamentista_levantamento_item') IS NULL
-     OR to_regclass('public.superadmin_alteracao_log') IS NULL OR to_regclass('public.tenants') IS NULL THEN
-    RAISE EXCEPTION 'dependencia ausente no banco % (usuario %, % tabela(s) orcamentista_*): orcamentista_levantamento, _item, superadmin_alteracao_log ou tenants. Nada foi alterado.',
+     OR to_regclass('public.superadmin_alteracao_log') IS NULL OR to_regclass('public.tenants') IS NULL OR to_regclass('public.employees') IS NULL THEN
+    RAISE EXCEPTION 'dependencia ausente no banco % (usuario %, % tabela(s) orcamentista_*): orcamentista_levantamento, _item, superadmin_alteracao_log, tenants ou employees. Nada foi alterado.',
       current_database(), current_user,
       (SELECT count(*) FROM pg_class c WHERE c.relnamespace = 'public'::regnamespace AND c.relkind = 'r' AND c.relname LIKE 'orcamentista\_%');
+  END IF;
+
+  -- a FK do vendedor precisa da UNIQUE (id, tenant_id) de employees (a mesma da FK do perfil do vendedor)
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint k WHERE k.conrelid = 'public.employees'::regclass AND k.contype IN ('u', 'p')
+      AND pg_get_constraintdef(k.oid) = 'UNIQUE (id, tenant_id)') THEN
+    RAISE EXCEPTION 'dependencia ausente: employees sem a UNIQUE (id, tenant_id) que a FK do vendedor usa. Nada foi alterado.';
   END IF;
 
   -- nada escreve nas duas tabelas entre a guarda e o fim da transacao: nenhum levantamento nasce sem numero no meio
@@ -80,7 +97,7 @@ BEGIN
       ('orcamentista_levantamento', 'data_entrega', 'date'), ('orcamentista_levantamento', 'comissao_percentual', 'numeric'),
       ('orcamentista_levantamento', 'comissao_modo', 'text'), ('orcamentista_levantamento', 'reserva_tecnica_percentual', 'numeric'),
       ('orcamentista_levantamento', 'reserva_tecnica_responsavel', 'text'), ('orcamentista_levantamento', 'lucro_projetado_percentual', 'numeric'),
-      ('orcamentista_levantamento', 'vendedor_nome', 'text'),
+      ('orcamentista_levantamento', 'vendedor_nome', 'text'), ('orcamentista_levantamento', 'vendedor_employee_id', 'uuid'),
       ('orcamentista_levantamento_item', 'ambientes', 'jsonb'), ('orcamentista_levantamento_item', 'obs', 'text')) AS e(tabela, coluna, tipo)
   LOOP
     SELECT c.data_type INTO v_tipo FROM information_schema.columns c
@@ -113,7 +130,7 @@ BEGIN
   CREATE TEMP TABLE antes_20261106000002 ON COMMIT DROP AS
     SELECT 'L'::text AS tabela, l.id, md5((to_jsonb(l) - ARRAY['numero', 'telefone', 'email', 'edificacao', 'endereco', 'obs_obra', 'data_entrega',
         'comissao_percentual', 'comissao_modo', 'reserva_tecnica_percentual', 'reserva_tecnica_responsavel', 'lucro_projetado_percentual',
-        'vendedor_nome'])::text) AS md5
+        'vendedor_nome', 'vendedor_employee_id'])::text) AS md5
       FROM public.orcamentista_levantamento l
     UNION ALL
     SELECT 'I', i.id, md5((to_jsonb(i) - ARRAY['ambientes', 'obs'])::text) FROM public.orcamentista_levantamento_item i;
@@ -136,7 +153,8 @@ ALTER TABLE public.orcamentista_levantamento
   ADD COLUMN IF NOT EXISTS reserva_tecnica_percentual numeric,
   ADD COLUMN IF NOT EXISTS reserva_tecnica_responsavel text,
   ADD COLUMN IF NOT EXISTS lucro_projetado_percentual numeric,
-  ADD COLUMN IF NOT EXISTS vendedor_nome text;
+  ADD COLUMN IF NOT EXISTS vendedor_nome text,
+  ADD COLUMN IF NOT EXISTS vendedor_employee_id uuid;
 ALTER TABLE public.orcamentista_levantamento_item
   ADD COLUMN IF NOT EXISTS ambientes jsonb,
   ADD COLUMN IF NOT EXISTS obs text;
@@ -216,7 +234,8 @@ ALTER TABLE public.orcamentista_levantamento
   DROP CONSTRAINT IF EXISTS orcamentista_levantamento_reserva_tecnica_percentual_faixa,
   DROP CONSTRAINT IF EXISTS orcamentista_levantamento_reserva_tecnica_responsavel_forma,
   DROP CONSTRAINT IF EXISTS orcamentista_levantamento_lucro_projetado_percentual_faixa,
-  DROP CONSTRAINT IF EXISTS orcamentista_levantamento_vendedor_nome_forma;
+  DROP CONSTRAINT IF EXISTS orcamentista_levantamento_vendedor_nome_forma,
+  DROP CONSTRAINT IF EXISTS orcamentista_levantamento_vendedor_employee_fkey;
 ALTER TABLE public.orcamentista_levantamento
   ADD CONSTRAINT orcamentista_levantamento_numero_key UNIQUE (tenant_id, numero),
   ADD CONSTRAINT orcamentista_levantamento_numero_positivo CHECK (numero >= 1),
@@ -230,7 +249,10 @@ ALTER TABLE public.orcamentista_levantamento
   ADD CONSTRAINT orcamentista_levantamento_reserva_tecnica_percentual_faixa CHECK (reserva_tecnica_percentual IS NULL OR (reserva_tecnica_percentual >= 0 AND reserva_tecnica_percentual <= 100)),
   ADD CONSTRAINT orcamentista_levantamento_reserva_tecnica_responsavel_forma CHECK (reserva_tecnica_responsavel IS NULL OR (reserva_tecnica_responsavel ~ '^\S(.*\S)?$' AND char_length(reserva_tecnica_responsavel) <= 120)),
   ADD CONSTRAINT orcamentista_levantamento_lucro_projetado_percentual_faixa CHECK (lucro_projetado_percentual IS NULL OR (lucro_projetado_percentual >= 0 AND lucro_projetado_percentual <= 100)),
-  ADD CONSTRAINT orcamentista_levantamento_vendedor_nome_forma CHECK (vendedor_nome IS NULL OR (vendedor_nome ~ '^\S(.*\S)?$' AND char_length(vendedor_nome) <= 120));
+  ADD CONSTRAINT orcamentista_levantamento_vendedor_nome_forma CHECK (vendedor_nome IS NULL OR (vendedor_nome ~ '^\S(.*\S)?$' AND char_length(vendedor_nome) <= 120)),
+  -- o vendedor e um funcionario da MESMA empresa do levantamento: a FK composta com o tenant_id; apagado o funcionario, so o vinculo vira nulo
+  ADD CONSTRAINT orcamentista_levantamento_vendedor_employee_fkey FOREIGN KEY (vendedor_employee_id, tenant_id)
+    REFERENCES public.employees(id, tenant_id) ON DELETE SET NULL (vendedor_employee_id);
 ALTER TABLE public.orcamentista_levantamento_item
   DROP CONSTRAINT IF EXISTS orcamentista_levantamento_item_ambientes_forma,
   DROP CONSTRAINT IF EXISTS orcamentista_levantamento_item_obs_forma;
@@ -294,6 +316,8 @@ COMMENT ON COLUMN public.orcamentista_levantamento.comissao_percentual IS
   'Congelado no levantamento: o dito na conversa ou, nao dito, o do cadastro (orcamentista_vendedor_perfil) na hora da coleta. Nao se rele o cadastro ao regerar a folha. NULL = nao informado.';
 COMMENT ON COLUMN public.orcamentista_levantamento.reserva_tecnica_responsavel IS 'Quem recebe a reserva tecnica, como dito na conversa. NULL = nao informado (a folha deixa o campo em branco).';
 COMMENT ON COLUMN public.orcamentista_levantamento.vendedor_nome IS 'Quem fez o levantamento, congelado (o telefone do remetente troca de dono).';
+COMMENT ON COLUMN public.orcamentista_levantamento.vendedor_employee_id IS
+  'O vendedor do levantamento (pode nao ser quem conversa: a secretaria lanca para o vendedor, o gerente para a equipe). Do perfil DELE saem comissao, RT e lucro. Funcionario da mesma empresa (FK composta com tenant_id); apagado o funcionario, vira NULL e o vendedor_nome fica. NULL = nao informado.';
 COMMENT ON COLUMN public.orcamentista_levantamento_item.ambientes IS
   'Os ambientes do item: [{"ambiente": texto, "quantidade": inteiro > 0}], nao vazia, sem o mesmo ambiente duas vezes (sem olhar a caixa). NULL = nao informados. A soma com a quantidade do item e conferida pelo gerador da folha.';
 COMMENT ON TABLE public.orcamentista_levantamento_contador IS 'O PROXIMO numero de levantamento de cada empresa. So o gatilho orcamentista_levantamento_numero escreve (e esta migracao, ao semear).';
@@ -312,7 +336,7 @@ BEGIN
       ('orcamentista_levantamento', 'data_entrega', 'date', 'YES'), ('orcamentista_levantamento', 'comissao_percentual', 'numeric', 'YES'),
       ('orcamentista_levantamento', 'comissao_modo', 'text', 'YES'), ('orcamentista_levantamento', 'reserva_tecnica_percentual', 'numeric', 'YES'),
       ('orcamentista_levantamento', 'reserva_tecnica_responsavel', 'text', 'YES'), ('orcamentista_levantamento', 'lucro_projetado_percentual', 'numeric', 'YES'),
-      ('orcamentista_levantamento', 'vendedor_nome', 'text', 'YES'),
+      ('orcamentista_levantamento', 'vendedor_nome', 'text', 'YES'), ('orcamentista_levantamento', 'vendedor_employee_id', 'uuid', 'YES'),
       ('orcamentista_levantamento_item', 'ambientes', 'jsonb', 'YES'), ('orcamentista_levantamento_item', 'obs', 'text', 'YES')) AS e(tabela, coluna, tipo, nula)
     WHERE NOT EXISTS (SELECT 1 FROM information_schema.columns c WHERE c.table_schema = 'public' AND c.table_name = e.tabela
       AND c.column_name = e.coluna AND c.data_type = e.tipo AND c.is_nullable = e.nula AND c.column_default IS NULL);
@@ -327,7 +351,9 @@ BEGIN
       ('orcamentista_levantamento_reserva_tecnica_percentual_faixa', 'CHECK (((reserva_tecnica_percentual IS NULL) OR ((reserva_tecnica_percentual >= (0)::numeric) AND (reserva_tecnica_percentual <= (100)::numeric))))'),
       ('orcamentista_levantamento_lucro_projetado_percentual_faixa', 'CHECK (((lucro_projetado_percentual IS NULL) OR ((lucro_projetado_percentual >= (0)::numeric) AND (lucro_projetado_percentual <= (100)::numeric))))'),
       ('orcamentista_levantamento_item_ambientes_forma', 'CHECK (orcamentista_levantamento_ambientes_validos(ambientes))'),
-      ('orcamentista_levantamento_contador_proximo_positivo', 'CHECK ((proximo >= 1))')) AS e(nome, def)
+      ('orcamentista_levantamento_contador_proximo_positivo', 'CHECK ((proximo >= 1))'),
+      ('orcamentista_levantamento_vendedor_employee_fkey',
+       'FOREIGN KEY (vendedor_employee_id, tenant_id) REFERENCES employees(id, tenant_id) ON DELETE SET NULL (vendedor_employee_id)')) AS e(nome, def)
     WHERE NOT EXISTS (SELECT 1 FROM pg_constraint k WHERE k.conname = e.nome AND pg_get_constraintdef(k.oid) = e.def);
   IF v_falta IS NOT NULL THEN RAISE EXCEPTION 'verificacao 2: constraint ausente ou com outra definicao: %. Nada foi alterado.', v_falta; END IF;
   SELECT count(*) INTO v_n FROM pg_constraint k
@@ -380,11 +406,11 @@ BEGIN
     EXCEPT
     (SELECT 'L', l.id, md5((to_jsonb(l) - ARRAY['numero', 'telefone', 'email', 'edificacao', 'endereco', 'obs_obra', 'data_entrega',
         'comissao_percentual', 'comissao_modo', 'reserva_tecnica_percentual', 'reserva_tecnica_responsavel', 'lucro_projetado_percentual',
-        'vendedor_nome'])::text) FROM public.orcamentista_levantamento l
+        'vendedor_nome', 'vendedor_employee_id'])::text) FROM public.orcamentista_levantamento l
      UNION ALL
      SELECT 'I', i.id, md5((to_jsonb(i) - ARRAY['ambientes', 'obs'])::text) FROM public.orcamentista_levantamento_item i)) d;
   IF v_n > 0 THEN RAISE EXCEPTION 'verificacao 6: % linha(s) de levantamento ou item mudaram ou sumiram. Nada foi alterado.', v_n; END IF;
-  RAISE NOTICE '20261106000002 verificada: numero por empresa (os de antes por criado_em), dados do cliente, percentuais e vendedor no levantamento; ambientes e obs no item';
+  RAISE NOTICE '20261106000002 verificada: numero por empresa (os de antes por criado_em), dados do cliente, percentuais, vendedor (nome e vinculo da mesma empresa) no levantamento; ambientes e obs no item';
 END
 $verifica$;
 

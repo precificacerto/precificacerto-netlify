@@ -20,7 +20,7 @@ BEGIN
     SELECT tabela, id, md5 FROM harness_foto
     EXCEPT
     (SELECT 'L', l.id, md5((to_jsonb(l) - ARRAY['numero', 'telefone', 'email', 'edificacao', 'endereco', 'obs_obra', 'data_entrega', 'comissao_percentual',
-        'comissao_modo', 'reserva_tecnica_percentual', 'reserva_tecnica_responsavel', 'lucro_projetado_percentual', 'vendedor_nome'])::text) FROM orcamentista_levantamento l
+        'comissao_modo', 'reserva_tecnica_percentual', 'reserva_tecnica_responsavel', 'lucro_projetado_percentual', 'vendedor_nome', 'vendedor_employee_id'])::text) FROM orcamentista_levantamento l
      UNION ALL SELECT 'I', i.id, md5((to_jsonb(i) - ARRAY['ambientes', 'obs'])::text) FROM orcamentista_levantamento_item i
      UNION ALL SELECT 'P', p.remetente_id, md5(to_jsonb(p)::text) FROM orcamentista_pergunta_em_aberto p)) d;
   SELECT count(*) INTO v_lev FROM orcamentista_levantamento;
@@ -127,12 +127,12 @@ DECLARE r record; v_defaults int; v_nulas boolean;
 BEGIN
   SELECT count(*) INTO v_defaults FROM information_schema.columns c WHERE c.table_name IN ('orcamentista_levantamento', 'orcamentista_levantamento_item')
     AND c.column_name IN ('numero', 'telefone', 'email', 'edificacao', 'endereco', 'obs_obra', 'data_entrega', 'comissao_percentual', 'comissao_modo',
-      'reserva_tecnica_percentual', 'reserva_tecnica_responsavel', 'lucro_projetado_percentual', 'vendedor_nome', 'ambientes', 'obs')
+      'reserva_tecnica_percentual', 'reserva_tecnica_responsavel', 'lucro_projetado_percentual', 'vendedor_nome', 'vendedor_employee_id', 'ambientes', 'obs')
     AND c.column_default IS NOT NULL;
   SELECT * INTO r FROM orcamentista_levantamento WHERE nome = 'Obra Oito';
   v_nulas := r.telefone IS NULL AND r.email IS NULL AND r.edificacao IS NULL AND r.endereco IS NULL AND r.obs_obra IS NULL AND r.data_entrega IS NULL
     AND r.comissao_percentual IS NULL AND r.comissao_modo IS NULL AND r.reserva_tecnica_percentual IS NULL AND r.reserva_tecnica_responsavel IS NULL
-    AND r.lucro_projetado_percentual IS NULL AND r.vendedor_nome IS NULL
+    AND r.lucro_projetado_percentual IS NULL AND r.vendedor_nome IS NULL AND r.vendedor_employee_id IS NULL
     AND NOT EXISTS (SELECT 1 FROM orcamentista_levantamento l WHERE l.comissao_percentual IS NOT NULL OR l.lucro_projetado_percentual IS NOT NULL OR l.reserva_tecnica_percentual IS NOT NULL);
   IF v_defaults = 0 AND v_nulas THEN RAISE NOTICE 'ok: caso 9 — nenhuma coluna nova tem DEFAULT; o levantamento novo e os de antes tem os percentuais nulos';
   ELSE RAISE EXCEPTION 'FALHOU caso 9: defaults=% nulas=%', v_defaults, v_nulas; END IF;
@@ -256,6 +256,31 @@ BEGIN
   IF v_amb = '[{"ambiente": "Sala", "quantidade": 3}]'::jsonb AND v_priv = 'falsefalsefalsefalsefalsefalsefalsetruetrue' THEN
     RAISE NOTICE 'ok: caso 15 — o service_role grava ambientes; anon e authenticated sem o contador e sem as funcoes; o contador com RLS';
   ELSE RAISE EXCEPTION 'FALHOU caso 15: ambientes=% privilegios=%', v_amb, v_priv; END IF;
+END $c$;
+
+-- CASO 18: o VENDEDOR do levantamento é um funcionário da MESMA empresa — a FK composta com o tenant_id recusa o de outra empresa e o que não
+-- existe; o nulo vale; gravado pelo service_role no INSERT; apagado o funcionário, só o vínculo vira nulo (o nome congelado, a empresa e o
+-- número ficam)
+set role service_role;
+insert into public.orcamentista_levantamento (tenant_id, remetente_id, nome, nome_normalizado, estado, vendedor_employee_id, vendedor_nome) values
+  ('20e08592-f957-4e72-b7eb-251387e34eb9', '4d1e0f2e-c036-44fe-ad3c-2420e2ad19d2', 'Obra da Secretaria', 'obra da secretaria', 'EM_MONTAGEM',
+   'f0000000-0000-0000-0000-0000000000a2', 'Vendedora A2');
+reset role;
+DO $c$
+DECLARE v1 text; v2 text; v3 text; v4 text; v5 text; r record;
+BEGIN
+  v1 := pg_temp.erro($s$update orcamentista_levantamento set vendedor_employee_id = 'a4d39679-da09-43e2-b97e-f9f2b783e7a6' where nome = 'Obra Oito'$s$);
+  v2 := pg_temp.erro($s$update orcamentista_levantamento set vendedor_employee_id = 'f0000000-0000-0000-0000-0000000000b1' where nome = 'Obra Oito'$s$);
+  v3 := pg_temp.erro($s$update orcamentista_levantamento set vendedor_employee_id = 'f0000000-0000-0000-0000-00000000dead' where nome = 'Obra Oito'$s$);
+  v4 := pg_temp.erro($s$update orcamentista_levantamento set vendedor_employee_id = null where nome = 'Obra Oito'$s$);
+  v5 := pg_temp.erro($s$insert into orcamentista_levantamento (tenant_id, remetente_id, nome, nome_normalizado, estado, vendedor_employee_id)
+    values ('a0000000-0000-0000-0000-000000000002', 'b0000000-0000-0000-0000-000000000003', 'Obra B errada', 'obra b errada', 'EM_MONTAGEM', 'f0000000-0000-0000-0000-0000000000a2')$s$);
+  DELETE FROM employees WHERE id = 'f0000000-0000-0000-0000-0000000000a2';
+  SELECT * INTO r FROM orcamentista_levantamento WHERE nome = 'Obra da Secretaria';
+  IF v1 = 'aceitou' AND v2 = '23503' AND v3 = '23503' AND v4 = 'aceitou' AND v5 = '23503'
+     AND r.vendedor_employee_id IS NULL AND r.vendedor_nome = 'Vendedora A2' AND r.tenant_id = '20e08592-f957-4e72-b7eb-251387e34eb9' AND r.numero = 9 THEN
+    RAISE NOTICE 'ok: caso 18 — vendedor da mesma empresa entra (no insert, pelo service_role, e no update); o de outra empresa e o inexistente, 23503; apagado o funcionario, so o vinculo vira nulo (nome, empresa e numero 9 ficam)';
+  ELSE RAISE EXCEPTION 'FALHOU caso 18: mesma=% outra=% inexistente=% nulo=% insert_outra=% depois=%/%/%/%', v1, v2, v3, v4, v5, r.vendedor_employee_id, r.vendedor_nome, r.tenant_id, r.numero; END IF;
 END $c$;
 
 -- (sem caso) antes de o run.sh reaplicar: o último da De Paula é apagado — a reaplicação semearia o contador com o maior + 1 = 8, e ele

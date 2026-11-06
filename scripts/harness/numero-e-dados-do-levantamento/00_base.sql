@@ -20,6 +20,14 @@ create table public.orcamentista_remetente_autorizado (
   telefone text not null default '5551999990000',
   unique (id, tenant_id)
 );
+-- employees: só o que a FK do vendedor usa, como em produção (medido em 06/11/2026): id pk, tenant_id e name NOT NULL, UNIQUE (id, tenant_id)
+create table public.employees (
+  id uuid not null default gen_random_uuid(),
+  tenant_id uuid not null references public.tenants(id) on delete cascade,
+  name text not null,
+  constraint employees_pkey primary key (id),
+  constraint employees_id_tenant_id_key unique (id, tenant_id)
+);
 create table public.superadmin_alteracao_log (
   id uuid not null default gen_random_uuid() primary key,
   tenant_id uuid, tabela text not null, chave text not null, antes jsonb, depois jsonb, por uuid,
@@ -93,6 +101,10 @@ insert into public.orcamentista_remetente_autorizado (id, tenant_id) values
   ('b0000000-0000-0000-0000-000000000002', '20e08592-f957-4e72-b7eb-251387e34eb9'),
   ('b0000000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-000000000002'),
   ('b0000000-0000-0000-0000-000000000004', 'a0000000-0000-0000-0000-000000000003');
+insert into public.employees (id, tenant_id, name) values
+  ('a4d39679-da09-43e2-b97e-f9f2b783e7a6', '20e08592-f957-4e72-b7eb-251387e34eb9', 'Vendedor A1 (sintetico)'),
+  ('f0000000-0000-0000-0000-0000000000a2', '20e08592-f957-4e72-b7eb-251387e34eb9', 'Vendedora A2 (sintetica)'),
+  ('f0000000-0000-0000-0000-0000000000b1', 'a0000000-0000-0000-0000-000000000002', 'Vendedor B1 (sintetico)');
 insert into public.orcamentista_levantamento (id, tenant_id, remetente_id, nome, nome_normalizado, estado, criado_em, atualizado_em) values
   ('c8b56b73-05b3-4d4e-82d0-41ecba58b893', '20e08592-f957-4e72-b7eb-251387e34eb9', '4d1e0f2e-c036-44fe-ad3c-2420e2ad19d2', 'Maria Cristina', 'maria cristina', 'COMPLETO', '2026-11-05 20:03:38.285795+00', '2026-11-06 12:53:00+00'),
   ('b0465e57-a829-4f81-9f3e-9ba7d00a999f', '20e08592-f957-4e72-b7eb-251387e34eb9', '4d1e0f2e-c036-44fe-ad3c-2420e2ad19d2', 'Teste 1', 'teste 1', 'COMPLETO', '2026-10-25 14:43:09.463729+00', '2026-10-25 15:00:00+00'),

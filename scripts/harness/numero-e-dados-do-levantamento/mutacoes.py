@@ -74,6 +74,17 @@ MUTACOES = [
     ('P3', 'o contador sem REVOKE do authenticated', 'REVOKE ALL ON TABLE public.orcamentista_levantamento_contador FROM PUBLIC, anon, authenticated;',
      'REVOKE ALL ON TABLE public.orcamentista_levantamento_contador FROM PUBLIC;'),
     ('P4', 'o contador sem RLS', 'ALTER TABLE public.orcamentista_levantamento_contador ENABLE ROW LEVEL SECURITY;\n', ''),
+    # o vendedor: funcionário da mesma empresa, e só o vínculo some quando ele é apagado
+    ('E1', 'a FK do vendedor sem o tenant (aceita funcionário de outra empresa)',
+     'FOREIGN KEY (vendedor_employee_id, tenant_id)\n    REFERENCES public.employees(id, tenant_id) ON DELETE SET NULL (vendedor_employee_id);',
+     'FOREIGN KEY (vendedor_employee_id)\n    REFERENCES public.employees(id) ON DELETE SET NULL (vendedor_employee_id);'),
+    ('E2', 'o SET NULL das duas colunas (o DELETE do funcionário falha no tenant_id)', 'ON DELETE SET NULL (vendedor_employee_id);', 'ON DELETE SET NULL;'),
+    ('E3', 'apagar o funcionário apaga o levantamento', 'ON DELETE SET NULL (vendedor_employee_id);', 'ON DELETE CASCADE;'),
+    ('E4', 'sem a FK do vendedor', '''  -- o vendedor e um funcionario da MESMA empresa do levantamento: a FK composta com o tenant_id; apagado o funcionario, so o vinculo vira nulo
+  ADD CONSTRAINT orcamentista_levantamento_vendedor_employee_fkey FOREIGN KEY (vendedor_employee_id, tenant_id)
+    REFERENCES public.employees(id, tenant_id) ON DELETE SET NULL (vendedor_employee_id);''', '''  ADD CONSTRAINT orcamentista_levantamento_vendedor_employee_forma CHECK (true);'''),
+    ('E5', 'o vendedor com DEFAULT', 'ADD COLUMN IF NOT EXISTS vendedor_employee_id uuid;', "ADD COLUMN IF NOT EXISTS vendedor_employee_id uuid DEFAULT 'a4d39679-da09-43e2-b97e-f9f2b783e7a6';"),
+    ('E6', 'a guarda sem a UNIQUE de employees (avisa e segue)', "    RAISE EXCEPTION 'dependencia ausente: employees sem a UNIQUE", "    RAISE NOTICE 'dependencia ausente: employees sem a UNIQUE"),
     # a guarda e a verificação
     ('G1', 'a guarda sem o tipo da coluna', '    IF FOUND AND v_tipo <> r.tipo THEN', '    IF false THEN'),
     ('G2', 'a guarda sem o estado parcial do número', "  IF FOUND AND (v_nula <> 'NO' OR NOT EXISTS", "  IF false AND (v_nula <> 'NO' OR NOT EXISTS"),
