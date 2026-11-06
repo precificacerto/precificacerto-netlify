@@ -5153,6 +5153,16 @@ describe('(42) a coleta dos dados do levantamento: cliente, ambientes, obs, perc
         expect(textoDoArquivo()).toContain('4%')
     })
 
+    it('TROCAR o vendedor de um levantamento já congelado: os percentuais do NOVO cadastro, menos os ditos na mesma mensagem', async () => {
+        llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }] })
+        await chamar(MSG)
+        expect(lev()).toEqual(expect.objectContaining({ vendedor_employee_id: 'e-cristiano', comissao_percentual: 5, comissao_modo: 'PROPORCIONAL', lucro_projetado_percentual: 10 }))
+        llmResponde({ nome: 'Casa do Pedro', vendedor_do_levantamento: 'Beltrana Souza', condicoes: { lucro_projetado_percentual: 15 } })
+        await chamar('Casa do Pedro: é para a Beltrana Souza, lucro 15')
+        expect(lev()).toEqual(expect.objectContaining({ vendedor_employee_id: 'e-beltrana', comissao_percentual: 4, comissao_modo: 'CONGELADA', reserva_tecnica_percentual: 2, lucro_projetado_percentual: 15 }))
+        expect(textoDoArquivo()).toContain('Modo: congelada')
+    })
+
     it('o vendedor dito que não está no cadastro: a conversa diz e nada é gravado; dois com o mesmo nome: nunca escolhe', async () => {
         llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }], vendedor_do_levantamento: 'Zé Ninguém' })
         await chamar(`${MSG}, é para o Zé Ninguém`)

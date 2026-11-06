@@ -59,6 +59,7 @@ describe('(I) só vale o que foi DITO na mensagem', () => {
         expect(modoDito('PROPORCIONAL', 'comissão proporcional')).toBe('PROPORCIONAL')
         expect(modoDito('CONGELADA', 'congelado')).toBe('CONGELADA')
         expect(modoDito('CONGELADA', 'comissão 5')).toBeNull()
+        expect(modoDito('PROPORCIONAL', 'comissão 5')).toBeNull()
         expect(modoDito('OUTRO', 'outro')).toBeNull()
     })
 
