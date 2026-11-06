@@ -145,6 +145,8 @@ export type ResultadoDaProposta = {
     vidrosPadrao: number
     /** A ABERTURA de cada esquadria tocada nesta proposta (05/11/2026), pela palavra do vendedor — para a tipologia padrão decidir. */
     aberturas: Record<number, Abertura | null>
+    /** As esquadrias (pela ordem) cuja quantidade é o 1 do padrão, não a dita (06/11/2026): o agrupamento não a deixa substituir a gravada. */
+    quantidadesPadrao: number[]
 }
 
 /**
@@ -290,8 +292,11 @@ export function aplicarProposta(atuais: readonly ItemDoLevantamento[], proposta:
         alvo.escolhas = { ...(alvo.escolhas ?? {}), [variavel]: null }
     }
     // QUANTIDADE NÃO DITA É 1 (dono do produto, 03/11/2026): a esquadria que já diz alguma coisa e não diz quantas é uma — sem perguntar
-    for (const i of itens) if (i.quantidade === null && CAMPOS_DA_ESQUADRIA.some((c) => c !== 'quantidade' && !vazio(i[c]))) i.quantidade = 1
-    return { itens, propostos, descartados, semEsquadria, recusas, vidrosPadrao, aberturas }
+    const quantidadesPadrao: number[] = []
+    for (const i of itens) {
+        if (i.quantidade === null && CAMPOS_DA_ESQUADRIA.some((c) => c !== 'quantidade' && !vazio(i[c]))) { i.quantidade = 1; quantidadesPadrao.push(i.ordem) }
+    }
+    return { itens, propostos, descartados, semEsquadria, recusas, vidrosPadrao, aberturas, quantidadesPadrao }
 }
 
 // ── O AGRUPAMENTO (dono do produto, 03/11/2026) ─────────────────────────────────────────────
@@ -310,23 +315,77 @@ const chaveDoAgrupamento = (i: ItemDoLevantamento): string =>
     JSON.stringify([...CRITERIOS_DO_AGRUPAMENTO.map((c) => (c === 'vidro' ? formaCanonicaDoVidro(i.vidro) || i.vidro : i[c])), Object.entries(i.escolhas ?? {}).sort(([a], [b]) => a.localeCompare(b))])
 
 /**
- * Funde os itens completos e iguais: o primeiro fica, com as unidades somadas (quantidade não dita conta 1); os outros saem; a numeração
- * volta a 1..N na ordem em que estavam. Devolve uma cópia e quantos itens se fundiram.
+ * O CAMINHO de cada esquadria desta mensagem no agrupamento (dono do produto, 06/11/2026: "registre no log, por esquadria, qual foi o caminho"):
+ *   - GRAVADA_NOVA: nenhuma gravada igual — é uma esquadria nova do levantamento;
+ *   - SUBSTITUIU_QUANTIDADE: igual a uma gravada, com OUTRA quantidade dita — a dita substitui a gravada;
+ *   - IGNORADA_IGUAL: igual a uma gravada, com a mesma quantidade ou sem quantidade dita — nada muda;
+ *   - SOMADA_NA_MENSAGEM: igual a outra esquadria DESTA mensagem — as duas linhas são duas unidades (a regra de 03/11/2026, que continua).
  */
-export function agruparIguais(itens: readonly ItemDoLevantamento[]): { itens: ItemDoLevantamento[]; fundidos: number } {
+export type CaminhoDaEsquadria = 'GRAVADA_NOVA' | 'SUBSTITUIU_QUANTIDADE' | 'IGNORADA_IGUAL' | 'SOMADA_NA_MENSAGEM'
+/** De onde vem cada esquadria (pela ordem, antes de renumerar): as que já estavam GRAVADAS, e as que levam o 1 do padrão, não a quantidade dita. */
+export type OrigemDosItens = { gravadas: ReadonlySet<number>; quantidadePadrao: ReadonlySet<number> }
+const SEM_ORIGEM: OrigemDosItens = { gravadas: new Set(), quantidadePadrao: new Set() }
+
+/**
+ * Funde os itens completos e iguais e devolve uma cópia, quantos itens saíram e o caminho de cada esquadria desta mensagem (a ordem é a final).
+ *
+ * A REGRA (dono do produto, 06/11/2026, o "2 unidade(s)" da Maria Cristina): "Mesma esquadria, quantidade dita. A quantidade dita SUBSTITUI,
+ * nunca soma. Para acrescentar mais uma igual, o vendedor diz o total ("2 portas"). Não reconheça "mais" nem nenhuma outra palavra para decidir
+ * somar." A esquadria da mensagem igual a uma GRAVADA é ela mesma: a quantidade dita fica no lugar da gravada; sem quantidade dita (o 1 do
+ * padrão), a gravada fica como está. O reenvio idêntico, portanto, não muda nada, quantas vezes vier. Duas linhas iguais DA MESMA mensagem
+ * continuam somando (03/11/2026: "o agrupamento soma as unidades"), e o total delas é o que substitui a gravada. Duas GRAVADAS que ficam
+ * iguais (uma alteração por número) também se somam, como antes: nenhuma é desta mensagem.
+ */
+export function agruparIguais(itens: readonly ItemDoLevantamento[], origem: OrigemDosItens = SEM_ORIGEM): {
+    itens: ItemDoLevantamento[]; fundidos: number; caminhos: Array<{ ordem: number; caminho: CaminhoDaEsquadria }>
+} {
     const saida: ItemDoLevantamento[] = []
-    const porChave = new Map<string, ItemDoLevantamento>()
+    const gravadaDaChave = new Map<string, ItemDoLevantamento>()
     let fundidos = 0
-    for (const original of [...itens].sort((a, b) => a.ordem - b.ordem)) {
-        const i = { ...original, escolhas: original.escolhas ? { ...original.escolhas } : null }
+    const copias = [...itens].sort((a, b) => a.ordem - b.ordem).map((i) => ({ original: i.ordem, item: { ...i, escolhas: i.escolhas ? { ...i.escolhas } : null } }))
+    // 1. as GRAVADAS, como antes: as iguais entre si se somam
+    for (const { original, item: i } of copias) {
+        if (!origem.gravadas.has(original)) continue
         if (!itemCompleto(i)) { saida.push(i); continue }
         const chave = chaveDoAgrupamento(i)
-        const igual = porChave.get(chave)
-        if (!igual) { porChave.set(chave, i); saida.push(i); continue }
+        const igual = gravadaDaChave.get(chave)
+        if (!igual) { gravadaDaChave.set(chave, i); saida.push(i); continue }
         igual.quantidade = (igual.quantidade ?? 1) + (i.quantidade ?? 1)
         fundidos += 1
     }
-    return { itens: saida.map((i, k) => ({ ...i, ordem: k + 1 })), fundidos }
+    // 2. as desta MENSAGEM: juntas entre si (as linhas iguais somam), e o total contra a gravada igual (substitui ou é ignorado)
+    type Grupo = { alvo: ItemDoLevantamento; gravada: boolean; quantidade: number; linhas: number; dita: boolean; primeiro: number }
+    const grupos = new Map<string, Grupo>()
+    const marcas: Array<{ item: ItemDoLevantamento; caminho: CaminhoDaEsquadria | Grupo }> = []
+    for (const { original, item: i } of copias) {
+        if (origem.gravadas.has(original)) continue
+        if (!itemCompleto(i)) { saida.push(i); marcas.push({ item: i, caminho: 'GRAVADA_NOVA' }); continue }
+        const chave = chaveDoAgrupamento(i)
+        const q = i.quantidade ?? 1
+        const dita = i.quantidade !== null && !origem.quantidadePadrao.has(original)
+        const grupo = grupos.get(chave)
+        if (grupo) {
+            grupo.quantidade += q; grupo.linhas += 1; grupo.dita = grupo.dita || dita
+            fundidos += 1
+            marcas.push({ item: grupo.alvo, caminho: 'SOMADA_NA_MENSAGEM' })
+            continue
+        }
+        const gravada = gravadaDaChave.get(chave)
+        const novo: Grupo = gravada
+            ? { alvo: gravada, gravada: true, quantidade: q, linhas: 1, dita, primeiro: marcas.length }
+            : { alvo: i, gravada: false, quantidade: q, linhas: 1, dita, primeiro: marcas.length }
+        grupos.set(chave, novo)
+        if (gravada) { fundidos += 1; marcas.push({ item: gravada, caminho: novo }) } else { saida.push(i); marcas.push({ item: i, caminho: 'GRAVADA_NOVA' }) }
+    }
+    for (const g of grupos.values()) {
+        if (!g.gravada) { if (g.linhas > 1) g.alvo.quantidade = g.quantidade; continue }
+        // a quantidade DITA (ou mais de uma linha) substitui a gravada; a do padrão, ou a mesma, não muda nada
+        const muda = (g.dita || g.linhas > 1) && g.quantidade !== g.alvo.quantidade
+        if (muda) g.alvo.quantidade = g.quantidade
+        marcas[g.primeiro] = { item: g.alvo, caminho: muda ? 'SUBSTITUIU_QUANTIDADE' : 'IGNORADA_IGUAL' }
+    }
+    const caminhos = marcas.map((m) => ({ ordem: saida.indexOf(m.item) + 1, caminho: m.caminho as CaminhoDaEsquadria }))
+    return { itens: saida.map((i, k) => ({ ...i, ordem: k + 1 })), fundidos, caminhos }
 }
 
 export type Pendencia =

@@ -57,6 +57,17 @@ export function arremateDoApanhado(tipologia: VariaveisDaTipologia | null, escol
         .join('; ')
 }
 
+/**
+ * O VIDRO na linha da esquadria, com o rótulo "vidro" UMA vez (06/11/2026, o caso da Maria Cristina: saiu "vidro vidro comum 6 mm incolor"). O
+ * vidro é gravado como o vendedor o escreveu (04/11/2026: "copiado, nunca completado"), e às vezes o escrito já começa pela palavra "vidro": aí o
+ * valor vai como está, sem o rótulo na frente. A comparação ignora caixa e acento; o valor nunca é reescrito.
+ */
+export function vidroNoApanhado(vidro: string | null): string {
+    if (vidro === null || vidro.trim() === '') return 'vidro ?'
+    const v = vidro.trim()
+    return /^vidros?\b/.test(v.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()) ? v : `vidro ${v}`
+}
+
 /** A linha do pé: o valor uma vez, se é o mesmo em todas as esquadrias; senão, por esquadria. */
 function linhaDoPe(rotulo: string, valores: string[]): string {
     const distintos = [...new Set(valores)]
@@ -73,7 +84,7 @@ export function fraseDoApanhado(
 ): string {
     const ordenados = [...itens].sort((a, b) => a.ordem - b.ordem)
     const linhas = ordenados.map((e, k) =>
-        `Esquadria ${k + 1}: ${e.tipologia ?? '?'}, ${e.quantidade ?? '?'} unidade(s), ${milhar(e.largura_mm)} x ${milhar(e.altura_mm)} mm, vidro ${e.vidro ?? '?'}.`)
+        `Esquadria ${k + 1}: ${e.tipologia ?? '?'}, ${e.quantidade ?? '?'} unidade(s), ${milhar(e.largura_mm)} x ${milhar(e.altura_mm)} mm, ${vidroNoApanhado(e.vidro)}.`)
     return [
         `Apanhado do levantamento “${nome}”:`,
         ...linhas,

@@ -5,7 +5,7 @@
  * PORTÃO — o APANHADO (`src/lib/atendimentos-ia/apanhado.ts`), as funções puras. O caminho inteiro, pela rota,
  * está em `atendimentos-ia-levantamento-por-nome.test.ts` (17).
  */
-import { arremateDoApanhado, fraseDoApanhado, rotuloSemCodigo, CONFERE_O_APANHADO } from '@/lib/atendimentos-ia/apanhado'
+import { arremateDoApanhado, fraseDoApanhado, rotuloSemCodigo, vidroNoApanhado, CONFERE_O_APANHADO } from '@/lib/atendimentos-ia/apanhado'
 import type { ItemDoLevantamento } from '@/lib/atendimentos-ia/levantamento-em-montagem'
 import type { VariaveisDaTipologia } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 
@@ -95,3 +95,23 @@ describe('fraseDoApanhado: o pé, sempre, e o que difere por esquadria', () => {
         ])
     })
 })
+
+describe('o vidro na linha da esquadria: o rótulo "vidro" UMA vez (06/11/2026, saiu "vidro vidro comum 6 mm incolor")', () => {
+    it.each([
+        ['vidro comum 6 mm incolor', 'vidro comum 6 mm incolor'],
+        ['Vidro comum 6 mm incolor', 'Vidro comum 6 mm incolor'],
+        ['VÍDRO temperado 8mm', 'VÍDRO temperado 8mm'],
+        ['  vidro 4mm ', 'vidro 4mm'],
+        ['mini boreal', 'vidro mini boreal'],
+        ['temperado 8mm', 'vidro temperado 8mm'],
+        ['vidros 4mm', 'vidros 4mm'],
+        ['vidraça 4mm', 'vidro vidraça 4mm'],
+    ])('"%s" → "%s"', (gravado, linha) => {
+        expect(vidroNoApanhado(gravado)).toBe(linha)
+    })
+    it('sem vidro, a interrogação de sempre', () => {
+        expect(vidroNoApanhado(null)).toBe('vidro ?')
+        expect(vidroNoApanhado('  ')).toBe('vidro ?')
+    })
+})
+

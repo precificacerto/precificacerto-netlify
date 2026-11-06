@@ -194,6 +194,58 @@ describe('o agrupamento: tipologia + medidas + cor + vidro + família + motor + 
         expect(r.itens).toHaveLength(2)
     })
 
+    describe('a esquadria da mensagem contra a GRAVADA (06/11/2026): a quantidade dita substitui, nunca soma; o log diz o caminho', () => {
+        const G = (ordens: number[], padrao: number[] = []) => ({ gravadas: new Set(ordens), quantidadePadrao: new Set(padrao) })
+        it('igual à gravada, com a mesma quantidade: IGNORADA_IGUAL — nada muda, nunca 2', () => {
+            const r = agruparIguais([completo(1), completo(2)], G([1]))
+            expect(r.itens.map((i) => [i.ordem, i.quantidade])).toEqual([[1, 1]])
+            expect(r.caminhos).toEqual([{ ordem: 1, caminho: 'IGNORADA_IGUAL' }])
+        })
+        it('igual à gravada, com OUTRA quantidade dita: SUBSTITUIU_QUANTIDADE — a dita (2), nunca a soma (3)', () => {
+            const r = agruparIguais([completo(1), completo(2, { quantidade: 2 })], G([1]))
+            expect(r.itens.map((i) => [i.ordem, i.quantidade])).toEqual([[1, 2]])
+            expect(r.caminhos).toEqual([{ ordem: 1, caminho: 'SUBSTITUIU_QUANTIDADE' }])
+        })
+        it('igual à gravada SEM quantidade dita (o 1 do padrão): a gravada fica como está — o padrão não substitui', () => {
+            const r = agruparIguais([completo(1, { quantidade: 3 }), completo(2)], G([1], [2]))
+            expect(r.itens.map((i) => i.quantidade)).toEqual([3])
+            expect(r.caminhos).toEqual([{ ordem: 1, caminho: 'IGNORADA_IGUAL' }])
+            // e a mesma quantidade 1 DITA substitui a gravada de 3: dita é dita
+            expect(agruparIguais([completo(1, { quantidade: 3 }), completo(2)], G([1])).itens.map((i) => i.quantidade)).toEqual([1])
+        })
+        it('duas linhas iguais DA MESMA mensagem continuam somando (03/11/2026), e o total delas substitui a gravada', () => {
+            const r = agruparIguais([completo(1, { quantidade: 5 }), completo(2), completo(3)], G([1], [2, 3]))
+            expect(r.itens.map((i) => i.quantidade)).toEqual([2])
+            expect(r.caminhos).toEqual([{ ordem: 1, caminho: 'SUBSTITUIU_QUANTIDADE' }, { ordem: 1, caminho: 'SOMADA_NA_MENSAGEM' }])
+            // sem gravada nenhuma, é a regra de 03/11 inteira: somam, e a primeira é nova
+            const sem = agruparIguais([completo(1), completo(2)])
+            expect(sem.itens.map((i) => i.quantidade)).toEqual([2])
+            expect(sem.caminhos).toEqual([{ ordem: 1, caminho: 'GRAVADA_NOVA' }, { ordem: 1, caminho: 'SOMADA_NA_MENSAGEM' }])
+        })
+        it('a diferente é GRAVADA_NOVA, na ordem final; a incompleta também é nova (não se funde); duas GRAVADAS iguais ainda somam', () => {
+            const r = agruparIguais([completo(1), completo(2, { vidro: null }), completo(3, { largura_mm: 900 })], G([1]))
+            expect(r.itens.map((i) => [i.ordem, i.largura_mm, i.vidro])).toEqual([[1, 1200, 'Temperado 5mm'], [2, 1200, null], [3, 900, 'Temperado 5mm']])
+            expect(r.caminhos).toEqual([{ ordem: 2, caminho: 'GRAVADA_NOVA' }, { ordem: 3, caminho: 'GRAVADA_NOVA' }])
+            const gravadas = agruparIguais([completo(1), completo(2)], G([1, 2]))
+            expect(gravadas.itens.map((i) => i.quantidade)).toEqual([2])
+            expect(gravadas.caminhos).toEqual([])
+        })
+        it('o reenvio idêntico N vezes dá o mesmo resultado que uma vez', () => {
+            let atuais = agruparIguais([completo(1), completo(2, { tipologia: 'DP-03' })]).itens
+            const uma = JSON.stringify(atuais)
+            for (let n = 0; n < 5; n++) {
+                const ordens = atuais.map((i) => i.ordem)
+                atuais = agruparIguais([...atuais, completo(3), completo(4, { tipologia: 'DP-03' })], G(ordens)).itens
+            }
+            expect(JSON.stringify(atuais)).toBe(uma)
+        })
+        it('a entrada não muda', () => {
+            const gravada = completo(1)
+            agruparIguais([gravada, completo(2, { quantidade: 4 })], G([1]))
+            expect(gravada.quantidade).toBe(1)
+        })
+    })
+
     it('as escolhas iguais em outra ordem são as mesmas escolhas', () => {
         const r = agruparIguais([completo(1, { escolhas: { ARI: 4, MAE: 2 } }), completo(2, { escolhas: { MAE: 2, ARI: 4 } })])
         expect(r.fundidos).toBe(1)

@@ -274,6 +274,11 @@ type Rastro = {
     instrucoesSemEfeito: string
     /** Quantos itens iguais se fundiram nesta mensagem (03/11/2026). */
     fundidos: number
+    /**
+     * O CAMINHO de cada esquadria desta mensagem no agrupamento, `e<ordem>:<CAMINHO>` (06/11/2026): GRAVADA_NOVA, SUBSTITUIU_QUANTIDADE,
+     * IGNORADA_IGUAL ou SOMADA_NA_MENSAGEM. "O log atual só disse agrupados=2, que é o que escondeu a causa."
+     */
+    caminhos: string[]
     /** Quantas esquadrias da mensagem eram reenvio idêntico de uma já retida na pergunta em aberto (03/11/2026). */
     reenviadas: number
     /** Quantas mensagens da conversa foram ao modelo (03/11/2026); '-' sem chamada. */
@@ -314,7 +319,7 @@ function anotar(r: Rastro, desfecho: DesfechoDaIa, detalhe = '') {
     const contexto = (r.contexto === '-' ? '' : ` contexto=${r.contexto}${r.fala === '-' ? '' : ` fala=${FALA_NO_LOG[r.fala]}`}`)
         + (r.instrucoes === '-' ? '' : ` instrucoes=${r.instrucoes}`) + (r.instrucoesDasEtapas === '-' ? '' : ` instrucao_etapa=${r.instrucoesDasEtapas}`)
         + (r.instrucoesSemEfeito === '' ? '' : ` instrucao_sem_efeito=${r.instrucoesSemEfeito}`)
-        + (r.fundidos > 0 ? ` agrupados=${r.fundidos}` : '') + (r.reenviadas > 0 ? ` reenviadas=${r.reenviadas}` : '')
+        + (r.fundidos > 0 ? ` agrupados=${r.fundidos}` : '') + (r.caminhos.length > 0 ? ` caminhos=${r.caminhos.join(',')}` : '') + (r.reenviadas > 0 ? ` reenviadas=${r.reenviadas}` : '')
         + (r.historico === '-' ? '' : ` historico=${r.historico}`) + (r.gravacao === '-' ? '' : ` gravacao=${r.gravacao}`) + (r.redacao === '-' ? '' : ` redacao=${r.redacao}`)
         + (r.vidrosNaoDitos > 0 ? ` vidro_nao_dito=${r.vidrosNaoDitos}` : '') + (r.vidrosPodados > 0 ? ` vidro_podado=${r.vidrosPodados}` : '') + (r.vidrosPadrao > 0 ? ` vidro_padrao=${r.vidrosPadrao}` : '')
         // a lista pelo acumulado e os itens vazios (05/11/2026): só números
@@ -1022,7 +1027,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
     const rastro: Rastro = {
         etapas: { coletar: null, casar: null, montar: null, calcular: null },
         levantamento: '-', rota: '-', propostos: 0, descartados: 0, enviou: false, admin: null, nome: '-', aberta: '-', ia: { ms: null, entrada: null, saida: null, raciocinio: null, parada: null, cacheLido: null, cacheEscrito: null, cabecalhosMs: null, primeiroTokenMs: null, tentativas: null, requestId: null },
-        contexto: '-', fala: '-', instrucoes: '-', instrucoesDasEtapas: '-', instrucoesSemEfeito: '', fundidos: 0, reenviadas: 0, historico: '-', gravacao: '-', redacao: '-', vidrosNaoDitos: 0, vidrosPodados: 0, vidrosPadrao: 0, lista: '-', trechos: 0, trechosSemCandidata: 0, itensSemCampos: 0, montagem: '-', coresPadrao: 0, tipologiasPadrao: 0,
+        contexto: '-', fala: '-', instrucoes: '-', instrucoesDasEtapas: '-', instrucoesSemEfeito: '', fundidos: 0, caminhos: [], reenviadas: 0, historico: '-', gravacao: '-', redacao: '-', vidrosNaoDitos: 0, vidrosPodados: 0, vidrosPadrao: 0, lista: '-', trechos: 0, trechosSemCandidata: 0, itensSemCampos: 0, montagem: '-', coresPadrao: 0, tipologiasPadrao: 0,
     }
     const fim = (desfecho: DesfechoDaIa, detalhe = ''): DesfechoDaIa => { anotar(rastro, desfecho, detalhe); return desfecho }
     // a fala da IA, já filtrada: abre a resposta do código. Sem contexto, ou com o filtro disparado, não há
@@ -1435,9 +1440,14 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         }
         // a família e o motor de cada esquadria, como ficam gravados: a resolvida e o motor do cálculo dela HOJE (PR D); e o AGRUPAMENTO
         // (03/11/2026): os itens completos e iguais viram um, com as unidades somadas
-        const agrupamento = agruparIguais(resolverFamilias(proposta_.itens, doCodigo))
+        // A QUANTIDADE DITA SUBSTITUI, NUNCA SOMA (06/11/2026): a esquadria da mensagem igual a uma GRAVADA é ela mesma — o agrupamento sabe quais já
+        // estavam gravadas e quais levam o 1 do padrão, e diz o caminho de cada uma no log
+        const agrupamento = agruparIguais(resolverFamilias(proposta_.itens, doCodigo), {
+            gravadas: new Set(alvo ? alvo.itens.map((i) => i.ordem) : []), quantidadePadrao: new Set(proposta_.quantidadesPadrao),
+        })
         const aplicada = { ...proposta_, itens: agrupamento.itens }
         rastro.fundidos = agrupamento.fundidos
+        rastro.caminhos = agrupamento.caminhos.map((x) => `e${x.ordem}:${x.caminho}`)
         rastro.vidrosPadrao = aplicada.vidrosPadrao
         rastro.propostos = aplicada.propostos
         rastro.descartados = aplicada.descartados
@@ -1468,8 +1478,10 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             }
             return await falar(fraseDeNaoRegistrei(perguntaDasPendencias(pendenciasAbertas, n, null, filtro.jaDito)), 'nao-avancou')
         }
-        // numa alteração, o que foi proposto e não valeu também aparece; sem proposta nenhuma, a conta é refeita
-        if (nadaMudou && aplicada.propostos > 0) return await falar(fraseDeNaoApliquei(nome), 'nao-avancou')
+        // numa alteração, o que foi proposto e não valeu também aparece; sem proposta nenhuma, a conta é refeita. O REENVIO IDÊNTICO (06/11/2026) não é
+        // "não apliquei": as esquadrias eram as mesmas, e a resposta segue como se a mensagem tivesse vindo uma vez
+        const reenvioIgual = aplicada.descartados === 0 && agrupamento.caminhos.length > 0 && agrupamento.caminhos.every((x) => x.caminho === 'IGNORADA_IGUAL')
+        if (nadaMudou && aplicada.propostos > 0 && !reenvioIgual) return await falar(fraseDeNaoApliquei(nome), 'nao-avancou')
 
         // ── grava, e SÓ DEPOIS responde: o trajeto inteiro, a partir do que ficou gravado ──
         const pendencias = pendenciasDoLevantamento(aplicada.itens, definicao, doCodigo)
@@ -1477,7 +1489,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         // ETAPA 3 (06/11/2026): a montagem — a rota, as esquadrias, o que ainda falta (a mesma lista que a pergunta cobre) e o que se gravou
         const faltaNaMontagem = pendencias.map((p) => (p.tipo === 'CAMPO' ? `e${p.ordem}:${campoNoLog(p.campo)}` : p.tipo === 'FAMILIA' ? `e${p.ordem}:familia`
             : p.tipo === 'VARIAVEL' ? `e${p.ordem}:variavel:${p.variavel.variavel}` : `e${p.ordem}:escolha:${p.pendente.variavel}`))
-        const montagemNoLog = (gravadas: number) => `rota=${rastro.rota} esquadrias=${aplicada.itens.length} agrupadas=${agrupamento.fundidos} pendencias=${pendencias.length}`
+        const montagemNoLog = (gravadas: number) => `rota=${rastro.rota} esquadrias=${aplicada.itens.length} agrupadas=${agrupamento.fundidos} caminhos=${listaNoLog(rastro.caminhos)} pendencias=${pendencias.length}`
             + ` gravadas=${gravadas} estado=${gravadas > 0 ? (pendencia ? EM_MONTAGEM : COMPLETO) : '-'} faltou=${listaNoLog(faltaNaMontagem)}`
         rastro.etapas.montar = montagemNoLog(0)
         // o admin não monta levantamento de outro: com pendência, nada é gravado e a resposta diz o que falta
