@@ -4,10 +4,11 @@
  * E os ambientes que viajam com o item (`aplicarProposta`, `agruparIguais`): o dito substitui, a fusão soma por nome.
  */
 import {
-    ambientesDitos, condicoesComOCadastro, dataDita, descricaoDoHomonimo, emailDito, fraseDosHomonimos, fraseDosHomonimosIndistinguiveis, homonimosDistinguiveis, lerDadosDaMensagem, modoDito, percentualDito, perguntaDasCondicoes, telefoneDito, textoDito,
+    ambientesDitos, condicoesComOCadastro, dataDita, descricaoDoHomonimo, emailDito, fraseDoVendedorInativo, fraseDosHomonimos, fraseDosHomonimosIndistinguiveis, homonimosDistinguiveis, nomeCasa, lerDadosDaMensagem, modoDito, percentualDito, perguntaDasCondicoes, telefoneDito, textoDito,
     type CondicoesDoLevantamento,
 } from '@/lib/atendimentos-ia/dados-do-levantamento'
 import { agruparIguais, itemVazio, type ItemDoLevantamento } from '@/lib/atendimentos-ia/levantamento-em-montagem'
+import { normalizarNome } from '@/lib/atendimentos-ia/nome-do-levantamento'
 
 const NADA: CondicoesDoLevantamento = { comissao_percentual: null, comissao_modo: null, reserva_tecnica_percentual: null, reserva_tecnica_responsavel: null, lucro_projetado_percentual: null }
 const CADASTRO = { comissao_percentual: 5, comissao_modo: 'PROPORCIONAL' as const, reserva_tecnica_percentual: 1, lucro_projetado_percentual: 10 }
@@ -146,36 +147,47 @@ describe('(III) os ambientes no item da montagem: o dito substitui, a fusão som
     })
 })
 
-describe('OS HOMÔNIMOS: o que os separa é o cargo, a situação e a data do cadastro — nunca e-mail, telefone ou documento', () => {
-    // os dois Germano Teixeira da De Paula, como estão no cadastro (medido em 06/11/2026)
-    const INATIVO = { cargo: null, ativo: false, cadastradoEm: '2026-07-08T17:13:45.000842+00:00' }
-    const VENDEDOR = { cargo: 'Vendedor', ativo: true, cadastradoEm: '2026-08-11T20:17:40.984559+00:00' }
+describe('O VENDEDOR DITO: as palavras do nome, e o que separa dois ativos — o nome completo e a data do cadastro, nunca o cargo', () => {
+    // o Germano Teixeira ativo da De Paula (medido em 06/11/2026) e um segundo Germano, fictício
+    const TEIXEIRA = { nome: 'Germano Teixeira', cadastradoEm: '2026-08-11T20:17:40.984559+00:00' }
+    const LIMA = { nome: 'Germano Lima', cadastradoEm: '2026-09-02T13:00:00+00:00' }
 
-    it('a descrição de cada um, e a pergunta numerada na ordem dada', () => {
-        expect(descricaoDoHomonimo(INATIVO)).toBe('sem cargo, inativo, cadastrado em 08/07/2026')
-        expect(descricaoDoHomonimo(VENDEDOR)).toBe('Vendedor, ativo, cadastrado em 11/08/2026')
-        expect(fraseDosHomonimos('Germano Teixeira', [INATIVO, VENDEDOR])).toBe(
-            'Há 2 funcionários com o nome “Germano Teixeira” no cadastro da empresa: 1) sem cargo, inativo, cadastrado em 08/07/2026; 2) Vendedor, ativo, cadastrado em 11/08/2026. Qual deles é o vendedor deste levantamento?')
+    it('casa quando TODA palavra dita está no nome, sem caixa e sem acento; parte de palavra não casa', () => {
+        expect(nomeCasa('Germano', 'Germano Teixeira', normalizarNome)).toBe(true)
+        expect(nomeCasa('germano TEIXEIRA', 'Germano Teixeira', normalizarNome)).toBe(true)
+        expect(nomeCasa('Teixeira', 'Germano Teixeira', normalizarNome)).toBe(true)
+        expect(nomeCasa('José', 'Jose da Silva', normalizarNome)).toBe(true)
+        expect(nomeCasa('Germano Silva', 'Germano Teixeira', normalizarNome)).toBe(false)
+        expect(nomeCasa('Germ', 'Germano Teixeira', normalizarNome)).toBe(false)
+        expect(nomeCasa('', 'Germano Teixeira', normalizarNome)).toBe(false)
+        expect(nomeCasa('  ', 'Germano Teixeira', normalizarNome)).toBe(false)
     })
 
-    it('a data é a do fuso da empresa: 23h de São Paulo é o dia seguinte em UTC, e o dia que vale é o de São Paulo', () => {
-        expect(descricaoDoHomonimo({ cargo: null, ativo: true, cadastradoEm: '2026-07-09T02:30:00+00:00' })).toBe('sem cargo, ativo, cadastrado em 08/07/2026')
-        expect(descricaoDoHomonimo({ cargo: null, ativo: true, cadastradoEm: '' })).toBe('sem cargo, ativo, cadastrado em sem data')
+    it('a descrição é o nome completo e o dia; a pergunta numera na ordem dada e cita o que foi dito', () => {
+        expect(descricaoDoHomonimo(TEIXEIRA)).toBe('Germano Teixeira, cadastrado em 11/08/2026')
+        expect(descricaoDoHomonimo({ nome: 'Germano   Teixeira ', cadastradoEm: '' })).toBe('Germano Teixeira, cadastrado em sem data')
+        expect(fraseDosHomonimos('Germano', [TEIXEIRA, LIMA])).toBe(
+            'Há 2 funcionários ativos que casam com “Germano” no cadastro da empresa: 1) Germano Teixeira, cadastrado em 11/08/2026; 2) Germano Lima, cadastrado em 02/09/2026. Qual deles é o vendedor deste levantamento?')
     })
 
-    it('distinguíveis quando ao menos uma das três coisas difere de todos; iguais nas três, nunca', () => {
-        expect(homonimosDistinguiveis([INATIVO, VENDEDOR])).toBe(true)
-        expect(homonimosDistinguiveis([VENDEDOR, { ...VENDEDOR, ativo: false }])).toBe(true)
-        expect(homonimosDistinguiveis([VENDEDOR, { ...VENDEDOR, cargo: 'Gerente' }])).toBe(true)
-        expect(homonimosDistinguiveis([VENDEDOR, { ...VENDEDOR, cadastradoEm: '2026-08-12T20:00:00+00:00' }])).toBe(true)
-        // o mesmo dia em outra hora não separa: o vendedor não vê a hora
-        expect(homonimosDistinguiveis([VENDEDOR, { ...VENDEDOR, cadastradoEm: '2026-08-11T21:00:00+00:00' }])).toBe(false)
-        // três, dois deles iguais: não dá para perguntar
-        expect(homonimosDistinguiveis([INATIVO, VENDEDOR, { ...VENDEDOR }])).toBe(false)
+    it('a data é a do fuso da empresa: 23h30 de São Paulo é o dia seguinte em UTC, e o dia que vale é o de São Paulo', () => {
+        expect(descricaoDoHomonimo({ nome: 'X', cadastradoEm: '2026-07-09T02:30:00+00:00' })).toBe('X, cadastrado em 08/07/2026')
     })
 
-    it('a recusa nomeia o nome, quantos e o que falta para distinguir, e não escolhe', () => {
-        expect(fraseDosHomonimosIndistinguiveis('Beltrana Souza', 2)).toBe(
-            'Há 2 funcionários com o nome “Beltrana Souza” no cadastro da empresa, e nada no cadastro os distingue (o mesmo cargo, a mesma situação e a mesma data). Não escolho entre eles: corrija o cadastro ou diga outro vendedor.')
+    it('distinguíveis quando o nome ou o dia difere de todos; mesmo nome (sem caixa nem acento) e mesmo dia, nunca — a hora não separa', () => {
+        expect(homonimosDistinguiveis([TEIXEIRA, LIMA], normalizarNome)).toBe(true)
+        expect(homonimosDistinguiveis([TEIXEIRA, { ...TEIXEIRA, cadastradoEm: '2026-08-12T20:00:00+00:00' }], normalizarNome)).toBe(true)
+        expect(homonimosDistinguiveis([TEIXEIRA, { ...TEIXEIRA, cadastradoEm: '2026-08-11T22:00:00+00:00' }], normalizarNome)).toBe(false)
+        expect(homonimosDistinguiveis([TEIXEIRA, { ...TEIXEIRA, nome: 'GERMANO  teixeira' }], normalizarNome)).toBe(false)
+        expect(homonimosDistinguiveis([LIMA, TEIXEIRA, { ...TEIXEIRA }], normalizarNome)).toBe(false)
+    })
+
+    it('as recusas nomeiam o dito e quantos, e não escolhem', () => {
+        expect(fraseDosHomonimosIndistinguiveis('Germano Teixeira', 2)).toBe(
+            'Há 2 funcionários ativos que casam com “Germano Teixeira” no cadastro da empresa, com o mesmo nome e cadastrados no mesmo dia: nada no cadastro os distingue. Não escolho entre eles: corrija o cadastro ou diga outro vendedor.')
+        expect(fraseDoVendedorInativo('Germano', [{ nome: 'Germano Teixeira' }])).toBe(
+            'O funcionário “Germano Teixeira” está inativo no cadastro da empresa e não pode ser o vendedor de um levantamento novo. Diga outro vendedor.')
+        expect(fraseDoVendedorInativo('Germano', [{ nome: 'a' }, { nome: 'b' }])).toBe(
+            'Os 2 funcionários que casam com “Germano” estão inativos no cadastro da empresa e não podem ser o vendedor de um levantamento novo. Diga outro vendedor.')
     })
 })

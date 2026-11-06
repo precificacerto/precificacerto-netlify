@@ -206,23 +206,48 @@ export function perguntaDasCondicoes(faltam: readonly string[], vendedor: string
 export const fraseDoVendedorNaoAchado = (nome: string) =>
     `Não achei o vendedor “${nome}” no cadastro da empresa. Diga o nome dele como está no cadastro.`
 
-// ── OS HOMÔNIMOS (dono do produto, 06/11/2026) ───────────────────────────────────────────────
+// ── O VENDEDOR DITO: só os ATIVOS, casados pelas palavras (dono do produto, 06/11/2026) ───────────────
 /**
- * "Os dois 'Germano Teixeira': pergunte qual é. Mas se a pergunta não tiver como ser respondida de forma distinguível (dois homônimos sem nada que
- * os separe na conversa), recuse nomeando o problema em vez de escolher um." O que separa dois homônimos na conversa é o que o cadastro diz deles
- * e se pode dizer ao vendedor: o CARGO, a SITUAÇÃO (ativo ou inativo) e a DATA DO CADASTRO — nunca e-mail, telefone ou documento.
+ * "A busca do vendedor pelo nome considera SÓ funcionários com is_active = true na empresa do levantamento." (`status` não serve: é ACTIVE nos 16
+ * funcionários da plataforma, inclusive nos 4 com is_active = false — medido em 06/11/2026.) "Funcionário inativo não pode ser escolhido como
+ * vendedor de um levantamento novo — seria comissão para quem não está mais na empresa." O levantamento já gravado não é tocado: o nome do vendedor
+ * fica congelado nele.
+ *
+ * O nome dito CASA quando toda palavra dele está no nome do funcionário ("Germano" casa "Germano Teixeira"; "Germano Silva" não) — sem caixa,
+ * sem acento.
  */
-export type Homonimo = { cargo: string | null; ativo: boolean; cadastradoEm: string }
-/** O dia do cadastro no fuso da empresa (o do resgate): um cadastro às 22h de São Paulo já é o dia seguinte em UTC. */
+export function nomeCasa(dito: string, doCadastro: string, normalizar: (t: string) => string): boolean {
+    const palavras = (t: string) => normalizar(t).split(/[^a-z0-9]+/).filter(Boolean)
+    const ditas = palavras(dito)
+    const doNome = new Set(palavras(doCadastro))
+    return ditas.length > 0 && ditas.every((p) => doNome.has(p))
+}
+
+/**
+ * Dois ATIVOS que casam: a conversa PERGUNTA qual é. O que os separa na pergunta é o NOME COMPLETO e a DATA DO CADASTRO (no fuso da empresa) —
+ * "NÃO desambigue por cargo": o cargo é dado sujo ("Vendedor " com espaço no fim), e qualquer limpeza futura quebraria a regra; a situação não
+ * separa, porque todos são ativos. Nunca e-mail, telefone ou documento. Mesmo nome e mesmo dia: recusa nomeada, nunca uma escolha.
+ */
+export type Homonimo = { nome: string; cadastradoEm: string }
+/** O dia do cadastro no fuso da empresa (o do resgate): um cadastro às 23h de São Paulo já é o dia seguinte em UTC. */
 const dataDoCadastro = (iso: string) => {
     const t = Date.parse(iso)
     return Number.isFinite(t) ? new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', year: 'numeric' }).format(t) : 'sem data'
 }
-export const descricaoDoHomonimo = (h: Homonimo) => `${h.cargo ?? 'sem cargo'}, ${h.ativo ? 'ativo' : 'inativo'}, cadastrado em ${dataDoCadastro(h.cadastradoEm)}`
-/** Dá para perguntar? Só se a descrição de cada um for diferente da de todos os outros. */
-export const homonimosDistinguiveis = (hs: readonly Homonimo[]) => new Set(hs.map(descricaoDoHomonimo)).size === hs.length
+const nomeExibido = (nome: string) => nome.replace(/\s+/g, ' ').trim()
+export const descricaoDoHomonimo = (h: Homonimo) => `${nomeExibido(h.nome)}, cadastrado em ${dataDoCadastro(h.cadastradoEm)}`
+/** Dá para perguntar? Só se a descrição de cada um (o nome, sem caixa nem acento, e o dia) for diferente da de todos os outros. */
+export const homonimosDistinguiveis = (hs: readonly Homonimo[], normalizar: (t: string) => string) =>
+    new Set(hs.map((h) => `${normalizar(h.nome)}|${dataDoCadastro(h.cadastradoEm)}`)).size === hs.length
 
-export const fraseDosHomonimos = (nome: string, hs: readonly Homonimo[]) =>
-    `Há ${hs.length} funcionários com o nome “${nome}” no cadastro da empresa: ${hs.map((h, k) => `${k + 1}) ${descricaoDoHomonimo(h)}`).join('; ')}. Qual deles é o vendedor deste levantamento?`
-export const fraseDosHomonimosIndistinguiveis = (nome: string, vezes: number) =>
-    `Há ${vezes} funcionários com o nome “${nome}” no cadastro da empresa, e nada no cadastro os distingue (o mesmo cargo, a mesma situação e a mesma data). Não escolho entre eles: corrija o cadastro ou diga outro vendedor.`
+export const fraseDosHomonimos = (dito: string, hs: readonly Homonimo[]) =>
+    `Há ${hs.length} funcionários ativos que casam com “${dito}” no cadastro da empresa: ${hs.map((h, k) => `${k + 1}) ${descricaoDoHomonimo(h)}`).join('; ')}. Qual deles é o vendedor deste levantamento?`
+export const fraseDosHomonimosIndistinguiveis = (dito: string, vezes: number) =>
+    `Há ${vezes} funcionários ativos que casam com “${dito}” no cadastro da empresa, com o mesmo nome e cadastrados no mesmo dia: nada no cadastro os distingue. Não escolho entre eles: corrija o cadastro ou diga outro vendedor.`
+/** O nome dito que só casa com INATIVO(S): frase própria (dono do produto, 06/11/2026), nada é gravado. */
+export const fraseDoVendedorInativo = (dito: string, inativos: readonly { nome: string }[]) =>
+    inativos.length === 1
+        ? `O funcionário “${nomeExibido(inativos[0].nome)}” está inativo no cadastro da empresa e não pode ser o vendedor de um levantamento novo. Diga outro vendedor.`
+        : `Os ${inativos.length} funcionários que casam com “${dito}” estão inativos no cadastro da empresa e não podem ser o vendedor de um levantamento novo. Diga outro vendedor.`
+/** Sem vendedor nenhum (o funcionário do remetente está inativo, e ninguém foi dito): a conversa pede o vendedor antes dos percentuais. */
+export const FRASE_FALTA_O_VENDEDOR = 'Para fechar o levantamento, falta o vendedor. De quem é este levantamento?'

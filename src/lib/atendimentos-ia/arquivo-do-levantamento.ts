@@ -22,7 +22,7 @@ import { opcoesDaVariavel } from '@/lib/atendimentos-ia/avaliador-de-formulas'
 import { variaveisSemPadrao } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import { gerarFolhaDoLevantamento, type DadosDaFolha, type FolhaGerada, type FolhaRecusada, type ItemDaFolha, type VariavelDita } from '@/lib/atendimentos-ia/folha-do-levantamento'
 import type { DefinicaoDaTipologia, ItemDoLevantamento } from '@/lib/atendimentos-ia/levantamento-em-montagem'
-import type { CondicoesDoLevantamento, ModoDaComissao, PerfilDoVendedor } from '@/lib/atendimentos-ia/dados-do-levantamento'
+import { nomeCasa, type CondicoesDoLevantamento, type ModoDaComissao, type PerfilDoVendedor } from '@/lib/atendimentos-ia/dados-do-levantamento'
 
 /** A pergunta que acompanha o arquivo: a confirmação é sobre ELE. */
 export const CONFERE_O_ARQUIVO = 'Confere? Responda sim para eu fazer o levantamento com os preços, ou diga o que muda.'
@@ -70,28 +70,36 @@ export async function lerVendedorDoRemetente(tenantId: string, remetenteId: stri
     if (error) throw new Error(`orcamentista_remetente_autorizado: ${error.message}`)
     const r = (data ?? {}) as { nome?: string | null; employee_id?: string | null }
     if (r.employee_id) {
-        const { data: e, error: erro } = await supabaseAdmin.from('employees').select('id, name').eq('tenant_id', tenantId).eq('id', r.employee_id).maybeSingle()
+        const { data: e, error: erro } = await supabaseAdmin.from('employees').select('id, name, is_active').eq('tenant_id', tenantId).eq('id', r.employee_id).maybeSingle()
         if (erro) throw new Error(`employees: ${erro.message}`)
-        const nome = (e as { name?: string | null } | null)?.name?.trim() || r.nome?.trim() || null
-        if (e) return { employeeId: r.employee_id, nome }
+        const lido = e as { name?: string | null; is_active?: boolean | null } | null
+        // o funcionário INATIVO não é o vendedor padrão de um levantamento novo (dono do produto, 06/11/2026): sem padrão, a conversa pede o vendedor —
+        // e o nome do remetente não entra no lugar, porque é a mesma pessoa
+        if (lido && lido.is_active !== true) return { employeeId: null, nome: null }
+        const nome = lido?.name?.trim() || r.nome?.trim() || null
+        if (lido) return { employeeId: r.employee_id, nome }
     }
     return { employeeId: null, nome: r.nome?.trim() || null }
 }
 
-/** Um funcionário da empresa, com o que o distingue de um homônimo: o cargo, a situação e a data do cadastro. */
-export type Funcionario = { id: string; nome: string; cargo: string | null; ativo: boolean; cadastradoEm: string }
+/** Um funcionário da empresa, com o que o distingue de um homônimo: o nome completo e a data do cadastro (nunca o cargo, que é dado sujo). */
+export type Funcionario = { id: string; nome: string; ativo: boolean; cadastradoEm: string }
 
 /**
- * Os funcionários da EMPRESA com ESTE nome (sem caixa e sem acento), do cadastrado primeiro ao último — a ordem da lista que a conversa numera.
- * A conversa nunca escolhe entre dois (dono do produto, 06/11/2026).
+ * Os funcionários da EMPRESA cujo nome CASA com o dito (toda palavra dita está no nome, sem caixa e sem acento — `nomeCasa`), do cadastrado primeiro
+ * ao último: a ordem da lista que a conversa numera. Volta os ATIVOS e os INATIVOS separados: só os ativos podem ser escolhidos (`is_active = true`;
+ * `status` não serve, é ACTIVE em todos — medido em 06/11/2026), e os inativos só servem para a frase que diz por que não. A conversa nunca escolhe
+ * entre dois.
  */
-export async function funcionariosPeloNome(tenantId: string, nome: string, normalizar: (t: string) => string): Promise<Funcionario[]> {
-    const { data, error } = await supabaseAdmin.from('employees').select('id, name, position, is_active, created_at').eq('tenant_id', tenantId)
+export async function funcionariosPeloNome(tenantId: string, nome: string, normalizar: (t: string) => string): Promise<{ ativos: Funcionario[]; inativos: Funcionario[] }> {
+    const { data, error } = await supabaseAdmin.from('employees').select('id, name, is_active, created_at').eq('tenant_id', tenantId)
     if (error) throw new Error(`employees: ${error.message}`)
-    return ((data ?? []) as Array<{ id: string; name: string | null; position: string | null; is_active: boolean | null; created_at: string | null }>)
-        .filter((e) => e.name && normalizar(e.name) === normalizar(nome))
-        .map((e) => ({ id: e.id, nome: (e.name as string).trim(), cargo: e.position?.trim() || null, ativo: e.is_active !== false, cadastradoEm: String(e.created_at ?? '') }))
+    const achados = ((data ?? []) as Array<{ id: string; name: string | null; is_active: boolean | null; created_at: string | null }>)
+        .filter((e) => e.name && nomeCasa(nome, e.name, normalizar))
+        // ativo é is_active = true; o nulo não é ativo (ausente não é verdadeiro)
+        .map((e) => ({ id: e.id, nome: (e.name as string).trim(), ativo: e.is_active === true, cadastradoEm: String(e.created_at ?? '') }))
         .sort((x, y) => (x.cadastradoEm < y.cadastradoEm ? -1 : x.cadastradoEm > y.cadastradoEm ? 1 : x.id.localeCompare(y.id)))
+    return { ativos: achados.filter((f) => f.ativo), inativos: achados.filter((f) => !f.ativo) }
 }
 
 /** O cadastro do vendedor (o padrão dos percentuais). Sem funcionário, sem cadastro. */

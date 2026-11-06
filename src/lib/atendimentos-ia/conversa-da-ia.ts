@@ -202,7 +202,7 @@ import {
     montarDadosDaFolha, resumoDoArquivo, resumoDoArquivoParaOPrompt, textoDoEnvioDoArquivo, type DetalheDaTipologia,
 } from '@/lib/atendimentos-ia/arquivo-do-levantamento'
 import {
-    condicoesComOCadastro, fraseDoVendedorNaoAchado, fraseDosHomonimos, fraseDosHomonimosIndistinguiveis, homonimosDistinguiveis, lerDadosDaMensagem, perguntaDasCondicoes,
+    condicoesComOCadastro, FRASE_FALTA_O_VENDEDOR, fraseDoVendedorInativo, fraseDoVendedorNaoAchado, fraseDosHomonimos, fraseDosHomonimosIndistinguiveis, homonimosDistinguiveis, lerDadosDaMensagem, perguntaDasCondicoes,
     type CondicoesDoLevantamento,
 } from '@/lib/atendimentos-ia/dados-do-levantamento'
 import {
@@ -490,7 +490,7 @@ export const FERRAMENTA = {
             opcao: { ...inteiro, description: 'Quando a pergunta em aberto lista levantamentos numerados e o vendedor escolheu um deles — pelo número ("o 2"), pela ordem ("o primeiro", "o último"), pelo nome ("é o do Geronimo") ou pela data ("o de ontem") —, o número dele na lista. Senão, omita.' },
             alteracao: { type: 'boolean', description: 'true quando o vendedor pede para MUDAR um levantamento que já existe (troca, muda, altera, corrige).' },
             vendedor: { ...texto, description: 'O nome do VENDEDOR dono do levantamento, copiado como foi escrito NESTA mensagem. Omita se não foi escrito.' },
-            vendedor_opcao: { ...inteiro, description: 'Quando a pergunta em aberto lista FUNCIONÁRIOS com o mesmo nome, numerados, e o vendedor escolheu um deles — pelo número, pelo cargo, pela situação (ativo, inativo) ou pela data do cadastro —, o número dele na lista. Senão, omita.' },
+            vendedor_opcao: { ...inteiro, description: 'Quando a pergunta em aberto lista FUNCIONÁRIOS, numerados, e o vendedor escolheu um deles — pelo número, pelo nome completo ou pela data do cadastro —, o número dele na lista. Senão, omita.' },
             vendedor_do_levantamento: { ...texto, description: 'Quando quem escreve LANÇA o levantamento PARA outro vendedor ("é para o Cristiano", "vendedor: Cristiano"): o nome dele, copiado como foi escrito NESTA mensagem. Omita se não foi dito.' },
             dados_do_cliente: {
                 type: 'object',
@@ -1235,8 +1235,9 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         let perguntaDasCondicoesAberta: string | null = null
         if (emMontagem && !pendenciaAberta && itensDaMontagem.length > 0) {
             const doArquivo = await lerLevantamentoDoArquivo(c.tenantId, emMontagem.id)
-            const homonimosAbertos = doArquivo?.vendedor_nome && !doArquivo.vendedor_employee_id ? await funcionariosPeloNome(c.tenantId, doArquivo.vendedor_nome, normalizarNome) : []
-            if (homonimosAbertos.length > 1) perguntaDasCondicoesAberta = fraseDosHomonimos(homonimosAbertos[0].nome, homonimosAbertos)
+            const homonimosAbertos = doArquivo?.vendedor_nome && !doArquivo.vendedor_employee_id ? (await funcionariosPeloNome(c.tenantId, doArquivo.vendedor_nome, normalizarNome)).ativos : []
+            if (homonimosAbertos.length > 1 && doArquivo?.vendedor_nome) perguntaDasCondicoesAberta = fraseDosHomonimos(doArquivo.vendedor_nome, homonimosAbertos)
+            else if (doArquivo && !doArquivo.vendedor_nome) perguntaDasCondicoesAberta = FRASE_FALTA_O_VENDEDOR
             else if (doArquivo) {
                 const r = condicoesComOCadastro(doArquivo, await lerPerfilDoVendedor(c.tenantId, doArquivo.vendedor_employee_id))
                 if (r.faltam.length) perguntaDasCondicoesAberta = perguntaDasCondicoes(r.faltam, doArquivo.vendedor_nome)
@@ -1568,19 +1569,26 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             colunas.vendedor_nome = nomeDoVendedor
             for (const k of ['comissao_percentual', 'comissao_modo', 'reserva_tecnica_percentual', 'lucro_projetado_percentual'] as const) if (!(k in dadosDaMensagem.condicoes)) colunas[k] = null
         }
-        // OS HOMÔNIMOS (06/11/2026): o nome dito casa com mais de um funcionário — a conversa PERGUNTA qual é (pelo cargo, pela situação, pela data do
-        // cadastro), e o levantamento fica em montagem com o nome dito e sem o vínculo; nada os separa — recusa nomeando. Nunca escolhe um
+        // O VENDEDOR DITO (06/11/2026): só os funcionários ATIVOS da empresa, casados pelas palavras do nome. Um → é ele. Nenhum ativo → a frase do
+        // inativo, ou a do não achado. Dois ativos → a conversa PERGUNTA qual é (pelo nome completo e a data do cadastro, nunca pelo cargo), e o
+        // levantamento fica em montagem com o nome dito e sem o vínculo; nada os separa → recusa nomeando. Nunca escolhe um. O levantamento já gravado
+        // não é tocado: quem ficou inativo depois continua com o nome congelado nele
         let homonimos: Funcionario[] = []
+        let nomeDosHomonimos = ''
         if (dadosDaMensagem.vendedor !== null) {
-            const achados = await funcionariosPeloNome(c.tenantId, dadosDaMensagem.vendedor, normalizarNome)
-            if (achados.length === 0) return await falar(fraseDoVendedorNaoAchado(dadosDaMensagem.vendedor), 'vendedor-nao-achado')
-            if (achados.length > 1 && !homonimosDistinguiveis(achados)) return await falar(fraseDosHomonimosIndistinguiveis(dadosDaMensagem.vendedor, achados.length), 'vendedor-nao-achado')
-            const escolhido = achados.length === 1 ? achados[0] : opcaoDaLista(proposta.vendedor_opcao, achados)
+            const { ativos, inativos } = await funcionariosPeloNome(c.tenantId, dadosDaMensagem.vendedor, normalizarNome)
+            if (ativos.length === 0) {
+                return await falar(inativos.length ? fraseDoVendedorInativo(dadosDaMensagem.vendedor, inativos) : fraseDoVendedorNaoAchado(dadosDaMensagem.vendedor), 'vendedor-nao-achado')
+            }
+            if (ativos.length > 1 && !homonimosDistinguiveis(ativos, normalizarNome)) return await falar(fraseDosHomonimosIndistinguiveis(dadosDaMensagem.vendedor, ativos.length), 'vendedor-nao-achado')
+            const escolhido = ativos.length === 1 ? ativos[0] : opcaoDaLista(proposta.vendedor_opcao, ativos)
             if (escolhido) { if (escolhido.id !== doLevantamento?.vendedor_employee_id) trocarVendedor(escolhido.id, escolhido.nome) }
-            else { homonimos = achados; trocarVendedor(null, achados[0].nome) }
+            // o nome DITO fica guardado até a escolha: é por ele que a pergunta em aberto refaz a mesma lista no turno seguinte
+            else { homonimos = ativos; nomeDosHomonimos = dadosDaMensagem.vendedor; trocarVendedor(null, dadosDaMensagem.vendedor) }
         } else if (doLevantamento?.vendedor_nome && !doLevantamento.vendedor_employee_id) {
             // a pergunta dos homônimos em aberto: o nome guardado no levantamento, e a escolha pelo número da lista
-            const achados = await funcionariosPeloNome(c.tenantId, doLevantamento.vendedor_nome, normalizarNome)
+            const achados = (await funcionariosPeloNome(c.tenantId, doLevantamento.vendedor_nome, normalizarNome)).ativos
+            nomeDosHomonimos = doLevantamento.vendedor_nome
             if (achados.length > 1) {
                 const escolhido = opcaoDaLista(proposta.vendedor_opcao, achados)
                 if (escolhido) trocarVendedor(escolhido.id, escolhido.nome)
@@ -1634,7 +1642,9 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         let faltamCondicoes: string[] = []
         let congelar: Partial<CondicoesDoLevantamento> = {}
         const vendedorDoLevantamento = (colunas.vendedor_nome as string | null | undefined) ?? doLevantamento?.vendedor_nome ?? null
-        if (!pendencia && !vendedorPendente) {
+        // SEM VENDEDOR NENHUM (o funcionário do remetente está inativo, e ninguém foi dito): a conversa pede o vendedor antes dos percentuais, que são dele
+        const faltaVendedor = !pendencia && !vendedorPendente && vendedorDoLevantamento === null
+        if (!pendencia && !vendedorPendente && !faltaVendedor) {
             const doGravado: CondicoesDoLevantamento = {
                 comissao_percentual: doLevantamento?.comissao_percentual ?? null, comissao_modo: doLevantamento?.comissao_modo ?? null,
                 reserva_tecnica_percentual: doLevantamento?.reserva_tecnica_percentual ?? null, reserva_tecnica_responsavel: doLevantamento?.reserva_tecnica_responsavel ?? null,
@@ -1647,12 +1657,12 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             congelar = r.doCadastro
         }
         // o admin não monta levantamento de outro: com pendência, nada é doLevantamento e a resposta diz o que falta
-        if ((pendencia || vendedorPendente || faltamCondicoes.length) && alvo && alvo.donoId !== c.remetenteId) {
+        if ((pendencia || vendedorPendente || faltaVendedor || faltamCondicoes.length) && alvo && alvo.donoId !== c.remetenteId) {
             const falta = pendencia ? perguntaDasPendencias(pendencias, aplicada.itens.length, null, filtro.jaDito)
-                : vendedorPendente ? fraseDosHomonimos(homonimos[0].nome, homonimos) : perguntaDasCondicoes(faltamCondicoes, vendedorDoLevantamento)
+                : vendedorPendente ? fraseDosHomonimos(nomeDosHomonimos, homonimos) : faltaVendedor ? FRASE_FALTA_O_VENDEDOR : perguntaDasCondicoes(faltamCondicoes, vendedorDoLevantamento)
             return await falar(fraseDaAlteracaoIncompleta(nome, alvo.vendedor ?? VENDEDOR_SEM_NOME, falta), 'alteracao-incompleta')
         }
-        const estado = pendencia || vendedorPendente || faltamCondicoes.length ? EM_MONTAGEM : COMPLETO
+        const estado = pendencia || vendedorPendente || faltaVendedor || faltamCondicoes.length ? EM_MONTAGEM : COMPLETO
         // a pergunta em aberto se resolveu: apagada ANTES de gravar — se o apagar falhar, nada foi gravado, e a
         // esquadria que ela guardava não entra depois num levantamento que não é o dela
         if (temLinha) await apagarPerguntaEmAberto(c.tenantId, c.remetenteId)
@@ -1682,8 +1692,11 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         }
         // o vendedor dito que casa com mais de um funcionário: a pergunta de qual é, com a lista numerada
         if (vendedorPendente) {
-            const pergunta = fraseDosHomonimos(homonimos[0].nome, homonimos)
+            const pergunta = fraseDosHomonimos(nomeDosHomonimos, homonimos)
             return await falar(nadaMudou && perguntaDasCondicoesAberta === pergunta ? fraseDeNaoRegistrei(pergunta) : pergunta, nadaMudou ? 'nao-avancou' : 'perguntou')
+        }
+        if (faltaVendedor) {
+            return await falar(nadaMudou && perguntaDasCondicoesAberta === FRASE_FALTA_O_VENDEDOR ? fraseDeNaoRegistrei(FRASE_FALTA_O_VENDEDOR) : FRASE_FALTA_O_VENDEDOR, nadaMudou ? 'nao-avancou' : 'perguntou')
         }
         // as condições comerciais que nem o cadastro nem a conversa deram: a conversa pergunta, nomeando cada uma e o vendedor (06/11/2026)
         if (faltamCondicoes.length) {

@@ -56,7 +56,7 @@
       },
       "vendedor_opcao": {
        "type": "integer",
-       "description": "Quando a pergunta em aberto lista FUNCIONÁRIOS com o mesmo nome, numerados, e o vendedor escolheu um deles — pelo número, pelo cargo, pela situação (ativo, inativo) ou pela data do cadastro —, o número dele na lista. Senão, omita."
+       "description": "Quando a pergunta em aberto lista FUNCIONÁRIOS, numerados, e o vendedor escolheu um deles — pelo número, pelo nome completo ou pela data do cadastro —, o número dele na lista. Senão, omita."
       },
       "vendedor_do_levantamento": {
        "type": "string",
@@ -321,7 +321,7 @@
       },
       "vendedor_opcao": {
        "type": "integer",
-       "description": "Quando a pergunta em aberto lista FUNCIONÁRIOS com o mesmo nome, numerados, e o vendedor escolheu um deles — pelo número, pelo cargo, pela situação (ativo, inativo) ou pela data do cadastro —, o número dele na lista. Senão, omita."
+       "description": "Quando a pergunta em aberto lista FUNCIONÁRIOS, numerados, e o vendedor escolheu um deles — pelo número, pelo nome completo ou pela data do cadastro —, o número dele na lista. Senão, omita."
       },
       "vendedor_do_levantamento": {
        "type": "string",

@@ -1951,12 +1951,28 @@ A4). Sai só a mensagem-resumo em texto do fim da coleta. "Não chame o arquivo 
     > 'Germano Teixeira': pergunte qual é. Mas se a pergunta não tiver como ser respondida de forma distinguível [...], recuse nomeando o problema
     > em vez de escolher um."
 
-    O que distingue dois homônimos na conversa é o que o cadastro diz e se pode dizer ao vendedor: o **cargo**, a **situação** (ativo ou inativo) e
-    a **data do cadastro** (no fuso de São Paulo) — nunca e-mail, telefone ou documento. A pergunta numera na ordem do cadastro; o levantamento
-    fica EM MONTAGEM com o nome dito e sem o vínculo, e sem percentual; a resposta ("o ativo", "o 2") vem pela `vendedor_opcao` da ferramenta, e
-    a resposta sem a opção não escolhe. Homônimos iguais nas três coisas: recusa nomeada (`fraseDosHomonimosIndistinguiveis`). Medido em
-    06/11/2026 na De Paula: os dois Germano Teixeira são distinguíveis — 1) sem cargo, inativo, cadastrado em 08/07/2026; 2) Vendedor, ativo,
-    cadastrado em 11/08/2026 —, e nenhum tem cadastro de vendedor.
+    **CORREÇÃO do dono do produto, 06/11/2026, depois de medir os funcionários da De Paula — a busca é só entre os ATIVOS:**
+    > "Os dois Germano Teixeira NÃO são equivalentes: o de 08/07/2026 tem is_active = false. Funcionário inativo não pode ser escolhido como
+    > vendedor de um levantamento novo — seria comissão para quem não está mais na empresa. Regra: a busca do vendedor pelo nome considera SÓ
+    > funcionários com is_active = true na empresa do levantamento. [...] NÃO desambigue por cargo. O cargo do Germano ativo está gravado como
+    > 'Vendedor ' com espaço no fim: é dado sujo, e qualquer limpeza futura quebra a regra. [...] Não mexa em levantamento já gravado: um vendedor
+    > que ficou inativo depois continua com o nome congelado no levantamento dele. A restrição vale só para a escolha nova."
+
+    E as respostas dele às perguntas do assistente no mesmo dia: a pergunta entre dois ativos mostra **só o nome completo e a data do cadastro**;
+    o nome dito que só casa com **inativo** tem frase própria ("está inativo no cadastro da empresa e não pode ser o vendedor de um levantamento
+    novo"); a restrição **vale também para o vendedor padrão** (o funcionário do remetente inativo não é padrão: o levantamento novo fica sem
+    vendedor, e a conversa pede o vendedor antes dos percentuais); e o nome dito casa por **palavras contidas** ("Germano" casa "Germano
+    Teixeira"; "Germano Silva" não).
+    - **`is_active`, não `status`.** Medido em produção em 06/11/2026: `status` é `ACTIVE` nos 16 funcionários da plataforma; `is_active` é `false`
+      em 4 (1 na De Paula, o Germano de 08/07; 3 de outra empresa) — os 4 com a mesma divergência. `status` não marca ninguém como inativo e não
+      entra na regra. O `is_active` nulo não é ativo (`ausente-vs-falso.md`); nenhum é nulo hoje.
+    - **O que separa dois ativos:** o nome completo e o dia do cadastro (no fuso de São Paulo) — nunca o cargo, e a situação não separa, porque
+      todos são ativos. Mesmo nome (sem caixa nem acento) e mesmo dia: recusa nomeada (`fraseDosHomonimosIndistinguiveis`), nunca uma escolha.
+      Medido em 06/11/2026: nenhuma empresa tem dois ativos com o mesmo nome — a pergunta existe para o caso, e não aparece em nenhum caso real hoje.
+    - **Os dois Germano reais, hoje:** "é do Germano" resolve DIRETO para o de 11/08 (`fb16777d…`), sem pergunta; nenhum dos dois tem cadastro de
+      vendedor (`orcamentista_vendedor_perfil`, medido), e a conversa pergunta os percentuais — nunca os do remetente.
+    - **O levantamento já gravado não é tocado:** o vínculo e o nome congelados ficam, mesmo que o funcionário fique inativo depois. A busca só roda
+      quando um vendedor é DITO, e a pergunta em aberto dos homônimos (o nome dito guardado, sem vínculo) é a única que se refaz.
   - **"Conferido e confirmado por | data e hora"** sai em branco, para quem confere (decisão do assistente, sem resposta; o dono do produto pode
     trocar).
 - **A migração e o `schema_migrations`:** como as outras aplicadas pelo SQL Editor, a `20261106000002` não tem linha em

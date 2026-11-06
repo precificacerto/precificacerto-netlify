@@ -185,8 +185,8 @@ function montar() {
             { id: TERCEIRO, tenant_id: TENANT, telefone: '51977776666', ativo: true, nome: null, employee_id: 'e-beltrana' },
         ],
         employees: [
-            { id: 'e-cristiano', tenant_id: TENANT, name: 'Cristiano Fernandes', user_id: null, role: 'COMMERCIAL' },
-            { id: 'e-beltrana', tenant_id: TENANT, name: 'Beltrana Souza', user_id: null, role: 'COMMERCIAL' },
+            { id: 'e-cristiano', tenant_id: TENANT, name: 'Cristiano Fernandes', user_id: null, role: 'COMMERCIAL', is_active: true, status: 'ACTIVE', created_at: '2026-06-01T12:00:00+00:00' },
+            { id: 'e-beltrana', tenant_id: TENANT, name: 'Beltrana Souza', user_id: null, role: 'COMMERCIAL', is_active: true, status: 'ACTIVE', created_at: '2026-06-02T12:00:00+00:00' },
         ],
         users: [],
         // a EMPRESA (o nome vai ao cabeçalho do arquivo) e o CADASTRO dos vendedores (o padrão dos percentuais, 06/11/2026), como em produção
@@ -5167,68 +5167,131 @@ describe('(42) a coleta dos dados do levantamento: cliente, ambientes, obs, perc
         expect(textoDoArquivo()).toContain('Modo: congelada')
     })
 
-    describe('OS DOIS GERMANO TEIXEIRA da De Paula, como estão no cadastro (medido em 06/11/2026)', () => {
-        // o de 08/07/2026: sem cargo, inativo; o de 11/08/2026: "Vendedor ", ativo — nenhum dos dois tem cadastro de vendedor (perfil)
-        const comOsGermano = () => estado.db.employees.push(
-            { id: '6903f13e-a74a-460e-bdfc-5ec0b698848b', tenant_id: TENANT, name: 'Germano Teixeira', position: null, is_active: false, created_at: '2026-07-08T17:13:45.000842+00:00', user_id: null, role: 'COMMERCIAL' },
-            { id: 'fb16777d-7e37-49b6-9d73-33e578e65bb7', tenant_id: TENANT, name: 'Germano Teixeira', position: 'Vendedor ', is_active: true, created_at: '2026-08-11T20:17:40.984559+00:00', user_id: null, role: 'COMMERCIAL' },
-        )
-        const PERGUNTA_DOS_GERMANO = 'Há 2 funcionários com o nome “Germano Teixeira” no cadastro da empresa: 1) sem cargo, inativo, cadastrado em 08/07/2026; 2) Vendedor, ativo, cadastrado em 11/08/2026. Qual deles é o vendedor deste levantamento?'
+    describe('O VENDEDOR DITO: só os ATIVOS da empresa, casados pelas palavras do nome (dono do produto, 06/11/2026)', () => {
+        // os dois Germano Teixeira da De Paula, como estão no cadastro (medido em 06/11/2026): o de 08/07 com is_active = false e status = 'ACTIVE'
+        // (os dois campos divergem; vale is_active), e o de 11/08 ativo, com o cargo "Vendedor " (espaço no fim: dado sujo, que não decide nada).
+        // Nenhum dos dois tem cadastro de vendedor (orcamentista_vendedor_perfil)
+        const GERMANO_INATIVO = { id: '6903f13e-a74a-460e-bdfc-5ec0b698848b', tenant_id: TENANT, name: 'Germano Teixeira', position: null as string | null, is_active: false, status: 'ACTIVE', created_at: '2026-07-08T17:13:45.000842+00:00', user_id: null as string | null, role: 'COMMERCIAL' }
+        const GERMANO_ATIVO = { id: 'fb16777d-7e37-49b6-9d73-33e578e65bb7', tenant_id: TENANT, name: 'Germano Teixeira', position: 'Vendedor ', is_active: true, status: 'ACTIVE', created_at: '2026-08-11T20:17:40.984559+00:00', user_id: null as string | null, role: 'COMMERCIAL' }
+        const comOsGermano = () => estado.db.employees.push({ ...GERMANO_INATIVO }, { ...GERMANO_ATIVO })
+        const PERCENTUAIS_DO_GERMANO = 'Para fechar o levantamento, faltam a comissão (%), o modo da comissão (proporcional ou congelada), a reserva técnica (%) e o lucro projetado da proposta (%) do vendedor Germano Teixeira. Qual é?'
 
-        it('a conversa PERGUNTA qual é, pelo cargo, pela situação e pela data — nunca escolhe; o levantamento fica em montagem, sem vínculo e sem percentual', async () => {
+        it('OS DOIS GERMANO REAIS: "é do Germano" resolve DIRETO para o ativo, sem pergunta; sem cadastro de vendedor, PERGUNTA os percentuais — nunca os do remetente', async () => {
             comOsGermano()
-            llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }], vendedor_do_levantamento: 'Germano Teixeira' })
-            await chamar(`${MSG}, é para o Germano Teixeira`)
-            expect(ultimoEnviado()).toBe(PERGUNTA_DOS_GERMANO)
-            expect(lev()).toEqual(expect.objectContaining({ estado: 'EM_MONTAGEM', vendedor_nome: 'Germano Teixeira', vendedor_employee_id: null }))
-            // nunca os percentuais do remetente (o Cristiano tem cadastro) num levantamento lançado para outra pessoa
+            llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }], vendedor_do_levantamento: 'Germano' })
+            await chamar(`${MSG}, é do Germano`)
+            expect(lev()).toEqual(expect.objectContaining({ vendedor_employee_id: GERMANO_ATIVO.id, vendedor_nome: 'Germano Teixeira', estado: 'EM_MONTAGEM' }))
+            // o Cristiano (o remetente) tem cadastro com 5%: nada dele entra num levantamento lançado para o Germano
             for (const k of ['comissao_percentual', 'comissao_modo', 'reserva_tecnica_percentual', 'lucro_projetado_percentual']) expect(lev()[k]).toBeNull()
+            expect(ultimoEnviado()).toBe(PERCENTUAIS_DO_GERMANO)
             expect(estado.documentos).toHaveLength(0)
-        })
-
-        it('"o ativo" → a opção 2 → o vínculo do Germano de 11/08; sem cadastro de vendedor, a conversa PERGUNTA os percentuais (nunca os do remetente)', async () => {
-            comOsGermano()
-            llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }], vendedor_do_levantamento: 'Germano Teixeira' })
-            await chamar(`${MSG}, é para o Germano Teixeira`)
-            // a pergunta dos homônimos é a pergunta em aberto da montagem
-            llmResponde({ vendedor_opcao: 2 })
-            await chamar('é o ativo')
-            expect(textoDoSistema(estado.chamadasDaLlm[1].corpo.system)).toContain(`Pergunta em aberto: ${PERGUNTA_DOS_GERMANO}`)
-            expect(lev()).toEqual(expect.objectContaining({ vendedor_employee_id: 'fb16777d-7e37-49b6-9d73-33e578e65bb7', vendedor_nome: 'Germano Teixeira', estado: 'EM_MONTAGEM' }))
-            expect(ultimoEnviado()).toBe('Para fechar o levantamento, faltam a comissão (%), o modo da comissão (proporcional ou congelada), a reserva técnica (%) e o lucro projetado da proposta (%) do vendedor Germano Teixeira. Qual é?')
             llmResponde({ condicoes: { comissao_percentual: 3, comissao_modo: 'PROPORCIONAL', reserva_tecnica_percentual: 0, lucro_projetado_percentual: 8 } })
             await chamar('comissão 3 proporcional, RT 0, lucro 8')
-            expect(lev()).toEqual(expect.objectContaining({ estado: 'COMPLETO', comissao_percentual: 3, reserva_tecnica_percentual: 0, lucro_projetado_percentual: 8 }))
-            expect(textoDoArquivo()).toContain('Germano Teixeira')
+            expect(lev()).toEqual(expect.objectContaining({ estado: 'COMPLETO', vendedor_employee_id: GERMANO_ATIVO.id, comissao_percentual: 3, reserva_tecnica_percentual: 0, lucro_projetado_percentual: 8 }))
+            expect(textoDoArquivo()).toContain('Vendedor: Germano Teixeira')
         })
 
-        it('a resposta sem a opção não escolhe: a mesma pergunta, dizendo que não registrou', async () => {
-            comOsGermano()
-            llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }], vendedor_do_levantamento: 'Germano Teixeira' })
-            await chamar(`${MSG}, é para o Germano Teixeira`)
-            llmResponde({})
-            await chamar('esse aí')
-            expect(ultimoEnviado()).toBe(conversa.fraseDeNaoRegistrei(PERGUNTA_DOS_GERMANO))
-            expect(lev().vendedor_employee_id).toBeNull()
-        })
-
-        it('dito junto com a opção na mesma mensagem: resolve direto', async () => {
+        it('o nome inteiro também resolve direto; o inativo nunca é escolhido, nem com a opção da lista apontando para ele', async () => {
             comOsGermano()
             llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }], vendedor_do_levantamento: 'Germano Teixeira', vendedor_opcao: 1 })
-            await chamar(`${MSG}, é para o Germano Teixeira, o inativo`)
-            expect(lev().vendedor_employee_id).toBe('6903f13e-a74a-460e-bdfc-5ec0b698848b')
+            await chamar(`${MSG}, é para o Germano Teixeira`)
+            expect(lev().vendedor_employee_id).toBe(GERMANO_ATIVO.id)
+        })
+
+        it('vale is_active, não status: o que tem status ACTIVE e is_active = false é inativo; o nulo também não é ativo', async () => {
+            estado.db.employees.push({ ...GERMANO_INATIVO }, { ...GERMANO_ATIVO, id: 'e-germano-nulo', is_active: null })
+            llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }], vendedor_do_levantamento: 'Germano' })
+            await chamar(`${MSG}, é do Germano`)
+            expect(ultimoEnviado()).toBe('Os 2 funcionários que casam com “Germano” estão inativos no cadastro da empresa e não podem ser o vendedor de um levantamento novo. Diga outro vendedor.')
+            expect(levantamentos()).toHaveLength(0)
+        })
+
+        it('só o INATIVO casa: a frase diz que ele está inativo e nada é gravado', async () => {
+            estado.db.employees.push({ ...GERMANO_INATIVO })
+            llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }], vendedor_do_levantamento: 'Germano' })
+            await chamar(`${MSG}, é do Germano`)
+            expect(ultimoEnviado()).toBe('O funcionário “Germano Teixeira” está inativo no cadastro da empresa e não pode ser o vendedor de um levantamento novo. Diga outro vendedor.')
+            expect(levantamentos()).toHaveLength(0)
+        })
+
+        describe('DOIS ATIVOS que casam: a pergunta continua, pelo nome completo e a data do cadastro — nunca pelo cargo', () => {
+            const GERMANO_LIMA = { id: 'e-germano-lima', tenant_id: TENANT, name: 'Germano Lima', position: 'Vendedor', is_active: true, status: 'ACTIVE', created_at: '2026-09-02T13:00:00+00:00', user_id: null as string | null, role: 'COMMERCIAL' }
+            const PERGUNTA = 'Há 2 funcionários ativos que casam com “Germano” no cadastro da empresa: 1) Germano Teixeira, cadastrado em 11/08/2026; 2) Germano Lima, cadastrado em 02/09/2026. Qual deles é o vendedor deste levantamento?'
+
+            it('a conversa PERGUNTA, numerando na ordem do cadastro; o levantamento fica em montagem, sem vínculo e sem percentual', async () => {
+                comOsGermano(); estado.db.employees.push({ ...GERMANO_LIMA })
+                llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }], vendedor_do_levantamento: 'Germano' })
+                await chamar(`${MSG}, é do Germano`)
+                expect(ultimoEnviado()).toBe(PERGUNTA)
+                expect(ultimoEnviado()).not.toContain(GERMANO_ATIVO.position.trim())
+                expect(lev()).toEqual(expect.objectContaining({ estado: 'EM_MONTAGEM', vendedor_nome: 'Germano', vendedor_employee_id: null }))
+                for (const k of ['comissao_percentual', 'comissao_modo', 'reserva_tecnica_percentual', 'lucro_projetado_percentual']) expect(lev()[k]).toBeNull()
+                expect(estado.documentos).toHaveLength(0)
+            })
+
+            it('"o Lima" → a opção 2 → o vínculo e o nome completo; a pergunta era a pergunta em aberto', async () => {
+                comOsGermano(); estado.db.employees.push({ ...GERMANO_LIMA })
+                llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }], vendedor_do_levantamento: 'Germano' })
+                await chamar(`${MSG}, é do Germano`)
+                llmResponde({ vendedor_opcao: 2 })
+                await chamar('o Lima')
+                expect(textoDoSistema(estado.chamadasDaLlm[1].corpo.system)).toContain(`Pergunta em aberto: ${PERGUNTA}`)
+                expect(lev()).toEqual(expect.objectContaining({ vendedor_employee_id: GERMANO_LIMA.id, vendedor_nome: 'Germano Lima', estado: 'EM_MONTAGEM' }))
+            })
+
+            it('a resposta sem a opção não escolhe: a mesma pergunta, dizendo que não registrou', async () => {
+                comOsGermano(); estado.db.employees.push({ ...GERMANO_LIMA })
+                llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }], vendedor_do_levantamento: 'Germano' })
+                await chamar(`${MSG}, é do Germano`)
+                llmResponde({})
+                await chamar('esse aí')
+                expect(ultimoEnviado()).toBe(conversa.fraseDeNaoRegistrei(PERGUNTA))
+                expect(lev().vendedor_employee_id).toBeNull()
+            })
+
+            it('mesmo nome e cadastrados no mesmo dia (o cargo diferente NÃO separa): recusa nomeando, nada é gravado', async () => {
+                estado.db.employees.push({ ...GERMANO_ATIVO }, { ...GERMANO_ATIVO, id: 'e-germano-2', position: 'Gerente', created_at: '2026-08-11T22:00:00+00:00' })
+                llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }], vendedor_do_levantamento: 'Germano Teixeira' })
+                await chamar(`${MSG}, é do Germano Teixeira`)
+                expect(ultimoEnviado()).toBe(dadosDoLevantamento.fraseDosHomonimosIndistinguiveis('Germano Teixeira', 2))
+                expect(levantamentos()).toHaveLength(0)
+            })
+        })
+
+        it('o levantamento JÁ GRAVADO não é tocado: o vendedor que ficou inativo depois continua com o nome e o vínculo congelados', async () => {
+            comOsGermano()
+            llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }], vendedor_do_levantamento: 'Germano', condicoes: { comissao_percentual: 3, comissao_modo: 'PROPORCIONAL', reserva_tecnica_percentual: 0, lucro_projetado_percentual: 8 } })
+            await chamar(`${MSG}, é do Germano, comissão 3 proporcional, RT 0, lucro 8`)
+            expect(lev()).toEqual(expect.objectContaining({ estado: 'COMPLETO', vendedor_employee_id: GERMANO_ATIVO.id }))
+            // o Germano sai da empresa
+            for (const e of estado.db.employees) if (e.id === GERMANO_ATIVO.id) e.is_active = false
+            llmResponde({ nome: 'Casa do Pedro', alteracao: true, itens: [{ ordem: 1, largura_mm: 1300 }] })
+            await chamar('Casa do Pedro: a largura é 1300')
+            expect(lev()).toEqual(expect.objectContaining({ vendedor_employee_id: GERMANO_ATIVO.id, vendedor_nome: 'Germano Teixeira', comissao_percentual: 3 }))
+            expect(itensDe(lev().id)[0].largura_mm).toBe(1300)
+        })
+
+        it('o funcionário do REMETENTE inativo não é o vendedor padrão: o levantamento novo fica sem vendedor, e a conversa PEDE o vendedor', async () => {
+            for (const e of estado.db.employees) if (e.id === 'e-cristiano') e.is_active = false
+            llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }] })
+            await chamar(MSG)
+            expect(lev().estado).toBe('EM_MONTAGEM')
+            // nada gravado nessas colunas (o banco falso não as cria): nem o nome do remetente no lugar, nem os percentuais dele
+            for (const k of ['vendedor_nome', 'vendedor_employee_id', 'comissao_percentual']) expect(lev()[k] ?? null).toBeNull()
+            expect(ultimoEnviado()).toBe(dadosDoLevantamento.FRASE_FALTA_O_VENDEDOR)
+            expect(estado.documentos).toHaveLength(0)
+            // a resposta diz o vendedor: a Beltrana (ativa, com cadastro) — os percentuais do cadastro DELA
+            llmResponde({ vendedor_do_levantamento: 'Beltrana' })
+            await chamar('é da Beltrana')
+            expect(textoDoSistema(estado.chamadasDaLlm[1].corpo.system)).toContain(`Pergunta em aberto: ${dadosDoLevantamento.FRASE_FALTA_O_VENDEDOR}`)
+            expect(lev()).toEqual(expect.objectContaining({ estado: 'COMPLETO', vendedor_employee_id: 'e-beltrana', vendedor_nome: 'Beltrana Souza', comissao_percentual: 4 }))
         })
     })
 
-    it('o vendedor dito que não está no cadastro: a conversa diz e nada é gravado; dois com o mesmo nome e nada que os separe: recusa nomeando', async () => {
+    it('o vendedor dito que não está no cadastro: a conversa diz e nada é gravado', async () => {
         llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }], vendedor_do_levantamento: 'Zé Ninguém' })
         await chamar(`${MSG}, é para o Zé Ninguém`)
         expect(ultimoEnviado()).toBe(dadosDoLevantamento.fraseDoVendedorNaoAchado('Zé Ninguém'))
-        expect(levantamentos()).toHaveLength(0)
-        estado.db.employees.push({ id: 'e-beltrana-2', tenant_id: TENANT, name: 'Beltrana Souza', user_id: null, role: 'COMMERCIAL' })
-        llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }], vendedor_do_levantamento: 'Beltrana Souza' })
-        await chamar(`${MSG}, é para a Beltrana Souza`)
-        expect(ultimoEnviado()).toBe(dadosDoLevantamento.fraseDosHomonimosIndistinguiveis('Beltrana Souza', 2))
         expect(levantamentos()).toHaveLength(0)
     })
 
@@ -5242,7 +5305,7 @@ describe('(42) a coleta dos dados do levantamento: cliente, ambientes, obs, perc
     })
 
     it('o funcionário de OUTRA empresa com o mesmo nome não é achado: a busca é na empresa do levantamento', async () => {
-        estado.db.employees.push({ id: 'e-de-fora', tenant_id: 'outra-empresa', name: 'Zé de Fora', user_id: null, role: 'COMMERCIAL' })
+        estado.db.employees.push({ id: 'e-de-fora', tenant_id: 'outra-empresa', name: 'Zé de Fora', user_id: null, role: 'COMMERCIAL', is_active: true, status: 'ACTIVE', created_at: '2026-06-03T12:00:00+00:00' })
         llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }], vendedor_do_levantamento: 'Zé de Fora' })
         await chamar(`${MSG}, é para o Zé de Fora`)
         expect(ultimoEnviado()).toBe(dadosDoLevantamento.fraseDoVendedorNaoAchado('Zé de Fora'))
