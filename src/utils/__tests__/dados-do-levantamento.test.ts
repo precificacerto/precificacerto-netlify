@@ -176,6 +176,8 @@ describe('O VENDEDOR DITO: as palavras do nome, e o que separa dois ativos — o
 
     it('distinguíveis quando o nome ou o dia difere de todos; mesmo nome (sem caixa nem acento) e mesmo dia, nunca — a hora não separa', () => {
         expect(homonimosDistinguiveis([TEIXEIRA, LIMA], normalizarNome)).toBe(true)
+        // nomes diferentes cadastrados no MESMO dia: o nome completo separa
+        expect(homonimosDistinguiveis([TEIXEIRA, { ...LIMA, cadastradoEm: TEIXEIRA.cadastradoEm }], normalizarNome)).toBe(true)
         expect(homonimosDistinguiveis([TEIXEIRA, { ...TEIXEIRA, cadastradoEm: '2026-08-12T20:00:00+00:00' }], normalizarNome)).toBe(true)
         expect(homonimosDistinguiveis([TEIXEIRA, { ...TEIXEIRA, cadastradoEm: '2026-08-11T22:00:00+00:00' }], normalizarNome)).toBe(false)
         expect(homonimosDistinguiveis([TEIXEIRA, { ...TEIXEIRA, nome: 'GERMANO  teixeira' }], normalizarNome)).toBe(false)
