@@ -165,7 +165,7 @@ export function desenhoDaTipologia(
 /** Os traços do desenho dentro de uma caixa: o contorno na proporção real, centrado, e as divisões. Função pura (mm da folha). */
 export type TracosDoDesenho = {
     contorno: { x: number; y: number; w: number; h: number }
-    /** Segmentos [x1, y1, x2, y2]. */
+    /** Os traços das divisões, cada um [x1, y1, x2, y2]. */
     divisoes: Array<[number, number, number, number]>
 }
 

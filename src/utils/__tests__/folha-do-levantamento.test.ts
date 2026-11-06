@@ -271,7 +271,7 @@ describe('(IV) o que a folha escreve', () => {
         const muitos = Array.from({ length: 12 }, (_, k) => ({ ...ITENS_DE_EXEMPLO[k % ITENS_DE_EXEMPLO.length], ordem: k + 1 }))
         const d = dados({ itens: muitos })
         const r = gerarFolhaDoLevantamento(d)
-        if (!r.ok) throw new Error(r.recusas.join(' | '))
+        if ('recusas' in r) throw new Error(r.recusas.join(' | '))
         const plano = planoDaFolha(d)
         if ('recusa' in plano) throw new Error(plano.recusa)
         expect(r.paginas).toBe(plano.paginas.length)
@@ -289,7 +289,7 @@ describe('(IV) o que a folha escreve', () => {
 
     it('o "mm" vai no rótulo da coluna, nunca ao lado do valor; nenhum valor em reais; as linhas do item na ordem da especificação', () => {
         const r = gerarFolhaDoLevantamento(FOLHA_DE_EXEMPLO)
-        if (!r.ok) throw new Error(r.recusas.join(' | '))
+        if ('recusas' in r) throw new Error(r.recusas.join(' | '))
         const t = textoDoPdf(r.pdf)
         expect(t).toContain('( mm)')
         expect(t).toContain('(1.500)')
@@ -313,7 +313,7 @@ describe('(IV) o que a folha escreve', () => {
     it('os itens saem na ordem do levantamento, qualquer que seja a ordem em que chegam; os ambientes com a quantidade de cada um', () => {
         const [a, b] = ITENS_DE_EXEMPLO
         const r = gerarFolhaDoLevantamento(dados({ itens: [b, a] }))
-        if (!r.ok) throw new Error(r.recusas.join(' | '))
+        if ('recusas' in r) throw new Error(r.recusas.join(' | '))
         const t = textoDoPdf(r.pdf)
         expect(t.indexOf('(Item 1 · DP-02)')).toBeGreaterThan(-1)
         expect(t.indexOf('(Item 1 · DP-02)')).toBeLessThan(t.indexOf('(Item 2 · DP-04)'))
@@ -323,13 +323,13 @@ describe('(IV) o que a folha escreve', () => {
     it('a mesma folha gerada duas vezes dá os mesmos bytes', () => {
         const a = gerarFolhaDoLevantamento(FOLHA_DE_EXEMPLO)
         const b = gerarFolhaDoLevantamento(FOLHA_DE_EXEMPLO)
-        if (!a.ok || !b.ok) throw new Error('recusou')
+        if ('recusas' in a || 'recusas' in b) throw new Error('recusou')
         expect(Buffer.from(a.pdf).equals(Buffer.from(b.pdf))).toBe(true)
     })
 
     it('o exemplo em docs/levantamento/ é o que o gerador produz hoje (regravar: ATUALIZAR_EXEMPLO_DA_FOLHA=1)', () => {
         const r = gerarFolhaDoLevantamento(FOLHA_DE_EXEMPLO)
-        if (!r.ok) throw new Error(r.recusas.join(' | '))
+        if ('recusas' in r) throw new Error(r.recusas.join(' | '))
         if (process.env.ATUALIZAR_EXEMPLO_DA_FOLHA === '1') writeFileSync(EXEMPLO, Buffer.from(r.pdf))
         expect(Buffer.from(r.pdf).equals(readFileSync(EXEMPLO))).toBe(true)
     })
