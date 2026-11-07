@@ -1,34 +1,21 @@
 /**
- * O APANHADO — a primeira resposta a uma solicitação (dono do produto, 26/10/2026). Função pura.
+ * O APANHADO — a COLETA (vocabulário do dono do produto, 06/11/2026): as perguntas e respostas pelas quais o agente reúne o levantamento. Função pura.
  *
- * "O APANHADO NÃO TRAZ PREÇO." O bloco técnico (barras por código, aproveitamento, perfis por barra inteira e
- * por consumo real, a diferença, a mão de obra, os dois totais e o que o preço cobre) é o resultado do
- * LEVANTAMENTO FORMAL, que só vem depois do "sim" do vendedor. "O primeiro contato é conversa, não orçamento."
+ * A MENSAGEM-RESUMO em texto do fim da coleta ("Apanhado do levantamento X: Esquadria 1: ... Confere?") SAIU em 06/11/2026: no lugar dela vai o
+ * ARQUIVO do levantamento (`folha-do-levantamento.ts`, `arquivo-do-levantamento.ts`), e a confirmação é sobre ele. O que ficou aqui é o
+ * formatador que a folha usa, por extenso e sem código de fornecedor (dono do produto, 26/10/2026):
+ *   - o arremate e a guarnição: O QUE O CÁLCULO USA, variável por variável — a opção que o vendedor escolheu ou, sem resposta, o PADRÃO DO MOTOR
+ *     da tipologia, sempre por extenso ("arremate interno: 65 mm", nunca "BZ0006" nem a palavra "Padrão", que não diz o que se calcula). Dono do
+ *     produto, 07/11/2026: "Enquanto o cálculo usar o padrão do motor [...], a folha tem de mostrar O QUE O CÁLCULO USA." O padrão da empresa
+ *     escrito na instrução da categoria Acabamentos (INSTALACAO) NÃO entra aqui: é prosa para o agente, e ler número dela para decidir dinheiro
+ *     está proibido até a categoria ter campos estruturados (PR de cálculo próprio);
  *
- * O FORMATO, um só ("um formato só, que o vendedor aprende uma vez"):
- *   - INDIVIDUAL, uma linha por esquadria: tipologia, quantidade, largura, altura e vidro;
- *   - COMUM, no PÉ, SEMPRE — mesmo com uma esquadria: a cor do perfil, o arremate e a guarnição. O que é
- *     igual em todas sai uma vez; o que difere sai por esquadria, no próprio pé;
- *   - o arremate e a guarnição — a mesma peça: o BZ0006 é "GUARNIÇÃO 65MM - ARREMATE INTERNO" em produção.
- *     "Padrão" quando nada foi escolhido; quando o vendedor escolheu, o que ele escolheu, por extenso e SEM
- *     código de fornecedor ("arremate interno: 20 mm", nunca "BZ0010"). Vale para TODAS as variáveis, a
- *     medida do arremate inclusive (dono do produto, 26/10/2026: "Se o vendedor escolheu, e a escolha muda o
- *     preço, ele não pode confirmar sem ver"). A medida NÃO escolhida fica no "Padrão", sem detalhe: o corte
- *     padrão não interessa ao vendedor conferindo.
- *
- * Portão: `src/utils/__tests__/atendimentos-ia-levantamento-por-nome.test.ts` (17) e
- * `src/utils/__tests__/apanhado.test.ts`.
+ * Portão: `src/utils/__tests__/apanhado.test.ts`.
  */
 import { escolhasDescritas, lerEscolhasGravadas, nomeDaVariavel, type VariaveisDaTipologia } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
-import type { DefinicaoDaTipologia, ItemDoLevantamento } from '@/lib/atendimentos-ia/levantamento-em-montagem'
 
-export const CONFERE_O_APANHADO = 'Confere? Responda sim para eu fazer o levantamento com os preços, ou diga o que muda.'
-
-/** A MEDIDA do arremate (o corte): só aparece quando o vendedor a escolheu. */
-export const MEDIDAS_DO_ARREMATE = ['MAE', 'MAI'] as const
 
 const minuscula = (t: string) => t.toLocaleLowerCase('pt-BR')
-const milhar = (n: number | null) => (n === null ? '?' : new Intl.NumberFormat('pt-BR').format(n))
 
 /**
  * O rótulo da opção sem o código de fornecedor e sem o valor entre colchetes, em minúscula:
@@ -46,52 +33,16 @@ export function rotuloSemCodigo(rotulo: string, descricao: string): string {
     return t
 }
 
-/** O arremate de uma esquadria, para o pé: "Padrão", ou o que o vendedor escolheu, por extenso. */
-export function arremateDoApanhado(tipologia: VariaveisDaTipologia | null, escolhas: unknown): string {
-    if (!tipologia) return 'Padrão'
-    const descritas = escolhasDescritas(tipologia, lerEscolhasGravadas(escolhas))
-    if (!descritas.some((e) => e.doVendedor)) return 'Padrão'
-    return descritas
-        .filter((e) => e.doVendedor || !(MEDIDAS_DO_ARREMATE as readonly string[]).includes(e.variavel))
-        .map((e) => `${nomeDaVariavel(e.variavel, e.descricao)}: ${e.doVendedor && e.rotulo ? rotuloSemCodigo(e.rotulo, e.descricao) : 'Padrão'}`)
-        .join('; ')
-}
-
 /**
- * O VIDRO na linha da esquadria, com o rótulo "vidro" UMA vez (06/11/2026, o caso da Maria Cristina: saiu "vidro vidro comum 6 mm incolor"). O
- * vidro é gravado como o vendedor o escreveu (04/11/2026: "copiado, nunca completado"), e às vezes o escrito já começa pela palavra "vidro": aí o
- * valor vai como está, sem o rótulo na frente. A comparação ignora caixa e acento; o valor nunca é reescrito.
+ * O arremate de uma esquadria, como o CÁLCULO o usa: cada variável de arremate que a tipologia pede (as capturadas, nas condições valendo), com a
+ * opção EFETIVA — a do vendedor ou o padrão do motor —, por extenso e sem código de fornecedor. Nula quando não há o que dizer: sem a aba Variáveis
+ * da tipologia, ou tipologia sem variável de arremate. O valor efetivo que não é uma das opções da aba é dito como tal, nunca adivinhado.
  */
-export function vidroNoApanhado(vidro: string | null): string {
-    if (vidro === null || vidro.trim() === '') return 'vidro ?'
-    const v = vidro.trim()
-    return /^vidros?\b/.test(v.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()) ? v : `vidro ${v}`
-}
-
-/** A linha do pé: o valor uma vez, se é o mesmo em todas as esquadrias; senão, por esquadria. */
-function linhaDoPe(rotulo: string, valores: string[]): string {
-    const distintos = [...new Set(valores)]
-    return distintos.length === 1
-        ? `${rotulo}: ${distintos[0]}.`
-        : `${rotulo}: ${valores.map((v, i) => `esquadria ${i + 1}, ${v}`).join('; ')}.`
-}
-
-export function fraseDoApanhado(
-    nome: string,
-    itens: readonly ItemDoLevantamento[],
-    /** As abas da tipologia NA TABELA da esquadria (várias tabelas, 26/10/2026). */
-    definicao: DefinicaoDaTipologia,
-): string {
-    const ordenados = [...itens].sort((a, b) => a.ordem - b.ordem)
-    const linhas = ordenados.map((e, k) =>
-        `Esquadria ${k + 1}: ${e.tipologia ?? '?'}, ${e.quantidade ?? '?'} unidade(s), ${milhar(e.largura_mm)} x ${milhar(e.altura_mm)} mm, ${vidroNoApanhado(e.vidro)}.`)
-    return [
-        `Apanhado do levantamento “${nome}”:`,
-        ...linhas,
-        '',
-        linhaDoPe('Cor do perfil', ordenados.map((e) => e.cor_perfil ?? '?')),
-        linhaDoPe('Arremate e guarnição', ordenados.map((e) => arremateDoApanhado(definicao(e), e.escolhas))),
-        '',
-        CONFERE_O_APANHADO,
-    ].join('\n')
+export function arremateDaColeta(tipologia: VariaveisDaTipologia | null, escolhas: unknown): string | null {
+    if (!tipologia) return null
+    const descritas = escolhasDescritas(tipologia, lerEscolhasGravadas(escolhas))
+    if (!descritas.length) return null
+    return descritas
+        .map((e) => `${nomeDaVariavel(e.variavel, e.descricao)}: ${e.rotulo ? rotuloSemCodigo(e.rotulo, e.descricao) : 'opção fora da lista do motor'}`)
+        .join('; ')
 }

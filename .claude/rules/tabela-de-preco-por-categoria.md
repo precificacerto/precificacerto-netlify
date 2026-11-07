@@ -1882,7 +1882,7 @@ da linha, nunca da sigla.**
   nada é perguntado; AF "(HI=1)" com HI = 1 pergunta e com HI = 2 não pergunta; o prompt só com a seção quando há), (VIII) de `levantamento-em-montagem.test.ts`, (V) de `escolhas-da-tipologia.test.ts`, e
   `scripts/harness/variavel-sem-padrao/mutacoes.py` (20 mutações, 20 mortas).
 
-## REGISTRADO, NÃO IMPLEMENTADO — a linha VARIÁVEIS no ARQUIVO do levantamento (especificação do PR 2, dono do produto, 06/11/2026)
+## A linha VARIÁVEIS no ARQUIVO do levantamento (especificação do PR 2, dono do produto, 06/11/2026) — IMPLEMENTADA no gerador da folha (seção seguinte)
 
 Formulação do dono do produto, registrada como está:
 
@@ -1897,3 +1897,140 @@ Formulação do dono do produto, registrada como está:
   "(em mm)" da pergunta).
 - **A linha só existe com variável sem padrão RESPONDIDA**; a que a Condição deixou de fora não entra, e a não respondida não existe (a esquadria
   sem ela não é completa e não chega ao arquivo).
+
+## O ARQUIVO DO LEVANTAMENTO substitui a mensagem-resumo — dono do produto, 06/11/2026 (pressupõe a migração `20261106000002`, aplicada e conferida pelo dono do produto em 06/11/2026)
+
+VOCABULÁRIO, registrado como foi dito: o **APANHADO** é a COLETA (as perguntas e respostas, que continuam); o **LEVANTAMENTO** é o ARQUIVO (a folha
+A4). Sai só a mensagem-resumo em texto do fim da coleta. "Não chame o arquivo de apanhado em lugar nenhum." (O código da pergunta em aberto continua
+`CONFIRMAR_APANHADO`: é valor da CHECK do banco.)
+
+- **O gerador** (`src/lib/atendimentos-ia/folha-do-levantamento.ts`), isolado e testável sem o WhatsApp, segue a especificação normativa do dono do
+  produto (no cabeçalho do módulo): A4 retrato, cabeçalho em toda folha, cliente só na primeira, colunas com o "mm" no rótulo, faixa do item de altura
+  fixa, as linhas VARIÁVEIS (condicional) → `PERFIL / ACESSÓRIO:` e `VIDRO:` → AMBIENTES → OBS, o rodapé e a linha de identificação. Confere antes de produzir (a soma dos
+  ambientes contra a quantidade do item, os percentuais, o vendedor, o símbolo de dinheiro) e recusa nomeando. A paginação (`paginar`) enche a folha
+  antes de virar, nunca parte item nem rodapé. O exemplo renderizado está em `docs/levantamento/`, conferido byte a byte pelo portão.
+- **O desenho** — decisão do dono do produto, 06/11/2026: "Contorno + folhas da descrição". O contorno na proporção real; as folhas que a DESCRIÇÃO
+  do motor diz (nunca o `n_vidros`: a DP-02, de 2 folhas, tem 1); nas MAXIM-AR / FIXO com "N"/"V" módulos, o valor RESPONDIDO da variável de mesma
+  letra; a bandeira (em cima) e o peitoril (embaixo) na ALTURA DITA, pela descrição da variável (a mesma sigla muda de sentido); nada inventado.
+  Medido nas fórmulas da Wolff: os módulos horizontais ficam lado a lado (a coluna de modulação da DP-128 corre na altura com quantidade `N-1`).
+  Medido nas 164 descrições do motor `fdff3386`: 141 com folhas, 26 com BANDEIRA, 19 com PEITORIL, 15 com número de módulos, 8 só com "N"/"V".
+  **Achado, com o dono do produto:** o `N` e o `V` têm Padrão (1) e opções na aba Variáveis, e a conversa não os pergunta (não são variáveis sem
+  padrão nem escolhas capturadas). Hoje nenhum levantamento de produção tem N ou V dito — essas tipologias saem com o contorno e as faixas, sem as
+  divisões dos módulos. Capturar N e V muda o cálculo (N está nas fórmulas) e é decisão à parte.
+- **Na conversa** (`arquivo-do-levantamento.ts`, `conversa-da-ia.ts`): com o levantamento completo, `gerarArquivoDoLevantamento` monta a folha do que está
+  GRAVADO e a conversa a envia pelo WUZAPI (`/chat/send/document`), seguida da confirmação ("Levantamento N “nome”: o arquivo está acima, para você
+  conferir. Confere? ..."). O "sim" leva ao levantamento formal, como antes. O mesmo arquivo não se reenvia sem mudança (R2). A recusa do gerador
+  volta nomeada; a falha do envio do documento é dita. Ao modelo vai um RESUMO do arquivo, sem percentual (o prompt base proíbe o agente de dizer
+  valor e percentual); a comparação "nada mudou" usa o resumo COM as condições.
+- **A coleta dos dados novos** (`dados-do-levantamento.ts`): os dados do cliente, os ambientes e a obs de cada item, os percentuais e o vendedor — só
+  o que foi DITO na mensagem (a IA copia, o código confere). Os percentuais: o cadastro do vendedor é o padrão, o dito substitui, o resultado fica
+  CONGELADO no levantamento; cadastro nulo e nada dito → a conversa PERGUNTA, e o levantamento fica em montagem. O responsável pela RT só vem da
+  conversa; sem ele, o campo sai em branco. O vendedor é o funcionário do remetente, ou o dito (achado no cadastro DA EMPRESA pelo nome; dois com o
+  mesmo nome: pergunta, ou recusa nomeando — ver abaixo). Trocado o vendedor, os percentuais não ditos vêm do cadastro do novo, e sem cadastro são
+  perguntados — nunca herdados do remetente.
+- **As respostas do dono do produto às perguntas de 06/11/2026, registradas como foram ditas:**
+  - **A linha do item:**
+    > "célula 1: 'PERFIL / ACESSÓRIO:' conteúdo: <cor do perfil> / <cor do acessório>, e 'padrão' no lugar da cor do acessório quando ela não foi
+    > dita [...] Ex.: 'Branco / padrão'. célula 2: 'VIDRO:' conteúdo: o vidro como o vendedor disse. O ACESSÓRIO NÃO migra para a célula do vidro,
+    > e o arremate/guarnição NÃO entra na linha do item: ele é comum à obra e sai no fecho, nas pré-definições. [...] Se a cor do perfil ou do
+    > acessório variar de um item para outro, ela aparece no item."
+
+    A cor do acessório é a opção dita da variável cuja DESCRIÇÃO começa com "COR DOS ACESSÓRIOS" (pela descrição, nunca pela sigla), por extenso e
+    sem código (`corDoAcessorio`); não dita, "padrão". Quando o arremate VARIA entre os itens, ele sai na célula PERFIL / ACESSÓRIO, ROTULADO e
+    separado das cores por " · " — decisão do dono do produto, 07/11/2026: "Branco / padrão · Acabamento: arremate externo 20 mm. Não o misture com
+    a cor como se fosse atributo do perfil." (`ROTULO_DO_ACABAMENTO`).
+  - **As pré-definições consideradas:**
+    > "só o que é igual em TODOS os itens e foi informado, com 'Vedação: padrão'. O que não foi informado não aparece [...] O que varia entre itens
+    > não vai ao fecho: vai na linha do item."
+
+    O resumo do arquivo (o de comparação e o do prompt) leva as pré-definições: sem elas, trocar o arremate não mudaria o resumo e o arquivo novo
+    não sairia (R2).
+  - **O vendedor nomeado:**
+    > "Aceite qualquer funcionário da empresa cujo nome case com um só [...] o funcionário escolhido PODE NÃO TER perfil [...] o agente PERGUNTA os
+    > percentuais [...] Nunca herde os percentuais do remetente para um levantamento lançado para outra pessoa: comissão é do vendedor. Os dois
+    > 'Germano Teixeira': pergunte qual é. Mas se a pergunta não tiver como ser respondida de forma distinguível [...], recuse nomeando o problema
+    > em vez de escolher um."
+
+    **CORREÇÃO do dono do produto, 06/11/2026, depois de medir os funcionários da De Paula — a busca é só entre os ATIVOS:**
+    > "Os dois Germano Teixeira NÃO são equivalentes: o de 08/07/2026 tem is_active = false. Funcionário inativo não pode ser escolhido como
+    > vendedor de um levantamento novo — seria comissão para quem não está mais na empresa. Regra: a busca do vendedor pelo nome considera SÓ
+    > funcionários com is_active = true na empresa do levantamento. [...] NÃO desambigue por cargo. O cargo do Germano ativo está gravado como
+    > 'Vendedor ' com espaço no fim: é dado sujo, e qualquer limpeza futura quebra a regra. [...] Não mexa em levantamento já gravado: um vendedor
+    > que ficou inativo depois continua com o nome congelado no levantamento dele. A restrição vale só para a escolha nova."
+
+    E as respostas dele às perguntas do assistente no mesmo dia: a pergunta entre dois ativos mostra **só o nome completo e a data do cadastro**;
+    o nome dito que só casa com **inativo** tem frase própria ("está inativo no cadastro da empresa e não pode ser o vendedor de um levantamento
+    novo"); a restrição **vale também para o vendedor padrão** (o funcionário do remetente inativo não é padrão: o levantamento novo fica sem
+    vendedor, e a conversa pede o vendedor antes dos percentuais); e o nome dito casa por **palavras contidas** ("Germano" casa "Germano
+    Teixeira"; "Germano Silva" não).
+    - **`is_active`, não `status`.** Medido em produção em 06/11/2026: `status` é `ACTIVE` nos 16 funcionários da plataforma; `is_active` é `false`
+      em 4 (1 na De Paula, o Germano de 08/07; 3 de outra empresa) — os 4 com a mesma divergência. `status` não marca ninguém como inativo e não
+      entra na regra. O `is_active` nulo não é ativo (`ausente-vs-falso.md`); nenhum é nulo hoje.
+    - **O que separa dois ativos:** o nome completo e o dia do cadastro (no fuso de São Paulo) — nunca o cargo, e a situação não separa, porque
+      todos são ativos. Mesmo nome (sem caixa nem acento) e mesmo dia: recusa nomeada (`fraseDosHomonimosIndistinguiveis`), nunca uma escolha.
+      Medido em 06/11/2026: nenhuma empresa tem dois ativos com o mesmo nome — a pergunta existe para o caso, e não aparece em nenhum caso real hoje.
+    - **Os dois Germano reais, hoje:** "é do Germano" resolve DIRETO para o de 11/08 (`fb16777d…`), sem pergunta; nenhum dos dois tem cadastro de
+      vendedor (`orcamentista_vendedor_perfil`, medido), e a conversa pergunta os percentuais — nunca os do remetente.
+    - **O CLIENTE TAMBÉM TEM NOME — só a intenção explícita troca o vendedor** (dono do produto, 06/11/2026):
+      > "A troca de vendedor só pode ser acionada por intenção EXPLÍCITA sobre o vendedor ('é do Fulano', 'o vendedor é o Fulano', 'lança para o
+      > Fulano'), nunca por um nome solto na mensagem que case com um funcionário ativo. [...] existe em produção o levantamento 'Levantamento João
+      > da Silva Ternes' — João é o CLIENTE."
+
+      Antes disto, a intenção ficava só com o modelo (a descrição do campo `vendedor_do_levantamento`), e o código conferia apenas que as palavras
+      do nome estavam na mensagem — com a busca por palavras contidas, um nome solto casaria um funcionário. Agora o CÓDIGO confere
+      (`vendedorComIntencao`, `dados-do-levantamento.ts`): o nome tem de vir LOGO DEPOIS de uma marca — "é do/da/para/pra/pro", "vendedor(a)" com
+      "é" ou ":", "lança/lançar/lançado para/pra/pro" (sem caixa e sem acento, artigo opcional). Fora delas a proposta é descartada e o vendedor
+      não muda; o nome do cliente segue para o cliente. **Limite conhecido:** "é do" é marca também quando o vendedor escreve "o levantamento é do
+      João" querendo dizer o cliente — o dono do produto definiu "é do Fulano" como intenção explícita.
+    - **O levantamento já gravado não é tocado:** o vínculo e o nome congelados ficam, mesmo que o funcionário fique inativo depois. A busca só roda
+      quando um vendedor é DITO, e a pergunta em aberto dos homônimos (o nome dito guardado, sem vínculo) é a única que se refaz.
+  - **O ARREMATE NA FOLHA É O QUE O CÁLCULO USA — dono do produto, 07/11/2026.** Medido em produção: a categoria PERFIL só tem `cores`,
+    `cor_predominante` e `serra_mm`; o arremate da empresa é dito na instrução da categoria **INSTALACAO, rotulada "Acabamentos"** — "Padrão:
+    arremate interno guarnição BZ1770 de 70 mm; arremate externo guarnição BZ0010 de 20 mm, perimetral, medida = vão + 50 mm (90/90); [...]" —, e
+    a INSTALACAO não tem NENHUM campo em `orcamentista_categoria_campo`. Mas o CÁLCULO usa o padrão do MOTOR (DP-02: interno 65 mm, BZ0006; externo
+    20 mm; medida do vão, corte 45/45), que diverge da instrução. Decisão, registrada como foi dita:
+    > "a instrução da base de conhecimento, na categoria de arremates (INSTALACAO / 'Acabamentos'), é o padrão de verdade da empresa — folha e
+    > preço seguem ela, não o padrão do motor. Mas NÃO implemente agora, e não extraia número de texto livre. [...] Enquanto o cálculo usar o padrão
+    > do motor [...], a folha tem de mostrar O QUE O CÁLCULO USA. [...] Não há folha dizendo 70 mm com preço de 65 mm."
+
+    Implementado: `arremateDaColeta` diz, variável por variável, a opção EFETIVA (a do vendedor, ou o padrão do motor pelo mesmo
+    `escolhasComPadrao` que o cálculo usa), por extenso e sem código — nunca mais a palavra "Padrão", que não dizia o que se calculava. Sem a aba
+    Variáveis, ou tipologia sem variável de arremate, nada é dito. **NENHUM código de fornecedor em lugar nenhum da folha** (26/10, reafirmado em
+    07/11: "o certo é 'Acabamento: arremate externo 20 mm'"), conferido no texto do PDF com os códigos reais (BZ0006, BZ1770, BZ0010) e com um
+    genérico.
+
+    **Quando a instrução for à folha (o PR de cálculo, não agora):** só a frase que começa com "Padrão:", até o primeiro ponto final, sem códigos de
+    fornecedor; sem essa frase, "Acabamento: não especificado na base". As outras linhas da instrução são regras de comportamento do agente e NUNCA
+    saem na folha.
+
+    **O PR de cálculo seguinte** (Nível 3, depois dos #235/#236): campos ESTRUTURADOS na categoria Acabamentos (arremate interno, arremate externo,
+    medida do arremate externo), do tipo opção, preenchidos pelo super admin, que o cálculo e a folha leem; a instrução em prosa fica só para o
+    agente. A proposta está no relato de 07/11/2026.
+  - **"Conferido e confirmado por | data e hora"** sai em branco, para quem confere (decisão do assistente, sem resposta; o dono do produto pode
+    trocar).
+- **A DENSIDADE DO MOCKUP — dono do produto, 07/11/2026** ("o PDF está fiel na estrutura, mas erra a densidade: 2 itens por folha contra 10 do
+  mockup aprovado"). Medidas tiradas do mockup em pixels (794 px = 210 mm), e o gerador as usa em pixels para os totais baterem:
+  - a coluna Fig. (58 px, 15,3 mm) é UMA célula da altura do item inteiro, com o desenho centrado, na proporção real, crescendo até caber com 1 mm
+    de folga; as outras linhas começam onde ela termina;
+  - a faixa do item, 46 px (12,2 mm); cada linha auxiliar, 16 px (4,2 mm) por linha de texto, com o rótulo na frente: item sem VARIÁVEIS 24,9 mm,
+    com 29,1 mm (eram cerca de 59 mm);
+  - o NOME da tipologia: a descrição do motor com a primeira letra de cada trecho entre barras em maiúscula — nada acrescentado, cortado ou
+    normalizado; o trecho a partir da ÚLTIMA barra "|", com ou sem espaço em volta, em cinza e peso normal (medido: DP-11 e DP-141 têm "|EUROPA"
+    sem espaço depois; DP-01 termina em "| DESIGN"); sem barra, sai inteiro; em até 2 linhas com reticências ("o código ao lado identifica a
+    tipologia e a descrição completa está no motor"); a linha do motor não sai mais em linha própria;
+  - o texto do VENDEDOR e da obra (VARIÁVEIS, AMBIENTES, OBS) NUNCA é cortado: a linha cresce 4,2 mm por linha de texto, só naquele item, e a
+    paginação conta isso ANTES de decidir se o item cabe na folha.
+  **Capacidade medida com esse desenho (07/11/2026):** folha 1, 7 itens sem VARIÁVEIS ou 6 com; folhas seguintes, 8 ou 7. O alvo de 9 a 10 não
+  fecha só com o item: pesam o cabeçalho (22 mm), o bloco do cliente (36,7 mm, só na folha 1), o cabeçalho das colunas (8 mm) e o espaço de 2,5 mm
+  entre itens — que não foram mudados, porque o pedido foi "mantenha tudo o mais como está".
+- **VOCABULÁRIO — "rodapé", nunca "fecho" (dono do produto, 07/11/2026):** "No domínio de esquadrias 'fecho' é FERRAGEM (cremona com fecho
+  alavanca, fecho embutido) [...] Use 'rodapé' para a parte de baixo da folha (pré-definições consideradas, condições comerciais, conferido e
+  confirmado por). [...] Não é cosmético: um dia o agente vai escrever a palavra numa frase e ninguém vai saber se é a peça ou a parte da folha."
+  A linha "Levantamento N · X itens · …" no pé de cada folha, que o gerador chamava de rodapé, passou a ser a **linha de identificação**, para não
+  haver dois rodapés.
+  As citações de 06/11/2026 acima, que dizem "fecho", ficam como foram ditas: leia "rodapé".
+- **A migração e o `schema_migrations`:** como as outras aplicadas pelo SQL Editor, a `20261106000002` não tem linha em
+  `supabase_migrations.schema_migrations`. "É o esperado [...] não 'conserte' isso inserindo linha à mão." (dono do produto, 06/11/2026)
+- **Prova:** `folha-do-levantamento.test.ts` (o desenho, a conferência, a paginação, o PDF e o exemplo) e `scripts/mutacoes/folha-do-levantamento.py`;
+  `dados-do-levantamento.test.ts`, `arquivo-do-levantamento.test.ts`, os blocos (17) e (42) de `atendimentos-ia-levantamento-por-nome.test.ts` e
+  `scripts/mutacoes/arquivo-do-levantamento-na-conversa.py`.
