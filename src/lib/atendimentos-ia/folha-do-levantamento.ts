@@ -28,7 +28,7 @@
  *     dados (o contrato `DadosDaFolha` não tem campo para eles), e a conferência recusa texto com símbolo de dinheiro (`SIMBOLO_DE_DINHEIRO`).
  *   - RODAPÉ (a parte de baixo do levantamento, na última folha): pré-definições consideradas (só o que foi informado, corpo reduzido, sem negrito); condições comerciais — vendedor + comissão % + modo
  *     numa linha (modo encostado à direita), e RT + responsável + % e lucro projetado da proposta + %, metade da linha cada, com o percentual num
- *     campo curto na borda direita da sua metade; conferido e confirmado por | data e hora. LINHA DE IDENTIFICAÇÃO, no pé de toda folha: "Levantamento N · X itens · Y peças · gerado em
+ *     campo curto na borda direita da sua metade; conferido e confirmado por | data e hora. LINHA DE IDENTIFICAÇÃO, no pé da ÚLTIMA folha (07/11/2026): "Levantamento N · X itens · Y peças · gerado em
  *     dd/mm/aaaa às hh:mm" (o fuso é o de São Paulo).
  *   - O arquivo TRAZ comissão %, RT % e lucro projetado % (decisão do dono do produto de 06/11/2026, revoga a de 22/10). Uma versão só, sem parâmetro.
  *   - Antes de produzir, o gerador confere: a soma das quantidades dos ambientes fecha com a quantidade do item. Não fechando, RECUSA NOMEADA.
@@ -279,6 +279,8 @@ export type AlturasDaFolha = {
     cabecalhoDasColunas: number
     itens: readonly number[]
     rodape: number
+    /** A linha de identificação no pé: só na ÚLTIMA folha, a que leva o rodapé — por isso entra na conta junto com ele. */
+    linhaDeIdentificacao: number
 }
 
 export type PaginaDaFolha = { cliente: boolean; itens: number[]; rodape: boolean }
@@ -301,8 +303,9 @@ export function paginar(a: AlturasDaFolha): { paginas: PaginaDaFolha[] } | { rec
         paginas.push({ cliente: false, itens: [i], rodape: false })
         livre = a.util - sozinho
     }
-    if (a.rodape > a.util) return { recusa: 'O rodapé não cabe numa folha inteira.' }
-    if (a.rodape <= livre) paginas[paginas.length - 1].rodape = true
+    const fim = a.rodape + a.linhaDeIdentificacao
+    if (fim > a.util) return { recusa: 'O rodapé não cabe numa folha inteira.' }
+    if (fim <= livre) paginas[paginas.length - 1].rodape = true
     else paginas.push({ cliente: false, itens: [], rodape: true })
     return { paginas }
 }
@@ -338,7 +341,7 @@ export function linhaDasVariaveis(i: Pick<ItemDaFolha, 'variaveis'>): string | n
 
 export const linhaDosAmbientes = (i: Pick<ItemDaFolha, 'ambientes'>) => (i.ambientes ?? []).map((a) => `${a.ambiente} (${a.quantidade})`).join(' · ')
 
-/** A LINHA DE IDENTIFICAÇÃO, no pé de toda folha (não é o rodapé: o rodapé é a parte de baixo do levantamento, na última folha). */
+/** A LINHA DE IDENTIFICAÇÃO, no pé da ÚLTIMA folha, a do rodapé (nas outras, o número e "Página X de Y" já estão no topo). Não é o rodapé. */
 export function linhaDeIdentificacao(d: Pick<DadosDaFolha, 'numero' | 'itens' | 'geradoEm'>): string {
     const pecas = d.itens.reduce((s, i) => s + i.quantidade, 0)
     return `Levantamento ${d.numero} · ${d.itens.length} ${d.itens.length === 1 ? 'item' : 'itens'} · ${pecas} ${pecas === 1 ? 'peça' : 'peças'} · gerado em ${dataLonga(d.geradoEm)} às ${hora(d.geradoEm)}`
@@ -352,10 +355,16 @@ export const nomeDoArquivo = (d: Pick<DadosDaFolha, 'numero' | 'cliente'>) =>
 // As medidas, em mm. A4 retrato.
 export const FOLHA = { largura: 210, altura: 297, margem: 10 } as const
 const CONTEUDO = FOLHA.largura - 2 * FOLHA.margem
-const ALTURA_DO_CABECALHO = 22
-const ALTURA_DO_RODAPE = 10
+/**
+ * A CONTA DA FOLHA (dono do produto, 07/11/2026, depois de medir que o mockup de "10 itens" estourava a A4 em 35 mm): margens de 10 mm; o
+ * cabeçalho com 14 mm; o corpo com 263 mm em toda folha. A linha de identificação no pé (10 mm) só existe na ÚLTIMA folha — nas outras, o número
+ * e "Página X de Y" já estão no topo —, e por isso não é reservada em toda folha: a paginação a soma ao rodapé.
+ * Folha 1: 263 − 31,4 (cliente e respiro) − 4,5 (títulos da tabela) = 227,1 mm → 9 itens sem VARIÁVEIS; folhas seguintes: 258,5 mm → 10.
+ */
+const ALTURA_DO_CABECALHO = 14
+export const ALTURA_DA_LINHA_DE_IDENTIFICACAO = 10
 const TOPO_DO_CORPO = FOLHA.margem + ALTURA_DO_CABECALHO
-const FIM_DO_CORPO = FOLHA.altura - FOLHA.margem - ALTURA_DO_RODAPE
+const FIM_DO_CORPO = FOLHA.altura - FOLHA.margem
 /** As colunas: Fig. | Item e tipologia | Qtde | Larg. | Alt. — somam a largura do conteúdo. */
 /**
  * AS MEDIDAS DO MOCKUP APROVADO (dono do produto, 07/11/2026), tiradas em pixels — 794 px = 210 mm — para os totais baterem com ele: a coluna
@@ -376,9 +385,11 @@ const FOLGA_DO_DESENHO = 1
 export const LINHAS_DO_NOME = 2
 const CORPO_DO_NOME = 7
 const CORPO_DA_LINHA = 7
-const ALTURA_DO_CABECALHO_DAS_COLUNAS = 8
-const ESPACO_ENTRE_ITENS = 2.5
-const LINHA_DO_CLIENTE = 7
+const ALTURA_DO_CABECALHO_DAS_COLUNAS = 4.5
+/** Os itens são CONTÍGUOS, separados só pela borda, como no mockup (eram 2,5 mm em branco por item, 22,5 mm por folha). */
+const ESPACO_ENTRE_ITENS = 0
+/** Uma linha do bloco do cliente: rótulo e valor na MESMA linha ("CLIENTE  Ana Exemplo"), 27,4 mm nas quatro, como o mockup. */
+const LINHA_DO_CLIENTE = 27.4 / 4
 const CORPO = 8.5
 const CORPO_REDUZIDO = 7.5
 const ROTULO = 6.5
@@ -487,9 +498,16 @@ export function linhasDoNome(doc: Doc, descricao: string, largura: number): Trec
     })
 }
 
-/** A altura de um campo do cliente (ou das condições): cresce com o texto — nada é cortado. */
-const alturaDoCampo = (doc: Doc, texto: string | null, largura: number, minima = LINHA_DO_CLIENTE) =>
-    Math.max(minima, 3.4 + quebrar(doc, texto ?? '', largura - 3, CORPO).length * CORPO * ENTRELINHA + 1.2)
+/** O valor de um campo do cliente, quebrado no espaço que sobra depois do rótulo (o rótulo vai NA FRENTE, na mesma linha). */
+function linhasDoCampo(doc: Doc, nome: string, texto: string | null, largura: number): string[] {
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(ROTULO)
+    const larguraDoRotulo = doc.getTextWidth(nome)
+    doc.setFont('helvetica', 'normal')
+    return quebrar(doc, texto ?? '', largura - 3 - larguraDoRotulo - 2, CORPO)
+}
+/** A altura de um campo do cliente: uma linha do mockup; o texto que não cabe nela cresce — nada é cortado. */
+const alturaDoCampo = (doc: Doc, nome: string, texto: string | null, largura: number) =>
+    LINHA_DO_CLIENTE + (linhasDoCampo(doc, nome, texto, largura).length - 1) * CORPO * ENTRELINHA
 
 type LinhaDoCliente = Array<{ nome: string; valor: string | null; w: number }>
 function linhasDoCliente(d: DadosDaFolha): LinhaDoCliente[] {
@@ -502,7 +520,7 @@ function linhasDoCliente(d: DadosDaFolha): LinhaDoCliente[] {
         [{ nome: 'OBS DA OBRA', valor: c.obsObra, w: metade }, { nome: 'DATA DE ENTREGA', valor: c.dataEntrega ? dataCurta(c.dataEntrega) : null, w: metade }],
     ]
 }
-const alturaDaLinhaDoCliente = (doc: Doc, l: LinhaDoCliente) => Math.max(...l.map((c) => alturaDoCampo(doc, c.valor, c.w)))
+const alturaDaLinhaDoCliente = (doc: Doc, l: LinhaDoCliente) => Math.max(...l.map((c) => alturaDoCampo(doc, c.nome, c.valor, c.w)))
 const alturaDoCliente = (doc: Doc, d: DadosDaFolha) => linhasDoCliente(d).reduce((s, l) => s + alturaDaLinhaDoCliente(doc, l), 0) + 4
 
 function textoDasPreDefinicoes(d: DadosDaFolha): string {
@@ -550,21 +568,22 @@ function celulaComRotulo(doc: Doc, x: number, y: number, w: number, h: number, n
 function cabecalho(doc: Doc, d: DadosDaFolha, pagina: number, total: number) {
     const y = FOLHA.margem
     doc.setTextColor(PRETO)
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(15)
-    doc.text('Levantamento', FOLHA.margem, y + 7)
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(9)
-    doc.text(d.empresa, FOLHA.margem, y + 13)
-    const meio = FOLHA.largura / 2
-    rotulo(doc, 'DATA', meio - 18, y + 4.5); rotulo(doc, 'HORA', meio + 8, y + 4.5)
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(9)
-    doc.text(dataLonga(d.geradoEm), meio - 18, y + 9.5); doc.text(hora(d.geradoEm), meio + 8, y + 9.5)
-    const direita = FOLHA.largura - FOLHA.margem
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(15)
-    doc.text(`Nº ${d.numero}`, direita, y + 7, { align: 'right' })
+    // em 14 mm: o topo (título e número) e o subtopo (empresa e página), o traço e 2 mm até o corpo
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(13)
+    doc.text('Levantamento', FOLHA.margem, y + 5)
     doc.setFont('helvetica', 'normal'); doc.setFontSize(8)
-    doc.text(`Página ${pagina} de ${total}`, direita, y + 13, { align: 'right' })
+    doc.text(d.empresa, FOLHA.margem, y + 9.5)
+    const meio = FOLHA.largura / 2
+    rotulo(doc, 'DATA', meio - 18, y + 2.8); rotulo(doc, 'HORA', meio + 8, y + 2.8)
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5)
+    doc.text(dataLonga(d.geradoEm), meio - 18, y + 7); doc.text(hora(d.geradoEm), meio + 8, y + 7)
+    const direita = FOLHA.largura - FOLHA.margem
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(13)
+    doc.text(`Nº ${d.numero}`, direita, y + 5, { align: 'right' })
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5)
+    doc.text(`Página ${pagina} de ${total}`, direita, y + 9.5, { align: 'right' })
     doc.setDrawColor(PRETO); doc.setLineWidth(0.4)
-    doc.line(FOLHA.margem, y + ALTURA_DO_CABECALHO - 4, direita, y + ALTURA_DO_CABECALHO - 4)
+    doc.line(FOLHA.margem, y + ALTURA_DO_CABECALHO - 2, direita, y + ALTURA_DO_CABECALHO - 2)
     doc.setLineWidth(0.2)
 }
 
@@ -583,11 +602,14 @@ function blocoDoCliente(doc: Doc, d: DadosDaFolha, y: number): number {
         let cx = FOLHA.margem
         for (const c of linha) {
             doc.setDrawColor(TRACO); doc.rect(cx, cy, c.w, h)
-            rotulo(doc, c.nome, cx + 1.5, cy + 2.6)
-            doc.setFont('helvetica', 'normal')
-            const texto = quebrar(doc, c.valor ?? '', c.w - 3, CORPO)
-            doc.setFontSize(CORPO)
-            texto.forEach((t, k) => doc.text(t, cx + 1.5, cy + 5.9 + k * CORPO * ENTRELINHA))
+            // o rótulo e o valor na MESMA linha, como o mockup
+            const base = cy + LINHA_DO_CLIENTE * 0.66
+            doc.setFont('helvetica', 'bold'); doc.setFontSize(ROTULO); doc.setTextColor(CINZA)
+            doc.text(c.nome, cx + 1.5, base)
+            const inicio = cx + 1.5 + doc.getTextWidth(c.nome) + 2
+            const texto = linhasDoCampo(doc, c.nome, c.valor, c.w)
+            doc.setFont('helvetica', 'normal'); doc.setFontSize(CORPO); doc.setTextColor(PRETO)
+            texto.forEach((t, k) => doc.text(t, inicio, base + k * CORPO * ENTRELINHA))
             cx += c.w
         }
         cy += h
@@ -598,21 +620,22 @@ function blocoDoCliente(doc: Doc, d: DadosDaFolha, y: number): number {
 function cabecalhoDasColunas(doc: Doc, y: number): number {
     const x = FOLHA.margem
     doc.setFillColor(238, 238, 238); doc.rect(x, y, CONTEUDO, ALTURA_DO_CABECALHO_DAS_COLUNAS, 'F')
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.setTextColor(PRETO)
-    const meioY = y + ALTURA_DO_CABECALHO_DAS_COLUNAS / 2 + 1
+    // uma linha de rótulo pequeno, da ordem das linhas auxiliares (4,5 mm)
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(6.5); doc.setTextColor(PRETO)
+    const meioY = y + ALTURA_DO_CABECALHO_DAS_COLUNAS / 2 + 0.8
     let cx = x
     doc.text('Fig.', cx + COLUNAS.fig / 2, meioY, { align: 'center' }); cx += COLUNAS.fig
     doc.text('Item e tipologia', cx + 1.5, meioY); cx += COLUNAS.item
     doc.text('Qtde', cx + COLUNAS.qtde / 2, meioY, { align: 'center' }); cx += COLUNAS.qtde
     for (const [nome, w] of [['Larg.', COLUNAS.larg], ['Alt.', COLUNAS.alt]] as const) {
         // o "mm" vai no RÓTULO, em corpo miúdo — nunca ao lado de cada valor
-        doc.setFont('helvetica', 'bold'); doc.setFontSize(8)
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(6.5)
         const larguraDoNome = doc.getTextWidth(nome)
-        doc.setFont('helvetica', 'normal'); doc.setFontSize(5.5)
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(4.5)
         const larguraDoMm = doc.getTextWidth(' mm')
         const inicio = cx + (w - larguraDoNome - larguraDoMm) / 2
-        doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.text(nome, inicio, meioY)
-        doc.setFont('helvetica', 'normal'); doc.setFontSize(5.5); doc.text(' mm', inicio + larguraDoNome, meioY)
+        doc.setFont('helvetica', 'bold'); doc.setFontSize(6.5); doc.text(nome, inicio, meioY)
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(4.5); doc.text(' mm', inicio + larguraDoNome, meioY)
         cx += w
     }
     return y + ALTURA_DO_CABECALHO_DAS_COLUNAS
@@ -732,6 +755,7 @@ function medir(doc: Doc, d: DadosDaFolha): AlturasDaFolha {
         cabecalhoDasColunas: ALTURA_DO_CABECALHO_DAS_COLUNAS,
         itens: d.itens.map((i) => alturaDoItem(doc, i)),
         rodape: alturaDoRodape(doc, d),
+        linhaDeIdentificacao: ALTURA_DA_LINHA_DE_IDENTIFICACAO,
     }
 }
 
@@ -768,8 +792,8 @@ export function gerarFolhaDoLevantamento(d: DadosDaFolha): FolhaGerada | FolhaRe
         if (p.cliente) y = blocoDoCliente(doc, dados, y)
         if (p.itens.length) y = cabecalhoDasColunas(doc, y)
         for (const i of p.itens) y = blocoDoItem(doc, itens[i], y)
-        if (p.rodape) desenharRodape(doc, dados, y)
-        desenharLinhaDeIdentificacao(doc, dados)
+        // o rodapé e a linha de identificação no pé, só na última folha
+        if (p.rodape) { desenharRodape(doc, dados, y); desenharLinhaDeIdentificacao(doc, dados) }
     })
     doc.setProperties({ title: `Levantamento ${d.numero} — ${d.cliente.nome}`, creator: 'Precifica Certo' })
     // o mesmo levantamento gerado no mesmo instante dá os mesmos bytes (o exemplo em docs/levantamento/ é conferido assim)
