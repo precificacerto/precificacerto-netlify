@@ -34,6 +34,7 @@
  */
 import { NADA_DITO, PERGUNTA_DO_CAMPO, perguntasDaTipologia, valorValido, type JaDito } from '@/lib/atendimentos-ia/pre-definicao'
 import { formaCanonicaDoVidro } from '@/lib/atendimentos-ia/vidro'
+import type { AmbienteDoItem } from '@/lib/atendimentos-ia/dados-do-levantamento'
 import {
     escolhaPedida, lerEscolhasGravadas, nomeDaVariavelSemPadrao, perguntaDaEscolha, validarEscolha, validarValorDaVariavel, variaveisAPerguntar,
     type EscolhaPendente, type VariaveisDaTipologia, type VariavelSemPadrao,
@@ -59,10 +60,18 @@ export type ItemDoLevantamento = {
     familia: string | null
     /** O motor que calcula a esquadria: o da etapa 2 da família (`resolverFamilias` o põe junto com a família). */
     motor_id: string | null
+    /**
+     * Os AMBIENTES e a OBS do item (dono do produto, 06/11/2026; colunas da migração 20261106000002): o que vai às linhas AMBIENTES e OBS da
+     * folha do levantamento. Opcionais no tipo DE PROPÓSITO: não entram no cálculo nem na identidade da esquadria, e o ausente (undefined)
+     * é lido como nulo — "não informado" (`ausente-vs-falso.md`), que é o mesmo que a folha mostra em branco. Quem grava normaliza para nulo.
+     */
+    ambientes?: AmbienteDoItem[] | null
+    obs?: string | null
 }
 
 export const itemVazio = (ordem: number): ItemDoLevantamento => ({
     ordem, tipologia: null, largura_mm: null, altura_mm: null, quantidade: null, cor_perfil: null, vidro: null, escolhas: null, familia: null, motor_id: null,
+    ambientes: null, obs: null,
 })
 
 /** A tipologia e a família da esquadria: é o par que decide as abas. */
@@ -189,7 +198,10 @@ export function aplicarProposta(atuais: readonly ItemDoLevantamento[], proposta:
         const texto = (v: unknown) => (typeof v === 'string' && v.trim() !== '' ? v : null)
         const fornecedor = texto(b.fornecedor)
         const familia = texto(b.familia)
-        if (Object.keys(validos).length === 0 && fornecedor === null && familia === null) continue
+        // os ambientes e a obs do item (06/11/2026) chegam JÁ VALIDADOS contra a mensagem (`lerDadosDaMensagem`): aqui só se aplicam
+        const ambientes = Array.isArray(b.ambientes) && b.ambientes.length > 0 ? (b.ambientes as AmbienteDoItem[]).map((a) => ({ ambiente: a.ambiente, quantidade: a.quantidade })) : null
+        const obs = texto(b.obs)
+        if (Object.keys(validos).length === 0 && fornecedor === null && familia === null && ambientes === null && obs === null) continue
 
         let alvo: ItemDoLevantamento | undefined
         if (ordemValida(b.ordem)) {
@@ -235,6 +247,9 @@ export function aplicarProposta(atuais: readonly ItemDoLevantamento[], proposta:
             alvo.motor_id = opcoes.length === 1 ? opcoes[0].motorId : null
         }
         Object.assign(alvo, validos)
+        // o dito substitui: os ambientes ditos trocam a lista inteira do item; a obs dita troca a obs
+        if (ambientes !== null) { propostos += 1; alvo.ambientes = ambientes }
+        if (obs !== null) { propostos += 1; alvo.obs = obs }
         // OS LIMITES (decisão 2): com tipologia e alguma medida no item, se NENHUMA candidata do código cabe, a tipologia sai — nunca "a mais
         // próxima"; NULL no limite nunca descarta. As medidas ficam; a conversa diz a faixa das que sobraram.
         if (alvo.tipologia !== null && (alvo.largura_mm !== null || alvo.altura_mm !== null)) {
@@ -336,6 +351,23 @@ const SEM_ORIGEM: OrigemDosItens = { gravadas: new Set(), quantidadePadrao: new 
  * continuam somando (03/11/2026: "o agrupamento soma as unidades"), e o total delas é o que substitui a gravada. Duas GRAVADAS que ficam
  * iguais (uma alteração por número) também se somam, como antes: nenhuma é desta mensagem.
  */
+/**
+ * Duas linhas que viram uma (06/11/2026): os ambientes SOMAM por nome (sem caixa) e as obs diferentes se juntam com " · " — nada dito se perde.
+ * O resultado continua sem nome repetido, como a CHECK do banco exige.
+ */
+function juntarExtras(alvo: ItemDoLevantamento, outro: ItemDoLevantamento): void {
+    if (outro.ambientes && outro.ambientes.length) {
+        const lista = (alvo.ambientes ?? []).map((a) => ({ ...a }))
+        for (const a of outro.ambientes) {
+            const igual = lista.find((x) => x.ambiente.toLocaleLowerCase('pt-BR') === a.ambiente.toLocaleLowerCase('pt-BR'))
+            if (igual) igual.quantidade += a.quantidade
+            else lista.push({ ...a })
+        }
+        alvo.ambientes = lista
+    }
+    if (outro.obs && outro.obs !== alvo.obs) alvo.obs = alvo.obs ? `${alvo.obs} · ${outro.obs}` : outro.obs
+}
+
 export function agruparIguais(itens: readonly ItemDoLevantamento[], origem: OrigemDosItens = SEM_ORIGEM): {
     itens: ItemDoLevantamento[]; fundidos: number; caminhos: Array<{ ordem: number; caminho: CaminhoDaEsquadria }>
 } {
@@ -351,6 +383,7 @@ export function agruparIguais(itens: readonly ItemDoLevantamento[], origem: Orig
         const igual = gravadaDaChave.get(chave)
         if (!igual) { gravadaDaChave.set(chave, i); saida.push(i); continue }
         igual.quantidade = (igual.quantidade ?? 1) + (i.quantidade ?? 1)
+        juntarExtras(igual, i)
         fundidos += 1
     }
     // 2. as desta MENSAGEM: juntas entre si (as linhas iguais somam), e o total contra a gravada igual (substitui ou é ignorado)
@@ -366,6 +399,7 @@ export function agruparIguais(itens: readonly ItemDoLevantamento[], origem: Orig
         const grupo = grupos.get(chave)
         if (grupo) {
             grupo.quantidade += q; grupo.linhas += 1; grupo.dita = grupo.dita || dita
+            juntarExtras(grupo.alvo, i)
             fundidos += 1
             marcas.push({ item: grupo.alvo, caminho: 'SOMADA_NA_MENSAGEM' })
             continue
@@ -375,7 +409,8 @@ export function agruparIguais(itens: readonly ItemDoLevantamento[], origem: Orig
             ? { alvo: gravada, gravada: true, quantidade: q, linhas: 1, dita, primeiro: marcas.length }
             : { alvo: i, gravada: false, quantidade: q, linhas: 1, dita, primeiro: marcas.length }
         grupos.set(chave, novo)
-        if (gravada) { fundidos += 1; marcas.push({ item: gravada, caminho: novo }) } else { saida.push(i); marcas.push({ item: i, caminho: 'GRAVADA_NOVA' }) }
+        // a esquadria da mensagem igual a uma gravada É ela: os ambientes e a obs DITOS agora substituem os gravados (o dito substitui)
+        if (gravada) { if (i.ambientes) gravada.ambientes = i.ambientes; if (i.obs) gravada.obs = i.obs; fundidos += 1; marcas.push({ item: gravada, caminho: novo }) } else { saida.push(i); marcas.push({ item: i, caminho: 'GRAVADA_NOVA' }) }
     }
     for (const g of grupos.values()) {
         if (!g.gravada) { if (g.linhas > 1) g.alvo.quantidade = g.quantidade; continue }

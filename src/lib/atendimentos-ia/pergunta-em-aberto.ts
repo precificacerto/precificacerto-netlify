@@ -63,8 +63,9 @@ export function esquadriasDaProposta(proposta: unknown): EsquadriaProposta[] {
     return itens.flatMap((bruto) => {
         if (!bruto || typeof bruto !== 'object') return []
         const b = bruto as Record<string, unknown>
-        // o `vidro_padrao` (04/11/2026) viaja com a esquadria retida: é aplicado só quando ela fica sem vidro (`aplicarProposta`)
-        const campos = Object.fromEntries([...CAMPOS_DA_ESQUADRIA, 'vidro_padrao'].filter((c) => b[c] !== undefined && b[c] !== null && b[c] !== '').map((c) => [c, b[c]]))
+        // o `vidro_padrao` (04/11/2026) viaja com a esquadria retida: é aplicado só quando ela fica sem vidro (`aplicarProposta`); os ambientes e a obs
+        // (06/11/2026) também, já validados contra a mensagem em que foram ditos
+        const campos = Object.fromEntries([...CAMPOS_DA_ESQUADRIA, 'vidro_padrao', 'ambientes', 'obs'].filter((c) => b[c] !== undefined && b[c] !== null && b[c] !== '').map((c) => [c, b[c]]))
         return CAMPOS_DA_ESQUADRIA.some((c) => c in campos) ? [campos] : []
     })
 }

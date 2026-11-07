@@ -44,7 +44,8 @@ const COMPLETO_SEM_ESCOLHAS = { ordem: 1, tipologia: 'DP-02', largura_mm: 1200, 
 describe('(1) a proposta preenche, e o que não valida é descartado', () => {
     it('um levantamento vazio recebe a esquadria inteira da mensagem como esquadria 1', () => {
         const r = L().aplicarProposta([L().itemVazio(1)], { itens: [{ tipologia: 'DP-02', largura_mm: 1200, altura_mm: 1000, quantidade: 1, cor_perfil: 'BRANCO', vidro: 'Temperado 5mm' }] }, ctx(1))
-        expect(r.itens).toEqual([COMPLETO_SEM_ESCOLHAS])
+        // o item vazio nasce com os ambientes e a obs nulos (06/11/2026): "não informados"
+        expect(r.itens).toEqual([{ ...COMPLETO_SEM_ESCOLHAS, ambientes: null, obs: null }])
         expect([r.propostos, r.descartados, r.semEsquadria]).toEqual([6, 0, false])
     })
 

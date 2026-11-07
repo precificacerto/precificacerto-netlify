@@ -197,7 +197,14 @@ import { blocoDasInstrucoesDasEtapas, type InstrucaoDaEtapa } from '@/lib/atendi
 import { aberturaDita, filtrarPeloAcumulado, filtrarPorAbertura, fraseDaAberturaRecusada, fraseDeNenhumaTipologiaCabe, palavrasDeAbertura } from '@/lib/atendimentos-ia/tipologias-candidatas'
 import { escolhasParaOPrompt, opcoesDeArremateNoPrompt, lerEscolhasDoItem, lerEscolhasGravadas, temEscolhaDoVendedor, variaveisSemPadraoNoPrompt, variaveisSemPadraoParaOPrompt } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import { permissaoDoRemetente, type Permissao } from '@/lib/atendimentos-ia/permissao-do-remetente'
-import { fraseDoApanhado } from '@/lib/atendimentos-ia/apanhado'
+import {
+    gerarArquivoDoLevantamento, lerLevantamentoDoArquivo, type Funcionario, lerNomeDaEmpresa, lerPerfilDoVendedor, lerVendedorDoRemetente, funcionariosPeloNome,
+    montarDadosDaFolha, resumoDoArquivo, resumoDoArquivoParaOPrompt, textoDoEnvioDoArquivo, type DetalheDaTipologia,
+} from '@/lib/atendimentos-ia/arquivo-do-levantamento'
+import {
+    condicoesComOCadastro, FRASE_FALTA_O_VENDEDOR, fraseDoVendedorInativo, fraseDoVendedorNaoAchado, fraseDosHomonimos, fraseDosHomonimosIndistinguiveis, homonimosDistinguiveis, lerDadosDaMensagem, perguntaDasCondicoes,
+    type CondicoesDoLevantamento,
+} from '@/lib/atendimentos-ia/dados-do-levantamento'
 import {
     apagarPerguntaEmAberto, esquadriasDaProposta, gravarPerguntaEmAberto, juntarEsquadrias, lerPerguntaEmAberto, montagemExpirou,
     type CodigoDaPergunta, type EsquadriaProposta, type PerguntaEmAberto,
@@ -215,7 +222,9 @@ export type DesfechoDaIa =
     /** A 1ª chamada ao modelo não voltou no prazo (04/11/2026): a linha sai no instante do estouro E no fim do turno. */
     | 'prazo-esgotado'
     | 'sem-nome' | 'nome-parecido' | 'nome-existe' | 'qual-esquadria' | 'nao-encontrado' | 'qual-vendedor' | 'alteracao-incompleta'
-    | 'nao-avancou' | 'confirmar-acrescimo' | 'confirmar-resgate' | 'nao-acrescentou' | 'apanhado' | 'nao-confirmou'
+    | 'nao-avancou' | 'confirmar-acrescimo' | 'confirmar-resgate' | 'nao-acrescentou' | 'nao-confirmou'
+    /** O ARQUIVO do levantamento enviado para conferir (06/11/2026); recusado pelo gerador; não enviado; o vendedor dito que não está no cadastro. */
+    | 'arquivo' | 'arquivo-recusado' | 'arquivo-nao-enviado' | 'vendedor-nao-achado'
     | 'perguntou' | 'sem-cores' | 'levantou' | 'recusou' | 'envio-falhou' | 'erro' | 'nenhuma-cabe'
     /** O reenvio do WUZAPI de uma entrada já respondida (200 sem conduzir), e o reenvio da saída cujo primeiro envio falhou (03/11/2026). */
     | 'repetida' | 'reenviada'
@@ -407,6 +416,12 @@ export const FRASE_ARREMATE_ESCOLHIDO = 'Considerando o arremate que você pediu
  * sem mandar responder numa forma ditada (dono do produto, 03/11/2026); o modelo a redige em outras palavras (`falar`).
  */
 export const fraseDeNaoRegistrei = (pergunta: string) => `Essa resposta não me deu o que falta. ${pergunta}`
+/** O arquivo que o gerador recusou (06/11/2026): cada recusa nomeada, e o que fazer — nunca uma folha aproximada. */
+export const fraseDoArquivoRecusado = (recusas: readonly string[]) =>
+    `Não consegui gerar o arquivo do levantamento:\n${recusas.map((r) => `• ${r}`).join('\n')}\nMe diga o que corrigir.`
+export const FALHA_NO_ENVIO_DO_ARQUIVO = 'O levantamento foi gravado, mas não consegui enviar o arquivo dele agora. Mande o nome do levantamento de novo para eu reenviar.'
+/** O mesmo arquivo de novo, sem mudar nada: não se reenvia; a resposta diz que nada mudou e repete a pergunta. */
+export const FRASE_O_ARQUIVO_NAO_MUDOU = 'Essa resposta não mudou nada no levantamento: o arquivo que enviei continua valendo. Confere? Responda sim, ou diga o que muda.'
 export const fraseDeNaoApliquei = (nome: string) =>
     `Não consegui aplicar o que você pediu no levantamento “${nome}”: o que entendi não é um valor aceito (por exemplo, uma cor, tipologia ou arremate fora da lista). Nada foi alterado. Diga de novo o que muda.`
 const milhar = (n: unknown) => (typeof n === 'number' ? new Intl.NumberFormat('pt-BR').format(n) : '?')
@@ -475,6 +490,28 @@ export const FERRAMENTA = {
             opcao: { ...inteiro, description: 'Quando a pergunta em aberto lista levantamentos numerados e o vendedor escolheu um deles — pelo número ("o 2"), pela ordem ("o primeiro", "o último"), pelo nome ("é o do Geronimo") ou pela data ("o de ontem") —, o número dele na lista. Senão, omita.' },
             alteracao: { type: 'boolean', description: 'true quando o vendedor pede para MUDAR um levantamento que já existe (troca, muda, altera, corrige).' },
             vendedor: { ...texto, description: 'O nome do VENDEDOR dono do levantamento, copiado como foi escrito NESTA mensagem. Omita se não foi escrito.' },
+            vendedor_opcao: { ...inteiro, description: 'Quando a pergunta em aberto lista FUNCIONÁRIOS, numerados, e o vendedor escolheu um deles — pelo número, pelo nome completo ou pela data do cadastro —, o número dele na lista. Senão, omita.' },
+            vendedor_do_levantamento: { ...texto, description: 'Quando quem escreve LANÇA o levantamento PARA outro vendedor, dizendo isso sobre o VENDEDOR ("é do Cristiano", "é para o Cristiano", "o vendedor é o Cristiano", "vendedor: Cristiano", "lança para o Cristiano"): o nome dele, copiado como foi escrito NESTA mensagem. NUNCA o nome do CLIENTE, nem um nome solto ("levantamento do João" é o cliente João). Omita se não foi dito.' },
+            dados_do_cliente: {
+                type: 'object',
+                additionalProperties: false,
+                description: 'Os dados do cliente e da obra, SÓ os que o vendedor escreveu NESTA mensagem, copiados. Omita o que não foi dito.',
+                properties: {
+                    telefone: texto, email: texto, edificacao: { ...texto, description: 'O tipo da edificação, como dito (casa, sobrado, prédio...).' },
+                    endereco: texto, obs_obra: { ...texto, description: 'Uma observação da OBRA, copiada.' },
+                    data_entrega: { ...texto, description: 'A data de entrega dita, como AAAA-MM-DD (o vendedor escreve 27/11/26 → 2026-11-27).' },
+                },
+            },
+            condicoes: {
+                type: 'object',
+                additionalProperties: false,
+                description: 'As condições comerciais que o vendedor DISSE NESTA mensagem (comissão, reserva técnica, lucro). NUNCA invente, NUNCA use o cadastro: só o número dito. Omita o que não foi dito.',
+                properties: {
+                    comissao_percentual: { type: 'number' }, comissao_modo: { type: 'string', enum: ['PROPORCIONAL', 'CONGELADA'] },
+                    reserva_tecnica_percentual: { type: 'number' }, reserva_tecnica_responsavel: { ...texto, description: 'Quem recebe a reserva técnica (o arquiteto, o decorador), copiado.' },
+                    lucro_projetado_percentual: { type: 'number' },
+                },
+            },
             confirma: { type: 'boolean', description: 'Só quando a pergunta em aberto pede confirmação: true se o vendedor confirmou, false se negou. Senão, omita.' },
             itens: {
                 type: 'array',
@@ -490,6 +527,12 @@ export const FERRAMENTA = {
                         abertura: { type: 'string', enum: ['porta', 'janela'], description: 'A PALAVRA que o vendedor usou para esta esquadria: "porta" (também porta-janela e porta janela) ou "janela". SÓ se ele a escreveu; senão, omita.' },
                         fornecedor: { ...texto, description: 'O nome do FORNECEDOR como está na lista, SÓ quando o vendedor disse de qual fornecedor é a tipologia.' },
                         familia: { ...texto, description: 'A FAMÍLIA (ex.: PVC, Alumínio) como está na lista, SÓ quando o vendedor disse de qual família é a tipologia.' },
+                        ambientes: {
+                            type: 'array',
+                            description: 'Os AMBIENTES desta esquadria e quantas unidades vão em cada um, SÓ como o vendedor disse NESTA mensagem ("2 no quarto e 1 na sala"). Nomes copiados. Omita se ele não disse.',
+                            items: { type: 'object', additionalProperties: false, required: ['ambiente', 'quantidade'], properties: { ambiente: texto, quantidade: inteiro } },
+                        },
+                        obs: { ...texto, description: 'Uma observação DESTA esquadria que o vendedor escreveu NESTA mensagem, copiada. Omita se não houver.' },
                     },
                 },
             },
@@ -753,7 +796,7 @@ async function chamarLlm(chave: string, mensagem: string, contexto: ContextoDoPr
 type Levantamento = { id: string; nome: string; nome_normalizado: string; estado: string; criado_em: string; atualizado_em: string | null }
 type ItemGravado = ItemDoLevantamento & { id: string }
 // a família e o motor do cálculo (PR D): `tabela_id` não é lido nem escrito pela conversa desde então
-const COLUNAS_DO_ITEM = `id, ordem, ${CAMPOS_DA_ESQUADRIA.join(', ')}, escolhas, familia, motor_id`
+const COLUNAS_DO_ITEM = `id, ordem, ${CAMPOS_DA_ESQUADRIA.join(', ')}, escolhas, familia, motor_id, ambientes, obs`
 
 /** Os levantamentos do remetente — só dele, no tenant dele (decisão 2). */
 async function lerLevantamentos(tenantId: string, remetenteId: string, soEmMontagem: boolean): Promise<Levantamento[]> {
@@ -811,7 +854,11 @@ async function lerItens(tenantId: string, levantamentoId: string): Promise<ItemG
     if (error) throw new Error(`orcamentista_levantamento_item: ${error.message}`)
     // a lista de colunas é montada em tempo de execução: o tipo gerado do supabase não a lê
     // o `null` de uma variável é a marca de que o vendedor pediu as opções: ele é preservado
-    return ((data ?? []) as unknown as ItemGravado[]).map((i) => ({ ...i, escolhas: i.escolhas ? lerEscolhasDoItem(i.escolhas) : null }))
+    return ((data ?? []) as unknown as ItemGravado[]).map((i) => ({
+        ...i, escolhas: i.escolhas ? lerEscolhasDoItem(i.escolhas) : null,
+        // os ambientes e a obs (20261106000002): nulo é "não informado"; a lista vazia não existe (a CHECK do banco a recusa)
+        ambientes: Array.isArray(i.ambientes) && i.ambientes.length ? i.ambientes : null, obs: typeof i.obs === 'string' && i.obs.trim() ? i.obs : null,
+    }))
 }
 
 const camposDoItem = (i: ItemDoLevantamento) => ({
@@ -819,6 +866,8 @@ const camposDoItem = (i: ItemDoLevantamento) => ({
     cor_perfil: i.cor_perfil, vidro: i.vidro, escolhas: i.escolhas,
     // a família e o motor que a calcula (PR D, dono do produto, 02/11/2026); a exigida acompanha o motor, pelas CHECKs da tabela
     familia: i.familia, motor_id: i.motor_id, motor_familia_exigida: i.motor_id ? i.familia : null,
+    // os ambientes e a obs (06/11/2026): o ausente é nulo, nunca a lista vazia
+    ambientes: i.ambientes && i.ambientes.length ? i.ambientes : null, obs: i.obs ?? null,
 })
 /** A esquadria como vai ao prompt: sem a família e o motor gravados, que são internos (a família a IA vê na lista). */
 // derivada de `camposDoItem`, e não uma segunda lista de campos: um campo novo da esquadria chega aos dois (`copia-divergente.md`)
@@ -856,6 +905,8 @@ const mesmosItens = (a: readonly ItemDoLevantamento[], b: readonly ItemDoLevanta
 async function gravarLevantamento(
     tenantId: string, donoId: string, nome: string, existente: { id: string; itens: ItemGravado[] } | null,
     itens: ItemDoLevantamento[], estado: string,
+    /** As colunas do levantamento que esta mensagem muda (os dados do cliente, as condições e o vendedor, 20261106000002); vazio, nenhuma. */
+    colunas: Record<string, unknown> = {},
 ): Promise<string> {
     const agora = new Date().toISOString()
     let id: string
@@ -863,14 +914,14 @@ async function gravarLevantamento(
     if (existente) {
         id = existente.id
         antes = existente.itens
-        const { data, error } = await supabaseAdmin.from('orcamentista_levantamento').update({ estado, atualizado_em: agora })
+        const { data, error } = await supabaseAdmin.from('orcamentista_levantamento').update({ estado, atualizado_em: agora, ...colunas })
             .eq('id', id).eq('tenant_id', tenantId).eq('remetente_id', donoId).select('id')
         if (error) throw new ErroAoGravar(`orcamentista_levantamento: ${error.message}`)
         // R1: update que não atinge linha é ERRO — nunca vira "pergunta de novo"
         if ((data ?? []).length !== 1) throw new ErroAoGravar(`orcamentista_levantamento: o update atingiu ${(data ?? []).length} linha(s), e devia atingir 1`)
     } else {
         const { data, error } = await supabaseAdmin.from('orcamentista_levantamento')
-            .insert({ tenant_id: tenantId, remetente_id: donoId, nome, nome_normalizado: normalizarNome(nome), estado })
+            .insert({ tenant_id: tenantId, remetente_id: donoId, nome, nome_normalizado: normalizarNome(nome), estado, ...colunas })
             .select('id').single()
         if (error || !data) throw new ErroAoGravar(`orcamentista_levantamento: ${error?.message ?? 'sem linha'}`)
         id = (data as { id: string }).id
@@ -934,6 +985,29 @@ async function enviarTexto(token: string, telefone: string, texto: string): Prom
 }
 
 /**
+ * O DOCUMENTO pelo WUZAPI (06/11/2026): `POST /chat/send/document`, header `token`, corpo `{ Phone, FileName, Document }` com o PDF em base64 —
+ * o mesmo caminho de `sendWuzapiDocument` em `src/lib/wuzapi-send.ts`, que é a referência (o prefixo `data:application/octet-stream;base64,`).
+ */
+async function enviarDocumento(token: string, telefone: string, nomeDoArquivo: string, pdf: Uint8Array): Promise<Envio> {
+    const limite = prazo(PRAZO_DO_ENVIO_MS)
+    try {
+        const r = await fetch(`${wuzapi()}/chat/send/document`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', token },
+            signal: limite.signal,
+            body: JSON.stringify({ Phone: telefone, FileName: nomeDoArquivo, Document: `data:application/octet-stream;base64,${Buffer.from(pdf).toString('base64')}` }),
+        })
+        const corpo = (await r.json().catch((): null => null)) as { data?: { Id?: unknown } } | null
+        const id = typeof corpo?.data?.Id === 'string' ? corpo.data.Id : null
+        return { ok: r.ok, id, status: r.status, prazoEsgotado: false }
+    } catch {
+        return { ok: false, id: null, status: null, prazoEsgotado: limite.estourou() }
+    } finally {
+        limite.limpar()
+    }
+}
+
+/**
  * A pergunta com TODAS as pendências (03/11/2026); o texto da LLM só quando é sobre o MESMO campo que o código pôs em primeiro, e aí
  * ele entra no lugar da pergunta fixa daquele campo — o resto do que falta vem junto.
  */
@@ -965,7 +1039,7 @@ type PerguntaRefeita = {
  * os que ainda existem; a pergunta que cita levantamento e não acha nenhum não vale mais (null).
  */
 async function refazerPergunta(
-    tenantId: string, p: PerguntaEmAberto, doRemetente: Levantamento[], definicao: DefinicaoDaTipologia,
+    tenantId: string, p: PerguntaEmAberto, doRemetente: Levantamento[], definicao: DefinicaoDaTipologia, detalhe: DetalheDaTipologia,
 ): Promise<PerguntaRefeita | null> {
     const citados = p.levantamentos.map((id) => doRemetente.find((l) => l.id === id)).filter((l): l is Levantamento => !!l)
     if (p.pergunta === 'SEM_NOME') return { p, citados, texto: FRASE_SEM_NOME }
@@ -978,12 +1052,16 @@ async function refazerPergunta(
         const lista = opcoesDeResgate(citados)
         return { p, citados: [escolhido, ...lista.filter((l) => l.id !== escolhido.id)], texto: fraseDeConfirmarResgate(escolhido), paraOPrompt: `${fraseDeConfirmarResgate(escolhido)} (Os levantamentos parecidos com “${p.nome}” eram: ${lista.map(linhaDoResgate).join('; ')}.)` }
     }
-    // o apanhado é refeito do levantamento como está gravado: é ele que espera o "sim". Achado pelo id na
-    // EMPRESA, e não entre os do remetente: o admin que alterou o de outro vendedor também confirma (26/10/2026)
+    // o ARQUIVO enviado espera o "sim" (06/11/2026): o texto da pergunta é o RESUMO da folha refeita do levantamento como está gravado — vai
+    // ao prompt no lugar do PDF, e é por ele que se sabe que uma mensagem não mudou nada. Achado pelo id na EMPRESA, e não entre os do
+    // remetente: o admin que alterou o de outro vendedor também confirma (26/10/2026)
     if (p.pergunta === 'CONFIRMAR_APANHADO') {
         const doApanhado = p.levantamentos[0] ? await lerLevantamentoDaEmpresa(tenantId, p.levantamentos[0]) : null
         if (!doApanhado) return null
-        return { p, citados: [doApanhado], doApanhado, texto: fraseDoApanhado(doApanhado.nome, await lerItens(tenantId, doApanhado.id), definicao) }
+        const [doArquivo, empresa, itens] = await Promise.all([lerLevantamentoDoArquivo(tenantId, doApanhado.id), lerNomeDaEmpresa(tenantId), lerItens(tenantId, doApanhado.id)])
+        if (!doArquivo) return null
+        const dados = montarDadosDaFolha({ empresa: empresa ?? '', levantamento: doArquivo, itens, definicao, detalhe, geradoEm: new Date(0) })
+        return { p, citados: [doApanhado], doApanhado, texto: resumoDoArquivo(dados), paraOPrompt: resumoDoArquivoParaOPrompt(dados) }
     }
     if (citados.length === 0) return null
     if (p.itens.length === 0) return null
@@ -1145,9 +1223,26 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             return e.tipologia !== null && daEsquadria && 'familia' in daEsquadria ? variaveisPorFamilia[daEsquadria.familia]?.[e.tipologia] ?? null : null
         }
 
+        // a descrição e a linha da tipologia, da Detalhe do motor (os candidatos já lidos): é o que a folha do levantamento escreve na faixa do item
+        const detalhe: DetalheDaTipologia = (tipologia, familia) => {
+            const d = tabela.candidatos.find((x) => x.tipologia === tipologia && (familia === null || x.familia === familia)) ?? tabela.candidatos.find((x) => x.tipologia === tipologia)
+            return d ? { descricao: d.descricao, linha: d.linha } : null
+        }
         // TODAS as pendências da montagem (03/11/2026): a pergunta em aberto é uma só, e cobre todas
         const pendenciasAbertas = emMontagem ? pendenciasDoLevantamento(itensDaMontagem, definicao, doCodigo) : []
         const pendenciaAberta = pendenciasAbertas[0] ?? null
+        // a montagem sem pendência de esquadria que ficou esperando as CONDIÇÕES COMERCIAIS (06/11/2026): a pergunta delas é a pergunta em aberto
+        let perguntaDasCondicoesAberta: string | null = null
+        if (emMontagem && !pendenciaAberta && itensDaMontagem.length > 0) {
+            const doArquivo = await lerLevantamentoDoArquivo(c.tenantId, emMontagem.id)
+            const homonimosAbertos = doArquivo?.vendedor_nome && !doArquivo.vendedor_employee_id ? (await funcionariosPeloNome(c.tenantId, doArquivo.vendedor_nome, normalizarNome)).ativos : []
+            if (homonimosAbertos.length > 1 && doArquivo?.vendedor_nome) perguntaDasCondicoesAberta = fraseDosHomonimos(doArquivo.vendedor_nome, homonimosAbertos)
+            else if (doArquivo && !doArquivo.vendedor_nome) perguntaDasCondicoesAberta = FRASE_FALTA_O_VENDEDOR
+            else if (doArquivo) {
+                const r = condicoesComOCadastro(doArquivo, await lerPerfilDoVendedor(c.tenantId, doArquivo.vendedor_employee_id))
+                if (r.faltam.length) perguntaDasCondicoesAberta = perguntaDasCondicoes(r.faltam, doArquivo.vendedor_nome)
+            }
+        }
         const lida = pergunta?.lida ?? null
         const marcaDaAberta: Rastro['aberta'] = lida === 'ausente' || lida === 'expirada' ? lida : lida ? lida.pergunta : '-'
         // sem a tabela (migração pendente), nada se grava nela; com a linha lá (válida OU expirada), ela é apagada quando se resolve
@@ -1155,7 +1250,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         const temLinhaLida = lida !== null && lida !== 'ausente'
         const valida = pergunta?.valida ?? null
         const doRemetente: Levantamento[] | null = pergunta?.doRemetente ?? null
-        const abertaLida = valida && doRemetente ? await refazerPergunta(c.tenantId, valida, doRemetente, definicao) : null
+        const abertaLida = valida && doRemetente ? await refazerPergunta(c.tenantId, valida, doRemetente, definicao, detalhe) : null
         // NA MONTAGEM a pergunta do roteamento não vale (ela guarda a sua no levantamento) — até a mensagem sair da montagem (abaixo)
         let aberta = emMontagem ? null : abertaLida
         let guardaPergunta = emMontagem ? false : guardaLida
@@ -1197,7 +1292,8 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             contexto: contexto.texto, instrucoes: instrucoes.instrucoes, instrucoesDasEtapas,
             candidatos: candidatosDoPrompt, variasFamilias, cores, escolhasPorTipologia, variaveisSemPadraoPorTipologia,
             montagem: emMontagem ? { nome: emMontagem.nome, itens: itensDaMontagem.map(camposParaOPrompt) } : null,
-            perguntaEmAberto: pendenciaAberta ? perguntaDasPendencias(pendenciasAbertas, itensDaMontagem.length, null, filtro.jaDito) : aberta?.paraOPrompt ?? aberta?.texto ?? null,
+            perguntaEmAberto: pendenciaAberta ? perguntaDasPendencias(pendenciasAbertas, itensDaMontagem.length, null, filtro.jaDito)
+                : perguntaDasCondicoesAberta ?? aberta?.paraOPrompt ?? aberta?.texto ?? null,
             hoje: !pendenciaAberta && aberta && ehResgate(aberta.p) ? dataBR(new Date().toISOString()) : null,
         }, rastro.ia, historico)
         if (resposta.tipo !== 'ok') {
@@ -1209,6 +1305,9 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             return await responder(frase, resposta.tipo, resposta.detalhe)
         }
         const proposta = resposta.proposta
+        // OS DADOS DO LEVANTAMENTO (06/11/2026): o cliente, as condições, o vendedor, e os ambientes e a obs de cada item — só o que foi DITO NESTA
+        // mensagem (`dados-do-levantamento.ts`); o que não passa cai, e a proposta segue com o resto
+        const dadosDaMensagem = lerDadosDaMensagem(proposta, c.texto)
         // A MONTAGEM NÃO ABSORVE OUTRO CLIENTE (dono do produto, 05/11/2026): "Cliente: Maria Cristina" virou levantamento "Jorge Koss" porque
         // a rota MONTAGEM decidia antes de ler o nome. Agora o nome/cliente da mensagem é lido também aqui: um cliente DIFERENTE do levantamento
         // em montagem, ou o pedido de "novo", tira a mensagem da montagem e ela segue o roteamento pelo nome (novo, ou o existente que ela cita)
@@ -1244,7 +1343,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         }) : itens)
         // AS ESQUADRIAS RETIDAS NUNCA SE PERDEM (03/11/2026): as da pergunta em aberto MAIS as desta mensagem; a reenviada idêntica conta uma vez
         const retidas: EsquadriaProposta[] = aberta?.p.itens ?? []
-        const daMensagemBrutas = semFornecedorInventado(proposta.itens)
+        const daMensagemBrutas = semFornecedorInventado(dadosDaMensagem.proposta.itens)
         // o item que o modelo devolve SEM nenhum campo da esquadria (05/11/2026) não entra em lugar nenhum — e a linha [IA] passa a dizer quantos
         rastro.itensSemCampos = Array.isArray(daMensagemBrutas) ? daMensagemBrutas.filter((i) => !!i && typeof i === 'object' && esquadriasDaProposta({ itens: [i] }).length === 0).length : 0
         const juncao = juntarEsquadrias(retidas, Array.isArray(daMensagemBrutas) ? daMensagemBrutas : [])
@@ -1457,7 +1556,53 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             + ` padrao=${listaNoLog(tipologiasDoPadrao)} recusadas=${listaNoLog(aplicada.recusas.map((x) => `e${x.ordem}:${x.motivo}:${x.tipologia}`))}`
             + ` sem_tipologia=${aplicada.itens.filter((i) => i.tipologia === null).length}`
         if (aplicada.semEsquadria && alvo) return await falar(fraseDeQualEsquadria(nome, alvo.itens.length), 'qual-esquadria')
-        const nadaMudou = alvo !== null && mesmosItens(alvo.itens, aplicada.itens)
+        // AS COLUNAS DO LEVANTAMENTO que esta mensagem muda (06/11/2026): os dados do cliente e as condições ditas, e o vendedor — o dito (achado
+        // no cadastro pelo nome, nunca escolhido entre dois), ou, no levantamento novo, o do remetente. Só entra o que DIFERE do gravado
+        rastro.propostos += dadosDaMensagem.propostos
+        rastro.descartados += dadosDaMensagem.descartados
+        const doLevantamento = alvo ? await lerLevantamentoDoArquivo(c.tenantId, alvo.id) : null
+        const colunas: Record<string, unknown> = { ...dadosDaMensagem.cliente, ...dadosDaMensagem.condicoes }
+        // OUTRO vendedor: os percentuais vêm do cadastro DELE — os congelados do vendedor de antes saem, menos os ditos nesta mensagem. "Nunca herde
+        // os percentuais do remetente para um levantamento lançado para outra pessoa: comissão é do vendedor" (dono do produto, 06/11/2026)
+        const trocarVendedor = (id: string | null, nomeDoVendedor: string) => {
+            colunas.vendedor_employee_id = id
+            colunas.vendedor_nome = nomeDoVendedor
+            for (const k of ['comissao_percentual', 'comissao_modo', 'reserva_tecnica_percentual', 'lucro_projetado_percentual'] as const) if (!(k in dadosDaMensagem.condicoes)) colunas[k] = null
+        }
+        // O VENDEDOR DITO (06/11/2026): só os funcionários ATIVOS da empresa, casados pelas palavras do nome. Um → é ele. Nenhum ativo → a frase do
+        // inativo, ou a do não achado. Dois ativos → a conversa PERGUNTA qual é (pelo nome completo e a data do cadastro, nunca pelo cargo), e o
+        // levantamento fica em montagem com o nome dito e sem o vínculo; nada os separa → recusa nomeando. Nunca escolhe um. O levantamento já gravado
+        // não é tocado: quem ficou inativo depois continua com o nome congelado nele
+        let homonimos: Funcionario[] = []
+        let nomeDosHomonimos = ''
+        if (dadosDaMensagem.vendedor !== null) {
+            const { ativos, inativos } = await funcionariosPeloNome(c.tenantId, dadosDaMensagem.vendedor, normalizarNome)
+            if (ativos.length === 0) {
+                return await falar(inativos.length ? fraseDoVendedorInativo(dadosDaMensagem.vendedor, inativos) : fraseDoVendedorNaoAchado(dadosDaMensagem.vendedor), 'vendedor-nao-achado')
+            }
+            if (ativos.length > 1 && !homonimosDistinguiveis(ativos, normalizarNome)) return await falar(fraseDosHomonimosIndistinguiveis(dadosDaMensagem.vendedor, ativos.length), 'vendedor-nao-achado')
+            const escolhido = ativos.length === 1 ? ativos[0] : opcaoDaLista(proposta.vendedor_opcao, ativos)
+            if (escolhido) { if (escolhido.id !== doLevantamento?.vendedor_employee_id) trocarVendedor(escolhido.id, escolhido.nome) }
+            // o nome DITO fica guardado até a escolha: é por ele que a pergunta em aberto refaz a mesma lista no turno seguinte
+            else { homonimos = ativos; nomeDosHomonimos = dadosDaMensagem.vendedor; trocarVendedor(null, dadosDaMensagem.vendedor) }
+        } else if (doLevantamento?.vendedor_nome && !doLevantamento.vendedor_employee_id) {
+            // a pergunta dos homônimos em aberto: o nome guardado no levantamento, e a escolha pelo número da lista
+            const achados = (await funcionariosPeloNome(c.tenantId, doLevantamento.vendedor_nome, normalizarNome)).ativos
+            nomeDosHomonimos = doLevantamento.vendedor_nome
+            if (achados.length > 1) {
+                const escolhido = opcaoDaLista(proposta.vendedor_opcao, achados)
+                if (escolhido) trocarVendedor(escolhido.id, escolhido.nome)
+                else homonimos = achados
+            }
+        }
+        const vendedorPendente = homonimos.length > 1
+        // o vendedor PADRÃO (quem fez): o funcionário do remetente que é dono do levantamento, quando ainda não há nenhum
+        if (!('vendedor_nome' in colunas) && !doLevantamento?.vendedor_nome) {
+            const doDono = await lerVendedorDoRemetente(c.tenantId, alvo ? alvo.donoId : c.remetenteId)
+            if (doDono.nome !== null) { colunas.vendedor_nome = doDono.nome; colunas.vendedor_employee_id = doDono.employeeId }
+        }
+        const colunasQueMudam = Object.fromEntries(Object.entries(colunas).filter(([k, v]) => !doLevantamento || (doLevantamento as unknown as Record<string, unknown>)[k] !== v))
+        const nadaMudou = alvo !== null && mesmosItens(alvo.itens, aplicada.itens) && Object.keys(colunasQueMudam).length === 0
         // "Confirma antes" (dono do produto, 26/10/2026): a esquadria que esperava o vendedor dizer o levantamento
         // só entra num que JÁ EXISTE com o "sim" dele à pergunta que citou aquele levantamento
         const confirmado = confirma === true && aberta?.p.pergunta === 'CONFIRMAR_ACRESCIMO' && alvo?.id === aberta.citados[0]?.id
@@ -1483,7 +1628,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         const reenvioIgual = aplicada.descartados === 0 && agrupamento.caminhos.length > 0 && agrupamento.caminhos.every((x) => x.caminho === 'IGNORADA_IGUAL')
         if (nadaMudou && aplicada.propostos > 0 && !reenvioIgual) return await falar(fraseDeNaoApliquei(nome), 'nao-avancou')
 
-        // ── grava, e SÓ DEPOIS responde: o trajeto inteiro, a partir do que ficou gravado ──
+        // ── grava, e SÓ DEPOIS responde: o trajeto inteiro, a partir do que ficou doLevantamento ──
         const pendencias = pendenciasDoLevantamento(aplicada.itens, definicao, doCodigo)
         const pendencia = pendencias[0] ?? null
         // ETAPA 3 (06/11/2026): a montagem — a rota, as esquadrias, o que ainda falta (a mesma lista que a pergunta cobre) e o que se gravou
@@ -1492,18 +1637,39 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         const montagemNoLog = (gravadas: number) => `rota=${rastro.rota} esquadrias=${aplicada.itens.length} agrupadas=${agrupamento.fundidos} caminhos=${listaNoLog(rastro.caminhos)} pendencias=${pendencias.length}`
             + ` gravadas=${gravadas} estado=${gravadas > 0 ? (pendencia ? EM_MONTAGEM : COMPLETO) : '-'} faltou=${listaNoLog(faltaNaMontagem)}`
         rastro.etapas.montar = montagemNoLog(0)
-        // o admin não monta levantamento de outro: com pendência, nada é gravado e a resposta diz o que falta
-        if (pendencia && alvo && alvo.donoId !== c.remetenteId) {
-            return await falar(fraseDaAlteracaoIncompleta(nome, alvo.vendedor ?? VENDEDOR_SEM_NOME, perguntaDasPendencias(pendencias, aplicada.itens.length, null, filtro.jaDito)), 'alteracao-incompleta')
+        // AS CONDIÇÕES COMERCIAIS (06/11/2026), com as esquadrias completas: o doLevantamento e o dito agora; no que falta, o cadastro do vendedor — que
+        // fica CONGELADO no levantamento; cadastro nulo e nada dito → a conversa PERGUNTA, e o levantamento continua em montagem
+        let faltamCondicoes: string[] = []
+        let congelar: Partial<CondicoesDoLevantamento> = {}
+        const vendedorDoLevantamento = (colunas.vendedor_nome as string | null | undefined) ?? doLevantamento?.vendedor_nome ?? null
+        // SEM VENDEDOR NENHUM (o funcionário do remetente está inativo, e ninguém foi dito): a conversa pede o vendedor antes dos percentuais, que são dele
+        const faltaVendedor = !pendencia && !vendedorPendente && vendedorDoLevantamento === null
+        if (!pendencia && !vendedorPendente && !faltaVendedor) {
+            const doGravado: CondicoesDoLevantamento = {
+                comissao_percentual: doLevantamento?.comissao_percentual ?? null, comissao_modo: doLevantamento?.comissao_modo ?? null,
+                reserva_tecnica_percentual: doLevantamento?.reserva_tecnica_percentual ?? null, reserva_tecnica_responsavel: doLevantamento?.reserva_tecnica_responsavel ?? null,
+                lucro_projetado_percentual: doLevantamento?.lucro_projetado_percentual ?? null,
+            }
+            const vigentes = { ...doGravado, ...Object.fromEntries(Object.entries(colunas).filter(([k]) => k in doGravado)) } as CondicoesDoLevantamento
+            const funcionario = 'vendedor_employee_id' in colunas ? (colunas.vendedor_employee_id as string | null) : doLevantamento?.vendedor_employee_id ?? null
+            const r = condicoesComOCadastro(vigentes, await lerPerfilDoVendedor(c.tenantId, funcionario))
+            faltamCondicoes = r.faltam
+            congelar = r.doCadastro
         }
-        const estado = pendencia ? EM_MONTAGEM : COMPLETO
+        // o admin não monta levantamento de outro: com pendência, nada é doLevantamento e a resposta diz o que falta
+        if ((pendencia || vendedorPendente || faltaVendedor || faltamCondicoes.length) && alvo && alvo.donoId !== c.remetenteId) {
+            const falta = pendencia ? perguntaDasPendencias(pendencias, aplicada.itens.length, null, filtro.jaDito)
+                : vendedorPendente ? fraseDosHomonimos(nomeDosHomonimos, homonimos) : faltaVendedor ? FRASE_FALTA_O_VENDEDOR : perguntaDasCondicoes(faltamCondicoes, vendedorDoLevantamento)
+            return await falar(fraseDaAlteracaoIncompleta(nome, alvo.vendedor ?? VENDEDOR_SEM_NOME, falta), 'alteracao-incompleta')
+        }
+        const estado = pendencia || vendedorPendente || faltaVendedor || faltamCondicoes.length ? EM_MONTAGEM : COMPLETO
         // a pergunta em aberto se resolveu: apagada ANTES de gravar — se o apagar falhar, nada foi gravado, e a
         // esquadria que ela guardava não entra depois num levantamento que não é o dela
         if (temLinha) await apagarPerguntaEmAberto(c.tenantId, c.remetenteId)
         // decisão 3: o rastro é atualizado_em — só se grava o que MUDOU
-        if (!(nadaMudou && alvo && alvo.estado === estado)) {
+        if (!(nadaMudou && alvo && alvo.estado === estado && Object.keys(congelar).length === 0)) {
             gravando = true
-            rastro.levantamento = await gravarLevantamento(c.tenantId, alvo ? alvo.donoId : c.remetenteId, nome, alvo, aplicada.itens, estado)
+            rastro.levantamento = await gravarLevantamento(c.tenantId, alvo ? alvo.donoId : c.remetenteId, nome, alvo, aplicada.itens, estado, { ...colunasQueMudam, ...congelar })
             gravando = false
         }
         gravado = true
@@ -1524,21 +1690,41 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             // UMA pergunta com TUDO o que falta (03/11/2026), redigida pelo modelo
             return await falar(perguntaPara(pendencias, aplicada.itens.length, proposta, filtro.jaDito), 'perguntou')
         }
+        // o vendedor dito que casa com mais de um funcionário: a pergunta de qual é, com a lista numerada
+        if (vendedorPendente) {
+            const pergunta = fraseDosHomonimos(nomeDosHomonimos, homonimos)
+            return await falar(nadaMudou && perguntaDasCondicoesAberta === pergunta ? fraseDeNaoRegistrei(pergunta) : pergunta, nadaMudou ? 'nao-avancou' : 'perguntou')
+        }
+        if (faltaVendedor) {
+            return await falar(nadaMudou && perguntaDasCondicoesAberta === FRASE_FALTA_O_VENDEDOR ? fraseDeNaoRegistrei(FRASE_FALTA_O_VENDEDOR) : FRASE_FALTA_O_VENDEDOR, nadaMudou ? 'nao-avancou' : 'perguntou')
+        }
+        // as condições comerciais que nem o cadastro nem a conversa deram: a conversa pergunta, nomeando cada uma e o vendedor (06/11/2026)
+        if (faltamCondicoes.length) {
+            const pergunta = perguntaDasCondicoes(faltamCondicoes, vendedorDoLevantamento)
+            return await falar(nadaMudou && perguntaDasCondicoesAberta === pergunta ? fraseDeNaoRegistrei(pergunta) : pergunta, nadaMudou ? 'nao-avancou' : 'perguntou')
+        }
         // O APANHADO (dono do produto, 26/10/2026): a primeira resposta é conversa, não orçamento. O levantamento
         // formal, com o preço, só sai com o "sim" do vendedor à pergunta que citou ESTE levantamento. Sem exceção:
         // o admin que altera o de outro vendedor também recebe o apanhado (dono do produto, 26/10/2026).
         const confirmouApanhado = confirma === true && aberta?.p.pergunta === 'CONFIRMAR_APANHADO' && alvo?.id === aberta.citados[0]?.id
         let semApanhado = ''
         if (!confirmouApanhado) {
-            const apanhado = fraseDoApanhado(nome, aplicada.itens, definicao)
+            // O ARQUIVO DO LEVANTAMENTO (dono do produto, 06/11/2026): a folha A4 no lugar da mensagem-resumo em texto; a confirmação é sobre ELE
+            const { dados, folha } = await gerarArquivoDoLevantamento({ tenantId: c.tenantId, levantamentoId: rastro.levantamento, itens: aplicada.itens, definicao, detalhe })
+            if ('recusas' in folha) return await responder(fraseDoArquivoRecusado(folha.recusas), 'arquivo-recusado')
+            if (!dados) return await responder(fraseDoArquivoRecusado(['O levantamento não foi achado.']), 'arquivo-recusado')
+            const resumo = resumoDoArquivo(dados)
             const guardada = await gravarPerguntaEmAberto(c.tenantId, c.remetenteId, { pergunta: 'CONFIRMAR_APANHADO', nome: null, levantamentos: [rastro.levantamento], itens: [] })
             if (guardada) {
-                // R2: o mesmo apanhado de novo, sem mudar nada, diz que não registrou
-                const repetido = aberta !== null && aberta.texto === apanhado
-                return repetido ? await falar(fraseDeNaoRegistrei(apanhado), 'nao-avancou') : await responder(apanhado, 'apanhado')
+                // R2: o mesmo arquivo de novo, sem mudar nada, não se reenvia — a resposta diz que nada mudou
+                if (aberta !== null && aberta.texto === resumo) return await falar(FRASE_O_ARQUIVO_NAO_MUDOU, 'nao-avancou')
+                const envio = await enviarDocumento(c.wuzapiToken, c.telefone, folha.nomeDoArquivo, folha.pdf)
+                const doArquivo = `arquivo_paginas=${folha.paginas} arquivo_enviado=${envio.ok ? 'sim' : `nao status_arquivo=${statusDoEnvio(envio)}`}`
+                if (!envio.ok) return await responder(FALHA_NO_ENVIO_DO_ARQUIVO, 'arquivo-nao-enviado', doArquivo, false)
+                return await responder(textoDoEnvioDoArquivo(dados.numero, dados.cliente.nome), 'arquivo', doArquivo)
             }
             // sem a tabela ou sem o valor na CHECK (migração 20261026000003 pendente): o formal, como antes
-            semApanhado = 'apanhado=sem_migracao'
+            semApanhado = 'confirmacao=sem_migracao'
         }
         const levantamento = await mensagemDoLevantamento(c.tenantId, tabela, { nome, itens: aplicada.itens })
         // ETAPA 4 (06/11/2026): o cálculo — o que foi cortado e comprado, e o que impediu (o motivo e a variável ou o código de onde nasceu)

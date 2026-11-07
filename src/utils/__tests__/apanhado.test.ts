@@ -5,8 +5,7 @@
  * PORTÃO — o APANHADO (`src/lib/atendimentos-ia/apanhado.ts`), as funções puras. O caminho inteiro, pela rota,
  * está em `atendimentos-ia-levantamento-por-nome.test.ts` (17).
  */
-import { arremateDoApanhado, fraseDoApanhado, rotuloSemCodigo, vidroNoApanhado, CONFERE_O_APANHADO } from '@/lib/atendimentos-ia/apanhado'
-import type { ItemDoLevantamento } from '@/lib/atendimentos-ia/levantamento-em-montagem'
+import { arremateDaColeta, rotuloSemCodigo } from '@/lib/atendimentos-ia/apanhado'
 import type { VariaveisDaTipologia } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 
 /** As opções de ARI, ARE e MAE MEDIDAS em produção em 26/10/2026, nas 161 tipologias da Wolff: todos os rótulos distintos. */
@@ -34,9 +33,6 @@ const DP02: VariaveisDaTipologia = {
     ],
 } as unknown as VariaveisDaTipologia
 
-const item = (ordem: number, campos: Partial<ItemDoLevantamento> = {}): ItemDoLevantamento => ({
-    ordem, tipologia: 'DP-02', largura_mm: 1200, altura_mm: 1000, quantidade: 1, cor_perfil: 'BRANCO', vidro: 'Temperado 5mm', escolhas: null, ...campos,
-} as ItemDoLevantamento)
 
 describe('rotuloSemCodigo: o nome por extenso, sem o código de fornecedor', () => {
     it.each(REAIS)('%s (%s) → %s', (rotulo, descricao, esperado) => {
@@ -54,64 +50,34 @@ describe('rotuloSemCodigo: o nome por extenso, sem o código de fornecedor', () 
     })
 })
 
-describe('arremateDoApanhado', () => {
-    it('nada escolhido → "Padrão"', () => {
-        expect(arremateDoApanhado(DP02, null)).toBe('Padrão')
+describe('arremateDaColeta: O QUE O CÁLCULO USA — a resposta do vendedor ou o padrão do motor, por extenso (dono do produto, 07/11/2026)', () => {
+    it('nada escolhido → o PADRÃO DO MOTOR por extenso, nunca a palavra "Padrão" (que não diz o que se calcula)', () => {
+        expect(arremateDaColeta(DP02, null)).toBe('arremate interno: 65 mm; arremate externo: 20 mm; medida do arremate externo: medida do vão')
     })
-    it('escolhido → o nome por extenso, e "Padrão" no que não foi dito; a medida escolhida também aparece', () => {
-        expect(arremateDoApanhado(DP02, { ARI: 3, MAE: 2 })).toBe('arremate interno: 20 mm; arremate externo: Padrão; medida do arremate externo: vão + 50 mm')
+    it('escolhido → a escolha; o que não foi dito, o padrão do motor; a medida escolhida também', () => {
+        expect(arremateDaColeta(DP02, { ARI: 3, MAE: 2 })).toBe('arremate interno: 20 mm; arremate externo: 20 mm; medida do arremate externo: vão + 50 mm')
+        expect(arremateDaColeta(DP02, { ARI: 2 })).toBe('arremate interno: 70 mm; arremate externo: 20 mm; medida do arremate externo: medida do vão')
     })
-    it('só a medida escolhida → ela aparece, e o resto em "Padrão"', () => {
-        expect(arremateDoApanhado(DP02, { MAE: 2 })).toBe('arremate interno: Padrão; arremate externo: Padrão; medida do arremate externo: vão + 50 mm')
+    it('a medida do arremate externo só entra quando a condição dela vale: sem arremate externo, não há medida', () => {
+        expect(arremateDaColeta(DP02, { ARE: 2 })).toBe('arremate interno: 65 mm; arremate externo: sem arremate externo')
     })
-    it('a medida não escolhida não aparece, nem com outra escolha', () => {
-        expect(arremateDoApanhado(DP02, { ARI: 3 })).toBe('arremate interno: 20 mm; arremate externo: Padrão')
+    it('o valor efetivo que não é uma opção da aba é dito como tal, nunca adivinhado', () => {
+        expect(arremateDaColeta(DP02, { ARI: 9 })).toBe('arremate interno: opção fora da lista do motor; arremate externo: 20 mm; medida do arremate externo: medida do vão')
     })
-    it('tipologia sem a aba Variáveis → "Padrão"', () => {
-        expect(arremateDoApanhado(null, { ARI: 3 })).toBe('Padrão')
+    it('sem a aba Variáveis, ou tipologia sem variável de arremate → nula (nada a dizer, nunca "Padrão")', () => {
+        expect(arremateDaColeta(null, { ARI: 3 })).toBeNull()
+        expect(arremateDaColeta({ variaveis: [{ variavel: 'AF', descricao: 'ALTURA DA BANDEIRA', padrao: null, condicao: 'sempre', opcoes: null }] } as unknown as VariaveisDaTipologia, {})).toBeNull()
     })
-})
-
-describe('fraseDoApanhado: o pé, sempre, e o que difere por esquadria', () => {
-    it('cores diferentes: o pé diz a cor de cada esquadria; o arremate igual sai uma vez', () => {
-        const texto = fraseDoApanhado('Obra', [item(1), item(2, { cor_perfil: 'PRETO' })], () => DP02)
-        expect(texto.split('\n')).toEqual([
-            'Apanhado do levantamento “Obra”:',
-            'Esquadria 1: DP-02, 1 unidade(s), 1.200 x 1.000 mm, vidro Temperado 5mm.',
-            'Esquadria 2: DP-02, 1 unidade(s), 1.200 x 1.000 mm, vidro Temperado 5mm.',
-            '',
-            'Cor do perfil: esquadria 1, BRANCO; esquadria 2, PRETO.',
-            'Arremate e guarnição: Padrão.',
-            '',
-            CONFERE_O_APANHADO,
-        ])
-    })
-
-    it('a ordem das linhas é a das esquadrias, venha como vier', () => {
-        const texto = fraseDoApanhado('Obra', [item(2, { largura_mm: 800 }), item(1)], () => DP02)
-        expect(texto.split('\n').filter((l) => l.startsWith('Esquadria '))).toEqual([
-            'Esquadria 1: DP-02, 1 unidade(s), 1.200 x 1.000 mm, vidro Temperado 5mm.',
-            'Esquadria 2: DP-02, 1 unidade(s), 800 x 1.000 mm, vidro Temperado 5mm.',
-        ])
+    it('nenhum código de fornecedor, em nenhuma combinação das opções reais', () => {
+        for (const ARI of [1, 2, 3, 4]) for (const ARE of [1, 2]) for (const MAE of [1, 2]) {
+            const t = arremateDaColeta(DP02, { ARI, ARE, MAE }) as string
+            expect([t, /\b[A-Z]{1,5}\d{2,}[A-Z0-9]*\b/.test(t)]).toEqual([t, false])
+        }
     })
 })
 
-describe('o vidro na linha da esquadria: o rótulo "vidro" UMA vez (06/11/2026, saiu "vidro vidro comum 6 mm incolor")', () => {
-    it.each([
-        ['vidro comum 6 mm incolor', 'vidro comum 6 mm incolor'],
-        ['Vidro comum 6 mm incolor', 'Vidro comum 6 mm incolor'],
-        ['VÍDRO temperado 8mm', 'VÍDRO temperado 8mm'],
-        ['  vidro 4mm ', 'vidro 4mm'],
-        ['mini boreal', 'vidro mini boreal'],
-        ['temperado 8mm', 'vidro temperado 8mm'],
-        ['vidros 4mm', 'vidros 4mm'],
-        ['vidraça 4mm', 'vidro vidraça 4mm'],
-    ])('"%s" → "%s"', (gravado, linha) => {
-        expect(vidroNoApanhado(gravado)).toBe(linha)
-    })
-    it('sem vidro, a interrogação de sempre', () => {
-        expect(vidroNoApanhado(null)).toBe('vidro ?')
-        expect(vidroNoApanhado('  ')).toBe('vidro ?')
-    })
-})
+// A MENSAGEM-RESUMO (fraseDoApanhado) SAIU em 06/11/2026: no lugar dela vai o ARQUIVO do levantamento, e o que ela dizia — o arremate por
+// extenso e o vidro com o rótulo uma vez — é conferido no arquivo (`arquivo-do-levantamento.test.ts`, `folha-do-levantamento.test.ts`).
+
+// o VIDRO saiu daqui (06/11/2026): a célula do arquivo é "VIDRO:", e o vidro vai como o vendedor disse, sem rótulo na frente
 
