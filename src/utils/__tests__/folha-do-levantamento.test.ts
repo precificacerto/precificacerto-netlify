@@ -257,8 +257,8 @@ describe('(III) a paginação — a folha enche antes de virar, o item não se p
 })
 
 describe('(III-b) A DENSIDADE DO MOCKUP (dono do produto, 07/11/2026): 794 px = 210 mm', () => {
-    // os itens são contíguos, separados só pela borda (dono do produto, 07/11/2026)
-    const ESPACO_ENTRE_ITENS = 0
+    // cada item é uma CÉLULA fechada, com 2,5 mm de respiro até a próxima (dono do produto, 07/11/2026)
+    const ESPACO_ENTRE_ITENS = 2.5
     const plano = (itens: ItemDaFolha[]) => {
         const p = planoDaFolha(dados({ itens }))
         if ('recusa' in p) throw new Error(p.recusa)
@@ -288,12 +288,43 @@ describe('(III-b) A DENSIDADE DO MOCKUP (dono do produto, 07/11/2026): 794 px = 
         for (const palavra of ['Estrada', 'gleba', 'ponte', 'Industrial,', 'Montenegro/RS']) expect(desenhado).toContain(palavra)
     })
 
-    it('O ALVO: 9 itens sem VARIÁVEIS na folha 1 e 10 nas seguintes; com VARIÁVEIS, 7 e 8', () => {
+    it('A CAPACIDADE com o respiro de volta: 8 itens sem VARIÁVEIS na folha 1 e 9 nas seguintes; com VARIÁVEIS, 7 e 8', () => {
         const contar = (base: ItemDaFolha) => plano(Array.from({ length: 40 }, (_, k) => ({ ...base, ordem: k + 1 }))).paginas.map((pg) => pg.itens.length)
         const semVar = contar(sem)
-        expect(semVar.slice(0, 3)).toEqual([9, 10, 10])
+        expect(semVar.slice(0, 3)).toEqual([8, 9, 9])
         const comVar = contar(com)
         expect(comVar.slice(0, 3)).toEqual([7, 8, 8])
+    })
+
+    it('A CÉLULA DO ITEM, lida no PDF: borda externa preta de 0,5 pt contornando o item inteiro, uma por item; as internas cinza claro de 0,25 pt; nenhum fundo no item', () => {
+        const d = dados({ itens: ITENS_DE_EXEMPLO })
+        const r = gerarFolhaDoLevantamento(d)
+        if ('recusas' in r) throw new Error(r.recusas.join(' '))
+        const p = plano(ITENS_DE_EXEMPLO)
+        // percorre o fluxo guardando a cor (G) e a espessura (w) do traço em vigor a cada retângulo traçado
+        const fluxo = textoDoPdf(r.pdf)
+        let cor = '', largura = ''
+        const retangulos: Array<{ cor: string; largura: string; w: number; h: number }> = []
+        for (const m of fluxo.matchAll(/([\d.]+) G\n|([\d.]+) w\n|([\d.-]+) ([\d.-]+) ([\d.-]+) ([\d.-]+) re\nS\n/g)) {
+            if (m[1] !== undefined) cor = m[1]
+            else if (m[2] !== undefined) largura = m[2]
+            else retangulos.push({ cor, largura, w: Number(m[5]), h: Math.abs(Number(m[6])) })
+        }
+        const mmEmPt = 72 / 25.4
+        const externas = retangulos.filter((x) => x.cor === '0.' && x.largura === '0.5')
+        expect(externas).toHaveLength(ITENS_DE_EXEMPLO.length)
+        // cada uma contorna o item INTEIRO: a largura do conteúdo e a altura do item (a faixa e as linhas auxiliares, sem o respiro)
+        externas.forEach((x, k) => {
+            expect(x.w / mmEmPt).toBeCloseTo(FOLHA.largura - 2 * FOLHA.margem, 3)
+            expect(x.h / mmEmPt).toBeCloseTo(p.alturas.itens[k] - ESPACO_ENTRE_ITENS, 3)
+        })
+        // as internas: cinza claro (200/255) e 0,25 pt — e nenhum outro traço de célula dentro do item
+        const internas = retangulos.filter((x) => x.cor === '0.78' && x.largura === '0.25')
+        // por item: Fig. + 4 colunas da faixa + PERFIL + VIDRO + AMBIENTES + OBS, e VARIÁVEIS quando há
+        const esperadas = ITENS_DE_EXEMPLO.reduce((s, i) => s + 9 + (i.variaveis.some((v) => v.semPadrao) ? 1 : 0), 0)
+        expect(internas).toHaveLength(esperadas)
+        // sem fundo nas células: o único preenchimento é o da faixa de títulos da tabela, um por folha com itens
+        expect(fluxo.match(/ re\nf\n/g)?.length).toBe(p.paginas.filter((pg) => pg.itens.length).length)
     })
 
     it('as medidas: Fig. 15,3 mm (58 px), faixa 12,2 mm (46 px), linha auxiliar 4,2 mm (16 px)', () => {
