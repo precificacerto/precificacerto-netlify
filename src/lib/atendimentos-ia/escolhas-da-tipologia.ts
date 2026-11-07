@@ -201,10 +201,16 @@ export function variaveisAPerguntar(tipologia: VariaveisDaTipologia, dadas: Read
     return variaveisSemPadrao(tipologia).filter((v) => dadas[v.variavel] === undefined && condicaoPede(v.condicao, efetivas))
 }
 
+/**
+ * A variável é uma MEDIDA (em mm)? Pela descrição da aba: começa por altura, largura, comprimento ou medida. A mesma regra decide o "(em mm)" da
+ * pergunta e o "mm" do valor na linha VARIÁVEIS da folha do levantamento (`folha-do-levantamento.ts`) — uma regra só, para as duas não divergirem.
+ */
+export const variavelEhMedida = (descricao: string) => /^(altura|largura|comprimento|medida)\b/.test(minuscula(descricao.trim()))
+
 /** Como a variável sem padrão é pedida: pela descrição da aba, em minúscula, e "(em mm)" quando é uma medida (altura, largura, comprimento). */
 export function nomeDaVariavelSemPadrao(v: Pick<VariavelSemPadrao, 'descricao'>): string {
     const nome = minuscula(v.descricao)
-    return /^(altura|largura|comprimento|medida)\b/.test(nome) ? `${nome} (em mm)` : nome
+    return variavelEhMedida(v.descricao) ? `${nome} (em mm)` : nome
 }
 
 /**
