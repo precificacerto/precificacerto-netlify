@@ -2008,6 +2008,21 @@ A4). Sai só a mensagem-resumo em texto do fim da coleta. "Não chame o arquivo 
     agente. A proposta está no relato de 07/11/2026.
   - **"Conferido e confirmado por | data e hora"** sai em branco, para quem confere (decisão do assistente, sem resposta; o dono do produto pode
     trocar).
+- **A DENSIDADE DO MOCKUP — dono do produto, 07/11/2026** ("o PDF está fiel na estrutura, mas erra a densidade: 2 itens por folha contra 10 do
+  mockup aprovado"). Medidas tiradas do mockup em pixels (794 px = 210 mm), e o gerador as usa em pixels para os totais baterem:
+  - a coluna Fig. (58 px, 15,3 mm) é UMA célula da altura do item inteiro, com o desenho centrado, na proporção real, crescendo até caber com 1 mm
+    de folga; as outras linhas começam onde ela termina;
+  - a faixa do item, 46 px (12,2 mm); cada linha auxiliar, 16 px (4,2 mm) por linha de texto, com o rótulo na frente: item sem VARIÁVEIS 24,9 mm,
+    com 29,1 mm (eram cerca de 59 mm);
+  - o NOME da tipologia: a descrição do motor com a primeira letra de cada trecho entre barras em maiúscula — nada acrescentado, cortado ou
+    normalizado; o trecho a partir da ÚLTIMA barra "|", com ou sem espaço em volta, em cinza e peso normal (medido: DP-11 e DP-141 têm "|EUROPA"
+    sem espaço depois; DP-01 termina em "| DESIGN"); sem barra, sai inteiro; em até 2 linhas com reticências ("o código ao lado identifica a
+    tipologia e a descrição completa está no motor"); a linha do motor não sai mais em linha própria;
+  - o texto do VENDEDOR e da obra (VARIÁVEIS, AMBIENTES, OBS) NUNCA é cortado: a linha cresce 4,2 mm por linha de texto, só naquele item, e a
+    paginação conta isso ANTES de decidir se o item cabe na folha.
+  **Capacidade medida com esse desenho (07/11/2026):** folha 1, 7 itens sem VARIÁVEIS ou 6 com; folhas seguintes, 8 ou 7. O alvo de 9 a 10 não
+  fecha só com o item: pesam o cabeçalho (22 mm), o bloco do cliente (36,7 mm, só na folha 1), o cabeçalho das colunas (8 mm) e o espaço de 2,5 mm
+  entre itens — que não foram mudados, porque o pedido foi "mantenha tudo o mais como está".
 - **VOCABULÁRIO — "rodapé", nunca "fecho" (dono do produto, 07/11/2026):** "No domínio de esquadrias 'fecho' é FERRAGEM (cremona com fecho
   alavanca, fecho embutido) [...] Use 'rodapé' para a parte de baixo da folha (pré-definições consideradas, condições comerciais, conferido e
   confirmado por). [...] Não é cosmético: um dia o agente vai escrever a palavra numa frase e ninguém vai saber se é a peça ou a parte da folha."

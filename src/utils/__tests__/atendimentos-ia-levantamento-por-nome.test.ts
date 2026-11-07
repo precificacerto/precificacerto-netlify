@@ -1724,7 +1724,8 @@ describe('(17) O ARQUIVO no lugar da mensagem-resumo (dono do produto, 06/11/202
         expect(enviados().some((t) => t.includes('Apanhado do levantamento'))).toBe(false)
         const arquivo = textoDoArquivo()
         expect(arquivo).toContain('Item 1 · DP-02')
-        expect(arquivo).toContain('JANELA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 42')
+        // o nome da tipologia com a primeira maiúscula por trecho, e a linha no trecho da última barra (07/11/2026)
+        expect(arquivo).toContain('Janela de correr 02 folhas móveis | Europa 42')
         // a linha do item com os rótulos do mockup: "PERFIL / ACESSÓRIO:" (cor do perfil / cor do acessório, "padrão" não dita) e "VIDRO:"
         expect(arquivo).toContain('PERFIL / ACESSÓRIO: BRANCO / padrão VIDRO: Temperado 5mm')
         // o arremate e a guarnição são comuns à obra: só no RODAPÉ, nas pré-definições — com O QUE O CÁLCULO USA (o padrão do motor, por extenso),
