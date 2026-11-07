@@ -42,6 +42,18 @@ M = [
  ('L10 o ambiente sem a quantidade', "(i.ambientes ?? []).map((a) => `${a.ambiente} (${a.quantidade})`)", "(i.ambientes ?? []).map((a) => a.ambiente)"),
  ('L11 a data de entrega por extenso', "    return `${m[3]}/${m[2]}/${m[1].slice(2)}`\n", "    return `${m[3]}/${m[2]}/${m[1]}`\n"),
  ('L12 o modo sem o rótulo', "c.comissaoModo ? `Modo: ${MODO[c.comissaoModo]}` : ''", "c.comissaoModo ? MODO[c.comissaoModo] : ''"),
+ ('N1 a figura só na altura da faixa', '    ({ x: x + FOLGA_DO_DESENHO, y: y + FOLGA_DO_DESENHO, w: COLUNAS.fig - 2 * FOLGA_DO_DESENHO, h: alturaDoCorpo - 2 * FOLGA_DO_DESENHO })', '    ({ x: x + FOLGA_DO_DESENHO, y: y + FOLGA_DO_DESENHO, w: COLUNAS.fig - 2 * FOLGA_DO_DESENHO, h: ALTURA_DA_FAIXA - 2 * FOLGA_DO_DESENHO })'),
+ ('N2 o desenho com a caixa da faixa', '    const tracos = tracosDoDesenho(desenhoDaTipologia(i), caixaDaFigura(x, y, altura))', '    const tracos = tracosDoDesenho(desenhoDaTipologia(i), caixaDaFigura(x, y, ALTURA_DA_FAIXA))'),
+ ('N3 a linha do vendedor não cresce (corta)', '    Math.max(1, linhasDaCelula(doc, rotuloDaCelula, texto, largura).length) * ALTURA_DA_LINHA_DO_ITEM', '    ALTURA_DA_LINHA_DO_ITEM'),
+ ('N4 a faixa com outra altura', 'export const ALTURA_DA_FAIXA = 46 * PX_DO_MOCKUP', 'export const ALTURA_DA_FAIXA = 60 * PX_DO_MOCKUP'),
+ ('N5 a linha auxiliar com outra altura', 'export const ALTURA_DA_LINHA_DO_ITEM = 16 * PX_DO_MOCKUP', 'export const ALTURA_DA_LINHA_DO_ITEM = 20 * PX_DO_MOCKUP'),
+ ('N6 a coluna Fig. com outra largura', 'const LARGURA_DA_FIG = 58 * PX_DO_MOCKUP', 'const LARGURA_DA_FIG = 34'),
+ ('N7 o cinza na PRIMEIRA barra', '    const k = comCaixa.lastIndexOf(\'|\')', '    const k = comCaixa.indexOf(\'|\')'),
+ ('N8 o nome sem a caixa ajustada', "t.toLocaleLowerCase('pt-BR').replace(/\\p{L}/u, (l) => l.toLocaleUpperCase('pt-BR'))", 't'),
+ ('N9 o nome em três linhas', 'export const LINHAS_DO_NOME = 2', 'export const LINHAS_DO_NOME = 3'),
+ ('N10 o nome cortado sem reticências', "        t.push({ texto: '…', cinza: ate > principal.length })\n", ''),
+ ('N11 a paginação sem o crescimento da linha', 'const alturaDoItem = (doc: Doc, i: ItemDaFolha) => alturaDoCorpoDoItem(doc, i) + ESPACO_ENTRE_ITENS', 'const alturaDoItem = (doc: Doc, i: ItemDaFolha) => ALTURA_DA_FAIXA + linhasDoItem(i).length * ALTURA_DA_LINHA_DO_ITEM + ESPACO_ENTRE_ITENS'),
+ ('N12 a linha do motor de volta em linha própria', "    doc.setTextColor(PRETO)\n    cx += COLUNAS.item\n", "    if (i.linha) doc.text(`Linha: ${i.linha}`, cx + 1.5, y + ALTURA_DA_FAIXA - 1)\n    doc.setTextColor(PRETO)\n    cx += COLUNAS.item\n"),
 ]
 orig = open(ARQ, encoding='utf-8').read()
 vivas = []
