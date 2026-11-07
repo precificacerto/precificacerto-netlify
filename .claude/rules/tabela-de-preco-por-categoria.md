@@ -2031,6 +2031,11 @@ A4). Sai só a mensagem-resumo em texto do fim da coleta. "Não chame o arquivo 
   figura e as linhas auxiliares; as INTERNAS, cinza claro (0,25 pt), só onde separam assunto (a Fig. do resto, as colunas da faixa, as linhas
   auxiliares, PERFIL / ACESSÓRIO de VIDRO); sem fundo nas células, sem zebra, sem borda dupla; a faixa de títulos da tabela mantém o fundo claro.
   **Medido depois:** 8 itens sem VARIÁVEIS na folha 1 e 9 nas seguintes; com VARIÁVEIS, 7 e 8.
+  **O RODAPÉ ANCORADO NO PÉ (dono do produto, 07/11/2026):** as pré-definições consideradas, as condições comerciais, o "conferido e
+  confirmado por" e a linha de identificação ficam no pé da última folha, não logo depois do último item — como o `margin-top:auto` do
+  mockup. O rodapé é desenhado de baixo para cima e termina onde começa a linha de identificação (`topoDoRodape`); os itens continuam do
+  topo; o espaço livre fica ENTRE o último item e o rodapé. A paginação não muda: o rodapé precisa caber inteiro na última folha, e, não
+  cabendo, nasce uma folha só para ele.
 - **VOCABULÁRIO — "rodapé", nunca "fecho" (dono do produto, 07/11/2026):** "No domínio de esquadrias 'fecho' é FERRAGEM (cremona com fecho
   alavanca, fecho embutido) [...] Use 'rodapé' para a parte de baixo da folha (pré-definições consideradas, condições comerciais, conferido e
   confirmado por). [...] Não é cosmético: um dia o agente vai escrever a palavra numa frase e ninguém vai saber se é a peça ou a parte da folha."
