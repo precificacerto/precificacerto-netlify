@@ -68,7 +68,9 @@ export const FOLHA_DE_EXEMPLO: DadosDaFolha = {
     itens: ITENS_DE_EXEMPLO,
     preDefinicoes: [
         { rotulo: 'Cor do perfil', valor: 'Branco' },
-        { rotulo: 'Arremate e guarnição', valor: 'padrão' },
+        // o que o CÁLCULO usa quando o vendedor não respondeu: o padrão do motor da Wolff, por extenso e sem código (BZ0006 65 mm, BZ0010 20 mm,
+        // medida do vão) — igual nas 161 tipologias com arremate, medido em 07/11/2026; nunca a palavra "padrão" (dono do produto, 07/11/2026)
+        { rotulo: 'Arremate e guarnição', valor: 'arremate interno: 65 mm; arremate externo: 20 mm; medida do arremate externo: medida do vão' },
         { rotulo: 'Vedação', valor: 'padrão' },
     ],
     condicoes: {
