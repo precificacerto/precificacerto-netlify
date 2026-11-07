@@ -3,6 +3,8 @@
  * sem o WhatsApp: recebe os dados já lidos (`DadosDaFolha`) e devolve o PDF, ou as RECUSAS nomeadas. Não lê banco nem rede.
  *
  * VOCABULÁRIO (dono do produto, 06/11/2026): o APANHADO é a COLETA (as perguntas e respostas da conversa); o LEVANTAMENTO é este ARQUIVO.
+ * E (07/11/2026): a parte de baixo da folha é o RODAPÉ, nunca "fecho" — no domínio de esquadrias, FECHO é FERRAGEM (cremona com fecho alavanca,
+ * fecho embutido), e a palavra nos dois sentidos deixaria o agente e quem lê sem saber se é a peça ou a parte da folha.
  *
  * ══ A ESPECIFICAÇÃO NORMATIVA (dono do produto, 06/11/2026) ══
  *   - A4 retrato sempre. CABEÇALHO repetido em toda folha: título, nome da empresa (tenants.name), data, hora, "Página X de Y" e o número do
@@ -16,16 +18,16 @@
  *     duas células (o respiro sob a figura fica fora da divisão, e o que resta é 50% para cada) — "PERFIL / ACESSÓRIO:" com "<cor do perfil> /
  *     <cor do acessório>" ("padrão" no lugar da cor do acessório não dita: "Branco / padrão") e "VIDRO:" com o vidro como o vendedor disse
  *     (rótulos do mockup aprovado campo a campo, dono do produto, 06/11/2026; o arremate e a guarnição NÃO entram aqui: são comuns à obra e saem
- *     no fecho); AMBIENTES; OBS.
+ *     no rodapé); AMBIENTES; OBS.
  *   - NUNCA ENTRAM: perfil como material, acessório, barra, peso, corte, nem valor em reais de espécie alguma. A folha não recebe nenhum desses
  *     dados (o contrato `DadosDaFolha` não tem campo para eles), e a conferência recusa texto com símbolo de dinheiro (`SIMBOLO_DE_DINHEIRO`).
- *   - FECHO: pré-definições consideradas (só o que foi informado, corpo reduzido, sem negrito); condições comerciais — vendedor + comissão % + modo
+ *   - RODAPÉ (a parte de baixo do levantamento, na última folha): pré-definições consideradas (só o que foi informado, corpo reduzido, sem negrito); condições comerciais — vendedor + comissão % + modo
  *     numa linha (modo encostado à direita), e RT + responsável + % e lucro projetado da proposta + %, metade da linha cada, com o percentual num
- *     campo curto na borda direita da sua metade; conferido e confirmado por | data e hora. RODAPÉ: "Levantamento N · X itens · Y peças · gerado em
+ *     campo curto na borda direita da sua metade; conferido e confirmado por | data e hora. LINHA DE IDENTIFICAÇÃO, no pé de toda folha: "Levantamento N · X itens · Y peças · gerado em
  *     dd/mm/aaaa às hh:mm" (o fuso é o de São Paulo).
  *   - O arquivo TRAZ comissão %, RT % e lucro projetado % (decisão do dono do produto de 06/11/2026, revoga a de 22/10). Uma versão só, sem parâmetro.
  *   - Antes de produzir, o gerador confere: a soma das quantidades dos ambientes fecha com a quantidade do item. Não fechando, RECUSA NOMEADA.
- *   - PAGINAÇÃO: a folha enche antes de virar; o fecho sai inteiro na última folha e não se parte; um item nunca começa numa folha e termina na outra
+ *   - PAGINAÇÃO: a folha enche antes de virar; o rodapé sai inteiro na última folha e não se parte; um item nunca começa numa folha e termina na outra
  *     (`paginar`, função pura).
  *
  * ══ O DESENHO (dono do produto, 06/11/2026) ══ — `desenhoDaTipologia`, função pura:
@@ -101,7 +103,7 @@ export type DadosDaFolha = {
         rtPercentual: number | null
         lucroPercentual: number | null
     }
-    /** O instante da geração: o cabeçalho e o rodapé o mostram no fuso de São Paulo. */
+    /** O instante da geração: o cabeçalho e a linha de identificação o mostram no fuso de São Paulo. */
     geradoEm: Date
 }
 
@@ -264,25 +266,25 @@ export function conferirFolha(d: DadosDaFolha): string[] {
 
 // ── A PAGINAÇÃO (pura) ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 export type AlturasDaFolha = {
-    /** O espaço útil de uma folha, entre o cabeçalho e o rodapé. */
+    /** O espaço útil de uma folha, entre o cabeçalho e a linha de identificação. */
     util: number
     /** O bloco do cliente (só na primeira folha). */
     cliente: number
     /** O cabeçalho das colunas, repetido em toda folha que tem item. */
     cabecalhoDasColunas: number
     itens: readonly number[]
-    fecho: number
+    rodape: number
 }
 
-export type PaginaDaFolha = { cliente: boolean; itens: number[]; fecho: boolean }
+export type PaginaDaFolha = { cliente: boolean; itens: number[]; rodape: boolean }
 
 /**
  * A folha ENCHE antes de virar (cada item vai na folha corrente se cabe, com o cabeçalho das colunas quando é o primeiro dela); um item nunca é
- * partido (o que não cabe começa a folha seguinte); o FECHO sai inteiro na última folha — na corrente, se cabe, senão numa folha só dele. O que não
+ * partido (o que não cabe começa a folha seguinte); o RODAPÉ sai inteiro na última folha — na corrente, se cabe, senão numa folha só dele. O que não
  * cabe numa folha vazia é recusa (nunca partido nem cortado).
  */
 export function paginar(a: AlturasDaFolha): { paginas: PaginaDaFolha[] } | { recusa: string } {
-    const paginas: PaginaDaFolha[] = [{ cliente: true, itens: [], fecho: false }]
+    const paginas: PaginaDaFolha[] = [{ cliente: true, itens: [], rodape: false }]
     let livre = a.util - a.cliente
     if (livre < 0) return { recusa: 'Os dados do cliente não cabem numa folha.' }
     for (let i = 0; i < a.itens.length; i++) {
@@ -291,12 +293,12 @@ export function paginar(a: AlturasDaFolha): { paginas: PaginaDaFolha[] } | { rec
         if (precisa <= livre) { atual.itens.push(i); livre -= precisa; continue }
         const sozinho = a.itens[i] + a.cabecalhoDasColunas
         if (sozinho > a.util) return { recusa: `O item ${i + 1} não cabe numa folha inteira.` }
-        paginas.push({ cliente: false, itens: [i], fecho: false })
+        paginas.push({ cliente: false, itens: [i], rodape: false })
         livre = a.util - sozinho
     }
-    if (a.fecho > a.util) return { recusa: 'O fecho não cabe numa folha inteira.' }
-    if (a.fecho <= livre) paginas[paginas.length - 1].fecho = true
-    else paginas.push({ cliente: false, itens: [], fecho: true })
+    if (a.rodape > a.util) return { recusa: 'O rodapé não cabe numa folha inteira.' }
+    if (a.rodape <= livre) paginas[paginas.length - 1].rodape = true
+    else paginas.push({ cliente: false, itens: [], rodape: true })
     return { paginas }
 }
 
@@ -331,7 +333,8 @@ export function linhaDasVariaveis(i: Pick<ItemDaFolha, 'variaveis'>): string | n
 
 export const linhaDosAmbientes = (i: Pick<ItemDaFolha, 'ambientes'>) => (i.ambientes ?? []).map((a) => `${a.ambiente} (${a.quantidade})`).join(' · ')
 
-export function rodape(d: Pick<DadosDaFolha, 'numero' | 'itens' | 'geradoEm'>): string {
+/** A LINHA DE IDENTIFICAÇÃO, no pé de toda folha (não é o rodapé: o rodapé é a parte de baixo do levantamento, na última folha). */
+export function linhaDeIdentificacao(d: Pick<DadosDaFolha, 'numero' | 'itens' | 'geradoEm'>): string {
     const pecas = d.itens.reduce((s, i) => s + i.quantidade, 0)
     return `Levantamento ${d.numero} · ${d.itens.length} ${d.itens.length === 1 ? 'item' : 'itens'} · ${pecas} ${pecas === 1 ? 'peça' : 'peças'} · gerado em ${dataLonga(d.geradoEm)} às ${hora(d.geradoEm)}`
 }
@@ -425,8 +428,8 @@ const LINHA_DAS_CONDICOES = 9
 const CAMPO_DO_PERCENTUAL = 18
 const ROTULO_DA_RT = 'RT · responsável:'
 
-/** As alturas do fecho, uma função só para medir e para desenhar. */
-function partesDoFecho(doc: Doc, d: DadosDaFolha) {
+/** As alturas do rodapé, uma função só para medir e para desenhar. */
+function partesDoRodape(doc: Doc, d: DadosDaFolha) {
     const pre = d.preDefinicoes.length ? quebrar(doc, textoDasPreDefinicoes(d), CONTEUDO - 3, CORPO_REDUZIDO) : []
     const alturaDasPre = pre.length ? 4 + pre.length * CORPO_REDUZIDO * ENTRELINHA + 2 : 0
     doc.setFont('helvetica', 'bold'); doc.setFontSize(CORPO)
@@ -438,7 +441,7 @@ function partesDoFecho(doc: Doc, d: DadosDaFolha) {
     const total = 3 + alturaDasPre + 4.5 + LINHA_DAS_CONDICOES + alturaDaRt + 2 + LINHA_DAS_CONDICOES
     return { pre, alturaDasPre, responsavel, alturaDaRt, total }
 }
-const alturaDoFecho = (doc: Doc, d: DadosDaFolha) => partesDoFecho(doc, d).total
+const alturaDoRodape = (doc: Doc, d: DadosDaFolha) => partesDoRodape(doc, d).total
 
 function rotulo(doc: Doc, texto: string, x: number, y: number) {
     doc.setFont('helvetica', 'bold'); doc.setFontSize(ROTULO); doc.setTextColor(CINZA)
@@ -476,11 +479,11 @@ function cabecalho(doc: Doc, d: DadosDaFolha, pagina: number, total: number) {
     doc.setLineWidth(0.2)
 }
 
-function rodapeDaFolha(doc: Doc, d: DadosDaFolha) {
+function desenharLinhaDeIdentificacao(doc: Doc, d: DadosDaFolha) {
     const y = FOLHA.altura - FOLHA.margem - 3
     doc.setDrawColor(TRACO); doc.line(FOLHA.margem, y - 4, FOLHA.largura - FOLHA.margem, y - 4)
     doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(CINZA)
-    doc.text(rodape(d), FOLHA.largura / 2, y, { align: 'center' })
+    doc.text(linhaDeIdentificacao(d), FOLHA.largura / 2, y, { align: 'center' })
     doc.setTextColor(PRETO)
 }
 
@@ -576,9 +579,9 @@ function blocoDoItem(doc: Doc, i: ItemDaFolha, y: number): number {
     return ly + ESPACO_ENTRE_ITENS
 }
 
-function fecho(doc: Doc, d: DadosDaFolha, y: number) {
+function desenharRodape(doc: Doc, d: DadosDaFolha, y: number) {
     const x = FOLHA.margem
-    const partes = partesDoFecho(doc, d)
+    const partes = partesDoRodape(doc, d)
     let cy = y + 3
     if (partes.pre.length) {
         // só o que foi informado, corpo reduzido, sem negrito
@@ -638,7 +641,7 @@ function medir(doc: Doc, d: DadosDaFolha): AlturasDaFolha {
         cliente: alturaDoCliente(doc, d),
         cabecalhoDasColunas: ALTURA_DO_CABECALHO_DAS_COLUNAS,
         itens: d.itens.map((i) => alturaDoItem(doc, i)),
-        fecho: alturaDoFecho(doc, d),
+        rodape: alturaDoRodape(doc, d),
     }
 }
 
@@ -686,8 +689,8 @@ export function gerarFolhaDoLevantamento(d: DadosDaFolha): FolhaGerada | FolhaRe
         if (p.cliente) y = blocoDoCliente(doc, dados, y)
         if (p.itens.length) y = cabecalhoDasColunas(doc, y)
         for (const i of p.itens) y = blocoDoItem(doc, itens[i], y)
-        if (p.fecho) fecho(doc, dados, y)
-        rodapeDaFolha(doc, dados)
+        if (p.rodape) desenharRodape(doc, dados, y)
+        desenharLinhaDeIdentificacao(doc, dados)
     })
     doc.setProperties({ title: `Levantamento ${d.numero} — ${d.cliente.nome}`, creator: 'Precifica Certo' })
     // o mesmo levantamento gerado no mesmo instante dá os mesmos bytes (o exemplo em docs/levantamento/ é conferido assim)
