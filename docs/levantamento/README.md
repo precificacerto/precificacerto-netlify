@@ -2,7 +2,10 @@
 
 - `exemplo-levantamento.pdf`: o arquivo como o agente o envia, gerado por `gerarFolhaDoLevantamento`
   (`src/lib/atendimentos-ia/folha-do-levantamento.ts`) a partir de `src/utils/__tests__/fixtures/folha-de-exemplo.ts`.
-- `exemplo-levantamento-folha-1.png` a `-3.png`: as três folhas do mesmo PDF, para conferir sem abrir o arquivo.
+- `exemplo-levantamento-folha-1.png` e `-2.png`: as duas folhas do mesmo PDF, para conferir sem abrir o arquivo.
+
+A densidade é a do mockup aprovado (dono do produto, 07/11/2026; 794 px = 210 mm): a faixa do item com 12,2 mm, cada linha auxiliar com 4,2 mm
+por linha de texto, e a coluna Fig. com 15,3 mm, da altura do item inteiro. Item sem VARIÁVEIS: 24,9 mm; com: 29,1 mm.
 
 **Os dados são fictícios.** Nenhum cliente real sai do tenant. As tipologias, as descrições e as linhas são as do motor da Wolff
 (`fdff3386…`), medidas em 06/11/2026.

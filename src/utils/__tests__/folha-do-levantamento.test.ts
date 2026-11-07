@@ -9,9 +9,10 @@
  *   ATUALIZAR_EXEMPLO_DA_FOLHA=1 npx jest src/utils/__tests__/folha-do-levantamento.test.ts
  */
 import { readFileSync, writeFileSync } from 'fs'
+import { jsPDF } from 'jspdf'
 import { join } from 'path'
 import {
-    ALTURA_DA_FAIXA, COLUNAS, FOLHA, conferirFolha, dataCurta, desenhoDaTipologia, gerarFolhaDoLevantamento, linhaDasVariaveis, linhaDosAmbientes,
+    ALTURA_DA_FAIXA, ALTURA_DA_LINHA_DO_ITEM, COLUNAS, PX_DO_MOCKUP, FOLHA, caixaDaFigura, conferirFolha, linhasDoNome, nomeDaTipologiaNaFaixa, dataCurta, desenhoDaTipologia, gerarFolhaDoLevantamento, linhaDasVariaveis, linhaDosAmbientes,
     linhaDeIdentificacao, nomeDoArquivo, paginar, percentual, planoDaFolha, tracosDoDesenho, variavelNaFolha,
     type AlturasDaFolha, type DadosDaFolha, type ItemDaFolha, type VariavelDita,
 } from '@/lib/atendimentos-ia/folha-do-levantamento'
@@ -239,8 +240,126 @@ describe('(III) a paginação — a folha enche antes de virar, o item não se p
             if (seguinte && seguinte.itens.length) expect(usado + p.alturas.itens[seguinte.itens[0]] + (pg.itens.length ? 0 : p.alturas.cabecalhoDasColunas)).toBeGreaterThan(p.alturas.util)
         }
         // toda faixa de item tem a mesma altura, qualquer que seja a tipologia: a diferença entre os itens é só das linhas de baixo
-        expect(ALTURA_DA_FAIXA).toBe(30)
-        expect(Object.values(COLUNAS).reduce((s, w) => s + w, 0)).toBe(FOLHA.largura - 2 * FOLHA.margem)
+        expect(Object.values(COLUNAS).reduce((s, w) => s + w, 0)).toBeCloseTo(FOLHA.largura - 2 * FOLHA.margem, 9)
+    })
+})
+
+describe('(III-b) A DENSIDADE DO MOCKUP (dono do produto, 07/11/2026): 794 px = 210 mm', () => {
+    const ESPACO_ENTRE_ITENS = 2.5
+    const plano = (itens: ItemDaFolha[]) => {
+        const p = planoDaFolha(dados({ itens }))
+        if ('recusa' in p) throw new Error(p.recusa)
+        return p
+    }
+    const sem = item({ variaveis: [], ambientes: null, obs: null })
+    const com = item({ variaveis: [dita('AF', BANDEIRA, 400)], ambientes: null, obs: null })
+
+    it('as medidas: Fig. 15,3 mm (58 px), faixa 12,2 mm (46 px), linha auxiliar 4,2 mm (16 px)', () => {
+        expect(COLUNAS.fig).toBeCloseTo(15.34, 2)
+        expect(ALTURA_DA_FAIXA).toBeCloseTo(12.17, 2)
+        expect(ALTURA_DA_LINHA_DO_ITEM).toBeCloseTo(4.23, 2)
+    })
+
+    it('o item completo: 24,9 mm sem VARIÁVEIS e 29,1 mm com — faixa + uma linha de 4,2 mm por linha auxiliar —, mais o espaço até o próximo', () => {
+        const p = plano([sem, com])
+        // 94 px e 110 px do mockup
+        expect(p.alturas.itens[0] - ESPACO_ENTRE_ITENS).toBeCloseTo(94 * PX_DO_MOCKUP, 9)
+        expect(p.alturas.itens[1] - ESPACO_ENTRE_ITENS).toBeCloseTo(110 * PX_DO_MOCKUP, 9)
+        expect(p.alturas.itens[0] - ESPACO_ENTRE_ITENS).toBeCloseTo(24.9, 1)
+        expect(p.alturas.itens[1] - ESPACO_ENTRE_ITENS).toBeCloseTo(29.1, 1)
+    })
+
+    it('o texto do VENDEDOR nunca é cortado: a OBS de várias linhas faz a linha crescer 4,2 mm por linha, só naquele item', () => {
+        const obs = 'Conferir o prumo da parede, o nível do piso acabado, a posição da tomada ao lado do vão e o recorte do rodapé antes da medição final; o cliente pediu soleira de granito.'
+        const p = plano([sem, item({ variaveis: [], ambientes: null, obs })])
+        const extra = p.alturas.itens[1] - p.alturas.itens[0]
+        expect(extra).toBeGreaterThan(ALTURA_DA_LINHA_DO_ITEM - 1e-9)
+        // múltiplo exato de 4,2 mm: a linha cresce de linha em linha, nunca pela metade
+        expect(Math.abs(extra / ALTURA_DA_LINHA_DO_ITEM - Math.round(extra / ALTURA_DA_LINHA_DO_ITEM))).toBeLessThan(1e-9)
+        // e o PDF traz a OBS inteira, palavra por palavra
+        const r = gerarFolhaDoLevantamento(dados({ itens: [item({ obs })] }))
+        if ('recusas' in r) throw new Error(r.recusas.join(' '))
+        const desenhado = [...textoDoPdf(r.pdf).matchAll(/\(((?:\\.|[^\\)])*)\) Tj/g)].map((m) => m[1]).join(' ')
+        for (const palavra of ['prumo', 'piso', 'tomada', 'rodapé', 'granito.']) expect(desenhado).toContain(palavra)
+    })
+
+    it('A PAGINAÇÃO CONTA O CRESCIMENTO ANTES: o último item que cabia na folha 1, com uma OBS longa, vai inteiro para a folha 2 — nunca partido', () => {
+        const itens = Array.from({ length: 12 }, (_, k) => ({ ...sem, ordem: k + 1 }))
+        const antes = plano(itens)
+        const k = antes.paginas[0].itens.length
+        expect(k).toBeGreaterThan(1)
+        const longa = Array.from({ length: 12 }, (_, n) => `observação da obra número ${n + 1} que o vendedor ditou`).join('; ')
+        itens[k - 1] = { ...itens[k - 1], obs: longa }
+        const depois = plano(itens)
+        expect(depois.paginas[0].itens).toEqual(antes.paginas[0].itens.slice(0, k - 1))
+        expect(depois.paginas[1].itens[0]).toBe(k - 1)
+        for (const pg of depois.paginas) {
+            const usado = (pg.cliente ? depois.alturas.cliente : 0) + (pg.itens.length ? depois.alturas.cabecalhoDasColunas : 0)
+                + pg.itens.reduce((s, i) => s + depois.alturas.itens[i], 0) + (pg.rodape ? depois.alturas.rodape : 0)
+            expect(usado).toBeLessThanOrEqual(depois.alturas.util + 1e-9)
+        }
+    })
+
+    it('a coluna Fig. é UMA célula da altura do item inteiro, e o desenho cresce até caber nela, centrado, na proporção real, com 1 mm de folga', () => {
+        const H = 24.87
+        const caixa = caixaDaFigura(10, 50, H)
+        expect(caixa).toEqual({ x: 11, y: 51, w: COLUNAS.fig - 2, h: H - 2 })
+        for (const i of [item({ largura_mm: 1500, altura_mm: 1200 }), item({ largura_mm: 900, altura_mm: 2100 })]) {
+            const t = tracosDoDesenho(desenhoDaTipologia(i), caixa)
+            // encosta na folga em um dos eixos (cresce até caber), e fica centrado nos dois
+            expect(Math.min(caixa.w - t.contorno.w, caixa.h - t.contorno.h)).toBeCloseTo(0, 9)
+            expect(t.contorno.x + t.contorno.w / 2).toBeCloseTo(caixa.x + caixa.w / 2, 9)
+            expect(t.contorno.y + t.contorno.h / 2).toBeCloseTo(50 + H / 2, 9)
+            expect(t.contorno.w / t.contorno.h).toBeCloseTo(i.largura_mm / i.altura_mm, 9)
+        }
+    })
+})
+
+describe('(III-c) O NOME DA TIPOLOGIA NA FAIXA: primeira maiúscula por trecho, o cinza da ÚLTIMA barra, até 2 linhas com reticências', () => {
+    const casos: Array<[string, string, string, string]> = [
+        // DP-01: a linha DESIGN (não é "EUROPA")
+        ['DP-01', 'MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL | DESIGN', 'Maxim-ar com "n" módulos horizontais e 01 módulo vertical ', '| Design'],
+        ['DP-02', 'JANELA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 42', 'Janela de correr 02 folhas móveis ', '| Europa 42'],
+        ['DP-165', 'PORTA OSCILO BATENTE 01 FOLHA | EUROPA 60', 'Porta oscilo batente 01 folha ', '| Europa 60'],
+        // a barra sem espaço depois: o cinza começa nela, e nada é acrescentado nem normalizado
+        ['DP-141', 'MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E "V" MÓDULOS VERTICAIS | ALT IGUAIS | PERFIL COLUNA |EUROPA 60',
+            'Maxim-ar com "n" módulos horizontais e "v" módulos verticais | Alt iguais | Perfil coluna ', '|Europa 60'],
+        ['DP-11', 'JANELA DE CORRER 03 FOLHAS MÓVEIS | 01 VENEZIANA VENTILADA - 01 VENEZIANA CEGA - 01 VIDRO |EUROPA 42',
+            // o trecho que começa com número: a primeira LETRA dele é a maiúscula
+            'Janela de correr 03 folhas móveis | 01 Veneziana ventilada - 01 veneziana cega - 01 vidro ', '|Europa 42'],
+        // hipotética, sem barra: sai inteira, nada cinza
+        ['sem barra', 'JANELA FIXA RETANGULAR', 'Janela fixa retangular', ''],
+    ]
+    it.each(casos)('%s', (_n, descricao, principal, cinza) => {
+        expect(nomeDaTipologiaNaFaixa(descricao)).toEqual({ principal, cinza })
+        // nada cortado nem acrescentado: só a caixa muda
+        expect((principal + cinza).toLocaleLowerCase('pt-BR')).toBe(descricao.toLocaleLowerCase('pt-BR'))
+    })
+
+    const doc = () => new jsPDF({ unit: 'mm', format: 'a4' })
+    const textoDe = (linhas: ReturnType<typeof linhasDoNome>) => linhas.map((l) => l.map((t) => t.texto).join(''))
+    it('cabe numa linha: o principal em preto e o trecho da última barra em cinza, sem reticências', () => {
+        expect(linhasDoNome(doc(), 'JANELA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 42', COLUNAS.item - 3)).toEqual([[
+            { texto: 'Janela de correr 02 folhas móveis ', cinza: false }, { texto: '| Europa 42', cinza: true },
+        ]])
+    })
+    it('não cabe em duas: corta a segunda com "…", e o que sobra é um começo do nome', () => {
+        const d = doc()
+        const descricao = 'MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E "V" MÓDULOS VERTICAIS | ALT IGUAIS | PERFIL COLUNA |EUROPA 60'
+        const linhas = linhasDoNome(d, descricao, 45)
+        expect(linhas).toHaveLength(2)
+        const textos = textoDe(linhas)
+        expect(textos[1].endsWith('…')).toBe(true)
+        const completo = Object.values(nomeDaTipologiaNaFaixa(descricao)).join('')
+        expect(completo.startsWith(`${textos[0]} `)).toBe(true)
+        expect(completo).toContain(textos[1].slice(0, -1).trimEnd())
+        // cada linha cabe na largura, com as reticências
+        d.setFont('helvetica', 'normal'); d.setFontSize(7)
+        for (const t of textos) expect(d.getTextWidth(t)).toBeLessThanOrEqual(45 + 1e-9)
+    })
+    it('as 164 descrições do motor: nunca mais de 2 linhas na largura da faixa', () => {
+        const d = doc()
+        for (const [, descricao] of DESCRICOES as unknown as string[][]) expect([descricao, linhasDoNome(d, descricao, COLUNAS.item - 3).length <= 2]).toEqual([descricao, true])
     })
 })
 

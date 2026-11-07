@@ -12,8 +12,13 @@
  *     inteira; obs da obra | data de entrega.
  *   - COLUNAS: Fig. | Item e tipologia | Qtde | Larg. | Alt. O "mm" vai no RÓTULO da coluna, em corpo miúdo, nunca ao lado de cada valor. Qtde,
  *     largura e altura centradas na célula nos dois eixos.
- *   - FAIXA DO ITEM: o desenho da tipologia na PROPORÇÃO REAL de largura × altura, o código, o nome da tipologia e a linha. Toda célula de item tem a
- *     MESMA altura (`ALTURA_DA_FAIXA`), qualquer que seja a tipologia.
+ *   - FAIXA DO ITEM: o código e o nome da tipologia, Qtde, Larg. e Alt. Toda faixa tem a MESMA altura (`ALTURA_DA_FAIXA`, 12,2 mm). DENSIDADE DO
+ *     MOCKUP (dono do produto, 07/11/2026; medidas em pixels, 794 px = 210 mm): a coluna Fig. (15,3 mm) é UMA célula da altura do item inteiro, com
+ *     o desenho na PROPORÇÃO REAL, centrado e crescendo até caber nela com 1 mm de folga; as linhas auxiliares começam onde ela termina, 4,2 mm por
+ *     linha de texto — item sem VARIÁVEIS 24,9 mm, com 29,1 mm. O NOME vem do motor com a primeira letra de cada trecho entre barras em maiúscula, em
+ *     até 2 linhas com reticências (o código ao lado o identifica), e o trecho a partir da ÚLTIMA barra em cinza ("| Europa 60"); a linha do motor
+ *     não é repetida em linha própria. O texto do VENDEDOR (VARIÁVEIS, AMBIENTES, OBS) nunca é cortado: a linha cresce só ali, e a paginação conta
+ *     isso antes de decidir se o item cabe.
  *   - LINHAS POR ITEM, nesta ordem: VARIÁVEIS (só com variável sem padrão respondida: "descrição + valor", separados por " · "); a linha de
  *     duas células (o respiro sob a figura fica fora da divisão, e o que resta é 50% para cada) — "PERFIL / ACESSÓRIO:" com "<cor do perfil> /
  *     <cor do acessório>" ("padrão" no lugar da cor do acessório não dita: "Branco / padrão") e "VIDRO:" com o vidro como o vendedor disse
@@ -352,9 +357,25 @@ const ALTURA_DO_RODAPE = 10
 const TOPO_DO_CORPO = FOLHA.margem + ALTURA_DO_CABECALHO
 const FIM_DO_CORPO = FOLHA.altura - FOLHA.margem - ALTURA_DO_RODAPE
 /** As colunas: Fig. | Item e tipologia | Qtde | Larg. | Alt. — somam a largura do conteúdo. */
-export const COLUNAS = { fig: 34, item: 106, qtde: 16, larg: 17, alt: 17 } as const
+/**
+ * AS MEDIDAS DO MOCKUP APROVADO (dono do produto, 07/11/2026), tiradas em pixels — 794 px = 210 mm — para os totais baterem com ele: a coluna
+ * Fig. 58 px (15,3 mm); a faixa do item 46 px (12,2 mm); cada linha auxiliar 16 px (4,2 mm). Item sem VARIÁVEIS: 94 px (24,9 mm); com: 110 px
+ * (29,1 mm). "2 itens por folha contra 10 do mockup" era a densidade errada.
+ */
+export const PX_DO_MOCKUP = FOLHA.largura / 794
+const LARGURA_DA_FIG = 58 * PX_DO_MOCKUP
+export const COLUNAS = { fig: LARGURA_DA_FIG, item: CONTEUDO - LARGURA_DA_FIG - 16 - 17 - 17, qtde: 16, larg: 17, alt: 17 } as const
 /** A faixa do item: a MESMA altura em todo item, qualquer que seja a tipologia. */
-export const ALTURA_DA_FAIXA = 30
+export const ALTURA_DA_FAIXA = 46 * PX_DO_MOCKUP
+/** A altura de UMA linha de texto das linhas auxiliares (VARIÁVEIS, PERFIL / ACESSÓRIO + VIDRO, AMBIENTES, OBS). O texto que precisa de duas ocupa
+ * duas: o que o vendedor disse NUNCA é cortado num documento que ele confirma (dono do produto, 07/11/2026). */
+export const ALTURA_DA_LINHA_DO_ITEM = 16 * PX_DO_MOCKUP
+/** A folga entre a célula da figura e o desenho, que cresce até caber nela inteira, na proporção real. */
+const FOLGA_DO_DESENHO = 1
+/** O nome da tipologia na faixa: no máximo duas linhas, com reticências — vem do motor e o código ao lado o identifica (dono do produto, 07/11). */
+export const LINHAS_DO_NOME = 2
+const CORPO_DO_NOME = 7
+const CORPO_DA_LINHA = 7
 const ALTURA_DO_CABECALHO_DAS_COLUNAS = 8
 const ESPACO_ENTRE_ITENS = 2.5
 const LINHA_DO_CLIENTE = 7
@@ -373,10 +394,17 @@ const quebrar = (doc: Doc, texto: string, largura: number, corpo: number): strin
     return texto === '' ? [''] : (doc.splitTextToSize(texto, largura) as string[])
 }
 
-/** A altura de uma célula de texto com rótulo em cima: o rótulo, as linhas quebradas e o respiro. */
-function alturaDaCelula(doc: Doc, texto: string, largura: number, corpo = CORPO): number {
-    return 2 + ROTULO * ENTRELINHA + 0.8 + quebrar(doc, texto, largura - 3, corpo).length * corpo * ENTRELINHA + 1.6
+/** O texto de uma célula auxiliar, quebrado no espaço que sobra depois do rótulo (o rótulo vai NA FRENTE, na mesma linha). */
+function linhasDaCelula(doc: Doc, rotuloDaCelula: string, texto: string, largura: number): string[] {
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(ROTULO)
+    const larguraDoRotulo = doc.getTextWidth(rotuloDaCelula)
+    doc.setFont('helvetica', 'normal')
+    return quebrar(doc, texto, largura - 3 - larguraDoRotulo - 1.2, CORPO_DA_LINHA)
 }
+
+/** A altura de uma célula auxiliar: 4,2 mm por linha de texto — uma, se o texto cabe; mais, só se o texto do vendedor pede. */
+const alturaDaCelula = (doc: Doc, rotuloDaCelula: string, texto: string, largura: number) =>
+    Math.max(1, linhasDaCelula(doc, rotuloDaCelula, texto, largura).length) * ALTURA_DA_LINHA_DO_ITEM
 
 const LARGURA_DAS_LINHAS = CONTEUDO - COLUNAS.fig
 
@@ -396,11 +424,68 @@ function linhasDoItem(i: ItemDaFolha): Array<{ tipo: 'uma'; rotulo: string; text
 }
 
 function alturaDaLinha(doc: Doc, l: ReturnType<typeof linhasDoItem>[number]): number {
-    if (l.tipo === 'uma') return alturaDaCelula(doc, l.texto, LARGURA_DAS_LINHAS)
-    return Math.max(alturaDaCelula(doc, l.esquerda[1], LARGURA_DAS_LINHAS / 2), alturaDaCelula(doc, l.direita[1], LARGURA_DAS_LINHAS / 2))
+    if (l.tipo === 'uma') return alturaDaCelula(doc, l.rotulo, l.texto, LARGURA_DAS_LINHAS)
+    return Math.max(alturaDaCelula(doc, l.esquerda[0], l.esquerda[1], LARGURA_DAS_LINHAS / 2), alturaDaCelula(doc, l.direita[0], l.direita[1], LARGURA_DAS_LINHAS / 2))
 }
 
-const alturaDoItem = (doc: Doc, i: ItemDaFolha) => ALTURA_DA_FAIXA + linhasDoItem(i).reduce((s, l) => s + alturaDaLinha(doc, l), 0) + ESPACO_ENTRE_ITENS
+/** A altura do item SEM o espaço até o próximo: a faixa e as linhas auxiliares — é a altura da célula da figura. */
+const alturaDoCorpoDoItem = (doc: Doc, i: ItemDaFolha) => ALTURA_DA_FAIXA + linhasDoItem(i).reduce((s, l) => s + alturaDaLinha(doc, l), 0)
+/** A altura que o item ocupa na folha: a paginação a conta ANTES de decidir se ele cabe (a OBS de duas linhas inclusive). */
+const alturaDoItem = (doc: Doc, i: ItemDaFolha) => alturaDoCorpoDoItem(doc, i) + ESPACO_ENTRE_ITENS
+
+/** A caixa do desenho: a célula da figura INTEIRA (a altura do item todo), com a folga; o desenho centra nela, na proporção real. */
+export const caixaDaFigura = (x: number, y: number, alturaDoCorpo: number) =>
+    ({ x: x + FOLGA_DO_DESENHO, y: y + FOLGA_DO_DESENHO, w: COLUNAS.fig - 2 * FOLGA_DO_DESENHO, h: alturaDoCorpo - 2 * FOLGA_DO_DESENHO })
+
+// ── O NOME DA TIPOLOGIA NA FAIXA ──────────────────────────────────────────────────────────────────────────────────────────────────────
+/**
+ * O nome como a faixa o mostra (dono do produto, 07/11/2026): a descrição do motor, com a PRIMEIRA letra de cada trecho entre barras em maiúscula e o
+ * resto em minúscula — e mais nada: nenhum espaço acrescentado, nenhuma barra normalizada, nenhum texto cortado ou acrescentado (a linha do motor não
+ * é repetida: a descrição já a traz). O trecho a partir da ÚLTIMA barra "|", com ou sem espaços em volta, sai em CINZA e peso normal ("|Europa 60" na
+ * DP-141, "| Design" na DP-01). Sem barra nenhuma: tudo no principal, nada cinza.
+ */
+export function nomeDaTipologiaNaFaixa(descricao: string): { principal: string; cinza: string } {
+    const comCaixa = descricao.split(/(\|)/).map((t) => (t === '|' ? t : t.toLocaleLowerCase('pt-BR').replace(/\p{L}/u, (l) => l.toLocaleUpperCase('pt-BR')))).join('')
+    const k = comCaixa.lastIndexOf('|')
+    return k < 0 ? { principal: comCaixa, cinza: '' } : { principal: comCaixa.slice(0, k), cinza: comCaixa.slice(k) }
+}
+
+export type TrechoDoNome = { texto: string; cinza: boolean }
+/**
+ * As linhas do nome na largura da faixa, no máximo `LINHAS_DO_NOME`, cada uma em trechos (o principal e o cinza). Quebra nas palavras, guardando a
+ * posição de cada uma no texto — o trecho cinza começa onde começa, mesmo no meio de uma linha. O que não cabe nas duas linhas termina em "…".
+ */
+export function linhasDoNome(doc: Doc, descricao: string, largura: number): TrechoDoNome[][] {
+    const { principal, cinza } = nomeDaTipologiaNaFaixa(descricao)
+    const texto = principal + cinza
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(CORPO_DO_NOME)
+    const cabe = (a: number, b: number) => doc.getTextWidth(texto.slice(a, b)) <= largura
+    const linhas: Array<[number, number]> = []
+    let inicio = -1, fim = -1
+    for (const m of texto.matchAll(/\S+/g)) {
+        const a = m.index as number, b = a + m[0].length
+        if (inicio < 0) { inicio = a; fim = b; continue }
+        if (cabe(inicio, b)) { fim = b; continue }
+        linhas.push([inicio, fim]); inicio = a; fim = b
+    }
+    if (inicio >= 0) linhas.push([inicio, fim])
+    const corte = linhas.length > LINHAS_DO_NOME
+    const usadas = linhas.slice(0, LINHAS_DO_NOME)
+    const trechos = (a: number, b: number): TrechoDoNome[] => [
+        ...(a < principal.length ? [{ texto: texto.slice(a, Math.min(b, principal.length)), cinza: false }] : []),
+        ...(b > principal.length ? [{ texto: texto.slice(Math.max(a, principal.length), b), cinza: true }] : []),
+    ].filter((t) => t.texto !== '')
+    return usadas.map(([a, b], k) => {
+        if (!(corte && k === usadas.length - 1)) return trechos(a, b)
+        // a última linha que mostra: corta até caber com as reticências, que tomam a cor de onde o corte cai
+        let c = linhas[k + 1][0]
+        while (c > a && doc.getTextWidth(`${texto.slice(a, c).trimEnd()}…`) > largura) c--
+        const ate = a + texto.slice(a, c).trimEnd().length
+        const t = trechos(a, ate)
+        t.push({ texto: '…', cinza: ate > principal.length })
+        return t
+    })
+}
 
 /** A altura de um campo do cliente (ou das condições): cresce com o texto — nada é cortado. */
 const alturaDoCampo = (doc: Doc, texto: string | null, largura: number, minima = LINHA_DO_CLIENTE) =>
@@ -449,13 +534,17 @@ function rotulo(doc: Doc, texto: string, x: number, y: number) {
     doc.setTextColor(PRETO)
 }
 
-function celulaComRotulo(doc: Doc, x: number, y: number, w: number, h: number, nome: string, texto: string, corpo = CORPO) {
+/** Uma célula auxiliar do item: o rótulo NA FRENTE, em corpo miúdo; o texto ao lado, uma linha de 4,2 mm por linha de texto. */
+function celulaComRotulo(doc: Doc, x: number, y: number, w: number, h: number, nome: string, texto: string) {
     doc.setDrawColor(TRACO); doc.rect(x, y, w, h)
-    rotulo(doc, nome, x + 1.5, y + 2 + ROTULO * ENTRELINHA * 0.8)
-    doc.setFont('helvetica', 'normal')
-    const linhas = quebrar(doc, texto, w - 3, corpo)
-    doc.setFontSize(corpo)
-    linhas.forEach((l, k) => doc.text(l, x + 1.5, y + 2 + ROTULO * ENTRELINHA + 0.8 + (k + 0.8) * corpo * ENTRELINHA))
+    const base = (k: number) => y + ALTURA_DA_LINHA_DO_ITEM * 0.68 + k * ALTURA_DA_LINHA_DO_ITEM
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(ROTULO); doc.setTextColor(CINZA)
+    doc.text(nome, x + 1.5, base(0))
+    const inicio = x + 1.5 + doc.getTextWidth(nome) + 1.2
+    doc.setTextColor(PRETO)
+    const linhas = linhasDaCelula(doc, nome, texto, w)
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(CORPO_DA_LINHA)
+    linhas.forEach((l, k) => doc.text(l, inicio, base(k)))
 }
 
 function cabecalho(doc: Doc, d: DadosDaFolha, pagina: number, total: number) {
@@ -531,29 +620,32 @@ function cabecalhoDasColunas(doc: Doc, y: number): number {
 
 function blocoDoItem(doc: Doc, i: ItemDaFolha, y: number): number {
     const x = FOLHA.margem
+    const altura = alturaDoCorpoDoItem(doc, i)
     doc.setDrawColor(TRACO)
-    // a faixa: Fig. | Item e tipologia | Qtde | Larg. | Alt., todas na MESMA altura
-    let cx = x
-    doc.rect(cx, y, COLUNAS.fig, ALTURA_DA_FAIXA)
-    const tracos = tracosDoDesenho(desenhoDaTipologia(i), { x: cx + 3, y: y + 3, w: COLUNAS.fig - 6, h: ALTURA_DA_FAIXA - 6 })
+    // a coluna Fig. é UMA célula, da altura do item inteiro; o desenho cresce até caber nela, centrado, na proporção real
+    doc.rect(x, y, COLUNAS.fig, altura)
+    const tracos = tracosDoDesenho(desenhoDaTipologia(i), caixaDaFigura(x, y, altura))
     doc.setDrawColor(PRETO); doc.setLineWidth(0.35)
     doc.rect(tracos.contorno.x, tracos.contorno.y, tracos.contorno.w, tracos.contorno.h)
     doc.setLineWidth(0.2)
     for (const [x1, y1, x2, y2] of tracos.divisoes) doc.line(x1, y1, x2, y2)
     doc.setDrawColor(TRACO)
-    cx += COLUNAS.fig
+    // a faixa: Item e tipologia | Qtde | Larg. | Alt., todas na MESMA altura
+    let cx = x + COLUNAS.fig
     doc.rect(cx, y, COLUNAS.item, ALTURA_DA_FAIXA)
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5)
-    doc.text(`Item ${i.ordem} · ${i.tipologia}`, cx + 1.5, y + 5.5)
-    doc.setFont('helvetica', 'normal')
-    const nome = quebrar(doc, i.descricao, COLUNAS.item - 3, CORPO)
-    doc.setFontSize(CORPO)
-    nome.forEach((l, k) => doc.text(l, cx + 1.5, y + 10.5 + k * CORPO * ENTRELINHA))
-    if (i.linha) {
-        doc.setFontSize(7.5); doc.setTextColor(CINZA)
-        doc.text(`Linha: ${i.linha}`, cx + 1.5, y + ALTURA_DA_FAIXA - 2.5)
-        doc.setTextColor(PRETO)
-    }
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.setTextColor(PRETO)
+    doc.text(`Item ${i.ordem} · ${i.tipologia}`, cx + 1.5, y + 3.3)
+    // o nome em até duas linhas, com o trecho da última barra em cinza e peso normal
+    linhasDoNome(doc, i.descricao, COLUNAS.item - 3).forEach((trechos, k) => {
+        let tx = cx + 1.5
+        doc.setFont('helvetica', 'normal'); doc.setFontSize(CORPO_DO_NOME)
+        for (const t of trechos) {
+            doc.setTextColor(t.cinza ? CINZA : PRETO)
+            doc.text(t.texto, tx, y + 6.6 + k * CORPO_DO_NOME * ENTRELINHA)
+            tx += doc.getTextWidth(t.texto)
+        }
+    })
+    doc.setTextColor(PRETO)
     cx += COLUNAS.item
     // Qtde, largura e altura centradas nos dois eixos
     for (const [valor, w] of [[String(i.quantidade), COLUNAS.qtde], [milhar(i.largura_mm), COLUNAS.larg], [milhar(i.altura_mm), COLUNAS.alt]] as const) {
@@ -562,10 +654,9 @@ function blocoDoItem(doc: Doc, i: ItemDaFolha, y: number): number {
         doc.text(valor, cx + w / 2, y + ALTURA_DA_FAIXA / 2, { align: 'center', baseline: 'middle' })
         cx += w
     }
-    // as linhas do item: o respiro sob a figura fica fora; o que resta é a linha (ou 50% para cada célula)
+    // as linhas auxiliares começam onde a coluna Fig. termina, uma linha de 4,2 mm por linha de texto
     let ly = y + ALTURA_DA_FAIXA
     const lx = x + COLUNAS.fig
-    const respiroInicio = ly
     for (const l of linhasDoItem(i)) {
         const h = alturaDaLinha(doc, l)
         if (l.tipo === 'uma') celulaComRotulo(doc, lx, ly, LARGURA_DAS_LINHAS, h, l.rotulo, l.texto)
@@ -575,7 +666,6 @@ function blocoDoItem(doc: Doc, i: ItemDaFolha, y: number): number {
         }
         ly += h
     }
-    doc.setDrawColor(TRACO); doc.rect(x, respiroInicio, COLUNAS.fig, ly - respiroInicio)
     return ly + ESPACO_ENTRE_ITENS
 }
 
@@ -645,13 +735,6 @@ function medir(doc: Doc, d: DadosDaFolha): AlturasDaFolha {
     }
 }
 
-/** A faixa tem altura fixa: o nome da tipologia que não cabe nela é recusa (nunca cortado). */
-const LINHAS_DO_NOME_NA_FAIXA = 4
-function conferirMedidas(doc: Doc, d: DadosDaFolha): string[] {
-    return d.itens
-        .filter((i) => quebrar(doc, i.descricao, COLUNAS.item - 3, CORPO).length > LINHAS_DO_NOME_NA_FAIXA)
-        .map((i) => `${nomeDoItem(i)}: o nome da tipologia não cabe na faixa do item (mais de ${LINHAS_DO_NOME_NA_FAIXA} linhas).`)
-}
 
 const novoDocumento = () => {
     const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' })
@@ -663,8 +746,6 @@ const novoDocumento = () => {
 /** O plano das folhas — o que vai em cada uma — sem desenhar. É o que os testes de paginação leem. */
 export function planoDaFolha(d: DadosDaFolha): { paginas: PaginaDaFolha[]; alturas: AlturasDaFolha } | { recusa: string } {
     const doc = novoDocumento()
-    const nomes = conferirMedidas(doc, d)
-    if (nomes.length) return { recusa: nomes.join(' ') }
     const alturas = medir(doc, d)
     const p = paginar(alturas)
     return 'recusa' in p ? p : { paginas: p.paginas, alturas }
@@ -677,8 +758,6 @@ export function gerarFolhaDoLevantamento(d: DadosDaFolha): FolhaGerada | FolhaRe
     const itens = [...d.itens].sort((a, b) => a.ordem - b.ordem)
     const dados: DadosDaFolha = { ...d, itens }
     const doc = novoDocumento()
-    const nomes = conferirMedidas(doc, dados)
-    if (nomes.length) return { ok: false, recusas: nomes }
     const plano = paginar(medir(doc, dados))
     if ('recusa' in plano) return { ok: false, recusas: [plano.recusa] }
     const total = plano.paginas.length
