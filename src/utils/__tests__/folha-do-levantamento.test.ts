@@ -168,7 +168,7 @@ describe('(II) a conferência antes de produzir — recusa nomeada, nunca uma fo
 })
 
 describe('(III) a paginação — a folha enche antes de virar, o item não se parte, o rodapé sai inteiro na última', () => {
-    const base: AlturasDaFolha = { util: 100, cliente: 20, cabecalhoDasColunas: 5, itens: [], rodape: 30 }
+    const base: AlturasDaFolha = { util: 100, cliente: 20, cabecalhoDasColunas: 5, itens: [], rodape: 30, linhaDeIdentificacao: 0 }
 
     it('enche antes de virar: em cada virada, o próximo item não cabia no que sobrava', () => {
         const a = { ...base, itens: [30, 30, 30, 30, 30, 30] }
@@ -218,6 +218,18 @@ describe('(III) a paginação — a folha enche antes de virar, o item não se p
         expect(justo.paginas[1].itens).toEqual([0])
     })
 
+    it('A LINHA DE IDENTIFICAÇÃO vai com o rodapé, só na ÚLTIMA folha: entra na conta dela, e as outras não a reservam', () => {
+        // 100 − 20 − 5 − 40 = 35: o rodapé de 30 cabe sozinho, mas com o pé de 10 (40) vai para uma folha só dele
+        const r = paginar({ ...base, itens: [20, 20], rodape: 30, linhaDeIdentificacao: 10 })
+        if ('recusa' in r) throw new Error(r.recusa)
+        expect(r.paginas).toEqual([{ cliente: true, itens: [0, 1], rodape: false }, { cliente: false, itens: [], rodape: true }])
+        // e uma folha que não é a última usa o espaço todo, sem reservar o pé: 75 de itens cabem nos 75 livres
+        const cheia = paginar({ ...base, itens: [75, 10], rodape: 30, linhaDeIdentificacao: 10 })
+        if ('recusa' in cheia) throw new Error(cheia.recusa)
+        expect(cheia.paginas[0].itens).toEqual([0])
+        expect(paginar({ ...base, itens: [10], rodape: 95, linhaDeIdentificacao: 10 })).toEqual({ recusa: 'O rodapé não cabe numa folha inteira.' })
+    })
+
     it('o que não cabe numa folha inteira é recusa, nunca partido', () => {
         expect(paginar({ ...base, itens: [96] })).toEqual({ recusa: 'O item 1 não cabe numa folha inteira.' })
         expect(paginar({ ...base, itens: [10], rodape: 101 })).toEqual({ recusa: 'O rodapé não cabe numa folha inteira.' })
@@ -233,7 +245,7 @@ describe('(III) a paginação — a folha enche antes de virar, o item não se p
         expect(p.paginas.filter((x) => x.cliente)).toHaveLength(1)
         for (const [k, pg] of p.paginas.entries()) {
             const usado = (pg.cliente ? p.alturas.cliente : 0) + (pg.itens.length ? p.alturas.cabecalhoDasColunas : 0)
-                + pg.itens.reduce((s, i) => s + p.alturas.itens[i], 0) + (pg.rodape ? p.alturas.rodape : 0)
+                + pg.itens.reduce((s, i) => s + p.alturas.itens[i], 0) + (pg.rodape ? p.alturas.rodape + p.alturas.linhaDeIdentificacao : 0)
             expect(usado).toBeLessThanOrEqual(p.alturas.util + 1e-9)
             // enche antes de virar: o primeiro item da folha seguinte não cabia nesta
             const seguinte = p.paginas[k + 1]
@@ -245,7 +257,8 @@ describe('(III) a paginação — a folha enche antes de virar, o item não se p
 })
 
 describe('(III-b) A DENSIDADE DO MOCKUP (dono do produto, 07/11/2026): 794 px = 210 mm', () => {
-    const ESPACO_ENTRE_ITENS = 2.5
+    // os itens são contíguos, separados só pela borda (dono do produto, 07/11/2026)
+    const ESPACO_ENTRE_ITENS = 0
     const plano = (itens: ItemDaFolha[]) => {
         const p = planoDaFolha(dados({ itens }))
         if ('recusa' in p) throw new Error(p.recusa)
@@ -253,6 +266,35 @@ describe('(III-b) A DENSIDADE DO MOCKUP (dono do produto, 07/11/2026): 794 px = 
     }
     const sem = item({ variaveis: [], ambientes: null, obs: null })
     const com = item({ variaveis: [dita('AF', BANDEIRA, 400)], ambientes: null, obs: null })
+
+    it('A CONTA DA FOLHA (07/11/2026): corpo de 263 mm, cliente 27,4 + 4 de respiro, títulos da tabela 4,5, pé de 10 só na última', () => {
+        const p = plano([sem])
+        expect(p.alturas.util).toBeCloseTo(297 - 10 - 10 - 14, 9)
+        expect(p.alturas.cliente).toBeCloseTo(27.4 + 4, 9)
+        expect(p.alturas.cabecalhoDasColunas).toBe(4.5)
+        expect(p.alturas.linhaDeIdentificacao).toBe(10)
+    })
+
+    it('o valor do cliente que não cabe na linha cresce, nunca é cortado: o endereço longo inteiro no PDF', () => {
+        const endereco = 'Estrada Municipal da Linha Brasil, sem número, lote 14 da gleba norte, entrada pelo portão azul depois da ponte de ferro e do galpão da cooperativa, segunda casa à esquerda, Bairro Industrial, Montenegro/RS'
+        const curto = plano([sem]).alturas.cliente
+        const d = dados({ itens: [sem], cliente: { ...FOLHA_DE_EXEMPLO.cliente, endereco } })
+        const p = planoDaFolha(d)
+        if ('recusa' in p) throw new Error(p.recusa)
+        expect(p.alturas.cliente).toBeGreaterThan(curto + 3)
+        const r = gerarFolhaDoLevantamento(d)
+        if ('recusas' in r) throw new Error(r.recusas.join(' '))
+        const desenhado = [...textoDoPdf(r.pdf).matchAll(/\(((?:\\.|[^\\)])*)\) Tj/g)].map((m) => m[1]).join(' ')
+        for (const palavra of ['Estrada', 'gleba', 'ponte', 'Industrial,', 'Montenegro/RS']) expect(desenhado).toContain(palavra)
+    })
+
+    it('O ALVO: 9 itens sem VARIÁVEIS na folha 1 e 10 nas seguintes; com VARIÁVEIS, 7 e 8', () => {
+        const contar = (base: ItemDaFolha) => plano(Array.from({ length: 40 }, (_, k) => ({ ...base, ordem: k + 1 }))).paginas.map((pg) => pg.itens.length)
+        const semVar = contar(sem)
+        expect(semVar.slice(0, 3)).toEqual([9, 10, 10])
+        const comVar = contar(com)
+        expect(comVar.slice(0, 3)).toEqual([7, 8, 8])
+    })
 
     it('as medidas: Fig. 15,3 mm (58 px), faixa 12,2 mm (46 px), linha auxiliar 4,2 mm (16 px)', () => {
         expect(COLUNAS.fig).toBeCloseTo(15.34, 2)
@@ -295,7 +337,7 @@ describe('(III-b) A DENSIDADE DO MOCKUP (dono do produto, 07/11/2026): 794 px = 
         expect(depois.paginas[1].itens[0]).toBe(k - 1)
         for (const pg of depois.paginas) {
             const usado = (pg.cliente ? depois.alturas.cliente : 0) + (pg.itens.length ? depois.alturas.cabecalhoDasColunas : 0)
-                + pg.itens.reduce((s, i) => s + depois.alturas.itens[i], 0) + (pg.rodape ? depois.alturas.rodape : 0)
+                + pg.itens.reduce((s, i) => s + depois.alturas.itens[i], 0) + (pg.rodape ? depois.alturas.rodape + depois.alturas.linhaDeIdentificacao : 0)
             expect(usado).toBeLessThanOrEqual(depois.alturas.util + 1e-9)
         }
     })
@@ -402,7 +444,8 @@ describe('(IV) o que a folha escreve', () => {
         expect(t.match(/\(Esquadrias Exemplo Ltda\)/g)?.length).toBe(r.paginas)
         expect(t.match(/\(CLIENTE\)/g)?.length).toBe(1)
         expect(t.match(/\(CONDIÇÕES COMERCIAIS\)/g)?.length).toBe(1)
-        expect(t.match(/\(Levantamento 6 · 12 itens · 18 peças · gerado em 06\/11\/2026 às 14:30\)/g)?.length).toBe(r.paginas)
+        // a linha de identificação no pé: só na ÚLTIMA folha (nas outras, o número e a página já estão no topo)
+        expect(t.match(/\(Levantamento 6 · 12 itens · 18 peças · gerado em 06\/11\/2026 às 14:30\)/g)?.length).toBe(1)
         expect(r.nomeDoArquivo).toBe('Levantamento 6 - Ana Exemplo.pdf')
     })
 

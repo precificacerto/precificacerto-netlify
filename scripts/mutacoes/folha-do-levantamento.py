@@ -24,7 +24,7 @@ M = [
  ('C6 o ambiente com quantidade zero passa', 'if (i.ambientes.some((a) => !inteiroPositivo(a.quantidade) || !a.ambiente.trim())) {', 'if (i.ambientes.some((a) => !a.ambiente.trim())) {'),
  ('C7 a data impossível passa', "    if (d.getUTCFullYear() !== Number(m[1]) || d.getUTCMonth() !== Number(m[2]) - 1 || d.getUTCDate() !== Number(m[3])) return null\n", ''),
  ('C8 o vendedor não é exigido', "    if (!d.condicoes.vendedor?.trim()) recusas.push('Falta o vendedor do levantamento.')\n", ''),
- ('P1 o rodapé sempre numa folha nova', '    if (a.rodape <= livre) paginas[paginas.length - 1].rodape = true\n', '    if (false) paginas[paginas.length - 1].rodape = true\n'),
+ ('P1 o rodapé sempre numa folha nova', '    if (fim <= livre) paginas[paginas.length - 1].rodape = true\n', '    if (false) paginas[paginas.length - 1].rodape = true\n'),
  ('P2 o cabeçalho das colunas não conta', 'const precisa = a.itens[i] + (atual.itens.length === 0 ? a.cabecalhoDasColunas : 0)', 'const precisa = a.itens[i]'),
  ('P3 o item passa do fim da folha', 'if (precisa <= livre) { atual.itens.push(i)', 'if (precisa <= livre + 10) { atual.itens.push(i)'),
  ('P4 o cliente não ocupa espaço', '    let livre = a.util - a.cliente\n', '    let livre = a.util\n'),
@@ -54,6 +54,14 @@ M = [
  ('N10 o nome cortado sem reticências', "        t.push({ texto: '…', cinza: ate > principal.length })\n", ''),
  ('N11 a paginação sem o crescimento da linha', 'const alturaDoItem = (doc: Doc, i: ItemDaFolha) => alturaDoCorpoDoItem(doc, i) + ESPACO_ENTRE_ITENS', 'const alturaDoItem = (doc: Doc, i: ItemDaFolha) => ALTURA_DA_FAIXA + linhasDoItem(i).length * ALTURA_DA_LINHA_DO_ITEM + ESPACO_ENTRE_ITENS'),
  ('N12 a linha do motor de volta em linha própria', "    doc.setTextColor(PRETO)\n    cx += COLUNAS.item\n", "    if (i.linha) doc.text(`Linha: ${i.linha}`, cx + 1.5, y + ALTURA_DA_FAIXA - 1)\n    doc.setTextColor(PRETO)\n    cx += COLUNAS.item\n"),
+ ('Q1 o espaço entre itens de volta', 'const ESPACO_ENTRE_ITENS = 0\n', 'const ESPACO_ENTRE_ITENS = 2.5\n'),
+ ('Q2 o pé fora da conta da última folha', '    const fim = a.rodape + a.linhaDeIdentificacao\n', '    const fim = a.rodape\n'),
+ ('Q3 o pé desenhado em toda folha', '        if (p.rodape) { desenharRodape(doc, dados, y); desenharLinhaDeIdentificacao(doc, dados) }', '        if (p.rodape) desenharRodape(doc, dados, y)\n        desenharLinhaDeIdentificacao(doc, dados)'),
+ ('Q4 o pé reservado em toda folha', 'const FIM_DO_CORPO = FOLHA.altura - FOLHA.margem\n', 'const FIM_DO_CORPO = FOLHA.altura - FOLHA.margem - ALTURA_DA_LINHA_DE_IDENTIFICACAO\n'),
+ ('Q5 o cliente com o rótulo em cima (8,17 mm)', 'const LINHA_DO_CLIENTE = 27.4 / 4\n', 'const LINHA_DO_CLIENTE = 8.17\n'),
+ ('Q6 o valor do cliente cortado numa linha', '    LINHA_DO_CLIENTE + (linhasDoCampo(doc, nome, texto, largura).length - 1) * CORPO * ENTRELINHA', '    LINHA_DO_CLIENTE'),
+ ('Q7 a faixa de títulos com 8 mm', 'const ALTURA_DO_CABECALHO_DAS_COLUNAS = 4.5\n', 'const ALTURA_DO_CABECALHO_DAS_COLUNAS = 8\n'),
+ ('Q8 o cabeçalho com 22 mm', 'const ALTURA_DO_CABECALHO = 14\n', 'const ALTURA_DO_CABECALHO = 22\n'),
 ]
 orig = open(ARQ, encoding='utf-8').read()
 vivas = []
