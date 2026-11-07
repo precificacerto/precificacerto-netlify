@@ -2026,6 +2026,11 @@ A4). Sai só a mensagem-resumo em texto do fim da coleta. "Não chame o arquivo 
   reservam; (3) o bloco do cliente com rótulo e valor na MESMA linha, 27,4 mm nas quatro linhas (o valor que não cabe cresce, nunca é cortado);
   (4) a faixa de títulos da tabela com 4,5 mm; (5) o cabeçalho com 14 mm. Margens de 10 mm. Corpo de 263 mm em toda folha. **Medido depois:**
   9 itens sem VARIÁVEIS na folha 1 (263 − 31,4 − 4,5 = 227,1 mm) e 10 nas seguintes (258,5 mm); com VARIÁVEIS, 7 e 8.
+  **CADA ITEM UMA CÉLULA FECHADA (mudança de desenho do dono do produto, 07/11/2026):** o respiro de 2,5 mm entre os itens VOLTA (ele custa 1
+  item por folha, e 1,5 mm custaria o mesmo); a borda EXTERNA da célula, preta e fina (0,5 pt), contorna o item inteiro — a faixa, a coluna da
+  figura e as linhas auxiliares; as INTERNAS, cinza claro (0,25 pt), só onde separam assunto (a Fig. do resto, as colunas da faixa, as linhas
+  auxiliares, PERFIL / ACESSÓRIO de VIDRO); sem fundo nas células, sem zebra, sem borda dupla; a faixa de títulos da tabela mantém o fundo claro.
+  **Medido depois:** 8 itens sem VARIÁVEIS na folha 1 e 9 nas seguintes; com VARIÁVEIS, 7 e 8.
 - **VOCABULÁRIO — "rodapé", nunca "fecho" (dono do produto, 07/11/2026):** "No domínio de esquadrias 'fecho' é FERRAGEM (cremona com fecho
   alavanca, fecho embutido) [...] Use 'rodapé' para a parte de baixo da folha (pré-definições consideradas, condições comerciais, conferido e
   confirmado por). [...] Não é cosmético: um dia o agente vai escrever a palavra numa frase e ninguém vai saber se é a peça ou a parte da folha."
