@@ -1906,9 +1906,9 @@ A4). Sai só a mensagem-resumo em texto do fim da coleta. "Não chame o arquivo 
 
 - **O gerador** (`src/lib/atendimentos-ia/folha-do-levantamento.ts`), isolado e testável sem o WhatsApp, segue a especificação normativa do dono do
   produto (no cabeçalho do módulo): A4 retrato, cabeçalho em toda folha, cliente só na primeira, colunas com o "mm" no rótulo, faixa do item de altura
-  fixa, as linhas VARIÁVEIS (condicional) → PERFIL / ACESSÓRIO + VIDRO → AMBIENTES → OBS, o fecho e o rodapé. Confere antes de produzir (a soma dos
+  fixa, as linhas VARIÁVEIS (condicional) → `PERFIL / ACESSÓRIO:` e `VIDRO:` → AMBIENTES → OBS, o rodapé e a linha de identificação. Confere antes de produzir (a soma dos
   ambientes contra a quantidade do item, os percentuais, o vendedor, o símbolo de dinheiro) e recusa nomeando. A paginação (`paginar`) enche a folha
-  antes de virar, nunca parte item nem fecho. O exemplo renderizado está em `docs/levantamento/`, conferido byte a byte pelo portão.
+  antes de virar, nunca parte item nem rodapé. O exemplo renderizado está em `docs/levantamento/`, conferido byte a byte pelo portão.
 - **O desenho** — decisão do dono do produto, 06/11/2026: "Contorno + folhas da descrição". O contorno na proporção real; as folhas que a DESCRIÇÃO
   do motor diz (nunca o `n_vidros`: a DP-02, de 2 folhas, tem 1); nas MAXIM-AR / FIXO com "N"/"V" módulos, o valor RESPONDIDO da variável de mesma
   letra; a bandeira (em cima) e o peitoril (embaixo) na ALTURA DITA, pela descrição da variável (a mesma sigla muda de sentido); nada inventado.
@@ -1936,9 +1936,9 @@ A4). Sai só a mensagem-resumo em texto do fim da coleta. "Não chame o arquivo 
     > acessório variar de um item para outro, ela aparece no item."
 
     A cor do acessório é a opção dita da variável cuja DESCRIÇÃO começa com "COR DOS ACESSÓRIOS" (pela descrição, nunca pela sigla), por extenso e
-    sem código (`corDoAcessorio`); não dita, "padrão". **Leitura do assistente, relatada no PR:** as duas frases se encontram quando o arremate
-    VARIA entre os itens — ele não é comum (não vai ao fecho) e não entra na linha do item. Para não sumir da folha, ele sai na célula PERFIL /
-    ACESSÓRIO, depois das cores (" · arremate e guarnição: …"), **só nesse caso**.
+    sem código (`corDoAcessorio`); não dita, "padrão". Quando o arremate VARIA entre os itens, ele sai na célula PERFIL / ACESSÓRIO, ROTULADO e
+    separado das cores por " · " — decisão do dono do produto, 07/11/2026: "Branco / padrão · Acabamento: arremate externo 20 mm. Não o misture com
+    a cor como se fosse atributo do perfil." (`ROTULO_DO_ACABAMENTO`).
   - **As pré-definições consideradas:**
     > "só o que é igual em TODOS os itens e foi informado, com 'Vedação: padrão'. O que não foi informado não aparece [...] O que varia entre itens
     > não vai ao fecho: vai na linha do item."
@@ -1984,8 +1984,36 @@ A4). Sai só a mensagem-resumo em texto do fim da coleta. "Não chame o arquivo 
       João" querendo dizer o cliente — o dono do produto definiu "é do Fulano" como intenção explícita.
     - **O levantamento já gravado não é tocado:** o vínculo e o nome congelados ficam, mesmo que o funcionário fique inativo depois. A busca só roda
       quando um vendedor é DITO, e a pergunta em aberto dos homônimos (o nome dito guardado, sem vínculo) é a única que se refaz.
+  - **O ARREMATE NA FOLHA É O QUE O CÁLCULO USA — dono do produto, 07/11/2026.** Medido em produção: a categoria PERFIL só tem `cores`,
+    `cor_predominante` e `serra_mm`; o arremate da empresa é dito na instrução da categoria **INSTALACAO, rotulada "Acabamentos"** — "Padrão:
+    arremate interno guarnição BZ1770 de 70 mm; arremate externo guarnição BZ0010 de 20 mm, perimetral, medida = vão + 50 mm (90/90); [...]" —, e
+    a INSTALACAO não tem NENHUM campo em `orcamentista_categoria_campo`. Mas o CÁLCULO usa o padrão do MOTOR (DP-02: interno 65 mm, BZ0006; externo
+    20 mm; medida do vão, corte 45/45), que diverge da instrução. Decisão, registrada como foi dita:
+    > "a instrução da base de conhecimento, na categoria de arremates (INSTALACAO / 'Acabamentos'), é o padrão de verdade da empresa — folha e
+    > preço seguem ela, não o padrão do motor. Mas NÃO implemente agora, e não extraia número de texto livre. [...] Enquanto o cálculo usar o padrão
+    > do motor [...], a folha tem de mostrar O QUE O CÁLCULO USA. [...] Não há folha dizendo 70 mm com preço de 65 mm."
+
+    Implementado: `arremateDaColeta` diz, variável por variável, a opção EFETIVA (a do vendedor, ou o padrão do motor pelo mesmo
+    `escolhasComPadrao` que o cálculo usa), por extenso e sem código — nunca mais a palavra "Padrão", que não dizia o que se calculava. Sem a aba
+    Variáveis, ou tipologia sem variável de arremate, nada é dito. **NENHUM código de fornecedor em lugar nenhum da folha** (26/10, reafirmado em
+    07/11: "o certo é 'Acabamento: arremate externo 20 mm'"), conferido no texto do PDF com os códigos reais (BZ0006, BZ1770, BZ0010) e com um
+    genérico.
+
+    **Quando a instrução for à folha (o PR de cálculo, não agora):** só a frase que começa com "Padrão:", até o primeiro ponto final, sem códigos de
+    fornecedor; sem essa frase, "Acabamento: não especificado na base". As outras linhas da instrução são regras de comportamento do agente e NUNCA
+    saem na folha.
+
+    **O PR de cálculo seguinte** (Nível 3, depois dos #235/#236): campos ESTRUTURADOS na categoria Acabamentos (arremate interno, arremate externo,
+    medida do arremate externo), do tipo opção, preenchidos pelo super admin, que o cálculo e a folha leem; a instrução em prosa fica só para o
+    agente. A proposta está no relato de 07/11/2026.
   - **"Conferido e confirmado por | data e hora"** sai em branco, para quem confere (decisão do assistente, sem resposta; o dono do produto pode
     trocar).
+- **VOCABULÁRIO — "rodapé", nunca "fecho" (dono do produto, 07/11/2026):** "No domínio de esquadrias 'fecho' é FERRAGEM (cremona com fecho
+  alavanca, fecho embutido) [...] Use 'rodapé' para a parte de baixo da folha (pré-definições consideradas, condições comerciais, conferido e
+  confirmado por). [...] Não é cosmético: um dia o agente vai escrever a palavra numa frase e ninguém vai saber se é a peça ou a parte da folha."
+  A linha "Levantamento N · X itens · …" no pé de cada folha, que o gerador chamava de rodapé, passou a ser a **linha de identificação**, para não
+  haver dois rodapés.
+  As citações de 06/11/2026 acima, que dizem "fecho", ficam como foram ditas: leia "rodapé".
 - **A migração e o `schema_migrations`:** como as outras aplicadas pelo SQL Editor, a `20261106000002` não tem linha em
   `supabase_migrations.schema_migrations`. "É o esperado [...] não 'conserte' isso inserindo linha à mão." (dono do produto, 06/11/2026)
 - **Prova:** `folha-do-levantamento.test.ts` (o desenho, a conferência, a paginação, o PDF e o exemplo) e `scripts/mutacoes/folha-do-levantamento.py`;

@@ -8,7 +8,8 @@ A = 'src/lib/atendimentos-ia/arquivo-do-levantamento.ts'
 C = 'src/lib/atendimentos-ia/conversa-da-ia.ts'
 G = 'src/lib/atendimentos-ia/levantamento-em-montagem.ts'
 P = 'src/lib/atendimentos-ia/pergunta-em-aberto.ts'
-RAPIDAS = ['src/utils/__tests__/dados-do-levantamento.test.ts', 'src/utils/__tests__/arquivo-do-levantamento.test.ts', 'src/utils/__tests__/levantamento-em-montagem.test.ts']
+AP = 'src/lib/atendimentos-ia/apanhado.ts'
+RAPIDAS = ['src/utils/__tests__/apanhado.test.ts', 'src/utils/__tests__/dados-do-levantamento.test.ts', 'src/utils/__tests__/arquivo-do-levantamento.test.ts', 'src/utils/__tests__/levantamento-em-montagem.test.ts']
 CONVERSA = ['src/utils/__tests__/atendimentos-ia-levantamento-por-nome.test.ts']
 M = [
  ('D1 texto: basta uma palavra', D, 'return ps.length > 0 && ps.every((p) => naMensagem.has(p)) ? t : null', 'return ps.length > 0 && ps.some((p) => naMensagem.has(p)) ? t : null'),
@@ -25,7 +26,7 @@ M = [
  ('D12 a falta vira zero', D, '        else faltam.push(NOME_DO_CAMPO[campo])', '        else (condicoes as Record<string, unknown>)[campo] = 0'),
  ('D13 a obs do item sem validar', D, "const o = conta(i.obs, textoDito(i.obs, mensagem, LIMITES_DE_TEXTO.obs))", "const o = conta(i.obs, typeof i.obs === 'string' ? i.obs : null)"),
  ('A1 toda variável na linha VARIÁVEIS', A, 'semPadrao: sem.has(codigo)', 'semPadrao: true'),
- ('A2 pré-definição com o que difere', A, 'const unico = (xs: readonly string[]) => (new Set(xs).size === 1 ? xs[0] : null)', 'const unico = (xs: readonly string[]) => xs[0] ?? null'),
+ ('A2 pré-definição com o que difere', A, 'const unico = <T>(xs: readonly T[]): T | null => (new Set(xs).size === 1 ? xs[0] : null)', 'const unico = <T>(xs: readonly T[]): T | null => xs[0] ?? null'),
  ('A3 percentual no resumo do modelo', A, "        `Vendedor: ${d.condicoes.vendedor ?? '-'}.`,", "        `Vendedor: ${d.condicoes.vendedor ?? '-'}; comissão ${d.condicoes.comissaoPercentual}%.`,"),
  ('A4 o resumo de comparação sem a comissão', A, "comissão ${k.comissaoPercentual ?? '-'}% (", "comissão ("),
  ('A5 a cor reescrita em minúscula', A, '        const cor = i.cor_perfil\n', "        const cor = i.cor_perfil ? i.cor_perfil.toLocaleLowerCase('pt-BR') : null\n"),
@@ -68,7 +69,7 @@ M = [
  ('K1 a cor do acessório dita ignorada', A, "    if (!v || typeof dita !== 'number') return 'padrão'\n", "    return 'padrão'\n"),
  ('K2 o arremate que varia some do item', A, 'arremateComum === null ? arremates[k] : null', 'null'),
  ('K3 o arremate comum repetido em cada item', A, 'arremateComum === null ? arremates[k] : null', 'arremates[k]'),
- ('K4 o arremate comum fora do fecho', A, "    if (arremateComum) preDefinicoes.push({ rotulo: 'Arremate e guarnição', valor: arremateComum })\n", ''),
+ ('K4 o arremate comum fora do rodapé', A, "    if (arremateComum) preDefinicoes.push({ rotulo: 'Arremate e guarnição', valor: arremateComum })\n", ''),
  ('K5 o resumo sem as pré-definições (o arremate não reenvia)', A, "        `Pré-definições: ${d.preDefinicoes.map((p) => `${p.rotulo}: ${p.valor}`).join('; ')}.`,\n", ''),
  ('K6 o vidro com rótulo repetido', A, '            vidro: i.vidro,\n', "            vidro: i.vidro ? `vidro ${i.vidro}` : null,\n"),
  ('J1 o vendedor sem a intenção dita vale', D, 'ditoComoTexto !== null && vendedorComIntencao(ditoComoTexto, mensagem) ? ditoComoTexto : null', 'ditoComoTexto'),
@@ -78,6 +79,11 @@ M = [
  ('J5 a marca "lança para" esquecida', D, '    String.raw`\\blanc(?:a|e|ar|ado|ada)\\s+(?:para|pra|pro)`,\n', ''),
  ('J6 o nome casa com o começo de outra palavra', D, '${doNome}(?![a-z0-9])', '${doNome}'),
  ('J7 a marca em qualquer lugar da mensagem', D, '`${marca}${ARTIGO}\\\\s*${doNome}(?![a-z0-9])`', '`${marca}.*${doNome}(?![a-z0-9])`'),
+ ('R1 o não escolhido volta a ser a palavra "Padrão"', AP, "${e.rotulo ? rotuloSemCodigo(e.rotulo, e.descricao) : 'opção fora da lista do motor'}", "${e.doVendedor && e.rotulo ? rotuloSemCodigo(e.rotulo, e.descricao) : 'Padrão'}"),
+ ('R2 o código de fornecedor fica no arremate', AP, "${e.rotulo ? rotuloSemCodigo(e.rotulo, e.descricao) : 'opção fora da lista do motor'}", "${e.rotulo ? e.rotulo.toLowerCase().replace(/\\s*\\[[^\\]]*\\]/g, '') : 'opção fora da lista do motor'}"),
+ ('R3 o acabamento que varia sem rótulo', A, "export const ROTULO_DO_ACABAMENTO = 'Acabamento:'", "export const ROTULO_DO_ACABAMENTO = 'arremate e guarnição:'"),
+ ('R4 o acabamento colado às cores, sem o " · "', A, "${arremateQueVaria !== null ? ` · ${ROTULO_DO_ACABAMENTO} ${arremateQueVaria}` : ''}", "${arremateQueVaria !== null ? ` ${ROTULO_DO_ACABAMENTO} ${arremateQueVaria}` : ''}"),
+ ('R5 sem o que dizer, ainda assim um arremate', AP, "    if (!descritas.length) return null\n", "    if (!descritas.length) return 'Padrão'\n"),
  ('P1 a retida perde os ambientes', P, "[...CAMPOS_DA_ESQUADRIA, 'vidro_padrao', 'ambientes', 'obs']", "[...CAMPOS_DA_ESQUADRIA, 'vidro_padrao']"),
 ]
 originais = {f: open(f, encoding='utf-8').read() for f in {m[1] for m in M}}

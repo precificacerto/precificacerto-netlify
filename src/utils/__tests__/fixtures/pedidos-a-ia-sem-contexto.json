@@ -281,7 +281,7 @@
    },
    {
     "type": "text",
-    "text": "Levantamento em montagem: nenhum.\nPergunta em aberto: Enviei ao vendedor o ARQUIVO do Levantamento 1 “Casa do João”, e ele está conferindo:\nItem 1: DP-02, 1 unidade(s), 1200 x 1000 mm; perfil / acessório BRANCO / padrão; vidro Temperado 5mm.\nPré-definições: Cor do perfil: BRANCO; Arremate e guarnição: arremate interno: sem arremate interno; arremate externo: Padrão; medida do arremate externo: vão + 50 mm; Vedação: padrão.\nVendedor: Cristiano Fernandes.\nConfere? Responda sim para eu fazer o levantamento com os preços, ou diga o que muda."
+    "text": "Levantamento em montagem: nenhum.\nPergunta em aberto: Enviei ao vendedor o ARQUIVO do Levantamento 1 “Casa do João”, e ele está conferindo:\nItem 1: DP-02, 1 unidade(s), 1200 x 1000 mm; perfil / acessório BRANCO / padrão; vidro Temperado 5mm.\nPré-definições: Cor do perfil: BRANCO; Arremate e guarnição: arremate interno: sem arremate interno; arremate externo: 20 mm; medida do arremate externo: vão + 50 mm; Vedação: padrão.\nVendedor: Cristiano Fernandes.\nConfere? Responda sim para eu fazer o levantamento com os preços, ou diga o que muda."
    }
   ],
   "tools": [

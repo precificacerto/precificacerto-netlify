@@ -4,15 +4,16 @@
  * A MENSAGEM-RESUMO em texto do fim da coleta ("Apanhado do levantamento X: Esquadria 1: ... Confere?") SAIU em 06/11/2026: no lugar dela vai o
  * ARQUIVO do levantamento (`folha-do-levantamento.ts`, `arquivo-do-levantamento.ts`), e a confirmação é sobre ele. O que ficou aqui é o
  * formatador que a folha usa, por extenso e sem código de fornecedor (dono do produto, 26/10/2026):
- *   - o arremate e a guarnição: "Padrão" quando nada foi escolhido; quando o vendedor escolheu, o que ele escolheu ("arremate interno: 20 mm",
- *     nunca "BZ0010"). A medida NÃO escolhida fica no "Padrão", sem detalhe;
+ *   - o arremate e a guarnição: O QUE O CÁLCULO USA, variável por variável — a opção que o vendedor escolheu ou, sem resposta, o PADRÃO DO MOTOR
+ *     da tipologia, sempre por extenso ("arremate interno: 65 mm", nunca "BZ0006" nem a palavra "Padrão", que não diz o que se calcula). Dono do
+ *     produto, 07/11/2026: "Enquanto o cálculo usar o padrão do motor [...], a folha tem de mostrar O QUE O CÁLCULO USA." O padrão da empresa
+ *     escrito na instrução da categoria Acabamentos (INSTALACAO) NÃO entra aqui: é prosa para o agente, e ler número dela para decidir dinheiro
+ *     está proibido até a categoria ter campos estruturados (PR de cálculo próprio);
  *
  * Portão: `src/utils/__tests__/apanhado.test.ts`.
  */
 import { escolhasDescritas, lerEscolhasGravadas, nomeDaVariavel, type VariaveisDaTipologia } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 
-/** A MEDIDA do arremate (o corte): só aparece quando o vendedor a escolheu. */
-export const MEDIDAS_DO_ARREMATE = ['MAE', 'MAI'] as const
 
 const minuscula = (t: string) => t.toLocaleLowerCase('pt-BR')
 
@@ -32,13 +33,16 @@ export function rotuloSemCodigo(rotulo: string, descricao: string): string {
     return t
 }
 
-/** O arremate de uma esquadria: "Padrão", ou o que o vendedor escolheu, por extenso. */
-export function arremateDaColeta(tipologia: VariaveisDaTipologia | null, escolhas: unknown): string {
-    if (!tipologia) return 'Padrão'
+/**
+ * O arremate de uma esquadria, como o CÁLCULO o usa: cada variável de arremate que a tipologia pede (as capturadas, nas condições valendo), com a
+ * opção EFETIVA — a do vendedor ou o padrão do motor —, por extenso e sem código de fornecedor. Nula quando não há o que dizer: sem a aba Variáveis
+ * da tipologia, ou tipologia sem variável de arremate. O valor efetivo que não é uma das opções da aba é dito como tal, nunca adivinhado.
+ */
+export function arremateDaColeta(tipologia: VariaveisDaTipologia | null, escolhas: unknown): string | null {
+    if (!tipologia) return null
     const descritas = escolhasDescritas(tipologia, lerEscolhasGravadas(escolhas))
-    if (!descritas.some((e) => e.doVendedor)) return 'Padrão'
+    if (!descritas.length) return null
     return descritas
-        .filter((e) => e.doVendedor || !(MEDIDAS_DO_ARREMATE as readonly string[]).includes(e.variavel))
-        .map((e) => `${nomeDaVariavel(e.variavel, e.descricao)}: ${e.doVendedor && e.rotulo ? rotuloSemCodigo(e.rotulo, e.descricao) : 'Padrão'}`)
+        .map((e) => `${nomeDaVariavel(e.variavel, e.descricao)}: ${e.rotulo ? rotuloSemCodigo(e.rotulo, e.descricao) : 'opção fora da lista do motor'}`)
         .join('; ')
 }

@@ -1727,9 +1727,10 @@ describe('(17) O ARQUIVO no lugar da mensagem-resumo (dono do produto, 06/11/202
         expect(arquivo).toContain('JANELA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 42')
         // a linha do item com os rótulos do mockup: "PERFIL / ACESSÓRIO:" (cor do perfil / cor do acessório, "padrão" não dita) e "VIDRO:"
         expect(arquivo).toContain('PERFIL / ACESSÓRIO: BRANCO / padrão VIDRO: Temperado 5mm')
-        // o arremate e a guarnição são comuns à obra: só no fecho, nas pré-definições
+        // o arremate e a guarnição são comuns à obra: só no RODAPÉ, nas pré-definições — com O QUE O CÁLCULO USA (o padrão do motor, por extenso),
+        // nunca a palavra "Padrão" (dono do produto, 07/11/2026)
         expect(arquivo.match(/Arremate e guarnição/g)).toHaveLength(1)
-        expect(arquivo).toContain('Cor do perfil: BRANCO · Arremate e guarnição: Padrão · Vedação: padrão')
+        expect(arquivo).toContain('Cor do perfil: BRANCO · Arremate e guarnição: arremate interno: 65 mm; arremate externo: 20 mm; medida do arremate externo: medida do vão · Vedação: padrão')
         const formal = await confirmar()
         // o controle: o que o arquivo não tem, o formal tem
         for (const rotulo of LINHAS_DO_PRECO) { expect(formal).toContain(rotulo); expect(arquivo).not.toContain(rotulo) }
@@ -1777,24 +1778,25 @@ describe('(17) O ARQUIVO no lugar da mensagem-resumo (dono do produto, 06/11/202
         expect(arquivo).toContain('Item 1 · DP-02')
         expect(arquivo).toContain('Item 2 · DP-02')
         expect(arquivo).toContain('VIDRO: Laminado 8mm')
-        expect(arquivo).toContain('Cor do perfil: BRANCO · Arremate e guarnição: Padrão · Vedação: padrão')
+        expect(arquivo).toContain('Cor do perfil: BRANCO · Arremate e guarnição: arremate interno: 65 mm; arremate externo: 20 mm; medida do arremate externo: medida do vão · Vedação: padrão')
         expect(arquivo).toContain('Levantamento 1 · 2 itens · 4 peças')
     })
 
     it('o ESCOLHIDO sai por extenso, sem código — a medida do arremate também (26/10: "ele não pode confirmar sem ver")', async () => {
         await pedir([{ ...DP02 }], [{ variavel: 'ARI', opcao: 3 }, { variavel: 'MAE', opcao: 2 }])
         const arquivo = textoDoArquivo()
-        expect(arquivo).toContain('Arremate e guarnição: arremate interno: 20 mm; arremate externo: Padrão; medida do arremate externo: vão + 50 mm')
+        expect(arquivo).toContain('Arremate e guarnição: arremate interno: 20 mm; arremate externo: 20 mm; medida do arremate externo: vão + 50 mm')
         expect(arquivo).not.toContain('CORTE')
         expect(arquivo).not.toContain('[50,00]')
         expect(arquivo).not.toContain('BZ0010')
     })
 
-    it('a medida do arremate NÃO escolhida entra no "Padrão", sem detalhe', async () => {
+    it('o que NÃO foi escolhido sai com o PADRÃO DO MOTOR por extenso — o que o cálculo usa —, nunca com a palavra "Padrão"', async () => {
         await pedir([{ ...DP02 }], [{ variavel: 'ARI', opcao: 3 }])
         const arquivo = textoDoArquivo()
-        expect(arquivo).toContain('Arremate e guarnição: arremate interno: 20 mm; arremate externo: Padrão')
-        expect(arquivo.toLowerCase()).not.toContain('medida do arremate')
+        expect(arquivo).toContain('Arremate e guarnição: arremate interno: 20 mm; arremate externo: 20 mm; medida do arremate externo: medida do vão')
+        expect(arquivo).not.toContain('Arremate e guarnição: Padrão')
+        expect(arquivo).not.toMatch(/: Padrão[;·]/)
     })
 
     it('uma alteração de medida ANTES do "sim" gera o arquivo de novo, sem nome e sem preço; o "sim" depois traz o formal com ela', async () => {

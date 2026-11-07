@@ -33,6 +33,74 @@ const LEV: LevantamentoDoArquivo = {
 const montar = (itens: ItemDoLevantamento[], l: Partial<LevantamentoDoArquivo> = {}) =>
     montarDadosDaFolha({ empresa: 'Empresa X', levantamento: { ...LEV, ...l }, itens, definicao, detalhe, geradoEm: new Date(Date.UTC(2026, 10, 6, 12)) })
 
+/** O texto desenhado no PDF (as cadeias dos operadores Tj), para conferir o que a folha mostra. */
+const textoDoPdf = (pdf: Uint8Array) => [...Buffer.from(pdf).toString('latin1').matchAll(/\(((?:\\.|[^\\)])*)\) Tj/g)].map((m) => m[1].replace(/\\([()\\])/g, '$1')).join(' ').replace(/\s+/g, ' ')
+/** O padrão de um código de fornecedor: letras seguidas de dígitos, como BZ0010, BZ1770 — e qualquer outro do mesmo feitio. */
+const CODIGO_DE_FORNECEDOR = /\b[A-Z]{1,5}\d{2,}[A-Z0-9]*\b/
+
+describe('O ARREMATE na folha: O QUE O CÁLCULO USA, com as opções reais do motor da Wolff (dono do produto, 07/11/2026)', () => {
+    // as três variáveis de arremate da DP-02 como estão no motor fdff3386 (medido em 07/11/2026), com os códigos reais
+    const DP02_REAL = { variaveis: [
+        { variavel: 'ARI', descricao: 'ARREMATE INTERNO', padrao: '1', condicao: '(ARR=1)', opcoes: '1 = BZ0006 - ARREMATE 65MM [33,00]; 2 = BZ1770 - ARREMATE 70MM [33,00]; 3 = BZ0010 - ARREMATE 20MM; 4 = SEM ARREMATE INTERNO' },
+        { variavel: 'ARE', descricao: 'ARREMATE EXTERNO', padrao: '1', condicao: '(ARR=1)', opcoes: '1 = BZ0010 - ARREMATE 20MM; 2 = SEM ARREMATE EXTERNO' },
+        { variavel: 'MAE', descricao: 'MEDIDA ARREMATE EXTERNO', padrao: '1', condicao: '(ARE=1)', opcoes: '1 = MEDIDA DO VÃO (CORTE 45/45); 2 = VÃO+50MM (CORTE 90/90) - PARA AJUSTE EM OBRA [50,00]; 3 = VÃO+100MM (CORTE 90/90) - PARA AJUSTE EM OBRA [100,00]' },
+    ] } as unknown as VariaveisDaTipologia
+    // e um motor qualquer, com um código genérico: a regra não pode depender de BZ0010 e BZ1770
+    const GENERICO = { variaveis: [
+        { variavel: 'ARI', descricao: 'ARREMATE INTERNO', padrao: '1', condicao: 'sempre', opcoes: '1 = QX4410 - ARREMATE 30MM [12,00]; 2 = KLM77A - ARREMATE 45MM' },
+    ] } as unknown as VariaveisDaTipologia
+    const comDefinicao = (v: VariaveisDaTipologia) => (itens: ItemDoLevantamento[]) =>
+        montarDadosDaFolha({ empresa: 'Empresa X', levantamento: LEV, itens, definicao: () => v, detalhe, geradoEm: new Date(Date.UTC(2026, 10, 7, 12)) })
+    const real = comDefinicao(DP02_REAL)
+    const PADRAO_DO_MOTOR = 'arremate interno: 65 mm; arremate externo: 20 mm; medida do arremate externo: medida do vão'
+
+    it('IGUAL em todos os itens: no RODAPÉ, uma vez, com o que o cálculo usa (o padrão do motor, por extenso); nenhuma célula diz "Acabamento:"', () => {
+        const d = real([item(1, {}), item(2, {}), item(3, {})])
+        expect(d.preDefinicoes).toContainEqual({ rotulo: 'Arremate e guarnição', valor: PADRAO_DO_MOTOR })
+        expect(d.itens.map((i) => i.perfilEAcessorio)).toEqual(['BRANCO / padrão', 'BRANCO / padrão', 'BRANCO / padrão'])
+        const folha = gerarFolhaDoLevantamento(d)
+        if ('recusas' in folha) throw new Error(folha.recusas.join(' '))
+        const texto = textoDoPdf(folha.pdf)
+        expect(texto).toContain(`Arremate e guarnição: ${PADRAO_DO_MOTOR}`)
+        expect(texto).not.toContain('Acabamento:')
+    })
+
+    it('UM item com arremate DIFERENTE: cada célula diz o seu, ROTULADO "Acabamento:" depois das cores e separado por " · "; o rodapé não o traz', () => {
+        const d = real([item(1, {}), item(2, { escolhas: { ARI: 2, MAE: 2 } })])
+        expect(d.itens.map((i) => i.perfilEAcessorio)).toEqual([
+            `BRANCO / padrão · Acabamento: ${PADRAO_DO_MOTOR}`,
+            'BRANCO / padrão · Acabamento: arremate interno: 70 mm; arremate externo: 20 mm; medida do arremate externo: vão + 50 mm',
+        ])
+        expect(d.preDefinicoes.map((p) => p.rotulo)).toEqual(['Cor do perfil', 'Vedação'])
+        const folha = gerarFolhaDoLevantamento(d)
+        if ('recusas' in folha) throw new Error(folha.recusas.join(' '))
+        const texto = textoDoPdf(folha.pdf)
+        expect(texto.match(/Acabamento:/g)).toHaveLength(2)
+        expect(texto).not.toContain('Arremate e guarnição')
+    })
+
+    it('NENHUM código de fornecedor em lugar nenhum da folha — nem na célula, nem no rodapé: com os códigos reais (BZ0006, BZ1770, BZ0010) e com um genérico', () => {
+        const casos: Array<[string, ReturnType<typeof real>]> = [
+            ['real, igual em todos', real([item(1, { escolhas: { ARI: 2 } }), item(2, { escolhas: { ARI: 2 } })])],
+            ['real, variando', real([item(1, { escolhas: { ARI: 2 } }), item(2, { escolhas: { ARI: 3, MAE: 3 } }), item(3, {})])],
+            ['genérico, igual', comDefinicao(GENERICO)([item(1, {}), item(2, {})])],
+            ['genérico, variando', comDefinicao(GENERICO)([item(1, {}), item(2, { escolhas: { ARI: 2 } })])],
+        ]
+        for (const [nome, d] of casos) {
+            const folha = gerarFolhaDoLevantamento(d)
+            if ('recusas' in folha) throw new Error(`${nome}: ${folha.recusas.join(' ')}`)
+            const texto = textoDoPdf(folha.pdf)
+            // o instrumento enxerga: o texto traz o arremate (senão a busca de código passaria por não ter o que ler)
+            expect([nome, /arremate interno: \d+ mm/.test(texto)]).toEqual([nome, true])
+            for (const codigo of ['BZ0006', 'BZ1770', 'BZ0010', 'QX4410', 'KLM77A']) expect([nome, codigo, texto.includes(codigo)]).toEqual([nome, codigo, false])
+            expect([nome, CODIGO_DE_FORNECEDOR.exec(texto)?.[0] ?? null]).toEqual([nome, null])
+        }
+        // e o instrumento PEGA um código quando ele está lá
+        expect(CODIGO_DE_FORNECEDOR.exec('Arremate e guarnição: BZ0010 - arremate 20 mm')?.[0]).toBe('BZ0010')
+        expect(CODIGO_DE_FORNECEDOR.exec('Acabamento: QX4410 30 mm')?.[0]).toBe('QX4410')
+    })
+})
+
 describe('o arquivo montado do que está gravado', () => {
     it('a variável SEM PADRÃO respondida vai à linha VARIÁVEIS e ao desenho (a bandeira na altura dita); a escolha de arremate não vai à linha', () => {
         const d = montar([item(1, { tipologia: 'DP-04', escolhas: { ARI: 3, AF: 400 } })])
@@ -43,7 +111,7 @@ describe('o arquivo montado do que está gravado', () => {
         expect(linhaDasVariaveis(d.itens[0])).toBe('Altura da bandeira 400 mm')
         expect(desenhoDaTipologia(d.itens[0])).toEqual(expect.objectContaining({ colunas: 2, bandeira_mm: 400 }))
         expect(d.itens[0].descricao).toBe(DESCRICOES['DP-04'])
-        // a linha do item: "<cor do perfil> / <cor do acessório>" ("padrão" não dita) e o vidro como dito; o arremate, comum, vai ao fecho
+        // a linha do item: "<cor do perfil> / <cor do acessório>" ("padrão" não dita) e o vidro como dito; o arremate, comum, vai ao rodapé
         expect(d.itens[0].perfilEAcessorio).toBe('BRANCO / padrão')
         expect(d.itens[0].vidro).toBe('4 mm')
         expect(d.preDefinicoes).toContainEqual({ rotulo: 'Arremate e guarnição', valor: 'arremate interno: 20 mm' })
@@ -57,9 +125,9 @@ describe('o arquivo montado do que está gravado', () => {
         expect(corDoAcessorio(item(1, { escolhas: { CA: 2 } }), definicao)).toBe('padrão')
     })
 
-    it('a cor do perfil que VARIA entre os itens aparece em cada item e não vai ao fecho; o arremate que varia vai à linha do item, nunca se perde', () => {
+    it('a cor do perfil que VARIA entre os itens aparece em cada item e não vai ao rodapé; o arremate que varia vai à célula do item, ROTULADO "Acabamento:"', () => {
         const d = montar([item(1, {}), item(2, { cor_perfil: 'PRETO', escolhas: { ARI: 3 } })])
-        expect(d.itens.map((i) => i.perfilEAcessorio)).toEqual(['BRANCO / padrão · arremate e guarnição: Padrão', 'PRETO / padrão · arremate e guarnição: arremate interno: 20 mm'])
+        expect(d.itens.map((i) => i.perfilEAcessorio)).toEqual(['BRANCO / padrão · Acabamento: arremate interno: 65 mm', 'PRETO / padrão · Acabamento: arremate interno: 20 mm'])
         expect(d.preDefinicoes).toEqual([{ rotulo: 'Vedação', valor: 'padrão' }])
     })
 
@@ -69,9 +137,9 @@ describe('o arquivo montado do que está gravado', () => {
 
     it('as pré-definições: o que é IGUAL em todos os itens; o que difere fica só no item; a vedação sai como "padrão"', () => {
         expect(montar([item(1, {}), item(2, {})]).preDefinicoes).toEqual([
-            { rotulo: 'Cor do perfil', valor: 'BRANCO' }, { rotulo: 'Arremate e guarnição', valor: 'Padrão' }, { rotulo: 'Vedação', valor: 'padrão' },
+            { rotulo: 'Cor do perfil', valor: 'BRANCO' }, { rotulo: 'Arremate e guarnição', valor: 'arremate interno: 65 mm' }, { rotulo: 'Vedação', valor: 'padrão' },
         ])
-        expect(montar([item(1, {}), item(2, { cor_perfil: 'PRETO' })]).preDefinicoes).toEqual([{ rotulo: 'Arremate e guarnição', valor: 'Padrão' }, { rotulo: 'Vedação', valor: 'padrão' }])
+        expect(montar([item(1, {}), item(2, { cor_perfil: 'PRETO' })]).preDefinicoes).toEqual([{ rotulo: 'Arremate e guarnição', valor: 'arremate interno: 65 mm' }, { rotulo: 'Vedação', valor: 'padrão' }])
     })
 
     it('as condições são as GRAVADAS no levantamento (congeladas), o cliente é o nome do levantamento, e a folha sai', () => {

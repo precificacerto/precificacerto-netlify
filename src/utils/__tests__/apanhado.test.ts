@@ -50,21 +50,29 @@ describe('rotuloSemCodigo: o nome por extenso, sem o código de fornecedor', () 
     })
 })
 
-describe('arremateDaColeta', () => {
-    it('nada escolhido → "Padrão"', () => {
-        expect(arremateDaColeta(DP02, null)).toBe('Padrão')
+describe('arremateDaColeta: O QUE O CÁLCULO USA — a resposta do vendedor ou o padrão do motor, por extenso (dono do produto, 07/11/2026)', () => {
+    it('nada escolhido → o PADRÃO DO MOTOR por extenso, nunca a palavra "Padrão" (que não diz o que se calcula)', () => {
+        expect(arremateDaColeta(DP02, null)).toBe('arremate interno: 65 mm; arremate externo: 20 mm; medida do arremate externo: medida do vão')
     })
-    it('escolhido → o nome por extenso, e "Padrão" no que não foi dito; a medida escolhida também aparece', () => {
-        expect(arremateDaColeta(DP02, { ARI: 3, MAE: 2 })).toBe('arremate interno: 20 mm; arremate externo: Padrão; medida do arremate externo: vão + 50 mm')
+    it('escolhido → a escolha; o que não foi dito, o padrão do motor; a medida escolhida também', () => {
+        expect(arremateDaColeta(DP02, { ARI: 3, MAE: 2 })).toBe('arremate interno: 20 mm; arremate externo: 20 mm; medida do arremate externo: vão + 50 mm')
+        expect(arremateDaColeta(DP02, { ARI: 2 })).toBe('arremate interno: 70 mm; arremate externo: 20 mm; medida do arremate externo: medida do vão')
     })
-    it('só a medida escolhida → ela aparece, e o resto em "Padrão"', () => {
-        expect(arremateDaColeta(DP02, { MAE: 2 })).toBe('arremate interno: Padrão; arremate externo: Padrão; medida do arremate externo: vão + 50 mm')
+    it('a medida do arremate externo só entra quando a condição dela vale: sem arremate externo, não há medida', () => {
+        expect(arremateDaColeta(DP02, { ARE: 2 })).toBe('arremate interno: 65 mm; arremate externo: sem arremate externo')
     })
-    it('a medida não escolhida não aparece, nem com outra escolha', () => {
-        expect(arremateDaColeta(DP02, { ARI: 3 })).toBe('arremate interno: 20 mm; arremate externo: Padrão')
+    it('o valor efetivo que não é uma opção da aba é dito como tal, nunca adivinhado', () => {
+        expect(arremateDaColeta(DP02, { ARI: 9 })).toBe('arremate interno: opção fora da lista do motor; arremate externo: 20 mm; medida do arremate externo: medida do vão')
     })
-    it('tipologia sem a aba Variáveis → "Padrão"', () => {
-        expect(arremateDaColeta(null, { ARI: 3 })).toBe('Padrão')
+    it('sem a aba Variáveis, ou tipologia sem variável de arremate → nula (nada a dizer, nunca "Padrão")', () => {
+        expect(arremateDaColeta(null, { ARI: 3 })).toBeNull()
+        expect(arremateDaColeta({ variaveis: [{ variavel: 'AF', descricao: 'ALTURA DA BANDEIRA', padrao: null, condicao: 'sempre', opcoes: null }] } as unknown as VariaveisDaTipologia, {})).toBeNull()
+    })
+    it('nenhum código de fornecedor, em nenhuma combinação das opções reais', () => {
+        for (const ARI of [1, 2, 3, 4]) for (const ARE of [1, 2]) for (const MAE of [1, 2]) {
+            const t = arremateDaColeta(DP02, { ARI, ARE, MAE }) as string
+            expect([t, /\b[A-Z]{1,5}\d{2,}[A-Z0-9]*\b/.test(t)]).toEqual([t, false])
+        }
     })
 })
 

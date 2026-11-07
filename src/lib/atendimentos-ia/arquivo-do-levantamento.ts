@@ -10,8 +10,12 @@
  *   - os itens: `orcamentista_levantamento_item` (as medidas, o vidro, a cor, as escolhas, os ambientes e a obs); a descrição e a linha da
  *     tipologia: a Detalhe do motor (os candidatos que a conversa já leu); as variáveis: a aba Variáveis da tipologia (a `definicao`);
  *   - a linha do item: "PERFIL / ACESSÓRIO:" com a cor do perfil e a do acessório ("padrão" quando não dita) e "VIDRO:" com o vidro como dito;
- *     o arremate e a guarnição por extenso, sem código de fornecedor (`arremateDaColeta`), no fecho;
- *   - as pré-definições consideradas: o que é IGUAL em todos os itens (a cor do perfil, o arremate e guarnição), e a vedação como "padrão";
+ *     o arremate e a guarnição — O QUE O CÁLCULO USA (a resposta do vendedor, ou o padrão do motor), por extenso e sem código de fornecedor
+ *     (`arremateDaColeta`) — no RODAPÉ quando é igual em todos os itens; quando varia, na célula do item, rotulado "Acabamento:";
+ *   - as pré-definições consideradas, no rodapé: o que é IGUAL em todos os itens (a cor do perfil, o arremate e guarnição), e a vedação como
+ *     "padrão";
+ *   - NENHUM código de fornecedor em lugar nenhum da folha (dono do produto, 26/10/2026, reafirmado em 07/11/2026): as opções do motor saem por
+ *     `rotuloSemCodigo`;
  *   - nunca material, barra, peso, corte, nem valor em reais: o contrato da folha não tem campo para eles.
  *
  * Portão: `src/utils/__tests__/arquivo-do-levantamento.test.ts` e o bloco (42) de `atendimentos-ia-levantamento-por-nome.test.ts`.
@@ -130,7 +134,7 @@ export function variaveisDitas(item: Pick<ItemDoLevantamento, 'escolhas' | 'tipo
     })
 }
 
-const unico = (xs: readonly string[]) => (new Set(xs).size === 1 ? xs[0] : null)
+const unico = <T>(xs: readonly T[]): T | null => (new Set(xs).size === 1 ? xs[0] : null)
 const forma = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim()
 
 /**
@@ -147,12 +151,13 @@ export function corDoAcessorio(item: Pick<ItemDoLevantamento, 'escolhas' | 'tipo
 }
 
 /**
- * A célula "PERFIL / ACESSÓRIO:" do item: "<cor do perfil> / <cor do acessório>". O arremate e a guarnição NÃO entram (são comuns à obra e saem
- * no fecho) — SALVO quando variam entre os itens: então não são comuns, não vão ao fecho (o que varia vai na linha do item), e saem aqui, depois
- * das cores. Leitura do assistente sobre as duas regras de 06/11/2026, relatada no PR.
+ * A célula "PERFIL / ACESSÓRIO:" do item: "<cor do perfil> / <cor do acessório>". O arremate e a guarnição NÃO entram quando são comuns à obra
+ * (saem no rodapé). Quando VARIAM entre os itens (dono do produto, 07/11/2026), aparecem aqui, ROTULADOS e separados das cores por " · " —
+ * "Branco / padrão · Acabamento: arremate interno: 20 mm; …" —, para não se lerem como atributo do perfil.
  */
+export const ROTULO_DO_ACABAMENTO = 'Acabamento:'
 function perfilEAcessorio(cor: string | null, acessorio: string, arremateQueVaria: string | null): string {
-    return `${cor ?? ''} / ${acessorio}${arremateQueVaria !== null ? ` · arremate e guarnição: ${arremateQueVaria}` : ''}`
+    return `${cor ?? ''} / ${acessorio}${arremateQueVaria !== null ? ` · ${ROTULO_DO_ACABAMENTO} ${arremateQueVaria}` : ''}`
 }
 
 export function montarDadosDaFolha(a: {
@@ -169,6 +174,7 @@ export function montarDadosDaFolha(a: {
             ordem: i.ordem, tipologia: i.tipologia ?? '', descricao: d?.descricao ?? i.tipologia ?? '', linha: d?.linha ?? null,
             quantidade: i.quantidade ?? 0, largura_mm: i.largura_mm ?? 0, altura_mm: i.altura_mm ?? 0,
             variaveis: variaveisDitas(i, a.definicao),
+            // igual em todos (ou nenhum tem arremate): nada aqui; o rodapé o diz uma vez
             perfilEAcessorio: perfilEAcessorio(cor, corDoAcessorio(i, a.definicao), arremateComum === null ? arremates[k] : null),
             // o vidro COMO O VENDEDOR DISSE (04/11/2026: copiado, nunca completado), sem rótulo: o rótulo é o da célula ("VIDRO:")
             vidro: i.vidro,
@@ -176,7 +182,7 @@ export function montarDadosDaFolha(a: {
             obs: i.obs ?? null,
         }
     })
-    // as pré-definições consideradas: o que é igual em todos os itens e foi informado; a vedação sai como "padrão"
+    // as pré-definições consideradas, no RODAPÉ: o que é igual em todos os itens e foi informado; a vedação sai como "padrão"
     const preDefinicoes: Array<{ rotulo: string; valor: string }> = []
     const cor = unico(ordenados.map((i) => i.cor_perfil ?? ''))
     if (cor) preDefinicoes.push({ rotulo: 'Cor do perfil', valor: cor })
