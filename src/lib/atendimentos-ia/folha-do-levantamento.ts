@@ -359,7 +359,8 @@ const CONTEUDO = FOLHA.largura - 2 * FOLHA.margem
  * A CONTA DA FOLHA (dono do produto, 07/11/2026, depois de medir que o mockup de "10 itens" estourava a A4 em 35 mm): margens de 10 mm; o
  * cabeçalho com 14 mm; o corpo com 263 mm em toda folha. A linha de identificação no pé (10 mm) só existe na ÚLTIMA folha — nas outras, o número
  * e "Página X de Y" já estão no topo —, e por isso não é reservada em toda folha: a paginação a soma ao rodapé.
- * Folha 1: 263 − 31,4 (cliente e respiro) − 4,5 (títulos da tabela) = 227,1 mm → 9 itens sem VARIÁVEIS; folhas seguintes: 258,5 mm → 10.
+ * Folha 1: 263 − 31,4 (cliente e respiro) − 4,5 (títulos da tabela) = 227,1 mm; folhas seguintes: 258,5 mm. Com o respiro de 2,5 mm entre as
+ * células (07/11/2026, o item ocupa 27,4 mm): 8 itens sem VARIÁVEIS na folha 1 e 9 nas seguintes; com VARIÁVEIS, 7 e 8.
  */
 const ALTURA_DO_CABECALHO = 14
 export const ALTURA_DA_LINHA_DE_IDENTIFICACAO = 10
@@ -386,8 +387,8 @@ export const LINHAS_DO_NOME = 2
 const CORPO_DO_NOME = 7
 const CORPO_DA_LINHA = 7
 const ALTURA_DO_CABECALHO_DAS_COLUNAS = 4.5
-/** Os itens são CONTÍGUOS, separados só pela borda, como no mockup (eram 2,5 mm em branco por item, 22,5 mm por folha). */
-const ESPACO_ENTRE_ITENS = 0
+/** O respiro entre as células dos itens (dono do produto, 07/11/2026): cada item é uma CÉLULA fechada, e o respiro custa 1 item por folha. */
+const ESPACO_ENTRE_ITENS = 2.5
 /** Uma linha do bloco do cliente: rótulo e valor na MESMA linha ("CLIENTE  Ana Exemplo"), 27,4 mm nas quatro, como o mockup. */
 const LINHA_DO_CLIENTE = 27.4 / 4
 const CORPO = 8.5
@@ -397,6 +398,13 @@ const ENTRELINHA = 0.42 // mm por ponto de corpo
 const PRETO = 20
 const CINZA = 110
 const TRACO = 160
+/** A célula do item, minimalista (dono do produto, 07/11/2026): a borda EXTERNA preta e fina (0,5 pt) contorna o item inteiro; as INTERNAS, cinza
+ * claro (0,25 pt), só onde separam assunto — a coluna Fig. do resto, as colunas da faixa, as linhas auxiliares, PERFIL / ACESSÓRIO de VIDRO. Sem
+ * fundo, sem zebra, sem borda dupla. (1 pt = 25,4 / 72 mm.) */
+const PT = 25.4 / 72
+export const BORDA_EXTERNA_DO_ITEM = { cor: 0, largura: 0.5 * PT } as const
+export const BORDA_INTERNA_DO_ITEM = { cor: 200, largura: 0.25 * PT } as const
+const tracoInterno = (doc: Doc) => { doc.setDrawColor(BORDA_INTERNA_DO_ITEM.cor); doc.setLineWidth(BORDA_INTERNA_DO_ITEM.largura) }
 
 type Doc = jsPDF
 
@@ -554,7 +562,7 @@ function rotulo(doc: Doc, texto: string, x: number, y: number) {
 
 /** Uma célula auxiliar do item: o rótulo NA FRENTE, em corpo miúdo; o texto ao lado, uma linha de 4,2 mm por linha de texto. */
 function celulaComRotulo(doc: Doc, x: number, y: number, w: number, h: number, nome: string, texto: string) {
-    doc.setDrawColor(TRACO); doc.rect(x, y, w, h)
+    tracoInterno(doc); doc.rect(x, y, w, h)
     const base = (k: number) => y + ALTURA_DA_LINHA_DO_ITEM * 0.68 + k * ALTURA_DA_LINHA_DO_ITEM
     doc.setFont('helvetica', 'bold'); doc.setFontSize(ROTULO); doc.setTextColor(CINZA)
     doc.text(nome, x + 1.5, base(0))
@@ -644,7 +652,8 @@ function cabecalhoDasColunas(doc: Doc, y: number): number {
 function blocoDoItem(doc: Doc, i: ItemDaFolha, y: number): number {
     const x = FOLHA.margem
     const altura = alturaDoCorpoDoItem(doc, i)
-    doc.setDrawColor(TRACO)
+    // as divisões internas, cinza claro e finas; a borda externa preta vem por último, por cima delas
+    tracoInterno(doc)
     // a coluna Fig. é UMA célula, da altura do item inteiro; o desenho cresce até caber nela, centrado, na proporção real
     doc.rect(x, y, COLUNAS.fig, altura)
     const tracos = tracosDoDesenho(desenhoDaTipologia(i), caixaDaFigura(x, y, altura))
@@ -652,7 +661,7 @@ function blocoDoItem(doc: Doc, i: ItemDaFolha, y: number): number {
     doc.rect(tracos.contorno.x, tracos.contorno.y, tracos.contorno.w, tracos.contorno.h)
     doc.setLineWidth(0.2)
     for (const [x1, y1, x2, y2] of tracos.divisoes) doc.line(x1, y1, x2, y2)
-    doc.setDrawColor(TRACO)
+    tracoInterno(doc)
     // a faixa: Item e tipologia | Qtde | Larg. | Alt., todas na MESMA altura
     let cx = x + COLUNAS.fig
     doc.rect(cx, y, COLUNAS.item, ALTURA_DA_FAIXA)
@@ -689,6 +698,10 @@ function blocoDoItem(doc: Doc, i: ItemDaFolha, y: number): number {
         }
         ly += h
     }
+    // a borda EXTERNA: preta e fina, contornando o item inteiro — a faixa, a coluna da figura e as linhas auxiliares
+    doc.setDrawColor(BORDA_EXTERNA_DO_ITEM.cor); doc.setLineWidth(BORDA_EXTERNA_DO_ITEM.largura)
+    doc.rect(x, y, CONTEUDO, altura)
+    doc.setDrawColor(TRACO); doc.setLineWidth(0.2)
     return ly + ESPACO_ENTRE_ITENS
 }
 

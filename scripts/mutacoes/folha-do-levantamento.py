@@ -54,7 +54,7 @@ M = [
  ('N10 o nome cortado sem reticências', "        t.push({ texto: '…', cinza: ate > principal.length })\n", ''),
  ('N11 a paginação sem o crescimento da linha', 'const alturaDoItem = (doc: Doc, i: ItemDaFolha) => alturaDoCorpoDoItem(doc, i) + ESPACO_ENTRE_ITENS', 'const alturaDoItem = (doc: Doc, i: ItemDaFolha) => ALTURA_DA_FAIXA + linhasDoItem(i).length * ALTURA_DA_LINHA_DO_ITEM + ESPACO_ENTRE_ITENS'),
  ('N12 a linha do motor de volta em linha própria', "    doc.setTextColor(PRETO)\n    cx += COLUNAS.item\n", "    if (i.linha) doc.text(`Linha: ${i.linha}`, cx + 1.5, y + ALTURA_DA_FAIXA - 1)\n    doc.setTextColor(PRETO)\n    cx += COLUNAS.item\n"),
- ('Q1 o espaço entre itens de volta', 'const ESPACO_ENTRE_ITENS = 0\n', 'const ESPACO_ENTRE_ITENS = 2.5\n'),
+ ('Q1 os itens contíguos, sem o respiro', 'const ESPACO_ENTRE_ITENS = 2.5\n', 'const ESPACO_ENTRE_ITENS = 0\n'),
  ('Q2 o pé fora da conta da última folha', '    const fim = a.rodape + a.linhaDeIdentificacao\n', '    const fim = a.rodape\n'),
  ('Q3 o pé desenhado em toda folha', '        if (p.rodape) { desenharRodape(doc, dados, y); desenharLinhaDeIdentificacao(doc, dados) }', '        if (p.rodape) desenharRodape(doc, dados, y)\n        desenharLinhaDeIdentificacao(doc, dados)'),
  ('Q4 o pé reservado em toda folha', 'const FIM_DO_CORPO = FOLHA.altura - FOLHA.margem\n', 'const FIM_DO_CORPO = FOLHA.altura - FOLHA.margem - ALTURA_DA_LINHA_DE_IDENTIFICACAO\n'),
@@ -62,6 +62,13 @@ M = [
  ('Q6 o valor do cliente cortado numa linha', '    LINHA_DO_CLIENTE + (linhasDoCampo(doc, nome, texto, largura).length - 1) * CORPO * ENTRELINHA', '    LINHA_DO_CLIENTE'),
  ('Q7 a faixa de títulos com 8 mm', 'const ALTURA_DO_CABECALHO_DAS_COLUNAS = 4.5\n', 'const ALTURA_DO_CABECALHO_DAS_COLUNAS = 8\n'),
  ('Q8 o cabeçalho com 22 mm', 'const ALTURA_DO_CABECALHO = 14\n', 'const ALTURA_DO_CABECALHO = 22\n'),
+ ('B1 a borda externa cinza', 'export const BORDA_EXTERNA_DO_ITEM = { cor: 0, largura: 0.5 * PT } as const', 'export const BORDA_EXTERNA_DO_ITEM = { cor: 160, largura: 0.5 * PT } as const'),
+ ('B2 a borda externa grossa', 'export const BORDA_EXTERNA_DO_ITEM = { cor: 0, largura: 0.5 * PT } as const', 'export const BORDA_EXTERNA_DO_ITEM = { cor: 0, largura: 1 * PT } as const'),
+ ('B3 as internas pretas', 'export const BORDA_INTERNA_DO_ITEM = { cor: 200, largura: 0.25 * PT } as const', 'export const BORDA_INTERNA_DO_ITEM = { cor: 0, largura: 0.25 * PT } as const'),
+ ('B4 sem a borda externa', '    doc.rect(x, y, CONTEUDO, altura)\n    doc.setDrawColor(TRACO); doc.setLineWidth(0.2)\n', '    doc.setDrawColor(TRACO); doc.setLineWidth(0.2)\n'),
+ ('B5 a borda externa só na faixa', '    doc.rect(x, y, CONTEUDO, altura)\n    doc.setDrawColor(TRACO); doc.setLineWidth(0.2)\n', '    doc.rect(x, y, CONTEUDO, ALTURA_DA_FAIXA)\n    doc.setDrawColor(TRACO); doc.setLineWidth(0.2)\n'),
+ ('B6 fundo nas células do item', '    tracoInterno(doc); doc.rect(x, y, w, h)\n', "    tracoInterno(doc); doc.setFillColor(245, 245, 245); doc.rect(x, y, w, h, 'FD')\n"),
+ ('B7 a figura sem o traço interno', '    tracoInterno(doc)\n    // a coluna Fig.', '    doc.setDrawColor(TRACO)\n    // a coluna Fig.'),
 ]
 orig = open(ARQ, encoding='utf-8').read()
 vivas = []
