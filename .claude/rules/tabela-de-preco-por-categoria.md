@@ -2020,9 +2020,12 @@ A4). Sai só a mensagem-resumo em texto do fim da coleta. "Não chame o arquivo 
     tipologia e a descrição completa está no motor"); a linha do motor não sai mais em linha própria;
   - o texto do VENDEDOR e da obra (VARIÁVEIS, AMBIENTES, OBS) NUNCA é cortado: a linha cresce 4,2 mm por linha de texto, só naquele item, e a
     paginação conta isso ANTES de decidir se o item cabe na folha.
-  **Capacidade medida com esse desenho (07/11/2026):** folha 1, 7 itens sem VARIÁVEIS ou 6 com; folhas seguintes, 8 ou 7. O alvo de 9 a 10 não
-  fecha só com o item: pesam o cabeçalho (22 mm), o bloco do cliente (36,7 mm, só na folha 1), o cabeçalho das colunas (8 mm) e o espaço de 2,5 mm
-  entre itens — que não foram mudados, porque o pedido foi "mantenha tudo o mais como está".
+  **A CONTA DA FOLHA (dono do produto, 07/11/2026).** O mockup dos "10 itens" não cabia em A4 (794 × 1255 px, razão 1,58 contra 1,414; estourava
+  35 mm). Depois da decomposição em mm, bloco a bloco, cinco ajustes, nesta ordem de peso: (1) os itens CONTÍGUOS, separados só pela borda (eram
+  2,5 mm em branco por item); (2) a linha de identificação no pé SÓ na última folha — a paginação a soma ao rodapé, e as outras folhas não a
+  reservam; (3) o bloco do cliente com rótulo e valor na MESMA linha, 27,4 mm nas quatro linhas (o valor que não cabe cresce, nunca é cortado);
+  (4) a faixa de títulos da tabela com 4,5 mm; (5) o cabeçalho com 14 mm. Margens de 10 mm. Corpo de 263 mm em toda folha. **Medido depois:**
+  9 itens sem VARIÁVEIS na folha 1 (263 − 31,4 − 4,5 = 227,1 mm) e 10 nas seguintes (258,5 mm); com VARIÁVEIS, 7 e 8.
 - **VOCABULÁRIO — "rodapé", nunca "fecho" (dono do produto, 07/11/2026):** "No domínio de esquadrias 'fecho' é FERRAGEM (cremona com fecho
   alavanca, fecho embutido) [...] Use 'rodapé' para a parte de baixo da folha (pré-definições consideradas, condições comerciais, conferido e
   confirmado por). [...] Não é cosmético: um dia o agente vai escrever a palavra numa frase e ninguém vai saber se é a peça ou a parte da folha."
