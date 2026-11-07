@@ -12,7 +12,7 @@ import { readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import {
     ALTURA_DA_FAIXA, COLUNAS, FOLHA, conferirFolha, dataCurta, desenhoDaTipologia, gerarFolhaDoLevantamento, linhaDasVariaveis, linhaDosAmbientes,
-    nomeDoArquivo, paginar, percentual, planoDaFolha, rodape, tracosDoDesenho, variavelNaFolha,
+    linhaDeIdentificacao, nomeDoArquivo, paginar, percentual, planoDaFolha, tracosDoDesenho, variavelNaFolha,
     type AlturasDaFolha, type DadosDaFolha, type ItemDaFolha, type VariavelDita,
 } from '@/lib/atendimentos-ia/folha-do-levantamento'
 import { FOLHA_DE_EXEMPLO, ITENS_DE_EXEMPLO } from './fixtures/folha-de-exemplo'
@@ -166,8 +166,8 @@ describe('(II) a conferência antes de produzir — recusa nomeada, nunca uma fo
     })
 })
 
-describe('(III) a paginação — a folha enche antes de virar, o item não se parte, o fecho sai inteiro na última', () => {
-    const base: AlturasDaFolha = { util: 100, cliente: 20, cabecalhoDasColunas: 5, itens: [], fecho: 30 }
+describe('(III) a paginação — a folha enche antes de virar, o item não se parte, o rodapé sai inteiro na última', () => {
+    const base: AlturasDaFolha = { util: 100, cliente: 20, cabecalhoDasColunas: 5, itens: [], rodape: 30 }
 
     it('enche antes de virar: em cada virada, o próximo item não cabia no que sobrava', () => {
         const a = { ...base, itens: [30, 30, 30, 30, 30, 30] }
@@ -192,26 +192,26 @@ describe('(III) a paginação — a folha enche antes de virar, o item não se p
         expect(todos).toEqual([0, 1, 2, 3, 4, 5, 6])
     })
 
-    it('o fecho sai inteiro na ÚLTIMA folha: na corrente se cabe; senão, numa folha só dele — e uma vez só', () => {
-        const cabe = paginar({ ...base, itens: [20], fecho: 30 })
+    it('o rodapé sai inteiro na ÚLTIMA folha: na corrente se cabe; senão, numa folha só dele — e uma vez só', () => {
+        const cabe = paginar({ ...base, itens: [20], rodape: 30 })
         if ('recusa' in cabe) throw new Error(cabe.recusa)
-        expect(cabe.paginas).toEqual([{ cliente: true, itens: [0], fecho: true }])
-        const naoCabe = paginar({ ...base, itens: [20, 20], fecho: 31 })
+        expect(cabe.paginas).toEqual([{ cliente: true, itens: [0], rodape: true }])
+        const naoCabe = paginar({ ...base, itens: [20, 20], rodape: 31 })
         if ('recusa' in naoCabe) throw new Error(naoCabe.recusa)
-        // 100 − 20 − 5 − 40 = 35 ≥ 31 → cabe; com fecho 36 não cabe
-        expect(naoCabe.paginas.map((p) => p.fecho)).toEqual([true])
-        const vira = paginar({ ...base, itens: [20, 20], fecho: 36 })
+        // 100 − 20 − 5 − 40 = 35 ≥ 31 → cabe; com rodapé 36 não cabe
+        expect(naoCabe.paginas.map((p) => p.rodape)).toEqual([true])
+        const vira = paginar({ ...base, itens: [20, 20], rodape: 36 })
         if ('recusa' in vira) throw new Error(vira.recusa)
-        expect(vira.paginas).toEqual([{ cliente: true, itens: [0, 1], fecho: false }, { cliente: false, itens: [], fecho: true }])
+        expect(vira.paginas).toEqual([{ cliente: true, itens: [0, 1], rodape: false }, { cliente: false, itens: [], rodape: true }])
     })
 
     it('o cliente só na primeira folha; o cabeçalho das colunas conta em toda folha que tem item', () => {
-        const r = paginar({ ...base, itens: [70, 70], fecho: 10 })
+        const r = paginar({ ...base, itens: [70, 70], rodape: 10 })
         if ('recusa' in r) throw new Error(r.recusa)
         // 1ª: 100 − 20 = 80 ≥ 70 + 5; 2ª: o segundo item; sobra 100 − 75 = 25 ≥ 10
-        expect(r.paginas).toEqual([{ cliente: true, itens: [0], fecho: false }, { cliente: false, itens: [1], fecho: true }])
+        expect(r.paginas).toEqual([{ cliente: true, itens: [0], rodape: false }, { cliente: false, itens: [1], rodape: true }])
         // sem contar o cabeçalho, 76 caberia em 80; com ele (81), não
-        const justo = paginar({ ...base, itens: [76], fecho: 10 })
+        const justo = paginar({ ...base, itens: [76], rodape: 10 })
         if ('recusa' in justo) throw new Error(justo.recusa)
         expect(justo.paginas[0].itens).toEqual([])
         expect(justo.paginas[1].itens).toEqual([0])
@@ -219,20 +219,20 @@ describe('(III) a paginação — a folha enche antes de virar, o item não se p
 
     it('o que não cabe numa folha inteira é recusa, nunca partido', () => {
         expect(paginar({ ...base, itens: [96] })).toEqual({ recusa: 'O item 1 não cabe numa folha inteira.' })
-        expect(paginar({ ...base, itens: [10], fecho: 101 })).toEqual({ recusa: 'O fecho não cabe numa folha inteira.' })
+        expect(paginar({ ...base, itens: [10], rodape: 101 })).toEqual({ recusa: 'O rodapé não cabe numa folha inteira.' })
     })
 
-    it('com as medidas reais do desenho: 40 itens dão várias folhas, o fecho só na última, e nenhuma folha passa do espaço útil', () => {
+    it('com as medidas reais do desenho: 40 itens dão várias folhas, o rodapé só na última, e nenhuma folha passa do espaço útil', () => {
         const muitos = Array.from({ length: 40 }, (_, k) => ({ ...ITENS_DE_EXEMPLO[k % ITENS_DE_EXEMPLO.length], ordem: k + 1 }))
         const p = planoDaFolha(dados({ itens: muitos }))
         if ('recusa' in p) throw new Error(p.recusa)
         expect(p.paginas.length).toBeGreaterThan(3)
-        expect(p.paginas.filter((x) => x.fecho)).toHaveLength(1)
-        expect(p.paginas[p.paginas.length - 1].fecho).toBe(true)
+        expect(p.paginas.filter((x) => x.rodape)).toHaveLength(1)
+        expect(p.paginas[p.paginas.length - 1].rodape).toBe(true)
         expect(p.paginas.filter((x) => x.cliente)).toHaveLength(1)
         for (const [k, pg] of p.paginas.entries()) {
             const usado = (pg.cliente ? p.alturas.cliente : 0) + (pg.itens.length ? p.alturas.cabecalhoDasColunas : 0)
-                + pg.itens.reduce((s, i) => s + p.alturas.itens[i], 0) + (pg.fecho ? p.alturas.fecho : 0)
+                + pg.itens.reduce((s, i) => s + p.alturas.itens[i], 0) + (pg.rodape ? p.alturas.rodape : 0)
             expect(usado).toBeLessThanOrEqual(p.alturas.util + 1e-9)
             // enche antes de virar: o primeiro item da folha seguinte não cabia nesta
             const seguinte = p.paginas[k + 1]
@@ -253,9 +253,9 @@ describe('(IV) o que a folha escreve', () => {
         expect(variavelNaFolha({ descricao: 'ALTURA DO PEITORIL', valor: 1200 })).toBe('Altura do peitoril 1.200 mm')
     })
 
-    it('o rodapé: "Levantamento N · X itens · Y peças · gerado em dd/mm/aaaa às hh:mm", no fuso de São Paulo, com singular', () => {
-        expect(rodape(FOLHA_DE_EXEMPLO)).toBe('Levantamento 6 · 7 itens · 10 peças · gerado em 06/11/2026 às 14:30')
-        expect(rodape({ numero: 1, itens: [item()], geradoEm: new Date(Date.UTC(2026, 0, 1, 2, 5)) })).toBe('Levantamento 1 · 1 item · 1 peça · gerado em 31/12/2025 às 23:05')
+    it('a linha de identificação, no pé de toda folha: "Levantamento N · X itens · Y peças · gerado em dd/mm/aaaa às hh:mm", no fuso de São Paulo, com singular', () => {
+        expect(linhaDeIdentificacao(FOLHA_DE_EXEMPLO)).toBe('Levantamento 6 · 7 itens · 10 peças · gerado em 06/11/2026 às 14:30')
+        expect(linhaDeIdentificacao({ numero: 1, itens: [item()], geradoEm: new Date(Date.UTC(2026, 0, 1, 2, 5)) })).toBe('Levantamento 1 · 1 item · 1 peça · gerado em 31/12/2025 às 23:05')
     })
 
     it('a data de entrega dd/mm/aa, o percentual com vírgula, o nome do arquivo sem caractere proibido', () => {
@@ -267,7 +267,7 @@ describe('(IV) o que a folha escreve', () => {
         expect(nomeDoArquivo({ numero: 6, cliente: { ...FOLHA_DE_EXEMPLO.cliente, nome: 'Ana / Obra: "Centro"' } })).toBe('Levantamento 6 - Ana Obra Centro.pdf')
     })
 
-    it('o PDF: A4 retrato, as folhas do plano, o cabeçalho com "Página X de Y" e o número em toda folha, o cliente e o fecho uma vez', () => {
+    it('o PDF: A4 retrato, as folhas do plano, o cabeçalho com "Página X de Y" e o número em toda folha, o cliente e o rodapé uma vez', () => {
         const muitos = Array.from({ length: 12 }, (_, k) => ({ ...ITENS_DE_EXEMPLO[k % ITENS_DE_EXEMPLO.length], ordem: k + 1 }))
         const d = dados({ itens: muitos })
         const r = gerarFolhaDoLevantamento(d)
