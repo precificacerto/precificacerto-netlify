@@ -553,6 +553,12 @@ function partesDoRodape(doc: Doc, d: DadosDaFolha) {
     return { pre, alturaDasPre, responsavel, alturaDaRt, total }
 }
 const alturaDoRodape = (doc: Doc, d: DadosDaFolha) => partesDoRodape(doc, d).total
+/**
+ * O RODAPÉ ANCORADO NO PÉ da última folha (dono do produto, 07/11/2026, como o `margin-top:auto` do mockup): é desenhado de baixo para cima e
+ * termina onde começa a linha de identificação, a 10 mm da margem inferior. Os itens continuam do topo; o espaço livre fica ENTRE o último item e o
+ * rodapé. A paginação não muda: o rodapé precisa caber inteiro na última folha, e, não cabendo, nasce uma folha só para ele.
+ */
+export const topoDoRodape = (altura: number) => FIM_DO_CORPO - ALTURA_DA_LINHA_DE_IDENTIFICACAO - altura
 
 function rotulo(doc: Doc, texto: string, x: number, y: number) {
     doc.setFont('helvetica', 'bold'); doc.setFontSize(ROTULO); doc.setTextColor(CINZA)
@@ -805,8 +811,8 @@ export function gerarFolhaDoLevantamento(d: DadosDaFolha): FolhaGerada | FolhaRe
         if (p.cliente) y = blocoDoCliente(doc, dados, y)
         if (p.itens.length) y = cabecalhoDasColunas(doc, y)
         for (const i of p.itens) y = blocoDoItem(doc, itens[i], y)
-        // o rodapé e a linha de identificação no pé, só na última folha
-        if (p.rodape) { desenharRodape(doc, dados, y); desenharLinhaDeIdentificacao(doc, dados) }
+        // o rodapé e a linha de identificação, só na última folha, ANCORADOS NO PÉ: o espaço que sobra fica entre o último item e o rodapé
+        if (p.rodape) { desenharRodape(doc, dados, topoDoRodape(alturaDoRodape(doc, dados))); desenharLinhaDeIdentificacao(doc, dados) }
     })
     doc.setProperties({ title: `Levantamento ${d.numero} — ${d.cliente.nome}`, creator: 'Precifica Certo' })
     // o mesmo levantamento gerado no mesmo instante dá os mesmos bytes (o exemplo em docs/levantamento/ é conferido assim)

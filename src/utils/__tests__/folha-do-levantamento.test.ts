@@ -327,6 +327,74 @@ describe('(III-b) A DENSIDADE DO MOCKUP (dono do produto, 07/11/2026): 794 px = 
         expect(fluxo.match(/ re\nf\n/g)?.length).toBe(p.paginas.filter((pg) => pg.itens.length).length)
     })
 
+    describe('O RODAPÉ ANCORADO NO PÉ da última folha (dono do produto, 07/11/2026): desenhado de baixo para cima, o espaço livre ENTRE o último item e ele', () => {
+        const mmEmPt = 72 / 25.4
+        const PE = FOLHA.altura - FOLHA.margem - 10 // onde o rodapé termina: a linha de identificação ocupa os 10 mm de baixo
+        const gerar = (d: DadosDaFolha) => {
+            const r = gerarFolhaDoLevantamento(d)
+            if ('recusas' in r) throw new Error(r.recusas.join(' '))
+            return textoDoPdf(r.pdf)
+        }
+        /** A base do rodapé, em mm do topo da folha: a do retângulo "conferido e confirmado por", o último que o rodapé desenha. */
+        const baseDoRodape = (fluxo: string) => {
+            const antes = fluxo.slice(0, fluxo.indexOf('(CONFERIDO E CONFIRMADO POR)'))
+            const m = [...antes.matchAll(/([\d.-]+) ([\d.-]+) ([\d.-]+) ([\d.-]+) re\nS\n/g)].pop()!
+            return FOLHA.altura - (Number(m[2]) + Number(m[4])) / mmEmPt
+        }
+        /** A linha de base de um texto desenhado, em mm do topo da folha. */
+        const linhaDoTexto = (fluxo: string, texto: string) => {
+            const antes = fluxo.slice(0, fluxo.indexOf(`(${texto}) Tj`))
+            const m = [...antes.matchAll(/([\d.-]+) ([\d.-]+) Td\n/g)].pop()!
+            return FOLHA.altura - Number(m[2]) / mmEmPt
+        }
+        /** A base das bordas externas dos itens (preta, 0,5 pt), em mm do topo, na ordem do fluxo. */
+        const basesDosItens = (fluxo: string) => {
+            let cor = '', largura = ''
+            const bases: number[] = []
+            for (const m of fluxo.matchAll(/([\d.]+) G\n|([\d.]+) w\n|([\d.-]+) ([\d.-]+) ([\d.-]+) ([\d.-]+) re\nS\n/g)) {
+                if (m[1] !== undefined) cor = m[1]
+                else if (m[2] !== undefined) largura = m[2]
+                else if (cor === '0.' && largura === '0.5') bases.push(FOLHA.altura - (Number(m[4]) + Number(m[6])) / mmEmPt)
+            }
+            return bases
+        }
+
+        it('com um item na mesma folha: o rodapé termina no pé (a 10 mm da margem, onde começa a linha de identificação), o item fica no topo, o branco no meio', () => {
+            const d = dados({ itens: [sem] })
+            const p = plano([sem])
+            expect(p.paginas).toEqual([{ cliente: true, itens: [0], rodape: true }])
+            const fluxo = gerar(d)
+            expect(baseDoRodape(fluxo)).toBeCloseTo(PE, 3)
+            // o rodapé começa onde a altura dele, medida pela paginação, manda: de baixo para cima
+            expect(linhaDoTexto(fluxo, 'PRÉ-DEFINIÇÕES CONSIDERADAS')).toBeCloseTo(PE - p.alturas.rodape + 3 + 2, 3)
+            // o item continua no topo: logo depois do cliente e dos títulos da tabela
+            const [fimDoItem] = basesDosItens(fluxo)
+            expect(fimDoItem).toBeCloseTo(FOLHA.margem + 14 + p.alturas.cliente + p.alturas.cabecalhoDasColunas + p.alturas.itens[0] - ESPACO_ENTRE_ITENS, 3)
+            // e o espaço livre fica ENTRE o item e o rodapé — tudo o que sobra da folha
+            const livre = p.alturas.util - p.alturas.cliente - p.alturas.cabecalhoDasColunas - p.alturas.itens[0] - p.alturas.rodape - p.alturas.linhaDeIdentificacao
+            expect(livre).toBeGreaterThan(100)
+            expect((PE - p.alturas.rodape) - (fimDoItem + ESPACO_ENTRE_ITENS)).toBeCloseTo(livre, 3)
+        })
+
+        it('o rodapé termina no mesmo ponto com 1 ou 3 itens: não sobe atrás do último item', () => {
+            const um = gerar(dados({ itens: [sem] }))
+            const tres = gerar(dados({ itens: [1, 2, 3].map((ordem) => ({ ...sem, ordem })) }))
+            expect(baseDoRodape(tres)).toBeCloseTo(baseDoRodape(um), 3)
+            expect(linhaDoTexto(tres, 'CONDIÇÕES COMERCIAIS')).toBeCloseTo(linhaDoTexto(um, 'CONDIÇÕES COMERCIAIS'), 3)
+            expect(basesDosItens(tres)).toHaveLength(3)
+        })
+
+        it('no exemplo, a folha só do rodapé (a paginação não mudou): o rodapé no pé da folha 2, não no topo dela', () => {
+            const p = plano(ITENS_DE_EXEMPLO)
+            expect(p.paginas.map((pg) => [pg.itens.length, pg.rodape])).toEqual([[7, false], [0, true]])
+            const fluxo = gerar(dados({ itens: ITENS_DE_EXEMPLO }))
+            expect(baseDoRodape(fluxo)).toBeCloseTo(PE, 3)
+            expect(linhaDoTexto(fluxo, 'PRÉ-DEFINIÇÕES CONSIDERADAS')).toBeGreaterThan(FOLHA.altura / 2)
+            // a linha de identificação abaixo do rodapé, sem encostar nele
+            expect(linhaDoTexto(fluxo, linhaDeIdentificacao(dados({ itens: ITENS_DE_EXEMPLO })))).toBeGreaterThan(PE)
+        })
+    })
+
     it('as medidas: Fig. 15,3 mm (58 px), faixa 12,2 mm (46 px), linha auxiliar 4,2 mm (16 px)', () => {
         expect(COLUNAS.fig).toBeCloseTo(15.34, 2)
         expect(ALTURA_DA_FAIXA).toBeCloseTo(12.17, 2)

@@ -56,7 +56,7 @@ M = [
  ('N12 a linha do motor de volta em linha própria', "    doc.setTextColor(PRETO)\n    cx += COLUNAS.item\n", "    if (i.linha) doc.text(`Linha: ${i.linha}`, cx + 1.5, y + ALTURA_DA_FAIXA - 1)\n    doc.setTextColor(PRETO)\n    cx += COLUNAS.item\n"),
  ('Q1 os itens contíguos, sem o respiro', 'const ESPACO_ENTRE_ITENS = 2.5\n', 'const ESPACO_ENTRE_ITENS = 0\n'),
  ('Q2 o pé fora da conta da última folha', '    const fim = a.rodape + a.linhaDeIdentificacao\n', '    const fim = a.rodape\n'),
- ('Q3 o pé desenhado em toda folha', '        if (p.rodape) { desenharRodape(doc, dados, y); desenharLinhaDeIdentificacao(doc, dados) }', '        if (p.rodape) desenharRodape(doc, dados, y)\n        desenharLinhaDeIdentificacao(doc, dados)'),
+ ('Q3 o pé desenhado em toda folha', '        if (p.rodape) { desenharRodape(doc, dados, topoDoRodape(alturaDoRodape(doc, dados))); desenharLinhaDeIdentificacao(doc, dados) }', '        if (p.rodape) desenharRodape(doc, dados, topoDoRodape(alturaDoRodape(doc, dados)))\n        desenharLinhaDeIdentificacao(doc, dados)'),
  ('Q4 o pé reservado em toda folha', 'const FIM_DO_CORPO = FOLHA.altura - FOLHA.margem\n', 'const FIM_DO_CORPO = FOLHA.altura - FOLHA.margem - ALTURA_DA_LINHA_DE_IDENTIFICACAO\n'),
  ('Q5 o cliente com o rótulo em cima (8,17 mm)', 'const LINHA_DO_CLIENTE = 27.4 / 4\n', 'const LINHA_DO_CLIENTE = 8.17\n'),
  ('Q6 o valor do cliente cortado numa linha', '    LINHA_DO_CLIENTE + (linhasDoCampo(doc, nome, texto, largura).length - 1) * CORPO * ENTRELINHA', '    LINHA_DO_CLIENTE'),
@@ -69,6 +69,11 @@ M = [
  ('B5 a borda externa só na faixa', '    doc.rect(x, y, CONTEUDO, altura)\n    doc.setDrawColor(TRACO); doc.setLineWidth(0.2)\n', '    doc.rect(x, y, CONTEUDO, ALTURA_DA_FAIXA)\n    doc.setDrawColor(TRACO); doc.setLineWidth(0.2)\n'),
  ('B6 fundo nas células do item', '    tracoInterno(doc); doc.rect(x, y, w, h)\n', "    tracoInterno(doc); doc.setFillColor(245, 245, 245); doc.rect(x, y, w, h, 'FD')\n"),
  ('B7 a figura sem o traço interno', '    tracoInterno(doc)\n    // a coluna Fig.', '    doc.setDrawColor(TRACO)\n    // a coluna Fig.'),
+ ('A1 o rodapé logo depois do último item', 'desenharRodape(doc, dados, topoDoRodape(alturaDoRodape(doc, dados)))', 'desenharRodape(doc, dados, y)'),
+ ('A2 o rodapé encostado na margem, sobre a linha de identificação', 'export const topoDoRodape = (altura: number) => FIM_DO_CORPO - ALTURA_DA_LINHA_DE_IDENTIFICACAO - altura', 'export const topoDoRodape = (altura: number) => FIM_DO_CORPO - altura'),
+ ('A3 o rodapé no topo da última folha', 'export const topoDoRodape = (altura: number) => FIM_DO_CORPO - ALTURA_DA_LINHA_DE_IDENTIFICACAO - altura', 'export const topoDoRodape = (altura: number) => TOPO_DO_CORPO + 0 * altura'),
+ ('A4 o rodapé ancorado com 1 mm de folga a mais', 'export const topoDoRodape = (altura: number) => FIM_DO_CORPO - ALTURA_DA_LINHA_DE_IDENTIFICACAO - altura', 'export const topoDoRodape = (altura: number) => FIM_DO_CORPO - ALTURA_DA_LINHA_DE_IDENTIFICACAO - altura - 1'),
+ ('A5 a paginação reserva o rodapé em toda folha', '    let livre = a.util - a.cliente\n', '    let livre = a.util - a.cliente - a.rodape\n'),
 ]
 orig = open(ARQ, encoding='utf-8').read()
 vivas = []
