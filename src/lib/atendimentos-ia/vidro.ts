@@ -62,20 +62,112 @@ export function palavrasDoVidro(texto: string): string[] {
 const ehNumero = (p: string) => /^\d+(?:\.\d+)?(?:\+\d+(?:\.\d+)?)?$/.test(p)
 const numeroNormal = (p: string) => p.split('+').map((x) => String(Number(x))).join('+')
 
-export function vidroCanonico(texto: unknown): VidroLido {
-    const lido: VidroLido = { espessura: null, tempera: null, cor: null, resto: [] }
-    if (typeof texto !== 'string') return lido
-    for (const p of palavrasDoVidro(texto)) {
-        if (ehNumero(p)) { if (lido.espessura === null) lido.espessura = numeroNormal(p); else lido.resto.push(p); continue }
-        if (p in TEMPERAS) { lido.tempera ??= TEMPERAS[p]; continue }
-        if (p in CORES) { lido.cor ??= CORES[p]; continue }
+// ── O LEITOR CANÔNICO do texto do vidro (dono do produto, 08/11/2026) ──────────────────────────────────────────────────────────────────────
+/**
+ * O ÚNICO caminho que lê espessura, tipo (têmpera) e cor do texto livre do vidro gravado no item. O caso que originou (Antonio Rock, 08/11/2026):
+ * "incolor 4", na DP-02 cujos baguetes aceitam 4, 5, 6, 8, 18, 20, 21 e 24 mm, saiu como "falta a espessura do vidro", e o caminho sugerido foi
+ * "incolor 4 4 mm" — o leitor do cálculo só via número seguido de "mm", e a frase de exemplo acrescentava a espessura sem tirar o número dito.
+ *
+ * As regras, como foram ditas:
+ *   - a espessura com ou sem unidade, em qualquer posição ("incolor 4", "4mm", "4 milímetros", "comum 6 mm incolor", "incolor 4 mm temperado");
+ *   - o número SEM unidade só vale como espessura se for uma das que a tipologia aceita (`aceitas`); COM unidade vale sempre;
+ *   - mais de um número: o que vem com unidade ganha; nenhum com unidade, ganha o que está na lista aceita; dois que valem → AMBÍGUO, e o agente
+ *     pergunta (`espessuras_ambiguas`);
+ *   - texto sem número ("mini boreal") → espessura nula, sem erro: há tipologia cujo baguete não depende da espessura.
+ * A composição ("4+4 mm") não é UMA espessura: fica nula, como antes — nada é suposto — e o tipo, sem palavra, é laminado.
+ */
+export type LeituraDoVidro = {
+    texto_original: string | null
+    /** A espessura, em mm; nula quando o texto não diz uma (sem número, número fora da lista, composição) ou quando é ambíguo. */
+    espessura_mm: number | null
+    /** As espessuras que valem, quando mais de uma vale — então `espessura_mm` é nula e o agente pergunta qual. Nula quando não é ambíguo. */
+    espessuras_ambiguas: number[] | null
+    tipo: Tempera | null
+    cor: string | null
+    /** Os números do texto, normalizados ("4", "3+3", "7.5"), na ordem: servem à COMPARAÇÃO, não decidem a espessura. */
+    numeros: string[]
+    /** As palavras que não são número, têmpera, cor nem enchimento, na ordem do texto. */
+    resto: string[]
+}
+
+type NumeroNoTexto = { inicio: number; fim: number; numero: string; valor: number | null; comUnidade: boolean }
+
+/** O número, a composição ("4+4", "4 + 4") e a unidade logo depois ("mm", "milímetro(s)"), com a posição no texto. */
+const NUMERO_DO_VIDRO = /(?<![\d.,+])(\d+(?:[.,]\d+)?(?:\s*\+\s*\d+(?:[.,]\d+)?)*)(?!\d)(\s*(?:mm|mil[ií]metros?)(?![\p{L}\d]))?/giu
+
+function numerosNoTexto(texto: string): NumeroNoTexto[] {
+    return [...texto.matchAll(NUMERO_DO_VIDRO)].map((m) => {
+        const numero = numeroNormal(m[1].replace(/\s+/g, '').replace(/,/g, '.'))
+        const valor = numero.includes('+') ? null : Number(numero)
+        return { inicio: m.index ?? 0, fim: (m.index ?? 0) + m[0].length, numero, valor: valor !== null && Number.isFinite(valor) && valor > 0 ? valor : null, comUnidade: m[2] !== undefined }
+    })
+}
+
+const distintos = (ns: number[]) => [...new Set(ns)].sort((a, b) => a - b)
+
+/** A espessura pelas regras acima: a com unidade ganha; sem unidade, só a da lista aceita; duas que valem é ambíguo. */
+function espessuraDos(numeros: readonly NumeroNoTexto[], aceitas: readonly number[] | null): Pick<LeituraDoVidro, 'espessura_mm' | 'espessuras_ambiguas'> {
+    const comUnidade = numeros.filter((n) => n.comUnidade)
+    const candidatas = comUnidade.length > 0
+        ? distintos(comUnidade.flatMap((n) => (n.valor === null ? [] : [n.valor])))
+        : aceitas === null ? [] : distintos(numeros.flatMap((n) => (n.valor !== null && aceitas.includes(n.valor) ? [n.valor] : [])))
+    if (candidatas.length === 1) return { espessura_mm: candidatas[0], espessuras_ambiguas: null }
+    if (candidatas.length > 1) return { espessura_mm: null, espessuras_ambiguas: candidatas }
+    return { espessura_mm: null, espessuras_ambiguas: null }
+}
+
+/**
+ * Lê o texto livre do vidro. `aceitas` são as espessuras que os baguetes da tipologia em questão aceitam; nula quando não há tipologia em questão
+ * (então o número sem unidade não vale como espessura).
+ */
+export function lerVidro(texto: unknown, aceitas: readonly number[] | null = null): LeituraDoVidro {
+    const leitura: LeituraDoVidro = { texto_original: typeof texto === 'string' ? texto : null, espessura_mm: null, espessuras_ambiguas: null, tipo: null, cor: null, numeros: [], resto: [] }
+    if (typeof texto !== 'string') return leitura
+    const numeros = numerosNoTexto(texto)
+    Object.assign(leitura, espessuraDos(numeros, aceitas))
+    leitura.numeros = numeros.map((n) => n.numero)
+    // as palavras, sem os números e as unidades deles
+    let semNumeros = texto
+    for (const n of [...numeros].reverse()) semNumeros = `${semNumeros.slice(0, n.inicio)} ${semNumeros.slice(n.fim)}`
+    for (const p of palavrasDoVidro(semNumeros)) {
+        if (ehNumero(p)) { leitura.numeros.push(numeroNormal(p)); continue }
+        if (p in TEMPERAS) { leitura.tipo ??= TEMPERAS[p]; continue }
+        if (p in CORES) { leitura.cor ??= CORES[p]; continue }
         if (ENCHIMENTO.has(p)) continue
-        lido.resto.push(p)
+        leitura.resto.push(p)
     }
     // "3+3" é laminado por construção, mesmo sem a palavra
-    if (lido.espessura?.includes('+') && lido.tempera === null) lido.tempera = 'laminado'
-    lido.resto.sort()
-    return lido
+    if (leitura.tipo === null && leitura.numeros.some((n) => n.includes('+'))) leitura.tipo = 'laminado'
+    return leitura
+}
+
+/**
+ * O vidro dito com OUTRA espessura — a frase de exemplo do caminho ("muda o vidro da esquadria 3 para …"). Montada SEM o número dito: o número que
+ * era a espessura (o com unidade; senão o primeiro) dá lugar a "N mm", e os outros números saem. Nunca "incolor 4 4 mm".
+ * "temperado incolor 4mm" com 5 → "temperado incolor 5 mm"; "incolor 4" com 5 → "incolor 5 mm"; "mini boreal" com 5 → "mini boreal 5 mm"; sem vidro, "5 mm".
+ */
+export function vidroComEspessura(vidro: unknown, mm: number): string {
+    const n = `${String(mm).replace('.', ',')} mm`
+    const texto = typeof vidro === 'string' ? vidro.trim() : ''
+    if (texto === '') return n
+    const numeros = numerosNoTexto(texto)
+    if (numeros.length === 0) return `${texto} ${n}`
+    const alvo = numeros.find((x) => x.comUnidade) ?? numeros[0]
+    let r = texto
+    for (const x of [...numeros].reverse()) {
+        if (x === alvo) { r = `${r.slice(0, x.inicio)}${n}${r.slice(x.fim)}`; continue }
+        // o número que sai leva junto o "ou"/"e" que o ligava ao outro ("incolor 4 ou 6" → "incolor 6 mm", nunca "incolor 6 mm ou")
+        const antes = /\s*(?:\bou\b|\be\b|,|\/)\s*$/i.exec(r.slice(0, x.inicio))
+        const depois = antes ? null : /^\s*(?:\bou\b|\be\b|,|\/)\s*/i.exec(r.slice(x.fim))
+        r = `${r.slice(0, x.inicio - (antes?.[0].length ?? 0))} ${r.slice(x.fim + (depois?.[0].length ?? 0))}`
+    }
+    return r.replace(/\s+/g, ' ').trim()
+}
+
+/** A leitura para COMPARAR (dedupe e agrupamento): o primeiro número é a espessura comparada, com ou sem unidade; os outros vão ao resto. */
+export function vidroCanonico(texto: unknown): VidroLido {
+    const l = lerVidro(texto)
+    return { espessura: l.numeros[0] ?? null, tempera: l.tipo, cor: l.cor, resto: [...l.numeros.slice(1), ...l.resto].sort() }
 }
 
 /** A forma de comparar: "<têmpera> <cor> <espessura> mm <resto…>", só com o que foi dito; vazia quando nada se leu. */

@@ -107,3 +107,84 @@ describe('(2) vidroPodado: fica o que está na mensagem, cai a palavra que o mod
         expect(V().vidroDito(null, MSG)).toBe(false)
     })
 })
+
+/**
+ * O LEITOR CANÔNICO (dono do produto, 08/11/2026): uma função só lê espessura, tipo e cor do texto livre do vidro. O caso: "Antonio Rock",
+ * levantamento 10 — "incolor 4" na DP-02, cujos baguetes aceitam 4,5,6,8 (GB25) e 18,20,21,24 (GB8), saiu como "falta a espessura" e com o
+ * caminho "incolor 4 4 mm".
+ */
+describe('(L) lerVidro: o único leitor do texto do vidro', () => {
+    // os dois conjuntos de baguete do DP-02 no motor de 08/11/2026 (022fc55e): GB25 "4,5,6,8" e GB8 "18,20,21,24"
+    const DP02 = [4, 5, 6, 8, 18, 20, 21, 24]
+    // o motor de antes (2a02b330), sem o 4 na aba Perfis
+    const DP02_ANTES = [5, 6, 8, 18, 20, 21, 24]
+
+    it('os três textos do Antonio Rock, cada um com as espessuras da sua tipologia', () => {
+        // esquadria 1, DP-39 (os mesmos dois conjuntos): com unidade, vale sempre
+        expect(V().lerVidro('comum 6 mm incolor', DP02)).toEqual({ texto_original: 'comum 6 mm incolor', espessura_mm: 6, espessuras_ambiguas: null, tipo: 'comum', cor: 'incolor', numeros: ['6'], resto: [] })
+        // esquadria 2, DP-01 (nenhum baguete depende da espessura): sem número, nula e sem erro
+        expect(V().lerVidro('mini boreal', [])).toEqual({ texto_original: 'mini boreal', espessura_mm: null, espessuras_ambiguas: null, tipo: null, cor: 'boreal', numeros: [], resto: [] })
+        // esquadria 3, DP-02: o número sem unidade vale porque o 4 está na lista
+        expect(V().lerVidro('incolor 4', DP02)).toEqual({ texto_original: 'incolor 4', espessura_mm: 4, espessuras_ambiguas: null, tipo: null, cor: 'incolor', numeros: ['4'], resto: [] })
+    })
+
+    it('o número SEM unidade só vale se a tipologia o aceita — no motor de antes, "incolor 4" não tem espessura; sem lista, também não', () => {
+        expect(V().lerVidro('incolor 4', DP02_ANTES).espessura_mm).toBeNull()
+        expect(V().lerVidro('incolor 4', null).espessura_mm).toBeNull()
+        expect(V().lerVidro('incolor 4').espessura_mm).toBeNull()
+        // o de cada conjunto vale: o 20 é do GB8
+        expect(V().lerVidro('laminado 20', DP02).espessura_mm).toBe(20)
+    })
+
+    it('COM unidade vale sempre, mesmo fora da lista (o cálculo diz que não é aceito): "4mm" no motor de antes é 4', () => {
+        expect(V().lerVidro('4mm', DP02_ANTES).espessura_mm).toBe(4)
+        expect(V().lerVidro('incolor 12 mm', DP02).espessura_mm).toBe(12)
+    })
+
+    it.each([
+        ['incolor 4', 4], ['4mm', 4], ['4 mm', 4], ['4 milimetros', 4], ['4 milímetros', 4], ['4 MILÍMETROS', 4], ['4 milímetro', 4], ['vidro 4', 4],
+        ['comum 6 mm incolor', 6], ['incolor 4 mm temperado', 4], ['Laminado 6,38 mm', 6.38], ['temperado 8 MM', 8],
+    ])('"%s" → %s, em qualquer posição, com ou sem unidade', (texto, esperado) => {
+        expect(V().lerVidro(texto, DP02).espessura_mm).toBe(esperado)
+    })
+
+    it('mais de um número: o com unidade ganha; sem unidade, o da lista ganha', () => {
+        // "3" e "8": o 8 tem unidade
+        expect(V().lerVidro('3 folhas incolor 8 mm', DP02)).toMatchObject({ espessura_mm: 8, espessuras_ambiguas: null })
+        // nenhum com unidade: "2 folhas" não é espessura, o 6 está na lista
+        expect(V().lerVidro('2 folhas incolor 6', DP02)).toMatchObject({ espessura_mm: 6, espessuras_ambiguas: null })
+        // com unidade, o 3 sem unidade não conta mesmo estando... fora da lista
+        expect(V().lerVidro('incolor 6mm 3', DP02).espessura_mm).toBe(6)
+    })
+
+    it('dois que valem: AMBÍGUO — nula, com as duas, e aí o agente pergunta', () => {
+        expect(V().lerVidro('incolor 4 ou 6', DP02)).toMatchObject({ espessura_mm: null, espessuras_ambiguas: [4, 6] })
+        expect(V().lerVidro('6 mm ou 8 mm', DP02)).toMatchObject({ espessura_mm: null, espessuras_ambiguas: [6, 8] })
+        // o mesmo número dito duas vezes não é ambíguo
+        expect(V().lerVidro('6mm incolor 6 mm', DP02)).toMatchObject({ espessura_mm: 6, espessuras_ambiguas: null })
+        // só um dos dois na lista: não é ambíguo
+        expect(V().lerVidro('incolor 4 ou 7', DP02)).toMatchObject({ espessura_mm: 4, espessuras_ambiguas: null })
+    })
+
+    it('a composição não é UMA espessura: nula, e laminado por construção', () => {
+        expect(V().lerVidro('Laminado 4+4 mm', DP02)).toMatchObject({ espessura_mm: null, espessuras_ambiguas: null, tipo: 'laminado', numeros: ['4+4'] })
+        expect(V().lerVidro('vidro 3 + 3', DP02)).toMatchObject({ espessura_mm: null, tipo: 'laminado', numeros: ['3+3'] })
+    })
+
+    it('tipo e cor saem do mesmo leitor; o que não é vidro nenhum dá nulos', () => {
+        expect(V().lerVidro('Temp. fumê 8mm', DP02)).toMatchObject({ tipo: 'temperado', cor: 'fume', espessura_mm: 8 })
+        expect(V().lerVidro(null)).toEqual({ texto_original: null, espessura_mm: null, espessuras_ambiguas: null, tipo: null, cor: null, numeros: [], resto: [] })
+        expect(V().lerVidro(42 as unknown)).toMatchObject({ texto_original: null, espessura_mm: null })
+    })
+
+    it('a frase de exemplo é montada SEM o número dito — nunca mais "incolor 4 4 mm"', () => {
+        expect(V().vidroComEspessura('incolor 4', 4)).toBe('incolor 4 mm')
+        expect(V().vidroComEspessura('incolor 4', 5)).toBe('incolor 5 mm')
+        expect(V().vidroComEspessura('incolor 4 ou 6', 6)).toBe('incolor 6 mm')
+        expect(V().vidroComEspessura('6 mm ou 8 mm', 8)).toBe('8 mm')
+        expect(V().vidroComEspessura('3 folhas incolor 8 mm', 6)).toBe('folhas incolor 6 mm')
+        expect(V().vidroComEspessura('4 milímetros incolor', 5)).toBe('5 mm incolor')
+        expect(V().vidroComEspessura('laminado 4+4 mm', 8)).toBe('laminado 8 mm')
+        expect(V().vidroComEspessura('comum 6 mm incolor', 8)).toBe('comum 8 mm incolor')
+    })
+})

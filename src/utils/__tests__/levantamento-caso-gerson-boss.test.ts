@@ -28,6 +28,7 @@
 import { comACorLimpa } from './fixtures/arquivo-do-motor-corrigido'
 
 /* eslint-disable @typescript-eslint/no-require-imports */
+const VI = () => require('@/lib/atendimentos-ia/vidro') as typeof import('@/lib/atendimentos-ia/vidro')
 jest.mock('@/supabase/admin', () => ({ supabaseAdmin: {} }))
 type Ligacao = typeof import('@/lib/atendimentos-ia/levantamento-de-barras')
 const LB = () => require('@/lib/atendimentos-ia/levantamento-de-barras') as Ligacao
@@ -77,8 +78,8 @@ function entrada(cor: string, itens: Item[] = ITENS): Entrada {
     return {
         cor, tipologias: t, regras: REGRAS, itens, serra_mm: CASO.perfil_config.serra_mm,
         esquadrias: [
-            { tipologia: 'DP-39', L_mm: 2500, H_mm: 2200, quantidade: 1, escolhas: ES().escolhasComPadrao(t['DP-39'], {}), espessura_vidro_mm: LC().espessuraDoVidro('temperado incolor 8mm') },
-            { tipologia: 'DP-01', L_mm: 600, H_mm: 600, quantidade: 1, escolhas: ES().escolhasComPadrao(t['DP-01'], {}), espessura_vidro_mm: LC().espessuraDoVidro('mini boreal') },
+            { tipologia: 'DP-39', L_mm: 2500, H_mm: 2200, quantidade: 1, escolhas: ES().escolhasComPadrao(t['DP-39'], {}), espessura_vidro_mm: VI().lerVidro('temperado incolor 8mm').espessura_mm },
+            { tipologia: 'DP-01', L_mm: 600, H_mm: 600, quantidade: 1, escolhas: ES().escolhasComPadrao(t['DP-01'], {}), espessura_vidro_mm: VI().lerVidro('mini boreal').espessura_mm },
         ],
     }
 }

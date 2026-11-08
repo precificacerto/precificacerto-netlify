@@ -118,6 +118,7 @@ import { derivarTabelasDaConta } from '@/lib/atendimentos-ia/tabelas-da-conta'
 import { FRASE_SEM_LISTA_DE_TIPOLOGIAS, SECAO_DOS_FORNECEDORES, fraseDeFalta, lerMotoresDaConta, type FonteDaFamilia, type MotivoDaFalta } from '@/lib/atendimentos-ia/motor-da-familia'
 export { FRASE_SEM_LISTA_DE_TIPOLOGIAS }
 import { normalizarNome } from '@/lib/atendimentos-ia/nome-do-levantamento'
+import { lerVidro, vidroComEspessura } from '@/lib/atendimentos-ia/vidro'
 
 // ── As famílias da empresa e as tipologias candidatas ───────────────────────────────────────
 /** Uma tipologia que a IA pode escolher: do motor do LEVANTAMENTO (a etapa com GERAR_LEVANTAMENTO) de uma família da conta. */
@@ -258,18 +259,18 @@ export async function temposDeFabricacao(motorId: string, tipologias: readonly s
 
 // ── A espessura do vidro ────────────────────────────────────────────────────────────────────
 /**
- * O número em mm do texto do vidro, quando o texto tem UM número só e ele vem seguido de "mm".
- * "Laminado 4+4 mm" tem dois números: ler só o 4 seria escolher a parte que casa com o padrão —
- * fica null, e a recusa diz que falta a espessura. Nada é suposto.
+ * As espessuras que os baguetes da tipologia aceitam: a coluna "Esp. vidro" da aba Perfis, todas as linhas que a trazem. É o que o motor diz, não o
+ * texto do vidro — a leitura do texto é do leitor canônico (`lerVidro`, em `vidro.ts`), que recebe esta lista. A linha cujas espessuras não se leem
+ * não entra aqui: o avaliador a recusa com o nome dela (`ESPESSURAS_NAO_PARSEIAM`).
  */
-export function espessuraDoVidro(vidro: unknown): number | null {
-    if (typeof vidro !== 'string') return null
-    const numeros = vidro.match(/\d+(?:[.,]\d+)?/g) ?? []
-    if (numeros.length !== 1) return null
-    const comMm = /(\d+(?:[.,]\d+)?)\s*mm\b/i.exec(vidro)
-    if (!comMm) return null
-    const n = Number(comMm[1].replace(',', '.'))
-    return Number.isFinite(n) && n > 0 ? n : null
+export function espessurasAceitasDaTipologia(tipologia: Tipologia | undefined): number[] {
+    const aceitas = new Set<number>()
+    for (const p of tipologia?.perfis ?? []) {
+        if (p.esp_vidro === null || p.esp_vidro.trim() === '') continue
+        const lista = p.esp_vidro.split(',').map((x) => x.trim())
+        if (lista.every((x) => /^\d+$/.test(x))) for (const x of lista) aceitas.add(Number(x))
+    }
+    return [...aceitas].sort((x, y) => x - y)
 }
 
 // ── A mão de obra ───────────────────────────────────────────────────────────────────────────
@@ -647,6 +648,12 @@ export function esquadriasDaFalta(numeros: readonly number[], noLevantamento: nu
     const quem = numeros.length > 1 ? `esquadrias ${listaDeNumerosBR([...numeros])}` : `esquadria ${numeros[0]}`
     return ` (${quem}${tipologia ? `, ${tipologia}` : ''})`
 }
+/** O vidro com duas espessuras que os baguetes aceitam: "a espessura do vidro: "incolor 4 ou 6" pode ser 4 ou 6 mm; diga qual". */
+export function faltaDaEspessuraAmbigua(texto: string, espessuras: readonly number[]): string {
+    const ns = espessuras.map((n) => String(n).replace('.', ','))
+    const lista = ns.length > 1 ? `${ns.slice(0, -1).join(', ')} ou ${ns[ns.length - 1]}` : ns.join('')
+    return `a espessura do vidro: “${texto.trim()}” pode ser ${lista} mm; diga qual`
+}
 /** A falta com as esquadrias dela: a curta as leva depois, entre parênteses; a frase inteira (a recusa técnica do motor), antes, como sempre. */
 function faltaComEsquadrias(falta: string, numeros: readonly number[], noLevantamento: number, tipologia?: string): string {
     if (ehCurta(falta)) return falta + esquadriasDaFalta(numeros, noLevantamento, tipologia)
@@ -908,6 +915,15 @@ async function calcularFamilia(
     dg.esquadrias.forEach((e, k) => { if (lidas[e.tipologia]) e.escolhas = descreverArremate(lidas[e.tipologia], escolhas[k]) })
     if (faltas.length) return { faltas, rotulos, codigos, caminhos: [] }
 
+    // o vidro de cada esquadria, pelo leitor canônico, com as espessuras que os baguetes da tipologia dela aceitam (08/11/2026)
+    const vidros = itensDoGrupo.map((e, k) => lerVidro(e.vidro, espessurasAceitasDaTipologia(lidas[dg.esquadrias[k].tipologia])))
+    const ambiguas = dg.esquadrias.flatMap((e, k) => {
+        const v = vidros[k]
+        if (v.espessuras_ambiguas === null) return []
+        return [faltaComEsquadrias(faltaDaEspessuraAmbigua(v.texto_original ?? '', v.espessuras_ambiguas), [e.numero], d.esquadrias.length, e.tipologia)]
+    })
+    if (ambiguas.length) return { faltas: ambiguas, rotulos, codigos: ambiguas.map(() => 'ESPESSURA_AMBIGUA'), caminhos: [] }
+
     const serra = await lerSerra(tenantId)
     if ('frase' in serra) return { faltas: [maiuscula(serra.frase)], rotulos, codigos: ['SERRA'], caminhos: [] }
     // a mesma linha do motor pode servir a duas tipologias: o de-para entra uma vez só
@@ -923,7 +939,7 @@ async function calcularFamilia(
         // o padrão do arremate entra AQUI, pelo ponto único (`padraoDoArremate`), e não pelo avaliador
         esquadrias: dg.esquadrias.map((e, k) => ({
             tipologia: e.tipologia, L_mm: e.largura_mm, H_mm: e.altura_mm, quantidade: e.quantidade,
-            escolhas: lidas[e.tipologia] ? escolhasComPadrao(lidas[e.tipologia], escolhas[k]) : escolhas[k], espessura_vidro_mm: espessuraDoVidro(itensDoGrupo[k].vidro),
+            escolhas: lidas[e.tipologia] ? escolhasComPadrao(lidas[e.tipologia], escolhas[k]) : escolhas[k], espessura_vidro_mm: vidros[k].espessura_mm,
         })),
         tipologias: lidas,
         regras,
@@ -975,14 +991,6 @@ function caminhosDasRecusas(recusas: readonly RecusaDoLevantamento[], numeros: r
         const quem = ns.length > 1 ? `das esquadrias ${listaDeNumerosBR([...ns].sort((a, b) => a - b))}` : `da esquadria ${ns[0]}`
         return `Para trocar, diga: muda o vidro ${quem} para ${alvo}.`
     })
-}
-
-/** "temperado incolor 4mm" com 5 → "temperado incolor 5 mm"; "mini boreal" com 5 → "mini boreal 5 mm"; sem vidro, "5 mm". */
-export function vidroComEspessura(vidro: unknown, mm: number): string {
-    const n = `${String(mm).replace('.', ',')} mm`
-    const texto = typeof vidro === 'string' ? vidro.trim() : ''
-    if (texto === '') return n
-    return /\d+(?:[.,]\d+)?\s*mm\b/i.test(texto) ? texto.replace(/\d+(?:[.,]\d+)?\s*mm\b/i, n) : `${texto} ${n}`
 }
 
 /**
