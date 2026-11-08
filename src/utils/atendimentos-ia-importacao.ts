@@ -177,6 +177,14 @@ export type Aviso =
     | { tipo: 'itens_sem_custo'; aba: string; itens: number; codigos: string[]; mensagem: string }
     | { tipo: 'tabela_sem_valor_por_barra'; aba: string; itens: number; codigos: string[]; mensagem: string }
     | { tipo: 'colunas_sem_destino_no_layout_unico'; aba: string; colunas: Record<string, number>; mensagem: string }
+    // a coluna Cor do motor (dono do produto, 08/11/2026): o texto com espaço múltiplo, e a mesma cor em duas grafias — AVISO, nunca
+    // recusa nem normalização: o texto é gravado como o fornecedor mandou (`avisosDaCorDoMotor`)
+    | { tipo: 'cor_com_espaco_multiplo'; aba: string; grafia: GrafiaDaCor; mensagem: string }
+    | { tipo: 'cor_em_grafias_de_espacamento'; aba: string; grafias: GrafiaDaCor[]; mensagem: string }
+    | { tipo: 'cor_em_grafias_de_caixa'; aba: string; grafias: GrafiaDaCor[]; mensagem: string }
+
+/** Um texto da coluna Cor como veio do arquivo, quantas regras o trazem, e os perfis afetados ("SF66/WOLFF (96836)"). */
+export type GrafiaDaCor = { texto: string; regras: number; perfis: string[] }
 
 export interface Contagens {
     itens: number
@@ -677,7 +685,75 @@ function lerMotor(ws: ExcelJS.Worksheet): { regras: RegraLida[]; avisos: Aviso[]
             tipologias,
         })
     }
-    return { regras, avisos: l.avisos, normalizados: l.normalizados }
+    return { regras, avisos: [...l.avisos, ...avisosDaCorDoMotor(regras)], normalizados: l.normalizados }
+}
+
+// ── A coluna Cor: avisar na entrada o que trava o levantamento depois ───────────────────────
+/**
+ * OS AVISOS DA COR (dono do produto, 08/11/2026). O caso: o `Motor_Wolf_PVC_rev2026-11-05 (2).xlsx` trouxe "LAMINADO  PRETO LISO" (dois
+ * espaços) ao lado de "LAMINADO PRETO LISO", e "LAM EXTERNO  GOLDEN OAK" — erro de digitação do FORNECEDOR, medido no XML do arquivo. O
+ * levantamento compara a cor sem caixa, mas com o espaço EXATO (`levantamento-de-barras.ts`), e o vendedor recebia a recusa listando duas
+ * cores que, na tela, parecem iguais. Três avisos, para quem sobe o arquivo ver NA HORA:
+ *   - o texto com espaço duplo ou múltiplo (dois ou mais brancos seguidos, por dentro: as pontas o leitor de célula já apara);
+ *   - duas grafias que só diferem pelo espaçamento (iguais com cada sequência de brancos trocada por um espaço);
+ *   - duas grafias que só diferem pela caixa (iguais em maiúscula) — o que o levantamento recusa por perfil (`COR_EM_DUAS_GRAFIAS`, #238),
+ *     agora pego na entrada.
+ * NADA é normalizado: o texto continua o que o fornecedor mandou, e corrigir é decisão de quem mantém o arquivo. A comparação é na coluna
+ * inteira, não por perfil: a grafia torta num perfil some do alcance de quem pede a cor certa, mesmo que o perfil não tenha a outra.
+ */
+export function avisosDaCorDoMotor(regras: readonly Pick<RegraLida, 'codigo' | 'cor' | 'codigo_wvetro'>[]): Aviso[] {
+    const aba = ABAS_DA_IMPORTACAO.motor
+    const porTexto = new Map<string, { regras: number; perfis: Map<string, Set<string>> }>()
+    for (const r of regras) {
+        if (r.cor === null) continue
+        const g = porTexto.get(r.cor) ?? { regras: 0, perfis: new Map<string, Set<string>>() }
+        g.regras += 1
+        const perfil = r.codigo_wvetro ?? '(sem código WVetro)'
+        g.perfis.set(perfil, (g.perfis.get(perfil) ?? new Set<string>()).add(r.codigo))
+        porTexto.set(r.cor, g)
+    }
+    const porOrdem = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
+    const grafia = (texto: string): GrafiaDaCor => {
+        const g = porTexto.get(texto)!
+        return { texto, regras: g.regras, perfis: [...g.perfis.entries()].sort(([a], [b]) => porOrdem(a, b)).map(([p, cs]) => `${p} (${[...cs].sort(porOrdem).join(', ')})`) }
+    }
+    const textos = [...porTexto.keys()].sort(porOrdem)
+    const avisos: Aviso[] = []
+    for (const t of textos.filter((x) => /\s{2,}/.test(x))) {
+        const g = grafia(t)
+        avisos.push({ tipo: 'cor_com_espaco_multiplo', aba, grafia: g,
+            mensagem: `A cor ${citarCor(t)} tem ${descreverEspacos(t)}, em ${g.regras} regra(s), dos perfis ${listaDePerfis(g.perfis)}. O texto foi gravado como veio; se for erro de digitação, corrija no arquivo e suba de novo.` })
+    }
+    const juntar = (chave: (t: string) => string) => {
+        const grupos = new Map<string, string[]>()
+        for (const t of textos) grupos.set(chave(t), [...(grupos.get(chave(t)) ?? []), t])
+        return [...grupos.values()].filter((g) => g.length > 1)
+    }
+    const frase = (gs: GrafiaDaCor[]) => gs.map((g) => `${citarCor(g.texto)}${/\s{2,}/.test(g.texto) ? ` (${descreverEspacos(g.texto)})` : ''}: ${g.regras} regra(s), perfis ${listaDePerfis(g.perfis)}`).join('; ')
+    for (const g of juntar((t) => t.replace(/\s+/g, ' '))) {
+        const grafias = g.map(grafia)
+        avisos.push({ tipo: 'cor_em_grafias_de_espacamento', aba, grafias,
+            mensagem: `A coluna Cor tem a mesma cor escrita com espaçamentos diferentes — ${frase(grafias)}. O levantamento compara o espaço exato: quem pedir uma não alcança as regras da outra. Os textos foram gravados como vieram; corrija no arquivo e suba de novo.` })
+    }
+    for (const g of juntar((t) => t.toUpperCase())) {
+        const grafias = g.map(grafia)
+        avisos.push({ tipo: 'cor_em_grafias_de_caixa', aba, grafias,
+            mensagem: `A coluna Cor tem a mesma cor escrita com maiúsculas e minúsculas diferentes — ${frase(grafias)}. O levantamento compara a cor sem caixa e RECUSA o perfil que tiver as duas, sem escolher uma. Os textos foram gravados como vieram; corrija no arquivo e suba de novo.` })
+    }
+    return avisos
+}
+
+/** A cor entre aspas, como veio — com o espaço múltiplo à vista, porque na tela "LAMINADO  PRETO" e "LAMINADO PRETO" parecem iguais. */
+const citarCor = (t: string) => `"${t}"`
+/** "2 espaços depois de \"LAMINADO\"": cada sequência de dois ou mais brancos, nomeada pela palavra que vem antes dela. */
+function descreverEspacos(t: string): string {
+    const partes = [...t.matchAll(/(\S+)(\s{2,})/g)].map((m) => `${m[2].length} espaços depois de "${m[1]}"`)
+    return partes.join(' e ')
+}
+/** Os perfis afetados: até dez, e o resto contado, nunca calado. */
+function listaDePerfis(perfis: readonly string[]): string {
+    const LIMITE = 10
+    return perfis.length > LIMITE ? `${perfis.slice(0, LIMITE).join(', ')} e mais ${perfis.length - LIMITE}` : perfis.join(', ')
 }
 
 function lerFormulasDaLinha(ws: ExcelJS.Worksheet): { formulas: FormulaLida[]; avisos: Aviso[] } {

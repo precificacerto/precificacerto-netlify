@@ -72,5 +72,12 @@ export function textoDoAviso(a: Aviso): { titulo: string; texto: string } {
             return { titulo: 'Itens sem valor por barra', texto: a.mensagem }
         case 'colunas_sem_destino_no_layout_unico':
             return { titulo: 'Colunas que o banco ainda não guarda', texto: a.mensagem }
+        // a coluna Cor do motor (08/11/2026): aviso, nunca recusa — o texto foi gravado como veio
+        case 'cor_com_espaco_multiplo':
+            return { titulo: 'Cor com espaço duplo', texto: a.mensagem }
+        case 'cor_em_grafias_de_espacamento':
+            return { titulo: 'A mesma cor com espaçamentos diferentes', texto: a.mensagem }
+        case 'cor_em_grafias_de_caixa':
+            return { titulo: 'A mesma cor com maiúsculas e minúsculas diferentes', texto: a.mensagem }
     }
 }
