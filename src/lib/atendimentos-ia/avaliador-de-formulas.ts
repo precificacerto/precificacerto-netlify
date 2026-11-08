@@ -144,7 +144,7 @@ export type RecusaDoAvaliador = {
     aba?: string
     coluna?: string
     espessura_vidro_mm?: number
-    /** As espessuras que os baguetes da tipologia aceitam, distintas — na recusa NENHUM_BAGUETE_PARA_A_ESPESSURA (08/11/2026). */
+    /** As espessuras que os baguetes aceitam — na recusa NENHUM_BAGUETE_PARA_A_ESPESSURA (os da tipologia) e na ESPESSURA_DO_VIDRO_AUSENTE (os da linha). */
     espessuras_disponiveis_mm?: number[]
     comprimento_mm?: number
     quantidade?: number
@@ -625,7 +625,7 @@ export function avaliarTipologia(entrada: EntradaDoAvaliador): ResultadoDaAvalia
             baguetesComCondicao++
             for (const x of lista) espessurasDosBaguetes.add(Number(x))
             if (esp === null) {
-                recusas.push({ motivo: 'ESPESSURA_DO_VIDRO_AUSENTE', ...onde('Esp. vidro'), mensagem: `Linha ${linha} da aba Perfis (${p.perfil}): o baguete depende da espessura do vidro (${p.esp_vidro} mm), e ela não foi informada.` })
+                recusas.push({ motivo: 'ESPESSURA_DO_VIDRO_AUSENTE', ...onde('Esp. vidro'), espessuras_disponiveis_mm: lista.map(Number), mensagem: `Linha ${linha} da aba Perfis (${p.perfil}): o baguete depende da espessura do vidro (${p.esp_vidro} mm), e ela não foi informada.` })
                 return
             }
             if (!lista.map(Number).includes(esp)) { linhas.push({ linha, perfil: p.perfil, entrou: false, motivo: 'ESPESSURA_NAO_ATENDIDA' }); return }

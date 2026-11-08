@@ -310,14 +310,15 @@ describe('(5) o item da tabela de preço', () => {
         expect(r.recusas[0].mensagem).toBe('Esquadria 1: o código 9641 (perfil HF88/WOLFF) está na tabela de preço sem o valor da barra. Falta: o valor da barra de 9641.')
     })
 
-    it('a recusa do AGRUPADOR sai com o perfil: peça maior que a barra', () => {
+    it('a recusa do AGRUPADOR sai com o perfil: peça maior que a barra — UMA por código, com a maior peça (08/11/2026), e a falta curta', () => {
         const itens = ITENS.map((i) => (i.codigo === '10511' ? { ...i, medida_barra_m: 1 } : i))
         const r = recusado([esquadria()], { itens })
         expect(r.recusas.map((x) => [x.origem, x.motivo, x.codigo, x.perfil])).toEqual([
             ['AGRUPADOR', 'PECA_MAIOR_QUE_A_BARRA', '10511', 'BZ0010/WOLFF'],
-            ['AGRUPADOR', 'PECA_MAIOR_QUE_A_BARRA', '10511', 'BZ0010/WOLFF'],
         ])
         expect(r.recusas[0].mensagem).toContain('BZ0010/WOLFF')
+        expect(r.recusas[0].falta).toMatch(/^uma barra em que caiba a maior peça do código 10511, perfil BZ0010\/WOLFF: a peça tem [\d,]+ mm e a barra, 1000 mm$/)
+        expect(r.recusas[0].caminho).toBeNull()
     })
 })
 

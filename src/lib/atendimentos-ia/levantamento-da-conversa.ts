@@ -109,6 +109,7 @@ import { descreverArremate, escolhasComPadrao, lerEscolhasGravadas, traduzirVoca
 import {
     formatarReais, levantarBarras,
     type ItemDaTabela, type RegraDoDePara, type ResultadoDoLevantamento,
+    type RecusaDoLevantamento,
 } from '@/lib/atendimentos-ia/levantamento-de-barras'
 import { maoDeObraPeloCaminhoDaTela, type DadosDaEmpresaParaMaoDeObra } from '@/utils/mao-de-obra-pelo-caminho-da-tela'
 import { familiaDaEsquadria, rotulosDasOpcoes, type FamiliaDoCodigo, type FamiliasDoCodigo } from '@/lib/atendimentos-ia/levantamento-em-montagem'
@@ -628,12 +629,13 @@ const comPonto = (t: string) => (/[.!?]$/.test(t) ? t : `${t}.`)
  * que falta um valor. Cada falta já diz as esquadrias que ela trava, entre parênteses, e a mesma falta em várias esquadrias é UMA linha.
  * Com uma falta, ela vai na mesma linha; com mais, uma por linha. No máximo `MAXIMO_DE_FALTAS` listadas; o resto é contado, nunca calado.
  */
-export function fraseDaRecusa(d: DadosDoLevantamento, faltas: string[]): string {
+export function fraseDaRecusa(d: DadosDoLevantamento, faltas: readonly string[], caminhos: readonly string[] = []): string {
     const inicio = `Não consegui fechar o levantamento “${d.nome}”.`
-    if (faltas.length === 1) return ehCurta(faltas[0]) ? `${inicio} Falta: ${comPonto(faltas[0])}` : `${inicio} ${faltas[0]}`
     const listadas = faltas.slice(0, MAXIMO_DE_FALTAS).map((f) => `• ${ehCurta(f) ? comPonto(f) : f}`)
     const resto = faltas.length > MAXIMO_DE_FALTAS ? [`• e mais ${faltas.length - MAXIMO_DE_FALTAS} falta(s) do mesmo levantamento.`] : []
-    return [`${inicio} Falta:`, ...listadas, ...resto].join('\n')
+    const corpo = faltas.length === 1 ? [ehCurta(faltas[0]) ? `${inicio} Falta: ${comPonto(faltas[0])}` : `${inicio} ${faltas[0]}`] : [`${inicio} Falta:`, ...listadas, ...resto]
+    // o caminho de alteração, quando há (08/11/2026), em uma linha depois das faltas
+    return [...corpo, ...caminhos].join('\n')
 }
 
 /**
@@ -727,16 +729,7 @@ export function fraseDoLevantamentoSemCalculo(d: DadosDoLevantamento, bloco: { t
 const maiuscula = (t: string) => t.charAt(0).toUpperCase() + t.slice(1)
 
 // ── O levantamento ──────────────────────────────────────────────────────────────────────────
-export type LevantamentoDaConversa = {
-    texto: string
-    desfecho: 'levantou' | 'recusou'
-    etapa?: ResumoDoCalculo
-    /**
-     * As faltas de CADASTRO — o dado do fornecedor por item (`MOTIVOS_DE_CADASTRO`) e o tempo de fabricação —, nas frases da recusa (dono do produto, 08/11/2026). É o que segura
-     * o ARQUIVO no apanhado (`faltasAntesDoArquivo`): vazia quando o levantamento fecha, ou quando ele recusa só por outra razão.
-     */
-    deCadastro: string[]
-}
+export type LevantamentoDaConversa = { texto: string; desfecho: 'levantou' | 'recusou'; etapa?: ResumoDoCalculo }
 
 /**
  * O RESUMO DO CÁLCULO para o log por etapa (dono do produto, 06/11/2026: "cada etapa do atendimento tem de dizer, no log, o que recebeu, o
@@ -796,8 +789,8 @@ export async function mensagemDoLevantamento(
     }
     const resumo = (faltou: string[], fechado: Partial<ResumoDoCalculo> = {}): ResumoDoCalculo =>
         ({ esquadrias: lev.itens.length, pecas: null, barras: null, codigos: null, semPreco: null, maoDeObra: null, faltou, ...fechado })
-    const recusa = (faltas: string[], faltou: string[], deCadastro: string[] = []): LevantamentoDaConversa =>
-        ({ texto: fraseDaRecusa(d, faltas), desfecho: 'recusou', etapa: resumo(faltou), deCadastro })
+    const recusa = (faltas: string[], faltou: string[], caminhos: string[] = []): LevantamentoDaConversa =>
+        ({ texto: fraseDaRecusa(d, faltas, caminhos), desfecho: 'recusou', etapa: resumo(faltou) })
     if ('frase' in fonte) return recusa([maiuscula(fonte.frase.replace(/^Ainda não consigo escolher a tipologia: /, ''))], ['configuracao'])
 
     const faltas: string[] = []
@@ -841,8 +834,7 @@ export async function mensagemDoLevantamento(
         return x.endsWith(')') && /\(esquadrias? [^()]*\)$/.test(x) ? `${x.slice(0, -1)}, ${inicialMinuscula(familia)})` : `${x} (${inicialMinuscula(familia)})`
     }
     const recusadas = calculos.flatMap((c, k) => ('faltas' in c ? c.faltas.map((x) => daFamilia(k, x)) : []))
-    const deCadastro = calculos.flatMap((c, k) => ('faltas' in c ? c.deCadastro.map((x) => daFamilia(k, x)) : []))
-    if (recusadas.length) return rotulado(recusa(recusadas, calculos.flatMap((c) => ('faltas' in c ? c.codigos : [])), deCadastro))
+    if (recusadas.length) return rotulado(recusa(recusadas, calculos.flatMap((c) => ('faltas' in c ? c.codigos : [])), calculos.flatMap((c) => ('faltas' in c ? c.caminhos : []))))
 
     const fechados = calculos as Array<Exclude<CalculoDaFamilia, { faltas: unknown }>>
     // o resumo para o log: o que foi cortado, comprado e o que ficou sem mão de obra — nunca o valor. Sem preço, nada fecha (08/11/2026):
@@ -859,7 +851,7 @@ export async function mensagemDoLevantamento(
     })
     const textoDe = (c: (typeof fechados)[number], bloco: { titulo: string; cobertura: false; numerar: true } | null) =>
         ('semCalculo' in c ? fraseDoLevantamentoSemCalculo(c.d, bloco) : fraseDoLevantamento(c.d, c.r, c.maos, bloco))
-    if (!varias) return rotulado({ texto: textoDe(fechados[0], null), desfecho: 'levantou', etapa, deCadastro: [] })
+    if (!varias) return rotulado({ texto: textoDe(fechados[0], null), desfecho: 'levantou', etapa })
     const blocos = fechados.map((c, k) => textoDe(c, { titulo: `${nomeDaFamilia(grupos[k].familia)}, perfil ${c.d.cor}`, cobertura: false, numerar: true }))
     // "o que o preço cobre" só quando alguma família calculou: sem preço nenhum na mensagem, não há o que cobrir
     const algumaCalculou = fechados.some((c) => !('semCalculo' in c))
@@ -867,34 +859,13 @@ export async function mensagemDoLevantamento(
         `Levantamento “${lev.nome}”: ${grupos.length} famílias, cada uma calculada com o motor e as tabelas de preço dela — as barras de uma não entram na otimização da outra.`,
         '', blocos.join('\n\n'), ...(algumaCalculou ? ['', O_QUE_O_PRECO_COBRE] : []),
     ].join('\n')
-    return rotulado({ texto, desfecho: 'levantou', etapa, deCadastro: [] })
-}
-
-/**
- * A FALTA DE CADASTRO NO APANHADO (dono do produto, 08/11/2026): antes de o ARQUIVO do levantamento existir, o cálculo inteiro roda, e o que
- * faltar de cadastro em qualquer esquadria — o dado do fornecedor por item (`MOTIVOS_DE_CADASTRO`: preço, cor, código, barra) ou o TEMPO de
- * fabricação — segura o arquivo. "O arquivo existe para ser confirmado, e a
- * confirmação é o que faz virar produto": mandar um que não pode evoluir faria o vendedor confirmar algo que não anda.
- * Devolve as faltas de cadastro, nas frases da recusa — vazia quando nada falta, ou quando o cálculo recusa só por outra razão (essas
- * continuam saindo depois do "sim", como antes). Lança só em erro de banco, como `mensagemDoLevantamento`.
- */
-export async function faltasAntesDoArquivo(tenantId: string, fonte: FamiliasDaEmpresa, lev: { nome: string; itens: EsquadriaGravada[] }): Promise<string[]> {
-    return (await mensagemDoLevantamento(tenantId, fonte, lev)).deCadastro
-}
-
-/** A resposta do apanhado com falta de cadastro: o arquivo não sai, e cada falta nomeia o item e a referência que acha o cadastro. */
-export function fraseDaFaltaDeCadastro(nome: string, faltas: readonly string[]): string {
-    return [
-        `O arquivo do levantamento “${nome}” ainda não sai: o cadastro tem falta que impede o levantamento de virar produto.`,
-        ...faltas.map((f) => `• ${f}`),
-        'Quando o cadastro for corrigido, me mande uma mensagem que eu gero o arquivo.',
-    ].join('\n')
+    return rotulado({ texto, desfecho: 'levantou', etapa })
 }
 
 type CalculoDaFamilia =
     | { d: DadosDoLevantamento; r: Extract<ResultadoDoLevantamento, { ok: true }>; maos: MaoDeObra[]; rotulos: string[] }
     | { semCalculo: true; d: DadosDoLevantamento; rotulos: string[] }
-    | { faltas: string[]; rotulos: string[]; codigos: string[]; deCadastro: string[] }
+    | { faltas: string[]; rotulos: string[]; codigos: string[]; caminhos: string[] }
 
 /** As esquadrias de um grupo (uma família) como o bloco da mensagem as recebe: as MESMAS de `d`, com a cor do grupo. */
 function dadosDoGrupo(lev: { nome: string; itens: EsquadriaGravada[] }, d: DadosDoLevantamento, indices: number[]): { dg: DadosDoLevantamento; itensDoGrupo: EsquadriaGravada[]; cores: string[] } {
@@ -935,10 +906,10 @@ async function calcularFamilia(
     // os valores das variáveis sem padrão (06/11/2026) chegam ao avaliador pela tipologia: sem ela, só as capturadas
     const escolhas = itensDoGrupo.map((e, k) => lerEscolhasGravadas(e.escolhas, lidas[dg.esquadrias[k].tipologia] ?? null))
     dg.esquadrias.forEach((e, k) => { if (lidas[e.tipologia]) e.escolhas = descreverArremate(lidas[e.tipologia], escolhas[k]) })
-    if (faltas.length) return { faltas, rotulos, codigos, deCadastro: [] }
+    if (faltas.length) return { faltas, rotulos, codigos, caminhos: [] }
 
     const serra = await lerSerra(tenantId)
-    if ('frase' in serra) return { faltas: [maiuscula(serra.frase)], rotulos, codigos: ['SERRA'], deCadastro: [] }
+    if ('frase' in serra) return { faltas: [maiuscula(serra.frase)], rotulos, codigos: ['SERRA'], caminhos: [] }
     // a mesma linha do motor pode servir a duas tipologias: o de-para entra uma vez só
     const porTrio = new Map<string, RegraDoDePara>()
     for (const t of Object.keys(lidas)) {
@@ -975,28 +946,44 @@ async function calcularFamilia(
         return {
             faltas: [...recusas.map(frase), ...semTempo.map((t) => t.frase)], rotulos,
             codigos: [...recusas.map((x) => codigoDaRecusa(x, x.esquadrias.map((k) => numeros[k - 1] ?? k))), ...semTempo.map((t) => t.codigo)],
-            // o que é de CADASTRO — o dado do fornecedor por item (`MOTIVOS_DE_CADASTRO`) e o tempo de fabricação: é o que segura o arquivo no apanhado
-            deCadastro: [...recusas.filter((x) => MOTIVOS_DE_CADASTRO.has(x.motivo)).map(frase), ...semTempo.map((t) => t.frase)],
+            // o CAMINHO DE ALTERAÇÃO de cada falta que tem um (08/11/2026): "Para trocar, diga: muda o vidro da esquadria 1 para 8 mm."
+            caminhos: caminhosDasRecusas(recusas, numeros, itensDoGrupo),
         }
     }
     return { d: dg, r, maos, rotulos }
 }
 
 /**
- * As faltas de CADASTRO que seguram o arquivo no apanhado — o dado do FORNECEDOR, item a item, que o motor e a tabela de preço têm de trazer:
- *   - o preço de material (dono do produto, 08/11/2026, #240): o código sem item na tabela de preço, e o item sem o valor da barra ou do metro.
- *     Zero informado é valor (`levantarBarras` só recusa o que não é número);
- *   - as outras recusas de cadastro (dono do produto, 08/11/2026, depois do #240): "o vendedor tem de poder confiar que arquivo recebido é
- *     levantamento que anda" — a cor sem código, o mesmo código em duas linhas da tabela, dois códigos para a mesma peça; e, da mesma
- *     natureza (a ponte e o item), a cor escrita de dois jeitos, o perfil sem regra e o item sem o comprimento da barra.
- * O resto continua recusando só depois do "sim": a esquadria (quantidade, tipologia sem definição), o avaliador (as variáveis e as validações
- * do motor), a peça maior que a barra e a configuração (serra, abas do motor, cores misturadas).
+ * O CAMINHO DE ALTERAÇÃO de cada falta que tem um (dono do produto, 08/11/2026): a frase que o vendedor manda, com o atributo e o número da esquadria
+ * reais — "Para trocar, diga: muda o vidro da esquadria 1 para temperado incolor 5 mm." O vidro sugerido é o que ele disse, com a espessura trocada
+ * pela sugerida (ou acrescentada, se ele não disse nenhuma): trocar só o número não perde o resto do produto. Esquadrias com o mesmo vidro sugerido
+ * vão numa frase só. Nada de frase genérica: a falta sem caminho (`caminho` nulo — o cadastro, o motor, a configuração) não ganha linha nenhuma.
  */
-const MOTIVOS_DE_CADASTRO = new Set([
-    'ITEM_AUSENTE', 'ITEM_SEM_VALOR',
-    'COR_SEM_CODIGO', 'ITEM_EM_DUAS_LINHAS', 'DOIS_CODIGOS',
-    'COR_EM_DUAS_GRAFIAS', 'PERFIL_SEM_REGRA', 'BARRA_SEM_COMPRIMENTO',
-])
+function caminhosDasRecusas(recusas: readonly RecusaDoLevantamento[], numeros: readonly number[], itensDoGrupo: readonly EsquadriaGravada[]): string[] {
+    const porAlvo = new Map<string, number[]>()
+    for (const x of recusas) {
+        if (x.caminho === null) continue
+        for (const k of x.esquadrias) {
+            const alvo = vidroComEspessura(itensDoGrupo[k - 1]?.vidro, x.caminho.espessura_mm)
+            const lista = porAlvo.get(alvo) ?? []
+            const n = numeros[k - 1] ?? k
+            if (!lista.includes(n)) lista.push(n)
+            porAlvo.set(alvo, lista)
+        }
+    }
+    return [...porAlvo.entries()].map(([alvo, ns]) => {
+        const quem = ns.length > 1 ? `das esquadrias ${listaDeNumerosBR([...ns].sort((a, b) => a - b))}` : `da esquadria ${ns[0]}`
+        return `Para trocar, diga: muda o vidro ${quem} para ${alvo}.`
+    })
+}
+
+/** "temperado incolor 4mm" com 5 → "temperado incolor 5 mm"; "mini boreal" com 5 → "mini boreal 5 mm"; sem vidro, "5 mm". */
+export function vidroComEspessura(vidro: unknown, mm: number): string {
+    const n = `${String(mm).replace('.', ',')} mm`
+    const texto = typeof vidro === 'string' ? vidro.trim() : ''
+    if (texto === '') return n
+    return /\d+(?:[.,]\d+)?\s*mm\b/i.test(texto) ? texto.replace(/\d+(?:[.,]\d+)?\s*mm\b/i, n) : `${texto} ${n}`
+}
 
 /**
  * A falta de TEMPO DE FABRICAÇÃO, uma por tipologia, nomeando as esquadrias, a tipologia e o motor — a referência interna que acha o cadastro

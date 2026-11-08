@@ -36,7 +36,7 @@ M = [
  ('E11', 'o cálculo não sai no log', CV, [("        if (levantamento.etapa) {\n", "        if (false && levantamento.etapa) {\n")], 'o "sim"'),
  ('E12', 'o resumo conta peças por linha, não por quantidade', LC, [("e.pecas.reduce((u, p) => u + p.quantidade, 0)", "e.pecas.length")], 'O RESUMO DO CÁLCULO'),
  ('E13', 'a falta de cor não vira código', LC, [("faltou.push(`e${i + 1}:SEM_COR`)", "void 0")], 'SEM COR'),
- ('E14', 'a recusa do cálculo perde os códigos', LC, [("if (recusadas.length) return rotulado(recusa(recusadas, calculos.flatMap((c) => ('faltas' in c ? c.codigos : [])), deCadastro))", "if (recusadas.length) return rotulado(recusa(recusadas, [], deCadastro))")], 'ITEM_AUSENTE'),
+ ('E14', 'a recusa do cálculo perde os códigos', LC, [("if (recusadas.length) return rotulado(recusa(recusadas, calculos.flatMap((c) => ('faltas' in c ? c.codigos : [])), calculos.flatMap((c) => ('faltas' in c ? c.caminhos : []))))", "if (recusadas.length) return rotulado(recusa(recusadas, [], calculos.flatMap((c) => ('faltas' in c ? c.caminhos : []))))")], 'ITEM_AUSENTE'),
  ('E15', 'a recusa do avaliador não carrega a variável', LB, [("...(x.variavel !== undefined ? { variavel: x.variavel } : {}), ", "")], 'carrega a VARIÁVEL'),
  ('M0', 'CONTROLE: nada muda', CV, []),
 ]
