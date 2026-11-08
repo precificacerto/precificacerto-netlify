@@ -914,12 +914,9 @@ async function calcularFamilia(
     }
     const regras = [...porTrio.values()]
     const itens = await lerItens(familia.tabelasDePreco, [...new Set(regras.map((r) => r.codigo))].sort())
-    // as cores da empresa: o que é COR na coluna `cor` do motor, para a guarda da variante única
-    const coresDaEmpresa = await lerCoresDaEmpresa(tenantId)
 
     const r = levantarBarras({
         cor: cores[0],
-        coresDaEmpresa,
         // o padrão do arremate entra AQUI, pelo ponto único (`padraoDoArremate`), e não pelo avaliador
         esquadrias: dg.esquadrias.map((e, k) => ({
             tipologia: e.tipologia, L_mm: e.largura_mm, H_mm: e.altura_mm, quantidade: e.quantidade,

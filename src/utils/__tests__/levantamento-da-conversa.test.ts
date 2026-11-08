@@ -33,7 +33,9 @@ const MOTOR = '9a233c55-f377-45d3-b2ae-b1a740a98e44'
 const MOTOR_SUL = 'motor-sul-aluminio'
 const OUTRA = 'tabela-perfis-sul'
 /* eslint-disable @typescript-eslint/no-require-imports */
-const DE_PARA = require('./fixtures/fixture_de-para_DP-02.json') as { regras: Linha[]; itens: Linha[] }
+const DE_PARA_DE_HOJE = require('./fixtures/fixture_de-para_DP-02.json') as { regras: Linha[]; itens: Linha[] }
+/** O motor com o arquivo CORRIGIDO (`fixtures/arquivo-do-motor-corrigido.ts`): o BZ0012 sem a cor 'CLICK'. */
+const DE_PARA = { ...DE_PARA_DE_HOJE, regras: (require('./fixtures/arquivo-do-motor-corrigido') as typeof import('./fixtures/arquivo-do-motor-corrigido')).comACorLimpa(DE_PARA_DE_HOJE.regras) }
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 const banco = {
@@ -755,7 +757,6 @@ describe('(5) a mensagem do levantamento', () => {
         if ('recusas' in lida) throw new Error('abas recusadas')
         const r = LB().levantarBarras({
             cor: 'BRANCO',
-            coresDaEmpresa: ['BRANCO'],
             esquadrias: [{ tipologia: 'DP-02', L_mm: 1200, H_mm: 1000, quantidade: 1, escolhas: { MAE: 2, ARI: 4 }, espessura_vidro_mm: 5 }],
             tipologias: { 'DP-02': lida.tipologia }, regras: DE_PARA.regras as never, itens: DE_PARA.itens as never, serra_mm: 5,
         })
@@ -1042,7 +1043,6 @@ describe('(9) o levantamento com N esquadrias', () => {
         if ('recusas' in lida) throw new Error('abas recusadas')
         const r = LB().levantarBarras({
             cor: 'BRANCO',
-            coresDaEmpresa: ['BRANCO'],
             esquadrias: [{ tipologia: 'DP-02', L_mm: 1200, H_mm: 1000, quantidade: 1, escolhas: { MAE: 2, ARI: 4 }, espessura_vidro_mm: 5 }],
             tipologias: { 'DP-02': lida.tipologia }, regras: DE_PARA.regras as never, itens: DE_PARA.itens as never, serra_mm: 5,
         })

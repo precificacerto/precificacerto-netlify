@@ -25,6 +25,8 @@
  * real recusa nomeando-o — e é a regra do dono do produto de 08/11/2026: faltando o preço de um material, NADA evolui.
  */
 
+import { comACorLimpa } from './fixtures/arquivo-do-motor-corrigido'
+
 /* eslint-disable @typescript-eslint/no-require-imports */
 jest.mock('@/supabase/admin', () => ({ supabaseAdmin: {} }))
 type Ligacao = typeof import('@/lib/atendimentos-ia/levantamento-de-barras')
@@ -50,10 +52,11 @@ const CASO = require('./fixtures/caso-gerson-boss.json') as {
 type Item = import('@/lib/atendimentos-ia/levantamento-de-barras').ItemDaTabela
 type Entrada = import('@/lib/atendimentos-ia/levantamento-de-barras').EntradaDoLevantamento
 
-const REGRAS = CASO.regras.map(([codigo, codigo_wvetro, cor]) => ({ codigo, codigo_wvetro, cor }))
+/** O motor de HOJE (o recorte como está em produção) e o do arquivo CORRIGIDO (`fixtures/arquivo-do-motor-corrigido.ts`). */
+const REGRAS_DE_HOJE = CASO.regras.map(([codigo, codigo_wvetro, cor]) => ({ codigo, codigo_wvetro, cor }))
+const REGRAS = comACorLimpa(REGRAS_DE_HOJE)
 const ITENS: Item[] = CASO.itens.map(([codigo, descricao, medida_barra_m, valor_barra_interno, valor_metro_interno]) =>
     ({ codigo, descricao, medida_barra_m, valor_barra_interno, valor_metro_interno }))
-const CORES = CASO.perfil_config.cores
 
 /** As abas como a conversa as lê do banco (`lerTipologiasDoBanco`): as linhas pela coluna do banco, pelo mesmo mapa. */
 function tipologia(codigo: string) {
@@ -72,7 +75,7 @@ function tipologia(codigo: string) {
 function entrada(cor: string, itens: Item[] = ITENS): Entrada {
     const t = { 'DP-39': tipologia('DP-39'), 'DP-01': tipologia('DP-01') }
     return {
-        cor, coresDaEmpresa: CORES, tipologias: t, regras: REGRAS, itens, serra_mm: CASO.perfil_config.serra_mm,
+        cor, tipologias: t, regras: REGRAS, itens, serra_mm: CASO.perfil_config.serra_mm,
         esquadrias: [
             { tipologia: 'DP-39', L_mm: 2500, H_mm: 2200, quantidade: 1, escolhas: ES().escolhasComPadrao(t['DP-39'], {}), espessura_vidro_mm: LC().espessuraDoVidro('temperado incolor 8mm') },
             { tipologia: 'DP-01', L_mm: 600, H_mm: 600, quantidade: 1, escolhas: ES().escolhasComPadrao(t['DP-01'], {}), espessura_vidro_mm: LC().espessuraDoVidro('mini boreal') },
@@ -113,20 +116,20 @@ describe('(a) o caso real: “Gerson Boss”, perfil Branco, DP-39 2.500 x 2.200
 describe('(b) a cor dita em qualquer caixa casa', () => {
     it.each(['branco', 'Branco', 'BRANCO', 'bRaNcO'])('"%s": os mesmos códigos, perfil a perfil', (cor) => {
         for (const perfil of PERFIS_DO_CASO) {
-            const c = LB().codigoDaPeca(perfil, cor, REGRAS, CORES, ITENS)
+            const c = LB().codigoDaPeca(perfil, cor, REGRAS, ITENS)
             if ('recusa' in c) throw new Error(`${perfil} em ${cor}: ${c.recusa.mensagem}`)
             expect([perfil, c.codigo]).toEqual([perfil, CODIGO_EM_BRANCO[perfil]])
         }
     })
 
     it('a caixa vale para as outras cores também: "Preto Texturado" da lista acha PRETO TEXTURADO no HF88', () => {
-        const c = LB().codigoDaPeca('HF88/WOLFF', 'Preto Texturado', REGRAS, CORES)
+        const c = LB().codigoDaPeca('HF88/WOLFF', 'Preto Texturado', REGRAS)
         expect('recusa' in c ? c.recusa.mensagem : c.codigo).toBe('96420')
     })
 
     it('com acento, a caixa também: "alumínio" acha ALUMÍNIO (o Í maiúsculo é a mesma letra)', () => {
         const regras = [{ codigo: 'A1', codigo_wvetro: 'A/WOLFF', cor: 'ALUMÍNIO' }, { codigo: 'A2', codigo_wvetro: 'A/WOLFF', cor: 'BRANCO' }]
-        const c = LB().codigoDaPeca('A/WOLFF', 'alumínio', regras, CORES)
+        const c = LB().codigoDaPeca('A/WOLFF', 'alumínio', regras)
         expect('recusa' in c ? c.recusa.mensagem : c.codigo).toBe('A1')
     })
 })
@@ -141,34 +144,45 @@ describe('(c) a cor que REALMENTE não existe continua recusada — a caixa não
         expect(bz6.mensagem).toContain('o perfil BZ0006/WOLFF não tem código para a cor Roxo na tabela do fornecedor; as variantes que existem são: BRANCO.')
     })
 
-    it('"Preto" no BZ0006 (só BRANCO no motor): a variante única que é outra cor da empresa NÃO entra — a guarda continua', () => {
-        const c = LB().codigoDaPeca('BZ0006/WOLFF', 'Preto', REGRAS, CORES)
+    it('A EMPRESA SEM BRANCO NA LISTA (dono do produto, 08/11/2026): o levantamento em Roxo com o BZ0006 — que só existe em BRANCO — RECUSA; nunca leva o código branco', () => {
+        // a lista de cores da empresa não entra mais no cálculo: a variante única só serve para a cor que ela é, qualquer que seja a lista
+        const r = LB().levantarBarras(entrada('Roxo', [...ITENS, { codigo: '1023', descricao: 'CLICK GUIA', medida_barra_m: 6, valor_barra_interno: 10, valor_metro_interno: 2 }]))
+        if (!('recusas' in r)) throw new Error('saiu levantamento roxo com os códigos brancos')
+        const doBz0006 = r.recusas.find((x) => x.perfil === 'BZ0006/WOLFF')
+        expect(doBz0006?.motivo).toBe('COR_SEM_CODIGO')
+        expect(doBz0006?.mensagem).toBe('Esquadrias 1 e 2: o perfil BZ0006/WOLFF não tem código para a cor Roxo na tabela do fornecedor; as variantes que existem são: BRANCO. Falta: o código de BZ0006/WOLFF em Roxo.')
+        // e o mesmo para o BZ0010, o outro de variante única BRANCO nestas duas esquadrias
+        expect(r.recusas.filter((x) => x.variantes?.length === 1 && x.variantes[0] === 'BRANCO').map((x) => x.perfil).sort()).toEqual(['BZ0006/WOLFF', 'BZ0010/WOLFF'])
+    })
+
+    it('"Preto" no BZ0006 (só BRANCO no motor): a variante única que é outra cor NÃO entra', () => {
+        const c = LB().codigoDaPeca('BZ0006/WOLFF', 'Preto', REGRAS)
         if (!('recusa' in c)) throw new Error('levou o código branco para o preto: ' + c.codigo)
         expect(c.recusa.motivo).toBe('COR_SEM_CODIGO')
         expect(c.recusa.variantes).toEqual(['BRANCO'])
     })
 
     it('"Marrom" no HF88 (15 variantes, nenhuma marrom): recusa', () => {
-        const c = LB().codigoDaPeca('HF88/WOLFF', 'Marrom', REGRAS, CORES)
+        const c = LB().codigoDaPeca('HF88/WOLFF', 'Marrom', REGRAS)
         expect('recusa' in c ? c.recusa.motivo : c.codigo).toBe('COR_SEM_CODIGO')
     })
 
     it('"Preto" NÃO casa com "PRETO TEXTURADO" nem com "PRETO LISO": a caixa não vira busca por parte', () => {
-        const c = LB().codigoDaPeca('8357/WOLFF', 'Preto', REGRAS, CORES)
+        const c = LB().codigoDaPeca('8357/WOLFF', 'Preto', REGRAS)
         expect('recusa' in c ? c.recusa.motivo : c.codigo).toBe('COR_SEM_CODIGO')
     })
 
     it('o ESPAÇO não é normalizado: "Branco " (espaço no fim) recusa, e "LAMINADO PRETO LISO" não acha "LAMINADO  PRETO LISO"', () => {
-        const c = LB().codigoDaPeca('HF88/WOLFF', 'Branco ', REGRAS, CORES)
+        const c = LB().codigoDaPeca('HF88/WOLFF', 'Branco ', REGRAS)
         expect('recusa' in c ? c.recusa.motivo : c.codigo).toBe('COR_SEM_CODIGO')
         const regras = [{ codigo: 'D1', codigo_wvetro: 'D/WOLFF', cor: 'LAMINADO  PRETO LISO' }, { codigo: 'D2', codigo_wvetro: 'D/WOLFF', cor: 'BRANCO' }]
-        const d = LB().codigoDaPeca('D/WOLFF', 'Laminado Preto Liso', regras, CORES)
+        const d = LB().codigoDaPeca('D/WOLFF', 'Laminado Preto Liso', regras)
         expect('recusa' in d ? d.recusa.motivo : d.codigo).toBe('COR_SEM_CODIGO')
     })
 
     it('DUAS GRAFIAS da mesma cor no motor (BRANCO e Branco, códigos diferentes): recusa nomeando as duas — nunca escolhe uma', () => {
         const regras = [{ codigo: 'X1', codigo_wvetro: 'X/WOLFF', cor: 'BRANCO' }, { codigo: 'X2', codigo_wvetro: 'X/WOLFF', cor: 'Branco' }, { codigo: 'X3', codigo_wvetro: 'X/WOLFF', cor: 'PRETO' }]
-        const c = LB().codigoDaPeca('X/WOLFF', 'branco', regras, CORES)
+        const c = LB().codigoDaPeca('X/WOLFF', 'branco', regras)
         if (!('recusa' in c)) throw new Error('escolheu ' + c.codigo)
         expect(c.recusa.motivo).toBe('COR_EM_DUAS_GRAFIAS')
         expect(c.recusa.variantes).toEqual(['BRANCO', 'Branco'])
