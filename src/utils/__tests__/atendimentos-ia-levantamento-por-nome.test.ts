@@ -338,7 +338,10 @@ jest.mock('@/supabase/admin', () => ({
                 }
                 if (estado.ausentes.has(tabela)) return naOnda(ausente()).then(ok, erro)
                 if (colunaQueFalta) return naOnda({ data: null, error: { code: '42703', message: `column ${tabela}.${colunaQueFalta} does not exist` } }).then(ok, erro)
-                // como o PostgREST: ordenar por coluna que a tabela não tem é erro, não lista desordenada
+                // como o PostgREST: ordenar por coluna que a tabela não tem é erro, não lista desordenada. A Detalhe TEM `ordem` em produção (nula
+                // nas linhas de antes da reimportação — medido em 26/10/2026), e as linhas que os casos acrescentam vêm sem ela: aqui ela entra nula,
+                // como lá. A guarda continua valendo para o que a tabela NÃO tem (o `id` da Detalhe, o defeito do #165)
+                if (tabela === 'orcamentista_motor_tipologia_detalhe') for (const l of estado.db[tabela] ?? []) if (!('ordem' in l)) l.ordem = null
                 const semColuna = ordem.find(({ coluna }) => (estado.db[tabela] ?? []).filter(casa).some((l) => !(coluna in l)))
                 if (semColuna) return naOnda({ data: null, error: { code: '42703', message: `column ${tabela}.${semColuna.coluna} does not exist` } }).then(ok, erro)
                 const total = (estado.db[tabela] ?? []).filter(casa).length
@@ -5351,5 +5354,117 @@ describe('(42) a coleta dos dados do levantamento: cliente, ambientes, obs, perc
         llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }], vendedor_do_levantamento: 'Zé de Fora' })
         await chamar(`${MSG}, é para o Zé de Fora`)
         expect(ultimoEnviado()).toBe(dadosDoLevantamento.fraseDoVendedorNaoAchado('Zé de Fora'))
+    })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+describe('(41) A FALTA DE CADASTRO NO APANHADO (dono do produto, 08/11/2026): faltando preço de material ou tempo de fabricação, o arquivo NÃO sai', () => {
+    /**
+     * O “Gerson Boss” como está em produção: as abas da DP-39 e da DP-01, as regras e os itens de preço do recorte conferido por md5
+     * (`fixtures/caso-gerson-boss.json`), os tempos de fabricação medidos (DP-39 63 min, DP-01 70 min) e a lista de cores da De Paula. O 1023
+     * (1023/WOLFF, a guia de alumínio, sempre presente na DP-39) não está em nenhuma tabela de preço: é o caso (a).
+     */
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const CASO = require('./fixtures/caso-gerson-boss.json') as {
+        perfil_config: Record<string, unknown>; colunas: Record<string, string[]>; linhas: Record<string, unknown[][]>
+        regras: Array<[string, string, string | null]>; itens: Array<[string, string, number, number | null, number | null]>
+    }
+    const ITEM_1023 = (valor_barra_interno: number | null, valor_metro_interno: number | null) =>
+        ({ codigo: '1023', descricao: 'CLICK GUIA DE ALUMÍNIO PARA TRILHO DE PVC', medida_barra_m: 6, valor_barra_interno, valor_metro_interno, tabela_id: TABELA })
+    function comOGersonBoss() {
+        const db = estado.db
+        db.orcamentista_motor_tipologia_detalhe = db.orcamentista_motor_tipologia_detalhe.filter((d) => d.tipologia !== 'DP-01' && d.tipologia !== 'DP-39')
+        for (const [tabela, colunas] of Object.entries(CASO.colunas)) {
+            const linhas = CASO.linhas[tabela].map((v, k) => ({ ...(tabela === 'orcamentista_motor_tipologia_detalhe' ? {} : { id: `${tabela}-gb-${k}` }), tabela_id: null as string | null, motor_id: MOTOR, ...Object.fromEntries(colunas.map((c, i) => [c, v[i]])) }))
+            db[tabela] = [...(db[tabela] ?? []), ...linhas]
+        }
+        db.orcamentista_motor_regra = [...(db.orcamentista_motor_regra ?? []), ...CASO.regras.map(([codigo, codigo_wvetro, cor], k) => ({ id: `r-gb-${String(k).padStart(4, '0')}`, codigo, codigo_wvetro, cor, tabela_id: null as string | null, motor_id: MOTOR, tipologias: ['DP-39', 'DP-01'] }))]
+        // os itens de preço SÃO os do recorte (os da DP-02 do banco base são de outra época, com outros valores: somados, dariam o mesmo código
+        // em duas linhas — a recusa ITEM_EM_DUAS_LINHAS, que não é deste caso)
+        db.orcamentista_tabela_item = [...CASO.itens.map(([codigo, descricao, medida_barra_m, valor_barra_interno, valor_metro_interno]) => ({ codigo, descricao, medida_barra_m, valor_barra_interno, valor_metro_interno, tabela_id: TABELA }))]
+        db.orcamentista_motor_tipologia_tempo.push(
+            { tabela_id: null, motor_id: MOTOR, tipologia: 'DP-39', tempo_fabricacao_min: 63, tempo_origem: 'ESTIMADO' },
+            { tabela_id: null, motor_id: MOTOR, tipologia: 'DP-01', tempo_fabricacao_min: 70, tempo_origem: 'ESTIMADO' },
+        )
+        db.orcamentista_mp_categoria = [{ id: 'c-perfil', tenant_id: TENANT, categoria_chave: 'PERFIL', config: { ...CASO.perfil_config } }]
+    }
+    const MENSAGEM = 'Gerson Boss: porta de correr DP-39 2500 x 2200, temperado incolor 8mm; maxim-ar DP-01 600 x 600, mini boreal; perfil branco'
+    const ESQUADRIAS = [
+        { tipologia: 'DP-39', largura_mm: 2500, altura_mm: 2200, quantidade: 1, cor_perfil: 'Branco', vidro: 'temperado incolor 8mm' },
+        { tipologia: 'DP-01', largura_mm: 600, altura_mm: 600, quantidade: 1, cor_perfil: 'Branco', vidro: 'mini boreal' },
+    ]
+    async function apanhado() {
+        llmResponde({ nome: 'Gerson Boss', itens: ESQUADRIAS.map((e) => ({ ...e })) })
+        await chamar(MENSAGEM)
+        return ultimoEnviado()
+    }
+    const FALTA_DO_1023 = 'Esquadria 1: o código 1023 (perfil 1023/WOLFF) não está na tabela de preço. Falta: o item 1023, com a barra e o valor.'
+    const FALTA_DO_TEMPO_DA_DP01 = 'Esquadria 2 (DP-01): o tempo de fabricação de DP-01 não está cadastrado no motor Motor_Wolf_PVC. Falta: o tempo de fabricação de DP-01.'
+    const perguntasEmAberto = () => (estado.db.orcamentista_pergunta_em_aberto ?? []).map((p) => p.pergunta)
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const LC = () => require('@/lib/atendimentos-ia/levantamento-da-conversa') as typeof import('@/lib/atendimentos-ia/levantamento-da-conversa')
+
+    beforeEach(comOGersonBoss)
+
+    it('(a) O CASO REAL: o 1023/WOLFF não está em nenhuma tabela — a conversa nomeia o item e a falta, e o arquivo NÃO é enviado', async () => {
+        const r = await apanhado()
+        expect(r).toBe(LC().fraseDaFaltaDeCadastro('Gerson Boss', [FALTA_DO_1023]))
+        expect(r).toBe([
+            'O arquivo do levantamento “Gerson Boss” ainda não sai: falta no cadastro o que o preço precisa, e um levantamento sem isso não vira produto.',
+            `• ${FALTA_DO_1023}`,
+            'Quando o cadastro for corrigido, me mande uma mensagem que eu gero o arquivo.',
+        ].join('\n'))
+        expect(estado.documentos).toHaveLength(0)
+        // nada a confirmar: a pergunta do apanhado não fica aberta, e o levantamento fica gravado, completo, à espera do cadastro
+        expect(perguntasEmAberto()).not.toContain('CONFIRMAR_APANHADO')
+        expect(levantamentos().map((l) => [l.nome, l.estado])).toEqual([['Gerson Boss', 'COMPLETO']])
+        expect(linhaIa().pop()).toMatch(/ desfecho=falta-de-cadastro(\s|$)/)
+    })
+
+    it('(b) a tipologia SEM TEMPO em orcamentista_motor_tipologia_tempo: o mesmo — a tipologia e o motor nomeados, e nenhum arquivo', async () => {
+        estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09))
+        estado.db.orcamentista_motor_tipologia_tempo = estado.db.orcamentista_motor_tipologia_tempo.filter((t) => t.tipologia !== 'DP-01')
+        expect(await apanhado()).toBe(LC().fraseDaFaltaDeCadastro('Gerson Boss', [FALTA_DO_TEMPO_DA_DP01]))
+        expect(estado.documentos).toHaveLength(0)
+    })
+
+    it('as DUAS faltas de uma vez: o preço e o tempo saem juntos — uma não esconde a outra', async () => {
+        estado.db.orcamentista_motor_tipologia_tempo = estado.db.orcamentista_motor_tipologia_tempo.filter((t) => t.tipologia !== 'DP-01')
+        expect(await apanhado()).toBe(LC().fraseDaFaltaDeCadastro('Gerson Boss', [FALTA_DO_1023, FALTA_DO_TEMPO_DA_DP01]))
+        expect(estado.documentos).toHaveLength(0)
+    })
+
+    it('o item com o VALOR vazio (não ausente da tabela) também segura o arquivo, nomeando o valor que falta', async () => {
+        estado.db.orcamentista_tabela_item.push(ITEM_1023(null, 6.09))
+        expect(await apanhado()).toBe(LC().fraseDaFaltaDeCadastro('Gerson Boss', ['Esquadria 1: o código 1023 (perfil 1023/WOLFF) está na tabela de preço sem o valor da barra. Falta: o valor da barra de 1023.']))
+        expect(estado.documentos).toHaveLength(0)
+    })
+
+    it('(c) o material com valor ZERO informado: o arquivo SAI normalmente — zero é decisão, ausência não', async () => {
+        estado.db.orcamentista_tabela_item.push(ITEM_1023(0, 0))
+        expect(ehConfirmacaoDoArquivo(await apanhado(), 'Gerson Boss')).toBe(true)
+        expect(estado.documentos).toHaveLength(1)
+        expect(perguntasEmAberto()).toContain('CONFIRMAR_APANHADO')
+    })
+
+    it('(d) o levantamento COMPLETO: o arquivo sai como hoje, sem aviso nenhum — e o "sim" levanta com os preços', async () => {
+        estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09))
+        const r = await apanhado()
+        expect(ehConfirmacaoDoArquivo(r, 'Gerson Boss')).toBe(true)
+        expect(r).not.toContain(LC().fraseDaFaltaDeCadastro('Gerson Boss', []).split('\n')[0])
+        expect(estado.documentos).toHaveLength(1)
+        const formal = await confirmarApanhado()
+        expect(formal).toContain('Barras por código:')
+        expect(formal).toContain('• 1023 (1023/WOLFF):')
+        expect(linhaIa().pop()).toMatch(/ desfecho=levantou(\s|$)/)
+    })
+
+    it('a falta que NÃO é de cadastro (a cor que o motor não tem) não segura o arquivo: ela continua saindo depois do "sim", como antes', async () => {
+        estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09))
+        estado.db.orcamentista_mp_categoria[0].config = { ...CASO.perfil_config, cores: ['Roxo'], cor_predominante: null }
+        llmResponde({ nome: 'Gerson Boss', itens: ESQUADRIAS.map((e) => ({ ...e, cor_perfil: 'Roxo' })) })
+        await chamar(MENSAGEM.replace('perfil branco', 'perfil roxo'))
+        expect(ehConfirmacaoDoArquivo(ultimoEnviado(), 'Gerson Boss')).toBe(true)
+        expect(await confirmarApanhado()).toContain('não tem código para a cor Roxo')
     })
 })
