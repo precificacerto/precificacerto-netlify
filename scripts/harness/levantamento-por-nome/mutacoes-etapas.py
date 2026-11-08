@@ -25,7 +25,7 @@ CONTROLE = 'M0'
 M = [
  ('E1', 'as etapas 1 a 4 não saem no log', CV, [("for (const [n, nome] of ETAPAS_DO_LOG) console.error(", "for (const [n, nome] of ETAPAS_DO_LOG.slice(4)) console.error(")], '(39) observabilidade por etapa'),
  ('E2', 'a etapa não alcançada sai vazia, não "nao_chegou"', CV, [("${r.etapas[nome] ?? 'nao_chegou'}", "${r.etapas[nome] ?? ''}")], 'nao_chegou'),
- ('E3', 'a etapa 5 não diz o desfecho', CV, [("5 responder] desfecho=${desfecho} enviou=", "5 responder] enviou=")], 'desfecho=apanhado'),
+ ('E3', 'a etapa 5 não diz o desfecho', CV, [("5 responder] desfecho=${desfecho} enviou=", "5 responder] enviou=")], 'o apanhado: coleta, casa, monta e grava'),
  ('E4', 'a falha da IA não aparece na coleta', CV, [("            rastro.etapas.coletar = `historico=${rastro.historico} ia=${resposta.tipo} faltou=ia`\n", "")], 'a IA que falha'),
  ('E5', 'a coleta não diz o que não foi dito', CV, [(" itens_sem_campos=${rastro.itensSemCampos} faltou=${listaNoLog(naoDitos)}`", " itens_sem_campos=${rastro.itensSemCampos} faltou=-`")], 'faltou=e1:vidro'),
  ('E6', 'o casar não diz a tipologia do padrão', CV, [("rastro.tipologiasPadrao += 1; tipologiasDoPadrao.push(`e${item.ordem}:${padrao.tipologia}`) }", "rastro.tipologiasPadrao += 1 }")], 'padrao=e1:DP-02'),
