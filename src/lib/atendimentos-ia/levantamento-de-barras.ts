@@ -26,8 +26,13 @@
  *     nunca escolhe o parecido, nunca calcula com o que sobrou. Com qualquer recusa, não sai barra
  *     nenhuma — e saem TODAS as recusas, de todas as esquadrias, de uma vez.
  *
- * A COR É COMPARADA EXATA. "Branco" não é BRANCO, e "LAMINADO  PRETO LISO" (dois espaços, como está
- * no banco) não é "LAMINADO PRETO LISO". Normalizar para casar é escolher o parecido.
+ * A COR É COMPARADA SEM CAIXA, E SÓ SEM CAIXA (08/11/2026, o defeito do levantamento “Gerson Boss”). A esquadria grava a cor na
+ * grafia da LISTA da base ("Branco"), por decisão do dono do produto de 05/11/2026 ("'BRANCO' cadastrado tem de casar com 'Branco'
+ * da lista"); o motor a grava como o fornecedor escreve ("BRANCO"). Medido em produção: entre as duas, só a CAIXA diverge — sem
+ * espaço nas pontas, sem acento. Antes, a comparação era `===`, e todo perfil branco da De Paula recusava. O resto continua EXATO:
+ * "LAMINADO  PRETO LISO" (dois espaços, como está no banco) não é "LAMINADO PRETO LISO", "Branco " não é BRANCO, e "Preto" não é
+ * "PRETO TEXTURADO". E se o motor tiver a mesma cor em duas grafias que só a caixa distingue (BRANCO e Branco), é RECUSA
+ * (`COR_EM_DUAS_GRAFIAS`): a caixa deixou de distinguir, e escolher uma seria escolher o parecido.
  *
  * O PERFIL SEM VARIANTE. Quando TODAS as linhas de um perfil têm a cor vazia, o perfil não tem
  * variante — é o caso dos reforços de aço e da guia de alumínio da DP-02 (`1023`, `8432`, `8433`,
@@ -50,10 +55,12 @@
  * é a troca pelo parecido que a R3 proíbe. Com a empresa só em BRANCO, como em produção hoje, a guarda
  * não muda nada.
  *
- * O PREÇO AUSENTE NÃO TRAVA AS BARRAS. Quantas barras comprar não depende do preço; o TOTAL depende.
- * O agrupador já devolve o total `null` quando um código não tem o valor — não soma os que têm —, e
- * esta ligação NOMEIA a falta em `falta_para_o_total`: o código, o perfil, o campo e o total que não
- * sai. Preço ausente nunca vira zero (`ausente-vs-falso.md`).
+ * FALTOU PREÇO, NADA EVOLUI (dono do produto, 08/11/2026 — substitui "o preço ausente não trava as barras", de 24/10/2026): o item
+ * sem o valor da barra ou sem o valor do metro é RECUSA (`ITEM_SEM_VALOR`), como o item ausente — e, como toda recusa, nenhuma barra
+ * sai, de esquadria nenhuma, nem das completas. "A premissa é precificação precisa e minuciosa por item; um produto parcial seria um
+ * preço que não corresponde à obra." A recusa nomeia o código interno e o perfil do fornecedor, para achar e corrigir o cadastro: a
+ * regra de não mostrar código de fornecedor vale para a FOLHA, não para a mensagem de erro. Zero informado é valor, não falta
+ * (`ausente-vs-falso.md`).
  *
  * Para separar as duas formas do resultado, use `'recusas' in r` (e `'recusa' in r` em `codigoDaPeca`):
  * com `strictNullChecks: false`, o tsc não estreita a união pelo booleano `ok`.
@@ -117,13 +124,6 @@ export type EsquadriaLevantada = {
     avisos: AvisoDoAvaliador[]
 }
 export type CodigoLevantado = ResultadoDoCodigo & { perfil: string; descricao: string | null }
-export type FaltaParaOTotal = {
-    codigo: string
-    perfil: string
-    falta: 'valor_barra_interno' | 'valor_metro_interno'
-    total: 'total_por_barra_inteira' | 'total_por_consumo_real'
-    mensagem: string
-}
 export type CandidatoDoCodigo = { codigo: string; descricao: string | null; valor_barra_interno: number | null; valor_metro_interno: number | null }
 export type OrigemDaRecusa = 'ESQUADRIA' | 'AVALIADOR' | 'CODIGO' | 'ITEM' | 'AGRUPADOR'
 export type RecusaDoLevantamento = {
@@ -147,9 +147,8 @@ export type ResultadoDoLevantamento =
         cor: string
         esquadrias: EsquadriaLevantada[]
         por_codigo: CodigoLevantado[]
+        /** Os dois totais sempre saem: o item sem valor é recusa (08/11/2026). */
         total: TotalDoLevantamento
-        /** Os códigos sem o valor que um dos totais precisa. O total afetado sai `null`. */
-        falta_para_o_total: FaltaParaOTotal[]
         avisos: Array<AvisoDoAvaliador & { esquadria: number }>
     }
     | { ok: false; recusas: RecusaDoLevantamento[] }
@@ -177,6 +176,12 @@ export type ResultadoDaPonte =
     | { ok: false; recusa: RecusaDoLevantamento }
 type OrigemDoCodigo = 'COR' | 'SEM_VARIANTE' | 'VARIANTE_UNICA'
 
+/**
+ * A variante do motor é a cor pedida? SEM CAIXA, e nada mais: nem acento, nem espaço (08/11/2026). `toUpperCase` sem locale — o
+ * mapeamento de caixa do Unicode, que não depende do ICU do ambiente (í → Í, ç → Ç).
+ */
+const mesmaCor = (variante: string | null, pedida: string) => variante !== null && variante.toUpperCase() === pedida.toUpperCase()
+
 /** A variante é uma cor da EMPRESA? Sem caixa e sem acento — só para classificar, nunca para casar. */
 const ehCorDaEmpresa = (variante: string, cores: readonly string[]) => cores.some((c) => normalizarNome(c) === normalizarNome(variante))
 
@@ -186,7 +191,14 @@ function ponte(perfil: string, cor: string, regras: readonly RegraDoDePara[], co
         return { ok: false, recusa: { origem: 'CODIGO', motivo: 'PERFIL_SEM_REGRA', perfil, cor,
             texto: `o perfil ${perfil} não está em nenhuma regra da tabela do fornecedor. Falta: o código do item de ${perfil}.` } }
     }
-    const daCor = distintos(linhas.filter((r) => r.cor === cor).map((r) => r.codigo))
+    // a cor sem caixa — e só sem caixa (ver o cabeçalho): duas grafias que só a caixa distingue não se escolhem
+    const daCorLinhas = linhas.filter((r) => mesmaCor(r.cor, cor))
+    const grafias = distintos(daCorLinhas.map((r) => r.cor as string))
+    if (grafias.length > 1) {
+        return { ok: false, recusa: { origem: 'CODIGO', motivo: 'COR_EM_DUAS_GRAFIAS', perfil, cor, variantes: grafias,
+            texto: `o perfil ${perfil} tem a cor ${cor} escrita de ${grafias.length} jeitos na tabela do fornecedor: ${grafias.slice(0, -1).join(', ')} e ${grafias[grafias.length - 1]}. Falta dizer qual delas é a cor pedida.` } }
+    }
+    const daCor = distintos(daCorLinhas.map((r) => r.codigo))
     if (daCor.length === 1) return { ok: true, codigo: daCor[0], origem: 'COR' }
     if (daCor.length > 1) return { ok: false, recusa: { origem: 'CODIGO', motivo: 'DOIS_CODIGOS', perfil, cor, texto: '', candidatos: daCor.map(soOCodigo) } }
     if (linhas.every((r) => r.cor === null)) {
@@ -295,7 +307,17 @@ export function levantarBarras(entrada: EntradaDoLevantamento): ResultadoDoLevan
         if (codigo === undefined) continue
         const linhas = entrada.itens.filter((i) => i.codigo === codigo)
         const esquadrias = [...new Set(brutas.filter((b) => b.perfil === perfil).map((b) => b.esquadria))]
-        if (linhas.length === 1) { itemDoCodigo[codigo] = linhas[0]; continue }
+        if (linhas.length === 1) {
+            // FALTOU PREÇO, NADA EVOLUI (08/11/2026): o item sem um dos valores é recusa, como o item ausente — zero é valor
+            const it = linhas[0]
+            const semValor = ([['valor_barra_interno', 'da barra'], ['valor_metro_interno', 'do metro']] as const).filter(([campo]) => !Number.isFinite(it[campo] as number))
+            for (const [, nome] of semValor) {
+                for (const esquadria of esquadrias) parciais.push({ origem: 'ITEM', motivo: 'ITEM_SEM_VALOR', perfil, cor, codigo, esquadria,
+                    texto: `o código ${codigo} (perfil ${perfil}) está na tabela de preço sem o valor ${nome}. Falta: o valor ${nome} de ${codigo}.` })
+            }
+            itemDoCodigo[codigo] = it
+            continue
+        }
         const motivo = linhas.length === 0 ? 'ITEM_AUSENTE' : 'ITEM_EM_DUAS_LINHAS'
         const texto = linhas.length === 0
             ? `o código ${codigo} (perfil ${perfil}) não está na tabela de preço. Falta: o item ${codigo}, com a barra e o valor.`
@@ -330,16 +352,7 @@ export function levantarBarras(entrada: EntradaDoLevantamento): ResultadoDoLevan
     // as recusas do agrupador já estão em `parciais`; a segunda condição só estreita o tipo
     if (parciais.length || 'recusas' in agrupado) return { ok: false, recusas: juntar(parciais) }
 
-    // 5. o resultado
-    const falta: FaltaParaOTotal[] = []
-    for (const c of agrupado.por_codigo) {
-        const it = itemDoCodigo[c.codigo]
-        const perfil = perfilDoCodigo[c.codigo]
-        if (!Number.isFinite(it.valor_barra_interno as number)) falta.push({ codigo: c.codigo, perfil, falta: 'valor_barra_interno', total: 'total_por_barra_inteira',
-            mensagem: `O código ${c.codigo} (perfil ${perfil}) não tem o valor da barra na tabela de preço: o total por barra inteira não sai. Falta: o valor da barra de ${c.codigo}.` })
-        if (!Number.isFinite(it.valor_metro_interno as number)) falta.push({ codigo: c.codigo, perfil, falta: 'valor_metro_interno', total: 'total_por_consumo_real',
-            mensagem: `O código ${c.codigo} (perfil ${perfil}) não tem o valor do metro na tabela de preço: o total por consumo real não sai. Falta: o valor do metro de ${c.codigo}.` })
-    }
+    // 5. o resultado — todo código com os dois valores (o que não tem já é recusa, no passo 3)
     const esquadrias: EsquadriaLevantada[] = levantadas.map((e) => ({
         ...e,
         pecas: brutas.filter((b) => b.esquadria === e.indice).map((b) => ({
@@ -353,7 +366,6 @@ export function levantarBarras(entrada: EntradaDoLevantamento): ResultadoDoLevan
         esquadrias,
         por_codigo: agrupado.por_codigo.map((c) => ({ ...c, perfil: perfilDoCodigo[c.codigo], descricao: itemDoCodigo[c.codigo].descricao ?? null })),
         total: agrupado.total,
-        falta_para_o_total: falta,
         avisos: levantadas.flatMap((e) => e.avisos.map((a) => ({ ...a, esquadria: e.indice }))),
     }
 }
