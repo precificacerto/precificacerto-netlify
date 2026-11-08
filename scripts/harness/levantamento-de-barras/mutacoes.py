@@ -46,7 +46,7 @@ M = [
  ('M13', 'só a primeira recusa sai', A, [("return { ok: false, recusas: juntar(parciais) }", "return { ok: false, recusas: juntar(parciais).slice(0, 1) }")], 'TODAS AS RECUSAS'),
  ('M14', 'a mesma falta sai uma vez por esquadria', A, [("        const g = grupos.find((x) => chave(x.base) === chave(p))", "        const g = undefined as (typeof grupos)[number] | undefined")], 'UMA vez'),
  ('M15', 'as recusas saem na ordem da entrada', A, [("    recusas.sort(", "    if (false) recusas.sort(")], 'DETERMINÍSTICO'),
- ('M16', 'a recusa do avaliador sem a esquadria', A, [("perfil: x.perfil, esquadria: indice, comTipologia: true, texto: x.mensagem", "perfil: x.perfil, comTipologia: true, texto: x.mensagem")], 'recusa do AVALIADOR'),
+ ('M16', 'a recusa do avaliador sem a esquadria', A, [("{ variavel: x.variavel } : {}), esquadria: indice, comTipologia: true, texto: x.mensagem", "{ variavel: x.variavel } : {}), comTipologia: true, texto: x.mensagem")], 'recusa do AVALIADOR'),
  ('M17', 'a esquadria recusada pelo avaliador some calada', A, [("        if ('recusas' in r) {\n", "        if ('recusas' in r) {\n            if (r.recusas.length) return\n")], 'recusa do AVALIADOR'),
  ('M18', 'tipologia sem definição: a esquadria some calada', A, [("        if (!tipologia) {\n", "        if (!tipologia) return\n        if (false) {\n")], 'TIPOLOGIA SEM DEFINIÇÃO'),
  ('M19', 'a recusa do agrupador sem o perfil', A, [("parciais.push({ origem: 'AGRUPADOR', motivo: x.motivo, codigo: x.codigo, perfil, esquadria, texto })", "parciais.push({ origem: 'AGRUPADOR', motivo: x.motivo, codigo: x.codigo, esquadria, texto: x.mensagem })")], 'recusa do AGRUPADOR'),
