@@ -38,8 +38,6 @@ type Abas = typeof import('@/utils/atendimentos-ia-abas-do-motor')
 const AB = () => require('@/utils/atendimentos-ia-abas-do-motor') as Abas
 type Escolhas = typeof import('@/lib/atendimentos-ia/escolhas-da-tipologia')
 const ES = () => require('@/lib/atendimentos-ia/escolhas-da-tipologia') as Escolhas
-type Conversa = typeof import('@/lib/atendimentos-ia/levantamento-da-conversa')
-const LC = () => require('@/lib/atendimentos-ia/levantamento-da-conversa') as Conversa
 const CASO = require('./fixtures/caso-gerson-boss.json') as {
     cor_perfil_gravada: string
     perfil_config: { cores: string[]; serra_mm: number }

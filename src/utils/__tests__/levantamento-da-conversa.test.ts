@@ -1299,6 +1299,16 @@ describe('(R) a frase curta da falta: o nome e o que falta, e a mesma falta uma 
         expect((await M().mensagemDoLevantamento(TENANT, t, { nome: 'Antonio Rock', itens: [{ ...ESQUADRIA, ...FECHA_R, vidro: 'incolor 5 mm' }] })).desfecho).toBe('levantou')
     })
 
+    it('os DOIS conjuntos de baguete da DP-02 valem para o número sem unidade: "laminado 20" é do GB8 (18,20,21,24), e a espessura não falta', async () => {
+        comO4NoMotor()
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
+        const r = await M().mensagemDoLevantamento(TENANT, t, { nome: 'Antonio Rock', itens: [{ ...ESQUADRIA, ...FECHA_R, vidro: 'laminado 20' }] })
+        expect(r.texto).not.toContain('a espessura do vidro')
+        expect(r.texto).not.toContain('não é aceito')
+        // e o 4, do GB25, também
+        expect((await M().mensagemDoLevantamento(TENANT, t, { nome: 'Antonio Rock', itens: [{ ...ESQUADRIA, ...FECHA_R, vidro: 'incolor 4' }] })).texto).not.toContain('a espessura do vidro')
+    })
+
     it('o vidro AMBÍGUO ("incolor 4 ou 6", os dois aceitos): a falta pergunta qual, sem caminho inventado', async () => {
         comO4NoMotor()
         const t = await M().lerFamiliasDaEmpresa(TENANT)
