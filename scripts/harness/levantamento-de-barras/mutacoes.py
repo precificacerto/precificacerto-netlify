@@ -66,7 +66,7 @@ M = [
  ('M35', 'o valor da BARRA vazio não é conferido', A, [("[['valor_barra_interno', 'da barra'], ['valor_metro_interno', 'do metro']]", "[['valor_metro_interno', 'do metro']]")], 'valor da BARRA vazio'),
  ('M36', 'o valor do METRO vazio não é conferido', A, [("[['valor_barra_interno', 'da barra'], ['valor_metro_interno', 'do metro']]", "[['valor_barra_interno', 'da barra']]")], 'METRO vazio'),
  ('M37', 'zero é tratado como falta', A, [(".filter(([campo]) => !Number.isFinite(it[campo] as number))", ".filter(([campo]) => !it[campo])")], 'ZERO é valor'),
- ('M38', 'a falta de preço sai só na primeira esquadria', A, [("                for (const esquadria of esquadrias) parciais.push({ origem: 'ITEM', motivo: 'ITEM_SEM_VALOR'", "                for (const esquadria of esquadrias.slice(0, 1)) parciais.push({ origem: 'ITEM', motivo: 'ITEM_SEM_VALOR'")], 'os dois vazios'),
+ ('M38', 'a falta de preço sai só na primeira esquadria', A, [("                for (const esquadria of esquadrias) parciais.push({ origem: 'ITEM', caminho: null, motivo: 'ITEM_SEM_VALOR'", "                for (const esquadria of esquadrias.slice(0, 1)) parciais.push({ origem: 'ITEM', caminho: null, motivo: 'ITEM_SEM_VALOR'")], 'os dois vazios'),
  ('M39', 'a falta de preço não nomeia o código', A, [("está na tabela de preço sem o valor ${nome}. Falta: o valor ${nome} de ${codigo}.", "está na tabela de preço sem valor.")], 'valor da BARRA vazio'),
  ('M0', 'controle: nada muda', A, [("export", "export")]),
 ]
