@@ -165,16 +165,30 @@ const textoValido = (v: unknown) => typeof v === 'string' && v.trim() !== '' && 
  * (`faltou-dado-recusa-nomeada.md`: casar o parecido é escolher o parecido). Sem lista, nenhuma
  * tipologia valida.
  *
- * A COR DO PERFIL, desde 25/10/2026, segue a mesma regra: uma das `cores` da base de conhecimento da
- * empresa (categoria Perfil), EXATA — é com ela que o motor é lido, e a coluna `cor` do motor não
- * casa por caixa nem por gênero ("Branco" e "branca" não são BRANCO). Sem lista, nenhuma cor valida.
+ * A COR DO PERFIL, desde 25/10/2026, é uma das `cores` da base de conhecimento da empresa (categoria Perfil) — SEM CAIXA, e só sem
+ * caixa, desde 08/11/2026 (`corDaLista`): "branco" casa com "Branco" da lista e é gravada como a lista a escreve; "branca" (gênero) e
+ * "Branco " (espaço) não casam. É o mesmo defeito do #238, na conversa. Sem lista, nenhuma cor valida.
  */
+/**
+ * A cor dita, na GRAFIA DA LISTA da empresa: a cor da lista que casa com ela SEM CAIXA (e só sem caixa — nem acento, nem espaço, nem
+ * gênero). Null quando nenhuma casa, ou quando duas grafias da lista casam (só a caixa as distingue): escolher uma seria escolher o parecido.
+ */
+export function corDaLista(v: unknown, cores: readonly string[]): string | null {
+    if (typeof v !== 'string' || v === '') return null
+    const casam = [...new Set(cores.filter((c) => c.toUpperCase() === v.toUpperCase()))]
+    return casam.length === 1 ? casam[0] : null
+}
+
+/** A pergunta da cor DITA que a empresa não tem (dono do produto, 08/11/2026): nomeia a cor e a lista — nunca a troca pela predominante. */
+export const fraseDaCorForaDaLista = (cor: string, cores: readonly string[]) =>
+    `A empresa não trabalha com ${cor} no perfil; as cores são ${cores.join(', ')}. Qual delas?`
+
 export function valorValido(campo: CampoDaPreDefinicao, v: unknown, tipologias: readonly string[], cores: readonly string[]): unknown {
     switch (campo) {
         case 'tipologia':
             return typeof v === 'string' && tipologias.includes(v) ? v : undefined
         case 'cor_perfil':
-            return typeof v === 'string' && cores.includes(v) ? v : undefined
+            return corDaLista(v, cores) ?? undefined
         case 'largura_mm':
         case 'altura_mm':
             return inteiroNaFaixa(v, MEDIDA_MINIMA_MM, MEDIDA_MAXIMA_MM) ? v : undefined

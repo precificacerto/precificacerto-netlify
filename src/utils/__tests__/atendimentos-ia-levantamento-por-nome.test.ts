@@ -898,7 +898,9 @@ describe('(4) a lista: a tipologia e a cor só da lista, exatas', () => {
         // a lista enxuta (05/11/2026): sem o sufixo da linha ("| EUROPA 42"), que a coluna `linha` já diz, e com o limite compacto
         expect(sistema).toContain('DP-02 | JANELA DE CORRER 02 FOLHAS MÓVEIS | Correr | A 388-2439')
         expect(sistema).not.toContain('| EUROPA 42 |')
-        expect(sistema).toContain('Cores da empresa (cor_perfil, escreva EXATAMENTE uma delas): BRANCO')
+        expect(sistema).toContain('Cores da empresa (cor_perfil): BRANCO')
+        // a cor DITA vai como ele disse (08/11/2026): o código confere contra a lista e pergunta — a IA não a descarta
+        expect(sistema).toContain('se é outra, escreva-a como ele disse')
         // sem o código e o número no prompt, a LLM não tem como registrar a escolha — o defeito 1
         expect(sistema).toContain('ARI = ARREMATE INTERNO: 1 = BZ0006 - ARREMATE 65MM; 2 = BZ1770 - ARREMATE 70MM; 3 = BZ0010 - ARREMATE 20MM; 4 = SEM ARREMATE INTERNO')
         // as opções vão UMA vez, num dicionário, e a tipologia as referencia (26/10/2026)
@@ -908,19 +910,26 @@ describe('(4) a lista: a tipologia e a cor só da lista, exatas', () => {
         expect(sistema).toContain('NUNCA escolha sozinho')
     })
 
-    it('"Branco" não é BRANCO, e "Janela de correr" não é tipologia: descartados — e a TIPOLOGIA PADRÃO (05/11/2026) entra: janela de correr sem folhas é a DP-02; a cor, sem predominante, é perguntada', async () => {
-        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, tipologia: 'Janela de correr', cor_perfil: 'Branco' }] })
-        await chamar('Levantamento Casa do João: janela de correr 1200 x 1000 Branco temperado 5mm')
+    it('"Azul" não é da lista, e "Janela de correr" não é tipologia: descartados — e a TIPOLOGIA PADRÃO (05/11/2026) entra: janela de correr sem folhas é a DP-02; a cor dita e fora da lista é perguntada, nomeando a lista (08/11/2026)', async () => {
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, tipologia: 'Janela de correr', cor_perfil: 'Azul' }] })
+        await chamar('Levantamento Casa do João: janela de correr 1200 x 1000 Azul temperado 5mm')
         const item = itensDe(levantamentos()[0].id)[0]
         expect([item.tipologia, item.cor_perfil]).toEqual(['DP-02', null])
         expect(linhaIa()[0]).toContain('descartados=2')
         expect(linhaIa()[0]).toMatch(/ tipologia_padrao=1(\s|$)/)
-        expect(ultimoEnviado()).toBe(PERGUNTA_DO_CAMPO.cor_perfil)
+        expect(ultimoEnviado()).toBe('A empresa não trabalha com Azul no perfil; as cores são BRANCO. Qual delas?')
+    })
+
+    it('"Branco" é BRANCO (08/11/2026): a cor da lista escrita em outra caixa vale, gravada na grafia da lista', async () => {
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, cor_perfil: 'Branco' }] })
+        await chamar('Levantamento Casa do João: DP-02 1200 x 1000 Branco temperado 5mm')
+        expect(itensDe(levantamentos()[0].id)[0].cor_perfil).toBe('BRANCO')
+        expect(linhaIa()[0]).toContain('descartados=0')
     })
 
     it('sem a palavra "correr" nem o padrão: "janela 1200 x 1000" com a tipologia inválida fica sem tipologia, e a pergunta é a de obra SEM o "janela ou porta" (já dito) — e a cor vai JUNTO', async () => {
-        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, tipologia: 'Janela', cor_perfil: 'Branco' }] })
-        await chamar('Levantamento Casa do João: janela 1200 x 1000 Branco temperado 5mm')
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, tipologia: 'Janela', cor_perfil: undefined }] })
+        await chamar('Levantamento Casa do João: janela 1200 x 1000 temperado 5mm')
         const item = itensDe(levantamentos()[0].id)[0]
         expect([item.tipologia, item.cor_perfil]).toEqual([null, null])
         expect(ultimoEnviado()).toBe(`${COM_ABERTURA_DITA[0]} E me diga a cor do perfil.`)
@@ -1053,7 +1062,8 @@ describe('(6b) R1 e R2: nenhum update falha em silêncio, e a pergunta respondid
         const escritasAntes = escritasNoEstado().length
         llmResponde({ nome: 'casa do joao', alteracao: true, itens: [{ cor_perfil: 'Azul Piscina' }] })
         await chamar('casa do joao, troca a cor para azul piscina')
-        expect(ultimoEnviado()).toBe(conversa.fraseDeNaoApliquei('Casa do João'))
+        // a cor DITA e fora da lista (08/11/2026) é a pergunta que nomeia a cor e a lista — o "não apliquei" fica para o resto
+        expect(ultimoEnviado()).toBe('A empresa não trabalha com Azul Piscina no perfil; as cores são BRANCO. Qual delas?')
         expect(escritasNoEstado().length).toBe(escritasAntes)
     })
 
@@ -4516,6 +4526,140 @@ describe('(38) Maria Cristina: a montagem não absorve outro cliente, expira em 
             await chamar('Levantamento Casa do Pedro: DP-02 1200 x 1000, temperado 5mm')
             expect(itens('Casa do Pedro')[0].cor_perfil).toBeNull()
             expect(ultimoEnviado()).toBe(PERGUNTA_DO_CAMPO.cor_perfil)
+        })
+
+        describe('a COR DITA (dono do produto, 08/11/2026): fora da lista é pergunta que nomeia a cor e a lista, nunca a predominante; a da lista em outra caixa vale na grafia da lista', () => {
+            /** A lista da De Paula como está em `orcamentista_mp_categoria.config` (medido em 08/11/2026), com a predominante BRANCO. */
+            const CORES_DA_DE_PAULA = ['Branco', 'Preto Texturado', 'Golden OAK', 'Bronze', 'Grafite', 'Preto Liso', 'Nogueira', 'Pirita', 'Marrom', 'Preto']
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const PD = () => require('@/lib/atendimentos-ia/pre-definicao') as typeof import('@/lib/atendimentos-ia/pre-definicao')
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const LM = () => require('@/lib/atendimentos-ia/levantamento-em-montagem') as typeof import('@/lib/atendimentos-ia/levantamento-em-montagem')
+
+            it.each(['PRETO', 'preto'])('(a) a De Paula como está (predominante BRANCO, dez cores): "quero preto", com a IA escrevendo %s, sai PRETO — na grafia da lista, e não Branco', async (escrita) => {
+                comPredominante('BRANCO', CORES_DA_DE_PAULA)
+                llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, cor_perfil: escrita }] })
+                await chamar('Levantamento Casa do João: DP-02 1200 x 1000, temperado 5mm, quero preto')
+                expect(itens('Casa do João')[0].cor_perfil).toBe('Preto')
+                expect(linhaIa().pop()).not.toContain('cor_padrao=')
+            })
+
+            it('(b) lista Branco e Preto, o vendedor diz roxo: a pergunta nomeia a cor e as cores da empresa, a esquadria fica sem cor, e nenhum arquivo sai', async () => {
+                comPredominante('BRANCO')
+                llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, cor_perfil: 'Roxo' }] })
+                await chamar('Levantamento Casa do João: DP-02 1200 x 1000, roxo, temperado 5mm')
+                expect(itens('Casa do João')[0].cor_perfil).toBeNull()
+                expect(ultimoEnviado()).toBe('A empresa não trabalha com Roxo no perfil; as cores são Branco, Preto. Qual delas?')
+                expect(ultimoEnviado()).toBe(PD().fraseDaCorForaDaLista('Roxo', ['Branco', 'Preto']))
+                expect(estado.documentos).toHaveLength(0)
+                expect(linhaIa().pop()).not.toContain('cor_padrao=')
+                // a RESPOSTA fora da lista à pergunta da cor: a mesma pergunta nomeada, não o "não registrei"
+                llmResponde({ itens: [{ cor_perfil: 'Verde' }] })
+                await chamar('verde')
+                expect(ultimoEnviado()).toBe(PD().fraseDaCorForaDaLista('Verde', ['Branco', 'Preto']))
+                expect(itens('Casa do João')[0].cor_perfil).toBeNull()
+                // a resposta com uma cor da lista fecha a esquadria
+                llmResponde({ itens: [{ cor_perfil: 'Preto' }] })
+                await chamar('preto')
+                expect(itens('Casa do João')[0].cor_perfil).toBe('Preto')
+            })
+
+            it('(b) com DUAS esquadrias: a frase diz de qual é, e o que falta na outra vai na mesma resposta', async () => {
+                comPredominante('BRANCO')
+                llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, cor_perfil: 'Roxo' }, { ...DP02, largura_mm: 1500, vidro: undefined, cor_perfil: undefined }] })
+                await chamar('Levantamento Casa do João: DP-02 1200 x 1000 roxo temperado 5mm; DP-02 1500 x 1000')
+                const r = ultimoEnviado()
+                expect(r.split('\n')[0]).toBe(`Esquadria 1: ${PD().fraseDaCorForaDaLista('Roxo', ['Branco', 'Preto'])}`)
+                expect(r).toContain('vidro')
+                // a segunda não disse cor: ganha a predominante; a primeira, que disse, não
+                expect(itens('Casa do João').map((i) => i.cor_perfil)).toEqual([null, 'Branco'])
+                expect(estado.documentos).toHaveLength(0)
+            })
+
+            it('a cor que a IA põe e o vendedor NÃO disse não é cor dita: a esquadria segue com a predominante, sem pergunta', async () => {
+                comPredominante('BRANCO')
+                llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, cor_perfil: 'Roxo' }] })
+                await chamar('Levantamento Casa do João: DP-02 1200 x 1000, temperado 5mm')
+                expect(itens('Casa do João')[0].cor_perfil).toBe('Branco')
+                for (const e of enviados()) expect(e).not.toContain(PD().fraseDaCorForaDaLista('Roxo', ['Branco', 'Preto']))
+                expect(linhaIa().pop()).toMatch(/ cor_padrao=1(\s|$)/)
+            })
+
+            it('a ALTERAÇÃO para uma cor fora da lista: a esquadria gravada fica Branco, nada é gravado, e a resposta é a pergunta que nomeia a cor e a lista — não o "não apliquei"', async () => {
+                comPredominante('BRANCO')
+                llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, cor_perfil: 'Branco' }], escolhas: ESCOLHAS_QUE_FECHAM })
+                await chamar('Levantamento Casa do João: DP-02 1200 x 1000, branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50')
+                expect(itens('Casa do João')[0].cor_perfil).toBe('Branco')
+                llmResponde({ nome: 'Casa do João', alteracao: true, itens: [{ ordem: 1, cor_perfil: 'Roxo' }] })
+                const escritasAntes = escritasNoEstado().length
+                await chamar('Casa do João: muda a cor para roxo')
+                expect(itens('Casa do João')[0].cor_perfil).toBe('Branco')
+                expect(ultimoEnviado()).toBe(PD().fraseDaCorForaDaLista('Roxo', ['Branco', 'Preto']))
+                expect(escritasNoEstado().length).toBe(escritasAntes)
+            })
+
+            it('"roxo não, preto" na mesma mensagem: vale a cor da lista, e nada é perguntado', async () => {
+                comPredominante('BRANCO')
+                // sem o vidro, a esquadria continua com pendência: a pergunta sai, e ela NÃO fala da cor
+                llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, ordem: 1, vidro: undefined, cor_perfil: 'Roxo' }, { ordem: 1, cor_perfil: 'Preto' }] })
+                await chamar('Levantamento Casa do João: DP-02 1200 x 1000, roxo não, preto')
+                expect(itens('Casa do João')[0].cor_perfil).toBe('Preto')
+                expect(ultimoEnviado()).toContain('vidro')
+                for (const e of enviados()) expect(e).not.toContain('A empresa não trabalha com')
+            })
+
+            it('a RESPOSTA fora da lista com DUAS esquadrias em montagem: a frase diz de qual é, e o que falta na outra vai junto — nada é gravado', async () => {
+                comPredominante('Amadeirado')
+                llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, cor_perfil: undefined }, { ...DP02, largura_mm: 1500, vidro: undefined }] })
+                await chamar('Levantamento Casa do João: DP-02 1200 x 1000 temperado 5mm; DP-02 1500 x 1000 branco')
+                expect(itens('Casa do João').map((i) => i.cor_perfil)).toEqual([null, 'Branco'])
+                const escritasAntes = escritasNoEstado().filter((e) => e.tabela !== 'orcamentista_pergunta_em_aberto').length
+                llmResponde({ itens: [{ ordem: 1, cor_perfil: 'Roxo' }] })
+                await chamar('a primeira é roxo')
+                const linhas = ultimoEnviado().split('\n')
+                expect(linhas[0]).toBe(`Esquadria 1: ${PD().fraseDaCorForaDaLista('Roxo', ['Branco', 'Preto'])}`)
+                expect(linhas.slice(1).join('\n')).toContain('vidro')
+                expect(itens('Casa do João').map((i) => i.cor_perfil)).toEqual([null, 'Branco'])
+                expect(escritasNoEstado().filter((e) => e.tabela !== 'orcamentista_pergunta_em_aberto').length).toBe(escritasAntes)
+            })
+
+            it('(c) lista BRANCO, o vendedor escreve "branco": aceita e grava "BRANCO", na grafia da lista', async () => {
+                comPredominante('BRANCO', ['BRANCO'])
+                llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, cor_perfil: 'branco' }] })
+                await chamar('Levantamento Casa do João: DP-02 1200 x 1000, branco, temperado 5mm')
+                expect(itens('Casa do João')[0].cor_perfil).toBe('BRANCO')
+                expect(linhaIa().pop()).not.toContain('cor_padrao=')
+            })
+
+            it('(d) cor não dita, com predominante: continua a predominante, sem pergunta nenhuma', async () => {
+                comPredominante('BRANCO')
+                llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, cor_perfil: undefined }] })
+                await chamar('Levantamento Casa do João: DP-02 1200 x 1000, temperado 5mm')
+                expect(itens('Casa do João')[0].cor_perfil).toBe('Branco')
+                for (const e of enviados()) expect(e).not.toContain('A empresa não trabalha com')
+                expect(linhaIa().pop()).toMatch(/ cor_padrao=1(\s|$)/)
+            })
+
+            it('corDaLista: a cor casa sem caixa e volta na grafia da lista; fora da lista, vazia ou com duas grafias na lista, nula', () => {
+                expect(PD().corDaLista('branco', ['BRANCO'])).toBe('BRANCO')
+                expect(PD().corDaLista('PRETO', CORES_DA_DE_PAULA)).toBe('Preto')
+                expect(PD().corDaLista('Preto', CORES_DA_DE_PAULA)).toBe('Preto')
+                expect(PD().corDaLista('Roxo', ['Branco', 'Preto'])).toBeNull()
+                expect(PD().corDaLista('', ['Branco'])).toBeNull()
+                expect(PD().corDaLista(7, ['Branco'])).toBeNull()
+                expect(PD().corDaLista('branco', ['Branco', 'BRANCO'])).toBeNull()
+                expect(PD().corDaLista('branco', ['Branco', 'Branco'])).toBe('Branco')
+            })
+
+            it('corDitaNaMensagem: todas as palavras da cor estão na mensagem, sem caixa e sem acento; uma palavra a menos não é dita', () => {
+                expect(LM().corDitaNaMensagem('Roxo', 'DP-02, ROXO, temperado')).toBe(true)
+                expect(LM().corDitaNaMensagem('Golden Oak', 'cor golden oak')).toBe(true)
+                expect(LM().corDitaNaMensagem('Marrom Café', 'perfil marrom cafe')).toBe(true)
+                expect(LM().corDitaNaMensagem('Golden Oak', 'cor golden')).toBe(false)
+                expect(LM().corDitaNaMensagem('Roxo', 'roxinho')).toBe(false)
+                expect(LM().corDitaNaMensagem('', 'roxo')).toBe(false)
+                expect(LM().corDitaNaMensagem(null, 'roxo')).toBe(false)
+            })
         })
 
         it('a predominante só entra na esquadria que diz alguma coisa: o item vazio não ganha cor', async () => {
