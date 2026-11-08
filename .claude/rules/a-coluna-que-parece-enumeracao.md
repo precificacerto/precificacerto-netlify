@@ -178,6 +178,25 @@ entre eles), 1 `CLICK` e 2 de aço galvanizado. Sem a guarda, uma esquadria PRET
 código branco — a troca pelo parecido que esta página e a R3 proíbem. Com a empresa só em BRANCO, como
 em produção hoje, a guarda não muda resultado nenhum. Implementada em `levantamento-de-barras.ts`.
 
+## A variante única só serve para a cor que é — dono do produto, 08/11/2026 (substitui a regra e a guarda de 25/10/2026)
+
+Formulação do dono do produto, registrada como está:
+
+> "Perfil com variante única só serve para a cor que ele é, SEMPRE, independente da lista de cores da empresa. Não casando, recusa
+> nomeada. É o erro mais perigoso dos que achamos, porque não trava nada: sai preço e sai produto, errados e silenciosos." E: "CLICK e AÇO
+> GALVANIZADO não são cores. [...] O dado é que tem de dizer a verdade, não o código adivinhar."
+
+- **O defeito:** a guarda acima só recusava a variante única quando ela era cor da LISTA da empresa. Com uma lista sem Branco, o BZ0006 (só
+  em BRANCO) levava o código branco para uma esquadria roxa, sem recusa nenhuma.
+- **Medido no motor da Wolff (`fdff3386`), 08/11/2026:** 120 perfis; **41 de variante única**, dos quais **10 na aba Perfis** (o que a ponte
+  trata): 7 em BRANCO (1317, 1756, 1757, BY60, BZ0006, BZ0010, MF52) e 3 que não são cor — BZ0012 (`CLICK`), 8523 e 8434 (o aço
+  galvanizado). Os outros 31 são insumos escolhidos por condição (a cor dos acessórios, a espessura) e não passam pela ponte.
+- **A regra:** a variante única casa pela cor pedida, como qualquer outra; sem ela, `COR_SEM_CODIGO`. Sem exceção por lista no código
+  (opções rejeitadas: a lista fechada do que não é cor, que poria conhecimento do fornecedor no código; e o critério "aparece como variante de
+  vários", que decide por inferência e erra o MARROM).
+- **O que não é cor é o dado que diz:** o PO limpa a coluna Cor dos três perfis no arquivo do motor; a célula vazia é "sem variante". **Ordem:**
+  o código só entra depois do arquivo corrigido em produção — antes, todo levantamento com arremate interno recusa nomeando o BZ0012.
+
 ## As ressalvas de método — o que a medição NÃO diz
 
 - **Não decide como a ligação avaliador → agrupador trata essas regras.** A ponte entre a cor da
