@@ -2,8 +2,9 @@
 """
 HARNESS do LEVANTAMENTO DE BARRAS — as MUTAÇÕES. NÃO TOCA PRODUÇÃO nem banco nenhum: só jest.
 
-Cada mutação estraga UMA regra em `src/lib/atendimentos-ia/levantamento-de-barras.ts` e roda o portão
-`src/utils/__tests__/levantamento-de-barras.test.ts`. A mutação tem de DERRUBAR pelo menos um CASO
+Cada mutação estraga UMA regra em `src/lib/atendimentos-ia/levantamento-de-barras.ts` e roda os portões
+`src/utils/__tests__/levantamento-de-barras.test.ts` e `levantamento-caso-gerson-boss.test.ts` (08/11/2026: a cor sem caixa e
+o preço que falta). A mutação tem de DERRUBAR pelo menos um CASO
 (`teste-que-nao-exercita.md`). O 5º elemento é um trecho que TEM de aparecer na saída da falha — o nome
 do caso que existe por causa daquela regra. Com `--silent` a saída do jest só lista os casos que
 FALHARAM (medido em 24/10/2026, no harness do avaliador), então o nome exigido discrimina.
@@ -25,21 +26,22 @@ os.chdir(RAIZ)
 
 A = 'src/lib/atendimentos-ia/levantamento-de-barras.ts'
 T = 'src/utils/__tests__/levantamento-de-barras.test.ts'
+T2 = 'src/utils/__tests__/levantamento-caso-gerson-boss.test.ts'
 CONTROLE = 'M0'
 
 # (id, o que estraga, arquivo, [(trecho, troca), ...], trecho exigido na saída) — o trecho tem de aparecer UMA vez
 M = [
- ('M1', 'a cor é ignorada: vale o primeiro código do perfil', A, [("const daCor = distintos(linhas.filter((r) => r.cor === cor).map((r) => r.codigo))", "const daCor = distintos(linhas.map((r) => r.codigo)).slice(0, 1)")], 'VÁRIAS VARIANTES'),
+ ('M1', 'a cor é ignorada: vale o primeiro código do perfil', A, [("const daCor = distintos(daCorLinhas.map((r) => r.codigo))", "const daCor = distintos(linhas.map((r) => r.codigo)).slice(0, 1)")], 'VÁRIAS VARIANTES'),
  ('M2', 'dois códigos: escolhe o primeiro', A, [("if (daCor.length > 1) return { ok: false,", "if (daCor.length > 1) return { ok: true, codigo: daCor[0], origem: 'COR' } as never\n    if (false) return { ok: false,")], 'DOIS CÓDIGOS para o mesmo perfil'),
  ('M3', 'perfil sem variante é recusado', A, [("if (unicos.length === 1) return { ok: true, codigo: unicos[0], origem: 'SEM_VARIANTE' }", "")], 'SEM VARIANTE'),
  ('M4', 'a cor vazia vira coringa ao lado de outras cores', A, [("if (linhas.every((r) => r.cor === null)) {", "if (linhas.some((r) => r.cor === null)) {\n        const linhas2 = linhas.filter((r) => r.cor === null); void linhas2")], 'não é coringa'),
- ('M5', 'a cor é comparada sem caixa', A, [("linhas.filter((r) => r.cor === cor)", "linhas.filter((r) => r.cor?.toUpperCase() === cor)")], 'EXATA'),
+ ('M5', 'a cor volta a ser comparada com a caixa (o defeito do Gerson Boss)', A, [("variante !== null && variante.toUpperCase() === pedida.toUpperCase()", "variante !== null && variante === pedida")], 'qualquer caixa'),
  ('M6', 'perfil sem regra vira o próprio perfil', A, [("    if (!linhas.length) {\n", "    if (!linhas.length) return { ok: true, codigo: perfil, origem: 'COR' }\n    if (false) {\n")], 'PERFIL SEM REGRA'),
  ('M7', 'a quantidade da esquadria não multiplica', A, [("quantidade: p.quantidade * e.quantidade", "quantidade: p.quantidade")], 'multiplica as peças'),
  ('M8', 'a quantidade da esquadria não é validada', A, [("if (!Number.isInteger(e.quantidade) || e.quantidade <= 0) {", "if (false) {")], 'QUANTIDADE DA ESQUADRIA'),
  ('M9', 'cada esquadria em barras próprias', A, [("pecas: prontas.map((b) => ({ codigo: codigoDoPerfil[b.perfil], comprimento_mm", "pecas: prontas.map((b) => ({ codigo: codigoDoPerfil[b.perfil] + (b.esquadria > 1 ? '#' + b.esquadria : ''), comprimento_mm")], 'dividem barra'),
- ('M10', 'item ausente: a peça some calada', A, [("        if (linhas.length === 1) { itemDoCodigo[codigo] = linhas[0]; continue }", "        if (linhas.length === 1) { itemDoCodigo[codigo] = linhas[0]; continue }\n        if (linhas.length === 0) continue")], 'ITEM AUSENTE'),
- ('M11', 'item em duas linhas: vale a primeira', A, [("if (linhas.length === 1) { itemDoCodigo[codigo] = linhas[0]; continue }", "if (linhas.length >= 1) { itemDoCodigo[codigo] = linhas[0]; continue }")], 'duas linhas'),
+ ('M10', 'item ausente: a peça some calada', A, [("        const motivo = linhas.length === 0 ? 'ITEM_AUSENTE'", "        if (linhas.length === 0) continue\n        const motivo = linhas.length === 0 ? 'ITEM_AUSENTE'")], 'ITEM AUSENTE'),
+ ('M11', 'item em duas linhas: vale a primeira', A, [("        if (linhas.length === 1) {\n", "        if (linhas.length >= 1) {\n")], 'duas linhas'),
  ('M12', 'calcula com o que sobrou', A, [("if (parciais.length || 'recusas' in agrupado) return", "if ('recusas' in agrupado) return")], 'NÃO SAI BARRA NENHUMA'),
  ('M13', 'só a primeira recusa sai', A, [("return { ok: false, recusas: juntar(parciais) }", "return { ok: false, recusas: juntar(parciais).slice(0, 1) }")], 'TODAS AS RECUSAS'),
  ('M14', 'a mesma falta sai uma vez por esquadria', A, [("        const g = grupos.find((x) => chave(x.base) === chave(p))", "        const g = undefined as (typeof grupos)[number] | undefined")], 'UMA vez'),
@@ -48,7 +50,7 @@ M = [
  ('M17', 'a esquadria recusada pelo avaliador some calada', A, [("        if ('recusas' in r) {\n", "        if ('recusas' in r) {\n            if (r.recusas.length) return\n")], 'recusa do AVALIADOR'),
  ('M18', 'tipologia sem definição: a esquadria some calada', A, [("        if (!tipologia) {\n", "        if (!tipologia) return\n        if (false) {\n")], 'TIPOLOGIA SEM DEFINIÇÃO'),
  ('M19', 'a recusa do agrupador sem o perfil', A, [("parciais.push({ origem: 'AGRUPADOR', motivo: x.motivo, codigo: x.codigo, perfil, esquadria, texto })", "parciais.push({ origem: 'AGRUPADOR', motivo: x.motivo, codigo: x.codigo, esquadria, texto: x.mensagem })")], 'recusa do AGRUPADOR'),
- ('M20', 'o preço ausente não é nomeado', A, [("if (!Number.isFinite(it.valor_barra_interno as number)) falta.push(", "if (false) falta.push(")], 'PREÇO AUSENTE'),
+ ('M20', 'o preço ausente não recusa: as barras saem (a regra de antes de 08/11/2026)', A, [("            for (const [, nome] of semValor) {", "            for (const [, nome] of semValor.slice(0, 0)) {")], 'PREÇO AUSENTE é RECUSA'),
  ('M21', 'dois códigos sem os valores na frase', A, [("`${c.codigo} (${formatarReais(c.valor_barra_interno)} a barra)`", "`${c.codigo}`")], 'os dois valores'),
  ('M22', 'cor sem código sem as variantes na frase', A, [("as variantes que existem são: ${variantes.join(', ')}", "há outras variantes")], 'VÁRIAS VARIANTES'),
  ('M23', 'a cor da entrada é ignorada: volta a BRANCO fixa', A, [("    const cor = entrada.cor\n", "    const cor = 'BRANCO'\n")], 'PRETO TEXTURADO'),
@@ -59,6 +61,15 @@ M = [
  ('M28', 'a variante única não vale: BZ0012 volta a ser recusa', A, [("        if (!ehCorDaEmpresa(variante, coresDaEmpresa)) return { ok: true, codigo, origem: 'VARIANTE_UNICA' }", "        void ehCorDaEmpresa")], 'VARIANTE ÚNICA'),
  ('M29', 'sem a guarda: a variante única que é cor da empresa vale para outra cor', A, [("if (!ehCorDaEmpresa(variante, coresDaEmpresa)) return", "if (true) return")], 'a GUARDA'),
  ('M30', 'a variante única vale mesmo com várias variantes', A, [("    if (pares.length === 1) {", "    if (pares.length >= 1) {")], 'VÁRIAS VARIANTES'),
+ ('M31', 'a cor compara sem caixa E sem espaço nas pontas', A, [("variante.toUpperCase() === pedida.toUpperCase()", "variante.trim().toUpperCase() === pedida.trim().toUpperCase()")], 'ESPAÇO não é normalizado'),
+ ('M32', 'a cor compara pela forma normalizada (sem acento, espaços juntos)', A, [("variante.toUpperCase() === pedida.toUpperCase()", "normalizarNome(variante) === normalizarNome(pedida)")], 'ESPAÇO não é normalizado'),
+ ('M33', 'a cor casa por parte: "Preto" acha PRETO TEXTURADO', A, [("variante.toUpperCase() === pedida.toUpperCase()", "variante.toUpperCase().includes(pedida.toUpperCase())")], 'a caixa não vira busca por parte'),
+ ('M34', 'duas grafias: vale a primeira', A, [("    if (grafias.length > 1) {\n", "    if (false) {\n")], 'DUAS GRAFIAS'),
+ ('M35', 'o valor da BARRA vazio não é conferido', A, [("[['valor_barra_interno', 'da barra'], ['valor_metro_interno', 'do metro']]", "[['valor_metro_interno', 'do metro']]")], 'valor da BARRA vazio'),
+ ('M36', 'o valor do METRO vazio não é conferido', A, [("[['valor_barra_interno', 'da barra'], ['valor_metro_interno', 'do metro']]", "[['valor_barra_interno', 'da barra']]")], 'METRO vazio'),
+ ('M37', 'zero é tratado como falta', A, [(".filter(([campo]) => !Number.isFinite(it[campo] as number))", ".filter(([campo]) => !it[campo])")], 'ZERO é valor'),
+ ('M38', 'a falta de preço sai só na primeira esquadria', A, [("                for (const esquadria of esquadrias) parciais.push({ origem: 'ITEM', motivo: 'ITEM_SEM_VALOR'", "                for (const esquadria of esquadrias.slice(0, 1)) parciais.push({ origem: 'ITEM', motivo: 'ITEM_SEM_VALOR'")], 'os dois vazios'),
+ ('M39', 'a falta de preço não nomeia o código', A, [("está na tabela de preço sem o valor ${nome}. Falta: o valor ${nome} de ${codigo}.", "está na tabela de preço sem valor.")], 'valor da BARRA vazio'),
  ('M0', 'controle: nada muda', A, [("export", "export")]),
 ]
 
@@ -94,7 +105,7 @@ def principal():
         shutil.copy(arq, arq + '.bak')
         open(arq, 'w', encoding='utf-8').write(novo)
         try:
-            p = subprocess.run(['npx', 'jest', T, '--silent'], capture_output=True, text=True)
+            p = subprocess.run(['npx', 'jest', T, T2, '--silent'], capture_output=True, text=True)
         finally:
             shutil.move(arq + '.bak', arq)
         out = p.stdout + p.stderr

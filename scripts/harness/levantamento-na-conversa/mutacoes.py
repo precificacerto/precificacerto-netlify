@@ -60,7 +60,7 @@ M = [
  ('L29', 'a mão de obra total soma só as que existem', LC, [("const todasCalculadas = maos.length > 0 && maos.every((m) => !('falta' in m))", "const todasCalculadas = maos.some((m) => !('falta' in m))")], 'de UMA esquadria ausente'),
  ('L30', 'cores diferentes no mesmo levantamento passam', LC, [("    if (cores.length > 1) {\n", "    if (false) {\n")], 'CORES DIFERENTES'),
  # 25/10/2026: o que o preço cobre (DEFEITO 2), e a falta que nomeia a cor (R3)
- ('L31', 'a falta de preço não diz a cor', LC, [("`${r.falta_para_o_total.filter((f) => f.total === total).map((f) => `${f.codigo} (${f.perfil})`).join(', ')} em ${d.cor}`", "r.falta_para_o_total.filter((f) => f.total === total).map((f) => `${f.codigo} (${f.perfil})`).join(', ')")], 'PREÇO AUSENTE'),
+ ('L31', 'um total de material nulo chega à mensagem (08/11/2026: nunca preço parcial)', LC, [("    if (t.total_por_barra_inteira === null || t.total_por_consumo_real === null) {\n", "    if (false) {\n")], 'PREÇO AUSENTE NUNCA CHEGA'),
  ('L32', 'a resposta com preço não diz o que ele cobre', LC, [("    linhas.push('', O_QUE_O_PRECO_COBRE)\n", "")], 'o texto inteiro'),
  ('L33', 'o perfil volta a se chamar Material', LC, [("        : `Perfis por barra inteira: ${formatarReais(barra)}.`)", "        : `Material por barra inteira: ${formatarReais(barra)}.`)")], 'o texto inteiro'),
  # as abas do motor vêm do banco; a Fórmulas da tipologia é a fonte e a da família é fallback ROTULADO

@@ -6,8 +6,9 @@
  * ══ PRIMEIRA VERSÃO, PARA VER RODANDO (dono do produto, 25/10/2026) ══
  *   - A COR É A DA PRÉ-DEFINIÇÃO (`cor_perfil`), desde a rodada do preço na conversa. A conversa só a
  *     aceita da lista `cores` da base de conhecimento (Perfil), EXATA (`lerCoresDaEmpresa`), e aqui
- *     ela é comparada exata com a coluna `cor` do motor: cor que o motor não tem para um perfil é
- *     recusa nomeada, com o perfil, a cor e as variantes que existem;
+ *     ela é comparada com a coluna `cor` do motor SEM CAIXA, e só sem caixa (08/11/2026,
+ *     `levantamento-de-barras.ts`): cor que o motor não tem para um perfil é recusa nomeada, com o
+ *     perfil, a cor e as variantes que existem;
  *   - só as escolhas que a conversa captura (`escolhas-da-tipologia.ts`: ARI, ARE e MAE desde
  *     25/10/2026), gravadas em `orcamentista_pre_definicao.escolhas`; as outras variáveis ficam no
  *     Padrão, e a mensagem diz quais foram escolhidas. Sem escolha nenhuma, a DP-02 é recusada: o
@@ -495,7 +496,7 @@ export const FRASE_SEM_CORES = 'Ainda não consigo anotar a cor do perfil: a bas
 /**
  * As cores da empresa: a lista `cores` da categoria PERFIL, de todas as matérias-primas, sem repetição
  * e na ordem em que aparecem. EXATAS, como estão gravadas — é contra elas que a cor do perfil é
- * validada, e é com elas que o motor é lido.
+ * validada; o motor é lido por elas SEM CAIXA (08/11/2026: a lista diz "Branco", o motor "BRANCO").
  */
 export async function lerCoresDaEmpresa(tenantId: string): Promise<string[]> {
     return (await lerPerfilDaEmpresa(tenantId)).cores
@@ -607,23 +608,18 @@ export function fraseDoLevantamento(
     linhas.push(t.aproveitamento_pct === null
         ? 'Aproveitamento do levantamento: não há peça para aproveitar.'
         : `Aproveitamento do levantamento: ${numeroBR(t.aproveitamento_pct, 1)}% (${numeroBR(t.metros_uteis, 2)} m úteis de ${numeroBR(t.metros_comprados, 2)} m comprados).`)
-    // R3: o código E a cor que faltam — nunca a soma do que deu
-    const faltaDo = (total: 'total_por_barra_inteira' | 'total_por_consumo_real') =>
-        `${r.falta_para_o_total.filter((f) => f.total === total).map((f) => `${f.codigo} (${f.perfil})`).join(', ')} em ${d.cor}`
-
+    // FALTOU PREÇO, NADA EVOLUI (08/11/2026): o item sem valor é recusa em `levantarBarras`, e o levantamento sem um dos totais nunca
+    // chega aqui. Se chegar, é defeito do código — e o erro vira FALHA_NO_CALCULO, nunca um preço parcial na mensagem
+    if (t.total_por_barra_inteira === null || t.total_por_consumo_real === null) {
+        throw new Error('levantamento sem um dos totais de material: o item sem valor devia ter sido recusado em levantarBarras')
+    }
     // ao centavo ANTES de virar diferença ou soma: a conta refeita com os números da mensagem bate
-    const barra = t.total_por_barra_inteira === null ? null : centavos(t.total_por_barra_inteira)
-    const consumo = t.total_por_consumo_real === null ? null : centavos(t.total_por_consumo_real)
+    const barra = centavos(t.total_por_barra_inteira)
+    const consumo = centavos(t.total_por_consumo_real)
     linhas.push('')
-    linhas.push(barra === null
-        ? `Perfis por barra inteira: não sai — falta o valor da barra de ${faltaDo('total_por_barra_inteira')}.`
-        : `Perfis por barra inteira: ${formatarReais(barra)}.`)
-    linhas.push(consumo === null
-        ? `Perfis por consumo real: não sai — falta o valor do metro de ${faltaDo('total_por_consumo_real')}.`
-        : `Perfis por consumo real: ${formatarReais(consumo)}.`)
-    linhas.push(barra === null || consumo === null
-        ? `Diferença entre os dois: não sai — falta o ${barra === null ? 'total por barra inteira' : 'total por consumo real'}.`
-        : `Diferença entre os dois: ${formatarReais(centavos(barra - consumo))}.`)
+    linhas.push(`Perfis por barra inteira: ${formatarReais(barra)}.`)
+    linhas.push(`Perfis por consumo real: ${formatarReais(consumo)}.`)
+    linhas.push(`Diferença entre os dois: ${formatarReais(centavos(barra - consumo))}.`)
     // uma mão de obra ausente derruba a total: somar as que existem seria calcular com o que sobrou
     const todasCalculadas = maos.length > 0 && maos.every((m) => !('falta' in m))
     const maoDeObraTotal = todasCalculadas ? centavos(maos.reduce((s, m) => s + ('falta' in m ? 0 : m.total), 0)) : null
@@ -632,14 +628,12 @@ export function fraseDoLevantamento(
         maos.forEach((m, i) => linhas.push(linhaDaMaoDeObra(`Mão de obra da esquadria ${d.esquadrias[i]?.numero ?? i + 1}`, m)))
         linhas.push(maoDeObraTotal === null ? 'Mão de obra total: não sai — falta a mão de obra de uma esquadria.' : `Mão de obra total: ${formatarReais(maoDeObraTotal)}.`)
     }
-    const comMaoDeObra = (rotulo: string, material: number | null, nomeDoMaterial: string) => {
-        if (maoDeObraTotal === null) return `${rotulo} (perfis + mão de obra): não sai — falta a mão de obra.`
-        if (material === null) return `${rotulo} (perfis + mão de obra): não sai — falta o ${nomeDoMaterial}.`
-        return `${rotulo} (perfis + mão de obra): ${formatarReais(centavos(material + maoDeObraTotal))}.`
-    }
+    const comMaoDeObra = (rotulo: string, material: number) => (maoDeObraTotal === null
+        ? `${rotulo} (perfis + mão de obra): não sai — falta a mão de obra.`
+        : `${rotulo} (perfis + mão de obra): ${formatarReais(centavos(material + maoDeObraTotal))}.`)
     linhas.push('')
-    linhas.push(comMaoDeObra('Total por barra inteira', barra, 'valor dos perfis por barra inteira'))
-    linhas.push(comMaoDeObra('Total por consumo real', consumo, 'valor dos perfis por consumo real'))
+    linhas.push(comMaoDeObra('Total por barra inteira', barra))
+    linhas.push(comMaoDeObra('Total por consumo real', consumo))
     if (!bloco) linhas.push('', O_QUE_O_PRECO_COBRE)
     if (r.avisos.length) {
         linhas.push('', 'Atenção:')
@@ -678,7 +672,7 @@ export type ResumoDoCalculo = {
     pecas: number | null
     barras: number | null
     codigos: number | null
-    /** Códigos sem um dos valores da tabela de preço (o total afetado não sai). */
+    /** Códigos sem um dos valores da tabela de preço: 0 no levantamento que fecha — sem preço, nada fecha (08/11/2026). */
     semPreco: number | null
     maoDeObra: 'ok' | 'falta' | 'sem_calculo' | null
     faltou: string[]
@@ -765,16 +759,16 @@ export async function mensagemDoLevantamento(
     if (recusadas.length) return rotulado(recusa(recusadas, calculos.flatMap((c) => ('faltas' in c ? c.codigos : []))))
 
     const fechados = calculos as Array<Exclude<CalculoDaFamilia, { faltas: unknown }>>
-    // o resumo para o log: o que foi cortado, comprado e o que ficou sem preço ou sem mão de obra — nunca o valor
+    // o resumo para o log: o que foi cortado, comprado e o que ficou sem mão de obra — nunca o valor. Sem preço, nada fecha (08/11/2026):
+    // o código sem valor sai em `faltou` da recusa (`e1:ITEM_SEM_VALOR:1023`), e no levantamento que fecha `semPreco` é 0
     const calculados = fechados.filter((c): c is Extract<CalculoDaFamilia, { r: unknown }> => 'r' in c)
     const soma = (f: (c: (typeof calculados)[number]) => number) => (calculados.length ? calculados.reduce((t, c) => t + f(c), 0) : null)
-    const semPreco = calculados.flatMap((c) => [...new Set(c.r.falta_para_o_total.map((x) => x.codigo))])
     const semMao = calculados.flatMap((c) => c.maos.flatMap((m, k) => ('falta' in m ? [`e${c.d.esquadrias[k].numero}:SEM_MAO_DE_OBRA:${c.d.esquadrias[k].tipologia}`] : [])))
-    const etapa = resumo([...semPreco.map((x) => `SEM_PRECO:${x}`), ...semMao], {
+    const etapa = resumo(semMao, {
         pecas: soma((c) => c.r.esquadrias.reduce((t, e) => t + e.pecas.reduce((u, p) => u + p.quantidade, 0), 0)),
         barras: soma((c) => c.r.total.n_barras),
         codigos: soma((c) => c.r.por_codigo.length),
-        semPreco: calculados.length ? semPreco.length : null,
+        semPreco: calculados.length ? 0 : null,
         maoDeObra: calculados.length === 0 ? 'sem_calculo' : semMao.length ? 'falta' : 'ok',
     })
     const textoDe = (c: (typeof fechados)[number], bloco: { titulo: string; cobertura: false; numerar: true } | null) =>

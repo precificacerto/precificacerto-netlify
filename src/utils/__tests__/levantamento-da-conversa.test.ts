@@ -750,16 +750,23 @@ describe('(5) a mensagem do levantamento', () => {
         expect(M().fraseDoLevantamento(DADOS, resultadoQueFecha(), [MAO_DE_OBRA])).toBe(TEXTO_QUE_FECHA)
     })
 
-    it('PREÇO AUSENTE: o total que não sai diz qual código falta, e a diferença e o total com mão de obra também não saem — nunca R$ 0,00', () => {
+    it('PREÇO AUSENTE NUNCA CHEGA À MENSAGEM (08/11/2026): um total de material nulo é defeito, e a frase LANÇA — nunca um preço parcial', () => {
         const r = resultadoQueFecha()
-        const semBarra = { ...r, total: { ...r.total, total_por_barra_inteira: null as number | null }, falta_para_o_total: [{ codigo: '9641', perfil: 'HF88/WOLFF', falta: 'valor_barra_interno' as const, total: 'total_por_barra_inteira' as const, mensagem: '' }] }
-        const texto = M().fraseDoLevantamento(DADOS, semBarra, [MAO_DE_OBRA])
-        expect(texto).toContain('Perfis por barra inteira: não sai — falta o valor da barra de 9641 (HF88/WOLFF) em BRANCO.')
-        expect(texto).toContain('Diferença entre os dois: não sai — falta o total por barra inteira.')
-        expect(texto).toContain('Total por barra inteira (perfis + mão de obra): não sai — falta o valor dos perfis por barra inteira.')
-        // o outro critério continua saindo inteiro
-        expect(texto).toContain('Total por consumo real (perfis + mão de obra): R$ 868,44.')
-        expect(texto).not.toContain('R$ 0,00')
+        for (const campo of ['total_por_barra_inteira', 'total_por_consumo_real'] as const) {
+            const semUm = { ...r, total: { ...r.total, [campo]: null as number | null } }
+            expect(() => M().fraseDoLevantamento(DADOS, semUm, [MAO_DE_OBRA])).toThrow('levantamento sem um dos totais de material')
+        }
+    })
+
+    it('PREÇO AUSENTE na conversa: o item sem o valor do metro RECUSA o levantamento inteiro, nomeando o código e o perfil, e nenhum R$ sai', async () => {
+        const item = banco.db.orcamentista_tabela_item.find((i) => i.codigo === '9641')!
+        item.valor_metro_interno = null
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
+        const r = await M().mensagemDoLevantamento(TENANT, t, lev({ escolhas: { ARI: 4, ARE: 1, MAE: 2 } }))
+        expect(r.desfecho).toBe('recusou')
+        expect(r.texto).toContain('• O código 9641 (perfil HF88/WOLFF) está na tabela de preço sem o valor do metro. Falta: o valor do metro de 9641.')
+        expect(r.texto).not.toMatch(/R\$/)
+        expect(r.etapa?.faltou).toEqual(['e1:ITEM_SEM_VALOR:9641'])
     })
 
     it('MÃO DE OBRA AUSENTE: a linha diz o que falta, e os totais com mão de obra NÃO saem — o material sai', () => {
@@ -917,7 +924,7 @@ describe('(7) a MÃO DE OBRA — o mesmo caminho da tela de produto, com os núm
     })
 })
 
-describe('(8) a COR é a da pré-definição, comparada exata com a coluna cor do motor', () => {
+describe('(8) a COR é a da pré-definição, comparada SEM CAIXA (e só sem caixa) com a coluna cor do motor', () => {
     it('em BRANCO, a DP-02 fecha — e o cabeçalho diz BRANCO', async () => {
         const t = await M().lerFamiliasDaEmpresa(TENANT)
         const r = await M().mensagemDoLevantamento(TENANT, t, lev({ escolhas: { ARI: 4, ARE: 1, MAE: 2 } }))
@@ -932,11 +939,11 @@ describe('(8) a COR é a da pré-definição, comparada exata com a coluna cor d
         expect(r.texto).toContain('• O perfil HF88/WOLFF não tem código para a cor PRETO TEXTURADO na tabela do fornecedor; as variantes que existem são: BRANCO. Falta: o código de HF88/WOLFF em PRETO TEXTURADO.')
     })
 
-    it('"Branco" não é BRANCO: a caixa diferente é recusada, não normalizada', async () => {
+    it('"Branco" (a grafia da lista da base) casa com BRANCO do motor — o defeito do “Gerson Boss”, 08/11/2026: o mesmo levantamento, com o cabeçalho na grafia gravada', async () => {
         const t = await M().lerFamiliasDaEmpresa(TENANT)
         const r = await M().mensagemDoLevantamento(TENANT, t, lev({ cor_perfil: 'Branco', escolhas: { ARI: 4, ARE: 1, MAE: 2 } }))
-        expect(r.desfecho).toBe('recusou')
-        expect(r.texto).toContain('não tem código para a cor Branco')
+        expect(r.desfecho).toBe('levantou')
+        expect(semEtapa(r).texto).toBe(TEXTO_QUE_FECHA.replace('perfil BRANCO', 'perfil Branco'))
     })
 
     it('SEM COR na pré-definição: a recusa diz que falta a cor do perfil', async () => {

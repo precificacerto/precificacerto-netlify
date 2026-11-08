@@ -96,7 +96,7 @@ describe('(a) o caso real: “Gerson Boss”, perfil Branco, DP-39 2.500 x 2.200
         expect(r.recusas.filter((x) => x.origem === 'CODIGO')).toEqual([])
         expect(r.recusas.map((x) => [x.origem, x.motivo, x.codigo, x.perfil, x.esquadrias])).toEqual([['ITEM', 'ITEM_AUSENTE', '1023', '1023/WOLFF', [1]]])
         // a referência do fornecedor E a interna, para achar e corrigir o cadastro
-        expect(r.recusas[0].mensagem).toBe('Esquadria 1 (DP-39): o código 1023 (perfil 1023/WOLFF) não está na tabela de preço. Falta: o item 1023, com a barra e o valor.')
+        expect(r.recusas[0].mensagem).toBe('Esquadria 1: o código 1023 (perfil 1023/WOLFF) não está na tabela de preço. Falta: o item 1023, com a barra e o valor.')
     })
 
     it('cada perfil cortado vira o código BRANCO da tabela — e nenhum outro (com o 1023 posto à mão, só para ver a ponte inteira)', () => {
@@ -184,13 +184,13 @@ describe('(d) FALTOU PREÇO, NADA EVOLUI (dono do produto, 08/11/2026)', () => {
         const r = LB().levantarBarras(entrada('Branco', com1023(null, 2)))
         if (!('recusas' in r)) throw new Error('saiu levantamento com preço faltando')
         expect(r.recusas.map((x) => [x.origem, x.motivo, x.codigo, x.perfil, x.esquadrias])).toEqual([['ITEM', 'ITEM_SEM_VALOR', '1023', '1023/WOLFF', [1]]])
-        expect(r.recusas[0].mensagem).toBe('Esquadria 1 (DP-39): o código 1023 (perfil 1023/WOLFF) está na tabela de preço sem o valor da barra. Falta: o valor da barra de 1023.')
+        expect(r.recusas[0].mensagem).toBe('Esquadria 1: o código 1023 (perfil 1023/WOLFF) está na tabela de preço sem o valor da barra. Falta: o valor da barra de 1023.')
     })
 
     it('o valor do METRO vazio também recusa, nomeando o metro', () => {
         const r = LB().levantarBarras(entrada('Branco', com1023(10, null)))
         if (!('recusas' in r)) throw new Error('saiu levantamento com preço faltando')
-        expect(r.recusas.map((x) => x.mensagem)).toEqual(['Esquadria 1 (DP-39): o código 1023 (perfil 1023/WOLFF) está na tabela de preço sem o valor do metro. Falta: o valor do metro de 1023.'])
+        expect(r.recusas.map((x) => x.mensagem)).toEqual(['Esquadria 1: o código 1023 (perfil 1023/WOLFF) está na tabela de preço sem o valor do metro. Falta: o valor do metro de 1023.'])
     })
 
     it('os dois vazios: as duas faltas, e o perfil que aparece nas duas esquadrias leva as duas', () => {

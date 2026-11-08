@@ -128,7 +128,6 @@ describe('(1) a DP-02 em BRANCO, de ponta a ponta', () => {
         expect(doCodigo(r, '9681').perfil).toBe('SF66/WOLFF')
         // e nenhum código WVetro chega ao agrupador
         expect(r.por_codigo.some((c) => c.codigo.includes('/WOLFF'))).toBe(false)
-        expect(r.falta_para_o_total).toEqual([])
     })
 
     it('a esquadria sai com as peças DELA, cada uma com o perfil e o código do item', () => {
@@ -256,12 +255,14 @@ describe('(4) o código do item: um valor por código', () => {
         expect(c.recusa.variantes).toEqual(['(vazia)', 'PRETO'])
     })
 
-    it('a cor é comparada EXATA: "Branco" não casa com BRANCO — e, sendo cor da empresa, a variante única não vale', () => {
-        const regras = [{ codigo: 'Q1', codigo_wvetro: 'Q/WOLFF', cor: 'Branco' }]
+    it('a cor é comparada SEM CAIXA, e só sem caixa (08/11/2026): "Branco" casa com BRANCO; "Branco " e "Brancos" não', () => {
+        const regras = [{ codigo: 'Q1', codigo_wvetro: 'Q/WOLFF', cor: 'Branco' }, { codigo: 'Q2', codigo_wvetro: 'Q/WOLFF', cor: 'PRETO' }]
         const c = L().codigoDaPeca('Q/WOLFF', 'BRANCO', regras, CORES)
-        if (!('recusa' in c)) throw new Error('era para recusar, e saiu ' + c.codigo)
-        expect(c.recusa.motivo).toBe('COR_SEM_CODIGO')
-        expect(c.recusa.variantes).toEqual(['Branco'])
+        expect('recusa' in c ? c.recusa.mensagem : c.codigo).toBe('Q1')
+        for (const cor of ['BRANCO ', 'BRANCOS', 'BRANCÓ']) {
+            const x = L().codigoDaPeca('Q/WOLFF', cor, regras, CORES)
+            expect([cor, 'recusa' in x ? x.recusa.motivo : x.codigo]).toEqual([cor, 'COR_SEM_CODIGO'])
+        }
     })
 
     it('PERFIL SEM REGRA: recusa nomeando o perfil', () => {
@@ -285,14 +286,11 @@ describe('(5) o item da tabela de preço', () => {
         expect(r.recusas.map((x) => [x.motivo, x.codigo])).toEqual([['ITEM_EM_DUAS_LINHAS', '9641']])
     })
 
-    it('PREÇO AUSENTE: as barras saem, o total daquele valor sai NULL, e a falta é nomeada', () => {
+    it('PREÇO AUSENTE é RECUSA (dono do produto, 08/11/2026 — antes, as barras saíam com o total NULL): nenhuma barra sai, e a falta nomeia o código e o perfil', () => {
         const itens = ITENS.map((i) => (i.codigo === '9641' ? { ...i, valor_barra_interno: null } : i))
-        const r = ok([esquadria()], { itens })
-        expect(r.total.n_barras).toBe(9)
-        expect(r.total.total_por_barra_inteira).toBeNull()
-        expect(r.total.total_por_consumo_real).toBeCloseTo(829.7932204, 6)
-        expect(r.falta_para_o_total.map((f) => [f.codigo, f.perfil, f.falta, f.total])).toEqual([['9641', 'HF88/WOLFF', 'valor_barra_interno', 'total_por_barra_inteira']])
-        expect(r.falta_para_o_total[0].mensagem).toContain('9641')
+        const r = recusado([esquadria()], { itens })
+        expect(r.recusas.map((x) => [x.origem, x.motivo, x.codigo, x.perfil])).toEqual([['ITEM', 'ITEM_SEM_VALOR', '9641', 'HF88/WOLFF']])
+        expect(r.recusas[0].mensagem).toBe('Esquadria 1: o código 9641 (perfil HF88/WOLFF) está na tabela de preço sem o valor da barra. Falta: o valor da barra de 9641.')
     })
 
     it('a recusa do AGRUPADOR sai com o perfil: peça maior que a barra', () => {
