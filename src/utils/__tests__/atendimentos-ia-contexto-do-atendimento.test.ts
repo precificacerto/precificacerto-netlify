@@ -123,6 +123,23 @@ describe('(1) o filtro da fala: número em qualquer forma derruba; o resto passa
         expect(S().falaValida(fala)).toEqual({ fala: null, motivo: 'numero' })
     })
 
+    it.each([
+        ['a frase real de produção', 'Levantamento do Renan Bauer em montagem. Valor só sai do cálculo do sistema, depois do levantamento fechado.'],
+        ['a variante "iniciado"', 'Levantamento do Gerson Boss iniciado. Valor só sai do cálculo do sistema, depois do levantamento fechado.'],
+        ['preço sem acento e em caixa alta', 'O PRECO sai depois.'],
+        ['orçamento', 'Já já o orçamento fica pronto.'],
+        ['custa', 'Quanto custa a gente vê depois.'],
+        ['cálculo', 'O cálculo é do sistema.'],
+    ])('a fala que fala de VALOR cai (08/11/2026) — %s', (_caso, fala) => {
+        expect(S().falaValida(fala)).toEqual({ fala: null, motivo: 'sobre_valor' })
+    })
+
+    it('a palavra só PARECIDA não cai: "valorizar", "precisa", "custom", "calculista" e "apreço" não são valor', () => {
+        for (const fala of ['Vamos valorizar a fachada.', 'Precisa de mais alguma coisa?', 'Ficou bem custom.', 'O calculista da obra já viu.', 'Obrigada pelo apreço.']) {
+            expect(S().falaValida(fala)).toEqual({ fala, motivo: 'usada' })
+        }
+    })
+
     it('a fala SEM número passa, inteira e sem os espaços das pontas', () => {
         expect(S().falaValida('  Perfeito, anotei o seu levantamento! Confere comigo?  ')).toEqual({ fala: 'Perfeito, anotei o seu levantamento! Confere comigo?', motivo: 'usada' })
     })

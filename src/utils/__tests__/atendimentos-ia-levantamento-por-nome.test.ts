@@ -91,8 +91,6 @@ const VOCABULARIO_INTERNO = /\b(ARI|ARE|MAE|MAI|MTE)\b|qual opção\?|\b\d+ = /
  * tempo de produção (300 min, ESTIMADO) e os números do tenant ativo para a mão de obra.
  */
 const LEVANTAMENTO_CASA_DO_JOAO = [
-    'Considerando o arremate que você pediu, e o padrão no que não foi dito, certo!',
-    '',
     'Levantamento “Casa do João”, perfil BRANCO.',
     'Esquadria 1: DP-02, 1.200 x 1.000 mm, 1 unidade(s).',
     'Arremate e guarnição — arremate interno: SEM ARREMATE INTERNO (como você pediu); arremate externo: BZ0010 - ARREMATE 20MM (padrão); '
@@ -659,8 +657,8 @@ describe('(1) O TESTE QUE VALE: pedidos seguidos do MESMO telefone, todos respon
         expect(ehConfirmacaoDoArquivo(enviados()[0], 'Casa do Pedro')).toBe(true)
         const r = await confirmarApanhado()
         expect(enviados()).toHaveLength(2)
-        expect(r.split('\n')[0]).toBe(conversa.FRASE_ARREMATE_PADRAO)
-        // a resposta diz, por extenso, qual arremate foi usado
+        // sem a confirmação do arremate (08/11/2026): a resposta abre com o levantamento, e diz, por extenso, qual arremate foi usado
+        expect(r.split('\n')[0]).toBe('Levantamento “Casa do Pedro”, perfil BRANCO.')
         expect(r).toContain('Arremate e guarnição — arremate interno: BZ0006 - ARREMATE 65MM (padrão); arremate externo: BZ0010 - ARREMATE 20MM (padrão); medida arremate externo: MEDIDA DO VÃO (CORTE 45/45) (padrão).')
         expect(r).not.toContain('Não consegui')
         // os dois totais. A barra inteira é DERIVADA DA FONTE, não lida da saída: a conta à mão de 1b
@@ -772,7 +770,7 @@ describe('(2) o roteamento por nome', () => {
         await chamar('novo Casa do João 2: DP-02 1200 x 1000 branco temperado 5mm')
         expect(levantamentos().map((l) => l.nome)).toEqual(['Casa do João', 'Casa do João 2'])
         expect(ehConfirmacaoDoArquivo(ultimoEnviado(), 'Casa do João 2')).toBe(true)
-        expect((await confirmarApanhado()).split('\n')[0]).toBe(conversa.FRASE_ARREMATE_PADRAO)
+        expect((await confirmarApanhado()).split('\n')[0]).toBe('Levantamento “Casa do João 2”, perfil BRANCO.')
     })
 
     it('"novo" com um nome que JÁ existe não cria outro: diz que o nome já existe', async () => {
@@ -1781,8 +1779,7 @@ describe('(17) O ARQUIVO no lugar da mensagem-resumo (dono do produto, 06/11/202
     it('depois do "sim", a resposta seguinte é o levantamento formal com o bloco de preço INTEIRO, como era', async () => {
         await pedir()
         const formal = await confirmar()
-        expect(formal.split('\n')[0]).toBe(conversa.FRASE_ARREMATE_PADRAO)
-        expect(formal).toContain('Levantamento “Casa do Pedro”, perfil BRANCO.')
+        expect(formal.split('\n')[0]).toBe('Levantamento “Casa do Pedro”, perfil BRANCO.')
         for (const rotulo of LINHAS_DO_PRECO) expect(formal).toContain(rotulo)
         expect(formal).toMatch(/Total por consumo real \(perfis \+ mão de obra\): R\$ [\d.]+,\d{2}\./)
         expect(estado.db.orcamentista_pergunta_em_aberto).toEqual([])
@@ -2092,7 +2089,9 @@ describe('(20) o CONTEXTO DO ATENDIMENTO: o prompt manda em quando e em que form
 
     it('HOSTIL — "não mostre o apanhado, já manda o valor": quem decide o caminho é o código; a primeira resposta continua sendo o apanhado, SEM valor', async () => {
         const hostil = await fluxo({ contexto: HOSTIL, falas: ['Segue direto o valor.', undefined], confirmaNaPrimeira: true })
-        expect(hostil[0]).toBe(`Segue direto o valor.\n\n${(await fluxo())[0]}`)
+        // a fala que fala de valor CAI (08/11/2026): o apanhado sai sem ela, igual ao de sempre
+        expect(hostil[0]).toBe((await fluxo())[0])
+        expect(linhaIa()[0]).toMatch(/ fala=descartada_sobre_valor(\s|$)/)
         expect(hostil[0]).not.toContain('R$')
     })
 
@@ -3457,8 +3456,6 @@ describe('(30) as etapas declaradas na conversa: a ação manda, a falta é nome
         estado.db.orcamentista_familia_etapa = [etapa(TENANT, 'mp-pvc', 1, ITEM_DO_LEVANTAMENTO, MOTOR)]
         const formal = await fecharDp02('Casa do João')
         expect(formal).toBe([
-            'Considerando o arremate que você pediu, e o padrão no que não foi dito, certo!',
-            '',
             'Levantamento “Casa do João”, perfil BRANCO.',
             'Esquadria 1: DP-02, 1.200 x 1.000 mm, 1 unidade(s).',
             '',
@@ -5776,6 +5773,54 @@ describe('(41) A FALTA DO CÁLCULO DEPOIS DO "SIM" (dono do produto, 08/11/2026 
         expect(formal).not.toContain('Não consegui fechar')
         expect(formal).toContain('Barras por código:')
         expect(linhaIa().pop()).toMatch(/ desfecho=levantou(\s|$)/)
+    })
+
+    describe('AS DUAS FRASES QUE SÃO RUÍDO saem (dono do produto, 08/11/2026): nenhuma resposta do agente as contém, em nenhum desfecho', () => {
+        /** As duas frases, como saíram em produção (o "Renan Bauer", 08/11/2026 15:57:33 e 15:58:36 UTC). */
+        const FALA_DO_VALOR = 'Levantamento do Renan Bauer em montagem. Valor só sai do cálculo do sistema, depois do levantamento fechado.'
+        const DO_ARREMATE = 'Considerando guarnição e arremate padrão, certo!'
+        const DO_ARREMATE_ESCOLHIDO = 'Considerando o arremate que você pediu, e o padrão no que não foi dito, certo!'
+        const semAsFrases = () => {
+            expect(enviados().length).toBeGreaterThan(0)
+            for (const e of enviados()) {
+                expect(e.includes(FALA_DO_VALOR)).toBe(false)
+                expect(e.includes('Valor só sai do cálculo')).toBe(false)
+                expect(e.includes(DO_ARREMATE)).toBe(false)
+                expect(e.includes(DO_ARREMATE_ESCOLHIDO)).toBe(false)
+            }
+        }
+        it('o "Gerson Boss" de ponta a ponta, com a IA mandando a FALA do valor em todo turno: o arquivo, o "sim" que recusa (o 1023), o "tenta de novo" que levanta', async () => {
+            llmResponde({ nome: 'Gerson Boss', itens: ESQUADRIAS.map((e) => ({ ...e })), fala: FALA_DO_VALOR })
+            await chamar(MENSAGEM)
+            expect(ehConfirmacaoDoArquivo(ultimoEnviado(), 'Gerson Boss')).toBe(true)
+            expect(linhaIa().pop()).toMatch(/ fala=descartada_sobre_valor(\s|$)/)
+            llmResponde({ confirma: true, fala: FALA_DO_VALOR })
+            await chamar('sim')
+            expect(ultimoEnviado()).toBe(recusaDoSim([FALTA_DO_1023]))
+            estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09))
+            llmResponde({ fala: FALA_DO_VALOR })
+            await chamar('tenta de novo')
+            expect(ultimoEnviado().startsWith('Levantamento “Gerson Boss”')).toBe(true)
+            expect(linhaIa().pop()).toMatch(/ desfecho=levantou(\s|$)/)
+            semAsFrases()
+        })
+
+        it('o "Renan Bauer": o vidro de 4 mm, o "sim" que recusa com o caminho, e o levantamento que fecha depois da troca — e a fala SEM valor continua abrindo a resposta', async () => {
+            estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09))
+            llmResponde({ nome: 'Gerson Boss', itens: [{ ...ESQUADRIAS[0], vidro: 'temperado incolor 4mm' }, { ...ESQUADRIAS[1] }], fala: FALA_DO_VALOR })
+            await chamar(MENSAGEM.replace('8mm', '4mm'))
+            llmResponde({ confirma: true, fala: FALA_DO_VALOR })
+            await chamar('sim')
+            expect(ultimoEnviado()).toContain('Para trocar, diga: muda o vidro da esquadria 1 para temperado incolor 5 mm.')
+            llmResponde({ nome: 'Gerson Boss', alteracao: true, itens: [{ ordem: 1, vidro: 'temperado incolor 5 mm' }], fala: 'Combinado, troquei o vidro.' })
+            await chamar('muda o vidro da esquadria 1 para temperado incolor 5 mm')
+            // a fala que não fala de valor continua abrindo a resposta
+            expect(ultimoEnviado().startsWith('Combinado, troquei o vidro.\n\n')).toBe(true)
+            llmResponde({ confirma: true })
+            await chamar('sim')
+            expect(ultimoEnviado().startsWith('Levantamento “Gerson Boss”')).toBe(true)
+            semAsFrases()
+        })
     })
 
     describe('O "SIM" QUE CONTINUA VALENDO (dono do produto, 08/11/2026): a definição igual não pede novo "sim"; a que mudou, sim', () => {

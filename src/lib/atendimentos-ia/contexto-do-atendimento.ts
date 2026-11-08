@@ -84,7 +84,15 @@ export const temNumero = (t: string) => SIMBOLO_DE_DINHEIRO.test(t) || QUALQUER_
 /** Só DINHEIRO: símbolo, palavra de dinheiro, centenas e grandezas por extenso. O dígito solto não conta. */
 export const temDinheiro = (t: string) => SIMBOLO_DE_DINHEIRO.test(t) || PALAVRA_DE_DINHEIRO.test(semAcento(t))
 
-export type FalaLida = { fala: string; motivo: 'usada' } | { fala: null; motivo: 'ausente' | 'longa' | 'numero' }
+export type FalaLida = { fala: string; motivo: 'usada' } | { fala: null; motivo: 'ausente' | 'longa' | 'numero' | 'sobre_valor' }
+
+/**
+ * A fala que fala de VALOR cai (dono do produto, 08/11/2026): "Levantamento do <nome> em montagem. Valor só sai do cálculo do sistema, depois
+ * do levantamento fechado." — o modelo a escrevia a cada turno, ecoando a regra de NUNCA do prompt base e o contexto da empresa ("o valor sai
+ * do cálculo do sistema…"). Não informa nada que o vendedor precise: o vendedor não precisa ser lembrado de como o sistema funciona a cada
+ * turno. Valor, preço, custo, cálculo e orçamento, sem caixa e sem acento.
+ */
+const SOBRE_VALOR = /\b(valor|valores|preco|precos|custo|custos|custa|custam|calculo|calculos|orcamento|orcamentos)\b/
 
 /** A fala que pode abrir a resposta: até 600 caracteres e sem número. Acima do limite cai INTEIRA — nunca é cortada. */
 export function falaValida(v: unknown): FalaLida {
@@ -92,5 +100,6 @@ export function falaValida(v: unknown): FalaLida {
     if (t === '') return { fala: null, motivo: 'ausente' }
     if (contarCaracteres(t) > LIMITE_DA_FALA) return { fala: null, motivo: 'longa' }
     if (temNumero(t)) return { fala: null, motivo: 'numero' }
+    if (SOBRE_VALOR.test(semAcento(t).toLowerCase())) return { fala: null, motivo: 'sobre_valor' }
     return { fala: t, motivo: 'usada' }
 }
