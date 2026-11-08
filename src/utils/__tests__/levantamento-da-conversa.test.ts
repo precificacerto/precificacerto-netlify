@@ -703,6 +703,23 @@ describe('(2) o tempo de fabricação — da tabela própria, orcamentista_motor
         banco.ausentes.add('orcamentista_motor_tipologia_tempo')
         expect(await M().tempoDeFabricacao(MOTOR, 'DP-02')).toEqual({ ausente: true })
     })
+
+    it('a linha com o tempo VAZIO não é tempo: null, nunca zero', async () => {
+        banco.db.orcamentista_motor_tipologia_tempo[0].tempo_fabricacao_min = null
+        expect(await M().tempoDeFabricacao(MOTOR, 'DP-02')).toBeNull()
+    })
+
+    it('DOIS tempos para a mesma tipologia no mesmo motor: erro do banco — nunca a escolha de um (a leitura de antes, maybeSingle, também lançava)', async () => {
+        banco.db.orcamentista_motor_tipologia_tempo.push({ tabela_id: null, motor_id: MOTOR, tipologia: 'DP-02', tempo_fabricacao_min: 999, tempo_origem: 'ESTIMADO' })
+        await expect(M().tempoDeFabricacao(MOTOR, 'DP-02')).rejects.toThrow('a tipologia DP-02 tem mais de um tempo no motor')
+    })
+
+    it('os tempos de VÁRIAS tipologias numa leitura só: cada uma com o seu, e a que não tem fica fora do mapa', async () => {
+        banco.db.orcamentista_motor_tipologia_tempo.push({ tabela_id: null, motor_id: MOTOR, tipologia: 'DP-01', tempo_fabricacao_min: 70, tempo_origem: 'ESTIMADO' })
+        const t = await M().temposDeFabricacao(MOTOR, ['DP-02', 'DP-01', 'DP-99', 'DP-02'])
+        if ('ausente' in t) throw new Error('a tabela existe')
+        expect([...t.entries()].sort()).toEqual([['DP-01', { minutos: 70, origem: 'ESTIMADO' }], ['DP-02', { minutos: 150, origem: 'IMPORTADO' }]])
+    })
 })
 
 describe('(3) a espessura do vidro', () => {

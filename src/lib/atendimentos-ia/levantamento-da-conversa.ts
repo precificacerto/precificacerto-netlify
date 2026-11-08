@@ -224,17 +224,35 @@ export const FALTA_TABELA_DOS_TEMPOS = 'a tabela dos tempos de fabricação aind
  * nunca zero (a linha só existe quando há tempo). Com a tabela ainda ausente no banco, `{ ausente: true }`:
  * é outra falta, e quem a exibe diz qual.
  */
-export async function tempoDeFabricacao(motorId: string, tipologia: string): Promise<{ minutos: number; origem: string | null } | { ausente: true } | null> {
+export async function tempoDeFabricacao(motorId: string, tipologia: string): Promise<TempoDaTipologia | { ausente: true } | null> {
+    const t = await temposDeFabricacao(motorId, [tipologia])
+    return 'ausente' in t ? t : t.get(tipologia) ?? null
+}
+export type TempoDaTipologia = { minutos: number; origem: string | null }
+
+/**
+ * Os tempos de TODAS as tipologias do cálculo, numa leitura só (dono do produto, 08/11/2026: "os tempos numa leitura só" — antes, uma ida ao
+ * banco por esquadria, em série). A tipologia sem linha, ou com o tempo vazio, não entra no mapa: é falta, e quem lê diz qual. Duas linhas
+ * para a mesma tipologia no mesmo motor é erro do banco (a leitura de antes, `maybeSingle`, também lançava), nunca a escolha de uma.
+ */
+export async function temposDeFabricacao(motorId: string, tipologias: readonly string[]): Promise<Map<string, TempoDaTipologia> | { ausente: true }> {
+    const pedidas = [...new Set(tipologias)]
+    const tempos = new Map<string, TempoDaTipologia>()
+    if (pedidas.length === 0) return tempos
     const { data, error } = await supabaseAdmin
-        .from('orcamentista_motor_tipologia_tempo').select('tempo_fabricacao_min, tempo_origem')
-        .eq('motor_id', motorId).eq('tipologia', tipologia).maybeSingle()
+        .from('orcamentista_motor_tipologia_tempo').select('tipologia, tempo_fabricacao_min, tempo_origem')
+        .eq('motor_id', motorId).in('tipologia', pedidas)
     if (error) {
         if (tabelaAusente(error)) return { ausente: true }
         throw new Error(`orcamentista_motor_tipologia_tempo: ${error.message}`)
     }
-    const linha = data as { tempo_fabricacao_min: number | null; tempo_origem: string | null } | null
-    if (!linha || typeof linha.tempo_fabricacao_min !== 'number') return null
-    return { minutos: linha.tempo_fabricacao_min, origem: linha.tempo_origem }
+    const vistas = new Set<string>()
+    for (const linha of (data ?? []) as Array<{ tipologia: string; tempo_fabricacao_min: number | null; tempo_origem: string | null }>) {
+        if (vistas.has(linha.tipologia)) throw new Error(`orcamentista_motor_tipologia_tempo: a tipologia ${linha.tipologia} tem mais de um tempo no motor ${motorId}`)
+        vistas.add(linha.tipologia)
+        if (typeof linha.tempo_fabricacao_min === 'number') tempos.set(linha.tipologia, { minutos: linha.tempo_fabricacao_min, origem: linha.tempo_origem })
+    }
+    return tempos
 }
 
 // ── A espessura do vidro ────────────────────────────────────────────────────────────────────
@@ -284,10 +302,11 @@ const centavos = (v: number) => Math.round(v * 100) / 100
  * empresa (`tenant_id`) ou do motor do cálculo da família dela (o tempo, por `motor_id`).
  */
 export async function lerMaoDeObra(tenantId: string, motorId: string, tipologia: string, quantidade: number): Promise<MaoDeObra> {
-    const tempo = await tempoDeFabricacao(motorId, tipologia)
-    if (tempo === null) return { ok: false, falta: `o tempo de fabricação de ${tipologia} não está cadastrado`, semTempo: true }
-    if ('ausente' in tempo) return { ok: false, falta: FALTA_TABELA_DOS_TEMPOS, semTempo: true }
+    return (await lerMaosDeObra(tenantId, motorId, [{ tipologia, quantidade }]))[0]
+}
 
+/** A configuração da empresa que a mão de obra lê (a tela de produto): `tenant_settings` e `tenant_expense_config`, juntas. */
+async function lerDadosDaEmpresaParaMaoDeObra(tenantId: string): Promise<DadosDaEmpresaParaMaoDeObra> {
     const [{ data: settings, error: erroSettings }, { data: despesas, error: erroDespesas }] = await Promise.all([
         supabaseAdmin.from('tenant_settings').select('calc_type, monthly_workload, workload_unit, num_productive_employees').eq('tenant_id', tenantId).maybeSingle(),
         supabaseAdmin.from('tenant_expense_config')
@@ -296,15 +315,29 @@ export async function lerMaoDeObra(tenantId: string, motorId: string, tipologia:
     ])
     if (erroSettings) throw new Error(`tenant_settings: ${erroSettings.message}`)
     if (erroDespesas) throw new Error(`tenant_expense_config: ${erroDespesas.message}`)
-    const dados = { ...((settings ?? {}) as DadosDaEmpresaParaMaoDeObra), ...((despesas ?? {}) as DadosDaEmpresaParaMaoDeObra) }
+    return { ...((settings ?? {}) as DadosDaEmpresaParaMaoDeObra), ...((despesas ?? {}) as DadosDaEmpresaParaMaoDeObra) }
+}
 
-    const m = maoDeObraPeloCaminhoDaTela(dados, tempo.minutos)
-    if ('faltas' in m) return { ok: false, falta: m.faltas.join('; '), semTempo: false }
-    return {
-        ok: true, minutosPorUnidade: tempo.minutos, origem: tempo.origem, quantidade,
-        custoMensal: m.custoMensal, minutosDaEmpresa: m.minutosDaEmpresa,
-        porUnidade: m.valor, total: centavos(m.valor * quantidade),
-    }
+/**
+ * A mão de obra de TODAS as esquadrias do cálculo, na ordem delas, com UMA ida ao banco (dono do produto, 08/11/2026): os tempos de todas as
+ * tipologias numa leitura, e a configuração da empresa uma vez — as três leituras juntas. Antes, cada esquadria relia o tempo e a mesma
+ * configuração, em série: 2 idas por esquadria. NÃO é cache: nada é guardado entre turnos; o cálculo só para de reler, dentro dele, o mesmo dado.
+ */
+export async function lerMaosDeObra(tenantId: string, motorId: string, esquadrias: ReadonlyArray<{ tipologia: string; quantidade: number }>): Promise<MaoDeObra[]> {
+    if (esquadrias.length === 0) return []
+    const [tempos, dados] = await Promise.all([temposDeFabricacao(motorId, esquadrias.map((e) => e.tipologia)), lerDadosDaEmpresaParaMaoDeObra(tenantId)])
+    return esquadrias.map(({ tipologia, quantidade }): MaoDeObra => {
+        if ('ausente' in tempos) return { ok: false, falta: FALTA_TABELA_DOS_TEMPOS, semTempo: true }
+        const tempo = tempos.get(tipologia)
+        if (!tempo) return { ok: false, falta: `o tempo de fabricação de ${tipologia} não está cadastrado`, semTempo: true }
+        const m = maoDeObraPeloCaminhoDaTela(dados, tempo.minutos)
+        if ('faltas' in m) return { ok: false, falta: m.faltas.join('; '), semTempo: false }
+        return {
+            ok: true, minutosPorUnidade: tempo.minutos, origem: tempo.origem, quantidade,
+            custoMensal: m.custoMensal, minutosDaEmpresa: m.minutosDaEmpresa,
+            porUnidade: m.valor, total: centavos(m.valor * quantidade),
+        }
+    })
 }
 
 // ── As leituras do banco ────────────────────────────────────────────────────────────────────
@@ -898,8 +931,7 @@ async function calcularFamilia(
         serra_mm: serra.serra_mm,
     })
     // a mão de obra é lida MESMO com as barras recusadas: a falta de TEMPO sai junto com a de preço, de uma vez (08/11/2026)
-    const maos: MaoDeObra[] = []
-    for (const e of dg.esquadrias) maos.push(await lerMaoDeObra(tenantId, motorId, e.tipologia, e.quantidade))
+    const maos = await lerMaosDeObra(tenantId, motorId, dg.esquadrias)
     const semTempo = faltasDeTempo(dg, maos, d.esquadrias.length, familia.calculo?.nome ?? null)
     if ('recusas' in r || semTempo.length) {
         // R4: a recusa nomeia o que falta, em português — sem o código interno da variável; a esquadria pelo
