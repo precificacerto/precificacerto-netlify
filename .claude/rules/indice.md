@@ -21,6 +21,7 @@ fazendo, **leia o texto antes de agir**.
 - `copia-divergente`: ao acrescentar campo a um mapeamento. Procure a segunda cópia.
 - `construtor-empobrecido`: num campo opcional com default neutro em contrato de cálculo. Torne-o obrigatório.
 - `decisao-sob-regra-da-epoca`: ao nomear um defeito em código antigo. Pergunte se a regra existia quando ele foi escrito.
+- `pr-aberto-no-relato`: ao escrever qualquer relato de estado. Todo PR aberto entra na lista até o merge ou o fechamento decidido; CI verde tem data e base.
 - `registro-de-classe`: ao registrar uma classe de defeito ou uma regra. Define onde ela mora, a forma, a busca por precedentes e o limite.
 
 ## Texto em `.claude/rules/<nome>.md`, carregado ao editar o código do domínio
