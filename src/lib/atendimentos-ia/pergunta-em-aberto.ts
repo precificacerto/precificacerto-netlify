@@ -62,6 +62,10 @@ const tabelaAusente = (e: { code?: string }) => e.code === 'PGRST205' || e.code 
  *   - IGUAL (só o cadastro mudou do lado de fora, ou nada mudou): o "sim" continua valendo, e o cálculo roda direto — sem arquivo novo, sem nova
  *     confirmação. "Pedir o 'sim' outra vez para a mesma definição é cerimônia vazia — e é assim que o vendedor aprende a confirmar sem ler.";
  *   - DIFERENTE (o vendedor mudou um campo da definição): o arquivo sai de novo e pede novo "sim".
+ * DÍVIDA (dono do produto, 08/11/2026): a marca mora no `nome` da CONFIRMAR_APANHADO, sem migração e com o precedente do resgate — mas
+ * quem ler a tabela vai achar uma confirmação pendente onde há uma dada. Merece coluna própria. E compara o resumo INTEIRO (o endereço do
+ * cliente também pede novo "sim"), por decisão do mesmo dia; estreitar para os campos do cálculo só se incomodar no uso. Ver
+ * `docs/regras/faltou-dado-recusa-nomeada.md`, aparição 10.
  */
 const MARCA_DA_CONFIRMACAO = 'definicao-confirmada:'
 export const marcaDaConfirmacao = (resumoDoArquivo: string) => MARCA_DA_CONFIRMACAO + createHash('sha256').update(resumoDoArquivo).digest('hex')

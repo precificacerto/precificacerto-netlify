@@ -62,6 +62,14 @@ número foi suposto.
 | 9 | 08/11/2026 | o APANHADO (`MOTIVOS_DE_CADASTRO`, `levantamento-da-conversa.ts`) | a cor sem código, o mesmo código em duas linhas, dois códigos para a mesma peça, a cor em duas grafias, o perfil sem regra e a barra sem comprimento — que, depois do #240, ainda só recusavam depois do "sim" | **decisão do dono do produto, 08/11/2026:** "o vendedor tem de poder confiar que arquivo recebido é levantamento que anda": toda recusa do dado do fornecedor por item segura o arquivo no apanhado, como o preço e o tempo. A configuração da mão de obra da EMPRESA (o valor do minuto) NÃO trava o levantamento: trava a criação do PRODUTO, na etapa seguinte |
 | 10 | 08/11/2026 | o lugar da verificação (`conversa-da-ia.ts`) | as aparições 8 e 9 conferiam a falta NO APANHADO e seguravam o arquivo | **REVERSÃO, decisão final do dono do produto, 08/11/2026:** "o levantamento é DEFINIÇÃO — tipologia, medidas, vidro, variáveis. É isso que o vendedor confere e confirma. O preço não está no arquivo e não é o que ele está aprovando." O ARQUIVO SEMPRE SAI; a verificação é DEPOIS do "sim", com a regra ÚNICA (se o cálculo recusa, o levantamento não evolui), na frase curta do #245 e, quando há, com o caminho de alteração ("Para trocar, diga: muda o vidro da esquadria 1 para …"). O "sim" dado continua valendo para a MESMA definição: com o cadastro corrigido do lado de fora, o cálculo roda direto; com a definição mudada, o arquivo sai de novo e pede novo "sim". Do #240 ficam o tempo que falta como recusa do cálculo, a mão de obra lida com as barras recusadas e a falta de tempo por tipologia; sai só o que rodava no apanhado. O #241 sai inteiro, menos os testes de cada motivo, invertidos |
 
+> **DÍVIDA registrada pelo dono do produto, 08/11/2026 (aparição 10) — a marca do "sim" mora num remendo.** A marca da definição
+> confirmada (`marcaDaConfirmacao`, sha256 do resumo do arquivo) fica no campo `nome` da pergunta `CONFIRMAR_APANHADO`, sem migração,
+> com o precedente do resgate (que usa o `nome` da `CONFIRMAR_ACRESCIMO`). É remendo: quem ler `orcamentista_pergunta_em_aberto` daqui
+> a seis meses vai achar uma confirmação PENDENTE onde há uma confirmação DADA, com o hash no lugar do nome. Um dia merece coluna
+> própria (a definição confirmada, ou o instante e o hash, no próprio levantamento). **E a marca compara o resumo INTEIRO**, por decisão
+> do mesmo dia: mudar um dado do cliente que aparece no documento (o endereço) pede novo "sim" sem o cálculo ter mudado. Se incomodar no
+> uso, estreita-se para os campos que o cálculo lê — não antes.
+
 **Seis aparições, de três rodadas diferentes, e as seis com a mesma forma:** o dado que faltava
 tinha um substituto à mão — um zero, a primeira linha, um "+0", o preço do outro código — e o
 substituto foi recusado em favor de uma frase que diz o que falta.
