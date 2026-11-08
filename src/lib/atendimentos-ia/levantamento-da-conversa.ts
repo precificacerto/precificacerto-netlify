@@ -109,6 +109,7 @@ import { descreverArremate, escolhasComPadrao, lerEscolhasGravadas, traduzirVoca
 import {
     formatarReais, levantarBarras,
     type ItemDaTabela, type RegraDoDePara, type ResultadoDoLevantamento,
+    type RecusaDoLevantamento,
 } from '@/lib/atendimentos-ia/levantamento-de-barras'
 import { maoDeObraPeloCaminhoDaTela, type DadosDaEmpresaParaMaoDeObra } from '@/utils/mao-de-obra-pelo-caminho-da-tela'
 import { familiaDaEsquadria, rotulosDasOpcoes, type FamiliaDoCodigo, type FamiliasDoCodigo } from '@/lib/atendimentos-ia/levantamento-em-montagem'
@@ -224,17 +225,35 @@ export const FALTA_TABELA_DOS_TEMPOS = 'a tabela dos tempos de fabricação aind
  * nunca zero (a linha só existe quando há tempo). Com a tabela ainda ausente no banco, `{ ausente: true }`:
  * é outra falta, e quem a exibe diz qual.
  */
-export async function tempoDeFabricacao(motorId: string, tipologia: string): Promise<{ minutos: number; origem: string | null } | { ausente: true } | null> {
+export async function tempoDeFabricacao(motorId: string, tipologia: string): Promise<TempoDaTipologia | { ausente: true } | null> {
+    const t = await temposDeFabricacao(motorId, [tipologia])
+    return 'ausente' in t ? t : t.get(tipologia) ?? null
+}
+export type TempoDaTipologia = { minutos: number; origem: string | null }
+
+/**
+ * Os tempos de TODAS as tipologias do cálculo, numa leitura só (dono do produto, 08/11/2026: "os tempos numa leitura só" — antes, uma ida ao
+ * banco por esquadria, em série). A tipologia sem linha, ou com o tempo vazio, não entra no mapa: é falta, e quem lê diz qual. Duas linhas
+ * para a mesma tipologia no mesmo motor é erro do banco (a leitura de antes, `maybeSingle`, também lançava), nunca a escolha de uma.
+ */
+export async function temposDeFabricacao(motorId: string, tipologias: readonly string[]): Promise<Map<string, TempoDaTipologia> | { ausente: true }> {
+    const pedidas = [...new Set(tipologias)]
+    const tempos = new Map<string, TempoDaTipologia>()
+    if (pedidas.length === 0) return tempos
     const { data, error } = await supabaseAdmin
-        .from('orcamentista_motor_tipologia_tempo').select('tempo_fabricacao_min, tempo_origem')
-        .eq('motor_id', motorId).eq('tipologia', tipologia).maybeSingle()
+        .from('orcamentista_motor_tipologia_tempo').select('tipologia, tempo_fabricacao_min, tempo_origem')
+        .eq('motor_id', motorId).in('tipologia', pedidas)
     if (error) {
         if (tabelaAusente(error)) return { ausente: true }
         throw new Error(`orcamentista_motor_tipologia_tempo: ${error.message}`)
     }
-    const linha = data as { tempo_fabricacao_min: number | null; tempo_origem: string | null } | null
-    if (!linha || typeof linha.tempo_fabricacao_min !== 'number') return null
-    return { minutos: linha.tempo_fabricacao_min, origem: linha.tempo_origem }
+    const vistas = new Set<string>()
+    for (const linha of (data ?? []) as Array<{ tipologia: string; tempo_fabricacao_min: number | null; tempo_origem: string | null }>) {
+        if (vistas.has(linha.tipologia)) throw new Error(`orcamentista_motor_tipologia_tempo: a tipologia ${linha.tipologia} tem mais de um tempo no motor ${motorId}`)
+        vistas.add(linha.tipologia)
+        if (typeof linha.tempo_fabricacao_min === 'number') tempos.set(linha.tipologia, { minutos: linha.tempo_fabricacao_min, origem: linha.tempo_origem })
+    }
+    return tempos
 }
 
 // ── A espessura do vidro ────────────────────────────────────────────────────────────────────
@@ -268,7 +287,12 @@ export type MaoDeObra =
         porUnidade: number
         total: number
     }
-    | { ok: false; falta: string }
+    /**
+     * `semTempo`: a falta é o TEMPO DE FABRICAÇÃO da tipologia (não cadastrado, ou a tabela dos tempos ausente). Desde 08/11/2026 essa falta
+     * RECUSA o levantamento inteiro, como o preço de material (dono do produto); as outras faltas da mão de obra — a configuração da empresa, a
+     * revenda — continuam como antes: a linha diz "não sai", e o material sai.
+     */
+    | { ok: false; falta: string; semTempo: boolean }
 
 const centavos = (v: number) => Math.round(v * 100) / 100
 
@@ -279,10 +303,11 @@ const centavos = (v: number) => Math.round(v * 100) / 100
  * empresa (`tenant_id`) ou do motor do cálculo da família dela (o tempo, por `motor_id`).
  */
 export async function lerMaoDeObra(tenantId: string, motorId: string, tipologia: string, quantidade: number): Promise<MaoDeObra> {
-    const tempo = await tempoDeFabricacao(motorId, tipologia)
-    if (tempo === null) return { ok: false, falta: `o tempo de fabricação de ${tipologia} não está cadastrado` }
-    if ('ausente' in tempo) return { ok: false, falta: FALTA_TABELA_DOS_TEMPOS }
+    return (await lerMaosDeObra(tenantId, motorId, [{ tipologia, quantidade }]))[0]
+}
 
+/** A configuração da empresa que a mão de obra lê (a tela de produto): `tenant_settings` e `tenant_expense_config`, juntas. */
+async function lerDadosDaEmpresaParaMaoDeObra(tenantId: string): Promise<DadosDaEmpresaParaMaoDeObra> {
     const [{ data: settings, error: erroSettings }, { data: despesas, error: erroDespesas }] = await Promise.all([
         supabaseAdmin.from('tenant_settings').select('calc_type, monthly_workload, workload_unit, num_productive_employees').eq('tenant_id', tenantId).maybeSingle(),
         supabaseAdmin.from('tenant_expense_config')
@@ -291,15 +316,29 @@ export async function lerMaoDeObra(tenantId: string, motorId: string, tipologia:
     ])
     if (erroSettings) throw new Error(`tenant_settings: ${erroSettings.message}`)
     if (erroDespesas) throw new Error(`tenant_expense_config: ${erroDespesas.message}`)
-    const dados = { ...((settings ?? {}) as DadosDaEmpresaParaMaoDeObra), ...((despesas ?? {}) as DadosDaEmpresaParaMaoDeObra) }
+    return { ...((settings ?? {}) as DadosDaEmpresaParaMaoDeObra), ...((despesas ?? {}) as DadosDaEmpresaParaMaoDeObra) }
+}
 
-    const m = maoDeObraPeloCaminhoDaTela(dados, tempo.minutos)
-    if ('faltas' in m) return { ok: false, falta: m.faltas.join('; ') }
-    return {
-        ok: true, minutosPorUnidade: tempo.minutos, origem: tempo.origem, quantidade,
-        custoMensal: m.custoMensal, minutosDaEmpresa: m.minutosDaEmpresa,
-        porUnidade: m.valor, total: centavos(m.valor * quantidade),
-    }
+/**
+ * A mão de obra de TODAS as esquadrias do cálculo, na ordem delas, com UMA ida ao banco (dono do produto, 08/11/2026): os tempos de todas as
+ * tipologias numa leitura, e a configuração da empresa uma vez — as três leituras juntas. Antes, cada esquadria relia o tempo e a mesma
+ * configuração, em série: 2 idas por esquadria. NÃO é cache: nada é guardado entre turnos; o cálculo só para de reler, dentro dele, o mesmo dado.
+ */
+export async function lerMaosDeObra(tenantId: string, motorId: string, esquadrias: ReadonlyArray<{ tipologia: string; quantidade: number }>): Promise<MaoDeObra[]> {
+    if (esquadrias.length === 0) return []
+    const [tempos, dados] = await Promise.all([temposDeFabricacao(motorId, esquadrias.map((e) => e.tipologia)), lerDadosDaEmpresaParaMaoDeObra(tenantId)])
+    return esquadrias.map(({ tipologia, quantidade }): MaoDeObra => {
+        if ('ausente' in tempos) return { ok: false, falta: FALTA_TABELA_DOS_TEMPOS, semTempo: true }
+        const tempo = tempos.get(tipologia)
+        if (!tempo) return { ok: false, falta: `o tempo de fabricação de ${tipologia} não está cadastrado`, semTempo: true }
+        const m = maoDeObraPeloCaminhoDaTela(dados, tempo.minutos)
+        if ('faltas' in m) return { ok: false, falta: m.faltas.join('; '), semTempo: false }
+        return {
+            ok: true, minutosPorUnidade: tempo.minutos, origem: tempo.origem, quantidade,
+            custoMensal: m.custoMensal, minutosDaEmpresa: m.minutosDaEmpresa,
+            porUnidade: m.valor, total: centavos(m.valor * quantidade),
+        }
+    })
 }
 
 // ── As leituras do banco ────────────────────────────────────────────────────────────────────
@@ -576,11 +615,44 @@ const linhasDasEsquadrias = (d: DadosDoLevantamento) => d.esquadrias.flatMap((e)
 /** No máximo tantas faltas listadas; o resto é contado, nunca calado. */
 const MAXIMO_DE_FALTAS = 8
 
-/** A frase da recusa: inteira, nomeada, em português — todas as faltas de todas as esquadrias. */
-export function fraseDaRecusa(d: DadosDoLevantamento, faltas: string[]): string {
-    const listadas = faltas.slice(0, MAXIMO_DE_FALTAS).map((f) => `• ${f}`)
+/**
+ * A falta CURTA começa em minúscula ("o valor da barra do código 1023…") e vai depois de "Falta:". A que começa em maiúscula é uma FRASE
+ * inteira, de configuração ("Falta de configuração — …", "A largura da serra não está…"): vai como está, sem um segundo "Falta:".
+ */
+const ehCurta = (f: string) => /^[a-zà-ÿ]/.test(f)
+const inicialMinuscula = (t: string) => t.charAt(0).toLowerCase() + t.slice(1)
+const comPonto = (t: string) => (/[.!?]$/.test(t) ? t : `${t}.`)
+
+/**
+ * A FRASE DA RECUSA, CURTA (dono do produto, 08/11/2026): "Não consegui fechar o levantamento <nome>. Falta: <o que falta>." Só isso — sem a
+ * relação das esquadrias, sem o arremate e a guarnição repetidos por esquadria: o vendedor não precisa da relação de material para entender
+ * que falta um valor. Cada falta já diz as esquadrias que ela trava, entre parênteses, e a mesma falta em várias esquadrias é UMA linha.
+ * Com uma falta, ela vai na mesma linha; com mais, uma por linha. No máximo `MAXIMO_DE_FALTAS` listadas; o resto é contado, nunca calado.
+ */
+export function fraseDaRecusa(d: DadosDoLevantamento, faltas: readonly string[], caminhos: readonly string[] = []): string {
+    const inicio = `Não consegui fechar o levantamento “${d.nome}”.`
+    const listadas = faltas.slice(0, MAXIMO_DE_FALTAS).map((f) => `• ${ehCurta(f) ? comPonto(f) : f}`)
     const resto = faltas.length > MAXIMO_DE_FALTAS ? [`• e mais ${faltas.length - MAXIMO_DE_FALTAS} falta(s) do mesmo levantamento.`] : []
-    return [`Não consegui fechar o ${cabecalho(d)}.`, ...linhasDasEsquadrias(d), 'Falta:', ...listadas, ...resto].join('\n')
+    const corpo = faltas.length === 1 ? [ehCurta(faltas[0]) ? `${inicio} Falta: ${comPonto(faltas[0])}` : `${inicio} ${faltas[0]}`] : [`${inicio} Falta:`, ...listadas, ...resto]
+    // o caminho de alteração, quando há (08/11/2026), em uma linha depois das faltas
+    return [...corpo, ...caminhos].join('\n')
+}
+
+/**
+ * As esquadrias que a falta trava, depois dela, entre parênteses: " (esquadria 3, DP-02)", " (esquadrias 1, 2 e 3)". Num levantamento de
+ * uma esquadria só, nada: o vendedor sabe qual é. A tipologia vai quando a falta é DELA (o motor), não do material.
+ */
+export function esquadriasDaFalta(numeros: readonly number[], noLevantamento: number, tipologia?: string): string {
+    if (noLevantamento === 1 || numeros.length === 0) return ''
+    const quem = numeros.length > 1 ? `esquadrias ${listaDeNumerosBR([...numeros])}` : `esquadria ${numeros[0]}`
+    return ` (${quem}${tipologia ? `, ${tipologia}` : ''})`
+}
+/** A falta com as esquadrias dela: a curta as leva depois, entre parênteses; a frase inteira (a recusa técnica do motor), antes, como sempre. */
+function faltaComEsquadrias(falta: string, numeros: readonly number[], noLevantamento: number, tipologia?: string): string {
+    if (ehCurta(falta)) return falta + esquadriasDaFalta(numeros, noLevantamento, tipologia)
+    if (noLevantamento === 1 || numeros.length === 0) return falta
+    const quem = numeros.length > 1 ? `Esquadrias ${listaDeNumerosBR([...numeros])}` : `Esquadria ${numeros[0]}`
+    return `${quem}${tipologia ? ` (${tipologia})` : ''}: ${falta}`
 }
 
 const linhaDaMaoDeObra = (rotulo: string, mo: MaoDeObra) => ('falta' in mo
@@ -654,8 +726,6 @@ export function fraseDoLevantamentoSemCalculo(d: DadosDoLevantamento, bloco: { t
     return [`${bloco ? bloco.titulo : maiuscula(cabecalho(d))}.`, ...linhasDasEsquadrias(d), '', SEM_ETAPA_DE_CALCULO].join('\n')
 }
 
-/** "Esquadria 1 (DP-02): " — com uma esquadria só, o vendedor sabe qual é, e o prefixo sai. */
-const semPrefixoDaEsquadria = (m: string) => m.replace(/^Esquadrias? [\d, e]+(?: \([^)]*\))?: /, '')
 const maiuscula = (t: string) => t.charAt(0).toUpperCase() + t.slice(1)
 
 // ── O levantamento ──────────────────────────────────────────────────────────────────────────
@@ -686,9 +756,9 @@ const codigoDaRecusa = (r: { motivo: string; variavel?: string; codigo?: string;
 export type EsquadriaGravada = { ordem?: unknown; tipologia: unknown; largura_mm: unknown; altura_mm: unknown; quantidade: unknown; cor_perfil: unknown; vidro: unknown; escolhas: unknown; familia: unknown }
 
 export const fraseDaTipologiaSemFamilia = (n: number, tipologia: string, familias: readonly string[]) =>
-    `A esquadria ${n} (${tipologia}) está no motor de mais de uma família da empresa (${familias.join(', ')}), e falta dizer de qual.`
+    `dizer de qual família é a ${tipologia}: ela está no motor de mais de uma família da empresa (${familias.join(', ')}) (esquadria ${n})`
 export const fraseDaTipologiaForaDosMotores = (n: number, tipologia: string) =>
-    `A esquadria ${n} (${tipologia}) não está na lista de tipologias do motor de nenhuma família da empresa.`
+    `a tipologia ${tipologia} no motor de alguma família da empresa: ela não está na lista de tipologias de nenhuma (esquadria ${n})`
 
 /**
  * A mensagem do levantamento, com TODAS as esquadrias dele. Lança só em erro de banco — quem chama
@@ -719,12 +789,13 @@ export async function mensagemDoLevantamento(
     }
     const resumo = (faltou: string[], fechado: Partial<ResumoDoCalculo> = {}): ResumoDoCalculo =>
         ({ esquadrias: lev.itens.length, pecas: null, barras: null, codigos: null, semPreco: null, maoDeObra: null, faltou, ...fechado })
-    const recusa = (faltas: string[], faltou: string[]): LevantamentoDaConversa => ({ texto: fraseDaRecusa(d, faltas), desfecho: 'recusou', etapa: resumo(faltou) })
+    const recusa = (faltas: string[], faltou: string[], caminhos: string[] = []): LevantamentoDaConversa =>
+        ({ texto: fraseDaRecusa(d, faltas, caminhos), desfecho: 'recusou', etapa: resumo(faltou) })
     if ('frase' in fonte) return recusa([maiuscula(fonte.frase.replace(/^Ainda não consigo escolher a tipologia: /, ''))], ['configuracao'])
 
     const faltas: string[] = []
     const faltou: string[] = []
-    lev.itens.forEach((e, i) => { if (corDe(e) === null) { faltas.push(`A esquadria ${i + 1} está sem a cor do perfil.`); faltou.push(`e${i + 1}:SEM_COR`) } })
+    lev.itens.forEach((e, i) => { if (corDe(e) === null) { faltas.push(`a cor do perfil${esquadriasDaFalta([i + 1], lev.itens.length)}`); faltou.push(`e${i + 1}:SEM_COR`) } })
 
     // a família de cada esquadria (PR D): a guardada, ou a única cujo motor tem o código; com o código em mais de uma sem a dita,
     // ou em nenhuma, é recusa nomeada
@@ -755,8 +826,15 @@ export async function mensagemDoLevantamento(
     // o rótulo do fallback vai em TODA resposta, a que fecha e a que recusa
     const rotulado = (r: LevantamentoDaConversa): LevantamentoDaConversa => (rotulos.length ? { ...r, texto: `${r.texto}\n\n${rotulos.join('\n')}` } : r)
     const nomeDaFamilia = (f: FamiliaLigada) => `Família ${f.rotulo} — ${f.fornecedor}`
-    const recusadas = calculos.flatMap((c, k) => ('faltas' in c ? c.faltas.map((x) => (varias ? `${nomeDaFamilia(grupos[k].familia)}: ${x}` : x)) : []))
-    if (recusadas.length) return rotulado(recusa(recusadas, calculos.flatMap((c) => ('faltas' in c ? c.codigos : []))))
+    // a família de uma falta CURTA vai junto das esquadrias, entre parênteses — na frente, ela tiraria o "Falta:" (08/11/2026); a frase inteira a leva na frente
+    const daFamilia = (k: number, x: string) => {
+        if (!varias) return x
+        const familia = nomeDaFamilia(grupos[k].familia)
+        if (!ehCurta(x)) return `${familia}: ${x}`
+        return x.endsWith(')') && /\(esquadrias? [^()]*\)$/.test(x) ? `${x.slice(0, -1)}, ${inicialMinuscula(familia)})` : `${x} (${inicialMinuscula(familia)})`
+    }
+    const recusadas = calculos.flatMap((c, k) => ('faltas' in c ? c.faltas.map((x) => daFamilia(k, x)) : []))
+    if (recusadas.length) return rotulado(recusa(recusadas, calculos.flatMap((c) => ('faltas' in c ? c.codigos : [])), calculos.flatMap((c) => ('faltas' in c ? c.caminhos : []))))
 
     const fechados = calculos as Array<Exclude<CalculoDaFamilia, { faltas: unknown }>>
     // o resumo para o log: o que foi cortado, comprado e o que ficou sem mão de obra — nunca o valor. Sem preço, nada fecha (08/11/2026):
@@ -787,7 +865,7 @@ export async function mensagemDoLevantamento(
 type CalculoDaFamilia =
     | { d: DadosDoLevantamento; r: Extract<ResultadoDoLevantamento, { ok: true }>; maos: MaoDeObra[]; rotulos: string[] }
     | { semCalculo: true; d: DadosDoLevantamento; rotulos: string[] }
-    | { faltas: string[]; rotulos: string[]; codigos: string[] }
+    | { faltas: string[]; rotulos: string[]; codigos: string[]; caminhos: string[] }
 
 /** As esquadrias de um grupo (uma família) como o bloco da mensagem as recebe: as MESMAS de `d`, com a cor do grupo. */
 function dadosDoGrupo(lev: { nome: string; itens: EsquadriaGravada[] }, d: DadosDoLevantamento, indices: number[]): { dg: DadosDoLevantamento; itensDoGrupo: EsquadriaGravada[]; cores: string[] } {
@@ -800,10 +878,6 @@ function dadosDoGrupo(lev: { nome: string; itens: EsquadriaGravada[] }, d: Dados
 /** A família sem etapa de cálculo: as esquadrias do grupo, e nenhum número. */
 const semCalculo = (lev: { nome: string; itens: EsquadriaGravada[] }, d: DadosDoLevantamento, indices: number[]): CalculoDaFamilia =>
     ({ semCalculo: true, d: dadosDoGrupo(lev, d, indices).dg, rotulos: [] })
-
-/** "Esquadria 1" do grupo vira o número dela no levantamento ("Esquadria 3"). */
-const renumerar = (m: string, numeros: readonly number[]) =>
-    m.replace(/^(Esquadrias? )([\d, e]+)/, (_t, p: string, lista: string) => p + lista.replace(/\d+/g, (n) => String(numeros[Number(n) - 1] ?? n)))
 
 /**
  * O cálculo de UMA família: as esquadrias dela, com o MOTOR do cálculo dela (a etapa com CALCULAR_BARRAS: as abas, as regras e o tempo,
@@ -819,7 +893,7 @@ async function calcularFamilia(
     const codigos: string[] = []
     if (cores.length > 1) {
         const porEsquadria = dg.esquadrias.map((e, k) => `esquadria ${e.numero}: ${corDe(itensDoGrupo[k])}`).join('; ')
-        faltas.push(`As esquadrias têm cores diferentes (${porEsquadria}): ainda não calculo um levantamento com cores misturadas.`)
+        faltas.push(`uma cor só para o perfil: as esquadrias têm cores diferentes (${porEsquadria}), e ainda não calculo um levantamento com cores misturadas`)
         codigos.push('CORES_DIFERENTES')
     }
 
@@ -832,10 +906,10 @@ async function calcularFamilia(
     // os valores das variáveis sem padrão (06/11/2026) chegam ao avaliador pela tipologia: sem ela, só as capturadas
     const escolhas = itensDoGrupo.map((e, k) => lerEscolhasGravadas(e.escolhas, lidas[dg.esquadrias[k].tipologia] ?? null))
     dg.esquadrias.forEach((e, k) => { if (lidas[e.tipologia]) e.escolhas = descreverArremate(lidas[e.tipologia], escolhas[k]) })
-    if (faltas.length) return { faltas, rotulos, codigos }
+    if (faltas.length) return { faltas, rotulos, codigos, caminhos: [] }
 
     const serra = await lerSerra(tenantId)
-    if ('frase' in serra) return { faltas: [maiuscula(serra.frase)], rotulos, codigos: ['SERRA'] }
+    if ('frase' in serra) return { faltas: [maiuscula(serra.frase)], rotulos, codigos: ['SERRA'], caminhos: [] }
     // a mesma linha do motor pode servir a duas tipologias: o de-para entra uma vez só
     const porTrio = new Map<string, RegraDoDePara>()
     for (const t of Object.keys(lidas)) {
@@ -843,12 +917,9 @@ async function calcularFamilia(
     }
     const regras = [...porTrio.values()]
     const itens = await lerItens(familia.tabelasDePreco, [...new Set(regras.map((r) => r.codigo))].sort())
-    // as cores da empresa: o que é COR na coluna `cor` do motor, para a guarda da variante única
-    const coresDaEmpresa = await lerCoresDaEmpresa(tenantId)
 
     const r = levantarBarras({
         cor: cores[0],
-        coresDaEmpresa,
         // o padrão do arremate entra AQUI, pelo ponto único (`padraoDoArremate`), e não pelo avaliador
         esquadrias: dg.esquadrias.map((e, k) => ({
             tipologia: e.tipologia, L_mm: e.largura_mm, H_mm: e.altura_mm, quantidade: e.quantidade,
@@ -859,19 +930,80 @@ async function calcularFamilia(
         itens,
         serra_mm: serra.serra_mm,
     })
-    if ('recusas' in r) {
+    // a mão de obra é lida MESMO com as barras recusadas: a falta de TEMPO sai junto com a de preço, de uma vez (08/11/2026)
+    const maos = await lerMaosDeObra(tenantId, motorId, dg.esquadrias)
+    const semTempo = faltasDeTempo(dg, maos, d.esquadrias.length, familia.calculo?.nome ?? null)
+    if ('recusas' in r || semTempo.length) {
         // R4: a recusa nomeia o que falta, em português — sem o código interno da variável; a esquadria pelo
         // número dela no levantamento, e sem prefixo quando o levantamento tem uma só
         const traduzir = (m: string) => Object.values(lidas).reduce((t, tip) => traduzirVocabulario(t, tip), m)
         const numeros = dg.esquadrias.map((e) => e.numero)
-        const comNumero = (m: string) => (d.esquadrias.length === 1 ? semPrefixoDaEsquadria(m)
-            : dg.esquadrias.length === 1 ? `Esquadria ${numeros[0]}: ${semPrefixoDaEsquadria(m)}` : renumerar(m, numeros))
+        const recusas = 'recusas' in r ? r.recusas : []
+        // o que falta, curto, e as esquadrias dele no levantamento, entre parênteses (08/11/2026); a tipologia vai quando a falta é do motor
+        // dela — só a recusa da esquadria e a do avaliador a trazem; a do material (a ponte, o item, o agrupador) é do código, não da tipologia
+        const frase = (x: (typeof recusas)[number]) =>
+            faltaComEsquadrias(traduzir(x.falta), x.esquadrias.map((k) => numeros[k - 1] ?? k), d.esquadrias.length, x.tipologia)
         return {
-            faltas: r.recusas.map((x) => maiuscula(traduzir(comNumero(x.mensagem)))), rotulos,
-            codigos: r.recusas.map((x) => codigoDaRecusa(x, x.esquadrias.map((k) => numeros[k - 1] ?? k))),
+            faltas: [...recusas.map(frase), ...semTempo.map((t) => t.frase)], rotulos,
+            codigos: [...recusas.map((x) => codigoDaRecusa(x, x.esquadrias.map((k) => numeros[k - 1] ?? k))), ...semTempo.map((t) => t.codigo)],
+            // o CAMINHO DE ALTERAÇÃO de cada falta que tem um (08/11/2026): "Para trocar, diga: muda o vidro da esquadria 1 para 8 mm."
+            caminhos: caminhosDasRecusas(recusas, numeros, itensDoGrupo),
         }
     }
-    const maos: MaoDeObra[] = []
-    for (const e of dg.esquadrias) maos.push(await lerMaoDeObra(tenantId, motorId, e.tipologia, e.quantidade))
     return { d: dg, r, maos, rotulos }
 }
+
+/**
+ * O CAMINHO DE ALTERAÇÃO de cada falta que tem um (dono do produto, 08/11/2026): a frase que o vendedor manda, com o atributo e o número da esquadria
+ * reais — "Para trocar, diga: muda o vidro da esquadria 1 para temperado incolor 5 mm." O vidro sugerido é o que ele disse, com a espessura trocada
+ * pela sugerida (ou acrescentada, se ele não disse nenhuma): trocar só o número não perde o resto do produto. Esquadrias com o mesmo vidro sugerido
+ * vão numa frase só. Nada de frase genérica: a falta sem caminho (`caminho` nulo — o cadastro, o motor, a configuração) não ganha linha nenhuma.
+ */
+function caminhosDasRecusas(recusas: readonly RecusaDoLevantamento[], numeros: readonly number[], itensDoGrupo: readonly EsquadriaGravada[]): string[] {
+    const porAlvo = new Map<string, number[]>()
+    for (const x of recusas) {
+        if (x.caminho === null) continue
+        for (const k of x.esquadrias) {
+            const alvo = vidroComEspessura(itensDoGrupo[k - 1]?.vidro, x.caminho.espessura_mm)
+            const lista = porAlvo.get(alvo) ?? []
+            const n = numeros[k - 1] ?? k
+            if (!lista.includes(n)) lista.push(n)
+            porAlvo.set(alvo, lista)
+        }
+    }
+    return [...porAlvo.entries()].map(([alvo, ns]) => {
+        const quem = ns.length > 1 ? `das esquadrias ${listaDeNumerosBR([...ns].sort((a, b) => a - b))}` : `da esquadria ${ns[0]}`
+        return `Para trocar, diga: muda o vidro ${quem} para ${alvo}.`
+    })
+}
+
+/** "temperado incolor 4mm" com 5 → "temperado incolor 5 mm"; "mini boreal" com 5 → "mini boreal 5 mm"; sem vidro, "5 mm". */
+export function vidroComEspessura(vidro: unknown, mm: number): string {
+    const n = `${String(mm).replace('.', ',')} mm`
+    const texto = typeof vidro === 'string' ? vidro.trim() : ''
+    if (texto === '') return n
+    return /\d+(?:[.,]\d+)?\s*mm\b/i.test(texto) ? texto.replace(/\d+(?:[.,]\d+)?\s*mm\b/i, n) : `${texto} ${n}`
+}
+
+/**
+ * A falta de TEMPO DE FABRICAÇÃO, uma por tipologia, nomeando as esquadrias, a tipologia e o motor — a referência interna que acha o cadastro
+ * (`orcamentista_motor_tipologia_tempo`, por motor e tipologia). As outras faltas da mão de obra não entram (ver `MaoDeObra`).
+ */
+function faltasDeTempo(dg: DadosDoLevantamento, maos: MaoDeObra[], noLevantamento: number, motor: string | null): Array<{ frase: string; codigo: string }> {
+    const porTipologia = new Map<string, { numeros: number[]; falta: string }>()
+    dg.esquadrias.forEach((e, k) => {
+        const m = maos[k]
+        if (!('falta' in m) || !m.semTempo) return
+        const g = porTipologia.get(e.tipologia) ?? { numeros: [], falta: m.falta }
+        g.numeros.push(e.numero)
+        porTipologia.set(e.tipologia, g)
+    })
+    const doMotor = motor === null ? '' : ` no motor ${motor}`
+    return [...porTipologia.entries()].map(([tipologia, g]) => {
+        const texto = g.falta === FALTA_TABELA_DOS_TEMPOS
+            ? `a tabela dos tempos de fabricação, com o tempo de ${tipologia}: ${g.falta}`
+            : `o tempo de fabricação de ${tipologia}${doMotor}`
+        return { frase: texto + esquadriasDaFalta(g.numeros, noLevantamento), codigo: `${g.numeros.map((n) => `e${n}`).join('+')}:SEM_TEMPO:${tipologia}` }
+    })
+}
+const listaDeNumerosBR = (ns: number[]) => (ns.length > 1 ? `${ns.slice(0, -1).join(', ')} e ${ns[ns.length - 1]}` : String(ns[0]))

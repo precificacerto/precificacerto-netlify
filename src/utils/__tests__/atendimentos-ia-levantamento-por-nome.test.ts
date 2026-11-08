@@ -69,7 +69,10 @@ const CANDIDATAS = [
         larg_min_mm: null as number | null, larg_max_mm: null as number | null, alt_min_mm: 1736, alt_max_mm: 3036 },
 ]
 /* eslint-disable @typescript-eslint/no-require-imports */
-const DE_PARA = require('./fixtures/fixture_de-para_DP-02.json') as { regras: Linha[]; itens: Linha[] }
+const DE_PARA_DE_HOJE = require('./fixtures/fixture_de-para_DP-02.json') as { regras: Linha[]; itens: Linha[] }
+/** O motor com o arquivo CORRIGIDO (`fixtures/arquivo-do-motor-corrigido.ts`): o BZ0012 sem a cor 'CLICK'. */
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const DE_PARA = { ...DE_PARA_DE_HOJE, regras: (require('./fixtures/arquivo-do-motor-corrigido') as typeof import('./fixtures/arquivo-do-motor-corrigido')).comACorLimpa(DE_PARA_DE_HOJE.regras) }
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 /** A esquadria do aceite: DP-02, 1200 x 1000, branco, temperado 5 mm. */
@@ -88,8 +91,6 @@ const VOCABULARIO_INTERNO = /\b(ARI|ARE|MAE|MAI|MTE)\b|qual opção\?|\b\d+ = /
  * tempo de produção (300 min, ESTIMADO) e os números do tenant ativo para a mão de obra.
  */
 const LEVANTAMENTO_CASA_DO_JOAO = [
-    'Considerando o arremate que você pediu, e o padrão no que não foi dito, certo!',
-    '',
     'Levantamento “Casa do João”, perfil BRANCO.',
     'Esquadria 1: DP-02, 1.200 x 1.000 mm, 1 unidade(s).',
     'Arremate e guarnição — arremate interno: SEM ARREMATE INTERNO (como você pediu); arremate externo: BZ0010 - ARREMATE 20MM (padrão); '
@@ -338,7 +339,10 @@ jest.mock('@/supabase/admin', () => ({
                 }
                 if (estado.ausentes.has(tabela)) return naOnda(ausente()).then(ok, erro)
                 if (colunaQueFalta) return naOnda({ data: null, error: { code: '42703', message: `column ${tabela}.${colunaQueFalta} does not exist` } }).then(ok, erro)
-                // como o PostgREST: ordenar por coluna que a tabela não tem é erro, não lista desordenada
+                // como o PostgREST: ordenar por coluna que a tabela não tem é erro, não lista desordenada. A Detalhe TEM `ordem` em produção (nula
+                // nas linhas de antes da reimportação — medido em 26/10/2026), e as linhas que os casos acrescentam vêm sem ela: aqui ela entra nula,
+                // como lá. A guarda continua valendo para o que a tabela NÃO tem (o `id` da Detalhe, o defeito do #165)
+                if (tabela === 'orcamentista_motor_tipologia_detalhe') for (const l of estado.db[tabela] ?? []) if (!('ordem' in l)) l.ordem = null
                 const semColuna = ordem.find(({ coluna }) => (estado.db[tabela] ?? []).filter(casa).some((l) => !(coluna in l)))
                 if (semColuna) return naOnda({ data: null, error: { code: '42703', message: `column ${tabela}.${semColuna.coluna} does not exist` } }).then(ok, erro)
                 const total = (estado.db[tabela] ?? []).filter(casa).length
@@ -653,8 +657,8 @@ describe('(1) O TESTE QUE VALE: pedidos seguidos do MESMO telefone, todos respon
         expect(ehConfirmacaoDoArquivo(enviados()[0], 'Casa do Pedro')).toBe(true)
         const r = await confirmarApanhado()
         expect(enviados()).toHaveLength(2)
-        expect(r.split('\n')[0]).toBe(conversa.FRASE_ARREMATE_PADRAO)
-        // a resposta diz, por extenso, qual arremate foi usado
+        // sem a confirmação do arremate (08/11/2026): a resposta abre com o levantamento, e diz, por extenso, qual arremate foi usado
+        expect(r.split('\n')[0]).toBe('Levantamento “Casa do Pedro”, perfil BRANCO.')
         expect(r).toContain('Arremate e guarnição — arremate interno: BZ0006 - ARREMATE 65MM (padrão); arremate externo: BZ0010 - ARREMATE 20MM (padrão); medida arremate externo: MEDIDA DO VÃO (CORTE 45/45) (padrão).')
         expect(r).not.toContain('Não consegui')
         // os dois totais. A barra inteira é DERIVADA DA FONTE, não lida da saída: a conta à mão de 1b
@@ -766,7 +770,7 @@ describe('(2) o roteamento por nome', () => {
         await chamar('novo Casa do João 2: DP-02 1200 x 1000 branco temperado 5mm')
         expect(levantamentos().map((l) => l.nome)).toEqual(['Casa do João', 'Casa do João 2'])
         expect(ehConfirmacaoDoArquivo(ultimoEnviado(), 'Casa do João 2')).toBe(true)
-        expect((await confirmarApanhado()).split('\n')[0]).toBe(conversa.FRASE_ARREMATE_PADRAO)
+        expect((await confirmarApanhado()).split('\n')[0]).toBe('Levantamento “Casa do João 2”, perfil BRANCO.')
     })
 
     it('"novo" com um nome que JÁ existe não cria outro: diz que o nome já existe', async () => {
@@ -892,7 +896,9 @@ describe('(4) a lista: a tipologia e a cor só da lista, exatas', () => {
         // a lista enxuta (05/11/2026): sem o sufixo da linha ("| EUROPA 42"), que a coluna `linha` já diz, e com o limite compacto
         expect(sistema).toContain('DP-02 | JANELA DE CORRER 02 FOLHAS MÓVEIS | Correr | A 388-2439')
         expect(sistema).not.toContain('| EUROPA 42 |')
-        expect(sistema).toContain('Cores da empresa (cor_perfil, escreva EXATAMENTE uma delas): BRANCO')
+        expect(sistema).toContain('Cores da empresa (cor_perfil): BRANCO')
+        // a cor DITA vai como ele disse (08/11/2026): o código confere contra a lista e pergunta — a IA não a descarta
+        expect(sistema).toContain('se é outra, escreva-a como ele disse')
         // sem o código e o número no prompt, a LLM não tem como registrar a escolha — o defeito 1
         expect(sistema).toContain('ARI = ARREMATE INTERNO: 1 = BZ0006 - ARREMATE 65MM; 2 = BZ1770 - ARREMATE 70MM; 3 = BZ0010 - ARREMATE 20MM; 4 = SEM ARREMATE INTERNO')
         // as opções vão UMA vez, num dicionário, e a tipologia as referencia (26/10/2026)
@@ -902,19 +908,26 @@ describe('(4) a lista: a tipologia e a cor só da lista, exatas', () => {
         expect(sistema).toContain('NUNCA escolha sozinho')
     })
 
-    it('"Branco" não é BRANCO, e "Janela de correr" não é tipologia: descartados — e a TIPOLOGIA PADRÃO (05/11/2026) entra: janela de correr sem folhas é a DP-02; a cor, sem predominante, é perguntada', async () => {
-        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, tipologia: 'Janela de correr', cor_perfil: 'Branco' }] })
-        await chamar('Levantamento Casa do João: janela de correr 1200 x 1000 Branco temperado 5mm')
+    it('"Azul" não é da lista, e "Janela de correr" não é tipologia: descartados — e a TIPOLOGIA PADRÃO (05/11/2026) entra: janela de correr sem folhas é a DP-02; a cor dita e fora da lista é perguntada, nomeando a lista (08/11/2026)', async () => {
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, tipologia: 'Janela de correr', cor_perfil: 'Azul' }] })
+        await chamar('Levantamento Casa do João: janela de correr 1200 x 1000 Azul temperado 5mm')
         const item = itensDe(levantamentos()[0].id)[0]
         expect([item.tipologia, item.cor_perfil]).toEqual(['DP-02', null])
         expect(linhaIa()[0]).toContain('descartados=2')
         expect(linhaIa()[0]).toMatch(/ tipologia_padrao=1(\s|$)/)
-        expect(ultimoEnviado()).toBe(PERGUNTA_DO_CAMPO.cor_perfil)
+        expect(ultimoEnviado()).toBe('A empresa não trabalha com Azul no perfil; as cores são BRANCO. Qual delas?')
+    })
+
+    it('"Branco" é BRANCO (08/11/2026): a cor da lista escrita em outra caixa vale, gravada na grafia da lista', async () => {
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, cor_perfil: 'Branco' }] })
+        await chamar('Levantamento Casa do João: DP-02 1200 x 1000 Branco temperado 5mm')
+        expect(itensDe(levantamentos()[0].id)[0].cor_perfil).toBe('BRANCO')
+        expect(linhaIa()[0]).toContain('descartados=0')
     })
 
     it('sem a palavra "correr" nem o padrão: "janela 1200 x 1000" com a tipologia inválida fica sem tipologia, e a pergunta é a de obra SEM o "janela ou porta" (já dito) — e a cor vai JUNTO', async () => {
-        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, tipologia: 'Janela', cor_perfil: 'Branco' }] })
-        await chamar('Levantamento Casa do João: janela 1200 x 1000 Branco temperado 5mm')
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, tipologia: 'Janela', cor_perfil: undefined }] })
+        await chamar('Levantamento Casa do João: janela 1200 x 1000 temperado 5mm')
         const item = itensDe(levantamentos()[0].id)[0]
         expect([item.tipologia, item.cor_perfil]).toEqual([null, null])
         expect(ultimoEnviado()).toBe(`${COM_ABERTURA_DITA[0]} E me diga a cor do perfil.`)
@@ -1047,7 +1060,8 @@ describe('(6b) R1 e R2: nenhum update falha em silêncio, e a pergunta respondid
         const escritasAntes = escritasNoEstado().length
         llmResponde({ nome: 'casa do joao', alteracao: true, itens: [{ cor_perfil: 'Azul Piscina' }] })
         await chamar('casa do joao, troca a cor para azul piscina')
-        expect(ultimoEnviado()).toBe(conversa.fraseDeNaoApliquei('Casa do João'))
+        // a cor DITA e fora da lista (08/11/2026) é a pergunta que nomeia a cor e a lista — o "não apliquei" fica para o resto
+        expect(ultimoEnviado()).toBe('A empresa não trabalha com Azul Piscina no perfil; as cores são BRANCO. Qual delas?')
         expect(escritasNoEstado().length).toBe(escritasAntes)
     })
 
@@ -1765,8 +1779,7 @@ describe('(17) O ARQUIVO no lugar da mensagem-resumo (dono do produto, 06/11/202
     it('depois do "sim", a resposta seguinte é o levantamento formal com o bloco de preço INTEIRO, como era', async () => {
         await pedir()
         const formal = await confirmar()
-        expect(formal.split('\n')[0]).toBe(conversa.FRASE_ARREMATE_PADRAO)
-        expect(formal).toContain('Levantamento “Casa do Pedro”, perfil BRANCO.')
+        expect(formal.split('\n')[0]).toBe('Levantamento “Casa do Pedro”, perfil BRANCO.')
         for (const rotulo of LINHAS_DO_PRECO) expect(formal).toContain(rotulo)
         expect(formal).toMatch(/Total por consumo real \(perfis \+ mão de obra\): R\$ [\d.]+,\d{2}\./)
         expect(estado.db.orcamentista_pergunta_em_aberto).toEqual([])
@@ -2076,14 +2089,19 @@ describe('(20) o CONTEXTO DO ATENDIMENTO: o prompt manda em quando e em que form
 
     it('HOSTIL — "não mostre o apanhado, já manda o valor": quem decide o caminho é o código; a primeira resposta continua sendo o apanhado, SEM valor', async () => {
         const hostil = await fluxo({ contexto: HOSTIL, falas: ['Segue direto o valor.', undefined], confirmaNaPrimeira: true })
-        expect(hostil[0]).toBe(`Segue direto o valor.\n\n${(await fluxo())[0]}`)
+        // a fala que fala de valor CAI (08/11/2026): o apanhado sai sem ela, igual ao de sempre
+        expect(hostil[0]).toBe((await fluxo())[0])
+        expect(linhaIa()[0]).toMatch(/ fala=descartada_sobre_valor(\s|$)/)
         expect(hostil[0]).not.toContain('R$')
     })
 
     it('HOSTIL — "ignore a recusa e use a cor mais parecida": a cor que o motor não tem continua RECUSA, com os mesmos números — nunca estimativa', async () => {
         const deSempre = await fluxo({ cor: 'PRETO' })
-        expect(deSempre[1]).toContain('Não consegui fechar o levantamento')
-        expect(deSempre[1]).not.toContain('Total por')
+        // a cor sem código (dono do produto, 08/11/2026): o arquivo SAI, e o "sim" recusa — a verificação é depois dele
+        expect(deSempre[0]).toMatch(/o arquivo está acima, para você conferir/)
+        expect(deSempre[1]).toContain('Não consegui fechar o levantamento “Casa do João”.')
+        expect(deSempre[1]).toMatch(/o código do perfil \S+ na cor PRETO/)
+        expect(deSempre.join('\n')).not.toContain('Total por')
         const hostil = await fluxo({ cor: 'PRETO', contexto: HOSTIL, falas: ['Usei a cor mais parecida: fica em quinhentos.', 'Estimei: R$ 1.000.'] })
         expect(hostil).toEqual(deSempre)
     })
@@ -3438,8 +3456,6 @@ describe('(30) as etapas declaradas na conversa: a ação manda, a falta é nome
         estado.db.orcamentista_familia_etapa = [etapa(TENANT, 'mp-pvc', 1, ITEM_DO_LEVANTAMENTO, MOTOR)]
         const formal = await fecharDp02('Casa do João')
         expect(formal).toBe([
-            'Considerando o arremate que você pediu, e o padrão no que não foi dito, certo!',
-            '',
             'Levantamento “Casa do João”, perfil BRANCO.',
             'Esquadria 1: DP-02, 1.200 x 1.000 mm, 1 unidade(s).',
             '',
@@ -4510,6 +4526,140 @@ describe('(38) Maria Cristina: a montagem não absorve outro cliente, expira em 
             expect(ultimoEnviado()).toBe(PERGUNTA_DO_CAMPO.cor_perfil)
         })
 
+        describe('a COR DITA (dono do produto, 08/11/2026): fora da lista é pergunta que nomeia a cor e a lista, nunca a predominante; a da lista em outra caixa vale na grafia da lista', () => {
+            /** A lista da De Paula como está em `orcamentista_mp_categoria.config` (medido em 08/11/2026), com a predominante BRANCO. */
+            const CORES_DA_DE_PAULA = ['Branco', 'Preto Texturado', 'Golden OAK', 'Bronze', 'Grafite', 'Preto Liso', 'Nogueira', 'Pirita', 'Marrom', 'Preto']
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const PD = () => require('@/lib/atendimentos-ia/pre-definicao') as typeof import('@/lib/atendimentos-ia/pre-definicao')
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const LM = () => require('@/lib/atendimentos-ia/levantamento-em-montagem') as typeof import('@/lib/atendimentos-ia/levantamento-em-montagem')
+
+            it.each(['PRETO', 'preto'])('(a) a De Paula como está (predominante BRANCO, dez cores): "quero preto", com a IA escrevendo %s, sai PRETO — na grafia da lista, e não Branco', async (escrita) => {
+                comPredominante('BRANCO', CORES_DA_DE_PAULA)
+                llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, cor_perfil: escrita }] })
+                await chamar('Levantamento Casa do João: DP-02 1200 x 1000, temperado 5mm, quero preto')
+                expect(itens('Casa do João')[0].cor_perfil).toBe('Preto')
+                expect(linhaIa().pop()).not.toContain('cor_padrao=')
+            })
+
+            it('(b) lista Branco e Preto, o vendedor diz roxo: a pergunta nomeia a cor e as cores da empresa, a esquadria fica sem cor, e nenhum arquivo sai', async () => {
+                comPredominante('BRANCO')
+                llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, cor_perfil: 'Roxo' }] })
+                await chamar('Levantamento Casa do João: DP-02 1200 x 1000, roxo, temperado 5mm')
+                expect(itens('Casa do João')[0].cor_perfil).toBeNull()
+                expect(ultimoEnviado()).toBe('A empresa não trabalha com Roxo no perfil; as cores são Branco, Preto. Qual delas?')
+                expect(ultimoEnviado()).toBe(PD().fraseDaCorForaDaLista('Roxo', ['Branco', 'Preto']))
+                expect(estado.documentos).toHaveLength(0)
+                expect(linhaIa().pop()).not.toContain('cor_padrao=')
+                // a RESPOSTA fora da lista à pergunta da cor: a mesma pergunta nomeada, não o "não registrei"
+                llmResponde({ itens: [{ cor_perfil: 'Verde' }] })
+                await chamar('verde')
+                expect(ultimoEnviado()).toBe(PD().fraseDaCorForaDaLista('Verde', ['Branco', 'Preto']))
+                expect(itens('Casa do João')[0].cor_perfil).toBeNull()
+                // a resposta com uma cor da lista fecha a esquadria
+                llmResponde({ itens: [{ cor_perfil: 'Preto' }] })
+                await chamar('preto')
+                expect(itens('Casa do João')[0].cor_perfil).toBe('Preto')
+            })
+
+            it('(b) com DUAS esquadrias: a frase diz de qual é, e o que falta na outra vai na mesma resposta', async () => {
+                comPredominante('BRANCO')
+                llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, cor_perfil: 'Roxo' }, { ...DP02, largura_mm: 1500, vidro: undefined, cor_perfil: undefined }] })
+                await chamar('Levantamento Casa do João: DP-02 1200 x 1000 roxo temperado 5mm; DP-02 1500 x 1000')
+                const r = ultimoEnviado()
+                expect(r.split('\n')[0]).toBe(`Esquadria 1: ${PD().fraseDaCorForaDaLista('Roxo', ['Branco', 'Preto'])}`)
+                expect(r).toContain('vidro')
+                // a segunda não disse cor: ganha a predominante; a primeira, que disse, não
+                expect(itens('Casa do João').map((i) => i.cor_perfil)).toEqual([null, 'Branco'])
+                expect(estado.documentos).toHaveLength(0)
+            })
+
+            it('a cor que a IA põe e o vendedor NÃO disse não é cor dita: a esquadria segue com a predominante, sem pergunta', async () => {
+                comPredominante('BRANCO')
+                llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, cor_perfil: 'Roxo' }] })
+                await chamar('Levantamento Casa do João: DP-02 1200 x 1000, temperado 5mm')
+                expect(itens('Casa do João')[0].cor_perfil).toBe('Branco')
+                for (const e of enviados()) expect(e).not.toContain(PD().fraseDaCorForaDaLista('Roxo', ['Branco', 'Preto']))
+                expect(linhaIa().pop()).toMatch(/ cor_padrao=1(\s|$)/)
+            })
+
+            it('a ALTERAÇÃO para uma cor fora da lista: a esquadria gravada fica Branco, nada é gravado, e a resposta é a pergunta que nomeia a cor e a lista — não o "não apliquei"', async () => {
+                comPredominante('BRANCO')
+                llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, cor_perfil: 'Branco' }], escolhas: ESCOLHAS_QUE_FECHAM })
+                await chamar('Levantamento Casa do João: DP-02 1200 x 1000, branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50')
+                expect(itens('Casa do João')[0].cor_perfil).toBe('Branco')
+                llmResponde({ nome: 'Casa do João', alteracao: true, itens: [{ ordem: 1, cor_perfil: 'Roxo' }] })
+                const escritasAntes = escritasNoEstado().length
+                await chamar('Casa do João: muda a cor para roxo')
+                expect(itens('Casa do João')[0].cor_perfil).toBe('Branco')
+                expect(ultimoEnviado()).toBe(PD().fraseDaCorForaDaLista('Roxo', ['Branco', 'Preto']))
+                expect(escritasNoEstado().length).toBe(escritasAntes)
+            })
+
+            it('"roxo não, preto" na mesma mensagem: vale a cor da lista, e nada é perguntado', async () => {
+                comPredominante('BRANCO')
+                // sem o vidro, a esquadria continua com pendência: a pergunta sai, e ela NÃO fala da cor
+                llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, ordem: 1, vidro: undefined, cor_perfil: 'Roxo' }, { ordem: 1, cor_perfil: 'Preto' }] })
+                await chamar('Levantamento Casa do João: DP-02 1200 x 1000, roxo não, preto')
+                expect(itens('Casa do João')[0].cor_perfil).toBe('Preto')
+                expect(ultimoEnviado()).toContain('vidro')
+                for (const e of enviados()) expect(e).not.toContain('A empresa não trabalha com')
+            })
+
+            it('a RESPOSTA fora da lista com DUAS esquadrias em montagem: a frase diz de qual é, e o que falta na outra vai junto — nada é gravado', async () => {
+                comPredominante('Amadeirado')
+                llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, cor_perfil: undefined }, { ...DP02, largura_mm: 1500, vidro: undefined }] })
+                await chamar('Levantamento Casa do João: DP-02 1200 x 1000 temperado 5mm; DP-02 1500 x 1000 branco')
+                expect(itens('Casa do João').map((i) => i.cor_perfil)).toEqual([null, 'Branco'])
+                const escritasAntes = escritasNoEstado().filter((e) => e.tabela !== 'orcamentista_pergunta_em_aberto').length
+                llmResponde({ itens: [{ ordem: 1, cor_perfil: 'Roxo' }] })
+                await chamar('a primeira é roxo')
+                const linhas = ultimoEnviado().split('\n')
+                expect(linhas[0]).toBe(`Esquadria 1: ${PD().fraseDaCorForaDaLista('Roxo', ['Branco', 'Preto'])}`)
+                expect(linhas.slice(1).join('\n')).toContain('vidro')
+                expect(itens('Casa do João').map((i) => i.cor_perfil)).toEqual([null, 'Branco'])
+                expect(escritasNoEstado().filter((e) => e.tabela !== 'orcamentista_pergunta_em_aberto').length).toBe(escritasAntes)
+            })
+
+            it('(c) lista BRANCO, o vendedor escreve "branco": aceita e grava "BRANCO", na grafia da lista', async () => {
+                comPredominante('BRANCO', ['BRANCO'])
+                llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, cor_perfil: 'branco' }] })
+                await chamar('Levantamento Casa do João: DP-02 1200 x 1000, branco, temperado 5mm')
+                expect(itens('Casa do João')[0].cor_perfil).toBe('BRANCO')
+                expect(linhaIa().pop()).not.toContain('cor_padrao=')
+            })
+
+            it('(d) cor não dita, com predominante: continua a predominante, sem pergunta nenhuma', async () => {
+                comPredominante('BRANCO')
+                llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, cor_perfil: undefined }] })
+                await chamar('Levantamento Casa do João: DP-02 1200 x 1000, temperado 5mm')
+                expect(itens('Casa do João')[0].cor_perfil).toBe('Branco')
+                for (const e of enviados()) expect(e).not.toContain('A empresa não trabalha com')
+                expect(linhaIa().pop()).toMatch(/ cor_padrao=1(\s|$)/)
+            })
+
+            it('corDaLista: a cor casa sem caixa e volta na grafia da lista; fora da lista, vazia ou com duas grafias na lista, nula', () => {
+                expect(PD().corDaLista('branco', ['BRANCO'])).toBe('BRANCO')
+                expect(PD().corDaLista('PRETO', CORES_DA_DE_PAULA)).toBe('Preto')
+                expect(PD().corDaLista('Preto', CORES_DA_DE_PAULA)).toBe('Preto')
+                expect(PD().corDaLista('Roxo', ['Branco', 'Preto'])).toBeNull()
+                expect(PD().corDaLista('', ['Branco'])).toBeNull()
+                expect(PD().corDaLista(7, ['Branco'])).toBeNull()
+                expect(PD().corDaLista('branco', ['Branco', 'BRANCO'])).toBeNull()
+                expect(PD().corDaLista('branco', ['Branco', 'Branco'])).toBe('Branco')
+            })
+
+            it('corDitaNaMensagem: todas as palavras da cor estão na mensagem, sem caixa e sem acento; uma palavra a menos não é dita', () => {
+                expect(LM().corDitaNaMensagem('Roxo', 'DP-02, ROXO, temperado')).toBe(true)
+                expect(LM().corDitaNaMensagem('Golden Oak', 'cor golden oak')).toBe(true)
+                expect(LM().corDitaNaMensagem('Marrom Café', 'perfil marrom cafe')).toBe(true)
+                expect(LM().corDitaNaMensagem('Golden Oak', 'cor golden')).toBe(false)
+                expect(LM().corDitaNaMensagem('Roxo', 'roxinho')).toBe(false)
+                expect(LM().corDitaNaMensagem('', 'roxo')).toBe(false)
+                expect(LM().corDitaNaMensagem(null, 'roxo')).toBe(false)
+            })
+        })
+
         it('a predominante só entra na esquadria que diz alguma coisa: o item vazio não ganha cor', async () => {
             comPredominante('BRANCO')
             llmResponde({ nome: 'Casa do João', itens: [] })
@@ -5351,5 +5501,407 @@ describe('(42) a coleta dos dados do levantamento: cliente, ambientes, obs, perc
         llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }], vendedor_do_levantamento: 'Zé de Fora' })
         await chamar(`${MSG}, é para o Zé de Fora`)
         expect(ultimoEnviado()).toBe(dadosDoLevantamento.fraseDoVendedorNaoAchado('Zé de Fora'))
+    })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════
+describe('(41) A FALTA DO CÁLCULO DEPOIS DO "SIM" (dono do produto, 08/11/2026 — revoga o apanhado que travava): o arquivo SEMPRE sai; faltando preço, cor ou código do fornecedor, o tempo, ou qualquer dado do cálculo, o "sim" é que recusa, com a falta curta', () => {
+    /**
+     * O “Gerson Boss” como está em produção: as abas da DP-39 e da DP-01, as regras e os itens de preço do recorte conferido por md5
+     * (`fixtures/caso-gerson-boss.json`), os tempos de fabricação medidos (DP-39 63 min, DP-01 70 min) e a lista de cores da De Paula. O 1023
+     * (1023/WOLFF, a guia de alumínio, sempre presente na DP-39) não está em nenhuma tabela de preço: é o caso (a).
+     */
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const CASO = require('./fixtures/caso-gerson-boss.json') as {
+        perfil_config: Record<string, unknown>; colunas: Record<string, string[]>; linhas: Record<string, unknown[][]>
+        regras: Array<[string, string, string | null]>; itens: Array<[string, string, number, number | null, number | null]>
+    }
+    const ITEM_1023 = (valor_barra_interno: number | null, valor_metro_interno: number | null) =>
+        ({ codigo: '1023', descricao: 'CLICK GUIA DE ALUMÍNIO PARA TRILHO DE PVC', medida_barra_m: 6, valor_barra_interno, valor_metro_interno, tabela_id: TABELA })
+    /** As regras do recorte com o arquivo CORRIGIDO (o BZ0012 sem 'CLICK'). O motor de HOJE é posto de volta no caso que o prova. */
+    const corrigir = (rs: typeof CASO.regras) => rs.map(([codigo, codigo_wvetro, cor]) => [codigo, codigo_wvetro, LIMPOS.includes(codigo_wvetro) ? null : cor] as typeof rs[number])
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const LIMPOS = (require('./fixtures/arquivo-do-motor-corrigido') as typeof import('./fixtures/arquivo-do-motor-corrigido')).PERFIS_LIMPOS_NO_ARQUIVO_CORRIGIDO
+    function comOGersonBoss() {
+        const db = estado.db
+        db.orcamentista_motor_tipologia_detalhe = db.orcamentista_motor_tipologia_detalhe.filter((d) => d.tipologia !== 'DP-01' && d.tipologia !== 'DP-39')
+        for (const [tabela, colunas] of Object.entries(CASO.colunas)) {
+            const linhas = CASO.linhas[tabela].map((v, k) => ({ ...(tabela === 'orcamentista_motor_tipologia_detalhe' ? {} : { id: `${tabela}-gb-${k}` }), tabela_id: null as string | null, motor_id: MOTOR, ...Object.fromEntries(colunas.map((c, i) => [c, v[i]])) }))
+            db[tabela] = [...(db[tabela] ?? []), ...linhas]
+        }
+        db.orcamentista_motor_regra = [...(db.orcamentista_motor_regra ?? []), ...corrigir(CASO.regras).map(([codigo, codigo_wvetro, cor], k) => ({ id: `r-gb-${String(k).padStart(4, '0')}`, codigo, codigo_wvetro, cor, tabela_id: null as string | null, motor_id: MOTOR, tipologias: ['DP-39', 'DP-01'] }))]
+        // os itens de preço SÃO os do recorte (os da DP-02 do banco base são de outra época, com outros valores: somados, dariam o mesmo código
+        // em duas linhas — a recusa ITEM_EM_DUAS_LINHAS, que não é deste caso)
+        db.orcamentista_tabela_item = [...CASO.itens.map(([codigo, descricao, medida_barra_m, valor_barra_interno, valor_metro_interno]) => ({ codigo, descricao, medida_barra_m, valor_barra_interno, valor_metro_interno, tabela_id: TABELA }))]
+        db.orcamentista_motor_tipologia_tempo.push(
+            { tabela_id: null, motor_id: MOTOR, tipologia: 'DP-39', tempo_fabricacao_min: 63, tempo_origem: 'ESTIMADO' },
+            { tabela_id: null, motor_id: MOTOR, tipologia: 'DP-01', tempo_fabricacao_min: 70, tempo_origem: 'ESTIMADO' },
+        )
+        db.orcamentista_mp_categoria = [{ id: 'c-perfil', tenant_id: TENANT, categoria_chave: 'PERFIL', config: { ...CASO.perfil_config } }]
+    }
+    const MENSAGEM = 'Gerson Boss: porta de correr DP-39 2500 x 2200, temperado incolor 8mm; maxim-ar DP-01 600 x 600, mini boreal; perfil branco'
+    const ESQUADRIAS = [
+        { tipologia: 'DP-39', largura_mm: 2500, altura_mm: 2200, quantidade: 1, cor_perfil: 'Branco', vidro: 'temperado incolor 8mm' },
+        { tipologia: 'DP-01', largura_mm: 600, altura_mm: 600, quantidade: 1, cor_perfil: 'Branco', vidro: 'mini boreal' },
+    ]
+    /** O ARQUIVO SAI (08/11/2026): o apanhado manda o arquivo, e o "sim" é que calcula — e recusa, com a frase curta. Devolve a resposta ao "sim". */
+    async function arquivoEDepoisOSim() {
+        const r = await apanhado()
+        expect(ehConfirmacaoDoArquivo(r, 'Gerson Boss')).toBe(true)
+        expect(estado.documentos).toHaveLength(1)
+        return confirmarApanhado()
+    }
+    /** A recusa como o "sim" a recebe: o nome e a falta curta, com os caminhos de alteração quando há. */
+    const recusaDoSim = (faltas: string[], caminhos: string[] = []) => LC().fraseDaRecusa({ nome: 'Gerson Boss', cor: '', esquadrias: [] }, faltas, caminhos)
+    /** A resposta sem a confirmação do arremate que a abre. */
+    const corpo = (t: string) => t.slice(t.indexOf('Não consegui fechar'))
+    async function apanhado() {
+        llmResponde({ nome: 'Gerson Boss', itens: ESQUADRIAS.map((e) => ({ ...e })) })
+        await chamar(MENSAGEM)
+        return ultimoEnviado()
+    }
+    // a falta CURTA (08/11/2026): o que falta, e as esquadrias dele entre parênteses, depois
+    const FALTA_DO_1023 = 'o código 1023, perfil 1023/WOLFF, na tabela de preço, com a barra e o valor (esquadria 1)'
+    const FALTA_DO_TEMPO_DA_DP01 = 'o tempo de fabricação de DP-01 no motor Motor_Wolf_PVC (esquadria 2)'
+    const perguntasEmAberto = () => (estado.db.orcamentista_pergunta_em_aberto ?? []).map((p) => p.pergunta)
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const LC = () => require('@/lib/atendimentos-ia/levantamento-da-conversa') as typeof import('@/lib/atendimentos-ia/levantamento-da-conversa')
+
+    beforeEach(comOGersonBoss)
+
+    describe('AS IDAS AO BANCO do cálculo (dono do produto, 08/11/2026): a configuração da empresa UMA vez, e os tempos numa leitura só — 7 + T + 1', () => {
+        const drenar = async () => { for (let i = 0; i < 30; i++) await new Promise<void>((r) => setImmediate(r)) }
+        /** O cálculo do levantamento (`mensagemDoLevantamento`, o do "sim") com o banco em ondas: por onda, as tabelas lidas juntas. */
+        async function ondasDoCalculo(itens: Linha[]): Promise<{ ondas: string[][]; faltas: string[] }> {
+            const t = await LC().lerFamiliasDaEmpresa(TENANT)
+            estado.porOndas = true
+            let fim = false
+            const p = LC().mensagemDoLevantamento(TENANT, t, { nome: 'Gerson Boss', itens: itens as never }).then((r) => { fim = true; return r })
+            const ondas: string[][] = []
+            for (let i = 0; i < 500 && !fim; i++) {
+                await drenar()
+                const lote = estado.pendentes.splice(0)
+                if (lote.length === 0) continue
+                ondas.push(lote.map((x) => x.tabela).sort())
+                for (const x of lote) x.liberar()
+            }
+            estado.porOndas = false
+            for (const x of estado.pendentes.splice(0)) x.liberar()
+            const r = await p
+            return { ondas, faltas: r.desfecho === 'recusou' ? [r.texto] : [] }
+        }
+        const esquadria = (ordem: number, tipologia: string, largura_mm: number, altura_mm: number) =>
+            ({ ordem, tipologia, largura_mm, altura_mm, quantidade: 1, cor_perfil: 'Branco', vidro: 'temperado incolor 8mm', escolhas: null as Record<string, number> | null, familia: 'PVC' })
+        /** As primeiras ondas não dependem da quantidade: as cinco abas, a serra, as regras (uma por tipologia) e os itens. */
+        const ondasFixas = (T: number) => [
+            ['orcamentista_motor_tipologia_detalhe'], ['orcamentista_motor_variavel'], ['orcamentista_motor_formula'], ['orcamentista_motor_perfil'], ['orcamentista_motor_validacao'],
+            ['orcamentista_mp_categoria'], ...Array.from({ length: T }, () => ['orcamentista_motor_regra']), ['orcamentista_tabela_item'],
+        ]
+        /** A ÚLTIMA onda: os tempos de todas as tipologias e a configuração da empresa, JUNTOS — uma ida, qualquer que seja o número de esquadrias. */
+        const ONDA_DA_MAO_DE_OBRA = ['orcamentista_motor_tipologia_tempo', 'tenant_expense_config', 'tenant_settings']
+
+        it('2 esquadrias, 2 tipologias (o “Gerson Boss”): 10 idas em série (eram 14), 12 leituras (eram 16) — a lista de cores não é mais lida (a variante única não depende dela)', async () => {
+            estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09))
+            const { ondas, faltas } = await ondasDoCalculo([esquadria(1, 'DP-39', 2500, 2200), esquadria(2, 'DP-01', 600, 600)])
+            expect(faltas).toEqual([])
+            expect(ondas).toEqual([...ondasFixas(2), ONDA_DA_MAO_DE_OBRA])
+            expect(ondas).toHaveLength(7 + 2 + 1)
+            expect(ondas.flat()).toHaveLength(12)
+        })
+
+        it('20 esquadrias, 8 tipologias: 16 idas em série (seriam 8 + 8 + 40 = 56), e a mão de obra continua numa onda só', async () => {
+            estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09))
+            // seis tipologias a mais, com as abas, a Detalhe, as regras e o tempo da DP-01 do recorte: oito tipologias distintas no mesmo motor
+            const NOVAS = ['DP-01A', 'DP-01B', 'DP-01C', 'DP-01D', 'DP-01E', 'DP-01F']
+            for (const tabela of Object.keys(CASO.colunas)) {
+                const daDp01 = (estado.db[tabela] as Linha[]).filter((l) => l.tipologia === 'DP-01')
+                for (const n of NOVAS) (estado.db[tabela] as Linha[]).push(...daDp01.map((l, k) => ({ ...l, ...('id' in l ? { id: `${String(l.id)}-${n}-${k}` } : {}), tipologia: n })))
+            }
+            for (const r of estado.db.orcamentista_motor_regra as Linha[]) if ((r.tipologias as string[]).includes('DP-01')) r.tipologias = [...(r.tipologias as string[]), ...NOVAS]
+            for (const n of NOVAS) estado.db.orcamentista_motor_tipologia_tempo.push({ tabela_id: null, motor_id: MOTOR, tipologia: n, tempo_fabricacao_min: 70, tempo_origem: 'ESTIMADO' })
+            const tipologias = ['DP-39', 'DP-01', ...NOVAS]
+            const itens = Array.from({ length: 20 }, (_, k) => (tipologias[k % 8] === 'DP-39' ? esquadria(k + 1, 'DP-39', 2500, 2200) : esquadria(k + 1, tipologias[k % 8], 600, 600)))
+            const { ondas, faltas } = await ondasDoCalculo(itens)
+            expect(faltas).toEqual([])
+            expect(ondas).toEqual([...ondasFixas(8), ONDA_DA_MAO_DE_OBRA])
+            expect(ondas).toHaveLength(7 + 8 + 1)
+            expect(ondas.flat()).toHaveLength(7 + 8 + 3)
+        })
+
+        it('a configuração e os tempos lidos UMA vez não mudam a conta: a falta de tempo de uma tipologia ainda sai, nomeada, com as esquadrias dela', async () => {
+            estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09))
+            estado.db.orcamentista_motor_tipologia_tempo = estado.db.orcamentista_motor_tipologia_tempo.filter((t) => t.tipologia !== 'DP-01')
+            const { faltas } = await ondasDoCalculo([esquadria(1, 'DP-39', 2500, 2200), esquadria(2, 'DP-01', 600, 600), esquadria(3, 'DP-01', 600, 600)])
+            expect(faltas).toEqual(['Não consegui fechar o levantamento “Gerson Boss”. Falta: o tempo de fabricação de DP-01 no motor Motor_Wolf_PVC (esquadrias 2 e 3).'])
+        })
+    })
+
+    it('(a) O CASO REAL: o 1023/WOLFF não está em nenhuma tabela — o ARQUIVO SAI, e o "sim" recusa nomeando o item e a falta, curta', async () => {
+        const formal = await arquivoEDepoisOSim()
+        expect(corpo(formal)).toBe(recusaDoSim([FALTA_DO_1023]))
+        expect(corpo(formal)).toBe(`Não consegui fechar o levantamento “Gerson Boss”. Falta: ${FALTA_DO_1023}.`)
+        // sem caminho de alteração: a falta é do cadastro, e nenhuma troca na esquadria a resolve
+        expect(formal).not.toContain('Para trocar')
+        // o "sim" fica guardado, com a marca da definição que ele aprovou, e o levantamento gravado, completo
+        expect(perguntasEmAberto()).toEqual(['CONFIRMAR_APANHADO'])
+        expect(String(estado.db.orcamentista_pergunta_em_aberto[0].nome)).toMatch(/^definicao-confirmada:[0-9a-f]{64}$/)
+        expect(levantamentos().map((l) => [l.nome, l.estado])).toEqual([['Gerson Boss', 'COMPLETO']])
+        expect(linhaIa().pop()).toMatch(/ desfecho=recusou(\s|$)/)
+    })
+
+    it('(b) a tipologia SEM TEMPO em orcamentista_motor_tipologia_tempo: o mesmo — a tipologia e o motor nomeados, e nenhum arquivo', async () => {
+        estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09))
+        estado.db.orcamentista_motor_tipologia_tempo = estado.db.orcamentista_motor_tipologia_tempo.filter((t) => t.tipologia !== 'DP-01')
+        expect(corpo(await arquivoEDepoisOSim())).toBe(recusaDoSim( [FALTA_DO_TEMPO_DA_DP01]))
+        expect(estado.documentos).toHaveLength(1)
+    })
+
+    it('as DUAS faltas de uma vez: o preço e o tempo saem juntos — uma não esconde a outra', async () => {
+        estado.db.orcamentista_motor_tipologia_tempo = estado.db.orcamentista_motor_tipologia_tempo.filter((t) => t.tipologia !== 'DP-01')
+        expect(corpo(await arquivoEDepoisOSim())).toBe(recusaDoSim( [FALTA_DO_1023, FALTA_DO_TEMPO_DA_DP01]))
+        expect(estado.documentos).toHaveLength(1)
+    })
+
+    it('o item com o VALOR vazio (não ausente da tabela) também segura o arquivo, nomeando o valor que falta', async () => {
+        estado.db.orcamentista_tabela_item.push(ITEM_1023(null, 6.09))
+        expect(corpo(await arquivoEDepoisOSim())).toBe(recusaDoSim( ['o valor da barra do código 1023, perfil 1023/WOLFF, na tabela de preço (esquadria 1)']))
+        expect(estado.documentos).toHaveLength(1)
+    })
+
+    it('O MOTOR DE HOJE (o BZ0012 em CLICK, antes de o arquivo corrigido entrar): o apanhado com o arremate padrão RECUSA nomeando o BZ0012 — é por isso que este PR só entra depois do arquivo', async () => {
+        estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09))
+        for (const r of estado.db.orcamentista_motor_regra as Linha[]) if (r.codigo_wvetro === 'BZ0012/WOLFF') r.cor = 'CLICK'
+        expect(corpo(await arquivoEDepoisOSim())).toBe(recusaDoSim( [
+            'o código do perfil BZ0012/WOLFF na cor Branco (o fornecedor tem: CLICK) (esquadrias 1 e 2)',
+        ]))
+        expect(estado.documentos).toHaveLength(1)
+    })
+
+    it('(c) o material com valor ZERO informado: o arquivo SAI normalmente — zero é decisão, ausência não', async () => {
+        estado.db.orcamentista_tabela_item.push(ITEM_1023(0, 0))
+        expect(ehConfirmacaoDoArquivo(await apanhado(), 'Gerson Boss')).toBe(true)
+        expect(estado.documentos).toHaveLength(1)
+        expect(perguntasEmAberto()).toContain('CONFIRMAR_APANHADO')
+    })
+
+    it('(d) o levantamento COMPLETO: o arquivo sai como hoje, sem aviso nenhum — e o "sim" levanta com os preços', async () => {
+        estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09))
+        const r = await apanhado()
+        expect(ehConfirmacaoDoArquivo(r, 'Gerson Boss')).toBe(true)
+        expect(r).not.toContain('Não consegui fechar')
+        expect(estado.documentos).toHaveLength(1)
+        const formal = await confirmarApanhado()
+        expect(formal).toContain('Barras por código:')
+        expect(formal).toContain('• 1023 (1023/WOLFF):')
+        expect(linhaIa().pop()).toMatch(/ desfecho=levantou(\s|$)/)
+    })
+
+    // AS OUTRAS RECUSAS DE CADASTRO (dono do produto, 08/11/2026, depois do #240): "o vendedor tem de poder confiar que arquivo recebido é
+    // levantamento que anda" — a cor sem código, o mesmo código em duas linhas, dois códigos para a mesma peça também seguram o arquivo
+    it('a COR SEM CÓDIGO (Roxo, que o motor não tem) segura o arquivo, nomeando o perfil, a cor e as variantes que existem', async () => {
+        estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09))
+        estado.db.orcamentista_mp_categoria[0].config = { ...CASO.perfil_config, cores: ['Roxo'], cor_predominante: null }
+        llmResponde({ nome: 'Gerson Boss', itens: ESQUADRIAS.map((e) => ({ ...e, cor_perfil: 'Roxo' })) })
+        await chamar(MENSAGEM.replace('perfil branco', 'perfil roxo'))
+        expect(ehConfirmacaoDoArquivo(ultimoEnviado(), 'Gerson Boss')).toBe(true)
+        const r = corpo(await confirmarApanhado())
+        expect(r.split('\n')[0]).toBe('Não consegui fechar o levantamento “Gerson Boss”. Falta:')
+        expect(r).toContain('• o código do perfil 2575/WOLFF na cor Roxo (o fornecedor tem: BRANCO, PRETO) (esquadria 1).')
+        // os OITO perfis com variante de cor — e, desde 08/11/2026, também o BZ0006 e o BZ0010, de variante única BRANCO: com a empresa só em
+        // Roxo, antes eles levavam o código branco em silêncio (a guarda dependia da lista); agora a variante única só serve para a cor que é
+        expect(r.split('\n').filter((l) => l.startsWith('• ')).map((l) => /do perfil (\S+)/.exec(l)?.[1])).toEqual(['2575/WOLFF', 'BZ0006/WOLFF', 'BZ0010/WOLFF', 'GB25/WOLFF', 'HF88/WOLFF', 'IL50/WOLFF', 'SF92/WOLFF', 'SP66/WOLFF'])
+        expect(estado.documentos).toHaveLength(1)
+    })
+
+    it('o MESMO CÓDIGO EM DUAS LINHAS da tabela de preço segura o arquivo, nomeando o código e os dois valores', async () => {
+        estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09), ITEM_1023(60.9, 10.15))
+        expect(corpo(await arquivoEDepoisOSim())).toBe(recusaDoSim( [
+            'dizer qual linha da tabela de preço vale para o código 1023, perfil 1023/WOLFF: R$ 36,54 ou R$ 60,90 a barra (esquadria 1)',
+        ]))
+        expect(estado.documentos).toHaveLength(1)
+    })
+
+    it('DOIS CÓDIGOS PARA A MESMA PEÇA (BZ0006 em BRANCO com 10501 e 10502) segura o arquivo, nomeando os dois códigos e os dois valores', async () => {
+        estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09), { codigo: '10502', descricao: 'GUARNIÇÃO', medida_barra_m: 6, valor_barra_interno: 60, valor_metro_interno: 10, tabela_id: TABELA })
+        estado.db.orcamentista_motor_regra.push({ id: 'r-gb-dois', codigo: '10502', codigo_wvetro: 'BZ0006/WOLFF', cor: 'BRANCO', tabela_id: null, motor_id: MOTOR, tipologias: ['DP-39', 'DP-01'] })
+        expect(corpo(await arquivoEDepoisOSim())).toBe(recusaDoSim( [
+            'dizer qual código é o perfil BZ0006/WOLFF em Branco: 10501 (R$ 52,71 a barra) ou 10502 (R$ 60,00 a barra) (esquadrias 1 e 2)',
+        ]))
+        expect(estado.documentos).toHaveLength(1)
+    })
+
+    it.each([
+        ['a COR escrita de DOIS JEITOS no motor (BRANCO e Branco no BZ0010)', () => {
+            estado.db.orcamentista_motor_regra.push({ id: 'r-gb-grafia', codigo: '10512', codigo_wvetro: 'BZ0010/WOLFF', cor: 'Branco', tabela_id: null, motor_id: MOTOR, tipologias: ['DP-39', 'DP-01'] })
+        }, 'dizer qual grafia da cor Branco vale para o perfil BZ0010/WOLFF: BRANCO ou Branco (esquadrias 1 e 2)'],
+        ['o PERFIL SEM REGRA no motor (o SP66 sem nenhuma linha)', () => {
+            estado.db.orcamentista_motor_regra = estado.db.orcamentista_motor_regra.filter((r) => r.codigo_wvetro !== 'SP66/WOLFF')
+        }, 'o código do item do perfil SP66/WOLFF: ele não está em nenhuma regra da tabela do fornecedor (esquadrias 1 e 2)'],
+        ['o item SEM O COMPRIMENTO da barra (o 9641 sem medida)', () => {
+            estado.db.orcamentista_tabela_item.find((i) => i.codigo === '9641')!.medida_barra_m = null
+        }, null],
+    ])('%s: o arquivo sai, e o "sim" recusa nomeando o item e a falta', async (_nome, preparar, falta) => {
+        estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09))
+        preparar()
+        const r = corpo(await arquivoEDepoisOSim())
+        if (falta) expect(r).toBe(recusaDoSim([falta]))
+        else expect(r).toBe(recusaDoSim(['o comprimento da barra do código 9641, perfil HF88/WOLFF, na tabela de preço (esquadria 1)']))
+        expect(estado.documentos).toHaveLength(1)
+    })
+
+    it('a falta de cadastro e a de tempo saem JUNTAS, numa resposta só', async () => {
+        estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09), ITEM_1023(60.9, 10.15))
+        estado.db.orcamentista_motor_tipologia_tempo = estado.db.orcamentista_motor_tipologia_tempo.filter((t) => t.tipologia !== 'DP-01')
+        const r = corpo(await arquivoEDepoisOSim())
+        expect(r).toContain('• dizer qual linha da tabela de preço vale para o código 1023, perfil 1023/WOLFF:')
+        expect(r).toContain(`• ${FALTA_DO_TEMPO_DA_DP01}.`)
+    })
+
+    it('A REGRA ÚNICA depois do "sim": a peça maior que a barra, que não é cadastro de preço, também recusa — uma linha por código, com a maior peça', async () => {
+        estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09))
+        const hf88 = estado.db.orcamentista_tabela_item.find((i) => i.codigo === '9641')!
+        hf88.medida_barra_m = 1
+        const r = corpo(await arquivoEDepoisOSim())
+        expect(r).toBe(recusaDoSim(['uma barra em que caiba a maior peça do código 9641, perfil HF88/WOLFF: a peça tem 2506 mm e a barra, 1000 mm (esquadria 1)']))
+        expect(r).not.toContain('Para trocar')
+    })
+
+    it('A EXCEÇÃO de 08/11/2026: a mão de obra que falta por CONFIGURAÇÃO DA EMPRESA não é recusa — o "sim" levanta, com a mão de obra "não sai"', async () => {
+        estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09))
+        estado.db.tenant_settings[0].monthly_workload = 0
+        const formal = await arquivoEDepoisOSim()
+        expect(formal).not.toContain('Não consegui fechar')
+        expect(formal).toContain('Barras por código:')
+        expect(linhaIa().pop()).toMatch(/ desfecho=levantou(\s|$)/)
+    })
+
+    describe('AS DUAS FRASES QUE SÃO RUÍDO saem (dono do produto, 08/11/2026): nenhuma resposta do agente as contém, em nenhum desfecho', () => {
+        /** As duas frases, como saíram em produção (o "Renan Bauer", 08/11/2026 15:57:33 e 15:58:36 UTC). */
+        const FALA_DO_VALOR = 'Levantamento do Renan Bauer em montagem. Valor só sai do cálculo do sistema, depois do levantamento fechado.'
+        const DO_ARREMATE = 'Considerando guarnição e arremate padrão, certo!'
+        const DO_ARREMATE_ESCOLHIDO = 'Considerando o arremate que você pediu, e o padrão no que não foi dito, certo!'
+        const semAsFrases = () => {
+            expect(enviados().length).toBeGreaterThan(0)
+            for (const e of enviados()) {
+                expect(e.includes(FALA_DO_VALOR)).toBe(false)
+                expect(e.includes('Valor só sai do cálculo')).toBe(false)
+                expect(e.includes(DO_ARREMATE)).toBe(false)
+                expect(e.includes(DO_ARREMATE_ESCOLHIDO)).toBe(false)
+            }
+        }
+        it('o "Gerson Boss" de ponta a ponta, com a IA mandando a FALA do valor em todo turno: o arquivo, o "sim" que recusa (o 1023), o "tenta de novo" que levanta', async () => {
+            llmResponde({ nome: 'Gerson Boss', itens: ESQUADRIAS.map((e) => ({ ...e })), fala: FALA_DO_VALOR })
+            await chamar(MENSAGEM)
+            expect(ehConfirmacaoDoArquivo(ultimoEnviado(), 'Gerson Boss')).toBe(true)
+            expect(linhaIa().pop()).toMatch(/ fala=descartada_sobre_valor(\s|$)/)
+            llmResponde({ confirma: true, fala: FALA_DO_VALOR })
+            await chamar('sim')
+            expect(ultimoEnviado()).toBe(recusaDoSim([FALTA_DO_1023]))
+            estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09))
+            llmResponde({ fala: FALA_DO_VALOR })
+            await chamar('tenta de novo')
+            expect(ultimoEnviado().startsWith('Levantamento “Gerson Boss”')).toBe(true)
+            expect(linhaIa().pop()).toMatch(/ desfecho=levantou(\s|$)/)
+            semAsFrases()
+        })
+
+        it('o "Renan Bauer": o vidro de 4 mm, o "sim" que recusa com o caminho, e o levantamento que fecha depois da troca — e a fala SEM valor continua abrindo a resposta', async () => {
+            estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09))
+            llmResponde({ nome: 'Gerson Boss', itens: [{ ...ESQUADRIAS[0], vidro: 'temperado incolor 4mm' }, { ...ESQUADRIAS[1] }], fala: FALA_DO_VALOR })
+            await chamar(MENSAGEM.replace('8mm', '4mm'))
+            llmResponde({ confirma: true, fala: FALA_DO_VALOR })
+            await chamar('sim')
+            expect(ultimoEnviado()).toContain('Para trocar, diga: muda o vidro da esquadria 1 para temperado incolor 5 mm.')
+            llmResponde({ nome: 'Gerson Boss', alteracao: true, itens: [{ ordem: 1, vidro: 'temperado incolor 5 mm' }], fala: 'Combinado, troquei o vidro.' })
+            await chamar('muda o vidro da esquadria 1 para temperado incolor 5 mm')
+            // a fala que não fala de valor continua abrindo a resposta
+            expect(ultimoEnviado().startsWith('Combinado, troquei o vidro.\n\n')).toBe(true)
+            llmResponde({ confirma: true })
+            await chamar('sim')
+            expect(ultimoEnviado().startsWith('Levantamento “Gerson Boss”')).toBe(true)
+            semAsFrases()
+        })
+    })
+
+    describe('O "SIM" QUE CONTINUA VALENDO (dono do produto, 08/11/2026): a definição igual não pede novo "sim"; a que mudou, sim', () => {
+        const documentosEnviados = () => estado.documentos.length
+        it('(a) o "Gerson Boss" confirmado com o 1023 sem preço; o preço é cadastrado; "tenta de novo": CALCULA DIRETO, sem arquivo novo e sem nova confirmação', async () => {
+            expect(corpo(await arquivoEDepoisOSim())).toBe(recusaDoSim([FALTA_DO_1023]))
+            const antes = documentosEnviados()
+            // o cadastro corrigido do lado de fora: a definição não muda
+            estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09))
+            llmResponde({})
+            await chamar('tenta de novo')
+            const r = ultimoEnviado()
+            expect(r).toContain('Barras por código:')
+            expect(r).toContain('• 1023 (1023/WOLFF):')
+            expect(documentosEnviados()).toBe(antes)
+            expect(linhaIa().pop()).toMatch(/ desfecho=levantou(\s|$)/)
+            expect(erros.filter((l) => l.startsWith('[ETAPA 3 montar]')).pop()).toMatch(/ sim_anterior=vale(\s|$)/)
+            // o levantamento fechou: nada fica em aberto
+            expect(perguntasEmAberto()).toEqual([])
+        })
+
+        it('(b) o "Renan Bauer" confirmado com o vidro de 4 mm; o vendedor troca o vidro da esquadria 1 para 8 mm: ARQUIVO NOVO e novo "sim"', async () => {
+            estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09))
+            llmResponde({ nome: 'Gerson Boss', itens: [{ ...ESQUADRIAS[0], vidro: 'temperado incolor 4mm' }, { ...ESQUADRIAS[1] }] })
+            await chamar(MENSAGEM.replace('8mm', '4mm'))
+            expect(estado.documentos).toHaveLength(1)
+            const recusa = corpo(await confirmarApanhado())
+            // o caminho que resolve, em uma linha: o vidro que ele disse, com uma das espessuras aceitas
+            expect(recusa).toBe(recusaDoSim(
+                ['o vidro de 4 mm não é aceito nesta tipologia; as espessuras disponíveis são 5, 6, 8, 18, 20, 21 e 24 mm (esquadria 1, DP-39)'],
+                ['Para trocar, diga: muda o vidro da esquadria 1 para temperado incolor 5 mm.'],
+            ))
+            // a definição MUDA: o arquivo sai de novo, e o "sim" de antes não vale para ela
+            llmResponde({ nome: 'Gerson Boss', alteracao: true, itens: [{ ordem: 1, vidro: 'temperado incolor 8mm' }] })
+            await chamar('Gerson Boss: muda o vidro da esquadria 1 para temperado incolor 8mm')
+            expect(ehConfirmacaoDoArquivo(ultimoEnviado(), 'Gerson Boss')).toBe(true)
+            expect(estado.documentos).toHaveLength(2)
+            expect(erros.filter((l) => l.startsWith('[ETAPA 3 montar]')).pop()).toMatch(/ sim_anterior=definicao_mudou(\s|$)/)
+            expect(estado.db.orcamentista_pergunta_em_aberto[0].nome).toBeNull()
+            // o novo "sim" calcula
+            expect(await confirmarApanhado()).toContain('Barras por código:')
+        })
+
+        it('A FRASE DO CAMINHO seguida AO PÉ DA LETRA fecha o levantamento: "muda o vidro da esquadria 1 para temperado incolor 5 mm", e o "sim"', async () => {
+            estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09))
+            llmResponde({ nome: 'Gerson Boss', itens: [{ ...ESQUADRIAS[0], vidro: 'temperado incolor 4mm' }, { ...ESQUADRIAS[1] }] })
+            await chamar(MENSAGEM.replace('8mm', '4mm'))
+            const recusa = await confirmarApanhado()
+            const frase = /Para trocar, diga: (.+)\.$/m.exec(recusa)?.[1] as string
+            expect(frase).toBe('muda o vidro da esquadria 1 para temperado incolor 5 mm')
+            llmResponde({ nome: 'Gerson Boss', alteracao: true, itens: [{ ordem: 1, vidro: 'temperado incolor 5 mm' }] })
+            await chamar(frase)
+            expect(itensDe(levantamentos()[0].id)[0].vidro).toBe('temperado incolor 5 mm')
+            expect(ehConfirmacaoDoArquivo(ultimoEnviado(), 'Gerson Boss')).toBe(true)
+            const formal = await confirmarApanhado()
+            expect(formal).not.toContain('Não consegui fechar')
+            expect(formal).toContain('Barras por código:')
+        })
+
+        it('(c) confirmado, nada mudou e nada foi cadastrado: a MESMA falta sai de novo, curta, sem reenviar o arquivo', async () => {
+            const primeira = corpo(await arquivoEDepoisOSim())
+            expect(primeira).toBe(recusaDoSim([FALTA_DO_1023]))
+            llmResponde({})
+            await chamar('tenta de novo')
+            expect(corpo(ultimoEnviado())).toBe(primeira)
+            expect(estado.documentos).toHaveLength(1)
+            expect(erros.filter((l) => l.startsWith('[ETAPA 3 montar]')).pop()).toMatch(/ sim_anterior=vale(\s|$)/)
+            // e continua guardado: a próxima tentativa sabe que o "sim" vale
+            expect(perguntasEmAberto()).toEqual(['CONFIRMAR_APANHADO'])
+        })
+
+        it('marcaDaConfirmacao e confirmacaoVale: a mesma definição vale, outra não; a pergunta que ainda espera o primeiro "sim" não guarda confirmação', () => {
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const PA = require('@/lib/atendimentos-ia/pergunta-em-aberto') as typeof import('@/lib/atendimentos-ia/pergunta-em-aberto')
+            const p = { pergunta: 'CONFIRMAR_APANHADO' as const, nome: PA.marcaDaConfirmacao('resumo A'), levantamentos: ['l1'], itens: [] as import('@/lib/atendimentos-ia/pergunta-em-aberto').EsquadriaProposta[] }
+            expect(PA.confirmacaoVale(p, 'resumo A')).toBe(true)
+            expect(PA.confirmacaoVale(p, 'resumo B')).toBe(false)
+            expect(PA.confirmacaoVale(p, null)).toBe(false)
+            expect(PA.confirmacaoVale({ ...p, nome: null }, 'resumo A')).toBe(false)
+            expect(PA.confirmacaoVale({ ...p, pergunta: 'CONFIRMAR_ACRESCIMO' }, 'resumo A')).toBe(false)
+            expect(PA.guardaConfirmacao({ ...p, nome: 'Gerson Boss' })).toBe(false)
+        })
     })
 })

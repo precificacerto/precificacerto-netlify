@@ -42,6 +42,8 @@
  * Cada caso fica VERMELHO sem a sua regra: a bateria está em `scripts/harness/levantamento-de-barras/`.
  */
 
+import { comACorLimpa } from './fixtures/arquivo-do-motor-corrigido'
+
 /* eslint-disable @typescript-eslint/no-require-imports */
 // Lido DENTRO dos casos: no commit do portão o módulo ainda não existe, e cada caso tem de ficar
 // vermelho por conta própria.
@@ -59,7 +61,9 @@ type Regra = { codigo: string; codigo_wvetro: string; cor: string | null }
 type Item = { codigo: string; descricao: string | null; medida_barra_m: number | null; valor_barra_interno: number | null; valor_metro_interno: number | null }
 type Esquadria = { tipologia: string; L_mm: number; H_mm: number; quantidade: number; escolhas?: Record<string, number>; espessura_vidro_mm?: number | null }
 
-const REGRAS: Regra[] = DE_PARA.regras
+/** O motor com o arquivo CORRIGIDO (`fixtures/arquivo-do-motor-corrigido.ts`): o BZ0012 sem a cor 'CLICK'. O de HOJE é `REGRAS_DE_HOJE`. */
+const REGRAS_DE_HOJE: Regra[] = DE_PARA.regras
+const REGRAS: Regra[] = comACorLimpa(REGRAS_DE_HOJE)
 const ITENS: Item[] = DE_PARA.itens
 const SERRA = 5
 const FECHA = { MAE: 2, ARI: 4 }
@@ -84,12 +88,10 @@ function esquadria(e: Partial<Esquadria> = {}): Esquadria {
     return { tipologia: 'DP-02', L_mm: 1200, H_mm: 1000, quantidade: 1, escolhas: FECHA, espessura_vidro_mm: 5, ...e }
 }
 /** As cores da empresa — as da base de conhecimento. Medido em produção (25/10/2026): só BRANCO. */
-const CORES = ['BRANCO']
-function levantar(esquadrias: Esquadria[], o: { regras?: Regra[]; itens?: Item[]; tipologias?: Record<string, unknown>; cor?: string; coresDaEmpresa?: string[] } = {}) {
+function levantar(esquadrias: Esquadria[], o: { regras?: Regra[]; itens?: Item[]; tipologias?: Record<string, unknown>; cor?: string } = {}) {
     return L().levantarBarras({
         esquadrias,
         cor: o.cor ?? 'BRANCO',
-        coresDaEmpresa: o.coresDaEmpresa ?? CORES,
         tipologias: (o.tipologias ?? { 'DP-02': dp02() }) as never,
         regras: o.regras ?? REGRAS,
         itens: o.itens ?? ITENS,
@@ -215,14 +217,29 @@ describe('(4) o código do item: um valor por código', () => {
         expect(r.recusas.map((x) => [x.motivo, x.perfil])).toEqual([['DOIS_CODIGOS', 'BZ0010/WOLFF']])
     })
 
-    // A REGRA DA COR (dono do produto, 25/10/2026): o perfil com UMA variante no motor usa essa, sem casar
-    // cor; com MAIS DE UMA, casa pela cor pedida, e sem ela é recusa nomeando o código e a cor. Não autoriza
-    // "a mais parecida". A guarda (medida): a variante única que é uma COR DA EMPRESA diferente da pedida
-    // é recusa — senão uma esquadria preta levaria o BZ0006 branco, o único que o motor tem.
-    it('VARIANTE ÚNICA: BZ0012/WOLFF só tem CLICK — que não é cor — e é usado sem casar a cor', () => {
+    // A REGRA DA COR (dono do produto, 08/11/2026 — substitui a de 25/10/2026): o perfil com variante casa pela cor pedida, e só por ela,
+    // também quando a variante é UMA só. Sem a cor, é recusa nomeando o perfil, a cor e as variantes. O que não é cor ('CLICK', o aço) é o
+    // DADO que diz: a coluna vazia no arquivo corrigido (`fixtures/arquivo-do-motor-corrigido.ts`), e então é "sem variante".
+    it('o BZ0012 com a coluna Cor VAZIA (o arquivo corrigido): sem variante — serve a qualquer cor', () => {
         const r = ok([esquadria({ escolhas: { MAE: 2 } })])   // ARI no padrão = 1 → BZ0006 + BZ0012
         expect(r.por_codigo.map((c) => [c.codigo, c.perfil])).toContainEqual(['10491', 'BZ0012/WOLFF'])
-        expect(L().codigoDaPeca('BZ0012/WOLFF', 'BRANCO', REGRAS, CORES)).toEqual({ ok: true, codigo: '10491', origem: 'VARIANTE_UNICA' })
+        expect(L().codigoDaPeca('BZ0012/WOLFF', 'BRANCO', REGRAS)).toEqual({ ok: true, codigo: '10491', origem: 'SEM_VARIANTE' })
+        expect(L().codigoDaPeca('BZ0012/WOLFF', 'PRETO', REGRAS)).toEqual({ ok: true, codigo: '10491', origem: 'SEM_VARIANTE' })
+    })
+
+    it('O MOTOR DE HOJE (o BZ0012 em CLICK, antes da correção do arquivo): a variante única só serve para a cor que é — o levantamento com arremate interno RECUSA nomeando o BZ0012', () => {
+        const r = recusado([esquadria({ escolhas: { MAE: 2 } })], { regras: REGRAS_DE_HOJE })
+        expect(r.recusas.map((x) => [x.motivo, x.perfil, x.variantes])).toEqual([['COR_SEM_CODIGO', 'BZ0012/WOLFF', ['CLICK']]])
+        expect(r.recusas[0].mensagem).toBe('Esquadria 1: o perfil BZ0012/WOLFF não tem código para a cor BRANCO na tabela do fornecedor; as variantes que existem são: CLICK. Falta: o código de BZ0012/WOLFF em BRANCO.')
+    })
+
+    it('A VARIANTE ÚNICA SÓ SERVE PARA A COR QUE É — sempre, sem lista de cores da empresa: o BZ0006 (só em BRANCO) em PRETO, ROXO ou qualquer outra é recusa', () => {
+        for (const cor of ['PRETO', 'ROXO', 'Laminado Golden Oak']) {
+            const c = L().codigoDaPeca('BZ0006/WOLFF', cor, REGRAS)
+            if (!('recusa' in c)) throw new Error(`levou o código branco ${c.codigo} para ${cor}`)
+            expect([cor, c.recusa.motivo, c.recusa.variantes]).toEqual([cor, 'COR_SEM_CODIGO', ['BRANCO']])
+        }
+        expect(L().codigoDaPeca('BZ0006/WOLFF', 'branco', REGRAS)).toEqual({ ok: true, codigo: '10501', origem: 'COR' })
     })
 
     it('VÁRIAS VARIANTES e nenhuma na cor pedida: BZ1770/WOLFF (ARI = 2) em BRANCO é recusa nomeando o código, a cor e as variantes', () => {
@@ -236,20 +253,20 @@ describe('(4) o código do item: um valor por código', () => {
     })
 
     it('a GUARDA: a variante única que é uma COR DA EMPRESA, diferente da pedida, é recusa — o BZ0006 só existe BRANCO, e a janela é PRETO', () => {
-        const c = L().codigoDaPeca('BZ0006/WOLFF', 'PRETO', REGRAS, ['BRANCO', 'PRETO'])
+        const c = L().codigoDaPeca('BZ0006/WOLFF', 'PRETO', REGRAS)
         if (!('recusa' in c)) throw new Error('era para recusar, e saiu ' + c.codigo)
         expect([c.recusa.motivo, c.recusa.variantes]).toEqual(['COR_SEM_CODIGO', ['BRANCO']])
     })
 
     it('perfil SEM VARIANTE nenhuma (cor vazia em todas as linhas) usa o único código', () => {
-        const c = L().codigoDaPeca('1023/WOLFF', 'BRANCO', REGRAS, CORES)
+        const c = L().codigoDaPeca('1023/WOLFF', 'BRANCO', REGRAS)
         expect(c).toEqual({ ok: true, codigo: '1023', origem: 'SEM_VARIANTE' })
-        expect(L().codigoDaPeca('BZ0010/WOLFF', 'BRANCO', REGRAS, CORES)).toEqual({ ok: true, codigo: '10511', origem: 'COR' })
+        expect(L().codigoDaPeca('BZ0010/WOLFF', 'BRANCO', REGRAS)).toEqual({ ok: true, codigo: '10511', origem: 'COR' })
     })
 
     it('cor vazia AO LADO de outras cores não é coringa: recusa', () => {
         const regras = [{ codigo: 'P1', codigo_wvetro: 'P/WOLFF', cor: null }, { codigo: 'P2', codigo_wvetro: 'P/WOLFF', cor: 'PRETO' }]
-        const c = L().codigoDaPeca('P/WOLFF', 'BRANCO', regras, CORES)
+        const c = L().codigoDaPeca('P/WOLFF', 'BRANCO', regras)
         if (!('recusa' in c)) throw new Error('era para recusar, e saiu ' + c.codigo)
         expect(c.recusa.motivo).toBe('COR_SEM_CODIGO')
         expect(c.recusa.variantes).toEqual(['(vazia)', 'PRETO'])
@@ -257,10 +274,10 @@ describe('(4) o código do item: um valor por código', () => {
 
     it('a cor é comparada SEM CAIXA, e só sem caixa (08/11/2026): "Branco" casa com BRANCO; "Branco " e "Brancos" não', () => {
         const regras = [{ codigo: 'Q1', codigo_wvetro: 'Q/WOLFF', cor: 'Branco' }, { codigo: 'Q2', codigo_wvetro: 'Q/WOLFF', cor: 'PRETO' }]
-        const c = L().codigoDaPeca('Q/WOLFF', 'BRANCO', regras, CORES)
+        const c = L().codigoDaPeca('Q/WOLFF', 'BRANCO', regras)
         expect('recusa' in c ? c.recusa.mensagem : c.codigo).toBe('Q1')
         for (const cor of ['BRANCO ', 'BRANCOS', 'BRANCÓ']) {
-            const x = L().codigoDaPeca('Q/WOLFF', cor, regras, CORES)
+            const x = L().codigoDaPeca('Q/WOLFF', cor, regras)
             expect([cor, 'recusa' in x ? x.recusa.motivo : x.codigo]).toEqual([cor, 'COR_SEM_CODIGO'])
         }
     })
@@ -293,14 +310,15 @@ describe('(5) o item da tabela de preço', () => {
         expect(r.recusas[0].mensagem).toBe('Esquadria 1: o código 9641 (perfil HF88/WOLFF) está na tabela de preço sem o valor da barra. Falta: o valor da barra de 9641.')
     })
 
-    it('a recusa do AGRUPADOR sai com o perfil: peça maior que a barra', () => {
+    it('a recusa do AGRUPADOR sai com o perfil: peça maior que a barra — UMA por código, com a maior peça (08/11/2026), e a falta curta', () => {
         const itens = ITENS.map((i) => (i.codigo === '10511' ? { ...i, medida_barra_m: 1 } : i))
         const r = recusado([esquadria()], { itens })
         expect(r.recusas.map((x) => [x.origem, x.motivo, x.codigo, x.perfil])).toEqual([
             ['AGRUPADOR', 'PECA_MAIOR_QUE_A_BARRA', '10511', 'BZ0010/WOLFF'],
-            ['AGRUPADOR', 'PECA_MAIOR_QUE_A_BARRA', '10511', 'BZ0010/WOLFF'],
         ])
         expect(r.recusas[0].mensagem).toContain('BZ0010/WOLFF')
+        expect(r.recusas[0].falta).toMatch(/^uma barra em que caiba a maior peça do código 10511, perfil BZ0010\/WOLFF: a peça tem [\d,]+ mm e a barra, 1000 mm$/)
+        expect(r.recusas[0].caminho).toBeNull()
     })
 })
 

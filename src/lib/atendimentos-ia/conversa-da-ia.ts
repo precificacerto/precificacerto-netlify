@@ -77,8 +77,8 @@
  *
  * ══ O ARREMATE: o padrão é ASSUMIDO e confirmado, nunca perguntado (dono do produto, 25/10/2026) ══
  * Com os campos da esquadria preenchidos, a conversa vai DIRETO ao levantamento com o Padrão da aba
- * Variáveis, e a resposta abre com a confirmação ("Considerando guarnição e arremate padrão, certo!") e
- * diz, por extenso, qual arremate foi usado. Só quando o vendedor PEDE outro arremate a conversa mostra
+ * Variáveis, e o arquivo diz, nas pré-definições consideradas, qual arremate foi usado — a confirmação que abria a resposta
+ * ("Considerando guarnição e arremate padrão, certo!") saiu em 08/11/2026: era repetição do rodapé da folha. Só quando o vendedor PEDE outro arremate a conversa mostra
  * as opções daquela variável, por extenso e sem número. Os códigos e os números vão ao PROMPT — sem
  * eles a LLM não tem como registrar a escolha, e foi esse o DEFEITO 1 medido em produção (b0465e57:
  * `propostos=1 descartados=1` nas três respostas, e a mesma pergunta de volta) —, nunca ao vendedor.
@@ -188,14 +188,14 @@ import { CODIGO_DE_FORNECEDOR, redigir, type MotivoDaRedacao, type Redacao } fro
 import { vidroPodado } from '@/lib/atendimentos-ia/vidro'
 import type { VariaveisDaTipologia } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import { compararNome, formaComparavel, nomeDaMensagem, nomeDoCliente, nomeSemPrefixo, normalizarNome } from '@/lib/atendimentos-ia/nome-do-levantamento'
-import { perguntasDaTipologia, type JaDito } from '@/lib/atendimentos-ia/pre-definicao'
+import { fraseDaCorForaDaLista, perguntasDaTipologia, type JaDito } from '@/lib/atendimentos-ia/pre-definicao'
 import { tipologiaPadrao } from '@/lib/atendimentos-ia/tipologia-padrao'
 import { PROMPT_BASE } from '@/utils/atendimentos-ia-prompt-base'
 import { LIMITE_DA_FALA } from '@/utils/atendimentos-ia-contexto'
 import { blocoDasInstrucoes, lerInstrucoesDaEmpresa, type InstrucaoDaCategoria } from '@/lib/atendimentos-ia/instrucoes-da-categoria'
 import { blocoDasInstrucoesDasEtapas, type InstrucaoDaEtapa } from '@/lib/atendimentos-ia/motor-da-familia'
 import { aberturaDita, filtrarPeloAcumulado, filtrarPorAbertura, fraseDaAberturaRecusada, fraseDeNenhumaTipologiaCabe, palavrasDeAbertura } from '@/lib/atendimentos-ia/tipologias-candidatas'
-import { escolhasParaOPrompt, opcoesDeArremateNoPrompt, lerEscolhasDoItem, lerEscolhasGravadas, temEscolhaDoVendedor, variaveisSemPadraoNoPrompt, variaveisSemPadraoParaOPrompt } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
+import { escolhasParaOPrompt, opcoesDeArremateNoPrompt, lerEscolhasDoItem, variaveisSemPadraoNoPrompt, variaveisSemPadraoParaOPrompt } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import { permissaoDoRemetente, type Permissao } from '@/lib/atendimentos-ia/permissao-do-remetente'
 import {
     gerarArquivoDoLevantamento, lerLevantamentoDoArquivo, type Funcionario, lerNomeDaEmpresa, lerPerfilDoVendedor, lerVendedorDoRemetente, funcionariosPeloNome,
@@ -206,7 +206,7 @@ import {
     type CondicoesDoLevantamento,
 } from '@/lib/atendimentos-ia/dados-do-levantamento'
 import {
-    apagarPerguntaEmAberto, esquadriasDaProposta, gravarPerguntaEmAberto, juntarEsquadrias, lerPerguntaEmAberto, montagemExpirou,
+    apagarPerguntaEmAberto, confirmacaoVale, esquadriasDaProposta, gravarPerguntaEmAberto, juntarEsquadrias, lerPerguntaEmAberto, marcaDaConfirmacao, montagemExpirou,
     type CodigoDaPergunta, type EsquadriaProposta, type PerguntaEmAberto,
 } from '@/lib/atendimentos-ia/pergunta-em-aberto'
 import { DESCRICAO_DA_FALA, blocoDoContexto, falaValida, lerContextoDoAtendimento, temDinheiro, type ContextoLido, type FalaLida } from '@/lib/atendimentos-ia/contexto-do-atendimento'
@@ -316,7 +316,7 @@ type Rastro = {
     /** Esquadrias que receberam a tipologia PADRÃO do código — de correr, 2 folhas, lisa (05/11/2026). */
     tipologiasPadrao: number
 }
-const FALA_NO_LOG: Record<FalaLida['motivo'], string> = { usada: 'usada', ausente: 'ausente', numero: 'descartada_numero', longa: 'descartada_longa' }
+const FALA_NO_LOG: Record<FalaLida['motivo'], string> = { usada: 'usada', ausente: 'ausente', numero: 'descartada_numero', longa: 'descartada_longa', sobre_valor: 'descartada_sobre_valor' }
 
 function anotar(r: Rastro, desfecho: DesfechoDaIa, detalhe = '') {
     // a permissão só aparece quando foi consultada; o motivo é um código, nunca um nome
@@ -408,9 +408,6 @@ export const fraseDeQualVendedor = (nome: string, vendedores: string[]) =>
     `O levantamento “${nome}” existe para mais de um vendedor: ${vendedores.join(', ')}. De qual vendedor é? Escreva o nome do levantamento, o do vendedor e o que muda.`
 export const fraseDaAlteracaoIncompleta = (nome: string, vendedor: string, pergunta: string) =>
     `A alteração deixaria o levantamento “${nome}”, de ${vendedor}, incompleto — falta: ${pergunta} Mande a alteração com isso junto. Nada foi gravado.`
-/** A confirmação do arremate, no começo da resposta com o levantamento. */
-export const FRASE_ARREMATE_PADRAO = 'Considerando guarnição e arremate padrão, certo!'
-export const FRASE_ARREMATE_ESCOLHIDO = 'Considerando o arremate que você pediu, e o padrão no que não foi dito, certo!'
 /**
  * R2: a mensagem não mudou nada — a resposta diz isso, em vez de repetir a pergunta como se nada fosse. Sem "Não consegui registrar" e
  * sem mandar responder numa forma ditada (dono do produto, 03/11/2026); o modelo a redige em outras palavras (`falar`).
@@ -621,7 +618,7 @@ function sistema(c: ContextoDoPrompt): SistemaDoPedido {
         '- Pergunta em aberto (quando houver, no fim): a mensagem pode ser a RESPOSTA a ela. Se o vendedor responde com um levantamento que a pergunta cita ("é o mesmo", "é esse"), ponha em `nome` o nome dele escrito como na pergunta. Se a mensagem é só o nome de um levantamento, é o nome do levantamento.',
         '- confirma: só quando a pergunta em aberto pede confirmação — true se ele confirmou ("sim", "pode", "confirmo"), false se negou. Senão, omita.',
         '- itens: as esquadrias desta mensagem, com os campos que ela diz. Um campo vale também quando o vendedor o deu para todas numa mensagem anterior ("todas brancas") ou se referiu a ele ("a mesma cor"). Numa alteração, só os campos que mudam. Não invente, não deduza.',
-        '- cor_perfil: EXATAMENTE uma das cores da empresa (lista abaixo), escrita como está. Se for outra cor, ou se houver dúvida, NÃO preencha.',
+        '- cor_perfil: a cor do perfil que o vendedor DISSE. Se ela é uma das cores da empresa (lista abaixo), escreva-a como está na lista; se é outra, escreva-a como ele disse — o código confere e pergunta. Se ele não disse cor, NÃO preencha.',
         '- vidro: COPIE o vidro como o vendedor o escreveu nesta mensagem ("vidro 4mm" → vidro 4mm; "temperado 8mm" → temperado 8mm). NUNCA acrescente têmpera, cor ou qualquer palavra que ele não disse — nem da instrução da categoria VIDRO: "8mm" não vira "comum 8 mm" nem "temperado 8 mm". Se ele NÃO disse o vidro desta esquadria e a instrução de VIDRO define um padrão para ela, ponha o padrão em vidro_padrao, copiado da instrução; senão, omita os dois.',
         '- tipologia: o CÓDIGO (ex.: DP-02) de UMA das tipologias da lista abaixo, escolhida pela descrição. NUNCA invente código nem preencha com as palavras do vendedor. Se cabe em mais de uma, NÃO preencha: em `pergunta`, pergunte qual é, citando a descrição INTEIRA de cada uma, sem o código. Se ainda não dá para concluir, NÃO preencha: em `pergunta`, pergunte em linguagem de obra o que falta para você concluir (janela ou porta, como abre, quantas folhas, persiana) — nunca "qual a tipologia".',
         '- abertura: a PALAVRA que o vendedor usou para a esquadria — "porta" (também "porta-janela" e "porta janela") ou "janela". Só se ele a escreveu; senão, omita. Porta NUNCA vira tipologia cuja descrição começa com JANELA, e janela NUNCA vira PORTA; maxim-ar e fixo servem às duas.',
@@ -631,7 +628,7 @@ function sistema(c: ContextoDoPrompt): SistemaDoPedido {
         ...(c.variasFamilias ? ['- familia e fornecedor: a mesma tipologia pode estar no motor de mais de uma família da empresa. SÓ o que o vendedor disse — a família, o fornecedor, ou os dois —, escrito EXATAMENTE como está na lista. NUNCA escolha sozinho.'] : []),
         '- Os códigos das variáveis (ex.: ARI), os números das opções e os códigos de fornecedor (ex.: BZ0010) são INTERNOS: nunca os escreva em `pergunta`.',
         '- NUNCA pergunte nada sobre os padrões da empresa.',
-        `- fala: uma frase sua para abrir a resposta, no tom da empresa (o contexto dela, quando houver), até ${LIMITE_DA_FALA} caracteres. SEM número nenhum — nem em algarismo, nem por extenso, nem valor em reais. Se não tiver o que dizer, omita.`,
+        `- fala: uma frase sua para abrir a resposta, no tom da empresa (o contexto dela, quando houver), até ${LIMITE_DA_FALA} caracteres. SEM número nenhum — nem em algarismo, nem por extenso, nem valor em reais. NÃO fale de valor, preço, cálculo ou orçamento, nem explique como o sistema funciona. Se não tiver o que dizer, omita.`,
         `- Responda SEMPRE chamando a ferramenta ${NOME_DA_FERRAMENTA}, uma vez.`,
         '',
         // a lista ENXUTA (05/11/2026): a descrição sem a linha de produto no fim, e os limites compactos — o cabeçalho diz como lê-los
@@ -640,7 +637,7 @@ function sistema(c: ContextoDoPrompt): SistemaDoPedido {
             : `Tipologias do motor da família da empresa (código | descrição | tipo | ${LEGENDA_DOS_LIMITES}):`,
         ...(c.candidatos.length ? c.candidatos.map((x) => linhaDoCandidato(x, c.variasFamilias)) : ['(nenhuma)']),
         '',
-        `Cores da empresa (cor_perfil, escreva EXATAMENTE uma delas): ${c.cores.length ? c.cores.join(', ') : '(nenhuma)'}`,
+        `Cores da empresa (cor_perfil): ${c.cores.length ? c.cores.join(', ') : '(nenhuma)'}`,
         '',
         'Escolhas de arremate (USO INTERNO — código = descrição: número = opção). Cada linha de opções vai UMA vez, com o número entre colchetes; a tipologia diz quais usa:',
         ...opcoesDeArremateNoPrompt(c.escolhasPorTipologia),
@@ -1058,15 +1055,24 @@ async function refazerPergunta(
     if (p.pergunta === 'CONFIRMAR_APANHADO') {
         const doApanhado = p.levantamentos[0] ? await lerLevantamentoDaEmpresa(tenantId, p.levantamentos[0]) : null
         if (!doApanhado) return null
-        const [doArquivo, empresa, itens] = await Promise.all([lerLevantamentoDoArquivo(tenantId, doApanhado.id), lerNomeDaEmpresa(tenantId), lerItens(tenantId, doApanhado.id)])
-        if (!doArquivo) return null
-        const dados = montarDadosDaFolha({ empresa: empresa ?? '', levantamento: doArquivo, itens, definicao, detalhe, geradoEm: new Date(0) })
+        const dados = await dadosDaFolhaGravada(tenantId, doApanhado.id, definicao, detalhe)
+        if (!dados) return null
         return { p, citados: [doApanhado], doApanhado, texto: resumoDoArquivo(dados), paraOPrompt: resumoDoArquivoParaOPrompt(dados) }
     }
     if (citados.length === 0) return null
     if (p.itens.length === 0) return null
     const nExistentes = (await lerItens(tenantId, citados[0].id)).length
     return { p, citados: [citados[0]], texto: fraseDeConfirmarAcrescimo(citados[0].nome, nExistentes, p.itens) }
+}
+
+/**
+ * A folha do levantamento como está GRAVADO, sem a data de geração: o resumo dela é a DEFINIÇÃO — o que o vendedor confere e confirma. É por ela
+ * que se sabe que uma mensagem não mudou o arquivo, e se o "sim" já dado continua valendo (08/11/2026). Null quando o levantamento não se lê.
+ */
+async function dadosDaFolhaGravada(tenantId: string, levantamentoId: string, definicao: DefinicaoDaTipologia, detalhe: DetalheDaTipologia) {
+    const [doArquivo, empresa, itens] = await Promise.all([lerLevantamentoDoArquivo(tenantId, levantamentoId), lerNomeDaEmpresa(tenantId), lerItens(tenantId, levantamentoId)])
+    if (!doArquivo) return null
+    return montarDadosDaFolha({ empresa: empresa ?? '', levantamento: doArquivo, itens, definicao, detalhe, geradoEm: new Date(0) })
 }
 
 /** O nome que não está no texto vale SÓ se for um dos que a pergunta em aberto citou ("é o mesmo"). */
@@ -1523,7 +1529,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         const ordemPadrao = rastro.rota === 'MONTAGEM' ? pendenciaAberta?.ordem ?? (atuais.length === 1 ? atuais[0].ordem : null)
             : atuais.length === 1 ? atuais[0].ordem : null
         const proposta_ = aplicarProposta(atuais, efetiva, {
-            candidatos: tabela.candidatos, aberturaDaMensagem, aberturasDitas: palavrasDeAbertura(c.texto), cores, ordemPadrao, definicao, familiasDoCodigo: doCodigo,
+            candidatos: tabela.candidatos, aberturaDaMensagem, aberturasDitas: palavrasDeAbertura(c.texto), cores, mensagem: c.texto, ordemPadrao, definicao, familiasDoCodigo: doCodigo,
         })
         // OS PADRÕES DO CÓDIGO (dono do produto, 05/11/2026), na esquadria que diz alguma coisa: a TIPOLOGIA padrão — de correr, 2 folhas, lisa —
         // quando o acumulado não indica nada fora do padrão (`tipologia-padrao.ts`); e a COR não dita = a predominante da base
@@ -1535,7 +1541,9 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
                 const padrao = tipologiaPadrao(item, proposta_.aberturas[item.ordem] ?? null, filtro.lidos, tabela.candidatos)
                 if ('tipologia' in padrao) { item.tipologia = padrao.tipologia; rastro.tipologiasPadrao += 1; tipologiasDoPadrao.push(`e${item.ordem}:${padrao.tipologia}`) }
             }
-            if (item.cor_perfil === null && corPredominante !== null) { item.cor_perfil = corPredominante; rastro.coresPadrao += 1 }
+            // a predominante é da cor NÃO DITA (08/11/2026): a cor dita que a empresa não tem fica vazia, e a conversa pergunta nomeando-a
+            const ditaForaDaLista = proposta_.coresForaDaLista.some((x) => x.ordem === item.ordem)
+            if (item.cor_perfil === null && corPredominante !== null && !ditaForaDaLista) { item.cor_perfil = corPredominante; rastro.coresPadrao += 1 }
         }
         // a família e o motor de cada esquadria, como ficam gravados: a resolvida e o motor do cálculo dela HOJE (PR D); e o AGRUPAMENTO
         // (03/11/2026): os itens completos e iguais viram um, com as unidades somadas
@@ -1612,6 +1620,14 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
                 fraseDeConfirmarAcrescimo(alvo.nome, alvo.itens.length, emEspera), 'confirmar-acrescimo',
             )
         }
+        // A COR DITA E FORA DA LISTA que não mudou nada (08/11/2026): a resposta à pergunta da cor, ou "muda para roxo" num levantamento já
+        // gravado — a esquadria fica como estava, nada é gravado, e a pergunta nomeia a cor e as cores da empresa (nunca o "não apliquei")
+        if (nadaMudou && aplicada.coresForaDaLista.length > 0) {
+            const n = aplicada.itens.length
+            const frases = aplicada.coresForaDaLista.map((x) => `${n > 1 ? `Esquadria ${x.ordem}: ` : ''}${fraseDaCorForaDaLista(x.cor, cores)}`)
+            const resto = pendenciasAbertas.filter((p) => !(p.tipo === 'CAMPO' && p.campo === 'cor_perfil' && aplicada.coresForaDaLista.some((x) => x.ordem === p.ordem)))
+            return await falar([...frases, ...(resto.length ? [perguntaDasPendencias(resto, n, null, filtro.jaDito)] : [])].join('\n'), 'perguntou')
+        }
         // R2: com uma pergunta em aberto, a resposta que não mudou nada é ERRO e aparece — nunca a mesma pergunta de novo
         if (nadaMudou && rastro.rota === 'MONTAGEM' && pendenciaAberta) {
             const n = itensDaMontagem.length
@@ -1687,6 +1703,14 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             }
             // sem lista de cores na base, perguntar a cor não leva a lugar nenhum: a conversa diz o que falta
             if ('campo' in pendencia && pendencia.campo === 'cor_perfil' && cores.length === 0) return await responder(FRASE_SEM_CORES, 'sem-cores')
+            // A COR DITA E FORA DA LISTA (dono do produto, 08/11/2026): a pergunta nomeia a cor e as cores da empresa — e o resto do que
+            // falta vai junto, na mesma resposta. A esquadria continua sem cor: nada a troca pela predominante
+            const foraDaLista = proposta_.coresForaDaLista.filter((x) => aplicada.itens.some((i) => i.ordem === x.ordem && i.cor_perfil === null))
+            if (foraDaLista.length > 0) {
+                const frases = foraDaLista.map((x) => `${aplicada.itens.length > 1 ? `Esquadria ${x.ordem}: ` : ''}${fraseDaCorForaDaLista(x.cor, cores)}`)
+                const resto = pendencias.filter((p) => !(p.tipo === 'CAMPO' && p.campo === 'cor_perfil' && foraDaLista.some((x) => x.ordem === p.ordem)))
+                return await falar([...frases, ...(resto.length ? [perguntaPara(resto, aplicada.itens.length, proposta, filtro.jaDito)] : [])].join('\n'), 'perguntou')
+            }
             // UMA pergunta com TUDO o que falta (03/11/2026), redigida pelo modelo
             return await falar(perguntaPara(pendencias, aplicada.itens.length, proposta, filtro.jaDito), 'perguntou')
         }
@@ -1707,8 +1731,15 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         // formal, com o preço, só sai com o "sim" do vendedor à pergunta que citou ESTE levantamento. Sem exceção:
         // o admin que altera o de outro vendedor também recebe o apanhado (dono do produto, 26/10/2026).
         const confirmouApanhado = confirma === true && aberta?.p.pergunta === 'CONFIRMAR_APANHADO' && alvo?.id === aberta.citados[0]?.id
+        // O "SIM" QUE CONTINUA VALENDO (dono do produto, 08/11/2026): o "sim" já foi dado, o cálculo recusou, e a definição gravada é a MESMA que ele
+        // aprovou — só o cadastro mudou do lado de fora, ou nada mudou. O cálculo roda direto, sem arquivo novo e sem nova confirmação. A definição
+        // que mudou (vidro, medida, tipologia, quantidade) cai no arquivo de novo, e pede novo "sim"
+        const guardada = aberta !== null && aberta.p.pergunta === 'CONFIRMAR_APANHADO' && aberta.p.levantamentos[0] === rastro.levantamento ? aberta.p : null
+        const dadosAgora = guardada && guardada.nome !== null && rastro.levantamento ? await dadosDaFolhaGravada(c.tenantId, rastro.levantamento, definicao, detalhe) : null
+        const simVale = !confirmouApanhado && guardada !== null && confirmacaoVale(guardada, dadosAgora ? resumoDoArquivo(dadosAgora) : null)
+        if (guardada && guardada.nome !== null) rastro.etapas.montar += ` sim_anterior=${simVale ? 'vale' : 'definicao_mudou'}`
         let semApanhado = ''
-        if (!confirmouApanhado) {
+        if (!confirmouApanhado && !simVale) {
             // O ARQUIVO DO LEVANTAMENTO (dono do produto, 06/11/2026): a folha A4 no lugar da mensagem-resumo em texto; a confirmação é sobre ELE
             const { dados, folha } = await gerarArquivoDoLevantamento({ tenantId: c.tenantId, levantamentoId: rastro.levantamento, itens: aplicada.itens, definicao, detalhe })
             if ('recusas' in folha) return await responder(fraseDoArquivoRecusado(folha.recusas), 'arquivo-recusado')
@@ -1726,18 +1757,25 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             // sem a tabela ou sem o valor na CHECK (migração 20261026000003 pendente): o formal, como antes
             semApanhado = 'confirmacao=sem_migracao'
         }
+        // A VERIFICAÇÃO É DEPOIS DO "SIM" (dono do produto, 08/11/2026 — revoga o apanhado que travava, do #240 e do #241): o arquivo sempre sai, e é
+        // aqui, quando o levantamento tentaria evoluir, que a regra ÚNICA vale — se o cálculo recusa, o levantamento não evolui, com a falta curta
         const levantamento = await mensagemDoLevantamento(c.tenantId, tabela, { nome, itens: aplicada.itens })
+        // o "sim" dado fica guardado com a marca da definição que ele aprovou: a mensagem seguinte sabe se ele ainda vale
+        if (levantamento.desfecho === 'recusou' && (confirmouApanhado || simVale) && rastro.levantamento) {
+            const dadosConfirmados = dadosAgora ?? await dadosDaFolhaGravada(c.tenantId, rastro.levantamento, definicao, detalhe)
+            if (dadosConfirmados) {
+                await gravarPerguntaEmAberto(c.tenantId, c.remetenteId, { pergunta: 'CONFIRMAR_APANHADO', nome: marcaDaConfirmacao(resumoDoArquivo(dadosConfirmados)), levantamentos: [rastro.levantamento], itens: [] })
+            }
+        }
         // ETAPA 4 (06/11/2026): o cálculo — o que foi cortado e comprado, e o que impediu (o motivo e a variável ou o código de onde nasceu)
         if (levantamento.etapa) {
             const e = levantamento.etapa
             rastro.etapas.calcular = `esquadrias=${e.esquadrias} pecas=${nuloNoLog(e.pecas)} barras=${nuloNoLog(e.barras)} codigos=${nuloNoLog(e.codigos)}`
                 + ` sem_preco=${nuloNoLog(e.semPreco)} mao_de_obra=${nuloNoLog(e.maoDeObra)} desfecho=${levantamento.desfecho} faltou=${listaNoLog(e.faltou)}`
         }
-        // a confirmação do arremate abre a resposta, quando alguma esquadria tem arremate a considerar
-        const temArremate = aplicada.itens.some((i) => definicao(i) !== null)
-        const escolhido = aplicada.itens.some((i) => temEscolhaDoVendedor(lerEscolhasGravadas(i.escolhas)))
-        const confirmacao = temArremate ? `${escolhido ? FRASE_ARREMATE_ESCOLHIDO : FRASE_ARREMATE_PADRAO}\n\n` : ''
-        return await responder(`${confirmacao}${levantamento.texto}`, levantamento.desfecho, semApanhado)
+        // SEM a confirmação do arremate (dono do produto, 08/11/2026): "Considerando guarnição e arremate padrão, certo!" repetia o que o
+        // rodapé da folha já diz nas pré-definições consideradas — ruído. O mesmo para a variante do arremate escolhido
+        return await responder(levantamento.texto, levantamento.desfecho, semApanhado)
     } catch (e) {
         // Só o nome da tabela e o erro do banco — nunca a chave, o telefone ou o texto. E o vendedor sabe.
         // A falha vai sozinha: a fala da IA não abre uma frase de erro

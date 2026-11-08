@@ -43,17 +43,15 @@
  * A COLUNA `cor` NÃO É SÓ COR (`a-coluna-que-parece-enumeracao.md`): na DP-02 ela carrega '1MM',
  * 'IL50', 'LINHA 42', '(DESAGUE)', e `BZ0012/WOLFF` só existe como `CLICK` — o tipo de encaixe.
  *
- * A REGRA DA COR — decisão do dono do produto, 25/10/2026, geral:
- *   - o perfil com UMA variante no motor (um par código + cor) usa essa variante, sem casar a cor
- *     (`VARIANTE_UNICA`). É o BZ0012 (código 10491, 'CLICK');
- *   - com MAIS DE UMA, casa pela cor pedida; sem ela, é RECUSA nomeando o código, a cor e as variantes
- *     (o BZ1770 em BRANCO). NÃO autoriza "a mais parecida": com várias e sem a cor pedida, é recusa.
- * A GUARDA, que é leitura minha da regra e está relatada ao dono do produto: a variante única que é
- * uma COR DA EMPRESA (a lista `cores` da base, comparada sem caixa e sem acento só para classificar)
- * diferente da pedida é RECUSA. Medido em 25/10/2026: 7 perfis do motor Wolff têm como única variante
- * BRANCO (BZ0006, BZ0010, entre eles); sem a guarda, uma esquadria preta levaria o código branco, que
- * é a troca pelo parecido que a R3 proíbe. Com a empresa só em BRANCO, como em produção hoje, a guarda
- * não muda nada.
+ * A REGRA DA COR — o perfil COM variante (a coluna `cor` preenchida) casa pela cor pedida, e só por ela; sem ela, é RECUSA nomeando o
+ * perfil, a cor e as variantes que existem. NÃO autoriza "a mais parecida", e vale também para o perfil de UMA variante só (dono do
+ * produto, 08/11/2026): "perfil com variante única só serve para a cor que ele é, SEMPRE, independente da lista de cores da empresa".
+ *   - O que saiu: de 25/10/2026 a 08/11/2026, a variante única valia para qualquer cor (`VARIANTE_UNICA`, por causa do BZ0012 em
+ *     'CLICK'), com uma guarda que só a recusava quando a variante era uma cor da LISTA da empresa. Com uma lista sem Branco, o BZ0006 (só
+ *     em BRANCO) levava o código branco para uma esquadria roxa, e NADA travava: saía preço e saía produto, errados e silenciosos.
+ *   - O BZ0012 ('CLICK') e os reforços de aço (8523, 8434) não são cor: o dado é que tem de dizer isso, não o código adivinhar. O dono do
+ *     produto limpa a coluna Cor deles no arquivo do motor, e a célula vazia já é "sem variante" — o comportamento certo para eles. Até o
+ *     arquivo corrigido entrar, o levantamento com arremate interno recusa nomeando o BZ0012 (a ordem está no PR).
  *
  * FALTOU PREÇO, NADA EVOLUI (dono do produto, 08/11/2026 — substitui "o preço ausente não trava as barras", de 24/10/2026): o item
  * sem o valor da barra ou sem o valor do metro é RECUSA (`ITEM_SEM_VALOR`), como o item ausente — e, como toda recusa, nenhuma barra
@@ -68,8 +66,7 @@
  * Portão: `src/utils/__tests__/levantamento-de-barras.test.ts`. Mutações:
  * `scripts/harness/levantamento-de-barras/`.
  */
-import { avaliarTipologia, type AvisoDoAvaliador, type Tipologia } from './avaliador-de-formulas'
-import { normalizarNome } from './nome-do-levantamento'
+import { avaliarTipologia, faltaDoVidroSemBaguete, type AvisoDoAvaliador, type Tipologia } from './avaliador-de-formulas'
 import { agruparEmBarras, milimetrosDaBarra, type BarraDoCodigo, type ResultadoDoCodigo, type TotalDoLevantamento } from './agrupador-de-barras'
 
 
@@ -95,8 +92,6 @@ export type ItemDaTabela = {
 export type EntradaDoLevantamento = {
     /** A cor do perfil, comparada EXATA com a coluna `cor` do motor. Obrigatória: sem default. */
     cor: string
-    /** As cores da empresa (a lista da base): o que é COR na coluna `cor`, para a guarda da variante única. */
-    coresDaEmpresa: readonly string[]
     esquadrias: readonly EsquadriaDoLevantamento[]
     tipologias: Readonly<Record<string, Tipologia>>
     regras: readonly RegraDoDePara[]
@@ -126,10 +121,37 @@ export type EsquadriaLevantada = {
 export type CodigoLevantado = ResultadoDoCodigo & { perfil: string; descricao: string | null }
 export type CandidatoDoCodigo = { codigo: string; descricao: string | null; valor_barra_interno: number | null; valor_metro_interno: number | null }
 export type OrigemDaRecusa = 'ESQUADRIA' | 'AVALIADOR' | 'CODIGO' | 'ITEM' | 'AGRUPADOR'
+/** O atributo da esquadria que, trocado, resolve a falta, e o valor que resolve. */
+export type CaminhoDaFalta = { atributo: 'ESPESSURA_DO_VIDRO'; espessura_mm: number }
+
+/**
+ * A espessura que o caminho sugere: a menor das aceitas que não é menor que a pedida (4 → 5); acima de todas, a maior; sem espessura dita, a
+ * menor. É exemplo de frase que resolve — o vendedor diz a que quer.
+ */
+export function espessuraSugerida(pedida: number | null, aceitas: readonly number[]): number | null {
+    const ordem = [...new Set(aceitas)].sort((a, b) => a - b)
+    if (ordem.length === 0) return null
+    if (pedida === null) return ordem[0]
+    return ordem.find((e) => e >= pedida) ?? ordem[ordem.length - 1]
+}
+
 export type RecusaDoLevantamento = {
     origem: OrigemDaRecusa
     motivo: string
     mensagem: string
+    /**
+     * O QUE FALTA, curto, na linguagem do vendedor e sem a esquadria (dono do produto, 08/11/2026: "Não consegui fechar o levantamento <nome>.
+     * Falta: <o que falta>."): "o valor da barra do código 1023, perfil 1023/WOLFF". Quem monta a resposta põe as esquadrias depois, entre
+     * parênteses. Obrigatório: toda recusa diz o que falta (`construtor-empobrecido.md`).
+     */
+    falta: string
+    /**
+     * O CAMINHO DE ALTERAÇÃO que resolve a falta (dono do produto, 08/11/2026): a mensagem ensina, em uma linha, a frase que o vendedor manda
+     * ("Para trocar, diga: muda o vidro da esquadria 1 para 8 mm"). Só existe quando trocar um atributo da esquadria de fato resolve — hoje, a
+     * espessura do vidro que nenhum baguete aceita, ou que não foi dita: a espessura sugerida é uma das que os baguetes aceitam. Nulo é "não há
+     * caminho de alteração": a falta é de cadastro, de motor ou de configuração. Obrigatório (`construtor-empobrecido.md`).
+     */
+    caminho: CaminhoDaFalta | null
     /** As esquadrias (de 1 em diante) em que a mesma falta aparece. Vazia quando não é de esquadria. */
     esquadrias: number[]
     tipologia?: string
@@ -174,7 +196,7 @@ type RecusaDaPonte = Omit<RecusaDoLevantamento, 'esquadrias' | 'mensagem'> & { t
 export type ResultadoDaPonte =
     | { ok: true; codigo: string; origem: OrigemDoCodigo }
     | { ok: false; recusa: RecusaDoLevantamento }
-type OrigemDoCodigo = 'COR' | 'SEM_VARIANTE' | 'VARIANTE_UNICA'
+type OrigemDoCodigo = 'COR' | 'SEM_VARIANTE'
 
 /**
  * A variante do motor é a cor pedida? SEM CAIXA, e nada mais: nem acento, nem espaço (08/11/2026). `toUpperCase` sem locale — o
@@ -182,39 +204,34 @@ type OrigemDoCodigo = 'COR' | 'SEM_VARIANTE' | 'VARIANTE_UNICA'
  */
 const mesmaCor = (variante: string | null, pedida: string) => variante !== null && variante.toUpperCase() === pedida.toUpperCase()
 
-/** A variante é uma cor da EMPRESA? Sem caixa e sem acento — só para classificar, nunca para casar. */
-const ehCorDaEmpresa = (variante: string, cores: readonly string[]) => cores.some((c) => normalizarNome(c) === normalizarNome(variante))
-
-function ponte(perfil: string, cor: string, regras: readonly RegraDoDePara[], coresDaEmpresa: readonly string[]): { ok: true; codigo: string; origem: OrigemDoCodigo } | { ok: false; recusa: RecusaDaPonte } {
+function ponte(perfil: string, cor: string, regras: readonly RegraDoDePara[]): { ok: true; codigo: string; origem: OrigemDoCodigo } | { ok: false; recusa: RecusaDaPonte } {
     const linhas = regras.filter((r) => r.codigo_wvetro === perfil)
     if (!linhas.length) {
-        return { ok: false, recusa: { origem: 'CODIGO', motivo: 'PERFIL_SEM_REGRA', perfil, cor,
-            texto: `o perfil ${perfil} não está em nenhuma regra da tabela do fornecedor. Falta: o código do item de ${perfil}.` } }
+        return { ok: false, recusa: { origem: 'CODIGO', caminho: null, motivo: 'PERFIL_SEM_REGRA', perfil, cor,
+            texto: `o perfil ${perfil} não está em nenhuma regra da tabela do fornecedor. Falta: o código do item de ${perfil}.`,
+            falta: `o código do item do perfil ${perfil}: ele não está em nenhuma regra da tabela do fornecedor` } }
     }
     // a cor sem caixa — e só sem caixa (ver o cabeçalho): duas grafias que só a caixa distingue não se escolhem
     const daCorLinhas = linhas.filter((r) => mesmaCor(r.cor, cor))
     const grafias = distintos(daCorLinhas.map((r) => r.cor as string))
     if (grafias.length > 1) {
-        return { ok: false, recusa: { origem: 'CODIGO', motivo: 'COR_EM_DUAS_GRAFIAS', perfil, cor, variantes: grafias,
-            texto: `o perfil ${perfil} tem a cor ${cor} escrita de ${grafias.length} jeitos na tabela do fornecedor: ${grafias.slice(0, -1).join(', ')} e ${grafias[grafias.length - 1]}. Falta dizer qual delas é a cor pedida.` } }
+        return { ok: false, recusa: { origem: 'CODIGO', caminho: null, motivo: 'COR_EM_DUAS_GRAFIAS', perfil, cor, variantes: grafias,
+            texto: `o perfil ${perfil} tem a cor ${cor} escrita de ${grafias.length} jeitos na tabela do fornecedor: ${grafias.slice(0, -1).join(', ')} e ${grafias[grafias.length - 1]}. Falta dizer qual delas é a cor pedida.`,
+            falta: `dizer qual grafia da cor ${cor} vale para o perfil ${perfil}: ${grafias.slice(0, -1).join(', ')} ou ${grafias[grafias.length - 1]}` } }
     }
     const daCor = distintos(daCorLinhas.map((r) => r.codigo))
     if (daCor.length === 1) return { ok: true, codigo: daCor[0], origem: 'COR' }
-    if (daCor.length > 1) return { ok: false, recusa: { origem: 'CODIGO', motivo: 'DOIS_CODIGOS', perfil, cor, texto: '', candidatos: daCor.map(soOCodigo) } }
+    if (daCor.length > 1) return { ok: false, recusa: { origem: 'CODIGO', caminho: null, motivo: 'DOIS_CODIGOS', perfil, cor, texto: '', falta: '', candidatos: daCor.map(soOCodigo) } }
     if (linhas.every((r) => r.cor === null)) {
         const unicos = distintos(linhas.map((r) => r.codigo))
         if (unicos.length === 1) return { ok: true, codigo: unicos[0], origem: 'SEM_VARIANTE' }
-        return { ok: false, recusa: { origem: 'CODIGO', motivo: 'DOIS_CODIGOS', perfil, cor, texto: '', candidatos: unicos.map(soOCodigo) } }
+        return { ok: false, recusa: { origem: 'CODIGO', caminho: null, motivo: 'DOIS_CODIGOS', perfil, cor, texto: '', falta: '', candidatos: unicos.map(soOCodigo) } }
     }
-    // UMA variante no motor: usa essa — salvo quando ela é uma cor da empresa, que não é a pedida
-    const pares = distintos(linhas.map((r) => JSON.stringify([r.codigo, r.cor])))
-    if (pares.length === 1) {
-        const [codigo, variante] = JSON.parse(pares[0]) as [string, string]
-        if (!ehCorDaEmpresa(variante, coresDaEmpresa)) return { ok: true, codigo, origem: 'VARIANTE_UNICA' }
-    }
+    // a cor pedida não está entre as variantes — também quando a variante é UMA só: ela só serve para a cor que é (08/11/2026)
     const variantes = distintos(linhas.map((r) => r.cor ?? VAZIA))
-    return { ok: false, recusa: { origem: 'CODIGO', motivo: 'COR_SEM_CODIGO', perfil, cor, variantes,
-        texto: `o perfil ${perfil} não tem código para a cor ${cor} na tabela do fornecedor; as variantes que existem são: ${variantes.join(', ')}. Falta: o código de ${perfil} em ${cor}.` } }
+    return { ok: false, recusa: { origem: 'CODIGO', caminho: null, motivo: 'COR_SEM_CODIGO', perfil, cor, variantes,
+        texto: `o perfil ${perfil} não tem código para a cor ${cor} na tabela do fornecedor; as variantes que existem são: ${variantes.join(', ')}. Falta: o código de ${perfil} em ${cor}.`,
+        falta: `o código do perfil ${perfil} na cor ${cor} (o fornecedor tem: ${variantes.join(', ')})` } }
 }
 
 /** Os candidatos com descrição e valores, e a frase que nomeia os dois códigos e os dois valores. */
@@ -226,12 +243,13 @@ function completarDoisCodigos(r: RecusaDaPonte, itens: readonly ItemDaTabela[]):
     const lista = candidatos.map((c) => `${c.codigo} (${formatarReais(c.valor_barra_interno)} a barra)`)
     const juntos = lista.length > 1 ? `${lista.slice(0, -1).join(', ')} e ${lista[lista.length - 1]}` : lista.join('')
     return { ...r, candidatos,
-        texto: `o perfil ${r.perfil} em ${r.cor} tem ${candidatos.length} códigos na tabela do fornecedor: ${juntos}. Um valor por código: falta dizer qual deles é a peça.` }
+        texto: `o perfil ${r.perfil} em ${r.cor} tem ${candidatos.length} códigos na tabela do fornecedor: ${juntos}. Um valor por código: falta dizer qual deles é a peça.`,
+        falta: `dizer qual código é o perfil ${r.perfil} em ${r.cor}: ${lista.length > 1 ? `${lista.slice(0, -1).join(', ')} ou ${lista[lista.length - 1]}` : lista.join('')}` }
 }
 
 /** A ponte, para quem quer só o código de uma peça. A recusa sai sem esquadria. */
-export function codigoDaPeca(perfil: string, cor: string, regras: readonly RegraDoDePara[], coresDaEmpresa: readonly string[], itens: readonly ItemDaTabela[] = []): ResultadoDaPonte {
-    const p = ponte(perfil, cor, regras, coresDaEmpresa)
+export function codigoDaPeca(perfil: string, cor: string, regras: readonly RegraDoDePara[], itens: readonly ItemDaTabela[] = []): ResultadoDaPonte {
+    const p = ponte(perfil, cor, regras)
     if (!('recusa' in p)) return p
     const r = p.recusa.motivo === 'DOIS_CODIGOS' ? completarDoisCodigos(p.recusa, itens) : p.recusa
     const { texto, ...resto } = r
@@ -247,6 +265,18 @@ function prefixo(esquadrias: number[], tipologia?: string): string {
     if (!esquadrias.length) return ''
     const quem = esquadrias.length > 1 ? `Esquadrias ${listaDeNumeros(esquadrias)}` : `Esquadria ${esquadrias[0]}`
     return tipologia ? `${quem} (${tipologia}): ` : `${quem}: `
+}
+
+/** A espessura que não foi dita, curta: "a espessura do vidro: os baguetes desta tipologia dependem dela, e aceitam 5, 6 e 8 mm". */
+export function faltaDaEspessuraNaoDita(aceitas: readonly number[]): string {
+    const ns = [...new Set(aceitas)].sort((a, b) => a - b).map((n) => String(n).replace('.', ','))
+    const lista = ns.length > 1 ? `${ns.slice(0, -1).join(', ')} e ${ns[ns.length - 1]}` : ns.join('')
+    return ns.length ? `a espessura do vidro: os baguetes desta tipologia dependem dela, e aceitam ${lista} mm` : 'a espessura do vidro: os baguetes desta tipologia dependem dela'
+}
+function caminhoDoVidroSemBaguete(x: { motivo: string; espessura_vidro_mm?: number; espessuras_disponiveis_mm?: number[] }): CaminhoDaFalta | null {
+    if (x.motivo !== 'NENHUM_BAGUETE_PARA_A_ESPESSURA' || x.espessura_vidro_mm === undefined || x.espessuras_disponiveis_mm === undefined) return null
+    const sugerida = espessuraSugerida(x.espessura_vidro_mm, x.espessuras_disponiveis_mm)
+    return sugerida === null ? null : { atributo: 'ESPESSURA_DO_VIDRO', espessura_mm: sugerida }
 }
 
 // ── O levantamento ────────────────────────────────────────────────────────────────────────
@@ -265,20 +295,35 @@ export function levantarBarras(entrada: EntradaDoLevantamento): ResultadoDoLevan
     entrada.esquadrias.forEach((e, k) => {
         const indice = k + 1
         if (!Number.isInteger(e.quantidade) || e.quantidade <= 0) {
-            parciais.push({ origem: 'ESQUADRIA', motivo: 'QUANTIDADE_DA_ESQUADRIA_INVALIDA', tipologia: e.tipologia, esquadria: indice, comTipologia: true,
-                texto: `a quantidade ${e.quantidade} não é válida: tem de ser um inteiro positivo.` })
+            parciais.push({ origem: 'ESQUADRIA', caminho: null, motivo: 'QUANTIDADE_DA_ESQUADRIA_INVALIDA', tipologia: e.tipologia, esquadria: indice, comTipologia: true,
+                texto: `a quantidade ${e.quantidade} não é válida: tem de ser um inteiro positivo.`, falta: `a quantidade da esquadria: ${e.quantidade} não é um inteiro positivo` })
             return
         }
         const tipologia = Object.prototype.hasOwnProperty.call(entrada.tipologias, e.tipologia) ? entrada.tipologias[e.tipologia] : undefined
         if (!tipologia) {
-            parciais.push({ origem: 'ESQUADRIA', motivo: 'TIPOLOGIA_SEM_DEFINICAO', tipologia: e.tipologia, esquadria: indice, comTipologia: true,
-                texto: `a tipologia ${e.tipologia} não tem definição (abas do motor) neste levantamento. Falta: a tipologia ${e.tipologia}.` })
+            parciais.push({ origem: 'ESQUADRIA', caminho: null, motivo: 'TIPOLOGIA_SEM_DEFINICAO', tipologia: e.tipologia, esquadria: indice, comTipologia: true,
+                texto: `a tipologia ${e.tipologia} não tem definição (abas do motor) neste levantamento. Falta: a tipologia ${e.tipologia}.`, falta: `a definição da tipologia ${e.tipologia} no motor` })
             return
         }
         const r = avaliarTipologia({ tipologia, L_mm: e.L_mm, H_mm: e.H_mm, escolhas: e.escolhas, espessura_vidro_mm: e.espessura_vidro_mm })
         if ('recusas' in r) {
-            for (const x of r.recusas) {
-                parciais.push({ origem: 'AVALIADOR', motivo: x.motivo, tipologia: e.tipologia, perfil: x.perfil, ...(x.variavel !== undefined ? { variavel: x.variavel } : {}), esquadria: indice, comTipologia: true, texto: x.mensagem })
+            // A ESPESSURA QUE NÃO FOI DITA, uma falta só (08/11/2026): o avaliador recusa linha a linha da aba Perfis (uma por baguete), e para o
+            // vendedor é UMA coisa que falta — a espessura do vidro, com as que os baguetes da tipologia aceitam
+            const semEspessura = r.recusas.filter((x) => x.motivo === 'ESPESSURA_DO_VIDRO_AUSENTE')
+            if (semEspessura.length) {
+                const aceitas = [...new Set(semEspessura.flatMap((x) => x.espessuras_disponiveis_mm ?? []))]
+                const sugerida = espessuraSugerida(null, aceitas)
+                const falta = faltaDaEspessuraNaoDita(aceitas)
+                parciais.push({ origem: 'AVALIADOR', motivo: 'ESPESSURA_DO_VIDRO_AUSENTE', tipologia: e.tipologia, esquadria: indice, comTipologia: true, texto: falta, falta,
+                    caminho: sugerida === null ? null : { atributo: 'ESPESSURA_DO_VIDRO', espessura_mm: sugerida } })
+            }
+            for (const x of r.recusas.filter((y) => y.motivo !== 'ESPESSURA_DO_VIDRO_AUSENTE')) {
+                parciais.push({ origem: 'AVALIADOR', motivo: x.motivo, tipologia: e.tipologia, perfil: x.perfil, ...(x.variavel !== undefined ? { variavel: x.variavel } : {}), esquadria: indice, comTipologia: true, texto: x.mensagem,
+                    // o vidro sem baguete é falta CURTA, na linguagem do vendedor (08/11/2026); as outras recusas do motor são técnicas, e vão inteiras
+                    falta: x.motivo === 'NENHUM_BAGUETE_PARA_A_ESPESSURA' && x.espessura_vidro_mm !== undefined && x.espessuras_disponiveis_mm !== undefined
+                        ? faltaDoVidroSemBaguete(x.espessura_vidro_mm, x.espessuras_disponiveis_mm) : x.mensagem,
+                    // trocar a espessura do vidro resolve: o caminho sugere uma das aceitas
+                    caminho: caminhoDoVidroSemBaguete(x) })
             }
             return
         }
@@ -293,7 +338,7 @@ export function levantarBarras(entrada: EntradaDoLevantamento): ResultadoDoLevan
     const perfis = distintos(brutas.map((p) => p.perfil))
     const codigoDoPerfil: Record<string, string> = {}
     for (const perfil of perfis) {
-        const p = ponte(perfil, cor, entrada.regras, entrada.coresDaEmpresa)
+        const p = ponte(perfil, cor, entrada.regras)
         const esquadrias = [...new Set(brutas.filter((b) => b.perfil === perfil).map((b) => b.esquadria))]
         if (!('recusa' in p)) { codigoDoPerfil[perfil] = p.codigo; continue }
         const r = p.recusa.motivo === 'DOIS_CODIGOS' ? completarDoisCodigos(p.recusa, entrada.itens) : p.recusa
@@ -312,8 +357,9 @@ export function levantarBarras(entrada: EntradaDoLevantamento): ResultadoDoLevan
             const it = linhas[0]
             const semValor = ([['valor_barra_interno', 'da barra'], ['valor_metro_interno', 'do metro']] as const).filter(([campo]) => !Number.isFinite(it[campo] as number))
             for (const [, nome] of semValor) {
-                for (const esquadria of esquadrias) parciais.push({ origem: 'ITEM', motivo: 'ITEM_SEM_VALOR', perfil, cor, codigo, esquadria,
-                    texto: `o código ${codigo} (perfil ${perfil}) está na tabela de preço sem o valor ${nome}. Falta: o valor ${nome} de ${codigo}.` })
+                for (const esquadria of esquadrias) parciais.push({ origem: 'ITEM', caminho: null, motivo: 'ITEM_SEM_VALOR', perfil, cor, codigo, esquadria,
+                    texto: `o código ${codigo} (perfil ${perfil}) está na tabela de preço sem o valor ${nome}. Falta: o valor ${nome} de ${codigo}.`,
+                    falta: `o valor ${nome} do código ${codigo}, perfil ${perfil}, na tabela de preço` })
             }
             itemDoCodigo[codigo] = it
             continue
@@ -322,7 +368,10 @@ export function levantarBarras(entrada: EntradaDoLevantamento): ResultadoDoLevan
         const texto = linhas.length === 0
             ? `o código ${codigo} (perfil ${perfil}) não está na tabela de preço. Falta: o item ${codigo}, com a barra e o valor.`
             : `o código ${codigo} (perfil ${perfil}) está em ${linhas.length} linhas da tabela de preço, com ${linhas.map((l) => formatarReais(l.valor_barra_interno)).join(' e ')} a barra. Um valor por código: falta dizer qual linha vale.`
-        for (const esquadria of esquadrias) parciais.push({ origem: 'ITEM', motivo, perfil, cor, codigo, esquadria, texto })
+        const falta = linhas.length === 0
+            ? `o código ${codigo}, perfil ${perfil}, na tabela de preço, com a barra e o valor`
+            : `dizer qual linha da tabela de preço vale para o código ${codigo}, perfil ${perfil}: ${linhas.map((l) => formatarReais(l.valor_barra_interno)).join(' ou ')} a barra`
+        for (const esquadria of esquadrias) parciais.push({ origem: 'ITEM', caminho: null, motivo, perfil, cor, codigo, esquadria, texto, falta })
     }
 
     // 4. o agrupador, com as peças que têm código e item — mesmo havendo recusa, para que as dele
@@ -340,12 +389,22 @@ export function levantarBarras(entrada: EntradaDoLevantamento): ResultadoDoLevan
         serra_mm: entrada.serra_mm,
     })
     if ('recusas' in agrupado) {
+        // a peça maior que a barra é UMA falta por código, com a MAIOR peça dele: cada peça a mais é a mesma barra que falta (08/11/2026)
+        const maiorPeca = new Map<string, number>()
+        for (const x of agrupado.recusas) if (x.motivo === 'PECA_MAIOR_QUE_A_BARRA') maiorPeca.set(x.codigo, Math.max(maiorPeca.get(x.codigo) ?? 0, x.comprimento_peca_mm))
         for (const x of agrupado.recusas) {
+            if (x.motivo === 'PECA_MAIOR_QUE_A_BARRA' && x.comprimento_peca_mm !== maiorPeca.get(x.codigo)) continue
             const perfil = x.codigo !== undefined ? perfilDoCodigo[x.codigo] : undefined
             const esquadrias = perfil ? [...new Set(prontas.filter((b) => b.perfil === perfil).map((b) => b.esquadria))] : []
             const texto = perfil ? `${x.mensagem} (perfil ${perfil})` : x.mensagem
-            if (!esquadrias.length) parciais.push({ origem: 'AGRUPADOR', motivo: x.motivo, codigo: x.codigo, perfil, texto })
-            for (const esquadria of esquadrias) parciais.push({ origem: 'AGRUPADOR', motivo: x.motivo, codigo: x.codigo, perfil, esquadria, texto })
+            // o que chega ao vendedor, curto (08/11/2026): a barra sem comprimento e a peça maior que a barra; as outras são guardas internas
+            const doCodigo = perfil ? `do código ${x.codigo}, perfil ${perfil}` : `do código ${x.codigo}`
+            const mm = (n: number) => `${String(Math.round(n * 10) / 10).replace('.', ',')} mm`
+            const falta = x.motivo === 'BARRA_SEM_COMPRIMENTO' ? `o comprimento da barra ${doCodigo}, na tabela de preço`
+                : x.motivo === 'PECA_MAIOR_QUE_A_BARRA' ? `uma barra em que caiba a maior peça ${doCodigo}: a peça tem ${mm(x.comprimento_peca_mm)} e a barra, ${mm(x.comprimento_barra_mm)}`
+                    : texto
+            if (!esquadrias.length) parciais.push({ origem: 'AGRUPADOR', caminho: null, motivo: x.motivo, codigo: x.codigo, perfil, texto, falta })
+            for (const esquadria of esquadrias) parciais.push({ origem: 'AGRUPADOR', caminho: null, motivo: x.motivo, codigo: x.codigo, perfil, esquadria, texto, falta })
         }
     }
 

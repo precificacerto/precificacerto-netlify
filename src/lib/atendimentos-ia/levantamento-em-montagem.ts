@@ -136,6 +136,8 @@ export type ContextoDaProposta = {
     aberturaDaMensagem: Abertura | null
     aberturasDitas: ReadonlySet<Abertura>
     cores: readonly string[]
+    /** O texto da mensagem do vendedor: a cor dita fora da lista só conta se as palavras dela estão nele — o modelo não inventa cor (08/11/2026). */
+    mensagem: string
     /** A esquadria que recebe o que vier sem ordem e sem tipologia; null quando não há como saber. */
     ordemPadrao: number | null
     definicao: DefinicaoDaTipologia
@@ -156,6 +158,11 @@ export type ResultadoDaProposta = {
     aberturas: Record<number, Abertura | null>
     /** As esquadrias (pela ordem) cuja quantidade é o 1 do padrão, não a dita (06/11/2026): o agrupamento não a deixa substituir a gravada. */
     quantidadesPadrao: number[]
+    /**
+     * A COR DITA E FORA DA LISTA (dono do produto, 08/11/2026): a esquadria cuja cor o vendedor DISSE (as palavras estão na mensagem) e que a
+     * empresa não tem. Ela NÃO recebe a predominante — que é só da cor NÃO dita —, e a conversa pergunta nomeando a cor e a lista.
+     */
+    coresForaDaLista: Array<{ ordem: number; cor: string }>
 }
 
 /**
@@ -166,6 +173,18 @@ export type ResultadoDaProposta = {
 export type RecusaDaTipologia = { ordem: number; motivo: 'ABERTURA' | 'LIMITES'; tipologia: string; abertura: Abertura | null; medidas: Medidas }
 
 const vazio = (v: unknown) => v === null || v === undefined
+
+/**
+ * A cor proposta pelo modelo foi DITA pelo vendedor? Todas as palavras dela (letras e números, sem caixa e sem acento) estão na mensagem.
+ * "Roxo" vale em "quero roxo"; "Golden Oak" vale em "golden oak, por favor"; uma cor que o modelo tirou da lista ou da instrução, não.
+ */
+export function corDitaNaMensagem(cor: unknown, mensagem: string): boolean {
+    if (typeof cor !== 'string') return false
+    const palavras = (t: string) => normalizarNome(t).split(/[^a-z0-9]+/).filter((p) => p !== '')
+    const daCor = palavras(cor)
+    const daMensagem = new Set(palavras(mensagem))
+    return daCor.length > 0 && daCor.every((p) => daMensagem.has(p))
+}
 const ordemValida = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 1
 
 /** Aplica `{ itens, escolhas, opcoes_de }` às esquadrias. Devolve uma cópia; as recebidas não mudam. */
@@ -176,6 +195,7 @@ export function aplicarProposta(atuais: readonly ItemDoLevantamento[], proposta:
     let semEsquadria = false
     let vidrosPadrao = 0
     const recusas: RecusaDaTipologia[] = []
+    const coresForaDaLista: Array<{ ordem: number; cor: string }> = []
     const aberturas: Record<number, Abertura | null> = {}
     const tipologias = [...new Set(ctx.candidatos.map((c) => c.tipologia))]
     const candidatasDoCodigo = (codigo: string) => ctx.candidatos.filter((c) => c.tipologia === codigo)
@@ -188,12 +208,16 @@ export function aplicarProposta(atuais: readonly ItemDoLevantamento[], proposta:
         if (!bruto || typeof bruto !== 'object') continue
         const b = bruto as Record<string, unknown>
         const validos: Partial<Record<CampoDaEsquadria, unknown>> = {}
+        let corFora: string | null = null
         for (const campo of CAMPOS_DA_ESQUADRIA) {
             if (vazio(b[campo])) continue
             propostos += 1
             const v = valorValido(campo, b[campo], tipologias, ctx.cores)
-            if (v === undefined) descartados += 1
-            else validos[campo] = v
+            if (v === undefined) {
+                descartados += 1
+                // a cor DITA que a empresa não tem: guardada (não descartada calada), se as palavras dela estão na mensagem
+                if (campo === 'cor_perfil' && corDitaNaMensagem(b[campo], ctx.mensagem)) corFora = String(b[campo]).trim()
+            } else validos[campo] = v
         }
         const texto = (v: unknown) => (typeof v === 'string' && v.trim() !== '' ? v : null)
         const fornecedor = texto(b.fornecedor)
@@ -201,7 +225,7 @@ export function aplicarProposta(atuais: readonly ItemDoLevantamento[], proposta:
         // os ambientes e a obs do item (06/11/2026) chegam JÁ VALIDADOS contra a mensagem (`lerDadosDaMensagem`): aqui só se aplicam
         const ambientes = Array.isArray(b.ambientes) && b.ambientes.length > 0 ? (b.ambientes as AmbienteDoItem[]).map((a) => ({ ambiente: a.ambiente, quantidade: a.quantidade })) : null
         const obs = texto(b.obs)
-        if (Object.keys(validos).length === 0 && fornecedor === null && familia === null && ambientes === null && obs === null) continue
+        if (Object.keys(validos).length === 0 && corFora === null && fornecedor === null && familia === null && ambientes === null && obs === null) continue
 
         let alvo: ItemDoLevantamento | undefined
         if (ordemValida(b.ordem)) {
@@ -227,6 +251,7 @@ export function aplicarProposta(atuais: readonly ItemDoLevantamento[], proposta:
         }
         if (!alvo) { semEsquadria = true; continue }
         tocadas.add(alvo.ordem)
+        if (corFora !== null) coresForaDaLista.push({ ordem: alvo.ordem, cor: corFora })
 
         // PORTA × JANELA (decisão 1): a palavra do vendedor — a do item, se ele a escreveu, senão a da mensagem — contra a PRIMEIRA palavra
         // da descrição; nenhuma candidata do código compatível descarta a tipologia proposta. Maxim-ar e fixo não declaram, e passam.
@@ -311,7 +336,7 @@ export function aplicarProposta(atuais: readonly ItemDoLevantamento[], proposta:
     for (const i of itens) {
         if (i.quantidade === null && CAMPOS_DA_ESQUADRIA.some((c) => c !== 'quantidade' && !vazio(i[c]))) { i.quantidade = 1; quantidadesPadrao.push(i.ordem) }
     }
-    return { itens, propostos, descartados, semEsquadria, recusas, vidrosPadrao, aberturas, quantidadesPadrao }
+    return { itens, propostos, descartados, semEsquadria, recusas, vidrosPadrao, aberturas, quantidadesPadrao, coresForaDaLista }
 }
 
 // ── O AGRUPAMENTO (dono do produto, 03/11/2026) ─────────────────────────────────────────────

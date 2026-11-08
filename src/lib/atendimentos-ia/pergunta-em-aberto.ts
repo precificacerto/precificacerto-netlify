@@ -23,6 +23,7 @@
  * modelo, a linha [IA] diz `aberta=expirada`, e a linha velha fica no banco até a próxima pergunta a sobrescrever ou uma resolução a apagar
  * — como o histórico, que filtra na leitura e não apaga.
  */
+import { createHash } from 'crypto'
 import { supabaseAdmin } from '@/supabase/admin'
 import { mesmoVidro } from '@/lib/atendimentos-ia/vidro'
 import { CAMPOS_DA_ESQUADRIA } from '@/lib/atendimentos-ia/levantamento-em-montagem'
@@ -43,7 +44,8 @@ export type PerguntaEmAberto = {
     /**
      * O nome que a pergunta cita: o lido, na NOME_PARECIDO e na confirmação do RESGATE (03/11/2026) — que é uma CONFIRMAR_ACRESCIMO
      * COM nome, porque a CHECK de `pergunta` em produção (20261026000003) não aceita outro código e nenhuma migração foi pedida.
-     * Nulo nas outras.
+     * Na CONFIRMAR_APANHADO, pelo mesmo motivo, a MARCA DA DEFINIÇÃO CONFIRMADA (08/11/2026, `marcaDaConfirmacao`): o "sim" já foi dado e o
+     * cálculo recusou — nula enquanto o arquivo espera o primeiro "sim". Nulo nas outras.
      */
     nome: string | null
     /** Os levantamentos citados na pergunta. No resgate, em ordem decrescente de data (a numeração da lista); na confirmação, o escolhido primeiro. */
@@ -52,6 +54,25 @@ export type PerguntaEmAberto = {
 }
 
 const tabelaAusente = (e: { code?: string }) => e.code === 'PGRST205' || e.code === '42P01'
+
+/**
+ * O "SIM" QUE CONTINUA VALENDO (dono do produto, 08/11/2026). O "sim" aprova a DEFINIÇÃO — o que está no arquivo: tipologia, medidas, vidro, variáveis.
+ * Quando o cálculo recusa depois dele, a pergunta CONFIRMAR_APANHADO volta guardada com a MARCA da definição confirmada: o resumo do arquivo, por
+ * hash. Na mensagem seguinte, a definição gravada é comparada com ela:
+ *   - IGUAL (só o cadastro mudou do lado de fora, ou nada mudou): o "sim" continua valendo, e o cálculo roda direto — sem arquivo novo, sem nova
+ *     confirmação. "Pedir o 'sim' outra vez para a mesma definição é cerimônia vazia — e é assim que o vendedor aprende a confirmar sem ler.";
+ *   - DIFERENTE (o vendedor mudou um campo da definição): o arquivo sai de novo e pede novo "sim".
+ * DÍVIDA (dono do produto, 08/11/2026): a marca mora no `nome` da CONFIRMAR_APANHADO, sem migração e com o precedente do resgate — mas
+ * quem ler a tabela vai achar uma confirmação pendente onde há uma dada. Merece coluna própria. E compara o resumo INTEIRO (o endereço do
+ * cliente também pede novo "sim"), por decisão do mesmo dia; estreitar para os campos do cálculo só se incomodar no uso. Ver
+ * `docs/regras/faltou-dado-recusa-nomeada.md`, aparição 10.
+ */
+const MARCA_DA_CONFIRMACAO = 'definicao-confirmada:'
+export const marcaDaConfirmacao = (resumoDoArquivo: string) => MARCA_DA_CONFIRMACAO + createHash('sha256').update(resumoDoArquivo).digest('hex')
+/** A pergunta guarda um "sim" já dado (e não a espera do primeiro)? */
+export const guardaConfirmacao = (p: PerguntaEmAberto) => p.pergunta === 'CONFIRMAR_APANHADO' && typeof p.nome === 'string' && p.nome.startsWith(MARCA_DA_CONFIRMACAO)
+/** O "sim" guardado vale para esta definição: a mesma marca. */
+export const confirmacaoVale = (p: PerguntaEmAberto, resumoDoArquivo: string | null) => guardaConfirmacao(p) && resumoDoArquivo !== null && p.nome === marcaDaConfirmacao(resumoDoArquivo)
 
 /**
  * As esquadrias da proposta, com SÓ os campos da esquadria e só as que dizem alguma coisa. O número

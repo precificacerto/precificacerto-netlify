@@ -46,12 +46,12 @@ M = [
  ('L16', 'a despesa da mão de obra é sempre a da industrialização', MO, [("segmentoDaDespesa: tipo === 'SERVICO' ? 'SERVICO' : 'INDUSTRIALIZACAO',", "segmentoDaDespesa: 'INDUSTRIALIZACAO',")], 'o segmento decide'),
  ('L17', 'a despesa da mão de obra é sempre a do serviço (soma administrativa e fixa)', MO, [("segmentoDaDespesa: tipo === 'SERVICO' ? 'SERVICO' : 'INDUSTRIALIZACAO',", "segmentoDaDespesa: 'SERVICO',")], 'NÃO entram'),
  ('L18', 'carga horária ausente vira mão de obra zero', MO, [("    if (carga.isUnset) faltas.push(FALTA_CARGA_HORARIA)\n", "")], 'nunca zero'),
- ('L19', 'só a primeira falta da mão de obra sai', LC, [("return { ok: false, falta: m.faltas.join('; ') }", "return { ok: false, falta: m.faltas[0] ?? '' }")], 'sem tenant_settings'),
+ ('L19', 'só a primeira falta da mão de obra sai', LC, [("return { ok: false, falta: m.faltas.join('; '), semTempo: false }", "return { ok: false, falta: m.faltas[0] ?? '', semTempo: false }")], 'sem tenant_settings'),
  ('L20', 'os totais de material não são arredondados antes da diferença', LC, [("const barra = centavos(t.total_por_barra_inteira)", "const barra = t.total_por_barra_inteira"),
                                                                        ("const consumo = centavos(t.total_por_consumo_real)", "const consumo = t.total_por_consumo_real")], 'o texto inteiro'),
  ('L21', 'o total com mão de obra esquece a mão de obra', LC, [("formatarReais(centavos(material + maoDeObraTotal))", "formatarReais(centavos(material))")], 'o texto inteiro'),
  ('L22', 'a mão de obra não multiplica pela quantidade', LC, [("total: centavos(m.valor * quantidade),", "total: m.valor,")], 'a quantidade multiplica'),
- ('L23', 'o levantamento volta à cor fixa BRANCO', LC, [("        cor: cores[0],\n        coresDaEmpresa,", "        cor: 'BRANCO',\n        coresDaEmpresa,")], 'PRETO TEXTURADO'),
+ ('L23', 'o levantamento volta à cor fixa BRANCO', LC, [("        cor: cores[0],\n", "        cor: 'BRANCO',\n")], 'PRETO TEXTURADO'),
  ('L24', 'a cor do perfil aceita qualquer texto', PD, [("            return typeof v === 'string' && cores.includes(v) ? v : undefined", "            return textoValido(v) ? (v as string).trim() : undefined")], 'não é BRANCO'),
  ('L25', 'as cores não vão ao prompt', CV, [("${c.cores.length ? c.cores.join(', ') : '(nenhuma)'}", "(nenhuma)")], 'vão ao prompt'),
  ('L26', 'sem lista de cores, a conversa pergunta a cor assim mesmo', CV, [("pendencia.campo === 'cor_perfil' && cores.length === 0)", "pendencia.campo === 'cor_perfil' && false)")], 'SEM LISTA DE CORES'),
@@ -79,7 +79,7 @@ M = [
  # o tempo de fabricação vem da tabela própria (20261024000003), não das colunas antigas
  ('L46', 'o tempo volta a ser lido das colunas antigas', LC, [(".from('orcamentista_motor_tipologia_tempo').select('tempo_fabricacao_min, tempo_origem')", ".from('orcamentista_motor_tipologia').select('tempo_fabricacao_min, tempo_origem')")], 'NÃO das colunas antigas'),
  ('L47', 'a tabela dos tempos ausente vira erro', LC, [("        if (tabelaAusente(error)) return { ausente: true }\n        throw new Error(`orcamentista_motor_tipologia_tempo", "        throw new Error(`orcamentista_motor_tipologia_tempo")], 'AINDA NÃO EXISTE no banco: ausência declarada'),
- ('L48', 'a tabela dos tempos ausente vira "sem tempo cadastrado"', LC, [("    if ('ausente' in tempo) return { ok: false, falta: FALTA_TABELA_DOS_TEMPOS }", "    if ('ausente' in tempo) return { ok: false, falta: `o tempo de fabricação de ${tipologia} não está cadastrado` }")], 'a tabela dos tempos ainda não existe'),
+ ('L48', 'a tabela dos tempos ausente vira "sem tempo cadastrado"', LC, [("        if ('ausente' in tempos) return { ok: false, falta: FALTA_TABELA_DOS_TEMPOS, semTempo: true }", "        if ('ausente' in tempos) return { ok: false, falta: `o tempo de fabricação de ${tipologia} não está cadastrado`, semTempo: true }")], 'a tabela dos tempos ainda não existe'),
  ('L0', 'controle: nada muda', LC, [("export", "export")]),
 ]
 
