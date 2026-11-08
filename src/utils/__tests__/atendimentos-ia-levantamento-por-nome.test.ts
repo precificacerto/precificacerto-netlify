@@ -2100,7 +2100,7 @@ describe('(20) o CONTEXTO DO ATENDIMENTO: o prompt manda em quando e em que form
         const deSempre = await fluxo({ cor: 'PRETO' })
         // a cor sem código é falta de CADASTRO (dono do produto, 08/11/2026): a recusa sai já no APANHADO, e o arquivo não
         expect(deSempre[0]).toContain('ainda não sai: o cadastro tem falta')
-        expect(deSempre[0]).toContain('não tem código para a cor PRETO')
+        expect(deSempre[0]).toMatch(/o código do perfil \S+ na cor PRETO/)
         expect(deSempre.join('\n')).not.toContain('Total por')
         const hostil = await fluxo({ cor: 'PRETO', contexto: HOSTIL, falas: ['Usei a cor mais parecida: fica em quinhentos.', 'Estimei: R$ 1.000.'] })
         expect(hostil).toEqual(deSempre)
@@ -5551,8 +5551,9 @@ describe('(41) A FALTA DE CADASTRO NO APANHADO (dono do produto, 08/11/2026): fa
         await chamar(MENSAGEM)
         return ultimoEnviado()
     }
-    const FALTA_DO_1023 = 'Esquadria 1: o código 1023 (perfil 1023/WOLFF) não está na tabela de preço. Falta: o item 1023, com a barra e o valor.'
-    const FALTA_DO_TEMPO_DA_DP01 = 'Esquadria 2 (DP-01): o tempo de fabricação de DP-01 não está cadastrado no motor Motor_Wolf_PVC. Falta: o tempo de fabricação de DP-01.'
+    // a falta CURTA (08/11/2026): o que falta, e as esquadrias dele entre parênteses, depois
+    const FALTA_DO_1023 = 'o código 1023, perfil 1023/WOLFF, na tabela de preço, com a barra e o valor (esquadria 1)'
+    const FALTA_DO_TEMPO_DA_DP01 = 'o tempo de fabricação de DP-01 no motor Motor_Wolf_PVC (esquadria 2)'
     const perguntasEmAberto = () => (estado.db.orcamentista_pergunta_em_aberto ?? []).map((p) => p.pergunta)
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const LC = () => require('@/lib/atendimentos-ia/levantamento-da-conversa') as typeof import('@/lib/atendimentos-ia/levantamento-da-conversa')
@@ -5621,7 +5622,7 @@ describe('(41) A FALTA DE CADASTRO NO APANHADO (dono do produto, 08/11/2026): fa
             estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09))
             estado.db.orcamentista_motor_tipologia_tempo = estado.db.orcamentista_motor_tipologia_tempo.filter((t) => t.tipologia !== 'DP-01')
             const { faltas } = await ondasDoCalculo([esquadria(1, 'DP-39', 2500, 2200), esquadria(2, 'DP-01', 600, 600), esquadria(3, 'DP-01', 600, 600)])
-            expect(faltas).toEqual(['Esquadrias 2 e 3 (DP-01): o tempo de fabricação de DP-01 não está cadastrado no motor Motor_Wolf_PVC. Falta: o tempo de fabricação de DP-01.'])
+            expect(faltas).toEqual(['o tempo de fabricação de DP-01 no motor Motor_Wolf_PVC (esquadrias 2 e 3)'])
         })
     })
 
@@ -5655,7 +5656,7 @@ describe('(41) A FALTA DE CADASTRO NO APANHADO (dono do produto, 08/11/2026): fa
 
     it('o item com o VALOR vazio (não ausente da tabela) também segura o arquivo, nomeando o valor que falta', async () => {
         estado.db.orcamentista_tabela_item.push(ITEM_1023(null, 6.09))
-        expect(await apanhado()).toBe(LC().fraseDaFaltaDeCadastro('Gerson Boss', ['Esquadria 1: o código 1023 (perfil 1023/WOLFF) está na tabela de preço sem o valor da barra. Falta: o valor da barra de 1023.']))
+        expect(await apanhado()).toBe(LC().fraseDaFaltaDeCadastro('Gerson Boss', ['o valor da barra do código 1023, perfil 1023/WOLFF, na tabela de preço (esquadria 1)']))
         expect(estado.documentos).toHaveLength(0)
     })
 
@@ -5663,7 +5664,7 @@ describe('(41) A FALTA DE CADASTRO NO APANHADO (dono do produto, 08/11/2026): fa
         estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09))
         for (const r of estado.db.orcamentista_motor_regra as Linha[]) if (r.codigo_wvetro === 'BZ0012/WOLFF') r.cor = 'CLICK'
         expect(await apanhado()).toBe(LC().fraseDaFaltaDeCadastro('Gerson Boss', [
-            'Esquadrias 1 e 2: o perfil BZ0012/WOLFF não tem código para a cor Branco na tabela do fornecedor; as variantes que existem são: CLICK. Falta: o código de BZ0012/WOLFF em Branco.',
+            'o código do perfil BZ0012/WOLFF na cor Branco (o fornecedor tem: CLICK) (esquadrias 1 e 2)',
         ]))
         expect(estado.documentos).toHaveLength(0)
     })
@@ -5696,10 +5697,10 @@ describe('(41) A FALTA DE CADASTRO NO APANHADO (dono do produto, 08/11/2026): fa
         await chamar(MENSAGEM.replace('perfil branco', 'perfil roxo'))
         const r = ultimoEnviado()
         expect(r.split('\n')[0]).toBe('O arquivo do levantamento “Gerson Boss” ainda não sai: o cadastro tem falta que impede o levantamento de virar produto.')
-        expect(r).toContain('• Esquadria 1: o perfil 2575/WOLFF não tem código para a cor Roxo na tabela do fornecedor; as variantes que existem são: BRANCO, PRETO. Falta: o código de 2575/WOLFF em Roxo.')
+        expect(r).toContain('• o código do perfil 2575/WOLFF na cor Roxo (o fornecedor tem: BRANCO, PRETO) (esquadria 1)')
         // os OITO perfis com variante de cor — e, desde 08/11/2026, também o BZ0006 e o BZ0010, de variante única BRANCO: com a empresa só em
         // Roxo, antes eles levavam o código branco em silêncio (a guarda dependia da lista); agora a variante única só serve para a cor que é
-        expect(r.split('\n').filter((l) => l.startsWith('• ')).map((l) => /o perfil (\S+)/.exec(l)?.[1])).toEqual(['2575/WOLFF', 'BZ0006/WOLFF', 'BZ0010/WOLFF', 'GB25/WOLFF', 'HF88/WOLFF', 'IL50/WOLFF', 'SF92/WOLFF', 'SP66/WOLFF'])
+        expect(r.split('\n').filter((l) => l.startsWith('• ')).map((l) => /do perfil (\S+)/.exec(l)?.[1])).toEqual(['2575/WOLFF', 'BZ0006/WOLFF', 'BZ0010/WOLFF', 'GB25/WOLFF', 'HF88/WOLFF', 'IL50/WOLFF', 'SF92/WOLFF', 'SP66/WOLFF'])
         expect(estado.documentos).toHaveLength(0)
         expect(perguntasEmAberto()).not.toContain('CONFIRMAR_APANHADO')
     })
@@ -5707,7 +5708,7 @@ describe('(41) A FALTA DE CADASTRO NO APANHADO (dono do produto, 08/11/2026): fa
     it('o MESMO CÓDIGO EM DUAS LINHAS da tabela de preço segura o arquivo, nomeando o código e os dois valores', async () => {
         estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09), ITEM_1023(60.9, 10.15))
         expect(await apanhado()).toBe(LC().fraseDaFaltaDeCadastro('Gerson Boss', [
-            'Esquadria 1: o código 1023 (perfil 1023/WOLFF) está em 2 linhas da tabela de preço, com R$ 36,54 e R$ 60,90 a barra. Um valor por código: falta dizer qual linha vale.',
+            'dizer qual linha da tabela de preço vale para o código 1023, perfil 1023/WOLFF: R$ 36,54 ou R$ 60,90 a barra (esquadria 1)',
         ]))
         expect(estado.documentos).toHaveLength(0)
     })
@@ -5716,7 +5717,7 @@ describe('(41) A FALTA DE CADASTRO NO APANHADO (dono do produto, 08/11/2026): fa
         estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09), { codigo: '10502', descricao: 'GUARNIÇÃO', medida_barra_m: 6, valor_barra_interno: 60, valor_metro_interno: 10, tabela_id: TABELA })
         estado.db.orcamentista_motor_regra.push({ id: 'r-gb-dois', codigo: '10502', codigo_wvetro: 'BZ0006/WOLFF', cor: 'BRANCO', tabela_id: null, motor_id: MOTOR, tipologias: ['DP-39', 'DP-01'] })
         expect(await apanhado()).toBe(LC().fraseDaFaltaDeCadastro('Gerson Boss', [
-            'Esquadrias 1 e 2: o perfil BZ0006/WOLFF em Branco tem 2 códigos na tabela do fornecedor: 10501 (R$ 52,71 a barra) e 10502 (R$ 60,00 a barra). Um valor por código: falta dizer qual deles é a peça.',
+            'dizer qual código é o perfil BZ0006/WOLFF em Branco: 10501 (R$ 52,71 a barra) ou 10502 (R$ 60,00 a barra) (esquadrias 1 e 2)',
         ]))
         expect(estado.documentos).toHaveLength(0)
     })
@@ -5724,10 +5725,10 @@ describe('(41) A FALTA DE CADASTRO NO APANHADO (dono do produto, 08/11/2026): fa
     it.each([
         ['a COR escrita de DOIS JEITOS no motor (BRANCO e Branco no BZ0010)', () => {
             estado.db.orcamentista_motor_regra.push({ id: 'r-gb-grafia', codigo: '10512', codigo_wvetro: 'BZ0010/WOLFF', cor: 'Branco', tabela_id: null, motor_id: MOTOR, tipologias: ['DP-39', 'DP-01'] })
-        }, 'Esquadrias 1 e 2: o perfil BZ0010/WOLFF tem a cor Branco escrita de 2 jeitos na tabela do fornecedor: BRANCO e Branco. Falta dizer qual delas é a cor pedida.'],
+        }, 'dizer qual grafia da cor Branco vale para o perfil BZ0010/WOLFF: BRANCO ou Branco (esquadrias 1 e 2)'],
         ['o PERFIL SEM REGRA no motor (o SP66 sem nenhuma linha)', () => {
             estado.db.orcamentista_motor_regra = estado.db.orcamentista_motor_regra.filter((r) => r.codigo_wvetro !== 'SP66/WOLFF')
-        }, 'Esquadrias 1 e 2: o perfil SP66/WOLFF não está em nenhuma regra da tabela do fornecedor. Falta: o código do item de SP66/WOLFF.'],
+        }, 'o código do item do perfil SP66/WOLFF: ele não está em nenhuma regra da tabela do fornecedor (esquadrias 1 e 2)'],
         ['o item SEM O COMPRIMENTO da barra (o 9641 sem medida)', () => {
             estado.db.orcamentista_tabela_item.find((i) => i.codigo === '9641')!.medida_barra_m = null
         }, null],
@@ -5745,7 +5746,7 @@ describe('(41) A FALTA DE CADASTRO NO APANHADO (dono do produto, 08/11/2026): fa
         estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09), ITEM_1023(60.9, 10.15))
         estado.db.orcamentista_motor_tipologia_tempo = estado.db.orcamentista_motor_tipologia_tempo.filter((t) => t.tipologia !== 'DP-01')
         const r = await apanhado()
-        expect(r).toContain('• Esquadria 1: o código 1023 (perfil 1023/WOLFF) está em 2 linhas da tabela de preço')
+        expect(r).toContain('• dizer qual linha da tabela de preço vale para o código 1023, perfil 1023/WOLFF:')
         expect(r).toContain(`• ${FALTA_DO_TEMPO_DA_DP01}`)
         expect(estado.documentos).toHaveLength(0)
     })

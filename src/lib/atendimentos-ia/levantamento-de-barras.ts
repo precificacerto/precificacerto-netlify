@@ -66,7 +66,7 @@
  * Portão: `src/utils/__tests__/levantamento-de-barras.test.ts`. Mutações:
  * `scripts/harness/levantamento-de-barras/`.
  */
-import { avaliarTipologia, type AvisoDoAvaliador, type Tipologia } from './avaliador-de-formulas'
+import { avaliarTipologia, faltaDoVidroSemBaguete, type AvisoDoAvaliador, type Tipologia } from './avaliador-de-formulas'
 import { agruparEmBarras, milimetrosDaBarra, type BarraDoCodigo, type ResultadoDoCodigo, type TotalDoLevantamento } from './agrupador-de-barras'
 
 
@@ -125,6 +125,12 @@ export type RecusaDoLevantamento = {
     origem: OrigemDaRecusa
     motivo: string
     mensagem: string
+    /**
+     * O QUE FALTA, curto, na linguagem do vendedor e sem a esquadria (dono do produto, 08/11/2026: "Não consegui fechar o levantamento <nome>.
+     * Falta: <o que falta>."): "o valor da barra do código 1023, perfil 1023/WOLFF". Quem monta a resposta põe as esquadrias depois, entre
+     * parênteses. Obrigatório: toda recusa diz o que falta (`construtor-empobrecido.md`).
+     */
+    falta: string
     /** As esquadrias (de 1 em diante) em que a mesma falta aparece. Vazia quando não é de esquadria. */
     esquadrias: number[]
     tipologia?: string
@@ -181,27 +187,30 @@ function ponte(perfil: string, cor: string, regras: readonly RegraDoDePara[]): {
     const linhas = regras.filter((r) => r.codigo_wvetro === perfil)
     if (!linhas.length) {
         return { ok: false, recusa: { origem: 'CODIGO', motivo: 'PERFIL_SEM_REGRA', perfil, cor,
-            texto: `o perfil ${perfil} não está em nenhuma regra da tabela do fornecedor. Falta: o código do item de ${perfil}.` } }
+            texto: `o perfil ${perfil} não está em nenhuma regra da tabela do fornecedor. Falta: o código do item de ${perfil}.`,
+            falta: `o código do item do perfil ${perfil}: ele não está em nenhuma regra da tabela do fornecedor` } }
     }
     // a cor sem caixa — e só sem caixa (ver o cabeçalho): duas grafias que só a caixa distingue não se escolhem
     const daCorLinhas = linhas.filter((r) => mesmaCor(r.cor, cor))
     const grafias = distintos(daCorLinhas.map((r) => r.cor as string))
     if (grafias.length > 1) {
         return { ok: false, recusa: { origem: 'CODIGO', motivo: 'COR_EM_DUAS_GRAFIAS', perfil, cor, variantes: grafias,
-            texto: `o perfil ${perfil} tem a cor ${cor} escrita de ${grafias.length} jeitos na tabela do fornecedor: ${grafias.slice(0, -1).join(', ')} e ${grafias[grafias.length - 1]}. Falta dizer qual delas é a cor pedida.` } }
+            texto: `o perfil ${perfil} tem a cor ${cor} escrita de ${grafias.length} jeitos na tabela do fornecedor: ${grafias.slice(0, -1).join(', ')} e ${grafias[grafias.length - 1]}. Falta dizer qual delas é a cor pedida.`,
+            falta: `dizer qual grafia da cor ${cor} vale para o perfil ${perfil}: ${grafias.slice(0, -1).join(', ')} ou ${grafias[grafias.length - 1]}` } }
     }
     const daCor = distintos(daCorLinhas.map((r) => r.codigo))
     if (daCor.length === 1) return { ok: true, codigo: daCor[0], origem: 'COR' }
-    if (daCor.length > 1) return { ok: false, recusa: { origem: 'CODIGO', motivo: 'DOIS_CODIGOS', perfil, cor, texto: '', candidatos: daCor.map(soOCodigo) } }
+    if (daCor.length > 1) return { ok: false, recusa: { origem: 'CODIGO', motivo: 'DOIS_CODIGOS', perfil, cor, texto: '', falta: '', candidatos: daCor.map(soOCodigo) } }
     if (linhas.every((r) => r.cor === null)) {
         const unicos = distintos(linhas.map((r) => r.codigo))
         if (unicos.length === 1) return { ok: true, codigo: unicos[0], origem: 'SEM_VARIANTE' }
-        return { ok: false, recusa: { origem: 'CODIGO', motivo: 'DOIS_CODIGOS', perfil, cor, texto: '', candidatos: unicos.map(soOCodigo) } }
+        return { ok: false, recusa: { origem: 'CODIGO', motivo: 'DOIS_CODIGOS', perfil, cor, texto: '', falta: '', candidatos: unicos.map(soOCodigo) } }
     }
     // a cor pedida não está entre as variantes — também quando a variante é UMA só: ela só serve para a cor que é (08/11/2026)
     const variantes = distintos(linhas.map((r) => r.cor ?? VAZIA))
     return { ok: false, recusa: { origem: 'CODIGO', motivo: 'COR_SEM_CODIGO', perfil, cor, variantes,
-        texto: `o perfil ${perfil} não tem código para a cor ${cor} na tabela do fornecedor; as variantes que existem são: ${variantes.join(', ')}. Falta: o código de ${perfil} em ${cor}.` } }
+        texto: `o perfil ${perfil} não tem código para a cor ${cor} na tabela do fornecedor; as variantes que existem são: ${variantes.join(', ')}. Falta: o código de ${perfil} em ${cor}.`,
+        falta: `o código do perfil ${perfil} na cor ${cor} (o fornecedor tem: ${variantes.join(', ')})` } }
 }
 
 /** Os candidatos com descrição e valores, e a frase que nomeia os dois códigos e os dois valores. */
@@ -213,7 +222,8 @@ function completarDoisCodigos(r: RecusaDaPonte, itens: readonly ItemDaTabela[]):
     const lista = candidatos.map((c) => `${c.codigo} (${formatarReais(c.valor_barra_interno)} a barra)`)
     const juntos = lista.length > 1 ? `${lista.slice(0, -1).join(', ')} e ${lista[lista.length - 1]}` : lista.join('')
     return { ...r, candidatos,
-        texto: `o perfil ${r.perfil} em ${r.cor} tem ${candidatos.length} códigos na tabela do fornecedor: ${juntos}. Um valor por código: falta dizer qual deles é a peça.` }
+        texto: `o perfil ${r.perfil} em ${r.cor} tem ${candidatos.length} códigos na tabela do fornecedor: ${juntos}. Um valor por código: falta dizer qual deles é a peça.`,
+        falta: `dizer qual código é o perfil ${r.perfil} em ${r.cor}: ${lista.length > 1 ? `${lista.slice(0, -1).join(', ')} ou ${lista[lista.length - 1]}` : lista.join('')}` }
 }
 
 /** A ponte, para quem quer só o código de uma peça. A recusa sai sem esquadria. */
@@ -253,19 +263,22 @@ export function levantarBarras(entrada: EntradaDoLevantamento): ResultadoDoLevan
         const indice = k + 1
         if (!Number.isInteger(e.quantidade) || e.quantidade <= 0) {
             parciais.push({ origem: 'ESQUADRIA', motivo: 'QUANTIDADE_DA_ESQUADRIA_INVALIDA', tipologia: e.tipologia, esquadria: indice, comTipologia: true,
-                texto: `a quantidade ${e.quantidade} não é válida: tem de ser um inteiro positivo.` })
+                texto: `a quantidade ${e.quantidade} não é válida: tem de ser um inteiro positivo.`, falta: `a quantidade da esquadria: ${e.quantidade} não é um inteiro positivo` })
             return
         }
         const tipologia = Object.prototype.hasOwnProperty.call(entrada.tipologias, e.tipologia) ? entrada.tipologias[e.tipologia] : undefined
         if (!tipologia) {
             parciais.push({ origem: 'ESQUADRIA', motivo: 'TIPOLOGIA_SEM_DEFINICAO', tipologia: e.tipologia, esquadria: indice, comTipologia: true,
-                texto: `a tipologia ${e.tipologia} não tem definição (abas do motor) neste levantamento. Falta: a tipologia ${e.tipologia}.` })
+                texto: `a tipologia ${e.tipologia} não tem definição (abas do motor) neste levantamento. Falta: a tipologia ${e.tipologia}.`, falta: `a definição da tipologia ${e.tipologia} no motor` })
             return
         }
         const r = avaliarTipologia({ tipologia, L_mm: e.L_mm, H_mm: e.H_mm, escolhas: e.escolhas, espessura_vidro_mm: e.espessura_vidro_mm })
         if ('recusas' in r) {
             for (const x of r.recusas) {
-                parciais.push({ origem: 'AVALIADOR', motivo: x.motivo, tipologia: e.tipologia, perfil: x.perfil, ...(x.variavel !== undefined ? { variavel: x.variavel } : {}), esquadria: indice, comTipologia: true, texto: x.mensagem })
+                parciais.push({ origem: 'AVALIADOR', motivo: x.motivo, tipologia: e.tipologia, perfil: x.perfil, ...(x.variavel !== undefined ? { variavel: x.variavel } : {}), esquadria: indice, comTipologia: true, texto: x.mensagem,
+                    // o vidro sem baguete é falta CURTA, na linguagem do vendedor (08/11/2026); as outras recusas do motor são técnicas, e vão inteiras
+                    falta: x.motivo === 'NENHUM_BAGUETE_PARA_A_ESPESSURA' && x.espessura_vidro_mm !== undefined && x.espessuras_disponiveis_mm !== undefined
+                        ? faltaDoVidroSemBaguete(x.espessura_vidro_mm, x.espessuras_disponiveis_mm) : x.mensagem })
             }
             return
         }
@@ -300,7 +313,8 @@ export function levantarBarras(entrada: EntradaDoLevantamento): ResultadoDoLevan
             const semValor = ([['valor_barra_interno', 'da barra'], ['valor_metro_interno', 'do metro']] as const).filter(([campo]) => !Number.isFinite(it[campo] as number))
             for (const [, nome] of semValor) {
                 for (const esquadria of esquadrias) parciais.push({ origem: 'ITEM', motivo: 'ITEM_SEM_VALOR', perfil, cor, codigo, esquadria,
-                    texto: `o código ${codigo} (perfil ${perfil}) está na tabela de preço sem o valor ${nome}. Falta: o valor ${nome} de ${codigo}.` })
+                    texto: `o código ${codigo} (perfil ${perfil}) está na tabela de preço sem o valor ${nome}. Falta: o valor ${nome} de ${codigo}.`,
+                    falta: `o valor ${nome} do código ${codigo}, perfil ${perfil}, na tabela de preço` })
             }
             itemDoCodigo[codigo] = it
             continue
@@ -309,7 +323,10 @@ export function levantarBarras(entrada: EntradaDoLevantamento): ResultadoDoLevan
         const texto = linhas.length === 0
             ? `o código ${codigo} (perfil ${perfil}) não está na tabela de preço. Falta: o item ${codigo}, com a barra e o valor.`
             : `o código ${codigo} (perfil ${perfil}) está em ${linhas.length} linhas da tabela de preço, com ${linhas.map((l) => formatarReais(l.valor_barra_interno)).join(' e ')} a barra. Um valor por código: falta dizer qual linha vale.`
-        for (const esquadria of esquadrias) parciais.push({ origem: 'ITEM', motivo, perfil, cor, codigo, esquadria, texto })
+        const falta = linhas.length === 0
+            ? `o código ${codigo}, perfil ${perfil}, na tabela de preço, com a barra e o valor`
+            : `dizer qual linha da tabela de preço vale para o código ${codigo}, perfil ${perfil}: ${linhas.map((l) => formatarReais(l.valor_barra_interno)).join(' ou ')} a barra`
+        for (const esquadria of esquadrias) parciais.push({ origem: 'ITEM', motivo, perfil, cor, codigo, esquadria, texto, falta })
     }
 
     // 4. o agrupador, com as peças que têm código e item — mesmo havendo recusa, para que as dele
@@ -331,8 +348,8 @@ export function levantarBarras(entrada: EntradaDoLevantamento): ResultadoDoLevan
             const perfil = x.codigo !== undefined ? perfilDoCodigo[x.codigo] : undefined
             const esquadrias = perfil ? [...new Set(prontas.filter((b) => b.perfil === perfil).map((b) => b.esquadria))] : []
             const texto = perfil ? `${x.mensagem} (perfil ${perfil})` : x.mensagem
-            if (!esquadrias.length) parciais.push({ origem: 'AGRUPADOR', motivo: x.motivo, codigo: x.codigo, perfil, texto })
-            for (const esquadria of esquadrias) parciais.push({ origem: 'AGRUPADOR', motivo: x.motivo, codigo: x.codigo, perfil, esquadria, texto })
+            if (!esquadrias.length) parciais.push({ origem: 'AGRUPADOR', motivo: x.motivo, codigo: x.codigo, perfil, texto, falta: texto })
+            for (const esquadria of esquadrias) parciais.push({ origem: 'AGRUPADOR', motivo: x.motivo, codigo: x.codigo, perfil, esquadria, texto, falta: texto })
         }
     }
 
