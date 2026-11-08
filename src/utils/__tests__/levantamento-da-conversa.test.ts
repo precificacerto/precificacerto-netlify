@@ -769,9 +769,9 @@ describe('(5) a mensagem do levantamento', () => {
         expect(r.etapa?.faltou).toEqual(['e1:ITEM_SEM_VALOR:9641'])
     })
 
-    it('MÃO DE OBRA AUSENTE: a linha diz o que falta, e os totais com mão de obra NÃO saem — o material sai', () => {
-        const texto = M().fraseDoLevantamento(DADOS, resultadoQueFecha(), [{ ok: false, falta: 'o tempo de fabricação de DP-02 não está cadastrado' }])
-        expect(texto).toContain('Mão de obra: não sai — o tempo de fabricação de DP-02 não está cadastrado.')
+    it('MÃO DE OBRA AUSENTE por CONFIGURAÇÃO da empresa (a falta de TEMPO recusa antes, desde 08/11/2026): a linha diz o que falta, e os totais com mão de obra NÃO saem — o material sai', () => {
+        const texto = M().fraseDoLevantamento(DADOS, resultadoQueFecha(), [{ ok: false, falta: 'a carga horária mensal da empresa não está configurada', semTempo: false }])
+        expect(texto).toContain('Mão de obra: não sai — a carga horária mensal da empresa não está configurada.')
         expect(texto).toContain('Perfis por barra inteira: R$ 1.342,09.')
         expect(texto).toContain('Total por barra inteira (perfis + mão de obra): não sai — falta a mão de obra.')
         expect(texto).toContain('Total por consumo real (perfis + mão de obra): não sai — falta a mão de obra.')
@@ -910,17 +910,65 @@ describe('(7) a MÃO DE OBRA — o mesmo caminho da tela de produto, com os núm
     })
 
     it.each([
-        ['sem tempo de fabricação da tipologia', () => { banco.db.orcamentista_motor_tipologia_tempo = [] }, 'o tempo de fabricação de DP-02 não está cadastrado'],
-        ['a tabela dos tempos ainda não existe', () => { banco.ausentes.add('orcamentista_motor_tipologia_tempo') }, 'a tabela dos tempos de fabricação ainda não foi carregada no banco'],
-        ['sem carga horária', () => { banco.db.tenant_settings[0].monthly_workload = 0 }, 'a carga horária mensal da empresa não está configurada'],
+        // `semTempo` (08/11/2026): só a falta do TEMPO recusa o levantamento; as da empresa seguem como "não sai"
+        ['sem tempo de fabricação da tipologia', () => { banco.db.orcamentista_motor_tipologia_tempo = [] }, 'o tempo de fabricação de DP-02 não está cadastrado', true],
+        ['a tabela dos tempos ainda não existe', () => { banco.ausentes.add('orcamentista_motor_tipologia_tempo') }, 'a tabela dos tempos de fabricação ainda não foi carregada no banco', true],
+        ['sem carga horária', () => { banco.db.tenant_settings[0].monthly_workload = 0 }, 'a carga horária mensal da empresa não está configurada', false],
         // sem a linha, faltam DUAS coisas, e as duas saem — uma não esconde a outra
-        ['sem tenant_settings', () => { banco.db.tenant_settings = [] }, 'o tipo de cálculo da empresa (industrialização, revenda ou serviço) não está configurado; a carga horária mensal da empresa não está configurada'],
-        ['sem custo de mão de obra produtiva', () => { banco.db.tenant_expense_config[0].production_labor_cost_hub = 0 }, 'o custo mensal da mão de obra produtiva da empresa não está configurado'],
-        ['sem tipo de cálculo', () => { banco.db.tenant_settings[0].calc_type = null }, 'o tipo de cálculo da empresa (industrialização, revenda ou serviço) não está configurado'],
-        ['empresa de REVENDA', () => { banco.db.tenant_settings[0].calc_type = 'REVENDA' }, 'a empresa está configurada como revenda, e na revenda o tempo de fabricação não entra no custo'],
-    ])('%s: a falta é NOMEADA — nunca zero', async (_nome, preparar, falta) => {
+        ['sem tenant_settings', () => { banco.db.tenant_settings = [] }, 'o tipo de cálculo da empresa (industrialização, revenda ou serviço) não está configurado; a carga horária mensal da empresa não está configurada', false],
+        ['sem custo de mão de obra produtiva', () => { banco.db.tenant_expense_config[0].production_labor_cost_hub = 0 }, 'o custo mensal da mão de obra produtiva da empresa não está configurado', false],
+        ['sem tipo de cálculo', () => { banco.db.tenant_settings[0].calc_type = null }, 'o tipo de cálculo da empresa (industrialização, revenda ou serviço) não está configurado', false],
+        ['empresa de REVENDA', () => { banco.db.tenant_settings[0].calc_type = 'REVENDA' }, 'a empresa está configurada como revenda, e na revenda o tempo de fabricação não entra no custo', false],
+    ])('%s: a falta é NOMEADA — nunca zero', async (_nome, preparar, falta, semTempo) => {
         preparar()
-        expect(await M().lerMaoDeObra(TENANT, MOTOR, 'DP-02', 1)).toEqual({ ok: false, falta })
+        expect(await M().lerMaoDeObra(TENANT, MOTOR, 'DP-02', 1)).toEqual({ ok: false, falta, semTempo })
+    })
+})
+
+describe('(7b) FALTOU TEMPO, NADA EVOLUI (dono do produto, 08/11/2026): a falta do tempo de fabricação recusa o levantamento — antes saía "não sai"', () => {
+    const FECHA = { escolhas: { ARI: 4, ARE: 1, MAE: 2 } }
+
+    it('sem o tempo da DP-02: RECUSA, nomeando a tipologia e o motor — nenhum R$ sai, e a falta é de CADASTRO', async () => {
+        banco.db.orcamentista_motor_tipologia_tempo = []
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
+        const r = await M().mensagemDoLevantamento(TENANT, t, lev(FECHA))
+        const FALTA = 'O tempo de fabricação de DP-02 não está cadastrado no motor Motor_Wolf_PVC. Falta: o tempo de fabricação de DP-02.'
+        expect(r.desfecho).toBe('recusou')
+        expect(r.texto).toContain(`• ${FALTA}`)
+        expect(r.texto).not.toMatch(/R\$/)
+        expect(r.deCadastro).toEqual([FALTA])
+        expect(r.etapa?.faltou).toEqual(['e1:SEM_TEMPO:DP-02'])
+        // a mesma lista que o apanhado consulta antes do arquivo
+        expect(await M().faltasAntesDoArquivo(TENANT, t, lev(FECHA))).toEqual([FALTA])
+    })
+
+    it('a mesma tipologia sem tempo em DUAS esquadrias: uma falta, com as duas esquadrias', async () => {
+        banco.db.orcamentista_motor_tipologia_tempo = []
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
+        const r = await M().mensagemDoLevantamento(TENANT, t, { nome: 'Casa do João', itens: [{ ...ESQUADRIA, ...FECHA }, { ...ESQUADRIA, ...FECHA, ordem: 2, quantidade: 2 }] })
+        expect(r.deCadastro).toEqual(['Esquadrias 1 e 2 (DP-02): o tempo de fabricação de DP-02 não está cadastrado no motor Motor_Wolf_PVC. Falta: o tempo de fabricação de DP-02.'])
+        expect(r.etapa?.faltou).toEqual(['e1+e2:SEM_TEMPO:DP-02'])
+    })
+
+    it('a tabela dos tempos ausente: a mesma recusa, dizendo que é a tabela', async () => {
+        banco.ausentes.add('orcamentista_motor_tipologia_tempo')
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
+        const r = await M().mensagemDoLevantamento(TENANT, t, lev(FECHA))
+        expect(r.deCadastro).toEqual(['A tabela dos tempos de fabricação ainda não foi carregada no banco. Falta: a tabela dos tempos de fabricação, com o tempo de DP-02.'])
+    })
+
+    it('a falta da CONFIGURAÇÃO da empresa (carga horária) continua como antes: o material sai, a mão de obra "não sai", e nada é de cadastro', async () => {
+        banco.db.tenant_settings[0].monthly_workload = 0
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
+        const r = await M().mensagemDoLevantamento(TENANT, t, lev(FECHA))
+        expect(r.desfecho).toBe('levantou')
+        expect(r.texto).toContain('Mão de obra: não sai — a carga horária mensal da empresa não está configurada.')
+        expect(r.deCadastro).toEqual([])
+    })
+
+    it('o levantamento que fecha não tem falta de cadastro', async () => {
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
+        expect(await M().faltasAntesDoArquivo(TENANT, t, lev(FECHA))).toEqual([])
     })
 })
 
@@ -998,8 +1046,8 @@ describe('(9) o levantamento com N esquadrias', () => {
 
     it('a mão de obra de UMA esquadria ausente: os totais com mão de obra não saem', () => {
         const dados = { ...DADOS, esquadrias: [DADOS.esquadrias[0], { ...DADOS.esquadrias[0], numero: 2, tipologia: 'DP-01' }] }
-        const texto = M().fraseDoLevantamento(dados, resultadoDeUma(), [MAO_DE_OBRA, { ok: false, falta: 'o tempo de fabricação de DP-01 não está cadastrado' }])
-        expect(texto).toContain('Mão de obra da esquadria 2: não sai — o tempo de fabricação de DP-01 não está cadastrado.')
+        const texto = M().fraseDoLevantamento(dados, resultadoDeUma(), [MAO_DE_OBRA, { ok: false, falta: 'a carga horária mensal da empresa não está configurada', semTempo: false }])
+        expect(texto).toContain('Mão de obra da esquadria 2: não sai — a carga horária mensal da empresa não está configurada.')
         expect(texto).toContain('Total por consumo real (perfis + mão de obra): não sai — falta a mão de obra.')
     })
 
