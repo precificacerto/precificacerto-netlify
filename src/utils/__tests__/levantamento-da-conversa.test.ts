@@ -1276,8 +1276,8 @@ describe('(R) a frase curta da falta: o nome e o que falta, e a mesma falta uma 
         expect(r.texto).not.toContain('GB25')
         expect(r.texto).not.toContain('Arremate e guarnição')
         expect(r.etapa?.faltou).toEqual(['e1:NENHUM_BAGUETE_PARA_A_ESPESSURA'])
-        // não é de cadastro: não segura o arquivo no apanhado (a decisão de 08/11/2026 continua)
-        expect(r.deCadastro).toEqual([])
+        // o levantamento não pode evoluir: SEGURA o arquivo no apanhado (dono do produto, 08/11/2026, depois do #245), com a mesma falta curta
+        expect(r.deCadastro).toEqual(['o vidro de 4 mm não é aceito nesta tipologia; as espessuras disponíveis são 5, 6, 8, 18, 20, 21 e 24 mm'])
         // o contraste: com 6 mm a mesma esquadria fecha
         expect((await M().mensagemDoLevantamento(TENANT, t, { nome: 'Renan Bauer', itens: [{ ...ESQUADRIA, ...FECHA_R, vidro: 'incolor 6 mm' }] })).desfecho).toBe('levantou')
     })

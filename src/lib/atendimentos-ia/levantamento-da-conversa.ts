@@ -983,19 +983,25 @@ async function calcularFamilia(
 }
 
 /**
- * As faltas de CADASTRO que seguram o arquivo no apanhado — o dado do FORNECEDOR, item a item, que o motor e a tabela de preço têm de trazer:
+ * O QUE SEGURA O ARQUIVO NO APANHADO. O critério (dono do produto, 08/11/2026, depois do #245) não é "é cadastro ou não": é "o levantamento pode
+ * evoluir?". O que não pode, trava antes de o arquivo existir — o vendedor não confirma um arquivo que não anda. Por motivo:
+ *   - o vidro sem baguete (dono do produto, 08/11/2026, depois do #245): a espessura do vidro que nenhum baguete da tipologia aceita
+ *     (`NENHUM_BAGUETE_PARA_A_ESPESSURA`) — o caso do "Renan Bauer", a DP-02 com 4 mm;
+ * e as faltas de CADASTRO — o dado do FORNECEDOR, item a item, que o motor e a tabela de preço têm de trazer:
  *   - o preço de material (dono do produto, 08/11/2026, #240): o código sem item na tabela de preço, e o item sem o valor da barra ou do metro.
  *     Zero informado é valor (`levantarBarras` só recusa o que não é número);
  *   - as outras recusas de cadastro (dono do produto, 08/11/2026, depois do #240): "o vendedor tem de poder confiar que arquivo recebido é
  *     levantamento que anda" — a cor sem código, o mesmo código em duas linhas da tabela, dois códigos para a mesma peça; e, da mesma
  *     natureza (a ponte e o item), a cor escrita de dois jeitos, o perfil sem regra e o item sem o comprimento da barra.
- * O resto continua recusando só depois do "sim": a esquadria (quantidade, tipologia sem definição), o avaliador (as variáveis e as validações
- * do motor), a peça maior que a barra e a configuração (serra, abas do motor, cores misturadas).
+ * O resto ainda recusa só depois do "sim" — a lista, com o critério de cada uma, está com o dono do produto para decidir de uma vez: a esquadria
+ * (quantidade, tipologia sem definição), as outras recusas do avaliador (fórmula, variável, escolha, medida, a espessura que não se lê ou não foi
+ * dita), a peça maior que a barra e a configuração (serra, abas do motor, cores misturadas).
  */
 const MOTIVOS_DE_CADASTRO = new Set([
     'ITEM_AUSENTE', 'ITEM_SEM_VALOR',
     'COR_SEM_CODIGO', 'ITEM_EM_DUAS_LINHAS', 'DOIS_CODIGOS',
     'COR_EM_DUAS_GRAFIAS', 'PERFIL_SEM_REGRA', 'BARRA_SEM_COMPRIMENTO',
+    'NENHUM_BAGUETE_PARA_A_ESPESSURA',
 ])
 
 /**

@@ -3353,13 +3353,14 @@ describe('(29) o vidro copiado, a forma canônica e a dedupe por equivalência (
         expect(ultimoEnviado()).toBe(conversa.fraseDeConfirmarAcrescimoEmOutrasPalavras('Geronimo Silva'))
     })
 
-    it('VIDRO COPIADO, NUNCA COMPLETADO — "pode, não derrube": "Vidro comum 4 mm" sobre "vidro 4mm" fica "vidro 4 mm", gravado; o vendedor não é perguntado pelo vidro que já disse', async () => {
-        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, vidro: 'Vidro comum 4 mm' }], escolhas: ESCOLHAS_QUE_FECHAM })
-        await chamar('Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco, vidro 4mm, sem arremate interno, arremate externo com folga de 50')
-        expect(itensDe(levantamentos()[0].id)[0].vidro).toBe('vidro 4 mm')
+    // 6 mm, e não 4 (08/11/2026): o 4 mm não tem baguete na DP-02 do motor, e o vidro sem baguete segura o arquivo no apanhado
+    it('VIDRO COPIADO, NUNCA COMPLETADO — "pode, não derrube": "Vidro comum 6 mm" sobre "vidro 6mm" fica "vidro 6 mm", gravado; o vendedor não é perguntado pelo vidro que já disse', async () => {
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, vidro: 'Vidro comum 6 mm' }], escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar('Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco, vidro 6mm, sem arremate interno, arremate externo com folga de 50')
+        expect(itensDe(levantamentos()[0].id)[0].vidro).toBe('vidro 6 mm')
         expect(ehConfirmacaoDoArquivo(ultimoEnviado())).toBe(true)
         // o rótulo "vidro" uma vez só (06/11/2026): este teste afirmava "vidro vidro 4 mm" — o defeito, fixado aqui em 04/11; agora no ARQUIVO
-        expect(textoDoArquivo()).toContain('VIDRO: vidro 4 mm')
+        expect(textoDoArquivo()).toContain('VIDRO: vidro 6 mm')
         expect(textoDoArquivo()).not.toContain('vidro vidro')
         expect(textoDoArquivo()).not.toContain('comum')
         expect(linhaIa().pop()).toMatch(/ vidro_podado=1(\s|$)/)
@@ -3388,15 +3389,16 @@ describe('(29) o vidro copiado, a forma canônica e a dedupe por equivalência (
     })
 
     it('O PADRÃO DA INSTRUÇÃO entra UMA vez, na esquadria que ficou sem vidro, fica gravado e não muda no turno seguinte', async () => {
-        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, vidro: undefined, vidro_padrao: 'incolor 4 mm comum' }], escolhas: ESCOLHAS_QUE_FECHAM })
+        // 6 mm, e não o 4 da De Paula (08/11/2026): o 4 mm não tem baguete na DP-02, e o vidro sem baguete segura o arquivo no apanhado
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, vidro: undefined, vidro_padrao: 'incolor 6 mm comum' }], escolhas: ESCOLHAS_QUE_FECHAM })
         await chamar('Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco, sem arremate interno, arremate externo com folga de 50')
-        expect(itensDe(levantamentos()[0].id)[0].vidro).toBe('incolor 4 mm comum')
+        expect(itensDe(levantamentos()[0].id)[0].vidro).toBe('incolor 6 mm comum')
         expect(linhaIa().pop()).toMatch(/ vidro_padrao=1(\s|$)/)
-        expect(textoDoArquivo()).toContain('VIDRO: incolor 4 mm comum')
+        expect(textoDoArquivo()).toContain('VIDRO: incolor 6 mm comum')
         // o turno seguinte traz OUTRO padrão: nada muda
         llmResponde({ nome: 'Casa do João', alteracao: true, itens: [{ ordem: 1, largura_mm: 1300, vidro_padrao: 'incolor 4 mm temperado' }] })
         await chamar('Casa do João: largura 1300')
-        expect(itensDe(levantamentos()[0].id)[0].vidro).toBe('incolor 4 mm comum')
+        expect(itensDe(levantamentos()[0].id)[0].vidro).toBe('incolor 6 mm comum')
         expect(linhaIa().pop()).not.toContain('vidro_padrao=')
         // o vendedor DIZ outro vidro: o dito vence o padrão
         llmResponde({ nome: 'Casa do João', alteracao: true, itens: [{ ordem: 1, vidro: 'temperado 8mm' }] })
@@ -5749,6 +5751,22 @@ describe('(41) A FALTA DE CADASTRO NO APANHADO (dono do produto, 08/11/2026): fa
         expect(r).toContain('• dizer qual linha da tabela de preço vale para o código 1023, perfil 1023/WOLFF:')
         expect(r).toContain(`• ${FALTA_DO_TEMPO_DA_DP01}`)
         expect(estado.documentos).toHaveLength(0)
+    })
+
+    it('O VIDRO SEM BAGUETE segura o arquivo no apanhado (dono do produto, 08/11/2026: "o levantamento pode evoluir?" — não pode): a falta curta, nenhum arquivo, nenhuma pergunta do "sim"', async () => {
+        estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09))
+        llmResponde({ nome: 'Gerson Boss', itens: [{ ...ESQUADRIAS[0], vidro: 'temperado incolor 4mm' }, { ...ESQUADRIAS[1] }] })
+        await chamar(MENSAGEM.replace('8mm', '4mm'))
+        const r = ultimoEnviado()
+        expect(r).toBe(LC().fraseDaFaltaDeCadastro('Gerson Boss', ['o vidro de 4 mm não é aceito nesta tipologia; as espessuras disponíveis são 5, 6, 8, 18, 20, 21 e 24 mm (esquadria 1, DP-39)']))
+        expect(estado.documentos).toHaveLength(0)
+        expect(perguntasEmAberto()).not.toContain('CONFIRMAR_APANHADO')
+        expect(linhaIa().pop()).toMatch(/ desfecho=falta-de-cadastro(\s|$)/)
+        // o contraste: o vendedor troca o vidro da esquadria 1 para 8 mm, e o arquivo sai
+        llmResponde({ nome: 'Gerson Boss', alteracao: true, itens: [{ ordem: 1, vidro: 'temperado incolor 8mm' }] })
+        await chamar('Gerson Boss: muda o vidro da esquadria 1 para temperado incolor 8mm')
+        expect(ehConfirmacaoDoArquivo(ultimoEnviado(), 'Gerson Boss')).toBe(true)
+        expect(estado.documentos).toHaveLength(1)
     })
 
     it('a recusa que NÃO é de cadastro (a peça maior que a barra) não segura o arquivo: ela continua saindo depois do "sim", como antes', async () => {
