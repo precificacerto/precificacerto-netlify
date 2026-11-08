@@ -173,7 +173,7 @@ import { supabaseAdmin } from '@/supabase/admin'
 import { MODELO_PADRAO_DA_IA, URL_DA_API_ANTHROPIC, VERSAO_DA_API_ANTHROPIC } from '@/lib/atendimentos-ia/modelo-da-ia'
 import { paraOLog } from '@/utils/atendimentos-ia-mascara-do-log'
 import {
-    FRASE_SEM_CORES, familiasDoCodigo, lerPerfilDaEmpresa, lerFamiliasDaEmpresa, linhaDoCandidato, lerVariaveisDasTipologias, mensagemDoLevantamento, faltasAntesDoArquivo, fraseDaFaltaDeCadastro,
+    FRASE_SEM_CORES, familiasDoCodigo, lerPerfilDaEmpresa, lerFamiliasDaEmpresa, linhaDoCandidato, lerVariaveisDasTipologias, mensagemDoLevantamento, faltasAntesDoArquivo, fraseDoArquivoQueNaoSai,
     type CandidatoDeTipologia,
 } from '@/lib/atendimentos-ia/levantamento-da-conversa'
 import { agruparIguais,
@@ -226,7 +226,7 @@ export type DesfechoDaIa =
     /** O ARQUIVO do levantamento enviado para conferir (06/11/2026); recusado pelo gerador; não enviado; o vendedor dito que não está no cadastro. */
     | 'arquivo' | 'arquivo-recusado' | 'arquivo-nao-enviado' | 'vendedor-nao-achado'
     /** O ARQUIVO SEGURADO no apanhado (08/11/2026): falta de cadastro (o dado do fornecedor por item, ou o tempo) — a resposta nomeia o item e a falta. */
-    | 'falta-de-cadastro'
+    | 'falta-no-apanhado'
     | 'perguntou' | 'sem-cores' | 'levantou' | 'recusou' | 'envio-falhou' | 'erro' | 'nenhuma-cabe'
     /** O reenvio do WUZAPI de uma entrada já respondida (200 sem conduzir), e o reenvio da saída cujo primeiro envio falhou (03/11/2026). */
     | 'repetida' | 'reenviada'
@@ -1729,11 +1729,12 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         const confirmouApanhado = confirma === true && aberta?.p.pergunta === 'CONFIRMAR_APANHADO' && alvo?.id === aberta.citados[0]?.id
         let semApanhado = ''
         if (!confirmouApanhado) {
-            // A FALTA DE CADASTRO NO APANHADO (dono do produto, 08/11/2026): o dado do fornecedor por item (preço, cor, código, barra) e o tempo de
-            // fabricação são conferidos ANTES de o arquivo existir. Faltando algum, o arquivo NÃO sai, e a resposta nomeia o item e a falta — o vendedor
-            // nunca confirma o que não anda
-            const deCadastro = await faltasAntesDoArquivo(c.tenantId, tabela, { nome, itens: aplicada.itens })
-            if (deCadastro.length) return await responder(fraseDaFaltaDeCadastro(nome, deCadastro), 'falta-de-cadastro', `faltas_de_cadastro=${deCadastro.length}`)
+            // O QUE SEGURA O ARQUIVO (dono do produto, 08/11/2026 — a regra única): o cálculo inteiro roda ANTES de o arquivo existir, e se ele recusa,
+            // o arquivo NÃO sai; a resposta nomeia o item e a falta, e ensina o caminho de alteração quando há um — o vendedor nunca confirma o que não anda
+            const noApanhado = await faltasAntesDoArquivo(c.tenantId, tabela, { nome, itens: aplicada.itens })
+            if (noApanhado.faltas.length) {
+                return await responder(fraseDoArquivoQueNaoSai(nome, noApanhado.faltas, noApanhado.caminhos), 'falta-no-apanhado', `faltas_no_apanhado=${noApanhado.faltas.length} caminhos=${noApanhado.caminhos.length}`)
+            }
             // O ARQUIVO DO LEVANTAMENTO (dono do produto, 06/11/2026): a folha A4 no lugar da mensagem-resumo em texto; a confirmação é sobre ELE
             const { dados, folha } = await gerarArquivoDoLevantamento({ tenantId: c.tenantId, levantamentoId: rastro.levantamento, itens: aplicada.itens, definicao, detalhe })
             if ('recusas' in folha) return await responder(fraseDoArquivoRecusado(folha.recusas), 'arquivo-recusado')

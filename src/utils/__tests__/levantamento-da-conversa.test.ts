@@ -963,17 +963,17 @@ describe('(7b) FALTOU TEMPO, NADA EVOLUI (dono do produto, 08/11/2026): a falta 
         expect(r.desfecho).toBe('recusou')
         expect(r.texto).toBe(`Não consegui fechar o levantamento “Casa do João”. Falta: ${FALTA}.`)
         expect(r.texto).not.toMatch(/R\$/)
-        expect(r.deCadastro).toEqual([FALTA])
+        expect(r.faltas).toEqual([FALTA])
         expect(r.etapa?.faltou).toEqual(['e1:SEM_TEMPO:DP-02'])
         // a mesma lista que o apanhado consulta antes do arquivo
-        expect(await M().faltasAntesDoArquivo(TENANT, t, lev(FECHA))).toEqual([FALTA])
+        expect(await M().faltasAntesDoArquivo(TENANT, t, lev(FECHA))).toEqual({ faltas: [FALTA], caminhos: [] })
     })
 
     it('a mesma tipologia sem tempo em DUAS esquadrias: uma falta, com as duas esquadrias', async () => {
         banco.db.orcamentista_motor_tipologia_tempo = []
         const t = await M().lerFamiliasDaEmpresa(TENANT)
         const r = await M().mensagemDoLevantamento(TENANT, t, { nome: 'Casa do João', itens: [{ ...ESQUADRIA, ...FECHA }, { ...ESQUADRIA, ...FECHA, ordem: 2, quantidade: 2 }] })
-        expect(r.deCadastro).toEqual(['o tempo de fabricação de DP-02 no motor Motor_Wolf_PVC (esquadrias 1 e 2)'])
+        expect(r.faltas).toEqual(['o tempo de fabricação de DP-02 no motor Motor_Wolf_PVC (esquadrias 1 e 2)'])
         expect(r.etapa?.faltou).toEqual(['e1+e2:SEM_TEMPO:DP-02'])
     })
 
@@ -981,7 +981,7 @@ describe('(7b) FALTOU TEMPO, NADA EVOLUI (dono do produto, 08/11/2026): a falta 
         banco.ausentes.add('orcamentista_motor_tipologia_tempo')
         const t = await M().lerFamiliasDaEmpresa(TENANT)
         const r = await M().mensagemDoLevantamento(TENANT, t, lev(FECHA))
-        expect(r.deCadastro).toEqual(['a tabela dos tempos de fabricação, com o tempo de DP-02: a tabela dos tempos de fabricação ainda não foi carregada no banco'])
+        expect(r.faltas).toEqual(['a tabela dos tempos de fabricação, com o tempo de DP-02: a tabela dos tempos de fabricação ainda não foi carregada no banco'])
     })
 
     it('a falta da CONFIGURAÇÃO da empresa (carga horária) continua como antes: o material sai, a mão de obra "não sai", e nada é de cadastro', async () => {
@@ -990,12 +990,12 @@ describe('(7b) FALTOU TEMPO, NADA EVOLUI (dono do produto, 08/11/2026): a falta 
         const r = await M().mensagemDoLevantamento(TENANT, t, lev(FECHA))
         expect(r.desfecho).toBe('levantou')
         expect(r.texto).toContain('Mão de obra: não sai — a carga horária mensal da empresa não está configurada.')
-        expect(r.deCadastro).toEqual([])
+        expect(r.faltas).toEqual([])
     })
 
     it('o levantamento que fecha não tem falta de cadastro', async () => {
         const t = await M().lerFamiliasDaEmpresa(TENANT)
-        expect(await M().faltasAntesDoArquivo(TENANT, t, lev(FECHA))).toEqual([])
+        expect(await M().faltasAntesDoArquivo(TENANT, t, lev(FECHA))).toEqual({ faltas: [], caminhos: [] })
     })
 })
 
@@ -1277,7 +1277,7 @@ describe('(R) a frase curta da falta: o nome e o que falta, e a mesma falta uma 
         expect(r.texto).not.toContain('Arremate e guarnição')
         expect(r.etapa?.faltou).toEqual(['e1:NENHUM_BAGUETE_PARA_A_ESPESSURA'])
         // o levantamento não pode evoluir: SEGURA o arquivo no apanhado (dono do produto, 08/11/2026, depois do #245), com a mesma falta curta
-        expect(r.deCadastro).toEqual(['o vidro de 4 mm não é aceito nesta tipologia; as espessuras disponíveis são 5, 6, 8, 18, 20, 21 e 24 mm'])
+        expect(r.faltas).toEqual(['o vidro de 4 mm não é aceito nesta tipologia; as espessuras disponíveis são 5, 6, 8, 18, 20, 21 e 24 mm'])
         // o contraste: com 6 mm a mesma esquadria fecha
         expect((await M().mensagemDoLevantamento(TENANT, t, { nome: 'Renan Bauer', itens: [{ ...ESQUADRIA, ...FECHA_R, vidro: 'incolor 6 mm' }] })).desfecho).toBe('levantou')
     })
@@ -1296,7 +1296,7 @@ describe('(R) a frase curta da falta: o nome e o que falta, e a mesma falta uma 
         const r = await M().mensagemDoLevantamento(TENANT, t, tres(['6mm', '6mm', '6mm']))
         expect(r.texto).toBe('Não consegui fechar o levantamento “Renan Bauer”. Falta: o código 1023, perfil 1023/WOLFF, na tabela de preço, com a barra e o valor (esquadrias 1, 2 e 3).')
         expect(r.texto.match(/1023/g)).toHaveLength(2)
-        expect(r.deCadastro).toEqual(['o código 1023, perfil 1023/WOLFF, na tabela de preço, com a barra e o valor (esquadrias 1, 2 e 3)'])
+        expect(r.faltas).toEqual(['o código 1023, perfil 1023/WOLFF, na tabela de preço, com a barra e o valor (esquadrias 1, 2 e 3)'])
     })
 
     it('DUAS faltas diferentes: uma por linha, depois de "Falta:" — e nada da relação das esquadrias', async () => {
