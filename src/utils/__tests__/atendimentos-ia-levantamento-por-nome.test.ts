@@ -5495,6 +5495,26 @@ describe('(41) A FALTA DE CADASTRO NO APANHADO (dono do produto, 08/11/2026): fa
         expect(estado.documentos).toHaveLength(0)
     })
 
+    it.each([
+        ['a COR escrita de DOIS JEITOS no motor (BRANCO e Branco no BZ0010)', () => {
+            estado.db.orcamentista_motor_regra.push({ id: 'r-gb-grafia', codigo: '10512', codigo_wvetro: 'BZ0010/WOLFF', cor: 'Branco', tabela_id: null, motor_id: MOTOR, tipologias: ['DP-39', 'DP-01'] })
+        }, 'Esquadrias 1 e 2: o perfil BZ0010/WOLFF tem a cor Branco escrita de 2 jeitos na tabela do fornecedor: BRANCO e Branco. Falta dizer qual delas é a cor pedida.'],
+        ['o PERFIL SEM REGRA no motor (o SP66 sem nenhuma linha)', () => {
+            estado.db.orcamentista_motor_regra = estado.db.orcamentista_motor_regra.filter((r) => r.codigo_wvetro !== 'SP66/WOLFF')
+        }, 'Esquadrias 1 e 2: o perfil SP66/WOLFF não está em nenhuma regra da tabela do fornecedor. Falta: o código do item de SP66/WOLFF.'],
+        ['o item SEM O COMPRIMENTO da barra (o 9641 sem medida)', () => {
+            estado.db.orcamentista_tabela_item.find((i) => i.codigo === '9641')!.medida_barra_m = null
+        }, null],
+    ])('%s também segura o arquivo, nomeando o item e a falta', async (_nome, preparar, falta) => {
+        estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09))
+        preparar()
+        const r = await apanhado()
+        expect(r.split('\n')[0]).toBe('O arquivo do levantamento “Gerson Boss” ainda não sai: o cadastro tem falta que impede o levantamento de virar produto.')
+        if (falta) expect(r).toContain(`• ${falta}`)
+        else expect(r).toMatch(/• Esquadria 1: .*9641.*\(perfil HF88\/WOLFF\)/)
+        expect(estado.documentos).toHaveLength(0)
+    })
+
     it('a falta de cadastro e a de tempo saem JUNTAS, numa resposta só', async () => {
         estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09), ITEM_1023(60.9, 10.15))
         estado.db.orcamentista_motor_tipologia_tempo = estado.db.orcamentista_motor_tipologia_tempo.filter((t) => t.tipologia !== 'DP-01')
