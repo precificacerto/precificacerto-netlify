@@ -225,7 +225,7 @@ export type DesfechoDaIa =
     | 'nao-avancou' | 'confirmar-acrescimo' | 'confirmar-resgate' | 'nao-acrescentou' | 'nao-confirmou'
     /** O ARQUIVO do levantamento enviado para conferir (06/11/2026); recusado pelo gerador; não enviado; o vendedor dito que não está no cadastro. */
     | 'arquivo' | 'arquivo-recusado' | 'arquivo-nao-enviado' | 'vendedor-nao-achado'
-    /** O ARQUIVO SEGURADO no apanhado (08/11/2026): falta preço de material ou tempo de fabricação — a resposta nomeia o item e a falta. */
+    /** O ARQUIVO SEGURADO no apanhado (08/11/2026): falta de cadastro (o dado do fornecedor por item, ou o tempo) — a resposta nomeia o item e a falta. */
     | 'falta-de-cadastro'
     | 'perguntou' | 'sem-cores' | 'levantou' | 'recusou' | 'envio-falhou' | 'erro' | 'nenhuma-cabe'
     /** O reenvio do WUZAPI de uma entrada já respondida (200 sem conduzir), e o reenvio da saída cujo primeiro envio falhou (03/11/2026). */
@@ -1711,8 +1711,9 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         const confirmouApanhado = confirma === true && aberta?.p.pergunta === 'CONFIRMAR_APANHADO' && alvo?.id === aberta.citados[0]?.id
         let semApanhado = ''
         if (!confirmouApanhado) {
-            // A FALTA DE CADASTRO NO APANHADO (dono do produto, 08/11/2026): o preço de material e o tempo de fabricação são conferidos ANTES de o
-            // arquivo existir. Faltando um deles, o arquivo NÃO sai, e a resposta nomeia o item e a falta — o vendedor nunca confirma o que não anda
+            // A FALTA DE CADASTRO NO APANHADO (dono do produto, 08/11/2026): o dado do fornecedor por item (preço, cor, código, barra) e o tempo de
+            // fabricação são conferidos ANTES de o arquivo existir. Faltando algum, o arquivo NÃO sai, e a resposta nomeia o item e a falta — o vendedor
+            // nunca confirma o que não anda
             const deCadastro = await faltasAntesDoArquivo(c.tenantId, tabela, { nome, itens: aplicada.itens })
             if (deCadastro.length) return await responder(fraseDaFaltaDeCadastro(nome, deCadastro), 'falta-de-cadastro', `faltas_de_cadastro=${deCadastro.length}`)
             // O ARQUIVO DO LEVANTAMENTO (dono do produto, 06/11/2026): a folha A4 no lugar da mensagem-resumo em texto; a confirmação é sobre ELE
