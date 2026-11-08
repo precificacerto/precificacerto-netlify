@@ -43,6 +43,8 @@ import { PlusOutlined, UploadOutlined } from '@ant-design/icons'
 import { chamarRota, enviarArquivo } from '@/page-parts/atendimentos-ia/api'
 import { RemocaoDoCatalogo, type AlvoDaRemocao } from '@/page-parts/atendimentos-ia/remocao-do-catalogo.component'
 import { type Categoria, type Familia, type FornecedorDaLista } from '@/utils/atendimentos-ia-catalogo'
+import { textoDoAviso } from '@/utils/atendimentos-ia-importacao-apresentacao'
+import type { Aviso } from '@/utils/atendimentos-ia-importacao'
 import {
     ANCORA_DO_CATALOGO_DE_MOTORES, LIMITE_DO_NOME_DO_MOTOR, MOTOR_COM_USO_NAO_SE_EDITA, MOTOR_SEM_USO, ROTAS_DOS_MOTORES, etapasQueFicaramSemMotor,
     fraseDaEtapaQueFicouSemMotor, fraseDoArquivoTrocado, fraseDoMotorArquivado, fraseDoMotorCriado, fraseDoMotorEmUso, fraseDoUso, nomeDoMotorDoArquivo,
@@ -102,6 +104,16 @@ export function MotoresDoCatalogo({ fornecedores, categorias, familias }: { forn
     const [erroAoEditar, setErroAoEditar] = useState<string | null>(null)
     const [erroAoCriar, setErroAoCriar] = useState<string | null>(null)
     const [removendo, setRemovendo] = useState<AlvoDaRemocao | null>(null)
+    /**
+     * Os AVISOS do arquivo que acabou de subir (08/11/2026): a rota sempre os devolveu, e a tela os descartava — o espaço duplo na cor do
+     * motor da Wolff só apareceu num levantamento travado. Os da coluna Cor vêm primeiro: são os que travam o levantamento depois.
+     */
+    const [avisosDoArquivo, setAvisosDoArquivo] = useState<{ nome: string; avisos: Aviso[] } | null>(null)
+    const mostrarAvisos = (nome: string, r: { avisos?: unknown }) => {
+        const avisos = Array.isArray(r.avisos) ? (r.avisos as Aviso[]) : []
+        const daCor = (a: Aviso) => (a.tipo.startsWith('cor_') ? 0 : 1)
+        setAvisosDoArquivo(avisos.length ? { nome, avisos: [...avisos].sort((a, b) => daCor(a) - daCor(b)) } : null)
+    }
 
     const carregar = useCallback(async () => {
         setErroAoLer(null)
@@ -178,8 +190,9 @@ export function MotoresDoCatalogo({ fornecedores, categorias, familias }: { forn
         setErroAoTrocar(null)
         try {
             const enviado = await enviarArquivo(trocando.fornecedor_id, 'motor', arquivoNovo)
-            const r = await chamarRota<{ tipologias: number; etapas_reapontadas: number; detalhes?: number; tempos?: number }>(ROTAS_DOS_MOTORES.trocarArquivo, 'POST', { motor_id: trocando.id, path: enviado.path, nome: enviado.nome })
+            const r = await chamarRota<{ tipologias: number; etapas_reapontadas: number; detalhes?: number; tempos?: number; avisos?: unknown }>(ROTAS_DOS_MOTORES.trocarArquivo, 'POST', { motor_id: trocando.id, path: enviado.path, nome: enviado.nome })
             message.success(fraseDoArquivoTrocado(r), 8)
+            mostrarAvisos(trocando.nome, r)
             setTrocando(null)
             await carregar()
         } catch (e) {
@@ -214,11 +227,12 @@ export function MotoresDoCatalogo({ fornecedores, categorias, familias }: { forn
         setErroAoCriar(null)
         try {
             const enviado = await enviarArquivo(novo.fornecedor_id as string, 'motor', novo.arquivo as File)
-            const r = await chamarRota<{ regras: number; tipologias: number; detalhes?: number; tempos?: number }>(ROTAS_DOS_MOTORES.lista, 'POST', {
+            const r = await chamarRota<{ regras: number; tipologias: number; detalhes?: number; tempos?: number; avisos?: unknown }>(ROTAS_DOS_MOTORES.lista, 'POST', {
                 fornecedor_id: novo.fornecedor_id, categoria: novo.categoria, familias: naOrdemDoCatalogo(novo.familias), nome_do_motor: novo.nome.trim(),
                 path: enviado.path, nome: enviado.nome,
             })
             message.success(fraseDoMotorCriado(r), 8)
+            mostrarAvisos(novo.nome.trim(), r)
             abrir(false)
             await carregar()
         } catch (e) {
@@ -244,6 +258,18 @@ export function MotoresDoCatalogo({ fornecedores, categorias, familias }: { forn
                     description={arquivado.etapas.length === 0 ? undefined : (
                         <ul style={{ margin: 0, paddingLeft: 16 }} data-etapas-que-ficaram-sem-motor>
                             {arquivado.etapas.map((e) => <li key={e.etapa_id}>{fraseDaEtapaQueFicouSemMotor(e)}</li>)}
+                        </ul>
+                    )} />
+            )}
+            {avisosDoArquivo && (
+                <Alert type="warning" showIcon closable onClose={() => setAvisosDoArquivo(null)} style={{ marginBottom: 12 }} data-avisos-do-arquivo
+                    message={`${avisosDoArquivo.nome}: o arquivo foi gravado como veio, com ${avisosDoArquivo.avisos.length} aviso(s)`}
+                    description={(
+                        <ul style={{ margin: 0, paddingLeft: 16, maxHeight: 320, overflowY: 'auto' }}>
+                            {avisosDoArquivo.avisos.map((a, k) => {
+                                const { titulo, texto } = textoDoAviso(a)
+                                return <li key={k} data-aviso={a.tipo}><b>{titulo}</b> — {texto}</li>
+                            })}
                         </ul>
                     )} />
             )}

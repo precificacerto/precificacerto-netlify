@@ -420,6 +420,19 @@ describe('(3) "Novo motor": categoria → fornecedor → famílias → arquivo (
         expect(pedidos[n + 2].corpo).toEqual({ fornecedor_id: W, categoria: 'PERSIANAS', familias: ['PVC'], nome_do_motor: 'Motor persiana', path: PATH, nome: 'Motor persiana.xlsx' })
     })
 
+    it('criar que volta com aviso de COR mostra o aviso no cartão, com o nome do motor novo', async () => {
+        respostas[`POST ${ROTAS_DOS_MOTORES.lista}`] = [{ status: 200, body: { motor_id: 'novo', regras: 2, tipologias: 1, avisos: [
+            { tipo: 'cor_em_grafias_de_caixa', aba: 'Motor por barra', grafias: [], mensagem: 'A coluna Cor tem a mesma cor escrita com maiúsculas e minúsculas diferentes — "BRANCO" e "Branco".' },
+        ] } }]
+        const host = await montar()
+        await clicar(host.querySelector('[data-novo-motor]'))
+        await preencherTudo()
+        await clicar(criar())
+        const caixa = host.querySelector('[data-avisos-do-arquivo]') as HTMLElement
+        expect(caixa.textContent).toContain('Motor persiana: o arquivo foi gravado como veio, com 1 aviso(s)')
+        expect(caixa.querySelector('[data-aviso="cor_em_grafias_de_caixa"]')!.textContent).toBe('A mesma cor com maiúsculas e minúsculas diferentes — A coluna Cor tem a mesma cor escrita com maiúsculas e minúsculas diferentes — "BRANCO" e "Branco".')
+    })
+
     it('criar com DUAS famílias escolhidas fora de ordem: o corpo as leva TODAS, na ordem do catálogo', async () => {
         const host = await montar()
         await clicar(host.querySelector('[data-novo-motor]'))
@@ -507,6 +520,34 @@ describe('(5) trocar o arquivo (motor NOVO) e editar (só sem uso) — 29/10/202
         expect(pedidos[n].corpo).toEqual({ fornecedor_id: W, tipo: 'motor', nome: 'Motor persiana.xlsx' })
         expect(pedidos[n + 2].corpo).toEqual({ motor_id: M_WOLF, path: PATH, nome: 'Motor persiana.xlsx' })
         expect(document.body.querySelector('[data-modal-da-troca]')).toBeNull()
+    })
+
+    it('OS AVISOS DO ARQUIVO (08/11/2026): a troca que volta com avisos os MOSTRA no cartão — os da coluna Cor primeiro, cada um com o título e a frase', async () => {
+        const AVISOS = [
+            { tipo: 'codigo_normalizado', aba: 'Motor por barra', linha: 213, antes: '1027,1', depois: '1027.1', mensagem: 'código "1027,1" lido como "1027.1"' },
+            { tipo: 'cor_com_espaco_multiplo', aba: 'Motor por barra', grafia: { texto: 'LAMINADO  PRETO LISO', regras: 16, perfis: ['SF66/WOLFF (96836)'] },
+                mensagem: 'A cor "LAMINADO  PRETO LISO" tem 2 espaços depois de "LAMINADO", em 16 regra(s), dos perfis SF66/WOLFF (96836).' },
+        ]
+        respostas[`POST ${ROTAS_DOS_MOTORES.trocarArquivo}`] = [{ status: 200, body: { motor_id: 'novo', motor_antigo: M_WOLF, etapas_reapontadas: 3, regras: 30, tipologias: 4, avisos: AVISOS } }]
+        const host = await montar()
+        expect(host.querySelector('[data-avisos-do-arquivo]')).toBeNull()
+        await clicar(botao(linha(host, M_WOLF)!, 'Trocar o arquivo de Wolf PVC Europa'))
+        await anexarNa('data-modal-da-troca', 'Motor persiana.xlsx')
+        await clicar(ok('Trocar o arquivo'))
+        const caixa = host.querySelector('[data-avisos-do-arquivo]') as HTMLElement
+        expect(caixa.textContent).toContain('Wolf PVC Europa: o arquivo foi gravado como veio, com 2 aviso(s)')
+        const itens = Array.from(caixa.querySelectorAll('[data-aviso]'))
+        expect(itens.map((i) => i.getAttribute('data-aviso'))).toEqual(['cor_com_espaco_multiplo', 'codigo_normalizado'])
+        expect(itens[0].textContent).toBe('Cor com espaço duplo — A cor "LAMINADO  PRETO LISO" tem 2 espaços depois de "LAMINADO", em 16 regra(s), dos perfis SF66/WOLFF (96836).')
+    })
+
+    it('a troca SEM aviso não mostra a caixa', async () => {
+        respostas[`POST ${ROTAS_DOS_MOTORES.trocarArquivo}`] = [{ status: 200, body: { motor_id: 'novo', motor_antigo: M_WOLF, etapas_reapontadas: 0, regras: 30, tipologias: 4, avisos: [] } }]
+        const host = await montar()
+        await clicar(botao(linha(host, M_WOLF)!, 'Trocar o arquivo de Wolf PVC Europa'))
+        await anexarNa('data-modal-da-troca', 'Motor persiana.xlsx')
+        await clicar(ok('Trocar o arquivo'))
+        expect(host.querySelector('[data-avisos-do-arquivo]')).toBeNull()
     })
 
     it('a recusa da troca aparece DENTRO do modal, com a frase da rota, e o catálogo não é relido', async () => {
