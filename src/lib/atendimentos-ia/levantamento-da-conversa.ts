@@ -669,7 +669,7 @@ export type LevantamentoDaConversa = {
     desfecho: 'levantou' | 'recusou'
     etapa?: ResumoDoCalculo
     /**
-     * As faltas de CADASTRO — o preço de material e o tempo de fabricação —, nas frases da recusa (dono do produto, 08/11/2026). É o que segura
+     * As faltas de CADASTRO — o dado do fornecedor por item (`MOTIVOS_DE_CADASTRO`) e o tempo de fabricação —, nas frases da recusa (dono do produto, 08/11/2026). É o que segura
      * o ARQUIVO no apanhado (`faltasAntesDoArquivo`): vazia quando o levantamento fecha, ou quando ele recusa só por outra razão.
      */
     deCadastro: string[]
@@ -803,7 +803,8 @@ export async function mensagemDoLevantamento(
 
 /**
  * A FALTA DE CADASTRO NO APANHADO (dono do produto, 08/11/2026): antes de o ARQUIVO do levantamento existir, o cálculo inteiro roda, e o que
- * faltar de PREÇO de material ou de TEMPO de fabricação, em qualquer esquadria, segura o arquivo. "O arquivo existe para ser confirmado, e a
+ * faltar de cadastro em qualquer esquadria — o dado do fornecedor por item (`MOTIVOS_DE_CADASTRO`: preço, cor, código, barra) ou o TEMPO de
+ * fabricação — segura o arquivo. "O arquivo existe para ser confirmado, e a
  * confirmação é o que faz virar produto": mandar um que não pode evoluir faria o vendedor confirmar algo que não anda.
  * Devolve as faltas de cadastro, nas frases da recusa — vazia quando nada falta, ou quando o cálculo recusa só por outra razão (essas
  * continuam saindo depois do "sim", como antes). Lança só em erro de banco, como `mensagemDoLevantamento`.
@@ -815,7 +816,7 @@ export async function faltasAntesDoArquivo(tenantId: string, fonte: FamiliasDaEm
 /** A resposta do apanhado com falta de cadastro: o arquivo não sai, e cada falta nomeia o item e a referência que acha o cadastro. */
 export function fraseDaFaltaDeCadastro(nome: string, faltas: readonly string[]): string {
     return [
-        `O arquivo do levantamento “${nome}” ainda não sai: falta no cadastro o que o preço precisa, e um levantamento sem isso não vira produto.`,
+        `O arquivo do levantamento “${nome}” ainda não sai: o cadastro tem falta que impede o levantamento de virar produto.`,
         ...faltas.map((f) => `• ${f}`),
         'Quando o cadastro for corrigido, me mande uma mensagem que eu gero o arquivo.',
     ].join('\n')
@@ -912,19 +913,28 @@ async function calcularFamilia(
         return {
             faltas: [...recusas.map(frase), ...semTempo.map((t) => t.frase)], rotulos,
             codigos: [...recusas.map((x) => codigoDaRecusa(x, x.esquadrias.map((k) => numeros[k - 1] ?? k))), ...semTempo.map((t) => t.codigo)],
-            // o que é de CADASTRO — preço de material e tempo de fabricação: é o que segura o arquivo no apanhado (08/11/2026)
-            deCadastro: [...recusas.filter((x) => MOTIVOS_DE_PRECO.has(x.motivo)).map(frase), ...semTempo.map((t) => t.frase)],
+            // o que é de CADASTRO — o dado do fornecedor por item (`MOTIVOS_DE_CADASTRO`) e o tempo de fabricação: é o que segura o arquivo no apanhado
+            deCadastro: [...recusas.filter((x) => MOTIVOS_DE_CADASTRO.has(x.motivo)).map(frase), ...semTempo.map((t) => t.frase)],
         }
     }
     return { d: dg, r, maos, rotulos }
 }
 
 /**
- * As faltas de PREÇO de material que seguram o levantamento (dono do produto, 08/11/2026): o código sem item na tabela de preço, e o item sem
- * o valor da barra ou do metro. Zero informado é valor (`levantarBarras` só recusa o que não é número). Não entram — continuam recusando só
- * depois do "sim" — os dois códigos para a mesma peça e o mesmo código em duas linhas: ali o valor existe, e falta dizer qual vale.
+ * As faltas de CADASTRO que seguram o arquivo no apanhado — o dado do FORNECEDOR, item a item, que o motor e a tabela de preço têm de trazer:
+ *   - o preço de material (dono do produto, 08/11/2026, #240): o código sem item na tabela de preço, e o item sem o valor da barra ou do metro.
+ *     Zero informado é valor (`levantarBarras` só recusa o que não é número);
+ *   - as outras recusas de cadastro (dono do produto, 08/11/2026, depois do #240): "o vendedor tem de poder confiar que arquivo recebido é
+ *     levantamento que anda" — a cor sem código, o mesmo código em duas linhas da tabela, dois códigos para a mesma peça; e, da mesma
+ *     natureza (a ponte e o item), a cor escrita de dois jeitos, o perfil sem regra e o item sem o comprimento da barra.
+ * O resto continua recusando só depois do "sim": a esquadria (quantidade, tipologia sem definição), o avaliador (as variáveis e as validações
+ * do motor), a peça maior que a barra e a configuração (serra, abas do motor, cores misturadas).
  */
-const MOTIVOS_DE_PRECO = new Set(['ITEM_AUSENTE', 'ITEM_SEM_VALOR'])
+const MOTIVOS_DE_CADASTRO = new Set([
+    'ITEM_AUSENTE', 'ITEM_SEM_VALOR',
+    'COR_SEM_CODIGO', 'ITEM_EM_DUAS_LINHAS', 'DOIS_CODIGOS',
+    'COR_EM_DUAS_GRAFIAS', 'PERFIL_SEM_REGRA', 'BARRA_SEM_COMPRIMENTO',
+])
 
 /**
  * A falta de TEMPO DE FABRICAÇÃO, uma por tipologia, nomeando as esquadrias, a tipologia e o motor — a referência interna que acha o cadastro
