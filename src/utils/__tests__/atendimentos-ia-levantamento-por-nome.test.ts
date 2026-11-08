@@ -5429,7 +5429,7 @@ describe('(41) A FALTA DE CADASTRO NO APANHADO (dono do produto, 08/11/2026): fa
             return { ondas, faltas: await p }
         }
         const esquadria = (ordem: number, tipologia: string, largura_mm: number, altura_mm: number) =>
-            ({ ordem, tipologia, largura_mm, altura_mm, quantidade: 1, cor_perfil: 'Branco', vidro: 'temperado incolor 8mm', escolhas: null, familia: 'PVC' })
+            ({ ordem, tipologia, largura_mm, altura_mm, quantidade: 1, cor_perfil: 'Branco', vidro: 'temperado incolor 8mm', escolhas: null as Record<string, number> | null, familia: 'PVC' })
         /** As 8 primeiras ondas não dependem da quantidade: as cinco abas, a serra, as regras (uma por tipologia), os itens e as cores. */
         const ondasFixas = (T: number) => [
             ['orcamentista_motor_tipologia_detalhe'], ['orcamentista_motor_variavel'], ['orcamentista_motor_formula'], ['orcamentista_motor_perfil'], ['orcamentista_motor_validacao'],
