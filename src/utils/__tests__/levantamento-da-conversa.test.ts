@@ -81,6 +81,7 @@ jest.mock('@/supabase/admin', () => ({
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 type Modulo = typeof import('@/lib/atendimentos-ia/levantamento-da-conversa')
+const VI = () => require('@/lib/atendimentos-ia/vidro') as typeof import('@/lib/atendimentos-ia/vidro')
 const M = () => require('@/lib/atendimentos-ia/levantamento-da-conversa') as Modulo
 type Ligacao = typeof import('@/lib/atendimentos-ia/levantamento-de-barras')
 const LB = () => require('@/lib/atendimentos-ia/levantamento-de-barras') as Ligacao
@@ -741,7 +742,7 @@ describe('(3) a espessura do vidro', () => {
         ['Temperado 6', null],
         ['6 mm ou 8 mm', null],
     ])('"%s" → %s', (vidro, esperado) => {
-        expect(M().espessuraDoVidro(vidro)).toBe(esperado)
+        expect(VI().lerVidro(vidro).espessura_mm).toBe(esperado)
     })
 })
 
@@ -1276,6 +1277,47 @@ describe('(R) a frase curta da falta: o nome e o que falta, e a mesma falta uma 
         expect((await M().mensagemDoLevantamento(TENANT, t, { nome: 'Renan Bauer', itens: [{ ...ESQUADRIA, ...FECHA_R, vidro: 'incolor 6 mm' }] })).desfecho).toBe('levantou')
     })
 
+    // O CASO "Antonio Rock" (08/11/2026): o vidro "incolor 4", lido pelo leitor canônico com as espessuras que os baguetes da DP-02 aceitam
+    const comO4NoMotor = () => { for (const p of banco.db.orcamentista_motor_perfil) if (p.tipologia === 'DP-02' && p.esp_vidro === '5,6,8') p.esp_vidro = '4,5,6,8' }
+
+    it('ANTONIO ROCK: "incolor 4" com o motor que aceita 4 (GB25 4,5,6,8 e GB8 18,20,21,24) — o 4 sem unidade é a espessura, e o levantamento fecha', async () => {
+        comO4NoMotor()
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
+        const r = await M().mensagemDoLevantamento(TENANT, t, { nome: 'Antonio Rock', itens: [{ ...ESQUADRIA, ...FECHA_R, vidro: 'incolor 4' }] })
+        expect(r.texto).not.toContain('Falta')
+        expect(r.desfecho).toBe('levantou')
+    })
+
+    it('ANTONIO ROCK no motor de antes (sem o 4): o 4 sem unidade não vale, falta a espessura — e o caminho é "incolor 5 mm", nunca "incolor 4 5 mm"', async () => {
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
+        const r = await M().mensagemDoLevantamento(TENANT, t, { nome: 'Antonio Rock', itens: [{ ...ESQUADRIA, ...FECHA_R, vidro: 'incolor 4' }] })
+        expect(r.texto).toBe([
+            'Não consegui fechar o levantamento “Antonio Rock”. Falta: a espessura do vidro: os baguetes desta tipologia dependem dela, e aceitam 5, 6, 8, 18, 20, 21 e 24 mm.',
+            'Para trocar, diga: muda o vidro da esquadria 1 para incolor 5 mm.',
+        ].join('\n'))
+        // seguido ao pé da letra, fecha
+        expect((await M().mensagemDoLevantamento(TENANT, t, { nome: 'Antonio Rock', itens: [{ ...ESQUADRIA, ...FECHA_R, vidro: 'incolor 5 mm' }] })).desfecho).toBe('levantou')
+    })
+
+    it('os DOIS conjuntos de baguete da DP-02 valem para o número sem unidade: "laminado 20" é do GB8 (18,20,21,24), e a espessura não falta', async () => {
+        comO4NoMotor()
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
+        const r = await M().mensagemDoLevantamento(TENANT, t, { nome: 'Antonio Rock', itens: [{ ...ESQUADRIA, ...FECHA_R, vidro: 'laminado 20' }] })
+        expect(r.texto).not.toContain('a espessura do vidro')
+        expect(r.texto).not.toContain('não é aceito')
+        // e o 4, do GB25, também
+        expect((await M().mensagemDoLevantamento(TENANT, t, { nome: 'Antonio Rock', itens: [{ ...ESQUADRIA, ...FECHA_R, vidro: 'incolor 4' }] })).texto).not.toContain('a espessura do vidro')
+    })
+
+    it('o vidro AMBÍGUO ("incolor 4 ou 6", os dois aceitos): a falta pergunta qual, sem caminho inventado', async () => {
+        comO4NoMotor()
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
+        const r = await M().mensagemDoLevantamento(TENANT, t, { nome: 'Antonio Rock', itens: [{ ...ESQUADRIA, ...FECHA_R, vidro: 'incolor 4 ou 6' }] })
+        expect(r.desfecho).toBe('recusou')
+        expect(r.texto).toBe('Não consegui fechar o levantamento “Antonio Rock”. Falta: a espessura do vidro: “incolor 4 ou 6” pode ser 4 ou 6 mm; diga qual.')
+        expect(r.texto).not.toContain('Para trocar')
+    })
+
     it('TRÊS esquadrias com o mesmo vidro que o motor não aceita: UMA linha, dizendo quais — e a que tem vidro aceito não entra na lista', async () => {
         const t = await M().lerFamiliasDaEmpresa(TENANT)
         const todas = await M().mensagemDoLevantamento(TENANT, t, tres(['4mm', '4 mm', 'vidro 4mm']))
@@ -1328,11 +1370,11 @@ describe('(R) a frase curta da falta: o nome e o que falta, e a mesma falta uma 
     })
 
     it('vidroComEspessura e espessuraSugerida: troca a espessura dita, acrescenta a que faltava; sugere a menor aceita não menor que a pedida', () => {
-        expect(M().vidroComEspessura('temperado incolor 4mm', 5)).toBe('temperado incolor 5 mm')
-        expect(M().vidroComEspessura('incolor 4,5 mm comum', 6)).toBe('incolor 6 mm comum')
-        expect(M().vidroComEspessura('mini boreal', 5)).toBe('mini boreal 5 mm')
-        expect(M().vidroComEspessura(null, 8)).toBe('8 mm')
-        expect(M().vidroComEspessura('  ', 6.5)).toBe('6,5 mm')
+        expect(VI().vidroComEspessura('temperado incolor 4mm', 5)).toBe('temperado incolor 5 mm')
+        expect(VI().vidroComEspessura('incolor 4,5 mm comum', 6)).toBe('incolor 6 mm comum')
+        expect(VI().vidroComEspessura('mini boreal', 5)).toBe('mini boreal 5 mm')
+        expect(VI().vidroComEspessura(null, 8)).toBe('8 mm')
+        expect(VI().vidroComEspessura('  ', 6.5)).toBe('6,5 mm')
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const B = require('@/lib/atendimentos-ia/levantamento-de-barras') as typeof import('@/lib/atendimentos-ia/levantamento-de-barras')
         expect(B.espessuraSugerida(4, [18, 5, 6, 8])).toBe(5)
