@@ -5408,6 +5408,72 @@ describe('(41) A FALTA DE CADASTRO NO APANHADO (dono do produto, 08/11/2026): fa
 
     beforeEach(comOGersonBoss)
 
+    describe('AS IDAS AO BANCO do cálculo (dono do produto, 08/11/2026): a configuração da empresa UMA vez, e os tempos numa leitura só — 8 + T + 1', () => {
+        const drenar = async () => { for (let i = 0; i < 30; i++) await new Promise<void>((r) => setImmediate(r)) }
+        /** O cálculo do apanhado (`faltasAntesDoArquivo`) com o banco em ondas: por onda, as tabelas lidas juntas. */
+        async function ondasDoCalculo(itens: Linha[]): Promise<{ ondas: string[][]; faltas: string[] }> {
+            const t = await LC().lerFamiliasDaEmpresa(TENANT)
+            estado.porOndas = true
+            let fim = false
+            const p = LC().faltasAntesDoArquivo(TENANT, t, { nome: 'Gerson Boss', itens: itens as never }).then((r) => { fim = true; return r })
+            const ondas: string[][] = []
+            for (let i = 0; i < 500 && !fim; i++) {
+                await drenar()
+                const lote = estado.pendentes.splice(0)
+                if (lote.length === 0) continue
+                ondas.push(lote.map((x) => x.tabela).sort())
+                for (const x of lote) x.liberar()
+            }
+            estado.porOndas = false
+            for (const x of estado.pendentes.splice(0)) x.liberar()
+            return { ondas, faltas: await p }
+        }
+        const esquadria = (ordem: number, tipologia: string, largura_mm: number, altura_mm: number) =>
+            ({ ordem, tipologia, largura_mm, altura_mm, quantidade: 1, cor_perfil: 'Branco', vidro: 'temperado incolor 8mm', escolhas: null, familia: 'PVC' })
+        /** As 8 primeiras ondas não dependem da quantidade: as cinco abas, a serra, as regras (uma por tipologia), os itens e as cores. */
+        const ondasFixas = (T: number) => [
+            ['orcamentista_motor_tipologia_detalhe'], ['orcamentista_motor_variavel'], ['orcamentista_motor_formula'], ['orcamentista_motor_perfil'], ['orcamentista_motor_validacao'],
+            ['orcamentista_mp_categoria'], ...Array.from({ length: T }, () => ['orcamentista_motor_regra']), ['orcamentista_tabela_item'], ['orcamentista_mp_categoria'],
+        ]
+        /** A ÚLTIMA onda: os tempos de todas as tipologias e a configuração da empresa, JUNTOS — uma ida, qualquer que seja o número de esquadrias. */
+        const ONDA_DA_MAO_DE_OBRA = ['orcamentista_motor_tipologia_tempo', 'tenant_expense_config', 'tenant_settings']
+
+        it('2 esquadrias, 2 tipologias (o “Gerson Boss”): 11 idas em série (eram 14), 13 leituras (eram 16)', async () => {
+            estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09))
+            const { ondas, faltas } = await ondasDoCalculo([esquadria(1, 'DP-39', 2500, 2200), esquadria(2, 'DP-01', 600, 600)])
+            expect(faltas).toEqual([])
+            expect(ondas).toEqual([...ondasFixas(2), ONDA_DA_MAO_DE_OBRA])
+            expect(ondas).toHaveLength(8 + 2 + 1)
+            expect(ondas.flat()).toHaveLength(13)
+        })
+
+        it('20 esquadrias, 8 tipologias: 17 idas em série (seriam 8 + 8 + 40 = 56), e a mão de obra continua numa onda só', async () => {
+            estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09))
+            // seis tipologias a mais, com as abas, a Detalhe, as regras e o tempo da DP-01 do recorte: oito tipologias distintas no mesmo motor
+            const NOVAS = ['DP-01A', 'DP-01B', 'DP-01C', 'DP-01D', 'DP-01E', 'DP-01F']
+            for (const tabela of Object.keys(CASO.colunas)) {
+                const daDp01 = (estado.db[tabela] as Linha[]).filter((l) => l.tipologia === 'DP-01')
+                for (const n of NOVAS) (estado.db[tabela] as Linha[]).push(...daDp01.map((l, k) => ({ ...l, ...('id' in l ? { id: `${String(l.id)}-${n}-${k}` } : {}), tipologia: n })))
+            }
+            for (const r of estado.db.orcamentista_motor_regra as Linha[]) if ((r.tipologias as string[]).includes('DP-01')) r.tipologias = [...(r.tipologias as string[]), ...NOVAS]
+            for (const n of NOVAS) estado.db.orcamentista_motor_tipologia_tempo.push({ tabela_id: null, motor_id: MOTOR, tipologia: n, tempo_fabricacao_min: 70, tempo_origem: 'ESTIMADO' })
+            const tipologias = ['DP-39', 'DP-01', ...NOVAS]
+            const itens = Array.from({ length: 20 }, (_, k) => (tipologias[k % 8] === 'DP-39' ? esquadria(k + 1, 'DP-39', 2500, 2200) : esquadria(k + 1, tipologias[k % 8], 600, 600)))
+            const { ondas, faltas } = await ondasDoCalculo(itens)
+            expect(faltas).toEqual([])
+            expect(ondas).toEqual([...ondasFixas(8), ONDA_DA_MAO_DE_OBRA])
+            expect(ondas).toHaveLength(8 + 8 + 1)
+            expect(ondas.flat()).toHaveLength(8 + 8 + 3)
+        })
+
+        it('a configuração e os tempos lidos UMA vez não mudam a conta: a falta de tempo de uma tipologia ainda sai, nomeada, com as esquadrias dela', async () => {
+            estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09))
+            estado.db.orcamentista_motor_tipologia_tempo = estado.db.orcamentista_motor_tipologia_tempo.filter((t) => t.tipologia !== 'DP-01')
+            const { faltas } = await ondasDoCalculo([esquadria(1, 'DP-39', 2500, 2200), esquadria(2, 'DP-01', 600, 600), esquadria(3, 'DP-01', 600, 600)])
+            expect(faltas).toEqual(['Esquadrias 2 e 3 (DP-01): o tempo de fabricação de DP-01 não está cadastrado no motor Motor_Wolf_PVC. Falta: o tempo de fabricação de DP-01.'])
+        })
+    })
+
     it('(a) O CASO REAL: o 1023/WOLFF não está em nenhuma tabela — a conversa nomeia o item e a falta, e o arquivo NÃO é enviado', async () => {
         const r = await apanhado()
         expect(r).toBe(LC().fraseDaFaltaDeCadastro('Gerson Boss', [FALTA_DO_1023]))
