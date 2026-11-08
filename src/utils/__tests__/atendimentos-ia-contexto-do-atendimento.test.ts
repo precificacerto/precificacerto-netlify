@@ -134,8 +134,8 @@ describe('(1) o filtro da fala: número em qualquer forma derruba; o resto passa
         expect(S().falaValida(fala)).toEqual({ fala: null, motivo: 'sobre_valor' })
     })
 
-    it('a palavra só PARECIDA não cai: "valorizar", "precisa", "custom" e "calculista" não são valor', () => {
-        for (const fala of ['Vamos valorizar a fachada.', 'Precisa de mais alguma coisa?', 'Ficou bem custom.', 'O calculista da obra já viu.']) {
+    it('a palavra só PARECIDA não cai: "valorizar", "precisa", "custom", "calculista" e "apreço" não são valor', () => {
+        for (const fala of ['Vamos valorizar a fachada.', 'Precisa de mais alguma coisa?', 'Ficou bem custom.', 'O calculista da obra já viu.', 'Obrigada pelo apreço.']) {
             expect(S().falaValida(fala)).toEqual({ fala, motivo: 'usada' })
         }
     })
