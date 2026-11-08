@@ -69,7 +69,10 @@ const CANDIDATAS = [
         larg_min_mm: null as number | null, larg_max_mm: null as number | null, alt_min_mm: 1736, alt_max_mm: 3036 },
 ]
 /* eslint-disable @typescript-eslint/no-require-imports */
-const DE_PARA = require('./fixtures/fixture_de-para_DP-02.json') as { regras: Linha[]; itens: Linha[] }
+const DE_PARA_DE_HOJE = require('./fixtures/fixture_de-para_DP-02.json') as { regras: Linha[]; itens: Linha[] }
+/** O motor com o arquivo CORRIGIDO (`fixtures/arquivo-do-motor-corrigido.ts`): o BZ0012 sem a cor 'CLICK'. */
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const DE_PARA = { ...DE_PARA_DE_HOJE, regras: (require('./fixtures/arquivo-do-motor-corrigido') as typeof import('./fixtures/arquivo-do-motor-corrigido')).comACorLimpa(DE_PARA_DE_HOJE.regras) }
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 /** A esquadria do aceite: DP-02, 1200 x 1000, branco, temperado 5 mm. */
@@ -5517,6 +5520,10 @@ describe('(41) A FALTA DE CADASTRO NO APANHADO (dono do produto, 08/11/2026): fa
     }
     const ITEM_1023 = (valor_barra_interno: number | null, valor_metro_interno: number | null) =>
         ({ codigo: '1023', descricao: 'CLICK GUIA DE ALUMÍNIO PARA TRILHO DE PVC', medida_barra_m: 6, valor_barra_interno, valor_metro_interno, tabela_id: TABELA })
+    /** As regras do recorte com o arquivo CORRIGIDO (o BZ0012 sem 'CLICK'). O motor de HOJE é posto de volta no caso que o prova. */
+    const corrigir = (rs: typeof CASO.regras) => rs.map(([codigo, codigo_wvetro, cor]) => [codigo, codigo_wvetro, LIMPOS.includes(codigo_wvetro) ? null : cor] as typeof rs[number])
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const LIMPOS = (require('./fixtures/arquivo-do-motor-corrigido') as typeof import('./fixtures/arquivo-do-motor-corrigido')).PERFIS_LIMPOS_NO_ARQUIVO_CORRIGIDO
     function comOGersonBoss() {
         const db = estado.db
         db.orcamentista_motor_tipologia_detalhe = db.orcamentista_motor_tipologia_detalhe.filter((d) => d.tipologia !== 'DP-01' && d.tipologia !== 'DP-39')
@@ -5524,7 +5531,7 @@ describe('(41) A FALTA DE CADASTRO NO APANHADO (dono do produto, 08/11/2026): fa
             const linhas = CASO.linhas[tabela].map((v, k) => ({ ...(tabela === 'orcamentista_motor_tipologia_detalhe' ? {} : { id: `${tabela}-gb-${k}` }), tabela_id: null as string | null, motor_id: MOTOR, ...Object.fromEntries(colunas.map((c, i) => [c, v[i]])) }))
             db[tabela] = [...(db[tabela] ?? []), ...linhas]
         }
-        db.orcamentista_motor_regra = [...(db.orcamentista_motor_regra ?? []), ...CASO.regras.map(([codigo, codigo_wvetro, cor], k) => ({ id: `r-gb-${String(k).padStart(4, '0')}`, codigo, codigo_wvetro, cor, tabela_id: null as string | null, motor_id: MOTOR, tipologias: ['DP-39', 'DP-01'] }))]
+        db.orcamentista_motor_regra = [...(db.orcamentista_motor_regra ?? []), ...corrigir(CASO.regras).map(([codigo, codigo_wvetro, cor], k) => ({ id: `r-gb-${String(k).padStart(4, '0')}`, codigo, codigo_wvetro, cor, tabela_id: null as string | null, motor_id: MOTOR, tipologias: ['DP-39', 'DP-01'] }))]
         // os itens de preço SÃO os do recorte (os da DP-02 do banco base são de outra época, com outros valores: somados, dariam o mesmo código
         // em duas linhas — a recusa ITEM_EM_DUAS_LINHAS, que não é deste caso)
         db.orcamentista_tabela_item = [...CASO.itens.map(([codigo, descricao, medida_barra_m, valor_barra_interno, valor_metro_interno]) => ({ codigo, descricao, medida_barra_m, valor_barra_interno, valor_metro_interno, tabela_id: TABELA }))]
@@ -5552,7 +5559,7 @@ describe('(41) A FALTA DE CADASTRO NO APANHADO (dono do produto, 08/11/2026): fa
 
     beforeEach(comOGersonBoss)
 
-    describe('AS IDAS AO BANCO do cálculo (dono do produto, 08/11/2026): a configuração da empresa UMA vez, e os tempos numa leitura só — 8 + T + 1', () => {
+    describe('AS IDAS AO BANCO do cálculo (dono do produto, 08/11/2026): a configuração da empresa UMA vez, e os tempos numa leitura só — 7 + T + 1', () => {
         const drenar = async () => { for (let i = 0; i < 30; i++) await new Promise<void>((r) => setImmediate(r)) }
         /** O cálculo do apanhado (`faltasAntesDoArquivo`) com o banco em ondas: por onda, as tabelas lidas juntas. */
         async function ondasDoCalculo(itens: Linha[]): Promise<{ ondas: string[][]; faltas: string[] }> {
@@ -5574,24 +5581,24 @@ describe('(41) A FALTA DE CADASTRO NO APANHADO (dono do produto, 08/11/2026): fa
         }
         const esquadria = (ordem: number, tipologia: string, largura_mm: number, altura_mm: number) =>
             ({ ordem, tipologia, largura_mm, altura_mm, quantidade: 1, cor_perfil: 'Branco', vidro: 'temperado incolor 8mm', escolhas: null as Record<string, number> | null, familia: 'PVC' })
-        /** As 8 primeiras ondas não dependem da quantidade: as cinco abas, a serra, as regras (uma por tipologia), os itens e as cores. */
+        /** As primeiras ondas não dependem da quantidade: as cinco abas, a serra, as regras (uma por tipologia) e os itens. */
         const ondasFixas = (T: number) => [
             ['orcamentista_motor_tipologia_detalhe'], ['orcamentista_motor_variavel'], ['orcamentista_motor_formula'], ['orcamentista_motor_perfil'], ['orcamentista_motor_validacao'],
-            ['orcamentista_mp_categoria'], ...Array.from({ length: T }, () => ['orcamentista_motor_regra']), ['orcamentista_tabela_item'], ['orcamentista_mp_categoria'],
+            ['orcamentista_mp_categoria'], ...Array.from({ length: T }, () => ['orcamentista_motor_regra']), ['orcamentista_tabela_item'],
         ]
         /** A ÚLTIMA onda: os tempos de todas as tipologias e a configuração da empresa, JUNTOS — uma ida, qualquer que seja o número de esquadrias. */
         const ONDA_DA_MAO_DE_OBRA = ['orcamentista_motor_tipologia_tempo', 'tenant_expense_config', 'tenant_settings']
 
-        it('2 esquadrias, 2 tipologias (o “Gerson Boss”): 11 idas em série (eram 14), 13 leituras (eram 16)', async () => {
+        it('2 esquadrias, 2 tipologias (o “Gerson Boss”): 10 idas em série (eram 14), 12 leituras (eram 16) — a lista de cores não é mais lida (a variante única não depende dela)', async () => {
             estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09))
             const { ondas, faltas } = await ondasDoCalculo([esquadria(1, 'DP-39', 2500, 2200), esquadria(2, 'DP-01', 600, 600)])
             expect(faltas).toEqual([])
             expect(ondas).toEqual([...ondasFixas(2), ONDA_DA_MAO_DE_OBRA])
-            expect(ondas).toHaveLength(8 + 2 + 1)
-            expect(ondas.flat()).toHaveLength(13)
+            expect(ondas).toHaveLength(7 + 2 + 1)
+            expect(ondas.flat()).toHaveLength(12)
         })
 
-        it('20 esquadrias, 8 tipologias: 17 idas em série (seriam 8 + 8 + 40 = 56), e a mão de obra continua numa onda só', async () => {
+        it('20 esquadrias, 8 tipologias: 16 idas em série (seriam 8 + 8 + 40 = 56), e a mão de obra continua numa onda só', async () => {
             estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09))
             // seis tipologias a mais, com as abas, a Detalhe, as regras e o tempo da DP-01 do recorte: oito tipologias distintas no mesmo motor
             const NOVAS = ['DP-01A', 'DP-01B', 'DP-01C', 'DP-01D', 'DP-01E', 'DP-01F']
@@ -5606,8 +5613,8 @@ describe('(41) A FALTA DE CADASTRO NO APANHADO (dono do produto, 08/11/2026): fa
             const { ondas, faltas } = await ondasDoCalculo(itens)
             expect(faltas).toEqual([])
             expect(ondas).toEqual([...ondasFixas(8), ONDA_DA_MAO_DE_OBRA])
-            expect(ondas).toHaveLength(8 + 8 + 1)
-            expect(ondas.flat()).toHaveLength(8 + 8 + 3)
+            expect(ondas).toHaveLength(7 + 8 + 1)
+            expect(ondas.flat()).toHaveLength(7 + 8 + 3)
         })
 
         it('a configuração e os tempos lidos UMA vez não mudam a conta: a falta de tempo de uma tipologia ainda sai, nomeada, com as esquadrias dela', async () => {
@@ -5652,6 +5659,15 @@ describe('(41) A FALTA DE CADASTRO NO APANHADO (dono do produto, 08/11/2026): fa
         expect(estado.documentos).toHaveLength(0)
     })
 
+    it('O MOTOR DE HOJE (o BZ0012 em CLICK, antes de o arquivo corrigido entrar): o apanhado com o arremate padrão RECUSA nomeando o BZ0012 — é por isso que este PR só entra depois do arquivo', async () => {
+        estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09))
+        for (const r of estado.db.orcamentista_motor_regra as Linha[]) if (r.codigo_wvetro === 'BZ0012/WOLFF') r.cor = 'CLICK'
+        expect(await apanhado()).toBe(LC().fraseDaFaltaDeCadastro('Gerson Boss', [
+            'Esquadrias 1 e 2: o perfil BZ0012/WOLFF não tem código para a cor Branco na tabela do fornecedor; as variantes que existem são: CLICK. Falta: o código de BZ0012/WOLFF em Branco.',
+        ]))
+        expect(estado.documentos).toHaveLength(0)
+    })
+
     it('(c) o material com valor ZERO informado: o arquivo SAI normalmente — zero é decisão, ausência não', async () => {
         estado.db.orcamentista_tabela_item.push(ITEM_1023(0, 0))
         expect(ehConfirmacaoDoArquivo(await apanhado(), 'Gerson Boss')).toBe(true)
@@ -5681,9 +5697,9 @@ describe('(41) A FALTA DE CADASTRO NO APANHADO (dono do produto, 08/11/2026): fa
         const r = ultimoEnviado()
         expect(r.split('\n')[0]).toBe('O arquivo do levantamento “Gerson Boss” ainda não sai: o cadastro tem falta que impede o levantamento de virar produto.')
         expect(r).toContain('• Esquadria 1: o perfil 2575/WOLFF não tem código para a cor Roxo na tabela do fornecedor; as variantes que existem são: BRANCO, PRETO. Falta: o código de 2575/WOLFF em Roxo.')
-        // os SEIS perfis com variante: 2575, GB25, HF88, IL50, SF92, SP66 — e nenhum outro (o BZ0006, de variante única BRANCO, passa pela regra da
-        // variante única: com a empresa só em Roxo, BRANCO não é cor da empresa, e a guarda de 25/10/2026 não o recusa — registrado no PR)
-        expect(r.split('\n').filter((l) => l.startsWith('• ')).map((l) => /o perfil (\S+)/.exec(l)?.[1])).toEqual(['2575/WOLFF', 'GB25/WOLFF', 'HF88/WOLFF', 'IL50/WOLFF', 'SF92/WOLFF', 'SP66/WOLFF'])
+        // os OITO perfis com variante de cor — e, desde 08/11/2026, também o BZ0006 e o BZ0010, de variante única BRANCO: com a empresa só em
+        // Roxo, antes eles levavam o código branco em silêncio (a guarda dependia da lista); agora a variante única só serve para a cor que é
+        expect(r.split('\n').filter((l) => l.startsWith('• ')).map((l) => /o perfil (\S+)/.exec(l)?.[1])).toEqual(['2575/WOLFF', 'BZ0006/WOLFF', 'BZ0010/WOLFF', 'GB25/WOLFF', 'HF88/WOLFF', 'IL50/WOLFF', 'SF92/WOLFF', 'SP66/WOLFF'])
         expect(estado.documentos).toHaveLength(0)
         expect(perguntasEmAberto()).not.toContain('CONFIRMAR_APANHADO')
     })
