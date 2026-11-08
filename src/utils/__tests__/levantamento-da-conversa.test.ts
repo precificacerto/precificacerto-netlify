@@ -963,17 +963,14 @@ describe('(7b) FALTOU TEMPO, NADA EVOLUI (dono do produto, 08/11/2026): a falta 
         expect(r.desfecho).toBe('recusou')
         expect(r.texto).toBe(`Não consegui fechar o levantamento “Casa do João”. Falta: ${FALTA}.`)
         expect(r.texto).not.toMatch(/R\$/)
-        expect(r.deCadastro).toEqual([FALTA])
         expect(r.etapa?.faltou).toEqual(['e1:SEM_TEMPO:DP-02'])
-        // a mesma lista que o apanhado consulta antes do arquivo
-        expect(await M().faltasAntesDoArquivo(TENANT, t, lev(FECHA))).toEqual([FALTA])
     })
 
     it('a mesma tipologia sem tempo em DUAS esquadrias: uma falta, com as duas esquadrias', async () => {
         banco.db.orcamentista_motor_tipologia_tempo = []
         const t = await M().lerFamiliasDaEmpresa(TENANT)
         const r = await M().mensagemDoLevantamento(TENANT, t, { nome: 'Casa do João', itens: [{ ...ESQUADRIA, ...FECHA }, { ...ESQUADRIA, ...FECHA, ordem: 2, quantidade: 2 }] })
-        expect(r.deCadastro).toEqual(['o tempo de fabricação de DP-02 no motor Motor_Wolf_PVC (esquadrias 1 e 2)'])
+        expect(r.texto).toBe('Não consegui fechar o levantamento “Casa do João”. Falta: o tempo de fabricação de DP-02 no motor Motor_Wolf_PVC (esquadrias 1 e 2).')
         expect(r.etapa?.faltou).toEqual(['e1+e2:SEM_TEMPO:DP-02'])
     })
 
@@ -981,21 +978,16 @@ describe('(7b) FALTOU TEMPO, NADA EVOLUI (dono do produto, 08/11/2026): a falta 
         banco.ausentes.add('orcamentista_motor_tipologia_tempo')
         const t = await M().lerFamiliasDaEmpresa(TENANT)
         const r = await M().mensagemDoLevantamento(TENANT, t, lev(FECHA))
-        expect(r.deCadastro).toEqual(['a tabela dos tempos de fabricação, com o tempo de DP-02: a tabela dos tempos de fabricação ainda não foi carregada no banco'])
+        expect(r.texto).toBe('Não consegui fechar o levantamento “Casa do João”. Falta: a tabela dos tempos de fabricação, com o tempo de DP-02: a tabela dos tempos de fabricação ainda não foi carregada no banco.')
     })
 
-    it('a falta da CONFIGURAÇÃO da empresa (carga horária) continua como antes: o material sai, a mão de obra "não sai", e nada é de cadastro', async () => {
+    it('a falta da CONFIGURAÇÃO da empresa (carga horária) continua como antes: não é recusa — o material sai, e a mão de obra "não sai"', async () => {
         banco.db.tenant_settings[0].monthly_workload = 0
         const t = await M().lerFamiliasDaEmpresa(TENANT)
         const r = await M().mensagemDoLevantamento(TENANT, t, lev(FECHA))
         expect(r.desfecho).toBe('levantou')
         expect(r.texto).toContain('Mão de obra: não sai — a carga horária mensal da empresa não está configurada.')
-        expect(r.deCadastro).toEqual([])
-    })
-
-    it('o levantamento que fecha não tem falta de cadastro', async () => {
-        const t = await M().lerFamiliasDaEmpresa(TENANT)
-        expect(await M().faltasAntesDoArquivo(TENANT, t, lev(FECHA))).toEqual([])
+        expect(r.texto).not.toContain('Não consegui fechar')
     })
 })
 
@@ -1272,12 +1264,14 @@ describe('(R) a frase curta da falta: o nome e o que falta, e a mesma falta uma 
         const t = await M().lerFamiliasDaEmpresa(TENANT)
         const r = await M().mensagemDoLevantamento(TENANT, t, { nome: 'Renan Bauer', itens: [{ ...ESQUADRIA, ...FECHA_R, vidro: 'incolor 4 mm comum' }] })
         expect(r.desfecho).toBe('recusou')
-        expect(r.texto).toBe('Não consegui fechar o levantamento “Renan Bauer”. Falta: o vidro de 4 mm não é aceito nesta tipologia; as espessuras disponíveis são 5, 6, 8, 18, 20, 21 e 24 mm.')
+        // a falta curta e, em uma linha, o CAMINHO que a resolve (08/11/2026): o vidro que ele disse, com a menor espessura aceita acima dos 4 mm
+        expect(r.texto).toBe([
+            'Não consegui fechar o levantamento “Renan Bauer”. Falta: o vidro de 4 mm não é aceito nesta tipologia; as espessuras disponíveis são 5, 6, 8, 18, 20, 21 e 24 mm.',
+            'Para trocar, diga: muda o vidro da esquadria 1 para incolor 5 mm comum.',
+        ].join('\n'))
         expect(r.texto).not.toContain('GB25')
         expect(r.texto).not.toContain('Arremate e guarnição')
         expect(r.etapa?.faltou).toEqual(['e1:NENHUM_BAGUETE_PARA_A_ESPESSURA'])
-        // não é de cadastro: não segura o arquivo no apanhado (a decisão de 08/11/2026 continua)
-        expect(r.deCadastro).toEqual([])
         // o contraste: com 6 mm a mesma esquadria fecha
         expect((await M().mensagemDoLevantamento(TENANT, t, { nome: 'Renan Bauer', itens: [{ ...ESQUADRIA, ...FECHA_R, vidro: 'incolor 6 mm' }] })).desfecho).toBe('levantou')
     })
@@ -1285,9 +1279,17 @@ describe('(R) a frase curta da falta: o nome e o que falta, e a mesma falta uma 
     it('TRÊS esquadrias com o mesmo vidro que o motor não aceita: UMA linha, dizendo quais — e a que tem vidro aceito não entra na lista', async () => {
         const t = await M().lerFamiliasDaEmpresa(TENANT)
         const todas = await M().mensagemDoLevantamento(TENANT, t, tres(['4mm', '4 mm', 'vidro 4mm']))
-        expect(todas.texto).toBe('Não consegui fechar o levantamento “Renan Bauer”. Falta: o vidro de 4 mm não é aceito nesta tipologia; as espessuras disponíveis são 5, 6, 8, 18, 20, 21 e 24 mm (esquadrias 1, 2 e 3, DP-02).')
+        // uma falta só; os caminhos, um por vidro sugerido — as esquadrias com o mesmo vidro numa frase só
+        expect(todas.texto).toBe([
+            'Não consegui fechar o levantamento “Renan Bauer”. Falta: o vidro de 4 mm não é aceito nesta tipologia; as espessuras disponíveis são 5, 6, 8, 18, 20, 21 e 24 mm (esquadrias 1, 2 e 3, DP-02).',
+            'Para trocar, diga: muda o vidro das esquadrias 1 e 2 para 5 mm.',
+            'Para trocar, diga: muda o vidro da esquadria 3 para vidro 5 mm.',
+        ].join('\n'))
         const duas = await M().mensagemDoLevantamento(TENANT, t, tres(['4mm', '6mm', '4mm']))
-        expect(duas.texto).toBe('Não consegui fechar o levantamento “Renan Bauer”. Falta: o vidro de 4 mm não é aceito nesta tipologia; as espessuras disponíveis são 5, 6, 8, 18, 20, 21 e 24 mm (esquadrias 1 e 3, DP-02).')
+        expect(duas.texto).toBe([
+            'Não consegui fechar o levantamento “Renan Bauer”. Falta: o vidro de 4 mm não é aceito nesta tipologia; as espessuras disponíveis são 5, 6, 8, 18, 20, 21 e 24 mm (esquadrias 1 e 3, DP-02).',
+            'Para trocar, diga: muda o vidro das esquadrias 1 e 3 para 5 mm.',
+        ].join('\n'))
     })
 
     it('O MESMO MATERIAL sem preço em três esquadrias: UMA linha, com as três — um cadastro resolve as três', async () => {
@@ -1296,7 +1298,8 @@ describe('(R) a frase curta da falta: o nome e o que falta, e a mesma falta uma 
         const r = await M().mensagemDoLevantamento(TENANT, t, tres(['6mm', '6mm', '6mm']))
         expect(r.texto).toBe('Não consegui fechar o levantamento “Renan Bauer”. Falta: o código 1023, perfil 1023/WOLFF, na tabela de preço, com a barra e o valor (esquadrias 1, 2 e 3).')
         expect(r.texto.match(/1023/g)).toHaveLength(2)
-        expect(r.deCadastro).toEqual(['o código 1023, perfil 1023/WOLFF, na tabela de preço, com a barra e o valor (esquadrias 1, 2 e 3)'])
+        // a falta é do cadastro: nenhum caminho de alteração
+        expect(r.texto).not.toContain('Para trocar')
     })
 
     it('DUAS faltas diferentes: uma por linha, depois de "Falta:" — e nada da relação das esquadrias', async () => {
@@ -1307,7 +1310,37 @@ describe('(R) a frase curta da falta: o nome e o que falta, e a mesma falta uma 
             'Não consegui fechar o levantamento “Renan Bauer”. Falta:',
             '• o vidro de 4 mm não é aceito nesta tipologia; as espessuras disponíveis são 5, 6, 8, 18, 20, 21 e 24 mm (esquadria 2, DP-02).',
             '• o código 1023, perfil 1023/WOLFF, na tabela de preço, com a barra e o valor (esquadrias 1 e 3).',
+            // o caminho só da falta que tem um (o vidro), depois das faltas
+            'Para trocar, diga: muda o vidro da esquadria 2 para 5 mm.',
         ])
+    })
+
+    it('o vidro SEM ESPESSURA dita ("mini boreal") numa DP-02: UMA falta curta — era uma linha técnica por baguete —, e o caminho com o vidro dito e uma espessura aceita', async () => {
+        const t = await M().lerFamiliasDaEmpresa(TENANT)
+        const r = await M().mensagemDoLevantamento(TENANT, t, { nome: 'Renan Bauer', itens: [{ ...ESQUADRIA, ...FECHA_R, vidro: 'mini boreal' }] })
+        expect(r.texto).toBe([
+            'Não consegui fechar o levantamento “Renan Bauer”. Falta: a espessura do vidro: os baguetes desta tipologia dependem dela, e aceitam 5, 6, 8, 18, 20, 21 e 24 mm.',
+            'Para trocar, diga: muda o vidro da esquadria 1 para mini boreal 5 mm.',
+        ].join('\n'))
+        expect(r.texto).not.toMatch(/Linha \d+ da aba Perfis/)
+        // seguido ao pé da letra, fecha
+        expect((await M().mensagemDoLevantamento(TENANT, t, { nome: 'Renan Bauer', itens: [{ ...ESQUADRIA, ...FECHA_R, vidro: 'mini boreal 5 mm' }] })).desfecho).toBe('levantou')
+    })
+
+    it('vidroComEspessura e espessuraSugerida: troca a espessura dita, acrescenta a que faltava; sugere a menor aceita não menor que a pedida', () => {
+        expect(M().vidroComEspessura('temperado incolor 4mm', 5)).toBe('temperado incolor 5 mm')
+        expect(M().vidroComEspessura('incolor 4,5 mm comum', 6)).toBe('incolor 6 mm comum')
+        expect(M().vidroComEspessura('mini boreal', 5)).toBe('mini boreal 5 mm')
+        expect(M().vidroComEspessura(null, 8)).toBe('8 mm')
+        expect(M().vidroComEspessura('  ', 6.5)).toBe('6,5 mm')
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const B = require('@/lib/atendimentos-ia/levantamento-de-barras') as typeof import('@/lib/atendimentos-ia/levantamento-de-barras')
+        expect(B.espessuraSugerida(4, [18, 5, 6, 8])).toBe(5)
+        expect(B.espessuraSugerida(6, [5, 6, 8])).toBe(6)
+        expect(B.espessuraSugerida(7, [5, 6, 8])).toBe(8)
+        expect(B.espessuraSugerida(30, [5, 6, 8, 24])).toBe(24)
+        expect(B.espessuraSugerida(null, [8, 5])).toBe(5)
+        expect(B.espessuraSugerida(4, [])).toBeNull()
     })
 
     it('fraseDaRecusa: a falta curta vai depois de "Falta:"; a frase de configuração, inteira, vai como está — nunca "Falta: falta de"', () => {

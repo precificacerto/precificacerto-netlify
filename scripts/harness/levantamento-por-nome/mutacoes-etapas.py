@@ -25,7 +25,7 @@ CONTROLE = 'M0'
 M = [
  ('E1', 'as etapas 1 a 4 não saem no log', CV, [("for (const [n, nome] of ETAPAS_DO_LOG) console.error(", "for (const [n, nome] of ETAPAS_DO_LOG.slice(4)) console.error(")], '(39) observabilidade por etapa'),
  ('E2', 'a etapa não alcançada sai vazia, não "nao_chegou"', CV, [("${r.etapas[nome] ?? 'nao_chegou'}", "${r.etapas[nome] ?? ''}")], 'nao_chegou'),
- ('E3', 'a etapa 5 não diz o desfecho', CV, [("5 responder] desfecho=${desfecho} enviou=", "5 responder] enviou=")], 'desfecho=apanhado'),
+ ('E3', 'a etapa 5 não diz o desfecho', CV, [("5 responder] desfecho=${desfecho} enviou=", "5 responder] enviou=")], 'o apanhado: coleta, casa, monta e grava'),
  ('E4', 'a falha da IA não aparece na coleta', CV, [("            rastro.etapas.coletar = `historico=${rastro.historico} ia=${resposta.tipo} faltou=ia`\n", "")], 'a IA que falha'),
  ('E5', 'a coleta não diz o que não foi dito', CV, [(" itens_sem_campos=${rastro.itensSemCampos} faltou=${listaNoLog(naoDitos)}`", " itens_sem_campos=${rastro.itensSemCampos} faltou=-`")], 'faltou=e1:vidro'),
  ('E6', 'o casar não diz a tipologia do padrão', CV, [("rastro.tipologiasPadrao += 1; tipologiasDoPadrao.push(`e${item.ordem}:${padrao.tipologia}`) }", "rastro.tipologiasPadrao += 1 }")], 'padrao=e1:DP-02'),
@@ -36,7 +36,7 @@ M = [
  ('E11', 'o cálculo não sai no log', CV, [("        if (levantamento.etapa) {\n", "        if (false && levantamento.etapa) {\n")], 'o "sim"'),
  ('E12', 'o resumo conta peças por linha, não por quantidade', LC, [("e.pecas.reduce((u, p) => u + p.quantidade, 0)", "e.pecas.length")], 'O RESUMO DO CÁLCULO'),
  ('E13', 'a falta de cor não vira código', LC, [("faltou.push(`e${i + 1}:SEM_COR`)", "void 0")], 'SEM COR'),
- ('E14', 'a recusa do cálculo perde os códigos', LC, [("if (recusadas.length) return rotulado(recusa(recusadas, calculos.flatMap((c) => ('faltas' in c ? c.codigos : [])), deCadastro))", "if (recusadas.length) return rotulado(recusa(recusadas, [], deCadastro))")], 'ITEM_AUSENTE'),
+ ('E14', 'a recusa do cálculo perde os códigos', LC, [("if (recusadas.length) return rotulado(recusa(recusadas, calculos.flatMap((c) => ('faltas' in c ? c.codigos : [])), calculos.flatMap((c) => ('faltas' in c ? c.caminhos : []))))", "if (recusadas.length) return rotulado(recusa(recusadas, [], calculos.flatMap((c) => ('faltas' in c ? c.caminhos : []))))")], 'ITEM_AUSENTE'),
  ('E15', 'a recusa do avaliador não carrega a variável', LB, [("...(x.variavel !== undefined ? { variavel: x.variavel } : {}), ", "")], 'carrega a VARIÁVEL'),
  ('M0', 'CONTROLE: nada muda', CV, []),
 ]

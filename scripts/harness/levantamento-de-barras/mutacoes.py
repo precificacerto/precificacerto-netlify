@@ -49,7 +49,7 @@ M = [
  ('M16', 'a recusa do avaliador sem a esquadria', A, [("{ variavel: x.variavel } : {}), esquadria: indice, comTipologia: true, texto: x.mensagem", "{ variavel: x.variavel } : {}), comTipologia: true, texto: x.mensagem")], 'recusa do AVALIADOR'),
  ('M17', 'a esquadria recusada pelo avaliador some calada', A, [("        if ('recusas' in r) {\n", "        if ('recusas' in r) {\n            if (r.recusas.length) return\n")], 'recusa do AVALIADOR'),
  ('M18', 'tipologia sem definição: a esquadria some calada', A, [("        if (!tipologia) {\n", "        if (!tipologia) return\n        if (false) {\n")], 'TIPOLOGIA SEM DEFINIÇÃO'),
- ('M19', 'a recusa do agrupador sem o perfil', A, [("parciais.push({ origem: 'AGRUPADOR', motivo: x.motivo, codigo: x.codigo, perfil, esquadria, texto })", "parciais.push({ origem: 'AGRUPADOR', motivo: x.motivo, codigo: x.codigo, esquadria, texto: x.mensagem })")], 'recusa do AGRUPADOR'),
+ ('M19', 'a recusa do agrupador sem o perfil', A, [("parciais.push({ origem: 'AGRUPADOR', caminho: null, motivo: x.motivo, codigo: x.codigo, perfil, esquadria, texto, falta })", "parciais.push({ origem: 'AGRUPADOR', caminho: null, motivo: x.motivo, codigo: x.codigo, esquadria, texto: x.mensagem, falta: x.mensagem })")], 'recusa do AGRUPADOR'),
  ('M20', 'o preço ausente não recusa: as barras saem (a regra de antes de 08/11/2026)', A, [("            for (const [, nome] of semValor) {", "            for (const [, nome] of semValor.slice(0, 0)) {")], 'PREÇO AUSENTE é RECUSA'),
  ('M21', 'dois códigos sem os valores na frase', A, [("`${c.codigo} (${formatarReais(c.valor_barra_interno)} a barra)`", "`${c.codigo}`")], 'os dois valores'),
  ('M22', 'cor sem código sem as variantes na frase', A, [("as variantes que existem são: ${variantes.join(', ')}", "há outras variantes")], 'VÁRIAS VARIANTES'),
@@ -66,7 +66,7 @@ M = [
  ('M35', 'o valor da BARRA vazio não é conferido', A, [("[['valor_barra_interno', 'da barra'], ['valor_metro_interno', 'do metro']]", "[['valor_metro_interno', 'do metro']]")], 'valor da BARRA vazio'),
  ('M36', 'o valor do METRO vazio não é conferido', A, [("[['valor_barra_interno', 'da barra'], ['valor_metro_interno', 'do metro']]", "[['valor_barra_interno', 'da barra']]")], 'METRO vazio'),
  ('M37', 'zero é tratado como falta', A, [(".filter(([campo]) => !Number.isFinite(it[campo] as number))", ".filter(([campo]) => !it[campo])")], 'ZERO é valor'),
- ('M38', 'a falta de preço sai só na primeira esquadria', A, [("                for (const esquadria of esquadrias) parciais.push({ origem: 'ITEM', motivo: 'ITEM_SEM_VALOR'", "                for (const esquadria of esquadrias.slice(0, 1)) parciais.push({ origem: 'ITEM', motivo: 'ITEM_SEM_VALOR'")], 'os dois vazios'),
+ ('M38', 'a falta de preço sai só na primeira esquadria', A, [("                for (const esquadria of esquadrias) parciais.push({ origem: 'ITEM', caminho: null, motivo: 'ITEM_SEM_VALOR'", "                for (const esquadria of esquadrias.slice(0, 1)) parciais.push({ origem: 'ITEM', caminho: null, motivo: 'ITEM_SEM_VALOR'")], 'os dois vazios'),
  ('M39', 'a falta de preço não nomeia o código', A, [("está na tabela de preço sem o valor ${nome}. Falta: o valor ${nome} de ${codigo}.", "está na tabela de preço sem valor.")], 'valor da BARRA vazio'),
  ('M0', 'controle: nada muda', A, [("export", "export")]),
 ]
