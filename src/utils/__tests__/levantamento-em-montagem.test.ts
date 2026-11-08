@@ -38,7 +38,7 @@ const familiaUnica = (c: string) => (TIPOLOGIAS.includes(c) ? [{ familia: 'PVC',
 type Candidato = import('@/lib/atendimentos-ia/tipologias-candidatas').CandidatoParaAProposta
 type Abertura = import('@/lib/atendimentos-ia/tipologias-candidatas').Abertura
 const candidatos = (codigos: readonly string[]): Candidato[] => codigos.map((tipologia) => ({ tipologia, descricao: null as string | null, larg_min_mm: null as number | null, larg_max_mm: null as number | null, alt_min_mm: null as number | null, alt_max_mm: null as number | null }))
-const ctx = (ordemPadrao: number | null) => ({ candidatos: candidatos(TIPOLOGIAS), aberturaDaMensagem: null as Abertura | null, aberturasDitas: new Set<'porta' | 'janela'>(), cores: CORES, ordemPadrao, definicao, familiasDoCodigo: familiaUnica })
+const ctx = (ordemPadrao: number | null) => ({ candidatos: candidatos(TIPOLOGIAS), aberturaDaMensagem: null as Abertura | null, aberturasDitas: new Set<'porta' | 'janela'>(), cores: CORES, mensagem: '', ordemPadrao, definicao, familiasDoCodigo: familiaUnica })
 const COMPLETO_SEM_ESCOLHAS = { ordem: 1, tipologia: 'DP-02', largura_mm: 1200, altura_mm: 1000, quantidade: 1, cor_perfil: 'BRANCO', vidro: 'Temperado 5mm', escolhas: null as Record<string, number> | null, familia: 'PVC' as string | null, motor_id: 'motor-unico' as string | null }
 
 describe('(1) a proposta preenche, e o que não valida é descartado', () => {
@@ -52,7 +52,7 @@ describe('(1) a proposta preenche, e o que não valida é descartado', () => {
     it.each([
         ['tipologia fora da lista', { tipologia: 'Janela de correr' }, 'tipologia'],
         ['tipologia em outra caixa ("dp-02" não é DP-02)', { tipologia: 'dp-02' }, 'tipologia'],
-        ['cor fora da lista exata ("Branco")', { cor_perfil: 'Branco' }, 'cor_perfil'],
+        ['cor fora da lista ("Roxo")', { cor_perfil: 'Roxo' }, 'cor_perfil'],
         ['largura como texto', { largura_mm: 'mil e duzentos' }, 'largura_mm'],
         ['altura fora da faixa', { altura_mm: 50 }, 'altura_mm'],
         ['quantidade fracionária', { quantidade: 1.5 }, 'quantidade'],
@@ -60,6 +60,17 @@ describe('(1) a proposta preenche, e o que não valida é descartado', () => {
         const r = L().aplicarProposta([L().itemVazio(1)], { itens: [{ ...campos }] }, ctx(1))
         expect(r.itens[0][campo as 'tipologia']).toBeNull()
         expect(r.descartados).toBe(1)
+    })
+
+    it('a cor da lista em outra caixa vale na grafia da lista; a cor fora da lista DITA na mensagem vai a coresForaDaLista, e a não dita não (08/11/2026)', () => {
+        const branco = L().aplicarProposta([L().itemVazio(1)], { itens: [{ cor_perfil: 'branco' }] }, ctx(1))
+        expect(branco.itens[0].cor_perfil).toBe('BRANCO')
+        expect([branco.descartados, branco.coresForaDaLista]).toEqual([0, []])
+        const dita = L().aplicarProposta([L().itemVazio(1)], { itens: [{ cor_perfil: ' Roxo ' }] }, { ...ctx(1), mensagem: 'janela roxo' })
+        expect(dita.itens[0].cor_perfil).toBeNull()
+        expect(dita.coresForaDaLista).toEqual([{ ordem: 1, cor: 'Roxo' }])
+        const naoDita = L().aplicarProposta([L().itemVazio(1)], { itens: [{ cor_perfil: 'Roxo' }] }, { ...ctx(1), mensagem: 'janela' })
+        expect([naoDita.itens[0].cor_perfil, naoDita.coresForaDaLista, naoDita.descartados]).toEqual([null, [], 1])
     })
 
     it('chaves que não são campo da esquadria (tenant_id, levantamento_id) são ignoradas, sem contar', () => {
@@ -199,7 +210,7 @@ describe('(V) várias famílias: a tipologia no motor de mais de uma, a pergunta
     const familiasDoCodigo = (c: string) => (c === 'DP-02' ? [PVC, ALU] : c === 'DP-01' ? [PVC] : [])
     // as abas da DP-02 só no motor do PVC: a definição depende da FAMÍLIA da esquadria, não só do código
     const def = (i: { tipologia: string | null; familia: string | null }) => (i.tipologia === 'DP-02' && i.familia === 'PVC' ? dp02() : null)
-    const ctxV = (ordemPadrao: number | null) => ({ candidatos: candidatos(TIPOLOGIAS), aberturaDaMensagem: null as Abertura | null, aberturasDitas: new Set<'porta' | 'janela'>(), cores: CORES, ordemPadrao, definicao: def, familiasDoCodigo })
+    const ctxV = (ordemPadrao: number | null) => ({ candidatos: candidatos(TIPOLOGIAS), aberturaDaMensagem: null as Abertura | null, aberturasDitas: new Set<'porta' | 'janela'>(), cores: CORES, mensagem: '', ordemPadrao, definicao: def, familiasDoCodigo })
     const COMPLETA = { tipologia: 'DP-02', largura_mm: 1200, altura_mm: 1000, quantidade: 1, cor_perfil: 'BRANCO', vidro: 'Temperado 5mm' }
 
     it('o código em DUAS famílias: a esquadria fica sem família e sem motor, e a pendência é de qual família — as duas, em ordem, nunca "a primeira"', () => {
@@ -288,7 +299,7 @@ describe('(L) os limites com DUAS candidatas do mesmo código (duas famílias): 
         { tipologia: 'DP-02', descricao: 'JANELA DE CORRER', larg_min_mm: null as number | null, larg_max_mm: null as number | null, alt_min_mm: 388, alt_max_mm: altMaxPvc },
         { tipologia: 'DP-02', descricao: 'JANELA DE CORRER', larg_min_mm: null as number | null, larg_max_mm: null as number | null, alt_min_mm: 388, alt_max_mm: altMaxAlu },
     ]
-    const ctxL = (cands: Candidato[]) => ({ candidatos: cands, aberturaDaMensagem: null as Abertura | null, aberturasDitas: new Set<'porta' | 'janela'>(), cores: CORES, ordemPadrao: 1, definicao, familiasDoCodigo: (c: string) => (c === 'DP-02' ? [PVC, ALU] : []) })
+    const ctxL = (cands: Candidato[]) => ({ candidatos: cands, aberturaDaMensagem: null as Abertura | null, aberturasDitas: new Set<'porta' | 'janela'>(), cores: CORES, mensagem: '', ordemPadrao: 1, definicao, familiasDoCodigo: (c: string) => (c === 'DP-02' ? [PVC, ALU] : []) })
 
     it('2.500 de altura cabe só na do alumínio (3.000): a tipologia FICA — a família é a pergunta seguinte, não o descarte', () => {
         const r = L().aplicarProposta([L().itemVazio(1)], { itens: [{ tipologia: 'DP-02', largura_mm: 1200, altura_mm: 2500 }] }, ctxL(duas(2439, 3000)))

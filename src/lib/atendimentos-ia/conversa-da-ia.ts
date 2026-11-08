@@ -188,7 +188,7 @@ import { CODIGO_DE_FORNECEDOR, redigir, type MotivoDaRedacao, type Redacao } fro
 import { vidroPodado } from '@/lib/atendimentos-ia/vidro'
 import type { VariaveisDaTipologia } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import { compararNome, formaComparavel, nomeDaMensagem, nomeDoCliente, nomeSemPrefixo, normalizarNome } from '@/lib/atendimentos-ia/nome-do-levantamento'
-import { perguntasDaTipologia, type JaDito } from '@/lib/atendimentos-ia/pre-definicao'
+import { fraseDaCorForaDaLista, perguntasDaTipologia, type JaDito } from '@/lib/atendimentos-ia/pre-definicao'
 import { tipologiaPadrao } from '@/lib/atendimentos-ia/tipologia-padrao'
 import { PROMPT_BASE } from '@/utils/atendimentos-ia-prompt-base'
 import { LIMITE_DA_FALA } from '@/utils/atendimentos-ia-contexto'
@@ -623,7 +623,7 @@ function sistema(c: ContextoDoPrompt): SistemaDoPedido {
         '- Pergunta em aberto (quando houver, no fim): a mensagem pode ser a RESPOSTA a ela. Se o vendedor responde com um levantamento que a pergunta cita ("é o mesmo", "é esse"), ponha em `nome` o nome dele escrito como na pergunta. Se a mensagem é só o nome de um levantamento, é o nome do levantamento.',
         '- confirma: só quando a pergunta em aberto pede confirmação — true se ele confirmou ("sim", "pode", "confirmo"), false se negou. Senão, omita.',
         '- itens: as esquadrias desta mensagem, com os campos que ela diz. Um campo vale também quando o vendedor o deu para todas numa mensagem anterior ("todas brancas") ou se referiu a ele ("a mesma cor"). Numa alteração, só os campos que mudam. Não invente, não deduza.',
-        '- cor_perfil: EXATAMENTE uma das cores da empresa (lista abaixo), escrita como está. Se for outra cor, ou se houver dúvida, NÃO preencha.',
+        '- cor_perfil: a cor do perfil que o vendedor DISSE. Se ela é uma das cores da empresa (lista abaixo), escreva-a como está na lista; se é outra, escreva-a como ele disse — o código confere e pergunta. Se ele não disse cor, NÃO preencha.',
         '- vidro: COPIE o vidro como o vendedor o escreveu nesta mensagem ("vidro 4mm" → vidro 4mm; "temperado 8mm" → temperado 8mm). NUNCA acrescente têmpera, cor ou qualquer palavra que ele não disse — nem da instrução da categoria VIDRO: "8mm" não vira "comum 8 mm" nem "temperado 8 mm". Se ele NÃO disse o vidro desta esquadria e a instrução de VIDRO define um padrão para ela, ponha o padrão em vidro_padrao, copiado da instrução; senão, omita os dois.',
         '- tipologia: o CÓDIGO (ex.: DP-02) de UMA das tipologias da lista abaixo, escolhida pela descrição. NUNCA invente código nem preencha com as palavras do vendedor. Se cabe em mais de uma, NÃO preencha: em `pergunta`, pergunte qual é, citando a descrição INTEIRA de cada uma, sem o código. Se ainda não dá para concluir, NÃO preencha: em `pergunta`, pergunte em linguagem de obra o que falta para você concluir (janela ou porta, como abre, quantas folhas, persiana) — nunca "qual a tipologia".',
         '- abertura: a PALAVRA que o vendedor usou para a esquadria — "porta" (também "porta-janela" e "porta janela") ou "janela". Só se ele a escreveu; senão, omita. Porta NUNCA vira tipologia cuja descrição começa com JANELA, e janela NUNCA vira PORTA; maxim-ar e fixo servem às duas.',
@@ -642,7 +642,7 @@ function sistema(c: ContextoDoPrompt): SistemaDoPedido {
             : `Tipologias do motor da família da empresa (código | descrição | tipo | ${LEGENDA_DOS_LIMITES}):`,
         ...(c.candidatos.length ? c.candidatos.map((x) => linhaDoCandidato(x, c.variasFamilias)) : ['(nenhuma)']),
         '',
-        `Cores da empresa (cor_perfil, escreva EXATAMENTE uma delas): ${c.cores.length ? c.cores.join(', ') : '(nenhuma)'}`,
+        `Cores da empresa (cor_perfil): ${c.cores.length ? c.cores.join(', ') : '(nenhuma)'}`,
         '',
         'Escolhas de arremate (USO INTERNO — código = descrição: número = opção). Cada linha de opções vai UMA vez, com o número entre colchetes; a tipologia diz quais usa:',
         ...opcoesDeArremateNoPrompt(c.escolhasPorTipologia),
@@ -1525,7 +1525,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         const ordemPadrao = rastro.rota === 'MONTAGEM' ? pendenciaAberta?.ordem ?? (atuais.length === 1 ? atuais[0].ordem : null)
             : atuais.length === 1 ? atuais[0].ordem : null
         const proposta_ = aplicarProposta(atuais, efetiva, {
-            candidatos: tabela.candidatos, aberturaDaMensagem, aberturasDitas: palavrasDeAbertura(c.texto), cores, ordemPadrao, definicao, familiasDoCodigo: doCodigo,
+            candidatos: tabela.candidatos, aberturaDaMensagem, aberturasDitas: palavrasDeAbertura(c.texto), cores, mensagem: c.texto, ordemPadrao, definicao, familiasDoCodigo: doCodigo,
         })
         // OS PADRÕES DO CÓDIGO (dono do produto, 05/11/2026), na esquadria que diz alguma coisa: a TIPOLOGIA padrão — de correr, 2 folhas, lisa —
         // quando o acumulado não indica nada fora do padrão (`tipologia-padrao.ts`); e a COR não dita = a predominante da base
@@ -1537,7 +1537,9 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
                 const padrao = tipologiaPadrao(item, proposta_.aberturas[item.ordem] ?? null, filtro.lidos, tabela.candidatos)
                 if ('tipologia' in padrao) { item.tipologia = padrao.tipologia; rastro.tipologiasPadrao += 1; tipologiasDoPadrao.push(`e${item.ordem}:${padrao.tipologia}`) }
             }
-            if (item.cor_perfil === null && corPredominante !== null) { item.cor_perfil = corPredominante; rastro.coresPadrao += 1 }
+            // a predominante é da cor NÃO DITA (08/11/2026): a cor dita que a empresa não tem fica vazia, e a conversa pergunta nomeando-a
+            const ditaForaDaLista = proposta_.coresForaDaLista.some((x) => x.ordem === item.ordem)
+            if (item.cor_perfil === null && corPredominante !== null && !ditaForaDaLista) { item.cor_perfil = corPredominante; rastro.coresPadrao += 1 }
         }
         // a família e o motor de cada esquadria, como ficam gravados: a resolvida e o motor do cálculo dela HOJE (PR D); e o AGRUPAMENTO
         // (03/11/2026): os itens completos e iguais viram um, com as unidades somadas
@@ -1614,6 +1616,14 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
                 fraseDeConfirmarAcrescimo(alvo.nome, alvo.itens.length, emEspera), 'confirmar-acrescimo',
             )
         }
+        // A COR DITA E FORA DA LISTA que não mudou nada (08/11/2026): a resposta à pergunta da cor, ou "muda para roxo" num levantamento já
+        // gravado — a esquadria fica como estava, nada é gravado, e a pergunta nomeia a cor e as cores da empresa (nunca o "não apliquei")
+        if (nadaMudou && aplicada.coresForaDaLista.length > 0) {
+            const n = aplicada.itens.length
+            const frases = aplicada.coresForaDaLista.map((x) => `${n > 1 ? `Esquadria ${x.ordem}: ` : ''}${fraseDaCorForaDaLista(x.cor, cores)}`)
+            const resto = pendenciasAbertas.filter((p) => !(p.tipo === 'CAMPO' && p.campo === 'cor_perfil' && aplicada.coresForaDaLista.some((x) => x.ordem === p.ordem)))
+            return await falar([...frases, ...(resto.length ? [perguntaDasPendencias(resto, n, null, filtro.jaDito)] : [])].join('\n'), 'perguntou')
+        }
         // R2: com uma pergunta em aberto, a resposta que não mudou nada é ERRO e aparece — nunca a mesma pergunta de novo
         if (nadaMudou && rastro.rota === 'MONTAGEM' && pendenciaAberta) {
             const n = itensDaMontagem.length
@@ -1689,6 +1699,14 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             }
             // sem lista de cores na base, perguntar a cor não leva a lugar nenhum: a conversa diz o que falta
             if ('campo' in pendencia && pendencia.campo === 'cor_perfil' && cores.length === 0) return await responder(FRASE_SEM_CORES, 'sem-cores')
+            // A COR DITA E FORA DA LISTA (dono do produto, 08/11/2026): a pergunta nomeia a cor e as cores da empresa — e o resto do que
+            // falta vai junto, na mesma resposta. A esquadria continua sem cor: nada a troca pela predominante
+            const foraDaLista = proposta_.coresForaDaLista.filter((x) => aplicada.itens.some((i) => i.ordem === x.ordem && i.cor_perfil === null))
+            if (foraDaLista.length > 0) {
+                const frases = foraDaLista.map((x) => `${aplicada.itens.length > 1 ? `Esquadria ${x.ordem}: ` : ''}${fraseDaCorForaDaLista(x.cor, cores)}`)
+                const resto = pendencias.filter((p) => !(p.tipo === 'CAMPO' && p.campo === 'cor_perfil' && foraDaLista.some((x) => x.ordem === p.ordem)))
+                return await falar([...frases, ...(resto.length ? [perguntaPara(resto, aplicada.itens.length, proposta, filtro.jaDito)] : [])].join('\n'), 'perguntou')
+            }
             // UMA pergunta com TUDO o que falta (03/11/2026), redigida pelo modelo
             return await falar(perguntaPara(pendencias, aplicada.itens.length, proposta, filtro.jaDito), 'perguntou')
         }
