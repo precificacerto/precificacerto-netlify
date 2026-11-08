@@ -119,6 +119,19 @@ export type MotivoDaRecusa =
     | 'QUANTIDADE_NAO_INTEIRA' | 'QUANTIDADE_NEGATIVA' | 'COMPRIMENTO_NAO_POSITIVO'
     | 'ESPESSURA_DO_VIDRO_AUSENTE' | 'ESPESSURAS_NAO_PARSEIAM' | 'NENHUM_BAGUETE_PARA_A_ESPESSURA'
     | 'ABA_AUSENTE' | 'CABECALHO_AUSENTE' | 'TIPOLOGIA_AUSENTE' | 'VALOR_INVALIDO'
+const milimetrosBR = (n: number) => String(n).replace('.', ',')
+/** A falta curta: "o vidro de 4 mm não é aceito nesta tipologia; as espessuras disponíveis são 5, 6 e 8 mm" — sem os códigos dos baguetes. */
+export function faltaDoVidroSemBaguete(esp: number, disponiveis: readonly number[]): string {
+    const ns = [...new Set(disponiveis)].sort((a, b) => a - b).map(milimetrosBR)
+    const lista = ns.length > 1 ? `${ns.slice(0, -1).join(', ')} e ${ns[ns.length - 1]}` : ns.join('')
+    return `o vidro de ${milimetrosBR(esp)} mm não é aceito nesta tipologia; ${ns.length > 1 ? 'as espessuras disponíveis são' : 'a espessura disponível é'} ${lista} mm`
+}
+/** A mesma, como frase: "O vidro de 4 mm não é aceito nesta tipologia; …." */
+export const fraseDoVidroSemBaguete = (esp: number, disponiveis: readonly number[]) => {
+    const f = faltaDoVidroSemBaguete(esp, disponiveis)
+    return `${f.charAt(0).toUpperCase()}${f.slice(1)}.`
+}
+
 export type RecusaDoAvaliador = {
     motivo: MotivoDaRecusa
     mensagem: string
@@ -131,6 +144,8 @@ export type RecusaDoAvaliador = {
     aba?: string
     coluna?: string
     espessura_vidro_mm?: number
+    /** As espessuras que os baguetes da tipologia aceitam, distintas — na recusa NENHUM_BAGUETE_PARA_A_ESPESSURA (08/11/2026). */
+    espessuras_disponiveis_mm?: number[]
     comprimento_mm?: number
     quantidade?: number
 }
@@ -591,7 +606,7 @@ export function avaliarTipologia(entrada: EntradaDoAvaliador): ResultadoDaAvalia
     const esp = entrada.espessura_vidro_mm ?? null
     let baguetesComCondicao = 0
     let baguetesAtendidos = 0
-    const listasDeEspessura: string[] = []
+    const espessurasDosBaguetes = new Set<number>()
 
     entrada.tipologia.perfis.forEach((p, i) => {
         const linha = i + 1
@@ -608,7 +623,7 @@ export function avaliarTipologia(entrada: EntradaDoAvaliador): ResultadoDaAvalia
                 return
             }
             baguetesComCondicao++
-            listasDeEspessura.push(`${p.perfil}: ${p.esp_vidro}`)
+            for (const x of lista) espessurasDosBaguetes.add(Number(x))
             if (esp === null) {
                 recusas.push({ motivo: 'ESPESSURA_DO_VIDRO_AUSENTE', ...onde('Esp. vidro'), mensagem: `Linha ${linha} da aba Perfis (${p.perfil}): o baguete depende da espessura do vidro (${p.esp_vidro} mm), e ela não foi informada.` })
                 return
@@ -648,8 +663,11 @@ export function avaliarTipologia(entrada: EntradaDoAvaliador): ResultadoDaAvalia
     })
 
     if (esp !== null && baguetesComCondicao > 0 && baguetesAtendidos === 0) {
-        recusas.push({ motivo: 'NENHUM_BAGUETE_PARA_A_ESPESSURA', campo: 'Espessura do vidro', espessura_vidro_mm: esp,
-            mensagem: `Nenhum baguete desta tipologia atende o vidro de ${esp} mm (${listasDeEspessura.join('; ')}): o vidro ficaria sem baguete.` })
+        // a frase do vendedor (dono do produto, 08/11/2026): a espessura pedida e as que o motor aceita, distintas e em ordem — sem os códigos
+        // dos baguetes nem os pares repetidos ("GB25/WOLFF: 5,6,8; GB25/WOLFF: 5,6,8; …"), que não ajudam ninguém
+        const disponiveis = [...espessurasDosBaguetes]
+        recusas.push({ motivo: 'NENHUM_BAGUETE_PARA_A_ESPESSURA', campo: 'Espessura do vidro', espessura_vidro_mm: esp, espessuras_disponiveis_mm: disponiveis,
+            mensagem: fraseDoVidroSemBaguete(esp, disponiveis) })
     }
 
     const avisos: AvisoDoAvaliador[] = []
