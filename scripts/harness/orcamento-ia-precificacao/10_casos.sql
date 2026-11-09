@@ -26,9 +26,9 @@ insert into orcamentista_orcamento_item (id, tenant_id, orcamento_id, ordem, qua
 select pg_temp.confere((select num_nonnulls(custo_bruto_materiais, cred_icms_pct, cred_pis_cofins_pct, cred_ipi_pct, nc_ipi_pct, cred_ibs_pct, cred_cbs_pct,
     custo_liquido_materiais, tempo_fabricacao_min, valor_minuto, custo_fabricacao, custo_liquido_total) = 0
   from orcamentista_orcamento_item where id = '50000000-0000-4000-8000-000000000001'), 'caso 1a: as 12 colunas do item nascem nulas');
-select pg_temp.confere((select num_nonnulls(comissao_percentual, comissao_modo, reserva_tecnica_percentual, lucro_projetado_percentual, aproveitamento_modo,
+select pg_temp.confere((select num_nonnulls(comissao_percentual, comissao_modo, reserva_tecnica_percentual, reserva_tecnica_responsavel, lucro_projetado_percentual, aproveitamento_modo,
     aproveitamento_origem, aproveitamento_motivo, aproveitamento_por, valor_total_bruto, valor_total_liquido, valor_venda) = 0
-  from orcamentista_orcamento where id = '30000000-0000-4000-8000-000000000001'), 'caso 1b: as 11 colunas do orcamento nascem nulas');
+  from orcamentista_orcamento where id = '30000000-0000-4000-8000-000000000001'), 'caso 1b: as 12 colunas do orcamento nascem nulas');
 
 -- 2. ZERO é aceito, e continua zero ("apurou e deu nada")
 select pg_temp.passa($$update orcamentista_orcamento_item set custo_bruto_materiais = 0, cred_icms_pct = 0, cred_pis_cofins_pct = 0, cred_ipi_pct = 0,
@@ -85,6 +85,19 @@ select pg_temp.recusa($$update orcamentista_orcamento set valor_total_liquido = 
 select pg_temp.recusa($$update orcamentista_orcamento set comissao_modo = 'FIXA' where id = '30000000-0000-4000-8000-000000000001'$$, '23514', 'caso 7a: modo de comissao fora da lista');
 select pg_temp.passa($$update orcamentista_orcamento set comissao_modo = 'CONGELADA' where id = '30000000-0000-4000-8000-000000000001'$$, 'caso 7b: modo CONGELADA passa');
 
+-- 7c. o responsável pela reserva técnica: a forma do levantamento (sem espaço nas pontas, até 120)
+select pg_temp.passa($$update orcamentista_orcamento set reserva_tecnica_responsavel = 'Arquiteta Marina Lopes' where id = '30000000-0000-4000-8000-000000000001'$$, 'caso 7c: responsavel pela RT passa');
+select pg_temp.confere((select reserva_tecnica_responsavel = 'Arquiteta Marina Lopes' from orcamentista_orcamento where id = '30000000-0000-4000-8000-000000000001'), 'caso 7d: o responsavel le como foi gravado');
+select pg_temp.recusa($$update orcamentista_orcamento set reserva_tecnica_responsavel = 'Marina ' where id = '30000000-0000-4000-8000-000000000001'$$, '23514', 'caso 7e: responsavel com espaco no fim');
+select pg_temp.recusa($$update orcamentista_orcamento set reserva_tecnica_responsavel = ' Marina' where id = '30000000-0000-4000-8000-000000000001'$$, '23514', 'caso 7f: responsavel com espaco no comeco');
+select pg_temp.recusa($$update orcamentista_orcamento set reserva_tecnica_responsavel = '' where id = '30000000-0000-4000-8000-000000000001'$$, '23514', 'caso 7g: responsavel vazio (vazio e nulo, nao texto)');
+select pg_temp.recusa(format('update orcamentista_orcamento set reserva_tecnica_responsavel = %L where id = %L', repeat('m', 121), '30000000-0000-4000-8000-000000000001'), '23514', 'caso 7h: responsavel acima de 120');
+select pg_temp.passa(format('update orcamentista_orcamento set reserva_tecnica_responsavel = %L where id = %L', repeat('m', 120), '30000000-0000-4000-8000-000000000001'), 'caso 7i: responsavel com 120 passa');
+select pg_temp.passa($$update orcamentista_orcamento set reserva_tecnica_responsavel = null where id = '30000000-0000-4000-8000-000000000001'$$, 'caso 7j: responsavel nulo passa');
+select pg_temp.confere((select pg_get_constraintdef(oid) from pg_constraint where conname = 'orcamentista_orcamento_reserva_tecnica_responsavel_forma')
+  = 'CHECK (((reserva_tecnica_responsavel IS NULL) OR ((reserva_tecnica_responsavel ~ ''^\S(.*\S)?$''::text) AND (char_length(reserva_tecnica_responsavel) <= 120))))',
+  'caso 7k: a CHECK do responsavel e a do levantamento, letra por letra (medida em producao)');
+
 -- 8. o modo de aproveitamento do pedido: modo, origem, motivo e autor andam juntos
 select pg_temp.recusa($$update orcamentista_orcamento set aproveitamento_modo = 'COM' where id = '30000000-0000-4000-8000-000000000001'$$, '23514', 'caso 8a: modo sem origem');
 select pg_temp.recusa($$update orcamentista_orcamento set aproveitamento_origem = 'base_de_conhecimento' where id = '30000000-0000-4000-8000-000000000001'$$, '23514', 'caso 8b: origem sem modo');
@@ -119,8 +132,8 @@ select pg_temp.confere(has_column_privilege('service_role', 'public.orcamentista
 
 -- 10. a forma: 49 colunas, 40 constraints, e nenhuma coluna desta migração com default
 select pg_temp.confere((select count(*) from information_schema.columns where table_schema = 'public'
-  and table_name in ('orcamentista_orcamento', 'orcamentista_orcamento_item')) = 49, 'caso 10a: 49 colunas');
-select pg_temp.confere((select count(*) from pg_constraint where conrelid in ('orcamentista_orcamento'::regclass, 'orcamentista_orcamento_item'::regclass)) = 40, 'caso 10b: 40 constraints');
+  and table_name in ('orcamentista_orcamento', 'orcamentista_orcamento_item')) = 50, 'caso 10a: 50 colunas');
+select pg_temp.confere((select count(*) from pg_constraint where conrelid in ('orcamentista_orcamento'::regclass, 'orcamentista_orcamento_item'::regclass)) = 41, 'caso 10b: 41 constraints');
 select pg_temp.confere((select string_agg(column_name, ',' order by column_name) from information_schema.columns where table_schema = 'public'
   and table_name in ('orcamentista_orcamento', 'orcamentista_orcamento_item') and column_default is not null) = 'atualizado_em,atualizado_em,criado_em,criado_em,id,id',
   'caso 10c: so id, criado_em e atualizado_em tem default');

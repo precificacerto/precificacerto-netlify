@@ -15,7 +15,7 @@ RAIZ = os.path.abspath(os.path.join(AQUI, '..', '..', '..'))
 MIG = os.path.join(RAIZ, 'supabase', 'migrations', '20261109000002_orcamento_ia_precificacao.sql')
 
 CHECKS = ['item_valores_nao_negativos', 'item_percentuais_na_faixa', 'item_liquido_derivado', 'item_fabricacao_derivada', 'item_total_derivado',
-          'percentuais_na_faixa', 'comissao_modo_valido', 'valores_nao_negativos', 'liquido_derivado', 'venda_derivada',
+          'percentuais_na_faixa', 'comissao_modo_valido', 'reserva_tecnica_responsavel_forma', 'valores_nao_negativos', 'liquido_derivado', 'venda_derivada',
           'aproveitamento_modo_valido', 'aproveitamento_origem_valida', 'aproveitamento_inteiro', 'aproveitamento_motivo',
           'aproveitamento_motivo_forma', 'aproveitamento_por', 'aproveitamento_fallback']
 
@@ -58,11 +58,15 @@ MUTACOES = [(f'N{i + 1}', f'a CHECK {c} vira CHECK (true)', neutraliza(c)) for i
     ('F3', 'o motivo aceita 501', troca(
         ("(char_length(aproveitamento_motivo) <= 500)))',\n    'orcamentista_orcamento|orcamentista_orcamento_aproveitamento_por|CHECK ((NOT", "(char_length(aproveitamento_motivo) <= 501)))',\n    'orcamentista_orcamento|orcamentista_orcamento_aproveitamento_por|CHECK ((NOT"),
         ("(char_length(aproveitamento_motivo) <= 500))))'", "(char_length(aproveitamento_motivo) <= 501))))'"))),
+    ('F4', 'o responsável aceita 121', troca(
+        ("(char_length(reserva_tecnica_responsavel) <= 120))))',\n    'orcamentista_orcamento|orcamentista_orcamento_valores_nao_negativos|CHECK (((valor_total_bruto", "(char_length(reserva_tecnica_responsavel) <= 121))))',\n    'orcamentista_orcamento|orcamentista_orcamento_valores_nao_negativos|CHECK (((valor_total_bruto"),
+        ("(char_length(reserva_tecnica_responsavel) <= 120))))',\n    'orcamentista_orcamento|orcamentista_orcamento_valores_nao_negativos|CHECK ((((valor_total_bruto", "(char_length(reserva_tecnica_responsavel) <= 121))))',\n    'orcamentista_orcamento|orcamentista_orcamento_valores_nao_negativos|CHECK ((((valor_total_bruto"))),
+    ('C1', 'a coluna do responsável não é criada', troca(("  ADD COLUMN IF NOT EXISTS reserva_tecnica_responsavel text    NULL,\n", ""))),
     ('G1', 'a guarda não confere as duas tabelas', troca(("  IF to_regclass('public.orcamentista_orcamento') IS NULL OR to_regclass('public.orcamentista_orcamento_item') IS NULL THEN", "  IF false THEN"))),
     ('G2', 'a guarda não confere a CHECK origem_amarrada', troca(("  IF NOT EXISTS (SELECT 1 FROM pg_constraint\n                  WHERE conrelid = to_regclass('public.orcamentista_orcamento') AND conname = 'orcamentista_orcamento_origem_amarrada') THEN", "  IF false THEN"))),
     ('V1', 'a verificação 1 deixa de olhar o default', troca(("AND is_nullable = 'YES' AND column_default IS NULL AND numeric_precision IS NULL", "AND is_nullable = 'YES' AND numeric_precision IS NULL"))),
     ('V3', 'a verificação 3 desligada', troca(("  IF faltam IS NOT NULL THEN\n    RAISE EXCEPTION 'verificacao 3:", "  IF false AND faltam IS NOT NULL THEN\n    RAISE EXCEPTION 'verificacao 3:"))),
-    ('V4', 'a verificação 4 desligada', troca(("  IF n <> 40 THEN", "  IF false AND n <> 40 THEN"))),
+    ('V4', 'a verificação 4 desligada', troca(("  IF n <> 41 THEN", "  IF false AND n <> 41 THEN"))),
     ('V5', 'a verificação 5 desligada', troca(("  IF n <> 0 THEN\n    RAISE EXCEPTION 'verificacao 5:", "  IF false AND n <> 0 THEN\n    RAISE EXCEPTION 'verificacao 5:"))),
     ('V6', 'a verificação 6 desligada', troca(("  IF faltam IS DISTINCT FROM 'INSERT,SELECT,UPDATE' THEN", "  IF false AND faltam IS DISTINCT FROM 'INSERT,SELECT,UPDATE' THEN"))),
 ]

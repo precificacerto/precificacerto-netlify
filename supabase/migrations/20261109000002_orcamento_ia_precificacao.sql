@@ -31,8 +31,9 @@
 --     `orcamentista_tabela_item` (cred_icms_pct, cred_pis_cofins_pct, cred_ipi_pct, nc_ipi_pct, cred_ibs_pct,
 --     cred_cbs_pct), para que a mesma palavra queira dizer a mesma coisa nas duas pontas.
 --   - CONGELADO, NÃO LIDO AO VIVO (`fato-vs-referencia.md`): o que o orçamento usou fica nele. Os percentuais da
---     comissão, da reserva técnica e do lucro têm os NOMES e as FAIXAS de `orcamentista_levantamento` (copiados de
---     lá na criação do orçamento do agente; digitados no manual).
+--     comissão, da reserva técnica e do lucro, o modo da comissão e o responsável pela reserva técnica têm os NOMES,
+--     as FAIXAS e as FORMAS de `orcamentista_levantamento` (copiados de lá na criação do orçamento do agente;
+--     digitados no manual). O responsável vem junto porque é no orçamento que a reserva técnica vira valor a pagar.
 --
 -- O QUE FAZ:
 --   1. NO ITEM (`orcamentista_orcamento_item`), 12 colunas:
@@ -41,10 +42,11 @@
 --        custo_liquido_total — e 5 CHECKs (valores >= 0, percentuais de 0 a 100, e as três derivações).
 --      Os percentuais do item são os EFETIVOS do item (o item junta materiais de mais de uma tabela); o detalhe
 --      por material consumido é proposta separada, não está aqui.
---   2. NO ORÇAMENTO (`orcamentista_orcamento`), 11 colunas:
---        comissao_percentual, comissao_modo, reserva_tecnica_percentual, lucro_projetado_percentual,
+--   2. NO ORÇAMENTO (`orcamentista_orcamento`), 12 colunas:
+--        comissao_percentual, comissao_modo, reserva_tecnica_percentual, reserva_tecnica_responsavel,
+--        lucro_projetado_percentual,
 --        aproveitamento_modo, aproveitamento_origem, aproveitamento_motivo, aproveitamento_por,
---        valor_total_bruto, valor_total_liquido, valor_venda — e 12 CHECKs.
+--        valor_total_bruto, valor_total_liquido, valor_venda — e 13 CHECKs.
 --      O MODO DE APROVEITAMENTO MORA NO ORÇAMENTO, NÃO NO ITEM: "o modo é do pedido, não do item. Todos os itens de
 --      uma proposta usam o mesmo modo, porque o rateio de cima para baixo só existe em relação ao total daquele
 --      pedido" (`custo-liquido-por-fracao.md`, consequência de desenho). Origem, motivo e autor como a regra
@@ -59,8 +61,8 @@
 -- IDEMPOTENTE: ADD COLUMN IF NOT EXISTS e cada CHECK só se o nome não existe; a verificação confere a forma, e uma
 --   coluna ou CHECK de mesmo nome com outra forma aborta.
 -- GUARDA (aborta): as duas tabelas da 20261109000001 existem, com a CHECK orcamentista_orcamento_origem_amarrada.
--- VERIFICAÇÃO (aborta): as 23 colunas novas com tipo, nulas e sem default; as 26 + 23 = 49 colunas das duas tabelas;
---   as 17 CHECKs novas com a definição; 23 + 17 = 40 constraints; nenhum grant a anon, authenticated ou PUBLIC; e o
+-- VERIFICAÇÃO (aborta): as 24 colunas novas com tipo, nulas e sem default; as 26 + 24 = 50 colunas das duas tabelas;
+--   as 18 CHECKs novas com a definição; 23 + 18 = 41 constraints; nenhum grant a anon, authenticated ou PUBLIC; e o
 --   service_role ainda só com INSERT, SELECT e UPDATE.
 -- ════════════════════════════════════════════════════════════════════════════════════════
 BEGIN;
@@ -97,6 +99,7 @@ ALTER TABLE public.orcamentista_orcamento
   ADD COLUMN IF NOT EXISTS comissao_percentual         numeric NULL,
   ADD COLUMN IF NOT EXISTS comissao_modo               text    NULL,
   ADD COLUMN IF NOT EXISTS reserva_tecnica_percentual  numeric NULL,
+  ADD COLUMN IF NOT EXISTS reserva_tecnica_responsavel text    NULL,
   ADD COLUMN IF NOT EXISTS lucro_projetado_percentual  numeric NULL,
   ADD COLUMN IF NOT EXISTS aproveitamento_modo         text    NULL,
   ADD COLUMN IF NOT EXISTS aproveitamento_origem       text    NULL,
@@ -118,6 +121,7 @@ DECLARE
     -- o orcamento
     'orcamentista_orcamento|orcamentista_orcamento_percentuais_na_faixa|CHECK (((comissao_percentual IS NULL) OR ((comissao_percentual >= 0) AND (comissao_percentual <= 100))) AND ((reserva_tecnica_percentual IS NULL) OR ((reserva_tecnica_percentual >= 0) AND (reserva_tecnica_percentual <= 100))) AND ((lucro_projetado_percentual IS NULL) OR ((lucro_projetado_percentual >= 0) AND (lucro_projetado_percentual <= 100))))',
     'orcamentista_orcamento|orcamentista_orcamento_comissao_modo_valido|CHECK ((comissao_modo IS NULL) OR (comissao_modo = ANY (ARRAY[''PROPORCIONAL''::text, ''CONGELADA''::text])))',
+    'orcamentista_orcamento|orcamentista_orcamento_reserva_tecnica_responsavel_forma|CHECK (((reserva_tecnica_responsavel IS NULL) OR ((reserva_tecnica_responsavel ~ ''^\S(.*\S)?$''::text) AND (char_length(reserva_tecnica_responsavel) <= 120))))',
     'orcamentista_orcamento|orcamentista_orcamento_valores_nao_negativos|CHECK (((valor_total_bruto IS NULL) OR (valor_total_bruto >= 0)) AND ((valor_total_liquido IS NULL) OR (valor_total_liquido >= 0)) AND ((valor_venda IS NULL) OR (valor_venda >= 0)))',
     'orcamentista_orcamento|orcamentista_orcamento_liquido_derivado|CHECK ((valor_total_liquido IS NULL) OR (valor_total_bruto IS NOT NULL))',
     'orcamentista_orcamento|orcamentista_orcamento_venda_derivada|CHECK ((valor_venda IS NULL) OR (valor_total_liquido IS NOT NULL))',
@@ -158,6 +162,7 @@ DECLARE
     'orcamentista_orcamento_item|orcamentista_orcamento_item_total_derivado|CHECK (((custo_liquido_total IS NULL) OR ((custo_liquido_materiais IS NOT NULL) AND (custo_fabricacao IS NOT NULL))))',
     'orcamentista_orcamento|orcamentista_orcamento_percentuais_na_faixa|CHECK ((((comissao_percentual IS NULL) OR ((comissao_percentual >= (0)::numeric) AND (comissao_percentual <= (100)::numeric))) AND ((reserva_tecnica_percentual IS NULL) OR ((reserva_tecnica_percentual >= (0)::numeric) AND (reserva_tecnica_percentual <= (100)::numeric))) AND ((lucro_projetado_percentual IS NULL) OR ((lucro_projetado_percentual >= (0)::numeric) AND (lucro_projetado_percentual <= (100)::numeric)))))',
     'orcamentista_orcamento|orcamentista_orcamento_comissao_modo_valido|CHECK (((comissao_modo IS NULL) OR (comissao_modo = ANY (ARRAY[''PROPORCIONAL''::text, ''CONGELADA''::text]))))',
+    'orcamentista_orcamento|orcamentista_orcamento_reserva_tecnica_responsavel_forma|CHECK (((reserva_tecnica_responsavel IS NULL) OR ((reserva_tecnica_responsavel ~ ''^\S(.*\S)?$''::text) AND (char_length(reserva_tecnica_responsavel) <= 120))))',
     'orcamentista_orcamento|orcamentista_orcamento_valores_nao_negativos|CHECK ((((valor_total_bruto IS NULL) OR (valor_total_bruto >= (0)::numeric)) AND ((valor_total_liquido IS NULL) OR (valor_total_liquido >= (0)::numeric)) AND ((valor_venda IS NULL) OR (valor_venda >= (0)::numeric))))',
     'orcamentista_orcamento|orcamentista_orcamento_liquido_derivado|CHECK (((valor_total_liquido IS NULL) OR (valor_total_bruto IS NOT NULL)))',
     'orcamentista_orcamento|orcamentista_orcamento_venda_derivada|CHECK (((valor_venda IS NULL) OR (valor_total_liquido IS NOT NULL)))',
@@ -177,7 +182,8 @@ DECLARE
     'orcamentista_orcamento_item|tempo_fabricacao_min|numeric', 'orcamentista_orcamento_item|valor_minuto|numeric',
     'orcamentista_orcamento_item|custo_fabricacao|numeric', 'orcamentista_orcamento_item|custo_liquido_total|numeric',
     'orcamentista_orcamento|comissao_percentual|numeric', 'orcamentista_orcamento|comissao_modo|text',
-    'orcamentista_orcamento|reserva_tecnica_percentual|numeric', 'orcamentista_orcamento|lucro_projetado_percentual|numeric',
+    'orcamentista_orcamento|reserva_tecnica_percentual|numeric', 'orcamentista_orcamento|reserva_tecnica_responsavel|text',
+    'orcamentista_orcamento|lucro_projetado_percentual|numeric',
     'orcamentista_orcamento|aproveitamento_modo|text', 'orcamentista_orcamento|aproveitamento_origem|text',
     'orcamentista_orcamento|aproveitamento_motivo|text', 'orcamentista_orcamento|aproveitamento_por|uuid',
     'orcamentista_orcamento|valor_total_bruto|numeric', 'orcamentista_orcamento|valor_total_liquido|numeric',
@@ -201,8 +207,8 @@ BEGIN
   END IF;
   SELECT count(*) INTO n FROM information_schema.columns
    WHERE table_schema = 'public' AND table_name IN ('orcamentista_orcamento', 'orcamentista_orcamento_item');
-  IF n <> 49 THEN
-    RAISE EXCEPTION 'verificacao 2: as duas tabelas tem % coluna(s), e deviam ter 49. Nada foi alterado.', n;
+  IF n <> 50 THEN
+    RAISE EXCEPTION 'verificacao 2: as duas tabelas tem % coluna(s), e deviam ter 50. Nada foi alterado.', n;
   END IF;
   FOREACH e IN ARRAY esperadas LOOP
     p := string_to_array(e, '|');
@@ -216,8 +222,8 @@ BEGIN
   END IF;
   SELECT count(*) INTO n FROM pg_constraint
    WHERE conrelid IN (to_regclass('public.orcamentista_orcamento'), to_regclass('public.orcamentista_orcamento_item'));
-  IF n <> 40 THEN
-    RAISE EXCEPTION 'verificacao 4: as duas tabelas tem % constraint(s), e deviam ter 40. Nada foi alterado.', n;
+  IF n <> 41 THEN
+    RAISE EXCEPTION 'verificacao 4: as duas tabelas tem % constraint(s), e deviam ter 41. Nada foi alterado.', n;
   END IF;
   SELECT count(*) INTO n FROM information_schema.role_table_grants
    WHERE table_schema = 'public' AND table_name IN ('orcamentista_orcamento', 'orcamentista_orcamento_item')
@@ -230,7 +236,7 @@ BEGIN
   IF faltam IS DISTINCT FROM 'INSERT,SELECT,UPDATE' THEN
     RAISE EXCEPTION 'verificacao 6: service_role nas duas tabelas tem %, e devia ter INSERT,SELECT,UPDATE. Nada foi alterado.', faltam;
   END IF;
-  RAISE NOTICE 'orcamentista_orcamento e orcamentista_orcamento_item: 23 colunas novas, nulas e sem default; 17 CHECKs novas; 49 colunas e 40 constraints no total.';
+  RAISE NOTICE 'orcamentista_orcamento e orcamentista_orcamento_item: 24 colunas novas, nulas e sem default; 18 CHECKs novas; 50 colunas e 41 constraints no total.';
 END
 $verifica$;
 
@@ -241,11 +247,11 @@ COMMIT;
 -- ── VERIFICAÇÃO DEPOIS DE APLICAR, por consulta ao banco (não pelo retorno do comando) ──────
 -- select table_name, count(*) from information_schema.columns
 --  where table_schema = 'public' and table_name in ('orcamentista_orcamento', 'orcamentista_orcamento_item') group by 1;
--- -- esperado: orcamento 23, item 26
+-- -- esperado: orcamento 24, item 26
 -- select table_name, column_name, data_type, is_nullable, column_default from information_schema.columns
 --  where table_schema = 'public' and table_name in ('orcamentista_orcamento', 'orcamentista_orcamento_item')
 --    and column_default is not null order by 1, 2;
 -- -- esperado: só id, criado_em e atualizado_em das duas tabelas (6 linhas); nenhuma coluna desta migração
 -- select count(*) from pg_constraint
 --  where conrelid in ('public.orcamentista_orcamento'::regclass, 'public.orcamentista_orcamento_item'::regclass);
--- -- esperado: 40
+-- -- esperado: 41
