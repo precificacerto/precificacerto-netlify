@@ -11,6 +11,7 @@ fazendo, **leia o texto antes de agir**.
 - `instrumento-que-nao-enxerga`: ao contar com grep, regex ou filtro escrito à mão. Rode a fixture do caso que deve aparecer e a do caso certo que não deve.
 - `instrumento-que-se-enxerga`: ao esperar um processo ou buscar num conjunto que contém o próprio instrumento. Rode a fixture com o alvo ausente, e dê prazo a todo laço.
 - `mutacao-na-arvore-de-trabalho`: ao rodar harness de mutação. Roda sozinho ou numa worktree; nada lê a árvore enquanto ele roda.
+- `harness-sobrescrito-por-nome`: ao criar um harness ou arquivo cujo caminho vem do nome do assunto. Diretório próprio, conferido com `ls` antes de escrever.
 - `hipotese-derrubada-pela-propria-medicao`: quando a razão para não testar um caso é uma suposição sua. Teste o caso.
 - `baseline-measurement`: ao comparar um branch com a main. Use `origin/main` explícito, `tsbuildinfo` limpo e diff por arquivo + código.
 - `estado-relatado-vs-real`: ao usar estado de sistema externo (schema, PR, branch, deploy) como premissa. Consulte a fonte primária.
