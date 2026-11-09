@@ -97,8 +97,6 @@ const { esquecerSecaoDoOrcamentista } = require('@/hooks/use-secao-do-orcamentis
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const paginaMod = require('@/pages/atendimentos-ia/orcamentista') as {
     default: React.ComponentType
-    TEXTO_DO_VAZIO_O_QUE_APARECE: string
-    TEXTO_DO_VAZIO_O_QUE_FALTA: string
     TEXTO_SEM_CONEXAO: string
 }
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -209,16 +207,6 @@ describe('(4) a página /atendimentos-ia/orcamentista', () => {
         expect(host.querySelector('[data-lista-vazia]')).toBeNull()
     })
 
-    it('sem pré-definição: o estado vazio DESENHADO — o que vai aparecer e o que falta', async () => {
-        servidor.painel = { status: 200, corpo: PAINEL_VAZIO }
-        const host = await montar(<Pagina />)
-        const vazio = host.querySelector('[data-lista-vazia]')
-        expect(vazio).not.toBeNull()
-        expect(vazio!.textContent).toContain(paginaMod.TEXTO_DO_VAZIO_O_QUE_APARECE)
-        expect(vazio!.textContent).toContain(paginaMod.TEXTO_DO_VAZIO_O_QUE_FALTA)
-        expect(host.querySelectorAll('[data-levantamento]')).toHaveLength(0)
-    })
-
     it('sem conexão: uma linha dizendo isso, com o link para Conectividade — sem repetir a célula', async () => {
         servidor.painel = { status: 200, corpo: PAINEL_VAZIO }
         const host = await montar(<Pagina />)
@@ -241,25 +229,21 @@ describe('(4) a página /atendimentos-ia/orcamentista', () => {
         expect(host.querySelector('[data-liberadas]')?.textContent).toContain('3')
     })
 
-    it('com levantamentos: código, quem pediu, quando, e o estado — travessão quando vazio', async () => {
+    // 09/11/2026 (dono do produto): "Conectividade é a ligação; levantamentos é os arquivos gerados sobre a conversa" — a lista sai daqui
+    it('é SÓ A LIGAÇÃO: com levantamentos na resposta do painel, nenhuma lista, nenhum vazio de lista e nenhum cartão "Levantamentos"', async () => {
         servidor.painel = {
             status: 200,
             corpo: {
                 ...PAINEL_VAZIO,
-                levantamentos: [
-                    { id: 'p2', codigo: 'E5F6A7B8', quemPediu: '(54) •••••-6655', quando: '2026-10-21T11:00:00Z', estado: null },
-                    { id: 'p1', codigo: 'A1B2C3D4', quemPediu: 'Ana', quando: '2026-10-21T09:00:00Z', estado: 'EM_LEVANTAMENTO' },
-                ],
+                levantamentos: [{ id: 'p1', codigo: 'A1B2C3D4', quemPediu: 'Ana', quando: '2026-10-21T09:00:00Z', estado: 'EM_LEVANTAMENTO' }],
             },
         }
         const host = await montar(<Pagina />)
-        const linhas = Array.from(host.querySelectorAll('[data-levantamento]'))
-        expect(linhas.map((l) => l.getAttribute('data-levantamento'))).toEqual(['p2', 'p1'])
-        expect(linhas[0].textContent).toContain('E5F6A7B8')
-        expect(linhas[0].textContent).toContain('(54) •••••-6655')
-        expect(linhas[0].querySelector('[data-estado-do-levantamento]')?.textContent).toBe('—')
-        expect(linhas[1].querySelector('[data-estado-do-levantamento]')?.textContent).toBe('EM_LEVANTAMENTO')
+        expect(host.querySelector('[data-conexao]')).not.toBeNull()
+        expect(host.querySelectorAll('[data-levantamento]')).toHaveLength(0)
         expect(host.querySelector('[data-lista-vazia]')).toBeNull()
+        expect(host.textContent).not.toContain('A1B2C3D4')
+        expect(host.textContent).not.toContain('Levantamentos')
     })
 
     it('LEITURA APENAS: nenhum botão na página, e só GET sai dela', async () => {

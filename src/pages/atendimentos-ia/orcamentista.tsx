@@ -1,33 +1,27 @@
 /**
- * /atendimentos-ia/orcamentista — a página do Orçamentista, na seção ATENDIMENTOS I.A. do menu
- * (dono do produto, 21/10/2026). Por enquanto ENXUTA E HONESTA:
+ * /atendimentos-ia/orcamentista — "Conectividade I.A.", na seção Agentes I.A. do menu.
  *
- *   - no topo, o ESTADO DA CONEXÃO (conectado ou não, último estado registrado) e quantas pessoas
- *     estão liberadas. Sem conexão, uma linha dizendo isso e o link para Conectividade. A célula
- *     de conexão NÃO se repete aqui: conectar e mexer na lista é em Conectividade;
- *   - abaixo, os LEVANTAMENTOS (`orcamentista_pre_definicao`): código da conversa, quem pediu,
- *     quando e o estado. Hoje a lista está VAZIA, porque a conversa ainda não chega — e o estado
- *     vazio diz o que vai aparecer e o que falta para aparecer, em vez de uma tela em branco.
+ * É SÓ A LIGAÇÃO (dono do produto, 09/11/2026: "Conectividade é a ligação; levantamentos é os arquivos gerados sobre a conversa"): o ESTADO DA
+ * CONEXÃO (conectado ou não, último estado registrado) e quantas pessoas estão liberadas. Sem conexão, uma linha dizendo isso e o link para
+ * Conectividade. A célula de conexão NÃO se repete aqui: conectar e mexer na lista é em Conectividade.
  *
- * LEITURA APENAS: nenhum botão, nenhuma escrita. Tudo pela rota `/api/atendimentos-ia/orcamentista/
- * painel`, que confere a seção, a permissão do módulo `orcamentista` e o tenant do usuário logado.
- * Seção desligada (404): a página não desenha o painel — a decisão é do servidor.
+ * A lista de levantamentos que esta página mostrava (`orcamentista_pre_definicao`, a estrutura antiga da conversa) SAIU: os levantamentos ganham
+ * seção própria, "Levantamentos I.A.", alimentada por `orcamentista_levantamento` — a desenhar. A rota do painel ainda devolve a lista antiga, sem
+ * ninguém a mostrar.
+ *
+ * LEITURA APENAS: nenhum botão, nenhuma escrita. Tudo pela rota `/api/atendimentos-ia/orcamentista/painel`, que confere a seção, a permissão do
+ * módulo `orcamentista` e o tenant do usuário logado. Seção desligada (404): a página não desenha o painel — a decisão é do servidor.
  */
 import React, { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { Alert, Card, Spin, Tag, Typography } from 'antd'
-import { CheckCircleOutlined, ClockCircleOutlined, InboxOutlined, LinkOutlined } from '@ant-design/icons'
+import { LinkOutlined } from '@ant-design/icons'
 
 import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
 import { ROUTES } from '@/constants/routes'
 
 export const TEXTO_SEM_CONEXAO = 'O WhatsApp do orçamentista ainda não foi conectado.'
-export const TEXTO_DO_VAZIO_O_QUE_APARECE =
-    'Aqui vão aparecer os levantamentos que o orçamentista fizer nas conversas pelo WhatsApp: o código da conversa, quem pediu, quando e o estado de cada um.'
-export const TEXTO_DO_VAZIO_O_QUE_FALTA =
-    'Ainda não há nenhum porque as mensagens do WhatsApp ainda não chegam ao orçamentista: a recepção das conversas está em construção.'
-
 interface Levantamento { id: string; codigo: string; quemPediu: string | null; quando: string; estado: string | null }
 interface Painel {
     conexao: { existe: boolean; conectado: boolean; conectadoEm: string | null }
@@ -69,56 +63,6 @@ function Conexao({ painel }: { painel: Painel }) {
     )
 }
 
-function ListaVazia({ painel }: { painel: Painel }) {
-    const passos = [
-        { feito: painel.conexao.existe, texto: painel.conexao.existe ? 'WhatsApp do orçamentista conectado em Conectividade' : 'Conectar o WhatsApp do orçamentista em Conectividade' },
-        { feito: painel.liberadas > 0, texto: painel.liberadas > 0 ? pessoas(painel.liberadas) : 'Liberar quem pode falar com ele, em Conectividade' },
-        { feito: false, texto: 'A recepção das conversas pelo WhatsApp — em construção' },
-    ]
-    return (
-        <div data-lista-vazia="" style={{ textAlign: 'center', padding: '32px 16px' }}>
-            <InboxOutlined style={{ fontSize: 40, color: 'var(--ant-color-text-quaternary, #bfbfbf)' }} />
-            <Typography.Title level={5} style={{ marginTop: 12 }}>Nenhum levantamento ainda</Typography.Title>
-            <Typography.Paragraph type="secondary" style={{ maxWidth: 560, margin: '0 auto 8px' }}>{TEXTO_DO_VAZIO_O_QUE_APARECE}</Typography.Paragraph>
-            <Typography.Paragraph style={{ maxWidth: 560, margin: '0 auto 16px' }}>{TEXTO_DO_VAZIO_O_QUE_FALTA}</Typography.Paragraph>
-            <ul style={{ listStyle: 'none', padding: 0, margin: '0 auto', maxWidth: 480, textAlign: 'left' }}>
-                {passos.map((p) => (
-                    <li key={p.texto} data-passo={p.feito ? 'feito' : 'pendente'} style={{ padding: '4px 0' }}>
-                        {p.feito ? <CheckCircleOutlined style={{ color: '#52c41a' }} /> : <ClockCircleOutlined style={{ color: '#faad14' }} />} {p.texto}
-                    </li>
-                ))}
-            </ul>
-        </div>
-    )
-}
-
-function Lista({ painel }: { painel: Painel }) {
-    if (painel.levantamentos.length === 0) return <ListaVazia painel={painel} />
-    return (
-        <div style={{ overflowX: 'auto' }}>
-            <table className="ant-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                    <tr>
-                        {['Código da conversa', 'Quem pediu', 'Quando', 'Estado'].map((t) => (
-                            <th key={t} style={{ textAlign: 'left', padding: '8px 12px', whiteSpace: 'nowrap' }}>{t}</th>
-                        ))}
-                    </tr>
-                </thead>
-                <tbody>
-                    {painel.levantamentos.map((l) => (
-                        <tr key={l.id} data-levantamento={l.id}>
-                            <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}><Typography.Text code>{l.codigo}</Typography.Text></td>
-                            <td style={{ padding: '8px 12px' }}>{l.quemPediu ?? TRAVESSAO}</td>
-                            <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>{quando(l.quando)}</td>
-                            <td style={{ padding: '8px 12px' }} data-estado-do-levantamento="">{l.estado ?? TRAVESSAO}</td>
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
-        </div>
-    )
-}
-
 function Orcamentista() {
     const [estado, setEstado] = useState<Estado>({ tipo: 'carregando' })
 
@@ -149,11 +93,8 @@ function Orcamentista() {
                 {estado.tipo === 'erro' && <Alert type="error" showIcon message={estado.mensagem} />}
                 {estado.tipo === 'pronto' && (
                     <div data-painel="">
-                        <Card size="small" style={{ marginBottom: 16 }}>
+                        <Card size="small">
                             <Conexao painel={estado.painel} />
-                        </Card>
-                        <Card title="Levantamentos" size="small">
-                            <Lista painel={estado.painel} />
                         </Card>
                     </div>
                 )}
