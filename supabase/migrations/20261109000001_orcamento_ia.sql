@@ -30,18 +30,25 @@
 --      único parcial).
 --   2. `orcamentista_orcamento_item` (o orçamento, a ordem, a ligação opcional ao item do levantamento de onde
 --      veio, e o que o item diz: tipologia, largura, altura, quantidade, cor do perfil, vidro, obs). A FK para
---      o item do levantamento é ON DELETE SET NULL: a conversa apaga o item que se fundiu no agrupamento
---      (`gravarLevantamento`), e o orçamento guarda a sua cópia — só perde o laço.
+--      o item do levantamento é COMPOSTA com o tenant — (levantamento_item_id, tenant_id) — e ON DELETE SET NULL
+--      (levantamento_item_id): a conversa apaga o item que se fundiu no agrupamento (`gravarLevantamento`), e o
+--      orçamento guarda a sua cópia — só perde o laço; o tenant_id do item do orçamento não é tocado.
+--   2a. ALTERA UMA TABELA QUE JÁ EXISTE: `orcamentista_levantamento_item` ganha
+--      `orcamentista_levantamento_item_id_tenant_key UNIQUE (id, tenant_id)`, a chave que a FK composta referencia.
+--      É única por construção (id já é a PK); medido em produção em 09/11/2026: 28 linhas, 13 constraints, das
+--      quais 2 chaves (pkey e ordem_key). Nenhuma linha muda. É o que fecha o isolamento: sem ela, um item de
+--      orçamento da empresa A poderia apontar o item de levantamento da empresa B (correção do dono do produto).
 --   3. RLS ligada e NENHUMA política; grants só ao service_role, como `orcamentista_levantamento` (medido em
 --      produção em 09/11/2026) — mas só SELECT, INSERT e UPDATE: nem DELETE nem TRUNCATE ("nada de delete").
 --      Quem lê e grava são as rotas do servidor, com o tenant do chamador.
 --
 -- IDEMPOTENTE: CREATE TABLE IF NOT EXISTS, CREATE INDEX IF NOT EXISTS; a verificação confere a forma.
 -- GUARDA (aborta): as dependências existem (tenants, orcamentista_levantamento com UNIQUE (id, tenant_id),
---   orcamentista_levantamento_item); uma tabela de mesmo nome que já exista sem a forma desta migração é
---   pega pela verificação.
+--   orcamentista_levantamento_item com tenant_id uuid NOT NULL); uma tabela de mesmo nome que já exista sem a
+--   forma desta migração é pega pela verificação.
 -- VERIFICAÇÃO (aborta): as colunas, as constraints e os índices com a definição; RLS ligada; nenhuma política;
---   nenhum grant a anon nem a authenticated.
+--   nenhum grant a anon nem a authenticated; e, na tabela que já existia, a UNIQUE (id, tenant_id) nova e as
+--   suas chaves (PK e UNIQUE) exatamente as três esperadas.
 -- ════════════════════════════════════════════════════════════════════════════════════════
 BEGIN;
 
@@ -56,8 +63,23 @@ BEGIN
                     AND conname = 'orcamentista_levantamento_id_tenant_key' AND pg_get_constraintdef(oid) = 'UNIQUE (id, tenant_id)') THEN
     RAISE EXCEPTION 'dependencia ausente: orcamentista_levantamento_id_tenant_key UNIQUE (id, tenant_id). Nada foi alterado.';
   END IF;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                  WHERE table_schema = 'public' AND table_name = 'orcamentista_levantamento_item' AND column_name = 'tenant_id'
+                    AND data_type = 'uuid' AND is_nullable = 'NO') THEN
+    RAISE EXCEPTION 'dependencia ausente: orcamentista_levantamento_item.tenant_id uuid NOT NULL. Nada foi alterado.';
+  END IF;
 END
 $guarda$;
+
+-- a chave que a FK composta do item do orcamento referencia; unica por construcao (id ja e a PK)
+DO $chave$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                  WHERE conrelid = to_regclass('public.orcamentista_levantamento_item') AND conname = 'orcamentista_levantamento_item_id_tenant_key') THEN
+    ALTER TABLE public.orcamentista_levantamento_item ADD CONSTRAINT orcamentista_levantamento_item_id_tenant_key UNIQUE (id, tenant_id);
+  END IF;
+END
+$chave$;
 
 CREATE TABLE IF NOT EXISTS public.orcamentista_orcamento (
   id                       uuid        NOT NULL DEFAULT gen_random_uuid(),
@@ -111,8 +133,8 @@ CREATE TABLE IF NOT EXISTS public.orcamentista_orcamento_item (
   CONSTRAINT orcamentista_orcamento_item_ordem_key UNIQUE (orcamento_id, ordem),
   CONSTRAINT orcamentista_orcamento_item_orcamento_fkey FOREIGN KEY (orcamento_id, tenant_id)
     REFERENCES public.orcamentista_orcamento(id, tenant_id) ON DELETE RESTRICT,
-  CONSTRAINT orcamentista_orcamento_item_levantamento_item_fkey FOREIGN KEY (levantamento_item_id)
-    REFERENCES public.orcamentista_levantamento_item(id) ON DELETE SET NULL,
+  CONSTRAINT orcamentista_orcamento_item_levantamento_item_fkey FOREIGN KEY (levantamento_item_id, tenant_id)
+    REFERENCES public.orcamentista_levantamento_item(id, tenant_id) ON DELETE SET NULL (levantamento_item_id),
   CONSTRAINT orcamentista_orcamento_item_ordem_positiva CHECK (ordem >= 1),
   CONSTRAINT orcamentista_orcamento_item_quantidade_positiva CHECK (quantidade >= 1),
   CONSTRAINT orcamentista_orcamento_item_largura_positiva CHECK ((largura_mm IS NULL) OR (largura_mm >= 1)),
@@ -158,7 +180,7 @@ DECLARE
     'orcamentista_orcamento_item|orcamentista_orcamento_item_pkey|PRIMARY KEY (id)',
     'orcamentista_orcamento_item|orcamentista_orcamento_item_ordem_key|UNIQUE (orcamento_id, ordem)',
     'orcamentista_orcamento_item|orcamentista_orcamento_item_orcamento_fkey|FOREIGN KEY (orcamento_id, tenant_id) REFERENCES orcamentista_orcamento(id, tenant_id) ON DELETE RESTRICT',
-    'orcamentista_orcamento_item|orcamentista_orcamento_item_levantamento_item_fkey|FOREIGN KEY (levantamento_item_id) REFERENCES orcamentista_levantamento_item(id) ON DELETE SET NULL',
+    'orcamentista_orcamento_item|orcamentista_orcamento_item_levantamento_item_fkey|FOREIGN KEY (levantamento_item_id, tenant_id) REFERENCES orcamentista_levantamento_item(id, tenant_id) ON DELETE SET NULL (levantamento_item_id)',
     'orcamentista_orcamento_item|orcamentista_orcamento_item_ordem_positiva|CHECK ((ordem >= 1))',
     'orcamentista_orcamento_item|orcamentista_orcamento_item_quantidade_positiva|CHECK ((quantidade >= 1))',
     'orcamentista_orcamento_item|orcamentista_orcamento_item_largura_positiva|CHECK (((largura_mm IS NULL) OR (largura_mm >= 1)))',
@@ -253,6 +275,16 @@ BEGIN
   IF faltam IS DISTINCT FROM 'INSERT,SELECT,UPDATE' THEN
     RAISE EXCEPTION 'verificacao 9: service_role em orcamentista_orcamento_item tem %, e devia ter INSERT,SELECT,UPDATE. Nada foi alterado.', faltam;
   END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                  WHERE conrelid = to_regclass('public.orcamentista_levantamento_item') AND conname = 'orcamentista_levantamento_item_id_tenant_key'
+                    AND pg_get_constraintdef(oid) = 'UNIQUE (id, tenant_id)') THEN
+    RAISE EXCEPTION 'verificacao 10: orcamentista_levantamento_item_id_tenant_key ausente ou com outra definicao. Nada foi alterado.';
+  END IF;
+  SELECT string_agg(conname || ' ' || pg_get_constraintdef(oid), '; ' ORDER BY conname) INTO faltam FROM pg_constraint
+   WHERE conrelid = to_regclass('public.orcamentista_levantamento_item') AND contype IN ('p', 'u');
+  IF faltam IS DISTINCT FROM 'orcamentista_levantamento_item_id_tenant_key UNIQUE (id, tenant_id); orcamentista_levantamento_item_ordem_key UNIQUE (levantamento_id, ordem); orcamentista_levantamento_item_pkey PRIMARY KEY (id)' THEN
+    RAISE EXCEPTION 'verificacao 11: as chaves de orcamentista_levantamento_item sao (%), e deviam ser a PK, a ordem_key e a id_tenant_key. Nada foi alterado.', faltam;
+  END IF;
   SELECT count(*) INTO n FROM public.orcamentista_orcamento;
   RAISE NOTICE 'orcamentista_orcamento e orcamentista_orcamento_item: 26 colunas, 23 constraints, 2 indices, RLS sem politica. Linhas no orcamento: %.', n;
 END
@@ -273,4 +305,7 @@ COMMIT;
 -- select grantee, table_name, privilege_type from information_schema.role_table_grants
 --  where table_name in ('orcamentista_orcamento', 'orcamentista_orcamento_item') order by 1, 2, 3;
 -- -- esperado: só postgres e service_role; service_role com SELECT, INSERT e UPDATE (sem DELETE nem TRUNCATE)
+-- select conname, pg_get_constraintdef(oid) from pg_constraint
+--  where conrelid = 'public.orcamentista_levantamento_item'::regclass and contype in ('p', 'u') order by 1;
+-- -- esperado: id_tenant_key UNIQUE (id, tenant_id), ordem_key UNIQUE (levantamento_id, ordem), pkey PRIMARY KEY (id); 14 constraints no total
 -- select count(*) from public.orcamentista_orcamento;  -- esperado: 0

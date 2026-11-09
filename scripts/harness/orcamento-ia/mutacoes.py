@@ -24,8 +24,8 @@ MUTACOES = [
         ("REFERENCES orcamentista_levantamento(id, tenant_id) ON DELETE RESTRICT", "REFERENCES orcamentista_levantamento(id, tenant_id) ON DELETE CASCADE")]),
     ('S4', 'apagar o orçamento arrasta os itens', [("REFERENCES public.orcamentista_orcamento(id, tenant_id) ON DELETE RESTRICT", "REFERENCES public.orcamentista_orcamento(id, tenant_id) ON DELETE CASCADE"),
         ("REFERENCES orcamentista_orcamento(id, tenant_id) ON DELETE RESTRICT", "REFERENCES orcamentista_orcamento(id, tenant_id) ON DELETE CASCADE")]),
-    ('S5', 'o item do levantamento apagado trava a conversa (RESTRICT no lugar de SET NULL)', [("REFERENCES public.orcamentista_levantamento_item(id) ON DELETE SET NULL", "REFERENCES public.orcamentista_levantamento_item(id) ON DELETE RESTRICT"),
-        ("REFERENCES orcamentista_levantamento_item(id) ON DELETE SET NULL", "REFERENCES orcamentista_levantamento_item(id) ON DELETE RESTRICT")]),
+    ('S5', 'o item do levantamento apagado trava a conversa (RESTRICT no lugar de SET NULL)', [("REFERENCES public.orcamentista_levantamento_item(id, tenant_id) ON DELETE SET NULL (levantamento_item_id),", "REFERENCES public.orcamentista_levantamento_item(id, tenant_id) ON DELETE RESTRICT,"),
+        ("REFERENCES orcamentista_levantamento_item(id, tenant_id) ON DELETE SET NULL (levantamento_item_id)'", "REFERENCES orcamentista_levantamento_item(id, tenant_id) ON DELETE RESTRICT'")]),
     ('S6', 'dois orçamentos do mesmo levantamento', [("CREATE UNIQUE INDEX IF NOT EXISTS orcamentista_orcamento_um_por_levantamento", "CREATE INDEX IF NOT EXISTS orcamentista_orcamento_um_por_levantamento"),
         ("'orcamentista_orcamento_um_por_levantamento|CREATE UNIQUE INDEX", "'orcamentista_orcamento_um_por_levantamento|CREATE INDEX")]),
     ('S7', 'o service_role ganha DELETE', [("GRANT SELECT, INSERT, UPDATE ON", "GRANT SELECT, INSERT, UPDATE, DELETE ON"),
@@ -43,6 +43,15 @@ MUTACOES = [
         ("CHECK (((editado_manualmente_em IS NULL) = (editado_manualmente_por IS NULL)))", "CHECK (((editado_manualmente_em IS NULL) OR true))")]),
     ('S15', 'o manual pode vir de levantamento', [("OR (origem = 'manual' AND levantamento_id IS NULL AND criado_por IS NOT NULL))", "OR (origem = 'manual' AND criado_por IS NOT NULL))"),
         ("OR ((origem = ''manual''::text) AND (levantamento_id IS NULL) AND (criado_por IS NOT NULL))))", "OR ((origem = ''manual''::text) AND (criado_por IS NOT NULL))))")]),
+    ('S16', 'a FK do item do levantamento volta a ser de coluna única (o furo de isolamento)', [
+        ("FOREIGN KEY (levantamento_item_id, tenant_id)\n    REFERENCES public.orcamentista_levantamento_item(id, tenant_id) ON DELETE SET NULL (levantamento_item_id),",
+         "FOREIGN KEY (levantamento_item_id)\n    REFERENCES public.orcamentista_levantamento_item(id) ON DELETE SET NULL,"),
+        ("FOREIGN KEY (levantamento_item_id, tenant_id) REFERENCES orcamentista_levantamento_item(id, tenant_id) ON DELETE SET NULL (levantamento_item_id)'",
+         "FOREIGN KEY (levantamento_item_id) REFERENCES orcamentista_levantamento_item(id) ON DELETE SET NULL'")]),
+    ('S17', 'o SET NULL sem a coluna (anularia também o tenant_id)', [("ON DELETE SET NULL (levantamento_item_id),", "ON DELETE SET NULL,"),
+        ("ON DELETE SET NULL (levantamento_item_id)'", "ON DELETE SET NULL'")]),
+    ('S18', 'a guarda não confere o tenant_id NOT NULL do item do levantamento', [("                    AND data_type = 'uuid' AND is_nullable = 'NO') THEN", "                    AND data_type = 'uuid') THEN")]),
+    ('S19', 'a verificação 11 aceita qualquer chave na tabela que já existia', [("  IF faltam IS DISTINCT FROM 'orcamentista_levantamento_item_id_tenant_key UNIQUE (id, tenant_id); orcamentista_levantamento_item_ordem_key", "  IF false AND faltam IS DISTINCT FROM 'orcamentista_levantamento_item_id_tenant_key UNIQUE (id, tenant_id); orcamentista_levantamento_item_ordem_key")]),
 ]
 
 

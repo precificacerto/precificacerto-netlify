@@ -73,6 +73,18 @@ delete from orcamentista_levantamento_item where id = '20000000-0000-4000-8000-0
 select case when (select count(*) from orcamentista_orcamento_item where orcamento_id = '30000000-0000-4000-8000-000000000001' and levantamento_item_id is null) = 1
   then 'NOTICE:  ok: caso 8: o item do levantamento apagado deixa o do orcamento sem o laco'
   else 'NOTICE:  FALHOU: caso 8: o item do orcamento nao ficou com o laco nulo' end;
+-- 8b. o SET NULL e so da coluna do laco: o tenant_id do item do orcamento fica o da empresa A
+select case when (select count(*) from orcamentista_orcamento_item where orcamento_id = '30000000-0000-4000-8000-000000000001'
+                   and levantamento_item_id is null and tenant_id = '00000000-0000-4000-8000-0000000000a1') = 1
+  then 'NOTICE:  ok: caso 8b: o SET NULL anula so o levantamento_item_id, e o tenant_id fica'
+  else 'NOTICE:  FALHOU: caso 8b: o tenant_id do item do orcamento mudou' end;
+-- 11. ISOLAMENTO: um item de orcamento da empresa A nao aponta o item de levantamento da empresa B (a FK composta com o tenant)
+select pg_temp.recusa($$insert into orcamentista_orcamento_item (tenant_id, orcamento_id, ordem, levantamento_item_id, quantidade)
+  values ('00000000-0000-4000-8000-0000000000a1', '30000000-0000-4000-8000-000000000001', 5, '20000000-0000-4000-8000-000000000009', 1)$$, '23503', 'caso 11: item de orcamento da empresa A apontando o item de levantamento da empresa B');
+-- 12. a chave nova na tabela que ja existia
+select case when (select pg_get_constraintdef(oid) from pg_constraint where conname = 'orcamentista_levantamento_item_id_tenant_key') = 'UNIQUE (id, tenant_id)'
+  then 'NOTICE:  ok: caso 12: orcamentista_levantamento_item ganhou a UNIQUE (id, tenant_id)'
+  else 'NOTICE:  FALHOU: caso 12: a UNIQUE (id, tenant_id) do item do levantamento' end;
 -- 9. documento de cliente não é arrastado: nem o levantamento nem a empresa levam o orçamento
 select pg_temp.recusa($$delete from orcamentista_levantamento where id = '10000000-0000-4000-8000-000000000001'$$, '23503', 'caso 9a: apagar o levantamento de um orcamento');
 select pg_temp.recusa($$delete from orcamentista_orcamento where id = '30000000-0000-4000-8000-000000000001'$$, '23503', 'caso 9b: apagar o orcamento com itens');

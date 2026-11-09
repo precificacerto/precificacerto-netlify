@@ -22,7 +22,8 @@ create table public.orcamentista_levantamento_item (
   tenant_id uuid not null,
   levantamento_id uuid not null references public.orcamentista_levantamento(id) on delete cascade,
   ordem integer not null,
-  constraint orcamentista_levantamento_item_pkey primary key (id)
+  constraint orcamentista_levantamento_item_pkey primary key (id),
+  constraint orcamentista_levantamento_item_ordem_key unique (levantamento_id, ordem)
 );
 insert into public.tenants (id) values ('00000000-0000-4000-8000-0000000000a1'), ('00000000-0000-4000-8000-0000000000b2');
 insert into public.orcamentista_levantamento (id, tenant_id, nome) values
@@ -31,4 +32,6 @@ insert into public.orcamentista_levantamento (id, tenant_id, nome) values
   ('10000000-0000-4000-8000-000000000003', '00000000-0000-4000-8000-0000000000b2', 'Outra conta');
 insert into public.orcamentista_levantamento_item (id, tenant_id, levantamento_id, ordem) values
   ('20000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-0000000000a1', '10000000-0000-4000-8000-000000000001', 1),
-  ('20000000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-0000000000a1', '10000000-0000-4000-8000-000000000001', 2);
+  ('20000000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-0000000000a1', '10000000-0000-4000-8000-000000000001', 2),
+  -- o item de levantamento da OUTRA empresa: o que um item de orcamento da empresa A nunca pode apontar
+  ('20000000-0000-4000-8000-000000000009', '00000000-0000-4000-8000-0000000000b2', '10000000-0000-4000-8000-000000000003', 1);
