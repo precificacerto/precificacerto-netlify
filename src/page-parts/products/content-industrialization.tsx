@@ -51,6 +51,8 @@ interface ContentIndustrializationProps {
   isBaseCode?: number | null
   ipiBaseCode?: number | null
   onFinalPriceWithTaxesChange?: (data: { finalPrice: number; basePrice: number; externalOpsCoefficient: number | null }) => void
+  /** Só no modo "orçamento": o preço deixou de se formar. Ver `ProductPrice`. */
+  onPrecoNaoFormado?: () => void
   advancedTaxesSection?: ReactNode
   /**
    * Alerta de carga horária não configurada. Quando presente, SUBSTITUI o card de
@@ -61,6 +63,11 @@ interface ContentIndustrializationProps {
   advancedTaxParams?: AdvancedTaxParams
   /** Frente 2: lista compacta dos itens renderizada SÓ no mobile (≤639). */
   mobileItemsList?: ReactNode
+  /**
+   * O modo "orçamento" (o 1b): os itens são as esquadrias do orçamento calculado e os minutos são os da fabricação delas — só leitura. Sem
+   * o campo de incluir item e com os minutos travados; mudar é no orçamento, e recalcular.
+   */
+  somenteLeitura?: boolean
 }
 export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
   itemsForm,
@@ -101,19 +108,22 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
   isBaseCode,
   ipiBaseCode,
   onFinalPriceWithTaxesChange,
+  onPrecoNaoFormado,
   advancedTaxesSection,
   workloadAlert,
   advancedTaxParams,
   mobileItemsList,
+  somenteLeitura = false,
 }: ContentIndustrializationProps) => {
   const { isMobile } = useDevice()
   return (
     <>
       <Card size="small" className="mt-5 mb-5">
         <div className="flex items-center justify-between">
-          <h1 className="text-2xl">Itens do produto</h1>
+          <h1 className="text-2xl">{somenteLeitura ? 'Itens do orçamento' : 'Itens do produto'}</h1>
         </div>
 
+        {!somenteLeitura && (
         <div className="flex flex-col column mb-5">
           {/* Relatório 30/07 (mobile #2): campo "Buscar item" e botão "Incluir" alinhados.
               Mobile (≤639) empilha em coluna (Select 100% + botão 100% maior, mesma largura).
@@ -159,6 +169,7 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
             </Button>
           </Form>
         </div>
+        )}
         {isMobile && mobileItemsList ? (
           mobileItemsList
         ) : (
@@ -186,6 +197,7 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
                   minLength={1}
                   onChange={handleChangePrecificationInputs}
                   value={productPriceInfo.productWorkloadInMinutes}
+                  readOnly={somenteLeitura}
                 />
               </div>
               <div style={{ flex: '1 1 50%', textAlign: 'right', whiteSpace: 'nowrap', fontWeight: 600 }}>
@@ -210,6 +222,7 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
                 minLength={1}
                 onChange={handleChangePrecificationInputs}
                 value={productPriceInfo.productWorkloadInMinutes}
+                readOnly={somenteLeitura}
               />
             </div>
             {/* Colunas Qtd. Total (14%) + Bruto (12%) — espaçadores para manter o alinhamento */}
@@ -257,6 +270,7 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
         isBaseCode={isBaseCode}
         ipiBaseCode={ipiBaseCode}
         onFinalPriceWithTaxesChange={onFinalPriceWithTaxesChange}
+        onPrecoNaoFormado={onPrecoNaoFormado}
         advancedTaxesSection={advancedTaxesSection}
         advancedTaxParams={advancedTaxParams}
         /* ITEM 1.5: produto PRODUZIDO (receita) — fraciona o preço de venda pela Quantidade

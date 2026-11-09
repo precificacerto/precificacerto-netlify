@@ -39,6 +39,10 @@ import { supabase } from '@/supabase/client'
 import { getTenantId, getCurrentUserId } from '@/utils/get-tenant-id'
 import { useDevice } from '@/contexts/device.context'
 import { ProductItemsMobileList } from './product-items-mobile-list.component'
+import {
+  CABECALHO_FIXO, entradaDoMotor, estadoDoCalculo, faltasDaPrecificacao, FRASE_DO_ESTADO, MODO_PRODUTO, reconciliacaoNaTela, rotuloDoItem,
+  type GravacaoDaPrecificacao, type ModoDaPrecificacao, type OrcamentoNaPrecificacao,
+} from '@/lib/atendimentos-ia/precificacao-do-orcamento'
 
 type ContentProps = {
   messageApi: MessageInstance
@@ -57,6 +61,16 @@ type ContentProps = {
     ncm_code?: string
     commission_table_id?: string | null
   } | null
+  /**
+   * O MODO "ORÇAMENTO" (o 1b, decisão 2 do dono do produto, 09/11/2026): a mesma precificação, com a entrada vinda do orçamento I.A.
+   * calculado — os itens são as esquadrias, o custo é o líquido dos materiais e os minutos são os da fabricação (a forma da D2). O cabeçalho
+   * é fixo e só leitura, e o salvar grava NO ORÇAMENTO, nunca em `products`. Ausente, a tela é a de Produtos, sem nenhuma diferença.
+   */
+  orcamento?: OrcamentoNaPrecificacao
+  /** Grava a precificação no orçamento; devolve as recusas nomeadas, ou `null` quando gravou. */
+  onSalvarOrcamento?: (g: GravacaoDaPrecificacao) => Promise<string[] | null>
+  /** Recalcula o orçamento (o cálculo do 1b) e relê; usado no aviso de cálculo incompleto. */
+  onRecalcularOrcamento?: () => Promise<void>
 }
 
 export type ProductPriceInfoType = {
@@ -165,10 +179,24 @@ export const Content: FC<ContentProps> = ({
   calcBase,
   currentUser,
   prefill,
+  orcamento,
+  onSalvarOrcamento,
+  onRecalcularOrcamento,
 }: ContentProps) => {
   const { isMobile } = useDevice()
+  // O modo decide SÓ a origem da entrada, o cabeçalho e o destino do salvar; o cálculo é o mesmo (`entradaDoMotor`).
+  const modo: ModoDaPrecificacao = useMemo(
+    () => (orcamento ? { tipo: 'orcamento', itens: orcamento.itens } : MODO_PRODUTO),
+    [orcamento],
+  )
+  const ehOrcamento = modo.tipo === 'orcamento'
   const [productItemsData, setProductItemsData] = useState<IItemProductModel[]>(
-    product?.items.map((item) => ({ ...item, key: item.id })) || []
+    orcamento
+      ? orcamento.itens.map((i) => ({
+        id: i.id, key: i.id, name: rotuloDoItem(i), quantity: i.quantidade, referenceQuantity: i.quantidade, unitType: 'UN',
+        price: i.custo_liquido_materiais ?? 0, referencePrice: i.custo_liquido_materiais ?? 0,
+      } as IItemProductModel))
+      : product?.items.map((item) => ({ ...item, key: item.id })) || []
   )
   const [items, setItems] = useState<IItemModel[]>(itemsFromApi || [])
 
@@ -217,14 +245,20 @@ export const Content: FC<ContentProps> = ({
   const isCalcTypeResale = currentUser?.calcType === CALC_TYPE_ENUM.RESALE
 
   const [productType, setProductType] = useState<'PRODUZIDO' | 'REVENDA'>(
-    (isCalcTypeService || isCalcTypeResale) ? 'REVENDA' : ((product as any)?.productType || 'PRODUZIDO')
+    // o orçamento é PRODUZIDO por decisão (o cabeçalho fixo): a esquadria é fabricada, e a mão de obra dela entra no custo
+    orcamento ? 'PRODUZIDO' : (isCalcTypeService || isCalcTypeResale) ? 'REVENDA' : ((product as any)?.productType || 'PRODUZIDO')
   )
   const [baseItemId, setBaseItemId] = useState<string | null>(
     (product as any)?.baseItemId || null
   )
-  const [saleScope, setSaleScope] = useState<'INTRAESTADUAL' | 'INTERESTADUAL'>('INTRAESTADUAL')
-  const [buyerType, setBuyerType] = useState<'CONSUMIDOR_FINAL' | 'CONTRIBUINTE_PJ'>('CONSUMIDOR_FINAL')
-  const [destinationState, setDestinationState] = useState<string | null>(null)
+  // No orçamento o contexto da venda é o GRAVADO nele (a `20261109000004`), e nulo é "não informado" — falta nomeada, nunca o default.
+  const [saleScope, setSaleScope] = useState<'INTRAESTADUAL' | 'INTERESTADUAL'>(orcamento ? orcamento.sale_scope : 'INTRAESTADUAL')
+  const [buyerType, setBuyerType] = useState<'CONSUMIDOR_FINAL' | 'CONTRIBUINTE_PJ'>(orcamento ? orcamento.buyer_type : 'CONSUMIDOR_FINAL')
+  const [destinationState, setDestinationState] = useState<string | null>(orcamento ? orcamento.uf_destino : null)
+  // No orçamento, a alíquota de PIS/COFINS vem do NCM: `null` = o regime não a apura pelo NCM; false = a tabela não a trouxe (falta).
+  const [aliquotaDoNcm, setAliquotaDoNcm] = useState<boolean | null>(null)
+  const [salvandoOrcamento, setSalvandoOrcamento] = useState(false)
+  const [recusasDoOrcamento, setRecusasDoOrcamento] = useState<string[]>([])
   const [customTaxPercent, setCustomTaxPercent] = useState<number | null>(
     (product as any)?.custom_tax_percent != null ? Number((product as any).custom_tax_percent) : null
   )
@@ -282,8 +316,11 @@ export const Content: FC<ContentProps> = ({
           if (stateData?.icms_internal_rate != null) {
             const autoIcmsPct = Number(stateData.icms_internal_rate) * 100
             setIcmsPct(autoIcmsPct)
-            const pisCofinsBase = isLucroPresumidoProdOnly ? 3.65 : 9.25
-            setPisCofinsLRPct(parseFloat((pisCofinsBase * (1 - autoIcmsPct / 100)).toFixed(4)))
+            // No orçamento o PIS/COFINS vem SÓ do NCM (decisão 1): a fórmula daqui o preencheria sem NCM nenhum.
+            if (!orcamento) {
+              const pisCofinsBase = isLucroPresumidoProdOnly ? 3.65 : 9.25
+              setPisCofinsLRPct(parseFloat((pisCofinsBase * (1 - autoIcmsPct / 100)).toFixed(4)))
+            }
           }
         }
       }
@@ -527,6 +564,9 @@ export const Content: FC<ContentProps> = ({
     [],
   )
 
+  // No orçamento, o preço que deixou de se formar ZERA o último emitido: gravar o preço de antes da mudança seria número errado em dinheiro.
+  const zerarPrecoNaoFormado = useCallback(() => { finalPriceWithTaxesRef.current = 0 }, [])
+
   const searchNcmByName = useCallback(async (name: string) => {
     if (name.length < 2) { setNcmSuggestions([]); return }
     setNcmSugLoading(true)
@@ -549,15 +589,15 @@ export const Content: FC<ContentProps> = ({
     nameDebounceRef.current = setTimeout(() => searchNcmByName(name), 280)
   }, [productForm, searchNcmByName])
 
-  const fetchNcmRatesForLR = useCallback(async (code: string) => {
-    if (!isLRorLP || !code) return
+  const fetchNcmRatesForLR = useCallback(async (code: string): Promise<number | null | undefined> => {
+    if (!isLRorLP || !code) return undefined
     // LP usa PIS/COFINS cumulativo e NÃO consulta o NCM: responde sem ir ao banco.
     if (isLucroPresumidoProdOnly) {
       const pct = resolvePisCofinsPctFromNcm({
         isLucroReal: false, isLucroPresumido: true, icmsPct, ncmRow: null,
       })
       if (pct != null) setPisCofinsLRPct(pct)
-      return
+      return pct
     }
     // LR: busca as alíquotas não-cumulativas pela NCM. A CONTA vive em `ncm-pis-cofins.ts`,
     // exportada para que o efeito seja afirmável por teste — aqui fica só a ida ao banco.
@@ -571,7 +611,8 @@ export const Content: FC<ContentProps> = ({
         isLucroReal: true, isLucroPresumido: false, icmsPct, ncmRow: data ?? null,
       })
       if (pct != null) setPisCofinsLRPct(pct)
-    } catch { /* silent */ }
+      return pct
+    } catch { return null }
   }, [isLRorLP, isLucroPresumidoProdOnly, icmsPct])
 
   const handleSelectNcmSuggestion = useCallback((code: string) => {
@@ -762,10 +803,37 @@ export const Content: FC<ContentProps> = ({
         ...PRODUCT_PRICE_INFO_BASE,
         taxableRegimePercent: taxRegimeValue,
         taxableRegimePercentByProduct: taxRegimeValue,
+        // No orçamento, os percentuais com que ele chegou (congelados do levantamento, no do agente). Nulo entra como 0 e é editável na
+        // tabela de preço, como em Produtos; o que for usado é gravado junto com o preço.
+        ...(orcamento ? {
+          salesCommissionPercent: orcamento.comissao_percentual ?? 0,
+          rtReservePercent: orcamento.reserva_tecnica_percentual ?? 0,
+          productProfitPercent: orcamento.lucro_projetado_percentual ?? 0,
+          // os minutos são os da fabricação dos itens, e só leitura: é o que a mão de obra exibe e o que o bloqueio de carga horária lê
+          productWorkloadInMinutes: entradaDoMotor(modo, { itemsPriceSum: 0, workloadMinutes: 0 }).productWorkloadMinutes,
+        } : {}),
       })
       setUpdatedProductPriceInfoWithApi((prev) => prev + 1)
     }
-  }, [isEditingMode, currentUser, calcBase])
+  }, [isEditingMode, currentUser, calcBase, orcamento, modo])
+
+  // O cabeçalho do orçamento no formulário: código = o número, nome = o cliente, unidade UN, quantidade 1, e o NCM gravado nele.
+  useEffect(() => {
+    if (!orcamento) return
+    productForm.setFieldsValue({
+      code: String(orcamento.numero), name: orcamento.nome, unitType: CABECALHO_FIXO.unidade, quantity: 1, ncm_code: orcamento.ncm_code ?? '',
+    })
+  }, [orcamento, productForm])
+
+  // A alíquota de PIS/COFINS do orçamento sai do NCM, pelo MESMO caminho da tela de Produtos (`fetchNcmRatesForLR`).
+  const resolverNcmDoOrcamento = useCallback(async (code: string | null | undefined) => {
+    if (!orcamento) return
+    const ncm = (code ?? '').trim()
+    if (!/^[0-9]{4}\.[0-9]{2}\.[0-9]{2}$/.test(ncm)) { setAliquotaDoNcm(null); return }
+    const pct = await fetchNcmRatesForLR(ncm)
+    setAliquotaDoNcm(pct === undefined ? null : pct !== null)
+  }, [orcamento, fetchNcmRatesForLR])
+  useEffect(() => { void resolverNcmDoOrcamento(orcamento?.ncm_code) }, [orcamento?.ncm_code, resolverNcmDoOrcamento])
 
   useEffect(() => {
     if (!isEditingMode && prefill) {
@@ -944,9 +1012,14 @@ export const Content: FC<ContentProps> = ({
         : currentUser.calcType === CALC_TYPE_ENUM.RESALE ? 'REVENDA'
         : 'SERVICO'
 
+    // A ENTRADA DO MOTOR é o único ponto do cálculo em que os dois modos divergem (`entradaDoMotor`): no produto, a soma dos itens e os
+    // minutos digitados, como sempre; no orçamento, o líquido dos materiais e os minutos da fabricação dos itens (a forma da D2).
+    const entrada = entradaDoMotor(modo, {
+      itemsPriceSum, workloadMinutes: productPriceInfo.productWorkloadInMinutes || 0,
+    })
     const engineResult = calculatePricing({
       calcType: effectiveCalcType,
-      totalItemsCost: itemsPriceSum,
+      totalItemsCost: entrada.totalItemsCost,
       yieldQuantity: 1,
       // 11/10/2026: era `effectiveCalcType === 'REVENDA' ? 0 : calcBase.laborCostMonthly`,
       // inline. Extraído para `custoMensalDeMaoDeObraDoProduto` para que um caso possa
@@ -960,7 +1033,7 @@ export const Content: FC<ContentProps> = ({
       }),
       numProductiveEmployees: totalEmployees,
       monthlyWorkloadMinutes,
-      productWorkloadMinutes: effectiveCalcType === 'REVENDA' ? 0 : (productPriceInfo.productWorkloadInMinutes || 0),
+      productWorkloadMinutes: effectiveCalcType === 'REVENDA' ? 0 : entrada.productWorkloadMinutes,
       structurePct: structurePctForEngine,
       taxPct: taxPctDecimal,
       commissionPct: productPriceInfo.salesCommissionPercent / 100,
@@ -1039,6 +1112,7 @@ export const Content: FC<ContentProps> = ({
     productForm,
     customTaxPercent,
     additionalIrpjPercent,
+    modo,
   ])
 
   useEffect(() => {
@@ -1145,7 +1219,49 @@ export const Content: FC<ContentProps> = ({
     }
   }
 
+  // ── O SALVAR DO ORÇAMENTO: grava NO ORÇAMENTO (a rota da precificação), nunca em `products`, e só sem falta nomeada ──────────────
+  const fiscalDaTela = () => ({
+    ncm_code: ((productForm.getFieldValue('ncm_code') as string | undefined) ?? '').trim() || null,
+    sale_scope: saleScope ?? null,
+    buyer_type: buyerType ?? null,
+    uf_destino: saleScope === 'INTERESTADUAL' ? (destinationState ?? null) : (destinationState || null),
+  })
+  // No Lucro Real e no Presumido o PIS/COFINS sai do NCM: enquanto ele não foi resolvido, é FALTA (nunca o 0 inicial); nos outros regimes
+  // o NCM não decide a alíquota.
+  const aliquotaExigida = (): boolean | null => (isLRorLP ? aliquotaDoNcm === true : null)
+  const faltasDoOrcamento = orcamento
+    ? faltasDaPrecificacao({ orcamento, fiscal: fiscalDaTela(), aliquotaDoNcm: aliquotaExigida(), custoDoMotor: Number(productPriceInfo?.productCost) || 0 })
+    : []
+  const salvarOrcamento = async () => {
+    if (!orcamento || !onSalvarOrcamento || salvandoOrcamento) return
+    if (isWorkloadBlocking) {
+      setRecusasDoOrcamento(['a carga horária da equipe produtiva (Configurações → Equipe): sem ela o valor do minuto não existe'])
+      return
+    }
+    doProductCalc()
+    const faltas = faltasDaPrecificacao({ orcamento, fiscal: fiscalDaTela(), aliquotaDoNcm: aliquotaExigida(), custoDoMotor: Number(productPriceInfo.productCost) || 0 })
+    const valorDeVenda = finalPriceWithTaxesRef.current
+    if (!(valorDeVenda > 0)) faltas.push('o preço formado: a precificação não saiu (confira os percentuais e a margem)')
+    if (faltas.length) { setRecusasDoOrcamento(faltas); return }
+    setSalvandoOrcamento(true)
+    try {
+      const recusas = await onSalvarOrcamento({
+        ...fiscalDaTela(),
+        valor_venda: valorDeVenda,
+        comissao_percentual: Number(productPriceInfo.salesCommissionPercent) || 0,
+        reserva_tecnica_percentual: Number(productPriceInfo.rtReservePercent) || 0,
+        lucro_projetado_percentual: Number(productPriceInfo.productProfitPercent) || 0,
+      })
+      setRecusasDoOrcamento(recusas ?? [])
+      if (!recusas) messageApi.success('Precificação do orçamento salva.')
+    } finally {
+      setSalvandoOrcamento(false)
+    }
+  }
+
   const handleSaveProduct = async () => {
+    // O modo orçamento NUNCA chega ao caminho de `products` abaixo.
+    if (orcamento) return salvarOrcamento()
     // Guard anti double-submit (BUG-PRODUCT-ITEMS-DUP): saves concorrentes duplicavam os
     // product_items (dobrando o CMV). Reforçado por upsert + UNIQUE(product_id,item_id).
     if (savingProduct) return
@@ -1829,6 +1945,54 @@ export const Content: FC<ContentProps> = ({
     },
   ]
 
+  // No orçamento, os itens são as esquadrias calculadas, SÓ LEITURA: mudar um item é no orçamento, e recalcular.
+  const dinheiroOuTraco = (v: number | null | undefined) => (v == null ? '—' : `R$ ${getMonetaryValue(v)}`)
+  const itemDoOrcamento = (id: string) => orcamento?.itens.find((i) => i.id === id)
+  const colunasDoOrcamento: ColumnsType<IItemProductModel> = [
+    { title: 'Esquadria', dataIndex: 'name', key: 'name' },
+    { title: 'Quantidade', dataIndex: 'quantity', key: 'quantity', align: 'right' },
+    { title: 'Bruto', key: 'bruto', align: 'right', render: (_, r) => dinheiroOuTraco(itemDoOrcamento(String(r.id))?.custo_bruto_materiais) },
+    { title: 'Líquido', key: 'liquido', align: 'right', render: (_, r) => dinheiroOuTraco(itemDoOrcamento(String(r.id))?.custo_liquido_materiais) },
+    {
+      title: 'Fabricação', key: 'fabricacao', align: 'right', render: (_, r) => {
+        const i = itemDoOrcamento(String(r.id))
+        return i?.tempo_fabricacao_min == null ? '—' : `${i.tempo_fabricacao_min.toLocaleString('pt-BR')} min · ${dinheiroOuTraco(i.custo_fabricacao)}`
+      },
+    },
+    { title: 'Total', key: 'total', align: 'right', render: (_, r) => dinheiroOuTraco(itemDoOrcamento(String(r.id))?.custo_liquido_total) },
+  ]
+  const estadoDoOrcamento = orcamento ? estadoDoCalculo(orcamento) : null
+  const reconciliacao = orcamento && estadoDoOrcamento === 'completo'
+    ? reconciliacaoNaTela(orcamento.itens, Number(productPriceInfo?.productCost) || 0)
+    : null
+  const avisosDoOrcamento = orcamento ? (
+    <div data-avisos-do-orcamento="" style={{ marginTop: 16 }}>
+      {estadoDoOrcamento !== 'completo' && (
+        <Alert type="warning" showIcon data-estado-do-calculo={estadoDoOrcamento}
+          message={FRASE_DO_ESTADO[estadoDoOrcamento as Exclude<typeof estadoDoOrcamento, 'completo'>]}
+          action={onRecalcularOrcamento && estadoDoOrcamento !== 'sem_itens'
+            ? <Button size="small" onClick={() => { void onRecalcularOrcamento() }}>Recalcular</Button> : undefined} />
+      )}
+      {reconciliacao && (
+        <div data-reconciliacao={reconciliacao.fecha ? 'fecha' : 'nao-fecha'} style={{ fontSize: 12, color: '#64748b', marginTop: 8 }}>
+          Soma das linhas do orçamento (líquido + fabricação): <strong>R$ {getMonetaryValue(reconciliacao.somaDasLinhas)}</strong>
+          {' · '}custo do produto na precificação: <strong>R$ {getMonetaryValue(reconciliacao.custoDoMotor)}</strong>
+          {reconciliacao.fecha ? ' — fecham.' : ' — NÃO fecham.'}
+        </div>
+      )}
+      {faltasDoOrcamento.length > 0 && (
+        <Alert type="error" showIcon style={{ marginTop: 8 }} data-faltas-do-orcamento=""
+          message="O preço do orçamento não pode ser gravado. Falta:"
+          description={<ul style={{ margin: 0, paddingLeft: 18 }}>{faltasDoOrcamento.map((f) => <li key={f}>{f}</li>)}</ul>} />
+      )}
+      {recusasDoOrcamento.length > 0 && (
+        <Alert type="error" showIcon style={{ marginTop: 8 }} data-recusas-do-orcamento=""
+          message="O orçamento não foi salvo."
+          description={<ul style={{ margin: 0, paddingLeft: 18 }}>{recusasDoOrcamento.map((f) => <li key={f}>{f}</li>)}</ul>} />
+      )}
+    </div>
+  ) : null
+
   // Frente 2 (mobile): lista compacta + Drawer dos itens, reusando os MESMOS handlers
   // das columns. Passada aos 3 subcomponentes; cada um a usa só quando isMobile (≤639).
   const productItemsMobileList = (
@@ -1973,7 +2137,7 @@ export const Content: FC<ContentProps> = ({
       <header className="flex justify-between mb-4">
         <div>
           <h1 className={isMobile ? 'text-xl' : 'text-3xl'}>
-            {product ? PAGE_TITLES.EDIT_PRODUCT : PAGE_TITLES.NEW_PRODUCT}
+            {orcamento ? `Precificação do orçamento ${orcamento.numero}` : product ? PAGE_TITLES.EDIT_PRODUCT : PAGE_TITLES.NEW_PRODUCT}
           </h1>
           {isMobile && (
             <p style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>
@@ -1989,7 +2153,12 @@ export const Content: FC<ContentProps> = ({
           TIPO DO PRODUTO: Produzido (receita) ou Revenda
           ══════════════════════════════════════════════════════ */}
       <Card size="small" style={{ marginBottom: 16 }}>
-        {isRevendaFromDb ? (
+        {orcamento ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }} data-tipo-do-orcamento="">
+            <strong style={{ fontSize: 14 }}>Tipo do produto:</strong>
+            <span>🛠️ {CABECALHO_FIXO.tipo}</span>
+          </div>
+        ) : isRevendaFromDb ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <strong style={{ fontSize: 14 }}>Tipo do produto:</strong>
             <span style={{
@@ -2050,6 +2219,18 @@ export const Content: FC<ContentProps> = ({
           sumir do `values` do save SEM erro nenhum — é o que o teste
           `o-ncm-mora-no-bloco-fiscal.test.ts` trava. */}
       <Form form={productForm} layout="vertical">
+      {orcamento ? (
+        <Card size="small" data-cabecalho-do-orcamento="">
+          {/* O CABEÇALHO DO ORÇAMENTO (decisão 1): código = o número, nome = o cliente; tipo, unidade e seção fixos e só leitura. */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16 }}>
+            <Form.Item name="code" label="Código"><Input disabled aria-label="Código" /></Form.Item>
+            <Form.Item name="name" label="Cliente"><Input disabled aria-label="Cliente" /></Form.Item>
+            <Form.Item label="Seção"><Input disabled value={CABECALHO_FIXO.secao} aria-label="Seção" /></Form.Item>
+            <Form.Item name="unitType" label="Unidade de Medida"><Input disabled aria-label="Unidade de Medida" /></Form.Item>
+            <Form.Item name="quantity" hidden><Input /></Form.Item>
+          </div>
+        </Card>
+      ) : (
       <Card size="small">
           <Form.Item name="id" label="Id" hidden>
             <Input />
@@ -2270,6 +2451,7 @@ export const Content: FC<ContentProps> = ({
           </Modal>
 
       </Card>
+      )}
 
       {/* ══════════════════════════════════════════════════════
           FISCAL — o que a NOTA exige do produto
@@ -2302,8 +2484,11 @@ export const Content: FC<ContentProps> = ({
               onSearch={handleNcmSearch}
               onSelect={(value: string) => {
                 productForm.setFieldsValue({ ncm_code: value })
-                fetchNcmRatesForLR(value)
+                // no orçamento a mesma busca, e o resultado decide se a alíquota é falta
+                if (orcamento) void resolverNcmDoOrcamento(value)
+                else fetchNcmRatesForLR(value)
               }}
+              onChange={orcamento ? (value: string) => { void resolverNcmDoOrcamento(value) } : undefined}
               placeholder="Digite o NCM ou pesquise (ex: bolo, 1905...)"
               notFoundContent={ncmFieldSearching ? <Spin size="small" /> : null}
               allowClear
@@ -2381,7 +2566,9 @@ export const Content: FC<ContentProps> = ({
             </label>
             <Select
               value={saleScope}
-              onChange={(val) => setSaleScope(val)}
+              onChange={(val) => { setSaleScope(val); if (orcamento && val !== 'INTERESTADUAL') setDestinationState(null) }}
+              placeholder="Não informado"
+              aria-label="Onde vende?"
               style={{ width: '100%' }}
             >
               <Select.Option value="INTRAESTADUAL">🏠 Dentro do estado</Select.Option>
@@ -2399,6 +2586,8 @@ export const Content: FC<ContentProps> = ({
             <Select
               value={buyerType}
               onChange={(val) => setBuyerType(val)}
+              placeholder="Não informado"
+              aria-label="Tipo de comprador"
               style={{ width: '100%' }}
             >
               <Select.Option value="CONSUMIDOR_FINAL">👤 Consumidor final</Select.Option>
@@ -2462,13 +2651,16 @@ export const Content: FC<ContentProps> = ({
       </Card>
       </Form>
 
+      {avisosDoOrcamento}
       {productType === 'PRODUZIDO' && (
         <ContentIndustrialization
           itemsForm={itemsForm}
           handleClickAddItem={handleClickAddItem}
           filterOption={filterOption}
           items={itemsForSelection}
-          columns={columns}
+          columns={ehOrcamento ? colunasDoOrcamento : columns}
+          somenteLeitura={ehOrcamento}
+          onPrecoNaoFormado={ehOrcamento ? zerarPrecoNaoFormado : undefined}
           productItemsData={productItemsData}
           handleChangePrecificationInputs={handleChangePrecificationInputs}
           productPriceInfo={productPriceInfo}
@@ -2504,7 +2696,7 @@ export const Content: FC<ContentProps> = ({
           onFinalPriceWithTaxesChange={handleFinalPriceWithTaxes}
           advancedTaxesSection={advancedTaxesSection}
           advancedTaxParams={advancedTaxParams}
-          mobileItemsList={productItemsMobileList}
+          mobileItemsList={ehOrcamento ? undefined : productItemsMobileList}
           workloadAlert={workloadAlert}
         />
       )}
@@ -2629,8 +2821,8 @@ export const Content: FC<ContentProps> = ({
       )}
 
       <footer className="flex flex-row-reverse mt-5 mr-4">
-        <Button onClick={handleSaveProduct} type="primary" className="ml-2" loading={savingProduct}>
-          {product ? 'Salvar alterações' : 'Salvar'}
+        <Button onClick={handleSaveProduct} type="primary" className="ml-2" loading={orcamento ? salvandoOrcamento : savingProduct}>
+          {orcamento ? 'Salvar precificação do orçamento' : product ? 'Salvar alterações' : 'Salvar'}
         </Button>
         <Button onClick={goBack}>Cancelar</Button>
       </footer>

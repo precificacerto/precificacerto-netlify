@@ -88,6 +88,14 @@ export type ItemDaTabela = {
     medida_barra_m: number | null
     valor_barra_interno: number | null
     valor_metro_interno: number | null
+    /** A unidade e o bloco tributário: o cálculo das barras não os lê; o custo do orçamento I.A. por item, sim. Ausente é nulo. */
+    unidade?: string | null
+    cred_icms_pct?: number | null
+    cred_pis_cofins_pct?: number | null
+    cred_ipi_pct?: number | null
+    nc_ipi_pct?: number | null
+    cred_ibs_pct?: number | null
+    cred_cbs_pct?: number | null
 }
 export type EntradaDoLevantamento = {
     /** A cor do perfil, comparada EXATA com a coluna `cor` do motor. Obrigatória: sem default. */

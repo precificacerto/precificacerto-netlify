@@ -1410,3 +1410,116 @@ describe('(R) a frase curta da falta: o nome e o que falta, e a mesma falta uma 
         expect(A.fraseDoVidroSemBaguete(4, [8, 5])).toBe('O vidro de 4 mm não é aceito nesta tipologia; as espessuras disponíveis são 5 e 8 mm.')
     })
 })
+
+describe('(ORC) o custo do orçamento I.A. pelo CAMINHO COMPLETO, e a reconciliação da D2 sobre ele (dono do produto, 09/11/2026)', () => {
+    /* eslint-disable @typescript-eslint/no-require-imports */
+    const S = () => require('@/lib/atendimentos-ia/custo-do-orcamento-servidor') as typeof import('@/lib/atendimentos-ia/custo-do-orcamento-servidor')
+    const C = () => require('@/lib/atendimentos-ia/custo-do-orcamento') as typeof import('@/lib/atendimentos-ia/custo-do-orcamento')
+    const PE = () => require('@/utils/pricing-engine') as typeof import('@/utils/pricing-engine')
+    /* eslint-enable @typescript-eslint/no-require-imports */
+    const ESCOLHAS = { ARI: 4, ARE: 1, MAE: 2 }
+    const duas = () => ({ nome: 'Casa do João', itens: [{ ...ESQUADRIA, escolhas: ESCOLHAS }, { ...ESQUADRIA, ordem: 2, largura_mm: 800, altura_mm: 600, quantidade: 2, escolhas: ESCOLHAS }] })
+    const reais = (t: string, rotulo: string) => Number((t.split('\n').find((l) => l.startsWith(rotulo)) ?? '').replace(/^.*R\$ /, '').replace(/\.$/, '').replace(/\./g, '').replace(',', '.'))
+    const custoOk = async (l: { nome: string; itens: (typeof ESQUADRIA)[] }) => {
+        const r = await S().custoDoLevantamento(TENANT, await M().lerFamiliasDaEmpresa(TENANT), l)
+        if ('recusas' in r) throw new Error('recusou: ' + r.recusas.join(' | '))
+        return r
+    }
+    /** A precificação final pelo motor da tela: o custo líquido dos materiais e os minutos somados (D2), e a mão de obra da empresa. */
+    const doMotor = (r: Awaited<ReturnType<typeof custoOk>>) => {
+        const e = C().entradaDaPrecificacao(r.itens)
+        return PE().calculatePricing({
+            calcType: 'INDUSTRIALIZACAO', totalItemsCost: e.totalItemsCost, yieldQuantity: 1,
+            laborCostMonthly: r.maoDeObra.custoMensal, numProductiveEmployees: 5, monthlyWorkloadMinutes: r.maoDeObra.minutosDaEmpresa,
+            productWorkloadMinutes: e.productWorkloadMinutes, structurePct: 0.2, taxPct: 0.1, commissionPct: 0.05, profitPct: 0.1,
+        })
+    }
+
+    it('uma esquadria: o bruto do item é o "perfis por barra inteira" da conversa, e a fabricação é a mão de obra dela', async () => {
+        const l = lev({ escolhas: ESCOLHAS })
+        const r = await custoOk(l)
+        expect(r.itens).toHaveLength(1)
+        expect(r.itens[0].custo_bruto_materiais).toBeCloseTo(1342.09, 2)
+        expect(r.itens[0].custo_fabricacao).toBeCloseTo(150 * (40813.03 / 158400), 10)
+        expect(Math.abs(r.itens[0].custo_fabricacao - 38.65)).toBeLessThanOrEqual(0.005)
+        expect(r.maoDeObra).toEqual({ custoMensal: 40813.03, minutosDaEmpresa: 158400, valorDoMinuto: 40813.03 / 158400 })
+    })
+
+    it('duas esquadrias: a soma dos brutos é o "perfis por barra inteira" que a CONVERSA dá ao mesmo levantamento — o mesmo cálculo', async () => {
+        const l = duas()
+        const r = await custoOk(l)
+        const m = await M().mensagemDoLevantamento(TENANT, await M().lerFamiliasDaEmpresa(TENANT), l)
+        expect(m.desfecho).toBe('levantou')
+        const soma = r.itens.reduce((t, i) => t + i.custo_bruto_materiais, 0)
+        expect(soma).toBeCloseTo(reais(m.texto, 'Perfis por barra inteira'), 2)
+        // a quantidade do item 2 (2 unidades) está no tempo dele, e o rateio dá mais ao item que consome mais
+        expect(r.itens[1].tempo_fabricacao_min).toBe(300)
+        expect(r.itens.every((i) => i.custo_bruto_materiais > 0)).toBe(true)
+    })
+
+    it('com o bloco da tabela de hoje (nenhum crédito, o par do IPI desconhecido): o líquido é o bruto, e toda linha nomeia os três', async () => {
+        const r = await custoOk(lev({ escolhas: ESCOLHAS }))
+        expect(r.itens[0].custo_liquido_materiais).toBeCloseTo(r.itens[0].custo_bruto_materiais, 9)
+        expect(r.itens[0].materiais.every((x) => x.credito_nao_apurado === 'faltou no bloco tributario: cred_icms_pct, cred_pis_cofins_pct, o par do IPI (cred_ipi_pct ou nc_ipi_pct)')).toBe(true)
+    })
+
+    it('com o bloco preenchido (12 + 9,25, IPI creditável 0, IBS e CBS nulos): a cascata cheia, 20,14% sobre o bruto', async () => {
+        for (const i of banco.db.orcamentista_tabela_item) Object.assign(i, { cred_icms_pct: 12, cred_pis_cofins_pct: 9.25, cred_ipi_pct: 0, nc_ipi_pct: null, cred_ibs_pct: null, cred_cbs_pct: null })
+        const r = await custoOk(lev({ escolhas: ESCOLHAS }))
+        expect(r.itens[0].custo_liquido_materiais).toBeCloseTo(r.itens[0].custo_bruto_materiais * (1 - 0.2014), 6)
+        expect(r.itens[0].materiais.every((x) => x.credito_nao_apurado === null)).toBe(true)
+    })
+
+    it.each([
+        ['uma esquadria, sem crédito', () => lev({ escolhas: ESCOLHAS }), false],
+        ['duas esquadrias, sem crédito', duas, false],
+        ['duas esquadrias, com a cascata cheia', duas, true],
+    ])('RECONCILIAÇÃO (%s): soma(líquido + fabricação) == custo + mão de obra da precificação final, ao centavo', async (_, l, comBloco) => {
+        if (comBloco) for (const i of banco.db.orcamentista_tabela_item) Object.assign(i, { cred_icms_pct: 12, cred_pis_cofins_pct: 9.25, cred_ipi_pct: 0, nc_ipi_pct: null })
+        const r = await custoOk(l())
+        const motor = doMotor(r)
+        expect(motor.isValid).toBe(true)
+        // o motor arredonda o custo e a mão de obra ao centavo (pricing-engine.ts:547-556); a soma das linhas, não
+        expect(Math.abs(motor.cmvUnit - C().somaDosItens(r.itens))).toBeLessThanOrEqual(0.01)
+        expect(Math.abs(motor.productiveLaborCost - r.itens.reduce((t, i) => t + i.custo_fabricacao, 0))).toBeLessThanOrEqual(0.005)
+    })
+
+    it('CONTRASTE do caminho completo: a fabricação somada no custo quebra a reconciliação pela fabricação inteira', async () => {
+        const r = await custoOk(duas())
+        const errado = PE().calculatePricing({
+            calcType: 'INDUSTRIALIZACAO', totalItemsCost: C().somaDosItens(r.itens), yieldQuantity: 1,
+            laborCostMonthly: r.maoDeObra.custoMensal, numProductiveEmployees: 5, monthlyWorkloadMinutes: r.maoDeObra.minutosDaEmpresa,
+            productWorkloadMinutes: C().entradaDaPrecificacao(r.itens).productWorkloadMinutes, structurePct: 0.2, taxPct: 0.1, commissionPct: 0.05, profitPct: 0.1,
+        })
+        const fabricacao = r.itens.reduce((t, i) => t + i.custo_fabricacao, 0)
+        expect(errado.cmvUnit - C().somaDosItens(r.itens)).toBeCloseTo(fabricacao, 1)
+    })
+
+    it('a família sem etapa de cálculo: recusa nomeada — o orçamento não tem custo sem as barras e a mão de obra', async () => {
+        banco.db.orcamentista_familia_etapa = banco.db.orcamentista_familia_etapa.filter((e) => e.etapa_catalogo_id !== ITEM_DO_CALCULO)
+        const r = await S().custoDoLevantamento(TENANT, await M().lerFamiliasDaEmpresa(TENANT), lev({ escolhas: ESCOLHAS }))
+        expect('recusas' in r && r.recusas).toEqual([S().fraseDaFamiliaSemCalculo('PVC')])
+    })
+    it('sem a configuração de mão de obra da empresa: a conversa fecha (a linha da mão de obra "não sai"), mas o orçamento recusa — sem valor do minuto, nunca 0', async () => {
+        banco.db.tenant_expense_config = []
+        const l = lev({ escolhas: ESCOLHAS })
+        const m = await M().mensagemDoLevantamento(TENANT, await M().lerFamiliasDaEmpresa(TENANT), l)
+        expect(m.desfecho).toBe('levantou')
+        const r = await S().custoDoLevantamento(TENANT, await M().lerFamiliasDaEmpresa(TENANT), l)
+        expect('recusas' in r && r.recusas).toContain('o valor do minuto da mão de obra: a configuração de mão de obra da empresa não fecha')
+    })
+    it('a leitura do item da tabela pede o bloco tributário pelos NOMES da tabela, e NÃO a coluna antiga `ipi`', () => {
+        const colunas = M().COLUNAS_DO_ITEM_DA_TABELA.split(',').map((c) => c.trim())
+        for (const p of C().PERCENTUAIS) expect(colunas).toContain(p)
+        expect(colunas).toContain('unidade')
+        expect(colunas).not.toContain('ipi')
+    })
+    it('nada evolui com falta: a recusa do levantamento é a frase que o vendedor leria, e nenhum item sai custeado', async () => {
+        banco.db.orcamentista_motor_tipologia_tempo = []
+        const l = lev({ escolhas: ESCOLHAS })
+        const r = await S().custoDoLevantamento(TENANT, await M().lerFamiliasDaEmpresa(TENANT), l)
+        const m = await M().mensagemDoLevantamento(TENANT, await M().lerFamiliasDaEmpresa(TENANT), l)
+        expect(m.desfecho).toBe('recusou')
+        expect('recusas' in r && r.recusas).toEqual([m.texto])
+    })
+})
