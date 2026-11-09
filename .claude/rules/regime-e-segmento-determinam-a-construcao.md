@@ -242,6 +242,29 @@ não mediu a intenção. **Dizer isso vale mais que uma decisão rápida** — e
 `registro-de-classe.md` impõe à contagem de aparições: anedota honesta é melhor que padrão
 inventado.
 
+## PENDÊNCIA NOMEADA — o orçamento I.A. num tenant de revenda carrega a própria segmentação (dono do produto, 09/11/2026)
+
+**Sem código. É o registro do porquê de a recusa de hoje ficar como está.**
+
+O caso: o modo "orçamento" da precificação de Produtos (#256) monta o orçamento I.A. como PRODUZIDO — a esquadria é fabricada. Mas o motor da
+tela decide o numerador pelo `calcType` do **tenant**: num tenant de REVENDA, a mão de obra produtiva sai do custo. A reconciliação da D2
+então não fecha, e o preço **não se grava** — recusa nomeada, nunca número errado. O caso de teste que prova isso está em
+`atendimentos-ia-precificacao-do-orcamento-tela.test.tsx` ("num tenant de REVENDA o orçamento continua PRODUZIDO").
+
+**Medido pelo dono do produto em 09/11/2026: o caso é hipotético.** Há 4 tenants com `calc_type` REVENDA — NORTEK, TAMARA DRESCH,
+"Agente de disparo whats app" e "Contato" —, e nenhum é empresa de esquadrias.
+
+**Decisão: a recusa fica.** Não se inventa regra para um caso que não existe.
+
+**E a saída, quando ele existir, já tem direção** — formulação do dono do produto, da Matriz Mãe:
+
+> A SEGMENTAÇÃO decide o numerador — industrialização é custo líquido + mão de obra produtiva; revenda é só o custo líquido do material. E a
+> segmentação é DA OPERAÇÃO, não da empresa. Um orçamento de esquadrias é industrialização mesmo num tenant configurado como revenda.
+
+Logo, **a saída NÃO é o motor decidir pelo `calcType` do tenant: é o ORÇAMENTO carregar a própria segmentação**, e a precificação lê-la como
+lê o resto do orçamento. É o critério desta página aplicado à origem: a construção lê o formato de quem o tem — aqui, a operação —, em vez
+de deduzi-lo da configuração da empresa.
+
 ## Relação com as outras regras
 
 Esta página **generaliza** três classes já registradas, e a relação é de grau, não de tema:
