@@ -60,6 +60,17 @@ contagem igual, sozinha, não é.
 abaixo. Comparar a saída crua produz um diff enorme e falso. Comparar só a contagem total
 esconde a troca de um erro por outro.
 
+### (d) O NÚMERO CONGELADO num teste de não-regressão se mede com o código da `origin/main` — aprovado pelo dono do produto, 09/11/2026
+
+Quando um teste congela números de saída para provar que uma mudança não mexeu num caminho que já funciona, o número congelado é o que a
+**`origin/main`** produz, medido **antes** de o código novo existir — nunca o que o código novo produz. Congelar a saída do código novo
+prova só que ele é igual a si mesmo.
+
+O caso (#256, o modo "orçamento" da tela de Produtos): o teste renderiza o produto com a forma do 1008 e congela custo, margem de
+contribuição aplicada e valor precificado. O método: copiar da `origin/main` os dois arquivos do componente para a árvore, rodar só o caso,
+anotar os três números (R$ 1.046,73, 33,702%, R$ 3.105,80), devolver os arquivos do branch e só então escrever o teste com eles. Os números
+que o autor tinha posto antes da medição estavam errados nos três.
+
 ## O que cada regra NÃO cobre
 
 Esta é a razão de as três serem um bloco único:

@@ -80,6 +80,17 @@ desktop'` afirma caminho e vale a pena, porque **o defeito era exatamente a aus�
 dois** e não há efeito numérico a medir. A regra não proíbe afirmar caminho; proíbe afirmar
 caminho **quando existe efeito mensurável e ele foi deixado de fora**.
 
+### O teste que fixa um defeito CONHECIDO — aprovado pelo dono do produto, 09/11/2026
+
+Formulação do dono do produto, registrada como está: *"Teste que documenta um defeito conhecido é melhor que comentário."*
+
+Quando um PR não pode corrigir um defeito que achou (porque a correção é de outro escopo), um caso pode afirmar o comportamento ERRADO de
+propósito, dizendo no próprio caso que é o comportamento medido na `main` e qual PR o corrige. Ele exercita de verdade — falha se o
+comportamento mudar —, e é por isso que ele **tem de quebrar** quando a correção vier: é a prova de que ela mudou o que devia.
+
+O caso (#256): em Produtos, com a margem acabando, o salvar grava o preço exibido, que não é preço válido. O caso afirma isso (e mata a
+mutação D22). A correção de Produtos, em PR próprio, inverte o caso: margem não positiva => não há preço => não grava.
+
 ## Relação com as outras regras
 
 `portao-que-nao-alcanca.md` é esta mesma regra no outro instrumento: lá o verde decorativo é o
