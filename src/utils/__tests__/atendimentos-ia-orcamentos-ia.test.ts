@@ -38,7 +38,7 @@ const estado = {
 let seq = 0
 function executar(tabela: string, op: string, carga: unknown, filtros: [string, string, unknown][], colunas: string | null, ordem: [string, boolean] | null, limite: number | null) {
     estado.ops.push({ tabela, op, carga, filtros })
-    if (op === 'insert' && estado.insertsQueBatem > 0) { estado.insertsQueBatem--; return { data: null, error: { code: '23505', message: 'duplicate key value violates unique constraint' } } }
+    if (op === 'insert' && estado.insertsQueBatem > 0) { estado.insertsQueBatem--; return { data: null as unknown, error: { code: '23505', message: 'duplicate key value violates unique constraint' } } }
     const erro = estado.erros[tabela]?.shift()
     if (erro) return { data: null, error: erro }
     const linhas = (estado.db[tabela] ??= [])
@@ -52,7 +52,7 @@ function executar(tabela: string, op: string, carga: unknown, filtros: [string, 
     }
     if (op === 'delete') { estado.db[tabela] = linhas.filter((l) => !casa(l)); return { data: null, error: null } }
     if (op === 'update') { linhas.filter(casa).forEach((l) => Object.assign(l, carga as Linha)); return { data: null, error: null } }
-    const novas = ((Array.isArray(carga) ? carga : [carga]) as Linha[]).map((l) => ({ id: `novo-${++seq}`, criado_em: '2026-11-09T12:00:00Z', atualizado_em: '2026-11-09T12:00:00Z', editado_manualmente_em: null, editado_manualmente_por: null, ...l }))
+    const novas = ((Array.isArray(carga) ? carga : [carga]) as Linha[]).map((l) => ({ id: `novo-${++seq}`, criado_em: '2026-11-09T12:00:00Z', atualizado_em: '2026-11-09T12:00:00Z', editado_manualmente_em: null as unknown, editado_manualmente_por: null as unknown, ...l }))
     linhas.push(...novas)
     return { data: novas.map(projetar), error: null }
 }
@@ -266,7 +266,7 @@ describe('(4) alterar: o cabeçalho, os itens e a MARCA da edição manual — s
 
     it('o item de OUTRO orçamento no corpo: 400, e nada é gravado', async () => {
         const c = corpo()
-        c.itens[0] = { ...c.itens[0], id: 'i9' }
+        ;(c.itens as Array<Record<string, unknown>>)[0] = { ...c.itens[0], id: 'i9' }
         const r = await chamar(rotaDoOrcamento, 'PATCH', { query: { id: O1 }, body: c })
         expect(r.status).toBe(400)
         expect(r.corpo.erros).toEqual(['Um item enviado não é deste orçamento.'])
@@ -300,6 +300,12 @@ describe('(5) a validação recusa ANTES de gravar, nomeando o campo', () => {
         expect(r.status).toBe(400)
         expect(r.corpo.erros).toEqual([erro])
         expect(escritas()).toEqual([])
+    })
+
+    it('a validação vem ANTES de ler o banco: o corpo inválido não lê o orçamento', async () => {
+        const r = await chamar(rotaDoOrcamento, 'PATCH', { query: { id: O1 }, body: { nome: '', itens: [] } })
+        expect(r.status).toBe(400)
+        expect(estado.ops.some((o) => o.tabela.startsWith('orcamentista_orcamento'))).toBe(false)
     })
 
     it('itens que não são lista: 400', async () => {
@@ -336,7 +342,7 @@ describe('(6) sem a migração, e os métodos', () => {
 })
 
 describe('(7) a tela: a busca e o corpo da alteração', () => {
-    const lista = [
+    const lista: import('@/pages/atendimentos-ia/orcamentos-ia/index').LinhaDoOrcamento[] = [
         { id: 'a', numero: 1, origem: 'agente' as const, nome: 'Antônio Rock', itens: 2, editado_manualmente_em: null, criado_em: '' },
         { id: 'b', numero: 12, origem: 'manual' as const, nome: 'Maria', itens: 0, editado_manualmente_em: null, criado_em: '' },
     ]
@@ -349,7 +355,7 @@ describe('(7) a tela: a busca e o corpo da alteração', () => {
     })
 
     it('o corpo leva TODOS os itens da tela: os gravados com id, os novos sem', () => {
-        const itens = [
+        const itens: Parameters<ReturnType<typeof EDICAO>['corpoDaAlteracao']>[2] = [
             { chave: 'i1', id: 'i1', ordem: 1, tipologia: 'DP-02', largura_mm: 1, altura_mm: 1, quantidade: 1, cor_perfil: null, vidro: null, obs: null },
             { chave: 'novo-1', id: null, ordem: null, tipologia: null, largura_mm: null, altura_mm: null, quantidade: 2, cor_perfil: null, vidro: null, obs: null },
         ]

@@ -118,12 +118,12 @@ function OrcamentoIA() {
         }
     }
 
-    const texto = (campo: 'tipologia' | 'cor_perfil' | 'vidro' | 'obs', rotulo: string) => (_: unknown, i: Item) => (
-        <Input size="small" value={i[campo] ?? ''} aria-label={rotulo} maxLength={campo === 'obs' ? 1000 : 120} onChange={(e) => mudar(i.chave, campo, e.target.value)} />
-    )
-    const numero = (campo: 'largura_mm' | 'altura_mm' | 'quantidade', rotulo: string) => (_: unknown, i: Item) => (
-        <InputNumber size="small" min={1} precision={0} value={i[campo] ?? undefined} aria-label={rotulo} onChange={(v) => mudar(i.chave, campo, v ?? null)} style={{ width: '100%' }} />
-    )
+    const texto = (campo: 'tipologia' | 'cor_perfil' | 'vidro' | 'obs', rotulo: string) => function CelulaDeTexto(_: unknown, i: Item) {
+        return <Input size="small" value={i[campo] ?? ''} aria-label={rotulo} maxLength={campo === 'obs' ? 1000 : 120} onChange={(e) => mudar(i.chave, campo, e.target.value)} />
+    }
+    const numero = (campo: 'largura_mm' | 'altura_mm' | 'quantidade', rotulo: string) => function CelulaDeNumero(_: unknown, i: Item) {
+        return <InputNumber size="small" min={1} precision={0} value={i[campo] ?? undefined} aria-label={rotulo} onChange={(v) => mudar(i.chave, campo, v ?? null)} style={{ width: '100%' }} />
+    }
     const colunas: ColumnsType<Item> = [
         { title: 'Nº', key: 'ordem', width: 56, render: (_: unknown, i: Item, k: number) => i.ordem ?? k + 1 },
         { title: 'Tipologia', key: 'tipologia', width: 140, render: texto('tipologia', 'Tipologia') },

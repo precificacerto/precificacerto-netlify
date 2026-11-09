@@ -10,7 +10,7 @@ import { createRoot } from 'react-dom/client'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 Object.defineProperty(window, 'matchMedia', {
     writable: true,
-    value: (q: string) => ({ matches: false, media: q, onchange: null, addListener: () => {}, removeListener: () => {}, addEventListener: () => {}, removeEventListener: () => {}, dispatchEvent: () => false }),
+    value: (q: string) => ({ matches: false, media: q, onchange: null as unknown, addListener: () => {}, removeListener: () => {}, addEventListener: () => {}, removeEventListener: () => {}, dispatchEvent: () => false }),
 })
 
 const rota = { query: {} as Record<string, string>, push: jest.fn() }
@@ -108,7 +108,7 @@ describe('a lista', () => {
 })
 
 describe('a edição', () => {
-    const ORC = {
+    const ORC: Record<string, unknown> = {
         id: 'b', numero: 1, origem: 'agente', levantamento_id: 'lev', nome: 'Antonio Rock', obs: null, editado_manualmente_em: null, criado_em: '2026-11-08T21:00:00Z',
         itens: [{ id: 'i1', ordem: 1, tipologia: 'DP-02', largura_mm: 1600, altura_mm: 1200, quantidade: 2, cor_perfil: 'BRANCO', vidro: 'incolor 4', obs: null }],
     }
