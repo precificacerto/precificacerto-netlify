@@ -43,4 +43,4 @@ for x in $D $C1 $C2 $C3 $C4 $C5; do $P -c "drop database if exists $x" >/dev/nul
 echo "$SAIDA" | grep -oE "(ok|FALHOU): .*" | sed 's/^/  /'
 OK=$(echo "$SAIDA" | grep -c "ok: "); FALHOU=$(echo "$SAIDA" | grep -c "FALHOU: ")
 echo "$OK ok, $FALHOU falhou"
-[ "$FALHOU" = "0" ] && [ "$OK" = "${ESPERADOS:-37}" ] || exit 1
+[ "$FALHOU" = "0" ] && [ "$OK" = "${ESPERADOS:-40}" ] || exit 1

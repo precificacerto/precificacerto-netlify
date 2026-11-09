@@ -22,6 +22,8 @@ MUTACOES = [
     ('K21', 'a falta não nomeia qual crédito', "`faltou no bloco tributario: ${faltam.join(', ')}`", "'faltou no bloco tributario'"),
     ('K22', 'o percentual que ninguém informou vira 0 no item', "linhas.every((l) => l[p] === null) ? null : ", ""),
     ('K23', 'IBS/CBS acima de zero passam sem recusa', "    if (ivaAcimaDeZero.length) return { recusa: fraseDoIvaSemLugar(codigo, ivaAcimaDeZero) }\n", ""),
+    ('K25', 'o par do IPI desconhecido não entra na falta', "    if (semIpi) faltam.push(PAR_DO_IPI_DESCONHECIDO)\n", ""),
+    ('K26', 'a cascata cheia apaga a falta do IPI', "    if (!('faltam' in r)) return { liquido: r.custo_liquido, nao_apurado }", "    if (!('faltam' in r)) return { liquido: r.custo_liquido, nao_apurado: null }"),
     ('K24', 'a cascata parcial sem a falta', "if (r.ate_o_icms !== undefined) return { liquido: r.ate_o_icms, nao_apurado }", "if (r.ate_o_icms !== undefined) return { liquido: r.ate_o_icms, nao_apurado: null }"),
     ('K3', 'a fabricação entra no custo da precificação (a dupla contagem)', "totalItemsCost: itens.reduce((t, i) => t + i.custo_liquido_materiais, 0)", "totalItemsCost: itens.reduce((t, i) => t + i.custo_liquido_total, 0)"),
     ('K4', 'a fabricação sem o valor do minuto', "const fabricacao = minutos * (e.valor_minuto as number)", "const fabricacao = minutos"),

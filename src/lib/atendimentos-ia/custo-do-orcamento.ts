@@ -108,24 +108,30 @@ const FRASE_SEM_VALOR_DO_MINUTO = 'o valor do minuto da mão de obra: a configur
  *     isso é RECUSA do orçamento, porque a linha com ICMS e PIS/COFINS não pode guardar falta (CHECK `..._falta_nomeada`);
  *   - ICMS e PIS/COFINS fazem a cascata PARCIAL, como `recalcularBloco` (#252): sem PIS/COFINS ela PARA depois do ICMS (`ate_o_icms`);
  *     sem ICMS não começa — o líquido é o bruto, e o fallback nunca barateia;
- *   - `nao_apurado` nomeia QUAL crédito faltou, e é nulo EXATAMENTE quando os dois existem (o espelho da CHECK do banco);
- *   - o IPI pelo par: os dois nulos é "não há o que apurar" (nem crédito nem custo) — ver a nota do PR.
+ *   - `nao_apurado` nomeia QUAL crédito faltou, e é nulo EXATAMENTE quando o ICMS, o PIS/COFINS e o PAR DO IPI estão resolvidos (o
+ *     espelho da CHECK `..._falta_nomeada`);
+ *   - O PAR DO IPI (dono do produto, 09/11/2026): resolvido quando pelo menos um dos dois está preenchido; os dois nulos é DESCONHECIDO
+ *     — nem ignorado nem recusado: NOMEADO. A conta segue sem IPI (nenhuma das 1.096 referências tem o par hoje), e a falta diz que o
+ *     IPI é desconhecido. NÃO se lê a coluna antiga `ipi`: seriam duas fontes para o mesmo número; ela vira o par numa rodada de dado.
  */
+export const PAR_DO_IPI_DESCONHECIDO = 'o par do IPI (cred_ipi_pct ou nc_ipi_pct)'
 type UnidadeCalculada = { liquido: number; nao_apurado: string | null } | { recusa: string }
 const fraseDoIvaSemLugar = (codigo: string, quais: readonly string[]) =>
     `o ${quais.join(' e o ')} do código ${codigo}: a regra ainda não diz onde o IBS e a CBS entram, e o código não é recalculável`
 function liquidoDaUnidade(codigo: string, bruto: number, bloco: Percentuais): UnidadeCalculada {
     const ivaAcimaDeZero = (['cred_ibs_pct', 'cred_cbs_pct'] as const).filter((c) => bloco[c] !== null && bloco[c] !== 0)
     if (ivaAcimaDeZero.length) return { recusa: fraseDoIvaSemLugar(codigo, ivaAcimaDeZero) }
-    const faltam = (['cred_icms_pct', 'cred_pis_cofins_pct'] as const).filter((c) => bloco[c] === null)
+    const semIpi = bloco.cred_ipi_pct === null && bloco.nc_ipi_pct === null
+    const faltam: string[] = (['cred_icms_pct', 'cred_pis_cofins_pct'] as const).filter((c) => bloco[c] === null)
+    if (semIpi) faltam.push(PAR_DO_IPI_DESCONHECIDO)
     const nao_apurado = faltam.length ? `faltou no bloco tributario: ${faltam.join(', ')}` : null
     if (bloco.cred_icms_pct === null) return { liquido: bruto, nao_apurado }
-    const semIpi = bloco.cred_ipi_pct === null && bloco.nc_ipi_pct === null
     const r = recalcularBloco(bruto, {
         ...blocoVazio(), ...bloco, cred_ibs_pct: bloco.cred_ibs_pct ?? 0, cred_cbs_pct: bloco.cred_cbs_pct ?? 0, cred_ipi_pct: semIpi ? 0 : bloco.cred_ipi_pct,
     })
     // `'faltam' in r`, e não `r.ok`: com `strictNullChecks: false` (o tsconfig daqui) o tsc não estreita a união pelo booleano
-    if (!('faltam' in r)) return { liquido: r.custo_liquido, nao_apurado: null }
+    // a cascata cheia do ICMS e do PIS/COFINS: a falta que resta é a do par do IPI, quando desconhecido
+    if (!('faltam' in r)) return { liquido: r.custo_liquido, nao_apurado }
     // a cascata parou depois do ICMS: o saldo dela, e a falta nomeada
     if (r.ate_o_icms !== undefined) return { liquido: r.ate_o_icms, nao_apurado }
     throw new Error(`liquidoDaUnidade ${codigo}: a cascata recusou o que a guarda deixou passar: ${r.faltam.join(', ')}`)

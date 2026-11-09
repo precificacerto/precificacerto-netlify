@@ -17,8 +17,8 @@ FK_DDL = "FOREIGN KEY (orcamento_item_id, tenant_id)\n    REFERENCES public.orca
 FK_VER = "FOREIGN KEY (orcamento_item_id, tenant_id) REFERENCES orcamentista_orcamento_item(id, tenant_id) ON DELETE RESTRICT'"
 SEM_DDL = "CHECK (((cred_icms_pct IS NOT NULL) OR (cred_pis_cofins_pct IS NOT NULL)) OR (custo_liquido_unidade = custo_bruto_unidade))\n"
 SEM_VER = "CHECK (((cred_icms_pct IS NOT NULL) OR (cred_pis_cofins_pct IS NOT NULL) OR (custo_liquido_unidade = custo_bruto_unidade)))'"
-FAL_DDL = "CHECK (((cred_icms_pct IS NOT NULL) AND (cred_pis_cofins_pct IS NOT NULL)) = (credito_nao_apurado IS NULL)),"
-FAL_VER = "CHECK ((((cred_icms_pct IS NOT NULL) AND (cred_pis_cofins_pct IS NOT NULL)) = (credito_nao_apurado IS NULL)))'"
+FAL_DDL = "CHECK ((((cred_icms_pct IS NOT NULL) AND (cred_pis_cofins_pct IS NOT NULL) AND ((cred_ipi_pct IS NOT NULL) OR (nc_ipi_pct IS NOT NULL))) = (credito_nao_apurado IS NULL))),"
+FAL_VER = "CHECK ((((cred_icms_pct IS NOT NULL) AND (cred_pis_cofins_pct IS NOT NULL) AND ((cred_ipi_pct IS NOT NULL) OR (nc_ipi_pct IS NOT NULL))) = (credito_nao_apurado IS NULL)))'"
 COM_DDL = "CHECK ((calculo_id IS NOT NULL) OR ((custo_bruto_materiais IS NULL) AND (custo_liquido_materiais IS NULL) AND (custo_fabricacao IS NULL) AND (custo_liquido_total IS NULL)))'"
 COM_VER = "CHECK (((calculo_id IS NOT NULL) OR ((custo_bruto_materiais IS NULL) AND (custo_liquido_materiais IS NULL) AND (custo_fabricacao IS NULL) AND (custo_liquido_total IS NULL))))'"
 MUTACOES = [
@@ -29,8 +29,12 @@ MUTACOES = [
         (FK_DDL, FK_DDL.replace('RESTRICT', 'CASCADE')), (FK_VER, FK_VER.replace('RESTRICT', 'CASCADE'))]),
     ('M3', 'o crédito não apurado pode baratear', [(SEM_DDL, "CHECK (true)\n"), (SEM_VER, "CHECK (true)'")]),
     ('M11', 'a falta pode sumir (a cascata parcial sem o que faltou)', [(FAL_DDL, "CHECK (true),"), (FAL_VER, "CHECK (true)'")]),
-    ('M12', 'a falta só vale num sentido (os dois presentes com falta passa)', [(FAL_DDL, "CHECK ((credito_nao_apurado IS NOT NULL) OR ((cred_icms_pct IS NOT NULL) AND (cred_pis_cofins_pct IS NOT NULL))),"),
-        (FAL_VER, "CHECK (((credito_nao_apurado IS NOT NULL) OR ((cred_icms_pct IS NOT NULL) AND (cred_pis_cofins_pct IS NOT NULL))))'")]),
+    ('M12', 'a falta só vale num sentido (tudo resolvido com falta passa)', [(FAL_DDL, "CHECK ((credito_nao_apurado IS NOT NULL) OR ((cred_icms_pct IS NOT NULL) AND (cred_pis_cofins_pct IS NOT NULL) AND ((cred_ipi_pct IS NOT NULL) OR (nc_ipi_pct IS NOT NULL)))),"),
+        (FAL_VER, "CHECK (((credito_nao_apurado IS NOT NULL) OR ((cred_icms_pct IS NOT NULL) AND (cred_pis_cofins_pct IS NOT NULL) AND ((cred_ipi_pct IS NOT NULL) OR (nc_ipi_pct IS NOT NULL)))))'")]),
+    ('M13', 'o par do IPI exige os DOIS (o OR do par vira AND)', [(FAL_DDL, FAL_DDL.replace("(cred_ipi_pct IS NOT NULL) OR (nc_ipi_pct IS NOT NULL)", "(cred_ipi_pct IS NOT NULL) AND (nc_ipi_pct IS NOT NULL)")),
+        (FAL_VER, FAL_VER.replace("(cred_ipi_pct IS NOT NULL) OR (nc_ipi_pct IS NOT NULL)", "(cred_ipi_pct IS NOT NULL) AND (nc_ipi_pct IS NOT NULL)"))]),
+    ('M14', 'a falta esquece o par do IPI', [(FAL_DDL, "CHECK (((cred_icms_pct IS NOT NULL) AND (cred_pis_cofins_pct IS NOT NULL)) = (credito_nao_apurado IS NULL)),"),
+        (FAL_VER, "CHECK ((((cred_icms_pct IS NOT NULL) AND (cred_pis_cofins_pct IS NOT NULL)) = (credito_nao_apurado IS NULL)))'")]),
     ('M4', 'o valor do item sem cálculo apontado passa', [(COM_DDL, "CHECK (true)'"), (COM_VER, "CHECK (true)'")]),
     ('M5', 'o cálculo sem a data passa', [("'orcamentista_orcamento_item_calculo_inteiro|CHECK ((calculo_id IS NULL) = (calculado_em IS NULL))'", "'orcamentista_orcamento_item_calculo_inteiro|CHECK (true)'"),
         ("orcamentista_orcamento_item_calculo_inteiro|CHECK (((calculo_id IS NULL) = (calculado_em IS NULL)))'", "orcamentista_orcamento_item_calculo_inteiro|CHECK (true)'")]),

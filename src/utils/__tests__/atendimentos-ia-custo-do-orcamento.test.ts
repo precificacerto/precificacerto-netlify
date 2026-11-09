@@ -4,7 +4,7 @@
  * RECONCILIAÇÃO com a precificação final (decisão D2): soma(líquido do item + fabricação do item) == custo + mão de obra do motor.
  */
 import {
-    custoDoOrcamento, entradaDaPrecificacao, somaDosItens, valorDoMinuto, MODO_DO_FALLBACK, ORIGEM_DO_FALLBACK,
+    custoDoOrcamento, entradaDaPrecificacao, somaDosItens, valorDoMinuto, MODO_DO_FALLBACK, ORIGEM_DO_FALLBACK, PAR_DO_IPI_DESCONHECIDO,
     type EntradaDoCusto, type MaterialDaTabela, type Percentuais, type CustoDoItem,
 } from '@/lib/atendimentos-ia/custo-do-orcamento'
 import { calculatePricing } from '@/utils/pricing-engine'
@@ -119,11 +119,12 @@ describe('a decisão (b): IBS/CBS nulos não travam; ICMS e PIS/COFINS em cascat
         expect(r.itens[0].cred_cbs_pct).toBeNull()
         expect(r.itens[0].cred_icms_pct).toBeCloseTo(12, 10)
     })
-    it('O PERFIL (460 de 460 sem ICMS nem PIS/COFINS hoje): o líquido é o bruto, e a falta nomeia os dois', () => {
+    it('O PERFIL (460 de 460 sem ICMS, sem PIS/COFINS e sem o par do IPI hoje): o líquido é o bruto, e a falta nomeia os TRÊS', () => {
         const a = linha(ok(comBlocoNoA({ cred_icms_pct: null, cred_pis_cofins_pct: null, cred_ipi_pct: null, nc_ipi_pct: null, cred_ibs_pct: null, cred_cbs_pct: null })).itens[0], 'A')
         expect(a.custo_liquido_unidade).toBe(600)
         expect(a.custo_liquido_material).toBeCloseTo(a.custo_bruto_material, 12)
-        expect(a.credito_nao_apurado).toBe('faltou no bloco tributario: cred_icms_pct, cred_pis_cofins_pct')
+        expect(a.credito_nao_apurado).toBe('faltou no bloco tributario: cred_icms_pct, cred_pis_cofins_pct, o par do IPI (cred_ipi_pct ou nc_ipi_pct)')
+        expect(PAR_DO_IPI_DESCONHECIDO).toBe('o par do IPI (cred_ipi_pct ou nc_ipi_pct)')
     })
     it('com ICMS e SEM PIS/COFINS: a cascata PARA depois do ICMS — o líquido fica entre o bruto e a cascata cheia, e a falta é o PIS/COFINS', () => {
         const r = ok(comBlocoNoA({ ...COMPLETO, cred_pis_cofins_pct: null }))
@@ -149,17 +150,26 @@ describe('a decisão (b): IBS/CBS nulos não travam; ICMS e PIS/COFINS em cascat
         const r = ok(base())
         expect(r.itens[0].cred_ibs_pct).toBe(0)
     })
-    it('o IPI sem o par (os dois nulos): não há o que apurar — nem crédito nem custo', () => {
-        const a = linha(ok(comBlocoNoA({ ...COMPLETO, cred_ipi_pct: null, nc_ipi_pct: null })).itens[0], 'A')
+    it('o PAR DO IPI nulo é DESCONHECIDO: nem ignorado nem recusado — a conta segue sem IPI, e a falta o nomeia', () => {
+        const r = ok(comBlocoNoA({ ...COMPLETO, cred_ipi_pct: null, nc_ipi_pct: null }))
+        const a = linha(r.itens[0], 'A')
         expect(a.custo_liquido_unidade).toBeCloseTo(479.16, 10)
-        expect(a.credito_nao_apurado).toBeNull()
+        expect(a.credito_nao_apurado).toBe('faltou no bloco tributario: o par do IPI (cred_ipi_pct ou nc_ipi_pct)')
+        expect(r.itens[0].cred_icms_pct).toBeNull()
     })
-    it('a falta é nula EXATAMENTE quando os dois créditos existem (o espelho da CHECK falta_nomeada)', () => {
+    it('o par resolvido por um dos dois: crédito de IPI em 0, ou IPI sem crédito a 6,5% — sem falta', () => {
+        expect(linha(ok(comBlocoNoA({ ...COMPLETO, cred_ipi_pct: 0, nc_ipi_pct: null })).itens[0], 'A').credito_nao_apurado).toBeNull()
+        const nc = linha(ok(comBlocoNoA({ ...COMPLETO, cred_ipi_pct: null, nc_ipi_pct: 6.5 })).itens[0], 'A')
+        expect(nc.credito_nao_apurado).toBeNull()
+        expect(nc.custo_liquido_unidade).toBeCloseTo(479.16 + 39, 10)
+    })
+    it('a falta é nula EXATAMENTE quando o ICMS, o PIS/COFINS e o par do IPI estão resolvidos (o espelho da CHECK falta_nomeada)', () => {
         const blocos: Percentuais[] = [COMPLETO, { ...COMPLETO, cred_pis_cofins_pct: null }, { ...COMPLETO, cred_icms_pct: null },
-            { ...COMPLETO, cred_icms_pct: null, cred_pis_cofins_pct: null }, { ...COMPLETO, cred_ibs_pct: null }]
+            { ...COMPLETO, cred_icms_pct: null, cred_pis_cofins_pct: null }, { ...COMPLETO, cred_ibs_pct: null },
+            { ...COMPLETO, cred_ipi_pct: null, nc_ipi_pct: null }, { ...COMPLETO, cred_ipi_pct: null, nc_ipi_pct: 6.5 }]
         for (const b of blocos) {
             const a = linha(ok(comBlocoNoA(b)).itens[0], 'A')
-            expect(a.credito_nao_apurado === null).toBe(b.cred_icms_pct !== null && b.cred_pis_cofins_pct !== null)
+            expect(a.credito_nao_apurado === null).toBe(b.cred_icms_pct !== null && b.cred_pis_cofins_pct !== null && (b.cred_ipi_pct !== null || b.nc_ipi_pct !== null))
             // e o espelho da sem_credito_nao_barateia
             if (b.cred_icms_pct === null && b.cred_pis_cofins_pct === null) expect(a.custo_liquido_unidade).toBe(a.custo_bruto_unidade)
         }

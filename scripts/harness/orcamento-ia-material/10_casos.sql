@@ -52,21 +52,24 @@ select pg_temp.confere((select count(*) from orcamentista_orcamento_item_materia
 select pg_temp.recusa(pg_temp.material(:'A', '50000000-0000-4000-8000-000000000002', '60000000-0000-4000-8000-000000000003', 'A'), '23503', 'caso 3a: o material da empresa A no item da empresa B');
 select pg_temp.passa(pg_temp.material(:'B', '50000000-0000-4000-8000-000000000002', '60000000-0000-4000-8000-000000000003', 'A'), 'caso 3b: o material da empresa B no item dela');
 
--- 4. a decisão (b): a falta sempre visível (falta_nomeada) e o fallback que nunca barateia (sem_credito_nao_barateia)
-create or replace function pg_temp.bloco(codigo text, icms text, pis text, falta text, liquido text) returns text language sql as $f$
+-- 4. a decisão (b) e o PAR DO IPI: a falta sempre visível (falta_nomeada) e o fallback que nunca barateia (sem_credito_nao_barateia)
+create or replace function pg_temp.bloco(codigo text, icms text, pis text, ipi text, nc text, falta text, liquido text) returns text language sql as $f$
   select format('insert into orcamentista_orcamento_item_material (tenant_id, orcamento_item_id, calculo_id, ordem, codigo, custo_bruto_unidade,
-    cred_icms_pct, cred_pis_cofins_pct, credito_nao_apurado, custo_liquido_unidade, consumo_item, custo_bruto_material, custo_liquido_material)
-    values (''00000000-0000-4000-8000-0000000000a1'', ''50000000-0000-4000-8000-000000000001'', ''60000000-0000-4000-8000-000000000004'',
-    %s, %L, 600, %s, %s, %s, %s, 3, 450, 0)', (select coalesce(max(ordem), 0) + 1 from orcamentista_orcamento_item_material), codigo, icms, pis,
-    coalesce(quote_literal(falta), 'null'), liquido)
+    cred_icms_pct, cred_pis_cofins_pct, cred_ipi_pct, nc_ipi_pct, credito_nao_apurado, custo_liquido_unidade, consumo_item, custo_bruto_material,
+    custo_liquido_material) values (''00000000-0000-4000-8000-0000000000a1'', ''50000000-0000-4000-8000-000000000001'',
+    ''60000000-0000-4000-8000-000000000004'', %s, %L, 600, %s, %s, %s, %s, %s, %s, 3, 450, 0)',
+    (select coalesce(max(ordem), 0) + 1 from orcamentista_orcamento_item_material), codigo, icms, pis, ipi, nc, coalesce(quote_literal(falta), 'null'), liquido)
 $f$;
-select pg_temp.passa(pg_temp.bloco('C1', '12', '9.25', null, '479.16'), 'caso 4a: ICMS e PIS/COFINS, sem falta, liquido abaixo do bruto');
-select pg_temp.passa(pg_temp.bloco('C2', '12', 'null', 'faltou no bloco tributario: cred_pis_cofins_pct', '528'), 'caso 4b: ICMS sem PIS/COFINS, falta nomeada, liquido entre o bruto e a cascata cheia (a cascata parcial)');
-select pg_temp.passa(pg_temp.bloco('C3', 'null', 'null', 'faltou no bloco tributario: cred_icms_pct, cred_pis_cofins_pct', '600'), 'caso 4c: sem os dois, falta nomeada, liquido igual ao bruto');
-select pg_temp.recusa(pg_temp.bloco('C4', 'null', 'null', 'faltou no bloco tributario: cred_icms_pct, cred_pis_cofins_pct', '500'), '23514', 'contraste 4d: sem os dois, liquido abaixo do bruto (o fallback barateando)');
-select pg_temp.recusa(pg_temp.bloco('C5', '12', '9.25', 'faltou no bloco tributario: cred_pis_cofins_pct', '479.16'), '23514', 'contraste 4e: os dois presentes e uma falta registrada');
-select pg_temp.recusa(pg_temp.bloco('C6', '12', 'null', null, '528'), '23514', 'contraste 4f: a cascata parcial sem a falta (o numero aparece e ninguem ve o que faltou)');
-select pg_temp.recusa(pg_temp.bloco('C7', 'null', 'null', null, '600'), '23514', 'contraste 4g: sem os dois e sem a falta');
+select pg_temp.passa(pg_temp.bloco('C1', '12', '9.25', '0', 'null', null, '479.16'), 'caso 4a: ICMS, PIS/COFINS e o par do IPI com cred_ipi_pct = 0, sem falta');
+select pg_temp.passa(pg_temp.bloco('C1b', '12', '9.25', 'null', '6.5', null, '518.16'), 'caso 4b: ICMS, PIS/COFINS e o par do IPI com nc_ipi_pct = 6,5, sem falta');
+select pg_temp.passa(pg_temp.bloco('C1c', '12', '9.25', 'null', 'null', 'faltou no bloco tributario: o par do IPI (cred_ipi_pct ou nc_ipi_pct)', '479.16'), 'caso 4c: o par do IPI nulo com a falta nomeada');
+select pg_temp.recusa(pg_temp.bloco('C1d', '12', '9.25', 'null', 'null', null, '479.16'), '23514', 'contraste 4d: o par do IPI nulo com a falta NULA (o desconhecido sumindo)');
+select pg_temp.passa(pg_temp.bloco('C2', '12', 'null', '0', 'null', 'faltou no bloco tributario: cred_pis_cofins_pct', '528'), 'caso 4e: ICMS sem PIS/COFINS, falta nomeada, liquido entre o bruto e a cascata cheia (a cascata parcial)');
+select pg_temp.passa(pg_temp.bloco('C3', 'null', 'null', 'null', 'null', 'faltou no bloco tributario: cred_icms_pct, cred_pis_cofins_pct, o par do IPI (cred_ipi_pct ou nc_ipi_pct)', '600'), 'caso 4f: o Perfil de hoje: sem os tres, falta nomeada, liquido igual ao bruto');
+select pg_temp.recusa(pg_temp.bloco('C4', 'null', 'null', 'null', 'null', 'faltou no bloco tributario: cred_icms_pct, cred_pis_cofins_pct', '500'), '23514', 'contraste 4g: sem ICMS nem PIS/COFINS, liquido abaixo do bruto (o fallback barateando)');
+select pg_temp.recusa(pg_temp.bloco('C5', '12', '9.25', '0', 'null', 'faltou no bloco tributario: cred_pis_cofins_pct', '479.16'), '23514', 'contraste 4h: tudo resolvido e uma falta registrada');
+select pg_temp.recusa(pg_temp.bloco('C6', '12', 'null', '0', 'null', null, '528'), '23514', 'contraste 4i: a cascata parcial sem a falta (o numero aparece e ninguem ve o que faltou)');
+select pg_temp.recusa(pg_temp.bloco('C7', 'null', 'null', '0', 'null', null, '600'), '23514', 'contraste 4j: sem ICMS nem PIS/COFINS e sem a falta');
 
 -- 5. as formas
 select pg_temp.recusa(replace(pg_temp.material(:'A', '50000000-0000-4000-8000-000000000001', '60000000-0000-4000-8000-000000000005', 'E'), ', 12, 9.25,', ', 100.01, 9.25,'), '23514', 'caso 5a: percentual acima de 100');
