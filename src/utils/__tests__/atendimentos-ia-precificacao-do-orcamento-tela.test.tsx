@@ -35,7 +35,7 @@ Object.defineProperty(window, 'matchMedia', {
 // ── O banco falso do navegador: responde por tabela e anota toda escrita ─────────────────────────────────────────────────────────
 const banco = {
     respostas: {} as Record<string, unknown>,
-    escritas: [] as Array<{ tabela: string; op: string }>,
+    escritas: [] as Array<{ tabela: string; op: string; carga?: unknown }>,
     lidas: [] as string[],
 }
 function consulta(tabela: string) {
@@ -43,7 +43,7 @@ function consulta(tabela: string) {
     const resposta = () => Promise.resolve({ data: banco.respostas[tabela] ?? null, error: null })
     const q: Record<string, unknown> = {}
     for (const m of ['select', 'eq', 'order', 'or', 'in', 'limit', 'not', 'neq', 'ilike']) q[m] = () => q
-    for (const op of ['update', 'insert', 'upsert', 'delete']) q[op] = () => { banco.escritas.push({ tabela, op }); return q }
+    for (const op of ['update', 'insert', 'upsert', 'delete']) q[op] = (carga: unknown) => { banco.escritas.push({ tabela, op, carga }); return q }
     q.single = resposta
     q.maybeSingle = resposta
     q.then = (ok: (v: unknown) => unknown, erro?: (e: unknown) => unknown) => resposta().then(ok, erro)
@@ -191,6 +191,21 @@ describe('(A) NÃO-REGRESSÃO DE DINHEIRO — o caminho "produto", com a forma d
         expect(host.textContent).not.toContain('Salvar precificação do orçamento')
         const minutos = host.querySelector('input[name="productWorkloadInMinutes"]') as HTMLInputElement
         expect(minutos.readOnly).toBe(false)
+    })
+    it('com a margem acabando, o produto grava o preço que EXIBE — como na main (a correção de Produtos é PR próprio)', async () => {
+        // O caso discrimina o aviso de "preço não formado" passado ao produto: com IBS/CBS por fora, o preço exibido (e emitido) não é o
+        // do motor; se o produto zerasse o emitido, gravaria o do motor. NÃO afirma que o número está certo: é o comportamento medido na
+        // main em 09/11/2026 (o defeito de produção registrado pelo dono do produto), e este PR não o muda.
+        const p = { ...PRODUTO_1008, profit_percent: 50, ibs_pct: 1, cbs_pct: 9,
+            productPriceInfo: { ...(PRODUTO_1008 as unknown as { productPriceInfo: object }).productPriceInfo, productProfitPercent: 50 } } as unknown as typeof PRODUTO_1008
+        const host = await montar({ isEditingMode: true, product: p, itemsFromApi: ITENS_DA_API })
+        const exibido = Array.from(host.querySelectorAll('div')).find((d) => d.children.length === 0 && (d.textContent ?? '').trim() === 'Preço de Venda por Unidade')
+        const preco = reais((exibido?.parentElement?.parentElement?.querySelector('div[style*="font-size: 28px"]')?.textContent ?? '').replace(/\/.*$/, ''))
+        await clicar(botao(host, 'Salvar alterações'))
+        const gravados = banco.escritas.filter((e) => e.tabela === 'products').map((e) => (e.carga as { sale_price?: number })?.sale_price).filter((v) => v !== undefined)
+        expect(preco).toBeGreaterThan(0)
+        expect(gravados.length).toBeGreaterThan(0)
+        for (const v of gravados) expect(v).toBeCloseTo(preco, 2)
     })
     it('o salvar do produto continua indo a products — e não ao caminho do orçamento', async () => {
         const host = await montar({ isEditingMode: true, product: PRODUTO_1008, itemsFromApi: ITENS_DA_API })
