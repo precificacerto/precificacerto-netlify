@@ -295,6 +295,8 @@ describe('a CASCATA do crédito, na unidade de compra', () => {
 
     it('sem o ICMS a cascata nem começa', () => {
         expect(recalcularBloco(100, bloco({ cred_icms_pct: null, cred_pis_cofins_pct: 9.25, cred_ipi_pct: 0 }))).toEqual({ ok: false, faltam: ['cred_icms_pct'] })
+        // sem o ICMS e sem o PIS/COFINS: nenhum "saldo depois do ICMS" — ele seria o bruto, com o ICMS suposto 0
+        expect(recalcularBloco(100, bloco({ cred_icms_pct: null, cred_pis_cofins_pct: null, cred_ipi_pct: 0 }))).toEqual({ ok: false, faltam: ['cred_icms_pct', 'cred_pis_cofins_pct'] })
     })
 
     it('o IPI SEM crédito COMPÕE o custo: bruto 100, ICMS 12, PIS/COFINS 9,25 e IPI não creditável 6,5 → líquido 86,36 (crédito 20,14, mais 6,50)', () => {
