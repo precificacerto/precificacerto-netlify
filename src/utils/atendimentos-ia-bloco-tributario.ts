@@ -8,8 +8,8 @@
  *    bloco NÃO creditável não entram no líquido. Arquivo sem essas colunas continua importando como hoje (as 12 ficam NULL)."
  *
  * E as respostas dele às perguntas do PR (02/11/2026):
- *   - o custo bruto é `custo` (a coluna 12 da aba de preço); credito_pct = a soma do bloco creditável; credito_valor = custo × credito_pct ÷ 100;
- *     custo_liquido = custo − credito_valor; divergência é diferença acima de 0,01 (R$ e ponto percentual);
+ *   - o custo bruto é `custo` (a coluna 12 da aba de preço); divergência é diferença acima de 0,01 (R$ e ponto percentual). A conta do resultado
+ *     era a soma dos percentuais sobre o bruto; desde 09/11/2026 é a CASCATA (`recalcularBloco`);
  *   - "IPI pelo par; resto exigido": ICMS, PIS/COFINS, IBS e CBS creditáveis têm de estar preenchidos; o IPI creditável entra se preenchido, e
  *     vazio só vale com o IPI não creditável preenchido. Fora disso, o item é NÃO RECALCULÁVEL — reportado, nomeando o que falta —, e grava o que veio;
  *   - texto numa das 12 colunas RECUSA a importação inteira, nomeando cada célula.
@@ -32,9 +32,6 @@ export type BlocoTributario = Record<ColunaDoBlocoTributario, number | null>
 /** Os percentuais (a faixa 0..100 da CHECK `orcamentista_tabela_item_percentual_na_faixa`): as 12 menos as duas em R$. */
 export const COLUNAS_PERCENTUAIS: readonly ColunaDoBlocoTributario[] = COLUNAS_DO_BLOCO_TRIBUTARIO.filter((c) => c !== 'credito_valor' && c !== 'custo_liquido')
 
-/** Os quatro creditáveis que o recálculo exige preenchidos; o IPI vai pelo par. */
-const EXIGIDOS_NO_RECALCULO = ['cred_icms_pct', 'cred_pis_cofins_pct', 'cred_ibs_pct', 'cred_cbs_pct'] as const
-
 /** A diferença acima da qual o recalculado diverge do arquivo (dono do produto, 02/11/2026): 0,01 em R$ e em ponto percentual. */
 export const TOLERANCIA_DA_DIVERGENCIA = 0.01
 
@@ -44,22 +41,62 @@ export const blocoVazio = (): BlocoTributario =>
 
 export type Recalculo =
     | { ok: true; credito_pct: number; credito_valor: number; custo_liquido: number }
-    | { ok: false; faltam: string[] }
+    /**
+     * Não recalculável, com o nome do que falta. `ate_o_icms` é o saldo depois do crédito de ICMS quando a cascata andou até ali e parou
+     * (PIS/COFINS vazio): a cascata para, e nada é suposto no lugar do que falta — nem 0, nem 9,25.
+     */
+    | { ok: false; faltam: string[]; ate_o_icms?: number }
 
 /**
- * O recálculo do resultado pelos percentuais e pelo custo bruto. Falta de dado é NÃO RECALCULÁVEL, com o nome do que falta — nunca 0
- * no lugar (`faltou-dado-recusa-nomeada.md`). Os não creditáveis não entram em nada aqui.
+ * O recálculo do resultado pela CASCATA (dono do produto, 09/11/2026 — `docs/regras/custo-liquido-por-fracao.md`), na unidade de compra:
+ *
+ *   crédito de ICMS       = bruto × ICMS                 (sobre o bruto)
+ *   crédito de PIS/COFINS = (bruto − crédito de ICMS) × PIS/COFINS   (sobre o SALDO)
+ *   crédito de IPI        = bruto × IPI creditável        (fora da cascata, com base própria: o bruto)
+ *   IPI sem crédito       = bruto × IPI não creditável    (compõe o custo)
+ *   custo_liquido = bruto − créditos + IPI sem crédito;  credito_valor = os créditos;  credito_pct = credito_valor ÷ bruto × 100 (o efetivo)
+ *
+ * Substitui a soma do #208 (02/11/2026: credito_pct = a soma dos percentuais, aplicada sobre o bruto). Sem arredondar no meio: o número da
+ * entrada é o que se divide depois (`custoLiquidoDaFracao`).
+ *
+ * Falta de dado é NÃO RECALCULÁVEL, com o nome do que falta — nunca 0 no lugar (`faltou-dado-recusa-nomeada.md`):
+ *   - o custo e o ICMS são exigidos; sem o ICMS a cascata não começa;
+ *   - sem o PIS/COFINS a cascata PARA depois do ICMS (`ate_o_icms`);
+ *   - o IPI vai pelo par (decisão de 02/11/2026): o creditável ou o não creditável, um dos dois;
+ *   - IBS e CBS continuam exigidos (decisão de 02/11/2026); a regra da cascata não diz onde entram, então só o 0 passa — o percentual acima
+ *     de 0 é não recalculável, nomeado, até o dono do produto decidir;
+ *   - ICMS-ST, DIFAL e IS não entram (a regra só põe o IPI sem crédito no custo).
  */
 export function recalcularBloco(custo: number | null, b: BlocoTributario): Recalculo {
     const faltam: string[] = []
     if (custo === null) faltam.push('custo')
-    for (const c of EXIGIDOS_NO_RECALCULO) if (b[c] === null) faltam.push(c)
+    if (b.cred_icms_pct === null) faltam.push('cred_icms_pct')
+    if (b.cred_pis_cofins_pct === null) faltam.push('cred_pis_cofins_pct')
+    for (const c of ['cred_ibs_pct', 'cred_cbs_pct'] as const) {
+        const v = b[c]
+        if (v === null) faltam.push(c)
+        else if (v !== 0) faltam.push(`${c} = ${n(v)}: a cascata de 09/11/2026 não diz onde o IBS e a CBS entram`)
+    }
     if (b.cred_ipi_pct === null && b.nc_ipi_pct === null) faltam.push('cred_ipi_pct (ou nc_ipi_pct, quando o IPI não é creditável)')
-    if (faltam.length > 0 || custo === null) return { ok: false, faltam }
-    const somados = [...EXIGIDOS_NO_RECALCULO.map((c) => b[c] as number), ...(b.cred_ipi_pct === null ? [] : [b.cred_ipi_pct])]
-    const credito_pct = somados.reduce((s, v) => s + v, 0)
-    const credito_valor = (custo * credito_pct) / 100
-    return { ok: true, credito_pct, credito_valor, custo_liquido: custo - credito_valor }
+    if (custo === null || b.cred_icms_pct === null) return { ok: false, faltam }
+    const icms = (custo * b.cred_icms_pct) / 100
+    const saldo = custo - icms
+    if (b.cred_pis_cofins_pct === null) return { ok: false, faltam, ate_o_icms: saldo }
+    if (faltam.length > 0) return { ok: false, faltam }
+    const pis = (saldo * b.cred_pis_cofins_pct) / 100
+    const ipiCreditado = b.cred_ipi_pct === null ? 0 : (custo * b.cred_ipi_pct) / 100
+    const ipiSemCredito = b.nc_ipi_pct === null ? 0 : (custo * b.nc_ipi_pct) / 100
+    const credito_valor = icms + pis + ipiCreditado
+    return { ok: true, credito_pct: custo === 0 ? 0 : (credito_valor / custo) * 100, credito_valor, custo_liquido: custo - credito_valor + ipiSemCredito }
+}
+
+/**
+ * O custo líquido da FRAÇÃO (dono do produto, 09/11/2026): o líquido da unidade de compra dividido pela medida dela (6 m, 5,50 m, 1 peça).
+ * A cascata roda antes, na unidade de compra; a divisão vem depois. Medida ausente ou não positiva não divide: é nulo, nunca o líquido inteiro.
+ */
+export function custoLiquidoDaFracao(custoLiquidoDaUnidade: number, medidaDaUnidade: number | null): number | null {
+    if (medidaDaUnidade === null || !Number.isFinite(medidaDaUnidade) || medidaDaUnidade <= 0) return null
+    return custoLiquidoDaUnidade / medidaDaUnidade
 }
 
 export type DivergenciaDoBloco = { coluna: (typeof COLUNAS_DO_RESULTADO)[number]; arquivo: number; calculado: number }

@@ -7,8 +7,9 @@
  * A fixture principal é o arquivo de PERSIANAS da Wolff, como o dono do produto o mediu em 02/11/2026: CABECALHO (PERSIANAS, Wolff, 2026-11-02,
  * regime e uf vazios, BRL) e 76 itens, TODOS com custo_bruto, vendido_por barra e unidade, ICMS 12 e PIS/COFINS 9,25 em todos, credito_pct = 21,25
  * em TODAS as linhas, e o IPI creditável assim: 38 linhas com 6,5 (caixas e guias), 4 com 3,25 (persianas de PVC), 8 com 0, 26 vazio (nc_ipi_pct
- * também vazio). Pela regra do #208 (o recálculo SOMA o IPI creditável; o IPI vai pelo par), o teste espera EXATAMENTE: 42 divergências
- * (27,75 ou 24,5 contra 21,25), 26 "não recalculável" nomeando o IPI, 8 sem aviso — e NENHUM valor sobrescrito: grava o que veio.
+ * também vazio). Pela CASCATA de 09/11/2026 (ICMS sobre o bruto, PIS/COFINS sobre o saldo — 12 + 9,25 dá 20,14% efetivo, não 21,25 —, o IPI
+ * creditável sobre o bruto; o IPI vai pelo par), o teste espera EXATAMENTE: 50 divergências (26,64, 23,39 ou 20,14 contra 21,25), 26 "não
+ * recalculável" nomeando o IPI, nenhuma sem aviso — e NENHUM valor sobrescrito: grava o que veio. (Pela soma do #208 eram 42, 26 e 8.)
  * A segunda fixture é o Reforço: 18 itens, 8 sem custo_bruto, que entram com o custo em branco e um aviso.
  *
  * As planilhas são MONTADAS aqui com o exceljs (os arquivos reais não estão no repositório), com valores que distinguem o certo do errado.
@@ -129,33 +130,34 @@ describe('PERSIANAS da Wolff — o caso completo do layout único', () => {
         expect(avisosDo(r, 'itens_sem_custo')).toEqual([])
     })
 
-    it('o bloco tributário: 42 divergências (27,75 ou 24,5 contra 21,25), 26 não recalculáveis nomeando o IPI, 8 sem aviso — e NENHUM valor sobrescrito', async () => {
+    it('o bloco tributário pela cascata: 50 divergências (26,64, 23,39 ou 20,14 contra 21,25), 26 não recalculáveis nomeando o IPI — e NENHUM valor sobrescrito', async () => {
         const r = await lida(arquivoDePersianas())
         const divergentes = avisosDo(r, 'bloco_tributario_divergente')
         const naoRecalculaveis = avisosDo(r, 'bloco_tributario_nao_recalculavel')
-        expect([divergentes.length, naoRecalculaveis.length, doBloco(r).length]).toEqual([42, 26, 68])
-        // quem diverge: as 38 de 6,5 e as 4 de 3,25 — nas três colunas do resultado, com o recalculado certo
+        expect([divergentes.length, naoRecalculaveis.length, doBloco(r).length]).toEqual([50, 26, 76])
+        // quem diverge: as 38 de 6,5, as 4 de 3,25 e as 8 de 0 — nas três colunas do resultado, com o recalculado da cascata (20,14 + o IPI)
         const porCodigo = new Map(r.itens.map((i) => [i.codigo, i]))
         for (const d of divergentes) {
             const it = porCodigo.get(d.codigo)!
-            const esperado = it.cred_ipi_pct === 6.5 ? 27.75 : 24.5
-            expect([6.5, 3.25]).toContain(it.cred_ipi_pct)
+            const esperado = it.cred_ipi_pct === 6.5 ? 26.64 : it.cred_ipi_pct === 3.25 ? 23.39 : 20.14
+            expect([6.5, 3.25, 0]).toContain(it.cred_ipi_pct)
             expect(d.divergencias.map((x) => x.coluna)).toEqual(['credito_pct', 'credito_valor', 'custo_liquido'])
             expect(d.divergencias[0]).toMatchObject({ arquivo: 21.25 })
             expect(d.divergencias[0].calculado).toBeCloseTo(esperado, 10)
         }
         expect(divergentes.filter((d) => porCodigo.get(d.codigo)!.cred_ipi_pct === 6.5)).toHaveLength(38)
         expect(divergentes.filter((d) => porCodigo.get(d.codigo)!.cred_ipi_pct === 3.25)).toHaveLength(4)
+        expect(divergentes.filter((d) => porCodigo.get(d.codigo)!.cred_ipi_pct === 0)).toHaveLength(8)
         // quem não recalcula: as 26 sem IPI de lado nenhum
         for (const n of naoRecalculaveis) {
             expect(porCodigo.get(n.codigo)).toMatchObject({ cred_ipi_pct: null, nc_ipi_pct: null })
             expect(n.faltam).toEqual(['cred_ipi_pct (ou nc_ipi_pct, quando o IPI não é creditável)'])
         }
-        // as 8 com IPI 0 batem: 12 + 9,25 + 0 = 21,25
+        // as 8 com IPI 0 batiam pela soma (12 + 9,25 + 0 = 21,25) e não batem pela cascata: o crédito de PIS/COFINS é sobre o saldo depois do ICMS
         const zero = r.itens.filter((i) => i.cred_ipi_pct === 0)
         expect(zero).toHaveLength(8)
-        const comAviso = new Set(doBloco(r).map((a) => (a as { codigo: string }).codigo))
-        for (const z of zero) expect(comAviso.has(z.codigo)).toBe(false)
+        const comAviso = new Set(divergentes.map((a) => (a as { codigo: string }).codigo))
+        for (const z of zero) expect(comAviso.has(z.codigo)).toBe(true)
         // nenhum valor sobrescrito: as 76 gravam o que veio no arquivo
         for (const i of r.itens) {
             const custo = i.custo as number
@@ -219,9 +221,18 @@ describe('REFORÇO METÁLICO da Wolff — 18 itens, 8 sem custo_bruto', () => {
         for (const i of r.itens.filter((x) => x.custo !== null)) expect(i.valor_barra_interno).toBe(i.custo)
     })
 
-    it('o crédito 21,25 e o líquido conferem nos 10 com preço (o IPI é não creditável e não entra); os 8 sem preço não têm o que conferir', async () => {
+    it('pela cascata, os 10 com preço divergem (20,14% de crédito e o IPI não creditável de 3,25 COMPÕE o custo); os 8 sem preço não têm o que conferir', async () => {
         const r = await lida(arquivoDeReforco())
-        expect(doBloco(r)).toEqual([])
+        const divergentes = avisosDo(r, 'bloco_tributario_divergente')
+        expect([divergentes.length, doBloco(r).length]).toEqual([10, 10])
+        const porCodigo = new Map(r.itens.map((i) => [i.codigo, i]))
+        for (const d of divergentes) {
+            const custo = porCodigo.get(d.codigo)!.custo as number
+            expect(d.divergencias.map((x) => x.coluna)).toEqual(['credito_pct', 'credito_valor', 'custo_liquido'])
+            expect(d.divergencias[0].calculado).toBeCloseTo(20.14, 10)
+            // bruto − 12% − 9,25% do saldo + 3,25% do bruto
+            expect(d.divergencias[2].calculado).toBeCloseTo(custo * (1 - 0.2014 + 0.0325), 10)
+        }
         for (const i of r.itens.filter((x) => x.custo !== null)) expect([i.credito_pct, i.nc_ipi_pct, i.cred_ipi_pct]).toEqual([21.25, 3.25, null])
     })
 

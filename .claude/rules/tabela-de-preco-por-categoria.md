@@ -841,6 +841,10 @@ Formulação do dono do produto, registrada como está:
   `credito_valor` = custo × pct ÷ 100; `custo_liquido` = custo − crédito; os não creditáveis não entram; o IPI vai pelo par (creditável, ou vazio com o
   não creditável preenchido) e os outros quatro são exigidos. Diferença acima de 0,01 é **divergência**: grava o que veio e reporta item a item
   (`bloco_tributario_divergente`); falta de dado é `bloco_tributario_nao_recalculavel`, nomeando o que falta. Resultado vazio no arquivo fica vazio.
+  **SUBSTITUÍDO em 09/11/2026 (dono do produto) pela CASCATA** de `docs/regras/custo-liquido-por-fracao.md`: o crédito de ICMS sobre o bruto, o de
+  PIS/COFINS sobre o SALDO, o IPI creditável sobre o bruto (base própria) e o IPI SEM crédito compondo o custo; `credito_pct` é o efetivo
+  (12 + 9,25 dá 20,14%, não 21,25%). Sem o PIS/COFINS a cascata para depois do ICMS; IBS e CBS acima de 0 são não recalculáveis, nomeados, até a
+  regra dizer onde entram. A conferência continua só conferindo: grava o que veio e reporta.
 - **O cálculo do orçamento e a conversa NÃO leem estas colunas** (o pedido: "só gravação e leitura").
 - **Prova:** `scripts/harness/bloco-tributario/` (12 casos e 2 contrastes; 31 de 32 mutações mortas — a sobrevivente, o REVOKE só de PUBLIC na passada
   sem a verificação, não muda nada em produção, porque o `CREATE OR REPLACE` preserva o ACL da função que já existe) e
