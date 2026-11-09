@@ -25,7 +25,8 @@ const estado = {
     db: {} as Record<string, Linha[]>,
     ops: [] as Operacao[],
     papel: 'admin',
-    erros: {} as Record<string, Array<{ code: string; message: string }>>,
+    /** o erro da N-ésima operação de `tabela:op`; `null` na fila é uma operação que passa */
+    erros: {} as Record<string, Array<{ code: string; message: string } | null>>,
     custo: null as unknown,
     chamadasDoCusto: [] as Array<{ tenant: string; lev: { nome: string; itens: Linha[] } }>,
     /** os ids que o update não atinge (a linha que sumiu entre a leitura e a escrita) */
@@ -152,8 +153,12 @@ describe('(1) a ordem da escrita e o que cada passo grava', () => {
         const r = await K().calcularOrcamento(T, O1, new Date('2026-11-09T15:00:00Z'), () => 'calc-novo')
         const w = escritas()
         expect(w.map((o) => `${o.tabela}:${o.op}`)).toEqual([
-            'orcamentista_orcamento_item_material:insert', 'orcamentista_orcamento_item:update', 'orcamentista_orcamento_item:update', 'orcamentista_orcamento:update',
+            'orcamentista_orcamento:update', 'orcamentista_orcamento_item_material:insert', 'orcamentista_orcamento_item:update', 'orcamentista_orcamento_item:update', 'orcamentista_orcamento:update',
         ])
+        // 0. antes de qualquer número novo, os totais e o valor de venda do cálculo de antes deixam de valer
+        expect(w[0].carga).toMatchObject({ valor_total_bruto: null, valor_total_liquido: null, valor_venda: null })
+        expect(w[0].filtros).toEqual([['eq', 'tenant_id', T], ['eq', 'id', O1]])
+        w.shift()
         const material = w[0].carga as Linha[]
         expect(material.map((m) => [m.tenant_id, m.orcamento_item_id, m.calculo_id, m.codigo])).toEqual([[T, 'i1', 'calc-novo', 'A'], [T, 'i2', 'calc-novo', 'A']])
         for (const o of w.slice(1)) expect(o.filtros).toContainEqual(['eq', 'tenant_id', T])
@@ -164,7 +169,7 @@ describe('(1) a ordem da escrita e o que cada passo grava', () => {
     })
     it('o orçamento: o fallback do modo, com origem e motivo; os totais; os congelados do levantamento; e NÃO o valor de venda', async () => {
         await K().calcularOrcamento(T, O1, new Date('2026-11-09T15:00:00Z'), () => 'calc-novo')
-        const carga = escritas().find((o) => o.tabela === 'orcamentista_orcamento')!.carga as Linha
+        const carga = escritas().filter((o) => o.tabela === 'orcamentista_orcamento').pop()!.carga as Linha
         expect(carga).toMatchObject({
             aproveitamento_modo: 'SEM', aproveitamento_origem: 'fallback_barra_inteira', aproveitamento_motivo: C().MOTIVO_DO_FALLBACK, aproveitamento_por: null,
             valor_total_bruto: 450 + 60 + 250 + 30, valor_total_liquido: 510 + 280,
@@ -176,7 +181,7 @@ describe('(1) a ordem da escrita e o que cada passo grava', () => {
     it('o manual: sem levantamento, nenhum congelado é escrito (nem como nulo)', async () => {
         estado.custo = { ok: true, itens: [itemDoCusto(300, 30)], maoDeObra: { custoMensal: 1, minutosDaEmpresa: 2, valorDoMinuto: 0.5 } }
         await K().calcularOrcamento(T, O2, new Date(), () => 'c2')
-        const carga = escritas().find((o) => o.tabela === 'orcamentista_orcamento')!.carga as Linha
+        const carga = escritas().filter((o) => o.tabela === 'orcamentista_orcamento').pop()!.carga as Linha
         expect('comissao_percentual' in carga).toBe(false)
         expect(estado.chamadasDoCusto[0].lev.itens[0]).toMatchObject({ escolhas: null, familia: null })
     })
@@ -228,10 +233,27 @@ describe('(3) a rota', () => {
         expect(s.status).toBe(503)
         expect(s.corpo.error).toBe(K().FRASE_SEM_MIGRACAO_DO_CALCULO)
     })
-    it('o item que não foi atingido (sumiu entre a leitura e a escrita): erro que diz o que ficou, e o orçamento não é tocado', async () => {
+    it('o item que não foi atingido (sumiu entre a leitura e a escrita): erro que diz o que ficou, e os totais ficam NULOS', async () => {
         estado.naoAtinge = ['i2']
         await expect(K().calcularOrcamento(T, O1, new Date(), () => 'c')).rejects.toThrow('o item i2 não foi atualizado (o cálculo c ficou gravado no material)')
-        expect(escritas().some((o) => o.tabela === 'orcamentista_orcamento')).toBe(false)
+        const orc = estado.db.orcamentista_orcamento.find((o) => o.id === O1)!
+        expect([orc.valor_total_bruto, orc.valor_total_liquido, orc.valor_venda]).toEqual([null, null, null])
+    })
+    it('a FALHA NO PASSO 3, com os itens novos gravados: os totais do orçamento ficam NULOS — nunca os do cálculo anterior', async () => {
+        // o cálculo anterior deixou totais e um valor de venda; o passo 0 passa, o passo 3 falha
+        Object.assign(estado.db.orcamentista_orcamento.find((o) => o.id === O1)!, { valor_total_bruto: 999, valor_total_liquido: 888, valor_venda: 1200 })
+        estado.erros['orcamentista_orcamento:update'] = [null, { code: 'XX000', message: 'a conexão caiu' }]
+        await expect(K().calcularOrcamento(T, O1, new Date(), () => 'c')).rejects.toThrow('orcamentista_orcamento: a conexão caiu')
+        const orc = estado.db.orcamentista_orcamento.find((o) => o.id === O1)!
+        expect([orc.valor_total_bruto, orc.valor_total_liquido, orc.valor_venda]).toEqual([null, null, null])
+        // os itens, esses, já apontam o cálculo novo: é o estado que a tela mostra como "cálculo incompleto — recalcule"
+        const itens = estado.db.orcamentista_orcamento_item.filter((i) => i.orcamento_id === O1)
+        expect(itens.map((i) => [i.calculo_id, i.custo_liquido_total])).toEqual([['c', 510], ['c', 280]])
+    })
+    it('o orçamento que não é atingido no passo 0: nada é gravado', async () => {
+        estado.naoAtinge = [O1]
+        await expect(K().calcularOrcamento(T, O1, new Date(), () => 'c')).rejects.toThrow('não foi atingido ao anular os totais; nada foi gravado')
+        expect(escritas().filter((o) => o.op === 'insert')).toEqual([])
     })
     it('o id que não é uuid: 404 SEM ler o banco do orçamento', async () => {
         const s = await chamar(rota, 'POST', 'nao-e-uuid')

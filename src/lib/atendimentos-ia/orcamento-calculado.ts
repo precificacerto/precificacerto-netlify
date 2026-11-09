@@ -8,9 +8,14 @@
  * Os percentuais da comissão, da reserva técnica e do lucro do orçamento do agente vêm CONGELADOS do levantamento (os nomes e as faixas
  * são os mesmos); o manual não os tem de onde copiar e fica com o que tiver.
  *
- * A ORDEM DA ESCRITA É A QUE NÃO DEIXA NÚMERO SEM ORIGEM: o material antes do item (o item só aponta um cálculo que já existe — a CHECK
- * `..._valores_com_calculo` e a leitura por `calculo_id`), o item antes do orçamento. As três escritas não são uma transação: se a segunda
- * ou a terceira falha, o material gravado fica órfão de apontador (legível, nunca lido como vigente) e a recusa diz o que ficou.
+ * A ORDEM DA ESCRITA É A QUE NÃO DEIXA NÚMERO ERRADO (dono do produto, 09/11/2026):
+ *   0. ANULA, no orçamento, os totais e o valor de venda — o cálculo de antes deixa de valer ANTES de qualquer número novo;
+ *   1. o material, com o `calculo_id` novo (o item só aponta um cálculo que já existe);
+ *   2. os itens, apontando o cálculo;
+ *   3. o orçamento: os totais e os percentuais.
+ * As escritas não são uma transação. A falha no meio deixa os totais NULOS — ausentes e visíveis ("cálculo incompleto — recalcule", na
+ * tela) — nunca os VELHOS ao lado dos itens novos, que seria número errado em dinheiro. O material de um cálculo interrompido fica sem
+ * apontador (legível, nunca lido como vigente): DÍVIDA CONHECIDA e aceita pelo dono do produto; a forma atômica seria uma função no banco.
  *
  * Toda leitura e escrita leva o `tenant_id` do chamador. Nada evolui com falta: a recusa do cálculo volta nomeada e nada é gravado.
  */
@@ -88,6 +93,14 @@ export async function calcularOrcamento(tenantId: string, id: string, agora: Dat
 
     const calculo_id = novoId()
     const calculado_em = agora.toISOString()
+    // 0. o cálculo de antes deixa de valer: os totais e o valor de venda ficam nulos até o passo 3
+    {
+        const { data, error } = await db().from(TABELA_DO_ORCAMENTO)
+            .update({ valor_total_bruto: null, valor_total_liquido: null, valor_venda: null, atualizado_em: calculado_em })
+            .eq('tenant_id', tenantId).eq('id', id).select('id')
+        if (error) falhou(TABELA_DO_ORCAMENTO, error)
+        if (!data || data.length !== 1) throw new Error(`${TABELA_DO_ORCAMENTO}: o orçamento ${id} não foi atingido ao anular os totais; nada foi gravado`)
+    }
     // 1. o material, com o cálculo novo
     const linhas = custo.itens.flatMap((c, k) => c.materiais.map((m) => ({ tenant_id: tenantId, orcamento_item_id: orc.itens[k].id, calculo_id, ...m })))
     if (linhas.length) {
