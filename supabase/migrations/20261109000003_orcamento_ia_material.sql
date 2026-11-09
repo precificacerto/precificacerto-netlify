@@ -33,9 +33,11 @@
 --      legível depois.
 --   3. NO ITEM: calculo_id e calculado_em andam juntos; e os valores da 20261109000002 (custo_bruto_materiais em diante) só existem com
 --      um cálculo apontado — o número do item tem sempre a relação de materiais de onde saiu.
---   4. O CRÉDITO NÃO APURADO NUNCA BARATEIA: quando o bloco tributário do material não fecha a cascata (o dado "vem depois", dono do
---      produto, 09/11/2026), `credito_nao_apurado` diz o que faltou e o custo líquido da unidade É o bruto — sem crédito nenhum. A CHECK
---      `..._sem_credito_nao_barateia` prende isso no banco.
+--   4. A FALTA SEMPRE VISÍVEL, E O FALLBACK QUE NUNCA BARATEIA (dono do produto, 09/11/2026, decisão (b)): IBS e CBS nulos não travam
+--      nada; ICMS e PIS/COFINS fazem a cascata PARCIAL — sem PIS/COFINS ela para depois do ICMS, sem ICMS não começa. Duas CHECKs:
+--      `..._falta_nomeada`: `credito_nao_apurado` é nulo EXATAMENTE quando os dois créditos existem — a cascata parcial guarda o líquido
+--        dela E o que faltou, e nenhum dos dois some;
+--      `..._sem_credito_nao_barateia`: sem nenhum dos dois créditos, o custo líquido da unidade É o bruto.
 --
 -- IDEMPOTENTE: CREATE TABLE IF NOT EXISTS, ADD COLUMN IF NOT EXISTS, cada constraint só se o nome não existe; a verificação confere a
 --   forma.
@@ -119,8 +121,10 @@ CREATE TABLE IF NOT EXISTS public.orcamentista_orcamento_item_material (
   CONSTRAINT orcamentista_orcamento_item_material_valores_nao_negativos CHECK ((custo_bruto_unidade >= 0) AND (custo_liquido_unidade >= 0) AND ((custo_liquido_fracao IS NULL) OR (custo_liquido_fracao >= 0)) AND (consumo_item >= 0) AND (custo_bruto_material >= 0) AND (custo_liquido_material >= 0)),
   CONSTRAINT orcamentista_orcamento_item_material_percentuais_na_faixa CHECK (((cred_icms_pct IS NULL) OR ((cred_icms_pct >= 0) AND (cred_icms_pct <= 100))) AND ((cred_pis_cofins_pct IS NULL) OR ((cred_pis_cofins_pct >= 0) AND (cred_pis_cofins_pct <= 100))) AND ((cred_ipi_pct IS NULL) OR ((cred_ipi_pct >= 0) AND (cred_ipi_pct <= 100))) AND ((nc_ipi_pct IS NULL) OR ((nc_ipi_pct >= 0) AND (nc_ipi_pct <= 100))) AND ((cred_ibs_pct IS NULL) OR ((cred_ibs_pct >= 0) AND (cred_ibs_pct <= 100))) AND ((cred_cbs_pct IS NULL) OR ((cred_cbs_pct >= 0) AND (cred_cbs_pct <= 100)))),
   CONSTRAINT orcamentista_orcamento_item_material_credito_nao_apurado_forma CHECK ((credito_nao_apurado IS NULL) OR ((credito_nao_apurado ~ '^\S(.*\S)?$'::text) AND (char_length(credito_nao_apurado) <= 500))),
-  -- sem o credito apurado, o liquido e o bruto: o fallback nunca e o que barateia
-  CONSTRAINT orcamentista_orcamento_item_material_sem_credito_nao_barateia CHECK ((credito_nao_apurado IS NULL) OR (custo_liquido_unidade = custo_bruto_unidade))
+  -- a falta sempre visivel: o credito nao apurado e nulo exatamente quando o ICMS e o PIS/COFINS existem
+  CONSTRAINT orcamentista_orcamento_item_material_falta_nomeada CHECK (((cred_icms_pct IS NOT NULL) AND (cred_pis_cofins_pct IS NOT NULL)) = (credito_nao_apurado IS NULL)),
+  -- sem nenhum dos dois creditos, o liquido e o bruto: o fallback nunca e o que barateia
+  CONSTRAINT orcamentista_orcamento_item_material_sem_credito_nao_barateia CHECK (((cred_icms_pct IS NOT NULL) OR (cred_pis_cofins_pct IS NOT NULL)) OR (custo_liquido_unidade = custo_bruto_unidade))
 );
 
 CREATE INDEX IF NOT EXISTS orcamentista_orcamento_item_material_calculo_idx
@@ -136,7 +140,7 @@ GRANT SELECT, INSERT ON public.orcamentista_orcamento_item_material TO service_r
 COMMENT ON TABLE public.orcamentista_orcamento_item_material IS
   'Material consumido no item do orcamento I.A. (20261109000003), por calculo: a relacao de custo que produz o total do item. Oculta na tela; fonte dos Relatorios I.A. Gravada uma vez, nunca alterada.';
 COMMENT ON COLUMN public.orcamentista_orcamento_item_material.credito_nao_apurado IS
-  'O que faltou no bloco tributario para a cascata fechar. Preenchido: nenhum credito foi aplicado e o liquido da unidade e o bruto.';
+  'Qual credito faltou (ICMS, PIS/COFINS): nulo exatamente quando os dois existem. Sem PIS/COFINS a cascata parou depois do ICMS; sem os dois, o liquido da unidade e o bruto.';
 COMMENT ON COLUMN public.orcamentista_orcamento_item.calculo_id IS
   'O calculo vigente do item: as linhas de orcamentista_orcamento_item_material com este calculo_id produzem os valores do item.';
 
@@ -149,6 +153,7 @@ DECLARE
     'orcamentista_orcamento_item_material|orcamentista_orcamento_item_material_codigo_forma|CHECK (((codigo ~ ''^\S(.*\S)?$''::text) AND (char_length(codigo) <= 60)))',
     'orcamentista_orcamento_item_material|orcamentista_orcamento_item_material_codigo_key|UNIQUE (orcamento_item_id, calculo_id, codigo)',
     'orcamentista_orcamento_item_material|orcamentista_orcamento_item_material_credito_nao_apurado_forma|CHECK (((credito_nao_apurado IS NULL) OR ((credito_nao_apurado ~ ''^\S(.*\S)?$''::text) AND (char_length(credito_nao_apurado) <= 500))))',
+    'orcamentista_orcamento_item_material|orcamentista_orcamento_item_material_falta_nomeada|CHECK ((((cred_icms_pct IS NOT NULL) AND (cred_pis_cofins_pct IS NOT NULL)) = (credito_nao_apurado IS NULL)))',
     'orcamentista_orcamento_item_material|orcamentista_orcamento_item_material_descricao_forma|CHECK (((descricao IS NULL) OR ((descricao ~ ''^\S(.*\S)?$''::text) AND (char_length(descricao) <= 300))))',
     'orcamentista_orcamento_item_material|orcamentista_orcamento_item_material_item_fkey|FOREIGN KEY (orcamento_item_id, tenant_id) REFERENCES orcamentista_orcamento_item(id, tenant_id) ON DELETE RESTRICT',
     'orcamentista_orcamento_item_material|orcamentista_orcamento_item_material_medida_positiva|CHECK (((medida_unidade IS NULL) OR (medida_unidade > (0)::numeric)))',
@@ -156,7 +161,7 @@ DECLARE
     'orcamentista_orcamento_item_material|orcamentista_orcamento_item_material_ordem_positiva|CHECK ((ordem >= 1))',
     'orcamentista_orcamento_item_material|orcamentista_orcamento_item_material_percentuais_na_faixa|CHECK ((((cred_icms_pct IS NULL) OR ((cred_icms_pct >= (0)::numeric) AND (cred_icms_pct <= (100)::numeric))) AND ((cred_pis_cofins_pct IS NULL) OR ((cred_pis_cofins_pct >= (0)::numeric) AND (cred_pis_cofins_pct <= (100)::numeric))) AND ((cred_ipi_pct IS NULL) OR ((cred_ipi_pct >= (0)::numeric) AND (cred_ipi_pct <= (100)::numeric))) AND ((nc_ipi_pct IS NULL) OR ((nc_ipi_pct >= (0)::numeric) AND (nc_ipi_pct <= (100)::numeric))) AND ((cred_ibs_pct IS NULL) OR ((cred_ibs_pct >= (0)::numeric) AND (cred_ibs_pct <= (100)::numeric))) AND ((cred_cbs_pct IS NULL) OR ((cred_cbs_pct >= (0)::numeric) AND (cred_cbs_pct <= (100)::numeric)))))',
     'orcamentista_orcamento_item_material|orcamentista_orcamento_item_material_pkey|PRIMARY KEY (id)',
-    'orcamentista_orcamento_item_material|orcamentista_orcamento_item_material_sem_credito_nao_barateia|CHECK (((credito_nao_apurado IS NULL) OR (custo_liquido_unidade = custo_bruto_unidade)))',
+    'orcamentista_orcamento_item_material|orcamentista_orcamento_item_material_sem_credito_nao_barateia|CHECK (((cred_icms_pct IS NOT NULL) OR (cred_pis_cofins_pct IS NOT NULL) OR (custo_liquido_unidade = custo_bruto_unidade)))',
     'orcamentista_orcamento_item_material|orcamentista_orcamento_item_material_tenant_fkey|FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE RESTRICT',
     'orcamentista_orcamento_item_material|orcamentista_orcamento_item_material_unidade_forma|CHECK (((unidade_compra IS NULL) OR ((unidade_compra ~ ''^\S(.*\S)?$''::text) AND (char_length(unidade_compra) <= 20))))',
     'orcamentista_orcamento_item_material|orcamentista_orcamento_item_material_valores_nao_negativos|CHECK (((custo_bruto_unidade >= (0)::numeric) AND (custo_liquido_unidade >= (0)::numeric) AND ((custo_liquido_fracao IS NULL) OR (custo_liquido_fracao >= (0)::numeric)) AND (consumo_item >= (0)::numeric) AND (custo_bruto_material >= (0)::numeric) AND (custo_liquido_material >= (0)::numeric)))'
@@ -177,8 +182,8 @@ BEGIN
     RAISE EXCEPTION 'verificacao 1: constraint ausente ou com outra definicao: %. Nada foi alterado.', faltam;
   END IF;
   SELECT count(*) INTO n FROM pg_constraint WHERE conrelid = to_regclass('public.orcamentista_orcamento_item_material');
-  IF n <> 14 THEN
-    RAISE EXCEPTION 'verificacao 2: orcamentista_orcamento_item_material tem % constraint(s), e devia ter 14. Nada foi alterado.', n;
+  IF n <> 15 THEN
+    RAISE EXCEPTION 'verificacao 2: orcamentista_orcamento_item_material tem % constraint(s), e devia ter 15. Nada foi alterado.', n;
   END IF;
   SELECT count(*) INTO n FROM pg_constraint
    WHERE conrelid IN (to_regclass('public.orcamentista_orcamento'), to_regclass('public.orcamentista_orcamento_item'));
@@ -224,7 +229,7 @@ BEGIN
     RAISE EXCEPTION 'verificacao 11: service_role em orcamentista_orcamento_item_material tem %, e devia ter INSERT,SELECT. Nada foi alterado.', faltam;
   END IF;
   SELECT count(*) INTO n FROM public.orcamentista_orcamento_item_material;
-  RAISE NOTICE 'orcamentista_orcamento_item_material: 23 colunas, 14 constraints, 1 indice, RLS sem politica, service_role so com INSERT e SELECT. O item: 3 constraints novas (44 nas duas tabelas). Linhas no material: %.', n;
+  RAISE NOTICE 'orcamentista_orcamento_item_material: 23 colunas, 15 constraints, 1 indice, RLS sem politica, service_role so com INSERT e SELECT. O item: 3 constraints novas (44 nas duas tabelas). Linhas no material: %.', n;
 END
 $verifica$;
 
@@ -237,7 +242,7 @@ COMMIT;
 -- -- esperado: 23
 -- select conname, pg_get_constraintdef(oid) from pg_constraint
 --  where conrelid = 'public.orcamentista_orcamento_item_material'::regclass order by 1;
--- -- esperado: 14, entre elas a item_fkey composta (orcamento_item_id, tenant_id) e a sem_credito_nao_barateia
+-- -- esperado: 15, entre elas a item_fkey composta (orcamento_item_id, tenant_id), a falta_nomeada e a sem_credito_nao_barateia
 -- select conname, pg_get_constraintdef(oid) from pg_constraint
 --  where conrelid = 'public.orcamentista_orcamento_item'::regclass and conname in
 --   ('orcamentista_orcamento_item_id_tenant_key', 'orcamentista_orcamento_item_calculo_inteiro', 'orcamentista_orcamento_item_valores_com_calculo');

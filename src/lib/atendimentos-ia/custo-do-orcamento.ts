@@ -15,9 +15,9 @@
  *     do consumo daquele código em cada item, nunca por metro global nem pelo aproveitamento em metros (`custo-liquido-por-fracao.md`).
  *   - O LÍQUIDO DA UNIDADE é a CASCATA de `recalcularBloco` (ICMS sobre o bruto, PIS/COFINS sobre o saldo, IPI creditável com base
  *     própria, IPI sem crédito no custo), na unidade de compra; a fração divide depois (`custoLiquidoDaFracao`).
- *   - O CRÉDITO NÃO APURADO NÃO BARATEIA: quando o bloco do código não fecha a cascata (o dado "vem depois", dono do produto,
- *     09/11/2026), nenhum crédito é aplicado — o líquido da unidade é o bruto — e a linha diz o que faltou (`credito_nao_apurado`). A
- *     CHECK `orcamentista_orcamento_item_material_sem_credito_nao_barateia` prende o mesmo no banco.
+ *   - A FALTA SEMPRE VISÍVEL, E O FALLBACK QUE NÃO BARATEIA (decisão (b), 09/11/2026): IBS/CBS nulos não travam; ICMS e PIS/COFINS em
+ *     cascata parcial (sem PIS/COFINS para depois do ICMS; sem ICMS, o líquido é o bruto); a linha nomeia QUAL crédito faltou. As
+ *     CHECKs `..._falta_nomeada` e `..._sem_credito_nao_barateia` (migração 20261109000003) prendem o mesmo no banco.
  *   - FALTA DE PREÇO OU DE TEMPO: NADA EVOLUI. O cálculo recusa nomeando a referência e a falta (`faltou-dado-recusa-nomeada.md`).
  *   - A ENTRADA DA PRECIFICAÇÃO (decisão D2, 09/11/2026): ao motor vai o custo LÍQUIDO DOS MATERIAIS somado e os MINUTOS somados; a mão de
  *     obra sai pelo caminho de sempre. Somar a fabricação no custo seria contá-la duas vezes — `entradaDaPrecificacao` é o único lugar
@@ -101,12 +101,34 @@ const fraseSemBarras = (codigo: string) => `as barras do código ${codigo} no c�
 const fraseSemTempo = (referencia: string) => `o tempo de fabricação de ${referencia}`
 const FRASE_SEM_VALOR_DO_MINUTO = 'o valor do minuto da mão de obra: a configuração de mão de obra da empresa não fecha'
 
-/** A cascata na unidade de compra; sem o bloco completo, nenhum crédito — o líquido é o bruto, e a falta fica dita. */
-function liquidoDaUnidade(bruto: number, bloco: Percentuais): { liquido: number; nao_apurado: string | null } {
-    const r = recalcularBloco(bruto, { ...blocoVazio(), ...bloco })
+/**
+ * A cascata na unidade de compra, pela DECISÃO (b) do dono do produto (09/11/2026), que aplica o `Contrato_Tabela_Fornecedor`:
+ *   - IBS e CBS têm BASE PRÓPRIA, fora da cascata do ICMS e do PIS/COFINS: NULOS, não há o que apurar e não travam nada; PREENCHIDOS E
+ *     ACIMA DE ZERO, o código é NÃO RECALCULÁVEL (a regra ainda não diz onde entram — a parte da decisão de 02/11/2026 que permanece) — e
+ *     isso é RECUSA do orçamento, porque a linha com ICMS e PIS/COFINS não pode guardar falta (CHECK `..._falta_nomeada`);
+ *   - ICMS e PIS/COFINS fazem a cascata PARCIAL, como `recalcularBloco` (#252): sem PIS/COFINS ela PARA depois do ICMS (`ate_o_icms`);
+ *     sem ICMS não começa — o líquido é o bruto, e o fallback nunca barateia;
+ *   - `nao_apurado` nomeia QUAL crédito faltou, e é nulo EXATAMENTE quando os dois existem (o espelho da CHECK do banco);
+ *   - o IPI pelo par: os dois nulos é "não há o que apurar" (nem crédito nem custo) — ver a nota do PR.
+ */
+type UnidadeCalculada = { liquido: number; nao_apurado: string | null } | { recusa: string }
+const fraseDoIvaSemLugar = (codigo: string, quais: readonly string[]) =>
+    `o ${quais.join(' e o ')} do código ${codigo}: a regra ainda não diz onde o IBS e a CBS entram, e o código não é recalculável`
+function liquidoDaUnidade(codigo: string, bruto: number, bloco: Percentuais): UnidadeCalculada {
+    const ivaAcimaDeZero = (['cred_ibs_pct', 'cred_cbs_pct'] as const).filter((c) => bloco[c] !== null && bloco[c] !== 0)
+    if (ivaAcimaDeZero.length) return { recusa: fraseDoIvaSemLugar(codigo, ivaAcimaDeZero) }
+    const faltam = (['cred_icms_pct', 'cred_pis_cofins_pct'] as const).filter((c) => bloco[c] === null)
+    const nao_apurado = faltam.length ? `faltou no bloco tributario: ${faltam.join(', ')}` : null
+    if (bloco.cred_icms_pct === null) return { liquido: bruto, nao_apurado }
+    const semIpi = bloco.cred_ipi_pct === null && bloco.nc_ipi_pct === null
+    const r = recalcularBloco(bruto, {
+        ...blocoVazio(), ...bloco, cred_ibs_pct: bloco.cred_ibs_pct ?? 0, cred_cbs_pct: bloco.cred_cbs_pct ?? 0, cred_ipi_pct: semIpi ? 0 : bloco.cred_ipi_pct,
+    })
     // `'faltam' in r`, e não `r.ok`: com `strictNullChecks: false` (o tsconfig daqui) o tsc não estreita a união pelo booleano
     if (!('faltam' in r)) return { liquido: r.custo_liquido, nao_apurado: null }
-    return { liquido: bruto, nao_apurado: `faltou no bloco tributario: ${r.faltam.join(', ')}`.slice(0, 500) }
+    // a cascata parou depois do ICMS: o saldo dela, e a falta nomeada
+    if (r.ate_o_icms !== undefined) return { liquido: r.ate_o_icms, nao_apurado }
+    throw new Error(`liquidoDaUnidade ${codigo}: a cascata recusou o que a guarda deixou passar: ${r.faltam.join(', ')}`)
 }
 
 /** Os percentuais EFETIVOS do item: o crédito aplicado ÷ o bruto. Nulos se algum material do item não teve o crédito apurado. */
@@ -124,7 +146,9 @@ function efetivosDoItem(linhas: readonly LinhaDeMaterial[], bruto: number): Perc
         soma.cred_ibs_pct += (b * (l.cred_ibs_pct ?? 0)) / 100
         soma.cred_cbs_pct += (b * (l.cred_cbs_pct ?? 0)) / 100
     }
-    return Object.fromEntries(PERCENTUAIS.map((p): [Percentual, number] => [p, (soma[p] / bruto) * 100])) as Percentuais
+    // o percentual que NENHUM material do item informou é "não há o que apurar" no item também: nulo, nunca 0 (`ausente-vs-falso.md`)
+    return Object.fromEntries(PERCENTUAIS.map((p): [Percentual, number | null] =>
+        [p, linhas.every((l) => l[p] === null) ? null : (soma[p] / bruto) * 100])) as Percentuais
 }
 
 /**
@@ -147,10 +171,10 @@ export function custoDoOrcamento(e: EntradaDoCusto): CustoDoOrcamento {
     if (e.valor_minuto === null || !Number.isFinite(e.valor_minuto) || e.valor_minuto < 0) recusas.push(FRASE_SEM_VALOR_DO_MINUTO)
     if (recusas.length) return { ok: false, recusas }
 
-    const unidade = new Map(codigos.map((c) => {
-        const m = e.materiais[c]
-        return [c, { m, ...liquidoDaUnidade(m.valor_barra_interno as number, m.bloco) }]
-    }))
+    const calculadas = codigos.map((c) => ({ c, m: e.materiais[c], u: liquidoDaUnidade(c, e.materiais[c].valor_barra_interno as number, e.materiais[c].bloco) }))
+    const semLugar = calculadas.flatMap((x) => ('recusa' in x.u ? [x.u.recusa] : []))
+    if (semLugar.length) return { ok: false, recusas: semLugar }
+    const unidade = new Map(calculadas.map((x) => [x.c, { m: x.m, ...(x.u as { liquido: number; nao_apurado: string | null }) }]))
     const itens = e.itens.map((it): CustoDoItem => {
         const doItem = new Map<string, number>()
         for (const p of it.pecas) doItem.set(p.codigo, (doItem.get(p.codigo) ?? 0) + p.comprimento_mm * p.quantidade)

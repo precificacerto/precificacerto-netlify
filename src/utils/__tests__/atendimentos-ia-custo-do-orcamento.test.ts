@@ -107,26 +107,62 @@ describe('a cascata por material, na unidade de compra', () => {
     })
 })
 
-describe('o crédito NÃO APURADO não barateia', () => {
-    it('o IBS nulo (como em 1.096 de 1.096 referências hoje): nenhum crédito, o líquido é o bruto, e a falta é dita', () => {
-        const semIbs: Percentuais = { ...COMPLETO, cred_ibs_pct: null }
-        const r = ok({ ...base(), materiais: { ...base().materiais, A: material('A', 600, semIbs) } })
+describe('a decisão (b): IBS/CBS nulos não travam; ICMS e PIS/COFINS em cascata parcial; a falta nomeia QUAL crédito', () => {
+    const comBlocoNoA = (bloco: Percentuais) => ({ ...base(), materiais: { ...base().materiais, A: material('A', 600, bloco) } })
+    it('IBS e CBS nulos (como em 1.096 de 1.096 referências hoje): não há o que apurar — a cascata do ICMS e do PIS/COFINS vale inteira', () => {
+        const r = ok(comBlocoNoA({ ...COMPLETO, cred_ibs_pct: null, cred_cbs_pct: null }))
         const a = linha(r.itens[0], 'A')
+        expect(a.custo_liquido_unidade).toBeCloseTo(479.16, 10)
+        expect(a.credito_nao_apurado).toBeNull()
+        // no item, o que nenhum material informou é nulo, não 0; o ICMS, que todos têm, é o efetivo
+        expect(r.itens[0].cred_ibs_pct).toBeNull()
+        expect(r.itens[0].cred_cbs_pct).toBeNull()
+        expect(r.itens[0].cred_icms_pct).toBeCloseTo(12, 10)
+    })
+    it('O PERFIL (460 de 460 sem ICMS nem PIS/COFINS hoje): o líquido é o bruto, e a falta nomeia os dois', () => {
+        const a = linha(ok(comBlocoNoA({ cred_icms_pct: null, cred_pis_cofins_pct: null, cred_ipi_pct: null, nc_ipi_pct: null, cred_ibs_pct: null, cred_cbs_pct: null })).itens[0], 'A')
         expect(a.custo_liquido_unidade).toBe(600)
         expect(a.custo_liquido_material).toBeCloseTo(a.custo_bruto_material, 12)
-        expect(a.credito_nao_apurado).toContain('cred_ibs_pct')
-        // o percentual que veio da tabela fica gravado como veio; o do item é nulo, porque um material do item não teve crédito
-        expect(a.cred_icms_pct).toBe(12)
-        expect(r.itens[0].cred_icms_pct).toBeNull()
-        // o B, com o bloco completo, tem o crédito dele; o item 2 tem os dois, então também é nulo
-        expect(linha(r.itens[1], 'B').credito_nao_apurado).toBeNull()
-        expect(r.itens[1].cred_icms_pct).toBeNull()
+        expect(a.credito_nao_apurado).toBe('faltou no bloco tributario: cred_icms_pct, cred_pis_cofins_pct')
     })
-    it('o Perfil sem ICMS (460 de 460 hoje): o mesmo — sem crédito, nunca o PIS sozinho', () => {
-        const semIcms: Percentuais = { ...COMPLETO, cred_icms_pct: null }
-        const a = linha(ok({ ...base(), materiais: { ...base().materiais, A: material('A', 600, semIcms) } }).itens[0], 'A')
+    it('com ICMS e SEM PIS/COFINS: a cascata PARA depois do ICMS — o líquido fica entre o bruto e a cascata cheia, e a falta é o PIS/COFINS', () => {
+        const r = ok(comBlocoNoA({ ...COMPLETO, cred_pis_cofins_pct: null }))
+        const a = linha(r.itens[0], 'A')
+        expect(a.custo_liquido_unidade).toBeCloseTo(528, 10)
+        expect(a.custo_liquido_unidade).toBeLessThan(600)
+        expect(a.custo_liquido_unidade).toBeGreaterThan(479.16)
+        expect(a.credito_nao_apurado).toBe('faltou no bloco tributario: cred_pis_cofins_pct')
+        // um material do item com a cascata parcial: os percentuais do item não se afirmam
+        expect(r.itens[0].cred_icms_pct).toBeNull()
+    })
+    it('SEM ICMS e com PIS/COFINS: a cascata não começa — o líquido é o bruto, e a falta é o ICMS', () => {
+        const a = linha(ok(comBlocoNoA({ ...COMPLETO, cred_icms_pct: null })).itens[0], 'A')
         expect(a.custo_liquido_unidade).toBe(600)
-        expect(a.credito_nao_apurado).toContain('cred_icms_pct')
+        expect(a.credito_nao_apurado).toBe('faltou no bloco tributario: cred_icms_pct')
+    })
+    it('IBS ou CBS ACIMA DE ZERO: o código não é recalculável, e o orçamento recusa nomeando-o', () => {
+        const r = custoDoOrcamento(comBlocoNoA({ ...COMPLETO, cred_ibs_pct: 0.1, cred_cbs_pct: 0.9 }))
+        expect('recusas' in r && r.recusas).toEqual(['o cred_ibs_pct e o cred_cbs_pct do código A: a regra ainda não diz onde o IBS e a CBS entram, e o código não é recalculável'])
+        expect(r.ok).toBe(false)
+    })
+    it('IBS e CBS em ZERO, informados: a cascata vale, e o item afirma 0', () => {
+        const r = ok(base())
+        expect(r.itens[0].cred_ibs_pct).toBe(0)
+    })
+    it('o IPI sem o par (os dois nulos): não há o que apurar — nem crédito nem custo', () => {
+        const a = linha(ok(comBlocoNoA({ ...COMPLETO, cred_ipi_pct: null, nc_ipi_pct: null })).itens[0], 'A')
+        expect(a.custo_liquido_unidade).toBeCloseTo(479.16, 10)
+        expect(a.credito_nao_apurado).toBeNull()
+    })
+    it('a falta é nula EXATAMENTE quando os dois créditos existem (o espelho da CHECK falta_nomeada)', () => {
+        const blocos: Percentuais[] = [COMPLETO, { ...COMPLETO, cred_pis_cofins_pct: null }, { ...COMPLETO, cred_icms_pct: null },
+            { ...COMPLETO, cred_icms_pct: null, cred_pis_cofins_pct: null }, { ...COMPLETO, cred_ibs_pct: null }]
+        for (const b of blocos) {
+            const a = linha(ok(comBlocoNoA(b)).itens[0], 'A')
+            expect(a.credito_nao_apurado === null).toBe(b.cred_icms_pct !== null && b.cred_pis_cofins_pct !== null)
+            // e o espelho da sem_credito_nao_barateia
+            if (b.cred_icms_pct === null && b.cred_pis_cofins_pct === null) expect(a.custo_liquido_unidade).toBe(a.custo_bruto_unidade)
+        }
     })
 })
 
@@ -173,7 +209,8 @@ describe('RECONCILIAÇÃO com a precificação final (decisão D2): soma(líquid
     const casos: Array<[string, EntradaDoCusto]> = [
         ['os dois itens', base()],
         ['barras a mais e tempos quebrados', { ...base(), barras_por_codigo: { A: 4, B: 3 }, itens: base().itens.map((i, k) => ({ ...i, minutos: [137.5, 61.25][k] })) }],
-        ['o crédito não apurado num código', { ...base(), materiais: { ...base().materiais, A: material('A', 600, { ...COMPLETO, cred_ibs_pct: null }) } }],
+        ['o perfil sem crédito num código', { ...base(), materiais: { ...base().materiais, A: material('A', 600, { ...COMPLETO, cred_icms_pct: null, cred_pis_cofins_pct: null }) } }],
+        ['a cascata parcial num código', { ...base(), materiais: { ...base().materiais, A: material('A', 600, { ...COMPLETO, cred_pis_cofins_pct: null }) } }],
     ]
     it.each(casos)('%s: o custo + a mão de obra do motor é a soma das linhas, ao centavo', (_, e) => {
         const its = ok(e).itens

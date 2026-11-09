@@ -52,11 +52,21 @@ select pg_temp.confere((select count(*) from orcamentista_orcamento_item_materia
 select pg_temp.recusa(pg_temp.material(:'A', '50000000-0000-4000-8000-000000000002', '60000000-0000-4000-8000-000000000003', 'A'), '23503', 'caso 3a: o material da empresa A no item da empresa B');
 select pg_temp.passa(pg_temp.material(:'B', '50000000-0000-4000-8000-000000000002', '60000000-0000-4000-8000-000000000003', 'A'), 'caso 3b: o material da empresa B no item dela');
 
--- 4. o crédito não apurado nunca barateia
-select pg_temp.recusa(replace(pg_temp.material(:'A', '50000000-0000-4000-8000-000000000001', '60000000-0000-4000-8000-000000000004', 'C'), ', null,
-    479.16,', ', ''faltou no bloco tributario: cred_ibs_pct'', 479.16,'), '23514', 'caso 4b: credito nao apurado com o liquido abaixo do bruto');
-select pg_temp.passa(replace(pg_temp.material(:'A', '50000000-0000-4000-8000-000000000001', '60000000-0000-4000-8000-000000000004', 'D'), ', null,
-    479.16,', ', ''faltou no bloco tributario: cred_ibs_pct'', 600,'), 'caso 4c: credito nao apurado com o liquido igual ao bruto');
+-- 4. a decisão (b): a falta sempre visível (falta_nomeada) e o fallback que nunca barateia (sem_credito_nao_barateia)
+create or replace function pg_temp.bloco(codigo text, icms text, pis text, falta text, liquido text) returns text language sql as $f$
+  select format('insert into orcamentista_orcamento_item_material (tenant_id, orcamento_item_id, calculo_id, ordem, codigo, custo_bruto_unidade,
+    cred_icms_pct, cred_pis_cofins_pct, credito_nao_apurado, custo_liquido_unidade, consumo_item, custo_bruto_material, custo_liquido_material)
+    values (''00000000-0000-4000-8000-0000000000a1'', ''50000000-0000-4000-8000-000000000001'', ''60000000-0000-4000-8000-000000000004'',
+    %s, %L, 600, %s, %s, %s, %s, 3, 450, 0)', (select coalesce(max(ordem), 0) + 1 from orcamentista_orcamento_item_material), codigo, icms, pis,
+    coalesce(quote_literal(falta), 'null'), liquido)
+$f$;
+select pg_temp.passa(pg_temp.bloco('C1', '12', '9.25', null, '479.16'), 'caso 4a: ICMS e PIS/COFINS, sem falta, liquido abaixo do bruto');
+select pg_temp.passa(pg_temp.bloco('C2', '12', 'null', 'faltou no bloco tributario: cred_pis_cofins_pct', '528'), 'caso 4b: ICMS sem PIS/COFINS, falta nomeada, liquido entre o bruto e a cascata cheia (a cascata parcial)');
+select pg_temp.passa(pg_temp.bloco('C3', 'null', 'null', 'faltou no bloco tributario: cred_icms_pct, cred_pis_cofins_pct', '600'), 'caso 4c: sem os dois, falta nomeada, liquido igual ao bruto');
+select pg_temp.recusa(pg_temp.bloco('C4', 'null', 'null', 'faltou no bloco tributario: cred_icms_pct, cred_pis_cofins_pct', '500'), '23514', 'contraste 4d: sem os dois, liquido abaixo do bruto (o fallback barateando)');
+select pg_temp.recusa(pg_temp.bloco('C5', '12', '9.25', 'faltou no bloco tributario: cred_pis_cofins_pct', '479.16'), '23514', 'contraste 4e: os dois presentes e uma falta registrada');
+select pg_temp.recusa(pg_temp.bloco('C6', '12', 'null', null, '528'), '23514', 'contraste 4f: a cascata parcial sem a falta (o numero aparece e ninguem ve o que faltou)');
+select pg_temp.recusa(pg_temp.bloco('C7', 'null', 'null', null, '600'), '23514', 'contraste 4g: sem os dois e sem a falta');
 
 -- 5. as formas
 select pg_temp.recusa(replace(pg_temp.material(:'A', '50000000-0000-4000-8000-000000000001', '60000000-0000-4000-8000-000000000005', 'E'), ', 12, 9.25,', ', 100.01, 9.25,'), '23514', 'caso 5a: percentual acima de 100');
@@ -78,7 +88,7 @@ select pg_temp.confere(not has_table_privilege('anon', 'public.orcamentista_orca
 select pg_temp.confere((select relrowsecurity from pg_class where oid = 'public.orcamentista_orcamento_item_material'::regclass), 'caso 6d: RLS ligada');
 
 -- 7. a forma
-select pg_temp.confere((select count(*) from pg_constraint where conrelid = 'orcamentista_orcamento_item_material'::regclass) = 14, 'caso 7a: 14 constraints no material');
+select pg_temp.confere((select count(*) from pg_constraint where conrelid = 'orcamentista_orcamento_item_material'::regclass) = 15, 'caso 7a: 15 constraints no material');
 select pg_temp.confere((select count(*) from pg_constraint where conrelid in ('orcamentista_orcamento'::regclass, 'orcamentista_orcamento_item'::regclass)) = 44, 'caso 7b: 44 nas duas tabelas de antes');
 select pg_temp.confere((select count(*) from information_schema.columns where table_name = 'orcamentista_orcamento_item_material') = 23, 'caso 7c: 23 colunas no material');
 select pg_temp.confere((select count(*) from information_schema.columns where table_name = 'orcamentista_orcamento_item') = 28, 'caso 7d: 28 colunas no item');
