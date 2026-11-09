@@ -146,6 +146,7 @@ async function montar(props: Partial<React.ComponentProps<typeof Content>>, usua
     const root = createRoot(host)
     const erro = jest.spyOn(console, 'error').mockImplementation(() => {})
     const aviso = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    // eslint-disable-next-line testing-library/no-unnecessary-act -- a raiz do React 19 monta aqui, sem a testing-library (como os outros testes de tela)
     await act(async () => {
         root.render(<Content messageApi={mensagens()} isEditingMode={false} itemsFromApi={[]} calcBase={CALC_BASE} currentUser={usuario} {...props} />)
     })
@@ -159,7 +160,7 @@ function valorDe(host: HTMLElement, rotulo: string): string {
     if (!el) throw new Error(`rótulo ausente: ${rotulo}`)
     let linha = el.parentElement as HTMLElement
     while (linha && linha.children.length < 2) linha = linha.parentElement as HTMLElement
-    return (linha.lastElementChild?.textContent ?? '').replace(/ /g, ' ').trim()
+    return (linha.lastElementChild?.textContent ?? '').replace(/\u00a0/g, ' ').trim()
 }
 const tresNumeros = (host: HTMLElement) => ({
     custo: valorDe(host, 'Custo produto'),
@@ -270,7 +271,7 @@ describe('(C) OS DOIS MODOS SÃO O MESMO CÁLCULO, e cada um fica no seu ramo', 
         expect(host.querySelector('[data-reconciliacao]')?.getAttribute('data-reconciliacao')).toBe('nao-fecha')
     })
     it('salvar grava NO ORÇAMENTO o preço que a tela formou, com o fiscal e os percentuais — e nada em products', async () => {
-        const salvar = jest.fn(async (_: GravacaoDaPrecificacao): Promise<string[] | null> => null)
+        const salvar = jest.fn<Promise<string[] | null>, [GravacaoDaPrecificacao]>(async () => null)
         const host = await montar({ orcamento: orcamento(), onSalvarOrcamento: salvar })
         await clicar(botao(host, 'Salvar precificação do orçamento'))
         expect(salvar).toHaveBeenCalledTimes(1)
