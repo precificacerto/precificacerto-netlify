@@ -166,3 +166,7 @@ Thumbs.db
 .aios/install-log.txt
 .vercel
 .env*
+
+# bytecode do Python (os harness de mutação)
+__pycache__/
+*.pyc
