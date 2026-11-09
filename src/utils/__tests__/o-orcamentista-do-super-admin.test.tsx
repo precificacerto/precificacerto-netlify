@@ -423,7 +423,7 @@ describe('PORTÃO 4 — nenhuma tela existente muda', () => {
 
     it('mas a chave existe na FONTE, com rótulo — o bloco 2 só tira da lista de não concedíveis', () => {
         expect(MODULES.ORCAMENTISTA).toBe('orcamentista')
-        expect(MODULE_LABELS[MODULES.ORCAMENTISTA]).toBe('Orçamentista')
+        expect(MODULE_LABELS[MODULES.ORCAMENTISTA]).toBe('Conectividade I.A.')
         expect(MODULE_LABELS[MODULES.ORCAMENTISTA]).not.toBe(MODULES.ORCAMENTISTA)
     })
 

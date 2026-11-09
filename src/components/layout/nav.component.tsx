@@ -168,7 +168,10 @@ const Nav = () => {
     // só"). Só se desenha com a seção ligada no servidor (`exigeSecaoDoOrcamentista`), e nunca para
     // o super admin, que não tem conta: o `AuthGuard` o devolveria ao painel. Os dois itens abaixo
     // são o contrário — só do super admin.
-    { key: 'orcamentista', label: 'Orçamentista', icon: 'robot', href: ROUTES.ATENDIMENTOS_IA_ORCAMENTISTA, section: 'atendimentos-ia', module: MODULES.ORCAMENTISTA, hideForSuperAdmin: true, exigeSecaoDoOrcamentista: true },
+    // 09/11/2026 (dono do produto): o item passa a chamar-se "Conectividade I.A.", e ganha ao lado os "Orçamentos I.A." — o mesmo módulo e a
+    // mesma seção ligada no servidor. A chave `orcamentista` e a rota ficam.
+    { key: 'orcamentista', label: 'Conectividade I.A.', icon: 'robot', href: ROUTES.ATENDIMENTOS_IA_ORCAMENTISTA, section: 'atendimentos-ia', module: MODULES.ORCAMENTISTA, hideForSuperAdmin: true, exigeSecaoDoOrcamentista: true },
+    { key: 'orcamentos-ia', label: 'Orçamentos I.A.', icon: 'file-text', href: ROUTES.ATENDIMENTOS_IA_ORCAMENTOS, section: 'atendimentos-ia', module: MODULES.ORCAMENTISTA, hideForSuperAdmin: true, exigeSecaoDoOrcamentista: true },
     { key: 'super-ia-contas', label: 'Contas ligadas', icon: 'team', href: ROUTES.SUPER_ADMIN_IA_CONTAS, section: 'atendimentos-ia', superAdminOnly: true },
     { key: 'super-ia-fornecedores', label: 'Catálogo', icon: 'database', href: ROUTES.SUPER_ADMIN_IA_FORNECEDORES, section: 'atendimentos-ia', superAdminOnly: true },
 

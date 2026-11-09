@@ -83,7 +83,7 @@ const ROTULOS = {
   agenda: 'Agenda',
   reports: 'Relatório Agenda',
   connectivity: 'Conectividade',
-  orcamentista: 'Orçamentista',
+  orcamentista: 'Conectividade I.A.',
 } satisfies Record<ModuloRotulavel, string>
 
 /** O mapa que os três pontos de exibição leem. */

@@ -130,7 +130,8 @@ const MobileMoreDrawer = ({ open, onClose }: Props) => {
     // Super Admin
     // Atendimentos I.A. — a mesma seção do menu desktop (`nav.component.tsx`), com a mesma chave.
     // O Orçamentista é do TENANT e só com a seção ligada no servidor; os outros dois, do super admin.
-    { key: 'orcamentista', label: 'Orçamentista', href: ROUTES.ATENDIMENTOS_IA_ORCAMENTISTA, icon: <RobotOutlined />, section: 'Agentes I.A.', sectionKey: 'atendimentos-ia', module: MODULES.ORCAMENTISTA, hideForSuperAdmin: true, exigeSecaoDoOrcamentista: true },
+    { key: 'orcamentista', label: 'Conectividade I.A.', href: ROUTES.ATENDIMENTOS_IA_ORCAMENTISTA, icon: <RobotOutlined />, section: 'Agentes I.A.', sectionKey: 'atendimentos-ia', module: MODULES.ORCAMENTISTA, hideForSuperAdmin: true, exigeSecaoDoOrcamentista: true },
+    { key: 'orcamentos-ia', label: 'Orçamentos I.A.', href: ROUTES.ATENDIMENTOS_IA_ORCAMENTOS, icon: <FileTextOutlined />, section: 'Agentes I.A.', sectionKey: 'atendimentos-ia', module: MODULES.ORCAMENTISTA, hideForSuperAdmin: true, exigeSecaoDoOrcamentista: true },
     { key: 'super-ia-contas', label: 'Contas ligadas', href: ROUTES.SUPER_ADMIN_IA_CONTAS, icon: <TeamOutlined />, section: 'Agentes I.A.', sectionKey: 'atendimentos-ia', superAdminOnly: true },
     { key: 'super-ia-fornecedores', label: 'Catálogo', href: ROUTES.SUPER_ADMIN_IA_FORNECEDORES, icon: <DatabaseOutlined />, section: 'Agentes I.A.', sectionKey: 'atendimentos-ia', superAdminOnly: true },
     { key: 'super-admin', label: 'Painel Super Admin', href: ROUTES.SUPER_ADMIN_PANEL, icon: <SafetyCertificateOutlined />, section: 'Super Admin', sectionKey: 'superadmin', superAdminOnly: true },

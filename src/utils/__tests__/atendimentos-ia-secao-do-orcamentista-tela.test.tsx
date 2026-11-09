@@ -97,8 +97,6 @@ const { esquecerSecaoDoOrcamentista } = require('@/hooks/use-secao-do-orcamentis
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const paginaMod = require('@/pages/atendimentos-ia/orcamentista') as {
     default: React.ComponentType
-    TEXTO_DO_VAZIO_O_QUE_APARECE: string
-    TEXTO_DO_VAZIO_O_QUE_FALTA: string
     TEXTO_SEM_CONEXAO: string
 }
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -131,11 +129,14 @@ const perguntouASecao = () => servidor.chamadas.some((c) => c.url.endsWith('/orc
 const drawer = () => document.querySelector('.pc-mobile-more-drawer-content') as ParentNode
 
 describe('(1)(2)(3) o menu desktop', () => {
-    it('seção ligada: "Orçamentista" na seção atendimentos-ia, logo abaixo de CLIENTES — sem os itens do super admin', async () => {
+    // 09/11/2026 (dono do produto): o item "Orçamentista" passa a chamar-se "Conectividade I.A.", e "Orçamentos I.A." entra logo depois
+    it('seção ligada: "Conectividade I.A." e "Orçamentos I.A." na seção atendimentos-ia, logo abaixo de CLIENTES — sem os itens do super admin', async () => {
         const host = await montar(<Nav />)
-        expect(destinos(host)).toEqual([ROUTES.ATENDIMENTOS_IA_ORCAMENTISTA])
+        expect(destinos(host)).toEqual([ROUTES.ATENDIMENTOS_IA_ORCAMENTISTA, ROUTES.ATENDIMENTOS_IA_ORCAMENTOS])
         expect(host.querySelector(`[data-section-key="${SECAO}"] .nav-section-label`)?.textContent?.trim()).toBe('Agentes I.A.')
-        expect(host.querySelector(`[data-section-key="${SECAO}"]`)?.textContent).toContain('Orçamentista')
+        expect(host.querySelector(`a[href="${ROUTES.ATENDIMENTOS_IA_ORCAMENTISTA}"]`)?.textContent).toContain('Conectividade I.A.')
+        expect(host.querySelector(`a[href="${ROUTES.ATENDIMENTOS_IA_ORCAMENTOS}"]`)?.textContent).toContain('Orçamentos I.A.')
+        expect(host.querySelector(`[data-section-key="${SECAO}"]`)?.textContent).not.toContain('Orçamentista')
         const ordem = ordemDasSecoes(host)
         expect(ordem.indexOf(SECAO)).toBe(ordem.indexOf('clientes') + 1)
     })
@@ -146,6 +147,7 @@ describe('(1)(2)(3) o menu desktop', () => {
         expect(perguntouASecao()).toBe(true)
         expect(host.querySelector(`[data-section-key="${SECAO}"]`)).toBeNull()
         expect(host.querySelector(`a[href="${ROUTES.ATENDIMENTOS_IA_ORCAMENTISTA}"]`)).toBeNull()
+        expect(host.querySelector(`a[href="${ROUTES.ATENDIMENTOS_IA_ORCAMENTOS}"]`)).toBeNull()
         expect(host.querySelectorAll('a[href]').length).toBeGreaterThan(0)
     })
 
@@ -154,6 +156,7 @@ describe('(1)(2)(3) o menu desktop', () => {
         const host = await montar(<Nav />)
         expect(perguntouASecao()).toBe(false)
         expect(host.querySelector(`a[href="${ROUTES.ATENDIMENTOS_IA_ORCAMENTISTA}"]`)).toBeNull()
+        expect(host.querySelector(`a[href="${ROUTES.ATENDIMENTOS_IA_ORCAMENTOS}"]`)).toBeNull()
         expect(host.querySelector('[data-section-key="clientes"]')).not.toBeNull()
     })
 
@@ -166,9 +169,11 @@ describe('(1)(2)(3) o menu desktop', () => {
 })
 
 describe('(1)(2)(3) o drawer mobile', () => {
-    it('seção ligada: "Orçamentista" na mesma seção, e o bloco vem logo depois de Clientes', async () => {
+    it('seção ligada: "Conectividade I.A." e "Orçamentos I.A." na mesma seção, e o bloco vem logo depois de Clientes', async () => {
         await montar(<MobileMoreDrawer open onClose={() => {}} />)
-        expect(destinos(drawer())).toEqual([ROUTES.ATENDIMENTOS_IA_ORCAMENTISTA])
+        expect(destinos(drawer())).toEqual([ROUTES.ATENDIMENTOS_IA_ORCAMENTISTA, ROUTES.ATENDIMENTOS_IA_ORCAMENTOS])
+        expect(drawer().querySelector(`a[href="${ROUTES.ATENDIMENTOS_IA_ORCAMENTISTA}"]`)?.textContent).toContain('Conectividade I.A.')
+        expect(drawer().querySelector(`a[href="${ROUTES.ATENDIMENTOS_IA_ORCAMENTOS}"]`)?.textContent).toContain('Orçamentos I.A.')
         expect(drawer().querySelector(`[data-section-key="${SECAO}"] .pc-mobile-more-section-title`)?.textContent?.trim()).toBe('Agentes I.A.')
         const ordem = ordemDasSecoes(drawer())
         expect(ordem.indexOf(SECAO)).toBe(ordem.indexOf('clientes') + 1)
@@ -178,6 +183,7 @@ describe('(1)(2)(3) o drawer mobile', () => {
         servidor.secao = 404
         await montar(<MobileMoreDrawer open onClose={() => {}} />)
         expect(drawer().querySelector(`a[href="${ROUTES.ATENDIMENTOS_IA_ORCAMENTISTA}"]`)).toBeNull()
+        expect(drawer().querySelector(`a[href="${ROUTES.ATENDIMENTOS_IA_ORCAMENTOS}"]`)).toBeNull()
         expect(drawer().querySelectorAll('a[href]').length).toBeGreaterThan(0)
     })
 
@@ -199,16 +205,6 @@ describe('(4) a página /atendimentos-ia/orcamentista', () => {
         expect(host.querySelector('[data-painel]')).toBeNull()
         expect(host.querySelector('[data-conexao]')).toBeNull()
         expect(host.querySelector('[data-lista-vazia]')).toBeNull()
-    })
-
-    it('sem pré-definição: o estado vazio DESENHADO — o que vai aparecer e o que falta', async () => {
-        servidor.painel = { status: 200, corpo: PAINEL_VAZIO }
-        const host = await montar(<Pagina />)
-        const vazio = host.querySelector('[data-lista-vazia]')
-        expect(vazio).not.toBeNull()
-        expect(vazio!.textContent).toContain(paginaMod.TEXTO_DO_VAZIO_O_QUE_APARECE)
-        expect(vazio!.textContent).toContain(paginaMod.TEXTO_DO_VAZIO_O_QUE_FALTA)
-        expect(host.querySelectorAll('[data-levantamento]')).toHaveLength(0)
     })
 
     it('sem conexão: uma linha dizendo isso, com o link para Conectividade — sem repetir a célula', async () => {
@@ -233,25 +229,21 @@ describe('(4) a página /atendimentos-ia/orcamentista', () => {
         expect(host.querySelector('[data-liberadas]')?.textContent).toContain('3')
     })
 
-    it('com levantamentos: código, quem pediu, quando, e o estado — travessão quando vazio', async () => {
+    // 09/11/2026 (dono do produto): "Conectividade é a ligação; levantamentos é os arquivos gerados sobre a conversa" — a lista sai daqui
+    it('é SÓ A LIGAÇÃO: com levantamentos na resposta do painel, nenhuma lista, nenhum vazio de lista e nenhum cartão "Levantamentos"', async () => {
         servidor.painel = {
             status: 200,
             corpo: {
                 ...PAINEL_VAZIO,
-                levantamentos: [
-                    { id: 'p2', codigo: 'E5F6A7B8', quemPediu: '(54) •••••-6655', quando: '2026-10-21T11:00:00Z', estado: null },
-                    { id: 'p1', codigo: 'A1B2C3D4', quemPediu: 'Ana', quando: '2026-10-21T09:00:00Z', estado: 'EM_LEVANTAMENTO' },
-                ],
+                levantamentos: [{ id: 'p1', codigo: 'A1B2C3D4', quemPediu: 'Ana', quando: '2026-10-21T09:00:00Z', estado: 'EM_LEVANTAMENTO' }],
             },
         }
         const host = await montar(<Pagina />)
-        const linhas = Array.from(host.querySelectorAll('[data-levantamento]'))
-        expect(linhas.map((l) => l.getAttribute('data-levantamento'))).toEqual(['p2', 'p1'])
-        expect(linhas[0].textContent).toContain('E5F6A7B8')
-        expect(linhas[0].textContent).toContain('(54) •••••-6655')
-        expect(linhas[0].querySelector('[data-estado-do-levantamento]')?.textContent).toBe('—')
-        expect(linhas[1].querySelector('[data-estado-do-levantamento]')?.textContent).toBe('EM_LEVANTAMENTO')
+        expect(host.querySelector('[data-conexao]')).not.toBeNull()
+        expect(host.querySelectorAll('[data-levantamento]')).toHaveLength(0)
         expect(host.querySelector('[data-lista-vazia]')).toBeNull()
+        expect(host.textContent).not.toContain('A1B2C3D4')
+        expect(host.textContent).not.toContain('Levantamentos')
     })
 
     it('LEITURA APENAS: nenhum botão na página, e só GET sai dela', async () => {
@@ -264,7 +256,8 @@ describe('(4) a página /atendimentos-ia/orcamentista', () => {
 })
 
 describe('(5) Permissões de Acesso', () => {
-    it('"Orçamentista" aparece, no grupo "Atendimentos I.A.", entre Clientes e Comercial', async () => {
+    // 09/11/2026: o rótulo da permissão é o mesmo do menu, "Conectividade I.A." — a tela de Funcionários não fica com dois nomes para o módulo
+    it('"Conectividade I.A." aparece, no grupo "Atendimentos I.A.", entre Clientes e Comercial', async () => {
         const host = await montar(<Employees />)
         const botao = Array.from(host.querySelectorAll('button')).find((b) => (b.textContent || '').includes('Novo Funcionário'))
         expect(botao).toBeTruthy()
@@ -274,7 +267,8 @@ describe('(5) Permissões de Acesso', () => {
         const painel = t.slice(t.indexOf('Permissões de Acesso'))
         const iCli = painel.indexOf('Clientes')
         const iAte = painel.indexOf('Atendimentos I.A.')
-        const iOrc = painel.indexOf('Orçamentista')
+        const iOrc = painel.indexOf('Conectividade I.A.')
+        expect(painel).not.toContain('Orçamentista')
         const iCom = painel.indexOf('Comercial')
         expect(iAte).toBeGreaterThan(iCli)
         expect(iOrc).toBeGreaterThan(iAte)
