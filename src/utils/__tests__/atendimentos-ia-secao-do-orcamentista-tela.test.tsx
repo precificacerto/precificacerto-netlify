@@ -131,11 +131,14 @@ const perguntouASecao = () => servidor.chamadas.some((c) => c.url.endsWith('/orc
 const drawer = () => document.querySelector('.pc-mobile-more-drawer-content') as ParentNode
 
 describe('(1)(2)(3) o menu desktop', () => {
-    it('seção ligada: "Orçamentista" na seção atendimentos-ia, logo abaixo de CLIENTES — sem os itens do super admin', async () => {
+    // 09/11/2026 (dono do produto): o item "Orçamentista" passa a chamar-se "Conectividade I.A.", e "Orçamentos I.A." entra logo depois
+    it('seção ligada: "Conectividade I.A." e "Orçamentos I.A." na seção atendimentos-ia, logo abaixo de CLIENTES — sem os itens do super admin', async () => {
         const host = await montar(<Nav />)
-        expect(destinos(host)).toEqual([ROUTES.ATENDIMENTOS_IA_ORCAMENTISTA])
+        expect(destinos(host)).toEqual([ROUTES.ATENDIMENTOS_IA_ORCAMENTISTA, ROUTES.ATENDIMENTOS_IA_ORCAMENTOS])
         expect(host.querySelector(`[data-section-key="${SECAO}"] .nav-section-label`)?.textContent?.trim()).toBe('Agentes I.A.')
-        expect(host.querySelector(`[data-section-key="${SECAO}"]`)?.textContent).toContain('Orçamentista')
+        expect(host.querySelector(`a[href="${ROUTES.ATENDIMENTOS_IA_ORCAMENTISTA}"]`)?.textContent).toContain('Conectividade I.A.')
+        expect(host.querySelector(`a[href="${ROUTES.ATENDIMENTOS_IA_ORCAMENTOS}"]`)?.textContent).toContain('Orçamentos I.A.')
+        expect(host.querySelector(`[data-section-key="${SECAO}"]`)?.textContent).not.toContain('Orçamentista')
         const ordem = ordemDasSecoes(host)
         expect(ordem.indexOf(SECAO)).toBe(ordem.indexOf('clientes') + 1)
     })
@@ -146,6 +149,7 @@ describe('(1)(2)(3) o menu desktop', () => {
         expect(perguntouASecao()).toBe(true)
         expect(host.querySelector(`[data-section-key="${SECAO}"]`)).toBeNull()
         expect(host.querySelector(`a[href="${ROUTES.ATENDIMENTOS_IA_ORCAMENTISTA}"]`)).toBeNull()
+        expect(host.querySelector(`a[href="${ROUTES.ATENDIMENTOS_IA_ORCAMENTOS}"]`)).toBeNull()
         expect(host.querySelectorAll('a[href]').length).toBeGreaterThan(0)
     })
 
@@ -154,6 +158,7 @@ describe('(1)(2)(3) o menu desktop', () => {
         const host = await montar(<Nav />)
         expect(perguntouASecao()).toBe(false)
         expect(host.querySelector(`a[href="${ROUTES.ATENDIMENTOS_IA_ORCAMENTISTA}"]`)).toBeNull()
+        expect(host.querySelector(`a[href="${ROUTES.ATENDIMENTOS_IA_ORCAMENTOS}"]`)).toBeNull()
         expect(host.querySelector('[data-section-key="clientes"]')).not.toBeNull()
     })
 
@@ -166,9 +171,11 @@ describe('(1)(2)(3) o menu desktop', () => {
 })
 
 describe('(1)(2)(3) o drawer mobile', () => {
-    it('seção ligada: "Orçamentista" na mesma seção, e o bloco vem logo depois de Clientes', async () => {
+    it('seção ligada: "Conectividade I.A." e "Orçamentos I.A." na mesma seção, e o bloco vem logo depois de Clientes', async () => {
         await montar(<MobileMoreDrawer open onClose={() => {}} />)
-        expect(destinos(drawer())).toEqual([ROUTES.ATENDIMENTOS_IA_ORCAMENTISTA])
+        expect(destinos(drawer())).toEqual([ROUTES.ATENDIMENTOS_IA_ORCAMENTISTA, ROUTES.ATENDIMENTOS_IA_ORCAMENTOS])
+        expect(drawer().querySelector(`a[href="${ROUTES.ATENDIMENTOS_IA_ORCAMENTISTA}"]`)?.textContent).toContain('Conectividade I.A.')
+        expect(drawer().querySelector(`a[href="${ROUTES.ATENDIMENTOS_IA_ORCAMENTOS}"]`)?.textContent).toContain('Orçamentos I.A.')
         expect(drawer().querySelector(`[data-section-key="${SECAO}"] .pc-mobile-more-section-title`)?.textContent?.trim()).toBe('Agentes I.A.')
         const ordem = ordemDasSecoes(drawer())
         expect(ordem.indexOf(SECAO)).toBe(ordem.indexOf('clientes') + 1)
@@ -178,6 +185,7 @@ describe('(1)(2)(3) o drawer mobile', () => {
         servidor.secao = 404
         await montar(<MobileMoreDrawer open onClose={() => {}} />)
         expect(drawer().querySelector(`a[href="${ROUTES.ATENDIMENTOS_IA_ORCAMENTISTA}"]`)).toBeNull()
+        expect(drawer().querySelector(`a[href="${ROUTES.ATENDIMENTOS_IA_ORCAMENTOS}"]`)).toBeNull()
         expect(drawer().querySelectorAll('a[href]').length).toBeGreaterThan(0)
     })
 
@@ -264,7 +272,8 @@ describe('(4) a página /atendimentos-ia/orcamentista', () => {
 })
 
 describe('(5) Permissões de Acesso', () => {
-    it('"Orçamentista" aparece, no grupo "Atendimentos I.A.", entre Clientes e Comercial', async () => {
+    // 09/11/2026: o rótulo da permissão é o mesmo do menu, "Conectividade I.A." — a tela de Funcionários não fica com dois nomes para o módulo
+    it('"Conectividade I.A." aparece, no grupo "Atendimentos I.A.", entre Clientes e Comercial', async () => {
         const host = await montar(<Employees />)
         const botao = Array.from(host.querySelectorAll('button')).find((b) => (b.textContent || '').includes('Novo Funcionário'))
         expect(botao).toBeTruthy()
@@ -274,7 +283,8 @@ describe('(5) Permissões de Acesso', () => {
         const painel = t.slice(t.indexOf('Permissões de Acesso'))
         const iCli = painel.indexOf('Clientes')
         const iAte = painel.indexOf('Atendimentos I.A.')
-        const iOrc = painel.indexOf('Orçamentista')
+        const iOrc = painel.indexOf('Conectividade I.A.')
+        expect(painel).not.toContain('Orçamentista')
         const iCom = painel.indexOf('Comercial')
         expect(iAte).toBeGreaterThan(iCli)
         expect(iOrc).toBeGreaterThan(iAte)

@@ -20,7 +20,9 @@ export enum PAGE_TITLES {
   EMPLOYEES = 'Funcionários',
   SETTINGS = 'Configurações',
   CONNECTIVITY = 'Conectividade',
-  ORCAMENTISTA = 'Orçamentista',
+  /** A seção do Orçamentista, renomeada pelo dono do produto em 09/11/2026; a rota e a permissão `orcamentista` ficam. */
+  ORCAMENTISTA = 'Conectividade I.A.',
+  ORCAMENTOS_IA = 'Orçamentos I.A.',
 
   // ── Phase 2: Produtos + Estoque ──
   SERVICES = 'Serviços',

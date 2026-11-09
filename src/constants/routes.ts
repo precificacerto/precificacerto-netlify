@@ -69,6 +69,8 @@ export enum ROUTES {
   SUPER_ADMIN_IA_CATALOGO = '/super-admin/atendimentos-ia/catalogo',
   SUPER_ADMIN_IA_CONTAS = '/super-admin/atendimentos-ia/contas',
   ATENDIMENTOS_IA_ORCAMENTISTA = '/atendimentos-ia/orcamentista',
+  /** Os Orçamentos I.A. (dono do produto, 09/11/2026); um orçamento é `${ATENDIMENTOS_IA_ORCAMENTOS}/[id]`. */
+  ATENDIMENTOS_IA_ORCAMENTOS = '/atendimentos-ia/orcamentos-ia',
   /** Base das telas de UMA tabela: `${SUPER_ADMIN_IA_TABELAS}/[id]/importacao`. */
   SUPER_ADMIN_IA_TABELAS = '/super-admin/atendimentos-ia/tabelas',
 
