@@ -4,17 +4,22 @@
  * Edita-se o cabeçalho (o nome do cliente e a observação) e os itens (tipologia, medidas, quantidade, cor do perfil, vidro, observação), e
  * acrescentam-se itens. NÃO se exclui item nem orçamento, e não há preço nesta entrega. Salvar grava a MARCA da edição manual: daí em diante o
  * agente não sobrescreve o orçamento calado — quando o levantamento mudar, ele avisa e pergunta (a regra fica com quem escrever esse caminho).
+ *
+ * O 1b (09/11/2026): "Calcular" passa as esquadrias pelo caminho completo e grava o custo no orçamento; "Precificar" abre a precificação final
+ * (a tela de Produtos no modo "orçamento"). O estado do cálculo gravado aparece aqui: "cálculo incompleto — recalcule" quando algum item aponta
+ * um cálculo e o orçamento está sem os totais.
  */
 import React, { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/router'
 import { Alert, Button, Card, Input, InputNumber, Space, Spin, Table, Tag, Typography, message } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
-import { ArrowLeftOutlined, PlusOutlined, SaveOutlined } from '@ant-design/icons'
+import { ArrowLeftOutlined, CalculatorOutlined, DollarOutlined, PlusOutlined, SaveOutlined } from '@ant-design/icons'
 
 import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
 import { ROUTES } from '@/constants/routes'
+import { estadoDoCalculo, FRASE_DO_ESTADO, type EstadoDoCalculo, type OrcamentoNaPrecificacao } from '@/lib/atendimentos-ia/precificacao-do-orcamento'
 
 type Item = {
     chave: string
@@ -73,6 +78,36 @@ function OrcamentoIA() {
     const [itens, setItens] = useState<Item[]>([])
     const [salvando, setSalvando] = useState(false)
     const [erros, setErros] = useState<string[]>([])
+    const [estadoDoCalculoGravado, setEstadoDoCalculoGravado] = useState<EstadoDoCalculo | null>(null)
+    const [calculando, setCalculando] = useState(false)
+    const [recusasDoCalculo, setRecusasDoCalculo] = useState<string[]>([])
+
+    /** O estado do cálculo gravado, lido pela rota da precificação (ela traz os valores do cálculo). Sem ela, nada é dito. */
+    const lerEstadoDoCalculo = useCallback(async () => {
+        if (!id) return
+        try {
+            const r = await fetch(`/api/atendimentos-ia/orcamentos/${id}/precificacao`)
+            if (!r.ok) { setEstadoDoCalculoGravado(null); return }
+            const { orcamento } = (await r.json()) as { orcamento: OrcamentoNaPrecificacao }
+            setEstadoDoCalculoGravado(estadoDoCalculo(orcamento))
+        } catch { setEstadoDoCalculoGravado(null) }
+    }, [id])
+    useEffect(() => { void lerEstadoDoCalculo() }, [lerEstadoDoCalculo])
+
+    async function calcular() {
+        if (!id) return
+        setCalculando(true)
+        try {
+            const r = await fetch(`/api/atendimentos-ia/orcamentos/${id}/calcular`, { method: 'POST' })
+            const corpo = (await r.json().catch(() => ({}))) as { error?: string; recusas?: string[] }
+            if (!r.ok) { setRecusasDoCalculo([corpo.error ?? 'Não foi possível calcular o orçamento.', ...(corpo.recusas ?? [])]); return }
+            setRecusasDoCalculo([])
+            message.success('Orçamento calculado.')
+        } finally {
+            setCalculando(false)
+            void lerEstadoDoCalculo()
+        }
+    }
 
     const aplicar = (o: Orcamento) => {
         setEstado({ tipo: 'pronto', orcamento: o })
@@ -113,6 +148,7 @@ function OrcamentoIA() {
             if (!r.ok || !corpo.orcamento) { setErros(corpo.erros ?? [corpo.error ?? 'Não foi possível salvar o orçamento.']); return }
             aplicar(corpo.orcamento)
             message.success('Orçamento salvo.')
+            void lerEstadoDoCalculo()
         } finally {
             setSalvando(false)
         }
@@ -167,8 +203,16 @@ function OrcamentoIA() {
                             <Table rowKey="chave" columns={colunas} dataSource={itens} pagination={false} scroll={{ x: 960 }}
                                 locale={{ emptyText: <Typography.Text type="secondary">Nenhum item ainda.</Typography.Text> }} />
                         </Card>
+                        {estadoDoCalculoGravado !== null && estadoDoCalculoGravado !== 'completo' && (
+                            <Alert type="warning" showIcon data-estado-do-calculo={estadoDoCalculoGravado} message={FRASE_DO_ESTADO[estadoDoCalculoGravado]} />
+                        )}
+                        {recusasDoCalculo.length > 0 && <Alert type="error" showIcon data-recusas-do-calculo="" message={recusasDoCalculo[0]} description={recusasDoCalculo.length > 1 ? <ul style={{ margin: 0, paddingLeft: 18 }}>{recusasDoCalculo.slice(1).map((e) => <li key={e}>{e}</li>)}</ul> : undefined} />}
                         {erros.length > 0 && <Alert type="error" showIcon message="O orçamento não foi salvo." description={<ul style={{ margin: 0, paddingLeft: 18 }}>{erros.map((e) => <li key={e}>{e}</li>)}</ul>} />}
-                        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
+                            <Button icon={<CalculatorOutlined />} loading={calculando} onClick={calcular}>Calcular</Button>
+                            <Link href={`${ROUTES.ATENDIMENTOS_IA_ORCAMENTOS}/${estado.orcamento.id}/precificacao`}>
+                                <Button icon={<DollarOutlined />} disabled={estadoDoCalculoGravado !== 'completo'}>Precificar</Button>
+                            </Link>
                             <Button type="primary" icon={<SaveOutlined />} loading={salvando} disabled={nome.trim() === ''} onClick={salvar}>Salvar</Button>
                         </div>
                     </Space>
