@@ -508,13 +508,20 @@ export async function lerVariaveisDasTipologias(motorId: string): Promise<Record
  * O mesmo código em duas tabelas vem duas vezes, e `levantarBarras` o recusa nomeando-o (dono do produto, 02/11/2026: "Recusa
  * nomeada, como hoje"); código em nenhuma é recusa nomeada também — nunca estimado nem escondido.
  */
+/**
+ * As colunas do item da tabela de preço que o cálculo lê: o preço e a medida (as barras), e a unidade e o BLOCO TRIBUTÁRIO (o custo do
+ * orçamento I.A. por item, `custo-do-orcamento.ts`). O bloco é lido pelos NOMES de `orcamentista_tabela_item` (20261102000001); a
+ * coluna antiga `ipi` NÃO entra (dono do produto, 09/11/2026: duas fontes para o mesmo número).
+ */
+export const COLUNAS_DO_ITEM_DA_TABELA =
+    'codigo, descricao, unidade, medida_barra_m, valor_barra_interno, valor_metro_interno, cred_icms_pct, cred_pis_cofins_pct, cred_ipi_pct, nc_ipi_pct, cred_ibs_pct, cred_cbs_pct'
 async function lerItens(tabelaIds: readonly string[], codigos: string[]): Promise<ItemDaTabela[]> {
     const itens: ItemDaTabela[] = []
     if (tabelaIds.length === 0) return itens
     for (let i = 0; i < codigos.length; i += 200) {
         const lote = codigos.slice(i, i + 200)
         const { data, error } = await supabaseAdmin
-            .from('orcamentista_tabela_item').select('codigo, descricao, medida_barra_m, valor_barra_interno, valor_metro_interno')
+            .from('orcamentista_tabela_item').select(COLUNAS_DO_ITEM_DA_TABELA)
             .in('tabela_id', [...tabelaIds]).in('codigo', lote)
         if (error) throw new Error(`orcamentista_tabela_item: ${error.message}`)
         itens.push(...((data ?? []) as ItemDaTabela[]))
@@ -780,11 +787,19 @@ export const fraseDaTipologiaForaDosMotores = (n: number, tipologia: string) =>
  * Dentro de uma família, as esquadrias são calculadas com UMA cor — `levantarBarras` recebe uma —; cores
  * diferentes na mesma família são recusa nomeada, com a cor de cada uma. Nunca se escolhe uma.
  */
-export async function mensagemDoLevantamento(
+/**
+ * O CÁLCULO do levantamento, sem a mensagem: a família de cada esquadria, os grupos (uma família por grupo) e o cálculo de cada grupo —
+ * ou a recusa de antes de calcular (a fonte, a cor, a família). É UM caminho para os dois leitores: a conversa (`mensagemDoLevantamento`,
+ * que monta o texto) e o orçamento I.A. (`custo-do-orcamento-servidor.ts`, que monta o custo por item). Nada aqui é escrito no banco.
+ */
+export type CalculoDoLevantamento =
+    | { recusa: LevantamentoDaConversa }
+    | { lev: { nome: string; itens: EsquadriaGravada[] }; d: DadosDoLevantamento; grupos: Array<{ familia: FamiliaLigada; indices: number[] }>; calculos: CalculoDaFamilia[] }
+export async function calcularOLevantamento(
     tenantId: string,
     fonte: FamiliasDaEmpresa,
     lev: { nome: string; itens: EsquadriaGravada[] },
-): Promise<LevantamentoDaConversa> {
+): Promise<CalculoDoLevantamento> {
     const corDe = (e: EsquadriaGravada) => (typeof e.cor_perfil === 'string' && e.cor_perfil !== '' ? e.cor_perfil : null)
     const cores = [...new Set(lev.itens.map(corDe).filter((c): c is string => c !== null))]
     const d: DadosDoLevantamento = {
@@ -796,8 +811,8 @@ export async function mensagemDoLevantamento(
     }
     const resumo = (faltou: string[], fechado: Partial<ResumoDoCalculo> = {}): ResumoDoCalculo =>
         ({ esquadrias: lev.itens.length, pecas: null, barras: null, codigos: null, semPreco: null, maoDeObra: null, faltou, ...fechado })
-    const recusa = (faltas: string[], faltou: string[], caminhos: string[] = []): LevantamentoDaConversa =>
-        ({ texto: fraseDaRecusa(d, faltas, caminhos), desfecho: 'recusou', etapa: resumo(faltou) })
+    const recusa = (faltas: string[], faltou: string[], caminhos: string[] = []): CalculoDoLevantamento =>
+        ({ recusa: { texto: fraseDaRecusa(d, faltas, caminhos), desfecho: 'recusou', etapa: resumo(faltou) } })
     if ('frase' in fonte) return recusa([maiuscula(fonte.frase.replace(/^Ainda não consigo escolher a tipologia: /, ''))], ['configuracao'])
 
     const faltas: string[] = []
@@ -823,12 +838,33 @@ export async function mensagemDoLevantamento(
         if (grupo) grupo.indices.push(i)
         else grupos.push({ familia: fonte.familias.find((x) => x.familia === chave)!, indices: [i] })
     })
-    const varias = grupos.length > 1
     const calculos: CalculoDaFamilia[] = []
     for (const g of grupos) {
         // a família sem etapa de cálculo só levanta: nada se calcula, e a mensagem diz isso (04/11/2026)
         calculos.push(g.familia.calculo === null ? semCalculo(lev, d, g.indices) : await calcularFamilia(tenantId, g.familia, g.familia.calculo.id, lev, d, g.indices))
     }
+    return { lev, d, grupos, calculos }
+}
+
+/** A MENSAGEM do levantamento para o vendedor: o cálculo (`calcularOLevantamento`) e o texto dele, ou a recusa. */
+export async function mensagemDoLevantamento(
+    tenantId: string,
+    fonte: FamiliasDaEmpresa,
+    lev: { nome: string; itens: EsquadriaGravada[] },
+): Promise<LevantamentoDaConversa> {
+    const c = await calcularOLevantamento(tenantId, fonte, lev)
+    if ('recusa' in c) return c.recusa
+    return mensagemDoCalculo(c)
+}
+
+/** O texto do levantamento calculado (síncrono): a recusa nomeada das famílias que não fecharam, ou as esquadrias, as barras e o preço. */
+export function mensagemDoCalculo(c: Exclude<CalculoDoLevantamento, { recusa: unknown }>): LevantamentoDaConversa {
+    const { lev, d, grupos, calculos } = c
+    const resumo = (faltou: string[], fechado: Partial<ResumoDoCalculo> = {}): ResumoDoCalculo =>
+        ({ esquadrias: lev.itens.length, pecas: null, barras: null, codigos: null, semPreco: null, maoDeObra: null, faltou, ...fechado })
+    const recusa = (faltas: string[], faltou: string[], caminhos: string[] = []): LevantamentoDaConversa =>
+        ({ texto: fraseDaRecusa(d, faltas, caminhos), desfecho: 'recusou', etapa: resumo(faltou) })
+    const varias = grupos.length > 1
     const rotulos = calculos.flatMap((c) => c.rotulos)
     // o rótulo do fallback vai em TODA resposta, a que fecha e a que recusa
     const rotulado = (r: LevantamentoDaConversa): LevantamentoDaConversa => (rotulos.length ? { ...r, texto: `${r.texto}\n\n${rotulos.join('\n')}` } : r)
@@ -869,8 +905,8 @@ export async function mensagemDoLevantamento(
     return rotulado({ texto, desfecho: 'levantou', etapa })
 }
 
-type CalculoDaFamilia =
-    | { d: DadosDoLevantamento; r: Extract<ResultadoDoLevantamento, { ok: true }>; maos: MaoDeObra[]; rotulos: string[] }
+export type CalculoDaFamilia =
+    | { d: DadosDoLevantamento; r: Extract<ResultadoDoLevantamento, { ok: true }>; maos: MaoDeObra[]; rotulos: string[]; itens: ItemDaTabela[] }
     | { semCalculo: true; d: DadosDoLevantamento; rotulos: string[] }
     | { faltas: string[]; rotulos: string[]; codigos: string[]; caminhos: string[] }
 
@@ -966,7 +1002,7 @@ async function calcularFamilia(
             caminhos: caminhosDasRecusas(recusas, numeros, itensDoGrupo),
         }
     }
-    return { d: dg, r, maos, rotulos }
+    return { d: dg, r, maos, rotulos, itens }
 }
 
 /**
