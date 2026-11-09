@@ -278,7 +278,7 @@ describe('(C) OS DOIS MODOS SÃO O MESMO CÁLCULO, e cada um fica no seu ramo', 
         expect(minutos.readOnly).toBe(true)
     })
     it('num tenant de REVENDA o orçamento continua PRODUZIDO (os itens do orçamento, não a revenda)', async () => {
-        // O CUSTO, ali, fica sem a mão de obra: o motor lê o segmento do tenant ("item produzido em tenant de revenda é combinação ainda
+        // O CUSTO, ali, fica sem a mão de obra: o motor lê o calcType do tenant ("item produzido em tenant de revenda é combinação ainda
         // não definida pela regra", content.component). A reconciliação então NÃO fecha, e o preço não se grava — recusa, não número errado.
         const revenda = { ...USUARIO, calcType: 'RESALE' } as typeof USUARIO
         const host = await montar({ orcamento: orcamento(), onSalvarOrcamento: jest.fn() }, revenda)
