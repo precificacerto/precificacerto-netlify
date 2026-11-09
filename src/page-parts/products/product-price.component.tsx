@@ -82,6 +82,11 @@ interface Props {
    * construção. `null` = a matriz não governou, e não há `c` apurado a congelar.
    */
   onFinalPriceWithTaxesChange?: (data: { finalPrice: number; basePrice: number; externalOpsCoefficient: number | null }) => void
+  /**
+   * O preço DEIXOU de se formar (a margem acabou): `onFinalPriceWithTaxesChange` só emite preço positivo, e quem guarda o último emitido
+   * ficaria com o de antes. Opcional e só usado pelo modo "orçamento" (o 1b, 09/11/2026); sem ele, nada muda.
+   */
+  onPrecoNaoFormado?: () => void
   /* EPIC-POR-FORA-V3: seção "Alíquotas tributárias adicionais (avançado)" renderizada ACIMA do card de resultado. */
   advancedTaxesSection?: ReactNode
   /* EPIC-POR-FORA-V3: parâmetros ICMS-ST/DIFAL/FCP para somar (apenas EXIBIÇÃO) ao preço final ao cliente. */
@@ -127,6 +132,7 @@ export const ProductPrice: FC<Props> = ({
   isBaseCode,
   ipiBaseCode,
   onFinalPriceWithTaxesChange,
+  onPrecoNaoFormado,
   advancedTaxesSection,
   advancedTaxParams,
   ivaReductionIbsPct = null,
@@ -543,7 +549,11 @@ export const ProductPrice: FC<Props> = ({
       // O `c` NÃO é por unidade: é um coeficiente, não um valor.
       externalOpsCoefficient: externalOpsCoefficientToFreeze(_matriz),
     })
-  }, [finalPriceWithTaxesPerUnit, finalSalePricePerUnit, onFinalPriceWithTaxesChange, _matriz])
+    // Não formado: nenhum preço positivo, ou — no Lucro Real e no Presumido — a operação por dentro (ICMS e PIS/COFINS) sem valor: a margem
+    // acabou e o preço que sobra seria o do motor sem esses tributos. Só avisa quem pediu (o modo "orçamento"); Produtos não passa a prop.
+    const formado = finalPriceWithTaxesPerUnit > 0 && (!(isLucroReal || isLucroPresumed) || valorPrecificado > 0)
+    if (!formado) onPrecoNaoFormado?.()
+  }, [finalPriceWithTaxesPerUnit, finalSalePricePerUnit, onFinalPriceWithTaxesChange, onPrecoNaoFormado, _matriz, isLucroReal, isLucroPresumed, valorPrecificado])
 
   const fireChange = (name: string, value: number) => {
     handleChangePrecificationInputs({

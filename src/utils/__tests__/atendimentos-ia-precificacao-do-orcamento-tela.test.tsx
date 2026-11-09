@@ -52,13 +52,14 @@ function consulta(tabela: string) {
 jest.mock('@/supabase/client', () => ({
     supabase: {
         from: (t: string) => consulta(t),
-        functions: { invoke: async () => ({ data: null, error: null }) },
+        functions: { invoke: async (): Promise<unknown> => ({ data: null, error: null }) },
     },
 }))
 jest.mock('next/router', () => ({ useRouter: () => ({ push: jest.fn(), back: jest.fn(), query: {} }) }))
 jest.mock('@/utils/get-tenant-id', () => ({ getTenantId: async () => 'tenant-1', getCurrentUserId: async () => 'usuario-1' }))
-jest.mock('@/contexts/device.context', () => ({ useDevice: () => ({ isMobile: false }) }))
-jest.mock('@/page-parts/shared/classificacao-fiscal-block.component', () => ({ __esModule: true, default: () => null }))
+let mockCelular = false
+jest.mock('@/contexts/device.context', () => ({ useDevice: () => ({ isMobile: mockCelular }) }))
+jest.mock('@/page-parts/shared/classificacao-fiscal-block.component', () => ({ __esModule: true, default: (): null => null }))
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 const { Content } = require('@/page-parts/products/content.component') as typeof import('@/page-parts/products/content.component')
@@ -82,7 +83,7 @@ const VALOR_DO_MINUTO = CUSTO_MENSAL / MINUTOS_DA_EMPRESA
 // ── (A) O produto com a forma do 1008: dois itens (bruto e líquido), 150 min de MO, RT 3, comissão 5, lucro 10, ICMS 17 ─────────────
 const PRODUTO_1008 = {
     id: 'p-1008', code: '1008', name: 'Esquadria de referência', description: '', unitType: 'UN', quantity: 1, salePrice: 0,
-    productType: 'PRODUZIDO', baseItemId: null, status: 'ACTIVE', ncm_code: '', section_id: null, commission_table_id: null,
+    productType: 'PRODUZIDO', baseItemId: null, status: 'ACTIVE', ncm_code: '', section_id: null, commission_table_id: 'tabela-1',
     items: [
         { id: 'i-perfil', name: 'Perfil', quantity: 9, referenceQuantity: 1, unitType: 'UN', price: 9 * 79.6, referencePrice: 79.6 },
         { id: 'i-vidro', name: 'Vidro', quantity: 3.5, referenceQuantity: 1, unitType: 'UN', price: 3.5 * 61.25, referencePrice: 61.25 },
@@ -126,6 +127,7 @@ const orcamento = (extra: Partial<OrcamentoNaPrecificacao> = {}): OrcamentoNaPre
 const montados: Array<() => void> = []
 afterEach(() => { while (montados.length) montados.pop()!() })
 beforeEach(() => {
+    mockCelular = false
     banco.escritas = []
     banco.lidas = []
     banco.respostas = {
@@ -138,14 +140,14 @@ beforeEach(() => {
 const esperar = async () => { for (let k = 0; k < 6; k++) await act(async () => { await new Promise((r) => setTimeout(r, 0)) }) }
 const mensagens = () => ({ success: jest.fn(), error: jest.fn(), open: jest.fn(), warning: jest.fn() }) as unknown as import('antd/es/message/interface').MessageInstance
 
-async function montar(props: Partial<React.ComponentProps<typeof Content>>) {
+async function montar(props: Partial<React.ComponentProps<typeof Content>>, usuario = USUARIO) {
     const host = document.createElement('div')
     document.body.appendChild(host)
     const root = createRoot(host)
     const erro = jest.spyOn(console, 'error').mockImplementation(() => {})
     const aviso = jest.spyOn(console, 'warn').mockImplementation(() => {})
     await act(async () => {
-        root.render(<Content messageApi={mensagens()} isEditingMode={false} itemsFromApi={[]} calcBase={CALC_BASE} currentUser={USUARIO} {...props} />)
+        root.render(<Content messageApi={mensagens()} isEditingMode={false} itemsFromApi={[]} calcBase={CALC_BASE} currentUser={usuario} {...props} />)
     })
     await esperar()
     montados.push(() => { act(() => root.unmount()); host.remove(); erro.mockRestore(); aviso.mockRestore() })
@@ -188,6 +190,11 @@ describe('(A) NÃO-REGRESSÃO DE DINHEIRO — o caminho "produto", com a forma d
         expect(host.textContent).not.toContain('Salvar precificação do orçamento')
         const minutos = host.querySelector('input[name="productWorkloadInMinutes"]') as HTMLInputElement
         expect(minutos.readOnly).toBe(false)
+    })
+    it('o salvar do produto continua indo a products — e não ao caminho do orçamento', async () => {
+        const host = await montar({ isEditingMode: true, product: PRODUTO_1008, itemsFromApi: ITENS_DA_API })
+        await clicar(botao(host, 'Salvar alterações'))
+        expect(banco.escritas.some((e) => e.tabela === 'products' && e.op === 'update')).toBe(true)
     })
 })
 
@@ -243,9 +250,27 @@ describe('(C) OS DOIS MODOS SÃO O MESMO CÁLCULO, e cada um fica no seu ramo', 
         const minutos = host.querySelector('input[name="productWorkloadInMinutes"]') as HTMLInputElement
         expect(minutos.readOnly).toBe(true)
         expect(minutos.value).toBe('150')
+        // as colunas são as do orçamento (bruto, líquido, fabricação, total), sem editar quantidade nem excluir item
+        const cabecalhos = Array.from(host.querySelectorAll('thead th')).map((t) => (t.textContent ?? '').trim())
+        expect(cabecalhos).toEqual(expect.arrayContaining(['Esquadria', 'Quantidade', 'Bruto', 'Líquido', 'Fabricação', 'Total']))
+        expect(host.querySelector('button[aria-label="Excluir"]')).toBeNull()
+    })
+    it('no celular os minutos do orçamento também ficam travados', async () => {
+        mockCelular = true
+        const host = await montar({ orcamento: orcamento(), onSalvarOrcamento: jest.fn() })
+        const minutos = host.querySelector('input[name="productWorkloadInMinutes"]') as HTMLInputElement
+        expect(minutos.readOnly).toBe(true)
+    })
+    it('num tenant de REVENDA o orçamento continua PRODUZIDO (os itens do orçamento, não a revenda)', async () => {
+        // O CUSTO, ali, fica sem a mão de obra: o motor lê o segmento do tenant ("item produzido em tenant de revenda é combinação ainda
+        // não definida pela regra", content.component). A reconciliação então NÃO fecha, e o preço não se grava — recusa, não número errado.
+        const revenda = { ...USUARIO, calcType: 'RESALE' } as typeof USUARIO
+        const host = await montar({ orcamento: orcamento(), onSalvarOrcamento: jest.fn() }, revenda)
+        expect(host.textContent).toContain('Itens do orçamento')
+        expect(host.querySelector('[data-reconciliacao]')?.getAttribute('data-reconciliacao')).toBe('nao-fecha')
     })
     it('salvar grava NO ORÇAMENTO o preço que a tela formou, com o fiscal e os percentuais — e nada em products', async () => {
-        const salvar = jest.fn(async (_: GravacaoDaPrecificacao) => null)
+        const salvar = jest.fn(async (_: GravacaoDaPrecificacao): Promise<string[] | null> => null)
         const host = await montar({ orcamento: orcamento(), onSalvarOrcamento: salvar })
         await clicar(botao(host, 'Salvar precificação do orçamento'))
         expect(salvar).toHaveBeenCalledTimes(1)
@@ -283,6 +308,21 @@ describe('(D) AS FALTAS NOMEADAS — nada se grava com falta', () => {
         await clicar(botao(host, 'Salvar precificação do orçamento'))
         expect(salvar).not.toHaveBeenCalled()
         expect(host.querySelector('[data-recusas-do-orcamento]')?.textContent).toContain(FALTA_DO_NCM)
+    })
+    it('sem NCM nada preenche o PIS/COFINS: a margem é a do PIS/COFINS em zero, nunca a fórmula do ICMS', async () => {
+        const semPis = await montar({ isEditingMode: true, product: { ...PRODUTO_1008, pis_cofins_pct: 0 } as typeof PRODUTO_1008, itemsFromApi: ITENS_DA_API })
+        const doOrcamento = await montar({ orcamento: orcamento({ ncm_code: null }), onSalvarOrcamento: jest.fn() })
+        expect(valorDe(doOrcamento, 'Margem de contribuição aplicada')).toBe(valorDe(semPis, 'Margem de contribuição aplicada'))
+    })
+    it.each([
+        ['o motor recusa (lucro 95%)', 95],
+        ['o motor forma e a margem com ICMS e PIS/COFINS acaba (lucro 50%)', 50],
+    ])('o preço que não se forma não se grava, nem o de antes: %s', async (_, lucro) => {
+        const salvar = jest.fn()
+        const host = await montar({ orcamento: orcamento({ lucro_projetado_percentual: lucro }), onSalvarOrcamento: salvar })
+        await clicar(botao(host, 'Salvar precificação do orçamento'))
+        expect(salvar).not.toHaveBeenCalled()
+        expect(host.querySelector('[data-recusas-do-orcamento]')?.textContent).toContain('o preço formado')
     })
     it('o NCM sem linha na tabela (Lucro Real): a alíquota é falta nomeada', async () => {
         banco.respostas.ncm_codes = null

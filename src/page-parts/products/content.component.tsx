@@ -564,6 +564,9 @@ export const Content: FC<ContentProps> = ({
     [],
   )
 
+  // No orçamento, o preço que deixou de se formar ZERA o último emitido: gravar o preço de antes da mudança seria número errado em dinheiro.
+  const zerarPrecoNaoFormado = useCallback(() => { finalPriceWithTaxesRef.current = 0 }, [])
+
   const searchNcmByName = useCallback(async (name: string) => {
     if (name.length < 2) { setNcmSuggestions([]); return }
     setNcmSugLoading(true)
@@ -2657,6 +2660,7 @@ export const Content: FC<ContentProps> = ({
           items={itemsForSelection}
           columns={ehOrcamento ? colunasDoOrcamento : columns}
           somenteLeitura={ehOrcamento}
+          onPrecoNaoFormado={ehOrcamento ? zerarPrecoNaoFormado : undefined}
           productItemsData={productItemsData}
           handleChangePrecificationInputs={handleChangePrecificationInputs}
           productPriceInfo={productPriceInfo}

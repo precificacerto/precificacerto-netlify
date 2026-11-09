@@ -51,6 +51,8 @@ interface ContentIndustrializationProps {
   isBaseCode?: number | null
   ipiBaseCode?: number | null
   onFinalPriceWithTaxesChange?: (data: { finalPrice: number; basePrice: number; externalOpsCoefficient: number | null }) => void
+  /** Só no modo "orçamento": o preço deixou de se formar. Ver `ProductPrice`. */
+  onPrecoNaoFormado?: () => void
   advancedTaxesSection?: ReactNode
   /**
    * Alerta de carga horária não configurada. Quando presente, SUBSTITUI o card de
@@ -106,6 +108,7 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
   isBaseCode,
   ipiBaseCode,
   onFinalPriceWithTaxesChange,
+  onPrecoNaoFormado,
   advancedTaxesSection,
   workloadAlert,
   advancedTaxParams,
@@ -267,6 +270,7 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
         isBaseCode={isBaseCode}
         ipiBaseCode={ipiBaseCode}
         onFinalPriceWithTaxesChange={onFinalPriceWithTaxesChange}
+        onPrecoNaoFormado={onPrecoNaoFormado}
         advancedTaxesSection={advancedTaxesSection}
         advancedTaxParams={advancedTaxParams}
         /* ITEM 1.5: produto PRODUZIDO (receita) — fraciona o preço de venda pela Quantidade

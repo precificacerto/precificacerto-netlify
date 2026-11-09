@@ -89,7 +89,7 @@ async function chamar(method: string, id: string, body: unknown = {}) {
     return saida
 }
 const CORPO_BOM = {
-    valor_venda: 3105.8, ncm_code: '7610.10.00', sale_scope: 'INTRAESTADUAL', buyer_type: 'CONSUMIDOR_FINAL', uf_destino: null,
+    valor_venda: 3105.8, ncm_code: '7610.10.00', sale_scope: 'INTRAESTADUAL', buyer_type: 'CONSUMIDOR_FINAL', uf_destino: null as string | null,
     comissao_percentual: 5, reserva_tecnica_percentual: 3, lucro_projetado_percentual: 10,
 }
 const escritas = () => estado.ops.filter((o) => o.op !== 'select')
