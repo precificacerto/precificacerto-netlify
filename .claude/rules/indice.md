@@ -20,6 +20,7 @@ fazendo, **leia o texto antes de agir**.
 - `fato-vs-referencia`: ao gravar ou reler um valor que compõe preço. Fato histórico congela; referência viva relê.
 - `copia-divergente`: ao acrescentar campo a um mapeamento. Procure a segunda cópia.
 - `construtor-empobrecido`: num campo opcional com default neutro em contrato de cálculo. Torne-o obrigatório.
+- `custo-liquido-por-fracao`: ao calcular custo de material, crédito de imposto ou custo por item. Cascata na unidade de compra, divide pela medida, rateio por código.
 - `decisao-sob-regra-da-epoca`: ao nomear um defeito em código antigo. Pergunte se a regra existia quando ele foi escrito.
 - `pr-aberto-no-relato`: ao escrever qualquer relato de estado. Todo PR aberto entra na lista até o merge ou o fechamento decidido; CI verde tem data e base.
 - `registro-de-classe`: ao registrar uma classe de defeito ou uma regra. Define onde ela mora, a forma, a busca por precedentes e o limite.
