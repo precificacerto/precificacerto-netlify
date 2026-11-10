@@ -54,8 +54,11 @@ M = [
  ('E22', 'a recusa sai com o código interno da variável', LC, [("const traduzir = (m: string) => Object.values(lidas).reduce((t, tip) => traduzirVocabulario(t, tip), m)", "const traduzir = (m: string) => m")], 'MAE 9'),
  ('E23', 'o arremate volta a ser perguntado por padrão', LM, [("const pedida = def ? Object.entries(item.escolhas ?? {}).find(([, v]) => v === null)?.[0] : undefined", "const pedida = def ? 'ARI' : undefined")], 'SEM nenhuma pergunta de arremate'),
  ('E24', 'o ponto único do padrão devolve outra opção (a conta e a frase seguem juntas)', ES, [("    return /^\\d+$/.test(p) ? Number(p) : null\n}", "    return /^\\d+$/.test(p) ? Number(p) + 1 : null\n}")], 'o PADRÃO fecha'),
- ('E0', 'controle: nada muda', ES, [("export", "export")]),
+ ('E0', 'controle: nada muda', ES, []),  # o controle não troca nada
 ]
+import os as _os; sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+from trecho_unico import exigir_trecho_unico  # a mutação que não se aplica aborta (mutacao-que-nao-se-aplica.md)
+exigir_trecho_unico((m[0], [(m[2], open(m[2], encoding='utf-8').read(), v, t) for v, t in m[3]]) for m in M)
 
 def hash_de(arq):
     return hashlib.sha256(open(arq, 'rb').read()).hexdigest()
@@ -78,9 +81,9 @@ def principal():
         novo = orig
         for velho, troca in trocas:
             n = novo.count(velho)
-            if n != 1 and velho != troca:
+            if n != 1:
                 print(f'{ident:4} TRECHO APARECE {n} VEZES (o código mudou; ajuste a mutação): {velho[:70]!r}')
-                novo = None
+                sys.exit(3)  # nunca vira sobrevivente (mutacao-que-nao-se-aplica.md)
                 break
             novo = novo.replace(velho, troca)
         if novo is None:

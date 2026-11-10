@@ -87,6 +87,9 @@ M = [
  ('P1 a retida perde os ambientes', P, "[...CAMPOS_DA_ESQUADRIA, 'vidro_padrao', 'ambientes', 'obs']", "[...CAMPOS_DA_ESQUADRIA, 'vidro_padrao']"),
 ]
 originais = {f: open(f, encoding='utf-8').read() for f in {m[1] for m in M}}
+import os as _os; sys.path.insert(0, _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), 'harness'))
+from trecho_unico import exigir_trecho_unico  # a mutação que não se aplica aborta (mutacao-que-nao-se-aplica.md)
+exigir_trecho_unico((nome, [(arq, originais[arq], de, para)]) for nome, arq, de, para in M)
 def roda(suites):
     return subprocess.run(['npx', 'jest', *suites], capture_output=True, text=True).returncode != 0
 vivas = []
@@ -94,7 +97,7 @@ try:
     for nome, arq, de, para in M:
         o = originais[arq]
         if o.count(de) != 1:
-            print(f'NAO APLICOU {nome}: o trecho aparece {o.count(de)} vez(es)'); vivas.append(nome); continue
+            print(f'NAO APLICOU {nome}: o trecho aparece {o.count(de)} vez(es)'); sys.exit(3)
         open(arq, 'w', encoding='utf-8').write(o.replace(de, para))
         morta = roda(RAPIDAS) or roda(CONVERSA)
         open(arq, 'w', encoding='utf-8').write(o)

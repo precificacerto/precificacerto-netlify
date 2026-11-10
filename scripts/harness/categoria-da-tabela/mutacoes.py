@@ -20,6 +20,9 @@ MUTACOES = [
     ("M10 função sem search_path fixo", "LANGUAGE plpgsql\nSET search_path = pg_catalog, public\n", "LANGUAGE plpgsql\n"),
     ("M11 ON DELETE CASCADE na FK", "(chave) ON DELETE RESTRICT;\n  END IF;", "(chave) ON DELETE CASCADE;\n  END IF;"),
 ]
+import os as _os; sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+from trecho_unico import exigir_trecho_unico  # a mutação que não se aplica aborta (mutacao-que-nao-se-aplica.md)
+exigir_trecho_unico((nome, [('a migração', ORIGINAL, de, para)]) for nome, de, para in MUTACOES)
 
 def rodar(texto):
     with tempfile.NamedTemporaryFile("w", suffix=".sql", delete=False) as f:
@@ -31,7 +34,7 @@ print(f"CONTROLE (sem mutação): {'passa' if c == 0 else 'FALHOU exit ' + str(c
 vivas = []
 for nome, de, para in MUTACOES:
     if ORIGINAL.count(de) != 1:
-        print(f"{nome}: TRECHO NAO ACHADO (ou repetido) — a mutação não se aplica"); vivas.append(nome); continue
+        print(f"{nome}: TRECHO NAO ACHADO (ou repetido) — a mutação não se aplica"); sys.exit(3)
     r = rodar(ORIGINAL.replace(de, para))
     estado = "MORTA" if r != 0 else "SOBREVIVEU"
     print(f"{nome} {estado} (exit {r})")

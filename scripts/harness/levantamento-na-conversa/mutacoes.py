@@ -80,8 +80,11 @@ M = [
  ('L46', 'o tempo volta a ser lido das colunas antigas', LC, [(".from('orcamentista_motor_tipologia_tempo').select('tempo_fabricacao_min, tempo_origem')", ".from('orcamentista_motor_tipologia').select('tempo_fabricacao_min, tempo_origem')")], 'NÃO das colunas antigas'),
  ('L47', 'a tabela dos tempos ausente vira erro', LC, [("        if (tabelaAusente(error)) return { ausente: true }\n        throw new Error(`orcamentista_motor_tipologia_tempo", "        throw new Error(`orcamentista_motor_tipologia_tempo")], 'AINDA NÃO EXISTE no banco: ausência declarada'),
  ('L48', 'a tabela dos tempos ausente vira "sem tempo cadastrado"', LC, [("        if ('ausente' in tempos) return { ok: false, falta: FALTA_TABELA_DOS_TEMPOS, semTempo: true }", "        if ('ausente' in tempos) return { ok: false, falta: `o tempo de fabricação de ${tipologia} não está cadastrado`, semTempo: true }")], 'a tabela dos tempos ainda não existe'),
- ('L0', 'controle: nada muda', LC, [("export", "export")]),
+ ('L0', 'controle: nada muda', LC, []),  # o controle não troca nada
 ]
+import os as _os; sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+from trecho_unico import exigir_trecho_unico  # a mutação que não se aplica aborta (mutacao-que-nao-se-aplica.md)
+exigir_trecho_unico((m[0], [(m[2], open(m[2], encoding='utf-8').read(), v, t) for v, t in m[3]]) for m in M)
 
 def hash_de(arq):
     return hashlib.sha256(open(arq, 'rb').read()).hexdigest()
@@ -104,9 +107,9 @@ def principal():
         novo = orig
         for velho, troca in trocas:
             n = novo.count(velho)
-            if n != 1 and velho != troca:
+            if n != 1:
                 print(f'{ident:4} TRECHO APARECE {n} VEZES (o código mudou; ajuste a mutação): {velho[:70]!r}')
-                novo = None
+                sys.exit(3)  # nunca vira sobrevivente (mutacao-que-nao-se-aplica.md)
                 break
             novo = novo.replace(velho, troca)
         if novo is None:

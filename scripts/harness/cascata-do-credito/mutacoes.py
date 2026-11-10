@@ -36,6 +36,9 @@ MUTACOES = [
      "    if (medidaDaUnidade === null || !Number.isFinite(medidaDaUnidade) || medidaDaUnidade <= 0) return custoLiquidoDaUnidade\n"),
     ('C15', BLOCO, 'o ICMS sobre o saldo de si mesmo (base errada)', "    const icms = (custo * b.cred_icms_pct) / 100\n", "    const icms = (custo * b.cred_icms_pct) / 100 / 2\n"),
 ]
+import os as _os; sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+from trecho_unico import exigir_trecho_unico  # a mutação que não se aplica aborta (mutacao-que-nao-se-aplica.md)
+exigir_trecho_unico((i, [(a, open(os.path.join(RAIZ, a), encoding='utf-8').read(), v, n)]) for i, a, _d, v, n in MUTACOES)
 
 
 def jest():

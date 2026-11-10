@@ -53,6 +53,9 @@ MUTACOES = [
     ('S18', 'a guarda não confere o tenant_id NOT NULL do item do levantamento', [("                    AND data_type = 'uuid' AND is_nullable = 'NO') THEN", "                    AND data_type = 'uuid') THEN")]),
     ('S19', 'a verificação 11 aceita qualquer chave na tabela que já existia', [("  IF faltam IS DISTINCT FROM 'orcamentista_levantamento_item_id_tenant_key UNIQUE (id, tenant_id); orcamentista_levantamento_item_ordem_key", "  IF false AND faltam IS DISTINCT FROM 'orcamentista_levantamento_item_id_tenant_key UNIQUE (id, tenant_id); orcamentista_levantamento_item_ordem_key")]),
 ]
+import os as _os; sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+from trecho_unico import exigir_trecho_unico  # a mutação que não se aplica aborta (mutacao-que-nao-se-aplica.md)
+exigir_trecho_unico((m[0], [('a 20261109000001', open(MIG, encoding='utf-8').read(), v, t) for v, t in m[2]]) for m in MUTACOES)
 
 
 def rodar(caminho):

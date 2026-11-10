@@ -65,8 +65,11 @@ M = [
  ('M28', 'Qtd zero vira peça de quantidade zero', A, [("if (quantidade.n === Z) { linhas.push({ linha, perfil: p.perfil, entrou: false, motivo: 'QUANTIDADE_ZERO' }); return }", "")], 'Qtd zero'),
  ('M29', 'a escolha fora das opções é aceita', A, [("if (deNumero(valor) === null || (lidas && !lidas.some((o) => o.valor === valor))) {", "if (deNumero(valor) === null) {")], 'escolha fora das opções'),
  ('M30', 'nome sem valor vira ZERO', A, [("            throw new ErroDeAvaliacao('VARIAVEL_SEM_VALOR', `\"${nome}\" não é medida, fórmula, variável nem constante desta tipologia: não tem valor.`, { variavel: nome })", "            return racional(Z)")], 'variável sem valor nem padrão'),
- ('M0', 'controle: nada muda', A, [("export", "export")]),
+ ('M0', 'controle: nada muda', A, []),  # o controle não troca nada
 ]
+import os as _os; sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+from trecho_unico import exigir_trecho_unico  # a mutação que não se aplica aborta (mutacao-que-nao-se-aplica.md)
+exigir_trecho_unico((m[0], [(m[2], open(m[2], encoding='utf-8').read(), v, t) for v, t in m[3]]) for m in M)
 
 def hash_de(arq):
     return hashlib.sha256(open(arq, 'rb').read()).hexdigest()
@@ -89,9 +92,9 @@ def principal():
         novo = orig
         for velho, troca in trocas:
             n = novo.count(velho)
-            if n != 1 and velho != troca:
+            if n != 1:
                 print(f'{ident:4} TRECHO APARECE {n} VEZES (o código mudou; ajuste a mutação): {velho[:70]!r}')
-                novo = None
+                sys.exit(3)  # nunca vira sobrevivente (mutacao-que-nao-se-aplica.md)
                 break
             novo = novo.replace(velho, troca)
         if novo is None:

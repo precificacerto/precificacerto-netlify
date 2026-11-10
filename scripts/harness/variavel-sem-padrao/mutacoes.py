@@ -41,6 +41,9 @@ MUTACOES = [
     ('V19', CONVERSA, 'o prompt não leva as variáveis sem padrão', "        ...variaveisSemPadraoNoPrompt(c.variaveisSemPadraoPorTipologia),\n", ""),
     ('V20', CALCULO, 'o cálculo não recebe o valor (lê sem a tipologia)', "lerEscolhasGravadas(e.escolhas, lidas[dg.esquadrias[k].tipologia] ?? null)", "lerEscolhasGravadas(e.escolhas)"),
 ]
+import os as _os; sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+from trecho_unico import exigir_trecho_unico  # a mutação que não se aplica aborta (mutacao-que-nao-se-aplica.md)
+exigir_trecho_unico((i, [(a, open(os.path.join(RAIZ, a), encoding='utf-8').read(), v, n)]) for i, a, _d, v, n in MUTACOES)
 
 
 def jest():

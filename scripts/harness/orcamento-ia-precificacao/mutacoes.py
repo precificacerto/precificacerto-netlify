@@ -70,6 +70,9 @@ MUTACOES = [(f'N{i + 1}', f'a CHECK {c} vira CHECK (true)', neutraliza(c)) for i
     ('V5', 'a verificação 5 desligada', troca(("  IF n <> 0 THEN\n    RAISE EXCEPTION 'verificacao 5:", "  IF false AND n <> 0 THEN\n    RAISE EXCEPTION 'verificacao 5:"))),
     ('V6', 'a verificação 6 desligada', troca(("  IF faltam IS DISTINCT FROM 'INSERT,SELECT,UPDATE' THEN", "  IF false AND faltam IS DISTINCT FROM 'INSERT,SELECT,UPDATE' THEN"))),
 ]
+import os as _os; sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+from trecho_unico import exigir_trecho_unico  # a mutação que não se aplica aborta (mutacao-que-nao-se-aplica.md)
+exigir_trecho_unico((m[0], [('a 20261109000002', open(MIG, encoding='utf-8').read(), m[2], None)]) for m in MUTACOES)
 
 
 def rodar(caminho):

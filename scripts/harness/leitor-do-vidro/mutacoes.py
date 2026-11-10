@@ -41,6 +41,9 @@ MUTACOES = [
      "        if (lista.every((x) => /^\\d+$/.test(x)) && aceitas.size === 0) for (const x of lista) aceitas.add(Number(x))\n"),
     ('V18', CONVERSA, 'o ambíguo não vira falta (segue sem espessura)', "    if (ambiguas.length) return { faltas: ambiguas,", "    if (false) return { faltas: ambiguas,"),
 ]
+import os as _os; sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+from trecho_unico import exigir_trecho_unico  # a mutação que não se aplica aborta (mutacao-que-nao-se-aplica.md)
+exigir_trecho_unico((i, [(a, open(os.path.join(RAIZ, a), encoding='utf-8').read(), v, n)]) for i, a, _d, v, n in MUTACOES)
 
 
 def jest():

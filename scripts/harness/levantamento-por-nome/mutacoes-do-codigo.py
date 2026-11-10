@@ -74,8 +74,11 @@ M = [
  ('N33', 'DEFEITO 3: sem chave, silêncio', CV, [("if (!chave) return await responder(FALHA_SEM_CHAVE, 'sem-chave')", "if (!chave) return fim('sem-chave')")], 'falta a chave'),
  ('N34', 'DEFEITO 3: erro da LLM, silêncio', CV, [("            return await responder(frase, resposta.tipo, resposta.detalhe)", "            return fim(resposta.tipo, resposta.detalhe)")], 'a frase da falha'),
  ('N35', 'DEFEITO 3: erro do banco, silêncio', CV, [("        return await responder(frase, 'erro', `motivo=", "        return fim('erro', `motivo=")], 'nada foi gravado'),
- ('N0', 'controle: nada muda', NM, [("export", "export")]),
+ ('N0', 'controle: nada muda', NM, []),  # o controle não troca nada
 ]
+import os as _os; sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+from trecho_unico import exigir_trecho_unico  # a mutação que não se aplica aborta (mutacao-que-nao-se-aplica.md)
+exigir_trecho_unico((m[0], [(m[2], open(m[2], encoding='utf-8').read(), v, t) for v, t in m[3]]) for m in M)
 
 def hash_de(arq):
     return hashlib.sha256(open(arq, 'rb').read()).hexdigest()
@@ -98,9 +101,9 @@ def principal():
         novo = orig
         for velho, troca in trocas:
             n = novo.count(velho)
-            if n != 1 and velho != troca:
+            if n != 1:
                 print(f'{ident:4} TRECHO APARECE {n} VEZES (o código mudou; ajuste a mutação): {velho[:70]!r}')
-                novo = None
+                sys.exit(3)  # nunca vira sobrevivente (mutacao-que-nao-se-aplica.md)
                 break
             novo = novo.replace(velho, troca)
         if novo is None:

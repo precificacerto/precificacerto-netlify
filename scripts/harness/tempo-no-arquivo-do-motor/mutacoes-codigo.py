@@ -40,6 +40,9 @@ MUTACOES = [
     ('C20', CATALOGO, 'a frase do motor criado não conta os tempos', "        + (typeof r.tempos === 'number' ? `${fraseDosTempos(r.tempos, tip)} ` : '')\n", ""),
     ('C21', LEITOR, 'a frase dos tempos não diz as sem tempo', "        + (sem > 0 ? `; ${sem} sem tempo (a mão de obra delas não sai).` : '.')", "        + '.'"),
 ]
+import os as _os; sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+from trecho_unico import exigir_trecho_unico  # a mutação que não se aplica aborta (mutacao-que-nao-se-aplica.md)
+exigir_trecho_unico((i, [(a, open(os.path.join(RAIZ, a), encoding='utf-8').read(), v, n)]) for i, a, _d, v, n in MUTACOES)
 
 
 def jest():

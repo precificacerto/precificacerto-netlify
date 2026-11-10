@@ -17,6 +17,9 @@ MUTACOES = [
     ("9-6 as colunas voltam a ser obrigatórias", DROP, DROP + "\nALTER TABLE public.orcamentista_tabela ALTER COLUMN motor_path SET NOT NULL;"),
     ("9-7 outra CHECK nasce (PERFIL exige o nome)", DROP, DROP + "\nALTER TABLE public.orcamentista_tabela DROP CONSTRAINT IF EXISTS orcamentista_tabela_perfil_exige_nome;\nALTER TABLE public.orcamentista_tabela ADD CONSTRAINT orcamentista_tabela_perfil_exige_nome CHECK (categoria_chave IS DISTINCT FROM 'PERFIL' OR motor_nome IS NOT NULL);"),
 ]
+import os as _os; sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+from trecho_unico import exigir_trecho_unico  # a mutação que não se aplica aborta (mutacao-que-nao-se-aplica.md)
+exigir_trecho_unico((nome, [('a 20261027000009', O9, de, para)]) for nome, de, para in MUTACOES)
 
 def sem_verifica(t):
     i = t.index("DO $verifica$"); j = t.index("$verifica$;", i) + len("$verifica$;")
@@ -31,7 +34,7 @@ print(f"CONTROLE (sem mutação): {'passa' if c == 0 else 'FALHOU exit ' + str(c
 vivas = []
 for nome, de, para in MUTACOES:
     if O9.count(de) != 1:
-        print(f"{nome}: TRECHO NAO ACHADO ({O9.count(de)}x)"); vivas.append(nome); continue
+        print(f"{nome}: TRECHO NAO ACHADO ({O9.count(de)}x)"); sys.exit(3)
     r = rodar(O9.replace(de, para))
     print(f"{nome} {'MORTA' if r != 0 else 'SOBREVIVEU'} (exit {r})", flush=True)
     if r == 0: vivas.append(nome)

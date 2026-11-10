@@ -61,6 +61,9 @@ MUTACOES = [
     ("10-31 renomear não grava a autoria", [("SET nome = v_nome, atualizado_por = p_por,", "SET nome = v_nome, atualizado_por = atualizado_por,")]),
     ("10-32 renomear não confere a empresa", [("IF p_tenant IS NULL OR NOT EXISTS (SELECT 1 FROM public.tenants t WHERE t.id = p_tenant) THEN", "IF false THEN")]),
 ]
+import os as _os; sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+from trecho_unico import exigir_trecho_unico  # a mutação que não se aplica aborta (mutacao-que-nao-se-aplica.md)
+exigir_trecho_unico((nome, [('a migração', ORIG, de, para) for de, para in trocas]) for nome, trocas in MUTACOES)
 
 def sem_verifica(t):
     i = t.index("DO $verifica$"); j = t.index("$verifica$;", i) + len("$verifica$;")
@@ -81,7 +84,7 @@ vivas = []
 for nome, trocas in MUTACOES:
     erro = [de[:60] for de, _ in trocas if ORIG.count(de) != 1]
     if erro:
-        print(f"{nome}: TRECHO NAO ACHADO ou repetido {erro} — a mutação não se aplica"); vivas.append(nome); continue
+        print(f"{nome}: TRECHO NAO ACHADO ou repetido {erro} — a mutação não se aplica"); sys.exit(3)
     r = rodar(aplicar(trocas, False))
     print(f"{nome} {'MORTA' if r != 0 else ('EQUIVALENTE' if nome in EQUIVALENTES else 'SOBREVIVEU')} (exit {r})", flush=True)
     if r == 0 and nome not in EQUIVALENTES: vivas.append(nome)
