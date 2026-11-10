@@ -140,10 +140,10 @@ const LARGURA = A4.largura - 2 * A4.margem
 const FIM = A4.altura - A4.margem - 6 // o pé reserva a linha "Página X de Y"
 const CINZA = 110
 const VERMELHO: [number, number, number] = [200, 30, 30]
-/** As sete colunas da tabela do item, na largura à direita do desenho (somam 153 mm). */
+/** As sete colunas da tabela do item, na largura à direita do desenho (somam 151 mm: 2 mm de folga até a borda da caixa). */
 export const COLUNAS_DO_ITEM = [
     { titulo: 'ITEM', w: 12, alinha: 'center' }, { titulo: 'QTDE.', w: 13, alinha: 'center' }, { titulo: 'LARGURA', w: 18, alinha: 'center' },
-    { titulo: 'ALTURA', w: 18, alinha: 'center' }, { titulo: 'COR E ESPESSURA', w: 46, alinha: 'left' }, { titulo: 'VLR. UNIT.', w: 23, alinha: 'right' },
+    { titulo: 'ALTURA', w: 18, alinha: 'center' }, { titulo: 'COR E ESPESSURA', w: 44, alinha: 'left' }, { titulo: 'VLR. UNIT.', w: 23, alinha: 'right' },
     { titulo: 'VLR. TOTAL', w: 23, alinha: 'right' },
 ] as const
 const LARGURA_DO_DESENHO = 35
@@ -155,7 +155,7 @@ const quebrar = (doc: Doc, t: string, w: number) => (t === '' ? [''] : (doc.spli
 /** "RÓTULO: valor" numa linha: o rótulo em negrito, o valor normal ao lado (o vazio deixa só o rótulo). */
 function campo(doc: Doc, rotulo: string, valor: string, x: number, y: number, corpo = 7.5) {
     fonte(doc, 'bold', corpo); doc.text(rotulo, x, y)
-    fonte(doc, 'normal', corpo); if (valor) doc.text(valor, x + doc.getTextWidth(rotulo) + 1.2, y)
+    fonte(doc, 'normal', corpo); if (valor) doc.text(valor, x + doc.getTextWidth(rotulo) + 1.8, y)
 }
 
 function cabecalho(doc: Doc, d: DadosDoArquivoDoOrcamento): number {
@@ -225,7 +225,7 @@ function blocoDoItem(doc: Doc, i: ItemDoArquivo, r: ItemRateado, y: number, data
     const valorTipo = texto(i.tipo)
     fonte(doc, 'bold', 8); const wRotulo = doc.getTextWidth('TIPO:')
     fonte(doc, 'normal', 8); const wValor = doc.getTextWidth(valorTipo)
-    campo(doc, 'TIPO:', valorTipo, A4.margem + LARGURA - 2 - wValor - 1.2 - wRotulo, y + 4.2, 8)
+    campo(doc, 'TIPO:', valorTipo, A4.margem + LARGURA - 2 - wValor - 1.8 - wRotulo, y + 4.2, 8)
     const y0 = y + 6
     // o desenho à esquerda, na proporção real; sem medida, o bloco fecha sem ele
     doc.setDrawColor(CINZA); doc.setLineWidth(0.2); doc.rect(A4.margem, y0, LARGURA_DO_DESENHO, m.corpo)
