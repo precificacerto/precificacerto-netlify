@@ -5,8 +5,10 @@
  *   2. cada item: `calculo_id`, `calculado_em` e os valores da 20261109000002 (o par bruto/líquido, os efetivos, a fabricação, o total);
  *   3. o orçamento: o modo de aproveitamento do pedido (o fallback, com origem e motivo) e os totais bruto e líquido. O valor de venda NÃO
  *      se grava aqui: ele sai da precificação final, na tela.
- * Os percentuais da comissão, da reserva técnica e do lucro do orçamento do agente vêm CONGELADOS do levantamento (os nomes e as faixas
- * são os mesmos); o manual não os tem de onde copiar e fica com o que tiver.
+ * Os percentuais da comissão, da reserva técnica e do lucro NÃO são tocados aqui (dono do produto, 11/11/2026): a TRAVESSIA os congela uma
+ * vez, pela regra do zero (o levantamento, senão a pré-definição do vendedor, senão zero), e eles podem ser alterados no orçamento. Regravá-los
+ * do levantamento a cada cálculo era uma segunda cópia (`copia-divergente.md`): devolvia o NULO que a regra do zero resolveu e apagava a
+ * alteração feita na precificação.
  *
  * A ORDEM DA ESCRITA É A QUE NÃO DEIXA NÚMERO ERRADO (dono do produto, 09/11/2026):
  *   0. ANULA, no orçamento, os totais e o valor de venda — o cálculo de antes deixa de valer ANTES de qualquer número novo;
@@ -63,19 +65,15 @@ export type ResultadoDoCalculo = {
     avisos: string[]
 }
 
-/** O levantamento de onde o orçamento do agente veio: os percentuais congelados, e as escolhas e a família de cada item. */
-async function lerDoLevantamento(tenantId: string, levantamentoId: string, idsDosItens: string[]) {
-    const { data: lev, error } = await db().from('orcamentista_levantamento')
-        .select('comissao_percentual, comissao_modo, reserva_tecnica_percentual, reserva_tecnica_responsavel, lucro_projetado_percentual')
-        .eq('tenant_id', tenantId).eq('id', levantamentoId).maybeSingle()
-    if (error) falhou('orcamentista_levantamento', error)
+/** Os itens do levantamento de onde o orçamento do agente veio: as escolhas, a família e a tabela congelada de cada um. */
+async function lerDoLevantamento(tenantId: string, idsDosItens: string[]) {
     let itens: Array<{ id: string; escolhas: unknown; familia: unknown; tabela_id: string | null }> = []
     if (idsDosItens.length) {
         const r = await db().from('orcamentista_levantamento_item').select('id, escolhas, familia, tabela_id').eq('tenant_id', tenantId).in('id', idsDosItens)
         if (r.error) falhou('orcamentista_levantamento_item', r.error)
         itens = r.data ?? []
     }
-    return { congelados: (lev ?? null) as Record<string, unknown> | null, porItem: new Map(itens.map((i) => [i.id, i])) }
+    return { porItem: new Map(itens.map((i) => [i.id, i])) }
 }
 
 /**
@@ -86,7 +84,7 @@ export async function calcularOrcamento(tenantId: string, id: string, agora: Dat
     const orc = await lerOrcamento(tenantId, id)
     if (orc.itens.length === 0) throw new ErroDoCalculo(['as esquadrias do orçamento: ele não tem nenhum item'])
     const doLevantamento = orc.levantamento_id
-        ? await lerDoLevantamento(tenantId, orc.levantamento_id, orc.itens.map((i) => i.levantamento_item_id).filter((x): x is string => !!x))
+        ? await lerDoLevantamento(tenantId, orc.itens.map((i) => i.levantamento_item_id).filter((x): x is string => !!x))
         : null
     const esquadrias: EsquadriaGravada[] = orc.itens.map((i) => {
         const deOrigem = i.levantamento_item_id ? doLevantamento?.porItem.get(i.levantamento_item_id) : undefined
@@ -137,17 +135,10 @@ export async function calcularOrcamento(tenantId: string, id: string, agora: Dat
     // 3. o orçamento: o modo do pedido e os totais (o bruto é o dos materiais mais a fabricação; o líquido, a soma dos totais dos itens)
     const valor_total_bruto = custo.itens.reduce((t, c) => t + c.custo_bruto_materiais + c.custo_fabricacao, 0)
     const valor_total_liquido = custo.itens.reduce((t, c) => t + c.custo_liquido_total, 0)
-    const congelados = doLevantamento?.congelados
     const { data, error } = await db().from(TABELA_DO_ORCAMENTO)
         .update({
             aproveitamento_modo: MODO_DO_FALLBACK, aproveitamento_origem: ORIGEM_DO_FALLBACK, aproveitamento_motivo: MOTIVO_DO_FALLBACK, aproveitamento_por: null,
             valor_total_bruto, valor_total_liquido, atualizado_em: calculado_em,
-            ...(congelados ? {
-                comissao_percentual: congelados.comissao_percentual ?? null, comissao_modo: congelados.comissao_modo ?? null,
-                reserva_tecnica_percentual: congelados.reserva_tecnica_percentual ?? null,
-                reserva_tecnica_responsavel: congelados.reserva_tecnica_responsavel ?? null,
-                lucro_projetado_percentual: congelados.lucro_projetado_percentual ?? null,
-            } : {}),
         })
         .eq('tenant_id', tenantId).eq('id', id).select('id')
     if (error) falhou(TABELA_DO_ORCAMENTO, error)

@@ -11,7 +11,8 @@
  *   (4) idempotente: o segundo atravessar recusa nomeando o orçamento; o que existe sem itens recebe os itens (retomada); a corrida no índice;
  *   (5) isolamento: o levantamento de outra empresa é "não encontrado", e nada é lido nem gravado nela;
  *   (6) o cliente e o vendedor LIDOS do levantamento; as faltas lidas das colunas do orçamento;
- *   (7) o gatilho do "sim" nunca lança;
+ *   (1b) a REGRA DO ZERO (11/11/2026): o levantamento, senão a pré-definição do vendedor, senão ZERO explícito — e a origem de cada um;
+ *   (7) o gatilho do "sim" ENCADEIA travessia -> cálculo, para na precificação, e nunca lança;
  *   (8) o aviso da tabela congelada: só quando diverge, com as duas tabelas e a diferença pela MESMA cascata; o código ausente é nomeado.
  */
 type Linha = Record<string, unknown>
@@ -81,11 +82,20 @@ function cliente() {
     }
 }
 jest.mock('@/supabase/admin', () => ({ supabaseAdmin: cliente() }))
+// o cálculo tem portão próprio (`atendimentos-ia-orcamento-calculado.test.ts`); aqui só importa que o "sim" o chama, com o orçamento criado
+const calculo = { chamadas: [] as Array<[string, string]>, resposta: null as null | (() => unknown) }
+jest.mock('@/lib/atendimentos-ia/orcamento-calculado', () => {
+    class ErroDoCalculo extends Error { constructor(readonly recusas: string[]) { super(recusas.join(' | ')) } }
+    return {
+        ErroDoCalculo,
+        calcularOrcamento: async (t: string, id: string) => { calculo.chamadas.push([t, id]); return calculo.resposta ? calculo.resposta() : { valor_total_liquido: 5240.395, valor_total_bruto: 5483.2 } },
+    }
+})
 
 import {
     atravessarLevantamento, atravessarNoSim, aproveitamentoDaTravessia, ErroDaTravessia, ErroJaAtravessado, faltasDoCongelado, faltasDoOrcamento,
     fraseJaAtravessado, fraseNaoCompleto, fraseSemItens, fraseSemQuantidade, lerClienteDoLevantamento, levantamentosParaAtravessar, planoDaTravessia,
-    FALTA_DA_COMISSAO, FALTA_DA_RESERVA_TECNICA, FALTA_DO_LUCRO, FALTA_DO_MODO_DA_COMISSAO, FALTA_DO_RESPONSAVEL_DA_RT,
+    FALTA_DO_MODO_DA_COMISSAO, MOTIVO_SEM_PRECIFICACAO, origemNaTela, percentuaisDoOrcamento, resolverPercentual,
     type ItemDoLevantamentoNaTravessia, type LevantamentoNaTravessia,
 } from '@/lib/atendimentos-ia/travessia-do-levantamento'
 import { ErroNaoEncontrado, LIMITE_DO_NOME as LIMITE_DO_NOME_DO_ORCAMENTO } from '@/lib/atendimentos-ia/orcamentos-ia'
@@ -112,12 +122,12 @@ function semear(lev: Partial<LevantamentoNaTravessia> = {}, itens = ITENS) {
     estado.db.orcamentista_levantamento_item = [...itens.map((i) => ({ ...i, tenant_id: l.tenant_id, levantamento_id: l.id })),
         { id: 'li-outra', ordem: 1, tenant_id: OUTRO, levantamento_id: LEV_OUTRO, tipologia: 'DP-02', largura_mm: 1, altura_mm: 1, quantidade: 1, cor_perfil: null, vidro: null, ambientes: null, escolhas: null }]
 }
-beforeEach(() => { estado.db = {}; estado.ops = []; estado.erros = {}; estado.antesDoInsert = null; seq = 0; semear() })
+beforeEach(() => { estado.db = {}; estado.ops = []; estado.erros = {}; estado.antesDoInsert = null; seq = 0; semear(); calculo.chamadas = []; calculo.resposta = null })
 const escritas = () => estado.ops.filter((o) => o.op !== 'select')
 
 describe('(1) o plano', () => {
     it('congela o que muda preço, com o nome, a origem e o levantamento; o criado_por é nulo (o do agente não tem autor)', () => {
-        const p = planoDaTravessia(GERALDO, ITENS, null)
+        const p = planoDaTravessia(GERALDO, ITENS, null, null)
         if (!('orcamento' in p)) throw new Error('recusou')
         expect(p.orcamento).toEqual({
             tenant_id: T, origem: 'agente', levantamento_id: LEV, nome: 'Geraldo Huck', obs: null, criado_por: null,
@@ -126,46 +136,42 @@ describe('(1) o plano', () => {
         })
     })
     it('NÃO forma preço: o plano não traz valor de venda, operação interna nem totais', () => {
-        const p = planoDaTravessia(GERALDO, ITENS, null)
+        const p = planoDaTravessia(GERALDO, ITENS, null, null)
         if (!('orcamento' in p)) throw new Error('recusou')
         for (const c of ['valor_venda', 'valor_operacao_interna', 'valor_total_bruto', 'valor_total_liquido']) expect(Object.keys(p.orcamento)).not.toContain(c)
     })
     it('um item por item do levantamento, NA ORDEM, com o levantamento_item_id e os campos copiados (ambientes e escolhas como estão)', () => {
-        const p = planoDaTravessia(GERALDO, ITENS, null)
+        const p = planoDaTravessia(GERALDO, ITENS, null, null)
         if (!('itens' in p)) throw new Error('recusou')
         expect(p.itens.map((i) => [i.ordem, i.levantamento_item_id, i.tipologia])).toEqual([[1, 'li-1', 'DP-39'], [2, 'li-2', 'DP-01'], [3, 'li-3', 'DP-02']])
         expect(p.itens[2]).toEqual({ ordem: 3, levantamento_item_id: 'li-3', tipologia: 'DP-02', largura_mm: 1600, altura_mm: 1200, quantidade: 2, cor_perfil: 'Branco', vidro: 'incolor 4 mm comum', ambientes: null, escolhas: null })
         expect(p.itens[1].ambientes).toEqual([{ ambiente: 'Sala', quantidade: 1 }])
         expect(p.itens[1].escolhas).toEqual({ N: 2 })
     })
-    it('o Geraldo Huck: a única falta é o responsável pela reserva técnica (há RT de 1%, sem responsável)', () => {
-        const p = planoDaTravessia(GERALDO, ITENS, null)
+    it('o Geraldo Huck: nenhuma falta — a RT de 1% sem responsável NÃO é falta (nome livre, fora de qualquer cálculo)', () => {
+        const p = planoDaTravessia(GERALDO, ITENS, null, null)
         if (!('faltas' in p)) throw new Error('recusou')
-        expect(p.faltas).toEqual([FALTA_DO_RESPONSAVEL_DA_RT])
-    })
-    it('VAZIO NÃO É ZERO: os percentuais nulos nascem NULOS, e cada falta é nomeada', () => {
-        const p = planoDaTravessia({ ...GERALDO, comissao_percentual: null, comissao_modo: null, reserva_tecnica_percentual: null, lucro_projetado_percentual: null }, ITENS, null)
-        if (!('orcamento' in p)) throw new Error('recusou')
-        expect([p.orcamento.comissao_percentual, p.orcamento.comissao_modo, p.orcamento.reserva_tecnica_percentual, p.orcamento.lucro_projetado_percentual]).toEqual([null, null, null, null])
-        expect(p.faltas).toEqual([FALTA_DA_COMISSAO, FALTA_DO_MODO_DA_COMISSAO, FALTA_DA_RESERVA_TECNICA, FALTA_DO_LUCRO])
+        expect(p.faltas).toEqual([])
+        expect(p.origens).toEqual({ comissao_percentual: 'levantamento', reserva_tecnica_percentual: 'levantamento', lucro_projetado_percentual: 'levantamento' })
     })
     it('o ZERO dito é zero, e não é falta; RT zero não pede responsável', () => {
-        const p = planoDaTravessia({ ...GERALDO, comissao_percentual: 0, reserva_tecnica_percentual: 0, lucro_projetado_percentual: 0 }, ITENS, null)
+        const p = planoDaTravessia({ ...GERALDO, comissao_percentual: 0, reserva_tecnica_percentual: 0, lucro_projetado_percentual: 0 }, ITENS, null, null)
         if (!('orcamento' in p)) throw new Error('recusou')
         expect([p.orcamento.comissao_percentual, p.orcamento.reserva_tecnica_percentual, p.orcamento.lucro_projetado_percentual]).toEqual([0, 0, 0])
         expect(p.faltas).toEqual([])
     })
-    it('o numeric do banco chega como texto e vira número; o texto vazio é nulo', () => {
-        const p = planoDaTravessia({ ...GERALDO, comissao_percentual: '5' as unknown as number, comissao_modo: '  ', lucro_projetado_percentual: '' as unknown as number }, ITENS, null)
+    it('o numeric do banco chega como texto e vira número; o texto vazio é AUSENTE (vai à pré-definição), nunca o zero de `Number(\'\')`', () => {
+        const p = planoDaTravessia({ ...GERALDO, comissao_percentual: '5' as unknown as number, comissao_modo: '  ', lucro_projetado_percentual: '' as unknown as number }, ITENS, null,
+            { comissao_percentual: 9, comissao_modo: null, reserva_tecnica_percentual: null, lucro_projetado_percentual: 12 })
         if (!('orcamento' in p)) throw new Error('recusou')
         expect(p.orcamento.comissao_percentual).toBe(5)
         expect(p.orcamento.comissao_modo).toBeNull()
-        // o percentual em texto vazio é NULO e falta — nunca o zero que `Number('')` daria
-        expect(p.orcamento.lucro_projetado_percentual).toBeNull()
-        expect(p.faltas).toContain(FALTA_DO_LUCRO)
+        expect(p.orcamento.lucro_projetado_percentual).toBe(12)
+        expect(p.origens.lucro_projetado_percentual).toBe('base_de_conhecimento')
+        expect(p.faltas).toEqual([FALTA_DO_MODO_DA_COMISSAO])
     })
     it('o nome do cliente é gravado aparado', () => {
-        const p = planoDaTravessia({ ...GERALDO, nome: '  Geraldo Huck  ' }, ITENS, null)
+        const p = planoDaTravessia({ ...GERALDO, nome: '  Geraldo Huck  ' }, ITENS, null, null)
         if (!('orcamento' in p)) throw new Error('recusou')
         expect(p.orcamento.nome).toBe('Geraldo Huck')
     })
@@ -175,24 +181,102 @@ describe('(1) o plano', () => {
     })
 })
 
+describe('(1b) a REGRA DO ZERO: levantamento, senão a pré-definição do vendedor, senão zero (dono do produto, 11/11/2026)', () => {
+    const VAZIO: LevantamentoNaTravessia = { ...GERALDO, comissao_percentual: null, comissao_modo: null, reserva_tecnica_percentual: null, lucro_projetado_percentual: null }
+    const PERFIL = { comissao_percentual: 3, comissao_modo: 'CONGELADA', reserva_tecnica_percentual: 2, lucro_projetado_percentual: 15 }
+    it('a ordem, campo a campo: o levantamento vence a base, a base vence o zero, e o zero é o último', () => {
+        expect(resolverPercentual(5, 3)).toEqual({ valor: 5, origem: 'levantamento' })
+        expect(resolverPercentual(0, 3)).toEqual({ valor: 0, origem: 'levantamento' })
+        expect(resolverPercentual(null, 3)).toEqual({ valor: 3, origem: 'base_de_conhecimento' })
+        expect(resolverPercentual(null, 0)).toEqual({ valor: 0, origem: 'base_de_conhecimento' })
+        expect(resolverPercentual(null, null)).toEqual({ valor: 0, origem: 'zero_por_ausencia' })
+        expect(resolverPercentual(undefined, undefined)).toEqual({ valor: 0, origem: 'zero_por_ausencia' })
+    })
+    it('levantamento vazio e vendedor com pré-definição: os três (e o modo) vêm da base', () => {
+        const p = planoDaTravessia(VAZIO, ITENS, null, PERFIL)
+        if (!('orcamento' in p)) throw new Error('recusou')
+        expect([p.orcamento.comissao_percentual, p.orcamento.comissao_modo, p.orcamento.reserva_tecnica_percentual, p.orcamento.lucro_projetado_percentual]).toEqual([3, 'CONGELADA', 2, 15])
+        expect(p.origens).toEqual({ comissao_percentual: 'base_de_conhecimento', reserva_tecnica_percentual: 'base_de_conhecimento', lucro_projetado_percentual: 'base_de_conhecimento' })
+        expect(p.faltas).toEqual([])
+    })
+    it('levantamento vazio e sem pré-definição: ZERO gravado como 0 (nunca nulo), com a origem dita; só o modo falta', () => {
+        const p = planoDaTravessia(VAZIO, ITENS, null, null)
+        if (!('orcamento' in p)) throw new Error('recusou')
+        expect([p.orcamento.comissao_percentual, p.orcamento.reserva_tecnica_percentual, p.orcamento.lucro_projetado_percentual]).toEqual([0, 0, 0])
+        expect(p.origens).toEqual({ comissao_percentual: 'zero_por_ausencia', reserva_tecnica_percentual: 'zero_por_ausencia', lucro_projetado_percentual: 'zero_por_ausencia' })
+        expect(p.faltas).toEqual([FALTA_DO_MODO_DA_COMISSAO])
+    })
+    it('misturado: cada campo resolve sozinho', () => {
+        const p = planoDaTravessia({ ...VAZIO, comissao_percentual: 5 }, ITENS, null, { ...PERFIL, comissao_percentual: 3, reserva_tecnica_percentual: null })
+        if (!('origens' in p)) throw new Error('recusou')
+        expect([p.orcamento.comissao_percentual, p.orcamento.reserva_tecnica_percentual, p.orcamento.lucro_projetado_percentual]).toEqual([5, 0, 15])
+        expect(p.origens).toEqual({ comissao_percentual: 'levantamento', reserva_tecnica_percentual: 'zero_por_ausencia', lucro_projetado_percentual: 'base_de_conhecimento' })
+    })
+    it('a observação ausente continua NULA (não zero), e o responsável da RT nulo não é falta', () => {
+        const p = planoDaTravessia({ ...GERALDO, reserva_tecnica_percentual: 4, reserva_tecnica_responsavel: null }, ITENS, null, null)
+        if (!('orcamento' in p)) throw new Error('recusou')
+        expect(p.orcamento.obs).toBeNull()
+        expect(p.orcamento.reserva_tecnica_responsavel).toBeNull()
+        expect(p.faltas).toEqual([])
+        expect(faltasDoCongelado({ comissao_modo: 'PROPORCIONAL' })).toEqual([])
+        expect(faltasDoCongelado({ comissao_modo: null })).toEqual([FALTA_DO_MODO_DA_COMISSAO])
+    })
+    it('pelo servidor: a pré-definição é a do VENDEDOR DO LEVANTAMENTO, na empresa do chamador', async () => {
+        semear({ comissao_percentual: null, reserva_tecnica_percentual: null, lucro_projetado_percentual: null })
+        estado.db.orcamentista_vendedor_perfil = [
+            { tenant_id: OUTRO, employee_id: 'emp-1', comissao_percentual: 50, comissao_modo: 'PROPORCIONAL', reserva_tecnica_percentual: 50, lucro_projetado_percentual: 50 },
+            { tenant_id: T, employee_id: 'emp-2', comissao_percentual: 40, comissao_modo: 'PROPORCIONAL', reserva_tecnica_percentual: 40, lucro_projetado_percentual: 40 },
+            { tenant_id: T, employee_id: 'emp-1', comissao_percentual: 3, comissao_modo: 'PROPORCIONAL', reserva_tecnica_percentual: null, lucro_projetado_percentual: 15 },
+        ]
+        const r = await atravessarLevantamento(T, LEV)
+        expect(r.origens).toEqual({ comissao_percentual: 'base_de_conhecimento', reserva_tecnica_percentual: 'zero_por_ausencia', lucro_projetado_percentual: 'base_de_conhecimento' })
+        expect(estado.db.orcamentista_orcamento[0]).toEqual(expect.objectContaining({ comissao_percentual: 3, reserva_tecnica_percentual: 0, lucro_projetado_percentual: 15 }))
+        expect(estado.ops.filter((o) => o.tabela === 'orcamentista_vendedor_perfil').every((o) => o.filtros.some(([, c, v]) => c === 'tenant_id' && v === T))).toBe(true)
+    })
+    it('a ORIGEM na tela, por comparação: levantamento, base, zero por ausência, ou alterado no orçamento', () => {
+        expect(origemNaTela(5, 5, 3)).toBe('levantamento')
+        expect(origemNaTela(7, 5, 3)).toBe('alterado_no_orcamento')
+        expect(origemNaTela(3, null, 3)).toBe('base_de_conhecimento')
+        expect(origemNaTela(4, null, 3)).toBe('alterado_no_orcamento')
+        expect(origemNaTela(0, null, null)).toBe('zero_por_ausencia')
+        expect(origemNaTela(2, null, null)).toBe('alterado_no_orcamento')
+        expect(origemNaTela(null, 5, 3)).toBeNull()
+    })
+    it('percentuaisDoOrcamento: os três com a origem; o manual não tem', async () => {
+        semear({ comissao_percentual: 5, reserva_tecnica_percentual: null, lucro_projetado_percentual: null })
+        estado.db.orcamentista_vendedor_perfil = [{ tenant_id: T, employee_id: 'emp-1', comissao_percentual: null, comissao_modo: null, reserva_tecnica_percentual: null, lucro_projetado_percentual: 15 }]
+        estado.db.orcamentista_orcamento = [
+            { id: 'o-a', tenant_id: T, origem: 'agente', levantamento_id: LEV, comissao_percentual: 5, reserva_tecnica_percentual: 0, lucro_projetado_percentual: 15 },
+            { id: 'o-m', tenant_id: T, origem: 'manual', levantamento_id: null, comissao_percentual: 1, reserva_tecnica_percentual: 1, lucro_projetado_percentual: 1 },
+        ]
+        expect(await percentuaisDoOrcamento(T, 'o-a')).toEqual([
+            { campo: 'comissao_percentual', valor: 5, origem: 'levantamento' },
+            { campo: 'reserva_tecnica_percentual', valor: 0, origem: 'zero_por_ausencia' },
+            { campo: 'lucro_projetado_percentual', valor: 15, origem: 'base_de_conhecimento' },
+        ])
+        expect(await percentuaisDoOrcamento(T, 'o-m')).toEqual([])
+        expect(await percentuaisDoOrcamento(OUTRO, 'o-a')).toEqual([])
+    })
+})
+
 describe('(2) as recusas, e nada é gravado', () => {
     it('o nome acima do limite da CHECK do orçamento recusa; o limite é o MESMO de orcamentos-ia', () => {
         expect(LIMITE_DO_NOME).toBe(LIMITE_DO_NOME_DO_ORCAMENTO)
-        expect(planoDaTravessia({ ...GERALDO, nome: 'x'.repeat(LIMITE_DO_NOME + 1) }, ITENS, null)).toEqual({ ok: false, recusas: [fraseDoNome(11)] })
-        expect('orcamento' in planoDaTravessia({ ...GERALDO, nome: 'x'.repeat(LIMITE_DO_NOME) }, ITENS, null)).toBe(true)
+        expect(planoDaTravessia({ ...GERALDO, nome: 'x'.repeat(LIMITE_DO_NOME + 1) }, ITENS, null, null)).toEqual({ ok: false, recusas: [fraseDoNome(11)] })
+        expect('orcamento' in planoDaTravessia({ ...GERALDO, nome: 'x'.repeat(LIMITE_DO_NOME) }, ITENS, null, null)).toBe(true)
     })
     it('só o COMPLETO atravessa', () => {
-        expect(planoDaTravessia({ ...GERALDO, estado: 'EM_MONTAGEM' }, ITENS, null)).toEqual({ ok: false, recusas: [fraseNaoCompleto(11, 'EM_MONTAGEM')] })
+        expect(planoDaTravessia({ ...GERALDO, estado: 'EM_MONTAGEM' }, ITENS, null, null)).toEqual({ ok: false, recusas: [fraseNaoCompleto(11, 'EM_MONTAGEM')] })
     })
     it('sem esquadria, recusa', () => {
-        expect(planoDaTravessia(GERALDO, [], null)).toEqual({ ok: false, recusas: [fraseSemItens(11)] })
+        expect(planoDaTravessia(GERALDO, [], null, null)).toEqual({ ok: false, recusas: [fraseSemItens(11)] })
     })
     it('a quantidade nula não vira 1, e a zero também recusa', () => {
-        const r = planoDaTravessia(GERALDO, [{ ...ITENS[1], quantidade: null }, { ...ITENS[0], quantidade: 0 }], null)
+        const r = planoDaTravessia(GERALDO, [{ ...ITENS[1], quantidade: null }, { ...ITENS[0], quantidade: 0 }], null, null)
         expect(r).toEqual({ ok: false, recusas: [fraseSemQuantidade(1), fraseSemQuantidade(3)] })
     })
     it('a quantidade fracionária também recusa (vazio e meia esquadria não viram 1)', () => {
-        expect(planoDaTravessia(GERALDO, [{ ...ITENS[1], quantidade: 1.5 }], null)).toEqual({ ok: false, recusas: [fraseSemQuantidade(1)] })
+        expect(planoDaTravessia(GERALDO, [{ ...ITENS[1], quantidade: 1.5 }], null, null)).toEqual({ ok: false, recusas: [fraseSemQuantidade(1)] })
     })
     it('pela rota do código: a recusa lança ErroDaTravessia e nada é gravado', async () => {
         semear({ estado: 'EM_MONTAGEM' })
@@ -205,7 +289,8 @@ describe('(3) a escrita', () => {
     it('o orçamento do agente e os 3 itens; só nessas duas tabelas, e o levantamento intacto', async () => {
         const antes = JSON.stringify([estado.db.orcamentista_levantamento, estado.db.orcamentista_levantamento_item])
         const r = await atravessarLevantamento(T, LEV)
-        expect(r).toEqual({ orcamento: { id: expect.any(String), numero: 1 }, itens: 3, faltas: [FALTA_DO_RESPONSAVEL_DA_RT], retomada: false })
+        expect(r).toEqual({ orcamento: { id: expect.any(String), numero: 1 }, itens: 3, faltas: [], retomada: false,
+            origens: { comissao_percentual: 'levantamento', reserva_tecnica_percentual: 'levantamento', lucro_projetado_percentual: 'levantamento' } })
         expect(new Set(escritas().map((o) => `${o.tabela}:${o.op}`))).toEqual(new Set(['orcamentista_orcamento:insert', 'orcamentista_orcamento_item:insert']))
         expect(JSON.stringify([estado.db.orcamentista_levantamento, estado.db.orcamentista_levantamento_item])).toBe(antes)
         const [o] = estado.db.orcamentista_orcamento
@@ -286,26 +371,44 @@ describe('(6) o cliente e as faltas, LIDOS', () => {
         expect(await lerClienteDoLevantamento(T, LEV_OUTRO)).toBeNull()
         expect(await lerClienteDoLevantamento(T, null)).toBeNull()
     })
-    it('as faltas são lidas das COLUNAS do orçamento (nulo é falta); o manual não tem', async () => {
+    it('as faltas são lidas das COLUNAS do orçamento: só o modo da comissão pode faltar; o manual não tem', async () => {
         estado.db.orcamentista_orcamento = [
-            { id: 'o-a', tenant_id: T, origem: 'agente', comissao_percentual: null, comissao_modo: 'PROPORCIONAL', reserva_tecnica_percentual: '0', reserva_tecnica_responsavel: null, lucro_projetado_percentual: null },
+            { id: 'o-a', tenant_id: T, origem: 'agente', comissao_percentual: 0, comissao_modo: null, reserva_tecnica_percentual: 0, reserva_tecnica_responsavel: null, lucro_projetado_percentual: 0 },
+            { id: 'o-b', tenant_id: T, origem: 'agente', comissao_percentual: 0, comissao_modo: 'PROPORCIONAL', reserva_tecnica_percentual: 4, reserva_tecnica_responsavel: null, lucro_projetado_percentual: 0 },
             { id: 'o-m', tenant_id: T, origem: 'manual', comissao_percentual: null, comissao_modo: null, reserva_tecnica_percentual: null, reserva_tecnica_responsavel: null, lucro_projetado_percentual: null },
         ]
-        expect(await faltasDoOrcamento(T, 'o-a')).toEqual([FALTA_DA_COMISSAO, FALTA_DO_LUCRO])
+        expect(await faltasDoOrcamento(T, 'o-a')).toEqual([FALTA_DO_MODO_DA_COMISSAO])
+        expect(await faltasDoOrcamento(T, 'o-b')).toEqual([])
         expect(await faltasDoOrcamento(T, 'o-m')).toEqual([])
-        expect(faltasDoCongelado({ comissao_percentual: 5, comissao_modo: 'X', reserva_tecnica_percentual: 1, reserva_tecnica_responsavel: 'Arq.', lucro_projetado_percentual: 10 })).toEqual([])
+        expect(await faltasDoOrcamento(OUTRO, 'o-a')).toEqual([])
     })
 })
 
-describe('(7) o gatilho do "sim" nunca lança', () => {
-    it('cria, depois diz que já existe, e a recusa e a falha viram texto do log', async () => {
-        expect(await atravessarNoSim(T, LEV)).toBe('orcamento=1 itens=3 faltas=1')
-        expect(await atravessarNoSim(T, LEV)).toBe('ja_existe=1')
+describe('(7) o gatilho do "sim" ENCADEIA travessia -> cálculo, para na precificação, e nunca lança', () => {
+    const TRAVESSIA = 'orcamento=1 itens=3 faltas=0 origens=comissao:levantamento,rt:levantamento,lucro:levantamento'
+    it('atravessa, CALCULA o orçamento criado, e para na precificação dizendo por quê', async () => {
+        expect(await atravessarNoSim(T, LEV)).toBe(`${TRAVESSIA} calculo=ok liquido=5240.40 parou=precificacao motivo="${MOTIVO_SEM_PRECIFICACAO}"`)
+        expect(calculo.chamadas).toEqual([[T, estado.db.orcamentista_orcamento[0].id]])
+    })
+    it('o já atravessado para na travessia e NÃO recalcula; a recusa e a falha da travessia também param nela', async () => {
+        await atravessarNoSim(T, LEV)
+        calculo.chamadas = []
+        expect(await atravessarNoSim(T, LEV)).toBe('ja_existe=1 parou=travessia')
         semear({ estado: 'EM_MONTAGEM' })
         estado.db.orcamentista_orcamento = []
-        expect(await atravessarNoSim(T, LEV)).toBe('recusou=1')
+        expect(await atravessarNoSim(T, LEV)).toBe('recusou=1 parou=travessia')
         estado.erros.orcamentista_levantamento = [{ code: 'XX000', message: 'o banco caiu' }]
-        expect(await atravessarNoSim(T, LEV)).toBe('falhou motivo="orcamentista_levantamento: o banco caiu"')
+        expect(await atravessarNoSim(T, LEV)).toBe('falhou parou=travessia motivo="orcamentista_levantamento: o banco caiu"')
+        expect(calculo.chamadas).toEqual([])
+    })
+    it('a recusa e a falha do cálculo param no cálculo, com o orçamento gravado, e não lançam', async () => {
+        const { ErroDoCalculo } = jest.requireMock('@/lib/atendimentos-ia/orcamento-calculado') as { ErroDoCalculo: new (r: string[]) => Error }
+        calculo.resposta = () => { throw new ErroDoCalculo(['o código 1023 sem preço']) }
+        expect(await atravessarNoSim(T, LEV)).toBe(`${TRAVESSIA} calculo=recusou recusas=1 parou=calculo motivo="o código 1023 sem preço"`)
+        expect(estado.db.orcamentista_orcamento).toHaveLength(1)
+        semear(); estado.db.orcamentista_orcamento = []; estado.db.orcamentista_orcamento_item = []
+        calculo.resposta = () => { throw new Error('orcamentista_orcamento_item_material: caiu') }
+        expect(await atravessarNoSim(T, LEV)).toBe(`${TRAVESSIA} calculo=falhou parou=calculo motivo="orcamentista_orcamento_item_material: caiu"`)
     })
 })
 

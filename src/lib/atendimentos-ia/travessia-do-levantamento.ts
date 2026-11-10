@@ -26,9 +26,12 @@
  */
 import { supabaseAdmin } from '@/supabase/admin'
 import { ErroNaoEncontrado, ErroSemMigracao, TABELA_DO_ITEM, TABELA_DO_ORCAMENTO, tabelaAusente } from './orcamentos-ia'
+import { lerPerfilDoVendedor } from './arquivo-do-levantamento'
+import { calcularOrcamento, ErroDoCalculo } from './orcamento-calculado'
 import {
-    ESTADO_COMPLETO, ErroDaTravessia, ErroJaAtravessado, faltasDoCongelado, planoDaTravessia,
+    ESTADO_COMPLETO, ErroDaTravessia, ErroJaAtravessado, faltasDoCongelado, origemNaTela, planoDaTravessia, PERCENTUAIS_COM_ZERO,
     type ClienteDoLevantamento, type ItemDaTravessia, type ItemDoLevantamentoNaTravessia, type LevantamentoNaTravessia, type ModoDaBase,
+    type OrigensDosPercentuais, type PercentualComZero, type PercentualNaTela,
 } from './travessia-do-levantamento-plano'
 
 export * from './travessia-do-levantamento-plano'
@@ -48,7 +51,7 @@ function falhou(tabela: string, error: { code?: string; message: string }): neve
     if (tabelaAusente(error)) throw new ErroSemMigracao()
     throw new Error(`${tabela}: ${error.message}`)
 }
-const COLUNAS_DO_LEVANTAMENTO = 'id, tenant_id, numero, nome, estado, comissao_percentual, comissao_modo, reserva_tecnica_percentual, reserva_tecnica_responsavel, lucro_projetado_percentual'
+const COLUNAS_DO_LEVANTAMENTO = 'id, tenant_id, numero, nome, estado, comissao_percentual, comissao_modo, reserva_tecnica_percentual, reserva_tecnica_responsavel, lucro_projetado_percentual, vendedor_employee_id'
 const COLUNAS_DO_ITEM_DO_LEVANTAMENTO = 'id, ordem, tipologia, largura_mm, altura_mm, quantidade, cor_perfil, vidro, ambientes, escolhas'
 /** O índice que faz "um orçamento por levantamento" no banco: a violação dele é a segunda travessia que perdeu a corrida. */
 const INDICE_UM_POR_LEVANTAMENTO = 'orcamentista_orcamento_um_por_levantamento'
@@ -62,7 +65,7 @@ export async function modoDaBaseDeConhecimento(_tenantId: string): Promise<ModoD
     return null
 }
 
-export type ResultadoDaTravessia = { orcamento: { id: string; numero: number }; itens: number; faltas: string[]; retomada: boolean }
+export type ResultadoDaTravessia = { orcamento: { id: string; numero: number }; itens: number; faltas: string[]; retomada: boolean; origens: OrigensDosPercentuais }
 
 /** O orçamento que já existe para o levantamento, com quantos itens tem. */
 async function orcamentoDoLevantamento(tenantId: string, levantamentoId: string): Promise<{ id: string; numero: number; itens: number } | null> {
@@ -90,7 +93,9 @@ export async function atravessarLevantamento(tenantId: string, levantamentoId: s
     if (!lev || lev.tenant_id !== tenantId) throw new ErroNaoEncontrado()
     const r = await db().from('orcamentista_levantamento_item').select(COLUNAS_DO_ITEM_DO_LEVANTAMENTO).eq('tenant_id', tenantId).eq('levantamento_id', levantamentoId)
     if (r.error) falhou('orcamentista_levantamento_item', r.error)
-    const plano = planoDaTravessia(lev as LevantamentoNaTravessia, (r.data ?? []) as ItemDoLevantamentoNaTravessia[], await modoDaBaseDeConhecimento(tenantId))
+    // a pré-definição de contexto da base (o perfil do vendedor do levantamento), lida no tenant do chamador — o (b) da regra do zero
+    const doVendedor = await lerPerfilDoVendedor(tenantId, textoOuNulo(lev.vendedor_employee_id))
+    const plano = planoDaTravessia(lev as LevantamentoNaTravessia, (r.data ?? []) as ItemDoLevantamentoNaTravessia[], await modoDaBaseDeConhecimento(tenantId), doVendedor)
     // `'recusas' in`, e não `ok`: com `strictNullChecks: false` (o tsconfig daqui) o tsc não estreita a união pelo booleano
     if ('recusas' in plano) throw new ErroDaTravessia(plano.recusas)
 
@@ -99,7 +104,7 @@ export async function atravessarLevantamento(tenantId: string, levantamentoId: s
     if (existente) {
         // a travessia que parou entre as duas escritas: o orçamento existe sem item nenhum, e recebe os itens agora
         await gravarItens(tenantId, existente.id, plano.itens)
-        return { orcamento: { id: existente.id, numero: existente.numero }, itens: plano.itens.length, faltas: plano.faltas, retomada: true }
+        return { orcamento: { id: existente.id, numero: existente.numero }, itens: plano.itens.length, faltas: plano.faltas, retomada: true, origens: plano.origens }
     }
     for (let tentativa = 1; tentativa <= TENTATIVAS_DO_NUMERO; tentativa++) {
         const { data: ultimo, error: e1 } = await db().from(TABELA_DO_ORCAMENTO).select('numero').eq('tenant_id', tenantId).order('numero', { ascending: false }).limit(1)
@@ -112,7 +117,7 @@ export async function atravessarLevantamento(tenantId: string, levantamentoId: s
             } catch (e) {
                 throw new Error(`o orçamento ${criado.numero} foi criado sem os itens (atravesse de novo para gravá-los): ${e instanceof Error ? e.message : e}`)
             }
-            return { orcamento: { id: criado.id, numero: criado.numero }, itens: plano.itens.length, faltas: plano.faltas, retomada: false }
+            return { orcamento: { id: criado.id, numero: criado.numero }, itens: plano.itens.length, faltas: plano.faltas, retomada: false, origens: plano.origens }
         }
         if (e2.code === '23505' && `${e2.message} ${e2.details ?? ''}`.includes(INDICE_UM_POR_LEVANTAMENTO)) {
             const outro = await orcamentoDoLevantamento(tenantId, levantamentoId)
@@ -150,16 +155,28 @@ export async function lerClienteDoLevantamento(tenantId: string, levantamentoId:
 
 /** As faltas do que o orçamento `id` congelou, lidas das colunas dele (nulo é falta; nunca o default). Vazia para o orçamento manual. */
 export async function faltasDoOrcamento(tenantId: string, id: string): Promise<string[]> {
-    const { data, error } = await db().from(TABELA_DO_ORCAMENTO)
-        .select('origem, comissao_percentual, comissao_modo, reserva_tecnica_percentual, reserva_tecnica_responsavel, lucro_projetado_percentual')
-        .eq('tenant_id', tenantId).eq('id', id).maybeSingle()
+    const { data, error } = await db().from(TABELA_DO_ORCAMENTO).select('origem, comissao_modo').eq('tenant_id', tenantId).eq('id', id).maybeSingle()
     if (error) falhou(TABELA_DO_ORCAMENTO, error)
     if (!data || data.origem !== 'agente') return []
-    return faltasDoCongelado({
-        comissao_percentual: numeroOuNulo(data.comissao_percentual), comissao_modo: textoOuNulo(data.comissao_modo),
-        reserva_tecnica_percentual: numeroOuNulo(data.reserva_tecnica_percentual), reserva_tecnica_responsavel: textoOuNulo(data.reserva_tecnica_responsavel),
-        lucro_projetado_percentual: numeroOuNulo(data.lucro_projetado_percentual),
-    })
+    return faltasDoCongelado({ comissao_modo: textoOuNulo(data.comissao_modo) })
+}
+
+/**
+ * Os três percentuais do orçamento do agente com a ORIGEM ao lado, derivada por comparação com o levantamento e com a pré-definição do
+ * vendedor (`origemNaTela`) — sem coluna. Vazia para o orçamento manual. Tudo no tenant do chamador.
+ */
+export async function percentuaisDoOrcamento(tenantId: string, id: string): Promise<PercentualNaTela[]> {
+    const { data: orc, error } = await db().from(TABELA_DO_ORCAMENTO).select(`origem, levantamento_id, ${PERCENTUAIS_COM_ZERO.join(', ')}`)
+        .eq('tenant_id', tenantId).eq('id', id).maybeSingle()
+    if (error) falhou(TABELA_DO_ORCAMENTO, error)
+    if (!orc || orc.origem !== 'agente' || !orc.levantamento_id) return []
+    const { data: lev, error: e2 } = await db().from('orcamentista_levantamento').select(`vendedor_employee_id, ${PERCENTUAIS_COM_ZERO.join(', ')}`)
+        .eq('tenant_id', tenantId).eq('id', orc.levantamento_id).maybeSingle()
+    if (e2) falhou('orcamentista_levantamento', e2)
+    const doVendedor = lev ? await lerPerfilDoVendedor(tenantId, textoOuNulo(lev.vendedor_employee_id)) : null
+    return PERCENTUAIS_COM_ZERO.map((campo) => ({
+        campo, valor: numeroOuNulo(orc[campo]), origem: origemNaTela(orc[campo], lev?.[campo], doVendedor?.[campo]),
+    }))
 }
 
 /**
@@ -167,12 +184,27 @@ export async function faltasDoOrcamento(tenantId: string, id: string): Promise<s
  * vendedor (o levantamento já foi gravado e enviado); fica nomeada no log, e a ação manual da seção Orçamentos I.A. atravessa depois.
  */
 export async function atravessarNoSim(tenantId: string, levantamentoId: string): Promise<string> {
+    let r: ResultadoDaTravessia
     try {
-        const r = await atravessarLevantamento(tenantId, levantamentoId)
-        return `orcamento=${r.orcamento.numero} itens=${r.itens} faltas=${r.faltas.length}${r.retomada ? ' retomada=sim' : ''}`
+        r = await atravessarLevantamento(tenantId, levantamentoId)
     } catch (e) {
-        if (e instanceof ErroJaAtravessado) return `ja_existe=${e.orcamentoNumero}`
-        if (e instanceof ErroDaTravessia) return `recusou=${e.recusas.length}`
-        return `falhou motivo="${e instanceof Error ? e.message.slice(0, 120) : 'desconhecido'}"`
+        if (e instanceof ErroJaAtravessado) return `ja_existe=${e.orcamentoNumero} parou=travessia`
+        if (e instanceof ErroDaTravessia) return `recusou=${e.recusas.length} parou=travessia`
+        return `falhou parou=travessia motivo="${motivoDoLog(e)}"`
+    }
+    const origens = PERCENTUAIS_COM_ZERO.map((p) => `${ROTULO_NO_LOG[p]}:${r.origens[p]}`).join(',')
+    const travessia = `orcamento=${r.orcamento.numero} itens=${r.itens} faltas=${r.faltas.length}${r.retomada ? ' retomada=sim' : ''} origens=${origens}`
+    // O "SIM" ENCADEIA (dono do produto, 11/11/2026): travessia -> cálculo do custo (grava os materiais) -> precificação. A precificação só
+    // completa com o #258; até lá o encadeamento PARA no cálculo, com o custo fechado e o valor de venda nulo, e diz que falta a precificação
+    try {
+        const c = await calcularOrcamento(tenantId, r.orcamento.id)
+        return `${travessia} calculo=ok liquido=${c.valor_total_liquido.toFixed(2)} parou=precificacao motivo="${MOTIVO_SEM_PRECIFICACAO}"`
+    } catch (e) {
+        if (e instanceof ErroDoCalculo) return `${travessia} calculo=recusou recusas=${e.recusas.length} parou=calculo motivo="${e.recusas.join(' | ').slice(0, 120)}"`
+        return `${travessia} calculo=falhou parou=calculo motivo="${motivoDoLog(e)}"`
     }
 }
+/** Por que o encadeamento para depois do cálculo: a precificação automática do orçamento ainda não existe (vem com o #258). */
+export const MOTIVO_SEM_PRECIFICACAO = 'falta a precificação: o valor de venda fica nulo até a precificação do orçamento entrar'
+const ROTULO_NO_LOG: Readonly<Record<PercentualComZero, string>> = { comissao_percentual: 'comissao', reserva_tecnica_percentual: 'rt', lucro_projetado_percentual: 'lucro' }
+const motivoDoLog = (e: unknown) => (e instanceof Error ? e.message.slice(0, 120) : 'desconhecido')

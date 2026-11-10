@@ -33,7 +33,7 @@ const Lista = require('@/pages/atendimentos-ia/orcamentos-ia/index').default as 
 const Edicao = require('@/pages/atendimentos-ia/orcamentos-ia/[id]').default as React.ComponentType
 const { PAGE_TITLES } = require('@/constants/page-titles')
 const { TEXTO_DA_LISTA_VAZIA, O_QUE_A_TRAVESSIA_GRAVA } = require('@/pages/atendimentos-ia/orcamentos-ia/index')
-const { FALTA_DA_COMISSAO } = require('@/lib/atendimentos-ia/travessia-do-levantamento-plano')
+const { FALTA_DO_MODO_DA_COMISSAO, ROTULO_DA_ORIGEM_DO_PERCENTUAL } = require('@/lib/atendimentos-ia/travessia-do-levantamento-plano')
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 const montadas: Array<{ root: ReturnType<typeof createRoot>; host: HTMLElement }> = []
@@ -214,7 +214,7 @@ describe('o orçamento do agente: o cliente lido, as faltas e os avisos', () => 
     const ORC_AGENTE = { id: 'b', numero: 1, origem: 'agente', levantamento_id: 'lev', nome: 'Antonio Rock', obs: null as string | null, editado_manualmente_em: null as string | null, criado_em: '2026-11-08T21:00:00Z', itens: [] as unknown[] }
     it('o cartão do cliente traz só o que o levantamento tem, e as faltas são listadas', async () => {
         rota.query = { id: 'b' }
-        servidor.corpo = { orcamento: ORC_AGENTE, faltas: [FALTA_DA_COMISSAO],
+        servidor.corpo = { orcamento: ORC_AGENTE, faltas: [FALTA_DO_MODO_DA_COMISSAO],
             cliente: { levantamento_numero: 9, nome: 'Antonio Rock', telefone: '51 98888-1111', email: null, endereco: null, edificacao: '', obs_obra: null, data_entrega: '2026-12-01', vendedor_nome: 'Paulo', vendedor_employee_id: 'e1' } }
         const host = await montar(<Edicao />)
         const cartao = host.querySelector('[data-cliente-do-levantamento]')!
@@ -224,7 +224,24 @@ describe('o orçamento do agente: o cliente lido, as faltas e os avisos', () => 
         expect(cartao.textContent).toContain('Paulo')
         expect(cartao.textContent).not.toContain('Edificação')
         expect(cartao.textContent).not.toContain('E-mail')
-        expect(host.querySelector('[data-faltas-do-congelado]')!.textContent).toContain(FALTA_DA_COMISSAO)
+        expect(host.querySelector('[data-faltas-do-congelado]')!.textContent).toContain(FALTA_DO_MODO_DA_COMISSAO)
+    })
+    it('os três percentuais com a ORIGEM ao lado; o zero por ausência é DESTACADO, nunca silencioso (regra do zero, 11/11/2026)', async () => {
+        rota.query = { id: 'b' }
+        servidor.corpo = { orcamento: ORC_AGENTE, cliente: null, faltas: [], percentuais: [
+            { campo: 'comissao_percentual', valor: 5, origem: 'levantamento' },
+            { campo: 'reserva_tecnica_percentual', valor: 2, origem: 'base_de_conhecimento' },
+            { campo: 'lucro_projetado_percentual', valor: 0, origem: 'zero_por_ausencia' },
+        ] }
+        const host = await montar(<Edicao />)
+        const linha = (c: string) => host.querySelector(`[data-percentual="${c}"]`)!
+        expect(linha('comissao_percentual').textContent).toBe(`Comissão5%${ROTULO_DA_ORIGEM_DO_PERCENTUAL.levantamento}`)
+        expect(linha('reserva_tecnica_percentual').textContent).toBe(`Reserva técnica2%${ROTULO_DA_ORIGEM_DO_PERCENTUAL.base_de_conhecimento}`)
+        expect(linha('lucro_projetado_percentual').textContent).toBe(`Lucro projetado0%${ROTULO_DA_ORIGEM_DO_PERCENTUAL.zero_por_ausencia}`)
+        // o destaque: só o zero por ausência ganha a cor de aviso
+        expect(linha('lucro_projetado_percentual').querySelector('.ant-tag-gold')).not.toBeNull()
+        expect(linha('comissao_percentual').querySelector('.ant-tag-gold')).toBeNull()
+        expect(linha('reserva_tecnica_percentual').querySelector('.ant-tag-gold')).toBeNull()
     })
     it('o orçamento manual não tem cartão de cliente nem faltas', async () => {
         rota.query = { id: 'a' }
@@ -232,6 +249,7 @@ describe('o orçamento do agente: o cliente lido, as faltas e os avisos', () => 
         const host = await montar(<Edicao />)
         expect(host.querySelector('[data-cliente-do-levantamento]')).toBeNull()
         expect(host.querySelector('[data-faltas-do-congelado]')).toBeNull()
+        expect(host.querySelector('[data-percentuais-do-orcamento]')).toBeNull()
     })
     it('o cálculo que devolve aviso da tabela congelada mostra o aviso, sem bloquear', async () => {
         rota.query = { id: 'b' }

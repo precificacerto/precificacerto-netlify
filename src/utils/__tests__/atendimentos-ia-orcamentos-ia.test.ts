@@ -431,5 +431,10 @@ describe('(8) a ação manual da travessia e o GET do orçamento do agente (dono
         const r = await chamar(rotaDoOrcamento, 'GET', { query: { id: O1 } })
         expect(r.status).toBe(200)
         expect(r.corpo.cliente).toEqual(expect.objectContaining({ levantamento_numero: 1, nome: 'Antonio Rock', endereco: 'Porto Alegre', vendedor_nome: 'Cristiano' }))
+        // e os três percentuais com a origem: o orçamento gravado sem eles (fixture) aparece sem valor e sem origem, nunca como zero
+        expect(r.corpo.percentuais).toEqual([
+            { campo: 'comissao_percentual', valor: null, origem: null }, { campo: 'reserva_tecnica_percentual', valor: null, origem: null },
+            { campo: 'lucro_projetado_percentual', valor: null, origem: null },
+        ])
     })
 })

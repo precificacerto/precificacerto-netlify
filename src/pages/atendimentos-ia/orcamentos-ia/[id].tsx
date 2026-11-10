@@ -9,7 +9,7 @@
  * (a tela de Produtos no modo "orçamento"). O estado do cálculo gravado aparece aqui: "cálculo incompleto — recalcule" quando algum item aponta
  * um cálculo e o orçamento está sem os totais.
  */
-import type { ClienteDoLevantamento } from '@/lib/atendimentos-ia/travessia-do-levantamento-plano'
+import { ROTULO_DA_ORIGEM_DO_PERCENTUAL, type ClienteDoLevantamento, type PercentualComZero, type PercentualNaTela } from '@/lib/atendimentos-ia/travessia-do-levantamento-plano'
 import React, { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/router'
@@ -59,6 +59,10 @@ let sequencia = 0
 const comChave = (i: Omit<Item, 'chave'>): Item => ({ ...i, chave: i.id ?? `novo-${++sequencia}` })
 const itemNovo = (): Item => comChave({ id: null, ordem: null, tipologia: null, largura_mm: null, altura_mm: null, quantidade: 1, cor_perfil: null, vidro: null, obs: null })
 
+export const ROTULO_DO_PERCENTUAL: Readonly<Record<PercentualComZero, string>> = {
+    comissao_percentual: 'Comissão', reserva_tecnica_percentual: 'Reserva técnica', lucro_projetado_percentual: 'Lucro projetado',
+}
+
 /** As linhas do cartão do cliente: só o que o levantamento tem (o vazio não aparece — `ausente-vs-falso.md`). */
 export function linhasDoCliente(c: ClienteDoLevantamento): Array<[string, string]> {
     const linhas: Array<[string, string | null]> = [
@@ -94,6 +98,8 @@ function OrcamentoIA() {
     // o cliente e o vendedor do orçamento do agente: LIDOS do levantamento de origem (nunca copiados); e as faltas do que ele congelou
     const [cliente, setCliente] = useState<ClienteDoLevantamento | null>(null)
     const [faltas, setFaltas] = useState<string[]>([])
+    // os três percentuais com a origem (regra do zero, 11/11/2026): o zero por ausência é DESTACADO, nunca silencioso
+    const [percentuais, setPercentuais] = useState<PercentualNaTela[]>([])
     // os avisos do último cálculo: a tabela congelada no levantamento que não é a vigente usada (não bloqueia)
     const [avisosDaTabela, setAvisosDaTabela] = useState<string[]>([])
 
@@ -145,6 +151,7 @@ function OrcamentoIA() {
             aplicar(corpo.orcamento as Orcamento)
             setCliente((corpo.cliente ?? null) as ClienteDoLevantamento | null)
             setFaltas(Array.isArray(corpo.faltas) ? (corpo.faltas as string[]) : [])
+            setPercentuais(Array.isArray(corpo.percentuais) ? (corpo.percentuais as PercentualNaTela[]) : [])
         } catch {
             setEstado({ tipo: 'erro', mensagem: 'Não foi possível ler o orçamento.' })
         }
@@ -222,6 +229,17 @@ function OrcamentoIA() {
                                 <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>Lidos do levantamento de origem; o que o cliente recebe fica registrado no arquivo do orçamento.</Typography.Paragraph>
                                 {linhasDoCliente(cliente).map(([rotulo, valor]) => (
                                     <div key={rotulo} style={{ display: 'flex', gap: 8 }}><Typography.Text type="secondary" style={{ minWidth: 130 }}>{rotulo}</Typography.Text><Typography.Text>{valor}</Typography.Text></div>
+                                ))}
+                            </Card>
+                        )}
+                        {percentuais.length > 0 && (
+                            <Card size="small" title="Comissão, reserva técnica e lucro (congelados na travessia)" data-percentuais-do-orcamento="">
+                                {percentuais.map((p) => (
+                                    <div key={p.campo} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }} data-percentual={p.campo} data-origem={p.origem ?? ''}>
+                                        <Typography.Text type="secondary" style={{ minWidth: 130 }}>{ROTULO_DO_PERCENTUAL[p.campo]}</Typography.Text>
+                                        <Typography.Text strong>{p.valor === null ? '—' : `${p.valor.toLocaleString('pt-BR')}%`}</Typography.Text>
+                                        {p.origem && <Tag color={p.origem === 'zero_por_ausencia' ? 'gold' : undefined}>{ROTULO_DA_ORIGEM_DO_PERCENTUAL[p.origem]}</Tag>}
+                                    </div>
                                 ))}
                             </Card>
                         )}

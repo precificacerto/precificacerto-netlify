@@ -20,7 +20,25 @@ export type LevantamentoNaTravessia = {
     reserva_tecnica_percentual: number | null
     reserva_tecnica_responsavel: string | null
     lucro_projetado_percentual: number | null
+    /** o vendedor do levantamento: de quem é a pré-definição da base de conhecimento (`orcamentista_vendedor_perfil`) */
+    vendedor_employee_id?: string | null
 }
+/**
+ * A PRÉ-DEFINIÇÃO DE CONTEXTO da base de conhecimento para os percentuais: o perfil do vendedor do levantamento
+ * (`orcamentista_vendedor_perfil`, a seção Vendedores da base). Nulo quando o levantamento não tem vendedor ou o vendedor não tem perfil.
+ */
+export type PreDefinicaoDoVendedor = {
+    comissao_percentual: number | null
+    comissao_modo: string | null
+    reserva_tecnica_percentual: number | null
+    lucro_projetado_percentual: number | null
+}
+/** De onde veio cada um dos três percentuais na travessia (dono do produto, 11/11/2026): a ordem é esta, e o zero é o ÚLTIMO recurso. */
+export const ORIGENS_DO_PERCENTUAL = ['levantamento', 'base_de_conhecimento', 'zero_por_ausencia'] as const
+export type OrigemDoPercentual = (typeof ORIGENS_DO_PERCENTUAL)[number]
+export const PERCENTUAIS_COM_ZERO = ['comissao_percentual', 'reserva_tecnica_percentual', 'lucro_projetado_percentual'] as const
+export type PercentualComZero = (typeof PERCENTUAIS_COM_ZERO)[number]
+export type OrigensDosPercentuais = Record<PercentualComZero, OrigemDoPercentual>
 export type ItemDoLevantamentoNaTravessia = {
     id: string
     ordem: number
@@ -41,11 +59,11 @@ export type OrcamentoDaTravessia = {
     nome: string
     obs: null
     criado_por: null
-    comissao_percentual: number | null
+    comissao_percentual: number
     comissao_modo: string | null
-    reserva_tecnica_percentual: number | null
+    reserva_tecnica_percentual: number
     reserva_tecnica_responsavel: string | null
-    lucro_projetado_percentual: number | null
+    lucro_projetado_percentual: number
     aproveitamento_modo: string
     aproveitamento_origem: string
     aproveitamento_motivo: string | null
@@ -85,26 +103,53 @@ export const fraseSemQuantidade = (ordem: number) => `a quantidade da esquadria 
 export const fraseDoNome = (numero: number) =>
     `o nome do cliente do levantamento ${numero}, com até ${LIMITE_DO_NOME} caracteres: o orçamento não nasce sem ele`
 
-// as faltas do que não veio do levantamento: o orçamento nasce com o campo NULO, e a precificação o pede
-export const FALTA_DA_COMISSAO = 'a comissão (%): o levantamento não a tem, e o orçamento nasce sem ela'
-export const FALTA_DO_MODO_DA_COMISSAO = 'o modo da comissão: o levantamento não o tem, e o orçamento nasce sem ele'
-export const FALTA_DA_RESERVA_TECNICA = 'a reserva técnica (%): o levantamento não a tem, e o orçamento nasce sem ela'
-export const FALTA_DO_RESPONSAVEL_DA_RT = 'o responsável pela reserva técnica: o levantamento não o tem, e o orçamento nasce sem ele'
-export const FALTA_DO_LUCRO = 'o lucro projetado (%): o levantamento não o tem, e o orçamento nasce sem ele'
+// A REGRA DO ZERO (dono do produto, 11/11/2026): "a ausência de imputação significa ZERO, nos três: comissao_percentual,
+// lucro_projetado_percentual e reserva_tecnica_percentual" — lucro zero pode ser intencional, para achar o limite. Os três nunca são falta;
+// o zero por ausência é DESTACADO na tela (`ORIGEM_DO_PERCENTUAL`), nunca silencioso. O responsável pela RT é nome livre, não entra em
+// cálculo nenhum, e nulo ali NÃO é falta. Resta o modo da comissão, que não tem zero.
+export const FALTA_DO_MODO_DA_COMISSAO = 'o modo da comissão: nem o levantamento nem a pré-definição do vendedor o têm, e o orçamento nasce sem ele'
 
 // ── O PURO ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 /**
- * As faltas do que o orçamento do agente CONGELOU: cada campo nulo, nomeado. Lido sobre o ORÇAMENTO (a tela e a travessia dizem o mesmo),
- * nunca sobre o levantamento. O responsável pela RT só falta quando há reserva técnica a ter responsável.
+ * As faltas do que o orçamento do agente CONGELOU, lidas sobre o ORÇAMENTO (a tela e a travessia dizem o mesmo). Pela regra do zero
+ * (11/11/2026), só o modo da comissão pode faltar: os três percentuais nunca faltam, e o responsável pela RT nunca é falta.
  */
-export function faltasDoCongelado(o: Pick<OrcamentoDaTravessia, 'comissao_percentual' | 'comissao_modo' | 'reserva_tecnica_percentual' | 'reserva_tecnica_responsavel' | 'lucro_projetado_percentual'>): string[] {
-    const faltas: string[] = []
-    if (o.comissao_percentual === null) faltas.push(FALTA_DA_COMISSAO)
-    if (o.comissao_modo === null) faltas.push(FALTA_DO_MODO_DA_COMISSAO)
-    if (o.reserva_tecnica_percentual === null) faltas.push(FALTA_DA_RESERVA_TECNICA)
-    else if (o.reserva_tecnica_percentual > 0 && o.reserva_tecnica_responsavel === null) faltas.push(FALTA_DO_RESPONSAVEL_DA_RT)
-    if (o.lucro_projetado_percentual === null) faltas.push(FALTA_DO_LUCRO)
-    return faltas
+export function faltasDoCongelado(o: Pick<OrcamentoDaTravessia, 'comissao_modo'>): string[] {
+    return o.comissao_modo === null ? [FALTA_DO_MODO_DA_COMISSAO] : []
+}
+
+/** O percentual na ordem decidida: o do levantamento; senão o da pré-definição do vendedor; senão ZERO explícito — nunca o zero primeiro. */
+export function resolverPercentual(doLevantamento: unknown, daBase: unknown): { valor: number; origem: OrigemDoPercentual } {
+    const l = numeroOuNulo(doLevantamento)
+    if (l !== null) return { valor: l, origem: 'levantamento' }
+    const b = numeroOuNulo(daBase)
+    if (b !== null) return { valor: b, origem: 'base_de_conhecimento' }
+    return { valor: 0, origem: 'zero_por_ausencia' }
+}
+
+/**
+ * A ORIGEM que a TELA exibe, derivada por comparação (sem coluna — dono do produto, 11/11/2026: "a tela compara com o levantamento"):
+ * o valor do orçamento igual ao do levantamento veio dele; com o levantamento sem valor, igual ao da pré-definição veio da base; zero com
+ * os dois sem valor é o zero por ausência; qualquer outro foi ALTERADO no orçamento depois da travessia. A pré-definição é lida AGORA: se
+ * ela mudou depois da travessia, o valor de então aparece como alterado (é a leitura viva, e a tela o diz assim).
+ */
+export type OrigemNaTela = OrigemDoPercentual | 'alterado_no_orcamento'
+/** Um dos três percentuais como a tela o mostra: o valor gravado no orçamento e a origem derivada. */
+export type PercentualNaTela = { campo: PercentualComZero; valor: number | null; origem: OrigemNaTela | null }
+export function origemNaTela(doOrcamento: unknown, doLevantamento: unknown, daBase: unknown): OrigemNaTela | null {
+    const o = numeroOuNulo(doOrcamento)
+    if (o === null) return null
+    const l = numeroOuNulo(doLevantamento)
+    if (l !== null) return o === l ? 'levantamento' : 'alterado_no_orcamento'
+    const b = numeroOuNulo(daBase)
+    if (b !== null) return o === b ? 'base_de_conhecimento' : 'alterado_no_orcamento'
+    return o === 0 ? 'zero_por_ausencia' : 'alterado_no_orcamento'
+}
+export const ROTULO_DA_ORIGEM_DO_PERCENTUAL: Readonly<Record<OrigemNaTela, string>> = {
+    levantamento: 'da conversa (levantamento)',
+    base_de_conhecimento: 'da pré-definição do vendedor (base de conhecimento)',
+    zero_por_ausencia: 'ZERO por ausência: nem a conversa nem a base o tinham',
+    alterado_no_orcamento: 'alterado no orçamento',
 }
 
 /** O aproveitamento do orçamento: o que a base deu, ou o fallback que nunca barateia. Ninguém escolheu: nunca há autor. */
@@ -124,8 +169,8 @@ const textoOuNulo = (v: unknown): string | null => (typeof v === 'string' && v.t
 /**
  * O PLANO da travessia: o orçamento e os itens que serão gravados, e as faltas do congelado — ou as recusas, e nada é gravado. Puro.
  */
-export function planoDaTravessia(lev: LevantamentoNaTravessia, itens: readonly ItemDoLevantamentoNaTravessia[], daBase: ModoDaBase):
-    { ok: true; orcamento: OrcamentoDaTravessia; itens: ItemDaTravessia[]; faltas: string[] } | { ok: false; recusas: string[] } {
+export function planoDaTravessia(lev: LevantamentoNaTravessia, itens: readonly ItemDoLevantamentoNaTravessia[], daBase: ModoDaBase, doVendedor: PreDefinicaoDoVendedor | null):
+    { ok: true; orcamento: OrcamentoDaTravessia; itens: ItemDaTravessia[]; faltas: string[]; origens: OrigensDosPercentuais } | { ok: false; recusas: string[] } {
     const recusas: string[] = []
     if (lev.estado !== ESTADO_COMPLETO) recusas.push(fraseNaoCompleto(lev.numero, lev.estado))
     const nome = textoOuNulo(lev.nome)
@@ -137,17 +182,21 @@ export function planoDaTravessia(lev: LevantamentoNaTravessia, itens: readonly I
         if (q === null || !Number.isInteger(q) || q < 1) recusas.push(fraseSemQuantidade(i.ordem))
     }
     if (recusas.length) return { ok: false, recusas }
+    const comissao = resolverPercentual(lev.comissao_percentual, doVendedor?.comissao_percentual)
+    const rt = resolverPercentual(lev.reserva_tecnica_percentual, doVendedor?.reserva_tecnica_percentual)
+    const lucro = resolverPercentual(lev.lucro_projetado_percentual, doVendedor?.lucro_projetado_percentual)
     const orcamento: OrcamentoDaTravessia = {
         tenant_id: lev.tenant_id, origem: 'agente', levantamento_id: lev.id, nome: nome as string, obs: null, criado_por: null,
-        comissao_percentual: numeroOuNulo(lev.comissao_percentual),
-        comissao_modo: textoOuNulo(lev.comissao_modo),
-        reserva_tecnica_percentual: numeroOuNulo(lev.reserva_tecnica_percentual),
+        comissao_percentual: comissao.valor,
+        comissao_modo: textoOuNulo(lev.comissao_modo) ?? textoOuNulo(doVendedor?.comissao_modo),
+        reserva_tecnica_percentual: rt.valor,
         reserva_tecnica_responsavel: textoOuNulo(lev.reserva_tecnica_responsavel),
-        lucro_projetado_percentual: numeroOuNulo(lev.lucro_projetado_percentual),
+        lucro_projetado_percentual: lucro.valor,
         ...aproveitamentoDaTravessia(daBase),
     }
     return {
         ok: true,
+        origens: { comissao_percentual: comissao.origem, reserva_tecnica_percentual: rt.origem, lucro_projetado_percentual: lucro.origem },
         orcamento,
         itens: ordenados.map((i) => ({
             ordem: i.ordem, levantamento_item_id: i.id, tipologia: i.tipologia, largura_mm: i.largura_mm, altura_mm: i.altura_mm,
