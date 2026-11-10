@@ -27,6 +27,7 @@ import { variaveisSemPadrao } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import { gerarFolhaDoLevantamento, type DadosDaFolha, type FolhaGerada, type FolhaRecusada, type ItemDaFolha, type VariavelDita } from '@/lib/atendimentos-ia/folha-do-levantamento'
 import type { DefinicaoDaTipologia, ItemDoLevantamento } from '@/lib/atendimentos-ia/levantamento-em-montagem'
 import { nomeCasa, type CondicoesDoLevantamento, type ModoDaComissao, type PerfilDoVendedor } from '@/lib/atendimentos-ia/dados-do-levantamento'
+import { resolverPercentual } from '@/lib/atendimentos-ia/travessia-do-levantamento-plano'
 
 /** A pergunta que acompanha o arquivo: a confirmação é sobre ELE. */
 export const CONFERE_O_ARQUIVO = 'Confere? Responda sim para eu fazer o levantamento com os preços, ou diga o que muda.'
@@ -162,6 +163,8 @@ function perfilEAcessorio(cor: string | null, acessorio: string, arremateQueVari
 
 export function montarDadosDaFolha(a: {
     empresa: string; levantamento: LevantamentoDoArquivo; itens: readonly ItemDoLevantamento[]; definicao: DefinicaoDaTipologia; detalhe: DetalheDaTipologia; geradoEm: Date
+    /** a pré-definição do vendedor na base de conhecimento: o (b) da ordem dos três percentuais (11/11/2026) */
+    doVendedor: PerfilDoVendedor | null
 }): DadosDaFolha {
     const ordenados = [...a.itens].sort((x, y) => x.ordem - y.ordem)
     const arremates = ordenados.map((i) => arremateDaColeta(a.definicao(i), i.escolhas))
@@ -194,8 +197,10 @@ export function montarDadosDaFolha(a: {
         cliente: { nome: l.nome, telefone: l.telefone, email: l.email, edificacao: l.edificacao, endereco: l.endereco, obsObra: l.obs_obra, dataEntrega: l.data_entrega },
         itens, preDefinicoes,
         condicoes: {
-            vendedor: l.vendedor_nome, comissaoPercentual: l.comissao_percentual, comissaoModo: l.comissao_modo,
-            rtResponsavel: l.reserva_tecnica_responsavel, rtPercentual: l.reserva_tecnica_percentual, lucroPercentual: l.lucro_projetado_percentual,
+            // os três percentuais pela MESMA ordem da travessia (11/11/2026): a alteração dita, senão a pré-definição do vendedor, senão zero
+            vendedor: l.vendedor_nome, comissaoPercentual: resolverPercentual(l.comissao_percentual, a.doVendedor?.comissao_percentual).valor, comissaoModo: l.comissao_modo,
+            rtResponsavel: l.reserva_tecnica_responsavel, rtPercentual: resolverPercentual(l.reserva_tecnica_percentual, a.doVendedor?.reserva_tecnica_percentual).valor,
+            lucroPercentual: resolverPercentual(l.lucro_projetado_percentual, a.doVendedor?.lucro_projetado_percentual).valor,
         },
         geradoEm: a.geradoEm,
     }
@@ -240,6 +245,7 @@ export async function gerarArquivoDoLevantamento(a: {
 }): Promise<{ dados: DadosDaFolha | null; folha: FolhaGerada | FolhaRecusada }> {
     const [levantamento, empresa] = await Promise.all([lerLevantamentoDoArquivo(a.tenantId, a.levantamentoId), lerNomeDaEmpresa(a.tenantId)])
     if (!levantamento) return { dados: null, folha: { ok: false, recusas: ['O levantamento não foi achado.'] } }
-    const dados = montarDadosDaFolha({ empresa: empresa ?? '', levantamento, itens: a.itens, definicao: a.definicao, detalhe: a.detalhe, geradoEm: a.geradoEm ?? new Date() })
+    const doVendedor = await lerPerfilDoVendedor(a.tenantId, levantamento.vendedor_employee_id)
+    const dados = montarDadosDaFolha({ empresa: empresa ?? '', levantamento, itens: a.itens, definicao: a.definicao, detalhe: a.detalhe, geradoEm: a.geradoEm ?? new Date(), doVendedor })
     return { dados, folha: gerarFolhaDoLevantamento(dados) }
 }

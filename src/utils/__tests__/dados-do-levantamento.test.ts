@@ -91,24 +91,24 @@ describe('(I) só vale o que foi DITO na mensagem', () => {
     })
 })
 
-describe('(II) as condições comerciais: o cadastro é o padrão, o dito substitui, o que falta é perguntado', () => {
-    it('nada gravado, cadastro completo: tudo do cadastro, e isso é o que se CONGELA; o responsável pela RT nunca vem dele', () => {
+describe('(II) as condições comerciais: a base de conhecimento é a referência dos percentuais, e a conversa não os pergunta (11/11/2026)', () => {
+    it('nada gravado, cadastro completo: só o MODO vem do cadastro e se congela; os três percentuais ficam como o levantamento os tem (nulos)', () => {
         const r = condicoesComOCadastro(NADA, CADASTRO)
-        expect(r.condicoes).toEqual({ ...CADASTRO, reserva_tecnica_responsavel: null })
-        expect(r.doCadastro).toEqual(CADASTRO)
+        expect(r.condicoes).toEqual({ ...NADA, comissao_modo: CADASTRO.comissao_modo })
+        expect(r.doCadastro).toEqual({ comissao_modo: CADASTRO.comissao_modo })
         expect(r.faltam).toEqual([])
     })
 
-    it('o gravado (o dito, ou o já congelado) vence o cadastro; zero é valor, não falta', () => {
+    it('o percentual DITO (a alteração) fica no levantamento; zero dito é valor', () => {
         const r = condicoesComOCadastro({ ...NADA, comissao_percentual: 0, lucro_projetado_percentual: 20 }, CADASTRO)
-        expect(r.condicoes).toEqual(expect.objectContaining({ comissao_percentual: 0, lucro_projetado_percentual: 20, reserva_tecnica_percentual: 1 }))
-        expect(r.doCadastro).toEqual({ comissao_modo: 'PROPORCIONAL', reserva_tecnica_percentual: 1 })
+        expect(r.condicoes).toEqual(expect.objectContaining({ comissao_percentual: 0, lucro_projetado_percentual: 20, reserva_tecnica_percentual: null }))
+        expect(r.doCadastro).toEqual({ comissao_modo: 'PROPORCIONAL' })
     })
 
-    it('cadastro nulo (ou ausente) e nada dito: falta cada uma, nomeada — nunca zero', () => {
-        expect(condicoesComOCadastro(NADA, null).faltam).toEqual(['a comissão (%)', 'o modo da comissão (proporcional ou congelada)', 'a reserva técnica (%)', 'o lucro projetado da proposta (%)'])
-        const parcial = condicoesComOCadastro(NADA, { ...CADASTRO, lucro_projetado_percentual: null })
-        expect(parcial.faltam).toEqual(['o lucro projetado da proposta (%)'])
+    it('cadastro nulo (ou ausente) e nada dito: só o MODO falta e é perguntado; os três percentuais NUNCA são perguntados', () => {
+        expect(condicoesComOCadastro(NADA, null).faltam).toEqual(['o modo da comissão (proporcional ou congelada)'])
+        const parcial = condicoesComOCadastro(NADA, { ...CADASTRO, lucro_projetado_percentual: null, comissao_percentual: null, reserva_tecnica_percentual: null })
+        expect(parcial.faltam).toEqual([])
         expect(parcial.condicoes.lucro_projetado_percentual).toBeNull()
     })
 

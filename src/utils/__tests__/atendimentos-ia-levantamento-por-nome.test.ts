@@ -1763,7 +1763,7 @@ describe('(17) O ARQUIVO no lugar da mensagem-resumo (dono do produto, 06/11/202
         expect(estado.documentos).toHaveLength(1)
     })
 
-    it('o arquivo traz o número do levantamento, a empresa, o vendedor e os percentuais do CADASTRO dele — congelados no levantamento', async () => {
+    it('o arquivo traz o número, a empresa, o vendedor e os percentuais da PRÉ-DEFINIÇÃO dele, que NÃO são congelados no levantamento (11/11/2026)', async () => {
         await pedir()
         const arquivo = textoDoArquivo()
         expect(arquivo).toContain('Nº 1')
@@ -1773,13 +1773,14 @@ describe('(17) O ARQUIVO no lugar da mensagem-resumo (dono do produto, 06/11/202
         expect(arquivo).toContain('Modo: proporcional')
         expect(arquivo).toContain('10%')
         const [l] = levantamentos()
-        expect(l).toEqual(expect.objectContaining({ numero: 1, vendedor_nome: 'Cristiano Fernandes', vendedor_employee_id: 'e-cristiano', comissao_percentual: 5, comissao_modo: 'PROPORCIONAL', reserva_tecnica_percentual: 1, lucro_projetado_percentual: 10 }))
-        // congelado: o cadastro muda depois, e o arquivo de novo (a alteração) não o relê
+        // o levantamento guarda só a ALTERAÇÃO dita; o modo continua congelado do cadastro
+        expect(l).toEqual(expect.objectContaining({ numero: 1, vendedor_nome: 'Cristiano Fernandes', vendedor_employee_id: 'e-cristiano', comissao_modo: 'PROPORCIONAL' }))
+        for (const k of ['comissao_percentual', 'reserva_tecnica_percentual', 'lucro_projetado_percentual']) expect(l[k] ?? null).toBeNull()
+        // a base é a REFERÊNCIA até a travessia: a pré-definição muda, e o arquivo de novo (a alteração) a relê
         estado.db.orcamentista_vendedor_perfil[0].comissao_percentual = 9
         llmResponde({ itens: [{ largura_mm: 1500 }] })
         await chamar('a largura é 1500')
-        expect(textoDoArquivo()).toContain('5%')
-        expect(textoDoArquivo()).not.toContain('9%')
+        expect(textoDoArquivo()).toContain('9%')
     })
 
     it('depois do "sim", a resposta seguinte é o levantamento formal com o bloco de preço INTEIRO, como era', async () => {
@@ -5279,51 +5280,62 @@ describe('(42) a coleta dos dados do levantamento: cliente, ambientes, obs, perc
         expect(itensDe(lev().id)[0].ambientes).toBeNull()
     })
 
-    it('o percentual DITO substitui o cadastro, e fica gravado; o que não foi dito vem do cadastro; o número que não está na mensagem cai', async () => {
+    it('o percentual DITO é a ALTERAÇÃO: fica gravado e vence a base; o que não foi dito NÃO é gravado (vem da base no arquivo); o número fora da mensagem cai', async () => {
         llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }], condicoes: { comissao_percentual: 7, lucro_projetado_percentual: 15, reserva_tecnica_responsavel: 'Arquiteta Ana' } })
         await chamar(`${MSG}, comissão 7%, RT para a Arquiteta Ana`)
-        // o lucro 15 não foi dito: cai, e vale o do cadastro (10)
-        expect(lev()).toEqual(expect.objectContaining({ comissao_percentual: 7, comissao_modo: 'PROPORCIONAL', reserva_tecnica_percentual: 1, lucro_projetado_percentual: 10, reserva_tecnica_responsavel: 'Arquiteta Ana' }))
+        // o lucro 15 não foi dito: cai; o levantamento não guarda o da base (10), que o arquivo mostra pela pré-definição
+        expect(lev()).toEqual(expect.objectContaining({ comissao_percentual: 7, comissao_modo: 'PROPORCIONAL', reserva_tecnica_responsavel: 'Arquiteta Ana' }))
+        for (const k of ['reserva_tecnica_percentual', 'lucro_projetado_percentual']) expect(lev()[k] ?? null).toBeNull()
         const arquivo = textoDoArquivo()
         expect(arquivo).toContain('7%')
+        expect(arquivo).toContain('10%')
         expect(arquivo).toContain('Arquiteta Ana')
         expect(arquivo).not.toContain('15%')
     })
 
-    it('CADASTRO NULO e nada dito: a conversa PERGUNTA (nunca zero, nunca inventa), o levantamento fica em montagem, e nenhum arquivo sai até a resposta', async () => {
+    it('CADASTRO NULO e nada dito: a conversa NÃO pergunta os três percentuais (11/11/2026) — só o MODO da comissão; nada é inventado nem gravado', async () => {
         // o OUTRO vendedor não tem funcionário: não há cadastro
         llmResponde({ nome: 'Casa do Fulano', itens: [{ ...DP02 }] })
         await chamar('Levantamento Casa do Fulano: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm', doOutro)
-        expect(ultimoEnviado()).toBe('Para fechar o levantamento, faltam a comissão (%), o modo da comissão (proporcional ou congelada), a reserva técnica (%) e o lucro projetado da proposta (%) do vendedor Fulano de Tal. Qual é?')
+        expect(ultimoEnviado()).toBe('Para fechar o levantamento, falta o modo da comissão (proporcional ou congelada) do vendedor Fulano de Tal. Qual é?')
         expect(lev()).toEqual(expect.objectContaining({ estado: 'EM_MONTAGEM', vendedor_nome: 'Fulano de Tal', vendedor_employee_id: null }))
-        // nada inventado: nenhum percentual gravado (nem zero)
         for (const k of ['comissao_percentual', 'comissao_modo', 'reserva_tecnica_percentual', 'lucro_projetado_percentual']) expect(lev()[k]).toBeUndefined()
         expect(estado.documentos).toHaveLength(0)
-        // a pergunta das condições é a pergunta em aberto da montagem: vai ao prompt
-        llmResponde({ condicoes: { comissao_percentual: 5, comissao_modo: 'CONGELADA', reserva_tecnica_percentual: 2, lucro_projetado_percentual: 12 } })
-        await chamar('comissão 5 congelada, RT 2, lucro 12', doOutro)
-        expect(textoDoSistema(estado.chamadasDaLlm[1].corpo.system)).toContain('Pergunta em aberto: Para fechar o levantamento, faltam a comissão (%)')
-        expect(lev()).toEqual(expect.objectContaining({ estado: 'COMPLETO', comissao_percentual: 5, comissao_modo: 'CONGELADA', reserva_tecnica_percentual: 2, lucro_projetado_percentual: 12 }))
+        // a resposta com só o modo FECHA o levantamento: os três percentuais não fazem falta (a travessia e o arquivo os resolvem; sem base, ZERO)
+        llmResponde({ condicoes: { comissao_modo: 'CONGELADA' } })
+        await chamar('congelada', doOutro)
+        expect(textoDoSistema(estado.chamadasDaLlm[1].corpo.system)).toContain('Pergunta em aberto: Para fechar o levantamento, falta o modo da comissão')
+        expect(lev()).toEqual(expect.objectContaining({ estado: 'COMPLETO', comissao_modo: 'CONGELADA' }))
+        for (const k of ['comissao_percentual', 'reserva_tecnica_percentual', 'lucro_projetado_percentual']) expect(lev()[k]).toBeUndefined()
         expect(estado.documentos).toHaveLength(1)
         expect(textoDoArquivo()).toContain('Modo: congelada')
+        expect(textoDoArquivo()).toContain('0%')
     })
 
     it('o VENDEDOR dito (quem lança para outro): o vínculo e o nome dele, e os percentuais do cadastro DELE', async () => {
         llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }], vendedor_do_levantamento: 'Beltrana Souza' })
         await chamar(`${MSG}, é para a Beltrana Souza`)
-        expect(lev()).toEqual(expect.objectContaining({ vendedor_employee_id: 'e-beltrana', vendedor_nome: 'Beltrana Souza', comissao_percentual: 4, comissao_modo: 'CONGELADA', lucro_projetado_percentual: 12 }))
+        // os percentuais são os da pré-definição DELA, lidos no arquivo — não gravados; o modo, congelado do cadastro dela
+        expect(lev()).toEqual(expect.objectContaining({ vendedor_employee_id: 'e-beltrana', vendedor_nome: 'Beltrana Souza', comissao_modo: 'CONGELADA' }))
+        for (const k of ['comissao_percentual', 'lucro_projetado_percentual']) expect(lev()[k] ?? null).toBeNull()
         expect(textoDoArquivo()).toContain('Beltrana Souza')
         expect(textoDoArquivo()).toContain('4%')
+        expect(textoDoArquivo()).toContain('12%')
     })
 
-    it('TROCAR o vendedor de um levantamento já congelado: os percentuais do NOVO cadastro, menos os ditos na mesma mensagem', async () => {
+    it('TROCAR o vendedor de um levantamento já congelado: os percentuais da pré-definição do NOVO vendedor, menos a alteração dita na mesma mensagem', async () => {
         llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }] })
         await chamar(MSG)
-        expect(lev()).toEqual(expect.objectContaining({ vendedor_employee_id: 'e-cristiano', comissao_percentual: 5, comissao_modo: 'PROPORCIONAL', lucro_projetado_percentual: 10 }))
+        expect(lev()).toEqual(expect.objectContaining({ vendedor_employee_id: 'e-cristiano', comissao_modo: 'PROPORCIONAL' }))
+        for (const k of ['comissao_percentual', 'lucro_projetado_percentual']) expect(lev()[k] ?? null).toBeNull()
         llmResponde({ nome: 'Casa do Pedro', vendedor_do_levantamento: 'Beltrana Souza', condicoes: { lucro_projetado_percentual: 15 } })
         await chamar('Casa do Pedro: é para a Beltrana Souza, lucro 15')
-        expect(lev()).toEqual(expect.objectContaining({ vendedor_employee_id: 'e-beltrana', comissao_percentual: 4, comissao_modo: 'CONGELADA', reserva_tecnica_percentual: 2, lucro_projetado_percentual: 15 }))
+        // o modo, do cadastro dela; o lucro, a alteração dita; a comissão e a RT, da pré-definição dela, lidas no arquivo (4% e 2%)
+        expect(lev()).toEqual(expect.objectContaining({ vendedor_employee_id: 'e-beltrana', comissao_modo: 'CONGELADA', lucro_projetado_percentual: 15 }))
+        for (const k of ['comissao_percentual', 'reserva_tecnica_percentual']) expect(lev()[k] ?? null).toBeNull()
         expect(textoDoArquivo()).toContain('Modo: congelada')
+        expect(textoDoArquivo()).toContain('4%')
+        expect(textoDoArquivo()).toContain('15%')
     })
 
     // os dois Germano Teixeira da De Paula, como estão no cadastro (medido em 06/11/2026)
@@ -5335,7 +5347,7 @@ describe('(42) a coleta dos dados do levantamento: cliente, ambientes, obs, perc
         // (os dois campos divergem; vale is_active), e o de 11/08 ativo, com o cargo "Vendedor " (espaço no fim: dado sujo, que não decide nada).
         // Nenhum dos dois tem cadastro de vendedor (orcamentista_vendedor_perfil)
         const comOsGermano = () => estado.db.employees.push({ ...GERMANO_INATIVO }, { ...GERMANO_ATIVO })
-        const PERCENTUAIS_DO_GERMANO = 'Para fechar o levantamento, faltam a comissão (%), o modo da comissão (proporcional ou congelada), a reserva técnica (%) e o lucro projetado da proposta (%) do vendedor Germano Teixeira. Qual é?'
+        const PERCENTUAIS_DO_GERMANO = 'Para fechar o levantamento, falta o modo da comissão (proporcional ou congelada) do vendedor Germano Teixeira. Qual é?'
 
         it('OS DOIS GERMANO REAIS: "é do Germano" resolve DIRETO para o ativo, sem pergunta; sem cadastro de vendedor, PERGUNTA os percentuais — nunca os do remetente', async () => {
             comOsGermano()
@@ -5346,6 +5358,7 @@ describe('(42) a coleta dos dados do levantamento: cliente, ambientes, obs, perc
             for (const k of ['comissao_percentual', 'comissao_modo', 'reserva_tecnica_percentual', 'lucro_projetado_percentual']) expect(lev()[k]).toBeNull()
             expect(ultimoEnviado()).toBe(PERCENTUAIS_DO_GERMANO)
             expect(estado.documentos).toHaveLength(0)
+            // a resposta traz o modo e, de quebra, ALTERAÇÕES dos percentuais: elas entram no levantamento e vencem a base
             llmResponde({ condicoes: { comissao_percentual: 3, comissao_modo: 'PROPORCIONAL', reserva_tecnica_percentual: 0, lucro_projetado_percentual: 8 } })
             await chamar('comissão 3 proporcional, RT 0, lucro 8')
             expect(lev()).toEqual(expect.objectContaining({ estado: 'COMPLETO', vendedor_employee_id: GERMANO_ATIVO.id, comissao_percentual: 3, reserva_tecnica_percentual: 0, lucro_projetado_percentual: 8 }))
@@ -5441,11 +5454,12 @@ describe('(42) a coleta dos dados do levantamento: cliente, ambientes, obs, perc
             for (const k of ['vendedor_nome', 'vendedor_employee_id', 'comissao_percentual']) expect(lev()[k] ?? null).toBeNull()
             expect(ultimoEnviado()).toBe(dadosDoLevantamento.FRASE_FALTA_O_VENDEDOR)
             expect(estado.documentos).toHaveLength(0)
-            // a resposta diz o vendedor: a Beltrana (ativa, com cadastro) — os percentuais do cadastro DELA
+            // a resposta diz o vendedor: a Beltrana (ativa, com cadastro) — o modo do cadastro DELA, e os percentuais da pré-definição dela no arquivo
             llmResponde({ vendedor_do_levantamento: 'Beltrana' })
             await chamar('é da Beltrana')
             expect(textoDoSistema(estado.chamadasDaLlm[1].corpo.system)).toContain(`Pergunta em aberto: ${dadosDoLevantamento.FRASE_FALTA_O_VENDEDOR}`)
-            expect(lev()).toEqual(expect.objectContaining({ estado: 'COMPLETO', vendedor_employee_id: 'e-beltrana', vendedor_nome: 'Beltrana Souza', comissao_percentual: 4 }))
+            expect(lev()).toEqual(expect.objectContaining({ estado: 'COMPLETO', vendedor_employee_id: 'e-beltrana', vendedor_nome: 'Beltrana Souza', comissao_modo: 'CONGELADA' }))
+            expect(textoDoArquivo()).toContain('4%')
         })
     })
 
@@ -5453,7 +5467,8 @@ describe('(42) a coleta dos dados do levantamento: cliente, ambientes, obs, perc
         // o caso real: em produção existe o levantamento "Levantamento João da Silva Ternes" — João é o CLIENTE. Aqui há um funcionário ATIVO
         // chamado João (fictício): um nome solto que case com ele nunca vira troca de vendedor
         const JOAO = { id: 'e-joao', tenant_id: TENANT, name: 'João Pereira', position: null as string | null, is_active: true, status: 'ACTIVE', created_at: '2026-06-10T12:00:00+00:00', user_id: null as string | null, role: 'COMMERCIAL' }
-        const DO_REMETENTE = { vendedor_employee_id: 'e-cristiano', vendedor_nome: 'Cristiano Fernandes', comissao_percentual: 5, lucro_projetado_percentual: 10 }
+        // o vendedor do remetente e o MODO do cadastro dele (os percentuais não são congelados no levantamento: 11/11/2026)
+        const DO_REMETENTE = { vendedor_employee_id: 'e-cristiano', vendedor_nome: 'Cristiano Fernandes', comissao_modo: 'PROPORCIONAL' }
 
         it('(a)+(c) "Levantamento João da Silva Ternes": o João é o cliente — o vendedor NÃO troca, mesmo com a IA propondo João; o nome vai ao cliente', async () => {
             estado.db.employees.push({ ...JOAO })
