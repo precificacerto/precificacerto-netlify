@@ -55,12 +55,14 @@ jest.mock('@/supabase/admin', () => ({ supabaseAdmin: cliente() }))
 const arquivo = {
     chamadas: [] as Array<{ tenantId: string; id: string; autor: string; dados: Record<string, unknown> }>,
     recusa: null as string[] | null,
+    falha: null as string | null,
 }
 jest.mock('@/lib/atendimentos-ia/arquivo-do-orcamento-servidor', () => ({
     itensDoArquivo: async (): Promise<{ itens: unknown[]; linhas: unknown[] }> => ({ itens: [{ ordem: 1, quantidade: 1 }], linhas: [] }),
     lerDadosDoArquivo: async (_t: string, _id: string, a: Record<string, unknown>) => ({ dados: { ...a }, calculoId: 'c-1' }),
     gerarEGravarArquivo: async (tenantId: string, id: string, autor: string, dados: Record<string, unknown>) => {
         arquivo.chamadas.push({ tenantId, id, autor, dados })
+        if (arquivo.falha) throw new Error(arquivo.falha)
         return arquivo.recusa ? { ok: false, recusas: arquivo.recusa } : { ok: true, arquivo: { id: 'arq-1', nomeDoArquivo: 'Orcamento 7 - Cliente.pdf' } }
     },
 }))
@@ -69,6 +71,7 @@ jest.mock('@/lib/get-caller-tenant', () => ({
 }))
 /* eslint-disable @typescript-eslint/no-require-imports */
 const rota = require('@/pages/api/atendimentos-ia/orcamentos/[id]/precificacao').default
+const { fraseDaFalhaDoArquivo } = require('@/lib/atendimentos-ia/orcamento-precificado') as { fraseDaFalhaDoArquivo: (e: unknown) => string }
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 const ID = '30000000-0000-4000-8000-000000000001'
@@ -83,6 +86,7 @@ const totais = { valor_total_bruto: 845, valor_total_liquido: 745 }
 function montar(extra: Linha = {}, itens: Linha[] = [{ ...item(1), tenant_id: 'T', orcamento_id: ID }]) {
     arquivo.chamadas = []
     arquivo.recusa = null
+    arquivo.falha = null
     estado.ops = []
     estado.erros = {}
     estado.papel = 'admin'
@@ -238,6 +242,16 @@ describe('(4) a rota da precificação', () => {
         expect(r.status).toBe(200)
         expect(r.corpo.arquivo).toBeNull()
         expect(r.corpo.recusas_do_arquivo).toEqual(['o valor de venda é diferente da operação interna'])
+    })
+    it('a FALHA do arquivo depois do preço gravado (Storage, leitura) é 200 com a recusa nomeada, nunca 500: o preço está salvo', async () => {
+        montar()
+        arquivo.falha = 'storage atendimentos-ia: fora do ar'
+        const r = await chamar('PATCH', ID, CORPO_BOM)
+        expect(r.status).toBe(200)
+        expect(r.corpo.arquivo).toBeNull()
+        expect(r.corpo.recusas_do_arquivo).toEqual([fraseDaFalhaDoArquivo(new Error('storage atendimentos-ia: fora do ar'))])
+        expect((r.corpo.recusas_do_arquivo as string[])[0]).toContain('storage atendimentos-ia: fora do ar')
+        expect((r.corpo.orcamento as Record<string, unknown>).valor_venda).toBe(3105.8)
     })
     it('a operação interna ausente, fora do centavo, ou acima da venda: 400, e nada é gravado nem gerado', async () => {
         for (const extra of [{ valor_operacao_interna: null }, { valor_operacao_interna: 0 }, { valor_operacao_interna: 3105.805 }, { valor_operacao_interna: 3105.81 }]) {

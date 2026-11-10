@@ -142,8 +142,17 @@ export async function gravarPrecificacao(tenantId: string, id: string, corpo: Re
     // arquivo não saiu. Nunca um arquivo com centavo a mais ou a menos.
     const rateio = rateioDoOrcamento(gravado, g.valor_operacao_interna)
     if ('recusa' in rateio) return { orcamento: gravado, arquivo: null, recusasDoArquivo: [rateio.recusa] }
-    const lido = await lerDadosDoArquivo(tenantId, id, { operacaoInterna: g.valor_operacao_interna, valorVenda: g.valor_venda, rateio: rateio.itens, geradoEm: agora })
-    if ('recusa' in lido) return { orcamento: gravado, arquivo: null, recusasDoArquivo: [lido.recusa] }
-    const r = await gerarEGravarArquivo(tenantId, id, autor, lido.dados, lido.calculoId)
-    return 'recusas' in r ? { orcamento: gravado, arquivo: null, recusasDoArquivo: r.recusas } : { orcamento: gravado, arquivo: r.arquivo, recusasDoArquivo: [] }
+    // A FALHA (leitura, Storage, insert) depois do preço gravado também não derruba a resposta: o preço ESTÁ salvo, e um 500 diria o contrário.
+    // Ela vira recusa nomeada, com a mensagem do erro (prova local de 10/11/2026: uma coluna ausente dava 500 com o preço já gravado).
+    try {
+        const lido = await lerDadosDoArquivo(tenantId, id, { operacaoInterna: g.valor_operacao_interna, valorVenda: g.valor_venda, rateio: rateio.itens, geradoEm: agora })
+        if ('recusa' in lido) return { orcamento: gravado, arquivo: null, recusasDoArquivo: [lido.recusa] }
+        const r = await gerarEGravarArquivo(tenantId, id, autor, lido.dados, lido.calculoId)
+        return 'recusas' in r ? { orcamento: gravado, arquivo: null, recusasDoArquivo: r.recusas } : { orcamento: gravado, arquivo: r.arquivo, recusasDoArquivo: [] }
+    } catch (e) {
+        return { orcamento: gravado, arquivo: null, recusasDoArquivo: [fraseDaFalhaDoArquivo(e)] }
+    }
 }
+
+export const fraseDaFalhaDoArquivo = (e: unknown) =>
+    `o arquivo não pôde ser gerado (${e instanceof Error ? e.message : String(e)}); a precificação está salva — salve de novo para tentar outra vez.`
