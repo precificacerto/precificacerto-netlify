@@ -23,14 +23,20 @@ jest.mock('@/supabase/admin', () => ({
             const filtros: Array<[string, unknown]> = []
             let op = 'select'
             let carga: unknown
+            let ordem: [string, boolean] | null = null
+            let limite: number | null = null
             const q: Record<string, unknown> = {}
             const rodar = () => {
                 estado.ops.push({ tabela, op, filtros, carga })
                 if (op === 'insert') { (estado.db[tabela] ??= []).push(carga as Linha); return Promise.resolve({ data: null, error: null }) }
-                const r = (estado.db[tabela] ?? []).filter((l) => filtros.every(([c, v]) => (Array.isArray(v) ? (v as unknown[]).includes(l[c]) : l[c] === v)))
+                let r = (estado.db[tabela] ?? []).filter((l) => filtros.every(([c, v]) => (Array.isArray(v) ? (v as unknown[]).includes(l[c]) : l[c] === v)))
+                if (ordem) { const [c, asc] = ordem; r = [...r].sort((a, b) => (String(a[c]) < String(b[c]) ? -1 : String(a[c]) > String(b[c]) ? 1 : 0) * (asc ? 1 : -1)) }
+                if (limite !== null) r = r.slice(0, limite)
                 return Promise.resolve({ data: r.map((l) => ({ ...l })), error: null })
             }
-            q.select = () => q; q.order = () => q; q.limit = () => q
+            q.select = () => q
+            q.order = (c: string, o?: { ascending?: boolean }) => { ordem = [c, o?.ascending !== false]; return q }
+            q.limit = (n: number) => { limite = n; return q }
             q.eq = (c: string, v: unknown) => { filtros.push([c, v]); return q }
             q.in = (c: string, v: unknown[]) => { filtros.push([c, v]); return q }
             q.insert = (c: unknown) => { op = 'insert'; carga = c; return q }
@@ -82,7 +88,8 @@ beforeEach(() => {
         orcamentista_levantamento_item: [{ id: 'li-1', tenant_id: T, familia: 'PVC' }, { id: 'li-2', tenant_id: T, familia: 'PVC' }, { id: 'li-1', tenant_id: OUTRO, familia: 'OUTRA' }],
         orcamentista_levantamento: [{ id: 'lev-1', tenant_id: T, nome: 'Geraldo Huck', telefone: '(51) 99999-0000', email: null, endereco: 'Porto Alegre', data_entrega: null,
             vendedor_nome: 'Cristiano Fernandes', vendedor_employee_id: 'emp-1' }],
-        employees: [{ id: 'emp-1', tenant_id: T, email: 'cristiano@exemplo.com' }, { id: 'emp-1', tenant_id: OUTRO, email: 'outro@exemplo.com' }],
+        // o MESMO id em outra empresa vem PRIMEIRO: sem o filtro do tenant, a leitura pegaria o e-mail dela
+        employees: [{ id: 'emp-1', tenant_id: OUTRO, email: 'outro@exemplo.com' }, { id: 'emp-1', tenant_id: T, email: 'cristiano@exemplo.com' }],
     }
 })
 
@@ -178,5 +185,17 @@ describe('o último arquivo, para a tela abrir', () => {
         expect(a?.pdf.subarray(0, 4).toString('latin1')).toBe('%PDF')
         expect(estado.ops.filter((o) => o.tabela === 'orcamentista_orcamento_arquivo').every((o) => o.filtros.some(([c, v]) => c === 'tenant_id' && v === T))).toBe(true)
         expect(await S.lerUltimoArquivo(OUTRO, ORC)).toBeNull()
+    })
+    it('com dois arquivos, abre o MAIS NOVO (gerado_em), não o primeiro gravado', async () => {
+        const pdf = (t: string) => Buffer.from(`%PDF-${t}`)
+        estado.db.orcamentista_orcamento_arquivo = [
+            { tenant_id: T, orcamento_id: ORC, bucket: 'atendimentos-ia', caminho: 'orcamentos/velho.pdf', gerado_em: '2026-11-10T10:00:00.000Z' },
+            { tenant_id: T, orcamento_id: ORC, bucket: 'atendimentos-ia', caminho: 'orcamentos/novo.pdf', gerado_em: '2026-11-11T10:00:00.000Z' },
+            { tenant_id: T, orcamento_id: ORC, bucket: 'atendimentos-ia', caminho: 'orcamentos/meio.pdf', gerado_em: '2026-11-10T20:00:00.000Z' },
+        ]
+        for (const c of ['velho', 'novo', 'meio']) estado.uploads.push({ bucket: 'atendimentos-ia', caminho: `orcamentos/${c}.pdf`, bytes: pdf(c), opcoes: {} })
+        const a = await S.lerUltimoArquivo(T, ORC)
+        expect(a?.caminho).toBe('orcamentos/novo.pdf')
+        expect(a?.pdf.toString('latin1')).toBe('%PDF-novo')
     })
 })

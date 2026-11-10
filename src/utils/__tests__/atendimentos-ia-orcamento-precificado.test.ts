@@ -12,7 +12,7 @@
  */
 import type { NextApiRequest, NextApiResponse } from 'next'
 import {
-    entradaDoMotor, estadoDoCalculo, faltasDoFiscal, reconciliacaoNaTela, FALTA_DA_UF, FALTA_DO_ESCOPO, FALTA_DO_NCM, FRASE_CALCULO_INCOMPLETO,
+    entradaDoMotor, estadoDoCalculo, faltasDoFiscal, reconciliacaoNaTela, FALTA_DA_UF, FALTA_DO_ESCOPO, FALTA_DA_REFERENCIA_DO_TENANT, FRASE_CALCULO_INCOMPLETO, PRESET_DA_COMERCIALIZACAO, fiscalInicial, faltasDaPrecificacao,
     MODO_PRODUTO, SOBRA_DA_UF, faltaDoNcmFora, type ItemNaPrecificacao, internaParaGravar, faltaDaInternaDivergente, FALTA_DA_INTERNA,
 } from '@/lib/atendimentos-ia/precificacao-do-orcamento'
 
@@ -155,12 +155,41 @@ describe('(2) a entrada do motor — o único ponto em que os dois modos diverge
     })
 })
 
+describe('(3b) o preset da comercialização e a referência do tenant (dono do produto, 11/11/2026)', () => {
+    const semPreco = { valor_venda: null, ncm_code: null, sale_scope: null, buyer_type: null, uf_destino: null }
+    it('o preset é INTRAESTADUAL, CONSUMIDOR_FINAL, sem UF e sem NCM', () => {
+        expect(PRESET_DA_COMERCIALIZACAO).toEqual({ sale_scope: 'INTRAESTADUAL', buyer_type: 'CONSUMIDOR_FINAL', uf_destino: null, ncm_code: null })
+    })
+    it('o orçamento SEM preço e sem fiscal (o orçamento 1) abre com o preset; o que está gravado vence', () => {
+        expect(fiscalInicial(semPreco)).toEqual({ ncm_code: null, sale_scope: 'INTRAESTADUAL', buyer_type: 'CONSUMIDOR_FINAL', uf_destino: null })
+        expect(fiscalInicial({ ...semPreco, sale_scope: 'INTERESTADUAL', buyer_type: 'CONTRIBUINTE_PJ', uf_destino: 'SP', ncm_code: '7610.10.00' }))
+            .toEqual({ ncm_code: '7610.10.00', sale_scope: 'INTERESTADUAL', buyer_type: 'CONTRIBUINTE_PJ', uf_destino: 'SP' })
+    })
+    it('o orçamento COM preço abre como foi gravado: nada se recalcula para trás, nem o ausente vira preset', () => {
+        expect(fiscalInicial({ ...semPreco, valor_venda: 100 })).toEqual({ ncm_code: null, sale_scope: null, buyer_type: null, uf_destino: null })
+    })
+    const orcCompleto = { id: 'o', numero: 1, nome: 'x', comissao_percentual: 0, reserva_tecnica_percentual: 0, lucro_projetado_percentual: 0,
+        ...totais, valor_venda: null, valor_operacao_interna: null, ncm_code: null, sale_scope: null, buyer_type: null, uf_destino: null, itens: [item(1)] }
+    const fiscal = { ncm_code: null, sale_scope: 'INTRAESTADUAL' as const, buyer_type: 'CONSUMIDOR_FINAL' as const, uf_destino: null }
+    it('sem NCM e SEM a referência do tenant: a falta nomeada, e o preço não se grava (nunca um zero inventado)', () => {
+        expect(faltasDaPrecificacao({ orcamento: orcCompleto, fiscal, aliquotaDoNcm: false, referenciaDoTenant: false, custoDoMotor: 745 })).toEqual([FALTA_DA_REFERENCIA_DO_TENANT])
+    })
+    it('sem NCM COM a referência, ou num regime que não apura por ela: nenhuma falta', () => {
+        expect(faltasDaPrecificacao({ orcamento: orcCompleto, fiscal, aliquotaDoNcm: false, referenciaDoTenant: true, custoDoMotor: 745 })).toEqual([])
+        expect(faltasDaPrecificacao({ orcamento: orcCompleto, fiscal, aliquotaDoNcm: null, referenciaDoTenant: null, custoDoMotor: 745 })).toEqual([])
+    })
+    it('COM NCM a referência não é cobrada: quem responde é a alíquota do NCM', () => {
+        const comNcm = { ...fiscal, ncm_code: '7610.10.00' }
+        expect(faltasDaPrecificacao({ orcamento: orcCompleto, fiscal: comNcm, aliquotaDoNcm: true, referenciaDoTenant: false, custoDoMotor: 745 })).toEqual([])
+    })
+})
+
 describe('(3) as faltas do fiscal', () => {
     const bom = { ncm_code: '7610.10.00', sale_scope: 'INTRAESTADUAL' as const, buyer_type: 'CONSUMIDOR_FINAL' as const, uf_destino: null as string | null }
     it('completo: nenhuma falta', () => { expect(faltasDoFiscal(bom)).toEqual([]) })
-    it('sem NCM: a falta nomeada; vazio é o mesmo que nulo', () => {
-        expect(faltasDoFiscal({ ...bom, ncm_code: null })).toEqual([FALTA_DO_NCM])
-        expect(faltasDoFiscal({ ...bom, ncm_code: '  ' })).toEqual([FALTA_DO_NCM])
+    it('sem NCM NÃO é falta (dono do produto, 11/11/2026: "enquanto não emitimos nota, o NCM não bloqueia nada"); vazio é o mesmo que nulo', () => {
+        expect(faltasDoFiscal({ ...bom, ncm_code: null })).toEqual([])
+        expect(faltasDoFiscal({ ...bom, ncm_code: '  ' })).toEqual([])
     })
     it('o NCM só na FOLHA de oito dígitos: os níveis da hierarquia e o código sem pontos são falta', () => {
         for (const n of ['0101', '01012', '010221', '76101000', '7610.10.0']) expect(faltasDoFiscal({ ...bom, ncm_code: n })).toEqual([faltaDoNcmFora(n)])
@@ -269,12 +298,13 @@ describe('(4) a rota da precificação', () => {
         expect(r.corpo.erros).toEqual(['Operação interna: tem de estar em centavos (veio 3000.005).'])
         expect(escritas()).toEqual([])
     })
-    it('PATCH sem NCM: 400 com a falta nomeada, e nada é gravado', async () => {
+    it('PATCH sem NCM (11/11/2026): 200, e o NCM é gravado NULO — o NCM não bloqueia nada', async () => {
         montar()
         const r = await chamar('PATCH', ID, { ...CORPO_BOM, ncm_code: null })
-        expect(r.status).toBe(400)
-        expect(r.corpo.erros).toContain(`Falta ${FALTA_DO_NCM}.`)
-        expect(escritas()).toEqual([])
+        expect(r.status).toBe(200)
+        const carga = escritas().find((o) => o.tabela === 'orcamentista_orcamento')!.carga as Record<string, unknown>
+        expect(carga).toHaveProperty('ncm_code', null)
+        expect(carga).toMatchObject({ sale_scope: 'INTRAESTADUAL', buyer_type: 'CONSUMIDOR_FINAL', uf_destino: null })
     })
     it('PATCH com valor de venda zero, negativo ou texto: 400', async () => {
         for (const v of [0, -1, 'abc', null]) {

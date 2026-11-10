@@ -133,6 +133,8 @@ describe('(1) o plano', () => {
             tenant_id: T, origem: 'agente', levantamento_id: LEV, nome: 'Geraldo Huck', obs: null, criado_por: null,
             comissao_percentual: 5, comissao_modo: 'PROPORCIONAL', reserva_tecnica_percentual: 1, reserva_tecnica_responsavel: null, lucro_projetado_percentual: 10,
             aproveitamento_modo: 'SEM', aproveitamento_origem: 'fallback_barra_inteira', aproveitamento_motivo: MOTIVO_DO_FALLBACK, aproveitamento_por: null,
+            // o preset da comercialização (dono do produto, 11/11/2026), gravado na criação
+            sale_scope: 'INTRAESTADUAL', buyer_type: 'CONSUMIDOR_FINAL', uf_destino: null, ncm_code: null,
         })
     })
     it('NÃO forma preço: o plano não traz valor de venda, operação interna nem totais', () => {

@@ -20,10 +20,13 @@ INDUS = 'src/page-parts/products/content-industrialization.tsx'
 LISTA = 'src/pages/atendimentos-ia/orcamentos-ia/index.tsx'
 CONTENT = 'src/page-parts/products/content.component.tsx'
 ROTA = 'src/pages/api/atendimentos-ia/orcamentos/[id]/precificacao.ts'
+PLANO = 'src/lib/atendimentos-ia/travessia-do-levantamento-plano.ts'
+NCMPIS = 'src/utils/ncm-pis-cofins.ts'
 T = 'src/utils/__tests__/'
 SUITES = [T + s for s in ['atendimentos-ia-rateio-do-orcamento.test.ts', 'atendimentos-ia-arquivo-do-orcamento.test.ts',
           'atendimentos-ia-arquivo-do-orcamento-servidor.test.ts', 'atendimentos-ia-orcamento-precificado.test.ts',
-          'atendimentos-ia-precificacao-do-orcamento-tela.test.tsx', 'atendimentos-ia-orcamentos-ia-tela.test.tsx']]
+          'atendimentos-ia-precificacao-do-orcamento-tela.test.tsx', 'atendimentos-ia-orcamentos-ia-tela.test.tsx',
+          'atendimentos-ia-travessia-do-levantamento.test.ts', 'o-ncm-determina-a-aliquota-de-pis-cofins.test.ts']]
 
 MUTACOES = [
     # o rateio
@@ -70,10 +73,22 @@ MUTACOES = [
     ('T2', 'a faixa sem o total', [(FAIXA, '<Typography.Text strong>{reais(rateio.centavos)}</Typography.Text>', '<Typography.Text strong>{reais(0)}</Typography.Text>')]),
     ('T3', 'a faixa sem as variáveis', [(FAIXA, "{i.variaveis.length > 0 && <div style={{ fontSize: 12, color: '#475569' }} data-variaveis-do-item=\"\">{i.variaveis.join(' · ')}</div>}", '')]),
     ('T4', 'a faixa mostra zero sem preço formado', [(FAIXA, '{rateio === null && <Typography.Paragraph type="secondary" data-sem-preco="">{FRASE_SEM_PRECO}</Typography.Paragraph>}', '')]),
-    ('T5', 'o valor da mão de obra volta na tela do orçamento (celular)', [(INDUS, "              {!somenteLeitura && (\n                <div style={{ flex: '1 1 50%', textAlign: 'right', whiteSpace: 'nowrap', fontWeight: 600 }}>", "              {true && (\n                <div style={{ flex: '1 1 50%', textAlign: 'right', whiteSpace: 'nowrap', fontWeight: 600 }}>")]),
+    ('T5', 'o valor da mão de obra volta na tela do orçamento (celular)', [(INDUS, "              {!somenteLeitura && (\n                <div style={{ flex: '1 1 50%', textAlign: 'right', whiteSpace: 'nowrap', fontWeight: 600 }} data-valor-da-mao-de-obra=\"\">", "              {true && (\n                <div style={{ flex: '1 1 50%', textAlign: 'right', whiteSpace: 'nowrap', fontWeight: 600 }} data-valor-da-mao-de-obra=\"\">")]),
     ('T6', 'o orçamento abre na página de antes', [(LISTA, 'export const urlDaPrecificacao = (id: string) => `${ROUTES.ATENDIMENTOS_IA_ORCAMENTOS}/${id}/precificacao`', 'export const urlDaPrecificacao = (id: string) => `${ROUTES.ATENDIMENTOS_IA_ORCAMENTOS}/${id}`')]),
     ('T7', 'o salvar manda a interna zerada', [(CONTENT, "valor_operacao_interna: interna && 'interna' in interna ? interna.interna : 0,", 'valor_operacao_interna: 0,')]),
     ('T8', 'o salvar não recusa a interna divergente', [(CONTENT, "    if (interna && 'falta' in interna) faltas.push(interna.falta)\n", '')]),
+    # o escopo fiscal (dono do produto, 11/11/2026): NCM opcional, a referência do tenant sem NCM, o preset da comercialização
+    ('F1', 'o NCM volta a ser obrigatório', [(PREC, "    if (ncm !== '' && !FORMA_DO_NCM.test(ncm)) faltas.push(faltaDoNcmFora(ncm))", "    if (!FORMA_DO_NCM.test(ncm)) faltas.push(faltaDoNcmFora(ncm))")]),
+    ('F2', 'sem NCM e sem a referência, o preço se grava', [(PREC, "    if (ncm === '' && args.referenciaDoTenant === false) faltas.push(FALTA_DA_REFERENCIA_DO_TENANT)\n", '')]),
+    ('F3', 'a referência cobrada também com NCM', [(PREC, "    if (ncm === '' && args.referenciaDoTenant === false)", "    if (args.referenciaDoTenant === false)")]),
+    ('F4', 'o orçamento sem preço não abre no preset', [(PREC, '    const semPreco = o.valor_venda === null', '    const semPreco = false')]),
+    ('F5', 'o preset recalcula para trás (vale com preço)', [(PREC, '    const semPreco = o.valor_venda === null', '    const semPreco = true')]),
+    ('F6', 'a travessia cria o orçamento sem o preset', [(PLANO, '        ...PRESET_DA_COMERCIALIZACAO,\n', '')]),
+    ('F7', 'o preset é interestadual', [(PREC, "export const PRESET_DA_COMERCIALIZACAO = { sale_scope: 'INTRAESTADUAL',", "export const PRESET_DA_COMERCIALIZACAO = { sale_scope: 'INTERESTADUAL',")]),
+    ('F8', 'a UF sem ICMS interno conta como referência', [(CONTENT, '        setReferenciaDoTenant(icmsDaUf !== null)', "        setReferenciaDoTenant(uf !== '')")]),
+    ('F9', 'sem NCM o PIS/COFINS da referência não entra', [(CONTENT, '    if (orcamento && semNcmNaTela && pisCofinsDaReferencia !== null) setPisCofinsLRPct(pisCofinsDaReferencia)', '    if (false) setPisCofinsLRPct(pisCofinsDaReferencia ?? 0)')]),
+    ('F10', 'o PIS/COFINS da referência sem excluir o ICMS', [(NCMPIS, '  return parseFloat((PIS_COFINS_NAO_CUMULATIVO_PCT * (1 - args.icmsPct / 100)).toFixed(4))', '  return PIS_COFINS_NAO_CUMULATIVO_PCT')]),
+    ('F11', 'a tela não passa a referência às faltas', [(CONTENT, '  const referenciaExigida = (): boolean | null => (isLRorLP ? referenciaDoTenant === true : null)', '  const referenciaExigida = (): boolean | null => null')]),
 ]
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from trecho_unico import exigir_trecho_unico  # a mutação que não se aplica aborta (mutacao-que-nao-se-aplica.md)

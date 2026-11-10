@@ -13,9 +13,15 @@
  *     cálculo, ou o cálculo e a tela leram outra coisa — número que não fecha não vira preço.
  *   - O ESTADO DO CÁLCULO (`estadoDoCalculo`): "cálculo incompleto — recalcule" quando algum item aponta um cálculo e o orçamento está sem os
  *     totais (o passo zero de `calcularOrcamento` os anulou e a escrita parou no meio), ou quando parte dos itens não tem cálculo.
- *   - AS FALTAS (`faltasDaPrecificacao`): SEM NCM a precificação RECUSA nomeando a falta — nunca zera o PIS/COFINS (decisão 1). O NCM é a
- *     FOLHA de oito dígitos (`0000.00.00`), a forma da CHECK `orcamentista_orcamento_ncm_forma`: um nível da hierarquia não resolve alíquota.
- *     A venda INTERESTADUAL exige a UF de destino, e a INTRAESTADUAL a recusa (a CHECK `orcamentista_orcamento_uf_destino_do_escopo`).
+ *   - AS FALTAS (`faltasDaPrecificacao`). O NCM é OPCIONAL (dono do produto, 11/11/2026: "enquanto não emitimos nota, o NCM não bloqueia
+ *     nada"; substitui a decisão 1 de 09/11, que recusava sem NCM). COM NCM, ele é a FOLHA de oito dígitos (`0000.00.00`, a forma da CHECK
+ *     `orcamentista_orcamento_ncm_forma`, que só confere quando há valor) e o PIS/COFINS sai dele; SEM NCM, o ICMS e o PIS/COFINS saem da
+ *     REFERÊNCIA DO TENANT (o regime e a UF de `tenant_settings`, o ICMS interno de `brazilian_states`), e só a falta DESSA referência é
+ *     recusa nomeada — nunca um zero inventado. A venda INTERESTADUAL exige a UF de destino, e a INTRAESTADUAL a recusa (a CHECK
+ *     `orcamentista_orcamento_uf_destino_do_escopo`).
+ *   - O PRESET DA COMERCIALIZAÇÃO (`PRESET_DA_COMERCIALIZACAO`, dono do produto, 11/11/2026): o orçamento nasce INTRAESTADUAL, para
+ *     CONSUMIDOR_FINAL, sem UF de destino e sem NCM; os quatro se alteram à mão na tela, por orçamento. `fiscalInicial` o aplica, na tela, ao
+ *     orçamento que ainda não tem preço formado e nasceu antes do preset — nada com preço é recalculado para trás.
  */
 
 /** O item do orçamento como a precificação o lê: os valores que `calcularOrcamento` gravou (nulos antes do cálculo). */
@@ -63,7 +69,8 @@ export const CABECALHO_FIXO = { tipo: 'Produzido', unidade: 'UN', secao: 'Orçam
 export const FRASE_CALCULO_INCOMPLETO = 'Cálculo incompleto — recalcule.'
 export const FRASE_SEM_CALCULO = 'O orçamento ainda não foi calculado: calcule antes de precificar.'
 export const FRASE_CALCULO_DESATUALIZADO = 'Itens alterados depois do cálculo — recalcule.'
-export const FALTA_DO_NCM = 'o NCM do orçamento: sem ele o PIS/COFINS não sai, e a precificação não o zera'
+export const FALTA_DA_REFERENCIA_DO_TENANT = 'a referência fiscal da empresa: sem NCM, o ICMS e o PIS/COFINS saem do regime e da UF da empresa '
+    + '(Configurações), e a UF dela ou o ICMS interno dessa UF não estão cadastrados — informe o NCM do orçamento ou complete o cadastro da empresa'
 export const faltaDoNcmFora = (ncm: string) => `o NCM inteiro, de oito dígitos (0000.00.00): "${ncm}" é um nível da hierarquia e não resolve alíquota`
 export const faltaDaAliquotaDoNcm = (ncm: string) => `a alíquota de PIS/COFINS do NCM ${ncm}: a tabela de NCM não a trouxe`
 export const FALTA_DO_ESCOPO = 'o escopo da venda (dentro ou fora do estado)'
@@ -145,12 +152,31 @@ export type FiscalDaTela = {
     uf_destino: string | null
 }
 
-/** As faltas do bloco fiscal, cada uma nomeada. A tela e a rota recusam pelas mesmas. */
+/**
+ * O PRESET da comercialização do orçamento I.A. (dono do produto, 11/11/2026), gravado na criação: dentro do estado, para consumidor final,
+ * sem UF de destino (a CHECK `orcamentista_orcamento_uf_destino_do_escopo` a obriga nula fora do INTERESTADUAL) e sem NCM.
+ */
+export const PRESET_DA_COMERCIALIZACAO = { sale_scope: 'INTRAESTADUAL', buyer_type: 'CONSUMIDOR_FINAL', uf_destino: null as null, ncm_code: null as null } as const
+
+/**
+ * O fiscal com que a tela ABRE: o gravado; e, no orçamento SEM PREÇO FORMADO, o escopo e o comprador ausentes vêm do preset (o orçamento 1,
+ * nascido antes dele). O orçamento com preço abre como foi gravado — nada se recalcula para trás.
+ */
+export function fiscalInicial(o: Pick<OrcamentoNaPrecificacao, 'valor_venda' | 'ncm_code' | 'sale_scope' | 'buyer_type' | 'uf_destino'>): FiscalDaTela {
+    const semPreco = o.valor_venda === null
+    return {
+        ncm_code: o.ncm_code,
+        sale_scope: o.sale_scope ?? (semPreco ? PRESET_DA_COMERCIALIZACAO.sale_scope : null),
+        buyer_type: o.buyer_type ?? (semPreco ? PRESET_DA_COMERCIALIZACAO.buyer_type : null),
+        uf_destino: o.uf_destino,
+    }
+}
+
+/** As faltas do bloco fiscal, cada uma nomeada. A tela e a rota recusam pelas mesmas. O NCM ausente NÃO é falta (11/11/2026). */
 export function faltasDoFiscal(f: FiscalDaTela): string[] {
     const faltas: string[] = []
     const ncm = f.ncm_code?.trim() ?? ''
-    if (ncm === '') faltas.push(FALTA_DO_NCM)
-    else if (!FORMA_DO_NCM.test(ncm)) faltas.push(faltaDoNcmFora(ncm))
+    if (ncm !== '' && !FORMA_DO_NCM.test(ncm)) faltas.push(faltaDoNcmFora(ncm))
     if (f.sale_scope === null) faltas.push(FALTA_DO_ESCOPO)
     if (f.buyer_type === null) faltas.push(FALTA_DO_COMPRADOR)
     const uf = f.uf_destino?.trim() ?? ''
@@ -168,6 +194,11 @@ export function faltasDaPrecificacao(args: {
     fiscal: FiscalDaTela
     /** `null`: o regime não apura PIS/COFINS pelo NCM; `true`/`false`: a tabela trouxe a alíquota do NCM ou não. */
     aliquotaDoNcm: boolean | null
+    /**
+     * Sem NCM, a referência fiscal do tenant: `null` = o regime não apura ICMS e PIS/COFINS por ela (fora do Lucro Real e do Presumido);
+     * `true`/`false` = a UF e o ICMS interno dela estão cadastrados ou não. Obrigatório: ausente não é "tem" (`construtor-empobrecido.md`).
+     */
+    referenciaDoTenant: boolean | null
     custoDoMotor: number
 }): string[] {
     const faltas: string[] = []
@@ -176,6 +207,7 @@ export function faltasDaPrecificacao(args: {
     faltas.push(...faltasDoFiscal(args.fiscal))
     const ncm = args.fiscal.ncm_code?.trim() ?? ''
     if (args.aliquotaDoNcm === false && FORMA_DO_NCM.test(ncm)) faltas.push(faltaDaAliquotaDoNcm(ncm))
+    if (ncm === '' && args.referenciaDoTenant === false) faltas.push(FALTA_DA_REFERENCIA_DO_TENANT)
     if (estado === 'completo') {
         const r = reconciliacaoNaTela(args.orcamento.itens, args.custoDoMotor)
         if (!r.fecha) faltas.push(faltaDaReconciliacao(r.somaDasLinhas, r.custoDoMotor))

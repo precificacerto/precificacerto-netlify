@@ -207,7 +207,7 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
                 />
               </div>
               {!somenteLeitura && (
-                <div style={{ flex: '1 1 50%', textAlign: 'right', whiteSpace: 'nowrap', fontWeight: 600 }}>
+                <div style={{ flex: '1 1 50%', textAlign: 'right', whiteSpace: 'nowrap', fontWeight: 600 }} data-valor-da-mao-de-obra="">
                   R$ {getMonetaryValue(productPriceInfo.productWorkloadInMinutesPrice)}
                 </div>
               )}

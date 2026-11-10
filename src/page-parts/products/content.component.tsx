@@ -24,7 +24,7 @@ import { calculatePricing } from '@/utils/pricing-engine'
 import { resolveMonthlyWorkload } from '@/utils/resolve-monthly-workload'
 import { computeIvaDualOutside } from '@/utils/iva-dual-outside'
 import { resolveIvaDualEffectiveRate } from '@/utils/item-tax-rates'
-import { resolvePisCofinsPctFromNcm } from '@/utils/ncm-pis-cofins'
+import { pisCofinsDaReferenciaDoTenant, resolvePisCofinsPctFromNcm } from '@/utils/ncm-pis-cofins'
 import { resolveReducoesDoItem } from '@/utils/classificacao-fiscal'
 import ClassificacaoFiscalBlock, { type ClassificacaoFiscalValue } from '@/page-parts/shared/classificacao-fiscal-block.component'
 import { computeIcmsSt, computeDifal, computeIcmsComplementar, mvaAjustada } from '@/utils/icms-st-difal'
@@ -42,7 +42,7 @@ import { getTenantId, getCurrentUserId } from '@/utils/get-tenant-id'
 import { useDevice } from '@/contexts/device.context'
 import { ProductItemsMobileList } from './product-items-mobile-list.component'
 import {
-  CABECALHO_FIXO, entradaDoMotor, estadoDoCalculo, faltasDaPrecificacao, FRASE_DO_ESTADO, internaParaGravar, MODO_PRODUTO, reconciliacaoNaTela, rotuloDoItem,
+  CABECALHO_FIXO, entradaDoMotor, estadoDoCalculo, faltasDaPrecificacao, fiscalInicial, FRASE_DO_ESTADO, FORMA_DO_NCM, internaParaGravar, MODO_PRODUTO, reconciliacaoNaTela, rotuloDoItem,
   type GravacaoDaPrecificacao, type ModoDaPrecificacao, type OrcamentoNaPrecificacao,
 } from '@/lib/atendimentos-ia/precificacao-do-orcamento'
 
@@ -258,12 +258,19 @@ export const Content: FC<ContentProps> = ({
   const [baseItemId, setBaseItemId] = useState<string | null>(
     (product as any)?.baseItemId || null
   )
-  // No orçamento o contexto da venda é o GRAVADO nele (a `20261109000004`), e nulo é "não informado" — falta nomeada, nunca o default.
-  const [saleScope, setSaleScope] = useState<'INTRAESTADUAL' | 'INTERESTADUAL'>(orcamento ? orcamento.sale_scope : 'INTRAESTADUAL')
-  const [buyerType, setBuyerType] = useState<'CONSUMIDOR_FINAL' | 'CONTRIBUINTE_PJ'>(orcamento ? orcamento.buyer_type : 'CONSUMIDOR_FINAL')
-  const [destinationState, setDestinationState] = useState<string | null>(orcamento ? orcamento.uf_destino : null)
-  // No orçamento, a alíquota de PIS/COFINS vem do NCM: `null` = o regime não a apura pelo NCM; false = a tabela não a trouxe (falta).
+  // No orçamento o contexto da venda é o GRAVADO nele; no orçamento SEM PREÇO, o escopo e o comprador ausentes vêm do PRESET da
+  // comercialização (dono do produto, 11/11/2026: `fiscalInicial`). Os quatro se alteram à mão aqui, por orçamento.
+  const fiscalDeAbertura = orcamento ? fiscalInicial(orcamento) : null
+  const [saleScope, setSaleScope] = useState<'INTRAESTADUAL' | 'INTERESTADUAL'>(fiscalDeAbertura ? fiscalDeAbertura.sale_scope : 'INTRAESTADUAL')
+  const [buyerType, setBuyerType] = useState<'CONSUMIDOR_FINAL' | 'CONTRIBUINTE_PJ'>(fiscalDeAbertura ? fiscalDeAbertura.buyer_type : 'CONSUMIDOR_FINAL')
+  const [destinationState, setDestinationState] = useState<string | null>(fiscalDeAbertura ? fiscalDeAbertura.uf_destino : null)
+  // No orçamento COM NCM, a alíquota de PIS/COFINS vem dele: `null` = o regime não a apura pelo NCM; false = a tabela não a trouxe (falta).
   const [aliquotaDoNcm, setAliquotaDoNcm] = useState<boolean | null>(null)
+  // No orçamento SEM NCM (11/11/2026), o ICMS e o PIS/COFINS vêm da REFERÊNCIA DO TENANT (regime + UF): `null` = o regime não apura por ela
+  // (ou ainda não foi lida); false = a UF ou o ICMS interno dela não estão cadastrados (falta nomeada, nunca zero).
+  const [referenciaDoTenant, setReferenciaDoTenant] = useState<boolean | null>(null)
+  const [pisCofinsDaReferencia, setPisCofinsDaReferencia] = useState<number | null>(null)
+  const ncmNaTela = Form.useWatch('ncm_code', productForm) as string | undefined
   const [salvandoOrcamento, setSalvandoOrcamento] = useState(false)
   const [recusasDoOrcamento, setRecusasDoOrcamento] = useState<string[]>([])
   const [customTaxPercent, setCustomTaxPercent] = useState<number | null>(
@@ -308,26 +315,32 @@ export const Content: FC<ContentProps> = ({
         .select('ibs_reference_pct, cbs_reference_pct, state_code')
         .eq('tenant_id', tenantId)
         .single()
+      // O ICMS interno da UF da empresa: lido UMA vez, para o produto novo e para a referência do orçamento.
+      const uf = typeof data?.state_code === 'string' ? data.state_code.trim() : ''
+      const precisaDaUf = uf !== '' && (!isEditingMode || (orcamento && isLRorLP))
+      const { data: stateData } = precisaDaUf
+        ? await (supabase as any).from('brazilian_states').select('icms_internal_rate').eq('code', uf).maybeSingle()
+        : { data: null }
+      const icmsDaUf = stateData?.icms_internal_rate != null ? Number(stateData.icms_internal_rate) * 100 : null
+      // No orçamento (11/11/2026), a referência do tenant é o que dá o ICMS e o PIS/COFINS sem NCM: a falta dela é nomeada.
+      if (orcamento && isLRorLP) {
+        setReferenciaDoTenant(icmsDaUf !== null)
+        setPisCofinsDaReferencia(icmsDaUf === null ? null
+          : pisCofinsDaReferenciaDoTenant({ isLucroReal: isLucroRealProd, isLucroPresumido: isLucroPresumidoProdOnly, icmsPct: icmsDaUf }))
+      }
       if (data) {
         // Não sobrescreve o snapshot do produto (ADR-022): só usa a referência do tenant quando
         // o produto ainda não tem a sua própria (criação ou legado).
         if (data.ibs_reference_pct != null && (product as any)?.ibs_reference_pct == null) setIbsReferencePct(Number(data.ibs_reference_pct))
         if (data.cbs_reference_pct != null && (product as any)?.cbs_reference_pct == null) setCbsReferencePct(Number(data.cbs_reference_pct))
         // Auto-preenchimento do ICMS interno apenas para novos produtos (Lucro Real)
-        if (!isEditingMode && data.state_code) {
-          const { data: stateData } = await (supabase as any)
-            .from('brazilian_states')
-            .select('icms_internal_rate')
-            .eq('code', data.state_code.trim())
-            .single()
-          if (stateData?.icms_internal_rate != null) {
-            const autoIcmsPct = Number(stateData.icms_internal_rate) * 100
-            setIcmsPct(autoIcmsPct)
-            // No orçamento o PIS/COFINS vem SÓ do NCM (decisão 1): a fórmula daqui o preencheria sem NCM nenhum.
-            if (!orcamento) {
-              const pisCofinsBase = isLucroPresumidoProdOnly ? 3.65 : 9.25
-              setPisCofinsLRPct(parseFloat((pisCofinsBase * (1 - autoIcmsPct / 100)).toFixed(4)))
-            }
+        if (!isEditingMode && icmsDaUf !== null) {
+          const autoIcmsPct = icmsDaUf
+          setIcmsPct(autoIcmsPct)
+          // No orçamento, o PIS/COFINS da referência entra pelo efeito do NCM vazio, abaixo (11/11/2026): com NCM, ele vem do NCM.
+          if (!orcamento) {
+            const pisCofinsBase = isLucroPresumidoProdOnly ? 3.65 : 9.25
+            setPisCofinsLRPct(parseFloat((pisCofinsBase * (1 - autoIcmsPct / 100)).toFixed(4)))
           }
         }
       }
@@ -849,6 +862,11 @@ export const Content: FC<ContentProps> = ({
     setAliquotaDoNcm(pct === undefined ? null : pct !== null)
   }, [orcamento, fetchNcmRatesForLR])
   useEffect(() => { void resolverNcmDoOrcamento(orcamento?.ncm_code) }, [orcamento?.ncm_code, resolverNcmDoOrcamento])
+  // SEM NCM na tela, o PIS/COFINS é o da referência do tenant (11/11/2026); sem a referência, o campo fica como está e a falta é nomeada.
+  const semNcmNaTela = !FORMA_DO_NCM.test((ncmNaTela ?? '').trim())
+  useEffect(() => {
+    if (orcamento && semNcmNaTela && pisCofinsDaReferencia !== null) setPisCofinsLRPct(pisCofinsDaReferencia)
+  }, [orcamento, semNcmNaTela, pisCofinsDaReferencia])
 
   useEffect(() => {
     if (!isEditingMode && prefill) {
@@ -1244,8 +1262,10 @@ export const Content: FC<ContentProps> = ({
   // No Lucro Real e no Presumido o PIS/COFINS sai do NCM: enquanto ele não foi resolvido, é FALTA (nunca o 0 inicial); nos outros regimes
   // o NCM não decide a alíquota.
   const aliquotaExigida = (): boolean | null => (isLRorLP ? aliquotaDoNcm === true : null)
+  // a referência ainda não lida (null) no LR/LP não é "tem": só a leitura que achou a UF e o ICMS libera o salvar sem NCM
+  const referenciaExigida = (): boolean | null => (isLRorLP ? referenciaDoTenant === true : null)
   const faltasDoOrcamento = orcamento
-    ? faltasDaPrecificacao({ orcamento, fiscal: fiscalDaTela(), aliquotaDoNcm: aliquotaExigida(), custoDoMotor: Number(productPriceInfo?.productCost) || 0 })
+    ? faltasDaPrecificacao({ orcamento, fiscal: fiscalDaTela(), aliquotaDoNcm: aliquotaExigida(), referenciaDoTenant: referenciaExigida(), custoDoMotor: Number(productPriceInfo?.productCost) || 0 })
     : []
   const salvarOrcamento = async () => {
     if (!orcamento || !onSalvarOrcamento || salvandoOrcamento) return
@@ -1254,7 +1274,7 @@ export const Content: FC<ContentProps> = ({
       return
     }
     doProductCalc()
-    const faltas = faltasDaPrecificacao({ orcamento, fiscal: fiscalDaTela(), aliquotaDoNcm: aliquotaExigida(), custoDoMotor: Number(productPriceInfo.productCost) || 0 })
+    const faltas = faltasDaPrecificacao({ orcamento, fiscal: fiscalDaTela(), aliquotaDoNcm: aliquotaExigida(), referenciaDoTenant: referenciaExigida(), custoDoMotor: Number(productPriceInfo.productCost) || 0 })
     const valorDeVenda = finalPriceWithTaxesRef.current
     if (!(valorDeVenda > 0)) faltas.push('o preço formado: a precificação não saiu (confira os percentuais e a margem)')
     // a interna que se grava (20261110000001), ao centavo, e a recusa quando ela diverge do valor precificado

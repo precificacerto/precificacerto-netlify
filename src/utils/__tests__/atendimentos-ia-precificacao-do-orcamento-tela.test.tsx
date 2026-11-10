@@ -19,7 +19,7 @@ import React from 'react'
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import {
-    FALTA_DA_UF, FALTA_DO_NCM, FRASE_CALCULO_INCOMPLETO, faltaDaAliquotaDoNcm,
+    FALTA_DA_UF, FALTA_DA_REFERENCIA_DO_TENANT, FRASE_CALCULO_INCOMPLETO, faltaDaAliquotaDoNcm, faltaDaInternaDivergente,
     type GravacaoDaPrecificacao, type ItemNaPrecificacao, type OrcamentoNaPrecificacao,
 } from '@/lib/atendimentos-ia/precificacao-do-orcamento'
 
@@ -60,9 +60,24 @@ jest.mock('@/utils/get-tenant-id', () => ({ getTenantId: async () => 'tenant-1',
 let mockCelular = false
 jest.mock('@/contexts/device.context', () => ({ useDevice: () => ({ isMobile: mockCelular }) }))
 jest.mock('@/page-parts/shared/classificacao-fiscal-block.component', () => ({ __esModule: true, default: (): null => null }))
+// O `ProductPrice` é o de verdade em todo caso, MENOS quando `mockPrecoEmitido` está preenchido: aí ele emite esse preço e nada mais. É o único
+// jeito de exercitar a recusa da interna DIVERGENTE do precificado — com a matriz governando (todos os regimes medidos), os dois coincidem.
+let mockPrecoEmitido: import('@/page-parts/products/product-price.component').PrecoEmitido | null = null
+jest.mock('@/page-parts/products/product-price.component', () => {
+    const real = jest.requireActual('@/page-parts/products/product-price.component')
+    const R = jest.requireActual('react')
+    return {
+        ...real,
+        ProductPrice: (props: { onFinalPriceWithTaxesChange?: (d: unknown) => void }) => {
+            R.useEffect(() => { if (mockPrecoEmitido) props.onFinalPriceWithTaxesChange?.(mockPrecoEmitido) })
+            return mockPrecoEmitido ? null : R.createElement(real.ProductPrice, props)
+        },
+    }
+})
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 const { Content } = require('@/page-parts/products/content.component') as typeof import('@/page-parts/products/content.component')
+const { FRASE_SEM_PRECO } = require('@/page-parts/atendimentos-ia/itens-precificados.component') as typeof import('@/page-parts/atendimentos-ia/itens-precificados.component')
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 // ── O cenário: a De Paula medida (Lucro Real, industrialização, 40.813,03 ÷ 52.800 min) ─────────────────────────────────────────
@@ -128,6 +143,7 @@ const montados: Array<() => void> = []
 afterEach(() => { while (montados.length) montados.pop()!() })
 beforeEach(() => {
     mockCelular = false
+    mockPrecoEmitido = null
     banco.escritas = []
     banco.lidas = []
     banco.respostas = {
@@ -317,18 +333,40 @@ describe('(D) AS FALTAS NOMEADAS — nada se grava com falta', () => {
         await clicar(botao(host, 'Salvar precificação do orçamento'))
         expect(salvar).not.toHaveBeenCalled()
     })
-    it('SEM NCM a precificação RECUSA nomeando a falta — e o PIS/COFINS não é zerado nem preenchido pela fórmula', async () => {
-        const salvar = jest.fn()
+    it('SEM NCM (11/11/2026) a precificação SALVA: o NCM não bloqueia nada, e vai NULO', async () => {
+        const salvar = jest.fn(async () => null)
         const host = await montar({ orcamento: orcamento({ ncm_code: null }), onSalvarOrcamento: salvar })
-        expect(host.querySelector('[data-faltas-do-orcamento]')?.textContent).toContain(FALTA_DO_NCM)
+        expect(host.querySelector('[data-faltas-do-orcamento]')).toBeNull()
         await clicar(botao(host, 'Salvar precificação do orçamento'))
-        expect(salvar).not.toHaveBeenCalled()
-        expect(host.querySelector('[data-recusas-do-orcamento]')?.textContent).toContain(FALTA_DO_NCM)
+        expect(salvar).toHaveBeenCalledTimes(1)
+        expect((salvar.mock.calls[0] as unknown[])[0]).toMatchObject({ ncm_code: null })
     })
-    it('sem NCM nada preenche o PIS/COFINS: a margem é a do PIS/COFINS em zero, nunca a fórmula do ICMS', async () => {
+    it('sem NCM o PIS/COFINS é o da REFERÊNCIA DO TENANT (Lucro Real, ICMS do RS 17%): 9,25% × (1 − 17%), a mesma margem do produto com 7,6775%', async () => {
+        const comReferencia = await montar({ isEditingMode: true, product: { ...PRODUTO_1008, pis_cofins_pct: 7.6775 } as typeof PRODUTO_1008, itemsFromApi: ITENS_DA_API })
         const semPis = await montar({ isEditingMode: true, product: { ...PRODUTO_1008, pis_cofins_pct: 0 } as typeof PRODUTO_1008, itemsFromApi: ITENS_DA_API })
         const doOrcamento = await montar({ orcamento: orcamento({ ncm_code: null }), onSalvarOrcamento: jest.fn() })
-        expect(valorDe(doOrcamento, 'Margem de contribuição aplicada')).toBe(valorDe(semPis, 'Margem de contribuição aplicada'))
+        expect(valorDe(doOrcamento, 'Margem de contribuição aplicada')).toBe(valorDe(comReferencia, 'Margem de contribuição aplicada'))
+        expect(valorDe(doOrcamento, 'Margem de contribuição aplicada')).not.toBe(valorDe(semPis, 'Margem de contribuição aplicada'))
+    })
+    it('sem NCM e SEM a referência do tenant (a UF não cadastrada): a falta nomeada, e nada se grava — nunca um zero inventado', async () => {
+        banco.respostas.tenant_settings = { ibs_reference_pct: 0, cbs_reference_pct: 0, state_code: null }
+        const salvar = jest.fn()
+        const host = await montar({ orcamento: orcamento({ ncm_code: null }), onSalvarOrcamento: salvar })
+        expect(host.querySelector('[data-faltas-do-orcamento]')?.textContent).toContain(FALTA_DA_REFERENCIA_DO_TENANT)
+        await clicar(botao(host, 'Salvar precificação do orçamento'))
+        expect(salvar).not.toHaveBeenCalled()
+    })
+    it('a UF cadastrada mas sem ICMS interno também é falta da referência', async () => {
+        banco.respostas.brazilian_states = { icms_internal_rate: null }
+        const host = await montar({ orcamento: orcamento({ ncm_code: null }), onSalvarOrcamento: jest.fn() })
+        expect(host.querySelector('[data-faltas-do-orcamento]')?.textContent).toContain(FALTA_DA_REFERENCIA_DO_TENANT)
+    })
+    it('o orçamento SEM preço e sem fiscal (o orçamento 1) abre no PRESET e grava INTRAESTADUAL e CONSUMIDOR_FINAL', async () => {
+        const salvar = jest.fn(async () => null)
+        const host = await montar({ orcamento: orcamento({ ncm_code: null, sale_scope: null, buyer_type: null }), onSalvarOrcamento: salvar })
+        await clicar(botao(host, 'Salvar precificação do orçamento'))
+        expect(salvar).toHaveBeenCalledTimes(1)
+        expect((salvar.mock.calls[0] as unknown[])[0]).toMatchObject({ sale_scope: 'INTRAESTADUAL', buyer_type: 'CONSUMIDOR_FINAL', uf_destino: null, ncm_code: null })
     })
     it.each([
         ['o motor recusa (lucro 95%)', 95],
@@ -352,10 +390,10 @@ describe('(D) AS FALTAS NOMEADAS — nada se grava com falta', () => {
         // e NÃO a do produto com a fórmula do ICMS (os números congelados, 7,6775%)
         expect(valorDe(doOrcamento, 'Margem de contribuição aplicada')).not.toBe(CONGELADO.mc)
     })
-    it('a venda INTERESTADUAL sem UF é falta; o escopo e o comprador não informados também', async () => {
+    it('a venda INTERESTADUAL sem UF é falta; o escopo e o comprador não informados também, no orçamento que JÁ TEM preço (sem preço, vale o preset)', async () => {
         const h1 = await montar({ orcamento: orcamento({ sale_scope: 'INTERESTADUAL', uf_destino: null }), onSalvarOrcamento: jest.fn() })
         expect(h1.querySelector('[data-faltas-do-orcamento]')?.textContent).toContain(FALTA_DA_UF)
-        const h2 = await montar({ orcamento: orcamento({ sale_scope: null, buyer_type: null }), onSalvarOrcamento: jest.fn() })
+        const h2 = await montar({ orcamento: orcamento({ sale_scope: null, buyer_type: null, valor_venda: 3000, valor_operacao_interna: 3000 }), onSalvarOrcamento: jest.fn() })
         const faltas = h2.querySelector('[data-faltas-do-orcamento]')?.textContent ?? ''
         expect(faltas).toContain('o escopo da venda')
         expect(faltas).toContain('o tipo de comprador')
@@ -400,5 +438,34 @@ describe('(E) AS DECISÕES DE 11/11/2026 — a interna gravada, a faixa dos iten
         expect(doOrcamento.querySelector('[data-valor-da-mao-de-obra]')?.textContent).toBe('')
         const doProduto = await montar({ product: PRODUTO_1008, itemsFromApi: ITENS_DA_API })
         expect(doProduto.querySelector('[data-valor-da-mao-de-obra]')?.textContent).toMatch(/^R\$ [\d.]+,\d{2}$/)
+    })
+    it('NO CELULAR também: o orçamento não mostra o valor da mão de obra; o produto mostra', async () => {
+        mockCelular = true
+        const doOrcamento = await montar({ orcamento: orcamento(), onSalvarOrcamento: jest.fn() })
+        expect(doOrcamento.textContent).toContain('Tempo total de produção da obra')
+        expect(doOrcamento.querySelector('[data-valor-da-mao-de-obra]')?.textContent ?? '').not.toMatch(/R\$/)
+        const doProduto = await montar({ product: PRODUTO_1008, itemsFromApi: ITENS_DA_API })
+        expect(doProduto.querySelector('[data-valor-da-mao-de-obra]')?.textContent).toMatch(/R\$ [\d.]+,\d{2}/)
+    })
+    it('SEM preço formado a faixa diz isso, e não mostra valor nem total — nunca zero', async () => {
+        const host = await montar({ orcamento: orcamento({ lucro_projetado_percentual: 95 }), onSalvarOrcamento: jest.fn(), itensDoArquivo: ITENS_DO_ARQUIVO })
+        const faixa = host.querySelector('[data-itens-precificados]') as HTMLElement
+        expect(faixa.querySelector('[data-sem-preco]')?.textContent).toBe(FRASE_SEM_PRECO)
+        expect(faixa.querySelector('[data-total-dos-itens]')).toBeNull()
+        expect(faixa.textContent).not.toMatch(/R\$/)
+    })
+    it('a interna DIVERGENTE do valor precificado em mais de um centavo: o salvar recusa nomeando, e nada vai à rota', async () => {
+        mockPrecoEmitido = { finalPrice: 3000, basePrice: 3000, externalOpsCoefficient: null, operacaoInterna: 2900, valorPrecificado: 2950 }
+        const salvar = jest.fn()
+        const host = await montar({ orcamento: orcamento(), onSalvarOrcamento: salvar })
+        await clicar(botao(host, 'Salvar precificação do orçamento'))
+        expect(salvar).not.toHaveBeenCalled()
+        expect(host.querySelector('[data-recusas-do-orcamento]')?.textContent).toContain(faltaDaInternaDivergente(2900, 2950))
+        mockPrecoEmitido = { finalPrice: 3000, basePrice: 3000, externalOpsCoefficient: null, operacaoInterna: 2900, valorPrecificado: 2900.01 }
+        const salvar2 = jest.fn(async () => null)
+        const host2 = await montar({ orcamento: orcamento(), onSalvarOrcamento: salvar2 })
+        await clicar(botao(host2, 'Salvar precificação do orçamento'))
+        expect(salvar2).toHaveBeenCalledTimes(1)
+        expect((salvar2.mock.calls[0] as unknown[])[0]).toMatchObject({ valor_venda: 3000, valor_operacao_interna: 2900 })
     })
 })

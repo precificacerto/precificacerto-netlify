@@ -3,6 +3,7 @@
  * navegador a importam sem levar o cliente do servidor. O porquê de cada regra está em `travessia-do-levantamento.ts`.
  */
 import { MODO_DO_FALLBACK, MOTIVO_DO_FALLBACK, ORIGEM_DO_FALLBACK } from './custo-do-orcamento'
+import { PRESET_DA_COMERCIALIZACAO } from './precificacao-do-orcamento'
 
 export const ESTADO_COMPLETO = 'COMPLETO'
 /** O nome do orçamento: a CHECK `orcamentista_orcamento_nome_forma` (até 120 caracteres). O mesmo número de `LIMITE_DO_NOME` (`orcamentos-ia.ts`), preso por teste — aqui sem importá-lo, porque aquele módulo leva o cliente do servidor. */
@@ -68,6 +69,11 @@ export type OrcamentoDaTravessia = {
     aproveitamento_origem: string
     aproveitamento_motivo: string | null
     aproveitamento_por: null
+    // o preset da comercialização (dono do produto, 11/11/2026), gravado na criação; a tela da precificação os altera por orçamento
+    sale_scope: typeof PRESET_DA_COMERCIALIZACAO.sale_scope
+    buyer_type: typeof PRESET_DA_COMERCIALIZACAO.buyer_type
+    uf_destino: null
+    ncm_code: null
 }
 export type ItemDaTravessia = {
     ordem: number
@@ -193,6 +199,7 @@ export function planoDaTravessia(lev: LevantamentoNaTravessia, itens: readonly I
         reserva_tecnica_responsavel: textoOuNulo(lev.reserva_tecnica_responsavel),
         lucro_projetado_percentual: lucro.valor,
         ...aproveitamentoDaTravessia(daBase),
+        ...PRESET_DA_COMERCIALIZACAO,
     }
     return {
         ok: true,
