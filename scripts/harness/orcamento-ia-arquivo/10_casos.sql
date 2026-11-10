@@ -38,9 +38,11 @@ SELECT pg_temp.caso('1g - a CHECK dos ambientes e a MESMA do levantamento (um do
   = 'CHECK (orcamentista_levantamento_ambientes_validos(ambientes))');
 
 -- 2. o arquivo
-CREATE OR REPLACE FUNCTION pg_temp.arquivo(tenant text, orc text, caminho text, sha text, tamanho bigint, valor numeric, bucket text DEFAULT 'atendimentos-ia') RETURNS text LANGUAGE sql AS $$
-  SELECT format($f$INSERT INTO public.orcamentista_orcamento_arquivo (tenant_id, orcamento_id, calculo_id, bucket, caminho, sha256, tamanho_bytes, valor_venda, gerado_por)
-                 VALUES (%L, %L, gen_random_uuid(), %L, %L, %L, %s, %s, gen_random_uuid())$f$, tenant, orc, bucket, caminho, sha, tamanho, valor) $$;
+-- por padrao, a geracao MANUAL, com autor (o botao); os casos da origem passam os dois campos
+CREATE OR REPLACE FUNCTION pg_temp.arquivo(tenant text, orc text, caminho text, sha text, tamanho bigint, valor numeric, bucket text DEFAULT 'atendimentos-ia',
+                                           origem text DEFAULT 'manual', autor text DEFAULT 'gen_random_uuid()') RETURNS text LANGUAGE sql AS $$
+  SELECT format($f$INSERT INTO public.orcamentista_orcamento_arquivo (tenant_id, orcamento_id, calculo_id, bucket, caminho, sha256, tamanho_bytes, valor_venda, gerado_origem, gerado_por)
+                 VALUES (%L, %L, gen_random_uuid(), %L, %L, %L, %s, %s, %L, %s)$f$, tenant, orc, bucket, caminho, sha, tamanho, valor, origem, autor) $$;
 SELECT pg_temp.caso('2a - o arquivo valido entra, com o calculo_id e a data',
   pg_temp.passa(pg_temp.arquivo('00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000000a', 'orcamento/a1/1-v1.pdf', repeat('a', 64), 12345, 3105.80)));
 -- (a leitura num comando proprio: no mesmo comando, o snapshot e o de antes da funcao)
@@ -64,6 +66,20 @@ SELECT pg_temp.caso('2g - caminho com espaco, com barra inicial ou vazio, e buck
   AND pg_temp.recusa(pg_temp.arquivo('00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000000a', '/orcamento/g2.pdf', repeat('a', 64), 1, 1), '23514')
   AND pg_temp.recusa(pg_temp.arquivo('00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000000a', '', repeat('a', 64), 1, 1), '23514')
   AND pg_temp.recusa(pg_temp.arquivo('00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000000a', 'orcamento/a1/g3.pdf', repeat('a', 64), 1, 1, 'Atendimentos'), '23514'));
+-- a ORIGEM da geracao: a pessoa tem autor; o agente nao tem e nao finge ter
+SELECT pg_temp.caso('2i - manual com autor PASSA',
+  pg_temp.passa(pg_temp.arquivo('00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000000a', 'orcamento/a1/i1.pdf', repeat('1', 64), 1, 1, 'atendimentos-ia', 'manual', 'gen_random_uuid()')));
+SELECT pg_temp.caso('2j - agente sem autor PASSA',
+  pg_temp.passa(pg_temp.arquivo('00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000000a', 'orcamento/a1/j1.pdf', repeat('2', 64), 1, 1, 'atendimentos-ia', 'agente', 'NULL')));
+SELECT pg_temp.caso('2k - manual SEM autor e recusado (23514)',
+  pg_temp.recusa(pg_temp.arquivo('00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000000a', 'orcamento/a1/k1.pdf', repeat('3', 64), 1, 1, 'atendimentos-ia', 'manual', 'NULL'), '23514'));
+SELECT pg_temp.caso('2l - agente COM autor e recusado (23514): o agente nao finge ter autor',
+  pg_temp.recusa(pg_temp.arquivo('00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000000a', 'orcamento/a1/l1.pdf', repeat('4', 64), 1, 1, 'atendimentos-ia', 'agente', 'gen_random_uuid()'), '23514'));
+SELECT pg_temp.caso('2m - origem fora da lista e recusada (23514), e a origem nula tambem (23502)',
+  pg_temp.recusa(pg_temp.arquivo('00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000000a', 'orcamento/a1/m1.pdf', repeat('5', 64), 1, 1, 'atendimentos-ia', 'whatsapp', 'NULL'), '23514')
+  AND pg_temp.recusa($q$INSERT INTO public.orcamentista_orcamento_arquivo (tenant_id, orcamento_id, calculo_id, bucket, caminho, sha256, tamanho_bytes, valor_venda, gerado_por)
+                        VALUES ('00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000000a', gen_random_uuid(), 'atendimentos-ia', 'orcamento/a1/m2.pdf', repeat('6', 64), 1, 1, gen_random_uuid())$q$, '23502'));
+
 -- um orcamento SEM item, so com arquivo: o que barra o delete e a FK do arquivo, e nao a do item
 INSERT INTO public.orcamentista_orcamento (id, tenant_id, nome, numero, origem, criado_por) VALUES
   ('00000000-0000-0000-0000-00000000000c', '00000000-0000-0000-0000-0000000000a1', 'Orc C', 2, 'manual', gen_random_uuid());
@@ -85,10 +101,10 @@ SELECT pg_temp.caso('3b - o service_role NAO altera nem apaga o arquivo (42501)'
 RESET ROLE;
 
 -- 4. a forma total
-SELECT pg_temp.caso('4a - 49 constraints no orcamento e no item; 9 e 11 colunas no arquivo; 30 colunas no item',
+SELECT pg_temp.caso('4a - 49 constraints no orcamento e no item; 11 constraints e 12 colunas no arquivo; 30 colunas no item',
   (SELECT count(*) FROM pg_constraint WHERE conrelid IN ('public.orcamentista_orcamento'::regclass, 'public.orcamentista_orcamento_item'::regclass)) = 49
-  AND (SELECT count(*) FROM pg_constraint WHERE conrelid = 'public.orcamentista_orcamento_arquivo'::regclass) = 9
-  AND (SELECT count(*) FROM information_schema.columns WHERE table_name = 'orcamentista_orcamento_arquivo') = 11
+  AND (SELECT count(*) FROM pg_constraint WHERE conrelid = 'public.orcamentista_orcamento_arquivo'::regclass) = 11
+  AND (SELECT count(*) FROM information_schema.columns WHERE table_name = 'orcamentista_orcamento_arquivo') = 12
   AND (SELECT count(*) FROM information_schema.columns WHERE table_name = 'orcamentista_orcamento_item') = 30);
 SELECT pg_temp.caso('4b - RLS ligada e nenhuma politica no arquivo',
   (SELECT relrowsecurity FROM pg_class WHERE oid = 'public.orcamentista_orcamento_arquivo'::regclass)

@@ -66,4 +66,4 @@ for x in $TODOS; do $P -c "drop database if exists $x" >/dev/null 2>&1; done
 echo "$SAIDA" | grep -oE "(ok|FALHOU): .*|erro inesperado: .*" | sed 's/^/  /'
 OK=$(echo "$SAIDA" | grep -c "ok: "); FALHOU=$(echo "$SAIDA" | grep -c "FALHOU: ")
 echo "$OK ok, $FALHOU falhou"
-[ "$FALHOU" = "0" ] && [ "$OK" = "${ESPERADOS:-34}" ] || exit 1
+[ "$FALHOU" = "0" ] && [ "$OK" = "${ESPERADOS:-39}" ] || exit 1

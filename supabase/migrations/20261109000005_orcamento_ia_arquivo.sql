@@ -31,16 +31,21 @@
 --      pela função `orcamentista_levantamento_ambientes_validos` (uma lista não vazia de {"ambiente", "quantidade"}, sem o mesmo ambiente
 --      duas vezes) e as escolhas como objeto. Nulo é "não informado" (o orçamento manual), nunca uma lista vazia nem um padrão.
 --   2. `orcamentista_orcamento_arquivo`: uma linha por arquivo gerado — o orçamento (FK COMPOSTA com o tenant), o `calculo_id` vigente
---      na geração, o bucket e o caminho do objeto (únicos juntos), o sha256 e o tamanho em bytes do PDF, o valor de venda usado, quem
---      gerou e quando. Gerar de novo é OUTRA linha: as de antes ficam, e o histórico é o que o cliente recebeu em cada momento.
+--      na geração, o bucket e o caminho do objeto (únicos juntos), o sha256 e o tamanho em bytes do PDF, o valor de venda usado, a
+--      ORIGEM da geração e quem gerou, e quando. Gerar de novo é OUTRA linha: as de antes ficam, e o histórico é o que o cliente recebeu
+--      em cada momento.
+--      A ORIGEM (dono do produto, 09/11/2026, a correção antes de autorizar): "O AGENTE DEVOLVE O ARQUIVO NA CONVERSA DO WHATSAPP" — o
+--      caso já é conhecido, e migração aplicada é imutável. Mesmo padrão da `orcamentista_orcamento_origem_amarrada` (20261109000001):
+--      `gerado_origem` é 'agente' ou 'manual', e `gerado_por` existe EXATAMENTE no manual. "O arquivo gerado pela pessoa tem autor; o
+--      gerado pelo agente não tem e não finge ter" — a invariante das duas portas de entrada, agora na geração do arquivo.
 --      `calculo_id` não tem FK: o cálculo não é tabela, é o identificador das linhas de `orcamentista_orcamento_item_material` (0003).
 --
 -- IDEMPOTENTE: ADD COLUMN IF NOT EXISTS, CREATE TABLE IF NOT EXISTS, cada constraint só se o nome não existe; a verificação confere a
 --   forma.
 -- GUARDA (aborta): a 0004 aplicada (orcamentista_orcamento.uf_destino); a chave (id, tenant_id) do orçamento; e a função dos ambientes
 --   com o corpo de produção (md5 sem o \r, 39519b7c045dec627a6e5e47d7894409) — outra função com o mesmo nome mudaria o domínio calada.
--- VERIFICAÇÃO (aborta): as constraints com a definição; 49 constraints no orçamento e no item (47 + 2) e 9 na tabela nova; 30 colunas no
---   item e 11 na tabela nova; o índice; RLS ligada e nenhuma política; nenhum grant a anon, authenticated ou PUBLIC nas três tabelas; o
+-- VERIFICAÇÃO (aborta): as constraints com a definição; 49 constraints no orçamento e no item (47 + 2) e 11 na tabela nova; 30 colunas
+--   no item e 12 na tabela nova; o índice; RLS ligada e nenhuma política; nenhum grant a anon, authenticated ou PUBLIC nas três tabelas; o
 --   service_role só com INSERT e SELECT na tabela nova.
 -- ════════════════════════════════════════════════════════════════════════════════════════
 BEGIN;
@@ -96,7 +101,8 @@ CREATE TABLE IF NOT EXISTS public.orcamentista_orcamento_arquivo (
   sha256         text        NOT NULL,
   tamanho_bytes  bigint      NOT NULL,
   valor_venda    numeric     NOT NULL,
-  gerado_por     uuid        NOT NULL,
+  gerado_origem  text        NOT NULL,
+  gerado_por     uuid        NULL,
   gerado_em      timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT orcamentista_orcamento_arquivo_pkey PRIMARY KEY (id),
   CONSTRAINT orcamentista_orcamento_arquivo_objeto_key UNIQUE (bucket, caminho),
@@ -107,7 +113,10 @@ CREATE TABLE IF NOT EXISTS public.orcamentista_orcamento_arquivo (
   CONSTRAINT orcamentista_orcamento_arquivo_caminho_forma CHECK ((caminho ~ '^[^/\s][^\s]*$'::text) AND (char_length(caminho) <= 500)),
   CONSTRAINT orcamentista_orcamento_arquivo_sha256_forma CHECK (sha256 ~ '^[0-9a-f]{64}$'::text),
   CONSTRAINT orcamentista_orcamento_arquivo_tamanho_positivo CHECK (tamanho_bytes > 0),
-  CONSTRAINT orcamentista_orcamento_arquivo_valor_venda_positivo CHECK (valor_venda > (0)::numeric)
+  CONSTRAINT orcamentista_orcamento_arquivo_valor_venda_positivo CHECK (valor_venda > (0)::numeric),
+  CONSTRAINT orcamentista_orcamento_arquivo_gerado_origem_valida CHECK (gerado_origem = ANY (ARRAY['agente'::text, 'manual'::text])),
+  -- a pessoa que gerou tem autor; o agente nao tem e nao finge ter
+  CONSTRAINT orcamentista_orcamento_arquivo_gerado_por_amarrado CHECK ((gerado_origem = 'manual'::text) = (gerado_por IS NOT NULL))
 );
 
 CREATE INDEX IF NOT EXISTS orcamentista_orcamento_arquivo_orcamento_idx
@@ -121,7 +130,7 @@ REVOKE ALL ON public.orcamentista_orcamento_arquivo FROM PUBLIC, anon, authentic
 GRANT SELECT, INSERT ON public.orcamentista_orcamento_arquivo TO service_role;
 
 COMMENT ON TABLE public.orcamentista_orcamento_arquivo IS
-  'Cada arquivo Orcamento gerado (20261109000005): o objeto no bucket, o sha256, o tamanho, o valor de venda e o calculo_id vigente na geracao. Gravada uma vez, nunca alterada.';
+  'Cada arquivo Orcamento gerado (20261109000005): o objeto no bucket, o sha256, o tamanho, o valor de venda, o calculo_id vigente na geracao e a origem (agente ou manual; so o manual tem autor). Gravada uma vez, nunca alterada.';
 COMMENT ON COLUMN public.orcamentista_orcamento_arquivo.calculo_id IS
   'O calculo vigente quando o arquivo foi gerado: as linhas de orcamentista_orcamento_item_material com este calculo_id produziram os valores do arquivo.';
 COMMENT ON COLUMN public.orcamentista_orcamento_item.ambientes IS
@@ -135,6 +144,8 @@ DECLARE
     'orcamentista_orcamento_item|orcamentista_orcamento_item_ambientes_forma|CHECK (orcamentista_levantamento_ambientes_validos(ambientes))',
     'orcamentista_orcamento_item|orcamentista_orcamento_item_escolhas_objeto|CHECK (((escolhas IS NULL) OR (jsonb_typeof(escolhas) = ''object''::text)))',
     'orcamentista_orcamento_arquivo|orcamentista_orcamento_arquivo_bucket_forma|CHECK ((bucket ~ ''^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$''::text))',
+    'orcamentista_orcamento_arquivo|orcamentista_orcamento_arquivo_gerado_origem_valida|CHECK ((gerado_origem = ANY (ARRAY[''agente''::text, ''manual''::text])))',
+    'orcamentista_orcamento_arquivo|orcamentista_orcamento_arquivo_gerado_por_amarrado|CHECK (((gerado_origem = ''manual''::text) = (gerado_por IS NOT NULL)))',
     'orcamentista_orcamento_arquivo|orcamentista_orcamento_arquivo_caminho_forma|CHECK (((caminho ~ ''^[^/\s][^\s]*$''::text) AND (char_length(caminho) <= 500)))',
     'orcamentista_orcamento_arquivo|orcamentista_orcamento_arquivo_objeto_key|UNIQUE (bucket, caminho)',
     'orcamentista_orcamento_arquivo|orcamentista_orcamento_arquivo_orcamento_fkey|FOREIGN KEY (orcamento_id, tenant_id) REFERENCES orcamentista_orcamento(id, tenant_id) ON DELETE RESTRICT',
@@ -160,8 +171,8 @@ BEGIN
     RAISE EXCEPTION 'verificacao 1: constraint ausente ou com outra definicao: %. Nada foi alterado.', faltam;
   END IF;
   SELECT count(*) INTO n FROM pg_constraint WHERE conrelid = to_regclass('public.orcamentista_orcamento_arquivo');
-  IF n <> 9 THEN
-    RAISE EXCEPTION 'verificacao 2: orcamentista_orcamento_arquivo tem % constraint(s), e devia ter 9. Nada foi alterado.', n;
+  IF n <> 11 THEN
+    RAISE EXCEPTION 'verificacao 2: orcamentista_orcamento_arquivo tem % constraint(s), e devia ter 11. Nada foi alterado.', n;
   END IF;
   SELECT count(*) INTO n FROM pg_constraint
    WHERE conrelid IN (to_regclass('public.orcamentista_orcamento'), to_regclass('public.orcamentista_orcamento_item'));
@@ -177,8 +188,8 @@ BEGIN
     RAISE EXCEPTION 'verificacao 5: ambientes ou escolhas do item ausente ou com outra forma (jsonb, nula, sem default). Nada foi alterado.';
   END IF;
   SELECT count(*) INTO n FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'orcamentista_orcamento_arquivo';
-  IF n <> 11 THEN
-    RAISE EXCEPTION 'verificacao 6: orcamentista_orcamento_arquivo tem % coluna(s), e devia ter 11. Nada foi alterado.', n;
+  IF n <> 12 THEN
+    RAISE EXCEPTION 'verificacao 6: orcamentista_orcamento_arquivo tem % coluna(s), e devia ter 12. Nada foi alterado.', n;
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname = 'public' AND indexname = 'orcamentista_orcamento_arquivo_orcamento_idx'
                   AND indexdef = 'CREATE INDEX orcamentista_orcamento_arquivo_orcamento_idx ON public.orcamentista_orcamento_arquivo USING btree (orcamento_id, gerado_em)') THEN
@@ -202,7 +213,7 @@ BEGIN
   IF faltam IS DISTINCT FROM 'INSERT,SELECT' THEN
     RAISE EXCEPTION 'verificacao 11: service_role em orcamentista_orcamento_arquivo tem %, e devia ter INSERT,SELECT. Nada foi alterado.', faltam;
   END IF;
-  RAISE NOTICE 'orcamentista_orcamento_item: ambientes e escolhas, com as duas CHECKs (49 constraints nas duas tabelas). orcamentista_orcamento_arquivo: 11 colunas, 9 constraints, 1 indice, RLS sem politica, service_role so com INSERT e SELECT.';
+  RAISE NOTICE 'orcamentista_orcamento_item: ambientes e escolhas, com as duas CHECKs (49 constraints nas duas tabelas). orcamentista_orcamento_arquivo: 12 colunas, 11 constraints, 1 indice, RLS sem politica, service_role so com INSERT e SELECT.';
 END
 $verifica$;
 
@@ -218,7 +229,7 @@ COMMIT;
 --  where conrelid in ('public.orcamentista_orcamento'::regclass, 'public.orcamentista_orcamento_item'::regclass);
 -- -- esperado: 49
 -- select conname, pg_get_constraintdef(oid) from pg_constraint where conrelid = 'public.orcamentista_orcamento_arquivo'::regclass order by 1;
--- -- esperado: 9, entre elas a orcamento_fkey composta (orcamento_id, tenant_id)
+-- -- esperado: 11, entre elas a orcamento_fkey composta (orcamento_id, tenant_id) e a gerado_por_amarrado
 -- select grantee, privilege_type from information_schema.role_table_grants where table_name = 'orcamentista_orcamento_arquivo' order by 1, 2;
 -- -- esperado: só postgres e service_role; service_role com INSERT e SELECT
 -- select relrowsecurity from pg_class where relname = 'orcamentista_orcamento_arquivo';  -- esperado: true
