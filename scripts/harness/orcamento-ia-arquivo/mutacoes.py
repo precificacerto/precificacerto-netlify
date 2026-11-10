@@ -64,11 +64,14 @@ MUT = [
     par('V10 verificacao 10 desligada', ("  IF n <> 0 THEN\n    RAISE EXCEPTION 'verificacao 10:", "  IF false THEN\n    RAISE EXCEPTION 'verificacao 10:")),
     par('I1 a CHECK do item sem idempotencia', ("    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = to_regclass('public.orcamentista_orcamento_item') AND conname = p[1]) THEN\n      EXECUTE", "    IF true THEN\n      EXECUTE")),
 ]
+import os as _os; sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+from trecho_unico import exigir_trecho_unico  # a mutação que não se aplica aborta (mutacao-que-nao-se-aplica.md)
+exigir_trecho_unico((nome, [('a 20261109000005', open(MIG, encoding='utf-8').read(), de, para) for de, para in trocas]) for nome, trocas in MUT)
 original = open(MIG, encoding='utf-8').read(); vivas = []
 for nome, trocas in MUT:
     texto = original; aplicada = True
     for de, para in trocas:
-        if texto.count(de) != 1: print(f'  NAO APLICADA: {nome} ({texto.count(de)} ocorrencias de {de[:50]!r})'); aplicada = False; break
+        if texto.count(de) != 1: print(f'  NAO APLICADA: {nome} ({texto.count(de)} ocorrencias de {de[:50]!r})'); sys.exit(3)  # nunca vira viva (mutacao-que-nao-se-aplica.md)
         texto = texto.replace(de, para)
     if not aplicada: vivas.append(nome); continue
     with tempfile.NamedTemporaryFile('w', suffix='.sql', delete=False, encoding='utf-8') as t: t.write(texto)
