@@ -240,11 +240,13 @@ export function resumoDoArquivoParaOPrompt(d: DadosDaFolha): string {
 }
 
 /** A folha do levantamento GRAVADO: lê o levantamento, a empresa e os itens, e gera. A recusa nomeada volta como está. */
+/** O levantamento que não se lê na empresa: a mesma frase para a conversa e para a rota do arquivo (que a responde com 404). */
+export const FRASE_DO_LEVANTAMENTO_NAO_ACHADO = 'O levantamento não foi achado.'
 export async function gerarArquivoDoLevantamento(a: {
     tenantId: string; levantamentoId: string; itens: readonly ItemDoLevantamento[]; definicao: DefinicaoDaTipologia; detalhe: DetalheDaTipologia; geradoEm?: Date
 }): Promise<{ dados: DadosDaFolha | null; folha: FolhaGerada | FolhaRecusada }> {
     const [levantamento, empresa] = await Promise.all([lerLevantamentoDoArquivo(a.tenantId, a.levantamentoId), lerNomeDaEmpresa(a.tenantId)])
-    if (!levantamento) return { dados: null, folha: { ok: false, recusas: ['O levantamento não foi achado.'] } }
+    if (!levantamento) return { dados: null, folha: { ok: false, recusas: [FRASE_DO_LEVANTAMENTO_NAO_ACHADO] } }
     const doVendedor = await lerPerfilDoVendedor(a.tenantId, levantamento.vendedor_employee_id)
     const dados = montarDadosDaFolha({ empresa: empresa ?? '', levantamento, itens: a.itens, definicao: a.definicao, detalhe: a.detalhe, geradoEm: a.geradoEm ?? new Date(), doVendedor })
     return { dados, folha: gerarFolhaDoLevantamento(dados) }

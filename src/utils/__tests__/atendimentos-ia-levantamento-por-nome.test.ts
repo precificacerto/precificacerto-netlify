@@ -821,6 +821,23 @@ describe('(2) o roteamento por nome', () => {
     })
 })
 
+describe('(2c) o ARQUIVO de um levantamento gravado, para os Levantamentos I.A. (11/11/2026)', () => {
+    it('é a MESMA folha que a conversa envia, montada do banco, no tenant do chamador; de outra empresa, a frase de não achado; nada é gravado', async () => {
+        await fecharDp02('Casa do João')
+        const id = String(levantamentos()[0].id)
+        estado.ops = []
+        const folha = await conversa.arquivoDoLevantamentoGravado(TENANT, id)
+        if (!('pdf' in folha)) throw new Error(`recusou: ${JSON.stringify(folha)}`)
+        expect(Buffer.from(folha.pdf).subarray(0, 4).toString('latin1')).toBe('%PDF')
+        expect(folha.nomeDoArquivo).toContain('Casa do João')
+        expect(estado.ops.filter((o) => o.op !== 'select')).toEqual([])
+        // de outra empresa: recusa, sem PDF (aqui ela nem tem a configuração; com ela, a leitura do levantamento por tenant dá "não achado")
+        const outra = await conversa.arquivoDoLevantamentoGravado('tenant-de-outra', id)
+        expect(outra.ok).toBe(false)
+        expect('pdf' in outra).toBe(false)
+    })
+})
+
 describe('(3) o estado mora no levantamento; a CONVERSA é gravada como histórico e idempotência (03/11/2026, revoga a decisão 4)', () => {
     const mensagens = () => (estado.db.orcamentista_mensagem ?? []) as Array<Linha & { direcao: string; texto: string }>
 

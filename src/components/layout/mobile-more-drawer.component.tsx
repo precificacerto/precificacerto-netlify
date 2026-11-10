@@ -125,13 +125,17 @@ const MobileMoreDrawer = ({ open, onClose }: Props) => {
 
     // Operacional
     { key: 'connectivity', label: 'Conectividade', href: ROUTES.CONNECTIVITY, icon: <SettingOutlined />, section: 'Operacional', sectionKey: 'operacional', module: MODULES.CONNECTIVITY },
+    // a Conectividade I.A. em OPERACIONAL desde 11/11/2026 (dono do produto), como no desktop
+    { key: 'orcamentista', label: 'Conectividade I.A.', href: ROUTES.CONECTIVIDADE_IA, icon: <RobotOutlined />, section: 'Operacional', sectionKey: 'operacional', module: MODULES.ORCAMENTISTA, hideForSuperAdmin: true, exigeSecaoDoOrcamentista: true },
     { key: 'users', label: 'Usuários', href: ROUTES.USUARIOS, icon: <TeamOutlined />, section: 'Operacional', sectionKey: 'operacional', adminOnly: true, hideForSuperAdmin: true },
 
     // Super Admin
     // Atendimentos I.A. — a mesma seção do menu desktop (`nav.component.tsx`), com a mesma chave.
     // O Orçamentista é do TENANT e só com a seção ligada no servidor; os outros dois, do super admin.
-    { key: 'orcamentista', label: 'Conectividade I.A.', href: ROUTES.ATENDIMENTOS_IA_ORCAMENTISTA, icon: <RobotOutlined />, section: 'Agentes I.A.', sectionKey: 'atendimentos-ia', module: MODULES.ORCAMENTISTA, hideForSuperAdmin: true, exigeSecaoDoOrcamentista: true },
+    // as três seções da conta, nesta ordem (dono do produto, 11/11/2026)
+    { key: 'levantamentos-ia', label: 'Levantamentos I.A.', href: ROUTES.ATENDIMENTOS_IA_LEVANTAMENTOS, icon: <FileTextOutlined />, section: 'Agentes I.A.', sectionKey: 'atendimentos-ia', module: MODULES.ORCAMENTISTA, hideForSuperAdmin: true, exigeSecaoDoOrcamentista: true },
     { key: 'orcamentos-ia', label: 'Orçamentos I.A.', href: ROUTES.ATENDIMENTOS_IA_ORCAMENTOS, icon: <FileTextOutlined />, section: 'Agentes I.A.', sectionKey: 'atendimentos-ia', module: MODULES.ORCAMENTISTA, hideForSuperAdmin: true, exigeSecaoDoOrcamentista: true },
+    { key: 'relatorios-ia', label: 'Relatórios I.A.', href: ROUTES.ATENDIMENTOS_IA_RELATORIOS, icon: <BarChartOutlined />, section: 'Agentes I.A.', sectionKey: 'atendimentos-ia', module: MODULES.ORCAMENTISTA, hideForSuperAdmin: true, exigeSecaoDoOrcamentista: true },
     { key: 'super-ia-contas', label: 'Contas ligadas', href: ROUTES.SUPER_ADMIN_IA_CONTAS, icon: <TeamOutlined />, section: 'Agentes I.A.', sectionKey: 'atendimentos-ia', superAdminOnly: true },
     { key: 'super-ia-fornecedores', label: 'Catálogo', href: ROUTES.SUPER_ADMIN_IA_FORNECEDORES, icon: <DatabaseOutlined />, section: 'Agentes I.A.', sectionKey: 'atendimentos-ia', superAdminOnly: true },
     { key: 'super-admin', label: 'Painel Super Admin', href: ROUTES.SUPER_ADMIN_PANEL, icon: <SafetyCertificateOutlined />, section: 'Super Admin', sectionKey: 'superadmin', superAdminOnly: true },
