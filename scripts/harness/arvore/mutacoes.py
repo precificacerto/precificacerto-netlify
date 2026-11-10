@@ -102,6 +102,9 @@ MUTACOES = [
      [("  IF (SELECT count(*) <> count(DISTINCT lower(e #>> '{}'))", "  IF false AND (SELECT count(*) <> count(DISTINCT lower(e #>> '{}'))")],
      'remover com id repetido', {}),
 ]
+import os as _os; sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+from trecho_unico import exigir_trecho_unico  # a mutação que não se aplica aborta (mutacao-que-nao-se-aplica.md)
+exigir_trecho_unico((m[0], [('a migração', open(MIG, encoding='utf-8').read(), m[2], None)] if callable(m[2]) else [('a migração', open(MIG, encoding='utf-8').read(), v, t) for v, t in m[2]]) for m in MUTACOES)
 
 
 def mutar(texto, trocas):

@@ -44,6 +44,9 @@ MUTACOES = [
     ('L1', LEV, 'a leitura do item sem o bloco tributário', "'codigo, descricao, unidade, medida_barra_m, valor_barra_interno, valor_metro_interno, cred_icms_pct, cred_pis_cofins_pct, cred_ipi_pct, nc_ipi_pct, cred_ibs_pct, cred_cbs_pct'", "'codigo, descricao, unidade, medida_barra_m, valor_barra_interno, valor_metro_interno'"),
     ('L2', LEV, 'a recusa de antes de calcular some (o levantamento sem cor segue)', "    if (faltas.length) return recusa(faltas, faltou)\n\n    // os grupos", "    // os grupos"),
 ]
+import os as _os; sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+from trecho_unico import exigir_trecho_unico  # a mutação que não se aplica aborta (mutacao-que-nao-se-aplica.md)
+exigir_trecho_unico((i, [(a, open(os.path.join(RAIZ, a), encoding='utf-8').read(), v, n)]) for i, a, _d, v, n in MUTACOES)
 
 
 def verde():

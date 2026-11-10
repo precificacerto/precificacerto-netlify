@@ -55,6 +55,9 @@ MUTACOES = [
     ('V3', 'a verificação 3 (a contagem do item) desligada', [("  IF n <> 44 THEN", "  IF false AND n <> 44 THEN")]),
     ('V4', 'a verificação 4 (as chaves do item) desligada', [("  IF faltam IS DISTINCT FROM 'orcamentista_orcamento_item_id_tenant_key", "  IF false AND faltam IS DISTINCT FROM 'orcamentista_orcamento_item_id_tenant_key")]),
 ]
+import os as _os; sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+from trecho_unico import exigir_trecho_unico  # a mutação que não se aplica aborta (mutacao-que-nao-se-aplica.md)
+exigir_trecho_unico((m[0], [('a 20261109000003', open(MIG, encoding='utf-8').read(), v, t) for v, t in m[2]]) for m in MUTACOES)
 
 
 def rodar(caminho):

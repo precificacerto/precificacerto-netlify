@@ -76,11 +76,14 @@ M = [
  ('A5 a paginação reserva o rodapé em toda folha', '    let livre = a.util - a.cliente\n', '    let livre = a.util - a.cliente - a.rodape\n'),
 ]
 orig = open(ARQ, encoding='utf-8').read()
+import os as _os; sys.path.insert(0, _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))), 'harness'))
+from trecho_unico import exigir_trecho_unico  # a mutação que não se aplica aborta (mutacao-que-nao-se-aplica.md)
+exigir_trecho_unico((nome, [(ARQ, orig, de, para)]) for nome, de, para in M)
 vivas = []
 try:
     for nome, de, para in M:
         if orig.count(de) != 1:
-            print(f'NAO APLICOU {nome}: o trecho aparece {orig.count(de)} vez(es)'); vivas.append(nome); continue
+            print(f'NAO APLICOU {nome}: o trecho aparece {orig.count(de)} vez(es)'); sys.exit(3)
         open(ARQ, 'w', encoding='utf-8').write(orig.replace(de, para))
         r = subprocess.run(['npx', 'jest', SUITE], capture_output=True, text=True)
         morta = r.returncode != 0

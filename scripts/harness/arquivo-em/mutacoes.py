@@ -50,9 +50,11 @@ def aplicar(trocas, tira):
 
 if os.environ.get("SO"):
     MUTACOES = [m for m in MUTACOES if m[0].split(" ")[0] in os.environ["SO"].split(",")]
-erro = [(n, de[:60]) for n, trocas in MUTACOES for de, _ in trocas if ORIG.count(de) != 1]
-if erro or "$verifica$" not in ORIG or sem_verifica(ORIG) == ORIG:
-    print("TRECHO NAO ACHADO ou repetido:", erro); sys.exit(1)
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+from trecho_unico import exigir_trecho_unico  # a mutação que não se aplica aborta (mutacao-que-nao-se-aplica.md)
+exigir_trecho_unico((m[0], [('a migração', ORIG, de, para) for de, para in m[1]]) for m in MUTACOES)
+if "$verifica$" not in ORIG or sem_verifica(ORIG) == ORIG:
+    print("O BLOCO $verifica$ NÃO FOI ACHADO na migração"); sys.exit(3)
 vivas = {}
 for tira in (False, True):
     c = rodar(aplicar([], tira))

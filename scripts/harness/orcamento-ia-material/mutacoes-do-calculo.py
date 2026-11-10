@@ -42,6 +42,9 @@ MUTACOES = [
     ('K17', 'o líquido do material pelo bruto', "custo_liquido_material: barras * u.liquido * parte", "custo_liquido_material: barras * bruto * parte"),
     ('K18', 'os minutos somados deixam de ser os do item', "productWorkloadMinutes: itens.reduce((t, i) => t + i.tempo_fabricacao_min, 0)", "productWorkloadMinutes: itens.length ? itens[0].tempo_fabricacao_min : 0"),
 ]
+import os as _os; sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+from trecho_unico import exigir_trecho_unico  # a mutação que não se aplica aborta (mutacao-que-nao-se-aplica.md)
+exigir_trecho_unico((i, [(CALCULO, open(os.path.join(RAIZ, CALCULO), encoding='utf-8').read(), v, n)]) for i, _d, v, n in MUTACOES)
 
 
 def suite_verde():
