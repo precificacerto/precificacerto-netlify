@@ -174,8 +174,9 @@ import { MODELO_PADRAO_DA_IA, URL_DA_API_ANTHROPIC, VERSAO_DA_API_ANTHROPIC } fr
 import { paraOLog } from '@/utils/atendimentos-ia-mascara-do-log'
 import {
     FRASE_SEM_CORES, familiasDoCodigo, lerPerfilDaEmpresa, lerFamiliasDaEmpresa, linhaDoCandidato, lerVariaveisDasTipologias, mensagemDoLevantamento,
-    type CandidatoDeTipologia,
+    type CandidatoDeTipologia, type FamiliasDaEmpresaLidas,
 } from '@/lib/atendimentos-ia/levantamento-da-conversa'
+import type { FolhaGerada, FolhaRecusada } from '@/lib/atendimentos-ia/folha-do-levantamento'
 import { agruparIguais,
     CAMPOS_DA_ESQUADRIA, aplicarProposta, familiaDaEsquadria, itemVazio, pendenciasDoLevantamento, perguntaDasPendencias, resolverFamilias,
     type DefinicaoDaTipologia, type ItemDoLevantamento, type Pendencia,
@@ -845,6 +846,39 @@ async function nomesDosVendedores(tenantId: string, remetenteIds: string[]): Pro
     }))
 }
 
+/**
+ * A DEFINIÇÃO (as Variáveis de cada tipologia, pela família da esquadria) e o DETALHE (a descrição e a linha da tipologia, da Detalhe do motor)
+ * que a folha do levantamento usa. Uma montagem só, para a conversa e para a tela dos Levantamentos I.A. (`copia-divergente.md`).
+ */
+function definicaoEDetalhe(tabela: FamiliasDaEmpresaLidas, variaveisPorFamilia: Record<string, Record<string, VariaveisDaTipologia>>, doCodigo: ReturnType<typeof familiasDoCodigo>) {
+    const definicao: DefinicaoDaTipologia = (e) => {
+        const daEsquadria = familiaDaEsquadria(e, doCodigo)
+        return e.tipologia !== null && daEsquadria && 'familia' in daEsquadria ? variaveisPorFamilia[daEsquadria.familia]?.[e.tipologia] ?? null : null
+    }
+    // a descrição e a linha da tipologia, da Detalhe do motor (os candidatos já lidos): é o que a folha do levantamento escreve na faixa do item
+    const detalhe: DetalheDaTipologia = (tipologia, familia) => {
+        const d = tabela.candidatos.find((x) => x.tipologia === tipologia && (familia === null || x.familia === familia)) ?? tabela.candidatos.find((x) => x.tipologia === tipologia)
+        return d ? { descricao: d.descricao, linha: d.linha } : null
+    }
+    return { definicao, detalhe }
+}
+
+/**
+ * O ARQUIVO de um levantamento GRAVADO, para a tela dos Levantamentos I.A. (dono do produto, 11/11/2026): a MESMA folha que a conversa envia,
+ * montada do que está no banco, no tenant do chamador. Só lê; nada é gravado nem enviado. A recusa vem nomeada (a configuração que falta, o
+ * levantamento que não é da empresa, a folha que não fecha).
+ */
+export async function arquivoDoLevantamentoGravado(tenantId: string, levantamentoId: string): Promise<FolhaGerada | FolhaRecusada> {
+    const tabela = await lerFamiliasDaEmpresa(tenantId)
+    if ('frase' in tabela) return { ok: false, recusas: [tabela.frase] }
+    const [variaveisLidas, itens] = await Promise.all([
+        Promise.all(tabela.familias.map(async (f) => [f.familia, await lerVariaveisDasTipologias(f.levantamento.id)] as const)),
+        lerItens(tenantId, levantamentoId),
+    ])
+    const { definicao, detalhe } = definicaoEDetalhe(tabela, Object.fromEntries(variaveisLidas), familiasDoCodigo(tabela))
+    return (await gerarArquivoDoLevantamento({ tenantId, levantamentoId, itens, definicao, detalhe })).folha
+}
+
 async function lerItens(tenantId: string, levantamentoId: string): Promise<ItemGravado[]> {
     const { data, error } = await supabaseAdmin.from('orcamentista_levantamento_item').select(COLUNAS_DO_ITEM)
         .eq('tenant_id', tenantId).eq('levantamento_id', levantamentoId).order('ordem', { ascending: true })
@@ -1223,17 +1257,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
                 return { lida, valida, doRemetente }
             })(),
         ] as const)
-        const variaveisPorFamilia: Record<string, Record<string, VariaveisDaTipologia>> = Object.fromEntries(variaveisLidas)
-        const definicao: DefinicaoDaTipologia = (e) => {
-            const daEsquadria = familiaDaEsquadria(e, doCodigo)
-            return e.tipologia !== null && daEsquadria && 'familia' in daEsquadria ? variaveisPorFamilia[daEsquadria.familia]?.[e.tipologia] ?? null : null
-        }
-
-        // a descrição e a linha da tipologia, da Detalhe do motor (os candidatos já lidos): é o que a folha do levantamento escreve na faixa do item
-        const detalhe: DetalheDaTipologia = (tipologia, familia) => {
-            const d = tabela.candidatos.find((x) => x.tipologia === tipologia && (familia === null || x.familia === familia)) ?? tabela.candidatos.find((x) => x.tipologia === tipologia)
-            return d ? { descricao: d.descricao, linha: d.linha } : null
-        }
+        const { definicao, detalhe } = definicaoEDetalhe(tabela, Object.fromEntries(variaveisLidas), doCodigo)
         // TODAS as pendências da montagem (03/11/2026): a pergunta em aberto é uma só, e cobre todas
         const pendenciasAbertas = emMontagem ? pendenciasDoLevantamento(itensDaMontagem, definicao, doCodigo) : []
         const pendenciaAberta = pendenciasAbertas[0] ?? null

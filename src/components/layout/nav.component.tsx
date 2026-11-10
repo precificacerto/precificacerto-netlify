@@ -154,6 +154,9 @@ const Nav = () => {
     { key: 'calendar', label: 'Agenda', icon: 'calendar', href: ROUTES.SCHEDULE, section: 'agendamentos', module: MODULES.AGENDA },
     { key: 'reports', label: 'Relatório Agenda', icon: 'bar-chart', href: ROUTES.REPORTS, section: 'agendamentos', module: MODULES.REPORTS },
     { key: 'connectivity', label: 'Conectividade', icon: 'setting', href: ROUTES.CONNECTIVITY, section: 'operacional', module: MODULES.CONNECTIVITY },
+    // 11/11/2026 (dono do produto): a "Conectividade I.A." SAI de Agentes I.A. e vem para OPERACIONAL, com a rota nova (`/conectividade-ia`); a
+    // antiga redireciona (`next.config.js`). A chave `orcamentista`, o módulo e a exigência da seção ligada ficam os mesmos.
+    { key: 'orcamentista', label: 'Conectividade I.A.', icon: 'robot', href: ROUTES.CONECTIVIDADE_IA, section: 'operacional', module: MODULES.ORCAMENTISTA, hideForSuperAdmin: true, exigeSecaoDoOrcamentista: true },
     { key: 'users', label: 'Usuários', icon: 'team', href: ROUTES.USUARIOS, adminOnly: true, section: 'operacional', hideForSuperAdmin: true },
 
     // ATENDIMENTOS I.A. — seção do super admin (bloco 2B.2, 19/10/2026). Fica FORA de `MODULES` e
@@ -170,8 +173,11 @@ const Nav = () => {
     // são o contrário — só do super admin.
     // 09/11/2026 (dono do produto): o item passa a chamar-se "Conectividade I.A.", e ganha ao lado os "Orçamentos I.A." — o mesmo módulo e a
     // mesma seção ligada no servidor. A chave `orcamentista` e a rota ficam.
-    { key: 'orcamentista', label: 'Conectividade I.A.', icon: 'robot', href: ROUTES.ATENDIMENTOS_IA_ORCAMENTISTA, section: 'atendimentos-ia', module: MODULES.ORCAMENTISTA, hideForSuperAdmin: true, exigeSecaoDoOrcamentista: true },
+    // 11/11/2026 (dono do produto): Agentes I.A. tem EXATAMENTE três seções da conta, nesta ordem — Levantamentos I.A., Orçamentos I.A. e
+    // Relatórios I.A. —, o mesmo módulo e a mesma seção ligada no servidor.
+    { key: 'levantamentos-ia', label: 'Levantamentos I.A.', icon: 'file-text', href: ROUTES.ATENDIMENTOS_IA_LEVANTAMENTOS, section: 'atendimentos-ia', module: MODULES.ORCAMENTISTA, hideForSuperAdmin: true, exigeSecaoDoOrcamentista: true },
     { key: 'orcamentos-ia', label: 'Orçamentos I.A.', icon: 'file-text', href: ROUTES.ATENDIMENTOS_IA_ORCAMENTOS, section: 'atendimentos-ia', module: MODULES.ORCAMENTISTA, hideForSuperAdmin: true, exigeSecaoDoOrcamentista: true },
+    { key: 'relatorios-ia', label: 'Relatórios I.A.', icon: 'bar-chart', href: ROUTES.ATENDIMENTOS_IA_RELATORIOS, section: 'atendimentos-ia', module: MODULES.ORCAMENTISTA, hideForSuperAdmin: true, exigeSecaoDoOrcamentista: true },
     { key: 'super-ia-contas', label: 'Contas ligadas', icon: 'team', href: ROUTES.SUPER_ADMIN_IA_CONTAS, section: 'atendimentos-ia', superAdminOnly: true },
     { key: 'super-ia-fornecedores', label: 'Catálogo', icon: 'database', href: ROUTES.SUPER_ADMIN_IA_FORNECEDORES, section: 'atendimentos-ia', superAdminOnly: true },
 

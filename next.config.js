@@ -18,6 +18,11 @@ const nextConfig = {
       ? { exclude: ['error', 'warn'] }
       : false,
   },
+  // A Conectividade I.A. mudou de rota (dono do produto, 11/11/2026): o link salvo da rota antiga não quebra. Temporário (307), e não 308,
+  // para nenhum navegador guardar o redirecionamento se a decisão mudar.
+  async redirects() {
+    return [{ source: '/atendimentos-ia/orcamentista', destination: '/conectividade-ia', permanent: false }]
+  },
   async headers() {
     return [
       {
