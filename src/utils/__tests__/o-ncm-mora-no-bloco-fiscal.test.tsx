@@ -183,7 +183,7 @@ describe('PARTE 2 — os dois gatilhos vieram junto', () => {
   })
 
   it('a alíquota que a busca resolve continua indo para o payload', () => {
-    expect(src).toContain('extraFields.pis_cofins_pct = pisCofinsLRPct || 0')
+    expect(src).toContain('extraFields.pis_cofins_pct = paraGravar(pisCofinsLRPct)')
     // e quem calcula o número é a função pura, cujo efeito está medido no outro arquivo
     expect(src).toContain("import { resolvePisCofinsPctFromNcm } from '@/utils/ncm-pis-cofins'")
   })

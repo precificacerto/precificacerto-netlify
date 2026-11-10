@@ -22,6 +22,7 @@ import {
     FALTA_DA_REFERENCIA_DO_TENANT, FRASE_CALCULO_INCOMPLETO, faltaDaInternaDivergente,
     type GravacaoDaPrecificacao, type ItemNaPrecificacao, type OrcamentoNaPrecificacao,
 } from '@/lib/atendimentos-ia/precificacao-do-orcamento'
+import { FALTA_DO_ICMS, FALTA_DO_PIS_COFINS } from '@/utils/tributo-por-dentro-informado'
 
 ;(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
 Object.defineProperty(window, 'matchMedia', {
@@ -356,8 +357,16 @@ describe('(D) AS FALTAS NOMEADAS — nada se grava com falta', () => {
         const salvar = jest.fn()
         const host = await montar({ orcamento: orcamento({ ncm_code: null }), onSalvarOrcamento: salvar })
         expect(host.querySelector('[data-faltas-do-orcamento]')?.textContent).toContain(FALTA_DA_REFERENCIA_DO_TENANT)
+        // e o NULO não vira zero (10/11/2026): sem a referência, o PIS/COFINS fica NÃO INFORMADO — a margem não sai e a falta é nomeada
+        expect(valorDe(host, 'Margem de contribuição aplicada')).toBe('—')
+        expect(host.querySelector('[data-preco-nao-formado]')?.textContent).toContain(FALTA_DO_PIS_COFINS)
         await clicar(botao(host, 'Salvar precificação do orçamento'))
         expect(salvar).not.toHaveBeenCalled()
+    })
+    it('o PIS/COFINS ZERO INFORMADO é zero (10/11/2026): o produto com 0 gravado forma margem, sem a faixa do preço não formado', async () => {
+        const zeroInformado = await montar({ isEditingMode: true, product: { ...PRODUTO_1008, pis_cofins_pct: 0 } as typeof PRODUTO_1008, itemsFromApi: ITENS_DA_API })
+        expect(valorDe(zeroInformado, 'Margem de contribuição aplicada')).toMatch(/^\d+,\d{3}%$/)
+        expect(zeroInformado.querySelector('[data-preco-nao-formado]')).toBeNull()
     })
     it('a UF cadastrada mas sem ICMS interno também é falta da referência', async () => {
         banco.respostas.brazilian_states = { icms_internal_rate: null }
@@ -573,5 +582,44 @@ describe('(E) AS DECISÕES DE 11/11/2026 — a interna gravada, a faixa dos iten
         await clicar(botao(host2, 'Salvar precificação do orçamento'))
         expect(salvar2).toHaveBeenCalledTimes(1)
         expect((salvar2.mock.calls[0] as unknown[])[0]).toMatchObject({ valor_venda: 3000, valor_operacao_interna: 2900 })
+    })
+})
+
+// ── NULO NÃO É ZERO (dono do produto, 10/11/2026): o ICMS e o PIS/COFINS não informados de Produtos ────────────────────────────────
+describe('Produtos: o tributo por dentro não informado não vira zero', () => {
+    const gravadosEmProducts = () => banco.escritas.filter((e) => e.tabela === 'products' && (e.op === 'update' || e.op === 'insert'))
+    it('Lucro Real, ICMS NULO: a tela não forma preço, nomeia a falta, e o salvar não grava nada em products', async () => {
+        const host = await montar({ isEditingMode: true, product: { ...PRODUTO_1008, icms_pct: null } as unknown as typeof PRODUTO_1008, itemsFromApi: ITENS_DA_API })
+        expect(host.querySelector('[data-preco-nao-formado]')?.textContent).toContain(FALTA_DO_ICMS)
+        expect(valorDe(host, 'Margem de contribuição aplicada')).toBe('—')
+        expect(host.textContent).not.toContain('Preço de Venda por Unidade')
+        await clicar(botao(host, 'Salvar alterações'))
+        expect(gravadosEmProducts()).toEqual([])
+    })
+    it('Lucro Real, ICMS ZERO INFORMADO: zero é zero — a tela forma o preço e o salvar grava icms_pct 0', async () => {
+        const host = await montar({ isEditingMode: true, product: { ...PRODUTO_1008, icms_pct: 0 } as typeof PRODUTO_1008, itemsFromApi: ITENS_DA_API })
+        expect(host.querySelector('[data-preco-nao-formado]')).toBeNull()
+        expect(valorDe(host, 'Margem de contribuição aplicada')).toMatch(/^\d+,\d{3}%$/)
+        await clicar(botao(host, 'Salvar alterações'))
+        const cargas = gravadosEmProducts().map((e) => e.carga as { icms_pct?: unknown }).filter((c) => c && 'icms_pct' in c)
+        expect(cargas.length).toBeGreaterThan(0)
+        for (const c of cargas) expect(c.icms_pct).toBe(0)
+    })
+    it('Lucro Real, PIS/COFINS NULO: a falta é a do PIS/COFINS, e nada é gravado', async () => {
+        const host = await montar({ isEditingMode: true, product: { ...PRODUTO_1008, pis_cofins_pct: null } as unknown as typeof PRODUTO_1008, itemsFromApi: ITENS_DA_API })
+        const faixa = host.querySelector('[data-preco-nao-formado]')?.textContent ?? ''
+        expect(faixa).toContain(FALTA_DO_PIS_COFINS)
+        expect(faixa).not.toContain(FALTA_DO_ICMS)
+        await clicar(botao(host, 'Salvar alterações'))
+        expect(gravadosEmProducts()).toEqual([])
+    })
+    it('Simples Híbrido (não exige os dois campos): o ICMS nulo é GRAVADO NULO, não 0, ao abrir e salvar', async () => {
+        const host = await montar({ isEditingMode: true, product: { ...PRODUTO_1008, icms_pct: null, pis_cofins_pct: null } as unknown as typeof PRODUTO_1008, itemsFromApi: ITENS_DA_API },
+            { ...USUARIO, taxableRegime: 'SIMPLES_HIBRIDO' } as typeof USUARIO)
+        expect(host.querySelector('[data-preco-nao-formado]')).toBeNull()
+        await clicar(botao(host, 'Salvar alterações'))
+        const cargas = gravadosEmProducts().map((e) => e.carga as { icms_pct?: unknown; pis_cofins_pct?: unknown }).filter((c) => c && 'icms_pct' in c)
+        expect(cargas.length).toBeGreaterThan(0)
+        for (const c of cargas) { expect(c.icms_pct).toBeNull(); expect(c.pis_cofins_pct).toBeNull() }
     })
 })
