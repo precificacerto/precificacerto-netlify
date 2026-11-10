@@ -4,8 +4,9 @@
  * aparece e o valor fica vazio — nunca zero, nunca texto inventado, nunca a linha escondida.
  */
 import React from 'react'
-import { Card } from 'antd'
+import { Alert, Card } from 'antd'
 import { CAMPOS_DO_CLIENTE, type ClienteDoArquivo } from '@/lib/atendimentos-ia/arquivo-do-orcamento'
+import { fraseDoFiscalDivergente, type CampoDivergente } from '@/lib/atendimentos-ia/precificacao-do-orcamento'
 
 export function TopoDoOrcamento({ cliente }: { cliente: ClienteDoArquivo }) {
     return (
@@ -20,4 +21,14 @@ export function TopoDoOrcamento({ cliente }: { cliente: ClienteDoArquivo }) {
             </div>
         </Card>
     )
+}
+
+/**
+ * O AVISO DO FISCAL DIVERGENTE (dono do produto, 11/11/2026: "aviso, não recusa"): o orçamento tem gravado um fiscal fora do preset — só por fora
+ * do código, porque a tela não tem seletor. Diz O QUE está gravado e que o salvar volta ao preset, registrando o que sobrescrever. Não trava o
+ * salvar: sem caminho manual na tela, recusar deixaria o orçamento morto, sem ninguém poder destravar.
+ */
+export function AvisoDoFiscalDivergente({ divergencia }: { divergencia: readonly CampoDivergente[] }) {
+    if (divergencia.length === 0) return null
+    return <Alert type="warning" showIcon style={{ marginBottom: 12 }} data-fiscal-divergente="" message={fraseDoFiscalDivergente(divergencia)} />
 }

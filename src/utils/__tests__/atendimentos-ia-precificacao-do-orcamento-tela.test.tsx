@@ -78,7 +78,8 @@ jest.mock('@/page-parts/products/product-price.component', () => {
 /* eslint-disable @typescript-eslint/no-require-imports */
 const { Content } = require('@/page-parts/products/content.component') as typeof import('@/page-parts/products/content.component')
 const { FRASE_SEM_PRECO } = require('@/page-parts/atendimentos-ia/itens-precificados.component') as typeof import('@/page-parts/atendimentos-ia/itens-precificados.component')
-const { TopoDoOrcamento } = require('@/page-parts/atendimentos-ia/topo-do-orcamento.component') as typeof import('@/page-parts/atendimentos-ia/topo-do-orcamento.component')
+const { TopoDoOrcamento, AvisoDoFiscalDivergente } = require('@/page-parts/atendimentos-ia/topo-do-orcamento.component') as typeof import('@/page-parts/atendimentos-ia/topo-do-orcamento.component')
+const { fiscalDivergente, fraseDoFiscalDivergente } = require('@/lib/atendimentos-ia/precificacao-do-orcamento') as typeof import('@/lib/atendimentos-ia/precificacao-do-orcamento')
 const { CAMPOS_DO_CLIENTE } = require('@/lib/atendimentos-ia/arquivo-do-orcamento') as typeof import('@/lib/atendimentos-ia/arquivo-do-orcamento')
 /* eslint-enable @typescript-eslint/no-require-imports */
 
@@ -336,7 +337,7 @@ describe('(D) AS FALTAS NOMEADAS — nada se grava com falta', () => {
         expect(salvar).not.toHaveBeenCalled()
     })
     it('SEM NCM (11/11/2026) a precificação SALVA: o NCM não bloqueia nada, e vai NULO', async () => {
-        const salvar = jest.fn(async () => null)
+        const salvar = jest.fn(async (): Promise<string[] | null> => null)
         const host = await montar({ orcamento: orcamento({ ncm_code: null }), onSalvarOrcamento: salvar })
         expect(host.querySelector('[data-faltas-do-orcamento]')).toBeNull()
         await clicar(botao(host, 'Salvar precificação do orçamento'))
@@ -364,7 +365,7 @@ describe('(D) AS FALTAS NOMEADAS — nada se grava com falta', () => {
         expect(host.querySelector('[data-faltas-do-orcamento]')?.textContent).toContain(FALTA_DA_REFERENCIA_DO_TENANT)
     })
     it('o orçamento SEM preço e sem fiscal (o orçamento 1) abre no PRESET e grava INTRAESTADUAL e CONSUMIDOR_FINAL', async () => {
-        const salvar = jest.fn(async () => null)
+        const salvar = jest.fn(async (): Promise<string[] | null> => null)
         const host = await montar({ orcamento: orcamento({ ncm_code: null, sale_scope: null, buyer_type: null }), onSalvarOrcamento: salvar })
         await clicar(botao(host, 'Salvar precificação do orçamento'))
         expect(salvar).toHaveBeenCalledTimes(1)
@@ -448,6 +449,39 @@ describe('(F) A EMPRESA É A FONTE ÚNICA DOS IMPOSTOS, e o fiscal é invisível
     })
 })
 
+describe('(G) A CHAVE É O SEGMENTO: só o orçamento DE INDUSTRIALIZAÇÃO leva os tributos da empresa (dono do produto, 11/11/2026)', () => {
+    it('um orçamento de REVENDA NÃO herda "imposto da empresa": o bloco Fiscal fica, o ICMS se edita, e a referência da empresa não é cobrada', async () => {
+        // sem a UF da empresa: no orçamento de industrialização isto seria falta nomeada (seção F); na revenda, não é cobrado
+        banco.respostas.tenant_settings = { ibs_reference_pct: 0, cbs_reference_pct: null, state_code: null }
+        const host = await montar({ orcamento: orcamento(), prefill: { productType: 'REVENDA' }, onSalvarOrcamento: jest.fn() })
+        expect(host.textContent).toContain('Onde vende?')
+        expect(host.querySelector('[data-faltas-do-orcamento]')?.textContent ?? '').not.toContain(FALTA_DA_REFERENCIA_DO_TENANT)
+        const icms = Array.from(host.querySelectorAll('tr')).find((tr) => Array.from(tr.querySelectorAll('td')).some((td) => (td.textContent ?? '').trim() === 'ICMS (%)'))
+        expect(icms?.querySelector('input')).not.toBeNull()
+    })
+    it('e o de INDUSTRIALIZAÇÃO, com a mesma empresa sem UF: a falta da referência aparece e o bloco Fiscal não', async () => {
+        banco.respostas.tenant_settings = { ibs_reference_pct: 0, cbs_reference_pct: null, state_code: null }
+        const host = await montar({ orcamento: orcamento(), onSalvarOrcamento: jest.fn() })
+        expect(host.textContent).not.toContain('Onde vende?')
+        expect(host.querySelector('[data-faltas-do-orcamento]')?.textContent).toContain(FALTA_DA_REFERENCIA_DO_TENANT)
+    })
+    it('o AVISO do fiscal divergente diz o que está gravado e que o salvar volta ao preset; sem divergência, não aparece', () => {
+        const host = document.createElement('div')
+        document.body.appendChild(host)
+        const root = createRoot(host)
+        const d = fiscalDivergente({ sale_scope: 'INTERESTADUAL', buyer_type: 'CONSUMIDOR_FINAL', uf_destino: 'SP', ncm_code: null })
+        // eslint-disable-next-line testing-library/no-unnecessary-act -- a raiz do React 19 monta aqui, sem a testing-library (como em `montar`)
+        act(() => { root.render(<><AvisoDoFiscalDivergente divergencia={d} /><div data-vazio=""><AvisoDoFiscalDivergente divergencia={[]} /></div></>) })
+        montados.push(() => { act(() => root.unmount()); host.remove() })
+        const aviso = host.querySelector('[data-fiscal-divergente]')?.textContent ?? ''
+        expect(aviso).toBe(fraseDoFiscalDivergente(d))
+        expect(aviso).toContain('o escopo da venda INTERESTADUAL')
+        expect(aviso).toContain('a UF de destino SP')
+        expect(aviso).toContain('volta ao padrão')
+        expect(host.querySelector('[data-vazio]')?.innerHTML).toBe('')
+    })
+})
+
 // ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 describe('(E) AS DECISÕES DE 11/11/2026 — a interna gravada, a faixa dos itens precificados e a mão de obra sem valor', () => {
     const ITENS_DO_ARQUIVO: import('@/lib/atendimentos-ia/arquivo-do-orcamento').ItemDoArquivo[] = [
@@ -510,7 +544,7 @@ describe('(E) AS DECISÕES DE 11/11/2026 — a interna gravada, a faixa dos iten
         expect(salvar).not.toHaveBeenCalled()
         expect(host.querySelector('[data-recusas-do-orcamento]')?.textContent).toContain(faltaDaInternaDivergente(2900, 2950))
         mockPrecoEmitido = { finalPrice: 3000, basePrice: 3000, externalOpsCoefficient: null, operacaoInterna: 2900, valorPrecificado: 2900.01 }
-        const salvar2 = jest.fn(async () => null)
+        const salvar2 = jest.fn(async (): Promise<string[] | null> => null)
         const host2 = await montar({ orcamento: orcamento(), onSalvarOrcamento: salvar2 })
         await clicar(botao(host2, 'Salvar precificação do orçamento'))
         expect(salvar2).toHaveBeenCalledTimes(1)

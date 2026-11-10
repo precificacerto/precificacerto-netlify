@@ -12,7 +12,7 @@
  */
 import type { NextApiRequest, NextApiResponse } from 'next'
 import {
-    entradaDoMotor, estadoDoCalculo, faltasDoFiscal, reconciliacaoNaTela, FALTA_DA_UF, FALTA_DO_ESCOPO, FALTA_DA_REFERENCIA_DO_TENANT, FRASE_CALCULO_INCOMPLETO, PRESET_DA_COMERCIALIZACAO, faltasDaPrecificacao,
+    entradaDoMotor, estadoDoCalculo, faltasDoFiscal, reconciliacaoNaTela, FALTA_DA_UF, FALTA_DO_ESCOPO, FALTA_DA_REFERENCIA_DO_TENANT, FRASE_CALCULO_INCOMPLETO, PRESET_DA_COMERCIALIZACAO, faltasDaPrecificacao, fiscalDoOrcamento, fiscalDivergente, rastroDoFiscalSobrescrito, FRASE_FISCAL_DA_REVENDA, fraseDoFiscalDivergente,
     MODO_PRODUTO, SOBRA_DA_UF, faltaDoNcmFora, type ItemNaPrecificacao, internaParaGravar, faltaDaInternaDivergente, FALTA_DA_INTERNA,
 } from '@/lib/atendimentos-ia/precificacao-do-orcamento'
 
@@ -59,7 +59,7 @@ const arquivo = {
 }
 jest.mock('@/lib/atendimentos-ia/arquivo-do-orcamento-servidor', () => ({
     itensDoArquivo: async (): Promise<{ itens: unknown[]; linhas: unknown[] }> => ({ itens: [{ ordem: 1, quantidade: 1 }], linhas: [] }),
-    lerClienteDoOrcamento: async (tenantId: string) => (tenantId === 'T' ? { nome: 'Cliente', telFixo: null, celular: '(51) 99999-0000', email: null, tel2: null,
+    lerClienteDoOrcamento: async (tenantId: string): Promise<Record<string, unknown> | null> => (tenantId === 'T' ? { nome: 'Cliente', telFixo: null, celular: '(51) 99999-0000', email: null, tel2: null,
         endereco: 'Porto Alegre', ieRg: null, cep: null, cnpjCpf: null } : null),
     lerDadosDoArquivo: async (_t: string, _id: string, a: Record<string, unknown>) => ({ dados: { ...a }, calculoId: 'c-1' }),
     gerarEGravarArquivo: async (tenantId: string, id: string, autor: string, dados: Record<string, unknown>) => {
@@ -161,9 +161,9 @@ describe('(3b) o preset da comercialização e a referência do tenant (dono do 
     it('o preset é INTRAESTADUAL, CONSUMIDOR_FINAL, sem UF e sem NCM', () => {
         expect(PRESET_DA_COMERCIALIZACAO).toEqual({ sale_scope: 'INTRAESTADUAL', buyer_type: 'CONSUMIDOR_FINAL', uf_destino: null, ncm_code: null })
     })
-    const orcCompleto = { id: 'o', numero: 1, nome: 'x', comissao_percentual: 0, reserva_tecnica_percentual: 0, lucro_projetado_percentual: 0,
-        ...totais, valor_venda: null, valor_operacao_interna: null, ncm_code: null, sale_scope: null, buyer_type: null, uf_destino: null, itens: [item(1)] }
-    const fiscal = { ncm_code: null, sale_scope: 'INTRAESTADUAL' as const, buyer_type: 'CONSUMIDOR_FINAL' as const, uf_destino: null }
+    const orcCompleto: Parameters<typeof faltasDaPrecificacao>[0]['orcamento'] = { id: 'o', numero: 1, nome: 'x', comissao_percentual: 0, reserva_tecnica_percentual: 0,
+        lucro_projetado_percentual: 0, ...totais, valor_venda: null, valor_operacao_interna: null, ncm_code: null, sale_scope: null, buyer_type: null, uf_destino: null, itens: [item(1)] }
+    const fiscal = { ncm_code: null as string | null, sale_scope: 'INTRAESTADUAL' as const, buyer_type: 'CONSUMIDOR_FINAL' as const, uf_destino: null as string | null }
     it('sem NCM e SEM a referência do tenant: a falta nomeada, e o preço não se grava (nunca um zero inventado)', () => {
         expect(faltasDaPrecificacao({ orcamento: orcCompleto, fiscal, aliquotaDoNcm: false, referenciaDoTenant: false, custoDoMotor: 745 })).toEqual([FALTA_DA_REFERENCIA_DO_TENANT])
     })
@@ -174,6 +174,24 @@ describe('(3b) o preset da comercialização e a referência do tenant (dono do 
     it('COM NCM a referência não é cobrada: quem responde é a alíquota do NCM', () => {
         const comNcm = { ...fiscal, ncm_code: '7610.10.00' }
         expect(faltasDaPrecificacao({ orcamento: orcCompleto, fiscal: comNcm, aliquotaDoNcm: true, referenciaDoTenant: false, custoDoMotor: 745 })).toEqual([])
+    })
+})
+
+describe('(3c) o fiscal pelo SEGMENTO e o fiscal divergente (dono do produto, 11/11/2026)', () => {
+    it('industrialização: o preset; revenda: recusa nomeada (o NCM e o ICMS vêm de cada produto, e ainda não existe)', () => {
+        expect(fiscalDoOrcamento('PRODUZIDO')).toEqual({ fiscal: { sale_scope: 'INTRAESTADUAL', buyer_type: 'CONSUMIDOR_FINAL', uf_destino: null, ncm_code: null } })
+        expect(fiscalDoOrcamento('REVENDA')).toEqual({ recusa: FRASE_FISCAL_DA_REVENDA })
+    })
+    it('a divergência: só o valor GRAVADO diferente do preset; o nulo (o orçamento de antes do preset) e o próprio preset não divergem', () => {
+        expect(fiscalDivergente({ sale_scope: null, buyer_type: null, uf_destino: null, ncm_code: null })).toEqual([])
+        expect(fiscalDivergente({ ...PRESET_DA_COMERCIALIZACAO })).toEqual([])
+        const d = fiscalDivergente({ sale_scope: 'INTERESTADUAL', buyer_type: 'CONTRIBUINTE_PJ', uf_destino: 'SP', ncm_code: '7610.10.00' })
+        expect(d).toEqual([
+            { campo: 'sale_scope', gravado: 'INTERESTADUAL', preset: 'INTRAESTADUAL' }, { campo: 'buyer_type', gravado: 'CONTRIBUINTE_PJ', preset: 'CONSUMIDOR_FINAL' },
+            { campo: 'uf_destino', gravado: 'SP', preset: null }, { campo: 'ncm_code', gravado: '7610.10.00', preset: null },
+        ])
+        expect(rastroDoFiscalSobrescrito(d)).toBe('sale_scope:INTERESTADUAL->INTRAESTADUAL;buyer_type:CONTRIBUINTE_PJ->CONSUMIDOR_FINAL;uf_destino:SP->null;ncm_code:7610.10.00->null')
+        expect(fraseDoFiscalDivergente(d)).toContain('o tipo de comprador CONTRIBUINTE_PJ')
     })
 })
 
@@ -236,7 +254,11 @@ describe('(4) a rota da precificação', () => {
         expect(e[0].tabela).toBe('orcamentista_orcamento')
         expect(e[0].filtros).toEqual([['tenant_id', 'T'], ['id', ID]])
         expect(e[0].carga).toMatchObject({ ...CORPO_BOM, ...PRESET_DA_COMERCIALIZACAO })
-        expect(Object.keys(e[0].carga as Linha).sort()).toEqual([...Object.keys(CORPO_BOM), 'atualizado_em'].sort())
+        expect(Object.keys(e[0].carga as Linha).sort()).toEqual([...Object.keys(CORPO_BOM), 'atualizado_em', 'editado_manualmente_em', 'editado_manualmente_por'].sort())
+        // o salvar da tela é EDIÇÃO MANUAL (11/11/2026): a marca inteira, com quem salvou
+        expect(e[0].carga).toMatchObject({ editado_manualmente_por: 'usuario' })
+        expect((e[0].carga as Linha).editado_manualmente_em).toBe((e[0].carga as Linha).atualizado_em)
+        expect(r.corpo.fiscal_sobrescrito).toEqual([])
     })
     it('PATCH grava a OPERAÇÃO INTERNA com a venda, e GERA O ARQUIVO com o rateio exato, autor = quem salvou (11/11/2026)', async () => {
         montar()
@@ -308,6 +330,27 @@ describe('(4) a rota da precificação', () => {
             expect(r.status).toBe(400)
             expect(escritas()).toEqual([])
         }
+    })
+    it('o orçamento com fiscal DIVERGENTE: o GET o aponta, e o salvar NÃO recusa — sobrescreve com o preset e REGISTRA no rastro o que sobrescreveu', async () => {
+        montar({ sale_scope: 'INTERESTADUAL', uf_destino: 'SP' })
+        const g = await chamar('GET', ID)
+        expect(g.corpo.fiscal_divergente).toEqual([{ campo: 'sale_scope', gravado: 'INTERESTADUAL', preset: 'INTRAESTADUAL' }, { campo: 'uf_destino', gravado: 'SP', preset: null }])
+        const log = jest.spyOn(console, 'error').mockImplementation(() => {})
+        try {
+            const r = await chamar('PATCH', ID, CORPO_BOM)
+            expect(r.status).toBe(200)
+            expect(escritas()[0].carga).toMatchObject({ sale_scope: 'INTRAESTADUAL', uf_destino: null })
+            expect(r.corpo.fiscal_sobrescrito).toEqual(g.corpo.fiscal_divergente)
+            expect(log.mock.calls.map((c) => String(c[0]))).toContain(`[ORCAMENTO-IA precificacao] orcamento=${ID} fiscal_sobrescrito=sale_scope:INTERESTADUAL->INTRAESTADUAL;uf_destino:SP->null`)
+        } finally { log.mockRestore() }
+    })
+    it('sem divergência, o salvar não escreve rastro de sobrescrita', async () => {
+        montar()
+        const log = jest.spyOn(console, 'error').mockImplementation(() => {})
+        try {
+            expect((await chamar('PATCH', ID, CORPO_BOM)).status).toBe(200)
+            expect(log.mock.calls.some((c) => String(c[0]).includes('fiscal_sobrescrito'))).toBe(false)
+        } finally { log.mockRestore() }
     })
     it('PATCH com percentual fora de 0..100: 400, e nada é gravado', async () => {
         montar()

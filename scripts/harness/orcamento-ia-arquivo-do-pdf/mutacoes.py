@@ -48,8 +48,8 @@ MUTACOES = [
     ('G2', 'a interna fora do centavo passa na rota', [(GRAVA, "    else if (Math.abs(interna * 100 - Math.round(interna * 100)) > 1e-6) erros.push(`Operação interna: tem de estar em centavos (veio ${interna}).`)\n", '')]),
     # a gravação que gera o arquivo
     ('G3', 'o arquivo não é gerado ao salvar', [(GRAVA, '        const r = await gerarEGravarArquivo(tenantId, id, autor, lido.dados, lido.calculoId)\n        return', "        const r = { recusas: ['x'] } as { recusas: string[] }\n        return")]),
-    ('G4', 'o rateio que não fecha derruba o salvar', [(GRAVA, "    if ('recusa' in rateio) return { orcamento: gravado, arquivo: null, recusasDoArquivo: [rateio.recusa] }", "    if ('recusa' in rateio) throw new ErroDoEstado(rateio.recusa)")]),
-    ('G5', 'a falha do arquivo vira 500', [(GRAVA, '        return { orcamento: gravado, arquivo: null, recusasDoArquivo: [fraseDaFalhaDoArquivo(e)] }', '        throw e')]),
+    ('G4', 'o rateio que não fecha derruba o salvar', [(GRAVA, "    if ('recusa' in rateio) return { arquivo: null, recusasDoArquivo: [rateio.recusa] }", "    if ('recusa' in rateio) throw new ErroDoEstado(rateio.recusa)")]),
+    ('G5', 'a falha do arquivo vira 500', [(GRAVA, '        return { arquivo: null, recusasDoArquivo: [fraseDaFalhaDoArquivo(e)] }', '        throw e')]),
     ('G6', 'o arquivo gerado antes de o preço ser gravado', [(GRAVA, "    const rateio = rateioDoOrcamento(gravado, g.valor_operacao_interna)", "    const rateio = rateioDoOrcamento(orc, g.valor_operacao_interna)")]),
     ('G7', 'o autor do arquivo não é quem salvou', [(ROTA, 'gravarPrecificacao(caller.tenant_id, id, corpo, caller.user_id)', "gravarPrecificacao(caller.tenant_id, id, corpo, 'sistema')")]),
     # a conferência e o desenho do PDF
@@ -86,14 +86,14 @@ MUTACOES = [
     ('F6', 'a travessia cria o orçamento sem o preset', [(PLANO, '        ...PRESET_DA_COMERCIALIZACAO,\n', '')]),
     ('F7', 'o preset é interestadual', [(PREC, "export const PRESET_DA_COMERCIALIZACAO = { sale_scope: 'INTRAESTADUAL',", "export const PRESET_DA_COMERCIALIZACAO = { sale_scope: 'INTERESTADUAL',")]),
     ('F8', 'a UF sem ICMS interno conta como referência', [(CONTENT, '        setReferenciaDoTenant(icmsDaUf !== null)', "        setReferenciaDoTenant(uf !== '')")]),
-    ('F9', 'o PIS/COFINS da empresa não entra no orçamento', [(CONTENT, '    if (orcamento && pisCofinsDaReferencia !== null) setPisCofinsLRPct(pisCofinsDaReferencia)', '    if (false) setPisCofinsLRPct(pisCofinsDaReferencia ?? 0)')]),
+    ('F9', 'o PIS/COFINS da empresa não entra no orçamento', [(CONTENT, '    if (ehOrcamentoDeIndustrializacao && pisCofinsDaReferencia !== null) setPisCofinsLRPct(pisCofinsDaReferencia)', '    if (false) setPisCofinsLRPct(pisCofinsDaReferencia ?? 0)')]),
     ('F10', 'o PIS/COFINS da referência sem excluir o ICMS', [(NCMPIS, '  return parseFloat((PIS_COFINS_NAO_CUMULATIVO_PCT * (1 - args.icmsPct / 100)).toFixed(4))', '  return PIS_COFINS_NAO_CUMULATIVO_PCT')]),
     # a empresa é a fonte única dos impostos, o fiscal é invisível, e o topo do cliente (dono do produto, 11/11/2026, segunda rodada)
-    ('E1', 'o servidor aceita o escopo do corpo', [(GRAVA, '    const fiscal = { ...PRESET_DA_COMERCIALIZACAO }', "    const fiscal = { ...PRESET_DA_COMERCIALIZACAO, sale_scope: (corpo.sale_scope === 'INTERESTADUAL' ? 'INTERESTADUAL' : 'INTRAESTADUAL') as 'INTRAESTADUAL', uf_destino: (typeof corpo.uf_destino === 'string' ? corpo.uf_destino : null) as null }")]),
-    ('E2', 'o bloco Fiscal volta ao orçamento', [(CONTENT, '      {!orcamento && (<>', '      {true && (<>')]),
+    ('E1', 'o servidor aceita o escopo do corpo', [(GRAVA, "    const fiscal = 'fiscal' in doSegmento ? doSegmento.fiscal : { ...PRESET_DA_COMERCIALIZACAO }", "    const fiscal = { ...PRESET_DA_COMERCIALIZACAO, sale_scope: (corpo.sale_scope === 'INTERESTADUAL' ? 'INTERESTADUAL' : 'INTRAESTADUAL') as 'INTRAESTADUAL', uf_destino: (typeof corpo.uf_destino === 'string' ? corpo.uf_destino : null) as null }")]),
+    ('E2', 'o bloco Fiscal volta ao orçamento', [(CONTENT, '      {!ehOrcamentoDeIndustrializacao && (<>', '      {true && (<>')]),
     ('E3', 'o ICMS se edita no orçamento', [(PRICE, "pricingRow('ICMS (%)', 'icms', impostosDaEmpresa ? undefined : 'icms',", "pricingRow('ICMS (%)', 'icms', 'icms',")]),
     ('E4', 'o PIS/COFINS se edita no orçamento', [(PRICE, "              impostosDaEmpresa ? undefined : 'pisCofins',", "              'pisCofins',")]),
-    ('E5', 'a CBS nula entra como zero', [(CONTENT, '          cbsPct={ehOrcamento ? cbsDaEmpresa : cbsPct}', '          cbsPct={ehOrcamento ? (cbsDaEmpresa ?? 0) : cbsPct}')]),
+    ('E5', 'a CBS nula entra como zero', [(CONTENT, '          cbsPct={ehOrcamentoDeIndustrializacao ? cbsDaEmpresa : cbsPct}', '          cbsPct={ehOrcamentoDeIndustrializacao ? (cbsDaEmpresa ?? 0) : cbsPct}')]),
     ('E6', 'a linha do tributo nulo aparece', [(PRICE, '.filter((r): r is typeof r & { value: number } => r.value !== null)', '.filter((r): r is typeof r & { value: number } => true)')]),
     ('E7', 'o IBS se edita no orçamento', [(PRICE, '                        disabled={impostosDaEmpresa}', '                        disabled={false}')]),
     ('E8', 'a CBS da empresa não é lida', [(CONTENT, '        setCbsDaEmpresa(data?.cbs_reference_pct != null ? Number(data.cbs_reference_pct) : null)', '        setCbsDaEmpresa(null)')]),
@@ -102,7 +102,17 @@ MUTACOES = [
     ('E11', 'o GET não traz o cliente', [(ROTA, 'lerClienteDoOrcamento(caller.tenant_id, id)])', 'Promise.resolve(null)])')]),
     ('E12', 'o cliente lido de outra empresa', [(SERV, "select('nome, levantamento_id').eq('tenant_id', tenantId).eq('id', orcamentoId)", "select('nome, levantamento_id').eq('id', orcamentoId)")]),
     ('E13', 'o PDF e a tela com rótulos diferentes', [(PDF, "['CLIENTE:', 'nome'], ['TEL. FIXO:', 'telFixo']", "['CLIENTE:', 'nome'], ['TELEFONE:', 'telFixo']")]),
-    ('F11', 'a tela não passa a referência às faltas', [(CONTENT, '  const referenciaExigida = (): boolean | null => (isLRorLP ? referenciaDoTenant === true : null)', '  const referenciaExigida = (): boolean | null => null')]),
+    # o preset preso por teste, a chave pelo segmento, o aviso e o rastro da sobrescrita (dono do produto, 11/11/2026, terceira rodada)
+    ('F7b', 'o preset é para contribuinte', [(PREC, "buyer_type: 'CONSUMIDOR_FINAL', uf_destino: null as null, ncm_code: null as null } as const", "buyer_type: 'CONTRIBUINTE_PJ', uf_destino: null as null, ncm_code: null as null } as const")]),
+    ('K1', 'a chave volta a ser o modo orçamento, sem o segmento', [(CONTENT, "  const ehOrcamentoDeIndustrializacao = ehOrcamento && productType === 'PRODUZIDO'", '  const ehOrcamentoDeIndustrializacao = ehOrcamento')]),
+    ('K2', 'o servidor dá o preset a qualquer segmento', [(PREC, "    if (segmento === 'PRODUZIDO') return { fiscal: { ...PRESET_DA_COMERCIALIZACAO } }", '    if (true) return { fiscal: { ...PRESET_DA_COMERCIALIZACAO } }')]),
+    ('D1', 'a divergência nunca é vista', [(PREC, '        return gravado !== null && gravado !== undefined && gravado !== preset[campo] ?', '        return false ?')]),
+    ('D2', 'o nulo de antes do preset conta como divergência', [(PREC, '        return gravado !== null && gravado !== undefined && gravado !== preset[campo] ?', '        return gravado !== undefined && gravado !== preset[campo] ?')]),
+    ('D3', 'a sobrescrita em silêncio', [(GRAVA, '    if (sobrescrito.length) console.error(', '    if (false) console.error(')]),
+    ('D4', 'o salvar da tela sem a marca da edição manual', [(GRAVA, ', editado_manualmente_em: agora.toISOString(), editado_manualmente_por: autor })', ' })')]),
+    ('D5', 'o aviso da divergência não aparece', [(TOPO, '    if (divergencia.length === 0) return null', '    if (true) return null')]),
+    ('D6', 'o GET não aponta a divergência', [(ROTA, 'fiscal_divergente: fiscalDivergente(orcamento),', 'fiscal_divergente: [],')]),
+    ('F11', 'a tela não passa a referência às faltas', [(CONTENT, '  const referenciaExigida = (): boolean | null => (ehOrcamentoDeIndustrializacao && isLRorLP ? referenciaDoTenant === true : null)', '  const referenciaExigida = (): boolean | null => null')]),
 ]
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from trecho_unico import exigir_trecho_unico  # a mutação que não se aplica aborta (mutacao-que-nao-se-aplica.md)

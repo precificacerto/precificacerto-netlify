@@ -158,6 +158,45 @@ export type FiscalDaTela = {
  */
 export const PRESET_DA_COMERCIALIZACAO = { sale_scope: 'INTRAESTADUAL', buyer_type: 'CONSUMIDOR_FINAL', uf_destino: null as null, ncm_code: null as null } as const
 
+/**
+ * O SEGMENTO decide de onde vêm os tributos (dono do produto, 11/11/2026): na FABRICAÇÃO/INDUSTRIALIZAÇÃO, NCM, ICMS, PIS, COFINS, IBS e CBS vêm
+ * do onboarding da empresa; na REVENDA, NCM e ICMS vêm de CADA PRODUTO — outro contexto, que não entra agora. O orçamento I.A. é de esquadrias:
+ * industrialização (o cabeçalho fixo, `CABECALHO_FIXO.tipo` = Produzido). A amarração "imposto da empresa" pertence a ESTE caminho, e não ao
+ * motor nem ao caminho compartilhado: a revenda não a herda por acidente.
+ */
+export type SegmentoDoOrcamento = 'PRODUZIDO' | 'REVENDA'
+export const SEGMENTO_DO_ORCAMENTO_IA: SegmentoDoOrcamento = 'PRODUZIDO'
+export const FRASE_FISCAL_DA_REVENDA = 'o fiscal do orçamento de revenda (o NCM e o ICMS de cada produto) ainda não existe: só o orçamento de '
+    + 'industrialização é precificado'
+/** O fiscal que se GRAVA no orçamento do segmento: o preset na industrialização; na revenda, recusa nomeada (ainda não existe). */
+export function fiscalDoOrcamento(segmento: SegmentoDoOrcamento): { fiscal: FiscalDaTela } | { recusa: string } {
+    if (segmento === 'PRODUZIDO') return { fiscal: { ...PRESET_DA_COMERCIALIZACAO } }
+    return { recusa: FRASE_FISCAL_DA_REVENDA }
+}
+
+/**
+ * O FISCAL GRAVADO QUE DIVERGE DO PRESET (dono do produto, 11/11/2026: "aviso, não recusa"). Sem seletor na tela, um valor fora do preset só
+ * chega por fora do código (SQL); o GET o compara, a tela avisa o que está gravado e que o salvar volta ao preset, e o salvar REGISTRA no
+ * rastro o que sobrescreveu. O ausente (NULO, o orçamento nascido antes do preset) NÃO é divergência: preenchê-lo não sobrescreve nada.
+ */
+export type CampoDivergente = { campo: keyof FiscalDaTela; gravado: string; preset: string | null }
+const CAMPOS_DO_FISCAL = ['sale_scope', 'buyer_type', 'uf_destino', 'ncm_code'] as const
+const ROTULO_DO_CAMPO_FISCAL: Record<keyof FiscalDaTela, string> = {
+    sale_scope: 'o escopo da venda', buyer_type: 'o tipo de comprador', uf_destino: 'a UF de destino', ncm_code: 'o NCM',
+}
+export function fiscalDivergente(o: FiscalDaTela): CampoDivergente[] {
+    const preset: FiscalDaTela = PRESET_DA_COMERCIALIZACAO
+    return CAMPOS_DO_FISCAL.flatMap((campo) => {
+        const gravado = o[campo]
+        return gravado !== null && gravado !== undefined && gravado !== preset[campo] ? [{ campo, gravado: String(gravado), preset: preset[campo] }] : []
+    })
+}
+export const fraseDoFiscalDivergente = (d: readonly CampoDivergente[]) =>
+    `Este orçamento tem gravado ${d.map((x) => `${ROTULO_DO_CAMPO_FISCAL[x.campo]} ${x.gravado}`).join(', ')}. Ao salvar, o fiscal volta ao padrão `
+    + '(dentro do estado, consumidor final, sem UF de destino e sem NCM), e o que for sobrescrito fica registrado.'
+/** A parte do rastro: `campo:gravado->preset`, separados por `;`. */
+export const rastroDoFiscalSobrescrito = (d: readonly CampoDivergente[]) => d.map((x) => `${x.campo}:${x.gravado}->${x.preset ?? 'null'}`).join(';')
+
 /** As faltas do bloco fiscal, cada uma nomeada. A tela e a rota recusam pelas mesmas. O NCM ausente NÃO é falta (11/11/2026). */
 export function faltasDoFiscal(f: FiscalDaTela): string[] {
     const faltas: string[] = []

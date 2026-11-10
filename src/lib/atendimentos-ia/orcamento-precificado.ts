@@ -17,7 +17,8 @@ import { ratearOperacaoInterna } from './rateio-do-orcamento'
 import { gerarEGravarArquivo, lerDadosDoArquivo, type ArquivoGravado } from './arquivo-do-orcamento-servidor'
 import { ErroDeValidacao, ErroNaoEncontrado, ErroSemMigracao, TABELA_DO_ITEM, TABELA_DO_ORCAMENTO, tabelaAusente } from './orcamentos-ia'
 import {
-    estadoDoCalculo, FRASE_DO_ESTADO, PRESET_DA_COMERCIALIZACAO,
+    estadoDoCalculo, fiscalDivergente, fiscalDoOrcamento, FRASE_DO_ESTADO, PRESET_DA_COMERCIALIZACAO, rastroDoFiscalSobrescrito, SEGMENTO_DO_ORCAMENTO_IA,
+    type CampoDivergente,
     type GravacaoDaPrecificacao, type ItemNaPrecificacao, type OrcamentoNaPrecificacao,
 } from './precificacao-do-orcamento'
 
@@ -86,8 +87,10 @@ export function validarGravacao(corpo: Record<string, unknown>): GravacaoDaPreci
     if (interna === null || interna <= 0) erros.push('Operação interna: tem de ser um número maior que zero.')
     else if (Math.abs(interna * 100 - Math.round(interna * 100)) > 1e-6) erros.push(`Operação interna: tem de estar em centavos (veio ${interna}).`)
     else if (valor !== null && valor > 0 && Math.round(interna * 100) > Math.round(valor * 100)) erros.push('Operação interna: não pode passar do valor de venda.')
-    // o fiscal é SEMPRE o preset (11/11/2026): o corpo não decide NCM, escopo, comprador nem UF
-    const fiscal = { ...PRESET_DA_COMERCIALIZACAO }
+    // o fiscal é o do SEGMENTO (11/11/2026): na industrialização, SEMPRE o preset — o corpo não decide NCM, escopo, comprador nem UF
+    const doSegmento = fiscalDoOrcamento(SEGMENTO_DO_ORCAMENTO_IA)
+    if ('recusa' in doSegmento) erros.push(doSegmento.recusa)
+    const fiscal = 'fiscal' in doSegmento ? doSegmento.fiscal : { ...PRESET_DA_COMERCIALIZACAO }
     const g: GravacaoDaPrecificacao = {
         ...fiscal,
         valor_venda: valor as number,
@@ -109,41 +112,59 @@ export type ResultadoDaGravacao = {
     /** O arquivo "Orçamento" gerado ao salvar (11/11/2026); nulo quando ele não pôde sair — e então `recusasDoArquivo` diz por quê. */
     arquivo: ArquivoGravado | null
     recusasDoArquivo: string[]
+    /** O fiscal gravado que divergia do preset e foi SOBRESCRITO por este salvar (11/11/2026); vazio quando não havia nada a sobrescrever. */
+    fiscalSobrescrito: CampoDivergente[]
 }
+
+export const PREFIXO_DO_RASTRO_DA_PRECIFICACAO = '[ORCAMENTO-IA precificacao]'
 
 /** O rateio da interna pelos itens gravados: o peso é o custo líquido total de cada um (material + fabricação). */
 export function rateioDoOrcamento(orc: OrcamentoNaPrecificacao, interna: number) {
     return ratearOperacaoInterna(interna, orc.itens.map((i) => ({ ordem: i.ordem, quantidade: i.quantidade, peso: i.custo_liquido_total ?? NaN })))
 }
 
+/**
+ * GRAVA a precificação manual (a tela) no orçamento `id`: só com o cálculo completo. A gravação é EDIÇÃO MANUAL — marca
+ * `editado_manualmente_em`/`_por` (dono do produto, 11/11/2026; a CHECK `marca_inteira` os quer juntos). O fiscal que divergia do preset é
+ * sobrescrito e REGISTRADO no rastro ("sobrescrever está certo; sobrescrever em silêncio, não").
+ */
 export async function gravarPrecificacao(tenantId: string, id: string, corpo: Record<string, unknown>, autor: string, agora: Date = new Date()): Promise<ResultadoDaGravacao> {
     const g = validarGravacao(corpo)
     const orc = await lerOrcamentoParaPrecificar(tenantId, id)
     const estado = estadoDoCalculo(orc)
     if (estado !== 'completo') throw new ErroDoEstado(FRASE_DO_ESTADO[estado])
+    const sobrescrito = fiscalDivergente(orc)
     const { data, error } = await db().from(TABELA_DO_ORCAMENTO)
-        .update({ ...g, atualizado_em: agora.toISOString() })
+        .update({ ...g, atualizado_em: agora.toISOString(), editado_manualmente_em: agora.toISOString(), editado_manualmente_por: autor })
         .eq('tenant_id', tenantId).eq('id', id).select('id')
     if (error) {
         if (error.code === '23514') throw new ErroDeValidacao([`O orçamento não aceitou a precificação: ${error.message}`])
         falhou(TABELA_DO_ORCAMENTO, error)
     }
     if (!data || data.length !== 1) throw new Error(`${TABELA_DO_ORCAMENTO}: o orçamento ${id} não foi atingido ao gravar a precificação`)
+    // o rastro do que foi sobrescrito: stderr, que é o que o log da Vercel deste projeto mostra (`orcamentista-da-empresa.ts`)
+    if (sobrescrito.length) console.error(`${PREFIXO_DO_RASTRO_DA_PRECIFICACAO} orcamento=${id} fiscal_sobrescrito=${rastroDoFiscalSobrescrito(sobrescrito)}`)
     const gravado = await lerOrcamentoParaPrecificar(tenantId, id)
-    // O ARQUIVO É GERADO AO SALVAR (dono do produto, 11/11/2026), DEPOIS do preço: o rateio exato e o PDF. O que impede o arquivo (o rateio que não
-    // fecha, a venda diferente da interna, a configuração da empresa) é RECUSA NOMEADA na resposta — o preço salvo fica, e a tela diz por que o
-    // arquivo não saiu. Nunca um arquivo com centavo a mais ou a menos.
+    return { orcamento: gravado, fiscalSobrescrito: sobrescrito, ...(await arquivoAoSalvar(tenantId, id, autor, g, gravado, agora)) }
+}
+
+/**
+ * O ARQUIVO É GERADO AO SALVAR (dono do produto, 11/11/2026), DEPOIS do preço: o rateio exato e o PDF. O que impede o arquivo (o rateio que não
+ * fecha, a venda diferente da interna, a configuração da empresa) é RECUSA NOMEADA na resposta — o preço salvo fica, e a tela diz por que o
+ * arquivo não saiu. Nunca um arquivo com centavo a mais ou a menos. A FALHA (leitura, Storage, insert) também não derruba a resposta: o preço
+ * ESTÁ salvo, e um 500 diria o contrário (prova local de 10/11/2026: uma coluna ausente dava 500 com o preço já gravado).
+ */
+async function arquivoAoSalvar(tenantId: string, id: string, autor: string, g: GravacaoDaPrecificacao, gravado: OrcamentoNaPrecificacao, agora: Date):
+    Promise<{ arquivo: ArquivoGravado | null; recusasDoArquivo: string[] }> {
     const rateio = rateioDoOrcamento(gravado, g.valor_operacao_interna)
-    if ('recusa' in rateio) return { orcamento: gravado, arquivo: null, recusasDoArquivo: [rateio.recusa] }
-    // A FALHA (leitura, Storage, insert) depois do preço gravado também não derruba a resposta: o preço ESTÁ salvo, e um 500 diria o contrário.
-    // Ela vira recusa nomeada, com a mensagem do erro (prova local de 10/11/2026: uma coluna ausente dava 500 com o preço já gravado).
+    if ('recusa' in rateio) return { arquivo: null, recusasDoArquivo: [rateio.recusa] }
     try {
         const lido = await lerDadosDoArquivo(tenantId, id, { operacaoInterna: g.valor_operacao_interna, valorVenda: g.valor_venda, rateio: rateio.itens, geradoEm: agora })
-        if ('recusa' in lido) return { orcamento: gravado, arquivo: null, recusasDoArquivo: [lido.recusa] }
+        if ('recusa' in lido) return { arquivo: null, recusasDoArquivo: [lido.recusa] }
         const r = await gerarEGravarArquivo(tenantId, id, autor, lido.dados, lido.calculoId)
-        return 'recusas' in r ? { orcamento: gravado, arquivo: null, recusasDoArquivo: r.recusas } : { orcamento: gravado, arquivo: r.arquivo, recusasDoArquivo: [] }
+        return 'recusas' in r ? { arquivo: null, recusasDoArquivo: r.recusas } : { arquivo: r.arquivo, recusasDoArquivo: [] }
     } catch (e) {
-        return { orcamento: gravado, arquivo: null, recusasDoArquivo: [fraseDaFalhaDoArquivo(e)] }
+        return { arquivo: null, recusasDoArquivo: [fraseDaFalhaDoArquivo(e)] }
     }
 }
 

@@ -256,6 +256,10 @@ export const Content: FC<ContentProps> = ({
     // o orçamento é PRODUZIDO por decisão (o cabeçalho fixo): a esquadria é fabricada, e a mão de obra dela entra no custo
     orcamento ? 'PRODUZIDO' : (isCalcTypeService || isCalcTypeResale) ? 'REVENDA' : ((product as any)?.productType || 'PRODUZIDO')
   )
+  // O ORÇAMENTO DE INDUSTRIALIZAÇÃO (dono do produto, 11/11/2026): orçamento E segmento produzido, os dois — nunca só um. É ele, e não o modo
+  // orçamento, que amarra os tributos às credenciais da empresa e tira o bloco Fiscal: na REVENDA o NCM e o ICMS vêm de cada produto, e um
+  // orçamento de revenda não pode herdar "imposto da empresa" por acidente. Hoje todo orçamento nasce PRODUZIDO (o cabeçalho fixo).
+  const ehOrcamentoDeIndustrializacao = ehOrcamento && productType === 'PRODUZIDO'
   const [baseItemId, setBaseItemId] = useState<string | null>(
     (product as any)?.baseItemId || null
   )
@@ -318,17 +322,17 @@ export const Content: FC<ContentProps> = ({
         .single()
       // O ICMS interno da UF da empresa: lido UMA vez, para o produto novo e para a referência do orçamento.
       const uf = typeof data?.state_code === 'string' ? data.state_code.trim() : ''
-      const precisaDaUf = uf !== '' && (!isEditingMode || (orcamento && isLRorLP))
+      const precisaDaUf = uf !== '' && (!isEditingMode || (ehOrcamentoDeIndustrializacao && isLRorLP))
       const { data: stateData } = precisaDaUf
         ? await (supabase as any).from('brazilian_states').select('icms_internal_rate').eq('code', uf).maybeSingle()
         : { data: null }
       const icmsDaUf = stateData?.icms_internal_rate != null ? Number(stateData.icms_internal_rate) * 100 : null
       // No orçamento (11/11/2026), a referência do tenant é o que dá o ICMS e o PIS/COFINS sem NCM: a falta dela é nomeada.
-      if (orcamento) {
+      if (ehOrcamentoDeIndustrializacao) {
         setIbsDaEmpresa(data?.ibs_reference_pct != null ? Number(data.ibs_reference_pct) : null)
         setCbsDaEmpresa(data?.cbs_reference_pct != null ? Number(data.cbs_reference_pct) : null)
       }
-      if (orcamento && isLRorLP) {
+      if (ehOrcamentoDeIndustrializacao && isLRorLP) {
         setReferenciaDoTenant(icmsDaUf !== null)
         setPisCofinsDaReferencia(icmsDaUf === null ? null
           : pisCofinsDaReferenciaDoTenant({ isLucroReal: isLucroRealProd, isLucroPresumido: isLucroPresumidoProdOnly, icmsPct: icmsDaUf }))
@@ -351,7 +355,7 @@ export const Content: FC<ContentProps> = ({
       }
     }
     fetchIvaRefRates()
-  }, [isLRorLPorSH, currentUser?.tenant_id, isEditingMode])
+  }, [isLRorLPorSH, currentUser?.tenant_id, isEditingMode, ehOrcamentoDeIndustrializacao])
 
   // ICMS e PIS/COFINS para Lucro Real (migrados do modal de lançar impostos)
   const initialIcms = (product as any)?.icms_pct != null ? Number((product as any).icms_pct) : 0
@@ -859,8 +863,8 @@ export const Content: FC<ContentProps> = ({
   // No orçamento o PIS/COFINS é SEMPRE o da empresa (pelo regime, sobre a base sem o ICMS da UF), nunca o do NCM (11/11/2026); sem a
   // referência, o campo fica como está e a falta é nomeada.
   useEffect(() => {
-    if (orcamento && pisCofinsDaReferencia !== null) setPisCofinsLRPct(pisCofinsDaReferencia)
-  }, [orcamento, pisCofinsDaReferencia])
+    if (ehOrcamentoDeIndustrializacao && pisCofinsDaReferencia !== null) setPisCofinsLRPct(pisCofinsDaReferencia)
+  }, [ehOrcamentoDeIndustrializacao, pisCofinsDaReferencia])
 
   useEffect(() => {
     if (!isEditingMode && prefill) {
@@ -1250,7 +1254,7 @@ export const Content: FC<ContentProps> = ({
   // o fiscal do orçamento é o PRESET, sempre (11/11/2026): a tela não o pergunta e não o mostra
   const fiscalDaTela = () => ({ ...PRESET_DA_COMERCIALIZACAO })
   // a referência ainda não lida (null) no LR/LP não é "tem": só a leitura que achou a UF e o ICMS libera o salvar
-  const referenciaExigida = (): boolean | null => (isLRorLP ? referenciaDoTenant === true : null)
+  const referenciaExigida = (): boolean | null => (ehOrcamentoDeIndustrializacao && isLRorLP ? referenciaDoTenant === true : null)
   const faltasDoOrcamento = orcamento
     ? faltasDaPrecificacao({ orcamento, fiscal: fiscalDaTela(), aliquotaDoNcm: null, referenciaDoTenant: referenciaExigida(), custoDoMotor: Number(productPriceInfo?.productCost) || 0 })
     : []
@@ -2481,7 +2485,7 @@ export const Content: FC<ContentProps> = ({
 
       {/* No orçamento I.A. o bloco Fiscal SAI (dono do produto, 11/11/2026): o NCM, o escopo, o comprador e a UF não aparecem — o fiscal é o
           preset, e os impostos são os da empresa. Não é escondido atrás de expansor: não é montado. */}
-      {!orcamento && (<>
+      {!ehOrcamentoDeIndustrializacao && (<>
       {/* ══════════════════════════════════════════════════════
           FISCAL — o que a NOTA exige do produto
           O NCM e o contexto da venda moram juntos porque respondem à mesma
@@ -2700,17 +2704,17 @@ export const Content: FC<ContentProps> = ({
           additionalIrpjPercent={additionalIrpjPercent}
           onAdditionalIrpjChange={setAdditionalIrpjPercent}
           icmsPct={icmsPct}
-          onIcmsPctChange={ehOrcamento ? undefined : handleIcmsPctChange}
+          onIcmsPctChange={ehOrcamentoDeIndustrializacao ? undefined : handleIcmsPctChange}
           pisCofinsLRPct={pisCofinsLRPct}
-          onPisCofinsLRPctChange={ehOrcamento ? undefined : setPisCofinsLRPct}
+          onPisCofinsLRPctChange={ehOrcamentoDeIndustrializacao ? undefined : setPisCofinsLRPct}
           freightValue={freightValue}
           insuranceValue={insuranceValue}
           accessoryExpensesValue={accessoryExpensesValue}
-          ibsPct={ehOrcamento ? ibsDaEmpresa : ibsPct}
-          onIbsPctChange={ehOrcamento ? undefined : setIbsPct}
-          cbsPct={ehOrcamento ? cbsDaEmpresa : cbsPct}
-          onCbsPctChange={ehOrcamento ? undefined : setCbsPct}
-          impostosDaEmpresa={ehOrcamento}
+          ibsPct={ehOrcamentoDeIndustrializacao ? ibsDaEmpresa : ibsPct}
+          onIbsPctChange={ehOrcamentoDeIndustrializacao ? undefined : setIbsPct}
+          cbsPct={ehOrcamentoDeIndustrializacao ? cbsDaEmpresa : cbsPct}
+          onCbsPctChange={ehOrcamentoDeIndustrializacao ? undefined : setCbsPct}
+          impostosDaEmpresa={ehOrcamentoDeIndustrializacao}
           ivaReductionIbsPct={reducoes.ibs}
           ivaReductionCbsPct={reducoes.cbs}
           isPct={isPct}
