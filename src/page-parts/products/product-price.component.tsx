@@ -21,6 +21,7 @@ import { CalcBaseType } from '@/types/calc-base.type'
 import { LoggedUser } from '@/types/logged-user.type'
 import { FormInstance } from 'antd/lib/form/Form'
 import { useDevice } from '@/contexts/device.context'
+import { faltasDosTributosPorDentro } from '@/utils/tributo-por-dentro-informado'
 
 /**
  * O que a tela de preço emite a cada preço formado, POR UNIDADE — UM tipo só, para os quatro pontos que o declaravam à mão (`copia-divergente.md`).
@@ -47,10 +48,11 @@ interface Props {
   onCustomTaxPercentChange?: (value: number) => void
   additionalIrpjPercent?: number
   onAdditionalIrpjChange?: (value: number) => void
-  icmsPct?: number
-  onIcmsPctChange?: (value: number) => void
-  pisCofinsLRPct?: number
-  onPisCofinsLRPctChange?: (value: number) => void
+  /** `null` = NÃO INFORMADO: no Lucro Real e no Presumido o preço não se forma (`tributo-por-dentro-informado.ts`); nunca vira 0. */
+  icmsPct?: number | null
+  onIcmsPctChange?: (value: number | null) => void
+  pisCofinsLRPct?: number | null
+  onPisCofinsLRPctChange?: (value: number | null) => void
   freightValue?: number
   insuranceValue?: number
   accessoryExpensesValue?: number
@@ -93,6 +95,8 @@ interface Props {
    * ficaria com o de antes. Opcional e só usado pelo modo "orçamento" (o 1b, 09/11/2026); sem ele, nada muda.
    */
   onPrecoNaoFormado?: () => void
+  /** As faltas dos tributos por dentro (ICMS, PIS/COFINS não informados), para quem salva recusar pelas MESMAS. */
+  onFaltasDosTributosChange?: (faltas: string[]) => void
   /* EPIC-POR-FORA-V3: seção "Alíquotas tributárias adicionais (avançado)" renderizada ACIMA do card de resultado. */
   advancedTaxesSection?: ReactNode
   /* EPIC-POR-FORA-V3: parâmetros ICMS-ST/DIFAL/FCP para somar (apenas EXIBIÇÃO) ao preço final ao cliente. */
@@ -121,9 +125,9 @@ export const ProductPrice: FC<Props> = ({
   onCustomTaxPercentChange,
   additionalIrpjPercent,
   onAdditionalIrpjChange,
-  icmsPct = 0,
+  icmsPct: icmsPctInformado = 0,
   onIcmsPctChange,
-  pisCofinsLRPct = 0,
+  pisCofinsLRPct: pisCofinsInformado = 0,
   onPisCofinsLRPctChange,
   freightValue = 0,
   insuranceValue = 0,
@@ -143,6 +147,7 @@ export const ProductPrice: FC<Props> = ({
   ipiBaseCode,
   onFinalPriceWithTaxesChange,
   onPrecoNaoFormado,
+  onFaltasDosTributosChange,
   advancedTaxesSection,
   advancedTaxParams,
   ivaReductionIbsPct = null,
@@ -151,6 +156,9 @@ export const ProductPrice: FC<Props> = ({
   isResaleProduct = false,
 }: Props) => {
   const { isMobile } = useDevice()
+  // A conta usa número; a FALTA é decidida pelo valor informado (abaixo, `faltasDosTributos`). Com falta, nenhum preço sai desta tela.
+  const icmsPct = icmsPctInformado ?? 0
+  const pisCofinsLRPct = pisCofinsInformado ?? 0
   // A FORMAÇÃO DO PREÇO mora em `formarPrecoDoProduto` (`src/utils/preco-do-produto.ts`), e em lugar nenhum mais: este componente chama e
   // desestrutura, não recalcula (`copia-divergente.md`). Os comentários de cada regra foram junto com ela para o módulo.
   const {
@@ -167,6 +175,21 @@ export const ProductPrice: FC<Props> = ({
   // PRODUZIDO (fractionByYield). Se quantidade = 1 (ou revenda), divisor = 1 (1:1).
   const yieldDivisor = fractionByYield && yieldQty > 0 ? yieldQty : 1
   const priceRecipeTotal = totalPrice * yieldQty
+
+  // NULO NÃO É ZERO (dono do produto, 10/11/2026): no Lucro Real e no Presumido, ICMS ou PIS/COFINS não informados são FALTA nomeada, e a
+  // tela não forma preço com eles — nem o exibe, nem o emite para gravar. A condição é a das linhas 'icms' e 'pisCofins' de
+  // `formarPrecoDoProduto`, e o segmento é o MESMO que ele resolveu (`_segmento`, desestruturado acima).
+  const faltasDosTributos = faltasDosTributosPorDentro({
+    taxableRegime: currentUser?.taxableRegime,
+    segmento: _segmento,
+    icmsPct: icmsPctInformado,
+    pisCofinsPct: pisCofinsInformado,
+  })
+  const semPreco = faltasDosTributos.length > 0
+  const chaveDasFaltas = faltasDosTributos.join('|')
+  useEffect(() => {
+    onFaltasDosTributosChange?.(chaveDasFaltas ? chaveDasFaltas.split('|') : [])
+  }, [chaveDasFaltas, onFaltasDosTributosChange])
 
   /**
    * >>> A INVARIANTE QUE FALTAVA: O PREÇO FINAL NUNCA FICA ABAIXO DA OPERAÇÃO INTERNA <<<
@@ -235,7 +258,7 @@ export const ProductPrice: FC<Props> = ({
   useEffect(() => {
     // Emite os valores JÁ fracionados por unidade: sale_price e as bases dos snapshots
     // (IBS/CBS/IS/IPI) no content.component derivam desses valores por unidade.
-    if (finalPriceWithTaxesPerUnit > 0) onFinalPriceWithTaxesChange?.({
+    if (!semPreco && finalPriceWithTaxesPerUnit > 0) onFinalPriceWithTaxesChange?.({
       finalPrice: finalPriceWithTaxesPerUnit,
       basePrice: finalSalePricePerUnit,
       operacaoInterna: baseForSalePrice / yieldDivisor,
@@ -243,9 +266,10 @@ export const ProductPrice: FC<Props> = ({
       // O `c` NÃO é por unidade: é um coeficiente, não um valor.
       externalOpsCoefficient: externalOpsCoefficientToFreeze(_matriz),
     })
-    // Não formado (`formado`, de `formarPrecoDoProduto`): só avisa quem pediu (o modo "orçamento"); Produtos não passa a prop.
-    if (!formado) onPrecoNaoFormado?.()
-  }, [finalPriceWithTaxesPerUnit, finalSalePricePerUnit, onFinalPriceWithTaxesChange, onPrecoNaoFormado, _matriz, formado, valorPrecificado, baseForSalePrice, yieldDivisor])
+    // Não formado (`formado`, de `formarPrecoDoProduto`), ou com ICMS/PIS-COFINS não informados (`semPreco`, 10/11/2026): só avisa quem pediu
+    // (o modo "orçamento"); Produtos não passa a prop.
+    if (!formado || semPreco) onPrecoNaoFormado?.()
+  }, [finalPriceWithTaxesPerUnit, finalSalePricePerUnit, onFinalPriceWithTaxesChange, onPrecoNaoFormado, _matriz, formado, valorPrecificado, baseForSalePrice, yieldDivisor, semPreco])
 
   const fireChange = (name: string, value: number) => {
     handleChangePrecificationInputs({
@@ -278,9 +302,9 @@ export const ProductPrice: FC<Props> = ({
       } else if (editable === 'additionalIrpj' && onAdditionalIrpjChange) {
         onAdditionalIrpjChange(v ?? 0)
       } else if (editable === 'icms' && onIcmsPctChange) {
-        onIcmsPctChange(v ?? 0)
+        onIcmsPctChange(v)
       } else if (editable === 'pisCofins' && onPisCofinsLRPctChange) {
-        onPisCofinsLRPctChange(v ?? 0)
+        onPisCofinsLRPctChange(v)
       } else if (editable) {
         fireChange(editable, v ?? 0)
       }
@@ -295,7 +319,7 @@ export const ProductPrice: FC<Props> = ({
             <PercentInput
               size="small" min={0} max={100}
               showPercent={false}
-              value={pct}
+              value={(editable === 'icms' && icmsPctInformado === null) || (editable === 'pisCofins' && pisCofinsInformado === null) ? null : pct}
               onChange={(v) => handleEditableChange(v)}
               style={{ width: isMobile ? 88 : 110, fontSize: isMobile ? 12 : 13 }}
             />
@@ -337,12 +361,12 @@ export const ProductPrice: FC<Props> = ({
             ? `% Efetivada (R5): a original ${pct.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}% convertida pelo coeficiente da operação por fora. É ela que forma o preço e gera o valor em R$.`
             : 'Sem tributo por fora o coeficiente é zero, e a % efetivada é igual à original.'}>
             <span style={{ cursor: 'help' }}>
-              {effPct.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%
+              {semPreco ? '—' : `${effPct.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%`}
             </span>
           </Tooltip>
         </td>
         <td style={{ padding: '6px 0', textAlign: 'right', fontSize: isMobile ? 12 : 13, fontWeight: 500, whiteSpace: 'nowrap' }}>
-          R$ {getMonetaryValue(val)}
+          {semPreco ? '—' : `R$ ${getMonetaryValue(val)}`}
         </td>
       </tr>
     )
@@ -360,6 +384,15 @@ export const ProductPrice: FC<Props> = ({
           <div style={{ fontWeight: 700, fontSize: 15, color: '#B42318' }}>{fmt(costTotal)}</div>
         </div>
       </div>
+
+      {semPreco && (
+        <div data-preco-nao-formado="" style={{
+          background: '#FEF2F2', border: '1px solid #FDA29B', borderRadius: 8,
+          padding: '8px 14px', fontSize: 12, color: '#7A271A', marginBottom: 12,
+        }}>
+          <strong>O preço não se forma.</strong> Falta {faltasDosTributos.join('; e ')}. Informe o valor — zero, se for zero — para o preço sair.
+        </div>
+      )}
 
       {isMei && (
         <div style={{
@@ -485,7 +518,7 @@ export const ProductPrice: FC<Props> = ({
           <Tooltip title="100% menos a soma das % EFETIVADAS — é esta a margem que dividiu o custo e produziu o preço. Antes a tela mostrava a soma das % originais, e por isso ela prometia um preço diferente do exibido.">
             <span style={{ color: '#94a3b8', cursor: 'help' }}>Margem de contribuição aplicada</span>
           </Tooltip>
-          <span style={{ fontWeight: 600, textAlign: 'right', whiteSpace: 'nowrap' }}>{mcPct.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%</span>
+          <span style={{ fontWeight: 600, textAlign: 'right', whiteSpace: 'nowrap' }}>{semPreco ? '—' : `${mcPct.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })}%`}</span>
         </div>
 
         {/* O `c` AGIA E NÃO APARECIA. Ele encolhe a margem e levanta o preço inteiro (R9), e
@@ -517,7 +550,7 @@ export const ProductPrice: FC<Props> = ({
           </div>
         )}
 
-        {(isLucroReal || isLucroPresumed) && (
+        {!semPreco && (isLucroReal || isLucroPresumed) && (
           <>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', fontSize: 13, marginTop: 4 }}>
               <span style={{ color: '#94a3b8' }}>Valor do produto precificado</span>
@@ -718,7 +751,7 @@ export const ProductPrice: FC<Props> = ({
         })()}
 
         {/* Breakdown total de impostos — apenas quando há valores */}
-        {hasInlineTaxes && (
+        {!semPreco && hasInlineTaxes && (
           <div style={{ background: '#1a1a2e', padding: 12, borderRadius: 8, fontSize: 12, marginTop: 10 }}>
             {/* Doc 28/07 (item 44): resumo desmembrado — Operação Interna → valor com Despesas
                 Acessórias → cada tributo individualmente → Preço Final com Impostos. */}
@@ -792,7 +825,7 @@ export const ProductPrice: FC<Props> = ({
         {advancedTaxParams && <TaxDecompositionPanel result={_adv} params={advancedTaxParams} />}
 
         {/* Result box */}
-        <div style={{
+        {!semPreco && (<div style={{
           padding: '16px 20px', borderRadius: 8, marginTop: 12,
           background: finalPriceWithTaxes > 0 ? '#ECFDF5' : '#FEF2F2',
           border: `1px solid ${finalPriceWithTaxes > 0 ? '#6CE9A6' : '#FDA29B'}`,
@@ -850,10 +883,10 @@ export const ProductPrice: FC<Props> = ({
               )}
             </div>
           </div>
-        </div>
+        </div>)}
 
         {/* Composition bar */}
-        {totalPrice > 0 && (
+        {!semPreco && totalPrice > 0 && (
           <div style={{ marginTop: 12 }}>
             <div style={{ fontSize: 11, color: '#64748b', marginBottom: 4 }}>Composição do preço</div>
             <div style={{ display: 'flex', height: 8, borderRadius: 4, overflow: 'hidden' }}>

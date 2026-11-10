@@ -27,10 +27,10 @@ interface ContentResaleProps {
   onCustomTaxPercentChange?: (value: number) => void
   additionalIrpjPercent?: number
   onAdditionalIrpjChange?: (value: number) => void
-  icmsPct?: number
-  onIcmsPctChange?: (value: number) => void
-  pisCofinsLRPct?: number
-  onPisCofinsLRPctChange?: (value: number) => void
+  icmsPct?: number | null
+  onIcmsPctChange?: (value: number | null) => void
+  pisCofinsLRPct?: number | null
+  onPisCofinsLRPctChange?: (value: number | null) => void
   freightValue?: number
   insuranceValue?: number
   accessoryExpensesValue?: number
@@ -50,6 +50,7 @@ interface ContentResaleProps {
   isBaseCode?: number | null
   ipiBaseCode?: number | null
   onFinalPriceWithTaxesChange?: (data: PrecoEmitido) => void
+  onFaltasDosTributosChange?: (faltas: string[]) => void
   advancedTaxesSection?: ReactNode
   advancedTaxParams?: AdvancedTaxParams
   /** Frente 2: lista compacta dos itens renderizada SÓ no mobile (≤639). */
@@ -94,6 +95,7 @@ export const ContentResale: FC<ContentResaleProps> = ({
   isBaseCode,
   ipiBaseCode,
   onFinalPriceWithTaxesChange,
+  onFaltasDosTributosChange,
   advancedTaxesSection,
   advancedTaxParams,
   mobileItemsList,
@@ -176,6 +178,7 @@ export const ContentResale: FC<ContentResaleProps> = ({
         isBaseCode={isBaseCode}
         ipiBaseCode={ipiBaseCode}
         onFinalPriceWithTaxesChange={onFinalPriceWithTaxesChange}
+        onFaltasDosTributosChange={onFaltasDosTributosChange}
         advancedTaxesSection={advancedTaxesSection}
         advancedTaxParams={advancedTaxParams}
       />
