@@ -71,6 +71,9 @@ MUT = [
     ('S8 a coluna ausente não é 503', S, "const colunaAusente = (e: { code?: string } | null | undefined) => e?.code === '42703' || e?.code === 'PGRST204'", "const colunaAusente = (e: { code?: string } | null | undefined) => e?.code === 'nunca'"),
     ('S9 percentual acima de 100 passa', S, "    if (n === null || n < 0 || n > 100) {", "    if (n === null || n < 0) {"),
 ]
+import os as _os; sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+from trecho_unico import exigir_trecho_unico  # a mutação que não se aplica aborta (mutacao-que-nao-se-aplica.md)
+exigir_trecho_unico((nome, [(arq, open(os.path.join(R, arq), encoding='utf-8').read(), de, para)]) for nome, arq, de, para in MUT)
 
 def rodar_suites(arvore):
     r = subprocess.run(['npx', 'jest', '--silent', *SUITES], cwd=arvore, capture_output=True, text=True)
@@ -95,7 +98,7 @@ def main():
             caminho = os.path.join(wt, arq)
             original = open(caminho, encoding='utf-8').read()
             if original.count(de) != 1:
-                print(f'  NAO APLICADA: {nome} ({original.count(de)} ocorrencias)'); vivas.append(nome); continue
+                print(f'  NAO APLICADA: {nome} ({original.count(de)} ocorrencias)'); return 3
             open(caminho, 'w', encoding='utf-8').write(original.replace(de, para))
             try:
                 viva = rodar_suites(wt)

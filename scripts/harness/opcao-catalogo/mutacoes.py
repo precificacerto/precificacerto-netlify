@@ -129,6 +129,9 @@ MUTACOES = [
     ('M0', 'CONTROLE: nada muda', [], None, False),
     ('M1', 'CONTROLE com um rótulo CERTO com "Ã" no banco: a migração passa', [], None, True, {'TEXTO_CERTO_COM_A_TIL': '1'}),
 ]
+import os as _os; sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+from trecho_unico import exigir_trecho_unico  # a mutação que não se aplica aborta (mutacao-que-nao-se-aplica.md)
+exigir_trecho_unico((m[0], [('a migração', open(MIG, encoding='utf-8').read(), m[2], None)] if callable(m[2]) else [('a migração', open(MIG, encoding='utf-8').read(), v, t) for v, t in m[2]]) for m in MUTACOES)
 
 
 def mutar(texto, trocas):

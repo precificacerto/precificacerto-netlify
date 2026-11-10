@@ -44,6 +44,9 @@ MUTACOES = [
     ('R19', APANHADO, 'a comparação olha o acento', "v.normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase()", "v.toLowerCase()"),
     ('R20', APANHADO, 'a linha do apanhado volta ao rótulo fixo', "mm, ${vidroNoApanhado(e.vidro)}.`)", "mm, vidro ${e.vidro ?? '?'}.`)"),
 ]
+import os as _os; sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+from trecho_unico import exigir_trecho_unico  # a mutação que não se aplica aborta (mutacao-que-nao-se-aplica.md)
+exigir_trecho_unico((i, [(a, open(os.path.join(RAIZ, a), encoding='utf-8').read(), v, n)]) for i, a, _d, v, n in MUTACOES)
 
 
 def jest():

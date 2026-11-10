@@ -36,6 +36,9 @@ MUTACOES = [
     ("8-10 arquivar nasce aberta (sem REVOKE)", 8, "REVOKE ALL ON FUNCTION public.superadmin_arquivar_motor(uuid, uuid) FROM PUBLIC, anon, authenticated;", "SELECT 1;"),
     ("8-11 gravar_etapas deixa de ser SECURITY DEFINER", 8, "CREATE OR REPLACE FUNCTION public.superadmin_gravar_etapas_da_familia(\n  p_familia text, p_por uuid, p_etapas jsonb\n) RETURNS jsonb\nLANGUAGE plpgsql\nSECURITY DEFINER", "CREATE OR REPLACE FUNCTION public.superadmin_gravar_etapas_da_familia(\n  p_familia text, p_por uuid, p_etapas jsonb\n) RETURNS jsonb\nLANGUAGE plpgsql"),
 ]
+import os as _os; sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+from trecho_unico import exigir_trecho_unico  # a mutação que não se aplica aborta (mutacao-que-nao-se-aplica.md)
+exigir_trecho_unico((nome, [(f'a migração {n}', O7 if n == 7 else O8, de, para)]) for nome, n, de, para in MUTACOES)
 
 def sem_verifica(t):
     i = t.index("DO $verifica$"); j = t.index("$verifica$;", i) + len("$verifica$;")
@@ -60,7 +63,7 @@ vivas = []
 for nome, n, de, para in MUTACOES:
     orig = O7 if n == 7 else O8
     if orig.count(de) != 1:
-        print(f"{nome}: TRECHO NAO ACHADO ({orig.count(de)}x) — a mutação não se aplica"); vivas.append(nome); continue
+        print(f"{nome}: TRECHO NAO ACHADO ({orig.count(de)}x) — a mutação não se aplica"); sys.exit(3)
     r = rodar(*aplicar(n, de, para, False))
     print(f"{nome} {'MORTA' if r != 0 else ('EQUIVALENTE' if nome in EQUIVALENTES else 'SOBREVIVEU')} (exit {r})", flush=True)
     if r == 0 and nome not in EQUIVALENTES: vivas.append(nome)

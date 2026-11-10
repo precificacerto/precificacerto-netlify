@@ -26,6 +26,9 @@ MUT = [
     ('F5 sem SECURITY DEFINER', "LANGUAGE plpgsql\nSECURITY DEFINER\nSET search_path TO 'public'\nSET statement_timeout", "LANGUAGE plpgsql\nSET search_path TO 'public'\nSET statement_timeout"),
     ('F6 credito_pct trocado com credito_valor', "    x.credito_pct, x.credito_valor, x.custo_liquido\n", "    x.credito_valor, x.credito_pct, x.custo_liquido\n"),
 ]
+import os as _os; sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+from trecho_unico import exigir_trecho_unico  # a mutação que não se aplica aborta (mutacao-que-nao-se-aplica.md)
+exigir_trecho_unico((nome, [('a migração', ORIG, a, b)]) for nome, a, b in MUT)
 def sem_verificacao(s):
     s = re.sub(r'\nDO \$verifica\$[\s\S]*?\$verifica\$;\n', '\n', s)
     corpo = re.search(r'AS \$function\$([\s\S]*?)\$function\$', s).group(1)
@@ -40,7 +43,7 @@ for nome, t in [('controle com verificacao', ORIG), ('controle sem verificacao',
 mortas = 0
 for passada, prep in [('com verificacao', lambda s: s), ('sem verificacao', sem_verificacao)]:
     for nome, a, b in MUT:
-        if ORIG.count(a) != 1: print(f'{passada} {nome}: TRECHO {ORIG.count(a)}x'); continue
+        if ORIG.count(a) != 1: print(f'{passada} {nome}: TRECHO {ORIG.count(a)}x'); sys.exit(3)
         r = roda(prep(ORIG.replace(a, b)))
         ult = (r.stdout.strip().splitlines() or ['?'])[-1]
         print(f'{passada} {nome}: {"MORTA" if r.returncode != 0 else "SOBREVIVEU"} — {ult}', flush=True)

@@ -37,9 +37,12 @@ MUT = [
  ('U11 comentario da UF nao ASCII', "Obrigatoria exatamente quando", "Obrigat\u00f3ria exatamente quando"),
  ('I1 a CHECK sem idempotencia', "IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = to_regclass('public.orcamentista_orcamento') AND conname = 'orcamentista_orcamento_ncm_forma') THEN\n    ALTER", "IF true THEN\n    ALTER"),
 ]
+import os as _os; sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+from trecho_unico import exigir_trecho_unico  # a mutação que não se aplica aborta (mutacao-que-nao-se-aplica.md)
+exigir_trecho_unico((nome, [('a 20261109000004', open(MIG, encoding='utf-8').read(), de, para)]) for nome, de, para in MUT)
 original = open(MIG, encoding='utf-8').read(); vivas = []
 for nome, de, para in MUT:
-    if original.count(de) != 1: print(f'  NAO APLICADA: {nome} ({original.count(de)} ocorrencias)'); vivas.append(nome); continue
+    if original.count(de) != 1: print(f'  NAO APLICADA: {nome} ({original.count(de)} ocorrencias)'); sys.exit(3)
     with tempfile.NamedTemporaryFile('w', suffix='.sql', delete=False, encoding='utf-8') as t: t.write(original.replace(de, para))
     r = subprocess.run([os.path.join(S, 'run.sh'), t.name], capture_output=True, text=True, env={**os.environ, 'HARNESS_DB': 'harness_fiscal_mut'})
     os.unlink(t.name)

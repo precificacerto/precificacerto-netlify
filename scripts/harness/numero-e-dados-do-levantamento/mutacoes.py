@@ -115,6 +115,10 @@ def roda(conteudo):
 def main():
     pedidas = set(sys.argv[1:])
     original = open(MIG, encoding='utf-8').read()
+    import os as _os; sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+    from trecho_unico import exigir_trecho_unico  # a mutação que não se aplica aborta (mutacao-que-nao-se-aplica.md)
+    exigir_trecho_unico([(f'{i} (A)', [('a migração', original, v, n)]) for i, _d, v, n in MUTACOES]
+                        + [(f'{i} (B)', [('a migração sem a verificação', sem_verifica(original), v, n)]) for i, _d, v, n in MUTACOES if not i.startswith('V')])
     vivas = 0
     for passada, base in (('A', original), ('B', sem_verifica(original))):
         if not pedidas or 'M0' in pedidas:

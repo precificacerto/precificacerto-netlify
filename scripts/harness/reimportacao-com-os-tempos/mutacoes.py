@@ -27,6 +27,9 @@ M = [
   ANCORA + "  UPDATE public.orcamentista_motor_tipologia_tempo SET tempo_origem = 'IMPORTADO' WHERE tabela_id = p_tabela_id AND tipologia = 'DP-164';\n", 'caso 3'),
  ('R0', 'controle: nada muda', ANCORA, None),
 ]
+import os as _os; sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+from trecho_unico import exigir_trecho_unico  # a mutação que não se aplica aborta (mutacao-que-nao-se-aplica.md)
+exigir_trecho_unico((m[0], [('a 20261025000004', open(IMP, encoding='utf-8').read(), ANCORA, m[2])]) for m in M)
 
 def principal():
     orig = open(IMP, encoding='utf-8').read()

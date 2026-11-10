@@ -68,9 +68,9 @@ def aplicar(trocas, tira):
     for de, para in trocas: t = t.replace(de, para)
     return sem_verifica(t) if tira else t
 
-erro = [(n, de[:60]) for n, trocas in MUTACOES for de, _ in trocas if ORIG.count(de) != 1]
-if erro:
-    print("TRECHO NAO ACHADO ou repetido:", erro); sys.exit(1)
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+from trecho_unico import exigir_trecho_unico  # a mutação que não se aplica aborta (mutacao-que-nao-se-aplica.md)
+exigir_trecho_unico((m[0], [('a migração', ORIG, de, para) for de, para in m[1]]) for m in MUTACOES)
 vivas = {}
 for tira in (False, True):
     c = rodar(aplicar([], tira))

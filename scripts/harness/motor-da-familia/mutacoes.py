@@ -24,6 +24,9 @@ MUTACOES = [
     ("M15 MATCH FULL no lugar do CHECK (a correção proposta no pedido)", "ADD CONSTRAINT orcamentista_levantamento_item_motor_familia_fkey\n      FOREIGN KEY (motor_id, familia) REFERENCES public.orcamentista_motor (id, familia) ON DELETE RESTRICT;", "ADD CONSTRAINT orcamentista_levantamento_item_motor_familia_fkey\n      FOREIGN KEY (motor_id, familia) REFERENCES public.orcamentista_motor (id, familia) MATCH FULL ON DELETE RESTRICT;"),
     ("M13 coluna da etapa NOT NULL", "ALTER TABLE public.orcamentista_familia_etapa ADD COLUMN IF NOT EXISTS motor_id uuid;", "ALTER TABLE public.orcamentista_familia_etapa ADD COLUMN IF NOT EXISTS motor_id uuid NOT NULL DEFAULT gen_random_uuid();"),
 ]
+import os as _os; sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+from trecho_unico import exigir_trecho_unico  # a mutação que não se aplica aborta (mutacao-que-nao-se-aplica.md)
+exigir_trecho_unico((nome, [('a migração', ORIGINAL, de, para)]) for nome, de, para in MUTACOES)
 
 def rodar(texto):
     with tempfile.NamedTemporaryFile("w", suffix=".sql", delete=False) as f:
@@ -35,7 +38,7 @@ print(f"CONTROLE (sem mutação): {'passa' if c == 0 else 'FALHOU exit ' + str(c
 vivas = []
 for nome, de, para in MUTACOES:
     if ORIGINAL.count(de) != 1:
-        print(f"{nome}: TRECHO NAO ACHADO ({ORIGINAL.count(de)}x) — a mutação não se aplica"); vivas.append(nome); continue
+        print(f"{nome}: TRECHO NAO ACHADO ({ORIGINAL.count(de)}x) — a mutação não se aplica"); sys.exit(3)
     r = rodar(ORIGINAL.replace(de, para))
     print(f"{nome} {'MORTA' if r != 0 else 'SOBREVIVEU'} (exit {r})")
     if r == 0: vivas.append(nome)
@@ -52,7 +55,7 @@ c2 = rodar(sem_verifica(ORIGINAL))
 print(f"CONTROLE sem verificação: {'passa' if c2 == 0 else 'FALHOU exit ' + str(c2)}")
 for nome, de, para in MUTACOES:
     if ORIGINAL.count(de) != 1:
-        print(f"{nome}: TRECHO NAO ACHADO — a mutação não se aplica"); vivas2.append(nome); continue
+        print(f"{nome}: TRECHO NAO ACHADO — a mutação não se aplica"); sys.exit(3)
     r = rodar(sem_verifica(ORIGINAL.replace(de, para)))
     print(f"{nome} {'MORTA pelos casos' if r == 1 else ('abortou na base' if r == 2 else 'SOBREVIVEU')} (exit {r})")
     if r == 0: vivas2.append(nome)

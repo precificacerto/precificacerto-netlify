@@ -119,9 +119,9 @@ def aplicar(trocas, tira_verifica):
 
 if len(sys.argv) > 1:  # só as mutações cujo nome começa com um dos argumentos
     MUTACOES = [m for m in MUTACOES if any(m[0].startswith(a + " ") for a in sys.argv[1:])]
-erro = [(n, de[:60]) for n, trocas in MUTACOES for de, _ in trocas if ORIG.count(de) != 1]
-if erro:
-    print("TRECHO NAO ACHADO ou repetido:", erro); sys.exit(1)
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+from trecho_unico import exigir_trecho_unico  # a mutação que não se aplica aborta (mutacao-que-nao-se-aplica.md)
+exigir_trecho_unico((m[0], [('a migração', ORIG, de, para) for de, para in m[1]]) for m in MUTACOES)
 c = rodar(ORIG)
 print(f"CONTROLE (sem mutação): {'passa' if c == 0 else 'FALHOU exit ' + str(c)}", flush=True)
 vivas = []
