@@ -34,6 +34,10 @@ SELECT pg_temp.caso('2g - a interna com fracao de centavo e recusada',
   pg_temp.recusa($q$UPDATE public.orcamentista_orcamento SET valor_venda = 120.00, valor_operacao_interna = 100.005 WHERE id = '00000000-0000-0000-0000-00000000000a'$q$, '23514'));
 SELECT pg_temp.caso('2h - a interna com zero a direita (100.10) passa',
   pg_temp.passa($q$UPDATE public.orcamentista_orcamento SET valor_venda = 120.00, valor_operacao_interna = 100.10 WHERE id = '00000000-0000-0000-0000-00000000000a'$q$));
+SELECT pg_temp.caso('2j - a interna igual a venda ARREDONDADA passa, mesmo com a venda crua um pouco abaixo (99.996 -> 100.00)',
+  pg_temp.passa($q$UPDATE public.orcamentista_orcamento SET valor_venda = 99.996, valor_operacao_interna = 100.00 WHERE id = '00000000-0000-0000-0000-00000000000a'$q$));
+SELECT pg_temp.caso('2k - a interna um centavo acima da venda arredondada e recusada (99.994 -> 99.99)',
+  pg_temp.recusa($q$UPDATE public.orcamentista_orcamento SET valor_venda = 99.994, valor_operacao_interna = 100.00 WHERE id = '00000000-0000-0000-0000-00000000000a'$q$, '23514'));
 SELECT pg_temp.caso('2i - as duas nulas juntas passam (a precificacao desfeita)',
   pg_temp.passa($q$UPDATE public.orcamentista_orcamento SET valor_venda = NULL, valor_operacao_interna = NULL WHERE id = '00000000-0000-0000-0000-00000000000a'$q$));
 SELECT pg_temp.caso('3a - as tres CHECKs existem com o nome',

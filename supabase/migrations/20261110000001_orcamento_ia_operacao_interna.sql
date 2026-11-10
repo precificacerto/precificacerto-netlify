@@ -30,8 +30,10 @@
 --   - `valor_operacao_interna numeric NULL`, gravada pelo salvar da precificação JUNTO com `valor_venda`;
 --   - `orcamentista_orcamento_operacao_interna_com_a_venda`: as duas são nulas juntas ou preenchidas juntas — um valor de venda sem a
 --     interna não reparte entre os itens, e uma interna sem venda não é preço;
---   - `orcamentista_orcamento_operacao_interna_na_faixa`: 0 < interna <= venda. A venda é a interna MAIS os tributos por fora, que nunca
---     são negativos (a invariante `precoFinalAbaixoDaInterna` da tela);
+--   - `orcamentista_orcamento_operacao_interna_na_faixa`: 0 < interna <= round(venda, 2). A venda é a interna MAIS os tributos por fora,
+--     que nunca são negativos (a invariante `precoFinalAbaixoDaInterna` da tela). O teto é a venda ARREDONDADA, não a crua: a interna
+--     está em centavos e a venda não, e o arquivo compara os dois em centavos — "tributos por fora" = round(venda, 2) − interna, que
+--     assim nunca sai negativo (dono do produto, 10/11/2026: "A na_faixa ainda compara a interna arredondada com a venda crua");
 --   - `orcamentista_orcamento_operacao_interna_ao_centavo`: a interna tem no máximo duas casas. O rateio por item fecha com ela EXATO,
 --     sem tolerância, e só fecha exato contra um número em centavos. (A venda continua gravada sem arredondar, como hoje; o arquivo a
 --     arredonda ao centavo, e a linha "tributos por fora" é a venda arredondada menos a interna.)
@@ -40,7 +42,7 @@
 -- GUARDA (aborta): orcamentista_orcamento existe com valor_venda (a 20261109000002) e a tabela do arquivo existe (a 20261109000005); o
 --   orçamento tem 28 colunas e as duas tabelas 49 constraints (o estado conferido pelo dono do produto depois da 0005); e NENHUM orçamento
 --   tem valor_venda preenchido.
--- VERIFICAÇÃO (aborta): a coluna numeric, nula e sem default; as três CHECKs com a definição; 29 colunas no orçamento; 52 constraints nas
+-- VERIFICAÇÃO (aborta): a coluna numeric, nula e sem default; as três CHECKs com a definição (a na_faixa com o round da venda); 29 colunas no orçamento; 52 constraints nas
 --   duas tabelas (49 + 3); nenhum grant a anon, authenticated ou PUBLIC; o service_role ainda só com INSERT, SELECT e UPDATE.
 -- ════════════════════════════════════════════════════════════════════════════════════════
 BEGIN;
@@ -89,7 +91,7 @@ BEGIN
                   AND conname = 'orcamentista_orcamento_operacao_interna_na_faixa') THEN
     ALTER TABLE public.orcamentista_orcamento
       ADD CONSTRAINT orcamentista_orcamento_operacao_interna_na_faixa
-      CHECK ((valor_operacao_interna IS NULL) OR ((valor_operacao_interna > 0) AND (valor_operacao_interna <= valor_venda)));
+      CHECK ((valor_operacao_interna IS NULL) OR ((valor_operacao_interna > 0) AND (valor_operacao_interna <= round(valor_venda, 2))));
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = to_regclass('public.orcamentista_orcamento')
                   AND conname = 'orcamentista_orcamento_operacao_interna_ao_centavo') THEN
@@ -120,7 +122,7 @@ BEGIN
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = to_regclass('public.orcamentista_orcamento')
                   AND conname = 'orcamentista_orcamento_operacao_interna_na_faixa'
-                  AND pg_get_constraintdef(oid) = 'CHECK (((valor_operacao_interna IS NULL) OR ((valor_operacao_interna > (0)::numeric) AND (valor_operacao_interna <= valor_venda))))') THEN
+                  AND pg_get_constraintdef(oid) = 'CHECK (((valor_operacao_interna IS NULL) OR ((valor_operacao_interna > (0)::numeric) AND (valor_operacao_interna <= round(valor_venda, 2)))))') THEN
     faltam := concat_ws('; ', faltam, 'na_faixa');
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = to_regclass('public.orcamentista_orcamento')

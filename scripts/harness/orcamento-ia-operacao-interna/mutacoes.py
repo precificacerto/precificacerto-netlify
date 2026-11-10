@@ -8,8 +8,8 @@ MIG = os.path.join(R, 'supabase/migrations/20261110000001_orcamento_ia_operacao_
 def par(nome, *trocas): return (nome, list(trocas))
 CV = "CHECK ((valor_operacao_interna IS NULL) = (valor_venda IS NULL));"
 CV_V = "'CHECK (((valor_operacao_interna IS NULL) = (valor_venda IS NULL)))'"
-FX = "CHECK ((valor_operacao_interna IS NULL) OR ((valor_operacao_interna > 0) AND (valor_operacao_interna <= valor_venda)));"
-FX_V = "'CHECK (((valor_operacao_interna IS NULL) OR ((valor_operacao_interna > (0)::numeric) AND (valor_operacao_interna <= valor_venda))))'"
+FX = "CHECK ((valor_operacao_interna IS NULL) OR ((valor_operacao_interna > 0) AND (valor_operacao_interna <= round(valor_venda, 2))));"
+FX_V = "'CHECK (((valor_operacao_interna IS NULL) OR ((valor_operacao_interna > (0)::numeric) AND (valor_operacao_interna <= round(valor_venda, 2)))))'"
 CT = "CHECK ((valor_operacao_interna IS NULL) OR (valor_operacao_interna = round(valor_operacao_interna, 2)));"
 CT_V = "'CHECK (((valor_operacao_interna IS NULL) OR (valor_operacao_interna = round(valor_operacao_interna, 2))))'"
 MUT = [
@@ -19,6 +19,8 @@ MUT = [
     par('F1 na_faixa aceita zero', (FX, FX.replace('> 0)', '>= 0)')), (FX_V, FX_V.replace('> (0)::numeric', '>= (0)::numeric'))),
     par('F2 na_faixa sem o teto da venda', (FX, "CHECK ((valor_operacao_interna IS NULL) OR (valor_operacao_interna > 0));"),
         (FX_V, "'CHECK (((valor_operacao_interna IS NULL) OR (valor_operacao_interna > (0)::numeric)))'")),
+    par('F4 na_faixa com o teto na venda crua', (FX, FX.replace('round(valor_venda, 2)', 'valor_venda')), (FX_V, FX_V.replace('round(valor_venda, 2)', 'valor_venda'))),
+    par('F5 na_faixa com o teto na venda truncada', (FX, FX.replace('round(valor_venda, 2)', 'trunc(valor_venda, 2)')), (FX_V, FX_V.replace('round(valor_venda, 2)', 'trunc(valor_venda, 2)'))),
     par('F3 na_faixa neutra', (FX, "CHECK (true);"), (FX_V, "'CHECK (true)'")),
     par('T1 ao_centavo com tres casas', (CT, CT.replace(', 2)', ', 3)')), (CT_V, CT_V.replace(', 2)', ', 3)'))),
     par('T2 ao_centavo neutra', (CT, "CHECK (true);"), (CT_V, "'CHECK (true)'")),
