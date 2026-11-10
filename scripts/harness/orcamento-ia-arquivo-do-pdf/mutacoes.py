@@ -20,6 +20,8 @@ INDUS = 'src/page-parts/products/content-industrialization.tsx'
 LISTA = 'src/pages/atendimentos-ia/orcamentos-ia/index.tsx'
 CONTENT = 'src/page-parts/products/content.component.tsx'
 ROTA = 'src/pages/api/atendimentos-ia/orcamentos/[id]/precificacao.ts'
+PRICE = 'src/page-parts/products/product-price.component.tsx'
+TOPO = 'src/page-parts/atendimentos-ia/topo-do-orcamento.component.tsx'
 PLANO = 'src/lib/atendimentos-ia/travessia-do-levantamento-plano.ts'
 NCMPIS = 'src/utils/ncm-pis-cofins.ts'
 T = 'src/utils/__tests__/'
@@ -81,13 +83,25 @@ MUTACOES = [
     ('F1', 'o NCM volta a ser obrigatório', [(PREC, "    if (ncm !== '' && !FORMA_DO_NCM.test(ncm)) faltas.push(faltaDoNcmFora(ncm))", "    if (!FORMA_DO_NCM.test(ncm)) faltas.push(faltaDoNcmFora(ncm))")]),
     ('F2', 'sem NCM e sem a referência, o preço se grava', [(PREC, "    if (ncm === '' && args.referenciaDoTenant === false) faltas.push(FALTA_DA_REFERENCIA_DO_TENANT)\n", '')]),
     ('F3', 'a referência cobrada também com NCM', [(PREC, "    if (ncm === '' && args.referenciaDoTenant === false)", "    if (args.referenciaDoTenant === false)")]),
-    ('F4', 'o orçamento sem preço não abre no preset', [(PREC, '    const semPreco = o.valor_venda === null', '    const semPreco = false')]),
-    ('F5', 'o preset recalcula para trás (vale com preço)', [(PREC, '    const semPreco = o.valor_venda === null', '    const semPreco = true')]),
     ('F6', 'a travessia cria o orçamento sem o preset', [(PLANO, '        ...PRESET_DA_COMERCIALIZACAO,\n', '')]),
     ('F7', 'o preset é interestadual', [(PREC, "export const PRESET_DA_COMERCIALIZACAO = { sale_scope: 'INTRAESTADUAL',", "export const PRESET_DA_COMERCIALIZACAO = { sale_scope: 'INTERESTADUAL',")]),
     ('F8', 'a UF sem ICMS interno conta como referência', [(CONTENT, '        setReferenciaDoTenant(icmsDaUf !== null)', "        setReferenciaDoTenant(uf !== '')")]),
-    ('F9', 'sem NCM o PIS/COFINS da referência não entra', [(CONTENT, '    if (orcamento && semNcmNaTela && pisCofinsDaReferencia !== null) setPisCofinsLRPct(pisCofinsDaReferencia)', '    if (false) setPisCofinsLRPct(pisCofinsDaReferencia ?? 0)')]),
+    ('F9', 'o PIS/COFINS da empresa não entra no orçamento', [(CONTENT, '    if (orcamento && pisCofinsDaReferencia !== null) setPisCofinsLRPct(pisCofinsDaReferencia)', '    if (false) setPisCofinsLRPct(pisCofinsDaReferencia ?? 0)')]),
     ('F10', 'o PIS/COFINS da referência sem excluir o ICMS', [(NCMPIS, '  return parseFloat((PIS_COFINS_NAO_CUMULATIVO_PCT * (1 - args.icmsPct / 100)).toFixed(4))', '  return PIS_COFINS_NAO_CUMULATIVO_PCT')]),
+    # a empresa é a fonte única dos impostos, o fiscal é invisível, e o topo do cliente (dono do produto, 11/11/2026, segunda rodada)
+    ('E1', 'o servidor aceita o escopo do corpo', [(GRAVA, '    const fiscal = { ...PRESET_DA_COMERCIALIZACAO }', "    const fiscal = { ...PRESET_DA_COMERCIALIZACAO, sale_scope: (corpo.sale_scope === 'INTERESTADUAL' ? 'INTERESTADUAL' : 'INTRAESTADUAL') as 'INTRAESTADUAL', uf_destino: (typeof corpo.uf_destino === 'string' ? corpo.uf_destino : null) as null }")]),
+    ('E2', 'o bloco Fiscal volta ao orçamento', [(CONTENT, '      {!orcamento && (<>', '      {true && (<>')]),
+    ('E3', 'o ICMS se edita no orçamento', [(PRICE, "pricingRow('ICMS (%)', 'icms', impostosDaEmpresa ? undefined : 'icms',", "pricingRow('ICMS (%)', 'icms', 'icms',")]),
+    ('E4', 'o PIS/COFINS se edita no orçamento', [(PRICE, "              impostosDaEmpresa ? undefined : 'pisCofins',", "              'pisCofins',")]),
+    ('E5', 'a CBS nula entra como zero', [(CONTENT, '          cbsPct={ehOrcamento ? cbsDaEmpresa : cbsPct}', '          cbsPct={ehOrcamento ? (cbsDaEmpresa ?? 0) : cbsPct}')]),
+    ('E6', 'a linha do tributo nulo aparece', [(PRICE, '.filter((r): r is typeof r & { value: number } => r.value !== null)', '.filter((r): r is typeof r & { value: number } => true)')]),
+    ('E7', 'o IBS se edita no orçamento', [(PRICE, '                        disabled={impostosDaEmpresa}', '                        disabled={false}')]),
+    ('E8', 'a CBS da empresa não é lida', [(CONTENT, '        setCbsDaEmpresa(data?.cbs_reference_pct != null ? Number(data.cbs_reference_pct) : null)', '        setCbsDaEmpresa(null)')]),
+    ('E9', 'o topo esconde o campo sem dado', [(TOPO, '                {CAMPOS_DO_CLIENTE.map(([rotulo, chave]) => (', '                {CAMPOS_DO_CLIENTE.filter(([, c]) => cliente[c] != null).map(([rotulo, chave]) => (')]),
+    ('E10', 'o topo preenche o vazio com zero', [(TOPO, "{cliente[chave] ?? ''}", "{cliente[chave] ?? '0'}")]),
+    ('E11', 'o GET não traz o cliente', [(ROTA, 'lerClienteDoOrcamento(caller.tenant_id, id)])', 'Promise.resolve(null)])')]),
+    ('E12', 'o cliente lido de outra empresa', [(SERV, "select('nome, levantamento_id').eq('tenant_id', tenantId).eq('id', orcamentoId)", "select('nome, levantamento_id').eq('id', orcamentoId)")]),
+    ('E13', 'o PDF e a tela com rótulos diferentes', [(PDF, "['CLIENTE:', 'nome'], ['TEL. FIXO:', 'telFixo']", "['CLIENTE:', 'nome'], ['TELEFONE:', 'telFixo']")]),
     ('F11', 'a tela não passa a referência às faltas', [(CONTENT, '  const referenciaExigida = (): boolean | null => (isLRorLP ? referenciaDoTenant === true : null)', '  const referenciaExigida = (): boolean | null => null')]),
 ]
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

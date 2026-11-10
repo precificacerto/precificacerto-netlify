@@ -170,6 +170,18 @@ describe('gerar e gravar: o objeto primeiro, a linha depois, e nada quando não 
     })
 })
 
+describe('o cliente do TOPO da tela (11/11/2026)', () => {
+    it('as credenciais do levantamento de origem, no tenant do chamador; o que não tem coluna fica nulo (a tela o mostra em branco)', async () => {
+        expect(await S.lerClienteDoOrcamento(T, ORC)).toEqual({ nome: 'Geraldo Huck', telFixo: null, celular: '(51) 99999-0000', email: null, tel2: null,
+            endereco: 'Porto Alegre', ieRg: null, cep: null, cnpjCpf: null })
+        expect(estado.ops.filter((o) => o.tabela === 'orcamentista_orcamento' || o.tabela === 'orcamentista_levantamento')
+            .every((o) => o.filtros.some(([c, v]) => c === 'tenant_id' && v === T))).toBe(true)
+    })
+    it('o orçamento de outra empresa não é achado: nulo', async () => {
+        expect(await S.lerClienteDoOrcamento(OUTRO, ORC)).toBeNull()
+    })
+})
+
 describe('o último arquivo, para a tela abrir', () => {
     it('o mais novo do orçamento, no tenant do chamador; sem arquivo, nulo', async () => {
         expect(await S.lerUltimoArquivo(T, ORC)).toBeNull()

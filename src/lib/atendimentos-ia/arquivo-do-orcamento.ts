@@ -51,6 +51,14 @@ export type ClienteDoArquivo = {
     cep: string | null
     cnpjCpf: string | null
 }
+/**
+ * As credenciais do cliente, na ordem do modelo (WVetro): o PDF e o topo da tela leem ESTA lista (`copia-divergente.md`). Campo sem dado
+ * fica EM BRANCO, com o rótulo — nunca zero, nunca texto inventado, nunca a linha escondida (dono do produto, 11/11/2026).
+ */
+export const CAMPOS_DO_CLIENTE = [
+    ['CLIENTE:', 'nome'], ['TEL. FIXO:', 'telFixo'], ['CELULAR:', 'celular'], ['EMAIL:', 'email'], ['TEL2/Fax:', 'tel2'],
+    ['ENDEREÇO:', 'endereco'], ['IE/RG:', 'ieRg'], ['CEP:', 'cep'], ['CNPJ/CPF:', 'cnpjCpf'],
+] as const satisfies ReadonlyArray<readonly [string, keyof ClienteDoArquivo]>
 export type ItemDoArquivo = {
     ordem: number
     quantidade: number
@@ -194,11 +202,10 @@ function blocoDoCliente(doc: Doc, d: DadosDoArquivoDoOrcamento, y: number): numb
     const linha = 6
     doc.setDrawColor(0); doc.rect(A4.margem, y, LARGURA, linha * 3)
     const col = (k: number) => A4.margem + 2 + k * (LARGURA / 4)
-    campo(doc, 'CLIENTE:', texto(c.nome), col(0), y + 4.2, 8)
-    campo(doc, 'TEL. FIXO:', texto(c.telFixo), col(0), y + linha + 4.2); campo(doc, 'CELULAR:', texto(c.celular), col(1), y + linha + 4.2)
-    campo(doc, 'EMAIL:', texto(c.email), col(2), y + linha + 4.2); campo(doc, 'TEL2/Fax:', texto(c.tel2), col(3), y + linha + 4.2)
-    campo(doc, 'ENDEREÇO:', texto(c.endereco), col(0), y + 2 * linha + 4.2); campo(doc, 'IE/RG:', texto(c.ieRg), col(1), y + 2 * linha + 4.2)
-    campo(doc, 'CEP:', texto(c.cep), col(2), y + 2 * linha + 4.2); campo(doc, 'CNPJ/CPF:', texto(c.cnpjCpf), col(3), y + 2 * linha + 4.2)
+    // a primeira linha é o nome; as outras oito, quatro por linha, na ordem de `CAMPOS_DO_CLIENTE`
+    const [[rotuloDoNome, chaveDoNome], ...resto] = CAMPOS_DO_CLIENTE
+    campo(doc, rotuloDoNome, texto(c[chaveDoNome]), col(0), y + 4.2, 8)
+    resto.forEach(([rotulo, chave], k) => campo(doc, rotulo, texto(c[chave]), col(k % 4), y + (1 + Math.floor(k / 4)) * linha + 4.2))
     return y + linha * 3 + 4
 }
 

@@ -2,12 +2,13 @@
  * A PRECIFICAÇÃO FINAL DO ORÇAMENTO I.A., do lado do servidor (o 1b, dono do produto, 09/11/2026): ler o orçamento com o que o cálculo gravou
  * e o bloco fiscal (a `20261109000004`), e GRAVAR o preço que a tela formou — no ORÇAMENTO, nunca em `products`.
  *
- * O que se grava: o valor de venda, o bloco fiscal (NCM, escopo, comprador, UF de destino) e os três percentuais com que o preço foi formado
- * (comissão, reserva técnica, lucro — o preço é fato daquele instante, e os percentuais vão junto: `fato-vs-referencia.md`).
+ * O que se grava: o valor de venda, a operação interna, o fiscal e os três percentuais com que o preço foi formado (comissão, reserva técnica,
+ * lucro — o preço é fato daquele instante, e os percentuais vão junto: `fato-vs-referencia.md`). O FISCAL é SEMPRE o preset da comercialização
+ * (dono do produto, 11/11/2026: "O escopo vira automático e invisível"): o que o corpo trouxer em NCM, escopo, comprador ou UF é ignorado, e
+ * sem caminho manual, de propósito, até o PR que trouxer a venda interestadual.
  *
- * A rota RECUSA, nomeando, pelas mesmas regras da tela (`faltasDoFiscal`, `estadoDoCalculo`): sem o cálculo completo não há preço; sem NCM
- * não há preço; a venda interestadual exige a UF. O valor de venda é o que a tela formou — o servidor confere que é número positivo, não o
- * recalcula (é o mesmo contrato da tela de Produtos com `sale_price`).
+ * A rota RECUSA, nomeando, pelas mesmas regras da tela (`estadoDoCalculo`): sem o cálculo completo não há preço. O valor de venda é o que a
+ * tela formou — o servidor confere que é número positivo, não o recalcula (é o mesmo contrato da tela de Produtos com `sale_price`).
  *
  * Toda leitura e escrita leva o `tenant_id` do chamador.
  */
@@ -16,8 +17,8 @@ import { ratearOperacaoInterna } from './rateio-do-orcamento'
 import { gerarEGravarArquivo, lerDadosDoArquivo, type ArquivoGravado } from './arquivo-do-orcamento-servidor'
 import { ErroDeValidacao, ErroNaoEncontrado, ErroSemMigracao, TABELA_DO_ITEM, TABELA_DO_ORCAMENTO, tabelaAusente } from './orcamentos-ia'
 import {
-    estadoDoCalculo, faltasDoFiscal, FORMA_DA_UF, FRASE_DO_ESTADO,
-    type EscopoDaVenda, type GravacaoDaPrecificacao, type ItemNaPrecificacao, type OrcamentoNaPrecificacao, type TipoDeComprador,
+    estadoDoCalculo, FRASE_DO_ESTADO, PRESET_DA_COMERCIALIZACAO,
+    type GravacaoDaPrecificacao, type ItemNaPrecificacao, type OrcamentoNaPrecificacao,
 } from './precificacao-do-orcamento'
 
 export const FRASE_SEM_MIGRACAO_DA_PRECIFICACAO =
@@ -69,7 +70,6 @@ export async function lerOrcamentoParaPrecificar(tenantId: string, id: string): 
     }
 }
 
-const textoOuNulo = (v: unknown): string | null => (typeof v === 'string' && v.trim() !== '' ? v.trim() : null)
 function percentual(v: unknown, rotulo: string, erros: string[]): number {
     const n = numeroOuNulo(v)
     if (n === null || n < 0 || n > 100) { erros.push(`${rotulo}: tem de ser um percentual de 0 a 100.`); return 0 }
@@ -86,14 +86,8 @@ export function validarGravacao(corpo: Record<string, unknown>): GravacaoDaPreci
     if (interna === null || interna <= 0) erros.push('Operação interna: tem de ser um número maior que zero.')
     else if (Math.abs(interna * 100 - Math.round(interna * 100)) > 1e-6) erros.push(`Operação interna: tem de estar em centavos (veio ${interna}).`)
     else if (valor !== null && valor > 0 && Math.round(interna * 100) > Math.round(valor * 100)) erros.push('Operação interna: não pode passar do valor de venda.')
-    const sale_scope: EscopoDaVenda | null = corpo.sale_scope === 'INTRAESTADUAL' || corpo.sale_scope === 'INTERESTADUAL' ? corpo.sale_scope : null
-    if (corpo.sale_scope != null && sale_scope === null) erros.push('Escopo da venda: INTRAESTADUAL ou INTERESTADUAL.')
-    const buyer_type: TipoDeComprador | null = corpo.buyer_type === 'CONSUMIDOR_FINAL' || corpo.buyer_type === 'CONTRIBUINTE_PJ' ? corpo.buyer_type : null
-    if (corpo.buyer_type != null && buyer_type === null) erros.push('Tipo de comprador: CONSUMIDOR_FINAL ou CONTRIBUINTE_PJ.')
-    const uf = textoOuNulo(corpo.uf_destino)
-    if (uf !== null && !FORMA_DA_UF.test(uf)) erros.push(`UF de destino: duas letras maiúsculas (veio "${uf}").`)
-    const fiscal = { ncm_code: textoOuNulo(corpo.ncm_code), sale_scope, buyer_type, uf_destino: uf }
-    erros.push(...faltasDoFiscal(fiscal).map((f) => `Falta ${f}.`))
+    // o fiscal é SEMPRE o preset (11/11/2026): o corpo não decide NCM, escopo, comprador nem UF
+    const fiscal = { ...PRESET_DA_COMERCIALIZACAO }
     const g: GravacaoDaPrecificacao = {
         ...fiscal,
         valor_venda: valor as number,
@@ -131,7 +125,6 @@ export async function gravarPrecificacao(tenantId: string, id: string, corpo: Re
         .update({ ...g, atualizado_em: agora.toISOString() })
         .eq('tenant_id', tenantId).eq('id', id).select('id')
     if (error) {
-        if (error.code === '23503') throw new ErroDeValidacao([`UF de destino: "${g.uf_destino}" não é uma UF.`])
         if (error.code === '23514') throw new ErroDeValidacao([`O orçamento não aceitou a precificação: ${error.message}`])
         falhou(TABELA_DO_ORCAMENTO, error)
     }

@@ -19,7 +19,7 @@ import React from 'react'
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import {
-    FALTA_DA_UF, FALTA_DA_REFERENCIA_DO_TENANT, FRASE_CALCULO_INCOMPLETO, faltaDaAliquotaDoNcm, faltaDaInternaDivergente,
+    FALTA_DA_REFERENCIA_DO_TENANT, FRASE_CALCULO_INCOMPLETO, faltaDaInternaDivergente,
     type GravacaoDaPrecificacao, type ItemNaPrecificacao, type OrcamentoNaPrecificacao,
 } from '@/lib/atendimentos-ia/precificacao-do-orcamento'
 
@@ -78,6 +78,8 @@ jest.mock('@/page-parts/products/product-price.component', () => {
 /* eslint-disable @typescript-eslint/no-require-imports */
 const { Content } = require('@/page-parts/products/content.component') as typeof import('@/page-parts/products/content.component')
 const { FRASE_SEM_PRECO } = require('@/page-parts/atendimentos-ia/itens-precificados.component') as typeof import('@/page-parts/atendimentos-ia/itens-precificados.component')
+const { TopoDoOrcamento } = require('@/page-parts/atendimentos-ia/topo-do-orcamento.component') as typeof import('@/page-parts/atendimentos-ia/topo-do-orcamento.component')
+const { CAMPOS_DO_CLIENTE } = require('@/lib/atendimentos-ia/arquivo-do-orcamento') as typeof import('@/lib/atendimentos-ia/arquivo-do-orcamento')
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 // ── O cenário: a De Paula medida (Lucro Real, industrialização, 40.813,03 ÷ 52.800 min) ─────────────────────────────────────────
@@ -253,8 +255,8 @@ describe('(B) A RECONCILIAÇÃO DA D2 SOBRE A TELA — o custo que a tela formou
 
 describe('(C) OS DOIS MODOS SÃO O MESMO CÁLCULO, e cada um fica no seu ramo', () => {
     it('o orçamento com o mesmo líquido, os mesmos minutos, os mesmos percentuais e o mesmo PIS/COFINS do produto mostra os MESMOS três números', async () => {
-        // o PIS/COFINS do orçamento é o do NCM (9,25%); o produto de referência, com 9,25%, é a mesma conta
-        const produto = await montar({ isEditingMode: true, product: { ...PRODUTO_1008, pis_cofins_pct: 9.25 } as typeof PRODUTO_1008, itemsFromApi: ITENS_DA_API })
+        // o PIS/COFINS do orçamento é o da EMPRESA (11/11/2026): 9,25% × (1 − ICMS 17% do RS) = 7,6775%, o mesmo do produto de referência
+        const produto = await montar({ isEditingMode: true, product: { ...PRODUTO_1008, pis_cofins_pct: 7.6775 } as typeof PRODUTO_1008, itemsFromApi: ITENS_DA_API })
         const doOrcamento = await montar({ orcamento: orcamento(), onSalvarOrcamento: jest.fn() })
         expect(tresNumeros(doOrcamento)).toEqual(tresNumeros(produto))
         expect(tresNumeros(doOrcamento).custo).toBe(CONGELADO.custo)
@@ -308,7 +310,7 @@ describe('(C) OS DOIS MODOS SÃO O MESMO CÁLCULO, e cada um fica no seu ramo', 
         expect(salvar).toHaveBeenCalledTimes(1)
         const g = salvar.mock.calls[0][0]
         expect(g).toMatchObject({
-            ncm_code: '7610.10.00', sale_scope: 'INTRAESTADUAL', buyer_type: 'CONSUMIDOR_FINAL', uf_destino: null,
+            ncm_code: null, sale_scope: 'INTRAESTADUAL', buyer_type: 'CONSUMIDOR_FINAL', uf_destino: null,
             comissao_percentual: 5, reserva_tecnica_percentual: 3, lucro_projetado_percentual: 10,
         })
         // o valor gravado é o "Preço de Venda por Unidade" que a tela exibe — o mesmo número que Produtos grava em sale_price
@@ -378,25 +380,71 @@ describe('(D) AS FALTAS NOMEADAS — nada se grava com falta', () => {
         expect(salvar).not.toHaveBeenCalled()
         expect(host.querySelector('[data-recusas-do-orcamento]')?.textContent).toContain('o preço formado')
     })
-    it('o NCM sem linha na tabela (Lucro Real): a alíquota é falta nomeada', async () => {
-        banco.respostas.ncm_codes = null
-        const host = await montar({ orcamento: orcamento(), onSalvarOrcamento: jest.fn() })
-        expect(host.querySelector('[data-faltas-do-orcamento]')?.textContent).toContain(faltaDaAliquotaDoNcm('7610.10.00'))
-    })
-    it('o PIS/COFINS do orçamento é o do NCM (9,25%), não a fórmula do ICMS (7,6775%): a margem é a do produto com 9,25%', async () => {
+    it('o PIS/COFINS do orçamento é SEMPRE o da empresa (7,6775%), mesmo com um NCM gravado nele: a tabela de NCM não é lida (11/11/2026)', async () => {
         const com925 = await montar({ isEditingMode: true, product: { ...PRODUTO_1008, pis_cofins_pct: 9.25 } as typeof PRODUTO_1008, itemsFromApi: ITENS_DA_API })
-        const doOrcamento = await montar({ orcamento: orcamento(), onSalvarOrcamento: jest.fn() })
-        expect(valorDe(doOrcamento, 'Margem de contribuição aplicada')).toBe(valorDe(com925, 'Margem de contribuição aplicada'))
-        // e NÃO a do produto com a fórmula do ICMS (os números congelados, 7,6775%)
-        expect(valorDe(doOrcamento, 'Margem de contribuição aplicada')).not.toBe(CONGELADO.mc)
+        banco.lidas = []
+        const doOrcamento = await montar({ orcamento: orcamento({ ncm_code: '7610.10.00' }), onSalvarOrcamento: jest.fn() })
+        expect(valorDe(doOrcamento, 'Margem de contribuição aplicada')).toBe(CONGELADO.mc)
+        expect(valorDe(doOrcamento, 'Margem de contribuição aplicada')).not.toBe(valorDe(com925, 'Margem de contribuição aplicada'))
+        expect(banco.lidas).not.toContain('ncm_codes')
     })
-    it('a venda INTERESTADUAL sem UF é falta; o escopo e o comprador não informados também, no orçamento que JÁ TEM preço (sem preço, vale o preset)', async () => {
-        const h1 = await montar({ orcamento: orcamento({ sale_scope: 'INTERESTADUAL', uf_destino: null }), onSalvarOrcamento: jest.fn() })
-        expect(h1.querySelector('[data-faltas-do-orcamento]')?.textContent).toContain(FALTA_DA_UF)
-        const h2 = await montar({ orcamento: orcamento({ sale_scope: null, buyer_type: null, valor_venda: 3000, valor_operacao_interna: 3000 }), onSalvarOrcamento: jest.fn() })
-        const faltas = h2.querySelector('[data-faltas-do-orcamento]')?.textContent ?? ''
-        expect(faltas).toContain('o escopo da venda')
-        expect(faltas).toContain('o tipo de comprador')
+})
+
+describe('(F) A EMPRESA É A FONTE ÚNICA DOS IMPOSTOS, e o fiscal é invisível (dono do produto, 11/11/2026)', () => {
+    it('o bloco Fiscal SAI do orçamento — NCM, "Onde vende?", tipo de comprador e UF não são montados; no produto continuam', async () => {
+        const doOrcamento = await montar({ orcamento: orcamento(), onSalvarOrcamento: jest.fn() })
+        for (const t of ['Contexto da Venda', 'Onde vende?', 'Tipo de comprador', 'Estado de destino']) expect(doOrcamento.textContent).not.toContain(t)
+        expect(doOrcamento.querySelector('input[id$="ncm_code"]')).toBeNull()
+        const doProduto = await montar({ product: PRODUTO_1008, itemsFromApi: ITENS_DA_API })
+        expect(doProduto.textContent).toContain('Onde vende?')
+        expect(doProduto.querySelector('input[id$="ncm_code"]')).not.toBeNull()
+    })
+    const linha = (host: HTMLElement, rotulo: string) =>
+        Array.from(host.querySelectorAll('tr')).find((tr) => Array.from(tr.querySelectorAll('td')).some((td) => (td.textContent ?? '').trim() === rotulo)) as HTMLElement | undefined
+    it('ICMS e PIS/COFINS são os da empresa, SÓ LEITURA no orçamento; no produto continuam editáveis', async () => {
+        const doOrcamento = await montar({ orcamento: orcamento(), onSalvarOrcamento: jest.fn() })
+        for (const r of ['ICMS (%)', 'PIS/Cofins (%)']) {
+            const tr = linha(doOrcamento, r)
+            expect(tr).toBeDefined()
+            expect(tr!.querySelector('input')).toBeNull()
+        }
+        const doProduto = await montar({ isEditingMode: true, product: PRODUTO_1008, itemsFromApi: ITENS_DA_API })
+        expect(linha(doProduto, 'ICMS (%)')?.querySelector('input')).not.toBeNull()
+    })
+    it('IBS ZERO aparece e entra como zero; CBS NULO não aparece nem entra — e nenhum dos dois impede o preço', async () => {
+        banco.respostas.tenant_settings = { ibs_reference_pct: 0, cbs_reference_pct: null, state_code: 'RS' }
+        const salvar = jest.fn(async (): Promise<string[] | null> => null)
+        const host = await montar({ orcamento: orcamento(), onSalvarOrcamento: salvar })
+        expect(host.textContent).toContain('IBS — Imposto sobre Bens e Serv. (%)')
+        expect(host.textContent).not.toContain('CBS — Contrib. sobre Bens e Serv. (%)')
+        // o campo do IBS existe, com o valor da empresa, e não se edita
+        const ibs = Array.from(host.querySelectorAll('div')).find((d) => d.children.length === 0 && (d.textContent ?? '').trim() === 'IBS — Imposto sobre Bens e Serv. (%)')
+        const campo = ibs?.parentElement?.querySelector('input') as HTMLInputElement
+        expect(campo.disabled).toBe(true)
+        await clicar(botao(host, 'Salvar precificação do orçamento'))
+        expect(salvar).toHaveBeenCalledTimes(1)
+    })
+    it('com a referência da empresa preenchida, a CBS também aparece (o nulo é o que some, não o zero)', async () => {
+        banco.respostas.tenant_settings = { ibs_reference_pct: 0, cbs_reference_pct: 0, state_code: 'RS' }
+        const host = await montar({ orcamento: orcamento(), onSalvarOrcamento: jest.fn() })
+        expect(host.textContent).toContain('CBS — Contrib. sobre Bens e Serv. (%)')
+    })
+    it('o TOPO do orçamento: os nove campos do cliente com os rótulos do PDF, e o campo sem dado EM BRANCO (nunca zero, nunca escondido)', () => {
+        const host = document.createElement('div')
+        document.body.appendChild(host)
+        const root = createRoot(host)
+        // eslint-disable-next-line testing-library/no-unnecessary-act -- a raiz do React 19 monta aqui, sem a testing-library (como em `montar`)
+        act(() => {
+            root.render(<TopoDoOrcamento cliente={{ nome: 'Geraldo Huck', telFixo: null, celular: '(51) 99999-0000', email: null, tel2: null, endereco: 'Porto Alegre', ieRg: null, cep: null, cnpjCpf: null }} />)
+        })
+        montados.push(() => { act(() => root.unmount()); host.remove() })
+        const campos = Array.from(host.querySelectorAll('[data-campo-do-cliente]'))
+        expect(campos.map((c) => c.getAttribute('data-campo-do-cliente'))).toEqual(CAMPOS_DO_CLIENTE.map(([, k]) => k))
+        expect(campos.map((c) => c.firstElementChild?.textContent)).toEqual(CAMPOS_DO_CLIENTE.map(([r]) => r))
+        const valor = (k: string) => host.querySelector(`[data-campo-do-cliente="${k}"] [data-valor-do-cliente]`)?.textContent
+        expect(valor('nome')).toBe('Geraldo Huck')
+        expect(valor('celular')).toBe('(51) 99999-0000')
+        for (const k of ['telFixo', 'email', 'tel2', 'ieRg', 'cep', 'cnpjCpf']) expect(valor(k)).toBe('')
     })
 })
 

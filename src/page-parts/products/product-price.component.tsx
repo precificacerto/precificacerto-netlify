@@ -61,10 +61,16 @@ interface Props {
   freightValue?: number
   insuranceValue?: number
   accessoryExpensesValue?: number
-  ibsPct?: number
+  /** `null` = a alíquota não existe para a empresa (`ausente-vs-falso.md`): a linha não aparece e o tributo NÃO entra, nem como zero. */
+  ibsPct?: number | null
   onIbsPctChange?: (value: number) => void
-  cbsPct?: number
+  cbsPct?: number | null
   onCbsPctChange?: (value: number) => void
+  /**
+   * Orçamento I.A. (dono do produto, 11/11/2026): ICMS, PIS/COFINS, IBS e CBS vêm SEMPRE das credenciais da empresa — nunca do produto, do
+   * NCM ou de digitação na tela do orçamento. Com `true`, as quatro linhas são só leitura.
+   */
+  impostosDaEmpresa?: boolean
   /* PC-BUG-FATOR-REDUCAO-002 Ponto 1: a redução do IVA Dual é aplicada SOBRE a alíquota
      bruta no cadastro (efetiva = bruta × (1 − redução)). Só IBS/CBS a sofrem.
 
@@ -109,6 +115,9 @@ interface Props {
   isResaleProduct?: boolean
 }
 
+/** O imposto do orçamento I.A. é o das credenciais da empresa, e não se edita ali (dono do produto, 11/11/2026). */
+export const TOOLTIP_DO_IMPOSTO_DA_EMPRESA = 'Das credenciais da empresa (regime e UF, gravados no cadastro): no orçamento não se edita.'
+
 export const ProductPrice: FC<Props> = ({
   calcBase,
   productPriceInfo,
@@ -130,6 +139,7 @@ export const ProductPrice: FC<Props> = ({
   onIbsPctChange,
   cbsPct = 0,
   onCbsPctChange,
+  impostosDaEmpresa = false,
   isPct = 0,
   onIsPctChange,
   ipiPct = 0,
@@ -775,14 +785,16 @@ export const ProductPrice: FC<Props> = ({
             {showIrpjCsll && pricingRow('IRPJ (15% sobre lucro)', 'irpj', undefined, 'Imposto de Renda Pessoa Jurídica — calculado automaticamente como 15% sobre o valor do lucro. A porcentagem exibida representa quanto esse imposto ocupa no preço de venda.')}
             {showIrpjCsll && pricingRow('CSLL (9% sobre lucro)', 'csll', undefined, 'Contribuição Social sobre o Lucro Líquido — calculada automaticamente como 9% sobre o valor do lucro. A porcentagem exibida representa quanto esse imposto ocupa no preço de venda.')}
             {(isLucroReal || isLucroPresumed) && pricingRow('Alíq. adicional IRPJ', 'adicionalIrpj', 'additionalIrpj', 'Alíquota da parcela adicional do IRPJ. Calculada automaticamente com base no faturamento anual estimado.')}
-            {(isLucroReal || isLucroPresumed) && !isCalcTypeService && pricingRow('ICMS (%)', 'icms', 'icms', 'ICMS sobre venda — informe manualmente conforme alíquota do seu produto.')}
+            {(isLucroReal || isLucroPresumed) && !isCalcTypeService && pricingRow('ICMS (%)', 'icms', impostosDaEmpresa ? undefined : 'icms', impostosDaEmpresa
+              ? TOOLTIP_DO_IMPOSTO_DA_EMPRESA
+              : 'ICMS sobre venda — informe manualmente conforme alíquota do seu produto.')}
             {(isLucroReal || isLucroPresumed) && pricingRow(
               isCalcTypeService
                 ? 'PIS/Cofins (%)'
-                : isLucroPresumed ? 'PIS/Cofins Cum. (%)' : 'PIS/Cofins (% NCM)',
+                : isLucroPresumed ? 'PIS/Cofins Cum. (%)' : impostosDaEmpresa ? 'PIS/Cofins (%)' : 'PIS/Cofins (% NCM)',
               'pisCofins',
-              'pisCofins',
-              isCalcTypeService
+              impostosDaEmpresa ? undefined : 'pisCofins',
+              impostosDaEmpresa ? TOOLTIP_DO_IMPOSTO_DA_EMPRESA : isCalcTypeService
                 ? 'PIS + COFINS — informe manualmente para serviços.'
                 : isLucroPresumed
                   ? 'PIS + COFINS cumulativo (3,65%) — calculado com base no ICMS (exclusão por dentro, STF RE 574.706). Editável.'
@@ -920,7 +932,9 @@ export const ProductPrice: FC<Props> = ({
           const ibsCbsRows = apenasTributosPorFora(currentUser?.taxableRegime, _segmento, [
             { tributo: 'IBS' as const, label: 'IBS — Imposto sobre Bens e Serv. (%)', value: ibsPct, onChange: onIbsPctChange, taxValue: taxIbsValue, reductionPct: ivaReductionIbsPct },
             { tributo: 'CBS' as const, label: 'CBS — Contrib. sobre Bens e Serv. (%)', value: cbsPct, onChange: onCbsPctChange, taxValue: taxCbsValue, reductionPct: ivaReductionCbsPct },
-          ] as { tributo: 'IBS' | 'CBS'; label: string; value: number; onChange?: (v: number) => void; taxValue: number; reductionPct: number | null }[])
+          ] as { tributo: 'IBS' | 'CBS'; label: string; value: number | null; onChange?: (v: number) => void; taxValue: number; reductionPct: number | null }[])
+            // a alíquota NULA não existe para a empresa: a linha não aparece (zero afirmaria "apurou e deu nada" — 11/11/2026)
+            .filter((r): r is typeof r & { value: number } => r.value !== null)
           // O bloco inteiro some quando sobra zero — a mesma guarda do IS/IPI. Um título
           // "Impostos (IBS / CBS)" sem linha embaixo afirmaria que existe operação por fora
           // naquele regime e que ela está zerada (`ausente-vs-falso.md`).
@@ -962,6 +976,7 @@ export const ProductPrice: FC<Props> = ({
                         size="small" min={0} max={100}
                         showPercent={false}
                         value={value}
+                        disabled={impostosDaEmpresa}
                         onChange={(v) => onChange?.(v ?? 0)}
                         style={{ width: isMobile ? 88 : 110, fontSize: isMobile ? 12 : 13, flex: '0 0 auto' }}
                       />

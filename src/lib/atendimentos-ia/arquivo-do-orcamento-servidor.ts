@@ -140,6 +140,16 @@ async function lerClienteEVendedor(tenantId: string, levantamentoId: string | nu
     }
 }
 
+/**
+ * O CLIENTE do orçamento para o TOPO da tela (dono do produto, 11/11/2026): as credenciais lidas do levantamento de origem, por
+ * `levantamento_id`, no tenant do chamador — as mesmas que o PDF imprime. Nulo quando o orçamento não é achado.
+ */
+export async function lerClienteDoOrcamento(tenantId: string, orcamentoId: string): Promise<ClienteDoArquivo | null> {
+    const orc = ((await ler('orcamentista_orcamento', db().from('orcamentista_orcamento').select('nome, levantamento_id').eq('tenant_id', tenantId).eq('id', orcamentoId).maybeSingle())) ?? null) as Linha | null
+    if (!orc) return null
+    return (await lerClienteEVendedor(tenantId, texto(orc.levantamento_id), String(orc.nome ?? ''))).cliente
+}
+
 /** Os dados do arquivo, lidos no tenant do chamador, com a interna, a venda e o rateio que a gravação acabou de conferir. */
 export async function lerDadosDoArquivo(tenantId: string, orcamentoId: string, a: { operacaoInterna: number; valorVenda: number; rateio: readonly ItemRateado[]; geradoEm: Date }):
     Promise<{ dados: DadosDoArquivoDoOrcamento; calculoId: string | null } | { recusa: string }> {

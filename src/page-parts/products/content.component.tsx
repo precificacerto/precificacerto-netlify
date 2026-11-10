@@ -43,7 +43,7 @@ import { getTenantId, getCurrentUserId } from '@/utils/get-tenant-id'
 import { useDevice } from '@/contexts/device.context'
 import { ProductItemsMobileList } from './product-items-mobile-list.component'
 import {
-  CABECALHO_FIXO, entradaDoMotor, estadoDoCalculo, faltasDaPrecificacao, fiscalInicial, FRASE_DO_ESTADO, FORMA_DO_NCM, internaParaGravar, MODO_PRODUTO, reconciliacaoNaTela, rotuloDoItem,
+  CABECALHO_FIXO, entradaDoMotor, estadoDoCalculo, faltasDaPrecificacao, FRASE_DO_ESTADO, internaParaGravar, PRESET_DA_COMERCIALIZACAO, MODO_PRODUTO, reconciliacaoNaTela, rotuloDoItem,
   type GravacaoDaPrecificacao, type ModoDaPrecificacao, type OrcamentoNaPrecificacao,
 } from '@/lib/atendimentos-ia/precificacao-do-orcamento'
 
@@ -259,19 +259,19 @@ export const Content: FC<ContentProps> = ({
   const [baseItemId, setBaseItemId] = useState<string | null>(
     (product as any)?.baseItemId || null
   )
-  // No orçamento o contexto da venda é o GRAVADO nele; no orçamento SEM PREÇO, o escopo e o comprador ausentes vêm do PRESET da
-  // comercialização (dono do produto, 11/11/2026: `fiscalInicial`). Os quatro se alteram à mão aqui, por orçamento.
-  const fiscalDeAbertura = orcamento ? fiscalInicial(orcamento) : null
-  const [saleScope, setSaleScope] = useState<'INTRAESTADUAL' | 'INTERESTADUAL'>(fiscalDeAbertura ? fiscalDeAbertura.sale_scope : 'INTRAESTADUAL')
-  const [buyerType, setBuyerType] = useState<'CONSUMIDOR_FINAL' | 'CONTRIBUINTE_PJ'>(fiscalDeAbertura ? fiscalDeAbertura.buyer_type : 'CONSUMIDOR_FINAL')
-  const [destinationState, setDestinationState] = useState<string | null>(fiscalDeAbertura ? fiscalDeAbertura.uf_destino : null)
-  // No orçamento COM NCM, a alíquota de PIS/COFINS vem dele: `null` = o regime não a apura pelo NCM; false = a tabela não a trouxe (falta).
-  const [aliquotaDoNcm, setAliquotaDoNcm] = useState<boolean | null>(null)
-  // No orçamento SEM NCM (11/11/2026), o ICMS e o PIS/COFINS vêm da REFERÊNCIA DO TENANT (regime + UF): `null` = o regime não apura por ela
-  // (ou ainda não foi lida); false = a UF ou o ICMS interno dela não estão cadastrados (falta nomeada, nunca zero).
+  // O contexto da venda do PRODUTO. No orçamento I.A. ele não é lido: o fiscal é o PRESET, automático e invisível (dono do produto,
+  // 11/11/2026: "Sem pergunta, sem seletor, sem falta"), e o bloco Fiscal não aparece.
+  const [saleScope, setSaleScope] = useState<'INTRAESTADUAL' | 'INTERESTADUAL'>('INTRAESTADUAL')
+  const [buyerType, setBuyerType] = useState<'CONSUMIDOR_FINAL' | 'CONTRIBUINTE_PJ'>('CONSUMIDOR_FINAL')
+  const [destinationState, setDestinationState] = useState<string | null>(null)
+  // No orçamento I.A. os impostos vêm SEMPRE das credenciais da empresa (11/11/2026): ICMS da UF, PIS/COFINS pelo regime, IBS e CBS das
+  // referências de `tenant_settings`. `referenciaDoTenant`: `null` = o regime não apura ICMS e PIS/COFINS por ela (ou ainda não foi lida);
+  // false = a UF ou o ICMS interno dela não estão cadastrados (falta nomeada, nunca zero). IBS e CBS: o valor gravado, e NULO é "não há o que
+  // apurar" — não entra, nem como zero, e não impede o preço.
   const [referenciaDoTenant, setReferenciaDoTenant] = useState<boolean | null>(null)
   const [pisCofinsDaReferencia, setPisCofinsDaReferencia] = useState<number | null>(null)
-  const ncmNaTela = Form.useWatch('ncm_code', productForm) as string | undefined
+  const [ibsDaEmpresa, setIbsDaEmpresa] = useState<number | null>(null)
+  const [cbsDaEmpresa, setCbsDaEmpresa] = useState<number | null>(null)
   const [salvandoOrcamento, setSalvandoOrcamento] = useState(false)
   const [recusasDoOrcamento, setRecusasDoOrcamento] = useState<string[]>([])
   const [customTaxPercent, setCustomTaxPercent] = useState<number | null>(
@@ -324,6 +324,10 @@ export const Content: FC<ContentProps> = ({
         : { data: null }
       const icmsDaUf = stateData?.icms_internal_rate != null ? Number(stateData.icms_internal_rate) * 100 : null
       // No orçamento (11/11/2026), a referência do tenant é o que dá o ICMS e o PIS/COFINS sem NCM: a falta dela é nomeada.
+      if (orcamento) {
+        setIbsDaEmpresa(data?.ibs_reference_pct != null ? Number(data.ibs_reference_pct) : null)
+        setCbsDaEmpresa(data?.cbs_reference_pct != null ? Number(data.cbs_reference_pct) : null)
+      }
       if (orcamento && isLRorLP) {
         setReferenciaDoTenant(icmsDaUf !== null)
         setPisCofinsDaReferencia(icmsDaUf === null ? null
@@ -846,28 +850,17 @@ export const Content: FC<ContentProps> = ({
     }
   }, [isEditingMode, currentUser, calcBase, orcamento, modo])
 
-  // O cabeçalho do orçamento no formulário: código = o número, nome = o cliente, unidade UN, quantidade 1, e o NCM gravado nele.
+  // O cabeçalho do orçamento no formulário: código = o número, nome = o cliente, unidade UN, quantidade 1.
   useEffect(() => {
     if (!orcamento) return
-    productForm.setFieldsValue({
-      code: String(orcamento.numero), name: orcamento.nome, unitType: CABECALHO_FIXO.unidade, quantity: 1, ncm_code: orcamento.ncm_code ?? '',
-    })
+    productForm.setFieldsValue({ code: String(orcamento.numero), name: orcamento.nome, unitType: CABECALHO_FIXO.unidade, quantity: 1 })
   }, [orcamento, productForm])
 
-  // A alíquota de PIS/COFINS do orçamento sai do NCM, pelo MESMO caminho da tela de Produtos (`fetchNcmRatesForLR`).
-  const resolverNcmDoOrcamento = useCallback(async (code: string | null | undefined) => {
-    if (!orcamento) return
-    const ncm = (code ?? '').trim()
-    if (!/^[0-9]{4}\.[0-9]{2}\.[0-9]{2}$/.test(ncm)) { setAliquotaDoNcm(null); return }
-    const pct = await fetchNcmRatesForLR(ncm)
-    setAliquotaDoNcm(pct === undefined ? null : pct !== null)
-  }, [orcamento, fetchNcmRatesForLR])
-  useEffect(() => { void resolverNcmDoOrcamento(orcamento?.ncm_code) }, [orcamento?.ncm_code, resolverNcmDoOrcamento])
-  // SEM NCM na tela, o PIS/COFINS é o da referência do tenant (11/11/2026); sem a referência, o campo fica como está e a falta é nomeada.
-  const semNcmNaTela = !FORMA_DO_NCM.test((ncmNaTela ?? '').trim())
+  // No orçamento o PIS/COFINS é SEMPRE o da empresa (pelo regime, sobre a base sem o ICMS da UF), nunca o do NCM (11/11/2026); sem a
+  // referência, o campo fica como está e a falta é nomeada.
   useEffect(() => {
-    if (orcamento && semNcmNaTela && pisCofinsDaReferencia !== null) setPisCofinsLRPct(pisCofinsDaReferencia)
-  }, [orcamento, semNcmNaTela, pisCofinsDaReferencia])
+    if (orcamento && pisCofinsDaReferencia !== null) setPisCofinsLRPct(pisCofinsDaReferencia)
+  }, [orcamento, pisCofinsDaReferencia])
 
   useEffect(() => {
     if (!isEditingMode && prefill) {
@@ -1254,19 +1247,12 @@ export const Content: FC<ContentProps> = ({
   }
 
   // ── O SALVAR DO ORÇAMENTO: grava NO ORÇAMENTO (a rota da precificação), nunca em `products`, e só sem falta nomeada ──────────────
-  const fiscalDaTela = () => ({
-    ncm_code: ((productForm.getFieldValue('ncm_code') as string | undefined) ?? '').trim() || null,
-    sale_scope: saleScope ?? null,
-    buyer_type: buyerType ?? null,
-    uf_destino: saleScope === 'INTERESTADUAL' ? (destinationState ?? null) : (destinationState || null),
-  })
-  // No Lucro Real e no Presumido o PIS/COFINS sai do NCM: enquanto ele não foi resolvido, é FALTA (nunca o 0 inicial); nos outros regimes
-  // o NCM não decide a alíquota.
-  const aliquotaExigida = (): boolean | null => (isLRorLP ? aliquotaDoNcm === true : null)
-  // a referência ainda não lida (null) no LR/LP não é "tem": só a leitura que achou a UF e o ICMS libera o salvar sem NCM
+  // o fiscal do orçamento é o PRESET, sempre (11/11/2026): a tela não o pergunta e não o mostra
+  const fiscalDaTela = () => ({ ...PRESET_DA_COMERCIALIZACAO })
+  // a referência ainda não lida (null) no LR/LP não é "tem": só a leitura que achou a UF e o ICMS libera o salvar
   const referenciaExigida = (): boolean | null => (isLRorLP ? referenciaDoTenant === true : null)
   const faltasDoOrcamento = orcamento
-    ? faltasDaPrecificacao({ orcamento, fiscal: fiscalDaTela(), aliquotaDoNcm: aliquotaExigida(), referenciaDoTenant: referenciaExigida(), custoDoMotor: Number(productPriceInfo?.productCost) || 0 })
+    ? faltasDaPrecificacao({ orcamento, fiscal: fiscalDaTela(), aliquotaDoNcm: null, referenciaDoTenant: referenciaExigida(), custoDoMotor: Number(productPriceInfo?.productCost) || 0 })
     : []
   const salvarOrcamento = async () => {
     if (!orcamento || !onSalvarOrcamento || salvandoOrcamento) return
@@ -1275,7 +1261,7 @@ export const Content: FC<ContentProps> = ({
       return
     }
     doProductCalc()
-    const faltas = faltasDaPrecificacao({ orcamento, fiscal: fiscalDaTela(), aliquotaDoNcm: aliquotaExigida(), referenciaDoTenant: referenciaExigida(), custoDoMotor: Number(productPriceInfo.productCost) || 0 })
+    const faltas = faltasDaPrecificacao({ orcamento, fiscal: fiscalDaTela(), aliquotaDoNcm: null, referenciaDoTenant: referenciaExigida(), custoDoMotor: Number(productPriceInfo.productCost) || 0 })
     const valorDeVenda = finalPriceWithTaxesRef.current
     if (!(valorDeVenda > 0)) faltas.push('o preço formado: a precificação não saiu (confira os percentuais e a margem)')
     // a interna que se grava (20261110000001), ao centavo, e a recusa quando ela diverge do valor precificado
@@ -2493,6 +2479,9 @@ export const Content: FC<ContentProps> = ({
       </Card>
       )}
 
+      {/* No orçamento I.A. o bloco Fiscal SAI (dono do produto, 11/11/2026): o NCM, o escopo, o comprador e a UF não aparecem — o fiscal é o
+          preset, e os impostos são os da empresa. Não é escondido atrás de expansor: não é montado. */}
+      {!orcamento && (<>
       {/* ══════════════════════════════════════════════════════
           FISCAL — o que a NOTA exige do produto
           O NCM e o contexto da venda moram juntos porque respondem à mesma
@@ -2524,11 +2513,8 @@ export const Content: FC<ContentProps> = ({
               onSearch={handleNcmSearch}
               onSelect={(value: string) => {
                 productForm.setFieldsValue({ ncm_code: value })
-                // no orçamento a mesma busca, e o resultado decide se a alíquota é falta
-                if (orcamento) void resolverNcmDoOrcamento(value)
-                else fetchNcmRatesForLR(value)
+                fetchNcmRatesForLR(value)
               }}
-              onChange={orcamento ? (value: string) => { void resolverNcmDoOrcamento(value) } : undefined}
               placeholder="Digite o NCM ou pesquise (ex: bolo, 1905...)"
               notFoundContent={ncmFieldSearching ? <Spin size="small" /> : null}
               allowClear
@@ -2606,7 +2592,7 @@ export const Content: FC<ContentProps> = ({
             </label>
             <Select
               value={saleScope}
-              onChange={(val) => { setSaleScope(val); if (orcamento && val !== 'INTERESTADUAL') setDestinationState(null) }}
+              onChange={(val) => setSaleScope(val)}
               placeholder="Não informado"
               aria-label="Onde vende?"
               style={{ width: '100%' }}
@@ -2689,6 +2675,7 @@ export const Content: FC<ContentProps> = ({
           simulação de preço — o imposto não fica fixo no produto.
         </div>
       </Card>
+      </>)}
       </Form>
 
       {avisosDoOrcamento}
@@ -2713,16 +2700,17 @@ export const Content: FC<ContentProps> = ({
           additionalIrpjPercent={additionalIrpjPercent}
           onAdditionalIrpjChange={setAdditionalIrpjPercent}
           icmsPct={icmsPct}
-          onIcmsPctChange={handleIcmsPctChange}
+          onIcmsPctChange={ehOrcamento ? undefined : handleIcmsPctChange}
           pisCofinsLRPct={pisCofinsLRPct}
-          onPisCofinsLRPctChange={setPisCofinsLRPct}
+          onPisCofinsLRPctChange={ehOrcamento ? undefined : setPisCofinsLRPct}
           freightValue={freightValue}
           insuranceValue={insuranceValue}
           accessoryExpensesValue={accessoryExpensesValue}
-          ibsPct={ibsPct}
-          onIbsPctChange={setIbsPct}
-          cbsPct={cbsPct}
-          onCbsPctChange={setCbsPct}
+          ibsPct={ehOrcamento ? ibsDaEmpresa : ibsPct}
+          onIbsPctChange={ehOrcamento ? undefined : setIbsPct}
+          cbsPct={ehOrcamento ? cbsDaEmpresa : cbsPct}
+          onCbsPctChange={ehOrcamento ? undefined : setCbsPct}
+          impostosDaEmpresa={ehOrcamento}
           ivaReductionIbsPct={reducoes.ibs}
           ivaReductionCbsPct={reducoes.cbs}
           isPct={isPct}

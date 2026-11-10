@@ -41,9 +41,11 @@ interface ContentIndustrializationProps {
   freightValue?: number
   insuranceValue?: number
   accessoryExpensesValue?: number
-  ibsPct?: number
+  ibsPct?: number | null
   onIbsPctChange?: (value: number) => void
-  cbsPct?: number
+  cbsPct?: number | null
+  /** orçamento I.A.: os impostos são os da empresa, só leitura (11/11/2026) */
+  impostosDaEmpresa?: boolean
   onCbsPctChange?: (value: number) => void
   ivaReductionIbsPct?: number | null
   ivaReductionCbsPct?: number | null
@@ -102,6 +104,7 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
   ibsPct,
   onIbsPctChange,
   cbsPct,
+  impostosDaEmpresa,
   onCbsPctChange,
   ivaReductionIbsPct,
   ivaReductionCbsPct,
@@ -266,6 +269,7 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
         ibsPct={ibsPct}
         onIbsPctChange={onIbsPctChange}
         cbsPct={cbsPct}
+        impostosDaEmpresa={impostosDaEmpresa}
         ivaReductionIbsPct={ivaReductionIbsPct}
         ivaReductionCbsPct={ivaReductionCbsPct}
         onCbsPctChange={onCbsPctChange}

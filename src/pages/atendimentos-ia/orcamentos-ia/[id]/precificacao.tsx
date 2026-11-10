@@ -25,12 +25,13 @@ import { mergeExpenseConfig } from '@/utils/recalc-expense-config'
 import { buildCalcBase } from '@/utils/build-calc-base'
 import type { CalcBaseType } from '@/types/calc-base.type'
 import type { GravacaoDaPrecificacao, OrcamentoNaPrecificacao } from '@/lib/atendimentos-ia/precificacao-do-orcamento'
-import type { ItemDoArquivo } from '@/lib/atendimentos-ia/arquivo-do-orcamento'
+import type { ClienteDoArquivo, ItemDoArquivo } from '@/lib/atendimentos-ia/arquivo-do-orcamento'
+import { TopoDoOrcamento } from '@/page-parts/atendimentos-ia/topo-do-orcamento.component'
 
 type Estado =
     | { tipo: 'carregando' }
     | { tipo: 'erro'; mensagem: string }
-    | { tipo: 'pronto'; orcamento: OrcamentoNaPrecificacao; calcBase: CalcBaseType; versao: number; itensDoArquivo: ItemDoArquivo[] | null; recusaDosItens: string | null }
+    | { tipo: 'pronto'; orcamento: OrcamentoNaPrecificacao; calcBase: CalcBaseType; versao: number; itensDoArquivo: ItemDoArquivo[] | null; recusaDosItens: string | null; cliente: ClienteDoArquivo | null }
 
 /** As recusas que a rota devolve, cada uma numa linha; o resto vira a frase geral. */
 async function recusasDaResposta(r: Response, geral: string): Promise<string[]> {
@@ -55,7 +56,9 @@ function PrecificacaoDoOrcamento() {
             if (!tenantId) return setEstado({ tipo: 'erro', mensagem: 'Não foi possível identificar a empresa.' })
             const r = await fetch(`/api/atendimentos-ia/orcamentos/${id}/precificacao`)
             if (!r.ok) return setEstado({ tipo: 'erro', mensagem: (await recusasDaResposta(r, 'Não foi possível ler o orçamento.')).join(' ') })
-            const { orcamento, itens_do_arquivo, recusa_dos_itens } = (await r.json()) as { orcamento: OrcamentoNaPrecificacao; itens_do_arquivo?: ItemDoArquivo[] | null; recusa_dos_itens?: string | null }
+            const { orcamento, cliente, itens_do_arquivo, recusa_dos_itens } = (await r.json()) as {
+                orcamento: OrcamentoNaPrecificacao; cliente?: ClienteDoArquivo | null; itens_do_arquivo?: ItemDoArquivo[] | null; recusa_dos_itens?: string | null
+            }
             await mergeExpenseConfig(tenantId)
             const [expenseRes, taxPreview] = await Promise.all([
                 supabase.from('tenant_expense_config').select('*').eq('tenant_id', tenantId).single(),
@@ -63,7 +66,7 @@ function PrecificacaoDoOrcamento() {
             ])
             setEstado((e) => ({
                 tipo: 'pronto', orcamento, calcBase: buildCalcBase(expenseRes.data, taxPreview), versao: e.tipo === 'pronto' ? e.versao + 1 : 1,
-                itensDoArquivo: itens_do_arquivo ?? null, recusaDosItens: recusa_dos_itens ?? null,
+                itensDoArquivo: itens_do_arquivo ?? null, recusaDosItens: recusa_dos_itens ?? null, cliente: cliente ?? null,
             }))
         } catch {
             setEstado({ tipo: 'erro', mensagem: 'Não foi possível ler o orçamento.' })
@@ -105,6 +108,7 @@ function PrecificacaoDoOrcamento() {
                         message="A precificação foi salva, mas o arquivo do orçamento não saiu:"
                         description={<ul style={{ margin: 0, paddingLeft: 18 }}>{recusasDoArquivo.map((f) => <li key={f}>{f}</li>)}</ul>} />
                 )}
+                {estado.tipo === 'pronto' && estado.cliente && <TopoDoOrcamento cliente={estado.cliente} />}
                 {estado.tipo === 'pronto' && id && (
                     <div style={{ marginBottom: 12 }}><a href={`/api/atendimentos-ia/orcamentos/${id}/arquivo`} target="_blank" rel="noopener noreferrer" data-abrir-arquivo="">Abrir o último arquivo do orçamento (PDF)</a></div>
                 )}

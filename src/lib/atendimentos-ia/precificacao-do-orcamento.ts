@@ -13,15 +13,15 @@
  *     cálculo, ou o cálculo e a tela leram outra coisa — número que não fecha não vira preço.
  *   - O ESTADO DO CÁLCULO (`estadoDoCalculo`): "cálculo incompleto — recalcule" quando algum item aponta um cálculo e o orçamento está sem os
  *     totais (o passo zero de `calcularOrcamento` os anulou e a escrita parou no meio), ou quando parte dos itens não tem cálculo.
- *   - AS FALTAS (`faltasDaPrecificacao`). O NCM é OPCIONAL (dono do produto, 11/11/2026: "enquanto não emitimos nota, o NCM não bloqueia
- *     nada"; substitui a decisão 1 de 09/11, que recusava sem NCM). COM NCM, ele é a FOLHA de oito dígitos (`0000.00.00`, a forma da CHECK
- *     `orcamentista_orcamento_ncm_forma`, que só confere quando há valor) e o PIS/COFINS sai dele; SEM NCM, o ICMS e o PIS/COFINS saem da
- *     REFERÊNCIA DO TENANT (o regime e a UF de `tenant_settings`, o ICMS interno de `brazilian_states`), e só a falta DESSA referência é
- *     recusa nomeada — nunca um zero inventado. A venda INTERESTADUAL exige a UF de destino, e a INTRAESTADUAL a recusa (a CHECK
- *     `orcamentista_orcamento_uf_destino_do_escopo`).
- *   - O PRESET DA COMERCIALIZAÇÃO (`PRESET_DA_COMERCIALIZACAO`, dono do produto, 11/11/2026): o orçamento nasce INTRAESTADUAL, para
- *     CONSUMIDOR_FINAL, sem UF de destino e sem NCM; os quatro se alteram à mão na tela, por orçamento. `fiscalInicial` o aplica, na tela, ao
- *     orçamento que ainda não tem preço formado e nasceu antes do preset — nada com preço é recalculado para trás.
+ *   - OS IMPOSTOS SÃO OS DA EMPRESA (dono do produto, 11/11/2026: "A empresa é a fonte única"): ICMS, PIS, COFINS, IBS e CBS do orçamento
+ *     vêm SEMPRE das credenciais gravadas no onboarding (`tenant_settings` e `tenants`) — nunca do produto, do NCM ou de digitação na tela.
+ *     ICMS = a alíquota interna da UF da empresa (`brazilian_states`); PIS/COFINS = pelo regime (Lucro Real 9,25% não cumulativo, sobre a base
+ *     sem o ICMS); IBS e CBS = `ibs_reference_pct` e `cbs_reference_pct`, e NULO não é zero: não entra, e não impede o preço. A única falta é a
+ *     da UF ou do ICMS interno dela (`FALTA_DA_REFERENCIA_DO_TENANT`) — nunca um zero inventado.
+ *   - O FISCAL É AUTOMÁTICO E INVISÍVEL (`PRESET_DA_COMERCIALIZACAO`, 11/11/2026): INTRAESTADUAL, CONSUMIDOR_FINAL, sem UF de destino e sem
+ *     NCM; a tela não o pergunta nem o mostra, e o servidor grava sempre o preset (`validarGravacao`). Venda interestadual e comprador
+ *     contribuinte voltam num PR próprio — hoje não há caminho manual, de propósito. `faltasDoFiscal` continua conferindo a forma (a CHECK
+ *     `orcamentista_orcamento_uf_destino_do_escopo` e a do NCM), e o preset passa nela.
  */
 
 /** O item do orçamento como a precificação o lê: os valores que `calcularOrcamento` gravou (nulos antes do cálculo). */
@@ -69,8 +69,8 @@ export const CABECALHO_FIXO = { tipo: 'Produzido', unidade: 'UN', secao: 'Orçam
 export const FRASE_CALCULO_INCOMPLETO = 'Cálculo incompleto — recalcule.'
 export const FRASE_SEM_CALCULO = 'O orçamento ainda não foi calculado: calcule antes de precificar.'
 export const FRASE_CALCULO_DESATUALIZADO = 'Itens alterados depois do cálculo — recalcule.'
-export const FALTA_DA_REFERENCIA_DO_TENANT = 'a referência fiscal da empresa: sem NCM, o ICMS e o PIS/COFINS saem do regime e da UF da empresa '
-    + '(Configurações), e a UF dela ou o ICMS interno dessa UF não estão cadastrados — informe o NCM do orçamento ou complete o cadastro da empresa'
+export const FALTA_DA_REFERENCIA_DO_TENANT = 'as credenciais fiscais da empresa: o ICMS e o PIS/COFINS do orçamento saem do regime e da UF da '
+    + 'empresa, e a UF dela ou o ICMS interno dessa UF não estão cadastrados — complete o cadastro da empresa'
 export const faltaDoNcmFora = (ncm: string) => `o NCM inteiro, de oito dígitos (0000.00.00): "${ncm}" é um nível da hierarquia e não resolve alíquota`
 export const faltaDaAliquotaDoNcm = (ncm: string) => `a alíquota de PIS/COFINS do NCM ${ncm}: a tabela de NCM não a trouxe`
 export const FALTA_DO_ESCOPO = 'o escopo da venda (dentro ou fora do estado)'
@@ -153,24 +153,10 @@ export type FiscalDaTela = {
 }
 
 /**
- * O PRESET da comercialização do orçamento I.A. (dono do produto, 11/11/2026), gravado na criação: dentro do estado, para consumidor final,
- * sem UF de destino (a CHECK `orcamentista_orcamento_uf_destino_do_escopo` a obriga nula fora do INTERESTADUAL) e sem NCM.
+ * O PRESET da comercialização do orçamento I.A. (dono do produto, 11/11/2026), gravado na criação e em toda precificação: dentro do estado,
+ * para consumidor final, sem UF de destino (a CHECK `orcamentista_orcamento_uf_destino_do_escopo` a obriga nula fora do INTERESTADUAL) e sem NCM.
  */
 export const PRESET_DA_COMERCIALIZACAO = { sale_scope: 'INTRAESTADUAL', buyer_type: 'CONSUMIDOR_FINAL', uf_destino: null as null, ncm_code: null as null } as const
-
-/**
- * O fiscal com que a tela ABRE: o gravado; e, no orçamento SEM PREÇO FORMADO, o escopo e o comprador ausentes vêm do preset (o orçamento 1,
- * nascido antes dele). O orçamento com preço abre como foi gravado — nada se recalcula para trás.
- */
-export function fiscalInicial(o: Pick<OrcamentoNaPrecificacao, 'valor_venda' | 'ncm_code' | 'sale_scope' | 'buyer_type' | 'uf_destino'>): FiscalDaTela {
-    const semPreco = o.valor_venda === null
-    return {
-        ncm_code: o.ncm_code,
-        sale_scope: o.sale_scope ?? (semPreco ? PRESET_DA_COMERCIALIZACAO.sale_scope : null),
-        buyer_type: o.buyer_type ?? (semPreco ? PRESET_DA_COMERCIALIZACAO.buyer_type : null),
-        uf_destino: o.uf_destino,
-    }
-}
 
 /** As faltas do bloco fiscal, cada uma nomeada. A tela e a rota recusam pelas mesmas. O NCM ausente NÃO é falta (11/11/2026). */
 export function faltasDoFiscal(f: FiscalDaTela): string[] {
@@ -195,7 +181,7 @@ export function faltasDaPrecificacao(args: {
     /** `null`: o regime não apura PIS/COFINS pelo NCM; `true`/`false`: a tabela trouxe a alíquota do NCM ou não. */
     aliquotaDoNcm: boolean | null
     /**
-     * Sem NCM, a referência fiscal do tenant: `null` = o regime não apura ICMS e PIS/COFINS por ela (fora do Lucro Real e do Presumido);
+     * A referência fiscal da empresa (sem NCM, que é sempre o caso do orçamento): `null` = o regime não apura ICMS e PIS/COFINS por ela;
      * `true`/`false` = a UF e o ICMS interno dela estão cadastrados ou não. Obrigatório: ausente não é "tem" (`construtor-empobrecido.md`).
      */
     referenciaDoTenant: boolean | null
