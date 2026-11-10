@@ -31,6 +31,8 @@ const estado = {
     chamadasDoCusto: [] as Array<{ tenant: string; lev: { nome: string; itens: Linha[] } }>,
     /** os ids que o update não atinge (a linha que sumiu entre a leitura e a escrita) */
     naoAtinge: [] as string[],
+    /** as famílias da empresa como `lerFamiliasDaEmpresa` as daria: as tabelas de preço VIGENTES de cada uma */
+    familias: [] as Array<{ familia: string; tabelasDePreco: string[] }>,
 }
 
 function executar(tabela: string, op: string, carga: unknown, filtros: [string, string, unknown][], colunas: string | null, ordem: [string, boolean] | null) {
@@ -80,7 +82,7 @@ jest.mock('@/supabase/admin', () => ({ supabaseAdmin: cliente() }))
 jest.mock('@/lib/get-caller-tenant', () => ({
     getCallerContext: async () => ({ user_id: 'usuario-logado', tenant_id: T, role: estado.papel, is_super_admin: false }),
 }))
-jest.mock('@/lib/atendimentos-ia/levantamento-da-conversa', () => ({ lerFamiliasDaEmpresa: async (): Promise<unknown> => ({ ok: true, familias: [], candidatos: [] }) }))
+jest.mock('@/lib/atendimentos-ia/levantamento-da-conversa', () => ({ lerFamiliasDaEmpresa: async (): Promise<unknown> => ({ ok: true, familias: estado.familias, candidatos: [] }) }))
 jest.mock('@/lib/atendimentos-ia/custo-do-orcamento-servidor', () => ({
     custoDoLevantamento: async (tenant: string, _fonte: unknown, lev: { nome: string; itens: Linha[] }) => {
         estado.chamadasDoCusto.push({ tenant, lev })
@@ -144,6 +146,7 @@ function montar() {
     estado.papel = 'admin'
     estado.chamadasDoCusto = []
     estado.naoAtinge = []
+    estado.familias = []
     estado.custo = { ok: true, itens: [itemDoCusto(450, 120), itemDoCusto(250, 60)], maoDeObra: { custoMensal: 1, minutosDaEmpresa: 2, valorDoMinuto: 0.5 } }
 }
 beforeEach(montar)
@@ -199,6 +202,36 @@ describe('(2) o que chega ao cálculo', () => {
         ])
         const leitura = estado.ops.find((o) => o.tabela === 'orcamentista_levantamento_item')!
         expect(leitura.filtros).toContainEqual(['eq', 'tenant_id', T])
+    })
+})
+
+describe('(2b) a tabela é a VIGENTE; a congelada no levantamento só AVISA (dono do produto, 10/11/2026)', () => {
+    const comCongelada = (tabela_id: string | null) => {
+        estado.db.orcamentista_levantamento_item[0] = { ...estado.db.orcamentista_levantamento_item[0], tabela_id }
+        estado.familias = [{ familia: 'PVC', tabelasDePreco: ['tab-nova'] }]
+        estado.db.orcamentista_tabela = [{ id: 'tab-velha', arquivo_nome: 'Wolff-velha.xlsx' }, { id: 'tab-nova', arquivo_nome: 'Wolff-nova.xlsx' }]
+        // o código A na congelada: R$ 700 a barra (na vigente, R$ 600), sem bloco tributário — o líquido é o bruto, e nunca barateia
+        estado.db.orcamentista_tabela_item = [{ tabela_id: 'tab-velha', codigo: 'A', valor_barra_interno: 700, cred_icms_pct: null, cred_pis_cofins_pct: null, cred_ipi_pct: null, nc_ipi_pct: null, cred_ibs_pct: null, cred_cbs_pct: null }]
+    }
+    it('o item congelou uma tabela que não é a vigente: o aviso nomeia as duas e a diferença, com a mesma quantidade; a rota o devolve', async () => {
+        comCongelada('tab-velha')
+        const r = await chamar(rota, 'POST', O1)
+        expect(r.status).toBe(200)
+        // 450 de bruto na vigente = 0,75 barra de R$ 600; na congelada, 0,75 × 700 = R$ 525
+        expect(r.corpo.avisos).toEqual(['Esquadria 1: o levantamento congelou a tabela "Wolff-velha.xlsx"; o cálculo usou a vigente (Wolff-nova.xlsx).'
+            + ' Com os mesmos materiais, na tabela congelada o custo seria R$ 525,00 bruto e R$ 525,00 líquido, contra R$ 450,00 e R$ 450,00 na vigente (diferença −R$ 75,00 no líquido).'])
+        // o preço gravado é o da VIGENTE: o aviso não muda nada do que foi calculado
+        expect(estado.db.orcamentista_orcamento.find((o) => o.id === O1)!.valor_total_bruto).toBe(450 + 60 + 250 + 30)
+    })
+    it('sem tabela congelada (os itens de produção): nenhum aviso, e a tabela congelada nem é lida', async () => {
+        comCongelada(null)
+        const r = await chamar(rota, 'POST', O1)
+        expect(r.corpo.avisos).toEqual([])
+        expect(estado.ops.some((o) => o.tabela === 'orcamentista_tabela_item')).toBe(false)
+    })
+    it('a congelada é a vigente: nenhum aviso', async () => {
+        comCongelada('tab-nova')
+        expect((await chamar(rota, 'POST', O1)).corpo.avisos).toEqual([])
     })
 })
 

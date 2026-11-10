@@ -9,6 +9,7 @@
  * (a tela de Produtos no modo "orçamento"). O estado do cálculo gravado aparece aqui: "cálculo incompleto — recalcule" quando algum item aponta
  * um cálculo e o orçamento está sem os totais.
  */
+import type { ClienteDoLevantamento } from '@/lib/atendimentos-ia/travessia-do-levantamento-plano'
 import React, { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/router'
@@ -58,6 +59,15 @@ let sequencia = 0
 const comChave = (i: Omit<Item, 'chave'>): Item => ({ ...i, chave: i.id ?? `novo-${++sequencia}` })
 const itemNovo = (): Item => comChave({ id: null, ordem: null, tipologia: null, largura_mm: null, altura_mm: null, quantidade: 1, cor_perfil: null, vidro: null, obs: null })
 
+/** As linhas do cartão do cliente: só o que o levantamento tem (o vazio não aparece — `ausente-vs-falso.md`). */
+export function linhasDoCliente(c: ClienteDoLevantamento): Array<[string, string]> {
+    const linhas: Array<[string, string | null]> = [
+        ['Cliente', c.nome], ['Telefone', c.telefone], ['E-mail', c.email], ['Endereço', c.endereco], ['Edificação', c.edificacao],
+        ['Obs. da obra', c.obs_obra], ['Data de entrega', c.data_entrega ? c.data_entrega.split('-').reverse().join('/') : null], ['Vendedor', c.vendedor_nome],
+    ]
+    return linhas.filter((l): l is [string, string] => typeof l[1] === 'string' && l[1].trim() !== '')
+}
+
 /** O corpo do PATCH: o cabeçalho e TODOS os itens da tela — os gravados com `id`, os novos sem. Nenhum item some do corpo. */
 export function corpoDaAlteracao(nome: string, obs: string | null, itens: readonly Item[]) {
     return {
@@ -81,6 +91,11 @@ function OrcamentoIA() {
     const [estadoDoCalculoGravado, setEstadoDoCalculoGravado] = useState<EstadoDoCalculo | null>(null)
     const [calculando, setCalculando] = useState(false)
     const [recusasDoCalculo, setRecusasDoCalculo] = useState<string[]>([])
+    // o cliente e o vendedor do orçamento do agente: LIDOS do levantamento de origem (nunca copiados); e as faltas do que ele congelou
+    const [cliente, setCliente] = useState<ClienteDoLevantamento | null>(null)
+    const [faltas, setFaltas] = useState<string[]>([])
+    // os avisos do último cálculo: a tabela congelada no levantamento que não é a vigente usada (não bloqueia)
+    const [avisosDaTabela, setAvisosDaTabela] = useState<string[]>([])
 
     /** O estado do cálculo gravado, lido pela rota da precificação (ela traz os valores do cálculo). Sem ela, nada é dito. */
     const lerEstadoDoCalculo = useCallback(async () => {
@@ -99,7 +114,8 @@ function OrcamentoIA() {
         setCalculando(true)
         try {
             const r = await fetch(`/api/atendimentos-ia/orcamentos/${id}/calcular`, { method: 'POST' })
-            const corpo = (await r.json().catch(() => ({}))) as { error?: string; recusas?: string[] }
+            const corpo = (await r.json().catch(() => ({}))) as { error?: string; recusas?: string[]; avisos?: string[] }
+            setAvisosDaTabela(r.ok ? corpo.avisos ?? [] : [])
             if (!r.ok) { setRecusasDoCalculo([corpo.error ?? 'Não foi possível calcular o orçamento.', ...(corpo.recusas ?? [])]); return }
             setRecusasDoCalculo([])
             message.success('Orçamento calculado.')
@@ -127,6 +143,8 @@ function OrcamentoIA() {
             if (r.status === 503) return setEstado({ tipo: 'sem-migracao', mensagem: String(corpo.error ?? '') })
             if (!r.ok) return setEstado({ tipo: 'erro', mensagem: String(corpo.error ?? 'Não foi possível ler o orçamento.') })
             aplicar(corpo.orcamento as Orcamento)
+            setCliente((corpo.cliente ?? null) as ClienteDoLevantamento | null)
+            setFaltas(Array.isArray(corpo.faltas) ? (corpo.faltas as string[]) : [])
         } catch {
             setEstado({ tipo: 'erro', mensagem: 'Não foi possível ler o orçamento.' })
         }
@@ -199,12 +217,28 @@ function OrcamentoIA() {
                                 </Typography.Text>
                             </Space>
                         </Card>
+                        {cliente && (
+                            <Card size="small" title={`Cliente e vendedor (do levantamento ${cliente.levantamento_numero})`} data-cliente-do-levantamento="">
+                                <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>Lidos do levantamento de origem; o que o cliente recebe fica registrado no arquivo do orçamento.</Typography.Paragraph>
+                                {linhasDoCliente(cliente).map(([rotulo, valor]) => (
+                                    <div key={rotulo} style={{ display: 'flex', gap: 8 }}><Typography.Text type="secondary" style={{ minWidth: 130 }}>{rotulo}</Typography.Text><Typography.Text>{valor}</Typography.Text></div>
+                                ))}
+                            </Card>
+                        )}
+                        {faltas.length > 0 && (
+                            <Alert type="warning" showIcon data-faltas-do-congelado="" message="O levantamento não tinha tudo o que muda o preço:"
+                                description={<ul style={{ margin: 0, paddingLeft: 18 }}>{faltas.map((f) => <li key={f}>{f}</li>)}</ul>} />
+                        )}
                         <Card size="small" title="Itens" extra={<Button size="small" icon={<PlusOutlined />} onClick={() => setItens((xs) => [...xs, itemNovo()])}>Adicionar item</Button>}>
                             <Table rowKey="chave" columns={colunas} dataSource={itens} pagination={false} scroll={{ x: 960 }}
                                 locale={{ emptyText: <Typography.Text type="secondary">Nenhum item ainda.</Typography.Text> }} />
                         </Card>
                         {estadoDoCalculoGravado !== null && estadoDoCalculoGravado !== 'completo' && (
                             <Alert type="warning" showIcon data-estado-do-calculo={estadoDoCalculoGravado} message={FRASE_DO_ESTADO[estadoDoCalculoGravado]} />
+                        )}
+                        {avisosDaTabela.length > 0 && (
+                            <Alert type="info" showIcon data-avisos-da-tabela="" message="A tabela de preço mudou desde o levantamento (o cálculo usou a vigente):"
+                                description={<ul style={{ margin: 0, paddingLeft: 18 }}>{avisosDaTabela.map((a) => <li key={a}>{a}</li>)}</ul>} />
                         )}
                         {recusasDoCalculo.length > 0 && <Alert type="error" showIcon data-recusas-do-calculo="" message={recusasDoCalculo[0]} description={recusasDoCalculo.length > 1 ? <ul style={{ margin: 0, paddingLeft: 18 }}>{recusasDoCalculo.slice(1).map((e) => <li key={e}>{e}</li>)}</ul> : undefined} />}
                         {erros.length > 0 && <Alert type="error" showIcon message="O orçamento não foi salvo." description={<ul style={{ margin: 0, paddingLeft: 18 }}>{erros.map((e) => <li key={e}>{e}</li>)}</ul>} />}

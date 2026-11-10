@@ -829,8 +829,9 @@ describe('(3) o estado mora no levantamento; a CONVERSA é gravada como históri
         llmResponde({ nome: 'casa do joao', alteracao: true, itens: [{ altura_mm: 1200 }] })
         await chamar('casa do joao, trocar a altura para 1200')
         const tocadas = new Set(escritasNoEstado().map((e) => e.tabela))
-        // a pergunta em aberto (o apanhado que espera o "sim") é estado, não mensagem: decisão de 26/10/2026
-        expect([...tocadas].sort()).toEqual(['orcamentista_levantamento', 'orcamentista_levantamento_item', 'orcamentista_pergunta_em_aberto'])
+        // a pergunta em aberto (o apanhado que espera o "sim") é estado, não mensagem: decisão de 26/10/2026. E o "sim" ao levantamento que
+        // levantou ATRAVESSA para o orçamento do agente (dono do produto, 10/11/2026): o orçamento e os itens dele, nada mais
+        expect([...tocadas].sort()).toEqual(['orcamentista_levantamento', 'orcamentista_levantamento_item', 'orcamentista_orcamento', 'orcamentista_orcamento_item', 'orcamentista_pergunta_em_aberto'])
         expect(estado.db.orcamentista_pre_definicao).toEqual([])
     })
 

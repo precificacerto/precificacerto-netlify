@@ -19,7 +19,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const id = typeof req.query.id === 'string' ? req.query.id : ''
     try {
         if (!UUID.test(id)) throw new ErroNaoEncontrado()
-        return res.status(200).json({ calculo: await calcularOrcamento(caller.tenant_id, id) })
+        const calculo = await calcularOrcamento(caller.tenant_id, id)
+        return res.status(200).json({ calculo, avisos: calculo.avisos })
     } catch (e) {
         if (e instanceof ErroDoCalculo) return res.status(422).json({ error: FRASE_DO_CALCULO_RECUSADO, recusas: e.recusas })
         if (e instanceof ErroSemMigracaoDoCalculo) return res.status(503).json({ error: FRASE_SEM_MIGRACAO_DO_CALCULO, sem_migracao: true })

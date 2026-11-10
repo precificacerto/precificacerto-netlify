@@ -115,10 +115,10 @@ const FRASE_SEM_VALOR_DO_MINUTO = 'o valor do minuto da mão de obra: a configur
  *     IPI é desconhecido. NÃO se lê a coluna antiga `ipi`: seriam duas fontes para o mesmo número; ela vira o par numa rodada de dado.
  */
 export const PAR_DO_IPI_DESCONHECIDO = 'o par do IPI (cred_ipi_pct ou nc_ipi_pct)'
-type UnidadeCalculada = { liquido: number; nao_apurado: string | null } | { recusa: string }
+export type UnidadeCalculada = { liquido: number; nao_apurado: string | null } | { recusa: string }
 const fraseDoIvaSemLugar = (codigo: string, quais: readonly string[]) =>
     `o ${quais.join(' e o ')} do código ${codigo}: a regra ainda não diz onde o IBS e a CBS entram, e o código não é recalculável`
-function liquidoDaUnidade(codigo: string, bruto: number, bloco: Percentuais): UnidadeCalculada {
+export function liquidoDaUnidade(codigo: string, bruto: number, bloco: Percentuais): UnidadeCalculada {
     const ivaAcimaDeZero = (['cred_ibs_pct', 'cred_cbs_pct'] as const).filter((c) => bloco[c] !== null && bloco[c] !== 0)
     if (ivaAcimaDeZero.length) return { recusa: fraseDoIvaSemLugar(codigo, ivaAcimaDeZero) }
     const semIpi = bloco.cred_ipi_pct === null && bloco.nc_ipi_pct === null

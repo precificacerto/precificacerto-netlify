@@ -11,9 +11,9 @@
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/router'
-import { Alert, Button, Card, Input, Modal, Spin, Table, Tag, Tooltip, Typography, message } from 'antd'
+import { Alert, Button, Card, Input, Modal, Select, Spin, Table, Tag, Tooltip, Typography, message } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
-import { EditOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons'
+import { EditOutlined, PlusOutlined, SearchOutlined, SwapRightOutlined } from '@ant-design/icons'
 
 import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
@@ -36,6 +36,16 @@ type Estado =
     | { tipo: 'erro'; mensagem: string }
     | { tipo: 'pronto'; orcamentos: LinhaDoOrcamento[] }
 
+/** O levantamento COMPLETO da empresa, com o orçamento dele (nulo enquanto não atravessou) — a lista da ação manual. */
+export type LevantamentoParaAtravessar = { id: string; numero: number; nome: string; orcamento: { id: string; numero: number } | null }
+/** O que a travessia grava, dito ANTES do clique (dono do produto, 10/11/2026: um levantamento por vez, nada alterado nele). */
+export const O_QUE_A_TRAVESSIA_GRAVA = [
+    'Um orçamento do agente, com o nome do cliente e os percentuais do levantamento (comissão, reserva técnica e lucro) — o que o levantamento não tem nasce vazio, e a falta é dita.',
+    'Um item do orçamento por esquadria do levantamento: tipologia, medidas, quantidade, cor, vidro, ambientes e escolhas.',
+    'O aproveitamento SEM (barra inteira), porque a base de conhecimento ainda não tem o modo.',
+    'Sem preço: o valor de venda fica vazio até a precificação. O levantamento não é alterado.',
+] as const
+
 export const ROTULO_DA_ORIGEM: Record<LinhaDoOrcamento['origem'], string> = { agente: 'Agente I.A.', manual: 'Manual' }
 export const TEXTO_DA_LISTA_VAZIA = 'Nenhum orçamento ainda. Os orçamentos do agente e os criados aqui aparecem nesta lista.'
 const quando = (iso: string | null) => (iso ? new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '—')
@@ -56,6 +66,11 @@ function OrcamentosIA() {
     const [nome, setNome] = useState('')
     const [salvando, setSalvando] = useState(false)
     const [erroDoCriar, setErroDoCriar] = useState<string | null>(null)
+    const [atravessando, setAtravessando] = useState(false)
+    const [levantamentos, setLevantamentos] = useState<LevantamentoParaAtravessar[] | null>(null)
+    const [escolhido, setEscolhido] = useState<string | null>(null)
+    const [enviandoTravessia, setEnviandoTravessia] = useState(false)
+    const [respostaDaTravessia, setRespostaDaTravessia] = useState<{ tipo: 'erro'; linhas: string[] } | null>(null)
 
     const carregar = useCallback(async () => {
         try {
@@ -90,6 +105,39 @@ function OrcamentosIA() {
             setSalvando(false)
         }
     }
+
+    async function abrirTravessia() {
+        setRespostaDaTravessia(null)
+        setEscolhido(null)
+        setLevantamentos(null)
+        setAtravessando(true)
+        const r = await fetch('/api/atendimentos-ia/orcamentos/atravessar')
+        const corpo = (await r.json().catch(() => ({}))) as { levantamentos?: LevantamentoParaAtravessar[]; error?: string }
+        if (!r.ok) { setRespostaDaTravessia({ tipo: 'erro', linhas: [corpo.error ?? 'Não foi possível ler os levantamentos.'] }); setLevantamentos([]); return }
+        setLevantamentos(corpo.levantamentos ?? [])
+    }
+
+    async function atravessar() {
+        if (!escolhido) return
+        setEnviandoTravessia(true)
+        setRespostaDaTravessia(null)
+        try {
+            const r = await fetch('/api/atendimentos-ia/orcamentos/atravessar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ levantamento_id: escolhido }) })
+            const corpo = (await r.json().catch(() => ({}))) as { orcamento?: { id: string; numero: number }; faltas?: string[]; error?: string; recusas?: string[] }
+            if (!r.ok || !corpo.orcamento || r.status === 409) {
+                setRespostaDaTravessia({ tipo: 'erro', linhas: [corpo.error ?? 'Não foi possível atravessar o levantamento.', ...(corpo.recusas ?? [])] })
+                return
+            }
+            const faltas = corpo.faltas ?? []
+            message.success(`Orçamento ${corpo.orcamento.numero} criado${faltas.length ? ` — ${faltas.length} falta(s) a completar na precificação` : ''}.`)
+            setAtravessando(false)
+            await carregar()
+            await abrir(corpo.orcamento.id)
+        } finally {
+            setEnviandoTravessia(false)
+        }
+    }
+    const semOrcamento = (levantamentos ?? []).filter((l) => l.orcamento === null)
 
     const colunas: ColumnsType<LinhaDoOrcamento> = [
         { title: 'Nº', dataIndex: 'numero', key: 'numero', width: 80 },
@@ -133,7 +181,10 @@ function OrcamentosIA() {
                                 style={{ maxWidth: 320 }}
                                 allowClear
                             />
-                            <Button type="primary" icon={<PlusOutlined />} onClick={() => { setErroDoCriar(null); setCriando(true) }}>Criar orçamento</Button>
+                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                                <Button icon={<SwapRightOutlined />} onClick={abrirTravessia}>Atravessar levantamento</Button>
+                                <Button type="primary" icon={<PlusOutlined />} onClick={() => { setErroDoCriar(null); setCriando(true) }}>Criar orçamento</Button>
+                            </div>
                         </div>
                         <Card size="small">
                             <Table
@@ -148,6 +199,38 @@ function OrcamentosIA() {
                         </Card>
                     </>
                 )}
+                <Modal
+                    open={atravessando}
+                    title="Atravessar levantamento para orçamento"
+                    okText="Atravessar"
+                    cancelText="Cancelar"
+                    onCancel={() => setAtravessando(false)}
+                    onOk={atravessar}
+                    okButtonProps={{ loading: enviandoTravessia, disabled: escolhido === null }}
+                >
+                    <div data-travessia="">
+                        <Typography.Paragraph type="secondary">Escolha UM levantamento completo. O que será gravado:</Typography.Paragraph>
+                        <ul style={{ paddingLeft: 18, marginTop: 0 }}>
+                            {O_QUE_A_TRAVESSIA_GRAVA.map((t) => <li key={t}><Typography.Text type="secondary">{t}</Typography.Text></li>)}
+                        </ul>
+                        {levantamentos === null ? <Spin /> : semOrcamento.length === 0 ? (
+                            <Alert type="info" showIcon message="Nenhum levantamento completo sem orçamento." />
+                        ) : (
+                            <Select
+                                style={{ width: '100%' }}
+                                placeholder="Levantamento"
+                                aria-label="Levantamento"
+                                value={escolhido ?? undefined}
+                                onChange={(v: string) => setEscolhido(v)}
+                                options={semOrcamento.map((l) => ({ value: l.id, label: `Levantamento ${l.numero} — ${l.nome}` }))}
+                            />
+                        )}
+                        {respostaDaTravessia && (
+                            <Alert style={{ marginTop: 12 }} type="error" showIcon message={respostaDaTravessia.linhas[0]}
+                                description={respostaDaTravessia.linhas.length > 1 ? <ul style={{ margin: 0, paddingLeft: 18 }}>{respostaDaTravessia.linhas.slice(1).map((l) => <li key={l}>{l}</li>)}</ul> : undefined} />
+                        )}
+                    </div>
+                </Modal>
                 <Modal
                     open={criando}
                     title="Criar orçamento"
