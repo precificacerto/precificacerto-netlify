@@ -88,7 +88,9 @@ def jest():
     return subprocess.run(['npx', 'jest', '--silent', *SUITES], cwd=RAIZ, capture_output=True, text=True).returncode
 
 
-EQUIVALENTES: set = set()
+# G6 é EQUIVALENTE: o rateio lê só os itens (quantidade e custo líquido total), e o UPDATE da precificação não os toca — `orc` e `gravado`
+# dão o mesmo rateio. Fica na lista para a próxima pessoa saber que foi medida e por que sobrevive.
+EQUIVALENTES: set = {'G6'}
 
 
 def main():
