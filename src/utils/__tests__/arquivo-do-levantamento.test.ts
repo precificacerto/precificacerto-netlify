@@ -6,7 +6,7 @@
 // o módulo lê o banco nas funções de leitura; aqui só as puras são exercitadas
 jest.mock('@/supabase/admin', () => ({ supabaseAdmin: {} }))
 import { corDoAcessorio, montarDadosDaFolha, resumoDoArquivo, resumoDoArquivoParaOPrompt, variaveisDitas, type LevantamentoDoArquivo } from '@/lib/atendimentos-ia/arquivo-do-levantamento'
-import { desenhoDaTipologia, gerarFolhaDoLevantamento, linhaDasVariaveis } from '@/lib/atendimentos-ia/folha-do-levantamento'
+import { conferirFolha, desenhoDaTipologia, gerarFolhaDoLevantamento, linhaDasVariaveis } from '@/lib/atendimentos-ia/folha-do-levantamento'
 import { itemVazio, type DefinicaoDaTipologia, type ItemDoLevantamento } from '@/lib/atendimentos-ia/levantamento-em-montagem'
 import type { VariaveisDaTipologia } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 
@@ -31,12 +31,32 @@ const LEV: LevantamentoDoArquivo = {
     vendedor_nome: 'Cristiano Fernandes', vendedor_employee_id: 'e1',
 }
 const montar = (itens: ItemDoLevantamento[], l: Partial<LevantamentoDoArquivo> = {}) =>
-    montarDadosDaFolha({ empresa: 'Empresa X', levantamento: { ...LEV, ...l }, itens, definicao, detalhe, geradoEm: new Date(Date.UTC(2026, 10, 6, 12)) })
+    montarDadosDaFolha({ empresa: 'Empresa X', levantamento: { ...LEV, ...l }, itens, definicao, detalhe, geradoEm: new Date(Date.UTC(2026, 10, 6, 12)), doVendedor: null })
 
 /** O texto desenhado no PDF (as cadeias dos operadores Tj), para conferir o que a folha mostra. */
 const textoDoPdf = (pdf: Uint8Array) => [...Buffer.from(pdf).toString('latin1').matchAll(/\(((?:\\.|[^\\)])*)\) Tj/g)].map((m) => m[1].replace(/\\([()\\])/g, '$1')).join(' ').replace(/\s+/g, ' ')
 /** O padrão de um código de fornecedor: letras seguidas de dígitos, como BZ0010, BZ1770 — e qualquer outro do mesmo feitio. */
 const CODIGO_DE_FORNECEDOR = /\b[A-Z]{1,5}\d{2,}[A-Z0-9]*\b/
+
+describe('OS TRÊS PERCENTUAIS na folha: a alteração dita, senão a pré-definição do vendedor, senão zero (dono do produto, 11/11/2026)', () => {
+    const PERFIL = { comissao_percentual: 3, comissao_modo: 'CONGELADA' as const, reserva_tecnica_percentual: 0, lucro_projetado_percentual: 15 }
+    const com = (l: Partial<LevantamentoDoArquivo>, doVendedor: typeof PERFIL | null) =>
+        montarDadosDaFolha({ empresa: 'Empresa X', levantamento: { ...LEV, ...l }, itens: [item(1, {})], definicao, detalhe, geradoEm: new Date(Date.UTC(2026, 10, 11, 12)), doVendedor }).condicoes
+    const VAZIO: Partial<LevantamentoDoArquivo> = { comissao_percentual: null, reserva_tecnica_percentual: null, lucro_projetado_percentual: null }
+    it('a alteração dita no levantamento vence a pré-definição', () => {
+        expect(com({}, PERFIL)).toEqual(expect.objectContaining({ comissaoPercentual: 5, rtPercentual: 1, lucroPercentual: 10 }))
+    })
+    it('o levantamento sem alteração: os três da pré-definição do vendedor', () => {
+        expect(com(VAZIO, PERFIL)).toEqual(expect.objectContaining({ comissaoPercentual: 3, rtPercentual: 0, lucroPercentual: 15 }))
+    })
+    it('sem alteração e sem pré-definição: ZERO nos três — e a folha não recusa por eles', () => {
+        const c = com(VAZIO, null)
+        expect([c.comissaoPercentual, c.rtPercentual, c.lucroPercentual]).toEqual([0, 0, 0])
+        const d = montarDadosDaFolha({ empresa: 'Empresa X', levantamento: { ...LEV, ...VAZIO }, itens: [item(1, {})], definicao, detalhe, geradoEm: new Date(Date.UTC(2026, 10, 11, 12)), doVendedor: null })
+        // a folha completa não tem recusa nenhuma: os percentuais ausentes não viram falta
+        expect(conferirFolha(d)).toEqual([])
+    })
+})
 
 describe('O ARREMATE na folha: O QUE O CÁLCULO USA, com as opções reais do motor da Wolff (dono do produto, 07/11/2026)', () => {
     // as três variáveis de arremate da DP-02 como estão no motor fdff3386 (medido em 07/11/2026), com os códigos reais
@@ -50,7 +70,7 @@ describe('O ARREMATE na folha: O QUE O CÁLCULO USA, com as opções reais do mo
         { variavel: 'ARI', descricao: 'ARREMATE INTERNO', padrao: '1', condicao: 'sempre', opcoes: '1 = QX4410 - ARREMATE 30MM [12,00]; 2 = KLM77A - ARREMATE 45MM' },
     ] } as unknown as VariaveisDaTipologia
     const comDefinicao = (v: VariaveisDaTipologia) => (itens: ItemDoLevantamento[]) =>
-        montarDadosDaFolha({ empresa: 'Empresa X', levantamento: LEV, itens, definicao: () => v, detalhe, geradoEm: new Date(Date.UTC(2026, 10, 7, 12)) })
+        montarDadosDaFolha({ empresa: 'Empresa X', levantamento: LEV, itens, definicao: () => v, detalhe, geradoEm: new Date(Date.UTC(2026, 10, 7, 12)), doVendedor: null })
     const real = comDefinicao(DP02_REAL)
     const PADRAO_DO_MOTOR = 'arremate interno: 65 mm; arremate externo: 20 mm; medida do arremate externo: medida do vão'
 
@@ -150,9 +170,11 @@ describe('o arquivo montado do que está gravado', () => {
         expect(gerarFolhaDoLevantamento(d).ok).toBe(true)
     })
 
-    it('sem os percentuais congelados, a folha é RECUSADA nomeando o que falta — nunca sai com zero', () => {
-        const r = gerarFolhaDoLevantamento(montar([item(1, {})], { comissao_percentual: null, lucro_projetado_percentual: null }))
-        expect(r).toEqual({ ok: false, recusas: ['Faltam, nas condições comerciais: a comissão (%), o lucro projetado (%).'] })
+    // REVOGADO pela regra do zero (dono do produto, 11/11/2026): "a ausência de imputação significa ZERO" — o caso de antes recusava a folha
+    it('sem os percentuais no levantamento e sem pré-definição, a folha SAI com zero (a regra do zero); o modo ausente continua recusado', () => {
+        expect(gerarFolhaDoLevantamento(montar([item(1, {})], { comissao_percentual: null, lucro_projetado_percentual: null })).ok).toBe(true)
+        const r = gerarFolhaDoLevantamento(montar([item(1, {})], { comissao_modo: null }))
+        expect(r).toEqual({ ok: false, recusas: ['Faltam, nas condições comerciais: o modo da comissão.'] })
     })
 
     it('o resumo que vai ao MODELO não traz percentual; o de comparação (R2) traz, e muda quando um percentual muda', () => {

@@ -169,6 +169,7 @@
  *
  * Portão: `src/utils/__tests__/atendimentos-ia-levantamento-por-nome.test.ts`.
  */
+import { atravessarNoSim } from './travessia-do-levantamento'
 import { supabaseAdmin } from '@/supabase/admin'
 import { MODELO_PADRAO_DA_IA, URL_DA_API_ANTHROPIC, VERSAO_DA_API_ANTHROPIC } from '@/lib/atendimentos-ia/modelo-da-ia'
 import { paraOLog } from '@/utils/atendimentos-ia-mascara-do-log'
@@ -1072,7 +1073,8 @@ async function refazerPergunta(
 async function dadosDaFolhaGravada(tenantId: string, levantamentoId: string, definicao: DefinicaoDaTipologia, detalhe: DetalheDaTipologia) {
     const [doArquivo, empresa, itens] = await Promise.all([lerLevantamentoDoArquivo(tenantId, levantamentoId), lerNomeDaEmpresa(tenantId), lerItens(tenantId, levantamentoId)])
     if (!doArquivo) return null
-    return montarDadosDaFolha({ empresa: empresa ?? '', levantamento: doArquivo, itens, definicao, detalhe, geradoEm: new Date(0) })
+    const doVendedor = await lerPerfilDoVendedor(tenantId, doArquivo.vendedor_employee_id)
+    return montarDadosDaFolha({ empresa: empresa ?? '', levantamento: doArquivo, itens, definicao, detalhe, geradoEm: new Date(0), doVendedor })
 }
 
 /** O nome que não está no texto vale SÓ se for um dos que a pergunta em aberto citou ("é o mesmo"). */
@@ -1772,6 +1774,11 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             const e = levantamento.etapa
             rastro.etapas.calcular = `esquadrias=${e.esquadrias} pecas=${nuloNoLog(e.pecas)} barras=${nuloNoLog(e.barras)} codigos=${nuloNoLog(e.codigos)}`
                 + ` sem_preco=${nuloNoLog(e.semPreco)} mao_de_obra=${nuloNoLog(e.maoDeObra)} desfecho=${levantamento.desfecho} faltou=${listaNoLog(e.faltou)}`
+        }
+        // A TRAVESSIA (dono do produto, 10/11/2026): o "sim" ao levantamento COMPLETO que levantou atravessa para o orçamento do agente, pelo
+        // MESMO código da ação manual. Idempotente; nunca muda a resposta ao vendedor — o resultado vai ao log da etapa do cálculo
+        if ((confirmouApanhado || simVale) && levantamento.desfecho === 'levantou' && estado === COMPLETO && rastro.levantamento) {
+            rastro.etapas.calcular = `${rastro.etapas.calcular ?? ''} travessia=${await atravessarNoSim(c.tenantId, rastro.levantamento)}`.trim()
         }
         // SEM a confirmação do arremate (dono do produto, 08/11/2026): "Considerando guarnição e arremate padrão, certo!" repetia o que o
         // rodapé da folha já diz nas pré-definições consideradas — ruído. O mesmo para a variante do arremate escolhido

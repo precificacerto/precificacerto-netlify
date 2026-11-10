@@ -17,11 +17,14 @@ const rota = { query: {} as Record<string, string>, push: jest.fn() }
 jest.mock('next/router', () => ({ useRouter: () => ({ pathname: '/', asPath: '/', query: rota.query, push: rota.push, replace: () => {}, events: { on: () => {}, off: () => {} } }) }))
 jest.mock('@/components/layout/layout.component', () => ({ Layout: ({ children, title }: { children: React.ReactNode; title: string }) => <div data-titulo={title}>{children}</div> }))
 
-const servidor = { status: 200, corpo: {} as Record<string, unknown>, chamadas: [] as Array<{ url: string; metodo: string; corpo: unknown }> }
+const servidor = { status: 200, corpo: {} as Record<string, unknown>, chamadas: [] as Array<{ url: string; metodo: string; corpo: unknown }>,
+    /** a resposta de uma rota e método ("POST /api/..."), quando o caso precisa de mais de uma */
+    porRota: {} as Record<string, { status: number; corpo: Record<string, unknown> }> }
 beforeAll(() => {
     ;(globalThis as { fetch: unknown }).fetch = jest.fn(async (url: string, init?: { method?: string; body?: string }) => {
         servidor.chamadas.push({ url, metodo: init?.method ?? 'GET', corpo: init?.body ? JSON.parse(init.body) : undefined })
-        return { ok: servidor.status >= 200 && servidor.status < 300, status: servidor.status, json: async () => servidor.corpo }
+        const r = servidor.porRota[`${init?.method ?? 'GET'} ${url}`] ?? { status: servidor.status, corpo: servidor.corpo }
+        return { ok: r.status >= 200 && r.status < 300, status: r.status, json: async () => r.corpo }
     })
 })
 
@@ -29,7 +32,8 @@ beforeAll(() => {
 const Lista = require('@/pages/atendimentos-ia/orcamentos-ia/index').default as React.ComponentType
 const Edicao = require('@/pages/atendimentos-ia/orcamentos-ia/[id]').default as React.ComponentType
 const { PAGE_TITLES } = require('@/constants/page-titles')
-const { TEXTO_DA_LISTA_VAZIA } = require('@/pages/atendimentos-ia/orcamentos-ia/index')
+const { TEXTO_DA_LISTA_VAZIA, O_QUE_A_TRAVESSIA_GRAVA } = require('@/pages/atendimentos-ia/orcamentos-ia/index')
+const { FALTA_DO_MODO_DA_COMISSAO, ROTULO_DA_ORIGEM_DO_PERCENTUAL } = require('@/lib/atendimentos-ia/travessia-do-levantamento-plano')
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 const montadas: Array<{ root: ReturnType<typeof createRoot>; host: HTMLElement }> = []
@@ -38,6 +42,7 @@ afterEach(() => {
     servidor.status = 200
     servidor.corpo = {}
     servidor.chamadas = []
+    servidor.porRota = {}
     rota.query = {}
     rota.push.mockClear()
 })
@@ -72,7 +77,7 @@ describe('a lista', () => {
         expect(t).toContain('Cliente na loja')
         expect(Array.from(host.querySelectorAll('[data-origem]')).map((e) => [e.getAttribute('data-origem'), e.textContent])).toEqual([['manual', 'Manual'], ['agente', 'Agente I.A.']])
         expect(host.querySelectorAll('[data-editado]')).toHaveLength(1)
-        expect(botoes(host)).toEqual(['Criar orçamento', 'Editar o orçamento 2', 'Editar o orçamento 1'])
+        expect(botoes(host)).toEqual(['Atravessar levantamento', 'Criar orçamento', 'Editar o orçamento 2', 'Editar o orçamento 1'])
         // das ações de Produtos, nenhuma das que não cabem no orçamento
         for (const fora of ['Excluir', 'estoque', 'Criar Tabela', 'Criar Seção', 'Atualizar', 'Tabela de preços']) expect(t).not.toContain(fora)
     })
@@ -90,7 +95,7 @@ describe('a lista', () => {
         servidor.corpo = { orcamentos: [] }
         const host = await montar(<Lista />)
         expect(host.textContent).toContain(TEXTO_DA_LISTA_VAZIA)
-        expect(botoes(host)).toEqual(['Criar orçamento'])
+        expect(botoes(host)).toEqual(['Atravessar levantamento', 'Criar orçamento'])
     })
 
     it.each([
@@ -145,5 +150,113 @@ describe('a edição', () => {
         const host = await montar(<Edicao />)
         expect(host.querySelector('[data-estado]')?.getAttribute('data-estado')).toBe('nao-encontrado')
         expect(botoes(host)).not.toContain('Salvar')
+    })
+})
+
+// ── A TRAVESSIA (dono do produto, 10/11/2026): a ação manual, um levantamento por vez, e o cliente lido do levantamento ──────────────
+const clicarNo = async (el: Element | null | undefined) => {
+    // eslint-disable-next-line testing-library/no-unnecessary-act
+    await act(async () => { (el as HTMLElement).dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+    // eslint-disable-next-line testing-library/no-unnecessary-act
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)) })
+}
+const botaoCom = (texto: string) => Array.from(document.querySelectorAll('button')).find((b) => (b.textContent ?? '').trim() === texto) as HTMLButtonElement | undefined
+const ROTA_DA_TRAVESSIA = '/api/atendimentos-ia/orcamentos/atravessar'
+const LEVANTAMENTOS = [
+    { id: 'lev-11', numero: 11, nome: 'Geraldo Huck', orcamento: null },
+    { id: 'lev-9', numero: 9, nome: 'Antonio Rock', orcamento: { id: 'b', numero: 1 } },
+]
+async function abrirATravessia() {
+    servidor.corpo = { orcamentos: LISTA }
+    servidor.porRota[`GET ${ROTA_DA_TRAVESSIA}`] = { status: 200, corpo: { levantamentos: LEVANTAMENTOS } }
+    const host = await montar(<Lista />)
+    await clicarNo(botaoCom('Atravessar levantamento'))
+    return host
+}
+async function escolher(rotulo: string) {
+    // eslint-disable-next-line testing-library/no-unnecessary-act
+    await act(async () => { document.querySelector('[data-travessia] .ant-select-selector')!.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })) })
+    const opcoes = Array.from(document.querySelectorAll('.ant-select-item-option'))
+    await clicarNo(opcoes.find((o) => o.textContent === rotulo))
+    return opcoes.map((o) => o.textContent)
+}
+
+describe('a travessia na lista', () => {
+    it('o modal diz o que será gravado, oferece só os levantamentos SEM orçamento, e não atravessa sem escolher', async () => {
+        await abrirATravessia()
+        expect(servidor.chamadas.some((c) => c.url === ROTA_DA_TRAVESSIA && c.metodo === 'GET')).toBe(true)
+        const modal = document.querySelector('[data-travessia]')!
+        for (const linha of O_QUE_A_TRAVESSIA_GRAVA as readonly string[]) expect(modal.textContent).toContain(linha)
+        expect(botaoCom('Atravessar')!.disabled).toBe(true)
+        expect(await escolher('Levantamento 11 — Geraldo Huck')).toEqual(['Levantamento 11 — Geraldo Huck'])
+        expect(botaoCom('Atravessar')!.disabled).toBe(false)
+    })
+    it('atravessa UM: o POST leva só o escolhido, e a tela abre o orçamento criado', async () => {
+        await abrirATravessia()
+        await escolher('Levantamento 11 — Geraldo Huck')
+        servidor.porRota[`POST ${ROTA_DA_TRAVESSIA}`] = { status: 201, corpo: { orcamento: { id: 'novo', numero: 3 }, itens: 3, faltas: [] } }
+        await clicarNo(botaoCom('Atravessar'))
+        const posts = servidor.chamadas.filter((c) => c.url === ROTA_DA_TRAVESSIA && c.metodo === 'POST')
+        expect(posts).toEqual([{ url: ROTA_DA_TRAVESSIA, metodo: 'POST', corpo: { levantamento_id: 'lev-11' } }])
+        expect(rota.push).toHaveBeenCalledWith(expect.stringMatching(/\/novo$/))
+    })
+    it('o já atravessado (409): a frase que nomeia o orçamento, e nada é aberto', async () => {
+        await abrirATravessia()
+        await escolher('Levantamento 11 — Geraldo Huck')
+        servidor.porRota[`POST ${ROTA_DA_TRAVESSIA}`] = { status: 409, corpo: { error: 'O levantamento 11 já tem o orçamento 3: a travessia não cria um segundo.', orcamento: { id: 'x', numero: 3 } } }
+        await clicarNo(botaoCom('Atravessar'))
+        expect(document.querySelector('[data-travessia]')!.textContent).toContain('O levantamento 11 já tem o orçamento 3')
+        expect(rota.push).not.toHaveBeenCalled()
+    })
+})
+
+describe('o orçamento do agente: o cliente lido, as faltas e os avisos', () => {
+    const ORC_AGENTE = { id: 'b', numero: 1, origem: 'agente', levantamento_id: 'lev', nome: 'Antonio Rock', obs: null as string | null, editado_manualmente_em: null as string | null, criado_em: '2026-11-08T21:00:00Z', itens: [] as unknown[] }
+    it('o cartão do cliente traz só o que o levantamento tem, e as faltas são listadas', async () => {
+        rota.query = { id: 'b' }
+        servidor.corpo = { orcamento: ORC_AGENTE, faltas: [FALTA_DO_MODO_DA_COMISSAO],
+            cliente: { levantamento_numero: 9, nome: 'Antonio Rock', telefone: '51 98888-1111', email: null, endereco: null, edificacao: '', obs_obra: null, data_entrega: '2026-12-01', vendedor_nome: 'Paulo', vendedor_employee_id: 'e1' } }
+        const host = await montar(<Edicao />)
+        const cartao = host.querySelector('[data-cliente-do-levantamento]')!
+        expect(cartao.textContent).toContain('do levantamento 9')
+        expect(cartao.textContent).toContain('51 98888-1111')
+        expect(cartao.textContent).toContain('01/12/2026')
+        expect(cartao.textContent).toContain('Paulo')
+        expect(cartao.textContent).not.toContain('Edificação')
+        expect(cartao.textContent).not.toContain('E-mail')
+        expect(host.querySelector('[data-faltas-do-congelado]')!.textContent).toContain(FALTA_DO_MODO_DA_COMISSAO)
+    })
+    it('os três percentuais com a ORIGEM ao lado; o zero por ausência é DESTACADO, nunca silencioso (regra do zero, 11/11/2026)', async () => {
+        rota.query = { id: 'b' }
+        servidor.corpo = { orcamento: ORC_AGENTE, cliente: null, faltas: [], percentuais: [
+            { campo: 'comissao_percentual', valor: 5, origem: 'levantamento' },
+            { campo: 'reserva_tecnica_percentual', valor: 2, origem: 'base_de_conhecimento' },
+            { campo: 'lucro_projetado_percentual', valor: 0, origem: 'zero_por_ausencia' },
+        ] }
+        const host = await montar(<Edicao />)
+        const linha = (c: string) => host.querySelector(`[data-percentual="${c}"]`)!
+        expect(linha('comissao_percentual').textContent).toBe(`Comissão5%${ROTULO_DA_ORIGEM_DO_PERCENTUAL.levantamento}`)
+        expect(linha('reserva_tecnica_percentual').textContent).toBe(`Reserva técnica2%${ROTULO_DA_ORIGEM_DO_PERCENTUAL.base_de_conhecimento}`)
+        expect(linha('lucro_projetado_percentual').textContent).toBe(`Lucro projetado0%${ROTULO_DA_ORIGEM_DO_PERCENTUAL.zero_por_ausencia}`)
+        // o destaque: só o zero por ausência ganha a cor de aviso
+        expect(linha('lucro_projetado_percentual').querySelector('.ant-tag-gold')).not.toBeNull()
+        expect(linha('comissao_percentual').querySelector('.ant-tag-gold')).toBeNull()
+        expect(linha('reserva_tecnica_percentual').querySelector('.ant-tag-gold')).toBeNull()
+    })
+    it('o orçamento manual não tem cartão de cliente nem faltas', async () => {
+        rota.query = { id: 'a' }
+        servidor.corpo = { orcamento: { ...ORC_AGENTE, origem: 'manual', levantamento_id: null }, cliente: null, faltas: [] }
+        const host = await montar(<Edicao />)
+        expect(host.querySelector('[data-cliente-do-levantamento]')).toBeNull()
+        expect(host.querySelector('[data-faltas-do-congelado]')).toBeNull()
+        expect(host.querySelector('[data-percentuais-do-orcamento]')).toBeNull()
+    })
+    it('o cálculo que devolve aviso da tabela congelada mostra o aviso, sem bloquear', async () => {
+        rota.query = { id: 'b' }
+        servidor.corpo = { orcamento: ORC_AGENTE, cliente: null, faltas: [] }
+        servidor.porRota['POST /api/atendimentos-ia/orcamentos/b/calcular'] = { status: 200, corpo: { calculo: {}, avisos: ['Esquadria 2: o levantamento congelou a tabela "A"; o cálculo usou a vigente (B).'] } }
+        const host = await montar(<Edicao />)
+        await clicarNo(botaoCom('Calcular'))
+        expect(host.querySelector('[data-avisos-da-tabela]')!.textContent).toContain('Esquadria 2: o levantamento congelou a tabela "A"')
     })
 })
