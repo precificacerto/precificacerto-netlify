@@ -89,7 +89,7 @@ MUTACOES = [
     ('F9', 'o PIS/COFINS da empresa não entra no orçamento', [(CONTENT, '    if (ehOrcamentoDeIndustrializacao && pisCofinsDaReferencia !== null) setPisCofinsLRPct(pisCofinsDaReferencia)', '    if (false) setPisCofinsLRPct(pisCofinsDaReferencia ?? 0)')]),
     ('F10', 'o PIS/COFINS da referência sem excluir o ICMS', [(NCMPIS, '  return parseFloat((PIS_COFINS_NAO_CUMULATIVO_PCT * (1 - args.icmsPct / 100)).toFixed(4))', '  return PIS_COFINS_NAO_CUMULATIVO_PCT')]),
     # a empresa é a fonte única dos impostos, o fiscal é invisível, e o topo do cliente (dono do produto, 11/11/2026, segunda rodada)
-    ('E1', 'o servidor aceita o escopo do corpo', [(GRAVA, "    const fiscal = 'fiscal' in doSegmento ? doSegmento.fiscal : { ...PRESET_DA_COMERCIALIZACAO }", "    const fiscal = { ...PRESET_DA_COMERCIALIZACAO, sale_scope: (corpo.sale_scope === 'INTERESTADUAL' ? 'INTERESTADUAL' : 'INTRAESTADUAL') as 'INTRAESTADUAL', uf_destino: (typeof corpo.uf_destino === 'string' ? corpo.uf_destino : null) as null }")]),
+    ('E1', 'o servidor aceita o escopo do corpo', [(GRAVA, "    const fiscal = 'fiscal' in doModelo ? doModelo.fiscal : { ...PRESET_DA_COMERCIALIZACAO }", "    const fiscal = { ...PRESET_DA_COMERCIALIZACAO, sale_scope: (corpo.sale_scope === 'INTERESTADUAL' ? 'INTERESTADUAL' : 'INTRAESTADUAL') as 'INTRAESTADUAL', uf_destino: (typeof corpo.uf_destino === 'string' ? corpo.uf_destino : null) as null }")]),
     ('E2', 'o bloco Fiscal volta ao orçamento', [(CONTENT, '      {!ehOrcamentoDeIndustrializacao && (<>', '      {true && (<>')]),
     ('E3', 'o ICMS se edita no orçamento', [(PRICE, "pricingRow('ICMS (%)', 'icms', impostosDaEmpresa ? undefined : 'icms',", "pricingRow('ICMS (%)', 'icms', 'icms',")]),
     ('E4', 'o PIS/COFINS se edita no orçamento', [(PRICE, "              impostosDaEmpresa ? undefined : 'pisCofins',", "              'pisCofins',")]),
@@ -105,7 +105,7 @@ MUTACOES = [
     # o preset preso por teste, a chave pelo segmento, o aviso e o rastro da sobrescrita (dono do produto, 11/11/2026, terceira rodada)
     ('F7b', 'o preset é para contribuinte', [(PREC, "buyer_type: 'CONSUMIDOR_FINAL', uf_destino: null as null, ncm_code: null as null } as const", "buyer_type: 'CONTRIBUINTE_PJ', uf_destino: null as null, ncm_code: null as null } as const")]),
     ('K1', 'a chave volta a ser o modo orçamento, sem o segmento', [(CONTENT, "  const ehOrcamentoDeIndustrializacao = ehOrcamento && productType === 'PRODUZIDO'", '  const ehOrcamentoDeIndustrializacao = ehOrcamento')]),
-    ('K2', 'o servidor dá o preset a qualquer segmento', [(PREC, "    if (segmento === 'PRODUZIDO') return { fiscal: { ...PRESET_DA_COMERCIALIZACAO } }", '    if (true) return { fiscal: { ...PRESET_DA_COMERCIALIZACAO } }')]),
+    ('K2', 'o servidor dá o preset a qualquer modelo', [(PREC, "    if (modelo === 'PRODUZIDO') return { fiscal: { ...PRESET_DA_COMERCIALIZACAO } }", '    if (true) return { fiscal: { ...PRESET_DA_COMERCIALIZACAO } }')]),
     ('D1', 'a divergência nunca é vista', [(PREC, '        return gravado !== null && gravado !== undefined && gravado !== preset[campo] ?', '        return false ?')]),
     ('D2', 'o nulo de antes do preset conta como divergência', [(PREC, '        return gravado !== null && gravado !== undefined && gravado !== preset[campo] ?', '        return gravado !== undefined && gravado !== preset[campo] ?')]),
     ('D3', 'a sobrescrita em silêncio', [(GRAVA, '    if (sobrescrito.length) console.error(', '    if (false) console.error(')]),

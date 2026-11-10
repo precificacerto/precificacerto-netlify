@@ -159,18 +159,18 @@ export type FiscalDaTela = {
 export const PRESET_DA_COMERCIALIZACAO = { sale_scope: 'INTRAESTADUAL', buyer_type: 'CONSUMIDOR_FINAL', uf_destino: null as null, ncm_code: null as null } as const
 
 /**
- * O SEGMENTO decide de onde vêm os tributos (dono do produto, 11/11/2026): na FABRICAÇÃO/INDUSTRIALIZAÇÃO, NCM, ICMS, PIS, COFINS, IBS e CBS vêm
+ * O MODELO decide de onde vêm os tributos (dono do produto, 11/11/2026): na FABRICAÇÃO/INDUSTRIALIZAÇÃO, NCM, ICMS, PIS, COFINS, IBS e CBS vêm
  * do onboarding da empresa; na REVENDA, NCM e ICMS vêm de CADA PRODUTO — outro contexto, que não entra agora. O orçamento I.A. é de esquadrias:
  * industrialização (o cabeçalho fixo, `CABECALHO_FIXO.tipo` = Produzido). A amarração "imposto da empresa" pertence a ESTE caminho, e não ao
  * motor nem ao caminho compartilhado: a revenda não a herda por acidente.
  */
-export type SegmentoDoOrcamento = 'PRODUZIDO' | 'REVENDA'
-export const SEGMENTO_DO_ORCAMENTO_IA: SegmentoDoOrcamento = 'PRODUZIDO'
+export type ModeloDoOrcamento = 'PRODUZIDO' | 'REVENDA'
+export const MODELO_DO_ORCAMENTO_IA: ModeloDoOrcamento = 'PRODUZIDO'
 export const FRASE_FISCAL_DA_REVENDA = 'o fiscal do orçamento de revenda (o NCM e o ICMS de cada produto) ainda não existe: só o orçamento de '
     + 'industrialização é precificado'
-/** O fiscal que se GRAVA no orçamento do segmento: o preset na industrialização; na revenda, recusa nomeada (ainda não existe). */
-export function fiscalDoOrcamento(segmento: SegmentoDoOrcamento): { fiscal: FiscalDaTela } | { recusa: string } {
-    if (segmento === 'PRODUZIDO') return { fiscal: { ...PRESET_DA_COMERCIALIZACAO } }
+/** O fiscal que se GRAVA no orçamento do modelo: o preset na industrialização; na revenda, recusa nomeada (ainda não existe). */
+export function fiscalDoOrcamento(modelo: ModeloDoOrcamento): { fiscal: FiscalDaTela } | { recusa: string } {
+    if (modelo === 'PRODUZIDO') return { fiscal: { ...PRESET_DA_COMERCIALIZACAO } }
     return { recusa: FRASE_FISCAL_DA_REVENDA }
 }
 

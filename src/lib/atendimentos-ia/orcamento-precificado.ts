@@ -17,7 +17,7 @@ import { ratearOperacaoInterna } from './rateio-do-orcamento'
 import { gerarEGravarArquivo, lerDadosDoArquivo, type ArquivoGravado } from './arquivo-do-orcamento-servidor'
 import { ErroDeValidacao, ErroNaoEncontrado, ErroSemMigracao, TABELA_DO_ITEM, TABELA_DO_ORCAMENTO, tabelaAusente } from './orcamentos-ia'
 import {
-    estadoDoCalculo, fiscalDivergente, fiscalDoOrcamento, FRASE_DO_ESTADO, PRESET_DA_COMERCIALIZACAO, rastroDoFiscalSobrescrito, SEGMENTO_DO_ORCAMENTO_IA,
+    estadoDoCalculo, fiscalDivergente, fiscalDoOrcamento, FRASE_DO_ESTADO, PRESET_DA_COMERCIALIZACAO, rastroDoFiscalSobrescrito, MODELO_DO_ORCAMENTO_IA,
     type CampoDivergente,
     type GravacaoDaPrecificacao, type ItemNaPrecificacao, type OrcamentoNaPrecificacao,
 } from './precificacao-do-orcamento'
@@ -87,10 +87,10 @@ export function validarGravacao(corpo: Record<string, unknown>): GravacaoDaPreci
     if (interna === null || interna <= 0) erros.push('Operação interna: tem de ser um número maior que zero.')
     else if (Math.abs(interna * 100 - Math.round(interna * 100)) > 1e-6) erros.push(`Operação interna: tem de estar em centavos (veio ${interna}).`)
     else if (valor !== null && valor > 0 && Math.round(interna * 100) > Math.round(valor * 100)) erros.push('Operação interna: não pode passar do valor de venda.')
-    // o fiscal é o do SEGMENTO (11/11/2026): na industrialização, SEMPRE o preset — o corpo não decide NCM, escopo, comprador nem UF
-    const doSegmento = fiscalDoOrcamento(SEGMENTO_DO_ORCAMENTO_IA)
-    if ('recusa' in doSegmento) erros.push(doSegmento.recusa)
-    const fiscal = 'fiscal' in doSegmento ? doSegmento.fiscal : { ...PRESET_DA_COMERCIALIZACAO }
+    // o fiscal é o do MODELO (11/11/2026): na industrialização, SEMPRE o preset — o corpo não decide NCM, escopo, comprador nem UF
+    const doModelo = fiscalDoOrcamento(MODELO_DO_ORCAMENTO_IA)
+    if ('recusa' in doModelo) erros.push(doModelo.recusa)
+    const fiscal = 'fiscal' in doModelo ? doModelo.fiscal : { ...PRESET_DA_COMERCIALIZACAO }
     const g: GravacaoDaPrecificacao = {
         ...fiscal,
         valor_venda: valor as number,

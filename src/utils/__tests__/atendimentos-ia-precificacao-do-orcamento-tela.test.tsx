@@ -449,7 +449,7 @@ describe('(F) A EMPRESA É A FONTE ÚNICA DOS IMPOSTOS, e o fiscal é invisível
     })
 })
 
-describe('(G) A CHAVE É O SEGMENTO: só o orçamento DE INDUSTRIALIZAÇÃO leva os tributos da empresa (dono do produto, 11/11/2026)', () => {
+describe('(G) A CHAVE É O MODELO: só o orçamento DE INDUSTRIALIZAÇÃO leva os tributos da empresa (dono do produto, 11/11/2026)', () => {
     it('um orçamento de REVENDA NÃO herda "imposto da empresa": o bloco Fiscal fica, o ICMS se edita, e a referência da empresa não é cobrada', async () => {
         // sem a UF da empresa: no orçamento de industrialização isto seria falta nomeada (seção F); na revenda, não é cobrado
         banco.respostas.tenant_settings = { ibs_reference_pct: 0, cbs_reference_pct: null, state_code: null }

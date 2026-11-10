@@ -177,7 +177,7 @@ describe('(3b) o preset da comercialização e a referência do tenant (dono do 
     })
 })
 
-describe('(3c) o fiscal pelo SEGMENTO e o fiscal divergente (dono do produto, 11/11/2026)', () => {
+describe('(3c) o fiscal pelo MODELO e o fiscal divergente (dono do produto, 11/11/2026)', () => {
     it('industrialização: o preset; revenda: recusa nomeada (o NCM e o ICMS vêm de cada produto, e ainda não existe)', () => {
         expect(fiscalDoOrcamento('PRODUZIDO')).toEqual({ fiscal: { sale_scope: 'INTRAESTADUAL', buyer_type: 'CONSUMIDOR_FINAL', uf_destino: null, ncm_code: null } })
         expect(fiscalDoOrcamento('REVENDA')).toEqual({ recusa: FRASE_FISCAL_DA_REVENDA })
