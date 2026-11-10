@@ -364,7 +364,7 @@ describe('(D) AS FALTAS NOMEADAS — nada se grava com falta', () => {
 
 // ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 describe('(E) AS DECISÕES DE 11/11/2026 — a interna gravada, a faixa dos itens precificados e a mão de obra sem valor', () => {
-    const ITENS_DO_ARQUIVO = [
+    const ITENS_DO_ARQUIVO: import('@/lib/atendimentos-ia/arquivo-do-orcamento').ItemDoArquivo[] = [
         { ordem: 1, quantidade: 1, largura_mm: 1500, altura_mm: 1200, tipologia: 'DP-02', descricao: 'JANELA DE CORRER', tipo: 'Janela', fornecedor: 'Wolf', linha: 'EUROPA 42',
           ambientes: 'Sala (1)', corPerfil: 'Branco', corAcessorio: 'Branco', vidro: 'incolor 4 mm comum', variaveis: ['ARREMATE INTERNO: 65 mm'], obs: null, desenho: null },
         { ordem: 2, quantidade: 1, largura_mm: 600, altura_mm: 600, tipologia: 'DP-01', descricao: 'MAXIM-AR', tipo: 'Janela', fornecedor: 'Wolf', linha: 'DESIGN',
@@ -381,7 +381,7 @@ describe('(E) AS DECISÕES DE 11/11/2026 — a interna gravada, a faixa dos iten
         expect(Math.round(g.valor_operacao_interna * 100)).toBeLessThanOrEqual(Math.round(g.valor_venda * 100))
     })
     it('a ÚLTIMA faixa antes do salvar: os itens com as variáveis, precificados um a um pelo rateio exato, e o total = a interna', async () => {
-        const host = await montar({ orcamento: orcamento(), onSalvarOrcamento: jest.fn(), itensDoArquivo: ITENS_DO_ARQUIVO as never })
+        const host = await montar({ orcamento: orcamento(), onSalvarOrcamento: jest.fn(), itensDoArquivo: ITENS_DO_ARQUIVO })
         const faixa = host.querySelector('[data-itens-precificados]') as HTMLElement
         expect(faixa).not.toBeNull()
         // é a última coisa antes do botão

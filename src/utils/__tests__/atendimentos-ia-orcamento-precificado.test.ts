@@ -57,7 +57,7 @@ const arquivo = {
     recusa: null as string[] | null,
 }
 jest.mock('@/lib/atendimentos-ia/arquivo-do-orcamento-servidor', () => ({
-    itensDoArquivo: async () => ({ itens: [{ ordem: 1, quantidade: 1 }], linhas: [] }),
+    itensDoArquivo: async (): Promise<{ itens: unknown[]; linhas: unknown[] }> => ({ itens: [{ ordem: 1, quantidade: 1 }], linhas: [] }),
     lerDadosDoArquivo: async (_t: string, _id: string, a: Record<string, unknown>) => ({ dados: { ...a }, calculoId: 'c-1' }),
     gerarEGravarArquivo: async (tenantId: string, id: string, autor: string, dados: Record<string, unknown>) => {
         arquivo.chamadas.push({ tenantId, id, autor, dados })
