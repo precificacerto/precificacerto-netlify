@@ -262,6 +262,13 @@ describe('(4) a rota da precificação', () => {
             expect(arquivo.chamadas).toEqual([])
         }
     })
+    it('a interna fora do centavo e ABAIXO da venda é recusada pelo próprio nome (não pela venda): 400, nada gravado', async () => {
+        montar()
+        const r = await chamar('PATCH', ID, { ...CORPO_BOM, valor_operacao_interna: 3000.005 })
+        expect(r.status).toBe(400)
+        expect(r.corpo.erros).toEqual(['Operação interna: tem de estar em centavos (veio 3000.005).'])
+        expect(escritas()).toEqual([])
+    })
     it('PATCH sem NCM: 400 com a falta nomeada, e nada é gravado', async () => {
         montar()
         const r = await chamar('PATCH', ID, { ...CORPO_BOM, ncm_code: null })
