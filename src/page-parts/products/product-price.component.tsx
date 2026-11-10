@@ -29,6 +29,13 @@ import { LoggedUser } from '@/types/logged-user.type'
 import { FormInstance } from 'antd/lib/form/Form'
 import { useDevice } from '@/contexts/device.context'
 
+/**
+ * O que a tela de preço emite a cada preço formado, POR UNIDADE — UM tipo só, para os quatro pontos que o declaravam à mão (`copia-divergente.md`).
+ * `operacaoInterna` é a "Total Operação Interna" (`baseForSalePrice`); `valorPrecificado` é o "Valor do produto precificado" (`linhas.opInterna`).
+ * O orçamento I.A. grava a interna e RECUSA salvar quando os dois divergem em mais de um centavo (dono do produto, 10/11/2026).
+ */
+export type PrecoEmitido = { finalPrice: number; basePrice: number; externalOpsCoefficient: number | null; operacaoInterna: number; valorPrecificado: number }
+
 function fmt(v: number) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 }).format(v)
 }
@@ -81,7 +88,7 @@ interface Props {
    * cálculo, e separá-los abriria a porta para gravar um coeficiente que não é o desta
    * construção. `null` = a matriz não governou, e não há `c` apurado a congelar.
    */
-  onFinalPriceWithTaxesChange?: (data: { finalPrice: number; basePrice: number; externalOpsCoefficient: number | null }) => void
+  onFinalPriceWithTaxesChange?: (data: PrecoEmitido) => void
   /**
    * O preço DEIXOU de se formar (a margem acabou): `onFinalPriceWithTaxesChange` só emite preço positivo, e quem guarda o último emitido
    * ficaria com o de antes. Opcional e só usado pelo modo "orçamento" (o 1b, 09/11/2026); sem ele, nada muda.
@@ -546,6 +553,8 @@ export const ProductPrice: FC<Props> = ({
     if (finalPriceWithTaxesPerUnit > 0) onFinalPriceWithTaxesChange?.({
       finalPrice: finalPriceWithTaxesPerUnit,
       basePrice: finalSalePricePerUnit,
+      operacaoInterna: baseForSalePrice / yieldDivisor,
+      valorPrecificado: valorPrecificado / yieldDivisor,
       // O `c` NÃO é por unidade: é um coeficiente, não um valor.
       externalOpsCoefficient: externalOpsCoefficientToFreeze(_matriz),
     })
@@ -553,7 +562,7 @@ export const ProductPrice: FC<Props> = ({
     // acabou e o preço que sobra seria o do motor sem esses tributos. Só avisa quem pediu (o modo "orçamento"); Produtos não passa a prop.
     const formado = finalPriceWithTaxesPerUnit > 0 && (!(isLucroReal || isLucroPresumed) || valorPrecificado > 0)
     if (!formado) onPrecoNaoFormado?.()
-  }, [finalPriceWithTaxesPerUnit, finalSalePricePerUnit, onFinalPriceWithTaxesChange, onPrecoNaoFormado, _matriz, isLucroReal, isLucroPresumed, valorPrecificado])
+  }, [finalPriceWithTaxesPerUnit, finalSalePricePerUnit, onFinalPriceWithTaxesChange, onPrecoNaoFormado, _matriz, isLucroReal, isLucroPresumed, valorPrecificado, baseForSalePrice, yieldDivisor])
 
   const fireChange = (name: string, value: number) => {
     handleChangePrecificationInputs({

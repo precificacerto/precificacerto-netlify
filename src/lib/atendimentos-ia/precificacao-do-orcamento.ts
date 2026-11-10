@@ -48,6 +48,8 @@ export type OrcamentoNaPrecificacao = {
     valor_total_bruto: number | null
     valor_total_liquido: number | null
     valor_venda: number | null
+    /** a operação interna gravada com a venda (20261110000001); nula enquanto não há preço */
+    valor_operacao_interna: number | null
     ncm_code: string | null
     sale_scope: EscopoDaVenda | null
     buyer_type: TipoDeComprador | null
@@ -188,7 +190,29 @@ export const rotuloDoItem = (i: Pick<ItemNaPrecificacao, 'ordem' | 'tipologia' |
 /** O que a tela grava no orçamento ao salvar a precificação — e nada em `products`. */
 export type GravacaoDaPrecificacao = FiscalDaTela & {
     valor_venda: number
+    /** A "Total Operação Interna" que a tela mostrou, em CENTAVOS exatos (20261110000001): é ela que o arquivo reparte pelos itens. */
+    valor_operacao_interna: number
     comissao_percentual: number
     reserva_tecnica_percentual: number
     lucro_projetado_percentual: number
+}
+
+// ── A OPERAÇÃO INTERNA (20261110000001, dono do produto, 10/11/2026) ─────────────────────────────────────────────────────────────
+const emCentavos = (v: number) => Math.round(v * 100)
+const reaisBR = (c: number) => `R$ ${(c / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+export const faltaDaInternaDivergente = (interna: number, precificado: number) =>
+    `a operação interna (${reaisBR(emCentavos(interna))}) diverge do valor do produto precificado (${reaisBR(emCentavos(precificado))}) em mais de um centavo: `
+    + 'a matriz não governou o preço, e nenhum dos dois serve para o arquivo — confira os acréscimos da precificação'
+export const FALTA_DA_INTERNA = 'a operação interna: a precificação não a formou'
+
+/**
+ * A interna que se GRAVA: a "Total Operação Interna" da tela, arredondada ao centavo (a CHECK `operacao_interna_ao_centavo`). Ela e o "Valor do
+ * produto precificado" são o mesmo número quando a matriz governa o preço; divergindo em MAIS DE UM CENTAVO, o salvar RECUSA nomeando (decisão do
+ * dono do produto, 10/11/2026: "nenhum dos dois serve"). Um centavo é a tolerância do arredondamento dos dois lados.
+ */
+export function internaParaGravar(operacaoInterna: number, valorPrecificado: number): { interna: number } | { falta: string } {
+    const i = emCentavos(operacaoInterna)
+    if (!Number.isFinite(operacaoInterna) || i <= 0) return { falta: FALTA_DA_INTERNA }
+    if (Math.abs(emCentavos(valorPrecificado) - i) > 1) return { falta: faltaDaInternaDivergente(operacaoInterna, valorPrecificado) }
+    return { interna: i / 100 }
 }

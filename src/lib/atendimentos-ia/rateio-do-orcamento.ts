@@ -21,7 +21,10 @@ export type ItemRateado = { ordem: number; quantidade: number; unitario: number;
 export type Rateio = { ok: true; itens: ItemRateado[]; centavos: number } | { ok: false; recusa: string }
 
 /** A escala dos pesos em inteiros (6 casas): o custo vem com mais casas que o centavo, e a partilha não pode depender da representação binária. */
-const ESCALA_DO_PESO = 1_000_000n
+const ESCALA_DO_PESO = BigInt(1_000_000)
+// sem literal BigInt (`ZERO`): o alvo do tsconfig é anterior ao ES2020
+const ZERO = BigInt(0)
+const UM = BigInt(1)
 
 const centavosExatos = (v: number): bigint | null => {
     if (!Number.isFinite(v)) return null
@@ -46,21 +49,21 @@ export function ratearOperacaoInterna(interna: number, itens: readonly ItemDoRat
     if (itens.length === 0) return { ok: false, recusa: FRASE_SEM_ITENS }
     const T = centavosExatos(interna)
     if (T === null) return { ok: false, recusa: fraseDaInternaForaDoCentavo(interna) }
-    if (T <= 0n) return { ok: false, recusa: FRASE_DA_INTERNA_NAO_POSITIVA }
+    if (T <= ZERO) return { ok: false, recusa: FRASE_DA_INTERNA_NAO_POSITIVA }
     for (const i of itens) {
         if (!Number.isInteger(i.quantidade) || i.quantidade < 1) return { ok: false, recusa: fraseDaQuantidade(i.ordem) }
         if (!Number.isFinite(i.peso) || i.peso <= 0) return { ok: false, recusa: fraseDoPeso(i.ordem) }
     }
     const pesos = itens.map((i) => BigInt(Math.round(i.peso * Number(ESCALA_DO_PESO))))
-    if (pesos.some((p) => p <= 0n)) return { ok: false, recusa: fraseDoPeso(itens[pesos.findIndex((p) => p <= 0n)].ordem) }
-    const W = pesos.reduce((s, p) => s + p, 0n)
+    if (pesos.some((p) => p <= ZERO)) return { ok: false, recusa: fraseDoPeso(itens[pesos.findIndex((p) => p <= ZERO)].ordem) }
+    const W = pesos.reduce((s, p) => s + p, ZERO)
     // o piso por UNIDADE de cada item, e o resto (o numerador sobre W) que decide quem leva os centavos que sobram
     const base = itens.map((i, k) => {
         const q = BigInt(i.quantidade)
         const unitario = (T * pesos[k]) / (W * q)
         return { k, ordem: i.ordem, q, unitario, resto: T * pesos[k] - unitario * q * W }
     })
-    const sobra = T - base.reduce((s, b) => s + b.unitario * b.q, 0n)
+    const sobra = T - base.reduce((s, b) => s + b.unitario * b.q, ZERO)
     // a prioridade: maior resto, e no empate a menor ordem
     const fila = [...base].sort((a, b) => (a.resto === b.resto ? a.ordem - b.ordem : a.resto > b.resto ? -1 : 1))
     // a primeira escolha, na ordem da fila, de itens (cada um no máximo uma vez) cujas quantidades somam a sobra exata
@@ -79,7 +82,7 @@ export function ratearOperacaoInterna(interna: number, itens: readonly ItemDoRat
     let s = r
     for (let k = 0; k < n && s > 0; k++) {
         const q = Number(fila[k].q)
-        if (q <= s && pode[k + 1][s - q]) { fila[k].unitario += 1n; s -= q }
+        if (q <= s && pode[k + 1][s - q]) { fila[k].unitario += UM; s -= q }
     }
     const rateados = base.map((b) => ({ ordem: b.ordem, quantidade: Number(b.q), unitario: Number(b.unitario), total: Number(b.unitario * b.q) }))
     return { ok: true, itens: rateados, centavos: Number(T) }

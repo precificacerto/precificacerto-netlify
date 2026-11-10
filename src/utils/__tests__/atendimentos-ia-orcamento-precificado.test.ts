@@ -13,7 +13,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import {
     entradaDoMotor, estadoDoCalculo, faltasDoFiscal, reconciliacaoNaTela, FALTA_DA_UF, FALTA_DO_ESCOPO, FALTA_DO_NCM, FRASE_CALCULO_INCOMPLETO,
-    MODO_PRODUTO, SOBRA_DA_UF, faltaDoNcmFora, type ItemNaPrecificacao,
+    MODO_PRODUTO, SOBRA_DA_UF, faltaDoNcmFora, type ItemNaPrecificacao, internaParaGravar, faltaDaInternaDivergente, FALTA_DA_INTERNA,
 } from '@/lib/atendimentos-ia/precificacao-do-orcamento'
 
 type Linha = Record<string, unknown>
@@ -51,6 +51,19 @@ function cliente() {
     }
 }
 jest.mock('@/supabase/admin', () => ({ supabaseAdmin: cliente() }))
+// o arquivo tem portão próprio (`atendimentos-ia-arquivo-do-orcamento.test.ts`); aqui importa O QUE a gravação lhe passa, e quando
+const arquivo = {
+    chamadas: [] as Array<{ tenantId: string; id: string; autor: string; dados: Record<string, unknown> }>,
+    recusa: null as string[] | null,
+}
+jest.mock('@/lib/atendimentos-ia/arquivo-do-orcamento-servidor', () => ({
+    itensDoArquivo: async () => ({ itens: [{ ordem: 1, quantidade: 1 }], linhas: [] }),
+    lerDadosDoArquivo: async (_t: string, _id: string, a: Record<string, unknown>) => ({ dados: { ...a }, calculoId: 'c-1' }),
+    gerarEGravarArquivo: async (tenantId: string, id: string, autor: string, dados: Record<string, unknown>) => {
+        arquivo.chamadas.push({ tenantId, id, autor, dados })
+        return arquivo.recusa ? { ok: false, recusas: arquivo.recusa } : { ok: true, arquivo: { id: 'arq-1', nomeDoArquivo: 'Orcamento 7 - Cliente.pdf' } }
+    },
+}))
 jest.mock('@/lib/get-caller-tenant', () => ({
     getCallerContext: async () => ({ user_id: 'usuario', tenant_id: 'T', role: estado.papel, is_super_admin: false }),
 }))
@@ -68,6 +81,8 @@ const item = (k: number, extra: Partial<ItemNaPrecificacao> = {}): ItemNaPrecifi
 const totais = { valor_total_bruto: 845, valor_total_liquido: 745 }
 
 function montar(extra: Linha = {}, itens: Linha[] = [{ ...item(1), tenant_id: 'T', orcamento_id: ID }]) {
+    arquivo.chamadas = []
+    arquivo.recusa = null
     estado.ops = []
     estado.erros = {}
     estado.papel = 'admin'
@@ -89,7 +104,7 @@ async function chamar(method: string, id: string, body: unknown = {}) {
     return saida
 }
 const CORPO_BOM = {
-    valor_venda: 3105.8, ncm_code: '7610.10.00', sale_scope: 'INTRAESTADUAL', buyer_type: 'CONSUMIDOR_FINAL', uf_destino: null as string | null,
+    valor_venda: 3105.8, valor_operacao_interna: 3105.8, ncm_code: '7610.10.00', sale_scope: 'INTRAESTADUAL', buyer_type: 'CONSUMIDOR_FINAL', uf_destino: null as string | null,
     comissao_percentual: 5, reserva_tecnica_percentual: 3, lucro_projetado_percentual: 10,
 }
 const escritas = () => estado.ops.filter((o) => o.op !== 'select')
@@ -154,6 +169,21 @@ describe('(3) as faltas do fiscal', () => {
     })
 })
 
+describe('(3b) a operação interna que se grava (20261110000001, dono do produto, 10/11/2026)', () => {
+    it('a interna ao centavo; com o precificado igual ou a um centavo, grava', () => {
+        expect(internaParaGravar(3257.804, 3257.8)).toEqual({ interna: 3257.8 })
+        expect(internaParaGravar(3257.8, 3257.81)).toEqual({ interna: 3257.8 })
+        expect(internaParaGravar(3257.8, 3257.79)).toEqual({ interna: 3257.8 })
+    })
+    it('divergindo em MAIS de um centavo, recusa nomeando os dois — nenhum dos dois serve', () => {
+        expect(internaParaGravar(3257.8, 3257.82)).toEqual({ falta: faltaDaInternaDivergente(3257.8, 3257.82) })
+        expect(internaParaGravar(14164.74, 13860.11)).toEqual({ falta: faltaDaInternaDivergente(14164.74, 13860.11) })
+    })
+    it('sem interna formada (zero, negativa, NaN): a falta', () => {
+        for (const v of [0, -1, NaN, 0.004]) expect(internaParaGravar(v, v)).toEqual({ falta: FALTA_DA_INTERNA })
+    })
+})
+
 describe('(4) a rota da precificação', () => {
     it('GET lê o orçamento DA EMPRESA, com os numéricos como número e os itens com os valores do cálculo', async () => {
         montar()
@@ -165,6 +195,8 @@ describe('(4) a rota da precificação', () => {
         expect(o.valor_total_liquido).toBe(745)
         expect((o.itens as Linha[])[0].custo_liquido_materiais).toBe(700)
         expect(doOrcamento().length).toBe(2)
+        // e os itens como o arquivo os mostra (a faixa antes do salvar)
+        expect(r.corpo.itens_do_arquivo).toEqual([{ ordem: 1, quantidade: 1 }])
         for (const op of doOrcamento()) expect(op.filtros).toContainEqual(['tenant_id', 'T'])
     })
     it('PATCH grava SÓ no orçamento, com o tenant: o preço, o fiscal e os percentuais', async () => {
@@ -177,6 +209,44 @@ describe('(4) a rota da precificação', () => {
         expect(e[0].filtros).toEqual([['tenant_id', 'T'], ['id', ID]])
         expect(e[0].carga).toMatchObject({ ...CORPO_BOM })
         expect(Object.keys(e[0].carga as Linha).sort()).toEqual([...Object.keys(CORPO_BOM), 'atualizado_em'].sort())
+    })
+    it('PATCH grava a OPERAÇÃO INTERNA com a venda, e GERA O ARQUIVO com o rateio exato, autor = quem salvou (11/11/2026)', async () => {
+        montar()
+        const r = await chamar('PATCH', ID, { ...CORPO_BOM, valor_venda: 3105.8, valor_operacao_interna: 3105.8 })
+        expect(r.status).toBe(200)
+        expect(escritas()[0].carga).toMatchObject({ valor_operacao_interna: 3105.8, valor_venda: 3105.8 })
+        expect(r.corpo.arquivo).toEqual({ id: 'arq-1', nomeDoArquivo: 'Orcamento 7 - Cliente.pdf' })
+        expect(r.corpo.recusas_do_arquivo).toEqual([])
+        expect(arquivo.chamadas).toHaveLength(1)
+        const c = arquivo.chamadas[0]
+        expect([c.tenantId, c.id, c.autor]).toEqual(['T', ID, 'usuario'])
+        expect(c.dados).toMatchObject({ operacaoInterna: 3105.8, valorVenda: 3105.8, rateio: [{ ordem: 1, quantidade: 1, unitario: 310580, total: 310580 }] })
+    })
+    it('o rateio que não fecha: o PREÇO fica salvo, o arquivo NÃO sai, e a resposta diz por quê (nunca um arquivo com centavo errado)', async () => {
+        montar({}, [{ ...item(1, { quantidade: 2 }), tenant_id: 'T', orcamento_id: ID }, { ...item(2, { quantidade: 2 }), tenant_id: 'T', orcamento_id: ID }])
+        const r = await chamar('PATCH', ID, { ...CORPO_BOM, valor_venda: 10.01, valor_operacao_interna: 10.01 })
+        expect(r.status).toBe(200)
+        expect(escritas()).toHaveLength(1)
+        expect(r.corpo.arquivo).toBeNull()
+        expect((r.corpo.recusas_do_arquivo as string[])[0]).toContain('não fecha exato: sobram 1 centavo(s)')
+        expect(arquivo.chamadas).toEqual([])
+    })
+    it('a recusa do próprio arquivo (a venda diferente da interna, por exemplo) também volta nomeada, com o preço salvo', async () => {
+        montar()
+        arquivo.recusa = ['o valor de venda é diferente da operação interna']
+        const r = await chamar('PATCH', ID, { ...CORPO_BOM, valor_venda: 3200, valor_operacao_interna: 3105.8 })
+        expect(r.status).toBe(200)
+        expect(r.corpo.arquivo).toBeNull()
+        expect(r.corpo.recusas_do_arquivo).toEqual(['o valor de venda é diferente da operação interna'])
+    })
+    it('a operação interna ausente, fora do centavo, ou acima da venda: 400, e nada é gravado nem gerado', async () => {
+        for (const extra of [{ valor_operacao_interna: null }, { valor_operacao_interna: 0 }, { valor_operacao_interna: 3105.805 }, { valor_operacao_interna: 3105.81 }]) {
+            montar()
+            const r = await chamar('PATCH', ID, { ...CORPO_BOM, ...extra })
+            expect(r.status).toBe(400)
+            expect(escritas()).toEqual([])
+            expect(arquivo.chamadas).toEqual([])
+        }
     })
     it('PATCH sem NCM: 400 com a falta nomeada, e nada é gravado', async () => {
         montar()

@@ -12,6 +12,8 @@
  * Toda leitura e escrita leva o `tenant_id` do chamador.
  */
 import { supabaseAdmin } from '@/supabase/admin'
+import { ratearOperacaoInterna } from './rateio-do-orcamento'
+import { gerarEGravarArquivo, lerDadosDoArquivo, type ArquivoGravado } from './arquivo-do-orcamento-servidor'
 import { ErroDeValidacao, ErroNaoEncontrado, ErroSemMigracao, TABELA_DO_ITEM, TABELA_DO_ORCAMENTO, tabelaAusente } from './orcamentos-ia'
 import {
     estadoDoCalculo, faltasDoFiscal, FORMA_DA_UF, FRASE_DO_ESTADO,
@@ -19,7 +21,7 @@ import {
 } from './precificacao-do-orcamento'
 
 export const FRASE_SEM_MIGRACAO_DA_PRECIFICACAO =
-    'A precificação do orçamento ainda não está disponível: a estrutura do banco (migrações 20261109000002 a 20261109000004) não foi aplicada.'
+    'A precificação do orçamento ainda não está disponível: a estrutura do banco (migrações 20261109000002 a 20261109000005 e 20261110000001) não foi aplicada.'
 export class ErroSemMigracaoDaPrecificacao extends Error {
     constructor() { super(FRASE_SEM_MIGRACAO_DA_PRECIFICACAO) }
 }
@@ -27,7 +29,7 @@ export class ErroSemMigracaoDaPrecificacao extends Error {
 export class ErroDoEstado extends Error {}
 
 const COLUNAS_DO_ORCAMENTO = 'id, numero, nome, comissao_percentual, reserva_tecnica_percentual, lucro_projetado_percentual, '
-    + 'valor_total_bruto, valor_total_liquido, valor_venda, ncm_code, sale_scope, buyer_type, uf_destino'
+    + 'valor_total_bruto, valor_total_liquido, valor_venda, valor_operacao_interna, ncm_code, sale_scope, buyer_type, uf_destino'
 export const COLUNAS_DO_ITEM_NA_PRECIFICACAO = 'id, ordem, tipologia, largura_mm, altura_mm, quantidade, calculo_id, calculado_em, atualizado_em, '
     + 'custo_bruto_materiais, custo_liquido_materiais, tempo_fabricacao_min, valor_minuto, custo_fabricacao, custo_liquido_total'
 
@@ -46,7 +48,7 @@ const numeroOuNulo = (v: unknown): number | null => {
     const n = typeof v === 'number' ? v : Number(v)
     return Number.isFinite(n) ? n : null
 }
-const NUMERICOS_DO_ORCAMENTO = ['comissao_percentual', 'reserva_tecnica_percentual', 'lucro_projetado_percentual', 'valor_total_bruto', 'valor_total_liquido', 'valor_venda'] as const
+const NUMERICOS_DO_ORCAMENTO = ['comissao_percentual', 'reserva_tecnica_percentual', 'lucro_projetado_percentual', 'valor_total_bruto', 'valor_total_liquido', 'valor_venda', 'valor_operacao_interna'] as const
 const NUMERICOS_DO_ITEM = ['custo_bruto_materiais', 'custo_liquido_materiais', 'tempo_fabricacao_min', 'valor_minuto', 'custo_fabricacao', 'custo_liquido_total'] as const
 
 export async function lerOrcamentoParaPrecificar(tenantId: string, id: string): Promise<OrcamentoNaPrecificacao> {
@@ -79,6 +81,11 @@ export function validarGravacao(corpo: Record<string, unknown>): GravacaoDaPreci
     const erros: string[] = []
     const valor = numeroOuNulo(corpo.valor_venda)
     if (valor === null || valor <= 0) erros.push('Valor de venda: tem de ser um número maior que zero.')
+    // a interna, em CENTAVOS exatos e até a venda arredondada (as CHECKs da 20261110000001, ditas aqui antes de o banco as dizer)
+    const interna = numeroOuNulo(corpo.valor_operacao_interna)
+    if (interna === null || interna <= 0) erros.push('Operação interna: tem de ser um número maior que zero.')
+    else if (Math.abs(interna * 100 - Math.round(interna * 100)) > 1e-6) erros.push(`Operação interna: tem de estar em centavos (veio ${interna}).`)
+    else if (valor !== null && valor > 0 && Math.round(interna * 100) > Math.round(valor * 100)) erros.push('Operação interna: não pode passar do valor de venda.')
     const sale_scope: EscopoDaVenda | null = corpo.sale_scope === 'INTRAESTADUAL' || corpo.sale_scope === 'INTERESTADUAL' ? corpo.sale_scope : null
     if (corpo.sale_scope != null && sale_scope === null) erros.push('Escopo da venda: INTRAESTADUAL ou INTERESTADUAL.')
     const buyer_type: TipoDeComprador | null = corpo.buyer_type === 'CONSUMIDOR_FINAL' || corpo.buyer_type === 'CONTRIBUINTE_PJ' ? corpo.buyer_type : null
@@ -90,6 +97,7 @@ export function validarGravacao(corpo: Record<string, unknown>): GravacaoDaPreci
     const g: GravacaoDaPrecificacao = {
         ...fiscal,
         valor_venda: valor as number,
+        valor_operacao_interna: interna as number,
         comissao_percentual: percentual(corpo.comissao_percentual, 'Comissão', erros),
         reserva_tecnica_percentual: percentual(corpo.reserva_tecnica_percentual, 'Reserva técnica', erros),
         lucro_projetado_percentual: percentual(corpo.lucro_projetado_percentual, 'Lucro', erros),
@@ -102,7 +110,19 @@ export function validarGravacao(corpo: Record<string, unknown>): GravacaoDaPreci
  * GRAVA a precificação no orçamento `id` da empresa `tenantId`: só depois de conferir que o cálculo gravado está completo — com ele
  * incompleto, desatualizado ou ausente, o preço não tem de onde ter saído. A escrita confere a linha atingida.
  */
-export async function gravarPrecificacao(tenantId: string, id: string, corpo: Record<string, unknown>, agora: Date = new Date()): Promise<OrcamentoNaPrecificacao> {
+export type ResultadoDaGravacao = {
+    orcamento: OrcamentoNaPrecificacao
+    /** O arquivo "Orçamento" gerado ao salvar (11/11/2026); nulo quando ele não pôde sair — e então `recusasDoArquivo` diz por quê. */
+    arquivo: ArquivoGravado | null
+    recusasDoArquivo: string[]
+}
+
+/** O rateio da interna pelos itens gravados: o peso é o custo líquido total de cada um (material + fabricação). */
+export function rateioDoOrcamento(orc: OrcamentoNaPrecificacao, interna: number) {
+    return ratearOperacaoInterna(interna, orc.itens.map((i) => ({ ordem: i.ordem, quantidade: i.quantidade, peso: i.custo_liquido_total ?? NaN })))
+}
+
+export async function gravarPrecificacao(tenantId: string, id: string, corpo: Record<string, unknown>, autor: string, agora: Date = new Date()): Promise<ResultadoDaGravacao> {
     const g = validarGravacao(corpo)
     const orc = await lerOrcamentoParaPrecificar(tenantId, id)
     const estado = estadoDoCalculo(orc)
@@ -116,5 +136,14 @@ export async function gravarPrecificacao(tenantId: string, id: string, corpo: Re
         falhou(TABELA_DO_ORCAMENTO, error)
     }
     if (!data || data.length !== 1) throw new Error(`${TABELA_DO_ORCAMENTO}: o orçamento ${id} não foi atingido ao gravar a precificação`)
-    return lerOrcamentoParaPrecificar(tenantId, id)
+    const gravado = await lerOrcamentoParaPrecificar(tenantId, id)
+    // O ARQUIVO É GERADO AO SALVAR (dono do produto, 11/11/2026), DEPOIS do preço: o rateio exato e o PDF. O que impede o arquivo (o rateio que não
+    // fecha, a venda diferente da interna, a configuração da empresa) é RECUSA NOMEADA na resposta — o preço salvo fica, e a tela diz por que o
+    // arquivo não saiu. Nunca um arquivo com centavo a mais ou a menos.
+    const rateio = rateioDoOrcamento(gravado, g.valor_operacao_interna)
+    if ('recusa' in rateio) return { orcamento: gravado, arquivo: null, recusasDoArquivo: [rateio.recusa] }
+    const lido = await lerDadosDoArquivo(tenantId, id, { operacaoInterna: g.valor_operacao_interna, valorVenda: g.valor_venda, rateio: rateio.itens, geradoEm: agora })
+    if ('recusa' in lido) return { orcamento: gravado, arquivo: null, recusasDoArquivo: [lido.recusa] }
+    const r = await gerarEGravarArquivo(tenantId, id, autor, lido.dados, lido.calculoId)
+    return 'recusas' in r ? { orcamento: gravado, arquivo: null, recusasDoArquivo: r.recusas } : { orcamento: gravado, arquivo: r.arquivo, recusasDoArquivo: [] }
 }

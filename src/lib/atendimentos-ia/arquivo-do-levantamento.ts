@@ -121,7 +121,8 @@ export async function lerPerfilDoVendedor(tenantId: string, employeeId: string |
 
 
 // ── A MONTAGEM DA FOLHA (pura) ────────────────────────────────────────────────────────────────
-export type DetalheDaTipologia = (tipologia: string, familia: string | null) => { descricao: string | null; linha: string | null } | null
+/** A descrição e a linha da tipologia (a folha); o TIPO e o FORNECEDOR do motor (o arquivo do orçamento, 11/11/2026), quando o candidato os tem. */
+export type DetalheDaTipologia = (tipologia: string, familia: string | null) => { descricao: string | null; linha: string | null; tipo?: string | null; fornecedor?: string | null } | null
 
 /** As variáveis ditas do item: as escolhas inteiras > 0 que a aba Variáveis da tipologia conhece, com a descrição e se é sem padrão. */
 export function variaveisDitas(item: Pick<ItemDoLevantamento, 'escolhas' | 'tipologia' | 'familia'>, definicao: DefinicaoDaTipologia): VariavelDita[] {

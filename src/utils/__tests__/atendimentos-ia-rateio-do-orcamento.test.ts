@@ -8,7 +8,7 @@ import {
     FRASE_DA_INTERNA_NAO_POSITIVA, FRASE_SEM_ITENS, fraseDaInternaForaDoCentavo, fraseDaQuantidade, fraseDaSobra, fraseDoPeso, ratearOperacaoInterna, reais,
 } from '@/lib/atendimentos-ia/rateio-do-orcamento'
 
-const ok = (r: ReturnType<typeof ratearOperacaoInterna>) => { if (!r.ok) throw new Error(r.recusa); return r }
+const ok = (r: ReturnType<typeof ratearOperacaoInterna>) => { if ('recusa' in r) throw new Error(r.recusa); return r }
 const soma = (r: ReturnType<typeof ok>) => r.itens.reduce((s, i) => s + i.total, 0)
 
 describe('fecha EXATO, e o total do item é unitário × quantidade', () => {

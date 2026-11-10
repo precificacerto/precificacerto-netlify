@@ -33,14 +33,16 @@ import { derivarBaseItemId } from '@/utils/base-item-derivado'
 import { ContentIndustrialization } from './content-industrialization'
 import { ContentResale } from './content-resale'
 import { ContentService } from './content-service'
-import { ProductPrice } from './product-price.component'
+import { ProductPrice, type PrecoEmitido } from './product-price.component'
+import { ItensPrecificados } from '@/page-parts/atendimentos-ia/itens-precificados.component'
+import type { ItemDoArquivo } from '@/lib/atendimentos-ia/arquivo-do-orcamento'
 import { LoggedUser } from '@/types/logged-user.type'
 import { supabase } from '@/supabase/client'
 import { getTenantId, getCurrentUserId } from '@/utils/get-tenant-id'
 import { useDevice } from '@/contexts/device.context'
 import { ProductItemsMobileList } from './product-items-mobile-list.component'
 import {
-  CABECALHO_FIXO, entradaDoMotor, estadoDoCalculo, faltasDaPrecificacao, FRASE_DO_ESTADO, MODO_PRODUTO, reconciliacaoNaTela, rotuloDoItem,
+  CABECALHO_FIXO, entradaDoMotor, estadoDoCalculo, faltasDaPrecificacao, FRASE_DO_ESTADO, internaParaGravar, MODO_PRODUTO, reconciliacaoNaTela, rotuloDoItem,
   type GravacaoDaPrecificacao, type ModoDaPrecificacao, type OrcamentoNaPrecificacao,
 } from '@/lib/atendimentos-ia/precificacao-do-orcamento'
 
@@ -67,6 +69,9 @@ type ContentProps = {
    * é fixo e só leitura, e o salvar grava NO ORÇAMENTO, nunca em `products`. Ausente, a tela é a de Produtos, sem nenhuma diferença.
    */
   orcamento?: OrcamentoNaPrecificacao
+  /** Os itens como o arquivo "Orçamento" os mostra (a faixa antes do salvar, 11/11/2026), ou a recusa que impediu montá-los. */
+  itensDoArquivo?: ItemDoArquivo[] | null
+  recusaDosItensDoArquivo?: string | null
   /** Grava a precificação no orçamento; devolve as recusas nomeadas, ou `null` quando gravou. */
   onSalvarOrcamento?: (g: GravacaoDaPrecificacao) => Promise<string[] | null>
   /** Recalcula o orçamento (o cálculo do 1b) e relê; usado no aviso de cálculo incompleto. */
@@ -180,6 +185,8 @@ export const Content: FC<ContentProps> = ({
   currentUser,
   prefill,
   orcamento,
+  itensDoArquivo = null,
+  recusaDosItensDoArquivo = null,
   onSalvarOrcamento,
   onRecalcularOrcamento,
 }: ContentProps) => {
@@ -555,17 +562,25 @@ export const Content: FC<ContentProps> = ({
    * — `docs/regras/copia-divergente.md`. O teste `congelar-o-coeficiente-por-fora` afirma
    * que existe um só.
    */
+  // a "Total Operação Interna" e o "Valor do produto precificado" do último preço formado: o orçamento I.A. grava a interna (20261110000001)
+  const operacaoInternaRef = useRef<number>(0)
+  const valorPrecificadoRef = useRef<number>(0)
+  // a interna também como estado: a faixa dos itens precificados (antes do salvar) se redesenha a cada preço formado
+  const [internaNaTela, setInternaNaTela] = useState(0)
   const handleFinalPriceWithTaxes = useCallback(
-    (d: { finalPrice: number; basePrice: number; externalOpsCoefficient: number | null }) => {
+    (d: PrecoEmitido) => {
       finalPriceWithTaxesRef.current = d.finalPrice
       salePriceBaseRef.current = d.basePrice
       externalOpsCoefficientRef.current = d.externalOpsCoefficient
+      operacaoInternaRef.current = d.operacaoInterna
+      valorPrecificadoRef.current = d.valorPrecificado
+      setInternaNaTela(d.operacaoInterna)
     },
     [],
   )
 
   // No orçamento, o preço que deixou de se formar ZERA o último emitido: gravar o preço de antes da mudança seria número errado em dinheiro.
-  const zerarPrecoNaoFormado = useCallback(() => { finalPriceWithTaxesRef.current = 0 }, [])
+  const zerarPrecoNaoFormado = useCallback(() => { finalPriceWithTaxesRef.current = 0; operacaoInternaRef.current = 0; valorPrecificadoRef.current = 0; setInternaNaTela(0) }, [])
 
   const searchNcmByName = useCallback(async (name: string) => {
     if (name.length < 2) { setNcmSuggestions([]); return }
@@ -1242,12 +1257,16 @@ export const Content: FC<ContentProps> = ({
     const faltas = faltasDaPrecificacao({ orcamento, fiscal: fiscalDaTela(), aliquotaDoNcm: aliquotaExigida(), custoDoMotor: Number(productPriceInfo.productCost) || 0 })
     const valorDeVenda = finalPriceWithTaxesRef.current
     if (!(valorDeVenda > 0)) faltas.push('o preço formado: a precificação não saiu (confira os percentuais e a margem)')
+    // a interna que se grava (20261110000001), ao centavo, e a recusa quando ela diverge do valor precificado
+    const interna = valorDeVenda > 0 ? internaParaGravar(operacaoInternaRef.current, valorPrecificadoRef.current) : null
+    if (interna && 'falta' in interna) faltas.push(interna.falta)
     if (faltas.length) { setRecusasDoOrcamento(faltas); return }
     setSalvandoOrcamento(true)
     try {
       const recusas = await onSalvarOrcamento({
         ...fiscalDaTela(),
         valor_venda: valorDeVenda,
+        valor_operacao_interna: interna && 'interna' in interna ? interna.interna : 0,
         comissao_percentual: Number(productPriceInfo.salesCommissionPercent) || 0,
         reserva_tecnica_percentual: Number(productPriceInfo.rtReservePercent) || 0,
         lucro_projetado_percentual: Number(productPriceInfo.productProfitPercent) || 0,
@@ -2820,6 +2839,11 @@ export const Content: FC<ContentProps> = ({
         </div>
       )}
 
+      {orcamento && (
+        // a ÚLTIMA faixa antes do botão (11/11/2026): os itens com as variáveis, precificados um a um, e o total
+        <ItensPrecificados itens={itensDoArquivo} recusaDosItens={recusaDosItensDoArquivo} interna={internaNaTela}
+          pesos={orcamento.itens.map((i) => ({ ordem: i.ordem, quantidade: i.quantidade, peso: i.custo_liquido_total }))} />
+      )}
       <footer className="flex flex-row-reverse mt-5 mr-4">
         <Button onClick={handleSaveProduct} type="primary" className="ml-2" loading={orcamento ? salvandoOrcamento : savingProduct}>
           {orcamento ? 'Salvar precificação do orçamento' : product ? 'Salvar alterações' : 'Salvar'}

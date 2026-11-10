@@ -25,11 +25,12 @@ import { mergeExpenseConfig } from '@/utils/recalc-expense-config'
 import { buildCalcBase } from '@/utils/build-calc-base'
 import type { CalcBaseType } from '@/types/calc-base.type'
 import type { GravacaoDaPrecificacao, OrcamentoNaPrecificacao } from '@/lib/atendimentos-ia/precificacao-do-orcamento'
+import type { ItemDoArquivo } from '@/lib/atendimentos-ia/arquivo-do-orcamento'
 
 type Estado =
     | { tipo: 'carregando' }
     | { tipo: 'erro'; mensagem: string }
-    | { tipo: 'pronto'; orcamento: OrcamentoNaPrecificacao; calcBase: CalcBaseType; versao: number }
+    | { tipo: 'pronto'; orcamento: OrcamentoNaPrecificacao; calcBase: CalcBaseType; versao: number; itensDoArquivo: ItemDoArquivo[] | null; recusaDosItens: string | null }
 
 /** As recusas que a rota devolve, cada uma numa linha; o resto vira a frase geral. */
 async function recusasDaResposta(r: Response, geral: string): Promise<string[]> {
@@ -45,6 +46,7 @@ function PrecificacaoDoOrcamento() {
     const { currentUser } = useAuth()
     const [messageApi, contextHolder] = message.useMessage()
     const [estado, setEstado] = useState<Estado>({ tipo: 'carregando' })
+    const [recusasDoArquivo, setRecusasDoArquivo] = useState<string[]>([])
 
     const carregar = useCallback(async () => {
         if (!id) return
@@ -53,13 +55,16 @@ function PrecificacaoDoOrcamento() {
             if (!tenantId) return setEstado({ tipo: 'erro', mensagem: 'Não foi possível identificar a empresa.' })
             const r = await fetch(`/api/atendimentos-ia/orcamentos/${id}/precificacao`)
             if (!r.ok) return setEstado({ tipo: 'erro', mensagem: (await recusasDaResposta(r, 'Não foi possível ler o orçamento.')).join(' ') })
-            const { orcamento } = (await r.json()) as { orcamento: OrcamentoNaPrecificacao }
+            const { orcamento, itens_do_arquivo, recusa_dos_itens } = (await r.json()) as { orcamento: OrcamentoNaPrecificacao; itens_do_arquivo?: ItemDoArquivo[] | null; recusa_dos_itens?: string | null }
             await mergeExpenseConfig(tenantId)
             const [expenseRes, taxPreview] = await Promise.all([
                 supabase.from('tenant_expense_config').select('*').eq('tenant_id', tenantId).single(),
                 fetchTaxPreview(tenantId),
             ])
-            setEstado((e) => ({ tipo: 'pronto', orcamento, calcBase: buildCalcBase(expenseRes.data, taxPreview), versao: e.tipo === 'pronto' ? e.versao + 1 : 1 }))
+            setEstado((e) => ({
+                tipo: 'pronto', orcamento, calcBase: buildCalcBase(expenseRes.data, taxPreview), versao: e.tipo === 'pronto' ? e.versao + 1 : 1,
+                itensDoArquivo: itens_do_arquivo ?? null, recusaDosItens: recusa_dos_itens ?? null,
+            }))
         } catch {
             setEstado({ tipo: 'erro', mensagem: 'Não foi possível ler o orçamento.' })
         }
@@ -71,9 +76,13 @@ function PrecificacaoDoOrcamento() {
             method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(g),
         })
         if (!r.ok) return recusasDaResposta(r, 'Não foi possível salvar a precificação.')
+        // o ARQUIVO "Orçamento" sai ao salvar (11/11/2026); quando não sai, o preço fica salvo e a tela diz por quê
+        const corpo = (await r.json().catch(() => ({}))) as { arquivo?: { nomeDoArquivo: string } | null; recusas_do_arquivo?: string[] }
+        if (corpo.arquivo) messageApi.success(`Arquivo gerado: ${corpo.arquivo.nomeDoArquivo}`)
+        setRecusasDoArquivo(corpo.recusas_do_arquivo ?? [])
         await carregar()
         return null
-    }, [id, carregar])
+    }, [id, carregar, messageApi])
 
     const recalcular = useCallback(async () => {
         const r = await fetch(`/api/atendimentos-ia/orcamentos/${id}/calcular`, { method: 'POST' })
@@ -91,6 +100,14 @@ function PrecificacaoDoOrcamento() {
                 </div>
                 {estado.tipo === 'carregando' && <div style={{ padding: 32, textAlign: 'center' }}><Spin /></div>}
                 {estado.tipo === 'erro' && <Alert type="error" showIcon message={estado.mensagem} />}
+                {recusasDoArquivo.length > 0 && (
+                    <Alert type="warning" showIcon style={{ marginBottom: 12 }} data-recusas-do-arquivo=""
+                        message="A precificação foi salva, mas o arquivo do orçamento não saiu:"
+                        description={<ul style={{ margin: 0, paddingLeft: 18 }}>{recusasDoArquivo.map((f) => <li key={f}>{f}</li>)}</ul>} />
+                )}
+                {estado.tipo === 'pronto' && id && (
+                    <div style={{ marginBottom: 12 }}><a href={`/api/atendimentos-ia/orcamentos/${id}/arquivo`} target="_blank" rel="noopener noreferrer" data-abrir-arquivo="">Abrir o último arquivo do orçamento (PDF)</a></div>
+                )}
                 {estado.tipo === 'pronto' && currentUser && (
                     <Content
                         // a cada leitura um componente novo: o estado da tela parte do orçamento gravado, nunca do de antes
@@ -101,6 +118,8 @@ function PrecificacaoDoOrcamento() {
                         calcBase={estado.calcBase}
                         currentUser={currentUser}
                         orcamento={estado.orcamento}
+                        itensDoArquivo={estado.itensDoArquivo}
+                        recusaDosItensDoArquivo={estado.recusaDosItens}
                         onSalvarOrcamento={salvar}
                         onRecalcularOrcamento={recalcular}
                     />

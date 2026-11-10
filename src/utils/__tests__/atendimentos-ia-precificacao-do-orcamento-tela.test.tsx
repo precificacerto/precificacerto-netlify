@@ -118,7 +118,7 @@ const orcamento = (extra: Partial<OrcamentoNaPrecificacao> = {}): OrcamentoNaPre
         id: 'o-1', numero: 42, nome: 'Geronimo Silva', comissao_percentual: 5, reserva_tecnica_percentual: 3, lucro_projetado_percentual: 10,
         valor_total_bruto: itens.reduce((t, i) => t + (i.custo_bruto_materiais ?? 0) + (i.custo_fabricacao ?? 0), 0),
         valor_total_liquido: itens.reduce((t, i) => t + (i.custo_liquido_total ?? 0), 0),
-        valor_venda: null, ncm_code: '7610.10.00', sale_scope: 'INTRAESTADUAL', buyer_type: 'CONSUMIDOR_FINAL', uf_destino: null,
+        valor_venda: null, valor_operacao_interna: null, ncm_code: '7610.10.00', sale_scope: 'INTRAESTADUAL', buyer_type: 'CONSUMIDOR_FINAL', uf_destino: null,
         ...extra, itens,
     }
 }
@@ -359,5 +359,46 @@ describe('(D) AS FALTAS NOMEADAS — nada se grava com falta', () => {
         const faltas = h2.querySelector('[data-faltas-do-orcamento]')?.textContent ?? ''
         expect(faltas).toContain('o escopo da venda')
         expect(faltas).toContain('o tipo de comprador')
+    })
+})
+
+// ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+describe('(E) AS DECISÕES DE 11/11/2026 — a interna gravada, a faixa dos itens precificados e a mão de obra sem valor', () => {
+    const ITENS_DO_ARQUIVO = [
+        { ordem: 1, quantidade: 1, largura_mm: 1500, altura_mm: 1200, tipologia: 'DP-02', descricao: 'JANELA DE CORRER', tipo: 'Janela', fornecedor: 'Wolf', linha: 'EUROPA 42',
+          ambientes: 'Sala (1)', corPerfil: 'Branco', corAcessorio: 'Branco', vidro: 'incolor 4 mm comum', variaveis: ['ARREMATE INTERNO: 65 mm'], obs: null, desenho: null },
+        { ordem: 2, quantidade: 1, largura_mm: 600, altura_mm: 600, tipologia: 'DP-01', descricao: 'MAXIM-AR', tipo: 'Janela', fornecedor: 'Wolf', linha: 'DESIGN',
+          ambientes: null, corPerfil: 'Branco', corAcessorio: null, vidro: 'mini boreal', variaveis: [], obs: null, desenho: null },
+    ]
+    it('o salvar leva a OPERAÇÃO INTERNA que a tela mostrou, ao centavo — e, com a matriz governando, ela é o valor do produto precificado', async () => {
+        const salvar = jest.fn<Promise<string[] | null>, [GravacaoDaPrecificacao]>(async () => null)
+        const host = await montar({ orcamento: orcamento(), onSalvarOrcamento: salvar })
+        await clicar(botao(host, 'Salvar precificação do orçamento'))
+        expect(salvar).toHaveBeenCalledTimes(1)
+        const g = salvar.mock.calls[0][0]
+        expect(g.valor_operacao_interna).toBe(reais(valorDe(host, 'Valor do produto precificado')))
+        expect(g.valor_operacao_interna).toBeGreaterThan(0)
+        expect(Math.round(g.valor_operacao_interna * 100)).toBeLessThanOrEqual(Math.round(g.valor_venda * 100))
+    })
+    it('a ÚLTIMA faixa antes do salvar: os itens com as variáveis, precificados um a um pelo rateio exato, e o total = a interna', async () => {
+        const host = await montar({ orcamento: orcamento(), onSalvarOrcamento: jest.fn(), itensDoArquivo: ITENS_DO_ARQUIVO as never })
+        const faixa = host.querySelector('[data-itens-precificados]') as HTMLElement
+        expect(faixa).not.toBeNull()
+        // é a última coisa antes do botão
+        const botaoSalvar = botao(host, 'Salvar precificação do orçamento') as HTMLButtonElement
+        expect(faixa.compareDocumentPosition(botaoSalvar) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+        expect(faixa.querySelector('[data-item-precificado="1"] [data-variaveis-do-item]')?.textContent).toBe('ARREMATE INTERNO: 65 mm')
+        const valores = Array.from(faixa.querySelectorAll('[data-valor-do-item] strong')).map((e) => reais(e.textContent ?? ''))
+        expect(valores).toHaveLength(2)
+        const total = reais(faixa.querySelector('[data-total-dos-itens]')?.lastElementChild?.textContent ?? '')
+        expect(Math.round(valores.reduce((a, b) => a + b, 0) * 100)).toBe(Math.round(total * 100))
+        expect(total).toBe(reais(valorDe(host, 'Valor do produto precificado')))
+    })
+    it('no ORÇAMENTO a linha da mão de obra é só o tempo total, em minutos, sem valor; no PRODUTO o valor continua', async () => {
+        const doOrcamento = await montar({ orcamento: orcamento(), onSalvarOrcamento: jest.fn() })
+        expect(doOrcamento.textContent).toContain('Tempo total de produção da obra')
+        expect(doOrcamento.querySelector('[data-valor-da-mao-de-obra]')?.textContent).toBe('')
+        const doProduto = await montar({ product: PRODUTO_1008, itemsFromApi: ITENS_DA_API })
+        expect(doProduto.querySelector('[data-valor-da-mao-de-obra]')?.textContent).toMatch(/^R\$ [\d.]+,\d{2}$/)
     })
 })

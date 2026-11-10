@@ -859,7 +859,7 @@ function definicaoEDetalhe(tabela: FamiliasDaEmpresaLidas, variaveisPorFamilia: 
     // a descrição e a linha da tipologia, da Detalhe do motor (os candidatos já lidos): é o que a folha do levantamento escreve na faixa do item
     const detalhe: DetalheDaTipologia = (tipologia, familia) => {
         const d = tabela.candidatos.find((x) => x.tipologia === tipologia && (familia === null || x.familia === familia)) ?? tabela.candidatos.find((x) => x.tipologia === tipologia)
-        return d ? { descricao: d.descricao, linha: d.linha } : null
+        return d ? { descricao: d.descricao, linha: d.linha, tipo: d.tipo, fornecedor: d.fornecedor } : null
     }
     return { definicao, detalhe }
 }
@@ -870,14 +870,22 @@ function definicaoEDetalhe(tabela: FamiliasDaEmpresaLidas, variaveisPorFamilia: 
  * levantamento que não é da empresa, a folha que não fecha).
  */
 export async function arquivoDoLevantamentoGravado(tenantId: string, levantamentoId: string): Promise<FolhaGerada | FolhaRecusada> {
+    const contexto = await contextoDaFolhaDaEmpresa(tenantId)
+    if ('recusa' in contexto) return { ok: false, recusas: [contexto.recusa] }
+    const itens = await lerItens(tenantId, levantamentoId)
+    return (await gerarArquivoDoLevantamento({ tenantId, levantamentoId, itens, definicao: contexto.definicao, detalhe: contexto.detalhe })).folha
+}
+
+/**
+ * A DEFINIÇÃO e o DETALHE da tipologia na empresa, montados como a conversa os monta (`definicaoEDetalhe`): o que o arquivo do levantamento e o
+ * arquivo do ORÇAMENTO (11/11/2026) escrevem por item — a descrição, o tipo, a linha, o fornecedor, as variáveis ditas e a cor do acessório.
+ * Só lê. A configuração que falta volta como a frase que a nomeia.
+ */
+export async function contextoDaFolhaDaEmpresa(tenantId: string): Promise<{ definicao: DefinicaoDaTipologia; detalhe: DetalheDaTipologia } | { recusa: string }> {
     const tabela = await lerFamiliasDaEmpresa(tenantId)
-    if ('frase' in tabela) return { ok: false, recusas: [tabela.frase] }
-    const [variaveisLidas, itens] = await Promise.all([
-        Promise.all(tabela.familias.map(async (f) => [f.familia, await lerVariaveisDasTipologias(f.levantamento.id)] as const)),
-        lerItens(tenantId, levantamentoId),
-    ])
-    const { definicao, detalhe } = definicaoEDetalhe(tabela, Object.fromEntries(variaveisLidas), familiasDoCodigo(tabela))
-    return (await gerarArquivoDoLevantamento({ tenantId, levantamentoId, itens, definicao, detalhe })).folha
+    if ('frase' in tabela) return { recusa: tabela.frase }
+    const variaveisLidas = await Promise.all(tabela.familias.map(async (f) => [f.familia, await lerVariaveisDasTipologias(f.levantamento.id)] as const))
+    return definicaoEDetalhe(tabela, Object.fromEntries(variaveisLidas), familiasDoCodigo(tabela))
 }
 
 async function lerItens(tenantId: string, levantamentoId: string): Promise<ItemGravado[]> {

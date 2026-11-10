@@ -46,6 +46,8 @@ export const O_QUE_A_TRAVESSIA_GRAVA = [
     'Sem preço: o valor de venda fica vazio até a precificação. O levantamento não é alterado. O custo só é calculado no botão Calcular do orçamento.',
 ] as const
 
+/** A precificação do orçamento: é onde acessar ou editar um orçamento abre (11/11/2026). */
+export const urlDaPrecificacao = (id: string) => `${ROUTES.ATENDIMENTOS_IA_ORCAMENTOS}/${id}/precificacao`
 export const ROTULO_DA_ORIGEM: Record<LinhaDoOrcamento['origem'], string> = { agente: 'Agente I.A.', manual: 'Manual' }
 export const TEXTO_DA_LISTA_VAZIA = 'Nenhum orçamento ainda. Os orçamentos do agente e os criados aqui aparecem nesta lista.'
 const quando = (iso: string | null) => (iso ? new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '—')
@@ -88,7 +90,8 @@ function OrcamentosIA() {
     useEffect(() => { void carregar() }, [carregar])
 
     const visiveis = useMemo(() => (estado.tipo === 'pronto' ? filtrarOrcamentos(estado.orcamentos, busca) : []), [estado, busca])
-    const abrir = (id: string) => router.push(`${ROUTES.ATENDIMENTOS_IA_ORCAMENTOS}/${id}`)
+    // ACESSAR OU EDITAR UM ORÇAMENTO ABRE DIRETO A PRECIFICAÇÃO (dono do produto, 11/11/2026): "não abre em outra tela nem numa aba anterior"
+    const abrir = (id: string) => router.push(urlDaPrecificacao(id))
 
     async function criar() {
         setSalvando(true)

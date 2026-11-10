@@ -82,13 +82,13 @@ describe('a lista', () => {
         for (const fora of ['Excluir', 'estoque', 'Criar Tabela', 'Criar Seção', 'Atualizar', 'Tabela de preços']) expect(t).not.toContain(fora)
     })
 
-    it('Editar leva à página do orçamento', async () => {
+    it('Editar abre DIRETO a precificação do orçamento (dono do produto, 11/11/2026)', async () => {
         servidor.corpo = { orcamentos: LISTA }
         const host = await montar(<Lista />)
         const editar = host.querySelector('button[aria-label="Editar o orçamento 1"]') as HTMLButtonElement
         // eslint-disable-next-line testing-library/no-unnecessary-act
         await act(async () => { editar.click() })
-        expect(rota.push).toHaveBeenCalledWith('/atendimentos-ia/orcamentos-ia/b')
+        expect(rota.push).toHaveBeenCalledWith('/atendimentos-ia/orcamentos-ia/b/precificacao')
     })
 
     it('vazia: a frase do vazio', async () => {
@@ -198,7 +198,7 @@ describe('a travessia na lista', () => {
         await clicarNo(botaoCom('Atravessar'))
         const posts = servidor.chamadas.filter((c) => c.url === ROTA_DA_TRAVESSIA && c.metodo === 'POST')
         expect(posts).toEqual([{ url: ROTA_DA_TRAVESSIA, metodo: 'POST', corpo: { levantamento_id: 'lev-11' } }])
-        expect(rota.push).toHaveBeenCalledWith(expect.stringMatching(/\/novo$/))
+        expect(rota.push).toHaveBeenCalledWith(expect.stringMatching(/\/novo\/precificacao$/))
     })
     it('o já atravessado (409): a frase que nomeia o orçamento, e nada é aberto', async () => {
         await abrirATravessia()
