@@ -825,12 +825,13 @@ describe('(2c) o ARQUIVO de um levantamento gravado, para os Levantamentos I.A. 
     it('é a MESMA folha que a conversa envia, montada do banco, no tenant do chamador; de outra empresa, a frase de não achado; nada é gravado', async () => {
         await fecharDp02('Casa do João')
         const id = String(levantamentos()[0].id)
-        estado.ops = []
+        const escritasAntes = estado.escritas.length
         const folha = await conversa.arquivoDoLevantamentoGravado(TENANT, id)
         if (!('pdf' in folha)) throw new Error(`recusou: ${JSON.stringify(folha)}`)
         expect(Buffer.from(folha.pdf).subarray(0, 4).toString('latin1')).toBe('%PDF')
         expect(folha.nomeDoArquivo).toContain('Casa do João')
-        expect(estado.ops.filter((o) => o.op !== 'select')).toEqual([])
+        // o registro do banco falso é `estado.escritas` (só as escritas): nenhuma nova
+        expect(estado.escritas.slice(escritasAntes)).toEqual([])
         // de outra empresa: recusa, sem PDF (aqui ela nem tem a configuração; com ela, a leitura do levantamento por tenant dá "não achado")
         const outra = await conversa.arquivoDoLevantamentoGravado('tenant-de-outra', id)
         expect(outra.ok).toBe(false)
