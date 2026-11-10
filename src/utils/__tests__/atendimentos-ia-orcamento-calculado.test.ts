@@ -227,7 +227,7 @@ describe('(2b) a tabela é a VIGENTE; a congelada no levantamento só AVISA (don
         comCongelada(null)
         const r = await chamar(rota, 'POST', O1)
         expect(r.corpo.avisos).toEqual([])
-        expect(estado.ops.some((o) => o.tabela === 'orcamentista_tabela_item')).toBe(false)
+        expect(estado.ops.some((o) => o.tabela === 'orcamentista_tabela_item' || o.tabela === 'orcamentista_tabela')).toBe(false)
     })
     it('a congelada é a vigente: nenhum aviso', async () => {
         comCongelada('tab-nova')

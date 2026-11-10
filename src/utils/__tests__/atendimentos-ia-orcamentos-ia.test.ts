@@ -370,3 +370,66 @@ describe('(7) a tela: a busca e o corpo da alteração', () => {
         expect(TELA().ROTULO_DA_ORIGEM).toEqual({ agente: 'Agente I.A.', manual: 'Manual' })
     })
 })
+
+describe('(8) a ação manual da travessia e o GET do orçamento do agente (dono do produto, 10/11/2026)', () => {
+    /* eslint-disable @typescript-eslint/no-require-imports */
+    const rotaDaTravessia = require('@/pages/api/atendimentos-ia/orcamentos/atravessar').default
+    /* eslint-enable @typescript-eslint/no-require-imports */
+    const LEV9 = '40000000-0000-4000-8000-000000000009'
+    const levantamento = (o: Linha): Linha => ({
+        estado: 'COMPLETO', comissao_percentual: 5, comissao_modo: 'PROPORCIONAL', reserva_tecnica_percentual: 0, reserva_tecnica_responsavel: null,
+        lucro_projetado_percentual: 10, telefone: null, email: null, endereco: 'Porto Alegre', edificacao: null, obs_obra: null, data_entrega: null,
+        vendedor_nome: 'Cristiano', vendedor_employee_id: null, ...o,
+    })
+    const comLevantamentos = () => montar({
+        orcamentista_levantamento: [
+            levantamento({ id: LEV9, tenant_id: T, numero: 9, nome: 'Geraldo Huck' }),
+            levantamento({ id: 'lev-1', tenant_id: T, numero: 1, nome: 'Antonio Rock' }),
+        ],
+        orcamentista_levantamento_item: [
+            { id: 'li-9', tenant_id: T, levantamento_id: LEV9, ordem: 1, tipologia: 'DP-02', largura_mm: 1600, altura_mm: 1200, quantidade: 2, cor_perfil: 'Branco', vidro: 'incolor', ambientes: null, escolhas: null },
+        ],
+    })
+
+    it('quem só VÊ o módulo lista os levantamentos, mas não atravessa: 403, e nada é gravado', async () => {
+        comLevantamentos()
+        montar({ ...estado.db, user_module_permissions: [{ user_id: USUARIO, tenant_id: T, module: 'orcamentista', can_view: true, can_edit: false }] })
+        estado.papel = 'seller'
+        expect((await chamar(rotaDaTravessia, 'GET')).status).toBe(200)
+        expect((await chamar(rotaDaTravessia, 'POST', { body: { levantamento_id: LEV9 } })).status).toBe(403)
+        expect(escritas()).toEqual([])
+    })
+
+    it('atravessa UM, no tenant do chamador: o tenant_id do corpo é ignorado', async () => {
+        comLevantamentos()
+        const r = await chamar(rotaDaTravessia, 'POST', { body: { levantamento_id: LEV9, tenant_id: OUTRO } })
+        expect(r.status).toBe(201)
+        const criado = estado.db.orcamentista_orcamento.find((o) => o.levantamento_id === LEV9)
+        expect(criado).toEqual(expect.objectContaining({ tenant_id: T, origem: 'agente', nome: 'Geraldo Huck' }))
+        expect(estado.db.orcamentista_orcamento_item.filter((i) => i.orcamento_id === criado?.id).map((i) => i.tenant_id)).toEqual([T])
+    })
+
+    it('o segundo clique é 409 e nomeia o orçamento que já existe', async () => {
+        comLevantamentos()
+        const primeiro = await chamar(rotaDaTravessia, 'POST', { body: { levantamento_id: LEV9 } })
+        estado.ops = []
+        const segundo = await chamar(rotaDaTravessia, 'POST', { body: { levantamento_id: LEV9 } })
+        expect(segundo.status).toBe(409)
+        expect(segundo.corpo.orcamento).toEqual(primeiro.corpo.orcamento)
+        expect(escritas()).toEqual([])
+    })
+
+    it('sem levantamento escolhido (ausente ou em branco): 400, e nenhum levantamento é lido', async () => {
+        comLevantamentos()
+        expect((await chamar(rotaDaTravessia, 'POST', { body: {} })).status).toBe(400)
+        expect((await chamar(rotaDaTravessia, 'POST', { body: { levantamento_id: '   ' } })).status).toBe(400)
+        expect(estado.ops.some((o) => o.tabela === 'orcamentista_levantamento')).toBe(false)
+    })
+
+    it('o GET do orçamento do agente traz o cliente LIDO do levantamento de origem', async () => {
+        comLevantamentos()
+        const r = await chamar(rotaDoOrcamento, 'GET', { query: { id: O1 } })
+        expect(r.status).toBe(200)
+        expect(r.corpo.cliente).toEqual(expect.objectContaining({ levantamento_numero: 1, nome: 'Antonio Rock', endereco: 'Porto Alegre', vendedor_nome: 'Cristiano' }))
+    })
+})

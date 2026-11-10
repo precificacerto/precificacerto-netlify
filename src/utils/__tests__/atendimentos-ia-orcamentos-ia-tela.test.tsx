@@ -211,7 +211,7 @@ describe('a travessia na lista', () => {
 })
 
 describe('o orçamento do agente: o cliente lido, as faltas e os avisos', () => {
-    const ORC_AGENTE = { id: 'b', numero: 1, origem: 'agente', levantamento_id: 'lev', nome: 'Antonio Rock', obs: null, editado_manualmente_em: null, criado_em: '2026-11-08T21:00:00Z', itens: [] }
+    const ORC_AGENTE = { id: 'b', numero: 1, origem: 'agente', levantamento_id: 'lev', nome: 'Antonio Rock', obs: null as string | null, editado_manualmente_em: null as string | null, criado_em: '2026-11-08T21:00:00Z', itens: [] as unknown[] }
     it('o cartão do cliente traz só o que o levantamento tem, e as faltas são listadas', async () => {
         rota.query = { id: 'b' }
         servidor.corpo = { orcamento: ORC_AGENTE, faltas: [FALTA_DA_COMISSAO],

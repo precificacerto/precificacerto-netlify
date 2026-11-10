@@ -47,6 +47,10 @@ function executar(tabela: string, op: string, carga: unknown, filtros: [string, 
     if (tabela === 'orcamentista_orcamento' && novas.some((n) => n.levantamento_id && linhas.some((l) => l.levantamento_id === n.levantamento_id))) {
         return { data: null, error: { code: '23505', message: 'duplicate key value violates unique constraint "orcamentista_orcamento_um_por_levantamento"' } }
     }
+    // a UNIQUE (tenant_id, numero) do banco
+    if (tabela === 'orcamentista_orcamento' && novas.some((n) => linhas.some((l) => l.tenant_id === n.tenant_id && l.numero === n.numero))) {
+        return { data: null, error: { code: '23505', message: 'duplicate key value violates unique constraint "orcamentista_orcamento_numero_key"' } }
+    }
     linhas.push(...novas)
     return { data: novas.map(projetar), error: null }
 }
@@ -152,10 +156,18 @@ describe('(1) o plano', () => {
         expect(p.faltas).toEqual([])
     })
     it('o numeric do banco chega como texto e vira número; o texto vazio é nulo', () => {
-        const p = planoDaTravessia({ ...GERALDO, comissao_percentual: '5' as unknown as number, comissao_modo: '  ' }, ITENS, null)
+        const p = planoDaTravessia({ ...GERALDO, comissao_percentual: '5' as unknown as number, comissao_modo: '  ', lucro_projetado_percentual: '' as unknown as number }, ITENS, null)
         if (!('orcamento' in p)) throw new Error('recusou')
         expect(p.orcamento.comissao_percentual).toBe(5)
         expect(p.orcamento.comissao_modo).toBeNull()
+        // o percentual em texto vazio é NULO e falta — nunca o zero que `Number('')` daria
+        expect(p.orcamento.lucro_projetado_percentual).toBeNull()
+        expect(p.faltas).toContain(FALTA_DO_LUCRO)
+    })
+    it('o nome do cliente é gravado aparado', () => {
+        const p = planoDaTravessia({ ...GERALDO, nome: '  Geraldo Huck  ' }, ITENS, null)
+        if (!('orcamento' in p)) throw new Error('recusou')
+        expect(p.orcamento.nome).toBe('Geraldo Huck')
     })
     it('o aproveitamento: o que a base der vale, com origem base_de_conhecimento e sem motivo nem autor; sem resposta, o fallback SEM', () => {
         expect(aproveitamentoDaTravessia('COM')).toEqual({ aproveitamento_modo: 'COM', aproveitamento_origem: 'base_de_conhecimento', aproveitamento_motivo: null, aproveitamento_por: null })
@@ -178,6 +190,9 @@ describe('(2) as recusas, e nada é gravado', () => {
     it('a quantidade nula não vira 1, e a zero também recusa', () => {
         const r = planoDaTravessia(GERALDO, [{ ...ITENS[1], quantidade: null }, { ...ITENS[0], quantidade: 0 }], null)
         expect(r).toEqual({ ok: false, recusas: [fraseSemQuantidade(1), fraseSemQuantidade(3)] })
+    })
+    it('a quantidade fracionária também recusa (vazio e meia esquadria não viram 1)', () => {
+        expect(planoDaTravessia(GERALDO, [{ ...ITENS[1], quantidade: 1.5 }], null)).toEqual({ ok: false, recusas: [fraseSemQuantidade(1)] })
     })
     it('pela rota do código: a recusa lança ErroDaTravessia e nada é gravado', async () => {
         semear({ estado: 'EM_MONTAGEM' })
@@ -232,6 +247,15 @@ describe('(4) idempotente', () => {
         expect(e.orcamentoNumero).toBe(9)
         expect(estado.db.orcamentista_orcamento).toHaveLength(1)
         expect(estado.db.orcamentista_orcamento_item).toHaveLength(1)
+    })
+})
+
+describe('(4b) a corrida no NÚMERO', () => {
+    it('outro orçamento da empresa toma o número entre a leitura e o INSERT: tenta de novo com o seguinte', async () => {
+        estado.antesDoInsert = () => { estado.db.orcamentista_orcamento.push({ id: 'o-manual', tenant_id: T, numero: 1, levantamento_id: null }) }
+        const r = await atravessarLevantamento(T, LEV)
+        expect(r.orcamento.numero).toBe(2)
+        expect(estado.db.orcamentista_orcamento.map((o) => o.numero)).toEqual([1, 2])
     })
 })
 
@@ -312,5 +336,7 @@ describe('(8) o aviso da tabela congelada', () => {
         const c = custoNaTabelaCongelada([material('1001'), material('9999')], congelada)
         expect(c.ausentes).toEqual(['9999'])
         expect(c.bruto).toBe(220)
+        const [a] = avisosDeDivergencia([{ ordem: 1, tabelaCongelada: 'tab-velha', tabelasVigentes: ['tab-nova'], materiais: [material('1001'), material('9999')] }], new Map([['tab-velha', congelada]]), nomes)
+        expect(a.endsWith('; sem preço ou sem crédito apurável na congelada: 9999 (fora da conta, não somados como zero).')).toBe(true)
     })
 })
