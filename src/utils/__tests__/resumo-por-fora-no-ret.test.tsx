@@ -249,10 +249,10 @@ describe('o resumo por fora lê a tabela de regime, não uma lista de regimes', 
 // ═══════════════════════════════════════════════════════════════════════════════════════════
 
 describe('a condição não nomeia regime, e `_ivaApplies` ficou como estava', () => {
-  const src = readFileSync(
-    join(__dirname, '..', '..', 'page-parts', 'products', 'product-price.component.tsx'),
-    'utf-8',
-  )
+  const src = // a TELA e a FORMAÇÃO do preço que ela chama (`formarPrecoDoProduto`, extraída do `ProductPrice` em 11/11/2026): a regra mora no módulo,
+    // e o que estas asserções protegem — a regra escrita uma vez, a tela sem conta própria — vale para os dois arquivos juntos
+    readFileSync(join(__dirname, '..', '..', 'page-parts', 'products', 'product-price.component.tsx'), 'utf-8')
+      + '\n' + readFileSync(join(__dirname, '..', 'preco-do-produto.ts'), 'utf-8')
   const programa = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
 
   it('>>> `hasInlineTaxes` lê a tabela e NÃO nomeia regime — é a mutação M33 <<<', () => {

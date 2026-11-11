@@ -5,8 +5,10 @@
  *   2. cada item: `calculo_id`, `calculado_em` e os valores da 20261109000002 (o par bruto/líquido, os efetivos, a fabricação, o total);
  *   3. o orçamento: o modo de aproveitamento do pedido (o fallback, com origem e motivo) e os totais bruto e líquido. O valor de venda NÃO
  *      se grava aqui: ele sai da precificação final, na tela.
- * Os percentuais da comissão, da reserva técnica e do lucro do orçamento do agente vêm CONGELADOS do levantamento (os nomes e as faixas
- * são os mesmos); o manual não os tem de onde copiar e fica com o que tiver.
+ * Os percentuais da comissão, da reserva técnica e do lucro NÃO são tocados aqui (dono do produto, 11/11/2026): a TRAVESSIA os congela uma
+ * vez, pela regra do zero (o levantamento, senão a pré-definição do vendedor, senão zero), e eles podem ser alterados no orçamento. Regravá-los
+ * do levantamento a cada cálculo era uma segunda cópia (`copia-divergente.md`): devolvia o NULO que a regra do zero resolveu e apagava a
+ * alteração feita na precificação.
  *
  * A ORDEM DA ESCRITA É A QUE NÃO DEIXA NÚMERO ERRADO (dono do produto, 09/11/2026):
  *   0. ANULA, no orçamento, os totais e o valor de venda — o cálculo de antes deixa de valer ANTES de qualquer número novo;
@@ -18,6 +20,10 @@
  * apontador (legível, nunca lido como vigente): DÍVIDA CONHECIDA e aceita pelo dono do produto; a forma atômica seria uma função no banco.
  *
  * Toda leitura e escrita leva o `tenant_id` do chamador. Nada evolui com falta: a recusa do cálculo volta nomeada e nada é gravado.
+ *
+ * A TABELA É A VIGENTE (dono do produto, 10/11/2026): o preço é o das tabelas que valem para a família NO MOMENTO DO CÁLCULO
+ * (`lerFamiliasDaEmpresa`), nunca a que o levantamento congelou. O `tabela_id` congelado no item de origem só serve para AVISAR
+ * (`avisosDeDivergencia`): quando ele não está entre as vigentes, o resultado traz a frase com as duas tabelas e a diferença de custo. Não bloqueia.
  */
 import { randomUUID } from 'crypto'
 import { supabaseAdmin } from '@/supabase/admin'
@@ -25,6 +31,7 @@ import { lerOrcamento, ErroSemMigracao, TABELA_DO_ITEM, TABELA_DO_ORCAMENTO, tab
 import { custoDoLevantamento } from './custo-do-orcamento-servidor'
 import { lerFamiliasDaEmpresa, type EsquadriaGravada } from './levantamento-da-conversa'
 import { MODO_DO_FALLBACK, ORIGEM_DO_FALLBACK, MOTIVO_DO_FALLBACK, PERCENTUAIS, type CustoDoItem } from './custo-do-orcamento'
+import { avisosDeDivergencia, type LinhaDaTabelaCongelada } from './divergencia-da-tabela'
 
 export const TABELA_DO_MATERIAL = 'orcamentista_orcamento_item_material'
 export const FRASE_SEM_MIGRACAO_DO_CALCULO =
@@ -54,21 +61,19 @@ export type ResultadoDoCalculo = {
     itens: Array<{ id: string; ordem: number } & Omit<CustoDoItem, 'materiais'>>
     valor_total_bruto: number
     valor_total_liquido: number
+    /** A tabela congelada no levantamento que não é a vigente usada, por item; vazia quando nenhuma divergiu ou nenhuma foi congelada. */
+    avisos: string[]
 }
 
-/** O levantamento de onde o orçamento do agente veio: os percentuais congelados, e as escolhas e a família de cada item. */
-async function lerDoLevantamento(tenantId: string, levantamentoId: string, idsDosItens: string[]) {
-    const { data: lev, error } = await db().from('orcamentista_levantamento')
-        .select('comissao_percentual, comissao_modo, reserva_tecnica_percentual, reserva_tecnica_responsavel, lucro_projetado_percentual')
-        .eq('tenant_id', tenantId).eq('id', levantamentoId).maybeSingle()
-    if (error) falhou('orcamentista_levantamento', error)
-    let itens: Array<{ id: string; escolhas: unknown; familia: unknown }> = []
+/** Os itens do levantamento de onde o orçamento do agente veio: as escolhas, a família e a tabela congelada de cada um. */
+async function lerDoLevantamento(tenantId: string, idsDosItens: string[]) {
+    let itens: Array<{ id: string; escolhas: unknown; familia: unknown; tabela_id: string | null }> = []
     if (idsDosItens.length) {
-        const r = await db().from('orcamentista_levantamento_item').select('id, escolhas, familia').eq('tenant_id', tenantId).in('id', idsDosItens)
+        const r = await db().from('orcamentista_levantamento_item').select('id, escolhas, familia, tabela_id').eq('tenant_id', tenantId).in('id', idsDosItens)
         if (r.error) falhou('orcamentista_levantamento_item', r.error)
         itens = r.data ?? []
     }
-    return { congelados: (lev ?? null) as Record<string, unknown> | null, porItem: new Map(itens.map((i) => [i.id, i])) }
+    return { porItem: new Map(itens.map((i) => [i.id, i])) }
 }
 
 /**
@@ -79,7 +84,7 @@ export async function calcularOrcamento(tenantId: string, id: string, agora: Dat
     const orc = await lerOrcamento(tenantId, id)
     if (orc.itens.length === 0) throw new ErroDoCalculo(['as esquadrias do orçamento: ele não tem nenhum item'])
     const doLevantamento = orc.levantamento_id
-        ? await lerDoLevantamento(tenantId, orc.levantamento_id, orc.itens.map((i) => i.levantamento_item_id).filter((x): x is string => !!x))
+        ? await lerDoLevantamento(tenantId, orc.itens.map((i) => i.levantamento_item_id).filter((x): x is string => !!x))
         : null
     const esquadrias: EsquadriaGravada[] = orc.itens.map((i) => {
         const deOrigem = i.levantamento_item_id ? doLevantamento?.porItem.get(i.levantamento_item_id) : undefined
@@ -88,8 +93,10 @@ export async function calcularOrcamento(tenantId: string, id: string, agora: Dat
             cor_perfil: i.cor_perfil, vidro: i.vidro, escolhas: deOrigem?.escolhas ?? null, familia: deOrigem?.familia ?? null,
         }
     })
-    const custo = await custoDoLevantamento(tenantId, await lerFamiliasDaEmpresa(tenantId), { nome: orc.nome, itens: esquadrias })
+    const fonte = await lerFamiliasDaEmpresa(tenantId)
+    const custo = await custoDoLevantamento(tenantId, fonte, { nome: orc.nome, itens: esquadrias })
     if ('recusas' in custo) throw new ErroDoCalculo(custo.recusas)
+    const avisos = await avisosDaTabelaCongelada(tenantId, fonte, orc.itens, custo.itens, doLevantamento?.porItem ?? new Map())
 
     const calculo_id = novoId()
     const calculado_em = agora.toISOString()
@@ -128,20 +135,43 @@ export async function calcularOrcamento(tenantId: string, id: string, agora: Dat
     // 3. o orçamento: o modo do pedido e os totais (o bruto é o dos materiais mais a fabricação; o líquido, a soma dos totais dos itens)
     const valor_total_bruto = custo.itens.reduce((t, c) => t + c.custo_bruto_materiais + c.custo_fabricacao, 0)
     const valor_total_liquido = custo.itens.reduce((t, c) => t + c.custo_liquido_total, 0)
-    const congelados = doLevantamento?.congelados
     const { data, error } = await db().from(TABELA_DO_ORCAMENTO)
         .update({
             aproveitamento_modo: MODO_DO_FALLBACK, aproveitamento_origem: ORIGEM_DO_FALLBACK, aproveitamento_motivo: MOTIVO_DO_FALLBACK, aproveitamento_por: null,
             valor_total_bruto, valor_total_liquido, atualizado_em: calculado_em,
-            ...(congelados ? {
-                comissao_percentual: congelados.comissao_percentual ?? null, comissao_modo: congelados.comissao_modo ?? null,
-                reserva_tecnica_percentual: congelados.reserva_tecnica_percentual ?? null,
-                reserva_tecnica_responsavel: congelados.reserva_tecnica_responsavel ?? null,
-                lucro_projetado_percentual: congelados.lucro_projetado_percentual ?? null,
-            } : {}),
         })
         .eq('tenant_id', tenantId).eq('id', id).select('id')
     if (error) falhou(TABELA_DO_ORCAMENTO, error)
     if (!data || data.length !== 1) throw new Error(`${TABELA_DO_ORCAMENTO}: o orçamento ${id} não foi atualizado (os itens já apontam o cálculo ${calculo_id})`)
-    return { calculo_id, calculado_em, itens, valor_total_bruto, valor_total_liquido }
+    return { calculo_id, calculado_em, itens, valor_total_bruto, valor_total_liquido, avisos }
+}
+
+/**
+ * Os avisos da tabela congelada: para cada item cujo item de origem congelou uma tabela que não está entre as vigentes da família dele, as linhas
+ * dessa tabela para os códigos do item, e a frase. Só lê; nada aqui muda o cálculo nem é gravado.
+ */
+async function avisosDaTabelaCongelada(
+    tenantId: string, fonte: Awaited<ReturnType<typeof lerFamiliasDaEmpresa>>, itensDoOrcamento: ReadonlyArray<{ ordem: number; levantamento_item_id: string | null }>,
+    custos: readonly CustoDoItem[], porItem: ReadonlyMap<string, { familia: unknown; tabela_id: string | null }>,
+): Promise<string[]> {
+    void tenantId
+    const vigentesDa = new Map(('familias' in fonte ? fonte.familias : []).map((f) => [f.familia, f.tabelasDePreco]))
+    const itens = itensDoOrcamento.map((i, k) => {
+        const origem = i.levantamento_item_id ? porItem.get(i.levantamento_item_id) : undefined
+        return { ordem: i.ordem, tabelaCongelada: origem?.tabela_id ?? null, tabelasVigentes: vigentesDa.get(String(origem?.familia ?? '')) ?? [], materiais: custos[k].materiais }
+    })
+    const divergentes = itens.filter((i) => i.tabelaCongelada !== null && !i.tabelasVigentes.includes(i.tabelaCongelada))
+    if (divergentes.length === 0) return []
+    const congeladas = new Map<string, LinhaDaTabelaCongelada[]>()
+    for (const t of new Set(divergentes.map((i) => i.tabelaCongelada as string))) {
+        const codigos = [...new Set(divergentes.filter((i) => i.tabelaCongelada === t).flatMap((i) => i.materiais.map((m) => m.codigo)))]
+        const { data, error } = await db().from('orcamentista_tabela_item').select(`codigo, valor_barra_interno, ${PERCENTUAIS.join(', ')}`).eq('tabela_id', t).in('codigo', codigos)
+        if (error) falhou('orcamentista_tabela_item', error)
+        congeladas.set(t, (data ?? []) as LinhaDaTabelaCongelada[])
+    }
+    const ids = [...new Set(divergentes.flatMap((i) => [i.tabelaCongelada as string, ...i.tabelasVigentes]))]
+    const { data: tabelas, error } = await db().from('orcamentista_tabela').select('id, arquivo_nome').in('id', ids)
+    if (error) falhou('orcamentista_tabela', error)
+    const nomes = new Map(((tabelas ?? []) as Array<{ id: string; arquivo_nome: string }>).map((t) => [t.id, t.arquivo_nome]))
+    return avisosDeDivergencia(divergentes, congeladas, nomes)
 }

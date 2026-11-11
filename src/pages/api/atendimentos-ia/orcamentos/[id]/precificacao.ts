@@ -12,6 +12,8 @@ import { responderErroDoOrcamento } from '@/lib/atendimentos-ia/orcamentos-ia-ro
 import {
     ErroDoEstado, ErroSemMigracaoDaPrecificacao, FRASE_SEM_MIGRACAO_DA_PRECIFICACAO, gravarPrecificacao, lerOrcamentoParaPrecificar,
 } from '@/lib/atendimentos-ia/orcamento-precificado'
+import { itensDoArquivo, lerClienteDoOrcamento } from '@/lib/atendimentos-ia/arquivo-do-orcamento-servidor'
+import { fiscalDivergente } from '@/lib/atendimentos-ia/precificacao-do-orcamento'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -22,9 +24,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const id = typeof req.query.id === 'string' ? req.query.id : ''
     try {
         if (!UUID.test(id)) throw new ErroNaoEncontrado()
-        if (req.method === 'GET') return res.status(200).json({ orcamento: await lerOrcamentoParaPrecificar(caller.tenant_id, id) })
+        if (req.method === 'GET') {
+            const orcamento = await lerOrcamentoParaPrecificar(caller.tenant_id, id)
+            // os itens como o arquivo os mostra: a faixa da tela, antes do salvar, lê a MESMA montagem que o PDF (11/11/2026)
+            const [itens, cliente] = await Promise.all([itensDoArquivo(caller.tenant_id, id), lerClienteDoOrcamento(caller.tenant_id, id)])
+            // o TOPO do orçamento (11/11/2026): as credenciais do cliente, as mesmas do PDF
+            // o fiscal gravado fora do preset (só por fora do código): a tela avisa, e o salvar o sobrescreve registrando (11/11/2026)
+            return res.status(200).json({ orcamento, cliente, fiscal_divergente: fiscalDivergente(orcamento), itens_do_arquivo: 'recusa' in itens ? null : itens.itens, recusa_dos_itens: 'recusa' in itens ? itens.recusa : null })
+        }
         const corpo = (req.body && typeof req.body === 'object' ? req.body : {}) as Record<string, unknown>
-        return res.status(200).json({ orcamento: await gravarPrecificacao(caller.tenant_id, id, corpo) })
+        const r = await gravarPrecificacao(caller.tenant_id, id, corpo, caller.user_id)
+        return res.status(200).json({ orcamento: r.orcamento, arquivo: r.arquivo, recusas_do_arquivo: r.recusasDoArquivo, fiscal_sobrescrito: r.fiscalSobrescrito })
     } catch (e) {
         if (e instanceof ErroDoEstado) return res.status(409).json({ error: e.message })
         if (e instanceof ErroSemMigracaoDaPrecificacao) return res.status(503).json({ error: FRASE_SEM_MIGRACAO_DA_PRECIFICACAO, sem_migracao: true })

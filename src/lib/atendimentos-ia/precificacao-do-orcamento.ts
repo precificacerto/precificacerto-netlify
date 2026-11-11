@@ -13,9 +13,15 @@
  *     cálculo, ou o cálculo e a tela leram outra coisa — número que não fecha não vira preço.
  *   - O ESTADO DO CÁLCULO (`estadoDoCalculo`): "cálculo incompleto — recalcule" quando algum item aponta um cálculo e o orçamento está sem os
  *     totais (o passo zero de `calcularOrcamento` os anulou e a escrita parou no meio), ou quando parte dos itens não tem cálculo.
- *   - AS FALTAS (`faltasDaPrecificacao`): SEM NCM a precificação RECUSA nomeando a falta — nunca zera o PIS/COFINS (decisão 1). O NCM é a
- *     FOLHA de oito dígitos (`0000.00.00`), a forma da CHECK `orcamentista_orcamento_ncm_forma`: um nível da hierarquia não resolve alíquota.
- *     A venda INTERESTADUAL exige a UF de destino, e a INTRAESTADUAL a recusa (a CHECK `orcamentista_orcamento_uf_destino_do_escopo`).
+ *   - OS IMPOSTOS SÃO OS DA EMPRESA (dono do produto, 11/11/2026: "A empresa é a fonte única"): ICMS, PIS, COFINS, IBS e CBS do orçamento
+ *     vêm SEMPRE das credenciais gravadas no onboarding (`tenant_settings` e `tenants`) — nunca do produto, do NCM ou de digitação na tela.
+ *     ICMS = a alíquota interna da UF da empresa (`brazilian_states`); PIS/COFINS = pelo regime (Lucro Real 9,25% não cumulativo, sobre a base
+ *     sem o ICMS); IBS e CBS = `ibs_reference_pct` e `cbs_reference_pct`, e NULO não é zero: não entra, e não impede o preço. A única falta é a
+ *     da UF ou do ICMS interno dela (`FALTA_DA_REFERENCIA_DO_TENANT`) — nunca um zero inventado.
+ *   - O FISCAL É AUTOMÁTICO E INVISÍVEL (`PRESET_DA_COMERCIALIZACAO`, 11/11/2026): INTRAESTADUAL, CONSUMIDOR_FINAL, sem UF de destino e sem
+ *     NCM; a tela não o pergunta nem o mostra, e o servidor grava sempre o preset (`validarGravacao`). Venda interestadual e comprador
+ *     contribuinte voltam num PR próprio — hoje não há caminho manual, de propósito. `faltasDoFiscal` continua conferindo a forma (a CHECK
+ *     `orcamentista_orcamento_uf_destino_do_escopo` e a do NCM), e o preset passa nela.
  */
 
 /** O item do orçamento como a precificação o lê: os valores que `calcularOrcamento` gravou (nulos antes do cálculo). */
@@ -48,6 +54,8 @@ export type OrcamentoNaPrecificacao = {
     valor_total_bruto: number | null
     valor_total_liquido: number | null
     valor_venda: number | null
+    /** a operação interna gravada com a venda (20261110000001); nula enquanto não há preço */
+    valor_operacao_interna: number | null
     ncm_code: string | null
     sale_scope: EscopoDaVenda | null
     buyer_type: TipoDeComprador | null
@@ -61,7 +69,8 @@ export const CABECALHO_FIXO = { tipo: 'Produzido', unidade: 'UN', secao: 'Orçam
 export const FRASE_CALCULO_INCOMPLETO = 'Cálculo incompleto — recalcule.'
 export const FRASE_SEM_CALCULO = 'O orçamento ainda não foi calculado: calcule antes de precificar.'
 export const FRASE_CALCULO_DESATUALIZADO = 'Itens alterados depois do cálculo — recalcule.'
-export const FALTA_DO_NCM = 'o NCM do orçamento: sem ele o PIS/COFINS não sai, e a precificação não o zera'
+export const FALTA_DA_REFERENCIA_DO_TENANT = 'as credenciais fiscais da empresa: o ICMS e o PIS/COFINS do orçamento saem do regime e da UF da '
+    + 'empresa, e a UF dela ou o ICMS interno dessa UF não estão cadastrados — complete o cadastro da empresa'
 export const faltaDoNcmFora = (ncm: string) => `o NCM inteiro, de oito dígitos (0000.00.00): "${ncm}" é um nível da hierarquia e não resolve alíquota`
 export const faltaDaAliquotaDoNcm = (ncm: string) => `a alíquota de PIS/COFINS do NCM ${ncm}: a tabela de NCM não a trouxe`
 export const FALTA_DO_ESCOPO = 'o escopo da venda (dentro ou fora do estado)'
@@ -143,12 +152,56 @@ export type FiscalDaTela = {
     uf_destino: string | null
 }
 
-/** As faltas do bloco fiscal, cada uma nomeada. A tela e a rota recusam pelas mesmas. */
+/**
+ * O PRESET da comercialização do orçamento I.A. (dono do produto, 11/11/2026), gravado na criação e em toda precificação: dentro do estado,
+ * para consumidor final, sem UF de destino (a CHECK `orcamentista_orcamento_uf_destino_do_escopo` a obriga nula fora do INTERESTADUAL) e sem NCM.
+ */
+export const PRESET_DA_COMERCIALIZACAO = { sale_scope: 'INTRAESTADUAL', buyer_type: 'CONSUMIDOR_FINAL', uf_destino: null as null, ncm_code: null as null } as const
+
+/**
+ * O MODELO decide de onde vêm os tributos (dono do produto, 11/11/2026): na FABRICAÇÃO/INDUSTRIALIZAÇÃO, NCM, ICMS, PIS, COFINS, IBS e CBS vêm
+ * do onboarding da empresa; na REVENDA, NCM e ICMS vêm de CADA PRODUTO — outro contexto, que não entra agora. O orçamento I.A. é de esquadrias:
+ * industrialização (o cabeçalho fixo, `CABECALHO_FIXO.tipo` = Produzido). A amarração "imposto da empresa" pertence a ESTE caminho, e não ao
+ * motor nem ao caminho compartilhado: a revenda não a herda por acidente.
+ */
+export type ModeloDoOrcamento = 'PRODUZIDO' | 'REVENDA'
+export const MODELO_DO_ORCAMENTO_IA: ModeloDoOrcamento = 'PRODUZIDO'
+export const FRASE_FISCAL_DA_REVENDA = 'o fiscal do orçamento de revenda (o NCM e o ICMS de cada produto) ainda não existe: só o orçamento de '
+    + 'industrialização é precificado'
+/** O fiscal que se GRAVA no orçamento do modelo: o preset na industrialização; na revenda, recusa nomeada (ainda não existe). */
+export function fiscalDoOrcamento(modelo: ModeloDoOrcamento): { fiscal: FiscalDaTela } | { recusa: string } {
+    if (modelo === 'PRODUZIDO') return { fiscal: { ...PRESET_DA_COMERCIALIZACAO } }
+    return { recusa: FRASE_FISCAL_DA_REVENDA }
+}
+
+/**
+ * O FISCAL GRAVADO QUE DIVERGE DO PRESET (dono do produto, 11/11/2026: "aviso, não recusa"). Sem seletor na tela, um valor fora do preset só
+ * chega por fora do código (SQL); o GET o compara, a tela avisa o que está gravado e que o salvar volta ao preset, e o salvar REGISTRA no
+ * rastro o que sobrescreveu. O ausente (NULO, o orçamento nascido antes do preset) NÃO é divergência: preenchê-lo não sobrescreve nada.
+ */
+export type CampoDivergente = { campo: keyof FiscalDaTela; gravado: string; preset: string | null }
+const CAMPOS_DO_FISCAL = ['sale_scope', 'buyer_type', 'uf_destino', 'ncm_code'] as const
+const ROTULO_DO_CAMPO_FISCAL: Record<keyof FiscalDaTela, string> = {
+    sale_scope: 'o escopo da venda', buyer_type: 'o tipo de comprador', uf_destino: 'a UF de destino', ncm_code: 'o NCM',
+}
+export function fiscalDivergente(o: FiscalDaTela): CampoDivergente[] {
+    const preset: FiscalDaTela = PRESET_DA_COMERCIALIZACAO
+    return CAMPOS_DO_FISCAL.flatMap((campo) => {
+        const gravado = o[campo]
+        return gravado !== null && gravado !== undefined && gravado !== preset[campo] ? [{ campo, gravado: String(gravado), preset: preset[campo] }] : []
+    })
+}
+export const fraseDoFiscalDivergente = (d: readonly CampoDivergente[]) =>
+    `Este orçamento tem gravado ${d.map((x) => `${ROTULO_DO_CAMPO_FISCAL[x.campo]} ${x.gravado}`).join(', ')}. Ao salvar, o fiscal volta ao padrão `
+    + '(dentro do estado, consumidor final, sem UF de destino e sem NCM), e o que for sobrescrito fica registrado.'
+/** A parte do rastro: `campo:gravado->preset`, separados por `;`. */
+export const rastroDoFiscalSobrescrito = (d: readonly CampoDivergente[]) => d.map((x) => `${x.campo}:${x.gravado}->${x.preset ?? 'null'}`).join(';')
+
+/** As faltas do bloco fiscal, cada uma nomeada. A tela e a rota recusam pelas mesmas. O NCM ausente NÃO é falta (11/11/2026). */
 export function faltasDoFiscal(f: FiscalDaTela): string[] {
     const faltas: string[] = []
     const ncm = f.ncm_code?.trim() ?? ''
-    if (ncm === '') faltas.push(FALTA_DO_NCM)
-    else if (!FORMA_DO_NCM.test(ncm)) faltas.push(faltaDoNcmFora(ncm))
+    if (ncm !== '' && !FORMA_DO_NCM.test(ncm)) faltas.push(faltaDoNcmFora(ncm))
     if (f.sale_scope === null) faltas.push(FALTA_DO_ESCOPO)
     if (f.buyer_type === null) faltas.push(FALTA_DO_COMPRADOR)
     const uf = f.uf_destino?.trim() ?? ''
@@ -166,6 +219,11 @@ export function faltasDaPrecificacao(args: {
     fiscal: FiscalDaTela
     /** `null`: o regime não apura PIS/COFINS pelo NCM; `true`/`false`: a tabela trouxe a alíquota do NCM ou não. */
     aliquotaDoNcm: boolean | null
+    /**
+     * A referência fiscal da empresa (sem NCM, que é sempre o caso do orçamento): `null` = o regime não apura ICMS e PIS/COFINS por ela;
+     * `true`/`false` = a UF e o ICMS interno dela estão cadastrados ou não. Obrigatório: ausente não é "tem" (`construtor-empobrecido.md`).
+     */
+    referenciaDoTenant: boolean | null
     custoDoMotor: number
 }): string[] {
     const faltas: string[] = []
@@ -174,6 +232,7 @@ export function faltasDaPrecificacao(args: {
     faltas.push(...faltasDoFiscal(args.fiscal))
     const ncm = args.fiscal.ncm_code?.trim() ?? ''
     if (args.aliquotaDoNcm === false && FORMA_DO_NCM.test(ncm)) faltas.push(faltaDaAliquotaDoNcm(ncm))
+    if (ncm === '' && args.referenciaDoTenant === false) faltas.push(FALTA_DA_REFERENCIA_DO_TENANT)
     if (estado === 'completo') {
         const r = reconciliacaoNaTela(args.orcamento.itens, args.custoDoMotor)
         if (!r.fecha) faltas.push(faltaDaReconciliacao(r.somaDasLinhas, r.custoDoMotor))
@@ -188,7 +247,29 @@ export const rotuloDoItem = (i: Pick<ItemNaPrecificacao, 'ordem' | 'tipologia' |
 /** O que a tela grava no orçamento ao salvar a precificação — e nada em `products`. */
 export type GravacaoDaPrecificacao = FiscalDaTela & {
     valor_venda: number
+    /** A "Total Operação Interna" que a tela mostrou, em CENTAVOS exatos (20261110000001): é ela que o arquivo reparte pelos itens. */
+    valor_operacao_interna: number
     comissao_percentual: number
     reserva_tecnica_percentual: number
     lucro_projetado_percentual: number
+}
+
+// ── A OPERAÇÃO INTERNA (20261110000001, dono do produto, 10/11/2026) ─────────────────────────────────────────────────────────────
+const emCentavos = (v: number) => Math.round(v * 100)
+const reaisBR = (c: number) => `R$ ${(c / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+export const faltaDaInternaDivergente = (interna: number, precificado: number) =>
+    `a operação interna (${reaisBR(emCentavos(interna))}) diverge do valor do produto precificado (${reaisBR(emCentavos(precificado))}) em mais de um centavo: `
+    + 'a matriz não governou o preço, e nenhum dos dois serve para o arquivo — confira os acréscimos da precificação'
+export const FALTA_DA_INTERNA = 'a operação interna: a precificação não a formou'
+
+/**
+ * A interna que se GRAVA: a "Total Operação Interna" da tela, arredondada ao centavo (a CHECK `operacao_interna_ao_centavo`). Ela e o "Valor do
+ * produto precificado" são o mesmo número quando a matriz governa o preço; divergindo em MAIS DE UM CENTAVO, o salvar RECUSA nomeando (decisão do
+ * dono do produto, 10/11/2026: "nenhum dos dois serve"). Um centavo é a tolerância do arredondamento dos dois lados.
+ */
+export function internaParaGravar(operacaoInterna: number, valorPrecificado: number): { interna: number } | { falta: string } {
+    const i = emCentavos(operacaoInterna)
+    if (!Number.isFinite(operacaoInterna) || i <= 0) return { falta: FALTA_DA_INTERNA }
+    if (Math.abs(emCentavos(valorPrecificado) - i) > 1) return { falta: faltaDaInternaDivergente(operacaoInterna, valorPrecificado) }
+    return { interna: i / 100 }
 }

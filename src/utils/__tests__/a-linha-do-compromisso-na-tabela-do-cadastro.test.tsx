@@ -548,10 +548,13 @@ describe('4. §1 no SERVIÇO — o compromisso SAIU do custo por minuto (ADENDO 
 })
 
 describe('5. O PRODUTOR do R$ é ÚNICO — e é por isso que as duas telas não divergem', () => {
-  it('`financialCommitmentsPrice` nasce em `content.component.tsx`, ao lado dos outros três', () => {
+  it('`financialCommitmentsPrice` nasce na conta do motor de Produtos, ao lado dos outros três', () => {
     // `copia-divergente.md`: derivá-lo na tela filha a partir de `totalServicePrice` seria a
     // segunda escrita da mesma fórmula, e a divergência só apareceria como R$ errado.
+    // Desde 11/11/2026 a conta do `doProductCalc` mora em `calcularNoMotorDoProduto` (`src/utils/motor-do-produto.ts`), que o
+    // `content.component.tsx` chama: o PRODUTOR continua único, e é o par (tela + módulo) que se lê aqui.
     const src = readFileSync(join(process.cwd(), 'src/page-parts/products/content.component.tsx'), 'utf8')
+      + '\n' + readFileSync(join(process.cwd(), 'src/utils/motor-do-produto.ts'), 'utf8')
     expect(src).toContain('financialCommitmentsPrice: priceUnit * (calcBase.financialCommitmentsPct / 100)')
     expect(src).toContain('fixedExpensePrice: priceUnit * (calcBase.fixedExpensePct / 100)')
 

@@ -5,7 +5,7 @@ import { IItemModel } from '@/server/model/item'
 import { IItemProductModel } from '@/server/model/item-product-item'
 import { ColumnsType } from 'antd/es/table'
 import { CalcBaseType } from '@/types/calc-base.type'
-import { ProductPrice, AdvancedTaxParams } from './product-price.component'
+import { ProductPrice, AdvancedTaxParams, type PrecoEmitido } from './product-price.component'
 import { LoggedUser } from '@/types/logged-user.type'
 import { ProductPriceInfoType } from './content.component'
 import { useDevice } from '@/contexts/device.context'
@@ -49,7 +49,7 @@ interface ContentResaleProps {
   cbsBaseCode?: number | null
   isBaseCode?: number | null
   ipiBaseCode?: number | null
-  onFinalPriceWithTaxesChange?: (data: { finalPrice: number; basePrice: number; externalOpsCoefficient: number | null }) => void
+  onFinalPriceWithTaxesChange?: (data: PrecoEmitido) => void
   advancedTaxesSection?: ReactNode
   advancedTaxParams?: AdvancedTaxParams
   /** Frente 2: lista compacta dos itens renderizada SÓ no mobile (≤639). */

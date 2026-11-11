@@ -262,10 +262,10 @@ describe('6. A TELA consome o módulo — e não tem mais a conta própria', () 
   // que sobra sem cobertura é a renderização do JSX. A lógica inteira saiu do componente
   // justamente para reduzir essa superfície — `docs/regras/teste-que-nao-exercita.md`, o
   // caso-limite honesto: aqui o defeito É a ausência, e não há efeito numérico a medir.
-  const src = readFileSync(
-    join(__dirname, '..', '..', 'page-parts', 'products', 'product-price.component.tsx'),
-    'utf-8',
-  )
+  const src = // a TELA e a FORMAÇÃO do preço que ela chama (`formarPrecoDoProduto`, extraída do `ProductPrice` em 11/11/2026): a regra mora no módulo,
+    // e o que estas asserções protegem — a regra escrita uma vez, a tela sem conta própria — vale para os dois arquivos juntos
+    readFileSync(join(__dirname, '..', '..', 'page-parts', 'products', 'product-price.component.tsx'), 'utf-8')
+      + '\n' + readFileSync(join(__dirname, '..', 'preco-do-produto.ts'), 'utf-8')
 
   it('monta as linhas pelo módulo, com a base que a construção produziu', () => {
     expect(src).toContain('buildProductPriceRows')
@@ -295,5 +295,23 @@ describe('6. A TELA consome o módulo — e não tem mais a conta própria', () 
 
   it('o residual vira ALERTA, não um número discreto ao lado dos outros', () => {
     expect(src).toContain('Math.abs(linhas.residual) >= 0.01')
+  })
+  it('>>> a FORMAÇÃO mora em `formarPrecoDoProduto`, e o ProductPrice não refaz conta nenhuma dela (11/11/2026) <<<', () => {
+    // A regra é pelo que a tela LÊ, não pelo nome de uma função: a primeira versão desta asserção só procurava CHAMADAS de fórmula, e uma
+    // conta à mão no corpo do componente (o IRPJ por `* 0.15`, o final por `_matriz.totalGeral`) passava por ela — medido por mutação.
+    const tela = readFileSync(join(__dirname, '..', '..', 'page-parts', 'products', 'product-price.component.tsx'), 'utf-8')
+    const programa = tela.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '')
+    expect(programa).toContain('} = formarPrecoDoProduto({')
+    for (const formula of ['buildProductConstruction(', 'computeIvaDualOutside(', 'buildProductPriceRows(', 'resolveSegmentoDaConstrucao(', 'divisorDaEstruturaPct(', 'resolveIndirectLaborPct(', 'resolveProductTaxPercent(']) {
+      expect(programa).not.toContain(formula)
+    }
+    // os INSUMOS do preço não são lidos pela tela: eles entram inteiros no módulo
+    expect(programa).not.toMatch(/productPriceInfo\.\w/)
+    // da matriz, a tela lê só o que o aviso de "não governou" exibe
+    expect(programa).not.toMatch(/_matriz\.(?!applied\b|reason\b|errors\b)\w/)
+    // nem as alíquotas do IRPJ/CSLL, nem a soma dos acréscimos, nem a recomposição do final a partir das partes que o módulo devolve
+    expect(programa).not.toMatch(/\*\s*0\.(15|09)\b/)
+    expect(programa).not.toMatch(/(freightValue|insuranceValue|accessoryExpensesValue)\s*\|\|/)
+    expect(programa).not.toMatch(/baseForSalePrice\s*\+|\+\s*totalInlineTax|\+\s*terceirizadasTotal/)
   })
 })

@@ -138,3 +138,18 @@ describe('o NCM determina a alíquota de PIS/COFINS', () => {
     expect(new Set([String(lr), String(lp), String(fora)]).size).toBe(3)
   })
 })
+
+describe('a referência do tenant, para o orçamento I.A. SEM NCM (dono do produto, 11/11/2026)', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { pisCofinsDaReferenciaDoTenant, PIS_COFINS_NAO_CUMULATIVO_PCT } = require('@/utils/ncm-pis-cofins') as typeof import('@/utils/ncm-pis-cofins')
+    it('Lucro Real: 9,25% não cumulativo, com a base excluindo o ICMS — no RS (17%) é 7,6775%', () => {
+        expect(PIS_COFINS_NAO_CUMULATIVO_PCT).toBe(9.25)
+        expect(pisCofinsDaReferenciaDoTenant({ isLucroReal: true, isLucroPresumido: false, icmsPct: 17 })).toBe(7.6775)
+    })
+    it('Presumido: 3,65% cumulativo, também sem o ICMS na base', () => {
+        expect(pisCofinsDaReferenciaDoTenant({ isLucroReal: false, isLucroPresumido: true, icmsPct: 17 })).toBe(3.0295)
+    })
+    it('fora dos dois: null, nunca zero', () => {
+        expect(pisCofinsDaReferenciaDoTenant({ isLucroReal: false, isLucroPresumido: false, icmsPct: 17 })).toBeNull()
+    })
+})

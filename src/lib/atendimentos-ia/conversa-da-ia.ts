@@ -169,13 +169,16 @@
  *
  * Portão: `src/utils/__tests__/atendimentos-ia-levantamento-por-nome.test.ts`.
  */
+import { atravessarNoSim } from './travessia-do-levantamento'
+import { dependenciasDoServidor, destinosDoWhatsApp, enviarAoPrimeiroQueAceitar, etapaDoPreco } from './cadeia-do-sim'
 import { supabaseAdmin } from '@/supabase/admin'
 import { MODELO_PADRAO_DA_IA, URL_DA_API_ANTHROPIC, VERSAO_DA_API_ANTHROPIC } from '@/lib/atendimentos-ia/modelo-da-ia'
 import { paraOLog } from '@/utils/atendimentos-ia-mascara-do-log'
 import {
     FRASE_SEM_CORES, familiasDoCodigo, lerPerfilDaEmpresa, lerFamiliasDaEmpresa, linhaDoCandidato, lerVariaveisDasTipologias, mensagemDoLevantamento,
-    type CandidatoDeTipologia,
+    type CandidatoDeTipologia, type FamiliasDaEmpresaLidas,
 } from '@/lib/atendimentos-ia/levantamento-da-conversa'
+import type { FolhaGerada, FolhaRecusada } from '@/lib/atendimentos-ia/folha-do-levantamento'
 import { agruparIguais,
     CAMPOS_DA_ESQUADRIA, aplicarProposta, familiaDaEsquadria, itemVazio, pendenciasDoLevantamento, perguntaDasPendencias, resolverFamilias,
     type DefinicaoDaTipologia, type ItemDoLevantamento, type Pendencia,
@@ -845,6 +848,47 @@ async function nomesDosVendedores(tenantId: string, remetenteIds: string[]): Pro
     }))
 }
 
+/**
+ * A DEFINIÇÃO (as Variáveis de cada tipologia, pela família da esquadria) e o DETALHE (a descrição e a linha da tipologia, da Detalhe do motor)
+ * que a folha do levantamento usa. Uma montagem só, para a conversa e para a tela dos Levantamentos I.A. (`copia-divergente.md`).
+ */
+function definicaoEDetalhe(tabela: FamiliasDaEmpresaLidas, variaveisPorFamilia: Record<string, Record<string, VariaveisDaTipologia>>, doCodigo: ReturnType<typeof familiasDoCodigo>) {
+    const definicao: DefinicaoDaTipologia = (e) => {
+        const daEsquadria = familiaDaEsquadria(e, doCodigo)
+        return e.tipologia !== null && daEsquadria && 'familia' in daEsquadria ? variaveisPorFamilia[daEsquadria.familia]?.[e.tipologia] ?? null : null
+    }
+    // a descrição e a linha da tipologia, da Detalhe do motor (os candidatos já lidos): é o que a folha do levantamento escreve na faixa do item
+    const detalhe: DetalheDaTipologia = (tipologia, familia) => {
+        const d = tabela.candidatos.find((x) => x.tipologia === tipologia && (familia === null || x.familia === familia)) ?? tabela.candidatos.find((x) => x.tipologia === tipologia)
+        return d ? { descricao: d.descricao, linha: d.linha, tipo: d.tipo, fornecedor: d.fornecedor } : null
+    }
+    return { definicao, detalhe }
+}
+
+/**
+ * O ARQUIVO de um levantamento GRAVADO, para a tela dos Levantamentos I.A. (dono do produto, 11/11/2026): a MESMA folha que a conversa envia,
+ * montada do que está no banco, no tenant do chamador. Só lê; nada é gravado nem enviado. A recusa vem nomeada (a configuração que falta, o
+ * levantamento que não é da empresa, a folha que não fecha).
+ */
+export async function arquivoDoLevantamentoGravado(tenantId: string, levantamentoId: string): Promise<FolhaGerada | FolhaRecusada> {
+    const contexto = await contextoDaFolhaDaEmpresa(tenantId)
+    if ('recusa' in contexto) return { ok: false, recusas: [contexto.recusa] }
+    const itens = await lerItens(tenantId, levantamentoId)
+    return (await gerarArquivoDoLevantamento({ tenantId, levantamentoId, itens, definicao: contexto.definicao, detalhe: contexto.detalhe })).folha
+}
+
+/**
+ * A DEFINIÇÃO e o DETALHE da tipologia na empresa, montados como a conversa os monta (`definicaoEDetalhe`): o que o arquivo do levantamento e o
+ * arquivo do ORÇAMENTO (11/11/2026) escrevem por item — a descrição, o tipo, a linha, o fornecedor, as variáveis ditas e a cor do acessório.
+ * Só lê. A configuração que falta volta como a frase que a nomeia.
+ */
+export async function contextoDaFolhaDaEmpresa(tenantId: string): Promise<{ definicao: DefinicaoDaTipologia; detalhe: DetalheDaTipologia } | { recusa: string }> {
+    const tabela = await lerFamiliasDaEmpresa(tenantId)
+    if ('frase' in tabela) return { recusa: tabela.frase }
+    const variaveisLidas = await Promise.all(tabela.familias.map(async (f) => [f.familia, await lerVariaveisDasTipologias(f.levantamento.id)] as const))
+    return definicaoEDetalhe(tabela, Object.fromEntries(variaveisLidas), familiasDoCodigo(tabela))
+}
+
 async function lerItens(tenantId: string, levantamentoId: string): Promise<ItemGravado[]> {
     const { data, error } = await supabaseAdmin.from('orcamentista_levantamento_item').select(COLUNAS_DO_ITEM)
         .eq('tenant_id', tenantId).eq('levantamento_id', levantamentoId).order('ordem', { ascending: true })
@@ -985,7 +1029,7 @@ async function enviarTexto(token: string, telefone: string, texto: string): Prom
  * O DOCUMENTO pelo WUZAPI (06/11/2026): `POST /chat/send/document`, header `token`, corpo `{ Phone, FileName, Document }` com o PDF em base64 —
  * o mesmo caminho de `sendWuzapiDocument` em `src/lib/wuzapi-send.ts`, que é a referência (o prefixo `data:application/octet-stream;base64,`).
  */
-async function enviarDocumento(token: string, telefone: string, nomeDoArquivo: string, pdf: Uint8Array): Promise<Envio> {
+export async function enviarDocumento(token: string, telefone: string, nomeDoArquivo: string, pdf: Uint8Array): Promise<Envio> {
     const limite = prazo(PRAZO_DO_ENVIO_MS)
     try {
         const r = await fetch(`${wuzapi()}/chat/send/document`, {
@@ -1072,7 +1116,8 @@ async function refazerPergunta(
 async function dadosDaFolhaGravada(tenantId: string, levantamentoId: string, definicao: DefinicaoDaTipologia, detalhe: DetalheDaTipologia) {
     const [doArquivo, empresa, itens] = await Promise.all([lerLevantamentoDoArquivo(tenantId, levantamentoId), lerNomeDaEmpresa(tenantId), lerItens(tenantId, levantamentoId)])
     if (!doArquivo) return null
-    return montarDadosDaFolha({ empresa: empresa ?? '', levantamento: doArquivo, itens, definicao, detalhe, geradoEm: new Date(0) })
+    const doVendedor = await lerPerfilDoVendedor(tenantId, doArquivo.vendedor_employee_id)
+    return montarDadosDaFolha({ empresa: empresa ?? '', levantamento: doArquivo, itens, definicao, detalhe, geradoEm: new Date(0), doVendedor })
 }
 
 /** O nome que não está no texto vale SÓ se for um dos que a pergunta em aberto citou ("é o mesmo"). */
@@ -1223,17 +1268,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
                 return { lida, valida, doRemetente }
             })(),
         ] as const)
-        const variaveisPorFamilia: Record<string, Record<string, VariaveisDaTipologia>> = Object.fromEntries(variaveisLidas)
-        const definicao: DefinicaoDaTipologia = (e) => {
-            const daEsquadria = familiaDaEsquadria(e, doCodigo)
-            return e.tipologia !== null && daEsquadria && 'familia' in daEsquadria ? variaveisPorFamilia[daEsquadria.familia]?.[e.tipologia] ?? null : null
-        }
-
-        // a descrição e a linha da tipologia, da Detalhe do motor (os candidatos já lidos): é o que a folha do levantamento escreve na faixa do item
-        const detalhe: DetalheDaTipologia = (tipologia, familia) => {
-            const d = tabela.candidatos.find((x) => x.tipologia === tipologia && (familia === null || x.familia === familia)) ?? tabela.candidatos.find((x) => x.tipologia === tipologia)
-            return d ? { descricao: d.descricao, linha: d.linha } : null
-        }
+        const { definicao, detalhe } = definicaoEDetalhe(tabela, Object.fromEntries(variaveisLidas), doCodigo)
         // TODAS as pendências da montagem (03/11/2026): a pergunta em aberto é uma só, e cobre todas
         const pendenciasAbertas = emMontagem ? pendenciasDoLevantamento(itensDaMontagem, definicao, doCodigo) : []
         const pendenciaAberta = pendenciasAbertas[0] ?? null
@@ -1772,6 +1807,17 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             const e = levantamento.etapa
             rastro.etapas.calcular = `esquadrias=${e.esquadrias} pecas=${nuloNoLog(e.pecas)} barras=${nuloNoLog(e.barras)} codigos=${nuloNoLog(e.codigos)}`
                 + ` sem_preco=${nuloNoLog(e.semPreco)} mao_de_obra=${nuloNoLog(e.maoDeObra)} desfecho=${levantamento.desfecho} faltou=${listaNoLog(e.faltou)}`
+        }
+        // A TRAVESSIA (dono do produto, 10/11/2026): o "sim" ao levantamento COMPLETO que levantou atravessa para o orçamento do agente, pelo
+        // MESMO código da ação manual. Idempotente; nunca muda a resposta ao vendedor — o resultado vai ao log da etapa do cálculo
+        if ((confirmouApanhado || simVale) && levantamento.desfecho === 'levantou' && estado === COMPLETO && rastro.levantamento) {
+            // a ETAPA DO PREÇO (11/11/2026): precifica, gera o PDF e o envia ao DONO do levantamento (nunca a quem disse "sim"); sem preço formado
+            // não há PDF, e o texto diz o que falta. O que ela tem a dizer vai junto da resposta, e a falha do envio não desfaz nada
+            const sim = await atravessarNoSim(c.tenantId, rastro.levantamento, (orcamentoId) =>
+                etapaDoPreco(c.tenantId, orcamentoId, dependenciasDoServidor((telefone, nome, pdf) =>
+                    enviarAoPrimeiroQueAceitar(destinosDoWhatsApp(telefone, c.telefone), (destino) => enviarDocumento(c.wuzapiToken, destino, nome, pdf)))))
+            rastro.etapas.calcular = `${rastro.etapas.calcular ?? ''} travessia=${sim.rastro}`.trim()
+            if (sim.paraOVendedor) return await responder(`${levantamento.texto}\n\n${sim.paraOVendedor}`, levantamento.desfecho, semApanhado)
         }
         // SEM a confirmação do arremate (dono do produto, 08/11/2026): "Considerando guarnição e arremate padrão, certo!" repetia o que o
         // rodapé da folha já diz nas pré-definições consideradas — ruído. O mesmo para a variante do arremate escolhido

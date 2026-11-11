@@ -49,6 +49,8 @@ const estado = {
     escritas: [] as Array<{ tabela: string; op: string; carga: unknown }>,
     /** Toda consulta CRIADA no banco (`from(tabela)`), lida ou não. */
     consultas: [] as string[],
+    /** As atualizações (só o telefone do remetente é permitido): a carga e quantas linhas atingiram. */
+    atualizacoes: [] as Array<{ tabela: string; carga: unknown; atingidas: number }>,
     falhaNoInsert: null as string | null,
     /** O código do erro que `falhaNoInsert` devolve — 23505 é a UNIQUE. */
     codigoDaFalha: '23505',
@@ -72,6 +74,7 @@ function montar() {
     }
     estado.escritas = []
     estado.consultas = []
+    estado.atualizacoes = []
     estado.falhaNoInsert = null
     estado.codigoDaFalha = '23505'
 }
@@ -103,6 +106,7 @@ jest.mock('@/supabase/admin', () => ({
             const filtros: Array<[string, unknown]> = []
             let ordem: { coluna: string; asc: boolean } | null = null
             let limite: number | null = null
+            let atualizacao: Linha | null = null
             const ler = () => {
                 let linhas = (estado.db[tabela] ?? []).filter((l) => filtros.every(([c, v]) => l[c] === v))
                 if (ordem) {
@@ -119,7 +123,15 @@ jest.mock('@/supabase/admin', () => ({
             q.limit = (n: number) => { limite = n; return q }
             q.maybeSingle = async (): Promise<{ data: Linha | null; error: null }> => ({ data: ler()[0] ?? null, error: null })
             // a consulta de LISTA, aguardada sem maybeSingle — devolve todas as linhas que casam
-            q.then = (ok: (v: unknown) => unknown, erro?: (e: unknown) => unknown) => Promise.resolve({ data: ler(), error: null }).then(ok, erro)
+            q.then = (ok: (v: unknown) => unknown, erro?: (e: unknown) => unknown) => {
+                if (atualizacao) {
+                    const atingidas = ler()
+                    for (const l of atingidas) Object.assign(l, atualizacao)
+                    estado.atualizacoes.push({ tabela, carga: atualizacao, atingidas: atingidas.length })
+                    return Promise.resolve({ data: atingidas.map((l) => ({ id: l.id })), error: null }).then(ok, erro)
+                }
+                return Promise.resolve({ data: ler(), error: null }).then(ok, erro)
+            }
             q.insert = (carga: Linha) => {
                 const r = inserir(tabela, carga)
                 const resposta = {
@@ -130,6 +142,15 @@ jest.mock('@/supabase/admin', () => ({
             }
             for (const proibido of ['update', 'upsert', 'delete']) {
                 q[proibido] = () => { throw new Error(`a rota de entrada não pode ${proibido} em ${tabela}`) }
+            }
+            // A ÚNICA ATUALIZAÇÃO permitida à rota de entrada (dono do produto, 11/11/2026, regra (a)): o telefone do remetente, quando o webhook
+            // o MEDE. Qualquer outra tabela, ou outra coluna, continua proibida
+            if (tabela === 'orcamentista_remetente_autorizado') {
+                q.update = (carga: Linha) => {
+                    if (Object.keys(carga).join(',') !== 'telefone') throw new Error(`a rota de entrada só pode atualizar o telefone do remetente, e veio ${Object.keys(carga).join(',')}`)
+                    atualizacao = carga
+                    return q
+                }
             }
             return q
         },
@@ -645,6 +666,37 @@ describe('(11) o celular sem o nono dígito: a comparação é pela forma NORMAL
             comCadastro('51933334444')
             await chamar({ c: SEGREDO, corpo: doWebhook('555133334444') })
             expect(recusou()).toBe(true)
+        })
+    })
+
+    describe('(a) O MEDIDO VENCE (dono do produto, 11/11/2026): o remetente passa a ter EXATAMENTE o número que o webhook entregou', () => {
+        it('cadastro "51999114290" (a forma de antes) e webhook "555199114290": o gravado vira "555199114290", e o log diz só o resultado', async () => {
+            comCadastro('51999114290')
+            await chamar({ c: SEGREDO, corpo: doWebhook('555199114290') })
+            expect(autorizou()).toBe(true)
+            expect(estado.atualizacoes).toEqual([{ tabela: 'orcamentista_remetente_autorizado', carga: { telefone: '555199114290' }, atingidas: 1 }])
+            expect(estado.db.orcamentista_remetente_autorizado[0].telefone).toBe('555199114290')
+            const linha = erros.find((l) => l.startsWith('[INBOUND]')) ?? ''
+            expect(linha).toContain(' telefone=gravado ')
+            expect(erros.join('\n')).not.toContain('555199114290')
+        })
+        it('o gravado JÁ é o do webhook: nenhuma atualização, nada no log', async () => {
+            comCadastro('555199114290')
+            await chamar({ c: SEGREDO, corpo: doWebhook('555199114290') })
+            expect(autorizou()).toBe(true)
+            expect(estado.atualizacoes).toEqual([])
+            expect(erros.find((l) => l.startsWith('[INBOUND]'))).not.toContain('telefone=')
+        })
+        it('o canal discorda do palpite (DDD 11 sem o nono): vale o canal', async () => {
+            comCadastro('5511987654321')
+            await chamar({ c: SEGREDO, corpo: doWebhook('551187654321') })
+            expect(autorizou()).toBe(true)
+            expect(estado.db.orcamentista_remetente_autorizado[0].telefone).toBe('551187654321')
+        })
+        it('duas linhas do mesmo número (ambiguidade): ninguém é atualizado', async () => {
+            comCadastro('51999114290', '5551999114290')
+            await chamar({ c: SEGREDO, corpo: doWebhook('555199114290') })
+            expect(estado.atualizacoes).toEqual([])
         })
     })
 

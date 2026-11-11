@@ -12,8 +12,8 @@
  */
 import type { NextApiRequest, NextApiResponse } from 'next'
 import {
-    entradaDoMotor, estadoDoCalculo, faltasDoFiscal, reconciliacaoNaTela, FALTA_DA_UF, FALTA_DO_ESCOPO, FALTA_DO_NCM, FRASE_CALCULO_INCOMPLETO,
-    MODO_PRODUTO, SOBRA_DA_UF, faltaDoNcmFora, type ItemNaPrecificacao,
+    entradaDoMotor, estadoDoCalculo, faltasDoFiscal, reconciliacaoNaTela, FALTA_DA_UF, FALTA_DO_ESCOPO, FALTA_DA_REFERENCIA_DO_TENANT, FRASE_CALCULO_INCOMPLETO, PRESET_DA_COMERCIALIZACAO, faltasDaPrecificacao, fiscalDoOrcamento, fiscalDivergente, rastroDoFiscalSobrescrito, FRASE_FISCAL_DA_REVENDA, fraseDoFiscalDivergente,
+    MODO_PRODUTO, SOBRA_DA_UF, faltaDoNcmFora, type ItemNaPrecificacao, internaParaGravar, faltaDaInternaDivergente, FALTA_DA_INTERNA,
 } from '@/lib/atendimentos-ia/precificacao-do-orcamento'
 
 type Linha = Record<string, unknown>
@@ -51,11 +51,29 @@ function cliente() {
     }
 }
 jest.mock('@/supabase/admin', () => ({ supabaseAdmin: cliente() }))
+// o arquivo tem portão próprio (`atendimentos-ia-arquivo-do-orcamento.test.ts`); aqui importa O QUE a gravação lhe passa, e quando
+const arquivo = {
+    chamadas: [] as Array<{ tenantId: string; id: string; autor: string; dados: Record<string, unknown> }>,
+    recusa: null as string[] | null,
+    falha: null as string | null,
+}
+jest.mock('@/lib/atendimentos-ia/arquivo-do-orcamento-servidor', () => ({
+    itensDoArquivo: async (): Promise<{ itens: unknown[]; linhas: unknown[] }> => ({ itens: [{ ordem: 1, quantidade: 1 }], linhas: [] }),
+    lerClienteDoOrcamento: async (tenantId: string): Promise<Record<string, unknown> | null> => (tenantId === 'T' ? { nome: 'Cliente', telFixo: null, celular: '(51) 99999-0000', email: null, tel2: null,
+        endereco: 'Porto Alegre', ieRg: null, cep: null, cnpjCpf: null } : null),
+    lerDadosDoArquivo: async (_t: string, _id: string, a: Record<string, unknown>) => ({ dados: { ...a }, calculoId: 'c-1' }),
+    gerarEGravarArquivo: async (tenantId: string, id: string, autor: string, dados: Record<string, unknown>) => {
+        arquivo.chamadas.push({ tenantId, id, autor, dados })
+        if (arquivo.falha) throw new Error(arquivo.falha)
+        return arquivo.recusa ? { ok: false, recusas: arquivo.recusa } : { ok: true, arquivo: { id: 'arq-1', nomeDoArquivo: 'Orcamento 7 - Cliente.pdf' } }
+    },
+}))
 jest.mock('@/lib/get-caller-tenant', () => ({
     getCallerContext: async () => ({ user_id: 'usuario', tenant_id: 'T', role: estado.papel, is_super_admin: false }),
 }))
 /* eslint-disable @typescript-eslint/no-require-imports */
 const rota = require('@/pages/api/atendimentos-ia/orcamentos/[id]/precificacao').default
+const { fraseDaFalhaDoArquivo } = require('@/lib/atendimentos-ia/orcamento-precificado') as { fraseDaFalhaDoArquivo: (e: unknown) => string }
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 const ID = '30000000-0000-4000-8000-000000000001'
@@ -68,6 +86,9 @@ const item = (k: number, extra: Partial<ItemNaPrecificacao> = {}): ItemNaPrecifi
 const totais = { valor_total_bruto: 845, valor_total_liquido: 745 }
 
 function montar(extra: Linha = {}, itens: Linha[] = [{ ...item(1), tenant_id: 'T', orcamento_id: ID }]) {
+    arquivo.chamadas = []
+    arquivo.recusa = null
+    arquivo.falha = null
     estado.ops = []
     estado.erros = {}
     estado.papel = 'admin'
@@ -89,7 +110,7 @@ async function chamar(method: string, id: string, body: unknown = {}) {
     return saida
 }
 const CORPO_BOM = {
-    valor_venda: 3105.8, ncm_code: '7610.10.00', sale_scope: 'INTRAESTADUAL', buyer_type: 'CONSUMIDOR_FINAL', uf_destino: null as string | null,
+    valor_venda: 3105.8, valor_operacao_interna: 3105.8, ncm_code: '7610.10.00', sale_scope: 'INTRAESTADUAL', buyer_type: 'CONSUMIDOR_FINAL', uf_destino: null as string | null,
     comissao_percentual: 5, reserva_tecnica_percentual: 3, lucro_projetado_percentual: 10,
 }
 const escritas = () => estado.ops.filter((o) => o.op !== 'select')
@@ -136,12 +157,50 @@ describe('(2) a entrada do motor — o único ponto em que os dois modos diverge
     })
 })
 
+describe('(3b) o preset da comercialização e a referência do tenant (dono do produto, 11/11/2026)', () => {
+    it('o preset é INTRAESTADUAL, CONSUMIDOR_FINAL, sem UF e sem NCM', () => {
+        expect(PRESET_DA_COMERCIALIZACAO).toEqual({ sale_scope: 'INTRAESTADUAL', buyer_type: 'CONSUMIDOR_FINAL', uf_destino: null, ncm_code: null })
+    })
+    const orcCompleto: Parameters<typeof faltasDaPrecificacao>[0]['orcamento'] = { id: 'o', numero: 1, nome: 'x', comissao_percentual: 0, reserva_tecnica_percentual: 0,
+        lucro_projetado_percentual: 0, ...totais, valor_venda: null, valor_operacao_interna: null, ncm_code: null, sale_scope: null, buyer_type: null, uf_destino: null, itens: [item(1)] }
+    const fiscal = { ncm_code: null as string | null, sale_scope: 'INTRAESTADUAL' as const, buyer_type: 'CONSUMIDOR_FINAL' as const, uf_destino: null as string | null }
+    it('sem NCM e SEM a referência do tenant: a falta nomeada, e o preço não se grava (nunca um zero inventado)', () => {
+        expect(faltasDaPrecificacao({ orcamento: orcCompleto, fiscal, aliquotaDoNcm: false, referenciaDoTenant: false, custoDoMotor: 745 })).toEqual([FALTA_DA_REFERENCIA_DO_TENANT])
+    })
+    it('sem NCM COM a referência, ou num regime que não apura por ela: nenhuma falta', () => {
+        expect(faltasDaPrecificacao({ orcamento: orcCompleto, fiscal, aliquotaDoNcm: false, referenciaDoTenant: true, custoDoMotor: 745 })).toEqual([])
+        expect(faltasDaPrecificacao({ orcamento: orcCompleto, fiscal, aliquotaDoNcm: null, referenciaDoTenant: null, custoDoMotor: 745 })).toEqual([])
+    })
+    it('COM NCM a referência não é cobrada: quem responde é a alíquota do NCM', () => {
+        const comNcm = { ...fiscal, ncm_code: '7610.10.00' }
+        expect(faltasDaPrecificacao({ orcamento: orcCompleto, fiscal: comNcm, aliquotaDoNcm: true, referenciaDoTenant: false, custoDoMotor: 745 })).toEqual([])
+    })
+})
+
+describe('(3c) o fiscal pelo MODELO e o fiscal divergente (dono do produto, 11/11/2026)', () => {
+    it('industrialização: o preset; revenda: recusa nomeada (o NCM e o ICMS vêm de cada produto, e ainda não existe)', () => {
+        expect(fiscalDoOrcamento('PRODUZIDO')).toEqual({ fiscal: { sale_scope: 'INTRAESTADUAL', buyer_type: 'CONSUMIDOR_FINAL', uf_destino: null, ncm_code: null } })
+        expect(fiscalDoOrcamento('REVENDA')).toEqual({ recusa: FRASE_FISCAL_DA_REVENDA })
+    })
+    it('a divergência: só o valor GRAVADO diferente do preset; o nulo (o orçamento de antes do preset) e o próprio preset não divergem', () => {
+        expect(fiscalDivergente({ sale_scope: null, buyer_type: null, uf_destino: null, ncm_code: null })).toEqual([])
+        expect(fiscalDivergente({ ...PRESET_DA_COMERCIALIZACAO })).toEqual([])
+        const d = fiscalDivergente({ sale_scope: 'INTERESTADUAL', buyer_type: 'CONTRIBUINTE_PJ', uf_destino: 'SP', ncm_code: '7610.10.00' })
+        expect(d).toEqual([
+            { campo: 'sale_scope', gravado: 'INTERESTADUAL', preset: 'INTRAESTADUAL' }, { campo: 'buyer_type', gravado: 'CONTRIBUINTE_PJ', preset: 'CONSUMIDOR_FINAL' },
+            { campo: 'uf_destino', gravado: 'SP', preset: null }, { campo: 'ncm_code', gravado: '7610.10.00', preset: null },
+        ])
+        expect(rastroDoFiscalSobrescrito(d)).toBe('sale_scope:INTERESTADUAL->INTRAESTADUAL;buyer_type:CONTRIBUINTE_PJ->CONSUMIDOR_FINAL;uf_destino:SP->null;ncm_code:7610.10.00->null')
+        expect(fraseDoFiscalDivergente(d)).toContain('o tipo de comprador CONTRIBUINTE_PJ')
+    })
+})
+
 describe('(3) as faltas do fiscal', () => {
     const bom = { ncm_code: '7610.10.00', sale_scope: 'INTRAESTADUAL' as const, buyer_type: 'CONSUMIDOR_FINAL' as const, uf_destino: null as string | null }
     it('completo: nenhuma falta', () => { expect(faltasDoFiscal(bom)).toEqual([]) })
-    it('sem NCM: a falta nomeada; vazio é o mesmo que nulo', () => {
-        expect(faltasDoFiscal({ ...bom, ncm_code: null })).toEqual([FALTA_DO_NCM])
-        expect(faltasDoFiscal({ ...bom, ncm_code: '  ' })).toEqual([FALTA_DO_NCM])
+    it('sem NCM NÃO é falta (dono do produto, 11/11/2026: "enquanto não emitimos nota, o NCM não bloqueia nada"); vazio é o mesmo que nulo', () => {
+        expect(faltasDoFiscal({ ...bom, ncm_code: null })).toEqual([])
+        expect(faltasDoFiscal({ ...bom, ncm_code: '  ' })).toEqual([])
     })
     it('o NCM só na FOLHA de oito dígitos: os níveis da hierarquia e o código sem pontos são falta', () => {
         for (const n of ['0101', '01012', '010221', '76101000', '7610.10.0']) expect(faltasDoFiscal({ ...bom, ncm_code: n })).toEqual([faltaDoNcmFora(n)])
@@ -151,6 +210,21 @@ describe('(3) as faltas do fiscal', () => {
         expect(faltasDoFiscal({ ...bom, sale_scope: 'INTERESTADUAL', uf_destino: 'SP' })).toEqual([])
         expect(faltasDoFiscal({ ...bom, uf_destino: 'SP' })).toEqual([SOBRA_DA_UF])
         expect(faltasDoFiscal({ ...bom, sale_scope: null, uf_destino: 'SP' })).toEqual([FALTA_DO_ESCOPO, SOBRA_DA_UF])
+    })
+})
+
+describe('(3b) a operação interna que se grava (20261110000001, dono do produto, 10/11/2026)', () => {
+    it('a interna ao centavo; com o precificado igual ou a um centavo, grava', () => {
+        expect(internaParaGravar(3257.804, 3257.8)).toEqual({ interna: 3257.8 })
+        expect(internaParaGravar(3257.8, 3257.81)).toEqual({ interna: 3257.8 })
+        expect(internaParaGravar(3257.8, 3257.79)).toEqual({ interna: 3257.8 })
+    })
+    it('divergindo em MAIS de um centavo, recusa nomeando os dois — nenhum dos dois serve', () => {
+        expect(internaParaGravar(3257.8, 3257.82)).toEqual({ falta: faltaDaInternaDivergente(3257.8, 3257.82) })
+        expect(internaParaGravar(14164.74, 13860.11)).toEqual({ falta: faltaDaInternaDivergente(14164.74, 13860.11) })
+    })
+    it('sem interna formada (zero, negativa, NaN): a falta', () => {
+        for (const v of [0, -1, NaN, 0.004]) expect(internaParaGravar(v, v)).toEqual({ falta: FALTA_DA_INTERNA })
     })
 })
 
@@ -165,6 +239,10 @@ describe('(4) a rota da precificação', () => {
         expect(o.valor_total_liquido).toBe(745)
         expect((o.itens as Linha[])[0].custo_liquido_materiais).toBe(700)
         expect(doOrcamento().length).toBe(2)
+        // e os itens como o arquivo os mostra (a faixa antes do salvar)
+        expect(r.corpo.itens_do_arquivo).toEqual([{ ordem: 1, quantidade: 1 }])
+        // e o TOPO: o cliente do levantamento, com os campos sem dado nulos (a tela os mostra em branco) — 11/11/2026
+        expect(r.corpo.cliente).toEqual({ nome: 'Cliente', telFixo: null, celular: '(51) 99999-0000', email: null, tel2: null, endereco: 'Porto Alegre', ieRg: null, cep: null, cnpjCpf: null })
         for (const op of doOrcamento()) expect(op.filtros).toContainEqual(['tenant_id', 'T'])
     })
     it('PATCH grava SÓ no orçamento, com o tenant: o preço, o fiscal e os percentuais', async () => {
@@ -175,15 +253,75 @@ describe('(4) a rota da precificação', () => {
         expect(e).toHaveLength(1)
         expect(e[0].tabela).toBe('orcamentista_orcamento')
         expect(e[0].filtros).toEqual([['tenant_id', 'T'], ['id', ID]])
-        expect(e[0].carga).toMatchObject({ ...CORPO_BOM })
-        expect(Object.keys(e[0].carga as Linha).sort()).toEqual([...Object.keys(CORPO_BOM), 'atualizado_em'].sort())
+        expect(e[0].carga).toMatchObject({ ...CORPO_BOM, ...PRESET_DA_COMERCIALIZACAO })
+        expect(Object.keys(e[0].carga as Linha).sort()).toEqual([...Object.keys(CORPO_BOM), 'atualizado_em', 'editado_manualmente_em', 'editado_manualmente_por'].sort())
+        // o salvar da tela é EDIÇÃO MANUAL (11/11/2026): a marca inteira, com quem salvou
+        expect(e[0].carga).toMatchObject({ editado_manualmente_por: 'usuario' })
+        expect((e[0].carga as Linha).editado_manualmente_em).toBe((e[0].carga as Linha).atualizado_em)
+        expect(r.corpo.fiscal_sobrescrito).toEqual([])
     })
-    it('PATCH sem NCM: 400 com a falta nomeada, e nada é gravado', async () => {
+    it('PATCH grava a OPERAÇÃO INTERNA com a venda, e GERA O ARQUIVO com o rateio exato, autor = quem salvou (11/11/2026)', async () => {
+        montar()
+        const r = await chamar('PATCH', ID, { ...CORPO_BOM, valor_venda: 3105.8, valor_operacao_interna: 3105.8 })
+        expect(r.status).toBe(200)
+        expect(escritas()[0].carga).toMatchObject({ valor_operacao_interna: 3105.8, valor_venda: 3105.8 })
+        expect(r.corpo.arquivo).toEqual({ id: 'arq-1', nomeDoArquivo: 'Orcamento 7 - Cliente.pdf' })
+        expect(r.corpo.recusas_do_arquivo).toEqual([])
+        expect(arquivo.chamadas).toHaveLength(1)
+        const c = arquivo.chamadas[0]
+        expect([c.tenantId, c.id, c.autor]).toEqual(['T', ID, 'usuario'])
+        expect(c.dados).toMatchObject({ operacaoInterna: 3105.8, valorVenda: 3105.8, rateio: [{ ordem: 1, quantidade: 1, unitario: 310580, total: 310580 }] })
+    })
+    it('o rateio que não fecha: o PREÇO fica salvo, o arquivo NÃO sai, e a resposta diz por quê (nunca um arquivo com centavo errado)', async () => {
+        montar({}, [{ ...item(1, { quantidade: 2 }), tenant_id: 'T', orcamento_id: ID }, { ...item(2, { quantidade: 2 }), tenant_id: 'T', orcamento_id: ID }])
+        const r = await chamar('PATCH', ID, { ...CORPO_BOM, valor_venda: 10.01, valor_operacao_interna: 10.01 })
+        expect(r.status).toBe(200)
+        expect(escritas()).toHaveLength(1)
+        expect(r.corpo.arquivo).toBeNull()
+        expect((r.corpo.recusas_do_arquivo as string[])[0]).toContain('não fecha exato: sobram 1 centavo(s)')
+        expect(arquivo.chamadas).toEqual([])
+    })
+    it('a recusa do próprio arquivo (a venda diferente da interna, por exemplo) também volta nomeada, com o preço salvo', async () => {
+        montar()
+        arquivo.recusa = ['o valor de venda é diferente da operação interna']
+        const r = await chamar('PATCH', ID, { ...CORPO_BOM, valor_venda: 3200, valor_operacao_interna: 3105.8 })
+        expect(r.status).toBe(200)
+        expect(r.corpo.arquivo).toBeNull()
+        expect(r.corpo.recusas_do_arquivo).toEqual(['o valor de venda é diferente da operação interna'])
+    })
+    it('a FALHA do arquivo depois do preço gravado (Storage, leitura) é 200 com a recusa nomeada, nunca 500: o preço está salvo', async () => {
+        montar()
+        arquivo.falha = 'storage atendimentos-ia: fora do ar'
+        const r = await chamar('PATCH', ID, CORPO_BOM)
+        expect(r.status).toBe(200)
+        expect(r.corpo.arquivo).toBeNull()
+        expect(r.corpo.recusas_do_arquivo).toEqual([fraseDaFalhaDoArquivo(new Error('storage atendimentos-ia: fora do ar'))])
+        expect((r.corpo.recusas_do_arquivo as string[])[0]).toContain('storage atendimentos-ia: fora do ar')
+        expect((r.corpo.orcamento as Record<string, unknown>).valor_venda).toBe(3105.8)
+    })
+    it('a operação interna ausente, fora do centavo, ou acima da venda: 400, e nada é gravado nem gerado', async () => {
+        for (const extra of [{ valor_operacao_interna: null }, { valor_operacao_interna: 0 }, { valor_operacao_interna: 3105.805 }, { valor_operacao_interna: 3105.81 }]) {
+            montar()
+            const r = await chamar('PATCH', ID, { ...CORPO_BOM, ...extra })
+            expect(r.status).toBe(400)
+            expect(escritas()).toEqual([])
+            expect(arquivo.chamadas).toEqual([])
+        }
+    })
+    it('a interna fora do centavo e ABAIXO da venda é recusada pelo próprio nome (não pela venda): 400, nada gravado', async () => {
+        montar()
+        const r = await chamar('PATCH', ID, { ...CORPO_BOM, valor_operacao_interna: 3000.005 })
+        expect(r.status).toBe(400)
+        expect(r.corpo.erros).toEqual(['Operação interna: tem de estar em centavos (veio 3000.005).'])
+        expect(escritas()).toEqual([])
+    })
+    it('PATCH sem NCM (11/11/2026): 200, e o NCM é gravado NULO — o NCM não bloqueia nada', async () => {
         montar()
         const r = await chamar('PATCH', ID, { ...CORPO_BOM, ncm_code: null })
-        expect(r.status).toBe(400)
-        expect(r.corpo.erros).toContain(`Falta ${FALTA_DO_NCM}.`)
-        expect(escritas()).toEqual([])
+        expect(r.status).toBe(200)
+        const carga = escritas().find((o) => o.tabela === 'orcamentista_orcamento')!.carga as Record<string, unknown>
+        expect(carga).toHaveProperty('ncm_code', null)
+        expect(carga).toMatchObject({ sale_scope: 'INTRAESTADUAL', buyer_type: 'CONSUMIDOR_FINAL', uf_destino: null })
     })
     it('PATCH com valor de venda zero, negativo ou texto: 400', async () => {
         for (const v of [0, -1, 'abc', null]) {
@@ -193,11 +331,38 @@ describe('(4) a rota da precificação', () => {
             expect(escritas()).toEqual([])
         }
     })
-    it('PATCH com percentual fora de 0..100, escopo ou comprador fora do domínio, UF fora da forma: 400', async () => {
-        for (const extra of [{ lucro_projetado_percentual: 101 }, { sale_scope: 'EXPORTACAO' }, { buyer_type: 'X' }, { sale_scope: 'INTERESTADUAL', uf_destino: 'sp' }]) {
+    it('o orçamento com fiscal DIVERGENTE: o GET o aponta, e o salvar NÃO recusa — sobrescreve com o preset e REGISTRA no rastro o que sobrescreveu', async () => {
+        montar({ sale_scope: 'INTERESTADUAL', uf_destino: 'SP' })
+        const g = await chamar('GET', ID)
+        expect(g.corpo.fiscal_divergente).toEqual([{ campo: 'sale_scope', gravado: 'INTERESTADUAL', preset: 'INTRAESTADUAL' }, { campo: 'uf_destino', gravado: 'SP', preset: null }])
+        const log = jest.spyOn(console, 'error').mockImplementation(() => {})
+        try {
+            const r = await chamar('PATCH', ID, CORPO_BOM)
+            expect(r.status).toBe(200)
+            expect(escritas()[0].carga).toMatchObject({ sale_scope: 'INTRAESTADUAL', uf_destino: null })
+            expect(r.corpo.fiscal_sobrescrito).toEqual(g.corpo.fiscal_divergente)
+            expect(log.mock.calls.map((c) => String(c[0]))).toContain(`[ORCAMENTO-IA precificacao] orcamento=${ID} fiscal_sobrescrito=sale_scope:INTERESTADUAL->INTRAESTADUAL;uf_destino:SP->null`)
+        } finally { log.mockRestore() }
+    })
+    it('sem divergência, o salvar não escreve rastro de sobrescrita', async () => {
+        montar()
+        const log = jest.spyOn(console, 'error').mockImplementation(() => {})
+        try {
+            expect((await chamar('PATCH', ID, CORPO_BOM)).status).toBe(200)
+            expect(log.mock.calls.some((c) => String(c[0]).includes('fiscal_sobrescrito'))).toBe(false)
+        } finally { log.mockRestore() }
+    })
+    it('PATCH com percentual fora de 0..100: 400, e nada é gravado', async () => {
+        montar()
+        expect((await chamar('PATCH', ID, { ...CORPO_BOM, lucro_projetado_percentual: 101 })).status).toBe(400)
+        expect(escritas()).toEqual([])
+    })
+    it('o FISCAL é sempre o preset (11/11/2026): NCM, escopo, comprador e UF do corpo são IGNORADOS, e o orçamento grava o preset', async () => {
+        for (const extra of [{ sale_scope: 'INTERESTADUAL', uf_destino: 'SP' }, { buyer_type: 'CONTRIBUINTE_PJ' }, { ncm_code: '7610.10.00' }, { sale_scope: 'EXPORTACAO', buyer_type: 'X', uf_destino: 'sp' }]) {
             montar()
-            expect((await chamar('PATCH', ID, { ...CORPO_BOM, ...extra })).status).toBe(400)
-            expect(escritas()).toEqual([])
+            const r = await chamar('PATCH', ID, { ...CORPO_BOM, ...extra })
+            expect(r.status).toBe(200)
+            expect(escritas()[0].carga).toMatchObject({ sale_scope: 'INTRAESTADUAL', buyer_type: 'CONSUMIDOR_FINAL', uf_destino: null, ncm_code: null })
         }
     })
     it('PATCH com o cálculo incompleto: 409 "cálculo incompleto — recalcule", e nada é gravado', async () => {
@@ -206,13 +371,6 @@ describe('(4) a rota da precificação', () => {
         expect(r.status).toBe(409)
         expect(r.corpo.error).toBe(FRASE_CALCULO_INCOMPLETO)
         expect(escritas()).toEqual([])
-    })
-    it('a UF que não existe (a FK, 23503) volta 400 nomeada', async () => {
-        montar()
-        estado.erros['orcamentista_orcamento:update'] = { code: '23503', message: 'fk' }
-        const r = await chamar('PATCH', ID, { ...CORPO_BOM, sale_scope: 'INTERESTADUAL', uf_destino: 'XX' })
-        expect(r.status).toBe(400)
-        expect(String(r.corpo.error)).toContain('"XX" não é uma UF')
     })
     it('o orçamento de OUTRA empresa: 404, e nada é gravado', async () => {
         montar()

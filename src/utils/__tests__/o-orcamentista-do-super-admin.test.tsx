@@ -441,16 +441,18 @@ describe('PORTÃO 4 — nenhuma tela existente muda', () => {
     // dele — era o estado do bloco 1. O bloco 2 os trouxe, e o que fica afirmado aqui é que eles
     // moram na seção Atendimentos I.A. e na rota dela, nos dois menus. O portão do efeito (o item
     // só se desenha com a seção ligada no servidor) é `atendimentos-ia-secao-do-orcamentista-tela`.
-    it('o menu tem o Orçamentista na seção atendimentos-ia, e a página existe sob /atendimentos-ia/', () => {
+    // 11/11/2026 (dono do produto): a Conectividade I.A. (a chave `orcamentista`) foi para OPERACIONAL, na rota /conectividade-ia; a antiga redireciona
+    it('o menu tem a Conectividade I.A. (chave orcamentista) em OPERACIONAL, e a página existe em /conectividade-ia', () => {
         const fs = require('fs') as typeof import('fs')
         const path = require('path') as typeof import('path')
         for (const menu of ['src/components/layout/nav.component.tsx', 'src/components/layout/mobile-more-drawer.component.tsx']) {
-            const linha = fs.readFileSync(path.join(process.cwd(), menu), 'utf-8').split('\n').find((l) => /module:\s*MODULES\.ORCAMENTISTA/.test(l))
+            const linha = fs.readFileSync(path.join(process.cwd(), menu), 'utf-8').split('\n').find((l) => /key:\s*'orcamentista'/.test(l))
             expect(linha).toBeDefined()
-            expect(linha).toMatch(/'atendimentos-ia'/)
-            expect(linha).toMatch(/ROUTES\.ATENDIMENTOS_IA_ORCAMENTISTA/)
+            expect(linha).toMatch(/'operacional'/)
+            expect(linha).toMatch(/ROUTES\.CONECTIVIDADE_IA/)
         }
-        expect(fs.existsSync(path.join(process.cwd(), 'src/pages/atendimentos-ia/orcamentista.tsx'))).toBe(true)
+        expect(fs.existsSync(path.join(process.cwd(), 'src/pages/conectividade-ia.tsx'))).toBe(true)
+        expect(fs.existsSync(path.join(process.cwd(), 'src/pages/atendimentos-ia/orcamentista.tsx'))).toBe(false)
     })
 
     // BLOCO 2A (18/10/2026): as 10 colunas viraram 7, por decisão do dono do produto. O portão

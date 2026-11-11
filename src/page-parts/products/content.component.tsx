@@ -10,9 +10,7 @@ import { IItemProductModel, itemProductSchema } from '@/server/model/item-produc
 import { ColumnsType } from 'antd/es/table'
 import { UNIT_TYPE } from '@/constants/item-unit-types'
 import { calculateItemPrice } from '@/utils/calculate-item-price'
-import { resolveProductTaxPercent, resolveProductTaxPercentToPersist } from '@/utils/product-tax-percent'
-import { resolveIndirectLaborPct } from '@/utils/indirect-labor-grouping'
-import { divisorDaEstruturaPct, custoMensalDeMaoDeObraDoProduto } from '@/utils/despesas-do-segmento'
+import { resolveProductTaxPercentToPersist } from '@/utils/product-tax-percent'
 import { buildDestinationSnapshot } from '@/utils/destination-snapshot'
 import { MessageInstance } from 'antd/es/message/interface'
 import { useRouter } from 'next/router'
@@ -20,11 +18,14 @@ import { IProductModel } from '@/server/model/product'
 import { ROUTES } from '@/constants/routes'
 import { getMonetaryValue } from '@/utils/get-monetary-value'
 import { CalcBaseType } from '@/types/calc-base.type'
-import { calculatePricing } from '@/utils/pricing-engine'
 import { resolveMonthlyWorkload } from '@/utils/resolve-monthly-workload'
 import { computeIvaDualOutside } from '@/utils/iva-dual-outside'
 import { resolveIvaDualEffectiveRate } from '@/utils/item-tax-rates'
 import { resolvePisCofinsPctFromNcm } from '@/utils/ncm-pis-cofins'
+import { pisCofinsDaReferenciaDoTenant } from '@/utils/ncm-pis-cofins'
+import { FALTA_DA_CARGA_HORARIA, FALTA_DO_PRECO_FORMADO } from '@/lib/atendimentos-ia/preco-do-orcamento'
+import { PRODUCT_PRICE_INFO_BASE } from '@/utils/product-price-info-base'
+import { calcularNoMotorDoProduto, tipoDeCalculoEfetivo } from '@/utils/motor-do-produto'
 import { resolveReducoesDoItem } from '@/utils/classificacao-fiscal'
 import ClassificacaoFiscalBlock, { type ClassificacaoFiscalValue } from '@/page-parts/shared/classificacao-fiscal-block.component'
 import { computeIcmsSt, computeDifal, computeIcmsComplementar, mvaAjustada } from '@/utils/icms-st-difal'
@@ -33,14 +34,16 @@ import { derivarBaseItemId } from '@/utils/base-item-derivado'
 import { ContentIndustrialization } from './content-industrialization'
 import { ContentResale } from './content-resale'
 import { ContentService } from './content-service'
-import { ProductPrice } from './product-price.component'
+import { ProductPrice, type PrecoEmitido } from './product-price.component'
+import { ItensPrecificados } from '@/page-parts/atendimentos-ia/itens-precificados.component'
+import type { ItemDoArquivo } from '@/lib/atendimentos-ia/arquivo-do-orcamento'
 import { LoggedUser } from '@/types/logged-user.type'
 import { supabase } from '@/supabase/client'
 import { getTenantId, getCurrentUserId } from '@/utils/get-tenant-id'
 import { useDevice } from '@/contexts/device.context'
 import { ProductItemsMobileList } from './product-items-mobile-list.component'
 import {
-  CABECALHO_FIXO, entradaDoMotor, estadoDoCalculo, faltasDaPrecificacao, FRASE_DO_ESTADO, MODO_PRODUTO, reconciliacaoNaTela, rotuloDoItem,
+  CABECALHO_FIXO, entradaDoMotor, estadoDoCalculo, faltasDaPrecificacao, FRASE_DO_ESTADO, internaParaGravar, PRESET_DA_COMERCIALIZACAO, MODO_PRODUTO, reconciliacaoNaTela, rotuloDoItem,
   type GravacaoDaPrecificacao, type ModoDaPrecificacao, type OrcamentoNaPrecificacao,
 } from '@/lib/atendimentos-ia/precificacao-do-orcamento'
 
@@ -67,10 +70,15 @@ type ContentProps = {
    * é fixo e só leitura, e o salvar grava NO ORÇAMENTO, nunca em `products`. Ausente, a tela é a de Produtos, sem nenhuma diferença.
    */
   orcamento?: OrcamentoNaPrecificacao
+  /** Os itens como o arquivo "Orçamento" os mostra (a faixa antes do salvar, 11/11/2026), ou a recusa que impediu montá-los. */
+  itensDoArquivo?: ItemDoArquivo[] | null
+  recusaDosItensDoArquivo?: string | null
   /** Grava a precificação no orçamento; devolve as recusas nomeadas, ou `null` quando gravou. */
   onSalvarOrcamento?: (g: GravacaoDaPrecificacao) => Promise<string[] | null>
   /** Recalcula o orçamento (o cálculo do 1b) e relê; usado no aviso de cálculo incompleto. */
   onRecalcularOrcamento?: () => Promise<void>
+  /** Só no modo orçamento: o que vem ABAIXO dos itens precificados, no fim da tela (o link do último PDF, 11/11/2026). Produtos não passa. */
+  rodapeDoOrcamento?: React.ReactNode
 }
 
 export type ProductPriceInfoType = {
@@ -133,37 +141,6 @@ const REQUIRED_INPUT_MESSAGE = 'Campo obrigatório!'
 
 const capitalizeFirst = (value: string) =>
   value.charAt(0).toUpperCase() + value.slice(1)
-const PRODUCT_PRICE_INFO_BASE = {
-  salesCommissionPercent: 0,
-  salesCommissionPrice: 0,
-  salesCommissionPercentByProduct: 0,
-  salesCommissionPriceByProduct: 0,
-  productProfitPercent: 0,
-  productProfitPrice: 0,
-  productProfitPercentByProduct: 0,
-  productProfitPriceByProduct: 0,
-  rtReservePercent: 0,
-  rtReservePrice: 0,
-  indirectLaborExpensePercent: 0,
-  indirectLaborExpensePrice: 0,
-  laborPctShown: 0,
-  fixedExpensePrice: 0,
-  financialCommitmentsPrice: 0,
-  variableExpensePrice: 0,
-  financialExpensePrice: 0,
-  taxesPrice: 0,
-  totalProductPrice: 0,
-  productCost: 0,
-  productWorkloadInMinutes: 0,
-  productWorkloadInMinutesPrice: 0,
-  totalServicePrice: 0,
-  totalServiceProductPrice: 0,
-  taxesPriceByProduct: 0,
-  taxableRegimePercent: 0,
-  taxableRegimePrice: 0,
-  taxableRegimePercentByProduct: 0,
-  taxableRegimePriceByProduct: 0,
-}
 
 const STATES = [
   'AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA',
@@ -180,8 +157,11 @@ export const Content: FC<ContentProps> = ({
   currentUser,
   prefill,
   orcamento,
+  itensDoArquivo = null,
+  recusaDosItensDoArquivo = null,
   onSalvarOrcamento,
   onRecalcularOrcamento,
+  rodapeDoOrcamento,
 }: ContentProps) => {
   const { isMobile } = useDevice()
   // O modo decide SÓ a origem da entrada, o cabeçalho e o destino do salvar; o cálculo é o mesmo (`entradaDoMotor`).
@@ -248,15 +228,26 @@ export const Content: FC<ContentProps> = ({
     // o orçamento é PRODUZIDO por decisão (o cabeçalho fixo): a esquadria é fabricada, e a mão de obra dela entra no custo
     orcamento ? 'PRODUZIDO' : (isCalcTypeService || isCalcTypeResale) ? 'REVENDA' : ((product as any)?.productType || 'PRODUZIDO')
   )
+  // O ORÇAMENTO DE INDUSTRIALIZAÇÃO (dono do produto, 11/11/2026): orçamento E segmento produzido, os dois — nunca só um. É ele, e não o modo
+  // orçamento, que amarra os tributos às credenciais da empresa e tira o bloco Fiscal: na REVENDA o NCM e o ICMS vêm de cada produto, e um
+  // orçamento de revenda não pode herdar "imposto da empresa" por acidente. Hoje todo orçamento nasce PRODUZIDO (o cabeçalho fixo).
+  const ehOrcamentoDeIndustrializacao = ehOrcamento && productType === 'PRODUZIDO'
   const [baseItemId, setBaseItemId] = useState<string | null>(
     (product as any)?.baseItemId || null
   )
-  // No orçamento o contexto da venda é o GRAVADO nele (a `20261109000004`), e nulo é "não informado" — falta nomeada, nunca o default.
-  const [saleScope, setSaleScope] = useState<'INTRAESTADUAL' | 'INTERESTADUAL'>(orcamento ? orcamento.sale_scope : 'INTRAESTADUAL')
-  const [buyerType, setBuyerType] = useState<'CONSUMIDOR_FINAL' | 'CONTRIBUINTE_PJ'>(orcamento ? orcamento.buyer_type : 'CONSUMIDOR_FINAL')
-  const [destinationState, setDestinationState] = useState<string | null>(orcamento ? orcamento.uf_destino : null)
-  // No orçamento, a alíquota de PIS/COFINS vem do NCM: `null` = o regime não a apura pelo NCM; false = a tabela não a trouxe (falta).
-  const [aliquotaDoNcm, setAliquotaDoNcm] = useState<boolean | null>(null)
+  // O contexto da venda do PRODUTO. No orçamento I.A. ele não é lido: o fiscal é o PRESET, automático e invisível (dono do produto,
+  // 11/11/2026: "Sem pergunta, sem seletor, sem falta"), e o bloco Fiscal não aparece.
+  const [saleScope, setSaleScope] = useState<'INTRAESTADUAL' | 'INTERESTADUAL'>('INTRAESTADUAL')
+  const [buyerType, setBuyerType] = useState<'CONSUMIDOR_FINAL' | 'CONTRIBUINTE_PJ'>('CONSUMIDOR_FINAL')
+  const [destinationState, setDestinationState] = useState<string | null>(null)
+  // No orçamento I.A. os impostos vêm SEMPRE das credenciais da empresa (11/11/2026): ICMS da UF, PIS/COFINS pelo regime, IBS e CBS das
+  // referências de `tenant_settings`. `referenciaDoTenant`: `null` = o regime não apura ICMS e PIS/COFINS por ela (ou ainda não foi lida);
+  // false = a UF ou o ICMS interno dela não estão cadastrados (falta nomeada, nunca zero). IBS e CBS: o valor gravado, e NULO é "não há o que
+  // apurar" — não entra, nem como zero, e não impede o preço.
+  const [referenciaDoTenant, setReferenciaDoTenant] = useState<boolean | null>(null)
+  const [pisCofinsDaReferencia, setPisCofinsDaReferencia] = useState<number | null>(null)
+  const [ibsDaEmpresa, setIbsDaEmpresa] = useState<number | null>(null)
+  const [cbsDaEmpresa, setCbsDaEmpresa] = useState<number | null>(null)
   const [salvandoOrcamento, setSalvandoOrcamento] = useState(false)
   const [recusasDoOrcamento, setRecusasDoOrcamento] = useState<string[]>([])
   const [customTaxPercent, setCustomTaxPercent] = useState<number | null>(
@@ -301,32 +292,42 @@ export const Content: FC<ContentProps> = ({
         .select('ibs_reference_pct, cbs_reference_pct, state_code')
         .eq('tenant_id', tenantId)
         .single()
+      // O ICMS interno da UF da empresa: lido UMA vez, para o produto novo e para a referência do orçamento.
+      const uf = typeof data?.state_code === 'string' ? data.state_code.trim() : ''
+      const precisaDaUf = uf !== '' && (!isEditingMode || (ehOrcamentoDeIndustrializacao && isLRorLP))
+      const { data: stateData } = precisaDaUf
+        ? await (supabase as any).from('brazilian_states').select('icms_internal_rate').eq('code', uf).maybeSingle()
+        : { data: null }
+      const icmsDaUf = stateData?.icms_internal_rate != null ? Number(stateData.icms_internal_rate) * 100 : null
+      // No orçamento (11/11/2026), a referência do tenant é o que dá o ICMS e o PIS/COFINS sem NCM: a falta dela é nomeada.
+      if (ehOrcamentoDeIndustrializacao) {
+        setIbsDaEmpresa(data?.ibs_reference_pct != null ? Number(data.ibs_reference_pct) : null)
+        setCbsDaEmpresa(data?.cbs_reference_pct != null ? Number(data.cbs_reference_pct) : null)
+      }
+      if (ehOrcamentoDeIndustrializacao && isLRorLP) {
+        setReferenciaDoTenant(icmsDaUf !== null)
+        setPisCofinsDaReferencia(icmsDaUf === null ? null
+          : pisCofinsDaReferenciaDoTenant({ isLucroReal: isLucroRealProd, isLucroPresumido: isLucroPresumidoProdOnly, icmsPct: icmsDaUf }))
+      }
       if (data) {
         // Não sobrescreve o snapshot do produto (ADR-022): só usa a referência do tenant quando
         // o produto ainda não tem a sua própria (criação ou legado).
         if (data.ibs_reference_pct != null && (product as any)?.ibs_reference_pct == null) setIbsReferencePct(Number(data.ibs_reference_pct))
         if (data.cbs_reference_pct != null && (product as any)?.cbs_reference_pct == null) setCbsReferencePct(Number(data.cbs_reference_pct))
         // Auto-preenchimento do ICMS interno apenas para novos produtos (Lucro Real)
-        if (!isEditingMode && data.state_code) {
-          const { data: stateData } = await (supabase as any)
-            .from('brazilian_states')
-            .select('icms_internal_rate')
-            .eq('code', data.state_code.trim())
-            .single()
-          if (stateData?.icms_internal_rate != null) {
-            const autoIcmsPct = Number(stateData.icms_internal_rate) * 100
-            setIcmsPct(autoIcmsPct)
-            // No orçamento o PIS/COFINS vem SÓ do NCM (decisão 1): a fórmula daqui o preencheria sem NCM nenhum.
-            if (!orcamento) {
-              const pisCofinsBase = isLucroPresumidoProdOnly ? 3.65 : 9.25
-              setPisCofinsLRPct(parseFloat((pisCofinsBase * (1 - autoIcmsPct / 100)).toFixed(4)))
-            }
+        if (!isEditingMode && icmsDaUf !== null) {
+          const autoIcmsPct = icmsDaUf
+          setIcmsPct(autoIcmsPct)
+          // No orçamento, o PIS/COFINS da referência entra pelo efeito do NCM vazio, abaixo (11/11/2026): com NCM, ele vem do NCM.
+          if (!orcamento) {
+            const pisCofinsBase = isLucroPresumidoProdOnly ? 3.65 : 9.25
+            setPisCofinsLRPct(parseFloat((pisCofinsBase * (1 - autoIcmsPct / 100)).toFixed(4)))
           }
         }
       }
     }
     fetchIvaRefRates()
-  }, [isLRorLPorSH, currentUser?.tenant_id, isEditingMode])
+  }, [isLRorLPorSH, currentUser?.tenant_id, isEditingMode, ehOrcamentoDeIndustrializacao])
 
   // ICMS e PIS/COFINS para Lucro Real (migrados do modal de lançar impostos)
   const initialIcms = (product as any)?.icms_pct != null ? Number((product as any).icms_pct) : 0
@@ -555,17 +556,25 @@ export const Content: FC<ContentProps> = ({
    * — `docs/regras/copia-divergente.md`. O teste `congelar-o-coeficiente-por-fora` afirma
    * que existe um só.
    */
+  // a "Total Operação Interna" e o "Valor do produto precificado" do último preço formado: o orçamento I.A. grava a interna (20261110000001)
+  const operacaoInternaRef = useRef<number>(0)
+  const valorPrecificadoRef = useRef<number>(0)
+  // a interna também como estado: a faixa dos itens precificados (antes do salvar) se redesenha a cada preço formado
+  const [internaNaTela, setInternaNaTela] = useState(0)
   const handleFinalPriceWithTaxes = useCallback(
-    (d: { finalPrice: number; basePrice: number; externalOpsCoefficient: number | null }) => {
+    (d: PrecoEmitido) => {
       finalPriceWithTaxesRef.current = d.finalPrice
       salePriceBaseRef.current = d.basePrice
       externalOpsCoefficientRef.current = d.externalOpsCoefficient
+      operacaoInternaRef.current = d.operacaoInterna
+      valorPrecificadoRef.current = d.valorPrecificado
+      setInternaNaTela(d.operacaoInterna)
     },
     [],
   )
 
   // No orçamento, o preço que deixou de se formar ZERA o último emitido: gravar o preço de antes da mudança seria número errado em dinheiro.
-  const zerarPrecoNaoFormado = useCallback(() => { finalPriceWithTaxesRef.current = 0 }, [])
+  const zerarPrecoNaoFormado = useCallback(() => { finalPriceWithTaxesRef.current = 0; operacaoInternaRef.current = 0; valorPrecificadoRef.current = 0; setInternaNaTela(0) }, [])
 
   const searchNcmByName = useCallback(async (name: string) => {
     if (name.length < 2) { setNcmSuggestions([]); return }
@@ -817,23 +826,17 @@ export const Content: FC<ContentProps> = ({
     }
   }, [isEditingMode, currentUser, calcBase, orcamento, modo])
 
-  // O cabeçalho do orçamento no formulário: código = o número, nome = o cliente, unidade UN, quantidade 1, e o NCM gravado nele.
+  // O cabeçalho do orçamento no formulário: código = o número, nome = o cliente, unidade UN, quantidade 1.
   useEffect(() => {
     if (!orcamento) return
-    productForm.setFieldsValue({
-      code: String(orcamento.numero), name: orcamento.nome, unitType: CABECALHO_FIXO.unidade, quantity: 1, ncm_code: orcamento.ncm_code ?? '',
-    })
+    productForm.setFieldsValue({ code: String(orcamento.numero), name: orcamento.nome, unitType: CABECALHO_FIXO.unidade, quantity: 1 })
   }, [orcamento, productForm])
 
-  // A alíquota de PIS/COFINS do orçamento sai do NCM, pelo MESMO caminho da tela de Produtos (`fetchNcmRatesForLR`).
-  const resolverNcmDoOrcamento = useCallback(async (code: string | null | undefined) => {
-    if (!orcamento) return
-    const ncm = (code ?? '').trim()
-    if (!/^[0-9]{4}\.[0-9]{2}\.[0-9]{2}$/.test(ncm)) { setAliquotaDoNcm(null); return }
-    const pct = await fetchNcmRatesForLR(ncm)
-    setAliquotaDoNcm(pct === undefined ? null : pct !== null)
-  }, [orcamento, fetchNcmRatesForLR])
-  useEffect(() => { void resolverNcmDoOrcamento(orcamento?.ncm_code) }, [orcamento?.ncm_code, resolverNcmDoOrcamento])
+  // No orçamento o PIS/COFINS é SEMPRE o da empresa (pelo regime, sobre a base sem o ICMS da UF), nunca o do NCM (11/11/2026); sem a
+  // referência, o campo fica como está e a falta é nomeada.
+  useEffect(() => {
+    if (ehOrcamentoDeIndustrializacao && pisCofinsDaReferencia !== null) setPisCofinsLRPct(pisCofinsDaReferencia)
+  }, [ehOrcamentoDeIndustrializacao, pisCofinsDaReferencia])
 
   useEffect(() => {
     if (!isEditingMode && prefill) {
@@ -868,11 +871,7 @@ export const Content: FC<ContentProps> = ({
     )
     if (!workload.isUnset) return false
 
-    const effectiveCalcType = productType === 'REVENDA'
-      ? 'REVENDA'
-      : currentUser?.calcType === CALC_TYPE_ENUM.INDUSTRIALIZATION ? 'INDUSTRIALIZACAO'
-        : currentUser?.calcType === CALC_TYPE_ENUM.RESALE ? 'REVENDA'
-          : 'SERVICO'
+    const effectiveCalcType = tipoDeCalculoEfetivo(productType, currentUser?.calcType)
     if (effectiveCalcType === 'REVENDA') return false
 
     return (productPriceInfo?.productWorkloadInMinutes || 0) > 0
@@ -912,183 +911,12 @@ export const Content: FC<ContentProps> = ({
 
   // --- Pricing Engine (V2) ---------------------------------------------------
   const doProductCalc = useCallback(() => {
-    const yieldQty = Number(productForm.getFieldValue('quantity')) || 1
-    const isCalcService = currentUser.calcType === CALC_TYPE_ENUM.SERVICE
-
-    // Carga horária resolvida pela fonte única (`resolve-monthly-workload`). Sem
-    // configuração, `monthlyWorkloadMinutes` é 0 — sem o antigo default silencioso de
-    // 176h. O motor trata divisor 0 (MO produtiva vira 0); o bloqueio de save e o
-    // alerta na UI ficam em `isWorkloadBlocking` e `workloadAlert` (`:795-840`), que só
-    // disparam quando o divisor de fato importa (produto com tempo de MO e calcType
-    // diferente de REVENDA).
-    //
-    // NOME CORRIGIDO em 11/10/2026: esta linha citava `workloadBlock`, símbolo que NUNCA
-    // existiu. Um `grep` por ele devolvia só este comentário e sugeria portão ausente onde
-    // há portão — registrado por decisão do dono do produto, e nenhuma linha de código
-    // mudou junto.
-    const workload = resolveMonthlyWorkload(
-      currentUser.monthlyWorkloadInMinutes,
-      currentUser.unitMeasure,
-      currentUser.numProductiveSectorEmployee,
-    )
-    const totalEmployees = workload.totalEmployees
-    // Total productive minutes available per month (company-wide)
-    const monthlyWorkloadMinutes = workload.monthlyWorkloadMinutes
-
-    // REGRA (segmentação SERVIÇO): produto de revenda NÃO recebe MO Administrativa
-    // nem Despesa Fixa. Elas já estão embutidas no custo POR MINUTO da prestação de
-    // serviço (services/content.component.tsx: combinedLaborCostMonthly =
-    // MO Produtiva + MO Administrativa + Despesas Fixas). Somá-las de novo aqui,
-    // como percentual no coeficiente, seria dupla contagem: o mesmo dinheiro
-    // cobrado duas vezes, uma no minuto e outra no markup.
-    // Por isso, quando o tenant é SERVIÇO, o coeficiente leva apenas despesa
-    // variável + financeira. Nos demais segmentos (industrialização/revenda pura),
-    // onde não existe custo por minuto diluindo estrutura, o coeficiente carrega
-    // fixo + variável + financeiro + MO administrativa.
-    // Segmentação que decide o AGRUPAMENTO. A matriz cobre o item do MESMO TIPO da
-    // segmentação (core business), então o agrupamento vale para o item de revenda de um
-    // tenant de revenda. Item produzido em tenant de revenda é combinação ainda não definida
-    // pela regra: fica como está, sem agrupar.
-    const tenantSegmentForGrouping =
-      currentUser.calcType === CALC_TYPE_ENUM.RESALE && productType === 'REVENDA'
-        ? 'REVENDA'
-        : null
-
-    // Em segmentação REVENDA a MO Produtiva é MC agrupada com a Indireta: sem tempo de
-    // produção não há minuto sobre o qual ratear, então ela só pode entrar como percentual.
-    // Fora de REVENDA devolve a Indireta intacta. Ver `indirect-labor-grouping.ts`.
-    const indirectLaborPctForEngine = resolveIndirectLaborPct({
-      tenantCalcType: tenantSegmentForGrouping,
-      indirectLaborPct: calcBase.indirectLaborPct,
-      productiveLaborPct: calcBase.laborPercent,
+    // A CONTA mora em `calcularNoMotorDoProduto` (`src/utils/motor-do-produto.ts`) e em lugar nenhum mais: aqui só se grava no estado
+    // (`copia-divergente.md`). Os comentários de cada regra foram junto com ela.
+    const conta = calcularNoMotorDoProduto({
+      currentUser, calcBase, productType, productPriceInfo, additionalIrpjPercent, customTaxPercent, isLRorLP, modo, itemsPriceSum,
     })
-    /*
-      O DIVISOR SAI DA FONTE ÚNICA — `divisorDaEstruturaPct`.
-
-      ADENDO 3 (02/10/2026): no SERVIÇO o COMPROMISSO entra no divisor; a fixa e a MO não, porque
-      são numerador (custo por minuto, em R$). Fora do serviço a soma `fixa + compromisso` é a
-      fixa de antes ao centavo, e é isso que mantém a trava do §0.
-
-      O ternário que morava aqui era a primeira de quatro escritas do mesmo critério, e a mutação
-      que somava o compromisso duas vezes neste ponto sobrevivia à suíte inteira — ver o
-      cabeçalho de `despesas-do-segmento.ts`.
-
-      A MO indireta chega JÁ AGRUPADA: o agrupamento REVENDA daqui é mais estreito que o de
-      `resolveSegmentoDaDespesa`, e unificá-los mudaria preço.
-    */
-    const structurePctForEngine = divisorDaEstruturaPct({
-      segmentoDaDespesa: isCalcService ? 'SERVICO' : 'INDUSTRIALIZACAO',
-      fixaPct: calcBase.fixedExpensePct,
-      variavelPct: calcBase.variableExpensePct,
-      financeiraPct: calcBase.financialExpensePct,
-      compromissoPct: calcBase.financialCommitmentsPct,
-      indiretaAgrupadaPct: indirectLaborPctForEngine,
-    }) / 100
-    const isLucroRealProd = currentUser.taxableRegime === 'LUCRO_REAL'
-    const isLucroPresumidoProd = currentUser.taxableRegime === 'LUCRO_PRESUMIDO' || currentUser.taxableRegime === 'LUCRO_PRESUMIDO_RET'
-    let effectiveTaxPct: number
-    if (isLucroRealProd || isLucroPresumidoProd) {
-      const nonRegimeTaxPct = calcBase.taxesPercent || 0
-      const irpjPct = productPriceInfo.productProfitPercent * 0.15
-      const csllPct = productPriceInfo.productProfitPercent * 0.09
-      const adicionalPct = isLRorLP ? (additionalIrpjPercent || 0) : 0
-      effectiveTaxPct = nonRegimeTaxPct + irpjPct + csllPct + adicionalPct
-    } else {
-      // MEI: DAS é fixo mensal e NÃO incide por item — imposto zero, sempre. Um
-      // `custom_tax_percent` gravado (dado legado) é ignorado aqui, e a linha da tela
-      // usa a MESMA função, então exibição e cálculo continuam batendo.
-      effectiveTaxPct = resolveProductTaxPercent({
-        isMei: !!calcBase.isMei,
-        customTaxPercent,
-        autoTaxPercent: calcBase.taxPct,
-      })
-    }
-    const taxPctDecimal = effectiveTaxPct / 100
-
-    // Produto REVENDA usa sempre calcType REVENDA (sem MO produtiva no CMV), independente do tenant
-    const effectiveCalcType = productType === 'REVENDA'
-      ? 'REVENDA'
-      : currentUser.calcType === CALC_TYPE_ENUM.INDUSTRIALIZATION ? 'INDUSTRIALIZACAO'
-        : currentUser.calcType === CALC_TYPE_ENUM.RESALE ? 'REVENDA'
-        : 'SERVICO'
-
-    // A ENTRADA DO MOTOR é o único ponto do cálculo em que os dois modos divergem (`entradaDoMotor`): no produto, a soma dos itens e os
-    // minutos digitados, como sempre; no orçamento, o líquido dos materiais e os minutos da fabricação dos itens (a forma da D2).
-    const entrada = entradaDoMotor(modo, {
-      itemsPriceSum, workloadMinutes: productPriceInfo.productWorkloadInMinutes || 0,
-    })
-    const engineResult = calculatePricing({
-      calcType: effectiveCalcType,
-      totalItemsCost: entrada.totalItemsCost,
-      yieldQuantity: 1,
-      // 11/10/2026: era `effectiveCalcType === 'REVENDA' ? 0 : calcBase.laborCostMonthly`,
-      // inline. Extraído para `custoMensalDeMaoDeObraDoProduto` para que um caso possa
-      // afirmar o NÚMERO — ver o cabeçalho da função.
-      laborCostMonthly: custoMensalDeMaoDeObraDoProduto({
-        effectiveCalcType,
-        segmentoDaDespesa: isCalcService ? 'SERVICO' : 'INDUSTRIALIZACAO',
-        produtivaMensal: calcBase.laborCostMonthly,
-        adminMensal: calcBase.adminLaborCostMonthly,
-        fixaMensal: calcBase.fixedExpenseMonthly,
-      }),
-      numProductiveEmployees: totalEmployees,
-      monthlyWorkloadMinutes,
-      productWorkloadMinutes: effectiveCalcType === 'REVENDA' ? 0 : entrada.productWorkloadMinutes,
-      structurePct: structurePctForEngine,
-      taxPct: taxPctDecimal,
-      commissionPct: productPriceInfo.salesCommissionPercent / 100,
-      profitPct: productPriceInfo.productProfitPercent / 100,
-      rtReservePct: (productPriceInfo.rtReservePercent || 0) / 100,
-    })
-
-    // Para SERVICE + produto com itens (não REVENDA): calcula preço separado do produto
-    let resultProductService = 0
-    if (isCalcService && productType !== 'REVENDA' && itemsPriceSum > 0) {
-      const prodEngine = calculatePricing({
-        calcType: 'REVENDA',
-        totalItemsCost: itemsPriceSum,
-        yieldQuantity: 1,
-        laborCostMonthly: 0,
-        numProductiveEmployees: totalEmployees,
-        monthlyWorkloadMinutes,
-        productWorkloadMinutes: 0,
-        structurePct: 0,
-        taxPct: taxPctDecimal,
-        commissionPct: (productPriceInfo.salesCommissionPercentByProduct || 0) / 100,
-        profitPct: (productPriceInfo.productProfitPercentByProduct || 0) / 100,
-      })
-      resultProductService = prodEngine.isValid ? prodEngine.priceUnit : 0
-    }
-
-    if (engineResult.isValid) {
-      const priceUnit = engineResult.priceUnit
-      const priceTotal = isCalcService
-        ? (resultProductService * yieldQty) + engineResult.priceTotal
-        : engineResult.priceTotal
-
-      setProductPriceInfo((prev) => ({
-        ...prev,
-        indirectLaborExpensePercent: calcBase.indirectLaborPct,
-        productProfitPrice: engineResult.profitValue,
-        salesCommissionPrice: engineResult.commissionValue,
-        rtReservePrice: engineResult.rtReserveValue,
-        productProfitPriceByProduct: resultProductService * (prev.productProfitPercentByProduct / 100) || 0,
-        salesCommissionPriceByProduct: resultProductService * (prev.salesCommissionPercentByProduct / 100) || 0,
-        indirectLaborExpensePrice: engineResult.laborValue,
-        laborPctShown: Number((engineResult.laborPctShown * 100).toFixed(3)),
-        fixedExpensePrice: priceUnit * (calcBase.fixedExpensePct / 100),
-        financialCommitmentsPrice: priceUnit * (calcBase.financialCommitmentsPct / 100),
-        variableExpensePrice: priceUnit * (calcBase.variableExpensePct / 100),
-        financialExpensePrice: priceUnit * (calcBase.financialExpensePct / 100),
-        taxesPrice: engineResult.taxValue,
-        taxesPriceByProduct: resultProductService * taxPctDecimal || 0,
-        productWorkloadInMinutesPrice: engineResult.productiveLaborCost,
-        productCost: engineResult.cmvUnit,
-        totalServicePrice: isCalcService ? engineResult.priceUnit : 0,
-        totalServiceProductPrice: resultProductService,
-        totalProductPrice: priceUnit,
-      }))
-    }
+    if (conta) setProductPriceInfo((prev) => ({ ...prev, ...conta.campos, ...conta.porProdutoDoServico(prev) }))
   }, [
     currentUser,
     calcBase.laborCostMonthly,
@@ -1220,34 +1048,33 @@ export const Content: FC<ContentProps> = ({
   }
 
   // ── O SALVAR DO ORÇAMENTO: grava NO ORÇAMENTO (a rota da precificação), nunca em `products`, e só sem falta nomeada ──────────────
-  const fiscalDaTela = () => ({
-    ncm_code: ((productForm.getFieldValue('ncm_code') as string | undefined) ?? '').trim() || null,
-    sale_scope: saleScope ?? null,
-    buyer_type: buyerType ?? null,
-    uf_destino: saleScope === 'INTERESTADUAL' ? (destinationState ?? null) : (destinationState || null),
-  })
-  // No Lucro Real e no Presumido o PIS/COFINS sai do NCM: enquanto ele não foi resolvido, é FALTA (nunca o 0 inicial); nos outros regimes
-  // o NCM não decide a alíquota.
-  const aliquotaExigida = (): boolean | null => (isLRorLP ? aliquotaDoNcm === true : null)
+  // o fiscal do orçamento é o PRESET, sempre (11/11/2026): a tela não o pergunta e não o mostra
+  const fiscalDaTela = () => ({ ...PRESET_DA_COMERCIALIZACAO })
+  // a referência ainda não lida (null) no LR/LP não é "tem": só a leitura que achou a UF e o ICMS libera o salvar
+  const referenciaExigida = (): boolean | null => (ehOrcamentoDeIndustrializacao && isLRorLP ? referenciaDoTenant === true : null)
   const faltasDoOrcamento = orcamento
-    ? faltasDaPrecificacao({ orcamento, fiscal: fiscalDaTela(), aliquotaDoNcm: aliquotaExigida(), custoDoMotor: Number(productPriceInfo?.productCost) || 0 })
+    ? faltasDaPrecificacao({ orcamento, fiscal: fiscalDaTela(), aliquotaDoNcm: null, referenciaDoTenant: referenciaExigida(), custoDoMotor: Number(productPriceInfo?.productCost) || 0 })
     : []
   const salvarOrcamento = async () => {
     if (!orcamento || !onSalvarOrcamento || salvandoOrcamento) return
     if (isWorkloadBlocking) {
-      setRecusasDoOrcamento(['a carga horária da equipe produtiva (Configurações → Equipe): sem ela o valor do minuto não existe'])
+      setRecusasDoOrcamento([FALTA_DA_CARGA_HORARIA])
       return
     }
     doProductCalc()
-    const faltas = faltasDaPrecificacao({ orcamento, fiscal: fiscalDaTela(), aliquotaDoNcm: aliquotaExigida(), custoDoMotor: Number(productPriceInfo.productCost) || 0 })
+    const faltas = faltasDaPrecificacao({ orcamento, fiscal: fiscalDaTela(), aliquotaDoNcm: null, referenciaDoTenant: referenciaExigida(), custoDoMotor: Number(productPriceInfo.productCost) || 0 })
     const valorDeVenda = finalPriceWithTaxesRef.current
-    if (!(valorDeVenda > 0)) faltas.push('o preço formado: a precificação não saiu (confira os percentuais e a margem)')
+    if (!(valorDeVenda > 0)) faltas.push(FALTA_DO_PRECO_FORMADO)
+    // a interna que se grava (20261110000001), ao centavo, e a recusa quando ela diverge do valor precificado
+    const interna = valorDeVenda > 0 ? internaParaGravar(operacaoInternaRef.current, valorPrecificadoRef.current) : null
+    if (interna && 'falta' in interna) faltas.push(interna.falta)
     if (faltas.length) { setRecusasDoOrcamento(faltas); return }
     setSalvandoOrcamento(true)
     try {
       const recusas = await onSalvarOrcamento({
         ...fiscalDaTela(),
         valor_venda: valorDeVenda,
+        valor_operacao_interna: interna && 'interna' in interna ? interna.interna : 0,
         comissao_percentual: Number(productPriceInfo.salesCommissionPercent) || 0,
         reserva_tecnica_percentual: Number(productPriceInfo.rtReservePercent) || 0,
         lucro_projetado_percentual: Number(productPriceInfo.productProfitPercent) || 0,
@@ -2453,6 +2280,9 @@ export const Content: FC<ContentProps> = ({
       </Card>
       )}
 
+      {/* No orçamento I.A. o bloco Fiscal SAI (dono do produto, 11/11/2026): o NCM, o escopo, o comprador e a UF não aparecem — o fiscal é o
+          preset, e os impostos são os da empresa. Não é escondido atrás de expansor: não é montado. */}
+      {!ehOrcamentoDeIndustrializacao && (<>
       {/* ══════════════════════════════════════════════════════
           FISCAL — o que a NOTA exige do produto
           O NCM e o contexto da venda moram juntos porque respondem à mesma
@@ -2484,11 +2314,8 @@ export const Content: FC<ContentProps> = ({
               onSearch={handleNcmSearch}
               onSelect={(value: string) => {
                 productForm.setFieldsValue({ ncm_code: value })
-                // no orçamento a mesma busca, e o resultado decide se a alíquota é falta
-                if (orcamento) void resolverNcmDoOrcamento(value)
-                else fetchNcmRatesForLR(value)
+                fetchNcmRatesForLR(value)
               }}
-              onChange={orcamento ? (value: string) => { void resolverNcmDoOrcamento(value) } : undefined}
               placeholder="Digite o NCM ou pesquise (ex: bolo, 1905...)"
               notFoundContent={ncmFieldSearching ? <Spin size="small" /> : null}
               allowClear
@@ -2566,7 +2393,7 @@ export const Content: FC<ContentProps> = ({
             </label>
             <Select
               value={saleScope}
-              onChange={(val) => { setSaleScope(val); if (orcamento && val !== 'INTERESTADUAL') setDestinationState(null) }}
+              onChange={(val) => setSaleScope(val)}
               placeholder="Não informado"
               aria-label="Onde vende?"
               style={{ width: '100%' }}
@@ -2649,6 +2476,7 @@ export const Content: FC<ContentProps> = ({
           simulação de preço — o imposto não fica fixo no produto.
         </div>
       </Card>
+      </>)}
       </Form>
 
       {avisosDoOrcamento}
@@ -2673,16 +2501,17 @@ export const Content: FC<ContentProps> = ({
           additionalIrpjPercent={additionalIrpjPercent}
           onAdditionalIrpjChange={setAdditionalIrpjPercent}
           icmsPct={icmsPct}
-          onIcmsPctChange={handleIcmsPctChange}
+          onIcmsPctChange={ehOrcamentoDeIndustrializacao ? undefined : handleIcmsPctChange}
           pisCofinsLRPct={pisCofinsLRPct}
-          onPisCofinsLRPctChange={setPisCofinsLRPct}
+          onPisCofinsLRPctChange={ehOrcamentoDeIndustrializacao ? undefined : setPisCofinsLRPct}
           freightValue={freightValue}
           insuranceValue={insuranceValue}
           accessoryExpensesValue={accessoryExpensesValue}
-          ibsPct={ibsPct}
-          onIbsPctChange={setIbsPct}
-          cbsPct={cbsPct}
-          onCbsPctChange={setCbsPct}
+          ibsPct={ehOrcamentoDeIndustrializacao ? ibsDaEmpresa : ibsPct}
+          onIbsPctChange={ehOrcamentoDeIndustrializacao ? undefined : setIbsPct}
+          cbsPct={ehOrcamentoDeIndustrializacao ? cbsDaEmpresa : cbsPct}
+          onCbsPctChange={ehOrcamentoDeIndustrializacao ? undefined : setCbsPct}
+          impostosDaEmpresa={ehOrcamentoDeIndustrializacao}
           ivaReductionIbsPct={reducoes.ibs}
           ivaReductionCbsPct={reducoes.cbs}
           isPct={isPct}
@@ -2826,6 +2655,15 @@ export const Content: FC<ContentProps> = ({
         </Button>
         <Button onClick={goBack}>Cancelar</Button>
       </footer>
+      {orcamento && (
+        // A ORDEM DO FIM DA TELA (dono do produto, 11/11/2026, revisada depois de ver a tela — vale sobre a de antes, que punha os itens antes
+        // do botão): o botão, ABAIXO dele os itens com as variáveis precificados um a um e o total, ABAIXO deles o link do último PDF
+        <>
+          <ItensPrecificados itens={itensDoArquivo} recusaDosItens={recusaDosItensDoArquivo} interna={internaNaTela}
+            pesos={orcamento.itens.map((i) => ({ ordem: i.ordem, quantidade: i.quantidade, peso: i.custo_liquido_total }))} />
+          {rodapeDoOrcamento && <div style={{ marginTop: 12 }}>{rodapeDoOrcamento}</div>}
+        </>
+      )}
     </>
   )
 }

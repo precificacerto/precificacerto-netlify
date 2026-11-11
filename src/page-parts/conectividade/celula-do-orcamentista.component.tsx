@@ -16,6 +16,7 @@
  * funcionário. Telefone do cadastro diferente do autorizado: aviso e botão para atualizar —
  * nunca sincroniza sozinho.
  */
+import { telefoneNormalizado } from '@/lib/atendimentos-ia/telefone-normalizado'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Alert, Button, Card, Space, Spin, Switch, Table, Tag, Tooltip, Typography } from 'antd'
 import { QrcodeOutlined, DisconnectOutlined, RobotOutlined } from '@ant-design/icons'
@@ -184,7 +185,7 @@ export function CelulaDoOrcamentista() {
                                     {l.divergente && l.autorizacao && (
                                         <div data-divergente="">
                                             <Typography.Text type="warning" style={{ fontSize: 12 }}>
-                                                Autorizado com {phoneMask(l.autorizacao.telefone)}, diferente do cadastro.
+                                                Autorizado com {phoneMask(telefoneNormalizado(l.autorizacao.telefone) ?? l.autorizacao.telefone)}, diferente do cadastro.
                                             </Typography.Text>{' '}
                                             <Button size="small" type="link" loading={ocupado === l.employee_id} onClick={() => agir(l, 'atualizar-telefone')}>
                                                 Usar o do cadastro

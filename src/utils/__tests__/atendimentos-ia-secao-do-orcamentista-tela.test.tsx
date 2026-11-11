@@ -95,7 +95,7 @@ const { MobileMoreDrawer } = require('@/components/layout/mobile-more-drawer.com
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { esquecerSecaoDoOrcamentista } = require('@/hooks/use-secao-do-orcamentista.hook') as { esquecerSecaoDoOrcamentista: () => void }
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const paginaMod = require('@/pages/atendimentos-ia/orcamentista') as {
+const paginaMod = require('@/pages/conectividade-ia') as {
     default: React.ComponentType
     TEXTO_SEM_CONEXAO: string
 }
@@ -130,12 +130,17 @@ const drawer = () => document.querySelector('.pc-mobile-more-drawer-content') as
 
 describe('(1)(2)(3) o menu desktop', () => {
     // 09/11/2026 (dono do produto): o item "Orçamentista" passa a chamar-se "Conectividade I.A.", e "Orçamentos I.A." entra logo depois
-    it('seção ligada: "Conectividade I.A." e "Orçamentos I.A." na seção atendimentos-ia, logo abaixo de CLIENTES — sem os itens do super admin', async () => {
+    // 11/11/2026 (dono do produto): Agentes I.A. tem EXATAMENTE três seções da conta — Levantamentos, Orçamentos e Relatórios I.A., nesta ordem —
+    // e a Conectividade I.A. foi para OPERACIONAL
+    it('seção ligada: Levantamentos, Orçamentos e Relatórios I.A., nesta ordem, logo abaixo de CLIENTES; a Conectividade I.A. em OPERACIONAL', async () => {
         const host = await montar(<Nav />)
-        expect(destinos(host)).toEqual([ROUTES.ATENDIMENTOS_IA_ORCAMENTISTA, ROUTES.ATENDIMENTOS_IA_ORCAMENTOS])
+        expect(destinos(host)).toEqual([ROUTES.ATENDIMENTOS_IA_LEVANTAMENTOS, ROUTES.ATENDIMENTOS_IA_ORCAMENTOS, ROUTES.ATENDIMENTOS_IA_RELATORIOS])
         expect(host.querySelector(`[data-section-key="${SECAO}"] .nav-section-label`)?.textContent?.trim()).toBe('Agentes I.A.')
-        expect(host.querySelector(`a[href="${ROUTES.ATENDIMENTOS_IA_ORCAMENTISTA}"]`)?.textContent).toContain('Conectividade I.A.')
-        expect(host.querySelector(`a[href="${ROUTES.ATENDIMENTOS_IA_ORCAMENTOS}"]`)?.textContent).toContain('Orçamentos I.A.')
+        expect(host.querySelector(`[data-section-key="${SECAO}"] a[href="${ROUTES.ATENDIMENTOS_IA_LEVANTAMENTOS}"]`)?.textContent).toContain('Levantamentos I.A.')
+        expect(host.querySelector(`[data-section-key="${SECAO}"] a[href="${ROUTES.ATENDIMENTOS_IA_ORCAMENTOS}"]`)?.textContent).toContain('Orçamentos I.A.')
+        expect(host.querySelector(`[data-section-key="${SECAO}"] a[href="${ROUTES.ATENDIMENTOS_IA_RELATORIOS}"]`)?.textContent).toContain('Relatórios I.A.')
+        expect(host.querySelector(`[data-section-key="operacional"] a[href="${ROUTES.CONECTIVIDADE_IA}"]`)?.textContent).toContain('Conectividade I.A.')
+        expect(host.querySelector(`[data-section-key="${SECAO}"] a[href="${ROUTES.CONECTIVIDADE_IA}"]`)).toBeNull()
         expect(host.querySelector(`[data-section-key="${SECAO}"]`)?.textContent).not.toContain('Orçamentista')
         const ordem = ordemDasSecoes(host)
         expect(ordem.indexOf(SECAO)).toBe(ordem.indexOf('clientes') + 1)
@@ -146,8 +151,7 @@ describe('(1)(2)(3) o menu desktop', () => {
         const host = await montar(<Nav />)
         expect(perguntouASecao()).toBe(true)
         expect(host.querySelector(`[data-section-key="${SECAO}"]`)).toBeNull()
-        expect(host.querySelector(`a[href="${ROUTES.ATENDIMENTOS_IA_ORCAMENTISTA}"]`)).toBeNull()
-        expect(host.querySelector(`a[href="${ROUTES.ATENDIMENTOS_IA_ORCAMENTOS}"]`)).toBeNull()
+        for (const r of [ROUTES.CONECTIVIDADE_IA, ROUTES.ATENDIMENTOS_IA_LEVANTAMENTOS, ROUTES.ATENDIMENTOS_IA_ORCAMENTOS, ROUTES.ATENDIMENTOS_IA_RELATORIOS]) expect(host.querySelector(`a[href="${r}"]`)).toBeNull()
         expect(host.querySelectorAll('a[href]').length).toBeGreaterThan(0)
     })
 
@@ -155,8 +159,7 @@ describe('(1)(2)(3) o menu desktop', () => {
         usuario = VENDEDOR_SEM_ORCAMENTISTA as typeof DONO
         const host = await montar(<Nav />)
         expect(perguntouASecao()).toBe(false)
-        expect(host.querySelector(`a[href="${ROUTES.ATENDIMENTOS_IA_ORCAMENTISTA}"]`)).toBeNull()
-        expect(host.querySelector(`a[href="${ROUTES.ATENDIMENTOS_IA_ORCAMENTOS}"]`)).toBeNull()
+        for (const r of [ROUTES.CONECTIVIDADE_IA, ROUTES.ATENDIMENTOS_IA_LEVANTAMENTOS, ROUTES.ATENDIMENTOS_IA_ORCAMENTOS, ROUTES.ATENDIMENTOS_IA_RELATORIOS]) expect(host.querySelector(`a[href="${r}"]`)).toBeNull()
         expect(host.querySelector('[data-section-key="clientes"]')).not.toBeNull()
     })
 
@@ -169,11 +172,13 @@ describe('(1)(2)(3) o menu desktop', () => {
 })
 
 describe('(1)(2)(3) o drawer mobile', () => {
-    it('seção ligada: "Conectividade I.A." e "Orçamentos I.A." na mesma seção, e o bloco vem logo depois de Clientes', async () => {
+    it('seção ligada: as três seções da conta na mesma ordem, o bloco logo depois de Clientes, e a Conectividade I.A. em Operacional', async () => {
         await montar(<MobileMoreDrawer open onClose={() => {}} />)
-        expect(destinos(drawer())).toEqual([ROUTES.ATENDIMENTOS_IA_ORCAMENTISTA, ROUTES.ATENDIMENTOS_IA_ORCAMENTOS])
-        expect(drawer().querySelector(`a[href="${ROUTES.ATENDIMENTOS_IA_ORCAMENTISTA}"]`)?.textContent).toContain('Conectividade I.A.')
+        expect(destinos(drawer())).toEqual([ROUTES.ATENDIMENTOS_IA_LEVANTAMENTOS, ROUTES.ATENDIMENTOS_IA_ORCAMENTOS, ROUTES.ATENDIMENTOS_IA_RELATORIOS])
+        expect(drawer().querySelector(`a[href="${ROUTES.ATENDIMENTOS_IA_LEVANTAMENTOS}"]`)?.textContent).toContain('Levantamentos I.A.')
         expect(drawer().querySelector(`a[href="${ROUTES.ATENDIMENTOS_IA_ORCAMENTOS}"]`)?.textContent).toContain('Orçamentos I.A.')
+        expect(drawer().querySelector(`a[href="${ROUTES.ATENDIMENTOS_IA_RELATORIOS}"]`)?.textContent).toContain('Relatórios I.A.')
+        expect(drawer().querySelector(`[data-section-key="operacional"] a[href="${ROUTES.CONECTIVIDADE_IA}"]`)?.textContent).toContain('Conectividade I.A.')
         expect(drawer().querySelector(`[data-section-key="${SECAO}"] .pc-mobile-more-section-title`)?.textContent?.trim()).toBe('Agentes I.A.')
         const ordem = ordemDasSecoes(drawer())
         expect(ordem.indexOf(SECAO)).toBe(ordem.indexOf('clientes') + 1)
@@ -182,8 +187,7 @@ describe('(1)(2)(3) o drawer mobile', () => {
     it('seção desligada (404): nada', async () => {
         servidor.secao = 404
         await montar(<MobileMoreDrawer open onClose={() => {}} />)
-        expect(drawer().querySelector(`a[href="${ROUTES.ATENDIMENTOS_IA_ORCAMENTISTA}"]`)).toBeNull()
-        expect(drawer().querySelector(`a[href="${ROUTES.ATENDIMENTOS_IA_ORCAMENTOS}"]`)).toBeNull()
+        for (const r of [ROUTES.CONECTIVIDADE_IA, ROUTES.ATENDIMENTOS_IA_LEVANTAMENTOS, ROUTES.ATENDIMENTOS_IA_ORCAMENTOS, ROUTES.ATENDIMENTOS_IA_RELATORIOS]) expect(drawer().querySelector(`a[href="${r}"]`)).toBeNull()
         expect(drawer().querySelectorAll('a[href]').length).toBeGreaterThan(0)
     })
 
@@ -194,7 +198,15 @@ describe('(1)(2)(3) o drawer mobile', () => {
     })
 })
 
-describe('(4) a página /atendimentos-ia/orcamentista', () => {
+describe('(3b) a rota antiga da Conectividade I.A. redireciona (o link salvo não quebra)', () => {
+    it('/atendimentos-ia/orcamentista -> /conectividade-ia, temporário', async () => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const config = require('../../../next.config.js') as { redirects: () => Promise<Array<{ source: string; destination: string; permanent: boolean }>> }
+        expect(await config.redirects()).toContainEqual({ source: ROUTES.ATENDIMENTOS_IA_ORCAMENTISTA, destination: ROUTES.CONECTIVIDADE_IA, permanent: false })
+    })
+})
+
+describe('(4) a página /conectividade-ia (antes /atendimentos-ia/orcamentista)', () => {
     const Pagina = () => React.createElement(paginaMod.default)
     const PAINEL_VAZIO = { conexao: { existe: false, conectado: false, conectadoEm: null as string | null }, liberadas: 0, levantamentos: [] as unknown[] }
 

@@ -62,3 +62,19 @@ export function resolvePisCofinsPctFromNcm(args: ResolvePisCofinsArgs): number |
   const cofins = (Number(ncmRow.cofins_rate_nao_cumulativo) || 0) * 100
   return parseFloat((pis + cofins).toFixed(4))
 }
+
+/** 1,65% de PIS + 7,60% de COFINS — Leis 10.637/2002 e 10.833/2003 (regime NÃO cumulativo). */
+export const PIS_COFINS_NAO_CUMULATIVO_PCT = 9.25
+
+/**
+ * O PIS/COFINS da REFERÊNCIA DO TENANT, para o orçamento I.A. SEM NCM (dono do produto, 11/11/2026: "Sem NCM, as alíquotas vêm da
+ * referência do tenant (tenant_settings) [...] Lucro Real com ICMS interno [da UF] e PIS/COFINS não-cumulativo. NÃO invente zero").
+ * É a MESMA conta da criação de produto sem NCM em `products/content.component.tsx` (`pisCofinsBase × (1 − ICMS)`), com a base excluindo o
+ * ICMS (R5 de `cascata-lucro-real.md`): Lucro Real 9,25% não cumulativo; Presumido 3,65% cumulativo. Fora dos dois, `null` — o regime não
+ * apura por aqui, e `null` não é zero (`ausente-vs-falso.md`).
+ */
+export function pisCofinsDaReferenciaDoTenant(args: { isLucroReal: boolean; isLucroPresumido: boolean; icmsPct: number }): number | null {
+  if (args.isLucroPresumido) return parseFloat((PIS_COFINS_CUMULATIVO_PCT * (1 - args.icmsPct / 100)).toFixed(4))
+  if (!args.isLucroReal) return null
+  return parseFloat((PIS_COFINS_NAO_CUMULATIVO_PCT * (1 - args.icmsPct / 100)).toFixed(4))
+}

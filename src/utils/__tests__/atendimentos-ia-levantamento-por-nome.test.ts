@@ -51,7 +51,8 @@ const VENDEDOR = 'remetente-1'
 const OUTRO_VENDEDOR = 'remetente-2'
 const TERCEIRO = 'remetente-3'
 const TELEFONE_DO_WEBHOOK = '555199114290'
-const TELEFONE_GRAVADO = '51999114290'
+// o remetente como está em produção depois do UPDATE autorizado em 11/11/2026: o formato do canal, MEDIDO contra o webhook (era 51999114290)
+const TELEFONE_GRAVADO = '555199114290'
 const TELEFONE_DO_OUTRO = '555188887777'
 const TELEFONE_DO_TERCEIRO = '555177776666'
 const CHAVE = 'sk-ant-CHAVE-DE-TESTE-nao-pode-ir-ao-log'
@@ -68,6 +69,8 @@ const CANDIDATAS = [
     { tabela_id: null as string | null, motor_id: MOTOR, tipologia: 'DP-100', descricao: 'PORTA DE CORRER 06 FOLHAS MÓVEIS | 04 VIDROS - 02 TELAS | TRILHO PVC EMBUTIDO | EUROPA 42', tipo: 'Correr', linha: 'PVC WOLFF EUROPA 42',
         larg_min_mm: null as number | null, larg_max_mm: null as number | null, alt_min_mm: 1736, alt_max_mm: 3036 },
 ]
+import { fraseDoEnvioQueFalhou, fraseDoOrcamentoEnviado } from '@/lib/atendimentos-ia/cadeia-do-sim'
+import { FALTA_DA_REFERENCIA_DO_TENANT } from '@/lib/atendimentos-ia/precificacao-do-orcamento'
 /* eslint-disable @typescript-eslint/no-require-imports */
 const DE_PARA_DE_HOJE = require('./fixtures/fixture_de-para_DP-02.json') as { regras: Linha[]; itens: Linha[] }
 /** O motor com o arquivo CORRIGIDO (`fixtures/arquivo-do-motor-corrigido.ts`): o BZ0012 sem a cor 'CLICK'. */
@@ -129,6 +132,12 @@ const estado = {
     /** Os DOCUMENTOS enviados pelo WUZAPI (o arquivo do levantamento, 06/11/2026) e o status que o envio deles devolve. */
     documentos: [] as Array<{ corpo: Record<string, unknown> }>,
     documentoStatus: 200,
+    /** O status do envio do PDF do ORÇAMENTO (FileName "Orcamento…"), separado do arquivo do levantamento; nulo = o de `documentoStatus`. */
+    documentoDoOrcamentoStatus: null as number | null,
+    /** Os PDFs do ORÇAMENTO enviados (a cadeia do "sim"). */
+    documentosDoOrcamento: [] as Array<{ corpo: Record<string, unknown> }>,
+    /** O Storage do servidor (o PDF do orçamento, 11/11/2026): caminho -> bytes. */
+    storage: new Map<string, Uint8Array>(),
     ausentes: new Set<string>(),
     /** "tabela.coluna" que o banco falso não tem: ler a coluna é 42703, como o PostgREST antes da migração que a cria. */
     colunasAusentes: new Set<string>(),
@@ -181,7 +190,7 @@ function montar() {
         orcamentista_remetente_autorizado: [
             // MEDIDO em produção (25/10/2026): o remetente de teste TEM employee_id, e o employees.user_id dele é NULO
             { id: VENDEDOR, tenant_id: TENANT, telefone: TELEFONE_GRAVADO, ativo: true, nome: 'Cristiano Fernandes', employee_id: 'e-cristiano' },
-            { id: OUTRO_VENDEDOR, tenant_id: TENANT, telefone: '51988887777', ativo: true, nome: 'Fulano de Tal', employee_id: null },
+            { id: OUTRO_VENDEDOR, tenant_id: TENANT, telefone: TELEFONE_DO_OUTRO, ativo: true, nome: 'Fulano de Tal', employee_id: null },
             // sem nome no remetente: o nome que a pergunta cita vem do employees
             { id: TERCEIRO, tenant_id: TENANT, telefone: '51977776666', ativo: true, nome: null, employee_id: 'e-beltrana' },
         ],
@@ -235,6 +244,9 @@ function montar() {
     estado.envios = []
     estado.documentos = []
     estado.documentoStatus = 200
+    estado.storage = new Map()
+    estado.documentoDoOrcamentoStatus = null
+    estado.documentosDoOrcamento = []
     estado.ausentes = new Set()
     estado.colunasAusentes = new Set()
     estado.respostaPeloPrompt = null
@@ -277,6 +289,16 @@ const JANELA_EM_VOO_MS = (require('@/lib/atendimentos-ia/conversa-gravada') as t
 const DA_CONVERSA_GRAVADA = new Set(['orcamentista_conversa', 'orcamentista_mensagem'])
 jest.mock('@/supabase/admin', () => ({
     supabaseAdmin: {
+        // o Storage do PDF do orçamento (a cadeia do "sim", 11/11/2026): sobe e baixa da memória
+        storage: {
+            from: (bucket: string) => ({
+                upload: async (caminho: string, bytes: Uint8Array): Promise<{ data: { path: string }; error: null }> => { estado.storage.set(`${bucket}/${caminho}`, new Uint8Array(bytes)); return { data: { path: caminho }, error: null } },
+                download: async (caminho: string): Promise<{ data: { arrayBuffer: () => Promise<ArrayBuffer> } | null; error: { message: string } | null }> => {
+                    const b = estado.storage.get(`${bucket}/${caminho}`)
+                    return b ? { data: { arrayBuffer: async () => new Uint8Array(b).buffer as ArrayBuffer }, error: null } : { data: null, error: { message: 'objeto ausente' } }
+                },
+            }),
+        },
         from: (tabela: string) => {
             const filtros: Array<[string, unknown]> = []
             const predicados: Array<(l: Linha) => boolean> = []
@@ -329,6 +351,7 @@ jest.mock('@/supabase/admin', () => ({
             q.maybeSingle = () => naOnda(estado.ausentes.has(tabela) ? ausente()
                 : colunaQueFalta ? { data: null, error: { code: '42703', message: `column ${tabela}.${colunaQueFalta} does not exist` } }
                     : { data: ler().map(projetar)[0] ?? null, error: null })
+            q.single = () => (q.maybeSingle as () => Promise<unknown>)()
             q.update = (carga: Linha) => { atualizacao = carga; return q }
             q.then = (ok: (v: unknown) => unknown, erro?: (e: unknown) => unknown) => {
                 if (atualizacao) {
@@ -530,6 +553,15 @@ const opcoesDe = (...nomes: string[]) => nomes.map((n) => opcao(levantamentos().
 /** As escolhas em palavras que fazem a DP-02 fechar em branco: "sem arremate interno" e "externo com folga de 50". */
 const ESCOLHAS_QUE_FECHAM = [{ variavel: 'ARI', opcao: 4 }, { variavel: 'MAE', opcao: 2 }]
 /** Uma esquadria DP-02 completa, com o arremate dito em palavras, numa mensagem só — devolve a resposta. */
+/**
+ * A RESPOSTA DO "SIM" com a cadeia ligada (11/11/2026): o levantamento formal e, depois dele, a linha da etapa do preço — o orçamento que o
+ * agente precificou e o arquivo enviado. O número e o valor vêm do orçamento GRAVADO (o valor não é o que estes casos afirmam).
+ */
+function comOOrcamentoEnviado(formal: string) {
+    const o = (estado.db.orcamentista_orcamento ?? [])[0]
+    if (!o) return formal
+    return `${formal}\n\n${fraseDoOrcamentoEnviado(Number(o.numero), String(o.nome), Number(o.valor_venda))}`
+}
 async function fecharDp02(nome: string, opcoes: { senderAlt?: string } = {}) {
     llmResponde({ nome, itens: [{ ...DP02 }], escolhas: ESCOLHAS_QUE_FECHAM })
     await chamar(`Levantamento ${nome}: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50`, opcoes)
@@ -621,9 +653,12 @@ beforeEach(() => {
         }
         if (url.endsWith('/chat/send/document')) {
             // o ARQUIVO do levantamento (06/11/2026): o PDF em base64, com o nome do arquivo
-            estado.documentos.push({ corpo })
-            const ok = estado.documentoStatus >= 200 && estado.documentoStatus < 300
-            return { ok, status: estado.documentoStatus, json: async () => (ok ? { data: { Id: 'WAMID_DOCUMENTO' } } : { error: 'falhou' }) }
+            // o PDF do ORÇAMENTO (a cadeia do "sim", 11/11/2026) fica à parte: `documentos` continua sendo só o arquivo do levantamento
+            const doOrcamento = String(corpo.FileName).startsWith('Orcamento')
+            ;(doOrcamento ? estado.documentosDoOrcamento : estado.documentos).push({ corpo })
+            const status = doOrcamento && estado.documentoDoOrcamentoStatus !== null ? estado.documentoDoOrcamentoStatus : estado.documentoStatus
+            const ok = status >= 200 && status < 300
+            return { ok, status, json: async () => (ok ? { data: { Id: 'WAMID_DOCUMENTO' } } : { error: 'falhou' }) }
         }
         if (url.endsWith('/chat/send/text')) {
             estado.envios.push({ corpo })
@@ -676,7 +711,7 @@ describe('(1) O TESTE QUE VALE: pedidos seguidos do MESMO telefone, todos respon
     })
 
     it('1b. o MESMO pedido com o arremate dito em palavras: com o "sim", os dois totais, o arremate usado e o que o preço cobre e não cobre', async () => {
-        expect(await fecharDp02('Casa do João')).toBe(LEVANTAMENTO_CASA_DO_JOAO)
+        expect(await fecharDp02('Casa do João')).toBe(comOOrcamentoEnviado(LEVANTAMENTO_CASA_DO_JOAO))
         expect(enviados()).toHaveLength(2)
         expect(itensDe(levantamentos()[0].id)).toEqual([expect.objectContaining({ ordem: 1, ...DP02, escolhas: { ARI: 4, MAE: 2 } })])
         expect(LEVANTAMENTO_CASA_DO_JOAO).not.toMatch(VOCABULARIO_INTERNO)
@@ -821,6 +856,24 @@ describe('(2) o roteamento por nome', () => {
     })
 })
 
+describe('(2c) o ARQUIVO de um levantamento gravado, para os Levantamentos I.A. (11/11/2026)', () => {
+    it('é a MESMA folha que a conversa envia, montada do banco, no tenant do chamador; de outra empresa, a frase de não achado; nada é gravado', async () => {
+        await fecharDp02('Casa do João')
+        const id = String(levantamentos()[0].id)
+        const escritasAntes = estado.escritas.length
+        const folha = await conversa.arquivoDoLevantamentoGravado(TENANT, id)
+        if (!('pdf' in folha)) throw new Error(`recusou: ${JSON.stringify(folha)}`)
+        expect(Buffer.from(folha.pdf).subarray(0, 4).toString('latin1')).toBe('%PDF')
+        expect(folha.nomeDoArquivo).toContain('Casa do João')
+        // o registro do banco falso é `estado.escritas` (só as escritas): nenhuma nova
+        expect(estado.escritas.slice(escritasAntes)).toEqual([])
+        // de outra empresa: recusa, sem PDF (aqui ela nem tem a configuração; com ela, a leitura do levantamento por tenant dá "não achado")
+        const outra = await conversa.arquivoDoLevantamentoGravado('tenant-de-outra', id)
+        expect(outra.ok).toBe(false)
+        expect('pdf' in outra).toBe(false)
+    })
+})
+
 describe('(3) o estado mora no levantamento; a CONVERSA é gravada como histórico e idempotência (03/11/2026, revoga a decisão 4)', () => {
     const mensagens = () => (estado.db.orcamentista_mensagem ?? []) as Array<Linha & { direcao: string; texto: string }>
 
@@ -829,9 +882,68 @@ describe('(3) o estado mora no levantamento; a CONVERSA é gravada como históri
         llmResponde({ nome: 'casa do joao', alteracao: true, itens: [{ altura_mm: 1200 }] })
         await chamar('casa do joao, trocar a altura para 1200')
         const tocadas = new Set(escritasNoEstado().map((e) => e.tabela))
-        // a pergunta em aberto (o apanhado que espera o "sim") é estado, não mensagem: decisão de 26/10/2026
-        expect([...tocadas].sort()).toEqual(['orcamentista_levantamento', 'orcamentista_levantamento_item', 'orcamentista_pergunta_em_aberto'])
+        // a pergunta em aberto (o apanhado que espera o "sim") é estado, não mensagem: decisão de 26/10/2026. E o "sim" ao levantamento que
+        // levantou ATRAVESSA para o orçamento do agente (dono do produto, 10/11/2026) e ENCADEIA o cálculo, a precificação e o arquivo (11/11/2026):
+        // o orçamento, os itens dele, o material do cálculo e a linha do arquivo, nada mais
+        expect([...tocadas].sort()).toEqual(['orcamentista_levantamento', 'orcamentista_levantamento_item', 'orcamentista_orcamento', 'orcamentista_orcamento_arquivo',
+            'orcamentista_orcamento_item', 'orcamentista_orcamento_item_material', 'orcamentista_pergunta_em_aberto'])
+        // o rastro diz até onde o encadeamento foi: travessia, cálculo, preço, arquivo e envio
+        const calcular = erros.filter((l) => l.startsWith('[ETAPA 4 calcular]')).join('\n')
+        expect(calcular).toMatch(/travessia=orcamento=1 itens=1 faltas=\d+ origens=comissao:\w+,rt:\w+,lucro:\w+ calculo=ok liquido=[\d.]+ precificacao=ok venda=[\d.]+ interna=[\d.]+ ms_preco=\d+ arquivo=ok ms_leitura=\d+ envio=ok ms_envio=\d+/)
         expect(estado.db.orcamentista_pre_definicao).toEqual([])
+    })
+
+    it('A CADEIA DO "SIM" LIGADA (11/11/2026): o PDF do orçamento vai ao telefone do DONO do levantamento, a linha do arquivo é do agente, e a resposta diz que foi enviado', async () => {
+        // o dono do levantamento é o remetente que o abriu (gravado como 51999114290); aqui é ele quem diz "sim", e o webhook o entrega no formato do
+        // WhatsApp (555199114290): o arquivo vai a esse número exato, que é o mesmo que já recebe as respostas
+        // (c) parte da forma de ANTES (sem o 55): o envio aceito no número do canal vira medição e é persistido no remetente
+        estado.db.orcamentista_remetente_autorizado[0].telefone = '51999114290'
+        const respostaDoSim = await fecharDp02('Casa do João')
+        expect(estado.db.orcamentista_remetente_autorizado[0].telefone).toBe(TELEFONE_DO_WEBHOOK)
+        const docs = estado.documentosDoOrcamento
+        expect(docs).toHaveLength(1)
+        expect(docs[0].corpo.Phone).toBe(TELEFONE_DO_WEBHOOK)
+        expect(String(docs[0].corpo.Document)).toMatch(/^data:application\/octet-stream;base64,JVBERi/)
+        const [arquivo] = estado.db.orcamentista_orcamento_arquivo
+        expect(arquivo).toEqual(expect.objectContaining({ tenant_id: TENANT, gerado_origem: 'agente', gerado_por: null }))
+        const [orcamento] = estado.db.orcamentista_orcamento
+        expect(Number(orcamento.valor_venda)).toBeGreaterThan(0)
+        expect(orcamento.editado_manualmente_em ?? null).toBeNull()
+        expect(respostaDoSim).toContain(fraseDoOrcamentoEnviado(Number(orcamento.numero), String(orcamento.nome), Number(orcamento.valor_venda)))
+    })
+
+    it('o levantamento de OUTRO remetente: o "sim" desta conversa não o atravessa — nenhum orçamento, nenhum PDF (quem diz "sim" é sempre o dono)', async () => {
+        estado.db.orcamentista_remetente_autorizado.push({ id: 'rem-dono-outro', tenant_id: TENANT, telefone: '54988776655', ativo: true, nome: 'Outro vendedor', employee_id: null })
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02 }], escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar('Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50')
+        // o levantamento passa a ser do outro remetente (quem o abriu, para a cadeia); o "sim" continua vindo do telefone desta conversa
+        for (const l of estado.db.orcamentista_levantamento) l.remetente_id = 'rem-dono-outro'
+        await confirmarApanhado()
+        // medido (11/11/2026): a conversa só confirma o levantamento do próprio remetente; o PDF nunca sai pelo "sim" de quem não é dono. O
+        // destino de um dono diferente da conversa está provado em `destinosDoWhatsApp` (atendimentos-ia-cadeia-do-sim.test.ts)
+        expect(estado.documentosDoOrcamento).toEqual([])
+        expect(estado.db.orcamentista_orcamento ?? []).toEqual([])
+    })
+
+    it('a cadeia com o ENVIO DO PDF falhando: o orçamento e o arquivo ficam gravados, o rastro registra, e a resposta diz que o envio falhou', async () => {
+        // só o PDF do ORÇAMENTO falha; o arquivo do levantamento (o apanhado) sai como sempre
+        estado.documentoDoOrcamentoStatus = 500
+        const respostaDoSim = await fecharDp02('Casa do João')
+        expect(estado.db.orcamentista_orcamento_arquivo).toHaveLength(1)
+        expect(Number(estado.db.orcamentista_orcamento[0].valor_venda)).toBeGreaterThan(0)
+        expect(erros.join('\n')).toMatch(/envio=falhou status=500 ms_envio=\d+ parou=envio/)
+        const [orcamento] = estado.db.orcamentista_orcamento
+        expect(respostaDoSim).toContain(fraseDoEnvioQueFalhou(Number(orcamento.numero), String(orcamento.nome)))
+    })
+
+    it('a cadeia SEM preço formado (Lucro Real sem a UF da empresa): NENHUM PDF de orçamento, nada de arquivo, e a resposta diz o que falta', async () => {
+        estado.db.tenant_settings[0].tax_regime = 'LUCRO_REAL'
+        estado.db.tenant_settings[0].state_code = null
+        const respostaDoSim = await fecharDp02('Casa do João')
+        expect(estado.documentosDoOrcamento).toEqual([])
+        expect(estado.db.orcamentista_orcamento_arquivo ?? []).toEqual([])
+        expect(erros.join('\n')).toMatch(/precificacao=recusou faltas=\d+ ms_preco=\d+ parou=precificacao/)
+        expect(respostaDoSim).toContain(FALTA_DA_REFERENCIA_DO_TENANT)
     })
 
     it('a CONVERSA GRAVADA: uma conversa por remetente no tenant, a entrada com o texto e o Info.ID, a saída com o texto ENVIADO, responde_a e o id do envio', async () => {
@@ -966,7 +1078,7 @@ describe('(5) remetente autorizado é SEMPRE respondido; silêncio só para o de
         await fecharDp02('Casa do João')
         expect(enviados()).toHaveLength(2)
         expect(ehConfirmacaoDoArquivo(enviados()[0], 'Casa do João')).toBe(true)
-        expect(enviados()[1]).toBe(LEVANTAMENTO_CASA_DO_JOAO)
+        expect(enviados()[1]).toBe(comOOrcamentoEnviado(LEVANTAMENTO_CASA_DO_JOAO))
         expect(estado.db.orcamentista_pre_definicao).toEqual([expect.objectContaining({ id: 'pd', estado: 'COMPLETA' })])
     })
 })
@@ -1073,7 +1185,10 @@ describe('(6b) R1 e R2: nenhum update falha em silêncio, e a pergunta respondid
         // a conta refeita é o apanhado de novo: ele grava SÓ a pergunta que espera o "sim", nunca o levantamento
         expect(ehConfirmacaoDoArquivo(ultimoEnviado(), 'Casa do João')).toBe(true)
         expect(escritasNoEstado().slice(escritasAntes).map((e) => [e.tabela, e.op])).toEqual([['orcamentista_pergunta_em_aberto', 'upsert']])
+        // o levantamento já atravessou no primeiro "sim": este para na travessia (ja_existe) e NÃO reenvia o orçamento — só o formal
+        const doOrcamentoAntes = estado.documentosDoOrcamento.length
         expect(await confirmarApanhado()).toBe(LEVANTAMENTO_CASA_DO_JOAO)
+        expect(estado.documentosDoOrcamento).toHaveLength(doOrcamentoAntes)
         expect(escritasNoEstado().slice(escritasAntes).filter((e) => e.tabela.startsWith('orcamentista_levantamento'))).toEqual([])
     })
 })
@@ -1757,7 +1872,7 @@ describe('(17) O ARQUIVO no lugar da mensagem-resumo (dono do produto, 06/11/202
         expect(estado.documentos).toHaveLength(1)
     })
 
-    it('o arquivo traz o número do levantamento, a empresa, o vendedor e os percentuais do CADASTRO dele — congelados no levantamento', async () => {
+    it('o arquivo traz o número, a empresa, o vendedor e os percentuais da PRÉ-DEFINIÇÃO dele, que NÃO são congelados no levantamento (11/11/2026)', async () => {
         await pedir()
         const arquivo = textoDoArquivo()
         expect(arquivo).toContain('Nº 1')
@@ -1767,13 +1882,14 @@ describe('(17) O ARQUIVO no lugar da mensagem-resumo (dono do produto, 06/11/202
         expect(arquivo).toContain('Modo: proporcional')
         expect(arquivo).toContain('10%')
         const [l] = levantamentos()
-        expect(l).toEqual(expect.objectContaining({ numero: 1, vendedor_nome: 'Cristiano Fernandes', vendedor_employee_id: 'e-cristiano', comissao_percentual: 5, comissao_modo: 'PROPORCIONAL', reserva_tecnica_percentual: 1, lucro_projetado_percentual: 10 }))
-        // congelado: o cadastro muda depois, e o arquivo de novo (a alteração) não o relê
+        // o levantamento guarda só a ALTERAÇÃO dita; o modo continua congelado do cadastro
+        expect(l).toEqual(expect.objectContaining({ numero: 1, vendedor_nome: 'Cristiano Fernandes', vendedor_employee_id: 'e-cristiano', comissao_modo: 'PROPORCIONAL' }))
+        for (const k of ['comissao_percentual', 'reserva_tecnica_percentual', 'lucro_projetado_percentual']) expect(l[k] ?? null).toBeNull()
+        // a base é a REFERÊNCIA até a travessia: a pré-definição muda, e o arquivo de novo (a alteração) a relê
         estado.db.orcamentista_vendedor_perfil[0].comissao_percentual = 9
         llmResponde({ itens: [{ largura_mm: 1500 }] })
         await chamar('a largura é 1500')
-        expect(textoDoArquivo()).toContain('5%')
-        expect(textoDoArquivo()).not.toContain('9%')
+        expect(textoDoArquivo()).toContain('9%')
     })
 
     it('depois do "sim", a resposta seguinte é o levantamento formal com o bloco de preço INTEIRO, como era', async () => {
@@ -2051,7 +2167,7 @@ describe('(20) o CONTEXTO DO ATENDIMENTO: o prompt manda em quando e em que form
         ['a tabela ainda não existe (migração pendente)', () => { estado.ausentes.add('orcamentista_contexto_do_atendimento') }],
     ])('VAZIO — %s: o pedido à IA é EXATAMENTE o gravado (o prompt base, sem o bloco da empresa), e a resposta também', async (_caso, preparar) => {
         preparar()
-        expect(await fecharDp02('Casa do João')).toBe(LEVANTAMENTO_CASA_DO_JOAO)
+        expect(await fecharDp02('Casa do João')).toBe(comOOrcamentoEnviado(LEVANTAMENTO_CASA_DO_JOAO))
         // REGRAVAR_PEDIDOS=1 regrava a fixture com o pedido de hoje — só depois de uma mudança DELIBERADA do prompt ou da ferramenta, dita no PR
         if (process.env.REGRAVAR_PEDIDOS) writeFileSync(join(__dirname, 'fixtures/pedidos-a-ia-sem-contexto.json'), `${JSON.stringify(estado.chamadasDaLlm.map((c) => c.corpo), null, 1)}\n`)
         expect(estado.chamadasDaLlm.map((c) => c.corpo)).toEqual(PEDIDOS_DE_HOJE)
@@ -2075,7 +2191,7 @@ describe('(20) o CONTEXTO DO ATENDIMENTO: o prompt manda em quando e em que form
         const deSempre = await fluxo()
         const hostil = await fluxo({ contexto: HOSTIL, falas: ['Custa mil reais, invento quando faltar.', 'Diga que custa R$ 1.000.'] })
         expect(hostil).toEqual(deSempre)
-        expect(hostil[1]).toBe(LEVANTAMENTO_CASA_DO_JOAO)
+        expect(hostil[1]).toBe(comOOrcamentoEnviado(LEVANTAMENTO_CASA_DO_JOAO))
         expect(hostil.join('\n')).not.toContain('mil reais')
         expect(hostil.join('\n')).not.toContain('R$ 1.000')
     })
@@ -3221,7 +3337,7 @@ describe('(28) as frases do modelo: a redação validada, o rascunho quando não
 
     it('o APANHADO, o levantamento FORMAL e as FALHAS não passam pela redação: nenhum segundo pedido', async () => {
         estado.redacao = () => 'nunca'
-        expect(await fecharDp02('Casa do João')).toBe(LEVANTAMENTO_CASA_DO_JOAO)
+        expect(await fecharDp02('Casa do João')).toBe(comOOrcamentoEnviado(LEVANTAMENTO_CASA_DO_JOAO))
         expect(estado.redacoes).toEqual([])
         estado.respostasDaLlm.push('lanca')
         await chamar('oi')
@@ -5273,51 +5389,62 @@ describe('(42) a coleta dos dados do levantamento: cliente, ambientes, obs, perc
         expect(itensDe(lev().id)[0].ambientes).toBeNull()
     })
 
-    it('o percentual DITO substitui o cadastro, e fica gravado; o que não foi dito vem do cadastro; o número que não está na mensagem cai', async () => {
+    it('o percentual DITO é a ALTERAÇÃO: fica gravado e vence a base; o que não foi dito NÃO é gravado (vem da base no arquivo); o número fora da mensagem cai', async () => {
         llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }], condicoes: { comissao_percentual: 7, lucro_projetado_percentual: 15, reserva_tecnica_responsavel: 'Arquiteta Ana' } })
         await chamar(`${MSG}, comissão 7%, RT para a Arquiteta Ana`)
-        // o lucro 15 não foi dito: cai, e vale o do cadastro (10)
-        expect(lev()).toEqual(expect.objectContaining({ comissao_percentual: 7, comissao_modo: 'PROPORCIONAL', reserva_tecnica_percentual: 1, lucro_projetado_percentual: 10, reserva_tecnica_responsavel: 'Arquiteta Ana' }))
+        // o lucro 15 não foi dito: cai; o levantamento não guarda o da base (10), que o arquivo mostra pela pré-definição
+        expect(lev()).toEqual(expect.objectContaining({ comissao_percentual: 7, comissao_modo: 'PROPORCIONAL', reserva_tecnica_responsavel: 'Arquiteta Ana' }))
+        for (const k of ['reserva_tecnica_percentual', 'lucro_projetado_percentual']) expect(lev()[k] ?? null).toBeNull()
         const arquivo = textoDoArquivo()
         expect(arquivo).toContain('7%')
+        expect(arquivo).toContain('10%')
         expect(arquivo).toContain('Arquiteta Ana')
         expect(arquivo).not.toContain('15%')
     })
 
-    it('CADASTRO NULO e nada dito: a conversa PERGUNTA (nunca zero, nunca inventa), o levantamento fica em montagem, e nenhum arquivo sai até a resposta', async () => {
+    it('CADASTRO NULO e nada dito: a conversa NÃO pergunta os três percentuais (11/11/2026) — só o MODO da comissão; nada é inventado nem gravado', async () => {
         // o OUTRO vendedor não tem funcionário: não há cadastro
         llmResponde({ nome: 'Casa do Fulano', itens: [{ ...DP02 }] })
         await chamar('Levantamento Casa do Fulano: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm', doOutro)
-        expect(ultimoEnviado()).toBe('Para fechar o levantamento, faltam a comissão (%), o modo da comissão (proporcional ou congelada), a reserva técnica (%) e o lucro projetado da proposta (%) do vendedor Fulano de Tal. Qual é?')
+        expect(ultimoEnviado()).toBe('Para fechar o levantamento, falta o modo da comissão (proporcional ou congelada) do vendedor Fulano de Tal. Qual é?')
         expect(lev()).toEqual(expect.objectContaining({ estado: 'EM_MONTAGEM', vendedor_nome: 'Fulano de Tal', vendedor_employee_id: null }))
-        // nada inventado: nenhum percentual gravado (nem zero)
         for (const k of ['comissao_percentual', 'comissao_modo', 'reserva_tecnica_percentual', 'lucro_projetado_percentual']) expect(lev()[k]).toBeUndefined()
         expect(estado.documentos).toHaveLength(0)
-        // a pergunta das condições é a pergunta em aberto da montagem: vai ao prompt
-        llmResponde({ condicoes: { comissao_percentual: 5, comissao_modo: 'CONGELADA', reserva_tecnica_percentual: 2, lucro_projetado_percentual: 12 } })
-        await chamar('comissão 5 congelada, RT 2, lucro 12', doOutro)
-        expect(textoDoSistema(estado.chamadasDaLlm[1].corpo.system)).toContain('Pergunta em aberto: Para fechar o levantamento, faltam a comissão (%)')
-        expect(lev()).toEqual(expect.objectContaining({ estado: 'COMPLETO', comissao_percentual: 5, comissao_modo: 'CONGELADA', reserva_tecnica_percentual: 2, lucro_projetado_percentual: 12 }))
+        // a resposta com só o modo FECHA o levantamento: os três percentuais não fazem falta (a travessia e o arquivo os resolvem; sem base, ZERO)
+        llmResponde({ condicoes: { comissao_modo: 'CONGELADA' } })
+        await chamar('congelada', doOutro)
+        expect(textoDoSistema(estado.chamadasDaLlm[1].corpo.system)).toContain('Pergunta em aberto: Para fechar o levantamento, falta o modo da comissão')
+        expect(lev()).toEqual(expect.objectContaining({ estado: 'COMPLETO', comissao_modo: 'CONGELADA' }))
+        for (const k of ['comissao_percentual', 'reserva_tecnica_percentual', 'lucro_projetado_percentual']) expect(lev()[k]).toBeUndefined()
         expect(estado.documentos).toHaveLength(1)
         expect(textoDoArquivo()).toContain('Modo: congelada')
+        expect(textoDoArquivo()).toContain('0%')
     })
 
     it('o VENDEDOR dito (quem lança para outro): o vínculo e o nome dele, e os percentuais do cadastro DELE', async () => {
         llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }], vendedor_do_levantamento: 'Beltrana Souza' })
         await chamar(`${MSG}, é para a Beltrana Souza`)
-        expect(lev()).toEqual(expect.objectContaining({ vendedor_employee_id: 'e-beltrana', vendedor_nome: 'Beltrana Souza', comissao_percentual: 4, comissao_modo: 'CONGELADA', lucro_projetado_percentual: 12 }))
+        // os percentuais são os da pré-definição DELA, lidos no arquivo — não gravados; o modo, congelado do cadastro dela
+        expect(lev()).toEqual(expect.objectContaining({ vendedor_employee_id: 'e-beltrana', vendedor_nome: 'Beltrana Souza', comissao_modo: 'CONGELADA' }))
+        for (const k of ['comissao_percentual', 'lucro_projetado_percentual']) expect(lev()[k] ?? null).toBeNull()
         expect(textoDoArquivo()).toContain('Beltrana Souza')
         expect(textoDoArquivo()).toContain('4%')
+        expect(textoDoArquivo()).toContain('12%')
     })
 
-    it('TROCAR o vendedor de um levantamento já congelado: os percentuais do NOVO cadastro, menos os ditos na mesma mensagem', async () => {
+    it('TROCAR o vendedor de um levantamento já congelado: os percentuais da pré-definição do NOVO vendedor, menos a alteração dita na mesma mensagem', async () => {
         llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }] })
         await chamar(MSG)
-        expect(lev()).toEqual(expect.objectContaining({ vendedor_employee_id: 'e-cristiano', comissao_percentual: 5, comissao_modo: 'PROPORCIONAL', lucro_projetado_percentual: 10 }))
+        expect(lev()).toEqual(expect.objectContaining({ vendedor_employee_id: 'e-cristiano', comissao_modo: 'PROPORCIONAL' }))
+        for (const k of ['comissao_percentual', 'lucro_projetado_percentual']) expect(lev()[k] ?? null).toBeNull()
         llmResponde({ nome: 'Casa do Pedro', vendedor_do_levantamento: 'Beltrana Souza', condicoes: { lucro_projetado_percentual: 15 } })
         await chamar('Casa do Pedro: é para a Beltrana Souza, lucro 15')
-        expect(lev()).toEqual(expect.objectContaining({ vendedor_employee_id: 'e-beltrana', comissao_percentual: 4, comissao_modo: 'CONGELADA', reserva_tecnica_percentual: 2, lucro_projetado_percentual: 15 }))
+        // o modo, do cadastro dela; o lucro, a alteração dita; a comissão e a RT, da pré-definição dela, lidas no arquivo (4% e 2%)
+        expect(lev()).toEqual(expect.objectContaining({ vendedor_employee_id: 'e-beltrana', comissao_modo: 'CONGELADA', lucro_projetado_percentual: 15 }))
+        for (const k of ['comissao_percentual', 'reserva_tecnica_percentual']) expect(lev()[k] ?? null).toBeNull()
         expect(textoDoArquivo()).toContain('Modo: congelada')
+        expect(textoDoArquivo()).toContain('4%')
+        expect(textoDoArquivo()).toContain('15%')
     })
 
     // os dois Germano Teixeira da De Paula, como estão no cadastro (medido em 06/11/2026)
@@ -5329,7 +5456,7 @@ describe('(42) a coleta dos dados do levantamento: cliente, ambientes, obs, perc
         // (os dois campos divergem; vale is_active), e o de 11/08 ativo, com o cargo "Vendedor " (espaço no fim: dado sujo, que não decide nada).
         // Nenhum dos dois tem cadastro de vendedor (orcamentista_vendedor_perfil)
         const comOsGermano = () => estado.db.employees.push({ ...GERMANO_INATIVO }, { ...GERMANO_ATIVO })
-        const PERCENTUAIS_DO_GERMANO = 'Para fechar o levantamento, faltam a comissão (%), o modo da comissão (proporcional ou congelada), a reserva técnica (%) e o lucro projetado da proposta (%) do vendedor Germano Teixeira. Qual é?'
+        const PERCENTUAIS_DO_GERMANO = 'Para fechar o levantamento, falta o modo da comissão (proporcional ou congelada) do vendedor Germano Teixeira. Qual é?'
 
         it('OS DOIS GERMANO REAIS: "é do Germano" resolve DIRETO para o ativo, sem pergunta; sem cadastro de vendedor, PERGUNTA os percentuais — nunca os do remetente', async () => {
             comOsGermano()
@@ -5340,6 +5467,7 @@ describe('(42) a coleta dos dados do levantamento: cliente, ambientes, obs, perc
             for (const k of ['comissao_percentual', 'comissao_modo', 'reserva_tecnica_percentual', 'lucro_projetado_percentual']) expect(lev()[k]).toBeNull()
             expect(ultimoEnviado()).toBe(PERCENTUAIS_DO_GERMANO)
             expect(estado.documentos).toHaveLength(0)
+            // a resposta traz o modo e, de quebra, ALTERAÇÕES dos percentuais: elas entram no levantamento e vencem a base
             llmResponde({ condicoes: { comissao_percentual: 3, comissao_modo: 'PROPORCIONAL', reserva_tecnica_percentual: 0, lucro_projetado_percentual: 8 } })
             await chamar('comissão 3 proporcional, RT 0, lucro 8')
             expect(lev()).toEqual(expect.objectContaining({ estado: 'COMPLETO', vendedor_employee_id: GERMANO_ATIVO.id, comissao_percentual: 3, reserva_tecnica_percentual: 0, lucro_projetado_percentual: 8 }))
@@ -5435,11 +5563,12 @@ describe('(42) a coleta dos dados do levantamento: cliente, ambientes, obs, perc
             for (const k of ['vendedor_nome', 'vendedor_employee_id', 'comissao_percentual']) expect(lev()[k] ?? null).toBeNull()
             expect(ultimoEnviado()).toBe(dadosDoLevantamento.FRASE_FALTA_O_VENDEDOR)
             expect(estado.documentos).toHaveLength(0)
-            // a resposta diz o vendedor: a Beltrana (ativa, com cadastro) — os percentuais do cadastro DELA
+            // a resposta diz o vendedor: a Beltrana (ativa, com cadastro) — o modo do cadastro DELA, e os percentuais da pré-definição dela no arquivo
             llmResponde({ vendedor_do_levantamento: 'Beltrana' })
             await chamar('é da Beltrana')
             expect(textoDoSistema(estado.chamadasDaLlm[1].corpo.system)).toContain(`Pergunta em aberto: ${dadosDoLevantamento.FRASE_FALTA_O_VENDEDOR}`)
-            expect(lev()).toEqual(expect.objectContaining({ estado: 'COMPLETO', vendedor_employee_id: 'e-beltrana', vendedor_nome: 'Beltrana Souza', comissao_percentual: 4 }))
+            expect(lev()).toEqual(expect.objectContaining({ estado: 'COMPLETO', vendedor_employee_id: 'e-beltrana', vendedor_nome: 'Beltrana Souza', comissao_modo: 'CONGELADA' }))
+            expect(textoDoArquivo()).toContain('4%')
         })
     })
 
@@ -5447,7 +5576,8 @@ describe('(42) a coleta dos dados do levantamento: cliente, ambientes, obs, perc
         // o caso real: em produção existe o levantamento "Levantamento João da Silva Ternes" — João é o CLIENTE. Aqui há um funcionário ATIVO
         // chamado João (fictício): um nome solto que case com ele nunca vira troca de vendedor
         const JOAO = { id: 'e-joao', tenant_id: TENANT, name: 'João Pereira', position: null as string | null, is_active: true, status: 'ACTIVE', created_at: '2026-06-10T12:00:00+00:00', user_id: null as string | null, role: 'COMMERCIAL' }
-        const DO_REMETENTE = { vendedor_employee_id: 'e-cristiano', vendedor_nome: 'Cristiano Fernandes', comissao_percentual: 5, lucro_projetado_percentual: 10 }
+        // o vendedor do remetente e o MODO do cadastro dele (os percentuais não são congelados no levantamento: 11/11/2026)
+        const DO_REMETENTE = { vendedor_employee_id: 'e-cristiano', vendedor_nome: 'Cristiano Fernandes', comissao_modo: 'PROPORCIONAL' }
 
         it('(a)+(c) "Levantamento João da Silva Ternes": o João é o cliente — o vendedor NÃO troca, mesmo com a IA propondo João; o nome vai ao cliente', async () => {
             estado.db.employees.push({ ...JOAO })

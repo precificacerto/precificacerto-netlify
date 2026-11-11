@@ -68,7 +68,13 @@ export enum ROUTES {
   /** A página de UM nicho do Catálogo: `${SUPER_ADMIN_IA_CATALOGO}/[nichoId]?aba=…` (dono do produto, 29/10/2026: o nicho é o container). */
   SUPER_ADMIN_IA_CATALOGO = '/super-admin/atendimentos-ia/catalogo',
   SUPER_ADMIN_IA_CONTAS = '/super-admin/atendimentos-ia/contas',
+  /** A ROTA ANTIGA da Conectividade I.A. (até 11/11/2026, em Agentes I.A.): só existe para redirecionar o link salvo (`next.config.js`). */
   ATENDIMENTOS_IA_ORCAMENTISTA = '/atendimentos-ia/orcamentista',
+  /** A Conectividade I.A., em OPERACIONAL desde 11/11/2026 (dono do produto). */
+  CONECTIVIDADE_IA = '/conectividade-ia',
+  /** Os Levantamentos I.A. e os Relatórios I.A. (dono do produto, 11/11/2026): a primeira e a terceira seção de Agentes I.A. */
+  ATENDIMENTOS_IA_LEVANTAMENTOS = '/atendimentos-ia/levantamentos-ia',
+  ATENDIMENTOS_IA_RELATORIOS = '/atendimentos-ia/relatorios-ia',
   /** Os Orçamentos I.A. (dono do produto, 09/11/2026); um orçamento é `${ATENDIMENTOS_IA_ORCAMENTOS}/[id]`. */
   ATENDIMENTOS_IA_ORCAMENTOS = '/atendimentos-ia/orcamentos-ia',
   /** Base das telas de UMA tabela: `${SUPER_ADMIN_IA_TABELAS}/[id]/importacao`. */

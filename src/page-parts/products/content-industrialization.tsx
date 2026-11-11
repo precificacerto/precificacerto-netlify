@@ -6,10 +6,16 @@ import { IItemProductModel } from '@/server/model/item-product-item'
 import { ColumnsType } from 'antd/es/table'
 import { getMonetaryValue } from '@/utils/get-monetary-value'
 import { CalcBaseType } from '@/types/calc-base.type'
-import { ProductPrice, AdvancedTaxParams } from './product-price.component'
+import { ProductPrice, AdvancedTaxParams, type PrecoEmitido } from './product-price.component'
 import { LoggedUser } from '@/types/logged-user.type'
 import { ProductPriceInfoType } from './content.component'
 import { useDevice } from '@/contexts/device.context'
+
+/**
+ * No modo orçamento a linha da mão de obra é SÓ o tempo total de produção da obra, em minutos, SEM valor (dono do produto, 11/11/2026): "o
+ * valor já aparece em cada item". O custo da fabricação continua gravado por item (`custo_fabricacao`); isto é só apresentação.
+ */
+export const ROTULO_DO_TEMPO_DA_OBRA = 'Tempo total de produção da obra'
 
 interface ContentIndustrializationProps {
   itemsForm: FormInstance
@@ -35,9 +41,11 @@ interface ContentIndustrializationProps {
   freightValue?: number
   insuranceValue?: number
   accessoryExpensesValue?: number
-  ibsPct?: number
+  ibsPct?: number | null
   onIbsPctChange?: (value: number) => void
-  cbsPct?: number
+  cbsPct?: number | null
+  /** orçamento I.A.: os impostos são os da empresa, só leitura (11/11/2026) */
+  impostosDaEmpresa?: boolean
   onCbsPctChange?: (value: number) => void
   ivaReductionIbsPct?: number | null
   ivaReductionCbsPct?: number | null
@@ -50,7 +58,7 @@ interface ContentIndustrializationProps {
   cbsBaseCode?: number | null
   isBaseCode?: number | null
   ipiBaseCode?: number | null
-  onFinalPriceWithTaxesChange?: (data: { finalPrice: number; basePrice: number; externalOpsCoefficient: number | null }) => void
+  onFinalPriceWithTaxesChange?: (data: PrecoEmitido) => void
   /** Só no modo "orçamento": o preço deixou de se formar. Ver `ProductPrice`. */
   onPrecoNaoFormado?: () => void
   advancedTaxesSection?: ReactNode
@@ -96,6 +104,7 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
   ibsPct,
   onIbsPctChange,
   cbsPct,
+  impostosDaEmpresa,
   onCbsPctChange,
   ivaReductionIbsPct,
   ivaReductionCbsPct,
@@ -181,7 +190,7 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
             minutos à ESQUERDA, valor em R$ à DIREITA — abaixo do rótulo. */}
         {isMobile ? (
           <section className="p-1 mt-3">
-            <div style={{ fontWeight: 500, marginBottom: 6 }}>Mão de obra produtiva</div>
+            <div style={{ fontWeight: 500, marginBottom: 6 }}>{somenteLeitura ? ROTULO_DO_TEMPO_DA_OBRA : 'Mão de obra produtiva'}</div>
             {/* Relatório mobile #3: o campo de MINUTOS ocupa no MÁXIMO 50% da largura; o valor
                 (R$) ocupa os outros 50%, alinhado à borda DIREITA (padrão de valores do sistema). */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -200,15 +209,17 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
                   readOnly={somenteLeitura}
                 />
               </div>
-              <div style={{ flex: '1 1 50%', textAlign: 'right', whiteSpace: 'nowrap', fontWeight: 600 }}>
-                R$ {getMonetaryValue(productPriceInfo.productWorkloadInMinutesPrice)}
-              </div>
+              {!somenteLeitura && (
+                <div style={{ flex: '1 1 50%', textAlign: 'right', whiteSpace: 'nowrap', fontWeight: 600 }} data-valor-da-mao-de-obra="">
+                  R$ {getMonetaryValue(productPriceInfo.productWorkloadInMinutesPrice)}
+                </div>
+              )}
             </div>
           </section>
         ) : (
           <section className="flex items-center p-1 mt-3 ps-row-flex">
             {/* Coluna Nome (22%) — rótulo */}
-            <div className="p-2" style={{ width: '22%', fontWeight: 500 }}>Mão de obra produtiva</div>
+            <div className="p-2" style={{ width: '22%', fontWeight: 500 }}>{somenteLeitura ? ROTULO_DO_TEMPO_DA_OBRA : 'Mão de obra produtiva'}</div>
             {/* Coluna Qtd. por unidade (16%) — campo de minutos */}
             <div style={{ width: '16%', padding: '0 4px' }}>
               <Input
@@ -228,8 +239,8 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
             {/* Colunas Qtd. Total (14%) + Bruto (12%) — espaçadores para manter o alinhamento */}
             <div style={{ width: '26%' }} />
             {/* Coluna Líquido (12%) — valor em R$ */}
-            <div style={{ width: '12%', textAlign: 'left', whiteSpace: 'nowrap', fontWeight: 600 }}>
-              R$ {getMonetaryValue(productPriceInfo.productWorkloadInMinutesPrice)}
+            <div style={{ width: '12%', textAlign: 'left', whiteSpace: 'nowrap', fontWeight: 600 }} data-valor-da-mao-de-obra="">
+              {!somenteLeitura && <>R$ {getMonetaryValue(productPriceInfo.productWorkloadInMinutesPrice)}</>}
             </div>
             {/* Coluna Ações (resto) — espaçador */}
             <div style={{ flex: 1 }} />
@@ -258,6 +269,7 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
         ibsPct={ibsPct}
         onIbsPctChange={onIbsPctChange}
         cbsPct={cbsPct}
+        impostosDaEmpresa={impostosDaEmpresa}
         ivaReductionIbsPct={ivaReductionIbsPct}
         ivaReductionCbsPct={ivaReductionCbsPct}
         onCbsPctChange={onCbsPctChange}

@@ -1,5 +1,6 @@
 /**
- * /atendimentos-ia/orcamentista — "Conectividade I.A.", na seção Agentes I.A. do menu.
+ * /conectividade-ia — "Conectividade I.A.", na seção OPERACIONAL do menu (dono do produto, 11/11/2026; até então era
+ * /atendimentos-ia/orcamentista, em Agentes I.A. — a rota antiga redireciona para esta, `next.config.js`).
  *
  * É SÓ A LIGAÇÃO (dono do produto, 09/11/2026: "Conectividade é a ligação; levantamentos é os arquivos gerados sobre a conversa"): o ESTADO DA
  * CONEXÃO (conectado ou não, último estado registrado) e quantas pessoas estão liberadas. Sem conexão, uma linha dizendo isso e o link para
@@ -85,7 +86,7 @@ function Orcamentista() {
     }, [])
 
     return (
-        <Layout title={PAGE_TITLES.ORCAMENTISTA} subtitle="Atendimentos I.A.">
+        <Layout title={PAGE_TITLES.ORCAMENTISTA} subtitle="Operacional">
             <div data-pagina-do-orcamentista="" data-estado={estado.tipo}>
                 {estado.tipo === 'carregando' && <div style={{ padding: 32, textAlign: 'center' }}><Spin /></div>}
                 {estado.tipo === 'desligada' && <Alert type="info" showIcon message="O Atendimentos I.A. não está ligado nesta conta." />}

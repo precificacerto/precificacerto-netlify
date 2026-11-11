@@ -172,15 +172,23 @@ export type CondicoesDoLevantamento = {
 export type PerfilDoVendedor = {
     comissao_percentual: number | null; comissao_modo: ModoDaComissao | null; reserva_tecnica_percentual: number | null; lucro_projetado_percentual: number | null
 }
-const CAMPOS_DO_CADASTRO = ['comissao_percentual', 'comissao_modo', 'reserva_tecnica_percentual', 'lucro_projetado_percentual'] as const
+/**
+ * A BASE DE CONHECIMENTO É A REFERÊNCIA DOS PERCENTUAIS (dono do produto, 11/11/2026): "comissão e lucro projetado vêm da pré-definição do
+ * vendedor na base de conhecimento. RT normalmente é 0. [...] A conversa DEIXA de perguntar os três percentuais para dar o levantamento por
+ * completo. O vendedor só informa quando quiser ALTERAR; nesse caso a alteração entra no apanhado, vai para o levantamento, e o levantamento
+ * vence a base." Por isso os três NÃO são congelados do cadastro no levantamento (o levantamento guarda só a alteração dita) nem perguntados:
+ * quem os resolve é a travessia e a folha, pela ordem alteração dita -> pré-definição do vendedor -> zero (`resolverPercentual`).
+ * O MODO da comissão não é percentual e segue como antes: o cadastro o congela e, sem ele, a conversa pergunta.
+ */
+const CAMPOS_DO_CADASTRO = ['comissao_modo'] as const
 const NOME_DO_CAMPO: Record<(typeof CAMPOS_DO_CADASTRO)[number], string> = {
-    comissao_percentual: 'a comissão (%)', comissao_modo: 'o modo da comissão (proporcional ou congelada)',
-    reserva_tecnica_percentual: 'a reserva técnica (%)', lucro_projetado_percentual: 'o lucro projetado da proposta (%)',
+    comissao_modo: 'o modo da comissão (proporcional ou congelada)',
 }
 
 /**
- * O que vale no levantamento: o gravado (o dito, ou o já congelado do cadastro) e, no que falta, o cadastro do vendedor. Devolve também o que
- * veio do cadastro AGORA (para congelar no levantamento) e o que continua faltando (para perguntar). O responsável pela RT nunca vem do cadastro.
+ * O que vale no levantamento: o gravado (o dito, ou o já congelado do cadastro) e, no que falta, o cadastro do vendedor — só no modo da comissão
+ * (os três percentuais não são congelados nem perguntados, ver acima). Devolve também o que veio do cadastro AGORA (para congelar no
+ * levantamento) e o que continua faltando (para perguntar). O responsável pela RT nunca vem do cadastro.
  */
 export function condicoesComOCadastro(gravadas: CondicoesDoLevantamento, perfil: PerfilDoVendedor | null): {
     condicoes: CondicoesDoLevantamento; doCadastro: Partial<CondicoesDoLevantamento>; faltam: string[]

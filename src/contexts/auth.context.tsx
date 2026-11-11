@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, createContext, ReactNode } from 'react'
+import { usuarioDoCalculo } from '@/utils/usuario-do-calculo'
 import { supabase } from '@/supabase/client'
 import { resolveDasHibridoDoTenant } from '@/utils/simples-hibrido'
 import { useRouter } from 'next/router'
@@ -317,14 +318,6 @@ async function fetchUserProfile(userId: string): Promise<LoggedUser | null> {
     itemAccess = { all: hasAllItems, itemIds }
   }
 
-  const calcTypeMap: Record<string, string> = {
-    INDUSTRIALIZACAO: 'INDUSTRIALIZATION',
-    SERVICO: 'SERVICE',
-    REVENDA: 'RESALE',
-    INDUSTRIALIZATION: 'INDUSTRIALIZATION',
-    SERVICE: 'SERVICE',
-    RESALE: 'RESALE',
-  }
 
   return {
     uid: user.id,
@@ -332,13 +325,9 @@ async function fetchUserProfile(userId: string): Promise<LoggedUser | null> {
     name: user.name ?? undefined,
     isActive: user.is_active ?? true,
     permissions,
-    calcType: (calcTypeMap[settings?.calc_type] || settings?.calc_type || null) as any,
-    monthlyWorkloadInMinutes: settings?.monthly_workload ? Number(settings.monthly_workload) : 0,
-    unitMeasure: settings?.workload_unit || null,
-    numProductiveSectorEmployee: settings?.num_productive_employees ?? 1,
+    ...usuarioDoCalculo(settings),
     numComercialSectorEmployee: settings?.num_commercial_employees ?? 0,
     numAdministrativeSectorEmployee: settings?.num_administrative_employees ?? 0,
-    taxableRegime: settings?.tax_regime || null,
     taxableRegimeValue: await computeTaxableRegimeValue(settings),
     tenant_id: user.tenant_id,
     role: user.role,
