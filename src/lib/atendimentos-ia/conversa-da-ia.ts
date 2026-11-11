@@ -192,7 +192,7 @@ import { vidroPodado } from '@/lib/atendimentos-ia/vidro'
 import type { VariaveisDaTipologia } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import { compararNome, formaComparavel, nomeDaMensagem, nomeDoCliente, nomeSemPrefixo, normalizarNome } from '@/lib/atendimentos-ia/nome-do-levantamento'
 import { fraseDaCorForaDaLista, perguntasDaTipologia, type JaDito } from '@/lib/atendimentos-ia/pre-definicao'
-import { fraseDaLinhaSemPadrao, tipologiaPadrao } from '@/lib/atendimentos-ia/tipologia-padrao'
+import { fraseDoPadraoQueFalta, tipologiaPadrao } from '@/lib/atendimentos-ia/tipologia-padrao'
 import { PROMPT_BASE } from '@/utils/atendimentos-ia-prompt-base'
 import { LIMITE_DA_FALA } from '@/utils/atendimentos-ia-contexto'
 import { blocoDasInstrucoes, lerInstrucoesDaEmpresa, type InstrucaoDaCategoria } from '@/lib/atendimentos-ia/instrucoes-da-categoria'
@@ -228,7 +228,7 @@ export type DesfechoDaIa =
     | 'nao-avancou' | 'confirmar-acrescimo' | 'confirmar-resgate' | 'nao-acrescentou' | 'nao-confirmou'
     /** O ARQUIVO do levantamento enviado para conferir (06/11/2026); recusado pelo gerador; não enviado; o vendedor dito que não está no cadastro. */
     | 'arquivo' | 'arquivo-recusado' | 'arquivo-nao-enviado' | 'vendedor-nao-achado'
-    | 'perguntou' | 'sem-cores' | 'sem-linha' | 'levantou' | 'recusou' | 'envio-falhou' | 'erro' | 'nenhuma-cabe'
+    | 'perguntou' | 'sem-cores' | 'sem-linha' | 'padrao-nomeado' | 'levantou' | 'recusou' | 'envio-falhou' | 'erro' | 'nenhuma-cabe'
     /** O reenvio do WUZAPI de uma entrada já respondida (200 sem conduzir), e o reenvio da saída cujo primeiro envio falhou (03/11/2026). */
     | 'repetida' | 'reenviada'
 
@@ -1570,14 +1570,18 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         // quando o acumulado não indica nada fora do padrão (`tipologia-padrao.ts`); e a COR não dita = a predominante da base
         const dizAlgo = (i: ItemDoLevantamento) => (['tipologia', 'largura_mm', 'altura_mm', 'vidro'] as const).some((k) => i[k] !== null && i[k] !== undefined)
         const tipologiasDoPadrao: string[] = []
-        // a LINHA de produto sem padrão (11/11/2026): falta nomeada, nunca pergunta ao vendedor
-        const linhasSemPadrao: Array<{ ordem: number; linhas: string[] }> = []
+        // o que o padrão NÃO resolve e se diz (11/11/2026): a linha sem padrão, as descrições que nada separa, a modulação da bandeira, a lacuna
+        // do motor — por esquadria, nunca "sem padrão" mudo
+        const faltasDoPadrao: Array<{ ordem: number; frase: string; motivo: string }> = []
         for (const item of proposta_.itens) {
             if (!dizAlgo(item)) continue
             if (item.tipologia === null) {
                 const padrao = tipologiaPadrao(item, proposta_.aberturas[item.ordem] ?? null, filtro.lidos, tabela.candidatos)
                 if ('tipologia' in padrao) { item.tipologia = padrao.tipologia; rastro.tipologiasPadrao += 1; tipologiasDoPadrao.push(`e${item.ordem}:${padrao.tipologia}`) }
-                else if (padrao.motivo === 'LINHA') linhasSemPadrao.push({ ordem: item.ordem, linhas: padrao.linhas })
+                else {
+                    const frase = fraseDoPadraoQueFalta(padrao)
+                    if (frase !== null) faltasDoPadrao.push({ ordem: item.ordem, frase, motivo: padrao.motivo })
+                }
             }
             // a predominante é da cor NÃO DITA (08/11/2026): a cor dita que a empresa não tem fica vazia, e a conversa pergunta nomeando-a
             const ditaForaDaLista = proposta_.coresForaDaLista.some((x) => x.ordem === item.ordem)
@@ -1741,10 +1745,12 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             }
             // sem lista de cores na base, perguntar a cor não leva a lugar nenhum: a conversa diz o que falta
             if ('campo' in pendencia && pendencia.campo === 'cor_perfil' && cores.length === 0) return await responder(FRASE_SEM_CORES, 'sem-cores')
-            // a linha de produto sem padrão na base (11/11/2026): o que falta é configuração — a conversa diz, por esquadria, e não pergunta
-            const semLinha = linhasSemPadrao.filter((x) => aplicada.itens.some((i) => i.ordem === x.ordem && i.tipologia === null))
-            if (semLinha.length > 0) {
-                return await responder(semLinha.map((x) => `${aplicada.itens.length > 1 ? `Esquadria ${x.ordem}: ` : ''}${fraseDaLinhaSemPadrao(x.linhas)}`).join('\n'), 'sem-linha')
+            // o que o padrão não resolve (11/11/2026): a conversa diz, por esquadria, com a frase de cada motivo — a linha sem padrão é
+            // configuração (sem-linha); as outras nomeiam a falta ou as opções (padrao-nomeado)
+            const semPadrao = faltasDoPadrao.filter((x) => aplicada.itens.some((i) => i.ordem === x.ordem && i.tipologia === null))
+            if (semPadrao.length > 0) {
+                return await responder(semPadrao.map((x) => `${aplicada.itens.length > 1 ? `Esquadria ${x.ordem}: ` : ''}${x.frase}`).join('\n'),
+                    semPadrao.every((x) => x.motivo === 'LINHA') ? 'sem-linha' : 'padrao-nomeado')
             }
             // A COR DITA E FORA DA LISTA (dono do produto, 08/11/2026): a pergunta nomeia a cor e as cores da empresa — e o resto do que
             // falta vai junto, na mesma resposta. A esquadria continua sem cor: nada a troca pela predominante

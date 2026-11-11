@@ -4944,12 +4944,33 @@ describe('(38) Maria Cristina: a montagem não absorve outro cliente, expira em 
             }
         })
 
-        it('sem a DP-01 no motor da empresa, a maxim-ar não tem padrão — nunca "a maxim-ar mais parecida"', async () => {
+        // REVISTO em 11/11/2026 (modulação, 3a): este caso afirmava "sem a DP-01, a maxim-ar não tem padrão". A decisão nova diz que a ÚNICA
+        // candidata de 1 módulo sem extra é a escolha, qualquer que seja o rótulo da modulação — a DP-128 passa a valer; com DUAS, falta nomeada
+        it('sem a DP-01, a ÚNICA maxim-ar de 1 módulo sem extra (DP-128) é a escolha; com DUAS (DP-128 e DP-132), a conversa nomeia as descrições e não escolhe', async () => {
             estado.db.orcamentista_motor_tipologia_detalhe = estado.db.orcamentista_motor_tipologia_detalhe.filter((d) => d.tipologia !== 'DP-01')
             estado.db.orcamentista_motor_tipologia_detalhe.push({ tabela_id: null, motor_id: MOTOR, tipologia: 'DP-128', descricao: 'MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL | PERFIL MODULAÇÃO | EUROPA 60', tipo: 'Maxim-ar', linha: 'PVC WOLFF EUROPA 60' })
             llmResponde({ cliente: 'Ana', itens: [{ ...JANELA }] })
             await chamar('Cliente: Ana. 1 janela maxim ar 600 x 600')
+            expect(itens('Ana')[0].tipologia).toBe('DP-128')
+            estado.db.orcamentista_motor_tipologia_detalhe.push({ tabela_id: null, motor_id: MOTOR, tipologia: 'DP-132', descricao: 'MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL | MODULAÇÃO TRAVESSA | EUROPA 60', tipo: 'Maxim-ar', linha: 'PVC WOLFF EUROPA 60' })
+            llmResponde({ cliente: 'Bia', itens: [{ ...JANELA }] })
+            await chamar('Cliente: Bia. 1 janela maxim ar 600 x 600', { senderAlt: TELEFONE_DO_OUTRO })
+            expect(itens('Bia')[0].tipologia).toBeNull()
+            expect(ultimoEnviado()).toContain('MODULAÇÃO TRAVESSA')
+            expect(ultimoEnviado()).toContain('PERFIL MODULAÇÃO')
+            expect(ultimoEnviado()).not.toContain('DP-1')
+            expect(linhaIa().pop()).toContain('desfecho=padrao-nomeado')
+        })
+
+        it('PORTA DE GIRO sem folha lisa no motor: a conversa nomeia a LACUNA DO MOTOR e as que existem — nunca a de 2 folhas, nunca "sem padrão" mudo', async () => {
+            estado.db.orcamentista_motor_tipologia_detalhe.push(
+                { tabela_id: null, motor_id: MOTOR, tipologia: 'DP-152', descricao: 'PORTA DE GIRO 01 FOLHA | VENEZIANA | EUROPA 60', tipo: 'Giro / Abrir', linha: 'PVC WOLFF EUROPA 60' },
+                { tabela_id: null, motor_id: MOTOR, tipologia: 'DP-159', descricao: 'PORTA DE GIRO 02 FOLHAS | VIDRO | EUROPA 60', tipo: 'Giro / Abrir', linha: 'PVC WOLFF EUROPA 60' })
+            llmResponde({ cliente: 'Ana', itens: [{ ...PORTA, abertura: 'porta' }] })
+            await chamar('Cliente: Ana. 1 porta de giro 0,90 x 2,10')
             expect(itens('Ana')[0].tipologia).toBeNull()
+            expect(ultimoEnviado()).toContain('Falta no motor — não há tipologia de porta de giro de 1 folha lisa: as que existem são com veneziana.')
+            expect(linhaIa().pop()).toContain('desfecho=padrao-nomeado')
         })
 
         it('as funções: folhasDitas e tipologiaPadrao ATRIBUTO POR ATRIBUTO (11/11/2026) — o portão completo é tipologia-padrao-atributo-por-atributo.test.ts', () => {

@@ -161,8 +161,23 @@ export type DecisaoDoPadrao =
     | { motivo: MotivoSemPadrao }
     /** Duas ou mais candidatas que só diferem pela linha de produto: a linha padrão é da base de conhecimento (falta nomeada). */
     | { motivo: 'LINHA'; candidatas: string[]; linhas: string[] }
-    /** Duas ou mais candidatas, na mesma linha, que diferem num atributo SEM natural (o tipo da modulação, por exemplo: travessa × perfil). */
-    | { motivo: 'SEM_NATURAL'; atributos: string[]; candidatas: string[] }
+    /** Duas ou mais candidatas, na mesma linha, que diferem num atributo SEM natural: falta nomeada, com as descrições — nunca "a primeira". */
+    | { motivo: 'SEM_NATURAL'; atributos: string[]; candidatas: string[]; descricoes: string[] }
+    /** Com um extra dito (a bandeira), a divisão é atributo DAQUELE extra: as candidatas só diferem pela modulação, e ela se pergunta. */
+    | { motivo: 'MODULACAO'; candidatas: string[]; opcoes: string[]; esquadria: string; extras: string[] }
+    /** LACUNA DO MOTOR: com o que foi dito, o motor só tem a esquadria COM extras a mais (a porta de giro de 1 folha só existe com veneziana…). */
+    | { motivo: 'LACUNA'; esquadria: string; extrasDitos: string[]; existentes: string[] }
+
+/**
+ * A MODULAÇÃO (dono do produto, 11/11/2026, leitura do PO): o rótulo de como os módulos se dividem — travessa ou perfil de modulação. Com UM
+ * módulo e sem extra, ela não decide nada: sendo a única candidata, é a escolha, qualquer que seja o rótulo. Com um extra dito (bandeira,
+ * peitoril), há divisão de verdade, e ela vira atributo daquele extra.
+ */
+export const MODULACOES: readonly Extra[] = ['modulação de travessa', 'perfil de modulação']
+const ehModulacao = (e: Extra) => MODULACOES.includes(e)
+const semModulacao = (s: ReadonlySet<Extra>): Set<Extra> => new Set([...s].filter((e) => !ehModulacao(e)))
+const ROTULO_DA_MODULACAO: Readonly<Record<string, string>> = { 'modulação de travessa': 'travessa', 'perfil de modulação': 'perfil de modulação' }
+const TIPO_NA_FRASE: Readonly<Record<string, string>> = { correr: 'de correr', abrir: 'de giro', 'oscilo-batente': 'oscilo-batente', pivotante: 'pivotante', 'maxim-ar': 'maxim-ar', fixo: 'fixa' }
 
 /** A tipologia padrão da esquadria, ou o motivo de não haver. */
 export function tipologiaPadrao(item: ItemDoLevantamento, abertura: Abertura | null, trechos: readonly TrechoDoAcumulado[], candidatos: readonly CandidatoDeTipologia[]): DecisaoDoPadrao {
@@ -192,19 +207,58 @@ export function tipologiaPadrao(item: ItemDoLevantamento, abertura: Abertura | n
 
     const folhasPedidas = ditos.folhas ?? naturalDaQuantidade(tipo)
     const comAtributos = candidatos.map((c) => ({ c, a: atributosDaDescricao(c) }))
-    const restantes = comAtributos.filter(({ a }) =>
+    // o tipo, a abertura e a QUANTIDADE (folhas ou módulos) — os extras vêm depois, em três passos
+    const doTipo = comAtributos.filter(({ a }) =>
         a.tipo === tipo
         // porta nunca vira janela, janela nunca vira porta; a maxim-ar e o fixo (sem abertura na descrição) são o natural só da JANELA
         // (05/11/2026: "a janela cujo trecho diz só o tipo maxim-ar")
         && (a.abertura === abertura || (a.abertura === null && abertura === 'janela'))
-        // os extras: exatamente os ditos — o natural de todos é não ter
-        && mesmosExtras(a.extras, ditos.extras)
         // as folhas: as ditas, ou o natural (correr 2, o resto 1). A candidata que não descreve folhas (maxim-ar, fixo) só aceita "1 folha"
         // dita — outro número dito nela nunca é ignorado em silêncio
         && (a.folhas === folhasPedidas || (a.folhas === null && (ditos.folhas === null || ditos.folhas === 1)))
         // os módulos: o natural é um (o vertical fixo "01", ou nenhum fixado); o número variável na descrição ("V") não é o natural
         && (!comModulos || a.modulos === null || a.modulos === naturalDaQuantidade(tipo)))
-    if (restantes.length === 0) return { motivo: 'SEM_CANDIDATA' }
+    const esquadria = `${abertura} ${TIPO_NA_FRASE[tipo] ?? tipo} de ${quantidadeNaFrase(doTipo.length ? doTipo[0].a : null, folhasPedidas)}`
+
+    // 1) EXATAMENTE os extras ditos — o natural de todos é não ter, e a modulação conta (a maxim-ar lisa é a DP-01, sem rótulo nenhum)
+    const exatas = doTipo.filter(({ a }) => mesmosExtras(a.extras, ditos.extras))
+    if (exatas.length > 0) return decidir(exatas, item)
+
+    // 2) a MODULAÇÃO como rótulo: as que têm os extras ditos e só diferem pelo rótulo da divisão
+    const modulacaoDita = [...ditos.extras].filter(ehModulacao)
+    const porModulacao = doTipo.filter(({ a }) => mesmosExtras(semModulacao(a.extras), semModulacao(ditos.extras)) && modulacaoDita.every((e) => a.extras.has(e)))
+    // a) uma só: ela é a escolha, qualquer que seja o rótulo (o fixo de 1 módulo: só a DP-143)
+    if (porModulacao.length === 1) return decidir(porModulacao, item)
+    if (porModulacao.length > 1) {
+        const outrosExtras = [...semModulacao(ditos.extras)]
+        const rotulos = porModulacao.map(({ a }) => [...a.extras].filter(ehModulacao).map((e) => ROTULO_DA_MODULACAO[e] ?? e).join(' e '))
+        // b) com extra dito e uma modulação diferente em cada: a divisão é atributo do extra, e se pergunta
+        if (outrosExtras.length > 0 && new Set(rotulos).size === porModulacao.length && rotulos.every((r) => r !== '')) {
+            return { motivo: 'MODULACAO', candidatas: porModulacao.map(({ c }) => c.tipologia), opcoes: rotulos, esquadria, extras: outrosExtras }
+        }
+        // c) sem extra dito (ou nada que as distinga): falta nomeada
+        return { motivo: 'SEM_NATURAL', atributos: ['modulação'], candidatas: porModulacao.map(({ c }) => c.tipologia), descricoes: porModulacao.map(({ c }) => descricaoSemLinha(c)) }
+    }
+
+    // 3) LACUNA DO MOTOR: a esquadria só existe com extras A MAIS do que foi dito — nomeia a falta e as que existem; nunca outra quantidade
+    const comMais = doTipo.filter(({ a }) => [...ditos.extras].every((e) => a.extras.has(e)))
+    if (comMais.length > 0) {
+        const existentes = [...new Set(comMais.map(({ a }) => [...a.extras].filter((e) => !ditos.extras.has(e)).join(' e ')))]
+        return { motivo: 'LACUNA', esquadria, extrasDitos: [...ditos.extras], existentes }
+    }
+    return { motivo: 'SEM_CANDIDATA' }
+}
+
+/** A descrição do motor sem a linha de produto do fim, para mostrar ao vendedor (nunca o código). */
+const descricaoSemLinha = (c: Pick<CandidatoDeTipologia, 'descricao'>) => {
+    const partes = (c.descricao ?? '').split('|').map((p) => p.trim())
+    return (partes.length > 1 ? partes.slice(0, -1) : partes).join(' | ')
+}
+const quantidadeNaFrase = (a: AtributosDaTipologia | null, folhas: number) =>
+    a !== null && a.folhas === null ? `${folhas} ${folhas === 1 ? 'módulo' : 'módulos'}` : `${folhas} ${folhas === 1 ? 'folha' : 'folhas'}`
+
+/** Entre as que sobraram: uma só vale (se a medida couber); mais de uma é LINHA (falta nomeada) ou SEM_NATURAL — nunca "a primeira". */
+function decidir(restantes: ReadonlyArray<{ c: CandidatoDeTipologia; a: AtributosDaTipologia }>, item: ItemDoLevantamento): DecisaoDoPadrao {
     if (restantes.length > 1) {
         // o que ainda as distingue: atributo sem natural, ou só a linha de produto
         const diferem: string[] = []
@@ -214,7 +268,7 @@ export function tipologiaPadrao(item: ItemDoLevantamento, abertura: Abertura | n
         // nada que se meça as distingue e estão na MESMA linha: o que as separa está na descrição e não tem natural — nunca "a primeira"
         if (diferem.length === 0 && linhas.size < 2) diferem.push('descrição')
         const codigos = restantes.map(({ c }) => c.tipologia)
-        if (diferem.length) return { motivo: 'SEM_NATURAL', atributos: diferem, candidatas: codigos }
+        if (diferem.length) return { motivo: 'SEM_NATURAL', atributos: diferem, candidatas: codigos, descricoes: restantes.map(({ c }) => descricaoSemLinha(c)) }
         return { motivo: 'LINHA', candidatas: codigos, linhas: [...new Set(restantes.map(({ c }) => c.linha ?? '(sem linha)'))] }
     }
     const [unica] = restantes
@@ -240,6 +294,24 @@ export function oQueAEsquadriaE(c: Pick<CandidatoDeTipologia, 'descricao' | 'tip
     } else partes.push(a.tipo)
     for (const e of ['persiana', 'bandeira', 'peitoril'] as const) partes.push(`${a.extras.has(e) ? 'com' : 'sem'} ${e}`)
     return partes.join(' · ')
+}
+
+/**
+ * O QUE O PADRÃO NÃO RESOLVE E SE DIZ (dono do produto, 11/11/2026: "nomeie a falta [...] em vez de cair em 'sem padrão' mudo"): a frase ao
+ * vendedor, sem código, para a linha sem padrão, as descrições que nada distingue, a modulação da bandeira e a lacuna do motor. Os outros
+ * motivos não têm frase: o modelo decide, como antes.
+ */
+export function fraseDoPadraoQueFalta(d: DecisaoDoPadrao): string | null {
+    if (!('motivo' in d)) return null
+    if (d.motivo === 'LINHA') return fraseDaLinhaSemPadrao(d.linhas)
+    if (d.motivo === 'SEM_NATURAL') return `Esta esquadria pode ser ${d.descricoes.map((x) => `“${x}”`).join(' ou ')}, e nada do que foi dito separa uma da outra. Qual é?`
+    if (d.motivo === 'MODULACAO') return `A ${d.esquadria} com ${d.extras.join(' e ')} existe com divisão por ${d.opcoes.join(' ou por ')}: qual é?`
+    if (d.motivo === 'LACUNA') {
+        const pedida = d.extrasDitos.length ? `só com ${d.extrasDitos.join(' e ')}` : 'lisa'
+        return `Falta no motor — não há tipologia de ${d.esquadria} ${pedida}: as que existem são com ${d.existentes.join('; com ')}. `
+            + 'Me diga qual é; se for mesmo assim, a tipologia precisa ser cadastrada no motor.'
+    }
+    return null
 }
 
 /**

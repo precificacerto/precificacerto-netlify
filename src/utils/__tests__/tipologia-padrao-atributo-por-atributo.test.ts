@@ -5,7 +5,7 @@
  * As descrições são as do motor em uso (022fc55e, lidas em 11/11/2026, só leitura): o catálogo da plataforma, não dado de cliente.
  */
 import {
-    atributosDaDescricao, atributosDitos, oQueAEsquadriaE, tipologiaPadrao, fraseDaLinhaSemPadrao, naturalDaQuantidade, tipoCurto,
+    atributosDaDescricao, atributosDitos, oQueAEsquadriaE, tipologiaPadrao, fraseDaLinhaSemPadrao, fraseDoPadraoQueFalta, naturalDaQuantidade, tipoCurto,
 } from '@/lib/atendimentos-ia/tipologia-padrao'
 import { tiposDitos } from '@/lib/atendimentos-ia/tipologias-candidatas'
 import type { CandidatoDeTipologia } from '@/lib/atendimentos-ia/levantamento-da-conversa'
@@ -39,7 +39,11 @@ const MOTOR: Array<[string, string, string]> = [
     ['DP-122', 'JANELA OSCILO BATENTE 01 FOLHA | EUROPA 60', 'Oscilo-batente'],
     ['DP-126', 'JANELA OSCILO BATENTE 02 FOLHAS | EUROPA 60', 'Oscilo-batente'],
     ['DP-134', 'MAXIM-AR COM "N" MÓDULOS HORIZONTAIS | BANDEIRA FIXA | MODULAÇÃO TRAVESSA | EUROPA 60', 'Maxim-ar'],
+    ['DP-132', 'MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL | MODULAÇÃO TRAVESSA | EUROPA 60', 'Maxim-ar'],
+    ['DP-144', 'FIXO COM 01 MÓDULO HORIZONTAL E "V" MÓDULOS VERTICAIS | MODULAÇÃO TRAVESSA | EUROPA 60', 'Fixo'],
+    ['DP-145', 'FIXO COM "N" MÓDULOS HORIZONTAIS E 02 MÓDULOS VERTICAIS | PERFIL MODULAÇÃO | EUROPA 60', 'Fixo'],
     ['DP-152', 'PORTA DE GIRO 01 FOLHA | VENEZIANA | EUROPA 60', 'Giro / Abrir'],
+    ['DP-153', 'PORTA DE GIRO 01 FOLHA | LAMBRI | EUROPA 60', 'Giro / Abrir'],
     ['DP-158', 'PORTA DE GIRO 01 FOLHA | VIDRO | BANDEIRA FIXA | EUROPA 60', 'Giro / Abrir'],
     ['DP-165', 'PORTA OSCILO BATENTE 01 FOLHA | EUROPA 60', 'Oscilo-batente'],
     ['DP-166', 'PORTA OSCILO BATENTE 02 FOLHAS | EUROPA 60', 'Oscilo-batente'],
@@ -139,10 +143,18 @@ describe('A REGRA GERAL DA QUANTIDADE (dono do produto, 11/11/2026): CORRER = 2 
         expect(padrao('janela oscilo batente 2 folhas', 'janela')).toEqual({ tipologia: 'DP-126' })
         expect(padrao('porta oscilo batente 2 folhas', 'porta')).toEqual({ tipologia: 'DP-166' })
     })
-    it('porta de abrir: UMA folha — e o motor não tem porta de giro de 1 folha sem extra (veneziana, lambri, pinázio, bandeira): SEM_CANDIDATA, nunca a de 2 folhas', () => {
-        expect(padrao('porta de abrir', 'porta')).toEqual({ motivo: 'SEM_CANDIDATA' })
-        expect(padrao('porta de abrir 2 folhas', 'porta')).toEqual({ tipologia: 'DP-159' })
+    it('PORTA DE GIRO: 1 FOLHA. O motor não tem porta de giro de 1 folha lisa → LACUNA DO MOTOR nomeada, com as que existem — nunca a de 2 folhas', () => {
+        const d = padrao('porta de abrir', 'porta')
+        expect(d).toEqual({ motivo: 'LACUNA', esquadria: 'porta de giro de 1 folha', extrasDitos: [], existentes: ['veneziana', 'lambri', 'bandeira'] })
+        expect(fraseDoPadraoQueFalta(d)).toBe('Falta no motor — não há tipologia de porta de giro de 1 folha lisa: as que existem são com veneziana; com lambri; com bandeira. '
+            + 'Me diga qual é; se for mesmo assim, a tipologia precisa ser cadastrada no motor.')
+        expect(fraseDoPadraoQueFalta(d)).not.toContain('DP-')
+        expect(padrao('porta de giro', 'porta')).toEqual(d)
+    })
+    it('o extra informado não muda o natural das folhas: porta de giro com veneziana = DP-152 (1 folha); 2 folhas só quando ditas = DP-159', () => {
         expect(padrao('porta de abrir com veneziana', 'porta')).toEqual({ tipologia: 'DP-152' })
+        expect(padrao('porta de giro com lambri', 'porta')).toEqual({ tipologia: 'DP-153' })
+        expect(padrao('porta de abrir 2 folhas', 'porta')).toEqual({ tipologia: 'DP-159' })
     })
     it('MAXIM-AR COM BANDEIRA CONTINUA 1 MÓDULO: a bandeira é outro atributo e não apaga o natural do módulo', () => {
         // sintética, sem modulação: prova o módulo isolado da modulação (que, no motor real, não tem natural — ver abaixo)
@@ -154,15 +166,31 @@ describe('A REGRA GERAL DA QUANTIDADE (dono do produto, 11/11/2026): CORRER = 2 
         // e na folha: "1 módulo", com bandeira
         expect(oQueAEsquadriaE(CANDIDATOS.find((c) => c.tipologia === 'DP-129')!, 1)).toBe('maxim-ar, 1 módulo · sem persiana · com bandeira · sem peitoril')
     })
-    it('no motor real, a maxim-ar com bandeira só existe com a modulação (perfil, DP-129; travessa, DP-134), que não foi dita e não tem natural: SEM_CANDIDATA — nunca uma das duas', () => {
-        expect(padrao('janela maxim ar com bandeira', 'janela')).toEqual({ motivo: 'SEM_CANDIDATA' })
+    it('MODULAÇÃO COM BANDEIRA (3b): DP-129 (perfil) × DP-134 (travessa) — a divisão é atributo da bandeira e SE PERGUNTA; nunca uma das duas', () => {
+        const d = padrao('janela maxim ar com bandeira', 'janela')
+        expect(d).toEqual({ motivo: 'MODULACAO', candidatas: ['DP-134', 'DP-129'], opcoes: ['travessa', 'perfil de modulação'], esquadria: 'janela maxim-ar de 1 módulo', extras: ['bandeira'] })
+        expect(fraseDoPadraoQueFalta(d)).toBe('A janela maxim-ar de 1 módulo com bandeira existe com divisão por travessa ou por perfil de modulação: qual é?')
+        // dita a divisão, a candidata é a exata
+        expect(padrao('janela maxim ar com bandeira e travessa', 'janela')).toEqual({ tipologia: 'DP-134' })
+        expect(padrao('janela maxim ar com bandeira, perfil de modulação', 'janela')).toEqual({ tipologia: 'DP-129' })
     })
 })
 
 describe('os motivos nomeados — onde NÃO há natural, nunca se adivinha', () => {
-    it('duas candidatas na MESMA linha que nada medido distingue: SEM_NATURAL nomeando "descrição" — nunca LINHA, nunca a primeira', () => {
+    it('duas candidatas na MESMA linha que nada medido distingue: SEM_NATURAL nomeando "descrição" e as descrições — nunca LINHA, nunca a primeira', () => {
         const gemea: CandidatoDeTipologia = { ...CANDIDATOS.find((c) => c.tipologia === 'DP-113')!, tipologia: 'DP-113B' }
-        expect(padrao('janela de abrir', 'janela', [...CANDIDATOS, gemea])).toEqual({ motivo: 'SEM_NATURAL', atributos: ['descrição'], candidatas: ['DP-113', 'DP-113B'] })
+        const d = padrao('janela de abrir', 'janela', [...CANDIDATOS, gemea])
+        expect(d).toEqual({ motivo: 'SEM_NATURAL', atributos: ['descrição'], candidatas: ['DP-113', 'DP-113B'], descricoes: ['JANELA DE GIRO 01 FOLHA', 'JANELA DE GIRO 01 FOLHA'] })
+        expect(fraseDoPadraoQueFalta(d)).toContain('nada do que foi dito separa')
+    })
+    it('MODULAÇÃO SEM EXTRA, duas ou mais (3c): falta nomeada com as descrições — nunca escolha', () => {
+        // sem a DP-01 (a única sem rótulo), sobram DP-128 (perfil) e DP-132 (travessa): nada dito as separa
+        const semDP01 = CANDIDATOS.filter((c) => c.tipologia !== 'DP-01')
+        const d = padrao('janela maxim ar', 'janela', semDP01)
+        expect(d).toEqual({ motivo: 'SEM_NATURAL', atributos: ['modulação'], candidatas: ['DP-132', 'DP-128'],
+            descricoes: ['MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL | MODULAÇÃO TRAVESSA', 'MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL | PERFIL MODULAÇÃO'] })
+        // e sem a DP-132, a DP-128 é a ÚNICA: a escolha, qualquer que seja o rótulo (3a)
+        expect(padrao('janela maxim ar', 'janela', semDP01.filter((c) => c.tipologia !== 'DP-132'))).toEqual({ tipologia: 'DP-128' })
     })
     it('a janela sem tipo, dois tipos, um tipo que o motor não tem: sem padrão', () => {
         expect(padrao('janela 1200 x 1000', 'janela')).toEqual({ motivo: 'JANELA_SEM_TIPO' })
@@ -183,16 +211,14 @@ describe('os motivos nomeados — onde NÃO há natural, nunca se adivinha', () 
     })
     it('maxim-ar: outro número de módulos dito, ou bandeira (só com modulação, que não tem natural) → sem padrão', () => {
         expect(padrao('janela maxim ar 2 módulos', 'janela')).toEqual({ motivo: 'MODULOS_DITOS' })
-        expect(padrao('janela maxim ar com bandeira', 'janela')).toEqual({ motivo: 'SEM_CANDIDATA' })
         expect(padrao('janela maxim ar 2 folhas', 'janela')).toEqual({ motivo: 'SEM_CANDIDATA' })
     })
-    it('o fixo: 1 módulo (a regra geral) — mas a única de 1 módulo vertical, a DP-143, traz a modulação de travessa, que não tem natural → SEM_CANDIDATA', () => {
-        expect(padrao('janela de vidro fixo', 'janela')).toEqual({ motivo: 'SEM_CANDIDATA' })
+    it('O FIXO (3a): 1 módulo e sem extra — a única candidata, a DP-143, é a escolha, qualquer que seja o rótulo da modulação (travessa)', () => {
+        expect(padrao('janela de vidro fixo', 'janela')).toEqual({ tipologia: 'DP-143' })
     })
     it('"janela FIXA" (feminino) diz o tipo Fixo — defeito anterior ao #263: antes caía em JANELA_SEM_TIPO', () => {
         expect([...tiposDitos('janela fixa 1,00 x 1,00', tiposDoMotor)]).toEqual(['Fixo'])
-        expect(padrao('janela fixa', 'janela')).toEqual({ motivo: 'SEM_CANDIDATA' })
-        expect(padrao('janela fixa', 'janela')).not.toEqual({ motivo: 'JANELA_SEM_TIPO' })
+        expect(padrao('janela fixa', 'janela')).toEqual({ tipologia: 'DP-143' })
         // e o feminino de "bandeira fixa" continua atributo, não tipo
         expect(padrao('janela de correr com bandeira fixa', 'janela')).toEqual({ tipologia: 'DP-04' })
     })

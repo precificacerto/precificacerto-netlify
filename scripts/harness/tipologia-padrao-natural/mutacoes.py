@@ -24,7 +24,7 @@ SUITES = [T + s for s in ['tipologia-padrao-atributo-por-atributo.test.ts', 'ate
 
 MUTACOES = [
     # o natural de cada atributo
-    ('N1', 'os extras não precisam bater (o defeito central de volta, ao contrário)', [(TP, '        && mesmosExtras(a.extras, ditos.extras)\n', '')]),
+    ('N1', 'os extras não precisam bater (o defeito central de volta, ao contrário)', [(TP, '    const exatas = doTipo.filter(({ a }) => mesmosExtras(a.extras, ditos.extras))', '    const exatas = doTipo')]),
     ('N2', 'os extras só precisam conter os ditos (a persiana dita traz bandeira junto)', [(TP, 'const mesmosExtras = (a: ReadonlySet<Extra>, b: ReadonlySet<Extra>) => a.size === b.size && [...a].every((e) => b.has(e))', 'const mesmosExtras = (a: ReadonlySet<Extra>, b: ReadonlySet<Extra>) => [...b].every((e) => a.has(e))')]),
     # a regra geral da quantidade (11/11/2026): correr 2, todo o resto 1, mais de um só se dito
     ('N3', 'o natural do correr vira 3 folhas', [(TP, '(tipo === TIPO_DE_DUAS_FOLHAS ? 2 : 1)', '(tipo === TIPO_DE_DUAS_FOLHAS ? 3 : 1)')]),
@@ -51,9 +51,20 @@ MUTACOES = [
     ('G7', 'a linha da descrição conta como atributo', [(TP, '    const corpo = semAcento((partes.length > 1 ? partes.slice(0, -1) : partes).join(\' | \'))', "    const corpo = semAcento(partes.join(' | '))")]),
     # o que sobra em mais de uma
     ('L1', 'duas candidatas: vale a primeira', [(TP, '    if (restantes.length > 1) {', '    if (false) {')]),
-    ('L2', 'atributo sem natural vira falta de LINHA', [(TP, "        if (diferem.length) return { motivo: 'SEM_NATURAL', atributos: diferem, candidatas: codigos }\n", '')]),
-    ('L3', 'a conversa não guarda a falta de LINHA', [(CONV, "                else if (padrao.motivo === 'LINHA') linhasSemPadrao.push({ ordem: item.ordem, linhas: padrao.linhas })\n", '')]),
-    ('L4', 'a conversa não responde a falta de LINHA', [(CONV, '            if (semLinha.length > 0) {', '            if (false) {')]),
+    ('L2', 'atributo sem natural vira falta de LINHA', [(TP, "        if (diferem.length) return { motivo: 'SEM_NATURAL', atributos: diferem, candidatas: codigos, descricoes: restantes.map(({ c }) => descricaoSemLinha(c)) }\n", '')]),
+    ('L3', 'a conversa não guarda a falta do padrão', [(CONV, '                    if (frase !== null) faltasDoPadrao.push({ ordem: item.ordem, frase, motivo: padrao.motivo })', '                    void frase')]),
+    ('L4', 'a conversa não responde a falta do padrão', [(CONV, '            if (semPadrao.length > 0) {', '            if (false) {')]),
+    ('L7', 'a conversa só responde a LINHA (as outras faltas voltam a ser mudas)', [(CONV, '                    if (frase !== null) faltasDoPadrao.push(', "                    if (frase !== null && padrao.motivo === 'LINHA') faltasDoPadrao.push(")]),
+    # a modulação (3a, 3b, 3c — 11/11/2026)
+    ('M1', '3a: a única candidata pelo rótulo não é escolhida (o fixo volta a ficar sem padrão)', [(TP, '    if (porModulacao.length === 1) return decidir(porModulacao, item)\n', '')]),
+    ('M2', '3b: com bandeira, a modulação não se pergunta', [(TP, "        if (outrosExtras.length > 0 && new Set(rotulos).size === porModulacao.length && rotulos.every((r) => r !== '')) {", "        if (false) {")]),
+    ('M3', 'a modulação volta a contar no segundo passo', [(TP, '    const porModulacao = doTipo.filter(({ a }) => mesmosExtras(semModulacao(a.extras), semModulacao(ditos.extras)) && modulacaoDita.every((e) => a.extras.has(e)))', '    const porModulacao = doTipo.filter(({ a }) => mesmosExtras(a.extras, ditos.extras))')]),
+    ('M4', 'a modulação é ignorada já no primeiro passo (a maxim-ar lisa vira ambígua)', [(TP, '    const exatas = doTipo.filter(({ a }) => mesmosExtras(a.extras, ditos.extras))', '    const exatas = doTipo.filter(({ a }) => mesmosExtras(semModulacao(a.extras), semModulacao(ditos.extras)))')]),
+    ('M5', 'a modulação dita não restringe', [(TP, ' && modulacaoDita.every((e) => a.extras.has(e)))', ')')]),
+    # a lacuna do motor (porta de giro de 1 folha — 11/11/2026)
+    ('LC1', 'a lacuna do motor volta a ser muda', [(TP, '    if (comMais.length > 0) {', '    if (false) {')]),
+    ('LC2', 'a lacuna lista também outra quantidade de folhas', [(TP, '    const comMais = doTipo.filter(({ a }) => [...ditos.extras].every((e) => a.extras.has(e)))', '    const comMais = comAtributos.filter(({ a }) => a.tipo === tipo && [...ditos.extras].every((e) => a.extras.has(e)))')]),
+    ('LC3', 'a frase da falta mostra os códigos ao vendedor', [(TP, "d.descricoes.map((x) => `“${x}”`)", "d.candidatas.map((x) => `“${x}”`)")]),
     ('L5', 'a frase da LINHA sem as linhas', [(TP, "`nas linhas ${linhas.slice(0, -1).join(', ')} e ${linhas[linhas.length - 1]}`", "'nas linhas'")]),
     # a folha
     ('F1', 'a linha CONSIDERADO some da folha', [(FOLHA, "        ...(i.considerado ? [{ tipo: 'uma' as const, rotulo: ROTULO_DO_CONSIDERADO, texto: i.considerado }] : []),\n", '')]),
