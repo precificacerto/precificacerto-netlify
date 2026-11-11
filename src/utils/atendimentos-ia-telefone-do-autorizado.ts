@@ -2,13 +2,15 @@
  * Atendimentos I.A. — o TELEFONE de quem pode falar com o orçamentista: a forma que se grava em
  * `orcamentista_remetente_autorizado.telefone` e a forma que se mostra.
  *
- * A FORMA GRAVADA É A FORMA NORMALIZADA (`telefoneNormalizado`, em
- * `src/lib/atendimentos-ia/telefone-normalizado.ts`): DDD + assinante, só dígitos (10 ou 11), sem o
- * DDI, COM o nono dígito do celular. É a mesma que a rota de entrada usa para comparar — a tela e a
- * rota não podem divergir sobre "é o mesmo número" (22/10/2026: o WhatsApp entrega o celular SEM o
- * nono, e a forma antiga, que só tirava o 55, dizia que não era). Cabe no CHECK da coluna (10 a 13
- * dígitos). O que a normalização não lê NÃO é telefone, e não se grava — a tela diz "sem telefone"
- * e o motivo: uma autorização que a rota nunca reconheceria seria uma autorização morta.
+ * A FORMA GRAVADA É A DO CANAL (`telefoneNoFormatoDoCanal`, dono do produto, 11/11/2026 — substitui a
+ * de 22/10/2026, que gravava a forma normalizada): 55 + DDD + assinante, o celular sem o nono, o número
+ * que o WhatsApp entrega e recebe. Cabe no CHECK da coluna (10 a 13 dígitos). A COMPARAÇÃO continua
+ * pela FORMA NORMALIZADA (`telefoneNormalizado`, em `src/lib/atendimentos-ia/telefone-normalizado.ts`:
+ * DDD + assinante, sem o DDI, com o nono), dos dois lados — a tela e a rota não podem divergir sobre
+ * "é o mesmo número" (22/10/2026: o WhatsApp entrega o celular SEM o nono). As linhas gravadas antes
+ * de 11/11/2026 estão na forma normalizada, e a correção delas é decisão do dono do produto. O que a
+ * normalização não lê NÃO é telefone, e não se grava — a tela diz "sem telefone" e o motivo: uma
+ * autorização que a rota nunca reconheceria seria uma autorização morta.
  *
  * `telefonesCasam` é a COMPARAÇÃO — as duas pontas pela forma normalizada.
  * `numeroDoJid` é o número da INSTÂNCIA, lido do jid do WUZAPI — esse COM o DDI.
@@ -65,6 +67,27 @@ export function numeroDoJid(jid: unknown): string | null {
     const m = /^([^.:@]*)(?:\.[^:@]*)?(?::[^@]*)?@s\.whatsapp\.net$/.exec(jid.trim())
     if (!m || !/^\d{8,15}$/.test(m[1])) return null
     return m[1]
+}
+
+/**
+ * O TELEFONE NO FORMATO DO CANAL — o que se GRAVA em `orcamentista_remetente_autorizado.telefone` (dono do produto, 11/11/2026: "o número tem
+ * de ser GRAVADO no formato que o canal usa, não no formato solto"). É o formato em que o WhatsApp entrega e recebe o número: o DDI 55, o DDD
+ * e o assinante, com o CELULAR SEM o nono dígito. Medido em produção em 11/11/2026: o remetente gravado `51999114290` chega pelo webhook como
+ * `555199114290`, e é para esse que as respostas vão. O fixo fica como é (55 + DDD + 8).
+ *
+ * RESSALVA DE MEDIÇÃO, e ela é a razão de a comparação não depender disto: a medição tem UM número, de UM DDD (51). Que o WhatsApp tire o nono
+ * em TODO DDD não foi medido — há relato de que nos DDDs 11 a 28 ele o mantém. Por isso quem COMPARA continua comparando pela forma
+ * normalizada (`telefonesCasam`, a rota de entrada), e quem ENVIA continua com as variantes como rede de segurança (`normalizePhoneBR`): um
+ * DDD em que o canal mantenha o nono não perde a autorização nem o envio; só grava no formato medido, até alguém medir outro.
+ *
+ * Entra a forma NORMALIZADA (`telefoneNormalizado`); o que não for telefone é NULL.
+ */
+export function telefoneNoFormatoDoCanal(bruto: string | null | undefined): string | null {
+    const n = telefoneNormalizado(bruto)
+    if (n === null) return null
+    const ddd = n.slice(0, 2)
+    const assinante = n.slice(2)
+    return `55${ddd}${assinante.length === 9 ? assinante.slice(1) : assinante}`
 }
 
 /** Para mostrar: `(51) 9••••-7766` — o DDD e os 4 últimos. */

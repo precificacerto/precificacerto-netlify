@@ -48,7 +48,7 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 import { supabaseAdmin } from '@/supabase/admin'
 import { getCallerContext } from '@/lib/get-caller-tenant'
 import { podeEditarModulo, podeVerModulo, type ChamadorAutorizado } from '@/lib/permissao-do-modulo'
-import { numeroDoJid, telefoneDoAutorizado, telefoneMascarado, telefonesCasam } from '@/utils/atendimentos-ia-telefone-do-autorizado'
+import { numeroDoJid, telefoneDoAutorizado, telefoneMascarado, telefonesCasam, telefoneNoFormatoDoCanal } from '@/utils/atendimentos-ia-telefone-do-autorizado'
 import { paraOLog } from '@/utils/atendimentos-ia-mascara-do-log'
 
 /** O módulo da tela de Conectividade — o mesmo que esconde o item do menu. A célula usa este. */
@@ -519,7 +519,19 @@ export async function aplicarAcao(tenantId: string, employeeId: string, acao: Ac
     }
 
     if (!tel.ok) return { status: 422, corpo: { error: `Sem telefone: ${(tel as { motivo: string }).motivo}. Corrija no cadastro do funcionário.` } }
-    const telefone = (tel as { telefone: string }).telefone
+    // GRAVA no formato do CANAL (dono do produto, 11/11/2026): 55 + DDD + assinante, o celular sem o nono — o número que o WhatsApp entrega e
+    // recebe. A comparação continua pela forma normalizada, dos dois lados (`telefonesCasam`, a rota de entrada)
+    const telefone = telefoneNoFormatoDoCanal((tel as { telefone: string }).telefone) as string
+    // O MESMO NÚMERO EM OUTRA LINHA, em qualquer formato: a UNIQUE (tenant_id, telefone) compara o texto cru e não vê a linha gravada antes de
+    // 11/11/2026 na forma normalizada. Duas linhas do mesmo número fariam a rota de entrada recusar por ambiguidade — e o vendedor que hoje
+    // funciona deixaria de ser reconhecido. A conferência é pela forma normalizada, como a da entrada
+    const { data: doTenant, error: eDoTenant } = await supabaseAdmin
+        .from('orcamentista_remetente_autorizado').select('id, telefone').eq('tenant_id', tenantId)
+    if (eDoTenant) return { status: 500, corpo: { error: `Não foi possível conferir o telefone: ${eDoTenant.message}` } }
+    const emOutra = ((doTenant ?? []) as Array<{ id: string; telefone: string }>).some((x) => x.id !== aut?.id && telefonesCasam(x.telefone, telefone))
+    if (acao !== 'ligar' || !aut) {
+        if (emOutra) return { status: 409, corpo: { error: 'Este telefone já está autorizado para outra pessoa nesta conta.' } }
+    }
 
     if (acao === 'atualizar-telefone') {
         if (!aut) return { status: 404, corpo: { error: 'Este funcionário ainda não tem autorização para atualizar.' } }

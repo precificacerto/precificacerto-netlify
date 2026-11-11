@@ -108,10 +108,10 @@ export async function telefoneDoDonoDoOrcamento(tenantId: string, orcamentoId: s
 }
 
 /**
- * OS NÚMEROS DO WHATSAPP PARA O DONO, na ordem de tentativa. O telefone gravado é a forma normalizada (DDD + assinante, com o nono dígito, sem o
- * DDI), que o WhatsApp não usa: o webhook entrega o MESMO celular com o DDI e, em boa parte dos DDDs, sem o nono (`555199114290` para o gravado
- * `51999114290`, medido em produção). Quando o dono é quem está na conversa (os dois casam), vai o número EXATO do webhook — o mesmo que já recebe
- * as respostas. Senão, as variantes do envio de referência do projeto (`normalizePhoneBR`, `wuzapi-send.ts`): com o DDI, com e sem o nono.
+ * OS NÚMEROS DO WHATSAPP PARA O DONO, na ordem de tentativa. Desde 11/11/2026 o telefone do remetente é GRAVADO no formato do canal
+ * (`telefoneNoFormatoDoCanal`: 55 + DDD + assinante, o celular sem o nono), e é ele o mecanismo: o primeiro destino. Quando o dono é quem está na
+ * conversa (os dois casam), vai o número EXATO do webhook. As variantes do envio de referência (`normalizePhoneBR`) ficam como REDE DE SEGURANÇA —
+ * para a linha gravada antes de 11/11/2026 (na forma normalizada, sem o DDI) e para um DDD em que o canal mantenha o nono (não medido).
  */
 export function destinosDoWhatsApp(telefoneDoDono: string, telefoneDaConversa: string): string[] {
     return telefonesCasam(telefoneDaConversa, telefoneDoDono) ? [telefoneDaConversa] : normalizePhoneBR(telefoneDoDono)
