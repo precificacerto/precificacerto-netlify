@@ -50,6 +50,13 @@ guardas() {
     echo "NOTICE:  ok: guarda 2 — a tabela com outra forma: aborta, a de antes fica, a funcao nao e criada"
   else echo "ERROR:  FALHOU guarda 2: $(echo "$SAI" | grep ERROR | head -1)"; fi
   $P -c "drop database if exists $GC" >/dev/null 2>&1
+  # GUARDA 3: REAPLICADA DEPOIS DE UMA IMPORTAÇÃO: não aborta, e as linhas importadas ficam como estavam (a idempotência do cabeçalho)
+  local ANTES; ANTES=$($P -d $D -At -c "select count(*) || ':' || md5(string_agg(id::text || coalesce(codigo, ''), ',' order by id)) from orcamentista_tipologia_desenho")
+  SAI=$($P -d $D -v ON_ERROR_STOP=1 -f "$MIG" 2>&1); local C=$?
+  local DEPOIS; DEPOIS=$($P -d $D -At -c "select count(*) || ':' || md5(string_agg(id::text || coalesce(codigo, ''), ',' order by id)) from orcamentista_tipologia_desenho")
+  if [ "$C" = "0" ] && [ "$ANTES" = "$DEPOIS" ] && [ "${ANTES%%:*}" != "0" ]; then
+    echo "NOTICE:  ok: guarda 3 — reaplicada com ${ANTES%%:*} linhas importadas: nao aborta, as linhas ficam"
+  else echo "ERROR:  FALHOU guarda 3: codigo $C, antes $ANTES, depois $DEPOIS: $(echo "$SAI" | grep ERROR | head -1)"; fi
 }
 
 SAIDA=$( ($P -d $D -f $S/10_casos.sql 2>&1; corrida 2>&1; guardas 2>&1) | sed -nE 's/^.*NOTICE:  (ok: .*)$/\1/p; s/^.*ERROR:  (FALHOU.*)$/\1/p; s/^.*ERROR:  (.*)$/ERRO NAO PREVISTO: \1/p')

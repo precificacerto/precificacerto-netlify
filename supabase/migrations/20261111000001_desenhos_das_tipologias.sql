@@ -67,12 +67,14 @@
 --   a PUBLIC, anon ou authenticated; tudo ao service_role. A função é SECURITY DEFINER com search_path fixo e só o service_role a executa
 --   (o REVOKE inclui anon e authenticated: o privilégio padrão de produção os daria — a lição da 20261101000002).
 --
--- IDEMPOTENTE: CREATE TABLE IF NOT EXISTS, políticas recriadas, CREATE OR REPLACE FUNCTION. A guarda aborta se a tabela já existir com
---   outra forma.
--- GUARDA (aborta): is_super_admin() e superadmin_alteracao_log existem; a tabela não existe, ou existe vazia e com as 9 colunas desta.
+-- IDEMPOTENTE: CREATE TABLE IF NOT EXISTS, políticas recriadas, CREATE OR REPLACE FUNCTION. Reaplicada depois de uma importação, não
+--   aborta e não toca nas linhas importadas. A guarda aborta se a tabela já existir com outra forma.
+-- GUARDA (aborta): is_super_admin() e superadmin_alteracao_log existem; a tabela não existe, ou existe com as 9 colunas desta (a
+--   reaplicação). A guarda anota se a tabela já existia, para a verificação saber se a vazia é exigência.
 -- VERIFICAÇÃO (aborta): as 9 colunas com o tipo, nulas e sem default (menos o id); as 3 CHECKs; RLS ligada e as 4 políticas; nenhum
 --   privilégio de tabela a PUBLIC, anon ou authenticated; a função de 4 parâmetros SECURITY DEFINER, com search_path, executável só pelo
---   service_role, e o parâmetro de encolher SEM default; a tabela vazia.
+--   service_role, e o parâmetro de encolher SEM default; e a tabela VAZIA quando nasceu nesta aplicação (na reaplicação, as linhas
+--   importadas ficam).
 -- ════════════════════════════════════════════════════════════════════════════════════════
 BEGIN;
 
@@ -83,6 +85,8 @@ BEGIN
   IF to_regprocedure('public.is_super_admin()') IS NULL OR to_regclass('public.superadmin_alteracao_log') IS NULL THEN
     RAISE EXCEPTION 'dependencia ausente: is_super_admin() ou superadmin_alteracao_log. Banco: %, usuario: %. Nada foi alterado.', current_database(), current_user;
   END IF;
+  -- a verificacao le esta anotacao: so a tabela que nasce aqui tem de nascer vazia
+  PERFORM set_config('migracao_20261111000001.tabela_existia', CASE WHEN to_regclass('public.orcamentista_tipologia_desenho') IS NULL THEN 'nao' ELSE 'sim' END, true);
   IF to_regclass('public.orcamentista_tipologia_desenho') IS NOT NULL THEN
     SELECT count(*) INTO n FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'orcamentista_tipologia_desenho';
     IF n <> 9 THEN
@@ -241,9 +245,11 @@ BEGIN
      OR NOT has_function_privilege('service_role', 'public.superadmin_importar_desenhos(uuid, text, jsonb, boolean)', 'EXECUTE') THEN
     RAISE EXCEPTION 'verificacao: a funcao tem de ser executavel so pelo service_role.';
   END IF;
-  -- nenhum dado gravado por esta migracao
-  SELECT count(*) INTO n FROM public.orcamentista_tipologia_desenho;
-  IF n <> 0 THEN RAISE EXCEPTION 'verificacao: a tabela tem % linha(s); esta migracao nao grava dado.', n; END IF;
+  -- nenhum dado gravado por esta migracao: a tabela que nasceu aqui nasce vazia (na reaplicacao, as linhas importadas ficam)
+  IF current_setting('migracao_20261111000001.tabela_existia', true) IS DISTINCT FROM 'sim' THEN
+    SELECT count(*) INTO n FROM public.orcamentista_tipologia_desenho;
+    IF n <> 0 THEN RAISE EXCEPTION 'verificacao: a tabela tem % linha(s); esta migracao nao grava dado.', n; END IF;
+  END IF;
 END
 $verifica$;
 

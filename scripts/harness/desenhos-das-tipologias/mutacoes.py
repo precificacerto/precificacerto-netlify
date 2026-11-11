@@ -36,6 +36,8 @@ MUTACOES = [
     ('C3', 'sem a CHECK da fonte', "  CONSTRAINT orcamentista_tipologia_desenho_fonte CHECK (fonte IN ('principal', 'por_variavel')),\n", ''),
     ('N1', 'liberado vazio vira falso (default)', '  liberado_para_venda boolean NULL,', '  liberado_para_venda boolean NULL DEFAULT false,'),
     ('G1', 'sem a guarda da tabela de outra forma', "    IF n <> 9 THEN\n      RAISE EXCEPTION 'orcamentista_tipologia_desenho ja existe com % colunas (esta migracao cria 9). Nada foi alterado.', n;\n    END IF;\n", ''),
+    ('G3', 'a reaplicação depois da importação aborta (a vazia vira exigência sempre)', "  IF current_setting('migracao_20261111000001.tabela_existia', true) IS DISTINCT FROM 'sim' THEN", '  IF true THEN'),
+    ('G4', 'a tabela que nasce com linha passa', "  IF current_setting('migracao_20261111000001.tabela_existia', true) IS DISTINCT FROM 'sim' THEN", '  IF false THEN'),
     ('G2', 'sem a guarda das dependências', "  IF to_regprocedure('public.is_super_admin()') IS NULL OR to_regclass('public.superadmin_alteracao_log') IS NULL THEN", '  IF false THEN'),
 ]
 sys.path.insert(0, os.path.dirname(S))
@@ -46,7 +48,9 @@ exigir_trecho_unico((i, [(MIG, TEXTO, de, para)]) for i, _d, de, para in MUTACOE
 # R3 é EQUIVALENTE, medida em 11/11/2026: o privilégio padrão de produção (pg_default_acl do postgres no schema public, reproduzido no
 # 00_base.sql) já dá EXECUTE ao service_role em toda função que o postgres cria, e o REVOKE da migração não o tira. O GRANT explícito fica no
 # arquivo pela robustez (um banco sem esse privilégio padrão). Fica na lista para a próxima pessoa saber que foi olhada e por que sobrevive.
-EQUIVALENTES: set = {'R3'}
+# G4 é EQUIVALENTE: a migração não tem INSERT, então a tabela que nasce nesta aplicação não tem como nascer com linha. A conferência é
+# defesa contra uma edição futura do arquivo, não contra o arquivo de hoje.
+EQUIVALENTES: set = {'R3', 'G4'}
 
 
 def rodar(caminho):
