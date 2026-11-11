@@ -21,9 +21,10 @@
 import React from 'react'
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
-import { readFileSync } from 'fs'
-import { join } from 'path'
 import { ProductPrice } from '@/page-parts/products/product-price.component'
+
+type PropsDoPreco = React.ComponentProps<typeof ProductPrice>
+type Encadeia = Record<string, unknown>
 
 let REGIME = 'LUCRO_REAL'
 
@@ -35,7 +36,7 @@ jest.mock('@/supabase/client', () => ({
         : tabela === 'brazilian_states'
           ? { data: [{ code: 'SP', icms_internal_rate: 18 }] }
           : { data: null }
-      const encadeia: any = {
+      const encadeia: Encadeia = {
         select: () => encadeia,
         eq: () => encadeia,
         order: () => ({ ...resposta, data: tabela === 'simples_nacional_brackets' ? [] : resposta.data }),
@@ -48,20 +49,20 @@ jest.mock('@/supabase/client', () => ({
   },
 }))
 
-;(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true
+;(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
 Object.defineProperty(window, 'matchMedia', {
   writable: true,
   value: (query: string) => ({
     matches: false,
     media: query,
-    onchange: null as ((e: any) => void) | null,
+    onchange: null as ((e: unknown) => void) | null,
     addListener: () => {}, removeListener: () => {},
     addEventListener: () => {}, removeEventListener: () => {}, dispatchEvent: () => false,
   }),
 })
 jest.mock('@/contexts/device.context', () => ({ useDevice: () => ({ isMobile: false }) }))
 
-const FORM: any = { getFieldValue: (k: string) => (k === 'quantity' ? 1 : 'UN') }
+const FORM = { getFieldValue: (k: string) => (k === 'quantity' ? 1 : 'UN') } as unknown as PropsDoPreco['productForm']
 
 function props(regime: string, over: Record<string, unknown> = {}) {
   const preco = 2_500
@@ -69,21 +70,21 @@ function props(regime: string, over: Record<string, unknown> = {}) {
     calcBase: {
       adminLaborPct: 7, fixedExpensePct: 10, variableExpensePct: 3, financialExpensePct: 2,
       financialCommitmentsPct: 0, taxPct: 0, taxLabel: 'Impostos', isMei: regime === 'MEI',
-    } as any,
+    } as unknown as PropsDoPreco['calcBase'],
     productPriceInfo: {
       productCost: 1_000, totalProductPrice: preco,
       productProfitPercent: 5, productProfitPrice: preco * 0.05,
       salesCommissionPercent: 5, salesCommissionPrice: preco * 0.05,
       rtReservePercent: 0, taxesPrice: 0,
-    } as any,
-    currentUser: { taxableRegime: regime, calcType: 'INDUSTRIALIZATION' } as any,
+    } as unknown as PropsDoPreco['productPriceInfo'],
+    currentUser: { taxableRegime: regime, calcType: 'INDUSTRIALIZATION' } as unknown as PropsDoPreco['currentUser'],
     productForm: FORM,
     handleChangePrecificationInputs: () => {},
     icmsPct: 0.18,
     pisCofinsLRPct: 0.0925,
     isResaleProduct: false,
     ...over,
-  } as any
+  } as unknown as PropsDoPreco
 }
 
 function renderRegime(regime: string, over: Record<string, unknown> = {}) {
@@ -91,6 +92,7 @@ function renderRegime(regime: string, over: Record<string, unknown> = {}) {
   const container = document.createElement('div')
   document.body.appendChild(container)
   const root = createRoot(container)
+  // eslint-disable-next-line testing-library/no-unnecessary-act -- a raiz do React 19 monta aqui, sem a testing-library
   act(() => { root.render(<ProductPrice {...props(regime, over)} />) })
   return { container, unmount: () => { act(() => root.unmount()); container.remove() } }
 }
