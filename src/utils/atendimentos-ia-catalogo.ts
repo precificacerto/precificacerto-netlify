@@ -116,6 +116,9 @@ export const ROTAS_DO_CATALOGO = {
     urlDeEnvio: '/api/super-admin/atendimentos-ia/tabelas/url-de-envio',
     /** Os desenhos das tipologias: assina UM LOTE de envios para `tipologias/<grupo>/<arquivo>`, pulando o que já existe (11/11/2026). */
     envioDeDesenhos: '/api/super-admin/atendimentos-ia/desenhos/url-de-envio',
+    /** A importação do índice dos desenhos (migração 20261111000001) e a conferência índice × Storage, depois dela. */
+    importacaoDeDesenhos: '/api/super-admin/atendimentos-ia/desenhos/importar',
+    conferenciaDeDesenhos: '/api/super-admin/atendimentos-ia/desenhos/conferencia',
     /** A importação da tabela: POST importa os dois arquivos; GET a última importação, ou null. */
     importacao: (tabelaId: string) => `/api/super-admin/atendimentos-ia/tabelas/${tabelaId}/importar`,
     /** O que está no banco da tabela importada: as tipologias, já ordenadas pela rota, e o total de fórmulas. */

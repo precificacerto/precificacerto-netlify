@@ -12,10 +12,13 @@ RAIZ = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), 
 LIB = 'src/lib/atendimentos-ia/desenhos-das-tipologias.ts'
 ENV = 'src/page-parts/atendimentos-ia/envio-dos-desenhos.ts'
 ROTA = 'src/pages/api/super-admin/atendimentos-ia/desenhos/url-de-envio.ts'
+IMP = 'src/pages/api/super-admin/atendimentos-ia/desenhos/importar.ts'
+CONF = 'src/pages/api/super-admin/atendimentos-ia/desenhos/conferencia.ts'
 REPO = 'src/lib/atendimentos-ia/repositorio.ts'
 TELA = 'src/page-parts/atendimentos-ia/desenhos-do-catalogo.component.tsx'
 T = 'src/utils/__tests__/'
-SUITES = [T + s for s in ['desenhos-das-tipologias.test.ts', 'desenhos-das-tipologias-rota.test.ts', 'desenhos-do-catalogo-a-tela.test.tsx']]
+SUITES = [T + s for s in ['desenhos-das-tipologias.test.ts', 'desenhos-das-tipologias-rota.test.ts', 'desenhos-do-catalogo-a-tela.test.tsx',
+          'desenhos-importacao-e-conferencia-rotas.test.ts', 'desenhos-slug-sem-copia.test.ts']]
 
 MUTACOES = [
     # o plano
@@ -34,6 +37,23 @@ MUTACOES = [
     ('I2', 'a coluna que falta passa', [(LIB, '    if (faltam.length) return {', '    if (false) return {')]),
     ('I3', 'o zero à esquerda fica no normalizado', [(LIB, "    return c.replace(/^DP-0*(\\d)/, 'DP-$1')", '    return c')]),
     ('I4', 'a colisão não é nomeada', [(LIB, '    return [...por].filter(([, crus]) => crus.size > 1)', '    return [...por].filter(() => false)')]),
+    # O SLUG NUM LUGAR SÓ (dono do produto, 11/11/2026): a mutação que muda o slug de UM grupo tem de morrer
+    ('S1', 'o slug de UM grupo muda (blindex-vidro-temperado vira blindex-e-vidro-temperado)', [(LIB, "    return grupo.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')", "    return grupo.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').replace(/^blindex-vidro/, 'blindex-e-vidro')")]),
+    ('S2', 'a importação calcula o slug por conta própria (a cópia divergente)', [(LIB, "            const c = caminhoDoDesenho(grupoNoCaminho(l.grupo), l.caminho_no_zip.split('/').pop() ?? '')", "            const c = caminhoDoDesenho(l.grupo.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''), l.caminho_no_zip.split('/').pop() ?? '')")]),
+    # a importação
+    ('M1', 'o vazio vira "" em vez de nulo', [(LIB, "const nuloSeVazio = (v: string): string | null => (v === '' ? null : v)", 'const nuloSeVazio = (v: string): string | null => v')]),
+    ('M2', 'o liberado "Não" vira verdadeiro', [(LIB, "const LIBERADO: Readonly<Record<string, boolean>> = { Sim: true, 'Não': false }", "const LIBERADO: Readonly<Record<string, boolean>> = { Sim: true, 'Não': true }")]),
+    ('M3', 'a linha sem arquivo some da lista', [(LIB, "        if (l.caminho_no_zip.trim() === '') semArquivo.push(", "        if (l.caminho_no_zip.trim() === '') void (")]),
+    ('M4', 'o código cru é normalizado (funde DP-017 com DP-17)', [(LIB, 'grupo: nuloSeVazio(l.grupo), codigo: nuloSeVazio(l.codigo), codigo_dp: codigoDp,', 'grupo: nuloSeVazio(l.grupo), codigo: codigoDpNormalizado(l.codigo) ?? nuloSeVazio(l.codigo), codigo_dp: codigoDp,')]),
+    ('M5', 'a linha recusada é pulada em vez de recusar tudo', [(LIB, '    if (recusas.length) return { recusas }\n    const colisoes', '    const colisoes')]),
+    ('M6', 'a rota calcula o sha256 de outro texto (aparado)', [(IMP, "createHash('sha256').update(Buffer.from(corpo.texto, 'utf-8'))", "createHash('sha256').update(Buffer.from(corpo.texto.trim(), 'utf-8'))")]),
+    ('M7', 'a permissão de encolher vai sempre verdadeira', [(IMP, 'permitirEncolher: corpo.permitir_encolher })', 'permitirEncolher: true })')]),
+    ('M8', 'sem a migração vira 500', [(IMP, "        if (codigo !== null && SEM_A_FUNCAO.has(codigo)) return", "        if (false) return")]),
+    # a conferência
+    ('K1', 'a conferência perde o lado do Storage', [(LIB, '        semLinha: [...bucket].filter((o) => !tabela.has(o)).sort(),', '        semLinha: [],')]),
+    ('K2', 'a conferência perde o lado da tabela', [(LIB, '        semObjeto: [...tabela].filter((c) => !bucket.has(c)).sort(),', '        semObjeto: [],')]),
+    ('K3', 'a tabela lida só na primeira página', [(REPO, '        for (const l of linhas) caminhos.push(String(l.caminho_no_storage))\n        if (linhas.length < PAGINA) return caminhos', '        for (const l of linhas) caminhos.push(String(l.caminho_no_storage))\n        return caminhos')]),
+    ('K4', 'sem a tabela vira "zero dos dois lados"', [(CONF, "        if (codigo !== null && SEM_A_TABELA.has(codigo)) return res.status(409)", "        if (codigo !== null && SEM_A_TABELA.has(codigo)) return res.status(200).json({ sem_objeto: [], sem_linha: [], caminhos: 0, objetos: 0 }) || res.status(409)")]),
     # o envio
     ('E1', 'o lote que falha na assinatura some', [(ENV, "                for (const arquivo of lote) r.falhas.push({ arquivo: nome(arquivo), motivo: `a assinatura do lote falhou: ${(e as Error).message}` })\n", '')]),
     ('E2', 'o "já existe" de uma corrida vira falha', [(ENV, '                    else if (JA_EXISTE.test(res.corpo)) r.jaExistiam.push(nome(a.arquivo))\n', '')]),

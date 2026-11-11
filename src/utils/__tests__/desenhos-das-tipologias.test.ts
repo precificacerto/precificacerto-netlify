@@ -7,8 +7,8 @@
 jest.mock('@/page-parts/atendimentos-ia/api', () => ({ chamarRota: jest.fn() }))
 import JSZip from 'jszip'
 import {
-    COLUNAS_DO_INDICE, TAMANHO_DO_LOTE, caminhoDoDesenho, codigoDpNormalizado, colisoesDoCodigo, emLotes, grupoNoCaminho, lerCsv, lerIndice,
-    lerPedidoDoLote, planoDoZip, resumoDoEnvio, tipoDaImagem, type LinhaDoIndice, type ResultadoDoEnvio,
+    COLUNAS_DO_INDICE, TAMANHO_DO_LOTE, caminhoDoDesenho, codigoDpNormalizado, colisoesDoCodigo, conferirDesenhos, emLotes, grupoNoCaminho, lerCsv, lerIndice,
+    lerPedidoDoLote, linhasParaImportar, planoDoZip, resumoDoEnvio, tipoDaImagem, type LinhaDoIndice, type ResultadoDoEnvio,
 } from '@/lib/atendimentos-ia/desenhos-das-tipologias'
 
 /** Uma linha do índice, com o que o teste não diz vazio — como o CSV grava o vazio. */
@@ -227,5 +227,80 @@ describe('o zip de verdade (jszip)', () => {
         expect(lido.entradas).toEqual(expect.arrayContaining([{ caminho: 'Aluminio/', pasta: true }, { caminho: 'Aluminio/ESQ_1.jpg', pasta: false }, { caminho: 'Aluminio/indice.csv', pasta: false }]))
         expect([...(await lido.bytes('Aluminio/ESQ_1.jpg'))]).toEqual([1, 2, 3])
         await expect(lido.bytes('nao/existe.jpg')).rejects.toThrow('"nao/existe.jpg" não está no zip')
+    })
+})
+
+describe('O SLUG DO GRUPO NUM LUGAR SÓ (dono do produto, 11/11/2026): o envio e a importação gravam o MESMO caminho', () => {
+    // os cinco grupos do índice real, com o slug LITERAL de cada um — preso aqui, não a regra
+    const SLUG: Array<[string, string]> = [
+        ['Alumínio', 'aluminio'],
+        ['PVC', 'pvc'],
+        ['Blindex / vidro temperado', 'blindex-vidro-temperado'],
+        ['Portas revestidas (ACM/lambri)', 'portas-revestidas-acm-lambri'],
+        ['Portões / gradis', 'portoes-gradis'],
+    ]
+    it.each(SLUG)('"%s" → tipologias/%s/', (grupo, slug) => {
+        expect(grupoNoCaminho(grupo)).toBe(slug)
+        // a importação grava o caminho com esse slug, literal
+        const r = linhasParaImportar([L('z.zip', 'imagens/00001__X.jpg', grupo)])
+        if ('recusas' in r) throw new Error(r.recusas.join(' | '))
+        expect(r.linhas[0].caminho_no_storage).toBe(`tipologias/${slug}/00001__X.jpg`)
+    })
+    it('os DOIS LADOS, com os cinco grupos e um arquivo em dois grupos: o conjunto de caminhos da importação é o conjunto de destinos do envio', () => {
+        const ZIP = 'z.zip'
+        const indice = [...SLUG.map(([g], k) => L(ZIP, `imagens/A${k}.jpg`, g)), L(ZIP, 'imagens/A0.jpg', 'Portas revestidas (ACM/lambri)')]
+        const plano = planoDoZip([...new Set(indice.map((l) => l.caminho_no_zip))].map((c) => ({ caminho: c, pasta: false })), indice, ZIP)
+        if ('erro' in plano) throw new Error(plano.erro)
+        const destinos = plano.desenhos.map((d) => `tipologias/${d.grupo}/${d.arquivo}`)
+        const imp = linhasParaImportar(indice)
+        if ('recusas' in imp) throw new Error(imp.recusas.join(' | '))
+        const c = conferirDesenhos(imp.linhas.map((l) => l.caminho_no_storage!), destinos)
+        expect(c).toEqual({ semObjeto: [], semLinha: [], caminhos: 6, objetos: 6 })
+    })
+})
+
+describe('as linhas da importação', () => {
+    const cab = (extra: Partial<LinhaDoIndice>) => L('z.zip', 'imagens/A.jpg', 'PVC', extra)
+    it('o vazio vira NULO; liberado Sim/Não/vazio; o código CRU como veio e o codigo_dp normalizado ao lado', () => {
+        const r = linhasParaImportar([
+            cab({ fonte: 'por_variavel', codigo: 'DP-017', codigo_dp: 'DP-017', descricao: '', condicao: '(N=1)', liberado: '' }),
+            cab({ fonte: 'principal', codigo: ' 30-FIX-01 ', codigo_dp: '', descricao: 'PAINEL', liberado: 'Não' }),
+            cab({ fonte: 'principal', codigo: 'DP-17', liberado: 'Sim' }),
+        ])
+        if ('recusas' in r) throw new Error(r.recusas.join(' | '))
+        expect(r.linhas[0]).toEqual({ fonte: 'por_variavel', grupo: 'PVC', codigo: 'DP-017', codigo_dp: 'DP-17', descricao: null, liberado_para_venda: null, condicao: '(N=1)', caminho_no_storage: 'tipologias/pvc/A.jpg' })
+        expect(r.linhas[1]).toEqual(expect.objectContaining({ codigo: ' 30-FIX-01 ', codigo_dp: null, descricao: 'PAINEL', liberado_para_venda: false, condicao: null }))
+        expect(r.linhas[2].liberado_para_venda).toBe(true)
+        expect(r.colisoes).toEqual(['DP-017 e DP-17 caem no mesmo código normalizado (DP-17)'])
+    })
+    it('a linha sem arquivo nos zips: caminho NULO, e NOMEADA na lista — nunca pulada', () => {
+        const r = linhasParaImportar([cab({ codigo: 'DP-99', caminho_no_zip: '', arquivo_indice: '00001__Y.png', condicao: '(N=2)' })])
+        if ('recusas' in r) throw new Error(r.recusas.join(' | '))
+        expect(r.linhas).toHaveLength(1)
+        expect(r.linhas[0].caminho_no_storage).toBeNull()
+        expect(r.semArquivo).toEqual(['linha 2: DP-99 (N=2) (00001__Y.png)'])
+    })
+    it('RECUSA a importação inteira, nomeando cada linha: fonte, liberado, codigo_dp, caminho que o bucket não aceita', () => {
+        const r = linhasParaImportar([
+            cab({ fonte: 'outra' }),
+            cab({ liberado: 'Talvez' }),
+            cab({ codigo_dp: 'XX-1' }),
+            cab({ caminho_no_zip: 'imagens/três.jpg' }),
+            cab({}),
+        ])
+        expect(r).toEqual({ recusas: [
+            'linha 2: fonte "outra" não é principal nem por_variavel',
+            'linha 3: liberado "Talvez" não é Sim, Não nem vazio',
+            'linha 4: codigo_dp "XX-1" não é um código DP',
+            expect.stringMatching(/^linha 5: o nome tem caractere/),
+        ] })
+    })
+})
+
+describe('a conferência índice × Storage', () => {
+    it('os dois lados, nomeados e em ordem; zero dos dois quando casam', () => {
+        expect(conferirDesenhos(['tipologias/pvc/A.jpg', 'tipologias/pvc/B.jpg', 'tipologias/pvc/B.jpg'], ['tipologias/pvc/B.jpg', 'tipologias/pvc/Z.jpg']))
+            .toEqual({ semObjeto: ['tipologias/pvc/A.jpg'], semLinha: ['tipologias/pvc/Z.jpg'], caminhos: 2, objetos: 2 })
+        expect(conferirDesenhos(['a', 'b'], ['b', 'a'])).toEqual({ semObjeto: [], semLinha: [], caminhos: 2, objetos: 2 })
     })
 })

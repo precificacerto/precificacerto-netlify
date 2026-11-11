@@ -9,10 +9,12 @@
  * Esta aba NÃO grava o índice no banco: a tabela do índice é de uma migração PENDENTE, e a importação vem depois dela.
  */
 import React, { useState } from 'react'
-import { Alert, Button, Card, Collapse, Progress, Space, Typography, Upload } from 'antd'
+import { Alert, Button, Card, Checkbox, Collapse, Divider, Progress, Space, Typography, Upload } from 'antd'
 import { UploadOutlined } from '@ant-design/icons'
 import { colisoesDoCodigo, lerIndice, resumoDoEnvio, type LinhaDoIndice, type Recusa, type ResultadoDoEnvio } from '@/lib/atendimentos-ia/desenhos-das-tipologias'
 import { enviarDesenhosDoZip } from '@/page-parts/atendimentos-ia/envio-dos-desenhos'
+import { chamarRota } from '@/page-parts/atendimentos-ia/api'
+import { ROTAS_DO_CATALOGO } from '@/utils/atendimentos-ia-catalogo'
 
 export const TITULO_DOS_DESENHOS = 'Desenhos das tipologias'
 export const AVISO_DOS_DESENHOS =
@@ -20,6 +22,16 @@ export const AVISO_DOS_DESENHOS =
     + 'índice dá a ela. Rodar de novo continua de onde parou: o que já está no Storage não sobe outra vez, e nada é apagado.'
 
 type ResultadoDoZip = ResultadoDoEnvio | { zip: string; erro: string }
+type Importacao = { resultado: string; antes?: number; linhas: number; sha256: string; sem_arquivo: string[]; colisoes: string[] }
+type Conferencia = { sem_objeto: string[]; sem_linha: string[]; caminhos: number; objetos: number }
+/** O que a tela diz de uma importação: o resultado, as contagens e o sha256 do texto que entrou (para conferir com o do arquivo). */
+export const resumoDaImportacao = (r: Importacao) => r.resultado === 'igual'
+    ? `O índice é o mesmo da última importação (sha256 ${r.sha256}): nada foi apagado nem regravado; a tabela segue com ${r.linhas} linhas.`
+    : `Importado: a tabela tinha ${r.antes ?? 0} linhas e agora tem ${r.linhas} (sha256 ${r.sha256}).`
+/** A conferência índice × Storage: zero dos dois lados é o slug casado; qualquer um é nomeado. */
+export const resumoDaConferencia = (c: Conferencia) => (c.sem_objeto.length === 0 && c.sem_linha.length === 0
+    ? `Índice e Storage casam: ${c.caminhos} caminhos, ${c.objetos} objetos, nenhum de um lado sem o outro.`
+    : `${c.sem_objeto.length} caminho(s) do índice sem objeto no Storage e ${c.sem_linha.length} objeto(s) do Storage que nenhuma linha aponta.`)
 
 /** O texto de um arquivo escolhido (FileReader: vale no navegador e no ambiente de teste). */
 const lerTexto = (arquivo: Blob) => new Promise<string>((ok, falha) => {
@@ -42,7 +54,12 @@ function ListaNomeada({ titulo, itens, chave }: { titulo: string; itens: Readonl
 }
 
 export function DesenhosDoCatalogo() {
-    const [indice, setIndice] = useState<{ nome: string; linhas: LinhaDoIndice[] } | null>(null)
+    const [indice, setIndice] = useState<{ nome: string; linhas: LinhaDoIndice[]; texto: string } | null>(null)
+    const [permitirEncolher, setPermitirEncolher] = useState(false)
+    const [importando, setImportando] = useState(false)
+    const [importacao, setImportacao] = useState<Importacao | { erro: string; recusas?: string[] } | null>(null)
+    const [conferindo, setConferindo] = useState(false)
+    const [conferencia, setConferencia] = useState<Conferencia | { erro: string } | null>(null)
     const [erroDoIndice, setErroDoIndice] = useState<string | null>(null)
     const [zips, setZips] = useState<File[]>([])
     const [enviando, setEnviando] = useState(false)
@@ -52,10 +69,31 @@ export function DesenhosDoCatalogo() {
     async function escolherIndice(arquivo: File) {
         setErroDoIndice(null)
         setIndice(null)
-        const lido = lerIndice(await lerTexto(arquivo))
+        const texto = await lerTexto(arquivo)
+        const lido = lerIndice(texto)
         if ('erro' in lido) setErroDoIndice(`${arquivo.name}: ${lido.erro}`)
-        else setIndice({ nome: arquivo.name, linhas: lido.linhas })
+        else setIndice({ nome: arquivo.name, linhas: lido.linhas, texto })
         return false
+    }
+
+    async function importar() {
+        if (!indice) return
+        setImportando(true)
+        setImportacao(null)
+        try {
+            setImportacao(await chamarRota<Importacao>(ROTAS_DO_CATALOGO.importacaoDeDesenhos, 'POST', { texto: indice.texto, permitir_encolher: permitirEncolher }))
+        } catch (e) {
+            const corpo = (e as { corpo?: { recusas?: string[] } }).corpo
+            setImportacao({ erro: (e as Error).message, recusas: corpo?.recusas })
+        }
+        setImportando(false)
+    }
+
+    async function conferir() {
+        setConferindo(true)
+        setConferencia(null)
+        try { setConferencia(await chamarRota<Conferencia>(ROTAS_DO_CATALOGO.conferenciaDeDesenhos)) } catch (e) { setConferencia({ erro: (e as Error).message }) }
+        setConferindo(false)
     }
 
     async function enviar() {
@@ -112,6 +150,34 @@ export function DesenhosDoCatalogo() {
                         )}
                     </Card>
                 ))}
+                <Divider />
+                <Typography.Title level={5}>Importar o índice</Typography.Title>
+                <Typography.Paragraph type="secondary">
+                    Grava o índice no banco: apaga e regrava a tabela inteira, numa transação. Um índice com menos linhas do que a tabela tem é recusado, a
+                    menos que você permita encolher.
+                </Typography.Paragraph>
+                <Checkbox checked={permitirEncolher} onChange={(e) => setPermitirEncolher(e.target.checked)} disabled={importando} data-permitir-encolher="">
+                    Permitir que a tabela encolha
+                </Checkbox>
+                <Button onClick={importar} loading={importando} disabled={!indice}>Importar o índice</Button>
+                {importacao && ('erro' in importacao
+                    ? <Alert type="error" showIcon message={importacao.erro} data-importacao-erro=""
+                        description={importacao.recusas?.length ? <ul style={{ margin: 0, paddingLeft: 18 }}>{importacao.recusas.map((x, i) => <li key={i}>{x}</li>)}</ul> : undefined} />
+                    : <Space direction="vertical" style={{ width: '100%' }} data-importacao="">
+                        <Alert type="success" showIcon message={resumoDaImportacao(importacao)} />
+                        <ListaNomeada titulo="Linhas sem arquivo nos zips" itens={importacao.sem_arquivo} chave="sem-arquivo" />
+                        <ListaNomeada titulo="Colisões de código (não fundidas)" itens={importacao.colisoes} chave="colisoes" />
+                    </Space>)}
+                <Divider />
+                <Typography.Title level={5}>Conferir índice × Storage</Typography.Title>
+                <Button onClick={conferir} loading={conferindo}>Conferir</Button>
+                {conferencia && ('erro' in conferencia
+                    ? <Alert type="error" showIcon message={conferencia.erro} data-conferencia-erro="" />
+                    : <Space direction="vertical" style={{ width: '100%' }} data-conferencia="">
+                        <Alert type={conferencia.sem_objeto.length || conferencia.sem_linha.length ? 'warning' : 'success'} showIcon message={resumoDaConferencia(conferencia)} />
+                        <ListaNomeada titulo="Caminhos do índice sem objeto no Storage" itens={conferencia.sem_objeto} chave="sem-objeto" />
+                        <ListaNomeada titulo="Objetos do Storage que nenhuma linha aponta" itens={conferencia.sem_linha} chave="sem-linha" />
+                    </Space>)}
             </Space>
         </Card>
     )

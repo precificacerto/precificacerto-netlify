@@ -224,6 +224,22 @@ async function rpc(nome: string, args: Record<string, unknown>): Promise<Record<
     if (error) throw new ErroDoBanco(error)
     return data as Record<string, unknown>
 }
+/** A importação do índice dos desenhos (migração 20261111000001): apaga e regrava a tabela numa transação; a trava do encolhimento é da função. */
+export const importarDesenhos = (a: { por: string; sha256: string; linhas: unknown[]; permitirEncolher: boolean }) =>
+    rpc('superadmin_importar_desenhos', { p_por: a.por, p_sha256: a.sha256, p_linhas: a.linhas, p_permitir_encolher: a.permitirEncolher })
+
+/** Todos os caminhos no Storage que o índice dos desenhos aponta (sem os nulos), em páginas de 1000 — o PostgREST corta em 1000. */
+export async function caminhosDoIndiceDeDesenhos(): Promise<string[]> {
+    const caminhos: string[] = []
+    const PAGINA = 1000
+    for (let de = 0; ; de += PAGINA) {
+        const linhas = await q(db().from('orcamentista_tipologia_desenho').select('id, caminho_no_storage').not('caminho_no_storage', 'is', null)
+            .order('id').range(de, de + PAGINA - 1))
+        for (const l of linhas) caminhos.push(String(l.caminho_no_storage))
+        if (linhas.length < PAGINA) return caminhos
+    }
+}
+
 export const criarFamilia = (a: { por: string; chave: string; rotulo: string; ramificacoes: string[] }) =>
     rpc('superadmin_criar_familia', { p_por: a.por, p_chave: a.chave, p_rotulo: a.rotulo, p_ramificacoes: a.ramificacoes })
 export const editarFamilia = (a: { por: string; chave: string; rotulo: string; ramificacoes: string[] }) =>
@@ -410,6 +426,18 @@ export async function nomesNaPasta(pasta: string): Promise<Set<string>> {
         // a subpasta vem com id nulo: não é objeto
         for (const o of data) if (o.id !== null) nomes.add(o.name)
         if (data.length < PAGINA) return nomes
+    }
+}
+
+/** As SUBPASTAS de uma pasta do bucket (o que a lista devolve com id nulo), todas as páginas. Falha do Storage LANÇA. */
+export async function pastasEm(pasta: string): Promise<string[]> {
+    const pastas: string[] = []
+    const PAGINA = 1000
+    for (let offset = 0; ; offset += PAGINA) {
+        const { data, error } = await bucket().list(pasta, { limit: PAGINA, offset, sortBy: { column: 'name', order: 'asc' } })
+        if (error || !data) throw new ErroDoBanco({ message: error?.message ?? 'sem lista da pasta' })
+        for (const o of data) if (o.id === null) pastas.push(o.name)
+        if (data.length < PAGINA) return pastas
     }
 }
 

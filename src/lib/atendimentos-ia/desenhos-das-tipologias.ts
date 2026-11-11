@@ -226,3 +226,73 @@ export type ResultadoDoEnvio = {
 export const resumoDoEnvio = (r: ResultadoDoEnvio) =>
     `${r.zip}: ${r.enviados.length} enviados, ${r.jaExistiam.length} já existiam, ${r.falhas.length} falharam, `
     + `${r.recusados.length} recusados, ${r.ignorados.length} ignorados, ${r.faltamNoZip.length} citados no índice e ausentes do zip.`
+
+// ── A IMPORTAÇÃO DO ÍNDICE (a função superadmin_importar_desenhos, migração 20261111000001) ───────────────────────────────────────
+/** Uma linha como a função a recebe: as 8 colunas, vazio NULO (o cabeçalho da migração: "nunca zero, nunca ''"). */
+export type LinhaParaImportar = {
+    fonte: string | null; grupo: string | null; codigo: string | null; codigo_dp: string | null; descricao: string | null
+    liberado_para_venda: boolean | null; condicao: string | null; caminho_no_storage: string | null
+}
+const nuloSeVazio = (v: string): string | null => (v === '' ? null : v)
+const LIBERADO: Readonly<Record<string, boolean>> = { Sim: true, 'Não': false }
+
+/**
+ * As linhas do índice no formato da importação. O CAMINHO no Storage sai de `caminhoDoDesenho` — A MESMA função do envio dos zips (o slug
+ * do grupo é `grupoNoCaminho`, num lugar só): se os dois calculassem o slug cada um à sua maneira, os dois passariam na CHECK da forma e o
+ * PDF ficaria sem desenho, em silêncio (dono do produto, 11/11/2026). O código CRU vai como veio; o codigo_dp vai normalizado, ao lado.
+ * Recusa a importação INTEIRA (nunca uma linha pulada), nomeando cada linha: fonte fora das duas, liberado fora de Sim/Não/vazio, código DP
+ * que não normaliza, caminho que o bucket não aceita. Devolve também, NOMEADAS, as linhas sem arquivo nos zips e as colisões de código.
+ */
+export function linhasParaImportar(indice: readonly LinhaDoIndice[]):
+    { linhas: LinhaParaImportar[]; semArquivo: string[]; colisoes: string[] } | { recusas: string[] } {
+    const recusas: string[] = []
+    const semArquivo: string[] = []
+    const linhas: LinhaParaImportar[] = []
+    indice.forEach((l, k) => {
+        const n = k + 2 // a linha no CSV (o cabeçalho é a 1)
+        if (l.fonte !== 'principal' && l.fonte !== 'por_variavel') recusas.push(`linha ${n}: fonte "${l.fonte}" não é principal nem por_variavel`)
+        let liberado: boolean | null = null
+        if (l.liberado !== '') {
+            if (!(l.liberado in LIBERADO)) recusas.push(`linha ${n}: liberado "${l.liberado}" não é Sim, Não nem vazio`)
+            else liberado = LIBERADO[l.liberado]
+        }
+        let codigoDp: string | null = null
+        if (l.codigo_dp !== '') {
+            codigoDp = codigoDpNormalizado(l.codigo_dp)
+            if (codigoDp === null || !/^DP-[1-9][0-9]*$/.test(codigoDp)) recusas.push(`linha ${n}: codigo_dp "${l.codigo_dp}" não é um código DP`)
+        }
+        let caminho: string | null = null
+        if (l.caminho_no_zip.trim() === '') semArquivo.push(`linha ${n}: ${l.codigo}${l.condicao ? ` ${l.condicao}` : ''} (${l.arquivo_indice || 'sem arquivo no índice'})`)
+        else {
+            const c = caminhoDoDesenho(grupoNoCaminho(l.grupo), l.caminho_no_zip.split('/').pop() ?? '')
+            if ('recusa' in c) recusas.push(`linha ${n}: ${c.recusa}`)
+            else caminho = c.caminho
+        }
+        linhas.push({
+            fonte: nuloSeVazio(l.fonte), grupo: nuloSeVazio(l.grupo), codigo: nuloSeVazio(l.codigo), codigo_dp: codigoDp,
+            descricao: nuloSeVazio(l.descricao), liberado_para_venda: liberado, condicao: nuloSeVazio(l.condicao), caminho_no_storage: caminho,
+        })
+    })
+    if (recusas.length) return { recusas }
+    const colisoes = colisoesDoCodigo(indice.map((l) => l.codigo)).map((c) => c.frase)
+    return { linhas, semArquivo, colisoes }
+}
+
+// ── A CONFERÊNCIA DEPOIS DA IMPORTAÇÃO: a prova de que o slug casou ────────────────────────────────────────────────────────────
+/**
+ * Os dois lados, NOMEADOS (dono do produto, 11/11/2026): os caminhos que a tabela aponta e o bucket não tem, e os objetos do bucket que
+ * nenhuma linha aponta. Zero dos dois: o slug casou de fato. Qualquer um: aparece antes de o cliente receber PDF sem desenho.
+ */
+export function conferirDesenhos(caminhosDaTabela: Iterable<string>, objetosDoBucket: Iterable<string>):
+    { semObjeto: string[]; semLinha: string[]; caminhos: number; objetos: number } {
+    const tabela = new Set(caminhosDaTabela)
+    const bucket = new Set(objetosDoBucket)
+    return {
+        semObjeto: [...tabela].filter((c) => !bucket.has(c)).sort(),
+        semLinha: [...bucket].filter((o) => !tabela.has(o)).sort(),
+        caminhos: tabela.size, objetos: bucket.size,
+    }
+}
+
+/** A migração do índice ainda não aplicada: a importação e a conferência dizem isso, nunca 500. */
+export const FRASE_SEM_A_MIGRACAO = 'A tabela do índice dos desenhos ainda não existe no banco: a migração 20261111000001 não está aplicada.'
