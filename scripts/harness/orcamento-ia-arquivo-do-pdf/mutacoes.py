@@ -65,7 +65,8 @@ MUTACOES = [
     ('S1', 'a linha gravada mesmo com o upload recusado', [(SERV, '    if (eUp) throw new Error(`storage ${BUCKET_DO_CATALOGO}: ${eUp.message}`)\n', '')]),
     ('S2', 'o upload sobrescreve', [(SERV, "{ contentType: 'application/pdf', upsert: false }", "{ contentType: 'application/pdf', upsert: true }")]),
     ('S3', 'o caminho fora da pasta do tenant', [(SERV, 'const caminho = `orcamentos/${tenantId}/${orcamentoId}/${id}.pdf`', 'const caminho = `orcamentos/${orcamentoId}/${id}.pdf`')]),
-    ('S4', 'o arquivo gravado sem autor', [(SERV, "gerado_origem: 'manual', gerado_por: autor,", "gerado_origem: 'manual', gerado_por: null,")]),
+    # S4 e D4 reapontadas em 11/11/2026: o trecho mudou com o autor nulo do AGENTE (a cadeia do "sim"); a intenção é a mesma
+    ('S4', 'o arquivo gravado sem autor', [(SERV, "gerado_origem: autor ? 'manual' : 'agente', gerado_por: autor,", "gerado_origem: autor ? 'manual' : 'agente', gerado_por: null,")]),
     ('S5', 'o último arquivo é o mais antigo', [(SERV, ".order('gerado_em', { ascending: false }).limit(1)", ".order('gerado_em', { ascending: true }).limit(1)")]),
     ('S6', 'o último arquivo de qualquer empresa', [(SERV, "select('bucket, caminho, gerado_em').eq('tenant_id', tenantId).eq('orcamento_id', orcamentoId)", "select('bucket, caminho, gerado_em').eq('orcamento_id', orcamentoId)")]),
     ('S7', 'o celular de 11 dígitos vira fixo', [(SERV, "(d.length === 11 && d[2] === '9') ||", "(d.length === 11 && d[2] === '8') ||")]),
@@ -110,7 +111,7 @@ MUTACOES = [
     ('D1', 'a divergência nunca é vista', [(PREC, '        return gravado !== null && gravado !== undefined && gravado !== preset[campo] ?', '        return false ?')]),
     ('D2', 'o nulo de antes do preset conta como divergência', [(PREC, '        return gravado !== null && gravado !== undefined && gravado !== preset[campo] ?', '        return gravado !== undefined && gravado !== preset[campo] ?')]),
     ('D3', 'a sobrescrita em silêncio', [(GRAVA, '    if (sobrescrito.length) console.error(', '    if (false) console.error(')]),
-    ('D4', 'o salvar da tela sem a marca da edição manual', [(GRAVA, ', editado_manualmente_em: agora.toISOString(), editado_manualmente_por: autor })', ' })')]),
+    ('D4', 'o salvar da tela sem a marca da edição manual', [(GRAVA, '...(autor ? { editado_manualmente_em: agora.toISOString(), editado_manualmente_por: autor } : {})', '...({})')]),
     ('D5', 'o aviso da divergência não aparece', [(TOPO, '    if (divergencia.length === 0) return null', '    if (true) return null')]),
     ('D6', 'o GET não aponta a divergência', [(ROTA, 'fiscal_divergente: fiscalDivergente(orcamento),', 'fiscal_divergente: [],')]),
     ('F11', 'a tela não passa a referência às faltas', [(CONTENT, '  const referenciaExigida = (): boolean | null => (ehOrcamentoDeIndustrializacao && isLRorLP ? referenciaDoTenant === true : null)', '  const referenciaExigida = (): boolean | null => null')]),
