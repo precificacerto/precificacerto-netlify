@@ -10,9 +10,7 @@ import { IItemProductModel, itemProductSchema } from '@/server/model/item-produc
 import { ColumnsType } from 'antd/es/table'
 import { UNIT_TYPE } from '@/constants/item-unit-types'
 import { calculateItemPrice } from '@/utils/calculate-item-price'
-import { resolveProductTaxPercent, resolveProductTaxPercentToPersist } from '@/utils/product-tax-percent'
-import { resolveIndirectLaborPct } from '@/utils/indirect-labor-grouping'
-import { divisorDaEstruturaPct, custoMensalDeMaoDeObraDoProduto } from '@/utils/despesas-do-segmento'
+import { resolveProductTaxPercentToPersist } from '@/utils/product-tax-percent'
 import { buildDestinationSnapshot } from '@/utils/destination-snapshot'
 import { MessageInstance } from 'antd/es/message/interface'
 import { useRouter } from 'next/router'
@@ -20,12 +18,12 @@ import { IProductModel } from '@/server/model/product'
 import { ROUTES } from '@/constants/routes'
 import { getMonetaryValue } from '@/utils/get-monetary-value'
 import { CalcBaseType } from '@/types/calc-base.type'
-import { calculatePricing } from '@/utils/pricing-engine'
 import { resolveMonthlyWorkload } from '@/utils/resolve-monthly-workload'
 import { computeIvaDualOutside } from '@/utils/iva-dual-outside'
 import { resolveIvaDualEffectiveRate } from '@/utils/item-tax-rates'
 import { resolvePisCofinsPctFromNcm } from '@/utils/ncm-pis-cofins'
 import { pisCofinsDaReferenciaDoTenant } from '@/utils/ncm-pis-cofins'
+import { calcularNoMotorDoProduto, tipoDeCalculoEfetivo } from '@/utils/motor-do-produto'
 import { resolveReducoesDoItem } from '@/utils/classificacao-fiscal'
 import ClassificacaoFiscalBlock, { type ClassificacaoFiscalValue } from '@/page-parts/shared/classificacao-fiscal-block.component'
 import { computeIcmsSt, computeDifal, computeIcmsComplementar, mvaAjustada } from '@/utils/icms-st-difal'
@@ -899,11 +897,7 @@ export const Content: FC<ContentProps> = ({
     )
     if (!workload.isUnset) return false
 
-    const effectiveCalcType = productType === 'REVENDA'
-      ? 'REVENDA'
-      : currentUser?.calcType === CALC_TYPE_ENUM.INDUSTRIALIZATION ? 'INDUSTRIALIZACAO'
-        : currentUser?.calcType === CALC_TYPE_ENUM.RESALE ? 'REVENDA'
-          : 'SERVICO'
+    const effectiveCalcType = tipoDeCalculoEfetivo(productType, currentUser?.calcType)
     if (effectiveCalcType === 'REVENDA') return false
 
     return (productPriceInfo?.productWorkloadInMinutes || 0) > 0
@@ -943,183 +937,12 @@ export const Content: FC<ContentProps> = ({
 
   // --- Pricing Engine (V2) ---------------------------------------------------
   const doProductCalc = useCallback(() => {
-    const yieldQty = Number(productForm.getFieldValue('quantity')) || 1
-    const isCalcService = currentUser.calcType === CALC_TYPE_ENUM.SERVICE
-
-    // Carga horária resolvida pela fonte única (`resolve-monthly-workload`). Sem
-    // configuração, `monthlyWorkloadMinutes` é 0 — sem o antigo default silencioso de
-    // 176h. O motor trata divisor 0 (MO produtiva vira 0); o bloqueio de save e o
-    // alerta na UI ficam em `isWorkloadBlocking` e `workloadAlert` (`:795-840`), que só
-    // disparam quando o divisor de fato importa (produto com tempo de MO e calcType
-    // diferente de REVENDA).
-    //
-    // NOME CORRIGIDO em 11/10/2026: esta linha citava `workloadBlock`, símbolo que NUNCA
-    // existiu. Um `grep` por ele devolvia só este comentário e sugeria portão ausente onde
-    // há portão — registrado por decisão do dono do produto, e nenhuma linha de código
-    // mudou junto.
-    const workload = resolveMonthlyWorkload(
-      currentUser.monthlyWorkloadInMinutes,
-      currentUser.unitMeasure,
-      currentUser.numProductiveSectorEmployee,
-    )
-    const totalEmployees = workload.totalEmployees
-    // Total productive minutes available per month (company-wide)
-    const monthlyWorkloadMinutes = workload.monthlyWorkloadMinutes
-
-    // REGRA (segmentação SERVIÇO): produto de revenda NÃO recebe MO Administrativa
-    // nem Despesa Fixa. Elas já estão embutidas no custo POR MINUTO da prestação de
-    // serviço (services/content.component.tsx: combinedLaborCostMonthly =
-    // MO Produtiva + MO Administrativa + Despesas Fixas). Somá-las de novo aqui,
-    // como percentual no coeficiente, seria dupla contagem: o mesmo dinheiro
-    // cobrado duas vezes, uma no minuto e outra no markup.
-    // Por isso, quando o tenant é SERVIÇO, o coeficiente leva apenas despesa
-    // variável + financeira. Nos demais segmentos (industrialização/revenda pura),
-    // onde não existe custo por minuto diluindo estrutura, o coeficiente carrega
-    // fixo + variável + financeiro + MO administrativa.
-    // Segmentação que decide o AGRUPAMENTO. A matriz cobre o item do MESMO TIPO da
-    // segmentação (core business), então o agrupamento vale para o item de revenda de um
-    // tenant de revenda. Item produzido em tenant de revenda é combinação ainda não definida
-    // pela regra: fica como está, sem agrupar.
-    const tenantSegmentForGrouping =
-      currentUser.calcType === CALC_TYPE_ENUM.RESALE && productType === 'REVENDA'
-        ? 'REVENDA'
-        : null
-
-    // Em segmentação REVENDA a MO Produtiva é MC agrupada com a Indireta: sem tempo de
-    // produção não há minuto sobre o qual ratear, então ela só pode entrar como percentual.
-    // Fora de REVENDA devolve a Indireta intacta. Ver `indirect-labor-grouping.ts`.
-    const indirectLaborPctForEngine = resolveIndirectLaborPct({
-      tenantCalcType: tenantSegmentForGrouping,
-      indirectLaborPct: calcBase.indirectLaborPct,
-      productiveLaborPct: calcBase.laborPercent,
+    // A CONTA mora em `calcularNoMotorDoProduto` (`src/utils/motor-do-produto.ts`) e em lugar nenhum mais: aqui só se grava no estado
+    // (`copia-divergente.md`). Os comentários de cada regra foram junto com ela.
+    const conta = calcularNoMotorDoProduto({
+      currentUser, calcBase, productType, productPriceInfo, additionalIrpjPercent, customTaxPercent, isLRorLP, modo, itemsPriceSum,
     })
-    /*
-      O DIVISOR SAI DA FONTE ÚNICA — `divisorDaEstruturaPct`.
-
-      ADENDO 3 (02/10/2026): no SERVIÇO o COMPROMISSO entra no divisor; a fixa e a MO não, porque
-      são numerador (custo por minuto, em R$). Fora do serviço a soma `fixa + compromisso` é a
-      fixa de antes ao centavo, e é isso que mantém a trava do §0.
-
-      O ternário que morava aqui era a primeira de quatro escritas do mesmo critério, e a mutação
-      que somava o compromisso duas vezes neste ponto sobrevivia à suíte inteira — ver o
-      cabeçalho de `despesas-do-segmento.ts`.
-
-      A MO indireta chega JÁ AGRUPADA: o agrupamento REVENDA daqui é mais estreito que o de
-      `resolveSegmentoDaDespesa`, e unificá-los mudaria preço.
-    */
-    const structurePctForEngine = divisorDaEstruturaPct({
-      segmentoDaDespesa: isCalcService ? 'SERVICO' : 'INDUSTRIALIZACAO',
-      fixaPct: calcBase.fixedExpensePct,
-      variavelPct: calcBase.variableExpensePct,
-      financeiraPct: calcBase.financialExpensePct,
-      compromissoPct: calcBase.financialCommitmentsPct,
-      indiretaAgrupadaPct: indirectLaborPctForEngine,
-    }) / 100
-    const isLucroRealProd = currentUser.taxableRegime === 'LUCRO_REAL'
-    const isLucroPresumidoProd = currentUser.taxableRegime === 'LUCRO_PRESUMIDO' || currentUser.taxableRegime === 'LUCRO_PRESUMIDO_RET'
-    let effectiveTaxPct: number
-    if (isLucroRealProd || isLucroPresumidoProd) {
-      const nonRegimeTaxPct = calcBase.taxesPercent || 0
-      const irpjPct = productPriceInfo.productProfitPercent * 0.15
-      const csllPct = productPriceInfo.productProfitPercent * 0.09
-      const adicionalPct = isLRorLP ? (additionalIrpjPercent || 0) : 0
-      effectiveTaxPct = nonRegimeTaxPct + irpjPct + csllPct + adicionalPct
-    } else {
-      // MEI: DAS é fixo mensal e NÃO incide por item — imposto zero, sempre. Um
-      // `custom_tax_percent` gravado (dado legado) é ignorado aqui, e a linha da tela
-      // usa a MESMA função, então exibição e cálculo continuam batendo.
-      effectiveTaxPct = resolveProductTaxPercent({
-        isMei: !!calcBase.isMei,
-        customTaxPercent,
-        autoTaxPercent: calcBase.taxPct,
-      })
-    }
-    const taxPctDecimal = effectiveTaxPct / 100
-
-    // Produto REVENDA usa sempre calcType REVENDA (sem MO produtiva no CMV), independente do tenant
-    const effectiveCalcType = productType === 'REVENDA'
-      ? 'REVENDA'
-      : currentUser.calcType === CALC_TYPE_ENUM.INDUSTRIALIZATION ? 'INDUSTRIALIZACAO'
-        : currentUser.calcType === CALC_TYPE_ENUM.RESALE ? 'REVENDA'
-        : 'SERVICO'
-
-    // A ENTRADA DO MOTOR é o único ponto do cálculo em que os dois modos divergem (`entradaDoMotor`): no produto, a soma dos itens e os
-    // minutos digitados, como sempre; no orçamento, o líquido dos materiais e os minutos da fabricação dos itens (a forma da D2).
-    const entrada = entradaDoMotor(modo, {
-      itemsPriceSum, workloadMinutes: productPriceInfo.productWorkloadInMinutes || 0,
-    })
-    const engineResult = calculatePricing({
-      calcType: effectiveCalcType,
-      totalItemsCost: entrada.totalItemsCost,
-      yieldQuantity: 1,
-      // 11/10/2026: era `effectiveCalcType === 'REVENDA' ? 0 : calcBase.laborCostMonthly`,
-      // inline. Extraído para `custoMensalDeMaoDeObraDoProduto` para que um caso possa
-      // afirmar o NÚMERO — ver o cabeçalho da função.
-      laborCostMonthly: custoMensalDeMaoDeObraDoProduto({
-        effectiveCalcType,
-        segmentoDaDespesa: isCalcService ? 'SERVICO' : 'INDUSTRIALIZACAO',
-        produtivaMensal: calcBase.laborCostMonthly,
-        adminMensal: calcBase.adminLaborCostMonthly,
-        fixaMensal: calcBase.fixedExpenseMonthly,
-      }),
-      numProductiveEmployees: totalEmployees,
-      monthlyWorkloadMinutes,
-      productWorkloadMinutes: effectiveCalcType === 'REVENDA' ? 0 : entrada.productWorkloadMinutes,
-      structurePct: structurePctForEngine,
-      taxPct: taxPctDecimal,
-      commissionPct: productPriceInfo.salesCommissionPercent / 100,
-      profitPct: productPriceInfo.productProfitPercent / 100,
-      rtReservePct: (productPriceInfo.rtReservePercent || 0) / 100,
-    })
-
-    // Para SERVICE + produto com itens (não REVENDA): calcula preço separado do produto
-    let resultProductService = 0
-    if (isCalcService && productType !== 'REVENDA' && itemsPriceSum > 0) {
-      const prodEngine = calculatePricing({
-        calcType: 'REVENDA',
-        totalItemsCost: itemsPriceSum,
-        yieldQuantity: 1,
-        laborCostMonthly: 0,
-        numProductiveEmployees: totalEmployees,
-        monthlyWorkloadMinutes,
-        productWorkloadMinutes: 0,
-        structurePct: 0,
-        taxPct: taxPctDecimal,
-        commissionPct: (productPriceInfo.salesCommissionPercentByProduct || 0) / 100,
-        profitPct: (productPriceInfo.productProfitPercentByProduct || 0) / 100,
-      })
-      resultProductService = prodEngine.isValid ? prodEngine.priceUnit : 0
-    }
-
-    if (engineResult.isValid) {
-      const priceUnit = engineResult.priceUnit
-      const priceTotal = isCalcService
-        ? (resultProductService * yieldQty) + engineResult.priceTotal
-        : engineResult.priceTotal
-
-      setProductPriceInfo((prev) => ({
-        ...prev,
-        indirectLaborExpensePercent: calcBase.indirectLaborPct,
-        productProfitPrice: engineResult.profitValue,
-        salesCommissionPrice: engineResult.commissionValue,
-        rtReservePrice: engineResult.rtReserveValue,
-        productProfitPriceByProduct: resultProductService * (prev.productProfitPercentByProduct / 100) || 0,
-        salesCommissionPriceByProduct: resultProductService * (prev.salesCommissionPercentByProduct / 100) || 0,
-        indirectLaborExpensePrice: engineResult.laborValue,
-        laborPctShown: Number((engineResult.laborPctShown * 100).toFixed(3)),
-        fixedExpensePrice: priceUnit * (calcBase.fixedExpensePct / 100),
-        financialCommitmentsPrice: priceUnit * (calcBase.financialCommitmentsPct / 100),
-        variableExpensePrice: priceUnit * (calcBase.variableExpensePct / 100),
-        financialExpensePrice: priceUnit * (calcBase.financialExpensePct / 100),
-        taxesPrice: engineResult.taxValue,
-        taxesPriceByProduct: resultProductService * taxPctDecimal || 0,
-        productWorkloadInMinutesPrice: engineResult.productiveLaborCost,
-        productCost: engineResult.cmvUnit,
-        totalServicePrice: isCalcService ? engineResult.priceUnit : 0,
-        totalServiceProductPrice: resultProductService,
-        totalProductPrice: priceUnit,
-      }))
-    }
+    if (conta) setProductPriceInfo((prev) => ({ ...prev, ...conta.campos, ...conta.porProdutoDoServico(prev) }))
   }, [
     currentUser,
     calcBase.laborCostMonthly,
