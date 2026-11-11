@@ -10,11 +10,11 @@ import { COLUNAS_DO_INDICE } from '@/lib/atendimentos-ia/desenhos-das-tipologias
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 Object.defineProperty(window, 'matchMedia', {
     writable: true,
-    value: (q: string) => ({ matches: false, media: q, onchange: null, addListener: () => {}, removeListener: () => {}, addEventListener: () => {}, removeEventListener: () => {}, dispatchEvent: () => false }),
+    value: (q: string) => ({ matches: false, media: q, onchange: null as ((e: unknown) => void) | null, addListener: () => {}, removeListener: () => {}, addEventListener: () => {}, removeEventListener: () => {}, dispatchEvent: () => false }),
 })
 const enviados: Array<{ nome: string; linhas: number }> = []
 jest.mock('@/page-parts/atendimentos-ia/envio-dos-desenhos', () => ({
-    enviarDesenhosDoZip: async (_z: Blob, nome: string, indice: unknown[]) => {
+    enviarDesenhosDoZip: async (_z: Blob, nome: string, indice: unknown[]): Promise<unknown> => {
         enviados.push({ nome, linhas: indice.length })
         if (nome === 'fora.zip') return { erro: 'o índice não cita o zip "fora.zip" (a coluna zip tem de ter o nome do arquivo, exato).' }
         return { zip: nome, enviados: ['pvc/A.jpg'], jaExistiam: ['pvc/B.jpg'], falhas: [{ arquivo: 'pvc/C.jpg', motivo: 'o envio falhou (500)' }],
