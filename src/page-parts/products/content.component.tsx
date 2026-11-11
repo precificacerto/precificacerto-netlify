@@ -77,6 +77,8 @@ type ContentProps = {
   onSalvarOrcamento?: (g: GravacaoDaPrecificacao) => Promise<string[] | null>
   /** Recalcula o orçamento (o cálculo do 1b) e relê; usado no aviso de cálculo incompleto. */
   onRecalcularOrcamento?: () => Promise<void>
+  /** Só no modo orçamento: o que vem ABAIXO dos itens precificados, no fim da tela (o link do último PDF, 11/11/2026). Produtos não passa. */
+  rodapeDoOrcamento?: React.ReactNode
 }
 
 export type ProductPriceInfoType = {
@@ -159,6 +161,7 @@ export const Content: FC<ContentProps> = ({
   recusaDosItensDoArquivo = null,
   onSalvarOrcamento,
   onRecalcularOrcamento,
+  rodapeDoOrcamento,
 }: ContentProps) => {
   const { isMobile } = useDevice()
   // O modo decide SÓ a origem da entrada, o cabeçalho e o destino do salvar; o cálculo é o mesmo (`entradaDoMotor`).
@@ -2646,17 +2649,21 @@ export const Content: FC<ContentProps> = ({
         </div>
       )}
 
-      {orcamento && (
-        // a ÚLTIMA faixa antes do botão (11/11/2026): os itens com as variáveis, precificados um a um, e o total
-        <ItensPrecificados itens={itensDoArquivo} recusaDosItens={recusaDosItensDoArquivo} interna={internaNaTela}
-          pesos={orcamento.itens.map((i) => ({ ordem: i.ordem, quantidade: i.quantidade, peso: i.custo_liquido_total }))} />
-      )}
       <footer className="flex flex-row-reverse mt-5 mr-4">
         <Button onClick={handleSaveProduct} type="primary" className="ml-2" loading={orcamento ? salvandoOrcamento : savingProduct}>
           {orcamento ? 'Salvar precificação do orçamento' : product ? 'Salvar alterações' : 'Salvar'}
         </Button>
         <Button onClick={goBack}>Cancelar</Button>
       </footer>
+      {orcamento && (
+        // A ORDEM DO FIM DA TELA (dono do produto, 11/11/2026, revisada depois de ver a tela — vale sobre a de antes, que punha os itens antes
+        // do botão): o botão, ABAIXO dele os itens com as variáveis precificados um a um e o total, ABAIXO deles o link do último PDF
+        <>
+          <ItensPrecificados itens={itensDoArquivo} recusaDosItens={recusaDosItensDoArquivo} interna={internaNaTela}
+            pesos={orcamento.itens.map((i) => ({ ordem: i.ordem, quantidade: i.quantidade, peso: i.custo_liquido_total }))} />
+          {rodapeDoOrcamento && <div style={{ marginTop: 12 }}>{rodapeDoOrcamento}</div>}
+        </>
+      )}
     </>
   )
 }

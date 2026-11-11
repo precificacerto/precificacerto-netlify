@@ -509,13 +509,28 @@ describe('(E) AS DECISÕES DE 11/11/2026 — a interna gravada, a faixa dos iten
         expect(g.valor_operacao_interna).toBeGreaterThan(0)
         expect(Math.round(g.valor_operacao_interna * 100)).toBeLessThanOrEqual(Math.round(g.valor_venda * 100))
     })
-    it('a ÚLTIMA faixa antes do salvar: os itens com as variáveis, precificados um a um pelo rateio exato, e o total = a interna', async () => {
+    it('A ORDEM DO FIM DA TELA (dono do produto, 11/11/2026, revisada depois de ver a tela): o botão, ABAIXO dele os itens precificados, ABAIXO deles o link do PDF', async () => {
+        const link = <a href="/api/atendimentos-ia/orcamentos/o-1/arquivo" data-abrir-arquivo="">Abrir o último arquivo do orçamento (PDF)</a>
+        const host = await montar({ orcamento: orcamento(), onSalvarOrcamento: jest.fn(), itensDoArquivo: ITENS_DO_ARQUIVO, rodapeDoOrcamento: link })
+        const botaoSalvar = botao(host, 'Salvar precificação do orçamento') as HTMLButtonElement
+        const faixa = host.querySelector('[data-itens-precificados]') as HTMLElement
+        const abrir = host.querySelector('[data-abrir-arquivo]') as HTMLElement
+        expect(faixa).not.toBeNull()
+        expect(abrir).not.toBeNull()
+        const segue = (a: Node, b: Node) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0
+        expect(segue(botaoSalvar, faixa)).toBe(true)
+        expect(segue(faixa, abrir)).toBe(true)
+        // e o link é o ÚLTIMO elemento da tela do orçamento
+        expect(host.querySelectorAll('[data-abrir-arquivo]')).toHaveLength(1)
+    })
+    it('o Produto não ganha rodapé: a prop é só do modo orçamento', async () => {
+        const host = await montar({ isEditingMode: true, product: PRODUTO_1008, itemsFromApi: ITENS_DA_API, rodapeDoOrcamento: <a data-abrir-arquivo="">x</a> })
+        expect(host.querySelector('[data-abrir-arquivo]')).toBeNull()
+    })
+    it('os itens precificados: as variáveis, precificados um a um pelo rateio exato, e o total = a interna', async () => {
         const host = await montar({ orcamento: orcamento(), onSalvarOrcamento: jest.fn(), itensDoArquivo: ITENS_DO_ARQUIVO })
         const faixa = host.querySelector('[data-itens-precificados]') as HTMLElement
         expect(faixa).not.toBeNull()
-        // é a última coisa antes do botão
-        const botaoSalvar = botao(host, 'Salvar precificação do orçamento') as HTMLButtonElement
-        expect(faixa.compareDocumentPosition(botaoSalvar) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
         expect(faixa.querySelector('[data-item-precificado="1"] [data-variaveis-do-item]')?.textContent).toBe('ARREMATE INTERNO: 65 mm')
         const valores = Array.from(faixa.querySelectorAll('[data-valor-do-item] strong')).map((e) => reais(e.textContent ?? ''))
         expect(valores).toHaveLength(2)

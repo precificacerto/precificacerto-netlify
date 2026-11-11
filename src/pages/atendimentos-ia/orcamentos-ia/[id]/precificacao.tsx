@@ -112,9 +112,6 @@ function PrecificacaoDoOrcamento() {
                 )}
                 {estado.tipo === 'pronto' && estado.cliente && <TopoDoOrcamento cliente={estado.cliente} />}
                 {estado.tipo === 'pronto' && <AvisoDoFiscalDivergente divergencia={estado.fiscalDivergente} />}
-                {estado.tipo === 'pronto' && id && (
-                    <div style={{ marginBottom: 12 }}><a href={`/api/atendimentos-ia/orcamentos/${id}/arquivo`} target="_blank" rel="noopener noreferrer" data-abrir-arquivo="">Abrir o último arquivo do orçamento (PDF)</a></div>
-                )}
                 {estado.tipo === 'pronto' && currentUser && (
                     <Content
                         // a cada leitura um componente novo: o estado da tela parte do orçamento gravado, nunca do de antes
@@ -129,6 +126,8 @@ function PrecificacaoDoOrcamento() {
                         recusaDosItensDoArquivo={estado.recusaDosItens}
                         onSalvarOrcamento={salvar}
                         onRecalcularOrcamento={recalcular}
+                        // o link do último PDF vai ao FIM da tela, abaixo dos itens precificados (dono do produto, 11/11/2026)
+                        rodapeDoOrcamento={id ? <a href={`/api/atendimentos-ia/orcamentos/${id}/arquivo`} target="_blank" rel="noopener noreferrer" data-abrir-arquivo="">Abrir o último arquivo do orçamento (PDF)</a> : null}
                     />
                 )}
             </div>
