@@ -26,7 +26,7 @@ const INDICE_DO_ZIP = /^indice\.csv$/i
 const LIXO_DO_SISTEMA = /(^|\/)(__MACOSX\/|\.DS_Store$|Thumbs\.db$|desktop\.ini$)/i
 
 const TIPO_DA_IMAGEM: Readonly<Record<string, string>> = {
-    jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', bmp: 'image/bmp', webp: 'image/webp',
+    jpg: 'image/jpeg', jpeg: 'image/jpeg', jfif: 'image/jpeg', png: 'image/png', gif: 'image/gif', bmp: 'image/bmp', webp: 'image/webp',
 }
 /** O tipo do conteúdo pela extensão, ou null quando o arquivo não é uma imagem que se aceita. */
 export function tipoDaImagem(nome: string): string | null {
@@ -53,42 +53,138 @@ export type Recusa = { arquivo: string; motivo: string }
 /** O caminho de UM desenho no bucket, ou a recusa nomeada. */
 export function caminhoDoDesenho(grupo: string, arquivo: string): { caminho: string } | { recusa: string } {
     if (!GRUPO_ACEITO.test(grupo)) return { recusa: `o grupo "${grupo}" não é um nome de pasta aceito (letras minúsculas sem acento, dígitos e hífen)` }
-    if (!NOME_ACEITO.test(arquivo) || arquivo.startsWith('.') || arquivo.includes('..')) {
+    // sem barra (o NOME_ACEITO não a aceita), o ".." no meio do nome não sai da pasta: "ESQ_386..jpg" existe no índice real e sobe
+    if (!NOME_ACEITO.test(arquivo) || arquivo.startsWith('.')) {
         return { recusa: 'o nome tem caractere que o bucket não aceita com segurança (só letras sem acento, dígitos, ponto, hífen, sublinhado, espaço e parênteses)' }
     }
-    if (tipoDaImagem(arquivo) === null) return { recusa: 'não é uma imagem (jpg, jpeg, png, gif, bmp ou webp)' }
+    if (tipoDaImagem(arquivo) === null) return { recusa: 'não é uma imagem (jpg, jpeg, jfif, png, gif, bmp ou webp)' }
     return { caminho: `${PASTA_DOS_DESENHOS}/${grupo}/${arquivo}` }
 }
 
 /** Uma entrada do zip como a biblioteca a entrega: o caminho dentro do zip e se é pasta. */
 export type EntradaDoZip = { caminho: string; pasta: boolean }
-export type DesenhoDoZip = { arquivo: string; caminhoNoZip: string }
+/** Um desenho a subir: a pasta do grupo (já em forma de caminho), o nome no bucket e de onde ele sai no zip. */
+export type DesenhoDoZip = { grupo: string; arquivo: string; caminhoNoZip: string }
+
+// ── O ÍNDICE CANÔNICO (o CSV do dono do produto) ─────────────────────────────────────────────────────────────────────────────────
+/** As colunas do índice, como o CSV as nomeia (medido em 11/11/2026, sha256 8c68a6d5…). */
+export const COLUNAS_DO_INDICE = ['fonte', 'grupo', 'codigo', 'codigo_dp', 'descricao', 'liberado', 'condicao', 'arquivo_indice', 'zip', 'caminho_no_zip', 'url_wvetro'] as const
+export type LinhaDoIndice = Record<(typeof COLUNAS_DO_INDICE)[number], string>
+
+/** CSV (RFC 4180): vírgula, aspas dobradas dentro de campo entre aspas, CRLF ou LF. Campo entre aspas com quebra de linha também é lido. */
+export function lerCsv(texto: string): string[][] {
+    const t = texto.charCodeAt(0) === 0xfeff ? texto.slice(1) : texto
+    const linhas: string[][] = []
+    let campo = ''
+    let linha: string[] = []
+    let aspas = false
+    for (let i = 0; i < t.length; i++) {
+        const ch = t[i]
+        if (aspas) {
+            if (ch === '"' && t[i + 1] === '"') { campo += '"'; i++ }
+            else if (ch === '"') aspas = false
+            else campo += ch
+        } else if (ch === '"' && campo === '') aspas = true
+        else if (ch === ',') { linha.push(campo); campo = '' }
+        else if (ch === '\n' || ch === '\r') {
+            if (ch === '\r' && t[i + 1] === '\n') i++
+            linha.push(campo); campo = ''
+            linhas.push(linha); linha = []
+        } else campo += ch
+    }
+    if (campo !== '' || linha.length > 0) { linha.push(campo); linhas.push(linha) }
+    return linhas
+}
+
+/** O índice lido: as linhas com as colunas pelo NOME, ou a recusa nomeando a coluna que falta ou a linha com outro número de campos. */
+export function lerIndice(texto: string): { linhas: LinhaDoIndice[] } | { erro: string } {
+    const [cabecalho, ...resto] = lerCsv(texto)
+    if (!cabecalho) return { erro: 'o índice está vazio.' }
+    const faltam = COLUNAS_DO_INDICE.filter((c) => !cabecalho.includes(c))
+    if (faltam.length) return { erro: `o índice não tem a(s) coluna(s): ${faltam.join(', ')}.` }
+    const linhas: LinhaDoIndice[] = []
+    for (const [k, campos] of resto.entries()) {
+        if (campos.length === 1 && campos[0] === '') continue
+        if (campos.length !== cabecalho.length) return { erro: `a linha ${k + 2} do índice tem ${campos.length} campos; o cabeçalho tem ${cabecalho.length}.` }
+        linhas.push(Object.fromEntries(COLUNAS_DO_INDICE.map((c) => [c, campos[cabecalho.indexOf(c)]])) as LinhaDoIndice)
+    }
+    return { linhas }
+}
 
 /**
- * O que do zip sobe, e o que fica de fora, NOMEADO. Fica de fora: as pastas, o `indice.csv` (em qualquer pasta do zip), o lixo de sistema,
- * o que não é imagem ou tem nome que o bucket não aceita, e — nos dois lados — o nome que aparece em DUAS pastas do mesmo zip: os dois iriam
- * para o mesmo caminho, e escolher um seria decidir em silêncio.
+ * O código DP normalizado: caixa alta, sem espaço, sem os zeros à esquerda do número ("dp-017" → "DP-17"). O código CRU fica guardado ao
+ * lado, sempre: normalizar não é fundir (dono do produto, 11/11/2026: "Fundir agora apagaria a prova de qual veio de onde").
  */
-export function desenhosDoZip(entradas: readonly EntradaDoZip[], grupo: string): { desenhos: DesenhoDoZip[]; ignorados: Recusa[]; recusados: Recusa[] } {
+export function codigoDpNormalizado(codigo: string): string | null {
+    const c = codigo.trim().toUpperCase().replace(/\s+/g, '')
+    if (c === '') return null
+    return c.replace(/^DP-0*(\d)/, 'DP-$1')
+}
+
+/** As COLISÕES: códigos crus diferentes que caem no mesmo código normalizado ("DP-017 e DP-17 caem no mesmo código normalizado"). */
+export function colisoesDoCodigo(codigos: readonly string[]): Array<{ normalizado: string; crus: string[]; frase: string }> {
+    const por = new Map<string, Set<string>>()
+    for (const c of codigos) {
+        const n = codigoDpNormalizado(c)
+        if (n !== null) por.set(n, new Set([...(por.get(n) ?? []), c.trim()]))
+    }
+    return [...por].filter(([, crus]) => crus.size > 1).map(([normalizado, crus]) => {
+        const lista = [...crus].sort()
+        return { normalizado, crus: lista, frase: `${lista.join(' e ')} caem no mesmo código normalizado (${normalizado})` }
+    })
+}
+
+/**
+ * O PLANO DE UM ZIP (dono do produto, 11/11/2026): a pasta de cada arquivo sai da coluna GRUPO do índice, nunca do nome do zip — 15 linhas do
+ * Desenhos_Aluminio.zip são do grupo "Portas revestidas (ACM/lambri)", e 12 arquivos desse zip estão nos dois grupos (sobem para as duas pastas).
+ * Fica de fora, NOMEADO: as pastas, o `indice.csv` de dentro, o lixo de sistema (ignorados); o arquivo que o índice não cita, o que não é
+ * imagem ou tem nome que o bucket não aceita, e o nome que cairia duas vezes na mesma pasta (recusados); e a linha do índice que cita um
+ * arquivo que o zip não tem (faltamNoZip).
+ */
+export function planoDoZip(entradas: readonly EntradaDoZip[], indice: readonly LinhaDoIndice[], nomeDoZip: string):
+    { desenhos: DesenhoDoZip[]; ignorados: Recusa[]; recusados: Recusa[]; faltamNoZip: Recusa[] } | { erro: string } {
+    const doZip = indice.filter((l) => l.zip === nomeDoZip && l.caminho_no_zip.trim() !== '')
+    if (doZip.length === 0) return { erro: `o índice não cita o zip "${nomeDoZip}" (a coluna zip tem de ter o nome do arquivo, exato).` }
+    const gruposDoCaminho = new Map<string, Set<string>>()
+    for (const l of doZip) gruposDoCaminho.set(l.caminho_no_zip, new Set([...(gruposDoCaminho.get(l.caminho_no_zip) ?? []), l.grupo]))
+    // ENTRE ZIPS: dois zips mandam para a mesma pasta (Desenhos_PVC e Desenhos_PVC_DP_fotos_por_variavel → tipologias/pvc). Um nome que o
+    // índice dá a arquivos de zips diferentes na mesma pasta não sobe: o segundo apareceria como "já existia" sendo OUTRO desenho
+    const deOutroZip = new Map<string, string>()
+    for (const l of indice) {
+        if (l.zip === nomeDoZip || l.caminho_no_zip.trim() === '') continue
+        deOutroZip.set(`${grupoNoCaminho(l.grupo)}/${l.caminho_no_zip.split('/').pop()}`, l.zip)
+    }
+
     const ignorados: Recusa[] = []
     const recusados: Recusa[] = []
-    const porNome = new Map<string, string[]>()
+    const noZip = new Set<string>()
+    const naPasta = new Map<string, DesenhoDoZip[]>()
     for (const e of entradas) {
         if (e.pasta) continue
+        noZip.add(e.caminho)
         if (LIXO_DO_SISTEMA.test(e.caminho)) { ignorados.push({ arquivo: e.caminho, motivo: 'arquivo de sistema, não é desenho' }); continue }
         const arquivo = e.caminho.split('/').pop() ?? e.caminho
         if (INDICE_DO_ZIP.test(arquivo)) { ignorados.push({ arquivo: e.caminho, motivo: 'o índice de dentro do zip não sobe' }); continue }
-        const c = caminhoDoDesenho(grupo, arquivo)
-        if ('recusa' in c) { recusados.push({ arquivo: e.caminho, motivo: c.recusa }); continue }
-        porNome.set(arquivo, [...(porNome.get(arquivo) ?? []), e.caminho])
+        const grupos = gruposDoCaminho.get(e.caminho)
+        if (!grupos) { recusados.push({ arquivo: e.caminho, motivo: 'o índice não cita este arquivo: sem grupo, não sobe' }); continue }
+        for (const g of [...grupos].sort()) {
+            const grupo = grupoNoCaminho(g)
+            const c = caminhoDoDesenho(grupo, arquivo)
+            if ('recusa' in c) { recusados.push({ arquivo: e.caminho, motivo: `grupo "${g}": ${c.recusa}` }); continue }
+            const chave = `${grupo}/${arquivo}`
+            const outro = deOutroZip.get(chave)
+            if (outro !== undefined) { recusados.push({ arquivo: e.caminho, motivo: `o índice também põe um arquivo do zip "${outro}" em tipologias/${chave}; nenhum dos dois sobe por este zip` }); continue }
+            naPasta.set(chave, [...(naPasta.get(chave) ?? []), { grupo, arquivo, caminhoNoZip: e.caminho }])
+        }
     }
     const desenhos: DesenhoDoZip[] = []
-    for (const [arquivo, caminhos] of porNome) {
-        if (caminhos.length === 1) desenhos.push({ arquivo, caminhoNoZip: caminhos[0] })
-        else for (const c of caminhos) recusados.push({ arquivo: c, motivo: `o nome "${arquivo}" aparece em ${caminhos.length} pastas deste zip; nenhum dos dois sobe` })
+    for (const [chave, lista] of naPasta) {
+        if (lista.length === 1) desenhos.push(lista[0])
+        else for (const d of lista) recusados.push({ arquivo: d.caminhoNoZip, motivo: `${lista.length} arquivos do zip cairiam em tipologias/${chave}; nenhum sobe` })
     }
-    desenhos.sort((a, b) => a.arquivo.localeCompare(b.arquivo))
-    return { desenhos, ignorados, recusados }
+    desenhos.sort((a, b) => a.grupo.localeCompare(b.grupo) || a.arquivo.localeCompare(b.arquivo))
+    const faltamNoZip = [...gruposDoCaminho.keys()].filter((c) => !noZip.has(c)).sort().map((c) => ({ arquivo: c, motivo: 'o índice cita e o zip não tem' }))
+    return { desenhos, ignorados, recusados, faltamNoZip }
 }
 
 /** A lista em lotes do tamanho dado, na ordem. */
@@ -110,9 +206,9 @@ export function lerPedidoDoLote(corpo: unknown): { grupo: string; arquivos: stri
     return { grupo: c.grupo, arquivos: c.arquivos }
 }
 
-/** O resultado de um envio inteiro, como a tela mostra ao fim. */
+/** O resultado do envio de UM zip, como a tela mostra ao fim. Os nomes são "grupo/arquivo": o mesmo arquivo pode ir para dois grupos. */
 export type ResultadoDoEnvio = {
-    grupo: string
+    zip: string
     enviados: string[]
     /** já estavam no bucket (de uma rodada anterior): não subiram de novo e não foram tocados */
     jaExistiam: string[]
@@ -122,9 +218,11 @@ export type ResultadoDoEnvio = {
     recusados: Recusa[]
     /** deixados de fora de propósito (o índice, o lixo de sistema) */
     ignorados: Recusa[]
+    /** citados pelo índice e ausentes do zip */
+    faltamNoZip: Recusa[]
 }
 
 /** O resumo de uma linha, sem esconder nada: os números de cada lista. */
 export const resumoDoEnvio = (r: ResultadoDoEnvio) =>
-    `Grupo ${r.grupo}: ${r.enviados.length} enviados, ${r.jaExistiam.length} já existiam, ${r.falhas.length} falharam, `
-    + `${r.recusados.length} recusados, ${r.ignorados.length} ignorados.`
+    `${r.zip}: ${r.enviados.length} enviados, ${r.jaExistiam.length} já existiam, ${r.falhas.length} falharam, `
+    + `${r.recusados.length} recusados, ${r.ignorados.length} ignorados, ${r.faltamNoZip.length} citados no índice e ausentes do zip.`

@@ -7,8 +7,14 @@
 jest.mock('@/page-parts/atendimentos-ia/api', () => ({ chamarRota: jest.fn() }))
 import JSZip from 'jszip'
 import {
-    TAMANHO_DO_LOTE, caminhoDoDesenho, desenhosDoZip, emLotes, grupoNoCaminho, lerPedidoDoLote, resumoDoEnvio, tipoDaImagem,
+    COLUNAS_DO_INDICE, TAMANHO_DO_LOTE, caminhoDoDesenho, codigoDpNormalizado, colisoesDoCodigo, emLotes, grupoNoCaminho, lerCsv, lerIndice,
+    lerPedidoDoLote, planoDoZip, resumoDoEnvio, tipoDaImagem, type LinhaDoIndice, type ResultadoDoEnvio,
 } from '@/lib/atendimentos-ia/desenhos-das-tipologias'
+
+/** Uma linha do índice, com o que o teste não diz vazio — como o CSV grava o vazio. */
+const L = (zip: string, caminho: string, grupo: string, extra: Partial<LinhaDoIndice> = {}): LinhaDoIndice =>
+    ({ ...Object.fromEntries(COLUNAS_DO_INDICE.map((c) => [c, ''])), fonte: 'principal', zip, caminho_no_zip: caminho, grupo, ...extra }) as LinhaDoIndice
+const ok = (r: ResultadoDoEnvio | { erro: string }): ResultadoDoEnvio => { if ('erro' in r) throw new Error(r.erro); return r }
 import { DEPENDENCIAS_REAIS, enviarDesenhosDoZip, type DependenciasDoEnvio, type LoteAssinado } from '@/page-parts/atendimentos-ia/envio-dos-desenhos'
 
 describe('o caminho e o nome', () => {
@@ -22,39 +28,95 @@ describe('o caminho e o nome', () => {
         expect(caminhoDoDesenho('Alumínio', 'a.jpg')).toHaveProperty('recusa')
         expect(caminhoDoDesenho('aluminio', 'desenho_janela_três.jpg')).toEqual({ recusa: expect.stringContaining('caractere') })
         expect(caminhoDoDesenho('aluminio', '..jpg')).toHaveProperty('recusa')
+        expect(caminhoDoDesenho('aluminio', 'a/b.jpg')).toHaveProperty('recusa')
+        // o ponto duplo antes da extensão existe no índice real (01642__ESQ_386..jpg) e sobe; o .jfif é JPEG
+        expect(caminhoDoDesenho('aluminio', '01642__ESQ_386..jpg')).toEqual({ caminho: 'tipologias/aluminio/01642__ESQ_386..jpg' })
+        expect(caminhoDoDesenho('blindex-vidro-temperado', '00001__PRPATMODULAR.jfif')).toEqual({ caminho: 'tipologias/blindex-vidro-temperado/00001__PRPATMODULAR.jfif' })
+        expect(tipoDaImagem('X.jfif')).toBe('image/jpeg')
         expect(caminhoDoDesenho('aluminio', 'leia-me.txt')).toEqual({ recusa: expect.stringContaining('não é uma imagem') })
         expect(tipoDaImagem('X.JPEG')).toBe('image/jpeg')
         expect(tipoDaImagem('X.png')).toBe('image/png')
     })
 })
 
-describe('o que do zip sobe', () => {
-    const entradas = [
-        { caminho: 'Aluminio/', pasta: true },
-        { caminho: 'Aluminio/indice.csv', pasta: false },
-        { caminho: 'Indice.CSV', pasta: false },
-        { caminho: '__MACOSX/Aluminio/._ESQ_1.jpg', pasta: false },
-        { caminho: 'Aluminio/.DS_Store', pasta: false },
-        { caminho: 'Aluminio/ESQ_2.jpg', pasta: false },
-        { caminho: 'Aluminio/ESQ_1.jpg', pasta: false },
-        { caminho: 'Aluminio/leia-me.txt', pasta: false },
-        { caminho: 'a/ESQ_9.jpg', pasta: false },
-        { caminho: 'b/ESQ_9.jpg', pasta: false },
+describe('o índice canônico', () => {
+    it('o CSV: vírgula, aspas dobradas dentro de aspas, vírgula dentro do campo, CRLF, e o vazio é vazio', () => {
+        expect(lerCsv('a,b,c\r\n"PAINEL ""N"" | L",,x\r\n')).toEqual([['a', 'b', 'c'], ['PAINEL "N" | L', '', 'x']])
+        expect(lerCsv('\ufeffa\n"1,5"\n')).toEqual([['a'], ['1,5']])
+    })
+    it('as colunas pelo NOME; a coluna que falta e a linha com outro número de campos são recusas nomeadas', () => {
+        const cab = COLUNAS_DO_INDICE.join(',')
+        const r = lerIndice(`${cab}\r\nprincipal,PVC,DP-02,,,Sim,,a.jpg,z.zip,imagens/a.jpg,http://x\r\n`)
+        expect(r).toEqual({ linhas: [expect.objectContaining({ grupo: 'PVC', codigo: 'DP-02', codigo_dp: '', liberado: 'Sim', caminho_no_zip: 'imagens/a.jpg' })] })
+        expect(lerIndice('fonte,grupo\r\n')).toEqual({ erro: expect.stringContaining('codigo, codigo_dp') })
+        expect(lerIndice(`${cab}\r\na,b\r\n`)).toEqual({ erro: 'a linha 2 do índice tem 2 campos; o cabeçalho tem 11.' })
+    })
+    it('o código DP normalizado (caixa, espaço, zeros à esquerda); vazio é nulo', () => {
+        expect([codigoDpNormalizado('DP-017'), codigoDpNormalizado(' dp-17 '), codigoDpNormalizado('DP-02'), codigoDpNormalizado('DP-120'), codigoDpNormalizado('')])
+            .toEqual(['DP-17', 'DP-17', 'DP-2', 'DP-120', null])
+    })
+    it('NÃO FUNDE EM SILÊNCIO: DP-017 e DP-17 são uma colisão NOMEADA, com os dois crus', () => {
+        expect(colisoesDoCodigo(['DP-017', 'DP-17', 'DP-17', 'DP-02'])).toEqual([{ normalizado: 'DP-17', crus: ['DP-017', 'DP-17'], frase: 'DP-017 e DP-17 caem no mesmo código normalizado (DP-17)' }])
+        expect(colisoesDoCodigo(['DP-02', 'DP-03'])).toEqual([])
+    })
+})
+
+describe('o plano de um zip: a pasta sai do GRUPO do índice, nunca do nome do zip', () => {
+    const ZIP = 'Desenhos_Aluminio.zip'
+    const indice = [
+        L(ZIP, 'imagens/ESQ_1.jpg', 'Alumínio'),
+        // o mesmo arquivo em DOIS grupos: sobe para as duas pastas
+        L(ZIP, 'imagens/ESQ_2.jpg', 'Alumínio'), L(ZIP, 'imagens/ESQ_2.jpg', 'Portas revestidas (ACM/lambri)'),
+        // o arquivo do zip só no grupo de outro nome: a pasta é a do grupo
+        L(ZIP, 'imagens/PG1.jpg', 'Portas revestidas (ACM/lambri)'),
+        // citado pelo índice e ausente do zip
+        L(ZIP, 'imagens/SUMIU.jpg', 'Alumínio'),
+        // linha sem caminho (não achada nos zips) e de outro zip: não contam aqui
+        L('', '', 'PVC'), L('Desenhos_PVC.zip', 'imagens/ESQ_1.jpg', 'PVC'),
     ]
-    const r = desenhosDoZip(entradas, 'aluminio')
-    it('sobem só as imagens, em ordem, cada uma com o seu caminho no zip', () => {
-        expect(r.desenhos).toEqual([{ arquivo: 'ESQ_1.jpg', caminhoNoZip: 'Aluminio/ESQ_1.jpg' }, { arquivo: 'ESQ_2.jpg', caminhoNoZip: 'Aluminio/ESQ_2.jpg' }])
-    })
-    it('o indice.csv (em qualquer pasta e caixa) e o lixo de sistema ficam de fora, NOMEADOS', () => {
-        expect(r.ignorados.map((x) => x.arquivo)).toEqual(['Aluminio/indice.csv', 'Indice.CSV', '__MACOSX/Aluminio/._ESQ_1.jpg', 'Aluminio/.DS_Store'])
-        expect(r.ignorados[0].motivo).toBe('o índice de dentro do zip não sobe')
-    })
-    it('o que não é imagem e o nome em duas pastas do mesmo zip são RECUSADOS e nomeados — nenhum dos dois sobe', () => {
-        expect(r.recusados).toEqual([
-            { arquivo: 'Aluminio/leia-me.txt', motivo: expect.stringContaining('não é uma imagem') },
-            { arquivo: 'a/ESQ_9.jpg', motivo: expect.stringContaining('2 pastas') },
-            { arquivo: 'b/ESQ_9.jpg', motivo: expect.stringContaining('2 pastas') },
+    const entradas = [
+        { caminho: 'imagens/', pasta: true },
+        { caminho: 'indice.csv', pasta: false },
+        { caminho: '__MACOSX/imagens/._ESQ_1.jpg', pasta: false },
+        { caminho: 'imagens/ESQ_1.jpg', pasta: false },
+        { caminho: 'imagens/ESQ_2.jpg', pasta: false },
+        { caminho: 'imagens/PG1.jpg', pasta: false },
+        { caminho: 'imagens/FORA.jpg', pasta: false },
+    ]
+    const p = planoDoZip(entradas, indice, ZIP) as Exclude<ReturnType<typeof planoDoZip>, { erro: string }>
+    it('cada arquivo vai para a pasta de CADA grupo que o índice lhe dá', () => {
+        expect(p.desenhos).toEqual([
+            { grupo: 'aluminio', arquivo: 'ESQ_1.jpg', caminhoNoZip: 'imagens/ESQ_1.jpg' },
+            { grupo: 'aluminio', arquivo: 'ESQ_2.jpg', caminhoNoZip: 'imagens/ESQ_2.jpg' },
+            { grupo: 'portas-revestidas-acm-lambri', arquivo: 'ESQ_2.jpg', caminhoNoZip: 'imagens/ESQ_2.jpg' },
+            { grupo: 'portas-revestidas-acm-lambri', arquivo: 'PG1.jpg', caminhoNoZip: 'imagens/PG1.jpg' },
         ])
+    })
+    it('NOMEADOS: o índice de dentro e o lixo (ignorados); o arquivo sem grupo (recusado); o citado e ausente (faltamNoZip)', () => {
+        expect(p.ignorados.map((x) => x.arquivo)).toEqual(['indice.csv', '__MACOSX/imagens/._ESQ_1.jpg'])
+        expect(p.recusados).toEqual([{ arquivo: 'imagens/FORA.jpg', motivo: 'o índice não cita este arquivo: sem grupo, não sobe' }])
+        expect(p.faltamNoZip).toEqual([{ arquivo: 'imagens/SUMIU.jpg', motivo: 'o índice cita e o zip não tem' }])
+    })
+    it('o zip que o índice não cita é recusado inteiro, com a frase', () => {
+        expect(planoDoZip(entradas, indice, 'outro.zip')).toEqual({ erro: expect.stringContaining('não cita o zip "outro.zip"') })
+    })
+    it('dois arquivos do zip que cairiam no mesmo tipologias/<grupo>/<nome>: nenhum sobe, os dois nomeados', () => {
+        const q = planoDoZip([{ caminho: 'a/X.jpg', pasta: false }, { caminho: 'b/X.jpg', pasta: false }], [L(ZIP, 'a/X.jpg', 'PVC'), L(ZIP, 'b/X.jpg', 'PVC')], ZIP)
+        expect(q).toEqual(expect.objectContaining({ desenhos: [], recusados: [
+            { arquivo: 'a/X.jpg', motivo: '2 arquivos do zip cairiam em tipologias/pvc/X.jpg; nenhum sobe' },
+            { arquivo: 'b/X.jpg', motivo: '2 arquivos do zip cairiam em tipologias/pvc/X.jpg; nenhum sobe' },
+        ] }))
+    })
+    it('ENTRE ZIPS: o nome que o índice põe na mesma pasta vindo de OUTRO zip não sobe — nunca "já existia" sendo outro desenho', () => {
+        const q = planoDoZip([{ caminho: 'imagens/X.jpg', pasta: false }], [L('Desenhos_PVC.zip', 'imagens/X.jpg', 'PVC'), L('Desenhos_PVC_DP_fotos_por_variavel.zip', 'fotos/X.jpg', 'PVC')], 'Desenhos_PVC.zip')
+        expect(q).toEqual(expect.objectContaining({ desenhos: [], recusados: [{ arquivo: 'imagens/X.jpg', motivo: 'o índice também põe um arquivo do zip "Desenhos_PVC_DP_fotos_por_variavel.zip" em tipologias/pvc/X.jpg; nenhum dos dois sobe por este zip' }] }))
+        // o mesmo nome em OUTRA pasta (outro grupo) não é colisão
+        const r = planoDoZip([{ caminho: 'imagens/X.jpg', pasta: false }], [L('Desenhos_PVC.zip', 'imagens/X.jpg', 'PVC'), L('Desenhos_Aluminio.zip', 'imagens/X.jpg', 'Alumínio')], 'Desenhos_PVC.zip')
+        expect(r).toEqual(expect.objectContaining({ recusados: [], desenhos: [{ grupo: 'pvc', arquivo: 'X.jpg', caminhoNoZip: 'imagens/X.jpg' }] }))
+    })
+    it('o grupo vira pasta: os cinco grupos do índice real', () => {
+        expect(['Alumínio', 'PVC', 'Blindex / vidro temperado', 'Portas revestidas (ACM/lambri)', 'Portões / gradis'].map(grupoNoCaminho))
+            .toEqual(['aluminio', 'pvc', 'blindex-vidro-temperado', 'portas-revestidas-acm-lambri', 'portoes-gradis'])
     })
 })
 
@@ -102,20 +164,22 @@ describe('o envio — retomada, falha nomeada, e rodar duas vezes não duplica n
         return { deps, objetos, envios }
     }
     const NOMES = Array.from({ length: 30 }, (_, i) => `ESQ_${String(i).padStart(2, '0')}.jpg`)
+    const indiceDe = (nomes: string[]) => nomes.map((n) => L('z.zip', `G/${n}`, 'G'))
+    const enviar = (b: ReturnType<typeof bucket>, nomes = NOMES) => enviarDesenhosDoZip(new Blob([]), 'z.zip', indiceDe(nomes), b.deps).then(ok)
 
     it('tudo sobe; o índice não; o resumo diz cada número', async () => {
         const b = bucket(NOMES)
-        const r = await enviarDesenhosDoZip(new Blob([]), 'g', b.deps)
+        const r = await enviar(b)
         expect(r.enviados).toHaveLength(30)
         expect(b.objetos.size).toBe(30)
         expect(r.ignorados).toEqual([{ arquivo: 'G/indice.csv', motivo: 'o índice de dentro do zip não sobe' }])
-        expect(resumoDoEnvio(r)).toBe('Grupo g: 30 enviados, 0 já existiam, 0 falharam, 0 recusados, 1 ignorados.')
+        expect(resumoDoEnvio(r)).toBe('z.zip: 30 enviados, 0 já existiam, 0 falharam, 0 recusados, 1 ignorados, 0 citados no índice e ausentes do zip.')
     })
     it('RODAR DUAS VEZES: a segunda não envia nada, não duplica e não apaga — tudo "já existia"', async () => {
         const b = bucket(NOMES)
-        await enviarDesenhosDoZip(new Blob([]), 'g', b.deps)
+        await enviar(b)
         const enviosAntes = b.envios.length
-        const r2 = await enviarDesenhosDoZip(new Blob([]), 'g', b.deps)
+        const r2 = await enviar(b)
         expect(r2.enviados).toEqual([])
         expect(r2.jaExistiam).toHaveLength(30)
         expect(b.envios.length).toBe(enviosAntes)
@@ -123,11 +187,11 @@ describe('o envio — retomada, falha nomeada, e rodar duas vezes não duplica n
     })
     it('o lote cuja assinatura falha: os 25 dele são FALHAS nomeadas, o próximo lote segue; rodar de novo completa só o que faltou', async () => {
         const b = bucket(NOMES, { falhaNoLote: 0 })
-        const r = await enviarDesenhosDoZip(new Blob([]), 'g', b.deps)
+        const r = await enviar(b)
         expect(r.falhas).toHaveLength(TAMANHO_DO_LOTE)
-        expect(r.falhas[0]).toEqual({ arquivo: 'ESQ_00.jpg', motivo: 'a assinatura do lote falhou: rede caiu' })
+        expect(r.falhas[0]).toEqual({ arquivo: 'g/ESQ_00.jpg', motivo: 'a assinatura do lote falhou: rede caiu' })
         expect(r.enviados).toHaveLength(30 - TAMANHO_DO_LOTE)
-        const r2 = await enviarDesenhosDoZip(new Blob([]), 'g', b.deps)
+        const r2 = await enviar(b)
         expect(r2.enviados).toHaveLength(TAMANHO_DO_LOTE)
         expect(r2.jaExistiam).toHaveLength(30 - TAMANHO_DO_LOTE)
         expect(r2.falhas).toEqual([])
@@ -141,15 +205,15 @@ describe('o envio — retomada, falha nomeada, e rodar duas vezes não duplica n
             const r = await assinar(g, a)
             return { ...r, existentes: r.existentes.filter((x) => x !== 'ESQ_04.jpg'), assinados: a.includes('ESQ_04.jpg') ? [...r.assinados, { arquivo: 'ESQ_04.jpg', path: 'p', signedUrl: 'url:ESQ_04.jpg' }] : r.assinados }
         }
-        const r = await enviarDesenhosDoZip(new Blob([]), 'g', b.deps)
-        expect(r.falhas).toEqual([{ arquivo: 'ESQ_03.jpg', motivo: 'o envio falhou (500)' }])
-        expect(r.jaExistiam).toEqual(['ESQ_04.jpg'])
+        const r = await enviar(b)
+        expect(r.falhas).toEqual([{ arquivo: 'g/ESQ_03.jpg', motivo: 'o envio falhou (500)' }])
+        expect(r.jaExistiam).toEqual(['g/ESQ_04.jpg'])
     })
     it('o arquivo sobre o qual a rota não respondeu não some: vira falha nomeada', async () => {
         const b = bucket(['A.jpg', 'B.jpg'])
         b.deps.assinarLote = async () => ({ existentes: [], recusados: [], assinados: [{ arquivo: 'A.jpg', path: 'p', signedUrl: 'url:A.jpg' }] })
-        const r = await enviarDesenhosDoZip(new Blob([]), 'g', b.deps)
-        expect(r.falhas).toEqual([{ arquivo: 'B.jpg', motivo: 'a rota não respondeu sobre este arquivo' }])
+        const r = await enviar(b, ['A.jpg', 'B.jpg'])
+        expect(r.falhas).toEqual([{ arquivo: 'g/B.jpg', motivo: 'a rota não respondeu sobre este arquivo' }])
     })
 })
 

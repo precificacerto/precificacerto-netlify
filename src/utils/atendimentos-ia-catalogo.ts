@@ -174,9 +174,10 @@ export const AVISO_DO_CATALOGO = 'Nada aqui pertence a um cliente — são tabel
  * As abas da página do nicho, nesta ordem: famílias, CATEGORIAS (dono do produto, 02/11/2026: "a aba Categorias fica logo DEPOIS de Famílias"),
  * fornecedores e motores vivem DENTRO do nicho; etapas ao lado.
  */
-export const ABAS_DO_NICHO = ['familias', 'categorias', 'fornecedores', 'motores', 'etapas'] as const
+/** A sexta aba, Desenhos, entrou em 11/11/2026 no FIM — a ordem das cinco de antes (02/11/2026) não muda. */
+export const ABAS_DO_NICHO = ['familias', 'categorias', 'fornecedores', 'motores', 'etapas', 'desenhos'] as const
 export type AbaDoNicho = (typeof ABAS_DO_NICHO)[number]
-export const ROTULO_DA_ABA_DO_NICHO: Record<AbaDoNicho, string> = { familias: 'Famílias', categorias: 'Categorias', fornecedores: 'Fornecedores', motores: 'Motores', etapas: 'Etapas' }
+export const ROTULO_DA_ABA_DO_NICHO: Record<AbaDoNicho, string> = { familias: 'Famílias', categorias: 'Categorias', fornecedores: 'Fornecedores', motores: 'Motores', etapas: 'Etapas', desenhos: 'Desenhos' }
 /** A aba pedida na URL, ou a primeira — o que não é aba vira a primeira, nunca uma aba vazia. */
 export const abaDoNicho = (v: unknown): AbaDoNicho => (ABAS_DO_NICHO as readonly unknown[]).includes(v) ? (v as AbaDoNicho) : 'familias'
 /** O endereço da página de um nicho, opcionalmente já numa aba. */
