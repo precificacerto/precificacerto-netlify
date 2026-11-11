@@ -154,3 +154,6 @@ describe('(2) o agente grava como agente', () => {
         expect(arquivo.chamadas).toEqual([])
     })
 })
+
+// módulo, não script: as constantes deste arquivo não vazam para os outros testes (TS2451)
+export {}

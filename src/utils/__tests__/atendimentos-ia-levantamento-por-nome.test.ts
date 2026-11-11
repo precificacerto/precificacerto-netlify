@@ -291,10 +291,10 @@ jest.mock('@/supabase/admin', () => ({
         // o Storage do PDF do orçamento (a cadeia do "sim", 11/11/2026): sobe e baixa da memória
         storage: {
             from: (bucket: string) => ({
-                upload: async (caminho: string, bytes: Uint8Array) => { estado.storage.set(`${bucket}/${caminho}`, new Uint8Array(bytes)); return { data: { path: caminho }, error: null } },
-                download: async (caminho: string) => {
+                upload: async (caminho: string, bytes: Uint8Array): Promise<{ data: { path: string }; error: null }> => { estado.storage.set(`${bucket}/${caminho}`, new Uint8Array(bytes)); return { data: { path: caminho }, error: null } },
+                download: async (caminho: string): Promise<{ data: { arrayBuffer: () => Promise<ArrayBuffer> } | null; error: { message: string } | null }> => {
                     const b = estado.storage.get(`${bucket}/${caminho}`)
-                    return b ? { data: { arrayBuffer: async () => b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) }, error: null } : { data: null, error: { message: 'objeto ausente' } }
+                    return b ? { data: { arrayBuffer: async () => new Uint8Array(b).buffer as ArrayBuffer }, error: null } : { data: null, error: { message: 'objeto ausente' } }
                 },
             }),
         },

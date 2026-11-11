@@ -148,3 +148,6 @@ describe('os números do WhatsApp para o dono', () => {
         expect(falha).toEqual({ ok: false, status: 500, prazoEsgotado: false })
     })
 })
+
+// módulo, não script: as constantes deste arquivo não vazam para os outros testes (TS2451)
+export {}
