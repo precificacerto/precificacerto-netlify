@@ -95,7 +95,7 @@ jest.mock('@/lib/atendimentos-ia/orcamento-calculado', () => {
 import {
     atravessarLevantamento, atravessarNoSim, aproveitamentoDaTravessia, ErroDaTravessia, ErroJaAtravessado, faltasDoCongelado, faltasDoOrcamento,
     fraseJaAtravessado, fraseNaoCompleto, fraseSemItens, fraseSemQuantidade, lerClienteDoLevantamento, levantamentosParaAtravessar, planoDaTravessia,
-    FALTA_DO_MODO_DA_COMISSAO, MOTIVO_SEM_PRECIFICACAO, origemNaTela, percentuaisDoOrcamento, resolverPercentual,
+    FALTA_DO_MODO_DA_COMISSAO, origemNaTela, percentuaisDoOrcamento, resolverPercentual,
     type ItemDoLevantamentoNaTravessia, type LevantamentoNaTravessia,
 } from '@/lib/atendimentos-ia/travessia-do-levantamento'
 import { ErroNaoEncontrado, LIMITE_DO_NOME as LIMITE_DO_NOME_DO_ORCAMENTO } from '@/lib/atendimentos-ia/orcamentos-ia'
@@ -386,31 +386,44 @@ describe('(6) o cliente e as faltas, LIDOS', () => {
     })
 })
 
-describe('(7) o gatilho do "sim" ENCADEIA travessia -> cálculo, para na precificação, e nunca lança', () => {
+describe('(7) o gatilho do "sim" ENCADEIA travessia -> cálculo -> etapa do preço, e nunca lança', () => {
     const TRAVESSIA = 'orcamento=1 itens=3 faltas=0 origens=comissao:levantamento,rt:levantamento,lucro:levantamento'
-    it('atravessa, CALCULA o orçamento criado, e para na precificação dizendo por quê', async () => {
-        expect(await atravessarNoSim(T, LEV)).toBe(`${TRAVESSIA} calculo=ok liquido=5240.40 parou=precificacao motivo="${MOTIVO_SEM_PRECIFICACAO}"`)
-        expect(calculo.chamadas).toEqual([[T, estado.db.orcamentista_orcamento[0].id]])
+    const etapa = { chamadas: [] as string[], resposta: (): Promise<{ rastro: string; paraOVendedor: string | null }> => Promise.resolve({ rastro: 'precificacao=ok envio=ok', paraOVendedor: 'enviado' }) }
+    const naEtapa = (orcamentoId: string) => { etapa.chamadas.push(orcamentoId); return etapa.resposta() }
+    beforeEach(() => { etapa.chamadas = []; etapa.resposta = () => Promise.resolve({ rastro: 'precificacao=ok envio=ok', paraOVendedor: 'enviado' }) })
+    it('atravessa, CALCULA o orçamento criado e roda a ETAPA DO PREÇO sobre ele: o rastro e o texto da etapa voltam', async () => {
+        expect(await atravessarNoSim(T, LEV, naEtapa)).toEqual({ rastro: `${TRAVESSIA} calculo=ok liquido=5240.40 precificacao=ok envio=ok`, paraOVendedor: 'enviado' })
+        const id = estado.db.orcamentista_orcamento[0].id
+        expect(calculo.chamadas).toEqual([[T, id]])
+        expect(etapa.chamadas).toEqual([id])
     })
-    it('o já atravessado para na travessia e NÃO recalcula; a recusa e a falha da travessia também param nela', async () => {
-        await atravessarNoSim(T, LEV)
+    it('a etapa que LANÇA não derruba o "sim": o rastro diz parou=precificacao, e nada do que foi gravado é desfeito', async () => {
+        etapa.resposta = () => Promise.reject(new Error('storage fora do ar'))
+        expect(await atravessarNoSim(T, LEV, naEtapa)).toEqual({ rastro: `${TRAVESSIA} calculo=ok liquido=5240.40 precificacao=falhou parou=precificacao motivo="storage fora do ar"`, paraOVendedor: null })
+        expect(estado.db.orcamentista_orcamento).toHaveLength(1)
+    })
+    it('o já atravessado para na travessia e NÃO recalcula nem reenvia; a recusa e a falha da travessia também param nela', async () => {
+        await atravessarNoSim(T, LEV, naEtapa)
         calculo.chamadas = []
-        expect(await atravessarNoSim(T, LEV)).toBe('ja_existe=1 parou=travessia')
+        etapa.chamadas = []
+        expect(await atravessarNoSim(T, LEV, naEtapa)).toEqual({ rastro: 'ja_existe=1 parou=travessia', paraOVendedor: null })
         semear({ estado: 'EM_MONTAGEM' })
         estado.db.orcamentista_orcamento = []
-        expect(await atravessarNoSim(T, LEV)).toBe('recusou=1 parou=travessia')
+        expect(await atravessarNoSim(T, LEV, naEtapa)).toEqual({ rastro: 'recusou=1 parou=travessia', paraOVendedor: null })
         estado.erros.orcamentista_levantamento = [{ code: 'XX000', message: 'o banco caiu' }]
-        expect(await atravessarNoSim(T, LEV)).toBe('falhou parou=travessia motivo="orcamentista_levantamento: o banco caiu"')
+        expect(await atravessarNoSim(T, LEV, naEtapa)).toEqual({ rastro: 'falhou parou=travessia motivo="orcamentista_levantamento: o banco caiu"', paraOVendedor: null })
         expect(calculo.chamadas).toEqual([])
+        expect(etapa.chamadas).toEqual([])
     })
-    it('a recusa e a falha do cálculo param no cálculo, com o orçamento gravado, e não lançam', async () => {
+    it('a recusa e a falha do cálculo param no cálculo, com o orçamento gravado, sem a etapa do preço, e não lançam', async () => {
         const { ErroDoCalculo } = jest.requireMock('@/lib/atendimentos-ia/orcamento-calculado') as { ErroDoCalculo: new (r: string[]) => Error }
         calculo.resposta = () => { throw new ErroDoCalculo(['o código 1023 sem preço']) }
-        expect(await atravessarNoSim(T, LEV)).toBe(`${TRAVESSIA} calculo=recusou recusas=1 parou=calculo motivo="o código 1023 sem preço"`)
+        expect((await atravessarNoSim(T, LEV, naEtapa)).rastro).toBe(`${TRAVESSIA} calculo=recusou recusas=1 parou=calculo motivo="o código 1023 sem preço"`)
         expect(estado.db.orcamentista_orcamento).toHaveLength(1)
         semear(); estado.db.orcamentista_orcamento = []; estado.db.orcamentista_orcamento_item = []
         calculo.resposta = () => { throw new Error('orcamentista_orcamento_item_material: caiu') }
-        expect(await atravessarNoSim(T, LEV)).toBe(`${TRAVESSIA} calculo=falhou parou=calculo motivo="orcamentista_orcamento_item_material: caiu"`)
+        expect((await atravessarNoSim(T, LEV, naEtapa)).rastro).toBe(`${TRAVESSIA} calculo=falhou parou=calculo motivo="orcamentista_orcamento_item_material: caiu"`)
+        expect(etapa.chamadas).toEqual([])
     })
 })
 

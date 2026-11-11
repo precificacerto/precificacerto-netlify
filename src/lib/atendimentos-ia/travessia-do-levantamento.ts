@@ -28,6 +28,7 @@ import { supabaseAdmin } from '@/supabase/admin'
 import { ErroNaoEncontrado, ErroSemMigracao, TABELA_DO_ITEM, TABELA_DO_ORCAMENTO, tabelaAusente } from './orcamentos-ia'
 import { lerPerfilDoVendedor } from './arquivo-do-levantamento'
 import { calcularOrcamento, ErroDoCalculo } from './orcamento-calculado'
+import type { ResultadoDaEtapa } from './cadeia-do-sim'
 import {
     ESTADO_COMPLETO, ErroDaTravessia, ErroJaAtravessado, faltasDoCongelado, origemNaTela, planoDaTravessia, PERCENTUAIS_COM_ZERO,
     type ClienteDoLevantamento, type ItemDaTravessia, type ItemDoLevantamentoNaTravessia, type LevantamentoNaTravessia, type ModoDaBase,
@@ -180,31 +181,38 @@ export async function percentuaisDoOrcamento(tenantId: string, id: string): Prom
 }
 
 /**
- * O GATILHO DO "SIM" na conversa: atravessa e devolve o que vai ao log [IA] — nunca lança. A falha da travessia não derruba a resposta ao
- * vendedor (o levantamento já foi gravado e enviado); fica nomeada no log, e a ação manual da seção Orçamentos I.A. atravessa depois.
+ * O GATILHO DO "SIM" na conversa: atravessa, calcula e roda a ETAPA DO PREÇO (precificar, gerar o PDF, enviá-lo ao dono do levantamento —
+ * `cadeia-do-sim.ts`), e devolve o que vai ao log [IA] e o texto que acompanha a resposta ao vendedor — nunca lança. "O sim do levantamento
+ * dispara TUDO, sem intervenção humana" (dono do produto, 11/11/2026; a cadeia ligada em 11/11/2026, depois do relógio aprovado). A falha de um
+ * passo não desfaz o anterior: fica nomeada no log, e a ação manual da seção Orçamentos I.A. retoma depois.
  */
-export async function atravessarNoSim(tenantId: string, levantamentoId: string): Promise<string> {
+export type EtapaDoPrecoNoSim = (orcamentoId: string) => Promise<ResultadoDaEtapa>
+export type ResultadoDoSim = { rastro: string; paraOVendedor: string | null }
+export async function atravessarNoSim(tenantId: string, levantamentoId: string, etapaDoPreco: EtapaDoPrecoNoSim): Promise<ResultadoDoSim> {
     let r: ResultadoDaTravessia
     try {
         r = await atravessarLevantamento(tenantId, levantamentoId)
     } catch (e) {
-        if (e instanceof ErroJaAtravessado) return `ja_existe=${e.orcamentoNumero} parou=travessia`
-        if (e instanceof ErroDaTravessia) return `recusou=${e.recusas.length} parou=travessia`
-        return `falhou parou=travessia motivo="${motivoDoLog(e)}"`
+        if (e instanceof ErroJaAtravessado) return { rastro: `ja_existe=${e.orcamentoNumero} parou=travessia`, paraOVendedor: null }
+        if (e instanceof ErroDaTravessia) return { rastro: `recusou=${e.recusas.length} parou=travessia`, paraOVendedor: null }
+        return { rastro: `falhou parou=travessia motivo="${motivoDoLog(e)}"`, paraOVendedor: null }
     }
     const origens = PERCENTUAIS_COM_ZERO.map((p) => `${ROTULO_NO_LOG[p]}:${r.origens[p]}`).join(',')
     const travessia = `orcamento=${r.orcamento.numero} itens=${r.itens} faltas=${r.faltas.length}${r.retomada ? ' retomada=sim' : ''} origens=${origens}`
-    // O "SIM" ENCADEIA (dono do produto, 11/11/2026): travessia -> cálculo do custo (grava os materiais) -> precificação. A precificação só
-    // completa com o #258; até lá o encadeamento PARA no cálculo, com o custo fechado e o valor de venda nulo, e diz que falta a precificação
+    let doCalculo: string
     try {
         const c = await calcularOrcamento(tenantId, r.orcamento.id)
-        return `${travessia} calculo=ok liquido=${c.valor_total_liquido.toFixed(2)} parou=precificacao motivo="${MOTIVO_SEM_PRECIFICACAO}"`
+        doCalculo = `${travessia} calculo=ok liquido=${c.valor_total_liquido.toFixed(2)}`
     } catch (e) {
-        if (e instanceof ErroDoCalculo) return `${travessia} calculo=recusou recusas=${e.recusas.length} parou=calculo motivo="${e.recusas.join(' | ').slice(0, 120)}"`
-        return `${travessia} calculo=falhou parou=calculo motivo="${motivoDoLog(e)}"`
+        if (e instanceof ErroDoCalculo) return { rastro: `${travessia} calculo=recusou recusas=${e.recusas.length} parou=calculo motivo="${e.recusas.join(' | ').slice(0, 120)}"`, paraOVendedor: null }
+        return { rastro: `${travessia} calculo=falhou parou=calculo motivo="${motivoDoLog(e)}"`, paraOVendedor: null }
+    }
+    try {
+        const etapa = await etapaDoPreco(r.orcamento.id)
+        return { rastro: `${doCalculo} ${etapa.rastro}`, paraOVendedor: etapa.paraOVendedor }
+    } catch (e) {
+        return { rastro: `${doCalculo} precificacao=falhou parou=precificacao motivo="${motivoDoLog(e)}"`, paraOVendedor: null }
     }
 }
-/** Por que o encadeamento para depois do cálculo: a precificação automática do orçamento ainda não existe (vem com o #258). */
-export const MOTIVO_SEM_PRECIFICACAO = 'falta a precificação: o valor de venda fica nulo até a precificação do orçamento entrar'
 const ROTULO_NO_LOG: Readonly<Record<PercentualComZero, string>> = { comissao_percentual: 'comissao', reserva_tecnica_percentual: 'rt', lucro_projetado_percentual: 'lucro' }
 const motivoDoLog = (e: unknown) => (e instanceof Error ? e.message.slice(0, 120) : 'desconhecido')

@@ -170,6 +170,7 @@
  * Portão: `src/utils/__tests__/atendimentos-ia-levantamento-por-nome.test.ts`.
  */
 import { atravessarNoSim } from './travessia-do-levantamento'
+import { dependenciasDoServidor, etapaDoPreco } from './cadeia-do-sim'
 import { supabaseAdmin } from '@/supabase/admin'
 import { MODELO_PADRAO_DA_IA, URL_DA_API_ANTHROPIC, VERSAO_DA_API_ANTHROPIC } from '@/lib/atendimentos-ia/modelo-da-ia'
 import { paraOLog } from '@/utils/atendimentos-ia-mascara-do-log'
@@ -1028,7 +1029,7 @@ async function enviarTexto(token: string, telefone: string, texto: string): Prom
  * O DOCUMENTO pelo WUZAPI (06/11/2026): `POST /chat/send/document`, header `token`, corpo `{ Phone, FileName, Document }` com o PDF em base64 —
  * o mesmo caminho de `sendWuzapiDocument` em `src/lib/wuzapi-send.ts`, que é a referência (o prefixo `data:application/octet-stream;base64,`).
  */
-async function enviarDocumento(token: string, telefone: string, nomeDoArquivo: string, pdf: Uint8Array): Promise<Envio> {
+export async function enviarDocumento(token: string, telefone: string, nomeDoArquivo: string, pdf: Uint8Array): Promise<Envio> {
     const limite = prazo(PRAZO_DO_ENVIO_MS)
     try {
         const r = await fetch(`${wuzapi()}/chat/send/document`, {
@@ -1810,7 +1811,12 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         // A TRAVESSIA (dono do produto, 10/11/2026): o "sim" ao levantamento COMPLETO que levantou atravessa para o orçamento do agente, pelo
         // MESMO código da ação manual. Idempotente; nunca muda a resposta ao vendedor — o resultado vai ao log da etapa do cálculo
         if ((confirmouApanhado || simVale) && levantamento.desfecho === 'levantou' && estado === COMPLETO && rastro.levantamento) {
-            rastro.etapas.calcular = `${rastro.etapas.calcular ?? ''} travessia=${await atravessarNoSim(c.tenantId, rastro.levantamento)}`.trim()
+            // a ETAPA DO PREÇO (11/11/2026): precifica, gera o PDF e o envia ao DONO do levantamento (nunca a quem disse "sim"); sem preço formado
+            // não há PDF, e o texto diz o que falta. O que ela tem a dizer vai junto da resposta, e a falha do envio não desfaz nada
+            const sim = await atravessarNoSim(c.tenantId, rastro.levantamento, (orcamentoId) =>
+                etapaDoPreco(c.tenantId, orcamentoId, dependenciasDoServidor((telefone, nome, pdf) => enviarDocumento(c.wuzapiToken, telefone, nome, pdf))))
+            rastro.etapas.calcular = `${rastro.etapas.calcular ?? ''} travessia=${sim.rastro}`.trim()
+            if (sim.paraOVendedor) return await responder(`${levantamento.texto}\n\n${sim.paraOVendedor}`, levantamento.desfecho, semApanhado)
         }
         // SEM a confirmação do arremate (dono do produto, 08/11/2026): "Considerando guarnição e arremate padrão, certo!" repetia o que o
         // rodapé da folha já diz nas pré-definições consideradas — ruído. O mesmo para a variante do arremate escolhido

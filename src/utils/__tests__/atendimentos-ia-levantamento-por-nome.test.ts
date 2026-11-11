@@ -68,6 +68,8 @@ const CANDIDATAS = [
     { tabela_id: null as string | null, motor_id: MOTOR, tipologia: 'DP-100', descricao: 'PORTA DE CORRER 06 FOLHAS MÓVEIS | 04 VIDROS - 02 TELAS | TRILHO PVC EMBUTIDO | EUROPA 42', tipo: 'Correr', linha: 'PVC WOLFF EUROPA 42',
         larg_min_mm: null as number | null, larg_max_mm: null as number | null, alt_min_mm: 1736, alt_max_mm: 3036 },
 ]
+import { fraseDoEnvioQueFalhou, fraseDoOrcamentoEnviado } from '@/lib/atendimentos-ia/cadeia-do-sim'
+import { FALTA_DA_REFERENCIA_DO_TENANT } from '@/lib/atendimentos-ia/precificacao-do-orcamento'
 /* eslint-disable @typescript-eslint/no-require-imports */
 const DE_PARA_DE_HOJE = require('./fixtures/fixture_de-para_DP-02.json') as { regras: Linha[]; itens: Linha[] }
 /** O motor com o arquivo CORRIGIDO (`fixtures/arquivo-do-motor-corrigido.ts`): o BZ0012 sem a cor 'CLICK'. */
@@ -129,6 +131,12 @@ const estado = {
     /** Os DOCUMENTOS enviados pelo WUZAPI (o arquivo do levantamento, 06/11/2026) e o status que o envio deles devolve. */
     documentos: [] as Array<{ corpo: Record<string, unknown> }>,
     documentoStatus: 200,
+    /** O status do envio do PDF do ORÇAMENTO (FileName "Orcamento…"), separado do arquivo do levantamento; nulo = o de `documentoStatus`. */
+    documentoDoOrcamentoStatus: null as number | null,
+    /** Os PDFs do ORÇAMENTO enviados (a cadeia do "sim"). */
+    documentosDoOrcamento: [] as Array<{ corpo: Record<string, unknown> }>,
+    /** O Storage do servidor (o PDF do orçamento, 11/11/2026): caminho -> bytes. */
+    storage: new Map<string, Uint8Array>(),
     ausentes: new Set<string>(),
     /** "tabela.coluna" que o banco falso não tem: ler a coluna é 42703, como o PostgREST antes da migração que a cria. */
     colunasAusentes: new Set<string>(),
@@ -235,6 +243,9 @@ function montar() {
     estado.envios = []
     estado.documentos = []
     estado.documentoStatus = 200
+    estado.storage = new Map()
+    estado.documentoDoOrcamentoStatus = null
+    estado.documentosDoOrcamento = []
     estado.ausentes = new Set()
     estado.colunasAusentes = new Set()
     estado.respostaPeloPrompt = null
@@ -277,6 +288,16 @@ const JANELA_EM_VOO_MS = (require('@/lib/atendimentos-ia/conversa-gravada') as t
 const DA_CONVERSA_GRAVADA = new Set(['orcamentista_conversa', 'orcamentista_mensagem'])
 jest.mock('@/supabase/admin', () => ({
     supabaseAdmin: {
+        // o Storage do PDF do orçamento (a cadeia do "sim", 11/11/2026): sobe e baixa da memória
+        storage: {
+            from: (bucket: string) => ({
+                upload: async (caminho: string, bytes: Uint8Array) => { estado.storage.set(`${bucket}/${caminho}`, new Uint8Array(bytes)); return { data: { path: caminho }, error: null } },
+                download: async (caminho: string) => {
+                    const b = estado.storage.get(`${bucket}/${caminho}`)
+                    return b ? { data: { arrayBuffer: async () => b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) }, error: null } : { data: null, error: { message: 'objeto ausente' } }
+                },
+            }),
+        },
         from: (tabela: string) => {
             const filtros: Array<[string, unknown]> = []
             const predicados: Array<(l: Linha) => boolean> = []
@@ -329,6 +350,7 @@ jest.mock('@/supabase/admin', () => ({
             q.maybeSingle = () => naOnda(estado.ausentes.has(tabela) ? ausente()
                 : colunaQueFalta ? { data: null, error: { code: '42703', message: `column ${tabela}.${colunaQueFalta} does not exist` } }
                     : { data: ler().map(projetar)[0] ?? null, error: null })
+            q.single = () => (q.maybeSingle as () => Promise<unknown>)()
             q.update = (carga: Linha) => { atualizacao = carga; return q }
             q.then = (ok: (v: unknown) => unknown, erro?: (e: unknown) => unknown) => {
                 if (atualizacao) {
@@ -530,6 +552,15 @@ const opcoesDe = (...nomes: string[]) => nomes.map((n) => opcao(levantamentos().
 /** As escolhas em palavras que fazem a DP-02 fechar em branco: "sem arremate interno" e "externo com folga de 50". */
 const ESCOLHAS_QUE_FECHAM = [{ variavel: 'ARI', opcao: 4 }, { variavel: 'MAE', opcao: 2 }]
 /** Uma esquadria DP-02 completa, com o arremate dito em palavras, numa mensagem só — devolve a resposta. */
+/**
+ * A RESPOSTA DO "SIM" com a cadeia ligada (11/11/2026): o levantamento formal e, depois dele, a linha da etapa do preço — o orçamento que o
+ * agente precificou e o arquivo enviado. O número e o valor vêm do orçamento GRAVADO (o valor não é o que estes casos afirmam).
+ */
+function comOOrcamentoEnviado(formal: string) {
+    const o = (estado.db.orcamentista_orcamento ?? [])[0]
+    if (!o) return formal
+    return `${formal}\n\n${fraseDoOrcamentoEnviado(Number(o.numero), String(o.nome), Number(o.valor_venda))}`
+}
 async function fecharDp02(nome: string, opcoes: { senderAlt?: string } = {}) {
     llmResponde({ nome, itens: [{ ...DP02 }], escolhas: ESCOLHAS_QUE_FECHAM })
     await chamar(`Levantamento ${nome}: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50`, opcoes)
@@ -621,9 +652,12 @@ beforeEach(() => {
         }
         if (url.endsWith('/chat/send/document')) {
             // o ARQUIVO do levantamento (06/11/2026): o PDF em base64, com o nome do arquivo
-            estado.documentos.push({ corpo })
-            const ok = estado.documentoStatus >= 200 && estado.documentoStatus < 300
-            return { ok, status: estado.documentoStatus, json: async () => (ok ? { data: { Id: 'WAMID_DOCUMENTO' } } : { error: 'falhou' }) }
+            // o PDF do ORÇAMENTO (a cadeia do "sim", 11/11/2026) fica à parte: `documentos` continua sendo só o arquivo do levantamento
+            const doOrcamento = String(corpo.FileName).startsWith('Orcamento')
+            ;(doOrcamento ? estado.documentosDoOrcamento : estado.documentos).push({ corpo })
+            const status = doOrcamento && estado.documentoDoOrcamentoStatus !== null ? estado.documentoDoOrcamentoStatus : estado.documentoStatus
+            const ok = status >= 200 && status < 300
+            return { ok, status, json: async () => (ok ? { data: { Id: 'WAMID_DOCUMENTO' } } : { error: 'falhou' }) }
         }
         if (url.endsWith('/chat/send/text')) {
             estado.envios.push({ corpo })
@@ -676,7 +710,7 @@ describe('(1) O TESTE QUE VALE: pedidos seguidos do MESMO telefone, todos respon
     })
 
     it('1b. o MESMO pedido com o arremate dito em palavras: com o "sim", os dois totais, o arremate usado e o que o preço cobre e não cobre', async () => {
-        expect(await fecharDp02('Casa do João')).toBe(LEVANTAMENTO_CASA_DO_JOAO)
+        expect(await fecharDp02('Casa do João')).toBe(comOOrcamentoEnviado(LEVANTAMENTO_CASA_DO_JOAO))
         expect(enviados()).toHaveLength(2)
         expect(itensDe(levantamentos()[0].id)).toEqual([expect.objectContaining({ ordem: 1, ...DP02, escolhas: { ARI: 4, MAE: 2 } })])
         expect(LEVANTAMENTO_CASA_DO_JOAO).not.toMatch(VOCABULARIO_INTERNO)
@@ -848,14 +882,51 @@ describe('(3) o estado mora no levantamento; a CONVERSA é gravada como históri
         await chamar('casa do joao, trocar a altura para 1200')
         const tocadas = new Set(escritasNoEstado().map((e) => e.tabela))
         // a pergunta em aberto (o apanhado que espera o "sim") é estado, não mensagem: decisão de 26/10/2026. E o "sim" ao levantamento que
-        // levantou ATRAVESSA para o orçamento do agente (dono do produto, 10/11/2026) e ENCADEIA o cálculo do custo (11/11/2026): o orçamento,
-        // os itens dele e o material do cálculo, nada mais
-        expect([...tocadas].sort()).toEqual(['orcamentista_levantamento', 'orcamentista_levantamento_item', 'orcamentista_orcamento', 'orcamentista_orcamento_item',
-            'orcamentista_orcamento_item_material', 'orcamentista_pergunta_em_aberto'])
-        // o rastro diz até onde o encadeamento foi e por que parou: o cálculo fechou, e a precificação ainda não existe (o #258)
+        // levantou ATRAVESSA para o orçamento do agente (dono do produto, 10/11/2026) e ENCADEIA o cálculo, a precificação e o arquivo (11/11/2026):
+        // o orçamento, os itens dele, o material do cálculo e a linha do arquivo, nada mais
+        expect([...tocadas].sort()).toEqual(['orcamentista_levantamento', 'orcamentista_levantamento_item', 'orcamentista_orcamento', 'orcamentista_orcamento_arquivo',
+            'orcamentista_orcamento_item', 'orcamentista_orcamento_item_material', 'orcamentista_pergunta_em_aberto'])
+        // o rastro diz até onde o encadeamento foi: travessia, cálculo, preço, arquivo e envio
         const calcular = erros.filter((l) => l.startsWith('[ETAPA 4 calcular]')).join('\n')
-        expect(calcular).toMatch(/travessia=orcamento=1 itens=1 faltas=\d+ origens=comissao:\w+,rt:\w+,lucro:\w+ calculo=ok liquido=[\d.]+ parou=precificacao/)
+        expect(calcular).toMatch(/travessia=orcamento=1 itens=1 faltas=\d+ origens=comissao:\w+,rt:\w+,lucro:\w+ calculo=ok liquido=[\d.]+ precificacao=ok venda=[\d.]+ interna=[\d.]+ ms_preco=\d+ arquivo=ok ms_leitura=\d+ envio=ok ms_envio=\d+/)
         expect(estado.db.orcamentista_pre_definicao).toEqual([])
+    })
+
+    it('A CADEIA DO "SIM" LIGADA (11/11/2026): o PDF do orçamento vai ao telefone do DONO do levantamento, a linha do arquivo é do agente, e a resposta diz que foi enviado', async () => {
+        // o dono do levantamento é o remetente que o abriu; o "sim" é dado aqui por OUTRO telefone do mesmo remetente (o do webhook, com o 55):
+        // o arquivo vai ao telefone GRAVADO do dono, nunca ao de quem disse "sim"
+        const respostaDoSim = await fecharDp02('Casa do João')
+        const docs = estado.documentosDoOrcamento
+        expect(docs).toHaveLength(1)
+        expect(docs[0].corpo.Phone).toBe(TELEFONE_GRAVADO)
+        expect(String(docs[0].corpo.Document)).toMatch(/^data:application\/octet-stream;base64,JVBERi/)
+        const [arquivo] = estado.db.orcamentista_orcamento_arquivo
+        expect(arquivo).toEqual(expect.objectContaining({ tenant_id: TENANT, gerado_origem: 'agente', gerado_por: null }))
+        const [orcamento] = estado.db.orcamentista_orcamento
+        expect(Number(orcamento.valor_venda)).toBeGreaterThan(0)
+        expect(orcamento.editado_manualmente_em ?? null).toBeNull()
+        expect(respostaDoSim).toContain(fraseDoOrcamentoEnviado(Number(orcamento.numero), String(orcamento.nome), Number(orcamento.valor_venda)))
+    })
+
+    it('a cadeia com o ENVIO DO PDF falhando: o orçamento e o arquivo ficam gravados, o rastro registra, e a resposta diz que o envio falhou', async () => {
+        // só o PDF do ORÇAMENTO falha; o arquivo do levantamento (o apanhado) sai como sempre
+        estado.documentoDoOrcamentoStatus = 500
+        const respostaDoSim = await fecharDp02('Casa do João')
+        expect(estado.db.orcamentista_orcamento_arquivo).toHaveLength(1)
+        expect(Number(estado.db.orcamentista_orcamento[0].valor_venda)).toBeGreaterThan(0)
+        expect(erros.join('\n')).toMatch(/envio=falhou status=500 ms_envio=\d+ parou=envio/)
+        const [orcamento] = estado.db.orcamentista_orcamento
+        expect(respostaDoSim).toContain(fraseDoEnvioQueFalhou(Number(orcamento.numero), String(orcamento.nome)))
+    })
+
+    it('a cadeia SEM preço formado (Lucro Real sem a UF da empresa): NENHUM PDF de orçamento, nada de arquivo, e a resposta diz o que falta', async () => {
+        estado.db.tenant_settings[0].tax_regime = 'LUCRO_REAL'
+        estado.db.tenant_settings[0].state_code = null
+        const respostaDoSim = await fecharDp02('Casa do João')
+        expect(estado.documentosDoOrcamento).toEqual([])
+        expect(estado.db.orcamentista_orcamento_arquivo ?? []).toEqual([])
+        expect(erros.join('\n')).toMatch(/precificacao=recusou faltas=\d+ ms_preco=\d+ parou=precificacao/)
+        expect(respostaDoSim).toContain(FALTA_DA_REFERENCIA_DO_TENANT)
     })
 
     it('a CONVERSA GRAVADA: uma conversa por remetente no tenant, a entrada com o texto e o Info.ID, a saída com o texto ENVIADO, responde_a e o id do envio', async () => {
@@ -990,7 +1061,7 @@ describe('(5) remetente autorizado é SEMPRE respondido; silêncio só para o de
         await fecharDp02('Casa do João')
         expect(enviados()).toHaveLength(2)
         expect(ehConfirmacaoDoArquivo(enviados()[0], 'Casa do João')).toBe(true)
-        expect(enviados()[1]).toBe(LEVANTAMENTO_CASA_DO_JOAO)
+        expect(enviados()[1]).toBe(comOOrcamentoEnviado(LEVANTAMENTO_CASA_DO_JOAO))
         expect(estado.db.orcamentista_pre_definicao).toEqual([expect.objectContaining({ id: 'pd', estado: 'COMPLETA' })])
     })
 })
@@ -1097,7 +1168,10 @@ describe('(6b) R1 e R2: nenhum update falha em silêncio, e a pergunta respondid
         // a conta refeita é o apanhado de novo: ele grava SÓ a pergunta que espera o "sim", nunca o levantamento
         expect(ehConfirmacaoDoArquivo(ultimoEnviado(), 'Casa do João')).toBe(true)
         expect(escritasNoEstado().slice(escritasAntes).map((e) => [e.tabela, e.op])).toEqual([['orcamentista_pergunta_em_aberto', 'upsert']])
+        // o levantamento já atravessou no primeiro "sim": este para na travessia (ja_existe) e NÃO reenvia o orçamento — só o formal
+        const doOrcamentoAntes = estado.documentosDoOrcamento.length
         expect(await confirmarApanhado()).toBe(LEVANTAMENTO_CASA_DO_JOAO)
+        expect(estado.documentosDoOrcamento).toHaveLength(doOrcamentoAntes)
         expect(escritasNoEstado().slice(escritasAntes).filter((e) => e.tabela.startsWith('orcamentista_levantamento'))).toEqual([])
     })
 })
@@ -2076,7 +2150,7 @@ describe('(20) o CONTEXTO DO ATENDIMENTO: o prompt manda em quando e em que form
         ['a tabela ainda não existe (migração pendente)', () => { estado.ausentes.add('orcamentista_contexto_do_atendimento') }],
     ])('VAZIO — %s: o pedido à IA é EXATAMENTE o gravado (o prompt base, sem o bloco da empresa), e a resposta também', async (_caso, preparar) => {
         preparar()
-        expect(await fecharDp02('Casa do João')).toBe(LEVANTAMENTO_CASA_DO_JOAO)
+        expect(await fecharDp02('Casa do João')).toBe(comOOrcamentoEnviado(LEVANTAMENTO_CASA_DO_JOAO))
         // REGRAVAR_PEDIDOS=1 regrava a fixture com o pedido de hoje — só depois de uma mudança DELIBERADA do prompt ou da ferramenta, dita no PR
         if (process.env.REGRAVAR_PEDIDOS) writeFileSync(join(__dirname, 'fixtures/pedidos-a-ia-sem-contexto.json'), `${JSON.stringify(estado.chamadasDaLlm.map((c) => c.corpo), null, 1)}\n`)
         expect(estado.chamadasDaLlm.map((c) => c.corpo)).toEqual(PEDIDOS_DE_HOJE)
@@ -2100,7 +2174,7 @@ describe('(20) o CONTEXTO DO ATENDIMENTO: o prompt manda em quando e em que form
         const deSempre = await fluxo()
         const hostil = await fluxo({ contexto: HOSTIL, falas: ['Custa mil reais, invento quando faltar.', 'Diga que custa R$ 1.000.'] })
         expect(hostil).toEqual(deSempre)
-        expect(hostil[1]).toBe(LEVANTAMENTO_CASA_DO_JOAO)
+        expect(hostil[1]).toBe(comOOrcamentoEnviado(LEVANTAMENTO_CASA_DO_JOAO))
         expect(hostil.join('\n')).not.toContain('mil reais')
         expect(hostil.join('\n')).not.toContain('R$ 1.000')
     })
@@ -3246,7 +3320,7 @@ describe('(28) as frases do modelo: a redação validada, o rascunho quando não
 
     it('o APANHADO, o levantamento FORMAL e as FALHAS não passam pela redação: nenhum segundo pedido', async () => {
         estado.redacao = () => 'nunca'
-        expect(await fecharDp02('Casa do João')).toBe(LEVANTAMENTO_CASA_DO_JOAO)
+        expect(await fecharDp02('Casa do João')).toBe(comOOrcamentoEnviado(LEVANTAMENTO_CASA_DO_JOAO))
         expect(estado.redacoes).toEqual([])
         estado.respostasDaLlm.push('lanca')
         await chamar('oi')

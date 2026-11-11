@@ -78,12 +78,12 @@ describe('a etapa do preço', () => {
         expect(r.rastro).toContain('precificacao=ok venda=8765.43 interna=8765.43')
         expect(r.rastro).toContain('arquivo=recusou parou=arquivo')
     })
-    it('com preço e arquivo: envia ao DONO do levantamento o arquivo gerado, com o nome do arquivo; sem texto ao vendedor', async () => {
+    it('com preço e arquivo: envia ao DONO do levantamento o arquivo gerado, com o nome do arquivo, e o texto diz que foi enviado', async () => {
         const d = deps(gravado(true))
         const r = await C.etapaDoPreco(T, ORC, d)
         expect(d.telefoneDoDono).toHaveBeenCalledWith(T, ORC)
         expect(d.enviar).toHaveBeenCalledWith('5551999990000', 'Orcamento 7 - Geraldo Huck.pdf', PDF)
-        expect(r.paraOVendedor).toBeNull()
+        expect(r.paraOVendedor).toBe(C.fraseDoOrcamentoEnviado(7, 'Geraldo Huck', 8765.43))
         expect(r.rastro).toMatch(/arquivo=ok ms_leitura=\d+ envio=ok ms_envio=\d+$/)
     })
     it('o envio que FALHA: o rastro registra a falha e o prazo, e nada é desfeito (nenhuma outra chamada depois do envio)', async () => {
@@ -91,7 +91,7 @@ describe('a etapa do preço', () => {
         const r = await C.etapaDoPreco(T, ORC, d)
         expect(r.rastro).toMatch(/envio=falhou status=nenhum prazo=esgotado ms_envio=\d+ parou=envio$/)
         expect(d.precificar).toHaveBeenCalledTimes(1)
-        expect(r.paraOVendedor).toBeNull()
+        expect(r.paraOVendedor).toBe(C.fraseDoEnvioQueFalhou(7, 'Geraldo Huck'))
     })
     it('o dono sem telefone: nada enviado, e o vendedor sabe por quê', async () => {
         const d = deps(gravado(true), { telefoneDoDono: jest.fn(async (): Promise<string | null> => null) })

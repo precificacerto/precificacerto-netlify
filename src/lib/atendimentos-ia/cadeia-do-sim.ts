@@ -10,8 +10,8 @@
  *   recebe o porquê e o rastro registra `parou=arquivo`;
  * - o ENVIO que falha: o orçamento e o arquivo ficam salvos, e o rastro registra a falha (`envio=falhou`). Nada é desfeito.
  *
- * O envio e as leituras entram por `DependenciasDaEtapa`, para que a etapa seja provada sem rede; a ligação na conversa (o WUZAPI, o token do
- * canal ORCAMENTISTA) é o passo seguinte, DEPOIS de o relógio da cadeia ser medido e aprovado (condição (b) do dono do produto).
+ * O envio e as leituras entram por `DependenciasDaEtapa`, para que a etapa seja provada sem rede; na conversa, o envio é o `enviarDocumento` do
+ * WUZAPI com o token do canal ORCAMENTISTA (ligado em 11/11/2026, com o relógio aprovado: ~33 s típico, ~130 s no pior caso, contra 300 s).
  * Cada passo leva o seu tempo no rastro (`ms_*`): é o mesmo relógio, medido em produção.
  */
 import { supabaseAdmin } from '@/supabase/admin'
@@ -30,7 +30,7 @@ export type DependenciasDaEtapa = {
 export type ResultadoDaEtapa = {
     /** A parte do rastro `[IA]` desta etapa. */
     rastro: string
-    /** O que o vendedor recebe por TEXTO; nulo quando o arquivo foi enviado (o documento é a resposta). */
+    /** O que o vendedor recebe por TEXTO junto com a resposta do "sim"; nulo só quando nem o orçamento existe para dizer algo. */
     paraOVendedor: string | null
 }
 
@@ -43,6 +43,11 @@ export const fraseDoPrecoQueNaoSaiu = (numero: number, nome: string, faltas: rea
 export const fraseDoArquivoQueNaoSaiu = (numero: number, nome: string, venda: number, recusas: readonly string[]) =>
     `O orçamento ${numero} (${nome}) está precificado em ${reaisBR(venda)}, mas o arquivo não pôde ser gerado: ${recusas.join('; ')}. `
     + 'A precificação está salva.'
+export const fraseDoOrcamentoEnviado = (numero: number, nome: string, venda: number) =>
+    `O orçamento ${numero} (${nome}) foi precificado em ${reaisBR(venda)}, e o arquivo foi enviado ao vendedor do levantamento.`
+export const fraseDoEnvioQueFalhou = (numero: number, nome: string) =>
+    `O orçamento ${numero} (${nome}) está precificado e o arquivo foi gerado, mas o envio dele falhou. Nada se perdeu: o arquivo está na seção `
+    + 'Orçamentos I.A.'
 export const fraseDoDonoSemTelefone = (numero: number, nome: string) =>
     `O orçamento ${numero} (${nome}) está precificado e o arquivo foi gerado, mas o dono do levantamento não tem telefone cadastrado: o arquivo não foi enviado.`
 
@@ -70,7 +75,7 @@ export async function etapaDoPreco(tenantId: string, orcamentoId: string, deps: 
     const [lido, telefone] = await Promise.all([deps.lerArquivo(tenantId, orcamentoId), deps.telefoneDoDono(tenantId, orcamentoId)])
     const msLeitura = deps.agora() - t1
     const doArquivo = `${precificacao} arquivo=ok ms_leitura=${msLeitura}`
-    if (!lido) return { rastro: `${doArquivo} envio=sem_arquivo parou=envio`, paraOVendedor: null }
+    if (!lido) return { rastro: `${doArquivo} envio=sem_arquivo parou=envio`, paraOVendedor: fraseDoEnvioQueFalhou(o.numero, o.nome) }
     if (!telefone) return { rastro: `${doArquivo} envio=sem_telefone parou=envio`, paraOVendedor: fraseDoDonoSemTelefone(o.numero, o.nome) }
     const t2 = deps.agora()
     const envio = await deps.enviar(telefone, arquivo.nomeDoArquivo, lido.pdf)
@@ -78,10 +83,10 @@ export async function etapaDoPreco(tenantId: string, orcamentoId: string, deps: 
     if (!envio.ok) {
         return {
             rastro: `${doArquivo} envio=falhou status=${envio.status ?? 'nenhum'}${envio.prazoEsgotado ? ' prazo=esgotado' : ''} ms_envio=${msEnvio} parou=envio`,
-            paraOVendedor: null,
+            paraOVendedor: fraseDoEnvioQueFalhou(o.numero, o.nome),
         }
     }
-    return { rastro: `${doArquivo} envio=ok ms_envio=${msEnvio}`, paraOVendedor: null }
+    return { rastro: `${doArquivo} envio=ok ms_envio=${msEnvio}`, paraOVendedor: fraseDoOrcamentoEnviado(o.numero, o.nome, venda) }
 }
 
 /** O telefone do DONO do levantamento do orçamento (o remetente que o abriu), no tenant; nulo quando falta qualquer elo. */
