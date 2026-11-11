@@ -71,23 +71,48 @@ export function numeroDoJid(jid: unknown): string | null {
 
 /**
  * O TELEFONE NO FORMATO DO CANAL — o que se GRAVA em `orcamentista_remetente_autorizado.telefone` (dono do produto, 11/11/2026: "o número tem
- * de ser GRAVADO no formato que o canal usa, não no formato solto"). É o formato em que o WhatsApp entrega e recebe o número: o DDI 55, o DDD
- * e o assinante, com o CELULAR SEM o nono dígito. Medido em produção em 11/11/2026: o remetente gravado `51999114290` chega pelo webhook como
- * `555199114290`, e é para esse que as respostas vão. O fixo fica como é (55 + DDD + 8).
+ * de ser GRAVADO no formato que o canal usa, não no formato solto"). A ORDEM DE AUTORIDADE, decidida pelo dono do produto em 11/11/2026:
  *
- * RESSALVA DE MEDIÇÃO, e ela é a razão de a comparação não depender disto: a medição tem UM número, de UM DDD (51). Que o WhatsApp tire o nono
- * em TODO DDD não foi medido — há relato de que nos DDDs 11 a 28 ele o mantém. Por isso quem COMPARA continua comparando pela forma
- * normalizada (`telefonesCasam`, a rota de entrada), e quem ENVIA continua com as variantes como rede de segurança (`normalizePhoneBR`): um
- * DDD em que o canal mantenha o nono não perde a autorização nem o envio; só grava no formato medido, até alguém medir outro.
+ *   (a) O MEDIDO, primeiro: se o número já falou com o canal, o formato é EXATAMENTE o que o webhook entregou — nunca recalculado por regra
+ *       (`formatoDoCanal`, com os números que o webhook entregou no tenant);
+ *   (b) o PALPITE, só se nunca falou (`palpiteDoFormatoDoCanal`);
+ *   (c) depois do primeiro envio ACEITO, o palpite vira medição: a variante que o canal aceitou é persistida e passa a valer por (a)
+ *       (`registrarFormatoMedido`, em `src/lib/atendimentos-ia/telefone-medido.ts`).
  *
- * Entra a forma NORMALIZADA (`telefoneNormalizado`); o que não for telefone é NULL.
+ * As variantes do envio (`normalizePhoneBR`) continuam como REDE, não como mecanismo. A COMPARAÇÃO continua pela forma normalizada.
  */
-export function telefoneNoFormatoDoCanal(bruto: string | null | undefined): string | null {
+export type FormatoDoCanal = { telefone: string; origem: 'medido' | 'palpite' }
+
+/**
+ * (b) O PALPITE — e é PALPITE, não regra medida. Fonte: a regra documentada por vários provedores de integração com o WhatsApp, trazida pelo
+ * dono do produto em 11/11/2026: nos DDDs ATÉ 30 o WhatsApp MANTÉM o nono dígito do celular no identificador; nos DDDs 31 EM DIANTE, o
+ * DESCARTA. As mesmas fontes dizem que há EXCEÇÃO e que o caminho confiável é perguntar ao canal — por isso o palpite só vale enquanto o número
+ * nunca falou e nunca recebeu (a e c).
+ *
+ * MEDIÇÃO PRÓPRIA, registrada como tal: UM número, de UM DDD — o remetente da De Paula, `51999114290`, que o webhook de produção entregou como
+ * `555199114290` (11/11/2026). Concorda com o palpite (51 ≥ 31, descarta). Um número não é amostra: nenhum DDD até 30 foi medido.
+ *
+ * O fixo fica como é (55 + DDD + 8). O que não for telefone é NULL.
+ */
+export function palpiteDoFormatoDoCanal(bruto: string | null | undefined): string | null {
     const n = telefoneNormalizado(bruto)
     if (n === null) return null
     const ddd = n.slice(0, 2)
     const assinante = n.slice(2)
-    return `55${ddd}${assinante.length === 9 ? assinante.slice(1) : assinante}`
+    const descartaONono = assinante.length === 9 && Number(ddd) >= 31
+    return `55${ddd}${descartaONono ? assinante.slice(1) : assinante}`
+}
+
+/**
+ * O formato a GRAVAR: (a) o número que o WEBHOOK entregou para este telefone, se algum dos `entregues` casa com ele (o primeiro que casar,
+ * exatamente como veio, só dígitos); senão, (b) o palpite. NULL quando a entrada não é telefone.
+ */
+export function formatoDoCanal(bruto: string | null | undefined, entregues: readonly string[]): FormatoDoCanal | null {
+    if (telefoneNormalizado(bruto) === null) return null
+    const medido = entregues.find((e) => /^\d{10,13}$/.test(e) && telefonesCasam(e, bruto))
+    if (medido) return { telefone: medido, origem: 'medido' }
+    const palpite = palpiteDoFormatoDoCanal(bruto)
+    return palpite === null ? null : { telefone: palpite, origem: 'palpite' }
 }
 
 /** Para mostrar: `(51) 9••••-7766` — o DDD e os 4 últimos. */

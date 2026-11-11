@@ -41,7 +41,7 @@
  */
 import type { NextApiRequest, NextApiResponse } from 'next'
 
-import { numeroDoJid, telefoneDoAutorizado, telefoneNoFormatoDoCanal, telefonesCasam } from '@/utils/atendimentos-ia-telefone-do-autorizado'
+import { formatoDoCanal, numeroDoJid, palpiteDoFormatoDoCanal, telefoneDoAutorizado, telefonesCasam } from '@/utils/atendimentos-ia-telefone-do-autorizado'
 
 // ── O banco falso ────────────────────────────────────────────────────────────────────────
 type Linha = Record<string, unknown>
@@ -522,6 +522,19 @@ describe('(10) o 55: o webhook entrega com ele, e a lista grava NO FORMATO DO CA
             await chamar(rotaAutorizados, 'POST', { employee_id: 'f-ddi', acao: 'ligar' })
             expect(estado.db.orcamentista_remetente_autorizado).toEqual([expect.objectContaining({ telefone: NO_CANAL, ativo: true })])
             expect(escritas('orcamentista_remetente_autorizado').filter((o) => o.op === 'insert')).toHaveLength(1)
+        })
+
+        it('(a) o número que JÁ FALOU com o canal grava EXATAMENTE o que o webhook entregou — nunca o palpite; o de outro tenant não conta', async () => {
+            montar({
+                employees: empregados(),
+                // o canal entregou este celular de DDD 54 COM o nono (a exceção): o palpite descartaria, e o medido vence
+                orcamentista_conversa: [
+                    { id: 'c-outra', tenant_id: 'tenant-de-outra', remetente_id: 'x', telefone: '555499887766' },
+                    { id: 'c1', tenant_id: T, remetente_id: 'x', telefone: '5554999887766' },
+                ],
+            })
+            expect((await chamar(rotaAutorizados, 'POST', { employee_id: 'f-ddi', acao: 'ligar' })).status).toBe(200)
+            expect(estado.db.orcamentista_remetente_autorizado).toEqual([expect.objectContaining({ telefone: '5554999887766', employee_id: 'f-ddi' })])
         })
 
         it('o mesmo número já autorizado no formato ANTIGO (sem o 55), para outra linha: 409, e não há duas — a UNIQUE do banco, que compara o texto, não veria', async () => {
@@ -1628,22 +1641,40 @@ describe('(21) a TELA e a ROTA de entrada comparam pela MESMA forma normalizada'
     })
 })
 
-describe('(13) o FORMATO DO CANAL (telefoneNoFormatoDoCanal), o que se grava desde 11/11/2026', () => {
-    it.each([
-        ['51999114290', '555199114290'],
-        ['(51) 99911-4290', '555199114290'],
-        ['555199114290', '555199114290'],
-        ['5551999114290', '555199114290'],
-        ['5133334444', '555133334444'],
-        ['+55 54 99988-7766', '555499887766'],
-    ])('"%s" grava "%s"', (bruto, esperado) => {
-        expect(telefoneNoFormatoDoCanal(bruto)).toBe(esperado)
+describe('(13) o FORMATO DO CANAL — (a) o medido primeiro, (b) o palpite por DDD só se nunca falou (dono do produto, 11/11/2026)', () => {
+    describe('(b) o PALPITE: até o DDD 30 mantém o nono, do 31 em diante descarta', () => {
+        it.each([
+            ['51999114290', '555199114290'], // o medido de produção concorda: 51 ≥ 31
+            ['(51) 99911-4290', '555199114290'],
+            ['5551999114290', '555199114290'],
+            ['11987654321', '5511987654321'], // São Paulo: o nono FICA
+            ['(21) 98765-4321', '5521987654321'],
+            ['30987654321', '5530987654321'], // a fronteira: 30 mantém
+            ['31987654321', '553187654321'], // 31 descarta
+            ['5133334444', '555133334444'], // fixo: como é
+            ['1133334444', '551133334444'],
+        ])('"%s" → "%s"', (bruto, esperado) => {
+            expect(palpiteDoFormatoDoCanal(bruto)).toBe(esperado)
+        })
+        it.each([null, '', '5491155554444', '5101234567'])('o que não é telefone (%s) é NULO', (bruto) => {
+            expect(palpiteDoFormatoDoCanal(bruto)).toBeNull()
+        })
     })
-    it.each([null, '', '5491155554444', '5101234567'])('o que não é telefone (%s) é NULO, e não se grava', (bruto) => {
-        expect(telefoneNoFormatoDoCanal(bruto)).toBeNull()
-    })
-    it('o gravado no canal CASA com o webhook e com o cadastro (a comparação não muda)', () => {
-        expect(telefonesCasam('555199114290', telefoneNoFormatoDoCanal('51999114290'))).toBe(true)
-        expect(telefonesCasam('51999114290', telefoneNoFormatoDoCanal('51999114290'))).toBe(true)
+    describe('(a) o MEDIDO vence o palpite: o número exatamente como o webhook o entregou', () => {
+        it('o remetente da De Paula: o webhook entregou 555199114290 — é ele, medido', () => {
+            expect(formatoDoCanal('51999114290', ['555199114290'])).toEqual({ telefone: '555199114290', origem: 'medido' })
+        })
+        it('o canal discorda do palpite (a EXCEÇÃO que as fontes admitem): vale o canal, nunca a regra', () => {
+            // DDD 11, o palpite manteria o nono (13 dígitos); o webhook entregou sem ele
+            expect(palpiteDoFormatoDoCanal('11987654321')).toBe('5511987654321')
+            expect(formatoDoCanal('11987654321', ['551187654321'])).toEqual({ telefone: '551187654321', origem: 'medido' })
+        })
+        it('número que nunca falou: o palpite, marcado como palpite; outro número entregue não conta', () => {
+            expect(formatoDoCanal('11987654321', ['555199114290'])).toEqual({ telefone: '5511987654321', origem: 'palpite' })
+            expect(formatoDoCanal('11987654321', [])).toEqual({ telefone: '5511987654321', origem: 'palpite' })
+        })
+        it('o que não é telefone é NULO, mesmo com entregues', () => {
+            expect(formatoDoCanal('5555', ['555199114290'])).toBeNull()
+        })
     })
 })

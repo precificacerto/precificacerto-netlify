@@ -18,13 +18,17 @@ import { supabaseAdmin } from '@/supabase/admin'
 import { normalizePhoneBR } from '@/lib/wuzapi-send'
 import { telefonesCasam } from '@/utils/atendimentos-ia-telefone-do-autorizado'
 import { lerUltimoArquivo } from './arquivo-do-orcamento-servidor'
+import { registrarFormatoMedido } from './telefone-medido'
 import { precificarComoAgente, type PrecificacaoDoAgente } from './preco-do-orcamento-servidor'
 
-export type EnvioDoDocumento = { ok: boolean; status: number | null; prazoEsgotado: boolean }
+/** `destino`: o número que o canal ACEITOU (quando houve), para (c) — o palpite vira medição. */
+export type EnvioDoDocumento = { ok: boolean; status: number | null; prazoEsgotado: boolean; destino?: string }
 export type DependenciasDaEtapa = {
     precificar: (tenantId: string, orcamentoId: string) => Promise<PrecificacaoDoAgente>
     lerArquivo: (tenantId: string, orcamentoId: string) => Promise<{ pdf: Uint8Array } | null>
-    telefoneDoDono: (tenantId: string, orcamentoId: string) => Promise<string | null>
+    telefoneDoDono: (tenantId: string, orcamentoId: string) => Promise<DonoDoLevantamento | null>
+    /** (c) grava no remetente a variante que o canal aceitou (`registrarFormatoMedido`). */
+    registrarMedido: (tenantId: string, remetenteId: string, anterior: string, medido: string) => Promise<string>
     enviar: (telefone: string, nomeDoArquivo: string, pdf: Uint8Array) => Promise<EnvioDoDocumento>
     agora: () => number
 }
@@ -74,13 +78,13 @@ export async function etapaDoPreco(tenantId: string, orcamentoId: string, deps: 
     }
     const arquivo = p.gravado.arquivo
     const t1 = deps.agora()
-    const [lido, telefone] = await Promise.all([deps.lerArquivo(tenantId, orcamentoId), deps.telefoneDoDono(tenantId, orcamentoId)])
+    const [lido, dono] = await Promise.all([deps.lerArquivo(tenantId, orcamentoId), deps.telefoneDoDono(tenantId, orcamentoId)])
     const msLeitura = deps.agora() - t1
     const doArquivo = `${precificacao} arquivo=ok ms_leitura=${msLeitura}`
     if (!lido) return { rastro: `${doArquivo} envio=sem_arquivo parou=envio`, paraOVendedor: fraseDoEnvioQueFalhou(o.numero, o.nome) }
-    if (!telefone) return { rastro: `${doArquivo} envio=sem_telefone parou=envio`, paraOVendedor: fraseDoDonoSemTelefone(o.numero, o.nome) }
+    if (!dono) return { rastro: `${doArquivo} envio=sem_telefone parou=envio`, paraOVendedor: fraseDoDonoSemTelefone(o.numero, o.nome) }
     const t2 = deps.agora()
-    const envio = await deps.enviar(telefone, arquivo.nomeDoArquivo, lido.pdf)
+    const envio = await deps.enviar(dono.telefone, arquivo.nomeDoArquivo, lido.pdf)
     const msEnvio = deps.agora() - t2
     if (!envio.ok) {
         return {
@@ -88,11 +92,14 @@ export async function etapaDoPreco(tenantId: string, orcamentoId: string, deps: 
             paraOVendedor: fraseDoEnvioQueFalhou(o.numero, o.nome),
         }
     }
-    return { rastro: `${doArquivo} envio=ok ms_envio=${msEnvio}`, paraOVendedor: fraseDoOrcamentoEnviado(o.numero, o.nome, venda) }
+    // (c) O PALPITE VIRA MEDIÇÃO (dono do produto, 11/11/2026): a variante que o canal aceitou é persistida no remetente, e passa a valer
+    const medido = envio.destino && envio.destino !== dono.telefone ? ` telefone=${await deps.registrarMedido(tenantId, dono.id, dono.telefone, envio.destino)}` : ''
+    return { rastro: `${doArquivo} envio=ok ms_envio=${msEnvio}${medido}`, paraOVendedor: fraseDoOrcamentoEnviado(o.numero, o.nome, venda) }
 }
 
-/** O telefone do DONO do levantamento do orçamento (o remetente que o abriu), no tenant; nulo quando falta qualquer elo. */
-export async function telefoneDoDonoDoOrcamento(tenantId: string, orcamentoId: string): Promise<string | null> {
+export type DonoDoLevantamento = { id: string; telefone: string }
+/** O DONO do levantamento do orçamento (o remetente que o abriu) e o telefone dele, no tenant; nulo quando falta qualquer elo. */
+export async function telefoneDoDonoDoOrcamento(tenantId: string, orcamentoId: string): Promise<DonoDoLevantamento | null> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- as tabelas são posteriores a `database.types.ts`
     const db = supabaseAdmin as any
     const { data: orc, error: e1 } = await db.from('orcamentista_orcamento').select('levantamento_id').eq('tenant_id', tenantId).eq('id', orcamentoId).maybeSingle()
@@ -101,15 +108,16 @@ export async function telefoneDoDonoDoOrcamento(tenantId: string, orcamentoId: s
     const { data: lev, error: e2 } = await db.from('orcamentista_levantamento').select('remetente_id').eq('tenant_id', tenantId).eq('id', orc.levantamento_id).maybeSingle()
     if (e2) throw new Error(`orcamentista_levantamento: ${e2.message}`)
     if (!lev?.remetente_id) return null
-    const { data: rem, error: e3 } = await db.from('orcamentista_remetente_autorizado').select('telefone').eq('tenant_id', tenantId).eq('id', lev.remetente_id).maybeSingle()
+    const { data: rem, error: e3 } = await db.from('orcamentista_remetente_autorizado').select('id, telefone').eq('tenant_id', tenantId).eq('id', lev.remetente_id).maybeSingle()
     if (e3) throw new Error(`orcamentista_remetente_autorizado: ${e3.message}`)
     const tel = typeof rem?.telefone === 'string' ? rem.telefone.trim() : ''
-    return tel === '' ? null : tel
+    return tel === '' ? null : { id: String(rem.id), telefone: tel }
 }
 
 /**
- * OS NÚMEROS DO WHATSAPP PARA O DONO, na ordem de tentativa. Desde 11/11/2026 o telefone do remetente é GRAVADO no formato do canal
- * (`telefoneNoFormatoDoCanal`: 55 + DDD + assinante, o celular sem o nono), e é ele o mecanismo: o primeiro destino. Quando o dono é quem está na
+ * OS NÚMEROS DO WHATSAPP PARA O DONO, na ordem de tentativa. Desde 11/11/2026 o telefone do remetente é GRAVADO no formato do canal — o
+ * medido (o webhook ou o envio aceito) ou, enquanto o número nunca falou, o palpite por DDD (`formatoDoCanal`) —, e é ele o mecanismo: o
+ * primeiro destino. Quando o dono é quem está na
  * conversa (os dois casam), vai o número EXATO do webhook. As variantes do envio de referência (`normalizePhoneBR`) ficam como REDE DE SEGURANÇA —
  * para a linha gravada antes de 11/11/2026 (na forma normalizada, sem o DDI) e para um DDD em que o canal mantenha o nono (não medido).
  */
@@ -122,7 +130,7 @@ export async function enviarAoPrimeiroQueAceitar(destinos: readonly string[], en
     let ultimo: EnvioDoDocumento = { ok: false, status: null, prazoEsgotado: false }
     for (const d of destinos) {
         ultimo = await enviar(d)
-        if (ultimo.ok) return ultimo
+        if (ultimo.ok) return { ...ultimo, destino: d }
     }
     return ultimo
 }
@@ -132,6 +140,7 @@ export const dependenciasDoServidor = (enviar: DependenciasDaEtapa['enviar']): D
     precificar: (t, o) => precificarComoAgente(t, o),
     lerArquivo: lerUltimoArquivo,
     telefoneDoDono: telefoneDoDonoDoOrcamento,
+    registrarMedido: (t, r, a, m) => registrarFormatoMedido(t, r, a, m, 'envio'),
     enviar,
     agora: () => Date.now(),
 })

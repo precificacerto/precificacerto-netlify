@@ -50,7 +50,8 @@ function deps(p: Precificacao, extra: Partial<Deps> = {}) {
     const d = {
         precificar: jest.fn(async () => p),
         lerArquivo: jest.fn(async () => ({ pdf: PDF })),
-        telefoneDoDono: jest.fn(async () => '5551999990000'),
+        telefoneDoDono: jest.fn(async (): Promise<{ id: string; telefone: string } | null> => ({ id: 'rem-dono', telefone: '5551999990000' })),
+        registrarMedido: jest.fn(async () => 'gravado'),
         enviar: jest.fn(async () => ({ ok: true, status: 200, prazoEsgotado: false })),
         agora: () => (t += 10),
         ...extra,
@@ -86,6 +87,23 @@ describe('a etapa do preço', () => {
         expect(r.paraOVendedor).toBe(C.fraseDoOrcamentoEnviado(7, 'Geraldo Huck', 8765.43))
         expect(r.rastro).toMatch(/arquivo=ok ms_leitura=\d+ envio=ok ms_envio=\d+$/)
     })
+    it('(c) O PALPITE VIRA MEDIÇÃO: o canal aceitou OUTRA variante do número do dono — ela é persistida no remetente, e o rastro diz', async () => {
+        const d = deps(gravado(true), { enviar: jest.fn(async () => ({ ok: true, status: 200, prazoEsgotado: false, destino: '55519999990000' })) })
+        const r = await C.etapaDoPreco(T, ORC, d)
+        expect(d.registrarMedido).toHaveBeenCalledWith(T, 'rem-dono', '5551999990000', '55519999990000')
+        expect(r.rastro).toMatch(/envio=ok ms_envio=\d+ telefone=gravado$/)
+    })
+    it('o canal aceitou o PRÓPRIO número gravado: nada a registrar', async () => {
+        const d = deps(gravado(true), { enviar: jest.fn(async () => ({ ok: true, status: 200, prazoEsgotado: false, destino: '5551999990000' })) })
+        const r = await C.etapaDoPreco(T, ORC, d)
+        expect(d.registrarMedido).not.toHaveBeenCalled()
+        expect(r.rastro).toMatch(/envio=ok ms_envio=\d+$/)
+    })
+    it('o envio que FALHA não registra nada (só o ACEITO é medição)', async () => {
+        const d = deps(gravado(true), { enviar: jest.fn(async (): Promise<{ ok: boolean; status: number | null; prazoEsgotado: boolean; destino?: string }> => ({ ok: false, status: 500, prazoEsgotado: false })) })
+        await C.etapaDoPreco(T, ORC, d)
+        expect(d.registrarMedido).not.toHaveBeenCalled()
+    })
     it('o envio que FALHA: o rastro registra a falha e o prazo, e nada é desfeito (nenhuma outra chamada depois do envio)', async () => {
         const d = deps(gravado(true), { enviar: jest.fn(async (): Promise<{ ok: boolean; status: number | null; prazoEsgotado: boolean }> => ({ ok: false, status: null, prazoEsgotado: true })) })
         const r = await C.etapaDoPreco(T, ORC, d)
@@ -94,7 +112,7 @@ describe('a etapa do preço', () => {
         expect(r.paraOVendedor).toBe(C.fraseDoEnvioQueFalhou(7, 'Geraldo Huck'))
     })
     it('o dono sem telefone: nada enviado, e o vendedor sabe por quê', async () => {
-        const d = deps(gravado(true), { telefoneDoDono: jest.fn(async (): Promise<string | null> => null) })
+        const d = deps(gravado(true), { telefoneDoDono: jest.fn(async (): Promise<{ id: string; telefone: string } | null> => null) })
         const r = await C.etapaDoPreco(T, ORC, d)
         expect(d.enviar).not.toHaveBeenCalled()
         expect(r.paraOVendedor).toBe(C.fraseDoDonoSemTelefone(7, 'Geraldo Huck'))
@@ -116,7 +134,7 @@ describe('o telefone do dono do levantamento', () => {
         }
     })
     it('orçamento → levantamento → remetente que o abriu, aparado, e cada leitura com o tenant', async () => {
-        expect(await C.telefoneDoDonoDoOrcamento(T, ORC)).toBe('5551999990000')
+        expect(await C.telefoneDoDonoDoOrcamento(T, ORC)).toEqual({ id: 'rem-dono', telefone: '5551999990000' })
         expect(banco.ops.map((o) => o.tabela)).toEqual(['orcamentista_orcamento', 'orcamentista_levantamento', 'orcamentista_remetente_autorizado'])
         for (const o of banco.ops) expect(o.filtros).toContainEqual(['tenant_id', T])
     })
@@ -143,7 +161,7 @@ describe('os números do WhatsApp para o dono', () => {
         const tentados: string[] = []
         const r = await C.enviarAoPrimeiroQueAceitar(['a', 'b', 'c'], async (t) => { tentados.push(t); return { ok: t === 'b', status: t === 'b' ? 200 : 400, prazoEsgotado: false } })
         expect(tentados).toEqual(['a', 'b'])
-        expect(r.ok).toBe(true)
+        expect(r).toEqual({ ok: true, status: 200, prazoEsgotado: false, destino: 'b' })
         const falha = await C.enviarAoPrimeiroQueAceitar(['a', 'b'], async (t) => ({ ok: false, status: t === 'b' ? 500 : 400, prazoEsgotado: false }))
         expect(falha).toEqual({ ok: false, status: 500, prazoEsgotado: false })
     })

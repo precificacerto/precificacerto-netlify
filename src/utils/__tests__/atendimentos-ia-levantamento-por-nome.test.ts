@@ -51,7 +51,8 @@ const VENDEDOR = 'remetente-1'
 const OUTRO_VENDEDOR = 'remetente-2'
 const TERCEIRO = 'remetente-3'
 const TELEFONE_DO_WEBHOOK = '555199114290'
-const TELEFONE_GRAVADO = '51999114290'
+// o remetente como está em produção depois do UPDATE autorizado em 11/11/2026: o formato do canal, MEDIDO contra o webhook (era 51999114290)
+const TELEFONE_GRAVADO = '555199114290'
 const TELEFONE_DO_OUTRO = '555188887777'
 const TELEFONE_DO_TERCEIRO = '555177776666'
 const CHAVE = 'sk-ant-CHAVE-DE-TESTE-nao-pode-ir-ao-log'
@@ -189,7 +190,7 @@ function montar() {
         orcamentista_remetente_autorizado: [
             // MEDIDO em produção (25/10/2026): o remetente de teste TEM employee_id, e o employees.user_id dele é NULO
             { id: VENDEDOR, tenant_id: TENANT, telefone: TELEFONE_GRAVADO, ativo: true, nome: 'Cristiano Fernandes', employee_id: 'e-cristiano' },
-            { id: OUTRO_VENDEDOR, tenant_id: TENANT, telefone: '51988887777', ativo: true, nome: 'Fulano de Tal', employee_id: null },
+            { id: OUTRO_VENDEDOR, tenant_id: TENANT, telefone: TELEFONE_DO_OUTRO, ativo: true, nome: 'Fulano de Tal', employee_id: null },
             // sem nome no remetente: o nome que a pergunta cita vem do employees
             { id: TERCEIRO, tenant_id: TENANT, telefone: '51977776666', ativo: true, nome: null, employee_id: 'e-beltrana' },
         ],
@@ -895,7 +896,10 @@ describe('(3) o estado mora no levantamento; a CONVERSA é gravada como históri
     it('A CADEIA DO "SIM" LIGADA (11/11/2026): o PDF do orçamento vai ao telefone do DONO do levantamento, a linha do arquivo é do agente, e a resposta diz que foi enviado', async () => {
         // o dono do levantamento é o remetente que o abriu (gravado como 51999114290); aqui é ele quem diz "sim", e o webhook o entrega no formato do
         // WhatsApp (555199114290): o arquivo vai a esse número exato, que é o mesmo que já recebe as respostas
+        // (c) parte da forma de ANTES (sem o 55): o envio aceito no número do canal vira medição e é persistido no remetente
+        estado.db.orcamentista_remetente_autorizado[0].telefone = '51999114290'
         const respostaDoSim = await fecharDp02('Casa do João')
+        expect(estado.db.orcamentista_remetente_autorizado[0].telefone).toBe(TELEFONE_DO_WEBHOOK)
         const docs = estado.documentosDoOrcamento
         expect(docs).toHaveLength(1)
         expect(docs[0].corpo.Phone).toBe(TELEFONE_DO_WEBHOOK)

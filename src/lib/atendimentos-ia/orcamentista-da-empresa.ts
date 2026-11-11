@@ -48,7 +48,8 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 import { supabaseAdmin } from '@/supabase/admin'
 import { getCallerContext } from '@/lib/get-caller-tenant'
 import { podeEditarModulo, podeVerModulo, type ChamadorAutorizado } from '@/lib/permissao-do-modulo'
-import { numeroDoJid, telefoneDoAutorizado, telefoneMascarado, telefonesCasam, telefoneNoFormatoDoCanal } from '@/utils/atendimentos-ia-telefone-do-autorizado'
+import { numeroDoJid, telefoneDoAutorizado, telefoneMascarado, telefonesCasam, formatoDoCanal } from '@/utils/atendimentos-ia-telefone-do-autorizado'
+import { numerosEntreguesPeloCanal } from './telefone-medido'
 import { paraOLog } from '@/utils/atendimentos-ia-mascara-do-log'
 
 /** O módulo da tela de Conectividade — o mesmo que esconde o item do menu. A célula usa este. */
@@ -519,9 +520,11 @@ export async function aplicarAcao(tenantId: string, employeeId: string, acao: Ac
     }
 
     if (!tel.ok) return { status: 422, corpo: { error: `Sem telefone: ${(tel as { motivo: string }).motivo}. Corrija no cadastro do funcionário.` } }
-    // GRAVA no formato do CANAL (dono do produto, 11/11/2026): 55 + DDD + assinante, o celular sem o nono — o número que o WhatsApp entrega e
-    // recebe. A comparação continua pela forma normalizada, dos dois lados (`telefonesCasam`, a rota de entrada)
-    const telefone = telefoneNoFormatoDoCanal((tel as { telefone: string }).telefone) as string
+    // GRAVA no formato do CANAL (dono do produto, 11/11/2026), na ordem de autoridade: (a) o MEDIDO — o número exatamente como o webhook o
+    // entregou, se ele já falou com o canal neste tenant; (b) só se nunca falou, o PALPITE por DDD. A comparação continua pela forma normalizada
+    const canal = formatoDoCanal((tel as { telefone: string }).telefone, await numerosEntreguesPeloCanal(tenantId))
+    if (!canal) return { status: 422, corpo: { error: 'Sem telefone: o telefone do cadastro não é um celular ou fixo brasileiro com DDD. Corrija no cadastro do funcionário.' } }
+    const telefone = canal.telefone
     // O MESMO NÚMERO EM OUTRA LINHA, em qualquer formato: a UNIQUE (tenant_id, telefone) compara o texto cru e não vê a linha gravada antes de
     // 11/11/2026 na forma normalizada. Duas linhas do mesmo número fariam a rota de entrada recusar por ambiguidade — e o vendedor que hoje
     // funciona deixaria de ser reconhecido. A conferência é pela forma normalizada, como a da entrada

@@ -62,6 +62,7 @@ import { telefoneDoRemetente, textoDaMensagem } from '@/lib/atendimentos-ia/payl
 import { telefoneNormalizado } from '@/lib/atendimentos-ia/telefone-normalizado'
 import { conduzirMensagem } from '@/lib/atendimentos-ia/conversa-da-ia'
 import { conversaDoRemetente, gravarEntrada } from '@/lib/atendimentos-ia/conversa-gravada'
+import { registrarFormatoMedido } from '@/lib/atendimentos-ia/telefone-medido'
 
 /**
  * A conversa chama a LLM e o WUZAPI dentro da requisição: o limite é declarado, não herdado. 300 s (dono do produto, 04/11/2026):
@@ -77,7 +78,7 @@ const FORMATO_DO_SEGREDO = /^[0-9a-f]{32,64}$/
 const CANAL_DO_ORCAMENTISTA = 'ORCAMENTISTA'
 const VIOLACAO_DE_UNICIDADE = '23505'
 
-type Rastro = { chaves: string; canal: string; conexao: boolean; autorizado: boolean | null; ambiguidade: number; id: string; repetida: boolean | null; desfecho: string }
+type Rastro = { chaves: string; canal: string; conexao: boolean; autorizado: boolean | null; ambiguidade: number; id: string; repetida: boolean | null; desfecho: string; telefone?: string }
 
 function anotar(r: Rastro) {
     const autorizado = r.autorizado === null ? '-' : r.autorizado ? 'sim' : 'nao'
@@ -85,7 +86,9 @@ function anotar(r: Rastro) {
     const ambiguidade = r.ambiguidade > 0 ? ` ambiguidade=${r.ambiguidade}` : ''
     // a entrada já estava gravada (o reenvio do WUZAPI): só quando a mensagem chegou a ser gravada
     const repetida = r.repetida === null ? '' : ` repetida=${r.repetida ? 'sim' : 'nao'}`
-    console.error(`${PREFIXO_DO_LOG_DE_ENTRADA} chaves=${r.chaves} canal=${r.canal} conexao=${r.conexao ? 'sim' : 'nao'} autorizado=${autorizado}${ambiguidade} id=${r.id}${repetida} desfecho=${r.desfecho}`)
+    // o formato MEDIDO gravado no remetente (11/11/2026): só o resultado, nunca o número
+    const doTelefone = r.telefone ? ` telefone=${r.telefone}` : ''
+    console.error(`${PREFIXO_DO_LOG_DE_ENTRADA} chaves=${r.chaves} canal=${r.canal} conexao=${r.conexao ? 'sim' : 'nao'} autorizado=${autorizado}${ambiguidade}${doTelefone} id=${r.id}${repetida} desfecho=${r.desfecho}`)
 }
 
 /** O corpo como objeto — o parser do Next entrega JSON já lido; texto cru é lido aqui. */
@@ -157,7 +160,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             if (erroAutorizado) throw new Error(`orcamentista_remetente_autorizado: ${erroAutorizado.message}`)
             const casam = ((ativos ?? []) as Array<{ id: string; telefone: string }>).filter((a) => telefoneNormalizado(a.telefone) === forma)
             // Duas linhas ativas na mesma forma: recusar é melhor que acertar no chute.
-            if (casam.length === 1) remetenteId = casam[0].id
+            if (casam.length === 1) {
+                remetenteId = casam[0].id
+                // (a) O MEDIDO VENCE (dono do produto, 11/11/2026): o número gravado passa a ser EXATAMENTE o que o webhook entregou, quando é o
+                // mesmo número em outro formato (o palpite, ou a linha de antes). Nunca derruba a mensagem: o resultado vai ao rastro
+                if (casam[0].telefone !== telefone.replace(/\D/g, '')) rastro.telefone = await registrarFormatoMedido(tenantId, casam[0].id, casam[0].telefone, telefone, 'webhook')
+            }
             else if (casam.length > 1) rastro.ambiguidade = casam.length
         }
         rastro.autorizado = remetenteId !== null
