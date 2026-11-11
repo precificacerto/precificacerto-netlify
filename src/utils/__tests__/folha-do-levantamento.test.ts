@@ -13,7 +13,7 @@ import { jsPDF } from 'jspdf'
 import { join } from 'path'
 import {
     ALTURA_DA_FAIXA, ALTURA_DA_LINHA_DO_ITEM, COLUNAS, PX_DO_MOCKUP, FOLHA, caixaDaFigura, conferirFolha, linhasDoNome, nomeDaTipologiaNaFaixa, dataCurta, desenhoDaTipologia, gerarFolhaDoLevantamento, linhaDasVariaveis, linhaDosAmbientes,
-    linhaDeIdentificacao, nomeDoArquivo, paginar, percentual, planoDaFolha, tracosDoDesenho, variavelNaFolha,
+    linhaDeIdentificacao, nomeDoArquivo, paginar, percentual, planoDaFolha, tracosDoDesenho, variavelNaFolha, ROTULO_DO_CONSIDERADO,
     type AlturasDaFolha, type DadosDaFolha, type ItemDaFolha, type VariavelDita,
 } from '@/lib/atendimentos-ia/folha-do-levantamento'
 import { FOLHA_DE_EXEMPLO, ITENS_DE_EXEMPLO } from './fixtures/folha-de-exemplo'
@@ -26,7 +26,7 @@ const dita = (variavel: string, descricao: string, valor: number, semPadrao = tr
 const descricaoDe = (t: string) => (DESCRICOES as Array<[string, string]>).find(([c]) => c === t)![1]
 const item = (o: Partial<ItemDaFolha> = {}): ItemDaFolha => ({
     ordem: 1, tipologia: 'DP-02', descricao: descricaoDe('DP-02'), linha: 'PVC WOLFF EUROPA 42', quantidade: 1, largura_mm: 1500, altura_mm: 1200,
-    variaveis: [], perfilEAcessorio: 'Branco / padrão', vidro: '4 mm', ambientes: null, obs: null, ...o,
+    variaveis: [], considerado: null, perfilEAcessorio: 'Branco / padrão', vidro: '4 mm', ambientes: null, obs: null, ...o,
 })
 const dados = (o: Partial<DadosDaFolha> = {}): DadosDaFolha => ({ ...FOLHA_DE_EXEMPLO, ...o })
 /** O texto do PDF (jsPDF sem compressão escreve o texto em Latin-1 nos fluxos de conteúdo). */
@@ -320,8 +320,8 @@ describe('(III-b) A DENSIDADE DO MOCKUP (dono do produto, 07/11/2026): 794 px = 
         })
         // as internas: cinza claro (200/255) e 0,25 pt — e nenhum outro traço de célula dentro do item
         const internas = retangulos.filter((x) => x.cor === '0.78' && x.largura === '0.25')
-        // por item: Fig. + 4 colunas da faixa + PERFIL + VIDRO + AMBIENTES + OBS, e VARIÁVEIS quando há
-        const esperadas = ITENS_DE_EXEMPLO.reduce((s, i) => s + 9 + (i.variaveis.some((v) => v.semPadrao) ? 1 : 0), 0)
+        // por item: Fig. + 4 colunas da faixa + PERFIL + VIDRO + AMBIENTES + OBS, a CONSIDERADO quando há tipologia (11/11/2026), e VARIÁVEIS quando há
+        const esperadas = ITENS_DE_EXEMPLO.reduce((s, i) => s + 9 + (i.considerado ? 1 : 0) + (i.variaveis.some((v) => v.semPadrao) ? 1 : 0), 0)
         expect(internas).toHaveLength(esperadas)
         // sem fundo nas células: o único preenchimento é o da faixa de títulos da tabela, um por folha com itens
         expect(fluxo.match(/ re\nf\n/g)?.length).toBe(p.paginas.filter((pg) => pg.itens.length).length)
@@ -384,15 +384,36 @@ describe('(III-b) A DENSIDADE DO MOCKUP (dono do produto, 07/11/2026): 794 px = 
             expect(basesDosItens(tres)).toHaveLength(3)
         })
 
-        it('no exemplo, a folha só do rodapé (a paginação não mudou): o rodapé no pé da folha 2, não no topo dela', () => {
+        it('no exemplo, o rodapé no pé da folha 2, não no topo dela — com a linha CONSIDERADO (11/11/2026) o sétimo item desce para a folha 2', () => {
             const p = plano(ITENS_DE_EXEMPLO)
-            expect(p.paginas.map((pg) => [pg.itens.length, pg.rodape])).toEqual([[7, false], [0, true]])
+            expect(p.paginas.map((pg) => [pg.itens.length, pg.rodape])).toEqual([[6, false], [1, true]])
             const fluxo = gerar(dados({ itens: ITENS_DE_EXEMPLO }))
             expect(baseDoRodape(fluxo)).toBeCloseTo(PE, 3)
             expect(linhaDoTexto(fluxo, 'PRÉ-DEFINIÇÕES CONSIDERADAS')).toBeGreaterThan(FOLHA.altura / 2)
             // a linha de identificação abaixo do rodapé, sem encostar nele
             expect(linhaDoTexto(fluxo, linhaDeIdentificacao(dados({ itens: ITENS_DE_EXEMPLO })))).toBeGreaterThan(PE)
         })
+    })
+
+    it('O PADRÃO APARECE NA FOLHA (dono do produto, 11/11/2026): a linha CONSIDERADO diz o que a esquadria é, antes de PERFIL / ACESSÓRIO — e sem tipologia ela não existe', () => {
+        const comPadrao = item({ considerado: 'correr, 2 folhas · sem persiana · sem bandeira · sem peitoril' })
+        const desenhado = (i: ItemDaFolha) => {
+            const r = gerarFolhaDoLevantamento(dados({ itens: [i] }))
+            if (!('pdf' in r)) throw new Error('recusou')
+            return [...textoDoPdf(r.pdf).matchAll(/\(((?:\\.|[^\\)])*)\) Tj/g)].map((m) => m[1])
+        }
+        const textos = desenhado(comPadrao)
+        expect(textos).toContain(ROTULO_DO_CONSIDERADO)
+        expect(textos.join(' ')).toContain('correr, 2 folhas')
+        expect(textos.join(' ')).toContain('sem peitoril')
+        // a primeira linha auxiliar: desenhada antes de PERFIL / ACESSÓRIO
+        expect(textos.indexOf(ROTULO_DO_CONSIDERADO)).toBeLessThan(textos.indexOf('PERFIL / ACESSÓRIO:'))
+        // sem tipologia (considerado nulo), a linha não é desenhada, e o item cresce exatamente uma linha com ela
+        expect(desenhado(item())).not.toContain(ROTULO_DO_CONSIDERADO)
+        expect(plano([comPadrao]).alturas.itens[0] - plano([item()]).alturas.itens[0]).toBeCloseTo(ALTURA_DA_LINHA_DO_ITEM, 3)
+        // no exemplo, cada item com a sua
+        for (const i of ITENS_DE_EXEMPLO) expect(i.considerado).not.toBeNull()
+        expect(ITENS_DE_EXEMPLO.find((i) => i.tipologia === 'DP-04')?.considerado).toBe('correr, 2 folhas · sem persiana · com bandeira · sem peitoril')
     })
 
     it('as medidas: Fig. 15,3 mm (58 px), faixa 12,2 mm (46 px), linha auxiliar 4,2 mm (16 px)', () => {

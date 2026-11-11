@@ -20,6 +20,7 @@
  *
  * Portão: `src/utils/__tests__/arquivo-do-levantamento.test.ts` e o bloco (42) de `atendimentos-ia-levantamento-por-nome.test.ts`.
  */
+import { oQueAEsquadriaE } from './tipologia-padrao'
 import { supabaseAdmin } from '@/supabase/admin'
 import { arremateDaColeta, rotuloSemCodigo } from '@/lib/atendimentos-ia/apanhado'
 import { opcoesDaVariavel } from '@/lib/atendimentos-ia/avaliador-de-formulas'
@@ -162,6 +163,21 @@ function perfilEAcessorio(cor: string | null, acessorio: string, arremateQueVari
     return `${cor ?? ''} / ${acessorio}${arremateQueVaria !== null ? ` · ${ROTULO_DO_ACABAMENTO} ${arremateQueVaria}` : ''}`
 }
 
+/**
+ * Os MÓDULOS HORIZONTAIS da maxim-ar e do fixo: a variável cujo código é a letra entre aspas da descrição ("N" MÓDULOS HORIZONTAIS → N), com o
+ * valor DITO pelo vendedor ou, sem ele, o PADRÃO da aba Variáveis — o mesmo número que o cálculo usa. Nulo quando a descrição não tem a letra
+ * ou a aba não dá um número.
+ */
+export function modulosHorizontais(item: Pick<ItemDoLevantamento, 'escolhas' | 'tipologia' | 'familia'>, definicao: DefinicaoDaTipologia, descricao: string): number | null {
+    const letra = /"([A-Z])"\s+M[ÓO]DULOS?\s+HORIZONTA/i.exec(descricao)?.[1]?.toUpperCase()
+    if (!letra) return null
+    const dita = item.escolhas ? item.escolhas[letra] : undefined
+    if (typeof dita === 'number' && Number.isInteger(dita) && dita > 0) return dita
+    const v = definicao(item)?.variaveis.find((x) => x.variavel === letra)
+    const p = (v?.padrao ?? '').trim()
+    return /^\d+$/.test(p) && Number(p) > 0 ? Number(p) : null
+}
+
 export function montarDadosDaFolha(a: {
     empresa: string; levantamento: LevantamentoDoArquivo; itens: readonly ItemDoLevantamento[]; definicao: DefinicaoDaTipologia; detalhe: DetalheDaTipologia; geradoEm: Date
     /** a pré-definição do vendedor na base de conhecimento: o (b) da ordem dos três percentuais (11/11/2026) */
@@ -178,6 +194,8 @@ export function montarDadosDaFolha(a: {
             ordem: i.ordem, tipologia: i.tipologia ?? '', descricao: d?.descricao ?? i.tipologia ?? '', linha: d?.linha ?? null,
             quantidade: i.quantidade ?? 0, largura_mm: i.largura_mm ?? 0, altura_mm: i.altura_mm ?? 0,
             variaveis: variaveisDitas(i, a.definicao),
+            // o que a esquadria É, escrito (11/11/2026): o padrão aplicado nunca em silêncio
+            considerado: d && d.descricao ? oQueAEsquadriaE({ descricao: d.descricao, tipo: d.tipo ?? null, linha: d.linha }, modulosHorizontais(i, a.definicao, d.descricao)) : null,
             // igual em todos (ou nenhum tem arremate): nada aqui; o rodapé o diz uma vez
             perfilEAcessorio: perfilEAcessorio(cor, corDoAcessorio(i, a.definicao), arremateComum === null ? arremates[k] : null),
             // o vidro COMO O VENDEDOR DISSE (04/11/2026: copiado, nunca completado), sem rótulo: o rótulo é o da célula ("VIDRO:")

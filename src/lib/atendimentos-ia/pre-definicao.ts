@@ -43,40 +43,45 @@ export const COMPLETA = 'COMPLETA'
 
 /**
  * A TIPOLOGIA SE PERGUNTA EM LINGUAGEM DE OBRA (dono do produto, 03/11/2026): "o código NUNCA manda 'Qual a tipologia
- * das esquadrias?'. Quando a tipologia está vazia, a pergunta é em linguagem de obra (janela ou porta? correr, abrir ou
- * maxim-ar? tem persiana?) e quem conclui a tipologia é o agente. O vendedor não conhece os códigos."
+ * das esquadrias?'. Quando a tipologia está vazia, a pergunta é em linguagem de obra [...] e quem conclui a tipologia é o agente. O vendedor
+ * não conhece os códigos."
+ *
+ * E SÓ O QUE NÃO TEM NATURAL (dono do produto, 11/11/2026: "silêncio não é dúvida: é a forma natural"). O vendedor sempre traz o TIPO; o que vem
+ * depois dele tem natural e não se pergunta — folhas (correr = 2), módulos (maxim-ar = 1), persiana, bandeira, peitoril (sem, salvo se dito;
+ * `tipologia-padrao.ts`). Saíram daqui "tem persiana?", "bandeira ou peitoril fixo?" e "quantas folhas?". Sobram a ABERTURA (janela ou porta:
+ * é outro produto) e o TIPO (como abre), que não se adivinham.
  *
  * A primeira é a da pendência. As outras são a REFORMULAÇÃO, quando a resposta do vendedor não coube no campo e a IA
  * não trouxe uma pergunta dela: "reformule a pergunta em outras palavras em vez de repetir" — nunca o "Não consegui
  * registrar a sua resposta" com a mesma frase (`conversa-da-ia.ts`, `outraPergunta`).
  */
 export const PERGUNTAS_DA_TIPOLOGIA = [
-    'É janela ou porta? Abre de correr, de abrir ou maxim-ar? Tem persiana?',
-    'Me descreva a esquadria como ela é na obra: janela ou porta, como abre (correr, abrir, maxim-ar, pivotante ou fixa) e se tem persiana, bandeira ou peitoril fixo.',
-    'Para eu achar a esquadria certa: quantas folhas abrem, ela corre ou gira, e tem persiana ou bandeira?',
+    'É janela ou porta? E como ela abre: de correr, de abrir, maxim-ar, pivotante ou fixa?',
+    'Me descreva a esquadria como ela é na obra: janela ou porta, e como abre (correr, abrir, maxim-ar, pivotante ou fixa).',
+    'Para eu achar a esquadria certa: é janela ou porta, e ela corre, gira, é maxim-ar ou é fixa?',
 ] as const
 
 /**
  * O QUE O ACUMULADO JÁ DIZ (dono do produto, 05/11/2026): "se o vendedor já disse 'janela maxim ar', não pergunte 'é janela ou porta? abre de
- * correr?'". A pergunta fixa da tipologia tira o que a conversa já tem — a ABERTURA (janela/porta) e o TIPO (correr, abrir, maxim-ar…) — e fica
- * com o que distingue as tipologias que sobraram: folhas, persiana, bandeira, peitoril fixo. Sem nada dito, as três formas de sempre.
+ * correr?'". A pergunta fixa da tipologia tira o que a conversa já tem — a ABERTURA (janela/porta) e o TIPO (correr, abrir, maxim-ar…). Com os
+ * dois ditos e ainda sem tipologia, não há o que perguntar do natural: pede-se a descrição de novo, sem lista do que tem natural.
  */
 export type JaDito = { abertura: boolean; tipo: boolean }
 export const NADA_DITO: JaDito = { abertura: false, tipo: false }
 const PERGUNTAS_COM_ABERTURA_DITA = [
-    'Abre de correr, de abrir ou maxim-ar? Tem persiana?',
-    'Como ela abre (correr, abrir, maxim-ar, pivotante ou fixa), e tem persiana, bandeira ou peitoril fixo?',
-    'Para eu achar a esquadria certa: quantas folhas abrem, ela corre ou gira, e tem persiana ou bandeira?',
+    'Como ela abre: de correr, de abrir, maxim-ar, pivotante ou fixa?',
+    'E ela abre como: de correr, de abrir, maxim-ar, pivotante ou fixa?',
+    'Para eu achar a esquadria certa: ela corre, gira, é maxim-ar, pivotante ou fixa?',
 ] as const
 const PERGUNTAS_COM_TIPO_DITO = [
-    'É janela ou porta? Tem persiana?',
-    'É janela ou porta, e tem persiana, bandeira ou peitoril fixo?',
-    'Para eu achar a esquadria certa: é janela ou porta, quantas folhas, e tem persiana ou bandeira?',
+    'É janela ou porta?',
+    'Ela é janela ou porta?',
+    'Para eu achar a esquadria certa: é janela ou porta?',
 ] as const
 const PERGUNTAS_COM_TUDO_DITO = [
-    'Quantas folhas? Tem persiana, bandeira ou peitoril fixo?',
-    'Me diga o que ela tem além do padrão: quantas folhas, e se tem persiana, bandeira ou peitoril fixo.',
-    'Para eu achar a esquadria certa: quantas folhas, e tem persiana ou bandeira?',
+    'Não achei essa esquadria no catálogo com o que você descreveu. Me diga como ela é na obra, do jeito que você vê.',
+    'Me descreva de novo a esquadria, como ela é na obra: não achei uma igual no catálogo.',
+    'Para eu achar a esquadria certa, me conte de novo como ela é — não encontrei uma igual no catálogo.',
 ] as const
 /** As formas da pergunta da tipologia para o que já foi dito: a primeira é a fixa, as outras são as reformulações. */
 export function perguntasDaTipologia(jaDito: JaDito = NADA_DITO): readonly string[] {
