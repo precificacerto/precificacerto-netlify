@@ -186,3 +186,26 @@ describe('o arquivo montado do que está gravado', () => {
         expect(resumoDoArquivoParaOPrompt(montar([item(1, {})], { comissao_percentual: 6 }))).toBe(resumoDoArquivoParaOPrompt(d))
     })
 })
+
+describe('O PADRÃO APARECE NA FOLHA, montado do que está gravado (dono do produto, 11/11/2026)', () => {
+    const DET: Record<string, { descricao: string; linha: string; tipo: string }> = {
+        'DP-02': { descricao: 'JANELA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 42', linha: 'PVC WOLFF EUROPA 42', tipo: 'Correr' },
+        'DP-01': { descricao: 'MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL | DESIGN', linha: 'PVC WOLFF DESIGN', tipo: 'Maxim-ar' },
+    }
+    const comTipo = (t: string) => DET[t] ?? null
+    // a aba Variáveis da DP-01: o "N" com padrão 1 (medido no motor 022fc55e, 11/11/2026)
+    const COM_N = { variaveis: [{ variavel: 'N', descricao: 'QUANTIDADE DE MÓDULOS HORIZONTAIS', padrao: '1', condicao: 'sempre', opcoes: null }] } as unknown as VariaveisDaTipologia
+    const montarCom = (itens: ItemDoLevantamento[]) =>
+        montarDadosDaFolha({ empresa: 'Empresa X', levantamento: LEV, itens, definicao: () => COM_N, detalhe: comTipo, geradoEm: new Date(Date.UTC(2026, 10, 11, 12)), doVendedor: null })
+
+    it('o item recebe o CONSIDERADO: o tipo, as folhas e os extras que decidem o natural', () => {
+        expect(montarCom([item(1, {})]).itens[0].considerado).toBe('correr, 2 folhas · sem persiana · sem bandeira · sem peitoril')
+    })
+    it('a maxim-ar: o módulo pelo "N" padrão da aba (1), e pelo "N" DITO quando o vendedor disse (3)', () => {
+        expect(montarCom([item(1, { tipologia: 'DP-01' })]).itens[0].considerado).toBe('maxim-ar, 1 módulo · sem persiana · sem bandeira · sem peitoril')
+        expect(montarCom([item(1, { tipologia: 'DP-01', escolhas: { N: 3 } })]).itens[0].considerado).toBe('maxim-ar, 3 módulos · sem persiana · sem bandeira · sem peitoril')
+    })
+    it('sem a descrição do motor, nada é escrito (nunca um considerado inventado)', () => {
+        expect(montarCom([item(1, { tipologia: 'DP-99' })]).itens[0].considerado).toBeNull()
+    })
+})

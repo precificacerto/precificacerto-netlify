@@ -357,7 +357,8 @@ describe('(VI) todas as pendências, e a pergunta que as cobre de uma vez', () =
 
     it('a tipologia e mais campos: a pergunta de obra, e o resto junto', () => {
         const ps = L().pendenciasDoLevantamento([{ ...vazia(1), largura_mm: 1200, altura_mm: 1000, quantidade: 1, vidro: 'Temperado 5mm' }], definicao, familiaUnica)
-        expect(L().perguntaDasPendencias(ps, 1)).toBe('É janela ou porta? Abre de correr, de abrir ou maxim-ar? Tem persiana? E me diga a cor do perfil.')
+        // 11/11/2026: a pergunta de obra é só a abertura e o tipo — o que tem natural (persiana, folhas) não se pergunta
+        expect(L().perguntaDasPendencias(ps, 1)).toBe('É janela ou porta? E como ela abre: de correr, de abrir, maxim-ar, pivotante ou fixa? E me diga a cor do perfil.')
     })
 
     it('duas esquadrias: uma linha por esquadria, cada uma com o que lhe falta', () => {

@@ -4863,6 +4863,17 @@ describe('(38) Maria Cristina: a montagem não absorve outro cliente, expira em 
             for (const t of [...perguntasDaTipologia(), ...perguntasDaTipologia({ abertura: true, tipo: true })]) expect(ultimoEnviado()).not.toContain(t)
         })
 
+        it('A LINHA SEM PADRÃO, de ponta a ponta: a mesma porta lisa em duas linhas — a conversa NÃO escolhe nem pergunta: responde a falta de configuração nomeando as linhas, e a esquadria fica sem tipologia', async () => {
+            comPortaLisa()
+            // sintética: a DP-39 numa segunda linha (o motor 022fc55e não tem porta lisa em duas linhas; só a maxim-ar, e lá o extra desempata)
+            estado.db.orcamentista_motor_tipologia_detalhe.push({ tabela_id: null, motor_id: MOTOR, tipologia: 'DP-39B', descricao: 'PORTA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 60', tipo: 'Correr', linha: 'PVC WOLFF EUROPA 60', alt_min_mm: 1736, alt_max_mm: 3036 })
+            llmResponde({ cliente: 'Ana', itens: [{ ...PORTA, abertura: 'porta' }] })
+            await chamar('Cliente: Ana. 1 porta de correr 2,50 x 2,20, vidro comum 6 mm incolor')
+            expect(itens('Ana')[0].tipologia).toBeNull()
+            expect(ultimoEnviado()).toContain(TP().fraseDaLinhaSemPadrao(['PVC WOLFF EUROPA 42', 'PVC WOLFF EUROPA 60']))
+            expect(linhaIa().pop()).toContain('desfecho=sem-linha')
+        })
+
         it('o que esta fixture NÃO tem (3 folhas, persiana, bandeira, trilho embutido), um tipo que o motor não tem (porta de abrir) e a medida fora dos limites: sem candidata, sem padrão — o modelo decide', async () => {
             comPortaLisa()
             const casos: Array<[string, string]> = [

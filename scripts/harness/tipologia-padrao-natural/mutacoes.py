@@ -20,7 +20,7 @@ ARQ = 'src/lib/atendimentos-ia/arquivo-do-levantamento.ts'
 BASE = 'src/utils/atendimentos-ia-prompt-base.ts'
 T = 'src/utils/__tests__/'
 SUITES = [T + s for s in ['tipologia-padrao-atributo-por-atributo.test.ts', 'atendimentos-ia-levantamento-por-nome.test.ts',
-          'folha-do-levantamento.test.ts', 'arquivo-do-levantamento.test.ts']]
+          'folha-do-levantamento.test.ts', 'arquivo-do-levantamento.test.ts', 'levantamento-em-montagem.test.ts']]
 
 MUTACOES = [
     # o natural de cada atributo

@@ -95,6 +95,20 @@ describe('O TIPO É SEMPRE DITO; o que vem depois é natural', () => {
         expect(padrao('janela maxim ar 600 x 600', 'janela')).toEqual({ tipologia: 'DP-01' })
         expect(padrao('janela maxim-ar 1 módulo', 'janela')).toEqual({ tipologia: 'DP-01' })
     })
+    it('maxim-ar: a candidata SEM extra que fixa outro número de módulos verticais (02, ou o "V" variável) não é o natural — sai, e a DP-01 fica sozinha', () => {
+        // sintéticas (o motor 022fc55e não tem maxim-ar sem extra com 02 verticais): provam que o natural de UM módulo filtra, não só os extras
+        const sinteticas = (descricao: string, linha: string): CandidatoDeTipologia => ({ ...CANDIDATOS.find((c) => c.tipologia === 'DP-01')!, tipologia: 'DP-X', descricao, linha })
+        const com02 = [...CANDIDATOS, sinteticas('MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 02 MÓDULOS VERTICAIS | DESIGN', 'PVC WOLFF DESIGN')]
+        const comV = [...CANDIDATOS, sinteticas('MAXIM-AR COM 01 MÓDULO HORIZONTAL E "V" MÓDULOS VERTICAIS | EUROPA 60', 'PVC WOLFF EUROPA 60')]
+        expect(padrao('janela maxim ar 600 x 600', 'janela', com02)).toEqual({ tipologia: 'DP-01' })
+        expect(padrao('janela maxim ar 600 x 600', 'janela', comV)).toEqual({ tipologia: 'DP-01' })
+    })
+    it('o último trecho da descrição é a LINHA, nunca atributo: uma linha cujo nome tem palavra de extra não tira a candidata do natural', () => {
+        // sintética: a linha "TELA 60" leria "tela" como extra se o fim da descrição contasse
+        const sint: CandidatoDeTipologia = { ...CANDIDATOS.find((c) => c.tipologia === 'DP-02')!, tipologia: 'DP-Y', descricao: 'JANELA DE CORRER 02 FOLHAS MÓVEIS | TELA 60', linha: 'PVC TELA 60' }
+        expect(atributosDaDescricao(sint).extras.size).toBe(0)
+        expect(padrao('janela de correr', 'janela', [sint])).toEqual({ tipologia: 'DP-Y' })
+    })
     it('pivotante: o natural é sem extra — DP-168 (vidro), nunca o lambri', () => {
         expect(padrao('porta pivotante', 'porta')).toEqual({ tipologia: 'DP-168' })
         expect(padrao('porta pivotante com lambri', 'porta')).toEqual({ tipologia: 'DP-169' })
