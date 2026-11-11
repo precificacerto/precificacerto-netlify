@@ -18,9 +18,11 @@
  *     mesmas palavras. A candidata vale quando, atributo por atributo, bate com o dito — e, no que não foi dito, com o NATURAL:
  *       · os EXTRAS (persiana, bandeira, peitoril, veneziana, trilho embutido ou de alumínio, tela, fechamento central, lambri, pinázio…):
  *         o natural é NÃO TER — sem bandeira, sem peitoril, sem persiana, salvo se dito. A candidata tem exatamente os extras ditos;
- *       · as FOLHAS: o dito, ou o natural do tipo — correr = 2 folhas (`NATURAL_DAS_FOLHAS`). Tipo sem natural de folhas (abrir, oscilo-
- *         batente…): não filtra, e, se as candidatas que sobram diferem nisso, o motivo diz `SEM_NATURAL` nomeando o atributo;
- *       · os MÓDULOS da maxim-ar e do fixo: o natural é UM módulo (`NATURAL_DOS_MODULOS`); dito outro número, não há padrão (o modelo decide);
+ *       · a QUANTIDADE, numa REGRA GERAL (dono do produto, 11/11/2026: "Porta, janela de correr, padrão é 2 [...]. Quando for maxim-ar,
+ *         porta de giro, oscilo-batente, janela fixa, é tudo um módulo padrão. Quando tiver 2 módulos, aí vai ser dito"):
+ *           CORRER (janela ou porta) = 2 folhas / 2 caixilhos; TODO O RESTO = 1 (uma folha, um módulo); mais de um só quando dito
+ *         (`naturalDaQuantidade`). Escrita por tipo NENHUM além do correr, para o tipo novo do motor não pedir regra nova;
+ *       · os MÓDULOS ditos fora do correr, em número diferente de 1: não há padrão (`MODULOS_DITOS`; o modelo decide);
  *   - o que o vendedor DIZ e não tem como entrar na tipologia (o motor da persiana, o número de panos — são variáveis do motor que a conversa
  *     não captura) tira o padrão daquela esquadria (`DITO_SEM_REPRESENTACAO`): nunca dito em silêncio;
  *   - sobrando UMA, ela vale, se a medida dita couber nos limites dela (`cabeNosLimites`; fora deles, nunca "a mais próxima");
@@ -80,11 +82,13 @@ export const PALAVRA_DE_TIPO = /\b(correr|abrir|giro|pivotante\w*|oscilo\w*|bate
 /** "bandeira fixa", "peitoril fixo", "bandeira e peitoril fixo": o fixo que qualifica a bandeira ou o peitoril, não o tipo da esquadria. */
 const FIXO_DE_ATRIBUTO = /\b(bandeiras?|peitor(il|is))(\s+e\s+(bandeiras?|peitor(il|is)))?\s+fix[oa]s?\b/g
 
-/** O NATURAL DAS FOLHAS por tipo do motor: correr = 2 folhas (dono do produto, 05/11 e 11/11/2026). Tipo fora daqui não tem natural de folhas. */
-export const NATURAL_DAS_FOLHAS: Readonly<Record<string, number>> = { correr: 2 }
-/** O NATURAL DOS MÓDULOS: UM módulo — "maxim-ar, divisão em módulos: UM MÓDULO SÓ" (dono do produto, 11/11/2026). */
-export const NATURAL_DOS_MODULOS = 1
-const TIPOS_COM_MODULOS = ['maxim-ar', 'fixo']
+/** O único tipo cujo natural é DOIS: o correr (janela ou porta) = 2 folhas / 2 caixilhos (dono do produto, 05/11 e 11/11/2026). */
+export const TIPO_DE_DUAS_FOLHAS = 'correr'
+/**
+ * O NATURAL DA QUANTIDADE, pela regra geral (dono do produto, 11/11/2026): correr = 2; TODO O RESTO = 1 — uma folha (giro, abrir,
+ * oscilo-batente, pivotante) ou um módulo (maxim-ar, fixo). Mais de um só quando o vendedor disser.
+ */
+export const naturalDaQuantidade = (tipo: string): number => (tipo === TIPO_DE_DUAS_FOLHAS ? 2 : 1)
 
 const NUMEROS: Record<string, number> = { um: 1, uma: 1, dois: 2, duas: 2, tres: 3, quatro: 4, cinco: 5, seis: 6, oito: 8 }
 const numero = (t: string): number | null => (/^\d+$/.test(t) ? Number(t) : NUMEROS[t] ?? null)
@@ -157,7 +161,7 @@ export type DecisaoDoPadrao =
     | { motivo: MotivoSemPadrao }
     /** Duas ou mais candidatas que só diferem pela linha de produto: a linha padrão é da base de conhecimento (falta nomeada). */
     | { motivo: 'LINHA'; candidatas: string[]; linhas: string[] }
-    /** Duas ou mais candidatas que diferem num atributo SEM natural definido (as folhas de uma janela de abrir, por exemplo). */
+    /** Duas ou mais candidatas, na mesma linha, que diferem num atributo SEM natural (o tipo da modulação, por exemplo: travessa × perfil). */
     | { motivo: 'SEM_NATURAL'; atributos: string[]; candidatas: string[] }
 
 /** A tipologia padrão da esquadria, ou o motivo de não haver. */
@@ -181,10 +185,12 @@ export function tipologiaPadrao(item: ItemDoLevantamento, abertura: Abertura | n
     else if (abertura === 'porta') tipo = 'correr'
     else return { motivo: 'JANELA_SEM_TIPO' }
     if (ditos.semRepresentacao) return { motivo: 'DITO_SEM_REPRESENTACAO' }
-    const comModulos = tipo !== null && TIPOS_COM_MODULOS.includes(tipo)
-    if (comModulos && ditos.modulos !== null && ditos.modulos !== NATURAL_DOS_MODULOS) return { motivo: 'MODULOS_DITOS' }
+    if (tipo === null) return { motivo: 'JANELA_SEM_TIPO' }
+    // fora do correr, o natural é UM; outro número de módulos dito não tem padrão (o modelo decide)
+    const comModulos = tipo !== TIPO_DE_DUAS_FOLHAS
+    if (comModulos && ditos.modulos !== null && ditos.modulos !== naturalDaQuantidade(tipo)) return { motivo: 'MODULOS_DITOS' }
 
-    const folhasPedidas = ditos.folhas ?? (tipo !== null ? NATURAL_DAS_FOLHAS[tipo] ?? null : null)
+    const folhasPedidas = ditos.folhas ?? naturalDaQuantidade(tipo)
     const comAtributos = candidatos.map((c) => ({ c, a: atributosDaDescricao(c) }))
     const restantes = comAtributos.filter(({ a }) =>
         a.tipo === tipo
@@ -193,17 +199,20 @@ export function tipologiaPadrao(item: ItemDoLevantamento, abertura: Abertura | n
         && (a.abertura === abertura || (a.abertura === null && abertura === 'janela'))
         // os extras: exatamente os ditos — o natural de todos é não ter
         && mesmosExtras(a.extras, ditos.extras)
-        // as folhas: as ditas, ou o natural do tipo; sem natural, não filtra. A candidata que não descreve folhas (maxim-ar, fixo) só aceita
-        // "1 folha" dita — outro número dito nela nunca é ignorado em silêncio
-        && (folhasPedidas === null || a.folhas === folhasPedidas || (a.folhas === null && (ditos.folhas === null || ditos.folhas === 1)))
+        // as folhas: as ditas, ou o natural (correr 2, o resto 1). A candidata que não descreve folhas (maxim-ar, fixo) só aceita "1 folha"
+        // dita — outro número dito nela nunca é ignorado em silêncio
+        && (a.folhas === folhasPedidas || (a.folhas === null && (ditos.folhas === null || ditos.folhas === 1)))
         // os módulos: o natural é um (o vertical fixo "01", ou nenhum fixado); o número variável na descrição ("V") não é o natural
-        && (!comModulos || a.modulos === null || a.modulos === NATURAL_DOS_MODULOS))
+        && (!comModulos || a.modulos === null || a.modulos === naturalDaQuantidade(tipo)))
     if (restantes.length === 0) return { motivo: 'SEM_CANDIDATA' }
     if (restantes.length > 1) {
         // o que ainda as distingue: atributo sem natural, ou só a linha de produto
         const diferem: string[] = []
         if (new Set(restantes.map(({ a }) => a.folhas)).size > 1) diferem.push('folhas')
         if (new Set(restantes.map(({ a }) => String(a.modulos))).size > 1) diferem.push('módulos')
+        const linhas = new Set(restantes.map(({ c }) => c.linha ?? '(sem linha)'))
+        // nada que se meça as distingue e estão na MESMA linha: o que as separa está na descrição e não tem natural — nunca "a primeira"
+        if (diferem.length === 0 && linhas.size < 2) diferem.push('descrição')
         const codigos = restantes.map(({ c }) => c.tipologia)
         if (diferem.length) return { motivo: 'SEM_NATURAL', atributos: diferem, candidatas: codigos }
         return { motivo: 'LINHA', candidatas: codigos, linhas: [...new Set(restantes.map(({ c }) => c.linha ?? '(sem linha)'))] }
@@ -225,7 +234,7 @@ export function oQueAEsquadriaE(c: Pick<CandidatoDeTipologia, 'descricao' | 'tip
     if (a.tipo === null) return null
     const partes: string[] = []
     if (a.folhas !== null) partes.push(`${a.tipo}, ${a.folhas} ${a.folhas === 1 ? 'folha' : 'folhas'}`)
-    else if (TIPOS_COM_MODULOS.includes(a.tipo) && a.modulos !== 'variavel' && modulosHorizontais !== null) {
+    else if (a.modulos !== 'variavel' && modulosHorizontais !== null) {
         const total = modulosHorizontais * (a.modulos ?? 1)
         partes.push(`${a.tipo}, ${total} ${total === 1 ? 'módulo' : 'módulos'}`)
     } else partes.push(a.tipo)

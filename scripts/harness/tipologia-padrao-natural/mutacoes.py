@@ -20,17 +20,25 @@ ARQ = 'src/lib/atendimentos-ia/arquivo-do-levantamento.ts'
 BASE = 'src/utils/atendimentos-ia-prompt-base.ts'
 T = 'src/utils/__tests__/'
 SUITES = [T + s for s in ['tipologia-padrao-atributo-por-atributo.test.ts', 'atendimentos-ia-levantamento-por-nome.test.ts',
-          'folha-do-levantamento.test.ts', 'arquivo-do-levantamento.test.ts', 'levantamento-em-montagem.test.ts']]
+          'folha-do-levantamento.test.ts', 'arquivo-do-levantamento.test.ts', 'levantamento-em-montagem.test.ts', 'tipologias-candidatas.test.ts']]
 
 MUTACOES = [
     # o natural de cada atributo
     ('N1', 'os extras não precisam bater (o defeito central de volta, ao contrário)', [(TP, '        && mesmosExtras(a.extras, ditos.extras)\n', '')]),
     ('N2', 'os extras só precisam conter os ditos (a persiana dita traz bandeira junto)', [(TP, 'const mesmosExtras = (a: ReadonlySet<Extra>, b: ReadonlySet<Extra>) => a.size === b.size && [...a].every((e) => b.has(e))', 'const mesmosExtras = (a: ReadonlySet<Extra>, b: ReadonlySet<Extra>) => [...b].every((e) => a.has(e))')]),
-    ('N3', 'o natural do correr vira 3 folhas', [(TP, "export const NATURAL_DAS_FOLHAS: Readonly<Record<string, number>> = { correr: 2 }", "export const NATURAL_DAS_FOLHAS: Readonly<Record<string, number>> = { correr: 3 }")]),
-    ('N4', 'as folhas ditas não valem: só o natural', [(TP, '    const folhasPedidas = ditos.folhas ?? (tipo !== null ? NATURAL_DAS_FOLHAS[tipo] ?? null : null)', '    const folhasPedidas = (tipo !== null ? NATURAL_DAS_FOLHAS[tipo] ?? null : null)')]),
+    # a regra geral da quantidade (11/11/2026): correr 2, todo o resto 1, mais de um só se dito
+    ('N3', 'o natural do correr vira 3 folhas', [(TP, '(tipo === TIPO_DE_DUAS_FOLHAS ? 2 : 1)', '(tipo === TIPO_DE_DUAS_FOLHAS ? 3 : 1)')]),
+    ('N3b', 'o natural do resto vira 2', [(TP, '(tipo === TIPO_DE_DUAS_FOLHAS ? 2 : 1)', '(tipo === TIPO_DE_DUAS_FOLHAS ? 2 : 2)')]),
+    ('N3c', 'a regra vira lista de tipos (só a maxim-ar ganha 1)', [(TP, '(tipo === TIPO_DE_DUAS_FOLHAS ? 2 : 1)', "(tipo === TIPO_DE_DUAS_FOLHAS ? 2 : tipo === 'maxim-ar' ? 1 : 0)")]),
+    ('N4', 'as folhas ditas não valem: só o natural', [(TP, '    const folhasPedidas = ditos.folhas ?? naturalDaQuantidade(tipo)', '    const folhasPedidas = naturalDaQuantidade(tipo)')]),
     ('N5', 'a candidata sem folhas aceita qualquer número dito', [(TP, '(a.folhas === null && (ditos.folhas === null || ditos.folhas === 1))', '(a.folhas === null)')]),
-    ('N6', 'os módulos não filtram', [(TP, '        && (!comModulos || a.modulos === null || a.modulos === NATURAL_DOS_MODULOS))', '        && true)')]),
-    ('N7', 'os módulos ditos diferentes do natural passam', [(TP, "    if (comModulos && ditos.modulos !== null && ditos.modulos !== NATURAL_DOS_MODULOS) return { motivo: 'MODULOS_DITOS' }\n", '')]),
+    ('N6', 'os módulos não filtram', [(TP, '        && (!comModulos || a.modulos === null || a.modulos === naturalDaQuantidade(tipo)))', '        && true)')]),
+    ('N7', 'os módulos ditos diferentes do natural passam', [(TP, "    if (comModulos && ditos.modulos !== null && ditos.modulos !== naturalDaQuantidade(tipo)) return { motivo: 'MODULOS_DITOS' }\n", '')]),
+    # MAXIM-AR COM BANDEIRA CONTINUA 1 MÓDULO (11/11/2026): a bandeira não pode voltar a derrubar o módulo
+    ('B1', 'a bandeira dita derruba o módulo (volta o tudo ou nada)', [(TP, "    if (comModulos && ditos.modulos !== null && ditos.modulos !== naturalDaQuantidade(tipo)) return { motivo: 'MODULOS_DITOS' }", "    if (comModulos && (ditos.extras.has('bandeira') || (ditos.modulos !== null && ditos.modulos !== naturalDaQuantidade(tipo)))) return { motivo: 'MODULOS_DITOS' }")]),
+    ('B2', 'a folha perde o "1 módulo" quando há bandeira', [(TP, "    else if (a.modulos !== 'variavel' && modulosHorizontais !== null) {", "    else if (a.modulos !== 'variavel' && modulosHorizontais !== null && !a.extras.has('bandeira')) {")]),
+    ('G8', '"janela fixa" (feminino) deixa de dizer o tipo Fixo', [('src/lib/atendimentos-ia/tipologias-candidatas.ts', "    const comGenero = (p: string) => (p.endsWith('o') ? `${p.slice(0, -1)}[oa]` : p)", '    const comGenero = (p: string) => p')]),
+    ('L6', 'a gêmea na mesma linha vira falta de LINHA', [(TP, "        if (diferem.length === 0 && linhas.size < 2) diferem.push('descrição')\n", '')]),
     ('N8', 'a maxim-ar sem abertura vale também para porta', [(TP, "(a.abertura === null && abertura === 'janela')", '(a.abertura === null)')]),
     ('N9', 'a porta sem tipo não é de correr', [(TP, "    else if (abertura === 'porta') tipo = 'correr'\n", '')]),
     # as guardas
@@ -59,6 +67,8 @@ MUTACOES = [
     ('P3', 'o prompt volta a pedir quantas folhas', [(BASE, 'é janela ou porta? como abre: de correr, de abrir, maxim-ar, pivotante ou fixa?', 'é janela ou porta? como abre? quantas folhas? tem persiana?')]),
     ('P4', 'o prompt base perde o SILÊNCIO NÃO É DÚVIDA', [(BASE, "    '- SILÊNCIO NÃO É DÚVIDA: É A FORMA NATURAL.", "    '- ")]),
     ('P5', 'a instrução da tipologia perde o APLIQUE E NÃO PERGUNTE', [(CONV, 'HAVENDO NATURAL, APLIQUE E NÃO PERGUNTE: ', '')]),
+    ('P7', 'o prompt base perde o "todo o resto é de 1"', [(BASE, ', e todo o resto é de 1 — uma folha (abrir, giro, oscilo-batente, pivotante) ou um módulo (maxim-ar, fixa) —, mais de um só se ele disser;', ';')]),
+    ('P8', 'a instrução da tipologia perde o "todo o resto = 1"', [(CONV, 'todo o resto = 1 folha ou 1 módulo, e mais de um só se dito; ', '')]),
     ('P6', 'a reformulação volta a pedir folhas e persiana', [(CONV, '(janela ou porta, como abre), nunca "qual a tipologia" — e nunca o que tem natural (folhas, módulos, persiana, bandeira, peitoril).', '(janela ou porta, como abre, quantas folhas, persiana), nunca "qual a tipologia".')]),
 ]
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

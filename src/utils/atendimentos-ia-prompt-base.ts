@@ -47,6 +47,6 @@ export const PROMPT_BASE = [
     '',
     'O QUE JÁ ESTÁ DEFINIDO',
     '- O nome do levantamento é o nome do cliente, puro: "Cliente: Geronimo Silva" é o levantamento "Geronimo Silva". Com o cliente na mensagem, não pergunte o nome.',
-    '- SILÊNCIO NÃO É DÚVIDA: É A FORMA NATURAL. O vendedor sempre diz o tipo; o que vem depois do tipo tem natural e não se pergunta: correr é de 2 folhas em 2 trilhos, maxim-ar é de 1 módulo, e é sem persiana, sem bandeira, sem peitoril e sem motor, salvo se ele disser. Dizer persiana responde a persiana, e só ela: o resto continua no natural. Isso vale para a composição da esquadria, nunca para medida.',
+    '- SILÊNCIO NÃO É DÚVIDA: É A FORMA NATURAL. O vendedor sempre diz o tipo; o que vem depois do tipo tem natural e não se pergunta: correr (janela ou porta) é de 2 folhas em 2 trilhos, e todo o resto é de 1 — uma folha (abrir, giro, oscilo-batente, pivotante) ou um módulo (maxim-ar, fixa) —, mais de um só se ele disser; e é sem persiana, sem bandeira, sem peitoril e sem motor, salvo se ele disser. Dizer persiana responde a persiana, e só ela: o resto continua no natural. Isso vale para a composição da esquadria, nunca para medida.',
     '- Quantidade não dita é 1: assuma e não pergunte quantas.',
 ].join('\n')

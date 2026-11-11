@@ -2318,7 +2318,7 @@ describe('(21) o PROMPT BASE abre o sistema de toda empresa, e o contexto da emp
             'NUNCA pergunte "qual a tipologia"', 'identificar a tipologia é trabalho SEU',
             '"Cliente: Geronimo Silva" é o levantamento "Geronimo Silva"',
             // a classe do apanhado fechada (11/11/2026): o natural vale atributo por atributo
-            'SILÊNCIO NÃO É DÚVIDA: É A FORMA NATURAL', 'correr é de 2 folhas em 2 trilhos', 'maxim-ar é de 1 módulo',
+            'SILÊNCIO NÃO É DÚVIDA: É A FORMA NATURAL', 'correr (janela ou porta) é de 2 folhas em 2 trilhos, e todo o resto é de 1', 'uma folha (abrir, giro, oscilo-batente, pivotante) ou um módulo (maxim-ar, fixa)',
             'sem persiana, sem bandeira, sem peitoril e sem motor', 'Dizer persiana responde a persiana, e só ela',
             'NUNCA assuma medida que falta',
             'NUNCA pergunte antes de ler a mensagem inteira do vendedor',
