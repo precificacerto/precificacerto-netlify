@@ -87,7 +87,7 @@ describe('a etapa do preço', () => {
         expect(r.rastro).toMatch(/arquivo=ok ms_leitura=\d+ envio=ok ms_envio=\d+$/)
     })
     it('o envio que FALHA: o rastro registra a falha e o prazo, e nada é desfeito (nenhuma outra chamada depois do envio)', async () => {
-        const d = deps(gravado(true), { enviar: jest.fn(async () => ({ ok: false, status: null, prazoEsgotado: true })) })
+        const d = deps(gravado(true), { enviar: jest.fn(async (): Promise<{ ok: boolean; status: number | null; prazoEsgotado: boolean }> => ({ ok: false, status: null, prazoEsgotado: true })) })
         const r = await C.etapaDoPreco(T, ORC, d)
         expect(r.rastro).toMatch(/envio=falhou status=nenhum prazo=esgotado ms_envio=\d+ parou=envio$/)
         expect(d.precificar).toHaveBeenCalledTimes(1)
