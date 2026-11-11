@@ -43,8 +43,8 @@ const rota = () => require('@/pages/api/super-admin/atendimentos-ia/desenhos/url
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 async function chamar(metodo: string, body?: unknown) {
-    const saida = { status: 0, corpo: null as any }
-    const res = { status(n: number) { saida.status = n; return res }, json(c: unknown) { saida.corpo = c; return res } } as unknown as NextApiResponse
+    const saida = { status: 0, corpo: null as unknown as { existentes: string[]; assinados: Array<{ path: string }>; recusados: Array<{ arquivo: string; motivo: string }> } }
+    const res = { status(n: number) { saida.status = n; return res }, json(c: unknown) { saida.corpo = c as typeof saida.corpo; return res } } as unknown as NextApiResponse
     await rota()({ method: metodo, body, query: {}, headers: {}, cookies: {} } as unknown as NextApiRequest, res)
     return saida
 }
@@ -66,6 +66,13 @@ it('assina só o que NÃO está na pasta do grupo; o que está volta como existe
     expect(estado.listadas[0].pasta).toBe('tipologias/aluminio')
     expect(estado.assinados).toEqual(['tipologias/aluminio/ESQ_2.jpg'])
     expect(estado.removidos).toEqual([])
+})
+
+it('a SUBPASTA (id nulo) não é objeto: um nome igual ao de uma subpasta é assinado, não tratado como existente', async () => {
+    estado.naPasta = [{ name: 'ESQ_3.jpg', id: null }]
+    const r = await chamar('POST', { grupo: 'aluminio', arquivos: ['ESQ_3.jpg'] })
+    expect(r.corpo.existentes).toEqual([])
+    expect(estado.assinados).toEqual(['tipologias/aluminio/ESQ_3.jpg'])
 })
 
 it('a lista da pasta lê TODAS as páginas: o existente da segunda página de 1000 não é assinado de novo', async () => {
