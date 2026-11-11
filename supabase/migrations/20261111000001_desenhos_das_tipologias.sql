@@ -33,11 +33,35 @@
 --   Ficam FORA, de propósito (o pedido nomeou as colunas): arquivo_indice, zip, caminho_no_zip e url_wvetro. Estão no CSV, identificado
 --   pelo sha256 que a importação grava no log.
 --
--- A IMPORTAÇÃO — superadmin_importar_desenhos(p_por, p_sha256, p_linhas): APAGA E REGRAVA a tabela inteira, numa transação, sob trava.
---   É o desenho certo aqui (`tabela-que-a-importacao-apaga.md`): TODAS as colunas vêm do índice, nenhuma é de outro dono, e o processo
---   sabe reescrever cada uma. A linha que saiu do índice sai da tabela. Confere que gravou exatamente as linhas que recebeu (aborta se
---   não), recusa chave desconhecida no objeto (nomeando-a), e grava UMA linha no superadmin_alteracao_log com as contagens antes e depois
---   e o sha256 do índice. O MESMO sha256 da última importação não apaga nem regrava: devolve 'igual'.
+-- A IMPORTAÇÃO — superadmin_importar_desenhos(p_por, p_sha256, p_linhas, p_permitir_encolher): APAGA E REGRAVA a tabela inteira, numa
+--   transação, sob trava. É o desenho certo aqui (`tabela-que-a-importacao-apaga.md`): TODAS as colunas vêm do índice, nenhuma é de outro
+--   dono, e o processo sabe reescrever cada uma. A linha que saiu do índice sai da tabela. Confere que gravou exatamente as linhas que
+--   recebeu (aborta se não), recusa chave desconhecida no objeto (nomeando-a), e grava UMA linha no superadmin_alteracao_log com a
+--   contagem ANTES (a da tabela) e DEPOIS (a gravada), as recebidas, se encolher foi permitido, e o sha256 do índice. O MESMO sha256 da
+--   última importação não apaga nem regrava: devolve 'igual'.
+--
+-- O PASSADO NÃO DEPENDE DESTA TABELA (dono do produto, 11/11/2026): o custo do orçamento calculado está fotografado em
+--   orcamentista_orcamento_item_material, com calculo_id, e o arquivo entregue ao cliente está gravado com sha256. Trocar esta tabela não
+--   muda orçamento calculado nem PDF entregue: o valor mora no documento, não num ponteiro para a tabela viva.
+--
+-- O RISCO É O FUTURO, e por isso a TRAVA DO ENCOLHIMENTO (dono do produto, 11/11/2026): um índice ruim que esvazia ou encolhe a tabela faz
+--   os orçamentos NOVOS saírem sem desenho, em silêncio. A função RECUSA o índice com MENOS linhas do que a tabela tem, nomeando os dois
+--   números, a menos que receba p_permitir_encolher = true. O parâmetro é OBRIGATÓRIO (sem default) e nulo é recusa: quem chama diz, toda
+--   vez, se aceita encolher.
+--
+-- POR QUE UMA FUNÇÃO NO BANCO, e não delete + insert pela rota com o service_role (a pergunta do dono do produto, 11/11/2026: "Se for só
+--   'fica mais limpo', prefiro sem função"). A razão é a ATOMICIDADE, e ela não existe pelo caminho que o app usa:
+--   - o único cliente de banco do código do app (src/) é o supabase-js, que fala com o PostgREST. Cada chamada (.delete(), .insert()) é
+--     UMA requisição HTTP e UMA transação própria; o PostgREST não abre transação que atravesse duas chamadas. "delete + insert numa
+--     transação pelo service_role" não é possível por esse caminho;
+--   - em duas chamadas, uma falha entre o DELETE e o INSERT (rede, tempo da função na Vercel, uma linha que a CHECK recusa) deixa a tabela
+--     VAZIA — exatamente os orçamentos novos sem desenho, em silêncio, que a trava do encolhimento existe para impedir. E 3.190 linhas num
+--     insert só são ~1 MB de JSON; em lotes, cada lote é outra transação;
+--   - a outra saída seria uma conexão Postgres direta da rota (o pacote `pg` está no package.json, usado só por scripts de manutenção;
+--     nenhum arquivo de src/ o usa). Ela exigiria uma connection string com poder total no ambiente da Vercel: MAIS superfície com poder
+--     de apagar, não menos;
+--   - a função é a menor superfície que dá a atomicidade: só o service_role a executa, ela só toca esta tabela (e uma linha de log), e a
+--     trava do encolhimento e a conferência da contagem moram junto do DELETE, onde não há como pulá-las.
 --
 -- ACESSO: espelha a orcamentista_motor (medido em produção em 11/11/2026): RLS com as quatro políticas de super admin; nenhum privilégio
 --   a PUBLIC, anon ou authenticated; tudo ao service_role. A função é SECURITY DEFINER com search_path fixo e só o service_role a executa
@@ -47,8 +71,8 @@
 --   outra forma.
 -- GUARDA (aborta): is_super_admin() e superadmin_alteracao_log existem; a tabela não existe, ou existe vazia e com as 9 colunas desta.
 -- VERIFICAÇÃO (aborta): as 9 colunas com o tipo, nulas e sem default (menos o id); as 3 CHECKs; RLS ligada e as 4 políticas; nenhum
---   privilégio de tabela a PUBLIC, anon ou authenticated; a função SECURITY DEFINER, com search_path, executável só pelo service_role; a
---   tabela vazia.
+--   privilégio de tabela a PUBLIC, anon ou authenticated; a função de 4 parâmetros SECURITY DEFINER, com search_path, executável só pelo
+--   service_role, e o parâmetro de encolher SEM default; a tabela vazia.
 -- ════════════════════════════════════════════════════════════════════════════════════════
 BEGIN;
 
@@ -102,7 +126,7 @@ CREATE POLICY orcamentista_tipologia_desenho_delete_super_admin ON public.orcame
 REVOKE ALL ON public.orcamentista_tipologia_desenho FROM PUBLIC, anon, authenticated;
 GRANT ALL ON public.orcamentista_tipologia_desenho TO service_role;
 
-CREATE OR REPLACE FUNCTION public.superadmin_importar_desenhos(p_por uuid, p_sha256 text, p_linhas jsonb)
+CREATE OR REPLACE FUNCTION public.superadmin_importar_desenhos(p_por uuid, p_sha256 text, p_linhas jsonb, p_permitir_encolher boolean)
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -121,6 +145,10 @@ BEGIN
   END IF;
   IF p_linhas IS NULL OR jsonb_typeof(p_linhas) <> 'array' OR jsonb_array_length(p_linhas) = 0 THEN
     RAISE EXCEPTION 'linhas: obrigatorias, uma lista nao vazia.' USING ERRCODE = '22023';
+  END IF;
+  -- quem chama diz, toda vez, se aceita encolher: nulo nao e "nao", e recusa
+  IF p_permitir_encolher IS NULL THEN
+    RAISE EXCEPTION 'permitir_encolher: obrigatorio, true ou false.' USING ERRCODE = '22023';
   END IF;
   -- chave desconhecida no objeto e recusa nomeada, nunca ignorada (jsonb_to_recordset a ignoraria em silencio)
   SELECT k INTO v_chave
@@ -142,6 +170,13 @@ BEGIN
     RETURN jsonb_build_object('resultado', 'igual', 'linhas', v_antes);
   END IF;
 
+  -- A TRAVA DO ENCOLHIMENTO: um indice com menos linhas do que a tabela tem so entra com permissao explicita
+  v_recebidas := jsonb_array_length(p_linhas);
+  IF v_recebidas < v_antes AND NOT p_permitir_encolher THEN
+    RAISE EXCEPTION 'o indice novo tem % linhas e a tabela tem %: encolher exige permitir_encolher = true. Nada foi alterado.', v_recebidas, v_antes
+      USING ERRCODE = '22023';
+  END IF;
+
   -- APAGA E REGRAVA: todas as colunas vem do indice (tabela-que-a-importacao-apaga.md: o processo sabe reescrever cada uma)
   DELETE FROM public.orcamentista_tipologia_desenho;
   INSERT INTO public.orcamentista_tipologia_desenho (fonte, grupo, codigo, codigo_dp, descricao, liberado_para_venda, condicao, caminho_no_storage)
@@ -149,7 +184,6 @@ BEGIN
     FROM jsonb_to_recordset(p_linhas) AS x(fonte text, grupo text, codigo text, codigo_dp text, descricao text,
                                            liberado_para_venda boolean, condicao text, caminho_no_storage text);
   GET DIAGNOSTICS v_depois = ROW_COUNT;
-  v_recebidas := jsonb_array_length(p_linhas);
   IF v_depois <> v_recebidas THEN
     RAISE EXCEPTION 'a importacao gravou % linhas e recebeu %. Nada foi alterado.', v_depois, v_recebidas;
   END IF;
@@ -157,13 +191,14 @@ BEGIN
   INSERT INTO public.superadmin_alteracao_log (tenant_id, tabela, chave, antes, depois, por)
   VALUES (NULL, 'orcamentista_tipologia_desenho', p_sha256,
           jsonb_build_object('linhas', v_antes),
-          jsonb_build_object('linhas', v_depois, 'sha256', p_sha256, 'migracao', '20261111000001'),
+          jsonb_build_object('linhas', v_depois, 'recebidas', v_recebidas, 'permitir_encolher', p_permitir_encolher,
+                             'sha256', p_sha256, 'migracao', '20261111000001'),
           p_por);
   RETURN jsonb_build_object('resultado', 'importado', 'antes', v_antes, 'linhas', v_depois);
 END
 $fn$;
-REVOKE ALL ON FUNCTION public.superadmin_importar_desenhos(uuid, text, jsonb) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.superadmin_importar_desenhos(uuid, text, jsonb) TO service_role;
+REVOKE ALL ON FUNCTION public.superadmin_importar_desenhos(uuid, text, jsonb, boolean) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.superadmin_importar_desenhos(uuid, text, jsonb, boolean) TO service_role;
 
 DO $verifica$
 DECLARE
@@ -194,13 +229,16 @@ BEGIN
    WHERE table_schema = 'public' AND table_name = 'orcamentista_tipologia_desenho' AND grantee IN ('PUBLIC', 'anon', 'authenticated');
   IF n <> 0 THEN RAISE EXCEPTION 'verificacao: % privilegio(s) de tabela a PUBLIC, anon ou authenticated.', n; END IF;
   -- a funcao
-  SELECT p.prosecdef, p.proconfig INTO v_fn FROM pg_proc p WHERE p.oid = 'public.superadmin_importar_desenhos(uuid, text, jsonb)'::regprocedure;
+  SELECT p.prosecdef, p.proconfig INTO v_fn FROM pg_proc p WHERE p.oid = 'public.superadmin_importar_desenhos(uuid, text, jsonb, boolean)'::regprocedure;
   IF NOT v_fn.prosecdef OR v_fn.proconfig IS NULL OR NOT ('search_path=public, pg_temp' = ANY (v_fn.proconfig)) THEN
     RAISE EXCEPTION 'verificacao: a funcao nao e SECURITY DEFINER com search_path fixo.';
   END IF;
-  IF has_function_privilege('anon', 'public.superadmin_importar_desenhos(uuid, text, jsonb)', 'EXECUTE')
-     OR has_function_privilege('authenticated', 'public.superadmin_importar_desenhos(uuid, text, jsonb)', 'EXECUTE')
-     OR NOT has_function_privilege('service_role', 'public.superadmin_importar_desenhos(uuid, text, jsonb)', 'EXECUTE') THEN
+  IF EXISTS (SELECT 1 FROM pg_proc WHERE oid = 'public.superadmin_importar_desenhos(uuid, text, jsonb, boolean)'::regprocedure AND pronargdefaults <> 0) THEN
+    RAISE EXCEPTION 'verificacao: a funcao tem parametro com default; permitir_encolher tem de ser explicito.';
+  END IF;
+  IF has_function_privilege('anon', 'public.superadmin_importar_desenhos(uuid, text, jsonb, boolean)', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'public.superadmin_importar_desenhos(uuid, text, jsonb, boolean)', 'EXECUTE')
+     OR NOT has_function_privilege('service_role', 'public.superadmin_importar_desenhos(uuid, text, jsonb, boolean)', 'EXECUTE') THEN
     RAISE EXCEPTION 'verificacao: a funcao tem de ser executavel so pelo service_role.';
   END IF;
   -- nenhum dado gravado por esta migracao

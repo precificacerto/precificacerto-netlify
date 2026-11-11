@@ -14,8 +14,8 @@ MIG = os.path.join(RAIZ, 'supabase', 'migrations', '20261111000001_desenhos_das_
 
 MUTACOES = [
     ('R1', 'o REVOKE da tabela só de PUBLIC (o privilégio padrão de produção fica)', 'REVOKE ALL ON public.orcamentista_tipologia_desenho FROM PUBLIC, anon, authenticated;', 'REVOKE ALL ON public.orcamentista_tipologia_desenho FROM PUBLIC;'),
-    ('R2', 'o REVOKE da função só de PUBLIC', 'REVOKE ALL ON FUNCTION public.superadmin_importar_desenhos(uuid, text, jsonb) FROM PUBLIC, anon, authenticated;', 'REVOKE ALL ON FUNCTION public.superadmin_importar_desenhos(uuid, text, jsonb) FROM PUBLIC;'),
-    ('R3', 'sem GRANT ao service_role', 'GRANT EXECUTE ON FUNCTION public.superadmin_importar_desenhos(uuid, text, jsonb) TO service_role;', ''),
+    ('R2', 'o REVOKE da função só de PUBLIC', 'REVOKE ALL ON FUNCTION public.superadmin_importar_desenhos(uuid, text, jsonb, boolean) FROM PUBLIC, anon, authenticated;', 'REVOKE ALL ON FUNCTION public.superadmin_importar_desenhos(uuid, text, jsonb, boolean) FROM PUBLIC;'),
+    ('R3', 'sem GRANT ao service_role', 'GRANT EXECUTE ON FUNCTION public.superadmin_importar_desenhos(uuid, text, jsonb, boolean) TO service_role;', ''),
     ('L1', 'sem RLS', 'ALTER TABLE public.orcamentista_tipologia_desenho ENABLE ROW LEVEL SECURITY;', ''),
     ('F1', 'a chave desconhecida passa calada', "  IF v_chave IS NOT NULL THEN\n    RAISE EXCEPTION 'linhas: chave desconhecida \"%\".', v_chave USING ERRCODE = '22023';\n  END IF;\n", ''),
     ('F2', 'o mesmo índice apaga e regrava', '  IF v_ultimo = p_sha256 AND v_antes = jsonb_array_length(p_linhas) THEN', '  IF false THEN'),
@@ -25,6 +25,12 @@ MUTACOES = [
     ('F6', 'o sha256 fora da forma passa', "IF p_sha256 IS NULL OR p_sha256 !~ '^[0-9a-f]{64}$' THEN", 'IF p_sha256 IS NULL THEN'),
     ('F7', 'a lista vazia passa', "IF p_linhas IS NULL OR jsonb_typeof(p_linhas) <> 'array' OR jsonb_array_length(p_linhas) = 0 THEN", "IF p_linhas IS NULL OR jsonb_typeof(p_linhas) <> 'array' THEN"),
     ('F8', 'sem SECURITY DEFINER', 'LANGUAGE plpgsql\nSECURITY DEFINER\nSET search_path', 'LANGUAGE plpgsql\nSET search_path'),
+    # a trava do encolhimento (dono do produto, 11/11/2026)
+    ('T1', 'o índice que encolhe a tabela passa sem permissão', "  IF v_recebidas < v_antes AND NOT p_permitir_encolher THEN", '  IF false THEN'),
+    ('T2', 'a permissão nula passa (vira "não" calado)', "  IF p_permitir_encolher IS NULL THEN\n    RAISE EXCEPTION 'permitir_encolher: obrigatorio, true ou false.' USING ERRCODE = '22023';\n  END IF;\n", ''),
+    ('T3', 'a permissão ganha default (deixa de ser explícita)', 'p_linhas jsonb, p_permitir_encolher boolean)', 'p_linhas jsonb, p_permitir_encolher boolean DEFAULT false)'),
+    ('T4', 'o log perde as recebidas e a permissão', "jsonb_build_object('linhas', v_depois, 'recebidas', v_recebidas, 'permitir_encolher', p_permitir_encolher,", "jsonb_build_object('linhas', v_depois,"),
+    ('T5', 'o log perde a contagem de ANTES', "          jsonb_build_object('linhas', v_antes),\n", "          NULL,\n"),
     ('C1', 'sem a CHECK do codigo_dp (o código cru entraria no normalizado)', "  CONSTRAINT orcamentista_tipologia_desenho_codigo_dp_forma CHECK (codigo_dp ~ '^DP-[1-9][0-9]*$'),\n", ''),
     ('C2', 'sem a CHECK do caminho', "  CONSTRAINT orcamentista_tipologia_desenho_caminho_forma CHECK (caminho_no_storage ~ '^tipologias/[a-z0-9]+(-[a-z0-9]+)*/[^/]+$')", "  CONSTRAINT orcamentista_tipologia_desenho_x CHECK (true)"),
     ('C3', 'sem a CHECK da fonte', "  CONSTRAINT orcamentista_tipologia_desenho_fonte CHECK (fonte IN ('principal', 'por_variavel')),\n", ''),

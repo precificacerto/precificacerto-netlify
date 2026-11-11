@@ -14,15 +14,15 @@ DO $c$ BEGIN
   IF (SELECT count(*) FROM orcamentista_tipologia_desenho) <> 0 THEN RAISE EXCEPTION 'FALHOU caso 1: a tabela nasceu com linhas'; END IF;
   IF has_table_privilege('authenticated', 'orcamentista_tipologia_desenho', 'SELECT') OR has_table_privilege('anon', 'orcamentista_tipologia_desenho', 'SELECT') THEN
     RAISE EXCEPTION 'FALHOU caso 1: anon ou authenticated le a tabela (o privilegio padrao nao foi revogado)'; END IF;
-  IF has_function_privilege('authenticated', 'superadmin_importar_desenhos(uuid, text, jsonb)', 'EXECUTE') THEN RAISE EXCEPTION 'FALHOU caso 1: authenticated executa a funcao'; END IF;
-  IF NOT has_function_privilege('service_role', 'superadmin_importar_desenhos(uuid, text, jsonb)', 'EXECUTE') THEN RAISE EXCEPTION 'FALHOU caso 1: service_role nao executa'; END IF;
+  IF has_function_privilege('authenticated', 'superadmin_importar_desenhos(uuid, text, jsonb, boolean)', 'EXECUTE') THEN RAISE EXCEPTION 'FALHOU caso 1: authenticated executa a funcao'; END IF;
+  IF NOT has_function_privilege('service_role', 'superadmin_importar_desenhos(uuid, text, jsonb, boolean)', 'EXECUTE') THEN RAISE EXCEPTION 'FALHOU caso 1: service_role nao executa'; END IF;
   RAISE NOTICE 'ok: caso 1 — vazia, RLS, sem privilegio a anon/authenticated, funcao so do service_role';
 END $c$;
 
 -- CASO 2: a importação pelo service_role: as 3 linhas, o CRU ao lado do normalizado (DP-017 e DP-17 NÃO se fundem), o vazio fica como veio,
 -- liberado ausente é NULO, caminho ausente é NULO; uma linha de log com o sha256 e as contagens
 SET ROLE service_role;
-INSERT INTO ret SELECT 2, superadmin_importar_desenhos('00000000-0000-0000-0000-0000000000aa', repeat('a', 64), (SELECT v FROM tres));
+INSERT INTO ret SELECT 2, superadmin_importar_desenhos('00000000-0000-0000-0000-0000000000aa', repeat('a', 64), (SELECT v FROM tres), false);
 RESET ROLE;
 DO $c$ DECLARE r jsonb := (SELECT v FROM ret WHERE caso = 2); BEGIN
   IF r->>'resultado' <> 'importado' OR (r->>'linhas')::int <> 3 OR (r->>'antes')::int <> 0 THEN RAISE EXCEPTION 'FALHOU caso 2: retorno %', r; END IF;
@@ -40,7 +40,7 @@ DO $c$ DECLARE r jsonb := (SELECT v FROM ret WHERE caso = 2); BEGIN
 END $c$;
 
 -- CASO 3: o MESMO índice outra vez: 'igual' — nada apagado nem regravado (os ids continuam), nenhum log novo
-INSERT INTO ret SELECT 3, superadmin_importar_desenhos(NULL, repeat('a', 64), (SELECT v FROM tres)),
+INSERT INTO ret SELECT 3, superadmin_importar_desenhos(NULL, repeat('a', 64), (SELECT v FROM tres), false),
   (SELECT string_agg(id::text, ',' ORDER BY id) FROM orcamentista_tipologia_desenho);
 DO $c$ DECLARE r jsonb := (SELECT v FROM ret WHERE caso = 3); BEGIN
   IF r->>'resultado' <> 'igual' THEN RAISE EXCEPTION 'FALHOU caso 3: retorno %', r; END IF;
@@ -49,16 +49,44 @@ DO $c$ DECLARE r jsonb := (SELECT v FROM ret WHERE caso = 3); BEGIN
   RAISE NOTICE 'ok: caso 3 — o mesmo indice: igual, nada apagado nem regravado, nenhum log';
 END $c$;
 
--- CASO 4: OUTRO índice: APAGA E REGRAVA — a linha que saiu do índice sai da tabela; o log diz antes 3, depois 1
-INSERT INTO ret SELECT 4, superadmin_importar_desenhos(NULL, repeat('b', 64), '[{"fonte":"principal","grupo":"PVC","codigo":"DP-02","codigo_dp":"DP-2","condicao":null,"caminho_no_storage":"tipologias/pvc/a..jpg"}]'::jsonb);
-DO $c$ DECLARE r jsonb := (SELECT v FROM ret WHERE caso = 4); BEGIN
-  IF r->>'resultado' <> 'importado' OR (r->>'antes')::int <> 3 OR (r->>'linhas')::int <> 1 THEN RAISE EXCEPTION 'FALHOU caso 4: retorno %', r; END IF;
-  IF (SELECT array_agg(codigo) FROM orcamentista_tipologia_desenho) <> ARRAY['DP-02'] THEN RAISE EXCEPTION 'FALHOU caso 4: sobrou linha do indice anterior'; END IF;
-  IF (SELECT count(*) FROM superadmin_alteracao_log WHERE chave = repeat('b', 64) AND (antes->>'linhas')::int = 3 AND (depois->>'linhas')::int = 1) <> 1 THEN RAISE EXCEPTION 'FALHOU caso 4: o log'; END IF;
-  RAISE NOTICE 'ok: caso 4 — outro indice: apaga e regrava, a linha que saiu sai, o log com antes e depois';
+-- CASO 4: A TRAVA DO ENCOLHIMENTO — o índice com MENOS linhas (1) do que a tabela tem (3) é recusado nomeando os dois números, e nada muda;
+-- a permissão nula também é recusa
+DO $c$
+DECLARE antes text := (SELECT string_agg(id::text || codigo, ',' ORDER BY id) FROM orcamentista_tipologia_desenho); msg text;
+BEGIN
+  BEGIN
+    PERFORM superadmin_importar_desenhos(NULL, repeat('b', 64), '[{"fonte":"principal","codigo":"DP-02"}]'::jsonb, false);
+    RAISE EXCEPTION 'FALHOU caso 4: encolheu sem permissao';
+  EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
+    IF msg LIKE 'FALHOU%' THEN RAISE; END IF;
+    IF msg <> 'o indice novo tem 1 linhas e a tabela tem 3: encolher exige permitir_encolher = true. Nada foi alterado.' THEN RAISE EXCEPTION 'FALHOU caso 4: veio "%"', msg; END IF;
+  END;
+  BEGIN
+    PERFORM superadmin_importar_desenhos(NULL, repeat('b', 64), '[{"fonte":"principal","codigo":"DP-02"}]'::jsonb, NULL);
+    RAISE EXCEPTION 'FALHOU caso 4: aceitou permissao nula';
+  EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
+    IF msg LIKE 'FALHOU%' THEN RAISE; END IF;
+    IF position('permitir_encolher: obrigatorio' IN msg) = 0 THEN RAISE EXCEPTION 'FALHOU caso 4: nulo veio "%"', msg; END IF;
+  END;
+  IF (SELECT string_agg(id::text || codigo, ',' ORDER BY id) FROM orcamentista_tipologia_desenho) <> antes THEN RAISE EXCEPTION 'FALHOU caso 4: a recusa mudou a tabela'; END IF;
+  IF (SELECT count(*) FROM superadmin_alteracao_log WHERE chave = repeat('b', 64)) <> 0 THEN RAISE EXCEPTION 'FALHOU caso 4: a recusa logou'; END IF;
+  RAISE NOTICE 'ok: caso 4 — encolher sem permissao e com permissao nula: recusa nomeando 1 e 3, nada muda, nada logado';
 END $c$;
 
--- CASO 5: as RECUSAS nomeadas, e nenhuma muda a tabela: chave desconhecida, sha256 fora da forma, lista vazia, e as três CHECKs
+-- CASO 5: OUTRO índice, COM a permissão de encolher: APAGA E REGRAVA — a linha que saiu do índice sai; o log diz antes 3, depois 1,
+-- recebidas 1 e a permissão
+INSERT INTO ret SELECT 4, superadmin_importar_desenhos(NULL, repeat('b', 64), '[{"fonte":"principal","grupo":"PVC","codigo":"DP-02","codigo_dp":"DP-2","condicao":null,"caminho_no_storage":"tipologias/pvc/a..jpg"}]'::jsonb, true);
+DO $c$ DECLARE r jsonb := (SELECT v FROM ret WHERE caso = 4); BEGIN
+  IF r->>'resultado' <> 'importado' OR (r->>'antes')::int <> 3 OR (r->>'linhas')::int <> 1 THEN RAISE EXCEPTION 'FALHOU caso 5: retorno %', r; END IF;
+  IF (SELECT array_agg(codigo) FROM orcamentista_tipologia_desenho) <> ARRAY['DP-02'] THEN RAISE EXCEPTION 'FALHOU caso 5: sobrou linha do indice anterior'; END IF;
+  IF (SELECT count(*) FROM superadmin_alteracao_log WHERE chave = repeat('b', 64) AND (antes->>'linhas')::int = 3 AND (depois->>'linhas')::int = 1
+        AND (depois->>'recebidas')::int = 1 AND (depois->>'permitir_encolher')::boolean) <> 1 THEN RAISE EXCEPTION 'FALHOU caso 5: o log'; END IF;
+  RAISE NOTICE 'ok: caso 5 — outro indice com permissao de encolher: apaga e regrava, a linha que saiu sai, o log com antes, depois, recebidas e a permissao';
+END $c$;
+
+-- CASO 6: as RECUSAS nomeadas, e nenhuma muda a tabela: chave desconhecida, sha256 fora da forma, lista vazia, e as três CHECKs
 DO $c$
 DECLARE
   antes text := (SELECT string_agg(id::text || codigo, ',') FROM orcamentista_tipologia_desenho);
@@ -74,14 +102,14 @@ BEGIN
     (repeat('c', 64), '[{"fonte":"secundaria"}]', 'orcamentista_tipologia_desenho_fonte')
   ) v(sha, linhas, frase) LOOP
     BEGIN
-      PERFORM superadmin_importar_desenhos(NULL, pedido.sha, pedido.linhas::jsonb);
-      RAISE EXCEPTION 'FALHOU caso 5: aceitou %', pedido.linhas;
+      PERFORM superadmin_importar_desenhos(NULL, pedido.sha, pedido.linhas::jsonb, true);
+      RAISE EXCEPTION 'FALHOU caso 6: aceitou %', pedido.linhas;
     EXCEPTION WHEN OTHERS THEN
       GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
       IF msg LIKE 'FALHOU%' THEN RAISE; END IF;
-      IF position(pedido.frase IN msg) = 0 THEN RAISE EXCEPTION 'FALHOU caso 5: esperava "%", veio "%"', pedido.frase, msg; END IF;
+      IF position(pedido.frase IN msg) = 0 THEN RAISE EXCEPTION 'FALHOU caso 6: esperava "%", veio "%"', pedido.frase, msg; END IF;
     END;
   END LOOP;
-  IF (SELECT string_agg(id::text || codigo, ',') FROM orcamentista_tipologia_desenho) <> antes THEN RAISE EXCEPTION 'FALHOU caso 5: uma recusa mudou a tabela'; END IF;
-  RAISE NOTICE 'ok: caso 5 — chave desconhecida, sha256, lista vazia e as tres CHECKs recusam nomeando, e a tabela nao muda';
+  IF (SELECT string_agg(id::text || codigo, ',') FROM orcamentista_tipologia_desenho) <> antes THEN RAISE EXCEPTION 'FALHOU caso 6: uma recusa mudou a tabela'; END IF;
+  RAISE NOTICE 'ok: caso 6 — chave desconhecida, sha256, lista vazia e as tres CHECKs recusam nomeando, e a tabela nao muda';
 END $c$;

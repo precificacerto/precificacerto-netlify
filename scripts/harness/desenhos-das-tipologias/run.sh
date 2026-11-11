@@ -17,11 +17,11 @@ done
 
 corrida() {
 # CORRIDA 1: duas importações ao mesmo tempo se ENFILEIRAM na trava: a segunda espera a primeira terminar e o estado final é o dela, inteiro
-  $P -d $D -c "select superadmin_importar_desenhos(null, repeat('d', 64), '[{\"fonte\":\"principal\",\"codigo\":\"X1\"},{\"fonte\":\"principal\",\"codigo\":\"X2\"}]'::jsonb)" >/dev/null
-  ( $P -d $D -c "begin; select superadmin_importar_desenhos(null, repeat('e', 64), '[{\"fonte\":\"principal\",\"codigo\":\"A1\"}]'::jsonb); select pg_sleep(2); commit;" >/dev/null 2>&1 ) &
+  $P -d $D -c "select superadmin_importar_desenhos(null, repeat('d', 64), '[{\"fonte\":\"principal\",\"codigo\":\"X1\"},{\"fonte\":\"principal\",\"codigo\":\"X2\"}]'::jsonb, true)" >/dev/null
+  ( $P -d $D -c "begin; select superadmin_importar_desenhos(null, repeat('e', 64), '[{\"fonte\":\"principal\",\"codigo\":\"A1\"}]'::jsonb, true); select pg_sleep(2); commit;" >/dev/null 2>&1 ) &
   sleep 0.5
   local T0=$(date +%s%N)
-  $P -d $D -c "select superadmin_importar_desenhos(null, repeat('f', 64), '[{\"fonte\":\"principal\",\"codigo\":\"B1\"},{\"fonte\":\"principal\",\"codigo\":\"B2\"},{\"fonte\":\"principal\",\"codigo\":\"B3\"}]'::jsonb)" >/dev/null 2>&1
+  $P -d $D -c "select superadmin_importar_desenhos(null, repeat('f', 64), '[{\"fonte\":\"principal\",\"codigo\":\"B1\"},{\"fonte\":\"principal\",\"codigo\":\"B2\"},{\"fonte\":\"principal\",\"codigo\":\"B3\"}]'::jsonb, false)" >/dev/null 2>&1
   local MS=$(( ($(date +%s%N) - T0) / 1000000 )); wait
   local FINAL=$($P -d $D -At -c "select string_agg(codigo, ',' order by codigo) from orcamentista_tipologia_desenho")
   local LOG=$($P -d $D -At -c "select (antes->>'linhas') || '>' || (depois->>'linhas') from superadmin_alteracao_log where chave = repeat('f', 64)")
