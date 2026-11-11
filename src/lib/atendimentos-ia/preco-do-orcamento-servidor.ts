@@ -57,12 +57,12 @@ export async function lerEmpresaDoPreco(tenantId: string): Promise<EmpresaDoPrec
     }
 }
 
-export type PrecificacaoDoAgente = { gravado: ResultadoDaGravacao } | { faltas: string[] }
+export type PrecificacaoDoAgente = { gravado: ResultadoDaGravacao } | { faltas: string[]; orcamento: { numero: number; nome: string } }
 
 /** Forma e grava o preço do orçamento como o agente; sem preço formado, devolve as faltas e não grava nada. */
 export async function precificarComoAgente(tenantId: string, orcamentoId: string, agora: Date = new Date()): Promise<PrecificacaoDoAgente> {
     const [orcamento, empresa] = await Promise.all([lerOrcamentoParaPrecificar(tenantId, orcamentoId), lerEmpresaDoPreco(tenantId)])
     const r = formarPrecoDoOrcamento(orcamento, empresa)
-    if ('faltas' in r) return { faltas: r.faltas }
+    if ('faltas' in r) return { faltas: r.faltas, orcamento: { numero: orcamento.numero, nome: orcamento.nome } }
     return { gravado: await gravarPrecificacao(tenantId, orcamentoId, { ...r.preco }, null, agora) }
 }

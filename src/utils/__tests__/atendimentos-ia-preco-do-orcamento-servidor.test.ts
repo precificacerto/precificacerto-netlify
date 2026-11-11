@@ -149,7 +149,7 @@ describe('(2) o agente grava como agente', () => {
         estado.db.tenant_settings[0].monthly_workload = null
         estado.db.tenant_settings[0].workload_unit = null
         const r = await precificarComoAgente(T, ORC)
-        expect(r).toEqual({ faltas: [FALTA_DA_CARGA_HORARIA] })
+        expect(r).toEqual({ faltas: [FALTA_DA_CARGA_HORARIA], orcamento: { numero: 1, nome: 'Geraldo Huck' } })
         expect(estado.ops.filter((o) => o.op !== 'select')).toEqual([])
         expect(arquivo.chamadas).toEqual([])
     })

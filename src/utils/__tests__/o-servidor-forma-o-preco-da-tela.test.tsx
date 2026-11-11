@@ -186,4 +186,11 @@ describe('quando a tela recusa, o servidor recusa com as MESMAS frases', () => {
         const { servidor } = await servidorIgualATela(cenario({ orcamento: orcamento({ lucro_projetado_percentual: 90 }) }))
         expect('recusas' in servidor).toBe(true)
     })
+    it('a margem que acaba COM IBS e CBS por fora: o preço exibido sai positivo, mas a matriz não forma — nos dois lados, nada se grava', async () => {
+        // o caso que separa "preço positivo" de "preço formado" (`formado`): o por fora dá número ao preço exibido sem a matriz governar
+        // medido: com IBS 1 e CBS 9, o lucro de 40% a 55% dá preço exibido positivo e a matriz sem formar; de 60% em diante o motor nem forma
+        const c = cenario({ ibs: 1, cbs: 9, orcamento: orcamento({ lucro_projetado_percentual: 45 }) })
+        const { servidor } = await servidorIgualATela(c)
+        expect('recusas' in servidor).toBe(true)
+    })
 })

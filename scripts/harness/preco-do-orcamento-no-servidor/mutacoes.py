@@ -44,7 +44,9 @@ def jest():
     return subprocess.run(['npx', 'jest', '--silent', *SUITES], cwd=RAIZ, capture_output=True, text=True).returncode
 
 
-EQUIVALENTES: set = set()
+# I2 é EQUIVALENTE, medido na primeira passada (11/11/2026): no Simples Nacional a matriz não usa o ICMS (o DAS o cobre), e o preço com o ICMS
+# de 17% entrando saiu idêntico ao da tela, que não o lê. Ler o ICMS ali é a ligação errada, mas não muda número nenhum hoje.
+EQUIVALENTES: set = {'I2'}
 
 
 def main():
