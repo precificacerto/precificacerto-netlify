@@ -313,10 +313,10 @@ describe('5. IRPJ em R$ x % — nunca mais um valor que a alíquota ao lado nega
   })
 
   it('e o R$ sai da MESMA linha que a %, nunca de uma conta paralela', () => {
-    const src = readFileSync(
-      join(__dirname, '..', '..', 'page-parts', 'products', 'product-price.component.tsx'),
-      'utf-8',
-    )
+    const src = // a TELA e a FORMAÇÃO do preço que ela chama (`formarPrecoDoProduto`, extraída do `ProductPrice` em 11/11/2026): a regra mora no módulo,
+    // e o que estas asserções protegem — a regra escrita uma vez, a tela sem conta própria — vale para os dois arquivos juntos
+    readFileSync(join(__dirname, '..', '..', 'page-parts', 'products', 'product-price.component.tsx'), 'utf-8')
+      + '\n' + readFileSync(join(__dirname, '..', 'preco-do-produto.ts'), 'utf-8')
     // É isto que garante a coerência: um valor, uma origem. A conta paralela de `main`
     // (`profitValDisplay * 0.15`) não existe mais.
     expect(src).toContain("const irpjValDisplay = valorDa('irpj')")

@@ -262,10 +262,10 @@ describe('6. A TELA consome o módulo — e não tem mais a conta própria', () 
   // que sobra sem cobertura é a renderização do JSX. A lógica inteira saiu do componente
   // justamente para reduzir essa superfície — `docs/regras/teste-que-nao-exercita.md`, o
   // caso-limite honesto: aqui o defeito É a ausência, e não há efeito numérico a medir.
-  const src = readFileSync(
-    join(__dirname, '..', '..', 'page-parts', 'products', 'product-price.component.tsx'),
-    'utf-8',
-  )
+  const src = // a TELA e a FORMAÇÃO do preço que ela chama (`formarPrecoDoProduto`, extraída do `ProductPrice` em 11/11/2026): a regra mora no módulo,
+    // e o que estas asserções protegem — a regra escrita uma vez, a tela sem conta própria — vale para os dois arquivos juntos
+    readFileSync(join(__dirname, '..', '..', 'page-parts', 'products', 'product-price.component.tsx'), 'utf-8')
+      + '\n' + readFileSync(join(__dirname, '..', 'preco-do-produto.ts'), 'utf-8')
 
   it('monta as linhas pelo módulo, com a base que a construção produziu', () => {
     expect(src).toContain('buildProductPriceRows')
@@ -295,5 +295,12 @@ describe('6. A TELA consome o módulo — e não tem mais a conta própria', () 
 
   it('o residual vira ALERTA, não um número discreto ao lado dos outros', () => {
     expect(src).toContain('Math.abs(linhas.residual) >= 0.01')
+  })
+  it('>>> a FORMAÇÃO mora em `formarPrecoDoProduto`, e o ProductPrice não tem nenhuma chamada de fórmula própria (11/11/2026) <<<', () => {
+    const tela = readFileSync(join(__dirname, '..', '..', 'page-parts', 'products', 'product-price.component.tsx'), 'utf-8')
+    expect(tela).toContain('} = formarPrecoDoProduto({')
+    for (const formula of ['buildProductConstruction(', 'computeIvaDualOutside(', 'buildProductPriceRows(', 'resolveSegmentoDaConstrucao(', 'divisorDaEstruturaPct(', 'resolveIndirectLaborPct(', 'resolveProductTaxPercent(']) {
+      expect(tela).not.toContain(formula)
+    }
   })
 })

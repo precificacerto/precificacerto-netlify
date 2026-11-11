@@ -125,10 +125,10 @@ describe('2. O FILTRO da tela — as linhas somem, e a ordem fica', () => {
 })
 
 describe('3. A TELA lê o filtro — e não nomeia tributo na condição', () => {
-  const src = readFileSync(
-    join(__dirname, '..', '..', 'page-parts', 'products', 'product-price.component.tsx'),
-    'utf-8',
-  )
+  const src = // a TELA e a FORMAÇÃO do preço que ela chama (`formarPrecoDoProduto`, extraída do `ProductPrice` em 11/11/2026): a regra mora no módulo,
+    // e o que estas asserções protegem — a regra escrita uma vez, a tela sem conta própria — vale para os dois arquivos juntos
+    readFileSync(join(__dirname, '..', '..', 'page-parts', 'products', 'product-price.component.tsx'), 'utf-8')
+      + '\n' + readFileSync(join(__dirname, '..', 'preco-do-produto.ts'), 'utf-8')
 
   it('o bloco IS/IPI passa pelo filtro e some inteiro quando nada sobra', () => {
     // 11/10/2026 — a expressão mudou e esta asserção acompanhou, SEM afrouxar.
@@ -282,10 +282,10 @@ describe('5. A RECUSA existia e era MUDA — o número que ela custava', () => {
 })
 
 describe('6. E AGORA ELA SOBE PARA A TELA — o silêncio acaba', () => {
-  const src = readFileSync(
-    join(__dirname, '..', '..', 'page-parts', 'products', 'product-price.component.tsx'),
-    'utf-8',
-  )
+  const src = // a TELA e a FORMAÇÃO do preço que ela chama (`formarPrecoDoProduto`, extraída do `ProductPrice` em 11/11/2026): a regra mora no módulo,
+    // e o que estas asserções protegem — a regra escrita uma vez, a tela sem conta própria — vale para os dois arquivos juntos
+    readFileSync(join(__dirname, '..', '..', 'page-parts', 'products', 'product-price.component.tsx'), 'utf-8')
+      + '\n' + readFileSync(join(__dirname, '..', 'preco-do-produto.ts'), 'utf-8')
 
   it('>>> `reason` e `errors` são RENDERIZADOS, e antes não havia uma ocorrência <<<', () => {
     // A medição de 17/09: `grep _matriz.reason` fora do módulo dava ZERO. O aviso é o
