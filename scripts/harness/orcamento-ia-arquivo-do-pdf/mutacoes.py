@@ -129,7 +129,8 @@ def jest():
 
 
 # G6 é EQUIVALENTE: o rateio lê só os itens (quantidade e custo líquido total), e o UPDATE da precificação não os toca — `orc` e `gravado`
-# dão o mesmo rateio. Fica na lista para a próxima pessoa saber que foi medida e por que sobrevive.
+# dão o mesmo rateio. Fica na lista para a próxima pessoa saber que foi medida e por que sobrevive. Desde a extração de `arquivoAoSalvar`
+# (11/11/2026) ela morre pelo motivo ERRADO: `orc` não existe naquele escopo, e a mutação vira erro de referência, não troca de valor.
 EQUIVALENTES: set = {'G6'}
 
 

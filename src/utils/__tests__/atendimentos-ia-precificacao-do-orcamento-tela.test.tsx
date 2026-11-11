@@ -459,6 +459,15 @@ describe('(G) A CHAVE É O MODELO: só o orçamento DE INDUSTRIALIZAÇÃO leva o
         const icms = Array.from(host.querySelectorAll('tr')).find((tr) => Array.from(tr.querySelectorAll('td')).some((td) => (td.textContent ?? '').trim() === 'ICMS (%)'))
         expect(icms?.querySelector('input')).not.toBeNull()
     })
+    it('PRODUTOS, sem orçamento nenhum: um produto de REVENDA e um PRODUZIDO continuam com o ICMS editável — o comportamento do orçamento não vaza', async () => {
+        const linhaDoIcms = (host: HTMLElement) => Array.from(host.querySelectorAll('tr'))
+            .find((tr) => Array.from(tr.querySelectorAll('td')).some((td) => (td.textContent ?? '').trim() === 'ICMS (%)'))
+        const revenda = await montar({ prefill: { productType: 'REVENDA' } })
+        expect(revenda.textContent).toContain('Onde vende?')
+        expect(linhaDoIcms(revenda)?.querySelector('input')).not.toBeNull()
+        const produzido = await montar({ prefill: { productType: 'PRODUZIDO' } })
+        expect(linhaDoIcms(produzido)?.querySelector('input')).not.toBeNull()
+    })
     it('e o de INDUSTRIALIZAÇÃO, com a mesma empresa sem UF: a falta da referência aparece e o bloco Fiscal não', async () => {
         banco.respostas.tenant_settings = { ibs_reference_pct: 0, cbs_reference_pct: null, state_code: null }
         const host = await montar({ orcamento: orcamento(), onSalvarOrcamento: jest.fn() })
