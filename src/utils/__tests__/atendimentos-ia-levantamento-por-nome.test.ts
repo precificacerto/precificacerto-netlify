@@ -908,6 +908,19 @@ describe('(3) o estado mora no levantamento; a CONVERSA é gravada como históri
         expect(respostaDoSim).toContain(fraseDoOrcamentoEnviado(Number(orcamento.numero), String(orcamento.nome), Number(orcamento.valor_venda)))
     })
 
+    it('o levantamento de OUTRO remetente: o "sim" desta conversa não o atravessa — nenhum orçamento, nenhum PDF (quem diz "sim" é sempre o dono)', async () => {
+        estado.db.orcamentista_remetente_autorizado.push({ id: 'rem-dono-outro', tenant_id: TENANT, telefone: '54988776655', ativo: true, nome: 'Outro vendedor', employee_id: null })
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02 }], escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar('Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50')
+        // o levantamento passa a ser do outro remetente (quem o abriu, para a cadeia); o "sim" continua vindo do telefone desta conversa
+        for (const l of estado.db.orcamentista_levantamento) l.remetente_id = 'rem-dono-outro'
+        await confirmarApanhado()
+        // medido (11/11/2026): a conversa só confirma o levantamento do próprio remetente; o PDF nunca sai pelo "sim" de quem não é dono. O
+        // destino de um dono diferente da conversa está provado em `destinosDoWhatsApp` (atendimentos-ia-cadeia-do-sim.test.ts)
+        expect(estado.documentosDoOrcamento).toEqual([])
+        expect(estado.db.orcamentista_orcamento ?? []).toEqual([])
+    })
+
     it('a cadeia com o ENVIO DO PDF falhando: o orçamento e o arquivo ficam gravados, o rastro registra, e a resposta diz que o envio falhou', async () => {
         // só o PDF do ORÇAMENTO falha; o arquivo do levantamento (o apanhado) sai como sempre
         estado.documentoDoOrcamentoStatus = 500

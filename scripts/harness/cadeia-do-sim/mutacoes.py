@@ -46,7 +46,10 @@ def jest():
     return subprocess.run(['npx', 'jest', '--silent', *SUITES], cwd=RAIZ, capture_output=True, text=True).returncode
 
 
-EQUIVALENTES: set = set()
+# D1 é EQUIVALENTE, medido em 11/11/2026: a conversa só confirma o levantamento do PRÓPRIO remetente (o "sim" de outro não atravessa — o caso
+# "o levantamento de OUTRO remetente" da conversa prova), então quem diz "sim" é sempre o dono, e o número da conversa É o do dono. O destino de
+# um dono diferente da conversa é a D9, que morre no portão de `destinosDoWhatsApp`.
+EQUIVALENTES: set = {'D1'}
 
 
 def main():
