@@ -397,6 +397,22 @@ export async function baixarObjeto(caminho: string): Promise<Uint8Array> {
     return new Uint8Array(await data.arrayBuffer())
 }
 
+/**
+ * Os NOMES dos objetos de uma pasta do bucket (sem as subpastas), todas as páginas. É a retomada do envio dos desenhos: o que já está na
+ * pasta não sobe de novo. Falha do Storage LANÇA — sem saber o que existe, nada se assina.
+ */
+export async function nomesNaPasta(pasta: string): Promise<Set<string>> {
+    const nomes = new Set<string>()
+    const PAGINA = 1000
+    for (let offset = 0; ; offset += PAGINA) {
+        const { data, error } = await bucket().list(pasta, { limit: PAGINA, offset, sortBy: { column: 'name', order: 'asc' } })
+        if (error || !data) throw new ErroDoBanco({ message: error?.message ?? 'sem lista da pasta' })
+        // a subpasta vem com id nulo: não é objeto
+        for (const o of data) if (o.id !== null) nomes.add(o.name)
+        if (data.length < PAGINA) return nomes
+    }
+}
+
 export async function objetoExiste(caminho: string): Promise<boolean> {
     const { data, error } = await bucket().exists(caminho)
     if (error) return false
