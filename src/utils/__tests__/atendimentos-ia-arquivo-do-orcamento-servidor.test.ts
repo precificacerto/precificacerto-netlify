@@ -155,6 +155,13 @@ describe('gerar e gravar: o objeto primeiro, a linha depois, e nada quando não 
             sha256: createHash('sha256').update(up.bytes).digest('hex'), tamanho_bytes: up.bytes.length, valor_venda: 7000, gerado_origem: 'manual', gerado_por: 'usuario-1' }))
         expect(r.arquivo.nomeDoArquivo).toBe('Orcamento 1 - Geraldo Huck.pdf')
     })
+    it('sem autor (o AGENTE, a cadeia do "sim"): a linha sai com a origem agente e gerado_por NULO (a CHECK gerado_por_amarrado)', async () => {
+        const lido = await dadosDoArquivo()
+        const r = await S.gerarEGravarArquivo(T, ORC, null, lido.dados, lido.calculoId)
+        if (!r.ok) throw new Error('recusou')
+        const [linha] = estado.db.orcamentista_orcamento_arquivo
+        expect(linha).toEqual(expect.objectContaining({ gerado_origem: 'agente', gerado_por: null }))
+    })
     it('a recusa do arquivo (a venda diferente da interna): nada sobe e nada se grava', async () => {
         const lido = await dadosDoArquivo(7300)
         const r = await S.gerarEGravarArquivo(T, ORC, 'usuario-1', lido.dados, lido.calculoId)

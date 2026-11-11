@@ -124,18 +124,19 @@ export function rateioDoOrcamento(orc: OrcamentoNaPrecificacao, interna: number)
 }
 
 /**
- * GRAVA a precificação manual (a tela) no orçamento `id`: só com o cálculo completo. A gravação é EDIÇÃO MANUAL — marca
+ * GRAVA a precificação no orçamento `id`: só com o cálculo completo. Com autor (a tela), a gravação é EDIÇÃO MANUAL — marca
  * `editado_manualmente_em`/`_por` (dono do produto, 11/11/2026; a CHECK `marca_inteira` os quer juntos). O fiscal que divergia do preset é
  * sobrescrito e REGISTRADO no rastro ("sobrescrever está certo; sobrescrever em silêncio, não").
  */
-export async function gravarPrecificacao(tenantId: string, id: string, corpo: Record<string, unknown>, autor: string, agora: Date = new Date()): Promise<ResultadoDaGravacao> {
+export async function gravarPrecificacao(tenantId: string, id: string, corpo: Record<string, unknown>, autor: string | null, agora: Date = new Date()): Promise<ResultadoDaGravacao> {
     const g = validarGravacao(corpo)
     const orc = await lerOrcamentoParaPrecificar(tenantId, id)
     const estado = estadoDoCalculo(orc)
     if (estado !== 'completo') throw new ErroDoEstado(FRASE_DO_ESTADO[estado])
     const sobrescrito = fiscalDivergente(orc)
     const { data, error } = await db().from(TABELA_DO_ORCAMENTO)
-        .update({ ...g, atualizado_em: agora.toISOString(), editado_manualmente_em: agora.toISOString(), editado_manualmente_por: autor })
+        // o AGENTE (autor nulo, a cadeia do "sim") não é edição manual: a marca fica como está
+        .update({ ...g, atualizado_em: agora.toISOString(), ...(autor ? { editado_manualmente_em: agora.toISOString(), editado_manualmente_por: autor } : {}) })
         .eq('tenant_id', tenantId).eq('id', id).select('id')
     if (error) {
         if (error.code === '23514') throw new ErroDeValidacao([`O orçamento não aceitou a precificação: ${error.message}`])
@@ -154,7 +155,7 @@ export async function gravarPrecificacao(tenantId: string, id: string, corpo: Re
  * arquivo não saiu. Nunca um arquivo com centavo a mais ou a menos. A FALHA (leitura, Storage, insert) também não derruba a resposta: o preço
  * ESTÁ salvo, e um 500 diria o contrário (prova local de 10/11/2026: uma coluna ausente dava 500 com o preço já gravado).
  */
-async function arquivoAoSalvar(tenantId: string, id: string, autor: string, g: GravacaoDaPrecificacao, gravado: OrcamentoNaPrecificacao, agora: Date):
+async function arquivoAoSalvar(tenantId: string, id: string, autor: string | null, g: GravacaoDaPrecificacao, gravado: OrcamentoNaPrecificacao, agora: Date):
     Promise<{ arquivo: ArquivoGravado | null; recusasDoArquivo: string[] }> {
     const rateio = rateioDoOrcamento(gravado, g.valor_operacao_interna)
     if ('recusa' in rateio) return { arquivo: null, recusasDoArquivo: [rateio.recusa] }

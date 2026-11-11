@@ -88,11 +88,17 @@ function buildResult(
   }
 }
 
-export async function fetchTaxPreview(tenantId: string): Promise<TaxPreviewResult> {
+/**
+ * O cliente do banco é PARÂMETRO, com o do navegador como padrão: as telas chamam como sempre (nada muda para elas), e o servidor da cadeia
+ * do "sim" do orçamento I.A. (dono do produto, 11/11/2026) passa o seu, para formar o MESMO `calcBase` que a tela forma — sem uma segunda
+ * cópia desta leitura (`copia-divergente.md`).
+ */
+type ClienteDoPreview = Pick<typeof supabase, 'from'>
+export async function fetchTaxPreview(tenantId: string, db: ClienteDoPreview = supabase): Promise<TaxPreviewResult> {
   const [settingsRes, statesRes, expenseRes] = await Promise.all([
-    supabase.from('tenant_settings').select('*').eq('tenant_id', tenantId).single(),
-    supabase.from('brazilian_states').select('code, icms_internal_rate'),
-    supabase.from('tenant_expense_config').select('profit_margin_percent').eq('tenant_id', tenantId).maybeSingle(),
+    db.from('tenant_settings').select('*').eq('tenant_id', tenantId).single(),
+    db.from('brazilian_states').select('code, icms_internal_rate'),
+    db.from('tenant_expense_config').select('profit_margin_percent').eq('tenant_id', tenantId).maybeSingle(),
   ])
 
   const ts = settingsRes.data
@@ -122,7 +128,7 @@ export async function fetchTaxPreview(tenantId: string): Promise<TaxPreviewResul
     const anexo = normalizeAnexo(ts.simples_anexo || '')
     const revenue12m = Number(ts.simples_revenue_12m) || 0
 
-    const { data: brackets } = await supabase
+    const { data: brackets } = await db
       .from('simples_nacional_brackets')
       .select('*')
       .eq('anexo', anexo)
@@ -237,7 +243,7 @@ export async function fetchTaxPreview(tenantId: string): Promise<TaxPreviewResul
     // Ex: COMERCIO → irpj_presumption_percent=0.08, irpj_rate=0.15 → efetivo=0.012 (1,2%)
     // Ex: SERVICOS_32 → irpj_presumption_percent=0.32, irpj_rate=0.15 → efetivo=0.048 (4,8%)
     const activity = ts.lucro_presumido_activity || 'COMERCIO'
-    const { data: lpRate } = await supabase
+    const { data: lpRate } = await db
       .from('lucro_presumido_rates')
       .select('*')
       .eq('activity_type', activity)

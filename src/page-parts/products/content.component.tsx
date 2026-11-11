@@ -23,6 +23,8 @@ import { computeIvaDualOutside } from '@/utils/iva-dual-outside'
 import { resolveIvaDualEffectiveRate } from '@/utils/item-tax-rates'
 import { resolvePisCofinsPctFromNcm } from '@/utils/ncm-pis-cofins'
 import { pisCofinsDaReferenciaDoTenant } from '@/utils/ncm-pis-cofins'
+import { FALTA_DA_CARGA_HORARIA, FALTA_DO_PRECO_FORMADO } from '@/lib/atendimentos-ia/preco-do-orcamento'
+import { PRODUCT_PRICE_INFO_BASE } from '@/utils/product-price-info-base'
 import { calcularNoMotorDoProduto, tipoDeCalculoEfetivo } from '@/utils/motor-do-produto'
 import { resolveReducoesDoItem } from '@/utils/classificacao-fiscal'
 import ClassificacaoFiscalBlock, { type ClassificacaoFiscalValue } from '@/page-parts/shared/classificacao-fiscal-block.component'
@@ -137,37 +139,6 @@ const REQUIRED_INPUT_MESSAGE = 'Campo obrigatório!'
 
 const capitalizeFirst = (value: string) =>
   value.charAt(0).toUpperCase() + value.slice(1)
-const PRODUCT_PRICE_INFO_BASE = {
-  salesCommissionPercent: 0,
-  salesCommissionPrice: 0,
-  salesCommissionPercentByProduct: 0,
-  salesCommissionPriceByProduct: 0,
-  productProfitPercent: 0,
-  productProfitPrice: 0,
-  productProfitPercentByProduct: 0,
-  productProfitPriceByProduct: 0,
-  rtReservePercent: 0,
-  rtReservePrice: 0,
-  indirectLaborExpensePercent: 0,
-  indirectLaborExpensePrice: 0,
-  laborPctShown: 0,
-  fixedExpensePrice: 0,
-  financialCommitmentsPrice: 0,
-  variableExpensePrice: 0,
-  financialExpensePrice: 0,
-  taxesPrice: 0,
-  totalProductPrice: 0,
-  productCost: 0,
-  productWorkloadInMinutes: 0,
-  productWorkloadInMinutesPrice: 0,
-  totalServicePrice: 0,
-  totalServiceProductPrice: 0,
-  taxesPriceByProduct: 0,
-  taxableRegimePercent: 0,
-  taxableRegimePrice: 0,
-  taxableRegimePercentByProduct: 0,
-  taxableRegimePriceByProduct: 0,
-}
 
 const STATES = [
   'AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA',
@@ -1084,13 +1055,13 @@ export const Content: FC<ContentProps> = ({
   const salvarOrcamento = async () => {
     if (!orcamento || !onSalvarOrcamento || salvandoOrcamento) return
     if (isWorkloadBlocking) {
-      setRecusasDoOrcamento(['a carga horária da equipe produtiva (Configurações → Equipe): sem ela o valor do minuto não existe'])
+      setRecusasDoOrcamento([FALTA_DA_CARGA_HORARIA])
       return
     }
     doProductCalc()
     const faltas = faltasDaPrecificacao({ orcamento, fiscal: fiscalDaTela(), aliquotaDoNcm: null, referenciaDoTenant: referenciaExigida(), custoDoMotor: Number(productPriceInfo.productCost) || 0 })
     const valorDeVenda = finalPriceWithTaxesRef.current
-    if (!(valorDeVenda > 0)) faltas.push('o preço formado: a precificação não saiu (confira os percentuais e a margem)')
+    if (!(valorDeVenda > 0)) faltas.push(FALTA_DO_PRECO_FORMADO)
     // a interna que se grava (20261110000001), ao centavo, e a recusa quando ela diverge do valor precificado
     const interna = valorDeVenda > 0 ? internaParaGravar(operacaoInternaRef.current, valorPrecificadoRef.current) : null
     if (interna && 'falta' in interna) faltas.push(interna.falta)

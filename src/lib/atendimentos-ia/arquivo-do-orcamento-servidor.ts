@@ -173,9 +173,10 @@ export type ArquivoGravado = { id: string; caminho: string; sha256: string; tama
 /**
  * GERA o PDF, SOBE o objeto e GRAVA a linha do arquivo. A ordem é a que não deixa linha sem objeto: o objeto primeiro (o caminho é novo a cada
  * geração, então nunca sobrescreve outro), a linha depois. Falha no meio deixa, no pior caso, um objeto sem linha — nunca uma linha apontando
- * para nada. `gerado_origem` é 'manual' e o autor é quem salvou (a CHECK `gerado_por_amarrado`).
+ * para nada. Com autor, `gerado_origem` é 'manual' e o autor é quem salvou; sem autor (a cadeia do "sim"), 'agente' e `gerado_por` nulo (a CHECK
+ * `gerado_por_amarrado`).
  */
-export async function gerarEGravarArquivo(tenantId: string, orcamentoId: string, autor: string, dados: DadosDoArquivoDoOrcamento, calculoId: string | null):
+export async function gerarEGravarArquivo(tenantId: string, orcamentoId: string, autor: string | null, dados: DadosDoArquivoDoOrcamento, calculoId: string | null):
     Promise<{ ok: true; arquivo: ArquivoGravado } | { ok: false; recusas: string[] }> {
     const gerado = gerarArquivoDoOrcamento(dados)
     if ('recusas' in gerado) return { ok: false, recusas: gerado.recusas }
@@ -186,7 +187,7 @@ export async function gerarEGravarArquivo(tenantId: string, orcamentoId: string,
     if (eUp) throw new Error(`storage ${BUCKET_DO_CATALOGO}: ${eUp.message}`)
     const { error } = await db().from(TABELA_DO_ARQUIVO).insert({
         id, tenant_id: tenantId, orcamento_id: orcamentoId, calculo_id: calculoId, bucket: BUCKET_DO_CATALOGO, caminho, sha256,
-        tamanho_bytes: gerado.pdf.byteLength, valor_venda: dados.valorVenda, gerado_origem: 'manual', gerado_por: autor, gerado_em: dados.geradoEm.toISOString(),
+        tamanho_bytes: gerado.pdf.byteLength, valor_venda: dados.valorVenda, gerado_origem: autor ? 'manual' : 'agente', gerado_por: autor, gerado_em: dados.geradoEm.toISOString(),
     })
     if (error) throw new Error(`${TABELA_DO_ARQUIVO}: ${error.message}`)
     return { ok: true, arquivo: { id, caminho, sha256, tamanho_bytes: gerado.pdf.byteLength, paginas: gerado.paginas, nomeDoArquivo: gerado.nomeDoArquivo } }
