@@ -170,7 +170,7 @@
  * Portão: `src/utils/__tests__/atendimentos-ia-levantamento-por-nome.test.ts`.
  */
 import { atravessarNoSim } from './travessia-do-levantamento'
-import { dependenciasDoServidor, etapaDoPreco } from './cadeia-do-sim'
+import { dependenciasDoServidor, destinosDoWhatsApp, enviarAoPrimeiroQueAceitar, etapaDoPreco } from './cadeia-do-sim'
 import { supabaseAdmin } from '@/supabase/admin'
 import { MODELO_PADRAO_DA_IA, URL_DA_API_ANTHROPIC, VERSAO_DA_API_ANTHROPIC } from '@/lib/atendimentos-ia/modelo-da-ia'
 import { paraOLog } from '@/utils/atendimentos-ia-mascara-do-log'
@@ -1814,7 +1814,8 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             // a ETAPA DO PREÇO (11/11/2026): precifica, gera o PDF e o envia ao DONO do levantamento (nunca a quem disse "sim"); sem preço formado
             // não há PDF, e o texto diz o que falta. O que ela tem a dizer vai junto da resposta, e a falha do envio não desfaz nada
             const sim = await atravessarNoSim(c.tenantId, rastro.levantamento, (orcamentoId) =>
-                etapaDoPreco(c.tenantId, orcamentoId, dependenciasDoServidor((telefone, nome, pdf) => enviarDocumento(c.wuzapiToken, telefone, nome, pdf))))
+                etapaDoPreco(c.tenantId, orcamentoId, dependenciasDoServidor((telefone, nome, pdf) =>
+                    enviarAoPrimeiroQueAceitar(destinosDoWhatsApp(telefone, c.telefone), (destino) => enviarDocumento(c.wuzapiToken, destino, nome, pdf)))))
             rastro.etapas.calcular = `${rastro.etapas.calcular ?? ''} travessia=${sim.rastro}`.trim()
             if (sim.paraOVendedor) return await responder(`${levantamento.texto}\n\n${sim.paraOVendedor}`, levantamento.desfecho, semApanhado)
         }

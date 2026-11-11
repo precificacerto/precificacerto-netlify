@@ -15,6 +15,8 @@
  * Cada passo leva o seu tempo no rastro (`ms_*`): é o mesmo relógio, medido em produção.
  */
 import { supabaseAdmin } from '@/supabase/admin'
+import { normalizePhoneBR } from '@/lib/wuzapi-send'
+import { telefonesCasam } from '@/utils/atendimentos-ia-telefone-do-autorizado'
 import { lerUltimoArquivo } from './arquivo-do-orcamento-servidor'
 import { precificarComoAgente, type PrecificacaoDoAgente } from './preco-do-orcamento-servidor'
 
@@ -103,6 +105,26 @@ export async function telefoneDoDonoDoOrcamento(tenantId: string, orcamentoId: s
     if (e3) throw new Error(`orcamentista_remetente_autorizado: ${e3.message}`)
     const tel = typeof rem?.telefone === 'string' ? rem.telefone.trim() : ''
     return tel === '' ? null : tel
+}
+
+/**
+ * OS NÚMEROS DO WHATSAPP PARA O DONO, na ordem de tentativa. O telefone gravado é a forma normalizada (DDD + assinante, com o nono dígito, sem o
+ * DDI), que o WhatsApp não usa: o webhook entrega o MESMO celular com o DDI e, em boa parte dos DDDs, sem o nono (`555199114290` para o gravado
+ * `51999114290`, medido em produção). Quando o dono é quem está na conversa (os dois casam), vai o número EXATO do webhook — o mesmo que já recebe
+ * as respostas. Senão, as variantes do envio de referência do projeto (`normalizePhoneBR`, `wuzapi-send.ts`): com o DDI, com e sem o nono.
+ */
+export function destinosDoWhatsApp(telefoneDoDono: string, telefoneDaConversa: string): string[] {
+    return telefonesCasam(telefoneDaConversa, telefoneDoDono) ? [telefoneDaConversa] : normalizePhoneBR(telefoneDoDono)
+}
+
+/** Envia pela lista de destinos, parando no primeiro que aceitar; o resultado é o do último tentado. */
+export async function enviarAoPrimeiroQueAceitar(destinos: readonly string[], enviar: (telefone: string) => Promise<EnvioDoDocumento>): Promise<EnvioDoDocumento> {
+    let ultimo: EnvioDoDocumento = { ok: false, status: null, prazoEsgotado: false }
+    for (const d of destinos) {
+        ultimo = await enviar(d)
+        if (ultimo.ok) return ultimo
+    }
+    return ultimo
 }
 
 /** As dependências de produção, menos o envio (que vem da conversa, com o token do canal). */

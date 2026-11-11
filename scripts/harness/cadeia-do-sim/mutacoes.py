@@ -22,7 +22,9 @@ SUITES = [
 ]
 
 MUTACOES = [
-    ('D1', 'o PDF vai a quem disse "sim", não ao dono do levantamento', [(CONVERSA, 'enviarDocumento(c.wuzapiToken, telefone, nome, pdf)', 'enviarDocumento(c.wuzapiToken, c.telefone, nome, pdf)')]),
+    ('D1', 'o PDF vai a quem disse "sim", não ao dono do levantamento', [(CONVERSA, 'enviarAoPrimeiroQueAceitar(destinosDoWhatsApp(telefone, c.telefone),', 'enviarAoPrimeiroQueAceitar([c.telefone],')]),
+    ('D9', 'o dono que NÃO é quem está na conversa recebe no número da conversa', [(CADEIA, '    return telefonesCasam(telefoneDaConversa, telefoneDoDono) ? [telefoneDaConversa] : normalizePhoneBR(telefoneDoDono)', '    return [telefoneDaConversa]')]),
+    ('D10', 'o envio não para no primeiro número que aceitou', [(CADEIA, '        if (ultimo.ok) return ultimo\n', '')]),
     ('D2', 'sem preço formado, a etapa segue para o arquivo', [(CADEIA, "    if ('faltas' in p) {", "    if (false) {")]),
     ('D3', 'o texto da etapa não chega ao vendedor', [(CONVERSA, '            if (sim.paraOVendedor) return await responder(', '            if (false) return await responder(')]),
     ('D4', 'a etapa do preço não é chamada depois do cálculo', [(TRAVESSIA, '        const etapa = await etapaDoPreco(r.orcamento.id)', "        const etapa = { rastro: '', paraOVendedor: null as string | null }")]),

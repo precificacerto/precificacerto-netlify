@@ -131,3 +131,20 @@ describe('o telefone do dono do levantamento', () => {
         expect(await C.telefoneDoDonoDoOrcamento(T, ORC)).toBeNull()
     })
 })
+
+describe('os números do WhatsApp para o dono', () => {
+    it('o dono é quem está na conversa: o número EXATO do webhook, só ele', () => {
+        expect(C.destinosDoWhatsApp('51999114290', '555199114290')).toEqual(['555199114290'])
+    })
+    it('o dono é OUTRO telefone: o gravado com o DDI, com e sem o nono — nunca o da conversa', () => {
+        expect(C.destinosDoWhatsApp('51999114290', '5554988776655')).toEqual(['5551999114290', '555199114290'])
+    })
+    it('envia pelo primeiro que aceitar; com todos recusando, o resultado é o do último', async () => {
+        const tentados: string[] = []
+        const r = await C.enviarAoPrimeiroQueAceitar(['a', 'b', 'c'], async (t) => { tentados.push(t); return { ok: t === 'b', status: t === 'b' ? 200 : 400, prazoEsgotado: false } })
+        expect(tentados).toEqual(['a', 'b'])
+        expect(r.ok).toBe(true)
+        const falha = await C.enviarAoPrimeiroQueAceitar(['a', 'b'], async (t) => ({ ok: false, status: t === 'b' ? 500 : 400, prazoEsgotado: false }))
+        expect(falha).toEqual({ ok: false, status: 500, prazoEsgotado: false })
+    })
+})

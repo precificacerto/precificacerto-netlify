@@ -893,12 +893,12 @@ describe('(3) o estado mora no levantamento; a CONVERSA é gravada como históri
     })
 
     it('A CADEIA DO "SIM" LIGADA (11/11/2026): o PDF do orçamento vai ao telefone do DONO do levantamento, a linha do arquivo é do agente, e a resposta diz que foi enviado', async () => {
-        // o dono do levantamento é o remetente que o abriu; o "sim" é dado aqui por OUTRO telefone do mesmo remetente (o do webhook, com o 55):
-        // o arquivo vai ao telefone GRAVADO do dono, nunca ao de quem disse "sim"
+        // o dono do levantamento é o remetente que o abriu (gravado como 51999114290); aqui é ele quem diz "sim", e o webhook o entrega no formato do
+        // WhatsApp (555199114290): o arquivo vai a esse número exato, que é o mesmo que já recebe as respostas
         const respostaDoSim = await fecharDp02('Casa do João')
         const docs = estado.documentosDoOrcamento
         expect(docs).toHaveLength(1)
-        expect(docs[0].corpo.Phone).toBe(TELEFONE_GRAVADO)
+        expect(docs[0].corpo.Phone).toBe(TELEFONE_DO_WEBHOOK)
         expect(String(docs[0].corpo.Document)).toMatch(/^data:application\/octet-stream;base64,JVBERi/)
         const [arquivo] = estado.db.orcamentista_orcamento_arquivo
         expect(arquivo).toEqual(expect.objectContaining({ tenant_id: TENANT, gerado_origem: 'agente', gerado_por: null }))
