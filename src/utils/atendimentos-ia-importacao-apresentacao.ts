@@ -72,6 +72,11 @@ export function textoDoAviso(a: Aviso): { titulo: string; texto: string } {
             return { titulo: 'Itens sem valor por barra', texto: a.mensagem }
         case 'colunas_sem_destino_no_layout_unico':
             return { titulo: 'Colunas que o banco ainda não guarda', texto: a.mensagem }
+        // as opcionais de 12% do layout único (12/11/2026): ausente é falta nomeada, nunca zero
+        case 'coluna_de_12_ausente':
+            return { titulo: 'Sem o valor de 12%', texto: a.mensagem }
+        case 'itens_sem_valor_de_12':
+            return { titulo: 'Itens sem o valor de 12%', texto: a.mensagem }
         // a coluna Cor do motor (08/11/2026): aviso, nunca recusa — o texto foi gravado como veio
         case 'cor_com_espaco_multiplo':
             return { titulo: 'Cor com espaço duplo', texto: a.mensagem }
