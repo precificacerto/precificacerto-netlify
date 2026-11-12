@@ -177,6 +177,8 @@ export type Aviso =
     | { tipo: 'itens_sem_custo'; aba: string; itens: number; codigos: string[]; mensagem: string }
     | { tipo: 'tabela_sem_valor_por_barra'; aba: string; itens: number; codigos: string[]; mensagem: string }
     | { tipo: 'colunas_sem_destino_no_layout_unico'; aba: string; colunas: Record<string, number>; mensagem: string }
+    | { tipo: 'coluna_de_12_ausente'; aba: string; colunas: string[]; mensagem: string }
+    | { tipo: 'itens_sem_valor_de_12'; aba: string; coluna: string; itens: number; codigos: string[]; mensagem: string }
     // a coluna Cor do motor (dono do produto, 08/11/2026): o texto com espaço múltiplo, e a mesma cor em duas grafias — AVISO, nunca
     // recusa nem normalização: o texto é gravado como o fornecedor mandou (`avisosDaCorDoMotor`)
     | { tipo: 'cor_com_espaco_multiplo'; aba: string; grafia: GrafiaDaCor; mensagem: string }
@@ -487,10 +489,24 @@ export const COLUNAS_DO_LAYOUT_UNICO = [
     'nc_ipi_pct', 'nc_icms_st_pct', 'nc_difal_pct', 'nc_is_pct', 'ncm', 'credito_pct', 'credito_valor', 'custo_liquido',
 ] as const
 export type ColunaDoLayoutUnico = (typeof COLUNAS_DO_LAYOUT_UNICO)[number]
+/**
+ * AS OPCIONAIS DE 12% (dono do produto, 12/11/2026: "acrescente ao layout único as colunas OPCIONAIS valor_metro_12 e valor_barra_12, com aviso
+ * nomeado quando faltarem. Sem elas a âncora não entra pelas cinco categorias que usam esse layout [...] Nada sai de custo por dedução: coluna
+ * ausente é falta nomeada, não zero."). Lidas pelo nome exato, como as 28; vão para `valor_metro_12` e `valor_barra_12` do item. A coluna
+ * AUSENTE do cabeçalho não recusa: grava NULL e o aviso `coluna_de_12_ausente` a nomeia. Presente, a célula vazia é NULL (e o aviso
+ * `itens_sem_valor_de_12` nomeia os códigos), texto é recusa — nunca 0, e nunca derivada de `custo_bruto`, `valor_metro` ou `valor_kg`.
+ */
+export const COLUNAS_OPCIONAIS_DO_LAYOUT_UNICO = ['valor_metro_12', 'valor_barra_12'] as const
+export type ColunaOpcionalDoLayoutUnico = (typeof COLUNAS_OPCIONAIS_DO_LAYOUT_UNICO)[number]
+export const fraseDaColunaDe12Ausente = (faltam: readonly string[]) =>
+    `a aba "${ABAS_DO_LAYOUT_UNICO.itens}" não traz ${faltam.length === 1 ? 'a coluna' : 'as colunas'} ${faltam.join(' e ')}: `
+    + `${faltam.length === 1 ? 'ela ficou' : 'elas ficaram'} em branco em todos os itens (não é zero), e a âncora do custo não tem de onde ler o valor de 12% desta tabela.`
+export const fraseDosItensSemValorDe12 = (coluna: string, codigos: readonly string[]) =>
+    `${codigos.length} ${codigos.length === 1 ? 'item veio' : 'itens vieram'} sem ${coluna} (${nomeados(codigos)}): ${codigos.length === 1 ? 'ficou' : 'ficaram'} em branco, não zero.`
 /** Exigidas no cabeçalho e lidas, mas SEM coluna em `orcamentista_tabela_item` (medido em 02/11/2026): ficam fora da gravação nesta PR. */
 export const COLUNAS_SEM_DESTINO_DO_LAYOUT_UNICO = ['linha', 'cor', 'codigo_wvetro', 'valor_kg', 'multiplo_compra'] as const
 /** As numéricas: texto nelas é recusa nomeada, como no bloco tributário (nunca vira 0 nem NULL). */
-type NumericaDoLayoutUnico = 'medida_barra_m' | 'peso_kg_por_m' | 'custo_bruto' | 'valor_metro' | ColunaDoBlocoTributario
+type NumericaDoLayoutUnico = 'medida_barra_m' | 'peso_kg_por_m' | 'custo_bruto' | 'valor_metro' | ColunaOpcionalDoLayoutUnico | ColunaDoBlocoTributario
 
 export const fraseDoLayoutUnicoSemItens = (abas: readonly string[]) =>
     `tem a aba "${ABAS_DO_LAYOUT_UNICO.cabecalho}" do layout único, mas não a aba "${ABAS_DO_LAYOUT_UNICO.itens}". Abas encontradas: ${abas.map((a) => `"${a}"`).join(', ') || 'nenhuma'}.`
@@ -546,14 +562,14 @@ function lerItensDoLayoutUnico(ws: ExcelJS.Worksheet): LeituraDoPreco {
     const vazia: LeituraDoPreco = { itens: [], avisos: l.avisos, normalizados: 0, recusas: [] }
 
     // o cabeçalho: coluna do arquivo (1-based) de cada nome; repetida é ambígua; ausente é recusa
-    const col: Partial<Record<ColunaDoLayoutUnico, number>> = {}
+    const col: Partial<Record<ColunaDoLayoutUnico | ColunaOpcionalDoLayoutUnico, number>> = {}
     const repetidas: string[] = []
-    const nomes = new Set<string>(COLUNAS_DO_LAYOUT_UNICO)
+    const nomes = new Set<string>([...COLUNAS_DO_LAYOUT_UNICO, ...COLUNAS_OPCIONAIS_DO_LAYOUT_UNICO])
     const row1 = ws.getRow(1)
     for (let c = 1; c <= row1.cellCount; c++) {
         const v = valorDaCelula(row1.getCell(c).value).valor
         if (typeof v !== 'string' || !nomes.has(v.trim())) continue
-        const nome = v.trim() as ColunaDoLayoutUnico
+        const nome = v.trim() as ColunaDoLayoutUnico | ColunaOpcionalDoLayoutUnico
         if (col[nome] !== undefined) repetidas.push(nome)
         else col[nome] = c
     }
@@ -563,7 +579,9 @@ function lerItensDoLayoutUnico(ws: ExcelJS.Worksheet): LeituraDoPreco {
     if (faltam.length) recusas.push(fraseDasColunasAusentesDoLayoutUnico(faltam))
     if (repetidas.length) recusas.push(fraseDasColunasRepetidasDoLayoutUnico(repetidas))
     if (recusas.length) return { ...vazia, recusas }
-    const coluna = (nome: ColunaDoLayoutUnico) => col[nome] as number
+    const coluna = (nome: ColunaDoLayoutUnico | ColunaOpcionalDoLayoutUnico) => col[nome] as number
+    const de12Ausentes = COLUNAS_OPCIONAIS_DO_LAYOUT_UNICO.filter((c) => col[c] === undefined)
+    const semValorDe12: Record<ColunaOpcionalDoLayoutUnico, string[]> = { valor_metro_12: [], valor_barra_12: [] }
 
     const itens: ItemLido[] = []
     const primeiraLinha = new Map<string, { linha: number; item: ItemLido }>()
@@ -615,10 +633,12 @@ function lerItensDoLayoutUnico(ws: ExcelJS.Worksheet): LeituraDoPreco {
             // dono do produto, 02/11/2026: "valor_barra_interno = custo_bruto quando vendido_por = 'barra' (é o mesmo número, não há multiplicação
             // nem cálculo). Quando vendido_por for outra coisa, grave NULL e avise [...]. Nunca multiplique valor_metro × medida_barra_m."
             valor_barra_interno: vendido_por === 'barra' ? custo : null,
-            valor_metro_12: null,
-            valor_barra_12: null,
+            // as opcionais de 12% (12/11/2026): pelo nome, quando a coluna está lá; ausente é NULL nomeado no aviso, nunca derivada
+            valor_metro_12: col.valor_metro_12 !== undefined ? numero('valor_metro_12') : null,
+            valor_barra_12: col.valor_barra_12 !== undefined ? numero('valor_barra_12') : null,
             ...bloco,
         }
+        for (const c of COLUNAS_OPCIONAIS_DO_LAYOUT_UNICO) if (col[c] !== undefined && item[c] === null) semValorDe12[c].push(codigo)
         if (custo === null) semCusto.push(codigo)
         if (vendido_por !== 'barra') semValorPorBarra.push(codigo)
         for (const c of COLUNAS_SEM_DESTINO_DO_LAYOUT_UNICO) {
@@ -629,6 +649,11 @@ function lerItensDoLayoutUnico(ws: ExcelJS.Worksheet): LeituraDoPreco {
     }
     if (semCusto.length) l.avisos.push({ tipo: 'itens_sem_custo', aba, itens: semCusto.length, codigos: semCusto, mensagem: fraseDosItensSemCusto(semCusto) })
     if (semValorPorBarra.length) l.avisos.push({ tipo: 'tabela_sem_valor_por_barra', aba, itens: semValorPorBarra.length, codigos: semValorPorBarra, mensagem: fraseDaTabelaSemValorPorBarra(semValorPorBarra) })
+    if (de12Ausentes.length) l.avisos.push({ tipo: 'coluna_de_12_ausente', aba, colunas: de12Ausentes, mensagem: fraseDaColunaDe12Ausente(de12Ausentes) })
+    for (const c of COLUNAS_OPCIONAIS_DO_LAYOUT_UNICO) {
+        const cs = semValorDe12[c]
+        if (cs.length) l.avisos.push({ tipo: 'itens_sem_valor_de_12', aba, coluna: c, itens: cs.length, codigos: cs, mensagem: fraseDosItensSemValorDe12(c, cs) })
+    }
     if (Object.keys(comValorSemDestino).length) l.avisos.push({ tipo: 'colunas_sem_destino_no_layout_unico', aba, colunas: comValorSemDestino, mensagem: fraseDasColunasSemDestino(comValorSemDestino) })
     if (invalidas.length) recusas.push(fraseDasCelulasNaoNumericasDoLayoutUnico(invalidas))
     if (vendidoInvalido.length) recusas.push(fraseDoVendidoPorInvalido(vendidoInvalido))
