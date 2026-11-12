@@ -26,6 +26,7 @@ fazendo, **leia o texto antes de agir**.
 - `decisao-sob-regra-da-epoca`: ao nomear um defeito em código antigo. Pergunte se a regra existia quando ele foi escrito.
 - `pr-aberto-no-relato`: ao escrever qualquer relato de estado. Todo PR aberto entra na lista até o merge ou o fechamento decidido; CI verde tem data e base.
 - `registro-de-classe`: ao registrar uma classe de defeito ou uma regra. Define onde ela mora, a forma, a busca por precedentes e o limite.
+- `codigo-do-motor-nao-se-normaliza`: ao casar, juntar ou contar códigos de tipologia ou de item. O código cru é a identidade; número que não fecha é medição incompleta.
 
 ## Texto em `.claude/rules/<nome>.md`, carregado ao editar o código do domínio
 
