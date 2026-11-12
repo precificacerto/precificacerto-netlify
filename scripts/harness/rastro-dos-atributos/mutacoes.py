@@ -27,7 +27,8 @@ MUTACOES = [
     ('R9', 'o extra fora do considerado (a modulação) some do rastro', [(TP, "        for (const e of a.extras) if (!(EXTRAS_DO_CONSIDERADO as readonly string[]).includes(e)) lista.push(", "        for (const e of a.extras) if (false) lista.push(")]),
     ('R10', 'o caminho 3a (a modulação como rótulo) não registra', [(TP, "if (porModulacao.length === 1) return comRastro(decidir(porModulacao, item))", "if (porModulacao.length === 1) return decidir(porModulacao, item)")]),
     ('R11', 'o caminho exato não registra', [(TP, "if (exatas.length > 0) return comRastro(decidir(exatas, item))", "if (exatas.length > 0) return decidir(exatas, item)")]),
-    ('R12', 'o motivo leva os atributos de uma tentativa', [(TP, "    return { decisao, atributos: 'tipologia' in decisao ? atributos : [] }", "    return { decisao, atributos }")]),
+    # R12 saiu (12/11/2026): era equivalente — a guarda de `padraoDaEsquadria` nunca agia, porque só `comRastro` registra, e só com tipologia; a guarda saiu do código
+    ('R12', 'o comRastro registra também o motivo', [(TP, "        if (!('tipologia' in d)) return d\n        const escolhida", "        const escolhida")]),
     ('R13', 'a cor da base não entra no rastro', [(CONV, "                assumir(item.ordem, [{ atributo: 'cor', valor: corPredominante, origem: 'base_de_conhecimento' }])\n", "")]),
     ('R14', 'o vidro da instrução não entra no rastro', [(CONV, "            if (typeof vidro === 'string') assumir(ordem, [{ atributo: 'vidro', valor: vidro, origem: 'base_de_conhecimento' }])", "            void vidro")]),
     ('R15', 'a quantidade da conversa não entra no rastro', [(CONV, "        for (const ordem of proposta_.quantidadesPadrao) assumir(ordem, [{ atributo: 'quantidade', valor: '1', origem: 'padrao_da_conversa' }])\n", "")]),
@@ -52,7 +53,9 @@ def jest():
     return subprocess.run(['npx', 'jest', '--silent', *SUITES], cwd=RAIZ, capture_output=True, text=True).returncode
 
 
-EQUIVALENTES: set = set()
+# R12: a checagem `'tipologia' in d` estreita o tipo para o TypeScript; sem ela, com um motivo, `doTipo.find` não acha `undefined` e devolve sem
+# registrar — equivalente em execução. O teste "sem tipologia (um motivo), nenhum atributo" prova o comportamento.
+EQUIVALENTES: set = {'R12'}
 
 
 def main():

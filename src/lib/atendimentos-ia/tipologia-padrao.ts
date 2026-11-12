@@ -202,7 +202,8 @@ export function tipologiaPadrao(item: ItemDoLevantamento, abertura: Abertura | n
 export function padraoDaEsquadria(item: ItemDoLevantamento, abertura: Abertura | null, trechos: readonly TrechoDoAcumulado[], candidatos: readonly CandidatoDeTipologia[]): { decisao: DecisaoDoPadrao; atributos: AtributoAssumido[] } {
     let atributos: AtributoAssumido[] = []
     const decisao = decisaoDoPadrao(item, abertura, trechos, candidatos, (a) => { atributos = a })
-    return { decisao, atributos: 'tipologia' in decisao ? atributos : [] }
+    // o registro só acontece quando a decisão é uma tipologia (`comRastro`): um motivo nunca leva atributos
+    return { decisao, atributos }
 }
 
 function decisaoDoPadrao(item: ItemDoLevantamento, abertura: Abertura | null, trechos: readonly TrechoDoAcumulado[], candidatos: readonly CandidatoDeTipologia[],
