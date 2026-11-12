@@ -52,6 +52,10 @@ describe('as peças da tradução', () => {
         expect(vidroDito('3+3 incolor')).toEqual({ tipo: 'LAMINADO', espessura: '3+3', familia: 'INCOLOR' })
         expect(vidroDito('fumê 8mm temp.')).toEqual({ tipo: 'TEMPERADO', espessura: '8', familia: 'FUME' })
     })
+    it('com o TIPO dito (e sem espessura), o composto não entra: "temperado incolor" são os três temperados incolores, nenhum duplo', () => {
+        const r = traduzirVidro('temperado incolor', null, TABELA)
+        expect('candidatos' in r ? r.candidatos.map((c) => c.codigo) : []).toEqual(['VTIN06', 'VTIN08', 'VTIN10'])
+    })
     it('o item composto não tem uma espessura nem um tipo: só é candidato sem espessura e sem tipo ditos', () => {
         expect(vidroDoItem('MINI BOREAL 3,4/6,5/TEMPERADO INCOLOR 05')).toMatchObject({ composto: true, espessura: null })
         expect(candidatosDoVidro({ tipo: null, espessura: '5', familia: null }, TABELA).map((c) => c.codigo)).toEqual(['VIN05'])

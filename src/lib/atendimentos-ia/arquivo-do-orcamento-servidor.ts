@@ -55,6 +55,11 @@ export function tipoDoTelefone(telefone: string): 'celular' | 'fixo' {
     return (d.length === 11 && d[2] === '9') || (d.length === 9 && d[0] === '9') ? 'celular' : 'fixo'
 }
 
+/** As definições de instalação e arremate de um item (4.2): a efetiva de cada variável capturada, com "(padrão)" na que o vendedor não disse. */
+export function definicoesDoItem(def: Parameters<typeof escolhasDescritas>[0], escolhas: Parameters<typeof escolhasDescritas>[1]): string[] {
+    return escolhasDescritas(def, escolhas).map((e) => `${e.descricao}: ${e.rotulo ?? 'padrão da tipologia'}${e.doVendedor ? '' : ' (padrão)'}`)
+}
+
 // ── OS ITENS ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 const COLUNAS_DO_ITEM = 'id, ordem, levantamento_item_id, tipologia, largura_mm, altura_mm, quantidade, cor_perfil, vidro, obs, ambientes, escolhas, calculo_id, custo_liquido_total, tempo_fabricacao_min'
 
@@ -80,7 +85,7 @@ export async function itensDoArquivo(tenantId: string, orcamentoId: string): Pro
         const d = tipologia ? contexto.detalhe(tipologia, familia) : null
         // as definições de instalação e arremate (4.2): a efetiva de cada variável capturada, e "(padrão)" na que o vendedor não disse
         const def = tipologia ? contexto.definicao(base) : null
-        const definicoes = def ? escolhasDescritas(def, escolhas ?? {}).map((e) => `${e.descricao}: ${e.rotulo ?? 'padrão da tipologia'}${e.doVendedor ? '' : ' (padrão)'}`) : []
+        const definicoes = def ? definicoesDoItem(def, escolhas ?? {}) : []
         const largura = numero(l.largura_mm)
         const altura = numero(l.altura_mm)
         const ambientes = Array.isArray(l.ambientes) && l.ambientes.length ? linhaDosAmbientes({ ambientes: l.ambientes as AmbienteDaFolha[] }) : null

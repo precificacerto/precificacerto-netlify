@@ -884,13 +884,13 @@ describe('(6) a RECUSA chega como texto, inteira e nomeada', () => {
         expect(r.texto).not.toMatch(/Esquadrias? \d/)
     })
 
-    it('o arremate interno de 70 mm (BZ1770), que tem várias variantes e nenhuma branca: FALTA nomeada com as candidatas — nenhuma variante é escolhida', async () => {
+    it('o arremate interno de 70 mm (BZ1770) em BRANCO: a ponte não tem BRANCO, e o nome técnico acha o 90531 — o CÓDIGO afirma a cor (9053 + 1, BRANCO na tabela da Wolf), aceito pelo dono do produto em 12/11/2026', async () => {
         const t = await M().lerFamiliasDaEmpresa(TENANT)
         const r = await M().mensagemDoLevantamento(TENANT, t, lev({ escolhas: { ARI: 2, MAE: 2 } }))
         expect(r.desfecho).toBe('levantou')
-        expect(r.texto).toContain('Sem preço — fica fora dos totais, e o orçamento sai PARCIAL:')
-        expect(r.texto).toMatch(/• BZ1770\/WOLFF \([^)]*\) em BRANCO tem \d+ candidatos na tabela de preço, e nenhum é escolhido/)
-        expect(r.texto).not.toMatch(/• 9053\d+ \(BZ1770/)
+        expect(r.texto).toContain('• 90531 (BZ1770/WOLFF)')
+        expect(r.texto).not.toContain('PARCIAL')
+        expect(r.texto).not.toMatch(/• 9053\d\d \(BZ1770/)
     })
 
     it('OUTRO DP: "a tipologia DP-01 não tem as abas do motor importadas"', async () => {

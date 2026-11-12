@@ -167,6 +167,50 @@ export function nomeiaOutraCor(descricao: string | null | undefined, pedida: str
     const cor = palavrasDeCor(cores)
     return [...new Set(d.trim().split(' ').filter((w) => cor.has(w) && w !== nome))]
 }
+/**
+ * A COR AFIRMADA DE UM ITEM — a hierarquia do dono do produto, 12/11/2026, à noite (`docs/regras/cor-afirmada-pelo-codigo.md`; supera, neste ponto,
+ * a regra de 25/10 "recusa quando a descrição não diz a cor"):
+ *   a. o SUFIXO DO CÓDIGO, quando está na tabela de cores do fornecedor, DECIDE — a descrição não precisa repetir (90531 = 9053 + 1, BRANCO);
+ *   b. sem sufixo conhecido, a PALAVRA DE COR da descrição decide ("LAMINADO GOLDEN OAK" é cor escrita, não "sem cor");
+ *   c. nenhum dos dois: a cor NÃO FOI AFIRMADA — e com cor pedida, o item não serve.
+ * O sufixo só se lê numa FAMÍLIA: os códigos do mesmo degrau que dividem um prefixo (9053 em 90531, 905320, 905321…); o prefixo comum é a base, e o
+ * que sobra é o dígito da cor. Um código sozinho não tem família, e o sufixo dele não se conhece. O ".1" (face menor) sai antes.
+ */
+export type CorAfirmada = { por: 'sufixo'; cor: string } | { por: 'descricao'; palavras: string[]; frases: string[] } | { por: 'nenhuma' }
+const semFaceMenor = (c: string) => (c.endsWith('.1') ? c.slice(0, -2) : c)
+/**
+ * O prefixo comum dos códigos da família (sem o ".1"). Só É família quando pelo menos DOIS códigos terminam, depois do prefixo, num código da tabela
+ * de cores — senão o prefixo é coincidência (8427 e 83571 dividem o "8", e nenhum dos dois é o "8" + uma cor). Sem família, vazio.
+ */
+export function baseDaFamilia(codigos: readonly string[], cores: readonly CorDoFornecedor[]): string {
+    const cs = [...new Set(codigos.map(semFaceMenor))]
+    if (cs.length < 2) return ''
+    let p = cs[0]
+    for (const c of cs) while (!c.startsWith(p)) p = p.slice(0, -1)
+    const daTabela = new Set(cores.map((x) => x.codigo))
+    return p !== '' && cs.filter((c) => c.length > p.length && daTabela.has(c.slice(p.length))).length >= 2 ? p : ''
+}
+export function corAfirmada(codigo: string, descricao: string | null | undefined, base: string, cores: readonly CorDoFornecedor[], nomeTecnico: string): CorAfirmada {
+    const c = semFaceMenor(codigo)
+    if (base !== '' && c.startsWith(base) && c.length > base.length) {
+        const daTabela = cores.find((x) => x.codigo === c.slice(base.length))
+        if (daTabela) return { por: 'sufixo', cor: descricaoNormalizada(daTabela.nome) }
+    }
+    const frases = coresNaDescricao(descricao, cores)
+    const palavras = nomeiaOutraCor(descricao, null, cores, nomeTecnico)
+    return palavras.length ? { por: 'descricao', palavras, frases } : { por: 'nenhuma' }
+}
+/** A cor afirmada é a pedida? Pelo sufixo, o nome da tabela; pela descrição, a frase da tabela ou — escrita de outro jeito — as mesmas palavras de cor. */
+export function corAfirmadaEhAPedida(a: CorAfirmada, pedida: string, cores: readonly CorDoFornecedor[]): boolean {
+    if (a.por === 'sufixo') return a.cor === pedida
+    if (a.por === 'nenhuma') return false
+    if (a.frases.some((f) => f !== pedida)) return false
+    if (a.frases.includes(pedida)) return true
+    const daPedida = [...palavrasDeCor([{ grupo: '', codigo: '', nome: pedida }])].filter((w) => palavrasDeCor(cores).has(w)).sort()
+    return daPedida.length > 0 && [...a.palavras].sort().join(' ') === daPedida.join(' ')
+}
+const descreverCor = (a: CorAfirmada) => (a.por === 'sufixo' ? `o código diz ${a.cor}` : a.por === 'descricao' ? `a descrição diz ${a.palavras.join(' ')}` : 'nem o código nem a descrição dizem a cor')
+
 /** O código + o dígito da cor; o ".1" final (face menor) fica no fim: 1317.1 + 1 = 13171.1. */
 export function codigoComCor(base: string, digito: string): string {
     return base.endsWith('.1') ? `${base.slice(0, -2)}${digito}.1` : `${base}${digito}`
@@ -218,6 +262,8 @@ export function resolverReferencia<I extends ItemResolvivel>(ref: ReferenciaProc
         // no nome técnico, o item que É o produto (a descrição começa com o nome) exclui os que só o citam
         const ancorados = como === 'nome_tecnico' ? d.candidatas.filter((i) => nomeTecnicoNaDescricao(nome, i.descricao).noInicio) : []
         const doDegrau = ancorados.length ? ancorados : d.candidatas
+        // a família do degrau (para o sufixo de cor do código): os códigos dos candidatos
+        const base = como === 'nome_tecnico' ? baseDaFamilia(doDegrau.map((i) => i.codigo), doGrupo(ctx)) : ''
         // o guarda: a descrição do item concorda com a do motor
         const passam: I[] = []
         for (const item of doDegrau) {
@@ -226,10 +272,14 @@ export function resolverReferencia<I extends ItemResolvivel>(ref: ReferenciaProc
             if (emComum === 0) { if (!recusadas.some((x) => x.item === item)) recusadas.push({ item, porque: `a descrição não concorda com a do motor (${ref.descricaoDoMotor ?? ''})` }); continue }
             // no nome técnico, a cor que a descrição nomeia tem de ser a pedida (pela PALAVRA de cor, não só pela frase da tabela); sem cor pedida,
             // o item que nomeia uma cor não serve
+            // a cor AFIRMADA (o sufixo do código, senão a palavra da descrição) tem de ser a pedida; sem cor pedida, o item que afirma cor não serve
             if (como === 'nome_tecnico') {
-                const outras = nomeiaOutraCor(item.descricao, pedida, doGrupo(ctx), nome)
-                if (outras.length && pedida === null) { recusadas.push({ item, porque: `a descrição nomeia cor (${outras.join(', ')}), e a cor não foi dita` }); continue }
-                if (outras.length) { recusadas.push({ item, porque: `a descrição nomeia outra cor (${outras.join(', ')}), e a pedida é ${ref.corPedida}` }); continue }
+                const a = corAfirmada(item.codigo, item.descricao, base, doGrupo(ctx), nome)
+                if (pedida === null && a.por !== 'nenhuma') { recusadas.push({ item, porque: `${descreverCor(a)}, e a cor não foi dita` }); continue }
+                if (pedida !== null && !corAfirmadaEhAPedida(a, pedida, doGrupo(ctx))) {
+                    recusadas.push({ item, porque: a.por === 'nenhuma' ? `${descreverCor(a)}: a cor ${ref.corPedida} não foi afirmada` : `${descreverCor(a)}, e a pedida é ${ref.corPedida}` })
+                    continue
+                }
             }
             passam.push(item)
         }
@@ -240,7 +290,7 @@ export function resolverReferencia<I extends ItemResolvivel>(ref: ReferenciaProc
         }
         // o nome técnico com mais de um: a descrição que NOMEIA A COR PEDIDA vence a que não nomeia cor nenhuma (o 905320 "PRETO TEXTURADO"
         // sobre o 90531 sem cor, numa esquadria preto texturado); depois, a que COMEÇA com o nome; depois, a de mais palavras em comum
-        const comAPedida = pedida === null ? [] : passam.filter((i) => ` ${descricaoNormalizada(i.descricao)} `.includes(` ${pedida} `))
+        const comAPedida = pedida === null ? [] : passam.filter((i) => corAfirmada(i.codigo, i.descricao, base, doGrupo(ctx), nome).por === 'sufixo' || ` ${descricaoNormalizada(i.descricao)} `.includes(` ${pedida} `))
         const daCor = comAPedida.length ? comAPedida : passam
         if (daCor.length === 1) return { achada: true, como, item: daCor[0] }
         const noInicio = daCor.filter((i) => nomeTecnicoNaDescricao(nome, i.descricao).noInicio)

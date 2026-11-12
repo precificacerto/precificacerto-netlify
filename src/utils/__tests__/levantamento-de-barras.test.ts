@@ -240,10 +240,11 @@ describe('(4) o código do item: um valor por código', () => {
         expect(L().codigoDaPeca('BZ0012/WOLFF', 'PRETO', REGRAS)).toEqual({ ok: true, codigo: '10491', origem: 'SEM_VARIANTE' })
     })
 
-    it('O MOTOR DE HOJE (o BZ0012 em CLICK, antes da correção do arquivo): a ponte não tem BRANCO, e a escada segue — o nome técnico acha o 10491 ("BZ0012 - BASE DA GUARNIÇÃO - CLICK", que não nomeia cor)', () => {
+    it('O MOTOR DE HOJE (o BZ0012 em CLICK, antes da correção do arquivo): a ponte não tem BRANCO, e o nome técnico acha o 10491 ("BZ0012 - BASE DA GUARNIÇÃO - CLICK") — mas nem o código (sem família) nem a descrição afirmam BRANCO: FALTA nomeada (a cor afirmada, 12/11/2026)', () => {
         const r = ok([esquadria({ escolhas: { MAE: 2 } })], { regras: REGRAS_DE_HOJE })
-        expect(r.faltas).toEqual([])
-        expect(r.resolucoes['10491']).toMatchObject({ como: 'nome_tecnico' })
+        expect(faltasDe(r)).toEqual([['DESCRICAO_NAO_CONCORDA', 'BZ0012/WOLFF', 1]])
+        expect(r.faltas[0].frase).toContain('a cor BRANCO não foi afirmada')
+        expect(r.resolucoes['10491']).toBeUndefined()
     })
 
     it('A VARIANTE ÚNICA SÓ SERVE PARA A COR QUE É — sempre, sem lista de cores da empresa: o BZ0006 (só em BRANCO) em PRETO, ROXO ou qualquer outra é recusa', () => {

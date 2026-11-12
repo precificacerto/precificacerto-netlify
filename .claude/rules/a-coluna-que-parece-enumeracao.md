@@ -178,6 +178,10 @@ entre eles), 1 `CLICK` e 2 de aço galvanizado. Sem a guarda, uma esquadria PRET
 código branco — a troca pelo parecido que esta página e a R3 proíbem. Com a empresa só em BRANCO, como
 em produção hoje, a guarda não muda resultado nenhum. Implementada em `levantamento-de-barras.ts`.
 
+> **SUPERADA EM PARTE em 12/11/2026, à noite (`docs/regras/cor-afirmada-pelo-codigo.md`):** no degrau do nome técnico, quando o CÓDIGO do item
+> carrega a cor (o sufixo, numa família, está na tabela de cores do fornecedor), ele decide, e a descrição não precisa dizê-la. O "recusa quando a
+> descrição não diz a cor" continua valendo quando nem o código nem a descrição afirmam a cor.
+
 ## A variante única só serve para a cor que é — dono do produto, 08/11/2026 (substitui a regra e a guarda de 25/10/2026)
 
 Formulação do dono do produto, registrada como está:

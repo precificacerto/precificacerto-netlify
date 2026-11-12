@@ -120,8 +120,10 @@
 2. **A cor escrita de outro jeito.** As descrições da Wolf escrevem `LAMINADO GOLDEN OAK`, `LAMINADO NOGUEIRA`, `LAMINADO OAK`, `PRETO ALUMÍNIO`; a tabela de cores diz `AMADEIRADO GOLDEN OAK`, `AMADEIRADO NOGUEIRA`. Pela frase inteira, essas variantes passavam por "sem cor" e serviriam a um pedido BRANCO. Corrigido: a cor é lida pela PALAVRA (as palavras dos nomes da tabela, menos EXTERNO e AMADEIRADO, que também são palavra de peça).
 3. **A cor pedida vence a ausência de cor.** No nome técnico, a descrição que nomeia a cor pedida vence a que não nomeia cor nenhuma (BZ1770 em PRETO TEXTURADO: `905320`, não o `90531`).
 
-## Para o dono do produto decidir
+## Decidido pelo dono do produto (12/11/2026, à noite)
 
-- **BZ1770 em BRANCO cai no `90531`** (`BZ1770 - GUARNIÇÃO ARREMATE INTERNO 17X70MM`, sem cor na descrição) pelo nome técnico. A regra de 25/10 dizia "BZ1770 em BRANCO é recusa (oito variantes, nenhuma branca)". Pela escada aprovada (o item que não nomeia cor serve à cor pedida), ele passa. Se o 90531 não for branco, a correção é no dado (a descrição) ou na regra.
-- **GM42N cai no `9721`** (`... 4 FOLHAS - ALUMÍNIO`), e **FR106 no `9511`** e **BZ3016 no `10251`** (`... PINGADEIRA`): os três sem cor na descrição, e pelo mesmo motivo.
-- **1317.1, 1318.1, 2681 e 2681.1** saem pelo exato com descrição sem cor.
+**ACEITO:** BZ1770 → `90531`, GM42N → `9721`, FR106 → `9511`, BZ3016 → `10251`. O CÓDIGO carrega a cor (9053 + 1, 972 + 1, 951 + 1, 1025 + 1, e 1 é
+BRANCO na tabela de cores da Wolf). A hierarquia — sufixo do código na tabela de cores, senão a palavra de cor da descrição, senão recusa — está em
+`docs/regras/cor-afirmada-pelo-codigo.md`, e supera neste ponto a regra de 25/10. Refeita a medição com ela: os mesmos números (50 · 4 · 4 · 5 · 5).
+
+- **1317.1, 1318.1, 2681 e 2681.1** saem pelo exato com descrição sem cor: o exato acha o código que o motor deu, e a hierarquia da cor é do nome técnico.

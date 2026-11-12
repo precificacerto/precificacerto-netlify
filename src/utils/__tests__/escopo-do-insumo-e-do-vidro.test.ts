@@ -76,3 +76,5 @@ describe('os escopos', () => {
         expect(S().escopoDoVidro(TODOS, p)).toEqual([])
     })
 })
+
+export {}

@@ -21,7 +21,8 @@
  *   - OS TRÊS CAMINHOS (dono do produto, 12/11/2026, o comando único), separados aqui e em nenhum outro lugar:
  *       PERFIL → a barra inteira rateada por milímetro (o de sempre);
  *       INSUMO → a quantidade × o custo da unidade (`custo` do item: "para item vendido por unidade, o bruto é custo") × a cascata;
- *       VIDRO  → os m² × o preço por m² (`custo` do item) × a cascata.
+ *       VIDRO  → os m² × o preço por m² (`custo` do item) × a cascata. O `custo` da categoria VIDRO é R$/m² PELA CATEGORIA: `unidade = 'PC'` e
+ *                `vendido_por = 'unidade'` nos itens da Estrela estão errados (`docs/regras/vidro-por-metro-quadrado.md`).
  *   - FALTA DE PREÇO NÃO IMPEDE A EVOLUÇÃO (12/11/2026, substitui o "nada evolui"): o código sem preço fica FORA do custo e sai em `faltas`,
  *     nomeado; o orçamento é parcial. A falta de TEMPO e a do valor do minuto continuam recusa (`faltou-dado-recusa-nomeada.md`).
  *   - A ENTRADA DA PRECIFICAÇÃO (decisão D2, 09/11/2026): ao motor vai o custo LÍQUIDO DOS MATERIAIS somado e os MINUTOS somados; a mão de

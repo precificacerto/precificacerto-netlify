@@ -22,7 +22,7 @@ SUITES = [T + s for s in [
     'levantamento-de-barras.test.ts', 'levantamento-caso-gerson-boss.test.ts', 'levantamento-da-conversa.test.ts', 'escopo-do-insumo-e-do-vidro.test.ts',
     'atendimentos-ia-orcamento-calculado.test.ts', 'atendimentos-ia-arquivo-do-orcamento.test.ts', 'atendimentos-ia-travessia-do-levantamento.test.ts',
     'atendimentos-ia-cadeia-do-sim.test.ts', 'atendimentos-ia-orcamentos-ia.test.ts', 'atendimentos-ia-levantamento-por-nome.test.ts',
-    'avaliador-insumos-e-vidros.test.ts',
+    'avaliador-insumos-e-vidros.test.ts', 'custo-do-levantamento-tres-caminhos.test.ts', 'definicoes-do-item.test.ts',
 ]]
 
 MUTACOES = [
@@ -42,6 +42,11 @@ MUTACOES = [
     ('R13', 'a ambiguidade fora do nome técnico escolhe a primeira', [(RES, "        if (como !== 'nome_tecnico') {\n            return falta(ref, 'AMBIGUA'", "        if (como !== 'nome_tecnico') {\n            return { achada: true, como, item: passam[0] }\n            return falta(ref, 'AMBIGUA'")]),
     ('R14', 'a palavra de ligação conta como concordância', [(RES, "        p.length > 1 && !PALAVRAS_DE_LIGACAO.has(p) &&", "        p.length > 0 &&")]),
     ('R15', 'o nome técnico conta no guarda (o IL50 da escova)', [(RES, "!daCor.has(p) && p !== nome))", "!daCor.has(p)))")]),
+    # a cor afirmada (12/11/2026, à noite)
+    ('H1', 'o sufixo do código não decide', [(RES, "        if (daTabela) return { por: 'sufixo', cor: descricaoNormalizada(daTabela.nome) }\n", "")]),
+    ('H2', 'o prefixo de coincidência vira família', [(RES, "daTabela.has(c.slice(p.length))).length >= 2 ? p : ''", "daTabela.has(c.slice(p.length))).length >= 0 ? p : ''")]),
+    ('H3', 'a cor não afirmada serve à pedida', [(RES, "    if (a.por === 'nenhuma') return false\n", "    if (a.por === 'nenhuma') return true\n")]),
+    ('H4', 'a frase da tabela não vence a palavra (EXTERNO PRETO TEXTURADO vira PRETO TEXTURADO)', [(RES, "    if (a.frases.some((f) => f !== pedida)) return false\n", "")]),
     # o vidro
     ('V1', 'o composto entra com espessura dita', [(VID, "        if (v.composto && (dito.espessura !== null || dito.tipo !== null)) return false\n", "")]),
     ('V2', 'o vidro ambíguo escolhe o primeiro', [(VID, "    if (candidatos.length === 1) return { item: candidatos[0], como: 'texto' }", "    if (candidatos.length >= 1) return { item: candidatos[0], como: 'texto' }")]),
@@ -71,7 +76,7 @@ MUTACOES = [
     ('A2', 'o rodapé volta ao meio da página', [(ARQ, "    y = FIM - rodape\n", "")]),
     ('A3', 'o bloco do vendedor some', [(ARQ, "    if (d.paraOVendedor) blocos.push(['PARA O VENDEDOR', linhasParaOVendedor(d.paraOVendedor), null])\n", "")]),
     ('A4', 'a guarda do cliente ligada', [(ARQ, "export const GUARDA_DO_ENVIO_AO_CLIENTE_LIGADA = false", "export const GUARDA_DO_ENVIO_AO_CLIENTE_LIGADA = true")]),
-    ('A5', 'as definições sem o "(padrão)"', [(ARQS, "${e.doVendedor ? '' : ' (padrão)'}", "")]),
+    ('A5', 'as definições sem o "(padrão)"', [(ARQS, "${e.doVendedor ? '' : ' (padrão)'}`)", "`)")]),
     ('A6', 'as barras do vendedor pela soma do líquido', [(ARQS, "n_barras: Math.round(x.bruto / x.unidade)", "n_barras: Math.round(x.consumo / (x.medida ?? 1))")]),
     # a conversa depois do "sim"
     ('C1', 'depois do "sim" o texto inteiro volta junto com o arquivo', [(CONV, "            if (sim.enviadoPara && telefonesCasam(sim.enviadoPara, c.telefone)) {", "            if (sim.enviadoPara && false) {")]),

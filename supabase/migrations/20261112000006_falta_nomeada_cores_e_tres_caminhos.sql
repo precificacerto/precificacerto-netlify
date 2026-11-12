@@ -1,3 +1,4 @@
+-- APLICAR E VERIFICAR NO BANCO ANTES DO MERGE: o código do PR e esta migração só funcionam JUNTOS. Mergeado antes, todo cálculo de orçamento com insumo ou vidro resolvido RECUSA.
 -- ════════════════════════════════════════════════════════════════════════════════════════
 -- 20261112000006 — a FALTA NOMEADA no orçamento, a TABELA DE CORES do fornecedor, os TRÊS CAMINHOS do custo
 -- (perfil, insumo, vidro), a FOTOGRAFIA da resolução de referência e o CÓDIGO do vidro.
@@ -11,9 +12,17 @@
 -- ║ GRAVA DADO? Só a tabela de cores da Wolf (19 linhas, catálogo da plataforma, sem tenant). Nenhum
 -- ║ dado de conta é escrito, alterado ou apagado. As partes que executam são ASCII; os acentos estão
 -- ║ só em comentário.
--- ║ SEM ELA o código não quebra o que existe: sem a tabela de faltas, um orçamento com falta de preço
--- ║ é RECUSADO como antes (a regra de 08/11), nomeando as faltas; sem as colunas da fotografia, do
--- ║ caminho e do código do vidro, o material é gravado sem elas e o resultado diz `sem_migracao`.
+-- ║ A ORDEM (dono do produto, 12/11/2026, à noite): (a) o arquivo inteiro e o md5 vão a ele; (b) ele lê até
+-- ║ a última linha e autoriza; (c) o PO aplica, e ele confere no banco; (d) só então o merge. É o inverso
+-- ║ da 20261112000003 de manhã, e a mesma armadilha: migração e código que só funcionam juntos.
+-- ║ O QUE QUEBRA SE O PR FOR MERGEADO ANTES (o código recusa nomeando, não corrompe dado):
+-- ║   - sem a coluna `caminho` do material: TODO cálculo com insumo ou vidro resolvido RECUSA
+-- ║     ("o insumo e o vidro no custo do orçamento: ... migração 20261112000006 não foi aplicada");
+-- ║     o material só de perfil é gravado sem a fotografia, e o resultado diz `sem_migracao`;
+-- ║   - sem `orcamentista_orcamento_falta`: o orçamento com falta de preço RECUSA (a regra de 08/11);
+-- ║   - sem `orcamentista_fornecedor_cor`: os degraus "código + cor" e "nome técnico" não rodam, e
+-- ║     o que eles achariam vira falta (9 dos 68 perfis da Wolf em BRANCO, medição 5.3);
+-- ║   - sem `vidro_codigo`: o vidro vai só pelo texto (nenhum foi escolhido ainda).
 -- ╚══════════════════════════════════════════════════════════════════════════════════════
 --
 -- POR QUÊ — decisões do dono do produto, 12/11/2026 (o comando único):

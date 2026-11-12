@@ -5,7 +5,7 @@
  * produção (Wolf, lidos em 12/11/2026); as cores, as da aba CORES que a migração 20261112000006 grava.
  */
 import {
-    COMO_ACHOU, GRUPO_DE_COR, candidatasDoDegrau, codigoComCor, coresNaDescricao, nomeTecnicoNaDescricao, nomeiaOutraCor, palavrasSignificativas, resolverReferencia,
+    COMO_ACHOU, GRUPO_DE_COR, baseDaFamilia, candidatasDoDegrau, corAfirmada, corAfirmadaEhAPedida, codigoComCor, coresNaDescricao, nomeTecnicoNaDescricao, nomeiaOutraCor, palavrasSignificativas, resolverReferencia,
     semOSufixo, sufixoDoFornecedor, tabelaNoEscopo, type CorDoFornecedor, type ReferenciaProcurada,
 } from '@/lib/atendimentos-ia/resolucao-de-referencia'
 
@@ -37,6 +37,9 @@ describe('as formas', () => {
     })
     it('as palavras significativas: sem ligação, sem número ou medida, sem as cores do fornecedor e sem o nome técnico', () => {
         expect([...palavrasSignificativas('ESCOVA DE VEDAÇÃO COM BARREIRA 10X6MM - PRETO IL50', CORES, 'IL50')].sort()).toEqual(['BARREIRA', 'ESCOVA', 'VEDACAO'])
+    })
+    it('o nome técnico SEM ALGARISMO também não conta como concordância (só o número o tirava antes)', () => {
+        expect([...palavrasSignificativas('ESCOVA PARA TELA', CORES, 'TELA')]).toEqual(['ESCOVA'])
     })
     it('o nome técnico DELIMITADO e sem os espaços internos: IL50 casa "IL 50", não IL501 nem BIL50', () => {
         expect(nomeTecnicoNaDescricao('IL50', 'INTERLOCK PORTA IL 50 - BRANCO')).toEqual({ casou: true, noInicio: false })
@@ -93,8 +96,8 @@ describe('a escada, degrau a degrau', () => {
         const r = resolverReferencia(ref('SF92/WOLFF', 'FOLHA DE PORTA', 'PRETO TEXTURADO'), itens, PERFIL)
         expect(como(r)).toBe('DESCRICAO_NAO_CONCORDA')
         expect('candidatas' in r ? r.candidatas.map((c) => c.item.codigo) : []).toEqual(['9691'])
-        // e sem o item ancorado, o que cita o nome segue para o guarda
-        expect(como(resolverReferencia(ref('SF92/WOLFF', 'REFORÇO FOLHA'), itens.slice(1), PERFIL))).toBe('nome_tecnico:8427')
+        // e sem o item ancorado, o que cita o nome segue para o guarda (sem cor pedida: o reforço de aço não tem cor)
+        expect(como(resolverReferencia(ref('SF92/WOLFF', 'REFORÇO FOLHA', null), itens.slice(1), PERFIL))).toBe('nome_tecnico:8427')
     })
     it('4) A COR PELA PALAVRA (medido na tabela da Wolf): "LAMINADO GOLDEN OAK", "LAMINADO NOGUEIRA", "PRETO ALUMÍNIO" nomeiam cor mesmo sem a frase da tabela; "ARREMATE EXTERNO" não', () => {
         const perfil = CORES.filter((c) => c.grupo === GRUPO_DE_COR.perfil).concat([{ grupo: GRUPO_DE_COR.perfil, codigo: '21', nome: 'AMADEIRADO GOLDEN OAK' }, { grupo: GRUPO_DE_COR.perfil, codigo: '37', nome: 'AMADEIRADO NOGUEIRA' }])
@@ -106,6 +109,30 @@ describe('a escada, degrau a degrau', () => {
         // e no degrau: a variante de cor escrita de outro jeito não serve ao BRANCO
         const itens = [item('102419', 'BZ20010 - PERFIL PARA CAIXA DE PERSIANA 200MM - LAMINADO GOLDEN OAK'), item('10241', 'BZ20010 - PERFIL PARA CAIXA DE PERSIANA 200MM - BRANCO')]
         expect(como(resolverReferencia(ref('BZ20010/WOLFF', 'CAIXA DE PERSIANA'), itens, { cores: perfil, grupoDeCor: GRUPO_DE_COR.perfil }))).toBe('nome_tecnico:10241')
+    })
+    it('4) A COR AFIRMADA (12/11/2026, à noite): o SUFIXO DO CÓDIGO decide quando está na tabela; senão a palavra da descrição; senão a cor não foi afirmada', () => {
+        // a família 9053: 90531 (BRANCO pelo sufixo 1, a descrição sem cor), 905320 (PRETO TEXTURADO pelo sufixo 20)
+        const familia = [item('90531', 'BZ1770 - GUARNIÇÃO ARREMATE INTERNO 17X70MM'), item('905320', 'BZ1770 - GUARNIÇÃO ARREMATE INTERNO 17X70MM - PRETO TEXTURADO'),
+            item('905330', 'BZ1770 - GUARNIÇÃO ARREMATE INTERNO 17X70MM LAMINADO BRONZE')]
+        expect(como(resolverReferencia(ref('BZ1770/WOLFF', 'GUARNIÇAO ARREMATE INTERNO'), familia, PERFIL))).toBe('nome_tecnico:90531')
+        expect(como(resolverReferencia(ref('BZ1770/WOLFF', 'GUARNIÇAO ARREMATE INTERNO', 'PRETO TEXTURADO'), familia, PERFIL))).toBe('nome_tecnico:905320')
+        // o sufixo DECIDE: a descrição que diz outra cor não vence o código (o 905330 é BRONZE pelo 30, e a pedida BRONZE o acha)
+        expect(como(resolverReferencia(ref('BZ1770/WOLFF', 'GUARNIÇAO ARREMATE INTERNO', 'BRONZE'), familia, PERFIL))).toBe('nome_tecnico:905330')
+        // c. sozinho (sem família), sem cor na descrição: a cor não foi afirmada — recusa
+        const r = resolverReferencia(ref('BZ1770/WOLFF', 'GUARNIÇAO ARREMATE INTERNO'), familia.slice(0, 1), PERFIL)
+        expect(como(r)).toBe('DESCRICAO_NAO_CONCORDA')
+        expect('candidatas' in r ? r.candidatas[0].porque : '').toContain('a cor BRANCO não foi afirmada')
+        // o prefixo de coincidência não é família: 8427 e 83571 dividem o "8", e nenhum é "8" + uma cor
+        expect(baseDaFamilia(['8427', '83571'], CORES)).toBe('')
+        expect(baseDaFamilia(['90531', '905320', '905330'], CORES)).toBe('9053')
+        expect(baseDaFamilia(['9471', '94718', '94720.1'], [...CORES, { grupo: GRUPO_DE_COR.perfil, codigo: '18', nome: 'EXTERNO PRETO TEXTURADO' }])).toBe('947')
+    })
+    it('4) a palavra escrita de outro jeito decide sem sufixo: LAMINADO GOLDEN OAK é AMADEIRADO GOLDEN OAK', () => {
+        const cores = [...CORES, { grupo: GRUPO_DE_COR.perfil, codigo: '21', nome: 'AMADEIRADO GOLDEN OAK' }]
+        expect(corAfirmadaEhAPedida(corAfirmada('X', 'SF92 - FOLHA - LAMINADO GOLDEN OAK', '', cores, 'SF92'), 'AMADEIRADO GOLDEN OAK', cores)).toBe(true)
+        expect(corAfirmadaEhAPedida(corAfirmada('X', 'SF92 - FOLHA - LAMINADO GOLDEN OAK', '', cores, 'SF92'), 'BRANCO', cores)).toBe(false)
+        expect(corAfirmadaEhAPedida(corAfirmada('X', 'SF92 - FOLHA - EXTERNO PRETO TEXTURADO', '', cores, 'SF92'), 'PRETO TEXTURADO', cores)).toBe(false)
+        expect(corAfirmada('X', 'SF92 - FOLHA', '', cores, 'SF92')).toEqual({ por: 'nenhuma' })
     })
     it('4) o código só de números não é nome técnico', () => {
         expect(candidatasDoDegrau('nome_tecnico', ref('8384', 'PERSIANA'), [item('9000', 'PERSIANA 8384')], PERFIL).candidatas).toEqual([])

@@ -158,7 +158,8 @@ describe('O ARQUIVO VAI AO VENDEDOR (12/11/2026, o comando único)', () => {
     }
     it('1.5 — PARCIAL: o carimbo com o número de faltas, e a lista das faltas com os itens', () => {
         const t = textoDoPdf(gerar(dados({ faltas: FALTAS })).pdf).join('\n')
-        expect(t).toContain(carimboDoParcial(2))
+        // o carimbo é uma linha SÓ DELE (o título da lista das faltas também cita o parcial, e não conta)
+        expect(t.split('\n').filter((l) => l === carimboDoParcial(2))).toHaveLength(1)
         expect(carimboDoParcial(2)).toBe('PARCIAL — faltam 2 valores')
         expect(carimboDoParcial(1)).toBe('PARCIAL — falta 1 valor')
         expect(t).toContain('• SF92/WOLFF (itens 1, 3): SF92/WOLFF não está na tabela de preço.')
