@@ -55,13 +55,61 @@ export async function enviarArquivo(fornecedorId: string, tipo: TipoDeArquivo, a
         throw new ErroDaRota(e instanceof ErroDaRota ? e.status : 0, fraseDoArquivo(arquivo.name, (e as Error).message))
     }
     const { path, signedUrl } = assinado
-    // O mesmo formato que `uploadToSignedUrl` do storage-js manda — sem o cliente.
-    const corpo = new FormData()
-    corpo.append('cacheControl', '3600')
-    corpo.append('', arquivo)
-    const res = await fetch(signedUrl, { method: 'PUT', headers: { 'x-upsert': 'false' }, body: corpo })
-    if (!res.ok) throw new ErroDaRota(res.status, fraseDoArquivo(arquivo.name, `o envio falhou (${res.status}).`))
+    const falha = await enviarComNovaTentativa(signedUrl, arquivo)
+    if (falha !== null) throw new ErroDaRota(falha.status, fraseDoArquivo(arquivo.name, falha.frase))
     return { path, nome: arquivo.name }
+}
+
+/**
+ * A NOVA TENTATIVA DO ENVIO (dono do produto, 12/11/2026: "a falha é de transporte e merece nova tentativa em vez de erro seco"). O caso: um 520
+ * do Cloudflare na frente do Storage, com um .xlsx de 128 KB; o arquivo não chegou, e a tabela não foi salva.
+ *
+ * - SÓ a falha de TRANSPORTE se repete: 502, 503, 504, 520 a 524 (o Cloudflare) e a falha de rede (o `fetch` que lança). Um 4xx é resposta do
+ *   Storage sobre o pedido (assinatura vencida, arquivo grande demais) e repetir não muda nada.
+ * - O CAMINHO É FIXO POR ENVIO: a repetição usa a MESMA URL assinada, o mesmo caminho. Uma tentativa que chegou e cuja resposta se perdeu faz a
+ *   seguinte receber "já existe" (`x-upsert: false`) — e isso, numa REPETIÇÃO, é o arquivo que chegou: conta como enviado. Caminho novo por
+ *   tentativa deixaria o primeiro órfão no bucket. Quem confere que o objeto está lá é a rota que grava (`objetoExiste`), antes de gravar.
+ * - Até `TENTATIVAS_DO_ENVIO` vezes, com espera crescente entre elas. Esgotadas, a frase diz que foi o transporte, e que pode tentar de novo.
+ */
+export const TENTATIVAS_DO_ENVIO = 3
+export const ESPERA_DO_ENVIO_MS = [1000, 3000]
+const STATUS_DE_TRANSPORTE = new Set([502, 503, 504, 520, 521, 522, 523, 524])
+export const falhaDeTransporte = (status: number) => STATUS_DE_TRANSPORTE.has(status)
+export const fraseDoEnvioQueNaoChegou = (status: number | null, tentativas: number) =>
+    `o envio não chegou ao armazenamento depois de ${tentativas} tentativas (${status === null ? 'falha de rede' : status}). É falha de transporte, não do arquivo: tente de novo em instantes.`
+
+/** O Storage diz "já existe" com 409, ou com 400 e `statusCode: "409"` / `error: "Duplicate"` no corpo (as duas formas da API). */
+async function jaExiste(res: Response): Promise<boolean> {
+    if (res.status === 409) return true
+    if (res.status !== 400) return false
+    try {
+        const j = await res.clone().json() as { statusCode?: string | number; error?: string }
+        return String(j?.statusCode) === '409' || j?.error === 'Duplicate'
+    } catch { return false }
+}
+
+/** Manda o arquivo à URL assinada, repetindo a falha de transporte. Devolve null quando chegou, ou o status e a frase da falha. */
+export async function enviarComNovaTentativa(signedUrl: string, arquivo: File, esperar: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms))): Promise<{ status: number; frase: string } | null> {
+    let ultimo: number | null = null
+    for (let tentativa = 1; tentativa <= TENTATIVAS_DO_ENVIO; tentativa++) {
+        if (tentativa > 1) await esperar(ESPERA_DO_ENVIO_MS[tentativa - 2] ?? ESPERA_DO_ENVIO_MS[ESPERA_DO_ENVIO_MS.length - 1])
+        // O mesmo formato que `uploadToSignedUrl` do storage-js manda — sem o cliente.
+        const corpo = new FormData()
+        corpo.append('cacheControl', '3600')
+        corpo.append('', arquivo)
+        let res: Response
+        try {
+            res = await fetch(signedUrl, { method: 'PUT', headers: { 'x-upsert': 'false' }, body: corpo })
+        } catch {
+            ultimo = null
+            continue
+        }
+        if (res.ok) return null
+        if (tentativa > 1 && await jaExiste(res)) return null
+        if (!falhaDeTransporte(res.status)) return { status: res.status, frase: `o envio falhou (${res.status}).` }
+        ultimo = res.status
+    }
+    return { status: ultimo ?? 0, frase: fraseDoEnvioQueNaoChegou(ultimo, TENTATIVAS_DO_ENVIO) }
 }
 
 /**

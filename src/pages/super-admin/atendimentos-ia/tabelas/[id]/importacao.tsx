@@ -20,6 +20,12 @@
  * importação que o botão dispara — uma vez, e o parâmetro sai da URL em seguida, para o recarregar não reimportar. O resultado aparece
  * como sempre; a recusa do arquivo não toca no cadastro, que já estava salvo.
  *
+ * A TROCA NO MESMO LUGAR (dono do produto, 12/11/2026): a edição que troca o arquivo chega aqui com o arquivo NOVO na URL (`arquivo_path` e
+ * `arquivo_nome`, o `arquivo_pendente` da edição) — ele ainda não é o arquivo da tabela. A importação lê dele e, com a tabela já tendo itens,
+ * NÃO grava: devolve a PRÉVIA, e a tela mostra "entram N, saem M, ficam K", com TODOS os códigos que saem. Só "Confirmar a troca" grava —
+ * com o sha256 que a prévia mostrou — e o arquivo da tabela é trocado junto com os itens. Encolher o total pede a caixa "Permitir que a
+ * tabela encolha". "Cancelar" não grava nada, e o arquivo de hoje continua o da tabela.
+ *
  * "NÃO IMPORTADA" (mesma decisão): a tabela com 0 itens GRAVADOS (a contagem do banco, em `/conteudo`) diz isso num aviso, com o motivo quando
  * há — a recusa da importação, ou a importação que não deixou item. A tela NUNCA fica em estado de sucesso sem itens gravados: se a rota
  * estourou o tempo (504) ou recusou, o estado é lido do banco de novo e o aviso aparece. Antes da primeira leitura do conteúdo não há
@@ -29,13 +35,13 @@
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/router'
-import { Alert, Button, Card, Empty, List, Space, Table, Tag, Typography } from 'antd'
+import { Alert, Button, Card, Checkbox, Empty, List, Space, Table, Tag, Typography } from 'antd'
 import { ArrowLeftOutlined } from '@ant-design/icons'
 import { Layout } from '@/components/layout/layout.component'
 import { PAGE_TITLES } from '@/constants/page-titles'
 import { ROUTES } from '@/constants/routes'
 import { useAuth } from '@/hooks/use-auth.hook'
-import { PARAMETRO_IMPORTAR_AO_ABRIR, ROTAS_DO_CATALOGO, arquivoImportavel, extensaoDoArquivo, fraseDoArquivoNaoImportavel, telaDaImportacao } from '@/utils/atendimentos-ia-catalogo'
+import { PARAMETROS_DO_ARQUIVO_PENDENTE, PARAMETRO_IMPORTAR_AO_ABRIR, ROTAS_DO_CATALOGO, arquivoImportavel, extensaoDoArquivo, fraseDoArquivoNaoImportavel, telaDaImportacao } from '@/utils/atendimentos-ia-catalogo'
 import type { Aviso, ContagensDaGravacao, TipologiaLida } from '@/utils/atendimentos-ia-importacao'
 import { quandoFoiImportado, textoDoAviso } from '@/utils/atendimentos-ia-importacao-apresentacao'
 import { ErroDaRota, chamarRota } from '@/page-parts/atendimentos-ia/api'
@@ -55,6 +61,8 @@ interface UltimaImportacao {
 }
 /** `itens` são os de preço GRAVADOS no banco (02/11/2026) — é com eles que a tela diz "não importada". */
 interface Conteudo { formulas: number; tipologias: TipologiaLida[]; itens: number }
+/** A prévia da troca, como a rota a devolve (`previaDaTroca` + a frase, o sha256 e o arquivo lido). */
+export interface PreviaDaImportacao { antes: number; entram: number; ficam: number; novos: number; saem: string[]; encolhe: boolean; frase: string; sha256: string; arquivo_nome: string; arquivo_trocado: boolean }
 interface ErroDaImportacao { motivo: string; divergencia: { enviado: ContagensDaGravacao; gravado: ContagensDaGravacao } | null }
 
 const num = (x: number) => x.toLocaleString('pt-BR')
@@ -90,6 +98,10 @@ export default function ImportacaoDaTabela() {
     /** O disparo automático (`?importar=1`) acontece UMA vez por abertura — nem o recarregar da lista nem o efeito repetido o repetem. */
     const disparou = useRef(false)
     const importarAoAbrir = router.query[PARAMETRO_IMPORTAR_AO_ABRIR] !== undefined
+    /** O arquivo NOVO que a edição deixou pendente; guardado aqui porque o parâmetro sai da URL ao abrir. */
+    const [pendente, setPendente] = useState<{ path: string; nome: string } | null>(null)
+    const [previa, setPrevia] = useState<PreviaDaImportacao | null>(null)
+    const [permitirEncolher, setPermitirEncolher] = useState(false)
 
     const carregar = useCallback(async () => {
         if (!id) return
@@ -114,8 +126,12 @@ export default function ImportacaoDaTabela() {
     useEffect(() => {
         if (!ehSuperAdmin || !id || !importarAoAbrir || disparou.current) return
         disparou.current = true
+        const p = router.query[PARAMETROS_DO_ARQUIVO_PENDENTE.path]
+        const n = router.query[PARAMETROS_DO_ARQUIVO_PENDENTE.nome]
+        const doPedido = typeof p === 'string' && typeof n === 'string' && p !== '' && n !== '' ? { path: p, nome: n } : null
+        setPendente(doPedido)
         router.replace(telaDaImportacao(id), undefined, { shallow: true })
-        importar()
+        importar({ arquivo: doPedido })
     // `importar` é função do componente, estável por fechar sobre `id`; o disparo é guardado por `disparou`
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [ehSuperAdmin, id, importarAoAbrir])
@@ -126,14 +142,28 @@ export default function ImportacaoDaTabela() {
     }
     if (!ehSuperAdmin) return null
 
-    async function importar() {
+    /** Pede a importação: sem confirmação, a rota devolve a prévia (tabela com itens); com ela, grava. O arquivo pendente vai nas duas. */
+    async function importar(opcoes: { arquivo?: { path: string; nome: string } | null; confirmar?: PreviaDaImportacao } = {}) {
         if (!id) return
+        const arquivo = opcoes.arquivo !== undefined ? opcoes.arquivo : pendente
         setImportando(true)
         setErroDaImportacao(null)
         try {
-            await chamarRota(ROTAS_DO_CATALOGO.importacao(id), 'POST')
+            const corpo: Record<string, unknown> = {}
+            if (arquivo) { corpo.arquivo_path = arquivo.path; corpo.arquivo_nome = arquivo.nome }
+            if (opcoes.confirmar) { corpo.confirmar = true; corpo.sha256 = opcoes.confirmar.sha256; corpo.permitir_encolher = permitirEncolher }
+            const r = await chamarRota<{ previa?: PreviaDaImportacao; importacao_id?: string }>(ROTAS_DO_CATALOGO.importacao(id), 'POST', corpo)
+            if (r.previa && !r.importacao_id) {
+                setPrevia(r.previa)
+                setPermitirEncolher(false)
+            } else {
+                setPrevia(null)
+                setPendente(null)
+            }
         } catch (e) {
-            const corpo = (e instanceof ErroDaRota ? e.corpo : null) as { enviado?: ContagensDaGravacao; gravado?: ContagensDaGravacao } | null
+            const corpo = (e instanceof ErroDaRota ? e.corpo : null) as { enviado?: ContagensDaGravacao; gravado?: ContagensDaGravacao; previa?: PreviaDaImportacao } | null
+            // a recusa da confirmação (encolher sem permissão, arquivo que mudou) traz a prévia de novo: ela fica na tela
+            if (corpo?.previa) setPrevia(corpo.previa)
             setErroDaImportacao({
                 motivo: (e as Error).message,
                 divergencia: corpo?.enviado && corpo?.gravado ? { enviado: corpo.enviado, gravado: corpo.gravado } : null,
@@ -161,13 +191,37 @@ export default function ImportacaoDaTabela() {
         <Layout title={PAGE_TITLES.SUPER_ADMIN_IA_IMPORTACAO} subtitle={tabela?.fornecedor_nome ?? undefined}>
             <Space style={{ marginBottom: 12, width: '100%', justifyContent: 'space-between' }} wrap>
                 <Button icon={<ArrowLeftOutlined />} onClick={voltar}>Voltar para o fornecedor</Button>
-                {tabela && <Button type="primary" onClick={importar} loading={importando}>Importar</Button>}
+                {tabela && <Button type="primary" onClick={() => importar()} loading={importando} disabled={previa !== null}>Importar</Button>}
             </Space>
 
             {erroAoLer ? (
                 <Alert type="error" showIcon message="Não foi possível ler a tabela." description={erroAoLer} action={<Button onClick={carregar}>Tentar de novo</Button>} />
             ) : tabela === null ? null : (
                 <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                    {previa && (
+                        <Card title="Prévia da troca do arquivo — nada foi gravado ainda" data-previa-da-troca>
+                            <Space direction="vertical" style={{ width: '100%' }}>
+                                <Typography.Text>Arquivo lido: <strong>{previa.arquivo_nome}</strong>{previa.arquivo_trocado ? ' (o arquivo novo; o de hoje continua o da tabela até a confirmação)' : ''}</Typography.Text>
+                                <Typography.Text strong data-frase-da-previa>{previa.frase}</Typography.Text>
+                                <Typography.Text type="secondary">A tabela tem {num(previa.antes)} itens hoje.</Typography.Text>
+                                {previa.saem.length > 0 && (
+                                    <div data-codigos-que-saem>
+                                        <Typography.Text>{previa.saem.length === 1 ? 'Sai este código' : `Saem estes ${num(previa.saem.length)} códigos`} (o arquivo novo não os traz):</Typography.Text>
+                                        <div style={{ maxHeight: 200, overflowY: 'auto', marginTop: 4, overflowWrap: 'anywhere' }}>{previa.saem.join(', ')}</div>
+                                    </div>
+                                )}
+                                {previa.encolhe && (
+                                    <Checkbox checked={permitirEncolher} onChange={(e) => setPermitirEncolher(e.target.checked)} data-permitir-encolher>
+                                        Permitir que a tabela encolha de {num(previa.antes)} para {num(previa.entram)} itens
+                                    </Checkbox>
+                                )}
+                                <Space wrap>
+                                    <Button type="primary" loading={importando} disabled={previa.encolhe && !permitirEncolher} onClick={() => importar({ confirmar: previa })} data-confirmar-a-troca>Confirmar a troca</Button>
+                                    <Button disabled={importando} onClick={() => { setPrevia(null); setPendente(null) }} data-cancelar-a-troca>Cancelar</Button>
+                                </Space>
+                            </Space>
+                        </Card>
+                    )}
                     {erroDaImportacao && (
                         <Alert
                             type="error"

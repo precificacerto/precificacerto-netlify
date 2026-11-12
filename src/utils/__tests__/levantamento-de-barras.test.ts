@@ -57,7 +57,7 @@ const DE_PARA = require('./fixtures/fixture_de-para_DP-02.json')
 // O estreitamento é por `'recusas' in r`: com `strictNullChecks: false`, o tsc não estreita a união
 // pelo booleano `ok`.
 
-type Regra = { codigo: string; codigo_wvetro: string; cor: string | null }
+type Regra = { codigo: string; codigo_wvetro: string; cor: string | null; descricao?: string | null }
 type Item = { codigo: string; descricao: string | null; medida_barra_m: number | null; valor_barra_interno: number | null; valor_metro_interno: number | null }
 type Esquadria = { tipologia: string; L_mm: number; H_mm: number; quantidade: number; escolhas?: Record<string, number>; espessura_vidro_mm?: number | null }
 
@@ -319,6 +319,50 @@ describe('(5) o item da tabela de preço', () => {
         expect(r.recusas[0].mensagem).toContain('BZ0010/WOLFF')
         expect(r.recusas[0].falta).toMatch(/^uma barra em que caiba a maior peça do código 10511, perfil BZ0010\/WOLFF: a peça tem [\d,]+ mm e a barra, 1000 mm$/)
         expect(r.recusas[0].caminho).toBeNull()
+    })
+})
+
+describe('(5b) A RESOLUÇÃO DE REFERÊNCIA no cálculo (dono do produto, 12/11/2026): a mesma da conferência', () => {
+    it('todo código da DP-02 achado pelo código EXATO, e o resultado diz como — é o que a fotografia do material grava', () => {
+        const r = ok([esquadria()])
+        expect(Object.keys(r.resolucoes).sort()).toEqual(['1023', '10511', '8432', '8433', '9641', '9681', '9711', '9801'])
+        expect(Object.values(r.resolucoes).every((x) => x.como === 'exato')).toBe(true)
+        expect(r.resolucoes['9641'].item.codigo).toBe('9641')
+    })
+
+    it('O SUFIXO DO FORNECEDOR: a tabela com 1023/WOLFF fecha a mesma DP-02, com as mesmas barras e o mesmo total — e diz que foi pelo sufixo', () => {
+        const comSufixo = ITENS.map((i) => (i.codigo === '1023' ? { ...i, codigo: '1023/WOLFF' } : i))
+        const r = ok([esquadria()], { itens: comSufixo })
+        expect(r.total.barras_por_codigo).toEqual({ '1023': 1, '10511': 1, '8432': 1, '8433': 1, '9641': 1, '9681': 2, '9711': 1, '9801': 1 })
+        expect(r.total.total_por_barra_inteira).toBeCloseTo(1342.0875, 6)
+        expect(r.resolucoes['1023']).toMatchObject({ como: 'sufixo_do_fornecedor', item: { codigo: '1023/WOLFF' } })
+    })
+
+    it('a AMBIGUIDADE: 1023 com o sufixo em duas grafias — nenhuma é escolhida, a recusa nomeia o código procurado e as duas candidatas', () => {
+        const base = ITENS.find((i) => i.codigo === '1023')!
+        const itens = [...ITENS.filter((i) => i.codigo !== '1023'), { ...base, codigo: '1023/WOLFF' }, { ...base, codigo: '1023 /wolff' }]
+        const r = recusado([esquadria()], { itens })
+        expect(r.recusas.map((x) => [x.motivo, x.codigo])).toEqual([['REFERENCIA_AMBIGUA', '1023']])
+        expect(r.recusas[0].falta).toContain('o código 1023 tem 2 candidatos na tabela de preço do fornecedor do motor, e nenhum é escolhido: 1023/WOLFF')
+        expect(r.recusas[0].falta).toContain('1023 /wolff')
+        expect(r.recusas[0].falta).toContain('perfil 1023/WOLFF')
+    })
+
+    it('A DESCRIÇÃO QUE NÃO BATE: um item de mesma base e outro produto não vira preço — a recusa nomeia a candidata', () => {
+        const regras = REGRAS.map((g) => (g.codigo === '1023' ? { ...g, descricao: 'CLICK GUIA DE ALUMÍNIO PARA TRILHO DE PVC' } : g))
+        const base = ITENS.find((i) => i.codigo === '1023')!
+        const itens = [...ITENS.filter((i) => i.codigo !== '1023'), { ...base, codigo: '10239', descricao: 'MAÇANETA QUALQUER' }]
+        const r = recusado([esquadria()], { regras, itens })
+        expect(r.recusas.map((x) => [x.motivo, x.codigo])).toEqual([['REFERENCIA_NAO_RESOLVIDA', '1023']])
+        expect(r.recusas[0].falta).toContain('com a mesma base há 10239 (MAÇANETA QUALQUER)')
+    })
+
+    it('O APROXIMADO COM A DESCRIÇÃO: o mesmo produto em outro código de mesma base vale — e diz que foi aproximado', () => {
+        const regras = REGRAS.map((g) => (g.codigo === '1023' ? { ...g, descricao: 'CLICK GUIA DE ALUMÍNIO PARA TRILHO DE PVC' } : g))
+        const base = ITENS.find((i) => i.codigo === '1023')!
+        const itens = [...ITENS.filter((i) => i.codigo !== '1023'), { ...base, codigo: '10230', descricao: 'Click guia de alumínio para trilho de PVC' }]
+        const r = ok([esquadria()], { regras, itens })
+        expect(r.resolucoes['1023']).toMatchObject({ como: 'aproximado_com_descricao', item: { codigo: '10230' } })
     })
 })
 

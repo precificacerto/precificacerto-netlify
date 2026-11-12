@@ -278,19 +278,22 @@ export async function obterTabela(id: string): Promise<{ id: string; fornecedor_
 }
 
 /** Os dois arquivos da tabela — caminho no bucket e nome original —, para a importação. */
-export async function obterArquivosDaTabela(id: string): Promise<{ id: string; arquivo_path: string; arquivo_nome: string; motor_path: string | null; motor_nome: string | null; categoria_chave: string | null } | null> {
-    const ts = await q(db().from('orcamentista_tabela').select('id, arquivo_path, arquivo_nome, motor_path, motor_nome, categoria_chave').eq('id', id))
-    return (ts[0] as { id: string; arquivo_path: string; arquivo_nome: string; motor_path: string | null; motor_nome: string | null; categoria_chave: string | null } | undefined) ?? null
+export async function obterArquivosDaTabela(id: string): Promise<{ id: string; fornecedor_id: string; arquivo_path: string; arquivo_nome: string; motor_path: string | null; motor_nome: string | null; categoria_chave: string | null } | null> {
+    const ts = await q(db().from('orcamentista_tabela').select('id, fornecedor_id, arquivo_path, arquivo_nome, motor_path, motor_nome, categoria_chave').eq('id', id))
+    return (ts[0] as { id: string; fornecedor_id: string; arquivo_path: string; arquivo_nome: string; motor_path: string | null; motor_nome: string | null; categoria_chave: string | null } | undefined) ?? null
 }
 
 /**
- * A gravação da importação: UMA chamada à função `importar_conteudo_da_tabela`
- * (`20261020000002`), que apaga e insere as quatro tabelas de conteúdo e grava o registro numa
- * transação só. Devolve as contagens que a função gravou.
+ * A IMPORTAÇÃO NO MESMO LUGAR (dono do produto, 12/11/2026; migração `20261112000003`, aplicada): UMA chamada a `superadmin_importar_tabela`,
+ * que trava a tabela, conta antes, recusa ENCOLHER sem `p_permitir_encolher` (23514), chama `importar_conteudo_da_tabela`, confere depois, troca
+ * o arquivo (quando vem `arquivo`) e loga com o sha256 e quem importou — numa transação só. Devolve o que a de dentro devolve, mais
+ * `itens_antes`, `itens_depois`, `sha256` e `arquivo_trocado`.
  */
-/** As contagens que a função gravou: as quatro tabelas de sempre e as nove abas, pela chave do payload. */
-export async function importarConteudo(tabelaId: string, payload: unknown): Promise<{ importacao_id: string; itens: number; regras: number; tipologias: number; formulas: number } & Record<string, number | string>> {
-    return q(db().rpc('importar_conteudo_da_tabela', { p_tabela_id: tabelaId, p_payload: payload }))
+export async function importarTabela(entrada: { por: string; tabelaId: string; sha256: string; payload: unknown; permitirEncolher: boolean; arquivo: { path: string; nome: string } | null }): Promise<{ importacao_id: string; itens: number; regras: number; tipologias: number; formulas: number; itens_antes: number; itens_depois: number; sha256: string; arquivo_trocado: boolean } & Record<string, number | string | boolean>> {
+    return q(db().rpc('superadmin_importar_tabela', {
+        p_por: entrada.por, p_tabela_id: entrada.tabelaId, p_sha256: entrada.sha256, p_payload: entrada.payload,
+        p_permitir_encolher: entrada.permitirEncolher, p_arquivo_path: entrada.arquivo?.path ?? null, p_arquivo_nome: entrada.arquivo?.nome ?? null,
+    }))
 }
 
 /** A tabela, para a tela da importação: os nomes dos arquivos e o fornecedor. Sem os caminhos do bucket. */
@@ -456,4 +459,57 @@ export const codigoDoErro = (e: unknown): string | null => (e instanceof ErroDoB
 export function falhaInterna(res: { status: (n: number) => { json: (b: unknown) => unknown } }, contexto: string, e: unknown, mensagem: string) {
     console.error(`atendimentos-ia ${contexto}:`, (e as { message?: string })?.message ?? 'erro', codigoDoErro(e) ?? '')
     return res.status(500).json({ error: mensagem })
+}
+
+// ── A conferência de referências do motor (dono do produto, 12/11/2026) ─────────────────────────────────────────────────────────
+/**
+ * O que a conferência lê: o motor (com o FORNECEDOR e as FAMÍLIAS dele — o escopo da resolução), as regras dele e TODOS os itens das tabelas de
+ * preço (com a tabela, o fornecedor e a família). Paginado de mil em mil — o PostgREST corta em mil linhas, e cortar aqui faria o código aparecer
+ * como "não achado" sem estar. Só leitura. `null` quando o motor não existe. Todos os itens vêm, também os de fora do escopo: o escopo é aplicado
+ * pela conferência (`tabelaNoEscopo`), e a contagem dos dois lados aparece na tela.
+ */
+export async function lerParaConferirReferencias(motorId: string): Promise<{
+    motor: { id: string; nome: string | null; arquivado: boolean; fornecedor_id: string; fornecedor: string | null; familias: string[] }
+    regras: Array<{ codigo: string; codigo_wvetro: string | null; descricao: string | null; cor: string | null; tipologias: string[] | null }>
+    itens: Array<{
+        codigo: string; descricao: string | null; custo: number | null; valor_barra_interno: number | null; valor_metro_interno: number | null
+        cred_icms_pct: number | null; cred_pis_cofins_pct: number | null; cred_ipi_pct: number | null; nc_ipi_pct: number | null; ncm: string | null
+        tabela_id: string; tabela_arquivo: string | null; fornecedor_id: string; fornecedor: string | null; familia: string | null; categoria: string | null
+    }>
+} | null> {
+    const ms = await q(db().from('orcamentista_motor').select('id, nome, arquivado_em, fornecedor_id').eq('id', motorId))
+    if (ms.length === 0) return null
+    const familias = (await q(db().from('orcamentista_motor_familia').select('familia').eq('motor_id', motorId))).map((f: Linha) => f.familia as string).sort()
+    const PAGINA = 1000
+    const todas = async (consulta: (de: number) => PromiseLike<{ data: unknown; error: { message?: string; code?: string } | null }>) => {
+        const out: Linha[] = []
+        for (let de = 0; ; de += PAGINA) {
+            const linhas = await q(consulta(de))
+            out.push(...linhas)
+            if (linhas.length < PAGINA) return out
+        }
+    }
+    const regras = await todas((de) => db().from('orcamentista_motor_regra').select('codigo, codigo_wvetro, descricao, cor, tipologias').eq('motor_id', motorId).order('id').range(de, de + PAGINA - 1))
+    const itens = await todas((de) => db().from('orcamentista_tabela_item')
+        .select('codigo, descricao, custo, valor_barra_interno, valor_metro_interno, cred_icms_pct, cred_pis_cofins_pct, cred_ipi_pct, nc_ipi_pct, ncm, tabela_id')
+        .order('id').range(de, de + PAGINA - 1))
+    const tabelas = await q(db().from('orcamentista_tabela').select('id, arquivo_nome, categoria_chave, fornecedor_id, familia'))
+    const fornecedores = await q(db().from('orcamentista_fornecedor').select('id, nome'))
+    const nomeDo = new Map(fornecedores.map((f: Linha) => [f.id as string, f.nome as string]))
+    const tabelaDe = new Map(tabelas.map((t: Linha) => [t.id as string, t]))
+    const numero = (v: unknown) => (v === null || v === undefined ? null : Number(v))
+    return {
+        motor: { id: ms[0].id, nome: ms[0].nome ?? null, arquivado: ms[0].arquivado_em !== null, fornecedor_id: ms[0].fornecedor_id, fornecedor: nomeDo.get(ms[0].fornecedor_id) ?? null, familias },
+        regras: regras.map((r) => ({ codigo: r.codigo, codigo_wvetro: r.codigo_wvetro ?? null, descricao: r.descricao ?? null, cor: r.cor ?? null, tipologias: r.tipologias ?? null })),
+        itens: itens.map((i) => {
+            const t = tabelaDe.get(i.tabela_id)
+            return {
+                codigo: i.codigo, descricao: i.descricao ?? null,
+                custo: numero(i.custo), valor_barra_interno: numero(i.valor_barra_interno), valor_metro_interno: numero(i.valor_metro_interno),
+                cred_icms_pct: numero(i.cred_icms_pct), cred_pis_cofins_pct: numero(i.cred_pis_cofins_pct), cred_ipi_pct: numero(i.cred_ipi_pct), nc_ipi_pct: numero(i.nc_ipi_pct),
+                ncm: i.ncm ?? null, tabela_id: i.tabela_id, tabela_arquivo: t?.arquivo_nome ?? null,
+                fornecedor_id: t?.fornecedor_id ?? '', fornecedor: t ? nomeDo.get(t.fornecedor_id) ?? null : null, familia: t?.familia ?? null, categoria: t?.categoria_chave ?? null,
+            }
+        }),
+    }
 }

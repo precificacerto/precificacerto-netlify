@@ -145,12 +145,13 @@ export default function TabelasDoFornecedor() {
             else if (t.familia) corpo.familia = t.familia
             if (t.categoria) corpo.categoria_chave = t.categoria
             if (t.arquivo) { const a = await enviarArquivo(id, 'arquivo', t.arquivo); corpo.arquivo_path = a.path; corpo.arquivo_nome = a.nome }
-            const r = await chamarRota<{ ok: true; aviso?: string }>(ROTAS_DO_CATALOGO.tabela(tabelaEmEdicao.id), 'PATCH', corpo)
+            const r = await chamarRota<{ ok: true; aviso?: string; arquivo_pendente?: { path: string; nome: string } }>(ROTAS_DO_CATALOGO.tabela(tabelaEmEdicao.id), 'PATCH', corpo)
             if (r.aviso) message.warning(r.aviso, 8)
             else message.success('Tabela alterada')
             editarTabela(null)
-            // arquivo trocado: a Importação roda na tela da tabela; sem troca de arquivo, nada é reimportado (02/11/2026)
-            if (t.arquivo) await router.push(telaDaImportacao(tabelaEmEdicao.id, true))
+            // arquivo trocado: ele fica PENDENTE e a Importação mostra a prévia (entram, saem, ficam); confirmada, troca o arquivo junto com os
+            // itens (12/11/2026). Sem troca de arquivo, nada é reimportado (02/11/2026)
+            if (t.arquivo && r.arquivo_pendente) await router.push(telaDaImportacao(tabelaEmEdicao.id, true, r.arquivo_pendente))
             else await carregar()
         } catch (e) {
             setErroDaTabela((e as Error).message)

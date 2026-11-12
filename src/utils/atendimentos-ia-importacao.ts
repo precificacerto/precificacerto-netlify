@@ -1041,32 +1041,49 @@ export function conferirGravacaoDoMotor(
     return LISTAS_DO_MOTOR_DA_ETAPA.every((k) => mandou[k] === voltou[k]) ? null : { enviado: mandou, gravado: voltou }
 }
 
-// ── A trava dos itens que o arquivo não traz ─────────────────────────────────────────────
+// ── A PRÉVIA DA TROCA: entram, saem, ficam ─────────────────────────────────────────────────
 /**
- * Os códigos GRAVADOS para a tabela que o arquivo NÃO traz: a importação os apagaria e não os
- * regravaria (`tabela-que-a-importacao-apaga.md`). A comparação é EXATA, sem caixa nem acento
- * normalizados: o que a importação regrava é o código como o leitor o produziu, e casar o parecido
- * deixaria passar a linha que some (`faltou-dado-recusa-nomeada.md`). Sem repetição, na ordem gravada.
+ * A TROCA DO ARQUIVO NO MESMO LUGAR (dono do produto, 12/11/2026): "atualizar a tabela de um fornecedor é trocar o arquivo da tabela que já
+ * existe, no mesmo lugar." A trava de 25/10/2026 (recusar todo arquivo que não trouxesse algum código gravado — o caso dos 24 vidros da
+ * 5f7acebf) recusaria TODO reajuste em que o fornecedor tira um item da linha; ela VIRA ESTA PRÉVIA: antes de gravar, a tela mostra
+ * "entram N, saem M, ficam K", nomeando os códigos que saem, e só grava com a confirmação. ENCOLHER o total continua exigindo a permissão
+ * explícita (`p_permitir_encolher` de `superadmin_importar_tabela`, 20261112000003).
+ *
+ * A comparação é EXATA, sem caixa nem acento normalizados (`codigo-do-motor-nao-se-normaliza.md`): o que a importação regrava é o código
+ * como o leitor o produziu, e casar o parecido esconderia a linha que sai.
+ *   - `antes`: os itens gravados hoje;
+ *   - `entram`: os itens do arquivo (o que a tabela terá depois);
+ *   - `saem`: os códigos gravados que o arquivo NÃO traz (a importação os apaga e não os regrava), na ordem gravada, sem repetição;
+ *   - `ficam`: os códigos gravados que o arquivo traz de novo;
+ *   - `novos`: os do arquivo que a tabela não tinha.
  */
-export function itensQueOArquivoNaoTraz(gravados: readonly string[], payload: { itens: ReadonlyArray<{ codigo: string }> }): string[] {
+export interface PreviaDaTroca { antes: number; entram: number; ficam: number; novos: number; saem: string[]; encolhe: boolean }
+export function previaDaTroca(gravados: readonly string[], payload: { itens: ReadonlyArray<{ codigo: string }> }): PreviaDaTroca {
     const doArquivo = new Set(payload.itens.map((i) => i.codigo))
-    return [...new Set(gravados.filter((c) => !doArquivo.has(c)))]
+    const gravadosUnicos = new Set(gravados)
+    const saem = [...gravadosUnicos].filter((c) => !doArquivo.has(c))
+    const ficam = [...gravadosUnicos].filter((c) => doArquivo.has(c)).length
+    return { antes: gravados.length, entram: payload.itens.length, ficam, novos: [...doArquivo].filter((c) => !gravadosUnicos.has(c)).length, saem, encolhe: payload.itens.length < gravados.length }
 }
 
-const CODIGOS_NOMEADOS = 10
-
-/**
- * A recusa da importação em tabela com itens que o arquivo não traz (dono do produto, 25/10/2026).
- * O caso que a originou: 24 vidros inseridos à mão na tabela 5f7acebf, que nenhum arquivo traz.
- * Diz quantos e nomeia até dez — todos de uma vez, sem esconder o resto.
- */
-export function fraseDaImportacaoTravadaPorItensForaDoArquivo(codigos: readonly string[]): string {
-    const nomeados = codigos.slice(0, CODIGOS_NOMEADOS).join(', ')
-    const resto = codigos.length > CODIGOS_NOMEADOS ? ` e mais ${codigos.length - CODIGOS_NOMEADOS}` : ''
-    return `A importação está travada para esta tabela: ${codigos.length} ${codigos.length === 1 ? 'item gravado não está' : 'itens gravados não estão'} `
-        + `no arquivo (${nomeados}${resto}). A importação apaga todos os itens da tabela e regrava só os do arquivo, `
-        + `e ${codigos.length === 1 ? 'esse item se perderia' : 'esses itens se perderiam'}. Nada foi alterado.`
+/** A prévia numa frase: "entram N, saem M, ficam K". Os códigos que saem vão em lista à parte, todos. */
+export function fraseDaPrevia(p: PreviaDaTroca): string {
+    const n = (x: number) => x.toLocaleString('pt-BR')
+    return `Entram ${n(p.entram)}, saem ${n(p.saem.length)}, ficam ${n(p.ficam)}`
+        + (p.novos > 0 ? ` (${n(p.novos)} ${p.novos === 1 ? 'código novo' : 'códigos novos'})` : '') + '.'
 }
+
+/** Encolher sem a permissão: a recusa, ANTES de gravar, com as contagens. É a mesma regra da função do banco (23514). */
+export function fraseDoEncolherSemPermissao(p: Pick<PreviaDaTroca, 'antes' | 'entram'>): string {
+    const n = (x: number) => x.toLocaleString('pt-BR')
+    return `O arquivo novo traz ${n(p.entram)} itens, e a tabela tem ${n(p.antes)} hoje: ela encolheria ${n(p.antes - p.entram)} itens. `
+        + 'Para gravar assim, marque "Permitir que a tabela encolha" e confirme de novo. Nada foi alterado.'
+}
+
+export const FRASE_DO_ARQUIVO_QUE_MUDOU =
+    'O arquivo não é mais o da prévia (o sha256 mudou): veja a prévia de novo antes de confirmar. Nada foi alterado.'
+export const FRASE_DA_CONFIRMACAO_QUE_FALTA =
+    'Esta tabela já tem itens: a troca grava só com a confirmação, depois da prévia. Nada foi alterado.'
 
 // ── O limite de tempo da gravação, e o motivo quando ela falha ─────────────────────────────
 /**

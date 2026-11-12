@@ -68,6 +68,7 @@
  */
 import { avaliarTipologia, faltaDoVidroSemBaguete, type AvisoDoAvaliador, type Tipologia } from './avaliador-de-formulas'
 import { agruparEmBarras, milimetrosDaBarra, type BarraDoCodigo, type ResultadoDoCodigo, type TotalDoLevantamento } from './agrupador-de-barras'
+import { resolverReferencia, type ComoAchou } from './resolucao-de-referencia'
 
 
 // ── A entrada ─────────────────────────────────────────────────────────────────────────────
@@ -79,8 +80,8 @@ export type EsquadriaDoLevantamento = {
     escolhas?: Readonly<Record<string, number>>
     espessura_vidro_mm?: number | null
 }
-/** Uma linha de `orcamentista_motor_regra`, só com o que a ponte lê. */
-export type RegraDoDePara = { codigo: string; codigo_wvetro: string; cor: string | null }
+/** Uma linha de `orcamentista_motor_regra`, só com o que a ponte lê — e a descrição, que a resolução de referência compara. */
+export type RegraDoDePara = { codigo: string; codigo_wvetro: string; cor: string | null; descricao?: string | null }
 /** Uma linha de `orcamentista_tabela_item`, só com o que a barra e o preço leem. */
 export type ItemDaTabela = {
     codigo: string
@@ -180,6 +181,11 @@ export type ResultadoDoLevantamento =
         /** Os dois totais sempre saem: o item sem valor é recusa (08/11/2026). */
         total: TotalDoLevantamento
         avisos: Array<AvisoDoAvaliador & { esquadria: number }>
+        /**
+         * A RESOLUÇÃO DE CADA CÓDIGO (12/11/2026): pelo código do motor, o item da tabela de onde veio o preço e COMO foi achado
+         * (`resolucao-de-referencia.ts`). É o que a fotografia do material grava, para auditar como cada preço foi parar ali.
+         */
+        resolucoes: Record<string, { item: ItemDaTabela; como: ComoAchou }>
     }
     | { ok: false; recusas: RecusaDoLevantamento[] }
 
@@ -245,7 +251,9 @@ function ponte(perfil: string, cor: string, regras: readonly RegraDoDePara[]): {
 /** Os candidatos com descrição e valores, e a frase que nomeia os dois códigos e os dois valores. */
 function completarDoisCodigos(r: RecusaDaPonte, itens: readonly ItemDaTabela[]): RecusaDaPonte {
     const candidatos = (r.candidatos ?? []).map((c) => {
-        const it = itens.find((i) => i.codigo === c.codigo)
+        // o candidato pela MESMA resolução do cálculo (nunca uma segunda busca à parte)
+        const achado = resolverReferencia({ codigo: c.codigo, codigo_wvetro: r.perfil ?? null, descricao: null, cor: null }, itens)
+        const it = 'item' in achado ? achado.item : undefined
         return { codigo: c.codigo, descricao: it?.descricao ?? null, valor_barra_interno: it?.valor_barra_interno ?? null, valor_metro_interno: it?.valor_metro_interno ?? null }
     })
     const lista = candidatos.map((c) => `${c.codigo} (${formatarReais(c.valor_barra_interno)} a barra)`)
@@ -353,16 +361,20 @@ export function levantarBarras(entrada: EntradaDoLevantamento): ResultadoDoLevan
         for (const esquadria of esquadrias) parciais.push({ ...r, esquadria })
     }
 
-    // 3. o item de cada código: existe, e numa linha só
+    // 3. o item de cada código, pela RESOLUÇÃO DE REFERÊNCIA (dono do produto, 12/11/2026) — a mesma da conferência: o exato, o sufixo do
+    //    fornecedor, a cor e o aproximado com a descrição; duas candidatas, ou a descrição que não bate, é falta nomeada, nunca palpite. Os
+    //    itens já chegam no ESCOPO do motor (o fornecedor e a família dele), que quem chama aplica
     const itemDoCodigo: Record<string, ItemDaTabela> = {}
+    const resolucoes: Record<string, { item: ItemDaTabela; como: ComoAchou }> = {}
     for (const perfil of perfis) {
         const codigo = codigoDoPerfil[perfil]
         if (codigo === undefined) continue
-        const linhas = entrada.itens.filter((i) => i.codigo === codigo)
+        const regra = entrada.regras.find((g) => g.codigo === codigo && g.codigo_wvetro === perfil)
+        const r = resolverReferencia({ codigo, codigo_wvetro: perfil, descricao: regra?.descricao ?? null, cor: regra?.cor ?? null }, entrada.itens)
         const esquadrias = [...new Set(brutas.filter((b) => b.perfil === perfil).map((b) => b.esquadria))]
-        if (linhas.length === 1) {
+        if ('item' in r) {
             // FALTOU PREÇO, NADA EVOLUI (08/11/2026): o item sem um dos valores é recusa, como o item ausente — zero é valor
-            const it = linhas[0]
+            const it = r.item
             const semValor = ([['valor_barra_interno', 'da barra'], ['valor_metro_interno', 'do metro']] as const).filter(([campo]) => !Number.isFinite(it[campo] as number))
             for (const [, nome] of semValor) {
                 for (const esquadria of esquadrias) parciais.push({ origem: 'ITEM', caminho: null, motivo: 'ITEM_SEM_VALOR', perfil, cor, codigo, esquadria,
@@ -370,15 +382,24 @@ export function levantarBarras(entrada: EntradaDoLevantamento): ResultadoDoLevan
                     falta: `o valor ${nome} do código ${codigo}, perfil ${perfil}, na tabela de preço` })
             }
             itemDoCodigo[codigo] = it
+            resolucoes[codigo] = { item: it, como: r.como }
             continue
         }
-        const motivo = linhas.length === 0 ? 'ITEM_AUSENTE' : 'ITEM_EM_DUAS_LINHAS'
-        const texto = linhas.length === 0
+        const linhas = r.candidatas.map((c) => c.item)
+        // o mesmo código em duas linhas é a recusa de sempre, com os dois valores; a ambiguidade de outro degrau e a descrição que não bate
+        // dizem o código procurado, as candidatas e a razão (a frase da resolução)
+        const duasLinhas = r.motivo === 'AMBIGUA' && linhas.every((l) => l.codigo === codigo)
+        const motivo = r.motivo === 'NAO_ACHADA' ? 'ITEM_AUSENTE' : duasLinhas ? 'ITEM_EM_DUAS_LINHAS' : r.motivo === 'AMBIGUA' ? 'REFERENCIA_AMBIGUA' : 'REFERENCIA_NAO_RESOLVIDA'
+        const texto = motivo === 'ITEM_AUSENTE'
             ? `o código ${codigo} (perfil ${perfil}) não está na tabela de preço. Falta: o item ${codigo}, com a barra e o valor.`
-            : `o código ${codigo} (perfil ${perfil}) está em ${linhas.length} linhas da tabela de preço, com ${linhas.map((l) => formatarReais(l.valor_barra_interno)).join(' e ')} a barra. Um valor por código: falta dizer qual linha vale.`
-        const falta = linhas.length === 0
+            : motivo === 'ITEM_EM_DUAS_LINHAS'
+                ? `o código ${codigo} (perfil ${perfil}) está em ${linhas.length} linhas da tabela de preço, com ${linhas.map((l) => formatarReais(l.valor_barra_interno)).join(' e ')} a barra. Um valor por código: falta dizer qual linha vale.`
+                : `${r.frase} (perfil ${perfil}).`
+        const falta = motivo === 'ITEM_AUSENTE'
             ? `o código ${codigo}, perfil ${perfil}, na tabela de preço, com a barra e o valor`
-            : `dizer qual linha da tabela de preço vale para o código ${codigo}, perfil ${perfil}: ${linhas.map((l) => formatarReais(l.valor_barra_interno)).join(' ou ')} a barra`
+            : motivo === 'ITEM_EM_DUAS_LINHAS'
+                ? `dizer qual linha da tabela de preço vale para o código ${codigo}, perfil ${perfil}: ${linhas.map((l) => formatarReais(l.valor_barra_interno)).join(' ou ')} a barra`
+                : `${r.frase}, perfil ${perfil}`
         for (const esquadria of esquadrias) parciais.push({ origem: 'ITEM', caminho: null, motivo, perfil, cor, codigo, esquadria, texto, falta })
     }
 
@@ -434,6 +455,7 @@ export function levantarBarras(entrada: EntradaDoLevantamento): ResultadoDoLevan
         por_codigo: agrupado.por_codigo.map((c) => ({ ...c, perfil: perfilDoCodigo[c.codigo], descricao: itemDoCodigo[c.codigo].descricao ?? null })),
         total: agrupado.total,
         avisos: levantadas.flatMap((e) => e.avisos.map((a) => ({ ...a, esquadria: e.indice }))),
+        resolucoes,
     }
 }
 

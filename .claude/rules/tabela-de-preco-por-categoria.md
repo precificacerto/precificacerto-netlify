@@ -2051,3 +2051,34 @@ A4). Sai só a mensagem-resumo em texto do fim da coleta. "Não chame o arquivo 
 - **Prova:** `folha-do-levantamento.test.ts` (o desenho, a conferência, a paginação, o PDF e o exemplo) e `scripts/mutacoes/folha-do-levantamento.py`;
   `dados-do-levantamento.test.ts`, `arquivo-do-levantamento.test.ts`, os blocos (17) e (42) de `atendimentos-ia-levantamento-por-nome.test.ts` e
   `scripts/mutacoes/arquivo-do-levantamento-na-conversa.py`.
+
+## A troca do arquivo no MESMO lugar — dono do produto, 12/11/2026 (sem migração nova; pressupõe a `20261112000003`, aplicada)
+
+Formulação do dono do produto, registrada como está:
+
+> "atualizar a tabela de um fornecedor é trocar o arquivo da tabela que já existe, no mesmo lugar. Não se cria tabela nova a cada reajuste e não se
+> exclui a antiga." E: "Ela hoje manda fazer a única coisa que não se pode fazer: uma segunda tabela no mesmo grupo (fornecedor + família +
+> categoria) deixaria o grupo com duas e nenhuma vigente, e derivarTabelasDaConta (tabelas-da-conta.ts:106-109) para de achar a tabela."
+
+**SUBSTITUI o conserto (a) do incidente de 29/10/2026** ("o arquivo de uma tabela com algum item importado não se troca"). O (c), a edição recusada
+que tira do bucket o arquivo recém-enviado, continua.
+
+- **A edição** (`tabelas/[id].ts`) não recusa mais a troca e **não grava o arquivo novo na linha**: devolve-o como `arquivo_pendente`. O arquivo de
+  antes **nunca sai do bucket** (a parte do incidente que continuava viva); só o `motor_path` legado trocado ainda sai, se ninguém o usa.
+- **A importação** (`tabelas/[id]/importar.ts`) lê do arquivo pendente (`arquivo_path`/`arquivo_nome` no corpo, dentro da pasta do fornecedor) e,
+  com a tabela já tendo itens, **não grava**: devolve a **prévia** — entram N, saem M (todos os códigos), ficam K, os novos, `encolhe` — e o
+  `sha256` calculado no servidor. Só grava com `confirmar: true` e o **mesmo** sha256 (outro é 409, com a prévia nova). **Encolher** exige
+  `permitir_encolher: true` (409 antes de gravar; a função é a segunda trava, e só a recusa dela — a frase "encolheria" — vira esse 409, porque
+  as CHECKs dos itens também são 23514). Tabela sem item grava direto.
+- **A gravação é uma chamada só a `superadmin_importar_tabela`** (com quem importou, o sha256, a permissão e o arquivo novo): a troca do arquivo da
+  tabela e os itens andam juntos numa transação, e a linha nunca aponta um arquivo que não é o dos itens. O repositório não chama mais
+  `importar_conteudo_da_tabela` direto — é o caminho que a `20261112000005` corta no banco, depois do deploy.
+- **A trava de 25/10/2026** (`itensQueOArquivoNaoTraz`: recusar todo arquivo sem algum código gravado, o caso dos 24 vidros da 5f7acebf) **virou a
+  prévia** (`previaDaTroca`): os códigos que saem são nomeados, todos, e a confirmação é do super admin.
+- **A tela de Importação** mostra a prévia ("nada foi gravado ainda"), a caixa "Permitir que a tabela encolha" quando encolhe, "Confirmar a troca" e
+  "Cancelar" (não grava nada; o arquivo de hoje continua o da tabela).
+- **O envio ao Storage repete a falha de transporte** (502, 503, 504, 520 a 524 e a falha de rede), até 3 vezes, na MESMA URL assinada (o caminho é
+  fixo por envio); o "já existe" numa repetição é a tentativa anterior que chegou, e conta como enviado — sem órfão. Um 4xx não se repete.
+- **Prova:** os blocos "A PRÉVIA DA TROCA" de `atendimentos-ia-importar-rota.test.ts`, (5) e (6) de `atendimentos-ia-categoria-da-tabela.test.ts`, (9)
+  de `atendimentos-ia-importar-ao-salvar.test.tsx`, `atendimentos-ia-envio-com-nova-tentativa.test.ts`; 21 mutações, 21 mortas
+  (`scripts/harness/troca-no-mesmo-lugar/mutacoes.py`).

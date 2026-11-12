@@ -91,6 +91,24 @@ assim mesmo. É por isso que a regra tem **três** obrigações, e a do meio é 
 acontece depois de uma **consulta ao banco** que mostre a estrutura lá. Um aviso no corpo pede a
 ordem; a consulta é o que a confirma antes do ato.
 
+#### Aparição de 12/11/2026 — a migração que corta o acesso que a rota publicada usa (a ordem certa para a coluna, errada para o REVOKE)
+
+A `20261112000003` (a importação que não encolhe) criava a `superadmin_importar_tabela` **e**, na mesma transação, tirava o EXECUTE de
+`importar_conteudo_da_tabela` do `service_role` — e o cabeçalho mandava aplicá-la ANTES do merge. Mas a rota que estava publicada importa chamando
+`importar_conteudo_da_tabela` direto pelo `service_role`. Aplicada às 15:37:56 UTC (medido no `postgres_logs`), a ACL ficou `{postgres=X/postgres}` e
+toda importação de tabela passou a falhar por permissão, até o dono do produto rodar o GRANT à mão (nenhuma importação foi tentada na janela; a
+última é de 08/11). **O defeito é do assistente, e o dono do produto o apontou antes da aplicação** (a mensagem e a aplicação se cruzaram).
+
+**A lição, que a tabela "a ordem depende do que a migração cria" não tinha:** "antes do merge" vale para o que o código NOVO lê. O que a migração
+**tira** do código ANTIGO (REVOKE, DROP, coluna que sai, CHECK que aperta) vai em migração própria, aplicada **depois** do merge **e do deploy**, com
+isso na primeira linha do cabeçalho. Separado assim: `20261112000004` (o GRANT de volta, que versiona o rodado à mão) e `20261112000005` (o REVOKE e a
+verificação dele, "só se aplica depois que a rota nova estiver mergeada e publicada"). Prova: `scripts/harness/execute-da-importacao/`.
+
+**O cabeçalho da `20261112000003` está errado em dois pontos, e ela é imutável (aplicada), então a correção mora aqui:**
+1. o item 2 de "O QUE FAZ" e a verificação 3 (o REVOKE) — o corte saiu dela, de fato, pela `20261112000004`, e voltou na `20261112000005`;
+2. a GUARDA promete abortar com "a função nova já existente com outro corpo" — **essa conferência não existe** no bloco `$guarda$`, que confere só
+   as três tabelas e o md5 de `importar_conteudo_da_tabela`. A `20261112000005` confere o corpo da nova (`afae8023…`, o medido em produção).
+
 #### De quem são
 
 As migrações das seis inversões foram escritas pelo assistente, e os merges e as aplicações são do

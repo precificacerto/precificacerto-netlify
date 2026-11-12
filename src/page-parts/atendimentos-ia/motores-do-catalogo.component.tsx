@@ -42,7 +42,7 @@ import { Alert, Button, Card, Empty, Input, Modal, Popconfirm, Select, Space, Sw
 import { PlusOutlined, UploadOutlined } from '@ant-design/icons'
 import { chamarRota, enviarArquivo } from '@/page-parts/atendimentos-ia/api'
 import { RemocaoDoCatalogo, type AlvoDaRemocao } from '@/page-parts/atendimentos-ia/remocao-do-catalogo.component'
-import { type Categoria, type Familia, type FornecedorDaLista } from '@/utils/atendimentos-ia-catalogo'
+import { telaDasReferenciasDoMotor, type Categoria, type Familia, type FornecedorDaLista } from '@/utils/atendimentos-ia-catalogo'
 import { textoDoAviso } from '@/utils/atendimentos-ia-importacao-apresentacao'
 import type { Aviso } from '@/utils/atendimentos-ia-importacao'
 import {
@@ -140,6 +140,10 @@ export function MotoresDoCatalogo({ fornecedores, categorias, familias }: { forn
     const doMotor = novo.categoria === null ? [] : fornecedoresDaCategoria(fornecedores, novo.categoria)
     const completo = novo.fornecedor_id !== null && novo.categoria !== null && novo.familias.length > 0 && novo.arquivo !== null && nomeAceito(novo.nome)
 
+    /** A conferência de referências do motor (12/11/2026): cada código das regras contra as tabelas de preço. Só leitura. */
+    const botaoDeReferencias = (m: { id: string; nome: string }) => (
+        <Button size="small" href={telaDasReferenciasDoMotor(m.id)} aria-label={`Conferir as referências de ${m.nome}`} data-referencias-do-motor>Referências</Button>
+    )
     const botaoDeRemover = (m: MotorDoCatalogo) => (
         <Button size="small" danger type="text" onClick={() => setRemovendo({ tipo: 'motor', chave: m.id, nome: m.nome })} aria-label={`Remover ${m.nome}`} data-remover-motor>
             Remover
@@ -306,8 +310,10 @@ export function MotoresDoCatalogo({ fornecedores, categorias, familias }: { forn
                             {
                                 title: '',
                                 align: 'right',
-                                render: (_, m) => (m.arquivado_em !== null ? botaoDeRemover(m) : (
+                                render: (_, m) => (m.arquivado_em !== null ? <Space size={4} wrap style={{ justifyContent: 'flex-end' }}>{botaoDeReferencias(m)}{botaoDeRemover(m)}</Space> : (
                                     <Space size={4} wrap style={{ justifyContent: 'flex-end' }}>
+                                        {/* a conferência de referências (12/11/2026): só leitura, vale também no arquivado */}
+                                        {botaoDeReferencias(m)}
                                         {/* trocar o arquivo é MOTOR NOVO: vale também com uso (as famílias passam ao novo) */}
                                         <Button size="small" onClick={() => abrirTroca(m)} aria-label={`Trocar o arquivo de ${m.nome}`} data-trocar-arquivo>Trocar arquivo</Button>
                                         {/* editar vale também com uso: o nome e as famílias se editam; categoria e fornecedor vêm travados no modal */}

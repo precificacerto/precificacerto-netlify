@@ -33,7 +33,8 @@ export function custoNaTabelaCongelada(materiais: readonly LinhaDeMaterial[], co
     let liquido = 0
     const ausentes: string[] = []
     for (const m of materiais) {
-        const l = porCodigo.get(m.codigo)
+        // a MESMA linha, pelo código do item na tabela (a fotografia, 12/11/2026) — nunca uma segunda resolução
+        const l = porCodigo.get(m.codigo_na_tabela)
         const unidade = l ? numeroOuNulo(l.valor_barra_interno) : null
         if (!l || unidade === null || !(m.custo_bruto_unidade > 0)) { ausentes.push(m.codigo); continue }
         const unidades = m.custo_bruto_material / m.custo_bruto_unidade

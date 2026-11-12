@@ -66,6 +66,7 @@ export enum PAGE_TITLES {
   SUPER_ADMIN_IA_CONTAS = 'Contas ligadas',
   SUPER_ADMIN_IA_CONTA = 'Configuração da conta',
   SUPER_ADMIN_IA_IMPORTACAO = 'Importação da tabela',
+  SUPER_ADMIN_IA_REFERENCIAS_DO_MOTOR = 'Referências do motor',
   SUPER_ADMIN_IA_BASE_DE_CONHECIMENTO = 'Base de conhecimento',
 }
 

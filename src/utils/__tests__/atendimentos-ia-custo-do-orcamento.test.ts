@@ -16,7 +16,7 @@ const MINUTO = valorDoMinuto(CUSTO_MENSAL, MINUTOS_DA_EMPRESA) as number
 
 const COMPLETO: Percentuais = { cred_icms_pct: 12, cred_pis_cofins_pct: 9.25, cred_ipi_pct: 0, nc_ipi_pct: null, cred_ibs_pct: 0, cred_cbs_pct: 0 }
 const material = (codigo: string, valor: number | null, bloco: Percentuais = COMPLETO, medida: number | null = 6): MaterialDaTabela =>
-    ({ codigo, descricao: `PERFIL ${codigo}`, unidade: 'BR', medida_barra_m: medida, valor_barra_interno: valor, bloco })
+    ({ codigo, codigo_na_tabela: codigo, resolucao: 'exato', descricao: `PERFIL ${codigo}`, unidade: 'BR', medida_barra_m: medida, valor_barra_interno: valor, bloco })
 
 // dois itens: o A é usado pelos dois (3.000 mm no 1, 1.000 mm no 2); o B só pelo 2
 const base = (): EntradaDoCusto => ({

@@ -12,6 +12,7 @@
 import { calcularOLevantamento, mensagemDoCalculo, type EsquadriaGravada, type FamiliasDaEmpresa } from './levantamento-da-conversa'
 import { custoDoOrcamento, valorDoMinuto, PERCENTUAIS, type CustoDoItem, type MaterialDaTabela, type Percentuais } from './custo-do-orcamento'
 import type { ItemDaTabela } from './levantamento-de-barras'
+import type { ComoAchou } from './resolucao-de-referencia'
 
 /** O valor do minuto e a configuração da empresa de onde ele saiu — o mesmo par que a precificação final usa. */
 export type MaoDeObraDaEmpresa = { custoMensal: number; minutosDaEmpresa: number; valorDoMinuto: number }
@@ -23,11 +24,14 @@ export const fraseDaFamiliaSemCalculo = (rotulo: string) =>
     `a etapa de cálculo da família ${rotulo}: sem ela as barras e a mão de obra não saem, e o orçamento não tem custo`
 
 const numeroOuNulo = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null)
-/** O item da tabela como o custo o lê: o bloco pelos nomes da tabela; o que não veio é nulo, nunca 0. */
-export function materialDoItem(i: ItemDaTabela): MaterialDaTabela {
+/**
+ * O item da tabela como o custo o lê: o bloco pelos nomes da tabela; o que não veio é nulo, nunca 0. O código é o DO MOTOR (o que as peças
+ * citam); o do item vai em `codigo_na_tabela`, e `resolucao` diz como a resolução de referência achou um pelo outro (12/11/2026).
+ */
+export function materialDoItem(codigoDoMotor: string, i: ItemDaTabela, como: ComoAchou): MaterialDaTabela {
     const bloco = Object.fromEntries(PERCENTUAIS.map((p) => [p, numeroOuNulo((i as Record<string, unknown>)[p])])) as Percentuais
     return {
-        codigo: i.codigo, descricao: i.descricao ?? null, unidade: i.unidade ?? null,
+        codigo: codigoDoMotor, codigo_na_tabela: i.codigo, resolucao: como, descricao: i.descricao ?? null, unidade: i.unidade ?? null,
         medida_barra_m: numeroOuNulo(i.medida_barra_m), valor_barra_interno: numeroOuNulo(i.valor_barra_interno), bloco,
     }
 }
@@ -53,9 +57,9 @@ export async function custoDoLevantamento(tenantId: string, fonte: FamiliasDaEmp
         const fechada = calculo.maos.find((m): m is Extract<typeof m, { ok: true }> => 'custoMensal' in m)
         const valor = fechada ? valorDoMinuto(fechada.custoMensal, fechada.minutosDaEmpresa) : null
         if (fechada && valor !== null) maoDeObra = { custoMensal: fechada.custoMensal, minutosDaEmpresa: fechada.minutosDaEmpresa, valorDoMinuto: valor }
+        // os materiais pela RESOLUÇÃO do cálculo (o item de cada código do motor e como foi achado): nenhuma segunda busca à parte
         const materiais: Record<string, MaterialDaTabela> = {}
-        // o mesmo código em duas tabelas já é recusa do cálculo (ITEM_EM_DUAS_LINHAS): o primeiro basta
-        for (const i of calculo.itens) if (!materiais[i.codigo]) materiais[i.codigo] = materialDoItem(i)
+        for (const [codigo, { item, como }] of Object.entries(calculo.r.resolucoes)) materiais[codigo] = materialDoItem(codigo, item, como)
         const r = custoDoOrcamento({
             itens: calculo.r.esquadrias.map((e, j) => {
                 const m = calculo.maos[j]
