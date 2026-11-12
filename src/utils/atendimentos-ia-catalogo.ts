@@ -126,6 +126,8 @@ export const ROTAS_DO_CATALOGO = {
     familias: '/api/super-admin/atendimentos-ia/familias',
     /** UMA família (29/10/2026, migração 20261029000004): PATCH `{ rotulo, ramificacoes }` edita. Remover é a rota `catalogo/remover` (20261031000003). */
     familia: (chave: string) => `/api/super-admin/atendimentos-ia/familias/${chave}`,
+    /** A conferência de referências do motor (12/11/2026): GET, as quatro listas. Só leitura. */
+    referenciasDoMotor: (motorId: string) => `/api/super-admin/atendimentos-ia/motores/${encodeURIComponent(motorId)}/referencias`,
 } as const
 
 /**
@@ -190,6 +192,8 @@ export const rotaDoNicho = (nichoId: string, aba?: AbaDoNicho) =>
  */
 export const PARAMETRO_IMPORTAR_AO_ABRIR = 'importar'
 /** O endereço da tela de Importação de uma tabela; com `importarAoAbrir`, a tela dispara a importação assim que abre. */
+/** A tela da conferência de referências de um motor (12/11/2026). */
+export const telaDasReferenciasDoMotor = (motorId: string) => `/super-admin/atendimentos-ia/motores/${encodeURIComponent(motorId)}/referencias`
 export const telaDaImportacao = (tabelaId: string, importarAoAbrir = false) =>
     `/super-admin/atendimentos-ia/tabelas/${encodeURIComponent(tabelaId)}/importacao${importarAoAbrir ? `?${PARAMETRO_IMPORTAR_AO_ABRIR}=1` : ''}`
 /**

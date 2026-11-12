@@ -21,7 +21,7 @@ import React from 'react'
 import { act } from 'react'
 import { ROTA_DA_REMOCAO, rotaDoArrasto } from '@/utils/atendimentos-ia-remocao'
 import { createRoot } from 'react-dom/client'
-import { ROTAS_DO_CATALOGO, type FornecedorDaLista } from '@/utils/atendimentos-ia-catalogo'
+import { ROTAS_DO_CATALOGO, telaDasReferenciasDoMotor, type FornecedorDaLista } from '@/utils/atendimentos-ia-catalogo'
 import { ROTAS_DOS_MOTORES, type MotorDoCatalogo } from '@/utils/atendimentos-ia-catalogo-de-motores'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -208,6 +208,15 @@ describe('(1) a lista do catálogo', () => {
         await clicar(host.querySelector('[aria-label="Mostrar os arquivados"]'))
         expect(linha(host, M_ARQ)!.textContent).toContain('arquivado')
         expect(botao(linha(host, M_ARQ)!, 'Arquivar Velho')).toBeUndefined()
+    })
+
+    it('A CONFERÊNCIA DE REFERÊNCIAS (12/11/2026): cada motor leva à tela dele — também o arquivado, porque é só leitura', async () => {
+        const host = await montar()
+        const ref = (id: string) => linha(host, id)!.querySelector('[data-referencias-do-motor]')?.getAttribute('href')
+        expect(ref(M_WOLF)).toBe(telaDasReferenciasDoMotor(M_WOLF))
+        expect(ref(M_LIVRE)).toBe(telaDasReferenciasDoMotor(M_LIVRE))
+        await clicar(host.querySelector('[aria-label="Mostrar os arquivados"]'))
+        expect(ref(M_ARQ)).toBe(telaDasReferenciasDoMotor(M_ARQ))
     })
 
     it('500 na leitura: ERRO com a frase da rota — nunca "nenhum motor"', async () => {
