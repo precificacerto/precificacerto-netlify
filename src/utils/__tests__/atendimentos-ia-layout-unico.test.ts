@@ -364,3 +364,73 @@ describe('o layout de antes continua valendo', () => {
         expect(erroDe(r)).toContain('O layout único (abas "CABECALHO" e "ITENS", colunas por nome) também não foi encontrado.')
     })
 })
+
+describe('as OPCIONAIS de 12% do layout único — valor_metro_12 e valor_barra_12 (dono do produto, 12/11/2026)', () => {
+    const COM_12 = [...COLUNAS_DO_LAYOUT_UNICO, 'valor_metro_12', 'valor_barra_12']
+    const guia = (k: number, metro12: ExcelJS.CellValue, barra12: ExcelJS.CellValue) => ({ ...PERSIANAS[20 + k], valor_metro_12: metro12, valor_barra_12: barra12 }) as Linha
+    const doze = (r: Lida) => r.itens.map((i) => [i.codigo, i.valor_metro_12, i.valor_barra_12])
+
+    it('presentes: vão para valor_metro_12 e valor_barra_12 do item, e o 0 é zero — nenhum aviso de 12%', async () => {
+        const r = await lida({ [ABAS_DO_LAYOUT_UNICO.itens]: abaItens([guia(0, 43.925, 263.55), guia(1, 0, 0)], COM_12) })
+        expect(doze(r)).toEqual([['PS-021', 43.925, 263.55], ['PS-022', 0, 0]])
+        expect(avisosDo(r, 'coluna_de_12_ausente')).toEqual([])
+        expect(avisosDo(r, 'itens_sem_valor_de_12')).toEqual([])
+    })
+
+    it('AUSENTES do cabeçalho: não recusa — fica em branco (null, nunca 0, nunca de custo_bruto ou valor_metro), e o aviso nomeia as duas', async () => {
+        const r = await lida({ [ABAS_DO_LAYOUT_UNICO.itens]: abaItens(PERSIANAS.slice(20, 22)) })
+        expect(r.itens.every((i) => i.valor_metro_12 === null && i.valor_barra_12 === null)).toBe(true)
+        expect(r.itens[0].custo).not.toBeNull()
+        const a = avisosDo(r, 'coluna_de_12_ausente')
+        expect(a).toHaveLength(1)
+        expect(a[0].colunas).toEqual(['valor_metro_12', 'valor_barra_12'])
+        expect(a[0].mensagem).toBe('a aba "ITENS" não traz as colunas valor_metro_12 e valor_barra_12: elas ficaram em branco em todos os itens (não é zero), e a âncora do custo não tem de onde ler o valor de 12% desta tabela.')
+    })
+
+    it('só uma presente: a outra é nomeada sozinha', async () => {
+        const r = await lida({ [ABAS_DO_LAYOUT_UNICO.itens]: abaItens([guia(0, 43.925, null)], [...COLUNAS_DO_LAYOUT_UNICO, 'valor_metro_12']) })
+        expect(doze(r)).toEqual([['PS-021', 43.925, null]])
+        expect(avisosDo(r, 'coluna_de_12_ausente')[0].colunas).toEqual(['valor_barra_12'])
+    })
+
+    it('o nome é EXATO, como as 28: "VALOR_METRO_12" não é a coluna — conta como ausente e é nomeada', async () => {
+        const r = await lida({ [ABAS_DO_LAYOUT_UNICO.itens]: abaItens([guia(0, 43.925, 263.55)], [...COLUNAS_DO_LAYOUT_UNICO, 'VALOR_METRO_12', 'valor_barra_12']) })
+        expect(doze(r)).toEqual([['PS-021', null, 263.55]])
+        expect(avisosDo(r, 'coluna_de_12_ausente')[0].colunas).toEqual(['valor_metro_12'])
+    })
+
+    it('presente com a célula vazia: null, e o aviso nomeia os códigos por coluna', async () => {
+        const r = await lida({ [ABAS_DO_LAYOUT_UNICO.itens]: abaItens([guia(0, null, 263.55), guia(1, 40, null), guia(2, null, null)], COM_12) })
+        const a = avisosDo(r, 'itens_sem_valor_de_12')
+        expect(a.map((x) => [x.coluna, x.codigos])).toEqual([['valor_metro_12', ['PS-021', 'PS-023']], ['valor_barra_12', ['PS-022', 'PS-023']]])
+        expect(a[0].mensagem).toBe('2 itens vieram sem valor_metro_12 (PS-021, PS-023): ficaram em branco, não zero.')
+    })
+
+    it('texto numa delas é RECUSA nomeada (nada é gravado) — o texto brasileiro "43,925" é número', async () => {
+        const recusa = await ler({ [ABAS_DO_LAYOUT_UNICO.itens]: abaItens([guia(0, 'quarenta', 263.55)], COM_12) })
+        expect(recusa.ok).toBe(false)
+        expect(erroDe(recusa)).toContain('linha 2, valor_metro_12 = "quarenta" (texto)')
+        const r = await lida({ [ABAS_DO_LAYOUT_UNICO.itens]: abaItens([guia(0, '43,925', '1.263,55')], COM_12) })
+        expect(doze(r)).toEqual([['PS-021', 43.925, 1263.55]])
+    })
+
+    it('repetida no cabeçalho é recusa, como as 28', async () => {
+        const r = await ler({ [ABAS_DO_LAYOUT_UNICO.itens]: abaItens([guia(0, 1, 2)], [...COM_12, 'valor_metro_12']) })
+        expect(erroDe(r)).toContain('coluna repetida no cabeçalho (valor_metro_12)')
+    })
+
+    it('a planilha do dono do produto: uma coluna a mais (_estado) e duas abas a mais (conferencia, leia-me) são ignoradas, sem aviso', async () => {
+        const r = await lida({
+            [ABAS_DO_LAYOUT_UNICO.itens]: abaItens([{ ...guia(0, 43.925, 263.55), _estado: 'ok' } as Linha], [...COM_12, '_estado']),
+            conferencia: [{ 1: 'qualquer coisa' }],
+            'leia-me': [{ 1: 'texto' }],
+        })
+        expect(doze(r)).toEqual([['PS-021', 43.925, 263.55]])
+        expect(r.avisos.map((a) => a.tipo)).not.toContain('colunas_sem_destino_no_layout_unico')
+    })
+
+    it('o payload leva as duas para a função do banco', async () => {
+        const r = await lida({ [ABAS_DO_LAYOUT_UNICO.itens]: abaItens([guia(0, 43.925, 263.55)], COM_12) })
+        expect(montarPayloadDaImportacao(r, 'u').itens[0]).toMatchObject({ valor_metro_12: 43.925, valor_barra_12: 263.55 })
+    })
+})
