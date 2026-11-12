@@ -192,7 +192,7 @@ import { vidroPodado } from '@/lib/atendimentos-ia/vidro'
 import type { VariaveisDaTipologia } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import { compararNome, formaComparavel, nomeDaMensagem, nomeDoCliente, nomeSemPrefixo, normalizarNome } from '@/lib/atendimentos-ia/nome-do-levantamento'
 import { fraseDaCorForaDaLista, perguntasDaTipologia, type JaDito } from '@/lib/atendimentos-ia/pre-definicao'
-import { fraseDoPadraoQueFalta, tipologiaPadrao } from '@/lib/atendimentos-ia/tipologia-padrao'
+import { atributosNoLog, fraseDoPadraoQueFalta, origemDaTipologiaProposta, padraoDaEsquadria, type AtributoAssumido } from '@/lib/atendimentos-ia/tipologia-padrao'
 import { PROMPT_BASE } from '@/utils/atendimentos-ia-prompt-base'
 import { LIMITE_DA_FALA } from '@/utils/atendimentos-ia-contexto'
 import { blocoDasInstrucoes, lerInstrucoesDaEmpresa, type InstrucaoDaCategoria } from '@/lib/atendimentos-ia/instrucoes-da-categoria'
@@ -1570,14 +1570,28 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         // quando o acumulado não indica nada fora do padrão (`tipologia-padrao.ts`); e a COR não dita = a predominante da base
         const dizAlgo = (i: ItemDoLevantamento) => (['tipologia', 'largura_mm', 'altura_mm', 'vidro'] as const).some((k) => i[k] !== null && i[k] !== undefined)
         const tipologiasDoPadrao: string[] = []
+        // O RASTRO DOS ATRIBUTOS (dono do produto, 12/11/2026): cada atributo que entrou por padrão, com o valor e a origem — nunca deduzido depois
+        const assumidos = new Map<number, AtributoAssumido[]>()
+        const assumir = (ordem: number, xs: readonly AtributoAssumido[]) => { if (xs.length > 0) assumidos.set(ordem, [...(assumidos.get(ordem) ?? []), ...xs]) }
+        // a tipologia que o MODELO pôs nesta mensagem (nova, ou trocada): dita só se o código está na mensagem; senão, escolha do modelo — a
+        // origem sem regra por trás, e por isso nomeada (dono do produto, 12/11/2026)
+        const tipologiaAntes = new Map(atuais.map((i) => [i.ordem, i.tipologia]))
+        for (const item of proposta_.itens) {
+            if (item.tipologia !== null && item.tipologia !== tipologiaAntes.get(item.ordem)) {
+                assumir(item.ordem, [{ atributo: 'tipologia', valor: item.tipologia, origem: origemDaTipologiaProposta(item.tipologia, c.texto) }])
+            }
+        }
         // o que o padrão NÃO resolve e se diz (11/11/2026): a linha sem padrão, as descrições que nada separa, a modulação da bandeira, a lacuna
         // do motor — por esquadria, nunca "sem padrão" mudo
         const faltasDoPadrao: Array<{ ordem: number; frase: string; motivo: string }> = []
         for (const item of proposta_.itens) {
             if (!dizAlgo(item)) continue
             if (item.tipologia === null) {
-                const padrao = tipologiaPadrao(item, proposta_.aberturas[item.ordem] ?? null, filtro.lidos, tabela.candidatos)
-                if ('tipologia' in padrao) { item.tipologia = padrao.tipologia; rastro.tipologiasPadrao += 1; tipologiasDoPadrao.push(`e${item.ordem}:${padrao.tipologia}`) }
+                const { decisao: padrao, atributos } = padraoDaEsquadria(item, proposta_.aberturas[item.ordem] ?? null, filtro.lidos, tabela.candidatos)
+                if ('tipologia' in padrao) {
+                    item.tipologia = padrao.tipologia; rastro.tipologiasPadrao += 1; tipologiasDoPadrao.push(`e${item.ordem}:${padrao.tipologia}`)
+                    assumir(item.ordem, atributos)
+                }
                 else {
                     const frase = fraseDoPadraoQueFalta(padrao)
                     if (frase !== null) faltasDoPadrao.push({ ordem: item.ordem, frase, motivo: padrao.motivo })
@@ -1585,8 +1599,17 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             }
             // a predominante é da cor NÃO DITA (08/11/2026): a cor dita que a empresa não tem fica vazia, e a conversa pergunta nomeando-a
             const ditaForaDaLista = proposta_.coresForaDaLista.some((x) => x.ordem === item.ordem)
-            if (item.cor_perfil === null && corPredominante !== null && !ditaForaDaLista) { item.cor_perfil = corPredominante; rastro.coresPadrao += 1 }
+            if (item.cor_perfil === null && corPredominante !== null && !ditaForaDaLista) {
+                item.cor_perfil = corPredominante; rastro.coresPadrao += 1
+                assumir(item.ordem, [{ atributo: 'cor', valor: corPredominante, origem: 'base_de_conhecimento' }])
+            }
         }
+        // o vidro da instrução da categoria VIDRO e a quantidade não dita, que a montagem pôs (12/11/2026: nomeados no rastro, com a origem)
+        for (const ordem of proposta_.vidrosPadraoNas) {
+            const vidro = proposta_.itens.find((i) => i.ordem === ordem)?.vidro
+            if (typeof vidro === 'string') assumir(ordem, [{ atributo: 'vidro', valor: vidro, origem: 'base_de_conhecimento' }])
+        }
+        for (const ordem of proposta_.quantidadesPadrao) assumir(ordem, [{ atributo: 'quantidade', valor: '1', origem: 'padrao_do_apanhado' }])
         // a família e o motor de cada esquadria, como ficam gravados: a resolvida e o motor do cálculo dela HOJE (PR D); e o AGRUPAMENTO
         // (03/11/2026): os itens completos e iguais viram um, com as unidades somadas
         // A QUANTIDADE DITA SUBSTITUI, NUNCA SOMA (06/11/2026): a esquadria da mensagem igual a uma GRAVADA é ela mesma — o agrupamento sabe quais já
@@ -1605,6 +1628,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             + ` escolhidas=${listaNoLog(aplicada.itens.filter((i) => i.tipologia !== null).map((i) => `e${i.ordem}:${i.tipologia}`))}`
             + ` padrao=${listaNoLog(tipologiasDoPadrao)} recusadas=${listaNoLog(aplicada.recusas.map((x) => `e${x.ordem}:${x.motivo}:${x.tipologia}`))}`
             + ` sem_tipologia=${aplicada.itens.filter((i) => i.tipologia === null).length}`
+            + ` assumidos=${atributosNoLog(assumidos)}`
         if (aplicada.semEsquadria && alvo) return await falar(fraseDeQualEsquadria(nome, alvo.itens.length), 'qual-esquadria')
         // AS COLUNAS DO LEVANTAMENTO que esta mensagem muda (06/11/2026): os dados do cliente e as condições ditas, e o vendedor — o dito (achado
         // no cadastro pelo nome, nunca escolhido entre dois), ou, no levantamento novo, o do remetente. Só entra o que DIFERE do gravado

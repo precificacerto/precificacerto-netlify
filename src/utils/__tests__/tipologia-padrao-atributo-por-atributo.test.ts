@@ -5,7 +5,7 @@
  * As descrições são as do motor em uso (022fc55e, lidas em 11/11/2026, só leitura): o catálogo da plataforma, não dado de cliente.
  */
 import {
-    atributosDaDescricao, atributosDitos, oQueAEsquadriaE, tipologiaPadrao, fraseDaLinhaSemPadrao, fraseDoPadraoQueFalta, naturalDaQuantidade, tipoCurto,
+    atributosDaDescricao, atributosDitos, atributosNoLog, oQueAEsquadriaE, origemDaTipologiaProposta, padraoDaEsquadria, tipologiaPadrao, fraseDaLinhaSemPadrao, fraseDoPadraoQueFalta, naturalDaQuantidade, tipoCurto,
 } from '@/lib/atendimentos-ia/tipologia-padrao'
 import { tiposDitos } from '@/lib/atendimentos-ia/tipologias-candidatas'
 import type { CandidatoDeTipologia } from '@/lib/atendimentos-ia/levantamento-da-conversa'
@@ -280,5 +280,67 @@ describe('O PADRÃO NA FOLHA: o que a esquadria é, escrito', () => {
     })
     it('sem tipo no motor, nada é escrito', () => {
         expect(oQueAEsquadriaE({ descricao: 'ALGO', tipo: null, linha: null }, null)).toBeNull()
+    })
+})
+
+describe('O RASTRO DOS ATRIBUTOS (dono do produto, 12/11/2026): cada atributo da escolhida, com o valor e a origem — a mesma decisão, nunca refeita', () => {
+    const rastro = (texto: string, abertura: 'porta' | 'janela', candidatos = CANDIDATOS) =>
+        padraoDaEsquadria(item(), abertura, [trecho(texto, abertura)], candidatos)
+    const so = (texto: string, abertura: 'porta' | 'janela') => Object.fromEntries(rastro(texto, abertura).atributos.map((a) => [a.atributo, `${a.valor}/${a.origem}`]))
+    it('a decisão é a de tipologiaPadrao, sempre', () => {
+        for (const [texto, ab] of [['janela de correr com persiana', 'janela'], ['porta 2,50 x 2,20', 'porta'], ['janela maxim ar', 'janela'], ['janela', 'janela'], ['janela fixa', 'janela']] as const) {
+            expect(rastro(texto, ab).decisao).toEqual(padrao(texto, ab))
+        }
+    })
+    it('a persiana DITA é dita; as folhas e os outros extras são o natural', () => {
+        expect(so('janela de correr com persiana', 'janela')).toEqual({
+            abertura: 'janela/dito', tipo: 'correr/dito', folhas: '2/padrao_da_tipologia',
+            persiana: 'com/dito', bandeira: 'sem/padrao_da_tipologia', peitoril: 'sem/padrao_da_tipologia',
+        })
+    })
+    it('as folhas ditas são ditas (3 folhas com persiana: DP-16)', () => {
+        expect(rastro('janela de correr 3 folhas com persiana', 'janela').decisao).toEqual({ tipologia: 'DP-16' })
+        expect(so('janela de correr 3 folhas com persiana', 'janela').folhas).toBe('3/dito')
+    })
+    it('a porta sem tipo: o correr é do padrão, não dito', () => {
+        expect(so('porta 2,50 x 2,20', 'porta').tipo).toBe('correr/padrao_da_tipologia')
+    })
+    it('maxim-ar: os MÓDULOS (não folhas) — 1 pelo natural; "1 módulo" dito é dito', () => {
+        expect(so('janela maxim ar', 'janela')).toMatchObject({ tipo: 'maxim-ar/dito', modulos: '1/padrao_da_tipologia' })
+        expect(so('janela maxim ar', 'janela').folhas).toBeUndefined()
+        expect(so('janela maxim-ar 1 módulo', 'janela').modulos).toBe('1/dito')
+    })
+    it('o extra que a escolhida tem e não foi dito (a modulação do fixo, 3a) aparece como padrão da tipologia — nunca escondido', () => {
+        expect(rastro('janela fixa', 'janela').decisao).toEqual({ tipologia: 'DP-143' })
+        expect(so('janela fixa', 'janela')['modulação de travessa']).toBe('com/padrao_da_tipologia')
+    })
+    it('sem tipologia (um motivo), nenhum atributo: o rastro não afirma o que não foi decidido', () => {
+        expect(rastro('janela 1200 x 1000', 'janela')).toEqual({ decisao: { motivo: 'JANELA_SEM_TIPO' }, atributos: [] })
+        const lacuna = rastro('porta de giro', 'porta')
+        expect(lacuna.decisao).toMatchObject({ motivo: 'LACUNA' })
+        expect(lacuna.atributos).toEqual([])
+    })
+    it('a tipologia proposta: dita só com o código na mensagem, como está (sem caixa, nunca normalizado); fora disso, escolha_do_modelo', () => {
+        expect(origemDaTipologiaProposta('DP-02', 'janela DP-02 1200 x 1000')).toBe('dito')
+        expect(origemDaTipologiaProposta('DP-02', 'janela dp-02, 1200 x 1000')).toBe('dito')
+        expect(origemDaTipologiaProposta('DP-02', 'DP-02')).toBe('dito')
+        // o código do motor não se normaliza: DP-2 e DP-020 não são DP-02; DP-017 não é DP-17
+        expect(origemDaTipologiaProposta('DP-02', 'janela DP-2 1200 x 1000')).toBe('escolha_do_modelo')
+        expect(origemDaTipologiaProposta('DP-02', 'janela DP-020')).toBe('escolha_do_modelo')
+        expect(origemDaTipologiaProposta('DP-17', 'janela DP-017')).toBe('escolha_do_modelo')
+        // e a borda da frente: o código dentro de outro (XDP-02, 1-DP-02) não é o código dito
+        expect(origemDaTipologiaProposta('DP-02', 'janela XDP-02')).toBe('escolha_do_modelo')
+        expect(origemDaTipologiaProposta('DP-02', 'janela 1-DP-02')).toBe('escolha_do_modelo')
+        expect(origemDaTipologiaProposta('DP-02', 'janela de correr 1200 x 1000')).toBe('escolha_do_modelo')
+        // o código com caractere de expressão não quebra a busca
+        expect(origemDaTipologiaProposta('DP-1(2)', 'janela DP-1(2)')).toBe('dito')
+    })
+    it('no log: por esquadria em ordem, o valor sem espaço/vírgula/igual/barra, e "-" quando nada foi assumido', () => {
+        expect(atributosNoLog(new Map())).toBe('-')
+        expect(atributosNoLog(new Map([[2, []]]))).toBe('-')
+        expect(atributosNoLog(new Map([
+            [2, [{ atributo: 'quantidade', valor: '1', origem: 'padrao_do_apanhado' as const }]],
+            [1, [{ atributo: 'vidro', valor: ' incolor 8 mm, a=b/c; x ', origem: 'base_de_conhecimento' as const }, { atributo: 'cor', valor: 'Branco', origem: 'base_de_conhecimento' as const }]],
+        ]))).toBe('e1:vidro=incolor_8_mm_a_b_c_x/base_de_conhecimento;cor=Branco/base_de_conhecimento,e2:quantidade=1/padrao_do_apanhado')
     })
 })

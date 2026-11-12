@@ -179,8 +179,47 @@ const semModulacao = (s: ReadonlySet<Extra>): Set<Extra> => new Set([...s].filte
 const ROTULO_DA_MODULACAO: Readonly<Record<string, string>> = { 'modulação de travessa': 'travessa', 'perfil de modulação': 'perfil de modulação' }
 const TIPO_NA_FRASE: Readonly<Record<string, string>> = { correr: 'de correr', abrir: 'de giro', 'oscilo-batente': 'oscilo-batente', pivotante: 'pivotante', 'maxim-ar': 'maxim-ar', fixo: 'fixa' }
 
+/**
+ * O RASTRO DOS ATRIBUTOS (dono do produto, 12/11/2026): "cada atributo que entrou por PADRÃO vai nomeado no rastro, com o valor e a origem
+ * (dito na conversa, padrão da tipologia, ou base de conhecimento). [...] Dedução a partir da mensagem não serve como resposta." A folha mostra o
+ * CONSIDERADO ao vendedor; o rastro mostra a nós o mesmo, com a origem de cada atributo.
+ *   - `dito`: o vendedor disse (o trecho da esquadria);
+ *   - `padrao_da_tipologia`: o natural da regra do padrão (o correr da porta sem tipo, a quantidade natural, o extra que a esquadria não tem);
+ *   - `base_de_conhecimento`: a cor predominante, o vidro da instrução da categoria VIDRO;
+ *   - `padrao_do_apanhado`: a quantidade de unidades não dita (= 1, regra de 03/11/2026) — um padrão da COLETA, não de uma tipologia (dono do
+ *     produto, 12/11/2026: "a quantidade 1 é justamente o que ele NÃO falou");
+ *   - `escolha_do_modelo`: a tipologia que o MODELO escolheu sem o vendedor dizer o código e sem o padrão do código. Não há regra por trás, e
+ *     é por isso que vai nomeada (dono do produto, 12/11/2026: "ausência de origem é informação [...] é a única que não tem regra para auditar").
+ */
+export type OrigemDoAtributo = 'dito' | 'padrao_da_tipologia' | 'base_de_conhecimento' | 'padrao_do_apanhado' | 'escolha_do_modelo'
+
+/**
+ * A ORIGEM DA TIPOLOGIA QUE O MODELO PROPÔS: `dito` só quando o código está na mensagem como está (sem caixa, mas nunca normalizado — "DP-2"
+ * não é "DP-02": `codigo-do-motor-nao-se-normaliza.md`); fora disso, `escolha_do_modelo`.
+ */
+export function origemDaTipologiaProposta(codigo: string, mensagem: string): OrigemDoAtributo {
+    const escapado = codigo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    return new RegExp(`(^|[^0-9a-z-])${escapado}($|[^0-9a-z])`, 'i').test(mensagem) ? 'dito' : 'escolha_do_modelo'
+}
+export type AtributoAssumido = { atributo: string; valor: string; origem: OrigemDoAtributo }
+/** Os extras que o CONSIDERADO da folha sempre diz (com ou sem), e que o rastro diz do mesmo jeito. */
+export const EXTRAS_DO_CONSIDERADO = ['persiana', 'bandeira', 'peitoril'] as const
+
 /** A tipologia padrão da esquadria, ou o motivo de não haver. */
 export function tipologiaPadrao(item: ItemDoLevantamento, abertura: Abertura | null, trechos: readonly TrechoDoAcumulado[], candidatos: readonly CandidatoDeTipologia[]): DecisaoDoPadrao {
+    return padraoDaEsquadria(item, abertura, trechos, candidatos).decisao
+}
+
+/** A decisão do padrão e, quando ela dá uma tipologia, os atributos dela com a origem de cada um (a mesma decisão, nunca refeita à parte). */
+export function padraoDaEsquadria(item: ItemDoLevantamento, abertura: Abertura | null, trechos: readonly TrechoDoAcumulado[], candidatos: readonly CandidatoDeTipologia[]): { decisao: DecisaoDoPadrao; atributos: AtributoAssumido[] } {
+    let atributos: AtributoAssumido[] = []
+    const decisao = decisaoDoPadrao(item, abertura, trechos, candidatos, (a) => { atributos = a })
+    // o registro só acontece quando a decisão é uma tipologia (`comRastro`): um motivo nunca leva atributos
+    return { decisao, atributos }
+}
+
+function decisaoDoPadrao(item: ItemDoLevantamento, abertura: Abertura | null, trechos: readonly TrechoDoAcumulado[], candidatos: readonly CandidatoDeTipologia[],
+    registrar: (a: AtributoAssumido[]) => void): DecisaoDoPadrao {
     if (abertura === null) return { motivo: 'SEM_ABERTURA' }
     const dela = trechos.filter((t) => t.abertura === abertura)
     if (dela.length === 0) return { motivo: 'SEM_TRECHO' }
@@ -194,10 +233,11 @@ export function tipologiaPadrao(item: ItemDoLevantamento, abertura: Abertura | n
     }
     // o tipo é SEMPRE dito; a porta sem tipo é de correr (o padrão da porta); a janela sem tipo não tem padrão
     let tipo: string | null
+    let tipoDito = true
     if (tiposDoMotor.size > 1) return { motivo: 'TIPOS_DITOS' }
     if (tiposDoMotor.size === 1) tipo = tipoCurto([...tiposDoMotor][0])
     else if (PALAVRA_DE_TIPO.test(semAcento(texto).replace(FIXO_DE_ATRIBUTO, ' '))) return { motivo: 'TIPO_FORA_DO_MOTOR' }
-    else if (abertura === 'porta') tipo = 'correr'
+    else if (abertura === 'porta') { tipo = 'correr'; tipoDito = false }
     else return { motivo: 'JANELA_SEM_TIPO' }
     if (ditos.semRepresentacao) return { motivo: 'DITO_SEM_REPRESENTACAO' }
     if (tipo === null) return { motivo: 'JANELA_SEM_TIPO' }
@@ -219,16 +259,35 @@ export function tipologiaPadrao(item: ItemDoLevantamento, abertura: Abertura | n
         // os módulos: o natural é um (o vertical fixo "01", ou nenhum fixado); o número variável na descrição ("V") não é o natural
         && (!comModulos || a.modulos === null || a.modulos === naturalDaQuantidade(tipo)))
     const esquadria = `${abertura} ${TIPO_NA_FRASE[tipo] ?? tipo} de ${quantidadeNaFrase(doTipo.length ? doTipo[0].a : null, folhasPedidas)}`
+    // os atributos da escolhida, com a origem de cada um: o que o trecho disse, ou o natural da regra
+    const tipoEscolhido = tipo
+    const comRastro = (d: DecisaoDoPadrao): DecisaoDoPadrao => {
+        if (!('tipologia' in d)) return d
+        const escolhida = doTipo.find(({ c }) => c.tipologia === d.tipologia)
+        if (escolhida === undefined) return d
+        const a = escolhida.a
+        const origem = (dito: boolean): OrigemDoAtributo => (dito ? 'dito' : 'padrao_da_tipologia')
+        const lista: AtributoAssumido[] = [
+            { atributo: 'abertura', valor: abertura, origem: 'dito' },
+            { atributo: 'tipo', valor: tipoEscolhido, origem: origem(tipoDito) },
+        ]
+        if (a.folhas !== null) lista.push({ atributo: 'folhas', valor: String(a.folhas), origem: origem(ditos.folhas !== null) })
+        else if (a.modulos !== 'variavel') lista.push({ atributo: 'modulos', valor: String(a.modulos ?? naturalDaQuantidade(tipoEscolhido)), origem: origem(ditos.modulos !== null) })
+        for (const e of EXTRAS_DO_CONSIDERADO) lista.push({ atributo: e, valor: a.extras.has(e) ? 'com' : 'sem', origem: origem(ditos.extras.has(e)) })
+        for (const e of a.extras) if (!(EXTRAS_DO_CONSIDERADO as readonly string[]).includes(e)) lista.push({ atributo: e, valor: 'com', origem: origem(ditos.extras.has(e)) })
+        registrar(lista)
+        return d
+    }
 
     // 1) EXATAMENTE os extras ditos — o natural de todos é não ter, e a modulação conta (a maxim-ar lisa é a DP-01, sem rótulo nenhum)
     const exatas = doTipo.filter(({ a }) => mesmosExtras(a.extras, ditos.extras))
-    if (exatas.length > 0) return decidir(exatas, item)
+    if (exatas.length > 0) return comRastro(decidir(exatas, item))
 
     // 2) a MODULAÇÃO como rótulo: as que têm os extras ditos e só diferem pelo rótulo da divisão
     const modulacaoDita = [...ditos.extras].filter(ehModulacao)
     const porModulacao = doTipo.filter(({ a }) => mesmosExtras(semModulacao(a.extras), semModulacao(ditos.extras)) && modulacaoDita.every((e) => a.extras.has(e)))
     // a) uma só: ela é a escolha, qualquer que seja o rótulo (o fixo de 1 módulo: só a DP-143)
-    if (porModulacao.length === 1) return decidir(porModulacao, item)
+    if (porModulacao.length === 1) return comRastro(decidir(porModulacao, item))
     if (porModulacao.length > 1) {
         const outrosExtras = [...semModulacao(ditos.extras)]
         const rotulos = porModulacao.map(({ a }) => [...a.extras].filter(ehModulacao).map((e) => ROTULO_DA_MODULACAO[e] ?? e).join(' e '))
@@ -321,3 +380,14 @@ export function fraseDoPadraoQueFalta(d: DecisaoDoPadrao): string | null {
 export const fraseDaLinhaSemPadrao = (linhas: readonly string[]) =>
     `Falta de configuração — a linha de produto padrão da empresa: esta esquadria existe ${linhas.length > 1 ? `nas linhas ${linhas.slice(0, -1).join(', ')} e ${linhas[linhas.length - 1]}` : `na linha ${linhas[0] ?? ''}`}, `
     + 'e a base de conhecimento ainda não diz qual é a da casa. Cadastre a linha padrão na base de conhecimento.'
+
+/**
+ * OS ATRIBUTOS NO LOG (12/11/2026): `e<ordem>:<atributo>=<valor>/<origem>;…`, uma esquadria por vírgula, na ordem. O valor não leva espaço, vírgula,
+ * ponto e vírgula, igual nem barra (viram `_`), para a linha continuar legível por máquina. Sem nenhum atributo, `-`.
+ */
+export function atributosNoLog(porEsquadria: ReadonlyMap<number, readonly AtributoAssumido[]>): string {
+    const limpo = (v: string) => v.trim().replace(/[\s,;=/]+/g, '_')
+    const partes = [...porEsquadria.entries()].filter(([, xs]) => xs.length > 0).sort(([a], [b]) => a - b)
+        .map(([ordem, xs]) => `e${ordem}:${xs.map((x) => `${limpo(x.atributo)}=${limpo(x.valor)}/${x.origem}`).join(';')}`)
+    return partes.length === 0 ? '-' : partes.join(',')
+}
