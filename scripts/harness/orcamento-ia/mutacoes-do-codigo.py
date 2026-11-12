@@ -30,7 +30,7 @@ MUTACOES = [
     ('C6', LIB, 'a alteração sem a marca', "editado_manualmente_em: agora, editado_manualmente_por: autor, atualizado_em: agora", "atualizado_em: agora"),
     ('C7', LIB, 'o item de outro orçamento passa', "    if (estranhos.length) throw", "    if (false) throw"),
     ('C8', LIB, 'o item novo não vai para o fim', "            proxima += 1\n", ""),
-    ('C9', LIB, 'o update do item sem o orçamento', ".eq('tenant_id', tenantId).eq('orcamento_id', id).eq('id', idDoItem)", ".eq('tenant_id', tenantId).eq('id', idDoItem)"),
+    ('C9', LIB, 'o update do item sem o orçamento', "                .eq('tenant_id', tenantId).eq('orcamento_id', id).eq('id', idDoItem)\n            if (e && vidroMudou", "                .eq('tenant_id', tenantId).eq('id', idDoItem)\n            if (e && vidroMudou"),
     ('C10', LIB, 'texto vazio vira string vazia', "    if (t === '') return null\n", "    if (t === '') return t\n"),
     ('C11', LIB, 'zero passa como medida', "!Number.isInteger(n) || n < 1)", "!Number.isInteger(n) || n < 0)"),
     ('C12', LIB, 'a quantidade deixa de ser obrigatória', "    if (quantidade === null && !erros.some((e) => e.startsWith(r('quantidade')))) erros.push(`${r('quantidade')}: é obrigatória.`)\n", ""),

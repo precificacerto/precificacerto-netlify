@@ -53,12 +53,18 @@
  *     produto limpa a coluna Cor deles no arquivo do motor, e a célula vazia já é "sem variante" — o comportamento certo para eles. Até o
  *     arquivo corrigido entrar, o levantamento com arremate interno recusa nomeando o BZ0012 (a ordem está no PR).
  *
- * FALTOU PREÇO, NADA EVOLUI (dono do produto, 08/11/2026 — substitui "o preço ausente não trava as barras", de 24/10/2026): o item
- * sem o valor da barra ou sem o valor do metro é RECUSA (`ITEM_SEM_VALOR`), como o item ausente — e, como toda recusa, nenhuma barra
- * sai, de esquadria nenhuma, nem das completas. "A premissa é precificação precisa e minuciosa por item; um produto parcial seria um
- * preço que não corresponde à obra." A recusa nomeia o código interno e o perfil do fornecedor, para achar e corrigir o cadastro: a
- * regra de não mostrar código de fornecedor vale para a FOLHA, não para a mensagem de erro. Zero informado é valor, não falta
- * (`ausente-vs-falso.md`).
+ * FALTA DE PREÇO NÃO IMPEDE A EVOLUÇÃO (dono do produto, 12/11/2026 — SUBSTITUI "faltou preço, nada evolui", de 08/11/2026): o código cuja
+ * referência não se resolve, ou que se resolve num item sem o valor da barra ou do metro, NÃO recusa o levantamento. Ele vira FALTA NOMEADA
+ * (`faltas`), uma por esquadria em que a peça entra — o código do motor, a descrição dele, a cor pedida, a tipologia, a esquadria, o motivo e a
+ * frase —, e as peças dele ficam FORA do agrupador e do custo: sem preço, nunca com zero. O resultado sai `ok`, com os totais só do que tem
+ * preço, e quem monta a resposta diz que é PARCIAL. Continuam RECUSA (nada sai): a esquadria inválida, a tipologia sem definição, a recusa do
+ * avaliador nas peças de perfil, a cor em duas grafias no motor e a barra sem comprimento ou menor que a peça — falta de medida ou de motor, não
+ * de preço.
+ *
+ * A RESOLUÇÃO (12/11/2026, o comando único): a ponte do motor (aba "Motor por barra") é o PRIMEIRO degrau; sem ela — o perfil sem regra, a cor
+ * sem código na regra —, a escada segue: o código exato, o código + a cor pela tabela de cores do fornecedor, o nome técnico na descrição, com o
+ * guarda da descrição em todos (`resolucao-de-referencia.ts`). A ponte com DOIS códigos para a mesma cor é falta nomeada (ambígua), com os
+ * dois.
  *
  * Para separar as duas formas do resultado, use `'recusas' in r` (e `'recusa' in r` em `codigoDaPeca`):
  * com `strictNullChecks: false`, o tsc não estreita a união pelo booleano `ok`.
@@ -66,9 +72,9 @@
  * Portão: `src/utils/__tests__/levantamento-de-barras.test.ts`. Mutações:
  * `scripts/harness/levantamento-de-barras/`.
  */
-import { avaliarTipologia, faltaDoVidroSemBaguete, type AvisoDoAvaliador, type Tipologia } from './avaliador-de-formulas'
+import { avaliarTipologia, faltaDoVidroSemBaguete, type AvisoDoAvaliador, type FaltaDoAvaliador, type InsumoAvaliado, type Tipologia, type VidroAvaliado } from './avaliador-de-formulas'
 import { agruparEmBarras, milimetrosDaBarra, type BarraDoCodigo, type ResultadoDoCodigo, type TotalDoLevantamento } from './agrupador-de-barras'
-import { resolverReferencia, type ComoAchou } from './resolucao-de-referencia'
+import { GRUPO_DE_COR, candidatasDoDegrau, resolverReferencia, type ComoAchou, type CorDoFornecedor } from './resolucao-de-referencia'
 
 
 // ── A entrada ─────────────────────────────────────────────────────────────────────────────
@@ -91,6 +97,8 @@ export type ItemDaTabela = {
     valor_metro_interno: number | null
     /** A unidade e o bloco tributário: o cálculo das barras não os lê; o custo do orçamento I.A. por item, sim. Ausente é nulo. */
     unidade?: string | null
+    /** O custo do item: o bruto da UNIDADE do insumo e do m² do vidro (dono do produto, 12/11/2026: "para item vendido por unidade, o bruto é `custo`"). */
+    custo?: number | null
     cred_icms_pct?: number | null
     cred_pis_cofins_pct?: number | null
     cred_ipi_pct?: number | null
@@ -106,6 +114,8 @@ export type EntradaDoLevantamento = {
     regras: readonly RegraDoDePara[]
     itens: readonly ItemDaTabela[]
     serra_mm: number
+    /** A tabela de cores do fornecedor do motor (`orcamentista_fornecedor_cor`); vazia = o degrau "código + cor" não acha nada. */
+    cores?: readonly CorDoFornecedor[]
 }
 
 // ── A saída ───────────────────────────────────────────────────────────────────────────────
@@ -126,6 +136,27 @@ export type EsquadriaLevantada = {
     quantidade: number
     pecas: PecaDaEsquadria[]
     avisos: AvisoDoAvaliador[]
+    /** Os insumos e os panos de vidro da esquadria, pela avaliação (12/11/2026), por UNIDADE da esquadria; a quantidade multiplica no custo. */
+    insumos: InsumoAvaliado[]
+    vidros: VidroAvaliado[]
+    /** As linhas de insumo ou de vidro que não se avaliaram: falta nomeada, que não recusa. */
+    faltasDoAvaliador: FaltaDoAvaliador[]
+}
+/**
+ * A FALTA DE PREÇO (12/11/2026): não recusa; diz o que falta, onde, e por quê. Uma por (peça, esquadria). `codigo_do_motor` é o código como o
+ * motor o escreve (o perfil `SF92/WOLFF`, o insumo, ou VIDRO); `descricao_do_motor`, a descrição que o motor dá; `cor`, a cor pedida.
+ */
+export type CaminhoDoCusto = 'perfil' | 'insumo' | 'vidro'
+export type FaltaDePreco = {
+    caminho: CaminhoDoCusto
+    codigo_do_motor: string
+    descricao_do_motor: string | null
+    cor: string | null
+    tipologia: string
+    esquadria: number
+    motivo: string
+    frase: string
+    candidatas: Array<{ codigo: string; descricao: string | null }>
 }
 export type CodigoLevantado = ResultadoDoCodigo & { perfil: string; descricao: string | null }
 export type CandidatoDoCodigo = { codigo: string; descricao: string | null; valor_barra_interno: number | null; valor_metro_interno: number | null }
@@ -178,8 +209,10 @@ export type ResultadoDoLevantamento =
         cor: string
         esquadrias: EsquadriaLevantada[]
         por_codigo: CodigoLevantado[]
-        /** Os dois totais sempre saem: o item sem valor é recusa (08/11/2026). */
+        /** Os dois totais, SÓ do que tem preço: o código sem preço é falta (`faltas`), e o total é parcial quando há falta (12/11/2026). */
         total: TotalDoLevantamento
+        /** As faltas de preço, uma por (peça, esquadria): não recusam (12/11/2026). Vazia = nenhuma falta. */
+        faltas: FaltaDePreco[]
         avisos: Array<AvisoDoAvaliador & { esquadria: number }>
         /**
          * A RESOLUÇÃO DE CADA CÓDIGO (12/11/2026): pelo código do motor, o item da tabela de onde veio o preço e COMO foi achado
@@ -251,9 +284,9 @@ function ponte(perfil: string, cor: string, regras: readonly RegraDoDePara[]): {
 /** Os candidatos com descrição e valores, e a frase que nomeia os dois códigos e os dois valores. */
 function completarDoisCodigos(r: RecusaDaPonte, itens: readonly ItemDaTabela[]): RecusaDaPonte {
     const candidatos = (r.candidatos ?? []).map((c) => {
-        // o candidato pela MESMA resolução do cálculo (nunca uma segunda busca à parte)
-        const achado = resolverReferencia({ codigo: c.codigo, codigo_wvetro: r.perfil ?? null, descricao: null, cor: null }, itens)
-        const it = 'item' in achado ? achado.item : undefined
+        // o candidato pelo degrau da PONTE da mesma resolução do cálculo (nunca uma segunda busca à parte); só para mostrar os valores
+        const achados = candidatasDoDegrau('ponte', { codigoDoMotor: r.perfil ?? c.codigo, codigoDaPonte: c.codigo, descricaoDoMotor: null, corPedida: null }, itens, { cores: [], grupoDeCor: GRUPO_DE_COR.perfil }).candidatas
+        const it = achados.length === 1 ? achados[0] : undefined
         return { codigo: c.codigo, descricao: it?.descricao ?? null, valor_barra_interno: it?.valor_barra_interno ?? null, valor_metro_interno: it?.valor_metro_interno ?? null }
     })
     const lista = candidatos.map((c) => `${c.codigo} (${formatarReais(c.valor_barra_interno)} a barra)`)
@@ -343,64 +376,55 @@ export function levantarBarras(entrada: EntradaDoLevantamento): ResultadoDoLevan
             }
             return
         }
-        levantadas.push({ indice, tipologia: e.tipologia, L_mm: e.L_mm, H_mm: e.H_mm, quantidade: e.quantidade, avisos: r.avisos })
+        levantadas.push({ indice, tipologia: e.tipologia, L_mm: e.L_mm, H_mm: e.H_mm, quantidade: e.quantidade, avisos: r.avisos,
+            insumos: r.insumos, vidros: r.vidros, faltasDoAvaliador: r.faltas })
         for (const p of r.pecas) {
             brutas.push({ esquadria: indice, perfil: p.codigo, descricao: p.descricao, comprimento_mm: p.comprimento_mm,
                 quantidade_por_esquadria: p.quantidade, quantidade: p.quantidade * e.quantidade })
         }
     })
 
-    // 2. a ponte, uma vez por perfil
+    // 2 e 3. a ponte e a RESOLUÇÃO, uma vez por perfil (12/11/2026): a ponte é o primeiro degrau; sem ela, a escada segue. O que não acha preço
+    //    é FALTA (não recusa): as peças dele ficam fora do agrupador e do custo
     const perfis = distintos(brutas.map((p) => p.perfil))
     const codigoDoPerfil: Record<string, string> = {}
-    for (const perfil of perfis) {
-        const p = ponte(perfil, cor, entrada.regras)
-        const esquadrias = [...new Set(brutas.filter((b) => b.perfil === perfil).map((b) => b.esquadria))]
-        if (!('recusa' in p)) { codigoDoPerfil[perfil] = p.codigo; continue }
-        const r = p.recusa.motivo === 'DOIS_CODIGOS' ? completarDoisCodigos(p.recusa, entrada.itens) : p.recusa
-        for (const esquadria of esquadrias) parciais.push({ ...r, esquadria })
-    }
-
-    // 3. o item de cada código, pela RESOLUÇÃO DE REFERÊNCIA (dono do produto, 12/11/2026) — a mesma da conferência: o exato, o sufixo do
-    //    fornecedor, a cor e o aproximado com a descrição; duas candidatas, ou a descrição que não bate, é falta nomeada, nunca palpite. Os
-    //    itens já chegam no ESCOPO do motor (o fornecedor e a família dele), que quem chama aplica
     const itemDoCodigo: Record<string, ItemDaTabela> = {}
     const resolucoes: Record<string, { item: ItemDaTabela; como: ComoAchou }> = {}
+    const faltas: FaltaDePreco[] = []
+    const tipologiaDa = new Map(levantadas.map((l) => [l.indice, l.tipologia]))
+    const contexto = { cores: entrada.cores ?? [], grupoDeCor: GRUPO_DE_COR.perfil }
     for (const perfil of perfis) {
-        const codigo = codigoDoPerfil[perfil]
-        if (codigo === undefined) continue
-        const regra = entrada.regras.find((g) => g.codigo === codigo && g.codigo_wvetro === perfil)
-        const r = resolverReferencia({ codigo, codigo_wvetro: perfil, descricao: regra?.descricao ?? null, cor: regra?.cor ?? null }, entrada.itens)
-        const esquadrias = [...new Set(brutas.filter((b) => b.perfil === perfil).map((b) => b.esquadria))]
-        if ('item' in r) {
-            // FALTOU PREÇO, NADA EVOLUI (08/11/2026): o item sem um dos valores é recusa, como o item ausente — zero é valor
-            const it = r.item
-            const semValor = ([['valor_barra_interno', 'da barra'], ['valor_metro_interno', 'do metro']] as const).filter(([campo]) => !Number.isFinite(it[campo] as number))
-            for (const [, nome] of semValor) {
-                for (const esquadria of esquadrias) parciais.push({ origem: 'ITEM', caminho: null, motivo: 'ITEM_SEM_VALOR', perfil, cor, codigo, esquadria,
-                    texto: `o código ${codigo} (perfil ${perfil}) está na tabela de preço sem o valor ${nome}. Falta: o valor ${nome} de ${codigo}.`,
-                    falta: `o valor ${nome} do código ${codigo}, perfil ${perfil}, na tabela de preço` })
-            }
-            itemDoCodigo[codigo] = it
-            resolucoes[codigo] = { item: it, como: r.como }
+        const daPeca = brutas.filter((b) => b.perfil === perfil)
+        const esquadrias = [...new Set(daPeca.map((b) => b.esquadria))]
+        const descricao = daPeca[0]?.descricao?.trim() || null
+        const faltar = (motivo: string, frase: string, candidatas: Array<{ codigo: string; descricao: string | null }> = []) => {
+            for (const esquadria of esquadrias) faltas.push({ caminho: 'perfil', codigo_do_motor: perfil, descricao_do_motor: descricao, cor, tipologia: tipologiaDa.get(esquadria) ?? '', esquadria, motivo, frase, candidatas })
+        }
+        const p = ponte(perfil, cor, entrada.regras)
+        let codigoDaPonte: string | null = null
+        if (!('recusa' in p)) codigoDaPonte = p.codigo
+        else if (p.recusa.motivo === 'COR_EM_DUAS_GRAFIAS') { for (const esquadria of esquadrias) parciais.push({ ...p.recusa, esquadria }); continue }
+        else if (p.recusa.motivo === 'DOIS_CODIGOS') {
+            const r = completarDoisCodigos(p.recusa, entrada.itens)
+            faltar('PONTE_AMBIGUA', r.texto, (r.candidatos ?? []).map((c) => ({ codigo: c.codigo, descricao: c.descricao })))
             continue
         }
-        const linhas = r.candidatas.map((c) => c.item)
-        // o mesmo código em duas linhas é a recusa de sempre, com os dois valores; a ambiguidade de outro degrau e a descrição que não bate
-        // dizem o código procurado, as candidatas e a razão (a frase da resolução)
-        const duasLinhas = r.motivo === 'AMBIGUA' && linhas.every((l) => l.codigo === codigo)
-        const motivo = r.motivo === 'NAO_ACHADA' ? 'ITEM_AUSENTE' : duasLinhas ? 'ITEM_EM_DUAS_LINHAS' : r.motivo === 'AMBIGUA' ? 'REFERENCIA_AMBIGUA' : 'REFERENCIA_NAO_RESOLVIDA'
-        const texto = motivo === 'ITEM_AUSENTE'
-            ? `o código ${codigo} (perfil ${perfil}) não está na tabela de preço. Falta: o item ${codigo}, com a barra e o valor.`
-            : motivo === 'ITEM_EM_DUAS_LINHAS'
-                ? `o código ${codigo} (perfil ${perfil}) está em ${linhas.length} linhas da tabela de preço, com ${linhas.map((l) => formatarReais(l.valor_barra_interno)).join(' e ')} a barra. Um valor por código: falta dizer qual linha vale.`
-                : `${r.frase} (perfil ${perfil}).`
-        const falta = motivo === 'ITEM_AUSENTE'
-            ? `o código ${codigo}, perfil ${perfil}, na tabela de preço, com a barra e o valor`
-            : motivo === 'ITEM_EM_DUAS_LINHAS'
-                ? `dizer qual linha da tabela de preço vale para o código ${codigo}, perfil ${perfil}: ${linhas.map((l) => formatarReais(l.valor_barra_interno)).join(' ou ')} a barra`
-                : `${r.frase}, perfil ${perfil}`
-        for (const esquadria of esquadrias) parciais.push({ origem: 'ITEM', caminho: null, motivo, perfil, cor, codigo, esquadria, texto, falta })
+        const r = resolverReferencia({ codigoDoMotor: perfil, codigoDaPonte, descricaoDoMotor: descricao, corPedida: cor }, entrada.itens, contexto)
+        if (!('item' in r)) {
+            faltar(r.motivo, `${maiuscula(r.frase)}.`, r.candidatas.map((c) => ({ codigo: c.item.codigo, descricao: c.item.descricao ?? null })))
+            continue
+        }
+        const it = r.item
+        // zero é valor; ausente é falta (`ausente-vs-falso.md`)
+        const semValor = ([['valor_barra_interno', 'da barra'], ['valor_metro_interno', 'do metro']] as const).filter(([campo]) => !Number.isFinite(it[campo] as number))
+        if (semValor.length) {
+            faltar('SEM_VALOR', `o item ${it.codigo} da tabela de preço (achado para ${perfil}${descricao ? `, ${descricao}` : ''}, pela ${r.como.replace('_', ' ')}) está sem o valor ${semValor.map(([, n]) => n).join(' e sem o valor ')}.`)
+            continue
+        }
+        const codigo = codigoDaPonte !== null && r.como === 'ponte' ? codigoDaPonte : it.codigo
+        codigoDoPerfil[perfil] = codigo
+        itemDoCodigo[codigo] = it
+        resolucoes[codigo] = { item: it, como: r.como }
     }
 
     // 4. o agrupador, com as peças que têm código e item — mesmo havendo recusa, para que as dele
@@ -440,10 +464,10 @@ export function levantarBarras(entrada: EntradaDoLevantamento): ResultadoDoLevan
     // as recusas do agrupador já estão em `parciais`; a segunda condição só estreita o tipo
     if (parciais.length || 'recusas' in agrupado) return { ok: false, recusas: juntar(parciais) }
 
-    // 5. o resultado — todo código com os dois valores (o que não tem já é recusa, no passo 3)
+    // 5. o resultado — só os códigos com os dois valores; os outros são falta (passo 3), e as peças deles não entram nas barras
     const esquadrias: EsquadriaLevantada[] = levantadas.map((e) => ({
         ...e,
-        pecas: brutas.filter((b) => b.esquadria === e.indice).map((b) => ({
+        pecas: brutas.filter((b) => b.esquadria === e.indice && codigoDoPerfil[b.perfil] !== undefined).map((b) => ({
             perfil: b.perfil, codigo: codigoDoPerfil[b.perfil], descricao: b.descricao, comprimento_mm: b.comprimento_mm,
             quantidade_por_esquadria: b.quantidade_por_esquadria, quantidade: b.quantidade,
         })),
@@ -455,6 +479,7 @@ export function levantarBarras(entrada: EntradaDoLevantamento): ResultadoDoLevan
         por_codigo: agrupado.por_codigo.map((c) => ({ ...c, perfil: perfilDoCodigo[c.codigo], descricao: itemDoCodigo[c.codigo].descricao ?? null })),
         total: agrupado.total,
         avisos: levantadas.flatMap((e) => e.avisos.map((a) => ({ ...a, esquadria: e.indice }))),
+        faltas,
         resolucoes,
     }
 }

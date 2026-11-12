@@ -61,6 +61,12 @@ const ANTHROPIC = 'https://api.anthropic.com/v1/messages'
 const TABELA = '72366020-57c9-489f-9385-397b7fa3dedb'
 /** O motor da família PVC da conta: as etapas 1 e 2 o apontam, e o conteúdo dele está por motor_id (a forma de produção). */
 const MOTOR = '9a233c55-f377-45d3-b2ae-b1a740a98e44'
+/** A tabela de VIDRO da conta (12/11/2026): o item que casa o vidro dos casos, "Temperado 5mm" (o preço por m² e o bloco são de teste). */
+const TABELA_DE_VIDRO = 'tabela-de-vidro-estrela'
+const ITENS_DE_VIDRO = [{
+    codigo: 'VTIN05', descricao: 'VIDRO TEMPERADO INCOLOR 05MM', unidade: 'PC', custo: 100, medida_barra_m: null as number | null, valor_barra_interno: null as number | null, valor_metro_interno: null as number | null,
+    cred_icms_pct: 12, cred_pis_cofins_pct: 9.25, cred_ipi_pct: 0, nc_ipi_pct: null as number | null, tabela_id: TABELA_DE_VIDRO,
+}]
 const CANDIDATAS = [
     // a `linha` é a da Detalhe de produção ("PVC WOLFF EUROPA 42"): a lista enxuta tira da descrição o sufixo que ela já contém (05/11/2026)
     { tabela_id: null as string | null, motor_id: MOTOR, tipologia: 'DP-01', descricao: 'MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL | DESIGN', tipo: 'Maxim-ar', linha: 'PVC WOLFF DESIGN', ordem: null as number | null },
@@ -218,9 +224,18 @@ function montar() {
         orcamentista_etapa_catalogo: CATALOGO_DE_ETAPAS.map((c) => ({ ...c })),
         orcamentista_motor: [{ id: MOTOR, nome: 'Motor_Wolf_PVC', fornecedor_id: 'f-wolff', arquivado_em: null }],
         // as tabelas de PREÇO da empresa são DERIVADAS (26/10/2026): a base de conhecimento vincula a Wolff no PERFIL
-        orcamentista_mp_categoria_fornecedor: [{ tenant_id: TENANT, mp_categoria_id: 'c-perfil', fornecedor_id: 'f-wolff' }],
-        orcamentista_tabela: [{ id: TABELA, fornecedor_id: 'f-wolff', arquivo_nome: 'Tabela Wolff.xlsx', familia: 'PVC', categoria_chave: 'PERFIL', vigente: false }],
-        orcamentista_fornecedor: [{ id: 'f-wolff', nome: 'Wolff Perfis' }],
+        // e o VIDRO (12/11/2026, o comando único): a Estrela, fornecedora PRINCIPAL da categoria VIDRO — o custo do vidro sai da tabela dela
+        orcamentista_mp_categoria_fornecedor: [
+            { tenant_id: TENANT, mp_categoria_id: 'c-perfil', fornecedor_id: 'f-wolff' },
+            { tenant_id: TENANT, mp_categoria_id: 'c-vidro', fornecedor_id: 'f-estrela', principal: true },
+        ],
+        orcamentista_tabela: [
+            { id: TABELA, fornecedor_id: 'f-wolff', arquivo_nome: 'Tabela Wolff.xlsx', familia: 'PVC', categoria_chave: 'PERFIL', vigente: false },
+            { id: TABELA_DE_VIDRO, fornecedor_id: 'f-estrela', arquivo_nome: 'Vidro_-_Vidros_Estrela.xlsx', familia: 'PVC', categoria_chave: 'VIDRO', vigente: false },
+        ],
+        orcamentista_fornecedor: [{ id: 'f-wolff', nome: 'Wolff Perfis' }, { id: 'f-estrela', nome: 'INDUSTRIA DE VIDROS TEMPERADOS ESTRELA LTDA' }],
+        // a tabela de cores da Wolf (20261112000006): o degrau "código + cor" da resolução e o guarda da cor do nome técnico
+        orcamentista_fornecedor_cor: [{ fornecedor_id: 'f-wolff', grupo: 'PERFIS DE PVC', codigo: '1', nome: 'BRANCO' }, { fornecedor_id: 'f-wolff', grupo: 'ACESSORIOS', codigo: '1', nome: 'BRANCO' }],
         orcamentista_familia_catalogo: [{ chave: 'PVC', rotulo: 'PVC', ordem: 1 }, { chave: 'ALUMINIO', rotulo: 'Alumínio', ordem: 2 }],
         // as abas da DP-02 do MOTOR (motor_id, tabela_id nulo): o levantamento e a conversa as leem do banco
         ...abasDaDP02NoBanco(MOTOR, 'motor'),
@@ -228,9 +243,12 @@ function montar() {
             ...CANDIDATAS.filter((c) => c.tipologia !== 'DP-02').map((c) => ({ ...c })),
             ...abasDaDP02NoBanco(MOTOR, 'motor').orcamentista_motor_tipologia_detalhe,
         ],
-        orcamentista_mp_categoria: [{ id: 'c-perfil', tenant_id: TENANT, categoria_chave: 'PERFIL', config: { serra_mm: 5, cores: ['BRANCO'] } }],
+        orcamentista_mp_categoria: [
+            { id: 'c-perfil', tenant_id: TENANT, categoria_chave: 'PERFIL', config: { serra_mm: 5, cores: ['BRANCO'] } },
+            { id: 'c-vidro', tenant_id: TENANT, categoria_chave: 'VIDRO', config: {} },
+        ],
         orcamentista_motor_regra: DE_PARA.regras.map((r, k) => ({ id: `r-${String(k).padStart(4, '0')}`, ...r, tabela_id: null as string | null, motor_id: MOTOR, tipologias: ['DP-02'] })),
-        orcamentista_tabela_item: DE_PARA.itens.map((i) => ({ ...i, tabela_id: TABELA })),
+        orcamentista_tabela_item: [...DE_PARA.itens.map((i) => ({ ...i, tabela_id: TABELA })), ...ITENS_DE_VIDRO.map((i) => ({ ...i }))],
         // o tempo da tabela própria (20261024000003); as colunas antigas, obsoletas, com OUTRO número
         orcamentista_motor_tipologia: [{ tabela_id: null, motor_id: MOTOR, tipologia: 'DP-02', tempo_fabricacao_min: 999, tempo_origem: 'IMPORTADO' }],
         orcamentista_motor_tipologia_tempo: [{ tabela_id: null, motor_id: MOTOR, tipologia: 'DP-02', tempo_fabricacao_min: 300, tempo_origem: 'ESTIMADO' }],
@@ -565,13 +583,24 @@ const opcoesDe = (...nomes: string[]) => nomes.map((n) => opcao(levantamentos().
 const ESCOLHAS_QUE_FECHAM = [{ variavel: 'ARI', opcao: 4 }, { variavel: 'MAE', opcao: 2 }]
 /** Uma esquadria DP-02 completa, com o arremate dito em palavras, numa mensagem só — devolve a resposta. */
 /**
- * A RESPOSTA DO "SIM" com a cadeia ligada (11/11/2026): o levantamento formal e, depois dele, a linha da etapa do preço — o orçamento que o
- * agente precificou e o arquivo enviado. O número e o valor vêm do orçamento GRAVADO (o valor não é o que estes casos afirmam).
+ * DEPOIS DO "SIM", SÓ O ARQUIVO (dono do produto, 12/11/2026, 4.3): quando o PDF do orçamento chega a quem disse "sim", nenhum texto sai — as
+ * barras, o aproveitamento e a mão de obra estão no PDF. O levantamento FORMAL por texto só sai quando o PDF NÃO chega (o envio falha): é por
+ * esse caminho que os casos que provam os números do formal o leem. `formalPorTexto()` liga esse caminho (o envio do PDF do orçamento falha).
  */
-function comOOrcamentoEnviado(formal: string) {
+function formalPorTexto() { estado.documentoDoOrcamentoStatus = 500 }
+/** A resposta do "sim" quando o PDF não chegou: o formal e, depois dele, a frase do envio que falhou (o número e o nome do orçamento GRAVADO). */
+function comOEnvioQueFalhou(formal: string) {
     const o = (estado.db.orcamentista_orcamento ?? [])[0]
     if (!o) return formal
-    return `${formal}\n\n${fraseDoOrcamentoEnviado(Number(o.numero), String(o.nome), Number(o.valor_venda))}`
+    return `${formal}\n\n${fraseDoEnvioQueFalhou(Number(o.numero), String(o.nome))}`
+}
+/** O texto do último PDF do ORÇAMENTO enviado (a cadeia do "sim"): as cadeias do PDF, juntas por espaço, com o travessão e o marcador. */
+function textoDoOrcamentoEnviado(): string {
+    const doc = estado.documentosDoOrcamento[estado.documentosDoOrcamento.length - 1]
+    if (!doc) return ''
+    const pdf = Buffer.from(String(doc.corpo.Document).replace(/^data:[^,]*,/, ''), 'base64').toString('latin1')
+    return [...pdf.matchAll(/\(((?:\\.|[^\\)])*)\) Tj/g)].map((m) => m[1].replace(/\\([()\\])/g, '$1')).join(' ')
+        .replace(/\x97/g, '—').replace(/\x95/g, '•').replace(/\s+/g, ' ')
 }
 async function fecharDp02(nome: string, opcoes: { senderAlt?: string } = {}) {
     llmResponde({ nome, itens: [{ ...DP02 }], escolhas: ESCOLHAS_QUE_FECHAM })
@@ -585,8 +614,10 @@ async function fecharDp02(nome: string, opcoes: { senderAlt?: string } = {}) {
 async function confirmarApanhado(opcoes: { senderAlt?: string } = {}) {
     if (!ehConfirmacaoDoArquivo(ultimoEnviado())) return ultimoEnviado()
     llmResponde({ confirma: true })
+    const antes = estado.envios.length
     await chamar('sim', opcoes)
-    return ultimoEnviado()
+    // SÓ O ARQUIVO (12/11/2026, 4.3): sem texto novo depois do "sim", a resposta é vazia — nunca o apanhado de antes relido como se fosse nova
+    return estado.envios.length > antes ? ultimoEnviado() : ''
 }
 /**
  * O TEXTO do último arquivo enviado: as cadeias do PDF (o jsPDF escreve o texto em Latin-1, entre parênteses, sem compressão), juntas por espaço —
@@ -695,7 +726,8 @@ describe('(1) O TESTE QUE VALE: pedidos seguidos do MESMO telefone, todos respon
     // nomes novos no roteiro: o "Casa do João" de produção é dado de teste do dono do produto
     const ACEITE_1 = 'Levantamento Casa do Pedro — janela de correr 2 folhas móveis Europa 42, 1200 x 1000 mm, 1 unidade, perfil branco, vidro 5mm'
 
-    it('1. a esquadria inteira, SEM nenhuma pergunta de arremate: o apanhado, e com o "sim" o padrão confirmado e os dois totais', async () => {
+    it('1. a esquadria inteira, SEM nenhuma pergunta de arremate: o apanhado, e com o "sim" o padrão confirmado e os dois totais (o formal por texto: o PDF não chegou, 12/11/2026)', async () => {
+        formalPorTexto()
         llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02, vidro: 'vidro 5mm' }] })
         await chamar(ACEITE_1)
         // o apanhado (26/10/2026) é a primeira resposta; o formal sai com o "sim"
@@ -721,14 +753,26 @@ describe('(1) O TESTE QUE VALE: pedidos seguidos do MESMO telefone, todos respon
         expect(levantamentos()[0]).toEqual(expect.objectContaining({ nome: 'Casa do Pedro', estado: 'COMPLETO' }))
     })
 
-    it('1b. o MESMO pedido com o arremate dito em palavras: com o "sim", os dois totais, o arremate usado e o que o preço cobre e não cobre', async () => {
-        expect(await fecharDp02('Casa do João')).toBe(comOOrcamentoEnviado(LEVANTAMENTO_CASA_DO_JOAO))
-        expect(enviados()).toHaveLength(2)
+    it('1b. o MESMO pedido com o arremate dito em palavras: com o "sim" e o PDF entregue, SÓ O ARQUIVO (12/11/2026, 4.3) — as barras, o aproveitamento e a mão de obra vão nele', async () => {
+        expect(await fecharDp02('Casa do João')).toBe('')
+        // nenhum texto depois do "sim": o apanhado é a única mensagem; o PDF do orçamento foi ao mesmo telefone
+        expect(enviados()).toHaveLength(1)
+        expect(estado.documentosDoOrcamento.map((d) => d.corpo.Phone)).toEqual([TELEFONE_DO_WEBHOOK])
+        const pdf = textoDoOrcamentoEnviado()
+        expect(pdf).toContain('PARA O VENDEDOR')
+        expect(pdf).toMatch(/• 9681 \([^)]*\): 2 barra\(s\) de 6,00 m/)
+        expect(pdf).toContain('Aproveitamento: 60,7%')
+        expect(pdf).toContain('Mão de obra: item 1: 300 min.')
+        expect(pdf).not.toContain('PARCIAL')
+        expect(erros.join('\n')).toContain('so_arquivo=sim')
+        // e o formal, que não foi por texto, é o mesmo de sempre quando o PDF não chega (o caso 1 e o grupo 20)
+        expect(LEVANTAMENTO_CASA_DO_JOAO.split('\n')[0]).toBe('Levantamento “Casa do João”, perfil BRANCO.')
         expect(itensDe(levantamentos()[0].id)).toEqual([expect.objectContaining({ ordem: 1, ...DP02, escolhas: { ARI: 4, MAE: 2 } })])
         expect(LEVANTAMENTO_CASA_DO_JOAO).not.toMatch(VOCABULARIO_INTERNO)
     })
 
     it('2. "Levantamento Obra Centro" logo depois: responde, e são DOIS levantamentos distintos', async () => {
+        formalPorTexto()
         await fecharDp02('Casa do João')
         llmResponde({ nome: 'Obra Centro', itens: [{ ...DP02, largura_mm: 800, altura_mm: 600 }], escolhas: [{ variavel: 'ARI', opcao: 4 }, { variavel: 'ARE', opcao: 2 }] })
         await chamar('Levantamento Obra Centro: DP-02 800 x 600, branco, temperado 5mm, sem arremate interno nem externo')
@@ -811,6 +855,7 @@ describe('(2) o roteamento por nome', () => {
     })
 
     it('o vendedor responde dizendo que é NOVO, com o nome: "novo Casa do João 2" cria o segundo, e responde JÁ', async () => {
+        formalPorTexto()
         await fecharDp02('Casa do João')
         llmResponde({ nome: 'Casa do João 2', novo: true, itens: [{ ...DP02 }] })
         await chamar('novo Casa do João 2: DP-02 1200 x 1000 branco temperado 5mm')
@@ -904,7 +949,7 @@ describe('(3) o estado mora no levantamento; a CONVERSA é gravada como históri
         expect(estado.db.orcamentista_pre_definicao).toEqual([])
     })
 
-    it('A CADEIA DO "SIM" LIGADA (11/11/2026): o PDF do orçamento vai ao telefone do DONO do levantamento, a linha do arquivo é do agente, e a resposta diz que foi enviado', async () => {
+    it('A CADEIA DO "SIM" LIGADA (11/11/2026): o PDF do orçamento vai ao telefone do DONO do levantamento, a linha do arquivo é do agente — e, entregue a quem disse "sim", NENHUM texto (12/11/2026, 4.3)', async () => {
         // o dono do levantamento é o remetente que o abriu (gravado como 51999114290); aqui é ele quem diz "sim", e o webhook o entrega no formato do
         // WhatsApp (555199114290): o arquivo vai a esse número exato, que é o mesmo que já recebe as respostas
         // (c) parte da forma de ANTES (sem o 55): o envio aceito no número do canal vira medição e é persistido no remetente
@@ -920,7 +965,16 @@ describe('(3) o estado mora no levantamento; a CONVERSA é gravada como históri
         const [orcamento] = estado.db.orcamentista_orcamento
         expect(Number(orcamento.valor_venda)).toBeGreaterThan(0)
         expect(orcamento.editado_manualmente_em ?? null).toBeNull()
-        expect(respostaDoSim).toContain(fraseDoOrcamentoEnviado(Number(orcamento.numero), String(orcamento.nome), Number(orcamento.valor_venda)))
+        // a frase "foi precificado... e o arquivo foi enviado" não sai: o arquivo já está na conversa
+        expect(respostaDoSim).toBe('')
+        expect(enviados().join('\n')).not.toContain(fraseDoOrcamentoEnviado(Number(orcamento.numero), String(orcamento.nome), Number(orcamento.valor_venda)))
+        expect(erros.join('\n')).toMatch(/envio=ok ms_envio=\d+/)
+        expect(linhaIa().pop()).toMatch(/ so_arquivo=sim$/)
+        // a SAÍDA é gravada mesmo sem texto: a marca da resposta, com o id do envio do arquivo — o reenvio do WUZAPI acha a entrada respondida
+        const saidas = (estado.db.orcamentista_mensagem as Linha[]).filter((m) => m.direcao === 'saida')
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { SAIDA_SO_O_ARQUIVO } = require('@/lib/atendimentos-ia/conversa-da-ia') as typeof import('@/lib/atendimentos-ia/conversa-da-ia')
+        expect(saidas[saidas.length - 1]).toMatchObject({ texto: SAIDA_SO_O_ARQUIVO, wuzapi_mensagem_id: 'WAMID_DOCUMENTO' })
     })
 
     it('o levantamento de OUTRO remetente: o "sim" desta conversa não o atravessa — nenhum orçamento, nenhum PDF (quem diz "sim" é sempre o dono)', async () => {
@@ -1086,10 +1140,11 @@ describe('(5) remetente autorizado é SEMPRE respondido; silêncio só para o de
     it('autorizado com o histórico antigo inteiro (uma pré-definição COMPLETA numa conversa antiga): É respondido', async () => {
         estado.db.orcamentista_conversa = [{ id: 'antiga', tenant_id: TENANT, remetente_id: VENDEDOR, telefone: TELEFONE_DO_WEBHOOK, criado_em: '2026-10-22T00:00:00Z' }]
         estado.db.orcamentista_pre_definicao = [{ id: 'pd', tenant_id: TENANT, conversa_id: 'antiga', estado: 'COMPLETA', tipologia: 'janela de correr 2 folhas Europa 42' }]
+        formalPorTexto()
         await fecharDp02('Casa do João')
         expect(enviados()).toHaveLength(2)
         expect(ehConfirmacaoDoArquivo(enviados()[0], 'Casa do João')).toBe(true)
-        expect(enviados()[1]).toBe(comOOrcamentoEnviado(LEVANTAMENTO_CASA_DO_JOAO))
+        expect(enviados()[1]).toBe(comOEnvioQueFalhou(LEVANTAMENTO_CASA_DO_JOAO))
         expect(estado.db.orcamentista_pre_definicao).toEqual([expect.objectContaining({ id: 'pd', estado: 'COMPLETA' })])
     })
 })
@@ -1208,7 +1263,9 @@ describe('(7) o log [IA]: o levantamento e o desfecho — nunca a chave, o telef
     it('levantamento, propostos, descartados, se enviou e o desfecho', async () => {
         await fecharDp02('Casa do João')
         expect(linhaIa()[0]).toMatch(/^\[IA\] levantamento=\S+ rota=NOVO propostos=8 descartados=0 enviou=sim desfecho=arquivo/)
-        expect(linhaIa()[1]).toMatch(/^\[IA\] levantamento=\S+ rota=ALTERACAO propostos=0 descartados=0 enviou=sim desfecho=levantou/)
+        // o "sim" com o PDF entregue (12/11/2026, 4.3): nenhum TEXTO ao vendedor, mas a saída é GRAVADA (a marca da resposta, para o reenvio do
+        // WUZAPI não conduzir de novo) — enviou=sim — e a marca de que foi só o arquivo
+        expect(linhaIa()[1]).toMatch(/^\[IA\] levantamento=\S+ rota=ALTERACAO propostos=0 descartados=0 enviou=sim desfecho=levantou .* so_arquivo=sim$/)
     })
 
     it('nem a chave, nem o telefone, nem o texto, nem a resposta enviada', async () => {
@@ -1856,6 +1913,8 @@ describe('(17) O ARQUIVO no lugar da mensagem-resumo (dono do produto, 06/11/202
     const confirmar = async () => { llmResponde({ confirma: true }); await chamar('sim'); return ultimoEnviado() }
 
     it('a PRIMEIRA resposta é o ARQUIVO (um PDF) e a confirmação sobre ele — nenhuma mensagem-resumo, nenhum R$, nenhum código, nenhuma linha de barra', async () => {
+        // o controle compara com o formal POR TEXTO: o caminho em que o PDF do orçamento não chega (12/11/2026, 4.3)
+        formalPorTexto()
         const texto = await pedir()
         expect(estado.documentos).toHaveLength(1)
         expect(estado.documentos[0].corpo.FileName).toBe('Levantamento 1 - Casa do Pedro.pdf')
@@ -1903,7 +1962,8 @@ describe('(17) O ARQUIVO no lugar da mensagem-resumo (dono do produto, 06/11/202
         expect(textoDoArquivo()).toContain('9%')
     })
 
-    it('depois do "sim", a resposta seguinte é o levantamento formal com o bloco de preço INTEIRO, como era', async () => {
+    it('depois do "sim", com o PDF do orçamento que NÃO chegou, a resposta é o levantamento formal com o bloco de preço INTEIRO, como era (12/11/2026: chegando, só o arquivo — 1b)', async () => {
+        formalPorTexto()
         await pedir()
         const formal = await confirmar()
         expect(formal.split('\n')[0]).toBe('Levantamento “Casa do Pedro”, perfil BRANCO.')
@@ -1940,7 +2000,8 @@ describe('(17) O ARQUIVO no lugar da mensagem-resumo (dono do produto, 06/11/202
         expect(arquivo).not.toMatch(/: Padrão[;·]/)
     })
 
-    it('uma alteração de medida ANTES do "sim" gera o arquivo de novo, sem nome e sem preço; o "sim" depois traz o formal com ela', async () => {
+    it('uma alteração de medida ANTES do "sim" gera o arquivo de novo, sem nome e sem preço; o "sim" depois traz o formal com ela (o PDF do orçamento que não chegou)', async () => {
+        formalPorTexto()
         await pedir()
         llmResponde({ itens: [{ largura_mm: 1500 }] })
         await chamar('a largura é 1500')
@@ -2059,6 +2120,8 @@ describe('(19) duas famílias com o mesmo código: a conversa pergunta de qual f
     })
 
     it('a resposta "é a de PVC": a esquadria grava a família e o motor do PVC, e a conversa segue para o apanhado', async () => {
+        // o formal por texto (o PDF do orçamento que não chega, 12/11/2026): é ele que a comparação lê
+        formalPorTexto()
         llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }] })
         await chamar('Levantamento Casa do Pedro: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm')
         llmResponde({ itens: [{ familia: 'PVC' }] })
@@ -2073,6 +2136,7 @@ describe('(19) duas famílias com o mesmo código: a conversa pergunta de qual f
         // e com o "sim", o levantamento formal pelo motor e pelo preço do PVC: o MESMO texto da conta com uma família só
         const comDuas = await confirmarApanhado()
         montar()
+        formalPorTexto()
         llmResponde({ nome: 'Casa do Pedro', itens: [{ ...DP02 }] })
         await chamar('Levantamento Casa do Pedro: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm')
         expect(comDuas).toContain('Perfis por barra inteira: R$')
@@ -2159,6 +2223,8 @@ describe('(20) o CONTEXTO DO ATENDIMENTO: o prompt manda em quando e em que form
     /** O caminho inteiro — a esquadria e o "sim" —, do zero, com o contexto e as falas dados. Devolve o que o vendedor recebeu. */
     async function fluxo(o: { contexto?: string; falas?: [string | undefined, string | undefined]; cor?: string; confirmaNaPrimeira?: boolean } = {}) {
         montar()
+        // os números que o contexto não pode mudar estão no formal POR TEXTO: o caminho do PDF do orçamento que não chega (12/11/2026, 4.3)
+        formalPorTexto()
         if (o.cor) (estado.db.orcamentista_mp_categoria[0].config as Linha).cores = ['BRANCO', o.cor]
         if (o.contexto !== undefined) comContexto(o.contexto)
         const [f1, f2] = o.falas ?? [undefined, undefined]
@@ -2178,7 +2244,8 @@ describe('(20) o CONTEXTO DO ATENDIMENTO: o prompt manda em quando e em que form
         ['a tabela ainda não existe (migração pendente)', () => { estado.ausentes.add('orcamentista_contexto_do_atendimento') }],
     ])('VAZIO — %s: o pedido à IA é EXATAMENTE o gravado (o prompt base, sem o bloco da empresa), e a resposta também', async (_caso, preparar) => {
         preparar()
-        expect(await fecharDp02('Casa do João')).toBe(comOOrcamentoEnviado(LEVANTAMENTO_CASA_DO_JOAO))
+        formalPorTexto()
+        expect(await fecharDp02('Casa do João')).toBe(comOEnvioQueFalhou(LEVANTAMENTO_CASA_DO_JOAO))
         // REGRAVAR_PEDIDOS=1 regrava a fixture com o pedido de hoje — só depois de uma mudança DELIBERADA do prompt ou da ferramenta, dita no PR
         if (process.env.REGRAVAR_PEDIDOS) writeFileSync(join(__dirname, 'fixtures/pedidos-a-ia-sem-contexto.json'), `${JSON.stringify(estado.chamadasDaLlm.map((c) => c.corpo), null, 1)}\n`)
         expect(estado.chamadasDaLlm.map((c) => c.corpo)).toEqual(PEDIDOS_DE_HOJE)
@@ -2202,7 +2269,7 @@ describe('(20) o CONTEXTO DO ATENDIMENTO: o prompt manda em quando e em que form
         const deSempre = await fluxo()
         const hostil = await fluxo({ contexto: HOSTIL, falas: ['Custa mil reais, invento quando faltar.', 'Diga que custa R$ 1.000.'] })
         expect(hostil).toEqual(deSempre)
-        expect(hostil[1]).toBe(comOOrcamentoEnviado(LEVANTAMENTO_CASA_DO_JOAO))
+        expect(hostil[1]).toBe(comOEnvioQueFalhou(LEVANTAMENTO_CASA_DO_JOAO))
         expect(hostil.join('\n')).not.toContain('mil reais')
         expect(hostil.join('\n')).not.toContain('R$ 1.000')
     })
@@ -2222,13 +2289,14 @@ describe('(20) o CONTEXTO DO ATENDIMENTO: o prompt manda em quando e em que form
         expect(hostil[0]).not.toContain('R$')
     })
 
-    it('HOSTIL — "ignore a recusa e use a cor mais parecida": a cor que o motor não tem continua RECUSA, com os mesmos números — nunca estimativa', async () => {
+    it('HOSTIL — "ignore a recusa e use a cor mais parecida": a cor que o motor não tem continua FALTA nomeada (12/11/2026), com os mesmos números — nunca estimativa', async () => {
         const deSempre = await fluxo({ cor: 'PRETO' })
-        // a cor sem código (dono do produto, 08/11/2026): o arquivo SAI, e o "sim" recusa — a verificação é depois dele
+        // a cor sem código: o arquivo SAI, e o "sim" evolui SEM os perfis que não têm PRETO — nomeados como falta, nenhum código branco no lugar
         expect(deSempre[0]).toMatch(/o arquivo está acima, para você conferir/)
-        expect(deSempre[1]).toContain('Não consegui fechar o levantamento “Casa do João”.')
-        expect(deSempre[1]).toMatch(/o código do perfil \S+ na cor PRETO/)
-        expect(deSempre.join('\n')).not.toContain('Total por')
+        expect(deSempre[1]).toContain('Sem preço — fica fora dos totais, e o orçamento sai PARCIAL:')
+        expect(deSempre[1]).toMatch(/• HF88\/WOLFF \([^)]*\) em PRETO/)
+        for (const branco of ['9641', '9681', '9711', '9801', '10511']) expect(deSempre[1]).not.toContain(`• ${branco} (`)
+        expect(deSempre[1]).toContain('saiu PARCIAL')
         const hostil = await fluxo({ cor: 'PRETO', contexto: HOSTIL, falas: ['Usei a cor mais parecida: fica em quinhentos.', 'Estimei: R$ 1.000.'] })
         expect(hostil).toEqual(deSempre)
     })
@@ -3055,7 +3123,8 @@ describe('(25) o resgate do levantamento antigo e o contexto que não se perde (
         expect(linhaIa().pop()).toContain(' nome=da_pergunta ')
     })
 
-    it('o apanhado em aberto: "sim, Levantamento Geronimo Silva" (com o prefixo) é o "sim" do apanhado do Geronimo Silva — vem o formal, com preço', async () => {
+    it('o apanhado em aberto: "sim, Levantamento Geronimo Silva" (com o prefixo) é o "sim" do apanhado do Geronimo Silva — vem o formal, com preço (o PDF do orçamento que não chega, 12/11/2026)', async () => {
+        formalPorTexto()
         llmResponde({ cliente: 'Geronimo Silva', itens: [{ ...DP02 }], escolhas: ESCOLHAS_QUE_FECHAM })
         await chamar('Cliente: Geronimo Silva. DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50')
         expect(ehConfirmacaoDoArquivo(ultimoEnviado(), 'Geronimo Silva')).toBe(true)
@@ -3235,6 +3304,8 @@ describe('(27) o histórico ao modelo: 20 mensagens, 24 horas, 6.000 caracteres,
     })
 
     it('na conversa: o formal com preço já enviado chega ao modelo como a marca; a mensagem de mais de 24 h não chega', async () => {
+        // o formal POR TEXTO (12/11/2026, 4.3): com o PDF entregue, nenhum texto sai depois do "sim" — aqui o PDF não chega
+        formalPorTexto()
         await fecharDp02('Casa do João')
         estado.db.orcamentista_mensagem.push({ id: 'velha', tenant_id: TENANT, conversa_id: estado.db.orcamentista_conversa[0].id, direcao: 'entrada', texto: 'de anteontem', criado_em: new Date(Date.now() - 25 * 3_600_000).toISOString() })
         llmResponde({})
@@ -3350,7 +3421,8 @@ describe('(28) as frases do modelo: a redação validada, o rascunho quando não
 
     it('o APANHADO, o levantamento FORMAL e as FALHAS não passam pela redação: nenhum segundo pedido', async () => {
         estado.redacao = () => 'nunca'
-        expect(await fecharDp02('Casa do João')).toBe(comOOrcamentoEnviado(LEVANTAMENTO_CASA_DO_JOAO))
+        formalPorTexto()
+        expect(await fecharDp02('Casa do João')).toBe(comOEnvioQueFalhou(LEVANTAMENTO_CASA_DO_JOAO))
         expect(estado.redacoes).toEqual([])
         estado.respostasDaLlm.push('lanca')
         await chamar('oi')
@@ -5748,12 +5820,15 @@ describe('(41) A FALTA DO CÁLCULO DEPOIS DO "SIM" (dono do produto, 08/11/2026 
         db.orcamentista_motor_regra = [...(db.orcamentista_motor_regra ?? []), ...corrigir(CASO.regras).map(([codigo, codigo_wvetro, cor], k) => ({ id: `r-gb-${String(k).padStart(4, '0')}`, codigo, codigo_wvetro, cor, tabela_id: null as string | null, motor_id: MOTOR, tipologias: ['DP-39', 'DP-01'] }))]
         // os itens de preço SÃO os do recorte (os da DP-02 do banco base são de outra época, com outros valores: somados, dariam o mesmo código
         // em duas linhas — a recusa ITEM_EM_DUAS_LINHAS, que não é deste caso)
-        db.orcamentista_tabela_item = [...CASO.itens.map(([codigo, descricao, medida_barra_m, valor_barra_interno, valor_metro_interno]) => ({ codigo, descricao, medida_barra_m, valor_barra_interno, valor_metro_interno, tabela_id: TABELA }))]
+        db.orcamentista_tabela_item = [...CASO.itens.map(([codigo, descricao, medida_barra_m, valor_barra_interno, valor_metro_interno]) => ({ codigo, descricao, medida_barra_m, valor_barra_interno, valor_metro_interno, tabela_id: TABELA })),
+            // o VIDRO dos dois (12/11/2026, os três caminhos): o temperado de 8 mm e UM mini boreal — com um só, "mini boreal" casa sem ambiguidade,
+            // e a falta de cada caso é só a dele
+            ...[['VTIN05', 'VIDRO TEMPERADO INCOLOR 05MM'], ['VTIN08', 'VIDRO TEMPERADO INCOLOR 08MM'], ['VBO3,4', 'VIDRO MINI BOREAL 3,4MM']].map(([codigo, descricao]) => ({ ...ITENS_DE_VIDRO[0], codigo, descricao }))]
         db.orcamentista_motor_tipologia_tempo.push(
             { tabela_id: null, motor_id: MOTOR, tipologia: 'DP-39', tempo_fabricacao_min: 63, tempo_origem: 'ESTIMADO' },
             { tabela_id: null, motor_id: MOTOR, tipologia: 'DP-01', tempo_fabricacao_min: 70, tempo_origem: 'ESTIMADO' },
         )
-        db.orcamentista_mp_categoria = [{ id: 'c-perfil', tenant_id: TENANT, categoria_chave: 'PERFIL', config: { ...CASO.perfil_config } }]
+        db.orcamentista_mp_categoria = [{ id: 'c-perfil', tenant_id: TENANT, categoria_chave: 'PERFIL', config: { ...CASO.perfil_config } }, { id: 'c-vidro', tenant_id: TENANT, categoria_chave: 'VIDRO', config: {} }]
     }
     const MENSAGEM = 'Gerson Boss: porta de correr DP-39 2500 x 2200, temperado incolor 8mm; maxim-ar DP-01 600 x 600, mini boreal; perfil branco'
     const ESQUADRIAS = [
@@ -5767,6 +5842,18 @@ describe('(41) A FALTA DO CÁLCULO DEPOIS DO "SIM" (dono do produto, 08/11/2026 
         expect(estado.documentos).toHaveLength(1)
         return confirmarApanhado()
     }
+    /**
+     * A FALTA DE PREÇO NÃO RECUSA (12/11/2026): o "sim" evolui, o PDF PARCIAL vai ao vendedor, e o texto é SÓ o questionamento — a abertura e
+     * uma linha por código. Devolve as linhas dos códigos.
+     */
+    const ABERTURA_DO_PARCIAL = 'O orçamento 1 saiu PARCIAL — falta 1 valor. Para completar, preciso de:'
+    const questionamento = (t: string) => {
+        const [abertura, ...linhas] = t.split('\n')
+        expect(abertura).toBe(ABERTURA_DO_PARCIAL)
+        expect(estado.documentosDoOrcamento).toHaveLength(1)
+        expect(textoDoOrcamentoEnviado()).toContain('PARCIAL — falta 1 valor')
+        return linhas
+    }
     /** A recusa como o "sim" a recebe: o nome e a falta curta, com os caminhos de alteração quando há. */
     const recusaDoSim = (faltas: string[], caminhos: string[] = []) => LC().fraseDaRecusa({ nome: 'Gerson Boss', cor: '', esquadrias: [] }, faltas, caminhos)
     /** A resposta sem a confirmação do arremate que a abre. */
@@ -5776,8 +5863,7 @@ describe('(41) A FALTA DO CÁLCULO DEPOIS DO "SIM" (dono do produto, 08/11/2026 
         await chamar(MENSAGEM)
         return ultimoEnviado()
     }
-    // a falta CURTA (08/11/2026): o que falta, e as esquadrias dele entre parênteses, depois
-    const FALTA_DO_1023 = 'o código 1023, perfil 1023/WOLFF, na tabela de preço, com a barra e o valor (esquadria 1)'
+    // a falta CURTA (08/11/2026): o que falta, e as esquadrias dele entre parênteses, depois — a do preço do 1023 deixou de ser recusa (12/11/2026)
     const FALTA_DO_TEMPO_DA_DP01 = 'o tempo de fabricação de DP-01 no motor Motor_Wolf_PVC (esquadria 2)'
     const perguntasEmAberto = () => (estado.db.orcamentista_pergunta_em_aberto ?? []).map((p) => p.pergunta)
     // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -5811,24 +5897,28 @@ describe('(41) A FALTA DO CÁLCULO DEPOIS DO "SIM" (dono do produto, 08/11/2026 
         /** As primeiras ondas não dependem da quantidade: as cinco abas, a serra, as regras (uma por tipologia) e os itens. */
         const ondasFixas = (T: number) => [
             ['orcamentista_motor_tipologia_detalhe'], ['orcamentista_motor_variavel'], ['orcamentista_motor_formula'], ['orcamentista_motor_perfil'], ['orcamentista_motor_validacao'],
+            // AS ABAS OPCIONAIS (12/11/2026, os três caminhos): Insumos e Vidros, lidas em série depois das cinco — duas idas a mais
+            ['orcamentista_motor_insumo'], ['orcamentista_motor_vidro'],
             ['orcamentista_mp_categoria'], ...Array.from({ length: T }, () => ['orcamentista_motor_regra']),
             // O ESCOPO DA RESOLUÇÃO (12/11/2026): o fornecedor e as famílias do motor e as tabelas vão JUNTO da primeira página de itens — a
             // mesma onda de antes, com três leituras a mais
             ['orcamentista_motor', 'orcamentista_motor_familia', 'orcamentista_tabela', 'orcamentista_tabela_item'],
+            // A TABELA DE CORES do fornecedor do motor (20261112000006): uma ida, depois dos itens (é o fornecedor deles que ela lê)
+            ['orcamentista_fornecedor_cor'],
         ]
         /** A ÚLTIMA onda: os tempos de todas as tipologias e a configuração da empresa, JUNTOS — uma ida, qualquer que seja o número de esquadrias. */
         const ONDA_DA_MAO_DE_OBRA = ['orcamentista_motor_tipologia_tempo', 'tenant_expense_config', 'tenant_settings']
 
-        it('2 esquadrias, 2 tipologias (o “Gerson Boss”): 10 idas em série (eram 14), 15 leituras (eram 16; 12 antes do escopo da resolução, 12/11/2026) — a lista de cores não é mais lida (a variante única não depende dela)', async () => {
+        it('2 esquadrias, 2 tipologias (o “Gerson Boss”): 13 idas em série (10 antes dos três caminhos, 12/11/2026), 18 leituras (15 antes: + Insumos, Vidros e a tabela de cores) — a lista de cores da empresa não é lida', async () => {
             estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09))
             const { ondas, faltas } = await ondasDoCalculo([esquadria(1, 'DP-39', 2500, 2200), esquadria(2, 'DP-01', 600, 600)])
             expect(faltas).toEqual([])
             expect(ondas).toEqual([...ondasFixas(2), ONDA_DA_MAO_DE_OBRA])
-            expect(ondas).toHaveLength(7 + 2 + 1)
-            expect(ondas.flat()).toHaveLength(12 + 3)
+            expect(ondas).toHaveLength(7 + 3 + 2 + 1)
+            expect(ondas.flat()).toHaveLength(12 + 3 + 3)
         })
 
-        it('20 esquadrias, 8 tipologias: 16 idas em série (seriam 8 + 8 + 40 = 56), e a mão de obra continua numa onda só', async () => {
+        it('20 esquadrias, 8 tipologias: 19 idas em série (16 antes dos três caminhos, 12/11/2026; seriam 8 + 8 + 40 = 56), e a mão de obra continua numa onda só', async () => {
             estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09))
             // seis tipologias a mais, com as abas, a Detalhe, as regras e o tempo da DP-01 do recorte: oito tipologias distintas no mesmo motor
             const NOVAS = ['DP-01A', 'DP-01B', 'DP-01C', 'DP-01D', 'DP-01E', 'DP-01F']
@@ -5843,8 +5933,8 @@ describe('(41) A FALTA DO CÁLCULO DEPOIS DO "SIM" (dono do produto, 08/11/2026 
             const { ondas, faltas } = await ondasDoCalculo(itens)
             expect(faltas).toEqual([])
             expect(ondas).toEqual([...ondasFixas(8), ONDA_DA_MAO_DE_OBRA])
-            expect(ondas).toHaveLength(7 + 8 + 1)
-            expect(ondas.flat()).toHaveLength(7 + 8 + 3 + 3)
+            expect(ondas).toHaveLength(7 + 3 + 8 + 1)
+            expect(ondas.flat()).toHaveLength(7 + 3 + 8 + 3 + 3)
         })
 
         it('a configuração e os tempos lidos UMA vez não mudam a conta: a falta de tempo de uma tipologia ainda sai, nomeada, com as esquadrias dela', async () => {
@@ -5855,17 +5945,18 @@ describe('(41) A FALTA DO CÁLCULO DEPOIS DO "SIM" (dono do produto, 08/11/2026 
         })
     })
 
-    it('(a) O CASO REAL: o 1023/WOLFF não está em nenhuma tabela — o ARQUIVO SAI, e o "sim" recusa nomeando o item e a falta, curta', async () => {
+    it('(a) O CASO REAL: o 1023/WOLFF não está em nenhuma tabela — o ARQUIVO SAI, e o "sim" EVOLUI (12/11/2026): o orçamento PARCIAL vai em PDF, e o texto só pergunta pelo 1023', async () => {
         const formal = await arquivoEDepoisOSim()
-        expect(corpo(formal)).toBe(recusaDoSim([FALTA_DO_1023]))
-        expect(corpo(formal)).toBe(`Não consegui fechar o levantamento “Gerson Boss”. Falta: ${FALTA_DO_1023}.`)
+        const linhas = questionamento(formal)
+        // a frase começa pelo código: ele vai uma vez, e a esquadria no fim
+        expect(linhas).toEqual([expect.stringMatching(/^• 1023\/WOLFF \(CLICK GUIA DE ALUMÍNIO PARA TRILHO DE PVC\) em Branco não está na tabela de preço.* \(esquadria 1\)\.$/)])
         // sem caminho de alteração: a falta é do cadastro, e nenhuma troca na esquadria a resolve
         expect(formal).not.toContain('Para trocar')
-        // o "sim" fica guardado, com a marca da definição que ele aprovou, e o levantamento gravado, completo
-        expect(perguntasEmAberto()).toEqual(['CONFIRMAR_APANHADO'])
-        expect(String(estado.db.orcamentista_pergunta_em_aberto[0].nome)).toMatch(/^definicao-confirmada:[0-9a-f]{64}$/)
+        // o levantamento fechou e atravessou: nada fica em aberto, e o orçamento guarda a falta
+        expect(perguntasEmAberto()).toEqual([])
         expect(levantamentos().map((l) => [l.nome, l.estado])).toEqual([['Gerson Boss', 'COMPLETO']])
-        expect(linhaIa().pop()).toMatch(/ desfecho=recusou(\s|$)/)
+        expect(linhaIa().pop()).toMatch(/ desfecho=levantou(\s|$)/)
+        expect(erros.filter((l) => l.startsWith('[ETAPA 4 calcular]')).pop()).toMatch(/ faltou=e1:NAO_ACHADA:1023\/WOLFF .* parcial=sim faltas_de_preco=1 /)
     })
 
     it('(b) a tipologia SEM TEMPO em orcamentista_motor_tipologia_tempo: o mesmo — a tipologia e o motor nomeados, e nenhum arquivo', async () => {
@@ -5875,24 +5966,24 @@ describe('(41) A FALTA DO CÁLCULO DEPOIS DO "SIM" (dono do produto, 08/11/2026 
         expect(estado.documentos).toHaveLength(1)
     })
 
-    it('as DUAS faltas de uma vez: o preço e o tempo saem juntos — uma não esconde a outra', async () => {
+    it('o preço E o tempo faltando: o tempo é RECUSA e segura o "sim" — e UMA FALTA NÃO ESCONDE A OUTRA (08/11/2026): o 1023 sem preço sai junto, nomeado', async () => {
         estado.db.orcamentista_motor_tipologia_tempo = estado.db.orcamentista_motor_tipologia_tempo.filter((t) => t.tipologia !== 'DP-01')
-        expect(corpo(await arquivoEDepoisOSim())).toBe(recusaDoSim( [FALTA_DO_1023, FALTA_DO_TEMPO_DA_DP01]))
+        expect(corpo(await arquivoEDepoisOSim())).toBe(recusaDoSim([FALTA_DO_TEMPO_DA_DP01,
+            'Esquadria 1: 1023/WOLFF (CLICK GUIA DE ALUMÍNIO PARA TRILHO DE PVC) em Branco não está na tabela de preço: nem pelo código, nem pela cor, nem pelo nome técnico na descrição.']))
         expect(estado.documentos).toHaveLength(1)
+        expect(estado.documentosDoOrcamento).toEqual([])
     })
 
-    it('o item com o VALOR vazio (não ausente da tabela) também segura o arquivo, nomeando o valor que falta', async () => {
+    it('o item com o VALOR vazio (não ausente da tabela) é falta nomeada (12/11/2026): o "sim" evolui, e a pergunta nomeia o valor que falta', async () => {
         estado.db.orcamentista_tabela_item.push(ITEM_1023(null, 6.09))
-        expect(corpo(await arquivoEDepoisOSim())).toBe(recusaDoSim( ['o valor da barra do código 1023, perfil 1023/WOLFF, na tabela de preço (esquadria 1)']))
+        expect(questionamento(await arquivoEDepoisOSim())).toEqual([expect.stringMatching(/^• 1023\/WOLFF \(esquadria 1\): o item 1023 da tabela de preço .* está sem o valor da barra\.$/)])
         expect(estado.documentos).toHaveLength(1)
     })
 
-    it('O MOTOR DE HOJE (o BZ0012 em CLICK, antes de o arquivo corrigido entrar): o apanhado com o arremate padrão RECUSA nomeando o BZ0012 — é por isso que este PR só entra depois do arquivo', async () => {
+    it('O MOTOR DE HOJE (o BZ0012 em CLICK, antes de o arquivo corrigido entrar): a ponte não tem Branco, e a descrição do 10491 ("BASE DE GUARNIÇAO") não traz o nome técnico — FALTA nomeada do BZ0012 (12/11/2026)', async () => {
         estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09))
         for (const r of estado.db.orcamentista_motor_regra as Linha[]) if (r.codigo_wvetro === 'BZ0012/WOLFF') r.cor = 'CLICK'
-        expect(corpo(await arquivoEDepoisOSim())).toBe(recusaDoSim( [
-            'o código do perfil BZ0012/WOLFF na cor Branco (o fornecedor tem: CLICK) (esquadrias 1 e 2)',
-        ]))
+        expect(questionamento(await arquivoEDepoisOSim())).toEqual([expect.stringMatching(/^• BZ0012\/WOLFF \(BASE DE GUARNIÇAO\) em Branco não está na tabela de preço.* \(esquadrias 1, 2\)\.$/)])
         expect(estado.documentos).toHaveLength(1)
     })
 
@@ -5903,49 +5994,50 @@ describe('(41) A FALTA DO CÁLCULO DEPOIS DO "SIM" (dono do produto, 08/11/2026 
         expect(perguntasEmAberto()).toContain('CONFIRMAR_APANHADO')
     })
 
-    it('(d) o levantamento COMPLETO: o arquivo sai como hoje, sem aviso nenhum — e o "sim" levanta com os preços', async () => {
+    it('(d) o levantamento COMPLETO: o arquivo sai como hoje, sem aviso nenhum — e o "sim" levanta, com os preços NO PDF (12/11/2026)', async () => {
         estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09))
         const r = await apanhado()
         expect(ehConfirmacaoDoArquivo(r, 'Gerson Boss')).toBe(true)
         expect(r).not.toContain('Não consegui fechar')
         expect(estado.documentos).toHaveLength(1)
-        const formal = await confirmarApanhado()
-        expect(formal).toContain('Barras por código:')
-        expect(formal).toContain('• 1023 (1023/WOLFF):')
-        expect(linhaIa().pop()).toMatch(/ desfecho=levantou(\s|$)/)
+        // COMPLETO e o PDF entregue a quem disse "sim" (12/11/2026, 4.3): nenhum texto, só o arquivo — sem carimbo de parcial
+        expect(await confirmarApanhado()).toBe('')
+        expect(estado.documentosDoOrcamento).toHaveLength(1)
+        expect(textoDoOrcamentoEnviado()).toMatch(/• 1023 \([^)]*\): 1 barra\(s\)/)
+        expect(textoDoOrcamentoEnviado()).not.toContain('PARCIAL')
+        expect(linhaIa().pop()).toMatch(/ desfecho=levantou .* so_arquivo=sim$/)
     })
 
     // AS OUTRAS RECUSAS DE CADASTRO (dono do produto, 08/11/2026, depois do #240): "o vendedor tem de poder confiar que arquivo recebido é
     // levantamento que anda" — a cor sem código, o mesmo código em duas linhas, dois códigos para a mesma peça também seguram o arquivo
-    it('a COR SEM CÓDIGO (Roxo, que o motor não tem) segura o arquivo, nomeando o perfil, a cor e as variantes que existem', async () => {
+    it('a COR SEM CÓDIGO (Roxo, que o motor não tem) é FALTA nomeada (12/11/2026): o "sim" evolui, e cada perfil sem Roxo é perguntado — nenhum código branco entra', async () => {
         estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09))
         estado.db.orcamentista_mp_categoria[0].config = { ...CASO.perfil_config, cores: ['Roxo'], cor_predominante: null }
         llmResponde({ nome: 'Gerson Boss', itens: ESQUADRIAS.map((e) => ({ ...e, cor_perfil: 'Roxo' })) })
         await chamar(MENSAGEM.replace('perfil branco', 'perfil roxo'))
         expect(ehConfirmacaoDoArquivo(ultimoEnviado(), 'Gerson Boss')).toBe(true)
-        const r = corpo(await confirmarApanhado())
-        expect(r.split('\n')[0]).toBe('Não consegui fechar o levantamento “Gerson Boss”. Falta:')
-        expect(r).toContain('• o código do perfil 2575/WOLFF na cor Roxo (o fornecedor tem: BRANCO, PRETO) (esquadria 1).')
-        // os OITO perfis com variante de cor — e, desde 08/11/2026, também o BZ0006 e o BZ0010, de variante única BRANCO: com a empresa só em
-        // Roxo, antes eles levavam o código branco em silêncio (a guarda dependia da lista); agora a variante única só serve para a cor que é
-        expect(r.split('\n').filter((l) => l.startsWith('• ')).map((l) => /do perfil (\S+)/.exec(l)?.[1])).toEqual(['2575/WOLFF', 'BZ0006/WOLFF', 'BZ0010/WOLFF', 'GB25/WOLFF', 'HF88/WOLFF', 'IL50/WOLFF', 'SF92/WOLFF', 'SP66/WOLFF'])
+        const r = await confirmarApanhado()
+        expect(r.split('\n')[0]).toMatch(/^O orçamento 1 saiu PARCIAL — faltam \d+ valores\. Para completar, preciso de:$/)
+        // os OITO perfis com variante de cor — e também o BZ0006 e o BZ0010, de variante única BRANCO: a variante única só serve para a cor que é
+        const codigos = r.split('\n').filter((l) => l.startsWith('• ')).map((l) => /^• (\S+)/.exec(l)?.[1]).sort()
+        expect(codigos).toEqual(['2575/WOLFF', 'BZ0006/WOLFF', 'BZ0010/WOLFF', 'GB25/WOLFF', 'HF88/WOLFF', 'IL50/WOLFF', 'SF92/WOLFF', 'SP66/WOLFF'])
+        // e nenhum código branco no PDF
+        for (const branco of ['25751', '10501', '10511', '9801', '9641', '9701', '9691', '9731']) expect(textoDoOrcamentoEnviado()).not.toContain(`• ${branco} (`)
         expect(estado.documentos).toHaveLength(1)
     })
 
-    it('o MESMO CÓDIGO EM DUAS LINHAS da tabela de preço segura o arquivo, nomeando o código e os dois valores', async () => {
+    it('o MESMO CÓDIGO EM DUAS LINHAS da tabela de preço é falta AMBÍGUA (12/11/2026): nenhuma linha é escolhida, e a pergunta nomeia as duas', async () => {
         estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09), ITEM_1023(60.9, 10.15))
-        expect(corpo(await arquivoEDepoisOSim())).toBe(recusaDoSim( [
-            'dizer qual linha da tabela de preço vale para o código 1023, perfil 1023/WOLFF: R$ 36,54 ou R$ 60,90 a barra (esquadria 1)',
-        ]))
+        expect(questionamento(await arquivoEDepoisOSim())).toEqual([expect.stringMatching(/^• 1023\/WOLFF \(.*\) em Branco tem 2 candidatos na tabela de preço, e nenhum é escolhido.* \(esquadria 1\)\.$/)])
         expect(estado.documentos).toHaveLength(1)
     })
 
-    it('DOIS CÓDIGOS PARA A MESMA PEÇA (BZ0006 em BRANCO com 10501 e 10502) segura o arquivo, nomeando os dois códigos e os dois valores', async () => {
+    it('DOIS CÓDIGOS PARA A MESMA PEÇA (BZ0006 em BRANCO com 10501 e 10502) é falta nomeada (12/11/2026), com os dois códigos e os dois valores', async () => {
         estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09), { codigo: '10502', descricao: 'GUARNIÇÃO', medida_barra_m: 6, valor_barra_interno: 60, valor_metro_interno: 10, tabela_id: TABELA })
         estado.db.orcamentista_motor_regra.push({ id: 'r-gb-dois', codigo: '10502', codigo_wvetro: 'BZ0006/WOLFF', cor: 'BRANCO', tabela_id: null, motor_id: MOTOR, tipologias: ['DP-39', 'DP-01'] })
-        expect(corpo(await arquivoEDepoisOSim())).toBe(recusaDoSim( [
-            'dizer qual código é o perfil BZ0006/WOLFF em Branco: 10501 (R$ 52,71 a barra) ou 10502 (R$ 60,00 a barra) (esquadrias 1 e 2)',
-        ]))
+        expect(questionamento(await arquivoEDepoisOSim())).toEqual([
+            '• BZ0006/WOLFF (esquadrias 1, 2): o perfil BZ0006/WOLFF em Branco tem 2 códigos na tabela do fornecedor: 10501 (R$ 52,71 a barra) e 10502 (R$ 60,00 a barra). Um valor por código: falta dizer qual deles é a peça.',
+        ])
         expect(estado.documentos).toHaveLength(1)
     })
 
@@ -5953,9 +6045,6 @@ describe('(41) A FALTA DO CÁLCULO DEPOIS DO "SIM" (dono do produto, 08/11/2026 
         ['a COR escrita de DOIS JEITOS no motor (BRANCO e Branco no BZ0010)', () => {
             estado.db.orcamentista_motor_regra.push({ id: 'r-gb-grafia', codigo: '10512', codigo_wvetro: 'BZ0010/WOLFF', cor: 'Branco', tabela_id: null, motor_id: MOTOR, tipologias: ['DP-39', 'DP-01'] })
         }, 'dizer qual grafia da cor Branco vale para o perfil BZ0010/WOLFF: BRANCO ou Branco (esquadrias 1 e 2)'],
-        ['o PERFIL SEM REGRA no motor (o SP66 sem nenhuma linha)', () => {
-            estado.db.orcamentista_motor_regra = estado.db.orcamentista_motor_regra.filter((r) => r.codigo_wvetro !== 'SP66/WOLFF')
-        }, 'o código do item do perfil SP66/WOLFF: ele não está em nenhuma regra da tabela do fornecedor (esquadrias 1 e 2)'],
         ['o item SEM O COMPRIMENTO da barra (o 9641 sem medida)', () => {
             estado.db.orcamentista_tabela_item.find((i) => i.codigo === '9641')!.medida_barra_m = null
         }, null],
@@ -5968,12 +6057,20 @@ describe('(41) A FALTA DO CÁLCULO DEPOIS DO "SIM" (dono do produto, 08/11/2026 
         expect(estado.documentos).toHaveLength(1)
     })
 
-    it('a falta de cadastro e a de tempo saem JUNTAS, numa resposta só', async () => {
+    it('o PERFIL SEM REGRA no motor (o SP66 sem nenhuma linha, 12/11/2026): a escada segue sem a ponte, e o nome técnico acha o 9731 ("SP66 - TRAVESSA DE CORRER - BRANCO") — nada falta', async () => {
+        estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09))
+        estado.db.orcamentista_motor_regra = estado.db.orcamentista_motor_regra.filter((r) => r.codigo_wvetro !== 'SP66/WOLFF')
+        expect(await arquivoEDepoisOSim()).toBe('')
+        expect(textoDoOrcamentoEnviado()).toMatch(/• 9731 \([^)]*\): 2 barra\(s\)/)
+        expect(textoDoOrcamentoEnviado()).not.toContain('PARCIAL')
+    })
+
+    it('a falta de cadastro AMBÍGUA e a de tempo: o tempo é RECUSA, e a ambígua sai JUNTO, nomeada — uma não esconde a outra', async () => {
         estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09), ITEM_1023(60.9, 10.15))
         estado.db.orcamentista_motor_tipologia_tempo = estado.db.orcamentista_motor_tipologia_tempo.filter((t) => t.tipologia !== 'DP-01')
         const r = corpo(await arquivoEDepoisOSim())
-        expect(r).toContain('• dizer qual linha da tabela de preço vale para o código 1023, perfil 1023/WOLFF:')
-        expect(r).toContain(`• ${FALTA_DO_TEMPO_DA_DP01}.`)
+        expect(r.startsWith(recusaDoSim([FALTA_DO_TEMPO_DA_DP01, 'X']).split('\n').slice(0, 2).join('\n'))).toBe(true)
+        expect(r).toMatch(/\n• Esquadria 1: 1023\/WOLFF \(.*\) em Branco tem 2 candidatos na tabela de preço, e nenhum é escolhido/)
     })
 
     it('A REGRA ÚNICA depois do "sim": a peça maior que a barra, que não é cadastro de preço, também recusa — uma linha por código, com a maior peça', async () => {
@@ -6008,18 +6105,25 @@ describe('(41) A FALTA DO CÁLCULO DEPOIS DO "SIM" (dono do produto, 08/11/2026 
                 expect(e.includes(DO_ARREMATE_ESCOLHIDO)).toBe(false)
             }
         }
-        it('o "Gerson Boss" de ponta a ponta, com a IA mandando a FALA do valor em todo turno: o arquivo, o "sim" que recusa (o 1023), o "tenta de novo" que levanta', async () => {
+        it('o "Gerson Boss" de ponta a ponta, com a IA mandando a FALA do valor em todo turno: o arquivo, o "sim" que pergunta pelo 1023 (o PARCIAL, 12/11/2026), o "tenta de novo" que levanta', async () => {
             llmResponde({ nome: 'Gerson Boss', itens: ESQUADRIAS.map((e) => ({ ...e })), fala: FALA_DO_VALOR })
             await chamar(MENSAGEM)
             expect(ehConfirmacaoDoArquivo(ultimoEnviado(), 'Gerson Boss')).toBe(true)
             expect(linhaIa().pop()).toMatch(/ fala=descartada_sobre_valor(\s|$)/)
             llmResponde({ confirma: true, fala: FALA_DO_VALOR })
             await chamar('sim')
-            expect(ultimoEnviado()).toBe(recusaDoSim([FALTA_DO_1023]))
+            expect(ultimoEnviado().split('\n')[0]).toBe(ABERTURA_DO_PARCIAL)
+            expect(ultimoEnviado()).toMatch(/• 1023\/WOLFF \(CLICK GUIA [^\n]* \(esquadria 1\)\./)
             estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09))
-            llmResponde({ fala: FALA_DO_VALOR })
-            await chamar('tenta de novo')
+            // o "sim" que evoluiu fechou a pergunta em aberto: o vendedor volta ao levantamento PELO NOME, e o arquivo sai de novo para conferir
+            llmResponde({ nome: 'Gerson Boss', fala: FALA_DO_VALOR })
+            await chamar('Gerson Boss, tenta de novo')
+            expect(ehConfirmacaoDoArquivo(ultimoEnviado(), 'Gerson Boss')).toBe(true)
+            llmResponde({ confirma: true, fala: FALA_DO_VALOR })
+            await chamar('sim')
+            // o orçamento já existe (a travessia não refaz): o levantamento sai por texto, com o 1023 cadastrado
             expect(ultimoEnviado().startsWith('Levantamento “Gerson Boss”')).toBe(true)
+            expect(ultimoEnviado()).toContain('• 1023 (1023/WOLFF):')
             expect(linhaIa().pop()).toMatch(/ desfecho=levantou(\s|$)/)
             semAsFrases()
         })
@@ -6036,24 +6140,32 @@ describe('(41) A FALTA DO CÁLCULO DEPOIS DO "SIM" (dono do produto, 08/11/2026 
             // a fala que não fala de valor continua abrindo a resposta
             expect(ultimoEnviado().startsWith('Combinado, troquei o vidro.\n\n')).toBe(true)
             llmResponde({ confirma: true })
+            const antes = enviados().length
             await chamar('sim')
-            expect(ultimoEnviado().startsWith('Levantamento “Gerson Boss”')).toBe(true)
+            // o levantamento que fecha: o PDF do orçamento a quem disse "sim", e nenhum texto (12/11/2026, 4.3)
+            expect(enviados()).toHaveLength(antes)
+            expect(estado.documentosDoOrcamento).toHaveLength(1)
             semAsFrases()
         })
     })
 
     describe('O "SIM" QUE CONTINUA VALENDO (dono do produto, 08/11/2026): a definição igual não pede novo "sim"; a que mudou, sim', () => {
         const documentosEnviados = () => estado.documentos.length
-        it('(a) o "Gerson Boss" confirmado com o 1023 sem preço; o preço é cadastrado; "tenta de novo": CALCULA DIRETO, sem arquivo novo e sem nova confirmação', async () => {
-            expect(corpo(await arquivoEDepoisOSim())).toBe(recusaDoSim([FALTA_DO_1023]))
-            const antes = documentosEnviados()
-            // o cadastro corrigido do lado de fora: a definição não muda
+        // a falta de PREÇO não segura mais o "sim" (12/11/2026): o caso é o da falta de TEMPO, que continua recusa
+        it('(a) o "Gerson Boss" confirmado com a DP-01 sem tempo; o tempo é cadastrado; "tenta de novo": CALCULA DIRETO, sem arquivo novo e sem nova confirmação — e o PDF do orçamento sai', async () => {
             estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09))
+            const tempos = estado.db.orcamentista_motor_tipologia_tempo
+            estado.db.orcamentista_motor_tipologia_tempo = tempos.filter((t) => t.tipologia !== 'DP-01')
+            expect(corpo(await arquivoEDepoisOSim())).toBe(recusaDoSim([FALTA_DO_TEMPO_DA_DP01]))
+            const antes = documentosEnviados()
+            const textos = enviados().length
+            // o cadastro corrigido do lado de fora: a definição não muda
+            estado.db.orcamentista_motor_tipologia_tempo = tempos
             llmResponde({})
             await chamar('tenta de novo')
-            const r = ultimoEnviado()
-            expect(r).toContain('Barras por código:')
-            expect(r).toContain('• 1023 (1023/WOLFF):')
+            // só o arquivo (4.3): nenhum texto, o PDF do orçamento com o 1023
+            expect(enviados()).toHaveLength(textos)
+            expect(textoDoOrcamentoEnviado()).toMatch(/• 1023 \([^)]*\): 1 barra\(s\)/)
             expect(documentosEnviados()).toBe(antes)
             expect(linhaIa().pop()).toMatch(/ desfecho=levantou(\s|$)/)
             expect(erros.filter((l) => l.startsWith('[ETAPA 3 montar]')).pop()).toMatch(/ sim_anterior=vale(\s|$)/)
@@ -6079,8 +6191,9 @@ describe('(41) A FALTA DO CÁLCULO DEPOIS DO "SIM" (dono do produto, 08/11/2026 
             expect(estado.documentos).toHaveLength(2)
             expect(erros.filter((l) => l.startsWith('[ETAPA 3 montar]')).pop()).toMatch(/ sim_anterior=definicao_mudou(\s|$)/)
             expect(estado.db.orcamentista_pergunta_em_aberto[0].nome).toBeNull()
-            // o novo "sim" calcula
-            expect(await confirmarApanhado()).toContain('Barras por código:')
+            // o novo "sim" calcula: o PDF do orçamento, e nenhum texto (12/11/2026, 4.3)
+            expect(await confirmarApanhado()).toBe('')
+            expect(estado.documentosDoOrcamento).toHaveLength(1)
         })
 
         it('A FRASE DO CAMINHO seguida AO PÉ DA LETRA fecha o levantamento: "muda o vidro da esquadria 1 para temperado incolor 5 mm", e o "sim"', async () => {
@@ -6094,14 +6207,17 @@ describe('(41) A FALTA DO CÁLCULO DEPOIS DO "SIM" (dono do produto, 08/11/2026 
             await chamar(frase)
             expect(itensDe(levantamentos()[0].id)[0].vidro).toBe('temperado incolor 5 mm')
             expect(ehConfirmacaoDoArquivo(ultimoEnviado(), 'Gerson Boss')).toBe(true)
-            const formal = await confirmarApanhado()
-            expect(formal).not.toContain('Não consegui fechar')
-            expect(formal).toContain('Barras por código:')
+            // o "sim" fecha: só o PDF do orçamento, completo (12/11/2026, 4.3)
+            expect(await confirmarApanhado()).toBe('')
+            expect(estado.documentosDoOrcamento).toHaveLength(1)
+            expect(textoDoOrcamentoEnviado()).not.toContain('PARCIAL')
         })
 
-        it('(c) confirmado, nada mudou e nada foi cadastrado: a MESMA falta sai de novo, curta, sem reenviar o arquivo', async () => {
+        it('(c) confirmado, nada mudou e nada foi cadastrado: a MESMA falta (o tempo, que é recusa) sai de novo, curta, sem reenviar o arquivo', async () => {
+            estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09))
+            estado.db.orcamentista_motor_tipologia_tempo = estado.db.orcamentista_motor_tipologia_tempo.filter((t) => t.tipologia !== 'DP-01')
             const primeira = corpo(await arquivoEDepoisOSim())
-            expect(primeira).toBe(recusaDoSim([FALTA_DO_1023]))
+            expect(primeira).toBe(recusaDoSim([FALTA_DO_TEMPO_DA_DP01]))
             llmResponde({})
             await chamar('tenta de novo')
             expect(corpo(ultimoEnviado())).toBe(primeira)

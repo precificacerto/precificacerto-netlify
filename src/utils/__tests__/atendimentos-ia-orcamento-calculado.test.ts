@@ -107,7 +107,7 @@ const escritas = () => estado.ops.filter((o) => o.op !== 'select')
 
 const N = null as number | null
 const linhaDeMaterial = (codigo: string, bruto: number) => ({
-    ordem: 1, codigo, codigo_na_tabela: codigo, resolucao: 'exato', descricao: `PERFIL ${codigo}`, unidade_compra: 'BR', medida_unidade: 6, custo_bruto_unidade: 600,
+    ordem: 1, caminho: 'perfil', codigo, codigo_na_tabela: codigo, resolucao: 'exato', descricao: `PERFIL ${codigo}`, unidade_compra: 'BR', medida_unidade: 6, custo_bruto_unidade: 600,
     cred_icms_pct: N, cred_pis_cofins_pct: N, cred_ipi_pct: N, nc_ipi_pct: N, cred_ibs_pct: N, cred_cbs_pct: N,
     credito_nao_apurado: 'faltou no bloco tributario: cred_icms_pct, cred_pis_cofins_pct, o par do IPI (cred_ipi_pct ou nc_ipi_pct)',
     custo_liquido_unidade: 600, custo_liquido_fracao: 100, consumo_item: 3, custo_bruto_material: bruto, custo_liquido_material: bruto,
@@ -147,7 +147,7 @@ function montar() {
     estado.chamadasDoCusto = []
     estado.naoAtinge = []
     estado.familias = []
-    estado.custo = { ok: true, itens: [itemDoCusto(450, 120), itemDoCusto(250, 60)], maoDeObra: { custoMensal: 1, minutosDaEmpresa: 2, valorDoMinuto: 0.5 } }
+    estado.custo = { ok: true, itens: [itemDoCusto(450, 120), itemDoCusto(250, 60)], maoDeObra: { custoMensal: 1, minutosDaEmpresa: 2, valorDoMinuto: 0.5 }, faltas: [] }
 }
 beforeEach(montar)
 
@@ -184,7 +184,7 @@ describe('(1) a ordem da escrita e o que cada passo grava', () => {
         expect('editado_manualmente_em' in carga).toBe(false)
     })
     it('o manual: sem levantamento, nenhum congelado é escrito (nem como nulo)', async () => {
-        estado.custo = { ok: true, itens: [itemDoCusto(300, 30)], maoDeObra: { custoMensal: 1, minutosDaEmpresa: 2, valorDoMinuto: 0.5 } }
+        estado.custo = { ok: true, itens: [itemDoCusto(300, 30)], maoDeObra: { custoMensal: 1, minutosDaEmpresa: 2, valorDoMinuto: 0.5 }, faltas: [] }
         await K().calcularOrcamento(T, O2, new Date(), () => 'c2')
         const carga = escritas().filter((o) => o.tabela === 'orcamentista_orcamento').pop()!.carga as Linha
         expect('comissao_percentual' in carga).toBe(false)
@@ -199,8 +199,8 @@ describe('(2) o que chega ao cálculo', () => {
         expect(tenant).toBe(T)
         expect(lev.nome).toBe('Antonio Rock')
         expect(lev.itens).toEqual([
-            { ordem: 1, tipologia: 'DP-02', largura_mm: 1200, altura_mm: 1000, quantidade: 1, cor_perfil: 'BRANCO', vidro: '4 mm', escolhas: { ARI: 4 }, familia: 'PVC' },
-            { ordem: 2, tipologia: 'DP-02', largura_mm: 800, altura_mm: 600, quantidade: 2, cor_perfil: 'BRANCO', vidro: null, escolhas: null, familia: null },
+            { ordem: 1, tipologia: 'DP-02', largura_mm: 1200, altura_mm: 1000, quantidade: 1, cor_perfil: 'BRANCO', vidro: '4 mm', vidro_codigo: null, escolhas: { ARI: 4 }, familia: 'PVC' },
+            { ordem: 2, tipologia: 'DP-02', largura_mm: 800, altura_mm: 600, quantidade: 2, cor_perfil: 'BRANCO', vidro: null, vidro_codigo: null, escolhas: null, familia: null },
         ])
         const leitura = estado.ops.find((o) => o.tabela === 'orcamentista_levantamento_item')!
         expect(leitura.filtros).toContainEqual(['eq', 'tenant_id', T])
@@ -262,20 +262,27 @@ describe('(3) a rota', () => {
         expect(s.status).toBe(503)
         expect(s.corpo).toEqual({ error: K().FRASE_SEM_MIGRACAO_DO_CALCULO, sem_migracao: true })
     })
-    it('A FOTOGRAFIA DA RESOLUÇÃO (12/11/2026): o material grava o código na tabela e como achou', async () => {
+    it('A FOTOGRAFIA DA RESOLUÇÃO (12/11/2026): o material grava o código na tabela, como achou e o caminho', async () => {
         const r = await K().calcularOrcamento(T, O1, new Date('2026-11-09T15:00:00Z'), () => 'calc-novo')
         const material = escritas().find((o) => o.op === 'insert')!.carga as Linha[]
-        expect(material.map((m) => [m.codigo, m.codigo_na_tabela, m.resolucao])).toEqual([['A', 'A', 'exato'], ['A', 'A', 'exato']])
+        expect(material.map((m) => [m.codigo, m.codigo_na_tabela, m.resolucao, m.caminho])).toEqual([['A', 'A', 'exato', 'perfil'], ['A', 'A', 'exato', 'perfil']])
         expect(r.fotografia_da_resolucao).toBe('gravada')
+        expect([r.parcial, r.faltas]).toEqual([false, []])
     })
-    it('SEM A 20261112000001 (faltam só as duas colunas da resolução): o material é gravado sem elas, e o resultado diz sem_migracao — o cálculo não para', async () => {
-        estado.erros['orcamentista_orcamento_item_material:insert'] = [{ code: 'PGRST204', message: "Could not find the 'codigo_na_tabela' column of 'orcamentista_orcamento_item_material' in the schema cache" }]
+    it('SEM A 20261112000006 (faltam só as colunas da resolução e do caminho) e o material TODO de perfil: gravado sem elas, e o resultado diz sem_migracao', async () => {
+        estado.erros['orcamentista_orcamento_item_material:insert'] = [{ code: 'PGRST204', message: "Could not find the 'caminho' column of 'orcamentista_orcamento_item_material' in the schema cache" }]
         const r = await K().calcularOrcamento(T, O1, new Date('2026-11-09T15:00:00Z'), () => 'calc-novo')
         const inserts = escritas().filter((o) => o.op === 'insert')
         expect(inserts).toHaveLength(2)
-        expect((inserts[1].carga as Linha[]).every((m) => !('codigo_na_tabela' in m) && !('resolucao' in m))).toBe(true)
+        expect((inserts[1].carga as Linha[]).every((m) => !('codigo_na_tabela' in m) && !('resolucao' in m) && !('caminho' in m))).toBe(true)
         expect((inserts[1].carga as Linha[]).map((m) => m.codigo)).toEqual(['A', 'A'])
         expect(r.fotografia_da_resolucao).toBe('sem_migracao')
+    })
+    it('SEM A 20261112000006 e com INSUMO no material: recusa nomeada — sem o caminho, o insumo se leria como perfil', async () => {
+        estado.custo = { ...(estado.custo as Linha), itens: [itemDoCusto(450, 120), { ...itemDoCusto(250, 60), materiais: [{ ...linhaDeMaterial('A', 250), caminho: 'insumo' }] }] }
+        estado.erros['orcamentista_orcamento_item_material:insert'] = [{ code: 'PGRST204', message: "Could not find the 'caminho' column of 'orcamentista_orcamento_item_material' in the schema cache" }]
+        await expect(K().calcularOrcamento(T, O1, new Date(), () => 'c')).rejects.toMatchObject({ recusas: [K().FRASE_SEM_MIGRACAO_DOS_CAMINHOS] })
+        expect(escritas().filter((o) => o.op === 'insert')).toHaveLength(1)
     })
     it('outra coluna ausente no material continua sendo a recusa de sempre (503): a defesa é SÓ para as duas da resolução', async () => {
         estado.erros['orcamentista_orcamento_item_material:insert'] = [{ code: 'PGRST204', message: "Could not find the 'cred_ibs_pct' column of 'orcamentista_orcamento_item_material' in the schema cache" }]
@@ -336,5 +343,52 @@ describe('(3) a rota', () => {
         const s = await chamar(rota, 'POST', O2)
         expect(s.status).toBe(422)
         expect(s.corpo.recusas).toEqual(['as esquadrias do orçamento: ele não tem nenhum item'])
+    })
+})
+
+describe('(4) A FALTA NOMEADA (12/11/2026, 1.4): gravada com o cálculo, e o orçamento PARCIAL', () => {
+    const falta = (item: number, codigo: string, extra: Linha = {}) => ({
+        item, caminho: 'perfil', codigo_do_motor: codigo, descricao_do_motor: 'MARCO', cor: 'BRANCO', tipologia: 'DP-02', esquadria: item + 1, motivo: 'NAO_ACHADA',
+        frase: `${codigo} não está na tabela de preço`, candidatas: [] as unknown[], ...extra,
+    })
+    it('as faltas vão para orcamentista_orcamento_falta DEPOIS do material, com o mesmo cálculo e a ordem por item', async () => {
+        estado.custo = { ...(estado.custo as Linha), faltas: [falta(0, 'SF92/WOLFF'), falta(1, 'HF88/WOLFF'), falta(1, 'IL36/WOLFF')] }
+        const r = await K().calcularOrcamento(T, O1, new Date(), () => 'calc-f')
+        const w = escritas().map((o) => `${o.tabela}:${o.op}`)
+        expect(w.indexOf('orcamentista_orcamento_falta:insert')).toBe(w.indexOf('orcamentista_orcamento_item_material:insert') + 1)
+        const linhas = escritas().find((o) => o.tabela === 'orcamentista_orcamento_falta')!.carga as Linha[]
+        expect(linhas.map((l) => [l.tenant_id, l.orcamento_item_id, l.calculo_id, l.ordem, l.codigo_do_motor])).toEqual([
+            [T, 'i1', 'calc-f', 1, 'SF92/WOLFF'], [T, 'i2', 'calc-f', 1, 'HF88/WOLFF'], [T, 'i2', 'calc-f', 2, 'IL36/WOLFF'],
+        ])
+        expect(r.parcial).toBe(true)
+        expect(r.faltas).toHaveLength(3)
+    })
+    it('o texto que a CHECK não aceita é aparado: sem espaço nas pontas e no tamanho; a tipologia vazia ganha o rótulo', async () => {
+        estado.custo = { ...(estado.custo as Linha), faltas: [falta(0, ` ${'X'.repeat(80)} `, { tipologia: '', frase: 'a'.repeat(1200) })] }
+        await K().calcularOrcamento(T, O1, new Date(), () => 'c')
+        const [l] = escritas().find((o) => o.tabela === 'orcamentista_orcamento_falta')!.carga as Linha[]
+        expect((l.codigo_do_motor as string).length).toBeLessThanOrEqual(60)
+        expect(l.codigo_do_motor).toMatch(/^\S(.*\S)?$/)
+        expect((l.frase as string).length).toBeLessThanOrEqual(1000)
+        expect(l.tipologia).toBe('(sem tipologia)')
+    })
+    it('SEM a tabela das faltas e COM falta: recusa como antes, ANTES de qualquer escrita — a falta nunca some em silêncio', async () => {
+        estado.custo = { ...(estado.custo as Linha), faltas: [falta(0, 'SF92/WOLFF')] }
+        estado.erros['orcamentista_orcamento_falta:select'] = [{ code: 'PGRST205', message: "Could not find the table 'public.orcamentista_orcamento_falta'" }]
+        await expect(K().calcularOrcamento(T, O1, new Date(), () => 'c')).rejects.toMatchObject({ recusas: ['SF92/WOLFF não está na tabela de preço'] })
+        expect(escritas()).toEqual([])
+    })
+    it('sem falta, a tabela das faltas nem é lida', async () => {
+        await K().calcularOrcamento(T, O1, new Date(), () => 'c')
+        expect(estado.ops.some((o) => o.tabela === 'orcamentista_orcamento_falta')).toBe(false)
+    })
+    it('o VIDRO ESCOLHIDO de cada item chega ao cálculo (vidro_codigo); sem a coluna, nenhum foi escolhido', async () => {
+        estado.db.orcamentista_orcamento_item.find((i) => i.id === 'i1')!.vidro_codigo = 'VIN04'
+        await K().calcularOrcamento(T, O1, new Date(), () => 'c')
+        expect(estado.chamadasDoCusto[0].lev.itens.map((i) => i.vidro_codigo)).toEqual(['VIN04', null])
+        estado.chamadasDoCusto = []
+        estado.erros['orcamentista_orcamento_item:select'] = [null, { code: '42703', message: 'column vidro_codigo does not exist' }]
+        await K().calcularOrcamento(T, O1, new Date(), () => 'c')
+        expect(estado.chamadasDoCusto[0].lev.itens.map((i) => i.vidro_codigo)).toEqual([null, null])
     })
 })

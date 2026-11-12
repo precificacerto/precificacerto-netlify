@@ -6,19 +6,27 @@
  * em vermelho; as recusas nomeadas; e os mesmos bytes para a mesma entrada.
  */
 import {
-    COLUNAS_DO_ITEM, conferirArquivoDoOrcamento, dataDeEntrega, fraseDaVendaDiferente, gerarArquivoDoOrcamento, linhaDoItem, nomeDoArquivo,
-    type DadosDoArquivoDoOrcamento, type ItemDoArquivo,
+    COLUNAS_DO_ITEM, GUARDA_DO_ENVIO_AO_CLIENTE_LIGADA, O_QUE_O_ORCAMENTO_COBRE, carimboDoParcial, conferirArquivoDoOrcamento, dataDeEntrega, fraseDaVendaDiferente,
+    gerarArquivoDoOrcamento, linhaDoItem, nomeDoArquivo, recusaDoEnvioAoCliente, type DadosDoArquivoDoOrcamento, type ItemDoArquivo,
 } from '@/lib/atendimentos-ia/arquivo-do-orcamento'
 import { ratearOperacaoInterna, reais } from '@/lib/atendimentos-ia/rateio-do-orcamento'
 
+/** O que a fonte padrão do PDF (WinAnsi) grava fora do latin1: o travessão, o marcador e as aspas curvas. */
+const WIN_ANSI: Record<string, string> = { '\x97': '—', '\x95': '•', '\x93': '“', '\x94': '”' }
 /** O texto desenhado no PDF (as cadeias dos operadores Tj), na ordem. */
-const textoDoPdf = (pdf: Uint8Array) => [...Buffer.from(pdf).toString('latin1').matchAll(/\(((?:\\.|[^\\)])*)\) Tj/g)].map((m) => m[1].replace(/\\([()\\])/g, '$1'))
+const textoDoPdf = (pdf: Uint8Array) => [...Buffer.from(pdf).toString('latin1').matchAll(/\(((?:\\.|[^\\)])*)\) Tj/g)]
+    .map((m) => m[1].replace(/\\([()\\])/g, '$1').replace(/[\x93-\x97]/g, (c) => WIN_ANSI[c] ?? c))
 const cru = (pdf: Uint8Array) => Buffer.from(pdf).toString('latin1')
+/** A altura (em pt, a partir do PÉ da página) em que o texto foi desenhado: o "y" do operador Td antes dele. */
+const alturaDe = (pdf: Uint8Array, texto: string) => {
+    const m = new RegExp(`([\\d.]+) ([\\d.]+) Td\\s*\\(${texto.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\) Tj`).exec(cru(pdf))
+    return m ? Number(m[2]) : null
+}
 
 const item = (ordem: number, extra: Partial<ItemDoArquivo> = {}): ItemDoArquivo => ({
     ordem, quantidade: 1, largura_mm: 2500, altura_mm: 2200, tipologia: 'DP-39', descricao: 'Porta de correr 2 folhas | Europa 60', tipo: 'Porta',
     fornecedor: 'Wolf', linha: 'EUROPA 60', ambientes: 'Sala (1)', corPerfil: 'Branco', corAcessorio: 'Branco', vidro: 'comum 6 mm incolor',
-    variaveis: [], obs: null, desenho: { largura_mm: 2500, altura_mm: 2200, colunas: 2, linhas: null, bandeira_mm: null, peitoril_mm: null }, ...extra,
+    variaveis: [], definicoes: [], obs: null, desenho: { largura_mm: 2500, altura_mm: 2200, colunas: 2, linhas: null, bandeira_mm: null, peitoril_mm: null }, ...extra,
 })
 // o Geraldo Huck: 3 itens, quantidades 1, 1 e 2, e os custos líquidos totais gravados em produção como pesos
 const ITENS = [item(1), item(2, { tipologia: 'DP-01', descricao: 'Maxim-ar', largura_mm: 600, altura_mm: 600, vidro: 'mini boreal', ambientes: null }),
@@ -34,7 +42,7 @@ const dados = (extra: Partial<DadosDoArquivoDoOrcamento> = {}): DadosDoArquivoDo
         cnpj: '12.345.678/0001-90', ie: '0960000000', site: null, email: null, logo: null },
     numero: 1, vendedor: 'Cristiano Fernandes', contato: null, emailDoVendedor: 'cristiano@exemplo.com',
     cliente: { nome: 'Geraldo Huck', telFixo: null, celular: '(51) 99999-0000', email: null, tel2: null, endereco: 'Porto Alegre', ieRg: null, cep: null, cnpjCpf: null },
-    dataEntrega: null, itens: ITENS, observacoesGerais: null, operacaoInterna: INTERNA, valorVenda: INTERNA, rateio: rateio(),
+    dataEntrega: null, itens: ITENS, observacoesGerais: null, operacaoInterna: INTERNA, valorVenda: INTERNA, rateio: rateio(), faltas: [], paraOVendedor: null,
     geradoEm: new Date('2026-11-11T15:30:00Z'), ...extra,
 })
 const gerar = (d = dados()) => { const g = gerarArquivoDoOrcamento(d); if ('recusas' in g) throw new Error(g.recusas.join(' | ')); return g }
@@ -78,8 +86,8 @@ describe('o dinheiro: o rateio exato, e nada que não é do cliente', () => {
     })
     it('o tipo dos dados nem carrega custo, margem ou imposto (a fixture tem só o que o cliente vê)', () => {
         const campos = Object.keys(dados()).sort()
-        expect(campos).toEqual(['cliente', 'contato', 'dataEntrega', 'emailDoVendedor', 'empresa', 'geradoEm', 'itens', 'numero', 'observacoesGerais',
-            'operacaoInterna', 'rateio', 'valorVenda', 'vendedor'])
+        expect(campos).toEqual(['cliente', 'contato', 'dataEntrega', 'emailDoVendedor', 'empresa', 'faltas', 'geradoEm', 'itens', 'numero', 'observacoesGerais',
+            'operacaoInterna', 'paraOVendedor', 'rateio', 'valorVenda', 'vendedor'])
     })
 })
 
@@ -139,5 +147,58 @@ describe('determinismo e paginação', () => {
         const t = textoDoPdf(g.pdf)
         expect(t).toContain(`Orçamento 1 · Página 1 de ${g.paginas}`)
         expect(t.indexOf('Aceite do Cliente')).toBeGreaterThan(t.lastIndexOf('*LOCAL/AMBIENTE:'))
+    })
+})
+
+describe('O ARQUIVO VAI AO VENDEDOR (12/11/2026, o comando único)', () => {
+    const FALTAS = [{ codigo: 'SF92/WOLFF', frase: 'SF92/WOLFF não está na tabela de preço', itens: [1, 3] }, { codigo: 'VIDRO', frase: 'o vidro “mini boreal” bate com 5 itens', itens: [2] }]
+    const PARA = {
+        barras: [{ codigo: '9691', descricao: 'SF92 - FOLHA DE PORTA', n_barras: 3, comprimento_m: 6 }],
+        aproveitamento: { pct: 81.25, metros_uteis: 14.625, metros_comprados: 18 }, minutos: [{ ordem: 1, minutos: 600 }, { ordem: 2, minutos: null }, { ordem: 3, minutos: 300 }],
+    }
+    it('1.5 — PARCIAL: o carimbo com o número de faltas, e a lista das faltas com os itens', () => {
+        const t = textoDoPdf(gerar(dados({ faltas: FALTAS })).pdf).join('\n')
+        expect(t).toContain(carimboDoParcial(2))
+        expect(carimboDoParcial(2)).toBe('PARCIAL — faltam 2 valores')
+        expect(carimboDoParcial(1)).toBe('PARCIAL — falta 1 valor')
+        expect(t).toContain('• SF92/WOLFF (itens 1, 3): SF92/WOLFF não está na tabela de preço.')
+        expect(t).toContain('• VIDRO (item 2)')
+    })
+    it('sem falta, nem carimbo nem lista', () => {
+        const t = textoDoPdf(gerar().pdf).join('\n')
+        expect(t).not.toContain(carimboDoParcial(0).split(' — ')[0])
+        expect(t).not.toContain('FALTAS DE PREÇO')
+    })
+    it('4.3 — o que a conversa deixou de mandar: barras, aproveitamento, mão de obra EM MINUTOS e o que o preço cobre — sem reais', () => {
+        const linhas = textoDoPdf(gerar(dados({ paraOVendedor: PARA })).pdf)
+        const t = linhas.join('\n')
+        expect(t).toContain('PARA O VENDEDOR')
+        expect(t).toContain('• 9691 (SF92 - FOLHA DE PORTA): 3 barra(s) de 6,00 m')
+        expect(t).toContain('Aproveitamento: 81,3% (14,63 m úteis de 18,00 m comprados).')
+        expect(t).toContain('Mão de obra: item 1: 600 min · item 2: sem tempo · item 3: 300 min.')
+        expect(t.replace(/\s+/g, ' ')).toContain(O_QUE_O_ORCAMENTO_COBRE.slice(0, 60))
+        // a mão de obra não sai em reais: o bloco do vendedor não tem "R$"
+        const doBloco = linhas.slice(linhas.indexOf('PARA O VENDEDOR'), linhas.indexOf('OBSERVAÇÕES'))
+        expect(doBloco.some((l) => l.includes('R$'))).toBe(false)
+    })
+    it('4.2 — as definições de instalação e arremate de cada esquadria, com "(padrão)" na que o vendedor não disse', () => {
+        const itens = [item(1, { definicoes: ['ARREMATE INTERNO: 65 mm', 'ARREMATE EXTERNO: sem (padrão)'] }), ITENS[1], ITENS[2]]
+        const t = textoDoPdf(gerar(dados({ itens })).pdf).join(' ')
+        expect(t).toContain('DEFINIÇÕES: ARREMATE INTERNO: 65 mm · ARREMATE EXTERNO: sem (padrão)')
+    })
+    it('4.1 — o RODAPÉ no PÉ da página, sempre: as observações e o fecho encostados no fim, com poucos itens também', () => {
+        const pdf = gerar().pdf
+        const aceite = alturaDe(pdf, 'Aceite do Cliente')!
+        const obs = alturaDe(pdf, 'OBSERVAÇÕES')!
+        // A4 = 841,89 pt; o fecho acaba a ~22 mm do pé (62 pt) — com 3 itens ele ficava no meio da página
+        expect(aceite).toBeLessThan(80)
+        expect(obs).toBeLessThan(200)
+        expect(obs).toBeGreaterThan(aceite)
+    })
+    it('1.5 — a GUARDA do envio ao cliente está escrita e DESLIGADA: ligada, o parcial não vai ao cliente', () => {
+        expect(GUARDA_DO_ENVIO_AO_CLIENTE_LIGADA).toBe(false)
+        expect(recusaDoEnvioAoCliente({ numero: 7, faltas: FALTAS })).toBeNull()
+        expect(recusaDoEnvioAoCliente({ numero: 7, faltas: FALTAS }, true)).toBe('o orçamento 7 está PARCIAL (faltam 2 valores): ele vai ao vendedor, não ao cliente, até as faltas serem resolvidas')
+        expect(recusaDoEnvioAoCliente({ numero: 7, faltas: [] }, true)).toBeNull()
     })
 })

@@ -86,6 +86,14 @@ describe('a etapa do preço', () => {
         expect(d.enviar).toHaveBeenCalledWith('5551999990000', 'Orcamento 7 - Geraldo Huck.pdf', PDF)
         expect(r.paraOVendedor).toBe(C.fraseDoOrcamentoEnviado(7, 'Geraldo Huck', 8765.43))
         expect(r.rastro).toMatch(/arquivo=ok ms_leitura=\d+ envio=ok ms_envio=\d+$/)
+        // 4.3 (12/11/2026): o número que recebeu o arquivo — a conversa cala quando foi quem disse "sim"
+        expect(r.enviadoPara).toBe('5551999990000')
+    })
+    it('o enviadoPara é o número que o canal ACEITOU, quando há; e não existe quando o envio falha', async () => {
+        const aceito = await C.etapaDoPreco(T, ORC, deps(gravado(true), { enviar: jest.fn(async () => ({ ok: true, status: 200, prazoEsgotado: false, destino: '55519999990000' })) }))
+        expect(aceito.enviadoPara).toBe('55519999990000')
+        const falhou = await C.etapaDoPreco(T, ORC, deps(gravado(true), { enviar: jest.fn(async (): Promise<{ ok: boolean; status: number | null; prazoEsgotado: boolean }> => ({ ok: false, status: 500, prazoEsgotado: false })) }))
+        expect('enviadoPara' in falhou).toBe(false)
     })
     it('(c) O PALPITE VIRA MEDIÇÃO: o canal aceitou OUTRA variante do número do dono — ela é persistida no remetente, e o rastro diz', async () => {
         const d = deps(gravado(true), { enviar: jest.fn(async () => ({ ok: true, status: 200, prazoEsgotado: false, destino: '55519999990000' })) })

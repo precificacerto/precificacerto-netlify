@@ -1,5 +1,9 @@
 # O histórico de migrações — medido em 12/11/2026 (só leitura)
 
+> **Nota de 12/11/2026, à noite (o comando único):** a `20261112000001_fotografia_da_resolucao` saiu do repositório — nunca foi aplicada nem
+> autorizada — e o que ela fazia (as colunas `codigo_na_tabela` e `resolucao`, com a CHECK dos degraus novos) está na `20261112000006`. As linhas
+> abaixo que a citam são a medição daquela hora.
+
 Pedido do dono do produto, 12/11/2026: "Me devolva a lista medida no banco, como o projeto deve registrar uma migração aplicada pelo SQL Editor,
 o que fazer com a colisão de versão, e o SQL de reparo em arquivo para eu ler. Não rode nada disso."
 

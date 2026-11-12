@@ -11,6 +11,10 @@
  * valor_barra;valor_metro`, com 6 casas) saíram IGUAIS no banco e no arquivo —
  * be9fd733373ea4c352ccc81daa000b3f e eed69af4ebbcb2468d6b95fff1b31721.
  *
+ * A REGRA DE 12/11/2026 (o comando único): FALTA DE PREÇO NÃO IMPEDE A EVOLUÇÃO. O perfil sem item ou sem valor na tabela é FALTA NOMEADA em
+ * `faltas` — as peças dele ficam fora das barras e dos totais —, nunca recusa. Recusa continua sendo o que impede o cálculo: a tipologia, o
+ * avaliador, a cor em duas grafias, o agrupador (a peça maior que a barra).
+ *
  * AS DECISÕES DO DONO DO PRODUTO, 24/10/2026, que estes casos guardam:
  *   - a cor desta versão é BRANCO, fixa. As outras não estão no motor porque a tabela de preço
  *     delas não foi enviada; nenhum de-para de cor é inventado;
@@ -88,6 +92,10 @@ function esquadria(e: Partial<Esquadria> = {}): Esquadria {
     return { tipologia: 'DP-02', L_mm: 1200, H_mm: 1000, quantidade: 1, escolhas: FECHA, espessura_vidro_mm: 5, ...e }
 }
 /** As cores da empresa — as da base de conhecimento. Medido em produção (25/10/2026): só BRANCO. */
+/** A tabela de cores da Wolf, os perfis (20261112000006). */
+const CORES = [['1', 'BRANCO'], ['18', 'EXTERNO PRETO TEXTURADO'], ['19', 'EXTERNO GOLDEN OAK'], ['20', 'PRETO TEXTURADO'], ['21', 'AMADEIRADO GOLDEN OAK'], ['30', 'BRONZE'],
+    ['31', 'GRAFITE'], ['32', 'EXTERNO BRONZE'], ['33', 'EXTERNO GRAFITE'], ['36', 'PRETO LISO'], ['37', 'AMADEIRADO NOGUEIRA'], ['38', 'EXTERNO PRETO LISO'],
+    ['39', 'EXTERNO NOGUEIRA'], ['40', 'PIRITA'], ['41', 'EXTERNO PIRITA']].map(([codigo, nome]) => ({ grupo: 'PERFIS DE PVC', codigo, nome }))
 function levantar(esquadrias: Esquadria[], o: { regras?: Regra[]; itens?: Item[]; tipologias?: Record<string, unknown>; cor?: string } = {}) {
     return L().levantarBarras({
         esquadrias,
@@ -96,8 +104,11 @@ function levantar(esquadrias: Esquadria[], o: { regras?: Regra[]; itens?: Item[]
         regras: o.regras ?? REGRAS,
         itens: o.itens ?? ITENS,
         serra_mm: SERRA,
+        cores: CORES,
     })
 }
+/** As faltas de preço, resumidas: [motivo, perfil, esquadria]. */
+const faltasDe = (r: ReturnType<typeof ok>) => r.faltas.map((f) => [f.motivo, f.codigo_do_motor, f.esquadria])
 function ok(...args: Parameters<typeof levantar>) {
     const r = levantar(...args)
     if ('recusas' in r) throw new Error('recusado: ' + r.recusas.map((x) => x.mensagem).join(' | '))
@@ -141,15 +152,18 @@ describe('(1) a DP-02 em BRANCO, de ponta a ponta', () => {
         expect(sf66.map((p) => [p.codigo, p.comprimento_mm, p.quantidade])).toEqual([['9681', 595.8, 4], ['9681', 917.6, 4]])
     })
 
-    it('a COR É A DA ENTRADA, não uma fixa: em PRETO TEXTURADO, o HF88 só existe em BRANCO e é RECUSADO pelo nome e pela cor', () => {
-        // com a cor fixa em BRANCO, este levantamento fecharia: é a cor pedida que decide o código
-        const r = recusado([esquadria()], { cor: 'PRETO TEXTURADO' })
-        const hf88 = r.recusas.find((x) => x.perfil === 'HF88/WOLFF')
-        expect(hf88?.motivo).toBe('COR_SEM_CODIGO')
-        expect(hf88?.mensagem).toContain('HF88/WOLFF não tem código para a cor PRETO TEXTURADO')
-        expect(hf88?.variantes).toEqual(['BRANCO'])
+    it('a COR É A DA ENTRADA, não uma fixa: em PRETO TEXTURADO, o HF88 só existe em BRANCO — é FALTA nomeada, e o branco não entra', () => {
+        // com a cor fixa em BRANCO, o 9641 entraria: é a cor pedida que decide o código
+        const r = ok([esquadria()], { cor: 'PRETO TEXTURADO' })
+        const hf88 = r.faltas.find((f) => f.codigo_do_motor === 'HF88/WOLFF')
+        expect(hf88).toMatchObject({ caminho: 'perfil', cor: 'PRETO TEXTURADO', esquadria: 1 })
+        // a ponte não tem PRETO TEXTURADO; o nome técnico HF88 não casa "HF88S" (delimitado): nada acha — e o branco não entra
+        expect(hf88!.motivo).toBe('NAO_ACHADA')
+        expect(hf88!.frase).toContain('HF88/WOLFF')
+        expect(r.total.barras_por_codigo['9641']).toBeUndefined()
+        expect(r.esquadrias[0].pecas.some((p) => p.perfil === 'HF88/WOLFF')).toBe(false)
         // e o perfil SEM VARIANTE (cor vazia em todas as linhas) continua com o código único
-        expect(r.recusas.some((x) => x.perfil === '1023/WOLFF')).toBe(false)
+        expect(r.total.barras_por_codigo['1023']).toBe(1)
     })
 })
 
@@ -196,25 +210,24 @@ describe('(3) o agrupamento é do LEVANTAMENTO', () => {
 })
 
 describe('(4) o código do item: um valor por código', () => {
-    it('DOIS CÓDIGOS para o mesmo perfil e cor: recusa com os dois códigos e os dois valores', () => {
+    it('DOIS CÓDIGOS para o mesmo perfil e cor: falta PONTE_AMBIGUA com os dois códigos e os dois valores — nenhum é escolhido', () => {
         // BZ4556/WOLFF em BRANCO, como está no banco: 1027.1 (PVC) e 10271 (alumínio)
-        const r = recusado([esquadria({ tipologia: 'T-BZ4556', escolhas: {} })], { tipologias: { 'T-BZ4556': tipologiaDeUmPerfil('T-BZ4556', 'BZ4556/WOLFF') } })
-        expect(r.recusas).toHaveLength(1)
-        const x = r.recusas[0]
-        expect(x.motivo).toBe('DOIS_CODIGOS')
-        expect(x.perfil).toBe('BZ4556/WOLFF')
-        expect(x.candidatos!.map((c) => c.codigo)).toEqual(['1027.1', '10271'])
-        expect(x.mensagem).toContain('1027.1')
-        expect(x.mensagem).toContain('10271')
-        expect(x.mensagem).toContain(L().formatarReais(209.85989999999998))
-        expect(x.mensagem).toContain(L().formatarReais(1055.25))
+        const r = ok([esquadria({ tipologia: 'T-BZ4556', escolhas: {} })], { tipologias: { 'T-BZ4556': tipologiaDeUmPerfil('T-BZ4556', 'BZ4556/WOLFF') } })
+        expect(faltasDe(r)).toEqual([['PONTE_AMBIGUA', 'BZ4556/WOLFF', 1]])
+        const x = r.faltas[0]
+        expect(x.candidatas.map((c) => c.codigo)).toEqual(['1027.1', '10271'])
+        expect(x.frase).toContain(L().formatarReais(209.85989999999998))
+        expect(x.frase).toContain(L().formatarReais(1055.25))
+        expect(r.total.n_barras).toBe(0)
     })
 
-    it('DOIS CÓDIGOS COM O MESMO PREÇO também é recusa', () => {
+    it('DOIS CÓDIGOS COM O MESMO PREÇO também é falta: nenhum dos dois entra', () => {
         const regras = [...REGRAS, { codigo: '10511-B', codigo_wvetro: 'BZ0010/WOLFF', cor: 'BRANCO' }]
         const itens = [...ITENS, { ...ITENS.find((i) => i.codigo === '10511')!, codigo: '10511-B' }]
-        const r = recusado([esquadria()], { regras, itens })
-        expect(r.recusas.map((x) => [x.motivo, x.perfil])).toEqual([['DOIS_CODIGOS', 'BZ0010/WOLFF']])
+        const r = ok([esquadria()], { regras, itens })
+        expect(faltasDe(r)).toEqual([['PONTE_AMBIGUA', 'BZ0010/WOLFF', 1]])
+        expect(r.total.barras_por_codigo['10511']).toBeUndefined()
+        expect(r.total.barras_por_codigo['10511-B']).toBeUndefined()
     })
 
     // A REGRA DA COR (dono do produto, 08/11/2026 — substitui a de 25/10/2026): o perfil com variante casa pela cor pedida, e só por ela,
@@ -227,10 +240,10 @@ describe('(4) o código do item: um valor por código', () => {
         expect(L().codigoDaPeca('BZ0012/WOLFF', 'PRETO', REGRAS)).toEqual({ ok: true, codigo: '10491', origem: 'SEM_VARIANTE' })
     })
 
-    it('O MOTOR DE HOJE (o BZ0012 em CLICK, antes da correção do arquivo): a variante única só serve para a cor que é — o levantamento com arremate interno RECUSA nomeando o BZ0012', () => {
-        const r = recusado([esquadria({ escolhas: { MAE: 2 } })], { regras: REGRAS_DE_HOJE })
-        expect(r.recusas.map((x) => [x.motivo, x.perfil, x.variantes])).toEqual([['COR_SEM_CODIGO', 'BZ0012/WOLFF', ['CLICK']]])
-        expect(r.recusas[0].mensagem).toBe('Esquadria 1: o perfil BZ0012/WOLFF não tem código para a cor BRANCO na tabela do fornecedor; as variantes que existem são: CLICK. Falta: o código de BZ0012/WOLFF em BRANCO.')
+    it('O MOTOR DE HOJE (o BZ0012 em CLICK, antes da correção do arquivo): a ponte não tem BRANCO, e a escada segue — o nome técnico acha o 10491 ("BZ0012 - BASE DA GUARNIÇÃO - CLICK", que não nomeia cor)', () => {
+        const r = ok([esquadria({ escolhas: { MAE: 2 } })], { regras: REGRAS_DE_HOJE })
+        expect(r.faltas).toEqual([])
+        expect(r.resolucoes['10491']).toMatchObject({ como: 'nome_tecnico' })
     })
 
     it('A VARIANTE ÚNICA SÓ SERVE PARA A COR QUE É — sempre, sem lista de cores da empresa: o BZ0006 (só em BRANCO) em PRETO, ROXO ou qualquer outra é recusa', () => {
@@ -242,14 +255,15 @@ describe('(4) o código do item: um valor por código', () => {
         expect(L().codigoDaPeca('BZ0006/WOLFF', 'branco', REGRAS)).toEqual({ ok: true, codigo: '10501', origem: 'COR' })
     })
 
-    it('VÁRIAS VARIANTES e nenhuma na cor pedida: BZ1770/WOLFF (ARI = 2) em BRANCO é recusa nomeando o código, a cor e as variantes', () => {
-        const r = recusado([esquadria({ escolhas: { MAE: 2, ARI: 2 } })])
-        expect(r.recusas.map((x) => [x.motivo, x.perfil])).toEqual([['COR_SEM_CODIGO', 'BZ1770/WOLFF']])
-        expect(r.recusas[0].variantes).toHaveLength(8)
-        // a frase lista as variantes que existem, para o vendedor saber o que pedir
-        expect(r.recusas[0].mensagem).toContain(`as variantes que existem são: ${(r.recusas[0].variantes ?? []).join(', ')}`)
-        expect(r.recusas[0].mensagem).toContain('BZ1770/WOLFF')
-        expect(r.recusas[0].mensagem).toContain('BRANCO')
+    it('VÁRIAS VARIANTES e nenhuma na cor pedida: BZ1770/WOLFF (ARI = 2) em BRANCO — a ponte não tem BRANCO; o nome técnico recusa as sete que nomeiam cor (pela PALAVRA: "LAMINADO NOGUEIRA", "LAMINADO GOLDEN OAK") e fica o 90531, que não nomeia cor', () => {
+        const r = ok([esquadria({ escolhas: { MAE: 2, ARI: 2 } })])
+        expect(r.faltas).toEqual([])
+        expect(r.resolucoes['90531']).toMatchObject({ como: 'nome_tecnico' })
+        for (const c of ['905320', '905321', '905330', '905331', '905336', '905337', '905340']) expect(r.resolucoes[c]).toBeUndefined()
+        // em PRETO TEXTURADO, o 905320 — o único que a nomeia — e não o sem cor
+        const preto = ok([esquadria({ escolhas: { MAE: 2, ARI: 2 } })], { cor: 'PRETO TEXTURADO', regras: REGRAS.filter((g) => g.codigo_wvetro !== 'BZ1770/WOLFF') })
+        expect(Object.keys(preto.resolucoes)).toContain('905320')
+        expect(preto.resolucoes['90531']).toBeUndefined()
     })
 
     it('a GUARDA: a variante única que é uma COR DA EMPRESA, diferente da pedida, é recusa — o BZ0006 só existe BRANCO, e a janela é PRETO', () => {
@@ -282,32 +296,38 @@ describe('(4) o código do item: um valor por código', () => {
         }
     })
 
-    it('PERFIL SEM REGRA: recusa nomeando o perfil', () => {
-        const r = recusado([esquadria({ tipologia: 'T-X', escolhas: {} })], { tipologias: { 'T-X': tipologiaDeUmPerfil('T-X', 'XX99/WOLFF') } })
-        expect(r.recusas.map((x) => [x.motivo, x.perfil])).toEqual([['PERFIL_SEM_REGRA', 'XX99/WOLFF']])
-        expect(r.recusas[0].mensagem).toContain('XX99/WOLFF')
+    it('PERFIL SEM REGRA E SEM ITEM: falta nomeada (NAO_ACHADA) com o perfil — nada é calculado para ele', () => {
+        const r = ok([esquadria({ tipologia: 'T-X', escolhas: {} })], { tipologias: { 'T-X': tipologiaDeUmPerfil('T-X', 'XX99/WOLFF') } })
+        expect(faltasDe(r)).toEqual([['NAO_ACHADA', 'XX99/WOLFF', 1]])
+        expect(r.faltas[0].frase).toContain('XX99/WOLFF')
     })
 })
 
 describe('(5) o item da tabela de preço', () => {
-    it('ITEM AUSENTE na tabela de preço: recusa nomeando o código e o perfil', () => {
-        const r = recusado([esquadria()], { itens: ITENS.filter((i) => i.codigo !== '10511') })
-        expect(r.recusas.map((x) => [x.motivo, x.codigo, x.perfil])).toEqual([['ITEM_AUSENTE', '10511', 'BZ0010/WOLFF']])
-        expect(r.recusas[0].mensagem).toContain('10511')
-        expect(r.recusas[0].mensagem).toContain('BZ0010/WOLFF')
+    it('ITEM AUSENTE na tabela de preço: FALTA nomeada com o perfil; as outras peças evoluem', () => {
+        const r = ok([esquadria()], { itens: ITENS.filter((i) => i.codigo !== '10511') })
+        expect(faltasDe(r)).toEqual([['NAO_ACHADA', 'BZ0010/WOLFF', 1]])
+        expect(r.faltas[0].frase).toContain('BZ0010/WOLFF')
+        expect(r.total.barras_por_codigo['10511']).toBeUndefined()
+        expect(r.total.n_barras).toBe(8)
     })
 
-    it('o MESMO código em duas linhas da tabela de preço: recusa, não pega a primeira', () => {
+    it('o MESMO código em duas linhas da tabela de preço: falta AMBIGUA, não pega a primeira', () => {
         const itens = [...ITENS, { ...ITENS.find((i) => i.codigo === '9641')!, valor_barra_interno: 1 }]
-        const r = recusado([esquadria()], { itens })
-        expect(r.recusas.map((x) => [x.motivo, x.codigo])).toEqual([['ITEM_EM_DUAS_LINHAS', '9641']])
+        const r = ok([esquadria()], { itens })
+        expect(faltasDe(r)).toEqual([['AMBIGUA', 'HF88/WOLFF', 1]])
+        expect(r.total.barras_por_codigo['9641']).toBeUndefined()
     })
 
-    it('PREÇO AUSENTE é RECUSA (dono do produto, 08/11/2026 — antes, as barras saíam com o total NULL): nenhuma barra sai, e a falta nomeia o código e o perfil', () => {
+    it('PREÇO AUSENTE é FALTA (12/11/2026 — substitui a recusa de 08/11): o código fica fora das barras e dos totais, e a falta nomeia o item e o perfil', () => {
         const itens = ITENS.map((i) => (i.codigo === '9641' ? { ...i, valor_barra_interno: null } : i))
-        const r = recusado([esquadria()], { itens })
-        expect(r.recusas.map((x) => [x.origem, x.motivo, x.codigo, x.perfil])).toEqual([['ITEM', 'ITEM_SEM_VALOR', '9641', 'HF88/WOLFF']])
-        expect(r.recusas[0].mensagem).toBe('Esquadria 1: o código 9641 (perfil HF88/WOLFF) está na tabela de preço sem o valor da barra. Falta: o valor da barra de 9641.')
+        const r = ok([esquadria()], { itens })
+        expect(faltasDe(r)).toEqual([['SEM_VALOR', 'HF88/WOLFF', 1]])
+        expect(r.faltas[0].frase).toContain('9641')
+        expect(r.faltas[0].frase).toContain('sem o valor da barra')
+        expect(r.total.barras_por_codigo['9641']).toBeUndefined()
+        // o total é SÓ do que tem preço: o de antes menos a barra do 9641
+        expect(r.total.total_por_barra_inteira).toBeCloseTo(1342.0875 - 398.304, 6)
     })
 
     it('a recusa do AGRUPADOR sai com o perfil: peça maior que a barra — UMA por código, com a maior peça (08/11/2026), e a falta curta', () => {
@@ -323,73 +343,61 @@ describe('(5) o item da tabela de preço', () => {
 })
 
 describe('(5b) A RESOLUÇÃO DE REFERÊNCIA no cálculo (dono do produto, 12/11/2026): a mesma da conferência', () => {
-    it('todo código da DP-02 achado pelo código EXATO, e o resultado diz como — é o que a fotografia do material grava', () => {
+    it('todo código da DP-02 achado pela PONTE do motor, e o resultado diz como — é o que a fotografia do material grava', () => {
         const r = ok([esquadria()])
         expect(Object.keys(r.resolucoes).sort()).toEqual(['1023', '10511', '8432', '8433', '9641', '9681', '9711', '9801'])
-        expect(Object.values(r.resolucoes).every((x) => x.como === 'exato')).toBe(true)
+        expect(Object.values(r.resolucoes).every((x) => x.como === 'ponte')).toBe(true)
         expect(r.resolucoes['9641'].item.codigo).toBe('9641')
+        expect(r.faltas).toEqual([])
     })
 
-    it('O SUFIXO DO FORNECEDOR: a tabela com 1023/WOLFF fecha a mesma DP-02, com as mesmas barras e o mesmo total — e diz que foi pelo sufixo', () => {
+    it('O SUFIXO DO FORNECEDOR dentro do degrau: a tabela com 1023/WOLFF fecha a mesma DP-02, com as mesmas barras e o mesmo total', () => {
         const comSufixo = ITENS.map((i) => (i.codigo === '1023' ? { ...i, codigo: '1023/WOLFF' } : i))
         const r = ok([esquadria()], { itens: comSufixo })
         expect(r.total.barras_por_codigo).toEqual({ '1023': 1, '10511': 1, '8432': 1, '8433': 1, '9641': 1, '9681': 2, '9711': 1, '9801': 1 })
         expect(r.total.total_por_barra_inteira).toBeCloseTo(1342.0875, 6)
-        expect(r.resolucoes['1023']).toMatchObject({ como: 'sufixo_do_fornecedor', item: { codigo: '1023/WOLFF' } })
+        expect(r.resolucoes['1023']).toMatchObject({ como: 'ponte', item: { codigo: '1023/WOLFF' } })
     })
 
-    it('a AMBIGUIDADE: 1023 com o sufixo em duas grafias — nenhuma é escolhida, a recusa nomeia o código procurado e as duas candidatas', () => {
+    it('a AMBIGUIDADE: 1023 com o sufixo em duas grafias — nenhuma é escolhida; a falta nomeia o perfil e as duas candidatas', () => {
         const base = ITENS.find((i) => i.codigo === '1023')!
         const itens = [...ITENS.filter((i) => i.codigo !== '1023'), { ...base, codigo: '1023/WOLFF' }, { ...base, codigo: '1023 /wolff' }]
-        const r = recusado([esquadria()], { itens })
-        expect(r.recusas.map((x) => [x.motivo, x.codigo])).toEqual([['REFERENCIA_AMBIGUA', '1023']])
-        expect(r.recusas[0].falta).toContain('o código 1023 tem 2 candidatos na tabela de preço do fornecedor do motor, e nenhum é escolhido: 1023/WOLFF')
-        expect(r.recusas[0].falta).toContain('1023 /wolff')
-        expect(r.recusas[0].falta).toContain('perfil 1023/WOLFF')
+        const r = ok([esquadria()], { itens })
+        expect(faltasDe(r)).toEqual([['AMBIGUA', '1023/WOLFF', 1]])
+        expect(r.faltas[0].candidatas.map((c) => c.codigo).sort()).toEqual(['1023 /wolff', '1023/WOLFF'])
+        expect(r.total.barras_por_codigo['1023']).toBeUndefined()
     })
 
-    it('A DESCRIÇÃO QUE NÃO BATE: um item de mesma base e outro produto não vira preço — a recusa nomeia a candidata', () => {
-        const regras = REGRAS.map((g) => (g.codigo === '1023' ? { ...g, descricao: 'CLICK GUIA DE ALUMÍNIO PARA TRILHO DE PVC' } : g))
-        const base = ITENS.find((i) => i.codigo === '1023')!
-        const itens = [...ITENS.filter((i) => i.codigo !== '1023'), { ...base, codigo: '10239', descricao: 'MAÇANETA QUALQUER' }]
-        const r = recusado([esquadria()], { regras, itens })
-        expect(r.recusas.map((x) => [x.motivo, x.codigo])).toEqual([['REFERENCIA_NAO_RESOLVIDA', '1023']])
-        expect(r.recusas[0].falta).toContain('com a mesma base há 10239 (MAÇANETA QUALQUER)')
-    })
-
-    it('O APROXIMADO COM A DESCRIÇÃO: o mesmo produto em outro código de mesma base vale — e diz que foi aproximado', () => {
-        const regras = REGRAS.map((g) => (g.codigo === '1023' ? { ...g, descricao: 'CLICK GUIA DE ALUMÍNIO PARA TRILHO DE PVC' } : g))
-        const base = ITENS.find((i) => i.codigo === '1023')!
-        const itens = [...ITENS.filter((i) => i.codigo !== '1023'), { ...base, codigo: '10230', descricao: 'Click guia de alumínio para trilho de PVC' }]
-        const r = ok([esquadria()], { regras, itens })
-        expect(r.resolucoes['1023']).toMatchObject({ como: 'aproximado_com_descricao', item: { codigo: '10230' } })
+    it('O GUARDA: o item da ponte que é outro produto não vira preço — a falta nomeia a candidata', () => {
+        const itens = ITENS.map((i) => (i.codigo === '1023' ? { ...i, descricao: 'MAÇANETA QUALQUER' } : i))
+        const r = ok([esquadria()], { itens })
+        expect(faltasDe(r)).toEqual([['DESCRICAO_NAO_CONCORDA', '1023/WOLFF', 1]])
+        expect(r.faltas[0].frase).toContain('MAÇANETA QUALQUER')
     })
 })
 
 describe('(6) as recusas', () => {
-    it('com qualquer recusa NÃO SAI BARRA NENHUMA — nada é calculado com o que sobrou', () => {
-        // a 1ª esquadria fecha; a 2ª tem o BZ1770 (ARI = 2) sem código em BRANCO
-        const r = levantar([esquadria(), esquadria({ escolhas: { MAE: 2, ARI: 2 } })])
+    it('com qualquer RECUSA (o que impede o cálculo) NÃO SAI BARRA NENHUMA — nada é calculado com o que sobrou', () => {
+        // a 1ª esquadria fecha; a 2ª tem uma opção que não existe (MAE = 9): o avaliador recusa
+        const r = levantar([esquadria(), esquadria({ escolhas: { ARI: 4, MAE: 9 } })])
         expect('recusas' in r).toBe(true)
         expect('por_codigo' in r).toBe(false)
         expect('total' in r).toBe(false)
     })
 
-    it('TODAS AS RECUSAS de uma vez, e a mesma falta em duas esquadrias sai UMA vez com as duas', () => {
+    it('TODAS AS RECUSAS de uma vez, e a mesma recusa em duas esquadrias sai UMA vez com as duas', () => {
         const r = recusado([
-            esquadria({ escolhas: { MAE: 2, ARI: 2 } }),  // 1: BZ1770
-            esquadria({ escolhas: { MAE: 2, ARI: 2 } }),  // 2: BZ1770 de novo
-            esquadria({ tipologia: 'DP-99' }),           // 3: tipologia que não existe
-            esquadria(),                                 // 4: fecha — mas o 9641 sumiu da tabela
-        ], { itens: ITENS.filter((i) => i.codigo !== '9641') })
-        const resumo = r.recusas.map((x) => [x.motivo, x.perfil ?? x.tipologia, x.esquadrias])
-        expect(resumo).toEqual([
-            ['TIPOLOGIA_SEM_DEFINICAO', 'DP-99', [3]],
-            ['COR_SEM_CODIGO', 'BZ1770/WOLFF', [1, 2]],
-            ['ITEM_AUSENTE', 'HF88/WOLFF', [1, 2, 4]],
+            esquadria({ tipologia: 'DP-99' }),           // 1: tipologia que não existe
+            esquadria({ tipologia: 'DP-99' }),           // 2: de novo
+            esquadria(),                                 // 3: fecha
         ])
-        expect(r.recusas[1].mensagem).toContain('Esquadrias 1 e 2')
-        expect(r.recusas[2].mensagem).toContain('Esquadrias 1, 2 e 4')
+        expect(r.recusas.map((x) => [x.motivo, x.tipologia, x.esquadrias])).toEqual([['TIPOLOGIA_SEM_DEFINICAO', 'DP-99', [1, 2]]])
+        expect(r.recusas[0].mensagem).toContain('Esquadrias 1 e 2')
+    })
+
+    it('A FALTA é uma por (perfil, esquadria): o 9641 que sumiu da tabela falta nas três esquadrias que o usam', () => {
+        const r = ok([esquadria(), esquadria(), esquadria()], { itens: ITENS.filter((i) => i.codigo !== '9641') })
+        expect(faltasDe(r)).toEqual([['NAO_ACHADA', 'HF88/WOLFF', 1], ['NAO_ACHADA', 'HF88/WOLFF', 2], ['NAO_ACHADA', 'HF88/WOLFF', 3]])
     })
 
     it('a recusa do AVALIADOR sai com o número da esquadria', () => {

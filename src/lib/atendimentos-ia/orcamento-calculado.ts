@@ -19,7 +19,11 @@
  * tela) — nunca os VELHOS ao lado dos itens novos, que seria número errado em dinheiro. O material de um cálculo interrompido fica sem
  * apontador (legível, nunca lido como vigente): DÍVIDA CONHECIDA e aceita pelo dono do produto; a forma atômica seria uma função no banco.
  *
- * Toda leitura e escrita leva o `tenant_id` do chamador. Nada evolui com falta: a recusa do cálculo volta nomeada e nada é gravado.
+ * Toda leitura e escrita leva o `tenant_id` do chamador. A recusa do cálculo volta nomeada e nada é gravado.
+ *
+ * A FALTA NOMEADA (dono do produto, 12/11/2026, 1.4 — substitui o "nada evolui"): o código sem preço não recusa; sai do custo e é gravado em
+ * `orcamentista_orcamento_falta` com o `calculo_id` do cálculo (passo 1b). O orçamento é PARCIAL quando o cálculo vigente de algum item tem
+ * falta — derivado, sem coluna. Sem a migração 20261112000006 e com falta, o cálculo RECUSA como antes (a falta não pode sumir em silêncio).
  *
  * A TABELA É A VIGENTE (dono do produto, 10/11/2026): o preço é o das tabelas que valem para a família NO MOMENTO DO CÁLCULO
  * (`lerFamiliasDaEmpresa`), nunca a que o levantamento congelou. O `tabela_id` congelado no item de origem só serve para AVISAR
@@ -31,11 +35,17 @@ import { lerOrcamento, ErroSemMigracao, TABELA_DO_ITEM, TABELA_DO_ORCAMENTO, tab
 import { custoDoLevantamento } from './custo-do-orcamento-servidor'
 import { lerFamiliasDaEmpresa, type EsquadriaGravada } from './levantamento-da-conversa'
 import { MODO_DO_FALLBACK, ORIGEM_DO_FALLBACK, MOTIVO_DO_FALLBACK, PERCENTUAIS, type CustoDoItem } from './custo-do-orcamento'
+import type { FaltaDoOrcamento } from './custo-do-orcamento-servidor'
 import { avisosDeDivergencia, type LinhaDaTabelaCongelada } from './divergencia-da-tabela'
 
 export const TABELA_DO_MATERIAL = 'orcamentista_orcamento_item_material'
-/** As colunas da fotografia da resolução de referência (migração 20261112000001). */
-export const COLUNAS_DA_RESOLUCAO = ['codigo_na_tabela', 'resolucao'] as const
+export const TABELA_DA_FALTA = 'orcamentista_orcamento_falta'
+/** As colunas da fotografia da resolução e do caminho do custo (migração 20261112000006). */
+export const COLUNAS_DA_RESOLUCAO = ['codigo_na_tabela', 'resolucao', 'caminho'] as const
+export const FRASE_SEM_MIGRACAO_DOS_CAMINHOS =
+    'o insumo e o vidro no custo do orçamento: a estrutura do banco (migração 20261112000006) não foi aplicada, e o material deles não tem onde dizer o caminho'
+/** O texto que a CHECK aceita: sem espaço nas pontas, até `max` caracteres. */
+const cabe = (t: string, max: number) => { const x = t.trim(); return x.length <= max ? x : `${x.slice(0, max - 1).trimEnd()}…` }
 export const FRASE_SEM_MIGRACAO_DO_CALCULO =
     'O cálculo do orçamento ainda não está disponível: a estrutura do banco (migrações 20261109000002 e 20261109000003) não foi aplicada.'
 
@@ -66,10 +76,14 @@ export type ResultadoDoCalculo = {
     /** A tabela congelada no levantamento que não é a vigente usada, por item; vazia quando nenhuma divergiu ou nenhuma foi congelada. */
     avisos: string[]
     /**
-     * A FOTOGRAFIA DA RESOLUÇÃO (12/11/2026, migração 20261112000001): `gravada` quando o material guardou o código na tabela e o como achou;
-     * `sem_migracao` quando as duas colunas ainda não existem e o material foi gravado sem elas — o cálculo não para por isso, e quem chama diz.
+     * A FOTOGRAFIA DA RESOLUÇÃO (12/11/2026, migração 20261112000006): `gravada` quando o material guardou o código na tabela, o como achou e o
+     * caminho; `sem_migracao` quando as colunas ainda não existem e o material — todo de perfil — foi gravado sem elas, e quem chama diz.
      */
     fotografia_da_resolucao: 'gravada' | 'sem_migracao'
+    /** As faltas nomeadas deste cálculo, gravadas em `orcamentista_orcamento_falta`; vazia = completo. */
+    faltas: Array<FaltaDoOrcamento & { orcamento_item_id: string; ordem: number }>
+    /** Algum item ficou com falta: o orçamento é PARCIAL. */
+    parcial: boolean
 }
 
 /** Os itens do levantamento de onde o orçamento do agente veio: as escolhas, a família e a tabela congelada de cada um. */
@@ -93,17 +107,30 @@ export async function calcularOrcamento(tenantId: string, id: string, agora: Dat
     const doLevantamento = orc.levantamento_id
         ? await lerDoLevantamento(tenantId, orc.itens.map((i) => i.levantamento_item_id).filter((x): x is string => !!x))
         : null
+    const vidroCodigo = await lerVidroCodigo(tenantId, id)
     const esquadrias: EsquadriaGravada[] = orc.itens.map((i) => {
         const deOrigem = i.levantamento_item_id ? doLevantamento?.porItem.get(i.levantamento_item_id) : undefined
         return {
             ordem: i.ordem, tipologia: i.tipologia, largura_mm: i.largura_mm, altura_mm: i.altura_mm, quantidade: i.quantidade,
-            cor_perfil: i.cor_perfil, vidro: i.vidro, escolhas: deOrigem?.escolhas ?? null, familia: deOrigem?.familia ?? null,
+            cor_perfil: i.cor_perfil, vidro: i.vidro, vidro_codigo: vidroCodigo.get(i.id) ?? null, escolhas: deOrigem?.escolhas ?? null, familia: deOrigem?.familia ?? null,
         }
     })
     const fonte = await lerFamiliasDaEmpresa(tenantId)
     const custo = await custoDoLevantamento(tenantId, fonte, { nome: orc.nome, itens: esquadrias })
     if ('recusas' in custo) throw new ErroDoCalculo(custo.recusas)
     const avisos = await avisosDaTabelaCongelada(tenantId, fonte, orc.itens, custo.itens, doLevantamento?.porItem ?? new Map())
+    // a falta precisa de onde ser gravada ANTES de qualquer escrita: sem a tabela, ela é recusa, como antes (nunca some em silêncio)
+    if (custo.faltas.length) {
+        const sonda = await db().from(TABELA_DA_FALTA).select('id').limit(1)
+        if (sonda.error && tabelaAusente(sonda.error)) throw new ErroDoCalculo(custo.faltas.map((f) => f.frase))
+        if (sonda.error) falhou(TABELA_DA_FALTA, sonda.error)
+    }
+    const ordemNoItem = new Map<number, number>()
+    const faltas = custo.faltas.map((f) => {
+        const ordem = (ordemNoItem.get(f.item) ?? 0) + 1
+        ordemNoItem.set(f.item, ordem)
+        return { ...f, orcamento_item_id: orc.itens[f.item].id, ordem }
+    })
 
     const calculo_id = novoId()
     const calculado_em = agora.toISOString()
@@ -120,14 +147,26 @@ export async function calcularOrcamento(tenantId: string, id: string, agora: Dat
     let fotografia_da_resolucao: 'gravada' | 'sem_migracao' = 'gravada'
     if (linhas.length) {
         const { error } = await db().from(TABELA_DO_MATERIAL).insert(linhas)
-        // A DEFESA QUE NÃO DEPENDE DA ORDEM (`migracao.md`, Parte I): sem a 20261112000001, faltam SÓ as duas colunas da resolução — o material
-        // é gravado sem elas, e o resultado diz. Qualquer outra falta continua sendo a recusa de sempre
+        // A DEFESA QUE NÃO DEPENDE DA ORDEM (`migracao.md`, Parte I): sem a 20261112000006, faltam SÓ as colunas da resolução e do caminho. Se
+        // todo o material é de perfil (o único caminho de antes), ele é gravado sem elas, e o resultado diz; com insumo ou vidro, recusa —
+        // gravados sem o caminho, eles se leriam como perfil. Qualquer outra falta continua sendo a recusa de sempre
         if (error && colunaAusente(error) && COLUNAS_DA_RESOLUCAO.some((c) => (error.message ?? '').includes(c))) {
-            const semAsDuas = linhas.map(({ codigo_na_tabela: _c, resolucao: _r, ...resto }) => { void _c; void _r; return resto })
-            const outra = await db().from(TABELA_DO_MATERIAL).insert(semAsDuas)
+            if (linhas.some((l) => l.caminho !== 'perfil')) throw new ErroDoCalculo([FRASE_SEM_MIGRACAO_DOS_CAMINHOS])
+            const semAsTres = linhas.map(({ codigo_na_tabela: _c, resolucao: _r, caminho: _k, ...resto }) => { void _c; void _r; void _k; return resto })
+            const outra = await db().from(TABELA_DO_MATERIAL).insert(semAsTres)
             if (outra.error) falhou(TABELA_DO_MATERIAL, outra.error)
             fotografia_da_resolucao = 'sem_migracao'
         } else if (error) falhou(TABELA_DO_MATERIAL, error)
+    }
+    // 1b. as faltas, com o mesmo cálculo: o que ficou fora do custo, nomeado
+    if (faltas.length) {
+        const { error } = await db().from(TABELA_DA_FALTA).insert(faltas.map((f) => ({
+            tenant_id: tenantId, orcamento_item_id: f.orcamento_item_id, calculo_id, ordem: f.ordem, caminho: f.caminho,
+            codigo_do_motor: cabe(f.codigo_do_motor, 60), descricao_do_motor: f.descricao_do_motor === null ? null : cabe(f.descricao_do_motor, 300),
+            cor: f.cor === null ? null : cabe(f.cor, 80), tipologia: cabe(f.tipologia || '(sem tipologia)', 60), esquadria: f.esquadria,
+            motivo: f.motivo, frase: cabe(f.frase, 1000), candidatas: f.candidatas,
+        })))
+        if (error) falhou(TABELA_DA_FALTA, error)
     }
     // 2. cada item aponta o cálculo e guarda os valores — conferido pela contagem atingida
     const itens = custo.itens.map((c, k) => {
@@ -158,7 +197,15 @@ export async function calcularOrcamento(tenantId: string, id: string, agora: Dat
         .eq('tenant_id', tenantId).eq('id', id).select('id')
     if (error) falhou(TABELA_DO_ORCAMENTO, error)
     if (!data || data.length !== 1) throw new Error(`${TABELA_DO_ORCAMENTO}: o orçamento ${id} não foi atualizado (os itens já apontam o cálculo ${calculo_id})`)
-    return { calculo_id, calculado_em, itens, valor_total_bruto, valor_total_liquido, avisos, fotografia_da_resolucao }
+    return { calculo_id, calculado_em, itens, valor_total_bruto, valor_total_liquido, avisos, fotografia_da_resolucao, faltas, parcial: faltas.length > 0 }
+}
+
+/** O código do vidro ESCOLHIDO de cada item (20261112000006); sem a coluna, nenhum foi escolhido e o vidro vai pelo texto. */
+async function lerVidroCodigo(tenantId: string, orcamentoId: string): Promise<Map<string, string | null>> {
+    const { data, error } = await db().from(TABELA_DO_ITEM).select('id, vidro_codigo').eq('tenant_id', tenantId).eq('orcamento_id', orcamentoId)
+    if (error && colunaAusente(error)) return new Map()
+    if (error) falhou(TABELA_DO_ITEM, error)
+    return new Map(((data ?? []) as Array<{ id: string; vidro_codigo: string | null }>).map((x) => [x.id, x.vidro_codigo]))
 }
 
 /**

@@ -13,7 +13,10 @@
  *     FIXO ou a CELULAR pela FORMA do número (o celular brasileiro tem 9 dígitos começando por 9); NÃO HÁ coluna para TEL2, IE/RG, CEP nem
  *     CNPJ/CPF do cliente;
  *   - vendedor: o nome gravado no levantamento e o e-mail do funcionário dele; o "Contato" não tem fonte;
- *   - OBSERVAÇÕES gerais (prazos, validade, exclusões): NÃO HÁ, hoje, de onde lê-las — o bloco sai vazio.
+ *   - OBSERVAÇÕES gerais (prazos, validade, exclusões): NÃO HÁ, hoje, de onde lê-las — o bloco sai vazio;
+ *   - as FALTAS (12/11/2026): `orcamentista_orcamento_falta` do cálculo vigente de cada item (sem a migração 20261112000006, nenhuma);
+ *   - PARA O VENDEDOR: as barras de cada perfil saem do MATERIAL gravado (Σ bruto do material ÷ bruto da barra — o rateio soma a barra inteira),
+ *     o aproveitamento, do consumo e da medida da barra, e os minutos, do item; nada é recalculado aqui.
  */
 import { createHash, randomUUID } from 'crypto'
 import { supabaseAdmin } from '@/supabase/admin'
@@ -21,8 +24,10 @@ import { BUCKET_DO_CATALOGO } from '@/utils/atendimentos-ia-catalogo'
 import { contextoDaFolhaDaEmpresa } from './conversa-da-ia'
 import { corDoAcessorio, variaveisDitas } from './arquivo-do-levantamento'
 import { desenhoDaTipologia, linhaDosAmbientes, variavelNaFolha } from './folha-do-levantamento'
-import { lerEscolhasDoItem } from './escolhas-da-tipologia'
-import { gerarArquivoDoOrcamento, type ClienteDoArquivo, type DadosDoArquivoDoOrcamento, type EmpresaDoArquivo, type ItemDoArquivo } from './arquivo-do-orcamento'
+import { escolhasDescritas, lerEscolhasDoItem } from './escolhas-da-tipologia'
+import {
+    gerarArquivoDoOrcamento, type ClienteDoArquivo, type DadosDoArquivoDoOrcamento, type EmpresaDoArquivo, type FaltaDoArquivo, type ItemDoArquivo, type ParaOVendedor,
+} from './arquivo-do-orcamento'
 import type { ItemRateado } from './rateio-do-orcamento'
 import type { AmbienteDaFolha } from './folha-do-levantamento'
 
@@ -51,7 +56,7 @@ export function tipoDoTelefone(telefone: string): 'celular' | 'fixo' {
 }
 
 // ── OS ITENS ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-const COLUNAS_DO_ITEM = 'id, ordem, levantamento_item_id, tipologia, largura_mm, altura_mm, quantidade, cor_perfil, vidro, obs, ambientes, escolhas, calculo_id, custo_liquido_total'
+const COLUNAS_DO_ITEM = 'id, ordem, levantamento_item_id, tipologia, largura_mm, altura_mm, quantidade, cor_perfil, vidro, obs, ambientes, escolhas, calculo_id, custo_liquido_total, tempo_fabricacao_min'
 
 /** Os itens do orçamento como o arquivo (e a faixa da tela) os mostra. A família vem do item do levantamento de origem; o manual não tem. */
 export async function itensDoArquivo(tenantId: string, orcamentoId: string): Promise<{ itens: ItemDoArquivo[]; linhas: Linha[] } | { recusa: string }> {
@@ -73,6 +78,9 @@ export async function itensDoArquivo(tenantId: string, orcamentoId: string): Pro
         const base = { escolhas, tipologia, familia } as Parameters<typeof variaveisDitas>[0]
         const variaveis = variaveisDitas(base, contexto.definicao)
         const d = tipologia ? contexto.detalhe(tipologia, familia) : null
+        // as definições de instalação e arremate (4.2): a efetiva de cada variável capturada, e "(padrão)" na que o vendedor não disse
+        const def = tipologia ? contexto.definicao(base) : null
+        const definicoes = def ? escolhasDescritas(def, escolhas ?? {}).map((e) => `${e.descricao}: ${e.rotulo ?? 'padrão da tipologia'}${e.doVendedor ? '' : ' (padrão)'}`) : []
         const largura = numero(l.largura_mm)
         const altura = numero(l.altura_mm)
         const ambientes = Array.isArray(l.ambientes) && l.ambientes.length ? linhaDosAmbientes({ ambientes: l.ambientes as AmbienteDaFolha[] }) : null
@@ -80,7 +88,7 @@ export async function itensDoArquivo(tenantId: string, orcamentoId: string): Pro
             ordem: Number(l.ordem), quantidade: Number(l.quantidade), largura_mm: largura, altura_mm: altura, tipologia,
             descricao: d?.descricao ?? tipologia, tipo: d?.tipo ?? null, fornecedor: d?.fornecedor ?? null, linha: d?.linha ?? null,
             ambientes, corPerfil: texto(l.cor_perfil), corAcessorio: tipologia ? texto(corDoAcessorio(base, contexto.definicao)) : null, vidro: texto(l.vidro),
-            variaveis: variaveis.map(variavelNaFolha), obs: texto(l.obs),
+            variaveis: variaveis.map(variavelNaFolha), obs: texto(l.obs), definicoes,
             desenho: largura && altura && largura > 0 && altura > 0 ? desenhoDaTipologia({ descricao: d?.descricao ?? '', largura_mm: largura, altura_mm: altura, variaveis }) : null,
         }
     })
@@ -159,12 +167,73 @@ export async function lerDadosDoArquivo(tenantId: string, orcamentoId: string, a
     if ('recusa' in itens) return itens
     const [empresa, cv] = await Promise.all([lerEmpresa(tenantId), lerClienteEVendedor(tenantId, texto(orc.levantamento_id), String(orc.nome ?? ''))])
     const calculos = [...new Set(itens.linhas.map((l) => texto(l.calculo_id)))]
+    const [faltas, paraOVendedor] = await Promise.all([lerFaltasDoArquivo(tenantId, itens.linhas), lerParaOVendedor(tenantId, itens.linhas)])
     return {
         calculoId: calculos.length === 1 ? calculos[0] : null,
         dados: {
             empresa, numero: Number(orc.numero), vendedor: cv.vendedor, contato: null, emailDoVendedor: cv.emailDoVendedor, cliente: cv.cliente, dataEntrega: cv.dataEntrega,
             itens: itens.itens, observacoesGerais: null, operacaoInterna: a.operacaoInterna, valorVenda: a.valorVenda, rateio: a.rateio, geradoEm: a.geradoEm,
+            faltas, paraOVendedor,
         },
+    }
+}
+
+/** Tabela ou coluna ausente (a 20261112000006 pendente): 42P01/PGRST205 e 42703/PGRST204. */
+const semMigracao = (e: { code?: string } | null | undefined) => ['42P01', 'PGRST205', '42703', 'PGRST204'].includes(e?.code ?? '')
+/** O cálculo VIGENTE de cada item: o `calculo_id` gravado nele. Item sem cálculo não tem falta nem material. */
+const vigentes = (linhas: readonly Linha[]) => linhas.flatMap((l) => (texto(l.id) && texto(l.calculo_id) ? [{ id: String(l.id), calculo: String(l.calculo_id), ordem: Number(l.ordem) }] : []))
+
+/** As faltas do cálculo vigente, uma por código, com os itens (pela ordem). Sem a tabela, nenhuma. */
+export async function lerFaltasDoArquivo(tenantId: string, linhas: readonly Linha[]): Promise<FaltaDoArquivo[]> {
+    const v = vigentes(linhas)
+    if (v.length === 0) return []
+    const { data, error } = await db().from('orcamentista_orcamento_falta').select('orcamento_item_id, calculo_id, ordem, codigo_do_motor, frase')
+        .eq('tenant_id', tenantId).in('orcamento_item_id', v.map((x) => x.id)).order('ordem', { ascending: true })
+    if (error && semMigracao(error)) return []
+    if (error) throw new Error(`orcamentista_orcamento_falta: ${error.message}`)
+    const doItem = new Map(v.map((x) => [x.id, x]))
+    const porCodigo = new Map<string, FaltaDoArquivo>()
+    for (const f of (data ?? []) as Linha[]) {
+        const it = doItem.get(String(f.orcamento_item_id))
+        if (!it || String(f.calculo_id) !== it.calculo) continue
+        const codigo = String(f.codigo_do_motor)
+        const x = porCodigo.get(codigo) ?? { codigo, frase: String(f.frase), itens: [] }
+        if (!x.itens.includes(it.ordem)) x.itens.push(it.ordem)
+        porCodigo.set(codigo, x)
+    }
+    return [...porCodigo.values()].map((x) => ({ ...x, itens: [...x.itens].sort((a, b) => a - b) }))
+}
+
+/**
+ * O que vai ao vendedor, do MATERIAL gravado no cálculo vigente: por perfil, as barras (Σ bruto do material ÷ bruto da barra — no modo barra
+ * inteira, a soma das partes é a barra inteira) e o aproveitamento (o consumo ÷ as barras × a medida). Nulo quando nenhum item tem cálculo.
+ */
+export async function lerParaOVendedor(tenantId: string, linhas: readonly Linha[]): Promise<ParaOVendedor | null> {
+    const v = vigentes(linhas)
+    if (v.length === 0) return null
+    const ler = (colunas: string) => db().from('orcamentista_orcamento_item_material').select(colunas).eq('tenant_id', tenantId).in('orcamento_item_id', v.map((x) => x.id))
+    let r = await ler('orcamento_item_id, calculo_id, codigo, descricao, caminho, medida_unidade, consumo_item, custo_bruto_unidade, custo_bruto_material')
+    if (r.error && semMigracao(r.error)) r = await ler('orcamento_item_id, calculo_id, codigo, descricao, medida_unidade, consumo_item, custo_bruto_unidade, custo_bruto_material')
+    if (r.error) throw new Error(`orcamentista_orcamento_item_material: ${r.error.message}`)
+    const doItem = new Map(v.map((x) => [x.id, x.calculo]))
+    const porCodigo = new Map<string, { descricao: string | null; medida: number | null; bruto: number; unidade: number; consumo: number }>()
+    for (const m of (r.data ?? []) as Linha[]) {
+        if (doItem.get(String(m.orcamento_item_id)) !== String(m.calculo_id)) continue
+        if ((texto(m.caminho) ?? 'perfil') !== 'perfil') continue
+        const codigo = String(m.codigo)
+        const x = porCodigo.get(codigo) ?? { descricao: texto(m.descricao), medida: numero(m.medida_unidade), bruto: 0, unidade: numero(m.custo_bruto_unidade) ?? 0, consumo: 0 }
+        x.bruto += numero(m.custo_bruto_material) ?? 0
+        x.consumo += numero(m.consumo_item) ?? 0
+        porCodigo.set(codigo, x)
+    }
+    const barras = [...porCodigo.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).flatMap(([codigo, x]) =>
+        (x.unidade > 0 ? [{ codigo, descricao: x.descricao, n_barras: Math.round(x.bruto / x.unidade), comprimento_m: x.medida, consumo: x.consumo }] : []))
+    const uteis = barras.reduce((t, b) => t + b.consumo, 0)
+    const comprados = barras.reduce((t, b) => t + b.n_barras * (b.comprimento_m ?? 0), 0)
+    return {
+        barras: barras.map(({ consumo: _c, ...b }) => { void _c; return b }),
+        aproveitamento: comprados > 0 ? { pct: (uteis / comprados) * 100, metros_uteis: uteis, metros_comprados: comprados } : null,
+        minutos: linhas.map((l) => ({ ordem: Number(l.ordem), minutos: numero(l.tempo_fabricacao_min) })),
     }
 }
 

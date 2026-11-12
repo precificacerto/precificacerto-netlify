@@ -171,6 +171,11 @@
  */
 import { atravessarNoSim } from './travessia-do-levantamento'
 import { dependenciasDoServidor, destinosDoWhatsApp, enviarAoPrimeiroQueAceitar, etapaDoPreco } from './cadeia-do-sim'
+import { telefonesCasam } from '@/utils/atendimentos-ia-telefone-do-autorizado'
+/** A saída gravada quando depois do "sim" só o arquivo foi enviado (12/11/2026, 4.3): o texto não sai ao vendedor, é a marca da resposta. */
+export const SAIDA_SO_O_ARQUIVO = '[o arquivo do orçamento foi enviado, sem texto]'
+/** O id gravado quando o canal aceitou o arquivo sem devolver id: a saída está enviada, e o reenvio não a manda de novo. */
+const SEM_ID_DO_ARQUIVO = 'documento-sem-id'
 import { supabaseAdmin } from '@/supabase/admin'
 import { MODELO_PADRAO_DA_IA, URL_DA_API_ANTHROPIC, VERSAO_DA_API_ANTHROPIC } from '@/lib/atendimentos-ia/modelo-da-ia'
 import { paraOLog } from '@/utils/atendimentos-ia-mascara-do-log'
@@ -1855,7 +1860,17 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
                 etapaDoPreco(c.tenantId, orcamentoId, dependenciasDoServidor((telefone, nome, pdf) =>
                     enviarAoPrimeiroQueAceitar(destinosDoWhatsApp(telefone, c.telefone), (destino) => enviarDocumento(c.wuzapiToken, destino, nome, pdf)))))
             rastro.etapas.calcular = `${rastro.etapas.calcular ?? ''} travessia=${sim.rastro}`.trim()
-            if (sim.paraOVendedor) return await responder(`${levantamento.texto}\n\n${sim.paraOVendedor}`, levantamento.desfecho, semApanhado)
+            // DEPOIS DO "SIM", SÓ O ARQUIVO (dono do produto, 12/11/2026, 4.3): quando o PDF chegou a quem disse "sim", a conversa não repete por
+            // texto o que está nele (barras, aproveitamento, mão de obra, o que o preço cobre) — o WhatsApp leva só os QUESTIONAMENTOS (as faltas)
+            if (sim.enviadoPara && telefonesCasam(sim.enviadoPara, c.telefone)) {
+                if (sim.questionamentos) return await responder(sim.questionamentos, levantamento.desfecho, `${semApanhado ? `${semApanhado} ` : ''}so_arquivo=sim`, false)
+                // a SAÍDA é gravada mesmo sem texto: é ela que marca a entrada como respondida (o reenvio do WUZAPI não conduz de novo) e diz ao
+                // histórico o que o agente fez. O id é o do envio do arquivo
+                await gravar(SAIDA_SO_O_ARQUIVO, sim.idDoEnvio ?? SEM_ID_DO_ARQUIVO)
+                rastro.enviou = true
+                return fim(levantamento.desfecho, `${semApanhado ? `${semApanhado} ` : ''}so_arquivo=sim`)
+            }
+            if (sim.paraOVendedor) return await responder(`${levantamento.texto}\n\n${[sim.paraOVendedor, sim.questionamentos].filter(Boolean).join('\n\n')}`, levantamento.desfecho, semApanhado)
         }
         // SEM a confirmação do arremate (dono do produto, 08/11/2026): "Considerando guarnição e arremate padrão, certo!" repetia o que o
         // rodapé da folha já diz nas pré-definições consideradas — ruído. O mesmo para a variante do arremate escolhido

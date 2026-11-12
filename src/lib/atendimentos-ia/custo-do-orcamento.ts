@@ -18,7 +18,12 @@
  *   - A FALTA SEMPRE VISÍVEL, E O FALLBACK QUE NÃO BARATEIA (decisão (b), 09/11/2026): IBS/CBS nulos não travam; ICMS e PIS/COFINS em
  *     cascata parcial (sem PIS/COFINS para depois do ICMS; sem ICMS, o líquido é o bruto); a linha nomeia QUAL crédito faltou. As
  *     CHECKs `..._falta_nomeada` e `..._sem_credito_nao_barateia` (migração 20261109000003) prendem o mesmo no banco.
- *   - FALTA DE PREÇO OU DE TEMPO: NADA EVOLUI. O cálculo recusa nomeando a referência e a falta (`faltou-dado-recusa-nomeada.md`).
+ *   - OS TRÊS CAMINHOS (dono do produto, 12/11/2026, o comando único), separados aqui e em nenhum outro lugar:
+ *       PERFIL → a barra inteira rateada por milímetro (o de sempre);
+ *       INSUMO → a quantidade × o custo da unidade (`custo` do item: "para item vendido por unidade, o bruto é custo") × a cascata;
+ *       VIDRO  → os m² × o preço por m² (`custo` do item) × a cascata.
+ *   - FALTA DE PREÇO NÃO IMPEDE A EVOLUÇÃO (12/11/2026, substitui o "nada evolui"): o código sem preço fica FORA do custo e sai em `faltas`,
+ *     nomeado; o orçamento é parcial. A falta de TEMPO e a do valor do minuto continuam recusa (`faltou-dado-recusa-nomeada.md`).
  *   - A ENTRADA DA PRECIFICAÇÃO (decisão D2, 09/11/2026): ao motor vai o custo LÍQUIDO DOS MATERIAIS somado e os MINUTOS somados; a mão de
  *     obra sai pelo caminho de sempre. Somar a fabricação no custo seria contá-la duas vezes — `entradaDaPrecificacao` é o único lugar
  *     que monta essa entrada, e o teste de reconciliação prende a igualdade.
@@ -35,24 +40,37 @@ export const PERCENTUAIS = ['cred_icms_pct', 'cred_pis_cofins_pct', 'cred_ipi_pc
 export type Percentual = (typeof PERCENTUAIS)[number]
 export type Percentuais = Record<Percentual, number | null>
 
+export type CaminhoDoCusto = 'perfil' | 'insumo' | 'vidro'
+/** Como o preço foi achado: os degraus da resolução de referência e, no vidro, o código escolhido ou o texto traduzido (20261112000006). */
+export type ResolucaoGravada = ComoAchou | 'vidro_escolhido' | 'vidro_traduzido'
+/** A chave de um material: o mesmo código pode entrar por dois caminhos (a UNIQUE da 20261112000006 inclui o caminho). */
+export const chaveDoMaterial = (caminho: CaminhoDoCusto, codigo: string) => `${caminho}:${codigo}`
+
 export type MaterialDaTabela = {
-    /** O código DO MOTOR — o que as peças citam. */
+    caminho: CaminhoDoCusto
+    /** O código DO MOTOR — o que as peças citam (no vidro, o código do item da tabela de vidro). */
     codigo: string
     /** O código do item na tabela de preço, de onde veio o preço (12/11/2026): o mesmo, ou com/sem o sufixo do fornecedor, ou outro. */
     codigo_na_tabela: string
-    /** Como a resolução de referência achou o item (`resolucao-de-referencia.ts`): exato, sufixo do fornecedor, cor ou aproximado. */
-    resolucao: ComoAchou
+    /** Como o item foi achado: os degraus de `resolucao-de-referencia.ts`, ou o do vidro (`vidro-da-tabela.ts`). */
+    resolucao: ResolucaoGravada
     descricao: string | null
     unidade: string | null
     /** A medida da unidade de compra, em metros (a barra). */
     medida_barra_m: number | null
-    /** O custo BRUTO da unidade de compra (a barra inteira). */
+    /** O custo BRUTO da unidade de compra (a barra inteira) — o caminho do perfil. */
     valor_barra_interno: number | null
+    /** O custo BRUTO da unidade (insumo) ou do m² (vidro) — a coluna `custo` do item. */
+    custo: number | null
     bloco: Percentuais
 }
 export type ItemDoCalculo = {
     /** As peças do item, com a quantidade TOTAL (a da esquadria vezes a do item). */
     pecas: ReadonlyArray<{ codigo: string; comprimento_mm: number; quantidade: number }>
+    /** Os insumos do item, com a quantidade TOTAL (a da esquadria vezes a do item), pelo código do motor. */
+    insumos?: ReadonlyArray<{ codigo: string; quantidade: number }>
+    /** Os vidros do item, pelo código do item da tabela de vidro, com a área TOTAL em m². */
+    vidros?: ReadonlyArray<{ codigo: string; m2: number }>
     /** O tempo de fabricação do item inteiro, em minutos; nulo quando a tipologia não tem tempo. */
     minutos: number | null
     /** Para a frase da recusa: como o vendedor reconhece o item. */
@@ -62,6 +80,7 @@ export type EntradaDoCusto = {
     itens: readonly ItemDoCalculo[]
     /** As barras inteiras do pedido, por código (`TotalDoLevantamento.barras_por_codigo`). */
     barras_por_codigo: Readonly<Record<string, number>>
+    /** Os materiais pela `chaveDoMaterial(caminho, codigo)`. O código sem material é falta (fora do custo), não recusa. */
     materiais: Readonly<Record<string, MaterialDaTabela>>
     /** O valor do minuto (`valorDoMinuto`); nulo quando a empresa não tem a configuração da mão de obra. */
     valor_minuto: number | null
@@ -69,10 +88,11 @@ export type EntradaDoCusto = {
 
 export type LinhaDeMaterial = Percentuais & {
     ordem: number
+    caminho: CaminhoDoCusto
     codigo: string
     /** A fotografia de COMO cada preço foi parar ali (12/11/2026): o código na tabela e o degrau da resolução. */
     codigo_na_tabela: string
-    resolucao: ComoAchou
+    resolucao: ResolucaoGravada
     descricao: string | null
     unidade_compra: string | null
     medida_unidade: number | null
@@ -80,7 +100,7 @@ export type LinhaDeMaterial = Percentuais & {
     credito_nao_apurado: string | null
     custo_liquido_unidade: number
     custo_liquido_fracao: number | null
-    /** Na unidade da fração: metros. */
+    /** Na unidade da fração: metros (perfil), unidades (insumo), m² (vidro). */
     consumo_item: number
     custo_bruto_material: number
     custo_liquido_material: number
@@ -94,9 +114,11 @@ export type CustoDoItem = Percentuais & {
     custo_fabricacao: number
     custo_liquido_total: number
 }
+/** O que ficou fora do custo por falta de preço: o item (índice em `itens`), o caminho, o código e a frase. */
+export type FaltaDoCusto = { item: number; caminho: CaminhoDoCusto; codigo: string; motivo: 'SEM_MATERIAL' | 'SEM_VALOR'; frase: string }
 /** Para separar as duas formas, use `'recusas' in r` (o tsconfig daqui não estreita pelo `ok`). */
 export type CustoDoOrcamento =
-    | { ok: true; modo: typeof MODO_DO_FALLBACK; origem: typeof ORIGEM_DO_FALLBACK; motivo: string; itens: CustoDoItem[] }
+    | { ok: true; modo: typeof MODO_DO_FALLBACK; origem: typeof ORIGEM_DO_FALLBACK; motivo: string; itens: CustoDoItem[]; faltas: FaltaDoCusto[] }
     | { ok: false; recusas: string[] }
 
 /** O valor do minuto pelo caminho da tela (`calculatePricing`, `costPerMinute`); sem minutos produtivos não há valor. */
@@ -105,7 +127,13 @@ export function valorDoMinuto(custoMensal: number, minutosDaEmpresa: number): nu
     return custoMensal / minutosDaEmpresa
 }
 
-const fraseSemPreco = (codigo: string) => `o valor da barra do código ${codigo}, na tabela de preço`
+const NOME_DO_CAMINHO: Record<CaminhoDoCusto, string> = { perfil: 'perfil', insumo: 'insumo', vidro: 'vidro' }
+const fraseSemMaterial = (caminho: CaminhoDoCusto, codigo: string) => `o ${NOME_DO_CAMINHO[caminho]} ${codigo} não tem item na tabela de preço: fica fora do custo`
+const fraseSemValor = (caminho: CaminhoDoCusto, codigo: string) =>
+    caminho === 'perfil' ? `o valor da barra do código ${codigo}, na tabela de preço: fica fora do custo`
+        : caminho === 'insumo' ? `o custo da unidade do insumo ${codigo}, na tabela de preço: fica fora do custo`
+            : `o preço por m² do vidro ${codigo}, na tabela de vidro: fica fora do custo`
+const valido = (v: number | null | undefined): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0
 const fraseSemBarras = (codigo: string) => `as barras do código ${codigo} no cálculo do levantamento`
 const fraseSemTempo = (referencia: string) => `o tempo de fabricação de ${referencia}`
 const FRASE_SEM_VALOR_DO_MINUTO = 'o valor do minuto da mão de obra: a configuração de mão de obra da empresa não fecha'
@@ -167,47 +195,83 @@ function efetivosDoItem(linhas: readonly LinhaDeMaterial[], bruto: number): Perc
 }
 
 /**
- * O custo de cada item do orçamento, no modo SEM aproveitamento (barra inteira): por código, as barras inteiras do pedido × o custo da
- * barra, rateadas entre os itens na proporção do consumo (mm) daquele código em cada item. Recusa nomeada, e nada evolui, quando falta
- * o preço de um código, as barras de um código consumido, o tempo de um item ou o valor do minuto.
+ * O custo de cada item do orçamento. PERFIL no modo SEM aproveitamento (barra inteira): por código, as barras inteiras do pedido × o custo da
+ * barra, rateadas entre os itens na proporção do consumo (mm) daquele código em cada item. INSUMO: a quantidade do item × o custo da unidade.
+ * VIDRO: os m² do item × o preço por m². O código sem material ou sem valor fica FORA e sai em `faltas`; recusa só a falta de tempo, a do
+ * valor do minuto, a das barras de um perfil consumido (incoerência do cálculo) e o IBS/CBS sem lugar.
  */
 export function custoDoOrcamento(e: EntradaDoCusto): CustoDoOrcamento {
     const recusas: string[] = []
+    const faltas: FaltaDoCusto[] = []
+    // o bruto da unidade de cada caminho: a barra no perfil, `custo` no insumo e no vidro
+    const brutoDe = (m: MaterialDaTabela) => (m.caminho === 'perfil' ? m.valor_barra_interno : m.custo)
     const consumoTotal = new Map<string, number>()
     for (const it of e.itens) for (const p of it.pecas) consumoTotal.set(p.codigo, (consumoTotal.get(p.codigo) ?? 0) + p.comprimento_mm * p.quantidade)
-    const codigos = [...consumoTotal.keys()].sort()
-    for (const c of codigos) {
-        const m = e.materiais[c]
-        if (!m || m.valor_barra_interno === null || !Number.isFinite(m.valor_barra_interno) || m.valor_barra_interno < 0) recusas.push(fraseSemPreco(c))
-        const n = e.barras_por_codigo[c]
-        if (!Number.isInteger(n) || n <= 0) recusas.push(fraseSemBarras(c))
+    // o que cada item consome, por caminho e código; a falta é registrada uma vez por (item, caminho, código)
+    const consumos = e.itens.map((it) => {
+        const c = new Map<string, { caminho: CaminhoDoCusto; codigo: string; qtd: number }>()
+        const somar = (caminho: CaminhoDoCusto, codigo: string, qtd: number) => {
+            const k = chaveDoMaterial(caminho, codigo)
+            const x = c.get(k)
+            if (x) x.qtd += qtd
+            else c.set(k, { caminho, codigo, qtd })
+        }
+        for (const p of it.pecas) somar('perfil', p.codigo, p.comprimento_mm * p.quantidade)
+        for (const i of it.insumos ?? []) somar('insumo', i.codigo, i.quantidade)
+        for (const v of it.vidros ?? []) somar('vidro', v.codigo, v.m2)
+        return c
+    })
+    const precificavel = new Set<string>()
+    consumos.forEach((c, k) => {
+        for (const [chave, x] of c) {
+            const m = e.materiais[chave]
+            if (!m) faltas.push({ item: k, caminho: x.caminho, codigo: x.codigo, motivo: 'SEM_MATERIAL', frase: fraseSemMaterial(x.caminho, x.codigo) })
+            else if (!valido(brutoDe(m))) faltas.push({ item: k, caminho: x.caminho, codigo: x.codigo, motivo: 'SEM_VALOR', frase: fraseSemValor(x.caminho, x.codigo) })
+            else precificavel.add(chave)
+        }
+    })
+    for (const chave of precificavel) {
+        const m = e.materiais[chave]
+        if (m.caminho !== 'perfil') continue
+        const n = e.barras_por_codigo[m.codigo]
+        if (!Number.isInteger(n) || n <= 0) recusas.push(fraseSemBarras(m.codigo))
     }
     for (const it of e.itens) if (it.minutos === null || !Number.isFinite(it.minutos) || it.minutos < 0) recusas.push(fraseSemTempo(it.referencia))
     if (e.valor_minuto === null || !Number.isFinite(e.valor_minuto) || e.valor_minuto < 0) recusas.push(FRASE_SEM_VALOR_DO_MINUTO)
     if (recusas.length) return { ok: false, recusas }
 
-    const calculadas = codigos.map((c) => ({ c, m: e.materiais[c], u: liquidoDaUnidade(c, e.materiais[c].valor_barra_interno as number, e.materiais[c].bloco) }))
+    const calculadas = [...precificavel].sort().map((chave) => {
+        const m = e.materiais[chave]
+        return { chave, m, u: liquidoDaUnidade(m.codigo, brutoDe(m) as number, m.bloco) }
+    })
     const semLugar = calculadas.flatMap((x) => ('recusa' in x.u ? [x.u.recusa] : []))
     if (semLugar.length) return { ok: false, recusas: semLugar }
-    const unidade = new Map(calculadas.map((x) => [x.c, { m: x.m, ...(x.u as { liquido: number; nao_apurado: string | null }) }]))
-    const itens = e.itens.map((it): CustoDoItem => {
-        const doItem = new Map<string, number>()
-        for (const p of it.pecas) doItem.set(p.codigo, (doItem.get(p.codigo) ?? 0) + p.comprimento_mm * p.quantidade)
-        const materiais = [...doItem.keys()].sort().map((c, k): LinhaDeMaterial => {
-            const u = unidade.get(c)!
-            const parte = doItem.get(c)! / consumoTotal.get(c)!
-            const barras = e.barras_por_codigo[c]
-            const bruto = u.m.valor_barra_interno as number
+    const unidade = new Map(calculadas.map((x) => [x.chave, { m: x.m, ...(x.u as { liquido: number; nao_apurado: string | null }) }]))
+    const ORDEM_DO_CAMINHO: Record<CaminhoDoCusto, number> = { perfil: 0, insumo: 1, vidro: 2 }
+    const itens = e.itens.map((it, k): CustoDoItem => {
+        const doItem = [...consumos[k].entries()].filter(([chave]) => unidade.has(chave))
+            .sort(([, a], [, b]) => ORDEM_DO_CAMINHO[a.caminho] - ORDEM_DO_CAMINHO[b.caminho] || (a.codigo < b.codigo ? -1 : a.codigo > b.codigo ? 1 : 0))
+        const materiais = doItem.map(([chave, x], j): LinhaDeMaterial => {
+            const u = unidade.get(chave)!
+            const bruto = brutoDe(u.m) as number
+            const base = {
+                ordem: j + 1, caminho: x.caminho, codigo: x.codigo, codigo_na_tabela: u.m.codigo_na_tabela, resolucao: u.m.resolucao, descricao: u.m.descricao,
+                custo_bruto_unidade: bruto, ...u.m.bloco, credito_nao_apurado: u.nao_apurado, custo_liquido_unidade: u.liquido,
+            }
+            if (x.caminho === 'perfil') {
+                // a barra inteira rateada pelo milímetro: a parte deste item no consumo do código
+                const parte = x.qtd / consumoTotal.get(x.codigo)!
+                const barras = e.barras_por_codigo[x.codigo]
+                return {
+                    ...base, unidade_compra: u.m.unidade, medida_unidade: u.m.medida_barra_m,
+                    custo_liquido_fracao: custoLiquidoDaFracao(u.liquido, u.m.medida_barra_m),
+                    consumo_item: x.qtd / 1000, custo_bruto_material: barras * bruto * parte, custo_liquido_material: barras * u.liquido * parte,
+                }
+            }
+            // insumo (unidades) e vidro (m²): a quantidade vezes a unidade; a unidade já é a fração
             return {
-                ordem: k + 1, codigo: c, codigo_na_tabela: u.m.codigo_na_tabela, resolucao: u.m.resolucao, descricao: u.m.descricao, unidade_compra: u.m.unidade, medida_unidade: u.m.medida_barra_m,
-                custo_bruto_unidade: bruto,
-                ...u.m.bloco,
-                credito_nao_apurado: u.nao_apurado,
-                custo_liquido_unidade: u.liquido,
-                custo_liquido_fracao: custoLiquidoDaFracao(u.liquido, u.m.medida_barra_m),
-                consumo_item: doItem.get(c)! / 1000,
-                custo_bruto_material: barras * bruto * parte,
-                custo_liquido_material: barras * u.liquido * parte,
+                ...base, unidade_compra: x.caminho === 'vidro' ? 'M2' : u.m.unidade, medida_unidade: null, custo_liquido_fracao: null,
+                consumo_item: x.qtd, custo_bruto_material: x.qtd * bruto, custo_liquido_material: x.qtd * u.liquido,
             }
         })
         const bruto = materiais.reduce((t, l) => t + l.custo_bruto_material, 0)
@@ -221,7 +285,7 @@ export function custoDoOrcamento(e: EntradaDoCusto): CustoDoOrcamento {
             custo_fabricacao: fabricacao, custo_liquido_total: liquido + fabricacao,
         }
     })
-    return { ok: true, modo: MODO_DO_FALLBACK, origem: ORIGEM_DO_FALLBACK, motivo: MOTIVO_DO_FALLBACK, itens }
+    return { ok: true, modo: MODO_DO_FALLBACK, origem: ORIGEM_DO_FALLBACK, motivo: MOTIVO_DO_FALLBACK, itens, faltas }
 }
 
 /**

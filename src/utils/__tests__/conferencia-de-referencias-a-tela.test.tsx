@@ -31,9 +31,9 @@ const RESPOSTA: RespostaDasReferencias = {
     achadas_sem_preco: [conferida('2202', { como: 'exato', regras: 30, itens: [ITEM] })],
     nao_achadas: [conferida('4661', { falta: { motivo: 'NAO_ACHADA', frase: 'o código 4661 não está na tabela de preço do fornecedor do motor', candidatas: [] } }),
         conferida('83841', { falta: { motivo: 'NAO_ACHADA', frase: 'o código 83841 não está na tabela de preço do fornecedor do motor', candidatas: [] } })],
-    nao_resolvidas: [conferida('17561', { falta: { motivo: 'DESCRICAO_NAO_BATE', frase: 'o código 17561 não está na tabela; com a mesma base há 17569 (MAÇANETA CELSUS)',
+    nao_resolvidas: [conferida('17561', { falta: { motivo: 'DESCRICAO_NAO_CONCORDA', frase: 'o código 17561 não está na tabela; com a mesma base há 17569 (MAÇANETA CELSUS)',
         candidatas: [{ item: { ...ITEM, codigo: '17569', descricao: 'MAÇANETA CELSUS', categoria: 'ACESSORIOS_VEDACAO' }, porque: 'o código começa com 1756, mas a descrição é outra' }] } })],
-    sufixo_com_outra_descricao: [conferida('132114', { como: 'sufixo_do_fornecedor', itens: [{ ...ITEM, codigo: '132114/WOLFF', descricao: 'PASSA FITA INFERIOR - MARROM', descricaoDiverge: true }] })],
+    sufixo_com_outra_descricao: [conferida('132114', { como: 'exato', itens: [{ ...ITEM, codigo: '132114/WOLFF', descricao: 'PASSA FITA INFERIOR - MARROM', descricaoDiverge: true }] })],
 }
 
 let resposta: { status: number; body: unknown } = { status: 200, body: RESPOSTA }
@@ -81,7 +81,7 @@ describe('a tela', () => {
         const texto = lista.textContent!
         expect(texto).toContain('30')
         expect(texto).toContain('código exato')
-        expect(h.querySelector('[data-lista="sufixo_com_outra_descricao"]')!.textContent).toContain('sufixo do fornecedor')
+        expect(h.querySelector('[data-lista="sufixo_com_outra_descricao"]')!.textContent).toContain('código exato')
         expect(texto).toContain('Wolf · REFORCO · Reforco.xlsx')
         expect(texto).toContain('Custo: não informado · barra: não informado · metro: não informado')
         expect(texto).toContain('PIS/COFINS 0%')

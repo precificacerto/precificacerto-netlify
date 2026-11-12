@@ -104,12 +104,12 @@
  */
 import { descricaoNoPrompt, limitesNoPrompt, numeroOuNulo } from '@/lib/atendimentos-ia/tipologias-candidatas'
 import { supabaseAdmin } from '@/supabase/admin'
-import { COLUNAS_LIDAS, lerTipologia, variaveisDaAba, type AbasDoMotor, type AvisoDoAvaliador, type Tipologia } from '@/lib/atendimentos-ia/avaliador-de-formulas'
+import { COLUNAS_LIDAS, COLUNAS_OPCIONAIS, lerTipologia, variaveisDaAba, type AbasDoMotor, type AvisoDoAvaliador, type Tipologia } from '@/lib/atendimentos-ia/avaliador-de-formulas'
 import { descreverArremate, escolhasComPadrao, lerEscolhasGravadas, traduzirVocabulario, type VariaveisDaTipologia } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import {
     formatarReais, levantarBarras,
     type ItemDaTabela, type RegraDoDePara, type ResultadoDoLevantamento,
-    type RecusaDoLevantamento,
+    type RecusaDoLevantamento, type FaltaDePreco,
 } from '@/lib/atendimentos-ia/levantamento-de-barras'
 import { maoDeObraPeloCaminhoDaTela, type DadosDaEmpresaParaMaoDeObra } from '@/utils/mao-de-obra-pelo-caminho-da-tela'
 import { familiaDaEsquadria, rotulosDasOpcoes, type FamiliaDoCodigo, type FamiliasDoCodigo } from '@/lib/atendimentos-ia/levantamento-em-montagem'
@@ -119,7 +119,8 @@ import { FRASE_SEM_LISTA_DE_TIPOLOGIAS, SECAO_DOS_FORNECEDORES, fraseDeFalta, le
 export { FRASE_SEM_LISTA_DE_TIPOLOGIAS }
 import { normalizarNome } from '@/lib/atendimentos-ia/nome-do-levantamento'
 import { lerVidro, vidroComEspessura } from '@/lib/atendimentos-ia/vidro'
-import { tabelaNoEscopo } from '@/lib/atendimentos-ia/resolucao-de-referencia'
+import { tabelaNoEscopo, type CorDoFornecedor } from '@/lib/atendimentos-ia/resolucao-de-referencia'
+import { lerCoresDosFornecedores } from '@/lib/atendimentos-ia/cores-do-fornecedor'
 
 // ── As famílias da empresa e as tipologias candidatas ───────────────────────────────────────
 /** Uma tipologia que a IA pode escolher: do motor do LEVANTAMENTO (a etapa com GERAR_LEVANTAMENTO) de uma família da conta. */
@@ -468,6 +469,11 @@ export async function lerTipologiasDoBanco(motorId: string, codigos: readonly st
         else porAba[nome] = lida.linhas
     }
     if (faltas.length) return { lidas: {}, faltas, rotulos }
+    // as abas OPCIONAIS (Insumos, Vidros — 12/11/2026): a tabela ausente no banco é só "a tipologia não tem", nunca recusa
+    for (const nome of Object.keys(COLUNAS_OPCIONAIS)) {
+        const lida = await lerTudo(abaDeclarada(nome).tabela, motorId, ORDEM_DAS_ABAS, { coluna: 'tipologia', valores: codigos })
+        if (!('ausente' in lida)) porAba[nome] = lida.linhas
+    }
 
     const lidas: Record<string, Tipologia> = {}
     for (const t of codigos) {
@@ -481,7 +487,7 @@ export async function lerTipologiasDoBanco(motorId: string, codigos: readonly st
             rotulos.push(fraseDasFormulasDaLinha(t, daLinha.linha))
         }
         if (!tem('Perfis')) { faltas.push(fraseDaTipologiaSemPerfis(t)); continue }
-        const abas: AbasDoMotor = Object.fromEntries(Object.keys(COLUNAS_LIDAS).map((nome) =>
+        const abas: AbasDoMotor = Object.fromEntries([...Object.keys(COLUNAS_LIDAS), ...Object.keys(COLUNAS_OPCIONAIS).filter((n) => porAba[n] !== undefined)].map((nome) =>
             [nome, abaDoBanco(abaDeclarada(nome), nome === 'Fórmulas' ? formulas : porAba[nome])]))
         const lida = lerTipologia(abas, t)
         if ('recusas' in lida) faltas.push(...lida.recusas.map((x) => x.mensagem))
@@ -515,7 +521,7 @@ export async function lerVariaveisDasTipologias(motorId: string): Promise<Record
  * coluna antiga `ipi` NÃO entra (dono do produto, 09/11/2026: duas fontes para o mesmo número).
  */
 export const COLUNAS_DO_ITEM_DA_TABELA =
-    'codigo, descricao, unidade, medida_barra_m, valor_barra_interno, valor_metro_interno, cred_icms_pct, cred_pis_cofins_pct, cred_ipi_pct, nc_ipi_pct, cred_ibs_pct, cred_cbs_pct'
+    'codigo, descricao, unidade, medida_barra_m, custo, valor_barra_interno, valor_metro_interno, cred_icms_pct, cred_pis_cofins_pct, cred_ipi_pct, nc_ipi_pct, cred_ibs_pct, cred_cbs_pct'
 /**
  * OS ITENS NO ESCOPO DA RESOLUÇÃO (dono do produto, 12/11/2026: "escopo primeiro, sempre"): das tabelas que valem para a família, só os itens
  * das do FORNECEDOR e de uma FAMÍLIA do motor (`tabelaNoEscopo`). PROVA: o 8384 da tabela é uma cremona da Celsus; o 8384/WOLFF do motor é a
@@ -523,15 +529,18 @@ export const COLUNAS_DO_ITEM_DA_TABELA =
  * o sufixo do fornecedor (`2202/WOLFF`). O escopo e a primeira página de itens vão na MESMA onda (as idas ao banco do cálculo, 08/11/2026);
  * as páginas seguintes, de mil em mil — o PostgREST corta em mil, e cortar aqui faria um item aparecer como "não está na tabela" sem estar.
  */
-async function lerItensNoEscopo(motorId: string, tabelaIds: readonly string[]): Promise<ItemDaTabela[]> {
-    if (tabelaIds.length === 0) return []
+/** Um item de tabela da família, com a tabela, o fornecedor e a categoria dela — o escopo do insumo e do vidro é por categoria (12/11/2026). */
+export type ItemDaFamilia = ItemDaTabela & { tabela_id: string; fornecedor_id: string; categoria: string | null }
+export type ItensDaFamilia = { noEscopoDoMotor: ItemDaTabela[]; todos: ItemDaFamilia[]; fornecedorDoMotor: string | null }
+async function lerItensNoEscopo(motorId: string, tabelaIds: readonly string[]): Promise<ItensDaFamilia> {
+    if (tabelaIds.length === 0) return { noEscopoDoMotor: [], todos: [], fornecedorDoMotor: null }
     const pagina = (de: number) => supabaseAdmin
         .from('orcamentista_tabela_item').select(`${COLUNAS_DO_ITEM_DA_TABELA}, tabela_id`)
         .in('tabela_id', [...tabelaIds]).order('id', { ascending: true }).range(de, de + PAGINA - 1)
     const [motor, fams, tabelas, primeira] = await Promise.all([
         supabaseAdmin.from('orcamentista_motor').select('fornecedor_id').eq('id', motorId),
         supabaseAdmin.from('orcamentista_motor_familia').select('familia').eq('motor_id', motorId),
-        supabaseAdmin.from('orcamentista_tabela').select('id, fornecedor_id, familia').in('id', [...tabelaIds]),
+        supabaseAdmin.from('orcamentista_tabela').select('id, fornecedor_id, familia, categoria_chave').in('id', [...tabelaIds]),
         pagina(0),
     ])
     if (motor.error) throw new Error(`orcamentista_motor: ${motor.error.message}`)
@@ -541,7 +550,9 @@ async function lerItensNoEscopo(motorId: string, tabelaIds: readonly string[]): 
     const fornecedor = ((motor.data ?? []) as Array<{ fornecedor_id: string }>)[0]?.fornecedor_id
     if (fornecedor === undefined) throw new Error(`orcamentista_motor: o motor ${motorId} não foi achado`)
     const escopo = { fornecedor_id: fornecedor, familias: ((fams.data ?? []) as Array<{ familia: string }>).map((f) => f.familia) }
-    const noEscopo = new Set(((tabelas.data ?? []) as Array<{ id: string; fornecedor_id: string; familia: string | null }>).filter((x) => tabelaNoEscopo(x, escopo)).map((x) => x.id))
+    const linhasDasTabelas = (tabelas.data ?? []) as Array<{ id: string; fornecedor_id: string; familia: string | null; categoria_chave: string | null }>
+    const noEscopo = new Set(linhasDasTabelas.filter((x) => tabelaNoEscopo(x, escopo)).map((x) => x.id))
+    const daTabela = new Map(linhasDasTabelas.map((t) => [t.id, t]))
     const itens = [...((primeira.data ?? []) as Array<ItemDaTabela & { tabela_id: string }>)]
     for (let de = PAGINA, ultima = itens.length; ultima === PAGINA; de += PAGINA) {
         const { data, error } = await pagina(de)
@@ -550,7 +561,8 @@ async function lerItensNoEscopo(motorId: string, tabelaIds: readonly string[]): 
         itens.push(...mais)
         ultima = mais.length
     }
-    return itens.filter((i) => noEscopo.has(i.tabela_id))
+    const todos = itens.map((i) => ({ ...i, fornecedor_id: daTabela.get(i.tabela_id)?.fornecedor_id ?? '', categoria: daTabela.get(i.tabela_id)?.categoria_chave ?? null }))
+    return { noEscopoDoMotor: itens.filter((i) => noEscopo.has(i.tabela_id)), todos, fornecedorDoMotor: fornecedor }
 }
 
 /** As configurações da categoria PERFIL da base de conhecimento DESTA empresa — uma por matéria-prima. */
@@ -718,10 +730,10 @@ export function fraseDoLevantamento(
     linhas.push(t.aproveitamento_pct === null
         ? 'Aproveitamento do levantamento: não há peça para aproveitar.'
         : `Aproveitamento do levantamento: ${numeroBR(t.aproveitamento_pct, 1)}% (${numeroBR(t.metros_uteis, 2)} m úteis de ${numeroBR(t.metros_comprados, 2)} m comprados).`)
-    // FALTOU PREÇO, NADA EVOLUI (08/11/2026): o item sem valor é recusa em `levantarBarras`, e o levantamento sem um dos totais nunca
-    // chega aqui. Se chegar, é defeito do código — e o erro vira FALHA_NO_CALCULO, nunca um preço parcial na mensagem
+    // FALTA DE PREÇO NÃO IMPEDE A EVOLUÇÃO (12/11/2026, substitui o "nada evolui" de 08/11): o perfil sem preço está em `r.faltas`, fora das
+    // barras e dos totais, e a mensagem o nomeia logo abaixo. Os totais são só do que tem preço e nunca nulos aqui: nulo é defeito do código
     if (t.total_por_barra_inteira === null || t.total_por_consumo_real === null) {
-        throw new Error('levantamento sem um dos totais de material: o item sem valor devia ter sido recusado em levantarBarras')
+        throw new Error('levantamento sem um dos totais de material: os totais saem só dos códigos com preço, e nunca deviam ser nulos')
     }
     // ao centavo ANTES de virar diferença ou soma: a conta refeita com os números da mensagem bate
     const barra = centavos(t.total_por_barra_inteira)
@@ -745,6 +757,8 @@ export function fraseDoLevantamento(
     linhas.push(comMaoDeObra('Total por barra inteira', barra))
     linhas.push(comMaoDeObra('Total por consumo real', consumo))
     if (!bloco) linhas.push('', O_QUE_O_PRECO_COBRE)
+    // no bloco de uma família (`numerar`), a esquadria sai sempre numerada, como nas linhas de cima
+    linhas.push(...linhasDasFaltas(d, r.faltas, numerar))
     if (r.avisos.length) {
         linhas.push('', 'Atenção:')
         for (const a of r.avisos) {
@@ -753,6 +767,26 @@ export function fraseDoLevantamento(
         }
     }
     return linhas.join('\n')
+}
+
+/**
+ * AS FALTAS DE PREÇO na mensagem (12/11/2026): uma linha por código do motor, com as esquadrias — o que ficou FORA dos totais. Sem falta,
+ * nenhuma linha: o levantamento completo não ganha título vazio.
+ */
+export const TITULO_DAS_FALTAS = 'Sem preço — fica fora dos totais, e o orçamento sai PARCIAL:'
+export function linhasDasFaltas(d: DadosDoLevantamento, faltas: readonly FaltaDePreco[], numerar = d.esquadrias.length > 1): string[] {
+    if (faltas.length === 0) return []
+    const porCodigo = new Map<string, { frase: string; esquadrias: number[] }>()
+    for (const f of faltas) {
+        const x = porCodigo.get(f.codigo_do_motor) ?? { frase: f.frase, esquadrias: [] }
+        const n = d.esquadrias[f.esquadria - 1]?.numero ?? f.esquadria
+        if (!x.esquadrias.includes(n)) x.esquadrias.push(n)
+        porCodigo.set(f.codigo_do_motor, x)
+    }
+    return ['', TITULO_DAS_FALTAS, ...[...porCodigo.entries()].map(([codigo, x]) =>
+        // a frase que já começa pelo código não o repete
+        `• ${x.frase.startsWith(codigo) ? '' : `${codigo}: `}${x.frase.startsWith(codigo) ? x.frase.replace(/\.$/, '') : inicialMinuscula(x.frase.replace(/\.$/, ''))}`
+        + `${esquadriasDaFalta([...x.esquadrias].sort((a, b) => a - b), numerar ? Math.max(2, d.esquadrias.length) : 1)}.`)]
 }
 
 /**
@@ -791,7 +825,11 @@ const codigoDaRecusa = (r: { motivo: string; variavel?: string; codigo?: string;
     [esquadrias.length ? esquadrias.map((n) => `e${n}`).join('+') : null, r.motivo, r.variavel ?? r.codigo ?? r.perfil ?? null].filter((x) => x !== null).join(':')
 
 /** Uma esquadria como o levantamento a guarda (`orcamentista_levantamento_item`). */
-export type EsquadriaGravada = { ordem?: unknown; tipologia: unknown; largura_mm: unknown; altura_mm: unknown; quantidade: unknown; cor_perfil: unknown; vidro: unknown; escolhas: unknown; familia: unknown }
+export type EsquadriaGravada = {
+    ordem?: unknown; tipologia: unknown; largura_mm: unknown; altura_mm: unknown; quantidade: unknown; cor_perfil: unknown; vidro: unknown; escolhas: unknown; familia: unknown
+    /** O código do item da tabela de vidro que o vendedor ESCOLHEU (20261112000006); vence o texto. Ausente = não escolhido. */
+    vidro_codigo?: unknown
+}
 
 export const fraseDaTipologiaSemFamilia = (n: number, tipologia: string, familias: readonly string[]) =>
     `dizer de qual família é a ${tipologia}: ela está no motor de mais de uma família da empresa (${familias.join(', ')}) (esquadria ${n})`
@@ -904,16 +942,17 @@ export function mensagemDoCalculo(c: Exclude<CalculoDoLevantamento, { recusa: un
     if (recusadas.length) return rotulado(recusa(recusadas, calculos.flatMap((c) => ('faltas' in c ? c.codigos : [])), calculos.flatMap((c) => ('faltas' in c ? c.caminhos : []))))
 
     const fechados = calculos as Array<Exclude<CalculoDaFamilia, { faltas: unknown }>>
-    // o resumo para o log: o que foi cortado, comprado e o que ficou sem mão de obra — nunca o valor. Sem preço, nada fecha (08/11/2026):
-    // o código sem valor sai em `faltou` da recusa (`e1:ITEM_SEM_VALOR:1023`), e no levantamento que fecha `semPreco` é 0
+    // o resumo para o log: o que foi cortado, comprado, o que ficou sem preço e sem mão de obra — nunca o valor. A FALTA DE PREÇO não recusa
+    // (12/11/2026): ela sai em `faltou` (`e1:NAO_ACHADA:1023/WOLFF`, a esquadria do levantamento) e `semPreco` conta os códigos dela
     const calculados = fechados.filter((c): c is Extract<CalculoDaFamilia, { r: unknown }> => 'r' in c)
     const soma = (f: (c: (typeof calculados)[number]) => number) => (calculados.length ? calculados.reduce((t, c) => t + f(c), 0) : null)
     const semMao = calculados.flatMap((c) => c.maos.flatMap((m, k) => ('falta' in m ? [`e${c.d.esquadrias[k].numero}:SEM_MAO_DE_OBRA:${c.d.esquadrias[k].tipologia}`] : [])))
-    const etapa = resumo(semMao, {
+    const semPreco = calculados.flatMap((c) => c.r.faltas.map((f) => `e${c.d.esquadrias[f.esquadria - 1]?.numero ?? f.esquadria}:${f.motivo}:${f.codigo_do_motor}`))
+    const etapa = resumo([...semPreco, ...semMao], {
         pecas: soma((c) => c.r.esquadrias.reduce((t, e) => t + e.pecas.reduce((u, p) => u + p.quantidade, 0), 0)),
         barras: soma((c) => c.r.total.n_barras),
         codigos: soma((c) => c.r.por_codigo.length),
-        semPreco: calculados.length ? 0 : null,
+        semPreco: calculados.length ? new Set(calculados.flatMap((c) => c.r.faltas.map((f) => f.codigo_do_motor))).size : null,
         maoDeObra: calculados.length === 0 ? 'sem_calculo' : semMao.length ? 'falta' : 'ok',
     })
     const textoDe = (c: (typeof fechados)[number], bloco: { titulo: string; cobertura: false; numerar: true } | null) =>
@@ -930,7 +969,14 @@ export function mensagemDoCalculo(c: Exclude<CalculoDoLevantamento, { recusa: un
 }
 
 export type CalculoDaFamilia =
-    | { d: DadosDoLevantamento; r: Extract<ResultadoDoLevantamento, { ok: true }>; maos: MaoDeObra[]; rotulos: string[]; itens: ItemDaTabela[] }
+    | {
+        d: DadosDoLevantamento; r: Extract<ResultadoDoLevantamento, { ok: true }>; maos: MaoDeObra[]; rotulos: string[]; itens: ItemDaTabela[]
+        /** Os itens de TODAS as tabelas que valem para a família, com o fornecedor e a categoria: o escopo do insumo e do vidro (12/11/2026). */
+        daFamilia: ItensDaFamilia
+        cores: CorDoFornecedor[]
+        /** O vidro de cada esquadria do grupo, lido do texto (a espessura) — o custo do vidro o traduz no item da tabela. */
+        vidros: Array<ReturnType<typeof lerVidro>>
+    }
     | { semCalculo: true; d: DadosDoLevantamento; rotulos: string[] }
     | { faltas: string[]; rotulos: string[]; codigos: string[]; caminhos: string[] }
 
@@ -992,7 +1038,10 @@ async function calcularFamilia(
         for (const g of await lerRegras(motorId, t)) porTrio.set(JSON.stringify([g.codigo, g.codigo_wvetro, g.cor]), g)
     }
     const regras = [...porTrio.values()]
-    const itens = await lerItensNoEscopo(motorId, familia.tabelasDePreco)
+    const daFamilia = await lerItensNoEscopo(motorId, familia.tabelasDePreco)
+    const itens = daFamilia.noEscopoDoMotor
+    // a tabela de cores do fornecedor do motor (20261112000006): o degrau "código + cor" da resolução; sem a migração, vazia
+    const coresDoFornecedor = daFamilia.fornecedorDoMotor === null ? [] : (await lerCoresDosFornecedores([daFamilia.fornecedorDoMotor])).porFornecedor.get(daFamilia.fornecedorDoMotor) ?? []
 
     const r = levantarBarras({
         cor: cores[0],
@@ -1005,6 +1054,7 @@ async function calcularFamilia(
         regras,
         itens,
         serra_mm: serra.serra_mm,
+        cores: coresDoFornecedor,
     })
     // a mão de obra é lida MESMO com as barras recusadas: a falta de TEMPO sai junto com a de preço, de uma vez (08/11/2026)
     const maos = await lerMaosDeObra(tenantId, motorId, dg.esquadrias)
@@ -1019,14 +1069,24 @@ async function calcularFamilia(
         // dela — só a recusa da esquadria e a do avaliador a trazem; a do material (a ponte, o item, o agrupador) é do código, não da tipologia
         const frase = (x: (typeof recusas)[number]) =>
             faltaComEsquadrias(traduzir(x.falta), x.esquadrias.map((k) => numeros[k - 1] ?? k), d.esquadrias.length, x.tipologia)
+        // UMA FALTA NÃO ESCONDE A OUTRA (08/11/2026): recusado pelo tempo, o levantamento nomeia também o que ficou sem preço — uma linha por código
+        const semPreco = new Map<string, { frase: string; esquadrias: number[] }>()
+        for (const f of 'recusas' in r ? [] : r.faltas) {
+            const x = semPreco.get(f.codigo_do_motor) ?? { frase: f.frase.endsWith('.') ? f.frase : `${f.frase}.`, esquadrias: [] }
+            const n = numeros[f.esquadria - 1] ?? f.esquadria
+            if (!x.esquadrias.includes(n)) x.esquadrias.push(n)
+            semPreco.set(f.codigo_do_motor, x)
+        }
+        const precoQueFalta = [...semPreco.values()].map((x) => faltaComEsquadrias(x.frase, x.esquadrias.sort((a, b) => a - b), d.esquadrias.length))
         return {
-            faltas: [...recusas.map(frase), ...semTempo.map((t) => t.frase)], rotulos,
-            codigos: [...recusas.map((x) => codigoDaRecusa(x, x.esquadrias.map((k) => numeros[k - 1] ?? k))), ...semTempo.map((t) => t.codigo)],
+            faltas: [...recusas.map(frase), ...semTempo.map((t) => t.frase), ...precoQueFalta], rotulos,
+            codigos: [...recusas.map((x) => codigoDaRecusa(x, x.esquadrias.map((k) => numeros[k - 1] ?? k))), ...semTempo.map((t) => t.codigo),
+                ...('recusas' in r ? [] : r.faltas.map((f) => `e${numeros[f.esquadria - 1] ?? f.esquadria}:${f.motivo}:${f.codigo_do_motor}`))],
             // o CAMINHO DE ALTERAÇÃO de cada falta que tem um (08/11/2026): "Para trocar, diga: muda o vidro da esquadria 1 para 8 mm."
             caminhos: caminhosDasRecusas(recusas, numeros, itensDoGrupo),
         }
     }
-    return { d: dg, r, maos, rotulos, itens }
+    return { d: dg, r, maos, rotulos, itens, daFamilia, cores: coresDoFornecedor, vidros }
 }
 
 /**

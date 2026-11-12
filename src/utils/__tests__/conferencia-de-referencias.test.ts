@@ -3,6 +3,10 @@
  * prova a escada); este portão prova a agregação, o escopo, as listas, e A FOTOGRAFIA DE PRODUÇÃO de 12/11/2026 (motor 022fc55e, as 9 tabelas
  * com itens), lida só para leitura: os números de hoje presos, para que um motor ou uma tabela nova que os mude acenda este teste.
  *
+ * O COMANDO ÚNICO (12/11/2026) mudou a escada (ponte → exato → código + cor → nome técnico, o guarda nos quatro) e a fotografia deixou de
+ * prender as CONTAGENS ("não escreva teste que prenda número meu: meça no banco"): ela prende o que é regra — as listas somam os códigos, nada
+ * é achado sem o guarda, o escopo segura a cremona e a descrição segura a maçaneta. Os números de hoje são medidos e vão ao relato do PR.
+ *
  * A FOTOGRAFIA (fixtures/conferencia-de-referencias/) traz só o que a conferência lê: o código, o código WVetro, a descrição, a cor e as
  * contagens das regras; o código e a descrição de cada item, o fornecedor, a família, a categoria e, de cada campo de preço, crédito e NCM,
  * só se EXISTE (1) ou não (vazio) — nenhum valor de preço vai ao repositório. O fornecedor entra pelo NOME (o escopo do teste é "Wolf"). sha256
@@ -11,7 +15,15 @@
 import fs from 'fs'
 import path from 'path'
 import { agregarRegras, comDescricaoDivergente, conferirReferencias, type ItemParaConferir, type ReferenciaDoMotor } from '@/lib/atendimentos-ia/conferencia-de-referencias'
-import { sufixoDoFornecedor } from '@/lib/atendimentos-ia/resolucao-de-referencia'
+import { GRUPO_DE_COR, palavrasEmComum, palavrasSignificativas, semOSufixo, sufixoDoFornecedor, type CorDoFornecedor } from '@/lib/atendimentos-ia/resolucao-de-referencia'
+
+/** As cores da Wolf como a migração 20261112000006 as grava (a aba CORES, dono do produto, 12/11/2026). */
+const CORES_DA_WOLF: CorDoFornecedor[] = [
+    ['1', 'BRANCO'], ['18', 'EXTERNO PRETO TEXTURADO'], ['19', 'EXTERNO GOLDEN OAK'], ['20', 'PRETO TEXTURADO'], ['21', 'AMADEIRADO GOLDEN OAK'], ['30', 'BRONZE'],
+    ['31', 'GRAFITE'], ['32', 'EXTERNO BRONZE'], ['33', 'EXTERNO GRAFITE'], ['36', 'PRETO LISO'], ['37', 'AMADEIRADO NOGUEIRA'], ['38', 'EXTERNO PRETO LISO'],
+    ['39', 'EXTERNO NOGUEIRA'], ['40', 'PIRITA'], ['41', 'EXTERNO PIRITA'],
+].map(([codigo, nome]): CorDoFornecedor => ({ grupo: GRUPO_DE_COR.perfil, codigo, nome }))
+    .concat([['1', 'BRANCO'], ['9', 'PRETO'], ['14', 'AMADEIRADO'], ['16', 'BRONZE']].map(([codigo, nome]): CorDoFornecedor => ({ grupo: GRUPO_DE_COR.insumo, codigo, nome })))
 
 const ESCOPO = { fornecedor_id: 'Wolf', familias: ['PVC'] }
 const item = (codigo: string, descricao: string, extra: Partial<ItemParaConferir> = {}): ItemParaConferir => ({
@@ -22,31 +34,32 @@ const ref = (codigo: string, codigo_wvetro: string | null, descricao: string, re
 
 describe('(1) a conferência sobre a resolução única', () => {
     it('o ESCOPO primeiro: o item de outro fornecedor, ou de outra família, não conta — nem como candidata', () => {
-        const persiana = ref('8384/WOLFF', '8384/WOLFF', 'PERSIANA PVC 63MM - BRANCO')
+        const persiana = ref('8384/WOLFF', '8384/WOLFF', 'PERSIANA PVC 63MM - BRANCO', 1, 'BRANCO')
         const c = conferirReferencias([persiana], [
             item('8384', 'CREMONA ZAMAK 1 PONTO OCULTA EP BR', { fornecedor_id: 'Celsus', fornecedor: 'CELSUS' }),
             item('8384/WOLFF', 'PERSIANA PVC 63MM - BRANCO', { familia: 'ALUMINIO' }),
-        ], ESCOPO)
+        ], ESCOPO, CORES_DA_WOLF)
         expect(c.itensNoEscopo).toBe(0)
         expect(c.naoAchadas.map((r) => r.codigo)).toEqual(['8384/WOLFF'])
         // a tabela sem família ("qualquer linha") serve
-        expect(conferirReferencias([persiana], [item('8384/WOLFF', 'PERSIANA', { familia: null })], ESCOPO).comPreco.length).toBe(1)
+        expect(conferirReferencias([persiana], [item('8384/WOLFF', 'PERSIANA PVC', { familia: null })], ESCOPO).comPreco.length).toBe(1)
     })
 
     it('as listas: com preço, sem preço, não achadas, não resolvidas — cada uma com o como, o item ou a falta', () => {
         const c = conferirReferencias([
             ref('9471', 'BR60/WOLFF', 'BR60 - MARCO GIRO - BRANCO'), ref('2202', '2202/WOLFF', 'REFORÇO EMENDA 12MM'),
-            ref('4661', '4661/WOLFF', 'TERMINAL'), ref('17561', '1756/WOLFF', 'VENEZIANA TROPICAL', 1, 'BRANCO'),
-        ], [item('9471', 'BR60 - MARCO GIRO - BRANCO'), item('2202', 'REFORÇO EMENDA 12MM', { custo: null }), item('17569', 'MAÇANETA CELSUS')], ESCOPO)
-        expect(c.comPreco.map((r) => [r.codigo, r.como, r.itens[0].codigo])).toEqual([['9471', 'exato', '9471']])
-        expect(c.semPreco.map((r) => [r.codigo, r.como])).toEqual([['2202', 'exato']])
+            ref('4661', '4661/WOLFF', 'TERMINAL', 1, 'BRANCO'), ref('17561', '1756/WOLFF', 'VENEZIANA TROPICAL', 1, 'BRANCO'),
+        ], [item('9471', 'BR60 - MARCO GIRO - BRANCO'), item('2202', 'REFORÇO EMENDA 12MM', { custo: null }), item('17561', 'MAÇANETA CELSUS')], ESCOPO, CORES_DA_WOLF)
+        // o `codigo` da regra é a PONTE do motor (o código da aba "Motor por barra" para o par WVetro × cor): o primeiro degrau
+        expect(c.comPreco.map((r) => [r.codigo, r.como, r.itens[0].codigo])).toEqual([['9471', 'ponte', '9471']])
+        expect(c.semPreco.map((r) => [r.codigo, r.como])).toEqual([['2202', 'ponte']])
         expect(c.naoAchadas.map((r) => [r.codigo, r.falta!.motivo, r.falta!.candidatas.length])).toEqual([['4661', 'NAO_ACHADA', 0]])
-        expect(c.naoResolvidas.map((r) => [r.codigo, r.falta!.motivo, r.falta!.candidatas.map((x) => x.item.codigo)])).toEqual([['17561', 'DESCRICAO_NAO_BATE', ['17569']]])
+        expect(c.naoResolvidas.map((r) => [r.codigo, r.falta!.motivo, r.falta!.candidatas.map((x) => x.item.codigo)])).toEqual([['17561', 'DESCRICAO_NAO_CONCORDA', ['17561']]])
     })
 
     it('com preço é custo, valor da barra OU valor do metro; zero é preço (ausente não é zero); NaN não é preço', () => {
-        const r = ref('A', null, 'A')
-        const de = (x: Partial<ItemParaConferir>) => conferirReferencias([r], [item('A', 'A', { custo: null, ...x })], ESCOPO)
+        const r = ref('A', null, 'MARCO JANELA')
+        const de = (x: Partial<ItemParaConferir>) => conferirReferencias([r], [item('A', 'MARCO JANELA', { custo: null, ...x })], ESCOPO)
         expect(de({}).semPreco.length).toBe(1)
         expect(de({ valor_barra_interno: 5 }).comPreco.length).toBe(1)
         expect(de({ valor_metro_interno: 5 }).comPreco.length).toBe(1)
@@ -55,7 +68,7 @@ describe('(1) a conferência sobre a resolução única', () => {
     })
 
     it('o item diz o crédito, o NCM e de onde vem; null fica null (nunca zero); o NCM em branco é ausente', () => {
-        const c = conferirReferencias([ref('A', null, 'A')], [item('A', 'A', { cred_ipi_pct: 0, ncm: '  ', tabela_arquivo: 'X.xlsx', categoria: 'REFORCO' })], ESCOPO)
+        const c = conferirReferencias([ref('A', null, 'MARCO JANELA')], [item('A', 'MARCO JANELA', { cred_ipi_pct: 0, ncm: '  ', tabela_arquivo: 'X.xlsx', categoria: 'REFORCO' })], ESCOPO)
         expect(c.comPreco[0].itens[0]).toMatchObject({
             credito: { icms: 12, pis_cofins: 9.25, ipi: 0, ipi_nao_creditavel: null }, ncm: null, tabela_arquivo: 'X.xlsx', fornecedor: 'Wolf', categoria: 'REFORCO',
             preco: { custo: 10, valor_barra: null, valor_metro: null },
@@ -70,7 +83,7 @@ describe('(1) a conferência sobre a resolução única', () => {
     })
 
     it('as listas em ordem de peso, e o código cru desempata', () => {
-        const c = conferirReferencias([ref('B', null, 'b', 2), ref('A', null, 'a', 2), ref('C', null, 'c', 9)], [], ESCOPO)
+        const c = conferirReferencias([ref('B', null, 'MARCO', 2, 'BRANCO'), ref('A', null, 'MARCO', 2, 'BRANCO'), ref('C', null, 'MARCO', 9, 'BRANCO')], [], ESCOPO, CORES_DA_WOLF)
         expect(c.naoAchadas.map((r) => r.codigo)).toEqual(['C', 'A', 'B'])
     })
 
@@ -110,8 +123,8 @@ describe('(2) A FOTOGRAFIA DE PRODUÇÃO de 12/11/2026 — motor 022fc55e (Wolf,
             familia: t.familia || null, categoria: t.categoria,
         }
     })
-    const c = conferirReferencias(refs, itens, ESCOPO)
-    const codigos = (l: ReadonlyArray<{ codigo: string }>) => l.map((r) => r.codigo).sort()
+    const c = conferirReferencias(refs, itens, ESCOPO, CORES_DA_WOLF)
+    const achadas = [...c.comPreco, ...c.semPreco]
 
     it('a fotografia é a medida: 549 códigos nas 12.116 regras; 1.096 itens em 9 tabelas; 973 no escopo (as 6 da Wolf, PVC)', () => {
         expect(c.codigos).toBe(549)
@@ -121,59 +134,37 @@ describe('(2) A FOTOGRAFIA DE PRODUÇÃO de 12/11/2026 — motor 022fc55e (Wolf,
         expect(c.itensNoEscopo).toBe(973)
     })
 
-    it('AS LISTAS: 490 com preço · 1 sem preço (o 2202) · 57 não achadas · 1 não resolvida (17561) — e somam os 549', () => {
-        expect(c.comPreco.length).toBe(490)
-        expect(codigos(c.semPreco)).toEqual(['2202'])
-        expect(c.naoAchadas.length).toBe(57)
-        expect(codigos(c.naoResolvidas)).toEqual(['17561'])
-        expect(c.comPreco.length + c.semPreco.length + c.naoAchadas.length + c.naoResolvidas.length).toBe(549)
+    it('as quatro listas somam os 549, e nenhum código aparece em duas', () => {
+        const todas = [...c.comPreco, ...c.semPreco, ...c.naoAchadas, ...c.naoResolvidas]
+        expect(todas.length).toBe(549)
+        expect(new Set(todas.map((r) => r.codigo)).size).toBe(549)
     })
 
-    it('por como achou: 457 pelo código exato (456 com preço e o 2202), 34 pelo sufixo do fornecedor, 0 pela cor, 0 aproximado', () => {
-        const achadas = [...c.comPreco, ...c.semPreco]
-        expect(achadas.filter((r) => r.como === 'exato').length).toBe(457)
-        expect(c.comPreco.filter((r) => r.como === 'exato').length).toBe(456)
-        expect(achadas.filter((r) => r.como === 'sufixo_do_fornecedor').length).toBe(34)
-        expect(achadas.filter((r) => r.como === 'cor').length).toBe(0)
-        expect(achadas.filter((r) => r.como === 'aproximado_com_descricao').length).toBe(0)
+    it('NADA É ACHADO SEM O GUARDA: todo achado tem pelo menos uma palavra significativa em comum com a descrição do motor', () => {
+        const semGuarda = achadas.filter((r) => {
+            const nome = semOSufixo(r.codigo_wvetro ?? r.codigo, sufixoDoFornecedor(r.codigo_wvetro ?? r.codigo))
+            return palavrasEmComum(palavrasSignificativas(r.descricao, CORES_DA_WOLF, nome), palavrasSignificativas(r.itens[0].descricao, CORES_DA_WOLF, nome)) === 0
+        })
+        expect(semGuarda.map((r) => r.codigo)).toEqual([])
     })
 
-    it('o 2202 está cadastrado SEM PREÇO, na tabela de Reforço da Wolff', () => {
-        expect(c.semPreco[0]).toMatchObject({ codigo: '2202', como: 'exato', regras: 30 })
-        expect(c.semPreco[0].itens.map((i) => [i.codigo, i.fornecedor, i.categoria, i.temPreco])).toEqual([['2202', 'Wolf', 'REFORCO', false]])
+    it('todo achado está no escopo da Wolf, e todo sem resolução nomeia o motivo e a frase', () => {
+        expect(achadas.every((r) => r.itens[0].fornecedor === 'Wolf')).toBe(true)
+        expect([...c.naoAchadas, ...c.naoResolvidas].every((r) => r.falta !== null && r.falta.frase.length > 0)).toBe(true)
+        expect(c.naoAchadas.every((r) => r.falta!.motivo === 'NAO_ACHADA' && r.falta!.candidatas.length === 0)).toBe(true)
     })
 
-    it('os 58 sem resolução, código a código — todos da Wolf', () => {
-        expect(codigos([...c.naoAchadas, ...c.naoResolvidas])).toEqual([
-            '1027.1', '13791', '13799', '17561', '17571', '18741', '18749', '22321',
-            '34851', '348518', '348519', '348520', '348521', '348530', '348531', '348532', '348533', '348536', '348537', '348538', '348539', '348540', '348541',
-            '4661',
-            '54561', '545618', '545619', '545620', '545621', '545630', '545631', '545632', '545633', '545636', '545637', '545638', '545639', '545640', '545641',
-            '83841',
-            '86451', '864518', '864519', '864520', '864521', '864530', '864531', '864532', '864533', '864536', '864537', '864539', '864540', '864541',
-            '8833', '8834', '91251', '91259',
-        ])
-        expect([...c.naoAchadas, ...c.naoResolvidas].every((r) => sufixoDoFornecedor(r.codigo_wvetro) === 'WOLFF')).toBe(true)
-    })
-
-    it('O ESCOPO segura a cremona: 83841 (persiana, base 8384) fica sem candidata — o 8384 da Celsus está fora do escopo da Wolf', () => {
-        const persiana = [...c.naoAchadas, ...c.naoResolvidas].find((r) => r.codigo === '83841')!
-        expect(persiana.falta).toMatchObject({ motivo: 'NAO_ACHADA', candidatas: [] })
+    it('O ESCOPO segura a cremona: 83841 (persiana, base 8384) não é achado pelo 8384 da Celsus', () => {
+        const persiana = [...achadas, ...c.naoAchadas, ...c.naoResolvidas].find((r) => r.codigo === '83841')!
+        expect(persiana.itens.map((i) => i.codigo)).not.toContain('8384')
+        expect((persiana.falta?.candidatas ?? []).map((x) => x.item.fornecedor)).not.toContain('CELSUS METALÚRGICA LTDA')
         expect(itens.some((i) => i.codigo === '8384' && i.fornecedor_id !== 'Wolf')).toBe(true)
     })
 
-    it('A DESCRIÇÃO segura a maçaneta: 17561 (veneziana) fica NÃO RESOLVIDA, nomeando a 17569 (MAÇANETA CELSUS, cadastrada sob a Wolf)', () => {
-        const veneziana = c.naoResolvidas.find((r) => r.codigo === '17561')!
-        expect(veneziana.falta!.motivo).toBe('DESCRICAO_NAO_BATE')
-        expect(veneziana.falta!.candidatas.map((x) => [x.item.codigo, x.item.fornecedor])).toEqual([['17569', 'Wolf']])
-        expect(veneziana.falta!.candidatas[0].item.descricao).toContain('MAÇANETA CELSUS')
-    })
-
-    it('as 4 achadas pelo sufixo com outra descrição: 132114 e 13219 (passador de cadarço × passa fita inferior), 40581, 7266', () => {
-        expect(codigos(comDescricaoDivergente(c))).toEqual(['132114', '13219', '40581', '7266'])
-    })
-
-    it('o peso: as 58 sem resolução somam 1.680 regras', () => {
-        expect([...c.naoAchadas, ...c.naoResolvidas].reduce((s, r) => s + r.regras, 0)).toBe(1680)
+    it('a maçaneta não volta: 17561 (veneziana) não leva a 17569 (MAÇANETA CELSUS, cadastrada sob a Wolf) — o "aproximado" saiu da escada, e nada a alcança', () => {
+        const veneziana = [...achadas, ...c.naoAchadas, ...c.naoResolvidas].find((r) => r.codigo === '17561')!
+        expect(veneziana.itens.map((i) => i.codigo)).not.toContain('17569')
+        expect(veneziana.falta!.motivo).toBe('NAO_ACHADA')
+        expect(itens.some((i) => i.codigo === '17569' && i.descricao!.includes('MAÇANETA CELSUS'))).toBe(true)
     })
 })

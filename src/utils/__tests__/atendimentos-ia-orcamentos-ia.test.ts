@@ -257,6 +257,25 @@ describe('(4) alterar: o cabeçalho, os itens e a MARCA da edição manual — s
         expect((r.corpo.orcamento as { itens: unknown[] }).itens).toHaveLength(3)
     })
 
+    it('O VIDRO ESCOLHIDO é do texto de quando foi escolhido (12/11/2026): trocar o texto do vidro ANULA o vidro_codigo; o mesmo texto o mantém', async () => {
+        const i1 = estado.db.orcamentista_orcamento_item.find((i) => i.id === 'i1')!
+        Object.assign(i1, { vidro: 'comum 6 mm incolor', vidro_codigo: 'VIN06' })
+        await chamar(rotaDoOrcamento, 'PATCH', { query: { id: O1 }, body: corpo() })
+        expect(i1).toMatchObject({ vidro: 'incolor 4', vidro_codigo: null })
+        Object.assign(i1, { vidro_codigo: 'VIN04' })
+        await chamar(rotaDoOrcamento, 'PATCH', { query: { id: O1 }, body: corpo() })
+        expect(i1).toMatchObject({ vidro: 'incolor 4', vidro_codigo: 'VIN04' })
+    })
+    it('sem a coluna vidro_codigo (a 20261112000006 pendente) e com o vidro trocado: grava o item sem ela, e não falha', async () => {
+        estado.db.orcamentista_orcamento_item.find((i) => i.id === 'i1')!.vidro = 'comum 6 mm incolor'
+        // a primeira operação no item é a leitura do orçamento; a segunda, o update que leva o vidro_codigo
+        estado.erros.orcamentista_orcamento_item = [null, { code: 'PGRST204', message: "Could not find the 'vidro_codigo' column" }]
+        const r = await chamar(rotaDoOrcamento, 'PATCH', { query: { id: O1 }, body: corpo() })
+        expect(r.status).toBe(200)
+        const updates = escritas().filter((o) => o.tabela === 'orcamentista_orcamento_item' && o.op === 'update')
+        expect(updates.map((o) => 'vidro_codigo' in (o.carga as Record<string, unknown>))).toEqual([true, false])
+    })
+
     it('as escritas levam o tenant e o orçamento — o update do item não alcança o de outro orçamento', async () => {
         await chamar(rotaDoOrcamento, 'PATCH', { query: { id: O1 }, body: corpo() })
         for (const op of escritas().filter((o) => o.op === 'update')) expect(op.filtros).toContainEqual(['eq', 'tenant_id', T])

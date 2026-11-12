@@ -1,6 +1,6 @@
 /**
  * PORTÃO — o custo do orçamento I.A. por item (o 1a, dono do produto, 09/11/2026): o rateio POR CÓDIGO no modo SEM, a cascata por material,
- * o crédito não apurado que não barateia, a fabricação pelo valor do minuto da tela, as recusas que não deixam nada evoluir, e a
+ * o crédito não apurado que não barateia, a fabricação pelo valor do minuto da tela, a falta de preço que fica fora e nomeada (12/11/2026), os três caminhos (perfil, insumo, vidro), e a
  * RECONCILIAÇÃO com a precificação final (decisão D2): soma(líquido do item + fabricação do item) == custo + mão de obra do motor.
  */
 import {
@@ -16,7 +16,7 @@ const MINUTO = valorDoMinuto(CUSTO_MENSAL, MINUTOS_DA_EMPRESA) as number
 
 const COMPLETO: Percentuais = { cred_icms_pct: 12, cred_pis_cofins_pct: 9.25, cred_ipi_pct: 0, nc_ipi_pct: null, cred_ibs_pct: 0, cred_cbs_pct: 0 }
 const material = (codigo: string, valor: number | null, bloco: Percentuais = COMPLETO, medida: number | null = 6): MaterialDaTabela =>
-    ({ codigo, codigo_na_tabela: codigo, resolucao: 'exato', descricao: `PERFIL ${codigo}`, unidade: 'BR', medida_barra_m: medida, valor_barra_interno: valor, bloco })
+    ({ caminho: 'perfil', codigo, codigo_na_tabela: codigo, resolucao: 'exato', custo: null, descricao: `PERFIL ${codigo}`, unidade: 'BR', medida_barra_m: medida, valor_barra_interno: valor, bloco })
 
 // dois itens: o A é usado pelos dois (3.000 mm no 1, 1.000 mm no 2); o B só pelo 2
 const base = (): EntradaDoCusto => ({
@@ -25,7 +25,7 @@ const base = (): EntradaDoCusto => ({
         { referencia: 'a esquadria 2 (JM-01)', minutos: 60, pecas: [{ codigo: 'A', comprimento_mm: 500, quantidade: 2 }, { codigo: 'B', comprimento_mm: 800, quantidade: 1 }] },
     ],
     barras_por_codigo: { A: 1, B: 1 },
-    materiais: { A: material('A', 600), B: material('B', 100) },
+    materiais: { 'perfil:A': material('A', 600), 'perfil:B': material('B', 100) },
     valor_minuto: MINUTO,
 })
 const ok = (e: EntradaDoCusto) => {
@@ -69,7 +69,7 @@ describe('o rateio é POR CÓDIGO, na proporção do consumo daquele código', (
         const a = linha(i1, 'A')
         expect(a.consumo_item).toBe(3)
         expect(a.custo_liquido_fracao).toBeCloseTo(a.custo_liquido_unidade / 6, 12)
-        const semMedida = ok({ ...base(), materiais: { ...base().materiais, A: material('A', 600, COMPLETO, null) } }).itens[0]
+        const semMedida = ok({ ...base(), materiais: { ...base().materiais, 'perfil:A': material('A', 600, COMPLETO, null) } }).itens[0]
         expect(linha(semMedida, 'A').custo_liquido_fracao).toBeNull()
     })
     it('o modo é o fallback: SEM aproveitamento, origem fallback_barra_inteira, com motivo', () => {
@@ -93,7 +93,7 @@ describe('a cascata por material, na unidade de compra', () => {
     })
     it('o IPI sem crédito compõe o custo: o líquido passa do bruto', () => {
         const comIpi: Percentuais = { ...COMPLETO, cred_ipi_pct: null, nc_ipi_pct: 5 }
-        const a = linha(ok({ ...base(), materiais: { ...base().materiais, A: material('A', 600, comIpi) } }).itens[0], 'A')
+        const a = linha(ok({ ...base(), materiais: { ...base().materiais, 'perfil:A': material('A', 600, comIpi) } }).itens[0], 'A')
         expect(a.custo_liquido_unidade).toBeCloseTo(479.16 + 30, 10)
     })
     it('os percentuais do item são os efetivos, e reconstroem o líquido', () => {
@@ -108,7 +108,7 @@ describe('a cascata por material, na unidade de compra', () => {
 })
 
 describe('a decisão (b): IBS/CBS nulos não travam; ICMS e PIS/COFINS em cascata parcial; a falta nomeia QUAL crédito', () => {
-    const comBlocoNoA = (bloco: Percentuais) => ({ ...base(), materiais: { ...base().materiais, A: material('A', 600, bloco) } })
+    const comBlocoNoA = (bloco: Percentuais) => ({ ...base(), materiais: { ...base().materiais, 'perfil:A': material('A', 600, bloco) } })
     it('IBS e CBS nulos (como em 1.096 de 1.096 referências hoje): não há o que apurar — a cascata do ICMS e do PIS/COFINS vale inteira', () => {
         const r = ok(comBlocoNoA({ ...COMPLETO, cred_ibs_pct: null, cred_cbs_pct: null }))
         const a = linha(r.itens[0], 'A')
@@ -187,26 +187,84 @@ describe('a fabricação e o total do item', () => {
     })
 })
 
-describe('falta de preço ou de tempo: NADA EVOLUI, e a recusa nomeia a referência e a falta', () => {
+describe('FALTA DE PREÇO NÃO IMPEDE A EVOLUÇÃO (12/11/2026): o código sem preço fica fora e é nomeado; o tempo e o minuto continuam recusa', () => {
     it.each([
-        ['o código sem valor da barra', (e: EntradaDoCusto) => { e.materiais = { ...e.materiais, B: material('B', null) } }, 'o valor da barra do código B, na tabela de preço'],
-        ['o código fora da tabela', (e: EntradaDoCusto) => { e.materiais = { A: e.materiais.A } }, 'o valor da barra do código B, na tabela de preço'],
+        ['o código sem valor da barra', (e: EntradaDoCusto) => { e.materiais = { ...e.materiais, 'perfil:B': material('B', null) } }, 'SEM_VALOR'],
+        ['o código fora da tabela', (e: EntradaDoCusto) => { e.materiais = { 'perfil:A': e.materiais['perfil:A'] } }, 'SEM_MATERIAL'],
+    ])('%s: o item 2 sai sem o B, e a falta o nomeia', (_, estragar, motivo) => {
+        const e = base()
+        estragar(e)
+        const r = ok(e)
+        expect(r.faltas.map((f) => [f.item, f.caminho, f.codigo, f.motivo])).toEqual([[1, 'perfil', 'B', motivo]])
+        expect(r.faltas[0].frase).toContain('fica fora do custo')
+        expect(r.itens[1].materiais.map((m) => m.codigo)).toEqual(['A'])
+        expect(r.itens[1].custo_bruto_materiais).toBeCloseTo(150, 10)
+    })
+    it.each([
         ['o código sem as barras', (e: EntradaDoCusto) => { e.barras_por_codigo = { A: 1 } }, 'as barras do código B no cálculo do levantamento'],
         ['a tipologia sem tempo', (e: EntradaDoCusto) => { e.itens = [e.itens[0], { ...e.itens[1], minutos: null }] }, 'o tempo de fabricação de a esquadria 2 (JM-01)'],
         ['sem o valor do minuto', (e: EntradaDoCusto) => { e.valor_minuto = null }, 'o valor do minuto da mão de obra: a configuração de mão de obra da empresa não fecha'],
-    ])('%s', (_, estragar, frase) => {
+    ])('%s: RECUSA nomeada', (_, estragar, frase) => {
         const e = base()
         estragar(e)
         const r = custoDoOrcamento(e)
         expect(r.ok).toBe(false)
         expect('recusas' in r && r.recusas).toEqual([frase])
     })
-    it('as faltas saem todas de uma vez', () => {
+    it('sem preço nenhum o custo sai ZERO e todas as faltas nomeadas, uma por (item, código); a falta do minuto ainda recusa', () => {
         const e = base()
-        e.materiais = { A: material('A', null), B: material('B', null) }
+        e.materiais = { 'perfil:A': material('A', null), 'perfil:B': material('B', null) }
+        const r = ok(e)
+        expect(r.faltas.map((f) => [f.item, f.codigo])).toEqual([[0, 'A'], [1, 'A'], [1, 'B']])
+        expect(r.itens.every((i) => i.custo_bruto_materiais === 0)).toBe(true)
         e.valor_minuto = null
-        const r = custoDoOrcamento(e)
-        expect('recusas' in r && r.recusas).toHaveLength(3)
+        expect('recusas' in custoDoOrcamento(e)).toBe(true)
+    })
+})
+
+describe('OS TRÊS CAMINHOS (12/11/2026): perfil pela barra rateada, insumo pela unidade, vidro pelo m²', () => {
+    const insumo = (codigo: string, custo: number | null, bloco: Percentuais = COMPLETO): MaterialDaTabela =>
+        ({ caminho: 'insumo', codigo, codigo_na_tabela: codigo, resolucao: 'exato', descricao: `INSUMO ${codigo}`, unidade: 'PC', medida_barra_m: null, valor_barra_interno: null, custo, bloco })
+    const vidro = (codigo: string, custo: number | null): MaterialDaTabela =>
+        ({ caminho: 'vidro', codigo, codigo_na_tabela: codigo, resolucao: 'vidro_traduzido', descricao: `VIDRO ${codigo}`, unidade: 'PC', medida_barra_m: null, valor_barra_interno: null, custo, bloco: COMPLETO })
+    const tres = (): EntradaDoCusto => ({
+        ...base(),
+        itens: [{ ...base().itens[0], insumos: [{ codigo: '10457', quantidade: 4 }], vidros: [{ codigo: 'VIN04', m2: 1.5 }] }, base().itens[1]],
+        materiais: { ...base().materiais, 'insumo:10457': insumo('10457', 2.5), 'vidro:VIN04': vidro('VIN04', 74.96) },
+    })
+    it('o INSUMO: quantidade × custo da unidade × a cascata; consumo em unidades, sem medida', () => {
+        const l = ok(tres()).itens[0].materiais.find((m) => m.caminho === 'insumo')!
+        expect(l).toMatchObject({ codigo: '10457', consumo_item: 4, custo_bruto_unidade: 2.5, medida_unidade: null, custo_liquido_fracao: null, unidade_compra: 'PC' })
+        expect(l.custo_bruto_material).toBeCloseTo(10, 12)
+        // a cascata: 2,5 − 12% − 9,25% do saldo
+        expect(l.custo_liquido_material).toBeCloseTo(4 * (2.5 * 0.88 * (1 - 0.0925)), 12)
+    })
+    it('o VIDRO: m² × preço por m² × a cascata; a unidade da linha é M2', () => {
+        const l = ok(tres()).itens[0].materiais.find((m) => m.caminho === 'vidro')!
+        expect(l).toMatchObject({ codigo: 'VIN04', consumo_item: 1.5, unidade_compra: 'M2', resolucao: 'vidro_traduzido' })
+        expect(l.custo_bruto_material).toBeCloseTo(1.5 * 74.96, 10)
+        expect(l.custo_liquido_material).toBeCloseTo(1.5 * 74.96 * 0.88 * (1 - 0.0925), 10)
+    })
+    it('o PERFIL continua igual com os outros dois caminhos ao lado, e as linhas saem perfil, insumo, vidro', () => {
+        const [i1] = ok(tres()).itens
+        expect(i1.materiais.map((m) => [m.ordem, m.caminho, m.codigo])).toEqual([[1, 'perfil', 'A'], [2, 'insumo', '10457'], [3, 'vidro', 'VIN04']])
+        expect(linha(i1, 'A').custo_bruto_material).toBeCloseTo(450, 10)
+        expect(i1.custo_bruto_materiais).toBeCloseTo(450 + 10 + 1.5 * 74.96, 10)
+    })
+    it('o mesmo código por dois caminhos são dois materiais: a chave inclui o caminho', () => {
+        const t = tres()
+        const e: EntradaDoCusto = { ...t, itens: [{ ...t.itens[0], insumos: [{ codigo: 'A', quantidade: 1 }] }, t.itens[1]], materiais: { ...t.materiais, 'insumo:A': insumo('A', 3) } }
+        const ls = ok(e).itens[0].materiais.filter((m) => m.codigo === 'A')
+        expect(ls.map((m) => [m.caminho, m.custo_bruto_unidade])).toEqual([['perfil', 600], ['insumo', 3]])
+    })
+    it('o insumo e o vidro sem preço: fora do custo, nomeados pelo caminho', () => {
+        const e = tres()
+        e.materiais = { ...e.materiais, 'insumo:10457': insumo('10457', null) }
+        delete (e.materiais as Record<string, MaterialDaTabela>)['vidro:VIN04']
+        const r = ok(e)
+        expect(r.faltas.map((f) => [f.caminho, f.codigo, f.motivo])).toEqual([['insumo', '10457', 'SEM_VALOR'], ['vidro', 'VIN04', 'SEM_MATERIAL']])
+        expect(r.faltas[1].frase).toContain('vidro')
+        expect(r.itens[0].materiais.map((m) => m.caminho)).toEqual(['perfil'])
     })
 })
 
@@ -219,8 +277,8 @@ describe('RECONCILIAÇÃO com a precificação final (decisão D2): soma(líquid
     const casos: Array<[string, EntradaDoCusto]> = [
         ['os dois itens', base()],
         ['barras a mais e tempos quebrados', { ...base(), barras_por_codigo: { A: 4, B: 3 }, itens: base().itens.map((i, k) => ({ ...i, minutos: [137.5, 61.25][k] })) }],
-        ['o perfil sem crédito num código', { ...base(), materiais: { ...base().materiais, A: material('A', 600, { ...COMPLETO, cred_icms_pct: null, cred_pis_cofins_pct: null }) } }],
-        ['a cascata parcial num código', { ...base(), materiais: { ...base().materiais, A: material('A', 600, { ...COMPLETO, cred_pis_cofins_pct: null }) } }],
+        ['o perfil sem crédito num código', { ...base(), materiais: { ...base().materiais, 'perfil:A': material('A', 600, { ...COMPLETO, cred_icms_pct: null, cred_pis_cofins_pct: null }) } }],
+        ['a cascata parcial num código', { ...base(), materiais: { ...base().materiais, 'perfil:A': material('A', 600, { ...COMPLETO, cred_pis_cofins_pct: null }) } }],
     ]
     it.each(casos)('%s: o custo + a mão de obra do motor é a soma das linhas, ao centavo', (_, e) => {
         const its = ok(e).itens
