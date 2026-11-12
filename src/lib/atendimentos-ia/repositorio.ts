@@ -460,20 +460,23 @@ export function falhaInterna(res: { status: (n: number) => { json: (b: unknown) 
 
 // ── A conferência de referências do motor (dono do produto, 12/11/2026) ─────────────────────────────────────────────────────────
 /**
- * O que a conferência lê: o motor, as regras dele e TODOS os itens das tabelas de preço (com a tabela e o fornecedor). Paginado de mil em mil — o
- * PostgREST corta em mil linhas, e cortar aqui faria o código aparecer como "não achado" sem estar. Só leitura. `null` quando o motor não existe.
+ * O que a conferência lê: o motor (com o FORNECEDOR e as FAMÍLIAS dele — o escopo da resolução), as regras dele e TODOS os itens das tabelas de
+ * preço (com a tabela, o fornecedor e a família). Paginado de mil em mil — o PostgREST corta em mil linhas, e cortar aqui faria o código aparecer
+ * como "não achado" sem estar. Só leitura. `null` quando o motor não existe. Todos os itens vêm, também os de fora do escopo: o escopo é aplicado
+ * pela conferência (`tabelaNoEscopo`), e a contagem dos dois lados aparece na tela.
  */
 export async function lerParaConferirReferencias(motorId: string): Promise<{
-    motor: { id: string; nome: string | null; arquivado: boolean }
-    regras: Array<{ codigo: string; codigo_wvetro: string | null; descricao: string | null; tipologias: string[] | null }>
+    motor: { id: string; nome: string | null; arquivado: boolean; fornecedor_id: string; fornecedor: string | null; familias: string[] }
+    regras: Array<{ codigo: string; codigo_wvetro: string | null; descricao: string | null; cor: string | null; tipologias: string[] | null }>
     itens: Array<{
         codigo: string; descricao: string | null; custo: number | null; valor_barra_interno: number | null; valor_metro_interno: number | null
         cred_icms_pct: number | null; cred_pis_cofins_pct: number | null; cred_ipi_pct: number | null; nc_ipi_pct: number | null; ncm: string | null
-        tabela_id: string; tabela_arquivo: string | null; fornecedor: string | null; categoria: string | null
+        tabela_id: string; tabela_arquivo: string | null; fornecedor_id: string; fornecedor: string | null; familia: string | null; categoria: string | null
     }>
 } | null> {
-    const ms = await q(db().from('orcamentista_motor').select('id, nome, arquivado_em').eq('id', motorId))
+    const ms = await q(db().from('orcamentista_motor').select('id, nome, arquivado_em, fornecedor_id').eq('id', motorId))
     if (ms.length === 0) return null
+    const familias = (await q(db().from('orcamentista_motor_familia').select('familia').eq('motor_id', motorId))).map((f: Linha) => f.familia as string).sort()
     const PAGINA = 1000
     const todas = async (consulta: (de: number) => PromiseLike<{ data: unknown; error: { message?: string; code?: string } | null }>) => {
         const out: Linha[] = []
@@ -483,18 +486,18 @@ export async function lerParaConferirReferencias(motorId: string): Promise<{
             if (linhas.length < PAGINA) return out
         }
     }
-    const regras = await todas((de) => db().from('orcamentista_motor_regra').select('codigo, codigo_wvetro, descricao, tipologias').eq('motor_id', motorId).order('id').range(de, de + PAGINA - 1))
+    const regras = await todas((de) => db().from('orcamentista_motor_regra').select('codigo, codigo_wvetro, descricao, cor, tipologias').eq('motor_id', motorId).order('id').range(de, de + PAGINA - 1))
     const itens = await todas((de) => db().from('orcamentista_tabela_item')
         .select('codigo, descricao, custo, valor_barra_interno, valor_metro_interno, cred_icms_pct, cred_pis_cofins_pct, cred_ipi_pct, nc_ipi_pct, ncm, tabela_id')
         .order('id').range(de, de + PAGINA - 1))
-    const tabelas = await q(db().from('orcamentista_tabela').select('id, arquivo_nome, categoria_chave, fornecedor_id'))
+    const tabelas = await q(db().from('orcamentista_tabela').select('id, arquivo_nome, categoria_chave, fornecedor_id, familia'))
     const fornecedores = await q(db().from('orcamentista_fornecedor').select('id, nome'))
     const nomeDo = new Map(fornecedores.map((f: Linha) => [f.id as string, f.nome as string]))
     const tabelaDe = new Map(tabelas.map((t: Linha) => [t.id as string, t]))
     const numero = (v: unknown) => (v === null || v === undefined ? null : Number(v))
     return {
-        motor: { id: ms[0].id, nome: ms[0].nome ?? null, arquivado: ms[0].arquivado_em !== null },
-        regras: regras.map((r) => ({ codigo: r.codigo, codigo_wvetro: r.codigo_wvetro ?? null, descricao: r.descricao ?? null, tipologias: r.tipologias ?? null })),
+        motor: { id: ms[0].id, nome: ms[0].nome ?? null, arquivado: ms[0].arquivado_em !== null, fornecedor_id: ms[0].fornecedor_id, fornecedor: nomeDo.get(ms[0].fornecedor_id) ?? null, familias },
+        regras: regras.map((r) => ({ codigo: r.codigo, codigo_wvetro: r.codigo_wvetro ?? null, descricao: r.descricao ?? null, cor: r.cor ?? null, tipologias: r.tipologias ?? null })),
         itens: itens.map((i) => {
             const t = tabelaDe.get(i.tabela_id)
             return {
@@ -502,7 +505,7 @@ export async function lerParaConferirReferencias(motorId: string): Promise<{
                 custo: numero(i.custo), valor_barra_interno: numero(i.valor_barra_interno), valor_metro_interno: numero(i.valor_metro_interno),
                 cred_icms_pct: numero(i.cred_icms_pct), cred_pis_cofins_pct: numero(i.cred_pis_cofins_pct), cred_ipi_pct: numero(i.cred_ipi_pct), nc_ipi_pct: numero(i.nc_ipi_pct),
                 ncm: i.ncm ?? null, tabela_id: i.tabela_id, tabela_arquivo: t?.arquivo_nome ?? null,
-                fornecedor: t ? nomeDo.get(t.fornecedor_id) ?? null : null, categoria: t?.categoria_chave ?? null,
+                fornecedor_id: t?.fornecedor_id ?? '', fornecedor: t ? nomeDo.get(t.fornecedor_id) ?? null : null, familia: t?.familia ?? null, categoria: t?.categoria_chave ?? null,
             }
         }),
     }

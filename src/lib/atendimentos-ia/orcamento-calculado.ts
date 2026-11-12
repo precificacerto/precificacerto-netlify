@@ -34,6 +34,8 @@ import { MODO_DO_FALLBACK, ORIGEM_DO_FALLBACK, MOTIVO_DO_FALLBACK, PERCENTUAIS, 
 import { avisosDeDivergencia, type LinhaDaTabelaCongelada } from './divergencia-da-tabela'
 
 export const TABELA_DO_MATERIAL = 'orcamentista_orcamento_item_material'
+/** As colunas da fotografia da resolução de referência (migração 20261112000001). */
+export const COLUNAS_DA_RESOLUCAO = ['codigo_na_tabela', 'resolucao'] as const
 export const FRASE_SEM_MIGRACAO_DO_CALCULO =
     'O cálculo do orçamento ainda não está disponível: a estrutura do banco (migrações 20261109000002 e 20261109000003) não foi aplicada.'
 
@@ -63,6 +65,11 @@ export type ResultadoDoCalculo = {
     valor_total_liquido: number
     /** A tabela congelada no levantamento que não é a vigente usada, por item; vazia quando nenhuma divergiu ou nenhuma foi congelada. */
     avisos: string[]
+    /**
+     * A FOTOGRAFIA DA RESOLUÇÃO (12/11/2026, migração 20261112000001): `gravada` quando o material guardou o código na tabela e o como achou;
+     * `sem_migracao` quando as duas colunas ainda não existem e o material foi gravado sem elas — o cálculo não para por isso, e quem chama diz.
+     */
+    fotografia_da_resolucao: 'gravada' | 'sem_migracao'
 }
 
 /** Os itens do levantamento de onde o orçamento do agente veio: as escolhas, a família e a tabela congelada de cada um. */
@@ -110,9 +117,17 @@ export async function calcularOrcamento(tenantId: string, id: string, agora: Dat
     }
     // 1. o material, com o cálculo novo
     const linhas = custo.itens.flatMap((c, k) => c.materiais.map((m) => ({ tenant_id: tenantId, orcamento_item_id: orc.itens[k].id, calculo_id, ...m })))
+    let fotografia_da_resolucao: 'gravada' | 'sem_migracao' = 'gravada'
     if (linhas.length) {
         const { error } = await db().from(TABELA_DO_MATERIAL).insert(linhas)
-        if (error) falhou(TABELA_DO_MATERIAL, error)
+        // A DEFESA QUE NÃO DEPENDE DA ORDEM (`migracao.md`, Parte I): sem a 20261112000001, faltam SÓ as duas colunas da resolução — o material
+        // é gravado sem elas, e o resultado diz. Qualquer outra falta continua sendo a recusa de sempre
+        if (error && colunaAusente(error) && COLUNAS_DA_RESOLUCAO.some((c) => (error.message ?? '').includes(c))) {
+            const semAsDuas = linhas.map(({ codigo_na_tabela: _c, resolucao: _r, ...resto }) => { void _c; void _r; return resto })
+            const outra = await db().from(TABELA_DO_MATERIAL).insert(semAsDuas)
+            if (outra.error) falhou(TABELA_DO_MATERIAL, outra.error)
+            fotografia_da_resolucao = 'sem_migracao'
+        } else if (error) falhou(TABELA_DO_MATERIAL, error)
     }
     // 2. cada item aponta o cálculo e guarda os valores — conferido pela contagem atingida
     const itens = custo.itens.map((c, k) => {
@@ -143,7 +158,7 @@ export async function calcularOrcamento(tenantId: string, id: string, agora: Dat
         .eq('tenant_id', tenantId).eq('id', id).select('id')
     if (error) falhou(TABELA_DO_ORCAMENTO, error)
     if (!data || data.length !== 1) throw new Error(`${TABELA_DO_ORCAMENTO}: o orçamento ${id} não foi atualizado (os itens já apontam o cálculo ${calculo_id})`)
-    return { calculo_id, calculado_em, itens, valor_total_bruto, valor_total_liquido, avisos }
+    return { calculo_id, calculado_em, itens, valor_total_bruto, valor_total_liquido, avisos, fotografia_da_resolucao }
 }
 
 /**
@@ -164,7 +179,8 @@ async function avisosDaTabelaCongelada(
     if (divergentes.length === 0) return []
     const congeladas = new Map<string, LinhaDaTabelaCongelada[]>()
     for (const t of new Set(divergentes.map((i) => i.tabelaCongelada as string))) {
-        const codigos = [...new Set(divergentes.filter((i) => i.tabelaCongelada === t).flatMap((i) => i.materiais.map((m) => m.codigo)))]
+        // o item JÁ RESOLVIDO, pelo código dele na tabela (a fotografia, 12/11/2026): reler a mesma linha, nunca resolver de novo
+        const codigos = [...new Set(divergentes.filter((i) => i.tabelaCongelada === t).flatMap((i) => i.materiais.map((m) => m.codigo_na_tabela)))]
         const { data, error } = await db().from('orcamentista_tabela_item').select(`codigo, valor_barra_interno, ${PERCENTUAIS.join(', ')}`).eq('tabela_id', t).in('codigo', codigos)
         if (error) falhou('orcamentista_tabela_item', error)
         congeladas.set(t, (data ?? []) as LinhaDaTabelaCongelada[])

@@ -12,16 +12,18 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 const MOTOR = '00000000-0000-4000-8000-0000000000a1'
 const estado = {
     superAdmin: true,
-    motores: [{ id: MOTOR, nome: 'Motor Wolf', arquivado_em: null }] as Array<Record<string, unknown>>,
+    motores: [{ id: MOTOR, nome: 'Motor Wolf', arquivado_em: null, fornecedor_id: 'f1' }] as Array<Record<string, unknown>>,
+    familias: [{ motor_id: MOTOR, familia: 'PVC' }] as Array<Record<string, unknown>>,
     regras: [] as Array<Record<string, unknown>>,
     itens: [] as Array<Record<string, unknown>>,
-    tabelas: [{ id: 't1', arquivo_nome: 'Perfis.xlsx', categoria_chave: 'PERFIL', fornecedor_id: 'f1' }],
-    fornecedores: [{ id: 'f1', nome: 'Wolf' }],
+    tabelas: [{ id: 't1', arquivo_nome: 'Perfis.xlsx', categoria_chave: 'PERFIL', fornecedor_id: 'f1', familia: 'PVC' },
+        { id: 't2', arquivo_nome: 'Ferragens.xlsx', categoria_chave: 'FERRAGENS', fornecedor_id: 'f2', familia: 'PVC' }],
+    fornecedores: [{ id: 'f1', nome: 'Wolf' }, { id: 'f2', nome: 'Celsus' }],
     falhar: false,
     paginas: [] as Array<[string, number, number]>,
 }
 const TABELA: Record<string, keyof typeof estado> = {
-    orcamentista_motor: 'motores', orcamentista_motor_regra: 'regras', orcamentista_tabela_item: 'itens', orcamentista_tabela: 'tabelas', orcamentista_fornecedor: 'fornecedores',
+    orcamentista_motor: 'motores', orcamentista_motor_familia: 'familias', orcamentista_motor_regra: 'regras', orcamentista_tabela_item: 'itens', orcamentista_tabela: 'tabelas', orcamentista_fornecedor: 'fornecedores',
 }
 jest.mock('@/supabase/admin', () => ({
     supabaseAdmin: {
@@ -61,27 +63,29 @@ async function chamar(metodo = 'GET', id: string = MOTOR) {
     await rota({ method: metodo, query: { id } } as unknown as NextApiRequest, res as unknown as NextApiResponse)
     return r as { status: number; corpo: Record<string, unknown> }
 }
-const regra = (codigo: string, wv: string, descricao: string, tipologias = ['DP-02']) => ({ motor_id: MOTOR, codigo, codigo_wvetro: wv, descricao, tipologias })
-const item = (codigo: string, descricao: string, custo: number | null): Record<string, unknown> => ({
-    codigo, descricao, custo, valor_barra_interno: null, valor_metro_interno: null, cred_icms_pct: 12, cred_pis_cofins_pct: null, cred_ipi_pct: null, nc_ipi_pct: null, ncm: null, tabela_id: 't1',
+const regra = (codigo: string, wv: string, descricao: string, tipologias = ['DP-02'], cor: string | null = null) => ({ motor_id: MOTOR, codigo, codigo_wvetro: wv, descricao, cor, tipologias })
+const item = (codigo: string, descricao: string, custo: number | null, tabela_id = 't1'): Record<string, unknown> => ({
+    codigo, descricao, custo, valor_barra_interno: null, valor_metro_interno: null, cred_icms_pct: 12, cred_pis_cofins_pct: null, cred_ipi_pct: null, nc_ipi_pct: null, ncm: null, tabela_id,
 })
 
 beforeEach(() => {
     estado.superAdmin = true
     estado.falhar = false
     estado.paginas = []
-    estado.motores = [{ id: MOTOR, nome: 'Motor Wolf', arquivado_em: null }]
+    estado.motores = [{ id: MOTOR, nome: 'Motor Wolf', arquivado_em: null, fornecedor_id: 'f1' }]
     estado.regras = [
         regra('9471', 'BR60/WOLFF', 'BR60 - MARCO GIRO - BRANCO'), regra('9471', 'BR60/WOLFF', 'BR60 - MARCO GIRO - BRANCO', ['DP-03']),
         regra('2202', '2202/WOLFF', 'REFORÇO EMENDA 12MM'),
         regra('1326', '1326/WOLFF', 'PONTEIRA DE EIXO OITAVADO 40MM'),
         regra('132114', '132114/WOLFF', 'PASSADOR DE CADARÇO C20 - MARROM'),
-        regra('17561', '1756/WOLFF', 'VENEZIANA TROPICAL COM VENTILAÇÃO - BRANCO'),
-        regra('X1', 'X1/WOLFF', 'TRILHO Z ALUMINIO 25MM'),
+        regra('17561', '1756/WOLFF', 'VENEZIANA TROPICAL COM VENTILAÇÃO - BRANCO', ['DP-02'], 'BRANCO'),
+        regra('83841', '8384/WOLFF', 'PERSIANA PVC 63MM - BRANCO', ['DP-07'], 'BRANCO'),
     ]
     estado.itens = [
         item('9471', 'BR60 - MARCO GIRO - BRANCO', 10), item('2202', 'REFORÇO EMENDA 12MM', null), item('1326/WOLFF', 'PONTEIRA DE EIXO OITAVADO 40MM', 3),
-        item('132114/WOLFF', 'PASSA FITA INFERIOR - MARROM', 1), item('17569', 'MAÇANETA CELSUS MD1', 5), item('ZZ9', 'Trilho "Z" alumínio 25mm', 2),
+        item('132114/WOLFF', 'PASSA FITA INFERIOR - MARROM', 1), item('17569', 'MAÇANETA CELSUS MD1', 5),
+        // a cremona da Celsus, FORA do escopo (outro fornecedor): o 83841 nunca a vê
+        item('83841', 'CREMONA ZAMAK', 4, 't2'),
     ]
 })
 
@@ -104,14 +108,17 @@ describe('a rota', () => {
         const { status, corpo } = await chamar()
         expect(status).toBe(200)
         const codigos = (k: string) => (corpo[k] as Array<{ codigo: string }>).map((r) => r.codigo)
-        expect(corpo).toMatchObject({ motor: { id: MOTOR, nome: 'Motor Wolf', arquivado: false }, itens_nas_tabelas: 6, codigos: 6, regras: 7 })
+        expect(corpo).toMatchObject({
+            motor: { id: MOTOR, nome: 'Motor Wolf', arquivado: false, fornecedor_id: 'f1', fornecedor: 'Wolf', familias: ['PVC'] }, itens_nas_tabelas: 6, itens_no_escopo: 5, codigos: 6, regras: 7,
+        })
         expect(codigos('achadas_com_preco').sort()).toEqual(['132114', '1326', '9471'])
         expect(codigos('achadas_sem_preco')).toEqual(['2202'])
-        expect(codigos('nao_achadas')).toEqual(['17561'])
-        expect(codigos('por_palpite')).toEqual(['X1'])
-        expect(codigos('sem_sufixo_com_outra_descricao')).toEqual(['132114'])
+        // o 83841 tem o código exato na tabela da Celsus — fora do escopo do motor: não achado
+        expect(codigos('nao_achadas')).toEqual(['83841'])
+        expect(codigos('nao_resolvidas')).toEqual(['17561'])
+        expect(codigos('sufixo_com_outra_descricao')).toEqual(['132114'])
         const br60 = (corpo.achadas_com_preco as Array<Record<string, unknown>>).find((r) => r.codigo === '9471')!
-        expect(br60).toMatchObject({ degrau: 'exato', regras: 2, tipologias: 2 })
+        expect(br60).toMatchObject({ como: 'exato', regras: 2, tipologias: 2 })
         expect((br60.itens as Array<Record<string, unknown>>)[0]).toMatchObject({ fornecedor: 'Wolf', categoria: 'PERFIL', tabela_arquivo: 'Perfis.xlsx', credito: { icms: 12, pis_cofins: null } })
     })
 })
@@ -124,6 +131,7 @@ describe('a leitura pagina de mil em mil', () => {
         expect(corpo).toMatchObject({ codigos: 2500, regras: 2500, itens_nas_tabelas: 1200 })
         expect((corpo.achadas_com_preco as unknown[]).length).toBe(1200)
         expect((corpo.nao_achadas as unknown[]).length).toBe(1300)
+        expect(estado.paginas.filter(([n]) => n === 'orcamentista_tabela_item').length).toBe(2)
         expect(estado.paginas.filter(([n]) => n === 'orcamentista_motor_regra').map(([, a]) => a)).toEqual([0, 1000, 2000])
         expect(estado.paginas.filter(([n]) => n === 'orcamentista_tabela_item').map(([, a]) => a)).toEqual([0, 1000])
     })

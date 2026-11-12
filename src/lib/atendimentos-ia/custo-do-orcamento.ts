@@ -24,6 +24,7 @@
  *     que monta essa entrada, e o teste de reconciliação prende a igualdade.
  */
 import { recalcularBloco, custoLiquidoDaFracao, blocoVazio } from '@/utils/atendimentos-ia-bloco-tributario'
+import type { ComoAchou } from '@/lib/atendimentos-ia/resolucao-de-referencia'
 
 export const MODO_DO_FALLBACK = 'SEM' as const
 export const ORIGEM_DO_FALLBACK = 'fallback_barra_inteira' as const
@@ -35,7 +36,12 @@ export type Percentual = (typeof PERCENTUAIS)[number]
 export type Percentuais = Record<Percentual, number | null>
 
 export type MaterialDaTabela = {
+    /** O código DO MOTOR — o que as peças citam. */
     codigo: string
+    /** O código do item na tabela de preço, de onde veio o preço (12/11/2026): o mesmo, ou com/sem o sufixo do fornecedor, ou outro. */
+    codigo_na_tabela: string
+    /** Como a resolução de referência achou o item (`resolucao-de-referencia.ts`): exato, sufixo do fornecedor, cor ou aproximado. */
+    resolucao: ComoAchou
     descricao: string | null
     unidade: string | null
     /** A medida da unidade de compra, em metros (a barra). */
@@ -64,6 +70,9 @@ export type EntradaDoCusto = {
 export type LinhaDeMaterial = Percentuais & {
     ordem: number
     codigo: string
+    /** A fotografia de COMO cada preço foi parar ali (12/11/2026): o código na tabela e o degrau da resolução. */
+    codigo_na_tabela: string
+    resolucao: ComoAchou
     descricao: string | null
     unidade_compra: string | null
     medida_unidade: number | null
@@ -190,7 +199,7 @@ export function custoDoOrcamento(e: EntradaDoCusto): CustoDoOrcamento {
             const barras = e.barras_por_codigo[c]
             const bruto = u.m.valor_barra_interno as number
             return {
-                ordem: k + 1, codigo: c, descricao: u.m.descricao, unidade_compra: u.m.unidade, medida_unidade: u.m.medida_barra_m,
+                ordem: k + 1, codigo: c, codigo_na_tabela: u.m.codigo_na_tabela, resolucao: u.m.resolucao, descricao: u.m.descricao, unidade_compra: u.m.unidade, medida_unidade: u.m.medida_barra_m,
                 custo_bruto_unidade: bruto,
                 ...u.m.bloco,
                 credito_nao_apurado: u.nao_apurado,

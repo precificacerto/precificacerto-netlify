@@ -430,7 +430,7 @@ describe('(7) o gatilho do "sim" ENCADEIA travessia -> cálculo -> etapa do pre�
 describe('(8) o aviso da tabela congelada', () => {
     // um material: 2 barras de R$ 100 na vigente (o bruto do material é 200), líquido 160 (o valor não importa ao aviso: é o do cálculo)
     const material = (codigo: string): LinhaDeMaterial => ({
-        ordem: 1, codigo, descricao: null, unidade_compra: 'BR', medida_unidade: 6, custo_bruto_unidade: 100, cred_icms_pct: 12, cred_pis_cofins_pct: 9.25,
+        ordem: 1, codigo, codigo_na_tabela: codigo, resolucao: 'exato', descricao: null, unidade_compra: 'BR', medida_unidade: 6, custo_bruto_unidade: 100, cred_icms_pct: 12, cred_pis_cofins_pct: 9.25,
         cred_ipi_pct: null, nc_ipi_pct: 0, cred_ibs_pct: null, cred_cbs_pct: null, credito_nao_apurado: null, custo_liquido_unidade: 80, custo_liquido_fracao: 80 / 6,
         consumo_item: 12, custo_bruto_material: 200, custo_liquido_material: 160,
     })

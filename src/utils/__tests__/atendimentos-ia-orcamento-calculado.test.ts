@@ -107,7 +107,7 @@ const escritas = () => estado.ops.filter((o) => o.op !== 'select')
 
 const N = null as number | null
 const linhaDeMaterial = (codigo: string, bruto: number) => ({
-    ordem: 1, codigo, descricao: `PERFIL ${codigo}`, unidade_compra: 'BR', medida_unidade: 6, custo_bruto_unidade: 600,
+    ordem: 1, codigo, codigo_na_tabela: codigo, resolucao: 'exato', descricao: `PERFIL ${codigo}`, unidade_compra: 'BR', medida_unidade: 6, custo_bruto_unidade: 600,
     cred_icms_pct: N, cred_pis_cofins_pct: N, cred_ipi_pct: N, nc_ipi_pct: N, cred_ibs_pct: N, cred_cbs_pct: N,
     credito_nao_apurado: 'faltou no bloco tributario: cred_icms_pct, cred_pis_cofins_pct, o par do IPI (cred_ipi_pct ou nc_ipi_pct)',
     custo_liquido_unidade: 600, custo_liquido_fracao: 100, consumo_item: 3, custo_bruto_material: bruto, custo_liquido_material: bruto,
@@ -261,6 +261,27 @@ describe('(3) a rota', () => {
         const s = await chamar(rota, 'POST', O1)
         expect(s.status).toBe(503)
         expect(s.corpo).toEqual({ error: K().FRASE_SEM_MIGRACAO_DO_CALCULO, sem_migracao: true })
+    })
+    it('A FOTOGRAFIA DA RESOLUÇÃO (12/11/2026): o material grava o código na tabela e como achou', async () => {
+        const r = await K().calcularOrcamento(T, O1, new Date('2026-11-09T15:00:00Z'), () => 'calc-novo')
+        const material = escritas().find((o) => o.op === 'insert')!.carga as Linha[]
+        expect(material.map((m) => [m.codigo, m.codigo_na_tabela, m.resolucao])).toEqual([['A', 'A', 'exato'], ['A', 'A', 'exato']])
+        expect(r.fotografia_da_resolucao).toBe('gravada')
+    })
+    it('SEM A 20261112000001 (faltam só as duas colunas da resolução): o material é gravado sem elas, e o resultado diz sem_migracao — o cálculo não para', async () => {
+        estado.erros['orcamentista_orcamento_item_material:insert'] = [{ code: 'PGRST204', message: "Could not find the 'codigo_na_tabela' column of 'orcamentista_orcamento_item_material' in the schema cache" }]
+        const r = await K().calcularOrcamento(T, O1, new Date('2026-11-09T15:00:00Z'), () => 'calc-novo')
+        const inserts = escritas().filter((o) => o.op === 'insert')
+        expect(inserts).toHaveLength(2)
+        expect((inserts[1].carga as Linha[]).every((m) => !('codigo_na_tabela' in m) && !('resolucao' in m))).toBe(true)
+        expect((inserts[1].carga as Linha[]).map((m) => m.codigo)).toEqual(['A', 'A'])
+        expect(r.fotografia_da_resolucao).toBe('sem_migracao')
+    })
+    it('outra coluna ausente no material continua sendo a recusa de sempre (503): a defesa é SÓ para as duas da resolução', async () => {
+        estado.erros['orcamentista_orcamento_item_material:insert'] = [{ code: 'PGRST204', message: "Could not find the 'cred_ibs_pct' column of 'orcamentista_orcamento_item_material' in the schema cache" }]
+        const s = await chamar(rota, 'POST', O1)
+        expect(s.status).toBe(503)
+        expect(escritas().filter((o) => o.op === 'insert')).toHaveLength(1)
     })
     it('sem a tabela do material: 503 com a mesma frase', async () => {
         estado.erros['orcamentista_orcamento_item_material:insert'] = [{ code: 'PGRST205', message: "Could not find the table 'public.orcamentista_orcamento_item_material'" }]

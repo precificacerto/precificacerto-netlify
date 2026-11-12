@@ -33,7 +33,7 @@
  * A família SEM etapa de cálculo só levanta: a mensagem final traz as esquadrias como gravadas, sem barras, mão de obra nem preço
  * (`fraseDoLevantamentoSemCalculo`). TODA leitura do motor é por `motor_id`; nenhuma volta a ler o motor por `tabela_id`. O PREÇO é o das tabelas que
  * valem da família — as dos fornecedores que a base de conhecimento vincula, com a família da conta ou sem família ("qualquer
- * linha"), de todas as categorias —, lido por `tabela_id` (`lerItens`). Falta de configuração é erro que nomeia a falta, nunca
+ * linha"), de todas as categorias —, lido por `tabela_id`, no escopo do fornecedor e da família do motor (`lerItensNoEscopo`). Falta de configuração é erro que nomeia a falta, nunca
  * fallback. O que vem abaixo, sobre a tabela "com motor", é a história de antes do PR D: o critério de qual tabela VALE (a única
  * do grupo, ou a vigente) continua; o resto passou para a família.
  *
@@ -119,6 +119,7 @@ import { FRASE_SEM_LISTA_DE_TIPOLOGIAS, SECAO_DOS_FORNECEDORES, fraseDeFalta, le
 export { FRASE_SEM_LISTA_DE_TIPOLOGIAS }
 import { normalizarNome } from '@/lib/atendimentos-ia/nome-do-levantamento'
 import { lerVidro, vidroComEspessura } from '@/lib/atendimentos-ia/vidro'
+import { tabelaNoEscopo } from '@/lib/atendimentos-ia/resolucao-de-referencia'
 
 // ── As famílias da empresa e as tipologias candidatas ───────────────────────────────────────
 /** Uma tipologia que a IA pode escolher: do motor do LEVANTAMENTO (a etapa com GERAR_LEVANTAMENTO) de uma família da conta. */
@@ -351,7 +352,7 @@ export async function lerRegras(motorId: string, tipologia: string): Promise<Reg
     let total: number | null = null
     for (let de = 0; total === null || de < total; de += PAGINA) {
         const { data, error, count } = await supabaseAdmin
-            .from('orcamentista_motor_regra').select('codigo, codigo_wvetro, cor', { count: 'exact' })
+            .from('orcamentista_motor_regra').select('codigo, codigo_wvetro, cor, descricao', { count: 'exact' })
             .eq('motor_id', motorId).contains('tipologias', [tipologia])
             .order('id', { ascending: true }).range(de, de + PAGINA - 1)
         if (error) throw new Error(`orcamentista_motor_regra: ${error.message}`)
@@ -515,18 +516,41 @@ export async function lerVariaveisDasTipologias(motorId: string): Promise<Record
  */
 export const COLUNAS_DO_ITEM_DA_TABELA =
     'codigo, descricao, unidade, medida_barra_m, valor_barra_interno, valor_metro_interno, cred_icms_pct, cred_pis_cofins_pct, cred_ipi_pct, nc_ipi_pct, cred_ibs_pct, cred_cbs_pct'
-async function lerItens(tabelaIds: readonly string[], codigos: string[]): Promise<ItemDaTabela[]> {
-    const itens: ItemDaTabela[] = []
-    if (tabelaIds.length === 0) return itens
-    for (let i = 0; i < codigos.length; i += 200) {
-        const lote = codigos.slice(i, i + 200)
-        const { data, error } = await supabaseAdmin
-            .from('orcamentista_tabela_item').select(COLUNAS_DO_ITEM_DA_TABELA)
-            .in('tabela_id', [...tabelaIds]).in('codigo', lote)
+/**
+ * OS ITENS NO ESCOPO DA RESOLUÇÃO (dono do produto, 12/11/2026: "escopo primeiro, sempre"): das tabelas que valem para a família, só os itens
+ * das do FORNECEDOR e de uma FAMÍLIA do motor (`tabelaNoEscopo`). PROVA: o 8384 da tabela é uma cremona da Celsus; o 8384/WOLFF do motor é a
+ * persiana da Wolf. Os itens vêm INTEIROS (todos os códigos das tabelas, não só os exatos), porque a resolução precisa ver o código com e sem
+ * o sufixo do fornecedor (`2202/WOLFF`). O escopo e a primeira página de itens vão na MESMA onda (as idas ao banco do cálculo, 08/11/2026);
+ * as páginas seguintes, de mil em mil — o PostgREST corta em mil, e cortar aqui faria um item aparecer como "não está na tabela" sem estar.
+ */
+async function lerItensNoEscopo(motorId: string, tabelaIds: readonly string[]): Promise<ItemDaTabela[]> {
+    if (tabelaIds.length === 0) return []
+    const pagina = (de: number) => supabaseAdmin
+        .from('orcamentista_tabela_item').select(`${COLUNAS_DO_ITEM_DA_TABELA}, tabela_id`)
+        .in('tabela_id', [...tabelaIds]).order('id', { ascending: true }).range(de, de + PAGINA - 1)
+    const [motor, fams, tabelas, primeira] = await Promise.all([
+        supabaseAdmin.from('orcamentista_motor').select('fornecedor_id').eq('id', motorId),
+        supabaseAdmin.from('orcamentista_motor_familia').select('familia').eq('motor_id', motorId),
+        supabaseAdmin.from('orcamentista_tabela').select('id, fornecedor_id, familia').in('id', [...tabelaIds]),
+        pagina(0),
+    ])
+    if (motor.error) throw new Error(`orcamentista_motor: ${motor.error.message}`)
+    if (fams.error) throw new Error(`orcamentista_motor_familia: ${fams.error.message}`)
+    if (tabelas.error) throw new Error(`orcamentista_tabela: ${tabelas.error.message}`)
+    if (primeira.error) throw new Error(`orcamentista_tabela_item: ${primeira.error.message}`)
+    const fornecedor = ((motor.data ?? []) as Array<{ fornecedor_id: string }>)[0]?.fornecedor_id
+    if (fornecedor === undefined) throw new Error(`orcamentista_motor: o motor ${motorId} não foi achado`)
+    const escopo = { fornecedor_id: fornecedor, familias: ((fams.data ?? []) as Array<{ familia: string }>).map((f) => f.familia) }
+    const noEscopo = new Set(((tabelas.data ?? []) as Array<{ id: string; fornecedor_id: string; familia: string | null }>).filter((x) => tabelaNoEscopo(x, escopo)).map((x) => x.id))
+    const itens = [...((primeira.data ?? []) as Array<ItemDaTabela & { tabela_id: string }>)]
+    for (let de = PAGINA, ultima = itens.length; ultima === PAGINA; de += PAGINA) {
+        const { data, error } = await pagina(de)
         if (error) throw new Error(`orcamentista_tabela_item: ${error.message}`)
-        itens.push(...((data ?? []) as ItemDaTabela[]))
+        const mais = (data ?? []) as Array<ItemDaTabela & { tabela_id: string }>
+        itens.push(...mais)
+        ultima = mais.length
     }
-    return itens
+    return itens.filter((i) => noEscopo.has(i.tabela_id))
 }
 
 /** As configurações da categoria PERFIL da base de conhecimento DESTA empresa — uma por matéria-prima. */
@@ -968,7 +992,7 @@ async function calcularFamilia(
         for (const g of await lerRegras(motorId, t)) porTrio.set(JSON.stringify([g.codigo, g.codigo_wvetro, g.cor]), g)
     }
     const regras = [...porTrio.values()]
-    const itens = await lerItens(familia.tabelasDePreco, [...new Set(regras.map((r) => r.codigo))].sort())
+    const itens = await lerItensNoEscopo(motorId, familia.tabelasDePreco)
 
     const r = levantarBarras({
         cor: cores[0],

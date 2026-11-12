@@ -51,7 +51,17 @@ jest.mock('@/supabase/admin', () => ({
             let contar = false
             let faixa: [number, number] | null = null
             const ordem: string[] = []
-            const filtradas = () => (banco.db[tabela] ?? []).filter((l) => predicados.every((p) => p(l)))
+            // o banco dá id a toda linha; as fixtures de item não o escrevem (a leitura do cálculo pagina por id, 12/11/2026)
+            if (tabela === 'orcamentista_tabela_item') for (const l of banco.db[tabela] ?? []) if (!('id' in l)) l.id = `item-${String(++sequenciaDeItem).padStart(6, '0')}`
+            // a ligação motor ↔ família (20261029000003): sem ela declarada no caso, a das ETAPAS — toda etapa que aponta um motor exige que ele
+            // atue na família dela (a FK da etapa aponta a ligação), então a etapa é a prova de que a ligação existe
+            const linhasDe = (nome: string): Linha[] => (nome === 'orcamentista_motor_familia' && banco.db[nome] === undefined
+                ? [...new Map((banco.db.orcamentista_familia_etapa ?? []).filter((e) => e.motor_id).flatMap((e) => {
+                    const familia = (banco.db.orcamentista_materia_prima ?? []).find((m) => m.id === e.materia_prima_id)?.familia
+                    return familia ? [[`${e.motor_id}|${familia}`, { motor_id: e.motor_id, familia }] as const] : []
+                })).values()]
+                : banco.db[nome] ?? [])
+            const filtradas = () => linhasDe(tabela).filter((l) => predicados.every((p) => p(l)))
             type Resposta = { data: Linha[] | null; error: { code: string; message: string } | null; count: number | null }
             const resposta = (): Resposta => {
                 if (banco.ausentes.has(tabela)) return { data: null, error: { code: 'PGRST205', message: `Could not find the table 'public.${tabela}' in the schema cache` }, count: null }
@@ -91,6 +101,7 @@ const ABAS = require('@/lib/atendimentos-ia/abas-do-motor-wolff-DP-02.json')
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 let sequencia = 0
+let sequenciaDeItem = 0
 const comId = (l: Linha) => ({ id: `r-${String(++sequencia).padStart(6, '0')}`, ...l })
 /** As abas da DP-02 como produção as tem: do MOTOR (`motor_id`), com `tabela_id` nulo — o levantamento as lê do banco, não do JSON. */
 const ABAS_NO_BANCO = () => abasDaDP02NoBanco(MOTOR, 'motor') as Record<string, Linha[]>
@@ -683,8 +694,15 @@ describe('(1p) a De Paula como produção está: o motor da família, e os códi
         })
         // o resumo para o log (06/11/2026): os três códigos sem preço, cada um com a esquadria e o motivo
         expect(r.etapa?.faltou).toEqual(['e1:ITEM_AUSENTE:1023', 'e1:ITEM_AUSENTE:8432', 'e1:ITEM_AUSENTE:8433'])
-        // o contraste: com os três na tabela de preço da família, a mesma esquadria fecha
-        banco.db.orcamentista_tabela_item.push(...DE_PARA.itens.filter((i) => ['1023', '8432', '8433'].includes(String(i.codigo))).map((i) => ({ ...i, tabela_id: '5f7acebf-3c91-46de-af00-57a47f8be288' })))
+        // O ESCOPO PRIMEIRO (dono do produto, 12/11/2026): os três na tabela da ESTRELA — outro fornecedor, fora do escopo do motor da Wolf — NÃO
+        // valem: o preço de um perfil da Wolf nunca vem da tabela de vidro de outro fornecedor. A recusa continua, nomeando os três
+        const dosTres = DE_PARA.itens.filter((i) => ['1023', '8432', '8433'].includes(String(i.codigo)))
+        banco.db.orcamentista_tabela_item.push(...dosTres.map((i) => ({ ...i, tabela_id: '5f7acebf-3c91-46de-af00-57a47f8be288' })))
+        const foraDoEscopo = await M().mensagemDoLevantamento(TENANT, t, lev({ escolhas: { ARI: 4, ARE: 1, MAE: 2 } }))
+        expect(foraDoEscopo.desfecho).toBe('recusou')
+        expect(foraDoEscopo.etapa?.faltou).toEqual(['e1:ITEM_AUSENTE:1023', 'e1:ITEM_AUSENTE:8432', 'e1:ITEM_AUSENTE:8433'])
+        // o contraste: com os três na tabela da WOLF (o fornecedor e a família do motor), a mesma esquadria fecha
+        banco.db.orcamentista_tabela_item.push(...dosTres.map((i) => ({ ...i, tabela_id: '21acfa75-e4e7-4de6-9b96-cdd95525467d' })))
         expect((await M().mensagemDoLevantamento(TENANT, t, lev({ escolhas: { ARI: 4, ARE: 1, MAE: 2 } }))).desfecho).toBe('levantou')
     })
 })

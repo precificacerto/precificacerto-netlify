@@ -287,6 +287,7 @@ const INICIO_DO_TESTE = Date.now()
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const JANELA_EM_VOO_MS = (require('@/lib/atendimentos-ia/conversa-gravada') as typeof import('@/lib/atendimentos-ia/conversa-gravada')).JANELA_EM_VOO_MS
 const DA_CONVERSA_GRAVADA = new Set(['orcamentista_conversa', 'orcamentista_mensagem'])
+let sequenciaDoItem = 0
 jest.mock('@/supabase/admin', () => ({
     supabaseAdmin: {
         // o Storage do PDF do orçamento (a cadeia do "sim", 11/11/2026): sobe e baixa da memória
@@ -313,8 +314,16 @@ jest.mock('@/supabase/admin', () => ({
             let devolveAtingidas = false
             const projetar = (l: Linha): Linha => (colunas ? Object.fromEntries(colunas.filter((c) => c in l).map((c) => [c, l[c]])) : l)
             const casa = (l: Linha) => filtros.every(([c, v]) => l[c] === v) && predicados.every((f) => f(l))
+            // a ligação motor ↔ família (20261029000003): sem ela declarada no caso, a das ETAPAS — toda etapa que aponta um motor exige que ele
+            // atue na família dela (a FK da etapa aponta a ligação), então a etapa é a prova de que a ligação existe (12/11/2026)
+            const base = (): Linha[] => (tabela === 'orcamentista_motor_familia' && estado.db[tabela] === undefined
+                ? [...new Map((estado.db.orcamentista_familia_etapa ?? []).filter((e) => e.motor_id).flatMap((e) => {
+                    const familia = (estado.db.orcamentista_materia_prima ?? []).find((m) => m.id === e.materia_prima_id)?.familia
+                    return familia ? [[`${e.motor_id}|${familia}`, { motor_id: e.motor_id, familia }] as const] : []
+                })).values()]
+                : estado.db[tabela] ?? [])
             const ler = () => {
-                let linhas = (estado.db[tabela] ?? []).filter(casa)
+                let linhas = base().filter(casa)
                 if (ordem.length) {
                     const compara = (x: unknown, y: unknown) => (typeof x === 'number' && typeof y === 'number' ? x - y : String(x) < String(y) ? -1 : String(x) > String(y) ? 1 : 0)
                     linhas = [...linhas].sort((a, b) => ordem.reduce((r, { coluna, asc }) => r || compara(a[coluna], b[coluna]) * (asc ? 1 : -1), 0))
@@ -366,9 +375,11 @@ jest.mock('@/supabase/admin', () => ({
                 // nas linhas de antes da reimportação — medido em 26/10/2026), e as linhas que os casos acrescentam vêm sem ela: aqui ela entra nula,
                 // como lá. A guarda continua valendo para o que a tabela NÃO tem (o `id` da Detalhe, o defeito do #165)
                 if (tabela === 'orcamentista_motor_tipologia_detalhe') for (const l of estado.db[tabela] ?? []) if (!('ordem' in l)) l.ordem = null
-                const semColuna = ordem.find(({ coluna }) => (estado.db[tabela] ?? []).filter(casa).some((l) => !(coluna in l)))
+                // o banco dá id a toda linha; as fixtures de item não o escrevem (a leitura do cálculo pagina por id, 12/11/2026)
+                if (tabela === 'orcamentista_tabela_item') for (const l of estado.db[tabela] ?? []) if (!('id' in l)) l.id = `item-${String(++sequenciaDoItem).padStart(6, '0')}`
+                const semColuna = ordem.find(({ coluna }) => base().filter(casa).some((l) => !(coluna in l)))
                 if (semColuna) return naOnda({ data: null, error: { code: '42703', message: `column ${tabela}.${semColuna.coluna} does not exist` } }).then(ok, erro)
-                const total = (estado.db[tabela] ?? []).filter(casa).length
+                const total = base().filter(casa).length
                 return naOnda({ data: ler().map(projetar), error: null, ...(contar ? { count: total } : {}) }).then(ok, erro)
             }
             q.insert = (carga: Linha | Linha[]) => {
@@ -5800,18 +5811,21 @@ describe('(41) A FALTA DO CÁLCULO DEPOIS DO "SIM" (dono do produto, 08/11/2026 
         /** As primeiras ondas não dependem da quantidade: as cinco abas, a serra, as regras (uma por tipologia) e os itens. */
         const ondasFixas = (T: number) => [
             ['orcamentista_motor_tipologia_detalhe'], ['orcamentista_motor_variavel'], ['orcamentista_motor_formula'], ['orcamentista_motor_perfil'], ['orcamentista_motor_validacao'],
-            ['orcamentista_mp_categoria'], ...Array.from({ length: T }, () => ['orcamentista_motor_regra']), ['orcamentista_tabela_item'],
+            ['orcamentista_mp_categoria'], ...Array.from({ length: T }, () => ['orcamentista_motor_regra']),
+            // O ESCOPO DA RESOLUÇÃO (12/11/2026): o fornecedor e as famílias do motor e as tabelas vão JUNTO da primeira página de itens — a
+            // mesma onda de antes, com três leituras a mais
+            ['orcamentista_motor', 'orcamentista_motor_familia', 'orcamentista_tabela', 'orcamentista_tabela_item'],
         ]
         /** A ÚLTIMA onda: os tempos de todas as tipologias e a configuração da empresa, JUNTOS — uma ida, qualquer que seja o número de esquadrias. */
         const ONDA_DA_MAO_DE_OBRA = ['orcamentista_motor_tipologia_tempo', 'tenant_expense_config', 'tenant_settings']
 
-        it('2 esquadrias, 2 tipologias (o “Gerson Boss”): 10 idas em série (eram 14), 12 leituras (eram 16) — a lista de cores não é mais lida (a variante única não depende dela)', async () => {
+        it('2 esquadrias, 2 tipologias (o “Gerson Boss”): 10 idas em série (eram 14), 15 leituras (eram 16; 12 antes do escopo da resolução, 12/11/2026) — a lista de cores não é mais lida (a variante única não depende dela)', async () => {
             estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09))
             const { ondas, faltas } = await ondasDoCalculo([esquadria(1, 'DP-39', 2500, 2200), esquadria(2, 'DP-01', 600, 600)])
             expect(faltas).toEqual([])
             expect(ondas).toEqual([...ondasFixas(2), ONDA_DA_MAO_DE_OBRA])
             expect(ondas).toHaveLength(7 + 2 + 1)
-            expect(ondas.flat()).toHaveLength(12)
+            expect(ondas.flat()).toHaveLength(12 + 3)
         })
 
         it('20 esquadrias, 8 tipologias: 16 idas em série (seriam 8 + 8 + 40 = 56), e a mão de obra continua numa onda só', async () => {
@@ -5830,7 +5844,7 @@ describe('(41) A FALTA DO CÁLCULO DEPOIS DO "SIM" (dono do produto, 08/11/2026 
             expect(faltas).toEqual([])
             expect(ondas).toEqual([...ondasFixas(8), ONDA_DA_MAO_DE_OBRA])
             expect(ondas).toHaveLength(7 + 8 + 1)
-            expect(ondas.flat()).toHaveLength(7 + 8 + 3)
+            expect(ondas.flat()).toHaveLength(7 + 8 + 3 + 3)
         })
 
         it('a configuração e os tempos lidos UMA vez não mudam a conta: a falta de tempo de uma tipologia ainda sai, nomeada, com as esquadrias dela', async () => {
