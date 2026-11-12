@@ -4844,6 +4844,25 @@ describe('(38) Maria Cristina: a montagem não absorve outro cliente, expira em 
             expect(ultimoEnviado()).toBe(PERGUNTA_DO_CAMPO.cor_perfil)
         })
 
+        it('O RASTRO DOS ATRIBUTOS (12/11/2026): o casar nomeia cada atributo assumido com o valor e a origem — a porta sem tipo (correr pelo padrão), a cor da base, o vidro da instrução, a quantidade da conversa', async () => {
+            comPortaLisa()
+            comPredominante('BRANCO')
+            llmResponde({ cliente: 'Ana', itens: [{ ...PORTA, abertura: 'porta', quantidade: undefined, vidro: undefined, vidro_padrao: 'incolor 8 mm temperado' }] })
+            await chamar('Cliente: Ana. porta 2,50 x 2,20')
+            const casar = erros.filter((l) => l.startsWith(conversa.PREFIXO_DO_LOG_DA_ETAPA) && l.includes(' casar]')).pop() ?? ''
+            expect(/ assumidos=(\S+)/.exec(casar)?.[1]).toBe('e1:abertura=porta/dito;tipo=correr/padrao_da_tipologia;folhas=2/padrao_da_tipologia;'
+                + 'persiana=sem/padrao_da_tipologia;bandeira=sem/padrao_da_tipologia;peitoril=sem/padrao_da_tipologia;cor=Branco/base_de_conhecimento;'
+                + 'vidro=incolor_8_mm_temperado/base_de_conhecimento;quantidade=1/padrao_da_conversa')
+            // o que o rastro diz é o que foi gravado
+            expect(itens('Ana')[0]).toMatchObject({ tipologia: 'DP-39', cor_perfil: 'Branco', vidro: 'incolor 8 mm temperado', quantidade: 1 })
+            // e o dito é dito: com tipo, folhas e cor na mensagem, só os extras ficam no padrão
+            llmResponde({ cliente: 'Bia', itens: [{ ...PORTA, abertura: 'porta', cor_perfil: 'Preto' }] })
+            await chamar('Cliente: Bia. 1 porta de correr 2 folhas 2,50 x 2,20, preto, vidro comum 6 mm incolor', { senderAlt: TELEFONE_DO_OUTRO })
+            const casarBia = erros.filter((l) => l.startsWith(conversa.PREFIXO_DO_LOG_DA_ETAPA) && l.includes(' casar]')).pop() ?? ''
+            expect(/ assumidos=(\S+)/.exec(casarBia)?.[1]).toBe('e1:abertura=porta/dito;tipo=correr/dito;folhas=2/dito;'
+                + 'persiana=sem/padrao_da_tipologia;bandeira=sem/padrao_da_tipologia;peitoril=sem/padrao_da_tipologia')
+        })
+
         it('"porta 2,50 x 2,20" sem dizer como abre também é a de correr de 2 folhas; "2 folhas" e "2 caixilhos" ditos confirmam o padrão', async () => {
             comPortaLisa()
             for (const [k, texto] of ['Cliente: Ana. 1 porta 2,50 x 2,20', 'Cliente: Bia. porta de correr 2 folhas 2,50 x 2,20', 'Cliente: Caio. porta de correr com 2 caixilhos 2,50 x 2,20'].entries()) {
@@ -5046,7 +5065,7 @@ describe('(39) observabilidade por etapa: coletar, casar, montar, calcular e res
         await chamar('Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco, temperado 5mm, sem arremate interno, arremate externo com folga de 50')
         const [coletar, casar, montar, calcular, responder] = doTurno()
         expect(coletar).toBe('[ETAPA 1 coletar] historico=0 retidas=0 esquadrias=1 campos=6 itens_sem_campos=0 faltou=-')
-        expect(casar).toMatch(/^\[ETAPA 2 casar\] lista=\d+\/\d+ trechos=\d+ propostos=8 descartados=0 escolhidas=e1:DP-02 padrao=- recusadas=- sem_tipologia=0$/)
+        expect(casar).toMatch(/^\[ETAPA 2 casar\] lista=\d+\/\d+ trechos=\d+ propostos=8 descartados=0 escolhidas=e1:DP-02 padrao=- recusadas=- sem_tipologia=0 assumidos=-$/)
         expect(montar).toBe('[ETAPA 3 montar] rota=NOVO esquadrias=1 agrupadas=0 caminhos=e1:GRAVADA_NOVA pendencias=0 gravadas=1 estado=COMPLETO faltou=-')
         expect(calcular).toBe('[ETAPA 4 calcular] nao_chegou')
         expect(responder).toBe('[ETAPA 5 responder] desfecho=arquivo enviou=sim redacao=- gravacao=sim')
@@ -5075,7 +5094,7 @@ describe('(39) observabilidade por etapa: coletar, casar, montar, calcular e res
     it('a tipologia PADRÃO e a recusa do código aparecem no casar, com a esquadria', async () => {
         llmResponde({ cliente: 'Ana', itens: [{ abertura: 'janela', largura_mm: 1200, altura_mm: 1000, quantidade: 1, vidro: 'temperado 5mm' }] })
         await chamar('Cliente: Ana. janela de correr 1200 x 1000, temperado 5mm')
-        expect(doTurno()[1]).toMatch(/ escolhidas=e1:DP-02 padrao=e1:DP-02 recusadas=- sem_tipologia=0$/)
+        expect(doTurno()[1]).toMatch(/ escolhidas=e1:DP-02 padrao=e1:DP-02 recusadas=- sem_tipologia=0 assumidos=e1:abertura=janela\/dito;tipo=correr\/dito;folhas=2\/padrao_da_tipologia;persiana=sem\/padrao_da_tipologia;bandeira=sem\/padrao_da_tipologia;peitoril=sem\/padrao_da_tipologia$/)
         llmResponde({ cliente: 'Bia', itens: [{ ...DP02, tipologia: 'DP-100', abertura: 'janela' }] })
         await chamar('Cliente: Bia. janela DP-100 1200 x 1000, branco, temperado 5mm', { senderAlt: TELEFONE_DO_OUTRO })
         expect(doTurno()[1]).toMatch(/ recusadas=e1:ABERTURA:DP-100 /)
