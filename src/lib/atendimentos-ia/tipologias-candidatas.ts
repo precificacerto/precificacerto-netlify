@@ -176,12 +176,16 @@ export type TrechoDoAcumulado = { abertura: Abertura | null; tipos: ReadonlySet<
 /** As palavras de um tipo do motor que contam: 3 letras ou mais, sem acento e sem caixa ("Giro / Abrir" → giro, abrir; "Maxim-ar" → maxim). */
 export const palavrasDoTipo = (tipo: string): string[] => semAcento(tipo).split(/[^a-z]+/).filter((p) => p.length >= 3)
 
-/** Os tipos do motor que o texto diz: alguma palavra do tipo começa uma palavra do texto. */
+/**
+ * Os tipos do motor que o texto diz: alguma palavra do tipo começa uma palavra do texto. A palavra que termina em "o" vale também no
+ * feminino — "janela FIXA" diz o tipo Fixo (defeito anterior ao #263, corrigido em 11/11/2026: "fixo" não começa "fixa").
+ */
 export function tiposDitos(texto: string, tipos: readonly string[]): Set<string> {
     const t = semAcento(texto)
     const ditos = new Set<string>()
+    const comGenero = (p: string) => (p.endsWith('o') ? `${p.slice(0, -1)}[oa]` : p)
     for (const tipo of tipos) {
-        if (palavrasDoTipo(tipo).some((p) => new RegExp(`\\b${p}`).test(t))) ditos.add(tipo)
+        if (palavrasDoTipo(tipo).some((p) => new RegExp(`\\b${comGenero(p)}`).test(t))) ditos.add(tipo)
     }
     return ditos
 }

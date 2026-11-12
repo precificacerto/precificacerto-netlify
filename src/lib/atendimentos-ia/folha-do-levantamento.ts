@@ -69,6 +69,11 @@ export type ItemDaFolha = {
     largura_mm: number
     altura_mm: number
     variaveis: readonly VariavelDita[]
+    /**
+     * O que a esquadria É — "correr, 2 folhas · sem persiana · sem bandeira · sem peitoril" (dono do produto, 11/11/2026: o padrão aplicado
+     * aparece ESCRITO ao lado do item, para o vendedor ler e corrigir antes do "sim"). Nulo = sem tipologia: a linha não é desenhada.
+     */
+    considerado: string | null
     /** A célula "PERFIL / ACESSÓRIO:": "<cor do perfil> / <cor do acessório>", com "padrão" no lugar da cor do acessório não dita. Nulo = em branco. */
     perfilEAcessorio: string | null
     /** A célula "VIDRO:": o vidro como o vendedor disse. Nulo = em branco. */
@@ -431,10 +436,17 @@ const LARGURA_DAS_LINHAS = CONTEUDO - COLUNAS.fig
 export const ROTULO_DO_PERFIL = 'PERFIL / ACESSÓRIO:'
 export const ROTULO_DO_VIDRO = 'VIDRO:'
 
-/** As linhas de um item, na ordem da especificação. A VARIÁVEIS só existe com variável sem padrão respondida. */
+/** O rótulo da linha do que a esquadria É (11/11/2026). */
+export const ROTULO_DO_CONSIDERADO = 'CONSIDERADO'
+
+/**
+ * As linhas de um item, na ordem da especificação. A CONSIDERADO vem primeiro, sempre que há tipologia (11/11/2026); a VARIÁVEIS só existe com
+ * variável sem padrão respondida.
+ */
 function linhasDoItem(i: ItemDaFolha): Array<{ tipo: 'uma'; rotulo: string; texto: string } | { tipo: 'duas'; esquerda: [string, string]; direita: [string, string] }> {
     const variaveis = linhaDasVariaveis(i)
     return [
+        ...(i.considerado ? [{ tipo: 'uma' as const, rotulo: ROTULO_DO_CONSIDERADO, texto: i.considerado }] : []),
         ...(variaveis !== null ? [{ tipo: 'uma' as const, rotulo: 'VARIÁVEIS', texto: variaveis }] : []),
         { tipo: 'duas' as const, esquerda: [ROTULO_DO_PERFIL, i.perfilEAcessorio ?? ''], direita: [ROTULO_DO_VIDRO, i.vidro ?? ''] },
         { tipo: 'uma' as const, rotulo: 'AMBIENTES', texto: linhaDosAmbientes(i) },

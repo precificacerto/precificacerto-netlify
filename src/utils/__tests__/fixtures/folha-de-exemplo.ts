@@ -6,6 +6,7 @@
  * O PDF em `docs/levantamento/exemplo-levantamento.pdf` é gerado daqui e conferido byte a byte pelo portão (`folha-do-levantamento.test.ts`).
  */
 import type { DadosDaFolha, ItemDaFolha } from '@/lib/atendimentos-ia/folha-do-levantamento'
+import { oQueAEsquadriaE } from '@/lib/atendimentos-ia/tipologia-padrao'
 
 const BANDEIRA = 'ALTURA DA BANDEIRA'
 const PEITORIL = 'ALTURA DO PEITORIL'
@@ -13,7 +14,9 @@ const N = 'QUANTIDADE DE MÓDULOS HORIZONTAIS'
 const V = 'QUANTIDADE DE MÓDULOS VERTICAIS'
 const PERFIL = 'Branco / padrão'
 
-export const ITENS_DE_EXEMPLO: ItemDaFolha[] = [
+/** O tipo de cada tipologia do exemplo, como a Detalhe do motor o traz: é dele, e da descrição, que sai a linha CONSIDERADO (11/11/2026). */
+const TIPO: Record<string, string> = { 'DP-02': 'Correr', 'DP-04': 'Correr', 'DP-39': 'Correr', 'DP-129': 'Maxim-ar', 'DP-05': 'Correr', 'DP-141': 'Maxim-ar', 'DP-165': 'Oscilo-batente' }
+const ITENS: Array<Omit<ItemDaFolha, 'considerado'>> = [
     {
         ordem: 1, tipologia: 'DP-02', descricao: 'JANELA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 42', linha: 'PVC WOLFF EUROPA 42',
         quantidade: 3, largura_mm: 1500, altura_mm: 1200, variaveis: [], perfilEAcessorio: PERFIL, vidro: 'incolor 4 mm comum',
@@ -52,6 +55,11 @@ export const ITENS_DE_EXEMPLO: ItemDaFolha[] = [
         ambientes: [{ ambiente: 'Área de serviço', quantidade: 1 }], obs: 'Abertura para dentro, dobradiças à direita de quem entra.',
     },
 ]
+/** O que cada esquadria É, escrito ao lado dela — como `montarDadosDaFolha` o monta: os módulos horizontais pelo "N" dito (o padrão é 1). */
+export const ITENS_DE_EXEMPLO: ItemDaFolha[] = ITENS.map((i) => ({
+    ...i,
+    considerado: oQueAEsquadriaE({ descricao: i.descricao, tipo: TIPO[i.tipologia] ?? null, linha: i.linha }, i.variaveis.find((v) => v.variavel === 'N')?.valor ?? 1),
+}))
 
 export const FOLHA_DE_EXEMPLO: DadosDaFolha = {
     empresa: 'Esquadrias Exemplo Ltda',

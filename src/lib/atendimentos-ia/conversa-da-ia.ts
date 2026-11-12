@@ -192,7 +192,7 @@ import { vidroPodado } from '@/lib/atendimentos-ia/vidro'
 import type { VariaveisDaTipologia } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import { compararNome, formaComparavel, nomeDaMensagem, nomeDoCliente, nomeSemPrefixo, normalizarNome } from '@/lib/atendimentos-ia/nome-do-levantamento'
 import { fraseDaCorForaDaLista, perguntasDaTipologia, type JaDito } from '@/lib/atendimentos-ia/pre-definicao'
-import { tipologiaPadrao } from '@/lib/atendimentos-ia/tipologia-padrao'
+import { fraseDoPadraoQueFalta, tipologiaPadrao } from '@/lib/atendimentos-ia/tipologia-padrao'
 import { PROMPT_BASE } from '@/utils/atendimentos-ia-prompt-base'
 import { LIMITE_DA_FALA } from '@/utils/atendimentos-ia-contexto'
 import { blocoDasInstrucoes, lerInstrucoesDaEmpresa, type InstrucaoDaCategoria } from '@/lib/atendimentos-ia/instrucoes-da-categoria'
@@ -228,7 +228,7 @@ export type DesfechoDaIa =
     | 'nao-avancou' | 'confirmar-acrescimo' | 'confirmar-resgate' | 'nao-acrescentou' | 'nao-confirmou'
     /** O ARQUIVO do levantamento enviado para conferir (06/11/2026); recusado pelo gerador; não enviado; o vendedor dito que não está no cadastro. */
     | 'arquivo' | 'arquivo-recusado' | 'arquivo-nao-enviado' | 'vendedor-nao-achado'
-    | 'perguntou' | 'sem-cores' | 'levantou' | 'recusou' | 'envio-falhou' | 'erro' | 'nenhuma-cabe'
+    | 'perguntou' | 'sem-cores' | 'sem-linha' | 'padrao-nomeado' | 'levantou' | 'recusou' | 'envio-falhou' | 'erro' | 'nenhuma-cabe'
     /** O reenvio do WUZAPI de uma entrada já respondida (200 sem conduzir), e o reenvio da saída cujo primeiro envio falhou (03/11/2026). */
     | 'repetida' | 'reenviada'
 
@@ -551,7 +551,7 @@ export const FERRAMENTA = {
             pergunta: {
                 type: 'object',
                 additionalProperties: false,
-                description: 'Só quando a pergunta em aberto é sobre um CAMPO e você precisa reformulá-la: duas tipologias possíveis, ou a tipologia que ainda não dá para concluir — então pergunte em linguagem de obra o que falta (janela ou porta, como abre, quantas folhas, persiana), nunca "qual a tipologia".',
+                description: 'Só quando a pergunta em aberto é sobre um CAMPO e você precisa reformulá-la: duas tipologias possíveis, ou a tipologia que ainda não dá para concluir — então pergunte em linguagem de obra o que falta (janela ou porta, como abre), nunca "qual a tipologia" — e nunca o que tem natural (folhas, módulos, persiana, bandeira, peitoril).',
                 properties: { campo: { type: 'string', enum: [...CAMPOS_DA_ESQUADRIA] }, texto },
             },
         },
@@ -623,7 +623,7 @@ function sistema(c: ContextoDoPrompt): SistemaDoPedido {
         '- itens: as esquadrias desta mensagem, com os campos que ela diz. Um campo vale também quando o vendedor o deu para todas numa mensagem anterior ("todas brancas") ou se referiu a ele ("a mesma cor"). Numa alteração, só os campos que mudam. Não invente, não deduza.',
         '- cor_perfil: a cor do perfil que o vendedor DISSE. Se ela é uma das cores da empresa (lista abaixo), escreva-a como está na lista; se é outra, escreva-a como ele disse — o código confere e pergunta. Se ele não disse cor, NÃO preencha.',
         '- vidro: COPIE o vidro como o vendedor o escreveu nesta mensagem ("vidro 4mm" → vidro 4mm; "temperado 8mm" → temperado 8mm). NUNCA acrescente têmpera, cor ou qualquer palavra que ele não disse — nem da instrução da categoria VIDRO: "8mm" não vira "comum 8 mm" nem "temperado 8 mm". Se ele NÃO disse o vidro desta esquadria e a instrução de VIDRO define um padrão para ela, ponha o padrão em vidro_padrao, copiado da instrução; senão, omita os dois.',
-        '- tipologia: o CÓDIGO (ex.: DP-02) de UMA das tipologias da lista abaixo, escolhida pela descrição. NUNCA invente código nem preencha com as palavras do vendedor. Se cabe em mais de uma, NÃO preencha: em `pergunta`, pergunte qual é, citando a descrição INTEIRA de cada uma, sem o código. Se ainda não dá para concluir, NÃO preencha: em `pergunta`, pergunte em linguagem de obra o que falta para você concluir (janela ou porta, como abre, quantas folhas, persiana) — nunca "qual a tipologia".',
+        '- tipologia: o CÓDIGO (ex.: DP-02) de UMA das tipologias da lista abaixo, escolhida pela descrição. NUNCA invente código nem preencha com as palavras do vendedor. HAVENDO NATURAL, APLIQUE E NÃO PERGUNTE: o vendedor fala só quando foge do padrão, e o silêncio é a forma natural — o que ele não disse depois do tipo vale o natural (correr, janela ou porta = 2 folhas; todo o resto = 1 folha ou 1 módulo, e mais de um só se dito; sem persiana, sem bandeira, sem peitoril, sem motor, salvo se dito). Escolha a tipologia que tem exatamente o que ele disse e, no resto, o natural. Só se ainda couber em mais de uma, NÃO preencha: em `pergunta`, pergunte qual é, citando a descrição INTEIRA de cada uma, sem o código. Se não dá para concluir, NÃO preencha: em `pergunta`, pergunte em linguagem de obra o que falta (janela ou porta, como abre) — nunca "qual a tipologia".',
         '- abertura: a PALAVRA que o vendedor usou para a esquadria — "porta" (também "porta-janela" e "porta janela") ou "janela". Só se ele a escreveu; senão, omita. Porta NUNCA vira tipologia cuja descrição começa com JANELA, e janela NUNCA vira PORTA; maxim-ar e fixo servem às duas.',
         '- Os limites de cada tipologia estão na lista (largura e altura): a medida dita fora da faixa DESCARTA a tipologia; a medida que a lista não limita (sem L ou sem A) não descarta. Se nenhuma cabe, NÃO escolha a mais próxima: deixe a tipologia vazia e diga em `pergunta` que nenhuma cabe.',
         '- quantidade: só a dita. Não dita é 1 — NUNCA pergunte quantas.',
@@ -1570,11 +1570,18 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         // quando o acumulado não indica nada fora do padrão (`tipologia-padrao.ts`); e a COR não dita = a predominante da base
         const dizAlgo = (i: ItemDoLevantamento) => (['tipologia', 'largura_mm', 'altura_mm', 'vidro'] as const).some((k) => i[k] !== null && i[k] !== undefined)
         const tipologiasDoPadrao: string[] = []
+        // o que o padrão NÃO resolve e se diz (11/11/2026): a linha sem padrão, as descrições que nada separa, a modulação da bandeira, a lacuna
+        // do motor — por esquadria, nunca "sem padrão" mudo
+        const faltasDoPadrao: Array<{ ordem: number; frase: string; motivo: string }> = []
         for (const item of proposta_.itens) {
             if (!dizAlgo(item)) continue
             if (item.tipologia === null) {
                 const padrao = tipologiaPadrao(item, proposta_.aberturas[item.ordem] ?? null, filtro.lidos, tabela.candidatos)
                 if ('tipologia' in padrao) { item.tipologia = padrao.tipologia; rastro.tipologiasPadrao += 1; tipologiasDoPadrao.push(`e${item.ordem}:${padrao.tipologia}`) }
+                else {
+                    const frase = fraseDoPadraoQueFalta(padrao)
+                    if (frase !== null) faltasDoPadrao.push({ ordem: item.ordem, frase, motivo: padrao.motivo })
+                }
             }
             // a predominante é da cor NÃO DITA (08/11/2026): a cor dita que a empresa não tem fica vazia, e a conversa pergunta nomeando-a
             const ditaForaDaLista = proposta_.coresForaDaLista.some((x) => x.ordem === item.ordem)
@@ -1738,6 +1745,13 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             }
             // sem lista de cores na base, perguntar a cor não leva a lugar nenhum: a conversa diz o que falta
             if ('campo' in pendencia && pendencia.campo === 'cor_perfil' && cores.length === 0) return await responder(FRASE_SEM_CORES, 'sem-cores')
+            // o que o padrão não resolve (11/11/2026): a conversa diz, por esquadria, com a frase de cada motivo — a linha sem padrão é
+            // configuração (sem-linha); as outras nomeiam a falta ou as opções (padrao-nomeado)
+            const semPadrao = faltasDoPadrao.filter((x) => aplicada.itens.some((i) => i.ordem === x.ordem && i.tipologia === null))
+            if (semPadrao.length > 0) {
+                return await responder(semPadrao.map((x) => `${aplicada.itens.length > 1 ? `Esquadria ${x.ordem}: ` : ''}${x.frase}`).join('\n'),
+                    semPadrao.every((x) => x.motivo === 'LINHA') ? 'sem-linha' : 'padrao-nomeado')
+            }
             // A COR DITA E FORA DA LISTA (dono do produto, 08/11/2026): a pergunta nomeia a cor e as cores da empresa — e o resto do que
             // falta vai junto, na mesma resposta. A esquadria continua sem cor: nada a troca pela predominante
             const foraDaLista = proposta_.coresForaDaLista.filter((x) => aplicada.itens.some((i) => i.ordem === x.ordem && i.cor_perfil === null))
