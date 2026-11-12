@@ -98,7 +98,8 @@ describe('a importação', () => {
         expect(linhas.map((l) => [l.codigo, l.codigo_dp])).toEqual([['DP-017', 'DP-17'], ['DP-17', 'DP-17'], ['DP-2', 'DP-2']])
         expect(linhas[0].descricao).toBe('X, "Y"')
         expect(r.corpo.sem_arquivo).toEqual(['linha 4: DP-2 (N=1) (a.png)'])
-        expect(r.corpo.colisoes).toEqual(['DP-017 e DP-17 caem no mesmo código normalizado (DP-17)'])
+        expect(r.corpo.juntados_pela_normalizacao).toEqual(['DP-017 e DP-17 são códigos diferentes que a normalização juntaria (DP-17)'])
+        expect(r.corpo.mesma_descricao).toEqual([])
     })
     it('a linha que não serve recusa TUDO, nomeada, e a função não é chamada', async () => {
         const r = await chamar(importar, 'POST', { texto: [COLUNAS_DO_INDICE.join(','), linha('DP-1', { liberado: 'Talvez' })].join('\r\n'), permitir_encolher: false })

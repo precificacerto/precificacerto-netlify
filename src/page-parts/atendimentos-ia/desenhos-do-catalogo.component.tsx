@@ -11,7 +11,7 @@
 import React, { useState } from 'react'
 import { Alert, Button, Card, Checkbox, Collapse, Divider, Progress, Space, Typography, Upload } from 'antd'
 import { UploadOutlined } from '@ant-design/icons'
-import { colisoesDoCodigo, lerIndice, resumoDoEnvio, type LinhaDoIndice, type Recusa, type ResultadoDoEnvio } from '@/lib/atendimentos-ia/desenhos-das-tipologias'
+import { codigosComAMesmaDescricao, codigosQueANormalizacaoJuntaria, lerIndice, resumoDoEnvio, type LinhaDoIndice, type Recusa, type ResultadoDoEnvio } from '@/lib/atendimentos-ia/desenhos-das-tipologias'
 import { enviarDesenhosDoZip } from '@/page-parts/atendimentos-ia/envio-dos-desenhos'
 import { chamarRota } from '@/page-parts/atendimentos-ia/api'
 import { ROTAS_DO_CATALOGO } from '@/utils/atendimentos-ia-catalogo'
@@ -22,7 +22,7 @@ export const AVISO_DOS_DESENHOS =
     + 'índice dá a ela. Rodar de novo continua de onde parou: o que já está no Storage não sobe outra vez, e nada é apagado.'
 
 type ResultadoDoZip = ResultadoDoEnvio | { zip: string; erro: string }
-type Importacao = { resultado: string; antes?: number; linhas: number; sha256: string; sem_arquivo: string[]; colisoes: string[] }
+type Importacao = { resultado: string; antes?: number; linhas: number; sha256: string; sem_arquivo: string[]; juntados_pela_normalizacao: string[]; mesma_descricao: string[] }
 type Conferencia = { sem_objeto: string[]; sem_linha: string[]; caminhos: number; objetos: number }
 /** O que a tela diz de uma importação: o resultado, as contagens e o sha256 do texto que entrou (para conferir com o do arquivo). */
 export const resumoDaImportacao = (r: Importacao) => r.resultado === 'igual'
@@ -114,7 +114,9 @@ export function DesenhosDoCatalogo() {
         setEnviando(false)
     }
 
-    const colisoes = indice ? colisoesDoCodigo(indice.linhas.map((l) => l.codigo)) : []
+    const juntados = indice ? codigosQueANormalizacaoJuntaria(indice.linhas.map((l) => l.codigo)).map((c) => c.frase) : []
+    const mesmaDescricao = indice ? codigosComAMesmaDescricao(indice.linhas) : []
+    const achados = [...juntados, ...mesmaDescricao]
     return (
         <Card title={TITULO_DOS_DESENHOS} data-desenhos>
             <Typography.Paragraph type="secondary">{AVISO_DOS_DESENHOS}</Typography.Paragraph>
@@ -126,7 +128,7 @@ export function DesenhosDoCatalogo() {
                 {indice && (
                     <Alert type="info" showIcon data-indice-lido=""
                         message={`${indice.nome}: ${indice.linhas.length} linhas, ${new Set(indice.linhas.map((l) => l.zip).filter(Boolean)).size} zips citados.`}
-                        description={colisoes.length > 0 ? `Achado no índice, não corrigido: ${colisoes.map((c) => c.frase).join('; ')}.` : undefined} />
+                        description={achados.length > 0 ? `Achados no índice, não corrigidos (o código do motor não se normaliza; quem decide é o dono do produto): ${achados.join('; ')}.` : undefined} />
                 )}
                 <Upload accept=".zip" multiple showUploadList={false} disabled={enviando}
                     beforeUpload={(f, lista) => { setZips(lista); return false }}>
@@ -166,7 +168,8 @@ export function DesenhosDoCatalogo() {
                     : <Space direction="vertical" style={{ width: '100%' }} data-importacao="">
                         <Alert type="success" showIcon message={resumoDaImportacao(importacao)} />
                         <ListaNomeada titulo="Linhas sem arquivo nos zips" itens={importacao.sem_arquivo} chave="sem-arquivo" />
-                        <ListaNomeada titulo="Colisões de código (não fundidas)" itens={importacao.colisoes} chave="colisoes" />
+                        <ListaNomeada titulo="Códigos diferentes que a normalização juntaria" itens={importacao.juntados_pela_normalizacao} chave="juntados" />
+                        <ListaNomeada titulo="Códigos com a mesma descrição no índice" itens={importacao.mesma_descricao} chave="mesma-descricao" />
                     </Space>)}
                 <Divider />
                 <Typography.Title level={5}>Conferir índice × Storage</Typography.Title>

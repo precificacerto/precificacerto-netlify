@@ -58,12 +58,13 @@ const botao = (host: HTMLElement, texto: string) => Array.from(host.querySelecto
 const linha = (codigo: string, zip = 'pvc.zip') => ['por_variavel', 'PVC', codigo, 'DP-17', '', '', '(N=1)', 'a.jpg', zip, 'imagens/a.jpg', ''].join(',')
 const CSV = [COLUNAS_DO_INDICE.join(','), linha('DP-017'), linha('DP-17')].join('\r\n')
 
-it('o índice lido diz as linhas e os zips, e NOMEIA a colisão do código (DP-017 e DP-17) sem fundir', async () => {
+it('o índice lido diz as linhas e os zips, e NOMEIA os códigos que a normalização juntaria (DP-017 e DP-17), sem fundir', async () => {
     const host = await montar()
     await escolher(host, 0, [new File([CSV], 'tipologia_desenho.csv')])
     const lido = host.querySelector('[data-indice-lido]')!.textContent!
     expect(lido).toContain('tipologia_desenho.csv: 2 linhas, 1 zips citados.')
-    expect(lido).toContain('DP-017 e DP-17 caem no mesmo código normalizado (DP-17)')
+    expect(lido).toContain('DP-017 e DP-17 são códigos diferentes que a normalização juntaria (DP-17)')
+    expect(lido).not.toContain('colis')
 })
 
 it('o índice sem as colunas: o erro com o nome do arquivo; sem índice válido, o envio fica desligado', async () => {
@@ -93,7 +94,7 @@ const IMPORTAR = '/api/super-admin/atendimentos-ia/desenhos/importar'
 const CONFERIR = '/api/super-admin/atendimentos-ia/desenhos/conferencia'
 
 it('IMPORTAR manda o TEXTO do índice e a permissão de encolher como está marcada; mostra o resumo e as listas nomeadas', async () => {
-    respostas[IMPORTAR] = { resultado: 'importado', antes: 0, linhas: 2, sha256: 'abc', sem_arquivo: ['linha 4: DP-2 (N=1) (a.png)'], colisoes: ['DP-017 e DP-17 caem no mesmo código normalizado (DP-17)'] }
+    respostas[IMPORTAR] = { resultado: 'importado', antes: 0, linhas: 2, sha256: 'abc', sem_arquivo: ['linha 4: DP-2 (N=1) (a.png)'], juntados_pela_normalizacao: ['DP-017 e DP-17 são códigos diferentes que a normalização juntaria (DP-17)'], mesma_descricao: ['DP-017 e DP-18 têm a mesma descrição: "X"'] }
     const host = await montar()
     expect(botao(host, 'Importar o índice').disabled).toBe(true)
     await escolher(host, 0, [new File([CSV], 'tipologia_desenho.csv')])
@@ -103,7 +104,9 @@ it('IMPORTAR manda o TEXTO do índice e a permissão de encolher como está marc
     const t = host.querySelector('[data-importacao]')!.textContent!
     expect(t).toContain('Importado: a tabela tinha 0 linhas e agora tem 2 (sha256 abc).')
     expect(t).toContain('Linhas sem arquivo nos zips (1)')
-    expect(t).toContain('Colisões de código (não fundidas) (1)')
+    expect(t).toContain('Códigos diferentes que a normalização juntaria (1)')
+    expect(t).toContain('Códigos com a mesma descrição no índice (1)')
+    expect(t).not.toContain('Colis')
     // marcada a permissão, ela vai marcada
     const caixa = host.querySelector('input[type=checkbox]') as HTMLInputElement
     await act(async () => { caixa.click() })

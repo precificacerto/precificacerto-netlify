@@ -45,7 +45,7 @@ MUTACOES = [
     ('M2', 'o liberado "Não" vira verdadeiro', [(LIB, "const LIBERADO: Readonly<Record<string, boolean>> = { Sim: true, 'Não': false }", "const LIBERADO: Readonly<Record<string, boolean>> = { Sim: true, 'Não': true }")]),
     ('M3', 'a linha sem arquivo some da lista', [(LIB, "        if (l.caminho_no_zip.trim() === '') semArquivo.push(", "        if (l.caminho_no_zip.trim() === '') void (")]),
     ('M4', 'o código cru é normalizado (funde DP-017 com DP-17)', [(LIB, 'grupo: nuloSeVazio(l.grupo), codigo: nuloSeVazio(l.codigo), codigo_dp: codigoDp,', 'grupo: nuloSeVazio(l.grupo), codigo: codigoDpNormalizado(l.codigo) ?? nuloSeVazio(l.codigo), codigo_dp: codigoDp,')]),
-    ('M5', 'a linha recusada é pulada em vez de recusar tudo', [(LIB, '    if (recusas.length) return { recusas }\n    const colisoes', '    const colisoes')]),
+    ('M5', 'a linha recusada é pulada em vez de recusar tudo', [(LIB, '    if (recusas.length) return { recusas }\n    const juntadosPelaNormalizacao', '    const juntadosPelaNormalizacao')]),
     ('M6', 'a rota calcula o sha256 de outro texto (aparado)', [(IMP, "createHash('sha256').update(Buffer.from(corpo.texto, 'utf-8'))", "createHash('sha256').update(Buffer.from(corpo.texto.trim(), 'utf-8'))")]),
     ('M7', 'a permissão de encolher vai sempre verdadeira', [(IMP, 'permitirEncolher: corpo.permitir_encolher })', 'permitirEncolher: true })')]),
     ('M8', 'sem a migração vira 500', [(IMP, "        if (codigo !== null && SEM_A_FUNCAO.has(codigo)) return", "        if (false) return")]),
@@ -64,7 +64,10 @@ MUTACOES = [
     ('R2', 'a lista da pasta lê só a primeira página', [(REPO, '        if (data.length < PAGINA) return nomes', '        return nomes')]),
     ('R3', 'a subpasta conta como objeto', [(REPO, '        for (const o of data) if (o.id !== null) nomes.add(o.name)', '        for (const o of data) nomes.add(o.name)')]),
     # a tela
-    ('T1', 'a tela não nomeia a colisão do código', [(TELA, "description={colisoes.length > 0 ? `Achado no índice, não corrigido: ${colisoes.map((c) => c.frase).join('; ')}.` : undefined} />", 'description={undefined} />')]),
+    ('T1', 'a tela não nomeia os achados do índice (os códigos que a normalização juntaria, a mesma descrição)', [(TELA, "description={achados.length > 0 ?", "description={false ?")]),
+    ('T3', 'a tela esconde os códigos com a mesma descrição', [(TELA, '                        <ListaNomeada titulo="Códigos com a mesma descrição no índice" itens={importacao.mesma_descricao} chave="mesma-descricao" />\n', '')]),
+    ('D1', 'a "mesma descrição" acusa todo código (sem par)', [(LIB, '    return [...por].filter(([, c]) => c.size > 1).map(([descricao, c])', '    return [...por].filter(([, c]) => c.size > 0).map(([descricao, c])')]),
+    ('D2', 'a "mesma descrição" deixa o asterisco no código', [(LIB, "        const codigo = l.codigo.trim().replace(/^\\*/, '')", "        const codigo = l.codigo.trim()")]),
     ('T2', 'a tela esconde as falhas', [(TELA, '                                <ListaNomeada titulo="Falharam" itens={r.falhas} chave="falhas" />\n', '')]),
 ]
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

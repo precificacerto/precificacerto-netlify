@@ -1,13 +1,14 @@
 /**
  * POST /api/super-admin/atendimentos-ia/desenhos/importar — { texto: o CSV do índice, permitir_encolher: boolean }
- * → { resultado, antes?, linhas, sha256, sem_arquivo: string[], colisoes: string[] }
+ * → { resultado, antes?, linhas, sha256, sem_arquivo: string[], juntados_pela_normalizacao: string[], mesma_descricao: string[] }
  *
  * A IMPORTAÇÃO DO ÍNDICE DOS DESENHOS (dono do produto, 11/11/2026; migração 20261111000001): lê o CSV, monta as linhas com
  * `linhasParaImportar` (o caminho de cada uma vem de `caminhoDoDesenho`, a MESMA função do envio dos zips) e chama a função do banco, que
  * apaga e regrava a tabela numa transação. O sha256 é calculado AQUI, dos bytes recebidos — o que vai ao log é o do texto que entrou.
  *
  * Nada some em silêncio: a linha que não serve RECUSA a importação inteira (400, nomeando cada uma); as linhas sem arquivo nos zips e as
- * colisões de código (DP-017 e DP-17) voltam nomeadas. A trava do encolhimento é da função (409 com a frase dela). Sem a migração, 409
+ * listas dos códigos diferentes que a normalização juntaria (DP-017 e DP-17) e dos códigos com a mesma descrição (DP-017 e DP-18) voltam
+ * nomeadas. A trava do encolhimento é da função (409 com a frase dela). Sem a migração, 409
  * nomeando-a — nunca 500.
  */
 import { createHash } from 'crypto'
@@ -39,7 +40,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     try {
         const r = await importarDesenhos({ por: caller.user_id, sha256, linhas: montado.linhas, permitirEncolher: corpo.permitir_encolher })
-        return res.status(200).json({ ...r, sha256, sem_arquivo: montado.semArquivo, colisoes: montado.colisoes })
+        return res.status(200).json({ ...r, sha256, sem_arquivo: montado.semArquivo,
+            juntados_pela_normalizacao: montado.juntadosPelaNormalizacao, mesma_descricao: montado.mesmaDescricao })
     } catch (e) {
         const codigo = codigoDoErro(e)
         if (codigo !== null && SEM_A_FUNCAO.has(codigo)) return res.status(409).json({ error: `${FRASE_SEM_A_MIGRACAO} Nada foi importado.`, sha256 })

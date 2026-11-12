@@ -112,8 +112,11 @@ export function lerIndice(texto: string): { linhas: LinhaDoIndice[] } | { erro: 
 }
 
 /**
- * O código DP normalizado: caixa alta, sem espaço, sem os zeros à esquerda do número ("dp-017" → "DP-17"). O código CRU fica guardado ao
- * lado, sempre: normalizar não é fundir (dono do produto, 11/11/2026: "Fundir agora apagaria a prova de qual veio de onde").
+ * O código DP normalizado: caixa alta, sem espaço, sem os zeros à esquerda do número ("dp-017" → "DP-17"). Vai para a coluna `codigo_dp` como
+ * DADO, NUNCA CHAVE (dono do produto, 12/11/2026): "CÓDIGO DO MOTOR NÃO SE NORMALIZA. DP-017 é um código, não um DP-17 mal digitado. Zero à
+ * esquerda faz parte da identidade." Medido no motor 022fc55e: DP-017 (peitoril fixo) e DP-17 (com persiana) são produtos DIFERENTES, e esta
+ * normalização os junta. Para casar qualquer coisa — o desenho, a tipologia —, o código é o CRU; o portão `desenhos-slug-sem-copia.test.ts`
+ * reprova o uso de `codigo_dp` e desta função fora da leitura e da importação do índice.
  */
 export function codigoDpNormalizado(codigo: string): string | null {
     const c = codigo.trim().toUpperCase().replace(/\s+/g, '')
@@ -121,8 +124,11 @@ export function codigoDpNormalizado(codigo: string): string | null {
     return c.replace(/^DP-0*(\d)/, 'DP-$1')
 }
 
-/** As COLISÕES: códigos crus diferentes que caem no mesmo código normalizado ("DP-017 e DP-17 caem no mesmo código normalizado"). */
-export function colisoesDoCodigo(codigos: readonly string[]): Array<{ normalizado: string; crus: string[]; frase: string }> {
+/**
+ * Os CÓDIGOS DIFERENTES QUE A NORMALIZAÇÃO JUNTARIA ("DP-017 e DP-17"). Não é erro de digitação: são códigos distintos, e cada um é a sua
+ * tipologia. A lista existe para mostrar por que `codigo_dp` não serve de chave.
+ */
+export function codigosQueANormalizacaoJuntaria(codigos: readonly string[]): Array<{ normalizado: string; crus: string[]; frase: string }> {
     const por = new Map<string, Set<string>>()
     for (const c of codigos) {
         const n = codigoDpNormalizado(c)
@@ -130,8 +136,23 @@ export function colisoesDoCodigo(codigos: readonly string[]): Array<{ normalizad
     }
     return [...por].filter(([, crus]) => crus.size > 1).map(([normalizado, crus]) => {
         const lista = [...crus].sort()
-        return { normalizado, crus: lista, frase: `${lista.join(' e ')} caem no mesmo código normalizado (${normalizado})` }
+        return { normalizado, crus: lista, frase: `${lista.join(' e ')} são códigos diferentes que a normalização juntaria (${normalizado})` }
     })
+}
+
+/**
+ * Os códigos DP do índice PRINCIPAL que têm a MESMA DESCRIÇÃO, inteira (o asterisco do início do código sai): é onde mora a duplicata real.
+ * Medido no índice de 11/11/2026: DP-017 e DP-18 (a mesma descrição e, no motor, os mesmos contadores), e DP-100 e DP-101. Sai do dado, não
+ * de uma lista escrita aqui: uma reimportação que mude isso muda a frase.
+ */
+export function codigosComAMesmaDescricao(indice: readonly LinhaDoIndice[]): string[] {
+    const por = new Map<string, Set<string>>()
+    for (const l of indice) {
+        const codigo = l.codigo.trim().replace(/^\*/, '')
+        if (l.fonte !== 'principal' || !/^DP-/i.test(codigo) || l.descricao.trim() === '') continue
+        por.set(l.descricao.trim(), new Set([...(por.get(l.descricao.trim()) ?? []), codigo]))
+    }
+    return [...por].filter(([, c]) => c.size > 1).map(([descricao, c]) => `${[...c].sort().join(' e ')} têm a mesma descrição: "${descricao}"`)
 }
 
 /**
@@ -239,12 +260,13 @@ const LIBERADO: Readonly<Record<string, boolean>> = { Sim: true, 'Não': false }
 /**
  * As linhas do índice no formato da importação. O CAMINHO no Storage sai de `caminhoDoDesenho` — A MESMA função do envio dos zips (o slug
  * do grupo é `grupoNoCaminho`, num lugar só): se os dois calculassem o slug cada um à sua maneira, os dois passariam na CHECK da forma e o
- * PDF ficaria sem desenho, em silêncio (dono do produto, 11/11/2026). O código CRU vai como veio; o codigo_dp vai normalizado, ao lado.
- * Recusa a importação INTEIRA (nunca uma linha pulada), nomeando cada linha: fonte fora das duas, liberado fora de Sim/Não/vazio, código DP
- * que não normaliza, caminho que o bucket não aceita. Devolve também, NOMEADAS, as linhas sem arquivo nos zips e as colisões de código.
+ * PDF ficaria sem desenho, em silêncio (dono do produto, 11/11/2026). O código CRU vai como veio — é ELE a identidade; o codigo_dp vai
+ * normalizado, ao lado, como dado, nunca chave (12/11/2026). Recusa a importação INTEIRA (nunca uma linha pulada), nomeando cada linha: fonte
+ * fora das duas, liberado fora de Sim/Não/vazio, código DP que não normaliza, caminho que o bucket não aceita. Devolve também, NOMEADAS, as
+ * linhas sem arquivo nos zips, os códigos diferentes que a normalização juntaria e os códigos com a mesma descrição.
  */
 export function linhasParaImportar(indice: readonly LinhaDoIndice[]):
-    { linhas: LinhaParaImportar[]; semArquivo: string[]; colisoes: string[] } | { recusas: string[] } {
+    { linhas: LinhaParaImportar[]; semArquivo: string[]; juntadosPelaNormalizacao: string[]; mesmaDescricao: string[] } | { recusas: string[] } {
     const recusas: string[] = []
     const semArquivo: string[] = []
     const linhas: LinhaParaImportar[] = []
@@ -274,8 +296,8 @@ export function linhasParaImportar(indice: readonly LinhaDoIndice[]):
         })
     })
     if (recusas.length) return { recusas }
-    const colisoes = colisoesDoCodigo(indice.map((l) => l.codigo)).map((c) => c.frase)
-    return { linhas, semArquivo, colisoes }
+    const juntadosPelaNormalizacao = codigosQueANormalizacaoJuntaria(indice.map((l) => l.codigo)).map((c) => c.frase)
+    return { linhas, semArquivo, juntadosPelaNormalizacao, mesmaDescricao: codigosComAMesmaDescricao(indice) }
 }
 
 // ── A CONFERÊNCIA DEPOIS DA IMPORTAÇÃO: a prova de que o slug casou ────────────────────────────────────────────────────────────

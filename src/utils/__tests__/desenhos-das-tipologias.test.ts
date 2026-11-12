@@ -7,7 +7,7 @@
 jest.mock('@/page-parts/atendimentos-ia/api', () => ({ chamarRota: jest.fn() }))
 import JSZip from 'jszip'
 import {
-    COLUNAS_DO_INDICE, TAMANHO_DO_LOTE, caminhoDoDesenho, codigoDpNormalizado, colisoesDoCodigo, conferirDesenhos, emLotes, grupoNoCaminho, lerCsv, lerIndice,
+    COLUNAS_DO_INDICE, TAMANHO_DO_LOTE, caminhoDoDesenho, codigoDpNormalizado, codigosComAMesmaDescricao, codigosQueANormalizacaoJuntaria, conferirDesenhos, emLotes, grupoNoCaminho, lerCsv, lerIndice,
     lerPedidoDoLote, linhasParaImportar, planoDoZip, resumoDoEnvio, tipoDaImagem, type LinhaDoIndice, type ResultadoDoEnvio,
 } from '@/lib/atendimentos-ia/desenhos-das-tipologias'
 
@@ -55,9 +55,17 @@ describe('o índice canônico', () => {
         expect([codigoDpNormalizado('DP-017'), codigoDpNormalizado(' dp-17 '), codigoDpNormalizado('DP-02'), codigoDpNormalizado('DP-120'), codigoDpNormalizado('')])
             .toEqual(['DP-17', 'DP-17', 'DP-2', 'DP-120', null])
     })
-    it('NÃO FUNDE EM SILÊNCIO: DP-017 e DP-17 são uma colisão NOMEADA, com os dois crus', () => {
-        expect(colisoesDoCodigo(['DP-017', 'DP-17', 'DP-17', 'DP-02'])).toEqual([{ normalizado: 'DP-17', crus: ['DP-017', 'DP-17'], frase: 'DP-017 e DP-17 caem no mesmo código normalizado (DP-17)' }])
-        expect(colisoesDoCodigo(['DP-02', 'DP-03'])).toEqual([])
+    it('NÃO FUNDE: DP-017 e DP-17 são códigos DIFERENTES que a normalização juntaria — nomeados, com os dois crus, nunca "colisão de grafia"', () => {
+        expect(codigosQueANormalizacaoJuntaria(['DP-017', 'DP-17', 'DP-17', 'DP-02'])).toEqual([{ normalizado: 'DP-17', crus: ['DP-017', 'DP-17'], frase: 'DP-017 e DP-17 são códigos diferentes que a normalização juntaria (DP-17)' }])
+        expect(codigosQueANormalizacaoJuntaria(['DP-02', 'DP-03'])).toEqual([])
+    })
+    it('a DUPLICATA REAL sai do dado: os códigos DP do principal com a MESMA descrição (DP-017 e DP-18, como no índice de 11/11/2026)', () => {
+        const D = 'JANELA DE CORRER 03 FOLHAS MÓVEIS | 02 VIDROS - 01 TELA | PEITORIL FIXO | EUROPA 42'
+        const ind = [L('z', 'a', 'PVC', { codigo: '*DP-017', descricao: D }), L('z', 'b', 'PVC', { codigo: '*DP-18', descricao: D }),
+            L('z', 'c', 'PVC', { codigo: '*DP-17', descricao: 'JANELA DE CORRER 03 FOLHAS MÓVEIS COM PERSIANA | 02 VIDROS - 01 TELA | EUROPA 42' }),
+            // a por_variavel e o código que não é DP não entram
+            L('z', 'd', 'PVC', { codigo: 'DP-19', descricao: D, fonte: 'por_variavel' }), L('z', 'e', 'Alumínio', { codigo: '30-FIX-01', descricao: D })]
+        expect(codigosComAMesmaDescricao(ind)).toEqual([`DP-017 e DP-18 têm a mesma descrição: "${D}"`])
     })
 })
 
@@ -271,7 +279,8 @@ describe('as linhas da importação', () => {
         expect(r.linhas[0]).toEqual({ fonte: 'por_variavel', grupo: 'PVC', codigo: 'DP-017', codigo_dp: 'DP-17', descricao: null, liberado_para_venda: null, condicao: '(N=1)', caminho_no_storage: 'tipologias/pvc/A.jpg' })
         expect(r.linhas[1]).toEqual(expect.objectContaining({ codigo: ' 30-FIX-01 ', codigo_dp: null, descricao: 'PAINEL', liberado_para_venda: false, condicao: null }))
         expect(r.linhas[2].liberado_para_venda).toBe(true)
-        expect(r.colisoes).toEqual(['DP-017 e DP-17 caem no mesmo código normalizado (DP-17)'])
+        expect(r.juntadosPelaNormalizacao).toEqual(['DP-017 e DP-17 são códigos diferentes que a normalização juntaria (DP-17)'])
+        expect(r.mesmaDescricao).toEqual([])
     })
     it('a linha sem arquivo nos zips: caminho NULO, e NOMEADA na lista — nunca pulada', () => {
         const r = linhasParaImportar([cab({ codigo: 'DP-99', caminho_no_zip: '', arquivo_indice: '00001__Y.png', condicao: '(N=2)' })])
