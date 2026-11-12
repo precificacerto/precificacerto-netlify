@@ -18,7 +18,7 @@
  *      com BIL50) e ignorando os espaços internos (IL50 casa com "IL 50"). O ITEM QUE É O PRODUTO vem antes de tudo: havendo descrição que COMEÇA
  *      com o nome, só elas contam — mesmo que a cor as recuse depois. Sem isso, o SF92 em Roxo (a folha "SF92 - FOLHA DE PORTA - BRANCO"
  *      recusada pela cor) caía no reforço "REFORÇO FOLHA SF92 AÇO GALVANIZADO", que passa no guarda pela palavra FOLHA (medido no caso Gerson
- *      Boss, 12/11/2026). Mais de um: prefere a descrição que NOMEIA A COR PEDIDA; depois, a que COMEÇA com o nome; depois, a que
+ *      Boss, 12/11/2026). Mais de um: prefere a descrição que COMEÇA com o nome; depois, a que
  *      tem mais palavras significativas em comum com a do motor (o BY60: 22321 tem VENEZIANA + JAPONESA, as cremalheiras só VENEZIANA). Empate:
  *      falta nomeada. Só vale para nome com letra: código só de números é código, não nome. A cor também conta aqui: o item que nomeia OUTRA
  *      cor da tabela do fornecedor não serve; sem cor pedida, o item que nomeia uma cor não serve (não se assume a cor dele). SEM A TABELA DE
@@ -288,13 +288,10 @@ export function resolverReferencia<I extends ItemResolvivel>(ref: ReferenciaProc
         if (como !== 'nome_tecnico') {
             return falta(ref, 'AMBIGUA', passam.map((item) => ({ item, porque: `${passam.length} itens no mesmo degrau (${ROTULO_DO_COMO[como]}): nenhum é escolhido` })))
         }
-        // o nome técnico com mais de um: a descrição que NOMEIA A COR PEDIDA vence a que não nomeia cor nenhuma (o 905320 "PRETO TEXTURADO"
-        // sobre o 90531 sem cor, numa esquadria preto texturado); depois, a que COMEÇA com o nome; depois, a de mais palavras em comum
-        const comAPedida = pedida === null ? [] : passam.filter((i) => corAfirmada(i.codigo, i.descricao, base, doGrupo(ctx), nome).por === 'sufixo' || ` ${descricaoNormalizada(i.descricao)} `.includes(` ${pedida} `))
-        const daCor = comAPedida.length ? comAPedida : passam
-        if (daCor.length === 1) return { achada: true, como, item: daCor[0] }
-        const noInicio = daCor.filter((i) => nomeTecnicoNaDescricao(nome, i.descricao).noInicio)
-        const restam = noInicio.length ? noInicio : daCor
+        // o nome técnico com mais de um (todos já afirmam a cor pedida — a hierarquia da cor recusou os outros): a descrição que COMEÇA com o
+        // nome; depois, a de mais palavras em comum
+        const noInicio = passam.filter((i) => nomeTecnicoNaDescricao(nome, i.descricao).noInicio)
+        const restam = noInicio.length ? noInicio : passam
         if (restam.length === 1) return { achada: true, como, item: restam[0] }
         const pontos = restam.map((i) => palavrasEmComum(motor, palavrasSignificativas(i.descricao, ctx.cores, nome)))
         const melhor = Math.max(...pontos)
