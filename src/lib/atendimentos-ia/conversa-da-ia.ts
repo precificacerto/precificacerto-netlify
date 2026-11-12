@@ -192,7 +192,7 @@ import { vidroPodado } from '@/lib/atendimentos-ia/vidro'
 import type { VariaveisDaTipologia } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import { compararNome, formaComparavel, nomeDaMensagem, nomeDoCliente, nomeSemPrefixo, normalizarNome } from '@/lib/atendimentos-ia/nome-do-levantamento'
 import { fraseDaCorForaDaLista, perguntasDaTipologia, type JaDito } from '@/lib/atendimentos-ia/pre-definicao'
-import { atributosNoLog, fraseDoPadraoQueFalta, padraoDaEsquadria, type AtributoAssumido } from '@/lib/atendimentos-ia/tipologia-padrao'
+import { atributosNoLog, fraseDoPadraoQueFalta, origemDaTipologiaProposta, padraoDaEsquadria, type AtributoAssumido } from '@/lib/atendimentos-ia/tipologia-padrao'
 import { PROMPT_BASE } from '@/utils/atendimentos-ia-prompt-base'
 import { LIMITE_DA_FALA } from '@/utils/atendimentos-ia-contexto'
 import { blocoDasInstrucoes, lerInstrucoesDaEmpresa, type InstrucaoDaCategoria } from '@/lib/atendimentos-ia/instrucoes-da-categoria'
@@ -1573,6 +1573,14 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         // O RASTRO DOS ATRIBUTOS (dono do produto, 12/11/2026): cada atributo que entrou por padrão, com o valor e a origem — nunca deduzido depois
         const assumidos = new Map<number, AtributoAssumido[]>()
         const assumir = (ordem: number, xs: readonly AtributoAssumido[]) => { if (xs.length > 0) assumidos.set(ordem, [...(assumidos.get(ordem) ?? []), ...xs]) }
+        // a tipologia que o MODELO pôs nesta mensagem (nova, ou trocada): dita só se o código está na mensagem; senão, escolha do modelo — a
+        // origem sem regra por trás, e por isso nomeada (dono do produto, 12/11/2026)
+        const tipologiaAntes = new Map(atuais.map((i) => [i.ordem, i.tipologia]))
+        for (const item of proposta_.itens) {
+            if (item.tipologia !== null && item.tipologia !== tipologiaAntes.get(item.ordem)) {
+                assumir(item.ordem, [{ atributo: 'tipologia', valor: item.tipologia, origem: origemDaTipologiaProposta(item.tipologia, c.texto) }])
+            }
+        }
         // o que o padrão NÃO resolve e se diz (11/11/2026): a linha sem padrão, as descrições que nada separa, a modulação da bandeira, a lacuna
         // do motor — por esquadria, nunca "sem padrão" mudo
         const faltasDoPadrao: Array<{ ordem: number; frase: string; motivo: string }> = []
@@ -1601,7 +1609,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             const vidro = proposta_.itens.find((i) => i.ordem === ordem)?.vidro
             if (typeof vidro === 'string') assumir(ordem, [{ atributo: 'vidro', valor: vidro, origem: 'base_de_conhecimento' }])
         }
-        for (const ordem of proposta_.quantidadesPadrao) assumir(ordem, [{ atributo: 'quantidade', valor: '1', origem: 'padrao_da_conversa' }])
+        for (const ordem of proposta_.quantidadesPadrao) assumir(ordem, [{ atributo: 'quantidade', valor: '1', origem: 'padrao_do_apanhado' }])
         // a família e o motor de cada esquadria, como ficam gravados: a resolvida e o motor do cálculo dela HOJE (PR D); e o AGRUPAMENTO
         // (03/11/2026): os itens completos e iguais viram um, com as unidades somadas
         // A QUANTIDADE DITA SUBSTITUI, NUNCA SOMA (06/11/2026): a esquadria da mensagem igual a uma GRAVADA é ela mesma — o agrupamento sabe quais já

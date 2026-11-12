@@ -186,9 +186,21 @@ const TIPO_NA_FRASE: Readonly<Record<string, string>> = { correr: 'de correr', a
  *   - `dito`: o vendedor disse (o trecho da esquadria);
  *   - `padrao_da_tipologia`: o natural da regra do padrão (o correr da porta sem tipo, a quantidade natural, o extra que a esquadria não tem);
  *   - `base_de_conhecimento`: a cor predominante, o vidro da instrução da categoria VIDRO;
- *   - `padrao_da_conversa`: a quantidade de unidades não dita (= 1, regra de 03/11/2026). Não é tipologia nem base; está separada para não mentir.
+ *   - `padrao_do_apanhado`: a quantidade de unidades não dita (= 1, regra de 03/11/2026) — um padrão da COLETA, não de uma tipologia (dono do
+ *     produto, 12/11/2026: "a quantidade 1 é justamente o que ele NÃO falou");
+ *   - `escolha_do_modelo`: a tipologia que o MODELO escolheu sem o vendedor dizer o código e sem o padrão do código. Não há regra por trás, e
+ *     é por isso que vai nomeada (dono do produto, 12/11/2026: "ausência de origem é informação [...] é a única que não tem regra para auditar").
  */
-export type OrigemDoAtributo = 'dito' | 'padrao_da_tipologia' | 'base_de_conhecimento' | 'padrao_da_conversa'
+export type OrigemDoAtributo = 'dito' | 'padrao_da_tipologia' | 'base_de_conhecimento' | 'padrao_do_apanhado' | 'escolha_do_modelo'
+
+/**
+ * A ORIGEM DA TIPOLOGIA QUE O MODELO PROPÔS: `dito` só quando o código está na mensagem como está (sem caixa, mas nunca normalizado — "DP-2"
+ * não é "DP-02": `codigo-do-motor-nao-se-normaliza.md`); fora disso, `escolha_do_modelo`.
+ */
+export function origemDaTipologiaProposta(codigo: string, mensagem: string): OrigemDoAtributo {
+    const escapado = codigo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    return new RegExp(`(^|[^0-9a-z-])${escapado}($|[^0-9a-z])`, 'i').test(mensagem) ? 'dito' : 'escolha_do_modelo'
+}
 export type AtributoAssumido = { atributo: string; valor: string; origem: OrigemDoAtributo }
 /** Os extras que o CONSIDERADO da folha sempre diz (com ou sem), e que o rastro diz do mesmo jeito. */
 export const EXTRAS_DO_CONSIDERADO = ['persiana', 'bandeira', 'peitoril'] as const

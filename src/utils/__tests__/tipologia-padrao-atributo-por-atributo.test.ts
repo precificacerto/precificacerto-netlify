@@ -5,7 +5,7 @@
  * As descrições são as do motor em uso (022fc55e, lidas em 11/11/2026, só leitura): o catálogo da plataforma, não dado de cliente.
  */
 import {
-    atributosDaDescricao, atributosDitos, atributosNoLog, oQueAEsquadriaE, padraoDaEsquadria, tipologiaPadrao, fraseDaLinhaSemPadrao, fraseDoPadraoQueFalta, naturalDaQuantidade, tipoCurto,
+    atributosDaDescricao, atributosDitos, atributosNoLog, oQueAEsquadriaE, origemDaTipologiaProposta, padraoDaEsquadria, tipologiaPadrao, fraseDaLinhaSemPadrao, fraseDoPadraoQueFalta, naturalDaQuantidade, tipoCurto,
 } from '@/lib/atendimentos-ia/tipologia-padrao'
 import { tiposDitos } from '@/lib/atendimentos-ia/tipologias-candidatas'
 import type { CandidatoDeTipologia } from '@/lib/atendimentos-ia/levantamento-da-conversa'
@@ -320,12 +320,27 @@ describe('O RASTRO DOS ATRIBUTOS (dono do produto, 12/11/2026): cada atributo da
         expect(lacuna.decisao).toMatchObject({ motivo: 'LACUNA' })
         expect(lacuna.atributos).toEqual([])
     })
+    it('a tipologia proposta: dita só com o código na mensagem, como está (sem caixa, nunca normalizado); fora disso, escolha_do_modelo', () => {
+        expect(origemDaTipologiaProposta('DP-02', 'janela DP-02 1200 x 1000')).toBe('dito')
+        expect(origemDaTipologiaProposta('DP-02', 'janela dp-02, 1200 x 1000')).toBe('dito')
+        expect(origemDaTipologiaProposta('DP-02', 'DP-02')).toBe('dito')
+        // o código do motor não se normaliza: DP-2 e DP-020 não são DP-02; DP-017 não é DP-17
+        expect(origemDaTipologiaProposta('DP-02', 'janela DP-2 1200 x 1000')).toBe('escolha_do_modelo')
+        expect(origemDaTipologiaProposta('DP-02', 'janela DP-020')).toBe('escolha_do_modelo')
+        expect(origemDaTipologiaProposta('DP-17', 'janela DP-017')).toBe('escolha_do_modelo')
+        // e a borda da frente: o código dentro de outro (XDP-02, 1-DP-02) não é o código dito
+        expect(origemDaTipologiaProposta('DP-02', 'janela XDP-02')).toBe('escolha_do_modelo')
+        expect(origemDaTipologiaProposta('DP-02', 'janela 1-DP-02')).toBe('escolha_do_modelo')
+        expect(origemDaTipologiaProposta('DP-02', 'janela de correr 1200 x 1000')).toBe('escolha_do_modelo')
+        // o código com caractere de expressão não quebra a busca
+        expect(origemDaTipologiaProposta('DP-1(2)', 'janela DP-1(2)')).toBe('dito')
+    })
     it('no log: por esquadria em ordem, o valor sem espaço/vírgula/igual/barra, e "-" quando nada foi assumido', () => {
         expect(atributosNoLog(new Map())).toBe('-')
         expect(atributosNoLog(new Map([[2, []]]))).toBe('-')
         expect(atributosNoLog(new Map([
-            [2, [{ atributo: 'quantidade', valor: '1', origem: 'padrao_da_conversa' as const }]],
+            [2, [{ atributo: 'quantidade', valor: '1', origem: 'padrao_do_apanhado' as const }]],
             [1, [{ atributo: 'vidro', valor: ' incolor 8 mm, a=b/c; x ', origem: 'base_de_conhecimento' as const }, { atributo: 'cor', valor: 'Branco', origem: 'base_de_conhecimento' as const }]],
-        ]))).toBe('e1:vidro=incolor_8_mm_a_b_c_x/base_de_conhecimento;cor=Branco/base_de_conhecimento,e2:quantidade=1/padrao_da_conversa')
+        ]))).toBe('e1:vidro=incolor_8_mm_a_b_c_x/base_de_conhecimento;cor=Branco/base_de_conhecimento,e2:quantidade=1/padrao_do_apanhado')
     })
 })

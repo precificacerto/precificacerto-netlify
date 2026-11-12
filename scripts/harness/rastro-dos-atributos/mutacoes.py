@@ -31,14 +31,23 @@ MUTACOES = [
     ('R12', 'o comRastro registra também o motivo', [(TP, "        if (!('tipologia' in d)) return d\n        const escolhida", "        const escolhida")]),
     ('R13', 'a cor da base não entra no rastro', [(CONV, "                assumir(item.ordem, [{ atributo: 'cor', valor: corPredominante, origem: 'base_de_conhecimento' }])\n", "")]),
     ('R14', 'o vidro da instrução não entra no rastro', [(CONV, "            if (typeof vidro === 'string') assumir(ordem, [{ atributo: 'vidro', valor: vidro, origem: 'base_de_conhecimento' }])", "            void vidro")]),
-    ('R15', 'a quantidade da conversa não entra no rastro', [(CONV, "        for (const ordem of proposta_.quantidadesPadrao) assumir(ordem, [{ atributo: 'quantidade', valor: '1', origem: 'padrao_da_conversa' }])\n", "")]),
-    ('R16', 'a quantidade da conversa vira padrão da tipologia (a origem que mente)', [(CONV, "valor: '1', origem: 'padrao_da_conversa' }", "valor: '1', origem: 'padrao_da_tipologia' }")]),
+    ('R15', 'a quantidade da conversa não entra no rastro', [(CONV, "        for (const ordem of proposta_.quantidadesPadrao) assumir(ordem, [{ atributo: 'quantidade', valor: '1', origem: 'padrao_do_apanhado' }])\n", "")]),
+    ('R16', 'a quantidade da conversa vira padrão da tipologia (a origem que mente)', [(CONV, "valor: '1', origem: 'padrao_do_apanhado' }", "valor: '1', origem: 'padrao_da_tipologia' }")]),
     ('R17', 'a montagem não diz em que esquadria o vidro padrão entrou', [(MON, "vidrosPadrao += 1; vidrosPadraoNas.push(alvo.ordem) }", "vidrosPadrao += 1 }")]),
     ('R18', 'a tipologia do padrão não registra os atributos', [(CONV, "                    assumir(item.ordem, atributos)\n", "")]),
     ('R19', 'o casar não leva os assumidos', [(CONV, "            + ` assumidos=${atributosNoLog(assumidos)}`\n", "")]),
     ('R20', 'o valor no log mantém o espaço', [(TP, "    const limpo = (v: string) => v.trim().replace(/[\\s,;=/]+/g, '_')", "    const limpo = (v: string) => v.trim()")]),
     ('R21', 'o log fora de ordem', [(TP, ".filter(([, xs]) => xs.length > 0).sort(([a], [b]) => a - b)", ".filter(([, xs]) => xs.length > 0)")]),
     ('R22', 'a esquadria sem atributo aparece vazia', [(TP, ".filter(([, xs]) => xs.length > 0).sort(", ".sort(")]),
+    # a origem da tipologia proposta (12/11/2026): escolha_do_modelo, nomeada
+    ('R23', 'a tipologia do modelo vira sempre dita', [(TP, "test(mensagem) ? 'dito' : 'escolha_do_modelo'", "test(mensagem) ? 'dito' : 'dito'")]),
+    ('R24', 'a tipologia dita vira sempre escolha do modelo', [(TP, "test(mensagem) ? 'dito' : 'escolha_do_modelo'", "test(mensagem) ? 'escolha_do_modelo' : 'escolha_do_modelo'")]),
+    ('R25', 'a borda da frente aceita dígito e hífen (DP-017 casa DP-17)', [(TP, "(^|[^0-9a-z-])${escapado}", "${escapado}")]),
+    ('R26', 'a borda de trás some (DP-020 casa DP-02)', [(TP, "${escapado}($|[^0-9a-z])`", "${escapado}`")]),
+    ('R27', 'o código não é escapado', [(TP, "    const escapado = codigo.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&')", "    const escapado = codigo")]),
+    ('R28', 'a caixa conta (dp-02 não é dito)', [(TP, "($|[^0-9a-z])`, 'i')", "($|[^0-9a-z])`)")]),
+    ('R29', 'a tipologia gravada que não mudou volta ao rastro', [(CONV, "if (item.tipologia !== null && item.tipologia !== tipologiaAntes.get(item.ordem)) {", "if (item.tipologia !== null) {")]),
+    ('R30', 'a tipologia do modelo some do rastro', [(CONV, "                assumir(item.ordem, [{ atributo: 'tipologia', valor: item.tipologia, origem: origemDaTipologiaProposta(item.tipologia, c.texto) }])\n", "")]),
 ]
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from trecho_unico import exigir_trecho_unico  # a mutação que não se aplica aborta (mutacao-que-nao-se-aplica.md)
