@@ -46,7 +46,7 @@ const AS_DA_IMPORTACAO = [
     'orcamentista_motor_formula_familia', 'orcamentista_importacao',
 ]
 /** As funções que só `service_role` executa. */
-const AS_FUNCOES = ['importar_conteudo_da_tabela']
+const AS_FUNCOES = ['importar_conteudo_da_tabela', 'superadmin_importar_tabela']
 
 /** Importa o cliente do Supabase — por alias, por caminho relativo, ou o pacote direto. */
 export function importaOClienteDoSupabase(texto: string): boolean {
@@ -116,8 +116,11 @@ describe('PORTÃO 1 — a tela do Atendimentos I.A. não fala com o banco', () =
         expect(culpados).toEqual([])
     })
 
-    it('(c2) o leitor alcança a importação: o repositório chama a função, e a rota existe', () => {
-        expect(chamaUmaFuncaoDoServidor(fs.readFileSync(path.join(SRC, 'lib', 'atendimentos-ia', 'repositorio.ts'), 'utf8'))).toBe('importar_conteudo_da_tabela')
+    it('(c2) o leitor alcança a importação: o repositório chama a função (desde 12/11/2026, SÓ a de fora, superadmin_importar_tabela), e a rota existe', () => {
+        const repositorio = fs.readFileSync(path.join(SRC, 'lib', 'atendimentos-ia', 'repositorio.ts'), 'utf8')
+        expect(chamaUmaFuncaoDoServidor(repositorio)).toBe('superadmin_importar_tabela')
+        // o caminho por fora (a de dentro chamada direto) saiu do código: é o que a 20261112000005 corta no banco
+        expect(repositorio).not.toMatch(/\.rpc\(\s*['"`]importar_conteudo_da_tabela/)
         expect(fs.existsSync(path.join(SRC, 'pages', 'api', 'super-admin', 'atendimentos-ia', 'tabelas', '[id]', 'importar.ts'))).toBe(true)
     })
 

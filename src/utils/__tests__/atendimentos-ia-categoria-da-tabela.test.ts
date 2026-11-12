@@ -28,7 +28,7 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 
 import {
     MENSAGEM_CATEGORIA_OBRIGATORIA, ROTAS_DO_CATALOGO, ehChaveDeCategoria, fraseDaCategoriaDesconhecida, fraseDaCategoriaQueNaoSeTroca,
-    fraseDoArquivoDaTabelaImportada, lerCorpoDaTabela, lerEdicaoDaTabela, recusada,
+    lerCorpoDaTabela, lerEdicaoDaTabela, recusada,
 } from '@/utils/atendimentos-ia-catalogo'
 import {
     categoriasDoFornecedorNosItens, fraseDaTabelaComMaisDeUmaCategoria, fraseDoArquivoComMaisDeUmaCategoria, fraseDosItensSemCategoriaDoFornecedor,
@@ -313,48 +313,45 @@ describe('(4) a contagem das categorias do arquivo e a frase da recusa', () => {
     })
 })
 
-describe('(5) PATCH /tabelas/[id] — o ARQUIVO da tabela já importada NÃO se troca (29/10/2026)', () => {
+describe('(5) PATCH /tabelas/[id] — o ARQUIVO se troca NO MESMO LUGAR, pela importação (dono do produto, 12/11/2026)', () => {
     const patch = (corpo: object) => chamar('tabela', 'PATCH', { id: T }, corpo)
     const NOVO_ARQUIVO = { arquivo_path: `${F}/arquivo/u2-Perfis_de_PVC_-_Wolff.xlsx`, arquivo_nome: 'Perfis_de_PVC_-_Wolff.xlsx' }
+    const removidos = () => repo.removerObjetos.mock.calls.flatMap((c) => c[0] as string[])
 
-    it('a tabela com itens importados (a da Wolff: 735): trocar o arquivo é 409 com a frase, e NADA é gravado nem apagado — o arquivo de antes fica', async () => {
+    it('a tabela com itens (a da Wolff: 735): a troca NÃO é recusada — o arquivo novo volta PENDENTE, e a linha não muda', async () => {
         repo.contarItensDaTabela.mockImplementation(async () => 735)
         const r = await patch(NOVO_ARQUIVO)
-        expect(r).toEqual({ status: 409, json: { error: fraseDoArquivoDaTabelaImportada(735) } })
-        expect(repo.atualizarTabela).not.toHaveBeenCalled()
-        // o objeto de antes NUNCA é removido: foi o que a rota fez com o .xlsm da Wolff
-        const removidos = repo.removerObjetos.mock.calls.flatMap((c) => c[0] as string[])
-        expect(removidos).not.toContain(TABELA_SEM.arquivo_path)
-    })
-
-    it('com a categoria junto (o pedido de 29/10/2026): a recusa é a do ARQUIVO, e as categorias dos itens gravados nem são lidas', async () => {
-        repo.contarItensDaTabela.mockImplementation(async () => 735)
-        repo.categoriasDoFornecedorDosItensGravados.mockImplementation(async () => ['Perfil PVC', 'Reforço', 'Acessórios'])
-        const r = await patch({ ...NOVO_ARQUIVO, categoria_chave: 'PERFIL' })
-        expect(r).toEqual({ status: 409, json: { error: fraseDoArquivoDaTabelaImportada(735) } })
-        expect(repo.categoriasDoFornecedorDosItensGravados).not.toHaveBeenCalled()
+        expect(r).toEqual({ status: 200, json: { ok: true, arquivo_pendente: { path: NOVO_ARQUIVO.arquivo_path, nome: NOVO_ARQUIVO.arquivo_nome } } })
+        // a linha só troca o arquivo junto com os itens, na importação (superadmin_importar_tabela)
         expect(repo.atualizarTabela).not.toHaveBeenCalled()
     })
 
-    it('a frase diz quantos itens, que nada foi alterado e o caminho: tabela nova — no singular e no plural', () => {
-        expect(fraseDoArquivoDaTabelaImportada(735)).toBe('Esta tabela já tem 735 itens importados do arquivo de antes: o arquivo dela não se troca. Para um arquivo novo, cadastre uma tabela nova do fornecedor, com a categoria dele. Nada foi alterado.')
-        expect(fraseDoArquivoDaTabelaImportada(1)).toContain('1 item importado do arquivo de antes')
-        expect(fraseDoArquivoDaTabelaImportada(12116)).toContain('12.116 itens')
+    it('o arquivo de ANTES nunca sai do bucket (o incidente de 29/10/2026) — nem na tabela com itens, nem na sem itens', async () => {
+        repo.contarItensDaTabela.mockImplementation(async () => 735)
+        await patch(NOVO_ARQUIVO)
+        repo.contarItensDaTabela.mockImplementation(async () => 0)
+        await patch(NOVO_ARQUIVO)
+        expect(removidos()).not.toContain(TABELA_SEM.arquivo_path)
+        expect(removidos()).not.toContain(NOVO_ARQUIVO.arquivo_path)
     })
 
-    it('o contraste: a tabela SEM itens importados troca o arquivo como antes — grava o novo e remove o de antes', async () => {
-        const r = await patch(NOVO_ARQUIVO)
+    it('com outras edições junto (a vigência): elas gravam, e o arquivo continua pendente', async () => {
+        const r = await patch({ ...NOVO_ARQUIVO, vigencia: 'desde 12/11/2026' })
         expect(r.status).toBe(200)
-        expect(repo.contarItensDaTabela).toHaveBeenCalledWith(T)
-        expect(repo.atualizarTabela).toHaveBeenCalledWith(T, NOVO_ARQUIVO)
-        expect(repo.removerObjetos.mock.calls.flatMap((c) => c[0] as string[])).toContain(TABELA_SEM.arquivo_path)
+        expect(repo.atualizarTabela).toHaveBeenCalledWith(T, { vigencia: 'desde 12/11/2026' })
+        expect(r.json.arquivo_pendente).toEqual({ path: NOVO_ARQUIVO.arquivo_path, nome: NOVO_ARQUIVO.arquivo_nome })
     })
 
-    it('as outras edições da tabela importada seguem livres, e nem contam os itens (só a troca do arquivo conta)', async () => {
-        repo.contarItensDaTabela.mockImplementation(async () => 735)
+    it('o arquivo novo que não chegou ao bucket é recusado (400) — a pendência só existe para o que está lá', async () => {
+        repo.objetoExiste.mockImplementationOnce(async () => false)
+        const r = await patch(NOVO_ARQUIVO)
+        expect(r.status).toBe(400)
+        expect(r.json.error).toContain('não chegou ao armazenamento')
+    })
+
+    it('a edição sem arquivo não traz pendência nenhuma', async () => {
         const r = await patch({ vigencia: 'desde 01/11/2026' })
-        expect(r.status).toBe(200)
-        expect(repo.contarItensDaTabela).not.toHaveBeenCalled()
+        expect(r).toEqual({ status: 200, json: { ok: true } })
     })
 })
 
@@ -368,10 +365,10 @@ describe('(6) a edição RECUSADA tira do bucket o arquivo que a tela acabou de 
         repo.caminhosDaPlanilha.mockImplementation(async () => new Set<string>())
     })
 
-    it('recusada pelo arquivo da tabela importada: o ENVIADO sai, o de antes fica — e a resposta é a recusa', async () => {
-        repo.contarItensDaTabela.mockImplementation(async () => 735)
-        const r = await patch(NOVO_ARQUIVO)
-        expect(r).toEqual({ status: 409, json: { error: fraseDoArquivoDaTabelaImportada(735) } })
+    it('recusada (a categoria que não se troca): o ENVIADO sai, o de antes fica — e a resposta é a recusa', async () => {
+        repo.obterTabela.mockImplementation(async () => ({ ...TABELA_SEM, categoria_chave: 'PERFIL' }))
+        const r = await patch({ ...NOVO_ARQUIVO, categoria_chave: 'VIDRO' })
+        expect(r.status).toBe(409)
         expect(removidos()).toEqual([ENVIADO])
     })
 
@@ -385,29 +382,30 @@ describe('(6) a edição RECUSADA tira do bucket o arquivo que a tela acabou de 
         expect(removidos()).toEqual([ENVIADO])
         repo.removerObjetos.mockClear()
         repo.atualizarTabela.mockRejectedValueOnce(new ErroDoBanco({ code: 'XX000', message: 'falhou' }))
-        expect((await patch(NOVO_ARQUIVO)).status).toBe(500)
+        expect((await patch({ ...NOVO_ARQUIVO, vigencia: 'x' })).status).toBe(500)
         expect(removidos()).toEqual([ENVIADO])
     })
 
     it('o enviado que ALGUÉM referencia (outra tabela ou uma planilha do motor) NÃO sai — o corpo não apaga arquivo dos outros', async () => {
-        repo.contarItensDaTabela.mockImplementation(async () => 735)
+        repo.obterTabela.mockImplementation(async () => ({ ...TABELA_SEM, categoria_chave: 'PERFIL' }))
+        const recusada = { ...NOVO_ARQUIVO, categoria_chave: 'VIDRO' }
         repo.caminhosDeTabela.mockImplementation(async () => new Set([ENVIADO]))
-        await patch(NOVO_ARQUIVO)
+        expect((await patch(recusada)).status).toBe(409)
         repo.caminhosDeTabela.mockImplementation(async () => new Set<string>())
         repo.caminhosDaPlanilha.mockImplementation(async () => new Set([ENVIADO]))
-        await patch(NOVO_ARQUIVO)
+        expect((await patch(recusada)).status).toBe(409)
         expect(removidos()).toEqual([])
     })
 
     it('a conferência de quem usa FALHOU: nada sai (órfão é desperdício; arquivo de tabela apagado é perda), e a resposta segue a recusa', async () => {
-        repo.contarItensDaTabela.mockImplementation(async () => 735)
+        repo.obterTabela.mockImplementation(async () => ({ ...TABELA_SEM, categoria_chave: 'PERFIL' }))
         repo.caminhosDeTabela.mockRejectedValueOnce(new Error('caiu'))
-        const r = await patch(NOVO_ARQUIVO)
+        const r = await patch({ ...NOVO_ARQUIVO, categoria_chave: 'VIDRO' })
         expect(r.status).toBe(409)
         expect(removidos()).toEqual([])
     })
 
-    it('a edição ACEITA não tira o enviado (é o arquivo novo da tabela); a recusada SEM arquivo não remove nada', async () => {
+    it('a edição ACEITA não tira o enviado (é o arquivo novo da tabela, pendente da importação); a recusada SEM arquivo não remove nada', async () => {
         expect((await patch(NOVO_ARQUIVO)).status).toBe(200)
         expect(removidos()).not.toContain(ENVIADO)
         repo.removerObjetos.mockClear()

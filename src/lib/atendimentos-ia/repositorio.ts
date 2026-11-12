@@ -278,19 +278,22 @@ export async function obterTabela(id: string): Promise<{ id: string; fornecedor_
 }
 
 /** Os dois arquivos da tabela — caminho no bucket e nome original —, para a importação. */
-export async function obterArquivosDaTabela(id: string): Promise<{ id: string; arquivo_path: string; arquivo_nome: string; motor_path: string | null; motor_nome: string | null; categoria_chave: string | null } | null> {
-    const ts = await q(db().from('orcamentista_tabela').select('id, arquivo_path, arquivo_nome, motor_path, motor_nome, categoria_chave').eq('id', id))
-    return (ts[0] as { id: string; arquivo_path: string; arquivo_nome: string; motor_path: string | null; motor_nome: string | null; categoria_chave: string | null } | undefined) ?? null
+export async function obterArquivosDaTabela(id: string): Promise<{ id: string; fornecedor_id: string; arquivo_path: string; arquivo_nome: string; motor_path: string | null; motor_nome: string | null; categoria_chave: string | null } | null> {
+    const ts = await q(db().from('orcamentista_tabela').select('id, fornecedor_id, arquivo_path, arquivo_nome, motor_path, motor_nome, categoria_chave').eq('id', id))
+    return (ts[0] as { id: string; fornecedor_id: string; arquivo_path: string; arquivo_nome: string; motor_path: string | null; motor_nome: string | null; categoria_chave: string | null } | undefined) ?? null
 }
 
 /**
- * A gravação da importação: UMA chamada à função `importar_conteudo_da_tabela`
- * (`20261020000002`), que apaga e insere as quatro tabelas de conteúdo e grava o registro numa
- * transação só. Devolve as contagens que a função gravou.
+ * A IMPORTAÇÃO NO MESMO LUGAR (dono do produto, 12/11/2026; migração `20261112000003`, aplicada): UMA chamada a `superadmin_importar_tabela`,
+ * que trava a tabela, conta antes, recusa ENCOLHER sem `p_permitir_encolher` (23514), chama `importar_conteudo_da_tabela`, confere depois, troca
+ * o arquivo (quando vem `arquivo`) e loga com o sha256 e quem importou — numa transação só. Devolve o que a de dentro devolve, mais
+ * `itens_antes`, `itens_depois`, `sha256` e `arquivo_trocado`.
  */
-/** As contagens que a função gravou: as quatro tabelas de sempre e as nove abas, pela chave do payload. */
-export async function importarConteudo(tabelaId: string, payload: unknown): Promise<{ importacao_id: string; itens: number; regras: number; tipologias: number; formulas: number } & Record<string, number | string>> {
-    return q(db().rpc('importar_conteudo_da_tabela', { p_tabela_id: tabelaId, p_payload: payload }))
+export async function importarTabela(entrada: { por: string; tabelaId: string; sha256: string; payload: unknown; permitirEncolher: boolean; arquivo: { path: string; nome: string } | null }): Promise<{ importacao_id: string; itens: number; regras: number; tipologias: number; formulas: number; itens_antes: number; itens_depois: number; sha256: string; arquivo_trocado: boolean } & Record<string, number | string | boolean>> {
+    return q(db().rpc('superadmin_importar_tabela', {
+        p_por: entrada.por, p_tabela_id: entrada.tabelaId, p_sha256: entrada.sha256, p_payload: entrada.payload,
+        p_permitir_encolher: entrada.permitirEncolher, p_arquivo_path: entrada.arquivo?.path ?? null, p_arquivo_nome: entrada.arquivo?.nome ?? null,
+    }))
 }
 
 /** A tabela, para a tela da importação: os nomes dos arquivos e o fornecedor. Sem os caminhos do bucket. */

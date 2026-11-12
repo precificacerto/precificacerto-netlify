@@ -308,16 +308,17 @@ describe('PORTÃO — o objeto que uma PLANILHA do motor também usa NÃO se rem
         expect(r.json.aviso).toContain(MOTOR)
     })
 
-    it('trocar o arquivo de PREÇO continua apagando o antigo: a planilha não o usa', async () => {
+    it('trocar o arquivo de PREÇO NÃO apaga o antigo (dono do produto, 12/11/2026): ele fica guardado, e o novo fica pendente da importação', async () => {
         const r = await chamar('tabela', 'PATCH', { id: T }, { arquivo_path: `${F}/arquivo/novo-t.xlsx`, arquivo_nome: 'novo.xlsx' })
         expect(r.status).toBe(200)
-        expect(repo.removerObjetos).toHaveBeenCalledWith([ARQUIVO])
+        expect(repo.removerObjetos.mock.calls.flatMap((c: any[]) => c[0] as string[])).not.toContain(ARQUIVO)
         expect(r.json.aviso).toBeUndefined()
+        expect(r.json.arquivo_pendente).toEqual({ path: `${F}/arquivo/novo-t.xlsx`, nome: 'novo.xlsx' })
     })
 
-    it('a conferência é feita DEPOIS de a linha nova ser gravada, e a pergunta leva os dois caminhos trocados', async () => {
+    it('a conferência é feita DEPOIS de a linha nova ser gravada, e a pergunta leva SÓ o motor trocado (o arquivo de preço nunca sai)', async () => {
         await chamar('tabela', 'PATCH', { id: T }, { arquivo_path: `${F}/arquivo/novo-t.xlsx`, arquivo_nome: 'novo.xlsx', motor_path: `${F}/motor/novo-m.xlsx`, motor_nome: 'novo-m.xlsx' })
-        expect(repo.caminhosDaPlanilha).toHaveBeenCalledWith([ARQUIVO, MOTOR])
+        expect(repo.caminhosDaPlanilha).toHaveBeenCalledWith([MOTOR])
         expect(ordem.indexOf('atualizarTabela')).toBeLessThan(ordem.indexOf('caminhosDaPlanilha'))
         expect(ordem.indexOf('caminhosDaPlanilha')).toBeLessThan(ordem.indexOf('removerObjetos'))
     })
@@ -330,13 +331,12 @@ describe('PORTÃO — o objeto que uma PLANILHA do motor também usa NÃO se rem
         expect(r.json.aviso).toContain('nada foi removido')
     })
 
-    it('Storage que falha no que PODIA ser removido ainda avisa o órfão — junto com o que ficou', async () => {
-        planilhaUsa(MOTOR)
+    it('Storage que falha no que PODIA ser removido (o motor de antes, que ninguém usa) ainda avisa o órfão', async () => {
         repo.removerObjetos.mockImplementationOnce(async () => { ordem.push('removerObjetos'); return { erro: 'storage fora' } })
         const r = await chamar('tabela', 'PATCH', { id: T }, { arquivo_path: `${F}/arquivo/novo-t.xlsx`, arquivo_nome: 'novo.xlsx', motor_path: `${F}/motor/novo-m.xlsx`, motor_nome: 'novo-m.xlsx' })
         expect(r.status).toBe(200)
-        expect(r.json.aviso).toContain(`ficaram sem uso: ${ARQUIVO}`)
-        expect(r.json.aviso).toContain(`Mantido no armazenamento, porque uma planilha do motor usa o mesmo arquivo: ${MOTOR}`)
+        expect(r.json.aviso).toContain(`ficaram sem uso: ${MOTOR}`)
+        expect(r.json.aviso).not.toContain(ARQUIVO)
     })
 })
 

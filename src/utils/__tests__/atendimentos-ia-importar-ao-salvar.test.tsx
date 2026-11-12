@@ -167,8 +167,8 @@ describe('(1)(2)(3) a página do fornecedor: salvar com arquivo leva à Importa�
         expect(pedidos.some((p) => p.startsWith('POST') && p.includes('/importar'))).toBe(false)
     })
 
-    it('(2) EDIÇÃO com troca de arquivo: PATCH com o arquivo, e vai para a Importação com o disparo', async () => {
-        responder(`PATCH ${ROTAS_DO_CATALOGO.tabela(T)}`, { status: 200, body: { ok: true } })
+    it('(2) EDIÇÃO com troca de arquivo: PATCH com o arquivo, e vai para a Importação com o disparo e o arquivo PENDENTE (12/11/2026)', async () => {
+        responder(`PATCH ${ROTAS_DO_CATALOGO.tabela(T)}`, { status: 200, body: { ok: true, arquivo_pendente: { path: 'f1/arquivo/x', nome: 'novo.xlsx' } } })
         const host = await montar(<PaginaDoFornecedor />)
         await clicar(botao(host, 'Editar'))
         await escolherArquivo(XLSX)
@@ -177,7 +177,7 @@ describe('(1)(2)(3) a página do fornecedor: salvar com arquivo leva à Importa�
         expect(pedidos).toContain(`PATCH ${ROTAS_DO_CATALOGO.tabela(T)}`)
         const corpo = JSON.parse(((globalThis.fetch as jest.Mock).mock.calls.find(([u, i]) => u === ROTAS_DO_CATALOGO.tabela(T) && i?.method === 'PATCH') as [string, { body: string }])[1].body)
         expect(corpo.arquivo_path).toBe('f1/arquivo/x')
-        expect(pushes).toEqual([telaDaImportacao(T, true)])
+        expect(pushes).toEqual([telaDaImportacao(T, true, { path: 'f1/arquivo/x', nome: 'novo.xlsx' })])
     })
 
     it('(2) EDIÇÃO sem trocar o arquivo (só a vigência): PATCH sem arquivo, fica na página e a lista é relida — nada vai à Importação', async () => {
@@ -371,5 +371,62 @@ describe('(8) o credenciamento no nicho NÃO importa ao salvar', () => {
         expect(pedidos).toContain(`POST ${ROTAS_DO_CATALOGO.tabelas}`)
         expect(pedidos.some((p) => p.startsWith('POST') && p.includes('/importar'))).toBe(false)
         expect(pushes).toEqual([])
+    })
+})
+
+describe('(9) a TROCA NO MESMO LUGAR na tela de Importação: prévia, confirmação e permissão de encolher (dono do produto, 12/11/2026)', () => {
+    const PENDENTE = { path: 'f1/arquivo/y-novo.xlsx', nome: 'novo.xlsx' }
+    const PREVIA = { antes: 5, entram: 4, ficam: 3, novos: 1, saem: ['A1', 'B2'], encolhe: true, frase: 'Entram 4, saem 2, ficam 3 (1 código novo).', sha256: 'a'.repeat(64), arquivo_nome: 'novo.xlsx', arquivo_trocado: true }
+    const corposDoImportar = () => (globalThis.fetch as jest.Mock).mock.calls
+        .filter(([u, i]) => u === ROTAS_DO_CATALOGO.importacao(T) && i?.method === 'POST').map(([, i]) => JSON.parse(i.body))
+    beforeEach(() => { consulta = { id: T, [PARAMETRO_IMPORTAR_AO_ABRIR]: '1', arquivo_path: PENDENTE.path, arquivo_nome: PENDENTE.nome } })
+
+    it('abre com o arquivo pendente: pede a prévia LEVANDO o arquivo, e mostra "entram, saem, ficam" com TODOS os códigos que saem — nada gravado', async () => {
+        responder(POST_IMPORTAR, { status: 200, body: { previa: PREVIA } })
+        const host = await montar(<PaginaDaImportacao />)
+        expect(corposDoImportar()).toEqual([{ arquivo_path: PENDENTE.path, arquivo_nome: PENDENTE.nome }])
+        expect(replaces).toEqual([telaDaImportacao(T)])
+        expect(host.querySelector('[data-frase-da-previa]')?.textContent).toBe(PREVIA.frase)
+        expect(host.querySelector('[data-codigos-que-saem]')?.textContent).toContain('A1, B2')
+        expect(host.querySelector('[data-previa-da-troca]')?.textContent).toContain('nada foi gravado ainda')
+    })
+
+    it('encolhe: "Confirmar a troca" fica desligado até a caixa ser marcada; confirmada, vai com o sha256 da prévia, a permissão e o arquivo', async () => {
+        responder(POST_IMPORTAR, { status: 200, body: { previa: PREVIA } }, { status: 200, body: { importacao_id: 'imp-2', previa: PREVIA, contagens: { itens: 4 }, avisos: [] } })
+        const host = await montar(<PaginaDaImportacao />)
+        const confirmar = () => host.querySelector('[data-confirmar-a-troca]') as HTMLButtonElement
+        expect(confirmar().disabled).toBe(true)
+        const caixa = host.querySelector('[data-previa-da-troca] input[type=checkbox]') as HTMLInputElement
+        await clicar(caixa)
+        expect(confirmar().disabled).toBe(false)
+        await clicar(confirmar())
+        expect(corposDoImportar()[1]).toEqual({ arquivo_path: PENDENTE.path, arquivo_nome: PENDENTE.nome, confirmar: true, sha256: PREVIA.sha256, permitir_encolher: true })
+        expect(host.querySelector('[data-previa-da-troca]')).toBeNull()
+    })
+
+    it('a troca que não encolhe confirma sem a caixa, e a caixa nem aparece', async () => {
+        responder(POST_IMPORTAR, { status: 200, body: { previa: { ...PREVIA, entram: 6, encolhe: false } } }, { status: 200, body: { importacao_id: 'imp-3', contagens: {}, avisos: [] } })
+        const host = await montar(<PaginaDaImportacao />)
+        expect(host.querySelector('[data-previa-da-troca] input[type=checkbox]')).toBeNull()
+        await clicar(host.querySelector('[data-confirmar-a-troca]') as HTMLButtonElement)
+        expect(corposDoImportar()[1]).toEqual(expect.objectContaining({ confirmar: true, permitir_encolher: false }))
+    })
+
+    it('"Cancelar" não grava nada: nenhum POST a mais, e a prévia sai da tela', async () => {
+        responder(POST_IMPORTAR, { status: 200, body: { previa: PREVIA } })
+        const host = await montar(<PaginaDaImportacao />)
+        await clicar(host.querySelector('[data-cancelar-a-troca]') as HTMLButtonElement)
+        expect(corposDoImportar()).toHaveLength(1)
+        expect(host.querySelector('[data-previa-da-troca]')).toBeNull()
+    })
+
+    it('a confirmação recusada (o arquivo mudou) mostra o motivo e a prévia NOVA, que continua confirmável', async () => {
+        const nova = { ...PREVIA, sha256: 'b'.repeat(64), frase: 'Entram 4, saem 1, ficam 3.' }
+        responder(POST_IMPORTAR, { status: 200, body: { previa: PREVIA } }, { status: 409, body: { error: 'O arquivo não é mais o da prévia', previa: nova } })
+        const host = await montar(<PaginaDaImportacao />)
+        await clicar(host.querySelector('[data-previa-da-troca] input[type=checkbox]') as HTMLInputElement)
+        await clicar(host.querySelector('[data-confirmar-a-troca]') as HTMLButtonElement)
+        expect(host.querySelector('[data-erro-da-importacao]')?.textContent).toContain('O arquivo não é mais o da prévia')
+        expect(host.querySelector('[data-frase-da-previa]')?.textContent).toBe(nova.frase)
     })
 })

@@ -11,10 +11,15 @@
  *        itens gravados têm mais de uma categoria do fornecedor NÃO pode declarar uma só (409, nomeando as que
  *        achou): é o caso da Wolff, que fica como está até o dono do produto decidir. O arquivo do motor é opcional em
  *        toda categoria (27/10/2026, à noite: o motor mora na família), e na edição ele troca inteiro e não se apaga.
- *        O ARQUIVO DA TABELA JÁ IMPORTADA NÃO SE TROCA (dono do produto, 29/10/2026): com algum item gravado, trocar o arquivo é 409, que manda
- *        criar tabela nova — antes de gravar e de apagar qualquer coisa. Em 29/10/2026, às 16:07, uma edição trocou o arquivo da tabela da
- *        Wolff (735 itens) e esta rota apagou o .xlsm original (a cópia do dono do produto o recuperou). E a edição RECUSADA tira do bucket o
- *        arquivo que a tela acabou de enviar, se ninguém o referencia (`descartarEnvioRecusado`).
+ *        O ARQUIVO SE TROCA NO MESMO LUGAR (dono do produto, 12/11/2026: "atualizar a tabela de um fornecedor é trocar o arquivo da tabela que
+ *        já existe, no mesmo lugar. Não se cria tabela nova a cada reajuste e não se exclui a antiga"). A recusa de 29/10/2026 ("o arquivo dela
+ *        não se troca; cadastre uma tabela nova") SAIU: ela mandava fazer a única coisa que não se pode — uma segunda tabela no mesmo grupo
+ *        (fornecedor + família + categoria) deixaria duas e nenhuma vigente, e `derivarTabelasDaConta` deixaria de achar o preço da categoria.
+ *        A edição NÃO grava o arquivo novo na linha: devolve-o como `arquivo_pendente`, e a tela leva à Importação, que lê dele, mostra a
+ *        prévia (entram, saem, ficam) e, confirmada, troca o arquivo JUNTO com os itens, numa transação (`superadmin_importar_tabela`). Assim a
+ *        linha nunca aponta um arquivo que não é o dos itens dela. O ARQUIVO DE ANTES NUNCA SAI DO BUCKET: em 29/10/2026, às 16:07, uma edição
+ *        trocou o arquivo da tabela da Wolff (735 itens) e esta rota apagou o .xlsm original (a cópia do dono do produto o recuperou). A
+ *        edição RECUSADA continua tirando do bucket o arquivo que a tela acabou de enviar, se ninguém o referencia (`descartarEnvioRecusado`).
  *
  * REMOVER a tabela é da rota `catalogo/remover` (migração 20261101000001, dono do produto, 01/11/2026: "definido em regra que essa mensagem não
  * pode acontecer. Se for excluído, deve ser excluído, permitir a exclusão. Depois, ele só não vai calcular."): a recusa "A tabela está em uso"
@@ -40,7 +45,6 @@ import {
   caminhosDaPlanilha,
   caminhosDeTabela,
   codigoDoErro,
-  contarItensDaTabela,
   falhaInterna,
   categoriasDoFornecedorDosItensGravados,
   listarCategorias,
@@ -51,7 +55,7 @@ import {
   obterTabela,
   removerObjetos,
 } from '@/lib/atendimentos-ia/repositorio'
-import { MENSAGEM_FAMILIA_OBRIGATORIA, MENSAGEM_MOTOR_INCOMPLETO, ehFkDaCategoria, ehFkDaFamilia, ehIndiceDaVigente, ehTravaDaFamiliaNoPerfil, familiaObrigatoria, ehTravaDaCategoriaQueNaoSeTroca, ehTravaDoMotorPelaMetade, ehUuid, fraseDaCategoriaDesconhecida, fraseDaCategoriaQueNaoSeTroca, fraseDaFamiliaDesconhecida, fraseDaVigenteQueJaExiste, fraseDoArquivoDaTabelaImportada, lerEdicaoDaTabela, recusada, type EdicaoDaTabela } from '@/utils/atendimentos-ia-catalogo'
+import { MENSAGEM_FAMILIA_OBRIGATORIA, MENSAGEM_MOTOR_INCOMPLETO, ehFkDaCategoria, ehFkDaFamilia, ehIndiceDaVigente, ehTravaDaFamiliaNoPerfil, familiaObrigatoria, ehTravaDaCategoriaQueNaoSeTroca, ehTravaDoMotorPelaMetade, ehUuid, fraseDaCategoriaDesconhecida, fraseDaCategoriaQueNaoSeTroca, fraseDaFamiliaDesconhecida, fraseDaVigenteQueJaExiste, lerEdicaoDaTabela, recusada, type EdicaoDaTabela } from '@/utils/atendimentos-ia-catalogo'
 import { categoriasDoFornecedorNosItens, fraseDaTabelaComMaisDeUmaCategoria } from '@/utils/atendimentos-ia-categoria-do-arquivo'
 
 const avisoDeOrfaos = (caminhos: string[]) =>
@@ -111,11 +115,6 @@ async function descartarEnvioRecusado(caminho: string): Promise<void> {
 
 async function editarTabela(saida: Saida, id: string, atual: NonNullable<Awaited<ReturnType<typeof obterTabela>>>, ed: EdicaoDaTabela) {
   try {
-    // (a) o ARQUIVO da tabela já importada não se troca (29/10/2026): ANTES de qualquer outra conferência, gravação ou remoção
-    if (ed.arquivo) {
-      const itens = await contarItensDaTabela(id)
-      if (itens > 0) return saida.status(409).json({ error: fraseDoArquivoDaTabelaImportada(itens) })
-    }
     if (typeof ed.familia === 'string' && !(await listarFamilias()).some((f) => f.chave === ed.familia)) return saida.status(400).json({ error: fraseDaFamiliaDesconhecida(ed.familia) })
     if (ed.categoria !== undefined) {
       if (!(await listarCategorias()).some((c) => c.chave === ed.categoria)) return saida.status(400).json({ error: fraseDaCategoriaDesconhecida(ed.categoria) })
@@ -132,7 +131,7 @@ async function editarTabela(saida: Saida, id: string, atual: NonNullable<Awaited
     if (ed.arquivo && !(await objetoExiste(ed.arquivo.path))) return saida.status(400).json({ error: 'O arquivo da tabela não chegou ao armazenamento. Envie de novo.' })
     if (ed.motor && !(await objetoExiste(ed.motor.path))) return saida.status(400).json({ error: 'O arquivo do motor não chegou ao armazenamento. Envie de novo.' })
     const campos: Record<string, string | boolean | null> = {}
-    if (ed.arquivo) { campos.arquivo_path = ed.arquivo.path; campos.arquivo_nome = ed.arquivo.nome }
+    // o arquivo NÃO vai para a linha aqui: ele é trocado pela importação, junto com os itens (ver o cabeçalho)
     if (ed.motor) { campos.motor_path = ed.motor.path; campos.motor_nome = ed.motor.nome }
     if (ed.vigencia !== undefined) campos.vigencia = ed.vigencia
     if (ed.familia !== undefined) campos.familia = ed.familia
@@ -140,9 +139,11 @@ async function editarTabela(saida: Saida, id: string, atual: NonNullable<Awaited
     if (ed.categoria !== undefined && atual.categoria_chave == null) campos.categoria_chave = ed.categoria
     if (ed.vigente !== undefined) campos.vigente = ed.vigente
     if (Object.keys(campos).length > 0) await atualizarTabela(id, campos)
-    const trocados = [ed.arquivo && atual.arquivo_path, ed.motor && atual.motor_path].filter((p): p is string => typeof p === 'string' && p.trim() !== '')
+    // só o MOTOR trocado (o legado da tabela) sai, se ninguém mais o usa; o ARQUIVO da tabela de antes fica guardado (12/11/2026)
+    const trocados = [ed.motor && atual.motor_path].filter((p): p is string => typeof p === 'string' && p.trim() !== '')
     const { aviso } = await removerOsQueNinguemMaisUsa('tabela PATCH', trocados)
-    return saida.status(200).json(aviso ? { ok: true, aviso } : { ok: true })
+    const pendente = ed.arquivo ? { arquivo_pendente: ed.arquivo } : {}
+    return saida.status(200).json(aviso ? { ok: true, aviso, ...pendente } : { ok: true, ...pendente })
   } catch (e) {
     if (codigoDoErro(e) === '23503' && ehFkDaFamilia(e) && typeof ed.familia === 'string') return saida.status(400).json({ error: fraseDaFamiliaDesconhecida(ed.familia) })
     if (codigoDoErro(e) === '23514' && ehTravaDaFamiliaNoPerfil(e)) return saida.status(400).json({ error: MENSAGEM_FAMILIA_OBRIGATORIA })

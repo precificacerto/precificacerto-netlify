@@ -25,11 +25,13 @@
  *   4. os dois objetos estão no bucket — senão 409 com o caminho que faltou;
  *   5. baixa os dois com `service_role` e lê com o leitor (`lerArquivosDaImportacao`). Planilha
  *      que o leitor recusa — aba que falta, arquivo que não abre — é 422 com a frase dele;
- *   5a. A TRAVA DOS ITENS (25/10/2026, decisão do dono do produto): se a tabela tem item gravado
- *      cujo código o arquivo NÃO traz, 409 com `fraseDaImportacaoTravadaPorItensForaDoArquivo` —
- *      DEPOIS de ler (é a leitura que diz o que o arquivo traz) e ANTES de gravar. O caso: 24 vidros
- *      inseridos à mão na tabela 5f7acebf. Erro do banco ao ler os códigos é 500: falha FECHADA.
- *      Cobre os ITENS; regras, tipologias e fórmulas só existem vindas do arquivo;
+ *   5a. A PRÉVIA DA TROCA (dono do produto, 12/11/2026 — substitui a trava dos itens de 25/10/2026, que recusava todo arquivo sem algum
+ *      código gravado e travaria todo reajuste): com a tabela já tendo itens, o POST sem `confirmar` NÃO grava e devolve a `previa` —
+ *      entram N, saem M (os códigos, todos), ficam K — e o `sha256` do arquivo lido. A tela mostra e só grava com `confirmar: true` e o MESMO
+ *      sha256 (outro é 409: o arquivo mudou desde a prévia). ENCOLHER o total exige `permitir_encolher: true` (409 sem ela, ANTES de gravar; a
+ *      função do banco é a segunda trava, 23514). Tabela sem item (a primeira importação) grava direto: nada sai. O ARQUIVO NOVO vem no corpo
+ *      (`arquivo_path`/`arquivo_nome`, o que a edição devolveu como pendente): a importação lê dele, e a troca do arquivo da tabela acontece
+ *      na MESMA transação dos itens. O arquivo de antes fica no bucket (nada é apagado);
  *   5b. UMA TABELA, UMA CATEGORIA DO FORNECEDOR (27/10/2026, decisão do dono do produto): a tabela que DECLARA a
  *      categoria (`categoria_chave`, migração 20261027000005) recusa o arquivo cujos itens trazem mais de uma
  *      categoria do fornecedor — 422 nomeando as que achou, antes de gravar. "Não pode haver margem para o agente
@@ -37,11 +39,11 @@
  *      Wolff), NÃO é recusada retroativamente: importa como sempre, e o aviso `tabela_sem_categoria_declarada` diz
  *      que a regra não foi aplicada. Item sem a categoria do fornecedor preenchida vira o aviso
  *      `itens_sem_categoria_do_fornecedor`, nunca é somado a uma categoria;
- *   6. grava por UMA chamada à função `importar_conteudo_da_tabela` (`20261020000002`), que
- *      apaga e insere numa transação;
+ *   6. grava por UMA chamada a `superadmin_importar_tabela` (`20261112000003`), que trava a tabela, conta antes, recusa encolher sem a
+ *      permissão, chama `importar_conteudo_da_tabela`, confere depois, troca o arquivo e loga com o sha256 e quem importou — numa transação;
  *   7. CONFERE o que a função gravou contra o que foi mandado. Diferente é 500 com os dois
- *      números lado a lado — nunca sucesso. LIMITE: a função já fez COMMIT quando a conferência
- *      acontece; o 500 torna a divergência visível, mas NÃO a desfaz.
+ *      números lado a lado — nunca sucesso. A contagem dos itens a função já confere por dentro (exceção desfaz tudo); as outras listas
+ *      são conferidas aqui, depois do COMMIT: o 500 torna a divergência visível, mas NÃO a desfaz.
  *
  * Medido pela sessão de verificação: 0,93 s para ler os dois arquivos da Wolff (antes das nove abas).
  * Medido em produção em 25/10/2026, com as nove abas: a rota rodou 38,4 s até a gravação ser
@@ -49,27 +51,30 @@
  */
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { requireSuperAdmin } from '@/lib/get-caller-tenant'
+import { createHash } from 'crypto'
 import {
   baixarObjeto,
   codigoDoErro,
   falhaInterna,
-  importarConteudo,
+  importarTabela,
   codigosDosItensGravados,
   nomeDoUsuario,
   objetoExiste,
   obterArquivosDaTabela,
   ultimaImportacao,
 } from '@/lib/atendimentos-ia/repositorio'
-import { arquivoImportavel, ehUuid, fraseDoArquivo, fraseDoArquivoNaoImportavel } from '@/utils/atendimentos-ia-catalogo'
+import { arquivoImportavel, ehUuid, fraseDoArquivo, fraseDoArquivoNaoImportavel, lerPedidoDeImportacao, recusada } from '@/utils/atendimentos-ia-catalogo'
 import { categoriasDoFornecedorNosItens, FRASE_DA_TABELA_SEM_CATEGORIA_DECLARADA, fraseDoArquivoComMaisDeUmaCategoria, fraseDosItensSemCategoriaDoFornecedor } from '@/utils/atendimentos-ia-categoria-do-arquivo'
 import {
   COLUNA_DA_CATEGORIA_DO_FORNECEDOR,
   conferirGravacao,
+  FRASE_DO_ARQUIVO_QUE_MUDOU,
   fraseDaGravacaoQueFalhou,
-  fraseDaImportacaoTravadaPorItensForaDoArquivo,
-  itensQueOArquivoNaoTraz,
+  fraseDaPrevia,
+  fraseDoEncolherSemPermissao,
   lerArquivosDaImportacao,
   montarPayloadDaImportacao,
+  previaDaTroca,
   type ResultadoDaLeitura,
 } from '@/utils/atendimentos-ia-importacao'
 
@@ -112,9 +117,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   // O MOTOR É OPCIONAL (27/10/2026): a tabela de preço puro (Reforço, Acessórios…) não tem arquivo de motor, e a importação lê só o preço.
   // Nulo e VAZIO são a mesma coisa aqui: a Estrela está em produção com motor_path e motor_nome = '' (medido em 27/10/2026), e '' não é um arquivo.
+  const pedido = lerPedidoDeImportacao(req.body, tabela.fornecedor_id)
+  if (recusada(pedido)) return res.status(400).json({ error: pedido.erro })
+  const { arquivo: pendente, confirmar, sha256: shaDaPrevia, permitirEncolher } = pedido.corpo
+  // o arquivo NOVO (pendente) troca o de hoje só se for outro caminho; o mesmo caminho é reimportar o de hoje
+  const arquivoNovo = pendente && pendente.path !== tabela.arquivo_path ? pendente : null
+  const daTabela = arquivoNovo ?? { path: tabela.arquivo_path, nome: tabela.arquivo_nome }
   const comMotor = !!tabela.motor_path?.trim() && !!tabela.motor_nome?.trim()
   const arquivos = [
-    { nome: tabela.arquivo_nome, caminho: tabela.arquivo_path },
+    { nome: daTabela.nome, caminho: daTabela.path },
     ...(comMotor ? [{ nome: tabela.motor_nome as string, caminho: tabela.motor_path as string }] : []),
   ]
   for (const a of arquivos) {
@@ -134,7 +145,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   const leitura = await lerArquivosDaImportacao({
-    tabela: { nome: tabela.arquivo_nome, bytes: bytes[0] },
+    tabela: { nome: daTabela.nome, bytes: bytes[0] },
     motor: comMotor ? { nome: tabela.motor_nome as string, bytes: bytes[1] } : null,
   })
   if (!leitura.ok) return res.status(422).json({ error: (leitura as Recusa).erro })
@@ -145,29 +156,41 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   // SEM `?? null`: um `undefined` (a leitura da tabela que esqueceu de pedir a coluna) NÃO vira "sem categoria" — falha FECHADA, recusando.
   const declarada = tabela.categoria_chave
   if (declarada !== null && doArquivo.categorias.length > 1) {
-    return res.status(422).json({ error: fraseDoArquivoComMaisDeUmaCategoria(tabela.arquivo_nome, doArquivo.categorias) })
+    return res.status(422).json({ error: fraseDoArquivoComMaisDeUmaCategoria(daTabela.nome, doArquivo.categorias) })
   }
   if (declarada === null) lida.avisos.push({ tipo: 'tabela_sem_categoria_declarada', mensagem: FRASE_DA_TABELA_SEM_CATEGORIA_DECLARADA })
   if (doArquivo.semCategoria > 0) lida.avisos.push({ tipo: 'itens_sem_categoria_do_fornecedor', itens: doArquivo.semCategoria, mensagem: fraseDosItensSemCategoriaDoFornecedor(doArquivo.semCategoria) })
 
   const payload = montarPayloadDaImportacao(lida, caller.user_id)
 
-  let foraDoArquivo: string[]
+  const sha256 = createHash('sha256').update(bytes[0]).digest('hex')
+
+  // 5a. A PRÉVIA: com itens gravados, nada grava sem a confirmação dela
+  let previa: ReturnType<typeof previaDaTroca>
   try {
-    foraDoArquivo = itensQueOArquivoNaoTraz(await codigosDosItensGravados(id), payload)
+    previa = previaDaTroca(await codigosDosItensGravados(id), payload)
   } catch (e) {
     return falhaInterna(res, 'importação (itens gravados)', e, 'Não foi possível conferir os itens gravados da tabela. Nada foi alterado.')
   }
-  if (foraDoArquivo.length > 0) return res.status(409).json({ error: fraseDaImportacaoTravadaPorItensForaDoArquivo(foraDoArquivo) })
+  const resumo = { ...previa, frase: fraseDaPrevia(previa), sha256, arquivo_nome: daTabela.nome, arquivo_trocado: arquivoNovo !== null }
+  if (previa.antes > 0 && !confirmar) return res.status(200).json({ previa: resumo })
+  if (confirmar && shaDaPrevia !== sha256) return res.status(409).json({ error: FRASE_DO_ARQUIVO_QUE_MUDOU, previa: resumo })
+  if (previa.encolhe && !permitirEncolher) return res.status(409).json({ error: fraseDoEncolherSemPermissao(previa), previa: resumo })
+
   // A DURAÇÃO da gravação vai para o log, no sucesso e na falha: é o número que calibra o limite
   // da função (LIMITE_DA_GRAVACAO_S), e em produção ele só se mede assim.
-  let gravado: Awaited<ReturnType<typeof importarConteudo>>
+  let gravado: Awaited<ReturnType<typeof importarTabela>>
   const inicio = Date.now()
   try {
-    gravado = await importarConteudo(id, payload)
+    gravado = await importarTabela({ por: caller.user_id, tabelaId: id, sha256, payload, permitirEncolher, arquivo: arquivoNovo })
     console.log(`atendimentos-ia importação (gravação): ${Date.now() - inicio} ms, gravada`)
   } catch (e) {
     console.log(`atendimentos-ia importação (gravação): ${Date.now() - inicio} ms, falhou (${codigoDoErro(e) ?? 'sem código'})`)
+    // a segunda trava, no banco: outra importação mudou a contagem entre a prévia e a gravação
+    // (só a recusa dela: 23514 também é o código das CHECKs dos itens, que seguem a frase do código, abaixo)
+    if (codigoDoErro(e) === '23514' && /encolheria/.test((e as { message?: string })?.message ?? '')) {
+      return res.status(409).json({ error: fraseDoEncolherSemPermissao(previa), previa: resumo })
+    }
     return falhaInterna(res, 'importação (gravação)', e, fraseDaGravacaoQueFalhou(codigoDoErro(e)))
   }
 
@@ -182,6 +205,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   return res.status(200).json({
     importacao_id: gravado.importacao_id,
+    previa: resumo,
+    itens_antes: gravado.itens_antes,
+    itens_depois: gravado.itens_depois,
+    arquivo_trocado: gravado.arquivo_trocado,
     contagens: { ...lida.contagens, formulas: gravado.formulas },
     avisos: lida.avisos,
     // o layout lido e, SÓ no layout único, os seis campos da aba CABECALHO — lidos e devolvidos, sem gravar (dono do produto, 02/11/2026).

@@ -49,7 +49,7 @@ import { abasDoSpec } from './fixtures/abas-do-motor-do-spec'
 import { ABAS_DO_MOTOR } from '@/utils/atendimentos-ia-abas-do-motor'
 
 const T = '22222222-2222-4222-8222-222222222222'
-const TABELA = { id: T, arquivo_path: 'f/arquivo/x-Tabela Wolff.xlsm', arquivo_nome: 'Tabela Wolff.xlsm', motor_path: 'f/motor/x-Motor.xlsx', motor_nome: 'Motor.xlsx', categoria_chave: null as string | null }
+const TABELA = { id: T, fornecedor_id: 'f', arquivo_path: 'f/arquivo/x-Tabela Wolff.xlsm', arquivo_nome: 'Tabela Wolff.xlsm', motor_path: 'f/motor/x-Motor.xlsx', motor_nome: 'Motor.xlsx', categoria_chave: null as string | null }
 
 const ordem: string[] = []
 const objetos: Record<string, Uint8Array> = {}
@@ -64,8 +64,9 @@ jest.mock('@/lib/atendimentos-ia/repositorio', () => {
         objetoExiste: fn('objetoExiste', (p: string) => p in objetos),
         baixarObjeto: fn('baixarObjeto', (p: string) => objetos[p]),
         // a função devolve a contagem de CADA lista que gravou: as quatro de sempre e as nove abas
-        importarConteudo: fn('importarConteudo', (_id: string, p: any) => ({
-            importacao_id: 'imp-1',
+        // superadmin_importar_tabela (20261112000003): a de dentro devolve as contagens; a de fora acrescenta antes, depois, sha256 e a troca
+        importarTabela: fn('importarTabela', ({ payload: p, sha256, arquivo }: any) => ({
+            importacao_id: 'imp-1', itens_antes: 0, itens_depois: p.itens.length, sha256, arquivo_trocado: arquivo !== null,
             ...Object.fromEntries(Object.entries(p).filter(([k, v]) => Array.isArray(v) && k !== 'avisos').map(([k, v]) => [k, (v as unknown[]).length])),
         })),
         ultimaImportacao: fn('ultimaImportacao', () => null),
@@ -98,11 +99,11 @@ const ROTA_DA_TABELA = require('@/pages/api/super-admin/atendimentos-ia/tabelas/
 const ROTA_DO_CONTEUDO = require('@/pages/api/super-admin/atendimentos-ia/tabelas/[id]/conteudo').default as Handler
 /* eslint-enable @typescript-eslint/no-require-imports */
 
-async function chamar(method: string, id: string = T, handler: Handler = rota.default) {
+async function chamar(method: string, id: string = T, handler: Handler = rota.default, body: unknown = undefined) {
     let status = 0
     let json: any = null
     const res = { status(n: number) { status = n; return res }, json(b: unknown) { json = b; return res } }
-    await handler({ cookies: { token: 't' }, method, query: { id }, body: undefined } as unknown as NextApiRequest, res as unknown as NextApiResponse)
+    await handler({ cookies: { token: 't' }, method, query: { id }, body } as unknown as NextApiRequest, res as unknown as NextApiResponse)
     return { status, json }
 }
 
@@ -169,7 +170,7 @@ describe('quem passa', () => {
         repo.obterArquivosDaTabela.mockImplementation(async () => null)
         const r = await chamar(m)
         expect(r.status).toBe(404)
-        expect(repo.importarConteudo).not.toHaveBeenCalled()
+        expect(repo.importarTabela).not.toHaveBeenCalled()
     })
 
     it('o limite de tempo da gravação no código é o MESMO da migração que o dá à função (35 s)', () => {
@@ -207,7 +208,7 @@ describe('409 por extensão não importável — QUAL arquivo, QUAL extensão e 
         expect(r.json.error).toContain(ext)
         expect(r.json.error).toContain(MOTIVO_DA_EXTENSAO_NAO_IMPORTAVEL[ext])
         expect(repo.baixarObjeto).not.toHaveBeenCalled()
-        expect(repo.importarConteudo).not.toHaveBeenCalled()
+        expect(repo.importarTabela).not.toHaveBeenCalled()
     })
 })
 
@@ -219,7 +220,7 @@ describe('409 por arquivo ausente no Storage — dizendo qual caminho faltou', (
         expect(r.status).toBe(409)
         expect(r.json.error).toContain(caminho)
         expect(r.json.error).toContain(qual === 'arquivo' ? TABELA.arquivo_nome : TABELA.motor_nome)
-        expect(repo.importarConteudo).not.toHaveBeenCalled()
+        expect(repo.importarTabela).not.toHaveBeenCalled()
     })
 })
 
@@ -227,8 +228,8 @@ describe('a importação', () => {
     it('lê com o leitor real, grava pela função, e responde as contagens e os avisos', async () => {
         const r = await chamar('POST')
         expect(r.status).toBe(200)
-        expect(repo.importarConteudo).toHaveBeenCalledTimes(1)
-        const [id, payload] = repo.importarConteudo.mock.calls[0]
+        expect(repo.importarTabela).toHaveBeenCalledTimes(1)
+        const { tabelaId: id, payload } = repo.importarTabela.mock.calls[0][0]
         expect(id).toBe(T)
         expect(payload.importado_por).toBe(SUPER.id)
         expect(payload.itens.map((i: any) => i.codigo)).toEqual(['IL4237', 'KT4237'])
@@ -246,12 +247,12 @@ describe('a importação', () => {
         expect(r.status).toBe(422)
         expect(r.json.error).toContain('Motor.xlsx')
         expect(r.json.error).toContain('Motor por barra')
-        expect(repo.importarConteudo).not.toHaveBeenCalled()
+        expect(repo.importarTabela).not.toHaveBeenCalled()
     })
 
     // as nove abas entram na conferência como as quatro de sempre: a lista vem do mapa, não de cópia
     it.each([['itens'], ['regras'], ['tipologias'], ['formulas'], ...ABAS_DO_MOTOR.map((a) => [a.payload])])('contagem divergente em %s → 500 com os dois números lado a lado, nunca sucesso', async (campo) => {
-        repo.importarConteudo.mockImplementationOnce(async (_id: string, p: any) => ({
+        repo.importarTabela.mockImplementationOnce(async ({ payload: p }: any) => ({
             importacao_id: 'imp-2', ...contagensDe(p),
             [campo]: p[campo].length + 1,
         }))
@@ -265,13 +266,13 @@ describe('a importação', () => {
 
 describe('as nove abas na gravação', () => {
     it('o payload leva as nove abas pela chave do mapa, e a função que não devolve a contagem de uma delas é divergência', async () => {
-        repo.importarConteudo.mockImplementationOnce(async (_id: string, p: any) => {
+        repo.importarTabela.mockImplementationOnce(async ({ payload: p }: any) => {
             const c = contagensDe(p)
             delete c.insumos
             return { importacao_id: 'imp-3', ...c }
         })
         const r = await chamar('POST')
-        const enviado = repo.importarConteudo.mock.calls[0][1]
+        const enviado = repo.importarTabela.mock.calls[0][0].payload
         for (const a of ABAS_DO_MOTOR) expect(Array.isArray(enviado[a.payload])).toBe(true)
         expect(enviado.perfis.length).toBeGreaterThan(0)
         expect(r.status).toBe(500)
@@ -288,13 +289,13 @@ describe('as nove abas na gravação', () => {
         const r = await chamar('POST')
         expect(r.status).toBe(422)
         expect(r.json.error).toContain('não tem a aba "Vidros"')
-        expect(repo.importarConteudo).not.toHaveBeenCalled()
+        expect(repo.importarTabela).not.toHaveBeenCalled()
     })
 })
 
 describe('A GRAVAÇÃO QUE FALHA DIZ O MOTIVO NA TELA — e a duração dela fica no log', () => {
     const falhar = (erro: { code?: string; message: string }) =>
-        repo.importarConteudo.mockImplementationOnce(async () => { ordem.push('importarConteudo'); throw erro })
+        repo.importarTabela.mockImplementationOnce(async () => { ordem.push('importarTabela'); throw erro })
 
     it('TEMPO esgotado no banco (57014): a tela diz que foi o limite de tempo, e quanto ele é', async () => {
         falhar({ code: '57014', message: 'canceling statement due to statement timeout' })
@@ -344,76 +345,150 @@ describe('SEM A TRAVA DO TEMPO — o tempo mora em tabela que a importação nã
     it('a tabela da Wolff com os 164 tempos gravados: a importação roda até o fim (200) e grava', async () => {
         const r = await chamar('POST')
         expect(r.status).toBe(200)
-        expect(repo.importarConteudo).toHaveBeenCalledTimes(1)
+        expect(repo.importarTabela).toHaveBeenCalledTimes(1)
         expect(repo.contarTemposGravados).not.toHaveBeenCalled()
         expect(ordem).not.toContain('contarTemposGravados')
     })
 
     it('o payload não carrega tempo nenhum: a função não tem o que escrever na tabela de tempos', async () => {
         await chamar('POST')
-        const payload = repo.importarConteudo.mock.calls[0][1] as Record<string, unknown>
+        const payload = repo.importarTabela.mock.calls[0][0].payload as Record<string, unknown>
         const chaves = new Set(Object.values(payload).filter(Array.isArray).flatMap((l) => (l as Array<Record<string, unknown>>).flatMap((x) => (x && typeof x === 'object' ? Object.keys(x) : []))))
         expect([...chaves].filter((k) => /tempo/i.test(k))).toEqual([])
         expect(Object.keys(payload).filter((k) => /tempo/i.test(k))).toEqual([])
     })
 })
 
-describe('A TRAVA DOS ITENS QUE O ARQUIVO NÃO TRAZ — a importação apagaria linhas que não sabe pôr de volta', () => {
-    // O caso que a originou (dono do produto, 25/10/2026): 24 vidros inseridos à mão na tabela
-    // 5f7acebf, que nenhum arquivo traz. A importação apaga TODOS os itens da tabela e regrava só os
-    // do arquivo: sem a trava, os 24 sumiriam.
-    /** A frase lida DENTRO dos casos: no commit do portão ela ainda não existe. */
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const fraseDosItens = (c: string[]) => require('@/utils/atendimentos-ia-importacao').fraseDaImportacaoTravadaPorItensForaDoArquivo(c) as string
+describe('A PRÉVIA DA TROCA — entram, saem, ficam; nada grava sem a confirmação (dono do produto, 12/11/2026)', () => {
+    // Substitui a trava de 25/10/2026 (recusar todo arquivo sem algum código gravado), que travaria todo reajuste: ela vira esta prévia.
+    // O arquivo de ARQUIVOS_BONS traz IL4237 e KT4237.
     const gravados = (c: string[]) => repo.codigosDosItensGravados.mockImplementation(async () => { ordem.push('codigosDosItensGravados'); return c })
+    const post = (body: unknown) => chamar('POST', T, rota.default, body)
+    const NOVO = { arquivo_path: 'f/arquivo/y-Tabela Wolff 2026.xlsm', arquivo_nome: 'Tabela Wolff 2026.xlsm' }
 
-    it('item gravado que o arquivo não traz → 409 com a frase, ANTES de gravar — e diz quantos e quais', async () => {
+    it('tabela COM itens e sem confirmação: devolve a prévia (entram, saem com os códigos, ficam) e o sha256 — e NÃO grava', async () => {
         gravados(['IL4237', 'VIDRO 4MM', 'VIDRO 6MM'])
-        const r = await chamar('POST')
-        expect(r.status).toBe(409)
-        expect(r.json.error).toBe(fraseDosItens(['VIDRO 4MM', 'VIDRO 6MM']))
-        expect(r.json.error).toContain('2 itens')
-        expect(r.json.error).toContain('VIDRO 4MM')
-        expect(repo.importarConteudo).not.toHaveBeenCalled()
-    })
-
-    it('todos os itens gravados estão no arquivo → a importação segue (a substituição é o desenho certo aí)', async () => {
-        gravados(['IL4237', 'KT4237'])
-        const r = await chamar('POST')
+        const r = await post(undefined)
         expect(r.status).toBe(200)
-        expect(repo.importarConteudo).toHaveBeenCalledTimes(1)
-        expect(ordem.indexOf('codigosDosItensGravados')).toBeLessThan(ordem.indexOf('importarConteudo'))
+        expect(r.json.importacao_id).toBeUndefined()
+        expect(r.json.previa).toEqual(expect.objectContaining({ antes: 3, entram: 2, ficam: 1, novos: 1, saem: ['VIDRO 4MM', 'VIDRO 6MM'], encolhe: true }))
+        expect(r.json.previa.frase).toBe('Entram 2, saem 2, ficam 1 (1 código novo).')
+        expect(r.json.previa.sha256).toMatch(/^[0-9a-f]{64}$/)
+        expect(repo.importarTabela).not.toHaveBeenCalled()
     })
 
-    it('a comparação é EXATA: "il4237" gravado não é o "IL4237" do arquivo — nada é casado pelo parecido', async () => {
-        gravados(['il4237'])
-        const r = await chamar('POST')
+    it('o sha256 da prévia é o do arquivo lido: o mesmo arquivo dá o mesmo, outro arquivo dá outro', async () => {
+        gravados(['IL4237'])
+        const a = (await post(undefined)).json.previa.sha256
+        expect((await post(undefined)).json.previa.sha256).toBe(a)
+        objetos[TABELA.arquivo_path] = await planilha({ 'Tabela Wolff': [{ 1: 'X' }, { 2: 'CÓDIGO', 13: 'VALOR METRO 18%' }, { 2: 'IL4237', 13: 11 }] })
+        expect((await post(undefined)).json.previa.sha256).not.toBe(a)
+    })
+
+    it('confirmada com o sha256 da prévia: grava por superadmin_importar_tabela, com quem importou, o sha256 e a permissão', async () => {
+        gravados(['IL4237', 'KT4237', 'X1'])
+        const previa = (await post(undefined)).json.previa
+        repo.importarTabela.mockClear()
+        const r = await post({ confirmar: true, sha256: previa.sha256, permitir_encolher: true })
+        expect(r.status).toBe(200)
+        expect(repo.importarTabela).toHaveBeenCalledTimes(1)
+        expect(repo.importarTabela.mock.calls[0][0]).toEqual(expect.objectContaining({ por: 'u-super', tabelaId: T, sha256: previa.sha256, permitirEncolher: true, arquivo: null }))
+        expect(r.json.previa.saem).toEqual(['X1'])
+    })
+
+    it('confirmada com OUTRO sha256: 409 com a frase do arquivo que mudou e a prévia nova — e NÃO grava', async () => {
+        gravados(['IL4237'])
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { FRASE_DO_ARQUIVO_QUE_MUDOU } = require('@/utils/atendimentos-ia-importacao')
+        const r = await post({ confirmar: true, sha256: '0'.repeat(64) })
         expect(r.status).toBe(409)
-        expect(r.json.error).toBe(fraseDosItens(['il4237']))
+        expect(r.json.error).toBe(FRASE_DO_ARQUIVO_QUE_MUDOU)
+        expect(r.json.previa.sha256).toMatch(/^[0-9a-f]{64}$/)
+        expect(repo.importarTabela).not.toHaveBeenCalled()
+    })
+
+    it('ENCOLHER sem a permissão: 409 com as contagens, ANTES de gravar; com a permissão, grava', async () => {
+        gravados(['IL4237', 'KT4237', 'X1'])
+        const previa = (await post(undefined)).json.previa
+        const sem = await post({ confirmar: true, sha256: previa.sha256 })
+        expect(sem.status).toBe(409)
+        expect(sem.json.error).toContain('O arquivo novo traz 2 itens, e a tabela tem 3 hoje: ela encolheria 1 itens')
+        expect(repo.importarTabela).not.toHaveBeenCalled()
+        const com = await post({ confirmar: true, sha256: previa.sha256, permitir_encolher: true })
+        expect(com.status).toBe(200)
+        expect(repo.importarTabela).toHaveBeenCalledTimes(1)
+    })
+
+    it('a troca que NÃO encolhe (sai um, entra outro) grava só com a confirmação, sem pedir permissão de encolher', async () => {
+        gravados(['IL4237', 'X1'])
+        const previa = (await post(undefined)).json.previa
+        expect(previa).toEqual(expect.objectContaining({ antes: 2, entram: 2, saem: ['X1'], encolhe: false }))
+        const r = await post({ confirmar: true, sha256: previa.sha256 })
+        expect(r.status).toBe(200)
+        expect(repo.importarTabela.mock.calls[0][0].permitirEncolher).toBe(false)
+    })
+
+    it('a segunda trava, no banco (23514: outra importação mudou a contagem entre a prévia e a gravação): 409 com a frase, nunca 500', async () => {
+        gravados(['IL4237', 'KT4237'])
+        const previa = (await post(undefined)).json.previa
+        repo.importarTabela.mockImplementationOnce(async () => { throw Object.assign(new Error('o arquivo novo traz 1 itens, e a tabela tem 2 hoje: a tabela encolheria 1 itens'), { code: '23514' }) })
+        const r = await post({ confirmar: true, sha256: previa.sha256 })
+        expect(r.status).toBe(409)
+        expect(r.json.error).toContain('Permitir que a tabela encolha')
+        // o contraste: outra CHECK dos itens (23514 também) segue a frase do código, como sempre
+        repo.importarTabela.mockImplementationOnce(async () => { throw Object.assign(new Error('violates check constraint orcamentista_tabela_item_ipi_de_um_lado'), { code: '23514' }) })
+        const outra = await post({ confirmar: true, sha256: previa.sha256 })
+        expect(outra.status).toBe(500)
+        expect(outra.json.error).toContain('código 23514')
+    })
+
+    it('tabela SEM itens (a primeira importação): grava direto, sem prévia — nada sai', async () => {
+        gravados([])
+        const r = await post(undefined)
+        expect(r.status).toBe(200)
+        expect(r.json.importacao_id).toBe('imp-1')
+        expect(repo.importarTabela).toHaveBeenCalledTimes(1)
+    })
+
+    it('o ARQUIVO NOVO (pendente da edição): a prévia lê DELE, e a confirmação manda o caminho à função, que troca junto com os itens', async () => {
+        objetos[NOVO.arquivo_path] = await planilha({ 'Tabela Wolff': [{ 1: 'X' }, { 2: 'CÓDIGO', 13: 'VALOR METRO 18%' }, { 2: 'IL4237', 13: 11 }, { 2: 'NOVO1', 13: 12 }, { 2: 'NOVO2', 13: 13 }] })
+        gravados(['IL4237', 'KT4237'])
+        const previa = (await post(NOVO)).json.previa
+        expect(previa).toEqual(expect.objectContaining({ antes: 2, entram: 3, ficam: 1, saem: ['KT4237'], arquivo_nome: 'Tabela Wolff 2026.xlsm', arquivo_trocado: true }))
+        expect(repo.baixarObjeto.mock.calls.map((c: any[]) => c[0])).toContain(NOVO.arquivo_path)
+        expect(repo.baixarObjeto.mock.calls.map((c: any[]) => c[0])).not.toContain(TABELA.arquivo_path)
+        const r = await post({ ...NOVO, confirmar: true, sha256: previa.sha256 })
+        expect(r.status).toBe(200)
+        expect(repo.importarTabela.mock.calls[0][0].arquivo).toEqual({ path: NOVO.arquivo_path, nome: NOVO.arquivo_nome })
+    })
+
+    it('o arquivo pendente de OUTRO fornecedor é recusado (400), antes de baixar', async () => {
+        const r = await post({ arquivo_path: 'outro/arquivo/z.xlsx', arquivo_nome: 'z.xlsx' })
+        expect(r.status).toBe(400)
+        expect(ordem).not.toContain('baixarObjeto')
+    })
+
+    it('a comparação é EXATA: "il4237" gravado não é o "IL4237" do arquivo — ele SAI, nomeado', async () => {
+        gravados(['il4237'])
+        const r = await post(undefined)
+        expect(r.json.previa.saem).toEqual(['il4237'])
+        expect(r.json.previa.ficam).toBe(0)
     })
 
     it('erro do banco ao ler os itens gravados → 500, e a importação NÃO segue (falha fechada)', async () => {
         repo.codigosDosItensGravados.mockImplementation(async () => { throw new Error('falhou') })
-        const r = await chamar('POST')
+        const r = await post(undefined)
         expect(r.status).toBe(500)
-        expect(repo.importarConteudo).not.toHaveBeenCalled()
+        expect(repo.importarTabela).not.toHaveBeenCalled()
     })
 
-    it('a função pura: o código do arquivo é comparado COMO ESTÁ, dos dois lados — "Vidro 4mm" casa com "Vidro 4mm" e com nada mais', () => {
+    it('a função pura: TODOS os códigos que saem, sem corte, sem repetição, na ordem gravada; código repetido gravado conta no antes', () => {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { itensQueOArquivoNaoTraz } = require('@/utils/atendimentos-ia-importacao')
-        expect(itensQueOArquivoNaoTraz(['Vidro 4mm', 'Vidro 4mm'], { itens: [{ codigo: 'Vidro 4mm' }] })).toEqual([])
-        expect(itensQueOArquivoNaoTraz(['Vidro 4mm', 'Vidro 4mm', 'X'], { itens: [{ codigo: 'VIDRO 4MM' }] })).toEqual(['Vidro 4mm', 'X'])
-    })
-
-    it('a frase nomeia até 10 códigos e conta o resto, e diz que nada foi alterado', () => {
+        const { previaDaTroca } = require('@/utils/atendimentos-ia-importacao')
         const muitos = Array.from({ length: 24 }, (_, i) => `V${String(i + 1).padStart(2, '0')}`)
-        const f = fraseDosItens(muitos)
-        expect(f).toContain('24 itens')
-        expect(f).toContain('V10')
-        expect(f).not.toContain('V11')
-        expect(f).toContain('e mais 14')
-        expect(f).toContain('Nada foi alterado')
+        const p = previaDaTroca([...muitos, 'A', 'A'], { itens: [{ codigo: 'A' }, { codigo: 'B' }] })
+        expect(p.saem).toEqual(muitos)
+        expect(p).toEqual(expect.objectContaining({ antes: 26, entram: 2, ficam: 1, novos: 1, encolhe: true }))
     })
 })
 
@@ -437,7 +512,7 @@ describe('UMA TABELA, UMA CATEGORIA DO FORNECEDOR — o arquivo com mais de uma 
         expect(r.json.error).toContain('Reforço (1)')
         expect(r.json.error).toContain('Acessórios (1)')
         expect(r.json.error).toContain('Nada foi alterado.')
-        expect(repo.importarConteudo).not.toHaveBeenCalled()
+        expect(repo.importarTabela).not.toHaveBeenCalled()
         expect(ordem).not.toContain('codigosDosItensGravados')
     })
 
@@ -446,7 +521,7 @@ describe('UMA TABELA, UMA CATEGORIA DO FORNECEDOR — o arquivo com mais de uma 
         await comCategorias(['Vidro', 'Vidro', 'Vidro'])
         const r = await chamar('POST')
         expect(r.status).toBe(200)
-        expect(repo.importarConteudo.mock.calls[0][1].itens.map((i: any) => i[COLUNA_DA_CATEGORIA_DO_FORNECEDOR])).toEqual(['Vidro', 'Vidro', 'Vidro'])
+        expect(repo.importarTabela.mock.calls[0][0].payload.itens.map((i: any) => i[COLUNA_DA_CATEGORIA_DO_FORNECEDOR])).toEqual(['Vidro', 'Vidro', 'Vidro'])
         expect(r.json.avisos.map((a: any) => a.tipo)).not.toContain('tabela_sem_categoria_declarada')
         expect(r.json.avisos.map((a: any) => a.tipo)).not.toContain('itens_sem_categoria_do_fornecedor')
     })
@@ -455,7 +530,7 @@ describe('UMA TABELA, UMA CATEGORIA DO FORNECEDOR — o arquivo com mais de uma 
         declarada('ACESSORIOS_VEDACAO')
         await comCategorias(['Acessórios', 'acessórios', ' Acessórios  '])
         expect((await chamar('POST')).status).toBe(200)
-        expect(repo.importarConteudo).toHaveBeenCalledTimes(1)
+        expect(repo.importarTabela).toHaveBeenCalledTimes(1)
     })
 
     it('item SEM a categoria do fornecedor não é somado a nenhuma: grava assim e AVISA quantos', async () => {
@@ -463,7 +538,7 @@ describe('UMA TABELA, UMA CATEGORIA DO FORNECEDOR — o arquivo com mais de uma 
         await comCategorias(['Vidro', null, 'Vidro'])
         const r = await chamar('POST')
         expect(r.status).toBe(200)
-        expect(repo.importarConteudo.mock.calls[0][1].itens.map((i: any) => i[COLUNA_DA_CATEGORIA_DO_FORNECEDOR])).toEqual(['Vidro', null, 'Vidro'])
+        expect(repo.importarTabela.mock.calls[0][0].payload.itens.map((i: any) => i[COLUNA_DA_CATEGORIA_DO_FORNECEDOR])).toEqual(['Vidro', null, 'Vidro'])
         const aviso = r.json.avisos.find((a: any) => a.tipo === 'itens_sem_categoria_do_fornecedor')
         expect(aviso).toEqual(expect.objectContaining({ itens: 1 }))
         expect(aviso.mensagem).toContain('1 item do arquivo não traz a categoria do fornecedor')
@@ -480,20 +555,20 @@ describe('UMA TABELA, UMA CATEGORIA DO FORNECEDOR — o arquivo com mais de uma 
         await comCategorias(['Perfil PVC', 'Reforço', 'Acessórios', 'acessórios', null])
         const r = await chamar('POST')
         expect(r.status).toBe(200)
-        expect(repo.importarConteudo).toHaveBeenCalledTimes(1)
-        expect(repo.importarConteudo.mock.calls[0][1].itens).toHaveLength(5)
+        expect(repo.importarTabela).toHaveBeenCalledTimes(1)
+        expect(repo.importarTabela.mock.calls[0][0].payload.itens).toHaveLength(5)
         const tipos = r.json.avisos.map((a: any) => a.tipo)
         expect(tipos).toContain('tabela_sem_categoria_declarada')
         expect(tipos).toContain('itens_sem_categoria_do_fornecedor')
         // o aviso vai no payload, e fica gravado com a importação
-        expect(repo.importarConteudo.mock.calls[0][1].avisos.map((a: any) => a.tipo)).toContain('tabela_sem_categoria_declarada')
+        expect(repo.importarTabela.mock.calls[0][0].payload.avisos.map((a: any) => a.tipo)).toContain('tabela_sem_categoria_declarada')
     })
 
     it('FALHA FECHADA: se a leitura da tabela não trouxe a coluna da categoria (undefined), um arquivo com 2 categorias é RECUSADO — nunca tratado como tabela de antes', async () => {
         repo.obterArquivosDaTabela.mockImplementation(async () => { ordem.push('obterArquivosDaTabela'); return { ...TABELA, categoria_chave: undefined } })
         await comCategorias(['A', 'B'])
         expect((await chamar('POST')).status).toBe(422)
-        expect(repo.importarConteudo).not.toHaveBeenCalled()
+        expect(repo.importarTabela).not.toHaveBeenCalled()
     })
 
     it('a recusa vem DEPOIS de ler e ANTES de conferir/gravar: o arquivo é baixado, e nada mais acontece', async () => {
@@ -501,7 +576,7 @@ describe('UMA TABELA, UMA CATEGORIA DO FORNECEDOR — o arquivo com mais de uma 
         await comCategorias(['A', 'B'])
         await chamar('POST')
         expect(ordem).toEqual(expect.arrayContaining(['obterArquivosDaTabela', 'objetoExiste', 'baixarObjeto']))
-        expect(ordem).not.toContain('importarConteudo')
+        expect(ordem).not.toContain('importarTabela')
     })
 })
 
@@ -586,8 +661,8 @@ describe('TABELA DE PREÇO PURO — sem arquivo de motor (Reforço, Acessórios�
         semMotor()
         const r = await chamar('POST')
         expect(r.status).toBe(200)
-        expect(repo.importarConteudo).toHaveBeenCalledTimes(1)
-        const payload = repo.importarConteudo.mock.calls[0][1]
+        expect(repo.importarTabela).toHaveBeenCalledTimes(1)
+        const payload = repo.importarTabela.mock.calls[0][0].payload
         expect(payload.itens.map((i: any) => i.codigo)).toEqual(['IL4237', 'KT4237'])
         expect(payload.regras).toEqual([])
         expect(payload.tipologias).toEqual([])
@@ -612,7 +687,7 @@ describe('TABELA DE PREÇO PURO — sem arquivo de motor (Reforço, Acessórios�
         expect(r.status).toBe(200)
         expect(r.json.layout).toBe('unico')
         expect(r.json.cabecalho).toEqual({ categoria: 'PERSIANAS', fornecedor: 'Wolff', vigencia: '2026-11-02', regime_tributario: null, uf_origem: null, moeda: 'BRL' })
-        const payload = repo.importarConteudo.mock.calls[0][1]
+        const payload = repo.importarTabela.mock.calls[0][0].payload
         expect(payload.itens.map((i: any) => [i.codigo, i.custo, i.valor_barra_interno, i.valor_metro_interno, i[COLUNA_DA_CATEGORIA_DO_FORNECEDOR], i.cred_icms_pct, i.credito_pct]))
             .toEqual([['PS-001', 200, null, null, 'Persianas', 12, 21.25], ['PS-002', 120, 120, 20, 'Persianas', null, null]])
         expect(r.json.contagens).toEqual(expect.objectContaining({ itens: 2 }))
@@ -632,7 +707,7 @@ describe('TABELA DE PREÇO PURO — sem arquivo de motor (Reforço, Acessórios�
         expect(r.status).toBe(200)
         expect(repo.objetoExiste.mock.calls.map((c) => c[0])).toEqual([TABELA.arquivo_path])
         expect(repo.baixarObjeto.mock.calls.map((c) => c[0])).toEqual([TABELA.arquivo_path])
-        expect(repo.importarConteudo.mock.calls[0][1].regras).toEqual([])
+        expect(repo.importarTabela.mock.calls[0][0].payload.regras).toEqual([])
     })
 
     it('motor só com espaços também não é motor', async () => {
@@ -659,7 +734,7 @@ describe('TABELA DE PREÇO PURO — sem arquivo de motor (Reforço, Acessórios�
         delete objetos[TABELA.arquivo_path]
         const r = await chamar('POST')
         expect(r.status).toBe(409)
-        expect(repo.importarConteudo).not.toHaveBeenCalled()
+        expect(repo.importarTabela).not.toHaveBeenCalled()
     })
 
     it('a regra de uma categoria do fornecedor vale igual sem motor: arquivo com duas é recusado (422)', async () => {
@@ -670,14 +745,14 @@ describe('TABELA DE PREÇO PURO — sem arquivo de motor (Reforço, Acessórios�
         ] })
         const r = await chamar('POST')
         expect(r.status).toBe(422)
-        expect(repo.importarConteudo).not.toHaveBeenCalled()
+        expect(repo.importarTabela).not.toHaveBeenCalled()
     })
 
     it('o contraste: a tabela COM motor continua baixando e lendo os dois arquivos, e grava as listas do motor', async () => {
         const r = await chamar('POST')
         expect(r.status).toBe(200)
         expect(repo.baixarObjeto.mock.calls.map((c) => c[0])).toEqual([TABELA.arquivo_path, TABELA.motor_path])
-        const payload = repo.importarConteudo.mock.calls[0][1]
+        const payload = repo.importarTabela.mock.calls[0][0].payload
         expect(payload.regras.length + payload.tipologias.length).toBeGreaterThan(0)
     })
 

@@ -194,8 +194,13 @@ export const PARAMETRO_IMPORTAR_AO_ABRIR = 'importar'
 /** O endereço da tela de Importação de uma tabela; com `importarAoAbrir`, a tela dispara a importação assim que abre. */
 /** A tela da conferência de referências de um motor (12/11/2026). */
 export const telaDasReferenciasDoMotor = (motorId: string) => `/super-admin/atendimentos-ia/motores/${encodeURIComponent(motorId)}/referencias`
-export const telaDaImportacao = (tabelaId: string, importarAoAbrir = false) =>
-    `/super-admin/atendimentos-ia/tabelas/${encodeURIComponent(tabelaId)}/importacao${importarAoAbrir ? `?${PARAMETRO_IMPORTAR_AO_ABRIR}=1` : ''}`
+export const telaDaImportacao = (tabelaId: string, importarAoAbrir = false, pendente: { path: string; nome: string } | null = null) => {
+    const ps = new URLSearchParams()
+    if (importarAoAbrir) ps.set(PARAMETRO_IMPORTAR_AO_ABRIR, '1')
+    if (pendente) { ps.set(PARAMETROS_DO_ARQUIVO_PENDENTE.path, pendente.path); ps.set(PARAMETROS_DO_ARQUIVO_PENDENTE.nome, pendente.nome) }
+    const q = ps.toString()
+    return `/super-admin/atendimentos-ia/tabelas/${encodeURIComponent(tabelaId)}/importacao${q ? `?${q}` : ''}`
+}
 /**
  * A FAMÍLIA É GLOBAL (dono do produto, 29/10/2026): `orcamentista_familia_catalogo` não tem nicho, e não ganha agora — 12 nichos, um só com
  * fornecedores, nenhuma família além da PVC Wolf. É DÍVIDA registrada em `tabela-de-preco-por-categoria.md`, e a tela diz.
@@ -210,14 +215,6 @@ export const NICHO_NAO_ENCONTRADO = 'Nicho não encontrado.'
  * `orcamentista_tabela_perfil_exige_motor`) nasceu de manhã e saiu à noite, na `20261027000009`: não estava errada, o desenho mudou.
  */
 export const MENSAGEM_MOTOR_INCOMPLETO = 'O arquivo do motor chegou pela metade: faltou o caminho ou o nome. Envie de novo.'
-/**
- * O ARQUIVO DE UMA TABELA JÁ IMPORTADA NÃO SE TROCA (dono do produto, 29/10/2026). Os itens gravados são os do arquivo de antes: trocar só o
- * arquivo deixaria a tabela apontando um arquivo que não é o dos itens dela — e a rota apagava o objeto antigo. Em 29/10/2026, às 16:07, uma
- * edição trocou o arquivo da tabela da Wolff (735 itens) e a rota apagou o `.xlsm` original do bucket. Arquivo novo é TABELA NOVA.
- */
-export const fraseDoArquivoDaTabelaImportada = (itens: number) =>
-    `Esta tabela já tem ${itens.toLocaleString('pt-BR')} ${itens === 1 ? 'item importado' : 'itens importados'} do arquivo de antes: o arquivo dela não se troca. `
-    + 'Para um arquivo novo, cadastre uma tabela nova do fornecedor, com a categoria dele. Nada foi alterado.'
 export const MENSAGEM_MOTOR_NAO_SAI = 'O arquivo do motor não se apaga da tabela: troque por outro.'
 
 // ── A FAMÍLIA da tabela (dono do produto, 26/10/2026; migração 20261026000004) ─────────────
@@ -638,6 +635,35 @@ export function lerEdicaoDaTabela(body: unknown, fornecedorId: string): Leitura<
     if (Object.keys(out).length === 0) return { ok: false, erro: 'Nada a alterar.' }
     return { ok: true, corpo: out }
 }
+
+/**
+ * O PEDIDO DE IMPORTAÇÃO (dono do produto, 12/11/2026: a troca do arquivo no MESMO lugar). `arquivo` é o arquivo NOVO, já no bucket e ainda não
+ * na tabela (a edição o devolve como `arquivo_pendente`): a importação lê dele, e a função do banco troca o arquivo da tabela junto com os
+ * itens, na mesma transação. Sem ele, a importação lê o arquivo de hoje. `confirmar` vem depois da prévia, com o `sha256` que a prévia mostrou;
+ * `permitir_encolher` é a permissão explícita de a tabela terminar com menos itens.
+ */
+export interface PedidoDeImportacao { arquivo: { path: string; nome: string } | null; confirmar: boolean; sha256: string | null; permitirEncolher: boolean }
+export function lerPedidoDeImportacao(body: unknown, fornecedorId: string): Leitura<PedidoDeImportacao> {
+    const b = obj(body)
+    let arquivo: PedidoDeImportacao['arquivo'] = null
+    if ('arquivo_path' in b || 'arquivo_nome' in b) {
+        const p = textoAparado(b.arquivo_path)
+        const n = textoAparado(b.arquivo_nome)
+        if (!p || !n) return { ok: false, erro: 'O arquivo novo chegou pela metade: faltou o caminho ou o nome. Envie de novo.' }
+        if (!dentroDoFornecedor(p, fornecedorId)) return { ok: false, erro: 'Os arquivos não pertencem a este fornecedor.' }
+        arquivo = { path: p, nome: n }
+    }
+    if ('confirmar' in b && typeof b.confirmar !== 'boolean') return { ok: false, erro: 'A confirmação é sim ou não.' }
+    if ('permitir_encolher' in b && typeof b.permitir_encolher !== 'boolean') return { ok: false, erro: 'A permissão de encolher é sim ou não.' }
+    const sha256 = typeof b.sha256 === 'string' && /^[0-9a-f]{64}$/.test(b.sha256) ? b.sha256 : null
+    if ('sha256' in b && sha256 === null) return { ok: false, erro: 'O sha256 da prévia está fora da forma.' }
+    const confirmar = b.confirmar === true
+    if (confirmar && sha256 === null) return { ok: false, erro: 'A confirmação leva o sha256 da prévia.' }
+    return { ok: true, corpo: { arquivo, confirmar, sha256, permitirEncolher: b.permitir_encolher === true } }
+}
+
+/** O endereço da Importação com o arquivo novo, que a edição devolveu como pendente. */
+export const PARAMETROS_DO_ARQUIVO_PENDENTE = { path: 'arquivo_path', nome: 'arquivo_nome' } as const
 
 export function extensaoAceita(nome: string): boolean {
     const n = nome.toLowerCase()
