@@ -30,8 +30,10 @@ base
 [ "$("${PSQL[@]}" -d $BANCO -c "SELECT count(*) FROM public.orcamentista_orcamento_item_material WHERE codigo_na_tabela IS NULL AND resolucao IS NULL")" = 1 ] && ok "a linha de antes fica nula (nada alterado)" || nao "linha de antes"
 for r in exato sufixo_do_fornecedor cor aproximado_com_descricao; do linha "'1023/WOLFF'" "'$r'" && ok "aceita $r" || nao "aceita $r"; done
 linha "'1023'" "NULL" && ok "aceita resolucao nula" || nao "aceita nula"
-linha "'1023'" "'palpite'" && nao "recusa palpite" || ok "recusa 'palpite' (fora da lista)"
-linha "'1023'" "'EXATO'" && nao "recusa EXATO" || ok "recusa 'EXATO' (a caixa conta)"
+# a recusa só conta quando É a CHECK que recusa (um erro qualquer — banco fora — não é recusa)
+recusa() { saida=$("${PSQL[@]}" -d $BANCO -c "INSERT INTO public.orcamentista_orcamento_item_material (tenant_id, orcamento_item_id, calculo_id, ordem, codigo, custo_bruto_unidade, custo_liquido_unidade, consumo_item, custo_bruto_material, custo_liquido_material, codigo_na_tabela, resolucao) VALUES (gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), 2, '1023', 1, 1, 1, 1, 1, '1023', $1)" 2>&1) && return 1; echo "$saida" | grep -q orcamentista_orcamento_item_material_resolucao_check; }
+recusa "'palpite'" && ok "recusa 'palpite' (pela CHECK)" || nao "recusa palpite"
+recusa "'EXATO'" && ok "recusa 'EXATO' (a caixa conta, pela CHECK)" || nao "recusa EXATO"
 # guarda: a coluna já existe com outro tipo
 base
 "${PSQL[@]}" -d $BANCO -c "ALTER TABLE public.orcamentista_orcamento_item_material ADD COLUMN resolucao integer" >/dev/null
