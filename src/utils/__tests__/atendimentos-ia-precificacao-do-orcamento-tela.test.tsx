@@ -495,9 +495,9 @@ describe('(G) A CHAVE É O MODELO: só o orçamento DE INDUSTRIALIZAÇÃO leva o
 describe('(E) AS DECISÕES DE 11/11/2026 — a interna gravada, a faixa dos itens precificados e a mão de obra sem valor', () => {
     const ITENS_DO_ARQUIVO: import('@/lib/atendimentos-ia/arquivo-do-orcamento').ItemDoArquivo[] = [
         { ordem: 1, quantidade: 1, largura_mm: 1500, altura_mm: 1200, tipologia: 'DP-02', descricao: 'JANELA DE CORRER', tipo: 'Janela', fornecedor: 'Wolf', linha: 'EUROPA 42',
-          ambientes: 'Sala (1)', corPerfil: 'Branco', corAcessorio: 'Branco', vidro: 'incolor 4 mm comum', variaveis: ['ARREMATE INTERNO: 65 mm'], obs: null, desenho: null },
+          ambientes: 'Sala (1)', corPerfil: 'Branco', corAcessorio: 'Branco', vidro: 'incolor 4 mm comum', variaveis: ['ARREMATE INTERNO: 65 mm'], definicoes: [], obs: null, desenho: null },
         { ordem: 2, quantidade: 1, largura_mm: 600, altura_mm: 600, tipologia: 'DP-01', descricao: 'MAXIM-AR', tipo: 'Janela', fornecedor: 'Wolf', linha: 'DESIGN',
-          ambientes: null, corPerfil: 'Branco', corAcessorio: null, vidro: 'mini boreal', variaveis: [], obs: null, desenho: null },
+          ambientes: null, corPerfil: 'Branco', corAcessorio: null, vidro: 'mini boreal', variaveis: [], definicoes: [], obs: null, desenho: null },
     ]
     it('o salvar leva a OPERAÇÃO INTERNA que a tela mostrou, ao centavo — e, com a matriz governando, ela é o valor do produto precificado', async () => {
         const salvar = jest.fn<Promise<string[] | null>, [GravacaoDaPrecificacao]>(async () => null)

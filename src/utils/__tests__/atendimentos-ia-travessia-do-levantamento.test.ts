@@ -88,12 +88,12 @@ jest.mock('@/lib/atendimentos-ia/orcamento-calculado', () => {
     class ErroDoCalculo extends Error { constructor(readonly recusas: string[]) { super(recusas.join(' | ')) } }
     return {
         ErroDoCalculo,
-        calcularOrcamento: async (t: string, id: string) => { calculo.chamadas.push([t, id]); return calculo.resposta ? calculo.resposta() : { valor_total_liquido: 5240.395, valor_total_bruto: 5483.2 } },
+        calcularOrcamento: async (t: string, id: string) => { calculo.chamadas.push([t, id]); return calculo.resposta ? calculo.resposta() : { valor_total_liquido: 5240.395, valor_total_bruto: 5483.2, faltas: [], parcial: false } },
     }
 })
 
 import {
-    atravessarLevantamento, atravessarNoSim, aproveitamentoDaTravessia, ErroDaTravessia, ErroJaAtravessado, faltasDoCongelado, faltasDoOrcamento,
+    atravessarLevantamento, atravessarNoSim, aproveitamentoDaTravessia, ErroDaTravessia, ErroJaAtravessado, faltasDoCongelado, faltasDoOrcamento, fraseDosQuestionamentos,
     fraseJaAtravessado, fraseNaoCompleto, fraseSemItens, fraseSemQuantidade, lerClienteDoLevantamento, levantamentosParaAtravessar, planoDaTravessia,
     FALTA_DO_MODO_DA_COMISSAO, origemNaTela, percentuaisDoOrcamento, resolverPercentual,
     type ItemDoLevantamentoNaTravessia, type LevantamentoNaTravessia,
@@ -397,6 +397,27 @@ describe('(7) o gatilho do "sim" ENCADEIA travessia -> cálculo -> etapa do pre�
         expect(calculo.chamadas).toEqual([[T, id]])
         expect(etapa.chamadas).toEqual([id])
     })
+    it('4.3 (12/11/2026): o cálculo PARCIAL leva os QUESTIONAMENTOS ao "sim", e o número que recebeu o arquivo segue junto', async () => {
+        calculo.resposta = () => ({ valor_total_liquido: 100, valor_total_bruto: 120, parcial: true, faltas: [
+            { codigo_do_motor: 'SF92/WOLFF', frase: 'SF92/WOLFF não está na tabela de preço.', esquadria: 1 },
+            { codigo_do_motor: 'SF92/WOLFF', frase: 'SF92/WOLFF não está na tabela de preço.', esquadria: 3 },
+            { codigo_do_motor: 'VIDRO', frase: 'o vidro “mini boreal” bate com 5 itens', esquadria: 2 },
+        ] })
+        etapa.resposta = () => Promise.resolve({ rastro: 'precificacao=ok envio=ok', paraOVendedor: 'enviado', enviadoPara: '5551999990000' })
+        const r = await atravessarNoSim(T, LEV, naEtapa)
+        expect(r.rastro).toContain('calculo=ok liquido=100.00 parcial=sim faltas_de_preco=3')
+        expect(r.enviadoPara).toBe('5551999990000')
+        expect(r.questionamentos).toBe([
+            'O orçamento 1 saiu PARCIAL — faltam 2 valores. Para completar, preciso de:',
+            // a frase que começa pelo código não o repete: o código uma vez, e as esquadrias no fim
+            '• SF92/WOLFF não está na tabela de preço (esquadrias 1, 3).',
+            '• VIDRO (esquadria 2): o vidro “mini boreal” bate com 5 itens.',
+        ].join('\n'))
+    })
+    it('os questionamentos: um valor é "falta 1 valor"; sem falta, nada a perguntar', () => {
+        expect(fraseDosQuestionamentos(4, [{ codigo_do_motor: 'X', frase: 'x', esquadria: 1 }])).toBe('O orçamento 4 saiu PARCIAL — falta 1 valor. Para completar, preciso de:\n• X (esquadria 1): x.')
+        expect(fraseDosQuestionamentos(4, [])).toBeNull()
+    })
     it('a etapa que LANÇA não derruba o "sim": o rastro diz parou=precificacao, e nada do que foi gravado é desfeito', async () => {
         etapa.resposta = () => Promise.reject(new Error('storage fora do ar'))
         expect(await atravessarNoSim(T, LEV, naEtapa)).toEqual({ rastro: `${TRAVESSIA} calculo=ok liquido=5240.40 precificacao=falhou parou=precificacao motivo="storage fora do ar"`, paraOVendedor: null })
@@ -430,7 +451,7 @@ describe('(7) o gatilho do "sim" ENCADEIA travessia -> cálculo -> etapa do pre�
 describe('(8) o aviso da tabela congelada', () => {
     // um material: 2 barras de R$ 100 na vigente (o bruto do material é 200), líquido 160 (o valor não importa ao aviso: é o do cálculo)
     const material = (codigo: string): LinhaDeMaterial => ({
-        ordem: 1, codigo, codigo_na_tabela: codigo, resolucao: 'exato', descricao: null, unidade_compra: 'BR', medida_unidade: 6, custo_bruto_unidade: 100, cred_icms_pct: 12, cred_pis_cofins_pct: 9.25,
+        ordem: 1, caminho: 'perfil', codigo, codigo_na_tabela: codigo, resolucao: 'exato', descricao: null, unidade_compra: 'BR', medida_unidade: 6, custo_bruto_unidade: 100, cred_icms_pct: 12, cred_pis_cofins_pct: 9.25,
         cred_ipi_pct: null, nc_ipi_pct: 0, cred_ibs_pct: null, cred_cbs_pct: null, credito_nao_apurado: null, custo_liquido_unidade: 80, custo_liquido_fracao: 80 / 6,
         consumo_item: 12, custo_bruto_material: 200, custo_liquido_material: 160,
     })

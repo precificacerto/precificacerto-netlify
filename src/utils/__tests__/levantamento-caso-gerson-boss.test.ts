@@ -22,7 +22,8 @@
  *
  * O ACHADO QUE O CASO TRAZ: com a cor corrigida, a ponte resolve TODOS os perfis; mas o código 1023 (1023/WOLFF, "CLICK GUIA DE
  * ALUMÍNIO PARA TRILHO DE PVC", sempre presente na DP-39) não está em NENHUMA das 8 tabelas da família PVC da conta. O levantamento
- * real recusa nomeando-o — e é a regra do dono do produto de 08/11/2026: faltando o preço de um material, NADA evolui.
+ * real recusava nomeando-o (a regra de 08/11/2026, "nada evolui"). DESDE 12/11/2026 (o comando único) a falta de preço NÃO impede a evolução:
+ * o 1023 sai em `faltas`, nomeado, e o resto do levantamento evolui.
  */
 
 import { comACorLimpa } from './fixtures/arquivo-do-motor-corrigido'
@@ -71,10 +72,12 @@ function tipologia(codigo: string) {
 }
 
 /** O levantamento “Gerson Boss” como a conversa o monta: DP-39 2.500 x 2.200 (vidro 8 mm) e DP-01 600 x 600 (mini boreal), os padrões do motor. */
+/** A tabela de cores da Wolf, os perfis (20261112000006). */
+const CORES = [['1', 'BRANCO'], ['20', 'PRETO TEXTURADO'], ['36', 'PRETO LISO'], ['30', 'BRONZE'], ['31', 'GRAFITE']].map(([codigo, nome]) => ({ grupo: 'PERFIS DE PVC', codigo, nome }))
 function entrada(cor: string, itens: Item[] = ITENS): Entrada {
     const t = { 'DP-39': tipologia('DP-39'), 'DP-01': tipologia('DP-01') }
     return {
-        cor, tipologias: t, regras: REGRAS, itens, serra_mm: CASO.perfil_config.serra_mm,
+        cor, tipologias: t, regras: REGRAS, itens, serra_mm: CASO.perfil_config.serra_mm, cores: CORES,
         esquadrias: [
             { tipologia: 'DP-39', L_mm: 2500, H_mm: 2200, quantidade: 1, escolhas: ES().escolhasComPadrao(t['DP-39'], {}), espessura_vidro_mm: VI().lerVidro('temperado incolor 8mm').espessura_mm },
             { tipologia: 'DP-01', L_mm: 600, H_mm: 600, quantidade: 1, escolhas: ES().escolhasComPadrao(t['DP-01'], {}), espessura_vidro_mm: VI().lerVidro('mini boreal').espessura_mm },
@@ -92,23 +95,26 @@ const CODIGO_EM_BRANCO: Record<string, string> = {
 const PERFIS_DO_CASO = Object.keys(CODIGO_EM_BRANCO).sort()
 
 describe('(a) o caso real: “Gerson Boss”, perfil Branco, DP-39 2.500 x 2.200 e DP-01 600 x 600', () => {
-    it('a ponte resolve TODOS os perfis: nenhuma recusa de CÓDIGO — e a única falta é o 1023, sem item em tabela nenhuma', () => {
+    it('a ponte resolve TODOS os perfis — e a única FALTA é o 1023, sem item em tabela nenhuma; o resto evolui (12/11/2026)', () => {
         const r = LB().levantarBarras(entrada(CASO.cor_perfil_gravada))
-        if (!('recusas' in r)) throw new Error('o 1023 não tem item: era para recusar')
-        expect(r.recusas.filter((x) => x.origem === 'CODIGO')).toEqual([])
-        expect(r.recusas.map((x) => [x.origem, x.motivo, x.codigo, x.perfil, x.esquadrias])).toEqual([['ITEM', 'ITEM_AUSENTE', '1023', '1023/WOLFF', [1]]])
-        // a referência do fornecedor E a interna, para achar e corrigir o cadastro
-        expect(r.recusas[0].mensagem).toBe('Esquadria 1: o código 1023 (perfil 1023/WOLFF) não está na tabela de preço. Falta: o item 1023, com a barra e o valor.')
+        if ('recusas' in r) throw new Error('recusado: ' + r.recusas.map((x) => x.mensagem).join(' | '))
+        expect(r.faltas.map((f) => [f.caminho, f.motivo, f.codigo_do_motor, f.esquadria])).toEqual([['perfil', 'NAO_ACHADA', '1023/WOLFF', 1]])
+        // o perfil do motor e a descrição dele, para achar e corrigir o cadastro
+        expect(r.faltas[0].frase).toContain('1023/WOLFF')
+        expect(r.total.barras_por_codigo['1023']).toBeUndefined()
+        expect(Object.keys(r.total.barras_por_codigo).length).toBe(PERFIS_DO_CASO.length - 1)
     })
 
     it('cada perfil cortado vira o código BRANCO da tabela — e nenhum outro (com o 1023 posto à mão, só para ver a ponte inteira)', () => {
-        const com1023 = [...ITENS, { codigo: '1023', descricao: 'HIPOTÉTICO: o item que falta em produção', medida_barra_m: 6, valor_barra_interno: 10, valor_metro_interno: 2 }]
+        // a descrição concorda com a do motor (o guarda): o item hipotético é o mesmo produto
+        const com1023 = [...ITENS, { codigo: '1023', descricao: 'CLICK GUIA DE ALUMÍNIO PARA TRILHO DE PVC (hipotético)', medida_barra_m: 6, valor_barra_interno: 10, valor_metro_interno: 2 }]
         const r = LB().levantarBarras(entrada(CASO.cor_perfil_gravada, com1023))
         if ('recusas' in r) throw new Error('recusado: ' + r.recusas.map((x) => x.mensagem).join(' | '))
         const pares = Object.fromEntries(r.por_codigo.map((c) => [c.perfil, c.codigo]))
         expect(Object.keys(pares).sort()).toEqual(PERFIS_DO_CASO)
         expect(pares).toEqual(CODIGO_EM_BRANCO)
         expect(r.cor).toBe('Branco')
+        expect(r.faltas).toEqual([])
     })
 })
 
@@ -134,24 +140,23 @@ describe('(b) a cor dita em qualquer caixa casa', () => {
 })
 
 describe('(c) a cor que REALMENTE não existe continua recusada — a caixa não faz tudo casar', () => {
-    it('"Roxo": todo perfil com variante recusa, nomeando as que existem; os sem variante seguem', () => {
+    it('"Roxo": todo perfil com variante é FALTA nomeada — nenhum código branco entra; os sem variante seguem', () => {
         const r = LB().levantarBarras(entrada('Roxo'))
-        if (!('recusas' in r)) throw new Error('era para recusar')
-        const semCodigo = r.recusas.filter((x) => x.motivo === 'COR_SEM_CODIGO').map((x) => x.perfil).sort()
-        expect(semCodigo).toEqual(['2575/WOLFF', 'BZ0006/WOLFF', 'BZ0010/WOLFF', 'GB25/WOLFF', 'HF88/WOLFF', 'IL50/WOLFF', 'SF92/WOLFF', 'SP66/WOLFF'])
-        const bz6 = r.recusas.find((x) => x.perfil === 'BZ0006/WOLFF')!
-        expect(bz6.mensagem).toContain('o perfil BZ0006/WOLFF não tem código para a cor Roxo na tabela do fornecedor; as variantes que existem são: BRANCO.')
+        if ('recusas' in r) throw new Error('recusado: ' + r.recusas.map((x) => x.mensagem).join(' | '))
+        const comFalta = [...new Set(r.faltas.map((f) => f.codigo_do_motor))].sort()
+        expect(comFalta).toEqual(['1023/WOLFF', '2575/WOLFF', 'BZ0006/WOLFF', 'BZ0010/WOLFF', 'GB25/WOLFF', 'HF88/WOLFF', 'IL50/WOLFF', 'SF92/WOLFF', 'SP66/WOLFF'])
+        for (const branco of ['25751', '10501', '10511', '9801', '9641', '9691', '9701', '9731']) expect(r.resolucoes[branco]).toBeUndefined()
+        // os sem variante (cor vazia) seguem
+        for (const c of ['8427', '8432', '8433', '10491']) expect(r.total.barras_por_codigo[c]).toBeGreaterThan(0)
     })
 
-    it('A EMPRESA SEM BRANCO NA LISTA (dono do produto, 08/11/2026): o levantamento em Roxo com o BZ0006 — que só existe em BRANCO — RECUSA; nunca leva o código branco', () => {
+    it('A EMPRESA SEM BRANCO NA LISTA (dono do produto, 08/11/2026): o levantamento em Roxo com o BZ0006 — que só existe em BRANCO — nunca leva o código branco: falta nas duas esquadrias', () => {
         // a lista de cores da empresa não entra mais no cálculo: a variante única só serve para a cor que ela é, qualquer que seja a lista
-        const r = LB().levantarBarras(entrada('Roxo', [...ITENS, { codigo: '1023', descricao: 'CLICK GUIA', medida_barra_m: 6, valor_barra_interno: 10, valor_metro_interno: 2 }]))
-        if (!('recusas' in r)) throw new Error('saiu levantamento roxo com os códigos brancos')
-        const doBz0006 = r.recusas.find((x) => x.perfil === 'BZ0006/WOLFF')
-        expect(doBz0006?.motivo).toBe('COR_SEM_CODIGO')
-        expect(doBz0006?.mensagem).toBe('Esquadrias 1 e 2: o perfil BZ0006/WOLFF não tem código para a cor Roxo na tabela do fornecedor; as variantes que existem são: BRANCO. Falta: o código de BZ0006/WOLFF em Roxo.')
-        // e o mesmo para o BZ0010, o outro de variante única BRANCO nestas duas esquadrias
-        expect(r.recusas.filter((x) => x.variantes?.length === 1 && x.variantes[0] === 'BRANCO').map((x) => x.perfil).sort()).toEqual(['BZ0006/WOLFF', 'BZ0010/WOLFF'])
+        const r = LB().levantarBarras(entrada('Roxo', [...ITENS, { codigo: '1023', descricao: 'CLICK GUIA DE ALUMÍNIO', medida_barra_m: 6, valor_barra_interno: 10, valor_metro_interno: 2 }]))
+        if ('recusas' in r) throw new Error('recusado: ' + r.recusas.map((x) => x.mensagem).join(' | '))
+        expect(r.faltas.filter((f) => f.codigo_do_motor === 'BZ0006/WOLFF').map((f) => [f.esquadria, f.cor])).toEqual([[1, 'Roxo'], [2, 'Roxo']])
+        expect(r.resolucoes['10501']).toBeUndefined()
+        expect(r.faltas.some((f) => f.codigo_do_motor === 'BZ0010/WOLFF')).toBe(true)
     })
 
     it('"Preto" no BZ0006 (só BRANCO no motor): a variante única que é outra cor NÃO entra', () => {
@@ -189,36 +194,37 @@ describe('(c) a cor que REALMENTE não existe continua recusada — a caixa não
     })
 })
 
-describe('(d) FALTOU PREÇO, NADA EVOLUI (dono do produto, 08/11/2026)', () => {
+describe('(d) FALTOU PREÇO, A FALTA É NOMEADA E O RESTO EVOLUI (dono do produto, 12/11/2026 — substitui o "nada evolui" de 08/11)', () => {
     const com1023 = (valor_barra_interno: number | null, valor_metro_interno: number | null): Item[] =>
         [...ITENS, { codigo: '1023', descricao: 'CLICK GUIA DE ALUMÍNIO PARA TRILHO DE PVC', medida_barra_m: 6, valor_barra_interno, valor_metro_interno }]
 
-    it('o item com o valor da BARRA vazio: o levantamento inteiro recusa — nem a DP-01, completa, sai', () => {
-        const r = LB().levantarBarras(entrada('Branco', com1023(null, 2)))
-        if (!('recusas' in r)) throw new Error('saiu levantamento com preço faltando')
-        expect(r.recusas.map((x) => [x.origem, x.motivo, x.codigo, x.perfil, x.esquadrias])).toEqual([['ITEM', 'ITEM_SEM_VALOR', '1023', '1023/WOLFF', [1]]])
-        expect(r.recusas[0].mensagem).toBe('Esquadria 1: o código 1023 (perfil 1023/WOLFF) está na tabela de preço sem o valor da barra. Falta: o valor da barra de 1023.')
+    const ok = (e: Entrada) => {
+        const r = LB().levantarBarras(e)
+        if ('recusas' in r) throw new Error('recusado: ' + r.recusas.map((x) => x.mensagem).join(' | '))
+        return r
+    }
+    it('o item com o valor da BARRA vazio: FALTA nomeada, e a DP-01, completa, sai', () => {
+        const r = ok(entrada('Branco', com1023(null, 2)))
+        expect(r.faltas.map((f) => [f.motivo, f.codigo_do_motor, f.esquadria])).toEqual([['SEM_VALOR', '1023/WOLFF', 1]])
+        expect(r.faltas[0].frase).toContain('o item 1023 da tabela de preço')
+        expect(r.faltas[0].frase).toContain('sem o valor da barra')
+        expect(r.esquadrias[1].pecas.length).toBeGreaterThan(0)
     })
 
-    it('o valor do METRO vazio também recusa, nomeando o metro', () => {
-        const r = LB().levantarBarras(entrada('Branco', com1023(10, null)))
-        if (!('recusas' in r)) throw new Error('saiu levantamento com preço faltando')
-        expect(r.recusas.map((x) => x.mensagem)).toEqual(['Esquadria 1: o código 1023 (perfil 1023/WOLFF) está na tabela de preço sem o valor do metro. Falta: o valor do metro de 1023.'])
+    it('o valor do METRO vazio também é falta, nomeando o metro', () => {
+        const r = ok(entrada('Branco', com1023(10, null)))
+        expect(r.faltas.map((f) => f.frase.match(/sem o valor do (barra|metro)/)?.[1])).toEqual(['metro'])
     })
 
-    it('os dois vazios: as duas faltas, e o perfil que aparece nas duas esquadrias leva as duas', () => {
+    it('os dois vazios: UMA falta por esquadria, com as duas — o perfil que aparece nas duas esquadrias falta nas duas', () => {
         const itens = ITENS.map((i) => (i.codigo === '10501' ? { ...i, valor_barra_interno: null, valor_metro_interno: null } : i))
-        const r = LB().levantarBarras(entrada('Branco', [...itens, ...com1023(10, 2).slice(-1)]))
-        if (!('recusas' in r)) throw new Error('saiu levantamento com preço faltando')
-        expect(r.recusas.map((x) => [x.motivo, x.codigo, x.esquadrias, x.mensagem.includes(x.codigo!)])).toEqual([
-            ['ITEM_SEM_VALOR', '10501', [1, 2], true],
-            ['ITEM_SEM_VALOR', '10501', [1, 2], true],
-        ])
-        expect(r.recusas.map((x) => x.mensagem.match(/sem o valor d[ao] (barra|metro)/)?.[1])).toEqual(['barra', 'metro'])
+        const r = ok(entrada('Branco', [...itens, ...com1023(10, 2).slice(-1)]))
+        expect(r.faltas.map((f) => [f.motivo, f.codigo_do_motor, f.esquadria])).toEqual([['SEM_VALOR', 'BZ0006/WOLFF', 1], ['SEM_VALOR', 'BZ0006/WOLFF', 2]])
+        expect(r.faltas[0].frase).toContain('sem o valor da barra e sem o valor do metro')
     })
 
     it('ZERO é valor, não falta: o item com R$ 0,00 informado não recusa (ausente-vs-falso)', () => {
-        const r = LB().levantarBarras(entrada('Branco', com1023(0, 0)))
-        expect('recusas' in r ? r.recusas.map((x) => x.mensagem) : 'ok').toBe('ok')
+        const r = ok(entrada('Branco', com1023(0, 0)))
+        expect(r.faltas).toEqual([])
     })
 })

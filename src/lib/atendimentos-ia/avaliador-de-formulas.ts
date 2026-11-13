@@ -57,7 +57,11 @@
  *   - NÃO lê 'Fórmulas da família' (a aba das fórmulas da LINHA). Ela é a fórmula mais comum entre as
  *     tipologias da linha ("% padrão"), com as variáveis da linha (NF = 4), e a DP-02 tem fórmula própria em
  *     'Fórmulas'. Medido: das 16 variáveis comparadas, 9 divergem;
- *   - NÃO devolve vidros (aba 'Vidros'): eles não são cortados em barra. Só PERFIS;
+ *   - OS TRÊS CAMINHOS (dono do produto, 12/11/2026, o comando único): além das PEÇAS da aba Perfis (o caminho de barra), devolve os INSUMOS
+ *     da aba Insumos (código e quantidade, pela fórmula `Qtd` e pela `Condição`, na mesma gramática) e os VIDROS da aba Vidros (largura e altura
+ *     em mm, pelas fórmulas da linha — LVID, HVID… —, e a quantidade). A falha de uma linha dessas NÃO recusa a tipologia: vira FALTA nomeada
+ *     (`faltas`), e o preço sai parcial e dizendo — a regra de 12/11/2026 ("falta de preço não impede a evolução") vale também para a medida
+ *     que o preço precisa. As peças de perfil continuam recusando como sempre;
  *   - o código da peça sai como está na coluna Perfil ("BZ0006/WOLFF"). Ligá-lo ao código do item
  *     da tabela de preço é outro passo.
  *
@@ -96,6 +100,10 @@ export type PerfilDaTipologia = {
     perfil: string; descricao: string; corte: string; qtd: string; medida: string; posicao: string; esp_vidro: string | null; condicao: string
 }
 export type ValidacaoDaTipologia = { condicao: string; mensagem: string }
+/** Uma linha da aba Insumos: o código, a descrição, a fórmula da quantidade e a condição. */
+export type InsumoDaTipologia = { insumo: string; descricao: string | null; qtd: string; condicao: string }
+/** Uma linha da aba Vidros: as fórmulas da largura e da altura do pano, a quantidade, a fixação e a condição. */
+export type VidroDaTipologia = { vidro: string; largura: string; altura: string; qtd: string; fixacao: string | null; condicao: string }
 export type Tipologia = {
     codigo: string
     detalhe: { larg_min_mm: number | null; larg_max_mm: number | null; alt_min_mm: number | null; alt_max_mm: number | null }
@@ -103,11 +111,20 @@ export type Tipologia = {
     formulas: FormulaDaTipologia[]
     perfis: PerfilDaTipologia[]
     validacoes: ValidacaoDaTipologia[]
+    /** As abas Insumos e Vidros (12/11/2026). Ausentes = a tipologia não tem: nenhum insumo, nenhum vidro. */
+    insumos?: InsumoDaTipologia[]
+    vidros?: VidroDaTipologia[]
 }
 
 // ── A saída ───────────────────────────────────────────────────────────────────────────────
 /** A peça — `codigo`, `comprimento_mm` e `quantidade` são o que o agrupador de barras lê. */
 export type PecaDoPerfil = { codigo: string; descricao: string; comprimento_mm: number; quantidade: number; corte: string; posicao: string }
+/** O insumo avaliado: o código como o motor o escreve, a descrição dele e a quantidade por esquadria (pode ser fracionária: silicone, fita). */
+export type InsumoAvaliado = { codigo: string; descricao: string | null; quantidade: number }
+/** O pano de vidro avaliado: largura e altura em mm (ao micrômetro) e quantas vezes ele entra por esquadria. */
+export type VidroAvaliado = { vidro: string; largura_mm: number; altura_mm: number; quantidade: number; fixacao: string | null }
+/** A linha de insumo ou de vidro que não se avaliou: falta nomeada, que NÃO recusa a tipologia. */
+export type FaltaDoAvaliador = { aba: 'Insumos' | 'Vidros'; linha: number; codigo: string; mensagem: string }
 export type LinhaAvaliada = { linha: number; perfil: string; entrou: boolean; motivo: 'CONDICAO_FALSA' | 'ESPESSURA_NAO_ATENDIDA' | 'QUANTIDADE_ZERO' | null }
 export type AvisoDoAvaliador =
     | { origem: 'VALIDACAO'; condicao: string; mensagem: string; valores: Record<string, number> }
@@ -150,7 +167,7 @@ export type RecusaDoAvaliador = {
     quantidade?: number
 }
 export type ResultadoDaAvaliacao =
-    | { ok: true; pecas: PecaDoPerfil[]; linhas: LinhaAvaliada[]; avisos: AvisoDoAvaliador[] }
+    | { ok: true; pecas: PecaDoPerfil[]; linhas: LinhaAvaliada[]; avisos: AvisoDoAvaliador[]; insumos: InsumoAvaliado[]; vidros: VidroAvaliado[]; faltas: FaltaDoAvaliador[] }
     | { ok: false; recusas: RecusaDoAvaliador[] }
 export type EntradaDoAvaliador = {
     tipologia: Tipologia
@@ -695,7 +712,39 @@ export function avaliarTipologia(entrada: EntradaDoAvaliador): ResultadoDaAvalia
     }
 
     if (recusas.length) return { ok: false, recusas }
-    return { ok: true, pecas, linhas, avisos }
+
+    // ── os insumos e os vidros (12/11/2026): a linha que não se avalia é FALTA nomeada, nunca recusa nem zero ──
+    const faltas: FaltaDoAvaliador[] = []
+    const insumos: InsumoAvaliado[] = []
+    ;(entrada.tipologia.insumos ?? []).forEach((x, i) => {
+        const linha = i + 1
+        const onde = (msg: string) => faltas.push({ aba: 'Insumos', linha, codigo: x.insumo, mensagem: `Linha ${linha} da aba Insumos (${x.insumo}): ${msg}` })
+        try {
+            const condicao = x.condicao.trim() === 'sempre' ? true : condicaoDe(avaliar(x.condicao, amb, []), 'A condição')
+            if (!condicao) return
+            const q = numeroDe(avaliar(x.qtd, amb, []), 'A quantidade')
+            if (q.n < Z) { onde(`a quantidade "${x.qtd}" dá ${paraNumero(q)}.`); return }
+            if (q.n === Z) return
+            insumos.push({ codigo: x.insumo, descricao: x.descricao, quantidade: aoMicrometro(q) })
+        } catch (e) { onde(recusaDe(e, {}).mensagem) }
+    })
+    const vidros: VidroAvaliado[] = []
+    ;(entrada.tipologia.vidros ?? []).forEach((x, i) => {
+        const linha = i + 1
+        const onde = (msg: string) => faltas.push({ aba: 'Vidros', linha, codigo: x.vidro, mensagem: `Linha ${linha} da aba Vidros (${x.vidro}): ${msg}` })
+        try {
+            const condicao = x.condicao.trim() === 'sempre' ? true : condicaoDe(avaliar(x.condicao, amb, []), 'A condição')
+            if (!condicao) return
+            const q = numeroDe(avaliar(x.qtd, amb, []), 'A quantidade')
+            if (!ehInteiro(q) || q.n < Z) { onde(`a quantidade "${x.qtd}" dá ${paraNumero(q)}, que não é um inteiro positivo.`); return }
+            if (q.n === Z) return
+            const largura = numeroDe(avaliar(x.largura, amb, []), 'A largura')
+            const altura = numeroDe(avaliar(x.altura, amb, []), 'A altura')
+            if (largura.n <= Z || altura.n <= Z) { onde(`o pano dá ${aoMicrometro(largura)} × ${aoMicrometro(altura)} mm — não há vidro de medida zero ou negativa.`); return }
+            vidros.push({ vidro: x.vidro, largura_mm: aoMicrometro(largura), altura_mm: aoMicrometro(altura), quantidade: Number(q.n), fixacao: x.fixacao })
+        } catch (e) { onde(recusaDe(e, {}).mensagem) }
+    })
+    return { ok: true, pecas, linhas, avisos, insumos, vidros, faltas }
 }
 
 // ── A leitura das abas, pelo NOME da coluna ───────────────────────────────────────────────
@@ -712,6 +761,11 @@ export const COLUNAS_LIDAS: Readonly<Record<string, readonly string[]>> = {
     'Fórmulas': ['Código', 'Variável', 'Fórmula'],
     'Perfis': ['Código', 'Perfil', 'Descrição', 'Corte', 'Qtd', 'Medida', 'Posição', 'Esp. vidro', 'Condição'],
     'Validações': ['Código', 'Condição válida', 'Mensagem'],
+}
+/** As abas que o avaliador lê SE EXISTIREM (12/11/2026): sem elas, a tipologia não tem insumo nem vidro. */
+export const COLUNAS_OPCIONAIS: Readonly<Record<string, readonly string[]>> = {
+    'Insumos': ['Código', 'Insumo', 'Descrição', 'Qtd (fórmula)', 'Condição'],
+    'Vidros': ['Código', 'Vidro', 'Largura', 'Altura', 'Qtd', 'Fixação', 'Condição'],
 }
 
 /**
@@ -765,6 +819,14 @@ export function lerTipologia(abas: AbasDoMotor, codigo: string): { ok: true; tip
             esp_vidro: texto(l['Esp. vidro']), condicao: textoObrigatorio(l['Condição']),
         })),
         validacoes: daTipologia('Validações').map((l) => ({ condicao: textoObrigatorio(l['Condição válida']), mensagem: textoObrigatorio(l['Mensagem']) })),
+        // as abas OPCIONAIS (12/11/2026): ausentes no arquivo, a tipologia não tem insumo nem vidro — nunca recusa
+        insumos: abas['Insumos'] ? daTipologia('Insumos').map((l) => ({
+            insumo: textoObrigatorio(l['Insumo']), descricao: texto(l['Descrição']), qtd: textoObrigatorio(l['Qtd (fórmula)']), condicao: textoObrigatorio(l['Condição']) || 'sempre',
+        })) : [],
+        vidros: abas['Vidros'] ? daTipologia('Vidros').map((l) => ({
+            vidro: textoObrigatorio(l['Vidro']), largura: textoObrigatorio(l['Largura']), altura: textoObrigatorio(l['Altura']), qtd: textoObrigatorio(l['Qtd']),
+            fixacao: texto(l['Fixação']), condicao: textoObrigatorio(l['Condição']) || 'sempre',
+        })) : [],
     }
     if (recusas.length) return { ok: false, recusas }
     return { ok: true, tipologia }

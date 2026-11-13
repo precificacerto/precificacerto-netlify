@@ -19,6 +19,12 @@
  *     diferença seria imprimir imposto, e o total sem ela não seria o preço — a decisão de como mostrar é do dono do produto.
  *   - VAZIO É VAZIO: campo sem dado sai em branco, nunca zero nem texto inventado (`ausente-vs-falso.md`). Isso vale para o logo, o telefone 2,
  *     o site, o contato, o IE/RG, o CEP e o CNPJ/CPF do cliente, as OBSERVAÇÕES gerais (não há, hoje, de onde lê-las) e a Dt.Venda.
+ *   - O ARQUIVO VAI AO VENDEDOR (dono do produto, 12/11/2026, o comando único): ele leva o que a conversa deixou de mandar por texto (4.3) —
+ *     as barras por código, o aproveitamento, a mão de obra EM MINUTOS (nunca em reais: o custo continua fora) e o que o preço cobre —, as
+ *     definições de instalação e arremate de cada esquadria, com "(padrão)" na que o vendedor não disse (4.2), e o RODAPÉ (as observações e o
+ *     fecho) no PÉ da última página, sempre (4.1). Com falta de preço, o carimbo "PARCIAL — faltam N valores" no topo e a lista das faltas (1.5).
+ *   - A GUARDA DO ENVIO AO CLIENTE (1.5): escrita e DESLIGADA (`GUARDA_DO_ENVIO_AO_CLIENTE_LIGADA`): ligada, o arquivo parcial não vai ao cliente.
+ *     Hoje nada envia ao cliente; ela existe para o dia em que algo enviar.
  *   - O DESENHO: o acervo não tem imagem de tipologia; o que existe é o ESQUEMA que a folha do levantamento já desenha (`desenhoDaTipologia`:
  *     o contorno na proporção real e as divisões que a descrição do motor e as variáveis dizem). Sem medida, o bloco fecha sem desenho.
  */
@@ -78,6 +84,18 @@ export type ItemDoArquivo = {
     variaveis: string[]
     obs: string | null
     desenho: DesenhoDaTipologia | null
+    /** As definições de instalação e arremate da esquadria, por extenso, com "(padrão)" na que o vendedor não disse (4.2). Vazia = nenhuma. */
+    definicoes: string[]
+}
+/** Uma falta de preço, como o arquivo a lista: o código, o que falta e as esquadrias (pela ORDEM do item). */
+export type FaltaDoArquivo = { codigo: string; frase: string; itens: number[] }
+/** O que vai ao VENDEDOR (4.3): sem reais — barras, aproveitamento e minutos. */
+export type ParaOVendedor = {
+    barras: Array<{ codigo: string; descricao: string | null; n_barras: number; comprimento_m: number | null }>
+    /** Nulo quando não há perfil para aproveitar. */
+    aproveitamento: { pct: number; metros_uteis: number; metros_comprados: number } | null
+    /** Os minutos de fabricação de cada item, pela ordem; nulo = sem tempo gravado. */
+    minutos: Array<{ ordem: number; minutos: number | null }>
 }
 export type DadosDoArquivoDoOrcamento = {
     empresa: EmpresaDoArquivo
@@ -95,6 +113,9 @@ export type DadosDoArquivoDoOrcamento = {
     valorVenda: number
     rateio: readonly ItemRateado[]
     geradoEm: Date
+    /** As faltas de preço do cálculo vigente; vazia = o orçamento está completo. */
+    faltas: FaltaDoArquivo[]
+    paraOVendedor: ParaOVendedor | null
 }
 export type ArquivoGerado = { ok: true; pdf: Uint8Array; paginas: number; nomeDoArquivo: string }
 export type ArquivoRecusado = { ok: false; recusas: string[] }
@@ -114,6 +135,20 @@ const milimetros = (n: number | null) => (typeof n === 'number' && Number.isFini
 export const linhaDoItem = (i: Pick<ItemDoArquivo, 'fornecedor' | 'linha'>) => [texto(i.fornecedor), texto(i.linha)].filter((t) => t !== '').join(' | ')
 export const nomeDoArquivo = (numero: number, cliente: string) =>
     `Orcamento ${numero} - ${cliente.replace(/[\\/:*?"<>|\r\n]+/g, ' ').replace(/\s+/g, ' ').trim()}.pdf`
+
+// ── O PARCIAL E A GUARDA DO CLIENTE ────────────────────────────────────────────────────────────────────────────────────────────────
+export const carimboDoParcial = (n: number) => `PARCIAL — ${n === 1 ? 'falta 1 valor' : `faltam ${n} valores`}`
+/** O que este orçamento cobre — o texto do arquivo (o da conversa fala só do levantamento, que é de perfis). */
+export const O_QUE_O_ORCAMENTO_COBRE = 'O que este preço cobre: os perfis (o baguete incluído), os insumos e acessórios (ferragens, escovas, calços e '
+    + 'outros) e o vidro, pelas tabelas dos fornecedores, e a mão de obra. O que não tem preço na tabela fica FORA do total e está listado como falta.'
+/** A guarda do envio ao CLIENTE (1.5): escrita e desligada por decisão do dono do produto. Ligar é trocar esta constante. */
+export const GUARDA_DO_ENVIO_AO_CLIENTE_LIGADA = false
+export const fraseDoParcialAoCliente = (numero: number, n: number) =>
+    `o orçamento ${numero} está PARCIAL (${n === 1 ? 'falta 1 valor' : `faltam ${n} valores`}): ele vai ao vendedor, não ao cliente, até as faltas serem resolvidas`
+/** A recusa do envio ao cliente, ou nula quando pode ir. `ligada` existe para o teste; em produção é a constante. */
+export function recusaDoEnvioAoCliente(d: Pick<DadosDoArquivoDoOrcamento, 'numero' | 'faltas'>, ligada: boolean = GUARDA_DO_ENVIO_AO_CLIENTE_LIGADA): string | null {
+    return ligada && d.faltas.length > 0 ? fraseDoParcialAoCliente(d.numero, d.faltas.length) : null
+}
 
 // ── A CONFERÊNCIA (antes de produzir) ─────────────────────────────────────────────────────────────────────────────────────────────
 const centavos = (v: number) => Math.round(v * 100)
@@ -215,10 +250,12 @@ function medidaDoItem(doc: Doc, i: ItemDoArquivo) {
     const descricao = quebrar(doc, texto(i.descricao).toLocaleUpperCase('pt-BR'), LARGURA_DO_TEXTO).slice(0, 3)
     fonte(doc, 'normal', 7.5)
     const obs = texto(i.obs) === '' ? [] : quebrar(doc, texto(i.obs), LARGURA - 4)
-    const corpoTexto = descricao.length * 3.6 + 3 * 4.6 + 2 * 5.2 + 1
+    fonte(doc, 'normal', 7)
+    const definicoes = i.definicoes.length ? quebrar(doc, `DEFINIÇÕES: ${i.definicoes.join(' · ')}`, LARGURA_DO_TEXTO) : []
+    const corpoTexto = descricao.length * 3.6 + 3 * 4.6 + 2 * 5.2 + 1 + definicoes.length * 3.2
     const corpo = Math.max(30, corpoTexto)
     const alturaDaObs = obs.length ? 5 + obs.length * 3.4 + 1.5 : 0
-    return { descricao, obs, corpo, total: 6 + corpo + alturaDaObs }
+    return { descricao, obs, definicoes, corpo, total: 6 + corpo + alturaDaObs }
 }
 
 function blocoDoItem(doc: Doc, i: ItemDoArquivo, r: ItemRateado, y: number, dataEntrega: string): number {
@@ -247,6 +284,8 @@ function blocoDoItem(doc: Doc, i: ItemDoArquivo, r: ItemRateado, y: number, data
     ty += 1
     campo(doc, '*COR PERFIL:', texto(i.corPerfil), X_DO_TEXTO, ty); campo(doc, '*COR ACESSÓRIO:', texto(i.corAcessorio), X_DO_TEXTO + 70, ty); ty += 4.6
     campo(doc, 'LINHA:', linhaDoItem(i), X_DO_TEXTO, ty); campo(doc, 'DATA ENTREGA:', dataEntrega, X_DO_TEXTO + 110, ty); ty += 3
+    // as definições de instalação e arremate (4.2), com "(padrão)" na que o vendedor não disse
+    if (m.definicoes.length) { fonte(doc, 'normal', 7); for (const l of m.definicoes) { ty += 3.2; doc.text(l, X_DO_TEXTO, ty) } ty += 1 }
     // a tabela de sete colunas: o cabeçalho e a linha do item
     let cx = X_DO_TEXTO
     doc.setDrawColor(CINZA)
@@ -286,6 +325,43 @@ const alturaDasObservacoes = (doc: Doc, d: DadosDoArquivoDoOrcamento) => {
 }
 const ALTURA_DO_FECHO = 40
 
+const numeroBR = (n: number, casas: number) => n.toLocaleString('pt-BR', { minimumFractionDigits: casas, maximumFractionDigits: casas })
+/** As linhas das faltas (1.5): uma por código, com os itens. */
+export function linhasDasFaltasDoArquivo(faltas: readonly FaltaDoArquivo[]): string[] {
+    return faltas.map((f) => `• ${f.codigo} (${f.itens.length > 1 ? 'itens' : 'item'} ${f.itens.join(', ')}): ${f.frase.replace(/\.$/, '')}.`)
+}
+/** As linhas do que vai ao vendedor (4.3): barras, aproveitamento, minutos e o que o preço cobre. */
+export function linhasParaOVendedor(v: ParaOVendedor): string[] {
+    const linhas = ['Barras por código:', ...v.barras.map((b) => `• ${b.codigo}${b.descricao ? ` (${b.descricao})` : ''}: ${b.n_barras} barra(s)${b.comprimento_m ? ` de ${numeroBR(b.comprimento_m, 2)} m` : ''}`)]
+    linhas.push(v.aproveitamento === null ? 'Aproveitamento: não há peça para aproveitar.'
+        : `Aproveitamento: ${numeroBR(v.aproveitamento.pct, 1)}% (${numeroBR(v.aproveitamento.metros_uteis, 2)} m úteis de ${numeroBR(v.aproveitamento.metros_comprados, 2)} m comprados).`)
+    linhas.push(`Mão de obra: ${v.minutos.map((m) => `item ${m.ordem}: ${m.minutos === null ? 'sem tempo' : `${numeroBR(m.minutos, 0)} min`}`).join(' · ')}.`)
+    linhas.push(O_QUE_O_ORCAMENTO_COBRE)
+    return linhas
+}
+/** Um bloco de texto com título, em caixa: mede (sem `desenhar`) ou desenha. Devolve a altura. */
+function blocoDeTexto(doc: Doc, titulo: string, linhas: readonly string[], y: number, desenhar: boolean, cor: [number, number, number] | null = null): number {
+    fonte(doc, 'normal', 7.5)
+    const quebradas = linhas.flatMap((l) => quebrar(doc, l, LARGURA - 4))
+    const h = 6 + quebradas.length * 3.4 + 2
+    if (!desenhar) return h + 3
+    doc.setDrawColor(0); doc.rect(A4.margem, y, LARGURA, h)
+    fonte(doc, 'bold', 8); if (cor) doc.setTextColor(...cor); doc.text(titulo, A4.margem + 2, y + 4.2); doc.setTextColor(0)
+    fonte(doc, 'normal', 7.5); quebradas.forEach((l, k) => doc.text(l, A4.margem + 2, y + 8 + k * 3.4))
+    return h + 3
+}
+/** O carimbo do parcial, no topo da primeira página, em vermelho, sobre a caixa da empresa. */
+function carimbo(doc: Doc, n: number) {
+    doc.setPage(1)
+    fonte(doc, 'bold', 13); doc.setTextColor(...VERMELHO); doc.setDrawColor(...VERMELHO); doc.setLineWidth(0.6)
+    const t = carimboDoParcial(n)
+    const w = doc.getTextWidth(t) + 6
+    const x = A4.margem + 33
+    doc.rect(x, A4.margem + 37.5 - 7, w, 8.5)
+    doc.text(t, x + 3, A4.margem + 37.5 - 0.8)
+    doc.setTextColor(0); doc.setDrawColor(0); doc.setLineWidth(0.3)
+}
+
 function fecho(doc: Doc, d: DadosDoArquivoDoOrcamento, y: number) {
     const total = d.rateio.reduce((s, r) => s + r.total, 0)
     fonte(doc, 'bold', 11); doc.text(`TOTAL: ${reais(total)}`, A4.margem + LARGURA, y + 5, { align: 'right' })
@@ -313,9 +389,21 @@ export function gerarArquivoDoOrcamento(d: DadosDoArquivoDoOrcamento): ArquivoGe
         if (y + h > FIM) { doc.addPage('a4', 'portrait'); y = A4.margem }
         y = blocoDoItem(doc, i, doRateio.get(i.ordem) as ItemRateado, y, entrega)
     }
-    if (y + alturaDasObservacoes(doc, d) + ALTURA_DO_FECHO > FIM) { doc.addPage('a4', 'portrait'); y = A4.margem }
+    // as faltas e o que vai ao vendedor, depois dos itens; cada bloco na página em que cabe
+    const blocos: Array<[string, string[], [number, number, number] | null]> = []
+    if (d.faltas.length) blocos.push([`FALTAS DE PREÇO — ${carimboDoParcial(d.faltas.length)} (fora do total)`, linhasDasFaltasDoArquivo(d.faltas), VERMELHO])
+    if (d.paraOVendedor) blocos.push(['PARA O VENDEDOR', linhasParaOVendedor(d.paraOVendedor), null])
+    for (const [titulo, linhas, cor] of blocos) {
+        if (y + blocoDeTexto(doc, titulo, linhas, y, false) > FIM) { doc.addPage('a4', 'portrait'); y = A4.margem }
+        y += blocoDeTexto(doc, titulo, linhas, y, true, cor)
+    }
+    // O RODAPÉ NO PÉ DA PÁGINA, SEMPRE (4.1): as observações e o fecho encostados no fim da última página; sem lugar, uma página nova
+    const rodape = alturaDasObservacoes(doc, d) + ALTURA_DO_FECHO
+    if (y + rodape > FIM) doc.addPage('a4', 'portrait')
+    y = FIM - rodape
     y = blocoDasObservacoes(doc, d, y)
     fecho(doc, d, y)
+    if (d.faltas.length) carimbo(doc, d.faltas.length)
     const paginas = doc.getNumberOfPages()
     for (let p = 1; p <= paginas; p++) {
         doc.setPage(p)

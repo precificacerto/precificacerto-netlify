@@ -87,6 +87,31 @@ async function vinculosDaConta(tenantId: string): Promise<Map<string, string[]>>
     return new Map([...porFornecedor].map(([f, cs]) => [f, [...cs].sort(porTexto)]))
 }
 
+/**
+ * O FORNECEDOR PRINCIPAL DE CADA CATEGORIA desta conta (dono do produto, 12/11/2026, 1.2: "o escopo do insumo é o fornecedor principal da
+ * CATEGORIA"): categoria → fornecedor, pelo `principal` de `orcamentista_mp_categoria_fornecedor`. A categoria com DOIS principais (duas
+ * matérias-primas que discordam) não entra em `principais`: vai para `ambiguas`, e o insumo dela é falta nomeada — nunca o primeiro.
+ */
+export type PrincipaisDaConta = { principais: Map<string, string>; ambiguas: string[] }
+export async function principaisDaConta(tenantId: string): Promise<PrincipaisDaConta> {
+    const [categorias, vinculos] = await Promise.all([
+        ler('orcamentista_mp_categoria', db().from('orcamentista_mp_categoria').select('id, categoria_chave').eq('tenant_id', tenantId)),
+        ler('orcamentista_mp_categoria_fornecedor', db().from('orcamentista_mp_categoria_fornecedor').select('mp_categoria_id, fornecedor_id, principal').eq('tenant_id', tenantId).eq('principal', true)),
+    ])
+    const chaveDa = new Map(categorias.map((c) => [String(c.id), String(c.categoria_chave)]))
+    const porCategoria = new Map<string, Set<string>>()
+    for (const v of vinculos) {
+        const chave = chaveDa.get(String(v.mp_categoria_id))
+        if (!chave || v.principal !== true) continue
+        if (!porCategoria.has(chave)) porCategoria.set(chave, new Set())
+        porCategoria.get(chave)!.add(String(v.fornecedor_id))
+    }
+    const principais = new Map<string, string>()
+    const ambiguas: string[] = []
+    for (const [c, fs] of porCategoria) { if (fs.size === 1) principais.set(c, [...fs][0]); else ambiguas.push(c) }
+    return { principais, ambiguas: ambiguas.sort(porTexto) }
+}
+
 export async function derivarTabelasDaConta(tenantId: string): Promise<DerivacaoDaConta> {
     const vinculos = await vinculosDaConta(tenantId)
     const fIds = [...vinculos.keys()]

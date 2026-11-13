@@ -11,6 +11,7 @@ import { superAdminOu404 } from '@/lib/get-caller-tenant'
 import { metodoNaoPermitido } from '@/lib/atendimentos-ia/base-de-conhecimento-servidor'
 import { falhaInterna, lerParaConferirReferencias } from '@/lib/atendimentos-ia/repositorio'
 import { agregarRegras, comDescricaoDivergente, conferirReferencias } from '@/lib/atendimentos-ia/conferencia-de-referencias'
+import { lerCoresDosFornecedores } from '@/lib/atendimentos-ia/cores-do-fornecedor'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
     const caller = await superAdminOu404(req, res)
@@ -23,13 +24,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         if (lido === null) return res.status(404).json({ error: 'Motor não encontrado.' })
         // o ESCOPO é o do motor: o fornecedor dele e as famílias em que ele atua (dono do produto, 12/11/2026: "escopo primeiro, sempre")
         const escopo = { fornecedor_id: lido.motor.fornecedor_id, familias: lido.motor.familias }
-        const conferencia = conferirReferencias(agregarRegras(lido.regras), lido.itens, escopo)
+        // a tabela de cores do fornecedor do motor (20261112000006): sem a migração, vazia — o degrau "código + cor" não acha, e diz
+        const cores = await lerCoresDosFornecedores([lido.motor.fornecedor_id])
+        const conferencia = conferirReferencias(agregarRegras(lido.regras), lido.itens, escopo, cores.porFornecedor.get(lido.motor.fornecedor_id) ?? [])
         return res.status(200).json({
             motor: lido.motor, itens_nas_tabelas: lido.itens.length, itens_no_escopo: conferencia.itensNoEscopo,
             codigos: conferencia.codigos, regras: conferencia.regras,
             achadas_com_preco: conferencia.comPreco, achadas_sem_preco: conferencia.semPreco,
             nao_achadas: conferencia.naoAchadas, nao_resolvidas: conferencia.naoResolvidas,
             sufixo_com_outra_descricao: comDescricaoDivergente(conferencia),
+            tabela_de_cores: cores.leitura,
         })
     } catch (e) {
         return falhaInterna(res, 'conferir referências do motor', e, 'Não foi possível conferir as referências do motor.')

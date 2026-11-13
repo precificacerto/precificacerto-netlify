@@ -22,7 +22,7 @@ import { registrarFormatoMedido } from './telefone-medido'
 import { precificarComoAgente, type PrecificacaoDoAgente } from './preco-do-orcamento-servidor'
 
 /** `destino`: o número que o canal ACEITOU (quando houve), para (c) — o palpite vira medição. */
-export type EnvioDoDocumento = { ok: boolean; status: number | null; prazoEsgotado: boolean; destino?: string }
+export type EnvioDoDocumento = { ok: boolean; status: number | null; prazoEsgotado: boolean; destino?: string; id?: string | null }
 export type DependenciasDaEtapa = {
     precificar: (tenantId: string, orcamentoId: string) => Promise<PrecificacaoDoAgente>
     lerArquivo: (tenantId: string, orcamentoId: string) => Promise<{ pdf: Uint8Array } | null>
@@ -38,6 +38,13 @@ export type ResultadoDaEtapa = {
     rastro: string
     /** O que o vendedor recebe por TEXTO junto com a resposta do "sim"; nulo só quando nem o orçamento existe para dizer algo. */
     paraOVendedor: string | null
+    /**
+     * O número para o qual o arquivo FOI ENVIADO (12/11/2026, 4.3: "depois do sim, a conversa manda SÓ o arquivo"); ausente quando o envio não
+     * aconteceu. Quem chama decide se cala: o arquivo chegou a quem disse "sim".
+     */
+    enviadoPara?: string
+    /** O id que o canal deu ao envio do arquivo (o da saída gravada, quando a conversa cala); ausente sem envio. */
+    idDoEnvio?: string | null
 }
 
 const reaisBR = (v: number) => `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -94,7 +101,7 @@ export async function etapaDoPreco(tenantId: string, orcamentoId: string, deps: 
     }
     // (c) O PALPITE VIRA MEDIÇÃO (dono do produto, 11/11/2026): a variante que o canal aceitou é persistida no remetente, e passa a valer
     const medido = envio.destino && envio.destino !== dono.telefone ? ` telefone=${await deps.registrarMedido(tenantId, dono.id, dono.telefone, envio.destino)}` : ''
-    return { rastro: `${doArquivo} envio=ok ms_envio=${msEnvio}${medido}`, paraOVendedor: fraseDoOrcamentoEnviado(o.numero, o.nome, venda) }
+    return { rastro: `${doArquivo} envio=ok ms_envio=${msEnvio}${medido}`, paraOVendedor: fraseDoOrcamentoEnviado(o.numero, o.nome, venda), enviadoPara: envio.destino ?? dono.telefone, idDoEnvio: envio.id ?? null }
 }
 
 export type DonoDoLevantamento = { id: string; telefone: string }

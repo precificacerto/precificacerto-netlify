@@ -14,8 +14,8 @@ CALCULO = 'src/lib/atendimentos-ia/custo-do-orcamento.ts'
 SUITE = 'src/utils/__tests__/atendimentos-ia-custo-do-orcamento.test.ts'
 
 MUTACOES = [
-    ('K1', 'o rateio por metro global, não por código', "const parte = doItem.get(c)! / consumoTotal.get(c)!",
-     "const parte = [...doItem.values()].reduce((a, b) => a + b, 0) / [...consumoTotal.values()].reduce((a, b) => a + b, 0)"),
+    ('K1', 'o rateio por metro global, não por código', "const parte = x.qtd / consumoTotal.get(x.codigo)!",
+     "const parte = [...consumos[k].values()].filter((y) => y.caminho === 'perfil').reduce((a, y) => a + y.qtd, 0) / [...consumoTotal.values()].reduce((a, b) => a + b, 0)"),
     ('K2', 'sem ICMS o fallback barateia', "if (bloco.cred_icms_pct === null) return { liquido: bruto, nao_apurado }", "if (bloco.cred_icms_pct === null) return { liquido: bruto * 0.8, nao_apurado }"),
     ('K19', 'IBS/CBS nulos travam (a decisão de 02/11 lida ao pé da letra)', "filter((c) => bloco[c] !== null && bloco[c] !== 0)", "filter((c) => bloco[c] !== 0)"),
     ('K20', 'a cascata parcial descartada (sem PIS/COFINS volta ao bruto)', "if (r.ate_o_icms !== undefined) return { liquido: r.ate_o_icms, nao_apurado }", "if (r.ate_o_icms !== undefined) return { liquido: bruto, nao_apurado }"),
@@ -29,18 +29,32 @@ MUTACOES = [
     ('K4', 'a fabricação sem o valor do minuto', "const fabricacao = minutos * (e.valor_minuto as number)", "const fabricacao = minutos"),
     ('K5', 'o total do item sem a fabricação', "custo_liquido_total: liquido + fabricacao", "custo_liquido_total: liquido"),
     ('K6', 'o valor do minuto invertido', "    return custoMensal / minutosDaEmpresa\n", "    return minutosDaEmpresa / custoMensal\n"),
-    ('K7', 'o código sem preço não recusa', "recusas.push(fraseSemPreco(c))", "void 0"),
+    # 12/11/2026: o código sem preço NÃO recusa — fica fora e é nomeado. A mutação é o contrário: ele entra no custo, calado
+    ('K7', 'o código sem valor entra no custo, sem falta', "            else if (!valido(brutoDe(m))) faltas.push(", "            else if (false as boolean) faltas.push("),
     ('K8', 'a tipologia sem tempo não recusa', "recusas.push(fraseSemTempo(it.referencia))", "void 0"),
     ('K9', 'o efetivo do item afirmado com crédito não apurado', "if (bruto <= 0 || linhas.some((l) => l.credito_nao_apurado !== null)) return nulos", "if (bruto <= 0) return nulos"),
-    ('K10', 'o consumo em milímetros', "consumo_item: doItem.get(c)! / 1000", "consumo_item: doItem.get(c)!"),
+    ('K10', 'o consumo em milímetros', "consumo_item: x.qtd / 1000", "consumo_item: x.qtd"),
     ('K11', 'o PIS/COFINS sobre o bruto no efetivo', "soma.cred_pis_cofins_pct += ((b - icms) *", "soma.cred_pis_cofins_pct += ((b) *"),
     ('K12', 'o bruto do material sem as barras do pedido', "custo_bruto_material: barras * bruto * parte", "custo_bruto_material: bruto * parte"),
     ('K13', 'a fração pelo bruto', "custo_liquido_fracao: custoLiquidoDaFracao(u.liquido, u.m.medida_barra_m)", "custo_liquido_fracao: custoLiquidoDaFracao(bruto, u.m.medida_barra_m)"),
     ('K14', 'o fallback com aproveitamento', "export const MODO_DO_FALLBACK = 'SEM' as const", "export const MODO_DO_FALLBACK = 'COM' as const"),
-    ('K15', 'o código consumido sem barras não recusa', "        if (!Number.isInteger(n) || n <= 0) recusas.push(fraseSemBarras(c))\n", ""),
+    ('K15', 'o código consumido sem barras não recusa', "        if (!Number.isInteger(n) || n <= 0) recusas.push(fraseSemBarras(m.codigo))\n", ""),
     ('K16', 'sem valor do minuto não recusa', "recusas.push(FRASE_SEM_VALOR_DO_MINUTO)", "void 0"),
     ('K17', 'o líquido do material pelo bruto', "custo_liquido_material: barras * u.liquido * parte", "custo_liquido_material: barras * bruto * parte"),
     ('K18', 'os minutos somados deixam de ser os do item', "productWorkloadMinutes: itens.reduce((t, i) => t + i.tempo_fabricacao_min, 0)", "productWorkloadMinutes: itens.length ? itens[0].tempo_fabricacao_min : 0"),
+    # OS TRÊS CAMINHOS (12/11/2026)
+    ('K27', 'o insumo sem a cascata (o bruto no líquido)', "consumo_item: x.qtd, custo_bruto_material: x.qtd * bruto, custo_liquido_material: x.qtd * u.liquido,",
+     "consumo_item: x.qtd, custo_bruto_material: x.qtd * bruto, custo_liquido_material: x.qtd * bruto,"),
+    ('K28', 'o insumo e o vidro pelo valor da barra (não pelo custo)', "const brutoDe = (m: MaterialDaTabela) => (m.caminho === 'perfil' ? m.valor_barra_interno : m.custo)",
+     "const brutoDe = (m: MaterialDaTabela) => m.valor_barra_interno"),
+    ('K29', 'o vidro sem a unidade M2', "unidade_compra: x.caminho === 'vidro' ? 'M2' : u.m.unidade,", "unidade_compra: u.m.unidade,"),
+    ('K30', 'a chave do material sem o caminho', "export const chaveDoMaterial = (caminho: CaminhoDoCusto, codigo: string) => `${caminho}:${codigo}`",
+     "export const chaveDoMaterial = (caminho: CaminhoDoCusto, codigo: string) => { void caminho; return codigo }"),
+    ('K31', 'o código sem material some calado (sem falta)', "            if (!m) faltas.push({ item: k, caminho: x.caminho, codigo: x.codigo, motivo: 'SEM_MATERIAL', frase: fraseSemMaterial(x.caminho, x.codigo) })\n            else if",
+     "            if (!m) void 0\n            else if"),
+    ('K32', 'as linhas fora da ordem perfil, insumo, vidro', "const ORDEM_DO_CAMINHO: Record<CaminhoDoCusto, number> = { perfil: 0, insumo: 1, vidro: 2 }",
+     "const ORDEM_DO_CAMINHO: Record<CaminhoDoCusto, number> = { perfil: 2, insumo: 1, vidro: 0 }"),
+    ('K33', 'o insumo rateado pela barra (o perfil engole o caminho)', "            if (x.caminho === 'perfil') {\n                // a barra inteira", "            if (x.caminho !== 'vidro') {\n                // a barra inteira"),
 ]
 import os as _os; sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
 from trecho_unico import exigir_trecho_unico  # a mutação que não se aplica aborta (mutacao-que-nao-se-aplica.md)

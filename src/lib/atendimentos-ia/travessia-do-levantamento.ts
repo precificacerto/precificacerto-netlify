@@ -92,13 +92,19 @@ export async function atravessarLevantamento(tenantId: string, levantamentoId: s
     const { data: lev, error } = await db().from('orcamentista_levantamento').select(COLUNAS_DO_LEVANTAMENTO).eq('tenant_id', tenantId).eq('id', levantamentoId).maybeSingle()
     if (error) falhou('orcamentista_levantamento', error)
     if (!lev || lev.tenant_id !== tenantId) throw new ErroNaoEncontrado()
-    const r = await db().from('orcamentista_levantamento_item').select(COLUNAS_DO_ITEM_DO_LEVANTAMENTO).eq('tenant_id', tenantId).eq('levantamento_id', levantamentoId)
+    const lerItens = (colunas: string) => db().from('orcamentista_levantamento_item').select(colunas).eq('tenant_id', tenantId).eq('levantamento_id', levantamentoId)
+    // o código do vidro ESCOLHIDO (20261112000006) viaja junto; sem a coluna, nenhum foi escolhido
+    let r = await lerItens(`${COLUNAS_DO_ITEM_DO_LEVANTAMENTO}, vidro_codigo`)
+    if (r.error && (r.error.code === '42703' || r.error.code === 'PGRST204')) r = await lerItens(COLUNAS_DO_ITEM_DO_LEVANTAMENTO)
     if (r.error) falhou('orcamentista_levantamento_item', r.error)
+    const vidroCodigo = new Map(((r.data ?? []) as Array<{ id: string; vidro_codigo?: string | null }>).flatMap((i) => (textoOuNulo(i.vidro_codigo) ? [[i.id, textoOuNulo(i.vidro_codigo) as string]] : [])))
     // a pré-definição de contexto da base (o perfil do vendedor do levantamento), lida no tenant do chamador — o (b) da regra do zero
     const doVendedor = await lerPerfilDoVendedor(tenantId, textoOuNulo(lev.vendedor_employee_id))
     const plano = planoDaTravessia(lev as LevantamentoNaTravessia, (r.data ?? []) as ItemDoLevantamentoNaTravessia[], await modoDaBaseDeConhecimento(tenantId), doVendedor)
     // `'recusas' in`, e não `ok`: com `strictNullChecks: false` (o tsconfig daqui) o tsc não estreita a união pelo booleano
     if ('recusas' in plano) throw new ErroDaTravessia(plano.recusas)
+    // a coluna só vai no INSERT quando algum item tem o código: sem escolha, o insert é o de antes (e não depende da migração)
+    if (vidroCodigo.size) plano.itens = plano.itens.map((i) => ({ ...i, vidro_codigo: vidroCodigo.get(String(i.levantamento_item_id)) ?? null }))
 
     const existente = await orcamentoDoLevantamento(tenantId, levantamentoId)
     if (existente && existente.itens > 0) throw new ErroJaAtravessado(lev.numero, existente.id, existente.numero)
@@ -187,7 +193,28 @@ export async function percentuaisDoOrcamento(tenantId: string, id: string): Prom
  * passo não desfaz o anterior: fica nomeada no log, e a ação manual da seção Orçamentos I.A. retoma depois.
  */
 export type EtapaDoPrecoNoSim = (orcamentoId: string) => Promise<ResultadoDaEtapa>
-export type ResultadoDoSim = { rastro: string; paraOVendedor: string | null }
+/**
+ * `enviadoPara`: o número que recebeu o arquivo (a etapa do preço o diz). `questionamentos`: as faltas nomeadas do cálculo (12/11/2026, 4.3) —
+ * a ÚNICA coisa que a conversa manda por texto quando o arquivo chegou; o resto (barras, aproveitamento, mão de obra) está no PDF.
+ */
+export type ResultadoDoSim = { rastro: string; paraOVendedor: string | null; enviadoPara?: string; idDoEnvio?: string | null; questionamentos?: string }
+/** Os questionamentos de um orçamento PARCIAL: uma linha por código, com o que falta. Sem falta, nulo — nada a perguntar. */
+export function fraseDosQuestionamentos(numero: number, faltas: ReadonlyArray<{ codigo_do_motor: string; frase: string; esquadria: number }>): string | null {
+    if (faltas.length === 0) return null
+    const porCodigo = new Map<string, { frase: string; esquadrias: Set<number> }>()
+    for (const f of faltas) {
+        const x = porCodigo.get(f.codigo_do_motor) ?? { frase: f.frase, esquadrias: new Set<number>() }
+        x.esquadrias.add(f.esquadria)
+        porCodigo.set(f.codigo_do_motor, x)
+    }
+    const linhas = [...porCodigo.entries()].map(([codigo, x]) => {
+        const es = [...x.esquadrias].sort((a, b) => a - b)
+        const onde = `esquadria${es.length > 1 ? 's' : ''} ${es.join(', ')}`
+        // a frase que já começa pelo código não o repete: o código vai uma vez, e as esquadrias no fim
+        return x.frase.startsWith(codigo) ? `• ${x.frase.replace(/\.$/, '')} (${onde}).` : `• ${codigo} (${onde}): ${x.frase.replace(/\.$/, '')}.`
+    })
+    return [`O orçamento ${numero} saiu PARCIAL — ${porCodigo.size > 1 ? `faltam ${porCodigo.size} valores` : 'falta 1 valor'}. Para completar, preciso de:`, ...linhas].join('\n')
+}
 export async function atravessarNoSim(tenantId: string, levantamentoId: string, etapaDoPreco: EtapaDoPrecoNoSim): Promise<ResultadoDoSim> {
     let r: ResultadoDaTravessia
     try {
@@ -200,16 +227,21 @@ export async function atravessarNoSim(tenantId: string, levantamentoId: string, 
     const origens = PERCENTUAIS_COM_ZERO.map((p) => `${ROTULO_NO_LOG[p]}:${r.origens[p]}`).join(',')
     const travessia = `orcamento=${r.orcamento.numero} itens=${r.itens} faltas=${r.faltas.length}${r.retomada ? ' retomada=sim' : ''} origens=${origens}`
     let doCalculo: string
+    let questionamentos: string | null = null
     try {
         const c = await calcularOrcamento(tenantId, r.orcamento.id)
-        doCalculo = `${travessia} calculo=ok liquido=${c.valor_total_liquido.toFixed(2)}`
+        doCalculo = `${travessia} calculo=ok liquido=${c.valor_total_liquido.toFixed(2)}${c.parcial ? ` parcial=sim faltas_de_preco=${c.faltas.length}` : ''}`
+        questionamentos = fraseDosQuestionamentos(r.orcamento.numero, c.faltas)
     } catch (e) {
         if (e instanceof ErroDoCalculo) return { rastro: `${travessia} calculo=recusou recusas=${e.recusas.length} parou=calculo motivo="${e.recusas.join(' | ').slice(0, 120)}"`, paraOVendedor: null }
         return { rastro: `${travessia} calculo=falhou parou=calculo motivo="${motivoDoLog(e)}"`, paraOVendedor: null }
     }
     try {
         const etapa = await etapaDoPreco(r.orcamento.id)
-        return { rastro: `${doCalculo} ${etapa.rastro}`, paraOVendedor: etapa.paraOVendedor }
+        return {
+            rastro: `${doCalculo} ${etapa.rastro}`, paraOVendedor: etapa.paraOVendedor,
+            ...(etapa.enviadoPara ? { enviadoPara: etapa.enviadoPara, idDoEnvio: etapa.idDoEnvio ?? null } : {}), ...(questionamentos ? { questionamentos } : {}),
+        }
     } catch (e) {
         return { rastro: `${doCalculo} precificacao=falhou parou=precificacao motivo="${motivoDoLog(e)}"`, paraOVendedor: null }
     }

@@ -8,14 +8,15 @@
  *   - em quantas regras aparece (o peso) e em quantas tipologias.
  *
  * A RESOLUÇÃO NÃO MORA AQUI: é `resolverReferencia` (`resolucao-de-referencia.ts`), a MESMA que o cálculo do levantamento usa — o escopo do
- * fornecedor e da família do motor primeiro, e a escada exato → sufixo do fornecedor → cor → aproximado com descrição, com a falta nomeada no
- * lugar do palpite. Este módulo só agrega as regras, chama a resolução, e separa em listas NOMEADAS.
+ * fornecedor e da família do motor primeiro, e a escada ponte → exato (com o sufixo do fornecedor) → código + cor → nome técnico, com o guarda
+ * da descrição em todos e a falta nomeada no lugar do palpite (12/11/2026, o comando único). Cada regra entra como a ponte a escreve: o código
+ * WVetro é o código do motor, o código da regra é o da ponte, e a cor da regra é a cor pedida. Este módulo só agrega as regras, chama a resolução, e separa em listas NOMEADAS.
  *
  * AUSENTE NÃO É ZERO (`ausente-vs-falso.md`): um percentual 0 é "tem, e é zero"; null é "não informado". As listas não somam nem estimam nada.
  *
  * Puro: quem lê o banco é a rota (`repositorio.ts`), e este módulo só decide.
  */
-import { resolverReferencia, tabelaNoEscopo, type ComoAchou, type EscopoDoMotor, type MotivoDaFalta } from '@/lib/atendimentos-ia/resolucao-de-referencia'
+import { GRUPO_DE_COR, resolverReferencia, tabelaNoEscopo, type ComoAchou, type CorDoFornecedor, type EscopoDoMotor, type MotivoDaFalta } from '@/lib/atendimentos-ia/resolucao-de-referencia'
 
 /** Uma linha de regra do motor, como o banco a guarda: o que a conferência lê dela. */
 export interface RegraDoMotor { codigo: string; codigo_wvetro: string | null; descricao: string | null; cor: string | null; tipologias: readonly string[] | null }
@@ -122,14 +123,16 @@ export function agregarRegras(regras: readonly RegraDoMotor[]): ReferenciaDoMoto
 
 // ── a conferência ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 /** A conferência inteira: o escopo do motor, e cada código do motor resolvido pela MESMA resolução do cálculo, numa das listas. */
-export function conferirReferencias(referencias: readonly ReferenciaDoMotor[], itens: readonly ItemParaConferir[], escopo: EscopoDoMotor): ConferenciaDeReferencias {
+export function conferirReferencias(referencias: readonly ReferenciaDoMotor[], itens: readonly ItemParaConferir[], escopo: EscopoDoMotor, cores: readonly CorDoFornecedor[] = []): ConferenciaDeReferencias {
     const noEscopo = itens.filter((i) => tabelaNoEscopo({ fornecedor_id: i.fornecedor_id, familia: i.familia }, escopo))
     const out: ConferenciaDeReferencias = {
         codigos: referencias.length, regras: referencias.reduce((s, r) => s + r.regras, 0), itensNoEscopo: noEscopo.length,
         comPreco: [], semPreco: [], naoAchadas: [], naoResolvidas: [],
     }
     for (const ref of referencias) {
-        const r = resolverReferencia(ref, noEscopo)
+        const r = resolverReferencia(
+            { codigoDoMotor: ref.codigo_wvetro ?? ref.codigo, codigoDaPonte: ref.codigo, descricaoDoMotor: ref.descricao, corPedida: ref.cor },
+            noEscopo, { cores, grupoDeCor: GRUPO_DE_COR.perfil })
         if ('item' in r) {
             const conferida: ReferenciaConferida = { ...ref, como: r.como, itens: [achado(r.item, ref.descricao)], falta: null }
             ;(conferida.itens[0].temPreco ? out.comPreco : out.semPreco).push(conferida)
@@ -148,10 +151,9 @@ export function conferirReferencias(referencias: readonly ReferenciaDoMotor[], i
 }
 
 /**
- * As achadas pelo SUFIXO DO FORNECEDOR cujo item tem outra descrição: o código casou depois de tirar o sufixo, e alguém confere se é o mesmo
- * produto. O código exato não entra: o código cru É a identidade, e a redação difere à toa — medido em 12/11/2026, 69 das achadas pelo código
- * exato têm outra redação ("GUARNIÇAO ARREMATE INTERNO 17X70MM" para as oito cores do BZ1770). Os degraus de cor e aproximado já exigem a
- * descrição.
+ * As achadas por OUTRO código que o da regra (o sufixo do fornecedor, a cor ou o nome técnico) cujo item tem outra redação: o guarda da descrição
+ * já exigiu uma palavra em comum, e alguém confere se é o mesmo produto. O código exato não entra: o código cru É a identidade, e a redação
+ * difere à toa — medido em 12/11/2026, 69 das achadas pelo código exato têm outra redação.
  */
 export const comDescricaoDivergente = (c: ConferenciaDeReferencias): ReferenciaConferida[] =>
-    [...c.comPreco, ...c.semPreco].filter((r) => r.como === 'sufixo_do_fornecedor' && r.itens.some((i) => i.descricaoDiverge))
+    [...c.comPreco, ...c.semPreco].filter((r) => r.itens.some((i) => i.codigo !== r.codigo && i.descricaoDiverge))

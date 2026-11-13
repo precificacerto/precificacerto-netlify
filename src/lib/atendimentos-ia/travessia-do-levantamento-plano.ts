@@ -84,6 +84,8 @@ export type ItemDaTravessia = {
     quantidade: number
     cor_perfil: string | null
     vidro: string | null
+    /** O código do item da tabela de vidro que o vendedor escolheu (20261112000006); ausente quando nenhum item do levantamento tem. */
+    vidro_codigo?: string | null
     ambientes: unknown
     escolhas: unknown
 }

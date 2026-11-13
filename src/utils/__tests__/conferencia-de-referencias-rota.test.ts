@@ -19,11 +19,14 @@ const estado = {
     tabelas: [{ id: 't1', arquivo_nome: 'Perfis.xlsx', categoria_chave: 'PERFIL', fornecedor_id: 'f1', familia: 'PVC' },
         { id: 't2', arquivo_nome: 'Ferragens.xlsx', categoria_chave: 'FERRAGENS', fornecedor_id: 'f2', familia: 'PVC' }],
     fornecedores: [{ id: 'f1', nome: 'Wolf' }, { id: 'f2', nome: 'Celsus' }],
+    /** A tabela de cores da Wolf (20261112000006): o BRANCO dos perfis. */
+    cores: [{ fornecedor_id: 'f1', grupo: 'PERFIS DE PVC', codigo: '1', nome: 'BRANCO' }] as Array<Record<string, unknown>>,
     falhar: false,
     paginas: [] as Array<[string, number, number]>,
 }
 const TABELA: Record<string, keyof typeof estado> = {
     orcamentista_motor: 'motores', orcamentista_motor_familia: 'familias', orcamentista_motor_regra: 'regras', orcamentista_tabela_item: 'itens', orcamentista_tabela: 'tabelas', orcamentista_fornecedor: 'fornecedores',
+    orcamentista_fornecedor_cor: 'cores',
 }
 jest.mock('@/supabase/admin', () => ({
     supabaseAdmin: {
@@ -33,11 +36,12 @@ jest.mock('@/supabase/admin', () => ({
             const q: Record<string, unknown> = {}
             q.select = () => q
             q.eq = (c: string, v: unknown) => { filtros.push([c, v]); return q }
+            q.in = (c: string, vs: unknown[]) => { filtros.push([c, { em: vs }]); return q }
             q.order = () => q
             q.range = (a: number, b: number) => { faixa = [a, b]; estado.paginas.push([nome, a, b]); return q }
             q.then = (ok: (r: unknown) => unknown) => {
                 if (estado.falhar) return Promise.resolve({ data: null, error: { message: 'caiu', code: 'XX000' } }).then(ok)
-                let linhas = (estado[TABELA[nome]] as Array<Record<string, unknown>>).filter((l) => filtros.every(([c, v]) => l[c] === v))
+                let linhas = (estado[TABELA[nome]] as Array<Record<string, unknown>>).filter((l) => filtros.every(([c, v]) => (v !== null && typeof v === 'object' && 'em' in v ? (v as { em: unknown[] }).em.includes(l[c]) : l[c] === v)))
                 // o PostgREST: sem faixa, no máximo mil
                 linhas = faixa ? linhas.slice(faixa[0], faixa[1] + 1) : linhas.slice(0, 1000)
                 return Promise.resolve({ data: linhas, error: null }).then(ok)
@@ -113,19 +117,22 @@ describe('a rota', () => {
         })
         expect(codigos('achadas_com_preco').sort()).toEqual(['132114', '1326', '9471'])
         expect(codigos('achadas_sem_preco')).toEqual(['2202'])
-        // o 83841 tem o código exato na tabela da Celsus — fora do escopo do motor: não achado
-        expect(codigos('nao_achadas')).toEqual(['83841'])
-        expect(codigos('nao_resolvidas')).toEqual(['17561'])
+        // o 83841 tem o código exato na tabela da Celsus — fora do escopo do motor: não achado; e o 17561 não leva a maçaneta 17569 (nenhum
+        // degrau a alcança desde que o "aproximado" saiu)
+        expect(codigos('nao_achadas').sort()).toEqual(['17561', '83841'])
+        expect(codigos('nao_resolvidas')).toEqual([])
+        expect(corpo.tabela_de_cores).toBe('lida')
         expect(codigos('sufixo_com_outra_descricao')).toEqual(['132114'])
         const br60 = (corpo.achadas_com_preco as Array<Record<string, unknown>>).find((r) => r.codigo === '9471')!
-        expect(br60).toMatchObject({ como: 'exato', regras: 2, tipologias: 2 })
+        // o `codigo` da regra é a ponte do motor: o primeiro degrau
+        expect(br60).toMatchObject({ como: 'ponte', regras: 2, tipologias: 2 })
         expect((br60.itens as Array<Record<string, unknown>>)[0]).toMatchObject({ fornecedor: 'Wolf', categoria: 'PERFIL', tabela_arquivo: 'Perfis.xlsx', credito: { icms: 12, pis_cofins: null } })
     })
 })
 
 describe('a leitura pagina de mil em mil', () => {
     it('2.500 regras e 1.200 itens: todos lidos, nenhum corte em mil', async () => {
-        estado.regras = Array.from({ length: 2500 }, (_, k) => regra(`C${k}`, `C${k}/WOLFF`, `PECA ${k}`))
+        estado.regras = Array.from({ length: 2500 }, (_, k) => regra(`C${k}`, `C${k}/WOLFF`, `PECA ${k}`, ['DP-02'], 'BRANCO'))
         estado.itens = Array.from({ length: 1200 }, (_, k) => item(`C${k}`, `PECA ${k}`, 1))
         const { corpo } = await chamar()
         expect(corpo).toMatchObject({ codigos: 2500, regras: 2500, itens_nas_tabelas: 1200 })

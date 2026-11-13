@@ -202,8 +202,17 @@ export async function alterarOrcamento(
     for (const it of itens) {
         const { id: idDoItem, ...campos } = it
         if (idDoItem !== null) {
-            const { error: e } = await db().from(TABELA_DO_ITEM).update({ ...campos, atualizado_em: agora }).eq('tenant_id', tenantId).eq('orcamento_id', id).eq('id', idDoItem)
-            if (e) falhou(TABELA_DO_ITEM, e)
+            // O VIDRO ESCOLHIDO É DO TEXTO DE QUANDO FOI ESCOLHIDO (20261112000006): trocar o texto do vidro anula o código — senão o custo leria
+            // o vidro velho pelo código. Só quando o texto mudou: sem mudança, o insert é o de antes (e não depende da migração)
+            const antes = atual.itens.find((i) => i.id === idDoItem)
+            const vidroMudou = antes !== undefined && (antes.vidro ?? null) !== (campos.vidro ?? null)
+            const { error: e } = await db().from(TABELA_DO_ITEM).update({ ...campos, ...(vidroMudou ? { vidro_codigo: null } : {}), atualizado_em: agora })
+                .eq('tenant_id', tenantId).eq('orcamento_id', id).eq('id', idDoItem)
+            if (e && vidroMudou && (e.code === '42703' || e.code === 'PGRST204')) {
+                // sem a coluna, nenhum vidro foi escolhido: grava sem ela
+                const { error: e2 } = await db().from(TABELA_DO_ITEM).update({ ...campos, atualizado_em: agora }).eq('tenant_id', tenantId).eq('orcamento_id', id).eq('id', idDoItem)
+                if (e2) falhou(TABELA_DO_ITEM, e2)
+            } else if (e) falhou(TABELA_DO_ITEM, e)
         } else {
             proxima += 1
             const { error: e } = await db().from(TABELA_DO_ITEM).insert({ ...campos, tenant_id: tenantId, orcamento_id: id, ordem: proxima, levantamento_item_id: null })
