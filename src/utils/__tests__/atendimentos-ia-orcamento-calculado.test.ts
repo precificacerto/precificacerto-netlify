@@ -40,7 +40,7 @@ function executar(tabela: string, op: string, carga: unknown, filtros: [string, 
     const erro = estado.erros[`${tabela}:${op}`]?.shift()
     if (erro) return { data: null as unknown, error: erro }
     const linhas = (estado.db[tabela] ??= [])
-    const casa = (l: Linha) => filtros.every(([tipo, c, v]) => (tipo === 'in' ? (v as unknown[]).includes(l[c]) : l[c] === v))
+    const casa = (l: Linha) => filtros.every(([tipo, c, v]) => (tipo === 'in' ? (v as unknown[]).includes(l[c]) : tipo === 'is' ? (l[c] ?? null) === v : l[c] === v))
     const projetar = (l: Linha) => (colunas === null || colunas === '*' ? { ...l } : Object.fromEntries(colunas.split(',').map((c) => c.trim()).map((c) => [c, l[c]])))
     if (op === 'select') {
         let r = linhas.filter(casa)
@@ -67,6 +67,8 @@ function cliente() {
             q.order = (c: string, o?: { ascending?: boolean }) => { ordem = [c, o?.ascending !== false]; return q }
             q.limit = () => q
             q.eq = (c: string, v: unknown) => { filtros.push(['eq', c, v]); return q }
+            // o `.is(coluna, null)` do PostgREST: a coluna nula (ou ausente na linha de teste, como a `removido_em` de antes da 20261113000002)
+            q.is = (c: string, v: null) => { filtros.push(['is', c, v]); return q }
             q.in = (c: string, v: unknown[]) => { filtros.push(['in', c, v]); return q }
             q.update = (c: unknown) => { op = 'update'; carga = c; return q }
             q.insert = (c: unknown) => { op = 'insert'; carga = c; return q }
@@ -204,6 +206,19 @@ describe('(2) o que chega ao cálculo', () => {
         ])
         const leitura = estado.ops.find((o) => o.tabela === 'orcamentista_levantamento_item')!
         expect(leitura.filtros).toContainEqual(['eq', 'tenant_id', T])
+    })
+})
+
+describe('(2c) o item removido e a família gravada (20261113000002)', () => {
+    it('o item REMOVIDO não vai ao cálculo nem é tocado; cada item calculado grava a FAMÍLIA com que foi calculado (nula quando o levantamento não tem)', async () => {
+        const i1 = estado.db.orcamentista_orcamento_item.find((i) => i.id === 'i1')!
+        estado.db.orcamentista_orcamento_item.push({ ...i1, id: 'i-removido', ordem: 9, calculo_id: null, removido_em: '2026-11-13T12:00:00.000Z' })
+        await K().calcularOrcamento(T, O1, new Date(), () => 'c')
+        expect(estado.chamadasDoCusto[0].lev.itens.map((i: { ordem: number }) => i.ordem)).toEqual([1, 2])
+        const linha = (id: string) => estado.db.orcamentista_orcamento_item.find((i) => i.id === id)!
+        expect(linha('i1')).toEqual(expect.objectContaining({ calculo_id: 'c', familia: 'PVC' }))
+        expect(linha('i2')).toEqual(expect.objectContaining({ calculo_id: 'c', familia: null }))
+        expect(linha('i-removido').calculo_id).toBeNull()
     })
 })
 

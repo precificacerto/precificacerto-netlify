@@ -26,13 +26,15 @@ function cliente() {
                 estado.ops.push({ tabela, op, carga, filtros })
                 const erro = estado.erros[`${tabela}:${op}`]
                 if (erro) return Promise.resolve({ data: null, error: erro })
-                const r = (estado.db[tabela] ?? []).filter((l) => filtros.every(([c, v]) => l[c] === v))
+                const r = (estado.db[tabela] ?? []).filter((l) => filtros.every(([c, v]) => (v === NULO ? (l[c] ?? null) === null : l[c] === v)))
                 if (op === 'update') r.forEach((l) => Object.assign(l, carga as Linha))
                 return Promise.resolve({ data: r.map((l) => ({ ...l })), error: null })
             }
             q.select = () => q
             q.order = () => q
             q.eq = (c: string, v: unknown) => { filtros.push([c, v]); return q }
+            // o `.is(coluna, null)` do PostgREST: a coluna nula (ou ausente na linha de teste, como a `removido_em` de antes da 20261113000002)
+            q.is = (c: string, _v: null) => { filtros.push([c, NULO]); return q }
             q.update = (c: unknown) => { op = 'update'; carga = c; return q }
             const um = () => rodar().then((r) => ({ data: (r.data as Linha[] | null)?.[0] ?? null, error: r.error }))
             q.maybeSingle = um
@@ -43,6 +45,8 @@ function cliente() {
     }
 }
 const mockAdmin = cliente()
+const NULO = Symbol('is null')
+
 jest.mock('@/supabase/admin', () => ({ supabaseAdmin: mockAdmin }))
 const preview = { clientes: [] as unknown[] }
 jest.mock('@/utils/calc-tax-preview', () => ({

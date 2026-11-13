@@ -31,8 +31,8 @@ import { calcularOrcamento, ErroDoCalculo } from './orcamento-calculado'
 import type { ResultadoDaEtapa } from './cadeia-do-sim'
 import { fraseDoArquivoQueNaoChegou } from './arquivo-que-nao-chegou'
 import {
-    ESTADO_COMPLETO, ErroDaTravessia, ErroJaAtravessado, faltasDoCongelado, origemNaTela, planoDaTravessia, PERCENTUAIS_COM_ZERO,
-    type ClienteDoLevantamento, type ItemDaTravessia, type ItemDoLevantamentoNaTravessia, type LevantamentoNaTravessia, type ModoDaBase,
+    CABECALHO_SINCRONIZADO, diferencaDoOrcamento, ESTADO_COMPLETO, ErroDaTravessia, ErroJaAtravessado, ErroOrcamentoArquivado, faltasDoCongelado, origemNaTela, planoDaTravessia, PERCENTUAIS_COM_ZERO,
+    type ClienteDoLevantamento, type ItemAtivoDoOrcamento, type ItemDaTravessia, type ItemDoLevantamentoNaTravessia, type LevantamentoNaTravessia, type ModoDaBase,
     type OrigensDosPercentuais, type PercentualComZero, type PercentualNaTela,
 } from './travessia-do-levantamento-plano'
 
@@ -54,7 +54,7 @@ function falhou(tabela: string, error: { code?: string; message: string }): neve
     throw new Error(`${tabela}: ${error.message}`)
 }
 const COLUNAS_DO_LEVANTAMENTO = 'id, tenant_id, numero, nome, estado, comissao_percentual, comissao_modo, reserva_tecnica_percentual, reserva_tecnica_responsavel, lucro_projetado_percentual, vendedor_employee_id'
-const COLUNAS_DO_ITEM_DO_LEVANTAMENTO = 'id, ordem, tipologia, largura_mm, altura_mm, quantidade, cor_perfil, vidro, ambientes, escolhas'
+const COLUNAS_DO_ITEM_DO_LEVANTAMENTO = 'id, ordem, tipologia, largura_mm, altura_mm, quantidade, cor_perfil, vidro, ambientes, escolhas, familia'
 /** O índice que faz "um orçamento por levantamento" no banco: a violação dele é a segunda travessia que perdeu a corrida. */
 const INDICE_UM_POR_LEVANTAMENTO = 'orcamentista_orcamento_um_por_levantamento'
 
@@ -74,7 +74,8 @@ async function orcamentoDoLevantamento(tenantId: string, levantamentoId: string)
     const { data, error } = await db().from(TABELA_DO_ORCAMENTO).select('id, numero').eq('tenant_id', tenantId).eq('levantamento_id', levantamentoId).maybeSingle()
     if (error) falhou(TABELA_DO_ORCAMENTO, error)
     if (!data) return null
-    const r = await db().from(TABELA_DO_ITEM).select('id').eq('tenant_id', tenantId).eq('orcamento_id', data.id)
+    // só os itens que VALEM: o removido (a marca da 20261113000002) não conta
+    const r = await db().from(TABELA_DO_ITEM).select('id').eq('tenant_id', tenantId).eq('orcamento_id', data.id).is('removido_em', null)
     if (r.error) falhou(TABELA_DO_ITEM, r.error)
     return { id: data.id as string, numero: data.numero as number, itens: (r.data ?? []).length }
 }
@@ -90,6 +91,14 @@ async function gravarItens(tenantId: string, orcamentoId: string, itens: readonl
  * ou o orçamento criado. Só LÊ o levantamento; só ESCREVE em `orcamentista_orcamento` e `orcamentista_orcamento_item`.
  */
 export async function atravessarLevantamento(tenantId: string, levantamentoId: string): Promise<ResultadoDaTravessia> {
+    const { lev, plano } = await lerPlanoDoLevantamento(tenantId, levantamentoId)
+    const existente = await orcamentoDoLevantamento(tenantId, levantamentoId)
+    if (existente && existente.itens > 0) throw new ErroJaAtravessado(lev.numero, existente.id, existente.numero)
+    return criarOuRetomar(tenantId, levantamentoId, lev, plano, existente)
+}
+
+/** O levantamento lido e o PLANO dele (o que a primeira travessia grava), e a família de cada item — o mesmo para criar e para atualizar. */
+async function lerPlanoDoLevantamento(tenantId: string, levantamentoId: string) {
     const { data: lev, error } = await db().from('orcamentista_levantamento').select(COLUNAS_DO_LEVANTAMENTO).eq('tenant_id', tenantId).eq('id', levantamentoId).maybeSingle()
     if (error) falhou('orcamentista_levantamento', error)
     if (!lev || lev.tenant_id !== tenantId) throw new ErroNaoEncontrado()
@@ -106,9 +115,14 @@ export async function atravessarLevantamento(tenantId: string, levantamentoId: s
     if ('recusas' in plano) throw new ErroDaTravessia(plano.recusas)
     // a coluna só vai no INSERT quando algum item tem o código: sem escolha, o insert é o de antes (e não depende da migração)
     if (vidroCodigo.size) plano.itens = plano.itens.map((i) => ({ ...i, vidro_codigo: vidroCodigo.get(String(i.levantamento_item_id)) ?? null }))
+    const familias = new Map(((r.data ?? []) as Array<{ id: string; familia?: unknown }>).map((i) => [String(i.id), textoOuNulo(i.familia)]))
+    return { lev: lev as LevantamentoNaTravessia, plano, familias, temVidroCodigo: vidroCodigo.size > 0 }
+}
 
-    const existente = await orcamentoDoLevantamento(tenantId, levantamentoId)
-    if (existente && existente.itens > 0) throw new ErroJaAtravessado(lev.numero, existente.id, existente.numero)
+async function criarOuRetomar(
+    tenantId: string, levantamentoId: string, lev: LevantamentoNaTravessia,
+    plano: Awaited<ReturnType<typeof lerPlanoDoLevantamento>>['plano'], existente: { id: string; numero: number; itens: number } | null,
+): Promise<ResultadoDaTravessia> {
     if (existente) {
         // a travessia que parou entre as duas escritas: o orçamento existe sem item nenhum, e recebe os itens agora
         await gravarItens(tenantId, existente.id, plano.itens)
@@ -193,44 +207,99 @@ export async function percentuaisDoOrcamento(tenantId: string, id: string): Prom
  * dispara TUDO, sem intervenção humana" (dono do produto, 11/11/2026; a cadeia ligada em 11/11/2026, depois do relógio aprovado). A falha de um
  * passo não desfaz o anterior: fica nomeada no log, e a ação manual da seção Orçamentos I.A. retoma depois.
  */
+// ── A ATUALIZAÇÃO DO ORÇAMENTO N, COM O MESMO NÚMERO (dono do produto, 13/11/2026) ─────────────────────────────────────────────────────
+export type ResultadoDaAtualizacao = {
+    orcamento: { id: string; numero: number; nome: string }
+    semMudanca: boolean
+    novos: number; mudados: number; removidos: number; cabecalhoMudou: boolean
+    /** A edição manual (a tela) MAIS NOVA que a última atualização foi substituída por esta — a conversa avisa, nunca em silêncio. */
+    edicaoManualSubstituida: boolean
+    itens: number
+    origens: OrigensDosPercentuais
+}
+const COLUNAS_DO_ITEM_ATIVO = 'id, levantamento_item_id, familia, ordem, tipologia, largura_mm, altura_mm, quantidade, cor_perfil, vidro, ambientes, escolhas, vidro_codigo'
+/** A edição manual mais nova que a última atualização: `editado_manualmente_em` depois de `atualizado_em` (sem `atualizado_em`, ela é a mais nova). */
+export const edicaoManualMaisNova = (o: { editado_manualmente_em?: unknown; atualizado_em?: unknown }) => {
+    const editado = typeof o.editado_manualmente_em === 'string' ? Date.parse(o.editado_manualmente_em) : NaN
+    if (!Number.isFinite(editado)) return false
+    const atualizado = typeof o.atualizado_em === 'string' ? Date.parse(o.atualizado_em) : NaN
+    return !Number.isFinite(atualizado) || editado > atualizado
+}
+/**
+ * ATUALIZA o orçamento `orcamentoId` pelo levantamento — o mesmo número, nada de segundo orçamento, NADA APAGADO (zero DELETE): o item que saiu
+ * do levantamento ganha a MARCA de removido; o mudado é atualizado no lugar; o acrescentado é inserido; o nome e os percentuais são RELIDOS do
+ * levantamento. O "sim" SEM MUDANÇA não grava nada (`semMudanca`). O arquivado RECUSA (`ErroOrcamentoArquivado`), e continua arquivado. A
+ * edição manual NÃO é apagada (nem a data nem o autor): `atualizado_em` passa a ser o mais novo, e o aviso para sozinho.
+ */
+export async function atualizarOrcamento(tenantId: string, levantamentoId: string, orcamentoId: string, agora: Date = new Date()): Promise<ResultadoDaAtualizacao> {
+    const { data: orc, error } = await db().from(TABELA_DO_ORCAMENTO)
+        .select(`id, numero, deleted_at, editado_manualmente_em, atualizado_em, ${CABECALHO_SINCRONIZADO.join(', ')}`)
+        .eq('tenant_id', tenantId).eq('id', orcamentoId).maybeSingle()
+    if (error) falhou(TABELA_DO_ORCAMENTO, error)
+    if (!orc) throw new ErroNaoEncontrado()
+    if (orc.deleted_at) throw new ErroOrcamentoArquivado(Number(orc.numero))
+    const { plano, familias, temVidroCodigo } = await lerPlanoDoLevantamento(tenantId, levantamentoId)
+    const r = await db().from(TABELA_DO_ITEM).select(COLUNAS_DO_ITEM_ATIVO).eq('tenant_id', tenantId).eq('orcamento_id', orcamentoId).is('removido_em', null)
+    if (r.error) falhou(TABELA_DO_ITEM, r.error)
+    const ativos = (r.data ?? []) as ItemAtivoDoOrcamento[]
+    const comparado = plano.itens.map((i) => ({ ...i, familia: familias.get(String(i.levantamento_item_id)) ?? null }))
+    const d = diferencaDoOrcamento(orc, plano.orcamento, ativos, comparado)
+    const numero = Number(orc.numero)
+    const resultado: ResultadoDaAtualizacao = {
+        orcamento: { id: orcamentoId, numero, nome: plano.orcamento.nome }, semMudanca: d.semMudanca,
+        novos: d.novos.length, mudados: d.mudados.length, removidos: d.removidos.length, cabecalhoMudou: d.cabecalhoMudou,
+        edicaoManualSubstituida: !d.semMudanca && edicaoManualMaisNova(orc), itens: plano.itens.length, origens: plano.origens,
+    }
+    if (d.semMudanca) return resultado
+    const quando = agora.toISOString()
+    // 1. o REMOVIDO, primeiro: a marca (nunca DELETE) — e ela libera a ordem para o item novo (o índice único é só entre os que valem)
+    if (d.removidos.length) {
+        const ids = d.removidos.map((x) => x.id)
+        const { data: marcados, error: e } = await db().from(TABELA_DO_ITEM).update({ removido_em: quando, atualizado_em: quando })
+            .eq('tenant_id', tenantId).eq('orcamento_id', orcamentoId).in('id', ids).is('removido_em', null).select('id')
+        if (e) falhou(TABELA_DO_ITEM, e)
+        if ((marcados ?? []).length !== ids.length) throw new Error(`${TABELA_DO_ITEM}: a marca de removido atingiu ${(marcados ?? []).length} item(ns), e devia atingir ${ids.length}`)
+    }
+    // 2. o MUDADO, no lugar: os mesmos campos da primeira travessia (o código do vidro sempre, para não ficar o de antes)
+    for (const m of d.mudados) {
+        const { data: tocados, error: e } = await db().from(TABELA_DO_ITEM).update({ ...m.item, vidro_codigo: m.item.vidro_codigo ?? null, atualizado_em: quando })
+            .eq('tenant_id', tenantId).eq('orcamento_id', orcamentoId).eq('id', m.id).is('removido_em', null).select('id')
+        if (e) falhou(TABELA_DO_ITEM, e)
+        if ((tocados ?? []).length !== 1) throw new Error(`${TABELA_DO_ITEM}: a atualização do item ${m.item.ordem} atingiu ${(tocados ?? []).length} linha(s), e devia atingir 1`)
+    }
+    // 3. o ACRESCENTADO
+    await gravarItens(tenantId, orcamentoId, temVidroCodigo ? d.novos : d.novos.map(({ vidro_codigo: _v, ...i }) => { void _v; return i }))
+    // 4. o cabeçalho: o nome e os percentuais RELIDOS do levantamento; `atualizado_em` passa a ser o mais novo (a edição manual fica registrada)
+    const cabecalho = Object.fromEntries(CABECALHO_SINCRONIZADO.map((c) => [c, plano.orcamento[c]]))
+    const { data: atingido, error: e4 } = await db().from(TABELA_DO_ORCAMENTO).update({ ...cabecalho, atualizado_em: quando })
+        .eq('tenant_id', tenantId).eq('id', orcamentoId).select('id')
+    if (e4) falhou(TABELA_DO_ORCAMENTO, e4)
+    if ((atingido ?? []).length !== 1) throw new Error(`${TABELA_DO_ORCAMENTO}: a atualização do orçamento ${numero} atingiu ${(atingido ?? []).length} linha(s), e devia atingir 1`)
+    return resultado
+}
+
 export type EtapaDoPrecoNoSim = (orcamentoId: string) => Promise<ResultadoDaEtapa>
+/** O "sim" SEM MUDANÇA: manda o arquivo que JÁ existe (nada recalculado, nada gerado). `semArquivo`: não há arquivo — a atualização roda. */
+export type ReenvioNoSim = (orcamento: { id: string; numero: number; nome: string }) => Promise<ResultadoDaEtapa & { semArquivo?: true }>
 /**
  * `enviadoPara`: o número que recebeu o arquivo (a etapa do preço o diz). `questionamentos`: as faltas nomeadas do cálculo (12/11/2026, 4.3) —
  * a ÚNICA coisa que a conversa manda por texto quando o arquivo chegou; o resto (barras, aproveitamento, mão de obra) está no PDF.
  */
-export type ResultadoDoSim = { rastro: string; paraOVendedor: string | null; enviadoPara?: string; idDoEnvio?: string | null; questionamentos?: string }
+export type ResultadoDoSim = { rastro: string; paraOVendedor: string | null; enviadoPara?: string; idDoEnvio?: string | null; questionamentos?: string; aviso?: string }
 /**
  * O QUE O VENDEDOR RECEBE quando a cadeia PARA antes do arquivo (dono do produto, 13/11/2026): o arquivo não chegou, e por quê — a falta
  * nomeada, e nada mais. Nunca o resultado por texto (`arquivo-que-nao-chegou.ts`).
  */
 const naoChegou = fraseDoArquivoQueNaoChegou
-/** "1", "1 e 3", "1, 2 e 3". */
-const numerosPorExtenso = (ns: readonly number[]) => (ns.length > 1 ? `${ns.slice(0, -1).join(', ')} e ${ns[ns.length - 1]}` : String(ns[0]))
-/**
- * O "sim" a um levantamento que JÁ virou orçamento: o orçamento não se refaz (nada se recalcula para trás), e o arquivo é o que está salvo.
- * O QUE FICOU DE FORA É NOMEADO (dono do produto, 13/11/2026: "Isso tem de ser DITO ao vendedor, não deduzido por ele"): os itens do
- * levantamento que não estão no orçamento, pelo número, e o que fazer para incluí-los. Um levantamento gera UM orçamento só (o índice
- * `orcamentista_orcamento_um_por_levantamento`): o orçamento novo vem de um levantamento novo. `fora` nulo: a conferência não pôde ser feita.
- */
-export const fraseDoOrcamentoQueJaExiste = (numero: number, fora: readonly number[] | null = []) => {
-    const base = `o levantamento já virou o orçamento ${numero}, e o arquivo dele está na seção Orçamentos I.A.`
-    if (fora === null) return naoChegou(null, `${base} Não consegui conferir se todos os itens do levantamento estão nele: confira o orçamento ${numero} na seção antes de enviá-lo`)
-    if (fora.length === 0) return naoChegou(null, base)
-    const quais = fora.length > 1 ? `os itens ${numerosPorExtenso(fora)}` : `o item ${fora[0]}`
-    return naoChegou(null, `${base} Falta no orçamento ${numero} ${quais} do levantamento: ${fora.length > 1 ? 'eles foram acrescentados' : 'ele foi acrescentado'} `
-        + `depois, e o orçamento ${numero} não muda. Para ${fora.length > 1 ? 'incluí-los' : 'incluí-lo'}, é preciso gerar um orçamento novo: mande `
-        + `${fora.length > 1 ? 'esses itens' : 'esse item'} num levantamento novo, com outro nome — um levantamento gera um orçamento só`)
-}
-/** Os itens do levantamento (pelo número) que NÃO estão no orçamento dele; nulo quando a leitura falha (a frase diz que não conferiu). */
-export async function itensForaDoOrcamento(tenantId: string, levantamentoId: string, orcamentoId: string): Promise<number[] | null> {
-    const [lev, orc] = await Promise.all([
-        db().from('orcamentista_levantamento_item').select('id, ordem').eq('tenant_id', tenantId).eq('levantamento_id', levantamentoId),
-        db().from(TABELA_DO_ITEM).select('levantamento_item_id').eq('tenant_id', tenantId).eq('orcamento_id', orcamentoId),
-    ])
-    if (lev.error || orc.error) return null
-    const noOrcamento = new Set(((orc.data ?? []) as Array<{ levantamento_item_id: unknown }>).map((i) => String(i.levantamento_item_id)))
-    return ((lev.data ?? []) as Array<{ id: unknown; ordem: unknown }>).filter((i) => !noOrcamento.has(String(i.id))).map((i) => Number(i.ordem)).sort((a, b) => a - b)
-}
+/** O orçamento arquivado: a falta nomeada, e ele continua arquivado (nada é reativado). */
+export const fraseDoOrcamentoArquivado = (numero: number) =>
+    naoChegou(null, `o orçamento ${numero} está arquivado: a atualização não foi feita, e ele continua arquivado`)
+/** O "sim" sem mudança: o orçamento já está atualizado, e o arquivo que existe vai de novo. */
+export const fraseDoOrcamentoJaAtualizado = (numero: number) =>
+    `O orçamento ${numero} já está atualizado: nada mudou no levantamento desde a última vez. O arquivo dele vai de novo.`
+/** A edição manual substituída — dita, nunca em silêncio. */
+export const fraseDaEdicaoManualSubstituida = (numero: number) =>
+    `O orçamento ${numero} tinha edição manual na seção Orçamentos I.A., e ela foi substituída por esta atualização do levantamento.`
 /** Os questionamentos de um orçamento PARCIAL: uma linha por código, com o que falta. Sem falta, nulo — nada a perguntar. */
 export function fraseDosQuestionamentos(numero: number, faltas: ReadonlyArray<{ codigo_do_motor: string; frase: string; esquadria: number }>): string | null {
     if (faltas.length === 0) return null
@@ -248,22 +317,43 @@ export function fraseDosQuestionamentos(numero: number, faltas: ReadonlyArray<{ 
     })
     return [`O orçamento ${numero} saiu PARCIAL — ${porCodigo.size > 1 ? `faltam ${porCodigo.size} valores` : 'falta 1 valor'}. Para completar, preciso de:`, ...linhas].join('\n')
 }
-export async function atravessarNoSim(tenantId: string, levantamentoId: string, etapaDoPreco: EtapaDoPrecoNoSim): Promise<ResultadoDoSim> {
+export async function atravessarNoSim(tenantId: string, levantamentoId: string, etapaDoPreco: EtapaDoPrecoNoSim, reenviar?: ReenvioNoSim): Promise<ResultadoDoSim> {
     let r: ResultadoDaTravessia
+    let atualizacao: ResultadoDaAtualizacao | null = null
     try {
-        r = await atravessarLevantamento(tenantId, levantamentoId)
-    } catch (e) {
-        if (e instanceof ErroJaAtravessado) {
-            const fora = await itensForaDoOrcamento(tenantId, levantamentoId, e.orcamentoId).catch((): null => null)
-            return { rastro: `ja_existe=${e.orcamentoNumero} parou=travessia fora=${fora === null ? 'nao_conferido' : fora.length}`, paraOVendedor: fraseDoOrcamentoQueJaExiste(e.orcamentoNumero, fora) }
+        try {
+            r = await atravessarLevantamento(tenantId, levantamentoId)
+        } catch (e) {
+            if (!(e instanceof ErroJaAtravessado)) throw e
+            // O ORÇAMENTO N JÁ EXISTE: a parada de antes é o caminho da ATUALIZAÇÃO, com o mesmo número (13/11/2026)
+            atualizacao = await atualizarOrcamento(tenantId, levantamentoId, e.orcamentoId)
+            const a = atualizacao
+            if (a.semMudanca && reenviar) {
+                // SEM MUDANÇA: nada recalculado, nada gerado — o arquivo que existe vai de novo; sem arquivo, a atualização roda inteira
+                const env = await reenviar(a.orcamento)
+                if (!env.semArquivo) {
+                    return {
+                        rastro: `orcamento=${a.orcamento.numero} atualizacao=sem_mudanca ${env.rastro}`, paraOVendedor: env.paraOVendedor, aviso: fraseDoOrcamentoJaAtualizado(a.orcamento.numero),
+                        ...(env.enviadoPara ? { enviadoPara: env.enviadoPara, idDoEnvio: env.idDoEnvio ?? null } : {}),
+                    }
+                }
+            }
+            r = { orcamento: { id: a.orcamento.id, numero: a.orcamento.numero }, itens: a.itens, faltas: [], retomada: false, origens: a.origens }
         }
+    } catch (e) {
+        if (e instanceof ErroOrcamentoArquivado) return { rastro: `orcamento=${e.orcamentoNumero} atualizacao=arquivado parou=travessia`, paraOVendedor: fraseDoOrcamentoArquivado(e.orcamentoNumero) }
         if (e instanceof ErroDaTravessia) {
             return { rastro: `recusou=${e.recusas.length} parou=travessia`, paraOVendedor: naoChegou(null, `o levantamento não passou para o orçamento. Falta: ${e.recusas.join('; ')}. Corrija isso no levantamento: o arquivo volta para você conferir, e o "sim" faz o orçamento`) }
         }
         return { rastro: `falhou parou=travessia motivo="${motivoDoLog(e)}"`, paraOVendedor: naoChegou(null, 'a passagem do levantamento para o orçamento falhou. Para tentar de novo, diga o nome do levantamento: o arquivo volta para você conferir, e o "sim" faz o orçamento') }
     }
     const origens = PERCENTUAIS_COM_ZERO.map((p) => `${ROTULO_NO_LOG[p]}:${r.origens[p]}`).join(',')
-    const travessia = `orcamento=${r.orcamento.numero} itens=${r.itens} faltas=${r.faltas.length}${r.retomada ? ' retomada=sim' : ''} origens=${origens}`
+    const doAtualizado = atualizacao
+        ? ` atualizacao=sim novos=${atualizacao.novos} mudados=${atualizacao.mudados} removidos=${atualizacao.removidos} cabecalho=${atualizacao.cabecalhoMudou ? 'sim' : 'nao'}${atualizacao.edicaoManualSubstituida ? ' edicao_manual=substituida' : ''}`
+        : ''
+    const travessia = `orcamento=${r.orcamento.numero} itens=${r.itens} faltas=${r.faltas.length}${r.retomada ? ' retomada=sim' : ''}${doAtualizado} origens=${origens}`
+    // a EDIÇÃO MANUAL substituída é dita, em todo desfecho daqui para frente (13/11/2026: "Nunca em silêncio")
+    const comAviso = <T extends ResultadoDoSim>(x: T): T => (atualizacao?.edicaoManualSubstituida ? { ...x, aviso: fraseDaEdicaoManualSubstituida(atualizacao.orcamento.numero) } : x)
     let doCalculo: string
     let questionamentos: string | null = null
     try {
@@ -271,17 +361,17 @@ export async function atravessarNoSim(tenantId: string, levantamentoId: string, 
         doCalculo = `${travessia} calculo=ok liquido=${c.valor_total_liquido.toFixed(2)}${c.parcial ? ` parcial=sim faltas_de_preco=${c.faltas.length}` : ''}`
         questionamentos = fraseDosQuestionamentos(r.orcamento.numero, c.faltas)
     } catch (e) {
-        if (e instanceof ErroDoCalculo) return { rastro: `${travessia} calculo=recusou recusas=${e.recusas.length} parou=calculo motivo="${e.recusas.join(' | ').slice(0, 120)}"`, paraOVendedor: naoChegou(null, `o cálculo do orçamento ${r.orcamento.numero} recusou. Falta: ${e.recusas.join('; ')}. Com isso cadastrado, abra o orçamento ${r.orcamento.numero} na seção Orçamentos I.A. e use Calcular`) }
-        return { rastro: `${travessia} calculo=falhou parou=calculo motivo="${motivoDoLog(e)}"`, paraOVendedor: naoChegou(null, `o cálculo do orçamento ${r.orcamento.numero} falhou. Para tentar de novo, abra o orçamento ${r.orcamento.numero} na seção Orçamentos I.A. e use Calcular`) }
+        if (e instanceof ErroDoCalculo) return comAviso({ rastro: `${travessia} calculo=recusou recusas=${e.recusas.length} parou=calculo motivo="${e.recusas.join(' | ').slice(0, 120)}"`, paraOVendedor: naoChegou(null, `o cálculo do orçamento ${r.orcamento.numero} recusou. Falta: ${e.recusas.join('; ')}. Com isso cadastrado, abra o orçamento ${r.orcamento.numero} na seção Orçamentos I.A. e use Calcular`) })
+        return comAviso({ rastro: `${travessia} calculo=falhou parou=calculo motivo="${motivoDoLog(e)}"`, paraOVendedor: naoChegou(null, `o cálculo do orçamento ${r.orcamento.numero} falhou. Para tentar de novo, abra o orçamento ${r.orcamento.numero} na seção Orçamentos I.A. e use Calcular`) })
     }
     try {
         const etapa = await etapaDoPreco(r.orcamento.id)
-        return {
+        return comAviso({
             rastro: `${doCalculo} ${etapa.rastro}`, paraOVendedor: etapa.paraOVendedor,
             ...(etapa.enviadoPara ? { enviadoPara: etapa.enviadoPara, idDoEnvio: etapa.idDoEnvio ?? null } : {}), ...(questionamentos ? { questionamentos } : {}),
-        }
+        })
     } catch (e) {
-        return { rastro: `${doCalculo} precificacao=falhou parou=precificacao motivo="${motivoDoLog(e)}"`, paraOVendedor: naoChegou(null, `a precificação do orçamento ${r.orcamento.numero} falhou. Para tentar de novo, abra o orçamento ${r.orcamento.numero} na seção Orçamentos I.A. e use Precificar`) }
+        return comAviso({ rastro: `${doCalculo} precificacao=falhou parou=precificacao motivo="${motivoDoLog(e)}"`, paraOVendedor: naoChegou(null, `a precificação do orçamento ${r.orcamento.numero} falhou. Para tentar de novo, abra o orçamento ${r.orcamento.numero} na seção Orçamentos I.A. e use Precificar`) })
     }
 }
 const ROTULO_NO_LOG: Readonly<Record<PercentualComZero, string>> = { comissao_percentual: 'comissao', reserva_tecnica_percentual: 'rt', lucro_projetado_percentual: 'lucro' }

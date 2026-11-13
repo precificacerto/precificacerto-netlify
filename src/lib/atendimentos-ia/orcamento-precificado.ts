@@ -58,7 +58,8 @@ export async function lerOrcamentoParaPrecificar(tenantId: string, id: string): 
     if (error) falhou(TABELA_DO_ORCAMENTO, error)
     if (!data) throw new ErroNaoEncontrado()
     const { data: itens, error: e2 } = await db().from(TABELA_DO_ITEM).select(COLUNAS_DO_ITEM_NA_PRECIFICACAO)
-        .eq('tenant_id', tenantId).eq('orcamento_id', id).order('ordem')
+        // só os itens que VALEM: o removido (a marca `removido_em`, 20261113000002) fica no banco e sai de toda conta e de todo arquivo
+        .eq('tenant_id', tenantId).eq('orcamento_id', id).is('removido_em', null).order('ordem')
     if (e2) falhou(TABELA_DO_ITEM, e2)
     const o = data as Record<string, unknown>
     return {

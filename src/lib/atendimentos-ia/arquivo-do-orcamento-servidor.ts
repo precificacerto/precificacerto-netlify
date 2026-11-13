@@ -66,7 +66,8 @@ const COLUNAS_DO_ITEM = 'id, ordem, levantamento_item_id, tipologia, largura_mm,
 /** Os itens do orçamento como o arquivo (e a faixa da tela) os mostra. A família vem do item do levantamento de origem; o manual não tem. */
 export async function itensDoArquivo(tenantId: string, orcamentoId: string): Promise<{ itens: ItemDoArquivo[]; linhas: Linha[] } | { recusa: string }> {
     const linhas = ((await ler('orcamentista_orcamento_item', db().from('orcamentista_orcamento_item').select(COLUNAS_DO_ITEM)
-        .eq('tenant_id', tenantId).eq('orcamento_id', orcamentoId).order('ordem', { ascending: true }))) ?? []) as Linha[]
+        // só os itens que VALEM: o removido (a marca `removido_em`, 20261113000002) fica no banco e sai de toda conta e de todo arquivo
+        .eq('tenant_id', tenantId).eq('orcamento_id', orcamentoId).is('removido_em', null).order('ordem', { ascending: true }))) ?? []) as Linha[]
     const ids = linhas.map((l) => texto(l.levantamento_item_id)).filter((x): x is string => x !== null)
     const familias = new Map<string, string | null>()
     if (ids.length) {

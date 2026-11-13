@@ -134,7 +134,8 @@ export async function listarOrcamentos(tenantId: string): Promise<LinhaDaLista[]
     if (error) falhou(TABELA_DO_ORCAMENTO, error)
     const orcamentos = (data ?? []) as OrcamentoIA[]
     if (orcamentos.length === 0) return []
-    const { data: itens, error: e2 } = await db().from(TABELA_DO_ITEM).select('orcamento_id').eq('tenant_id', tenantId).in('orcamento_id', orcamentos.map((o) => o.id))
+    // só os itens que VALEM: o removido (a marca `removido_em`, 20261113000002) fica no banco e sai de toda conta e de todo arquivo
+    const { data: itens, error: e2 } = await db().from(TABELA_DO_ITEM).select('orcamento_id').eq('tenant_id', tenantId).in('orcamento_id', orcamentos.map((o) => o.id)).is('removido_em', null)
     if (e2) falhou(TABELA_DO_ITEM, e2)
     const porOrcamento = new Map<string, number>()
     for (const i of (itens ?? []) as Array<{ orcamento_id: string }>) porOrcamento.set(i.orcamento_id, (porOrcamento.get(i.orcamento_id) ?? 0) + 1)
@@ -145,7 +146,8 @@ export async function lerOrcamento(tenantId: string, id: string): Promise<Orcame
     const { data, error } = await db().from(TABELA_DO_ORCAMENTO).select(COLUNAS_DO_ORCAMENTO).eq('tenant_id', tenantId).eq('id', id).maybeSingle()
     if (error) falhou(TABELA_DO_ORCAMENTO, error)
     if (!data) throw new ErroNaoEncontrado()
-    const { data: itens, error: e2 } = await db().from(TABELA_DO_ITEM).select(COLUNAS_DO_ITEM).eq('tenant_id', tenantId).eq('orcamento_id', id).order('ordem')
+    // só os itens que VALEM: o removido (a marca `removido_em`, 20261113000002) fica no banco e sai de toda conta e de todo arquivo
+    const { data: itens, error: e2 } = await db().from(TABELA_DO_ITEM).select(COLUNAS_DO_ITEM).eq('tenant_id', tenantId).eq('orcamento_id', id).is('removido_em', null).order('ordem')
     if (e2) falhou(TABELA_DO_ITEM, e2)
     return { ...(data as OrcamentoIA), itens: (itens ?? []) as ItemDoOrcamento[] }
 }

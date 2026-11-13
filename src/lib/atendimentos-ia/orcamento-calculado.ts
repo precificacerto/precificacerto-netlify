@@ -174,11 +174,16 @@ export async function calcularOrcamento(tenantId: string, id: string, agora: Dat
         void _materiais
         return { id: orc.itens[k].id, ordem: orc.itens[k].ordem, ...valores }
     })
+    // A FAMÍLIA COM QUE CADA ITEM FOI CALCULADO (20261113000002): é ela que o "sim" sem mudança compara com a do levantamento (nulo = diferente)
+    const familiaDoItem = new Map(orc.itens.map((i) => {
+        const f = i.levantamento_item_id ? doLevantamento?.porItem.get(i.levantamento_item_id)?.familia : null
+        return [i.id, typeof f === 'string' && f.trim() !== '' ? f.trim() : null] as const
+    }))
     for (const it of itens) {
         const { id: idDoItem, ordem: _ordem, ...valores } = it
         void _ordem
         const { data, error } = await db().from(TABELA_DO_ITEM)
-            .update({ calculo_id, calculado_em, ...Object.fromEntries(PERCENTUAIS.map((p) => [p, valores[p]])),
+            .update({ calculo_id, calculado_em, familia: familiaDoItem.get(idDoItem) ?? null, ...Object.fromEntries(PERCENTUAIS.map((p) => [p, valores[p]])),
                 custo_bruto_materiais: valores.custo_bruto_materiais, custo_liquido_materiais: valores.custo_liquido_materiais,
                 tempo_fabricacao_min: valores.tempo_fabricacao_min, valor_minuto: valores.valor_minuto, custo_fabricacao: valores.custo_fabricacao,
                 custo_liquido_total: valores.custo_liquido_total, atualizado_em: calculado_em })
@@ -202,7 +207,7 @@ export async function calcularOrcamento(tenantId: string, id: string, agora: Dat
 
 /** O código do vidro ESCOLHIDO de cada item (20261112000006); sem a coluna, nenhum foi escolhido e o vidro vai pelo texto. */
 async function lerVidroCodigo(tenantId: string, orcamentoId: string): Promise<Map<string, string | null>> {
-    const { data, error } = await db().from(TABELA_DO_ITEM).select('id, vidro_codigo').eq('tenant_id', tenantId).eq('orcamento_id', orcamentoId)
+    const { data, error } = await db().from(TABELA_DO_ITEM).select('id, vidro_codigo').eq('tenant_id', tenantId).eq('orcamento_id', orcamentoId).is('removido_em', null)
     if (error && colunaAusente(error)) return new Map()
     if (error) falhou(TABELA_DO_ITEM, error)
     return new Map(((data ?? []) as Array<{ id: string; vidro_codigo: string | null }>).map((x) => [x.id, x.vidro_codigo]))

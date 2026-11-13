@@ -34,7 +34,7 @@ function cliente() {
                 estado.ops.push({ tabela, op, carga, filtros })
                 const erro = estado.erros[`${tabela}:${op}`]
                 if (erro) return Promise.resolve({ data: null, error: erro })
-                const r = (estado.db[tabela] ?? []).filter((l) => filtros.every(([c, v]) => l[c] === v))
+                const r = (estado.db[tabela] ?? []).filter((l) => filtros.every(([c, v]) => (v === NULO ? (l[c] ?? null) === null : l[c] === v)))
                 if (op === 'update') r.forEach((l) => Object.assign(l, carga as Linha))
                 return Promise.resolve({ data: r.map((l) => ({ ...l })), error: null })
             }
@@ -43,6 +43,8 @@ function cliente() {
             q.limit = () => q
             q.in = () => q
             q.eq = (c: string, v: unknown) => { filtros.push([c, v]); return q }
+            // o `.is(coluna, null)` do PostgREST: a coluna nula (ou ausente na linha de teste, como a `removido_em` de antes da 20261113000002)
+            q.is = (c: string, _v: null) => { filtros.push([c, NULO]); return q }
             q.update = (c: unknown) => { op = 'update'; carga = c; return q }
             q.maybeSingle = () => rodar().then((r) => ({ data: (r.data as Linha[] | null)?.[0] ?? null, error: r.error }))
             q.then = (ok: (v: unknown) => unknown, e?: (x: unknown) => unknown) => rodar().then(ok, e)
@@ -50,6 +52,8 @@ function cliente() {
         },
     }
 }
+const NULO = Symbol('is null')
+
 jest.mock('@/supabase/admin', () => ({ supabaseAdmin: cliente() }))
 // o arquivo tem portão próprio (`atendimentos-ia-arquivo-do-orcamento.test.ts`); aqui importa O QUE a gravação lhe passa, e quando
 const arquivo = {
@@ -244,6 +248,11 @@ describe('(4) a rota da precificação', () => {
         // e o TOPO: o cliente do levantamento, com os campos sem dado nulos (a tela os mostra em branco) — 11/11/2026
         expect(r.corpo.cliente).toEqual({ nome: 'Cliente', telFixo: null, celular: '(51) 99999-0000', email: null, tel2: null, endereco: 'Porto Alegre', ieRg: null, cep: null, cnpjCpf: null })
         for (const op of doOrcamento()) expect(op.filtros).toContainEqual(['tenant_id', 'T'])
+    })
+    it('o item REMOVIDO (a marca da 20261113000002) não chega à precificação: nem nos itens, nem na faixa do arquivo', async () => {
+        montar({}, [{ ...item(1), tenant_id: 'T', orcamento_id: ID }, { ...item(2), id: 'i-removido', tenant_id: 'T', orcamento_id: ID, removido_em: '2026-11-13T12:00:00.000Z' }])
+        const r = await chamar('GET', ID)
+        expect(((r.corpo.orcamento as Record<string, unknown>).itens as Linha[]).map((i) => i.ordem)).toEqual([1])
     })
     it('PATCH grava SÓ no orçamento, com o tenant: o preço, o fiscal e os percentuais', async () => {
         montar()

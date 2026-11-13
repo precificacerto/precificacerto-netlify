@@ -42,7 +42,7 @@ function executar(tabela: string, op: string, carga: unknown, filtros: [string, 
     const erro = estado.erros[tabela]?.shift()
     if (erro) return { data: null, error: erro }
     const linhas = (estado.db[tabela] ??= [])
-    const casa = (l: Linha) => filtros.every(([tipo, c, v]) => (tipo === 'in' ? (v as unknown[]).includes(l[c]) : l[c] === v))
+    const casa = (l: Linha) => filtros.every(([tipo, c, v]) => (tipo === 'in' ? (v as unknown[]).includes(l[c]) : tipo === 'is' ? (l[c] ?? null) === v : l[c] === v))
     const projetar = (l: Linha) => (colunas === null || colunas === '*' ? { ...l } : Object.fromEntries(colunas.split(',').map((c) => c.trim()).map((c) => [c, l[c]])))
     if (op === 'select') {
         let r = linhas.filter(casa)
@@ -72,6 +72,8 @@ function cliente() {
             q.order = (c: string, o?: { ascending?: boolean }) => { ordem = [c, o?.ascending !== false]; return q }
             q.limit = (n: number) => { limite = n; return q }
             q.eq = (c: string, v: unknown) => { filtros.push(['eq', c, v]); return q }
+            // o `.is(coluna, null)` do PostgREST: a coluna nula (ou ausente na linha de teste, como a `removido_em` de antes da 20261113000002)
+            q.is = (c: string, v: null) => { filtros.push(['is', c, v]); return q }
             q.in = (c: string, v: unknown[]) => { filtros.push(['in', c, v]); return q }
             q.update = (c: unknown) => { op = 'update'; carga = c; return q }
             q.delete = () => { op = 'delete'; return q }
@@ -174,6 +176,16 @@ describe('(2) a lista: TODOS os da empresa, só os dela, do mais novo ao mais an
         expect(lista.some((o) => o.id === O_OUTRA)).toBe(false)
         // as duas leituras levam o tenant
         for (const op of estado.ops.filter((o) => o.tabela.startsWith('orcamentista_orcamento'))) expect(op.filtros).toContainEqual(['eq', 'tenant_id', T])
+    })
+
+    it('o item REMOVIDO (a marca da 20261113000002) não conta na lista nem aparece no orçamento — a linha fica no banco', async () => {
+        const i1 = estado.db.orcamentista_orcamento_item.find((i) => i.id === 'i1')!
+        estado.db.orcamentista_orcamento_item.push({ ...i1, id: 'i-removido', ordem: 9, removido_em: '2026-11-13T12:00:00.000Z' })
+        const lista = (await chamar(rotaDaLista, 'GET')).corpo.orcamentos as Array<Record<string, unknown>>
+        expect(lista.find((o) => o.id === O1)!.itens).toBe(2)
+        const um = (await chamar(rotaDoOrcamento, 'GET', { query: { id: O1 } })).corpo.orcamento as { itens: Array<{ id: string }> }
+        expect(um.itens.map((i) => i.id)).toEqual(['i1', 'i2'])
+        expect(estado.db.orcamentista_orcamento_item.some((i) => i.id === 'i-removido')).toBe(true)
     })
 
     it('o tenant_id da query é ignorado', async () => {

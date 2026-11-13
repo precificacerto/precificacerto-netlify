@@ -17,6 +17,8 @@ const estado = {
     uploads: [] as Array<{ bucket: string; caminho: string; bytes: Buffer; opcoes: unknown }>,
     erroDoUpload: null as string | null,
 }
+const NULO = Symbol('is null')
+
 jest.mock('@/supabase/admin', () => ({
     supabaseAdmin: {
         from: (tabela: string) => {
@@ -29,7 +31,7 @@ jest.mock('@/supabase/admin', () => ({
             const rodar = () => {
                 estado.ops.push({ tabela, op, filtros, carga })
                 if (op === 'insert') { (estado.db[tabela] ??= []).push(carga as Linha); return Promise.resolve({ data: null, error: null }) }
-                let r = (estado.db[tabela] ?? []).filter((l) => filtros.every(([c, v]) => (Array.isArray(v) ? (v as unknown[]).includes(l[c]) : l[c] === v)))
+                let r = (estado.db[tabela] ?? []).filter((l) => filtros.every(([c, v]) => (v === NULO ? (l[c] ?? null) === null : Array.isArray(v) ? (v as unknown[]).includes(l[c]) : l[c] === v)))
                 if (ordem) { const [c, asc] = ordem; r = [...r].sort((a, b) => (String(a[c]) < String(b[c]) ? -1 : String(a[c]) > String(b[c]) ? 1 : 0) * (asc ? 1 : -1)) }
                 if (limite !== null) r = r.slice(0, limite)
                 return Promise.resolve({ data: r.map((l) => ({ ...l })), error: null })
@@ -38,6 +40,8 @@ jest.mock('@/supabase/admin', () => ({
             q.order = (c: string, o?: { ascending?: boolean }) => { ordem = [c, o?.ascending !== false]; return q }
             q.limit = (n: number) => { limite = n; return q }
             q.eq = (c: string, v: unknown) => { filtros.push([c, v]); return q }
+            // o `.is(coluna, null)` do PostgREST: a coluna nula (ou ausente na linha de teste, como a `removido_em` de antes da 20261113000002)
+            q.is = (c: string, _v: null) => { filtros.push([c, NULO]); return q }
             q.in = (c: string, v: unknown[]) => { filtros.push([c, v]); return q }
             q.insert = (c: unknown) => { op = 'insert'; carga = c; return q }
             q.maybeSingle = () => rodar().then((r) => ({ data: (r.data as Linha[] | null)?.[0] ?? null, error: r.error }))
@@ -102,6 +106,17 @@ describe('os itens do arquivo, montados do que está gravado', () => {
         expect(r.itens[0].desenho).toEqual(expect.objectContaining({ largura_mm: 2500, altura_mm: 2200 }))
         expect(r.itens[1]).toEqual(expect.objectContaining({ ambientes: null, obs: 'vão de gesso', desenho: null }))
         for (const o of estado.ops) expect(o.filtros).toContainEqual(['tenant_id', T])
+    })
+})
+
+describe('o item REMOVIDO (a marca da 20261113000002)', () => {
+    it('não entra no arquivo: nem na lista dos itens, nem nas linhas que dão as faltas e o bloco do vendedor', async () => {
+        const doOrc = (estado.db.orcamentista_orcamento_item as Linha[]).filter((i) => i.orcamento_id === ORC)
+        ;(estado.db.orcamentista_orcamento_item as Linha[]).push({ ...doOrc[0], id: 'i-removido', ordem: 9, removido_em: '2026-11-13T12:00:00.000Z' })
+        const r = await S.itensDoArquivo(T, ORC)
+        if ('recusa' in r) throw new Error(r.recusa)
+        expect(r.itens.map((i) => i.ordem)).toEqual([1, 2])
+        expect(r.linhas.map((l) => l.id)).not.toContain('i-removido')
     })
 })
 

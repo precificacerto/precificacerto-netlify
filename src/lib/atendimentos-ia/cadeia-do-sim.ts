@@ -21,6 +21,7 @@ import { lerUltimoArquivo } from './arquivo-do-orcamento-servidor'
 import { registrarFormatoMedido } from './telefone-medido'
 import { precificarComoAgente, type PrecificacaoDoAgente } from './preco-do-orcamento-servidor'
 import { fraseDoArquivoQueNaoChegou } from './arquivo-que-nao-chegou'
+import { nomeDoArquivo } from './arquivo-do-orcamento'
 
 /** `destino`: o número que o canal ACEITOU (quando houve), para (c) — o palpite vira medição. */
 export type EnvioDoDocumento = { ok: boolean; status: number | null; prazoEsgotado: boolean; destino?: string; id?: string | null }
@@ -104,6 +105,28 @@ export async function etapaDoPreco(tenantId: string, orcamentoId: string, deps: 
     // (c) O PALPITE VIRA MEDIÇÃO (dono do produto, 11/11/2026): a variante que o canal aceitou é persistida no remetente, e passa a valer
     const medido = envio.destino && envio.destino !== dono.telefone ? ` telefone=${await deps.registrarMedido(tenantId, dono.id, dono.telefone, envio.destino)}` : ''
     return { rastro: `${doArquivo} envio=ok ms_envio=${msEnvio}${medido}`, paraOVendedor: fraseDoOrcamentoEnviado(o.numero, o.nome), enviadoPara: envio.destino ?? dono.telefone, idDoEnvio: envio.id ?? null }
+}
+
+/**
+ * O "SIM" SEM MUDANÇA (dono do produto, 13/11/2026): "não recalcula, não gera PDF, não grava nada. A conversa diz que o orçamento N já está
+ * atualizado e manda o ARQUIVO que já existe." O mesmo envio da etapa (ao DONO do levantamento, com o palpite que vira medição), com o último
+ * arquivo gerado — nada é precificado nem gerado. Sem arquivo, `semArquivo`: quem chama roda a atualização inteira.
+ */
+export async function reenviarOArquivo(
+    tenantId: string, orcamento: { id: string; numero: number; nome: string },
+    deps: Pick<DependenciasDaEtapa, 'lerArquivo' | 'telefoneDoDono' | 'enviar' | 'registrarMedido' | 'agora'>,
+): Promise<ResultadoDaEtapa & { semArquivo?: true }> {
+    const [lido, dono] = await Promise.all([deps.lerArquivo(tenantId, orcamento.id), deps.telefoneDoDono(tenantId, orcamento.id)])
+    if (!lido) return { rastro: 'reenvio=sem_arquivo', paraOVendedor: null, semArquivo: true }
+    if (!dono) return { rastro: 'reenvio=sem_telefone parou=envio', paraOVendedor: fraseDoDonoSemTelefone(orcamento.numero, orcamento.nome) }
+    const t0 = deps.agora()
+    const envio = await deps.enviar(dono.telefone, nomeDoArquivo(orcamento.numero, orcamento.nome), lido.pdf)
+    const msEnvio = deps.agora() - t0
+    if (!envio.ok) {
+        return { rastro: `reenvio=falhou status=${envio.status ?? 'nenhum'}${envio.prazoEsgotado ? ' prazo=esgotado' : ''} ms_envio=${msEnvio} parou=envio`, paraOVendedor: fraseDoEnvioQueFalhou(orcamento.numero, orcamento.nome) }
+    }
+    const medido = envio.destino && envio.destino !== dono.telefone ? ` telefone=${await deps.registrarMedido(tenantId, dono.id, dono.telefone, envio.destino)}` : ''
+    return { rastro: `reenvio=ok ms_envio=${msEnvio}${medido}`, paraOVendedor: fraseDoOrcamentoEnviado(orcamento.numero, orcamento.nome), enviadoPara: envio.destino ?? dono.telefone, idDoEnvio: envio.id ?? null }
 }
 
 export type DonoDoLevantamento = { id: string; telefone: string }
