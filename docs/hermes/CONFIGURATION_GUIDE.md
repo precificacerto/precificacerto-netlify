@@ -71,7 +71,18 @@ mode **[INFERIDO]**.
 | as regras de operação | a instrução de sistema do Hermes | o conteúdo de `docs/hermes/HERMES_OPERATING_RULES.md` |
 | o repositório clonado | na máquina do Hermes | `git clone https://github.com/precificacerto/precificacerto-netlify` |
 | a autenticação do Claude Code nessa máquina | `claude` (OAuth da assinatura) ou `ANTHROPIC_API_KEY=<PLACEHOLDER>` | **decisão do dono** — ver handoff, seção 9 |
-| a autenticação do GitHub nessa máquina | `gh auth login` | escopo mínimo: push de branch e PR; **sem** permissão de merge, se o GitHub permitir separar **[NÃO VERIFICADO]** |
+| a autenticação do GitHub nessa máquina | `gh auth login` | push de branch e PR; **sem** permissão de merge — ver a seção 4.1 **[RECOMENDADO]** |
+
+### 4.1 Push sem merge **[RECOMENDADO]** — nada disto foi configurado
+
+Confirmado pelo dono do produto em 13/11/2026: dá para separar. A montagem:
+
+1. **Proteção de branch no `main`**, exigindo PR com revisão aprovada antes do merge (e o CI verde). Hoje o `main` está com `protected=false`
+   **[CONFIRMADO]**. Quem liga é o dono do produto, nas configurações do repositório.
+2. **O token da máquina do Hermes sem permissão de merge**: ele empurra branch e abre PR; o merge fica com a conta do dono do produto. O token
+   não entra na lista de quem pode contornar a proteção.
+3. Com os dois, um pedido de merge que escape da regra da seção 0 de `HERMES_OPERATING_RULES.md` ainda é barrado pelo GitHub. A trava é
+   rede; a regra continua valendo sem ela.
 
 **Variáveis de ambiente (só nomes, com placeholder):**
 

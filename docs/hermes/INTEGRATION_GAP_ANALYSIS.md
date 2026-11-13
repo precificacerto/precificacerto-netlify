@@ -31,7 +31,7 @@
 | o provedor e o modelo do Hermes | dono do produto | custos **[NÃO VERIFICADO]** |
 | como o Claude Code é autenticado nessa máquina (assinatura × API) | dono do produto | ver handoff, seção 9 |
 | a instrução de sistema do Hermes com `HERMES_OPERATING_RULES.md` | o humano que instalar | — |
-| proteção de branch no `main` (exigir PR e CI verde) | dono do produto | hoje `protected=false` **[CONFIRMADO]**; sem ela, um token com push pode escrever no `main` |
+| proteção de branch no `main` (exigir PR com revisão e CI verde) e o token do Hermes sem permissão de merge | dono do produto | hoje `protected=false` **[CONFIRMADO]**; sem ela, um token com push pode escrever no `main`. A montagem está em `CONFIGURATION_GUIDE.md`, seção 4.1 |
 
 ## 4. O que precisa ser desenvolvido, ou limpo
 
@@ -40,7 +40,7 @@
 | **instruções conflitantes de outros agentes** no repositório: `AGENTS.md` (Synkra AIOS), `.aios-core/`, `.cursor/`, `.gemini/`, `.codex/`, `.antigravity/` | o `.claude/CLAUDE.md` diz "O framework AIOS não é usado neste projeto" **[CONFIRMADO]**, mas o `AGENTS.md` manda seguir a Constitution do AIOS e rodar `npm run typecheck`/`lint` (que têm centenas de erros herdados) **[CONFIRMADO]**. Um Hermes que leia o `AGENTS.md` receberia regras **opostas** às vigentes. **Não removi nada** — a decisão é do dono |
 | **hooks Python descritos em `.claude/hooks/README.md`** (`read-protection.py`, `sql-governance.py`…) | os `.py` não existem na pasta e não há registro em `.claude/settings.json` **[CONFIRMADO]**; o README descreve uma governança que **não roda** **[INFERIDO]** |
 | um adaptador que leia o JSON do `claude -p` e monte o pacote de evidência | o skill do Hermes guia, mas a conferência de PR/CI é trabalho do Hermes **[INFERIDO]** |
-| **muitos arquivos de cliente e de trabalho na raiz** (`.docx`, `.pdf`, `.xlsx`, imagens de WhatsApp, `_tmp_*`) | não é integração, mas um agente que varre o repositório os lê; e o `CLAUDE.md` pede dado de cliente fora do repositório **[CONFIRMADO]** a regra; **[NÃO VERIFICADO]** se algum arquivo é dado de cliente |
+| **muitos arquivos de cliente e de trabalho na raiz** (`.docx`, `.pdf`, `.xlsx`, imagens de WhatsApp, `_tmp_*`) | não é integração, mas um agente que varre o repositório os lê; e o `CLAUDE.md` pede dado de cliente fora do repositório **[CONFIRMADO]** a regra. Medido em 13/11/2026 **[CONFIRMADO]**: três `.docx` trazem nome de cliente ligado a pedido ou orçamento; nenhum arquivo traz telefone, CNPJ ou endereço de cliente. Não removi nada |
 
 ## 5. O que apresenta limitações
 

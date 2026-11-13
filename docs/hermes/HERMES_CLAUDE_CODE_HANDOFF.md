@@ -142,7 +142,7 @@ Nenhum número desses limites foi medido contra a conta do dono **[NÃO VERIFICA
 - **Ponto fraco:** o `main` está sem proteção de branch **[CONFIRMADO]**. Ligar "exigir PR + CI verde" é decisão do dono **[RECOMENDADO]**.
 - **Dados de cliente:**
   - há arquivos de trabalho na raiz do repositório **[CONFIRMADO]**;
-  - **[NÃO VERIFICADO]** se algum é dado de cliente;
+  - três `.docx` deles trazem nome de cliente ligado a pedido ou orçamento, sem telefone, CNPJ ou endereço **[CONFIRMADO]** (medido em 13/11/2026);
   - um agente que varre o repositório os lê.
 
 ## 9. Custos — **[NÃO VERIFICADO], todos**
@@ -193,5 +193,10 @@ Cada item tem dono:
 3. O que o site do Hermes diz sobre aprovação humana e limites de iteração. Fica para quem tiver acesso ao site.
 4. O formato exato do JSON do `claude -p` nesta versão: `subtype`, `total_cost_usd`. Confere-se num primeiro teste.
 5. O estado atual do Supabase e da Vercel, porque a reconsulta deu 503 ou 500. Fica para uma nova consulta de leitura.
-6. Se o GitHub permite um token com push e sem merge, para a máquina do Hermes. Fica para quem configurar.
-7. Se algum arquivo da raiz é dado de cliente. É do dono do produto.
+6. ~~Se o GitHub permite um token com push e sem merge.~~ Respondido pelo dono do produto em 13/11/2026: sim, com a proteção de branch exigindo
+   PR com revisão e o token sem permissão de merge. A montagem é **[RECOMENDADO]** e está em `CONFIGURATION_GUIDE.md`, seção 4.1. Nada foi configurado.
+7. ~~Se algum arquivo da raiz é dado de cliente.~~ Medido em 13/11/2026 **[CONFIRMADO]**:
+   - três `.docx` da raiz trazem nome de cliente ligado a um pedido ou orçamento;
+   - nenhum traz telefone, CNPJ ou endereço de cliente.
+
+   A decisão sobre esses arquivos é do dono do produto.
