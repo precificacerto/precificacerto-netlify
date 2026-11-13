@@ -1794,11 +1794,10 @@ describe('(16) a PERGUNTA EM ABERTO do roteamento pelo nome (20261026000002): gu
         // a confirmação do acréscimo se resolveu; a que fica é a do apanhado, que espera o seu "sim"
         expect(perguntas()).toEqual([expect.objectContaining({ pergunta: 'CONFIRMAR_APANHADO', levantamentos: [casa.id] })])
         // o levantamento já virou o orçamento 1 (preparar): o item acrescentado fica no levantamento, o orçamento não se refaz para trás — e o
-        // vendedor é AVISADO (13/11/2026): o item 2 ficou fora do orçamento 1, e para incluí-lo é preciso gerar um orçamento novo
+        // vendedor é AVISADO (13/11/2026): o item 2 ficou fora do orçamento 1, que não muda — e nenhum caminho é indicado (o comando não existe)
         const doSim = await confirmarApanhado()
         expect(doSim).toBe(fraseDoOrcamentoQueJaExiste(1, [2]))
-        expect(doSim).toContain('Falta no orçamento 1 o item 2 do levantamento')
-        expect(doSim).toContain('é preciso gerar um orçamento novo')
+        expect(doSim.endsWith('Falta no orçamento 1 o item 2 do levantamento: ele foi acrescentado depois, e o orçamento 1 não muda.')).toBe(true)
         expect(perguntas()).toEqual([])
     })
 

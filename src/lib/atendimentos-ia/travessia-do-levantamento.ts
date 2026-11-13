@@ -209,8 +209,9 @@ const numerosPorExtenso = (ns: readonly number[]) => (ns.length > 1 ? `${ns.slic
 /**
  * O "sim" a um levantamento que JÁ virou orçamento: o orçamento não se refaz (nada se recalcula para trás), e o arquivo é o que está salvo.
  * O QUE FICOU DE FORA É NOMEADO (dono do produto, 13/11/2026: "Isso tem de ser DITO ao vendedor, não deduzido por ele"): os itens do
- * levantamento que não estão no orçamento, pelo número, e o que fazer para incluí-los. Um levantamento gera UM orçamento só (o índice
- * `orcamentista_orcamento_um_por_levantamento`): o orçamento novo vem de um levantamento novo. `fora` nulo: a conferência não pôde ser feita.
+ * levantamento que não estão no orçamento, pelo número, e que o orçamento N não muda. NENHUM caminho é indicado (dono do produto, 13/11/2026):
+ * o orçamento não se altera, e o comando que o reproduz num levantamento novo ainda não existe — fica para janela própria. `fora` nulo: a
+ * conferência não pôde ser feita.
  */
 export const fraseDoOrcamentoQueJaExiste = (numero: number, fora: readonly number[] | null = []) => {
     const base = `o levantamento já virou o orçamento ${numero}, e o arquivo dele está na seção Orçamentos I.A.`
@@ -218,8 +219,7 @@ export const fraseDoOrcamentoQueJaExiste = (numero: number, fora: readonly numbe
     if (fora.length === 0) return naoChegou(null, base)
     const quais = fora.length > 1 ? `os itens ${numerosPorExtenso(fora)}` : `o item ${fora[0]}`
     return naoChegou(null, `${base} Falta no orçamento ${numero} ${quais} do levantamento: ${fora.length > 1 ? 'eles foram acrescentados' : 'ele foi acrescentado'} `
-        + `depois, e o orçamento ${numero} não muda. Para ${fora.length > 1 ? 'incluí-los' : 'incluí-lo'}, é preciso gerar um orçamento novo: mande `
-        + `${fora.length > 1 ? 'esses itens' : 'esse item'} num levantamento novo, com outro nome — um levantamento gera um orçamento só`)
+        + `depois, e o orçamento ${numero} não muda`)
 }
 /** Os itens do levantamento (pelo número) que NÃO estão no orçamento dele; nulo quando a leitura falha (a frase diz que não conferiu). */
 export async function itensForaDoOrcamento(tenantId: string, levantamentoId: string, orcamentoId: string): Promise<number[] | null> {

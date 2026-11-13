@@ -437,7 +437,7 @@ describe('(7) o gatilho do "sim" ENCADEIA travessia -> cálculo -> etapa do pre�
         expect(calculo.chamadas).toEqual([])
         expect(etapa.chamadas).toEqual([])
     })
-    it('O QUE FICOU DE FORA É NOMEADO (13/11/2026): o item acrescentado depois da travessia aparece pelo número, com o que fazer — e o orçamento não muda', async () => {
+    it('O QUE FICOU DE FORA É NOMEADO (13/11/2026): o item acrescentado depois da travessia aparece pelo número, e o orçamento não muda — nenhum caminho é indicado', async () => {
         await atravessarNoSim(T, LEV, naEtapa)
         const itensDoOrcamento = JSON.stringify(estado.db.orcamentista_orcamento_item)
         // o levantamento ganha os itens 4 e 5 depois que virou o orçamento 1
@@ -446,11 +446,13 @@ describe('(7) o gatilho do "sim" ENCADEIA travessia -> cálculo -> etapa do pre�
         const r = await atravessarNoSim(T, LEV, naEtapa)
         expect(r).toEqual({ rastro: 'ja_existe=1 parou=travessia fora=2', paraOVendedor: fraseDoOrcamentoQueJaExiste(1, [4, 5]) })
         expect(r.paraOVendedor).toContain('Falta no orçamento 1 os itens 4 e 5 do levantamento')
-        expect(r.paraOVendedor).toContain('é preciso gerar um orçamento novo: mande esses itens num levantamento novo, com outro nome')
+        // a frase INTEIRA: a falta nomeada, o orçamento que não muda e onde o arquivo está — e nenhum caminho depois (o comando não existe ainda)
+        expect(r.paraOVendedor).toBe('O arquivo do orçamento não chegou a você: o levantamento já virou o orçamento 1, e o arquivo dele está na seção '
+            + 'Orçamentos I.A. Falta no orçamento 1 os itens 4 e 5 do levantamento: eles foram acrescentados depois, e o orçamento 1 não muda.')
         // nada se recalcula para trás: o orçamento 1 continua com os itens que tinha
         expect(JSON.stringify(estado.db.orcamentista_orcamento_item)).toBe(itensDoOrcamento)
         // um item só: no singular; a leitura que falha: a frase diz que não conferiu, e manda conferir
-        expect(fraseDoOrcamentoQueJaExiste(1, [4])).toContain('Falta no orçamento 1 o item 4 do levantamento: ele foi acrescentado depois')
+        expect(fraseDoOrcamentoQueJaExiste(1, [4]).endsWith('Falta no orçamento 1 o item 4 do levantamento: ele foi acrescentado depois, e o orçamento 1 não muda.')).toBe(true)
         expect(fraseDoOrcamentoQueJaExiste(1, null)).toContain('Não consegui conferir se todos os itens do levantamento estão nele')
         const orcamento = String(estado.db.orcamentista_orcamento[0].id)
         expect(await itensForaDoOrcamento(T, LEV, orcamento)).toEqual([4, 5])
