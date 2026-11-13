@@ -152,10 +152,6 @@ export type ResultadoDaProposta = {
     semEsquadria: boolean
     /** As tipologias que o CÓDIGO descartou (03/11/2026): pela abertura dita (porta × janela) ou pelos limites do motor. */
     recusas: RecusaDaTipologia[]
-    /** Quantas esquadrias receberam o vidro PADRÃO da instrução (04/11/2026): só a que ficou sem vidro, uma vez. */
-    vidrosPadrao: number
-    /** As esquadrias (pela ordem) em que o vidro padrão entrou: o rastro nomeia o valor e a origem (12/11/2026). */
-    vidrosPadraoNas: number[]
     /** A ABERTURA de cada esquadria tocada nesta proposta (05/11/2026), pela palavra do vendedor — para a tipologia padrão decidir. */
     aberturas: Record<number, Abertura | null>
     /** As esquadrias (pela ordem) cuja quantidade é o 1 do padrão, não a dita (06/11/2026): o agrupamento não a deixa substituir a gravada. */
@@ -195,8 +191,6 @@ export function aplicarProposta(atuais: readonly ItemDoLevantamento[], proposta:
     let propostos = 0
     let descartados = 0
     let semEsquadria = false
-    let vidrosPadrao = 0
-    const vidrosPadraoNas: number[] = []
     const recusas: RecusaDaTipologia[] = []
     const coresForaDaLista: Array<{ ordem: number; cor: string }> = []
     const aberturas: Record<number, Abertura | null> = {}
@@ -291,11 +285,9 @@ export function aplicarProposta(atuais: readonly ItemDoLevantamento[], proposta:
                 alvo.motor_id = null
             }
         }
-        // O VIDRO PADRÃO (dono do produto, 04/11/2026): "a instrução de VIDRO só entra quando o vendedor NÃO disse vidro nenhum para aquela
-        // esquadria — e, nesse caso, entra UMA vez, fica gravada e não muda nos turnos seguintes". O dito (`vidro`) sempre vence; o padrão
-        // só preenche a esquadria que ficou sem vidro, e nunca sobrescreve
-        const padrao = valorValido('vidro', b.vidro_padrao, tipologias, ctx.cores)
-        if (alvo.vidro === null && padrao !== undefined) { alvo.vidro = padrao as string; vidrosPadrao += 1; vidrosPadraoNas.push(alvo.ordem) }
+        // O VIDRO PADRÃO DA INSTRUÇÃO (04/11/2026) SAIU (dono do produto, 13/11/2026): "a instrução de VIDRO deixando de valer como padrão mas
+        // seguindo visível". O `vidro_padrao` que o modelo devolve não preenche mais nada; o padrão é o CÓDIGO da `orcamentista_vidro_padrao`,
+        // por grupo de tipologia, aplicado na conversa depois da tipologia (`vidro-padrao.ts`)
         if (fornecedor !== null || familia !== null) {
             // a resposta à pergunta de qual família: a família dita (o rótulo ou a chave) e/ou o fornecedor do motor apontam UMA
             // das famílias DAQUELA tipologia; o que aponta duas, ou nenhuma, não vale
@@ -339,7 +331,7 @@ export function aplicarProposta(atuais: readonly ItemDoLevantamento[], proposta:
     for (const i of itens) {
         if (i.quantidade === null && CAMPOS_DA_ESQUADRIA.some((c) => c !== 'quantidade' && !vazio(i[c]))) { i.quantidade = 1; quantidadesPadrao.push(i.ordem) }
     }
-    return { itens, propostos, descartados, semEsquadria, recusas, vidrosPadrao, vidrosPadraoNas, aberturas, quantidadesPadrao, coresForaDaLista }
+    return { itens, propostos, descartados, semEsquadria, recusas, aberturas, quantidadesPadrao, coresForaDaLista }
 }
 
 // ── O AGRUPAMENTO (dono do produto, 03/11/2026) ─────────────────────────────────────────────

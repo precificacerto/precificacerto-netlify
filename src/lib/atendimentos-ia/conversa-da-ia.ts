@@ -217,6 +217,7 @@ import {
     apagarPerguntaEmAberto, confirmacaoVale, esquadriasDaProposta, gravarPerguntaEmAberto, juntarEsquadrias, lerPerguntaEmAberto, marcaDaConfirmacao, montagemExpirou,
     type CodigoDaPergunta, type EsquadriaProposta, type PerguntaEmAberto,
 } from '@/lib/atendimentos-ia/pergunta-em-aberto'
+import { lerVidrosPadraoDaConta, vidroCodigoDaEsquadria, vidroNoConsiderado, vidroPadraoDaEsquadria, type VidrosPadraoDaConta } from '@/lib/atendimentos-ia/vidro-padrao'
 import { DESCRICAO_DA_FALA, blocoDoContexto, falaValida, lerContextoDoAtendimento, temDinheiro, type ContextoLido, type FalaLida } from '@/lib/atendimentos-ia/contexto-do-atendimento'
 
 export const PREFIXO_DO_LOG_DA_IA = '[IA]'
@@ -308,8 +309,10 @@ type Rastro = {
     vidrosNaoDitos: number
     /** Vidros propostos PODADOS ao que a mensagem diz — a parte completada pelo modelo caiu, o dito ficou (04/11/2026, "pode, não derrube"). */
     vidrosPodados: number
-    /** Esquadrias que receberam o vidro padrão da instrução (04/11/2026). */
+    /** Esquadrias que receberam o vidro padrão da base de conhecimento — o CÓDIGO, por grupo de tipologia (13/11/2026; era o da instrução até então). */
     vidrosPadrao: number
+    /** A leitura dos padrões de vidro que NÃO deu (a tabela ausente ou a leitura que falhou): nenhum padrão entrou, e a conversa pergunta. */
+    vidroPadraoLeitura: '-' | 'sem_migracao' | 'falhou'
     /** A lista do prompt pelo ACUMULADO (05/11/2026): `enviadas/total` e quantos trechos filtraram; '-' sem chamada. */
     lista: string
     trechos: number
@@ -338,7 +341,7 @@ function anotar(r: Rastro, desfecho: DesfechoDaIa, detalhe = '') {
         + (r.instrucoesSemEfeito === '' ? '' : ` instrucao_sem_efeito=${r.instrucoesSemEfeito}`)
         + (r.fundidos > 0 ? ` agrupados=${r.fundidos}` : '') + (r.caminhos.length > 0 ? ` caminhos=${r.caminhos.join(',')}` : '') + (r.reenviadas > 0 ? ` reenviadas=${r.reenviadas}` : '')
         + (r.historico === '-' ? '' : ` historico=${r.historico}`) + (r.gravacao === '-' ? '' : ` gravacao=${r.gravacao}`) + (r.redacao === '-' ? '' : ` redacao=${r.redacao}`)
-        + (r.vidrosNaoDitos > 0 ? ` vidro_nao_dito=${r.vidrosNaoDitos}` : '') + (r.vidrosPodados > 0 ? ` vidro_podado=${r.vidrosPodados}` : '') + (r.vidrosPadrao > 0 ? ` vidro_padrao=${r.vidrosPadrao}` : '')
+        + (r.vidrosNaoDitos > 0 ? ` vidro_nao_dito=${r.vidrosNaoDitos}` : '') + (r.vidrosPodados > 0 ? ` vidro_podado=${r.vidrosPodados}` : '') + (r.vidrosPadrao > 0 ? ` vidro_padrao=${r.vidrosPadrao}` : '') + (r.vidroPadraoLeitura === '-' ? '' : ` vidro_padrao_leitura=${r.vidroPadraoLeitura}`)
         // a lista pelo acumulado e os itens vazios (05/11/2026): só números
         + (r.lista === '-' ? '' : ` lista=${r.lista} trechos=${r.trechos}`) + (r.trechosSemCandidata > 0 ? ` trechos_sem_candidata=${r.trechosSemCandidata}` : '')
         + (r.itensSemCampos > 0 ? ` itens_sem_campos=${r.itensSemCampos}` : '')
@@ -878,8 +881,10 @@ function definicaoEDetalhe(tabela: FamiliasDaEmpresaLidas, variaveisPorFamilia: 
 export async function arquivoDoLevantamentoGravado(tenantId: string, levantamentoId: string): Promise<FolhaGerada | FolhaRecusada> {
     const contexto = await contextoDaFolhaDaEmpresa(tenantId)
     if ('recusa' in contexto) return { ok: false, recusas: [contexto.recusa] }
-    const itens = await lerItens(tenantId, levantamentoId)
-    return (await gerarArquivoDoLevantamento({ tenantId, levantamentoId, itens, definicao: contexto.definicao, detalhe: contexto.detalhe })).folha
+    const [itens, vidros] = await Promise.all([lerItens(tenantId, levantamentoId), lerVidrosPadraoDaConta(tenantId)])
+    // o vidro do padrão no CONSIDERADO, como a conversa o escreve (13/11/2026): a mesma folha nos dois lugares
+    const vidroPadrao = vidros.ok ? (i: ItemDoLevantamento) => vidroNoConsiderado(vidros, i, contexto.candidatos) : undefined
+    return (await gerarArquivoDoLevantamento({ tenantId, levantamentoId, itens, definicao: contexto.definicao, detalhe: contexto.detalhe, vidroPadrao })).folha
 }
 
 /**
@@ -887,11 +892,11 @@ export async function arquivoDoLevantamentoGravado(tenantId: string, levantament
  * arquivo do ORÇAMENTO (11/11/2026) escrevem por item — a descrição, o tipo, a linha, o fornecedor, as variáveis ditas e a cor do acessório.
  * Só lê. A configuração que falta volta como a frase que a nomeia.
  */
-export async function contextoDaFolhaDaEmpresa(tenantId: string): Promise<{ definicao: DefinicaoDaTipologia; detalhe: DetalheDaTipologia } | { recusa: string }> {
+export async function contextoDaFolhaDaEmpresa(tenantId: string): Promise<{ definicao: DefinicaoDaTipologia; detalhe: DetalheDaTipologia; candidatos: CandidatoDeTipologia[] } | { recusa: string }> {
     const tabela = await lerFamiliasDaEmpresa(tenantId)
     if ('frase' in tabela) return { recusa: tabela.frase }
     const variaveisLidas = await Promise.all(tabela.familias.map(async (f) => [f.familia, await lerVariaveisDasTipologias(f.levantamento.id)] as const))
-    return definicaoEDetalhe(tabela, Object.fromEntries(variaveisLidas), familiasDoCodigo(tabela))
+    return { ...definicaoEDetalhe(tabela, Object.fromEntries(variaveisLidas), familiasDoCodigo(tabela)), candidatos: tabela.candidatos }
 }
 
 async function lerItens(tenantId: string, levantamentoId: string): Promise<ItemGravado[]> {
@@ -953,6 +958,8 @@ async function gravarLevantamento(
     itens: ItemDoLevantamento[], estado: string,
     /** As colunas do levantamento que esta mensagem muda (os dados do cliente, as condições e o vendedor, 20261106000002); vazio, nenhuma. */
     colunas: Record<string, unknown> = {},
+    /** O `vidro_codigo` de cada esquadria (o do padrão, ou nulo — `vidroCodigoDaEsquadria`, 13/11/2026); ausente, a coluna não é escrita. */
+    vidroCodigoDe?: (item: ItemDoLevantamento) => string | null,
 ): Promise<string> {
     const agora = new Date().toISOString()
     let id: string
@@ -975,9 +982,10 @@ async function gravarLevantamento(
     const novos: Array<Record<string, unknown>> = []
     for (const item of itens) {
         const anterior = antes.find((a) => a.ordem === item.ordem)
-        if (!anterior) { novos.push({ tenant_id: tenantId, levantamento_id: id, ...camposDoItem(item) }); continue }
+        const codigo = vidroCodigoDe ? { vidro_codigo: vidroCodigoDe(item) } : {}
+        if (!anterior) { novos.push({ tenant_id: tenantId, levantamento_id: id, ...camposDoItem(item), ...codigo }); continue }
         if (JSON.stringify(camposDoItem(anterior)) === JSON.stringify(camposDoItem(item))) continue
-        const { data: tocados, error } = await supabaseAdmin.from('orcamentista_levantamento_item').update({ ...camposDoItem(item), atualizado_em: agora })
+        const { data: tocados, error } = await supabaseAdmin.from('orcamentista_levantamento_item').update({ ...camposDoItem(item), ...codigo, atualizado_em: agora })
             .eq('id', anterior.id).eq('tenant_id', tenantId).eq('levantamento_id', id).select('id')
         if (error) throw new ErroAoGravar(`orcamentista_levantamento_item: ${error.message}`)
         if ((tocados ?? []).length !== 1) throw new ErroAoGravar(`orcamentista_levantamento_item: o update da esquadria ${item.ordem} atingiu ${(tocados ?? []).length} linha(s), e devia atingir 1`)
@@ -1161,7 +1169,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
     const rastro: Rastro = {
         etapas: { coletar: null, casar: null, montar: null, calcular: null },
         levantamento: '-', rota: '-', propostos: 0, descartados: 0, enviou: false, admin: null, nome: '-', aberta: '-', ia: { ms: null, entrada: null, saida: null, raciocinio: null, parada: null, cacheLido: null, cacheEscrito: null, cabecalhosMs: null, primeiroTokenMs: null, tentativas: null, requestId: null },
-        contexto: '-', fala: '-', instrucoes: '-', instrucoesDasEtapas: '-', instrucoesSemEfeito: '', fundidos: 0, caminhos: [], reenviadas: 0, historico: '-', gravacao: '-', redacao: '-', vidrosNaoDitos: 0, vidrosPodados: 0, vidrosPadrao: 0, lista: '-', trechos: 0, trechosSemCandidata: 0, itensSemCampos: 0, montagem: '-', coresPadrao: 0, tipologiasPadrao: 0,
+        contexto: '-', fala: '-', instrucoes: '-', instrucoesDasEtapas: '-', instrucoesSemEfeito: '', fundidos: 0, caminhos: [], reenviadas: 0, historico: '-', gravacao: '-', redacao: '-', vidrosNaoDitos: 0, vidrosPodados: 0, vidrosPadrao: 0, vidroPadraoLeitura: '-', lista: '-', trechos: 0, trechosSemCandidata: 0, itensSemCampos: 0, montagem: '-', coresPadrao: 0, tipologiasPadrao: 0,
     }
     const fim = (desfecho: DesfechoDaIa, detalhe = ''): DesfechoDaIa => { anotar(rastro, desfecho, detalhe); return desfecho }
     // a fala da IA, já filtrada: abre a resposta do código. Sem contexto, ou com o filtro disparado, não há
@@ -1589,6 +1597,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         // o que o padrão NÃO resolve e se diz (11/11/2026): a linha sem padrão, as descrições que nada separa, a modulação da bandeira, a lacuna
         // do motor — por esquadria, nunca "sem padrão" mudo
         const faltasDoPadrao: Array<{ ordem: number; frase: string; motivo: string }> = []
+        let vidrosDaConta: VidrosPadraoDaConta | null = null
         for (const item of proposta_.itens) {
             if (!dizAlgo(item)) continue
             if (item.tipologia === null) {
@@ -1609,11 +1618,19 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
                 assumir(item.ordem, [{ atributo: 'cor', valor: corPredominante, origem: 'base_de_conhecimento' }])
             }
         }
-        // o vidro da instrução da categoria VIDRO e a quantidade não dita, que a montagem pôs (12/11/2026: nomeados no rastro, com a origem)
-        for (const ordem of proposta_.vidrosPadraoNas) {
-            const vidro = proposta_.itens.find((i) => i.ordem === ordem)?.vidro
-            if (typeof vidro === 'string') assumir(ordem, [{ atributo: 'vidro', valor: vidro, origem: 'base_de_conhecimento' }])
+        // O VIDRO PADRÃO POR GRUPO DE TIPOLOGIA (dono do produto, 13/11/2026; `vidro-padrao.ts`): a esquadria COM tipologia e SEM vidro dito recebe o
+        // CÓDIGO da base de conhecimento (a exceção da tipologia, senão o grupo — o par exato); sem padrão, fica sem vidro, e a conversa pergunta.
+        // A leitura é pelo service_role, uma vez por turno, só quando há esquadria com tipologia
+        if (proposta_.itens.some((i) => i.tipologia !== null)) vidrosDaConta = await lerVidrosPadraoDaConta(c.tenantId)
+        if (vidrosDaConta && 'motivo' in vidrosDaConta) rastro.vidroPadraoLeitura = vidrosDaConta.motivo
+        for (const item of proposta_.itens) {
+            if (item.tipologia === null || item.vidro !== null || !vidrosDaConta) continue
+            const aplicado = vidroPadraoDaEsquadria(vidrosDaConta, item, tabela.candidatos)
+            if (aplicado === null) continue
+            item.vidro = aplicado.texto; rastro.vidrosPadrao += 1
+            assumir(item.ordem, [{ atributo: 'vidro', valor: aplicado.codigo, origem: 'base_de_conhecimento' }])
         }
+        // a quantidade não dita, que a montagem pôs (12/11/2026: nomeada no rastro, com a origem)
         for (const ordem of proposta_.quantidadesPadrao) assumir(ordem, [{ atributo: 'quantidade', valor: '1', origem: 'padrao_do_apanhado' }])
         // a família e o motor de cada esquadria, como ficam gravados: a resolvida e o motor do cálculo dela HOJE (PR D); e o AGRUPAMENTO
         // (03/11/2026): os itens completos e iguais viram um, com as unidades somadas
@@ -1625,7 +1642,6 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         const aplicada = { ...proposta_, itens: agrupamento.itens }
         rastro.fundidos = agrupamento.fundidos
         rastro.caminhos = agrupamento.caminhos.map((x) => `e${x.ordem}:${x.caminho}`)
-        rastro.vidrosPadrao = aplicada.vidrosPadrao
         rastro.propostos = aplicada.propostos
         rastro.descartados = aplicada.descartados
         // ETAPA 2 (06/11/2026): o casamento com o catálogo e o motor — a lista enviada, o que valeu, o que o código pôs e o que descartou
@@ -1756,7 +1772,9 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         // decisão 3: o rastro é atualizado_em — só se grava o que MUDOU
         if (!(nadaMudou && alvo && alvo.estado === estado && Object.keys(congelar).length === 0)) {
             gravando = true
-            rastro.levantamento = await gravarLevantamento(c.tenantId, alvo ? alvo.donoId : c.remetenteId, nome, alvo, aplicada.itens, estado, { ...colunasQueMudam, ...congelar })
+            rastro.levantamento = await gravarLevantamento(c.tenantId, alvo ? alvo.donoId : c.remetenteId, nome, alvo, aplicada.itens, estado, { ...colunasQueMudam, ...congelar },
+                // o código do vidro padrão (13/11/2026): só com os padrões LIDOS; sem a leitura, a coluna não é escrita (nunca apaga um código por falha de leitura)
+                vidrosDaConta?.ok ? (i) => vidroCodigoDaEsquadria(vidrosDaConta!, i, tabela.candidatos) : undefined)
             gravando = false
         }
         gravado = true
@@ -1819,7 +1837,8 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         let semApanhado = ''
         if (!confirmouApanhado && !simVale) {
             // O ARQUIVO DO LEVANTAMENTO (dono do produto, 06/11/2026): a folha A4 no lugar da mensagem-resumo em texto; a confirmação é sobre ELE
-            const { dados, folha } = await gerarArquivoDoLevantamento({ tenantId: c.tenantId, levantamentoId: rastro.levantamento, itens: aplicada.itens, definicao, detalhe })
+            const { dados, folha } = await gerarArquivoDoLevantamento({ tenantId: c.tenantId, levantamentoId: rastro.levantamento, itens: aplicada.itens, definicao, detalhe,
+                vidroPadrao: vidrosDaConta?.ok ? (i) => vidroNoConsiderado(vidrosDaConta!, i, tabela.candidatos) : undefined })
             if ('recusas' in folha) return await responder(fraseDoArquivoRecusado(folha.recusas), 'arquivo-recusado')
             if (!dados) return await responder(fraseDoArquivoRecusado(['O levantamento não foi achado.']), 'arquivo-recusado')
             const resumo = resumoDoArquivo(dados)

@@ -218,6 +218,8 @@ function montar() {
         orcamentista_levantamento: [],
         orcamentista_levantamento_item: [],
         orcamentista_pergunta_em_aberto: [],
+        // o VIDRO PADRÃO da base (20261113000001): vazio por padrão — sem padrão, a esquadria sem vidro dito fica sem vidro, e a conversa pergunta
+        orcamentista_vidro_padrao: [],
         // a FAMÍLIA da conta é a da base de conhecimento, e o motor vem das etapas 1 e 2 dela (PR D, 02/11/2026)
         orcamentista_materia_prima: [{ id: 'mp-pvc', tenant_id: TENANT, nome: 'Esquadrias de PVC', familia: 'PVC' }],
         orcamentista_familia_etapa: etapasPadrao(TENANT, 'mp-pvc', MOTOR),
@@ -3588,31 +3590,56 @@ describe('(29) o vidro copiado, a forma canônica e a dedupe por equivalência (
         expect(linhaIa().pop()).toMatch(/ reenviadas=1 .*vidro_podado=1(\s|$)/)
     })
 
-    it('O PADRÃO DA INSTRUÇÃO entra UMA vez, na esquadria que ficou sem vidro, fica gravado e não muda no turno seguinte', async () => {
+    // O VIDRO PADRÃO É O CÓDIGO DA BASE, por grupo de tipologia (dono do produto, 13/11/2026; `vidro-padrao.ts`): a instrução de VIDRO segue visível,
+    // e o `vidro_padrao` que o modelo devolve não preenche mais nada. A DP-02 é do grupo (janela, correr); o VTIN05 está na tabela da Estrela,
+    // a principal da categoria VIDRO desta conta — o texto gravado é a descrição dele, e o código vai em `vidro_codigo`
+    const PADRAO_JANELA_CORRER = { tenant_id: TENANT, materia_prima_id: 'mp-pvc', abertura: 'janela', tipo: 'correr', tipologia: null as string | null, item_codigo: 'VTIN05' }
+    it('O PADRÃO DA BASE entra na esquadria sem vidro dito: o texto da tabela do principal, o código em vidro_codigo e a origem no CONSIDERADO', async () => {
+        estado.db.orcamentista_vidro_padrao = [{ ...PADRAO_JANELA_CORRER }]
         llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, vidro: undefined, vidro_padrao: 'incolor 4 mm comum' }], escolhas: ESCOLHAS_QUE_FECHAM })
         await chamar('Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco, sem arremate interno, arremate externo com folga de 50')
-        expect(itensDe(levantamentos()[0].id)[0].vidro).toBe('incolor 4 mm comum')
+        expect(itensDe(levantamentos()[0].id)[0]).toMatchObject({ vidro: 'VIDRO TEMPERADO INCOLOR 05MM', vidro_codigo: 'VTIN05' })
         expect(linhaIa().pop()).toMatch(/ vidro_padrao=1(\s|$)/)
-        expect(textoDoArquivo()).toContain('VIDRO: incolor 4 mm comum')
-        // o turno seguinte traz OUTRO padrão: nada muda
-        llmResponde({ nome: 'Casa do João', alteracao: true, itens: [{ ordem: 1, largura_mm: 1300, vidro_padrao: 'incolor 4 mm temperado' }] })
+        expect(textoDoArquivo()).toContain('vidro VTIN05, padrão da empresa para janela de correr')
+        // o turno seguinte muda a largura: o vidro e o código ficam
+        llmResponde({ nome: 'Casa do João', alteracao: true, itens: [{ ordem: 1, largura_mm: 1300 }] })
         await chamar('Casa do João: largura 1300')
-        expect(itensDe(levantamentos()[0].id)[0].vidro).toBe('incolor 4 mm comum')
-        expect(linhaIa().pop()).not.toContain('vidro_padrao=')
-        // o vendedor DIZ outro vidro: o dito vence o padrão
+        expect(itensDe(levantamentos()[0].id)[0]).toMatchObject({ vidro: 'VIDRO TEMPERADO INCOLOR 05MM', vidro_codigo: 'VTIN05' })
+        // o vendedor DIZ outro vidro: o dito vence, e o código do padrão SAI (nunca fica pendurado num vidro que mudou)
         llmResponde({ nome: 'Casa do João', alteracao: true, itens: [{ ordem: 1, vidro: 'temperado 8mm' }] })
         await chamar('Casa do João: vidro temperado 8mm')
-        expect(itensDe(levantamentos()[0].id)[0].vidro).toBe('temperado 8mm')
+        expect(itensDe(levantamentos()[0].id)[0]).toMatchObject({ vidro: 'temperado 8mm', vidro_codigo: null })
     })
 
-    it('a esquadria RETIDA sem vidro leva o padrão com ela, e ele entra quando o levantamento nasce — uma vez', async () => {
+    it('SEM PADRÃO cadastrado para o grupo, nada se chuta: a esquadria fica sem vidro (o vidro_padrao da instrução não entra) e a conversa pergunta', async () => {
+        // o padrão é de OUTRO grupo (maxim-ar): a DP-02 (janela, correr) não casa — o par exato, nunca só um pedaço
+        estado.db.orcamentista_vidro_padrao = [{ ...PADRAO_JANELA_CORRER, abertura: null, tipo: 'maxim-ar', item_codigo: 'VTIN05' }]
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, vidro: undefined, vidro_padrao: 'incolor 4 mm comum' }], escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar('Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco, sem arremate interno, arremate externo com folga de 50')
+        const lev = levantamentos()[0]
+        expect(itensDe(lev.id)[0].vidro).toBeNull()
+        expect(itensDe(lev.id)[0].vidro_codigo ?? null).toBeNull()
+        expect(linhaIa().pop()).not.toContain('vidro_padrao=')
+        expect(estado.envios.at(-1)?.corpo.Body).toMatch(/vidro/i)
+    })
+
+    it('a esquadria RETIDA sem vidro recebe o padrão da base quando o levantamento nasce — e o vidro_padrao retido não entra', async () => {
+        estado.db.orcamentista_vidro_padrao = [{ ...PADRAO_JANELA_CORRER }]
         llmResponde({ itens: [{ ...JANELA, vidro: undefined, vidro_padrao: 'incolor 4 mm comum' }] })
         await chamar('Janela de correr 1,50×1,20')
-        expect(perguntas()[0].itens).toEqual([{ ...JANELA, vidro: undefined, vidro_padrao: 'incolor 4 mm comum' }])
         llmResponde({ nome: 'Obra Nova', novo: true, itens: [] })
         await chamar('novo Obra Nova')
-        expect(itensDe(levantamentos()[0].id)[0].vidro).toBe('incolor 4 mm comum')
+        expect(itensDe(levantamentos()[0].id)[0]).toMatchObject({ vidro: 'VIDRO TEMPERADO INCOLOR 05MM', vidro_codigo: 'VTIN05' })
         expect(linhaIa().pop()).toMatch(/ vidro_padrao=1(\s|$)/)
+    })
+
+    it('a tabela de padrões AUSENTE (a migração não aplicada): nenhum padrão, o log diz por quê, e nada do vidro_codigo é escrito', async () => {
+        estado.ausentes.add('orcamentista_vidro_padrao')
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, vidro: undefined }], escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar('Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco, sem arremate interno, arremate externo com folga de 50')
+        expect(itensDe(levantamentos()[0].id)[0].vidro).toBeNull()
+        expect('vidro_codigo' in itensDe(levantamentos()[0].id)[0]).toBe(false)
+        expect(linhaIa().pop()).toMatch(/ vidro_padrao_leitura=sem_migracao(\s|$)/)
     })
 
     it('o prompt e a ferramenta dizem a regra: copiar o vidro, nunca completar; o padrão em vidro_padrao', async () => {
@@ -4927,17 +4954,20 @@ describe('(38) Maria Cristina: a montagem não absorve outro cliente, expira em 
             expect(ultimoEnviado()).toBe(PERGUNTA_DO_CAMPO.cor_perfil)
         })
 
-        it('O RASTRO DOS ATRIBUTOS (12/11/2026): o casar nomeia cada atributo assumido com o valor e a origem — a porta sem tipo (correr pelo padrão), a cor da base, o vidro da instrução, a quantidade da conversa', async () => {
+        it('O RASTRO DOS ATRIBUTOS (12/11/2026): o casar nomeia cada atributo assumido com o valor e a origem — a porta sem tipo (correr pelo padrão), a cor da base, o vidro da base (o código), a quantidade da conversa', async () => {
             comPortaLisa()
             comPredominante('BRANCO')
+            // o vidro da BASE (13/11/2026): o código do grupo (porta, correr) — uma linha de teste, não a semente de produção; o vidro_padrao da instrução não entra
+            estado.db.orcamentista_vidro_padrao = [{ tenant_id: TENANT, materia_prima_id: 'mp-pvc', abertura: 'porta', tipo: 'correr', tipologia: null, item_codigo: 'VTIN05' }]
             llmResponde({ cliente: 'Ana', itens: [{ ...PORTA, abertura: 'porta', quantidade: undefined, vidro: undefined, vidro_padrao: 'incolor 8 mm temperado' }] })
             await chamar('Cliente: Ana. porta 2,50 x 2,20')
             const casar = erros.filter((l) => l.startsWith(conversa.PREFIXO_DO_LOG_DA_ETAPA) && l.includes(' casar]')).pop() ?? ''
             expect(/ assumidos=(\S+)/.exec(casar)?.[1]).toBe('e1:abertura=porta/dito;tipo=correr/padrao_da_tipologia;folhas=2/padrao_da_tipologia;'
                 + 'persiana=sem/padrao_da_tipologia;bandeira=sem/padrao_da_tipologia;peitoril=sem/padrao_da_tipologia;cor=Branco/base_de_conhecimento;'
-                + 'vidro=incolor_8_mm_temperado/base_de_conhecimento;quantidade=1/padrao_do_apanhado')
+                + 'vidro=VTIN05/base_de_conhecimento;quantidade=1/padrao_do_apanhado')
             // o que o rastro diz é o que foi gravado
-            expect(itens('Ana')[0]).toMatchObject({ tipologia: 'DP-39', cor_perfil: 'Branco', vidro: 'incolor 8 mm temperado', quantidade: 1 })
+            // (`comPredominante` deixa a conta sem a categoria VIDRO, logo sem principal: o texto é o próprio código, e o custo o acusa como falta nomeada)
+            expect(itens('Ana')[0]).toMatchObject({ tipologia: 'DP-39', cor_perfil: 'Branco', vidro: 'VTIN05', vidro_codigo: 'VTIN05', quantidade: 1 })
             // e o dito é dito: com tipo, folhas e cor na mensagem, só os extras ficam no padrão
             llmResponde({ cliente: 'Bia', itens: [{ ...PORTA, abertura: 'porta', cor_perfil: 'Preto' }] })
             await chamar('Cliente: Bia. 1 porta de correr 2 folhas 2,50 x 2,20, preto, vidro comum 6 mm incolor', { senderAlt: TELEFONE_DO_OUTRO })
