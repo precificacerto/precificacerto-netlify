@@ -77,8 +77,9 @@ const CANDIDATAS = [
         larg_min_mm: null as number | null, larg_max_mm: null as number | null, alt_min_mm: 1736, alt_max_mm: 3036 },
 ]
 import { fraseDoEnvioQueFalhou, fraseDoOrcamentoEnviado } from '@/lib/atendimentos-ia/cadeia-do-sim'
-import { fraseDoOrcamentoQueJaExiste } from '@/lib/atendimentos-ia/travessia-do-levantamento'
+import { fraseDaEdicaoManualSubstituida, fraseDoOrcamentoArquivado, fraseDoOrcamentoJaAtualizado } from '@/lib/atendimentos-ia/travessia-do-levantamento'
 import { FALTA_DA_REFERENCIA_DO_TENANT } from '@/lib/atendimentos-ia/precificacao-do-orcamento'
+import { carimboDoParcial } from '@/lib/atendimentos-ia/arquivo-do-orcamento'
 /* eslint-disable @typescript-eslint/no-require-imports */
 const DE_PARA_DE_HOJE = require('./fixtures/fixture_de-para_DP-02.json') as { regras: Linha[]; itens: Linha[] }
 /** O motor com o arquivo CORRIGIDO (`fixtures/arquivo-do-motor-corrigido.ts`): o BZ0012 sem a cor 'CLICK'. */
@@ -378,6 +379,8 @@ jest.mock('@/supabase/admin', () => ({
             q.gte = (c: string, v: unknown) => { predicados.push((l) => String(l[c]) >= String(v)); return q }
             // filtrar por coluna que a tabela não tem é 42703, como o PostgREST (a migração pendente)
             q.eq = (c: string, v: unknown) => { filtros.push([c, v]); if (estado.colunasAusentes.has(`${tabela}.${c}`)) colunaQueFalta = c; return q }
+            // o `.is(coluna, null)` do PostgREST: a coluna nula (ou ausente na linha de teste, como a `removido_em` de antes da 20261113000002)
+            q.is = (c: string, v: null) => { predicados.push((l: Linha) => (l[c] ?? null) === v); return q }
             q.order = (c: string, o?: { ascending?: boolean }) => { ordem.push({ coluna: c, asc: o?.ascending !== false }); return q }
             q.limit = (n: number) => { limite = n; return q }
             // por ONDAS (04/11/2026): a leitura só resolve quando o teste libera a onda — assim se conta quantas idas ao banco são em série
@@ -598,6 +601,14 @@ function formalPorTexto() { estado.documentoDoOrcamentoStatus = 500 }
  * A resposta do "sim" quando o PDF NÃO chegou (dono do produto, 13/11/2026: "se o arquivo não chegou, o corpo não vira o plano B contando o
  * resultado"): SÓ a frase do envio que falhou, com o número e o nome do orçamento GRAVADO — nunca o levantamento formal antes dela.
  */
+/** Os itens ATIVOS do orçamento (o removido tem a marca `removido_em`), na ordem — o que o arquivo e a conta enxergam. */
+function ativosDoOrcamento(): Linha[] {
+    return ((estado.db.orcamentista_orcamento_item ?? []) as Linha[]).filter((i) => (i.removido_em ?? null) === null).sort((a, b) => Number(a.ordem) - Number(b.ordem))
+}
+/** O orçamento continua UM SÓ, com o número 1 — a atualização nunca cria o segundo (13/11/2026). */
+function umOrcamentoSoONumero1() {
+    expect((estado.db.orcamentista_orcamento ?? []).map((o: Linha) => Number(o.numero))).toEqual([1])
+}
 function doEnvioQueFalhou(): string {
     const o = (estado.db.orcamentista_orcamento ?? [])[0]
     return o ? fraseDoEnvioQueFalhou(Number(o.numero), String(o.nome)) : '(nenhum orçamento gravado)'
@@ -793,7 +804,11 @@ describe('(1) O TESTE QUE VALE: pedidos seguidos do MESMO telefone, todos respon
         expect(estado.escritas.slice(escritasAntes).some((e) => e.tabela === 'orcamentista_levantamento' && e.op === 'update'
             && typeof (e.carga as Linha).atualizado_em === 'string')).toBe(true)
         expect(itensDe(levantamentos()[0].id)).toEqual([expect.objectContaining({ ordem: 1, altura_mm: 1200, escolhas: { ARI: 4, MAE: 2 } })])
-        expect(depois).toBe(fraseDoOrcamentoQueJaExiste(1))
+        // O ORÇAMENTO 1 É ATUALIZADO com o mesmo número (13/11/2026): o PDF novo chega a quem disse "sim", e o corpo não leva texto
+        expect(depois).toBe('')
+        umOrcamentoSoONumero1()
+        expect(ativosDoOrcamento()).toEqual([expect.objectContaining({ ordem: 1, altura_mm: 1200 })])
+        expect(estado.documentosDoOrcamento).toHaveLength(2)
     })
 
     it('4. "Casa do João 2": PERGUNTA se é novo ou se é sobre o "Casa do João" — e não cria nem altera nada', async () => {
@@ -826,9 +841,10 @@ describe('(1c) o arremate só é perguntado quando o vendedor PEDE outro — e a
         expect(levantamentos()[0].estado).toBe('COMPLETO')
         expect(textoDoArquivo()).toContain('Arremate e guarnição: arremate interno: sem arremate interno; arremate externo: sem arremate externo')
         estado.respostaPeloPrompt = null
-        await confirmarApanhado()
-        // o levantamento já virou o orçamento 1 no primeiro "sim": o orçamento não se refaz para trás (13/11/2026), e o corpo diz só isso
-        expect(ultimoEnviado()).toBe(fraseDoOrcamentoQueJaExiste(1))
+        // o "sim" ATUALIZA o orçamento 1 (13/11/2026): as escolhas novas vão ao item dele, e só o arquivo chega
+        expect(await confirmarApanhado()).toBe('')
+        umOrcamentoSoONumero1()
+        expect(ativosDoOrcamento()[0].escolhas).toEqual({ ARI: 4, MAE: 2, ARE: 2 })
         for (const t of enviados()) expect(t).not.toMatch(VOCABULARIO_INTERNO)
     })
 })
@@ -901,7 +917,9 @@ describe('(2) o roteamento por nome', () => {
         await fecharDp02('Casa do João')
         llmResponde({ nome: 'Casa do João', alteracao: true, itens: [{ ordem: 1, tipologia: 'DP-02', largura_mm: 1500 }] })
         await chamar('Casa do João: largura 1500')
-        expect(await confirmarApanhado()).toBe(fraseDoOrcamentoQueJaExiste(1))
+        expect(await confirmarApanhado()).toBe('')
+        umOrcamentoSoONumero1()
+        expect(ativosDoOrcamento()).toEqual([expect.objectContaining({ ordem: 1, largura_mm: 1500, escolhas: { ARI: 4, MAE: 2 } })])
         expect(itensDe(levantamentos()[0].id)[0].largura_mm).toBe(1500)
         expect(itensDe(levantamentos()[0].id)[0].escolhas).toEqual({ ARI: 4, MAE: 2 })
         expect(levantamentos()[0].estado).toBe('COMPLETO')
@@ -1247,10 +1265,16 @@ describe('(6b) R1 e R2: nenhum update falha em silêncio, e a pergunta respondid
         // a conta refeita é o apanhado de novo: ele grava SÓ a pergunta que espera o "sim", nunca o levantamento
         expect(ehConfirmacaoDoArquivo(ultimoEnviado(), 'Casa do João')).toBe(true)
         expect(escritasNoEstado().slice(escritasAntes).map((e) => [e.tabela, e.op])).toEqual([['orcamentista_pergunta_em_aberto', 'upsert']])
-        // o levantamento já atravessou no primeiro "sim": este para na travessia (ja_existe) e NÃO reenvia o orçamento — e o corpo diz só isso
+        // O "SIM" SEM MUDANÇA (13/11/2026): não recalcula, não gera PDF, não grava nada — diz que já está atualizado e manda o ARQUIVO que existe
         const doOrcamentoAntes = estado.documentosDoOrcamento.length
-        expect(await confirmarApanhado()).toBe(fraseDoOrcamentoQueJaExiste(1))
-        expect(estado.documentosDoOrcamento).toHaveLength(doOrcamentoAntes)
+        const arquivosAntes = (estado.db.orcamentista_orcamento_arquivo ?? []).length
+        const materiaisAntes = (estado.db.orcamentista_orcamento_item_material ?? []).length
+        expect(await confirmarApanhado()).toBe(fraseDoOrcamentoJaAtualizado(1))
+        expect(estado.documentosDoOrcamento).toHaveLength(doOrcamentoAntes + 1)
+        expect(estado.documentosDoOrcamento[doOrcamentoAntes].corpo.Document).toBe(estado.documentosDoOrcamento[doOrcamentoAntes - 1].corpo.Document)
+        expect(estado.db.orcamentista_orcamento_arquivo ?? []).toHaveLength(arquivosAntes)
+        expect(estado.db.orcamentista_orcamento_item_material ?? []).toHaveLength(materiaisAntes)
+        expect(escritasNoEstado().slice(escritasAntes).filter((e) => e.tabela.startsWith('orcamentista_orcamento'))).toEqual([])
         expect(escritasNoEstado().slice(escritasAntes).filter((e) => e.tabela.startsWith('orcamentista_levantamento'))).toEqual([])
     })
 })
@@ -1509,15 +1533,19 @@ describe('(12) decisão 2, revista: quem altera — o criador, ou o admin da emp
         await chamar('sim, Levantamento Casa do João', doOutro)
         expect(levantamentos()).toHaveLength(1)
         expect(levantamentos()[0]).toEqual(expect.objectContaining({ remetente_id: VENDEDOR, nome: 'Casa do João', estado: 'COMPLETO' }))
-        // o orçamento 1 já existe (o primeiro "sim"): o corpo diz só isso — nunca o levantamento refeito por texto (13/11/2026)
-        expect(ultimoEnviado()).toBe(fraseDoOrcamentoQueJaExiste(1))
+        // o orçamento 1 é ATUALIZADO (13/11/2026); o arquivo vai ao DONO do levantamento, e o admin de outro número sabe disso
+        expect(ultimoEnviado()).toBe(fraseDoOrcamentoEnviado(1, 'Casa do João'))
+        umOrcamentoSoONumero1()
+        expect(ativosDoOrcamento()[0].altura_mm).toBe(1200)
     })
 
     it('5. o CRIADOR altera o próprio levantamento — permitido (o remetente de teste NÃO é admin: employees.user_id nulo)', async () => {
         await fecharDp02('Casa do João')
         await alterarAltura('casa do joao')
         expect(alturaDe(VENDEDOR)).toBe(1200)
-        expect(await confirmarApanhado()).toBe(fraseDoOrcamentoQueJaExiste(1))
+        expect(await confirmarApanhado()).toBe('')
+        umOrcamentoSoONumero1()
+        expect(ativosDoOrcamento()[0].altura_mm).toBe(1200)
     })
 
     it('6. outro vendedor SEM admin tenta alterar pelo nome → "não encontrei um levantamento seu", nada gravado — a MESMA frase de quando o levantamento não existe', async () => {
@@ -1550,7 +1578,9 @@ describe('(12) decisão 2, revista: quem altera — o criador, ou o admin da emp
         expect(levantamentos()[0].atualizado_em).not.toBe('antes-da-alteracao')
         expect(levantamentos()[0]).toEqual(expect.objectContaining({ remetente_id: VENDEDOR, nome: 'Casa do João', estado: 'COMPLETO' }))
         expect(alturaDe(VENDEDOR)).toBe(1200)
-        expect(ultimoEnviado()).toBe(fraseDoOrcamentoQueJaExiste(1))
+        expect(ultimoEnviado()).toBe(fraseDoOrcamentoEnviado(1, 'Casa do João'))
+        umOrcamentoSoONumero1()
+        expect(ativosDoOrcamento()[0].altura_mm).toBe(1200)
     })
 
     it('7b. o ADMIN, antes do "sim", altera SEM o nome: a alteração vai ao levantamento do OUTRO vendedor que o apanhado citou', async () => {
@@ -1563,7 +1593,8 @@ describe('(12) decisão 2, revista: quem altera — o criador, ou o admin da emp
         expect(itensDe(levantamentos()[0].id)[0]).toEqual(expect.objectContaining({ largura_mm: 1500, altura_mm: 1200 }))
         expect(ehConfirmacaoDoArquivo(ultimoEnviado(), 'Casa do João')).toBe(true)
         expect(textoDoArquivo()).toContain('1.500 1.200')
-        expect(await confirmarApanhado(doOutro)).toBe(fraseDoOrcamentoQueJaExiste(1))
+        expect(await confirmarApanhado(doOutro)).toBe(fraseDoOrcamentoEnviado(1, 'Casa do João'))
+        expect(ativosDoOrcamento()).toEqual([expect.objectContaining({ largura_mm: 1500, altura_mm: 1200 })])
         expect(estado.db.orcamentista_pergunta_em_aberto).toEqual([])
     })
 
@@ -1793,12 +1824,10 @@ describe('(16) a PERGUNTA EM ABERTO do roteamento pelo nome (20261026000002): gu
         expect(itensDe(casa.id)[1]).toEqual(expect.objectContaining({ ordem: 2, ...DP02 }))
         // a confirmação do acréscimo se resolveu; a que fica é a do apanhado, que espera o seu "sim"
         expect(perguntas()).toEqual([expect.objectContaining({ pergunta: 'CONFIRMAR_APANHADO', levantamentos: [casa.id] })])
-        // o levantamento já virou o orçamento 1 (preparar): o item acrescentado fica no levantamento, o orçamento não se refaz para trás — e o
-        // vendedor é AVISADO (13/11/2026): o item 2 ficou fora do orçamento 1, e para incluí-lo é preciso gerar um orçamento novo
-        const doSim = await confirmarApanhado()
-        expect(doSim).toBe(fraseDoOrcamentoQueJaExiste(1, [2]))
-        expect(doSim).toContain('Falta no orçamento 1 o item 2 do levantamento')
-        expect(doSim).toContain('é preciso gerar um orçamento novo')
+        // o levantamento já virou o orçamento 1 (preparar): o item ACRESCENTADO entra no orçamento 1, com o mesmo número (13/11/2026)
+        expect(await confirmarApanhado()).toBe('')
+        umOrcamentoSoONumero1()
+        expect(ativosDoOrcamento().map((i) => Number(i.ordem))).toEqual([1, 2])
         expect(perguntas()).toEqual([])
     })
 
@@ -6223,12 +6252,49 @@ describe('(41) A FALTA DO CÁLCULO DEPOIS DO "SIM" (dono do produto, 08/11/2026 
             llmResponde({ nome: 'Gerson Boss', fala: FALA_DO_VALOR })
             await chamar('Gerson Boss, tenta de novo')
             expect(ehConfirmacaoDoArquivo(ultimoEnviado(), 'Gerson Boss')).toBe(true)
+            const textosAntes = estado.envios.length
+            const doOrcamentoAntes = estado.documentosDoOrcamento.length
+            // o contraste: o arquivo de antes era o PARCIAL, carimbado
+            expect(textoDoOrcamentoEnviado()).toContain(carimboDoParcial(1))
             llmResponde({ confirma: true, fala: FALA_DO_VALOR })
             await chamar('sim')
-            // o orçamento já existe (a travessia não refaz): o corpo diz só isso — o levantamento não sai por texto (13/11/2026)
-            expect(ultimoEnviado()).toBe(fraseDoOrcamentoQueJaExiste(1))
+            // O PARCIAL CUJA FALTA FOI RESOLVIDA (dono do produto, 13/11/2026): o levantamento não mudou, mas o orçamento 1 era PARCIAL e o 1023 —
+            // a falta nomeada — tem preço agora: o "sim" RECALCULA, e sai o orçamento COMPLETO, com o MESMO número. Completo: só o arquivo, nenhum texto
+            expect(estado.envios.length).toBe(textosAntes)
+            expect(estado.documentosDoOrcamento).toHaveLength(doOrcamentoAntes + 1)
+            expect(textoDoOrcamentoEnviado()).not.toContain(carimboDoParcial(1))
+            expect(estado.documentosDoOrcamento[doOrcamentoAntes].corpo.Document).not.toBe(estado.documentosDoOrcamento[doOrcamentoAntes - 1].corpo.Document)
+            expect(estado.db.orcamentista_orcamento.map((o) => o.numero)).toEqual([1])
+            expect(erros.filter((l) => l.startsWith('[ETAPA 4 calcular]')).pop()).toMatch(/ parcial=resolvido faltas_de_preco=0\/1 .*calculo=ok /)
+            expect(erros.filter((l) => l.startsWith('[ETAPA 4 calcular]')).pop()).not.toMatch(/ parcial=sim /)
             expect(linhaIa().pop()).toMatch(/ desfecho=levantou(\s|$)/)
             semAsFrases()
+        })
+
+        it('o PARCIAL cuja falta CONTINUA (o 1023 ainda sem preço): o "sim" sem mudança NÃO recalcula — o arquivo de antes vai de novo, e o 1023 vai nomeado', async () => {
+            llmResponde({ nome: 'Gerson Boss', itens: ESQUADRIAS.map((e) => ({ ...e })) })
+            await chamar(MENSAGEM)
+            llmResponde({ confirma: true })
+            await chamar('sim')
+            expect(ultimoEnviado().split('\n')[0]).toBe(ABERTURA_DO_PARCIAL)
+            const materiaisAntes = (estado.db.orcamentista_orcamento_item_material ?? []).length
+            const faltasAntes = (estado.db.orcamentista_orcamento_falta ?? []).length
+            const doOrcamentoAntes = estado.documentosDoOrcamento.length
+            llmResponde({ nome: 'Gerson Boss' })
+            await chamar('Gerson Boss, tenta de novo')
+            llmResponde({ confirma: true })
+            await chamar('sim')
+            const [abertura, ...resto] = ultimoEnviado().split('\n')
+            expect(abertura).toBe('O orçamento 1 continua PARCIAL: nada mudou no levantamento, e 1 valor continua sem preço. O arquivo dele vai de novo, sem recálculo.')
+            expect(resto[0]).toBe('Para completar, preciso de:')
+            expect(resto.slice(1)).toEqual([expect.stringMatching(/^• 1023\/WOLFF \(CLICK GUIA [^\n]* \(item 1\)\.$/)])
+            expect(ultimoEnviado()).not.toBe(fraseDoOrcamentoJaAtualizado(1))
+            // nada recalculado, nada gerado: o arquivo que existe vai de novo
+            expect(estado.documentosDoOrcamento).toHaveLength(doOrcamentoAntes + 1)
+            expect(estado.documentosDoOrcamento[doOrcamentoAntes].corpo.Document).toBe(estado.documentosDoOrcamento[doOrcamentoAntes - 1].corpo.Document)
+            expect(estado.db.orcamentista_orcamento_item_material ?? []).toHaveLength(materiaisAntes)
+            expect(estado.db.orcamentista_orcamento_falta ?? []).toHaveLength(faltasAntes)
+            expect(erros.filter((l) => l.startsWith('[ETAPA 4 calcular]')).pop()).toMatch(/ atualizacao=sem_mudanca parcial=continua faltas_de_preco=1\/1 /)
         })
 
         it('a RECUSA do "sim" é a falta nomeada e vai SEM a abertura: a fala válida não vai junto (13/11/2026)', async () => {
@@ -6352,5 +6418,41 @@ describe('(41) A FALTA DO CÁLCULO DEPOIS DO "SIM" (dono do produto, 08/11/2026 
             expect(PA.confirmacaoVale({ ...p, pergunta: 'CONFIRMAR_ACRESCIMO' }, 'resumo A')).toBe(false)
             expect(PA.guardaConfirmacao({ ...p, nome: 'Gerson Boss' })).toBe(false)
         })
+    })
+})
+
+// ═════════════════════════════════════════════════════════════════════
+describe('(42) O ORÇAMENTO ATUALIZADO COM O MESMO NÚMERO, na conversa (dono do produto, 13/11/2026)', () => {
+    const alterarParaAltura1200 = async () => {
+        llmResponde({ nome: 'casa do joao', alteracao: true, itens: [{ altura_mm: 1200 }] })
+        await chamar('casa do joao, trocar a altura para 1200')
+        return confirmarApanhado()
+    }
+    it('a EDIÇÃO MANUAL mais nova que a última atualização: o orçamento 1 é atualizado, o arquivo chega, e o texto AVISA — a data e o autor dela ficam', async () => {
+        await fecharDp02('Casa do João')
+        const [o] = estado.db.orcamentista_orcamento
+        Object.assign(o, { atualizado_em: '2026-11-01T10:00:00.000Z', editado_manualmente_em: '2026-11-02T10:00:00.000Z', editado_manualmente_por: 'u-tela' })
+        expect(await alterarParaAltura1200()).toBe(fraseDaEdicaoManualSubstituida(1))
+        umOrcamentoSoONumero1()
+        expect(ativosDoOrcamento()[0].altura_mm).toBe(1200)
+        expect(o).toEqual(expect.objectContaining({ editado_manualmente_em: '2026-11-02T10:00:00.000Z', editado_manualmente_por: 'u-tela' }))
+        expect(Date.parse(String(o.atualizado_em))).toBeGreaterThan(Date.parse('2026-11-02T10:00:00.000Z'))
+    })
+    it('a edição manual substituída é dita TAMBÉM quando o arquivo não chega: a falta do envio, e o aviso depois dela', async () => {
+        await fecharDp02('Casa do João')
+        const [o] = estado.db.orcamentista_orcamento
+        Object.assign(o, { atualizado_em: '2026-11-01T10:00:00.000Z', editado_manualmente_em: '2026-11-02T10:00:00.000Z', editado_manualmente_por: 'u-tela' })
+        formalPorTexto()
+        expect(await alterarParaAltura1200()).toBe(`${fraseDoEnvioQueFalhou(1, 'Casa do João')}\n\n${fraseDaEdicaoManualSubstituida(1)}`)
+    })
+    it('o orçamento ARQUIVADO: a falta nomeada, o item do orçamento como estava, e nenhum arquivo novo', async () => {
+        await fecharDp02('Casa do João')
+        const [o] = estado.db.orcamentista_orcamento
+        o.deleted_at = '2026-11-13T12:00:00.000Z'
+        const documentos = estado.documentosDoOrcamento.length
+        expect(await alterarParaAltura1200()).toBe(fraseDoOrcamentoArquivado(1))
+        expect(ativosDoOrcamento()[0].altura_mm).toBe(1000)
+        expect(estado.documentosDoOrcamento).toHaveLength(documentos)
+        expect(o.deleted_at).toBe('2026-11-13T12:00:00.000Z')
     })
 })

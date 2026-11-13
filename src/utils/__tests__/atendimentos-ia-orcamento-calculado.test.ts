@@ -40,7 +40,7 @@ function executar(tabela: string, op: string, carga: unknown, filtros: [string, 
     const erro = estado.erros[`${tabela}:${op}`]?.shift()
     if (erro) return { data: null as unknown, error: erro }
     const linhas = (estado.db[tabela] ??= [])
-    const casa = (l: Linha) => filtros.every(([tipo, c, v]) => (tipo === 'in' ? (v as unknown[]).includes(l[c]) : l[c] === v))
+    const casa = (l: Linha) => filtros.every(([tipo, c, v]) => (tipo === 'in' ? (v as unknown[]).includes(l[c]) : tipo === 'is' ? (l[c] ?? null) === v : l[c] === v))
     const projetar = (l: Linha) => (colunas === null || colunas === '*' ? { ...l } : Object.fromEntries(colunas.split(',').map((c) => c.trim()).map((c) => [c, l[c]])))
     if (op === 'select') {
         let r = linhas.filter(casa)
@@ -67,6 +67,8 @@ function cliente() {
             q.order = (c: string, o?: { ascending?: boolean }) => { ordem = [c, o?.ascending !== false]; return q }
             q.limit = () => q
             q.eq = (c: string, v: unknown) => { filtros.push(['eq', c, v]); return q }
+            // o `.is(coluna, null)` do PostgREST: a coluna nula (ou ausente na linha de teste, como a `removido_em` de antes da 20261113000002)
+            q.is = (c: string, v: null) => { filtros.push(['is', c, v]); return q }
             q.in = (c: string, v: unknown[]) => { filtros.push(['in', c, v]); return q }
             q.update = (c: unknown) => { op = 'update'; carga = c; return q }
             q.insert = (c: unknown) => { op = 'insert'; carga = c; return q }
@@ -204,6 +206,19 @@ describe('(2) o que chega ao cálculo', () => {
         ])
         const leitura = estado.ops.find((o) => o.tabela === 'orcamentista_levantamento_item')!
         expect(leitura.filtros).toContainEqual(['eq', 'tenant_id', T])
+    })
+})
+
+describe('(2c) o item removido e a família gravada (20261113000002)', () => {
+    it('o item REMOVIDO não vai ao cálculo nem é tocado; cada item calculado grava a FAMÍLIA com que foi calculado (nula quando o levantamento não tem)', async () => {
+        const i1 = estado.db.orcamentista_orcamento_item.find((i) => i.id === 'i1')!
+        estado.db.orcamentista_orcamento_item.push({ ...i1, id: 'i-removido', ordem: 9, calculo_id: null, removido_em: '2026-11-13T12:00:00.000Z' })
+        await K().calcularOrcamento(T, O1, new Date(), () => 'c')
+        expect(estado.chamadasDoCusto[0].lev.itens.map((i: { ordem: number }) => i.ordem)).toEqual([1, 2])
+        const linha = (id: string) => estado.db.orcamentista_orcamento_item.find((i) => i.id === id)!
+        expect(linha('i1')).toEqual(expect.objectContaining({ calculo_id: 'c', familia: 'PVC' }))
+        expect(linha('i2')).toEqual(expect.objectContaining({ calculo_id: 'c', familia: null }))
+        expect(linha('i-removido').calculo_id).toBeNull()
     })
 })
 
@@ -390,5 +405,60 @@ describe('(4) A FALTA NOMEADA (12/11/2026, 1.4): gravada com o cálculo, e o or�
         estado.erros['orcamentista_orcamento_item:select'] = [null, { code: '42703', message: 'column vidro_codigo does not exist' }]
         await K().calcularOrcamento(T, O1, new Date(), () => 'c')
         expect(estado.chamadasDoCusto[0].lev.itens.map((i) => i.vidro_codigo)).toEqual([null, null])
+    })
+})
+
+describe('(5) O PARCIAL NO "SIM" SEM MUDANÇA (dono do produto, 13/11/2026): as faltas do cálculo VIGENTE, conferidas no custo de agora — SÓ LEITURA', () => {
+    const nomeada = (item: string, calculo: string, codigo: string, cor: string | null = 'BRANCO') => ({
+        tenant_id: T, orcamento_item_id: item, calculo_id: calculo, ordem: 1, caminho: 'perfil', codigo_do_motor: codigo, descricao_do_motor: null as string | null, cor,
+        tipologia: 'DP-02', esquadria: 1, motivo: 'NAO_ACHADA', frase: `${codigo} não está na tabela de preço`, candidatas: [] as unknown[],
+    })
+    const doCusto = (codigo: string, cor: string | null = 'BRANCO') => ({
+        item: 0, caminho: 'perfil', codigo_do_motor: codigo, descricao_do_motor: null as string | null, cor, tipologia: 'DP-02', esquadria: 1, motivo: 'NAO_ACHADA', frase: `${codigo} não está na tabela de preço`, candidatas: [] as unknown[],
+    })
+    beforeEach(() => {
+        const [i1, i2] = estado.db.orcamentista_orcamento_item
+        i1.calculo_id = 'calc-2'; i2.calculo_id = 'calc-2'
+        estado.db.orcamentista_orcamento_falta = [nomeada('i1', 'calc-2', 'SF92/WOLFF'), nomeada('i2', 'calc-2', '1023/WOLFF')]
+    })
+    const conferir = async () => { const r = await K().faltaDoParcial(T, O1); expect(escritas()).toEqual([]); return r }
+
+    it('TODAS as faltas nomeadas têm preço agora: nada continua — quem chama recalcula; e nada foi gravado', async () => {
+        expect(await conferir()).toEqual({ parcial: true, nomeadas: 2, continuam: [], recusas: [] })
+        expect(estado.chamadasDoCusto).toHaveLength(1)
+    })
+    it('a falta AINDA DE PÉ continua, nomeada; a que ganhou preço sai da lista', async () => {
+        estado.custo = { ...(estado.custo as Linha), faltas: [doCusto('1023/WOLFF')] }
+        expect(await conferir()).toEqual({ parcial: true, nomeadas: 2, continuam: [{ caminho: 'perfil', codigo_do_motor: '1023/WOLFF', cor: 'BRANCO', frase: '1023/WOLFF não está na tabela de preço', esquadria: 1 }], recusas: [] })
+    })
+    it('o mesmo código em OUTRA cor não é a mesma falta: a nomeada em BRANCO tem preço agora', async () => {
+        estado.custo = { ...(estado.custo as Linha), faltas: [doCusto('1023/WOLFF', 'PRETO')] }
+        expect((await conferir() as { continuam: unknown[] }).continuam).toEqual([])
+    })
+    it('o custo de agora RECUSA: todas as nomeadas continuam, e a recusa vai junto', async () => {
+        estado.custo = { ok: false, recusas: ['o tempo de fabricação de DP-02'] }
+        const r = await conferir() as { continuam: unknown[]; recusas: string[] }
+        expect(r.continuam).toHaveLength(2)
+        expect(r.recusas).toEqual(['o tempo de fabricação de DP-02'])
+    })
+    it('só o cálculo VIGENTE conta: a falta de um cálculo de antes não faz o orçamento parcial, e o custo nem é refeito', async () => {
+        estado.db.orcamentista_orcamento_falta = [nomeada('i1', 'calc-1', 'SF92/WOLFF')]
+        expect(await conferir()).toEqual({ parcial: false })
+        expect(estado.chamadasDoCusto).toEqual([])
+    })
+    it('o item REMOVIDO não conta: a falta dele não deixa o orçamento parcial', async () => {
+        estado.db.orcamentista_orcamento_item.find((i) => i.id === 'i1')!.removido_em = '2026-11-13T12:00:00.000Z'
+        estado.db.orcamentista_orcamento_falta = [nomeada('i1', 'calc-2', 'SF92/WOLFF')]
+        expect(await conferir()).toEqual({ parcial: false })
+    })
+    it('o tenant: a falta gravada em outra empresa não é lida', async () => {
+        for (const f of estado.db.orcamentista_orcamento_falta) f.tenant_id = OUTRO
+        expect(await conferir()).toEqual({ parcial: false })
+    })
+    it('nunca calculado (sem calculo_id) e sem a tabela das faltas: não é parcial', async () => {
+        estado.erros['orcamentista_orcamento_falta:select'] = [{ code: 'PGRST205', message: "Could not find the table 'public.orcamentista_orcamento_falta'" }]
+        expect(await conferir()).toEqual({ parcial: false })
+        for (const i of estado.db.orcamentista_orcamento_item) i.calculo_id = null
+        expect(await conferir()).toEqual({ parcial: false })
     })
 })

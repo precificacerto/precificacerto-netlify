@@ -95,6 +95,10 @@ export type ModoDaBase = 'COM' | 'SEM' | null
 export class ErroDaTravessia extends Error {
     constructor(readonly recusas: string[]) { super(recusas.join(' | ')) }
 }
+/** O orçamento ARQUIVADO (`deleted_at`) não é atualizado: recusa nomeada, e ele continua arquivado (dono do produto, 13/11/2026). */
+export class ErroOrcamentoArquivado extends Error {
+    constructor(readonly orcamentoNumero: number) { super(`o orçamento ${orcamentoNumero} está arquivado`) }
+}
 /** O levantamento já tem orçamento: a travessia não cria o segundo. */
 export class ErroJaAtravessado extends Error {
     constructor(readonly levantamentoNumero: number, readonly orcamentoId: string, readonly orcamentoNumero: number) {
@@ -228,4 +232,69 @@ export type ClienteDoLevantamento = {
     data_entrega: string | null
     vendedor_nome: string | null
     vendedor_employee_id: string | null
+}
+
+// ── A ATUALIZAÇÃO DO ORÇAMENTO COM O MESMO NÚMERO (dono do produto, 13/11/2026) ──────────────────────────────────────────────────────────
+/**
+ * "Alteração ou correção no levantamento -> o vendedor confirma -> o ORÇAMENTO N é ATUALIZADO, com o MESMO NÚMERO. O número pertence ao
+ * cliente." O que a atualização compara, item a item, pelo vínculo (`levantamento_item_id`) — os MESMOS campos que a primeira travessia grava:
+ *   - ACRESCENTADO: o item do levantamento sem item ATIVO no orçamento com o vínculo dele → insert;
+ *   - MUDADO: vínculo igual, algum campo sincronizado diferente, ou a FAMÍLIA diferente → update (a família, quem grava é o cálculo);
+ *   - REMOVIDO: o item ativo do orçamento cujo vínculo é nulo ou aponta para um item que não está mais no levantamento → MARCA de removido
+ *     (`removido_em`, 20261113000002), nunca DELETE: "as linhas ficam no banco";
+ *   - e o cabeçalho: o nome e os três percentuais (com o modo da comissão e o responsável da reserva técnica), RELIDOS como na primeira
+ *     travessia — "um lugar só manda".
+ * A FAMÍLIA, POR ITEM: igual só quando as duas existem e são a mesma; NULO CONTA COMO DIFERENTE ("erra para o lado de recalcular, nunca para o
+ * de deixar preço errado").
+ */
+export const CAMPOS_SINCRONIZADOS = ['ordem', 'tipologia', 'largura_mm', 'altura_mm', 'quantidade', 'cor_perfil', 'vidro', 'ambientes', 'escolhas', 'vidro_codigo'] as const
+export const CABECALHO_SINCRONIZADO = ['nome', 'comissao_percentual', 'comissao_modo', 'reserva_tecnica_percentual', 'reserva_tecnica_responsavel', 'lucro_projetado_percentual'] as const
+type CampoSincronizado = (typeof CAMPOS_SINCRONIZADOS)[number]
+type CampoDoCabecalho = (typeof CABECALHO_SINCRONIZADO)[number]
+
+/** Um item ATIVO do orçamento (o removido não entra), com a família com que foi calculado. */
+export type ItemAtivoDoOrcamento = { id: string; levantamento_item_id: string | null; familia: string | null } & Record<CampoSincronizado, unknown>
+/** O item do plano com o que o orçamento compara: o código do vidro e a família do item do levantamento. */
+export type ItemDoPlanoComparado = ItemDaTravessia & { familia: string | null }
+
+export type DiferencaDoOrcamento = {
+    novos: ItemDaTravessia[]
+    mudados: Array<{ id: string; item: ItemDaTravessia }>
+    removidos: Array<{ id: string; ordem: number }>
+    cabecalhoMudou: boolean
+    semMudanca: boolean
+}
+
+/** O valor na forma em que dois lados se comparam: número como número, texto aparado, objeto com as chaves em ordem. */
+function canonico(v: unknown): string {
+    if (v === null || v === undefined || v === '') return 'null'
+    if (typeof v === 'number') return `n:${v}`
+    if (typeof v === 'string') { const n = Number(v); return v.trim() !== '' && Number.isFinite(n) && /^-?\d+(\.\d+)?$/.test(v.trim()) ? `n:${n}` : `t:${v.trim()}` }
+    if (Array.isArray(v)) return `[${v.map(canonico).join(',')}]`
+    if (typeof v === 'object') return `{${Object.keys(v as object).sort().map((k) => `${k}=${canonico((v as Record<string, unknown>)[k])}`).join(',')}}`
+    return `?:${String(v)}`
+}
+const igual = (a: unknown, b: unknown) => canonico(a) === canonico(b)
+/** A família: igual só quando as duas existem e são a mesma — nulo, de qualquer lado, é diferente. */
+export const mesmaFamilia = (a: string | null, b: string | null) => a !== null && b !== null && a.trim() !== '' && a.trim() === b.trim()
+
+export function diferencaDoOrcamento(
+    cabecalhoAtual: Record<CampoDoCabecalho, unknown>, cabecalhoNovo: Record<CampoDoCabecalho, unknown>,
+    ativos: readonly ItemAtivoDoOrcamento[], plano: readonly ItemDoPlanoComparado[],
+): DiferencaDoOrcamento {
+    const doVinculo = new Map(ativos.filter((a) => a.levantamento_item_id !== null).map((a) => [a.levantamento_item_id as string, a]))
+    const noPlano = new Set(plano.map((p) => p.levantamento_item_id))
+    const novos: ItemDaTravessia[] = []
+    const mudados: Array<{ id: string; item: ItemDaTravessia }> = []
+    for (const p of plano) {
+        const { familia, ...item } = p
+        const a = doVinculo.get(p.levantamento_item_id)
+        if (!a) { novos.push(item); continue }
+        const campoMudou = CAMPOS_SINCRONIZADOS.some((c) => !igual(a[c], c === 'vidro_codigo' ? item.vidro_codigo ?? null : item[c]))
+        if (campoMudou || !mesmaFamilia(a.familia, familia)) mudados.push({ id: a.id, item })
+    }
+    const removidos = ativos.filter((a) => a.levantamento_item_id === null || !noPlano.has(a.levantamento_item_id))
+        .map((a) => ({ id: a.id, ordem: Number(a.ordem) }))
+    const cabecalhoMudou = CABECALHO_SINCRONIZADO.some((c) => !igual(cabecalhoAtual[c], cabecalhoNovo[c]))
+    return { novos, mudados, removidos, cabecalhoMudou, semMudanca: !novos.length && !mudados.length && !removidos.length && !cabecalhoMudou }
 }

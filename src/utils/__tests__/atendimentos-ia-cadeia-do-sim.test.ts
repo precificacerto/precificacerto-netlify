@@ -198,3 +198,27 @@ describe('os números do WhatsApp para o dono', () => {
 
 // módulo, não script: as constantes deste arquivo não vazam para os outros testes (TS2451)
 export {}
+
+describe('o "sim" SEM MUDANÇA: o arquivo que JÁ existe vai de novo (dono do produto, 13/11/2026)', () => {
+    const ORCAMENTO = { id: ORC, numero: 7, nome: 'Geraldo Huck' }
+    it('manda o ÚLTIMO arquivo ao dono, com o nome do arquivo — nada precificado, nada gerado', async () => {
+        const d = deps(gravado(true))
+        const r = await C.reenviarOArquivo(T, ORCAMENTO, d)
+        expect(d.precificar).not.toHaveBeenCalled()
+        expect(d.lerArquivo).toHaveBeenCalledWith(T, ORC)
+        expect(d.enviar).toHaveBeenCalledWith('5551999990000', 'Orcamento 7 - Geraldo Huck.pdf', PDF)
+        expect(r).toEqual({ rastro: expect.stringMatching(/^reenvio=ok ms_envio=\d+$/), paraOVendedor: C.fraseDoOrcamentoEnviado(7, 'Geraldo Huck'), enviadoPara: '5551999990000', idDoEnvio: null })
+    })
+    it('sem arquivo: nada é enviado, e quem chama roda a atualização inteira', async () => {
+        const d = deps(gravado(true), { lerArquivo: jest.fn(async (): Promise<{ pdf: Uint8Array } | null> => null) })
+        expect(await C.reenviarOArquivo(T, ORCAMENTO, d)).toEqual({ rastro: 'reenvio=sem_arquivo', paraOVendedor: null, semArquivo: true })
+        expect(d.enviar).not.toHaveBeenCalled()
+    })
+    it('o dono sem telefone e o envio que falha: a falta nomeada, sem `enviadoPara`', async () => {
+        const semTelefone = await C.reenviarOArquivo(T, ORCAMENTO, deps(gravado(true), { telefoneDoDono: jest.fn(async (): Promise<{ id: string; telefone: string } | null> => null) }))
+        expect(semTelefone).toEqual({ rastro: 'reenvio=sem_telefone parou=envio', paraOVendedor: C.fraseDoDonoSemTelefone(7, 'Geraldo Huck') })
+        const falhou = await C.reenviarOArquivo(T, ORCAMENTO, deps(gravado(true), { enviar: jest.fn(async (): Promise<{ ok: boolean; status: number | null; prazoEsgotado: boolean }> => ({ ok: false, status: 500, prazoEsgotado: false })) }))
+        expect(falhou.paraOVendedor).toBe(C.fraseDoEnvioQueFalhou(7, 'Geraldo Huck'))
+        expect('enviadoPara' in falhou).toBe(false)
+    })
+})

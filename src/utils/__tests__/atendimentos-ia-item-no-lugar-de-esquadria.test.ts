@@ -62,6 +62,7 @@ const SOBRAS: readonly Sobra[] = [
     { arquivo: 'src/lib/atendimentos-ia/conversa-da-ia.ts', exato: 'descartada_esquadria', razao: `${LOG} (a fala que caiu pela trava)` },
     { arquivo: 'src/lib/atendimentos-ia/custo-do-orcamento-servidor.ts', exato: 'esquadria', razao: CHAVE },
     { arquivo: 'src/lib/atendimentos-ia/levantamento-de-barras.ts', exato: 'ESQUADRIA', razao: CHAVE },
+    { arquivo: 'src/lib/atendimentos-ia/orcamento-calculado.ts', exato: 'orcamento_item_id, calculo_id, caminho, codigo_do_motor, cor, frase, esquadria', razao: `${CHAVE} (as colunas de orcamentista_orcamento_falta que a conferência do PARCIAL lê)` },
     { arquivo: 'src/lib/atendimentos-ia/levantamento-de-barras.ts', exato: 'esquadrias', razao: CHAVE },
     { arquivo: 'src/lib/atendimentos-ia/levantamento-de-barras.ts', exato: 'QUANTIDADE_DA_ESQUADRIA_INVALIDA', razao: CHAVE },
     { arquivo: 'src/lib/atendimentos-ia/redacao-da-resposta.ts', exato: 'esquadria', razao: `${CHAVE} (o motivo da trava da redação)` },

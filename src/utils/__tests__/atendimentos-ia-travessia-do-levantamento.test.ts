@@ -32,7 +32,7 @@ function executar(tabela: string, op: string, carga: unknown, filtros: [string, 
     const erro = estado.erros[tabela]?.shift()
     if (erro) return { data: null as unknown, error: erro }
     const linhas = (estado.db[tabela] ??= [])
-    const casa = (l: Linha) => filtros.every(([tipo, c, v]) => (tipo === 'in' ? (v as unknown[]).includes(l[c]) : l[c] === v))
+    const casa = (l: Linha) => filtros.every(([tipo, c, v]) => (tipo === 'in' ? (v as unknown[]).includes(l[c]) : tipo === 'is' ? (l[c] ?? null) === v : l[c] === v))
     const projetar = (l: Linha) => (colunas === null || colunas === '*' ? { ...l } : Object.fromEntries(colunas.split(',').map((c) => c.trim()).map((c) => [c, l[c]])))
     if (op === 'select') {
         let r = linhas.filter(casa)
@@ -40,7 +40,8 @@ function executar(tabela: string, op: string, carga: unknown, filtros: [string, 
         if (limite !== null) r = r.slice(0, limite)
         return { data: r.map(projetar), error: null }
     }
-    if (op === 'update') { linhas.filter(casa).forEach((l) => Object.assign(l, carga as Linha)); return { data: null, error: null } }
+    // como o PostgREST: o update com `.select` devolve as linhas atingidas (a contagem que a escrita confere)
+    if (op === 'update') { const at = linhas.filter(casa); at.forEach((l) => Object.assign(l, carga as Linha)); return { data: colunas === null ? null : at.map(projetar), error: null } }
     if (op === 'delete') { estado.db[tabela] = linhas.filter((l) => !casa(l)); return { data: null, error: null } }
     if (op === 'insert' && tabela === 'orcamentista_orcamento' && estado.antesDoInsert) { const f = estado.antesDoInsert; estado.antesDoInsert = null; f() }
     const novas = ((Array.isArray(carga) ? carga : [carga]) as Linha[]).map((l): Linha => ({ id: `novo-${++seq}`, ...l }))
@@ -51,6 +52,10 @@ function executar(tabela: string, op: string, carga: unknown, filtros: [string, 
     // a UNIQUE (tenant_id, numero) do banco
     if (tabela === 'orcamentista_orcamento' && novas.some((n) => linhas.some((l) => l.tenant_id === n.tenant_id && l.numero === n.numero))) {
         return { data: null, error: { code: '23505', message: 'duplicate key value violates unique constraint "orcamentista_orcamento_numero_key"' } }
+    }
+    // o índice ÚNICO PARCIAL da 20261113000002: (orcamento_id, ordem) só entre os itens que NÃO estão removidos
+    if (tabela === 'orcamentista_orcamento_item' && novas.some((n) => linhas.some((l) => (l.removido_em ?? null) === null && l.orcamento_id === n.orcamento_id && l.ordem === n.ordem))) {
+        return { data: null, error: { code: '23505', message: 'duplicate key value violates unique constraint "orcamentista_orcamento_item_ordem_ativa_key"' } }
     }
     linhas.push(...novas)
     return { data: novas.map(projetar), error: null }
@@ -70,6 +75,8 @@ function cliente() {
             q.order = (c: string, o?: { ascending?: boolean }) => { ordem = [c, o?.ascending !== false]; return q }
             q.limit = (n: number) => { limite = n; return q }
             q.eq = (c: string, v: unknown) => { filtros.push(['eq', c, v]); return q }
+            // o `.is(coluna, null)` do PostgREST: a coluna nula (ou ausente na linha de teste, como a `removido_em` de antes da 20261113000002)
+            q.is = (c: string, v: null) => { filtros.push(['is', c, v]); return q }
             q.in = (c: string, v: unknown[]) => { filtros.push(['in', c, v]); return q }
             q.update = (c: unknown) => { op = 'update'; carga = c; return q }
             q.delete = () => { op = 'delete'; return q }
@@ -83,12 +90,14 @@ function cliente() {
 }
 jest.mock('@/supabase/admin', () => ({ supabaseAdmin: cliente() }))
 // o cálculo tem portão próprio (`atendimentos-ia-orcamento-calculado.test.ts`); aqui só importa que o "sim" o chama, com o orçamento criado
-const calculo = { chamadas: [] as Array<[string, string]>, resposta: null as null | (() => unknown) }
+const calculo = { chamadas: [] as Array<[string, string]>, resposta: null as null | (() => unknown), parcial: { parcial: false } as unknown, conferidos: [] as string[] }
 jest.mock('@/lib/atendimentos-ia/orcamento-calculado', () => {
     class ErroDoCalculo extends Error { constructor(readonly recusas: string[]) { super(recusas.join(' | ')) } }
     return {
         ErroDoCalculo,
         calcularOrcamento: async (t: string, id: string) => { calculo.chamadas.push([t, id]); return calculo.resposta ? calculo.resposta() : { valor_total_liquido: 5240.395, valor_total_bruto: 5483.2, faltas: [], parcial: false } },
+        // a conferência do PARCIAL tem portão próprio (`atendimentos-ia-orcamento-calculado.test.ts`, (5)); aqui, o que o "sim" faz com ela
+        faltaDoParcial: async (_t: string, id: string) => { calculo.conferidos.push(id); return calculo.parcial },
     }
 })
 
@@ -99,7 +108,10 @@ import {
     type ItemDoLevantamentoNaTravessia, type LevantamentoNaTravessia,
 } from '@/lib/atendimentos-ia/travessia-do-levantamento'
 import { ErroNaoEncontrado, LIMITE_DO_NOME as LIMITE_DO_NOME_DO_ORCAMENTO } from '@/lib/atendimentos-ia/orcamentos-ia'
-import { LIMITE_DO_NOME, fraseDoNome, fraseDoOrcamentoQueJaExiste, itensForaDoOrcamento } from '@/lib/atendimentos-ia/travessia-do-levantamento'
+import {
+    LIMITE_DO_NOME, atualizarOrcamento, diferencaDoOrcamento, edicaoManualMaisNova, fraseDaEdicaoManualSubstituida, fraseDoNome, fraseDoOrcamentoArquivado, fraseDoParcialQueContinua,
+    fraseDoOrcamentoJaAtualizado, mesmaFamilia, type ItemAtivoDoOrcamento, type ItemDoPlanoComparado,
+} from '@/lib/atendimentos-ia/travessia-do-levantamento'
 import { fraseDoArquivoQueNaoChegou } from '@/lib/atendimentos-ia/arquivo-que-nao-chegou'
 import { MOTIVO_DO_FALLBACK } from '@/lib/atendimentos-ia/custo-do-orcamento'
 import { avisosDeDivergencia, custoNaTabelaCongelada, type LinhaDaTabelaCongelada } from '@/lib/atendimentos-ia/divergencia-da-tabela'
@@ -125,6 +137,51 @@ function semear(lev: Partial<LevantamentoNaTravessia> = {}, itens = ITENS) {
 }
 beforeEach(() => { estado.db = {}; estado.ops = []; estado.erros = {}; estado.antesDoInsert = null; seq = 0; semear(); calculo.chamadas = []; calculo.resposta = null })
 const escritas = () => estado.ops.filter((o) => o.op !== 'select')
+
+describe('(0) a comparação do levantamento com o orçamento (13/11/2026), pura', () => {
+    const plano = (p: Partial<ItemDoPlanoComparado> = {}): ItemDoPlanoComparado => ({
+        ordem: 1, levantamento_item_id: 'li-1', tipologia: 'DP-02', largura_mm: 1200, altura_mm: 1000, quantidade: 1, cor_perfil: 'BRANCO', vidro: 'temperado 5mm',
+        ambientes: [{ ambiente: 'Sala', quantidade: 1 }], escolhas: { ARI: 4, MAE: 2 }, familia: 'PVC', ...p,
+    })
+    const ativo = (p: Partial<ItemAtivoDoOrcamento> = {}): ItemAtivoDoOrcamento => ({
+        id: 'oi-1', levantamento_item_id: 'li-1', familia: 'PVC', ordem: 1, tipologia: 'DP-02', largura_mm: 1200, altura_mm: 1000, quantidade: 1, cor_perfil: 'BRANCO',
+        vidro: 'temperado 5mm', ambientes: [{ quantidade: 1, ambiente: 'Sala' }], escolhas: { MAE: 2, ARI: 4 }, vidro_codigo: null, ...p,
+    })
+    const cab: Parameters<typeof diferencaDoOrcamento>[0] = { nome: 'Casa', comissao_percentual: 5, comissao_modo: 'PROPORCIONAL', reserva_tecnica_percentual: 1, reserva_tecnica_responsavel: null, lucro_projetado_percentual: 10 }
+    it('tudo igual — as chaves do JSON em outra ordem e o número que volta como texto também — é SEM MUDANÇA', () => {
+        expect(diferencaDoOrcamento({ ...cab, comissao_percentual: '5' }, cab, [ativo()], [plano()])).toEqual({ novos: [], mudados: [], removidos: [], cabecalhoMudou: false, semMudanca: true })
+    })
+    it.each([
+        ['ordem', { ordem: 2 }], ['tipologia', { tipologia: 'DP-01' }], ['largura', { largura_mm: 1300 }], ['altura', { altura_mm: 900 }], ['quantidade', { quantidade: 2 }],
+        ['cor', { cor_perfil: 'PRETO' }], ['vidro', { vidro: 'temperado 8mm' }], ['ambientes', { ambientes: [{ ambiente: 'Quarto', quantidade: 1 }] }], ['escolhas', { escolhas: { ARI: 3, MAE: 2 } }],
+        ['o código do vidro', { vidro_codigo: 'VIN05' }], ['a família', { familia: 'Alumínio' }], ['a família NULA no levantamento', { familia: null }],
+    ] as Array<[string, Partial<ItemDoPlanoComparado>]>)('%s diferente: MUDADO', (_c, mudanca) => {
+        const d = diferencaDoOrcamento(cab, cab, [ativo()], [plano(mudanca)])
+        expect(d.mudados.map((m) => m.id)).toEqual(['oi-1'])
+        expect(d.semMudanca).toBe(false)
+    })
+    it('a família NULA no orçamento (as linhas de antes da 20261113000002) é diferente: a primeira confirmação recalcula', () => {
+        expect(diferencaDoOrcamento(cab, cab, [ativo({ familia: null })], [plano()]).mudados).toHaveLength(1)
+        expect(mesmaFamilia(null, null)).toBe(false)
+        expect(mesmaFamilia('PVC', 'PVC')).toBe(true)
+    })
+    it('o acrescentado, o removido (vínculo nulo ou que saiu) e o cabeçalho', () => {
+        const d = diferencaDoOrcamento(cab, { ...cab, lucro_projetado_percentual: 12 },
+            [ativo(), ativo({ id: 'oi-2', levantamento_item_id: null, ordem: 2 }), ativo({ id: 'oi-3', levantamento_item_id: 'li-saiu', ordem: 3 })],
+            [plano(), plano({ levantamento_item_id: 'li-4', ordem: 4 })])
+        expect(d.novos.map((n) => n.levantamento_item_id)).toEqual(['li-4'])
+        expect(d.removidos).toEqual([{ id: 'oi-2', ordem: 2 }, { id: 'oi-3', ordem: 3 }])
+        expect(d.cabecalhoMudou).toBe(true)
+        // o item novo vai ao orçamento SEM a família (quem a grava é o cálculo)
+        expect('familia' in d.novos[0]).toBe(false)
+    })
+    it('a edição manual mais nova que a última atualização; sem data de atualização, ela é a mais nova; sem edição, nada', () => {
+        expect(edicaoManualMaisNova({ editado_manualmente_em: '2026-11-13T11:00:00Z', atualizado_em: '2026-11-13T10:00:00Z' })).toBe(true)
+        expect(edicaoManualMaisNova({ editado_manualmente_em: '2026-11-13T10:00:00Z', atualizado_em: '2026-11-13T11:00:00Z' })).toBe(false)
+        expect(edicaoManualMaisNova({ editado_manualmente_em: '2026-11-13T10:00:00Z', atualizado_em: null })).toBe(true)
+        expect(edicaoManualMaisNova({ editado_manualmente_em: null, atualizado_em: '2026-11-13T11:00:00Z' })).toBe(false)
+    })
+})
 
 describe('(1) o plano', () => {
     it('congela o que muda preço, com o nome, a origem e o levantamento; o criado_por é nulo (o do agente não tem autor)', () => {
@@ -391,7 +448,15 @@ describe('(7) o gatilho do "sim" ENCADEIA travessia -> cálculo -> etapa do pre�
     const TRAVESSIA = 'orcamento=1 itens=3 faltas=0 origens=comissao:levantamento,rt:levantamento,lucro:levantamento'
     const etapa = { chamadas: [] as string[], resposta: (): Promise<{ rastro: string; paraOVendedor: string | null }> => Promise.resolve({ rastro: 'precificacao=ok envio=ok', paraOVendedor: 'enviado' }) }
     const naEtapa = (orcamentoId: string) => { etapa.chamadas.push(orcamentoId); return etapa.resposta() }
-    beforeEach(() => { etapa.chamadas = []; etapa.resposta = () => Promise.resolve({ rastro: 'precificacao=ok envio=ok', paraOVendedor: 'enviado' }) })
+    const reenvio = {
+        chamadas: [] as Array<{ id: string; numero: number; nome: string }>, semArquivo: false,
+        fn: (o: { id: string; numero: number; nome: string }) => {
+            reenvio.chamadas.push(o)
+            return Promise.resolve(reenvio.semArquivo ? { rastro: 'reenvio=sem_arquivo', paraOVendedor: null, semArquivo: true as const }
+                : { rastro: 'reenvio=ok', paraOVendedor: 'reenviado', enviadoPara: '5551999990000', idDoEnvio: 'id-reenvio' })
+        },
+    }
+    beforeEach(() => { etapa.chamadas = []; etapa.resposta = () => Promise.resolve({ rastro: 'precificacao=ok envio=ok', paraOVendedor: 'enviado' }); reenvio.chamadas = []; reenvio.semArquivo = false; calculo.parcial = { parcial: false }; calculo.conferidos = [] })
     it('atravessa, CALCULA o orçamento criado e roda a ETAPA DO PREÇO sobre ele: o rastro e o texto da etapa voltam', async () => {
         expect(await atravessarNoSim(T, LEV, naEtapa)).toEqual({ rastro: `${TRAVESSIA} calculo=ok liquido=5240.40 precificacao=ok envio=ok`, paraOVendedor: 'enviado' })
         const id = estado.db.orcamentista_orcamento[0].id
@@ -428,7 +493,12 @@ describe('(7) o gatilho do "sim" ENCADEIA travessia -> cálculo -> etapa do pre�
         await atravessarNoSim(T, LEV, naEtapa)
         calculo.chamadas = []
         etapa.chamadas = []
-        expect(await atravessarNoSim(T, LEV, naEtapa)).toEqual({ rastro: 'ja_existe=1 parou=travessia fora=0', paraOVendedor: fraseDoOrcamentoQueJaExiste(1, []) })
+        // o "sim" de novo, SEM MUDANÇA e com o arquivo (13/11/2026): nada recalculado, nada gerado — o arquivo que existe vai de novo
+        comFamilia('PVC')
+        expect(await atravessarNoSim(T, LEV, naEtapa, reenvio.fn)).toEqual({
+            rastro: 'orcamento=1 atualizacao=sem_mudanca reenvio=ok', paraOVendedor: 'reenviado', aviso: fraseDoOrcamentoJaAtualizado(1), enviadoPara: '5551999990000', idDoEnvio: 'id-reenvio',
+        })
+        expect(reenvio.chamadas).toEqual([{ id: String(estado.db.orcamentista_orcamento[0].id), numero: 1, nome: 'Geraldo Huck' }])
         semear({ estado: 'EM_MONTAGEM' })
         estado.db.orcamentista_orcamento = []
         expect(await atravessarNoSim(T, LEV, naEtapa)).toEqual({ rastro: 'recusou=1 parou=travessia', paraOVendedor: expect.stringMatching(/^O arquivo do orçamento não chegou a você: o levantamento não passou para o orçamento\. Falta: o levantamento \d+ completo/) })
@@ -437,25 +507,200 @@ describe('(7) o gatilho do "sim" ENCADEIA travessia -> cálculo -> etapa do pre�
         expect(calculo.chamadas).toEqual([])
         expect(etapa.chamadas).toEqual([])
     })
-    it('O QUE FICOU DE FORA É NOMEADO (13/11/2026): o item acrescentado depois da travessia aparece pelo número, com o que fazer — e o orçamento não muda', async () => {
+    /** A família de todos os itens, no levantamento E no orçamento: o cálculo (falso aqui) não a grava, e nulo conta como diferente. */
+    function comFamilia(f: string) {
+        for (const l of estado.db.orcamentista_levantamento_item) if (l.tenant_id === T) l.familia = f
+        for (const o of estado.db.orcamentista_orcamento_item ?? []) o.familia = f
+    }
+    const orcamento1 = () => estado.db.orcamentista_orcamento[0]
+    const ativos = () => (estado.db.orcamentista_orcamento_item ?? []).filter((i) => (i.removido_em ?? null) === null).sort((a, b) => Number(a.ordem) - Number(b.ordem))
+    const nenhumDelete = () => expect(estado.ops.filter((o) => o.op === 'delete')).toEqual([])
+
+    it('A ATUALIZAÇÃO (13/11/2026): o item ACRESCENTADO entra no orçamento 1 — o MESMO número, nenhum segundo orçamento, e o cálculo e a etapa rodam nele', async () => {
         await atravessarNoSim(T, LEV, naEtapa)
-        const itensDoOrcamento = JSON.stringify(estado.db.orcamentista_orcamento_item)
-        // o levantamento ganha os itens 4 e 5 depois que virou o orçamento 1
+        comFamilia('PVC')
+        calculo.chamadas = []; etapa.chamadas = []
         const doLev = estado.db.orcamentista_levantamento_item
         for (const ordem of [4, 5]) doLev.push({ ...doLev[0], id: `li-${ordem}`, ordem })
-        const r = await atravessarNoSim(T, LEV, naEtapa)
-        expect(r).toEqual({ rastro: 'ja_existe=1 parou=travessia fora=2', paraOVendedor: fraseDoOrcamentoQueJaExiste(1, [4, 5]) })
-        expect(r.paraOVendedor).toContain('Falta no orçamento 1 os itens 4 e 5 do levantamento')
-        expect(r.paraOVendedor).toContain('é preciso gerar um orçamento novo: mande esses itens num levantamento novo, com outro nome')
-        // nada se recalcula para trás: o orçamento 1 continua com os itens que tinha
-        expect(JSON.stringify(estado.db.orcamentista_orcamento_item)).toBe(itensDoOrcamento)
-        // um item só: no singular; a leitura que falha: a frase diz que não conferiu, e manda conferir
-        expect(fraseDoOrcamentoQueJaExiste(1, [4])).toContain('Falta no orçamento 1 o item 4 do levantamento: ele foi acrescentado depois')
-        expect(fraseDoOrcamentoQueJaExiste(1, null)).toContain('Não consegui conferir se todos os itens do levantamento estão nele')
-        const orcamento = String(estado.db.orcamentista_orcamento[0].id)
-        expect(await itensForaDoOrcamento(T, LEV, orcamento)).toEqual([4, 5])
-        estado.erros.orcamentista_levantamento_item = [{ code: 'XX000', message: 'caiu' }]
-        expect(await itensForaDoOrcamento(T, LEV, orcamento)).toBeNull()
+        const r = await atravessarNoSim(T, LEV, naEtapa, reenvio.fn)
+        expect(r.rastro).toContain('atualizacao=sim novos=2 mudados=0 removidos=0 cabecalho=nao')
+        expect(estado.db.orcamentista_orcamento.map((o) => o.numero)).toEqual([1])
+        expect(ativos().map((i) => [i.ordem, i.levantamento_item_id])).toEqual([[1, 'li-1'], [2, 'li-2'], [3, 'li-3'], [4, 'li-4'], [5, 'li-5']])
+        expect(calculo.chamadas).toEqual([[T, orcamento1().id]])
+        expect(etapa.chamadas).toEqual([orcamento1().id])
+        expect(reenvio.chamadas).toEqual([])
+        expect(r.aviso).toBeUndefined()
+        nenhumDelete()
+    })
+    it('o item que SAIU do levantamento ganha a MARCA de removido: a linha fica, nada é apagado, e ele sai dos ativos', async () => {
+        await atravessarNoSim(T, LEV, naEtapa)
+        comFamilia('PVC')
+        estado.db.orcamentista_levantamento_item = estado.db.orcamentista_levantamento_item.filter((l) => l.id !== 'li-2')
+        const linhasAntes = estado.db.orcamentista_orcamento_item.length
+        const r = await atravessarNoSim(T, LEV, naEtapa, reenvio.fn)
+        expect(r.rastro).toContain('atualizacao=sim novos=0 mudados=0 removidos=1')
+        expect(estado.db.orcamentista_orcamento_item).toHaveLength(linhasAntes)
+        const removido = estado.db.orcamentista_orcamento_item.find((i) => i.levantamento_item_id === 'li-2') as Linha
+        expect(typeof removido.removido_em).toBe('string')
+        expect(ativos().map((i) => i.levantamento_item_id)).toEqual(['li-1', 'li-3'])
+        nenhumDelete()
+        // o vínculo NULO (a FK ON DELETE SET NULL, quando o agrupamento apaga a linha do levantamento) também é removido
+        estado.db.orcamentista_orcamento_item.find((i) => i.levantamento_item_id === 'li-3')!.levantamento_item_id = null
+        expect((await atravessarNoSim(T, LEV, naEtapa, reenvio.fn)).rastro).toContain('novos=1 mudados=0 removidos=1')
+        expect(ativos().map((i) => i.levantamento_item_id)).toEqual(['li-1', 'li-3'])
+        nenhumDelete()
+    })
+    it('o MUDADO é atualizado no lugar; o nome e os PERCENTUAIS são RELIDOS do levantamento ("um lugar só manda")', async () => {
+        await atravessarNoSim(T, LEV, naEtapa)
+        comFamilia('PVC')
+        const item = estado.db.orcamentista_orcamento_item.find((i) => i.levantamento_item_id === 'li-1') as Linha
+        estado.db.orcamentista_levantamento_item.find((l) => l.id === 'li-1')!.largura_mm = 2700
+        Object.assign(estado.db.orcamentista_levantamento[0], { comissao_percentual: 7, nome: 'Geraldo Huck Filho' })
+        const r = await atravessarNoSim(T, LEV, naEtapa, reenvio.fn)
+        expect(r.rastro).toContain('atualizacao=sim novos=0 mudados=1 removidos=0 cabecalho=sim')
+        expect(item).toEqual(expect.objectContaining({ largura_mm: 2700, levantamento_item_id: 'li-1' }))
+        expect(estado.db.orcamentista_orcamento_item.filter((i) => i.levantamento_item_id === 'li-1')).toHaveLength(1)
+        expect(orcamento1()).toEqual(expect.objectContaining({ numero: 1, comissao_percentual: 7, nome: 'Geraldo Huck Filho' }))
+        nenhumDelete()
+    })
+    it('a FAMÍLIA do item: a do levantamento diferente da que o orçamento usou, ou NULA, é mudança — e recalcula', async () => {
+        await atravessarNoSim(T, LEV, naEtapa)
+        comFamilia('PVC')
+        estado.db.orcamentista_levantamento_item.find((l) => l.id === 'li-2')!.familia = 'Alumínio'
+        expect((await atravessarNoSim(T, LEV, naEtapa, reenvio.fn)).rastro).toContain('mudados=1')
+        comFamilia('PVC')
+        estado.db.orcamentista_orcamento_item.find((i) => i.levantamento_item_id === 'li-3')!.familia = null
+        expect((await atravessarNoSim(T, LEV, naEtapa, reenvio.fn)).rastro).toContain('mudados=1')
+        expect(reenvio.chamadas).toEqual([])
+    })
+    it('a EDIÇÃO MANUAL mais nova que a última atualização: a atualização vale e AVISA; a data e o autor ficam; depois, o aviso para sozinho', async () => {
+        await atravessarNoSim(T, LEV, naEtapa)
+        comFamilia('PVC')
+        Object.assign(orcamento1(), { atualizado_em: '2026-11-13T10:00:00.000Z', editado_manualmente_em: '2026-11-13T11:00:00.000Z', editado_manualmente_por: 'u-1' })
+        estado.db.orcamentista_levantamento_item.find((l) => l.id === 'li-1')!.largura_mm = 2700
+        const r = await atravessarNoSim(T, LEV, naEtapa, reenvio.fn)
+        expect(r.aviso).toBe(fraseDaEdicaoManualSubstituida(1))
+        expect(r.rastro).toContain('edicao_manual=substituida')
+        expect(orcamento1()).toEqual(expect.objectContaining({ editado_manualmente_em: '2026-11-13T11:00:00.000Z', editado_manualmente_por: 'u-1' }))
+        expect(Date.parse(String(orcamento1().atualizado_em))).toBeGreaterThan(Date.parse('2026-11-13T11:00:00.000Z'))
+        // a próxima mudança: a edição manual já não é a mais nova — nenhum aviso, e nenhum UPDATE na marca dela
+        estado.db.orcamentista_levantamento_item.find((l) => l.id === 'li-1')!.largura_mm = 2800
+        expect((await atravessarNoSim(T, LEV, naEtapa, reenvio.fn)).aviso).toBeUndefined()
+        expect(estado.ops.filter((o) => o.op === 'update' && o.carga && typeof o.carga === 'object' && 'editado_manualmente_em' in (o.carga as object))).toEqual([])
+    })
+    it('o orçamento ARQUIVADO recusa a atualização: a falta nomeada, nada gravado, nada calculado — e ele continua arquivado', async () => {
+        await atravessarNoSim(T, LEV, naEtapa)
+        orcamento1().deleted_at = '2026-11-13T12:00:00.000Z'
+        estado.db.orcamentista_levantamento_item.find((l) => l.id === 'li-1')!.largura_mm = 2700
+        calculo.chamadas = []; etapa.chamadas = []
+        const antes = escritas().length
+        expect(await atravessarNoSim(T, LEV, naEtapa, reenvio.fn)).toEqual({ rastro: 'orcamento=1 atualizacao=arquivado parou=travessia', paraOVendedor: fraseDoOrcamentoArquivado(1) })
+        expect(escritas()).toHaveLength(antes)
+        expect(calculo.chamadas).toEqual([])
+        expect(orcamento1().deleted_at).toBe('2026-11-13T12:00:00.000Z')
+    })
+    it('SEM MUDANÇA e SEM arquivo: não há o que mandar — a atualização roda inteira (o cálculo e a etapa)', async () => {
+        await atravessarNoSim(T, LEV, naEtapa)
+        comFamilia('PVC')
+        calculo.chamadas = []; etapa.chamadas = []
+        reenvio.semArquivo = true
+        const r = await atravessarNoSim(T, LEV, naEtapa, reenvio.fn)
+        expect(reenvio.chamadas).toHaveLength(1)
+        expect(calculo.chamadas).toHaveLength(1)
+        expect(etapa.chamadas).toHaveLength(1)
+        expect(r.aviso).toBeUndefined()
+        nenhumDelete()
+    })
+    it('o orçamento com TODOS os itens removidos é um orçamento real: vai à atualização — o arquivado recusa, e nada é inserido nele', async () => {
+        await atravessarNoSim(T, LEV, naEtapa)
+        for (const i of estado.db.orcamentista_orcamento_item) i.removido_em = '2026-11-13T12:00:00.000Z'
+        orcamento1().deleted_at = '2026-11-13T12:30:00.000Z'
+        const linhas = estado.db.orcamentista_orcamento_item.length
+        expect((await atravessarNoSim(T, LEV, naEtapa, reenvio.fn)).paraOVendedor).toBe(fraseDoOrcamentoArquivado(1))
+        expect(estado.db.orcamentista_orcamento_item).toHaveLength(linhas)
+        // não arquivado: a atualização insere os itens do levantamento e RELÊ o cabeçalho
+        orcamento1().deleted_at = null
+        estado.db.orcamentista_levantamento[0].comissao_percentual = 9
+        expect((await atravessarNoSim(T, LEV, naEtapa, reenvio.fn)).rastro).toContain('atualizacao=sim novos=3 mudados=0 removidos=0 cabecalho=sim')
+        expect(orcamento1().comissao_percentual).toBe(9)
+        nenhumDelete()
+    })
+    it('o MUDADO leva o código do vidro do levantamento: o código de antes não fica (sem código no levantamento, nulo)', async () => {
+        await atravessarNoSim(T, LEV, naEtapa)
+        comFamilia('PVC')
+        const item = estado.db.orcamentista_orcamento_item.find((i) => i.levantamento_item_id === 'li-1') as Linha
+        item.vidro_codigo = 'VIN05'
+        expect((await atravessarNoSim(T, LEV, naEtapa, reenvio.fn)).rastro).toContain('mudados=1')
+        expect(item.vidro_codigo).toBeNull()
+    })
+    // O PARCIAL NO "SIM" SEM MUDANÇA (dono do produto, 13/11/2026): o COMPLETO é fotografia; o PARCIAL cujas faltas nomeadas têm preço agora recalcula
+    const SF92 = { caminho: 'perfil', codigo_do_motor: 'SF92/WOLFF', cor: 'BRANCO', frase: 'SF92/WOLFF não está na tabela de preço.', esquadria: 1 }
+    it('PARCIAL com a falta RESOLVIDA: o "sim" sem mudança RECALCULA o orçamento 1 e roda a etapa (o PDF novo) — nada é reenviado, nenhum segundo orçamento', async () => {
+        await atravessarNoSim(T, LEV, naEtapa)
+        comFamilia('PVC')
+        calculo.chamadas = []; etapa.chamadas = []
+        calculo.parcial = { parcial: true, nomeadas: 2, continuam: [], recusas: [] }
+        const r = await atravessarNoSim(T, LEV, naEtapa, reenvio.fn)
+        const id = orcamento1().id
+        expect(calculo.conferidos).toEqual([id])
+        expect(reenvio.chamadas).toEqual([])
+        expect(calculo.chamadas).toEqual([[T, id]])
+        expect(etapa.chamadas).toEqual([id])
+        expect(r.rastro).toContain('atualizacao=sim novos=0 mudados=0 removidos=0 cabecalho=nao parcial=resolvido faltas_de_preco=0/2 origens=')
+        expect(r.rastro).toContain('calculo=ok liquido=5240.40 precificacao=ok envio=ok')
+        expect(r.paraOVendedor).toBe('enviado')
+        expect(r.aviso).toBeUndefined()
+        expect(estado.db.orcamentista_orcamento).toHaveLength(1)
+        nenhumDelete()
+    })
+    it('PARCIAL com a falta DE PÉ: NÃO recalcula — o arquivo vai de novo, e o que continua faltando vai NOMEADO, nunca o "já está atualizado" seco', async () => {
+        await atravessarNoSim(T, LEV, naEtapa)
+        comFamilia('PVC')
+        calculo.chamadas = []; etapa.chamadas = []
+        calculo.parcial = { parcial: true, nomeadas: 2, continuam: [SF92], recusas: [] }
+        const r = await atravessarNoSim(T, LEV, naEtapa, reenvio.fn)
+        expect(calculo.chamadas).toEqual([])
+        expect(etapa.chamadas).toEqual([])
+        expect(reenvio.chamadas).toHaveLength(1)
+        expect(r).toEqual({
+            rastro: 'orcamento=1 atualizacao=sem_mudanca parcial=continua faltas_de_preco=1/2 reenvio=ok', paraOVendedor: 'reenviado',
+            aviso: 'O orçamento 1 continua PARCIAL: nada mudou no levantamento, e 1 valor continua sem preço. O arquivo dele vai de novo, sem recálculo.\n'
+                + 'Para completar, preciso de:\n• SF92/WOLFF não está na tabela de preço (item 1).',
+            enviadoPara: '5551999990000', idDoEnvio: 'id-reenvio',
+        })
+        expect(r.aviso).not.toBe(fraseDoOrcamentoJaAtualizado(1))
+        nenhumDelete()
+    })
+    it('PARCIAL e o custo de agora RECUSA: não recalcula, e a recusa vai nomeada junto do que continua faltando', async () => {
+        await atravessarNoSim(T, LEV, naEtapa)
+        comFamilia('PVC')
+        calculo.chamadas = []
+        calculo.parcial = { parcial: true, nomeadas: 1, continuam: [SF92], recusas: ['o tempo de fabricação de DP-01'] }
+        const r = await atravessarNoSim(T, LEV, naEtapa, reenvio.fn)
+        expect(calculo.chamadas).toEqual([])
+        expect(r.aviso).toBe(fraseDoParcialQueContinua(1, [SF92], ['o tempo de fabricação de DP-01']))
+        expect(r.aviso).toContain('\nO custo de agora também recusou. Falta: o tempo de fabricação de DP-01.\n')
+    })
+    it('a frase do parcial que continua: dois códigos são "2 valores continuam"', () => {
+        expect(fraseDoParcialQueContinua(3, [SF92, { ...SF92, codigo_do_motor: 'X', frase: 'x', esquadria: 2 }]).split('\n')[0])
+            .toBe('O orçamento 3 continua PARCIAL: nada mudou no levantamento, e 2 valores continuam sem preço. O arquivo dele vai de novo, sem recálculo.')
+    })
+    it('o COMPLETO é fotografia: a conferência diz "não parcial", e o "sim" sem mudança só reenvia, com o "já está atualizado"', async () => {
+        await atravessarNoSim(T, LEV, naEtapa)
+        comFamilia('PVC')
+        calculo.chamadas = []
+        const r = await atravessarNoSim(T, LEV, naEtapa, reenvio.fn)
+        expect(calculo.conferidos).toHaveLength(1)
+        expect(calculo.chamadas).toEqual([])
+        expect(r.aviso).toBe(fraseDoOrcamentoJaAtualizado(1))
+    })
+    it('atualizarOrcamento sem mudança NÃO GRAVA nada', async () => {
+        await atravessarNoSim(T, LEV, naEtapa)
+        comFamilia('PVC')
+        const antes = escritas().length
+        const a = await atualizarOrcamento(T, LEV, String(orcamento1().id))
+        expect(a).toEqual(expect.objectContaining({ semMudanca: true, novos: 0, mudados: 0, removidos: 0, cabecalhoMudou: false, edicaoManualSubstituida: false }))
+        expect(escritas()).toHaveLength(antes)
     })
 
     it('a recusa e a falha do cálculo param no cálculo, com o orçamento gravado, sem a etapa do preço, e não lançam', async () => {

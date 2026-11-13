@@ -170,7 +170,7 @@
  * Portão: `src/utils/__tests__/atendimentos-ia-levantamento-por-nome.test.ts`.
  */
 import { atravessarNoSim } from './travessia-do-levantamento'
-import { dependenciasDoServidor, destinosDoWhatsApp, enviarAoPrimeiroQueAceitar, etapaDoPreco } from './cadeia-do-sim'
+import { dependenciasDoServidor, destinosDoWhatsApp, enviarAoPrimeiroQueAceitar, etapaDoPreco, reenviarOArquivo } from './cadeia-do-sim'
 import { telefonesCasam } from '@/utils/atendimentos-ia-telefone-do-autorizado'
 /** A saída gravada quando depois do "sim" só o arquivo foi enviado (12/11/2026, 4.3): o texto não sai ao vendedor, é a marca da resposta. */
 export const SAIDA_SO_O_ARQUIVO = '[o arquivo do orçamento foi enviado, sem texto]'
@@ -1895,14 +1895,18 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         if ((confirmouApanhado || simVale) && levantamento.desfecho === 'levantou' && estado === COMPLETO && rastro.levantamento) {
             // a ETAPA DO PREÇO (11/11/2026): precifica, gera o PDF e o envia ao DONO do levantamento (nunca a quem disse "sim"); sem preço formado
             // não há PDF, e o texto diz o que falta. O que ela tem a dizer vai junto da resposta, e a falha do envio não desfaz nada
-            const sim = await atravessarNoSim(c.tenantId, rastro.levantamento, (orcamentoId) =>
-                etapaDoPreco(c.tenantId, orcamentoId, dependenciasDoServidor((telefone, nome, pdf) =>
-                    enviarAoPrimeiroQueAceitar(destinosDoWhatsApp(telefone, c.telefone), (destino) => enviarDocumento(c.wuzapiToken, destino, nome, pdf)))))
+            // O ORÇAMENTO QUE JÁ EXISTE é ATUALIZADO com o mesmo número (13/11/2026); o "sim" SEM MUDANÇA manda o arquivo que existe (`reenviarOArquivo`)
+            const deps = dependenciasDoServidor((telefone, nome, pdf) =>
+                enviarAoPrimeiroQueAceitar(destinosDoWhatsApp(telefone, c.telefone), (destino) => enviarDocumento(c.wuzapiToken, destino, nome, pdf)))
+            const sim = await atravessarNoSim(c.tenantId, rastro.levantamento, (orcamentoId) => etapaDoPreco(c.tenantId, orcamentoId, deps),
+                (orcamento) => reenviarOArquivo(c.tenantId, orcamento, deps))
             rastro.etapas.calcular = `${rastro.etapas.calcular ?? ''} travessia=${sim.rastro}`.trim()
             // DEPOIS DO "SIM", SÓ O ARQUIVO (dono do produto, 12/11/2026, 4.3): quando o PDF chegou a quem disse "sim", a conversa não repete por
             // texto o que está nele (barras, aproveitamento, mão de obra, o que o preço cobre) — o WhatsApp leva só os QUESTIONAMENTOS (as faltas)
             if (sim.enviadoPara && telefonesCasam(sim.enviadoPara, c.telefone)) {
-                if (sim.questionamentos) return await responder(sim.questionamentos, levantamento.desfecho, `${semApanhado ? `${semApanhado} ` : ''}so_arquivo=sim`, false)
+                // o AVISO da atualização (o orçamento já atualizado; a edição manual substituída) vai junto do arquivo, por texto — nunca em silêncio
+                const texto = [sim.aviso, sim.questionamentos].filter(Boolean).join('\n\n')
+                if (texto) return await responder(texto, levantamento.desfecho, `${semApanhado ? `${semApanhado} ` : ''}so_arquivo=sim`, false)
                 // a SAÍDA é gravada mesmo sem texto: é ela que marca a entrada como respondida (o reenvio do WUZAPI não conduz de novo) e diz ao
                 // histórico o que o agente fez. O id é o do envio do arquivo
                 await gravar(SAIDA_SO_O_ARQUIVO, sim.idDoEnvio ?? SEM_ID_DO_ARQUIVO)
@@ -1911,7 +1915,8 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             }
             // O ARQUIVO QUE NÃO CHEGOU (dono do produto, 13/11/2026): o corpo NÃO vira o plano B contando o resultado — diz que o arquivo não
             // chegou, e por quê (a falta nomeada), e nada mais: nem o levantamento por texto, nem a abertura, nem os questionamentos do parcial
-            return await responder(sim.paraOVendedor ?? fraseDoArquivoQueNaoChegou(null, 'o orçamento não foi gerado'), levantamento.desfecho, semApanhado, false)
+            // (o aviso da atualização vai junto: a edição manual substituída é dita mesmo quando o arquivo não chegou)
+            return await responder([sim.paraOVendedor ?? fraseDoArquivoQueNaoChegou(null, 'o orçamento não foi gerado'), sim.aviso].filter(Boolean).join('\n\n'), levantamento.desfecho, semApanhado, false)
         }
         // PERGUNTA É TEXTO; RESULTADO É ARQUIVO (dono do produto, 13/11/2026): o levantamento que levantou sem chegar à cadeia do "sim" não manda
         // por texto o resultado (itens, medidas, barras, aproveitamento, mão de obra, o que o preço cobre) — manda a falta nomeada de por que o
