@@ -9,7 +9,9 @@ Roda numa WORKTREE própria (`mutacao-na-arvore-de-trabalho.md`); antes de rodar
 import os, shutil, subprocess, sys, tempfile
 
 R = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../../..'))
-SUITES = ['src/utils/__tests__/tributo-nulo-nao-vira-zero.test.tsx', 'src/utils/__tests__/atendimentos-ia-precificacao-do-orcamento-tela.test.tsx']
+SUITES = ['src/utils/__tests__/tributo-nulo-nao-vira-zero.test.tsx', 'src/utils/__tests__/atendimentos-ia-precificacao-do-orcamento-tela.test.tsx',
+          'src/utils/__tests__/o-servidor-forma-o-preco-da-tela.test.tsx']
+PO = 'src/lib/atendimentos-ia/preco-do-orcamento.ts'
 C = 'src/page-parts/products/content.component.tsx'
 PP = 'src/page-parts/products/product-price.component.tsx'
 T = 'src/utils/tributo-por-dentro-informado.ts'
@@ -44,6 +46,8 @@ MUT = [
     ('R3 NaN conta como informado', T, "typeof v === 'number' && Number.isFinite(v)", "typeof v === 'number'"),
     ('R4 o texto vazio do banco vira 0', T, "    if (v === null || v === undefined || v === '') return null\n", "    if (v === null || v === undefined) return null\n"),
     ('R5 o PIS/COFINS deixa de ser exigido', T, "    if (tributoExisteNoSegmento(args.segmento, 'PIS_COFINS') && !informado(args.pisCofinsPct)) faltas.push(FALTA_DO_PIS_COFINS)\n", ""),
+    # o servidor do orçamento I.A. (o rebase sobre o #262/#263, 13/11/2026): sem a falta, ele formaria o preço com o ICMS da UF ausente em zero
+    ('V1 o servidor forma o preço com o tributo nulo', PO, "    const venda = p.formado && !semTributo && p.finalPriceWithTaxes > 0", "    const venda = p.formado && p.finalPriceWithTaxes > 0"),
 ]
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from trecho_unico import exigir_trecho_unico  # a mutação que não se aplica aborta (mutacao-que-nao-se-aplica.md)
@@ -60,7 +64,7 @@ def main():
     subprocess.run(['git', 'worktree', 'add', '--detach', wt, 'HEAD'], cwd=R, check=True, capture_output=True)
     try:
         # a worktree recebe o estado ATUAL dos arquivos mutados e das suítes (mesmo os não commitados), e o node_modules por link
-        for f in {C, PP, T, *SUITES, 'src/page-parts/products/content-industrialization.tsx', 'src/page-parts/products/content-resale.tsx'}:
+        for f in {C, PP, T, PO, *SUITES, 'src/page-parts/products/content-industrialization.tsx', 'src/page-parts/products/content-resale.tsx'}:
             os.makedirs(os.path.dirname(os.path.join(wt, f)), exist_ok=True)
             shutil.copyfile(os.path.join(R, f), os.path.join(wt, f))
         os.symlink(os.path.join(R, 'node_modules'), os.path.join(wt, 'node_modules'))
