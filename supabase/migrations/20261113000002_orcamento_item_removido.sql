@@ -1,7 +1,7 @@
 -- PENDENTE: NAO APLICAR SEM A AUTORIZACAO DO DONO DO PRODUTO PELO MD5 DESTE ARQUIVO. Aplicar e verificar ANTES do merge do PR que le a coluna.
 --
 -- ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
--- O ITEM REMOVIDO DO ORÇAMENTO, POR MARCA — e a ordem única só entre os itens que valem — dono do produto, 13/11/2026
+-- O ITEM REMOVIDO DO ORÇAMENTO, POR MARCA, A FAMÍLIA USADA POR ITEM — e a ordem única só entre os itens que valem — dono do produto, 13/11/2026
 -- ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 --
 -- A decisão, registrada como foi dita:
@@ -11,6 +11,13 @@
 --   "A ORDEM. Vá pelo ÍNDICE PARCIAL [...] Eu libero o DROP desse índice, explicitamente. Minha proibição de DROP é para o que apaga DADO ou
 --    tira ACESSO. Trocar um índice único por um índice único parcial não apaga linha nenhuma e não tira acesso de ninguém."
 --   "o 'Item N' do PDF tem de bater com o 'Item N' do levantamento".
+--   "A FAMÍLIA ENTRA NESTA MIGRAÇÃO. [...] a coluna que guarda a família usada pelo item do orçamento, NULL, sem padrão, na mesma tabela. A
+--    família é POR ITEM, não por orçamento [...] As linhas existentes ficam nulas, e nulo conta como DIFERENTE na comparação — a primeira
+--    confirmação recalcula uma vez [...] erra para o lado de recalcular, nunca para o de deixar preço errado."
+--
+-- POR QUE A FAMÍLIA: o cálculo lê a família do item do LEVANTAMENTO na hora (orcamento-calculado.ts, `lerDoLevantamento`), e o orçamento não
+-- guarda qual usou. Sem ela, trocar só a família de um item ("é a de PVC") seria "sem mudança", e o "sim" não recalcularia. A coluna guarda a
+-- família com que o item do orçamento foi calculado; a do levantamento diferente dela (ou ela nula) é mudança.
 --
 -- POR QUE O ÍNDICE MUDA: o item removido FICA (com a marca), com a ordem que tinha. O levantamento renumera os itens de 1 a n
 -- (levantamento-em-montagem.ts, o agrupamento); quando ele volta a ter um item naquela ordem, o item novo do orçamento não pode ser gravado com
@@ -19,6 +26,8 @@
 -- O QUE FAZ (e só isto, nesta ordem, numa transação):
 --   1. ALTER TABLE public.orcamentista_orcamento_item ADD COLUMN removido_em timestamptz NULL — nula em toda linha de hoje (nenhum item está
 --      removido). Sem default, sem CHECK.
+--   1b. ALTER TABLE public.orcamentista_orcamento_item ADD COLUMN familia text NULL — o mesmo tipo de orcamentista_levantamento_item.familia
+--      (text, nula, sem default — medido em 13/11/2026). Nula em toda linha de hoje. Sem default, sem CHECK.
 --   2. O DROP da unicidade de hoje. MEDIDO em produção (13/11/2026): `orcamentista_orcamento_item_ordem_key` NÃO é um índice solto — é uma
 --      RESTRIÇÃO UNIQUE (contype 'u', `UNIQUE (orcamento_id, ordem)`), e o índice dela tem o mesmo nome. Por isso o DROP é
 --      `ALTER TABLE ... DROP CONSTRAINT`, que leva o índice junto (um `DROP INDEX` nele é recusado pelo Postgres). Nenhuma FK depende dela
@@ -40,9 +49,10 @@
 -- O QUE QUEBRA SE ALGUÉM MERGEAR O CÓDIGO QUE LÊ A COLUNA ANTES DE APLICAR: toda leitura dos itens do orçamento que filtra `removido_em` falha
 -- (a coluna não existe). A ordem é: aplicar, verificar por consulta, só então mergear.
 --
--- GUARDA (aborta, nada alterado): a tabela não existe; a coluna `removido_em` já existe; a unicidade de hoje não é a medida (nome, tipo 'u' e
+-- GUARDA (aborta, nada alterado): a tabela não existe; a coluna `removido_em` ou a `familia` já existe; a unicidade de hoje não é a medida (nome, tipo 'u' e
 -- definição `UNIQUE (orcamento_id, ordem)`); alguma FK depende do índice dela; o índice novo já existe; há ordem duplicada no mesmo orçamento.
--- VERIFICAÇÃO (aborta, desfaz tudo): a coluna existe, timestamptz, nula, sem default, nula em toda linha; o índice novo existe, é único, é
+-- VERIFICAÇÃO (aborta, desfaz tudo): `removido_em` existe, timestamptz, nula, sem default, nula em toda linha; `familia` existe, text, nula, sem
+-- default, nula em toda linha; o índice novo existe, é único, é
 -- PARCIAL com `WHERE (removido_em IS NULL)` sobre (orcamento_id, ordem); a restrição antiga e o índice antigo não existem mais; o número de
 -- linhas da tabela é o mesmo de antes.
 --
@@ -64,6 +74,10 @@ BEGIN
   IF EXISTS (SELECT 1 FROM information_schema.columns
              WHERE table_schema = 'public' AND table_name = 'orcamentista_orcamento_item' AND column_name = 'removido_em') THEN
     RAISE EXCEPTION 'guarda: a coluna removido_em já existe. Nada foi alterado.';
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+             WHERE table_schema = 'public' AND table_name = 'orcamentista_orcamento_item' AND column_name = 'familia') THEN
+    RAISE EXCEPTION 'guarda: a coluna familia já existe. Nada foi alterado.';
   END IF;
   SELECT c.conindid, pg_get_constraintdef(c.oid), c.contype INTO v_conindid, v_def, v_tipo
     FROM pg_constraint c
@@ -91,6 +105,8 @@ $guarda$;
 
 ALTER TABLE public.orcamentista_orcamento_item ADD COLUMN removido_em timestamptz NULL;
 
+ALTER TABLE public.orcamentista_orcamento_item ADD COLUMN familia text NULL;
+
 ALTER TABLE public.orcamentista_orcamento_item DROP CONSTRAINT orcamentista_orcamento_item_ordem_key;
 
 CREATE UNIQUE INDEX orcamentista_orcamento_item_ordem_ativa_key
@@ -116,6 +132,16 @@ BEGIN
   SELECT count(*) INTO n FROM public.orcamentista_orcamento_item WHERE removido_em IS NOT NULL;
   IF n <> 0 THEN
     RAISE EXCEPTION 'verificação: % item(ns) com removido_em preenchido. Tudo foi desfeito.', n;
+  END IF;
+  SELECT data_type, is_nullable, column_default INTO v_tipo, v_nulo, v_default
+    FROM information_schema.columns
+   WHERE table_schema = 'public' AND table_name = 'orcamentista_orcamento_item' AND column_name = 'familia';
+  IF v_tipo IS DISTINCT FROM 'text' OR v_nulo IS DISTINCT FROM 'YES' OR v_default IS NOT NULL THEN
+    RAISE EXCEPTION 'verificação: a coluna familia não é text nula sem default (veio %, %, %). Tudo foi desfeito.', v_tipo, v_nulo, v_default;
+  END IF;
+  SELECT count(*) INTO n FROM public.orcamentista_orcamento_item WHERE familia IS NOT NULL;
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'verificação: % item(ns) com familia preenchida. Tudo foi desfeito.', n;
   END IF;
   SELECT i.indisunique, pg_get_indexdef(i.indexrelid) INTO v_unico, v_def
     FROM pg_index i WHERE i.indexrelid = to_regclass('public.orcamentista_orcamento_item_ordem_ativa_key');

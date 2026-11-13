@@ -1,5 +1,5 @@
 #!/bin/bash
-# HARNESS LOCAL da 20261113000002 (o item removido por marca, e a ordem única só entre os que valem). NÃO TOCA PRODUÇÃO.
+# HARNESS LOCAL da 20261113000002 (o item removido por marca, a família usada por item, e a ordem única só entre os que valem). NÃO TOCA PRODUÇÃO.
 # Subir o Postgres local: ver scripts/harness/baixa-com-valor-diferente/run.sh. Produção é 17.6; aqui é 16.x — a forma de pg_get_indexdef e
 # pg_get_constraintdef usada na guarda e na verificação é a mesma nas duas (premissa, não medição; a verificação em produção é por consulta).
 # Uso: run.sh <arquivo da migração>. Uma linha `ok:` ou `FALHOU:` por caso; sai 1 se algum falhar.
@@ -22,6 +22,8 @@ antes=$(q r1 "$ESTADO")
 caso 'aplica na base medida' "$(aplica r1)" 'aplicou'
 caso 'nenhuma linha mudou (contagem, ids, ordens, tipologias)' "$(q r1 "$ESTADO")" "$antes"
 caso 'a coluna: timestamptz, nula, sem default, nula em toda linha' "$(q r1 "select data_type||'|'||is_nullable||'|'||coalesce(column_default,'-')||'|'||(select count(*) from orcamentista_orcamento_item where removido_em is not null) from information_schema.columns where table_name='orcamentista_orcamento_item' and column_name='removido_em'")" 'timestamp with time zone|YES|-|0'
+caso 'a coluna familia: text, nula, sem default, nula em toda linha' "$(q r1 "select data_type||'|'||is_nullable||'|'||coalesce(column_default,'-')||'|'||(select count(*) from orcamentista_orcamento_item where familia is not null) from information_schema.columns where table_name='orcamentista_orcamento_item' and column_name='familia'")" 'text|YES|-|0'
+caso 'a família é POR ITEM: dois itens do mesmo orçamento, duas famílias' "$(q r1 "update orcamentista_orcamento_item set familia = case ordem when 1 then 'PVC' when 2 then 'Alumínio' end where orcamento_id='00000000-0000-0000-0000-0000000000a1' and ordem in (1,2); select string_agg(coalesce(familia,'-'), ',' order by ordem) from orcamentista_orcamento_item where orcamento_id='00000000-0000-0000-0000-0000000000a1'")" 'PVC,Alumínio,-'
 caso 'o índice novo é único e parcial' "$(q r1 "select pg_get_indexdef('orcamentista_orcamento_item_ordem_ativa_key'::regclass)")" 'CREATE UNIQUE INDEX orcamentista_orcamento_item_ordem_ativa_key ON public.orcamentista_orcamento_item USING btree (orcamento_id, ordem) WHERE (removido_em IS NULL)'
 caso 'a restrição antiga e o índice antigo não existem' "$(q r1 "select (select count(*) from pg_constraint where conname='orcamentista_orcamento_item_ordem_key')||'/'||coalesce(to_regclass('orcamentista_orcamento_item_ordem_key')::text,'nada')")" '0/nada'
 caso 'as outras restrições da tabela ficam (id+tenant, ordem positiva, FK do orçamento, FK do material)' "$(q r1 "select string_agg(conname, ',' order by conname) from pg_constraint where conrelid in ('orcamentista_orcamento_item'::regclass,'orcamentista_orcamento_item_material'::regclass) and conname like 'orcamentista_orcamento_item%' and conname <> 'orcamentista_orcamento_item_material_pkey'")" 'orcamentista_orcamento_item_id_tenant_key,orcamentista_orcamento_item_material_item_fkey,orcamentista_orcamento_item_orcamento_fkey,orcamentista_orcamento_item_ordem_positiva,orcamentista_orcamento_item_pkey'
@@ -46,6 +48,8 @@ base r4; q r4 "create table depende (o uuid, n int, foreign key (o, n) reference
 caso 'guarda: uma FK depende da unicidade de hoje' "$(porque r4)|$(aplica r4)/$(nada r4)" 'guarda: 1 FK(s) dependem do índice da unicidade de hoje|abortou/0/sem_novo/1'
 base r5; q r5 "create index orcamentista_orcamento_item_ordem_ativa_key on orcamentista_orcamento_item (ordem)" >/dev/null
 caso 'guarda: o índice novo já existe' "$(porque r5)|$(aplica r5)/$(q r5 "select count(*) from information_schema.columns where column_name='removido_em'")/$(q r5 "select count(*) from pg_constraint where conname='orcamentista_orcamento_item_ordem_key'")" 'guarda: o índice orcamentista_orcamento_item_ordem_ativa_key já existe|abortou/0/1'
+base r8; q r8 "alter table orcamentista_orcamento_item add column familia text" >/dev/null
+caso 'guarda: a coluna familia já existe' "$(porque r8)|$(aplica r8)/$(q r8 "select (select count(*) from information_schema.columns where column_name='removido_em')||'/'||coalesce(to_regclass('orcamentista_orcamento_item_ordem_ativa_key')::text,'sem_novo')||'/'||(select count(*) from pg_constraint where conname='orcamentista_orcamento_item_ordem_key')")" 'guarda: a coluna familia já existe|abortou/0/sem_novo/1'
 base r6; q r6 "alter table orcamentista_orcamento_item add column removido_em timestamptz" >/dev/null
 caso 'guarda: a coluna já existe' "$(porque r6)|$(aplica r6)/$(q r6 "select coalesce(to_regclass('orcamentista_orcamento_item_ordem_ativa_key')::text,'sem_novo')||'/'||(select count(*) from pg_constraint where conname='orcamentista_orcamento_item_ordem_key')")" 'guarda: a coluna removido_em já existe|abortou/sem_novo/1'
 $P -c 'drop database if exists r_vazio' >/dev/null 2>&1; $P -c 'create database r_vazio' >/dev/null
@@ -61,7 +65,7 @@ SEM_COMENTARIO=$(grep -vE '^\s*--' "$M")
 caso 'nenhum DELETE/UPDATE/INSERT/TRUNCATE/REVOKE/GRANT no arquivo' "$(echo "$SEM_COMENTARIO" | grep -ciE '\b(delete|update|insert|truncate|revoke|grant)\b')" '0'
 caso 'nenhuma tabela, nem temporária' "$(echo "$SEM_COMENTARIO" | grep -ciE '\bcreate\b.*\btable\b')" '0'
 caso 'um DROP só, o da restrição de hoje' "$(echo "$SEM_COMENTARIO" | grep -iE '\bdrop\b' | tr -s ' ')" 'ALTER TABLE public.orcamentista_orcamento_item DROP CONSTRAINT orcamentista_orcamento_item_ordem_key;'
-caso 'os ALTERs: a coluna e o DROP, nessa ordem' "$(echo "$SEM_COMENTARIO" | grep -iE '^\s*alter\b' | tr -s ' ' | tr '\n' '|')" 'ALTER TABLE public.orcamentista_orcamento_item ADD COLUMN removido_em timestamptz NULL;|ALTER TABLE public.orcamentista_orcamento_item DROP CONSTRAINT orcamentista_orcamento_item_ordem_key;|'
+caso 'os ALTERs: as duas colunas e o DROP, nessa ordem' "$(echo "$SEM_COMENTARIO" | grep -iE '^\s*alter\b' | tr -s ' ' | tr '\n' '|')" 'ALTER TABLE public.orcamentista_orcamento_item ADD COLUMN removido_em timestamptz NULL;|ALTER TABLE public.orcamentista_orcamento_item ADD COLUMN familia text NULL;|ALTER TABLE public.orcamentista_orcamento_item DROP CONSTRAINT orcamentista_orcamento_item_ordem_key;|'
 caso 'o CREATE do índice vem DEPOIS do DROP, na mesma transação' "$(echo "$SEM_COMENTARIO" | grep -nE '^(BEGIN;|COMMIT;|ALTER TABLE .* DROP CONSTRAINT|CREATE UNIQUE INDEX)' | cut -d: -f2 | cut -c1-20 | tr '\n' '|')" 'BEGIN;|ALTER TABLE public.o|CREATE UNIQUE INDEX |COMMIT;|'
-for d in r1 r2 r3 r4 r5 r6 r7 r_vazio; do $P -c "drop database if exists $d" >/dev/null 2>&1; done
+for d in r1 r2 r3 r4 r5 r6 r7 r8 r_vazio; do $P -c "drop database if exists $d" >/dev/null 2>&1; done
 [ $falhas -eq 0 ] && echo "todos verdes" || { echo "$falhas falharam"; exit 1; }
