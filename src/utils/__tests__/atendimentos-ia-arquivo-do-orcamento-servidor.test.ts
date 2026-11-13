@@ -41,7 +41,7 @@ jest.mock('@/supabase/admin', () => ({
             q.limit = (n: number) => { limite = n; return q }
             q.eq = (c: string, v: unknown) => { filtros.push([c, v]); return q }
             // o `.is(coluna, null)` do PostgREST: a coluna nula (ou ausente na linha de teste, como a `removido_em` de antes da 20261113000002)
-            q.is = (c: string, _v: null) => { filtros.push([c, NULO]); return q }
+            q.is = (c: string, v: null) => { filtros.push([c, v === null ? NULO : v]); return q }
             q.in = (c: string, v: unknown[]) => { filtros.push([c, v]); return q }
             q.insert = (c: unknown) => { op = 'insert'; carga = c; return q }
             q.maybeSingle = () => rodar().then((r) => ({ data: (r.data as Linha[] | null)?.[0] ?? null, error: r.error }))

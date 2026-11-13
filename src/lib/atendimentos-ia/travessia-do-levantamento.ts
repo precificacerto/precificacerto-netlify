@@ -74,8 +74,10 @@ async function orcamentoDoLevantamento(tenantId: string, levantamentoId: string)
     const { data, error } = await db().from(TABELA_DO_ORCAMENTO).select('id, numero').eq('tenant_id', tenantId).eq('levantamento_id', levantamentoId).maybeSingle()
     if (error) falhou(TABELA_DO_ORCAMENTO, error)
     if (!data) return null
-    // só os itens que VALEM: o removido (a marca da 20261113000002) não conta
-    const r = await db().from(TABELA_DO_ITEM).select('id').eq('tenant_id', tenantId).eq('orcamento_id', data.id).is('removido_em', null)
+    // TODOS os itens, os removidos também (medido pela mutação L5, 13/11/2026): esta contagem só reconhece a travessia que parou entre as duas
+    // escritas — o orçamento SEM item nenhum. O orçamento com todos os itens removidos é um orçamento real: vai à ATUALIZAÇÃO (que confere o
+    // arquivado, relê os percentuais e avisa da edição manual), nunca à retomada, que só insere
+    const r = await db().from(TABELA_DO_ITEM).select('id').eq('tenant_id', tenantId).eq('orcamento_id', data.id)
     if (r.error) falhou(TABELA_DO_ITEM, r.error)
     return { id: data.id as string, numero: data.numero as number, itens: (r.data ?? []).length }
 }

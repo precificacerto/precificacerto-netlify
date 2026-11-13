@@ -609,6 +609,28 @@ describe('(7) o gatilho do "sim" ENCADEIA travessia -> cálculo -> etapa do pre�
         expect(r.aviso).toBeUndefined()
         nenhumDelete()
     })
+    it('o orçamento com TODOS os itens removidos é um orçamento real: vai à atualização — o arquivado recusa, e nada é inserido nele', async () => {
+        await atravessarNoSim(T, LEV, naEtapa)
+        for (const i of estado.db.orcamentista_orcamento_item) i.removido_em = '2026-11-13T12:00:00.000Z'
+        orcamento1().deleted_at = '2026-11-13T12:30:00.000Z'
+        const linhas = estado.db.orcamentista_orcamento_item.length
+        expect((await atravessarNoSim(T, LEV, naEtapa, reenvio.fn)).paraOVendedor).toBe(fraseDoOrcamentoArquivado(1))
+        expect(estado.db.orcamentista_orcamento_item).toHaveLength(linhas)
+        // não arquivado: a atualização insere os itens do levantamento e RELÊ o cabeçalho
+        orcamento1().deleted_at = null
+        estado.db.orcamentista_levantamento[0].comissao_percentual = 9
+        expect((await atravessarNoSim(T, LEV, naEtapa, reenvio.fn)).rastro).toContain('atualizacao=sim novos=3 mudados=0 removidos=0 cabecalho=sim')
+        expect(orcamento1().comissao_percentual).toBe(9)
+        nenhumDelete()
+    })
+    it('o MUDADO leva o código do vidro do levantamento: o código de antes não fica (sem código no levantamento, nulo)', async () => {
+        await atravessarNoSim(T, LEV, naEtapa)
+        comFamilia('PVC')
+        const item = estado.db.orcamentista_orcamento_item.find((i) => i.levantamento_item_id === 'li-1') as Linha
+        item.vidro_codigo = 'VIN05'
+        expect((await atravessarNoSim(T, LEV, naEtapa, reenvio.fn)).rastro).toContain('mudados=1')
+        expect(item.vidro_codigo).toBeNull()
+    })
     it('atualizarOrcamento sem mudança NÃO GRAVA nada', async () => {
         await atravessarNoSim(T, LEV, naEtapa)
         comFamilia('PVC')

@@ -6401,6 +6401,13 @@ describe('(42) O ORÇAMENTO ATUALIZADO COM O MESMO NÚMERO, na conversa (dono do
         expect(o).toEqual(expect.objectContaining({ editado_manualmente_em: '2026-11-02T10:00:00.000Z', editado_manualmente_por: 'u-tela' }))
         expect(Date.parse(String(o.atualizado_em))).toBeGreaterThan(Date.parse('2026-11-02T10:00:00.000Z'))
     })
+    it('a edição manual substituída é dita TAMBÉM quando o arquivo não chega: a falta do envio, e o aviso depois dela', async () => {
+        await fecharDp02('Casa do João')
+        const [o] = estado.db.orcamentista_orcamento
+        Object.assign(o, { atualizado_em: '2026-11-01T10:00:00.000Z', editado_manualmente_em: '2026-11-02T10:00:00.000Z', editado_manualmente_por: 'u-tela' })
+        formalPorTexto()
+        expect(await alterarParaAltura1200()).toBe(`${fraseDoEnvioQueFalhou(1, 'Casa do João')}\n\n${fraseDaEdicaoManualSubstituida(1)}`)
+    })
     it('o orçamento ARQUIVADO: a falta nomeada, o item do orçamento como estava, e nenhum arquivo novo', async () => {
         await fecharDp02('Casa do João')
         const [o] = estado.db.orcamentista_orcamento
