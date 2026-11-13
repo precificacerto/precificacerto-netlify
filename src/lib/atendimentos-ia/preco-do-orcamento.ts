@@ -15,7 +15,7 @@
  */
 import { calcularNoMotorDoProduto, tipoDeCalculoEfetivo } from '@/utils/motor-do-produto'
 import { formarPrecoDoProduto } from '@/utils/preco-do-produto'
-import { faltasDosTributosPorDentro } from '@/utils/tributo-por-dentro-informado'
+import { faltasDosTributosDoPreco } from '@/utils/tributo-por-dentro-informado'
 import { PRODUCT_PRICE_INFO_BASE } from '@/utils/product-price-info-base'
 import { pisCofinsDaReferenciaDoTenant } from '@/utils/ncm-pis-cofins'
 import { resolveReducoesDoItem } from '@/utils/classificacao-fiscal'
@@ -98,8 +98,8 @@ export function formarPrecoDoOrcamento(orcamento: OrcamentoNaPrecificacao, empre
     })
     // NULO NÃO É ZERO (10/11/2026), aqui como na tela: no Lucro Real e no Presumido, o ICMS ou o PIS/COFINS NÃO INFORMADOS (a UF da empresa sem
     // ICMS interno) não formam preço — a conta acima usa número, e a FALTA é decidida pelo valor informado, pela MESMA função da tela
-    // (`tributo-por-dentro-informado.ts`). Sem isso o servidor formaria o preço com o ICMS em zero, e a tela não.
-    const semTributo = faltasDosTributosPorDentro({ taxableRegime: regime, segmento: p._segmento, icmsPct: icmsDaUf, pisCofinsPct: pisCofins }).length > 0
+    // (`tributo-por-dentro-informado.ts`, com o preço formado acima). Sem isso o servidor formaria o preço com o ICMS em zero, e a tela não.
+    const semTributo = faltasDosTributosDoPreco({ taxableRegime: regime, preco: p, icmsPct: icmsDaUf, pisCofinsPct: pisCofins }).length > 0
     // o preço que a tela emite: só o positivo, e o não formado o zera (`zerarPrecoNaoFormado`)
     const venda = p.formado && !semTributo && p.finalPriceWithTaxes > 0 ? p.finalPriceWithTaxes : 0
     if (!(venda > 0)) faltas.push(FALTA_DO_PRECO_FORMADO)

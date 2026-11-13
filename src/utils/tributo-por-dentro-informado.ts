@@ -34,6 +34,19 @@ export function faltasDosTributosPorDentro(args: {
     return faltas
 }
 
+/**
+ * As MESMAS faltas, a partir do preço que `formarPrecoDoProduto` formou (o segmento é o que ele resolveu): é a forma que o servidor do orçamento I.A.
+ * usa (`preco-do-orcamento.ts`, 13/11/2026), para que a tela e o servidor decidam o preço não formado pela mesma condição.
+ */
+export function faltasDosTributosDoPreco(args: {
+    taxableRegime: string | null | undefined
+    preco: { _segmento: CalcType }
+    icmsPct: number | null | undefined
+    pisCofinsPct: number | null | undefined
+}): string[] {
+    return faltasDosTributosPorDentro({ taxableRegime: args.taxableRegime, segmento: args.preco._segmento, icmsPct: args.icmsPct, pisCofinsPct: args.pisCofinsPct })
+}
+
 /** Informado = um número finito, zero incluído. Nulo, indefinido e NaN são "não informado". */
 const informado = (v: number | null | undefined): v is number => typeof v === 'number' && Number.isFinite(v)
 
