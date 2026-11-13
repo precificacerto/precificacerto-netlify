@@ -145,6 +145,8 @@ const estado = {
     /** O Storage do servidor (o PDF do orçamento, 11/11/2026): caminho -> bytes. */
     storage: new Map<string, Uint8Array>(),
     ausentes: new Set<string>(),
+    /** Tabelas cuja LEITURA falha com um erro que não é de tabela ausente (o vidro padrão que "falhou", 13/11/2026). */
+    leiturasQueFalham: new Set<string>(),
     /** "tabela.coluna" que o banco falso não tem: ler a coluna é 42703, como o PostgREST antes da migração que a cria. */
     colunasAusentes: new Set<string>(),
     /** A CHECK de `pergunta` como era antes da migração do apanhado: o valor novo é recusado com 23514. */
@@ -268,6 +270,7 @@ function montar() {
     estado.documentoDoOrcamentoStatus = null
     estado.documentosDoOrcamento = []
     estado.ausentes = new Set()
+    estado.leiturasQueFalham = new Set()
     estado.colunasAusentes = new Set()
     estado.respostaPeloPrompt = null
     estado.llmPeloPrompt = null
@@ -390,6 +393,7 @@ jest.mock('@/supabase/admin', () => ({
                     return Promise.resolve({ data: devolveAtingidas ? atingidas.map(projetar) : null, error: null }).then(ok, erro)
                 }
                 if (estado.ausentes.has(tabela)) return naOnda(ausente()).then(ok, erro)
+                if (estado.leiturasQueFalham.has(tabela)) return naOnda({ data: null, error: { code: '57014', message: `leitura de ${tabela} cancelada (falha simulada)` } }).then(ok, erro)
                 if (colunaQueFalta) return naOnda({ data: null, error: { code: '42703', message: `column ${tabela}.${colunaQueFalta} does not exist` } }).then(ok, erro)
                 // como o PostgREST: ordenar por coluna que a tabela não tem é erro, não lista desordenada. A Detalhe TEM `ordem` em produção (nula
                 // nas linhas de antes da reimportação — medido em 26/10/2026), e as linhas que os casos acrescentam vêm sem ela: aqui ela entra nula,
@@ -489,6 +493,7 @@ jest.mock('@/supabase/admin', () => ({
 const rota = require('@/pages/api/atendimentos-ia/inbound').default as (req: NextApiRequest, res: NextApiResponse) => Promise<unknown>
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const conversa = require('@/lib/atendimentos-ia/conversa-da-ia') as typeof import('@/lib/atendimentos-ia/conversa-da-ia')
+const { traduzirVidro } = require('@/lib/atendimentos-ia/vidro-da-tabela') as typeof import('@/lib/atendimentos-ia/vidro-da-tabela')
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { textoDoSistema } = require('@/lib/atendimentos-ia/pedido-ao-modelo') as typeof import('@/lib/atendimentos-ia/pedido-ao-modelo')
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -3633,6 +3638,41 @@ describe('(29) o vidro copiado, a forma canônica e a dedupe por equivalência (
         expect(linhaIa().pop()).toMatch(/ vidro_padrao=1(\s|$)/)
     })
 
+    it('NENHUM TURNO FECHA COM O CÓDIGO PENDURADO: o padrão gravou VTIN05; a leitura deixa de vir e o vendedor troca o vidro — vidro_codigo NULO, e o custo cai no texto', async () => {
+        estado.db.orcamentista_vidro_padrao = [{ ...PADRAO_JANELA_CORRER }]
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, vidro: undefined }], escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar('Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco, sem arremate interno, arremate externo com folga de 50')
+        expect(itensDe(levantamentos()[0].id)[0]).toMatchObject({ vidro: 'VIDRO TEMPERADO INCOLOR 05MM', vidro_codigo: 'VTIN05' })
+        // a leitura falha no turno seguinte (os dois caminhos: a falha e a tabela ausente), e o vendedor troca o vidro
+        for (const sem of ['falhou', 'ausente'] as const) {
+            if (sem === 'falhou') estado.leiturasQueFalham.add('orcamentista_vidro_padrao'); else { estado.leiturasQueFalham.clear(); estado.ausentes.add('orcamentista_vidro_padrao') }
+            const vidro = sem === 'falhou' ? 'temperado 8mm' : 'temperado 10mm'
+            llmResponde({ nome: 'Casa do João', alteracao: true, itens: [{ ordem: 1, vidro }] })
+            await chamar(`Casa do João: vidro ${vidro}`)
+            expect(itensDe(levantamentos()[0].id)[0]).toMatchObject({ vidro, vidro_codigo: null })
+        }
+        // e o custo cai no TEXTO: sem código escolhido, o vidro é traduzido do que o vendedor disse (`traduzirVidro`)
+        expect(traduzirVidro('temperado 10mm', itensDe(levantamentos()[0].id)[0].vidro_codigo as string | null, ITENS_DE_VIDRO)).not.toHaveProperty('como', 'codigo')
+    })
+
+    it('SEM a leitura e SEM troca do vidro: o código que estava fica (não se apaga por falha de leitura)', async () => {
+        estado.db.orcamentista_vidro_padrao = [{ ...PADRAO_JANELA_CORRER }]
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, vidro: undefined }], escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar('Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco, sem arremate interno, arremate externo com folga de 50')
+        estado.leiturasQueFalham.add('orcamentista_vidro_padrao')
+        llmResponde({ nome: 'Casa do João', alteracao: true, itens: [{ ordem: 1, largura_mm: 1300 }] })
+        await chamar('Casa do João: largura 1300')
+        expect(itensDe(levantamentos()[0].id)[0]).toMatchObject({ largura_mm: 1300, vidro: 'VIDRO TEMPERADO INCOLOR 05MM', vidro_codigo: 'VTIN05' })
+    })
+
+    it('A LEITURA QUE FALHOU É NOMEADA: o vidro é perguntado com a frase que diz por quê, e o log diz falhou; a tabela ausente não muda', async () => {
+        estado.leiturasQueFalham.add('orcamentista_vidro_padrao')
+        llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, vidro: undefined }], escolhas: ESCOLHAS_QUE_FECHAM })
+        await chamar('Levantamento Casa do João: DP-02 1200 x 1000, 1 unidade, branco, sem arremate interno, arremate externo com folga de 50')
+        expect(String(estado.envios.at(-1)?.corpo.Body)).toContain(conversa.FRASE_DO_VIDRO_PADRAO_QUE_NAO_FOI_LIDO)
+        expect(linhaIa().pop()).toMatch(/ vidro_padrao_leitura=falhou(\s|$)/)
+    })
+
     it('a tabela de padrões AUSENTE (a migração não aplicada): nenhum padrão, o log diz por quê, e nada do vidro_codigo é escrito', async () => {
         estado.ausentes.add('orcamentista_vidro_padrao')
         llmResponde({ nome: 'Casa do João', itens: [{ ...DP02, vidro: undefined }], escolhas: ESCOLHAS_QUE_FECHAM })
@@ -3640,6 +3680,8 @@ describe('(29) o vidro copiado, a forma canônica e a dedupe por equivalência (
         expect(itensDe(levantamentos()[0].id)[0].vidro).toBeNull()
         expect('vidro_codigo' in itensDe(levantamentos()[0].id)[0]).toBe(false)
         expect(linhaIa().pop()).toMatch(/ vidro_padrao_leitura=sem_migracao(\s|$)/)
+        // e a tabela ausente NÃO ganha a frase da leitura que falhou (o caminho do sem_migracao fica como estava)
+        expect(String(estado.envios.at(-1)?.corpo.Body)).not.toContain(conversa.FRASE_DO_VIDRO_PADRAO_QUE_NAO_FOI_LIDO)
     })
 
     it('o prompt e a ferramenta dizem a regra: copiar o vidro, nunca completar; o padrão em vidro_padrao', async () => {

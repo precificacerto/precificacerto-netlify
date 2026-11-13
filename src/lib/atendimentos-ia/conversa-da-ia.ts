@@ -221,6 +221,8 @@ import { lerVidrosPadraoDaConta, vidroCodigoDaEsquadria, vidroNoConsiderado, vid
 import { DESCRICAO_DA_FALA, blocoDoContexto, falaValida, lerContextoDoAtendimento, temDinheiro, type ContextoLido, type FalaLida } from '@/lib/atendimentos-ia/contexto-do-atendimento'
 
 export const PREFIXO_DO_LOG_DA_IA = '[IA]'
+/** A leitura dos padrões de vidro que FALHOU (não a tabela ausente), nomeada ao vendedor — por que o vidro de cada esquadria é perguntado. */
+export const FRASE_DO_VIDRO_PADRAO_QUE_NAO_FOI_LIDO = 'Falta: o vidro padrão da empresa não pôde ser lido agora, e por isso pergunto o vidro de cada esquadria.'
 export const NOME_DA_FERRAMENTA = 'registrar_levantamento'
 const EM_MONTAGEM = 'EM_MONTAGEM'
 const COMPLETO = 'COMPLETO'
@@ -958,8 +960,11 @@ async function gravarLevantamento(
     itens: ItemDoLevantamento[], estado: string,
     /** As colunas do levantamento que esta mensagem muda (os dados do cliente, as condições e o vendedor, 20261106000002); vazio, nenhuma. */
     colunas: Record<string, unknown> = {},
-    /** O `vidro_codigo` de cada esquadria (o do padrão, ou nulo — `vidroCodigoDaEsquadria`, 13/11/2026); ausente, a coluna não é escrita. */
-    vidroCodigoDe?: (item: ItemDoLevantamento) => string | null,
+    /**
+     * O `vidro_codigo` de cada esquadria (13/11/2026): o código do padrão, ou nulo (`vidroCodigoDaEsquadria`); `undefined` = a coluna não é escrita
+     * nesta esquadria. Recebe a gravada (`anterior`), para quem decide saber se o vidro MUDOU neste turno.
+     */
+    vidroCodigoDe?: (item: ItemDoLevantamento, anterior: ItemGravado | undefined) => string | null | undefined,
 ): Promise<string> {
     const agora = new Date().toISOString()
     let id: string
@@ -982,7 +987,8 @@ async function gravarLevantamento(
     const novos: Array<Record<string, unknown>> = []
     for (const item of itens) {
         const anterior = antes.find((a) => a.ordem === item.ordem)
-        const codigo = vidroCodigoDe ? { vidro_codigo: vidroCodigoDe(item) } : {}
+        const vidroCodigo = vidroCodigoDe?.(item, anterior)
+        const codigo = vidroCodigo === undefined ? {} : { vidro_codigo: vidroCodigo }
         if (!anterior) { novos.push({ tenant_id: tenantId, levantamento_id: id, ...camposDoItem(item), ...codigo }); continue }
         if (JSON.stringify(camposDoItem(anterior)) === JSON.stringify(camposDoItem(item))) continue
         const { data: tocados, error } = await supabaseAdmin.from('orcamentista_levantamento_item').update({ ...camposDoItem(item), ...codigo, atualizado_em: agora })
@@ -1773,8 +1779,10 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         if (!(nadaMudou && alvo && alvo.estado === estado && Object.keys(congelar).length === 0)) {
             gravando = true
             rastro.levantamento = await gravarLevantamento(c.tenantId, alvo ? alvo.donoId : c.remetenteId, nome, alvo, aplicada.itens, estado, { ...colunasQueMudam, ...congelar },
-                // o código do vidro padrão (13/11/2026): só com os padrões LIDOS; sem a leitura, a coluna não é escrita (nunca apaga um código por falha de leitura)
-                vidrosDaConta?.ok ? (i) => vidroCodigoDaEsquadria(vidrosDaConta!, i, tabela.candidatos) : undefined)
+                // O CÓDIGO DO VIDRO PADRÃO (13/11/2026): com os padrões LIDOS, o código do padrão (ou nulo, para o vidro dito); SEM a leitura, não se
+                // adivinha o código — mas "nenhum turno fecha com vidro_codigo apontando para vidro que não é mais o da esquadria" (dono do produto,
+                // 13/11/2026): o vidro que MUDOU neste turno grava nulo; o que não mudou fica como estava (não se apaga por falha de leitura)
+                (i, anterior) => (vidrosDaConta?.ok ? vidroCodigoDaEsquadria(vidrosDaConta, i, tabela.candidatos) : anterior && anterior.vidro !== i.vidro ? null : undefined))
             gravando = false
         }
         gravado = true
@@ -1806,6 +1814,11 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
                 const frases = foraDaLista.map((x) => `${aplicada.itens.length > 1 ? `Esquadria ${x.ordem}: ` : ''}${fraseDaCorForaDaLista(x.cor, cores)}`)
                 const resto = pendencias.filter((p) => !(p.tipo === 'CAMPO' && p.campo === 'cor_perfil' && foraDaLista.some((x) => x.ordem === p.ordem)))
                 return await falar([...frases, ...(resto.length ? [perguntaPara(resto, aplicada.itens.length, proposta, filtro.jaDito)] : [])].join('\n'), 'perguntou')
+            }
+            // A LEITURA DO VIDRO PADRÃO QUE FALHOU É NOMEADA (dono do produto, 13/11/2026: "silêncio é o que a gente não aceita"): com o vidro
+            // em falta, a pergunta vai com a frase fixa que diz por quê — nunca reescrita pelo modelo. A tabela ausente (sem_migracao) não muda
+            if (rastro.vidroPadraoLeitura === 'falhou' && pendencias.some((p) => p.tipo === 'CAMPO' && p.campo === 'vidro')) {
+                return await responder([FRASE_DO_VIDRO_PADRAO_QUE_NAO_FOI_LIDO, perguntaPara(pendencias, aplicada.itens.length, proposta, filtro.jaDito)].join('\n'), 'perguntou')
             }
             // UMA pergunta com TUDO o que falta (03/11/2026), redigida pelo modelo
             return await falar(perguntaPara(pendencias, aplicada.itens.length, proposta, filtro.jaDito), 'perguntou')
