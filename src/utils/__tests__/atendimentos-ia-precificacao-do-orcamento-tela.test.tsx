@@ -23,6 +23,7 @@ import {
     type GravacaoDaPrecificacao, type ItemNaPrecificacao, type OrcamentoNaPrecificacao,
 } from '@/lib/atendimentos-ia/precificacao-do-orcamento'
 import { FALTA_DO_ICMS, FALTA_DO_PIS_COFINS } from '@/utils/tributo-por-dentro-informado'
+import { computeIvaDualOutside } from '@/utils/iva-dual-outside'
 
 ;(globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true
 Object.defineProperty(window, 'matchMedia', {
@@ -621,5 +622,39 @@ describe('Produtos: o tributo por dentro não informado não vira zero', () => {
         const cargas = gravadosEmProducts().map((e) => e.carga as { icms_pct?: unknown; pis_cofins_pct?: unknown }).filter((c) => c && 'icms_pct' in c)
         expect(cargas.length).toBeGreaterThan(0)
         for (const c of cargas) { expect(c.icms_pct).toBeNull(); expect(c.pis_cofins_pct).toBeNull() }
+    })
+    // O IVA GRAVADO SEGUE A REGRA DA TELA (decisão (a) do dono do produto, 13/11/2026): no Lucro Real o ICMS INFORMADO entra no IVA, e o nulo não
+    // grava nada; no Simples Híbrido nenhum dos dois entra, informado ou não. Com IBS 1% e CBS 9%, o ICMS muda a base do IBS/CBS (o código 4).
+    const ibsGravado = () => gravadosEmProducts().map((e) => e.carga as { ibs_value?: unknown }).filter((c) => c && 'ibs_value' in c).map((c) => Number(c.ibs_value))
+    const comIva = (icms: number | null, pis: number | null) => ({ ...PRODUTO_1008, icms_pct: icms, pis_cofins_pct: pis, ibs_pct: 1, cbs_pct: 9 }) as unknown as typeof PRODUTO_1008
+    it('Lucro Real: no salvar, nulo e zero informado dão resultados DIFERENTES — o nulo não grava; o zero e o 17 gravam IBS diferentes', async () => {
+        await clicar(botao(await montar({ isEditingMode: true, product: comIva(null, 7.6775), itemsFromApi: ITENS_DA_API }), 'Salvar alterações'))
+        expect(gravadosEmProducts()).toEqual([])
+        await clicar(botao(await montar({ isEditingMode: true, product: comIva(0, 7.6775), itemsFromApi: ITENS_DA_API }), 'Salvar alterações'))
+        const comZero = ibsGravado()
+        banco.escritas.length = 0
+        await clicar(botao(await montar({ isEditingMode: true, product: comIva(17, 7.6775), itemsFromApi: ITENS_DA_API }), 'Salvar alterações'))
+        const comDezessete = ibsGravado()
+        expect(comZero.length).toBeGreaterThan(0)
+        expect(comDezessete.length).toBeGreaterThan(0)
+        expect(comZero[0]).toBeGreaterThan(0)
+        expect(comDezessete[0]).not.toBe(comZero[0])
+        // e o IBS gravado é o da conta COM o ICMS informado sobre a base gravada — não o da mesma base com o ICMS em zero (o preço mudar sozinho
+        // não prova que o ICMS entrou no IVA)
+        const carga = gravadosEmProducts().map((e) => e.carga as { sale_price_base?: number }).find((c) => c && typeof c.sale_price_base === 'number')!
+        const conta = (icms: number) => computeIvaDualOutside({ opInterna: Number(carga.sale_price_base), despAcessorias: 0, icmsPct: icms, pisCofinsPct: 7.6775, issPct: 0, isPct: 0, ibsPct: 1, cbsPct: 9, ipiPct: 0 }).ibsValue
+        expect(comDezessete[0]).toBeCloseTo(conta(17), 6)
+        expect(comDezessete[0]).not.toBeCloseTo(conta(0), 2)
+    })
+    it('Simples Híbrido: o ICMS e o PIS/COFINS NÃO entram no IVA gravado — 17 informado e nulo gravam o MESMO IBS (a regra da tela)', async () => {
+        const hibrido = { ...USUARIO, taxableRegime: 'SIMPLES_HIBRIDO' } as typeof USUARIO
+        await clicar(botao(await montar({ isEditingMode: true, product: comIva(null, null), itemsFromApi: ITENS_DA_API }, hibrido), 'Salvar alterações'))
+        const comNulo = ibsGravado()
+        banco.escritas.length = 0
+        await clicar(botao(await montar({ isEditingMode: true, product: comIva(17, 7.6775), itemsFromApi: ITENS_DA_API }, hibrido), 'Salvar alterações'))
+        const comValor = ibsGravado()
+        expect(comNulo.length).toBeGreaterThan(0)
+        expect(comNulo[0]).toBeGreaterThan(0)
+        expect(comValor[0]).toBe(comNulo[0])
     })
 })

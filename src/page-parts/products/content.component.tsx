@@ -1298,8 +1298,13 @@ export const Content: FC<ContentProps> = ({
         const _iva2 = computeIvaDualOutside({
           opInterna: _opDentro,
           despAcessorias: terceirizadasSum,
-          icmsPct: icmsPct || 0,
-          pisCofinsPct: pisCofinsLRPct || 0,
+          // A REGRA DA TELA (`formarPrecoDoProduto`, `_ivaApplies`; decisão (a), 13/11/2026): no Lucro Real e no Presumido, o INFORMADO — o nulo
+          // não chega aqui: o salvar já recusou pela falta que o ProductPrice entrega (`faltasDosTributos`, acima). Medido em 13/11/2026: o
+          // ProductPrice só deixa de estar montado quando o alerta da carga horária o substitui, e é a MESMA condição (`isWorkloadBlocking`) que
+          // recusa o salvar antes. No Simples Híbrido nenhum dos dois entra no IVA, informado ou não; se o ICMS por fora compõe o IVA no Híbrido
+          // é pergunta ABERTA, do dono do produto, fora deste PR.
+          icmsPct: isLRorLP ? icmsPct : 0,
+          pisCofinsPct: isLRorLP ? pisCofinsLRPct : 0,
           issPct: 0, // EPIC-POR-FORA-V3/S1: produto é mercadoria (ISS=0). Campo ISS removido da UI.
           isPct: isPct || 0,
           ibsPct: _ibsEff2,

@@ -46,6 +46,10 @@ MUT = [
     ('R3 NaN conta como informado', T, "typeof v === 'number' && Number.isFinite(v)", "typeof v === 'number'"),
     ('R4 o texto vazio do banco vira 0', T, "    if (v === null || v === undefined || v === '') return null\n", "    if (v === null || v === undefined) return null\n"),
     ('R5 o PIS/COFINS deixa de ser exigido', T, "    if (tributoExisteNoSegmento(args.segmento, 'PIS_COFINS') && !informado(args.pisCofinsPct)) faltas.push(FALTA_DO_PIS_COFINS)\n", ""),
+    # o IVA gravado segue a regra da tela (decisão (a), 13/11/2026): o `|| 0` não volta, e o Híbrido não leva os dois ao IVA
+    ('I1 o IVA gravado volta a usar o ICMS com || 0 (o Híbrido leva o informado)', C, "          icmsPct: isLRorLP ? icmsPct : 0,\n", "          icmsPct: icmsPct || 0,\n"),
+    ('I2 o IVA gravado ignora o ICMS informado no Lucro Real', C, "          icmsPct: isLRorLP ? icmsPct : 0,\n", "          icmsPct: 0,\n"),
+    ('I3 o IVA gravado volta a usar o PIS/COFINS com || 0 (o Híbrido leva o informado)', C, "          pisCofinsPct: isLRorLP ? pisCofinsLRPct : 0,\n", "          pisCofinsPct: pisCofinsLRPct || 0,\n"),
     # o servidor do orçamento I.A. (o rebase sobre o #262/#263, 13/11/2026): sem a falta, ele formaria o preço com o ICMS da UF ausente em zero
     ('V1 o servidor forma o preço com o tributo nulo', PO, "    const venda = p.formado && !semTributo && p.finalPriceWithTaxes > 0", "    const venda = p.formado && p.finalPriceWithTaxes > 0"),
 ]
