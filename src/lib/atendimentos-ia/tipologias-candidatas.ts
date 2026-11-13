@@ -123,7 +123,7 @@ function faixaDasQueSobraram(nome: string, mins: number[], maxs: number[]): stri
 }
 
 export const PEDIDO_DE_CONFIRMAR_A_MEDIDA =
-    'Confirme a medida ou descreva a esquadria: janela ou porta, como abre (correr, abrir ou maxim-ar) e se tem persiana.'
+    'Confirme a medida ou descreva o item: janela ou porta, como abre (correr, abrir ou maxim-ar) e se tem persiana.'
 
 /**
  * NENHUMA tipologia cabe (decisão 2): a medida do item e a faixa das que sobraram (depois do filtro porta × janela), por medida; a

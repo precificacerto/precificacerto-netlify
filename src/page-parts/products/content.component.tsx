@@ -1789,7 +1789,7 @@ export const Content: FC<ContentProps> = ({
   const dinheiroOuTraco = (v: number | null | undefined) => (v == null ? '—' : `R$ ${getMonetaryValue(v)}`)
   const itemDoOrcamento = (id: string) => orcamento?.itens.find((i) => i.id === id)
   const colunasDoOrcamento: ColumnsType<IItemProductModel> = [
-    { title: 'Esquadria', dataIndex: 'name', key: 'name' },
+    { title: 'Item', dataIndex: 'name', key: 'name' },
     { title: 'Quantidade', dataIndex: 'quantity', key: 'quantity', align: 'right' },
     { title: 'Bruto', key: 'bruto', align: 'right', render: (_, r) => dinheiroOuTraco(itemDoOrcamento(String(r.id))?.custo_bruto_materiais) },
     { title: 'Líquido', key: 'liquido', align: 'right', render: (_, r) => dinheiroOuTraco(itemDoOrcamento(String(r.id))?.custo_liquido_materiais) },

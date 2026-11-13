@@ -236,7 +236,7 @@ describe('os motivos nomeados — onde NÃO há natural, nunca se adivinha', () 
     it('duas candidatas que só diferem pela LINHA: LINHA, com as linhas — falta nomeada, e a frase as cita', () => {
         const duasLinhas = [...CANDIDATOS, { ...CANDIDATOS.find((c) => c.tipologia === 'DP-02')!, tipologia: 'XX-02', descricao: 'JANELA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 60', linha: 'PVC WOLFF EUROPA 60' }]
         expect(padrao('janela de correr', 'janela', duasLinhas)).toEqual({ motivo: 'LINHA', candidatas: ['DP-02', 'XX-02'], linhas: ['PVC WOLFF EUROPA 42', 'PVC WOLFF EUROPA 60'] })
-        expect(fraseDaLinhaSemPadrao(['PVC WOLFF EUROPA 42', 'PVC WOLFF EUROPA 60'])).toBe('Falta de configuração — a linha de produto padrão da empresa: esta esquadria existe nas linhas PVC WOLFF EUROPA 42 e PVC WOLFF EUROPA 60, e a base de conhecimento ainda não diz qual é a da casa. Cadastre a linha padrão na base de conhecimento.')
+        expect(fraseDaLinhaSemPadrao(['PVC WOLFF EUROPA 42', 'PVC WOLFF EUROPA 60'])).toBe('Falta de configuração — a linha de produto padrão da empresa: este item existe nas linhas PVC WOLFF EUROPA 42 e PVC WOLFF EUROPA 60, e a base de conhecimento ainda não diz qual é a da casa. Cadastre a linha padrão na base de conhecimento.')
     })
     it('sem a abertura ou sem trecho dela: sem padrão', () => {
         expect(tipologiaPadrao(item(), null, [trecho('porta de correr', 'porta')], CANDIDATOS)).toEqual({ motivo: 'SEM_ABERTURA' })

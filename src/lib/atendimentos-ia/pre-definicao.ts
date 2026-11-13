@@ -57,8 +57,8 @@ export const COMPLETA = 'COMPLETA'
  */
 export const PERGUNTAS_DA_TIPOLOGIA = [
     'É janela ou porta? E como ela abre: de correr, de abrir, maxim-ar, pivotante ou fixa?',
-    'Me descreva a esquadria como ela é na obra: janela ou porta, e como abre (correr, abrir, maxim-ar, pivotante ou fixa).',
-    'Para eu achar a esquadria certa: é janela ou porta, e ela corre, gira, é maxim-ar ou é fixa?',
+    'Me descreva o item como ele é na obra: janela ou porta, e como abre (correr, abrir, maxim-ar, pivotante ou fixa).',
+    'Para eu achar o item certo: é janela ou porta, e ele corre, gira, é maxim-ar ou é fixo?',
 ] as const
 
 /**
@@ -71,17 +71,17 @@ export const NADA_DITO: JaDito = { abertura: false, tipo: false }
 const PERGUNTAS_COM_ABERTURA_DITA = [
     'Como ela abre: de correr, de abrir, maxim-ar, pivotante ou fixa?',
     'E ela abre como: de correr, de abrir, maxim-ar, pivotante ou fixa?',
-    'Para eu achar a esquadria certa: ela corre, gira, é maxim-ar, pivotante ou fixa?',
+    'Para eu achar o item certo: ele corre, gira, é maxim-ar, pivotante ou fixo?',
 ] as const
 const PERGUNTAS_COM_TIPO_DITO = [
     'É janela ou porta?',
     'Ela é janela ou porta?',
-    'Para eu achar a esquadria certa: é janela ou porta?',
+    'Para eu achar o item certo: é janela ou porta?',
 ] as const
 const PERGUNTAS_COM_TUDO_DITO = [
-    'Não achei essa esquadria no catálogo com o que você descreveu. Me diga como ela é na obra, do jeito que você vê.',
-    'Me descreva de novo a esquadria, como ela é na obra: não achei uma igual no catálogo.',
-    'Para eu achar a esquadria certa, me conte de novo como ela é — não encontrei uma igual no catálogo.',
+    'Não achei esse item no catálogo com o que você descreveu. Me diga como ele é na obra, do jeito que você vê.',
+    'Me descreva de novo o item, como ele é na obra: não achei um igual no catálogo.',
+    'Para eu achar o item certo, me conte de novo como ele é — não encontrei um igual no catálogo.',
 ] as const
 /** As formas da pergunta da tipologia para o que já foi dito: a primeira é a fixa, as outras são as reformulações. */
 export function perguntasDaTipologia(jaDito: JaDito = NADA_DITO): readonly string[] {
@@ -105,7 +105,7 @@ export const PERGUNTA_DO_CAMPO: Record<CampoDaPreDefinicao, string> = {
     vidro: 'Qual o vidro?',
     local: 'Qual o local da obra?',
     tipo_edificacao: 'Qual o tipo de edificação?',
-    distribuicao_por_pavimento: 'Como as esquadrias se distribuem pelos pavimentos?',
+    distribuicao_por_pavimento: 'Como os itens se distribuem pelos pavimentos?',
 }
 
 /**

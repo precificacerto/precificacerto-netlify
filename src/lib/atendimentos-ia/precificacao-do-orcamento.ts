@@ -242,7 +242,7 @@ export function faltasDaPrecificacao(args: {
 
 /** O rótulo de cada esquadria na lista de itens da tela. */
 export const rotuloDoItem = (i: Pick<ItemNaPrecificacao, 'ordem' | 'tipologia' | 'largura_mm' | 'altura_mm'>) =>
-    `Esquadria ${i.ordem}${i.tipologia ? ` — ${i.tipologia}` : ''}${i.largura_mm && i.altura_mm ? ` ${i.largura_mm} x ${i.altura_mm} mm` : ''}`
+    `Item ${i.ordem}${i.tipologia ? ` — ${i.tipologia}` : ''}${i.largura_mm && i.altura_mm ? ` ${i.largura_mm} x ${i.altura_mm} mm` : ''}`
 
 /** O que a tela grava no orçamento ao salvar a precificação — e nada em `products`. */
 export type GravacaoDaPrecificacao = FiscalDaTela & {

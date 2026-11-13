@@ -484,7 +484,7 @@ export function proximaPendencia(itens: readonly ItemDoLevantamento[], definicao
 
 /** Como cada campo é pedido quando vai junto com outros ("me diga a largura (em mm), a cor do perfil e o vidro"). */
 const NOME_DO_CAMPO: Record<CampoDaEsquadria, string> = {
-    tipologia: 'o tipo de esquadria', largura_mm: 'a largura (em mm)', altura_mm: 'a altura (em mm)', quantidade: 'quantas unidades', cor_perfil: 'a cor do perfil', vidro: 'o vidro',
+    tipologia: 'o tipo do item', largura_mm: 'a largura (em mm)', altura_mm: 'a altura (em mm)', quantidade: 'quantas unidades', cor_perfil: 'a cor do perfil', vidro: 'o vidro',
 }
 const eLista = (xs: readonly string[]) => (xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} e ${xs[xs.length - 1]}`)
 
@@ -518,7 +518,7 @@ export function perguntaDasPendencias(ps: readonly Pendencia[], nItens: number, 
         const valores = lista.flatMap((p) => (p.tipo === 'VARIAVEL' ? [p] : []))
         if (valores.length) partes.push(perguntaDasVariaveis(valores.map((p) => nomeDaVariavelSemPadrao(p.variavel)), valores[0].tipologia))
         const texto = partes.join(' ')
-        return nItens > 1 ? `Esquadria ${ordem}: ${texto}` : texto
+        return nItens > 1 ? `Item ${ordem}: ${texto}` : texto
     })
     return linhas.join('\n')
 }
@@ -537,5 +537,5 @@ export function perguntaDaPendencia(p: Pendencia, nItens: number, jaDito: JaDito
         : p.tipo === 'FAMILIA' ? fraseDeQualFamilia(p.tipologia, p.opcoes)
             : p.tipo === 'VARIAVEL' ? perguntaDasVariaveis([nomeDaVariavelSemPadrao(p.variavel)], p.tipologia)
                 : perguntaDaEscolha(p.pendente)
-    return nItens > 1 ? `Esquadria ${p.ordem}: ${pergunta}` : pergunta
+    return nItens > 1 ? `Item ${p.ordem}: ${pergunta}` : pergunta
 }

@@ -106,8 +106,8 @@ export const fraseJaAtravessado = (levantamento: number, orcamento: number) =>
     `O levantamento ${levantamento} já tem o orçamento ${orcamento}: a travessia não cria um segundo.`
 export const fraseNaoCompleto = (numero: number, estado: string) =>
     `o levantamento ${numero} completo: ele está "${estado}", e só o completo atravessa para o orçamento`
-export const fraseSemItens = (numero: number) => `as esquadrias do levantamento ${numero}: ele não tem nenhuma`
-export const fraseSemQuantidade = (ordem: number) => `a quantidade da esquadria ${ordem}: sem ela o item não atravessa (vazio não vira 1)`
+export const fraseSemItens = (numero: number) => `os itens do levantamento ${numero}: ele não tem nenhum`
+export const fraseSemQuantidade = (ordem: number) => `a quantidade do item ${ordem}: sem ela o item não atravessa (vazio não vira 1)`
 export const fraseDoNome = (numero: number) =>
     `o nome do cliente do levantamento ${numero}, com até ${LIMITE_DO_NOME} caracteres: o orçamento não nasce sem ele`
 

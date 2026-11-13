@@ -29,6 +29,7 @@ import { ErroNaoEncontrado, ErroSemMigracao, TABELA_DO_ITEM, TABELA_DO_ORCAMENTO
 import { lerPerfilDoVendedor } from './arquivo-do-levantamento'
 import { calcularOrcamento, ErroDoCalculo } from './orcamento-calculado'
 import type { ResultadoDaEtapa } from './cadeia-do-sim'
+import { fraseDoArquivoQueNaoChegou } from './arquivo-que-nao-chegou'
 import {
     ESTADO_COMPLETO, ErroDaTravessia, ErroJaAtravessado, faltasDoCongelado, origemNaTela, planoDaTravessia, PERCENTUAIS_COM_ZERO,
     type ClienteDoLevantamento, type ItemDaTravessia, type ItemDoLevantamentoNaTravessia, type LevantamentoNaTravessia, type ModoDaBase,
@@ -198,6 +199,14 @@ export type EtapaDoPrecoNoSim = (orcamentoId: string) => Promise<ResultadoDaEtap
  * a ÚNICA coisa que a conversa manda por texto quando o arquivo chegou; o resto (barras, aproveitamento, mão de obra) está no PDF.
  */
 export type ResultadoDoSim = { rastro: string; paraOVendedor: string | null; enviadoPara?: string; idDoEnvio?: string | null; questionamentos?: string }
+/**
+ * O QUE O VENDEDOR RECEBE quando a cadeia PARA antes do arquivo (dono do produto, 13/11/2026): o arquivo não chegou, e por quê — a falta
+ * nomeada, e nada mais. Nunca o resultado por texto (`arquivo-que-nao-chegou.ts`).
+ */
+const naoChegou = fraseDoArquivoQueNaoChegou
+/** O "sim" a um levantamento que JÁ virou orçamento: o orçamento não se refaz (nada se recalcula para trás), e o arquivo é o que está salvo. */
+export const fraseDoOrcamentoQueJaExiste = (numero: number) =>
+    naoChegou(null, `o levantamento já virou o orçamento ${numero}, e o arquivo dele está na seção Orçamentos I.A.`)
 /** Os questionamentos de um orçamento PARCIAL: uma linha por código, com o que falta. Sem falta, nulo — nada a perguntar. */
 export function fraseDosQuestionamentos(numero: number, faltas: ReadonlyArray<{ codigo_do_motor: string; frase: string; esquadria: number }>): string | null {
     if (faltas.length === 0) return null
@@ -209,7 +218,7 @@ export function fraseDosQuestionamentos(numero: number, faltas: ReadonlyArray<{ 
     }
     const linhas = [...porCodigo.entries()].map(([codigo, x]) => {
         const es = [...x.esquadrias].sort((a, b) => a - b)
-        const onde = `esquadria${es.length > 1 ? 's' : ''} ${es.join(', ')}`
+        const onde = `${es.length > 1 ? 'itens' : 'item'} ${es.join(', ')}`
         // a frase que já começa pelo código não o repete: o código vai uma vez, e as esquadrias no fim
         return x.frase.startsWith(codigo) ? `• ${x.frase.replace(/\.$/, '')} (${onde}).` : `• ${codigo} (${onde}): ${x.frase.replace(/\.$/, '')}.`
     })
@@ -220,9 +229,13 @@ export async function atravessarNoSim(tenantId: string, levantamentoId: string, 
     try {
         r = await atravessarLevantamento(tenantId, levantamentoId)
     } catch (e) {
-        if (e instanceof ErroJaAtravessado) return { rastro: `ja_existe=${e.orcamentoNumero} parou=travessia`, paraOVendedor: null }
-        if (e instanceof ErroDaTravessia) return { rastro: `recusou=${e.recusas.length} parou=travessia`, paraOVendedor: null }
-        return { rastro: `falhou parou=travessia motivo="${motivoDoLog(e)}"`, paraOVendedor: null }
+        if (e instanceof ErroJaAtravessado) {
+            return { rastro: `ja_existe=${e.orcamentoNumero} parou=travessia`, paraOVendedor: fraseDoOrcamentoQueJaExiste(e.orcamentoNumero) }
+        }
+        if (e instanceof ErroDaTravessia) {
+            return { rastro: `recusou=${e.recusas.length} parou=travessia`, paraOVendedor: naoChegou(null, `o levantamento não passou para o orçamento. Falta: ${e.recusas.join('; ')}`) }
+        }
+        return { rastro: `falhou parou=travessia motivo="${motivoDoLog(e)}"`, paraOVendedor: naoChegou(null, 'a passagem do levantamento para o orçamento falhou') }
     }
     const origens = PERCENTUAIS_COM_ZERO.map((p) => `${ROTULO_NO_LOG[p]}:${r.origens[p]}`).join(',')
     const travessia = `orcamento=${r.orcamento.numero} itens=${r.itens} faltas=${r.faltas.length}${r.retomada ? ' retomada=sim' : ''} origens=${origens}`
@@ -233,8 +246,8 @@ export async function atravessarNoSim(tenantId: string, levantamentoId: string, 
         doCalculo = `${travessia} calculo=ok liquido=${c.valor_total_liquido.toFixed(2)}${c.parcial ? ` parcial=sim faltas_de_preco=${c.faltas.length}` : ''}`
         questionamentos = fraseDosQuestionamentos(r.orcamento.numero, c.faltas)
     } catch (e) {
-        if (e instanceof ErroDoCalculo) return { rastro: `${travessia} calculo=recusou recusas=${e.recusas.length} parou=calculo motivo="${e.recusas.join(' | ').slice(0, 120)}"`, paraOVendedor: null }
-        return { rastro: `${travessia} calculo=falhou parou=calculo motivo="${motivoDoLog(e)}"`, paraOVendedor: null }
+        if (e instanceof ErroDoCalculo) return { rastro: `${travessia} calculo=recusou recusas=${e.recusas.length} parou=calculo motivo="${e.recusas.join(' | ').slice(0, 120)}"`, paraOVendedor: naoChegou(null, `o cálculo do orçamento ${r.orcamento.numero} recusou. Falta: ${e.recusas.join('; ')}`) }
+        return { rastro: `${travessia} calculo=falhou parou=calculo motivo="${motivoDoLog(e)}"`, paraOVendedor: naoChegou(null, `o cálculo do orçamento ${r.orcamento.numero} falhou`) }
     }
     try {
         const etapa = await etapaDoPreco(r.orcamento.id)
@@ -243,7 +256,7 @@ export async function atravessarNoSim(tenantId: string, levantamentoId: string, 
             ...(etapa.enviadoPara ? { enviadoPara: etapa.enviadoPara, idDoEnvio: etapa.idDoEnvio ?? null } : {}), ...(questionamentos ? { questionamentos } : {}),
         }
     } catch (e) {
-        return { rastro: `${doCalculo} precificacao=falhou parou=precificacao motivo="${motivoDoLog(e)}"`, paraOVendedor: null }
+        return { rastro: `${doCalculo} precificacao=falhou parou=precificacao motivo="${motivoDoLog(e)}"`, paraOVendedor: naoChegou(null, `a precificação do orçamento ${r.orcamento.numero} falhou`) }
     }
 }
 const ROTULO_NO_LOG: Readonly<Record<PercentualComZero, string>> = { comissao_percentual: 'comissao', reserva_tecnica_percentual: 'rt', lucro_projetado_percentual: 'lucro' }

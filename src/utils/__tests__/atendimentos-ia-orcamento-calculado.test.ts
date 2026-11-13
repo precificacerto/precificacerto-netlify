@@ -220,7 +220,7 @@ describe('(2b) a tabela é a VIGENTE; a congelada no levantamento só AVISA (don
         const r = await chamar(rota, 'POST', O1)
         expect(r.status).toBe(200)
         // 450 de bruto na vigente = 0,75 barra de R$ 600; na congelada, 0,75 × 700 = R$ 525
-        expect(r.corpo.avisos).toEqual(['Esquadria 1: o levantamento congelou a tabela "Wolff-velha.xlsx"; o cálculo usou a vigente (Wolff-nova.xlsx).'
+        expect(r.corpo.avisos).toEqual(['Item 1: o levantamento congelou a tabela "Wolff-velha.xlsx"; o cálculo usou a vigente (Wolff-nova.xlsx).'
             + ' Com os mesmos materiais, na tabela congelada o custo seria R$ 525,00 bruto e R$ 525,00 líquido, contra R$ 450,00 e R$ 450,00 na vigente (diferença −R$ 75,00 no líquido).'])
         // o preço gravado é o da VIGENTE: o aviso não muda nada do que foi calculado
         expect(estado.db.orcamentista_orcamento.find((o) => o.id === O1)!.valor_total_bruto).toBe(450 + 60 + 250 + 30)
@@ -342,7 +342,7 @@ describe('(3) a rota', () => {
         estado.db.orcamentista_orcamento_item = estado.db.orcamentista_orcamento_item.filter((i) => i.orcamento_id !== O2)
         const s = await chamar(rota, 'POST', O2)
         expect(s.status).toBe(422)
-        expect(s.corpo.recusas).toEqual(['as esquadrias do orçamento: ele não tem nenhum item'])
+        expect(s.corpo.recusas).toEqual(['os itens do orçamento: ele não tem nenhum'])
     })
 })
 

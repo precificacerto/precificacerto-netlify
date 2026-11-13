@@ -84,7 +84,7 @@ export const temNumero = (t: string) => SIMBOLO_DE_DINHEIRO.test(t) || QUALQUER_
 /** Só DINHEIRO: símbolo, palavra de dinheiro, centenas e grandezas por extenso. O dígito solto não conta. */
 export const temDinheiro = (t: string) => SIMBOLO_DE_DINHEIRO.test(t) || PALAVRA_DE_DINHEIRO.test(semAcento(t))
 
-export type FalaLida = { fala: string; motivo: 'usada' } | { fala: null; motivo: 'ausente' | 'longa' | 'numero' | 'sobre_valor' }
+export type FalaLida = { fala: string; motivo: 'usada' } | { fala: null; motivo: 'ausente' | 'longa' | 'numero' | 'sobre_valor' | 'esquadria' }
 
 /**
  * A fala que fala de VALOR cai (dono do produto, 08/11/2026): "Levantamento do <nome> em montagem. Valor só sai do cálculo do sistema, depois
@@ -101,5 +101,7 @@ export function falaValida(v: unknown): FalaLida {
     if (contarCaracteres(t) > LIMITE_DA_FALA) return { fala: null, motivo: 'longa' }
     if (temNumero(t)) return { fala: null, motivo: 'numero' }
     if (SOBRE_VALOR.test(semAcento(t).toLowerCase())) return { fala: null, motivo: 'sobre_valor' }
+    // "Item N" no lugar de "Esquadria N" (dono do produto, 13/11/2026): a fala que diz a palavra cai inteira, como a que traz número
+    if (/esquadria/i.test(t)) return { fala: null, motivo: 'esquadria' }
     return { fala: t, motivo: 'usada' }
 }

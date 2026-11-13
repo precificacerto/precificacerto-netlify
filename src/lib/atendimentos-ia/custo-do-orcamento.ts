@@ -136,7 +136,7 @@ const fraseSemValor = (caminho: CaminhoDoCusto, codigo: string) =>
             : `o preço por m² do vidro ${codigo}, na tabela de vidro: fica fora do custo`
 const valido = (v: number | null | undefined): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0
 const fraseSemBarras = (codigo: string) => `as barras do código ${codigo} no cálculo do levantamento`
-const fraseSemTempo = (referencia: string) => `o tempo de fabricação de ${referencia}`
+const fraseSemTempo = (referencia: string) => `o tempo de fabricação do ${referencia}`
 const FRASE_SEM_VALOR_DO_MINUTO = 'o valor do minuto da mão de obra: a configuração de mão de obra da empresa não fecha'
 
 /**

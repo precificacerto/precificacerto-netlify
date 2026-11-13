@@ -21,8 +21,8 @@ const material = (codigo: string, valor: number | null, bloco: Percentuais = COM
 // dois itens: o A é usado pelos dois (3.000 mm no 1, 1.000 mm no 2); o B só pelo 2
 const base = (): EntradaDoCusto => ({
     itens: [
-        { referencia: 'a esquadria 1 (DP-02)', minutos: 120, pecas: [{ codigo: 'A', comprimento_mm: 1500, quantidade: 2 }] },
-        { referencia: 'a esquadria 2 (JM-01)', minutos: 60, pecas: [{ codigo: 'A', comprimento_mm: 500, quantidade: 2 }, { codigo: 'B', comprimento_mm: 800, quantidade: 1 }] },
+        { referencia: 'item 1 (DP-02)', minutos: 120, pecas: [{ codigo: 'A', comprimento_mm: 1500, quantidade: 2 }] },
+        { referencia: 'item 2 (JM-01)', minutos: 60, pecas: [{ codigo: 'A', comprimento_mm: 500, quantidade: 2 }, { codigo: 'B', comprimento_mm: 800, quantidade: 1 }] },
     ],
     barras_por_codigo: { A: 1, B: 1 },
     materiais: { 'perfil:A': material('A', 600), 'perfil:B': material('B', 100) },
@@ -202,7 +202,7 @@ describe('FALTA DE PREÇO NÃO IMPEDE A EVOLUÇÃO (12/11/2026): o código sem p
     })
     it.each([
         ['o código sem as barras', (e: EntradaDoCusto) => { e.barras_por_codigo = { A: 1 } }, 'as barras do código B no cálculo do levantamento'],
-        ['a tipologia sem tempo', (e: EntradaDoCusto) => { e.itens = [e.itens[0], { ...e.itens[1], minutos: null }] }, 'o tempo de fabricação de a esquadria 2 (JM-01)'],
+        ['a tipologia sem tempo', (e: EntradaDoCusto) => { e.itens = [e.itens[0], { ...e.itens[1], minutos: null }] }, 'o tempo de fabricação do item 2 (JM-01)'],
         ['sem o valor do minuto', (e: EntradaDoCusto) => { e.valor_minuto = null }, 'o valor do minuto da mão de obra: a configuração de mão de obra da empresa não fecha'],
     ])('%s: RECUSA nomeada', (_, estragar, frase) => {
         const e = base()

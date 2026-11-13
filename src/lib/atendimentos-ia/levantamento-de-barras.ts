@@ -312,7 +312,7 @@ function listaDeNumeros(ns: number[]): string {
 }
 function prefixo(esquadrias: number[], tipologia?: string): string {
     if (!esquadrias.length) return ''
-    const quem = esquadrias.length > 1 ? `Esquadrias ${listaDeNumeros(esquadrias)}` : `Esquadria ${esquadrias[0]}`
+    const quem = esquadrias.length > 1 ? `Itens ${listaDeNumeros(esquadrias)}` : `Item ${esquadrias[0]}`
     return tipologia ? `${quem} (${tipologia}): ` : `${quem}: `
 }
 
@@ -345,7 +345,7 @@ export function levantarBarras(entrada: EntradaDoLevantamento): ResultadoDoLevan
         const indice = k + 1
         if (!Number.isInteger(e.quantidade) || e.quantidade <= 0) {
             parciais.push({ origem: 'ESQUADRIA', caminho: null, motivo: 'QUANTIDADE_DA_ESQUADRIA_INVALIDA', tipologia: e.tipologia, esquadria: indice, comTipologia: true,
-                texto: `a quantidade ${e.quantidade} não é válida: tem de ser um inteiro positivo.`, falta: `a quantidade da esquadria: ${e.quantidade} não é um inteiro positivo` })
+                texto: `a quantidade ${e.quantidade} não é válida: tem de ser um inteiro positivo.`, falta: `a quantidade do item: ${e.quantidade} não é um inteiro positivo` })
             return
         }
         const tipologia = Object.prototype.hasOwnProperty.call(entrada.tipologias, e.tipologia) ? entrada.tipologias[e.tipologia] : undefined

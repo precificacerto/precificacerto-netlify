@@ -152,7 +152,7 @@ export async function custoDoLevantamento(tenantId: string, fonte: FamiliasDaEmp
                 const m = calculo.maos[j]
                 const v = vidroDoItem[j]
                 return {
-                    referencia: `a esquadria ${calculo.d.esquadrias[j].numero} (${e.tipologia})`,
+                    referencia: `item ${calculo.d.esquadrias[j].numero} (${e.tipologia})`,
                     minutos: m && 'minutosPorUnidade' in m ? m.minutosPorUnidade * m.quantidade : null,
                     pecas: e.pecas.map((p) => ({ codigo: p.codigo, comprimento_mm: p.comprimento_mm, quantidade: p.quantidade })),
                     insumos: e.insumos.map((i) => ({ codigo: i.codigo, quantidade: i.quantidade * e.quantidade })),
@@ -172,6 +172,6 @@ export async function custoDoLevantamento(tenantId: string, fonte: FamiliasDaEmp
         }
     })
     if (recusas.length) return { ok: false, recusas }
-    if (maoDeObra === null || porItem.some((i) => i === undefined)) return { ok: false, recusas: ['o custo de todas as esquadrias: alguma ficou sem cálculo'] }
+    if (maoDeObra === null || porItem.some((i) => i === undefined)) return { ok: false, recusas: ['o custo de todos os itens: algum ficou sem cálculo'] }
     return { ok: true, itens: porItem as CustoDoItem[], maoDeObra, faltas }
 }

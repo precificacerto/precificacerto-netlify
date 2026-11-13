@@ -393,7 +393,7 @@ describe('(6) as recusas', () => {
             esquadria(),                                 // 3: fecha
         ])
         expect(r.recusas.map((x) => [x.motivo, x.tipologia, x.esquadrias])).toEqual([['TIPOLOGIA_SEM_DEFINICAO', 'DP-99', [1, 2]]])
-        expect(r.recusas[0].mensagem).toContain('Esquadrias 1 e 2')
+        expect(r.recusas[0].mensagem).toContain('Itens 1 e 2')
     })
 
     it('A FALTA é uma por (perfil, esquadria): o 9641 que sumiu da tabela falta nas três esquadrias que o usam', () => {
@@ -408,7 +408,7 @@ describe('(6) as recusas', () => {
         for (const x of r.recusas) {
             expect(x.origem).toBe('AVALIADOR')
             expect(x.esquadrias).toEqual([2])
-            expect(x.mensagem.startsWith('Esquadria 2 (DP-02): ')).toBe(true)
+            expect(x.mensagem.startsWith('Item 2 (DP-02): ')).toBe(true)
         }
         expect(r.recusas.map((x) => x.motivo)).toContain('ESCOLHA_FORA_DAS_OPCOES')
     })

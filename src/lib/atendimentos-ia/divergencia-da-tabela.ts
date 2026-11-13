@@ -57,7 +57,7 @@ export function avisosDeDivergencia(itens: readonly ItemParaDivergencia[], conge
         const vigenteLiquido = it.materiais.reduce((t, m) => t + m.custo_liquido_material, 0)
         const c = custoNaTabelaCongelada(it.materiais, congeladas.get(it.tabelaCongelada) ?? [])
         const usadas = it.tabelasVigentes.map(nome).join(', ')
-        avisos.push(`Esquadria ${it.ordem}: o levantamento congelou a tabela "${nome(it.tabelaCongelada)}"; o cálculo usou a vigente (${usadas}).`
+        avisos.push(`Item ${it.ordem}: o levantamento congelou a tabela "${nome(it.tabelaCongelada)}"; o cálculo usou a vigente (${usadas}).`
             + ` Com os mesmos materiais, na tabela congelada o custo seria ${reais(c.bruto)} bruto e ${reais(c.liquido)} líquido,`
             + ` contra ${reais(vigenteBruto)} e ${reais(vigenteLiquido)} na vigente (diferença ${comSinal(vigenteLiquido - c.liquido)} no líquido)`
             + (c.ausentes.length ? `; sem preço ou sem crédito apurável na congelada: ${c.ausentes.join(', ')} (fora da conta, não somados como zero).` : '.'))
