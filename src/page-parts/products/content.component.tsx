@@ -26,6 +26,7 @@ import { pisCofinsDaReferenciaDoTenant } from '@/utils/ncm-pis-cofins'
 import { FALTA_DA_CARGA_HORARIA, FALTA_DO_PRECO_FORMADO } from '@/lib/atendimentos-ia/preco-do-orcamento'
 import { PRODUCT_PRICE_INFO_BASE } from '@/utils/product-price-info-base'
 import { calcularNoMotorDoProduto, tipoDeCalculoEfetivo } from '@/utils/motor-do-produto'
+import { doBanco, paraGravar } from '@/utils/tributo-por-dentro-informado'
 import { resolveReducoesDoItem } from '@/utils/classificacao-fiscal'
 import ClassificacaoFiscalBlock, { type ClassificacaoFiscalValue } from '@/page-parts/shared/classificacao-fiscal-block.component'
 import { computeIcmsSt, computeDifal, computeIcmsComplementar, mvaAjustada } from '@/utils/icms-st-difal'
@@ -330,12 +331,14 @@ export const Content: FC<ContentProps> = ({
   }, [isLRorLPorSH, currentUser?.tenant_id, isEditingMode, ehOrcamentoDeIndustrializacao])
 
   // ICMS e PIS/COFINS para Lucro Real (migrados do modal de lançar impostos)
-  const initialIcms = (product as any)?.icms_pct != null ? Number((product as any).icms_pct) : 0
-  const initialPisCofins = (product as any)?.pis_cofins_pct != null
-    ? Number((product as any).pis_cofins_pct)
-    : 0
-  const [icmsPct, setIcmsPct] = useState<number>(initialIcms)
-  const [pisCofinsLRPct, setPisCofinsLRPct] = useState<number>(initialPisCofins)
+  // NULO É "NÃO INFORMADO", e continua nulo (dono do produto, 10/11/2026): no Lucro Real e no Presumido o preço não se forma sem eles
+  // (`tributo-por-dentro-informado.ts`), e o salvar grava nulo em vez de inventar o 0.
+  const initialIcms = doBanco((product as any)?.icms_pct)
+  const initialPisCofins = doBanco((product as any)?.pis_cofins_pct)
+  const [icmsPct, setIcmsPct] = useState<number | null>(initialIcms)
+  const [pisCofinsLRPct, setPisCofinsLRPct] = useState<number | null>(initialPisCofins)
+  // As faltas que o ProductPrice decidiu (a mesma condição das linhas do tributo na margem): com alguma, o salvar recusa.
+  const [faltasDosTributos, setFaltasDosTributos] = useState<string[]>([])
 
   // IVA DUAL — fator de redução por produto
   const [ivaDualReductionFactor, setIvaDualReductionFactor] = useState<number | null>(
@@ -381,9 +384,9 @@ export const Content: FC<ContentProps> = ({
 
   // Handler: ICMS muda → auto-recalcula PIS/COFINS via fórmula
   // LP: cumulativo 3,65% × (1 − ICMS); LR/SH: não-cumulativo 9,25% × (1 − ICMS)
-  function handleIcmsPctChange(val: number) {
+  function handleIcmsPctChange(val: number | null) {
     setIcmsPct(val)
-    if (isLRorLPorSH) {
+    if (isLRorLPorSH && val !== null) {
       const pisCofinsBase = isLucroPresumidoProdOnly ? 3.65 : 9.25
       const newPisCofins = parseFloat((pisCofinsBase * (1 - val / 100)).toFixed(4))
       setPisCofinsLRPct(newPisCofins)
@@ -602,6 +605,8 @@ export const Content: FC<ContentProps> = ({
     if (!isLRorLP || !code) return undefined
     // LP usa PIS/COFINS cumulativo e NÃO consulta o NCM: responde sem ir ao banco.
     if (isLucroPresumidoProdOnly) {
+      // Sem ICMS informado a fórmula do cumulativo (3,65 × (1 − ICMS)) inventaria a base: não preenche.
+      if (icmsPct === null) return null
       const pct = resolvePisCofinsPctFromNcm({
         isLucroReal: false, isLucroPresumido: true, icmsPct, ncmRow: null,
       })
@@ -617,7 +622,8 @@ export const Content: FC<ContentProps> = ({
         .eq('code', code)
         .single()
       const pct = resolvePisCofinsPctFromNcm({
-        isLucroReal: true, isLucroPresumido: false, icmsPct, ncmRow: data ?? null,
+        // No Lucro Real a conta do NCM não lê o ICMS (devolve PIS + COFINS do NCM).
+        isLucroReal: true, isLucroPresumido: false, icmsPct: icmsPct ?? 0, ncmRow: data ?? null,
       })
       if (pct != null) setPisCofinsLRPct(pct)
       return pct
@@ -791,12 +797,8 @@ export const Content: FC<ContentProps> = ({
         setAccessoryExpensesValue(Number((product as any).accessory_expenses_value))
       }
       // Load ICMS e PIS/COFINS (Lucro Real)
-      if ((product as any)?.icms_pct != null) {
-        setIcmsPct(Number((product as any).icms_pct))
-      }
-      if ((product as any)?.pis_cofins_pct != null) {
-        setPisCofinsLRPct(Number((product as any).pis_cofins_pct))
-      }
+      setIcmsPct(doBanco((product as any)?.icms_pct))
+      setPisCofinsLRPct(doBanco((product as any)?.pis_cofins_pct))
       // Load IVA DUAL
       if ((product as any)?.iva_dual_reduction_factor != null) {
         setIvaDualReductionFactor(Number((product as any).iva_dual_reduction_factor))
@@ -1102,6 +1104,11 @@ export const Content: FC<ContentProps> = ({
       messageApi.error('Configure a carga horária da equipe produtiva em Configurações → Equipe antes de salvar o produto.')
       return
     }
+    // ICMS ou PIS/COFINS não informados no Lucro Real ou no Presumido: o preço não se formou, e salvar gravaria o preço de antes.
+    if (faltasDosTributos.length) {
+      messageApi.error(`O preço não se forma, e o produto não é salvo. Falta ${faltasDosTributos.join('; e ')}.`)
+      return
+    }
 
     doProductCalc()
     setSavingProduct(true)
@@ -1260,8 +1267,9 @@ export const Content: FC<ContentProps> = ({
       // já têm valor permanecem como estão — SEM MIGRAÇÃO RETROATIVA, que é a outra metade
       // da mesma regra. Gravar `0` aqui seria migração retroativa disfarçada de save.
       if (isLRorLPorSH) {
-        extraFields.icms_pct = icmsPct || 0
-        extraFields.pis_cofins_pct = pisCofinsLRPct || 0
+        // Nulo continua nulo: "não informado" não vira alíquota zero ao abrir e salvar (`tributo-por-dentro-informado.ts`).
+        extraFields.icms_pct = paraGravar(icmsPct)
+        extraFields.pis_cofins_pct = paraGravar(pisCofinsLRPct)
         // O fator legado FICA — a migração é aditiva e o produto com fator 50 não
         // pode perder o valor. Ele deixa de ser entrada, não de existir.
         extraFields.iva_dual_reduction_factor = ivaDualReductionFactor ?? null
@@ -1290,8 +1298,13 @@ export const Content: FC<ContentProps> = ({
         const _iva2 = computeIvaDualOutside({
           opInterna: _opDentro,
           despAcessorias: terceirizadasSum,
-          icmsPct: icmsPct || 0,
-          pisCofinsPct: pisCofinsLRPct || 0,
+          // A REGRA DA TELA (`formarPrecoDoProduto`, `_ivaApplies`; decisão (a), 13/11/2026): no Lucro Real e no Presumido, o INFORMADO — o nulo
+          // não chega aqui: o salvar já recusou pela falta que o ProductPrice entrega (`faltasDosTributos`, acima). Medido em 13/11/2026: o
+          // ProductPrice só deixa de estar montado quando o alerta da carga horária o substitui, e é a MESMA condição (`isWorkloadBlocking`) que
+          // recusa o salvar antes. No Simples Híbrido nenhum dos dois entra no IVA, informado ou não; se o ICMS por fora compõe o IVA no Híbrido
+          // é pergunta ABERTA, do dono do produto, fora deste PR.
+          icmsPct: isLRorLP ? icmsPct : 0,
+          pisCofinsPct: isLRorLP ? pisCofinsLRPct : 0,
           issPct: 0, // EPIC-POR-FORA-V3/S1: produto é mercadoria (ISS=0). Campo ISS removido da UI.
           isPct: isPct || 0,
           ibsPct: _ibsEff2,
@@ -2523,6 +2536,7 @@ export const Content: FC<ContentProps> = ({
           isBaseCode={isBaseCode}
           ipiBaseCode={ipiBaseCode}
           onFinalPriceWithTaxesChange={handleFinalPriceWithTaxes}
+          onFaltasDosTributosChange={setFaltasDosTributos}
           advancedTaxesSection={advancedTaxesSection}
           advancedTaxParams={advancedTaxParams}
           mobileItemsList={ehOrcamento ? undefined : productItemsMobileList}
@@ -2570,6 +2584,7 @@ export const Content: FC<ContentProps> = ({
           isBaseCode={isBaseCode}
           ipiBaseCode={ipiBaseCode}
           onFinalPriceWithTaxesChange={handleFinalPriceWithTaxes}
+          onFaltasDosTributosChange={setFaltasDosTributos}
           advancedTaxesSection={advancedTaxesSection}
           advancedTaxParams={advancedTaxParams}
           mobileItemsList={productItemsMobileList}
@@ -2615,6 +2630,7 @@ export const Content: FC<ContentProps> = ({
           isBaseCode={isBaseCode}
           ipiBaseCode={ipiBaseCode}
           onFinalPriceWithTaxesChange={handleFinalPriceWithTaxes}
+          onFaltasDosTributosChange={setFaltasDosTributos}
           advancedTaxesSection={advancedTaxesSection}
           advancedTaxParams={advancedTaxParams}
           mobileItemsList={productItemsMobileList}

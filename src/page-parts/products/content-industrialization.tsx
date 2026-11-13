@@ -34,10 +34,10 @@ interface ContentIndustrializationProps {
   onCustomTaxPercentChange?: (value: number) => void
   additionalIrpjPercent?: number
   onAdditionalIrpjChange?: (value: number) => void
-  icmsPct?: number
-  onIcmsPctChange?: (value: number) => void
-  pisCofinsLRPct?: number
-  onPisCofinsLRPctChange?: (value: number) => void
+  icmsPct?: number | null
+  onIcmsPctChange?: (value: number | null) => void
+  pisCofinsLRPct?: number | null
+  onPisCofinsLRPctChange?: (value: number | null) => void
   freightValue?: number
   insuranceValue?: number
   accessoryExpensesValue?: number
@@ -59,6 +59,7 @@ interface ContentIndustrializationProps {
   isBaseCode?: number | null
   ipiBaseCode?: number | null
   onFinalPriceWithTaxesChange?: (data: PrecoEmitido) => void
+  onFaltasDosTributosChange?: (faltas: string[]) => void
   /** Só no modo "orçamento": o preço deixou de se formar. Ver `ProductPrice`. */
   onPrecoNaoFormado?: () => void
   advancedTaxesSection?: ReactNode
@@ -117,6 +118,7 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
   isBaseCode,
   ipiBaseCode,
   onFinalPriceWithTaxesChange,
+  onFaltasDosTributosChange,
   onPrecoNaoFormado,
   advancedTaxesSection,
   workloadAlert,
@@ -282,6 +284,7 @@ export const ContentIndustrialization: FC<ContentIndustrializationProps> = ({
         isBaseCode={isBaseCode}
         ipiBaseCode={ipiBaseCode}
         onFinalPriceWithTaxesChange={onFinalPriceWithTaxesChange}
+        onFaltasDosTributosChange={onFaltasDosTributosChange}
         onPrecoNaoFormado={onPrecoNaoFormado}
         advancedTaxesSection={advancedTaxesSection}
         advancedTaxParams={advancedTaxParams}
