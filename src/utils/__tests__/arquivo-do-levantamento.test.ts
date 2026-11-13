@@ -216,4 +216,9 @@ describe('O PADRÃO APARECE NA FOLHA, montado do que está gravado (dono do prod
         expect(com([item(1, { tipologia: 'DP-07' })]).itens[0].considerado).toBe('correr, 2 folhas · com persiana (1 pano) · sem bandeira · sem peitoril')
         expect(com([item(1, { tipologia: 'DP-16' })]).itens[0].considerado).toBe('correr, 3 folhas · com persiana · sem bandeira · sem peitoril')
     })
+    it('o pano da persiana E o vidro padrão juntos no CONSIDERADO (o rebase do #271 sobre o #270, 13/11/2026): o pano no extra, o vidro no fim', () => {
+        const d = montarDadosDaFolha({ empresa: 'Empresa X', levantamento: LEV, itens: [item(1, { tipologia: 'DP-07' })], definicao: () => COM_N, detalhe: comTipo,
+            geradoEm: new Date(Date.UTC(2026, 10, 13, 12)), doVendedor: null, vidroPadrao: () => 'vidro VIN05, padrão da empresa para janela de correr' })
+        expect(d.itens[0].considerado).toBe('correr, 2 folhas · com persiana (1 pano) · sem bandeira · sem peitoril · vidro VIN05, padrão da empresa para janela de correr')
+    })
 })
