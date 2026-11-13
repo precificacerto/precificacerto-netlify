@@ -36,6 +36,7 @@
  * João", "Obra Centro", a alteração por "casa do joao" — e "Casa do João 2", que tem de PERGUNTAR.
  * Está no bloco (1), na ordem.
  */
+import { traduzirVidro } from '@/lib/atendimentos-ia/vidro-da-tabela'
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { NextApiRequest, NextApiResponse } from 'next'
@@ -493,7 +494,6 @@ jest.mock('@/supabase/admin', () => ({
 const rota = require('@/pages/api/atendimentos-ia/inbound').default as (req: NextApiRequest, res: NextApiResponse) => Promise<unknown>
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const conversa = require('@/lib/atendimentos-ia/conversa-da-ia') as typeof import('@/lib/atendimentos-ia/conversa-da-ia')
-const { traduzirVidro } = require('@/lib/atendimentos-ia/vidro-da-tabela') as typeof import('@/lib/atendimentos-ia/vidro-da-tabela')
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { textoDoSistema } = require('@/lib/atendimentos-ia/pedido-ao-modelo') as typeof import('@/lib/atendimentos-ia/pedido-ao-modelo')
 // eslint-disable-next-line @typescript-eslint/no-require-imports
