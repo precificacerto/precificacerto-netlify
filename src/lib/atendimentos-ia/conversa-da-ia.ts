@@ -175,7 +175,7 @@ import { telefonesCasam } from '@/utils/atendimentos-ia-telefone-do-autorizado'
 /** A saída gravada quando depois do "sim" só o arquivo foi enviado (12/11/2026, 4.3): o texto não sai ao vendedor, é a marca da resposta. */
 export const SAIDA_SO_O_ARQUIVO = '[o arquivo do orçamento foi enviado, sem texto]'
 /** O levantamento que levantou SEM a confirmação gravada (a migração da pergunta em aberto pendente): sem o "sim" registrado não há orçamento. */
-export const FRASE_DO_ARQUIVO_SEM_A_CONFIRMACAO = 'O arquivo do orçamento não chegou a você: a confirmação do levantamento não pôde ser registrada, e sem ela o orçamento não é gerado.'
+export const FRASE_DO_ARQUIVO_SEM_A_CONFIRMACAO = 'O arquivo do orçamento não chegou a você: a confirmação do levantamento não pôde ser registrada, e sem ela o orçamento não é gerado. Avise o responsável pela conta: falta uma atualização do sistema.'
 /** O id gravado quando o canal aceitou o arquivo sem devolver id: a saída está enviada, e o reenvio não a manda de novo. */
 const SEM_ID_DO_ARQUIVO = 'documento-sem-id'
 import { supabaseAdmin } from '@/supabase/admin'

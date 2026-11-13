@@ -1793,8 +1793,12 @@ describe('(16) a PERGUNTA EM ABERTO do roteamento pelo nome (20261026000002): gu
         expect(itensDe(casa.id)[1]).toEqual(expect.objectContaining({ ordem: 2, ...DP02 }))
         // a confirmação do acréscimo se resolveu; a que fica é a do apanhado, que espera o seu "sim"
         expect(perguntas()).toEqual([expect.objectContaining({ pergunta: 'CONFIRMAR_APANHADO', levantamentos: [casa.id] })])
-        // o levantamento já virou o orçamento 1 (preparar): o item acrescentado fica no levantamento, e o orçamento não se refaz para trás
-        expect(await confirmarApanhado()).toBe(fraseDoOrcamentoQueJaExiste(1))
+        // o levantamento já virou o orçamento 1 (preparar): o item acrescentado fica no levantamento, o orçamento não se refaz para trás — e o
+        // vendedor é AVISADO (13/11/2026): o item 2 ficou fora do orçamento 1, e para incluí-lo é preciso gerar um orçamento novo
+        const doSim = await confirmarApanhado()
+        expect(doSim).toBe(fraseDoOrcamentoQueJaExiste(1, [2]))
+        expect(doSim).toContain('Falta no orçamento 1 o item 2 do levantamento')
+        expect(doSim).toContain('é preciso gerar um orçamento novo')
         expect(perguntas()).toEqual([])
     })
 
@@ -2041,6 +2045,8 @@ describe('(17) O ARQUIVO no lugar da mensagem-resumo (dono do produto, 06/11/202
         estado.checkAntigo = true
         const r = await pedir()
         expect(r).toBe(conversa.FRASE_DO_ARQUIVO_SEM_A_CONFIRMACAO)
+        // e diz o que o vendedor faz agora (13/11/2026): não fica parado
+        expect(r).toContain('Avise o responsável pela conta')
         expect(linhaIa().pop()).toContain('confirmacao=sem_migracao')
     })
 

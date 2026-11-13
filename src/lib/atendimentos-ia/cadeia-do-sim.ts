@@ -51,17 +51,20 @@ export type ResultadoDaEtapa = {
 const motivoDoLog = (t: string) => t.replace(/"/g, "'").slice(0, 160)
 
 // O QUE O VENDEDOR RECEBE POR TEXTO quando o arquivo NÃO chega a quem disse "sim" (dono do produto, 13/11/2026): a falta nomeada — o arquivo
-// não chegou, e por quê — e nada mais. Nenhuma delas traz o preço nem o resultado: resultado é ARQUIVO (`arquivo-que-nao-chegou.ts`)
+// não chegou, por quê, e O QUE ELE FAZ AGORA ("'O arquivo não chegou' sozinho deixa o vendedor parado"): onde achar o arquivo, ou o botão da
+// seção Orçamentos I.A. que retoma. Nenhuma delas traz o preço nem o resultado: resultado é ARQUIVO (`arquivo-que-nao-chegou.ts`)
 export const fraseDoPrecoQueNaoSaiu = (numero: number, nome: string, faltas: readonly string[]) =>
-    fraseDoArquivoQueNaoChegou({ numero, nome }, `o preço não se formou, e por isso o arquivo não foi gerado. Falta: ${faltas.join('; ')}`)
+    fraseDoArquivoQueNaoChegou({ numero, nome }, `o preço não se formou, e por isso o arquivo não foi gerado. Falta: ${faltas.join('; ')}. `
+        + `Com isso cadastrado, abra o orçamento ${numero} na seção Orçamentos I.A. e use Precificar: o arquivo sai de lá`)
 export const fraseDoArquivoQueNaoSaiu = (numero: number, nome: string, recusas: readonly string[]) =>
-    fraseDoArquivoQueNaoChegou({ numero, nome }, `o arquivo não pôde ser gerado. Falta: ${recusas.join('; ')}`)
+    fraseDoArquivoQueNaoChegou({ numero, nome }, `o arquivo não pôde ser gerado. Falta: ${recusas.join('; ')}. A precificação está salva: com isso `
+        + `resolvido, abra o orçamento ${numero} na seção Orçamentos I.A. e use Precificar para gerar o arquivo de novo`)
 export const fraseDoOrcamentoEnviado = (numero: number, nome: string) =>
-    fraseDoArquivoQueNaoChegou({ numero, nome }, 'ele foi enviado ao vendedor do levantamento, que não é este número')
+    fraseDoArquivoQueNaoChegou({ numero, nome }, 'ele foi enviado ao vendedor do levantamento, que não é este número. O arquivo também está na seção Orçamentos I.A.')
 export const fraseDoEnvioQueFalhou = (numero: number, nome: string) =>
     fraseDoArquivoQueNaoChegou({ numero, nome }, 'o envio dele falhou. O arquivo está salvo na seção Orçamentos I.A.')
 export const fraseDoDonoSemTelefone = (numero: number, nome: string) =>
-    fraseDoArquivoQueNaoChegou({ numero, nome }, 'o dono do levantamento não tem telefone cadastrado, e o arquivo não foi enviado')
+    fraseDoArquivoQueNaoChegou({ numero, nome }, 'o dono do levantamento não tem telefone cadastrado, e o arquivo não foi enviado. Ele está salvo na seção Orçamentos I.A.')
 
 export async function etapaDoPreco(tenantId: string, orcamentoId: string, deps: DependenciasDaEtapa): Promise<ResultadoDaEtapa> {
     const t0 = deps.agora()

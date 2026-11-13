@@ -139,7 +139,13 @@ describe('a etapa do preço', () => {
             expect(t).toMatch(/^O arquivo do orçamento 7 \(Geraldo Huck\) não chegou a você: /)
             expect(t).not.toContain(venda)
             expect(t).not.toMatch(/R\$/)
+            // e diz O QUE O VENDEDOR FAZ AGORA (13/11/2026): onde o arquivo está, ou o botão que retoma — nunca "não chegou" sozinho
+            expect(t).toContain('seção Orçamentos I.A.')
         }
+        expect(textos[0]).toContain('use Precificar para gerar o arquivo de novo')
+        // o preço que não se formou: o que falta, e o botão que retoma depois de cadastrado
+        const semPreco = (await C.etapaDoPreco(T, ORC, deps({ faltas: ['o preço formado'], orcamento: { numero: 7, nome: 'Geraldo Huck' } }))).paraOVendedor
+        expect(semPreco).toContain('Falta: o preço formado. Com isso cadastrado, abra o orçamento 7 na seção Orçamentos I.A. e use Precificar')
     })
 })
 
