@@ -102,6 +102,13 @@ async function lerDoLevantamento(tenantId: string, idsDosItens: string[]) {
  * `randomUUID`.
  */
 export async function calcularOrcamento(tenantId: string, id: string, agora: Date = new Date(), novoId: () => string = randomUUID): Promise<ResultadoDoCalculo> {
+    const { orc, doLevantamento, fonte, custo } = await custoDeAgora(tenantId, id)
+    if ('recusas' in custo) throw new ErroDoCalculo(custo.recusas)
+    return gravarOCalculo(tenantId, id, orc, doLevantamento, fonte, custo, agora, novoId)
+}
+
+/** O custo do orçamento `id` COMO ELE SAIRIA AGORA (a tabela vigente): só leitura — nada é gravado. */
+async function custoDeAgora(tenantId: string, id: string) {
     const orc = await lerOrcamento(tenantId, id)
     if (orc.itens.length === 0) throw new ErroDoCalculo(['os itens do orçamento: ele não tem nenhum'])
     const doLevantamento = orc.levantamento_id
@@ -117,7 +124,12 @@ export async function calcularOrcamento(tenantId: string, id: string, agora: Dat
     })
     const fonte = await lerFamiliasDaEmpresa(tenantId)
     const custo = await custoDoLevantamento(tenantId, fonte, { nome: orc.nome, itens: esquadrias })
-    if ('recusas' in custo) throw new ErroDoCalculo(custo.recusas)
+    return { orc, doLevantamento, fonte, custo }
+}
+
+type Lido = Awaited<ReturnType<typeof custoDeAgora>>
+async function gravarOCalculo(tenantId: string, id: string, orc: Lido['orc'], doLevantamento: Lido['doLevantamento'], fonte: Lido['fonte'],
+    custo: Extract<Lido['custo'], { ok: true }>, agora: Date, novoId: () => string): Promise<ResultadoDoCalculo> {
     const avisos = await avisosDaTabelaCongelada(tenantId, fonte, orc.itens, custo.itens, doLevantamento?.porItem ?? new Map())
     // a falta precisa de onde ser gravada ANTES de qualquer escrita: sem a tabela, ela é recusa, como antes (nunca some em silêncio)
     if (custo.faltas.length) {
@@ -242,4 +254,38 @@ async function avisosDaTabelaCongelada(
     if (error) falhou('orcamentista_tabela', error)
     const nomes = new Map(((tabelas ?? []) as Array<{ id: string; arquivo_nome: string }>).map((t) => [t.id, t.arquivo_nome]))
     return avisosDeDivergencia(divergentes, congeladas, nomes)
+}
+
+/** Uma falta que o cálculo VIGENTE de um item nomeou (`orcamentista_orcamento_falta`). */
+export type FaltaNomeada = { caminho: string; codigo_do_motor: string; cor: string | null; frase: string; esquadria: number }
+/** A identidade do código que faltou: o caminho, o código do motor e a cor, como a falta os grava (aparados como a CHECK aceita). */
+const chaveDaFalta = (f: { caminho: string; codigo_do_motor: string; cor: string | null }) =>
+    `${f.caminho}|${cabe(f.codigo_do_motor, 60)}|${f.cor === null ? '' : cabe(f.cor, 80)}`
+export type FaltaDoParcial = { parcial: false } | { parcial: true; nomeadas: number; continuam: FaltaNomeada[]; recusas: string[] }
+/**
+ * O ORÇAMENTO PARCIAL NO "SIM" SEM MUDANÇA (dono do produto, 13/11/2026): "Orçamento COMPLETO é fotografia: preço novo na tabela não reprecifica,
+ * nunca. Orçamento PARCIAL não é fotografia acabada: ele é um orçamento com falta NOMEADA pendente." SÓ LEITURA: as faltas que o cálculo
+ * VIGENTE de cada item ativo nomeou, e quais delas CONTINUAM no custo de agora (o mesmo caminho do cálculo, sem gravar nada).
+ *   - `parcial: false`: nenhuma falta nomeada no cálculo vigente (ou a tabela das faltas não existe) — o orçamento é fotografia;
+ *   - `continuam` vazia e `recusas` vazia: TODOS os códigos nomeados têm preço agora — quem chama recalcula;
+ *   - senão, o que continua faltando, nomeado; com `recusas`, o custo de agora nem saiu, e todas as nomeadas continuam.
+ */
+export async function faltaDoParcial(tenantId: string, id: string): Promise<FaltaDoParcial> {
+    const it = await db().from(TABELA_DO_ITEM).select('id, calculo_id').eq('tenant_id', tenantId).eq('orcamento_id', id).is('removido_em', null)
+    if (it.error) falhou(TABELA_DO_ITEM, it.error)
+    const vigente = new Map(((it.data ?? []) as Array<{ id: string; calculo_id: string | null }>).filter((x) => x.calculo_id).map((x) => [x.id, x.calculo_id]))
+    if (vigente.size === 0) return { parcial: false }
+    const f = await db().from(TABELA_DA_FALTA).select('orcamento_item_id, calculo_id, caminho, codigo_do_motor, cor, frase, esquadria')
+        .eq('tenant_id', tenantId).in('orcamento_item_id', [...vigente.keys()])
+    if (f.error && tabelaAusente(f.error)) return { parcial: false }
+    if (f.error) falhou(TABELA_DA_FALTA, f.error)
+    // só as do cálculo VIGENTE de cada item: a falta de um cálculo de antes já foi substituída
+    const nomeadas = ((f.data ?? []) as Array<FaltaNomeada & { orcamento_item_id: string; calculo_id: string }>)
+        .filter((x) => vigente.get(x.orcamento_item_id) === x.calculo_id)
+        .map(({ caminho, codigo_do_motor, cor, frase, esquadria }) => ({ caminho, codigo_do_motor, cor, frase, esquadria }))
+    if (nomeadas.length === 0) return { parcial: false }
+    const { custo } = await custoDeAgora(tenantId, id)
+    if ('recusas' in custo) return { parcial: true, nomeadas: nomeadas.length, continuam: nomeadas, recusas: custo.recusas }
+    const faltamAgora = new Set(custo.faltas.map(chaveDaFalta))
+    return { parcial: true, nomeadas: nomeadas.length, continuam: nomeadas.filter((x) => faltamAgora.has(chaveDaFalta(x))), recusas: [] }
 }

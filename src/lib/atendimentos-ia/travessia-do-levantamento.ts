@@ -27,7 +27,7 @@
 import { supabaseAdmin } from '@/supabase/admin'
 import { ErroNaoEncontrado, ErroSemMigracao, TABELA_DO_ITEM, TABELA_DO_ORCAMENTO, tabelaAusente } from './orcamentos-ia'
 import { lerPerfilDoVendedor } from './arquivo-do-levantamento'
-import { calcularOrcamento, ErroDoCalculo } from './orcamento-calculado'
+import { calcularOrcamento, ErroDoCalculo, faltaDoParcial, type FaltaDoParcial } from './orcamento-calculado'
 import type { ResultadoDaEtapa } from './cadeia-do-sim'
 import { fraseDoArquivoQueNaoChegou } from './arquivo-que-nao-chegou'
 import {
@@ -305,6 +305,11 @@ export const fraseDaEdicaoManualSubstituida = (numero: number) =>
 /** Os questionamentos de um orçamento PARCIAL: uma linha por código, com o que falta. Sem falta, nulo — nada a perguntar. */
 export function fraseDosQuestionamentos(numero: number, faltas: ReadonlyArray<{ codigo_do_motor: string; frase: string; esquadria: number }>): string | null {
     if (faltas.length === 0) return null
+    const { codigos, linhas } = linhasDasFaltas(faltas)
+    return [`O orçamento ${numero} saiu PARCIAL — ${codigos > 1 ? `faltam ${codigos} valores` : 'falta 1 valor'}. Para completar, preciso de:`, ...linhas].join('\n')
+}
+/** Uma linha por código que falta, com as esquadrias onde ele falta. */
+function linhasDasFaltas(faltas: ReadonlyArray<{ codigo_do_motor: string; frase: string; esquadria: number }>) {
     const porCodigo = new Map<string, { frase: string; esquadrias: Set<number> }>()
     for (const f of faltas) {
         const x = porCodigo.get(f.codigo_do_motor) ?? { frase: f.frase, esquadrias: new Set<number>() }
@@ -317,11 +322,25 @@ export function fraseDosQuestionamentos(numero: number, faltas: ReadonlyArray<{ 
         // a frase que já começa pelo código não o repete: o código vai uma vez, e as esquadrias no fim
         return x.frase.startsWith(codigo) ? `• ${x.frase.replace(/\.$/, '')} (${onde}).` : `• ${codigo} (${onde}): ${x.frase.replace(/\.$/, '')}.`
     })
-    return [`O orçamento ${numero} saiu PARCIAL — ${porCodigo.size > 1 ? `faltam ${porCodigo.size} valores` : 'falta 1 valor'}. Para completar, preciso de:`, ...linhas].join('\n')
+    return { codigos: porCodigo.size, linhas }
+}
+/**
+ * O PARCIAL que CONTINUA no "sim" sem mudança (dono do produto, 13/11/2026): nada é recalculado, o arquivo vai de novo, e o que continua
+ * faltando vai NOMEADO — nunca o "já está atualizado" seco, que esconde a razão.
+ */
+export function fraseDoParcialQueContinua(numero: number, faltas: ReadonlyArray<{ codigo_do_motor: string; frase: string; esquadria: number }>, recusas: readonly string[] = []): string {
+    const { codigos, linhas } = linhasDasFaltas(faltas)
+    const quantos = codigos > 1 ? `${codigos} valores continuam` : '1 valor continua'
+    return [
+        `O orçamento ${numero} continua PARCIAL: nada mudou no levantamento, e ${quantos} sem preço. O arquivo dele vai de novo, sem recálculo.`,
+        ...(recusas.length ? [`O custo de agora também recusou. Falta: ${recusas.join('; ')}.`] : []),
+        ['Para completar, preciso de:', ...linhas].join('\n'),
+    ].join('\n')
 }
 export async function atravessarNoSim(tenantId: string, levantamentoId: string, etapaDoPreco: EtapaDoPrecoNoSim, reenviar?: ReenvioNoSim): Promise<ResultadoDoSim> {
     let r: ResultadoDaTravessia
     let atualizacao: ResultadoDaAtualizacao | null = null
+    let parcial: FaltaDoParcial | null = null
     try {
         try {
             r = await atravessarLevantamento(tenantId, levantamentoId)
@@ -331,12 +350,21 @@ export async function atravessarNoSim(tenantId: string, levantamentoId: string, 
             atualizacao = await atualizarOrcamento(tenantId, levantamentoId, e.orcamentoId)
             const a = atualizacao
             if (a.semMudanca && reenviar) {
-                // SEM MUDANÇA: nada recalculado, nada gerado — o arquivo que existe vai de novo; sem arquivo, a atualização roda inteira
-                const env = await reenviar(a.orcamento)
-                if (!env.semArquivo) {
-                    return {
-                        rastro: `orcamento=${a.orcamento.numero} atualizacao=sem_mudanca ${env.rastro}`, paraOVendedor: env.paraOVendedor, aviso: fraseDoOrcamentoJaAtualizado(a.orcamento.numero),
-                        ...(env.enviadoPara ? { enviadoPara: env.enviadoPara, idDoEnvio: env.idDoEnvio ?? null } : {}),
+                // SEM MUDANÇA: o COMPLETO é fotografia — nada recalculado, nada gerado, o arquivo que existe vai de novo. O PARCIAL cujas faltas
+                // nomeadas TODAS têm preço agora é a ÚNICA exceção: recalcula, com o mesmo número (dono do produto, 13/11/2026). Sem arquivo, a
+                // atualização roda inteira
+                parcial = await faltaDoParcial(tenantId, a.orcamento.id)
+                const resolvido = parcial.parcial && parcial.continuam.length === 0 && parcial.recusas.length === 0
+                if (!resolvido) {
+                    const env = await reenviar(a.orcamento)
+                    if (!env.semArquivo) {
+                        const p = parcial.parcial ? parcial : null
+                        return {
+                            rastro: `orcamento=${a.orcamento.numero} atualizacao=sem_mudanca${p ? ` parcial=continua faltas_de_preco=${p.continuam.length}/${p.nomeadas}` : ''} ${env.rastro}`,
+                            paraOVendedor: env.paraOVendedor,
+                            aviso: p ? fraseDoParcialQueContinua(a.orcamento.numero, p.continuam, p.recusas) : fraseDoOrcamentoJaAtualizado(a.orcamento.numero),
+                            ...(env.enviadoPara ? { enviadoPara: env.enviadoPara, idDoEnvio: env.idDoEnvio ?? null } : {}),
+                        }
                     }
                 }
             }
@@ -351,7 +379,7 @@ export async function atravessarNoSim(tenantId: string, levantamentoId: string, 
     }
     const origens = PERCENTUAIS_COM_ZERO.map((p) => `${ROTULO_NO_LOG[p]}:${r.origens[p]}`).join(',')
     const doAtualizado = atualizacao
-        ? ` atualizacao=sim novos=${atualizacao.novos} mudados=${atualizacao.mudados} removidos=${atualizacao.removidos} cabecalho=${atualizacao.cabecalhoMudou ? 'sim' : 'nao'}${atualizacao.edicaoManualSubstituida ? ' edicao_manual=substituida' : ''}`
+        ? ` atualizacao=sim novos=${atualizacao.novos} mudados=${atualizacao.mudados} removidos=${atualizacao.removidos} cabecalho=${atualizacao.cabecalhoMudou ? 'sim' : 'nao'}${atualizacao.edicaoManualSubstituida ? ' edicao_manual=substituida' : ''}${parcial?.parcial ? ` parcial=resolvido faltas_de_preco=0/${parcial.nomeadas}` : ''}`
         : ''
     const travessia = `orcamento=${r.orcamento.numero} itens=${r.itens} faltas=${r.faltas.length}${r.retomada ? ' retomada=sim' : ''}${doAtualizado} origens=${origens}`
     // a EDIÇÃO MANUAL substituída é dita, em todo desfecho daqui para frente (13/11/2026: "Nunca em silêncio")

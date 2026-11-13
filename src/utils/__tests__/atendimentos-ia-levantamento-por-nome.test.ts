@@ -79,6 +79,7 @@ const CANDIDATAS = [
 import { fraseDoEnvioQueFalhou, fraseDoOrcamentoEnviado } from '@/lib/atendimentos-ia/cadeia-do-sim'
 import { fraseDaEdicaoManualSubstituida, fraseDoOrcamentoArquivado, fraseDoOrcamentoJaAtualizado } from '@/lib/atendimentos-ia/travessia-do-levantamento'
 import { FALTA_DA_REFERENCIA_DO_TENANT } from '@/lib/atendimentos-ia/precificacao-do-orcamento'
+import { carimboDoParcial } from '@/lib/atendimentos-ia/arquivo-do-orcamento'
 /* eslint-disable @typescript-eslint/no-require-imports */
 const DE_PARA_DE_HOJE = require('./fixtures/fixture_de-para_DP-02.json') as { regras: Linha[]; itens: Linha[] }
 /** O motor com o arquivo CORRIGIDO (`fixtures/arquivo-do-motor-corrigido.ts`): o BZ0012 sem a cor 'CLICK'. */
@@ -6251,13 +6252,49 @@ describe('(41) A FALTA DO CÁLCULO DEPOIS DO "SIM" (dono do produto, 08/11/2026 
             llmResponde({ nome: 'Gerson Boss', fala: FALA_DO_VALOR })
             await chamar('Gerson Boss, tenta de novo')
             expect(ehConfirmacaoDoArquivo(ultimoEnviado(), 'Gerson Boss')).toBe(true)
+            const textosAntes = estado.envios.length
+            const doOrcamentoAntes = estado.documentosDoOrcamento.length
+            // o contraste: o arquivo de antes era o PARCIAL, carimbado
+            expect(textoDoOrcamentoEnviado()).toContain(carimboDoParcial(1))
             llmResponde({ confirma: true, fala: FALA_DO_VALOR })
             await chamar('sim')
-            // O "SIM" SEM MUDANÇA (13/11/2026): o levantamento não mudou — o preço novo da tabela (o 1023 cadastrado) fica fora da comparação, porque o
-            // orçamento é fotografia: nada é recalculado, e o arquivo que existe vai de novo, com o aviso
-            expect(ultimoEnviado()).toBe(fraseDoOrcamentoJaAtualizado(1))
+            // O PARCIAL CUJA FALTA FOI RESOLVIDA (dono do produto, 13/11/2026): o levantamento não mudou, mas o orçamento 1 era PARCIAL e o 1023 —
+            // a falta nomeada — tem preço agora: o "sim" RECALCULA, e sai o orçamento COMPLETO, com o MESMO número. Completo: só o arquivo, nenhum texto
+            expect(estado.envios.length).toBe(textosAntes)
+            expect(estado.documentosDoOrcamento).toHaveLength(doOrcamentoAntes + 1)
+            expect(textoDoOrcamentoEnviado()).not.toContain(carimboDoParcial(1))
+            expect(estado.documentosDoOrcamento[doOrcamentoAntes].corpo.Document).not.toBe(estado.documentosDoOrcamento[doOrcamentoAntes - 1].corpo.Document)
+            expect(estado.db.orcamentista_orcamento.map((o) => o.numero)).toEqual([1])
+            expect(erros.filter((l) => l.startsWith('[ETAPA 4 calcular]')).pop()).toMatch(/ parcial=resolvido faltas_de_preco=0\/1 .*calculo=ok /)
+            expect(erros.filter((l) => l.startsWith('[ETAPA 4 calcular]')).pop()).not.toMatch(/ parcial=sim /)
             expect(linhaIa().pop()).toMatch(/ desfecho=levantou(\s|$)/)
             semAsFrases()
+        })
+
+        it('o PARCIAL cuja falta CONTINUA (o 1023 ainda sem preço): o "sim" sem mudança NÃO recalcula — o arquivo de antes vai de novo, e o 1023 vai nomeado', async () => {
+            llmResponde({ nome: 'Gerson Boss', itens: ESQUADRIAS.map((e) => ({ ...e })) })
+            await chamar(MENSAGEM)
+            llmResponde({ confirma: true })
+            await chamar('sim')
+            expect(ultimoEnviado().split('\n')[0]).toBe(ABERTURA_DO_PARCIAL)
+            const materiaisAntes = (estado.db.orcamentista_orcamento_item_material ?? []).length
+            const faltasAntes = (estado.db.orcamentista_orcamento_falta ?? []).length
+            const doOrcamentoAntes = estado.documentosDoOrcamento.length
+            llmResponde({ nome: 'Gerson Boss' })
+            await chamar('Gerson Boss, tenta de novo')
+            llmResponde({ confirma: true })
+            await chamar('sim')
+            const [abertura, ...resto] = ultimoEnviado().split('\n')
+            expect(abertura).toBe('O orçamento 1 continua PARCIAL: nada mudou no levantamento, e 1 valor continua sem preço. O arquivo dele vai de novo, sem recálculo.')
+            expect(resto[0]).toBe('Para completar, preciso de:')
+            expect(resto.slice(1)).toEqual([expect.stringMatching(/^• 1023\/WOLFF \(CLICK GUIA [^\n]* \(item 1\)\.$/)])
+            expect(ultimoEnviado()).not.toBe(fraseDoOrcamentoJaAtualizado(1))
+            // nada recalculado, nada gerado: o arquivo que existe vai de novo
+            expect(estado.documentosDoOrcamento).toHaveLength(doOrcamentoAntes + 1)
+            expect(estado.documentosDoOrcamento[doOrcamentoAntes].corpo.Document).toBe(estado.documentosDoOrcamento[doOrcamentoAntes - 1].corpo.Document)
+            expect(estado.db.orcamentista_orcamento_item_material ?? []).toHaveLength(materiaisAntes)
+            expect(estado.db.orcamentista_orcamento_falta ?? []).toHaveLength(faltasAntes)
+            expect(erros.filter((l) => l.startsWith('[ETAPA 4 calcular]')).pop()).toMatch(/ atualizacao=sem_mudanca parcial=continua faltas_de_preco=1\/1 /)
         })
 
         it('a RECUSA do "sim" é a falta nomeada e vai SEM a abertura: a fala válida não vai junto (13/11/2026)', async () => {

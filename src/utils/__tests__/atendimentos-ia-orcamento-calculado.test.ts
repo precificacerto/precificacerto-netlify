@@ -407,3 +407,58 @@ describe('(4) A FALTA NOMEADA (12/11/2026, 1.4): gravada com o cálculo, e o or�
         expect(estado.chamadasDoCusto[0].lev.itens.map((i) => i.vidro_codigo)).toEqual([null, null])
     })
 })
+
+describe('(5) O PARCIAL NO "SIM" SEM MUDANÇA (dono do produto, 13/11/2026): as faltas do cálculo VIGENTE, conferidas no custo de agora — SÓ LEITURA', () => {
+    const nomeada = (item: string, calculo: string, codigo: string, cor: string | null = 'BRANCO') => ({
+        tenant_id: T, orcamento_item_id: item, calculo_id: calculo, ordem: 1, caminho: 'perfil', codigo_do_motor: codigo, descricao_do_motor: null as string | null, cor,
+        tipologia: 'DP-02', esquadria: 1, motivo: 'NAO_ACHADA', frase: `${codigo} não está na tabela de preço`, candidatas: [] as unknown[],
+    })
+    const doCusto = (codigo: string, cor: string | null = 'BRANCO') => ({
+        item: 0, caminho: 'perfil', codigo_do_motor: codigo, descricao_do_motor: null as string | null, cor, tipologia: 'DP-02', esquadria: 1, motivo: 'NAO_ACHADA', frase: `${codigo} não está na tabela de preço`, candidatas: [] as unknown[],
+    })
+    beforeEach(() => {
+        const [i1, i2] = estado.db.orcamentista_orcamento_item
+        i1.calculo_id = 'calc-2'; i2.calculo_id = 'calc-2'
+        estado.db.orcamentista_orcamento_falta = [nomeada('i1', 'calc-2', 'SF92/WOLFF'), nomeada('i2', 'calc-2', '1023/WOLFF')]
+    })
+    const conferir = async () => { const r = await K().faltaDoParcial(T, O1); expect(escritas()).toEqual([]); return r }
+
+    it('TODAS as faltas nomeadas têm preço agora: nada continua — quem chama recalcula; e nada foi gravado', async () => {
+        expect(await conferir()).toEqual({ parcial: true, nomeadas: 2, continuam: [], recusas: [] })
+        expect(estado.chamadasDoCusto).toHaveLength(1)
+    })
+    it('a falta AINDA DE PÉ continua, nomeada; a que ganhou preço sai da lista', async () => {
+        estado.custo = { ...(estado.custo as Linha), faltas: [doCusto('1023/WOLFF')] }
+        expect(await conferir()).toEqual({ parcial: true, nomeadas: 2, continuam: [{ caminho: 'perfil', codigo_do_motor: '1023/WOLFF', cor: 'BRANCO', frase: '1023/WOLFF não está na tabela de preço', esquadria: 1 }], recusas: [] })
+    })
+    it('o mesmo código em OUTRA cor não é a mesma falta: a nomeada em BRANCO tem preço agora', async () => {
+        estado.custo = { ...(estado.custo as Linha), faltas: [doCusto('1023/WOLFF', 'PRETO')] }
+        expect((await conferir() as { continuam: unknown[] }).continuam).toEqual([])
+    })
+    it('o custo de agora RECUSA: todas as nomeadas continuam, e a recusa vai junto', async () => {
+        estado.custo = { ok: false, recusas: ['o tempo de fabricação de DP-02'] }
+        const r = await conferir() as { continuam: unknown[]; recusas: string[] }
+        expect(r.continuam).toHaveLength(2)
+        expect(r.recusas).toEqual(['o tempo de fabricação de DP-02'])
+    })
+    it('só o cálculo VIGENTE conta: a falta de um cálculo de antes não faz o orçamento parcial, e o custo nem é refeito', async () => {
+        estado.db.orcamentista_orcamento_falta = [nomeada('i1', 'calc-1', 'SF92/WOLFF')]
+        expect(await conferir()).toEqual({ parcial: false })
+        expect(estado.chamadasDoCusto).toEqual([])
+    })
+    it('o item REMOVIDO não conta: a falta dele não deixa o orçamento parcial', async () => {
+        estado.db.orcamentista_orcamento_item.find((i) => i.id === 'i1')!.removido_em = '2026-11-13T12:00:00.000Z'
+        estado.db.orcamentista_orcamento_falta = [nomeada('i1', 'calc-2', 'SF92/WOLFF')]
+        expect(await conferir()).toEqual({ parcial: false })
+    })
+    it('o tenant: a falta gravada em outra empresa não é lida', async () => {
+        for (const f of estado.db.orcamentista_orcamento_falta) f.tenant_id = OUTRO
+        expect(await conferir()).toEqual({ parcial: false })
+    })
+    it('nunca calculado (sem calculo_id) e sem a tabela das faltas: não é parcial', async () => {
+        estado.erros['orcamentista_orcamento_falta:select'] = [{ code: 'PGRST205', message: "Could not find the table 'public.orcamentista_orcamento_falta'" }]
+        expect(await conferir()).toEqual({ parcial: false })
+        for (const i of estado.db.orcamentista_orcamento_item) i.calculo_id = null
+        expect(await conferir()).toEqual({ parcial: false })
+    })
+})

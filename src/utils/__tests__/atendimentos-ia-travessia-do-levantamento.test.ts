@@ -90,12 +90,14 @@ function cliente() {
 }
 jest.mock('@/supabase/admin', () => ({ supabaseAdmin: cliente() }))
 // o cálculo tem portão próprio (`atendimentos-ia-orcamento-calculado.test.ts`); aqui só importa que o "sim" o chama, com o orçamento criado
-const calculo = { chamadas: [] as Array<[string, string]>, resposta: null as null | (() => unknown) }
+const calculo = { chamadas: [] as Array<[string, string]>, resposta: null as null | (() => unknown), parcial: { parcial: false } as unknown, conferidos: [] as string[] }
 jest.mock('@/lib/atendimentos-ia/orcamento-calculado', () => {
     class ErroDoCalculo extends Error { constructor(readonly recusas: string[]) { super(recusas.join(' | ')) } }
     return {
         ErroDoCalculo,
         calcularOrcamento: async (t: string, id: string) => { calculo.chamadas.push([t, id]); return calculo.resposta ? calculo.resposta() : { valor_total_liquido: 5240.395, valor_total_bruto: 5483.2, faltas: [], parcial: false } },
+        // a conferência do PARCIAL tem portão próprio (`atendimentos-ia-orcamento-calculado.test.ts`, (5)); aqui, o que o "sim" faz com ela
+        faltaDoParcial: async (_t: string, id: string) => { calculo.conferidos.push(id); return calculo.parcial },
     }
 })
 
@@ -107,7 +109,7 @@ import {
 } from '@/lib/atendimentos-ia/travessia-do-levantamento'
 import { ErroNaoEncontrado, LIMITE_DO_NOME as LIMITE_DO_NOME_DO_ORCAMENTO } from '@/lib/atendimentos-ia/orcamentos-ia'
 import {
-    LIMITE_DO_NOME, atualizarOrcamento, diferencaDoOrcamento, edicaoManualMaisNova, fraseDaEdicaoManualSubstituida, fraseDoNome, fraseDoOrcamentoArquivado,
+    LIMITE_DO_NOME, atualizarOrcamento, diferencaDoOrcamento, edicaoManualMaisNova, fraseDaEdicaoManualSubstituida, fraseDoNome, fraseDoOrcamentoArquivado, fraseDoParcialQueContinua,
     fraseDoOrcamentoJaAtualizado, mesmaFamilia, type ItemAtivoDoOrcamento, type ItemDoPlanoComparado,
 } from '@/lib/atendimentos-ia/travessia-do-levantamento'
 import { fraseDoArquivoQueNaoChegou } from '@/lib/atendimentos-ia/arquivo-que-nao-chegou'
@@ -454,7 +456,7 @@ describe('(7) o gatilho do "sim" ENCADEIA travessia -> cálculo -> etapa do pre�
                 : { rastro: 'reenvio=ok', paraOVendedor: 'reenviado', enviadoPara: '5551999990000', idDoEnvio: 'id-reenvio' })
         },
     }
-    beforeEach(() => { etapa.chamadas = []; etapa.resposta = () => Promise.resolve({ rastro: 'precificacao=ok envio=ok', paraOVendedor: 'enviado' }); reenvio.chamadas = []; reenvio.semArquivo = false })
+    beforeEach(() => { etapa.chamadas = []; etapa.resposta = () => Promise.resolve({ rastro: 'precificacao=ok envio=ok', paraOVendedor: 'enviado' }); reenvio.chamadas = []; reenvio.semArquivo = false; calculo.parcial = { parcial: false }; calculo.conferidos = [] })
     it('atravessa, CALCULA o orçamento criado e roda a ETAPA DO PREÇO sobre ele: o rastro e o texto da etapa voltam', async () => {
         expect(await atravessarNoSim(T, LEV, naEtapa)).toEqual({ rastro: `${TRAVESSIA} calculo=ok liquido=5240.40 precificacao=ok envio=ok`, paraOVendedor: 'enviado' })
         const id = estado.db.orcamentista_orcamento[0].id
@@ -630,6 +632,67 @@ describe('(7) o gatilho do "sim" ENCADEIA travessia -> cálculo -> etapa do pre�
         item.vidro_codigo = 'VIN05'
         expect((await atravessarNoSim(T, LEV, naEtapa, reenvio.fn)).rastro).toContain('mudados=1')
         expect(item.vidro_codigo).toBeNull()
+    })
+    // O PARCIAL NO "SIM" SEM MUDANÇA (dono do produto, 13/11/2026): o COMPLETO é fotografia; o PARCIAL cujas faltas nomeadas têm preço agora recalcula
+    const SF92 = { caminho: 'perfil', codigo_do_motor: 'SF92/WOLFF', cor: 'BRANCO', frase: 'SF92/WOLFF não está na tabela de preço.', esquadria: 1 }
+    it('PARCIAL com a falta RESOLVIDA: o "sim" sem mudança RECALCULA o orçamento 1 e roda a etapa (o PDF novo) — nada é reenviado, nenhum segundo orçamento', async () => {
+        await atravessarNoSim(T, LEV, naEtapa)
+        comFamilia('PVC')
+        calculo.chamadas = []; etapa.chamadas = []
+        calculo.parcial = { parcial: true, nomeadas: 2, continuam: [], recusas: [] }
+        const r = await atravessarNoSim(T, LEV, naEtapa, reenvio.fn)
+        const id = orcamento1().id
+        expect(calculo.conferidos).toEqual([id])
+        expect(reenvio.chamadas).toEqual([])
+        expect(calculo.chamadas).toEqual([[T, id]])
+        expect(etapa.chamadas).toEqual([id])
+        expect(r.rastro).toContain('atualizacao=sim novos=0 mudados=0 removidos=0 cabecalho=nao parcial=resolvido faltas_de_preco=0/2 origens=')
+        expect(r.rastro).toContain('calculo=ok liquido=5240.40 precificacao=ok envio=ok')
+        expect(r.paraOVendedor).toBe('enviado')
+        expect(r.aviso).toBeUndefined()
+        expect(estado.db.orcamentista_orcamento).toHaveLength(1)
+        nenhumDelete()
+    })
+    it('PARCIAL com a falta DE PÉ: NÃO recalcula — o arquivo vai de novo, e o que continua faltando vai NOMEADO, nunca o "já está atualizado" seco', async () => {
+        await atravessarNoSim(T, LEV, naEtapa)
+        comFamilia('PVC')
+        calculo.chamadas = []; etapa.chamadas = []
+        calculo.parcial = { parcial: true, nomeadas: 2, continuam: [SF92], recusas: [] }
+        const r = await atravessarNoSim(T, LEV, naEtapa, reenvio.fn)
+        expect(calculo.chamadas).toEqual([])
+        expect(etapa.chamadas).toEqual([])
+        expect(reenvio.chamadas).toHaveLength(1)
+        expect(r).toEqual({
+            rastro: 'orcamento=1 atualizacao=sem_mudanca parcial=continua faltas_de_preco=1/2 reenvio=ok', paraOVendedor: 'reenviado',
+            aviso: 'O orçamento 1 continua PARCIAL: nada mudou no levantamento, e 1 valor continua sem preço. O arquivo dele vai de novo, sem recálculo.\n'
+                + 'Para completar, preciso de:\n• SF92/WOLFF não está na tabela de preço (item 1).',
+            enviadoPara: '5551999990000', idDoEnvio: 'id-reenvio',
+        })
+        expect(r.aviso).not.toBe(fraseDoOrcamentoJaAtualizado(1))
+        nenhumDelete()
+    })
+    it('PARCIAL e o custo de agora RECUSA: não recalcula, e a recusa vai nomeada junto do que continua faltando', async () => {
+        await atravessarNoSim(T, LEV, naEtapa)
+        comFamilia('PVC')
+        calculo.chamadas = []
+        calculo.parcial = { parcial: true, nomeadas: 1, continuam: [SF92], recusas: ['o tempo de fabricação de DP-01'] }
+        const r = await atravessarNoSim(T, LEV, naEtapa, reenvio.fn)
+        expect(calculo.chamadas).toEqual([])
+        expect(r.aviso).toBe(fraseDoParcialQueContinua(1, [SF92], ['o tempo de fabricação de DP-01']))
+        expect(r.aviso).toContain('\nO custo de agora também recusou. Falta: o tempo de fabricação de DP-01.\n')
+    })
+    it('a frase do parcial que continua: dois códigos são "2 valores continuam"', () => {
+        expect(fraseDoParcialQueContinua(3, [SF92, { ...SF92, codigo_do_motor: 'X', frase: 'x', esquadria: 2 }]).split('\n')[0])
+            .toBe('O orçamento 3 continua PARCIAL: nada mudou no levantamento, e 2 valores continuam sem preço. O arquivo dele vai de novo, sem recálculo.')
+    })
+    it('o COMPLETO é fotografia: a conferência diz "não parcial", e o "sim" sem mudança só reenvia, com o "já está atualizado"', async () => {
+        await atravessarNoSim(T, LEV, naEtapa)
+        comFamilia('PVC')
+        calculo.chamadas = []
+        const r = await atravessarNoSim(T, LEV, naEtapa, reenvio.fn)
+        expect(calculo.conferidos).toHaveLength(1)
+        expect(calculo.chamadas).toEqual([])
+        expect(r.aviso).toBe(fraseDoOrcamentoJaAtualizado(1))
     })
     it('atualizarOrcamento sem mudança NÃO GRAVA nada', async () => {
         await atravessarNoSim(T, LEV, naEtapa)
