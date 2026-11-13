@@ -130,7 +130,7 @@ describe('(2) a página do nicho: cinco abas, nesta ordem, e a aba vem da URL', 
     it('FAMÍLIAS → CATEGORIAS → FORNECEDORES → MOTORES → ETAPAS; sem `aba`, a primeira', async () => {
         mockRoteador.query = { nichoId: ESQ }
         const host = await montar(PaginaDoNicho())
-        expect(abas(host)).toEqual(['Famílias', 'Categorias', 'Fornecedores', 'Motores', 'Etapas'])
+        expect(abas(host)).toEqual(['Famílias', 'Categorias', 'Fornecedores', 'Motores', 'Etapas', 'Desenhos'])
         expect(abaAtiva(host)).toBe('Famílias')
         expect(host.querySelector('[data-titulo]')!.getAttribute('data-titulo')).toBe('Esquadrias')
     })
