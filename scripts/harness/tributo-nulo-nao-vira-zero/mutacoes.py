@@ -31,7 +31,8 @@ MUT = [
     ('S2 o salvar não recebe as faltas (o repasse do produzido some)', CI, "        onFaltasDosTributosChange={onFaltasDosTributosChange}\n", ""),
     # ── a tela ──
     ('P1 o preço é emitido mesmo com a falta', PP, "    if (!semPreco && finalPriceWithTaxesPerUnit > 0) onFinalPriceWithTaxesChange?.({", "    if (finalPriceWithTaxesPerUnit > 0) onFinalPriceWithTaxesChange?.({"),
-    ('P2 "não formado" não é avisado com a falta', PP, "    const formado = !semPreco && finalPriceWithTaxesPerUnit > 0", "    const formado = finalPriceWithTaxesPerUnit > 0"),
+    # o `formado` veio a morar em `formarPrecoDoProduto` (o rebase sobre o #262/#263, 13/11/2026): a falta entra no aviso pelo `|| semPreco`
+    ('P2 "não formado" não é avisado com a falta', PP, "    if (!formado || semPreco) onPrecoNaoFormado?.()", "    if (!formado) onPrecoNaoFormado?.()"),
     ('P3 a margem aparece com o tributo em zero', PP, "{semPreco ? '—' : `${mcPct.toLocaleString(", "{false ? '—' : `${mcPct.toLocaleString("),
     ('P4 a faixa que nomeia a falta some', PP, "      {semPreco && (\n        <div data-preco-nao-formado=\"\"", "      {false && (\n        <div data-preco-nao-formado=\"\""),
     ('P5 o resultado (preço por unidade) aparece com a falta', PP, "        {!semPreco && (<div style={{", "        {(<div style={{"),
