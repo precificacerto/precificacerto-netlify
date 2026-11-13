@@ -19,6 +19,8 @@
  *   inteira quando ela traz uma só das palavras — é assim que "Janela de correr 1,50x1,20 e porta janela 2,50x2,40" separa as duas.
  */
 
+import { MEDIDA_MAXIMA_MM, MEDIDA_MINIMA_MM } from '@/lib/atendimentos-ia/pre-definicao'
+
 export type Abertura = 'porta' | 'janela'
 export const ABERTURAS: readonly Abertura[] = ['porta', 'janela']
 
@@ -171,7 +173,64 @@ export function fraseDaAberturaRecusada(dita: Abertura): string {
  * alguma porta de giro. Medido na De Paula (164 tipologias) nos cinco turnos do Jorge Koss: lista inteira hoje em todos; só porta/janela pelo
  * acumulado, 164 (as duas palavras); pelo tipo, 124; por trecho (porta ∧ Correr ∪ janela ∧ Maxim-ar), 87.
  */
-export type TrechoDoAcumulado = { abertura: Abertura | null; tipos: ReadonlySet<string>; texto: string }
+export type TrechoDoAcumulado = {
+    abertura: Abertura | null; tipos: ReadonlySet<string>; texto: string
+    /** As medidas que a LINHA traz (`medidasDaLinha`), em mm: é por elas que a linha se liga à esquadria lida. Ausente nos trechos de antes. */
+    medidas?: readonly Medidas[]
+}
+
+// ── O VOCABULÁRIO DA OBRA (dono do produto, 13/11/2026) ──────────────────────────────────────────
+/**
+ * > "'persiana' é apelido de JANELA DE CORRER COM PERSIANA; 'porta persiana' é PORTA DE CORRER COM PERSIANA. Não é falta de informação, é
+ * > como se fala na obra. A abertura está dita: é correr." E o porquê, do PO: giro e oscilo-batente não levam persiana — a folha abre para
+ * > dentro e bateria nela.
+ *
+ * A linha que diz persiana (e não "sem persiana") ganha o que o apelido afirma, só no que ela NÃO diz: a abertura JANELA quando não diz porta
+ * nem janela, e o tipo de correr do motor quando não diz tipo nenhum. O que a linha diz vence o apelido ("janela de giro com persiana" continua
+ * de giro). Sem o tipo de correr no motor, o apelido não se aplica (nunca um tipo que o motor não tem).
+ */
+const DIZ_PERSIANA = /\bpersianas?\b/
+const SEM_PERSIANA = /\bsem\s+persianas?\b/
+export function vocabularioDaObra(linha: string, tipos: readonly string[]): string {
+    const t = semAcento(linha)
+    if (!DIZ_PERSIANA.test(t) || SEM_PERSIANA.test(t)) return linha
+    if (!tipos.some((tipo) => palavrasDoTipo(tipo).includes('correr'))) return linha
+    const acrescimo: string[] = []
+    if (palavrasDeAbertura(linha).size === 0) acrescimo.push('janela')
+    if (tiposDitos(linha, tipos).size === 0) acrescimo.push('de correr')
+    return acrescimo.length === 0 ? linha : `${linha} [${acrescimo.join(' ')} com persiana]`
+}
+
+// ── A LINHA DE ITEM: a medida "N x N" (dono do produto, 13/11/2026) ───────────────────────────────
+/**
+ * > "linha com medida N x N é linha de item, e linha de item sem abertura afirmada traz a lista inteira. [...] não deixe virar 'qualquer linha
+ * > com dois números'."
+ *
+ * O número só é medida se a UNIDADE se lê pela grandeza e o resultado cai na faixa que a conversa já aceita para uma medida (`MEDIDA_MINIMA_MM`
+ * a `MEDIDA_MAXIMA_MM`, de `pre-definicao.ts`): abaixo de 10, metros ("1,50" = 1500, "2" = 2000); de 10 a 99, centímetros ("60" = 600,
+ * "60,5" = 605); de 100 em diante, milímetros ("2000"). Os dois lados têm de ser medida, e o "x" (ou "×") tem de estar entre eles.
+ * O ERRO QUE SOBRA vai para o lado seguro: uma linha que não é de item e passa por medida ("2 x 3 unidades") só faz a lista ir inteira —
+ * nunca corta candidata. Medida em metros por extenso ("1 metro e meio") não é lida: a linha fica como antes.
+ */
+const PAR_DE_MEDIDAS = /(\d+(?:[.,]\d+)?)\s*(?:mm|cm|m)?\s*[x×]\s*(\d+(?:[.,]\d+)?)/gi
+export function emMilimetros(numero: string): number | null {
+    const v = Number(numero.replace(',', '.'))
+    if (!Number.isFinite(v) || v <= 0) return null
+    const mm = v < 10 ? Math.round(v * 1000) : v >= 100 ? Math.round(v) : Math.round(v * 10)
+    return mm >= MEDIDA_MINIMA_MM && mm <= MEDIDA_MAXIMA_MM ? mm : null
+}
+export function medidasDaLinha(linha: string): Medidas[] {
+    const achadas: Medidas[] = []
+    for (const m of linha.matchAll(PAR_DE_MEDIDAS)) {
+        const largura = emMilimetros(m[1])
+        const altura = emMilimetros(m[2])
+        if (largura !== null && altura !== null) achadas.push({ largura_mm: largura, altura_mm: altura })
+    }
+    return achadas
+}
+/** A linha é a desta esquadria: alguma medida dela é a largura E a altura que a esquadria tem (as duas lidas; nunca uma só). */
+export const linhaDaEsquadria = (t: Pick<TrechoDoAcumulado, 'medidas'>, m: Medidas): boolean =>
+    m.largura_mm !== null && m.altura_mm !== null && (t.medidas ?? []).some((x) => x.largura_mm === m.largura_mm && x.altura_mm === m.altura_mm)
 
 /** As palavras de um tipo do motor que contam: 3 letras ou mais, sem acento e sem caixa ("Giro / Abrir" → giro, abrir; "Maxim-ar" → maxim). */
 export const palavrasDoTipo = (tipo: string): string[] => semAcento(tipo).split(/[^a-z]+/).filter((p) => p.length >= 3)
@@ -190,14 +249,21 @@ export function tiposDitos(texto: string, tipos: readonly string[]): Set<string>
     return ditos
 }
 
-/** Os trechos do acumulado: uma linha de uma mensagem do vendedor que diz a abertura (uma só das palavras) ou um tipo do motor. */
+/**
+ * Os trechos do acumulado: uma linha de uma mensagem do vendedor que diz a abertura (uma só das palavras), um tipo do motor, ou uma medida
+ * (a LINHA DE ITEM, 13/11/2026). A linha passa antes pelo vocabulário da obra ("persiana"). A linha de item que não afirma abertura nem tipo
+ * serve a toda candidata — e a lista vai inteira: sem abertura afirmada, nenhuma abertura é excluída.
+ */
 export function trechosDoAcumulado(textos: readonly string[], tipos: readonly string[]): TrechoDoAcumulado[] {
     const trechos: TrechoDoAcumulado[] = []
     for (const texto of textos) {
-        for (const linha of texto.split('\n')) {
+        for (const crua of texto.split('\n')) {
+            const linha = vocabularioDaObra(crua, tipos)
             const abertura = aberturaDita(linha)
             const ditos = tiposDitos(linha, tipos)
-            if (abertura !== null || ditos.size > 0) trechos.push({ abertura, tipos: ditos, texto: linha })
+            // a medida da linha como o vendedor a escreveu (o acréscimo do vocabulário não traz número)
+            const medidas = medidasDaLinha(crua)
+            if (abertura !== null || ditos.size > 0 || medidas.length > 0) trechos.push({ abertura, tipos: ditos, texto: linha, medidas })
         }
     }
     return trechos
@@ -224,6 +290,7 @@ export function filtrarPeloAcumulado<C extends { descricao: string | null; tipo:
     const tipos = [...new Set(candidatos.map((c) => c.tipo).filter((t): t is string => typeof t === 'string' && t.trim() !== ''))]
     const trechos = trechosDoAcumulado(textos, tipos)
     const jaDito = { abertura: trechos.some((t) => t.abertura !== null), tipo: trechos.some((t) => t.tipos.size > 0) }
+    // a linha de item que não afirma nada não é filtro: ela só traz a lista inteira (abaixo, pela candidata que serve a tudo)
     if (trechos.length === 0) return { candidatos: [...candidatos], trechos: 0, semCandidata: 0, jaDito, lidos: trechos }
     const ficam = new Set<C>()
     let semCandidata = 0

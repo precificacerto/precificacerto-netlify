@@ -20,7 +20,7 @@
  *
  * Portão: `src/utils/__tests__/arquivo-do-levantamento.test.ts` e o bloco (42) de `atendimentos-ia-levantamento-por-nome.test.ts`.
  */
-import { oQueAEsquadriaE } from './tipologia-padrao'
+import { oQueAEsquadriaE, panosDaNatureza } from './tipologia-padrao'
 import { supabaseAdmin } from '@/supabase/admin'
 import { arremateDaColeta, rotuloSemCodigo } from '@/lib/atendimentos-ia/apanhado'
 import { opcoesDaVariavel } from '@/lib/atendimentos-ia/avaliador-de-formulas'
@@ -178,6 +178,16 @@ export function modulosHorizontais(item: Pick<ItemDoLevantamento, 'escolhas' | '
     return /^\d+$/.test(p) && Number(p) > 0 ? Number(p) : null
 }
 
+/**
+ * Os panos da persiana que a tipologia tem por construção (13/11/2026, `docs/regras/dito-que-confere-com-a-tipologia.md`): 1 na que tem persiana
+ * e não tem a variável `QP`; null quando ela não afirma — com `QP`, sem persiana, ou sem as variáveis lidas (nunca um número presumido).
+ */
+export function panosDaPersiana(c: { descricao: string; tipo: string | null; linha: string | null }, item: Pick<ItemDoLevantamento, 'tipologia' | 'familia'>,
+    definicao: DefinicaoDaTipologia): number | null {
+    const def = definicao(item)
+    return panosDaNatureza(c, def ? def.variaveis.map((v) => v.variavel) : null)
+}
+
 export function montarDadosDaFolha(a: {
     empresa: string; levantamento: LevantamentoDoArquivo; itens: readonly ItemDoLevantamento[]; definicao: DefinicaoDaTipologia; detalhe: DetalheDaTipologia; geradoEm: Date
     /** a pré-definição do vendedor na base de conhecimento: o (b) da ordem dos três percentuais (11/11/2026) */
@@ -195,7 +205,8 @@ export function montarDadosDaFolha(a: {
             quantidade: i.quantidade ?? 0, largura_mm: i.largura_mm ?? 0, altura_mm: i.altura_mm ?? 0,
             variaveis: variaveisDitas(i, a.definicao),
             // o que a esquadria É, escrito (11/11/2026): o padrão aplicado nunca em silêncio
-            considerado: d && d.descricao ? oQueAEsquadriaE({ descricao: d.descricao, tipo: d.tipo ?? null, linha: d.linha }, modulosHorizontais(i, a.definicao, d.descricao)) : null,
+            considerado: d && d.descricao ? oQueAEsquadriaE({ descricao: d.descricao, tipo: d.tipo ?? null, linha: d.linha }, modulosHorizontais(i, a.definicao, d.descricao),
+                panosDaPersiana({ descricao: d.descricao, tipo: d.tipo ?? null, linha: d.linha }, i, a.definicao)) : null,
             // igual em todos (ou nenhum tem arremate): nada aqui; o rodapé o diz uma vez
             perfilEAcessorio: perfilEAcessorio(cor, corDoAcessorio(i, a.definicao), arremateComum === null ? arremates[k] : null),
             // o vidro COMO O VENDEDOR DISSE (04/11/2026: copiado, nunca completado), sem rótulo: o rótulo é o da célula ("VIDRO:")

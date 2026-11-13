@@ -191,6 +191,8 @@ describe('O PADRÃO APARECE NA FOLHA, montado do que está gravado (dono do prod
     const DET: Record<string, { descricao: string; linha: string; tipo: string }> = {
         'DP-02': { descricao: 'JANELA DE CORRER 02 FOLHAS MÓVEIS | EUROPA 42', linha: 'PVC WOLFF EUROPA 42', tipo: 'Correr' },
         'DP-01': { descricao: 'MAXIM-AR COM "N" MÓDULOS HORIZONTAIS E 01 MÓDULO VERTICAL | DESIGN', linha: 'PVC WOLFF DESIGN', tipo: 'Maxim-ar' },
+        'DP-07': { descricao: 'JANELA DE CORRER 02 FOLHAS MÓVEIS COM PERSIANA | EUROPA 42', linha: 'PVC WOLFF EUROPA 42', tipo: 'Correr' },
+        'DP-16': { descricao: 'JANELA DE CORRER 03 FOLHAS MÓVEIS COM PERSIANA | EUROPA 42', linha: 'PVC WOLFF EUROPA 42', tipo: 'Correr' },
     }
     const comTipo = (t: string) => DET[t] ?? null
     // a aba Variáveis da DP-01: o "N" com padrão 1 (medido no motor 022fc55e, 11/11/2026)
@@ -207,5 +209,11 @@ describe('O PADRÃO APARECE NA FOLHA, montado do que está gravado (dono do prod
     })
     it('sem a descrição do motor, nada é escrito (nunca um considerado inventado)', () => {
         expect(montarCom([item(1, { tipologia: 'DP-99' })]).itens[0].considerado).toBeNull()
+    })
+    it('a persiana de pano fixo diz o pano (13/11/2026, dito-que-confere-com-a-tipologia): DP-07 sem QP → "(1 pano)"; DP-16 com QP, nada presumido', () => {
+        const QP = { variaveis: [{ variavel: 'QP', descricao: 'QUANTIDADE DE PANOS DE PERSIANA', padrao: '2', condicao: 'sempre', opcoes: '2 = 02 PANOS; 3 = 03 PANOS ASSIMÉTRICOS' }] } as unknown as VariaveisDaTipologia
+        const com = (itens: ItemDoLevantamento[]) => montarDadosDaFolha({ empresa: 'Empresa X', levantamento: LEV, itens, definicao: (e) => (e.tipologia === 'DP-16' ? QP : COM_N), detalhe: comTipo, geradoEm: new Date(Date.UTC(2026, 10, 13, 12)), doVendedor: null })
+        expect(com([item(1, { tipologia: 'DP-07' })]).itens[0].considerado).toBe('correr, 2 folhas · com persiana (1 pano) · sem bandeira · sem peitoril')
+        expect(com([item(1, { tipologia: 'DP-16' })]).itens[0].considerado).toBe('correr, 3 folhas · com persiana · sem bandeira · sem peitoril')
     })
 })
