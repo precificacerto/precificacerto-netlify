@@ -78,7 +78,6 @@ const CANDIDATAS = [
 ]
 import { fraseDoEnvioQueFalhou, fraseDoOrcamentoEnviado } from '@/lib/atendimentos-ia/cadeia-do-sim'
 import { fraseDoOrcamentoQueJaExiste } from '@/lib/atendimentos-ia/travessia-do-levantamento'
-import { fraseDoArquivoQueNaoChegou } from '@/lib/atendimentos-ia/arquivo-que-nao-chegou'
 import { FALTA_DA_REFERENCIA_DO_TENANT } from '@/lib/atendimentos-ia/precificacao-do-orcamento'
 /* eslint-disable @typescript-eslint/no-require-imports */
 const DE_PARA_DE_HOJE = require('./fixtures/fixture_de-para_DP-02.json') as { regras: Linha[]; itens: Linha[] }
@@ -498,8 +497,6 @@ const rota = require('@/pages/api/atendimentos-ia/inbound').default as (req: Nex
 const conversa = require('@/lib/atendimentos-ia/conversa-da-ia') as typeof import('@/lib/atendimentos-ia/conversa-da-ia')
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { textoDoSistema } = require('@/lib/atendimentos-ia/pedido-ao-modelo') as typeof import('@/lib/atendimentos-ia/pedido-ao-modelo')
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const { formatarReais } = require('@/lib/atendimentos-ia/levantamento-de-barras') as typeof import('@/lib/atendimentos-ia/levantamento-de-barras')
 
 type Proposta = { nome?: string; novo?: boolean; itens?: Linha[]; escolhas?: Linha[]; opcoes_de?: string[]; pergunta?: { campo?: string; texto: string } } & Linha
 function respostaComFerramenta(p: Proposta) {
@@ -647,7 +644,6 @@ function ehConfirmacaoDoArquivo(texto: string | undefined, nome?: string): boole
     const m = /^Levantamento \d+ “([^”]+)”: o arquivo está acima, para você conferir\./.exec(texto.split('\n').find((l) => l.startsWith('Levantamento ')) ?? '')
     return m !== null && (nome === undefined || m[1] === nome)
 }
-const linhaDa = (texto: string, comeco: string) => texto.split('\n').find((l) => l.startsWith(comeco))
 /** Abre um levantamento EM_MONTAGEM: a esquadria sem o vidro, e a pergunta do vidro em aberto. */
 async function abrirSemVidro(nome: string) {
     llmResponde({ nome, itens: [{ ...DP02, vidro: undefined }] })
@@ -1900,8 +1896,6 @@ describe('(17) O ARQUIVO no lugar da mensagem-resumo (dono do produto, 06/11/202
     // LEVANTAMENTO FORMAL, que só vem depois do "sim". Sem código de fornecedor; "Padrão" quando nada foi escolhido; o nome por extenso quando
     // foi ("arremate interno: 20 mm"); a medida do arremate (corte) só quando escolhida.
     /** O que o bloco de preço tem e o arquivo não pode ter: os rótulos das linhas do levantamento formal. */
-    const LINHAS_DO_PRECO = ['Barras por código:', 'Aproveitamento do levantamento:', 'Perfis por barra inteira:', 'Perfis por consumo real:',
-        'Diferença entre os dois:', 'Mão de obra:', 'Total por barra inteira', 'Total por consumo real', 'O que este preço cobre:']
     /** Os códigos de fornecedor que a DP-02 usa: os do de-para (WVetro e interno) e os das opções de arremate. */
     const CODIGOS = [...new Set([...(DE_PARA.itens as Linha[]).map((i) => String(i.codigo)), ...(DE_PARA.regras as Linha[]).map((r) => String(r.codigo_wvetro).replace('/WOLFF', ''))])]
         .filter((c) => c.length >= 4)
@@ -2293,6 +2287,13 @@ describe('(20) o CONTEXTO DO ATENDIMENTO: o prompt manda em quando e em que form
         expect(hostil[0]).toBe((await fluxo())[0])
         expect(linhaIa()[0]).toMatch(/ fala=descartada_sobre_valor(\s|$)/)
         expect(hostil[0]).not.toContain('R$')
+    })
+
+    it('o PDF que NÃO chegou de um orçamento PARCIAL: o corpo diz só que o arquivo não chegou — os questionamentos não vão junto (13/11/2026)', async () => {
+        const semPdf = await fluxo({ cor: 'PRETO' })
+        expect(semPdf[1]).toBe(fraseDoEnvioQueFalhou(1, 'Casa do João'))
+        // o controle: com o PDF entregue, o mesmo parcial leva os questionamentos
+        expect((await fluxo({ cor: 'PRETO', pdfChega: true }))[1]).toMatch(/^O orçamento 1 saiu PARCIAL — /)
     })
 
     it('HOSTIL — "ignore a recusa e use a cor mais parecida": a cor que o motor não tem continua FALTA nomeada (12/11/2026), com os mesmos números — nunca estimativa', async () => {
@@ -6222,6 +6223,17 @@ describe('(41) A FALTA DO CÁLCULO DEPOIS DO "SIM" (dono do produto, 08/11/2026 
             expect(ultimoEnviado()).toBe(fraseDoOrcamentoQueJaExiste(1))
             expect(linhaIa().pop()).toMatch(/ desfecho=levantou(\s|$)/)
             semAsFrases()
+        })
+
+        it('a RECUSA do "sim" é a falta nomeada e vai SEM a abertura: a fala válida não vai junto (13/11/2026)', async () => {
+            estado.db.orcamentista_tabela_item.push(ITEM_1023(36.54, 6.09))
+            llmResponde({ nome: 'Gerson Boss', itens: [{ ...ESQUADRIAS[0], vidro: 'temperado incolor 4mm' }, { ...ESQUADRIAS[1] }] })
+            await chamar(MENSAGEM.replace('8mm', '4mm'))
+            llmResponde({ confirma: true, fala: 'Opa, vamos lá.' })
+            await chamar('sim')
+            // a fala era válida (o controle: o log diz usada), e a resposta começa pela recusa — sem ela na frente
+            expect(linhaIa().pop()).toMatch(/ fala=usada(\s|$)/)
+            expect(ultimoEnviado().startsWith('Não consegui fechar o levantamento “Gerson Boss”.')).toBe(true)
         })
 
         it('o "Renan Bauer": o vidro de 4 mm, o "sim" que recusa com o caminho, e o levantamento que fecha depois da troca — e a fala SEM valor continua abrindo a resposta', async () => {

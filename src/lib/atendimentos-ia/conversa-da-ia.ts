@@ -1916,12 +1916,9 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         // PERGUNTA É TEXTO; RESULTADO É ARQUIVO (dono do produto, 13/11/2026): o levantamento que levantou sem chegar à cadeia do "sim" não manda
         // por texto o resultado (itens, medidas, barras, aproveitamento, mão de obra, o que o preço cobre) — manda a falta nomeada de por que o
         // arquivo não saiu. A recusa do cálculo já é falta nomeada (`fraseDaRecusa`), e vai como está, sem a abertura
-        if (levantamento.desfecho === 'levantou') {
-            const frase = !rastro.levantamento ? fraseDoArquivoQueNaoChegou(null, 'o levantamento não foi gravado')
-                : estado !== COMPLETO ? fraseDoArquivoQueNaoChegou(null, 'o levantamento ainda não está completo')
-                    : FRASE_DO_ARQUIVO_SEM_A_CONFIRMACAO
-            return await responder(frase, levantamento.desfecho, semApanhado, false)
-        }
+        // Medido em 13/11/2026: aqui o levantamento está sempre gravado (`rastro.levantamento`, da gravação ou do alvo) e COMPLETO (todo caminho
+        // EM_MONTAGEM pergunta e volta antes) — o único que levanta sem chegar à cadeia é o "sim" que não pôde ser registrado (`semApanhado`)
+        if (levantamento.desfecho === 'levantou') return await responder(FRASE_DO_ARQUIVO_SEM_A_CONFIRMACAO, levantamento.desfecho, semApanhado, false)
         return await responder(levantamento.texto, levantamento.desfecho, semApanhado, false)
     } catch (e) {
         // Só o nome da tabela e o erro do banco — nunca a chave, o telefone ou o texto. E o vendedor sabe.
