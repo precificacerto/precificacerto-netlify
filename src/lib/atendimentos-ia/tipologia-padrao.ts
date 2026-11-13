@@ -24,7 +24,9 @@
  *         (`naturalDaQuantidade`). Escrita por tipo NENHUM além do correr, para o tipo novo do motor não pedir regra nova;
  *       · os MÓDULOS ditos fora do correr, em número diferente de 1: não há padrão (`MODULOS_DITOS`; o modelo decide);
  *   - o que o vendedor DIZ e não tem como entrar na tipologia (o motor da persiana, o número de panos — são variáveis do motor que a conversa
- *     não captura) tira o padrão daquela esquadria (`DITO_SEM_REPRESENTACAO`): nunca dito em silêncio;
+ *     não captura) tira o padrão daquela esquadria (`DITO_SEM_REPRESENTACAO`): nunca dito em silêncio. EXCEÇÃO (13/11/2026): o dito que
+ *     CONFERE com a natureza fixa da tipologia escolhida ("1 pano" na persiana sem QP) é absorvido e escrito; o que a CONTRADIZ é pergunta
+ *     (`docs/regras/dito-que-confere-com-a-tipologia.md`);
  *   - sobrando UMA, ela vale, se a medida dita couber nos limites dela (`cabeNosLimites`; fora deles, nunca "a mais próxima");
  *   - sobrando duas ou mais que só diferem pela LINHA DE PRODUTO, o motivo é `LINHA` — a linha padrão é da base de conhecimento da empresa, e
  *     até ser cadastrada é falta nomeada (dono do produto, 11/11/2026). Medido no motor 022fc55e (11/11/2026): só a maxim-ar tem candidata em
@@ -34,7 +36,7 @@
  */
 import type { CandidatoDeTipologia } from '@/lib/atendimentos-ia/levantamento-da-conversa'
 import type { ItemDoLevantamento } from '@/lib/atendimentos-ia/levantamento-em-montagem'
-import { aberturaDaDescricao, cabeNosLimites, type Abertura, type TrechoDoAcumulado } from '@/lib/atendimentos-ia/tipologias-candidatas'
+import { aberturaDaDescricao, cabeNosLimites, linhaDaEsquadria, type Abertura, type TrechoDoAcumulado } from '@/lib/atendimentos-ia/tipologias-candidatas'
 
 const semAcento = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
 
@@ -71,6 +73,35 @@ export type Extra = keyof typeof EXTRAS
  * — AE, com motor —, a quantidade de panos — QP). Dito, a esquadria não ganha padrão: nunca em silêncio.
  */
 export const DITO_SEM_REPRESENTACAO = /\b(motor\w*|motoriza\w*|automatiza\w*|controle remoto|botoeira|panos?)\b/
+
+/**
+ * O DITO QUE CONFERE COM A NATUREZA DA TIPOLOGIA (dono do produto, 13/11/2026; `docs/regras/dito-que-confere-com-a-tipologia.md`):
+ *
+ * > "dito que o motor não representa, mas que CONFERE com a natureza fixa da tipologia, é absorvido e ESCRITO na linha CONSIDERADO — não em
+ * > silêncio, e não vira pergunta. Dito que CONTRADIZ a natureza fixa (ex.: '3 panos' numa DP-07, que não tem QP) continua sendo pergunta.
+ * > Dito que o motor não representa e sobre o qual a tipologia nada afirma segue na regra atual, DITO_SEM_REPRESENTACAO."
+ *
+ * Os PANOS: a variável `QP` ("QUANTIDADE DE PANOS DE PERSIANA") só existe nas tipologias cuja persiana varia, e só oferece 2 ou 3 (medido no
+ * motor 022fc55e em 13/11/2026: 12 tipologias). A tipologia COM persiana e SEM `QP` tem a persiana de UM pano, por construção. Então:
+ *   - "1 pano" nela CONFERE: absorvido, e o CONSIDERADO diz "com persiana (1 pano)";
+ *   - outro número nela CONTRADIZ: pergunta (`CONTRADIZ_A_TIPOLOGIA`);
+ *   - na tipologia com `QP` (a conversa não captura a variável), na sem persiana, ou sem as variáveis lidas: a regra de antes.
+ * "pano" sem número não diz quantos: a regra de antes.
+ */
+export const VARIAVEL_DOS_PANOS = 'QP'
+// o número não pode ser o fim de outro ("1,30 pano" não é "30 panos": a medida antes dele)
+const PANOS_COM_NUMERO = /(?<![\d.,])\b(\d+|uma?|dois|duas|tres|quatro)\s+panos?\b/
+const PANOS_COM_NUMERO_G = new RegExp(PANOS_COM_NUMERO.source, 'g')
+/** Os panos ditos com número ("1 pano", "dois panos"), ou null. */
+export function panosDitos(texto: string): number | null {
+    const m = PANOS_COM_NUMERO.exec(semAcento(texto))
+    return m ? numero(m[1]) : null
+}
+/** Os panos que a tipologia TEM por construção: 1 quando tem persiana e não tem `QP`; null quando ela não afirma (ou as variáveis não foram lidas). */
+export function panosDaNatureza(c: Pick<CandidatoDeTipologia, 'descricao' | 'tipo' | 'linha'>, variaveis: readonly string[] | null): number | null {
+    if (variaveis === null || variaveis.includes(VARIAVEL_DOS_PANOS)) return null
+    return atributosDaDescricao(c).extras.has('persiana') ? 1 : null
+}
 /** Tipos que o vendedor pode dizer e que o motor não tem: sem eles no motor, a esquadria não ganha padrão (nunca "porta" vira correr). */
 export const TIPO_FORA_DO_MOTOR = /\b(basculantes?|projetantes?|guilhotinas?|camar[ao]o|sanfona\w*|vai e vem)\b/
 /**
@@ -144,11 +175,18 @@ export function atributosDaDescricao(c: Pick<CandidatoDeTipologia, 'descricao' |
     }
 }
 
-export type AtributosDitos = { folhas: number | null; modulos: number | null; extras: ReadonlySet<Extra>; semRepresentacao: boolean; tipoForaDoMotor: boolean }
+export type AtributosDitos = {
+    folhas: number | null; modulos: number | null; extras: ReadonlySet<Extra>; semRepresentacao: boolean; tipoForaDoMotor: boolean
+    /** Os panos ditos COM número: não contam em `semRepresentacao` — a tipologia escolhida decide se conferem (13/11/2026). */
+    panos: number | null
+}
 /** O que o vendedor DISSE da esquadria, pelas mesmas palavras das descrições. */
 export function atributosDitos(texto: string): AtributosDitos {
     const t = semAcento(texto)
-    return { folhas: folhasDitas(t), modulos: modulosDitos(t), extras: extrasDe(t), semRepresentacao: DITO_SEM_REPRESENTACAO.test(t), tipoForaDoMotor: TIPO_FORA_DO_MOTOR.test(t) }
+    return {
+        folhas: folhasDitas(t), modulos: modulosDitos(t), extras: extrasDe(t), tipoForaDoMotor: TIPO_FORA_DO_MOTOR.test(t),
+        semRepresentacao: DITO_SEM_REPRESENTACAO.test(t.replace(PANOS_COM_NUMERO_G, ' ')), panos: panosDitos(t),
+    }
 }
 
 const mesmosExtras = (a: ReadonlySet<Extra>, b: ReadonlySet<Extra>) => a.size === b.size && [...a].every((e) => b.has(e))
@@ -167,6 +205,8 @@ export type DecisaoDoPadrao =
     | { motivo: 'MODULACAO'; candidatas: string[]; opcoes: string[]; esquadria: string; extras: string[] }
     /** LACUNA DO MOTOR: com o que foi dito, o motor só tem a esquadria COM extras a mais (a porta de giro de 1 folha só existe com veneziana…). */
     | { motivo: 'LACUNA'; esquadria: string; extrasDitos: string[]; existentes: string[] }
+    /** O dito CONTRADIZ a natureza fixa da tipologia ("3 panos" na que tem a persiana de 1 pano por construção): pergunta (13/11/2026). */
+    | { motivo: 'CONTRADIZ_A_TIPOLOGIA'; tipologia: string; descricao: string; dito: string; natureza: string }
 
 /**
  * A MODULAÇÃO (dono do produto, 11/11/2026, leitura do PO): o rótulo de como os módulos se dividem — travessa ou perfil de modulação. Com UM
@@ -205,23 +245,37 @@ export type AtributoAssumido = { atributo: string; valor: string; origem: Origem
 /** Os extras que o CONSIDERADO da folha sempre diz (com ou sem), e que o rastro diz do mesmo jeito. */
 export const EXTRAS_DO_CONSIDERADO = ['persiana', 'bandeira', 'peitoril'] as const
 
+/**
+ * As variáveis (os nomes da aba Variáveis) da tipologia candidata, ou null quando não foram lidas — aí nada que dependa delas é absorvido.
+ * Sem o argumento, ninguém as leu: a regra de antes.
+ */
+export type VariaveisDaCandidata = (c: CandidatoDeTipologia) => readonly string[] | null
+
 /** A tipologia padrão da esquadria, ou o motivo de não haver. */
-export function tipologiaPadrao(item: ItemDoLevantamento, abertura: Abertura | null, trechos: readonly TrechoDoAcumulado[], candidatos: readonly CandidatoDeTipologia[]): DecisaoDoPadrao {
-    return padraoDaEsquadria(item, abertura, trechos, candidatos).decisao
+export function tipologiaPadrao(item: ItemDoLevantamento, abertura: Abertura | null, trechos: readonly TrechoDoAcumulado[], candidatos: readonly CandidatoDeTipologia[],
+    variaveis?: VariaveisDaCandidata): DecisaoDoPadrao {
+    return padraoDaEsquadria(item, abertura, trechos, candidatos, variaveis).decisao
 }
 
 /** A decisão do padrão e, quando ela dá uma tipologia, os atributos dela com a origem de cada um (a mesma decisão, nunca refeita à parte). */
-export function padraoDaEsquadria(item: ItemDoLevantamento, abertura: Abertura | null, trechos: readonly TrechoDoAcumulado[], candidatos: readonly CandidatoDeTipologia[]): { decisao: DecisaoDoPadrao; atributos: AtributoAssumido[] } {
+export function padraoDaEsquadria(item: ItemDoLevantamento, abertura: Abertura | null, trechos: readonly TrechoDoAcumulado[], candidatos: readonly CandidatoDeTipologia[],
+    variaveis?: VariaveisDaCandidata): { decisao: DecisaoDoPadrao; atributos: AtributoAssumido[] } {
     let atributos: AtributoAssumido[] = []
-    const decisao = decisaoDoPadrao(item, abertura, trechos, candidatos, (a) => { atributos = a })
+    const decisao = decisaoDoPadrao(item, abertura, trechos, candidatos, variaveis ?? (() => null), (a) => { atributos = a })
     // o registro só acontece quando a decisão é uma tipologia (`comRastro`): um motivo nunca leva atributos
     return { decisao, atributos }
 }
 
-function decisaoDoPadrao(item: ItemDoLevantamento, abertura: Abertura | null, trechos: readonly TrechoDoAcumulado[], candidatos: readonly CandidatoDeTipologia[],
-    registrar: (a: AtributoAssumido[]) => void): DecisaoDoPadrao {
+function decisaoDoPadrao(item: ItemDoLevantamento, abertura_: Abertura | null, trechos: readonly TrechoDoAcumulado[], candidatos: readonly CandidatoDeTipologia[],
+    variaveisDe: VariaveisDaCandidata, registrar: (a: AtributoAssumido[]) => void): DecisaoDoPadrao {
+    // A LINHA DA ESQUADRIA (13/11/2026): a linha cuja medida é a largura e a altura desta esquadria é dela, e só ela fala por ela — as outras
+    // linhas da mensagem (a janela maxim-ar, a de correr) não lhe emprestam tipo. Sem linha ligada pela medida, o de antes: os trechos da abertura.
+    const doItem = trechos.filter((t) => linhaDaEsquadria(t, item))
+    // a abertura: a do item; sem ela, a que a linha da esquadria afirma (uma só) — "persiana" afirma janela pelo vocabulário da obra
+    const daLinha = new Set(doItem.map((t) => t.abertura).filter((a): a is Abertura => a !== null))
+    const abertura = abertura_ ?? (daLinha.size === 1 ? [...daLinha][0] : null)
     if (abertura === null) return { motivo: 'SEM_ABERTURA' }
-    const dela = trechos.filter((t) => t.abertura === abertura)
+    const dela = (doItem.length > 0 ? doItem : trechos).filter((t) => t.abertura === abertura)
     if (dela.length === 0) return { motivo: 'SEM_TRECHO' }
     const texto = dela.map((t) => t.texto).join(' ')
     const ditos = atributosDitos(texto)
@@ -266,6 +320,12 @@ function decisaoDoPadrao(item: ItemDoLevantamento, abertura: Abertura | null, tr
         const escolhida = doTipo.find(({ c }) => c.tipologia === d.tipologia)
         if (escolhida === undefined) return d
         const a = escolhida.a
+        // OS PANOS DITOS (13/11/2026): conferem com a natureza da escolhida (absorvidos e escritos), contradizem (pergunta), ou ela nada afirma
+        const panosDela = ditos.panos === null ? null : panosDaNatureza(escolhida.c, variaveisDe(escolhida.c))
+        if (ditos.panos !== null && panosDela === null) return { motivo: 'DITO_SEM_REPRESENTACAO' }
+        if (ditos.panos !== null && panosDela !== null && ditos.panos !== panosDela) {
+            return { motivo: 'CONTRADIZ_A_TIPOLOGIA', tipologia: escolhida.c.tipologia, descricao: descricaoSemLinha(escolhida.c), dito: emPanos(ditos.panos), natureza: emPanos(panosDela) }
+        }
         const origem = (dito: boolean): OrigemDoAtributo => (dito ? 'dito' : 'padrao_da_tipologia')
         const lista: AtributoAssumido[] = [
             { atributo: 'abertura', valor: abertura, origem: 'dito' },
@@ -275,6 +335,7 @@ function decisaoDoPadrao(item: ItemDoLevantamento, abertura: Abertura | null, tr
         else if (a.modulos !== 'variavel') lista.push({ atributo: 'modulos', valor: String(a.modulos ?? naturalDaQuantidade(tipoEscolhido)), origem: origem(ditos.modulos !== null) })
         for (const e of EXTRAS_DO_CONSIDERADO) lista.push({ atributo: e, valor: a.extras.has(e) ? 'com' : 'sem', origem: origem(ditos.extras.has(e)) })
         for (const e of a.extras) if (!(EXTRAS_DO_CONSIDERADO as readonly string[]).includes(e)) lista.push({ atributo: e, valor: 'com', origem: origem(ditos.extras.has(e)) })
+        if (ditos.panos !== null && panosDela !== null) lista.push({ atributo: 'panos', valor: String(panosDela), origem: 'dito' })
         registrar(lista)
         return d
     }
@@ -313,6 +374,7 @@ const descricaoSemLinha = (c: Pick<CandidatoDeTipologia, 'descricao'>) => {
     const partes = (c.descricao ?? '').split('|').map((p) => p.trim())
     return (partes.length > 1 ? partes.slice(0, -1) : partes).join(' | ')
 }
+const emPanos = (n: number) => `${n} ${n === 1 ? 'pano' : 'panos'}`
 const quantidadeNaFrase = (a: AtributosDaTipologia | null, folhas: number) =>
     a !== null && a.folhas === null ? `${folhas} ${folhas === 1 ? 'módulo' : 'módulos'}` : `${folhas} ${folhas === 1 ? 'folha' : 'folhas'}`
 
@@ -342,7 +404,7 @@ function decidir(restantes: ReadonlyArray<{ c: CandidatoDeTipologia; a: Atributo
  * Vale para a tipologia como foi escolhida (pelo vendedor, pelo modelo ou pelo padrão): o vendedor lê e corrige antes do "sim".
  * `modulosDitos` é o número de módulos horizontais (a variável "N" da descrição), o dito ou o padrão da aba Variáveis; null quando não há.
  */
-export function oQueAEsquadriaE(c: Pick<CandidatoDeTipologia, 'descricao' | 'tipo' | 'linha'>, modulosHorizontais: number | null): string | null {
+export function oQueAEsquadriaE(c: Pick<CandidatoDeTipologia, 'descricao' | 'tipo' | 'linha'>, modulosHorizontais: number | null, panosDaPersiana: number | null = null): string | null {
     const a = atributosDaDescricao(c)
     if (a.tipo === null) return null
     const partes: string[] = []
@@ -351,7 +413,11 @@ export function oQueAEsquadriaE(c: Pick<CandidatoDeTipologia, 'descricao' | 'tip
         const total = modulosHorizontais * (a.modulos ?? 1)
         partes.push(`${a.tipo}, ${total} ${total === 1 ? 'módulo' : 'módulos'}`)
     } else partes.push(a.tipo)
-    for (const e of ['persiana', 'bandeira', 'peitoril'] as const) partes.push(`${a.extras.has(e) ? 'com' : 'sem'} ${e}`)
+    for (const e of ['persiana', 'bandeira', 'peitoril'] as const) {
+        // a persiana de pano fixo diz quantos (13/11/2026: o "1 pano" dito é absorvido e ESCRITO aqui, e vale para quem não o disse — é o que ela é)
+        const panos = e === 'persiana' && a.extras.has(e) && panosDaPersiana !== null ? ` (${emPanos(panosDaPersiana)})` : ''
+        partes.push(`${a.extras.has(e) ? 'com' : 'sem'} ${e}${panos}`)
+    }
     return partes.join(' · ')
 }
 
@@ -365,6 +431,9 @@ export function fraseDoPadraoQueFalta(d: DecisaoDoPadrao): string | null {
     if (d.motivo === 'LINHA') return fraseDaLinhaSemPadrao(d.linhas)
     if (d.motivo === 'SEM_NATURAL') return `Esta esquadria pode ser ${d.descricoes.map((x) => `“${x}”`).join(' ou ')}, e nada do que foi dito separa uma da outra. Qual é?`
     if (d.motivo === 'MODULACAO') return `A ${d.esquadria} com ${d.extras.join(' e ')} existe com divisão por ${d.opcoes.join(' ou por ')}: qual é?`
+    if (d.motivo === 'CONTRADIZ_A_TIPOLOGIA') {
+        return `A “${d.descricao}” tem a persiana de ${d.natureza}, por construção, e foi dito ${d.dito}. Como é essa esquadria na obra?`
+    }
     if (d.motivo === 'LACUNA') {
         const pedida = d.extrasDitos.length ? `só com ${d.extrasDitos.join(' e ')}` : 'lisa'
         return `Falta no motor — não há tipologia de ${d.esquadria} ${pedida}: as que existem são com ${d.existentes.join('; com ')}. `

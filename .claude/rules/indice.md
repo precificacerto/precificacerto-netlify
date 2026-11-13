@@ -29,6 +29,7 @@ fazendo, **leia o texto antes de agir**.
 - `codigo-do-motor-nao-se-normaliza`: ao casar, juntar ou contar códigos de tipologia ou de item. O código cru é a identidade; número que não fecha é medição incompleta.
 - `cor-afirmada-pelo-codigo`: ao decidir a cor de um item achado pelo nome técnico. Sufixo do código na tabela de cores decide; senão a palavra; senão recusa.
 - `vidro-por-metro-quadrado`: ao custear ou ler item da categoria VIDRO. O `custo` é R$/m², e `unidade`/`vendido_por` mentem.
+- `dito-que-confere-com-a-tipologia`: ao decidir o padrão de uma esquadria com um dito que o motor não representa ("1 pano"). Confere com a tipologia: absorve e escreve; contradiz: pergunta.
 
 ## Texto em `.claude/rules/<nome>.md`, carregado ao editar o código do domínio
 
