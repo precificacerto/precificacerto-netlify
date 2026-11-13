@@ -188,10 +188,15 @@ export function panosDaPersiana(c: { descricao: string; tipo: string | null; lin
     return panosDaNatureza(c, def ? def.variaveis.map((v) => v.variavel) : null)
 }
 
+/** O vidro do padrão da base no fim do CONSIDERADO (13/11/2026: "a linha CONSIDERADO dizendo a origem do padrão"). */
+const comVidroPadrao = (considerado: string | null, vidro: string | null) => (considerado === null || vidro === null ? considerado : `${considerado} · ${vidro}`)
+
 export function montarDadosDaFolha(a: {
     empresa: string; levantamento: LevantamentoDoArquivo; itens: readonly ItemDoLevantamento[]; definicao: DefinicaoDaTipologia; detalhe: DetalheDaTipologia; geradoEm: Date
     /** a pré-definição do vendedor na base de conhecimento: o (b) da ordem dos três percentuais (11/11/2026) */
     doVendedor: PerfilDoVendedor | null
+    /** O vidro do padrão da base, com a origem, quando é o da esquadria (`vidroNoConsiderado`, 13/11/2026); ausente, nada é escrito. */
+    vidroPadrao?: (item: ItemDoLevantamento) => string | null
 }): DadosDaFolha {
     const ordenados = [...a.itens].sort((x, y) => x.ordem - y.ordem)
     const arremates = ordenados.map((i) => arremateDaColeta(a.definicao(i), i.escolhas))
@@ -205,8 +210,10 @@ export function montarDadosDaFolha(a: {
             quantidade: i.quantidade ?? 0, largura_mm: i.largura_mm ?? 0, altura_mm: i.altura_mm ?? 0,
             variaveis: variaveisDitas(i, a.definicao),
             // o que a esquadria É, escrito (11/11/2026): o padrão aplicado nunca em silêncio
-            considerado: d && d.descricao ? oQueAEsquadriaE({ descricao: d.descricao, tipo: d.tipo ?? null, linha: d.linha }, modulosHorizontais(i, a.definicao, d.descricao),
-                panosDaPersiana({ descricao: d.descricao, tipo: d.tipo ?? null, linha: d.linha }, i, a.definicao)) : null,
+            considerado: d && d.descricao
+                ? comVidroPadrao(oQueAEsquadriaE({ descricao: d.descricao, tipo: d.tipo ?? null, linha: d.linha }, modulosHorizontais(i, a.definicao, d.descricao),
+                    panosDaPersiana({ descricao: d.descricao, tipo: d.tipo ?? null, linha: d.linha }, i, a.definicao)), a.vidroPadrao?.(i) ?? null)
+                : null,
             // igual em todos (ou nenhum tem arremate): nada aqui; o rodapé o diz uma vez
             perfilEAcessorio: perfilEAcessorio(cor, corDoAcessorio(i, a.definicao), arremateComum === null ? arremates[k] : null),
             // o vidro COMO O VENDEDOR DISSE (04/11/2026: copiado, nunca completado), sem rótulo: o rótulo é o da célula ("VIDRO:")
@@ -274,10 +281,11 @@ export function resumoDoArquivoParaOPrompt(d: DadosDaFolha): string {
 export const FRASE_DO_LEVANTAMENTO_NAO_ACHADO = 'O levantamento não foi achado.'
 export async function gerarArquivoDoLevantamento(a: {
     tenantId: string; levantamentoId: string; itens: readonly ItemDoLevantamento[]; definicao: DefinicaoDaTipologia; detalhe: DetalheDaTipologia; geradoEm?: Date
+    vidroPadrao?: (item: ItemDoLevantamento) => string | null
 }): Promise<{ dados: DadosDaFolha | null; folha: FolhaGerada | FolhaRecusada }> {
     const [levantamento, empresa] = await Promise.all([lerLevantamentoDoArquivo(a.tenantId, a.levantamentoId), lerNomeDaEmpresa(a.tenantId)])
     if (!levantamento) return { dados: null, folha: { ok: false, recusas: [FRASE_DO_LEVANTAMENTO_NAO_ACHADO] } }
     const doVendedor = await lerPerfilDoVendedor(a.tenantId, levantamento.vendedor_employee_id)
-    const dados = montarDadosDaFolha({ empresa: empresa ?? '', levantamento, itens: a.itens, definicao: a.definicao, detalhe: a.detalhe, geradoEm: a.geradoEm ?? new Date(), doVendedor })
+    const dados = montarDadosDaFolha({ empresa: empresa ?? '', levantamento, itens: a.itens, definicao: a.definicao, detalhe: a.detalhe, geradoEm: a.geradoEm ?? new Date(), doVendedor, vidroPadrao: a.vidroPadrao })
     return { dados, folha: gerarFolhaDoLevantamento(dados) }
 }

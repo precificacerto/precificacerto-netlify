@@ -392,33 +392,22 @@ describe('(VI) todas as pendências, e a pergunta que as cobre de uma vez', () =
  * (VII) O VIDRO (dono do produto, 04/11/2026): o PADRÃO da instrução entra só na esquadria que ficou sem vidro, uma vez, e nunca sobrescreve;
  * o agrupamento compara o vidro pela FORMA CANÔNICA — o texto que o vendedor disse continua gravado.
  */
-describe('(VII) o vidro padrão da instrução e o agrupamento pela forma canônica do vidro', () => {
+describe('(VII) o vidro padrão da instrução que saiu, e o agrupamento pela forma canônica do vidro', () => {
     const SEM_VIDRO = { tipologia: 'DP-02', largura_mm: 1200, altura_mm: 1000, quantidade: 1, cor_perfil: 'BRANCO' }
 
-    it('sem vidro dito, o vidro_padrao preenche a esquadria — e conta', () => {
+    // SUBSTITUÍDO (dono do produto, 13/11/2026): "a instrução de VIDRO deixando de valer como padrão mas seguindo visível". O `vidro_padrao` que o
+    // modelo devolve não preenche mais nada — o padrão é o CÓDIGO da base, por grupo de tipologia, na conversa (`vidro-padrao.ts`)
+    it('o vidro_padrao da instrução NÃO preenche mais a esquadria: sem vidro dito, ela fica sem vidro (a conversa pergunta, ou o padrão da base entra)', () => {
         const r = L().aplicarProposta([L().itemVazio(1)], { itens: [{ ...SEM_VIDRO, vidro_padrao: 'incolor 4 mm comum' }] }, ctx(1))
-        expect(r.itens[0].vidro).toBe('incolor 4 mm comum')
-        expect(r.vidrosPadrao).toBe(1)
+        expect(r.itens[0].vidro).toBeNull()
+        expect(r.itens[0].tipologia).toBe('DP-02')
     })
 
-    it('com o vidro dito, o dito vence e o padrão não conta', () => {
+    it('com o vidro dito, o dito continua valendo, e o vidro_padrao não o toca', () => {
         const r = L().aplicarProposta([L().itemVazio(1)], { itens: [{ ...SEM_VIDRO, vidro: 'vidro 4mm', vidro_padrao: 'incolor 4 mm comum' }] }, ctx(1))
         expect(r.itens[0].vidro).toBe('vidro 4mm')
-        expect(r.vidrosPadrao).toBe(0)
-    })
-
-    it('o padrão NUNCA sobrescreve: a esquadria que já tem vidro (dito ou do padrão de antes) fica como está nos turnos seguintes', () => {
-        const antes = L().aplicarProposta([L().itemVazio(1)], { itens: [{ ...SEM_VIDRO, vidro_padrao: 'incolor 4 mm comum' }] }, ctx(1)).itens
-        const depois = L().aplicarProposta(antes, { itens: [{ ordem: 1, vidro_padrao: 'incolor 4 mm temperado' }] }, ctx(1))
-        expect(depois.itens[0].vidro).toBe('incolor 4 mm comum')
-        expect(depois.vidrosPadrao).toBe(0)
         const dito = L().aplicarProposta([{ ...COMPLETO_SEM_ESCOLHAS }], { itens: [{ ordem: 1, vidro_padrao: 'incolor 4 mm comum' }] }, ctx(1))
         expect(dito.itens[0].vidro).toBe('Temperado 5mm')
-    })
-
-    it('o padrão passa pela mesma validação do vidro: vazio ou fora do tamanho não entra', () => {
-        expect(L().aplicarProposta([L().itemVazio(1)], { itens: [{ ...SEM_VIDRO, vidro_padrao: '   ' }] }, ctx(1)).itens[0].vidro).toBeNull()
-        expect(L().aplicarProposta([L().itemVazio(1)], { itens: [{ ...SEM_VIDRO, vidro_padrao: 'x'.repeat(10_000) }] }, ctx(1)).itens[0].vidro).toBeNull()
     })
 
     it('o agrupamento funde "vidro 4mm" com "4 mm vidro" (a mesma forma), e mantém o texto do primeiro; "4 mm" e "temperado 4 mm" continuam dois', () => {

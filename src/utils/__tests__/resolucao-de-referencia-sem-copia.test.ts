@@ -24,6 +24,7 @@ const PERMITIDOS: Record<string, string> = {
     'src/lib/atendimentos-ia/resolucao-de-referencia.ts': 'é o módulo: o degrau exato mora aqui',
     'src/lib/atendimentos-ia/orcamento-calculado.ts': 'relê a MESMA linha na tabela congelada pelo código do item já resolvido (codigo_na_tabela) — não resolve de novo',
     'src/lib/atendimentos-ia/vidro-da-tabela.ts': 'acha o vidro ESCOLHIDO pelo código do item da tabela de vidro gravado no item (vidro_codigo, 3.5) — não há código do motor a resolver',
+    'src/lib/atendimentos-ia/vidro-padrao.ts': 'lê a DESCRIÇÃO do código do vidro PADRÃO (item_codigo de orcamentista_vidro_padrao, 13/11/2026) só nas tabelas VIDRO do fornecedor principal — o código já é o da tabela, não há código do motor a resolver',
     'src/page-parts/shared/classificacao-fiscal-block.component.tsx': 'busca o código FISCAL (cClassTrib) em outra tabela — não é item de tabela de preço',
 }
 
