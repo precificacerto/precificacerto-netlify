@@ -174,9 +174,12 @@ import { dependenciasDoServidor, destinosDoWhatsApp, enviarAoPrimeiroQueAceitar,
 import { telefonesCasam } from '@/utils/atendimentos-ia-telefone-do-autorizado'
 /** A saída gravada quando depois do "sim" só o arquivo foi enviado (12/11/2026, 4.3): o texto não sai ao vendedor, é a marca da resposta. */
 export const SAIDA_SO_O_ARQUIVO = '[o arquivo do orçamento foi enviado, sem texto]'
+/** O levantamento que levantou SEM a confirmação gravada (a migração da pergunta em aberto pendente): sem o "sim" registrado não há orçamento. */
+export const FRASE_DO_ARQUIVO_SEM_A_CONFIRMACAO = 'O arquivo do orçamento não chegou a você: a confirmação do levantamento não pôde ser registrada, e sem ela o orçamento não é gerado. Avise o responsável pela conta: falta uma atualização do sistema.'
 /** O id gravado quando o canal aceitou o arquivo sem devolver id: a saída está enviada, e o reenvio não a manda de novo. */
 const SEM_ID_DO_ARQUIVO = 'documento-sem-id'
 import { supabaseAdmin } from '@/supabase/admin'
+import { fraseDoArquivoQueNaoChegou } from '@/lib/atendimentos-ia/arquivo-que-nao-chegou'
 import { MODELO_PADRAO_DA_IA, URL_DA_API_ANTHROPIC, VERSAO_DA_API_ANTHROPIC } from '@/lib/atendimentos-ia/modelo-da-ia'
 import { paraOLog } from '@/utils/atendimentos-ia-mascara-do-log'
 import {
@@ -192,7 +195,7 @@ import { JANELA_EM_VOO_MS, gravarSaida, lerHistorico, marcarEnvio, saidaDaEntrad
 import { prazo } from '@/lib/atendimentos-ia/prazo'
 import { MAX_TOKENS_DA_PRIMEIRA_CHAMADA, PRAZO_ATE_OS_CABECALHOS_MS, TENTATIVAS_DA_PRIMEIRA_CHAMADA, blocosDoSistema } from '@/lib/atendimentos-ia/pedido-ao-modelo'
 import { lerFluxo } from '@/lib/atendimentos-ia/resposta-em-fluxo'
-import { CODIGO_DE_FORNECEDOR, redigir, type MotivoDaRedacao, type Redacao } from '@/lib/atendimentos-ia/redacao-da-resposta'
+import { CODIGO_DE_FORNECEDOR, PALAVRA_ESQUADRIA, redigir, type MotivoDaRedacao, type Redacao } from '@/lib/atendimentos-ia/redacao-da-resposta'
 import { vidroPodado } from '@/lib/atendimentos-ia/vidro'
 import type { VariaveisDaTipologia } from '@/lib/atendimentos-ia/escolhas-da-tipologia'
 import { compararNome, formaComparavel, nomeDaMensagem, nomeDoCliente, nomeSemPrefixo, normalizarNome } from '@/lib/atendimentos-ia/nome-do-levantamento'
@@ -222,7 +225,7 @@ import { DESCRICAO_DA_FALA, blocoDoContexto, falaValida, lerContextoDoAtendiment
 
 export const PREFIXO_DO_LOG_DA_IA = '[IA]'
 /** A leitura dos padrões de vidro que FALHOU (não a tabela ausente), nomeada ao vendedor — por que o vidro de cada esquadria é perguntado. */
-export const FRASE_DO_VIDRO_PADRAO_QUE_NAO_FOI_LIDO = 'Falta: o vidro padrão da empresa não pôde ser lido agora, e por isso pergunto o vidro de cada esquadria.'
+export const FRASE_DO_VIDRO_PADRAO_QUE_NAO_FOI_LIDO = 'Falta: o vidro padrão da empresa não pôde ser lido agora, e por isso pergunto o vidro de cada item.'
 export const NOME_DA_FERRAMENTA = 'registrar_levantamento'
 const EM_MONTAGEM = 'EM_MONTAGEM'
 const COMPLETO = 'COMPLETO'
@@ -329,7 +332,7 @@ type Rastro = {
     /** Esquadrias que receberam a tipologia PADRÃO do código — de correr, 2 folhas, lisa (05/11/2026). */
     tipologiasPadrao: number
 }
-const FALA_NO_LOG: Record<FalaLida['motivo'], string> = { usada: 'usada', ausente: 'ausente', numero: 'descartada_numero', longa: 'descartada_longa', sobre_valor: 'descartada_sobre_valor' }
+const FALA_NO_LOG: Record<FalaLida['motivo'], string> = { usada: 'usada', ausente: 'ausente', numero: 'descartada_numero', longa: 'descartada_longa', sobre_valor: 'descartada_sobre_valor', esquadria: 'descartada_esquadria' }
 
 function anotar(r: Rastro, desfecho: DesfechoDaIa, detalhe = '') {
     // a permissão só aparece quando foi consultada; o motivo é um código, nunca um nome
@@ -411,7 +414,7 @@ export const fraseDoResgateRecusado = (recusado: OpcaoDeResgate, outras: readonl
 export const fraseDoNomeQueJaExiste = (nome: string) =>
     `Já tenho um levantamento “${nome}”. Quer alterar esse? Me diga o que muda. Se for outro cliente, me diga o nome dele.`
 export const fraseDeQualEsquadria = (nome: string, nItens: number) =>
-    `O levantamento “${nome}” tem ${nItens} esquadrias. Qual delas muda? Diga o número (de 1 a ${nItens}) e o que muda.`
+    `O levantamento “${nome}” tem ${nItens} itens. Qual deles muda? Diga o número (de 1 a ${nItens}) e o que muda.`
 /** Para quem não é admin: a MESMA frase exista ou não o levantamento de outro vendedor. */
 export const fraseDeNaoEncontrei = (nome: string) =>
     `Não achei um levantamento seu com o nome “${nome}”. Se for um cliente novo, me diga o nome dele que eu começo; se já existe, me diga de quem é.`
@@ -448,7 +451,7 @@ export const esquadriaPorExtenso = (e: Record<string, unknown>) => [
  * confirmar (dono do produto, 26/10/2026: "Confirma antes").
  */
 export const fraseDeConfirmarAcrescimo = (nome: string, nExistentes: number, esquadrias: Array<Record<string, unknown>>) =>
-    `Vou acrescentar ao levantamento “${nome}”, que tem ${nExistentes} esquadria(s), ${esquadrias.length > 1 ? `estas ${esquadrias.length} esquadrias` : 'esta esquadria'}: `
+    `Vou acrescentar ao levantamento “${nome}”, que tem ${nExistentes} item(ns), ${esquadrias.length > 1 ? `estes ${esquadrias.length} itens` : 'este item'}: `
     + `${esquadrias.map(esquadriaPorExtenso).join('; ')}. Confirma? Responda sim para acrescentar, ou diga o nome de outro levantamento.`
 /** A mesma confirmação em outras palavras (R2 no roteamento pelo nome, sem "Não consegui registrar"). */
 export const fraseDeConfirmarAcrescimoEmOutrasPalavras = (nome: string) =>
@@ -457,7 +460,7 @@ export const fraseDeConfirmarAcrescimoEmOutrasPalavras = (nome: string) =>
 export const fraseDoApanhadoNaoConfirmado = (nome: string) =>
     `Certo, o levantamento “${nome}” não foi confirmado. Diga o que muda — medida, vidro ou quantidade — e eu refaço o apanhado.`
 export const fraseDoAcrescimoRecusado = (nome: string) =>
-    `Não acrescentei nada ao levantamento “${nome}”. De qual levantamento é a esquadria? Diga o nome dele.`
+    `Não acrescentei nada ao levantamento “${nome}”. De qual levantamento é o item? Diga o nome dele.`
 /** DEFEITO 3: o remetente autorizado sempre recebe resposta, e ela diz o que falhou. */
 export const FALHA_SEM_CHAVE = 'Não consegui processar a sua mensagem: o atendimento por IA está sem a chave de acesso configurada. Avise o administrador.'
 export const FALHA_SEM_SALDO = 'Não consegui processar a sua mensagem: a conta do serviço de IA está sem saldo de créditos. Avise o administrador.'
@@ -1081,6 +1084,8 @@ function perguntaPara(ps: readonly Pendencia[], nItens: number, proposta: Record
     if (q.campo !== p.campo || t === '' || t.length > 500 || CODIGO_DE_FORNECEDOR.test(t)) return fixa
     // a reformulação que traz DINHEIRO também vai para a fixa: o número é do código (para toda empresa, desde o prompt base)
     if (temDinheiro(t)) return fixa
+    // e a que diz "esquadria" (13/11/2026: "Item N" no lugar de "Esquadria N", em tudo que o vendedor vê)
+    if (PALAVRA_ESQUADRIA.test(t)) return fixa
     return perguntaDasPendencias(ps, nItens, t, jaDito)
 }
 
@@ -1719,7 +1724,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         // gravado — a esquadria fica como estava, nada é gravado, e a pergunta nomeia a cor e as cores da empresa (nunca o "não apliquei")
         if (nadaMudou && aplicada.coresForaDaLista.length > 0) {
             const n = aplicada.itens.length
-            const frases = aplicada.coresForaDaLista.map((x) => `${n > 1 ? `Esquadria ${x.ordem}: ` : ''}${fraseDaCorForaDaLista(x.cor, cores)}`)
+            const frases = aplicada.coresForaDaLista.map((x) => `${n > 1 ? `Item ${x.ordem}: ` : ''}${fraseDaCorForaDaLista(x.cor, cores)}`)
             const resto = pendenciasAbertas.filter((p) => !(p.tipo === 'CAMPO' && p.campo === 'cor_perfil' && aplicada.coresForaDaLista.some((x) => x.ordem === p.ordem)))
             return await falar([...frases, ...(resto.length ? [perguntaDasPendencias(resto, n, null, filtro.jaDito)] : [])].join('\n'), 'perguntou')
         }
@@ -1794,7 +1799,7 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             // palavra do vendedor contradita — antes de qualquer outra pendência, para a razão não se perder
             const recusa = aplicada.recusas[0]
             if (recusa) {
-                const comEsquadria = (frase: string) => (aplicada.itens.length > 1 ? `Esquadria ${recusa.ordem}: ${frase}` : frase)
+                const comEsquadria = (frase: string) => (aplicada.itens.length > 1 ? `Item ${recusa.ordem}: ${frase}` : frase)
                 if (recusa.motivo === 'LIMITES') {
                     return await falar(comEsquadria(fraseDeNenhumaTipologiaCabe(recusa.medidas, filtrarPorAbertura(tabela.candidatos, recusa.abertura), recusa.abertura)), 'nenhuma-cabe')
                 }
@@ -1806,14 +1811,14 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
             // configuração (sem-linha); as outras nomeiam a falta ou as opções (padrao-nomeado)
             const semPadrao = faltasDoPadrao.filter((x) => aplicada.itens.some((i) => i.ordem === x.ordem && i.tipologia === null))
             if (semPadrao.length > 0) {
-                return await responder(semPadrao.map((x) => `${aplicada.itens.length > 1 ? `Esquadria ${x.ordem}: ` : ''}${x.frase}`).join('\n'),
+                return await responder(semPadrao.map((x) => `${aplicada.itens.length > 1 ? `Item ${x.ordem}: ` : ''}${x.frase}`).join('\n'),
                     semPadrao.every((x) => x.motivo === 'LINHA') ? 'sem-linha' : 'padrao-nomeado')
             }
             // A COR DITA E FORA DA LISTA (dono do produto, 08/11/2026): a pergunta nomeia a cor e as cores da empresa — e o resto do que
             // falta vai junto, na mesma resposta. A esquadria continua sem cor: nada a troca pela predominante
             const foraDaLista = proposta_.coresForaDaLista.filter((x) => aplicada.itens.some((i) => i.ordem === x.ordem && i.cor_perfil === null))
             if (foraDaLista.length > 0) {
-                const frases = foraDaLista.map((x) => `${aplicada.itens.length > 1 ? `Esquadria ${x.ordem}: ` : ''}${fraseDaCorForaDaLista(x.cor, cores)}`)
+                const frases = foraDaLista.map((x) => `${aplicada.itens.length > 1 ? `Item ${x.ordem}: ` : ''}${fraseDaCorForaDaLista(x.cor, cores)}`)
                 const resto = pendencias.filter((p) => !(p.tipo === 'CAMPO' && p.campo === 'cor_perfil' && foraDaLista.some((x) => x.ordem === p.ordem)))
                 return await falar([...frases, ...(resto.length ? [perguntaPara(resto, aplicada.itens.length, proposta, filtro.jaDito)] : [])].join('\n'), 'perguntou')
             }
@@ -1904,11 +1909,17 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
                 rastro.enviou = true
                 return fim(levantamento.desfecho, `${semApanhado ? `${semApanhado} ` : ''}so_arquivo=sim`)
             }
-            if (sim.paraOVendedor) return await responder(`${levantamento.texto}\n\n${[sim.paraOVendedor, sim.questionamentos].filter(Boolean).join('\n\n')}`, levantamento.desfecho, semApanhado)
+            // O ARQUIVO QUE NÃO CHEGOU (dono do produto, 13/11/2026): o corpo NÃO vira o plano B contando o resultado — diz que o arquivo não
+            // chegou, e por quê (a falta nomeada), e nada mais: nem o levantamento por texto, nem a abertura, nem os questionamentos do parcial
+            return await responder(sim.paraOVendedor ?? fraseDoArquivoQueNaoChegou(null, 'o orçamento não foi gerado'), levantamento.desfecho, semApanhado, false)
         }
-        // SEM a confirmação do arremate (dono do produto, 08/11/2026): "Considerando guarnição e arremate padrão, certo!" repetia o que o
-        // rodapé da folha já diz nas pré-definições consideradas — ruído. O mesmo para a variante do arremate escolhido
-        return await responder(levantamento.texto, levantamento.desfecho, semApanhado)
+        // PERGUNTA É TEXTO; RESULTADO É ARQUIVO (dono do produto, 13/11/2026): o levantamento que levantou sem chegar à cadeia do "sim" não manda
+        // por texto o resultado (itens, medidas, barras, aproveitamento, mão de obra, o que o preço cobre) — manda a falta nomeada de por que o
+        // arquivo não saiu. A recusa do cálculo já é falta nomeada (`fraseDaRecusa`), e vai como está, sem a abertura
+        // Medido em 13/11/2026: aqui o levantamento está sempre gravado (`rastro.levantamento`, da gravação ou do alvo) e COMPLETO (todo caminho
+        // EM_MONTAGEM pergunta e volta antes) — o único que levanta sem chegar à cadeia é o "sim" que não pôde ser registrado (`semApanhado`)
+        if (levantamento.desfecho === 'levantou') return await responder(FRASE_DO_ARQUIVO_SEM_A_CONFIRMACAO, levantamento.desfecho, semApanhado, false)
+        return await responder(levantamento.texto, levantamento.desfecho, semApanhado, false)
     } catch (e) {
         // Só o nome da tabela e o erro do banco — nunca a chave, o telefone ou o texto. E o vendedor sabe.
         // A falha vai sozinha: a fala da IA não abre uma frase de erro

@@ -41,7 +41,7 @@ export type LevantamentoParaAtravessar = { id: string; numero: number; nome: str
 /** O que a travessia grava, dito ANTES do clique (dono do produto, 10/11/2026: um levantamento por vez, nada alterado nele). */
 export const O_QUE_A_TRAVESSIA_GRAVA = [
     'Um orçamento do agente, com o nome do cliente e os percentuais (comissão, reserva técnica e lucro): os do levantamento; o que ele não tem vem da pré-definição do vendedor na base de conhecimento; o que nenhum dos dois tem é ZERO, e a tela do orçamento mostra de onde cada um veio.',
-    'Um item do orçamento por esquadria do levantamento: tipologia, medidas, quantidade, cor, vidro, ambientes e escolhas.',
+    'Um item do orçamento por item do levantamento: tipologia, medidas, quantidade, cor, vidro, ambientes e escolhas.',
     'O aproveitamento SEM (barra inteira), porque a base de conhecimento ainda não tem o modo.',
     'Sem preço: o valor de venda fica vazio até a precificação. O levantamento não é alterado. O custo só é calculado no botão Calcular do orçamento.',
 ] as const

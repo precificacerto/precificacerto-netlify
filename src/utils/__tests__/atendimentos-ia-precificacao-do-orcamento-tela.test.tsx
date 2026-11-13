@@ -282,14 +282,14 @@ describe('(C) OS DOIS MODOS SÃO O MESMO CÁLCULO, e cada um fica no seu ramo', 
     it('os itens são as esquadrias, só leitura: sem o "Incluir", e os minutos da fabricação travados', async () => {
         const host = await montar({ orcamento: orcamento(), onSalvarOrcamento: jest.fn() })
         expect(host.textContent).toContain('Itens do orçamento')
-        expect(host.textContent).toContain('Esquadria 1 — DP-02 1500 x 1200 mm')
+        expect(host.textContent).toContain('Item 1 — DP-02 1500 x 1200 mm')
         expect(botao(host, 'Incluir')).toBeUndefined()
         const minutos = host.querySelector('input[name="productWorkloadInMinutes"]') as HTMLInputElement
         expect(minutos.readOnly).toBe(true)
         expect(minutos.value).toBe('150')
         // as colunas são as do orçamento (bruto, líquido, fabricação, total), sem editar quantidade nem excluir item
         const cabecalhos = Array.from(host.querySelectorAll('thead th')).map((t) => (t.textContent ?? '').trim())
-        expect(cabecalhos).toEqual(expect.arrayContaining(['Esquadria', 'Quantidade', 'Bruto', 'Líquido', 'Fabricação', 'Total']))
+        expect(cabecalhos).toEqual(expect.arrayContaining(['Item', 'Quantidade', 'Bruto', 'Líquido', 'Fabricação', 'Total']))
         expect(host.querySelector('button[aria-label="Excluir"]')).toBeNull()
     })
     it('no celular os minutos do orçamento também ficam travados', async () => {

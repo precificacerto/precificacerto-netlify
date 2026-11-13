@@ -99,7 +99,8 @@ import {
     type ItemDoLevantamentoNaTravessia, type LevantamentoNaTravessia,
 } from '@/lib/atendimentos-ia/travessia-do-levantamento'
 import { ErroNaoEncontrado, LIMITE_DO_NOME as LIMITE_DO_NOME_DO_ORCAMENTO } from '@/lib/atendimentos-ia/orcamentos-ia'
-import { LIMITE_DO_NOME, fraseDoNome } from '@/lib/atendimentos-ia/travessia-do-levantamento'
+import { LIMITE_DO_NOME, fraseDoNome, fraseDoOrcamentoQueJaExiste, itensForaDoOrcamento } from '@/lib/atendimentos-ia/travessia-do-levantamento'
+import { fraseDoArquivoQueNaoChegou } from '@/lib/atendimentos-ia/arquivo-que-nao-chegou'
 import { MOTIVO_DO_FALLBACK } from '@/lib/atendimentos-ia/custo-do-orcamento'
 import { avisosDeDivergencia, custoNaTabelaCongelada, type LinhaDaTabelaCongelada } from '@/lib/atendimentos-ia/divergencia-da-tabela'
 import type { LinhaDeMaterial } from '@/lib/atendimentos-ia/custo-do-orcamento'
@@ -410,40 +411,66 @@ describe('(7) o gatilho do "sim" ENCADEIA travessia -> cálculo -> etapa do pre�
         expect(r.questionamentos).toBe([
             'O orçamento 1 saiu PARCIAL — faltam 2 valores. Para completar, preciso de:',
             // a frase que começa pelo código não o repete: o código uma vez, e as esquadrias no fim
-            '• SF92/WOLFF não está na tabela de preço (esquadrias 1, 3).',
-            '• VIDRO (esquadria 2): o vidro “mini boreal” bate com 5 itens.',
+            '• SF92/WOLFF não está na tabela de preço (itens 1, 3).',
+            '• VIDRO (item 2): o vidro “mini boreal” bate com 5 itens.',
         ].join('\n'))
     })
     it('os questionamentos: um valor é "falta 1 valor"; sem falta, nada a perguntar', () => {
-        expect(fraseDosQuestionamentos(4, [{ codigo_do_motor: 'X', frase: 'x', esquadria: 1 }])).toBe('O orçamento 4 saiu PARCIAL — falta 1 valor. Para completar, preciso de:\n• X (esquadria 1): x.')
+        expect(fraseDosQuestionamentos(4, [{ codigo_do_motor: 'X', frase: 'x', esquadria: 1 }])).toBe('O orçamento 4 saiu PARCIAL — falta 1 valor. Para completar, preciso de:\n• X (item 1): x.')
         expect(fraseDosQuestionamentos(4, [])).toBeNull()
     })
     it('a etapa que LANÇA não derruba o "sim": o rastro diz parou=precificacao, e nada do que foi gravado é desfeito', async () => {
         etapa.resposta = () => Promise.reject(new Error('storage fora do ar'))
-        expect(await atravessarNoSim(T, LEV, naEtapa)).toEqual({ rastro: `${TRAVESSIA} calculo=ok liquido=5240.40 precificacao=falhou parou=precificacao motivo="storage fora do ar"`, paraOVendedor: null })
+        expect(await atravessarNoSim(T, LEV, naEtapa)).toEqual({ rastro: `${TRAVESSIA} calculo=ok liquido=5240.40 precificacao=falhou parou=precificacao motivo="storage fora do ar"`, paraOVendedor: fraseDoArquivoQueNaoChegou(null, 'a precificação do orçamento 1 falhou. Para tentar de novo, abra o orçamento 1 na seção Orçamentos I.A. e use Precificar') })
         expect(estado.db.orcamentista_orcamento).toHaveLength(1)
     })
     it('o já atravessado para na travessia e NÃO recalcula nem reenvia; a recusa e a falha da travessia também param nela', async () => {
         await atravessarNoSim(T, LEV, naEtapa)
         calculo.chamadas = []
         etapa.chamadas = []
-        expect(await atravessarNoSim(T, LEV, naEtapa)).toEqual({ rastro: 'ja_existe=1 parou=travessia', paraOVendedor: null })
+        expect(await atravessarNoSim(T, LEV, naEtapa)).toEqual({ rastro: 'ja_existe=1 parou=travessia fora=0', paraOVendedor: fraseDoOrcamentoQueJaExiste(1, []) })
         semear({ estado: 'EM_MONTAGEM' })
         estado.db.orcamentista_orcamento = []
-        expect(await atravessarNoSim(T, LEV, naEtapa)).toEqual({ rastro: 'recusou=1 parou=travessia', paraOVendedor: null })
+        expect(await atravessarNoSim(T, LEV, naEtapa)).toEqual({ rastro: 'recusou=1 parou=travessia', paraOVendedor: expect.stringMatching(/^O arquivo do orçamento não chegou a você: o levantamento não passou para o orçamento\. Falta: o levantamento \d+ completo/) })
         estado.erros.orcamentista_levantamento = [{ code: 'XX000', message: 'o banco caiu' }]
-        expect(await atravessarNoSim(T, LEV, naEtapa)).toEqual({ rastro: 'falhou parou=travessia motivo="orcamentista_levantamento: o banco caiu"', paraOVendedor: null })
+        expect(await atravessarNoSim(T, LEV, naEtapa)).toEqual({ rastro: 'falhou parou=travessia motivo="orcamentista_levantamento: o banco caiu"', paraOVendedor: fraseDoArquivoQueNaoChegou(null, 'a passagem do levantamento para o orçamento falhou. Para tentar de novo, diga o nome do levantamento: o arquivo volta para você conferir, e o "sim" faz o orçamento') })
         expect(calculo.chamadas).toEqual([])
         expect(etapa.chamadas).toEqual([])
     })
+    it('O QUE FICOU DE FORA É NOMEADO (13/11/2026): o item acrescentado depois da travessia aparece pelo número, com o que fazer — e o orçamento não muda', async () => {
+        await atravessarNoSim(T, LEV, naEtapa)
+        const itensDoOrcamento = JSON.stringify(estado.db.orcamentista_orcamento_item)
+        // o levantamento ganha os itens 4 e 5 depois que virou o orçamento 1
+        const doLev = estado.db.orcamentista_levantamento_item
+        for (const ordem of [4, 5]) doLev.push({ ...doLev[0], id: `li-${ordem}`, ordem })
+        const r = await atravessarNoSim(T, LEV, naEtapa)
+        expect(r).toEqual({ rastro: 'ja_existe=1 parou=travessia fora=2', paraOVendedor: fraseDoOrcamentoQueJaExiste(1, [4, 5]) })
+        expect(r.paraOVendedor).toContain('Falta no orçamento 1 os itens 4 e 5 do levantamento')
+        expect(r.paraOVendedor).toContain('é preciso gerar um orçamento novo: mande esses itens num levantamento novo, com outro nome')
+        // nada se recalcula para trás: o orçamento 1 continua com os itens que tinha
+        expect(JSON.stringify(estado.db.orcamentista_orcamento_item)).toBe(itensDoOrcamento)
+        // um item só: no singular; a leitura que falha: a frase diz que não conferiu, e manda conferir
+        expect(fraseDoOrcamentoQueJaExiste(1, [4])).toContain('Falta no orçamento 1 o item 4 do levantamento: ele foi acrescentado depois')
+        expect(fraseDoOrcamentoQueJaExiste(1, null)).toContain('Não consegui conferir se todos os itens do levantamento estão nele')
+        const orcamento = String(estado.db.orcamentista_orcamento[0].id)
+        expect(await itensForaDoOrcamento(T, LEV, orcamento)).toEqual([4, 5])
+        estado.erros.orcamentista_levantamento_item = [{ code: 'XX000', message: 'caiu' }]
+        expect(await itensForaDoOrcamento(T, LEV, orcamento)).toBeNull()
+    })
+
     it('a recusa e a falha do cálculo param no cálculo, com o orçamento gravado, sem a etapa do preço, e não lançam', async () => {
         const { ErroDoCalculo } = jest.requireMock('@/lib/atendimentos-ia/orcamento-calculado') as { ErroDoCalculo: new (r: string[]) => Error }
         calculo.resposta = () => { throw new ErroDoCalculo(['o código 1023 sem preço']) }
-        expect((await atravessarNoSim(T, LEV, naEtapa)).rastro).toBe(`${TRAVESSIA} calculo=recusou recusas=1 parou=calculo motivo="o código 1023 sem preço"`)
+        const recusou = await atravessarNoSim(T, LEV, naEtapa)
+        expect(recusou.rastro).toBe(`${TRAVESSIA} calculo=recusou recusas=1 parou=calculo motivo="o código 1023 sem preço"`)
+        // a parada no cálculo vai ao vendedor como a falta nomeada do arquivo que não chegou (13/11/2026), nunca nula
+        expect(recusou.paraOVendedor).toBe(fraseDoArquivoQueNaoChegou(null, 'o cálculo do orçamento 1 recusou. Falta: o código 1023 sem preço. Com isso cadastrado, abra o orçamento 1 na seção Orçamentos I.A. e use Calcular'))
         expect(estado.db.orcamentista_orcamento).toHaveLength(1)
         semear(); estado.db.orcamentista_orcamento = []; estado.db.orcamentista_orcamento_item = []
         calculo.resposta = () => { throw new Error('orcamentista_orcamento_item_material: caiu') }
-        expect((await atravessarNoSim(T, LEV, naEtapa)).rastro).toBe(`${TRAVESSIA} calculo=falhou parou=calculo motivo="orcamentista_orcamento_item_material: caiu"`)
+        const falhou = await atravessarNoSim(T, LEV, naEtapa)
+        expect(falhou.rastro).toBe(`${TRAVESSIA} calculo=falhou parou=calculo motivo="orcamentista_orcamento_item_material: caiu"`)
+        expect(falhou.paraOVendedor).toBe(fraseDoArquivoQueNaoChegou(null, 'o cálculo do orçamento 1 falhou. Para tentar de novo, abra o orçamento 1 na seção Orçamentos I.A. e use Calcular'))
         expect(etapa.chamadas).toEqual([])
     })
 })
@@ -468,7 +495,7 @@ describe('(8) o aviso da tabela congelada', () => {
         // 110 bruto; ICMS 12% do bruto = 13,20 → saldo 96,80; PIS/COFINS 9,25% do SALDO = 8,954 → 87,846; IPI sem crédito 0. × 2 barras
         expect(custoNaTabelaCongelada([material('1001')], congelada)).toEqual({ bruto: 220, liquido: expect.closeTo(175.692, 6), ausentes: [] })
         const [a] = avisosDeDivergencia([{ ordem: 2, tabelaCongelada: 'tab-velha', tabelasVigentes: ['tab-nova'], materiais: [material('1001')] }], new Map([['tab-velha', congelada]]), nomes)
-        expect(a).toBe('Esquadria 2: o levantamento congelou a tabela "Wolff 2026-10.xlsx"; o cálculo usou a vigente (Wolff 2026-11.xlsx).'
+        expect(a).toBe('Item 2: o levantamento congelou a tabela "Wolff 2026-10.xlsx"; o cálculo usou a vigente (Wolff 2026-11.xlsx).'
             + ' Com os mesmos materiais, na tabela congelada o custo seria R$ 220,00 bruto e R$ 175,69 líquido, contra R$ 200,00 e R$ 160,00 na vigente (diferença −R$ 15,69 no líquido).')
     })
     it('o código que a congelada não tem é nomeado, e não entra como zero', () => {

@@ -27,17 +27,23 @@ import type { MensagemDoHistorico } from '@/lib/atendimentos-ia/conversa-gravada
 export const LIMITE_DA_REDACAO = 700
 /** Um código de fornecedor no texto ("BZ0010", "IL50", "SF66"): o que chega ao vendedor não o traz. */
 export const CODIGO_DE_FORNECEDOR = /\b[A-Z]{1,5}\d{2,}\b/
+/**
+ * "Item N" NO LUGAR DE "Esquadria N" (dono do produto, 13/11/2026: "Nenhuma frase da saída pode sobrar com a palavra esquadria"): o texto
+ * que o MODELO escreve não se controla por literal, então a palavra o derruba — a redação cai para o rascunho, que o código escreve.
+ */
+export const PALAVRA_ESQUADRIA = /esquadria/i
 
 export const INSTRUCAO_DA_REDACAO = [
     'TAREFA: reescreva o RASCUNHO abaixo como você, a secretária orçamentista, diria ao vendedor pelo WhatsApp, em resposta à MENSAGEM DO VENDEDOR. O rascunho é o que o sistema decidiu dizer; você decide só a forma.',
-    '- Mantenha TODO o conteúdo do rascunho: o que falta, de qual esquadria, os nomes entre aspas, os números, as datas e cada opção listada. Não acrescente informação, não faça pergunta nova, não responda por ele.',
+    '- Mantenha TODO o conteúdo do rascunho: o que falta, de qual item, os nomes entre aspas, os números, as datas e cada opção listada. Não acrescente informação, não faça pergunta nova, não responda por ele.',
     '- Frases curtas, linguagem de obra, sem emoji, sem introdução, sem "Anotado", "Perfeito", "Entendido". Nunca mande o vendedor responder numa forma ditada.',
     '- Nunca escreva valor, preço, percentual ou código de fornecedor.',
+    '- Cada peça do levantamento é um ITEM ("Item 1", "Item 2"): escreva sempre item, nunca outra palavra para ela.',
     '- Não repita a sua última resposta da conversa: diga de outro jeito.',
     '- Responda SÓ com o texto final, sem título, sem aspas em volta e sem comentário.',
 ].join('\n')
 
-export type MotivoDaRedacao = 'usada' | 'ausente' | 'vazia' | 'longa' | 'sem_conteudo' | 'dinheiro' | 'codigo' | 'repetida' | 'erro' | 'rascunho_com_dinheiro' | 'prazo'
+export type MotivoDaRedacao = 'usada' | 'ausente' | 'vazia' | 'longa' | 'sem_conteudo' | 'dinheiro' | 'codigo' | 'esquadria' | 'repetida' | 'erro' | 'rascunho_com_dinheiro' | 'prazo'
 /** O PRAZO da redação (dono do produto, 04/11/2026): 15 s. "Estourou, cai para a frase de reserva e segue — redação é luxo, nunca pode derrubar o turno." */
 export const PRAZO_DA_REDACAO_MS = 15_000
 export type Redacao = { texto: string; motivo: 'usada' } | { texto: null; motivo: Exclude<MotivoDaRedacao, 'usada'> }
@@ -65,6 +71,7 @@ export function redacaoValida(v: unknown, rascunho: string, ultimaSaida: string 
     if (Array.from(texto).length > LIMITE_DA_REDACAO) return { texto: null, motivo: 'longa' }
     if (temDinheiro(texto)) return { texto: null, motivo: 'dinheiro' }
     if (CODIGO_DE_FORNECEDOR.test(texto)) return { texto: null, motivo: 'codigo' }
+    if (PALAVRA_ESQUADRIA.test(texto)) return { texto: null, motivo: 'esquadria' }
     if (!mantemOConteudo(texto, rascunho)) return { texto: null, motivo: 'sem_conteudo' }
     if (ultimaSaida !== null && texto === ultimaSaida.trim()) return { texto: null, motivo: 'repetida' }
     return { texto, motivo: 'usada' }

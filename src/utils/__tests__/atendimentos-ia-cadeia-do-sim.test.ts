@@ -75,7 +75,7 @@ describe('a etapa do preço', () => {
         const d = deps(gravado(false, ['o rateio não fecha']))
         const r = await C.etapaDoPreco(T, ORC, d)
         expect(d.enviar).not.toHaveBeenCalled()
-        expect(r.paraOVendedor).toBe(C.fraseDoArquivoQueNaoSaiu(7, 'Geraldo Huck', 8765.43, ['o rateio não fecha']))
+        expect(r.paraOVendedor).toBe(C.fraseDoArquivoQueNaoSaiu(7, 'Geraldo Huck', ['o rateio não fecha']))
         expect(r.rastro).toContain('precificacao=ok venda=8765.43 interna=8765.43')
         expect(r.rastro).toContain('arquivo=recusou parou=arquivo')
     })
@@ -84,7 +84,7 @@ describe('a etapa do preço', () => {
         const r = await C.etapaDoPreco(T, ORC, d)
         expect(d.telefoneDoDono).toHaveBeenCalledWith(T, ORC)
         expect(d.enviar).toHaveBeenCalledWith('5551999990000', 'Orcamento 7 - Geraldo Huck.pdf', PDF)
-        expect(r.paraOVendedor).toBe(C.fraseDoOrcamentoEnviado(7, 'Geraldo Huck', 8765.43))
+        expect(r.paraOVendedor).toBe(C.fraseDoOrcamentoEnviado(7, 'Geraldo Huck'))
         expect(r.rastro).toMatch(/arquivo=ok ms_leitura=\d+ envio=ok ms_envio=\d+$/)
         // 4.3 (12/11/2026): o número que recebeu o arquivo — a conversa cala quando foi quem disse "sim"
         expect(r.enviadoPara).toBe('5551999990000')
@@ -125,6 +125,27 @@ describe('a etapa do preço', () => {
         expect(d.enviar).not.toHaveBeenCalled()
         expect(r.paraOVendedor).toBe(C.fraseDoDonoSemTelefone(7, 'Geraldo Huck'))
         expect(r.rastro).toContain('envio=sem_telefone parou=envio')
+    })
+    it('PERGUNTA É TEXTO; RESULTADO É ARQUIVO (13/11/2026): o texto ao vendedor diz que o arquivo não chegou e por quê — nunca o preço', async () => {
+        // o preço gravado é 8765,43: ele está no arquivo, e o texto de NENHUM caminho o traz
+        const venda = (8765.43).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+        const textos = [
+            (await C.etapaDoPreco(T, ORC, deps(gravado(false, ['o rateio não fecha'])))).paraOVendedor,
+            (await C.etapaDoPreco(T, ORC, deps(gravado(true)))).paraOVendedor,
+            (await C.etapaDoPreco(T, ORC, deps(gravado(true), { enviar: jest.fn(async (): Promise<{ ok: boolean; status: number | null; prazoEsgotado: boolean }> => ({ ok: false, status: 500, prazoEsgotado: false })) }))).paraOVendedor,
+            (await C.etapaDoPreco(T, ORC, deps(gravado(true), { telefoneDoDono: jest.fn(async (): Promise<{ id: string; telefone: string } | null> => null) }))).paraOVendedor,
+        ]
+        for (const t of textos) {
+            expect(t).toMatch(/^O arquivo do orçamento 7 \(Geraldo Huck\) não chegou a você: /)
+            expect(t).not.toContain(venda)
+            expect(t).not.toMatch(/R\$/)
+            // e diz O QUE O VENDEDOR FAZ AGORA (13/11/2026): onde o arquivo está, ou o botão que retoma — nunca "não chegou" sozinho
+            expect(t).toContain('seção Orçamentos I.A.')
+        }
+        expect(textos[0]).toContain('use Precificar para gerar o arquivo de novo')
+        // o preço que não se formou: o que falta, e o botão que retoma depois de cadastrado
+        const semPreco = (await C.etapaDoPreco(T, ORC, deps({ faltas: ['o preço formado'], orcamento: { numero: 7, nome: 'Geraldo Huck' } }))).paraOVendedor
+        expect(semPreco).toContain('Falta: o preço formado. Com isso cadastrado, abra o orçamento 7 na seção Orçamentos I.A. e use Precificar')
     })
 })
 

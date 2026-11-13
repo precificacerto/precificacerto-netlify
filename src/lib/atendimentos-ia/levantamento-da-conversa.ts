@@ -647,7 +647,7 @@ export type DadosDaEsquadria = { numero: number; tipologia: string; largura_mm: 
 export type DadosDoLevantamento = { nome: string; cor: string; esquadrias: DadosDaEsquadria[] }
 const cabecalho = (d: DadosDoLevantamento) => `levantamento “${d.nome}”, perfil ${d.cor}`
 const linhasDaEsquadria = (e: DadosDaEsquadria, k: number): string[] => [
-    `Esquadria ${k}: ${e.tipologia}, ${numeroBR(e.largura_mm, 0)} x ${numeroBR(e.altura_mm, 0)} mm, ${e.quantidade} unidade(s).`,
+    `Item ${k}: ${e.tipologia}, ${numeroBR(e.largura_mm, 0)} x ${numeroBR(e.altura_mm, 0)} mm, ${e.quantidade} unidade(s).`,
     ...(e.escolhas === null ? [] : [`Arremate e guarnição — ${e.escolhas}.`]),
 ]
 
@@ -688,7 +688,7 @@ export function fraseDaRecusa(d: DadosDoLevantamento, faltas: readonly string[],
  */
 export function esquadriasDaFalta(numeros: readonly number[], noLevantamento: number, tipologia?: string): string {
     if (noLevantamento === 1 || numeros.length === 0) return ''
-    const quem = numeros.length > 1 ? `esquadrias ${listaDeNumerosBR([...numeros])}` : `esquadria ${numeros[0]}`
+    const quem = numeros.length > 1 ? `itens ${listaDeNumerosBR([...numeros])}` : `item ${numeros[0]}`
     return ` (${quem}${tipologia ? `, ${tipologia}` : ''})`
 }
 /** O vidro com duas espessuras que os baguetes aceitam: "a espessura do vidro: "incolor 4 ou 6" pode ser 4 ou 6 mm; diga qual". */
@@ -701,7 +701,7 @@ export function faltaDaEspessuraAmbigua(texto: string, espessuras: readonly numb
 function faltaComEsquadrias(falta: string, numeros: readonly number[], noLevantamento: number, tipologia?: string): string {
     if (ehCurta(falta)) return falta + esquadriasDaFalta(numeros, noLevantamento, tipologia)
     if (noLevantamento === 1 || numeros.length === 0) return falta
-    const quem = numeros.length > 1 ? `Esquadrias ${listaDeNumerosBR([...numeros])}` : `Esquadria ${numeros[0]}`
+    const quem = numeros.length > 1 ? `Itens ${listaDeNumerosBR([...numeros])}` : `Item ${numeros[0]}`
     return `${quem}${tipologia ? ` (${tipologia})` : ''}: ${falta}`
 }
 
@@ -747,8 +747,8 @@ export function fraseDoLevantamento(
     const maoDeObraTotal = todasCalculadas ? centavos(maos.reduce((s, m) => s + ('falta' in m ? 0 : m.total), 0)) : null
     if (maos.length === 1) linhas.push(linhaDaMaoDeObra('Mão de obra', maos[0]))
     else {
-        maos.forEach((m, i) => linhas.push(linhaDaMaoDeObra(`Mão de obra da esquadria ${d.esquadrias[i]?.numero ?? i + 1}`, m)))
-        linhas.push(maoDeObraTotal === null ? 'Mão de obra total: não sai — falta a mão de obra de uma esquadria.' : `Mão de obra total: ${formatarReais(maoDeObraTotal)}.`)
+        maos.forEach((m, i) => linhas.push(linhaDaMaoDeObra(`Mão de obra do item ${d.esquadrias[i]?.numero ?? i + 1}`, m)))
+        linhas.push(maoDeObraTotal === null ? 'Mão de obra total: não sai — falta a mão de obra de um item.' : `Mão de obra total: ${formatarReais(maoDeObraTotal)}.`)
     }
     const comMaoDeObra = (rotulo: string, material: number) => (maoDeObraTotal === null
         ? `${rotulo} (perfis + mão de obra): não sai — falta a mão de obra.`
@@ -763,7 +763,7 @@ export function fraseDoLevantamento(
         linhas.push('', 'Atenção:')
         for (const a of r.avisos) {
             const k = (a as { esquadria?: unknown }).esquadria
-            linhas.push(`• ${numerar && typeof k === 'number' ? `Esquadria ${d.esquadrias[k - 1]?.numero ?? k}: ` : ''}${fraseDoAviso(a)}`)
+            linhas.push(`• ${numerar && typeof k === 'number' ? `Item ${d.esquadrias[k - 1]?.numero ?? k}: ` : ''}${fraseDoAviso(a)}`)
         }
     }
     return linhas.join('\n')
@@ -832,9 +832,9 @@ export type EsquadriaGravada = {
 }
 
 export const fraseDaTipologiaSemFamilia = (n: number, tipologia: string, familias: readonly string[]) =>
-    `dizer de qual família é a ${tipologia}: ela está no motor de mais de uma família da empresa (${familias.join(', ')}) (esquadria ${n})`
+    `dizer de qual família é a ${tipologia}: ela está no motor de mais de uma família da empresa (${familias.join(', ')}) (item ${n})`
 export const fraseDaTipologiaForaDosMotores = (n: number, tipologia: string) =>
-    `a tipologia ${tipologia} no motor de alguma família da empresa: ela não está na lista de tipologias de nenhuma (esquadria ${n})`
+    `a tipologia ${tipologia} no motor de alguma família da empresa: ela não está na lista de tipologias de nenhuma (item ${n})`
 
 /**
  * A mensagem do levantamento, com TODAS as esquadrias dele. Lança só em erro de banco — quem chama
@@ -1005,8 +1005,8 @@ async function calcularFamilia(
     const faltas: string[] = []
     const codigos: string[] = []
     if (cores.length > 1) {
-        const porEsquadria = dg.esquadrias.map((e, k) => `esquadria ${e.numero}: ${corDe(itensDoGrupo[k])}`).join('; ')
-        faltas.push(`uma cor só para o perfil: as esquadrias têm cores diferentes (${porEsquadria}), e ainda não calculo um levantamento com cores misturadas`)
+        const porEsquadria = dg.esquadrias.map((e, k) => `item ${e.numero}: ${corDe(itensDoGrupo[k])}`).join('; ')
+        faltas.push(`uma cor só para o perfil: os itens têm cores diferentes (${porEsquadria}), e ainda não calculo um levantamento com cores misturadas`)
         codigos.push('CORES_DIFERENTES')
     }
 
@@ -1108,7 +1108,7 @@ function caminhosDasRecusas(recusas: readonly RecusaDoLevantamento[], numeros: r
         }
     }
     return [...porAlvo.entries()].map(([alvo, ns]) => {
-        const quem = ns.length > 1 ? `das esquadrias ${listaDeNumerosBR([...ns].sort((a, b) => a - b))}` : `da esquadria ${ns[0]}`
+        const quem = ns.length > 1 ? `dos itens ${listaDeNumerosBR([...ns].sort((a, b) => a - b))}` : `do item ${ns[0]}`
         return `Para trocar, diga: muda o vidro ${quem} para ${alvo}.`
     })
 }

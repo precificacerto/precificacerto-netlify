@@ -429,10 +429,10 @@ export function oQueAEsquadriaE(c: Pick<CandidatoDeTipologia, 'descricao' | 'tip
 export function fraseDoPadraoQueFalta(d: DecisaoDoPadrao): string | null {
     if (!('motivo' in d)) return null
     if (d.motivo === 'LINHA') return fraseDaLinhaSemPadrao(d.linhas)
-    if (d.motivo === 'SEM_NATURAL') return `Esta esquadria pode ser ${d.descricoes.map((x) => `“${x}”`).join(' ou ')}, e nada do que foi dito separa uma da outra. Qual é?`
+    if (d.motivo === 'SEM_NATURAL') return `Este item pode ser ${d.descricoes.map((x) => `“${x}”`).join(' ou ')}, e nada do que foi dito separa uma da outra. Qual é?`
     if (d.motivo === 'MODULACAO') return `A ${d.esquadria} com ${d.extras.join(' e ')} existe com divisão por ${d.opcoes.join(' ou por ')}: qual é?`
     if (d.motivo === 'CONTRADIZ_A_TIPOLOGIA') {
-        return `A “${d.descricao}” tem a persiana de ${d.natureza}, por construção, e foi dito ${d.dito}. Como é essa esquadria na obra?`
+        return `A “${d.descricao}” tem a persiana de ${d.natureza}, por construção, e foi dito ${d.dito}. Como é esse item na obra?`
     }
     if (d.motivo === 'LACUNA') {
         const pedida = d.extrasDitos.length ? `só com ${d.extrasDitos.join(' e ')}` : 'lisa'
@@ -447,7 +447,7 @@ export function fraseDoPadraoQueFalta(d: DecisaoDoPadrao): string | null {
  * não pergunta; ENQUANTO NÃO ESTIVER CADASTRADA, é falta nomeada — a esquadria não fecha, e a frase diz em quais linhas ela existe.
  */
 export const fraseDaLinhaSemPadrao = (linhas: readonly string[]) =>
-    `Falta de configuração — a linha de produto padrão da empresa: esta esquadria existe ${linhas.length > 1 ? `nas linhas ${linhas.slice(0, -1).join(', ')} e ${linhas[linhas.length - 1]}` : `na linha ${linhas[0] ?? ''}`}, `
+    `Falta de configuração — a linha de produto padrão da empresa: este item existe ${linhas.length > 1 ? `nas linhas ${linhas.slice(0, -1).join(', ')} e ${linhas[linhas.length - 1]}` : `na linha ${linhas[0] ?? ''}`}, `
     + 'e a base de conhecimento ainda não diz qual é a da casa. Cadastre a linha padrão na base de conhecimento.'
 
 /**

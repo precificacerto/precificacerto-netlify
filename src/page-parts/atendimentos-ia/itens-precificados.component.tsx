@@ -39,7 +39,7 @@ export function ItensPrecificados({ itens, recusaDosItens, pesos, interna }: Pro
                 return (
                     <div key={i.ordem} data-item-precificado={i.ordem} style={{ display: 'flex', gap: 12, justifyContent: 'space-between', borderTop: '1px solid #e5e7eb', padding: '8px 0', flexWrap: 'wrap' }}>
                         <div style={{ minWidth: 0, flex: '1 1 320px' }}>
-                            <Typography.Text strong>Esquadria {i.ordem}{i.tipologia ? ` — ${i.tipologia}` : ''}</Typography.Text>
+                            <Typography.Text strong>Item {i.ordem}{i.tipologia ? ` — ${i.tipologia}` : ''}</Typography.Text>
                             {i.descricao && i.descricao !== i.tipologia && <div style={{ fontSize: 12 }}>{i.descricao}</div>}
                             <div style={{ fontSize: 12, color: '#475569' }} data-detalhe-do-item="">
                                 {[medidas(i), `${i.quantidade} un.`, i.corPerfil && `cor ${i.corPerfil}`, i.vidro && `vidro ${i.vidro}`, i.ambientes].filter(Boolean).join(' · ')}

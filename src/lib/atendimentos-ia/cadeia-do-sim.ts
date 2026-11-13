@@ -20,6 +20,7 @@ import { telefonesCasam } from '@/utils/atendimentos-ia-telefone-do-autorizado'
 import { lerUltimoArquivo } from './arquivo-do-orcamento-servidor'
 import { registrarFormatoMedido } from './telefone-medido'
 import { precificarComoAgente, type PrecificacaoDoAgente } from './preco-do-orcamento-servidor'
+import { fraseDoArquivoQueNaoChegou } from './arquivo-que-nao-chegou'
 
 /** `destino`: o número que o canal ACEITOU (quando houve), para (c) — o palpite vira medição. */
 export type EnvioDoDocumento = { ok: boolean; status: number | null; prazoEsgotado: boolean; destino?: string; id?: string | null }
@@ -47,22 +48,23 @@ export type ResultadoDaEtapa = {
     idDoEnvio?: string | null
 }
 
-const reaisBR = (v: number) => `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 const motivoDoLog = (t: string) => t.replace(/"/g, "'").slice(0, 160)
 
+// O QUE O VENDEDOR RECEBE POR TEXTO quando o arquivo NÃO chega a quem disse "sim" (dono do produto, 13/11/2026): a falta nomeada — o arquivo
+// não chegou, por quê, e O QUE ELE FAZ AGORA ("'O arquivo não chegou' sozinho deixa o vendedor parado"): onde achar o arquivo, ou o botão da
+// seção Orçamentos I.A. que retoma. Nenhuma delas traz o preço nem o resultado: resultado é ARQUIVO (`arquivo-que-nao-chegou.ts`)
 export const fraseDoPrecoQueNaoSaiu = (numero: number, nome: string, faltas: readonly string[]) =>
-    `O orçamento ${numero} (${nome}) foi calculado, mas o preço não se formou, e por isso o arquivo não foi gerado nem enviado. `
-    + `Falta: ${faltas.join('; ')}.`
-export const fraseDoArquivoQueNaoSaiu = (numero: number, nome: string, venda: number, recusas: readonly string[]) =>
-    `O orçamento ${numero} (${nome}) está precificado em ${reaisBR(venda)}, mas o arquivo não pôde ser gerado: ${recusas.join('; ')}. `
-    + 'A precificação está salva.'
-export const fraseDoOrcamentoEnviado = (numero: number, nome: string, venda: number) =>
-    `O orçamento ${numero} (${nome}) foi precificado em ${reaisBR(venda)}, e o arquivo foi enviado ao vendedor do levantamento.`
+    fraseDoArquivoQueNaoChegou({ numero, nome }, `o preço não se formou, e por isso o arquivo não foi gerado. Falta: ${faltas.join('; ')}. `
+        + `Com isso cadastrado, abra o orçamento ${numero} na seção Orçamentos I.A. e use Precificar: o arquivo sai de lá`)
+export const fraseDoArquivoQueNaoSaiu = (numero: number, nome: string, recusas: readonly string[]) =>
+    fraseDoArquivoQueNaoChegou({ numero, nome }, `o arquivo não pôde ser gerado. Falta: ${recusas.join('; ')}. A precificação está salva: com isso `
+        + `resolvido, abra o orçamento ${numero} na seção Orçamentos I.A. e use Precificar para gerar o arquivo de novo`)
+export const fraseDoOrcamentoEnviado = (numero: number, nome: string) =>
+    fraseDoArquivoQueNaoChegou({ numero, nome }, 'ele foi enviado ao vendedor do levantamento, que não é este número. O arquivo também está na seção Orçamentos I.A.')
 export const fraseDoEnvioQueFalhou = (numero: number, nome: string) =>
-    `O orçamento ${numero} (${nome}) está precificado e o arquivo foi gerado, mas o envio dele falhou. Nada se perdeu: o arquivo está na seção `
-    + 'Orçamentos I.A.'
+    fraseDoArquivoQueNaoChegou({ numero, nome }, 'o envio dele falhou. O arquivo está salvo na seção Orçamentos I.A.')
 export const fraseDoDonoSemTelefone = (numero: number, nome: string) =>
-    `O orçamento ${numero} (${nome}) está precificado e o arquivo foi gerado, mas o dono do levantamento não tem telefone cadastrado: o arquivo não foi enviado.`
+    fraseDoArquivoQueNaoChegou({ numero, nome }, 'o dono do levantamento não tem telefone cadastrado, e o arquivo não foi enviado. Ele está salvo na seção Orçamentos I.A.')
 
 export async function etapaDoPreco(tenantId: string, orcamentoId: string, deps: DependenciasDaEtapa): Promise<ResultadoDaEtapa> {
     const t0 = deps.agora()
@@ -80,7 +82,7 @@ export async function etapaDoPreco(tenantId: string, orcamentoId: string, deps: 
     if (!p.gravado.arquivo) {
         return {
             rastro: `${precificacao} arquivo=recusou parou=arquivo motivo="${motivoDoLog(p.gravado.recusasDoArquivo.join(' | '))}"`,
-            paraOVendedor: fraseDoArquivoQueNaoSaiu(o.numero, o.nome, venda, p.gravado.recusasDoArquivo),
+            paraOVendedor: fraseDoArquivoQueNaoSaiu(o.numero, o.nome, p.gravado.recusasDoArquivo),
         }
     }
     const arquivo = p.gravado.arquivo
@@ -101,7 +103,7 @@ export async function etapaDoPreco(tenantId: string, orcamentoId: string, deps: 
     }
     // (c) O PALPITE VIRA MEDIÇÃO (dono do produto, 11/11/2026): a variante que o canal aceitou é persistida no remetente, e passa a valer
     const medido = envio.destino && envio.destino !== dono.telefone ? ` telefone=${await deps.registrarMedido(tenantId, dono.id, dono.telefone, envio.destino)}` : ''
-    return { rastro: `${doArquivo} envio=ok ms_envio=${msEnvio}${medido}`, paraOVendedor: fraseDoOrcamentoEnviado(o.numero, o.nome, venda), enviadoPara: envio.destino ?? dono.telefone, idDoEnvio: envio.id ?? null }
+    return { rastro: `${doArquivo} envio=ok ms_envio=${msEnvio}${medido}`, paraOVendedor: fraseDoOrcamentoEnviado(o.numero, o.nome), enviadoPara: envio.destino ?? dono.telefone, idDoEnvio: envio.id ?? null }
 }
 
 export type DonoDoLevantamento = { id: string; telefone: string }

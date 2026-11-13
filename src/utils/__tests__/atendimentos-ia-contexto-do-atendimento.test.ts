@@ -140,6 +140,12 @@ describe('(1) o filtro da fala: número em qualquer forma derruba; o resto passa
         }
     })
 
+    it('"Item N" no lugar de "Esquadria N" (13/11/2026): a fala que diz a palavra cai inteira — com e sem caixa; a mesma fala sem ela passa', () => {
+        expect(S().falaValida('Anotei a esquadria do quarto.')).toEqual({ fala: null, motivo: 'esquadria' })
+        expect(S().falaValida('ESQUADRIAS anotadas!')).toEqual({ fala: null, motivo: 'esquadria' })
+        expect(S().falaValida('Anotei o item do quarto.')).toEqual({ fala: 'Anotei o item do quarto.', motivo: 'usada' })
+    })
+
     it('a fala SEM número passa, inteira e sem os espaços das pontas', () => {
         expect(S().falaValida('  Perfeito, anotei o seu levantamento! Confere comigo?  ')).toEqual({ fala: 'Perfeito, anotei o seu levantamento! Confere comigo?', motivo: 'usada' })
     })

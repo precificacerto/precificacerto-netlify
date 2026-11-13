@@ -103,7 +103,7 @@ async function lerDoLevantamento(tenantId: string, idsDosItens: string[]) {
  */
 export async function calcularOrcamento(tenantId: string, id: string, agora: Date = new Date(), novoId: () => string = randomUUID): Promise<ResultadoDoCalculo> {
     const orc = await lerOrcamento(tenantId, id)
-    if (orc.itens.length === 0) throw new ErroDoCalculo(['as esquadrias do orçamento: ele não tem nenhum item'])
+    if (orc.itens.length === 0) throw new ErroDoCalculo(['os itens do orçamento: ele não tem nenhum'])
     const doLevantamento = orc.levantamento_id
         ? await lerDoLevantamento(tenantId, orc.itens.map((i) => i.levantamento_item_id).filter((x): x is string => !!x))
         : null

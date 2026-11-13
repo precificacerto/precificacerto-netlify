@@ -90,7 +90,7 @@ export function traduzirVidro<I extends ItemDeVidro>(texto: string | null | unde
         if (achados.length === 1) return { item: achados[0], como: 'codigo' }
         return { motivo: 'VIDRO_CODIGO_FORA_DA_TABELA', frase: `o vidro escolhido (${codigoEscolhido}) não está na tabela de vidro da conta`, candidatos: [] }
     }
-    if (texto === null || texto === undefined || texto.trim() === '') return { motivo: 'VIDRO_NAO_DITO', frase: 'o vidro da esquadria não foi dito', candidatos: [] }
+    if (texto === null || texto === undefined || texto.trim() === '') return { motivo: 'VIDRO_NAO_DITO', frase: 'o vidro do item não foi dito', candidatos: [] }
     const dito = vidroDito(texto)
     if (dito.tipo === null && dito.espessura === null && dito.familia === null) {
         return { motivo: 'VIDRO_NAO_TRADUZIDO', frase: `o vidro “${texto.trim()}” não diz tipo, espessura nem família que a tabela de vidro tenha`, candidatos: [] }
