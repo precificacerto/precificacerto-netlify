@@ -44,6 +44,7 @@ import { FornecedorModal, TITULO_FORNECEDOR_NAO_CREDENCIADO, type DadosDoFornece
 import { FamiliasCard, type DadosDaFamilia } from '@/page-parts/atendimentos-ia/familias.component'
 import { MotoresDoCatalogo } from '@/page-parts/atendimentos-ia/motores-do-catalogo.component'
 import { EtapasDoCatalogo } from '@/page-parts/atendimentos-ia/etapas-do-catalogo.component'
+import { DesenhosDoCatalogo } from '@/page-parts/atendimentos-ia/desenhos-do-catalogo.component'
 import { CategoriasDoCatalogo } from '@/page-parts/atendimentos-ia/categorias-do-catalogo.component'
 
 export default function NichoDoCatalogo() {
@@ -193,6 +194,7 @@ export default function NichoDoCatalogo() {
             <div data-aba-motores><MotoresDoCatalogo fornecedores={fornecedores} categorias={categorias} familias={familias} /></div>
         ),
         etapas: <div data-aba-etapas><EtapasDoCatalogo /></div>,
+        desenhos: <div data-aba-desenhos><DesenhosDoCatalogo /></div>,
     }
 
     return (

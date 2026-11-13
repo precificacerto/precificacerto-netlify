@@ -1603,11 +1603,13 @@ export async function conduzirMensagem(c: Interlocutor): Promise<DesfechoDaIa> {
         // o que o padrão NÃO resolve e se diz (11/11/2026): a linha sem padrão, as descrições que nada separa, a modulação da bandeira, a lacuna
         // do motor — por esquadria, nunca "sem padrão" mudo
         const faltasDoPadrao: Array<{ ordem: number; frase: string; motivo: string }> = []
+        // as variáveis da candidata (a aba Variáveis do motor da família dela): é por elas que o dito que confere com a tipologia se absorve (13/11/2026)
+        const variaveisDaCandidata = (c: { tipologia: string; familia: string }) => definicao({ tipologia: c.tipologia, familia: c.familia })?.variaveis.map((v) => v.variavel) ?? null
         let vidrosDaConta: VidrosPadraoDaConta | null = null
         for (const item of proposta_.itens) {
             if (!dizAlgo(item)) continue
             if (item.tipologia === null) {
-                const { decisao: padrao, atributos } = padraoDaEsquadria(item, proposta_.aberturas[item.ordem] ?? null, filtro.lidos, tabela.candidatos)
+                const { decisao: padrao, atributos } = padraoDaEsquadria(item, proposta_.aberturas[item.ordem] ?? null, filtro.lidos, tabela.candidatos, variaveisDaCandidata)
                 if ('tipologia' in padrao) {
                     item.tipologia = padrao.tipologia; rastro.tipologiasPadrao += 1; tipologiasDoPadrao.push(`e${item.ordem}:${padrao.tipologia}`)
                     assumir(item.ordem, atributos)

@@ -423,7 +423,8 @@ describe('(5) a tela da aba Categorias', () => {
 
 describe('(6) a página do nicho tem a aba Categorias logo depois de Famílias', () => {
     it('FAMÍLIAS → CATEGORIAS → FORNECEDORES → MOTORES → ETAPAS, com o nome "Categorias", e a URL a abre', () => {
-        expect(ABAS_DO_NICHO).toEqual(['familias', 'categorias', 'fornecedores', 'motores', 'etapas'])
+        // 11/11/2026: a sexta aba, Desenhos, entrou no fim; a ordem das cinco de antes não mudou
+        expect(ABAS_DO_NICHO).toEqual(['familias', 'categorias', 'fornecedores', 'motores', 'etapas', 'desenhos'])
         expect(ROTULO_DA_ABA_DO_NICHO.categorias).toBe('Categorias')
         expect(abaDoNicho('categorias')).toBe('categorias')
         expect(rotaDoNicho('n-1', 'categorias')).toBe('/super-admin/atendimentos-ia/catalogo/n-1?aba=categorias')

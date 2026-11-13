@@ -20,7 +20,7 @@
  *
  * Portão: `src/utils/__tests__/arquivo-do-levantamento.test.ts` e o bloco (42) de `atendimentos-ia-levantamento-por-nome.test.ts`.
  */
-import { oQueAEsquadriaE } from './tipologia-padrao'
+import { oQueAEsquadriaE, panosDaNatureza } from './tipologia-padrao'
 import { supabaseAdmin } from '@/supabase/admin'
 import { arremateDaColeta, rotuloSemCodigo } from '@/lib/atendimentos-ia/apanhado'
 import { opcoesDaVariavel } from '@/lib/atendimentos-ia/avaliador-de-formulas'
@@ -178,6 +178,16 @@ export function modulosHorizontais(item: Pick<ItemDoLevantamento, 'escolhas' | '
     return /^\d+$/.test(p) && Number(p) > 0 ? Number(p) : null
 }
 
+/**
+ * Os panos da persiana que a tipologia tem por construção (13/11/2026, `docs/regras/dito-que-confere-com-a-tipologia.md`): 1 na que tem persiana
+ * e não tem a variável `QP`; null quando ela não afirma — com `QP`, sem persiana, ou sem as variáveis lidas (nunca um número presumido).
+ */
+export function panosDaPersiana(c: { descricao: string; tipo: string | null; linha: string | null }, item: Pick<ItemDoLevantamento, 'tipologia' | 'familia'>,
+    definicao: DefinicaoDaTipologia): number | null {
+    const def = definicao(item)
+    return panosDaNatureza(c, def ? def.variaveis.map((v) => v.variavel) : null)
+}
+
 /** O vidro do padrão da base no fim do CONSIDERADO (13/11/2026: "a linha CONSIDERADO dizendo a origem do padrão"). */
 const comVidroPadrao = (considerado: string | null, vidro: string | null) => (considerado === null || vidro === null ? considerado : `${considerado} · ${vidro}`)
 
@@ -201,7 +211,8 @@ export function montarDadosDaFolha(a: {
             variaveis: variaveisDitas(i, a.definicao),
             // o que a esquadria É, escrito (11/11/2026): o padrão aplicado nunca em silêncio
             considerado: d && d.descricao
-                ? comVidroPadrao(oQueAEsquadriaE({ descricao: d.descricao, tipo: d.tipo ?? null, linha: d.linha }, modulosHorizontais(i, a.definicao, d.descricao)), a.vidroPadrao?.(i) ?? null)
+                ? comVidroPadrao(oQueAEsquadriaE({ descricao: d.descricao, tipo: d.tipo ?? null, linha: d.linha }, modulosHorizontais(i, a.definicao, d.descricao),
+                    panosDaPersiana({ descricao: d.descricao, tipo: d.tipo ?? null, linha: d.linha }, i, a.definicao)), a.vidroPadrao?.(i) ?? null)
                 : null,
             // igual em todos (ou nenhum tem arremate): nada aqui; o rodapé o diz uma vez
             perfilEAcessorio: perfilEAcessorio(cor, corDoAcessorio(i, a.definicao), arremateComum === null ? arremates[k] : null),

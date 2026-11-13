@@ -256,7 +256,7 @@ describe('os atributos lidos da descrição e do que foi dito, pelas mesmas pala
     })
     it('do dito: os extras, as folhas (ou caixilhos), os módulos e o que não tem representação', () => {
         const d = atributosDitos('Porta de correr, 3 caixilhos, com persiana e trilho embutido')
-        expect({ ...d, extras: [...d.extras].sort() }).toEqual({ folhas: 3, modulos: null, extras: ['persiana', 'trilho embutido'], semRepresentacao: false, tipoForaDoMotor: false })
+        expect({ ...d, extras: [...d.extras].sort() }).toEqual({ folhas: 3, modulos: null, extras: ['persiana', 'trilho embutido'], semRepresentacao: false, tipoForaDoMotor: false, panos: null })
         expect(atributosDitos('maxim-ar dois módulos').modulos).toBe(2)
         expect(atributosDitos('janela de correr branca, vidro comum 6 mm').extras.size).toBe(0)
     })
