@@ -21,7 +21,12 @@
  *   - número com PONTO decimal (88.4). A VÍRGULA é separador de argumento: as fórmulas da linha escrevem
  *     "(HMC-87,8)" e "IIF(M=1,80,64,8)", e essas formas são RECUSADAS (`NAO_PARSEIA`, ou IIF com 4
  *     argumentos) em vez de lidas por adivinhação. A DP-02 não as usa;
- *   - funções: IIF(cond, a, b) e ARREDMAIOR(x) = teto. Nome e número de argumentos são conferidos
+ *   - funções: IIF(cond, a, b), ARREDMAIOR(x) = teto e ROUND(x) = o inteiro mais próximo, com a meia
+ *     unidade para LONGE do zero (0,5 → 1; −0,5 → −1), como na planilha. ROUND entrou em 14/11/2026
+ *     (tarefa 0006): medido em produção, 2.130 linhas da aba Perfis (25 tipologias, 5 motores) o usam,
+ *     sempre com UM argumento — o de casas decimais não aparece nos dados e é recusado, não adivinhado.
+ *     `and` e `or` são OPERADORES, em minúscula e entre parênteses, que é como os dados os escrevem
+ *     (medido: nenhum maiúsculo, nenhum como função). Nome e número de argumentos são conferidos
  *     NA LEITURA da fórmula, inclusive no ramo que não vai rodar: função desconhecida nunca passa
  *     por estar num IIF que não escolheu aquele lado;
  *   - IIF, `and` e `or` só avaliam o que precisam. É o que a fórmula da DP-02 exige:
@@ -206,6 +211,9 @@ function quociente(a: Q, b: Q): Q {
 const compara = (a: Q, b: Q) => { const x = a.n * b.d - b.n * a.d; return x < Z ? -1 : x > Z ? 1 : 0 }
 /** O teto: para n ≥ 0, ⌈n/d⌉ = (n + d − 1) / d; para n < 0, a divisão do BigInt (que trunca para o zero) já é o teto. */
 const teto = (a: Q): Q => racional(a.n >= Z ? (a.n + a.d - UM) / a.d : a.n / a.d)
+/** O ROUND da planilha: o inteiro mais próximo, a meia unidade para LONGE do zero. Para n ≥ 0, ⌊(2n + d) / 2d⌋ (a
+ *  divisão do BigInt trunca, e com os dois lados positivos truncar é o piso); para n < 0, o simétrico do de −n. */
+const arredonda = (a: Q): Q => a.n >= Z ? racional((DOIS * a.n + a.d) / (DOIS * a.d)) : racional(-((DOIS * -a.n + a.d) / (DOIS * a.d)))
 const ehInteiro = (a: Q) => a.d === UM
 /** Número decimal escrito com ponto ("88.4") ou, nos colchetes das opções, com vírgula ("33,00"). */
 function deDecimal(texto: string, separador: '.' | ','): Q | null {
@@ -280,10 +288,14 @@ type No =
     | { k: 'nome'; nome: string }
     | { k: 'amp'; nome: string }
     | { k: 'bin'; op: string; a: No; b: No }
-    | { k: 'fn'; nome: 'IIF' | 'ARREDMAIOR'; args: No[] }
+    | { k: 'fn'; nome: NomeDeFuncao; args: No[] }
 
-/** As funções do arquivo e o número de argumentos de cada uma (Leia-me). */
-const FUNCOES: Readonly<Record<string, number>> = { IIF: 3, ARREDMAIOR: 1 }
+/** As funções do arquivo e o número de argumentos de cada uma (Leia-me; ROUND medido nos dados, 14/11/2026). */
+type NomeDeFuncao = 'IIF' | 'ARREDMAIOR' | 'ROUND'
+const FUNCOES: Readonly<Record<NomeDeFuncao, number>> = { IIF: 3, ARREDMAIOR: 1, ROUND: 1 }
+const ehFuncao = (nome: string): nome is NomeDeFuncao => Object.prototype.hasOwnProperty.call(FUNCOES, nome)
+/** "IIF, ARREDMAIOR e ROUND" — a lista da frase da função desconhecida, tirada da tabela acima. */
+const LISTA_DAS_FUNCOES = (() => { const n = Object.keys(FUNCOES); return `${n.slice(0, -1).join(', ')} e ${n[n.length - 1]}` })()
 
 function ler(texto: string): No {
     const ts = tokens(texto)
@@ -339,14 +351,14 @@ function ler(texto: string): No {
             while (ehOp(',')) { i++; args.push(ou()) }
             if (!ehOp(')')) naoLe('")"')
             i++
-            const aridade = FUNCOES[t.v]
-            if (aridade === undefined) {
-                throw new ErroDeAvaliacao('FUNCAO_DESCONHECIDA', `A fórmula "${texto}" usa a função "${t.v}", que não existe aqui: as funções são IIF e ARREDMAIOR.`)
+            if (!ehFuncao(t.v)) {
+                throw new ErroDeAvaliacao('FUNCAO_DESCONHECIDA', `A fórmula "${texto}" usa a função "${t.v}", que não existe aqui: as funções são ${LISTA_DAS_FUNCOES}.`)
             }
+            const aridade = FUNCOES[t.v]
             if (args.length !== aridade) {
                 throw new ErroDeAvaliacao('ARGUMENTOS_DA_FUNCAO', `A fórmula "${texto}" chama ${t.v} com ${args.length} argumento(s); ${t.v} recebe ${aridade}.`)
             }
-            return { k: 'fn', nome: t.v as 'IIF' | 'ARREDMAIOR', args }
+            return { k: 'fn', nome: t.v, args }
         }
         if (ehOp('(')) {
             i++
@@ -395,6 +407,7 @@ function valorDo(no: No, amb: Ambiente, pilha: string[]): Valor {
                 return condicaoDe(valorDo(no.args[0], amb, pilha), 'O primeiro argumento do IIF')
                     ? valorDo(no.args[1], amb, pilha) : valorDo(no.args[2], amb, pilha)
             }
+            if (no.nome === 'ROUND') return { tipo: 'n', q: arredonda(numeroDe(valorDo(no.args[0], amb, pilha), 'O argumento do ROUND')) }
             return { tipo: 'n', q: teto(numeroDe(valorDo(no.args[0], amb, pilha), 'O argumento do ARREDMAIOR')) }
         }
         case 'bin': {
